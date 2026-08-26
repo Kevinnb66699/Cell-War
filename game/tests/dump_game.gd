@@ -4,18 +4,12 @@
 extends SceneTree
 
 const SEED := 20260801
-const N_PLAYERS := 6
+const N_PLAYERS := 4
 
 
 ## 想复盘哪套平衡方案就改这里；返回 CWTuning.new() 即为规则原文。
 static func tuning() -> CWTuning:
-	var t := CWTuning.new()
-	t.anaerobic_per_cancer = 4
-	t.anaerobic_per_solid = 10
-	t.aerobic_gain = [20, 25, 20, 20]
-	t.proliferate_per_adjacent = 30
-	t.init_cancer_tiles = 13
-	return t
+	return CWTuning.recommended()
 
 
 func _initialize() -> void:

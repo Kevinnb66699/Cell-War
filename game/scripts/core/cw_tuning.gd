@@ -12,12 +12,17 @@ var name := "规则原文"
 
 
 ## 当前推荐的平衡方案（2026-08-26 模拟得出，尚未写回规则文档，待团队确认）。
-## AI 互搏 60 局 × 各人数：4 人局癌胜率 50%，6 人局 46%（规则原文为 0% / 0%）。
-## 四项改动，缺一不可——详见 docs/平衡测试报告.md：
-##   ① 免疫【有氧呼吸】改为挂钩健康组织（0.1/格，按免疫细胞数均分）
-##   ② 癌方【无氧呼吸】提到 0.5/格、固化 1.2/格
+## AI 互搏 60 局：4 人局癌胜率 51%、6 人局 40%，平均 13 / 8 世界回合（规则原文为 0%，3 回合）。
+##
+## 各项作用（详见 docs/平衡测试报告.md）：
+##   ① 免疫【有氧呼吸】挂钩健康组织（0.1/格）、癌方【无氧呼吸】0.5 及固化 1.2/格
+##      —— 双方收入都挂钩地盘，形成对等反馈
+##   ② 两侧都按己方细胞数均分 —— 阵营总收入与人数无关，人数缩放问题因此消失
 ##   ③ 新增【E-增生】：健康组织按 相邻癌性组织数×4% 的概率被侵占
-##   ④ ①②的「均分」让双方阵营总收入都与人数无关，人数缩放问题因此消失
+##   ④ **低保 + 封顶**：①的挂钩会让领先方收入涨、落后方收入跌，双向加速形成雪球；
+##      低保防崩盘、封顶防雪球，两个一起用才稳。
+##      封顶必须不对称：转化一格地盘癌方只要 0.5、免疫要 1.0，
+##      所以免疫的上限约为癌方的 1.4~2 倍才是等吞吐量。
 static func recommended() -> CWTuning:
 	var t := CWTuning.new()
 	t.name = "推荐方案"
@@ -26,6 +31,10 @@ static func recommended() -> CWTuning:
 	t.anaerobic_per_cancer = 5
 	t.anaerobic_per_solid = 12
 	t.proliferate_per_adjacent = 40
+	t.anaerobic_floor = 12
+	t.anaerobic_cap = 25
+	t.aerobic_floor = 20
+	t.aerobic_cap = 35
 	return t
 
 # ---- 收入 ----
@@ -46,6 +55,25 @@ var aerobic_per_healthy := 0
 ## 有氧呼吸是否按免疫细胞数均分（与无氧呼吸的除法对称）。
 ## 两边都均分时，双方阵营总收入都与人数无关 → 人数缩放问题从根上消失。
 var aerobic_split := true
+
+# ---- 收入低保与封顶（Kevin 2026-08-26 提出「低保」，封顶是配套的另一半）----
+## 收入挂钩地盘会形成雪球：领先方地盘涨、收入涨，落后方地盘跌、收入跌，双向加速。
+## 低保防止落后方直接崩盘，封顶防止领先方滚雪球——两个一起用才是稳定器。
+## 单位十分能量，每细胞每回合；0 = 不启用。
+var anaerobic_floor := 0
+var anaerobic_cap := 0
+var aerobic_floor := 0
+var aerobic_cap := 0
+
+
+## 把每细胞收入钳制在低保与封顶之间
+func clamp_income(gain: int, floor_v: int, cap_v: int) -> int:
+	var out := gain
+	if floor_v > 0:
+		out = maxi(out, floor_v)
+	if cap_v > 0:
+		out = mini(out, cap_v)
+	return out
 
 # ---- 初始能量 ----
 var init_energy_immune := CWData.INIT_ENERGY
@@ -68,6 +96,21 @@ var counter_dmg_on_fail := 0
 
 # ---- 固化 ----
 var solidify_threshold := CWData.SOLIDIFY_THRESHOLD
+
+# ---- 胜负条件（2026-08-26 团队定案，上限 20 为暂定值，需要实测比较 20 与 15）----
+var limit_round := CWData.LIMIT_ROUND
+var limit_cancerous := CWData.LIMIT_CANCEROUS
+## 癌方即时胜利门槛（癌组织 + 2×固化）。规则原文 41 = ⌈2/3×61⌉。
+## 注意：这个门槛如果太低，对局会在回合上限之前就结束，使上限规则形同虚设。
+var cancer_win_weighted := CWData.CANCER_WIN_WEIGHTED
+
+# ---- 原发灶：每个癌症玩家的出生格开局即为固化癌组织 ----
+var solid_at_cancer_spawn := CWData.SOLID_AT_CANCER_SPAWN
+
+# ---- 免疫死亡与复活 ----
+## 罚停回合数；设为 -1 表示免疫细胞死亡后不再复活（规则原文语义）
+var immune_respawn_delay := CWData.IMMUNE_RESPAWN_DELAY
+var immune_respawn_energy := CWData.IMMUNE_RESPAWN_ENERGY
 
 # ---- 【E-增生】癌组织向外扩散（规则原文没有这条，团队 2026-08-26 提案）----
 ## 每个与癌性组织相邻的健康组织，按「相邻癌性组织数 × 本值」的概率转为癌组织。

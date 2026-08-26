@@ -12,6 +12,7 @@ func run() -> void:
 	_place_initial_cancer()
 	_assign_cancer_types()
 	await _place_cells()
+	_place_primary_lesions()
 	game.update_marks()
 	game.log_msg("—— 开局完成，进入世界回合 ——")
 
@@ -48,7 +49,27 @@ static func make_cell(id: int, pid: int, faction: int, pos: Vector2i,
 		# 以下计数每世界回合 S 阶段重置
 		"escape_used": false, "invasive_used": 0, "remodel_used": false,
 		"mutate_used": false, "unstable_used": false, "antibody_used": 0,
+		"respawn_round": -1,       # 免疫细胞死亡后可复活的世界回合（-1 = 未死亡/不复活）
 	}
+
+
+## 原发灶：每个癌症玩家的出生格开局即为固化癌组织（2026-08-26 团队定案）
+## 作用是给癌方一次复活容错，破解「复活需固化组织 → 固化需停留 2 回合 → 停留就被打死」的死循环。
+## 注意：复活会消耗掉固化组织（降级为癌组织），所以每格只能救一次。
+func _place_primary_lesions() -> void:
+	if not game.tune.solid_at_cancer_spawn:
+		return
+	var marked := {}
+	for cell in game.living_cells(CWData.Faction.CANCER):
+		var c: Vector2i = cell["pos"]
+		if marked.has(c):
+			continue
+		marked[c] = true
+		var t: Dictionary = game.tile(c)
+		t["tissue"] = CWData.Tissue.SOLID
+		t["solid"] = game.tune.solidify_threshold
+	if not marked.is_empty():
+		game.log_msg("【原发灶】癌细胞出生的 %d 格转为固化癌组织" % marked.size())
 
 
 ## 初始癌组织：从中央格向外一圈圈铺，跳过特殊组织，直到达到目标格数。

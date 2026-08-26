@@ -21,6 +21,7 @@ func s_phase() -> void:
 	_tissue_production()
 	_vessel_teleport()
 	await _revive()
+	_immune_respawn()
 	_aerobic()
 	game.check_immune_win()  # 复活全部失败时可能立即满足免疫胜利
 
@@ -32,7 +33,7 @@ func e_phase() -> void:
 	_solidify()
 	_decay()
 	_clear_newborn()
-	if game.winner < 0 and game.round_no >= CWData.LIMIT_ROUND:
+	if game.winner < 0 and game.round_no >= game.tune.limit_round:
 		_final_verdict()
 
 
@@ -135,6 +136,31 @@ func _revive() -> void:
 			game.cell_name(cell), str(pos)])
 
 
+## 免疫细胞罚停期满后，在**随机**健康组织复活（2026-08-26 团队定案）
+## 随机选位是为了避免"自选复活点"变成免费传送——那样换阵地反而成了收益。
+func _immune_respawn() -> void:
+	for cell in game.cells:
+		if cell["alive"] or cell["faction"] != CWData.Faction.IMMUNE:
+			continue
+		if cell["respawn_round"] < 0 or game.round_no < cell["respawn_round"]:
+			continue
+		var healthy: Array[Vector2i] = []
+		for c in game.tiles.keys():
+			if game.tiles[c]["tissue"] == CWData.Tissue.HEALTHY:
+				healthy.append(c)
+		if healthy.is_empty():
+			game.log_msg("%s 无健康组织可复活，继续等待" % game.cell_name(cell))
+			continue
+		healthy.sort()  # 固定候选顺序，保证同种子可复现
+		var pos: Vector2i = game.pick_random(healthy, 1)[0]
+		cell["alive"] = true
+		cell["energy"] = game.tune.immune_respawn_energy
+		cell["respawn_round"] = -1
+		game.actions.enter_tile(cell, pos)
+		game.log_msg("【免疫复活】%s 于 %s 复活（%s 能量）" % [
+			game.cell_name(cell), str(pos), CWData.fmt(game.tune.immune_respawn_energy)])
+
+
 func _aerobic() -> void:
 	var immune: Array = game.living_cells(CWData.Faction.IMMUNE)
 	if immune.is_empty():
@@ -144,6 +170,7 @@ func _aerobic() -> void:
 		# 挂钩健康组织：总供能 = 健康组织数 × 单格供能，可选按免疫细胞数均分
 		var pool: int = game.count_tissue(CWData.Tissue.HEALTHY) * game.tune.aerobic_per_healthy
 		gain = (pool / immune.size()) if game.tune.aerobic_split else pool
+	gain = game.tune.clamp_income(gain, game.tune.aerobic_floor, game.tune.aerobic_cap)
 	for cell in immune:
 		cell["energy"] += gain
 	game.log_msg("【有氧呼吸】所有免疫细胞 +%s 能量" % CWData.fmt(gain))
@@ -236,6 +263,7 @@ func _anaerobic() -> void:
 		if here.is_empty():
 			continue
 		var gain: int = (pool / here.size()) if game.tune.anaerobic_split else pool
+		gain = game.tune.clamp_income(gain, game.tune.anaerobic_floor, game.tune.anaerobic_cap)
 		for cell in here:
 			cell["energy"] += gain
 		game.log_msg("【无氧呼吸】连通块（%d 格）内 %d 个癌细胞各 +%s 能量" % [
@@ -279,17 +307,18 @@ func _clear_newborn() -> void:
 		t["newborn"] = false
 
 
-## 30 回合终局：癌性组织 ≥ 21 → 癌症胜利，否则免疫胜利
+## 回合上限终局：癌性组织达到门槛 → 癌症胜利，否则免疫胜利
 func _final_verdict() -> void:
 	var cancerous: int = game.count_tissue(CWData.Tissue.CANCER) \
 		+ game.count_tissue(CWData.Tissue.SOLID)
-	if cancerous >= CWData.LIMIT_CANCEROUS:
+	var limit: int = game.tune.limit_cancerous
+	if cancerous >= limit:
 		game.winner = CWData.Faction.CANCER
 		game.win_kind = "limit_cancer"
-		game.win_reason = "30 回合到：癌性组织 %d ≥ %d，癌症胜利" % [
-			cancerous, CWData.LIMIT_CANCEROUS]
+		game.win_reason = "%d 回合到：癌性组织 %d ≥ %d，癌症胜利" % [
+			game.tune.limit_round, cancerous, limit]
 	else:
 		game.winner = CWData.Faction.IMMUNE
 		game.win_kind = "limit_immune"
-		game.win_reason = "30 回合到：癌性组织 %d < %d，免疫胜利" % [
-			cancerous, CWData.LIMIT_CANCEROUS]
+		game.win_reason = "%d 回合到：癌性组织 %d < %d，免疫胜利" % [
+			game.tune.limit_round, cancerous, limit]

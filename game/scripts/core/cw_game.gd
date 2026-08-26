@@ -224,9 +224,19 @@ func immune_hit(target: Dictionary, base: int, attacker: Dictionary) -> int:
 func kill(cell: Dictionary) -> void:
 	cell["energy"] = 0
 	cell["alive"] = false
-	log_msg("☠ %s 死亡" % cell_name(cell))
 	if cell["faction"] == CWData.Faction.CANCER:
+		log_msg("☠ %s 死亡" % cell_name(cell))
 		check_immune_win()
+		return
+	# 免疫细胞：罚停若干回合后在随机健康组织复活（2026-08-26 团队定案）
+	# 死于第 N 回合 → 缺席第 N+1 回合 → 第 N+2 回合开局复活（delay=1 时）
+	var delay: int = tune.immune_respawn_delay
+	if delay < 0:
+		cell["respawn_round"] = -1
+		log_msg("☠ %s 死亡（不再复活）" % cell_name(cell))
+		return
+	cell["respawn_round"] = round_no + 1 + delay
+	log_msg("☠ %s 死亡，罚停至第 %d 世界回合" % [cell_name(cell), cell["respawn_round"]])
 
 
 # ---- 抗原记忆 / 免疫等级 ----
@@ -279,10 +289,10 @@ func check_cancer_s_win() -> void:
 	if winner >= 0:
 		return
 	var w := count_tissue(CWData.Tissue.CANCER) + 2 * count_tissue(CWData.Tissue.SOLID)
-	if w >= CWData.CANCER_WIN_WEIGHTED:
+	if w >= tune.cancer_win_weighted:
 		winner = CWData.Faction.CANCER
 		win_kind = "cancer_weighted"
-		win_reason = "癌症胜利：加权占地 %d ≥ %d" % [w, CWData.CANCER_WIN_WEIGHTED]
+		win_reason = "癌症胜利：加权占地 %d ≥ %d" % [w, tune.cancer_win_weighted]
 
 
 # ---- 日志 / 调试 ----
@@ -311,7 +321,7 @@ func state_hash() -> String:
 		parts.append("%s:%d,%d,%d,%d,%d,%d,%d" % [str(c), t["tissue"], t["solid"],
 			t["sticky"], 1 if t["newborn"] else 0, t["store"], t["cards"], t["prod"]])
 	for cell in cells:
-		parts.append("c%d:%d,%s,%d,%d,%d,%d" % [cell["id"], cell["faction"],
+		parts.append("c%d:%d,%s,%d,%d,%d,%d,%d" % [cell["id"], cell["faction"],
 			str(cell["pos"]), cell["energy"], 1 if cell["alive"] else 0,
-			cell["itype"], cell["ctype"]])
+			cell["itype"], cell["ctype"], cell["respawn_round"]])
 	return "\n".join(parts).sha256_text()

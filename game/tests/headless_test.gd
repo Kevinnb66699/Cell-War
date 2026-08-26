@@ -22,6 +22,7 @@ func _run_all() -> void:
 	t_erosion()
 	t_immune_win()
 	t_cancer_s_win()
+	await t_immune_respawn()
 	await t_full_game_2p()
 	await t_full_game_4p()
 	await t_determinism()
@@ -88,17 +89,31 @@ func t_setup() -> void:
 	print("[开局]")
 	var g := make_game(4, 7)
 	await g.setup.run()
-	check(g.count_tissue(CWData.Tissue.CANCER) == 7, "初始 7 癌组织")
-	check(g.tiles[Vector2i.ZERO]["tissue"] == CWData.Tissue.CANCER, "含中央格")
+	var cancerous := g.count_tissue(CWData.Tissue.CANCER) + g.count_tissue(CWData.Tissue.SOLID)
+	check(cancerous == 7, "初始 7 格癌性组织")
+	check(g.is_cancerous(Vector2i.ZERO), "含中央格")
 	check(g.cells.size() == 4, "4 个细胞落子")
+	# 原发灶：每个癌症玩家的出生格开局即为固化癌组织
+	var cancer_cells := g.living_cells(CWData.Faction.CANCER)
+	var spawns := {}
+	for c in cancer_cells:
+		spawns[c["pos"]] = true
+	check(g.count_tissue(CWData.Tissue.SOLID) == spawns.size(),
+		"原发灶数 = 癌细胞出生格数（%d）" % spawns.size())
+	var all_solid := true
+	for pos in spawns.keys():
+		if g.tile(pos)["tissue"] != CWData.Tissue.SOLID:
+			all_solid = false
+	check(all_solid, "原发灶都位于癌细胞出生格")
+	# 落子时癌细胞必须在癌组织上；之后原发灶会把出生格升级为固化癌组织，故这里用 is_cancerous
 	var legal := true
 	for c in g.cells:
-		var t: int = g.tile(c["pos"])["tissue"]
-		if c["faction"] == CWData.Faction.CANCER and t != CWData.Tissue.CANCER:
+		if c["faction"] == CWData.Faction.CANCER and not g.is_cancerous(c["pos"]):
 			legal = false
-		if c["faction"] == CWData.Faction.IMMUNE and t != CWData.Tissue.HEALTHY:
+		if c["faction"] == CWData.Faction.IMMUNE \
+				and g.tile(c["pos"])["tissue"] != CWData.Tissue.HEALTHY:
 			legal = false
-	check(legal, "落子位置合法（癌在癌组织，免疫在健康组织）")
+	check(legal, "落子位置合法（癌在癌性组织，免疫在健康组织）")
 	var types := {}
 	for p in g.players:
 		if p["faction"] == CWData.Faction.CANCER:
@@ -246,13 +261,43 @@ func t_cancer_s_win() -> void:
 	g.dispose()
 
 
+# ---- 免疫细胞死亡 → 罚停 → 随机健康组织复活 ----
+func t_immune_respawn() -> void:
+	print("[免疫罚停复活]")
+	var g := make_game(4, 11)
+	await g.setup.run()
+	var imm: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[0]
+	g.round_no = 3
+	g.kill(imm)
+	check(not imm["alive"], "免疫细胞死亡")
+	check(imm["respawn_round"] == 5, "罚停 1 回合：死于第 3 → 第 5 回合复活")
+	# 第 4 回合：仍在罚停
+	g.round_no = 4
+	g.world._immune_respawn()
+	check(not imm["alive"], "第 4 回合仍未复活（缺席一整回合）")
+	# 第 5 回合：复活于健康组织
+	g.round_no = 5
+	g.world._immune_respawn()
+	check(imm["alive"], "第 5 回合复活")
+	check(g.tile(imm["pos"])["tissue"] == CWData.Tissue.HEALTHY, "复活点是健康组织")
+	check(imm["energy"] == CWData.IMMUNE_RESPAWN_ENERGY, "复活获得 2.0 能量")
+	check(imm["respawn_round"] == -1, "复活后清除罚停标记")
+	# 关掉复活开关 → 永久死亡（规则原文语义）
+	g.tune.immune_respawn_delay = -1
+	var imm2: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[0]
+	g.kill(imm2)
+	g.world._immune_respawn()
+	check(not imm2["alive"], "旋钮关掉后免疫永久死亡")
+	g.dispose()
+
+
 # ---- 完整对局 ----
 func t_full_game_2p() -> void:
 	print("[完整对局 2 人]")
 	var g := make_game(2, 42)
 	var w: int = await g.run_game()
 	check(w == CWData.Faction.IMMUNE or w == CWData.Faction.CANCER, "分出胜负（%s）" % g.win_reason)
-	check(g.round_no <= CWData.LIMIT_ROUND, "不超过 30 世界回合")
+	check(g.round_no <= CWData.LIMIT_ROUND, "不超过回合上限（%d）" % CWData.LIMIT_ROUND)
 	g.dispose()
 
 

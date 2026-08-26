@@ -88,7 +88,8 @@ func _immune_action(pid: int, options: Array) -> int:
 	i = _find(options, "toxin")
 	if i >= 0 and e >= 25 and game.actions._toxin_targets(me).size() >= 2:
 		return i
-	# 5. 攻击相邻癌细胞（留足够能量：攻击费 + 可能的反弹反击，避免自杀式进攻）
+	# 5. 攻击相邻癌细胞。留足「攻击费 + 反弹反击」的储备避免自杀式进攻——
+	# 这正是免疫方能主动规避反击威胁的原因（团队 2026-08-26 已确认此问题）。
 	var atk_reserve: int = game.tune.immune_move_cancerous[game.immune_level] \
 		+ game.tune.counter_dmg_on_fail + 10
 	if e >= maxi(25, atk_reserve):
