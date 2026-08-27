@@ -27,6 +27,7 @@ func _run_all() -> void:
 	await t_full_game_4p()
 	await t_determinism()
 	t_board_view()
+	t_main_menu()
 	await t_roll_hook()
 	t_dice()
 	print("")
@@ -371,6 +372,75 @@ func t_board_view() -> void:
 		"骨髓贴图 %d 处" % CWData.MARROWS.size())
 
 	board.free()
+
+
+# ---- 主菜单：三条会被「别处改动」悄悄弄坏的约束 ----
+# ① 装饰细胞踩的那五格，得真的在棋盘上。地图改版时最容易漏掉的就是这种硬写的坐标。
+# ② 机位换算得可逆：把相机摆到算出来的位置，看点必须正好落在设计稿标的锚点上。
+# ③ 字号必须是点阵网格的整数倍 —— 中文 10 的倍数、Logo 用的 Silkscreen 8 的倍数。
+#    这条最容易在「随手调一下大小」时破掉，破掉之后字会被重采样磨出灰边，
+#    但只在特定字号下明显，肉眼未必当场看得出来。
+func t_main_menu() -> void:
+	print("[主菜单]")
+	var menu_script := load("res://scripts/ui/main_menu.gd")
+	var board = load("res://scenes/Board.tscn").instantiate()
+	board._ready()
+
+	var all_on := true
+	var all_rendered := true
+	for at: Vector2i in menu_script.DECOR:
+		if not CWData.is_on_board(at):
+			all_on = false
+		if board.tile_center(at) == Vector2.ZERO:      # 没画出来的格子会返回零向量
+			all_rendered = false
+	check(all_on, "%d 个装饰细胞的坐标都在棋盘范围内" % menu_script.DECOR.size())
+	check(all_rendered, "每个装饰细胞脚下都有一块真实存在的组织")
+
+	# 机位：把相机摆到算出来的位置后，看点应当正好投影到锚点上
+	var screen := Vector2(960, 540)
+	var look_at := Vector2(123, -45)
+	var anchor: Vector2 = menu_script.MENU_ANCHOR
+	var zoom: float = menu_script.MENU_ZOOM
+	var cam: Vector2 = menu_script.camera_pos_for(look_at, anchor, zoom, screen)
+	var projected: Vector2 = screen / 2.0 + (look_at - cam) * zoom
+	check(projected.distance_to(anchor) < 0.001, "机位换算可逆（看点落在锚点 %s 上）" % anchor)
+
+	# 菜单场景里的节点名、字号
+	var scene = load("res://scenes/MainMenu.tscn").instantiate()
+	var items: Control = scene.get_node("UI/Screen/Items")
+	var names_ok := true
+	for item in menu_script.ITEMS:
+		if not items.has_node(item["node"]):
+			names_ok = false
+	check(names_ok, "ITEMS 里的 %d 个节点名在场景里都存在" % menu_script.ITEMS.size())
+
+	# 键盘上下必须跳过灰掉的项。现在中间三项都没实现，从第 0 项往下应直接落到最后一项。
+	var last: int = menu_script.ITEMS.size() - 1
+	check(menu_script.next_enabled(0, 1) == last, "键盘往下跳过了灰掉的项")
+	check(menu_script.next_enabled(last, -1) == 0, "键盘往上跳过了灰掉的项")
+	check(menu_script.next_enabled(0, -1) == 0, "到顶了就停在原地，不绕回")
+
+	var grid_ok := true
+	var bad := ""
+	for label in _all_labels(scene):
+		var size: int = label.get_theme_font_size("font_size")   ## 主题项叫 font_size，不是 font
+		var grid := 8 if label.get_theme_font("font").resource_path.contains("silkscreen") else 10
+		if size % grid != 0:
+			grid_ok = false
+			bad = "%s=%dpx（要 %d 的倍数）" % [label.name, size, grid]
+	check(grid_ok, "所有字号都落在点阵网格上" if grid_ok else "字号脱离点阵网格：%s" % bad)
+
+	scene.free()
+	board.free()
+
+
+func _all_labels(node: Node) -> Array[Label]:
+	var out: Array[Label] = []
+	if node is Label:
+		out.append(node)
+	for child in node.get_children():
+		out.append_array(_all_labels(child))
+	return out
 
 
 # ---- 掷骰演出钩子：送给表现层的点数，必须就是引擎结算用的那个点数 ----
