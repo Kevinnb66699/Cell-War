@@ -26,6 +26,7 @@ func _run_all() -> void:
 	await t_full_game_2p()
 	await t_full_game_4p()
 	await t_determinism()
+	t_board_view()
 	print("")
 	if fails == 0:
 		print("✔ 全部测试通过（%d 项检查）" % checks)
@@ -331,3 +332,40 @@ func t_determinism() -> void:
 		g.dispose()
 	check(hashes[0] == hashes[1], "同种子两局最终状态哈希一致")
 	check(winners[0] == winners[1] and log_counts[0] == log_counts[1], "胜者与日志长度一致")
+
+
+# ---- 棋盘渲染：画出来的格子必须和 CWData 的轴坐标一一对应 ----
+# 渲染层用「行,列」下标，规则层用轴坐标 (q,r)，两套坐标必须描述同一个棋盘。
+# 2026-08-27 之前渲染层自己抄了一份特殊组织下标，地图改版后没跟上——这组检查就是防这个。
+func t_board_view() -> void:
+	print("[棋盘渲染]")
+	var board = load("res://scenes/Board.tscn").instantiate()
+	board._ready()   # 不入场景树，直接触发生成
+
+	check(board.map.size() == CWData.TOTAL_TILES, "渲染出 %d 格" % CWData.TOTAL_TILES)
+
+	# axial_to_rc 必须是双射：127 个轴坐标恰好盖满 127 个已渲染的格子
+	var mapped := {}
+	for c in CWData.all_coords():
+		mapped[board.axial_to_rc(c)] = true
+	check(mapped.size() == CWData.TOTAL_TILES and mapped.size() == board.map.size(),
+		"轴坐标 → 行列下标是双射")
+	var all_hit := true
+	for rc in mapped:
+		if not board.map.has(rc):
+			all_hit = false
+	check(all_hit, "每个轴坐标都落在已渲染的格子上")
+
+	# 特殊组织的贴图数量必须等于 CWData 里声明的数量
+	var tex_count := {}
+	for k in board.map:
+		var f: String = board.map[k]["instance"].texture.resource_path.get_file()
+		tex_count[f] = tex_count.get(f, 0) + 1
+	check(tex_count.get("vessel.png", 0) == CWData.VESSELS.size(),
+		"血管贴图 %d 处" % CWData.VESSELS.size())
+	check(tex_count.get("energy_normal.png", 0) == CWData.CORES.size(),
+		"代谢核心贴图 %d 处" % CWData.CORES.size())
+	check(tex_count.get("marrow_normal.png", 0) == CWData.MARROWS.size(),
+		"骨髓贴图 %d 处" % CWData.MARROWS.size())
+
+	board.free()

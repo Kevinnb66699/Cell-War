@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://87enm2h1s3as"]
+
+[ext_resource type="Texture2D" uid="uid://c4wlm8q4j322k" path="res://assets/art/tissue_normal.png" id="1_tex"]
+
+[node name="Tissue" type="Sprite2D"]
+texture = ExtResource("1_tex")
