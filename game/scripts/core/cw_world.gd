@@ -168,7 +168,7 @@ func _aerobic() -> void:
 	var gain: int = game.tune.aerobic_gain[game.immune_level]
 	if game.tune.aerobic_per_healthy > 0:
 		# 挂钩健康组织：总供能 = 健康组织数 × 单格供能，可选按免疫细胞数均分
-		var pool: int = game.count_tissue(CWData.Tissue.HEALTHY) * game.tune.aerobic_per_healthy
+		var pool: int = game.count_tissue(CWData.Tissue.HEALTHY) 			* game.tune.aerobic_per_healthy / game.tune.aerobic_healthy_div
 		gain = (pool / immune.size()) if game.tune.aerobic_split else pool
 	gain = game.tune.clamp_income(gain, game.tune.aerobic_floor, game.tune.aerobic_cap)
 	for cell in immune:

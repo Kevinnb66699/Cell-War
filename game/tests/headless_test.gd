@@ -60,14 +60,21 @@ func t_board() -> void:
 	print("[棋盘]")
 	var g := make_game(2, 1)
 	g.setup.build_board()
-	check(g.tiles.size() == 61, "61 格")
+	check(g.tiles.size() == CWData.TOTAL_TILES, "%d 格" % CWData.TOTAL_TILES)
 	var specials := 0
 	for t in g.tiles.values():
 		if t["special"] != CWData.Special.NONE:
 			specials += 1
-	check(specials == 10, "特殊组织 10 格（3 核心+5 骨髓+2 血管）")
-	check(g.tiles[Vector2i.ZERO]["special"] == CWData.Special.NONE, "中央格不是特殊组织")
-	check(CWData.hex_dist(Vector2i(4, -2), Vector2i(-4, 2)) == 8, "血管两端相对")
+	var want_specials: int = CWData.CORES.size() + CWData.MARROWS.size() + CWData.VESSELS.size()
+	check(specials == want_specials, "特殊组织 %d 格（%d 核心+%d 骨髓+%d 血管）" % [
+		want_specials, CWData.CORES.size(), CWData.MARROWS.size(), CWData.VESSELS.size()])
+	# ⚠ 127 格新地图把一个骨髓放在中央格，与「初始癌组织必含中央格 + 不得与特殊组织重合」
+	#   直接冲突（说明 #34）。这里断言的是**当前地图的既成事实**：
+	#   哪天团队把中央格的骨髓挪走，这条会失败提醒我们同步改规则文档与开局逻辑。
+	check(g.tiles[Vector2i.ZERO]["special"] == CWData.Special.MARROW,
+		"中央格是骨髓（⚠ 与规则冲突，见说明 #34）")
+	check(CWData.hex_dist(CWData.VESSELS[0], CWData.VESSELS[1]) == CWData.BOARD_RADIUS * 2,
+		"血管两端是棋盘对角（相距 %d 格）" % (CWData.BOARD_RADIUS * 2))
 	g.dispose()
 
 
@@ -90,7 +97,8 @@ func t_setup() -> void:
 	var g := make_game(4, 7)
 	await g.setup.run()
 	var cancerous := g.count_tissue(CWData.Tissue.CANCER) + g.count_tissue(CWData.Tissue.SOLID)
-	check(cancerous == 7, "初始 7 格癌性组织")
+	check(cancerous == CWData.INIT_CANCER_TILES,
+		"初始 %d 格癌性组织" % CWData.INIT_CANCER_TILES)
 	check(g.is_cancerous(Vector2i.ZERO), "含中央格")
 	check(g.cells.size() == 4, "4 个细胞落子")
 	# 原发灶：每个癌症玩家的出生格开局即为固化癌组织
@@ -222,7 +230,7 @@ func t_erosion() -> void:
 	g2.tiles[Vector2i.ZERO]["tissue"] = CWData.Tissue.CANCER
 	g2.world._erosion()
 	var healthy := g2.count_tissue(CWData.Tissue.HEALTHY)
-	check(healthy == 60, "与外缘连通的健康块不受侵蚀")
+	check(healthy == CWData.TOTAL_TILES - 1, "与外缘连通的健康块不受侵蚀")
 	g.dispose()
 	g2.dispose()
 
@@ -251,13 +259,14 @@ func t_cancer_s_win() -> void:
 	var g := make_game(2, 1)
 	g.setup.build_board()
 	var coords: Array = g.tiles.keys()
-	for i in 40:
+	var need: int = CWData.CANCER_WIN_WEIGHTED
+	for i in need - 1:
 		g.tiles[coords[i]]["tissue"] = CWData.Tissue.CANCER
 	g.check_cancer_s_win()
-	check(g.winner < 0, "加权 40 < 41 → 未获胜")
-	g.tiles[coords[40]]["tissue"] = CWData.Tissue.CANCER
+	check(g.winner < 0, "加权 %d < %d → 未获胜" % [need - 1, need])
+	g.tiles[coords[need - 1]]["tissue"] = CWData.Tissue.CANCER
 	g.check_cancer_s_win()
-	check(g.winner == CWData.Faction.CANCER, "加权 41 → 癌症胜利")
+	check(g.winner == CWData.Faction.CANCER, "加权 %d → 癌症胜利" % need)
 	g.dispose()
 
 

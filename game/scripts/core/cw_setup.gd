@@ -74,6 +74,11 @@ func _place_primary_lesions() -> void:
 
 ## 初始癌组织：从中央格向外一圈圈铺，跳过特殊组织，直到达到目标格数。
 ## 满足规则三个约束：彼此连通 ✓、含中央格 ✓、不与特殊组织重合 ✓。
+##
+## ⚠ 127 格新地图把一个**骨髓放在了中央格**，与上面后两条约束直接冲突
+##   （「必须含中央格」+「不能与特殊组织重合」无法同时成立）。
+##   原型的临时取舍：中央格照铺（规则明写"至少包含中央组织格"是硬约束），
+##   于是癌方从第 0 回合就白拿一个骨髓。详见 docs/规则电子化说明.md #34。
 ## （规则原文由癌方自选布局，原型固定用这个默认铺法——见 docs/规则电子化说明.md 裁剪项）
 func _place_initial_cancer() -> void:
 	var target: int = game.tune.init_cancer_tiles
@@ -96,6 +101,8 @@ func _place_initial_cancer() -> void:
 	for c in chosen:
 		game.tiles[c]["tissue"] = CWData.Tissue.CANCER  # 开局即有，不算「新生」
 	game.log_msg("初始癌组织：自中央格向外铺 %d 格" % chosen.size())
+	if CWData.special_of(Vector2i.ZERO) != CWData.Special.NONE:
+		game.log_msg("⚠ 中央格是特殊组织，与「癌组织不得与特殊组织重合」冲突（见说明 #34）")
 
 
 ## 每个癌症玩家独立抽种类，同局不重复（说明 #12）

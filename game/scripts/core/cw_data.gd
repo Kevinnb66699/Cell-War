@@ -12,18 +12,18 @@ enum Faction { IMMUNE, CANCER }                 # 免疫方 / 癌症方
 enum ImmuneType { BASIC, B_CELL, T_CELL, MACRO, DENDRITIC }
 enum CancerType { BLAST, INVASIVE, REMODEL, ESCAPE, UNSTABLE, SESSILE }
 
-# ---- 棋盘 ----
-const BOARD_RADIUS := 4                  # 半径 4 蜂窝 = 61 格
-const TOTAL_TILES := 61
-const INIT_CANCER_TILES := 7
+# ---- 棋盘（2026-08-27 团队定案：半径 4 / 61 格 → 半径 6 / 127 格）----
+const BOARD_RADIUS := 6                  # 半径 6 蜂窝 = 1 + 3×6×7 = 127 格
+const TOTAL_TILES := 127
+const INIT_CANCER_TILES := 7             # 规则原文固定 7 格；棋盘翻倍后是否加大见 CWTuning.init_cancer_tiles
 
 # ---- 胜负 ----
 # 2026-08-26 团队定案：回合上限 30→20（暂定，不行再降到 15），终局门槛 1/3→1/2。
 # 原因：原规则下对局平均 9~10 回合就结束，30 回合从未触发；而 1/3 的门槛对癌方过于友好，
 # 缩短上限后癌方"熬到时间到"会白捡胜利。详见 docs/平衡测试报告.md
-const CANCER_WIN_WEIGHTED := 41          # 癌+2×固化 ≥ ⌈2/3×61⌉ 时癌症即胜（S 类判定）
+const CANCER_WIN_WEIGHTED := 85          # 癌+2×固化 ≥ ⌈2/3×127⌉ 时癌症即胜（S 类判定）
 const LIMIT_ROUND := 20                  # 终局世界回合数
-const LIMIT_CANCEROUS := 31              # 终局判定线 ⌈1/2×61⌉
+const LIMIT_CANCEROUS := 64              # 终局判定线 ⌈1/2×127⌉
 
 # ---- 原发灶（2026-08-26 团队定案）----
 # 每个癌症玩家的出生格开局即为固化癌组织，给癌方一次复活容错，
@@ -68,12 +68,16 @@ const ANAEROBIC_PER_CANCER := 2          # 每癌组织供能 0.2
 const ANAEROBIC_PER_SOLID := 5           # 每固化癌组织供能 0.5
 const SOLIDIFY_THRESHOLD := 2            # 固化计数达 2 → 固化癌组织
 
-# ---- 特殊组织（临时布局，轴坐标，中心 (0,0)；见说明 #3）----
-const CORES: Array[Vector2i] = [Vector2i(2, 0), Vector2i(-2, 2), Vector2i(0, -2)]
+# ---- 特殊组织（2026-08-27 按团队给的 127 格地图图片布局，轴坐标，中心 (0,0)）----
+# 布局规律：半径 4 的那一环的 6 个「角」上，代谢核心与骨髓交替排布；
+#          外加中央格 1 个骨髓、左右两个最远角 (±6,0) 一对血管。
+# 可视化参考：docs/地图布局_127格.svg（坐标标在每格上，可与原图逐格核对）
+# ⚠ 与规则原文的两处出入见 docs/规则电子化说明.md #33 #34（骨髓数量、中央格被占）
+const CORES: Array[Vector2i] = [Vector2i(0, -4), Vector2i(4, 0), Vector2i(-4, 4)]
 const MARROWS: Array[Vector2i] = [
-	Vector2i(0, 3), Vector2i(-3, 3), Vector2i(-3, 0), Vector2i(0, -3), Vector2i(3, -3),
+	Vector2i(0, 0), Vector2i(4, -4), Vector2i(-4, 0), Vector2i(0, 4),
 ]
-const VESSELS: Array[Vector2i] = [Vector2i(4, -2), Vector2i(-4, 2)]
+const VESSELS: Array[Vector2i] = [Vector2i(6, 0), Vector2i(-6, 0)]
 const CORE_STORE_MAX := 20               # 代谢核心存储上限 2.0
 const CORE_HEALTHY_PERIOD := 2           # 健康：每 2 世界回合 +1.0
 const CORE_HEALTHY_GAIN := 10
