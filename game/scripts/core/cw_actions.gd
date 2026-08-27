@@ -98,7 +98,7 @@ func execute(cell: Dictionary, data: Dictionary) -> void:
 		"differentiate":
 			await _do_differentiate(cell)
 		"antibody":
-			_do_antibody(cell)
+			await _do_antibody(cell)
 		"toxin":
 			_do_toxin(cell)
 		"lyse":
@@ -139,7 +139,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int) -> void:
 			"kind": "attack_target", "prompt": "选择攻击目标", "options": topts,
 		})
 		target = game.cells[topts[idx]["data"]["cid"]]
-	var r := game.roll_d6()
+	var r: int = await game.roll_shown(6, "攻击", cell["pid"])
 	if r <= 2:
 		game.log_msg("　攻击掷骰 %d：失败，%s 被反弹回原格" % [r, game.cell_name(cell)])
 		# 规则原文反弹不造成伤害（旋钮默认 0）；平衡测试可给癌方反击手段
@@ -264,7 +264,8 @@ func _do_antibody(cell: Dictionary) -> void:
 	if eligible.is_empty():
 		game.log_msg("【抗体】无目标且无可转化癌组织，效果落空")
 		return
-	var x: int = 1 if game.roll_d3() <= 2 else 2
+	var roll: int = await game.roll_shown(3, "抗体", cell["pid"])
+	var x: int = 1 if roll <= 2 else 2
 	for c in game.pick_random(eligible, x):
 		_to_healthy(c)
 		game.log_msg("【抗体】无目标 → %s 转为健康组织" % str(c))
@@ -314,7 +315,7 @@ func _do_mutate(cell: Dictionary) -> void:
 	if not game.pay(cell, CWData.MUTATE_COST):
 		return
 	cell["mutate_used"] = true
-	var nothing := _roll_mutation(cell)
+	var nothing: bool = await _roll_mutation(cell)
 	# 基因不稳定型：结果为无事发生时，可付 0.5 再突变一次（每世界回合限一次）
 	if nothing and cell["alive"] and cell["ctype"] == CWData.CancerType.UNSTABLE \
 			and not cell["unstable_used"] and game.can_pay(cell, CWData.MUTATE_COST):
@@ -324,12 +325,12 @@ func _do_mutate(cell: Dictionary) -> void:
 		})
 		if idx == 0 and game.pay(cell, CWData.MUTATE_COST):
 			cell["unstable_used"] = true
-			_roll_mutation(cell)
+			await _roll_mutation(cell)
 
 
 ## 返回是否「无事发生」
 func _roll_mutation(cell: Dictionary) -> bool:
-	var r := game.roll_d3()
+	var r: int = await game.roll_shown(3, "突变", cell["pid"])
 	match r:
 		1:
 			game.log_msg("【突变】无事发生")

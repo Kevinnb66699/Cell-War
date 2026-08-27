@@ -13,3 +13,11 @@ var game: CWGame
 
 func ask(_req: Dictionary) -> int:
 	return 0
+
+
+## 展示一次掷骰：引擎会 await 这个方法，动画播完才继续结算。
+## 基类立即返回 —— 无头测试和 AI 互搏不需要演出，所以它们完全不受影响。
+## **注意 value 是引擎先用 rng 算好再传进来的，桥只负责演。演出无权决定结果**
+## （架构约定 #2，也是将来确定性锁步联机的前提）。
+func show_roll(_reason: String, _value: int, _sides: int, _pid: int) -> void:
+	pass

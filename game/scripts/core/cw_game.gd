@@ -166,12 +166,33 @@ func blocks_of(pred: Callable) -> Array:
 
 
 # ---- 随机 ----
+## 静默掷骰：不触发任何演出。世界自动结算这类随机用它。
 func roll_d6() -> int:
 	return rng.randi_range(1, 6)
 
 
 func roll_d3() -> int:
 	return rng.randi_range(1, 3)
+
+
+## 带演出的掷骰：引擎在这里等动画播完，再继续结算。
+##
+## 和 roll_d6/roll_d3 消耗的是同一个 rng、同样一次 randi_range，
+## 所以两者可以随时互换而不影响同种子可复现 ——
+## **「某个随机要不要演动画」是纯表现层决定，不碰规则**。
+## reason 显示在骰子旁边（"攻击" / "突变" …）。无头运行时基类桥立即返回。
+## pid = 掷骰的那个玩家，表现层用它决定骰子的阵营色。
+## 广播给**所有**桥，而不是只给 pid 那一个 —— AI 掷的骰，旁观的人类也得看见。
+## 同一个桥对象注册给多个玩家时（热座共用一个 UI）按对象去重，只演一次。
+func roll_shown(sides: int, reason: String, pid: int = -1) -> int:
+	var v := rng.randi_range(1, sides)
+	var shown: Array = []
+	for b in bridges.values():
+		if b == null or shown.has(b):
+			continue
+		shown.append(b)
+		await b.show_roll(reason, v, sides, pid)
+	return v
 
 
 ## 从数组中均匀随机取 n 个（不重复）

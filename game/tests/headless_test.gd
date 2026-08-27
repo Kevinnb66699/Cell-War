@@ -27,6 +27,8 @@ func _run_all() -> void:
 	await t_full_game_4p()
 	await t_determinism()
 	t_board_view()
+	await t_roll_hook()
+	t_dice()
 	print("")
 	if fails == 0:
 		print("✔ 全部测试通过（%d 项检查）" % checks)
@@ -369,3 +371,118 @@ func t_board_view() -> void:
 		"骨髓贴图 %d 处" % CWData.MARROWS.size())
 
 	board.free()
+
+
+# ---- 掷骰演出钩子：送给表现层的点数，必须就是引擎结算用的那个点数 ----
+# D 方案（着色器骰子）靠 CWBridge.show_roll() 把结果送到表现层。
+# 最关键的不变量是「演出落在哪一面 == 规则算出来的结果」—— 若两者脱钩，
+# 骰子会停在一个和实际结算不符的点数上，这是掷骰动画最经典也最难查的 bug。
+# 这里拿钩子收到的值和日志里实际结算用的值逐次交叉核对。
+#
+# 注意本组**不**负责证明「演出不会扰动 rng」：roll_shown 与 roll_d6 消耗的
+# rng 完全相同，且任何扰动只要是确定性的就仍然可复现（由 t_determinism 覆盖）。
+func t_roll_hook() -> void:
+	print("[掷骰演出钩子]")
+
+	var g := CWGame.new()
+	g.init(CWData.FACTION_ORDER[4], 20260827)
+	var spies: Array = []
+	for pid in g.order:
+		var b := CWRollSpy.new()
+		b.game = g
+		g.bridges[pid] = b
+		spies.append(b)
+	var _w: int = await g.run_game()
+
+	var rolls: Array = spies[0].rolls          # 广播的，每个桥收到的是同一份
+	check(rolls.size() > 0, "钩子被调用了 %d 次（不是死代码）" % rolls.size())
+
+	var in_range := true
+	var reasons := {}
+	for r in rolls:
+		if r["value"] < 1 or r["value"] > r["sides"]:
+			in_range = false
+		reasons[r["reason"]] = true
+	check(in_range, "每次掷骰的点数都落在 1..面数 之内")
+	check(reasons.has("攻击"), "攻击掷骰走了演出钩子")
+
+	var all_same := true
+	for b in spies:
+		if b.rolls.size() != rolls.size():
+			all_same = false
+	check(all_same, "掷骰广播给了全部 %d 个桥（AI 掷的骰旁观者也看得见）" % spies.size())
+
+	# ── 核心检查：逐次核对「演出收到的点数」与「引擎写进日志的结算点数」 ──
+	# 日志格式见 CWActions._do_attack()：「攻击掷骰 N：…」
+	var shown: Array[int] = []
+	for r in rolls:
+		if r["reason"] == "攻击":
+			shown.append(r["value"])
+	var logged: Array[int] = []
+	for line in g.logs:
+		var i: int = line.find("攻击掷骰 ")
+		if i >= 0:
+			logged.append(int(line.substr(i + 5)))
+	check(logged.size() == shown.size() and logged == shown,
+		"演出收到的点数 == 引擎结算用的点数（逐次核对 %d 次攻击）" % shown.size())
+
+	g.dispose()
+
+
+## 只记录、不干预的测试用桥：ask 沿用启发式 AI，show_roll 把参数存下来。
+class CWRollSpy extends CWHeuristicBridge:
+	var rolls: Array = []
+
+	func show_roll(reason: String, value: int, sides: int, pid: int) -> void:
+		rolls.append({ "reason": reason, "value": value, "sides": sides, "pid": pid })
+
+
+# ---- 骰子（方案 D）：着色器要能编译，静止姿态要真的把那一面转到朝上 ----
+# REST 表若写错，骰子会停在与结算结果不符的面上 —— 而这种错只有肉眼能发现，
+# 所以这里用矩阵直接验：把该面的法线按静止姿态转一下，必须指向正上方。
+func t_dice() -> void:
+	print("[骰子·方案D]")
+
+	var sh := load("res://assets/shaders/dice.gdshader")
+	check(sh != null, "着色器资源能加载")
+
+	var d: CWDice = CWDice.new()
+	d._ready()                       # 不入场景树，直接建材质（着色器编译失败会在这里报错）
+	check(d.material != null and d.material.shader == sh, "骰子节点挂上了这个着色器")
+
+	# 各面法线（本地空间）。**必须和着色器里 face_val() 的约定一致**：
+	# +Z=1 −Z=6 +X=2 −X=5 +Y=3 −Y=4，对面点数和为 7。
+	# 跨语言（GDScript / GLSL）没法共享常量，这组检查就是那道防线。
+	var face_n := {
+		1: Vector3(0, 0, 1),  6: Vector3(0, 0, -1),
+		2: Vector3(1, 0, 0),  5: Vector3(-1, 0, 0),
+		3: Vector3(0, 1, 0),  4: Vector3(0, -1, 0),
+	}
+	var all_up := true
+	var opposite_ok := true
+	for v in range(1, 7):
+		var up: Vector3 = CWDice.euler_basis(CWDice.REST[v]) * face_n[v]
+		if up.distance_to(Vector3.UP) > 0.001:
+			all_up = false
+		if face_n[v].dot(face_n[7 - v]) > -0.999:
+			opposite_ok = false
+	check(all_up, "六种静止姿态都把对应点数转到了正上方")
+	check(opposite_ok, "对面点数和为 7（法线互为反向）")
+
+	# d3 借同一颗 d6 演，三个结果要落进 1-2 / 3-4 / 5-6 三个不同色区
+	var zones := {}
+	for v in range(1, 4):
+		zones[_zone_of(d._face_for(v, 3))] = true
+	check(zones.size() == 3, "d3 的三个结果落在三个不同色区")
+	check(d._face_for(4, 6) == 4, "d6 直接用原点数")
+
+	d.free()
+
+
+## 点数 → 色区档位，和着色器里 face_color() 的分档一致
+func _zone_of(face: int) -> int:
+	if face <= 2:
+		return 0
+	elif face <= 5:
+		return 1
+	return 2

@@ -203,6 +203,10 @@ func _erosion() -> void:
 				eligible.append(c)
 	if eligible.is_empty():
 		return
+	# 这里刻意用**静默**掷骰：侵蚀是世界自动结算，不是玩家自己掷的，
+	# 一局要掷 7 次左右，每次都演会拖节奏（决策 ④，2026-08-27 定）。
+	# 若团队改主意要演，把这行换成 `await game.roll_shown(3, "侵蚀")` 即可 ——
+	# rng 消耗完全一样，平衡数据和同种子复现都不受影响，但 _erosion() 及其调用链要改成 async。
 	var count: int = 1 if game.roll_d3() <= 2 else 2  # 2/3→1 格，1/3→2 格
 	for c in game.pick_random(eligible, count):
 		var t: Dictionary = game.tile(c)
