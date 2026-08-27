@@ -68,11 +68,9 @@ func t_board() -> void:
 	var want_specials: int = CWData.CORES.size() + CWData.MARROWS.size() + CWData.VESSELS.size()
 	check(specials == want_specials, "特殊组织 %d 格（%d 核心+%d 骨髓+%d 血管）" % [
 		want_specials, CWData.CORES.size(), CWData.MARROWS.size(), CWData.VESSELS.size()])
-	# ⚠ 127 格新地图把一个骨髓放在中央格，与「初始癌组织必含中央格 + 不得与特殊组织重合」
-	#   直接冲突（说明 #34）。这里断言的是**当前地图的既成事实**：
-	#   哪天团队把中央格的骨髓挪走，这条会失败提醒我们同步改规则文档与开局逻辑。
-	check(g.tiles[Vector2i.ZERO]["special"] == CWData.Special.MARROW,
-		"中央格是骨髓（⚠ 与规则冲突，见说明 #34）")
+	# 中央格必须是普通格：规则要求初始癌组织「必须包含中央格」且「不得与特殊组织重合」，
+	# 中央格一旦是特殊组织，这两条就无法同时成立（说明 #34，2026-08-27 已按此移走中央骨髓）。
+	check(g.tiles[Vector2i.ZERO]["special"] == CWData.Special.NONE, "中央格不是特殊组织")
 	check(CWData.hex_dist(CWData.VESSELS[0], CWData.VESSELS[1]) == CWData.BOARD_RADIUS * 2,
 		"血管两端是棋盘对角（相距 %d 格）" % (CWData.BOARD_RADIUS * 2))
 	g.dispose()
