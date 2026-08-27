@@ -139,7 +139,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int) -> void:
 			"kind": "attack_target", "prompt": "选择攻击目标", "options": topts,
 		})
 		target = game.cells[topts[idx]["data"]["cid"]]
-	var r: int = await game.roll_shown(6, "攻击", cell["pid"])
+	var r: int = await game.roll_shown(6, "攻击", cell["pid"], to)
 	if r <= 2:
 		game.log_msg("　攻击掷骰 %d：失败，%s 被反弹回原格" % [r, game.cell_name(cell)])
 		# 规则原文反弹不造成伤害（旋钮默认 0）；平衡测试可给癌方反击手段
@@ -264,7 +264,7 @@ func _do_antibody(cell: Dictionary) -> void:
 	if eligible.is_empty():
 		game.log_msg("【抗体】无目标且无可转化癌组织，效果落空")
 		return
-	var roll: int = await game.roll_shown(3, "抗体", cell["pid"])
+	var roll: int = await game.roll_shown(3, "抗体", cell["pid"], cell["pos"])
 	var x: int = 1 if roll <= 2 else 2
 	for c in game.pick_random(eligible, x):
 		_to_healthy(c)
@@ -330,7 +330,7 @@ func _do_mutate(cell: Dictionary) -> void:
 
 ## 返回是否「无事发生」
 func _roll_mutation(cell: Dictionary) -> bool:
-	var r: int = await game.roll_shown(3, "突变", cell["pid"])
+	var r: int = await game.roll_shown(3, "突变", cell["pid"], cell["pos"])
 	match r:
 		1:
 			game.log_msg("【突变】无事发生")

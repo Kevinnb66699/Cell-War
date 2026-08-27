@@ -32,6 +32,19 @@ func axial_to_rc(a: Vector2i) -> Vector2:
 	var q_min: int = -ring if a.y >= 0 else -ring - a.y      ## 这一行最左边那格的 q
 	return Vector2(a.y + ring + 1, a.x - q_min + 1)
 
+## 贴图 34px 高，其中顶面只占上面 26px（下面 8px 是两侧的立面）。
+## Sprite2D 是 centered=true，position 落在贴图中心，比顶面中心低 (34-26)/2 = 4px。
+const TOP_FACE_DY := 4.0
+
+## 轴坐标 → 该格「顶面中心」在本节点里的像素位置。
+## 要把东西摆到某一格上（骰子、高亮、标记）一律走这里，别自己再算一遍（约定 #10）。
+func tile_center(a: Vector2i) -> Vector2:
+	var key := axial_to_rc(a)
+	if not map.has(key):
+		return Vector2.ZERO
+	return map[key]["position"] - Vector2(0, TOP_FACE_DY)
+
+
 func new_tissue(i, j, x, y):
 	var new_t = TISSUE.instantiate()
 	new_t.position = Vector2(x, y)

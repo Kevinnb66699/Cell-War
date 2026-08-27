@@ -426,6 +426,13 @@ func t_roll_hook() -> void:
 	check(logged.size() == shown.size() and logged == shown,
 		"演出收到的点数 == 引擎结算用的点数（逐次核对 %d 次攻击）" % shown.size())
 
+	# 骰-1 决定骰子落在棋盘格上，所以每次掷骰都必须指向一个真实存在的格
+	var coords_ok := true
+	for r in rolls:
+		if not CWData.is_on_board(r["at"]):
+			coords_ok = false
+	check(coords_ok, "每次掷骰都指向棋盘上真实存在的一格（骰子要落在那里）")
+
 	g.dispose()
 
 
@@ -433,8 +440,8 @@ func t_roll_hook() -> void:
 class CWRollSpy extends CWHeuristicBridge:
 	var rolls: Array = []
 
-	func show_roll(reason: String, value: int, sides: int, pid: int) -> void:
-		rolls.append({ "reason": reason, "value": value, "sides": sides, "pid": pid })
+	func show_roll(reason: String, value: int, sides: int, pid: int, at: Vector2i) -> void:
+		rolls.append({ "reason": reason, "value": value, "sides": sides, "pid": pid, "at": at })
 
 
 # ---- 骰子（方案 D）：着色器要能编译，静止姿态要真的把那一面转到朝上 ----
@@ -475,6 +482,18 @@ func t_dice() -> void:
 		zones[_zone_of(d._face_for(v, 3))] = true
 	check(zones.size() == 3, "d3 的三个结果落在三个不同色区")
 	check(d._face_for(4, 6) == 4, "d6 直接用原点数")
+
+	# 落点几何：接地点由着色器的相机参数反推，必须落在方块内且位于中心偏下
+	# （立方体是俯视看的，底面中心自然比方块中心低）。
+	var cy := CWDice.contact_y(d.size.y)
+	check(cy > d.size.y * 0.5 and cy < d.size.y,
+		"底面接地点在方块中心偏下、且没跑出方块（%.1f / %.0f）" % [cy, d.size.y])
+
+	# 摆位：骰子按落地点的 y 参与深度排序，和组织块同一套规则
+	d.place_at(Vector2(300, 180))
+	check(d.z_index == 180, "骰子按落地点的 y 做深度排序")
+	check(absf(d.position.x + d.size.x * 0.5 - 300.0) < 0.01
+		and absf(d.position.y + cy - 180.0) < 0.01, "骰子底面中心对准了落点")
 
 	d.free()
 

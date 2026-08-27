@@ -36,7 +36,7 @@ const DROP_PX := 210.0    ## 起始高度
 
 var _rest := Vector3.ZERO
 var _spin := Vector3.ZERO
-var _ground_y := 0.0
+var _ground := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -51,13 +51,35 @@ func _ready() -> void:
 	visible = false
 
 
+## 静止时立方体**底面中心**距方块顶边多少像素。
+## 由着色器的相机参数反推：世界「下」(0,-1,0) 经俯仰后，
+## 投影到 uv.y = -4·cos(TILT)/(sin(TILT)+8)（相机在 z=8、视线半宽系数 0.25，
+## 见 dice.gdshader 的 fragment()），再映回 0..1 的 UV。
+## **改着色器的相机参数，这里要跟着改** —— t_dice() 会盯住这个关系。
+static func contact_y(px: float) -> float:
+	var uv_y := -4.0 * cos(TILT) / (sin(TILT) + 8.0)
+	return (1.0 - (uv_y + 1.0) * 0.5) * px
+
+
+## 把骰子摆到棋盘上某一点（该格顶面中心，用 board.tile_center() 取）。
+## 骰子按**落地点**的 y 参与深度排序，和组织块同一套规则（board.gd 里 z_index = y）：
+## 这样前排组织块会正确盖住骰子底部，而骰子腾空时也不会忽前忽后地跳。
+func place_at(ground: Vector2) -> void:
+	_ground = ground
+	z_index = int(ground.y)
+	_sync_pos(0.0)
+
+
+func _sync_pos(height: float) -> void:
+	position = _ground - Vector2(size.x * 0.5, contact_y(size.y) + height)
+
+
 ## 播一次掷骰。value 是已经掷好的结果，本方法只负责演到它。
 ## sides = 6 或 3；fast 用于 AI 掷骰的加速档。
 func play(value: int, sides: int, fast := false) -> void:
 	_rest = REST[_face_for(value, sides)]
 	# 圈数随机只为观感不重复，用的是节点自己的 randf()，不碰 game.rng
 	_spin = Vector3(3.0 + randf() * 2.0, 1.0 + randf() * 2.0, randf() * 1.5)
-	_ground_y = position.y
 	visible = true
 
 	var tw := create_tween()
@@ -68,7 +90,6 @@ func play(value: int, sides: int, fast := false) -> void:
 	_step(1.0)
 	await get_tree().create_timer(0.35 if fast else 0.55).timeout
 	visible = false
-	position.y = _ground_y
 
 
 ## d3 借用同一颗 d6 演：1→2、2→4、3→6，正好落在 1-2 / 3-4 / 5-6 三个色区里。
@@ -80,7 +101,7 @@ func _face_for(value: int, sides: int) -> int:
 func _step(t: float) -> void:
 	var p := 1.0 - pow(1.0 - t, 3.0)                  # easeOutCubic
 	_apply_rot(_rest + (1.0 - p) * _spin * TAU)
-	position.y = _ground_y - _height_at(t)
+	_sync_pos(_height_at(t))
 
 
 ## 下落 → 弹两下 → 停住

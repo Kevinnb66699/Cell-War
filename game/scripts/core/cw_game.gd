@@ -184,14 +184,14 @@ func roll_d3() -> int:
 ## pid = 掷骰的那个玩家，表现层用它决定骰子的阵营色。
 ## 广播给**所有**桥，而不是只给 pid 那一个 —— AI 掷的骰，旁观的人类也得看见。
 ## 同一个桥对象注册给多个玩家时（热座共用一个 UI）按对象去重，只演一次。
-func roll_shown(sides: int, reason: String, pid: int = -1) -> int:
+func roll_shown(sides: int, reason: String, pid: int, at: Vector2i) -> int:
 	var v := rng.randi_range(1, sides)
 	var shown: Array = []
 	for b in bridges.values():
 		if b == null or shown.has(b):
 			continue
 		shown.append(b)
-		await b.show_roll(reason, v, sides, pid)
+		await b.show_roll(reason, v, sides, pid, at)
 	return v
 
 
