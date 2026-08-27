@@ -90,8 +90,9 @@ func _ready() -> void:
 
 ## 由「看哪儿 / 摆到屏幕哪儿 / 放多大」反推相机该站在哪儿。
 ## 抽成 static 是为了让无头测试能直接核对这套换算，不用真开窗口。
-static func camera_pos_for(look_at: Vector2, anchor: Vector2, zoom: float, screen: Vector2) -> Vector2:
-	return look_at - (anchor - screen / 2.0) / zoom
+## 第一个参数别叫 look_at —— Node2D 自带同名方法，会报遮蔽警告。
+static func camera_pos_for(focus: Vector2, anchor: Vector2, zoom: float, screen: Vector2) -> Vector2:
+	return focus - (anchor - screen / 2.0) / zoom
 
 
 func _place_camera() -> void:
