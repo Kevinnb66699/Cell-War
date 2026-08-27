@@ -37,18 +37,16 @@
 <text x="142.6" y="200.0" fill="#7ea395" font-size="9" text-anchor="middle">-2,-4</text>
 <polygon points="187.6,170.0 210.1,183.0 210.1,209.0 187.6,222.0 165.1,209.0 165.1,183.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="187.6" y="200.0" fill="#7ea395" font-size="9" text-anchor="middle">-1,-4</text>
-<polygon points="232.6,170.0 255.2,183.0 255.2,209.0 232.6,222.0 210.1,209.0 210.1,183.0" fill="#3f9d6b" stroke="#7fe0a8" stroke-width="2"/>
-<text x="232.6" y="195.0" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">核</text>
-<text x="232.6" y="208.0" fill="#dceaf5" font-size="9.5" text-anchor="middle">0,-4</text>
+<polygon points="232.6,170.0 255.2,183.0 255.2,209.0 232.6,222.0 210.1,209.0 210.1,183.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
+<text x="232.6" y="200.0" fill="#7ea395" font-size="9" text-anchor="middle">0,-4</text>
 <polygon points="277.7,170.0 300.2,183.0 300.2,209.0 277.7,222.0 255.2,209.0 255.2,183.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="277.7" y="200.0" fill="#7ea395" font-size="9" text-anchor="middle">1,-4</text>
 <polygon points="322.7,170.0 345.2,183.0 345.2,209.0 322.7,222.0 300.2,209.0 300.2,183.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="322.7" y="200.0" fill="#7ea395" font-size="9" text-anchor="middle">2,-4</text>
 <polygon points="367.7,170.0 390.3,183.0 390.3,209.0 367.7,222.0 345.2,209.0 345.2,183.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="367.7" y="200.0" fill="#7ea395" font-size="9" text-anchor="middle">3,-4</text>
-<polygon points="412.8,170.0 435.3,183.0 435.3,209.0 412.8,222.0 390.3,209.0 390.3,183.0" fill="#8f66bd" stroke="#cda6f0" stroke-width="2"/>
-<text x="412.8" y="195.0" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">髓</text>
-<text x="412.8" y="208.0" fill="#dceaf5" font-size="9.5" text-anchor="middle">4,-4</text>
+<polygon points="412.8,170.0 435.3,183.0 435.3,209.0 412.8,222.0 390.3,209.0 390.3,183.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
+<text x="412.8" y="200.0" fill="#7ea395" font-size="9" text-anchor="middle">4,-4</text>
 <polygon points="457.8,170.0 480.3,183.0 480.3,209.0 457.8,222.0 435.3,209.0 435.3,183.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="457.8" y="200.0" fill="#7ea395" font-size="9" text-anchor="middle">5,-4</text>
 <polygon points="502.8,170.0 525.4,183.0 525.4,209.0 502.8,222.0 480.3,209.0 480.3,183.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
@@ -60,14 +58,16 @@
 <text x="165.1" y="239.0" fill="#7ea395" font-size="9" text-anchor="middle">-2,-3</text>
 <polygon points="210.1,209.0 232.6,222.0 232.6,248.0 210.1,261.0 187.6,248.0 187.6,222.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="210.1" y="239.0" fill="#7ea395" font-size="9" text-anchor="middle">-1,-3</text>
-<polygon points="255.2,209.0 277.7,222.0 277.7,248.0 255.2,261.0 232.6,248.0 232.6,222.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
-<text x="255.2" y="239.0" fill="#7ea395" font-size="9" text-anchor="middle">0,-3</text>
+<polygon points="255.2,209.0 277.7,222.0 277.7,248.0 255.2,261.0 232.6,248.0 232.6,222.0" fill="#3f9d6b" stroke="#7fe0a8" stroke-width="2"/>
+<text x="255.2" y="234.0" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">核</text>
+<text x="255.2" y="247.0" fill="#dceaf5" font-size="9.5" text-anchor="middle">0,-3</text>
 <polygon points="300.2,209.0 322.7,222.0 322.7,248.0 300.2,261.0 277.7,248.0 277.7,222.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="300.2" y="239.0" fill="#7ea395" font-size="9" text-anchor="middle">1,-3</text>
 <polygon points="345.2,209.0 367.7,222.0 367.7,248.0 345.2,261.0 322.7,248.0 322.7,222.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="345.2" y="239.0" fill="#7ea395" font-size="9" text-anchor="middle">2,-3</text>
-<polygon points="390.3,209.0 412.8,222.0 412.8,248.0 390.3,261.0 367.7,248.0 367.7,222.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
-<text x="390.3" y="239.0" fill="#7ea395" font-size="9" text-anchor="middle">3,-3</text>
+<polygon points="390.3,209.0 412.8,222.0 412.8,248.0 390.3,261.0 367.7,248.0 367.7,222.0" fill="#8f66bd" stroke="#cda6f0" stroke-width="2"/>
+<text x="390.3" y="234.0" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">髓</text>
+<text x="390.3" y="247.0" fill="#dceaf5" font-size="9.5" text-anchor="middle">3,-3</text>
 <polygon points="435.3,209.0 457.8,222.0 457.8,248.0 435.3,261.0 412.8,248.0 412.8,222.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="435.3" y="239.0" fill="#7ea395" font-size="9" text-anchor="middle">4,-3</text>
 <polygon points="480.3,209.0 502.8,222.0 502.8,248.0 480.3,261.0 457.8,248.0 457.8,222.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
@@ -126,11 +126,11 @@
 <text x="52.5" y="364.0" fill="#dceaf5" font-size="9.5" text-anchor="middle">-6,0</text>
 <polygon points="97.5,326.0 120.1,339.0 120.1,365.0 97.5,378.0 75.0,365.0 75.0,339.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="97.5" y="356.0" fill="#7ea395" font-size="9" text-anchor="middle">-5,0</text>
-<polygon points="142.6,326.0 165.1,339.0 165.1,365.0 142.6,378.0 120.1,365.0 120.1,339.0" fill="#8f66bd" stroke="#cda6f0" stroke-width="2"/>
-<text x="142.6" y="351.0" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">髓</text>
-<text x="142.6" y="364.0" fill="#dceaf5" font-size="9.5" text-anchor="middle">-4,0</text>
-<polygon points="187.6,326.0 210.1,339.0 210.1,365.0 187.6,378.0 165.1,365.0 165.1,339.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
-<text x="187.6" y="356.0" fill="#7ea395" font-size="9" text-anchor="middle">-3,0</text>
+<polygon points="142.6,326.0 165.1,339.0 165.1,365.0 142.6,378.0 120.1,365.0 120.1,339.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
+<text x="142.6" y="356.0" fill="#7ea395" font-size="9" text-anchor="middle">-4,0</text>
+<polygon points="187.6,326.0 210.1,339.0 210.1,365.0 187.6,378.0 165.1,365.0 165.1,339.0" fill="#8f66bd" stroke="#cda6f0" stroke-width="2"/>
+<text x="187.6" y="351.0" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">髓</text>
+<text x="187.6" y="364.0" fill="#dceaf5" font-size="9.5" text-anchor="middle">-3,0</text>
 <polygon points="232.6,326.0 255.2,339.0 255.2,365.0 232.6,378.0 210.1,365.0 210.1,339.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="232.6" y="356.0" fill="#7ea395" font-size="9" text-anchor="middle">-2,0</text>
 <polygon points="277.7,326.0 300.2,339.0 300.2,365.0 277.7,378.0 255.2,365.0 255.2,339.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
@@ -141,11 +141,11 @@
 <text x="367.7" y="356.0" fill="#7ea395" font-size="9" text-anchor="middle">1,0</text>
 <polygon points="412.8,326.0 435.3,339.0 435.3,365.0 412.8,378.0 390.3,365.0 390.3,339.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="412.8" y="356.0" fill="#7ea395" font-size="9" text-anchor="middle">2,0</text>
-<polygon points="457.8,326.0 480.3,339.0 480.3,365.0 457.8,378.0 435.3,365.0 435.3,339.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
-<text x="457.8" y="356.0" fill="#7ea395" font-size="9" text-anchor="middle">3,0</text>
-<polygon points="502.8,326.0 525.4,339.0 525.4,365.0 502.8,378.0 480.3,365.0 480.3,339.0" fill="#3f9d6b" stroke="#7fe0a8" stroke-width="2"/>
-<text x="502.8" y="351.0" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">核</text>
-<text x="502.8" y="364.0" fill="#dceaf5" font-size="9.5" text-anchor="middle">4,0</text>
+<polygon points="457.8,326.0 480.3,339.0 480.3,365.0 457.8,378.0 435.3,365.0 435.3,339.0" fill="#3f9d6b" stroke="#7fe0a8" stroke-width="2"/>
+<text x="457.8" y="351.0" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">核</text>
+<text x="457.8" y="364.0" fill="#dceaf5" font-size="9.5" text-anchor="middle">3,0</text>
+<polygon points="502.8,326.0 525.4,339.0 525.4,365.0 502.8,378.0 480.3,365.0 480.3,339.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
+<text x="502.8" y="356.0" fill="#7ea395" font-size="9" text-anchor="middle">4,0</text>
 <polygon points="547.9,326.0 570.4,339.0 570.4,365.0 547.9,378.0 525.4,365.0 525.4,339.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="547.9" y="356.0" fill="#7ea395" font-size="9" text-anchor="middle">5,0</text>
 <polygon points="592.9,326.0 615.4,339.0 615.4,365.0 592.9,378.0 570.4,365.0 570.4,339.0" fill="#3897b8" stroke="#7fd8f0" stroke-width="2"/>
@@ -203,14 +203,16 @@
 <text x="165.1" y="473.0" fill="#7ea395" font-size="9" text-anchor="middle">-5,3</text>
 <polygon points="210.1,443.0 232.6,456.0 232.6,482.0 210.1,495.0 187.6,482.0 187.6,456.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="210.1" y="473.0" fill="#7ea395" font-size="9" text-anchor="middle">-4,3</text>
-<polygon points="255.2,443.0 277.7,456.0 277.7,482.0 255.2,495.0 232.6,482.0 232.6,456.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
-<text x="255.2" y="473.0" fill="#7ea395" font-size="9" text-anchor="middle">-3,3</text>
+<polygon points="255.2,443.0 277.7,456.0 277.7,482.0 255.2,495.0 232.6,482.0 232.6,456.0" fill="#3f9d6b" stroke="#7fe0a8" stroke-width="2"/>
+<text x="255.2" y="468.0" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">核</text>
+<text x="255.2" y="481.0" fill="#dceaf5" font-size="9.5" text-anchor="middle">-3,3</text>
 <polygon points="300.2,443.0 322.7,456.0 322.7,482.0 300.2,495.0 277.7,482.0 277.7,456.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="300.2" y="473.0" fill="#7ea395" font-size="9" text-anchor="middle">-2,3</text>
 <polygon points="345.2,443.0 367.7,456.0 367.7,482.0 345.2,495.0 322.7,482.0 322.7,456.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="345.2" y="473.0" fill="#7ea395" font-size="9" text-anchor="middle">-1,3</text>
-<polygon points="390.3,443.0 412.8,456.0 412.8,482.0 390.3,495.0 367.7,482.0 367.7,456.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
-<text x="390.3" y="473.0" fill="#7ea395" font-size="9" text-anchor="middle">0,3</text>
+<polygon points="390.3,443.0 412.8,456.0 412.8,482.0 390.3,495.0 367.7,482.0 367.7,456.0" fill="#8f66bd" stroke="#cda6f0" stroke-width="2"/>
+<text x="390.3" y="468.0" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">髓</text>
+<text x="390.3" y="481.0" fill="#dceaf5" font-size="9.5" text-anchor="middle">0,3</text>
 <polygon points="435.3,443.0 457.8,456.0 457.8,482.0 435.3,495.0 412.8,482.0 412.8,456.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="435.3" y="473.0" fill="#7ea395" font-size="9" text-anchor="middle">1,3</text>
 <polygon points="480.3,443.0 502.8,456.0 502.8,482.0 480.3,495.0 457.8,482.0 457.8,456.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
@@ -221,18 +223,16 @@
 <text x="142.6" y="512.0" fill="#7ea395" font-size="9" text-anchor="middle">-6,4</text>
 <polygon points="187.6,482.0 210.1,495.0 210.1,521.0 187.6,534.0 165.1,521.0 165.1,495.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="187.6" y="512.0" fill="#7ea395" font-size="9" text-anchor="middle">-5,4</text>
-<polygon points="232.6,482.0 255.2,495.0 255.2,521.0 232.6,534.0 210.1,521.0 210.1,495.0" fill="#3f9d6b" stroke="#7fe0a8" stroke-width="2"/>
-<text x="232.6" y="507.0" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">核</text>
-<text x="232.6" y="520.0" fill="#dceaf5" font-size="9.5" text-anchor="middle">-4,4</text>
+<polygon points="232.6,482.0 255.2,495.0 255.2,521.0 232.6,534.0 210.1,521.0 210.1,495.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
+<text x="232.6" y="512.0" fill="#7ea395" font-size="9" text-anchor="middle">-4,4</text>
 <polygon points="277.7,482.0 300.2,495.0 300.2,521.0 277.7,534.0 255.2,521.0 255.2,495.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="277.7" y="512.0" fill="#7ea395" font-size="9" text-anchor="middle">-3,4</text>
 <polygon points="322.7,482.0 345.2,495.0 345.2,521.0 322.7,534.0 300.2,521.0 300.2,495.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="322.7" y="512.0" fill="#7ea395" font-size="9" text-anchor="middle">-2,4</text>
 <polygon points="367.7,482.0 390.3,495.0 390.3,521.0 367.7,534.0 345.2,521.0 345.2,495.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="367.7" y="512.0" fill="#7ea395" font-size="9" text-anchor="middle">-1,4</text>
-<polygon points="412.8,482.0 435.3,495.0 435.3,521.0 412.8,534.0 390.3,521.0 390.3,495.0" fill="#8f66bd" stroke="#cda6f0" stroke-width="2"/>
-<text x="412.8" y="507.0" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">髓</text>
-<text x="412.8" y="520.0" fill="#dceaf5" font-size="9.5" text-anchor="middle">0,4</text>
+<polygon points="412.8,482.0 435.3,495.0 435.3,521.0 412.8,534.0 390.3,521.0 390.3,495.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
+<text x="412.8" y="512.0" fill="#7ea395" font-size="9" text-anchor="middle">0,4</text>
 <polygon points="457.8,482.0 480.3,495.0 480.3,521.0 457.8,534.0 435.3,521.0 435.3,495.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
 <text x="457.8" y="512.0" fill="#7ea395" font-size="9" text-anchor="middle">1,4</text>
 <polygon points="502.8,482.0 525.4,495.0 525.4,521.0 502.8,534.0 480.3,521.0 480.3,495.0" fill="#3d6157" stroke="#4d7a6d" stroke-width="2"/>
