@@ -205,8 +205,7 @@ func _sync_cells() -> void:
 		placed[pos] = k + 1
 		var top: Vector2 = board.tile_center(pos)
 		node.position = top + Vector2((k - (n - 1) / 2.0) * STACK_DX, CELL_FOOT_DY)
-		## +2 而不是 +1：+1 是高亮剪影的层，细胞要压在高亮上面
-		node.z_index = int(top.y + board.TOP_FACE_DY) + 2
+		node.z_index = board.tile_z(pos, board.Z_CELL)
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"])
 

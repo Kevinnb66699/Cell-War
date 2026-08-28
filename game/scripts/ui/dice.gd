@@ -62,11 +62,13 @@ static func contact_y(px: float) -> float:
 
 
 ## 把骰子摆到棋盘上某一点（该格顶面中心，用 board.tile_center() 取）。
-## 骰子按**落地点**的 y 参与深度排序，和组织块同一套规则（board.gd 里 z_index = y）：
-## 这样前排组织块会正确盖住骰子底部，而骰子腾空时也不会忽前忽后地跳。
-func place_at(ground: Vector2) -> void:
+##
+## **深度由调用方给**，本节点算不出来：ground 是顶面中心，比贴图中心高 4px，
+## 拿它的 y 当 z 用会比自己那格低 4，骰子会掉到棋盘后面去（2026-08-27 踩过）。
+## 正确的值走 board.tile_z(格, board.Z_DICE) —— 画家算法只有 board.gd 一处说了算。
+func place_at(ground: Vector2, z: int) -> void:
 	_ground = ground
-	z_index = int(ground.y)
+	z_index = z
 	_sync_pos(0.0)
 
 

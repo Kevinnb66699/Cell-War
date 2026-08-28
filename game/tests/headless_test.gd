@@ -901,12 +901,32 @@ func t_dice() -> void:
 	check(cy > d.size.y * 0.5 and cy < d.size.y,
 		"底面接地点在方块中心偏下、且没跑出方块（%.1f / %.0f）" % [cy, d.size.y])
 
-	# 摆位：骰子按落地点的 y 参与深度排序，和组织块同一套规则
-	d.place_at(Vector2(300, 180))
-	check(d.z_index == 180, "骰子按落地点的 y 做深度排序")
+	# 摆位：底面中心要对准落点
+	d.place_at(Vector2(300, 180), 0)
 	check(absf(d.position.x + d.size.x * 0.5 - 300.0) < 0.01
 		and absf(d.position.y + cy - 180.0) < 0.01, "骰子底面中心对准了落点")
 
+	# 深度：骰子必须**压在自己那格上面**、又被前一排盖住。
+	# 上一版这条是拿 place_at 自己算出来的 z 跟自己比，等于什么都没验 ——
+	# 实际骰子的 z 比自己那格低 4（tile_center 给的是顶面中心，比贴图中心高 4px），
+	# 于是被脚下的组织盖住，看起来像"掉到棋盘下面"。团队试玩时才发现。
+	var bd := make_board()
+	var depth_ok := true
+	var layered := true
+	for c in [Vector2i(0, 0), Vector2i(-2, 3), Vector2i(4, -1), Vector2i(0, 6)]:
+		var tile: Sprite2D = bd.map[bd.axial_to_rc(c)]["instance"]
+		d.place_at(bd.tile_center(c), bd.tile_z(c, bd.Z_DICE))
+		if d.z_index <= tile.z_index or d.z_index >= tile.z_index + bd.distance_y:
+			depth_ok = false
+		# 三层的先后：高亮 < 细胞 < 骰子，且都夹在自己那格和前一排之间
+		if not (bd.tile_z(c, bd.Z_MARK) < bd.tile_z(c, bd.Z_CELL)
+				and bd.tile_z(c, bd.Z_CELL) < bd.tile_z(c, bd.Z_DICE)):
+			layered = false
+	check(depth_ok, "骰子压在自己那格上面、又低于前一排（不会掉到棋盘后面）")
+	check(layered, "站在格子上的三层顺序：高亮 < 细胞 < 骰子")
+	check(bd.Z_DICE < bd.distance_y, "最上面那层仍低于前一排的 +%d" % bd.distance_y)
+
+	bd.free()
 	d.free()
 
 

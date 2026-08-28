@@ -247,5 +247,5 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 func show_roll(_reason: String, value: int, sides: int, pid: int, at: Vector2i) -> void:
 	if dice == null or board == null:
 		return
-	dice.place_at(board.tile_center(at))
+	dice.place_at(board.tile_center(at), board.tile_z(at, board.Z_DICE))
 	await dice.play(value, sides, pid not in human_pids)

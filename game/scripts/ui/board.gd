@@ -108,6 +108,25 @@ func _unhandled_input(event: InputEvent) -> void:
 ## 所以高亮**不是描边**，是整格染色。
 const SILHOUETTE := preload("res://assets/shaders/silhouette.gdshader")
 
+
+## ── 站在格子上的东西该用什么 z_index ──────────────────────────
+## 组织块自己是 z = 贴图中心的 y，**前一排是 +20**。所以 above 只能取 1..19：
+## 比自己那格高（不会被脚下这块盖住），又低于前一排（会被前排正确遮住）。
+##
+## **别在别处自己算这个数。** tile_center() 给的是**顶面**中心，比贴图中心高 4px，
+## 拿它的 y 直接当 z 用就会比自己那格低 4，东西会掉到棋盘后面去 ——
+## 骰子就是这么掉下去的（2026-08-27，团队试玩时发现）。
+const Z_MARK := 1    ## 高亮剪影
+const Z_CELL := 2    ## 细胞
+const Z_DICE := 3    ## 骰子
+
+
+func tile_z(a: Vector2i, above: int) -> int:
+	var key := axial_to_rc(a)
+	if not map.has(key):
+		return 0
+	return int(map[key]["position"].y) + above
+
 const MARK_MOVE := Color("30d1fa6e")     ## 可迁移/可移动：免疫青，0x6E ≈ 0.43
 const MARK_ATTACK := Color("ffb03a6e")   ## 可攻击：癌方橙，同混合比例
 const MARK_HOVER := Color("eaf8fc8f")    ## 鼠标所在格：提亮到 0.56
@@ -135,7 +154,7 @@ func set_marks(marks: Dictionary) -> void:
 		s.texture = t.texture
 		s.material = _mark_material
 		s.position = t.position
-		s.z_index = t.z_index + 1
+		s.z_index = tile_z(c, Z_MARK)
 		s.modulate = marks[c]
 		_marks.add_child(s)
 

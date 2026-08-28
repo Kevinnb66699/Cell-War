@@ -12,6 +12,9 @@ extends SceneTree
 ## 没有它就只能截到静止态；不需要就填 -1,-1。
 ## 第四个参数是截图前先让场景自己跑多少秒，用来截对局进行中的画面
 ## （对局是异步跑的，只等那几帧固化只能截到开局）。
+## **可以写成 `1.2,3.4,5.6` 连拍多帧**，文件名自动加后缀 `_1.2.png`。
+## 动画（骰子、渐入、抽卡）非连拍不可 —— 一次一帧的话，起一次 Godot 要半分钟，
+## 光是碰运气撞上那零点几秒的动画就能把时间耗光。
 ##
 ## 第五个参数是「点击脚本」：`x,y@秒数` 用分号隔开，到点就在那个位置点一下。
 ## 交互态（行动栏、目标选择、悬浮框）不点几下根本到不了，而这些恰恰是最需要
@@ -22,7 +25,7 @@ const WARMUP_FRAMES := 10   ## 等字体光栅化、贴图上传、_ready() 里�
 var _out := "user://shot.png"
 var _scene := "res://scenes/Main.tscn"
 var _mouse := Vector2(-1, -1)
-var _wait := 0.0
+var _shots: Array = []   ## 还没拍的时间点，升序
 var _clicks: Array = []   ## [{ at:秒, pos:Vector2 }]，按时间顺序
 var _frames := 0
 var _elapsed := 0.0
@@ -38,7 +41,11 @@ func _initialize() -> void:
 		var xy := args[2].split(",")
 		_mouse = Vector2(float(xy[0]), float(xy[1]))
 	if args.size() > 3:
-		_wait = float(args[3])
+		for t in args[3].split(",", false):
+			_shots.append(float(t))
+	if _shots.is_empty():
+		_shots.append(0.0)
+	_shots.sort()
 	if args.size() > 4 and args[4] != "":
 		for step in args[4].split(";", false):
 			var parts := step.split("@")
@@ -60,12 +67,17 @@ func _process(delta: float) -> bool:
 		Input.parse_input_event(move)
 	while not _clicks.is_empty() and _elapsed >= _clicks[0]["at"]:
 		_click_at(_clicks.pop_front()["pos"])
-	if _frames < WARMUP_FRAMES or _elapsed < _wait or not _clicks.is_empty():
+	if _frames < WARMUP_FRAMES or _elapsed < _shots[0]:
 		return false
+	var at: float = _shots.pop_front()
+	var path := _out
+	if not _shots.is_empty() or at != 0.0:
+		path = "%s_%s.png" % [_out.trim_suffix(".png"), str(at)]
 	var img := root.get_texture().get_image()
-	var err := img.save_png(_out)
-	print("截图 %dx%d -> %s (err=%d)" % [img.get_width(), img.get_height(), _out, err])
-	return true
+	var err := img.save_png(path)
+	print("截图 %dx%d @%.2fs -> %s (err=%d)"
+		% [img.get_width(), img.get_height(), _elapsed, path, err])
+	return _shots.is_empty()
 
 
 ## 先挪过去再按下抬起 —— 只发按下事件的话，悬停态和按钮的 mouse_entered 都不会触发。
