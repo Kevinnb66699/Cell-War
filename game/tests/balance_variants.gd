@@ -84,21 +84,18 @@ func _run_variant(tune: CWTuning, n_players: int) -> Dictionary:
 	var by_limit := 0
 	var cancerous_sum := 0
 	for gi in GAMES:
-		var g := CWGame.new()
-		g.tune = tune
-		g.init(CWData.FACTION_ORDER[n_players], BASE_SEED + gi)
-		for pid in g.order:
-			var b := CWHeuristicBridge.new()
-			b.game = g
-			g.bridges[pid] = b
-		var w: int = await g.run_game()
+		var s := ElmSession.new()
+		s.init_game(CWData.FACTION_ORDER[n_players], BASE_SEED + gi, tune)
+		var res := s.run_full()
+		var w: int = res["winner"]
 		if w == CWData.Faction.CANCER:
 			cancer_wins += 1
-		if g.win_kind.begins_with("limit_"):
+		if String(res["win_kind"]).begins_with("limit_"):
 			by_limit += 1
-		rounds_sum += g.round_no
-		cancerous_sum += g.count_tissue(CWData.Tissue.CANCER) 			+ g.count_tissue(CWData.Tissue.SOLID)
-		g.dispose()
+		rounds_sum += res["round_no"]
+		cancerous_sum += s.count_tissue(CWData.Tissue.CANCER) \
+			+ s.count_tissue(CWData.Tissue.SOLID)
+		s.dispose()
 	return {
 		"cancer": cancer_wins, "rounds": float(rounds_sum) / GAMES, "by_limit": by_limit,
 		"cancerous": float(cancerous_sum) / GAMES,

@@ -29,25 +29,22 @@ func _run() -> void:
 		type_wins[t] = 0
 
 	for gi in GAMES:
-		var g := CWGame.new()
-		g.init(CWData.FACTION_ORDER[N_PLAYERS], BASE_SEED + gi)
-		for pid in g.order:
-			var b := CWHeuristicBridge.new()
-			b.game = g
-			g.bridges[pid] = b
-		var w: int = await g.run_game()
+		var s := ElmSession.new()
+		s.init_game(CWData.FACTION_ORDER[N_PLAYERS], BASE_SEED + gi)
+		var res := s.run_full()
+		var w: int = res["winner"]
 		wins[w] += 1
-		kinds[g.win_kind] = kinds.get(g.win_kind, 0) + 1
-		rounds_sum += g.round_no
-		cancerous_sum += g.count_tissue(CWData.Tissue.CANCER) + g.count_tissue(CWData.Tissue.SOLID)
-		memory_sum += g.memory
-		level_sum += g.immune_level
-		for p in g.players:
+		kinds[res["win_kind"]] = kinds.get(res["win_kind"], 0) + 1
+		rounds_sum += res["round_no"]
+		cancerous_sum += s.count_tissue(CWData.Tissue.CANCER) + s.count_tissue(CWData.Tissue.SOLID)
+		memory_sum += s.memory
+		level_sum += s.immune_level
+		for p in s.players:
 			if p["faction"] == CWData.Faction.CANCER:
 				type_games[p["cancer_type"]] += 1
 				if w == CWData.Faction.CANCER:
 					type_wins[p["cancer_type"]] += 1
-		g.dispose()
+		s.dispose()
 		if (gi + 1) % 10 == 0:
 			print("  …%d/%d 局完成" % [gi + 1, GAMES])
 

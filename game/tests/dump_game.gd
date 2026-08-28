@@ -17,22 +17,17 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var g := CWGame.new()
-	g.tune = tuning()
-	g.init(CWData.FACTION_ORDER[N_PLAYERS], SEED)
-	for pid in g.order:
-		var b := CWHeuristicBridge.new()
-		b.game = g
-		g.bridges[pid] = b
-	await g.run_game()
-	for line in g.logs:
+	var s := ElmSession.new()
+	s.init_game(CWData.FACTION_ORDER[N_PLAYERS], SEED, tuning())
+	s.run_full()
+	for line in s.logs:
 		print(line)
 	print("\n---- 终局统计 ----")
 	print("回合 %d｜癌组织 %d｜固化 %d｜健康 %d｜抗原记忆 %d" % [
-		g.round_no, g.count_tissue(CWData.Tissue.CANCER),
-		g.count_tissue(CWData.Tissue.SOLID), g.count_tissue(CWData.Tissue.HEALTHY), g.memory])
-	for c in g.cells:
-		print("  %s：%s，能量 %s，位置 %s" % [g.cell_name(c),
+		s.round_no, s.count_tissue(CWData.Tissue.CANCER),
+		s.count_tissue(CWData.Tissue.SOLID), s.count_tissue(CWData.Tissue.HEALTHY), s.memory])
+	for c in s.cells:
+		print("  %s：%s，能量 %s，位置 %s" % [s.cell_name(c),
 			"存活" if c["alive"] else "死亡", CWData.fmt(c["energy"]), str(c["pos"])])
-	g.dispose()
+	s.dispose()
 	quit(0)

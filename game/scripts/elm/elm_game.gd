@@ -168,8 +168,18 @@ static func _advance_turn(s: Dictionary, effects: Array) -> void:
 	var guard := 0
 	while guard < 300:
 		guard += 1
-		# 胜负：任何环节判定结束，立即收尾（对应 run_all 的 winner 检查）
+		# 胜负：任何环节判定结束，立即收尾（对应 run_all 的 winner 检查）。
+		# 复刻 cw_turn 语义：玩家回合**中途**触发胜负（如杀掉最后一个癌细胞）时，
+		# 该玩家的「结束回合」日志仍无条件打（_run_player_turn 的 while 之后无条件打），
+		# 后续玩家才因 winner 检查跳过 —— 迁移时这条被漏掉（elm_session_test seed=42 抓到）。
 		if s["winner"] >= 0:
+			if int(s["turn_index"]) < s["order"].size() \
+					and s["turn_open_pid"] == s["order"][s["turn_index"]]:
+				var pid_end: int = s["order"][s["turn_index"]]
+				var cell_end: Dictionary = cell_of(s, pid_end)
+				add_log(s, effects, "　%s 结束回合（能量 %s）" % [
+					s["players"][pid_end]["name"], CWData.fmt(cell_end["energy"])])
+				s["turn_open_pid"] = -1
 			s["pc"] = "DONE"
 			return
 		if int(s["turn_index"]) >= s["order"].size():
