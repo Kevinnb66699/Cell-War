@@ -269,9 +269,12 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 	return ""
 
 
-## 把骰子摆到目标格旁边演一次。AI 掷的骰走快档，免得旁观太磨。
-func show_roll(_reason: String, value: int, sides: int, pid: int, at: Vector2i) -> void:
+## 把骰子摆到目标格旁边演一次。
+## **AI 和人类同一档速度**（团队 2026-08-27 定）：原先 AI 走快档，
+## 结果同一件事在不同回合有两种节奏，反而显得乱。
+## `CWDice.play()` 的快档参数保留着，将来做「加速观战」时直接接上。
+func show_roll(_reason: String, value: int, sides: int, _pid: int, at: Vector2i) -> void:
 	if dice == null or board == null:
 		return
 	dice.place_at(board.tile_center(at), board.tile_z(at, board.Z_DICE))
-	await dice.play(value, sides, pid not in human_pids)
+	await dice.play(value, sides)

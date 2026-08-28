@@ -75,10 +75,13 @@ func _back_to_menu() -> void:
 		return
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
-	match_node.teardown()
+	## 淡出和镜头退回**同时进行**：镜头一边拉远，棋盘上的东西一边消失。
+	## 真正的拆解等淡完再做 —— 先 teardown 的话棋盘会瞬间清空，就没得淡了。
+	match_node.fade_out(T_BACK * 0.8)
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_tween.tween_method(_look, 1.0, 0.0, T_BACK)
 	await _tween.finished
+	match_node.teardown()
 	menu.appear(T_MENU_IN)
 	_entering = false
 

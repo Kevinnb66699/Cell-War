@@ -132,31 +132,101 @@ const MARK_ATTACK := Color("ffb03a6e")   ## 可攻击：癌方橙，同混合比
 const MARK_HOVER := Color("eaf8fc8f")    ## 鼠标所在格：提亮到 0.56
 const MARK_SELF := Color("eaf8fc47")     ## 当前行动的细胞脚下：淡到 0.28
 
-var _marks: Node2D                  ## 高亮剪影的容器
+var _marks: Node2D                  ## 高亮剪影与过场用的临时叠层
 var _mark_material: ShaderMaterial  ## 所有剪影共用一份
+
+## 高亮的淡入淡出时长。**不能直接建/删节点**——候选格「啪」地整片出现太硬
+## （团队 2026-08-27 反馈）。所以节点要复用：每帧重建的话补间永远走不完。
+const MARK_FADE := 0.22
+
+var _mark_nodes := {}    ## 轴坐标 -> Sprite2D
+var _mark_target := {}   ## 轴坐标 -> 目标颜色；set_marks 传进来的那个
+var _mark_tweens := {}   ## 轴坐标 -> 正在跑的补间
 
 
 ## 设置高亮：marks = { 轴坐标: 颜色 }。每次调用整体替换，传空字典即清空。
+## 颜色的 alpha 就是与原格的混合比例（设计稿的候选格是 #30D1FA、alpha 0.43）。
 ##
 ## 一格一个节点、而不是一次性 _draw() 画完，是为了让高亮也吃组织块那套画家算法：
-## 剪影的 z_index 只比自己那格高 1，仍然低于前一排的 +20，
-## 于是前排会正确盖住高亮的下半截 —— 高亮贴在棋盘上，而不是浮在整张棋盘上面。
+## 剪影的 z 只比自己那格高 1，仍然低于前一排，前排会正确盖住高亮的下半截 ——
+## 高亮贴在棋盘上，而不是浮在整张棋盘上面。
+##
+## **本方法每帧都会被调用**（CWMatch 是全量刷新），所以目标没变时必须什么都不做，
+## 否则补间会被无限重启、永远淡不完。
 func set_marks(marks: Dictionary) -> void:
-	for child in _marks.get_children():
-		_marks.remove_child(child)   ## queue_free 是延迟的，同一帧内连调两次会叠加
-		child.queue_free()
+	for c: Vector2i in _mark_target.keys():
+		if not marks.has(c):
+			_mark_target.erase(c)
+			var leaving: Sprite2D = _mark_nodes[c]
+			_animate(c, Color(leaving.modulate.r, leaving.modulate.g,
+				leaving.modulate.b, 0.0), true)
 	for c: Vector2i in marks:
+		var want: Color = marks[c]
+		if _mark_target.get(c) == want:
+			continue
+		_mark_target[c] = want
+		if not _mark_nodes.has(c):
+			var made := _make_mark(c, want)
+			if made == null:
+				_mark_target.erase(c)
+				continue
+			_mark_nodes[c] = made
+		_animate(c, want, false)
+
+
+## 把癌性组织交叉淡回健康组织（返回主菜单时用）。
+## 直接换贴图会「啪」地一下；而两种贴图的**图案**不同，单靠调色也淡不过去 ——
+## 所以在每格上盖一张健康贴图、alpha 0→1，淡完再把底下那张换掉、撤掉盖的那张。
+func fade_to_healthy(seconds: float) -> void:
+	for c in CWData.all_coords():
 		var key := axial_to_rc(c)
 		if not map.has(key):
 			continue
-		var t: Sprite2D = map[key]["instance"]
-		var s := Sprite2D.new()
-		s.texture = t.texture
-		s.material = _mark_material
-		s.position = t.position
-		s.z_index = tile_z(c, Z_MARK)
-		s.modulate = marks[c]
-		_marks.add_child(s)
+		var tile: Sprite2D = map[key]["instance"]
+		var want: Texture2D = TISSUE_TEX[CWData.special_of(c)][0]
+		if tile.texture == want:
+			continue
+		var over := Sprite2D.new()
+		over.texture = want
+		over.position = tile.position
+		over.z_index = tile_z(c, Z_MARK)
+		over.modulate.a = 0.0
+		_marks.add_child(over)
+		var tw := over.create_tween()
+		tw.tween_property(over, "modulate:a", 1.0, seconds)
+		tw.tween_callback(func() -> void:
+			tile.texture = want
+			over.queue_free())
+
+
+func _make_mark(c: Vector2i, want: Color) -> Sprite2D:
+	var key := axial_to_rc(c)
+	if not map.has(key):
+		return null
+	var tile: Sprite2D = map[key]["instance"]
+	var s := Sprite2D.new()
+	s.texture = tile.texture
+	s.material = _mark_material
+	s.position = tile.position
+	s.z_index = tile_z(c, Z_MARK)
+	s.modulate = Color(want.r, want.g, want.b, 0.0)   ## 从全透明淡进来
+	_marks.add_child(s)
+	return s
+
+
+func _animate(c: Vector2i, to: Color, leaving: bool) -> void:
+	var s: Sprite2D = _mark_nodes[c]
+	var running: Tween = _mark_tweens.get(c)
+	if running != null and running.is_valid():
+		running.kill()                ## 半路改目标（比如悬停）时接着当前值走
+	var tw := s.create_tween()
+	tw.tween_property(s, "modulate", to, MARK_FADE)
+	_mark_tweens[c] = tw
+	if leaving:
+		tw.tween_callback(func() -> void:
+			_mark_nodes.erase(c)
+			_mark_tweens.erase(c)
+			s.queue_free())
 
 
 ## ── 按对局状态换贴图 ────────────────────────────────────────────

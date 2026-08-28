@@ -445,12 +445,20 @@ func t_hex_pick() -> void:
 	check(ok_out, "棋盘外的 %d 个点都返回 NO_TILE" % outside.size())
 
 	# ⑤ 高亮层：整体替换语义 + 清空
+	## 查的是**目标集合**而不是节点数 —— 高亮是淡入淡出的，
+	## 撤掉的那一格要等淡完才真的删掉，节点会滞留一小会儿。
 	board.set_marks({ Vector2i(0, 0): board.MARK_MOVE, Vector2i(1, 0): board.MARK_ATTACK })
-	check(board._marks.get_child_count() == 2, "设置 2 格高亮")
-	board.set_marks({ Vector2i(3, -1): board.MARK_HOVER })
-	check(board._marks.get_child_count() == 1, "再次设置是整体替换而非追加")
+	check(board._mark_target.size() == 2, "设置 2 格高亮")
+	check(board._mark_nodes[Vector2i(0, 0)].modulate.a < board.MARK_MOVE.a,
+		"新出现的高亮从透明淡进来，不是「啪」地出现")
+	var first_node: Node = board._mark_nodes[Vector2i(0, 0)]
+	board.set_marks({ Vector2i(0, 0): board.MARK_HOVER, Vector2i(3, -1): board.MARK_MOVE })
+	check(board._mark_target.size() == 2 and board._mark_target.has(Vector2i(3, -1))
+		and not board._mark_target.has(Vector2i(1, 0)), "再次设置是整体替换而非追加")
+	check(board._mark_nodes[Vector2i(0, 0)] == first_node,
+		"还在的那一格复用同一个节点（不然补间每帧都会被重建打断）")
 	board.set_marks({})
-	check(board._marks.get_child_count() == 0, "空字典清空高亮")
+	check(board._mark_target.is_empty(), "空字典清空高亮")
 
 	board.free()
 
@@ -484,9 +492,9 @@ func t_ui_bridge() -> void:
 	check(stub.played[0]["value"] == 5 and stub.played[0]["sides"] == 6,
 		"点数与面数原样传给演出（表现层无权改结果）")
 	check(stub._ground == board.tile_center(at), "骰子落在引擎指定的那一格")
-	check(stub.played[0]["fast"], "AI 掷的骰走快档")
 	await b.show_roll("攻击", 3, 6, 0, at)
-	check(not stub.played[1]["fast"], "人类掷的骰走慢档")
+	check(not stub.played[0]["fast"] and not stub.played[1]["fast"],
+		"AI 和人类同一档速度（团队 2026-08-27 定：两种节奏反而显得乱）")
 
 	# 人类以外的位置退回启发式 AI —— 界面能一种一种做，对局始终跑得通
 	var idx: int = await b.ask({ "kind": "confirm", "tag": "lyse_purge", "pid": 1,
@@ -751,6 +759,33 @@ func t_pause_and_teardown() -> void:
 	check(pm.visible and pm.get_tree().paused, "非选目标时 Esc 打开菜单并真的暂停")
 	pm._unhandled_input(esc)
 	check(not pm.visible and not pm.get_tree().paused, "再按一次关掉并解除暂停")
+
+	# ①b 「返回主菜单 / 退出游戏」要先过一道确认（团队 2026-08-27 要求：两项都不可撤销）
+	var fired: Array = []
+	pm.chose.connect(func(a: String) -> void: fired.append(a))
+	pm.open()
+	check(pm._glow.visible and pm._glow.get_child_count() == CWPauseMenu.GLOW.size(),
+		"选中项有辉光（%d 层，和主菜单同一套）" % CWPauseMenu.GLOW.size())
+	check((pm._glow.get_child(0) as Label).text == pm._list[pm._selected]["text"],
+		"辉光跟着选中项走")
+	var back_at := -1
+	for i in CWPauseMenu.ITEMS.size():
+		if CWPauseMenu.ITEMS[i]["id"] == "menu":
+			back_at = i
+	pm._activate(back_at)
+	check(fired.is_empty(), "点「返回主菜单」不直接执行")
+	check(pm._confirming == "menu" and pm._list.size() == 2, "先进确认页")
+	check(pm._list[pm._selected]["id"] == "no", "确认页默认停在「取消」上，回车不会顺手确认")
+	pm._unhandled_input(esc)
+	check(pm._confirming == "" and pm.visible, "确认页上按 Esc 退回上一层，不是关掉整个菜单")
+	pm._activate(back_at)
+	pm._activate(1)                      ## 「取消」
+	check(fired.is_empty() and pm._confirming == "", "选「取消」退回主列表，什么都没执行")
+	pm._activate(back_at)
+	pm._activate(0)                      ## 「确定」
+	check(fired.size() == 1 and fired[0] == "menu", "确认之后才真的执行")
+	check(not pm.visible and not pm.get_tree().paused, "执行时菜单收起并解除暂停")
+	pm.active = false
 
 	# ② 拆局：棋盘要擦回开局前
 	## 交给 AI 打（不然 start() 会停在「请玩家落子」那一问上，一个细胞都还没有，

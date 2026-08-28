@@ -284,7 +284,7 @@ offset_bottom = 496.0
 theme_override_colors/font_color = Color(0.811765, 0.886275, 0.901961, 1)
 theme_override_fonts/font = SubResource("FontVariation_px20")
 theme_override_font_sizes/font_size = 20
-text = "退出"
+text = "退出游戏"
 
 [node name="Ver" type="Label" parent="UI/Screen"]
 anchors_preset = 3

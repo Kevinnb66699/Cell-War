@@ -80,6 +80,8 @@ var _bloom := {}      ## 开场还没揭开的格子：一律先按健康组织�
 var _hand_seen := {}  ## pid -> 上一帧的手牌数，用来认出「刚抽了一张」
 var _hand_pid := -1   ## 抽屉正在显示谁的手牌
 var _opening := false ## 正在演开场；start() 会把它带给桥（桥是 start() 里才建的）
+var _fading := false  ## 正在演返场淡出：这期间**必须停掉每帧刷新**，
+                      ## 否则 _sync_tiles 会把刚淡成健康的格子又刷回癌性
 var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
 
 
@@ -99,8 +101,14 @@ func _ready() -> void:
 
 
 func start() -> void:
+	_fading = false
+	if _cells_root != null:
+		_cells_root.modulate.a = 1.0     ## 上一局淡出留下的，开新局要还原
 	if ui != null:
 		ui.visible = true
+		for c in ui.get_children():
+			if c is Control:
+				(c as Control).modulate.a = 1.0
 	if pause_menu != null:
 		pause_menu.active = true
 	game = CWGame.new()
@@ -169,11 +177,37 @@ func _run() -> void:
 	finished.emit(winner)
 
 
+## 返场淡出：让棋盘上的东西**淡着消失**，而不是啪地不见（团队 2026-08-27 反馈）。
+## 真正的拆解由 teardown() 在淡完之后做 —— 这里只管演。
+##
+## 第一件事是把对局叫停：不然淡出途中 AI 还在走棋、组织还在变色，
+## 一边淡一边动，看起来像出了故障。
+func fade_out(seconds: float) -> void:
+	if game == null or _fading:
+		return
+	game.aborted = true
+	if bridge != null:
+		bridge.abort()
+	_fading = true
+	board.set_marks({})                      ## 高亮自己会淡掉
+	board.fade_to_healthy(seconds)
+	if _cells_root != null:
+		var tw := _cells_root.create_tween()
+		tw.tween_property(_cells_root, "modulate:a", 0.0, seconds)
+	## HUD 稍微早一点淡完 —— 它不在棋盘上，跟着棋盘一起慢慢消反而拖沓
+	if ui != null:
+		for c in ui.get_children():
+			if c is Control and (c as Control).visible:
+				var ui_tw := (c as Control).create_tween()
+				ui_tw.tween_property(c, "modulate:a", 0.0, seconds * 0.6)
+
+
 ## 拆掉当前这一局，把棋盘擦回开局前的样子。
 ##
 ## 返回主菜单必须走这里：棋盘和相机是**和菜单共用的同一份**，
 ## 不擦干净的话上一局的癌组织和细胞会留在菜单背景里。
 func teardown() -> void:
+	_fading = false
 	if game != null:
 		## 顺序要紧：先让引擎收摊、再唤醒卡住的询问（它会同步一路展开回来），
 		## **最后**才 dispose。反过来的话展开途中会碰到已经置空的模块。
@@ -216,7 +250,7 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
-	if game == null or game.tiles.is_empty():
+	if game == null or game.tiles.is_empty() or _fading:
 		return
 	for c: Vector2i in _flash.keys():
 		_flash[c] -= delta
