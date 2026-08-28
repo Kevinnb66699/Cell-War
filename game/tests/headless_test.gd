@@ -33,6 +33,7 @@ func _run_all() -> void:
 	t_match_panel()
 	await t_opening()
 	await t_pause_and_teardown()
+	t_hand()
 	t_main_menu()
 	await t_roll_hook()
 	t_dice()
@@ -775,6 +776,38 @@ func t_pause_and_teardown() -> void:
 	check(m.game != null and m.game.count_tissue(CWData.Tissue.CANCER) > 0, "拆完还能再开一局")
 	m.teardown()
 	main_scene.queue_free()
+
+# ---- 手牌抽屉 ----
+## 手牌上限规则**还没定**，所以张数多了必须自己压缩间距 ——
+## 按设计稿那个 52 的固定间距，第 6 张就开始盖到右下角的行动栏上。
+## 这种越界只在手牌攒多了才出现，正常试玩很可能一直撞不到。
+func t_hand() -> void:
+	print("[手牌抽屉]")
+	var h := CWHand.new()
+	root.add_child(h)
+
+	h.sync(5)
+	check(h._cards.size() == 5, "手牌 5 张")
+	check(is_equal_approx(h._stagger(), CWHand.STAGGER), "5 张以内用设计稿的间距 52")
+
+	var overflow := 0
+	for n in [1, 5, 6, 8, 12, 20]:
+		h.sync(n)
+		if h._slot(n - 1).x + CWHand.CARD.x > CWActionBar.BAR_RECT.position.x:
+			overflow += 1
+	check(overflow == 0, "1..20 张都没越过行动栏左缘 %d" % int(CWActionBar.BAR_RECT.position.x))
+
+	## 抬起 86px 之后整张卡正好落在画布内（顶 428、底 540）——
+	## 86 这个数就是这么定的，改高度或改 top 都得跟着重算
+	check(CWHand.REST_TOP - CWHand.LIFT + CWHand.CARD.y == CWView.screen_size().y,
+		"悬停抬起后整张卡刚好铺到画布底边")
+	check(CWHand.CARD.x - CWHand.STAGGER == CWHand.PUSH,
+		"推开量正好等于重叠量 %d（推完两边就不再压着抬起的那张）"
+		% int(CWHand.CARD.x - CWHand.STAGGER))
+
+	h.sync(0)
+	check(h._cards.is_empty(), "手牌清空")
+	h.queue_free()
 
 # ---- 主菜单：三条会被「别处改动」悄悄弄坏的约束 ----
 # ① 装饰细胞踩的那五格，得真的在棋盘上。地图改版时最容易漏掉的就是这种硬写的坐标。

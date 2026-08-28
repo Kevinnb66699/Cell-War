@@ -21,6 +21,7 @@ signal finished(winner: int)
 @export var panel_path: NodePath = ^"UI/Panel"
 @export var ui_path: NodePath = ^"UI"
 @export var pause_path: NodePath = ^"UI/Pause"
+@export var hand_path: NodePath = ^"UI/Hand"
 
 @export var player_count := 4
 ## 哪几个位置由人来打；留空 = 一局可观战的 AI 互搏
@@ -69,12 +70,15 @@ var bridge: CWUIBridge
 ## 不关的话主菜单右边会凭空多出一条空竖条（2026-08-27 接上 Main 后出现的）。
 @onready var ui: CanvasLayer = get_node_or_null(ui_path)
 @onready var pause_menu: CWPauseMenu = get_node_or_null(pause_path)
+@onready var hand: CWHand = get_node_or_null(hand_path)
 
 var _dice: CWDice
 var _cells_root: Node2D
 var _cell_nodes: Array[Node2D] = []   ## 下标 = cell["id"]，和 game.cells 一一对应
 var _was_alive: Array[bool] = []      ## 上一帧的存活状态，用来认出「复活」这一下
 var _bloom := {}      ## 开场还没揭开的格子：一律先按健康组织画
+var _hand_seen := {}  ## pid -> 上一帧的手牌数，用来认出「刚抽了一张」
+var _hand_pid := -1   ## 抽屉正在显示谁的手牌
 var _opening := false ## 正在演开场；start() 会把它带给桥（桥是 start() 里才建的）
 var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
 
@@ -181,6 +185,10 @@ func teardown() -> void:
 	_was_alive.clear()
 	_bloom.clear()
 	_flash.clear()
+	_hand_seen.clear()
+	_hand_pid = -1
+	if hand != null:
+		hand.clear()
 	## 退出游戏时 _exit_tree 也会走到这里，那时棋盘可能已经被释放了
 	if is_instance_valid(board):
 		for c in CWData.all_coords():
@@ -211,6 +219,7 @@ func _process(delta: float) -> void:
 			_flash.erase(c)
 	_sync_tiles()
 	_sync_cells()
+	_sync_hand()
 	if panel != null:
 		panel.refresh(game)
 
@@ -260,6 +269,32 @@ func _sync_cells() -> void:
 		node.z_index = board.tile_z(pos, board.Z_CELL)
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"])
+
+
+## 手牌抽屉。抽到的卡从**发起抽卡的那个细胞**身上飞出来 ——
+## 让「是谁抽的」这件事自己说清楚，而不是凭空出现在角落里。
+##
+## 显示谁的手牌：轮到哪个人类玩家就显示谁的；不是人类回合时保持上一次。
+## （热座还没定案，定了之后这里就是现成的。）
+func _sync_hand() -> void:
+	if hand == null or human_players.is_empty():
+		return
+	if game.current_pid in human_players:
+		_hand_pid = game.current_pid
+	elif _hand_pid < 0:
+		_hand_pid = human_players[0]
+	if _hand_pid >= game.cells.size():
+		return                       ## 开局布置阶段，这个人还没落子
+	var cell: Dictionary = game.cell_of(_hand_pid)
+	var n: int = cell["hand"]
+	var was: int = _hand_seen.get(_hand_pid, -1)
+	if was == n:
+		return
+	_hand_seen[_hand_pid] = n
+	if was >= 0 and n > was:
+		hand.deal_from(n, CWView.board_to_screen(camera, board.tile_center(cell["pos"])))
+	else:
+		hand.sync(n)                 ## 首次显示 / 换人 / 打出去了：直接就位，不演
 
 
 func _make_cell_node(cell: Dictionary) -> Node2D:

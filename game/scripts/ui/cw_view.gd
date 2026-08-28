@@ -49,6 +49,13 @@ static func board_origin(board: Node2D) -> Vector2:
 	return board.tile_center(Vector2i.ZERO) + Vector2(0, board.TOP_FACE_DY)
 
 
+## 棋盘上的一点 → 屏幕坐标。
+## HUD 挂在 CanvasLayer 上、用的是屏幕坐标系，所以「从棋盘上某个细胞身上飞出一张卡」
+## 这类跨层动画必须先换算一次。
+static func board_to_screen(camera: Camera2D, p: Vector2) -> Vector2:
+	return screen_size() / 2.0 + (p - camera.position) * camera.zoom.x
+
+
 ## 把相机摆到指定机位。
 static func apply(camera: Camera2D, board: Node2D, zoom: float,
 		look_at: Vector2, anchor: Vector2) -> void:
