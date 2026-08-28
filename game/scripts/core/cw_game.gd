@@ -18,6 +18,10 @@ var memory := 0            # 免疫方抗原记忆（阵营共享）
 var immune_level := 0      # 0..3 = I/II/III/X，只升不降
 var differentiated: Array = []   # 已被分化占用的免疫种类（每种全阵营限一个）
 var winner := -1           # -1 未分胜负；否则 CWData.Faction
+# 下面两个纯粹是给界面看的：「现在是哪个阶段、轮到谁」本来只存在于控制流里，
+# 界面问不出来。不参与 state_hash，也不影响任何结算。
+var phase := ""            # 开局布置 / 世界回合 S / 玩家回合 / 世界回合 E
+var current_pid := -1      # 正在行动的玩家；非玩家回合时为 -1
 var win_reason := ""
 var win_kind := ""         # immune_clear / cancer_weighted / limit_cancer / limit_immune（统计用）
 var rng := RandomNumberGenerator.new()
@@ -61,14 +65,18 @@ func init(faction_list: Array, seed_value: int) -> void:
 
 ## 跑完整局，返回胜方阵营。调用方负责在之后 dispose()。
 func run_game() -> int:
+	phase = "开局布置"
 	await setup.run()
 	while winner < 0:
+		phase = "世界回合 S"
 		await world.s_phase()
 		if winner >= 0:
 			break
+		phase = "玩家回合"
 		await turn.run_all()
 		if winner >= 0:
 			break
+		phase = "世界回合 E"
 		world.e_phase()
 		if winner >= 0:
 			break

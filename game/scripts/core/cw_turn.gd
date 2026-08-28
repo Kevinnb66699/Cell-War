@@ -22,6 +22,7 @@ func run_all() -> void:
 
 
 func _run_player_turn(pid: int, cell: Dictionary) -> void:
+	game.current_pid = pid    ## 只给界面看，见 CWGame.current_pid
 	game.log_msg("▶ %s 的回合（能量 %s）" % [game.player(pid)["name"], CWData.fmt(cell["energy"])])
 	var guard := 0
 	while guard < MAX_ACTIONS_PER_TURN and game.winner < 0 and cell["alive"]:
@@ -37,3 +38,4 @@ func _run_player_turn(pid: int, cell: Dictionary) -> void:
 			break
 		await game.actions.execute(cell, data)
 	game.log_msg("　%s 结束回合（能量 %s）" % [game.player(pid)["name"], CWData.fmt(cell["energy"])])
+	game.current_pid = -1

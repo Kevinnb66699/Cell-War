@@ -30,6 +30,7 @@ func _run_all() -> void:
 	t_hex_pick()
 	await t_ui_bridge()
 	await t_human_ask()
+	t_match_panel()
 	t_main_menu()
 	await t_roll_hook()
 	t_dice()
@@ -598,7 +599,23 @@ func t_human_ask() -> void:
 	await process_frame
 	check(r3[0] == 3, "结束回合映射到最后一个选项")
 
-	# ④ 非人类玩家不该弹界面
+	# ④ 有右侧竖条时，「结束回合」搬去面板底部，不再占行动栏
+	var panel := CWMatchPanel.new()
+	root.add_child(panel)
+	b.panel = panel
+	var r5 := [-99]
+	var run5 := func() -> void: r5[0] = await b.ask(areq)
+	run5.call()
+	check(_buttons(bar) == 2, "有面板时行动栏只剩迁移和基因表达")
+	check(panel._end != null and panel._end.visible, "面板底部的结束回合亮起来了")
+	panel.end_turn_pressed.emit()
+	await process_frame
+	check(r5[0] == 3, "按面板上的结束回合 → 仍映射到引擎的最后一个选项")
+	check(not panel._end.visible, "答完后结束回合收起")
+	b.panel = null
+	panel.queue_free()
+
+	# ⑤ 非人类玩家不该弹界面
 	var r4 := [-99]
 	var run4 := func() -> void: r4[0] = await b.ask({ "kind": "confirm", "tag": "lyse_purge",
 		"pid": 1, "prompt": "", "options": [{ "label": "净化", "data": {} },
@@ -607,7 +624,7 @@ func t_human_ask() -> void:
 	await process_frame
 	check(r4[0] == 0 and not bar.visible, "轮到 AI 时不弹界面，直接由 AI 作答")
 
-	# ⑤ 新增主动技能却忘了在行动栏登记 → 按钮会显示成 act 的英文名。
+	# ⑥ 新增主动技能却忘了在行动栏登记 → 按钮会显示成 act 的英文名。
 	#    跑一整局把实际出现过的 act 收齐，逐个核对。
 	var g2 := CWGame.new()
 	g2.init(CWData.FACTION_ORDER[4], 20260827)
@@ -627,6 +644,38 @@ func t_human_ask() -> void:
 	g2.dispose()
 	board.queue_free()
 	bar.queue_free()
+
+# ---- 右侧竖条 ----
+## 这块的高度是按**最挤的 6 人局**配平的：五块加起来 530，只余 10px。
+## 随手把哪一块调高一点，4 人局完全看不出问题，只有 6 人局会溢出到屏幕外——
+## 所以这里专门盯 6 人局。
+func t_match_panel() -> void:
+	print("[右侧竖条]")
+	var p := CWMatchPanel.new()
+	root.add_child(p)
+
+	p._build(6)
+	var end_top: float = p._end.position.y
+	check(p._level_y + CWMatchPanel.LEVEL_H <= end_top,
+		"6 人局：免疫等级块（底 %d）不和结束回合（顶 %d）打架"
+		% [p._level_y + CWMatchPanel.LEVEL_H, end_top])
+	check(end_top + CWMatchPanel.END_H + CWMatchPanel.PAD == CWMatchPanel.RECT.size.y,
+		"结束回合钉在底部，下面正好留出 %d 内边距" % CWMatchPanel.PAD)
+	check(not p._end.visible, "默认不显示结束回合（轮到别人时整条行动入口都收掉）")
+
+	## 面板宽度必须和对局机位让出的那一条严丝合缝，否则棋盘要么被压要么留缝
+	check(int(CWMatchPanel.RECT.size.x) == CWView.PANEL_WIDTH
+		and CWMatchPanel.RECT.position.x == 960 - CWView.PANEL_WIDTH,
+		"竖条宽度与对局机位让出的 %d px 一致" % CWView.PANEL_WIDTH)
+
+	## 「下一次世界事件在第几回合」：第 3、6、10、15，之后每 5 个
+	var ev := true
+	for pair in [[1, 3], [3, 3], [4, 6], [7, 10], [11, 15], [16, 20], [21, 25]]:
+		if p._next_event_round(pair[0]) != pair[1]:
+			ev = false
+	check(ev, "世界事件回合表：3 / 6 / 10 / 15 之后每 5 个")
+
+	p.queue_free()
 
 # ---- 主菜单：三条会被「别处改动」悄悄弄坏的约束 ----
 # ① 装饰细胞踩的那五格，得真的在棋盘上。地图改版时最容易漏掉的就是这种硬写的坐标。

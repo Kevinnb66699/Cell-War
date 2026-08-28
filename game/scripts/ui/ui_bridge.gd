@@ -16,6 +16,7 @@ extends CWHeuristicBridge
 var board: Node2D          ## 取格子像素位置、收点选事件都只问它（架构约定 #10）
 var dice: CWDice
 var bar: CWActionBar
+var panel: CWMatchPanel
 var human_pids: Array[int] = []
 
 ## 本桥希望棋盘上高亮哪些格子：{ 轴坐标: 颜色 }。
@@ -87,13 +88,18 @@ func _ask_action(req: Dictionary) -> int:
 		if not moves.is_empty():
 			buttons.append({ "title": _move_title(cell), "cost": _move_cost_text(options, moves) })
 			values.append("move")
+		## 「结束回合」定稿是钉在右侧竖条底部的，不占行动栏；没有面板时才退回按钮栏
+		var end_value: Variant = null
 		for i in options.size():
 			var act: String = options[i]["data"]["act"]
 			if act == "move":
 				continue
+			if act == "end" and panel != null:
+				end_value = i
+				continue
 			buttons.append({ "title": ACT_TITLE.get(act, act), "cost": _cost_text(cell, act) })
 			values.append(i)
-		var got: Variant = await _prompt("", "", buttons, values, {})
+		var got: Variant = await _prompt("", "", buttons, values, {}, end_value)
 		if not (got is String):
 			return got as int
 		## 进目标选择态；取消就回到按钮栏重来
@@ -133,13 +139,20 @@ func _ask_generic(req: Dictionary) -> int:
 
 ## 摆出一栏按钮 + 一组可点的格子，等玩家二选一，返回被选中那项的值。
 ## title 为空 = 技能栏形态（靠右一条）；否则 = 目标选择态（整条横过来，左边带提示）。
+## end_value 非 null 时，右侧竖条底部的「结束回合」也算这一问的一个答案，
+## 按下它就返回该值。选目标格时传 null，那个按钮会一起收掉。
 func _prompt(title: String, hint: String, buttons: Array, values: Array,
-		tiles: Dictionary) -> Variant:
+		tiles: Dictionary, end_value: Variant = null) -> Variant:
 	_tiles = tiles
 	_repaint_marks()
 	bar.show_bar(title, hint, buttons)
 	var ans := Answer.new()
 	var on_button := func(i: int) -> void: ans.fire(values[i])
+	var on_end := func() -> void: ans.fire(end_value)
+	if panel != null:
+		panel.show_end_turn(end_value != null)
+		if end_value != null:
+			panel.end_turn_pressed.connect(on_end)
 	var on_tile := func(c: Vector2i) -> void:
 		if tiles.has(c):
 			ans.fire(tiles[c])
@@ -148,6 +161,8 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	board.tile_clicked.connect(on_tile)
 	board.tile_hovered.connect(on_hover)
 	var got: Variant = await ans.done
+	if panel != null and end_value != null:
+		panel.end_turn_pressed.disconnect(on_end)
 	bar.chosen.disconnect(on_button)
 	board.tile_clicked.disconnect(on_tile)
 	board.tile_hovered.disconnect(on_hover)
@@ -173,6 +188,8 @@ func _clear_ui() -> void:
 	_tiles = {}
 	if bar != null:
 		bar.clear()
+	if panel != null:
+		panel.show_end_turn(false)
 
 
 # ---- 按钮文案 ----

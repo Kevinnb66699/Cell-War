@@ -16,6 +16,7 @@ signal finished(winner: int)
 @export var board_path: NodePath = ^"Board"
 @export var camera_path: NodePath = ^"Camera2D"
 @export var action_bar_path: NodePath = ^"UI/ActionBar"
+@export var panel_path: NodePath = ^"UI/Panel"
 
 @export var player_count := 4
 ## 哪几个位置由人来打；留空 = 一局可观战的 AI 互搏
@@ -48,23 +49,11 @@ var bridge: CWUIBridge
 @onready var board: Node2D = get_node(board_path)
 @onready var camera: Camera2D = get_node(camera_path)
 @onready var action_bar: CWActionBar = get_node_or_null(action_bar_path)
+@onready var panel: CWMatchPanel = get_node_or_null(panel_path)
 
 var _dice: CWDice
 var _cells_root: Node2D
 var _cell_nodes: Array[Node2D] = []   ## 下标 = cell["id"]，和 game.cells 一一对应
-
-
-## 癌细胞占位图形。
-## **癌细胞精灵一张都还没有** —— PRD 把种类换成 4 种真实癌症之后，旧的 6 种全部作废。
-## 这里故意用几何形状占位，而不是拿免疫细胞的贴图改个色：改色会让人以为那就是美术。
-## 美术到位后本内部类整个删掉，和免疫细胞一样换成 Sprite2D 即可。
-class CancerBlob:
-	extends Node2D
-	const R := 9.0
-	func _draw() -> void:
-		draw_circle(Vector2(0, -R), R, Color("8a4a12"))
-		draw_circle(Vector2(0, -R), R - 2.0, Color("ffb03a"))
-		draw_circle(Vector2(0, -R - 1.0), 3.0, Color("8a4a12"))
 
 
 func _ready() -> void:
@@ -88,6 +77,7 @@ func start() -> void:
 	bridge.board = board
 	bridge.dice = _dice
 	bridge.bar = action_bar
+	bridge.panel = panel
 	bridge.human_pids = human_players
 	bridge.delay_ms = ai_delay_ms
 	bridge.delay_node = self
@@ -115,6 +105,8 @@ func _process(_delta: float) -> void:
 		return
 	_sync_tiles()
 	_sync_cells()
+	if panel != null:
+		panel.refresh(game)
 
 
 func _sync_tiles() -> void:
@@ -162,7 +154,7 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 	if cell["faction"] == CWData.Faction.IMMUNE:
 		node = Sprite2D.new()
 	else:
-		node = CancerBlob.new()
+		node = CWCancerBlob.new()
 	_cells_root.add_child(node)
 	return node
 
