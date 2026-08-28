@@ -21,12 +21,8 @@ signal start_requested
 @onready var camera: Camera2D = get_node(camera_path)  ## 菜单机位就是对局用的那台相机
 
 
-## ── 机位（对应原型的 CAM_MENU）────────────────────────────────
-## 相机模型：把棋盘上的「看点」摆到屏幕的「锚点」位置，再按 zoom 放大。
-## 将来做推进过场，就是在这一组参数和对局机位之间插值。
-const MENU_ZOOM := 3.2
-const MENU_LOOK_AT := Vector2(-40, -10)  ## 看点：相对中央格贴图中心的偏移（棋盘像素）
-const MENU_ANCHOR := Vector2(595, 227)   ## 锚点：看点落在 960×540 画布上的哪个位置
+## 机位参数和换算都在 [CWView]。放那儿是因为对局机位要用同一套，
+## 而「开始对局」的推进过场就是在这两组参数之间插值 —— 摆在一起才看得出关系。
 
 
 ## ── 装饰细胞 ──────────────────────────────────────────────────
@@ -88,22 +84,8 @@ func _ready() -> void:
 	_repaint()
 
 
-## 由「看哪儿 / 摆到屏幕哪儿 / 放多大」反推相机该站在哪儿。
-## 抽成 static 是为了让无头测试能直接核对这套换算，不用真开窗口。
-## 第一个参数别叫 look_at —— Node2D 自带同名方法，会报遮蔽警告。
-static func camera_pos_for(focus: Vector2, anchor: Vector2, zoom: float, screen: Vector2) -> Vector2:
-	return focus - (anchor - screen / 2.0) / zoom
-
-
 func _place_camera() -> void:
-	## 中央格的贴图中心 —— tile_center() 给的是顶面中心，加回那 4px 才是贴图中心，
-	## 而原型的 (cx,cy) 是相对贴图中心量的。
-	var origin: Vector2 = board.tile_center(Vector2i.ZERO) + Vector2(0, board.TOP_FACE_DY)
-	var screen := Vector2(
-		ProjectSettings.get_setting("display/window/size/viewport_width"),
-		ProjectSettings.get_setting("display/window/size/viewport_height"))
-	camera.zoom = Vector2(MENU_ZOOM, MENU_ZOOM)
-	camera.position = camera_pos_for(origin + MENU_LOOK_AT, MENU_ANCHOR, MENU_ZOOM, screen)
+	CWView.apply(camera, board, CWView.MENU_ZOOM, CWView.MENU_LOOK_AT, CWView.MENU_ANCHOR)
 
 
 func _spawn_decor() -> void:

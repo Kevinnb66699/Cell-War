@@ -28,6 +28,7 @@ func _run_all() -> void:
 	await t_determinism()
 	t_board_view()
 	t_hex_pick()
+	await t_ui_bridge()
 	t_main_menu()
 	await t_roll_hook()
 	t_dice()
@@ -446,6 +447,60 @@ func t_hex_pick() -> void:
 
 	board.free()
 
+# ---- 演出桥 ----
+## 只记账、不真播动画的骰子。真播一次要 1.9 秒，而这里要验的不是动画本身
+## （那是 t_dice 的活），是**桥有没有把骰子摆到引擎指定的那一格**——
+## 摆错格子肉眼很难发现：骰子照样会掉下来，只是掉在别处。
+class StubDice:
+	extends CWDice
+	var played: Array = []
+	func play(value: int, sides: int, fast := false) -> void:
+		played.append({ "value": value, "sides": sides, "fast": fast })
+
+
+func t_ui_bridge() -> void:
+	print("[演出桥]")
+	var board := make_board()
+	var g := CWGame.new()
+	g.init(CWData.FACTION_ORDER[2], 7)
+	var b := CWUIBridge.new()
+	b.game = g
+	b.board = board
+	var stub := StubDice.new()
+	stub._ready()
+	b.dice = stub
+	b.human_pids = [0]
+
+	var at := Vector2i(2, -3)
+	await b.show_roll("攻击", 5, 6, 1, at)
+	check(stub.played.size() == 1, "show_roll 真的演了一次（不是死代码）")
+	check(stub.played[0]["value"] == 5 and stub.played[0]["sides"] == 6,
+		"点数与面数原样传给演出（表现层无权改结果）")
+	check(stub._ground == board.tile_center(at), "骰子落在引擎指定的那一格")
+	check(stub.played[0]["fast"], "AI 掷的骰走快档")
+	await b.show_roll("攻击", 3, 6, 0, at)
+	check(not stub.played[1]["fast"], "人类掷的骰走慢档")
+
+	# 人类以外的位置退回启发式 AI —— 界面能一种一种做，对局始终跑得通
+	var idx: int = await b.ask({ "kind": "confirm", "tag": "lyse_purge", "pid": 1,
+		"prompt": "", "options": [{ "label": "净化", "data": {} }, { "label": "暂不", "data": {} }] })
+	check(idx == 0, "非人类玩家的询问退回启发式 AI")
+	check(b.marks.is_empty(), "桥默认不请求任何高亮")
+
+	# 高亮色要能逐像素还原设计稿：健康组织主色 #2E4A41 叠一层 MARK_MOVE 之后
+	# 必须变成 board_pick.png 里的 #2F8491。这条守的是设计还原度，
+	# 着色器本身对不对只能靠截图看（见 silhouette.gdshader 的注释）。
+	var base := Color8(0x2E, 0x4A, 0x41)
+	var mv: Color = board.MARK_MOVE
+	var got := base.lerp(Color(mv.r, mv.g, mv.b), mv.a)
+	var want := Color8(0x2F, 0x84, 0x91)
+	check(abs(got.r - want.r) < 0.006 and abs(got.g - want.g) < 0.006
+			and abs(got.b - want.b) < 0.006, "候选格高亮叠色后与设计稿一致")
+
+	g.dispose()
+	board.free()
+	stub.free()
+
 # ---- 主菜单：三条会被「别处改动」悄悄弄坏的约束 ----
 # ① 装饰细胞踩的那五格，得真的在棋盘上。地图改版时最容易漏掉的就是这种硬写的坐标。
 # ② 机位换算得可逆：把相机摆到算出来的位置，看点必须正好落在设计稿标的锚点上。
@@ -470,9 +525,9 @@ func t_main_menu() -> void:
 	# 机位：把相机摆到算出来的位置后，看点应当正好投影到锚点上
 	var screen := Vector2(960, 540)
 	var look_at := Vector2(123, -45)
-	var anchor: Vector2 = menu_script.MENU_ANCHOR
-	var zoom: float = menu_script.MENU_ZOOM
-	var cam: Vector2 = menu_script.camera_pos_for(look_at, anchor, zoom, screen)
+	var anchor := CWView.MENU_ANCHOR
+	var zoom := CWView.MENU_ZOOM
+	var cam := CWView.camera_pos_for(look_at, anchor, zoom, screen)
 	var projected: Vector2 = screen / 2.0 + (look_at - cam) * zoom
 	check(projected.distance_to(anchor) < 0.001, "机位换算可逆（看点落在锚点 %s 上）" % anchor)
 

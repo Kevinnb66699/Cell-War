@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/match.gd" id="1_match"]
+[ext_resource type="PackedScene" uid="uid://c86nmocjqgsrh" path="res://scenes/Board.tscn" id="2_board"]
+
+[node name="Match" type="Node2D"]
+script = ExtResource("1_match")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+
+[node name="Board" parent="." instance=ExtResource("2_board")]

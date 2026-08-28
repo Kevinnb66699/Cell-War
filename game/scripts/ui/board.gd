@@ -111,6 +111,29 @@ func set_marks(marks: Dictionary) -> void:
 		_marks.add_child(s)
 
 
+## ── 按对局状态换贴图 ────────────────────────────────────────────
+## 贴图表：每种特殊组织一对 [健康, 癌性]。
+## **固化癌组织暂时和普通癌组织同贴图**（硬化外壳还没画），靠 set_marks() 的色标区分；
+## **癌变血管也没有贴图**，两种状态都用同一张 vessel.png。两处都等美术。
+const TISSUE_TEX := {
+	CWData.Special.NONE: [HEALTH, CANCER],
+	CWData.Special.CORE: [ENERGYH, ENERGYC],
+	CWData.Special.MARROW: [MARROWH, MARROWC],
+	CWData.Special.VESSEL: [VESSEL, VESSEL],
+}
+
+
+## 贴图没变就什么都不做，所以对局那边可以每帧无脑全刷 127 格，不必自己记脏标记。
+func set_tissue(a: Vector2i, tissue: int, special: int) -> void:
+	var key := axial_to_rc(a)
+	if not map.has(key):
+		return
+	var t: Sprite2D = map[key]["instance"]
+	var tex: Texture2D = TISSUE_TEX[special][0 if tissue == CWData.Tissue.HEALTHY else 1]
+	if t.texture != tex:
+		t.texture = tex
+
+
 func new_tissue(i, j, x, y):
 	var new_t = TISSUE.instantiate()
 	new_t.position = Vector2(x, y)

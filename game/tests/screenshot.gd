@@ -5,17 +5,21 @@ extends SceneTree
 ## 光看代码看不出对没对上，得把图摆在一起看。所以不并进 headless_test.gd。
 ##
 ## **不能加 --headless**，需要真的渲染：
-##   godot --path game --script res://tests/screenshot.gd -- <输出路径.png> [场景路径] [鼠标x,y]
+##   godot --path game --script res://tests/screenshot.gd -- <输出路径.png> [场景路径] [鼠标x,y] [等待秒数]
 ##
 ## 第三个参数会先把鼠标挪过去再截图 —— 悬停态也是要跟设计稿对的，
-## 没有它就只能截到静止态。
+## 没有它就只能截到静止态；不需要就填 -1,-1。
+## 第四个参数是截图前先让场景自己跑多少秒，用来截对局进行中的画面
+## （对局是异步跑的，只等那几帧固化只能截到开局）。
 
 const WARMUP_FRAMES := 10   ## 等字体光栅化、贴图上传、_ready() 里的布局都落定
 
 var _out := "user://shot.png"
 var _scene := "res://scenes/Main.tscn"
 var _mouse := Vector2(-1, -1)
+var _wait := 0.0
 var _frames := 0
+var _elapsed := 0.0
 
 
 func _initialize() -> void:
@@ -27,11 +31,14 @@ func _initialize() -> void:
 	if args.size() > 2:
 		var xy := args[2].split(",")
 		_mouse = Vector2(float(xy[0]), float(xy[1]))
+	if args.size() > 3:
+		_wait = float(args[3])
 	root.add_child(load(_scene).instantiate())
 
 
-func _process(_delta: float) -> bool:
+func _process(delta: float) -> bool:
 	_frames += 1
+	_elapsed += delta
 	if _frames == 1 and _mouse.x >= 0:
 		## 走 parse_input_event 而不是 warp_mouse：要的是让控件收到 mouse_entered，
 		## 光把光标挪过去不会触发。
@@ -39,7 +46,7 @@ func _process(_delta: float) -> bool:
 		move.position = _mouse
 		move.global_position = _mouse
 		Input.parse_input_event(move)
-	if _frames < WARMUP_FRAMES:
+	if _frames < WARMUP_FRAMES or _elapsed < _wait:
 		return false
 	var img := root.get_texture().get_image()
 	var err := img.save_png(_out)
