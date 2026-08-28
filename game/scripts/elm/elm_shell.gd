@@ -1,36 +1,47 @@
-## elm_shell.gd -- 外壳：唯一接触外部世界。
+## elm_shell.gd -- 外壳：状态机的**推动者**（事件源）。
 ##
-## 循环 update -> 执行 effects -> 把决策变 msg 喂回。
-##   · ask    -> 问桥拿 idx（唯一让逻辑停的点）
-##   · roll_show -> 进演出队列，不 await（逻辑不等动画，UI 异步追赶）
-##   · log    -> 打印
-## core 不碰桥，桥是 shell 的插件。状态链 append 每步新 state。
+## 状态机不等待；shell 读 state 决定发什么 msg 来推动它：
+##   · state 在 ask（pending != null）-> 读 pending 构造 req 问桥，发 decision msg
+##   · state 在内部环节（pending == null）-> 发 step msg 推进
+##   · state 已 DONE -> 停
+## effects 里：roll_show 进演出队列（不阻塞），log 打印，ask 是通知（shell 已读
+## state.pending 驱动，不依赖此 effect，但 UI 可订阅它来高亮）。
 class_name ElmShell
 extends RefCounted
 
-## 鸭子类型：桥只要有 `func ask(req) -> int` 即可（AI / UI / 联机对端是不同实现）
+## 鸭子类型：桥只要有 `func ask(req) -> int` 即可
 var bridge
 
 
 func run(seed_value: int, n_players: int) -> Dictionary:
 	var state := ElmCore.make_initial_state(seed_value, n_players)
 	var chain: Array = [state]
-	var rolls: Array = []  # 演出队列：roll_show effect 收集于此，UI 异步播，逻辑不等
-	var msg: Dictionary = {}
+	var rolls: Array = []  # 演出队列：UI 异步播，逻辑不等
 	var steps := 0
 	while state.pc != "DONE" and steps < 1000:
+		# shell 是驱动者：读 state 决定发什么 msg
+		var msg: Dictionary
+		if state.pending != null:
+			# state 停在 ask：外界读 pending 知道问什么，发 decision 推动
+			var req: Dictionary = {
+				"kind": state.pending["kind"],
+				"options": state.pending["options"],
+			}
+			var idx: int = bridge.ask(req)
+			msg = { "kind": "decision", "idx": idx }
+		else:
+			# state 在内部环节：发 step 推进
+			msg = { "kind": "step" }
 		var r := ElmCore.update(state, msg)
 		state = r["state"]
 		chain.append(state)
-		msg = {}  # 默认空（纯推进）；若遇到 ask 则填 decision
 		for fx in r["effects"]:
 			match fx["kind"]:
-				"ask":
-					var idx: int = bridge.ask(fx["req"])
-					msg = { "kind": "decision", "idx": idx }
 				"roll_show":
-					rolls.append(fx)  # 不 await，逻辑继续
+					rolls.append(fx)
 				"log":
 					print("[log] " + String(fx.get("text", "")))
+				"ask":
+					pass  # 通知；shell 已读 state.pending 驱动
 		steps += 1
 	return { "state": state, "chain": chain, "steps": steps, "rolls": rolls }
