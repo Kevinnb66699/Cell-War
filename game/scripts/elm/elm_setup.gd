@@ -8,7 +8,7 @@ extends RefCounted
 
 
 # ---- 建棋盘 ----
-static func build_board(s: Dictionary) -> void:
+static func build_board(s: Dictionary, _effects: Array) -> void:
 	for c in CWData.all_coords():
 		s["tiles"][c] = make_tile(c)
 
@@ -40,7 +40,7 @@ static func make_cell(id: int, pid: int, faction: int, pos: Vector2i,
 
 
 # ---- 初始癌组织（BFS 自中央格向外铺，跳过特殊组织）----
-static func place_initial_cancer(s: Dictionary) -> void:
+static func place_initial_cancer(s: Dictionary, effects: Array) -> void:
 	var target: int = s["tune"].init_cancer_tiles
 	var chosen: Array[Vector2i] = [Vector2i.ZERO]
 	var frontier: Array[Vector2i] = [Vector2i.ZERO]
@@ -59,11 +59,13 @@ static func place_initial_cancer(s: Dictionary) -> void:
 			frontier.append(n)
 	for c in chosen:
 		s["tiles"][c]["tissue"] = CWData.Tissue.CANCER
-	s["logs"].append("初始癌组织：自中央格向外铺 %d 格" % chosen.size())
+	ElmGame.add_log(s, effects, "初始癌组织：自中央格向外铺 %d 格" % chosen.size())
+	if CWData.special_of(Vector2i.ZERO) != CWData.Special.NONE:
+		ElmGame.add_log(s, effects, "⚠ 中央格是特殊组织，与「癌组织不得与特殊组织重合」冲突（见说明 #34）")
 
 
 # ---- 抽癌种类（每个癌症玩家独立抽、同局不重复，消耗 rng）----
-static func assign_cancer_types(s: Dictionary) -> void:
+static func assign_cancer_types(s: Dictionary, effects: Array) -> void:
 	var pool: Array = CWData.CancerType.values()
 	for pid in s["order"]:
 		var p: Dictionary = ElmGame.player(s, pid)
@@ -74,7 +76,7 @@ static func assign_cancer_types(s: Dictionary) -> void:
 		var t: int = rr["picked"][0]
 		pool.erase(t)
 		p["cancer_type"] = t
-		s["logs"].append("%s 抽到种类：%s" % [p["name"], CWData.CANCER_TYPE_NAMES[t]])
+		ElmGame.add_log(s, effects, "%s 抽到种类：%s" % [p["name"], CWData.CANCER_TYPE_NAMES[t]])
 
 
 # ---- 落子选项（癌→癌组织 / 免疫→健康组织，不能与敌对细胞同格）----
@@ -94,7 +96,7 @@ static func place_options(s: Dictionary, p: Dictionary) -> Array:
 
 
 # ---- 应用落子（复刻 cw_setup._place_cells 的落子段）----
-static func apply_place(s: Dictionary, idx: int) -> void:
+static func apply_place(s: Dictionary, idx: int, effects: Array) -> void:
 	var pending: Dictionary = s["pending"]
 	var pid: int = pending["pid"]
 	var p: Dictionary = ElmGame.player(s, pid)
@@ -106,11 +108,11 @@ static func apply_place(s: Dictionary, idx: int) -> void:
 	var energy: int = s["tune"].init_energy_immune if p["faction"] == CWData.Faction.IMMUNE \
 		else s["tune"].init_energy_cancer
 	s["cells"].append(make_cell(s["cells"].size(), pid, p["faction"], pos, itype, ctype, energy))
-	s["logs"].append("%s 落子于 %s" % [p["name"], str(pos)])
+	ElmGame.add_log(s, effects, "%s 落子于 %s" % [p["name"], str(pos)])
 
 
 # ---- 原发灶（癌出生格开局即固化，给癌方一次复活容错）----
-static func place_primary_lesions(s: Dictionary) -> void:
+static func place_primary_lesions(s: Dictionary, effects: Array) -> void:
 	if not s["tune"].solid_at_cancer_spawn:
 		return
 	var marked := {}
@@ -123,20 +125,4 @@ static func place_primary_lesions(s: Dictionary) -> void:
 		t["tissue"] = CWData.Tissue.SOLID
 		t["solid"] = s["tune"].solidify_threshold
 	if not marked.is_empty():
-		s["logs"].append("【原发灶】癌细胞出生的 %d 格转为固化癌组织" % marked.size())
-
-
-# ---- 树突【标记】光环：相邻即获得，只增不减 ----
-static func update_marks(s: Dictionary) -> void:
-	for c in ElmGame.living_cells(s, CWData.Faction.CANCER):
-		if c["marked"]:
-			continue
-		for n in CWData.neighbors(c["pos"]):
-			var found := false
-			for ic in ElmGame.cells_at(s, n, CWData.Faction.IMMUNE):
-				if ic["itype"] == CWData.ImmuneType.DENDRITIC:
-					found = true
-					break
-			if found:
-				c["marked"] = true
-				break
+		ElmGame.add_log(s, effects, "【原发灶】癌细胞出生的 %d 格转为固化癌组织" % marked.size())
