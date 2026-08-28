@@ -27,6 +27,7 @@ func _run_all() -> void:
 	await t_full_game_4p()
 	await t_determinism()
 	t_board_view()
+	t_hex_pick()
 	t_main_menu()
 	await t_roll_hook()
 	t_dice()
@@ -57,6 +58,22 @@ func make_game(n_players: int, seed_value: int) -> CWGame:
 		b.game = g
 		g.bridges[pid] = b
 	return g
+
+
+## 建一块棋盘并立刻生成格子（不入场景树，直接触发 _ready）。
+## 一定要走这里，别自己 instantiate —— 脚本解析失败时 Godot 只打印错误、
+## 照样返回一个光秃秃的 Node2D，之后每个 check 都不会执行，而 fails 仍是 0，
+## 于是测试**假装通过**（2026-08-27 真踩到了：board.gd 一处类型推断写错，
+## 报「全部测试通过（61 项）」，实际有两个测试整个没跑）。
+## 判据只能用 has_method()：脚本解析失败时 Godot 会挂一个 MissingResource 占位，
+## get_script() 照样非空 —— 问它等于没问（这一条也是当场试出来的）。
+func make_board() -> Node2D:
+	var board: Node2D = load("res://scenes/Board.tscn").instantiate()
+	check(board.has_method("hex_at"), "Board.tscn 的脚本解析通过")
+	if not board.has_method("hex_at"):
+		return board       ## 脚本没挂上，_ready() 只会再刷一屏错误
+	board._ready()
+	return board
 
 
 # ---- 棋盘 ----
@@ -342,8 +359,7 @@ func t_determinism() -> void:
 # 2026-08-27 之前渲染层自己抄了一份特殊组织下标，地图改版后没跟上——这组检查就是防这个。
 func t_board_view() -> void:
 	print("[棋盘渲染]")
-	var board = load("res://scenes/Board.tscn").instantiate()
-	board._ready()   # 不入场景树，直接触发生成
+	var board := make_board()
 
 	check(board.map.size() == CWData.TOTAL_TILES, "渲染出 %d 格" % CWData.TOTAL_TILES)
 
@@ -374,6 +390,62 @@ func t_board_view() -> void:
 	board.free()
 
 
+# ---- 棋盘点选 ----
+# hex_at() 是 tile_center() 的逆。两者一旦对不上，点哪儿都是错的格子，
+# 而且错得很隐蔽（只差一格、还跟着鼠标位置变），所以这里逐格核对，不抽样。
+func t_hex_pick() -> void:
+	print("[棋盘点选]")
+	var board := make_board()
+
+	# ① 每一格的顶面中心都得点回它自己
+	var exact := 0
+	for c in CWData.all_coords():
+		if board.hex_at(board.tile_center(c)) == c:
+			exact += 1
+	check(exact == CWData.TOTAL_TILES,
+		"127 格的中心都点回自己（%d/%d）" % [exact, CWData.TOTAL_TILES])
+
+	# ② 格内抖动仍要命中同一格。这几个偏移都在压扁六边形的内部
+	#    （横向内切半径 18，正上方的顶点在 36/√3/1.559 ≈ 13.3）。
+	var jitter := [Vector2(15, 0), Vector2(-15, 0), Vector2(0, 12), Vector2(0, -12),
+		Vector2(10, 5), Vector2(-10, -5)]
+	var ok_jitter := true
+	for c in CWData.all_coords():
+		for d in jitter:
+			if board.hex_at(board.tile_center(c) + d) != c:
+				ok_jitter = false
+	check(ok_jitter, "格内抖动 %d 个方向仍命中同一格" % jitter.size())
+
+	# ③ 相邻两格的中点必须落在这两格之一。若有第三格来抢，说明纵向校正系数算错了
+	#    —— 这正是「压扁网格直接套六边形公式」会犯的错。
+	var ok_mid := true
+	for c in CWData.all_coords():
+		for n in CWData.neighbors(c):
+			var mid: Vector2 = (board.tile_center(c) + board.tile_center(n)) / 2.0
+			var hit: Vector2i = board.hex_at(mid)
+			if hit != c and hit != n:
+				ok_mid = false
+	check(ok_mid, "相邻格中点只会命中这两格之一")
+
+	# ④ 棋盘之外必须判为没点中，否则外缘格会把整个屏幕外侧都吸进来
+	var outside := [Vector2(0, -400), Vector2(0, 400), Vector2(-900, 0), Vector2(900, 0),
+		board.tile_center(Vector2i(0, 6)) + Vector2(0, 60)]
+	var ok_out := true
+	for pt in outside:
+		if board.hex_at(pt) != board.NO_TILE:
+			ok_out = false
+	check(ok_out, "棋盘外的 %d 个点都返回 NO_TILE" % outside.size())
+
+	# ⑤ 高亮层：整体替换语义 + 清空
+	board.set_marks({ Vector2i(0, 0): board.MARK_MOVE, Vector2i(1, 0): board.MARK_ATTACK })
+	check(board._marks.get_child_count() == 2, "设置 2 格高亮")
+	board.set_marks({ Vector2i(3, -1): board.MARK_HOVER })
+	check(board._marks.get_child_count() == 1, "再次设置是整体替换而非追加")
+	board.set_marks({})
+	check(board._marks.get_child_count() == 0, "空字典清空高亮")
+
+	board.free()
+
 # ---- 主菜单：三条会被「别处改动」悄悄弄坏的约束 ----
 # ① 装饰细胞踩的那五格，得真的在棋盘上。地图改版时最容易漏掉的就是这种硬写的坐标。
 # ② 机位换算得可逆：把相机摆到算出来的位置，看点必须正好落在设计稿标的锚点上。
@@ -383,8 +455,7 @@ func t_board_view() -> void:
 func t_main_menu() -> void:
 	print("[主菜单]")
 	var menu_script := load("res://scripts/ui/main_menu.gd")
-	var board = load("res://scenes/Board.tscn").instantiate()
-	board._ready()
+	var board := make_board()
 
 	var all_on := true
 	var all_rendered := true

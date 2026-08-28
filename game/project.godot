@@ -1,6 +1,10 @@
 ; Engine configuration file.
 ; It's best edited using the editor UI and not directly,
 ; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
@@ -14,16 +18,11 @@ config/features=PackedStringArray("4.5", "Forward Plus")
 
 [display]
 
-; 设计分辨率 960x540 —— 和界面原型的画布同尺寸，原型里的 1cqw 正好换算成 9.6px。
-; 1080p 全屏恰好是整数 2 倍，点阵字与像素贴图都能整数放大不糊。
 window/size/viewport_width=960
 window/size/viewport_height=540
-window/size/resizable=true
 window/stretch/mode="canvas_items"
-window/stretch/aspect="keep"
 
 [rendering]
 
-; 像素贴图必须用最近邻，否则 32×34 的组织块会被插值糊掉
 textures/canvas_textures/default_texture_filter=0
 environment/defaults/default_clear_color=Color(0.08, 0.12, 0.18, 1)

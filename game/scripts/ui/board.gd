@@ -45,6 +45,72 @@ func tile_center(a: Vector2i) -> Vector2:
 	return map[key]["position"] - Vector2(0, TOP_FACE_DY)
 
 
+## 没点中任何格子时 hex_at() 的返回值。轴坐标本身有负数，所以用哨兵而不是 -1。
+const NO_TILE := Vector2i(9999, 9999)
+
+## 像素 → 轴坐标，tile_center() 的逆运算；点在棋盘外返回 NO_TILE。
+##
+## 本文件的布局横距 36、纵距 20、隔行错半格，于是相邻格的偏移只有
+## (±36, 0) 和 (±18, ±20) 两类 —— 把纵向按 36·√3/2 ÷ 20 ≈ 1.559 拉回去之后
+## 这六个偏移的长度全等于 36，也就是说**这是一张被压扁的标准正六边形网格**。
+## 所以在拉正的空间里找「最近的顶面中心」就等于真正的六边形命中判定
+## （正六边形网格的最近点划分正是它自己），不用去解压扁投影的反函数。
+##
+## 比到自身外接圆半径 36/√3 还远就算没点中 —— 这一条挡掉棋盘外缘之外的点击，
+## 否则边上的格子会把整个屏幕外侧都吸进来。
+## 127 格全遍历，一次点击几微秒，没有建索引的必要。
+func hex_at(p: Vector2) -> Vector2i:
+	var squash: float = distance_x * sqrt(3.0) / 2.0 / distance_y
+	var best := NO_TILE
+	var best_d: float = distance_x / sqrt(3.0)
+	for c in CWData.all_coords():
+		var d: Vector2 = p - tile_center(c)
+		var dist := Vector2(d.x, d.y * squash).length()
+		if dist < best_d:
+			best_d = dist
+			best = c
+	return best
+
+
+## ── 高亮层 ──────────────────────────────────────────────────────
+## 高亮 = 在格子上叠一张同贴图的纯色剪影，alpha 即混合比例。
+## 比例和颜色是从设计稿 board_pick.png 逐像素反解出来的：改动过的每个像素
+## 都正好等于 lerp(原色, #30D1FA, 0.43)，而叠一层 alpha=0.43 的纯色就是这个 lerp。
+## 所以高亮**不是描边**，是整格染色。
+const SILHOUETTE := preload("res://assets/shaders/silhouette.gdshader")
+
+const MARK_MOVE := Color("30d1fa6e")     ## 可迁移/可移动：免疫青，0x6E ≈ 0.43
+const MARK_ATTACK := Color("ffb03a6e")   ## 可攻击：癌方橙，同混合比例
+const MARK_HOVER := Color("eaf8fc8f")    ## 鼠标所在格：提亮到 0.56
+const MARK_SELF := Color("eaf8fc47")     ## 当前行动的细胞脚下：淡到 0.28
+
+var _marks: Node2D                  ## 高亮剪影的容器
+var _mark_material: ShaderMaterial  ## 所有剪影共用一份
+
+
+## 设置高亮：marks = { 轴坐标: 颜色 }。每次调用整体替换，传空字典即清空。
+##
+## 一格一个节点、而不是一次性 _draw() 画完，是为了让高亮也吃组织块那套画家算法：
+## 剪影的 z_index 只比自己那格高 1，仍然低于前一排的 +20，
+## 于是前排会正确盖住高亮的下半截 —— 高亮贴在棋盘上，而不是浮在整张棋盘上面。
+func set_marks(marks: Dictionary) -> void:
+	for child in _marks.get_children():
+		_marks.remove_child(child)   ## queue_free 是延迟的，同一帧内连调两次会叠加
+		child.queue_free()
+	for c: Vector2i in marks:
+		var key := axial_to_rc(c)
+		if not map.has(key):
+			continue
+		var t: Sprite2D = map[key]["instance"]
+		var s := Sprite2D.new()
+		s.texture = t.texture
+		s.material = _mark_material
+		s.position = t.position
+		s.z_index = t.z_index + 1
+		s.modulate = marks[c]
+		_marks.add_child(s)
+
+
 func new_tissue(i, j, x, y):
 	var new_t = TISSUE.instantiate()
 	new_t.position = Vector2(x, y)
@@ -81,4 +147,8 @@ func _ready():
 			first_x -= distance_x/2
 		else:
 			first_x += distance_x/2
-	## print(map)
+	_mark_material = ShaderMaterial.new()
+	_mark_material.shader = SILHOUETTE
+	_marks = Node2D.new()
+	_marks.name = "Marks"
+	add_child(_marks)
