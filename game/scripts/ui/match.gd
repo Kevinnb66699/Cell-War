@@ -61,6 +61,15 @@ const IMMUNE_ART := {
 	CWData.ImmuneType.DENDRITIC: preload("res://assets/art/cells/dendritic.png"),
 }
 
+## 癌细胞四种。小细胞肺癌那张只有 16x16（其余 32x32）—— 是美术故意画小的，
+## 别拿缩放去凑齐：贴图过滤是最近邻，非整数倍缩放会磨出锯齿（约定 #13 同理）。
+const CANCER_ART := {
+	CWData.CancerType.MELANOMA: preload("res://assets/art/cells/melanoma.png"),
+	CWData.CancerType.SIGNET: preload("res://assets/art/cells/signet.png"),
+	CWData.CancerType.OSTEO: preload("res://assets/art/cells/osteo.png"),
+	CWData.CancerType.SCLC: preload("res://assets/art/cells/sclc.png"),
+}
+
 var game: CWGame
 var bridge: CWUIBridge
 
@@ -350,11 +359,11 @@ func _sync_hand() -> void:
 
 
 func _make_cell_node(cell: Dictionary) -> Node2D:
-	var node: Node2D
-	if cell["faction"] == CWData.Faction.IMMUNE:
-		node = Sprite2D.new()
-	else:
-		node = CWCancerBlob.new()
+	var node := Sprite2D.new()
+	## 癌细胞的种类一局之内不会变（会变形态的只有免疫方的分化），贴图建节点时定一次就够。
+	## 免疫的 itype 会变，所以它的贴图交给 _sync_cells 每帧对一次。
+	if cell["faction"] == CWData.Faction.CANCER:
+		_set_cell_art(node, CANCER_ART[cell["ctype"]])
 	_cells_root.add_child(node)
 	_was_alive.append(false)   ## 下一次 _sync_cells 就会认出「刚出现」并淡入
 	return node
@@ -370,10 +379,15 @@ func _pop_in(node: Node2D) -> void:
 	tw.parallel().tween_property(node, "scale", Vector2.ONE, CELL_POP)
 
 
-## 分化会改 itype，所以贴图每帧对一次；offset 把锚点从贴图中心挪到脚底中心。
+## 分化会改 itype，所以贴图每帧对一次。
 func _apply_immune_art(s: Sprite2D, itype: int) -> void:
 	var tex: Texture2D = IMMUNE_ART[itype]
-	if s.texture == tex:
-		return
+	if s.texture != tex:
+		_set_cell_art(s, tex)
+
+
+## offset 把锚点从贴图中心挪到脚底中心 —— 细胞是「站」在格子上的，
+## 而贴图有 24/32/16 三种高度，只有对齐脚底才不会因为大小不同而上下乱跳。
+func _set_cell_art(s: Sprite2D, tex: Texture2D) -> void:
 	s.texture = tex
 	s.offset = Vector2(0, -tex.get_height() / 2.0)

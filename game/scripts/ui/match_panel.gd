@@ -37,13 +37,20 @@ const PIP := 6            ## 方块边长
 const PIP_GAP := 2
 const ENERGY_RESERVE := 52  ## 能量数字预留的宽度；「技 N」右对齐到它左边
 
-## 玩家行里的种类图标。癌细胞没有美术，用占位图形（见 CWCancerBlob）。
+## 玩家行里的种类图标。和棋盘上是同一批贴图，但棋盘那份要对齐脚底、这份是居中摆，
+## 用途不同所以各留各的表（棋盘那份见 CWMatch.IMMUNE_ART / CANCER_ART）。
 const IMMUNE_ICON := {
 	CWData.ImmuneType.BASIC: preload("res://assets/art/cells/immune.png"),
 	CWData.ImmuneType.B_CELL: preload("res://assets/art/cells/bcell.png"),
 	CWData.ImmuneType.T_CELL: preload("res://assets/art/cells/tcell.png"),
 	CWData.ImmuneType.MACRO: preload("res://assets/art/cells/macrophage.png"),
 	CWData.ImmuneType.DENDRITIC: preload("res://assets/art/cells/dendritic.png"),
+}
+const CANCER_ICON := {
+	CWData.CancerType.MELANOMA: preload("res://assets/art/cells/melanoma.png"),
+	CWData.CancerType.SIGNET: preload("res://assets/art/cells/signet.png"),
+	CWData.CancerType.OSTEO: preload("res://assets/art/cells/osteo.png"),
+	CWData.CancerType.SCLC: preload("res://assets/art/cells/sclc.png"),
 }
 
 var _round: Label
@@ -55,7 +62,7 @@ var _level: Label
 var _memory: Label
 var _bg: Panel
 var _end: PanelContainer
-var _rows: Array = []      ## 每项 { bg, fac, icon, blob, name, type, energy, pips, skills }
+var _rows: Array = []      ## 每项 { bg, fac, icon, name, type, energy, pips, skills }
 var _built := 0            ## 已按几人局建好（0 = 还没建）
 var _level_y := 0.0        ## 免疫等级那一块的顶边；测试靠它核对 6 人局没溢出
 
@@ -164,7 +171,6 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 		_set_pips(row, 0, CWStyle.TEXT_OFF_DIM)
 		row["skills"].text = ""
 		row["icon"].visible = false
-		row["blob"].visible = false
 		return
 
 	var cell: Dictionary = game.cell_of(pid)
@@ -186,13 +192,9 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 		CWStyle.TEXT_HI if n_skill > 0 else CWStyle.TEXT_OFF)
 
 	var icon: Sprite2D = row["icon"]
-	var blob: Node2D = row["blob"]
-	icon.visible = immune
-	blob.visible = not immune
+	icon.visible = true
 	icon.modulate.a = 0.35 if dead else 1.0
-	blob.modulate.a = 0.35 if dead else 1.0
-	if immune:
-		icon.texture = IMMUNE_ICON[cell["itype"]]
+	icon.texture = IMMUNE_ICON[cell["itype"]] if immune else CANCER_ICON[cell["ctype"]]
 
 
 # ============ 建节点（只跑一次）============
@@ -266,14 +268,10 @@ func _build_row(y: float) -> Dictionary:
 	add_child(fac)
 	x += 4 + 8
 
-	## 免疫用贴图（24 和 32 两种尺寸，居中摆、不缩放 —— 非整数倍会糊）；
-	## 癌细胞没有美术，用占位图形。两个都建好，按阵营切 visible。
+	## 贴图有 16/24/32 三种尺寸，一律居中摆、不缩放 —— 非整数倍会糊。
 	var icon := Sprite2D.new()
 	icon.position = Vector2(x + ICON / 2.0, y + ROW_H / 2.0)
 	add_child(icon)
-	var blob := CWCancerBlob.new()
-	blob.position = Vector2(x + ICON / 2.0, y + ROW_H / 2.0 + CWCancerBlob.R)
-	add_child(blob)
 	x += ICON + 8
 
 	var nm := _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT), x, y + 4, 110)
@@ -294,7 +292,7 @@ func _build_row(y: float) -> Dictionary:
 	## 「技 N」放**能量那一行**（团队 2026-08-28 选的右边那版），右对齐到能量左侧
 	var sk := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
 		x, y + 10, right - ENERGY_RESERVE - x, HORIZONTAL_ALIGNMENT_RIGHT)
-	return { "bg": bg, "fac": fac, "icon": icon, "blob": blob,
+	return { "bg": bg, "fac": fac, "icon": icon,
 		"name": nm, "type": ty, "energy": en, "pips": pips, "skills": sk }
 
 
