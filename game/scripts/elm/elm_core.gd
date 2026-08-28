@@ -38,6 +38,7 @@ static func make_initial_state(seed_value: int, n_players: int) -> Dictionary:
 		"cells": [],           # 已落子的细胞
 		"next_pid": 0,         # PLACE 循环下一个要落子的玩家
 		"pending": null,       # 正在等的决策（null = 没在等）
+		"combat_count": 0,     # COMBAT 演示：已攻击次数
 		"logs": [],            # 日志（纯输出，不影响状态机）
 	}
 
@@ -80,7 +81,7 @@ static func update(state: Dictionary, msg: Dictionary) -> Dictionary:
 				cont = true
 			"PLACE":
 				if s.next_pid >= s.players.size():
-					s.pc = "DONE"
+					s.pc = "COMBAT"
 					cont = true
 					continue
 				if s.pending != null:
@@ -109,6 +110,22 @@ static func update(state: Dictionary, msg: Dictionary) -> Dictionary:
 					},
 				})
 				break  # 停下等外部
+			"COMBAT":
+				# 演示：一个癌细胞连续攻击相邻免疫细胞两次。
+				# 验证 roll 纯函数 + 演出 effect 不阻塞：一个 update 调用里
+				# 两次掷骰+结算一口气跑完，演出只进队列、逻辑不等动画。
+				if s.combat_count >= 2:
+					s.pc = "DONE"
+					cont = true
+					continue
+				var pair = _find_combat_pair(s)
+				if pair == null:
+					s.pc = "DONE"
+					cont = true
+					continue
+				_do_attack(s, pair["attacker"], pair["target"], effects)
+				s.combat_count += 1
+				cont = true
 			"DONE":
 				break
 			_:
@@ -176,5 +193,46 @@ static func _apply_place_decision(s: Dictionary, pending: Dictionary, idx: int) 
 	s.cells.append({
 		"pid": p["pid"], "faction": p["faction"], "pos": pos,
 		"cancer_type": p["cancer_type"], "itype": -1,
+		"hp": 10, "alive": true,
 	})
 	s.logs.append("%s 落子于 %s" % [p["name"], str(pos)])
+
+
+# ---- COMBAT 演示环节（验证 roll 纯函数 + 演出不阻塞）----
+
+static func _find_combat_pair(s: Dictionary):
+	# 找一个活着的癌细胞 + 它相邻的活免疫细胞
+	for c in s.cells:
+		if c["faction"] != 0 or not c["alive"]:
+			continue
+		for t in s.cells:
+			if t["faction"] != 1 or not t["alive"]:
+				continue
+			if _is_adjacent(c["pos"], t["pos"]):
+				return { "attacker": c, "target": t }
+	return null
+
+static func _is_adjacent(a: Vector2i, b: Vector2i) -> bool:
+	for d in DIRS:
+		if a + d == b:
+			return true
+	return false
+
+static func _do_attack(s: Dictionary, attacker: Dictionary, target: Dictionary, effects: Array) -> void:
+	# 掷骰纯函数化：消耗 s.rng_state 产出值。演出只作通知 effect，逻辑不暂停。
+	var r := _roll(s.rng_state, 6)
+	s.rng_state = r["state"]
+	var dmg: int = r["value"]
+	target["hp"] -= dmg
+	# 演出 effect：通知 UI 播骰子动画。shell 收到不 await，逻辑继续推进。
+	effects.append({
+		"kind": "roll_show", "value": dmg, "sides": 6, "at": target["pos"],
+		"attacker": attacker["pid"], "target": target["pid"],
+	})
+	if target["hp"] <= 0:
+		target["alive"] = false
+		s.logs.append("COMBAT %s 攻击 %s 掷 %d -> 死亡" % [
+			attacker["pid"], target["pid"], dmg])
+	else:
+		s.logs.append("COMBAT %s 攻击 %s 掷 %d -> 剩 %d hp" % [
+			attacker["pid"], target["pid"], dmg, target["hp"]])
