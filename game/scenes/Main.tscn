@@ -1,12 +1,17 @@
-[gd_scene load_steps=3 format=3 uid="uid://bigrlpobhfd2o"]
+[gd_scene load_steps=5 format=3]
 
+[ext_resource type="Script" path="res://scripts/ui/main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/Board.tscn" id="2_board"]
 [ext_resource type="PackedScene" path="res://scenes/MainMenu.tscn" id="3_menu"]
+[ext_resource type="PackedScene" path="res://scenes/Match.tscn" id="4_match"]
 
 [node name="Main" type="Node2D"]
+script = ExtResource("1_main")
 
 [node name="Camera2D" type="Camera2D" parent="."]
 
 [node name="Board" parent="." instance=ExtResource("2_board")]
 
 [node name="MainMenu" parent="." instance=ExtResource("3_menu")]
+
+[node name="Match" parent="." instance=ExtResource("4_match")]

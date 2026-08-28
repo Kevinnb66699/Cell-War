@@ -13,8 +13,10 @@ extends Node2D
 ## 对局结束（winner = CWData.Faction）
 signal finished(winner: int)
 
-@export var board_path: NodePath = ^"Board"
-@export var camera_path: NodePath = ^"Camera2D"
+## 棋盘和相机都是**同级节点**：开场过场是同一个镜头往前推、不切场景，
+## 所以菜单和对局共用同一张棋盘、同一台相机（见 Main.tscn 与 main.gd）。
+@export var board_path: NodePath = ^"../Board"
+@export var camera_path: NodePath = ^"../Camera2D"
 @export var action_bar_path: NodePath = ^"UI/ActionBar"
 @export var panel_path: NodePath = ^"UI/Panel"
 
@@ -25,10 +27,16 @@ signal finished(winner: int)
 @export var ai_delay_ms := 220
 ## 0 = 每局取当前时间做种子；填非 0 可复现同一局
 @export var match_seed := 0
+## 单独跑本场景时自己开局；挂在 Main 下面时由 main.gd 在过场结束后调 start()
+@export var autostart := false
 
 ## 固化癌组织的色标。硬化外壳的美术还没有，但**固化格必须能一眼认出来**——
 ## 【裂解】和癌方【复活】都只对它生效，看不出来就没法玩。压暗一档是临时手段。
 const MARK_SOLID := Color("0000004d")
+
+## 开场绽开时每格翻面的那一下白闪
+const FLASH_TIME := 0.22
+const FLASH_ALPHA := 0.7
 
 ## 细胞贴脚落在格子「顶面中心」再往下 6px，和主菜单的装饰细胞同一套。
 const CELL_FOOT_DY := 6.0
@@ -54,10 +62,12 @@ var bridge: CWUIBridge
 var _dice: CWDice
 var _cells_root: Node2D
 var _cell_nodes: Array[Node2D] = []   ## 下标 = cell["id"]，和 game.cells 一一对应
+var _bloom := {}      ## 开场还没揭开的格子：一律先按健康组织画
+var _opening := false ## 正在演开场；start() 会把它带给桥（桥是 start() 里才建的）
+var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
 
 
 func _ready() -> void:
-	CWView.apply(camera, board, CWView.GAME_ZOOM, CWView.GAME_LOOK_AT, CWView.GAME_ANCHOR)
 	_cells_root = Node2D.new()
 	_cells_root.name = "Cells"
 	board.add_child(_cells_root)
@@ -65,7 +75,9 @@ func _ready() -> void:
 	## z_index 也能和组织块用同一套画家算法（见 dice.gd 的 place_at）。
 	_dice = CWDice.new()
 	board.add_child(_dice)
-	start()
+	if autostart:
+		CWView.apply(camera, board, CWView.GAME_ZOOM, CWView.GAME_LOOK_AT, CWView.GAME_ANCHOR)
+		start()
 
 
 func start() -> void:
@@ -79,6 +91,7 @@ func start() -> void:
 	bridge.bar = action_bar
 	bridge.panel = panel
 	bridge.human_pids = human_players
+	bridge.opening = _opening    ## 绽开演完前先不弹询问界面
 	bridge.delay_ms = ai_delay_ms
 	bridge.delay_node = self
 	## 同一个桥对象注册给所有玩家：人类那几位走界面，其余走 AI，
@@ -86,6 +99,47 @@ func start() -> void:
 	for pid in game.order:
 		game.bridges[pid] = bridge
 	_run()
+
+
+## 开场第二拍：初始癌组织从正中一格一格翻出来（团队定的三拍开场之二）。
+##
+## 顺序很讲究：start() 会一路跑到**第一次询问**才挂起，那时初始癌组织已经躺在
+## game.tiles 里了，而本帧的 _process 还没跑 —— 所以在这中间把它们记进 _bloom
+## 还来得及，玩家看到的第一帧仍是干净的健康组织。
+##
+## 揭示顺序不写死「中央 + 第一环」，而是按「离中心几格、同环按角度」排 ——
+## 地图生成还在讨论中，初始癌区形状随时可能变，排序法对什么形状都成立。
+func start_with_bloom(seconds: float) -> void:
+	## 必须在 start() **之前**置位：桥是 start() 里才 new 出来的，
+	## 在这之后再写 bridge.opening 就晚了（第一版就是这么错的，
+	## 守卫静默失效、绽开还没演完落子提示就弹了出来）。
+	_opening = true
+	start()
+	var order := _bloom_order()
+	for c in order:
+		_bloom[c] = true
+	var step := seconds / maxf(order.size(), 1)
+	for c in order:
+		_bloom.erase(c)
+		_flash[c] = FLASH_TIME
+		await get_tree().create_timer(step).timeout
+	_opening = false
+	bridge.opening = false
+
+
+func _bloom_order() -> Array:
+	var out: Array = []
+	for c: Vector2i in game.tiles:
+		if game.is_cancerous(c):
+			out.append(c)
+	var origin: Vector2 = board.tile_center(Vector2i.ZERO)
+	out.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		var da := CWData.hex_dist(a, Vector2i.ZERO)
+		var db := CWData.hex_dist(b, Vector2i.ZERO)
+		if da != db:
+			return da < db
+		return (board.tile_center(a) - origin).angle() < (board.tile_center(b) - origin).angle())
+	return out
 
 
 func _run() -> void:
@@ -100,9 +154,13 @@ func _exit_tree() -> void:
 		game = null
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if game == null or game.tiles.is_empty():
 		return
+	for c: Vector2i in _flash.keys():
+		_flash[c] -= delta
+		if _flash[c] <= 0.0:
+			_flash.erase(c)
 	_sync_tiles()
 	_sync_cells()
 	if panel != null:
@@ -113,9 +171,13 @@ func _sync_tiles() -> void:
 	var marks := {}
 	for c: Vector2i in game.tiles:
 		var t: Dictionary = game.tiles[c]
-		board.set_tissue(c, t["tissue"], t["special"])
-		if t["tissue"] == CWData.Tissue.SOLID:
+		## 开场绽开期间，还没轮到的那几格先按健康组织画
+		var tissue: int = CWData.Tissue.HEALTHY if _bloom.has(c) else int(t["tissue"])
+		board.set_tissue(c, tissue, t["special"])
+		if tissue == CWData.Tissue.SOLID:
 			marks[c] = MARK_SOLID
+	for c: Vector2i in _flash:
+		marks[c] = Color(1, 1, 1, _flash[c] / FLASH_TIME * FLASH_ALPHA)
 	## 交互高亮压过状态色标：正在选目标时，「这格能不能选」比「它是不是固化」重要。
 	if bridge != null:
 		marks.merge(bridge.marks, true)

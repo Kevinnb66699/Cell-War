@@ -1,17 +1,16 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=4 format=3]
+
+; 对局子树：**没有自己的棋盘和相机**，用的是同级的（见 main.gd 的三拍开场——
+; 过场是同一个镜头往前推、不切场景，所以两边必须共用一棵树里的同一张棋盘）。
+; 因此本场景不能单独运行，入口一律是 Main.tscn。
 
 [ext_resource type="Script" path="res://scripts/ui/match.gd" id="1_match"]
-[ext_resource type="PackedScene" uid="uid://c86nmocjqgsrh" path="res://scenes/Board.tscn" id="2_board"]
 [ext_resource type="Script" path="res://scripts/ui/action_bar.gd" id="3_bar"]
 [ext_resource type="Script" path="res://scripts/ui/match_panel.gd" id="4_panel"]
 
 [node name="Match" type="Node2D"]
 script = ExtResource("1_match")
 human_players = Array[int]([0])
-
-[node name="Camera2D" type="Camera2D" parent="."]
-
-[node name="Board" parent="." instance=ExtResource("2_board")]
 
 [node name="UI" type="CanvasLayer" parent="."]
 

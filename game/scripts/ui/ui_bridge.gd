@@ -19,6 +19,10 @@ var bar: CWActionBar
 var panel: CWMatchPanel
 var human_pids: Array[int] = []
 
+## 开场绽开还没演完时，人类的询问界面先不出来 ——
+## 团队定的三拍开场里，第三拍才把控制权交还玩家（CWMatch 演完后置回 false）。
+var opening := false
+
 ## 本桥希望棋盘上高亮哪些格子：{ 轴坐标: 颜色 }。
 ## 由 CWMatch 每帧读走、和「组织状态色标」合并后一起交给 board.set_marks()。
 ## 做成「桥单向暴露、对局去读」而不是桥直接改棋盘，是为了不让两处各自往
@@ -59,6 +63,8 @@ func ask(req: Dictionary) -> int:
 
 
 func _ask_human(req: Dictionary) -> int:
+	while opening and board != null and board.is_inside_tree():
+		await board.get_tree().process_frame
 	_enemy = CWData.Faction.CANCER if game.player(req["pid"])["faction"] \
 		== CWData.Faction.IMMUNE else CWData.Faction.IMMUNE
 	var picked: int

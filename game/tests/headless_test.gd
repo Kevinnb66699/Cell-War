@@ -31,6 +31,7 @@ func _run_all() -> void:
 	await t_ui_bridge()
 	await t_human_ask()
 	t_match_panel()
+	await t_opening()
 	t_main_menu()
 	await t_roll_hook()
 	t_dice()
@@ -676,6 +677,45 @@ func t_match_panel() -> void:
 	check(ev, "世界事件回合表：3 / 6 / 10 / 15 之后每 5 个")
 
 	p.queue_free()
+
+# ---- 开场三拍 ----
+## 盯的是开发日志记过的那个坑：相机和绽开是**前后相接的两段计时动画**，
+## 一旦挂到同一条时间轴上，相机走完那一帧的进度 1 会被当成「绽开也走完了」，
+## 于是 7 格癌组织一次全出、绽开整个被跳过。表现是「地图停稳的瞬间癌组织突然显示」——
+## 肉眼只看得出「有点怪」，说不清哪儿怪，所以这里用状态断言钉死。
+## 另外盯第三拍：绽开没演完不能把控制权交给玩家。
+func t_opening() -> void:
+	print("[开场三拍]")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.get_node("Match")
+
+	main_scene.menu.dismiss(0.05, 4.0)   ## 走一遍菜单退场，顺带查它有没有停止吃鼠标
+	m.start_with_bloom(0.3)          ## 不 await：要在演的中途查状态
+	var hidden: int = m._bloom.size()
+	check(hidden >= CWData.INIT_CANCER_TILES - 1,
+		"绽开刚开始时还有 %d 格没揭开（不是一次全出）" % hidden)
+	check(m.bridge.opening, "绽开期间桥被闸住，落子提示不弹出来")
+	check(m.game.count_tissue(CWData.Tissue.CANCER) == CWData.INIT_CANCER_TILES,
+		"引擎那边 %d 格初始癌组织其实早就就位了（藏起来的只是画面）"
+		% CWData.INIT_CANCER_TILES)
+
+	await create_timer(0.6).timeout
+	check(m._bloom.is_empty(), "演完后全部揭开")
+	check(not m.bridge.opening, "演完才把控制权交还玩家（第三拍）")
+
+	## 菜单淡出后必须**停止吃鼠标**：Control 的 modulate 归零只是看不见，
+	## 照样挡点击，而「开始对局」那一行正压在棋盘上方。
+	var menu: Node = main_scene.get_node("MainMenu")
+	var eats := false
+	for label in _all_labels(menu):
+		if label.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+			eats = true
+	check(not eats, "菜单退场后不再挡住棋盘的点击")
+	check(not menu.get_node("UI").visible, "菜单的 CanvasLayer 也关掉了（它不跟随父节点）")
+
+	main_scene.queue_free()
 
 # ---- 主菜单：三条会被「别处改动」悄悄弄坏的约束 ----
 # ① 装饰细胞踩的那五格，得真的在棋盘上。地图改版时最容易漏掉的就是这种硬写的坐标。
