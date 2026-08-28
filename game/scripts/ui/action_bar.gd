@@ -24,15 +24,14 @@ const GAP := 8
 const PAD_V := 6
 const PAD_H := 8
 const BTN_H := 52
-## 数字键提示。放在按钮栏**上方**而不是塞进费用行 ——
-## T细胞四个技能已经占掉 344 / 361，费用行一加前缀「迁移」那个就会把整条挤出界。
-const KEYS_HINT_Y := 458.0
+## 快捷键数字标在**费用行前面**。实测四个技能（T细胞，最挤的情况）共 331 / 361，
+## 只有「迁移」会因为加前缀而变宽（它的标题最短、费用最长），加完 349，仍然放得下。
+## 标在标题上不行：那样每个按钮都变宽，四个加起来就出界了。
 
 var _row: HBoxContainer
 var _hot := -1        ## 鼠标停在第几个按钮上
 var _cancel := -1     ## 哪个按钮是「取消」；-1 = 这一问没有取消
 var _keys := false    ## 数字键此刻是否生效（只在技能栏形态）
-var _hint: Label      ## 按钮栏上方那行「数字键 1–N」
 
 
 func _ready() -> void:
@@ -61,6 +60,10 @@ func _row_node() -> HBoxContainer:
 func show_bar(title: String, hint: String, entries: Array, cancel_index := -1) -> void:
 	visible = true
 	_cancel = cancel_index
+	## 数字键只在技能栏形态生效 —— 目标选择态里唯一的按钮是「结束迁移」，
+	## 在那儿按数字键退出太容易误触，Esc / 右键已经够用。
+	## 必须在建按钮**之前**定下来：按钮要按它决定费用行前面标不标数字。
+	_keys = title == "" and entries.size() > 0
 	_row_node()
 	for c in _row.get_children():
 		_row.remove_child(c)
@@ -81,16 +84,11 @@ func show_bar(title: String, hint: String, entries: Array, cancel_index := -1) -
 		_row.add_child(spacer)
 	for i in entries.size():
 		_row.add_child(_make_button(entries[i], i))
-	## 数字键只在技能栏形态生效 —— 目标选择态里唯一的按钮是「结束迁移」，
-	## 在那儿按数字键退出太容易误触，而 Esc / 右键已经够用了。
-	_keys = title == "" and entries.size() > 0
-	_show_keys_hint(entries.size())
 
 
 func clear() -> void:
 	visible = false
 	_keys = false
-	_show_keys_hint(0)
 	for c in _row_node().get_children():
 		_row.remove_child(c)
 		c.queue_free()
@@ -139,14 +137,37 @@ func _make_button(entry: Dictionary, index: int) -> PanelContainer:
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(v)
 	v.add_child(CWStyle.label(entry["title"], CWStyle.SIZE_BODY, CWStyle.TEXT))
-	if entry.get("cost", "") != "":
-		v.add_child(CWStyle.label(entry["cost"], CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM))
+	## 费用行 = [快捷键数字（垫灰底）] + [费用文字]。
+	## 数字垫底是为了和费用文字拉开对比（团队 2026-08-27 要求）；
+	## 同时去掉了原来那个「·」分隔符 —— 它是个全角字符、比垫块的内边距还宽，
+	## 省下来正好抵掉垫块，整条宽度不涨（可用余量只有几个像素，见 t_action_bar_width）。
+	var cost: String = entry.get("cost", "")
+	if _keys or cost != "":
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 4)
+		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if _keys:
+			line.add_child(_key_badge(index + 1))
+		if cost != "":
+			line.add_child(CWStyle.label(cost, CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM))
+		v.add_child(line)
 	p.mouse_entered.connect(func() -> void: _set_hot(index))
 	p.mouse_exited.connect(func() -> void: _set_hot(-1 if _hot == index else _hot))
 	p.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			chosen.emit(index))
 	_paint(p, false)
+	return p
+
+
+## 快捷键数字那一小块：灰底 + 比费用文字亮一档的字。
+func _key_badge(n: int) -> PanelContainer:
+	var p := PanelContainer.new()
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	p.add_theme_stylebox_override("panel",
+		CWStyle.plate(Color(CWStyle.TEXT_DIM, 0.25), 1, 3))
+	p.add_child(CWStyle.label(str(n), CWStyle.SIZE_LABEL, CWStyle.TEXT))
 	return p
 
 
@@ -201,16 +222,3 @@ func _count() -> int:
 		if c is PanelContainer:
 			n += 1
 	return n
-
-
-## 按钮栏上方那行小字。放在棋盘上是有先例的（设计稿的手牌提示就压在棋盘上）。
-func _show_keys_hint(n: int) -> void:
-	if _hint == null:
-		_hint = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-		_hint.size = Vector2(BAR_RECT.size.x, 0)
-		_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		add_child(_hint)
-	_hint.position = Vector2(BAR_RECT.position.x, KEYS_HINT_Y)
-	_hint.visible = _keys and n > 1
-	if _hint.visible:
-		_hint.text = "数字键 1-%d 选技能" % n

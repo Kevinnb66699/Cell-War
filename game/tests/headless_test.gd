@@ -35,6 +35,8 @@ func _run_all() -> void:
 	await t_pause_and_teardown()
 	t_hand()
 	t_view_blend()
+	await t_announce()
+	t_action_bar_width()
 	await t_enter_not_skipped()
 	t_main_menu()
 	await t_roll_hook()
@@ -630,6 +632,20 @@ func t_human_ask() -> void:
 	await process_frame
 	check(r3[0] == 3, "结束回合映射到最后一个选项")
 
+	# ③a 新的世界回合也要作废 —— 一个人每回合只行动一次，
+	#     不清的话新回合一开始就直接进了选目标格（团队反馈）
+	b._sticky_move = true
+	b._sticky_pid = 0
+	b._sticky_round = g.round_no
+	g.round_no += 1
+	var r3a := [-99]
+	var run3a := func() -> void: r3a[0] = await b.ask(areq)
+	run3a.call()
+	check(not b._sticky_move and _buttons(bar) == 3, "新世界回合从按钮栏重新开始")
+	bar.chosen.emit(2)
+	await process_frame
+	g.round_no -= 1
+
 	# ③b 换人时开关必须作废，不然轮到下一个人会莫名其妙直接进选目标格
 	b._sticky_move = true
 	b._sticky_pid = 0
@@ -946,6 +962,89 @@ func t_view_blend() -> void:
 
 	cam.free()
 	board.free()
+
+# ---- 掷骰结算说明 ----
+## 记下引擎通报过的每一句话
+class ResultRecorder:
+	extends CWHeuristicBridge
+	var said: Array = []
+	var where: Array = []
+	func show_result(text: String, at: Vector2i) -> void:
+		said.append(text)
+		where.append(at)
+
+
+## 「攻击成功」这类结算说明**必须由引擎给**：点数怎么判读是规则，
+## 表现层照着点数自己再判一遍等于把规则抄了第二份，改一处就会对不上。
+func t_announce() -> void:
+	print("[掷骰结算说明]")
+	var g := CWGame.new()
+	g.init(CWData.FACTION_ORDER[2], 5)
+	var rec := ResultRecorder.new()
+	rec.game = g
+	g.bridges[0] = rec
+	g.bridges[1] = rec            ## 同一个对象注册给两个玩家（热座）
+	g.announce("攻击大成功", Vector2i(1, 2))
+	check(rec.said.size() == 1, "通报按对象去重，只报一次")
+	check(rec.said[0] == "攻击大成功" and rec.where[0] == Vector2i(1, 2),
+		"文字和格子原样传到表现层")
+	g.dispose()
+
+	## 真跑一局：攻击/突变/抗体三处掷骰都要报出来
+	var g2 := CWGame.new()
+	g2.init(CWData.FACTION_ORDER[4], 20260827)
+	var rec2 := ResultRecorder.new()
+	rec2.game = g2
+	for pid in g2.order:
+		g2.bridges[pid] = rec2
+	await g2.run_game()
+	var kinds := {}
+	for t: String in rec2.said:
+		kinds[t.split("：")[0].substr(0, 2)] = true
+	check(not rec2.said.is_empty(), "一局里报出了 %d 条结算说明" % rec2.said.size())
+	check(kinds.has("攻击"), "攻击的判定结果有通报")
+	var blank := false
+	for t: String in rec2.said:
+		if t.strip_edges().is_empty():
+			blank = true
+	check(not blank, "没有空白通报")
+	g2.dispose()
+
+
+# ---- 行动栏宽度 ----
+## 最挤的情况是 T细胞的四个技能。快捷键数字标在费用行前面，只有「迁移」会因此变宽
+## （它标题最短、费用最长）。放不下的话整条会顶出画布右缘 ——
+## 而这**只有轮到 T细胞 时才看得见**，平时试玩撞不到。
+func t_action_bar_width() -> void:
+	print("[行动栏宽度]")
+	var bar := CWActionBar.new()
+	root.add_child(bar)
+	bar.show_bar("", "", [
+		{ "title": "迁移", "cost": "0.5 / 1.0" },
+		{ "title": "基因表达", "cost": "0.5 抽卡" },
+		{ "title": "细胞毒素", "cost": "1.0" },
+		{ "title": "裂解", "cost": "1.0" }])
+	var total := 0.0
+	var n := 0
+	var badge := ""
+	var plated := false
+	for c in bar._row.get_children():
+		if not (c is PanelContainer):
+			continue
+		total += (c as Control).get_combined_minimum_size().x
+		if n == 0:
+			## 费用行 = [快捷键数字（垫灰底）] + [费用文字]
+			var line: Node = c.get_child(0).get_child(1)
+			plated = line.get_child(0) is PanelContainer
+			if plated:
+				badge = (line.get_child(0).get_child(0) as Label).text
+		n += 1
+	total += CWActionBar.GAP * maxi(n - 1, 0)
+	check(n == 4, "四个技能按钮")
+	check(total <= CWActionBar.BAR_RECT.size.x,
+		"T细胞四技能合计 %d px，放得进 %d px" % [int(total), int(CWActionBar.BAR_RECT.size.x)])
+	check(plated and badge == "1", "第一个按钮的快捷键数字垫了灰底（%s）" % badge)
+	bar.queue_free()
 
 # ---- 开场过场不能被启动它的那一下点击跳掉 ----
 ## Control 的 `gui_input` **不会自动吃掉事件**。不显式标记已处理的话，

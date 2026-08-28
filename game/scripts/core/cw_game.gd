@@ -209,6 +209,17 @@ func roll_shown(sides: int, reason: String, pid: int, at: Vector2i) -> int:
 	return v
 
 
+## 把一句话通报广播给所有桥。去重规则同 roll_shown（热座共用一个 UI 桥时只报一次）。
+## 不 await：提示自己会淡掉，不该卡住结算。
+func announce(text: String, at: Vector2i) -> void:
+	var shown: Array = []
+	for b in bridges.values():
+		if b == null or shown.has(b):
+			continue
+		shown.append(b)
+		b.show_result(text, at)
+
+
 ## 从数组中均匀随机取 n 个（不重复）
 func pick_random(arr: Array, n: int) -> Array:
 	var pool := arr.duplicate()

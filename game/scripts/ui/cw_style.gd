@@ -39,6 +39,18 @@ static func label(text: String, size: int, color: Color) -> Label:
 	return l
 
 
+## 无描边的垫块：只有底色和内边距。快捷键数字那种小标记用。
+static func plate(bg: Color, pad_v: int, pad_h: int) -> StyleBoxFlat:
+	var b := StyleBoxFlat.new()
+	b.bg_color = bg
+	b.set_border_width_all(0)
+	b.content_margin_top = pad_v
+	b.content_margin_bottom = pad_v
+	b.content_margin_left = pad_h
+	b.content_margin_right = pad_h
+	return b
+
+
 ## 描边框：设计稿里所有面板/按钮都是 2px 单色描边，只有 alpha、底色和内边距不同。
 ## pad 对应设计稿的 padding，**不给默认值就是 0，边框会直接贴着字**（踩过）。
 static func box(border_alpha: float, bg: Color = BTN_BG,

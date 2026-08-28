@@ -22,6 +22,7 @@ signal finished(winner: int)
 @export var ui_path: NodePath = ^"UI"
 @export var pause_path: NodePath = ^"UI/Pause"
 @export var hand_path: NodePath = ^"UI/Hand"
+@export var toast_path: NodePath = ^"UI/Toast"
 
 @export var player_count := 4
 ## 哪几个位置由人来打；留空 = 一局可观战的 AI 互搏
@@ -71,6 +72,7 @@ var bridge: CWUIBridge
 @onready var ui: CanvasLayer = get_node_or_null(ui_path)
 @onready var pause_menu: CWPauseMenu = get_node_or_null(pause_path)
 @onready var hand: CWHand = get_node_or_null(hand_path)
+@onready var toast: CWToast = get_node_or_null(toast_path)
 
 var _dice: CWDice
 var _cells_root: Node2D
@@ -120,6 +122,8 @@ func start() -> void:
 	bridge.dice = _dice
 	bridge.bar = action_bar
 	bridge.panel = panel
+	bridge.toast = toast
+	bridge.camera = camera
 	bridge.human_pids = human_players
 	bridge.opening = _opening    ## 绽开演完前先不弹询问界面
 	bridge.delay_ms = ai_delay_ms
@@ -228,6 +232,8 @@ func teardown() -> void:
 	_hand_pid = -1
 	if hand != null:
 		hand.clear()
+	if toast != null:
+		toast.hide_now()
 	## 退出游戏时 _exit_tree 也会走到这里，那时棋盘可能已经被释放了
 	if is_instance_valid(board):
 		for c in CWData.all_coords():

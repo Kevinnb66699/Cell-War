@@ -17,6 +17,8 @@ var board: Node2D          ## 取格子像素位置、收点选事件都只问�
 var dice: CWDice
 var bar: CWActionBar
 var panel: CWMatchPanel
+var toast: CWToast     ## 骰子旁边那行字
+var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
 var human_pids: Array[int] = []
 
 ## 开场绽开还没演完时，人类的询问界面先不出来 ——
@@ -28,6 +30,9 @@ var opening := false
 ## 做成「桥单向暴露、对局去读」而不是桥直接改棋盘，是为了不让两处各自往
 ## set_marks() 里写、互相把对方擦掉。
 var marks := {}
+
+## 结算说明在屏幕上停留多久
+const RESULT_HOLD := 1.1
 
 ## 行动栏按钮上的技能名。**费用一律现从 CWData 读，这里不写第二份数字**。
 ## 新增主动技能却忘了在这里登记，t_action_ui 会当场报出来。
@@ -42,7 +47,10 @@ var _enemy := -1       ## 当前提问者的敌对阵营，用来把「攻击格
 ## 「迁移」是**切换式**的：走完一步继续停在选目标格上，不必每步都重点一次按钮
 ## （团队 2026-08-27 要求）。退出条件只有三个：右键/Esc、能量不够没有可达格、换人。
 var _sticky_move := false
-var _sticky_pid := -1  ## 上面那个开关属于谁；换人就作废
+var _sticky_pid := -1    ## 上面那个开关属于谁
+var _sticky_round := -1  ## 属于哪个世界回合。**换人或换回合都作废** ——
+                         ## 一个人每个世界回合只行动一次，所以「新回合」就是「这人的下一个回合」，
+                         ## 不清掉的话新回合一开始就莫名其妙直接进了选目标格（团队反馈）
 var _pending: Answer   ## 正卡在「等玩家作答」上的那一次询问
 
 
@@ -105,8 +113,9 @@ func _ask_action(req: Dictionary) -> int:
 	var options: Array = req["options"]
 	var pid: int = req["pid"]
 	var cell: Dictionary = game.cell_of(pid)
-	if pid != _sticky_pid:
+	if pid != _sticky_pid or game.round_no != _sticky_round:
 		_sticky_pid = pid
+		_sticky_round = game.round_no
 		_sticky_move = false
 	var moves: Array = []
 	for i in options.size():
@@ -290,12 +299,23 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 	return ""
 
 
-## 把骰子摆到目标格旁边演一次。
+## 把骰子摆到目标格旁边演一次，同时在它上方标出这次掷的是什么（"攻击"/"突变"/"抗体"）。
 ## **AI 和人类同一档速度**（团队 2026-08-27 定）：原先 AI 走快档，
 ## 结果同一件事在不同回合有两种节奏，反而显得乱。
 ## `CWDice.play()` 的快档参数保留着，将来做「加速观战」时直接接上。
-func show_roll(_reason: String, value: int, sides: int, _pid: int, at: Vector2i) -> void:
+func show_roll(reason: String, value: int, sides: int, _pid: int, at: Vector2i) -> void:
 	if dice == null or board == null:
 		return
-	dice.place_at(board.tile_center(at), board.tile_z(at, board.Z_DICE))
+	var ground: Vector2 = board.tile_center(at)
+	if toast != null and camera != null:
+		## hold=0：一直留着，等骰子停稳后被结算说明顶掉
+		toast.show_at(reason, CWView.board_to_screen(camera, ground), 0.0)
+	dice.place_at(ground, board.tile_z(at, board.Z_DICE))
 	await dice.play(value, sides)
+
+
+## 掷骰的结算说明。文字是引擎给的，这里只负责把它摆到那一格上方。
+func show_result(text: String, at: Vector2i) -> void:
+	if toast == null or board == null or camera == null:
+		return
+	toast.show_at(text, CWView.board_to_screen(camera, board.tile_center(at)), RESULT_HOLD)

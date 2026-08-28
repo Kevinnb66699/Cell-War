@@ -1,4 +1,4 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
 
 ; 对局子树：**没有自己的棋盘和相机**，用的是同级的（见 main.gd 的三拍开场——
 ; 过场是同一个镜头往前推、不切场景，所以两边必须共用一棵树里的同一张棋盘）。
@@ -9,6 +9,7 @@
 [ext_resource type="Script" path="res://scripts/ui/match_panel.gd" id="4_panel"]
 [ext_resource type="Script" path="res://scripts/ui/pause_menu.gd" id="5_pause"]
 [ext_resource type="Script" path="res://scripts/ui/hand.gd" id="6_hand"]
+[ext_resource type="Script" path="res://scripts/ui/toast.gd" id="7_toast"]
 
 [node name="Match" type="Node2D"]
 script = ExtResource("1_match")
@@ -38,6 +39,14 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
 script = ExtResource("6_hand")
+
+[node name="Toast" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("7_toast")
 
 [node name="Pause" type="Control" parent="UI"]
 process_mode = 3

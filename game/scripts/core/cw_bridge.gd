@@ -28,3 +28,11 @@ func ask(_req: Dictionary) -> int:
 ## （决策「甲」，2026-08-27 定）。
 func show_roll(_reason: String, _value: int, _sides: int, _pid: int, _at: Vector2i) -> void:
 	pass
+
+
+## 一句话通报，目前只用于掷骰的结算说明（"攻击成功"、"突变：无事发生"…）。
+## **文字由引擎给** —— 点数怎么判读是规则，表现层不许照着点数自己再判一遍
+## （那等于把规则抄了第二份，改一处就会对不上）。
+## at = 这件事发生在哪一格，表现层拿它决定提示浮在哪儿。
+func show_result(_text: String, _at: Vector2i) -> void:
+	pass

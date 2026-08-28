@@ -142,6 +142,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int) -> void:
 	var r: int = await game.roll_shown(6, "攻击", cell["pid"], to)
 	if r <= 2:
 		game.log_msg("　攻击掷骰 %d：失败，%s 被反弹回原格" % [r, game.cell_name(cell)])
+		game.announce("攻击失败", to)
 		# 规则原文反弹不造成伤害（旋钮默认 0）；平衡测试可给癌方反击手段
 		if game.tune.counter_dmg_on_fail > 0:
 			cell["energy"] -= game.tune.counter_dmg_on_fail
@@ -152,7 +153,9 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int) -> void:
 				return
 	else:
 		var dmg: int = game.tune.attack_dmg_crit if r == 6 else game.tune.attack_dmg_success
-		game.log_msg("　攻击掷骰 %d：%s" % [r, "大成功" if r == 6 else "成功"])
+		var verdict := "大成功" if r == 6 else "成功"
+		game.log_msg("　攻击掷骰 %d：%s" % [r, verdict])
+		game.announce("攻击%s" % verdict, to)
 		game.immune_hit(target, dmg, cell)
 	# 目标格已无存活癌细胞才进入（击杀进格；否则返回原格）
 	if game.cells_at(to, CWData.Faction.CANCER).is_empty():
@@ -266,6 +269,7 @@ func _do_antibody(cell: Dictionary) -> void:
 		return
 	var roll: int = await game.roll_shown(3, "抗体", cell["pid"], cell["pos"])
 	var x: int = 1 if roll <= 2 else 2
+	game.announce("抗体：转化 %d 格" % x, cell["pos"])
 	for c in game.pick_random(eligible, x):
 		_to_healthy(c)
 		game.log_msg("【抗体】无目标 → %s 转为健康组织" % str(c))
@@ -334,15 +338,18 @@ func _roll_mutation(cell: Dictionary) -> bool:
 	match r:
 		1:
 			game.log_msg("【突变】无事发生")
+			game.announce("突变：无事发生", cell["pos"])
 			return true
 		2:
 			game.log_msg("【突变】抽卡，并削减 1 抗原记忆")
+			game.announce("突变：抽一张 · 记忆 −1", cell["pos"])
 			game.cards.draw(cell, "突变")
 			game.reduce_memory(1)
 		3:
 			# 效果扣减可致死（区别于费用支付，见规则总则）
 			cell["energy"] -= CWData.MUTATE_EXTRA_LOSS
 			game.log_msg("【突变】再扣 1.0 能量（余 %s），削减 3 抗原记忆" % CWData.fmt(maxi(cell["energy"], 0)))
+			game.announce("突变：能量 −1.0 · 记忆 −3", cell["pos"])
 			game.reduce_memory(3)
 			if cell["energy"] <= 0:
 				game.kill(cell)
