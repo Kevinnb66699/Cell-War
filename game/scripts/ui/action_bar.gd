@@ -24,10 +24,15 @@ const GAP := 8
 const PAD_V := 6
 const PAD_H := 8
 const BTN_H := 52
+## 数字键提示。放在按钮栏**上方**而不是塞进费用行 ——
+## T细胞四个技能已经占掉 344 / 361，费用行一加前缀「迁移」那个就会把整条挤出界。
+const KEYS_HINT_Y := 458.0
 
 var _row: HBoxContainer
 var _hot := -1        ## 鼠标停在第几个按钮上
 var _cancel := -1     ## 哪个按钮是「取消」；-1 = 这一问没有取消
+var _keys := false    ## 数字键此刻是否生效（只在技能栏形态）
+var _hint: Label      ## 按钮栏上方那行「数字键 1–N」
 
 
 func _ready() -> void:
@@ -76,10 +81,16 @@ func show_bar(title: String, hint: String, entries: Array, cancel_index := -1) -
 		_row.add_child(spacer)
 	for i in entries.size():
 		_row.add_child(_make_button(entries[i], i))
+	## 数字键只在技能栏形态生效 —— 目标选择态里唯一的按钮是「结束迁移」，
+	## 在那儿按数字键退出太容易误触，而 Esc / 右键已经够用了。
+	_keys = title == "" and entries.size() > 0
+	_show_keys_hint(entries.size())
 
 
 func clear() -> void:
 	visible = false
+	_keys = false
+	_show_keys_hint(0)
 	for c in _row_node().get_children():
 		_row.remove_child(c)
 		c.queue_free()
@@ -165,3 +176,41 @@ func _paint(p: PanelContainer, hot: bool) -> void:
 	var labels := p.get_child(0).get_children()
 	(labels[0] as Label).add_theme_color_override(
 		"font_color", CWStyle.TEXT_HI if hot else CWStyle.TEXT)
+
+
+## 数字键 1..9 = 从左到右的第几个按钮。
+## 加这个是因为「迁移」改成切换式之后，键鼠切换的成本比点按钮还高（团队反馈）。
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not _keys or not visible:
+		return
+	if not (event is InputEventKey) or not event.pressed or event.is_echo():
+		return
+	var code: int = (event as InputEventKey).keycode
+	if code < KEY_1 or code > KEY_9:
+		return
+	var index: int = code - KEY_1
+	if index >= _count():
+		return
+	get_viewport().set_input_as_handled()
+	chosen.emit(index)
+
+
+func _count() -> int:
+	var n := 0
+	for c in _row_node().get_children():
+		if c is PanelContainer:
+			n += 1
+	return n
+
+
+## 按钮栏上方那行小字。放在棋盘上是有先例的（设计稿的手牌提示就压在棋盘上）。
+func _show_keys_hint(n: int) -> void:
+	if _hint == null:
+		_hint = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+		_hint.size = Vector2(BAR_RECT.size.x, 0)
+		_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		add_child(_hint)
+	_hint.position = Vector2(BAR_RECT.position.x, KEYS_HINT_Y)
+	_hint.visible = _keys and n > 1
+	if _hint.visible:
+		_hint.text = "数字键 1-%d 选技能" % n

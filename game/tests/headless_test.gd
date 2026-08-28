@@ -615,18 +615,34 @@ func t_human_ask() -> void:
 	await process_frame
 	check(r2[0] == 1, "选中的格子还原成了对应的那个选项下标")
 
-	# ③ 取消要能退回按钮栏，而不是把这一问答掉
+	# ③ 「迁移」是切换式的：**走完一步继续停在选目标格上**，不必每步都重点一次按钮。
+	#    上一段刚走完一步，所以这一问应当直接进目标选择态。
 	var r3 := [-99]
 	var run3 := func() -> void: r3[0] = await b.ask(areq)
 	run3.call()
-	bar.chosen.emit(0)                        ## 迁移
+	check(_buttons(bar) == 1 and b.marks.size() == 2,
+		"上一步走的是迁移 → 这一问直接回到选目标格，不再经过按钮栏")
+	bar.chosen.emit(0)                        ## 「结束迁移」
 	await process_frame
-	bar.chosen.emit(0)                        ## 目标选择态里第 0 个按钮就是「取消」
-	await process_frame
-	check(r3[0] == -99 and _buttons(bar) == 3, "取消后退回按钮栏，这一问还没答")
+	check(r3[0] == -99 and _buttons(bar) == 3, "退出迁移后回到按钮栏，这一问还没答")
+	check(not b._sticky_move, "退出后开关关掉了")
 	bar.chosen.emit(2)                        ## 结束回合
 	await process_frame
 	check(r3[0] == 3, "结束回合映射到最后一个选项")
+
+	# ③b 换人时开关必须作废，不然轮到下一个人会莫名其妙直接进选目标格
+	b._sticky_move = true
+	b._sticky_pid = 0
+	var r3b := [-99]
+	var areq1 := areq.duplicate()
+	areq1["pid"] = 1
+	b.human_pids = [0, 1]
+	var run3b := func() -> void: r3b[0] = await b.ask(areq1)
+	run3b.call()
+	check(not b._sticky_move and _buttons(bar) == 3, "换人后从按钮栏重新开始")
+	bar.chosen.emit(2)
+	await process_frame
+	b.human_pids = [0]
 
 	# ④ 有右侧竖条时，「结束回合」搬去面板底部，不再占行动栏
 	var panel := CWMatchPanel.new()

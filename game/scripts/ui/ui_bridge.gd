@@ -39,6 +39,10 @@ const ACT_TITLE := {
 
 var _tiles := {}       ## 当前这一问里，哪些格子可点 → 点了返回什么
 var _enemy := -1       ## 当前提问者的敌对阵营，用来把「攻击格」标成橙色
+## 「迁移」是**切换式**的：走完一步继续停在选目标格上，不必每步都重点一次按钮
+## （团队 2026-08-27 要求）。退出条件只有三个：右键/Esc、能量不够没有可达格、换人。
+var _sticky_move := false
+var _sticky_pid := -1  ## 上面那个开关属于谁；换人就作废
 var _pending: Answer   ## 正卡在「等玩家作答」上的那一次询问
 
 
@@ -99,19 +103,34 @@ func _ask_human(req: Dictionary) -> int:
 
 func _ask_action(req: Dictionary) -> int:
 	var options: Array = req["options"]
-	var cell: Dictionary = game.cell_of(req["pid"])
+	var pid: int = req["pid"]
+	var cell: Dictionary = game.cell_of(pid)
+	if pid != _sticky_pid:
+		_sticky_pid = pid
+		_sticky_move = false
 	var moves: Array = []
 	for i in options.size():
 		if options[i]["data"]["act"] == "move":
 			moves.append(i)
+	if moves.is_empty():
+		_sticky_move = false        ## 能量不够、一格也去不了，自己退回按钮栏
 	while not game.aborted:
+		## 上一步选的就是迁移 → 直接回到选目标格，不再经过按钮栏
+		if _sticky_move:
+			var again: Variant = await _pick_move(cell, options, moves)
+			if again == null:
+				return 0            ## 这一局被中途放弃了（返回主菜单）
+			if not (again is String):
+				return again as int
+			_sticky_move = false    ## 右键 / Esc / 「结束迁移」
+			continue
 		var buttons: Array = []
 		var values: Array = []
+		## 「结束回合」定稿是钉在右侧竖条底部的，不占行动栏；没有面板时才退回按钮栏
+		var end_value: Variant = null
 		if not moves.is_empty():
 			buttons.append({ "title": _move_title(cell), "cost": _move_cost_text(options, moves) })
 			values.append("move")
-		## 「结束回合」定稿是钉在右侧竖条底部的，不占行动栏；没有面板时才退回按钮栏
-		var end_value: Variant = null
 		for i in options.size():
 			var act: String = options[i]["data"]["act"]
 			if act == "move":
@@ -123,22 +142,24 @@ func _ask_action(req: Dictionary) -> int:
 			values.append(i)
 		var got: Variant = await _prompt("", "", buttons, values, {}, end_value)
 		if got == null:
-			return 0             ## 这一局被中途放弃了（返回主菜单）
-		if not (got is String):
-			return got as int
-		## 进目标选择态；取消就回到按钮栏重来
-		var tiles := {}
-		for i in moves:
-			tiles[options[i]["data"]["to"]] = i
-		var t: Variant = await _prompt(
-			"选择要%s到的组织" % _move_title(cell).substr(0, 2),
-			"高亮 %d 格可达 · 右键或 Esc 取消" % tiles.size(),
-			[{ "title": "取消", "cost": "右键 / Esc" }], ["cancel"], tiles, null, 0)
-		if t == null:
-			return 0             ## 同上
-		if not (t is String):
-			return t as int
-	return 0                     ## 放弃这一局时从 while 条件退出来
+			return 0
+		if got is String:           ## 只可能是 "move"
+			_sticky_move = true
+			continue
+		return got as int
+	return 0                        ## 放弃这一局时从 while 条件退出来
+
+
+## 目标选择态：高亮可达格，等玩家点一格或退出。
+## 返回格子对应的选项下标；退出则返回 "cancel"；对局被放弃返回 null。
+func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
+	var tiles := {}
+	for i in moves:
+		tiles[options[i]["data"]["to"]] = i
+	var verb := _move_title(cell)
+	return await _prompt("选择要%s到的组织" % verb,
+		"高亮 %d 格可达 · 可以连着走 · 右键或 Esc 退出" % tiles.size(),
+		[{ "title": "结束%s" % verb, "cost": "右键 / Esc" }], ["cancel"], tiles, null, 0)
 
 
 # ============ 其余询问：有 to 的进棋盘，没 to 的进按钮 ============
