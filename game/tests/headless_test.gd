@@ -23,6 +23,15 @@ func _run_all() -> void:
 	t_immune_win()
 	t_cancer_s_win()
 	await t_immune_respawn()
+	t_pressure()
+	t_necrosis()
+	t_one_cell_per_tile()
+	t_phase_order()
+	t_event_rounds()
+	t_draw_limit()
+	await t_snapshot()
+	await t_rollout_isolation()
+	await t_step_atomic()
 	await t_full_game_2p()
 	await t_full_game_4p()
 	await t_determinism()
@@ -34,9 +43,14 @@ func _run_all() -> void:
 	await t_opening()
 	await t_pause_and_teardown()
 	t_hand()
+	t_hand_limit()
+	t_card_pool()
+	t_font_coverage()
+	t_card_name_fit()
 	t_view_blend()
 	await t_announce()
 	t_action_bar_width()
+	await t_buttons_dim()
 	await t_enter_not_skipped()
 	t_main_menu()
 	await t_roll_hook()
@@ -60,6 +74,18 @@ func check(cond: bool, name: String) -> void:
 
 
 ## 建一个带 AI 桥的对局（不跑流程）
+## 把对局推到「开局落子完毕、世界回合尚未开始」为止。
+## 相当于旧的 setup.run() —— 流程改成状态机之后，开局落子也是一串正常的决策了。
+func run_setup(g: CWGame) -> void:
+	g.stop_at = "round_start"
+	while true:
+		var req := g.pending()
+		if req.is_empty():
+			break
+		await g.step(0)
+	g.stop_at = ""
+
+
 func make_game(n_players: int, seed_value: int) -> CWGame:
 	var g := CWGame.new()
 	g.init(CWData.FACTION_ORDER[n_players], seed_value)
@@ -124,7 +150,7 @@ func t_pay_rule() -> void:
 func t_setup() -> void:
 	print("[开局]")
 	var g := make_game(4, 7)
-	await g.setup.run()
+	await run_setup(g)
 	var cancerous := g.count_tissue(CWData.Tissue.CANCER) + g.count_tissue(CWData.Tissue.SOLID)
 	check(cancerous == CWData.INIT_CANCER_TILES,
 		"初始 %d 格癌性组织" % CWData.INIT_CANCER_TILES)
@@ -159,73 +185,103 @@ func t_setup() -> void:
 	g.dispose()
 
 
-# ---- 攻击伤害结算顺序：基础 → 标记×2 → 免疫逃逸-0.5 ----
+# ---- 能量损失五步管线：基础 → 固定增加 → 倍增 → 倍减 → 固定减免 ----
 func t_hit_order() -> void:
 	print("[伤害结算]")
+	# 先单测纯函数，把顺序钉死：先减免再倍增会得到 (10-5)*2 = 10，是错的
+	check(CWGame.settle_loss(10, 0, 2, 1, 5) == 15, "1.0 ×2 −0.5 = 1.5（倍增在减免之前）")
+	check(CWGame.settle_loss(10, 0, 2, 2, 0) == 10, "×2 再 ÷2 = 原值")
+	check(CWGame.settle_loss(10, 0, 1, 2, 0) == 5, "÷2 向下取整到十分位")
+	check(CWGame.settle_loss(5, 0, 1, 1, 10) == 0, "减免不会减成负数")
 	var g := make_game(2, 1)
-	await g.setup.run()
+	await run_setup(g)
 	var target: Dictionary = g.living_cells(CWData.Faction.CANCER)[0]
 	var attacker: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[0]
-	target["ctype"] = CWData.CancerType.ESCAPE
-	target["marked"] = true
-	target["escape_used"] = false
+	target["ctype"] = CWData.CancerType.SIGNET   ## 【囊性护甲】−0.5
+	target["marked"] = true                      ## 树突【标记】×2
+	target["armor_used"] = false
 	target["energy"] = 50
 	attacker["itype"] = CWData.ImmuneType.MACRO
 	var before_atk: int = attacker["energy"]
 	var dmg := g.immune_hit(target, 10, attacker)
-	check(dmg == 15, "1.0 ×2(标记) -0.5(逃逸) = 1.5")
+	check(dmg == 15, "1.0 ×2(标记) −0.5(囊性护甲) = 1.5")
 	check(target["energy"] == 35, "目标余 3.5")
-	check(attacker["energy"] == before_atk + 5, "巨噬吞噬 +0.5")
+	## 巨噬【吞噬】= ⌈受击方损失 ÷ 2⌉，取整符号外没写「到十分位」→ 按整数能量
+	check(attacker["energy"] == before_atk + 10, "巨噬吞噬 ⌈1.5÷2⌉ = 1.0")
 	check(not target["marked"], "标记已消耗")
 	var dmg2 := g.immune_hit(target, 10, attacker)
-	check(dmg2 == 10, "逃逸每世界回合仅一次，第二击不减免")
+	check(dmg2 == 10, "囊性护甲每世界回合仅一次，第二击不减免")
+	## 【I-各司其职】：树突状细胞攻击只造成 1/2
+	attacker["itype"] = CWData.ImmuneType.DENDRITIC
+	target["marked"] = false
+	check(g.immune_hit(target, 10, attacker) == 5, "树突攻击 1.0 → 0.5")
 	g.dispose()
 
 
-# ---- 无氧呼吸向下取整 ----
+# ---- 无氧呼吸：0.4/格 + 固化 1.0/格，块内均分，向下取整；小细胞肺癌 110% ----
 func t_anaerobic_floor() -> void:
 	print("[无氧呼吸]")
 	var g := make_game(2, 1)
 	g.setup.build_board()
-	# 连通块：3 癌 + 1 固化 = 0.2×3 + 0.5 = 1.1 → 2 个细胞各得 0.5（向下取整）
+	# 连通块：3 癌 + 1 固化 = 0.4×3 + 1.0 = 2.2 → 2 个细胞各得 1.1
 	var coords := [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0), Vector2i(3, 0)]
 	for c in coords:
 		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
 	g.tiles[Vector2i(3, 0)]["tissue"] = CWData.Tissue.SOLID
 	for i in 2:
-		var cell := CWSetup.make_cell(i, i, CWData.Faction.CANCER, coords[i], -1, 0)
+		var cell := CWSetup.make_cell(i, i, CWData.Faction.CANCER, coords[i], -1,
+			CWData.CancerType.MELANOMA)
 		cell["energy"] = 0
 		g.cells.append(cell)
 	g.world._anaerobic()
-	check(g.cells[0]["energy"] == 5 and g.cells[1]["energy"] == 5,
-		"池 1.1 / 2 细胞 = 各 0.5（向下取整到 0.1）")
+	check(g.cells[0]["energy"] == 11 and g.cells[1]["energy"] == 11,
+		"池 2.2 / 2 细胞 = 各 1.1")
+	## 【瓦伯格超速糖酵解】：110%，向上取整到十分位 → 1.1 × 1.1 = 1.21 → 1.3
+	g.cells[0]["ctype"] = CWData.CancerType.SCLC
+	g.cells[0]["energy"] = 0
+	g.cells[1]["energy"] = 0
+	g.world._anaerobic()
+	check(g.cells[0]["energy"] == 13, "小细胞肺癌 1.1 → 1.3（110% 向上取整）")
+	check(g.cells[1]["energy"] == 11, "同块的其他癌细胞不受影响")
 	g.dispose()
 
 
-# ---- 固化与衰减 ----
+# ---- 固化：计数用十分整数，阈值 3.0、衰减 −0.5、骨肉瘤 +1.5 ----
 func t_solidify_and_decay() -> void:
 	print("[固化]")
 	var g := make_game(2, 1)
 	g.setup.build_board()
 	var pos := Vector2i(1, 1)
 	g.tiles[pos]["tissue"] = CWData.Tissue.CANCER
-	var cell := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, pos, -1, CWData.CancerType.BLAST)
+	var cell := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, pos, -1,
+		CWData.CancerType.MELANOMA)
 	g.cells.append(cell)
 	g.world._solidify()
-	check(g.tiles[pos]["solid"] == 1, "停留 1 回合计数 1")
+	check(g.tiles[pos]["solid"] == 10, "停留 1 回合 → 计数 1.0")
 	g.world._solidify()
-	check(g.tiles[pos]["tissue"] == CWData.Tissue.SOLID, "计数到 2 → 固化癌组织")
-	# 衰减：无细胞停留的癌组织 -1；固着点不减
+	check(g.tiles[pos]["tissue"] == CWData.Tissue.CANCER, "计数 2.0 还没到阈值")
+	g.world._solidify()
+	check(g.tiles[pos]["tissue"] == CWData.Tissue.SOLID, "计数到 3.0 → 固化癌组织")
+	## 骨肉瘤【骨样硬化】：同样的停留只要两回合就够 3.0
+	var op := Vector2i(-2, 1)
+	g.tiles[op]["tissue"] = CWData.Tissue.CANCER
+	cell["ctype"] = CWData.CancerType.OSTEO
+	cell["pos"] = op
+	g.world._solidify()
+	check(g.tiles[op]["solid"] == 15, "骨肉瘤停留 → 计数 +1.5")
+	g.world._solidify()
+	check(g.tiles[op]["tissue"] == CWData.Tissue.SOLID, "两回合即固化")
+	## 衰减：无细胞停留的癌组织每世界回合 −0.5
 	var d1 := Vector2i(-1, 0)
 	g.tiles[d1]["tissue"] = CWData.Tissue.CANCER
-	g.tiles[d1]["solid"] = 1
+	g.tiles[d1]["solid"] = 10
 	g.world._decay()
-	check(g.tiles[d1]["solid"] == 0, "无人停留 → 计数 -1")
-	g.tiles[d1]["solid"] = 1
-	g.tiles[d1]["sticky"] = 1
+	check(g.tiles[d1]["solid"] == 5, "无人停留 → 计数 −0.5")
 	g.world._decay()
-	check(g.tiles[d1]["solid"] == 1, "固着点不自然衰减")
-	# 新生癌组织当回合不可固化
+	check(g.tiles[d1]["solid"] == 0, "再减一次归零，不会变负")
+	g.world._decay()
+	check(g.tiles[d1]["solid"] == 0, "已经是 0 就不再减")
+	## 新生癌组织当回合不可固化
 	var nb := Vector2i(0, 1)
 	g.tiles[nb]["tissue"] = CWData.Tissue.CANCER
 	g.tiles[nb]["newborn"] = true
@@ -291,42 +347,212 @@ func t_cancer_s_win() -> void:
 	var need: int = CWData.CANCER_WIN_WEIGHTED
 	for i in need - 1:
 		g.tiles[coords[i]]["tissue"] = CWData.Tissue.CANCER
-	g.check_cancer_s_win()
+	g.check_cancer_win()
 	check(g.winner < 0, "加权 %d < %d → 未获胜" % [need - 1, need])
 	g.tiles[coords[need - 1]]["tissue"] = CWData.Tissue.CANCER
-	g.check_cancer_s_win()
+	g.check_cancer_win()
 	check(g.winner == CWData.Faction.CANCER, "加权 %d → 癌症胜利" % need)
 	g.dispose()
 
 
-# ---- 免疫细胞死亡 → 罚停 → 随机健康组织复活 ----
+# ---- 免疫【S-复活】：下一个 S 阶段在健康骨髓格复活，1.0 能量 ----
 func t_immune_respawn() -> void:
-	print("[免疫罚停复活]")
+	print("[免疫复活]")
 	var g := make_game(4, 11)
-	await g.setup.run()
+	await run_setup(g)
 	var imm: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[0]
+	var pid: int = imm["pid"]
 	g.round_no = 3
 	g.kill(imm)
 	check(not imm["alive"], "免疫细胞死亡")
-	check(imm["respawn_round"] == 5, "罚停 1 回合：死于第 3 → 第 5 回合复活")
-	# 第 4 回合：仍在罚停
+	## PRD 没有罚停条款：下一个世界回合的 S 阶段就复活
+	check(imm["respawn_round"] == 4, "死于第 3 回合 → 第 4 回合复活")
+	## 骨髓全被癌化 → 无处可复活
+	for c in CWData.MARROWS:
+		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
 	g.round_no = 4
-	g.world._immune_respawn()
-	check(not imm["alive"], "第 4 回合仍未复活（缺席一整回合）")
-	# 第 5 回合：复活于健康组织
+	check(g.world.revive_options_immune(pid).is_empty(), "骨髓全被癌化 → 没有落点")
+	## 放开一个健康骨髓格
+	var m: Vector2i = CWData.MARROWS[0]
+	g.tiles[m]["tissue"] = CWData.Tissue.HEALTHY
+	var opts: Array = g.world.revive_options_immune(pid)
+	check(opts.size() == 1 and opts[0]["data"]["to"] == m, "落点正是那个健康骨髓格")
+	g.world.revive_immune(pid, m)
+	check(imm["alive"] and imm["pos"] == m, "在骨髓复活")
+	check(imm["energy"] == 10, "复活获得 1.0 能量（癌细胞是 2.0）")
+	check(imm["respawn_round"] == -1, "复活后清除标记")
+	## 骨髓被别的细胞占着也不行
+	var imm2: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[1]
 	g.round_no = 5
-	g.world._immune_respawn()
-	check(imm["alive"], "第 5 回合复活")
-	check(g.tile(imm["pos"])["tissue"] == CWData.Tissue.HEALTHY, "复活点是健康组织")
-	check(imm["energy"] == CWData.IMMUNE_RESPAWN_ENERGY, "复活获得 2.0 能量")
-	check(imm["respawn_round"] == -1, "复活后清除罚停标记")
-	# 关掉复活开关 → 永久死亡（规则原文语义）
-	g.tune.immune_respawn_delay = -1
-	var imm2: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[0]
 	g.kill(imm2)
-	g.world._immune_respawn()
-	check(not imm2["alive"], "旋钮关掉后免疫永久死亡")
+	g.round_no = 6
+	check(g.world.revive_options_immune(imm2["pid"]).is_empty(),
+		"唯一的健康骨髓被队友占着 → 没有落点")
+	## 旋钮关掉 → 永久死亡
+	g.tune.immune_respawn_delay = -1
+	g.kill(imm)
+	check(imm["respawn_round"] == -1, "旋钮关掉后不再排队复活")
 	g.dispose()
+
+
+# ---- 【E-微环境压迫】：相邻癌性组织 > 2 格时按超出格数扣能量 ----
+func t_pressure() -> void:
+	print("[微环境压迫]")
+	var g := make_game(2, 1)
+	g.setup.build_board()
+	var pos := Vector2i.ZERO
+	var cell := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, pos,
+		CWData.ImmuneType.BASIC, -1)
+	cell["energy"] = 50
+	g.cells.append(cell)
+	var nb := CWData.neighbors(pos)
+	for k in 2:
+		g.tiles[nb[k]]["tissue"] = CWData.Tissue.CANCER
+	g.world._pressure()
+	check(cell["energy"] == 50, "相邻 2 格不造成损失")
+	g.tiles[nb[2]]["tissue"] = CWData.Tissue.CANCER
+	g.world._pressure()
+	check(cell["energy"] == 45, "相邻 3 格 → (3−2)×0.5 = 0.5")
+	for k in range(3, 6):
+		g.tiles[nb[k]]["tissue"] = CWData.Tissue.SOLID
+	cell["energy"] = 50
+	g.world._pressure()
+	check(cell["energy"] == 30, "相邻 6 格（含固化）→ (6−2)×0.5 = 2.0")
+	## 这是癌方第一个能真正打死免疫细胞的手段
+	cell["energy"] = 15
+	g.world._pressure()
+	check(not cell["alive"], "压迫可以致死")
+	g.dispose()
+
+
+# ---- 「坏死」：不为有氧呼吸供能，按世界回合倒计时 ----
+func t_necrosis() -> void:
+	print("[坏死]")
+	var g := make_game(2, 1)
+	g.setup.build_board()
+	var cell := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.BASIC, -1)
+	cell["energy"] = 0
+	g.cells.append(cell)
+	g.world._aerobic()
+	## 全盘 127 格健康：127 × 3 ÷ 127 = 3.0
+	check(cell["energy"] == 30, "满盘健康 → 3.0")
+	## 抠掉 20 格坏死：(127−20) × 3 ÷ 127 = 2.527 → 四舍五入 2.5
+	var n := 0
+	for c in g.tiles.keys():
+		if n >= 20:
+			break
+		g.tiles[c]["necrosis"] = CWData.NECROSIS_TOXIN
+		n += 1
+	cell["energy"] = 0
+	g.world._aerobic()
+	check(cell["energy"] == 25, "坏死 20 格 → 2.5（四舍五入到十分位）")
+	## 倒计时：两个世界回合后恢复
+	g.world._tick_necrosis()
+	g.world._tick_necrosis()
+	cell["energy"] = 0
+	g.world._aerobic()
+	check(cell["energy"] == 30, "坏死到期后重新供能")
+	g.dispose()
+
+
+# ---- 一格一细胞 + 骨肉瘤【刚性屏障】 ----
+func t_one_cell_per_tile() -> void:
+	print("[一格一细胞]")
+	var g := make_game(2, 1)
+	g.setup.build_board()
+	var a := Vector2i.ZERO
+	var b: Vector2i = CWData.neighbors(a)[0]
+	var mine := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, a, -1,
+		CWData.CancerType.MELANOMA)
+	var mate := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, b, -1,
+		CWData.CancerType.SCLC)
+	g.cells.append(mine)
+	g.cells.append(mate)
+	var opts: Array = g.actions.build_options(mine)
+	var can_go := false
+	for o in opts:
+		if o["data"].get("to", Vector2i.MAX) == b:
+			can_go = true
+	check(not can_go, "己方细胞占着的格也不能进（不再是「同阵营可叠」）")
+	## 骨肉瘤站在固化癌组织上时不可被攻击
+	var imm := CWSetup.make_cell(2, 0, CWData.Faction.IMMUNE, a,
+		CWData.ImmuneType.BASIC, -1)
+	g.cells.clear()
+	mate["ctype"] = CWData.CancerType.OSTEO
+	mate["pos"] = b
+	imm["pos"] = a
+	imm["energy"] = 50
+	g.cells.append(mate)
+	g.cells.append(imm)
+	g.tiles[b]["tissue"] = CWData.Tissue.SOLID
+	check(not g.actions._attackable(mate), "固化癌组织上的骨肉瘤不可攻击")
+	g.tiles[b]["tissue"] = CWData.Tissue.CANCER
+	check(g.actions._attackable(mate), "破除固化后就能打了")
+	g.dispose()
+
+
+# ---- E 阶段顺序：增生必须排在侵蚀之前 ----
+func t_phase_order() -> void:
+	print("[阶段顺序]")
+	var src := FileAccess.get_file_as_string("res://scripts/core/cw_world.gd")
+	var body := src.substr(src.find("func e_phase"))
+	body = body.substr(0, body.find("# ---- S 阶段"))
+	var seq: Array[String] = []
+	for name in ["_pressure", "_proliferate", "_erosion", "_anaerobic",
+			"_solidify", "_decay", "_tick_necrosis", "_clear_newborn"]:
+		seq.append(name)
+	var last := -1
+	var ordered := true
+	for name in seq:
+		var at: int = body.find(name + "()")
+		if at < 0 or at < last:
+			ordered = false
+		last = at
+	check(ordered, "E 阶段八步都在、且顺序和 PRD 一致")
+	## 单独把最容易搞反的一对钉死：增生会改变「完全包围」的判定结果
+	check(body.find("_proliferate()") < body.find("_erosion()"),
+		"【增生】排在【侵蚀】之前")
+
+
+# ---- 世界事件回合表：3/6/10/15/20/25/30，到 30 为止 ----
+func t_event_rounds() -> void:
+	print("[世界事件回合]")
+	var hit: Array[int] = []
+	for r in range(1, 41):
+		if CWData.is_world_event_round(r):
+			hit.append(r)
+	check(hit == [3, 6, 10, 15, 20, 25, 30], "触发回合正是 PRD 那七个（%s）" % str(hit))
+	check(not CWData.is_world_event_round(35), "30 之后不再触发")
+
+
+# ---- 【基因表达】每行动回合 3 次 ----
+func t_draw_limit() -> void:
+	print("[抽卡上限]")
+	var g := make_game(2, 1)
+	g.setup.build_board()
+	var cell := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.BASIC, -1)
+	cell["energy"] = 100
+	g.cells.append(cell)
+	for i in CWData.DRAW_MAX_PER_TURN:
+		check(_has_act(g.actions.build_options(cell), "draw"), "第 %d 次抽卡还在菜单里" % (i + 1))
+		g.actions.execute(cell, { "act": "draw" })
+	check(not _has_act(g.actions.build_options(cell), "draw"),
+		"抽满 3 次后菜单里没有抽卡了")
+	check(cell["draws_used"] == 3, "计数是 3")
+	## 抽到的**不一定**进手牌：【事件】立即结算并弃置，不占手牌
+	check(cell["hand"].size() <= 3, "进手牌的不会超过抽的次数")
+	g.dispose()
+
+
+
+
+func _has_act(opts: Array, act: String) -> bool:
+	for o in opts:
+		if o["data"].get("act", "") == act:
+			return true
+	return false
 
 
 # ---- 完整对局 ----
@@ -571,7 +797,7 @@ func t_human_ask() -> void:
 	ai.game = g
 	for pid in g.order:
 		g.bridges[pid] = ai
-	await g.setup.run()          ## 先把细胞摆好，后面才有 cell_of()
+	await run_setup(g)          ## 先把细胞摆好，后面才有 cell_of()
 
 	var b := CWUIBridge.new()
 	b.game = g
@@ -608,7 +834,8 @@ func t_human_ask() -> void:
 	var r2 := [-99]
 	var run2 := func() -> void: r2[0] = await b.ask(areq)
 	run2.call()
-	check(_buttons(bar) == 3, "两个迁移选项合成一个按钮（迁移/基因表达/结束回合）")
+	check(_buttons(bar) == 3,
+		"未分化免疫细胞的完整按钮集合 = 迁移/基因表达 + 结束回合")
 	check(b.marks.is_empty(), "按钮栏阶段不高亮格子")
 	bar.chosen.emit(0)                        ## 点「迁移」
 	await process_frame
@@ -641,8 +868,8 @@ func t_human_ask() -> void:
 	var r3a := [-99]
 	var run3a := func() -> void: r3a[0] = await b.ask(areq)
 	run3a.call()
-	check(not b._sticky_move and _buttons(bar) == 3, "新世界回合从按钮栏重新开始")
-	bar.chosen.emit(2)
+	check(not b._sticky_move and b.marks.is_empty(), "新世界回合从按钮栏重新开始")
+	bar.chosen.emit(_buttons(bar) - 1)
 	await process_frame
 	g.round_no -= 1
 
@@ -655,8 +882,9 @@ func t_human_ask() -> void:
 	b.human_pids = [0, 1]
 	var run3b := func() -> void: r3b[0] = await b.ask(areq1)
 	run3b.call()
-	check(not b._sticky_move and _buttons(bar) == 3, "换人后从按钮栏重新开始")
-	bar.chosen.emit(2)
+	check(not b._sticky_move and b.marks.is_empty(),
+		"换人后从按钮栏重新开始（癌细胞的按钮集合和免疫不同，所以只查是否回到按钮栏）")
+	bar.chosen.emit(_buttons(bar) - 1)   ## 最后一个按钮是「结束回合」
 	await process_frame
 	b.human_pids = [0]
 
@@ -688,7 +916,7 @@ func t_human_ask() -> void:
 	# ⑥ 新增主动技能却忘了在行动栏登记 → 按钮会显示成 act 的英文名。
 	#    跑一整局把实际出现过的 act 收齐，逐个核对。
 	var g2 := CWGame.new()
-	g2.init(CWData.FACTION_ORDER[4], 20260827)
+	g2.init(CWData.FACTION_ORDER[4], 99)
 	var rec := ActRecorder.new()
 	rec.game = g2
 	for pid in g2.order:
@@ -992,7 +1220,7 @@ func t_announce() -> void:
 
 	## 真跑一局：攻击/突变/抗体三处掷骰都要报出来
 	var g2 := CWGame.new()
-	g2.init(CWData.FACTION_ORDER[4], 20260827)
+	g2.init(CWData.FACTION_ORDER[4], 99)
 	var rec2 := ResultRecorder.new()
 	rec2.game = g2
 	for pid in g2.order:
@@ -1177,7 +1405,7 @@ func t_roll_hook() -> void:
 	print("[掷骰演出钩子]")
 
 	var g := CWGame.new()
-	g.init(CWData.FACTION_ORDER[4], 20260827)
+	g.init(CWData.FACTION_ORDER[4], 99)
 	var spies: Array = []
 	for pid in g.order:
 		var b := CWRollSpy.new()
@@ -1317,3 +1545,371 @@ func _zone_of(face: int) -> int:
 	elif face <= 5:
 		return 1
 	return 2
+
+
+
+# ---- 快照 / 回滚：AI 推演的地基 ----
+func t_snapshot() -> void:
+	print("[快照回滚]")
+	var g := make_game(4, 31)
+	await run_setup(g)
+	## 先往前跑几十步，到一个「中局」局面
+	for i in 40:
+		if g.pending().is_empty():
+			break
+		await g.step(g.rng.randi_range(0, 3))
+	var h0 := g.state_hash()
+	var snap := g.snapshot()
+	## 拿它乱走一通
+	for i in 30:
+		if g.pending().is_empty():
+			break
+		await g.step(g.rng.randi_range(0, 5))
+	check(g.state_hash() != h0, "推演确实改变了局面")
+	g.restore(snap)
+	check(g.state_hash() == h0, "restore() 之后局面逐位还原")
+	## 随机数发生器也得还原 —— 否则同一步走两遍会掷出不同的骰子
+	var a := g.rng.randi()
+	g.restore(snap)
+	check(g.rng.randi() == a, "rng 状态也在快照里")
+	g.dispose()
+
+
+# ---- 推演不能污染主线：这是「AI 能自己往前推」的验收条件 ----
+func t_rollout_isolation() -> void:
+	print("[推演隔离]")
+	## 两局同种子。对照组一路走到底；实验组每走一步之前先做 5 次推演再回滚。
+	var control := make_game(4, 77)
+	var probe := make_game(4, 77)
+	await run_setup(control)
+	await run_setup(probe)
+	for turn_i in 25:
+		if control.pending().is_empty() or probe.pending().is_empty():
+			break
+		## 实验组：快照 → 乱跑 → 回滚，重复 5 次
+		for r in 5:
+			var snap := probe.snapshot()
+			for k in 8:
+				if probe.pending().is_empty():
+					break
+				await probe.step(probe.rng.randi_range(0, 4))
+			probe.restore(snap)
+		## 两边走同一步
+		await control.step(turn_i % 3)
+		await probe.step(turn_i % 3)
+	check(control.state_hash() == probe.state_hash(),
+		"做过 125 次推演的那一局，主线状态和没推演过的完全一致")
+	control.dispose()
+	probe.dispose()
+
+
+# ---- step() 必须是原子的：一个行动不能在中途再问一次 ----
+func t_step_atomic() -> void:
+	print("[行动原子性]")
+	## 分化、裂解、血行转移、跃进 这四个原来都是「先选行动、再问一次细节」。
+	## 埋在 execute() 里的询问会让 AI 没法把一个行动当成原子来推演，
+	## 所以它们都被摊成了顶层选项 —— 这里逐个核对选项自带全部参数。
+	var g := make_game(4, 5)
+	await run_setup(g)
+	var imm: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[0]
+	g.immune_level = 2
+	var opts: Array = g.actions.build_options(imm)
+	var diff := []
+	for o in opts:
+		if o["data"].get("act", "") == "differentiate":
+			diff.append(o["data"])
+	check(diff.size() == 4, "四种分化各是一个顶层选项（%d）" % diff.size())
+	var typed := true
+	for d in diff:
+		if not d.has("type"):
+			typed = false
+	check(typed, "每个分化选项自带 type，execute() 不必再问")
+	## 裂解：找一格空地，手动造成固化癌组织再站上去
+	var solid := Vector2i.MAX
+	for c in g.tiles.keys():
+		if g.cells_at(c).is_empty():
+			solid = c
+			break
+	check(solid != Vector2i.MAX, "找得到一格空地")
+	g.tiles[solid]["tissue"] = CWData.Tissue.SOLID
+	imm["itype"] = CWData.ImmuneType.T_CELL
+	imm["pos"] = solid
+	imm["energy"] = 50
+	var lyse := []
+	for o in g.actions.build_options(imm):
+		if o["data"].get("act", "") == "lyse":
+			lyse.append(o["data"]["purge"])
+	check(lyse.size() == 2 and (true in lyse) and (false in lyse),
+		"裂解摊成「并净化 / 暂不」两个顶层选项")
+	## 整份行动表里不该再有任何需要二次询问的项
+	var need_more := false
+	for o in g.actions.build_options(imm):
+		var d: Dictionary = o["data"]
+		if d.get("act", "") in ["differentiate", "lyse", "homing", "jump"] \
+			and d.size() < 2:
+			need_more = true
+	check(not need_more, "没有「选了还要再问一次」的行动")
+	g.dispose()
+
+
+# ---- 手牌上限 8：抽卡选项消失、骨髓不发卡、卡名按露出宽度截断 ----
+func t_hand_limit() -> void:
+	print("[手牌上限]")
+	check(CWData.HAND_MAX == 8, "上限是 8（团队 2026-08-28 定，PRD 没有这条）")
+	var g := make_game(2, 3)
+	g.setup.build_board()
+	var cell := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.BASIC, -1)
+	cell["energy"] = 500
+	g.cells.append(cell)
+	## 直接塞满 —— 靠抽是塞不满的（见下面 t_card_pool 的「I 级最多 6 张」）
+	for name in CWCardData.CARDS:
+		if cell["hand"].size() >= CWData.HAND_MAX:
+			break
+		if CWCardData.CARDS[name]["kind"] != CWCardData.Kind.EVENT:
+			cell["hand"].append(name)
+	check(cell["hand"].size() == 8, "手上 8 张")
+	cell["draws_used"] = 0
+	check(not _has_act(g.actions.build_options(cell), "draw"),
+		"满 8 张 → 抽卡选项直接不出现")
+	## 骨髓：手牌满时不发卡，**卡留着**
+	var m: Vector2i = CWData.MARROWS[0]
+	g.tiles[m]["cards"] = 1
+	g.actions.collect_special(cell, m)
+	check(g.tiles[m]["cards"] == 1 and cell["hand"].size() == 8,
+		"手牌满时踩骨髓：卡留在骨髓里，没被浪费")
+	cell["hand"].resize(7)
+	g.actions.collect_special(cell, m)
+	check(g.tiles[m]["cards"] == 0, "空出位置后骨髓就把卡给出去了")
+	## 兜底：直接调 draw() 也撑不爆
+	cell["hand"].resize(8)
+	g.cards.draw(cell, "测试")
+	check(cell["hand"].size() == 8, "draw() 自己也守着上限")
+	g.dispose()
+
+
+# ---- 卡池：身份表 + 抽卡合法性（效果尚未实现）----
+func t_card_pool() -> void:
+	print("[卡池]")
+	check(CWCardData.CARDS.size() == 66, "66 张唯一卡（%d）" % CWCardData.CARDS.size())
+	## 四个免疫池 + 癌症三期的张数，逐个对照 PRD
+	var want := [11, 14, 17, 22]
+	for lv in 4:
+		var n: int = CWCardData.pool_of(CWData.Faction.IMMUNE, lv, 1).size()
+		check(n == want[lv], "免疫 %s 级池 %d 张" % [CWData.LEVEL_NAMES[lv], n])
+	for r in [1, 10, 20]:
+		var n: int = CWCardData.pool_of(CWData.Faction.CANCER, 0, r).size()
+		check(n == 17, "癌症池第 %d 回合 %d 张（不分等级）" % [r, n])
+	check(CWCardData.cancer_phase(9) == 0 and CWCardData.cancer_phase(10) == 1 \
+		and CWCardData.cancer_phase(19) == 1 and CWCardData.cancer_phase(20) == 2,
+		"癌症卡分期切在第 10 / 20 回合")
+	## 同种子必须抽出同一张
+	var g := make_game(2, 1)
+	g.setup.build_board()
+	var cell := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.BASIC, -1)
+	g.cells.append(cell)
+	g.rng.seed = 12345
+	var a := g.cards.pick(cell)
+	g.rng.seed = 12345
+	check(g.cards.pick(cell) == a, "同种子抽出同一张（%s）" % a)
+	## 同名【技能】在手 → 从候选剔除；【事件】不受这条限制
+	cell["hand"] = ["补体调理"]
+	check(not g.cards.is_legal(cell, "补体调理"), "手上已有同名技能 → 抽不到")
+	check(g.cards.is_legal(cell, "急性炎症反应"), "事件卡不受同名限制")
+	cell["hand"] = []
+	cell["equipped"] = ["组织驻留"]
+	check(not g.cards.is_legal(cell, "组织驻留"), "已装备的同名永久技能 → 抽不到")
+	## I 级池只有 6 张技能（另外 5 张是事件），所以 I 级手牌最多 6 张 —— 碰不到 8 的上限
+	cell["equipped"] = []
+	var skills := 0
+	for c in CWCardData.pool_of(CWData.Faction.IMMUNE, 0, 1):
+		if CWCardData.CARDS[c["name"]]["kind"] != CWCardData.Kind.EVENT:
+			skills += 1
+	check(skills == 6, "I 级池只有 %d 张技能 → I 级手牌上限实际是 6" % skills)
+	## 候选被抽干之后就抽不出来了
+	var all_skills: Array = []
+	for c in CWCardData.pool_of(CWData.Faction.IMMUNE, 0, 1):
+		if CWCardData.CARDS[c["name"]]["kind"] != CWCardData.Kind.EVENT:
+			all_skills.append(c["name"])
+	cell["hand"] = all_skills
+	var only_events := true
+	for i in 20:
+		var got := g.cards.pick(cell)
+		if got != "" and CWCardData.CARDS[got]["kind"] != CWCardData.Kind.EVENT:
+			only_events = false
+	check(only_events, "技能抽干后只剩事件卡")
+	g.dispose()
+
+
+
+
+# ---- 卡名：写全名不加省略号，靠 clip_contents + 后一张卡遮挡 ----
+func t_card_name_fit() -> void:
+	print("[卡名显示]")
+	var hand := CWHand.new()
+	hand._ready()
+	hand.sync(3, Vector2.INF, PackedStringArray(
+		["补体级联", "抗体依赖细胞毒作用", "缺氧适应"]))
+	var full := true
+	var clipped := true
+	for c in hand._cards:
+		if not c.clip_contents:
+			clipped = false
+	check(clipped, "每张卡都开了 clip_contents —— 最后一张没有邻居遮挡，不裁会溢到棋盘上")
+	var texts: Array[String] = []
+	for c in hand._cards:
+		texts.append((c.get_node("Name") as Label).text)
+	check(texts == ["补体级联", "抗体依赖细胞毒作用", "缺氧适应"],
+		"名字一律写全，不加省略号（%s）" % str(texts))
+	## 露出宽度：前面的被压成 _stagger()，最后一张露整卡宽
+	check(hand.exposed_width(2) == CWHand.CARD.x, "最后一张露出整卡宽 72")
+	check(hand.exposed_width(0) == CWHand.STAGGER, "3 张时前面的各露 52")
+	## 满编 8 张会压到 (300-72)/7 ≈ 32.6
+	hand.sync(CWData.HAND_MAX)
+	check(hand.exposed_width(0) < 34.0,
+		"8 张时每张只露 %.1fpx（约 3 个字）" % hand.exposed_width(0))
+	hand.free()
+
+
+# ---- 按钮不消失、只变暗（团队 2026-08-28）----
+func t_buttons_dim() -> void:
+	print("[按钮变暗]")
+	var g := make_game(4, 5)
+	await run_setup(g)
+	var imm: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[0]
+	## 按钮集合只看种类和等级，不看能量 —— 这正是「宽度不会跳」的依据
+	imm["itype"] = CWData.ImmuneType.T_CELL
+	var rich: Array[String] = g.actions.action_kinds(imm)
+	imm["energy"] = 1
+	var poor: Array[String] = g.actions.action_kinds(imm)
+	check(rich == poor, "能量掉光了按钮集合也不变（%s）" % str(rich))
+	check(rich == ["move", "draw", "toxin", "lyse"], "T 细胞四个按钮")
+	## 分化用掉之后按钮才真的消失（那是一次性事件，不是每步都变）
+	g.immune_level = 2
+	imm["itype"] = CWData.ImmuneType.BASIC
+	imm["differentiated"] = false
+	check("differentiate" in g.actions.action_kinds(imm), "III 级未分化 → 有分化按钮")
+	imm["differentiated"] = true
+	check(not ("differentiate" in g.actions.action_kinds(imm)), "分化过了 → 按钮收掉")
+	## 四种癌细胞各自的第四个按钮
+	var can: Dictionary = g.living_cells(CWData.Faction.CANCER)[0]
+	for pair in [[CWData.CancerType.MELANOMA, "homing"],
+			[CWData.CancerType.SIGNET, "mucus"],
+			[CWData.CancerType.SCLC, "jump"],
+			[CWData.CancerType.OSTEO, ""]]:
+		can["ctype"] = pair[0]
+		var kinds: Array[String] = g.actions.action_kinds(can)
+		check(kinds.size() == (4 if pair[1] != "" else 3) and (pair[1] == "" or pair[1] in kinds),
+			"%s 的按钮集合 %s" % [CWData.CANCER_TYPE_NAMES[pair[0]], str(kinds)])
+	## 行动栏：灰按钮照样占位，数字键点不动它
+	var bar := CWActionBar.new()
+	get_root().add_child(bar)
+	await process_frame
+	bar.show_bar("", "", [
+		{ "title": "迁移", "cost": "1 0.5" },
+		{ "title": "基因表达", "cost": "2 0.5", "disabled": true },
+		{ "title": "细胞毒素", "cost": "3 1.0" }])
+	await process_frame
+	check(bar._count() == 3, "灰掉的按钮照样占位（否则宽度会跳、快捷键编号也会变）")
+	check(bar._is_disabled(1) and not bar._is_disabled(0), "第二个是灰的")
+	## 光「点不动」不够 —— 得**看着也是灰的**。
+	## 上一版 show_bar 末尾调的是 _set_hot(-1)，而 _hot 本来就是 -1、那函数开头就 return，
+	## 于是灰按钮点不动却画得和正常按钮一样（2026-08-28 团队试玩报的）。
+	var btns: Array = []
+	for c in bar._row.get_children():
+		if c is PanelContainer:
+			btns.append(c)
+	var title_of := func(p: PanelContainer) -> Color:
+		return (p.get_child(0).get_child(0) as Label).get_theme_color("font_color")
+	check(title_of.call(btns[1]) == CWStyle.TEXT_OFF,
+		"灰按钮的标题真的画成了暗色")
+	check(title_of.call(btns[0]) != CWStyle.TEXT_OFF, "正常按钮不受影响")
+	var hits: Array[int] = []
+	bar.chosen.connect(func(i: int) -> void: hits.append(i))
+	var ev := InputEventKey.new()
+	ev.pressed = true
+	ev.keycode = KEY_2
+	bar._unhandled_key_input(ev)
+	check(hits.is_empty(), "数字键 2 点不动灰按钮")
+	ev.keycode = KEY_3
+	bar._unhandled_key_input(ev)
+	check(hits == [2], "数字键 3 仍然有效 —— 编号不因为有灰按钮而错位")
+	bar.free()
+	g.dispose()
+
+
+# ---- 字形覆盖：会上屏的字符串里不能出现字库没有的字 ----
+##
+## 起因：突变的提示里用了 U+2212（−，MINUS SIGN），点阵字库没有这个字形，
+## 玩家看到的是一个方框里写着「2212」（2026-08-28 团队试玩时报的）。
+## 这种错**只有在那条分支真的触发时才看得见**，靠人眼盯不住，所以做成自动检查。
+##
+## 扫的是**字符串字面量**，注释不算（注释不上屏，里面写 ≥ ⌈⌉ 没关系）。
+func t_font_coverage() -> void:
+	print("[字形覆盖]")
+	var font: Font = CWStyle.FONT
+	var bad := {}
+	var files: Array[String] = []
+	_collect_gd("res://scripts", files)
+	check(files.size() > 10, "扫到了 %d 个脚本" % files.size())
+	for path in files:
+		for s in _string_literals(FileAccess.get_file_as_string(path)):
+			for k in s.length():
+				var code: int = s.unicode_at(k)
+				if code > 0x7F and not font.has_char(code):
+					bad["U+%04X %s" % [code, s[k]]] = path.get_file()
+	var msg := ""
+	for k in bad:
+		msg += "%s（%s）" % [k, bad[k]]
+	check(bad.is_empty(), "所有会上屏的字符字库里都有%s" % ("" if bad.is_empty() else "；缺：" + msg))
+
+
+func _collect_gd(dir_path: String, out: Array[String]) -> void:
+	var d := DirAccess.open(dir_path)
+	if d == null:
+		return
+	d.list_dir_begin()
+	var n := d.get_next()
+	while n != "":
+		if d.current_is_dir():
+			_collect_gd(dir_path + "/" + n, out)
+		elif n.ends_with(".gd"):
+			out.append(dir_path + "/" + n)
+		n = d.get_next()
+	d.list_dir_end()
+
+
+## 从源码里抠出所有字符串字面量的内容。跳过 # 注释，处理反斜杠转义。
+func _string_literals(src: String) -> Array[String]:
+	var out: Array[String] = []
+	var buf := ""
+	var ins := false
+	var esc := false
+	var com := false
+	for i in src.length():
+		var ch := src[i]
+		if ch == "
+":
+			com = false
+			continue
+		if com:
+			continue
+		if esc:
+			esc = false
+			continue
+		if ins:
+			if ch == "\\":
+				esc = true
+			elif ch == "\"":
+				ins = false
+				out.append(buf)
+				buf = ""
+			else:
+				buf += ch
+			continue
+		if ch == "\"":
+			ins = true
+		elif ch == "#":
+			com = true
+	return out

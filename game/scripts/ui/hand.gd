@@ -11,6 +11,21 @@
 ## 所以每张都写「未定 / 卡池待交付」，和设计稿的占位卡一致 ——
 ## 故意不编一个像模像样的卡名，免得被当成已经定好的内容。
 ##
+## **卡面方案乙**（团队 2026-08-28 定）：静止时每张只露出顶上 26px，
+## 名字就写在那 26px 里，10px 点阵字，**写全名、不加省略号** ——
+## 露得出多少算多少，露不出的部分由后一张卡物理盖住（团队 2026-08-28 定）。
+## 省略号本身也要占一个字的位置，去掉它反而多露一个字。
+##
+## 为什么不是写在卡底：卡底在屏幕外。上一版把名字放在 `y+68`，静止时根本看不见，
+## 五张手牌长得一模一样，不悬停分不出谁是谁。
+##
+## **卡必须开 clip_contents**：名字最长 9 个字 = 90px，比卡本身还宽 18px。
+## 非最后一张有后一张压着，看不出来；**最后一张没有邻居**，不裁就会溢到棋盘上。
+##
+## 代价是手牌一多就看不全：8 张时 `_stagger()` 压到 33px，一张只露得下 3 个字，
+## 而且【补体级联】和【补体调理】都会显示成「补体级」「补体调」——只差最后一个字。
+## 团队知道并选择先这样试。
+##
 ## 手牌里**只可能是【技能】**：PRD 写「【事件】抽取后立即结算并弃置」，事件卡不进手牌。
 class_name CWHand
 extends Control
@@ -25,11 +40,15 @@ const SPAN := 300.0         ## 可用横向空间：12 到行动栏左缘 324 �
 const TWEEN := 0.12         ## 抬起/推开的补间
 const DEAL := 0.45          ## 抽到的卡飞进手牌
 const DEAL_SCALE := 0.25    ## 起飞时的缩放
+const NAME_PAD := 6         ## 卡名左右内边距
 
 var _cards: Array[Control] = []
 var _hovered := -1
 var _tweens := {}      ## 卡 -> 正在跑的补间。**一张卡同时只能有一条**
 var _dealing := {}     ## 卡 -> true，正在飞进来（走长补间、还要补缩放和淡入）
+## 每张卡的名字。卡池还没实现（cw_cards.gd 是桩），所以现在恒为空 → 显示「未定」。
+## 卡系统落地后由 CWMatch 把真名传进来，这里就是现成的。
+var _names: PackedStringArray = PackedStringArray()
 
 
 func _ready() -> void:
@@ -39,7 +58,9 @@ func _ready() -> void:
 
 ## 手牌数变化时调用。多出来的卡从 from（屏幕坐标）飞进来；
 ## from 传 Vector2.INF 表示不演，直接就位（读档、切玩家时用）。
-func sync(count: int, from: Vector2 = Vector2.INF) -> void:
+func sync(count: int, from: Vector2 = Vector2.INF,
+		names: PackedStringArray = PackedStringArray()) -> void:
+	_names = names
 	while _cards.size() > count:
 		var gone: Control = _cards.pop_back()
 		_dealing.erase(gone)
@@ -67,8 +88,9 @@ func sync(count: int, from: Vector2 = Vector2.INF) -> void:
 
 ## 抽牌那一下的起点：卡从**发起抽卡的那个细胞**身上飞出来，
 ## 而不是凭空出现在手牌区 —— 让「谁抽的」这件事自己说清楚。
-func deal_from(count: int, from: Vector2) -> void:
-	sync(count, from)
+func deal_from(count: int, from: Vector2,
+		names: PackedStringArray = PackedStringArray()) -> void:
+	sync(count, from, names)
 
 
 func clear() -> void:
@@ -115,7 +137,15 @@ func _layout() -> void:
 			tw.parallel().tween_property(card, "modulate:a", 1.0, DEAL * 0.5)
 			tw.tween_callback(func() -> void: _dealing.erase(card))
 		_tweens[card] = tw
+		## 名字写全，不做截断 —— 露不出的部分由后一张卡盖住 / 被 clip_contents 裁掉
+		(card.get_node("Name") as Label).text = _names[i] if i < _names.size() else "未定"
 		_paint(card, i == _hovered)
+
+
+## 第 i 张卡静止时**实际露出多宽**：被后一张压住的只剩 _stagger()，最后一张露整卡宽。
+## 界面里不用它（名字写全就完了），留着是给测试核对「到底能看见几个字」。
+func exposed_width(i: int) -> float:
+	return CARD.x if i >= _cards.size() - 1 else _stagger()
 
 
 # ============ 卡面 ============
@@ -123,6 +153,8 @@ func _layout() -> void:
 func _make_card(index: int) -> Control:
 	var card := Control.new()
 	card.size = CARD
+	## 名字写全不截断，靠这一条把溢出部分裁掉（理由见文件头）
+	card.clip_contents = true
 	card.pivot_offset = CARD / 2.0     ## 飞进来时从中心缩放，不然会从左上角抽过去
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -134,16 +166,19 @@ func _make_card(index: int) -> Control:
 	card.add_child(bg)
 
 	## 类型标在顶上、名字压在底部（设计稿 .n 用的是 margin-top:auto）
-	var kind := CWStyle.label("【即时】", CWStyle.SIZE_LABEL, CWStyle.IMMUNE)
-	kind.position = Vector2(6, 6)
-	card.add_child(kind)
-	var name_label := CWStyle.label("未定", CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
-	name_label.position = Vector2(6, CARD.y - 44)
+	## 名字写在顶部那 26px 里 —— 静止时唯一看得见的地方。文本由 _layout() 按露出宽度截断。
+	var name_label := CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
+	name_label.name = "Name"
+	name_label.position = Vector2(NAME_PAD, 7)
 	card.add_child(name_label)
+	## 下面这两行只有抬起来才看得见，属于「详情」的一部分
+	var kind := CWStyle.label("【即时】", CWStyle.SIZE_LABEL, CWStyle.IMMUNE)
+	kind.position = Vector2(NAME_PAD, CARD.y - 40)
+	card.add_child(kind)
 	var note := CWStyle.label("卡池待交付", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	note.position = Vector2(6, CARD.y - 20)
+	note.position = Vector2(NAME_PAD, CARD.y - 20)
 	card.add_child(note)
-
+	
 	card.mouse_entered.connect(func() -> void: _hover(index))
 	card.mouse_exited.connect(func() -> void: _hover(-1 if _hovered == index else _hovered))
 	_paint(card, false)

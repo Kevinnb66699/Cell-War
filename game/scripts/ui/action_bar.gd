@@ -31,6 +31,7 @@ const BTN_H := 52
 var _row: HBoxContainer
 var _hot := -1        ## 鼠标停在第几个按钮上
 var _cancel := -1     ## 哪个按钮是「取消」；-1 = 这一问没有取消
+var _disabled := {}   ## 灰掉的按钮节点集合。数字键和 _paint 都要查它
 var _keys := false    ## 数字键此刻是否生效（只在技能栏形态）
 
 
@@ -82,12 +83,21 @@ func show_bar(title: String, hint: String, entries: Array, cancel_index := -1) -
 		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_row.add_child(spacer)
+	_disabled.clear()
 	for i in entries.size():
-		_row.add_child(_make_button(entries[i], i))
+		var btn := _make_button(entries[i], i)
+		if entries[i].get("disabled", false):
+			_disabled[btn] = true
+		_row.add_child(btn)
+	## 必须在全部按钮建好、_disabled 填满之后再刷一遍底色。
+	## **不能用 _set_hot(-1)** —— _hot 此刻就是 -1，那个函数开头就 return 了，
+	## 于是灰按钮永远画不出灰（2026-08-28 团队试玩时报的：点不动但看着是亮的）。
+	_repaint_all()
 
 
 func clear() -> void:
 	visible = false
+	_disabled.clear()
 	_keys = false
 	for c in _row_node().get_children():
 		_row.remove_child(c)
@@ -151,11 +161,17 @@ func _make_button(entry: Dictionary, index: int) -> PanelContainer:
 		if cost != "":
 			line.add_child(CWStyle.label(cost, CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM))
 		v.add_child(line)
-	p.mouse_entered.connect(func() -> void: _set_hot(index))
-	p.mouse_exited.connect(func() -> void: _set_hot(-1 if _hot == index else _hot))
-	p.gui_input.connect(func(e: InputEvent) -> void:
-		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
-			chosen.emit(index))
+	## 灰掉的按钮：不接鼠标、不高亮、不响应点击。**位置照占** ——
+	## 这正是「按钮不消失只变暗」的意义：宽度和数字快捷键的编号都不再变
+	if not entry.get("disabled", false):
+		p.mouse_entered.connect(func() -> void: _set_hot(index))
+		p.mouse_exited.connect(func() -> void: _set_hot(-1 if _hot == index else _hot))
+		p.gui_input.connect(func(e: InputEvent) -> void:
+			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+				chosen.emit(index))
+	else:
+		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		p.mouse_default_cursor_shape = Control.CURSOR_ARROW
 	_paint(p, false)
 	return p
 
@@ -180,23 +196,38 @@ func _button_index(child: int) -> int:
 	return n
 
 
-func _set_hot(index: int) -> void:
-	if _hot == index:
-		return
-	_hot = index
+## 按当前的 _hot 和 _disabled 把所有按钮重画一遍。
+func _repaint_all() -> void:
 	var n := 0
-	for c in _row.get_children():
+	for c in _row_node().get_children():
 		if c is PanelContainer:
 			_paint(c, n == _hot)
 			n += 1
 
 
+func _set_hot(index: int) -> void:
+	if _hot == index:
+		return
+	_hot = index
+	_repaint_all()
+
+
+## 三种态：灰掉 / 常态 / 悬停。灰掉的按钮描边和文字都压暗一档，
+## 但**底色保持不变** —— 底色一变就会读成「另一种按钮」，而不是「同一个按钮不可用」。
 func _paint(p: PanelContainer, hot: bool) -> void:
+	var off: bool = _disabled.has(p)
 	p.add_theme_stylebox_override("panel",
-		CWStyle.box(1.0 if hot else 0.5, CWStyle.BTN_BG, PAD_V, PAD_H))
+		CWStyle.box(0.22 if off else (1.0 if hot else 0.5), CWStyle.BTN_BG, PAD_V, PAD_H))
 	var labels := p.get_child(0).get_children()
-	(labels[0] as Label).add_theme_color_override(
-		"font_color", CWStyle.TEXT_HI if hot else CWStyle.TEXT)
+	var title_color: Color = CWStyle.TEXT_OFF if off \
+		else (CWStyle.TEXT_HI if hot else CWStyle.TEXT)
+	(labels[0] as Label).add_theme_color_override("font_color", title_color)
+	## 费用那一行（数字角标 + 费用文字）也一起压暗
+	if labels.size() > 1:
+		for c in (labels[1] as Control).get_children():
+			if c is Label:
+				(c as Label).add_theme_color_override("font_color",
+					CWStyle.TEXT_OFF_DIM if off else CWStyle.TEXT_DIM)
 
 
 ## 数字键 1..9 = 从左到右的第几个按钮。
@@ -210,10 +241,20 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if code < KEY_1 or code > KEY_9:
 		return
 	var index: int = code - KEY_1
-	if index >= _count():
+	if index >= _count() or _is_disabled(index):
 		return
 	get_viewport().set_input_as_handled()
 	chosen.emit(index)
+
+
+func _is_disabled(index: int) -> bool:
+	var n := 0
+	for c in _row_node().get_children():
+		if c is PanelContainer:
+			if n == index:
+				return _disabled.has(c)
+			n += 1
+	return false
 
 
 func _count() -> int:

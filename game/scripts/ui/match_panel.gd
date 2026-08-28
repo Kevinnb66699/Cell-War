@@ -30,6 +30,13 @@ const W := 232          ## 内容宽 = 264 - 16×2
 const ROW_PAD := 6      ## 玩家行自己的左右内边距
 const ICON := 32
 
+## 手牌用小方块表示（团队 2026-08-28 定）：**总是画满 CWData.HAND_MAX 格**，
+## 持有的填成阵营色、其余只留描边 —— 满没满一眼可见，比一个数字直观。
+## 永久技能则**没有上限**（X 级免疫池光永久技能就有 9 张），所以只能用数字，不能也方块化。
+const PIP := 6            ## 方块边长
+const PIP_GAP := 2
+const ENERGY_RESERVE := 52  ## 能量数字预留的宽度；「技 N」右对齐到它左边
+
 ## 玩家行里的种类图标。癌细胞没有美术，用占位图形（见 CWCancerBlob）。
 const IMMUNE_ICON := {
 	CWData.ImmuneType.BASIC: preload("res://assets/art/cells/immune.png"),
@@ -48,7 +55,7 @@ var _level: Label
 var _memory: Label
 var _bg: Panel
 var _end: PanelContainer
-var _rows: Array = []      ## 每项 { bg, fac, icon, blob, name, type, energy, hand }
+var _rows: Array = []      ## 每项 { bg, fac, icon, blob, name, type, energy, pips, skills }
 var _built := 0            ## 已按几人局建好（0 = 还没建）
 var _level_y := 0.0        ## 免疫等级那一块的顶边；测试靠它核对 6 人局没溢出
 
@@ -154,7 +161,8 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 		row["name"].add_theme_color_override("font_color", CWStyle.TEXT_OFF)
 		row["type"].text = "待落子"
 		row["energy"].text = ""
-		row["hand"].text = ""
+		_set_pips(row, 0, CWStyle.TEXT_OFF_DIM)
+		row["skills"].text = ""
 		row["icon"].visible = false
 		row["blob"].visible = false
 		return
@@ -170,7 +178,12 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 	row["energy"].text = CWData.fmt(maxi(cell["energy"], 0))
 	row["energy"].add_theme_color_override("font_color",
 		CWStyle.TEXT_OFF if dead else CWStyle.TEXT_HI)
-	row["hand"].text = "手牌 %d" % cell["hand"]
+	## 手牌方块：持有的填阵营色，其余留描边色
+	_set_pips(row, cell["hand"].size(), CWStyle.TEXT_OFF if dead else faction_color)
+	var n_skill: int = cell["equipped"].size()
+	row["skills"].text = "技 %d" % n_skill
+	row["skills"].add_theme_color_override("font_color",
+		CWStyle.TEXT_HI if n_skill > 0 else CWStyle.TEXT_OFF)
 
 	var icon: Sprite2D = row["icon"]
 	var blob: Node2D = row["blob"]
@@ -268,10 +281,21 @@ func _build_row(y: float) -> Dictionary:
 	var right: float = PAD + W - ROW_PAD
 	var en := _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT_HI),
 		x, y + 4, right - x, HORIZONTAL_ALIGNMENT_RIGHT)
-	var hd := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
-		x, y + 26, right - x, HORIZONTAL_ALIGNMENT_RIGHT)
+	## 手牌方块：右对齐贴到行的右缘，占行底那一行
+	var pips: Array = []
+	var total: float = CWData.HAND_MAX * (PIP + PIP_GAP) - PIP_GAP
+	for k in CWData.HAND_MAX:
+		var pip := ColorRect.new()
+		pip.position = Vector2(right - total + k * (PIP + PIP_GAP), y + 30)
+		pip.size = Vector2(PIP, PIP)
+		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(pip)
+		pips.append(pip)
+	## 「技 N」放**能量那一行**（团队 2026-08-28 选的右边那版），右对齐到能量左侧
+	var sk := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
+		x, y + 10, right - ENERGY_RESERVE - x, HORIZONTAL_ALIGNMENT_RIGHT)
 	return { "bg": bg, "fac": fac, "icon": icon, "blob": blob,
-		"name": nm, "type": ty, "energy": en, "hand": hd }
+		"name": nm, "type": ty, "energy": en, "pips": pips, "skills": sk }
 
 
 func _build_end_button() -> PanelContainer:
@@ -300,6 +324,14 @@ func _build_end_button() -> PanelContainer:
 ## 摆一个 Label 到面板内的绝对位置。
 ## 本面板全部绝对定位：各块高度是设计稿钉死的数，用容器反而要靠一堆 size_flags
 ## 才能复现同样的值，改起来还看不出跟标注稿的对应关系。
+## 填 n 个方块。空格子不留白 —— 画成暗色描边，让「一共 8 格」这件事始终看得见。
+func _set_pips(row: Dictionary, n: int, accent: Color) -> void:
+	for k in row["pips"].size():
+		var pip: ColorRect = row["pips"][k]
+		pip.color = accent if k < n else CWStyle.TEXT_OFF_DIM
+		pip.modulate.a = 1.0 if k < n else 0.45
+
+
 func _put(l: Label, x: float, y: float, w: float,
 		align := HORIZONTAL_ALIGNMENT_LEFT) -> Label:
 	l.position = Vector2(x, y)

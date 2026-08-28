@@ -2,7 +2,12 @@
 ##
 ## build_options(cell) 生成当前所有合法行动（含费用校验），execute() 执行。
 ## enter_tile() 是「进入一格」的唯一入口：定殖 / 净化 / 特殊组织收取 / 标记刷新
-## 都在这里统一触发（移动、血管传送、复活落位共用，见说明 #9）。
+## 都在这里统一触发（移动、血管传送、复活落位、各种传送共用，见说明 #9）。
+##
+## **一个组织内只能容纳一个细胞**（PRD 棋盘设定）。所以凡是「把细胞放到某格」的地方，
+## 合法性判断都是 `game.cells_at(c).is_empty()`，不再区分敌我。
+## 唯一的例外是免疫【迁移】进癌细胞所在格 —— 那一下是为了触发攻击，
+## 而攻击结算完之后要么癌细胞死了（免疫进格）、要么免疫弹回原格，落定时仍是一格一个。
 class_name CWActions
 extends RefCounted
 
@@ -25,9 +30,12 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 	var lvl := game.immune_level
 	for n in CWData.neighbors(cell["pos"]):
 		var enemies: Array = game.cells_at(n, CWData.Faction.CANCER)
-		# 树突状细胞无法发动攻击 → 不能进入癌细胞所在格（说明 #14）
-		if not enemies.is_empty() and cell["itype"] == CWData.ImmuneType.DENDRITIC:
-			continue
+		if enemies.is_empty():
+			# 空格才谈得上「迁移」；有己方细胞占着就去不了（一格一细胞）
+			if not game.cells_at(n).is_empty():
+				continue
+		elif not _attackable(enemies[0]):
+			continue          # 骨肉瘤【刚性屏障】：站在固化癌组织上时不可被攻击
 		var cost: int = game.tune.immune_move_cancerous[lvl] if game.is_cancerous(n) \
 			else game.tune.immune_move_healthy[lvl]
 		if not game.can_pay(cell, cost):
@@ -37,27 +45,43 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 			"label": "%s→%s（%s 能量）" % [tag, str(n), CWData.fmt(cost)],
 			"data": { "act": "move", "to": n, "cost": cost },
 		})
-	if game.can_pay(cell, CWData.IMMUNE_DRAW_COST):
+	if _can_draw(cell) and game.can_pay(cell, CWData.IMMUNE_DRAW_COST):
 		opts.append({ "label": "基因表达：抽卡（0.5 能量）", "data": { "act": "draw" } })
-	if lvl >= 2 and not cell["differentiated"] and not _diff_choices().is_empty():
-		opts.append({ "label": "分化（免费）", "data": { "act": "differentiate" } })
+	if lvl >= 2 and not cell["differentiated"]:
+		for t in _diff_choices():
+			opts.append({
+				"label": "分化为%s（免费）" % CWData.IMMUNE_TYPE_NAMES[t],
+				"data": { "act": "differentiate", "type": t },
+			})
 	if cell["itype"] == CWData.ImmuneType.B_CELL \
 			and cell["antibody_used"] < CWData.ANTIBODY_MAX_PER_ROUND \
 			and game.can_pay(cell, CWData.ANTIBODY_COST):
 		opts.append({ "label": "抗体（1.0 能量）", "data": { "act": "antibody" } })
 	if cell["itype"] == CWData.ImmuneType.T_CELL:
-		if game.can_pay(cell, CWData.TOXIN_COST) and not _toxin_targets(cell).is_empty():
+		if cell["toxin_used"] < CWData.TOXIN_MAX_PER_ROUND \
+				and game.can_pay(cell, CWData.TOXIN_COST) and not _toxin_targets(cell).is_empty():
 			opts.append({ "label": "细胞毒素（1.0 能量）", "data": { "act": "toxin" } })
 		if game.tile(cell["pos"])["tissue"] == CWData.Tissue.SOLID \
 				and game.can_pay(cell, CWData.LYSE_COST):
-			opts.append({ "label": "裂解（1.0 能量）", "data": { "act": "lyse" } })
+			## 「裂解后要不要立刻净化」也是一个决定，摊成两个顶层选项 ——
+			## 埋在 execute() 里再问一次，AI 就没法把一个行动当成原子来推演了
+			opts.append({ "label": "裂解并净化（1.0 能量）",
+				"data": { "act": "lyse", "purge": true } })
+			opts.append({ "label": "裂解，暂不净化（1.0 能量）",
+				"data": { "act": "lyse", "purge": false } })
+
+
+## 骨肉瘤【刚性屏障】：免疫细胞无法攻击**处于固化癌组织上**的骨肉瘤细胞，
+## 必须先用【裂解】等技能破除其所在格的固化状态。
+func _attackable(target: Dictionary) -> bool:
+	return not (target["ctype"] == CWData.CancerType.OSTEO
+		and game.tile(target["pos"])["tissue"] == CWData.Tissue.SOLID)
 
 
 func _cancer_options(cell: Dictionary, opts: Array) -> void:
 	for n in CWData.neighbors(cell["pos"]):
-		# 癌细胞无法向免疫细胞占据的组织移动
-		if not game.cells_at(n, CWData.Faction.IMMUNE).is_empty():
-			continue
+		if not game.cells_at(n).is_empty():
+			continue          # 一格一细胞：有任何细胞占着就去不了
 		var cost := _cancer_move_cost(cell, n)
 		if not game.can_pay(cell, cost):
 			continue
@@ -65,26 +89,99 @@ func _cancer_options(cell: Dictionary, opts: Array) -> void:
 			"label": "移动→%s（%s 能量）" % [str(n), CWData.fmt(cost)],
 			"data": { "act": "move", "to": n, "cost": cost },
 		})
-	if game.can_pay(cell, CWData.CANCER_DRAW_COST):
+	if _can_draw(cell) and game.can_pay(cell, CWData.CANCER_DRAW_COST):
 		opts.append({ "label": "基因表达：抽卡（1.0 能量）", "data": { "act": "draw" } })
 	if not cell["mutate_used"] and game.can_pay(cell, CWData.MUTATE_COST):
 		opts.append({ "label": "突变（0.5 能量）", "data": { "act": "mutate" } })
-	if cell["ctype"] == CWData.CancerType.BLAST and cell["energy"] > 0 \
-			and not _blast_targets(cell).is_empty():
-		opts.append({ "label": "自爆（消耗所有能量）", "data": { "act": "blast" } })
-	if cell["ctype"] == CWData.CancerType.REMODEL and not cell["remodel_used"] \
-			and game.can_pay(cell, CWData.REMODEL_COST) \
-			and not _remodel_targets(cell).is_empty():
-		opts.append({ "label": "基质重塑（1.0 能量）", "data": { "act": "remodel" } })
+	_type_options(cell, opts)
+
+
+## 四种癌细胞各自的主动技能（PRD 癌细胞种类）
+func _type_options(cell: Dictionary, opts: Array) -> void:
+	match cell["ctype"]:
+		CWData.CancerType.MELANOMA:
+			# 【早期血行转移】：站在血管格上，每世界回合 1 次
+			if not cell["metastasis_used"] \
+					and CWData.special_of(cell["pos"]) == CWData.Special.VESSEL \
+					and game.can_pay(cell, CWData.MELANOMA_HOMING_COST):
+				for c in _homing_targets():
+					opts.append({
+						"label": "早期血行转移→%s（1.0 能量）" % str(c),
+						"data": { "act": "homing", "to": c },
+					})
+		CWData.CancerType.SIGNET:
+			# 【黏液破裂】：耗尽全部能量并死亡，至少要有 2.0
+			if cell["energy"] >= CWData.MUCUS_MIN_ENERGY:
+				opts.append({ "label": "黏液破裂（耗尽能量并死亡）", "data": { "act": "mucus" } })
+		CWData.CancerType.SCLC:
+			# 【转移】：向某方向跃进 5 格
+			if game.can_pay(cell, CWData.METASTASIS_COST):
+				for c in _jump_targets(cell):
+					opts.append({
+						"label": "转移：跃进至 %s（1.0 能量）" % str(c),
+						"data": { "act": "jump", "to": c },
+					})
+
+
+## 能不能抽卡：每回合 3 次上限 + 手牌 8 张上限。
+## 手牌满时**选项直接不出现** —— 团队 2026-08-28 定：想抽就先主动弃牌，
+## 决策权留在玩家手上，也不必在抽完之后再插一次「弃哪张」的询问。
+func _can_draw(cell: Dictionary) -> bool:
+	return cell["draws_used"] < CWData.DRAW_MAX_PER_TURN \
+		and cell["hand"].size() < CWData.HAND_MAX
 
 
 func _cancer_move_cost(cell: Dictionary, dest: Vector2i) -> int:
 	if game.is_cancerous(dest):
 		return CWData.CANCER_MOVE_CANCEROUS
-	# 侵袭型：每世界回合前 2 次移动至健康组织 -0.2（说明 #17）
-	if cell["ctype"] == CWData.CancerType.INVASIVE and cell["invasive_used"] < 2:
-		return CWData.CANCER_MOVE_HEALTHY - CWData.INVASIVE_DISCOUNT
+	# 小细胞肺癌【极简胞浆】：移动至健康组织的消耗**永久**降为 0.3
+	if cell["ctype"] == CWData.CancerType.SCLC:
+		return CWData.SCLC_MOVE_HEALTHY
+	# 黑色素瘤【伪足穿透】：目标健康组织与 ≥2 格癌性组织相邻时，本次移动只要 0.2
+	if cell["ctype"] == CWData.CancerType.MELANOMA and _cancerous_adj(dest) >= CWData.PSEUDOPOD_MIN_ADJ:
+		return CWData.PSEUDOPOD_COST
 	return CWData.CANCER_MOVE_HEALTHY
+
+
+func _cancerous_adj(c: Vector2i) -> int:
+	var n := 0
+	for m in CWData.neighbors(c):
+		if game.is_cancerous(m):
+			n += 1
+	return n
+
+
+## 这个细胞**理论上**会用到哪些主动技能，按「细胞种类 + 免疫等级」列，
+## **不看当前能量、位置、次数**。返回的是 act 串，顺序即按钮从左到右的顺序。
+##
+## 只给界面用：团队 2026-08-28 定「按钮不消失、只变暗」，
+## 那就需要一份**稳定的按钮集合** —— 否则花掉能量会让按钮凭空少一个，
+## 行动栏宽度跟着跳，连数字快捷键的编号都会变。
+##
+## **引擎和 AI 一律走 build_options()**，那里只列当前合法的行动。
+## 这两份清单的差集，就是界面上该画成灰色的那些按钮。
+func action_kinds(cell: Dictionary) -> Array[String]:
+	var out: Array[String] = ["move", "draw"]
+	if cell["faction"] == CWData.Faction.IMMUNE:
+		## 分化只在 III 级解锁、且每个细胞一辈子一次 —— 用掉之后按钮就不该再占位了
+		if game.immune_level >= 2 and not cell["differentiated"]:
+			out.append("differentiate")
+		match cell["itype"]:
+			CWData.ImmuneType.B_CELL:
+				out.append("antibody")
+			CWData.ImmuneType.T_CELL:
+				out.append("toxin")
+				out.append("lyse")
+	else:
+		out.append("mutate")
+		match cell["ctype"]:
+			CWData.CancerType.MELANOMA:
+				out.append("homing")
+			CWData.CancerType.SIGNET:
+				out.append("mucus")
+			CWData.CancerType.SCLC:
+				out.append("jump")
+	return out
 
 
 # ============ 执行 ============
@@ -96,19 +193,21 @@ func execute(cell: Dictionary, data: Dictionary) -> void:
 		"draw":
 			_do_draw(cell)
 		"differentiate":
-			await _do_differentiate(cell)
+			_do_differentiate(cell, data["type"])
 		"antibody":
 			await _do_antibody(cell)
 		"toxin":
 			_do_toxin(cell)
 		"lyse":
-			await _do_lyse(cell)
+			_do_lyse(cell, data["purge"])
 		"mutate":
 			await _do_mutate(cell)
-		"blast":
-			_do_blast(cell)
-		"remodel":
-			await _do_remodel(cell)
+		"homing":
+			_do_homing(cell, data["to"])
+		"mucus":
+			_do_mucus(cell)
+		"jump":
+			_do_jump(cell, data["to"])
 
 
 # ---- 移动 / 攻击 ----
@@ -117,39 +216,22 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int) -> void:
 	if not game.pay(cell, cost):
 		return
 	if cell["faction"] == CWData.Faction.CANCER:
-		if not game.is_cancerous(to) \
-				and cell["ctype"] == CWData.CancerType.INVASIVE and cell["invasive_used"] < 2:
-			cell["invasive_used"] += 1
 		enter_tile(cell, to)
 		return
-	# 免疫迁移：目标格有癌细胞 → 触发攻击
+	# 免疫迁移：目标格有癌细胞 → 触发攻击。一格一细胞，所以最多只有一个。
 	var enemies: Array = game.cells_at(to, CWData.Faction.CANCER)
 	if enemies.is_empty():
 		enter_tile(cell, to)
 		return
 	var target: Dictionary = enemies[0]
-	if enemies.size() > 1:
-		var topts: Array = []
-		for e in enemies:
-			topts.append({
-				"label": "%s（能量 %s）" % [game.cell_name(e), CWData.fmt(e["energy"])],
-				"data": { "cid": e["id"] },
-			})
-		var idx: int = await game.ask(cell["pid"], {
-			"kind": "attack_target", "prompt": "选择攻击目标", "options": topts,
-		})
-		target = game.cells[topts[idx]["data"]["cid"]]
 	var r: int = await game.roll_shown(6, "攻击", cell["pid"], to)
 	if r <= 2:
 		game.log_msg("　攻击掷骰 %d：失败，%s 被反弹回原格" % [r, game.cell_name(cell)])
 		game.announce("攻击失败", to)
 		# 规则原文反弹不造成伤害（旋钮默认 0）；平衡测试可给癌方反击手段
 		if game.tune.counter_dmg_on_fail > 0:
-			cell["energy"] -= game.tune.counter_dmg_on_fail
-			game.log_msg("　反弹造成 %s 能量损失（余 %s）" % [
-				CWData.fmt(game.tune.counter_dmg_on_fail), CWData.fmt(maxi(cell["energy"], 0))])
-			if cell["energy"] <= 0:
-				game.kill(cell)
+			game.cancer_hit(cell, game.tune.counter_dmg_on_fail, "反弹")
+			if not cell["alive"]:
 				return
 	else:
 		var dmg: int = game.tune.attack_dmg_crit if r == 6 else game.tune.attack_dmg_success
@@ -164,30 +246,28 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int) -> void:
 		game.log_msg("　%s 返回原格" % game.cell_name(cell))
 
 
-## 进入一格的统一结算：癌细胞【定殖】、免疫【净化】、特殊组织收取、标记刷新
+## 进入一格的统一结算：癌细胞【定殖】、免疫【净化】、特殊组织收取、黏液清除、标记刷新
 func enter_tile(cell: Dictionary, dest: Vector2i) -> void:
 	cell["pos"] = dest
 	var t: Dictionary = game.tile(dest)
 	if cell["faction"] == CWData.Faction.CANCER and t["tissue"] == CWData.Tissue.HEALTHY:
-		t["tissue"] = CWData.Tissue.CANCER
-		t["newborn"] = true
-		t["solid"] = 0
-		t["sticky"] = 0
+		_to_cancer(dest, true)
 		game.log_msg("　【定殖】%s 转为癌组织" % str(dest))
 	elif cell["faction"] == CWData.Faction.IMMUNE and t["tissue"] == CWData.Tissue.CANCER:
 		t["tissue"] = CWData.Tissue.HEALTHY
 		t["newborn"] = false
 		t["solid"] = 0
-		t["sticky"] = 0
 		game.gain_memory(1)
 		game.log_msg("　【净化】%s 转为健康组织（抗原记忆 %d）" % [str(dest), game.memory])
 		if cell["itype"] == CWData.ImmuneType.MACRO:
 			cell["energy"] += CWData.MACRO_HEAL_PURIFY
-			game.log_msg("　巨噬【吞噬】恢复 0.2 能量")
+			game.log_msg("　巨噬【吞噬】恢复 0.3 能量")
+	# 「粘液」无法被技能清除，但被免疫细胞接触后立即消失（PRD 印戒细胞癌）
+	if cell["faction"] == CWData.Faction.IMMUNE and t["mucus"]:
+		t["mucus"] = false
+		game.log_msg("　【黏液】%s 的黏液被免疫细胞清除" % str(dest))
 	collect_special(cell, dest)
 	game.update_marks()
-	if cell["faction"] == CWData.Faction.IMMUNE:
-		game.check_immune_win()  # 占住固化格可能封死复活 → 立即胜利（说明 #25）
 
 
 ## 收取特殊组织存储（进入时 & 产出瞬间站于其上时调用）
@@ -198,16 +278,22 @@ func collect_special(cell: Dictionary, c: Vector2i) -> void:
 		game.log_msg("　%s 从代谢核心获取 %s 能量" % [game.cell_name(cell), CWData.fmt(t["store"])])
 		t["store"] = 0
 	elif t["special"] == CWData.Special.MARROW and t["cards"] > 0:
-		t["cards"] = 0
-		game.cards.draw(cell, "骨髓")
+		## 手牌满时不发卡，**卡留在骨髓里**下次再来拿（团队 2026-08-28 定，不浪费）
+		if cell["hand"].size() >= CWData.HAND_MAX:
+			game.log_msg("　%s 手牌已满，骨髓的卡留着" % game.cell_name(cell))
+		else:
+			t["cards"] = 0
+			game.cards.draw(cell, "骨髓")
 
 
 # ---- 通用技能 ----
 
+## 【基因表达】：每个行动回合最多 3 次（PRD 主动技能）
 func _do_draw(cell: Dictionary) -> void:
 	var cost: int = CWData.IMMUNE_DRAW_COST if cell["faction"] == CWData.Faction.IMMUNE \
 		else CWData.CANCER_DRAW_COST
 	if game.pay(cell, cost):
+		cell["draws_used"] += 1
 		game.cards.draw(cell, "基因表达")
 
 
@@ -222,15 +308,7 @@ func _diff_choices() -> Array:
 	return out
 
 
-func _do_differentiate(cell: Dictionary) -> void:
-	var choices := _diff_choices()
-	var opts: Array = []
-	for t in choices:
-		opts.append({ "label": "分化为%s" % CWData.IMMUNE_TYPE_NAMES[t], "data": { "type": t } })
-	var idx: int = await game.ask(cell["pid"], {
-		"kind": "differentiate", "prompt": "选择分化方向", "options": opts,
-	})
-	var t: int = opts[idx]["data"]["type"]
+func _do_differentiate(cell: Dictionary, t: int) -> void:
 	cell["itype"] = t
 	cell["differentiated"] = true
 	game.differentiated.append(t)
@@ -278,147 +356,163 @@ func _do_antibody(cell: Dictionary) -> void:
 func _toxin_targets(cell: Dictionary) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	for n in CWData.neighbors(cell["pos"]):
-		if game.tile(n)["tissue"] == CWData.Tissue.CANCER \
-				and game.cells_at(n, CWData.Faction.CANCER).is_empty():
+		if game.tile(n)["tissue"] == CWData.Tissue.CANCER:
 			out.append(n)
 	return out
 
 
+## 【细胞毒素】（PRD T 细胞）：消耗 1.0，使**相邻所有格**中的癌组织转为健康组织，
+## 对范围内所有癌细胞造成 1.0 能量损失，并使范围内**新生健康组织**所有格进入「坏死」。
+## 每世界回合最多 3 次。
+##
+## 注意这里**不再**回避「有癌细胞站着的格」（旧说明 #20）—— PRD 写的是「所有格中的癌组织」，
+## 而且同一条技能紧接着就要对那些癌细胞造成伤害，显然是打算连人带地一起处理。
+## 癌细胞站在健康组织上是合法的过渡态：【定殖】只在「经过」时触发（说明 #9），
+## 已经站着的不会重新把脚下染回去。
 func _do_toxin(cell: Dictionary) -> void:
 	var targets := _toxin_targets(cell)
 	if targets.is_empty() or not game.pay(cell, CWData.TOXIN_COST):
 		return
+	cell["toxin_used"] += 1
 	for c in targets:
 		_to_healthy(c)
-	game.log_msg("【细胞毒素】相邻 %d 格癌组织转为健康组织（不积累记忆）" % targets.size())
+		game.tile(c)["necrosis"] = CWData.NECROSIS_TOXIN
+	game.log_msg("【细胞毒素】相邻 %d 格癌组织转为健康组织并进入「坏死」（不积累记忆）" % targets.size())
+	for n in CWData.neighbors(cell["pos"]):
+		for enemy in game.cells_at(n, CWData.Faction.CANCER):
+			game.immune_hit(enemy, CWData.ATTACK_DMG_SUCCESS, cell)
 
 
-func _do_lyse(cell: Dictionary) -> void:
+func _do_lyse(cell: Dictionary, purge: bool) -> void:
 	if not game.pay(cell, CWData.LYSE_COST):
 		return
 	var pos: Vector2i = cell["pos"]
 	var t: Dictionary = game.tile(pos)
 	t["tissue"] = CWData.Tissue.CANCER
 	t["solid"] = 0
-	t["sticky"] = 0
 	game.log_msg("【裂解】%s 由固化癌组织转为癌组织" % str(pos))
-	var idx: int = await game.ask(cell["pid"], {
-		"kind": "confirm", "tag": "lyse_purge", "prompt": "是否立刻触发【净化】？",
-		"options": [{ "label": "立刻净化", "data": {} }, { "label": "暂不", "data": {} }],
-	})
-	if idx == 0:
+	if purge:
 		t["tissue"] = CWData.Tissue.HEALTHY
 		game.gain_memory(1)
 		game.log_msg("　【净化】%s 转为健康组织（抗原记忆 %d）" % [str(pos), game.memory])
-		game.check_immune_win()
 
 
-# ---- 癌症技能 ----
+# ---- 癌症通用技能 ----
 
 func _do_mutate(cell: Dictionary) -> void:
 	if not game.pay(cell, CWData.MUTATE_COST):
 		return
 	cell["mutate_used"] = true
-	var nothing: bool = await _roll_mutation(cell)
-	# 基因不稳定型：结果为无事发生时，可付 0.5 再突变一次（每世界回合限一次）
-	if nothing and cell["alive"] and cell["ctype"] == CWData.CancerType.UNSTABLE \
-			and not cell["unstable_used"] and game.can_pay(cell, CWData.MUTATE_COST):
-		var idx: int = await game.ask(cell["pid"], {
-			"kind": "confirm", "tag": "remutate", "prompt": "基因不稳定：付 0.5 能量再次突变？",
-			"options": [{ "label": "再次突变", "data": {} }, { "label": "放弃", "data": {} }],
-		})
-		if idx == 0 and game.pay(cell, CWData.MUTATE_COST):
-			cell["unstable_used"] = true
-			await _roll_mutation(cell)
+	await _roll_mutation(cell)
 
 
-## 返回是否「无事发生」
-func _roll_mutation(cell: Dictionary) -> bool:
+func _roll_mutation(cell: Dictionary) -> void:
 	var r: int = await game.roll_shown(3, "突变", cell["pid"], cell["pos"])
 	match r:
 		1:
 			game.log_msg("【突变】无事发生")
 			game.announce("突变：无事发生", cell["pos"])
-			return true
 		2:
 			game.log_msg("【突变】抽卡，并削减 1 抗原记忆")
-			game.announce("突变：抽一张 · 记忆 −1", cell["pos"])
+			game.announce("突变：抽一张 · 记忆 -1", cell["pos"])
 			game.cards.draw(cell, "突变")
 			game.reduce_memory(1)
 		3:
 			# 效果扣减可致死（区别于费用支付，见规则总则）
 			cell["energy"] -= CWData.MUTATE_EXTRA_LOSS
 			game.log_msg("【突变】再扣 1.0 能量（余 %s），削减 3 抗原记忆" % CWData.fmt(maxi(cell["energy"], 0)))
-			game.announce("突变：能量 −1.0 · 记忆 −3", cell["pos"])
+			game.announce("突变：能量 -1.0 · 记忆 -3", cell["pos"])
 			game.reduce_memory(3)
 			if cell["energy"] <= 0:
 				game.kill(cell)
-	return false
 
 
-func _blast_targets(cell: Dictionary) -> Array[Vector2i]:
+# ---- 恶性黑色素瘤 ----
+
+## 【早期血行转移】的落点：全场任意一个**无细胞占据**的健康组织。
+## PRD 原文写的是「未被免疫细胞占据」，但棋盘规则是一格只能有一个细胞，
+## 所以实际约束更严 —— 己方细胞占着的格同样去不了。
+func _homing_targets() -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	for c in game.tiles.keys():
-		if CWData.hex_dist(c, cell["pos"]) > 2:
-			continue
-		if game.tiles[c]["tissue"] != CWData.Tissue.HEALTHY:
-			continue
-		if not game.cells_at(c, CWData.Faction.IMMUNE).is_empty():
-			continue  # 免疫细胞所在格不受转化（与侵蚀同理）
-		out.append(c)
+		if game.tiles[c]["tissue"] == CWData.Tissue.HEALTHY and game.cells_at(c).is_empty():
+			out.append(c)
+	out.sort()   # 固定候选顺序，保证同种子可复现
 	return out
 
 
-func _do_blast(cell: Dictionary) -> void:
-	var targets := _blast_targets(cell)
-	game.log_msg("【自爆】%s 引爆！相邻 2 格内 %d 格健康组织转为癌组织" % [
-		game.cell_name(cell), targets.size()])
-	for c in targets:
-		var t: Dictionary = game.tile(c)
-		t["tissue"] = CWData.Tissue.CANCER
-		t["newborn"] = true
-		t["solid"] = 0
-		t["sticky"] = 0
-	game.kill(cell)  # 自爆是「费用不能降至 0」的唯一例外（说明 #8）
+func _do_homing(cell: Dictionary, to: Vector2i) -> void:
+	if not game.pay(cell, CWData.MELANOMA_HOMING_COST):
+		return
+	cell["metastasis_used"] = true
+	game.log_msg("【早期血行转移】%s 自血管转移至 %s" % [game.cell_name(cell), str(to)])
+	enter_tile(cell, to)   # 落地即【定殖】，把该格转为癌组织
+
+
+# ---- 印戒细胞癌 ----
+
+## 【黏液破裂】：耗尽全部能量（至少 2.0）并死亡。自身所在格及周围 2 格所有组织进入
+## 「黏液侵染」，其中随机最多 8 格立即转为癌组织，范围内的免疫细胞损失 2.0 能量。
+##
+## ⚠ PRD 只说了「粘液」无法被技能清除、被免疫细胞接触后消失，**没有写它本身有什么效果**。
+## 这里如实实现成一个标记：会随棋盘存续、会被免疫细胞踩掉，但不产生任何结算影响。
+## 等 PRD 补上效果再往 t["mucus"] 上挂。
+func _do_mucus(cell: Dictionary) -> void:
+	var area: Array[Vector2i] = []
+	for c in game.tiles.keys():
+		if CWData.hex_dist(c, cell["pos"]) <= CWData.MUCUS_RADIUS:
+			area.append(c)
+	area.sort()
+	for c in area:
+		game.tile(c)["mucus"] = true
+	var healthy: Array[Vector2i] = []
+	for c in area:
+		if game.tile(c)["tissue"] == CWData.Tissue.HEALTHY:
+			healthy.append(c)
+	var picked: Array = game.pick_random(healthy, CWData.MUCUS_MAX_CONVERT)
+	for c in picked:
+		_to_cancer(c, true)
+	game.log_msg("【黏液破裂】%s 引爆：%d 格进入黏液侵染，其中 %d 格转为癌组织" % [
+		game.cell_name(cell), area.size(), picked.size()])
+	game.announce("黏液破裂", cell["pos"])
+	for c in area:
+		for immune in game.cells_at(c, CWData.Faction.IMMUNE):
+			game.cancer_hit(immune, CWData.MUCUS_IMMUNE_LOSS, "黏液破裂")
+	game.kill(cell)   # 自毁型技能：耗尽能量并死亡（说明 #8 的同类）
 	game.update_marks()
 
 
-func _remodel_targets(cell: Dictionary) -> Array[Vector2i]:
-	var out: Array[Vector2i] = []
-	for n in CWData.neighbors(cell["pos"]):
-		if game.tile(n)["tissue"] != CWData.Tissue.HEALTHY:
-			continue
-		if not game.cells_at(n, CWData.Faction.IMMUNE).is_empty():
-			continue  # 目标有免疫细胞时无法发动
-		var cancerous_adj := 0
-		for m in CWData.neighbors(n):
-			if game.is_cancerous(m):
-				cancerous_adj += 1
-		if cancerous_adj >= 2:
-			out.append(n)
+# ---- 小细胞肺癌 ----
+
+## 【转移】：向某方向跃进 5 格。落点必须在棋盘上且无细胞占据。
+func _jump_targets(cell: Dictionary) -> Array:
+	var out: Array = []
+	for d in CWData.DIRS:
+		var to: Vector2i = cell["pos"] + d * CWData.METASTASIS_RANGE
+		if CWData.is_on_board(to) and game.cells_at(to).is_empty():
+			out.append(to)
 	return out
 
 
-func _do_remodel(cell: Dictionary) -> void:
-	var targets := _remodel_targets(cell)
-	if targets.is_empty():
+## 跃进路径上不触发【定殖】、代谢核心/骨髓收取等效果，**终点可以触发**（PRD）——
+## 所以这里直接 enter_tile 到终点，中间格连碰都不碰。
+func _do_jump(cell: Dictionary, to: Vector2i) -> void:
+	if not game.pay(cell, CWData.METASTASIS_COST):
 		return
-	var opts: Array = []
-	for c in targets:
-		opts.append({ "label": "转化 %s" % str(c), "data": { "to": c } })
-	var idx: int = await game.ask(cell["pid"], {
-		"kind": "remodel_target", "prompt": "选择要转化的健康组织", "options": opts,
-	})
-	if not game.pay(cell, CWData.REMODEL_COST):
-		return
-	cell["remodel_used"] = true
-	var c: Vector2i = opts[idx]["data"]["to"]
+	game.log_msg("【转移】%s 跃进 5 格至 %s" % [game.cell_name(cell), str(to)])
+	enter_tile(cell, to)
+
+
+# ---- 组织状态切换（只有这两个函数能改 tissue，别在别处手写）----
+
+## 健康组织 → 癌组织。newborn 决定本世界回合能否被【固化】计数。
+## 「坏死」是健康组织才有的状态，转成癌组织时一并清掉。
+func _to_cancer(c: Vector2i, newborn: bool) -> void:
 	var t: Dictionary = game.tile(c)
 	t["tissue"] = CWData.Tissue.CANCER
-	t["newborn"] = true
+	t["newborn"] = newborn
 	t["solid"] = 0
-	t["sticky"] = 0
-	game.log_msg("【基质重塑】%s 转为癌组织" % str(c))
+	t["necrosis"] = 0
 
 
 ## 癌组织 → 健康组织（毒素/抗体反噬用；不积累记忆，见说明 #18）
@@ -427,4 +521,3 @@ func _to_healthy(c: Vector2i) -> void:
 	t["tissue"] = CWData.Tissue.HEALTHY
 	t["newborn"] = false
 	t["solid"] = 0
-	t["sticky"] = 0

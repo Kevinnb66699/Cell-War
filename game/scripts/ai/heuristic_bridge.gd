@@ -199,17 +199,24 @@ func _cancer_action(pid: int, options: Array) -> int:
 	var me: Dictionary = game.cell_of(pid)
 	var e: int = me["energy"]
 	var threat := _dist_to_nearest_immune(me["pos"])
-	# 1. 自爆：范围收益大且有复活据点时才引爆
-	var i := _find(options, "blast")
-	if i >= 0:
-		var n: int = game.actions._blast_targets(me).size()
-		if n >= 6 and game.count_tissue(CWData.Tissue.SOLID) >= 1:
+	# 1. 印戒【黏液破裂】：一次能染一大片、且有复活据点时才引爆（自毁技能）
+	var i := _find(options, "mucus")
+	if i >= 0 and game.count_tissue(CWData.Tissue.SOLID) >= 1:
+		var n := 0
+		for c in game.tiles.keys():
+			if CWData.hex_dist(c, me["pos"]) <= CWData.MUCUS_RADIUS 					and game.tiles[c]["tissue"] == CWData.Tissue.HEALTHY:
+				n += 1
+		if n >= 6:
 			return i
-	# 2. 基质重塑：不挪窝就能占地
-	i = _find(options, "remodel")
-	if i >= 0 and e >= 25:
+	# 2. 黑色素瘤【早期血行转移】：站在血管上就是白捡一格地盘
+	i = _find(options, "homing")
+	if i >= 0 and e >= 20:
 		return i
-	# 3. 突变：免疫方有记忆可削时才赌
+	# 3. 小细胞肺癌【转移】：远离威胁时用来抢空地，不做复杂评估
+	i = _find(options, "jump")
+	if i >= 0 and e >= 25 and threat <= 2:
+		return i
+	# 4. 突变：免疫方有记忆可削时才赌
 	i = _find(options, "mutate")
 	if i >= 0 and e >= 30 and game.memory >= 2:
 		return i

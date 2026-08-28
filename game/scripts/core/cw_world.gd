@@ -1,38 +1,51 @@
 ## cw_world.gd —— 世界回合的 S/E 阶段结算
 ##
-## S 阶段（回合开始）：癌症胜利判定 → 世界事件（占位）→ 特殊组织产出 → 血管传送
-##                  → 癌细胞【复活】→ 免疫【有氧呼吸】
-## E 阶段（回合结束）：【侵蚀】→【无氧呼吸】→【固化】→ 固化衰减 → 清除「新生」
-##                  → 第 30 回合终局判定
+## 阶段顺序**逐条照抄 PRD「世界回合」那一节**，改动前先回去核对，别凭印象调：
+##
+## S 阶段：世界事件 → 特殊组织产出 → 血管传送 → 免疫【复活】→ 癌细胞【复活】
+##        → 免疫【有氧呼吸】→ 其他 S 类
+## E 阶段：【微环境压迫】→【增生】→【侵蚀】→【无氧呼吸】→【固化】→ 固化计数衰减
+##        → 其他 E 类 → 更新持续状态（「坏死」到期）→ 移除「新生」→ **胜利条件检查**
+##
+## 两个容易踩的点：
+## ① **增生在侵蚀之前**。增生会把健康组织变成癌组织，从而改变「完全包围」的判定结果，
+##    顺序反了侵蚀的选格就不一样。
+## ② **两个胜利条件都是 E 类**，在 E 阶段最后一步统一判。
+##    2026-08-28 之前免疫胜利是净化后立即判（I 类）、癌症胜利是 S 阶段开头判，PRD 已推翻。
 class_name CWWorld
 extends RefCounted
 
 var game: CWGame
 
 
-func s_phase() -> void:
+## S 阶段的**无决策部分**（世界事件 → 特殊组织产出 → 血管传送）。
+## 两处【复活】要玩家选落点，交给流程状态机；有氧呼吸在复活全部结算完之后调。
+func round_start() -> void:
 	game.log_msg("━━━━ 第 %d 世界回合 ━━━━" % game.round_no)
 	_reset_round_flags()
-	game.check_cancer_s_win()  # S 类胜利判定放在最开头（说明 #27）
-	if game.winner >= 0:
-		return
 	if CWData.is_world_event_round(game.round_no):
 		game.log_msg("【世界事件】本回合应触发（内容未定义，暂跳过）")  # 说明 #1
 	_tissue_production()
 	_vessel_teleport()
-	await _revive()
-	_immune_respawn()
+
+
+func aerobic() -> void:
 	_aerobic()
-	game.check_immune_win()  # 复活全部失败时可能立即满足免疫胜利
 
 
 func e_phase() -> void:
-	_erosion()
+	_pressure()
 	_proliferate()
+	_erosion()
 	_anaerobic()
 	_solidify()
 	_decay()
+	_tick_necrosis()   ## 「更新持续时间类状态」——目前只有「坏死」
 	_clear_newborn()
+	## 胜利条件检查（E 阶段第 10 步）。免疫先判：PRD 的列举顺序如此，
+	## 而且两边同时满足时「癌细胞已全灭」比「占地达标」更靠后发生，判给免疫更符合直觉。
+	game.check_immune_win()
+	game.check_cancer_win()
 	if game.winner < 0 and game.round_no >= game.tune.limit_round:
 		_final_verdict()
 
@@ -41,12 +54,11 @@ func e_phase() -> void:
 
 func _reset_round_flags() -> void:
 	for c in game.cells:
-		c["escape_used"] = false
-		c["invasive_used"] = 0
-		c["remodel_used"] = false
-		c["mutate_used"] = false
-		c["unstable_used"] = false
-		c["antibody_used"] = 0
+		c["armor_used"] = false        ## 印戒【囊性护甲】每世界回合减免 1 次
+		c["mutate_used"] = false       ## 【突变】每世界回合 1 次
+		c["antibody_used"] = 0         ## B【抗体】2 次/世界回合
+		c["toxin_used"] = 0            ## T【细胞毒素】3 次/世界回合
+		c["metastasis_used"] = false   ## 黑色素瘤【早期血行转移】1 次/世界回合
 
 
 ## 代谢核心/骨髓产出；产出瞬间站在其上的细胞立即收取（说明 #9）
@@ -96,84 +108,100 @@ func _vessel_teleport() -> void:
 		game.actions.enter_tile(cell, a)
 
 
-## 【S-复活】：死亡癌细胞按行动顺序依次结算；可自愿放弃（说明 #21）
-func _revive() -> void:
-	for pid in game.order:
-		if game.player(pid)["faction"] != CWData.Faction.CANCER:
-			continue
-		var cell: Dictionary = game.cell_of(pid)
-		if cell["alive"]:
-			continue
-		var candidates: Array[Vector2i] = []
-		for c in game.tiles.keys():
-			if game.tiles[c]["tissue"] == CWData.Tissue.SOLID \
-					and game.cells_at(c, CWData.Faction.IMMUNE).is_empty():
-				candidates.append(c)
-		if candidates.is_empty():
-			game.log_msg("%s 无可用固化癌组织，无法复活" % game.player(pid)["name"])
-			continue
-		var options: Array = [{ "label": "放弃本回合复活", "data": { "skip": true } }]
-		for c in candidates:
-			options.append({ "label": "复活于 %s" % str(c), "data": { "to": c } })
-		var idx: int = await game.ask(pid, {
-			"kind": "revive", "prompt": "%s 选择复活位置" % game.player(pid)["name"],
-			"options": options,
-		})
-		var data: Dictionary = options[idx]["data"]
-		if data.get("skip", false):
-			game.log_msg("%s 放弃复活" % game.player(pid)["name"])
-			continue
-		var pos: Vector2i = data["to"]
-		# 复活获得 2.0 能量，随后该固化癌组织降级为癌组织（计数清零，说明 #22）
-		var t: Dictionary = game.tile(pos)
-		t["tissue"] = CWData.Tissue.CANCER
-		t["solid"] = 0
-		t["sticky"] = 0
-		cell["alive"] = true
-		cell["energy"] = CWData.REVIVE_ENERGY
-		game.actions.enter_tile(cell, pos)
-		game.log_msg("【复活】%s 复活于 %s（2.0 能量），该格降级为癌组织" % [
-			game.cell_name(cell), str(pos)])
+## 【S-复活】癌症：落点是**未被细胞占据**的固化癌组织；可自愿放弃（说明 #21）。
+## 没有可用落点时返回空数组，流程状态机会跳过这个玩家。
+func revive_options_cancer(pid: int) -> Array:
+	var cell: Dictionary = game.cell_of(pid)
+	if cell["alive"]:
+		return []
+	var candidates: Array[Vector2i] = []
+	for c in game.tiles.keys():
+		if game.tiles[c]["tissue"] == CWData.Tissue.SOLID \
+				and game.cells_at(c).is_empty():
+			candidates.append(c)
+	if candidates.is_empty():
+		return []
+	candidates.sort()   ## 固定候选顺序，保证同种子可复现
+	var options: Array = [{ "label": "放弃本回合复活", "data": { "skip": true } }]
+	for c in candidates:
+		options.append({ "label": "复活于 %s" % str(c), "data": { "to": c } })
+	return options
 
 
-## 免疫细胞罚停期满后，在**随机**健康组织复活（2026-08-26 团队定案）
-## 随机选位是为了避免"自选复活点"变成免费传送——那样换阵地反而成了收益。
-func _immune_respawn() -> void:
-	for cell in game.cells:
-		if cell["alive"] or cell["faction"] != CWData.Faction.IMMUNE:
-			continue
-		if cell["respawn_round"] < 0 or game.round_no < cell["respawn_round"]:
-			continue
-		var healthy: Array[Vector2i] = []
-		for c in game.tiles.keys():
-			if game.tiles[c]["tissue"] == CWData.Tissue.HEALTHY:
-				healthy.append(c)
-		if healthy.is_empty():
-			game.log_msg("%s 无健康组织可复活，继续等待" % game.cell_name(cell))
-			continue
-		healthy.sort()  # 固定候选顺序，保证同种子可复现
-		var pos: Vector2i = game.pick_random(healthy, 1)[0]
-		cell["alive"] = true
-		cell["energy"] = game.tune.immune_respawn_energy
-		cell["respawn_round"] = -1
-		game.actions.enter_tile(cell, pos)
-		game.log_msg("【免疫复活】%s 于 %s 复活（%s 能量）" % [
-			game.cell_name(cell), str(pos), CWData.fmt(game.tune.immune_respawn_energy)])
+func revive_cancer(pid: int, data: Dictionary) -> void:
+	var cell: Dictionary = game.cell_of(pid)
+	if data.get("skip", false):
+		game.log_msg("%s 放弃复活" % game.player(pid)["name"])
+		return
+	var pos: Vector2i = data["to"]
+	## 复活获得 2.0 能量，随后该固化癌组织降级为癌组织（计数清零，说明 #22）
+	var t: Dictionary = game.tile(pos)
+	t["tissue"] = CWData.Tissue.CANCER
+	t["solid"] = 0
+	cell["alive"] = true
+	cell["energy"] = CWData.REVIVE_ENERGY
+	game.actions.enter_tile(cell, pos)
+	game.log_msg("【复活】%s 复活于 %s（2.0 能量），该格降级为癌组织" % [
+		game.cell_name(cell), str(pos)])
 
 
+## 【S-复活】免疫：玩家可选**任一骨髓中无细胞占据的健康组织**，初始 1.0 能量（PRD）。
+##
+## 落点只有 6 个骨髓格，所以这是个**真实的稀缺资源** —— 骨髓被癌化或被占满时
+## 免疫细胞就复活不了，只能继续等。旧版是「全场随机健康格 + 2.0 能量」，
+## 那既没有骨髓这个抓手，也让复活变成了免费换阵地。
+func revive_options_immune(pid: int) -> Array:
+	var cell: Dictionary = game.cell_of(pid)
+	if cell["alive"] or cell["respawn_round"] < 0 \
+			or game.round_no < cell["respawn_round"]:
+		return []
+	var options: Array = []
+	for c in CWData.MARROWS:
+		if game.tile(c)["tissue"] == CWData.Tissue.HEALTHY \
+				and game.cells_at(c).is_empty():
+			options.append({ "label": "复活于骨髓 %s" % str(c), "data": { "to": c } })
+	if options.is_empty():
+		game.log_msg("%s 无可用骨髓（健康且无细胞占据），无法复活" % game.cell_name(cell))
+	return options
+
+
+func revive_immune(pid: int, pos: Vector2i) -> void:
+	var cell: Dictionary = game.cell_of(pid)
+	cell["alive"] = true
+	cell["energy"] = game.tune.immune_respawn_energy
+	cell["respawn_round"] = -1
+	game.actions.enter_tile(cell, pos)
+	game.log_msg("【免疫复活】%s 于骨髓 %s 复活（%s 能量）" % [
+		game.cell_name(cell), str(pos), CWData.fmt(game.tune.immune_respawn_energy)])
+
+
+## 【S-有氧呼吸】能量 =（健康组织格数 − 坏死格数）÷ 总格数 × 3，**四舍五入到十分位**。
+## 每个免疫细胞各拿这么多，不按细胞数均分（PRD 如此；均分是 CWTuning.split_income() 的实验档）。
+##
+## 「坏死」格要扣掉：它虽然是健康组织，但不为免疫供能。
 func _aerobic() -> void:
 	var immune: Array = game.living_cells(CWData.Faction.IMMUNE)
 	if immune.is_empty():
 		return
-	var gain: int = game.tune.aerobic_gain[game.immune_level]
-	if game.tune.aerobic_per_healthy > 0:
-		# 挂钩健康组织：总供能 = 健康组织数 × 单格供能，可选按免疫细胞数均分
-		var pool: int = game.count_tissue(CWData.Tissue.HEALTHY) 			* game.tune.aerobic_per_healthy / game.tune.aerobic_healthy_div
-		gain = (pool / immune.size()) if game.tune.aerobic_split else pool
+	var healthy := 0
+	var necrotic := 0
+	for t in game.tiles.values():
+		if t["tissue"] != CWData.Tissue.HEALTHY:
+			continue
+		healthy += 1
+		if t["necrosis"] > 0:
+			necrotic += 1
+	# 四舍五入到十分位：分子先 ×10 再加半个分母，整数除法即得（全程整数，无浮点）
+	var num: int = (healthy - necrotic) * game.tune.aerobic_mult
+	var den: int = CWData.TOTAL_TILES
+	var gain: int = (num + den / 2) / den
+	if game.tune.aerobic_split:
+		gain = gain / immune.size()
 	gain = game.tune.clamp_income(gain, game.tune.aerobic_floor, game.tune.aerobic_cap)
 	for cell in immune:
 		cell["energy"] += gain
-	game.log_msg("【有氧呼吸】所有免疫细胞 +%s 能量" % CWData.fmt(gain))
+	game.log_msg("【有氧呼吸】所有免疫细胞 +%s 能量（健康 %d - 坏死 %d）" % [
+		CWData.fmt(gain), healthy, necrotic])
 
 
 # ---- E 阶段 ----
@@ -213,7 +241,6 @@ func _erosion() -> void:
 		t["tissue"] = CWData.Tissue.CANCER
 		t["newborn"] = true
 		t["solid"] = 0
-		t["sticky"] = 0
 		game.log_msg("【侵蚀】%s 转为癌组织" % str(c))
 
 
@@ -242,12 +269,11 @@ func _proliferate() -> void:
 		t["tissue"] = CWData.Tissue.CANCER
 		t["newborn"] = true
 		t["solid"] = 0
-		t["sticky"] = 0
 	if not converts.is_empty():
 		game.log_msg("【增生】%d 格健康组织被癌组织侵占" % converts.size())
 
 
-## 【E-无氧呼吸】：每块供能 =（癌×0.2 + 固化×0.5），块内癌细胞均分，向下取整到 0.1（说明 #10）
+## 【E-无氧呼吸】：每块供能 =（癌×0.4 + 固化×1.0），块内癌细胞均分，向下取整到 0.1（说明 #10）
 func _anaerobic() -> void:
 	var cancer_pred := func(c: Vector2i) -> bool:
 		return game.is_cancerous(c)
@@ -269,12 +295,25 @@ func _anaerobic() -> void:
 		var gain: int = (pool / here.size()) if game.tune.anaerobic_split else pool
 		gain = game.tune.clamp_income(gain, game.tune.anaerobic_floor, game.tune.anaerobic_cap)
 		for cell in here:
-			cell["energy"] += gain
+			## 小细胞肺癌【瓦伯格超速糖酵解】：110% 原产出，**向上取整到十分位**
+			if cell["ctype"] == CWData.CancerType.SCLC:
+				cell["energy"] += int(ceil(gain * CWData.WARBURG_PERCENT / 100.0))
+			else:
+				cell["energy"] += gain
 		game.log_msg("【无氧呼吸】连通块（%d 格）内 %d 个癌细胞各 +%s 能量" % [
 			block.size(), here.size(), CWData.fmt(gain)])
 
 
-## 【E-固化】：有癌细胞停留的（非新生）癌组织，按格 +1 计数（说明 #22）
+## 骨肉瘤【骨样硬化】：该细胞触发的【E-固化】结算计数为 +1.5。
+## 同格只可能有一个细胞（PRD「一个组织内只能容纳一个细胞」），所以不存在叠加问题。
+func _solidify_step(c: Vector2i) -> int:
+	for occupant in game.cells_at(c, CWData.Faction.CANCER):
+		if occupant["ctype"] == CWData.CancerType.OSTEO:
+			return CWData.SOLIDIFY_STEP + CWData.SOLIDIFY_STEP / 2
+	return CWData.SOLIDIFY_STEP
+
+
+## 【E-固化】：有癌细胞停留的（非新生）癌组织，按格加计数（说明 #22）
 func _solidify() -> void:
 	var counted := {}
 	for cell in game.living_cells(CWData.Faction.CANCER):
@@ -285,25 +324,45 @@ func _solidify() -> void:
 		var t: Dictionary = game.tile(c)
 		if t["tissue"] != CWData.Tissue.CANCER or t["newborn"]:
 			continue
-		t["solid"] += 1
-		# 停留者中有固着型 → 该点为「固着点」，永不自然衰减（说明 #16）
-		for occupant in game.cells_at(c, CWData.Faction.CANCER):
-			if occupant["ctype"] == CWData.CancerType.SESSILE:
-				t["sticky"] += 1
-				break
+		t["solid"] += _solidify_step(c)
 		if t["solid"] >= game.tune.solidify_threshold:
 			t["tissue"] = CWData.Tissue.SOLID
 			game.log_msg("【固化】%s 转为固化癌组织" % str(c))
 
 
-## 固化衰减：计数>0 且无癌细胞停留的癌组织 -1；固着点不衰减
+## 固化计数衰减：计数 > 0 且无癌细胞停留的**癌组织**，每世界回合 −0.5（PRD）
 func _decay() -> void:
 	for c in game.tiles.keys():
 		var t: Dictionary = game.tiles[c]
 		if t["tissue"] != CWData.Tissue.CANCER or t["solid"] <= 0:
 			continue
-		if game.cells_at(c, CWData.Faction.CANCER).is_empty() and t["solid"] > t["sticky"]:
-			t["solid"] -= 1
+		if game.cells_at(c, CWData.Faction.CANCER).is_empty():
+			t["solid"] = maxi(t["solid"] - CWData.SOLIDIFY_DECAY, 0)
+
+
+## 【E-微环境压迫】：每个免疫细胞受相邻癌性组织的压迫，
+## 相邻数超过 2 格时损失（相邻数 − 2）× 0.5 能量。
+##
+## 这是 PRD 给癌方的**第一个稳定伤害来源**。在此之前免疫细胞几乎不可能死
+## （旧说明 #23「免疫无死亡途径」），所以【复活】那一整套机制此前基本是空转的。
+func _pressure() -> void:
+	for cell in game.living_cells(CWData.Faction.IMMUNE):
+		var adj := 0
+		for nb in CWData.neighbors(cell["pos"]):
+			if game.is_cancerous(nb):
+				adj += 1
+		if adj <= CWData.PRESSURE_FREE_ADJ:
+			continue
+		var loss: int = (adj - CWData.PRESSURE_FREE_ADJ) * CWData.PRESSURE_PER_ADJ
+		game.cancer_hit(cell, loss, "微环境压迫")
+
+
+## 「坏死」倒计时。PRD E 阶段第 8 步「更新持续时间类状态，并移除已经结束的『坏死』等状态」。
+## 按格记「还剩几个世界回合」，每个世界回合末 −1，归零即恢复。
+func _tick_necrosis() -> void:
+	for t in game.tiles.values():
+		if t["necrosis"] > 0:
+			t["necrosis"] -= 1
 
 
 func _clear_newborn() -> void:
@@ -319,7 +378,7 @@ func _final_verdict() -> void:
 	if cancerous >= limit:
 		game.winner = CWData.Faction.CANCER
 		game.win_kind = "limit_cancer"
-		game.win_reason = "%d 回合到：癌性组织 %d ≥ %d，癌症胜利" % [
+		game.win_reason = "%d 回合到：癌性组织 %d >= %d，癌症胜利" % [
 			game.tune.limit_round, cancerous, limit]
 	else:
 		game.winner = CWData.Faction.IMMUNE

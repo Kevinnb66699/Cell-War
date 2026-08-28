@@ -39,7 +39,9 @@ const RESULT_HOLD := 1.1
 const ACT_TITLE := {
 	"move": "迁移", "draw": "基因表达", "differentiate": "分化",
 	"antibody": "抗体", "toxin": "细胞毒素", "lyse": "裂解",
-	"mutate": "突变", "blast": "自爆", "remodel": "基质重塑", "end": "结束回合",
+	"mutate": "突变", "end": "结束回合",
+	## 癌细胞种类专属（PRD 四种真实癌症）
+	"homing": "血行转移", "mucus": "黏液破裂", "jump": "转移",
 }
 
 var _tiles := {}       ## 当前这一问里，哪些格子可点 → 点了返回什么
@@ -133,30 +135,96 @@ func _ask_action(req: Dictionary) -> int:
 				return again as int
 			_sticky_move = false    ## 右键 / Esc / 「结束迁移」
 			continue
+		## **按钮不消失，只变暗**（团队 2026-08-28 定）。
+		## 按钮集合来自 `CWActions.action_kinds()`（只看细胞种类和免疫等级），
+		## 而不是来自当前合法选项 —— 否则花掉能量会让按钮凭空少一个，
+		## 行动栏宽度跟着跳，连数字快捷键的编号都会变。
+		var groups := {}
+		var end_value: Variant = null
+		for i in options.size():
+			var a: String = options[i]["data"]["act"]
+			if a == "end":
+				end_value = i      ## 有右侧竖条时挪去面板底部，没有时下面补一个按钮
+				continue
+			if not groups.has(a):
+				groups[a] = []
+			groups[a].append(i)
 		var buttons: Array = []
 		var values: Array = []
-		## 「结束回合」定稿是钉在右侧竖条底部的，不占行动栏；没有面板时才退回按钮栏
-		var end_value: Variant = null
-		if not moves.is_empty():
-			buttons.append({ "title": _move_title(cell), "cost": _move_cost_text(options, moves) })
-			values.append("move")
-		for i in options.size():
-			var act: String = options[i]["data"]["act"]
-			if act == "move":
-				continue
-			if act == "end" and panel != null:
-				end_value = i
-				continue
-			buttons.append({ "title": ACT_TITLE.get(act, act), "cost": _cost_text(cell, act) })
-			values.append(i)
+		for act in game.actions.action_kinds(cell):
+			var live: bool = groups.has(act)
+			buttons.append({
+				"title": _move_title(cell) if act == "move" else ACT_TITLE.get(act, act),
+				"cost": _move_cost_text(options, moves) if act == "move" \
+					else _cost_text(cell, act),
+				"disabled": not live,
+			})
+			values.append(act if live else "")
+		## 没有右侧竖条时（纯行动栏形态），「结束回合」退回按钮栏占一格
+		if panel == null and end_value != null:
+			buttons.append({ "title": ACT_TITLE["end"], "cost": "" })
+			values.append(end_value)
+			end_value = null
 		var got: Variant = await _prompt("", "", buttons, values, {}, end_value)
 		if got == null:
 			return 0
-		if got is String:           ## 只可能是 "move"
+		if not (got is String):
+			return got as int          ## 「结束回合」的下标
+		var act: String = got as String
+		if act == "":
+			continue               ## 灰掉的按钮，理论上点不到；兜一道
+		if act == "move":
 			_sticky_move = true
 			continue
-		return got as int
+		## 一个技能只有一种打法 → 直接执行，不必再问
+		var picks: Array = groups[act]
+		if picks.size() == 1:
+			return picks[0] as int
+		## 有多种打法（分化选种类、裂解要不要顺带净化、血行转移/跃进选落点）→ 第二段
+		var sub: Variant = await _pick_sub(act, options, picks)
+		if sub == null:
+			return 0
+		if sub is String:
+			continue                   ## 退出子选择，回到按钮栏
+		return sub as int
 	return 0                        ## 放弃这一局时从 while 条件退出来
+
+
+## 技能的第二段：同一个 act 有多个选项时，让玩家挑一个。
+##
+## 为什么会有第二段：引擎那边为了让 AI 能把一个行动当成原子来推演，
+## 把「分化成哪种」「裂解要不要顺带净化」「转移到哪一格」全摊成了顶层选项。
+## 行动栏容不下那么多按钮，所以界面这边再把它们收回一个按钮 + 一次追问 ——
+## 和「迁移」的两段式是同一套语汇。
+##
+## 带 `to` 的走棋盘点选，其余走按钮栏。返回选项下标；退出返回 "cancel"；放弃对局返回 null。
+func _pick_sub(act: String, options: Array, picks: Array) -> Variant:
+	var title: String = ACT_TITLE.get(act, act)
+	var tiles := {}
+	var buttons: Array = []
+	var values: Array = []
+	for i in picks:
+		var data: Dictionary = options[i]["data"]
+		if data.has("to"):
+			tiles[data["to"]] = i
+		else:
+			buttons.append({ "title": _sub_label(act, data), "cost": "" })
+			values.append(i)
+	buttons.append({ "title": "取消", "cost": "右键 / Esc" })
+	values.append("cancel")
+	var hint := "" if tiles.is_empty() else "高亮 %d 格可选 · 右键或 Esc 退出" % tiles.size()
+	return await _prompt("选择%s的目标" % title, hint, buttons, values, tiles,
+		null, buttons.size() - 1)
+
+
+## 子选项的按钮标题。分化给种类名，裂解给「顺带净化 / 暂不」，其余退回引擎给的 label。
+func _sub_label(act: String, data: Dictionary) -> String:
+	match act:
+		"differentiate":
+			return CWData.IMMUNE_TYPE_NAMES[data["type"]]
+		"lyse":
+			return "顺带净化" if data["purge"] else "暂不净化"
+	return str(data)
 
 
 ## 目标选择态：高亮可达格，等玩家点一格或退出。
@@ -292,9 +360,11 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 			return CWData.fmt(CWData.LYSE_COST)
 		"mutate":
 			return CWData.fmt(CWData.MUTATE_COST)
-		"remodel":
-			return CWData.fmt(CWData.REMODEL_COST)
-		"blast":
+		"homing":
+			return CWData.fmt(CWData.MELANOMA_HOMING_COST)
+		"jump":
+			return CWData.fmt(CWData.METASTASIS_COST)
+		"mucus":
 			return "耗尽能量"
 	return ""
 

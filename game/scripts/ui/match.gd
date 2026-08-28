@@ -331,15 +331,16 @@ func _sync_hand() -> void:
 	if _hand_pid >= game.cells.size():
 		return                       ## 开局布置阶段，这个人还没落子
 	var cell: Dictionary = game.cell_of(_hand_pid)
-	var n: int = cell["hand"]
+	var cards: PackedStringArray = PackedStringArray(cell["hand"])
+	var n: int = cards.size()
 	var was: int = _hand_seen.get(_hand_pid, -1)
 	if was == n:
 		return
 	_hand_seen[_hand_pid] = n
 	if was >= 0 and n > was:
-		hand.deal_from(n, CWView.board_to_screen(camera, board.tile_center(cell["pos"])))
+		hand.deal_from(n, CWView.board_to_screen(camera, board.tile_center(cell["pos"])), cards)
 	else:
-		hand.sync(n)                 ## 首次显示 / 换人 / 打出去了：直接就位，不演
+		hand.sync(n, Vector2.INF, cards)   ## 首次显示 / 换人 / 打出去了：直接就位，不演
 
 
 func _make_cell_node(cell: Dictionary) -> Node2D:
