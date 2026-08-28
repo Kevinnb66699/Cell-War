@@ -1010,6 +1010,24 @@ func t_announce() -> void:
 	check(not blank, "没有空白通报")
 	g2.dispose()
 
+	## 提示不能压在骰面上。锚点必须是骰子的**外框**：
+	## 骰子在屏幕上有一百多像素高，拿格子中心当锚点提示就正好落在骰面上
+	## （2026-08-28 团队截图报的）。这类错只有截图才看得出来，所以把摆位抽出来直接测。
+	var screen := CWView.screen_size()
+	var box := Vector2(120, 40)
+	var mid := Rect2(Vector2(400, 200), Vector2(104, 104))
+	var at_mid := CWToast.place(box, mid, screen)
+	check(at_mid.y + box.y <= mid.position.y, "提示浮在骰子上方，底边不越过骰子顶边")
+	check(is_equal_approx(at_mid.x + box.x / 2.0, mid.get_center().x), "横向对齐骰子中线")
+
+	var high := Rect2(Vector2(400, 4), Vector2(104, 104))
+	var at_high := CWToast.place(box, high, screen)
+	check(at_high.y >= high.end.y, "骰子贴着画布顶边时，提示翻到它下面而不是压上去")
+
+	var edge := Rect2(Vector2(screen.x - 20, 200), Vector2(104, 104))
+	var at_edge := CWToast.place(box, edge, screen)
+	check(at_edge.x + box.x <= screen.x, "贴右边缘时提示收得回画布内")
+
 
 # ---- 行动栏宽度 ----
 ## 最挤的情况是 T细胞的四个技能。快捷键数字标在费用行前面，只有「迁移」会因此变宽

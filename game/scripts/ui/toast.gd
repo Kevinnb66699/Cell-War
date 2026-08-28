@@ -17,9 +17,8 @@ const PAD_V := 8
 const PAD_H := 12
 const FADE_IN := 0.10
 const FADE_OUT := 0.25
-## 骰子在屏幕上约 100px 高，提示浮在它上方
-const LIFT := 96.0
-const MARGIN := 8.0     ## 贴边时留的余量
+const GAP := 10.0       ## 提示和骰子之间留的空
+const MARGIN := 8.0     ## 贴画布边时留的余量
 
 var _box: PanelContainer
 var _label: Label
@@ -39,17 +38,13 @@ func _ready() -> void:
 	_box.modulate.a = 0.0
 
 
-## 在屏幕坐标 at 的上方显示一行字。
+## 在 avoid（骰子在屏幕上的外框）**旁边**显示一行字，不压到它上面。
 ## hold <= 0 表示一直留着，等下一次 show_at() 或 hide_now() ——
 ## 掷骰过程中显示「攻击」用的就是这一档，骰子停稳后再换成结果并给它一个 hold。
-func show_at(text: String, at: Vector2, hold: float) -> void:
+func show_at(text: String, avoid: Rect2, hold: float) -> void:
 	_label.text = text
 	_box.size = _box.get_combined_minimum_size()
-	## 水平居中于落点、浮在骰子上方；贴到画布边缘时收回来
-	var screen := CWView.screen_size()
-	_box.position = Vector2(
-		clampf(at.x - _box.size.x / 2.0, MARGIN, screen.x - _box.size.x - MARGIN),
-		clampf(at.y - LIFT, MARGIN, screen.y - _box.size.y - MARGIN))
+	_box.position = place(_box.size, avoid, CWView.screen_size())
 	if _tween != null and _tween.is_valid():
 		_tween.kill()
 	_tween = create_tween()
@@ -57,6 +52,20 @@ func show_at(text: String, at: Vector2, hold: float) -> void:
 	if hold > 0.0:
 		_tween.tween_interval(hold)
 		_tween.tween_property(_box, "modulate:a", 0.0, FADE_OUT)
+
+
+## 提示放哪儿：横向对齐骰子中线，纵向**优先浮在骰子上方**，上面塞不下就翻到下面。
+##
+## 锚点必须是骰子的**外框**而不是格子中心 —— 骰子在屏幕上有一百多像素高，
+## 拿格子中心当锚点，提示会直接压在骰面上（2026-08-28 团队截图报的就是这个）。
+## 抽成 static 是为了能直接测：这类错只有截图才看得出来。
+static func place(box: Vector2, avoid: Rect2, screen: Vector2) -> Vector2:
+	var y: float = avoid.position.y - GAP - box.y
+	if y < MARGIN:
+		y = avoid.end.y + GAP                    ## 上面塞不下，翻到骰子下面
+	return Vector2(
+		clampf(avoid.get_center().x - box.x / 2.0, MARGIN, screen.x - box.x - MARGIN),
+		clampf(y, MARGIN, screen.y - box.y - MARGIN))
 
 
 func hide_now() -> void:

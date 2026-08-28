@@ -309,7 +309,7 @@ func show_roll(reason: String, value: int, sides: int, _pid: int, at: Vector2i) 
 	var ground: Vector2 = board.tile_center(at)
 	if toast != null and camera != null:
 		## hold=0：一直留着，等骰子停稳后被结算说明顶掉
-		toast.show_at(reason, CWView.board_to_screen(camera, ground), 0.0)
+		toast.show_at(reason, _dice_rect(ground), 0.0)
 	dice.place_at(ground, board.tile_z(at, board.Z_DICE))
 	await dice.play(value, sides)
 
@@ -318,4 +318,14 @@ func show_roll(reason: String, value: int, sides: int, _pid: int, at: Vector2i) 
 func show_result(text: String, at: Vector2i) -> void:
 	if toast == null or board == null or camera == null:
 		return
-	toast.show_at(text, CWView.board_to_screen(camera, board.tile_center(at)), RESULT_HOLD)
+	## 沿用掷骰时那个位置：骰子这会儿已经收了，但玩家的视线还在那儿，
+	## 让「攻击」和「攻击大成功」出现在同一个地方比各自找最优位置更好读。
+	toast.show_at(text, _dice_rect(board.tile_center(at)), RESULT_HOLD)
+
+
+## 骰子落在某格时，它在**屏幕**上占的那块矩形。提示靠它避让。
+func _dice_rect(ground: Vector2) -> Rect2:
+	var span: Vector2 = dice.size * camera.zoom.x
+	var origin: Vector2 = CWView.board_to_screen(camera, ground) - Vector2(
+		span.x * 0.5, CWDice.contact_y(dice.size.y) * camera.zoom.y)
+	return Rect2(origin, span)
