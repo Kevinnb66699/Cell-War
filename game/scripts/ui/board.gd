@@ -138,6 +138,9 @@ var _mark_material: ShaderMaterial  ## 所有剪影共用一份
 ## 高亮的淡入淡出时长。**不能直接建/删节点**——候选格「啪」地整片出现太硬
 ## （团队 2026-08-27 反馈）。所以节点要复用：每帧重建的话补间永远走不完。
 const MARK_FADE := 0.22
+## 新出现的一批高亮**按同心圆由内向外逐环亮起**，和开场癌组织绽开是同一个语汇
+## （团队 2026-08-27 要求）。每往外一环推迟这么多秒。
+const MARK_RING_DELAY := 0.045
 
 var _mark_nodes := {}    ## 轴坐标 -> Sprite2D
 var _mark_target := {}   ## 轴坐标 -> 目标颜色；set_marks 传进来的那个
@@ -159,19 +162,49 @@ func set_marks(marks: Dictionary) -> void:
 			_mark_target.erase(c)
 			var leaving: Sprite2D = _mark_nodes[c]
 			_animate(c, Color(leaving.modulate.r, leaving.modulate.g,
-				leaving.modulate.b, 0.0), true)
+				leaving.modulate.b, 0.0), true, 0.0)
+	var fresh: Array[Vector2i] = []
 	for c: Vector2i in marks:
 		var want: Color = marks[c]
 		if _mark_target.get(c) == want:
 			continue
 		_mark_target[c] = want
-		if not _mark_nodes.has(c):
-			var made := _make_mark(c, want)
-			if made == null:
-				_mark_target.erase(c)
-				continue
-			_mark_nodes[c] = made
-		_animate(c, want, false)
+		if _mark_nodes.has(c):
+			_animate(c, want, false, 0.0)   ## 已经在场的（比如悬停改色）立刻跟上，不排队
+			continue
+		var made := _make_mark(c, want)
+		if made == null:
+			_mark_target.erase(c)
+			continue
+		_mark_nodes[c] = made
+		fresh.append(c)
+	var delays := ring_delays(fresh, MARK_RING_DELAY)
+	for c: Vector2i in fresh:
+		_animate(c, marks[c], false, delays[c])
+
+
+## 一批格子各自的入场延迟：按「离这批格子的**重心**几环」由内向外排队。
+##
+## 圆心取重心而不是棋盘中心，是为了让一条规则覆盖两种情况 ——
+## 开局落子时整张棋盘都是候选，重心就是棋盘中心；
+## 选迁移目标时只有周围几格，重心就是那个细胞。
+## 抽成 static 是为了能直接测：环序错了肉眼只看得出「顺序怪」，说不清哪儿怪。
+static func ring_delays(coords: Array, step: float) -> Dictionary:
+	var out := {}
+	if coords.is_empty():
+		return out
+	var cq := 0.0
+	var cr := 0.0
+	for c: Vector2i in coords:
+		cq += c.x
+		cr += c.y
+	cq /= coords.size()
+	cr /= coords.size()
+	for c: Vector2i in coords:
+		var dq: float = c.x - cq
+		var dr: float = c.y - cr
+		out[c] = (absf(dq) + absf(dr) + absf(dq + dr)) / 2.0 * step
+	return out
 
 
 ## 把癌性组织交叉淡回健康组织（返回主菜单时用）。
@@ -214,12 +247,14 @@ func _make_mark(c: Vector2i, want: Color) -> Sprite2D:
 	return s
 
 
-func _animate(c: Vector2i, to: Color, leaving: bool) -> void:
+func _animate(c: Vector2i, to: Color, leaving: bool, delay: float) -> void:
 	var s: Sprite2D = _mark_nodes[c]
 	var running: Tween = _mark_tweens.get(c)
 	if running != null and running.is_valid():
 		running.kill()                ## 半路改目标（比如悬停）时接着当前值走
 	var tw := s.create_tween()
+	if delay > 0.0:
+		tw.tween_interval(delay)
 	tw.tween_property(s, "modulate", to, MARK_FADE)
 	_mark_tweens[c] = tw
 	if leaving:

@@ -24,10 +24,12 @@ const STAGGER := 52.0       ## 每张露出的宽度
 const SPAN := 300.0         ## 可用横向空间：12 到行动栏左缘 324 之间
 const TWEEN := 0.12         ## 抬起/推开的补间
 const DEAL := 0.45          ## 抽到的卡飞进手牌
+const DEAL_SCALE := 0.25    ## 起飞时的缩放
 
 var _cards: Array[Control] = []
 var _hovered := -1
-var _tweens: Array[Tween] = []
+var _tweens := {}      ## 卡 -> 正在跑的补间。**一张卡同时只能有一条**
+var _dealing := {}     ## 卡 -> true，正在飞进来（走长补间、还要补缩放和淡入）
 
 
 func _ready() -> void:
@@ -40,6 +42,8 @@ func _ready() -> void:
 func sync(count: int, from: Vector2 = Vector2.INF) -> void:
 	while _cards.size() > count:
 		var gone: Control = _cards.pop_back()
+		_dealing.erase(gone)
+		_tweens.erase(gone)
 		gone.queue_free()
 	while _cards.size() < count:
 		var card := _make_card(_cards.size())
@@ -47,8 +51,17 @@ func sync(count: int, from: Vector2 = Vector2.INF) -> void:
 		add_child(card)
 		if from == Vector2.INF:
 			card.position = _slot(_cards.size() - 1)
-		else:
-			_fly_in(card, from, _cards.size() - 1)
+			continue
+		## 这里**只摆起点和起始姿态，不起补间** —— 飞到哪儿由 _layout() 统一算。
+		##
+		## 上一版在这儿自己起了一条 0.45s 的补间飞向 _slot()，而紧接着 _layout()
+		## 又给同一张卡起了一条 0.12s 的补间：两条同时改 position，短的先到、
+		## 长的接着往回演 —— 表现就是「卡先瞬间到位、再闪回去重播一遍抽取动画」
+		## （团队 2026-08-27 报的）。**一张卡同时只能有一条补间**，这是本文件的铁律。
+		card.position = from
+		card.scale = Vector2(DEAL_SCALE, DEAL_SCALE)
+		card.modulate.a = 0.0
+		_dealing[card] = true
 	_layout()
 
 
@@ -62,6 +75,8 @@ func clear() -> void:
 	for c in _cards:
 		c.queue_free()
 	_cards.clear()
+	_tweens.clear()
+	_dealing.clear()
 	_hovered = -1
 
 
@@ -80,10 +95,6 @@ func _stagger() -> float:
 
 
 func _layout() -> void:
-	for t in _tweens:
-		if t != null and t.is_valid():
-			t.kill()
-	_tweens.clear()
 	for i in _cards.size():
 		var card: Control = _cards[i]
 		var to := _slot(i)
@@ -93,20 +104,18 @@ func _layout() -> void:
 			else:
 				to.x += -PUSH if i < _hovered else PUSH
 		card.z_index = 100 if i == _hovered else i
-		var tw := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		tw.tween_property(card, "position", to, TWEEN)
-		_tweens.append(tw)
+		var running: Tween = _tweens.get(card)
+		if running != null and running.is_valid():
+			running.kill()          ## 一张卡只留一条补间
+		var dealing: bool = _dealing.has(card)
+		var tw := card.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw.tween_property(card, "position", to, DEAL if dealing else TWEEN)
+		if dealing:
+			tw.parallel().tween_property(card, "scale", Vector2.ONE, DEAL)
+			tw.parallel().tween_property(card, "modulate:a", 1.0, DEAL * 0.5)
+			tw.tween_callback(func() -> void: _dealing.erase(card))
+		_tweens[card] = tw
 		_paint(card, i == _hovered)
-
-
-func _fly_in(card: Control, from: Vector2, index: int) -> void:
-	card.position = from
-	card.scale = Vector2(0.25, 0.25)
-	card.modulate.a = 0.0
-	var tw := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tw.tween_property(card, "position", _slot(index), DEAL)
-	tw.parallel().tween_property(card, "scale", Vector2.ONE, DEAL)
-	tw.parallel().tween_property(card, "modulate:a", 1.0, DEAL * 0.5)
 
 
 # ============ 卡面 ============

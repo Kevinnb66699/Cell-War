@@ -460,6 +460,22 @@ func t_hex_pick() -> void:
 	board.set_marks({})
 	check(board._mark_target.is_empty(), "空字典清空高亮")
 
+	# ⑥ 高亮按同心圆由内向外亮起：圆心取这批格子的**重心**，
+	#    所以「整张棋盘」和「细胞周围六格」两种情况用同一条规则都对。
+	var whole := CWData.all_coords()
+	var d_all: Dictionary = board.ring_delays(whole, 1.0)
+	check(is_zero_approx(d_all[Vector2i(0, 0)]), "整张棋盘时中央格最先亮")
+	check(is_equal_approx(d_all[Vector2i(6, 0)], 6.0)
+		and is_equal_approx(d_all[Vector2i(0, -3)], 3.0), "外圈按环号依次排队")
+	var around: Array = CWData.neighbors(Vector2i(2, -2))
+	var d_ring: Dictionary = board.ring_delays(around, 1.0)
+	var same := true
+	for c: Vector2i in around:
+		if not is_equal_approx(d_ring[c], 1.0):
+			same = false
+	check(same, "只有邻格时重心落在那个细胞上，六格同时亮（都是第 1 环）")
+	check(board.ring_delays([], 1.0).is_empty(), "空集合不报错")
+
 	board.free()
 
 # ---- 演出桥 ----
