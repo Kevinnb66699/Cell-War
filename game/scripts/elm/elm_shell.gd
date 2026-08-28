@@ -45,3 +45,30 @@ func run(seed_value: int, n_players: int) -> Dictionary:
 					pass  # 通知；shell 已读 state.pending 驱动
 		steps += 1
 	return { "state": state, "chain": chain, "steps": steps, "rolls": rolls }
+
+
+## 驱动 SETUP 阶段到 SETUP_DONE（迁移 cw_setup 的验证用）。
+## 桥只被问 setup_place（返回落子下标）。
+func run_to_setup(seed_value: int, faction_list: Array, tune) -> Dictionary:
+	var state := ElmGame.make_initial_state(seed_value, faction_list, tune)
+	var chain: Array = [state]
+	var steps := 0
+	while String(state.pc) != "SETUP_DONE" and steps < 1000:
+		var msg: Dictionary
+		if state.pending != null:
+			var req: Dictionary = {
+				"kind": state.pending["kind"],
+				"options": state.pending["options"],
+			}
+			var idx: int = bridge.ask(req)
+			msg = { "kind": "decision", "idx": idx }
+		else:
+			msg = { "kind": "step" }
+		var r := ElmGame.update(state, msg)
+		state = r["state"]
+		chain.append(state)
+		for fx in r["effects"]:
+			if fx["kind"] == "log":
+				print("[log] " + String(fx.get("text", "")))
+		steps += 1
+	return { "state": state, "chain": chain, "steps": steps }
