@@ -7,9 +7,10 @@ const SEED := 20260801
 const N_PLAYERS := 4
 
 
-## 想复盘哪套平衡方案就改这里；返回 CWTuning.new() 即为规则原文。
+## 想复盘哪套平衡方案就改这里；CWTuning.new() 即按 PRD 跑，
+## 换成 CWTuning.split_income() 可复盘「免疫收入按细胞数均分」的实验档。
 static func tuning() -> CWTuning:
-	return CWTuning.recommended()
+	return CWTuning.new()
 
 
 func _initialize() -> void:

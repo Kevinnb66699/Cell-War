@@ -13,8 +13,13 @@ const PLAYER_COUNTS := [2, 4, 6]
 const BASE_SEED := 24400000
 
 
-## 常备对照组：每一项都在回答「这块拆掉会怎样」，而不只是罗列候选。
+## 常备对照组：每一项都在回答「这块拿掉／加上会怎样」，而不只是罗列候选。
 ## 想试新数值就照着加一个 CWTuning，不需要改引擎。
+##
+## 2026-08-28：基线从已删除的 recommended() 换成 CWTuning.new()（= PRD）。
+## PRD 本身不含低保与封顶，所以原来的「去封顶／去低保」在新基线上是空操作
+## （跑出来会和「规则原文」一模一样），因此反过来问「加上会怎样」——
+## 问的还是同一个问题：这个阻尼到底起多大作用。见 docs/平衡方案_PRD版.md 四·乙。
 func _variants() -> Array[CWTuning]:
 	var out: Array[CWTuning] = []
 
@@ -28,25 +33,27 @@ func _variants() -> Array[CWTuning]:
 	no_lesion.solid_at_cancer_spawn = false
 	out.append(no_lesion)
 
-	out.append(CWTuning.recommended())
+	# 人数缩放：PRD 只有癌方按己方细胞数均分，免疫方不均分（《平衡测试报告》#29 复发）
+	out.append(CWTuning.split_income())
 
-	# 封顶是防雪球的主稳定器：拆掉它癌方收入会滚到免疫的 20 倍
-	var no_cap := CWTuning.recommended()
-	no_cap.name = "推荐-去封顶"
-	no_cap.anaerobic_cap = 0
-	no_cap.aerobic_cap = 0
-	out.append(no_cap)
+	# 封顶防领先方滚雪球。PRD 去掉了它，本行是把它加回来看能不能压住癌方
+	# 数值沿用旧 recommended() 标定过的 3.5——但那是在旧收入公式下标的，只是起点，不是已验证值
+	var with_cap := CWTuning.new()
+	with_cap.name = "规则原文+封顶"
+	with_cap.anaerobic_cap = 35
+	with_cap.aerobic_cap = 35
+	out.append(with_cap)
 
-	# 低保主要在 6 人局起作用（那里免疫供能贴着低保线）
-	var no_floor := CWTuning.recommended()
-	no_floor.name = "推荐-去低保"
-	no_floor.anaerobic_floor = 0
-	no_floor.aerobic_floor = 0
-	out.append(no_floor)
+	# 低保防落后方直接崩盘，主要在 6 人局起作用（那里免疫供能最薄）。数值同上，是起点不是定论
+	var with_floor := CWTuning.new()
+	with_floor.name = "规则原文+低保"
+	with_floor.anaerobic_floor = 12
+	with_floor.aerobic_floor = 19
+	out.append(with_floor)
 
-	# 增生：封顶生效后地盘不再变成收入，它的作用只剩「细胞少时也能扩张」
-	var no_pro := CWTuning.recommended()
-	no_pro.name = "推荐-去增生"
+	# 增生让地盘能脱离癌细胞自行生长；PRD 默认开着（4%/相邻癌性组织），关掉看它值多少
+	var no_pro := CWTuning.new()
+	no_pro.name = "规则原文-无增生"
 	no_pro.proliferate_per_adjacent = 0
 	out.append(no_pro)
 
