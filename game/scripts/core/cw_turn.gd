@@ -12,7 +12,7 @@ var game: CWGame
 
 func run_all() -> void:
 	for pid in game.order:
-		if game.winner >= 0:
+		if game.winner >= 0 or game.aborted:
 			return
 		var cell: Dictionary = game.cell_of(pid)
 		if not cell["alive"]:
@@ -25,7 +25,8 @@ func _run_player_turn(pid: int, cell: Dictionary) -> void:
 	game.current_pid = pid    ## 只给界面看，见 CWGame.current_pid
 	game.log_msg("▶ %s 的回合（能量 %s）" % [game.player(pid)["name"], CWData.fmt(cell["energy"])])
 	var guard := 0
-	while guard < MAX_ACTIONS_PER_TURN and game.winner < 0 and cell["alive"]:
+	while guard < MAX_ACTIONS_PER_TURN and game.winner < 0 \
+			and cell["alive"] and not game.aborted:
 		guard += 1
 		var options: Array = game.actions.build_options(cell)
 		if options.size() <= 1:

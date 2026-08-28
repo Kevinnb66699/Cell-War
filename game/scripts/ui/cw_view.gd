@@ -62,3 +62,19 @@ static func apply(camera: Camera2D, board: Node2D, zoom: float,
 	camera.zoom = Vector2(zoom, zoom)
 	camera.position = camera_pos_for(
 		board_origin(board) + look_at, anchor, zoom, screen_size())
+
+
+## 在菜单机位和对局机位之间插值：k=0 菜单，k=1 对局。开场推进与返场都走这里。
+##
+## **插的是「看点 / 锚点 / zoom」这三个取景参数，不是相机的 position。**
+## 投影是 `(点 − 相机) × zoom`，position 和 zoom 各自线性插的话，乘出来并不线性 ——
+## 实测棋盘横移的「最快 / 平均」速度比会到 1.76（插取景参数只有 1.26），
+## 前半程就走完 70% 的横移、后半程在爬；再叠上 easeOutCubic 就是开头很冲、结尾拖沓。
+## 两端都对、中间不对，正是这类「取景游走」最难查的地方。
+##
+## **zoom 走几何（对数）插值**：视觉上的缩放速度取决于每帧的**倍率**而不是差值，
+## 线性插 3.2→1.45 的话倍率不匀。
+static func blend(camera: Camera2D, board: Node2D, k: float) -> void:
+	var zoom: float = MENU_ZOOM * pow(GAME_ZOOM / MENU_ZOOM, k)
+	apply(camera, board, zoom,
+		MENU_LOOK_AT.lerp(GAME_LOOK_AT, k), MENU_ANCHOR.lerp(GAME_ANCHOR, k))

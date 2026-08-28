@@ -222,9 +222,16 @@ func _on_item_exited(i: int) -> void:
 
 
 func _on_item_input(event: InputEvent, i: int) -> void:
-	if event is InputEventMouseButton and event.pressed \
-			and event.button_index == MOUSE_BUTTON_LEFT:
-		_activate(i)
+	if not (event is InputEventMouseButton and event.pressed
+			and event.button_index == MOUSE_BUTTON_LEFT):
+		return
+	## **必须标记已处理**：Control 的 gui_input 不会自动吃掉事件，
+	## 同一下点击会继续传到 main.gd 的 _unhandled_input，在那儿被
+	## 「过场中点一下跳过」当成跳过指令 —— 于是「开始对局」那一下
+	## **自己把开场过场跳掉了，从来没播出来过**
+	## （团队反馈「开局动画不好看」的真正原因，2026-08-27 查到）。
+	get_viewport().set_input_as_handled()
+	_activate(i)
 
 
 func _unhandled_input(event: InputEvent) -> void:

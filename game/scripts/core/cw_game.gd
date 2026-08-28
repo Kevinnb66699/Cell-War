@@ -18,6 +18,10 @@ var memory := 0            # 免疫方抗原记忆（阵营共享）
 var immune_level := 0      # 0..3 = I/II/III/X，只升不降
 var differentiated: Array = []   # 已被分化占用的免疫种类（每种全阵营限一个）
 var winner := -1           # -1 未分胜负；否则 CWData.Faction
+# 中途放弃这一局（返回主菜单）。置位后引擎的各个循环会在下一个检查点收摊，
+# 让卡在「等玩家作答」上的那次询问能安全地一路展开回来 ——
+# 直接 dispose() 的话，展开途中会碰到已经置空的模块。
+var aborted := false
 # 下面两个纯粹是给界面看的：「现在是哪个阶段、轮到谁」本来只存在于控制流里，
 # 界面问不出来。不参与 state_hash，也不影响任何结算。
 var phase := ""            # 开局布置 / 世界回合 S / 玩家回合 / 世界回合 E
@@ -67,18 +71,18 @@ func init(faction_list: Array, seed_value: int) -> void:
 func run_game() -> int:
 	phase = "开局布置"
 	await setup.run()
-	while winner < 0:
+	while winner < 0 and not aborted:
 		phase = "世界回合 S"
 		await world.s_phase()
-		if winner >= 0:
+		if winner >= 0 or aborted:
 			break
 		phase = "玩家回合"
 		await turn.run_all()
-		if winner >= 0:
+		if winner >= 0 or aborted:
 			break
 		phase = "世界回合 E"
 		world.e_phase()
-		if winner >= 0:
+		if winner >= 0 or aborted:
 			break
 		round_no += 1
 	log_msg("=== 对局结束：%s ===" % win_reason)
@@ -102,6 +106,8 @@ func dispose() -> void:
 # ---- 询问桥（引擎↔玩家的唯一交互通道）----
 ## req = {kind, prompt, options:[{label, data}]}，返回所选下标（已钳位）。
 func ask(pid: int, req: Dictionary) -> int:
+	if aborted:
+		return 0
 	req["pid"] = pid
 	var b: CWBridge = bridges.get(pid)
 	var idx := 0

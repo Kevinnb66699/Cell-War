@@ -19,6 +19,12 @@ const DECOR_DRIFT := 26.0   ## 漂散距离（棋盘像素）
 const T_BACK := 1.55        ## 棋盘 → 主菜单。团队定了**和进场对称**
                             ##（本来按 0.75s 做的：进场是揭幕值得给分量，返回该干脆）
 const T_MENU_IN := 0.32     ## 相机回位之后菜单再淡进来。两段刻意**不重叠**
+## 过场刚起步的这一小段里不接受「点一下跳过」。
+## 防的是**启动过场的那一下点击自己把它跳掉** —— Control 的 gui_input 不会自动
+## 吃掉事件，那一下会一路漏到这里来。菜单那边已经标记了已处理，这里再加一道闸，
+## 是因为「事件被谁消费」这种事在加新界面时最容易被破坏，
+## 而破坏的表现是**过场整个消失**（画面瞬间就位），极难察觉。
+const SKIP_GRACE_MS := 250
 
 @onready var camera: Camera2D = $Camera2D
 @onready var board: Node2D = $Board
@@ -28,6 +34,7 @@ const T_MENU_IN := 0.32     ## 相机回位之后菜单再淡进来。两段刻�
 
 var _tween: Tween
 var _entering := false
+var _started_ms := 0   ## 本次过场起步的时刻
 
 
 func _ready() -> void:
@@ -40,11 +47,10 @@ func _begin() -> void:
 	if _entering:
 		return
 	_entering = true
+	_started_ms = Time.get_ticks_msec()
 	menu.dismiss(T_DECOR, DECOR_DRIFT)
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_tween.tween_property(camera, "position", _game_camera_pos(), T_ENTER)
-	_tween.parallel().tween_property(camera, "zoom",
-		Vector2(CWView.GAME_ZOOM, CWView.GAME_ZOOM), T_ENTER)
+	_tween.tween_method(_look, 0.0, 1.0, T_ENTER)
 	await _tween.finished
 	## 两段计时动画必须**前后相接**，不能挂在同一条时间轴上：原型里第一版共用
 	## 一个进度值，相机走完那一帧的进度 1 被当成「绽开也走完了」，
@@ -68,11 +74,10 @@ func _back_to_menu() -> void:
 	if _entering:
 		return
 	_entering = true
+	_started_ms = Time.get_ticks_msec()
 	match_node.teardown()
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_tween.tween_property(camera, "position", _menu_camera_pos(), T_BACK)
-	_tween.parallel().tween_property(camera, "zoom",
-		Vector2(CWView.MENU_ZOOM, CWView.MENU_ZOOM), T_BACK)
+	_tween.tween_method(_look, 1.0, 0.0, T_BACK)
 	await _tween.finished
 	menu.appear(T_MENU_IN)
 	_entering = false
@@ -82,19 +87,15 @@ func _back_to_menu() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not _entering or _tween == null or not _tween.is_running():
 		return
+	if Time.get_ticks_msec() - _started_ms < SKIP_GRACE_MS:
+		return
 	if event is InputEventMouseButton and event.pressed:
 		get_viewport().set_input_as_handled()
 		menu.skip_dismiss()
 		_tween.custom_step(3600.0)   ## 一步推到底，进场返场都适用
 
 
-func _game_camera_pos() -> Vector2:
-	return CWView.camera_pos_for(
-		CWView.board_origin(board) + CWView.GAME_LOOK_AT,
-		CWView.GAME_ANCHOR, CWView.GAME_ZOOM, CWView.screen_size())
-
-
-func _menu_camera_pos() -> Vector2:
-	return CWView.camera_pos_for(
-		CWView.board_origin(board) + CWView.MENU_LOOK_AT,
-		CWView.MENU_ANCHOR, CWView.MENU_ZOOM, CWView.screen_size())
+## 补间只推一个 0..1 的进度，取景由 CWView.blend() 现算 ——
+## 别去插相机的 position（理由见 blend 的注释）。
+func _look(k: float) -> void:
+	CWView.blend(camera, board, k)

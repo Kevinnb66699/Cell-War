@@ -39,6 +39,7 @@ const ACT_TITLE := {
 
 var _tiles := {}       ## 当前这一问里，哪些格子可点 → 点了返回什么
 var _enemy := -1       ## 当前提问者的敌对阵营，用来把「攻击格」标成橙色
+var _pending: Answer   ## 正卡在「等玩家作答」上的那一次询问
 
 
 ## 一次交互的应答口。
@@ -53,6 +54,21 @@ class Answer:
 			return      ## 一次交互只认第一个答案
 		_fired = true
 		done.emit(value)
+
+
+## 中途放弃这一局（返回主菜单）：把卡住的那次询问唤醒，好让 _prompt() 把信号断干净。
+##
+## 不这么做的话，`board.tile_hovered` 上会一直挂着那次询问的处理函数；
+## 对局释放之后鼠标往棋盘上一动，它就去调用已经置空的 game ——
+## **debug 模式下 Godot 会直接断在调试器里，表现就是「游戏卡死」**
+## （2026-08-27 团队试玩报的就是这个）。
+## 引擎那边由 CWGame.aborted 收摊，两边配合才能安全展开。
+func abort() -> void:
+	_clear_ui()
+	if _pending != null:
+		var p := _pending
+		_pending = null
+		p.fire(null)
 
 
 func ask(req: Dictionary) -> int:
@@ -88,7 +104,7 @@ func _ask_action(req: Dictionary) -> int:
 	for i in options.size():
 		if options[i]["data"]["act"] == "move":
 			moves.append(i)
-	while true:
+	while not game.aborted:
 		var buttons: Array = []
 		var values: Array = []
 		if not moves.is_empty():
@@ -106,6 +122,8 @@ func _ask_action(req: Dictionary) -> int:
 			buttons.append({ "title": ACT_TITLE.get(act, act), "cost": _cost_text(cell, act) })
 			values.append(i)
 		var got: Variant = await _prompt("", "", buttons, values, {}, end_value)
+		if got == null:
+			return 0             ## 这一局被中途放弃了（返回主菜单）
 		if not (got is String):
 			return got as int
 		## 进目标选择态；取消就回到按钮栏重来
@@ -116,9 +134,11 @@ func _ask_action(req: Dictionary) -> int:
 			"选择要%s到的组织" % _move_title(cell).substr(0, 2),
 			"高亮 %d 格可达 · 右键或 Esc 取消" % tiles.size(),
 			[{ "title": "取消", "cost": "右键 / Esc" }], ["cancel"], tiles, null, 0)
+		if t == null:
+			return 0             ## 同上
 		if not (t is String):
 			return t as int
-	return options.size() - 1   ## 走不到；GDScript 需要一个出口
+	return 0                     ## 放弃这一局时从 while 条件退出来
 
 
 # ============ 其余询问：有 to 的进棋盘，没 to 的进按钮 ============
@@ -140,7 +160,7 @@ func _ask_generic(req: Dictionary) -> int:
 			values.append(i)
 	var hint := "" if tiles.is_empty() else "高亮 %d 格可选" % tiles.size()
 	var got: Variant = await _prompt(req["prompt"], hint, buttons, values, tiles)
-	return got as int
+	return 0 if got == null else int(got)
 
 
 ## 摆出一栏按钮 + 一组可点的格子，等玩家二选一，返回被选中那项的值。
@@ -154,6 +174,7 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	_repaint_marks()
 	bar.show_bar(title, hint, buttons, cancel)
 	var ans := Answer.new()
+	_pending = ans
 	var on_button := func(i: int) -> void: ans.fire(values[i])
 	var on_end := func() -> void: ans.fire(end_value)
 	if panel != null:
@@ -168,6 +189,7 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	board.tile_clicked.connect(on_tile)
 	board.tile_hovered.connect(on_hover)
 	var got: Variant = await ans.done
+	_pending = null
 	if panel != null and end_value != null:
 		panel.end_turn_pressed.disconnect(on_end)
 	bar.chosen.disconnect(on_button)
@@ -179,6 +201,9 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 ## 候选格用免疫青；落着敌人的那一格用癌方橙 —— 那一下是攻击，不是迁移，
 ## 颜色得先说出来。鼠标停着的那格再提亮一档。
 func _repaint_marks() -> void:
+	if game == null:
+		marks = {}
+		return              ## 对局已经拆了；防的是「信号还没断干净」那一瞬
 	var m := {}
 	for c: Vector2i in _tiles:
 		if board.hovered == c:

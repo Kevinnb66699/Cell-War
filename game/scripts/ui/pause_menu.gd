@@ -149,6 +149,7 @@ func _build() -> void:
 		label.mouse_exited.connect(func() -> void: _hover(-1 if _hovered == i else _hovered))
 		label.gui_input.connect(func(e: InputEvent) -> void:
 			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+				get_viewport().set_input_as_handled()   ## 理由同主菜单：别让这一下漏下去
 				_activate(i))
 
 

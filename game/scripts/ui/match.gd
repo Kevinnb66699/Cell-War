@@ -175,6 +175,11 @@ func _run() -> void:
 ## 不擦干净的话上一局的癌组织和细胞会留在菜单背景里。
 func teardown() -> void:
 	if game != null:
+		## 顺序要紧：先让引擎收摊、再唤醒卡住的询问（它会同步一路展开回来），
+		## **最后**才 dispose。反过来的话展开途中会碰到已经置空的模块。
+		game.aborted = true
+		if bridge != null:
+			bridge.abort()
 		game.dispose()
 		game = null
 	bridge = null

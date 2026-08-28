@@ -12,6 +12,8 @@ func run() -> void:
 	_place_initial_cancer()
 	_assign_cancer_types()
 	await _place_cells()
+	if game.aborted:
+		return
 	_place_primary_lesions()
 	game.update_marks()
 	game.log_msg("—— 开局完成，进入世界回合 ——")
@@ -136,6 +138,8 @@ func _place_cells() -> void:
 		var idx: int = await game.ask(pid, {
 			"kind": "setup_place", "prompt": "%s 选择初始位置" % p["name"], "options": options,
 		})
+		if game.aborted:
+			return
 		var pos: Vector2i = options[idx]["data"]["to"]
 		var ctype: int = p.get("cancer_type", -1)
 		var itype: int = CWData.ImmuneType.BASIC if faction == CWData.Faction.IMMUNE else -1

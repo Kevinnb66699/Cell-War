@@ -34,6 +34,8 @@ func _run_all() -> void:
 	await t_opening()
 	await t_pause_and_teardown()
 	t_hand()
+	t_view_blend()
+	await t_enter_not_skipped()
 	t_main_menu()
 	await t_roll_hook()
 	t_dice()
@@ -775,6 +777,20 @@ func t_pause_and_teardown() -> void:
 	m.start()
 	check(m.game != null and m.game.count_tissue(CWData.Tissue.CANCER) > 0, "拆完还能再开一局")
 	m.teardown()
+
+	# ④ 卡在「等玩家点格子」时拆局，信号必须断干净
+	## 不断的话，对局释放之后鼠标往棋盘上一动，那个还挂着的处理函数就去调用
+	## 已经置空的 game —— **debug 模式下 Godot 直接断在调试器里，表现就是「卡死」**。
+	## 2026-08-27 团队试玩报的「返回主菜单后游戏卡死」就是这条。
+	m.human_players = [0]
+	m.start()
+	check(not m.board.tile_hovered.get_connections().is_empty(),
+		"询问期间棋盘悬停有接收方（说明确实连上了）")
+	m.teardown()
+	check(m.board.tile_hovered.get_connections().is_empty(), "拆局后悬停信号断干净")
+	check(m.board.tile_clicked.get_connections().is_empty(), "拆局后点击信号断干净")
+	check(m.bridge == null, "桥也放掉了")
+
 	main_scene.queue_free()
 
 # ---- 手牌抽屉 ----
@@ -808,6 +824,94 @@ func t_hand() -> void:
 	h.sync(0)
 	check(h._cards.is_empty(), "手牌清空")
 	h.queue_free()
+
+# ---- 开场推进的机位插值 ----
+## 这一条盯的是「两端都对、中间不对」——最难查的那类动画错。
+## 直接插相机的 position 和 zoom，起点终点都严丝合缝，唯独途中取景会游走；
+## 而这只有真的盯着动画看才觉得「不好看」，说不清哪儿不对（团队试玩报的就是这个）。
+func t_view_blend() -> void:
+	print("[开场机位插值]")
+	var board := make_board()
+	var cam := Camera2D.new()
+
+	# ① 两端必须和各自的机位严格一致
+	CWView.apply(cam, board, CWView.MENU_ZOOM, CWView.MENU_LOOK_AT, CWView.MENU_ANCHOR)
+	var at_menu := cam.position
+	CWView.apply(cam, board, CWView.GAME_ZOOM, CWView.GAME_LOOK_AT, CWView.GAME_ANCHOR)
+	var at_game := cam.position
+	CWView.blend(cam, board, 0.0)
+	check(cam.position.is_equal_approx(at_menu)
+		and is_equal_approx(cam.zoom.x, CWView.MENU_ZOOM), "k=0 就是菜单机位")
+	CWView.blend(cam, board, 1.0)
+	check(cam.position.is_equal_approx(at_game)
+		and is_equal_approx(cam.zoom.x, CWView.GAME_ZOOM), "k=1 就是对局机位")
+
+	# ② 途中：棋盘中心的横移速度要基本均匀
+	var origin_x: float = CWView.board_origin(board).x
+	var half: float = CWView.screen_size().x / 2.0
+	var xs: Array[float] = []
+	for i in 41:
+		CWView.blend(cam, board, i / 40.0)
+		xs.append(half + (origin_x - cam.position.x) * cam.zoom.x)
+	var peak := 0.0
+	var total := 0.0
+	for i in 40:
+		var d: float = absf(xs[i + 1] - xs[i])
+		peak = maxf(peak, d)
+		total += d
+	var ratio: float = peak / (total / 40.0)
+	check(ratio < 1.4,
+		"棋盘横移基本匀速（最快/平均 = %.2f；直接插 position 会到 1.76）" % ratio)
+
+	# ③ zoom 走几何插值：视觉缩放速度取决于每帧的**倍率**，倍率恒定才匀
+	var first := 0.0
+	var geometric := true
+	for i in 40:
+		CWView.blend(cam, board, i / 40.0)
+		var a: float = cam.zoom.x
+		CWView.blend(cam, board, (i + 1) / 40.0)
+		var r: float = cam.zoom.x / a
+		if i == 0:
+			first = r
+		elif not is_equal_approx(r, first):
+			geometric = false
+	check(geometric, "zoom 是几何插值（每帧倍率恒定 %.4f）" % first)
+
+	cam.free()
+	board.free()
+
+# ---- 开场过场不能被启动它的那一下点击跳掉 ----
+## Control 的 `gui_input` **不会自动吃掉事件**。不显式标记已处理的话，
+## 点「开始对局」那一下会继续传到 main.gd 的 `_unhandled_input`，
+## 在那儿被「过场中点一下跳过」当成跳过指令 —— 于是过场从来没播出来过，
+## 表现是「地图瞬间就位」（团队反馈「开局动画不好看」的真正原因，2026-08-27 查到）。
+##
+## 真实点击那条路 `--headless` 下测不了（没有显示服务，GUI 输入进不了管线），
+## 所以这里测的是那道**时间闸**：过场刚起步的一小段里，点击一律不算跳过。
+## 菜单侧的 `set_input_as_handled()` 才是正解，这道闸是第二层保险 ——
+## 「事件被谁消费」在加新界面时最容易被破坏，而破坏的表现是过场整个消失。
+func t_enter_not_skipped() -> void:
+	print("[开场过场不被自己的点击跳掉]")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var cam: Camera2D = main_scene.get_node("Camera2D")
+	check(is_equal_approx(cam.zoom.x, CWView.MENU_ZOOM), "起手停在菜单机位")
+
+	main_scene._begin()
+	check(main_scene._tween != null and main_scene._tween.is_running(), "过场起步了")
+
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	main_scene._unhandled_input(press)
+	check(main_scene._tween.is_running(),
+		"刚起步时漏下来的那一下点击不算跳过（防的就是启动它的那一下）")
+	check(cam.zoom.x > CWView.GAME_ZOOM, "镜头没有一步跳到对局机位")
+
+	(main_scene.get_node("Match") as CWMatch).teardown()
+	main_scene.queue_free()
+
 
 # ---- 主菜单：三条会被「别处改动」悄悄弄坏的约束 ----
 # ① 装饰细胞踩的那五格，得真的在棋盘上。地图改版时最容易漏掉的就是这种硬写的坐标。
