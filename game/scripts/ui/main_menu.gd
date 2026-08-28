@@ -63,11 +63,33 @@ const HOVER_LIFT := 2.0
 
 const MARKER_X := 147.0   ## 菱形中心的横坐标（原型：菜单项左边 -2.6cqw 处）
 
+## ── 退出确认 ──────────────────────────────────────────────────
+## 暂停菜单里「返回主菜单 / 退出游戏」都要过一道确认（团队 2026-08-27 定），
+## 主菜单的「退出游戏」当时漏了，2026-08-28 补上。
+##
+## 视觉语汇**照抄暂停菜单的确认页**：压暗层 + 264 宽的面板 + 两项，
+## 默认停在「取消」，Esc / 右键 = 取消。连辉光都用 [CWPauseMenu] 的同一份参数 ——
+## 两处确认长得不一样的话，玩家会以为是两种不同的东西。
+##
+## 为什么没抽成公共控件：现在只有两处，而暂停菜单那一套还绑着「暂停整棵树」
+## 和「两页切换」。等第三处确认出现时再抽，那时才看得清共性在哪。
+const CONFIRM_TITLE := "退出游戏？"
+const CONFIRM_ITEMS := ["确定", "取消"]
+const CONFIRM_W := 264
+const CONFIRM_PAD := 16
+const CONFIRM_ITEM_H := 36
+const CONFIRM_TITLE_H := 42
+
 var _labels: Array[Label] = []
 var _rest_y: Array[float] = []   ## 各项的静止纵坐标，悬停上浮后要还原
 var _selected := 0
 var _hovered := -1
 var _leave: Tween   ## 退场动画，快速点击要能一步到位
+var _confirm: Control            ## 退出确认的整块覆盖层；null = 还没建过
+var _confirm_labels: Array[Label] = []
+var _confirm_bars: Array[ColorRect] = []
+var _confirm_glow: Control
+var _confirm_sel := 1            ## 默认停在「取消」，别让回车顺手就退了
 
 @onready var _decor_root: Node2D = $Decor
 @onready var _items: Control = $UI/Screen/Items
@@ -235,12 +257,129 @@ func _on_item_input(event: InputEvent, i: int) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _confirm != null and _confirm.visible:
+		_confirm_input(event)
+		return
 	if event.is_action_pressed("ui_down"):
 		_step_selection(1)
 	elif event.is_action_pressed("ui_up"):
 		_step_selection(-1)
 	elif event.is_action_pressed("ui_accept"):
 		_activate(_selected)
+
+
+func _confirm_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		get_viewport().set_input_as_handled()
+		_close_confirm()
+	elif event.is_action_pressed("ui_down") or event.is_action_pressed("ui_up"):
+		_confirm_sel = 1 - _confirm_sel
+		_repaint_confirm()
+	elif event.is_action_pressed("ui_accept"):
+		get_viewport().set_input_as_handled()
+		_pick_confirm(_confirm_sel)
+
+
+# ── 退出确认 ──────────────────────────────────────────────────
+
+func _open_confirm() -> void:
+	if _confirm == null:
+		_build_confirm()
+	_confirm_sel = 1
+	_confirm.visible = true
+	_repaint_confirm()
+
+
+func _close_confirm() -> void:
+	if _confirm != null:
+		_confirm.visible = false
+
+
+func _pick_confirm(i: int) -> void:
+	if i == 0:
+		get_tree().quit()
+	else:
+		_close_confirm()
+
+
+func _build_confirm() -> void:
+	_confirm = Control.new()
+	_confirm.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_confirm.mouse_filter = Control.MOUSE_FILTER_STOP   ## 盖住底下菜单项的点击
+	_confirm.visible = false
+	_ui.add_child(_confirm)
+
+	var scrim := ColorRect.new()
+	scrim.color = Color(0, 0, 0, 0.55)
+	scrim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_confirm.add_child(scrim)
+
+	var h: float = CONFIRM_PAD + CONFIRM_TITLE_H \
+		+ CONFIRM_ITEMS.size() * CONFIRM_ITEM_H + CONFIRM_PAD
+	var screen := CWView.screen_size()
+	var panel := Control.new()
+	panel.position = Vector2((screen.x - CONFIRM_W) / 2.0, (screen.y - h) / 2.0)
+	panel.size = Vector2(CONFIRM_W, h)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_confirm.add_child(panel)
+
+	var bg := Panel.new()
+	bg.add_theme_stylebox_override("panel", CWStyle.box(0.45, CWStyle.PANEL))
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(bg)
+
+	var title := CWStyle.label(CONFIRM_TITLE, CWStyle.SIZE_BIG, CWStyle.TEXT_HI)
+	title.position = Vector2(CONFIRM_PAD, CONFIRM_PAD)
+	panel.add_child(title)
+
+	## 辉光整套只备一份、跟着选中项走（同 CWPauseMenu）
+	_confirm_glow = Control.new()
+	_confirm_glow.size = Vector2(CONFIRM_W, 28)
+	_confirm_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(_confirm_glow)
+	for layer in CWPauseMenu.GLOW:
+		var g := CWStyle.label("", CWStyle.SIZE_BODY, Color(1, 1, 1, 0))
+		g.add_theme_color_override("font_outline_color", Color(1, 1, 1, layer[1]))
+		g.add_theme_constant_override("outline_size", layer[0])
+		g.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_confirm_glow.add_child(g)
+
+	for i in CONFIRM_ITEMS.size():
+		var y: float = CONFIRM_PAD + CONFIRM_TITLE_H + i * CONFIRM_ITEM_H
+		var mark := ColorRect.new()
+		mark.position = Vector2(CONFIRM_PAD, y + 6)
+		mark.size = Vector2(4, 22)
+		mark.color = Color(CWStyle.IMMUNE, 0.0)
+		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		panel.add_child(mark)
+		_confirm_bars.append(mark)
+		var label := CWStyle.label(CONFIRM_ITEMS[i], CWStyle.SIZE_BODY, CWStyle.TEXT)
+		label.position = Vector2(CONFIRM_PAD + 16, y + 5)
+		label.size = label.get_minimum_size()   ## 命中框贴着字，别把右边空白也算进去
+		label.mouse_filter = Control.MOUSE_FILTER_STOP
+		label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		label.mouse_entered.connect(func() -> void:
+			_confirm_sel = i
+			_repaint_confirm())
+		label.gui_input.connect(func(e: InputEvent) -> void:
+			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+				get_viewport().set_input_as_handled()   ## 理由同 _on_item_input
+				_pick_confirm(i))
+		panel.add_child(label)
+		_confirm_labels.append(label)
+
+
+func _repaint_confirm() -> void:
+	for i in _confirm_labels.size():
+		var on: bool = i == _confirm_sel
+		_confirm_labels[i].add_theme_color_override("font_color",
+			Color.WHITE if on else CWStyle.TEXT)
+		_confirm_bars[i].color = Color(CWStyle.IMMUNE, 1.0 if on else 0.0)
+	_confirm_glow.position = _confirm_labels[_confirm_sel].position
+	for layer in _confirm_glow.get_children():
+		(layer as Label).text = CONFIRM_ITEMS[_confirm_sel]
 
 
 ## 从 from 往 dir 方向找下一个可用项，跳过灰掉的；到头就停在原地，不绕回。
@@ -271,4 +410,4 @@ func _activate(i: int) -> void:
 			print("[主菜单] 开始对局 —— 对局配置与推进过场尚未实现")
 			start_requested.emit()
 		"Quit":
-			get_tree().quit()
+			_open_confirm()

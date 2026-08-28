@@ -53,6 +53,7 @@ func _run_all() -> void:
 	await t_buttons_dim()
 	await t_enter_not_skipped()
 	t_main_menu()
+	await t_quit_confirm()
 	await t_roll_hook()
 	t_dice()
 	print("")
@@ -1913,3 +1914,47 @@ func _string_literals(src: String) -> Array[String]:
 		elif ch == "#":
 			com = true
 	return out
+
+
+# ---- 主菜单的「退出游戏」要过一道确认（团队 2026-08-28）----
+func t_quit_confirm() -> void:
+	print("[退出确认]")
+	var menu: Node2D = load("res://scenes/MainMenu.tscn").instantiate()
+	var root := Node2D.new()
+	get_root().add_child(root)
+	var board := make_board()
+	board.name = "Board"
+	root.add_child(board)
+	var cam := Camera2D.new()
+	cam.name = "Camera2D"
+	root.add_child(cam)
+	root.add_child(menu)
+	await process_frame
+	## 「退出游戏」是最后一项
+	var quit_i: int = menu.ITEMS.size() - 1
+	check(menu.ITEMS[quit_i]["node"] == "Quit", "最后一项是退出游戏")
+	menu._activate(quit_i)
+	await process_frame
+	check(menu._confirm != null and menu._confirm.visible,
+		"点退出弹出确认层，而不是直接退出")
+	check(menu._confirm_sel == 1, "默认停在「取消」，回车不会顺手就退了")
+	check(menu.CONFIRM_ITEMS[1] == "取消", "第二项确实是取消")
+	## 方向键在两项之间来回
+	var down := InputEventAction.new()
+	down.action = "ui_down"
+	down.pressed = true
+	menu._confirm_input(down)
+	check(menu._confirm_sel == 0, "方向键切到「确定」")
+	menu._confirm_input(down)
+	check(menu._confirm_sel == 1, "再按一下切回「取消」")
+	## 辉光跟着选中项走
+	check(menu._confirm_glow.position == menu._confirm_labels[1].position,
+		"辉光跟到了选中项上")
+	## 「取消」关掉确认层，游戏不退
+	menu._pick_confirm(1)
+	check(not menu._confirm.visible, "取消 → 收起确认层")
+	## 确认层收起后，方向键重新归主菜单管
+	menu._selected = 0
+	menu._unhandled_input(down)
+	check(menu._selected != 0, "确认层关掉后方向键回到主菜单（跳到了第 %d 项）" % menu._selected)
+	root.queue_free()
