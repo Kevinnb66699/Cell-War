@@ -111,6 +111,29 @@ func dismiss(seconds: float, drift: float) -> void:
 		_ui.visible = false)
 
 
+## 从对局回到主菜单：把 dismiss() 改过的东西**逐样还原**再淡回来。
+## 装饰细胞是漂散出去又淡掉的，位置和透明度都变了，所以直接重新生成一批 ——
+## 它们本来就是纯装饰，位置由 DECOR 常量决定，重建比记账便宜也不会记漏。
+func appear(seconds: float) -> void:
+	if _leave != null:
+		_leave.kill()
+	visible = true
+	_ui.visible = true
+	for cell in _decor_root.get_children():
+		_decor_root.remove_child(cell)
+		cell.queue_free()
+	_spawn_decor()
+	for i in _labels.size():
+		_labels[i].mouse_filter = Control.MOUSE_FILTER_STOP if ITEMS[i]["enabled"] 			else Control.MOUSE_FILTER_IGNORE
+	set_process_unhandled_input(true)
+	_hovered = -1
+	_selected = 0
+	_repaint()
+	var screen: Control = $UI/Screen
+	screen.modulate.a = 0.0
+	create_tween().tween_property(screen, "modulate:a", 1.0, seconds)
+
+
 ## 过场进行中再点一次 → 立即到位（团队要求，别等做完再补）
 func skip_dismiss() -> void:
 	if _leave != null and _leave.is_running():

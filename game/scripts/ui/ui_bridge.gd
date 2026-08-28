@@ -115,7 +115,7 @@ func _ask_action(req: Dictionary) -> int:
 		var t: Variant = await _prompt(
 			"选择要%s到的组织" % _move_title(cell).substr(0, 2),
 			"高亮 %d 格可达 · 右键或 Esc 取消" % tiles.size(),
-			[{ "title": "取消", "cost": "右键 / Esc" }], ["cancel"], tiles)
+			[{ "title": "取消", "cost": "右键 / Esc" }], ["cancel"], tiles, null, 0)
 		if not (t is String):
 			return t as int
 	return options.size() - 1   ## 走不到；GDScript 需要一个出口
@@ -147,11 +147,12 @@ func _ask_generic(req: Dictionary) -> int:
 ## title 为空 = 技能栏形态（靠右一条）；否则 = 目标选择态（整条横过来，左边带提示）。
 ## end_value 非 null 时，右侧竖条底部的「结束回合」也算这一问的一个答案，
 ## 按下它就返回该值。选目标格时传 null，那个按钮会一起收掉。
+## cancel 指出 buttons 里哪一个是「取消」（右键 / Esc 的快捷方式）；-1 = 不能取消。
 func _prompt(title: String, hint: String, buttons: Array, values: Array,
-		tiles: Dictionary, end_value: Variant = null) -> Variant:
+		tiles: Dictionary, end_value: Variant = null, cancel := -1) -> Variant:
 	_tiles = tiles
 	_repaint_marks()
-	bar.show_bar(title, hint, buttons)
+	bar.show_bar(title, hint, buttons, cancel)
 	var ans := Answer.new()
 	var on_button := func(i: int) -> void: ans.fire(values[i])
 	var on_end := func() -> void: ans.fire(end_value)

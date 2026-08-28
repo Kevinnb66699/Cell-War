@@ -32,6 +32,7 @@ func _run_all() -> void:
 	await t_human_ask()
 	t_match_panel()
 	await t_opening()
+	await t_pause_and_teardown()
 	t_main_menu()
 	await t_roll_hook()
 	t_dice()
@@ -715,6 +716,64 @@ func t_opening() -> void:
 	check(not eats, "菜单退场后不再挡住棋盘的点击")
 	check(not menu.get_node("UI").visible, "菜单的 CanvasLayer 也关掉了（它不跟随父节点）")
 
+	main_scene.queue_free()
+
+# ---- 暂停菜单 / 返回主菜单 ----
+## 返回主菜单最容易漏的是**擦棋盘**：棋盘和相机是和主菜单共用的同一份，
+## 不擦干净的话上一局的癌组织会留在菜单背景里 —— 而这只有真的退回去看一眼才发现。
+## Esc 的归属也在这里钉住：选目标格时它是「取消」，不是「打开菜单」。
+func t_pause_and_teardown() -> void:
+	print("[暂停菜单 / 返回主菜单]")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.get_node("Match")
+	var pm: CWPauseMenu = main_scene.get_node("Match/UI/Pause")
+	var bar: CWActionBar = main_scene.get_node("Match/UI/ActionBar")
+
+	# ① Esc 的归属
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	pm.active = false
+	pm._unhandled_input(esc)
+	check(not pm.visible, "主菜单状态下 Esc 不弹暂停菜单")
+	pm.active = true
+	bar.show_bar("选择要迁移到的组织", "", [{ "title": "取消", "cost": "" }], 0)
+	check(bar.can_cancel(), "目标选择态可以取消")
+	pm._unhandled_input(esc)
+	check(not pm.visible, "选目标格时 Esc 归行动栏的「取消」，不开菜单")
+	bar.clear()
+	pm._unhandled_input(esc)
+	check(pm.visible and pm.get_tree().paused, "非选目标时 Esc 打开菜单并真的暂停")
+	pm._unhandled_input(esc)
+	check(not pm.visible and not pm.get_tree().paused, "再按一次关掉并解除暂停")
+
+	# ② 拆局：棋盘要擦回开局前
+	## 交给 AI 打（不然 start() 会停在「请玩家落子」那一问上，一个细胞都还没有，
+	## 「细胞节点清干净了」就成了一句空话）
+	m.human_players = []
+	m.ai_delay_ms = 0
+	m.start()
+	await process_frame          ## 细胞节点是 _process 里按 game.cells 建的，得让它跑一帧
+	check(m.game.count_tissue(CWData.Tissue.CANCER) > 0, "开局铺了癌组织")
+	check(m.ui.visible and pm.active, "开局后 HUD 出现、暂停菜单启用")
+	var n_cells: int = m._cell_nodes.size()
+	m.teardown()
+	check(m.game == null, "对局已释放")
+	check(m._cell_nodes.is_empty(), "细胞节点清干净（原有 %d 个）" % n_cells)
+	var dirty := 0
+	for c in CWData.all_coords():
+		var tex: String = m.board.map[m.board.axial_to_rc(c)]["instance"].texture.resource_path.get_file()
+		if "cancer" in tex:
+			dirty += 1
+	check(dirty == 0, "棋盘擦回开局前，没有残留的癌性贴图（剩 %d 格）" % dirty)
+	check(not m.ui.visible and not pm.active, "HUD 收起、暂停菜单停用")
+
+	# ③ 拆完还能再开一局（人数可能变，面板要按新人数重建）
+	m.start()
+	check(m.game != null and m.game.count_tissue(CWData.Tissue.CANCER) > 0, "拆完还能再开一局")
+	m.teardown()
 	main_scene.queue_free()
 
 # ---- 主菜单：三条会被「别处改动」悄悄弄坏的约束 ----

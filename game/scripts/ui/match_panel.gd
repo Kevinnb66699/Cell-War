@@ -112,6 +112,19 @@ func refresh(game: CWGame) -> void:
 	_memory.text = "抗原记忆 %d" % game.memory
 
 
+## 回到主菜单时清空：下一局人数可能不同，节点结构要按新人数重建。
+func reset() -> void:
+	_chrome()
+	_end.visible = false
+	for c in get_children():
+		if c == _bg or c == _end:
+			continue
+		remove_child(c)
+		c.queue_free()
+	_rows.clear()
+	_built = 0
+
+
 func show_end_turn(on: bool) -> void:
 	_chrome()
 	_end.visible = on

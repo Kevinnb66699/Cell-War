@@ -19,6 +19,8 @@ signal finished(winner: int)
 @export var camera_path: NodePath = ^"../Camera2D"
 @export var action_bar_path: NodePath = ^"UI/ActionBar"
 @export var panel_path: NodePath = ^"UI/Panel"
+@export var ui_path: NodePath = ^"UI"
+@export var pause_path: NodePath = ^"UI/Pause"
 
 @export var player_count := 4
 ## 哪几个位置由人来打；留空 = 一局可观战的 AI 互搏
@@ -37,6 +39,11 @@ const MARK_SOLID := Color("0000004d")
 ## 开场绽开时每格翻面的那一下白闪
 const FLASH_TIME := 0.22
 const FLASH_ALPHA := 0.7
+
+## 细胞出现/复活时的淡入。团队试玩反馈「显示得太突然」——
+## 淡入 + 稍微放大到位，读起来像「就位」而不是「凭空冒出来」。
+const CELL_POP := 0.32
+const CELL_POP_SCALE := 0.7
 
 ## 细胞贴脚落在格子「顶面中心」再往下 6px，和主菜单的装饰细胞同一套。
 const CELL_FOOT_DY := 6.0
@@ -58,10 +65,15 @@ var bridge: CWUIBridge
 @onready var camera: Camera2D = get_node(camera_path)
 @onready var action_bar: CWActionBar = get_node_or_null(action_bar_path)
 @onready var panel: CWMatchPanel = get_node_or_null(panel_path)
+## 整层 HUD。开局前必须关掉 —— 棋盘和相机是和主菜单共用的同一份，
+## 不关的话主菜单右边会凭空多出一条空竖条（2026-08-27 接上 Main 后出现的）。
+@onready var ui: CanvasLayer = get_node_or_null(ui_path)
+@onready var pause_menu: CWPauseMenu = get_node_or_null(pause_path)
 
 var _dice: CWDice
 var _cells_root: Node2D
 var _cell_nodes: Array[Node2D] = []   ## 下标 = cell["id"]，和 game.cells 一一对应
+var _was_alive: Array[bool] = []      ## 上一帧的存活状态，用来认出「复活」这一下
 var _bloom := {}      ## 开场还没揭开的格子：一律先按健康组织画
 var _opening := false ## 正在演开场；start() 会把它带给桥（桥是 start() 里才建的）
 var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
@@ -75,12 +87,18 @@ func _ready() -> void:
 	## z_index 也能和组织块用同一套画家算法（见 dice.gd 的 place_at）。
 	_dice = CWDice.new()
 	board.add_child(_dice)
+	if ui != null:
+		ui.visible = false
 	if autostart:
 		CWView.apply(camera, board, CWView.GAME_ZOOM, CWView.GAME_LOOK_AT, CWView.GAME_ANCHOR)
 		start()
 
 
 func start() -> void:
+	if ui != null:
+		ui.visible = true
+	if pause_menu != null:
+		pause_menu.active = true
 	game = CWGame.new()
 	game.init(CWData.FACTION_ORDER[player_count],
 		match_seed if match_seed != 0 else int(Time.get_unix_time_from_system()))
@@ -147,11 +165,41 @@ func _run() -> void:
 	finished.emit(winner)
 
 
-## 对局用完必须显式拆，否则 game 与各模块之间的强引用环不会被回收。
-func _exit_tree() -> void:
+## 拆掉当前这一局，把棋盘擦回开局前的样子。
+##
+## 返回主菜单必须走这里：棋盘和相机是**和菜单共用的同一份**，
+## 不擦干净的话上一局的癌组织和细胞会留在菜单背景里。
+func teardown() -> void:
 	if game != null:
 		game.dispose()
 		game = null
+	bridge = null
+	_opening = false
+	for node in _cell_nodes:
+		node.queue_free()
+	_cell_nodes.clear()
+	_was_alive.clear()
+	_bloom.clear()
+	_flash.clear()
+	## 退出游戏时 _exit_tree 也会走到这里，那时棋盘可能已经被释放了
+	if is_instance_valid(board):
+		for c in CWData.all_coords():
+			board.set_tissue(c, CWData.Tissue.HEALTHY, CWData.special_of(c))
+		board.set_marks({})
+	if action_bar != null:
+		action_bar.clear()
+	if panel != null:
+		panel.reset()
+	if ui != null:
+		ui.visible = false
+	if pause_menu != null:
+		pause_menu.active = false
+		pause_menu.close()
+
+
+## 对局用完必须显式拆，否则 game 与各模块之间的强引用环不会被回收。
+func _exit_tree() -> void:
+	teardown()
 
 
 func _process(delta: float) -> void:
@@ -197,6 +245,10 @@ func _sync_cells() -> void:
 		var c: Dictionary = game.cells[i]
 		var node: Node2D = _cell_nodes[i]
 		node.visible = c["alive"]
+		## 死而复活的也要淡入一次 —— 它和刚落子一样是「凭空出现」
+		if c["alive"] and not _was_alive[i]:
+			_pop_in(node)
+		_was_alive[i] = c["alive"]
 		if not c["alive"]:
 			continue
 		var pos: Vector2i = c["pos"]
@@ -217,7 +269,18 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 	else:
 		node = CWCancerBlob.new()
 	_cells_root.add_child(node)
+	_was_alive.append(false)   ## 下一次 _sync_cells 就会认出「刚出现」并淡入
 	return node
+
+
+## 淡入 + 放大到位。只动 modulate 和 scale ——
+## position 每帧都被 _sync_cells 重写，拿它做补间会被当场覆盖掉。
+func _pop_in(node: Node2D) -> void:
+	node.modulate.a = 0.0
+	node.scale = Vector2.ONE * CELL_POP_SCALE
+	var tw := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(node, "modulate:a", 1.0, CELL_POP)
+	tw.parallel().tween_property(node, "scale", Vector2.ONE, CELL_POP)
 
 
 ## 分化会改 itype，所以贴图每帧对一次；offset 把锚点从贴图中心挪到脚底中心。

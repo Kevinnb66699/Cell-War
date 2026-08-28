@@ -16,7 +16,9 @@ extends SceneTree
 ## 动画（骰子、渐入、抽卡）非连拍不可 —— 一次一帧的话，起一次 Godot 要半分钟，
 ## 光是碰运气撞上那零点几秒的动画就能把时间耗光。
 ##
-## 第五个参数是「点击脚本」：`x,y@秒数` 用分号隔开，到点就在那个位置点一下。
+## 第五个参数是「操作脚本」，分号隔开，到点就执行：
+##   `x,y@秒数`        在该位置点一下（先挪过去再按，悬停态才会触发）
+##   `key:动作名@秒数`  按一次输入动作，如 `key:ui_cancel@7.5`（暂停菜单只能靠 Esc 唤出）
 ## 交互态（行动栏、目标选择、悬浮框）不点几下根本到不了，而这些恰恰是最需要
 ## 和设计稿比对的画面。例：`"420,240@1.2;640,500@4.0"`
 
@@ -26,7 +28,7 @@ var _out := "user://shot.png"
 var _scene := "res://scenes/Main.tscn"
 var _mouse := Vector2(-1, -1)
 var _shots: Array = []   ## 还没拍的时间点，升序
-var _clicks: Array = []   ## [{ at:秒, pos:Vector2 }]，按时间顺序
+var _steps: Array = []   ## [{ at:秒, pos 或 key }]，按时间顺序
 var _frames := 0
 var _elapsed := 0.0
 
@@ -49,9 +51,12 @@ func _initialize() -> void:
 	if args.size() > 4 and args[4] != "":
 		for step in args[4].split(";", false):
 			var parts := step.split("@")
-			var xy := parts[0].split(",")
-			_clicks.append({ "at": float(parts[1]) if parts.size() > 1 else 0.0,
-				"pos": Vector2(float(xy[0]), float(xy[1])) })
+			var at: float = float(parts[1]) if parts.size() > 1 else 0.0
+			if parts[0].begins_with("key:"):
+				_steps.append({ "at": at, "key": parts[0].substr(4) })
+			else:
+				var xy := parts[0].split(",")
+				_steps.append({ "at": at, "pos": Vector2(float(xy[0]), float(xy[1])) })
 	root.add_child(load(_scene).instantiate())
 
 
@@ -65,8 +70,8 @@ func _process(delta: float) -> bool:
 		move.position = _mouse
 		move.global_position = _mouse
 		Input.parse_input_event(move)
-	while not _clicks.is_empty() and _elapsed >= _clicks[0]["at"]:
-		_click_at(_clicks.pop_front()["pos"])
+	while not _steps.is_empty() and _elapsed >= _steps[0]["at"]:
+		_do_step(_steps.pop_front())
 	if _frames < WARMUP_FRAMES or _elapsed < _shots[0]:
 		return false
 	var at: float = _shots.pop_front()
@@ -78,6 +83,18 @@ func _process(delta: float) -> bool:
 	print("截图 %dx%d @%.2fs -> %s (err=%d)"
 		% [img.get_width(), img.get_height(), _elapsed, path, err])
 	return _shots.is_empty()
+
+
+func _do_step(step: Dictionary) -> void:
+	if step.has("key"):
+		for pressed in [true, false]:
+			var act := InputEventAction.new()
+			act.action = step["key"]
+			act.pressed = pressed
+			Input.parse_input_event(act)
+		print("  按键 %s @ %.2fs" % [step["key"], _elapsed])
+		return
+	_click_at(step["pos"])
 
 
 ## 先挪过去再按下抬起 —— 只发按下事件的话，悬停态和按钮的 mouse_entered 都不会触发。

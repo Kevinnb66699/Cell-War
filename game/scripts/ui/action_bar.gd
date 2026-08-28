@@ -7,7 +7,7 @@
 ## ② **目标选择态**（带标题）：整条横过来，左边一行提示（20px 标题 + 10px 副标题），
 ##    右边靠右放按钮（通常是「取消」）。
 ##
-## 只有一个出口信号 `chosen(下标)`。取消不另设信号 —— 取消就是最后那个按钮，
+## 只有一个出口信号 `chosen(下标)`。取消不另设信号 —— 取消就是其中某个按钮，
 ## 右键和 Esc 只是它的快捷方式。这样调用方一个 await 就能收全部结果。
 class_name CWActionBar
 extends Control
@@ -26,7 +26,8 @@ const PAD_H := 8
 const BTN_H := 52
 
 var _row: HBoxContainer
-var _hot := -1   ## 鼠标停在第几个按钮上
+var _hot := -1        ## 鼠标停在第几个按钮上
+var _cancel := -1     ## 哪个按钮是「取消」；-1 = 这一问没有取消
 
 
 func _ready() -> void:
@@ -48,8 +49,13 @@ func _row_node() -> HBoxContainer:
 
 ## entries = [{ title, cost }]。title 为空表示技能栏形态，否则是目标选择态。
 ## hint 是标题下面那行 10px 小字，只在目标选择态显示。
-func show_bar(title: String, hint: String, entries: Array) -> void:
+## cancel_index 指出哪个按钮是「取消」，右键与 Esc 是它的快捷方式。
+## **不传就表示这一问不能取消**，那时右键和 Esc 一律不响应 ——
+## 上一版是「一律点最后一个按钮」，于是在「选择分化方向」那种提问里，
+## Esc 会直接替玩家选中最后一个种类。
+func show_bar(title: String, hint: String, entries: Array, cancel_index := -1) -> void:
 	visible = true
+	_cancel = cancel_index
 	_row_node()
 	for c in _row.get_children():
 		_row.remove_child(c)
@@ -79,20 +85,23 @@ func clear() -> void:
 		c.queue_free()
 
 
-## 右键和 Esc 都等于点最后一个按钮 —— 目标选择态里最后一个就是「取消」。
+## 这一问能不能取消。暂停菜单靠它判断 Esc 该给谁：
+## 目标选择态里 Esc 是「取消选目标」，其余时候才是「打开暂停菜单」。
+func can_cancel() -> bool:
+	return visible and _cancel >= 0
+
+
+## 右键和 Esc 都等于点「取消」那个按钮。
 ## 写在这里而不是棋盘里：能不能取消是**行动栏的状态**，棋盘不该知道这件事。
 func _unhandled_input(event: InputEvent) -> void:
-	if not visible or _row == null or _row.get_child_count() == 0:
+	if not can_cancel():
 		return
-	var quit: bool = event.is_action_pressed("ui_cancel") \
-		or (event is InputEventMouseButton and event.pressed
-			and event.button_index == MOUSE_BUTTON_RIGHT)
-	if not quit:
+	var by_key: bool = event.is_action_pressed("ui_cancel")
+	var by_rmb: bool = event is InputEventMouseButton and event.pressed 		and event.button_index == MOUSE_BUTTON_RIGHT
+	if not (by_key or by_rmb):
 		return
-	var last := _row.get_child_count() - 1
-	if _row.get_child(last) is PanelContainer:
-		get_viewport().set_input_as_handled()
-		chosen.emit(_button_index(last))
+	get_viewport().set_input_as_handled()
+	chosen.emit(_cancel)
 
 
 func _make_prompt(title: String, hint: String) -> Control:
