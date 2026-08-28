@@ -10,6 +10,7 @@
 [ext_resource type="Script" path="res://scripts/ui/pause_menu.gd" id="5_pause"]
 [ext_resource type="Script" path="res://scripts/ui/hand.gd" id="6_hand"]
 [ext_resource type="Script" path="res://scripts/ui/toast.gd" id="7_toast"]
+[ext_resource type="Script" path="res://scripts/ui/settle_screen.gd" id="8_settle"]
 
 [node name="Match" type="Node2D"]
 script = ExtResource("1_match")
@@ -47,6 +48,13 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
 script = ExtResource("7_toast")
+
+[node name="Settle" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("8_settle")
 
 [node name="Pause" type="Control" parent="UI"]
 process_mode = 3

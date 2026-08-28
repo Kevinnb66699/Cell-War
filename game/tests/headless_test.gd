@@ -40,6 +40,7 @@ func _run_all() -> void:
 	await t_ui_bridge()
 	await t_human_ask()
 	t_match_panel()
+	await t_settle_screen()
 	await t_opening()
 	await t_pause_and_teardown()
 	t_hand()
@@ -966,6 +967,122 @@ func t_match_panel() -> void:
 	check(ev, "世界事件回合表：3 / 6 / 10 / 15 之后每 5 个")
 
 	p.queue_free()
+
+# ---- 结算屏 ----
+## 团队 2026-08-28 从四个方向里选的「丁」。这里盯四件事：
+##   ① 演出**能自己演完** —— tween 里任何一段 delay 算错，内容会永远停在透明，
+##      而这种 bug 在跑一局才看得到的界面上极难发现
+##   ② 中途跳过要真的跳到底（团队定的规矩：过场随时可跳）
+##   ③ 屏上的数字确实来自引擎，不是写死的
+##   ④ **中途放弃不弹结算屏** —— aborted 时 run_game 照样返回，但 winner 仍是 -1
+func t_settle_screen() -> void:
+	print("[结算屏]")
+	## 造一个「已经分出胜负」的局面。不必真跑完一局 ——
+	## 结算屏只读 winner / win_kind / round_no / tune 和三个数格子的函数。
+	var g := make_game(4, 7)
+	g.setup.build_board()
+	g.winner = CWData.Faction.CANCER
+	g.win_kind = "cancer_weighted"
+	g.round_no = 12
+	## 手摆一个像样的终局：光 build_board() 是 127 格全健康，
+	## 加权 0、刻度落在条的最右端，好几条断言等于没测。
+	var coords := CWData.all_coords()
+	for k in 70:
+		g.tiles[coords[k]]["tissue"] = CWData.Tissue.CANCER
+	for k in range(70, 75):
+		g.tiles[coords[k]]["tissue"] = CWData.Tissue.SOLID
+	for k in range(75, 78):
+		g.tiles[coords[k]]["necrosis"] = 2
+	var healthy: int = g.count_tissue(CWData.Tissue.HEALTHY)
+	var weighted: int = g.count_tissue(CWData.Tissue.CANCER) 		+ 2 * g.count_tissue(CWData.Tissue.SOLID)
+
+	var s := CWSettleScreen.new()
+	root.add_child(s)
+	await process_frame
+	check(not s.visible, "没开局时结算屏是收着的")
+
+	s.show_result(g)
+	check(s.visible and s._playing, "开演")
+	check(s._clip.size.y < 1.0, "第一帧横幅高度还是 0（从中线拉开）")
+	check(s._rows[0].modulate.a < 0.01, "第一帧内容还是透明的")
+	check(s._stat_num[0].text == "0", "四个数从 0 滚起")
+
+	## ② 跳过：一下到底
+	s.skip()
+	check(not s._playing, "跳过后演出结束")
+	check(is_equal_approx(s._clip.size.y, CWSettleScreen.BANNER_H),
+		"跳过后横幅到位（%d）" % int(s._clip.size.y))
+	var all_shown := true
+	for row in s._rows:
+		if not is_equal_approx(row.modulate.a, 1.0) 				or not is_equal_approx(row.position.y, row.get_meta("y")):
+			all_shown = false
+	check(all_shown, "跳过后四块内容都到位、都不透明")
+
+	## ③ 数字来自引擎
+	check(s._stat_num[0].text == str(healthy), "健康格数 %s 来自 count_tissue" % healthy)
+	check(s._stat_num[3].text == str(g.count_necrosis()),
+		"坏死格数走的是 count_necrosis（它不是第四种组织）")
+	check(s._w_num.text == str(weighted), "加权 %d = 癌 + 2×固化" % weighted)
+	check(s._reason.text.contains(">="), "胜因用 ASCII 的 >=（字体里没有 U+2265）")
+	check(s._meta.text.contains("第 12 回合"), "回合数来自引擎")
+
+	## 胜利线刻度：加权超过阈值时条填满，刻度按比例落在条内
+	check(s._bar_tick.position.x > 0.0 and s._bar_tick.position.x <= CWSettleScreen.BAR_W,
+		"胜利线刻度落在条上（x=%d / %d）" % [int(s._bar_tick.position.x), CWSettleScreen.BAR_W])
+
+	## 四种结局各有各的标签，判定那两种不能写得像击溃
+	var chips := true
+	for kind in ["immune_clear", "cancer_weighted", "limit_immune", "limit_cancer"]:
+		if not CWSettleScreen.KIND_CHIP.has(kind):
+			chips = false
+	check(chips, "四种 win_kind 都有结局标签")
+	check(CWSettleScreen.KIND_CHIP["limit_immune"] == "限时判定"
+		and CWSettleScreen.KIND_CHIP["immune_clear"] == "清场",
+		"限时判定和清场分开说")
+
+	## 按钮：默认停在「再来一局」，左右键切换，两个出口都通
+	check(s._btns.size() == 2, "两个按钮")
+	check(s._sel == 1, "默认停在「再来一局」")
+	var got := []
+	s.chose.connect(func(a: String) -> void: got.append(a))
+	s._activate(0)
+	s._activate(1)
+	check(got == ["menu", "restart"], "两个出口分别是 menu / restart（%s）" % str(got))
+
+	## ① 不跳过也能自己演完
+	s.show_result(g)
+	check(s._playing, "重开一次演出")
+	await create_timer(2.0).timeout
+	check(not s._playing, "不跳过也能自己演完（没有卡在半路）")
+	check(s._stat_num[0].text == str(healthy), "自己演完后数字也到位")
+
+	## ④ 中途放弃不该弹结算屏
+	s.reset()
+	check(not s.visible, "reset 之后收起来")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	main_scene._on_match_finished(-1)
+	check(not main_scene.settle.visible,
+		"winner = -1（中途放弃）不弹结算屏 —— 那条路是返场，不是结算")
+
+	## 「再来一局」要真的能开出新局。这条路串了 fade_out → 等淡完 → teardown →
+	## 重新开局，中间全是 await —— **断一环的表现是永远停在黑屏上**，
+	## 而且只有玩到分出胜负才碰得到，肉眼几乎不可能发现。
+	main_scene.match_node.start()
+	await process_frame
+	var first: CWGame = main_scene.match_node.game
+	main_scene._on_settle_chose("restart")
+	await create_timer(2.4).timeout   ## T_RESTART 0.85 + 绽开 0.75 + 余量
+	check(main_scene.match_node.game != null and main_scene.match_node.game != first,
+		"再来一局：开出了新的一局")
+	check(not main_scene.settle.visible, "新局开始时结算屏收起来了")
+	check(main_scene.pause.active, "新局里暂停菜单又能用了")
+
+	main_scene.queue_free()
+	s.queue_free()
+	g.dispose()
+
 
 # ---- 开场三拍 ----
 ## 盯的是开发日志记过的那个坑：相机和绽开是**前后相接的两段计时动画**，

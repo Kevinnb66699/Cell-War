@@ -362,6 +362,17 @@ func count_tissue(tissue: int) -> int:
 	return n
 
 
+## 坏死格数。**坏死不是第四种组织** —— Tissue 只有 健康/癌/固化 三种，
+## 坏死是叠在格子上的倒计时（tile["necrosis"]），所以不能用 count_tissue 数，
+## 结算屏上也只能写成叠加项、不能和前三个并列去凑 127。
+func count_necrosis() -> int:
+	var n := 0
+	for t in tiles.values():
+		if t["necrosis"] > 0:
+			n += 1
+	return n
+
+
 ## 组织连通块：返回 Array[Array[Vector2i]]，pred 决定哪些格属于同类
 func blocks_of(pred: Callable) -> Array:
 	var seen := {}

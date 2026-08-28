@@ -23,6 +23,7 @@ signal finished(winner: int)
 @export var pause_path: NodePath = ^"UI/Pause"
 @export var hand_path: NodePath = ^"UI/Hand"
 @export var toast_path: NodePath = ^"UI/Toast"
+@export var settle_path: NodePath = ^"UI/Settle"
 
 @export var player_count := 4
 ## 哪几个位置由人来打；留空 = 一局可观战的 AI 互搏
@@ -73,6 +74,9 @@ var bridge: CWUIBridge
 @onready var pause_menu: CWPauseMenu = get_node_or_null(pause_path)
 @onready var hand: CWHand = get_node_or_null(hand_path)
 @onready var toast: CWToast = get_node_or_null(toast_path)
+## 结算屏。谁来开它、开完选了什么由 main.gd 管（那是场景流转，不是对局呈现），
+## 这里只负责在拆局时把它擦掉。
+@onready var settle: CWSettleScreen = get_node_or_null(settle_path)
 
 var _dice: CWDice
 var _cells_root: Node2D
@@ -234,6 +238,8 @@ func teardown() -> void:
 		hand.clear()
 	if toast != null:
 		toast.hide_now()
+	if settle != null:
+		settle.reset()
 	## 退出游戏时 _exit_tree 也会走到这里，那时棋盘可能已经被释放了
 	if is_instance_valid(board):
 		for c in CWData.all_coords():

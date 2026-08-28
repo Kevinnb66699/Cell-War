@@ -19,6 +19,10 @@ const DECOR_DRIFT := 26.0   ## 漂散距离（棋盘像素）
 const T_BACK := 1.55        ## 棋盘 → 主菜单。团队定了**和进场对称**
                             ##（本来按 0.75s 做的：进场是揭幕值得给分量，返回该干脆）
 const T_MENU_IN := 0.32     ## 相机回位之后菜单再淡进来。两段刻意**不重叠**
+## 再来一局的淡出。比返回主菜单（T_BACK）短 —— **镜头不动**：
+## 我们已经在对局机位上了，退回菜单再推进来纯属多此一举，
+## 开场三拍只在「从菜单进入对局」时才演。
+const T_RESTART := 0.85
 ## 过场刚起步的这一小段里不接受「点一下跳过」。
 ## 防的是**启动过场的那一下点击自己把它跳掉** —— Control 的 gui_input 不会自动
 ## 吃掉事件，那一下会一路漏到这里来。菜单那边已经标记了已处理，这里再加一道闸，
@@ -31,6 +35,7 @@ const SKIP_GRACE_MS := 250
 @onready var menu: Node2D = $MainMenu
 @onready var match_node: CWMatch = $Match
 @onready var pause: CWPauseMenu = $Match/UI/Pause
+@onready var settle: CWSettleScreen = $Match/UI/Settle
 
 var _tween: Tween
 var _entering := false
@@ -41,6 +46,8 @@ func _ready() -> void:
 	menu.start_requested.connect(_begin)
 	pause.chose.connect(_on_pause_chose)
 	pause.action_bar = match_node.action_bar
+	match_node.finished.connect(_on_match_finished)
+	settle.chose.connect(_on_settle_chose)
 
 
 func _begin() -> void:
@@ -57,6 +64,41 @@ func _begin() -> void:
 	## 7 格癌组织一次全出、绽开整个被跳过（开发日志 2026-08-27）。
 	await match_node.start_with_bloom(T_BLOOM)
 	_entering = false    ## 三拍走完才算「不在过场中」——忘了置回，返回主菜单会永远进不去
+
+
+## 对局跑完了。**中途放弃也会走到这里**（CWGame.run_game 在 aborted 时同样返回），
+## 但那时 winner 仍是 -1 —— 那条路是「返回主菜单」自己在演返场，不该再弹结算屏。
+func _on_match_finished(winner: int) -> void:
+	if winner < 0:
+		return
+	## 对局已结束，Esc 归结算屏（「返回主菜单」），不该再唤出暂停菜单
+	pause.active = false
+	## 上一条提示还飘着的话，结算屏一出来就显得脏（实测截到过「突变：无事发生」）
+	if match_node.toast != null:
+		match_node.toast.hide_now()
+	settle.show_result(match_node.game)
+
+
+func _on_settle_chose(action: String) -> void:
+	match action:
+		"restart":
+			_restart()
+		"menu":
+			_back_to_menu()
+
+
+## 再来一局：同样人数、新种子。棋盘先淡回健康，再原地开新局 ——
+## 和返回主菜单共用 fade_out/teardown 那一套，区别只是**镜头不动、菜单不出来**。
+func _restart() -> void:
+	if _entering:
+		return
+	_entering = true
+	_started_ms = Time.get_ticks_msec()
+	match_node.fade_out(T_RESTART)
+	await get_tree().create_timer(T_RESTART).timeout
+	match_node.teardown()          ## 顺带把结算屏和暂停菜单擦回原样
+	await match_node.start_with_bloom(T_BLOOM)
+	_entering = false
 
 
 func _on_pause_chose(action: String) -> void:
