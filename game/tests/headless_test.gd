@@ -29,6 +29,7 @@ func _run_all() -> void:
 	t_board_view()
 	t_hex_pick()
 	await t_ui_bridge()
+	await t_human_ask()
 	t_main_menu()
 	await t_roll_hook()
 	t_dice()
@@ -500,6 +501,132 @@ func t_ui_bridge() -> void:
 	g.dispose()
 	board.free()
 	stub.free()
+
+# ---- 人类询问界面 ----
+## 记录一整局里实际出现过的 act，用来核对行动栏有没有漏登记技能名。
+class ActRecorder:
+	extends CWHeuristicBridge
+	var seen := {}
+	func ask(req: Dictionary) -> int:
+		if req["kind"] == "action":
+			for o in req["options"]:
+				seen[o["data"]["act"]] = true
+		return await super.ask(req)
+
+
+func _buttons(bar: CWActionBar) -> int:
+	var n := 0
+	for c in bar._row.get_children():
+		if c is PanelContainer:
+			n += 1
+	return n
+
+
+## 用合成事件把「点技能 → 点格子 / 取消」整条路走一遍。
+## 这条路上最容易错的是**下标映射**：引擎给的每个相邻格是一个独立选项，
+## 而行动栏把它们合成一个「迁移」按钮，选完格子还要还原成对应的那个下标。
+## 错了不会报错，只会走到别的格子去——所以这里逐步核对返回的下标。
+func t_human_ask() -> void:
+	print("[人类询问界面]")
+	var board := make_board()
+	root.add_child(board)
+	var bar := CWActionBar.new()
+	root.add_child(bar)
+
+	var g := CWGame.new()
+	g.init(CWData.FACTION_ORDER[2], 11)
+	var ai := CWHeuristicBridge.new()
+	ai.game = g
+	for pid in g.order:
+		g.bridges[pid] = ai
+	await g.setup.run()          ## 先把细胞摆好，后面才有 cell_of()
+
+	var b := CWUIBridge.new()
+	b.game = g
+	b.board = board
+	b.bar = bar
+	b.human_pids = [0]
+	for pid in g.order:
+		g.bridges[pid] = b
+
+	# ① 纯棋盘点选（setup_place / revive / remodel_target 都是这一类）
+	var r1 := [-99]
+	var req := { "kind": "setup_place", "pid": 0, "prompt": "选位置", "options": [
+		{ "label": "a", "data": { "to": Vector2i(1, 0) } },
+		{ "label": "b", "data": { "to": Vector2i(2, 0) } },
+		{ "label": "c", "data": { "to": Vector2i(3, 0) } }] }
+	var run1 := func() -> void: r1[0] = await b.ask(req)
+	run1.call()
+	check(b.marks.size() == 3, "三个候选格都高亮了")
+	check(bar.visible, "提示栏出现")
+	board.tile_clicked.emit(Vector2i(9, 9))   ## 不在候选里
+	check(r1[0] == -99, "点非候选格无效")
+	board.tile_clicked.emit(Vector2i(2, 0))
+	await process_frame
+	check(r1[0] == 1, "点第二格 → 返回第二个选项")
+	check(b.marks.is_empty(), "答完后高亮清空")
+	check(not bar.visible, "答完后提示栏收起")
+
+	# ② 行动栏两段式：迁移合成一个按钮，点了才选格子
+	var areq := { "kind": "action", "pid": 0, "prompt": "选择行动", "options": [
+		{ "label": "", "data": { "act": "move", "to": Vector2i(1, 0), "cost": 5 } },
+		{ "label": "", "data": { "act": "move", "to": Vector2i(0, 1), "cost": 10 } },
+		{ "label": "", "data": { "act": "draw" } },
+		{ "label": "", "data": { "act": "end" } }] }
+	var r2 := [-99]
+	var run2 := func() -> void: r2[0] = await b.ask(areq)
+	run2.call()
+	check(_buttons(bar) == 3, "两个迁移选项合成一个按钮（迁移/基因表达/结束回合）")
+	check(b.marks.is_empty(), "按钮栏阶段不高亮格子")
+	bar.chosen.emit(0)                        ## 点「迁移」
+	await process_frame
+	check(b.marks.size() == 2, "点迁移后高亮 2 格可达")
+	board.tile_clicked.emit(Vector2i(0, 1))
+	await process_frame
+	check(r2[0] == 1, "选中的格子还原成了对应的那个选项下标")
+
+	# ③ 取消要能退回按钮栏，而不是把这一问答掉
+	var r3 := [-99]
+	var run3 := func() -> void: r3[0] = await b.ask(areq)
+	run3.call()
+	bar.chosen.emit(0)                        ## 迁移
+	await process_frame
+	bar.chosen.emit(0)                        ## 目标选择态里第 0 个按钮就是「取消」
+	await process_frame
+	check(r3[0] == -99 and _buttons(bar) == 3, "取消后退回按钮栏，这一问还没答")
+	bar.chosen.emit(2)                        ## 结束回合
+	await process_frame
+	check(r3[0] == 3, "结束回合映射到最后一个选项")
+
+	# ④ 非人类玩家不该弹界面
+	var r4 := [-99]
+	var run4 := func() -> void: r4[0] = await b.ask({ "kind": "confirm", "tag": "lyse_purge",
+		"pid": 1, "prompt": "", "options": [{ "label": "净化", "data": {} },
+		{ "label": "暂不", "data": {} }] })
+	run4.call()
+	await process_frame
+	check(r4[0] == 0 and not bar.visible, "轮到 AI 时不弹界面，直接由 AI 作答")
+
+	# ⑤ 新增主动技能却忘了在行动栏登记 → 按钮会显示成 act 的英文名。
+	#    跑一整局把实际出现过的 act 收齐，逐个核对。
+	var g2 := CWGame.new()
+	g2.init(CWData.FACTION_ORDER[4], 20260827)
+	var rec := ActRecorder.new()
+	rec.game = g2
+	for pid in g2.order:
+		g2.bridges[pid] = rec
+	await g2.run_game()
+	var missing: PackedStringArray = []
+	for act in rec.seen:
+		if not CWUIBridge.ACT_TITLE.has(act):
+			missing.append(act)
+	check(missing.is_empty(), "一局里出现的 %d 种行动在行动栏都有名字%s"
+		% [rec.seen.size(), "" if missing.is_empty() else "（缺 %s）" % ", ".join(missing)])
+
+	g.dispose()
+	g2.dispose()
+	board.queue_free()
+	bar.queue_free()
 
 # ---- 主菜单：三条会被「别处改动」悄悄弄坏的约束 ----
 # ① 装饰细胞踩的那五格，得真的在棋盘上。地图改版时最容易漏掉的就是这种硬写的坐标。

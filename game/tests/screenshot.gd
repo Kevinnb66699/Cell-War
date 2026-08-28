@@ -5,12 +5,17 @@ extends SceneTree
 ## 光看代码看不出对没对上，得把图摆在一起看。所以不并进 headless_test.gd。
 ##
 ## **不能加 --headless**，需要真的渲染：
-##   godot --path game --script res://tests/screenshot.gd -- <输出路径.png> [场景路径] [鼠标x,y] [等待秒数]
+##   godot --path game --script res://tests/screenshot.gd --
+##       <输出路径.png> [场景路径] [鼠标x,y] [等待秒数] [点击脚本]
 ##
 ## 第三个参数会先把鼠标挪过去再截图 —— 悬停态也是要跟设计稿对的，
 ## 没有它就只能截到静止态；不需要就填 -1,-1。
 ## 第四个参数是截图前先让场景自己跑多少秒，用来截对局进行中的画面
 ## （对局是异步跑的，只等那几帧固化只能截到开局）。
+##
+## 第五个参数是「点击脚本」：`x,y@秒数` 用分号隔开，到点就在那个位置点一下。
+## 交互态（行动栏、目标选择、悬浮框）不点几下根本到不了，而这些恰恰是最需要
+## 和设计稿比对的画面。例：`"420,240@1.2;640,500@4.0"`
 
 const WARMUP_FRAMES := 10   ## 等字体光栅化、贴图上传、_ready() 里的布局都落定
 
@@ -18,6 +23,7 @@ var _out := "user://shot.png"
 var _scene := "res://scenes/Main.tscn"
 var _mouse := Vector2(-1, -1)
 var _wait := 0.0
+var _clicks: Array = []   ## [{ at:秒, pos:Vector2 }]，按时间顺序
 var _frames := 0
 var _elapsed := 0.0
 
@@ -33,6 +39,12 @@ func _initialize() -> void:
 		_mouse = Vector2(float(xy[0]), float(xy[1]))
 	if args.size() > 3:
 		_wait = float(args[3])
+	if args.size() > 4 and args[4] != "":
+		for step in args[4].split(";", false):
+			var parts := step.split("@")
+			var xy := parts[0].split(",")
+			_clicks.append({ "at": float(parts[1]) if parts.size() > 1 else 0.0,
+				"pos": Vector2(float(xy[0]), float(xy[1])) })
 	root.add_child(load(_scene).instantiate())
 
 
@@ -46,9 +58,27 @@ func _process(delta: float) -> bool:
 		move.position = _mouse
 		move.global_position = _mouse
 		Input.parse_input_event(move)
-	if _frames < WARMUP_FRAMES or _elapsed < _wait:
+	while not _clicks.is_empty() and _elapsed >= _clicks[0]["at"]:
+		_click_at(_clicks.pop_front()["pos"])
+	if _frames < WARMUP_FRAMES or _elapsed < _wait or not _clicks.is_empty():
 		return false
 	var img := root.get_texture().get_image()
 	var err := img.save_png(_out)
 	print("截图 %dx%d -> %s (err=%d)" % [img.get_width(), img.get_height(), _out, err])
 	return true
+
+
+## 先挪过去再按下抬起 —— 只发按下事件的话，悬停态和按钮的 mouse_entered 都不会触发。
+func _click_at(pos: Vector2) -> void:
+	var move := InputEventMouseMotion.new()
+	move.position = pos
+	move.global_position = pos
+	Input.parse_input_event(move)
+	for pressed in [true, false]:
+		var click := InputEventMouseButton.new()
+		click.button_index = MOUSE_BUTTON_LEFT
+		click.pressed = pressed
+		click.position = pos
+		click.global_position = pos
+		Input.parse_input_event(click)
+	print("  点击 %s @ %.2fs" % [pos, _elapsed])

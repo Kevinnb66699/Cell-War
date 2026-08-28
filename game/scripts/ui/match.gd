@@ -15,6 +15,7 @@ signal finished(winner: int)
 
 @export var board_path: NodePath = ^"Board"
 @export var camera_path: NodePath = ^"Camera2D"
+@export var action_bar_path: NodePath = ^"UI/ActionBar"
 
 @export var player_count := 4
 ## 哪几个位置由人来打；留空 = 一局可观战的 AI 互搏
@@ -46,6 +47,7 @@ var bridge: CWUIBridge
 
 @onready var board: Node2D = get_node(board_path)
 @onready var camera: Camera2D = get_node(camera_path)
+@onready var action_bar: CWActionBar = get_node_or_null(action_bar_path)
 
 var _dice: CWDice
 var _cells_root: Node2D
@@ -85,6 +87,7 @@ func start() -> void:
 	bridge.game = game
 	bridge.board = board
 	bridge.dice = _dice
+	bridge.bar = action_bar
 	bridge.human_pids = human_players
 	bridge.delay_ms = ai_delay_ms
 	bridge.delay_node = self

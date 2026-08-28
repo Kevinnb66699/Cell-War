@@ -72,6 +72,35 @@ func hex_at(p: Vector2) -> Vector2i:
 	return best
 
 
+## ── 点选输入 ────────────────────────────────────────────────────
+## 「鼠标在哪一格」只有渲染层答得上来（hex_at 和格子的像素位置都在这儿），
+## 所以输入落在这里，而不是让上层自己反算一遍投影。
+## 棋盘只报「点了哪一格 / 停在哪一格」——**这一格能不能选、选了做什么，
+## 全部由 CWUIBridge 决定**，棋盘不掺和规则。
+signal tile_clicked(coord: Vector2i)
+signal tile_hovered(coord: Vector2i)   ## 移出棋盘时给 NO_TILE
+
+var hovered := NO_TILE
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not (event is InputEventMouse):
+		return
+	## 坐标一律取事件自带的，别去问 get_global_mouse_position()——
+	## 那读的是**真实光标**，模拟输入（截图工具、自动化测试）喂进来的位置它看不见。
+	## make_input_local() 顺带把相机与画布变换也算进去了。
+	var at: Vector2 = (make_input_local(event) as InputEventMouse).position
+	if event is InputEventMouseMotion:
+		var over := hex_at(at)
+		if over != hovered:
+			hovered = over
+			tile_hovered.emit(over)
+	elif event is InputEventMouseButton and event.pressed 			and event.button_index == MOUSE_BUTTON_LEFT:
+		var hit := hex_at(at)
+		if hit != NO_TILE:
+			tile_clicked.emit(hit)
+
+
 ## ── 高亮层 ──────────────────────────────────────────────────────
 ## 高亮 = 在格子上叠一张同贴图的纯色剪影，alpha 即混合比例。
 ## 比例和颜色是从设计稿 board_pick.png 逐像素反解出来的：改动过的每个像素
