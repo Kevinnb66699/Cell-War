@@ -23,11 +23,15 @@ func draw(cell: Dictionary, source: String) -> void:
 	var card := pick(cell)
 	if card == "":
 		game.log_msg("　%s 的卡池已无合法卡牌，抽卡落空" % game.cell_name(cell))
+		game.announce("抽卡落空", cell["pos"])
 		return
 	var kind: int = CWCardData.CARDS[card]["kind"]
 	if kind == CWCardData.Kind.EVENT:
 		## 事件卡不进手牌：立即结算并弃置（CWCardFx）。**别偷偷把它塞进手牌**，
 		## 那会让手牌上限和界面都对不上规则。
+		## 界面上必须喊一嗓子——不进手牌就没有飞卡动画，不喊的话玩家只看到
+		## 「花了钱、没拿到卡」（2026-08-29 试玩第二轮：Kevin 被这个无声结算迷惑）
+		game.announce("事件【%s】立即结算" % card, cell["pos"])
 		game.log_msg("　%s 经由「%s」抽到【事件】%s（立即结算并弃置）" % [
 			game.cell_name(cell), source, card])
 		if not game.card_fx.resolve_event(cell, card):
