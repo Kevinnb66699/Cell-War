@@ -6,14 +6,16 @@
 ## 修饰器容器 = game.events["active"]，条目 {name, left, stacks, data}：
 ##   - left   还能存活的世界回合数（含本回合）。回合末 −1，归零移除。
 ##            「本回合」类事件也占条目（left=1），查询口径统一。
-##   - stacks 叠加层数。正常 1；【双重触发】使下一个事件加倍：可叠事件 stacks=2，
-##            纯开关类叠不出第二份 → left 改 3（定案 W7，可叠清单见 STACKABLE）。
+##   - stacks 叠加层数。正常 1；【双重触发】加倍下一个事件时按**三档**（定案 #49 修订版）：
+##            持续·数量类 stacks=2（强度×2）；持续·开关类 left=4（一份强度接力 2+2）；
+##            本回合类 left=2（连续两个回合各完整生效一遍，见 on_round_start 的重演）。
 ##   - data   事件私有簿记（紊乱=原位 / 营养输送=已领 / 迁移激活=已用），
 ##            键一律用 cell["id"]，随快照深拷贝、进 state_hash。
 ##
 ## 各结算点读事件一律走 game.event_stacks(名字)。**卡牌的修饰效果（对照 5.1 #26）
 ## 将来也往 active 里塞条目即可复用全部挂接点** —— 这是先做世界事件的原因。
-## 当前世界事件之间永不同场（触发间隔 ≥3 > 最长持续 3），叠加语义是给 #26 预留的。
+## 事件可以共存：第 3 回合起手、被【双重触发】拉到 4 回合的事件会撞上第 6 回合的
+## 新事件——容器是列表、各结算点独立查询，共存与叠加天然支持（#26 的卡牌修饰同理）。
 ##
 ## 所有事件都无需玩家决策：整个模块同步结算，不碰流程状态机。
 class_name CWWorldFx
@@ -36,18 +38,24 @@ const DURATION := {
 }
 
 ## 【双重触发】下「可叠两次」的持续事件（数值类，效果按 stacks 倍乘/倍发）。
-## 细胞毒/免疫伪装/迁移激活是纯开关，叠两次无第二份效果 → 改为持续 3 回合（定案 W7）。
+## 细胞毒/免疫伪装/迁移激活是纯开关，叠两次开不出第二份 → 一份强度接力持续 4 回合。
 const STACKABLE := {
 	"营养输送": true, "异常增殖": true, "代谢加速": true, "抗原变异": true,
 	"抗原暴露": true, "基质阻隔": true, "信号放大": true,
 }
 
 
-## 每个世界回合开头都调（不限触发回合）：清理按回合刷新的簿记
+## 每个世界回合开头都调（不限触发回合）：清理按回合刷新的簿记，
+## 并让被【双重触发】加倍的本回合类事件在第二个回合完整重演一遍
 func on_round_start() -> void:
 	for e in game.events["active"]:
 		if e["name"] == "迁移激活":
 			e["data"].clear()   ## 「回合开始时，首次移动费用为 0」——每回合重置
+		elif not DURATION.has(e["name"]):
+			## 本回合类事件只有被【双重触发】加倍（left=2）才能活过回合末——
+			## 开关半句继续挂着，失去/弃牌/清空/传送这类一次性部分再来一遍
+			game.log_msg("【双重触发】【%s】第二回合再次生效" % e["name"])
+			_resolve(e)
 
 
 ## 触发回合：抽一个事件并结算。由 CWWorld.round_start 调用，位于特殊组织产出之前。
@@ -61,12 +69,15 @@ func trigger() -> void:
 	var left: int = 2 if DURATION.has(name) else 1
 	if game.events["double_next"]:
 		game.events["double_next"] = false
-		if DURATION.has(name) and not STACKABLE.has(name):
-			left = 3
-			game.log_msg("【双重触发】【%s】无法叠加 → 改为持续 3 回合" % name)
-		else:
+		if not DURATION.has(name):
+			left = 2   ## 本回合类：连续两个回合各完整生效一遍
+			game.log_msg("【双重触发】【%s】连续两个回合各完整生效一遍" % name)
+		elif STACKABLE.has(name):
 			stacks = 2
-			game.log_msg("【双重触发】【%s】触发两次" % name)
+			game.log_msg("【双重触发】【%s】两份同时生效（数值翻倍）" % name)
+		else:
+			left = 4   ## 开关类：一份强度接力 2+2 回合
+			game.log_msg("【双重触发】【%s】改为持续 4 回合" % name)
 	var entry := { "name": name, "left": left, "stacks": stacks, "data": {} }
 	## 【双重触发】的效果全在 double_next 标记里，挂进 active 反而会在回合末
 	## 打出一句误导人的「效果结束」——它不挂，其余事件（含「本回合」类）都挂
@@ -77,16 +88,18 @@ func trigger() -> void:
 	_resolve(entry)
 
 
-## 回合末：先做到期事件的收尾（紊乱返回），再倒计时并移除
+## 回合末：紊乱先做本回合的返回（每个回合都是一个完整的传送-返回周期），
+## 然后统一倒计时并移除到期事件
 func round_end() -> void:
 	var kept: Array = []
 	for e in game.events["active"]:
+		if e["name"] == "紊乱":
+			_chaos_return(e)
+			e["data"].clear()   ## 下一回合（若被加倍）重新记原位
 		e["left"] -= 1
 		if e["left"] > 0:
 			kept.append(e)
 			continue
-		if e["name"] == "紊乱":
-			_chaos_return(e)
 		game.log_msg("【世界事件】【%s】效果结束" % e["name"])
 	game.events["active"] = kept
 
@@ -127,50 +140,102 @@ func _resolve(entry: Dictionary) -> void:
 
 
 ## 【紊乱】所有细胞随机传送至各自阵营组织内的随机位置。
-## 定案 W2：落地算「进入」（走 enter_tile）；目的地不选血管格。
-## 原位记在 entry["data"]，回合末 _chaos_return 返回。
+## 定案 W2：落地算「进入」（走 enter_tile）；目的地不选血管格（已进 PRD）。
+## 原位记在 entry["data"]，回合末 _chaos_return 返回后清空（每回合一个完整周期）。
 func _chaos(entry: Dictionary) -> void:
-	for i in entry["stacks"]:
-		for cell in game.living_cells():
-			var dests: Array = []
-			for c in game.tiles.keys():
-				var t: Dictionary = game.tiles[c]
-				if t["special"] == CWData.Special.VESSEL:
-					continue   ## 不选血管格：避免紧接着又被血管传送（定案 W2）
-				if cell["faction"] == CWData.Faction.IMMUNE:
-					if t["tissue"] != CWData.Tissue.HEALTHY:
-						continue
-				elif not game.is_cancerous(c):
+	for cell in game.living_cells():
+		var dests: Array = []
+		for c in game.tiles.keys():
+			var t: Dictionary = game.tiles[c]
+			if t["special"] == CWData.Special.VESSEL:
+				continue   ## 不选血管格：避免紧接着又被血管传送（定案 W2）
+			if cell["faction"] == CWData.Faction.IMMUNE:
+				if t["tissue"] != CWData.Tissue.HEALTHY:
 					continue
-				if not game.cells_at(c).is_empty():
-					continue
-				dests.append(c)
-			if dests.is_empty():
-				game.log_msg("【紊乱】%s 无可传送的己方组织，留在原地" % game.cell_name(cell))
+			elif not game.is_cancerous(c):
 				continue
-			dests.sort()   ## 固定候选顺序，保证同种子可复现
-			if not entry["data"].has(cell["id"]):
-				entry["data"][cell["id"]] = cell["pos"]
-			var dest: Vector2i = dests[game.rng.randi_range(0, dests.size() - 1)]
-			game.log_msg("【紊乱】%s 传送至 %s" % [game.cell_name(cell), str(dest)])
-			game.actions.enter_tile(cell, dest)
+			if not game.cells_at(c).is_empty():
+				continue
+			dests.append(c)
+		if dests.is_empty():
+			game.log_msg("【紊乱】%s 无可传送的己方组织，留在原地" % game.cell_name(cell))
+			continue
+		dests.sort()   ## 固定候选顺序，保证同种子可复现
+		entry["data"][cell["id"]] = cell["pos"]
+		var dest: Vector2i = dests[game.rng.randi_range(0, dests.size() - 1)]
+		game.log_msg("【紊乱】%s 传送至 %s" % [game.cell_name(cell), str(dest)])
+		game.actions.enter_tile(cell, dest)
 
 
-## 回合末返回原位。W2③ 尚未定案的部分按保守假设：死亡不返回；原位被占则留在原地；
-## 原位组织已变时按正常「进入」结算（净化/定殖照常触发）。
+## 回合末返回原位——团队定案（2026-08-29）**方案A「同时返回」**：
+## 所有返回视为同时发生，先算清每个人的落点、再统一归位。返回者的原位互不相同，
+## 因此**互不阻挡**；真挡得住人的只有回合中途复活/移动上来的未传送细胞。
+## 死亡不返回；主动移动过的照样返回；原位组织已变按正常「进入」结算
+## （免疫触发【净化】、癌症触发【定殖】——PRD 紊乱条目明写）。
+## 原位被真占则留在传送后的位置；连它也被别的返回者归位占掉（连环挤占的极端情形）
+## 才随机找一个合法空位落脚。
 func _chaos_return(entry: Dictionary) -> void:
+	var returners: Array = []
+	var returning_ids := {}
 	for cell in game.cells:
-		if not entry["data"].has(cell["id"]) or not cell["alive"]:
-			continue
+		if entry["data"].has(cell["id"]) and cell["alive"]:
+			returners.append(cell)
+			returning_ids[cell["id"]] = true
+	if returners.is_empty():
+		return
+	## 占位表从「不返回的细胞」起算；返回者只和已落定的结果比
+	var taken := {}
+	for cell in game.living_cells():
+		if not returning_ids.has(cell["id"]):
+			taken[cell["pos"]] = true
+	## 第一遍：纯计算落点（原位 → 留在原地 → 随机合法空位），谁也不真动
+	var dest_of := {}
+	for cell in returners:
 		var origin: Vector2i = entry["data"][cell["id"]]
-		if cell["pos"] == origin:
-			continue
-		if not game.cells_at(origin).is_empty():
+		var pick: Vector2i
+		if cell["pos"] == origin or not taken.has(origin):
+			pick = origin
+		elif not taken.has(cell["pos"]):
+			pick = cell["pos"]
 			game.log_msg("【紊乱】%s 的原位 %s 已被占据，无法返回" % [
 				game.cell_name(cell), str(origin)])
+		else:
+			pick = _chaos_fallback(cell, taken)
+			game.log_msg("【紊乱】%s 的原位与当前位置都被占，落脚 %s" % [
+				game.cell_name(cell), str(pick)])
+		taken[pick] = true
+		dest_of[cell["id"]] = pick
+	## 第二遍：先把位置全部放定（棋盘瞬间回到一格一细胞），再逐个补「进入」结算
+	var moved: Array = []
+	for cell in returners:
+		if cell["pos"] != dest_of[cell["id"]]:
+			moved.append(cell)
+			cell["pos"] = dest_of[cell["id"]]
+	for cell in moved:
+		var dest: Vector2i = dest_of[cell["id"]]
+		if dest == entry["data"][cell["id"]]:
+			game.log_msg("【紊乱】%s 返回原位 %s" % [game.cell_name(cell), str(dest)])
+		game.actions.enter_tile(cell, dest)
+
+
+## 连环挤占时的落脚点：与传送同一套合法目的地（己方组织、非血管），
+## 再排除本轮已被占/被认领的格。找不到就留在原地（双占也认了——127 格实际到不了）。
+func _chaos_fallback(cell: Dictionary, taken: Dictionary) -> Vector2i:
+	var cands: Array = []
+	for c in game.tiles.keys():
+		var t: Dictionary = game.tiles[c]
+		if t["special"] == CWData.Special.VESSEL or taken.has(c):
 			continue
-		game.log_msg("【紊乱】%s 返回原位 %s" % [game.cell_name(cell), str(origin)])
-		game.actions.enter_tile(cell, origin)
+		if cell["faction"] == CWData.Faction.IMMUNE:
+			if t["tissue"] != CWData.Tissue.HEALTHY:
+				continue
+		elif not game.is_cancerous(c):
+			continue
+		cands.append(c)
+	if cands.is_empty():
+		return cell["pos"]
+	cands.sort()
+	return cands[game.rng.randi_range(0, cands.size() - 1)]
 
 
 ## 【营养输送】的血管奖励：2 回合内每个细胞**首次**通过血管 +2.0 能量、抽 1 张

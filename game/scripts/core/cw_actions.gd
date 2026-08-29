@@ -160,7 +160,7 @@ func _cancerous_adj(c: Vector2i) -> int:
 
 
 ## 世界事件对移动费用的修正，顺序：先加价 → 再翻倍 → 最后免费首移归零。
-## 当前事件互不同场（触发间隔 ≥3 > 最长持续 3），顺序是给将来卡牌修饰叠加定的规矩。
+## 【双重触发】拉长的 4 回合事件可能与下一个触发共存，叠加顺序在此固定。
 func _move_cost_mod(cell: Dictionary, dest: Vector2i, base: int) -> int:
 	var cost := base
 	if cell["faction"] == CWData.Faction.IMMUNE:
@@ -248,14 +248,15 @@ func execute(cell: Dictionary, data: Dictionary) -> void:
 
 # ---- 移动 / 攻击 ----
 
-## 攻击判定：d6 → 1~2 失败 / 3~5 成功 / 6 大成功，再套世界事件修正——
-## 【细胞毒】失败概率并给成功、【免疫伪装】大成功概率并给失败（定案 W3：并给，不重掷）
+## 攻击判定：d6 → 1~2 失败 / 3~5 成功 / 6 大成功，再套世界事件修正（并给，不重掷）——
+## 【细胞毒】失败并给成功（PRD：5/6 成功、1/6 大成功）；
+## 【免疫伪装】大成功并给成功（PRD：1/3 失败、2/3 成功；2026-08-29 按 PRD 改判）
 func attack_outcome(r: int) -> String:
 	var out := "crit" if r == 6 else ("fail" if r <= 2 else "success")
 	if out == "fail" and game.event_stacks("细胞毒") > 0:
 		out = "success"
 	if out == "crit" and game.event_stacks("免疫伪装") > 0:
-		out = "fail"
+		out = "success"
 	return out
 
 
@@ -276,8 +277,8 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int) -> void:
 	var outcome := attack_outcome(r)
 	if r <= 2 and outcome != "fail":
 		game.log_msg("　【细胞毒】攻击不会失败：判定并给成功")
-	elif r == 6 and outcome == "fail":
-		game.log_msg("　【免疫伪装】攻击不会大成功：判定并给失败")
+	elif r == 6 and outcome != "crit":
+		game.log_msg("　【免疫伪装】攻击不会大成功：判定并给成功")
 	if outcome == "fail":
 		game.log_msg("　攻击掷骰 %d：失败，%s 被反弹回原格" % [r, game.cell_name(cell)])
 		game.announce("攻击失败", to)

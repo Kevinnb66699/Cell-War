@@ -29,9 +29,11 @@ func _run_all() -> void:
 	t_ev_supply()
 	t_ev_solidify_accel()
 	t_ev_chaos()
+	t_ev_chaos_simul()
 	t_ev_memory()
 	t_ev_proliferate()
 	t_ev_double()
+	t_ev_double_instant()
 	t_ev_lifecycle()
 	t_solidify_and_decay()
 	t_erosion()
@@ -2321,7 +2323,8 @@ func t_ev_attack_mods() -> void:
 	check(g.actions.attack_outcome(6) == "crit", "细胞毒：大成功不受影响")
 	g.events["active"].clear()
 	_install(g, "免疫伪装", 1, 2)
-	check(g.actions.attack_outcome(6) == "fail", "免疫伪装：大成功概率并给失败（定案 W3）")
+	check(g.actions.attack_outcome(6) == "success", "免疫伪装：大成功并给成功（PRD：1/3 失败、2/3 成功）")
+	check(g.actions.attack_outcome(1) == "fail", "免疫伪装：失败概率不变")
 	check(g.actions.attack_outcome(4) == "success", "免疫伪装：普通成功不受影响")
 
 
@@ -2590,8 +2593,8 @@ func t_ev_double() -> void:
 	g.events["double_next"] = true
 	g.events["pool"] = ["细胞毒"]
 	g.world_fx.trigger()
-	check(g.event_stacks("细胞毒") == 1 and g.events["active"][0]["left"] == 3,
-		"不可叠事件：改为持续 3 回合（定案 W7）")
+	check(g.event_stacks("细胞毒") == 1 and g.events["active"][0]["left"] == 4,
+		"开关类持续事件：一份强度接力 4 回合（定案 #49 修订版）")
 	check(not g.events["double_next"], "双重触发：标记已消耗")
 
 
@@ -2605,3 +2608,39 @@ func t_ev_lifecycle() -> void:
 		"回合末：本回合事件到期，持续事件余 1 回合")
 	g.world_fx.round_end()
 	check(g.events["active"].is_empty(), "第二个回合末全部到期")
+func t_ev_chaos_simul() -> void:
+	print("[世界事件·紊乱同时返回]")
+	var g := _fx_game(2)
+	var a := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(5, 0), CWData.ImmuneType.BASIC, -1)
+	a["energy"] = 50
+	g.cells.append(a)
+	var b := CWSetup.make_cell(1, 1, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+	b["energy"] = 50
+	g.cells.append(b)
+	## 模拟传送后的局面：a 原位 (0,0) 正被 b 站着（b 自己也是返回者，原位 (0,1)）
+	var e := _install(g, "紊乱")
+	e["data"][a["id"]] = Vector2i(0, 0)
+	e["data"][b["id"]] = Vector2i(0, 1)
+	g.world_fx._chaos_return(e)
+	check(a["pos"] == Vector2i(0, 0) and b["pos"] == Vector2i(0, 1),
+		"方案A：原位被另一个返回者占着不算挡，两个都归位")
+
+
+func t_ev_double_instant() -> void:
+	print("[世界事件·双重触发×本回合类]")
+	var g := _fx_game(2)
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+	imm["energy"] = 100
+	g.cells.append(imm)
+	g.events["double_next"] = true
+	g.events["pool"] = ["增殖抑制"]
+	g.world_fx.trigger()
+	var e: Dictionary = g.events["active"][0]
+	check(e["left"] == 2 and e["stacks"] == 1, "本回合类加倍：连续两回合各生效一遍（定案 #49 修订版）")
+	check(imm["energy"] == 95, "第一回合结算一遍（免疫 −0.5）")
+	g.world_fx.round_end()
+	check(g.event_stacks("增殖抑制") == 1, "回合末仍在场（余 1 回合）")
+	g.world_fx.on_round_start()
+	check(imm["energy"] == 90, "第二回合开头完整重演（再 −0.5）")
+	g.world_fx.round_end()
+	check(g.events["active"].is_empty(), "第二回合末到期")
