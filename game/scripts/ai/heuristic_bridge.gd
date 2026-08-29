@@ -2,6 +2,11 @@
 ##
 ## 策略只依赖对局状态、不使用任何随机数 → 同一种子的对局完全可复现（确定性测试依赖这一点）。
 ## 数值阈值都是「十分能量」。观战模式设置 delay_ms>0 + delay_node 可放慢节奏。
+##
+## 会用卡（2026-08-29 起）：出牌免费，所以打牌决策只回答「时机对不对」——
+## 直接效果类有目标就打（选项存在即目标合法），增益类看马上用不用得上（_score_play）。
+## 抽卡在能量宽裕时进行。这是「最起码会用卡」的版本：让平衡模拟测的是有卡版对局，
+## 不追求最优 —— 更强的选牌交给蒙特卡洛层。
 class_name CWHeuristicBridge
 extends CWBridge
 
@@ -32,10 +37,13 @@ func ask(req: Dictionary) -> int:
 		"pick_cell":
 			return _pick_storm_center(req.get("tag", ""), options)
 		"pick_tile":
-			return 0   ## 只有打手牌才会问到；AI 还不打牌，答 0（=停止）保底
+			return _pick_tile_take(options)
 		"pick":
-			if req.get("tag", "") == "基因组不稳定":
-				return _pick_mutation_result(pid, options)
+			match req.get("tag", ""):
+				"基因组不稳定":
+					return _pick_mutation_result(pid, options)
+				"代谢耦联":
+					return _pick_couple(options)
 			return 0
 		"confirm":
 			if req.get("tag", "") == "remutate":
@@ -82,21 +90,25 @@ func _immune_action(pid: int, options: Array) -> int:
 	var i := _find(options, "differentiate")
 	if i >= 0:
 		return i
-	# 2. T 细胞站在固化格上 → 裂解+净化
+	# 2. 打牌（出牌免费；攻击增益要赶在攻击之前打出，所以排在这里）
+	i = _best_play(pid, options)
+	if i >= 0:
+		return i
+	# 3. T 细胞站在固化格上 → 裂解+净化
 	i = _find(options, "lyse")
 	if i >= 0 and e >= 20:
 		return i
-	# 3. B 细胞抗体：目标够多才划算
+	# 4. B 细胞抗体：目标够多才划算
 	i = _find(options, "antibody")
 	if i >= 0:
 		var n := _antibody_target_count()
 		if (n >= 2 and e >= 25) or (n >= 1 and e >= 40):
 			return i
-	# 4. T 细胞毒素：一次至少清 2 格
+	# 5. T 细胞毒素：一次至少清 2 格
 	i = _find(options, "toxin")
 	if i >= 0 and e >= 25 and game.actions._toxin_targets(me).size() >= 2:
 		return i
-	# 5. 攻击相邻癌细胞。留足「攻击费 + 反弹反击」的储备避免自杀式进攻——
+	# 6. 攻击相邻癌细胞。留足「攻击费 + 反弹反击」的储备避免自杀式进攻——
 	# 这正是免疫方能主动规避反击威胁的原因（团队 2026-08-26 已确认此问题）。
 	var atk_reserve: int = game.tune.immune_move_cancerous[game.immune_level] \
 		+ game.tune.counter_dmg_on_fail + 10
@@ -104,13 +116,18 @@ func _immune_action(pid: int, options: Array) -> int:
 		var atk := _best_attack(options)
 		if atk >= 0:
 			return atk
-	# 6. 净化：进入相邻的无人癌组织
+	# 7. 净化：进入相邻的无人癌组织
 	var purge_cost: int = game.tune.immune_move_cancerous[game.immune_level]
 	if e >= purge_cost + 10:
 		var purge := _best_purge_move(options)
 		if purge >= 0:
 			return purge
-	# 7. 接近最近的癌性组织
+	# 8. 手上余粮多就抽卡（0.5/张，每回合至多 3 次；手牌满时选项不出现）——
+	# 排在净化之后：转地是即时收益，卡是期货
+	i = _find(options, "draw")
+	if i >= 0 and e >= 30:
+		return i
+	# 9. 接近最近的癌性组织
 	if e >= 20:
 		var approach := _best_approach(options, me)
 		if approach >= 0:
@@ -207,6 +224,10 @@ func _cancer_action(pid: int, options: Array) -> int:
 	var me: Dictionary = game.cell_of(pid)
 	var e: int = me["energy"]
 	var threat := _dist_to_nearest_immune(me["pos"])
+	# 0. 打牌（出牌免费；EMT 这类移动折扣要赶在移动之前打出，所以排最前）
+	var pi := _best_play(pid, options)
+	if pi >= 0:
+		return pi
 	# 1. 印戒【黏液破裂】：一次能染一大片、且有复活据点时才引爆（自毁技能）
 	var i := _find(options, "mucus")
 	if i >= 0 and game.count_tissue(CWData.Tissue.SOLID) >= 1:
@@ -227,6 +248,10 @@ func _cancer_action(pid: int, options: Array) -> int:
 	# 4. 突变：免疫方有记忆可削时才赌
 	i = _find(options, "mutate")
 	if i >= 0 and e >= 30 and game.memory >= 2:
+		return i
+	# 4.5 攒够了就抽卡（1.0/张）：贴脸时别停下抽卡送头
+	i = _find(options, "draw")
+	if i >= 0 and e >= 45 and threat >= 2:
 		return i
 	# 4. 蹲点固化：安全时停在原地，把脚下癌组织熬成固化癌组织（复活据点+高供能）
 	if threat >= 3 and _worth_solidifying(me):
@@ -286,6 +311,98 @@ func _best_cancer_move(options: Array, me: Dictionary, _threat: int) -> int:
 	# 原地不动的价值（不花能量，但也不占地）；比它差的移动一律不做
 	var stay_score: int = SAFETY_BY_DIST[mini(_dist_to_nearest_immune(me["pos"]), 4)]
 	return best if best_score > stay_score else -1
+
+
+# ============ 打牌 ============
+
+## 手牌里此刻值得打的最高分选项；没有正分的返回 -1（分数只用于排序与「>0 才打」）。
+func _best_play(pid: int, options: Array) -> int:
+	var best := -1
+	var best_score := 0
+	for i in options.size():
+		var d: Dictionary = options[i]["data"]
+		if d.get("act", "") != "play":
+			continue
+		var score := _score_play(pid, d, options)
+		if score > best_score:
+			best_score = score
+			best = i
+	return best
+
+
+## 出牌免费（PRD 没有出牌费），所以打分只回答「现在打时机对不对」：
+## 打了用不上的增益等于把卡扔掉，宁可压在手里等时机。
+## 同名多目标的选项拿一样的分，并列取第一个（选项顺序引擎侧固定，可复现）。
+func _score_play(pid: int, d: Dictionary, options: Array) -> int:
+	var me: Dictionary = game.cell_of(pid)
+	var card: String = d["card"]
+	## 永久技能：免费、永久生效、还腾出手牌位，永远第一时间装上
+	if CWCardData.CARDS[card]["kind"] == CWCardData.Kind.PERMANENT:
+		return 100
+	match card:
+		## —— 有目标就是白赚的直接效果（选项存在 = 目标合法）——
+		"抗体依赖细胞毒作用", "放疗", "IFN-γ高峰", "溶酶体强化", "基质降解", \
+		"基质重塑", "乳酸酸化", "TNF-α局部炎症":
+			return 90
+		"交叉呈递":
+			return 80   ## 白给的【标记】：下次命中翻倍
+		"基质硬化":
+			return 55   ## 加速固化据点：现在打比晚打多熬一轮
+		"代谢耦联":
+			return 40   ## 付 1.0 对面得 1.2……阵营内净赚的转账（方向/数额见 pick 分支）
+		"免疫增援":
+			## 传送到队友附近：离战线远才值得烧这张卡（近处自己走更省）
+			return 35 if _dist_to_nearest_cancerous(me["pos"]) >= 3 else 0
+		"肿瘤细胞募集":
+			## 当救援用：把被免疫贴脸的队友拽回癌区腹地
+			return 45 if _dist_to_nearest_immune(game.cells[d["cid"]]["pos"]) <= 1 else 0
+		"炎症性趋化":
+			## 付费连走（0.2/步）：第一步就踩进癌组织（净化）才划算
+			return 55 if game.tile(d["to"])["tissue"] == CWData.Tissue.CANCER \
+				and game.can_pay(me, int(d["cost"]) + 10) else 0
+		"补体调理", "穿孔素-颗粒酶", "高亲和力克隆", "补体级联":
+			## 攻击增益都是「本回合下一次攻击」：行动栏里就摆着打得起的攻击才不浪费
+			return 60 if _attack_ready(me, options) else 0
+		"炎症趋化", "CXCR3趋化":
+			## 迁移折扣：旁边就有想进的癌性组织才预打
+			return 30 if _step_target_exists(me, true) else 0
+		"上皮—间质转化":
+			return 30 if _step_target_exists(me, false) else 0
+		"细胞膜修复", "缺氧适应", "PD-L1表达", "DNA损伤修复":
+			## 防御卡：敌人贴近了才亮出来，太早打有的会过期、有的会被小伤耗掉
+			return 50 if _dist_to_nearest_enemy(me) <= 2 else 0
+	return 0   ## 没列到的卡此刻不打
+
+
+## 「本回合下一次攻击」类增益的时机：行动栏里有攻击选项，且能量足以真打
+## （攻击费 + 失败反击的储备，口径同 _immune_action 的攻击那一步）
+func _attack_ready(me: Dictionary, options: Array) -> bool:
+	if _best_attack(options) < 0:
+		return false
+	var reserve: int = game.tune.immune_move_cancerous[game.immune_level] \
+		+ game.tune.counter_dmg_on_fail + 10
+	return me["energy"] >= maxi(25, reserve)
+
+
+## 相邻有没有「无细胞占据的癌性/健康组织」——迁移折扣卡值不值得预打
+func _step_target_exists(me: Dictionary, want_cancerous: bool) -> bool:
+	for n in CWData.neighbors(me["pos"]):
+		if not game.cells_at(n).is_empty():
+			continue
+		if want_cancerous and game.is_cancerous(n):
+			return true
+		if not want_cancerous and game.tile(n)["tissue"] == CWData.Tissue.HEALTHY:
+			return true
+	return false
+
+
+func _dist_to_nearest_enemy(me: Dictionary) -> int:
+	var enemy: int = CWData.Faction.CANCER if me["faction"] == CWData.Faction.IMMUNE \
+		else CWData.Faction.IMMUNE
+	var best := 99
+	for c in game.living_cells(enemy):
+		best = mini(best, CWData.hex_dist(me["pos"], c["pos"]))
+	return best
 
 
 # ============ 子询问 ============
@@ -378,6 +495,41 @@ func _pick_storm_center(tag: String, options: Array) -> int:
 			best_score = score
 			best = i
 	return best
+
+
+## 卡牌递过来的「选一格」（基质重塑的再拆一格/转化格…）：递到眼前的都是纯收益，
+## 有得选就不选「停止」；同类里挑癌性邻格最多的（顺着癌区腹地推进）
+func _pick_tile_take(options: Array) -> int:
+	var best := 0
+	var best_score := 0
+	for i in options.size():
+		var d: Dictionary = options[i]["data"]
+		if not d.has("to"):
+			continue   ## 「停止/放弃」项不带 to，保持 0 分
+		var score := 1
+		for n in CWData.neighbors(d["to"]):
+			if game.is_cancerous(n):
+				score += 1
+		if score > best_score:
+			best_score = score
+			best = i
+	return best
+
+
+## 【代谢耦联】的两连问共用一个 arm，靠选项数据区分：
+## 方向问句带 from —— 选转出方能量高的一侧（富济贫，转移本身还净赚）；
+## 数额问句带 pay —— 直接拉满（净赚随档位涨，付不起的档位引擎已剔除）
+func _pick_couple(options: Array) -> int:
+	if options[0]["data"].has("from"):
+		var best := 0
+		var best_e := -1
+		for i in options.size():
+			var payer: Dictionary = game.cells[options[i]["data"]["from"]]
+			if payer["energy"] > best_e:
+				best_e = payer["energy"]
+				best = i
+		return best
+	return options.size() - 1
 
 
 ## 【基因组不稳定】的二择：抽卡那档几乎总是最优；记忆厚、能量足时 -3 记忆更值

@@ -56,6 +56,7 @@ func _run_all() -> void:
 	await t_full_game_2p()
 	await t_full_game_4p()
 	await t_determinism()
+	await t_ai_cards()
 	t_board_view()
 	t_hex_pick()
 	await t_ui_bridge()
@@ -623,6 +624,124 @@ func t_determinism() -> void:
 		g.dispose()
 	check(hashes[0] == hashes[1], "同种子两局最终状态哈希一致")
 	check(winners[0] == winners[1] and log_counts[0] == log_counts[1], "胜者与日志长度一致")
+
+
+## 让 cell 的桥对当前行动栏做一次决策，返回所选选项的 data
+func _ai_pick(g: CWGame, cell: Dictionary) -> Dictionary:
+	var opts: Array = g.actions.build_options(cell)
+	var b: CWBridge = g.bridges[cell["pid"]]
+	var idx: int = await b.ask({ "kind": "action", "pid": cell["pid"],
+		"options": opts, "prompt": "" })
+	return opts[idx]["data"]
+
+
+# ---- AI 会用卡：装备/攻击增益的时机/防御卡的时机/抽卡/代谢耦联与选格子询问 ----
+func t_ai_cards() -> void:
+	print("[AI·会用卡]")
+	var g := make_game(2, 9)
+	await run_setup(g)
+	for c in g.tiles.keys():
+		g.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
+		g.tiles[c]["solid"] = 0
+		g.tiles[c]["newborn"] = false
+	var imm: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[0]
+	var can: Dictionary = g.living_cells(CWData.Faction.CANCER)[0]
+	imm["pos"] = Vector2i(0, 0)
+	can["pos"] = Vector2i(0, 6)
+	imm["energy"] = 60
+	can["energy"] = 60
+
+	## ① 永久技能到手就装
+	imm["hand"] = ["组织驻留"]
+	var d: Dictionary = await _ai_pick(g, imm)
+	check(d.get("act", "") == "play" and d.get("card", "") == "组织驻留",
+		"永久技能到手就装（选了 %s）" % str(d))
+	imm["hand"] = []
+
+	## ② 攻击增益：敌人贴脸时先打增益、下一手就是攻击
+	can["pos"] = Vector2i(1, 0)
+	imm["hand"] = ["补体调理"]
+	d = await _ai_pick(g, imm)
+	check(d.get("act", "") == "play" and d.get("card", "") == "补体调理",
+		"贴脸时先打【补体调理】")
+	await g.actions.execute(imm, d)
+	d = await _ai_pick(g, imm)
+	check(d.get("act", "") == "move" and d.get("to", Vector2i.MAX) == can["pos"],
+		"增益打完下一手就是攻击（选了 %s）" % str(d))
+
+	## ③ 攻击增益不空放：没仗可打时压在手里
+	can["pos"] = Vector2i(0, 6)
+	imm["hand"] = ["穿孔素-颗粒酶"]
+	imm["mods"] = []
+	d = await _ai_pick(g, imm)
+	check(d.get("act", "") != "play", "没仗可打时不空放攻击增益（选了 %s）" % str(d.get("act")))
+	imm["hand"] = []
+
+	## ④ 防御卡：敌人近了才亮
+	can["hand"] = ["PD-L1表达"]
+	imm["pos"] = Vector2i(1, 6)   ## 贴脸
+	d = await _ai_pick(g, can)
+	check(d.get("act", "") == "play" and d.get("card", "") == "PD-L1表达",
+		"敌人贴脸时癌细胞打出【PD-L1表达】")
+	imm["pos"] = Vector2i(0, 0)   ## 拉远
+	d = await _ai_pick(g, can)
+	check(d.get("act", "") != "play", "敌人远时防御卡压在手里（选了 %s）" % str(d.get("act")))
+	can["hand"] = []
+
+	## ⑤ 抽卡：能量宽裕才抽
+	d = await _ai_pick(g, imm)
+	check(d.get("act", "") == "draw", "免疫能量 6.0 且无事可做 → 抽卡（选了 %s）" % str(d.get("act")))
+	imm["energy"] = 22
+	d = await _ai_pick(g, imm)
+	check(d.get("act", "") != "draw", "免疫能量 2.2 → 不抽卡（选了 %s）" % str(d.get("act")))
+	imm["energy"] = 60
+
+	## ⑥ 【代谢耦联】两连问：方向选富济贫，数额拉满
+	var bi: CWBridge = g.bridges[imm["pid"]]
+	can["energy"] = 30
+	var dirs := [
+		{ "label": "", "data": { "from": can["id"], "to_cid": imm["id"] } },
+		{ "label": "", "data": { "from": imm["id"], "to_cid": can["id"] } },
+	]
+	var di: int = await bi.ask({ "kind": "pick", "tag": "代谢耦联",
+		"pid": imm["pid"], "options": dirs, "prompt": "" })
+	check(di == 1, "代谢耦联方向：转出方选能量高的一侧（选了 %d）" % di)
+	var tiers := [
+		{ "label": "", "data": { "pay": 10, "get": 12 } },
+		{ "label": "", "data": { "pay": 15, "get": 20 } },
+		{ "label": "", "data": { "pay": 20, "get": 25 } },
+	]
+	var ti: int = await bi.ask({ "kind": "pick", "tag": "代谢耦联",
+		"pid": imm["pid"], "options": tiers, "prompt": "" })
+	check(ti == 2, "代谢耦联数额：拉满（选了 %d）" % ti)
+
+	## ⑦ 「选一格」子询问：不选停止，挑癌性邻格多的
+	for n in CWData.neighbors(Vector2i(-2, 0)):
+		g.tiles[n]["tissue"] = CWData.Tissue.CANCER
+	var tile_opts := [
+		{ "label": "", "data": { "stop": true } },
+		{ "label": "", "data": { "to": Vector2i(3, 0) } },
+		{ "label": "", "data": { "to": Vector2i(-2, 0) } },
+	]
+	var pt: int = await bi.ask({ "kind": "pick_tile", "tag": "基质重塑",
+		"pid": imm["pid"], "options": tile_opts, "prompt": "" })
+	check(pt == 2, "选格子：不停止、挑癌性邻格最多的（选了 %d）" % pt)
+	g.dispose()
+
+	## ⑧ 完整对局里卡真的在流动（抽了、也打/装了）
+	var g2 := make_game(4, 123)
+	var w: int = await g2.run_game()
+	check(w >= 0, "有卡版完整对局分出胜负（%s）" % g2.win_reason)
+	var drew := false
+	var played := false
+	for line in g2.logs:
+		if line.contains("」抽到"):
+			drew = true
+		if line.contains("打出【") or line.contains("装备至角色面板"):
+			played = true
+	check(drew, "完整对局里 AI 抽过卡")
+	check(played, "完整对局里 AI 打出/装备过卡")
+	g2.dispose()
 
 
 # ---- 棋盘渲染：画出来的格子必须和 CWData 的轴坐标一一对应 ----
