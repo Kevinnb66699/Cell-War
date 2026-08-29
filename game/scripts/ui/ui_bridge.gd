@@ -19,6 +19,7 @@ var bar: CWActionBar
 var panel: CWMatchPanel
 var toast: CWToast     ## 骰子旁边那行字
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
+var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这里来（无界面时为 null）
 var human_pids: Array[int] = []
 
 ## 开场绽开还没演完时，人类的询问界面先不出来 ——
@@ -167,14 +168,17 @@ func _ask_action(req: Dictionary) -> int:
 			buttons.append({ "title": ACT_TITLE["end"], "cost": "" })
 			values.append(end_value)
 			end_value = null
-		var got: Variant = await _prompt("", "", buttons, values, {}, end_value)
+		var got: Variant = await _prompt("", "", buttons, values, {}, end_value, -1, true)
+		## 方案甲（团队 2026-08-29 定）：点手牌打出 / 右键弃置；中途点别的卡就换卡
+		while got is Array:
+			got = await _pick_hand(options, got)
 		if got == null:
 			return 0
 		if not (got is String):
-			return got as int          ## 「结束回合」的下标
+			return got as int          ## 「结束回合」或手牌流程选定的下标
 		var act: String = got as String
-		if act == "":
-			continue               ## 灰掉的按钮，理论上点不到；兜一道
+		if act == "" or act == "cancel":
+			continue               ## 灰按钮兜底 / 从手牌流程退回按钮栏
 		if act == "move":
 			_sticky_move = true
 			continue
@@ -190,6 +194,65 @@ func _ask_action(req: Dictionary) -> int:
 			continue                   ## 退出子选择，回到按钮栏
 		return sub as int
 	return 0                        ## 放弃这一局时从 while 条件退出来
+
+
+## 手牌手势（方案甲，团队 2026-08-29 定）。gesture = ["play" 或 "discard", 卡名]。
+## 打出：有目标 → 棋盘点选（cid 目标高亮其所在格，敌橙友青沿用现有标记色）；
+##       无目标 → 补一拍「确认打出」（定案③：统一节奏 + 防误触）。
+## 弃置：右键进确认条（定案②：低频动作不占常驻按钮位）。
+## 打不出的卡（效果未实现 / 此刻不可用）给出解释，并允许就地弃置腾位。
+## 返回：选项下标；"cancel" 回按钮栏；Array = 中途改点了另一张卡；null = 放弃对局。
+func _pick_hand(options: Array, gesture: Array) -> Variant:
+	var card: String = gesture[1]
+	var discard_i := -1
+	var plays: Array = []
+	for i in options.size():
+		var d: Dictionary = options[i]["data"]
+		if d.get("card", "") != card:
+			continue
+		if d["act"] == "discard":
+			discard_i = i
+		elif d["act"] == "play":
+			plays.append(i)
+	if hand != null:
+		hand.set_selected(card)
+	var got: Variant
+	if gesture[0] == "discard":
+		if discard_i < 0:
+			got = "cancel"     ## 这张卡此刻没有弃置选项（正常流程到不了这里）
+		else:
+			got = await _prompt("弃置【%s】？" % card, "弃掉的卡不会回来",
+				[{ "title": "确认弃置", "cost": "" }, { "title": "取消", "cost": "右键 / Esc" }],
+				[discard_i, "cancel"], {}, null, 1, true)
+	elif plays.is_empty():
+		var buttons: Array = []
+		var values: Array = []
+		if discard_i >= 0:
+			buttons.append({ "title": "弃置它", "cost": "" })
+			values.append(discard_i)
+		buttons.append({ "title": "返回", "cost": "右键 / Esc" })
+		values.append("cancel")
+		got = await _prompt("【%s】还打不出" % card, "效果未实现或此刻不可用（可先弃置腾位）",
+			buttons, values, {}, null, values.size() - 1, true)
+	else:
+		var tiles := {}
+		for i in plays:
+			var d: Dictionary = options[i]["data"]
+			if d.has("to"):
+				tiles[d["to"]] = i
+			elif d.has("cid"):
+				tiles[game.cells[d["cid"]]["pos"]] = i
+		if tiles.is_empty():
+			got = await _prompt("打出【%s】？" % card, "这张卡不需要选目标",
+				[{ "title": "确认打出", "cost": "" }, { "title": "取消", "cost": "右键 / Esc" }],
+				[plays[0], "cancel"], {}, null, 1, true)
+		else:
+			got = await _prompt("选择【%s】的目标" % card,
+				"高亮 %d 格可选 · 右键或 Esc 退出" % tiles.size(),
+				[{ "title": "取消", "cost": "右键 / Esc" }], ["cancel"], tiles, null, 0, true)
+	if hand != null:
+		hand.set_selected("")
+	return got
 
 
 ## 技能的第二段：同一个 act 有多个选项时，让玩家挑一个。
@@ -269,7 +332,8 @@ func _ask_generic(req: Dictionary) -> int:
 ## 按下它就返回该值。选目标格时传 null，那个按钮会一起收掉。
 ## cancel 指出 buttons 里哪一个是「取消」（右键 / Esc 的快捷方式）；-1 = 不能取消。
 func _prompt(title: String, hint: String, buttons: Array, values: Array,
-		tiles: Dictionary, end_value: Variant = null, cancel := -1) -> Variant:
+		tiles: Dictionary, end_value: Variant = null, cancel := -1,
+		hand_play := false) -> Variant:
 	_tiles = tiles
 	_repaint_marks()
 	bar.show_bar(title, hint, buttons, cancel)
@@ -277,6 +341,12 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	_pending = ans
 	var on_button := func(i: int) -> void: ans.fire(values[i])
 	var on_end := func() -> void: ans.fire(end_value)
+	## 行动询问期间手牌可点（方案甲）；其余询问（落子/复活等）不收手牌手势
+	var on_card := func(n: String) -> void: ans.fire(["play", n])
+	var on_dcard := func(n: String) -> void: ans.fire(["discard", n])
+	if hand_play and hand != null:
+		hand.card_clicked.connect(on_card)
+		hand.card_right_clicked.connect(on_dcard)
 	if panel != null:
 		panel.show_end_turn(end_value != null)
 		if end_value != null:
@@ -290,6 +360,9 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	board.tile_hovered.connect(on_hover)
 	var got: Variant = await ans.done
 	_pending = null
+	if hand_play and hand != null:
+		hand.card_clicked.disconnect(on_card)
+		hand.card_right_clicked.disconnect(on_dcard)
 	if panel != null and end_value != null:
 		panel.end_turn_pressed.disconnect(on_end)
 	bar.chosen.disconnect(on_button)
@@ -322,6 +395,8 @@ func _clear_ui() -> void:
 		bar.clear()
 	if panel != null:
 		panel.show_end_turn(false)
+	if hand != null:
+		hand.set_selected("")
 
 
 # ---- 按钮文案 ----

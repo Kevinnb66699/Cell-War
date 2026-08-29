@@ -7,9 +7,9 @@
 ## 悬停那张抬起 86px 并把左右两边各推开 20px ——
 ## **推开量正好等于重叠量**，推完两边就不再压着抬起的那张。补间 0.12s ease-out。
 ##
-## **卡面是占位的**：卡池还没定义，`cw_cards.gd` 抽到的是空白卡。
-## 所以每张都写「未定 / 卡池待交付」，和设计稿的占位卡一致 ——
-## 故意不编一个像模像样的卡名，免得被当成已经定好的内容。
+## 卡名与类型是真的（卡池 2026-08-28 落地）；抬起后底部是**操作提示**——
+## 方案甲（团队 2026-08-29 定）：左键点卡=打出、右键=弃置，手势信号发给询问桥。
+## 完整卡面排版（效果文等）另议，先不做。
 ##
 ## **卡面方案乙**（团队 2026-08-28 定）：静止时每张只露出顶上 26px，
 ## 名字就写在那 26px 里，10px 点阵字，**写全名、不加省略号** ——
@@ -30,6 +30,10 @@
 class_name CWHand
 extends Control
 
+## 方案甲的两个手势（由询问桥消费；没在等询问时点了也只是空响，无副作用）
+signal card_clicked(card_name: String)         ## 左键：打出
+signal card_right_clicked(card_name: String)   ## 右键：弃置
+
 const CARD := Vector2(72, 112)
 const LEFT := 12.0
 const REST_TOP := 514.0     ## 收起时的顶边（只露 540-514 = 26px）
@@ -41,6 +45,7 @@ const TWEEN := 0.12         ## 抬起/推开的补间
 const DEAL := 0.45          ## 抽到的卡飞进手牌
 const DEAL_SCALE := 0.25    ## 起飞时的缩放
 const NAME_PAD := 6         ## 卡名左右内边距
+const SELECT_LIFT := 34.0   ## 目标选择态里选中卡的半抬高度（低于悬停的 86，给底条留位）
 
 var _cards: Array[Control] = []
 var _hovered := -1
@@ -49,6 +54,7 @@ var _dealing := {}     ## 卡 -> true，正在飞进来（走长补间、还要�
 ## 每张卡的名字。卡池还没实现（cw_cards.gd 是桩），所以现在恒为空 → 显示「未定」。
 ## 卡系统落地后由 CWMatch 把真名传进来，这里就是现成的。
 var _names: PackedStringArray = PackedStringArray()
+var _selected := -1    ## 目标选择态里正在打的那张（下标；-1 = 无）
 
 
 func _ready() -> void:
@@ -61,6 +67,7 @@ func _ready() -> void:
 func sync(count: int, from: Vector2 = Vector2.INF,
 		names: PackedStringArray = PackedStringArray()) -> void:
 	_names = names
+	_selected = -1     ## 手牌一变（打出/弃置/抽取）选中态就过时了，由桥重设
 	while _cards.size() > count:
 		var gone: Control = _cards.pop_back()
 		_dealing.erase(gone)
@@ -100,6 +107,7 @@ func clear() -> void:
 	_tweens.clear()
 	_dealing.clear()
 	_hovered = -1
+	_selected = -1
 
 
 # ============ 排布 ============
@@ -125,7 +133,9 @@ func _layout() -> void:
 				to.y -= LIFT
 			else:
 				to.x += -PUSH if i < _hovered else PUSH
-		card.z_index = 100 if i == _hovered else i
+		if i == _selected and i != _hovered:
+			to.y -= SELECT_LIFT    ## 正在打的卡半抬着，提醒「选目标呢」
+		card.z_index = 100 if i == _hovered else (60 if i == _selected else i)
 		var running: Tween = _tweens.get(card)
 		if running != null and running.is_valid():
 			running.kill()          ## 一张卡只留一条补间
@@ -138,8 +148,15 @@ func _layout() -> void:
 			tw.tween_callback(func() -> void: _dealing.erase(card))
 		_tweens[card] = tw
 		## 名字写全，不做截断 —— 露不出的部分由后一张卡盖住 / 被 clip_contents 裁掉
-		(card.get_node("Name") as Label).text = _names[i] if i < _names.size() else "未定"
-		_paint(card, i == _hovered)
+		var cname: String = _names[i] if i < _names.size() else ""
+		(card.get_node("Name") as Label).text = cname if cname != "" else "未定"
+		if CWCardData.CARDS.has(cname):
+			(card.get_node("Kind") as Label).text = "【%s】" % \
+				CWCardData.KIND_NAMES[CWCardData.CARDS[cname]["kind"]]
+		## 目标选择态里，没被选中的卡压暗一档（不动正在飞入的卡——它的透明度归补间管）
+		if not _dealing.has(card):
+			card.modulate.a = 1.0 if _selected < 0 or i == _selected else 0.55
+		_paint(card, i == _hovered or i == _selected)
 
 
 ## 第 i 张卡静止时**实际露出多宽**：被后一张压住的只剩 _stagger()，最后一张露整卡宽。
@@ -173,16 +190,43 @@ func _make_card(index: int) -> Control:
 	card.add_child(name_label)
 	## 下面这两行只有抬起来才看得见，属于「详情」的一部分
 	var kind := CWStyle.label("【即时】", CWStyle.SIZE_LABEL, CWStyle.IMMUNE)
+	kind.name = "Kind"
 	kind.position = Vector2(NAME_PAD, CARD.y - 40)
 	card.add_child(kind)
-	var note := CWStyle.label("卡池待交付", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	var note := CWStyle.label("左键打出 · 右键弃置", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	note.position = Vector2(NAME_PAD, CARD.y - 20)
 	card.add_child(note)
 	
+	card.gui_input.connect(func(ev: InputEvent) -> void:
+		var mb := ev as InputEventMouseButton
+		if mb == null or not mb.pressed:
+			return
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			card_clicked.emit(_name_at(index))
+		elif mb.button_index == MOUSE_BUTTON_RIGHT:
+			card_right_clicked.emit(_name_at(index)))
 	card.mouse_entered.connect(func() -> void: _hover(index))
 	card.mouse_exited.connect(func() -> void: _hover(-1 if _hovered == index else _hovered))
 	_paint(card, false)
 	return card
+
+
+func _name_at(i: int) -> String:
+	return _names[i] if i < _names.size() else ""
+
+
+## 目标选择态：把名为 card_name 的那张半抬并高亮，其余压暗（"" = 清除）。询问桥调用。
+func set_selected(card_name: String) -> void:
+	var idx := -1
+	if card_name != "":
+		for i in _names.size():
+			if _names[i] == card_name:
+				idx = i
+				break
+	if _selected == idx:
+		return
+	_selected = idx
+	_layout()
 
 
 func _hover(i: int) -> void:

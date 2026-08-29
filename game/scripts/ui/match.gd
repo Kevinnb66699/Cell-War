@@ -145,6 +145,7 @@ func start() -> void:
 	bridge.panel = panel
 	bridge.toast = toast
 	bridge.camera = camera
+	bridge.hand = hand   ## 方案甲：打出/弃置手势从手牌抽屉来
 	bridge.human_pids = human_players
 	bridge.opening = _opening    ## 绽开演完前先不弹询问界面
 	bridge.delay_ms = ai_delay_ms

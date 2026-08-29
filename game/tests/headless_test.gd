@@ -57,6 +57,7 @@ func _run_all() -> void:
 	t_hex_pick()
 	await t_ui_bridge()
 	await t_human_ask()
+	await t_hand_play()
 	t_match_panel()
 	await t_settle_screen()
 	await t_opening()
@@ -2658,3 +2659,121 @@ func t_breath_sheets() -> void:
 		if w % M.BREATH_FRAMES != 0 or not (w / M.BREATH_FRAMES) in [16, 32] 				or not tex.get_height() in [18, 32, 34]:
 			ok = false
 	check(ok, "每张都是横排 6 帧、帧宽 16/32、帧高 18/32/34")
+## 打牌交互（方案甲，团队 2026-08-29 定）：点手牌 → 棋盘选目标。
+## 和 t_human_ask 一样用合成信号驱动，逐步核对**下标映射**。
+func t_hand_play() -> void:
+	print("[打牌交互·方案甲]")
+	var board := make_board()
+	root.add_child(board)
+	var bar := CWActionBar.new()
+	root.add_child(bar)
+	var hand := CWHand.new()
+	root.add_child(hand)
+
+	var g := CWGame.new()
+	g.init(CWData.FACTION_ORDER[2], 11)
+	var ai := CWHeuristicBridge.new()
+	ai.game = g
+	for pid in g.order:
+		g.bridges[pid] = ai
+	await run_setup(g)
+
+	var b := CWUIBridge.new()
+	b.game = g
+	b.board = board
+	b.bar = bar
+	b.hand = hand
+	b.human_pids = [0]
+	for pid in g.order:
+		g.bridges[pid] = b
+
+	hand.sync(3, Vector2.INF, PackedStringArray(["交叉呈递", "乳酸酸化", "免疫增援"]))
+	var tpos: Vector2i = g.cells[1]["pos"]
+	var areq := { "kind": "action", "pid": 0, "prompt": "", "options": [
+		{ "label": "", "data": { "act": "move", "to": Vector2i(1, 0), "cost": 5 } },
+		{ "label": "", "data": { "act": "play", "card": "交叉呈递", "cid": 1 } },
+		{ "label": "", "data": { "act": "play", "card": "溶酶体强化" } },
+		{ "label": "", "data": { "act": "discard", "card": "交叉呈递" } },
+		{ "label": "", "data": { "act": "discard", "card": "乳酸酸化" } },
+		{ "label": "", "data": { "act": "discard", "card": "永久样例" } },
+		{ "label": "", "data": { "act": "end" } }] }
+
+	# ① 点卡 → 高亮目标细胞所在格 → 点格 → 还原为对应选项下标
+	var r1 := [-99]
+	var run1 := func() -> void: r1[0] = await b.ask(areq)
+	run1.call()
+	hand.card_clicked.emit("交叉呈递")
+	await process_frame
+	check(b.marks.size() == 1 and b.marks.has(tpos), "点卡后高亮目标细胞所在格")
+	check(hand._selected == 0, "被点的卡进入选中态（半抬）")
+	board.tile_clicked.emit(Vector2i(9, 9))
+	check(r1[0] == -99, "点非目标格无效")
+	board.tile_clicked.emit(tpos)
+	await process_frame
+	check(r1[0] == 1, "点目标格 → 还原成那张卡对那个目标的选项下标")
+	check(hand._selected == -1, "答完选中态清除")
+
+	# ② 目标态中途改点另一张卡 → 换卡；无目标卡走「确认打出」一拍（定案③）
+	var r2 := [-99]
+	var run2 := func() -> void: r2[0] = await b.ask(areq)
+	run2.call()
+	hand.card_clicked.emit("交叉呈递")
+	await process_frame
+	hand.card_clicked.emit("溶酶体强化")
+	await process_frame
+	check(b.marks.is_empty(), "换到无目标卡：不再高亮格子")
+	bar.chosen.emit(0)                        ## 「确认打出」
+	await process_frame
+	check(r2[0] == 2, "确认打出 → 无目标卡的选项下标")
+
+	# ③ 右键 → 弃置确认（定案②）
+	var r3 := [-99]
+	var run3 := func() -> void: r3[0] = await b.ask(areq)
+	run3.call()
+	hand.card_right_clicked.emit("乳酸酸化")
+	await process_frame
+	bar.chosen.emit(0)                        ## 「确认弃置」
+	await process_frame
+	check(r3[0] == 4, "确认弃置 → 那张卡的弃置选项下标")
+
+	# ④ 打不出的卡：给解释，可就地弃置
+	var r4 := [-99]
+	var run4 := func() -> void: r4[0] = await b.ask(areq)
+	run4.call()
+	hand.card_clicked.emit("永久样例")
+	await process_frame
+	bar.chosen.emit(0)                        ## 「弃置它」
+	await process_frame
+	check(r4[0] == 5, "打不出的卡可以就地弃置")
+
+	# ⑤ 取消回按钮栏，这一问还没答；手牌手势只在行动询问期间生效
+	var r5 := [-99]
+	var run5 := func() -> void: r5[0] = await b.ask(areq)
+	run5.call()
+	hand.card_clicked.emit("交叉呈递")
+	await process_frame
+	bar.chosen.emit(0)                        ## 「取消」
+	await process_frame
+	check(r5[0] == -99 and b.marks.is_empty(), "取消后回到按钮栏，这一问还没答")
+	bar.chosen.emit(_buttons(bar) - 1)        ## 结束回合（纯行动栏形态占最后一格）
+	await process_frame
+	check(r5[0] == 6, "结束回合仍然可用")
+
+	# ⑥ 卡控件的鼠标事件真的接到了信号上（左键/右键各一发）
+	var seen: Array = []
+	hand.card_clicked.connect(func(n: String) -> void: seen.append(["L", n]))
+	hand.card_right_clicked.connect(func(n: String) -> void: seen.append(["R", n]))
+	var ev := InputEventMouseButton.new()
+	ev.pressed = true
+	ev.button_index = MOUSE_BUTTON_LEFT
+	hand._cards[0].gui_input.emit(ev)
+	var ev2 := InputEventMouseButton.new()
+	ev2.pressed = true
+	ev2.button_index = MOUSE_BUTTON_RIGHT
+	hand._cards[1].gui_input.emit(ev2)
+	check(seen == [["L", "交叉呈递"], ["R", "乳酸酸化"]], "卡上的左右键事件映射到手势信号")
+
+	g.dispose()
+	hand.free()
+	bar.free()
+	board.free()
