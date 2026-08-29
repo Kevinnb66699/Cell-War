@@ -51,9 +51,12 @@ static func make_cell(id: int, pid: int, faction: int, pos: Vector2i,
 		"energy": energy,
 		"alive": true,
 		"marked": false,           # 树突【标记】
+		"mark_left": 0,            # 【标记】还能翻倍几次（普通 1；呈递强化树突施加的 2）
 		"hand": [],                # 手牌里的卡名（上限 CWData.HAND_MAX）
-		"equipped": [],            # 已装备的永久技能名。装备位还没实现，所以恒为空
+		"equipped": [],            # 已装备的永久技能名（打出即装备，死亡不掉）
 		"mods": [],                # 修饰卡条目 {name, uses, until, data}，见 CWGame.add_mod
+		"fx_turn": {},             # 永久技能「每行动回合第一次」的闸门，begin_turn 清
+		"fx_round": {},            # 永久技能「每世界回合第一次」的闸门，S 阶段重置清
 		"differentiated": false,   # 每细胞每局限一次【分化】
 		# 以下计数每世界回合 S 阶段重置
 		"armor_used": false,       # 印戒【囊性护甲】

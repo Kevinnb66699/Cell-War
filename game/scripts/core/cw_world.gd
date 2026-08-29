@@ -63,6 +63,7 @@ func _reset_round_flags() -> void:
 		c["antibody_used"] = 0         ## B【抗体】2 次/世界回合
 		c["toxin_used"] = 0            ## T【细胞毒素】3 次/世界回合
 		c["metastasis_used"] = false   ## 黑色素瘤【早期血行转移】1 次/世界回合
+		c["fx_round"] = {}             ## 永久技能「每世界回合第一次」的闸门
 
 
 ## 代谢核心/骨髓产出；产出瞬间站在其上的细胞立即收取（说明 #9）
@@ -149,9 +150,17 @@ func revive_cancer(pid: int, data: Dictionary) -> void:
 	t["solid"] = 0
 	cell["alive"] = true
 	cell["energy"] = CWData.REVIVE_ENERGY
+	## 【癌症干性】：复活能量提高（分期），本世界回合 1 次（20 回合起 2 次）
+	## 向癌性组织的移动免费——免费额度挂成 round 时钟的修饰条目，计费在 _move_cost_mod
+	if game.has_skill(cell, "癌症干性"):
+		cell["energy"] = CWData.STEMNESS_ENERGY[CWCardData.cancer_phase(game.round_no)]
+		var freebies := 2 if game.round_no >= 20 else 1
+		game.add_mod(cell, "癌症干性", freebies, "round")
+		game.log_msg("　【癌症干性】复活能量提高至 %s，本世界回合 %d 次向癌性组织移动免费" % [
+			CWData.fmt(cell["energy"]), freebies])
 	await game.actions.enter_tile(cell, pos)
-	game.log_msg("【复活】%s 复活于 %s（2.0 能量），该格降级为癌组织" % [
-		game.cell_name(cell), str(pos)])
+	game.log_msg("【复活】%s 复活于 %s（%s 能量），该格降级为癌组织" % [
+		game.cell_name(cell), str(pos), CWData.fmt(cell["energy"])])
 
 
 ## 【S-复活】免疫：玩家可选**任一骨髓中无细胞占据的健康组织**，初始 1.0 能量（PRD）。
@@ -225,6 +234,16 @@ func _aerobic() -> void:
 			CWData.fmt(before), CWData.fmt(gain), tgf])
 	for cell in immune:
 		cell["energy"] += gain
+		## 【代谢适应】/【自分泌生存信号】的「额外获得」在基准收入之外加，
+		## 不吃 TGF-β 的 −20%（那句管的是有氧结算本身的所得，口径 #69）
+		var bonus := 0
+		if game.has_skill(cell, "代谢适应"):
+			bonus += CWData.AEROBIC_ADAPT
+		if game.has_skill(cell, "自分泌生存信号"):
+			bonus += CWData.AEROBIC_AUTOCRINE
+		if bonus > 0:
+			cell["energy"] += bonus
+			game.log_msg("　%s 的永久技能额外 +%s 能量" % [game.cell_name(cell), CWData.fmt(bonus)])
 	game.log_msg("【有氧呼吸】所有免疫细胞 +%s 能量（健康 %d - 坏死 %d）" % [
 		CWData.fmt(gain), healthy, necrotic])
 
@@ -247,6 +266,8 @@ func _erosion() -> void:
 		for c in block:
 			if not game.cells_at(c, CWData.Faction.IMMUNE).is_empty():
 				continue  # 免疫细胞所在格无法被侵蚀
+			if _watched(c):
+				continue  # 【免疫监视】守护范围内不能被侵蚀
 			var near_cancer := false
 			for n in CWData.neighbors(c):
 				if game.is_cancerous(n):
@@ -288,6 +309,8 @@ func _proliferate() -> void:
 			continue
 		if not game.cells_at(c, CWData.Faction.IMMUNE).is_empty():
 			continue  # 与【侵蚀】一致：免疫细胞所在格不被转化
+		if _watched(c):
+			continue  # 【免疫监视】守护范围内不做增生判定（不掷骰，rng 消耗随之变少）
 		var adj := 0
 		for n in CWData.neighbors(c):
 			if game.is_cancerous(n):
@@ -330,6 +353,11 @@ func _anaerobic() -> void:
 				cell["energy"] += int(ceil(gain * CWData.WARBURG_PERCENT / 100.0))
 			else:
 				cell["energy"] += gain
+			var glut := _glut_bonus(cell)
+			if glut > 0:
+				cell["energy"] += glut
+				game.log_msg("　【GLUT1高表达】%s 额外 +%s 能量" % [
+					game.cell_name(cell), CWData.fmt(glut)])
 		game.log_msg("【无氧呼吸】连通块（%d 格）内 %d 个癌细胞各 +%s 能量" % [
 			block.size(), here.size(), CWData.fmt(gain)])
 
@@ -363,8 +391,25 @@ func anaerobic_gain_for(target: Dictionary) -> int:
 		## 小细胞肺癌【瓦伯格超速糖酵解】对这次结算同样生效
 		if target["ctype"] == CWData.CancerType.SCLC:
 			gain = int(ceil(gain * CWData.WARBURG_PERCENT / 100.0))
-		return gain
+		## 【GLUT1高表达】「每次结算无氧呼吸」——糖酵解爆发的这次也算
+		return gain + _glut_bonus(target)
 	return 0
+
+
+func _glut_bonus(cell: Dictionary) -> int:
+	if game.has_skill(cell, "GLUT1高表达"):
+		return CWData.GLUT1_BONUS[CWCardData.cancer_phase(game.round_no)]
+	return 0
+
+
+## 【免疫监视】：装备者所在格及 3 格范围内的健康组织不做【增生】判定、不能被【侵蚀】。
+## （PRD 写「自身相邻3格」，按 3 格范围读——⏳ 口径 #66 待团队确认）
+func _watched(c: Vector2i) -> bool:
+	for cell in game.living_cells(CWData.Faction.IMMUNE):
+		if game.has_skill(cell, "免疫监视") \
+				and CWData.hex_dist(c, cell["pos"]) <= CWData.WATCH_RANGE:
+			return true
+	return false
 
 
 ## 骨肉瘤【骨样硬化】：该细胞触发的【E-固化】结算计数为 +1.5。

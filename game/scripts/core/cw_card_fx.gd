@@ -132,6 +132,10 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 	if _stress_fee() > 0 and not game.can_pay(cell, _stress_fee()):
 		return
 	for card in cell["hand"]:
+		## 永久技能：无目标，打出即装备（同名限一张由抽卡合法性把关，手上不会有重复）
+		if CWCardData.CARDS[card]["kind"] == CWCardData.Kind.PERMANENT:
+			opts.append(_opt(card, "（装备）"))
+			continue
 		match card:
 			"基质降解":
 				for n in CWData.neighbors(cell["pos"]):
@@ -218,6 +222,12 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 		if not game.pay(cell, fee):
 			return   ## 选项层已按费用把过关，这里只是兜底
 		game.log_msg("　【细胞应激】支付 %s 能量" % CWData.fmt(fee))
+	## 永久技能：置于角色面板持续生效（PRD 卡牌规则），效果在各挂接点按 equipped 查询
+	if CWCardData.CARDS[card]["kind"] == CWCardData.Kind.PERMANENT:
+		cell["hand"].erase(card)
+		cell["equipped"].append(card)
+		game.log_msg("　【%s】装备至角色面板（技 %d）" % [card, cell["equipped"].size()])
+		return
 	match card:
 		"基质降解":
 			var t: Dictionary = game.tile(data["to"])
@@ -296,6 +306,9 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 			game.log_msg("　（该卡效果未实现，未弃置）")
 			return
 	cell["hand"].erase(card)
+	## 【细胞因子网络】：别人上膛的网络因这次即时技能结算而触发；自己装备了就重新上膛
+	if cell["faction"] == CWData.Faction.IMMUNE:
+		_cytokine_chain(cell)
 
 
 # ============ 各卡的结算 ============
@@ -812,6 +825,23 @@ func _tnf(cell: Dictionary) -> void:
 	game.install_event("TNF-α局部炎症", 1, frozen)
 	game.log_msg("　【TNF-α局部炎症】%d 个癌细胞 −%s；%d 格癌组织固化 −1.0 且本回合冻结" % [
 		hit, CWData.fmt(_amp(10)), frozen.size()])
+
+
+## 【细胞因子网络】（永久）：装备者发动即时技能后，同一世界回合**下一名**免疫细胞的
+## 即时技能结算完成后，该细胞恢复 0.5。「上膛」条目挂在装备者身上（round 时钟），
+## 任何**其他**免疫细胞结算完即时技能就触发；自己连打两张不触发自己的（「下一名」）。
+## 每张即时技能结算完都会走到这里：先领别人的赏，再给自己上膛。
+func _cytokine_chain(cell: Dictionary) -> void:
+	for o in game.living_cells(CWData.Faction.IMMUNE):
+		if o["id"] == cell["id"]:
+			continue
+		if game.spend_mods(o, "细胞因子网络·待发") > 0:
+			cell["energy"] += CWData.SKILL_HEAL
+			game.log_msg("　【细胞因子网络】%s 的网络生效：%s 恢复 0.5 能量（现 %s）" % [
+				game.cell_name(o), game.cell_name(cell), CWData.fmt(cell["energy"])])
+	if game.has_skill(cell, "细胞因子网络") \
+			and game.mods_of(cell, "细胞因子网络·待发").is_empty():
+		game.add_mod(cell, "细胞因子网络·待发", 1, "round")
 
 
 # ============ 工具 ============

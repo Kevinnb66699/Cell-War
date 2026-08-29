@@ -263,15 +263,10 @@ func _pick_hand(options: Array, gesture: Array) -> Variant:
 const HAND_INSET := CWHand.LEFT + CWHand.SPAN
 
 
-## 这张卡为什么打不出：按卡的类别给个说得过去的解释（试玩第一轮：永久卡被问「为什么」）
-func _unplayable_why(card: String) -> String:
-	if CWCardData.CARDS.has(card):
-		match CWCardData.CARDS[card]["kind"]:
-			CWCardData.Kind.PERMANENT:
-				return "是永久技能，等「装备位」上线；可先弃置腾位"
-			CWCardData.Kind.INSTANT:
-				return "效果还没实现（修饰卡批）或此刻不可用；可先弃置腾位"
-	return "此刻打不出；可先弃置腾位"
+## 这张卡为什么打不出：66 张效果都实现了，走到这里只剩「此刻不可用」
+## （带目标的卡没有合法目标、TNF 范围内没东西之类）
+func _unplayable_why(_card: String) -> String:
+	return "此刻不可用（没有合法目标）；可先弃置腾位"
 
 
 
@@ -457,7 +452,8 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 		"differentiate":
 			return "免费"
 		"antibody":
-			return CWData.fmt(CWData.ANTIBODY_COST)
+			## 【抗体亲和力成熟】把抗体费降到 0.5——价签跟着技能走
+			return CWData.fmt(game.actions.antibody_cost(cell))
 		"toxin":
 			return CWData.fmt(CWData.TOXIN_COST)
 		"lyse":

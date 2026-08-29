@@ -23,6 +23,7 @@ func _run_all() -> void:
 	await t_card_instants()
 	await t_card_choices()
 	await t_card_mods()
+	await t_card_perms()
 	await t_world_events_draw()
 	t_ev_attack_mods()
 	await t_ev_attack_flow()
@@ -2562,6 +2563,293 @@ func t_card_choices() -> void:
 	g.dispose()
 
 
+func t_card_perms() -> void:
+	print("[卡牌·永久技能]")
+	## ① 装备流程：打出即装备、进「技 N」、装备后不再进抽卡候选
+	var g := _fx_game(4)
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+	imm["energy"] = 100
+	g.cells.append(imm)
+	imm["hand"] = ["组织驻留"]
+	var eopts: Array = []
+	g.card_fx.hand_options(imm, eopts)
+	check(eopts.size() == 1 and eopts[0]["label"].contains("装备"), "永久技能：无目标的「装备」选项")
+	await g.card_fx.play(imm, eopts[0]["data"])
+	check(imm["hand"].is_empty() and imm["equipped"] == ["组织驻留"], "打出即装备至角色面板")
+	check(not g.cards.is_legal(imm, "组织驻留"), "已装备的同名永久技能不再进抽卡候选")
+	## ② 组织驻留：每行动回合首次向健康组织迁移免费
+	var base_h: int = g.tune.immune_move_healthy[0]
+	check(g.actions._move_cost_mod(imm, Vector2i(0, 1), base_h) == 0, "组织驻留：首次向健康组织迁移标价 0")
+	await g.actions._do_move(imm, Vector2i(0, 1), 0)
+	check(imm["energy"] == 100, "免费移动没扣钱")
+	check(g.actions._move_cost_mod(imm, Vector2i(0, 2), base_h) == base_h, "本回合第二次恢复原价")
+	g.turn.begin_turn(0, imm)
+	check(g.actions._move_cost_mod(imm, Vector2i(0, 2), base_h) == 0, "新行动回合重新免费")
+	## ③ LFA-1黏附 + 组织浸润：向癌性组织的减免叠加，首移后只剩浸润
+	imm["equipped"] = ["LFA-1黏附", "组织浸润"]
+	imm["fx_turn"] = {}
+	g.tiles[Vector2i(1, 1)]["tissue"] = CWData.Tissue.CANCER
+	var base_c: int = g.tune.immune_move_cancerous[0]
+	check(g.actions._move_cost_mod(imm, Vector2i(1, 1), base_c)
+		== maxi(base_c - CWData.LFA1_CUT - CWData.INFILTRATE_CUT, CWData.MOVE_CUT_MIN),
+		"LFA-1黏附 + 组织浸润：首移 −0.4−0.3")
+	await g.actions._do_move(imm, Vector2i(1, 1),
+		g.actions._move_cost_mod(imm, Vector2i(1, 1), base_c))
+	g.tiles[Vector2i(1, 2)]["tissue"] = CWData.Tissue.CANCER
+	check(g.actions._move_cost_mod(imm, Vector2i(1, 2), base_c)
+		== maxi(base_c - CWData.INFILTRATE_CUT, CWData.MOVE_CUT_MIN),
+		"首移之后 LFA 闸门烧掉，只剩浸润的 −0.3")
+	## ④ 组织巡航：首移免费（任何目的地），此后每次 −0.2
+	imm["equipped"] = ["组织巡航"]
+	imm["fx_turn"] = {}
+	check(g.actions._move_cost_mod(imm, Vector2i(2, 2), base_h) == 0, "组织巡航：首移免费")
+	await g.actions._do_move(imm, Vector2i(2, 2), 0)
+	check(g.actions._move_cost_mod(imm, Vector2i(2, 3), base_h)
+		== maxi(base_h - CWData.CRUISE_CUT, CWData.MOVE_CUT_MIN), "此后每次迁移 −0.2")
+	g.dispose()
+
+	## ⑤ 代谢适应 / 自分泌生存信号：有氧额外 +0.5/+0.8；GLUT1：无氧额外（分期）
+	g = _fx_game(4)
+	var ae := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+	ae["energy"] = 0
+	ae["equipped"] = ["代谢适应", "自分泌生存信号"]
+	g.cells.append(ae)
+	g.world.aerobic()
+	check(ae["energy"] == 30 + CWData.AEROBIC_ADAPT + CWData.AEROBIC_AUTOCRINE,
+		"有氧 3.0 + 代谢适应 0.5 + 自分泌 0.8")
+	var gl := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(5, 0), -1, CWData.CancerType.MELANOMA)
+	gl["energy"] = 0
+	gl["equipped"] = ["GLUT1高表达"]
+	g.cells.append(gl)
+	g.tiles[Vector2i(5, 0)]["tissue"] = CWData.Tissue.CANCER
+	g.round_no = 12
+	check(g.world.anaerobic_gain_for(gl) == 4 + CWData.GLUT1_BONUS[1],
+		"GLUT1：单格块无氧 0.4 + 中期 0.8（糖酵解爆发同口径）")
+	g.world._anaerobic()
+	check(gl["energy"] == 4 + CWData.GLUT1_BONUS[1], "E 阶段无氧同样加成")
+	g.dispose()
+
+	## ⑥ 净化连锁：模式识别增强 + 效应记忆形成（每世界回合一次）；免疫记忆库免费抽
+	g = _fx_game(4)
+	var pu := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+	pu["energy"] = 0
+	pu["equipped"] = ["模式识别增强", "效应记忆形成"]
+	g.cells.append(pu)
+	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[Vector2i(2, 0)]["tissue"] = CWData.Tissue.CANCER
+	await g.actions.enter_tile(pu, Vector2i(1, 0))
+	check(pu["energy"] == CWData.SKILL_HEAL * 2 and g.memory == 2,
+		"首次净化：两技能各回 0.5，记忆 +1（净化）+1（效应记忆）")
+	await g.actions.enter_tile(pu, Vector2i(2, 0))
+	check(pu["energy"] == CWData.SKILL_HEAL * 2 and g.memory == 3,
+		"同世界回合第二次净化：技能不再触发，只有净化本身 +1 记忆")
+	pu["equipped"] = ["免疫记忆库"]
+	pu["fx_round"] = {}
+	g.tiles[Vector2i(3, 0)]["tissue"] = CWData.Tissue.CANCER
+	var log0: int = g.logs.size()
+	await g.actions.enter_tile(pu, Vector2i(3, 0))
+	var drew_log := false
+	for i in range(log0, g.logs.size()):
+		if g.logs[i].contains("免疫记忆库"):
+			drew_log = true
+	check(drew_log and pu["fx_round"].has("免疫记忆库"), "免疫记忆库：首次净化免费抽 1 张")
+	g.dispose()
+
+	## ⑦ 免疫突触成熟：判定分布 1 失败 / 2~4 成功 / 5~6 大成功
+	g = _fx_game(2)
+	var sy := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+	sy["equipped"] = ["免疫突触成熟"]
+	g.cells.append(sy)
+	check(g.actions.attack_outcome(2, sy) == "success" and g.actions.attack_outcome(5, sy) == "crit"
+		and g.actions.attack_outcome(1, sy) == "fail", "免疫突触成熟：1/6 失败、1/2 成功、1/3 大成功")
+	check(g.actions.attack_outcome(2) == "fail" and g.actions.attack_outcome(5) == "success",
+		"不带技能仍是 1~2 失败 / 6 大成功")
+	g.dispose()
+
+	## ⑧ 细胞因子网络：装备者打完即时卡上膛，下一名免疫细胞的即时卡结算完 +0.5
+	g = _fx_game(4)
+	var na := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+	na["energy"] = 100
+	na["equipped"] = ["细胞因子网络"]
+	g.cells.append(na)
+	var nb := CWSetup.make_cell(1, 1, CWData.Faction.IMMUNE, Vector2i(0, 3), CWData.ImmuneType.BASIC, -1)
+	nb["energy"] = 100
+	g.cells.append(nb)
+	na["hand"] = ["细胞膜修复"]
+	await g.card_fx.play(na, { "act": "play", "card": "细胞膜修复" })
+	check(g.mods_of(na, "细胞因子网络·待发").size() == 1, "打完即时卡：网络上膛")
+	na["hand"] = ["细胞膜修复"]
+	await g.card_fx.play(na, { "act": "play", "card": "细胞膜修复" })
+	check(g.mods_of(na, "细胞因子网络·待发").size() == 1 and na["energy"] == 100,
+		"自己连打不触发自己的网络（「下一名」），也不重复上膛")
+	nb["hand"] = ["细胞膜修复"]
+	await g.card_fx.play(nb, { "act": "play", "card": "细胞膜修复" })
+	check(nb["energy"] == 100 + CWData.SKILL_HEAL and g.mods_of(na, "细胞因子网络·待发").is_empty(),
+		"下一名免疫细胞结算完即时卡：+0.5，网络消耗")
+	g.dispose()
+
+	## ⑨ 免疫监视：3 格范围内不做增生判定
+	g = _fx_game(4)
+	var wt := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+	wt["equipped"] = ["免疫监视"]
+	g.cells.append(wt)
+	g.tune.proliferate_per_adjacent = 1000   ## 必中，隔离概率因素
+	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER    ## 全在守护圈内
+	g.tiles[Vector2i(5, 0)]["tissue"] = CWData.Tissue.CANCER    ## 圈外
+	g.world._proliferate()
+	check(g.tiles[Vector2i(2, 0)]["tissue"] == CWData.Tissue.HEALTHY,
+		"守护圈内的健康组织不做增生判定")
+	check(g.tiles[Vector2i(6, 0)]["tissue"] == CWData.Tissue.CANCER,
+		"圈外照常增生（(6,0) 距离 6 > 3）")
+	check(g.world._watched(Vector2i(3, 0)) and not g.world._watched(Vector2i(4, 0)),
+		"守护半径恰为 3（⏳ #66 的读法）")
+	g.dispose()
+
+	## ⑩ 耗竭抵抗：每世界回合首次损失 −1.0；微环境压迫额外 −0.5
+	g = _fx_game(4)
+	var ex := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+	ex["energy"] = 100
+	ex["equipped"] = ["耗竭抵抗"]
+	g.cells.append(ex)
+	for n in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 1)]:
+		g.tiles[n]["tissue"] = CWData.Tissue.CANCER
+	g.world._pressure()
+	check(ex["energy"] == 100, "压迫 0.5 被「首次 −1.0 + 压迫 −0.5」整个吃掉")
+	g.cancer_hit(ex, 20, "测试")
+	check(ex["energy"] == 80, "首次闸门已烧，第二次损失全额")
+	g.dispose()
+
+	## ⑪ 抗原呈递强化：每世界回合首次攻击未标记者 → 施加标记；树突的标记翻倍两次
+	g = _fx_game(4)
+	var pr := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+	pr["energy"] = 100
+	pr["equipped"] = ["抗原呈递强化"]
+	g.cells.append(pr)
+	var pf := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0), -1, CWData.CancerType.MELANOMA)
+	pf["energy"] = 500
+	g.cells.append(pf)
+	_rig_roll(g, 6, [3])
+	await g.actions._do_move(pr, Vector2i(1, 0), 0)
+	check(pf["marked"] and pf["mark_left"] == 1, "普通细胞攻击后施加标记（1 次翻倍）")
+	var dd := CWSetup.make_cell(2, 2, CWData.Faction.IMMUNE, Vector2i(5, -5), CWData.ImmuneType.DENDRITIC, -1)
+	dd["equipped"] = ["抗原呈递强化"]
+	g.cells.append(dd)
+	var pf2 := CWSetup.make_cell(3, 3, CWData.Faction.CANCER, Vector2i(-3, 0), -1, CWData.CancerType.MELANOMA)
+	pf2["energy"] = 500
+	g.cells.append(pf2)
+	g.apply_mark(pf2, dd)
+	check(pf2["mark_left"] == 2, "呈递强化树突施加的标记有两次翻倍")
+	var d1 := g.immune_hit(pf2, 10, pr, false)
+	var d2 := g.immune_hit(pf2, 10, pr, false)
+	var d3 := g.immune_hit(pf2, 10, pr, false)
+	check(d1 == 20 and d2 == 20 and d3 == 10, "翻倍两次后标记才移除")
+	g.dispose()
+
+	## ⑫ 抗体亲和力成熟：B 抗体 0.5 费 / 1.5 伤；每行动回合首次攻击邻健康的目标 +0.5
+	g = _fx_game(4)
+	var bm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.B_CELL, -1)
+	bm["energy"] = 100
+	bm["equipped"] = ["抗体亲和力成熟"]
+	g.cells.append(bm)
+	var bt := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0), -1, CWData.CancerType.MELANOMA)
+	bt["energy"] = 500
+	g.cells.append(bt)
+	check(g.actions.antibody_cost(bm) == CWData.MATURED_ANTIBODY_COST, "抗体费 1.0 → 0.5")
+	await g.actions._do_antibody(bm)
+	check(bm["energy"] == 100 - CWData.MATURED_ANTIBODY_COST
+		and bt["energy"] == 500 - CWData.MATURED_ANTIBODY_DMG, "抗体伤害 1.0 → 1.5")
+	var bt0: int = bt["energy"]
+	_rig_roll(g, 6, [3])
+	await g.actions._do_move(bm, Vector2i(1, 0), 0)
+	check(bt["energy"] == bt0 - g.tune.attack_dmg_success - CWData.MATURED_ATTACK_EXTRA,
+		"首次攻击邻健康的癌细胞 +0.5")
+	g.dispose()
+
+	## ⑬ 吞噬体成熟：打剩 ≤0.5 直接死；巨噬阈值 1.5 并回 0.5
+	g = _fx_game(4)
+	var ph := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.MACRO, -1)
+	ph["energy"] = 100
+	ph["equipped"] = ["吞噬体成熟"]
+	g.cells.append(ph)
+	var pv := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0), -1, CWData.CancerType.MELANOMA)
+	pv["energy"] = g.tune.attack_dmg_success + 12   ## 打完剩 1.2 ≤ 巨噬阈值 1.5
+	g.cells.append(pv)
+	var ph0: int = ph["energy"]
+	_rig_roll(g, 6, [3])
+	await g.actions._do_move(ph, Vector2i(1, 0), 0)
+	check(not pv["alive"], "吞噬体成熟：目标剩 1.2 ≤ 1.5，直接死亡")
+	check(ph["energy"] == ph0 + 10 + CWData.SKILL_HEAL,
+		"巨噬吸血 1.0（⌈2.0/2⌉）+ 吞噬体回 0.5")
+	g.dispose()
+
+	## ⑭ 细胞毒性增强：T 细胞每次成功 +1.0 且无视减伤（囊性护甲拦不住那 1.0）
+	g = _fx_game(4)
+	var ct := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.T_CELL, -1)
+	ct["energy"] = 100
+	ct["equipped"] = ["细胞毒性增强"]
+	g.cells.append(ct)
+	var cv := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0), -1, CWData.CancerType.SIGNET)
+	cv["energy"] = 500
+	g.cells.append(cv)
+	_rig_roll(g, 6, [3])
+	await g.actions._do_move(ct, Vector2i(1, 0), 0)
+	check(cv["energy"] == 500 - (g.tune.attack_dmg_success - CWData.ARMOR_REDUCTION)
+		- CWData.CYTOTOX_EXTRA,
+		"主伤害吃囊性护甲减免，额外的 1.0 直接扣（无视减伤）")
+	g.dispose()
+
+	## ⑮ RAS持续激活：每行动回合首次移动定殖 → 恢复（分期）
+	g = _fx_game(4)
+	var ra := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.MELANOMA)
+	ra["energy"] = 100
+	ra["equipped"] = ["RAS持续激活"]
+	g.cells.append(ra)
+	g.round_no = 1
+	await g.actions._do_move(ra, Vector2i(1, 0), 0)
+	check(ra["energy"] == 100 + CWData.RAS_HEAL[0], "首次定殖 +0.3（前期）")
+	await g.actions._do_move(ra, Vector2i(2, 0), 0)
+	check(ra["energy"] == 100 + CWData.RAS_HEAL[0], "同回合第二次定殖不再触发")
+	g.dispose()
+
+	## ⑯ BCL-2抗凋亡：致死损失改为存活（分期能量），本牌弃置可重抽
+	g = _fx_game(4)
+	var bc := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.MELANOMA)
+	bc["energy"] = 10
+	bc["equipped"] = ["BCL-2抗凋亡"]
+	g.cells.append(bc)
+	g.round_no = 1
+	g.cancer_hit(bc, 99, "测试")
+	check(bc["alive"] and bc["energy"] == CWData.BCL2_ENERGY[0] and bc["equipped"].is_empty(),
+		"免死：能量改为 0.5，本牌弃置")
+	check(g.cards.is_legal(bc, "BCL-2抗凋亡"), "弃置后可重新抽取")
+	g.cancer_hit(bc, 99, "测试")
+	check(not bc["alive"], "没有第二张 BCL-2 就真死了")
+	g.dispose()
+
+	## ⑰ 癌症干性：复活能量提高（分期），本世界回合向癌性组织移动免费
+	g = _fx_game(4)
+	var s0 := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(-5, 0), CWData.ImmuneType.BASIC, -1)
+	g.cells.append(s0)
+	var sc := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(5, 5), -1, CWData.CancerType.MELANOMA)
+	sc["energy"] = 10
+	sc["equipped"] = ["癌症干性"]
+	g.cells.append(sc)
+	g.round_no = 5
+	g.kill(sc)
+	g.tiles[Vector2i(3, 0)]["tissue"] = CWData.Tissue.SOLID
+	await g.world.revive_cancer(1, { "to": Vector2i(3, 0) })
+	check(sc["alive"] and sc["energy"] == CWData.STEMNESS_ENERGY[0],
+		"干性复活：能量 2.0 → 2.5（前期）")
+	g.tiles[Vector2i(4, 0)]["tissue"] = CWData.Tissue.CANCER
+	check(g.actions._move_cost_mod(sc, Vector2i(4, 0), CWData.CANCER_MOVE_CANCEROUS) == 0,
+		"本世界回合向癌性组织移动免费")
+	await g.actions._do_move(sc, Vector2i(4, 0), 0)
+	g.tiles[Vector2i(5, 0)]["tissue"] = CWData.Tissue.CANCER
+	check(g.actions._move_cost_mod(sc, Vector2i(5, 0), CWData.CANCER_MOVE_CANCEROUS)
+		== CWData.CANCER_MOVE_CANCEROUS, "前期只有 1 次额度，用完恢复原价")
+	g.dispose()
+
+
 ## 把 rng 拨到「接下来 sides 面骰会依次掷出 want 序列」的状态上（穷举附近状态，必然找得到）
 func _rig_roll(g: CWGame, sides: int, want: Array) -> void:
 	while true:
@@ -2593,7 +2881,7 @@ func t_card_mods() -> void:
 		== g.tune.immune_move_healthy[0], "炎症趋化：向健康组织不受影响")
 	imm["hand"] = ["CXCR3趋化"]
 	await g.card_fx.play(imm, { "act": "play", "card": "CXCR3趋化" })
-	check(g.actions._move_cost_mod(imm, Vector2i(1, 0), base_c) == CWData.CXCR3_MIN,
+	check(g.actions._move_cost_mod(imm, Vector2i(1, 0), base_c) == CWData.MOVE_CUT_MIN,
 		"叠加：0.5 再 −0.5 踩到 CXCR3 的下限 0.2")
 	var e0: int = imm["energy"]
 	await g.actions._do_move(imm, Vector2i(1, 0), 2)
@@ -2601,7 +2889,7 @@ func t_card_mods() -> void:
 	check(g.mods_of(imm, "炎症趋化").is_empty(), "炎症趋化：用一次就消耗")
 	check(g.mods_of(imm, "CXCR3趋化").size() == 1, "CXCR3：还剩 1 次")
 	g.tiles[Vector2i(2, 0)]["tissue"] = CWData.Tissue.CANCER
-	check(g.actions._move_cost_mod(imm, Vector2i(2, 0), base_c) == maxi(base_c - CWData.CXCR3_CUT, CWData.CXCR3_MIN),
+	check(g.actions._move_cost_mod(imm, Vector2i(2, 0), base_c) == maxi(base_c - CWData.CXCR3_CUT, CWData.MOVE_CUT_MIN),
 		"只剩 CXCR3 时按 −0.5 计")
 	await g.actions._do_move(imm, Vector2i(2, 0), g.actions._move_cost_mod(imm, Vector2i(2, 0), base_c))
 	check(g.mods_of(imm, "CXCR3趋化").is_empty(), "CXCR3：两次用尽")

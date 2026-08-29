@@ -15,6 +15,7 @@ var game: CWGame
 
 func begin_turn(pid: int, cell: Dictionary) -> void:
 	cell["draws_used"] = 0   ## 【基因表达】的 3 次上限是「每回合」，在这里重置
+	cell["fx_turn"] = {}     ## 永久技能「每行动回合第一次」的闸门
 	game.log_msg("▶ %s 的回合（能量 %s）" % [game.player(pid)["name"], CWData.fmt(cell["energy"])])
 
 

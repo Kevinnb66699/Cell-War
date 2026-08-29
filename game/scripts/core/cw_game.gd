@@ -446,6 +446,29 @@ func clear_mods(cell: Dictionary, until: String) -> void:
 	cell["mods"] = kept
 
 
+# ---- 永久技能（装备在 cell["equipped"]，打出即装备、死亡不掉、同名限一张）----
+
+func has_skill(cell: Dictionary, skill: String) -> bool:
+	return skill in cell["equipped"]
+
+
+## 「每个行动回合第一次」的闸门：第一次调用返回 true 并记账（begin_turn 清）。
+## 报价这类只读场合**别调它**——直接查 cell["fx_turn"].has(key)，免得把闸门白白烧掉。
+func first_this_turn(cell: Dictionary, key: String) -> bool:
+	if cell["fx_turn"].has(key):
+		return false
+	cell["fx_turn"][key] = true
+	return true
+
+
+## 「每世界回合第一次」的闸门（S 阶段 _reset_round_flags 清）
+func first_this_round(cell: Dictionary, key: String) -> bool:
+	if cell["fx_round"].has(key):
+		return false
+	cell["fx_round"][key] = true
+	return true
+
+
 ## 固化计数的**增加**一律走这里（【E-固化】与卡【基质硬化】共用）：
 ## 达到 3.0 即转固化；【固化加速】生效时，从 2.0 以下涨到 ≥2.0 也立即转化
 ## （定案 W4——只认「涨过线」，事件触发时已 ≥2.0 的格不追溯）。
@@ -592,8 +615,13 @@ func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: boo
 	var cut := 0
 	if target["marked"]:
 		mult *= 2
-		target["marked"] = false
-		log_msg("　【标记】生效，伤害翻倍")
+		target["mark_left"] -= 1
+		if target["mark_left"] <= 0:
+			target["marked"] = false
+			log_msg("　【标记】生效，伤害翻倍")
+		else:
+			## 呈递强化树突施加的双份标记：翻倍两次才移除
+			log_msg("　【标记】生效，伤害翻倍（还可触发 %d 次）" % target["mark_left"])
 	if attack and attacker["faction"] == CWData.Faction.IMMUNE \
 			and attacker["itype"] == CWData.ImmuneType.DENDRITIC:
 		div *= 2
@@ -645,6 +673,13 @@ func cancer_hit(target: Dictionary, base: int, reason: String, skill: bool = fal
 		if hyp > 0:
 			cut += CWData.HYPOXIA_CUT * hyp
 			log_msg("　【缺氧适应】减免 %s" % CWData.fmt(CWData.HYPOXIA_CUT * hyp))
+	if has_skill(target, "耗竭抵抗"):
+		if first_this_round(target, "耗竭抵抗"):
+			cut += CWData.EXHAUST_FIRST_CUT
+			log_msg("　【耗竭抵抗】本世界回合首次损失 −1.0")
+		if reason == "微环境压迫":
+			cut += CWData.EXHAUST_PRESSURE_CUT
+			log_msg("　【耗竭抵抗】微环境压迫额外 −0.5")
 	var dmg := settle_loss(base, 0, 1, 1, cut)
 	log_msg("【%s】%s 损失 %s 能量（余 %s）" % [
 		reason, cell_name(target), CWData.fmt(dmg), CWData.fmt(maxi(target["energy"] - dmg, 0))])
@@ -662,6 +697,16 @@ func _lose_energy(cell: Dictionary, dmg: int, verbose: bool = true) -> void:
 
 
 func _after_damage(cell: Dictionary) -> void:
+	## 【BCL-2抗凋亡】只救「受到的损失」——挂在这里而不是 kill() 里，
+	## 黏液破裂的自毁、突变的自扣不经过这条路，救不了（口径 #68）
+	if cell["energy"] <= 0 and has_skill(cell, "BCL-2抗凋亡"):
+		var tier: int = CWData.BCL2_ENERGY[CWCardData.cancer_phase(round_no)]
+		cell["energy"] = tier
+		cell["equipped"].erase("BCL-2抗凋亡")
+		log_msg("　【BCL-2抗凋亡】%s 免于死亡，能量改为 %s（本牌弃置，可重新抽取）" % [
+			cell_name(cell), CWData.fmt(tier)])
+		update_marks()
+		return
 	if cell["energy"] <= 0:
 		kill(cell)
 	update_marks()
@@ -705,6 +750,19 @@ func reduce_memory(n: int) -> void:
 
 
 # ---- 树突【标记】：光环式，相邻即获得；只增不减，消耗后若仍相邻会再次标记 ----
+
+## 施加【标记】的唯一入口（光环 / 卡【交叉呈递】/ 技能【抗原呈递强化】共用）。
+## by = 施加者：树突装备【抗原呈递强化】时，它施加的标记可触发 2 次翻倍再移除。
+## 已有更多次数的标记不被弱化（maxi 取大）。
+func apply_mark(target: Dictionary, by: Dictionary) -> void:
+	target["marked"] = true
+	var charges := 1
+	if by["faction"] == CWData.Faction.IMMUNE and by["itype"] == CWData.ImmuneType.DENDRITIC \
+			and has_skill(by, "抗原呈递强化"):
+		charges = 2
+	target["mark_left"] = maxi(target["mark_left"], charges)
+
+
 func update_marks() -> void:
 	for c in living_cells(CWData.Faction.CANCER):
 		if c["marked"]:
@@ -713,10 +771,10 @@ func update_marks() -> void:
 			var found := false
 			for ic in cells_at(n, CWData.Faction.IMMUNE):
 				if ic["itype"] == CWData.ImmuneType.DENDRITIC:
+					apply_mark(c, ic)
 					found = true
 					break
 			if found:
-				c["marked"] = true
 				break
 
 
@@ -778,10 +836,15 @@ func state_hash() -> String:
 		var mods: PackedStringArray = []
 		for m in cell["mods"]:
 			mods.append("%s*%d%s" % [m["name"], m["uses"], m["until"]])
-		parts.append("c%d:%d,%s,%d,%d,%d,%d,%d|%s|%s|%s" % [cell["id"], cell["faction"],
+		var ft: Array = cell["fx_turn"].keys()
+		ft.sort()
+		var fr: Array = cell["fx_round"].keys()
+		fr.sort()
+		parts.append("c%d:%d,%s,%d,%d,%d,%d,%d|%s|%s|%s|k%d.%d|%s|%s" % [cell["id"], cell["faction"],
 			str(cell["pos"]), cell["energy"], 1 if cell["alive"] else 0,
 			cell["itype"], cell["ctype"], cell["respawn_round"],
-			",".join(cell["hand"]), ",".join(cell["equipped"]), ",".join(mods)])
+			",".join(cell["hand"]), ",".join(cell["equipped"]), ",".join(mods),
+			1 if cell["marked"] else 0, cell["mark_left"], str(ft), str(fr)])
 	var ev: PackedStringArray = []
 	for e in events["active"]:
 		var dk: Array = e["data"].keys()

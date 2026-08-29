@@ -120,7 +120,7 @@ const CHEMOTAX_STEP_COST := 2            # 【炎症性趋化】每步基准 0.2
 # ---- 修饰卡的数值（一次性/短时修饰，条目挂在 cell["mods"] 上）----
 const INFLAM_CHEMO_COST := 5             # 【炎症趋化】下一次向癌性组织迁移：费用降为 0.5
 const CXCR3_CUT := 5                     # 【CXCR3趋化】接下来 2 次向癌性组织迁移：每次 −0.5
-const CXCR3_MIN := 2                     #   —— 最低 0.2
+const MOVE_CUT_MIN := 2                  # 迁移/移动减免类的共同下限 0.2（各卡面都写 0.2）
 const EMT_MOVE_COST := 2                 # 【上皮—间质转化】接下来 N 次向健康组织移动：费用 0.2
 const MEMBRANE_CUT := 15                 # 【细胞膜修复】下一次能量损失 −1.5
 const IFN1_CUT := 10                     # 【I型干扰素】每个免疫细胞下一次能量损失 −1.0
@@ -130,6 +130,27 @@ const PERFORIN_EXTRA := 10               # 【穿孔素-颗粒酶】下次攻击
 const PERFORIN_EXTRA_T := 20             #   —— T 细胞改为 +2.0
 const AFFINITY_EXTRA := 10               # 【高亲和力克隆】直接大成功并额外 +1.0
 const CASCADE_MAX_TILES := 2             # 【补体级联】成功后随机转化目标相邻最多 2 格
+
+# ---- 永久技能的数值（装备在 cell["equipped"]，被动查询）----
+const LFA1_CUT := 4                      # 【LFA-1黏附】每行动回合首次向癌性组织迁移 −0.4
+const INFILTRATE_CUT := 3                # 【组织浸润】每次向癌性组织迁移 −0.3
+const CRUISE_CUT := 2                    # 【组织巡航】首移免费之后，本回合每次迁移 −0.2
+const SKILL_HEAL := 5                    # 多个技能共用的「恢复 0.5」（模式识别/效应记忆/细胞因子网络/吞噬体巨噬）
+const AEROBIC_ADAPT := 5                 # 【代谢适应】每次有氧结算 +0.5
+const AEROBIC_AUTOCRINE := 8             # 【自分泌生存信号】每次有氧结算 +0.8
+const EXHAUST_FIRST_CUT := 10            # 【耗竭抵抗】每世界回合首次损失 −1.0
+const EXHAUST_PRESSURE_CUT := 5          #   —— 微环境压迫的损失额外 −0.5
+const MATURED_ANTIBODY_COST := 5         # 【抗体亲和力成熟】B 细胞：抗体费 1.0 → 0.5
+const MATURED_ANTIBODY_DMG := 15         #   —— 抗体伤害 1.0 → 1.5
+const MATURED_ATTACK_EXTRA := 5          #   —— 每行动回合首次攻击邻健康的癌细胞 +0.5
+const PHAGO_THRESHOLD := 5               # 【吞噬体成熟】处决线：余量 ≤0.5 直接死亡
+const PHAGO_THRESHOLD_MACRO := 15        #   —— 巨噬提高到 1.5，触发后自身恢复 0.5
+const CYTOTOX_EXTRA := 10                # 【细胞毒性增强】攻击成功额外 +1.0
+const WATCH_RANGE := 3                   # 【免疫监视】守护半径（「相邻3格」按 3 格范围读，⏳ #66）
+const GLUT1_BONUS: Array[int] = [5, 8, 10]        # 【GLUT1高表达】无氧 +0.5/0.8/1.0（分期）
+const RAS_HEAL: Array[int] = [3, 5, 7]            # 【RAS持续激活】首次定殖恢复（分期）
+const BCL2_ENERGY: Array[int] = [5, 8, 10]        # 【BCL-2抗凋亡】免死后的能量（分期）
+const STEMNESS_ENERGY: Array[int] = [25, 30, 35]  # 【癌症干性】复活能量（分期）
 
 # ---- 特殊组织（2026-08-27 团队定案，轴坐标，中心 (0,0)）----
 # 布局：**半径 3** 那一环的 6 个「角」上，代谢核心与骨髓**交替**排布（各 3 个）；
