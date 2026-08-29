@@ -15,7 +15,7 @@ func _initialize() -> void:
 
 func _run() -> void:
 	print("Cell War 平衡模拟：%d 局，%d 人局，启发式 AI 互搏" % [GAMES, N_PLAYERS])
-	print("（卡牌未定义=空白卡、世界事件未定义=跳过 → 本结果为「无卡无事件版」平衡）")
+	print("（66 卡 + 18 事件全实装、AI 会抽卡打牌 → 本结果为「有卡版」平衡，2026-08-29 起）")
 	var wins := { CWData.Faction.IMMUNE: 0, CWData.Faction.CANCER: 0 }
 	var kinds := {}
 	var rounds_sum := 0
