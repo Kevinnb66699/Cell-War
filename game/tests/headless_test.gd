@@ -2706,6 +2706,9 @@ func t_hand_play() -> void:
 	await process_frame
 	check(b.marks.size() == 1 and b.marks.has(tpos), "点卡后高亮目标细胞所在格")
 	check(hand._selected == 0, "被点的卡进入选中态（半抬）")
+	var pad: Control = bar._row.get_child(0)
+	check(not (pad is PanelContainer) and pad.custom_minimum_size.x == CWHand.LEFT + CWHand.SPAN,
+		"底条给手牌区让位 312px（标题不会被抬起的卡压住）")
 	board.tile_clicked.emit(Vector2i(9, 9))
 	check(r1[0] == -99, "点非目标格无效")
 	board.tile_clicked.emit(tpos)

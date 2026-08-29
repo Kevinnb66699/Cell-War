@@ -216,14 +216,16 @@ func _pick_hand(options: Array, gesture: Array) -> Variant:
 			plays.append(i)
 	if hand != null:
 		hand.set_selected(card)
+	## 标题一律用短语，卡名放进副标题行——底条要给手牌区让位（HAND_INSET），
+	## 剩下的宽度装不下「选择【九字卡名】的目标」这种长标题（试玩第一轮的重叠教训）
 	var got: Variant
 	if gesture[0] == "discard":
 		if discard_i < 0:
 			got = "cancel"     ## 这张卡此刻没有弃置选项（正常流程到不了这里）
 		else:
-			got = await _prompt("弃置【%s】？" % card, "弃掉的卡不会回来",
+			got = await _prompt("弃置这张？", "【%s】弃掉不会回来" % card,
 				[{ "title": "确认弃置", "cost": "" }, { "title": "取消", "cost": "右键 / Esc" }],
-				[discard_i, "cancel"], {}, null, 1, true)
+				[discard_i, "cancel"], {}, null, 1, true, HAND_INSET)
 	elif plays.is_empty():
 		var buttons: Array = []
 		var values: Array = []
@@ -232,8 +234,8 @@ func _pick_hand(options: Array, gesture: Array) -> Variant:
 			values.append(discard_i)
 		buttons.append({ "title": "返回", "cost": "右键 / Esc" })
 		values.append("cancel")
-		got = await _prompt("【%s】还打不出" % card, "效果未实现或此刻不可用（可先弃置腾位）",
-			buttons, values, {}, null, values.size() - 1, true)
+		got = await _prompt("还打不出", "【%s】%s" % [card, _unplayable_why(card)],
+			buttons, values, {}, null, values.size() - 1, true, HAND_INSET)
 	else:
 		var tiles := {}
 		for i in plays:
@@ -243,16 +245,32 @@ func _pick_hand(options: Array, gesture: Array) -> Variant:
 			elif d.has("cid"):
 				tiles[game.cells[d["cid"]]["pos"]] = i
 		if tiles.is_empty():
-			got = await _prompt("打出【%s】？" % card, "这张卡不需要选目标",
+			got = await _prompt("确认打出？", "【%s】不需要选目标" % card,
 				[{ "title": "确认打出", "cost": "" }, { "title": "取消", "cost": "右键 / Esc" }],
-				[plays[0], "cancel"], {}, null, 1, true)
+				[plays[0], "cancel"], {}, null, 1, true, HAND_INSET)
 		else:
-			got = await _prompt("选择【%s】的目标" % card,
-				"高亮 %d 格可选 · 右键或 Esc 退出" % tiles.size(),
-				[{ "title": "取消", "cost": "右键 / Esc" }], ["cancel"], tiles, null, 0, true)
+			got = await _prompt("选择目标", "打出【%s】· 高亮 %d 格可选 · 右键或 Esc 退出" % [card, tiles.size()],
+				[{ "title": "取消", "cost": "右键 / Esc" }], ["cancel"], tiles, null, 0, true, HAND_INSET)
 	if hand != null:
 		hand.set_selected("")
 	return got
+
+
+## 手牌几问的底条左侧让位宽度 = 手牌区的横向占位（LEFT + SPAN）。
+## 卡再多（8 张压叠后右缘 312）、悬停抬起也到不了这条线右边。
+const HAND_INSET := CWHand.LEFT + CWHand.SPAN
+
+
+## 这张卡为什么打不出：按卡的类别给个说得过去的解释（试玩第一轮：永久卡被问「为什么」）
+func _unplayable_why(card: String) -> String:
+	if CWCardData.CARDS.has(card):
+		match CWCardData.CARDS[card]["kind"]:
+			CWCardData.Kind.PERMANENT:
+				return "是永久技能，要等「装备位」上线——先只能弃置腾位"
+			CWCardData.Kind.INSTANT:
+				return "的效果还没实现（修饰/需中途选择那批）——先只能弃置腾位"
+	return "效果未实现或此刻不可用——先只能弃置腾位"
+
 
 
 ## 技能的第二段：同一个 act 有多个选项时，让玩家挑一个。
@@ -333,10 +351,10 @@ func _ask_generic(req: Dictionary) -> int:
 ## cancel 指出 buttons 里哪一个是「取消」（右键 / Esc 的快捷方式）；-1 = 不能取消。
 func _prompt(title: String, hint: String, buttons: Array, values: Array,
 		tiles: Dictionary, end_value: Variant = null, cancel := -1,
-		hand_play := false) -> Variant:
+		hand_play := false, inset := 0.0) -> Variant:
 	_tiles = tiles
 	_repaint_marks()
-	bar.show_bar(title, hint, buttons, cancel)
+	bar.show_bar(title, hint, buttons, cancel, inset)
 	var ans := Answer.new()
 	_pending = ans
 	var on_button := func(i: int) -> void: ans.fire(values[i])

@@ -58,7 +58,8 @@ func _row_node() -> HBoxContainer:
 ## **不传就表示这一问不能取消**，那时右键和 Esc 一律不响应 ——
 ## 上一版是「一律点最后一个按钮」，于是在「选择分化方向」那种提问里，
 ## Esc 会直接替玩家选中最后一个种类。
-func show_bar(title: String, hint: String, entries: Array, cancel_index := -1) -> void:
+func show_bar(title: String, hint: String, entries: Array, cancel_index := -1,
+		inset := 0.0) -> void:
 	visible = true
 	_cancel = cancel_index
 	## 数字键只在技能栏形态生效 —— 目标选择态里唯一的按钮是「结束迁移」，
@@ -78,6 +79,13 @@ func show_bar(title: String, hint: String, entries: Array, cancel_index := -1) -
 		_row.position = PROMPT_RECT.position
 		_row.size = PROMPT_RECT.size
 		_row.alignment = BoxContainer.ALIGNMENT_BEGIN
+		if inset > 0.0:
+			## 手牌那几问要把标题右移：选中/悬停的卡会抬进这条里，
+			## 不让位的话卡面会压住标题（2026-08-29 试玩第一轮报的）
+			var pad := Control.new()
+			pad.custom_minimum_size.x = inset
+			pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_row.add_child(pad)
 		_row.add_child(_make_prompt(title, hint))
 		var spacer := Control.new()
 		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL

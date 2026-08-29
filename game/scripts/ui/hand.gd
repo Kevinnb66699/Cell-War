@@ -191,11 +191,16 @@ func _make_card(index: int) -> Control:
 	## 下面这两行只有抬起来才看得见，属于「详情」的一部分
 	var kind := CWStyle.label("【即时】", CWStyle.SIZE_LABEL, CWStyle.IMMUNE)
 	kind.name = "Kind"
-	kind.position = Vector2(NAME_PAD, CARD.y - 40)
+	kind.position = Vector2(NAME_PAD, CARD.y - 52)
 	card.add_child(kind)
-	var note := CWStyle.label("左键打出 · 右键弃置", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	note.position = Vector2(NAME_PAD, CARD.y - 20)
+	## 操作提示拆两行：卡只有 72px 宽，写一行会被 clip_contents 裁掉后半句
+	## （2026-08-29 试玩第一轮报的：「右键弃置」看不见）
+	var note := CWStyle.label("左键打出", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	note.position = Vector2(NAME_PAD, CARD.y - 34)
 	card.add_child(note)
+	var note2 := CWStyle.label("右键弃置", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	note2.position = Vector2(NAME_PAD, CARD.y - 18)
+	card.add_child(note2)
 	
 	card.gui_input.connect(func(ev: InputEvent) -> void:
 		var mb := ev as InputEventMouseButton
