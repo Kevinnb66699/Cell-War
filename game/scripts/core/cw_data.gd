@@ -117,6 +117,20 @@ const NECROSIS_RADIO := 5                # 免疫卡【放疗】造成：五轮
 const RADIO_REGION := 15                 # 【放疗】区域：含起点的随机连通 15 格
 const CHEMOTAX_STEP_COST := 2            # 【炎症性趋化】每步基准 0.2（再过移动费修正）
 
+# ---- 修饰卡的数值（一次性/短时修饰，条目挂在 cell["mods"] 上）----
+const INFLAM_CHEMO_COST := 5             # 【炎症趋化】下一次向癌性组织迁移：费用降为 0.5
+const CXCR3_CUT := 5                     # 【CXCR3趋化】接下来 2 次向癌性组织迁移：每次 −0.5
+const CXCR3_MIN := 2                     #   —— 最低 0.2
+const EMT_MOVE_COST := 2                 # 【上皮—间质转化】接下来 N 次向健康组织移动：费用 0.2
+const MEMBRANE_CUT := 15                 # 【细胞膜修复】下一次能量损失 −1.5
+const IFN1_CUT := 10                     # 【I型干扰素】每个免疫细胞下一次能量损失 −1.0
+const HYPOXIA_CUT := 10                  # 【缺氧适应】本世界回合下一次癌细胞技能损失额外 −1.0
+const OPSONIN_EXTRA := 5                 # 【补体调理】最终成功/大成功额外 +0.5
+const PERFORIN_EXTRA := 10               # 【穿孔素-颗粒酶】下次攻击成功额外 +1.0
+const PERFORIN_EXTRA_T := 20             #   —— T 细胞改为 +2.0
+const AFFINITY_EXTRA := 10               # 【高亲和力克隆】直接大成功并额外 +1.0
+const CASCADE_MAX_TILES := 2             # 【补体级联】成功后随机转化目标相邻最多 2 格
+
 # ---- 特殊组织（2026-08-27 团队定案，轴坐标，中心 (0,0)）----
 # 布局：**半径 3** 那一环的 6 个「角」上，代谢核心与骨髓**交替**排布（各 3 个）；
 #      骨髓再在外缘（半径 6）的「边中格」补 3 个；左右两个最远角 (±6,0) 一对血管。

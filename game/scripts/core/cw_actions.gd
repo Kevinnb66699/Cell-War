@@ -169,16 +169,29 @@ func _cancerous_adj(c: Vector2i) -> int:
 	return n
 
 
-## 世界事件对移动费用的修正，顺序：先加价 → 再翻倍 → 最后免费首移归零。
+## 移动费用的修正链，顺序（定案 #61）：**卡牌修饰先改基准价**（覆盖优先、再做增减）
+## → 世界事件加价（净化费/伪装）→ 翻倍（基质阻隔）→ 免费首移归零（迁移激活）。
 ## 【双重触发】拉长的 4 回合事件可能与下一个触发共存，叠加顺序在此固定。
+## 卡牌修饰只在这里**标价**，消耗在 _spend_move_mods —— 两边谓词必须一致。
 func _move_cost_mod(cell: Dictionary, dest: Vector2i, base: int) -> int:
 	var cost := base
 	if cell["faction"] == CWData.Faction.IMMUNE:
+		if game.is_cancerous(dest):
+			## 【炎症趋化】把「向癌性组织的迁移费」定为 0.5；【CXCR3趋化】在其上每份 −0.5
+			if not game.mods_of(cell, "炎症趋化").is_empty():
+				cost = CWData.INFLAM_CHEMO_COST
+			var cxcr := game.mods_of(cell, "CXCR3趋化").size()
+			if cxcr > 0:
+				cost = maxi(cost - CWData.CXCR3_CUT * cxcr, CWData.CXCR3_MIN)
 		## 【免疫抑制因子】净化费 0.2（定案 W5）：进普通癌组织格必然触发净化，计入价签。
 		## 攻击进普通癌组织格同理——攻击失败时这 0.2 不退，当作出手成本（待团队确认）。
 		if game.tile(dest)["tissue"] == CWData.Tissue.CANCER:
 			cost += 2 * game.event_stacks("免疫抑制因子")
 	else:
+		## 【上皮—间质转化】把「向健康组织的移动费」定为 0.2
+		if game.tile(dest)["tissue"] == CWData.Tissue.HEALTHY \
+				and not game.mods_of(cell, "上皮—间质转化").is_empty():
+			cost = CWData.EMT_MOVE_COST
 		cost += 2 * game.event_stacks("免疫伪装")   ## 癌细胞移动 +0.2
 	cost = _barrier_fee(cost)
 	if game.world_fx.free_move_available(cell):
@@ -274,6 +287,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int) -> void:
 	if not game.pay(cell, cost):
 		return
 	game.world_fx.consume_free_move(cell)
+	_spend_move_mods(cell, to)
 	if cell["faction"] == CWData.Faction.CANCER:
 		await enter_tile(cell, to)
 		return
@@ -283,14 +297,34 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int) -> void:
 		await enter_tile(cell, to)
 		return
 	var target: Dictionary = enemies[0]
-	var r: int = await game.roll_shown(6, "攻击", cell["pid"], to)
-	var outcome := attack_outcome(r)
-	if r <= 2 and outcome != "fail":
-		game.log_msg("　【细胞毒】攻击不会失败：判定并给成功")
-	elif r == 6 and outcome != "crit":
-		game.log_msg("　【免疫伪装】攻击不会大成功：判定并给成功")
+	## ---- 判定链（定案 #59/#60）----
+	## 骰面 → 世界事件并给（attack_outcome）→【补体调理】失败自动重掷（重掷严格不劣，
+	## 不必发问）→ 防御方【PD-L1表达】最后压一级。【高亲和力克隆】不掷骰直接大成功，
+	## 管骰面概率的世界事件因此不介入，但 PD-L1 照压（它压的是「判定」不是骰面）。
+	## 补体调理/高亲和力克隆骑在「下一次攻击」上：无论结果如何，这次攻击就把它们消耗掉。
+	var opsonin := game.spend_mods(cell, "补体调理")
+	var affinity := game.spend_mods(cell, "高亲和力克隆")
+	var outcome: String
+	var r := 0
+	if affinity > 0:
+		outcome = "crit"
+		game.log_msg("　【高亲和力克隆】不进行随机判定，直接视为大成功")
+	else:
+		r = await game.roll_shown(6, "攻击", cell["pid"], to)
+		outcome = _judged(r)
+		var rerolls := opsonin
+		while outcome == "fail" and rerolls > 0:
+			rerolls -= 1
+			game.log_msg("　【补体调理】攻击失败：重新判定一次，以第二次结果为准")
+			r = await game.roll_shown(6, "攻击", cell["pid"], to)
+			outcome = _judged(r)
+	for i in game.spend_mods(target, "PD-L1表达"):
+		var was := outcome
+		outcome = _downgrade(outcome)
+		game.log_msg("　【PD-L1表达】判定下降一级（%s → %s）" % [
+			VERDICT_NAMES[was], VERDICT_NAMES[outcome]])
 	if outcome == "fail":
-		game.log_msg("　攻击掷骰 %d：失败，%s 被反弹回原格" % [r, game.cell_name(cell)])
+		game.log_msg("　攻击失败，%s 被反弹回原格" % game.cell_name(cell))
 		game.announce("攻击失败", to)
 		## 【抗原变异】攻击失败 → 被攻击的癌细胞抽牌（按层数）
 		for i in game.event_stacks("抗原变异"):
@@ -303,13 +337,24 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int) -> void:
 	else:
 		var crit := outcome == "crit"
 		var dmg: int = game.tune.attack_dmg_crit if crit else game.tune.attack_dmg_success
-		var verdict := "大成功" if crit else "成功"
-		game.log_msg("　攻击掷骰 %d：%s" % [r, verdict])
-		game.announce("攻击%s" % verdict, to)
+		game.announce("攻击%s" % ("大成功" if crit else "成功"), to)
+		## 「攻击成功后」的修饰在此消耗（定案 #58：含大成功）。
+		## 额外伤害走管线第②步「固定数值增加」——被【标记】翻倍是管线顺序使然。
+		var extra := CWData.OPSONIN_EXTRA * opsonin + CWData.AFFINITY_EXTRA * affinity
+		var perf := game.spend_mods(cell, "穿孔素-颗粒酶")
+		if perf > 0:
+			var per: int = CWData.PERFORIN_EXTRA_T if cell["itype"] == CWData.ImmuneType.T_CELL \
+				else CWData.PERFORIN_EXTRA
+			extra += per * perf
+		if extra > 0:
+			game.log_msg("　攻击类修饰：额外造成 %s 能量损失" % CWData.fmt(extra))
 		if game.event_stacks("抗原丢失") > 0:
 			game.log_msg("　【抗原丢失】本回合攻击无法使癌细胞损失能量")
 		else:
-			game.immune_hit(target, dmg, cell)
+			game.immune_hit(target, dmg, cell, true, extra)
+		## 【补体级联】的组织转化不是能量损失，【抗原丢失】拦不住它
+		for i in game.spend_mods(cell, "补体级联"):
+			_cascade(target)
 		## 【抗原变异】攻击大成功 → 攻击方抽牌（按层数）
 		if crit:
 			for i in game.event_stacks("抗原变异"):
@@ -319,6 +364,59 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int) -> void:
 		await enter_tile(cell, to)
 	else:
 		game.log_msg("　%s 返回原格" % game.cell_name(cell))
+
+
+const VERDICT_NAMES := { "fail": "失败", "success": "成功", "crit": "大成功" }
+
+
+## 骰面 → 判定，顺带把世界事件的并给记进日志（重掷时会再走一遍）
+func _judged(r: int) -> String:
+	var out := attack_outcome(r)
+	if r <= 2 and out != "fail":
+		game.log_msg("　【细胞毒】攻击不会失败：判定并给成功")
+	elif r == 6 and out != "crit":
+		game.log_msg("　【免疫伪装】攻击不会大成功：判定并给成功")
+	game.log_msg("　攻击掷骰 %d：%s" % [r, VERDICT_NAMES[out]])
+	return out
+
+
+## 【PD-L1表达】：大成功→成功、成功→失败、失败不变
+func _downgrade(v: String) -> String:
+	match v:
+		"crit":
+			return "success"
+		"success":
+			return "fail"
+	return "fail"
+
+
+## 移动费修饰卡在实际执行时消耗。报价在 _move_cost_mod ——
+## **两边的适用谓词必须一字不差**，否则标价和收费会对不上。
+func _spend_move_mods(cell: Dictionary, to: Vector2i) -> void:
+	if cell["faction"] == CWData.Faction.IMMUNE:
+		if game.is_cancerous(to):
+			if game.spend_mods(cell, "炎症趋化") > 0:
+				game.log_msg("　【炎症趋化】生效：本次迁移费用降为 0.5")
+			if game.spend_mods(cell, "CXCR3趋化") > 0:
+				game.log_msg("　【CXCR3趋化】生效：本次迁移费用 −0.5")
+	elif game.tile(to)["tissue"] == CWData.Tissue.HEALTHY:
+		if game.spend_mods(cell, "上皮—间质转化") > 0:
+			game.log_msg("　【上皮—间质转化】生效：本次移动费用降为 0.2")
+
+
+## 【补体级联】攻击成功后：目标癌细胞相邻的普通癌组织里，随机最多 2 格无细胞占据 → 健康
+func _cascade(target: Dictionary) -> void:
+	var cands: Array[Vector2i] = []
+	for n in CWData.neighbors(target["pos"]):
+		if game.tile(n)["tissue"] == CWData.Tissue.CANCER and game.cells_at(n).is_empty():
+			cands.append(n)
+	var picked: Array = game.pick_random(cands, CWData.CASCADE_MAX_TILES)
+	if picked.is_empty():
+		game.log_msg("　【补体级联】目标相邻无可转化的癌组织，落空")
+		return
+	for c in picked:
+		_to_healthy(c)
+		game.log_msg("　【补体级联】%s 转为健康组织" % str(c))
 
 
 ## 进入一格的统一结算：癌细胞【定殖】、免疫【净化】、特殊组织收取、黏液清除、标记刷新。
@@ -425,7 +523,9 @@ func _do_antibody(cell: Dictionary) -> void:
 	if not targets.is_empty():
 		game.log_msg("【抗体】命中 %d 个与健康组织邻接的癌细胞" % targets.size())
 		for c in targets:
-			game.immune_hit(c, CWData.ANTIBODY_DAMAGE, cell)
+			## attack=false：抗体是「技能」不是普通攻击——树突/巨噬那两条挂不上
+			## （B 细胞专属，本就挂不上），而【DNA损伤修复】明写挡「技能」，要挡得到它
+			game.immune_hit(c, CWData.ANTIBODY_DAMAGE, cell, false)
 		return
 	# 无目标 → 随机将与健康组织相邻的 X 格癌组织转为健康（2/3→1，1/3→2）
 	var eligible: Array[Vector2i] = []
@@ -476,7 +576,8 @@ func _do_toxin(cell: Dictionary) -> void:
 	game.log_msg("【细胞毒素】相邻 %d 格癌组织转为健康组织并进入「坏死」（不积累记忆）" % targets.size())
 	for n in CWData.neighbors(cell["pos"]):
 		for enemy in game.cells_at(n, CWData.Faction.CANCER):
-			game.immune_hit(enemy, CWData.ATTACK_DMG_SUCCESS, cell)
+			## attack=false：细胞毒素是「技能」，同上（T 细胞专属）；【DNA损伤修复】可挡
+			game.immune_hit(enemy, CWData.ATTACK_DMG_SUCCESS, cell, false)
 
 
 func _do_lyse(cell: Dictionary, purge: bool) -> void:
@@ -585,7 +686,7 @@ func _do_mucus(cell: Dictionary) -> void:
 	game.announce("黏液破裂", cell["pos"])
 	for c in area:
 		for immune in game.cells_at(c, CWData.Faction.IMMUNE):
-			game.cancer_hit(immune, CWData.MUCUS_IMMUNE_LOSS, "黏液破裂")
+			game.cancer_hit(immune, CWData.MUCUS_IMMUNE_LOSS, "黏液破裂", true)
 	game.kill(cell)   # 自毁型技能：耗尽能量并死亡（说明 #8 的同类）
 	game.update_marks()
 

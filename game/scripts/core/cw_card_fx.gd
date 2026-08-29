@@ -1,9 +1,13 @@
-## cw_card_fx.gd —— 卡牌效果：事件卡 + 已实现的即时技能（含需中途选择的一批）
+## cw_card_fx.gd —— 卡牌效果：全部事件卡 + 全部即时技能（需中途选择批 + 修饰批都在）
 ##
-## 还没住进来的两类各有前置，实现前别塞进来：
-##   - 修饰/触发类 35 张（"下一次攻击…"、"本回合…"）→ 等修饰器框架（PRD差异对照 5.1 #26，
-##     和世界事件共用同一套）
-##   - 永久技能 22 张 → 等装备位（#27）
+## 还没住进来的只剩**永久技能**（等装备位，PRD差异对照 5.1 #27）。
+##
+## **修饰卡的口径**（2026-08-29 落地，定案 #57~#64）：
+##   自我修饰挂 `cell["mods"]`（game.add_mod：uses 次数 + turn/round/用尽三种时钟），
+##   全局修饰（基质稳定/TGF-β/TNF 冻结格）挂 events["active"]（game.install_event）。
+##   同名条目**同时生效**、各扣一次；触发/消耗散在各挂接点——攻击链在
+##   cw_actions._do_move、移动计费在 _move_cost_mod、伤害减免在 immune_hit/cancer_hit、
+##   有氧在 CWWorld._aerobic、固化在 raise_solid/_decay。
 ##
 ## **中途选择的口径**（2026-08-29 定，「需中途选择」批随此落地）：
 ##   结算里要玩家做的决定走 `await game.ask(pid, req)`，kind 取
@@ -95,6 +99,23 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 		"基因组不稳定":
 			_evt(card, "免费【突变】", cell["pos"])
 			await _genome_instability(cell)
+		"I型干扰素":
+			## 每个免疫细胞领一面「下一次损失 −1.0」的盾，本世界回合结束作废
+			for c in game.living_cells(CWData.Faction.IMMUNE):
+				game.add_mod(c, card, 1, "round")
+			game.log_msg("　【I型干扰素】所有免疫细胞下一次能量损失 −1.0（本世界回合内）")
+			_evt(card, "全体免疫下次损失 −1.0", cell["pos"])
+		"基质稳定":
+			## left=1：E 阶段衰减在回合末之前结算，挂到回合末正好盖住本回合那一次
+			game.install_event(card, 1)
+			game.log_msg("　【基质稳定】本世界回合结束时固化计数不衰减")
+			_evt(card, "本回合固化计数不衰减", cell["pos"])
+		"TGF-β释放":
+			## left=2：下一次有氧在**下个**世界回合的 S 阶段，要活过本回合末；
+			## 结算时整条消耗（CWWorld._aerobic），多抽几张就多几条，逐份 −20%（#63）
+			game.install_event(card, 2)
+			game.log_msg("　【TGF-β释放】免疫方下一次【有氧呼吸】收入 −20%（可叠加）")
+			_evt(card, "免疫下次有氧呼吸 −20%", cell["pos"])
 		_:
 			return false
 	return true
@@ -149,6 +170,15 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 			"基质重塑":
 				for c in _solid_in_range(cell["pos"], 2):
 					opts.append(_opt(card, "→%s" % str(c), { "to": c }))
+			"补体调理", "炎症趋化", "CXCR3趋化", "细胞膜修复", "缺氧适应", \
+			"穿孔素-颗粒酶", "补体级联", "高亲和力克隆", "PD-L1表达", "DNA损伤修复", \
+			"上皮—间质转化":
+				## 自我修饰类：无目标、随时可打（打了用不上是玩家自己的选择——
+				## 效果等着被触发，或随「本回合/本世界回合」时钟过期）
+				opts.append(_opt(card, ""))
+			"TNF-α局部炎症":
+				if _tnf_has_effect(cell):
+					opts.append(_opt(card, ""))
 			"放疗":
 				var all: Array = game.tiles.keys()
 				all.sort()   ## 固定候选顺序，保证同种子可复现
@@ -215,6 +245,47 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 			await _remodel(cell, data["to"])
 		"放疗":
 			_radiotherapy(data["to"])
+		"补体调理":
+			game.add_mod(cell, card, 1, "turn")
+			game.log_msg("　本回合下一次攻击：失败自动重掷一次；最终命中额外 +0.5")
+		"炎症趋化":
+			game.add_mod(cell, card, 1, "turn")
+			game.log_msg("　本回合下一次向癌性组织的迁移费用降为 0.5")
+		"CXCR3趋化":
+			game.add_mod(cell, card, 2, "turn")
+			game.log_msg("　本回合接下来 2 次向癌性组织的迁移费用 −0.5（最低 0.2）")
+		"细胞膜修复":
+			game.add_mod(cell, card, 1, "")
+			game.log_msg("　下一次能量损失 −1.5（最低 0）")
+		"缺氧适应":
+			## 两个半句两个条目：免压是持续状态（不按次数消耗），减伤是一次性护盾
+			game.add_mod(cell, "缺氧适应免压", 1, "round")
+			game.add_mod(cell, "缺氧适应", 1, "round")
+			game.log_msg("　本世界回合不受【微环境压迫】；下一次癌细胞技能损失额外 −1.0")
+		"穿孔素-颗粒酶":
+			game.add_mod(cell, card, 1, "turn")
+			var per: int = CWData.PERFORIN_EXTRA_T if cell["itype"] == CWData.ImmuneType.T_CELL \
+				else CWData.PERFORIN_EXTRA
+			game.log_msg("　本回合下一次攻击成功后额外 +%s" % CWData.fmt(per))
+		"补体级联":
+			game.add_mod(cell, card, 1, "turn")
+			game.log_msg("　本回合下一次攻击成功后：目标相邻最多 2 格癌组织转健康")
+		"高亲和力克隆":
+			game.add_mod(cell, card, 1, "turn")
+			game.log_msg("　本回合下一次攻击不判定，直接大成功并额外 +1.0")
+		"PD-L1表达":
+			game.add_mod(cell, card, 1, "")
+			game.log_msg("　下一次受到的普通攻击判定下降一级")
+		"DNA损伤修复":
+			game.add_mod(cell, card, 1, "")
+			game.log_msg("　下一次受到免疫方事件/技能的能量损失 −%s（最低 0）" % [
+				CWData.fmt([10, 15, 20][_phase()])])
+		"上皮—间质转化":
+			var times: int = [1, 2, 3][_phase()]
+			game.add_mod(cell, card, times, "turn")
+			game.log_msg("　本回合接下来 %d 次向健康组织的移动费用降为 0.2" % times)
+		"TNF-α局部炎症":
+			_tnf(cell)
 		"乳酸酸化":
 			_lactic_acid(cell, game.cells[data["cid"]])
 		"基质硬化":
@@ -350,7 +421,7 @@ func _lactic_acid(cell: Dictionary, target: Dictionary) -> void:
 			adj += 1
 	if adj >= 3:
 		base += 5
-	game.cancer_hit(target, _amp(base), "乳酸酸化")
+	game.cancer_hit(target, _amp(base), "乳酸酸化", true)   ## 癌方即时卡 = 癌细胞技能（#62）
 
 
 ## 【基质硬化】所选普通癌组织固化计数 +1/+1.5/+2（分期）。
@@ -702,6 +773,45 @@ func _radiotherapy(start: Vector2i) -> void:
 	game.log_msg("　【放疗】以 %s 为起点的 %d 格区域：%d 格癌性组织转为健康，全部进入「坏死」（%d 轮）" % [
 		str(start), region.size(), cleared, CWData.NECROSIS_RADIO])
 	game.announce("放疗：%d 格转健康 · %d 格坏死" % [cleared, region.size()], start)
+
+
+# ============ 修饰类（2026-08-29 第二批）============
+# 自我修饰的卡在 play() 里只挂条目（game.add_mod / install_event），
+# 触发和消耗散在各挂接点：攻击链（cw_actions._do_move）、移动计费（_move_cost_mod）、
+# 伤害管线（immune_hit / cancer_hit）、有氧（_aerobic）、固化（raise_solid / _decay）。
+# 只有【TNF-α局部炎症】带一段立即结算，住在下面。
+
+func _tnf_area(cell: Dictionary) -> Array[Vector2i]:
+	var out: Array[Vector2i] = [cell["pos"]]
+	out.append_array(CWData.neighbors(cell["pos"]))
+	return out
+
+
+func _tnf_has_effect(cell: Dictionary) -> bool:
+	for c in _tnf_area(cell):
+		if game.tile(c)["tissue"] == CWData.Tissue.CANCER \
+				or not game.cells_at(c, CWData.Faction.CANCER).is_empty():
+			return true
+	return false
+
+
+## 【TNF-α局部炎症】自身格及相邻格：癌细胞 −1.0、普通癌组织固化计数 −1.0，
+## 并把这些癌组织冻住——本世界回合不能增加固化计数（冻结名单挂全局条目，
+## raise_solid 逐格查询；left=1 随回合末解冻）
+func _tnf(cell: Dictionary) -> void:
+	var hit := 0
+	var frozen := {}
+	for c in _tnf_area(cell):
+		for enemy in game.cells_at(c, CWData.Faction.CANCER):
+			game.immune_hit(enemy, _amp(10), cell, false)
+			hit += 1
+		var t: Dictionary = game.tile(c)
+		if t["tissue"] == CWData.Tissue.CANCER:
+			t["solid"] = maxi(t["solid"] - 10, 0)   ## 固化计数不是能量，不过【信号放大】
+			frozen[c] = true
+	game.install_event("TNF-α局部炎症", 1, frozen)
+	game.log_msg("　【TNF-α局部炎症】%d 个癌细胞 −%s；%d 格癌组织固化 −1.0 且本回合冻结" % [
+		hit, CWData.fmt(_amp(10)), frozen.size()])
 
 
 # ============ 工具 ============

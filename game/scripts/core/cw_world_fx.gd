@@ -104,6 +104,9 @@ func round_end() -> void:
 			continue
 		game.log_msg("【世界事件】【%s】效果结束" % e["name"])
 	game.events["active"] = kept
+	## 「本世界回合」时钟的修饰卡条目（I型干扰素护盾/缺氧适应…）同步过期
+	for cell in game.cells:
+		game.clear_mods(cell, "round")
 
 
 ## 一次性部分的结算。持续类事件大多只是挂上（各结算点自己查 event_stacks）。

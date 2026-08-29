@@ -386,7 +386,8 @@ func count_tissue(tissue: int) -> int:
 
 
 ## 名为 name 的世界事件当前叠了几层（0 = 未生效）。所有结算点都走这里；
-## 将来卡牌修饰（对照 5.1 #26）往 events["active"] 塞条目即可被同一批挂接点认出。
+## 卡牌的**全局**修饰（基质稳定/TGF-β/TNF 冻结格）也塞进 events["active"]，
+## 被同一批挂接点认出（对照 5.1 #26 的框架承诺，2026-08-29 兑现）。
 func event_stacks(name: String) -> int:
 	for e in events["active"]:
 		if e["name"] == name:
@@ -394,10 +395,67 @@ func event_stacks(name: String) -> int:
 	return 0
 
 
+## 往修饰器容器里挂一个全局条目（卡牌的全局修饰用；世界事件走 world_fx.trigger）。
+## left 按世界回合倒计时，回合末 −1、归零移除 —— 与世界事件同一套时钟。
+func install_event(ev_name: String, left: int, data: Dictionary = {}) -> void:
+	events["active"].append({ "name": ev_name, "left": left, "stacks": 1, "data": data })
+
+
+# ---- 卡牌修饰：挂在细胞上的那部分（全局的用上面的 install_event）----
+## 条目 {name, uses, until, data}：
+##   uses  还能触发几次，每次触发 −1，归零移除
+##   until 过期时钟——"turn"=持有者行动回合结束（CWTurn.end_turn 清）/
+##         "round"=世界回合结束（CWWorldFx.round_end 清）/ ""=只等次数用尽
+## **同名多条同时生效**：一次符合条件的结算里所有同名条目一起触发、各扣一次
+## （两张「下一次损失 −1.5」= 同一个下一次上减 3.0，不排队——定案 #57）。
+func add_mod(cell: Dictionary, mod_name: String, uses: int, until: String,
+		data: Dictionary = {}) -> void:
+	cell["mods"].append({ "name": mod_name, "uses": uses, "until": until, "data": data })
+
+
+func mods_of(cell: Dictionary, mod_name: String) -> Array:
+	var out: Array = []
+	for m in cell["mods"]:
+		if m["name"] == mod_name:
+			out.append(m)
+	return out
+
+
+## 触发一次：所有同名条目各扣一次，返回触发的条目数（0 = 没有这个修饰）
+func spend_mods(cell: Dictionary, mod_name: String) -> int:
+	var fired := 0
+	var kept: Array = []
+	for m in cell["mods"]:
+		if m["name"] == mod_name:
+			fired += 1
+			m["uses"] -= 1
+			if m["uses"] <= 0:
+				continue
+		kept.append(m)
+	if fired > 0:
+		cell["mods"] = kept
+	return fired
+
+
+## 清掉某个时钟到期的条目（"turn" / "round"）
+func clear_mods(cell: Dictionary, until: String) -> void:
+	var kept: Array = []
+	for m in cell["mods"]:
+		if m["until"] != until:
+			kept.append(m)
+	cell["mods"] = kept
+
+
 ## 固化计数的**增加**一律走这里（【E-固化】与卡【基质硬化】共用）：
 ## 达到 3.0 即转固化；【固化加速】生效时，从 2.0 以下涨到 ≥2.0 也立即转化
 ## （定案 W4——只认「涨过线」，事件触发时已 ≥2.0 的格不追溯）。
 func raise_solid(pos: Vector2i, amount: int) -> void:
+	## 【TNF-α局部炎症】冻住的癌组织本世界回合不能增加固化计数
+	## （冻结格记在全局条目的 data 里，left=1 随回合末自动解冻）
+	for e in events["active"]:
+		if e["name"] == "TNF-α局部炎症" and e["data"].has(pos):
+			log_msg("　【TNF-α局部炎症】%s 本世界回合无法增加固化计数" % str(pos))
+			return
 	var t: Dictionary = tile(pos)
 	var before: int = t["solid"]
 	t["solid"] = before + amount
@@ -523,10 +581,12 @@ static func settle_loss(base: int, add: int, mult: int, div: int, cut: int) -> i
 ## 管的是"损失"，任何来源都生效。
 ##
 ## 落到五步管线上的分别是：
+##   ② 固定增加 —— 攻击类修饰卡的「额外造成 X」（add 参数，标记翻倍会连它一起翻——管线顺序如此）
 ##   ③ 倍增 —— 树突【I-标记】×2（消耗掉）
 ##   ④ 倍减 —— 树突【I-各司其职】自己攻击只造成 1/2
-##   ⑤ 减免 —— 印戒【囊性护甲】−0.5，每世界回合一次
-func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: bool = true) -> int:
+##   ⑤ 减免 —— 印戒【囊性护甲】−0.5，每世界回合一次；癌卡【DNA损伤修复】挡事件/技能伤害
+func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: bool = true,
+		add: int = 0) -> int:
 	var mult := 1
 	var div := 1
 	var cut := 0
@@ -542,7 +602,15 @@ func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: boo
 		cut += CWData.ARMOR_REDUCTION
 		target["armor_used"] = true
 		log_msg("　【囊性护甲】减免 0.5")
-	var dmg := settle_loss(base, 0, mult, div, cut)
+	## 【DNA损伤修复】只挡免疫方【事件】/【技能】的损失，普通攻击是【PD-L1表达】的领地
+	## （定案 #62）。数值按结算当刻的分期取（定案 #64）。
+	if not attack:
+		var repaired := spend_mods(target, "DNA损伤修复")
+		if repaired > 0:
+			var tier: int = [10, 15, 20][CWCardData.cancer_phase(round_no)] * repaired
+			cut += tier
+			log_msg("　【DNA损伤修复】减免 %s" % CWData.fmt(tier))
+	var dmg := settle_loss(base, add, mult, div, cut)
 	_lose_energy(target, dmg)
 	## 巨噬【吞噬】：攻击造成能量损失后恢复 ⌈受击方损失 ÷ 2⌉。
 	## PRD 这里的取整符号外面没写「到十分位」，所以按**整数能量**向上取整 ——
@@ -558,9 +626,26 @@ func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: boo
 
 
 ## 癌症来源**或世界事件等中立来源**的能量损失（微环境压迫、黏液破裂、癌症卡、
-## 事件的「失去 X 能量」）。走同一条管线，不吃任何攻防修正（标记/护甲只挂在 immune_hit）。
-func cancer_hit(target: Dictionary, base: int, reason: String) -> int:
-	var dmg := settle_loss(base, 0, 1, 1, 0)
+## 事件的「失去 X 能量」）。走同一条管线，不吃攻防修正（标记/护甲只挂在 immune_hit），
+## 但吃受击方的护盾类修饰卡（⑤ 固定减免）。
+## skill=true 表示来源是**癌细胞的技能**（黏液破裂/乳酸酸化这类细胞技能与癌方即时卡）——
+## 【缺氧适应】只挡这一类；微环境压迫、世界事件、反弹都不算（定案 #62）。
+func cancer_hit(target: Dictionary, base: int, reason: String, skill: bool = false) -> int:
+	var cut := 0
+	var mem := spend_mods(target, "细胞膜修复")
+	if mem > 0:
+		cut += CWData.MEMBRANE_CUT * mem
+		log_msg("　【细胞膜修复】减免 %s" % CWData.fmt(CWData.MEMBRANE_CUT * mem))
+	var ifn := spend_mods(target, "I型干扰素")
+	if ifn > 0:
+		cut += CWData.IFN1_CUT * ifn
+		log_msg("　【I型干扰素】减免 %s" % CWData.fmt(CWData.IFN1_CUT * ifn))
+	if skill:
+		var hyp := spend_mods(target, "缺氧适应")
+		if hyp > 0:
+			cut += CWData.HYPOXIA_CUT * hyp
+			log_msg("　【缺氧适应】减免 %s" % CWData.fmt(CWData.HYPOXIA_CUT * hyp))
+	var dmg := settle_loss(base, 0, 1, 1, cut)
 	log_msg("【%s】%s 损失 %s 能量（余 %s）" % [
 		reason, cell_name(target), CWData.fmt(dmg), CWData.fmt(maxi(target["energy"] - dmg, 0))])
 	_lose_energy(target, dmg, false)
@@ -585,6 +670,8 @@ func _after_damage(cell: Dictionary) -> void:
 func kill(cell: Dictionary) -> void:
 	cell["energy"] = 0
 	cell["alive"] = false
+	cell["mods"] = []   ## 「自身」的修饰随细胞死亡消散，复活是新生
+
 	if cell["faction"] == CWData.Faction.CANCER:
 		log_msg("☠ %s 死亡" % cell_name(cell))
 		return
@@ -688,10 +775,13 @@ func state_hash() -> String:
 			t["necrosis"], 1 if t["newborn"] else 0, 1 if t["mucus"] else 0,
 			t["store"], t["cards"], t["prod"]])
 	for cell in cells:
-		parts.append("c%d:%d,%s,%d,%d,%d,%d,%d|%s|%s" % [cell["id"], cell["faction"],
+		var mods: PackedStringArray = []
+		for m in cell["mods"]:
+			mods.append("%s*%d%s" % [m["name"], m["uses"], m["until"]])
+		parts.append("c%d:%d,%s,%d,%d,%d,%d,%d|%s|%s|%s" % [cell["id"], cell["faction"],
 			str(cell["pos"]), cell["energy"], 1 if cell["alive"] else 0,
 			cell["itype"], cell["ctype"], cell["respawn_round"],
-			",".join(cell["hand"]), ",".join(cell["equipped"])])
+			",".join(cell["hand"]), ",".join(cell["equipped"]), ",".join(mods)])
 	var ev: PackedStringArray = []
 	for e in events["active"]:
 		var dk: Array = e["data"].keys()

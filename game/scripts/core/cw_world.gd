@@ -207,6 +207,22 @@ func _aerobic() -> void:
 	if game.tune.aerobic_split:
 		gain = gain / immune.size()
 	gain = game.tune.clamp_income(gain, game.tune.aerobic_floor, game.tune.aerobic_cap)
+	## 【TGF-β释放】：下一次有氧结算每份 −20%（逐份 ×80% 向下取整，定案 #63），
+	## 结算完消耗——条目挂在全局容器里，left=2 保证能活到下一个 S 阶段
+	var tgf := 0
+	var kept: Array = []
+	for e in game.events["active"]:
+		if e["name"] == "TGF-β释放":
+			tgf += e["stacks"]
+		else:
+			kept.append(e)
+	if tgf > 0:
+		game.events["active"] = kept
+		var before := gain
+		for i in tgf:
+			gain = gain * 8 / 10   ## 整数除法 = 向下取整到十分位
+		game.log_msg("【TGF-β释放】有氧呼吸 %s → %s（%d 份 −20%%，已消耗）" % [
+			CWData.fmt(before), CWData.fmt(gain), tgf])
 	for cell in immune:
 		cell["energy"] += gain
 	game.log_msg("【有氧呼吸】所有免疫细胞 +%s 能量（健康 %d - 坏死 %d）" % [
@@ -376,6 +392,9 @@ func _solidify() -> void:
 
 ## 固化计数衰减：计数 > 0 且无癌细胞停留的**癌组织**，每世界回合 −0.5（PRD）
 func _decay() -> void:
+	if game.event_stacks("基质稳定") > 0:
+		game.log_msg("【基质稳定】本世界回合固化计数不衰减")
+		return
 	for c in game.tiles.keys():
 		var t: Dictionary = game.tiles[c]
 		if t["tissue"] != CWData.Tissue.CANCER or t["solid"] <= 0:
@@ -396,6 +415,11 @@ func _pressure() -> void:
 			if game.is_cancerous(nb):
 				adj += 1
 		if adj <= CWData.PRESSURE_FREE_ADJ:
+			continue
+		## 【缺氧适应】：本世界回合完全免疫压迫。损失根本不发生 ——
+		## 所以别走 cancer_hit（那会白白吃掉细胞膜修复这类「下一次损失」护盾）
+		if not game.mods_of(cell, "缺氧适应免压").is_empty():
+			game.log_msg("【缺氧适应】%s 不受微环境压迫" % game.cell_name(cell))
 			continue
 		var loss: int = (adj - CWData.PRESSURE_FREE_ADJ) * CWData.PRESSURE_PER_ADJ
 		game.cancer_hit(cell, loss, "微环境压迫")

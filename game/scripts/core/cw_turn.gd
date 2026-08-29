@@ -19,4 +19,7 @@ func begin_turn(pid: int, cell: Dictionary) -> void:
 
 
 func end_turn(pid: int, cell: Dictionary) -> void:
+	## 「效果持续至本回合结束」的修饰卡（补体调理/穿孔素/趋化折扣…）在这里过期。
+	## 修饰全是打给自己的，所以只清本人的条目就够
+	game.clear_mods(cell, "turn")
 	game.log_msg("　%s 结束回合（能量 %s）" % [game.player(pid)["name"], CWData.fmt(cell["energy"])])
