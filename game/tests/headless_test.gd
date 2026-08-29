@@ -57,6 +57,8 @@ func _run_all() -> void:
 	await t_full_game_4p()
 	await t_determinism()
 	await t_ai_cards()
+	await t_ai_eval()
+	await t_ai_mc()
 	t_board_view()
 	t_hex_pick()
 	await t_ui_bridge()
@@ -742,6 +744,120 @@ func t_ai_cards() -> void:
 	check(drew, "完整对局里 AI 抽过卡")
 	check(played, "完整对局里 AI 打出/装备过卡")
 	g2.dispose()
+
+
+func _immune_pid(g: CWGame) -> int:
+	for pid in g.order:
+		if g.player(pid)["faction"] == CWData.Faction.IMMUNE:
+			return pid
+	return -1
+
+
+# ---- AI·静态估值：方向对、零和、终局压倒一切 ----
+func t_ai_eval() -> void:
+	print("[AI·静态估值]")
+	var g := make_game(2, 11)
+	await run_setup(g)
+	var sc := CWEval.score(g, CWData.Faction.CANCER)
+	var si := CWEval.score(g, CWData.Faction.IMMUNE)
+	check(sc == -si, "双方视角零和（%d / %d）" % [sc, si])
+	var flip := Vector2i.MAX
+	for c in g.tiles.keys():
+		if g.tiles[c]["tissue"] == CWData.Tissue.HEALTHY:
+			flip = c
+			break
+	g.tiles[flip]["tissue"] = CWData.Tissue.CANCER
+	var sc2 := CWEval.score(g, CWData.Faction.CANCER)
+	check(sc2 > sc, "多一格癌组织，癌方分上涨（%d → %d）" % [sc, sc2])
+	g.tiles[flip]["tissue"] = CWData.Tissue.HEALTHY
+	g.memory += 3
+	check(CWEval.score(g, CWData.Faction.IMMUNE) > si, "记忆 +3，免疫分上涨")
+	g.memory -= 3
+	g.winner = CWData.Faction.IMMUNE
+	check(CWEval.score(g, CWData.Faction.CANCER) <= -CWEval.WIN, "输掉的终局压倒性为负")
+	g.winner = -1
+	g.dispose()
+
+
+# ---- AI·扁平蒙特卡洛：零污染、确定性、拿得下白送的击杀、整局能跑 ----
+func t_ai_mc() -> void:
+	print("[AI·扁平蒙特卡洛]")
+	## ① 主线零污染 + 同局面同答案
+	var g := make_game(2, 33)
+	var ip := _immune_pid(g)
+	var mc := CWMonteCarloBridge.new()
+	mc.game = g
+	mc.rollouts = 1
+	mc.horizon = 8
+	g.bridges[ip] = mc
+	await run_setup(g)
+	var req: Dictionary = {}
+	while true:
+		req = await g.pending()
+		if req.is_empty() or (req["kind"] == "action" and req["pid"] == ip):
+			break
+		await g.step(await g.ask(req["pid"], req))
+	check(not req.is_empty(), "推进到了免疫的行动决策点")
+	var h0 := g.state_hash()
+	var n0 := g.logs.size()
+	var a1: int = await mc.ask(req)
+	check(g.state_hash() == h0, "蒙特卡洛评估完，主线状态逐位不变")
+	check(g.logs.size() == n0, "推演没有留下日志")
+	check(not g.sim_quiet, "评估完静音已关（真日志照常记录）")
+	var a2: int = await mc.ask(req)
+	check(a1 == a2, "同局面两次评估答案一致（确定性）")
+	g.dispose()
+
+	## ② 白送的击杀要拿：残血癌细胞贴脸、无处可逃（截断内它还会占地），
+	## 评出来的应是攻击那一步。先推进到免疫的行动询问再摆场景，
+	## 然后就地重摊选项 —— 蒙特卡洛只在 pending 边界上快照，req 必须就是 _pending
+	var g2 := make_game(2, 55)
+	var ip2 := _immune_pid(g2)
+	var mc2 := CWMonteCarloBridge.new()
+	mc2.game = g2
+	mc2.rollouts = 3
+	mc2.horizon = 12
+	g2.bridges[ip2] = mc2
+	await run_setup(g2)
+	while true:
+		req = await g2.pending()
+		if req.is_empty() or (req["kind"] == "action" and req["pid"] == ip2):
+			break
+		await g2.step(await g2.ask(req["pid"], req))
+	for c in g2.tiles.keys():
+		g2.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
+		g2.tiles[c]["solid"] = 0
+		g2.tiles[c]["newborn"] = false
+	var imm: Dictionary = g2.cell_of(ip2)
+	var can: Dictionary = g2.living_cells(CWData.Faction.CANCER)[0]
+	imm["pos"] = Vector2i(0, 0)
+	imm["energy"] = 80
+	imm["hand"] = []
+	can["pos"] = Vector2i(1, 0)
+	can["energy"] = 5
+	can["hand"] = []
+	req["options"] = g2.actions.build_options(imm)
+	var pick: int = await mc2.ask(req)
+	var pd: Dictionary = req["options"][pick]["data"]
+	check(pd.get("act", "") == "move" and pd.get("to", Vector2i.MAX) == Vector2i(1, 0),
+		"残血癌细胞贴脸 → 蒙特卡洛选择攻击（选了 %s）" % str(pd))
+	g2.dispose()
+
+	## ③ 整局跑完 + 确定性：蒙特卡洛桥当免疫方，同种子两局同哈希
+	var hs: Array[String] = []
+	var ws: Array[int] = []
+	for k in 2:
+		var g3 := make_game(2, 44)
+		var mc3 := CWMonteCarloBridge.new()
+		mc3.game = g3
+		mc3.rollouts = 1
+		mc3.horizon = 6
+		g3.bridges[_immune_pid(g3)] = mc3
+		ws.append(await g3.run_game())
+		hs.append(g3.state_hash())
+		g3.dispose()
+	check(ws[0] >= 0, "蒙特卡洛桥整局跑完并分出胜负")
+	check(hs[0] == hs[1] and ws[0] == ws[1], "同种子两局哈希与胜者一致")
 
 
 # ---- 棋盘渲染：画出来的格子必须和 CWData 的轴坐标一一对应 ----

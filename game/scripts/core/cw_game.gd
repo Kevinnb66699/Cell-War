@@ -36,6 +36,9 @@ var rng := RandomNumberGenerator.new()
 var bridges := {}          # player_id -> CWBridge
 var logs: PackedStringArray = []
 var tune := CWTuning.new() # 平衡旋钮；默认即规则原文，init() 之前可整体替换
+## 推演静音：蒙特卡洛桥「快照→试走→回滚」期间置 true——那些「未来」没有真的发生，
+## 日志既不落 logs 也不广播。不进快照：它描述的是谁在看，不是对局状态。
+var sim_quiet := false
 
 ## 流程游标。**对局推进到哪一步是数据，不是调用栈。**
 ## stage 见 advance() 的 match；i 是玩家游标（order 的下标）。
@@ -808,6 +811,8 @@ func check_cancer_win() -> void:
 
 # ---- 日志 / 调试 ----
 func log_msg(msg: String) -> void:
+	if sim_quiet:
+		return
 	logs.append(msg)
 	log_line.emit(msg)
 
