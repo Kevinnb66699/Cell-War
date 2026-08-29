@@ -2745,6 +2745,10 @@ func t_hand_play() -> void:
 	run4.call()
 	hand.card_clicked.emit("永久样例")
 	await process_frame
+	await process_frame
+	var last: Control = bar._row.get_child(bar._row.get_child_count() - 1)
+	check(last.position.x + last.size.x <= 674.0,
+		"让位形态下按钮不越过底条右缘（不会藏进右侧竖条底下）")
 	bar.chosen.emit(0)                        ## 「弃置它」
 	await process_frame
 	check(r4[0] == 5, "打不出的卡可以就地弃置")

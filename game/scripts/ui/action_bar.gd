@@ -81,16 +81,20 @@ func show_bar(title: String, hint: String, entries: Array, cancel_index := -1,
 		_row.alignment = BoxContainer.ALIGNMENT_BEGIN
 		if inset > 0.0:
 			## 手牌那几问要把标题右移：选中/悬停的卡会抬进这条里，
-			## 不让位的话卡面会压住标题（2026-08-29 试玩第一轮报的）
+			## 不让位的话卡面会压住标题（2026-08-29 试玩第一轮报的）。
+			## 让位后剩余宽度有限，提示块改成**弹性 + 自动换行**并顶开按钮——
+			## 固定宽的提示会把按钮挤出右缘、藏到右侧竖条底下（试玩第二轮报的）
 			var pad := Control.new()
 			pad.custom_minimum_size.x = inset
 			pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			_row.add_child(pad)
-		_row.add_child(_make_prompt(title, hint))
-		var spacer := Control.new()
-		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_row.add_child(spacer)
+			_row.add_child(_make_prompt(title, hint, true))
+		else:
+			_row.add_child(_make_prompt(title, hint))
+			var spacer := Control.new()
+			spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_row.add_child(spacer)
 	_disabled.clear()
 	for i in entries.size():
 		var btn := _make_button(entries[i], i)
@@ -131,14 +135,22 @@ func _unhandled_input(event: InputEvent) -> void:
 	chosen.emit(_cancel)
 
 
-func _make_prompt(title: String, hint: String) -> Control:
+## wrap=true（让位形态）：提示块吃掉行内剩余宽度（把按钮顶到右缘内侧），
+## 提示行按可用宽度自动换行——最小宽度归零，怎么也挤不出 673px 的框。
+func _make_prompt(title: String, hint: String, wrap := false) -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 0)
 	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(CWStyle.label(title, CWStyle.SIZE_BODY, CWStyle.TEXT_HI))
 	if hint != "":
-		v.add_child(CWStyle.label(hint, CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM))
+		var h := CWStyle.label(hint, CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+		if wrap:
+			h.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
+			h.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		v.add_child(h)
+	if wrap:
+		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return v
 
 

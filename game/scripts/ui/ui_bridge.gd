@@ -266,10 +266,10 @@ func _unplayable_why(card: String) -> String:
 	if CWCardData.CARDS.has(card):
 		match CWCardData.CARDS[card]["kind"]:
 			CWCardData.Kind.PERMANENT:
-				return "是永久技能，要等「装备位」上线——先只能弃置腾位"
+				return "是永久技能，等「装备位」上线；可先弃置腾位"
 			CWCardData.Kind.INSTANT:
-				return "的效果还没实现（修饰/需中途选择那批）——先只能弃置腾位"
-	return "效果未实现或此刻不可用——先只能弃置腾位"
+				return "效果还没实现（修饰/需选择批）；可先弃置腾位"
+	return "此刻打不出；可先弃置腾位"
 
 
 
