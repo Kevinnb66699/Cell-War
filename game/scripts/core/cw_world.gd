@@ -273,7 +273,8 @@ func _proliferate() -> void:
 		game.log_msg("【增生】%d 格健康组织被癌组织侵占" % converts.size())
 
 
-## 【E-无氧呼吸】：每块供能 =（癌×0.4 + 固化×1.0），块内癌细胞均分，向下取整到 0.1（说明 #10）
+## 【E-无氧呼吸】：每块供能 =（癌×0.4 + 固化×1.0），块内癌细胞均分，
+## **四舍五入到十分位**（团队 2026-08-28 定案 #43，与有氧一致；PRD 本身没写取整方式）
 func _anaerobic() -> void:
 	var cancer_pred := func(c: Vector2i) -> bool:
 		return game.is_cancerous(c)
@@ -292,7 +293,8 @@ func _anaerobic() -> void:
 				here.append(cell)
 		if here.is_empty():
 			continue
-		var gain: int = (pool / here.size()) if game.tune.anaerobic_split else pool
+		## (2p+n)/(2n) 是整数版的「p/n 四舍五入」——.5 进位，和有氧那边的 round 口径一致
+		var gain: int = ((2 * pool + here.size()) / (2 * here.size())) if game.tune.anaerobic_split else pool
 		gain = game.tune.clamp_income(gain, game.tune.anaerobic_floor, game.tune.anaerobic_cap)
 		for cell in here:
 			## 小细胞肺癌【瓦伯格超速糖酵解】：110% 原产出，**向上取整到十分位**

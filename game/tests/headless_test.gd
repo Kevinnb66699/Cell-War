@@ -17,7 +17,7 @@ func _run_all() -> void:
 	t_pay_rule()
 	await t_setup()
 	await t_hit_order()
-	t_anaerobic_floor()
+	t_anaerobic_round()
 	t_solidify_and_decay()
 	t_erosion()
 	t_immune_win()
@@ -220,8 +220,8 @@ func t_hit_order() -> void:
 	g.dispose()
 
 
-# ---- 无氧呼吸：0.4/格 + 固化 1.0/格，块内均分，向下取整；小细胞肺癌 110% ----
-func t_anaerobic_floor() -> void:
+# ---- 无氧呼吸：0.4/格 + 固化 1.0/格，块内均分，四舍五入到十分位；小细胞肺癌 110% ----
+func t_anaerobic_round() -> void:
 	print("[无氧呼吸]")
 	var g := make_game(2, 1)
 	g.setup.build_board()
@@ -245,6 +245,17 @@ func t_anaerobic_floor() -> void:
 	g.world._anaerobic()
 	check(g.cells[0]["energy"] == 13, "小细胞肺癌 1.1 → 1.3（110% 向上取整）")
 	check(g.cells[1]["energy"] == 11, "同块的其他癌细胞不受影响")
+	## 除不尽时四舍五入（定案 #43）：2.2 / 4 = 0.55 → 0.6（向下取整会给 0.5）
+	g.cells[0]["ctype"] = CWData.CancerType.MELANOMA
+	for i in [2, 3]:
+		var extra := CWSetup.make_cell(i, i, CWData.Faction.CANCER, coords[i], -1,
+			CWData.CancerType.MELANOMA)
+		extra["energy"] = 0
+		g.cells.append(extra)
+	for cell in g.cells:
+		cell["energy"] = 0
+	g.world._anaerobic()
+	check(g.cells[0]["energy"] == 6, "池 2.2 / 4 细胞 = 0.55 → 四舍五入 0.6")
 	g.dispose()
 
 
