@@ -17,7 +17,9 @@
 ## 事件可以共存：第 3 回合起手、被【双重触发】拉到 4 回合的事件会撞上第 6 回合的
 ## 新事件——容器是列表、各结算点独立查询，共存与叠加天然支持（#26 的卡牌修饰同理）。
 ##
-## 所有事件都无需玩家决策：整个模块同步结算，不碰流程状态机。
+## 世界事件本身无需玩家决策，但它的连锁可能需要：紊乱传送/血管奖励会让细胞
+## 落格、抽卡，抽到「需中途选择」的事件卡就得等玩家作答 —— 所以这些函数是协程，
+## 调用点一律 await（await 链见 cw_card_fx 头注）。
 class_name CWWorldFx
 extends RefCounted
 
@@ -55,7 +57,7 @@ func on_round_start() -> void:
 			## 本回合类事件只有被【双重触发】加倍（left=2）才能活过回合末——
 			## 开关半句继续挂着，失去/弃牌/清空/传送这类一次性部分再来一遍
 			game.log_msg("【双重触发】【%s】第二回合再次生效" % e["name"])
-			_resolve(e)
+			await _resolve(e)
 
 
 ## 触发回合：抽一个事件并结算。由 CWWorld.round_start 调用，位于特殊组织产出之前。
@@ -85,7 +87,7 @@ func trigger() -> void:
 		game.events["active"].append(entry)
 	game.log_msg("【世界事件】抽到【%s】%s" % [
 		name, "（持续 %d 回合）" % left if left > 1 else ""])
-	_resolve(entry)
+	await _resolve(entry)
 
 
 ## 回合末：紊乱先做本回合的返回（每个回合都是一个完整的传送-返回周期），
@@ -94,7 +96,7 @@ func round_end() -> void:
 	var kept: Array = []
 	for e in game.events["active"]:
 		if e["name"] == "紊乱":
-			_chaos_return(e)
+			await _chaos_return(e)
 			e["data"].clear()   ## 下一回合（若被加倍）重新记原位
 		e["left"] -= 1
 		if e["left"] > 0:
@@ -109,7 +111,7 @@ func _resolve(entry: Dictionary) -> void:
 	var stacks: int = entry["stacks"]
 	match entry["name"]:
 		"紊乱":
-			_chaos(entry)
+			await _chaos(entry)
 		"增殖抑制":
 			## 「无法增生」是持续查询（CWWorld._proliferate）；失去/弃牌逐份结算
 			for i in stacks:
@@ -164,7 +166,7 @@ func _chaos(entry: Dictionary) -> void:
 		entry["data"][cell["id"]] = cell["pos"]
 		var dest: Vector2i = dests[game.rng.randi_range(0, dests.size() - 1)]
 		game.log_msg("【紊乱】%s 传送至 %s" % [game.cell_name(cell), str(dest)])
-		game.actions.enter_tile(cell, dest)
+		await game.actions.enter_tile(cell, dest)
 
 
 ## 回合末返回原位——团队定案（2026-08-29）**方案A「同时返回」**：
@@ -215,7 +217,7 @@ func _chaos_return(entry: Dictionary) -> void:
 		var dest: Vector2i = dest_of[cell["id"]]
 		if dest == entry["data"][cell["id"]]:
 			game.log_msg("【紊乱】%s 返回原位 %s" % [game.cell_name(cell), str(dest)])
-		game.actions.enter_tile(cell, dest)
+		await game.actions.enter_tile(cell, dest)
 
 
 ## 连环挤占时的落脚点：与传送同一套合法目的地（己方组织、非血管），
@@ -251,7 +253,7 @@ func on_vessel_pass(cell: Dictionary) -> void:
 		game.log_msg("【营养输送】%s 首次通过血管 +%s 能量" % [
 			game.cell_name(cell), CWData.fmt(20 * e["stacks"])])
 		for i in e["stacks"]:
-			game.cards.draw(cell, "营养输送")
+			await game.cards.draw(cell, "营养输送")
 		return
 
 

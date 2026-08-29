@@ -1,9 +1,8 @@
 ## cw_cards.gd —— 抽卡
 ##
-## **只做「抽到的是哪张卡」，不做效果。** 66 张卡的效果是另一个量级的工作
-## （其中 35 张还要先有一套修饰/触发框架，见 docs/PRD差异对照.md 第五节）。
-## 现在抽到的卡有真名字、真类别、真权重，会进手牌、会占满 8 张的上限、
-## 会被右侧竖条的方块数出来 —— 但打不出去。
+## **只做「抽到的是哪张卡」，不做效果**（效果在 CWCardFx）。
+## draw() 是协程：抽到的事件卡立即结算，而结算可能要玩家中途做选择
+## （趋化募集的走位、风暴的选人……），所以**所有调用点都要 await**。
 ##
 ## 卡的身份表在 [CWCardData]，由 tools/gen_card_data.py 从 PRD 生成。
 class_name CWCards
@@ -30,12 +29,14 @@ func draw(cell: Dictionary, source: String) -> void:
 		## 事件卡不进手牌：立即结算并弃置（CWCardFx）。**别偷偷把它塞进手牌**，
 		## 那会让手牌上限和界面都对不上规则。
 		## 界面上必须喊一嗓子——不进手牌就没有飞卡动画，不喊的话玩家只看到
-		## 「花了钱、没拿到卡」（2026-08-29 试玩第二轮：Kevin 被这个无声结算迷惑）
-		game.announce("事件【%s】立即结算" % card, cell["pos"])
+		## 「花了钱、没拿到卡」（2026-08-29 试玩第二轮：Kevin 被这个无声结算迷惑）。
+		## 通报由各事件的结算自己发（带效果说明，试玩第五轮 Kevin 要求）；
+		## 只有还没实现的事件在这里兜底喊一声。
 		game.log_msg("　%s 经由「%s」抽到【事件】%s（立即结算并弃置）" % [
 			game.cell_name(cell), source, card])
-		if not game.card_fx.resolve_event(cell, card):
+		if not await game.card_fx.resolve_event(cell, card):
 			game.log_msg("　（该事件效果未实现，按无效果弃置）")
+			game.announce("事件【%s】效果待实现" % card, cell["pos"])
 		return
 	## 上限由调用方把关（CWActions._can_draw / collect_special）；这里再兜一道
 	if cell["hand"].size() >= CWData.HAND_MAX:

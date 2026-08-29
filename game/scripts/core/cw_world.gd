@@ -19,16 +19,17 @@ extends RefCounted
 var game: CWGame
 
 
-## S 阶段的**无决策部分**（世界事件 → 特殊组织产出 → 血管传送）。
+## S 阶段的**自动结算部分**（世界事件 → 特殊组织产出 → 血管传送）。
 ## 两处【复活】要玩家选落点，交给流程状态机；有氧呼吸在复活全部结算完之后调。
+## 是协程：产出收取和血管落地都可能抽到要中途选择的事件卡（await 链见 cw_card_fx 头注）。
 func round_start() -> void:
 	game.log_msg("━━━━ 第 %d 世界回合 ━━━━" % game.round_no)
 	_reset_round_flags()
-	game.world_fx.on_round_start()
+	await game.world_fx.on_round_start()
 	if CWData.is_world_event_round(game.round_no):
-		game.world_fx.trigger()
-	_tissue_production()
-	_vessel_teleport()
+		await game.world_fx.trigger()
+	await _tissue_production()
+	await _vessel_teleport()
 
 
 func aerobic() -> void:
@@ -44,7 +45,7 @@ func e_phase() -> void:
 	_decay()
 	_tick_necrosis()   ## 「更新持续时间类状态」——目前只有「坏死」
 	_clear_newborn()
-	game.world_fx.round_end()   ## 紊乱返回原位 + 事件倒计时/到期
+	await game.world_fx.round_end()   ## 紊乱返回原位 + 事件倒计时/到期
 	## 胜利条件检查（E 阶段第 10 步）。免疫先判：PRD 的列举顺序如此，
 	## 而且两边同时满足时「癌细胞已全灭」比「占地达标」更靠后发生，判给免疫更符合直觉。
 	game.check_immune_win()
@@ -91,7 +92,7 @@ func _tissue_production() -> void:
 		if t["store"] > 0 or t["cards"] > 0:
 			var here: Array = game.cells_at(c)
 			if not here.is_empty():
-				game.actions.collect_special(here[0], c)
+				await game.actions.collect_special(here[0], c)
 
 
 ## 血管传送：强制；两端互换；若会导致敌对同格则整体取消（说明 #13）
@@ -108,12 +109,12 @@ func _vessel_teleport() -> void:
 		return
 	for cell in ca:
 		game.log_msg("【血管】%s 传送至 %s" % [game.cell_name(cell), str(b)])
-		game.actions.enter_tile(cell, b)
-		game.world_fx.on_vessel_pass(cell)
+		await game.actions.enter_tile(cell, b)
+		await game.world_fx.on_vessel_pass(cell)
 	for cell in cb:
 		game.log_msg("【血管】%s 传送至 %s" % [game.cell_name(cell), str(a)])
-		game.actions.enter_tile(cell, a)
-		game.world_fx.on_vessel_pass(cell)
+		await game.actions.enter_tile(cell, a)
+		await game.world_fx.on_vessel_pass(cell)
 
 
 ## 【S-复活】癌症：落点是**未被细胞占据**的固化癌组织；可自愿放弃（说明 #21）。
@@ -148,7 +149,7 @@ func revive_cancer(pid: int, data: Dictionary) -> void:
 	t["solid"] = 0
 	cell["alive"] = true
 	cell["energy"] = CWData.REVIVE_ENERGY
-	game.actions.enter_tile(cell, pos)
+	await game.actions.enter_tile(cell, pos)
 	game.log_msg("【复活】%s 复活于 %s（2.0 能量），该格降级为癌组织" % [
 		game.cell_name(cell), str(pos)])
 
@@ -178,7 +179,7 @@ func revive_immune(pid: int, pos: Vector2i) -> void:
 	cell["alive"] = true
 	cell["energy"] = game.tune.immune_respawn_energy
 	cell["respawn_round"] = -1
-	game.actions.enter_tile(cell, pos)
+	await game.actions.enter_tile(cell, pos)
 	game.log_msg("【免疫复活】%s 于骨髓 %s 复活（%s 能量）" % [
 		game.cell_name(cell), str(pos), CWData.fmt(game.tune.immune_respawn_energy)])
 

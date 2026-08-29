@@ -27,7 +27,15 @@ func ask(req: Dictionary) -> int:
 			return _pick_differentiation(options)
 		"revive":
 			return _pick_revive(options)
-		"remodel_target":
+		"free_move":
+			return _pick_free_move(pid, options)
+		"pick_cell":
+			return _pick_storm_center(req.get("tag", ""), options)
+		"pick_tile":
+			return 0   ## 只有打手牌才会问到；AI 还不打牌，答 0（=停止）保底
+		"pick":
+			if req.get("tag", "") == "基因组不稳定":
+				return _pick_mutation_result(pid, options)
 			return 0
 		"confirm":
 			if req.get("tag", "") == "remutate":
@@ -313,6 +321,78 @@ func _pick_revive(options: Array) -> int:
 		for n in CWData.neighbors(c):
 			if game.is_cancerous(n):
 				score += 1
+		if score > best_score:
+			best_score = score
+			best = i
+	return best
+
+
+## 卡牌给的「走一步/停」（趋化募集、效应细胞浸润、全身免疫动员…）。
+## options[0] 恒为停止（0 分）：没有正收益就不白走。给攻击选项的（动员）保守跳过 ——
+## 免费机会用来占位和捡资源，打架的风险评估交给正常回合的行动逻辑。
+func _pick_free_move(pid: int, options: Array) -> int:
+	var me: Dictionary = game.cell_of(pid)
+	var now_d := _dist_to_nearest_cancerous(me["pos"])
+	var best := 0
+	var best_score := 0
+	for i in range(1, options.size()):
+		var d: Dictionary = options[i]["data"]
+		if not d.has("to"):
+			continue
+		var to: Vector2i = d["to"]
+		if not game.cells_at(to, CWData.Faction.CANCER).is_empty():
+			continue
+		var t: Dictionary = game.tile(to)
+		var score := 0
+		if t["tissue"] == CWData.Tissue.CANCER:
+			score += 15   # 净化：转地 + 记忆
+		if t["special"] == CWData.Special.CORE and t["store"] > 0:
+			score += 10
+		if t["special"] == CWData.Special.MARROW and t["cards"] > 0 \
+				and me["hand"].size() < CWData.HAND_MAX:
+			score += 8
+		if _dist_to_nearest_cancerous(to) < now_d:
+			score += 4
+		score -= int(d.get("cost", 0)) / 5   # 动员的迁移要付费，白走不划算
+		if score > best_score:
+			best_score = score
+			best = i
+	return best
+
+
+## 风暴类「选 1 个免疫细胞」：选波及面最大的（范围内癌细胞×2 + 普通癌组织×1）
+func _pick_storm_center(tag: String, options: Array) -> int:
+	var r := 2 if tag == "免疫风暴" else 1
+	var best := 0
+	var best_score := -1
+	for i in options.size():
+		var center: Vector2i = options[i]["data"]["to"]
+		var score := 0
+		for c in game.tiles.keys():
+			if CWData.hex_dist(center, c) > r:
+				continue
+			if game.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				score += 1
+			score += game.cells_at(c, CWData.Faction.CANCER).size() * 2
+		if score > best_score:
+			best_score = score
+			best = i
+	return best
+
+
+## 【基因组不稳定】的二择：抽卡那档几乎总是最优；记忆厚、能量足时 -3 记忆更值
+func _pick_mutation_result(pid: int, options: Array) -> int:
+	var me: Dictionary = game.cell_of(pid)
+	var best := 0
+	var best_score := -99
+	for i in options.size():
+		var r: int = options[i]["data"]["r"]
+		var score := 0
+		match r:
+			2:
+				score = 5 + (3 if game.memory > 0 else 0)
+			3:
+				score = (8 if game.memory >= 3 else -2) - (5 if me["energy"] <= 20 else 0)
 		if score > best_score:
 			best_score = score
 			best = i

@@ -2,9 +2,11 @@
 ##
 ## 引擎通过 game.ask(pid, req) 询问，桥返回所选选项的下标。
 ## req = { kind, pid, prompt, options:[{label, data}], (tag) }
-## kind 取值：setup_place / action / attack_target / differentiate /
-##           remodel_target / revive / confirm
-## 基类默认永远选第 0 项（脚本化测试用）；UI 桥与 AI 桥各自重写 ask()。
+## kind 取值：setup_place / immune_revive / revive / action（流程状态机的顶层询问），
+##           free_move / pick_cell / pick_tile / pick（卡牌结算的中途选择，tag=卡名），
+##           confirm（预留）。
+## 基类默认永远选第 0 项 —— 中途选择把「停止/放弃」放在下标 0，正是为了这个默认安全。
+## UI 桥与 AI 桥各自重写 ask()。
 class_name CWBridge
 extends RefCounted
 

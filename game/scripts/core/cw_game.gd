@@ -90,7 +90,7 @@ func init(faction_list: Array, seed_value: int) -> void:
 ## 保留它是因为 AI 互搏、平衡模拟、测试都只想要「跑完一局」这一件事。
 func run_game() -> int:
 	while true:
-		var req := pending()
+		var req: Dictionary = await pending()
 		if req.is_empty():
 			break
 		var idx: int = await ask(req["pid"], req)
@@ -108,15 +108,21 @@ func run_game() -> int:
 ## AI 要评估「我走这一步会怎样」，需要的是：快照 → 落一步 → 继续跑几步 → 回滚，
 ## 反复几千次。所以流程位置必须是**数据**（flow），推进必须是**函数调用**（step）。
 ##
-## 三个约定：
-##   ① pending() 是同步的，返回「轮到谁、要做什么决定、有哪些选项」，空表示对局已结束
-##   ② step() 只在**表现层要求演出**时才会挂起（掷骰动画）。同步的桥用它零成本
-##   ③ 所有决定都是顶层选项 —— execute() 内部不再发问，一个行动就是一个原子
+## 三个约定（2026-08-29 随「需中途选择」的卡牌批修订）：
+##   ① pending() 返回「轮到谁、要做什么决定、有哪些选项」，空表示对局已结束。
+##      它和 step() 都是协程，但**只在两种情况下真正挂起**：表现层要演出（掷骰动画），
+##      或结算中途经 game.ask 追问且作答的是人类桥。同步桥（AI/测试）下 await
+##      立即完成，快照→落子→回滚的评估循环依旧零挂起。
+##   ② 行动的**入口**仍然全是顶层选项 —— AI 选行动时看到的就是原子行动。
+##      少数卡在结算里的后续决定（趋化募集的走位、代谢耦联的数额…）经 game.ask
+##      追问，「可以不做」的询问下标 0 恒为停止/放弃，基类桥答 0 天然安全。
+##   ③ 流程位置仍是**数据**（flow）：挂起只发生在等人类作答的那一瞬，
+##      快照永远取在 pending 边界上，那时没有悬着的协程。
 
-## 当前待决策的询问；空字典 = 对局已结束。**同步，可以随便调。**
+## 当前待决策的询问；空字典 = 对局已结束。
 func pending() -> Dictionary:
 	if _pending.is_empty():
-		advance()
+		await advance()
 	return _pending
 
 
@@ -140,10 +146,10 @@ func step(choice: int) -> void:
 			setup.place(pid, data["to"])
 			flow["i"] += 1
 		"immune_revive":
-			world.revive_immune(pid, data["to"])
+			await world.revive_immune(pid, data["to"])
 			flow["i"] += 1
 		"revive":
-			world.revive_cancer(pid, data)
+			await world.revive_cancer(pid, data)
 			flow["i"] += 1
 		"action":
 			var cell: Dictionary = cell_of(pid)
@@ -152,10 +158,11 @@ func step(choice: int) -> void:
 			else:
 				await actions.execute(cell, data)
 				flow["acts"] += 1
-	advance()
+	await advance()
 
 
-## 推进到下一个需要决策的地方。全程同步 —— 这一路上不掷骰、不演出。
+## 推进到下一个需要决策的地方。这一路上不掷骰、不演出；
+## 唯一可能挂起的是自动结算连锁里的中途询问（人类桥作答时），见 pending() 头注。
 func advance() -> void:
 	while _pending.is_empty() and not is_over() and flow["stage"] != stop_at:
 		match flow["stage"]:
@@ -168,7 +175,7 @@ func advance() -> void:
 					setup.finish()
 					_goto("round_start")
 			"round_start":
-				world.round_start()
+				await world.round_start()
 				_goto("revive_immune")
 			"revive_immune":
 				if not _ask_each("immune_revive", func(pid: int) -> Array:
@@ -183,7 +190,7 @@ func advance() -> void:
 				_advance_turn()
 			"e_phase":
 				phase = "世界回合 E"
-				world.e_phase()
+				await world.e_phase()
 				if is_over():
 					return
 				round_no += 1
@@ -321,7 +328,10 @@ func dispose() -> void:
 
 
 # ---- 询问桥（引擎↔玩家的唯一交互通道）----
-## req = {kind, prompt, options:[{label, data}]}，返回所选下标（已钳位）。
+## req = {kind, prompt, options:[{label, data}], (tag)}，返回所选下标（已钳位）。
+## 除了流程状态机的顶层询问，卡牌结算的**中途选择**也从这里走
+## （kind：free_move / pick_cell / pick_tile / pick，tag=卡名；见 cw_card_fx 头注）。
+## 中止对局时固定答 0 —— 所以「可以不做」的询问把停止/放弃放在下标 0。
 func ask(pid: int, req: Dictionary) -> int:
 	if aborted:
 		return 0
