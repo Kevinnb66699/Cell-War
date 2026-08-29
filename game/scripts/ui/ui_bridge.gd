@@ -231,7 +231,9 @@ func _pick_hand(options: Array, gesture: Array) -> Variant:
 		var values: Array = []
 		if discard_i >= 0:
 			buttons.append({ "title": "弃置它", "cost": "" })
-			values.append(discard_i)
+			## 不直接弃：转进弃置确认那一问（和右键弃置同一条路，试玩第四轮要求）。
+			## 值是一个手势 Array——外层循环会把它当「又点了一次手牌」重新分派
+			values.append(["discard", card])
 		buttons.append({ "title": "返回", "cost": "右键 / Esc" })
 		values.append("cancel")
 		got = await _prompt("还打不出", "【%s】%s" % [card, _unplayable_why(card)],

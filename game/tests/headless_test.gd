@@ -2749,9 +2749,12 @@ func t_hand_play() -> void:
 	var last: Control = bar._row.get_child(bar._row.get_child_count() - 1)
 	check(last.position.x + last.size.x <= 674.0,
 		"让位形态下按钮不越过底条右缘（不会藏进右侧竖条底下）")
-	bar.chosen.emit(0)                        ## 「弃置它」
+	bar.chosen.emit(0)                        ## 「弃置它」→ 先进弃置确认（试玩第四轮）
 	await process_frame
-	check(r4[0] == 5, "打不出的卡可以就地弃置")
+	check(r4[0] == -99, "「弃置它」不直接弃：先进确认条")
+	bar.chosen.emit(0)                        ## 「确认弃置」
+	await process_frame
+	check(r4[0] == 5, "确认后才真的弃置")
 
 	# ⑤ 取消回按钮栏，这一问还没答；手牌手势只在行动询问期间生效
 	var r5 := [-99]
