@@ -361,7 +361,14 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	var on_end := func() -> void: ans.fire(end_value)
 	## 行动询问期间手牌可点（方案甲）；其余询问（落子/复活等）不收手牌手势
 	var on_card := func(n: String) -> void: ans.fire(["play", n])
-	var on_dcard := func(n: String) -> void: ans.fire(["discard", n])
+	## 右键的归属只看这一问有没有「取消」：有（目标态/各确认条）→ 右键一律=取消，
+	## 哪怕点在卡上——按钮上就标着「右键 / Esc」，卡不该抢走它（试玩第三轮报的）；
+	## 没有（主按钮栏）→ 卡上右键才是弃置入口
+	var on_dcard := func(n: String) -> void:
+		if cancel >= 0:
+			ans.fire(values[cancel])
+		else:
+			ans.fire(["discard", n])
 	if hand_play and hand != null:
 		hand.card_clicked.connect(on_card)
 		hand.card_right_clicked.connect(on_dcard)

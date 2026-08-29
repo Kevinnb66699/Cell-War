@@ -2766,6 +2766,19 @@ func t_hand_play() -> void:
 	await process_frame
 	check(r5[0] == 6, "结束回合仍然可用")
 
+	# ⑤b 子问句里右键点在卡上也等于「取消」，不是弃那张卡（试玩第三轮报的）
+	var r5b := [-99]
+	var run5b := func() -> void: r5b[0] = await b.ask(areq)
+	run5b.call()
+	hand.card_clicked.emit("交叉呈递")
+	await process_frame
+	hand.card_right_clicked.emit("乳酸酸化")
+	await process_frame
+	check(r5b[0] == -99 and b.marks.is_empty(), "目标态里右键点卡 = 取消，回到按钮栏")
+	bar.chosen.emit(_buttons(bar) - 1)
+	await process_frame
+	check(r5b[0] == 6, "取消后仍能正常结束回合")
+
 	# ⑥ 卡控件的鼠标事件真的接到了信号上（左键/右键各一发）
 	var seen: Array = []
 	hand.card_clicked.connect(func(n: String) -> void: seen.append(["L", n]))
