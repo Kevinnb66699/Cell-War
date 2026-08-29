@@ -22,6 +22,8 @@ func build_options(cell: Dictionary) -> Array:
 		_immune_options(cell, opts)
 	else:
 		_cancer_options(cell, opts)
+	game.card_fx.hand_options(cell, opts)
+	_discard_options(cell, opts)
 	opts.append({ "label": "结束回合", "data": { "act": "end" } })
 	return opts
 
@@ -208,6 +210,10 @@ func execute(cell: Dictionary, data: Dictionary) -> void:
 			_do_mucus(cell)
 		"jump":
 			_do_jump(cell, data["to"])
+		"play":
+			game.card_fx.play(cell, data)
+		"discard":
+			_do_discard(cell, data["card"])
 
 
 # ---- 移动 / 攻击 ----
@@ -295,6 +301,19 @@ func _do_draw(cell: Dictionary) -> void:
 	if game.pay(cell, cost):
 		cell["draws_used"] += 1
 		game.cards.draw(cell, "基因表达")
+
+
+## 手牌可随时弃置（PRD 卡牌规则 3）。手牌满想抽新卡时先弃再抽（团队 2026-08-28 定）。
+func _discard_options(cell: Dictionary, opts: Array) -> void:
+	for card in cell["hand"]:
+		opts.append({ "label": "弃置【%s】" % card, "data": { "act": "discard", "card": card } })
+
+
+func _do_discard(cell: Dictionary, card: String) -> void:
+	if card in cell["hand"]:
+		cell["hand"].erase(card)
+		game.log_msg("%s 弃置【%s】（手牌余 %d）" % [
+			game.cell_name(cell), card, cell["hand"].size()])
 
 
 # ---- 免疫技能 ----

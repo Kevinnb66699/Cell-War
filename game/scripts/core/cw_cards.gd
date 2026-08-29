@@ -26,10 +26,12 @@ func draw(cell: Dictionary, source: String) -> void:
 		return
 	var kind: int = CWCardData.CARDS[card]["kind"]
 	if kind == CWCardData.Kind.EVENT:
-		## 事件卡不进手牌。效果还没实现，所以这里只是如实记一笔就弃掉 ——
-		## **别偷偷把它塞进手牌**，那会让手牌上限和界面都对不上规则。
-		game.log_msg("　%s 经由「%s」抽到【事件】%s（立即结算并弃置；效果未实现）" % [
+		## 事件卡不进手牌：立即结算并弃置（CWCardFx）。**别偷偷把它塞进手牌**，
+		## 那会让手牌上限和界面都对不上规则。
+		game.log_msg("　%s 经由「%s」抽到【事件】%s（立即结算并弃置）" % [
 			game.cell_name(cell), source, card])
+		if not game.card_fx.resolve_event(cell, card):
+			game.log_msg("　（该事件效果未实现，按无效果弃置）")
 		return
 	## 上限由调用方把关（CWActions._can_draw / collect_special）；这里再兜一道
 	if cell["hand"].size() >= CWData.HAND_MAX:

@@ -47,6 +47,7 @@ var world: CWWorld
 var turn: CWTurn
 var actions: CWActions
 var cards: CWCards
+var card_fx: CWCardFx
 
 
 ## faction_list：按行动顺序排列的阵营数组（如 CWData.FACTION_ORDER[4]）
@@ -57,7 +58,8 @@ func init(faction_list: Array, seed_value: int) -> void:
 	turn = CWTurn.new()
 	actions = CWActions.new()
 	cards = CWCards.new()
-	for m in [setup, world, turn, actions, cards]:
+	card_fx = CWCardFx.new()
+	for m in [setup, world, turn, actions, cards, card_fx]:
 		m.game = self
 	var immune_i := 0
 	var cancer_i := 0
@@ -294,7 +296,7 @@ func restore(snap: Dictionary) -> void:
 
 
 func dispose() -> void:
-	for m in [setup, world, turn, actions, cards]:
+	for m in [setup, world, turn, actions, cards, card_fx]:
 		if m != null:
 			m.game = null
 	setup = null
@@ -302,6 +304,7 @@ func dispose() -> void:
 	turn = null
 	actions = null
 	cards = null
+	card_fx = null
 	for b in bridges.values():
 		b.game = null
 	bridges.clear()
@@ -468,13 +471,17 @@ static func settle_loss(base: int, add: int, mult: int, div: int, cut: int) -> i
 	return maxi(v - cut, 0)
 
 
-## 免疫来源的能量损失（普通攻击 / B 细胞【抗体】共用）。
+## 免疫来源的能量损失（普通攻击 / B 细胞【抗体】/ 免疫卡牌共用）。
+##
+## attack=false 表示这次损失**不是「攻击」**（卡牌伤害等）：树突【各司其职】减半与
+## 巨噬【吞噬】吸血都不触发——PRD 那两条明写"攻击"；而【标记】×2 和【囊性护甲】
+## 管的是"损失"，任何来源都生效。
 ##
 ## 落到五步管线上的分别是：
 ##   ③ 倍增 —— 树突【I-标记】×2（消耗掉）
 ##   ④ 倍减 —— 树突【I-各司其职】自己攻击只造成 1/2
 ##   ⑤ 减免 —— 印戒【囊性护甲】−0.5，每世界回合一次
-func immune_hit(target: Dictionary, base: int, attacker: Dictionary) -> int:
+func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: bool = true) -> int:
 	var mult := 1
 	var div := 1
 	var cut := 0
@@ -482,7 +489,7 @@ func immune_hit(target: Dictionary, base: int, attacker: Dictionary) -> int:
 		mult *= 2
 		target["marked"] = false
 		log_msg("　【标记】生效，伤害翻倍")
-	if attacker["faction"] == CWData.Faction.IMMUNE \
+	if attack and attacker["faction"] == CWData.Faction.IMMUNE \
 			and attacker["itype"] == CWData.ImmuneType.DENDRITIC:
 		div *= 2
 		log_msg("　【各司其职】树突状细胞只造成 1/2 伤害")
@@ -495,7 +502,7 @@ func immune_hit(target: Dictionary, base: int, attacker: Dictionary) -> int:
 	## 巨噬【吞噬】：攻击造成能量损失后恢复 ⌈受击方损失 ÷ 2⌉。
 	## PRD 这里的取整符号外面没写「到十分位」，所以按**整数能量**向上取整 ——
 	## 1.0 伤害回 1.0、2.0 伤害也回 1.0，比旧版固定 0.5 明显强。
-	if attacker["faction"] == CWData.Faction.IMMUNE \
+	if attack and attacker["faction"] == CWData.Faction.IMMUNE \
 			and attacker["itype"] == CWData.ImmuneType.MACRO and dmg > 0:
 		var heal: int = int(ceil(dmg / 2.0 / 10.0)) * 10
 		attacker["energy"] += heal

@@ -293,9 +293,7 @@ func _anaerobic() -> void:
 				here.append(cell)
 		if here.is_empty():
 			continue
-		## (2p+n)/(2n) 是整数版的「p/n 四舍五入」——.5 进位，和有氧那边的 round 口径一致
-		var gain: int = ((2 * pool + here.size()) / (2 * here.size())) if game.tune.anaerobic_split else pool
-		gain = game.tune.clamp_income(gain, game.tune.anaerobic_floor, game.tune.anaerobic_cap)
+		var gain := _split_share(pool, here.size())
 		for cell in here:
 			## 小细胞肺癌【瓦伯格超速糖酵解】：110% 原产出，**向上取整到十分位**
 			if cell["ctype"] == CWData.CancerType.SCLC:
@@ -304,6 +302,39 @@ func _anaerobic() -> void:
 				cell["energy"] += gain
 		game.log_msg("【无氧呼吸】连通块（%d 格）内 %d 个癌细胞各 +%s 能量" % [
 			block.size(), here.size(), CWData.fmt(gain)])
+
+
+## 连通块供能均分到一个细胞：四舍五入到十分位（定案 #43）+ 收入夹钳。
+## E 阶段结算和卡【糖酵解爆发】共用 —— 改口径只改这里。
+func _split_share(pool: int, count: int) -> int:
+	## (2p+n)/(2n) 是整数版的「p/n 四舍五入」：.5 进位，和有氧那边的 round 口径一致
+	var gain: int = ((2 * pool + count) / (2 * count)) if game.tune.anaerobic_split else pool
+	return game.tune.clamp_income(gain, game.tune.anaerobic_floor, game.tune.anaerobic_cap)
+
+
+## 单独算某个癌细胞**此刻**的无氧供给（卡【糖酵解爆发】用），口径与 _anaerobic 一致
+func anaerobic_gain_for(target: Dictionary) -> int:
+	var cancer_pred := func(c: Vector2i) -> bool:
+		return game.is_cancerous(c)
+	for block in game.blocks_of(cancer_pred):
+		var members := {}
+		var pool := 0
+		for c in block:
+			members[c] = true
+			pool += game.tune.anaerobic_per_solid if game.tiles[c]["tissue"] == CWData.Tissue.SOLID \
+				else game.tune.anaerobic_per_cancer
+		if not members.has(target["pos"]):
+			continue
+		var count := 0
+		for cell in game.living_cells(CWData.Faction.CANCER):
+			if members.has(cell["pos"]):
+				count += 1
+		var gain := _split_share(pool, maxi(count, 1))
+		## 小细胞肺癌【瓦伯格超速糖酵解】对这次结算同样生效
+		if target["ctype"] == CWData.CancerType.SCLC:
+			gain = int(ceil(gain * CWData.WARBURG_PERCENT / 100.0))
+		return gain
+	return 0
 
 
 ## 骨肉瘤【骨样硬化】：该细胞触发的【E-固化】结算计数为 +1.5。
