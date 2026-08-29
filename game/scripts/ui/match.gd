@@ -53,22 +53,28 @@ const CELL_FOOT_DY := 6.0
 ## 同一格站了多个细胞时左右错开的间距
 const STACK_DX := 9.0
 
+## 棋盘上的细胞用**横排 6 帧的静息呼吸表**（美术 2026-08-29 交付，帧内容上下浮动 0~2px）。
+## 静态单帧图仍在 cells/ 根目录，主菜单装饰、右侧面板等静态场合继续用它们。
 const IMMUNE_ART := {
-	CWData.ImmuneType.BASIC: preload("res://assets/art/cells/immune.png"),
-	CWData.ImmuneType.B_CELL: preload("res://assets/art/cells/bcell.png"),
-	CWData.ImmuneType.T_CELL: preload("res://assets/art/cells/tcell.png"),
-	CWData.ImmuneType.MACRO: preload("res://assets/art/cells/macrophage.png"),
-	CWData.ImmuneType.DENDRITIC: preload("res://assets/art/cells/dendritic.png"),
+	CWData.ImmuneType.BASIC: preload("res://assets/art/cells/anim/immune_breath.png"),
+	CWData.ImmuneType.B_CELL: preload("res://assets/art/cells/anim/bcell_breath.png"),
+	CWData.ImmuneType.T_CELL: preload("res://assets/art/cells/anim/tcell_breath.png"),
+	CWData.ImmuneType.MACRO: preload("res://assets/art/cells/anim/macrophage_breath.png"),
+	CWData.ImmuneType.DENDRITIC: preload("res://assets/art/cells/anim/dendritic_breath.png"),
 }
 
-## 癌细胞四种。小细胞肺癌那张只有 16x16（其余 32x32）—— 是美术故意画小的，
+## 癌细胞四种。小细胞肺癌的帧只有 16x18（其余 32x34）—— 是美术故意画小的，
 ## 别拿缩放去凑齐：贴图过滤是最近邻，非整数倍缩放会磨出锯齿（约定 #13 同理）。
 const CANCER_ART := {
-	CWData.CancerType.MELANOMA: preload("res://assets/art/cells/melanoma.png"),
-	CWData.CancerType.SIGNET: preload("res://assets/art/cells/signet.png"),
-	CWData.CancerType.OSTEO: preload("res://assets/art/cells/osteo.png"),
-	CWData.CancerType.SCLC: preload("res://assets/art/cells/sclc.png"),
+	CWData.CancerType.MELANOMA: preload("res://assets/art/cells/anim/melanoma_breath.png"),
+	CWData.CancerType.SIGNET: preload("res://assets/art/cells/anim/signet_breath.png"),
+	CWData.CancerType.OSTEO: preload("res://assets/art/cells/anim/osteo_breath.png"),
+	CWData.CancerType.SCLC: preload("res://assets/art/cells/anim/sclc_breath.png"),
 }
+
+## 呼吸动画：6 帧/秒 × 6 帧 = 一秒一次完整呼吸；相位按细胞编号错开，免得全场同频起伏
+const BREATH_FPS := 6.0
+const BREATH_FRAMES := 6
 
 var game: CWGame
 var bridge: CWUIBridge
@@ -95,6 +101,8 @@ var _bloom := {}      ## 开场还没揭开的格子：一律先按健康组织�
 var _hand_seen := {}  ## pid -> 上一帧的手牌数，用来认出「刚抽了一张」
 var _hand_pid := -1   ## 抽屉正在显示谁的手牌
 var _opening := false ## 正在演开场；start() 会把它带给桥（桥是 start() 里才建的）
+var _breath_acc := 0.0   ## 呼吸计时的小数积累
+var _breath_step := 0    ## 全局呼吸步进（各细胞再按编号错相位）
 var _fading := false  ## 正在演返场淡出：这期间**必须停掉每帧刷新**，
                       ## 否则 _sync_tiles 会把刚淡成健康的格子又刷回癌性
 var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
@@ -279,6 +287,7 @@ func _process(delta: float) -> void:
 			_flash.erase(c)
 	_sync_tiles()
 	_sync_cells()
+	_animate_breath(delta)
 	_sync_hand()
 	if panel != null:
 		panel.refresh(game)
@@ -379,6 +388,21 @@ func _pop_in(node: Node2D) -> void:
 	tw.parallel().tween_property(node, "scale", Vector2.ONE, CELL_POP)
 
 
+## 静息呼吸：所有活细胞的帧号循环推进。相位 = 全局步进 + 细胞编号——
+## 刻意不用随机数（UI 不碰 game.rng，那是对局状态的一部分；别的随机源又破坏可复现）。
+func _animate_breath(delta: float) -> void:
+	_breath_acc += delta * BREATH_FPS
+	if _breath_acc < 1.0:
+		return
+	var steps := int(_breath_acc)
+	_breath_acc -= steps
+	_breath_step = (_breath_step + steps) % BREATH_FRAMES
+	for i in _cell_nodes.size():
+		var s := _cell_nodes[i] as Sprite2D
+		if s.visible and s.hframes == BREATH_FRAMES:
+			s.frame = (_breath_step + i) % BREATH_FRAMES
+
+
 ## 分化会改 itype，所以贴图每帧对一次。
 func _apply_immune_art(s: Sprite2D, itype: int) -> void:
 	var tex: Texture2D = IMMUNE_ART[itype]
@@ -390,4 +414,5 @@ func _apply_immune_art(s: Sprite2D, itype: int) -> void:
 ## 而贴图有 24/32/16 三种高度，只有对齐脚底才不会因为大小不同而上下乱跳。
 func _set_cell_art(s: Sprite2D, tex: Texture2D) -> void:
 	s.texture = tex
+	s.hframes = BREATH_FRAMES   ## 所有对局细胞贴图都是横排 6 帧呼吸表
 	s.offset = Vector2(0, -tex.get_height() / 2.0)

@@ -35,6 +35,7 @@ func _run_all() -> void:
 	t_ev_double()
 	t_ev_double_instant()
 	t_ev_lifecycle()
+	t_breath_sheets()
 	t_solidify_and_decay()
 	t_erosion()
 	t_immune_win()
@@ -2644,3 +2645,16 @@ func t_ev_double_instant() -> void:
 	check(imm["energy"] == 90, "第二回合开头完整重演（再 −0.5）")
 	g.world_fx.round_end()
 	check(g.events["active"].is_empty(), "第二回合末到期")
+func t_breath_sheets() -> void:
+	print("[细胞呼吸动画]")
+	var M = load("res://scripts/ui/match.gd")
+	var arts: Array = []
+	arts.append_array(M.IMMUNE_ART.values())
+	arts.append_array(M.CANCER_ART.values())
+	check(arts.size() == 9, "九种细胞都有呼吸表")
+	var ok := true
+	for tex in arts:
+		var w: int = tex.get_width()
+		if w % M.BREATH_FRAMES != 0 or not (w / M.BREATH_FRAMES) in [16, 32] 				or not tex.get_height() in [18, 32, 34]:
+			ok = false
+	check(ok, "每张都是横排 6 帧、帧宽 16/32、帧高 18/32/34")
