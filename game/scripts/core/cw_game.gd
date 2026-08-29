@@ -17,6 +17,10 @@ var round_no := 1          # 当前世界回合（从 1 起）
 var memory := 0            # 免疫方抗原记忆（阵营共享）
 var immune_level := 0      # 0..3 = I/II/III/X，只升不降
 var differentiated: Array = []   # 已被分化占用的免疫种类（每种全阵营限一个）
+## 世界事件状态（CWWorldFx 管理，结算点用 event_stacks() 查询）。
+## pool = 尚未抽过的事件名（定案 #42 同局不可重复）；active = 生效中的效果条目
+## {name, left, stacks, data}；double_next = 【双重触发】待兑现的标记。整体进快照与哈希。
+var events := { "pool": [], "active": [], "double_next": false }
 var winner := -1           # -1 未分胜负；否则 CWData.Faction
 # 中途放弃这一局（返回主菜单）。置位后引擎的各个循环会在下一个检查点收摊，
 # 让卡在「等玩家作答」上的那次询问能安全地一路展开回来 ——
@@ -48,6 +52,7 @@ var turn: CWTurn
 var actions: CWActions
 var cards: CWCards
 var card_fx: CWCardFx
+var world_fx: CWWorldFx
 
 
 ## faction_list：按行动顺序排列的阵营数组（如 CWData.FACTION_ORDER[4]）
@@ -59,8 +64,10 @@ func init(faction_list: Array, seed_value: int) -> void:
 	actions = CWActions.new()
 	cards = CWCards.new()
 	card_fx = CWCardFx.new()
-	for m in [setup, world, turn, actions, cards, card_fx]:
+	world_fx = CWWorldFx.new()
+	for m in [setup, world, turn, actions, cards, card_fx, world_fx]:
 		m.game = self
+	events["pool"] = CWWorldFx.EVENTS.duplicate()
 	var immune_i := 0
 	var cancer_i := 0
 	for i in faction_list.size():
@@ -273,6 +280,7 @@ func snapshot() -> Dictionary:
 		"round_no": round_no, "memory": memory, "immune_level": immune_level,
 		"winner": winner, "win_reason": win_reason, "win_kind": win_kind,
 		"current_pid": current_pid, "phase": phase,
+		"events": events.duplicate(true),
 		"rng": rng.state,
 	}
 
@@ -292,11 +300,12 @@ func restore(snap: Dictionary) -> void:
 	win_kind = snap["win_kind"]
 	current_pid = snap["current_pid"]
 	phase = snap["phase"]
+	events = snap["events"].duplicate(true)
 	rng.state = snap["rng"]
 
 
 func dispose() -> void:
-	for m in [setup, world, turn, actions, cards, card_fx]:
+	for m in [setup, world, turn, actions, cards, card_fx, world_fx]:
 		if m != null:
 			m.game = null
 	setup = null
@@ -305,6 +314,7 @@ func dispose() -> void:
 	actions = null
 	cards = null
 	card_fx = null
+	world_fx = null
 	for b in bridges.values():
 		b.game = null
 	bridges.clear()
@@ -363,6 +373,31 @@ func count_tissue(tissue: int) -> int:
 		if t["tissue"] == tissue:
 			n += 1
 	return n
+
+
+## 名为 name 的世界事件当前叠了几层（0 = 未生效）。所有结算点都走这里；
+## 将来卡牌修饰（对照 5.1 #26）往 events["active"] 塞条目即可被同一批挂接点认出。
+func event_stacks(name: String) -> int:
+	for e in events["active"]:
+		if e["name"] == name:
+			return e["stacks"]
+	return 0
+
+
+## 固化计数的**增加**一律走这里（【E-固化】与卡【基质硬化】共用）：
+## 达到 3.0 即转固化；【固化加速】生效时，从 2.0 以下涨到 ≥2.0 也立即转化
+## （定案 W4——只认「涨过线」，事件触发时已 ≥2.0 的格不追溯）。
+func raise_solid(pos: Vector2i, amount: int) -> void:
+	var t: Dictionary = tile(pos)
+	var before: int = t["solid"]
+	t["solid"] = before + amount
+	var accel: bool = event_stacks("固化加速") > 0 \
+		and before < CWData.SOLIDIFY_ACCEL_AT and t["solid"] >= CWData.SOLIDIFY_ACCEL_AT
+	if t["solid"] < tune.solidify_threshold and not accel:
+		return
+	t["tissue"] = CWData.Tissue.SOLID
+	log_msg("【固化】%s 转为固化癌组织%s" % [str(pos),
+		"（固化加速）" if t["solid"] < tune.solidify_threshold else ""])
 
 
 ## 坏死格数。**坏死不是第四种组织** —— Tissue 只有 健康/癌/固化 三种，
@@ -512,8 +547,8 @@ func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: boo
 	return dmg
 
 
-## 癌症来源的能量损失（【E-微环境压迫】、印戒【黏液破裂】、将来的癌症卡）。
-## 走同一条管线；目前癌方还没有倍增/倍减手段，所以只有基础值。
+## 癌症来源**或世界事件等中立来源**的能量损失（微环境压迫、黏液破裂、癌症卡、
+## 事件的「失去 X 能量」）。走同一条管线，不吃任何攻防修正（标记/护甲只挂在 immune_hit）。
 func cancer_hit(target: Dictionary, base: int, reason: String) -> int:
 	var dmg := settle_loss(base, 0, 1, 1, 0)
 	log_msg("【%s】%s 损失 %s 能量（余 %s）" % [
@@ -556,7 +591,10 @@ func kill(cell: Dictionary) -> void:
 
 # ---- 抗原记忆 / 免疫等级 ----
 func gain_memory(n: int) -> void:
-	memory += n
+	var bonus := event_stacks("抗原暴露")   ## 每**次**获得时 +1，不按点数（按 stacks 叠）
+	if bonus > 0:
+		log_msg("　【抗原暴露】抗原记忆额外 +%d" % bonus)
+	memory += n + bonus
 	var lv := immune_level
 	while lv < 3 and memory >= CWData.LEVEL_MIN_MEMORY[lv + 1]:
 		lv += 1
@@ -644,4 +682,14 @@ func state_hash() -> String:
 			str(cell["pos"]), cell["energy"], 1 if cell["alive"] else 0,
 			cell["itype"], cell["ctype"], cell["respawn_round"],
 			",".join(cell["hand"]), ",".join(cell["equipped"])])
+	var ev: PackedStringArray = []
+	for e in events["active"]:
+		var dk: Array = e["data"].keys()
+		dk.sort()
+		var dp: PackedStringArray = []
+		for k in dk:
+			dp.append("%s=%s" % [str(k), str(e["data"][k])])
+		ev.append("%s:%d:%d:%s" % [e["name"], e["left"], e["stacks"], ";".join(dp)])
+	parts.append("ev dn%d pool:%s | %s" % [1 if events["double_next"] else 0,
+		",".join(events["pool"]), " ".join(ev)])
 	return "\n".join(parts).sha256_text()

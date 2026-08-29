@@ -99,6 +99,7 @@ const ANAEROBIC_PER_SOLID := 10          # 每固化癌组织供能 1.0
 const SOLIDIFY_THRESHOLD := 30           # 计数达 3.0 → 固化癌组织
 const SOLIDIFY_STEP := 10                # 癌细胞停留：+1.0
 const SOLIDIFY_DECAY := 5                # 无癌细胞停留：每世界回合 −0.5
+const SOLIDIFY_ACCEL_AT := 20            # 【固化加速】：从 <2.0 涨到 ≥2.0 立即转化（定案 W4）
 
 # ---- 场景事件（PRD 场景事件）----
 # 【E-微环境压迫】：相邻癌性组织 > 2 格时，免疫细胞损失（相邻数 − 2）× 0.5。

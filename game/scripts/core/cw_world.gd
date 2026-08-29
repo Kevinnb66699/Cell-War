@@ -5,7 +5,8 @@
 ## S 阶段：世界事件 → 特殊组织产出 → 血管传送 → 免疫【复活】→ 癌细胞【复活】
 ##        → 免疫【有氧呼吸】→ 其他 S 类
 ## E 阶段：【微环境压迫】→【增生】→【侵蚀】→【无氧呼吸】→【固化】→ 固化计数衰减
-##        → 其他 E 类 → 更新持续状态（「坏死」到期）→ 移除「新生」→ **胜利条件检查**
+##        → 其他 E 类 → 更新持续状态（「坏死」到期）→ 移除「新生」
+##        → 世界事件到期（紊乱返回、持续效果倒计时）→ **胜利条件检查**
 ##
 ## 两个容易踩的点：
 ## ① **增生在侵蚀之前**。增生会把健康组织变成癌组织，从而改变「完全包围」的判定结果，
@@ -23,8 +24,9 @@ var game: CWGame
 func round_start() -> void:
 	game.log_msg("━━━━ 第 %d 世界回合 ━━━━" % game.round_no)
 	_reset_round_flags()
+	game.world_fx.on_round_start()
 	if CWData.is_world_event_round(game.round_no):
-		game.log_msg("【世界事件】本回合应触发（内容未定义，暂跳过）")  # 说明 #1
+		game.world_fx.trigger()
 	_tissue_production()
 	_vessel_teleport()
 
@@ -42,6 +44,7 @@ func e_phase() -> void:
 	_decay()
 	_tick_necrosis()   ## 「更新持续时间类状态」——目前只有「坏死」
 	_clear_newborn()
+	game.world_fx.round_end()   ## 紊乱返回原位 + 事件倒计时/到期
 	## 胜利条件检查（E 阶段第 10 步）。免疫先判：PRD 的列举顺序如此，
 	## 而且两边同时满足时「癌细胞已全灭」比「占地达标」更靠后发生，判给免疫更符合直觉。
 	game.check_immune_win()
@@ -63,6 +66,9 @@ func _reset_round_flags() -> void:
 
 ## 代谢核心/骨髓产出；产出瞬间站在其上的细胞立即收取（说明 #9）
 func _tissue_production() -> void:
+	if game.event_stacks("营养缺乏") > 0:
+		game.log_msg("【营养缺乏】本回合特殊组织不产出")
+		return
 	for c in game.tiles.keys():
 		var t: Dictionary = game.tiles[c]
 		if t["special"] != CWData.Special.CORE and t["special"] != CWData.Special.MARROW:
@@ -103,9 +109,11 @@ func _vessel_teleport() -> void:
 	for cell in ca:
 		game.log_msg("【血管】%s 传送至 %s" % [game.cell_name(cell), str(b)])
 		game.actions.enter_tile(cell, b)
+		game.world_fx.on_vessel_pass(cell)
 	for cell in cb:
 		game.log_msg("【血管】%s 传送至 %s" % [game.cell_name(cell), str(a)])
 		game.actions.enter_tile(cell, a)
+		game.world_fx.on_vessel_pass(cell)
 
 
 ## 【S-复活】癌症：落点是**未被细胞占据**的固化癌组织；可自愿放弃（说明 #21）。
@@ -244,10 +252,15 @@ func _erosion() -> void:
 		game.log_msg("【侵蚀】%s 转为癌组织" % str(c))
 
 
-## 【E-增生】癌组织向外扩散：与癌性组织相邻的健康组织按概率被转化（团队提案，旋钮默认关闭）
+## 【E-增生】癌组织向外扩散：与癌性组织相邻的健康组织按概率被转化（PRD 已入规，概率见 CWTuning）
 ## 先统一掷骰收集、再统一转化 —— 保证「同时结算」，避免转化顺序影响后续格的相邻数。
 func _proliferate() -> void:
+	if game.event_stacks("增殖抑制") > 0:
+		game.log_msg("【增殖抑制】本回合组织无法增生")
+		return
 	var rate: int = game.tune.proliferate_per_adjacent
+	for i in game.event_stacks("异常增殖"):
+		rate *= 2   ## 【异常增殖】增生概率翻倍（叠加时按层数连乘）
 	if rate <= 0:
 		return
 	var converts: Array[Vector2i] = []
@@ -357,10 +370,7 @@ func _solidify() -> void:
 		var t: Dictionary = game.tile(c)
 		if t["tissue"] != CWData.Tissue.CANCER or t["newborn"]:
 			continue
-		t["solid"] += _solidify_step(c)
-		if t["solid"] >= game.tune.solidify_threshold:
-			t["tissue"] = CWData.Tissue.SOLID
-			game.log_msg("【固化】%s 转为固化癌组织" % str(c))
+		game.raise_solid(c, _solidify_step(c))   ## 门槛判定（含【固化加速】）在 raise_solid 里
 
 
 ## 固化计数衰减：计数 > 0 且无癌细胞停留的**癌组织**，每世界回合 −0.5（PRD）

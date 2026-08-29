@@ -41,9 +41,9 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 			_marrow_mobilization()
 		"克隆扩增":
 			for c in game.living_cells(CWData.Faction.IMMUNE):
-				c["energy"] += 10
+				c["energy"] += _amp(10)
 			_gain(cell, 5, "额外")
-			game.log_msg("　【克隆扩增】所有免疫细胞 +1.0 能量")
+			game.log_msg("　【克隆扩增】所有免疫细胞 +%s 能量" % CWData.fmt(_amp(10)))
 		"IFN-γ释放":
 			_ifn_burst(cell, cell["pos"])
 		"全身性免疫清除":
@@ -55,7 +55,7 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 		"克隆增殖":
 			_clonal_growth(cell)
 		"肿瘤血管生成":
-			var v: int = [10, 20, 25][_phase()]
+			var v: int = _amp([10, 20, 25][_phase()])
 			for c in game.living_cells(CWData.Faction.CANCER):
 				c["energy"] += v
 			_gain(cell, 5, "额外")
@@ -70,6 +70,9 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 ## 把当前能打的手牌摊成顶层选项（流程状态机约定：所有决定都是顶层选项）。
 ## 带目标的卡一目标一选项；随机结算的卡一张一选项。打出不花能量（PRD 没有出牌费）。
 func hand_options(cell: Dictionary, opts: Array) -> void:
+	## 【细胞应激】本回合打牌收费；付不起就一张也打不出（选项直接不出现）
+	if _stress_fee() > 0 and not game.can_pay(cell, _stress_fee()):
+		return
 	for card in cell["hand"]:
 		match card:
 			"基质降解":
@@ -124,6 +127,11 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 	if not card in cell["hand"]:
 		return
 	game.log_msg("%s 打出【%s】" % [game.cell_name(cell), card])
+	var fee := _stress_fee()
+	if fee > 0:
+		if not game.pay(cell, fee):
+			return   ## 选项层已按费用把过关，这里只是兜底
+		game.log_msg("　【细胞应激】支付 %s 能量" % CWData.fmt(fee))
 	match card:
 		"基质降解":
 			var t: Dictionary = game.tile(data["to"])
@@ -132,7 +140,7 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 			game.log_msg("　%s 由固化癌组织转为癌组织（计数清零）" % str(data["to"]))
 		"抗体依赖细胞毒作用":
 			var base := 15 if cell["itype"] == CWData.ImmuneType.B_CELL else 10
-			game.immune_hit(game.cells[data["cid"]], base, cell, false)
+			game.immune_hit(game.cells[data["cid"]], _amp(base), cell, false)
 		"交叉呈递":
 			var target: Dictionary = game.cells[data["cid"]]
 			target["marked"] = true
@@ -176,8 +184,8 @@ func _local_phagocytosis(cell: Dictionary) -> void:
 ## 产出瞬间站在其上的细胞立即收取（说明 #9 与 S 阶段产出同口径）。
 func _marrow_mobilization() -> void:
 	for c in game.living_cells(CWData.Faction.IMMUNE):
-		c["energy"] += 5
-	game.log_msg("　【骨髓动员】所有免疫细胞 +0.5 能量")
+		c["energy"] += _amp(5)
+	game.log_msg("　【骨髓动员】所有免疫细胞 +%s 能量" % CWData.fmt(_amp(5)))
 	for m in CWData.MARROWS:
 		var t: Dictionary = game.tile(m)
 		if t["tissue"] != CWData.Tissue.HEALTHY or t["cards"] > 0:
@@ -192,12 +200,13 @@ func _marrow_mobilization() -> void:
 ## 2 格内癌细胞 −1.0，普通癌组织固化计数 −1.0（不低于 0）
 func _ifn_burst(source: Dictionary, center: Vector2i) -> void:
 	for t in _cancer_cells_in_range(center, 2):
-		game.immune_hit(t, 10, source, false)
+		game.immune_hit(t, _amp(10), source, false)
 	for c in _tiles_in_range(center, 2):
 		var t: Dictionary = game.tile(c)
 		if t["tissue"] == CWData.Tissue.CANCER and t["solid"] > 0:
-			t["solid"] = maxi(t["solid"] - 10, 0)
-	game.log_msg("　【IFN-γ】%s 周围 2 格：癌细胞 −1.0 能量，固化计数 −1.0" % str(center))
+			t["solid"] = maxi(t["solid"] - 10, 0)   ## 固化计数不是能量，不受【信号放大】影响
+	game.log_msg("　【IFN-γ】%s 周围 2 格：癌细胞 −%s 能量，固化计数 −1.0" % [
+		str(center), CWData.fmt(_amp(10))])
 
 
 func _ifn_has_effect(center: Vector2i) -> bool:
@@ -264,19 +273,17 @@ func _lactic_acid(cell: Dictionary, target: Dictionary) -> void:
 			adj += 1
 	if adj >= 3:
 		base += 5
-	game.cancer_hit(target, base, "乳酸酸化")
+	game.cancer_hit(target, _amp(base), "乳酸酸化")
 
 
 ## 【基质硬化】所选普通癌组织固化计数 +1/+1.5/+2（分期）。
 ## 计数到达 3 立即转固化 —— PRD「计数到达3时转为固化癌组织」没限定只在 E 阶段结算。
+## 门槛判定（含【固化加速】的 2.0 线）统一走 game.raise_solid。
 func _stroma_harden(pos: Vector2i) -> void:
-	var t: Dictionary = game.tile(pos)
-	t["solid"] += [10, 15, 20][_phase()]
+	var amt: int = [10, 15, 20][_phase()]
 	game.log_msg("　%s 固化计数 +%s（现 %s）" % [
-		str(pos), CWData.fmt([10, 15, 20][_phase()]), CWData.fmt(t["solid"])])
-	if t["solid"] >= game.tune.solidify_threshold:
-		t["tissue"] = CWData.Tissue.SOLID
-		game.log_msg("　%s 固化计数达标，转为固化癌组织" % str(pos))
+		str(pos), CWData.fmt(amt), CWData.fmt(game.tile(pos)["solid"] + amt)])
+	game.raise_solid(pos, amt)
 
 
 ## 【肿瘤细胞募集】把所选癌细胞传送到**自身**周围 2/3/3 格内随机空癌性组织。落地算「进入」
@@ -299,10 +306,23 @@ func _opt(card: String, suffix: String, extra: Dictionary = {}) -> Dictionary:
 	return { "label": "打出【%s】%s" % [card, suffix], "data": data }
 
 
+## 【信号放大】：卡牌效果中的能量增减翻倍（定案 W8：即时技能卡翻、事件卡按同口径翻，
+## 永久技能卡与细胞自带技能不翻——本模块只住前两类，能量数值全部过这一层）
+func _amp(n: int) -> int:
+	for i in game.event_stacks("信号放大"):
+		n *= 2
+	return n
+
+
+func _stress_fee() -> int:
+	return 5 * game.event_stacks("细胞应激")   ## 【细胞应激】打牌费 0.5/层
+
+
 func _gain(cell: Dictionary, n: int, tag: String = "") -> void:
-	cell["energy"] += n
+	var v := _amp(n)
+	cell["energy"] += v
 	game.log_msg("　%s %s+%s 能量（现 %s）" % [
-		game.cell_name(cell), tag, CWData.fmt(n), CWData.fmt(cell["energy"])])
+		game.cell_name(cell), tag, CWData.fmt(v), CWData.fmt(cell["energy"])])
 
 
 ## 组织转化不走「进入」，所以不给记忆、不触发收取；黏液/新生按增生同口径处理
