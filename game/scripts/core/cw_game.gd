@@ -855,17 +855,30 @@ func state_hash() -> String:
 			t["necrosis"], 1 if t["newborn"] else 0, 1 if t["mucus"] else 0,
 			t["store"], t["cards"], t["prod"]])
 	for cell in cells:
+		## **打出先后的戳必须进哈希**（2026-08-30 审查问题 2）：口径 #73 之后 seq /
+		## equip_seq 是**规则相关数据**（移动费链按它排序）。两个数组各自的内部次序
+		## 本来就被数组顺序捎带上了，但即时卡与永久技能**之间**的交错完全没进来 ——
+		## 于是「先装组织巡航后打炎症趋化」和反过来算出同一个哈希，而两者移动费差 0.5。
+		##
+		## `cell["play_n"]` 本身**不进哈希**：它是只增不减的计数器，绝对值不影响任何
+		## 结算（同一批条目无论从 3 还是从 5 往后发号，排出来的先后完全一样），
+		## 有意义的只是相对先后，而那已经被各条目的 seq 记住了。把它塞进来反而会打破
+		## 「挂上修饰 → 消耗掉 = 回到原状态」这条测试地基（t_card_mods ⑪）。
 		var mods: PackedStringArray = []
 		for m in cell["mods"]:
-			mods.append("%s*%d%s" % [m["name"], m["uses"], m["until"]])
+			mods.append("%s*%d%s@%d" % [m["name"], m["uses"], m["until"], m.get("seq", 0)])
+		var eq: PackedStringArray = []
+		for s in cell["equipped"]:
+			eq.append("%s@%d" % [s, cell["equip_seq"].get(s, 0)])
 		var ft: Array = cell["fx_turn"].keys()
 		ft.sort()
 		var fr: Array = cell["fx_round"].keys()
 		fr.sort()
-		parts.append("c%d:%d,%s,%d,%d,%d,%d,%d|%s|%s|%s|k%d.%d|%s|%s" % [cell["id"], cell["faction"],
+		parts.append("c%d:%d,%s,%d,%d,%d,%d,%d|%s|%s|%s|k%d.%d|%s|%s" % [
+			cell["id"], cell["faction"],
 			str(cell["pos"]), cell["energy"], 1 if cell["alive"] else 0,
 			cell["itype"], cell["ctype"], cell["respawn_round"],
-			",".join(cell["hand"]), ",".join(cell["equipped"]), ",".join(mods),
+			",".join(cell["hand"]), ",".join(eq), ",".join(mods),
 			1 if cell["marked"] else 0, cell["mark_left"], str(ft), str(fr)])
 	var ev: PackedStringArray = []
 	for e in events["active"]:

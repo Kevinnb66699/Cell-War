@@ -24,6 +24,7 @@ func _run_all() -> void:
 	await t_card_choices()
 	await t_card_mods()
 	await t_settle_order_rulings()
+	await t_review_fixes()
 	await t_card_perms()
 	await t_world_events_draw()
 	t_ev_attack_mods()
@@ -4614,3 +4615,85 @@ func _t_ruling_c_presentation() -> void:
 			told = true
 	check(told, "C：日志要说清额度是怎么没的（旧版零反馈）")
 	g.dispose()
+
+
+# ---- 2026-08-30 审查问题 2 / 3 的回归 ----
+## 两条都是**纯工程缺陷**（不含规则内容），也都是「不写断言就会悄悄回退」的类型。
+func t_review_fixes() -> void:
+	print("[审查问题 2/3 回归]")
+	_t_hash_knows_play_order()
+	await _t_no_fake_double_trigger()
+
+
+## 问题 2：state_hash 必须认得出「打出先后」。
+## #73 之后 seq / equip_seq 是规则相关数据（移动费链按它排序），
+## 少了它，两个**结算结果不同**的局面会算出同一个哈希 —— 确定性回放校验就漏判了。
+func _t_hash_knows_play_order() -> void:
+	var canc := Vector2i(1, 0)
+
+	## 局面甲：先装【组织巡航】，再打【炎症趋化】→ 首移到癌性组织收 0.5
+	var a := bare_game()
+	a.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	var ca := put_immune(a, Vector2i.ZERO)
+	put_skill(ca, "组织巡航")
+	a.add_mod(ca, "炎症趋化", 1, "turn")
+
+	## 局面乙：只差打出顺序 —— 先打【炎症趋化】，再装【组织巡航】→ 首移免费
+	var b := bare_game()
+	b.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	var cb := put_immune(b, Vector2i.ZERO)
+	b.add_mod(cb, "炎症趋化", 1, "turn")
+	put_skill(cb, "组织巡航")
+
+	var cost_a: int = a.actions._move_cost_mod(ca, canc, 10)
+	var cost_b: int = b.actions._move_cost_mod(cb, canc, 10)
+	check(cost_a != cost_b, "只差打出顺序的两个局面，移动费确实不同（%s vs %s）" % [
+		CWData.fmt(cost_a), CWData.fmt(cost_b)])
+	check(a.state_hash() != b.state_hash(),
+		"问题 2：结算结果不同 → state_hash 必须不同（旧版两者相同）")
+	a.dispose()
+	b.dispose()
+
+	## 反面：完全一样的两个局面，哈希还是得一样（别把哈希写成每次都不同）
+	var c := bare_game()
+	c.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	var cc := put_immune(c, Vector2i.ZERO)
+	put_skill(cc, "组织巡航")
+	c.add_mod(cc, "炎症趋化", 1, "turn")
+	check(a_hash_of(c) == a_hash_of(c), "同一局面两次取哈希一致")
+	c.dispose()
+
+
+func a_hash_of(g: CWGame) -> String:
+	return g.state_hash()
+
+
+## 问题 3：卡牌挂到 events["active"] 的全局条目，不能被当成「本回合类世界事件」重演。
+## 【TGF-β释放】left=2（要活到下个 S 阶段的有氧结算）、不在 DURATION 表里，
+## 旧版每次都会喊一句根本没发生过的「双重触发」。
+func _t_no_fake_double_trigger() -> void:
+	var g := bare_game()
+	g.install_event("TGF-β释放", 2)
+	var n0: int = g.logs.size()
+	await g.world_fx.on_round_start()
+	var faked := false
+	for i in range(n0, g.logs.size()):
+		if "双重触发" in g.logs[i]:
+			faked = true
+	check(not faked, "问题 3：打出【TGF-β释放】后，下个回合开头不得出现「双重触发」")
+	check(not g.world_fx.is_world_event({ "name": "TGF-β释放" }),
+		"卡牌挂的条目不算世界事件")
+	check(g.world_fx.is_world_event({ "name": "基质阻隔" }), "世界事件仍认得出来")
+	g.dispose()
+
+	## 真被【双重触发】加倍的本回合类**世界事件**，仍要照常重演
+	var g2 := bare_game()
+	g2.events["active"].append({ "name": "免疫抑制因子", "left": 2, "stacks": 1, "data": {} })
+	var n1: int = g2.logs.size()
+	await g2.world_fx.on_round_start()
+	var replayed := false
+	for i in range(n1, g2.logs.size()):
+		if "双重触发" in g2.logs[i]:
+			replayed = true
+	check(replayed, "真的世界事件被加倍时，第二回合仍照常重演（别把修复做过头）")
+	g2.dispose()
