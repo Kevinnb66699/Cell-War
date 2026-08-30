@@ -10,7 +10,7 @@ class_name CWTileInfo
 extends Control
 
 const DELAY := 0.25    ## 悬停多久后浮出
-const W := 208
+const W := 208         ## **最小**宽；实际宽度按最长一行实测（见 width_for）
 const PAD_V := 10
 const PAD_H := 12
 const GAP_FROM_TILE := 26   ## 卡片与格子中心的横向距离
@@ -96,6 +96,21 @@ static func describe(game: CWGame, c: Vector2i) -> Array:
 	return rows
 
 
+## 卡片宽度：按最长一行的**实测**宽度撑开，W 只是下限。
+## 定宽 208 在「代谢核心 · 储量 0.0」这类行上差十几像素，文字压到框外
+## （2026-08-30 对局内试玩第一轮报的）。首行右侧还挂着坐标小签，一并算进去。
+static func width_for(rows: Array) -> float:
+	var w := float(W)
+	for r in rows:
+		var tw: float = CWStyle.FONT.get_string_size(r["text"],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, r["size"]).x
+		if r.has("right"):
+			tw += 8.0 + CWStyle.FONT.get_string_size(str(r["right"]),
+				HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+		w = maxf(w, tw + PAD_H * 2)
+	return w
+
+
 ## 摆位：优先放在格子右侧、垂直居中；会压到右栏（x≥696-宽）就翻到左侧；
 ## 上下钳进画布。纯函数，测试核对「贴右栏的格子翻左、不越界」。
 static func place(anchor: Vector2, box: Vector2, screen: Vector2) -> Vector2:
@@ -117,7 +132,8 @@ func _rebuild(rows: Array) -> void:
 		if r.has("rule"):
 			h += 6
 	h += PAD_V
-	size = Vector2(W, h)
+	var w := width_for(rows)
+	size = Vector2(w, h)
 	var bg := Panel.new()
 	bg.add_theme_stylebox_override("panel", CWStyle.box(0.45, CWStyle.BTN_BG))
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -129,7 +145,7 @@ func _rebuild(rows: Array) -> void:
 			var rule := ColorRect.new()
 			rule.color = Color(CWStyle.LINE, 0.25)
 			rule.position = Vector2(PAD_H, y + 2)
-			rule.size = Vector2(W - PAD_H * 2, 1)
+			rule.size = Vector2(w - PAD_H * 2, 1)
 			rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			add_child(rule)
 			y += 6
@@ -138,7 +154,7 @@ func _rebuild(rows: Array) -> void:
 		add_child(label)
 		if r.has("right"):
 			var tag := CWStyle.label(r["right"], CWStyle.SIZE_LABEL, CWStyle.TEXT_OFF)
-			tag.size = Vector2(W - PAD_H * 2, 14)
+			tag.size = Vector2(w - PAD_H * 2, 14)
 			tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 			tag.position = Vector2(PAD_H, y + 6)
 			add_child(tag)

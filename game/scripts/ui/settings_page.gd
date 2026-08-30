@@ -1,6 +1,8 @@
 ## settings_page.gd —— 设置：主菜单打开的小面板，改一下立即生效并落盘
 ##
-## 视觉与键盘模型照抄对局配置面板（上下选行、左右拨值、Esc 返回）。
+## 视觉与键盘模型照抄对局配置面板（上下选行、左右拨值、Esc 返回）；
+## 2026-08-30 起连拨值语汇也对齐它：箭头**固定位置**不随字宽跑、悬停亮白光、
+## 选中行标题带主菜单同款辉光（对局内试玩第一轮要求「和配置面板一样」）。
 ## 两处值行面板还不抽公共控件——共性归共性，这边没有「开始」行、
 ## 值改动是**即时副作用**（写 CWSettings + 存盘）而不是攒着确认，骨架并不同。
 class_name CWSettingsPage
@@ -10,12 +12,17 @@ const W := 264
 const PAD := 16
 const TITLE_H := 42
 const ROW_H := 36
+const ARROW_L_X := 148   ## 拨值箭头的固定横坐标（不随值字宽跑，同配置面板）
+const ARROW_R_X := 236
 
 var _sel := 0
 var _panel: Control
 var _name_labels: Array[Label] = []
 var _value_labels: Array[Label] = []
 var _bars: Array[ColorRect] = []
+var _arrows: Array = []          ## 每行 [左箭头, 右箭头]
+var _hot_arrow: Label = null     ## 正被鼠标悬停的箭头；null = 没有
+var _glow: Control               ## 选中行标题的辉光（主菜单悬停那套四层白描边）
 
 
 ## 行定义走函数不走常量：值的现状要从 CWSettings 读
@@ -99,6 +106,19 @@ func _build() -> void:
 	title.position = Vector2(PAD, PAD)
 	_panel.add_child(title)
 
+	## 选中行标题的辉光：全页只备一份、跟着焦点行走（先建，压在文字底下；
+	## 层数与 alpha 即 CWPauseMenu.GLOW，和主菜单/配置面板是同一套光）
+	_glow = Control.new()
+	_glow.size = Vector2(200, 28)
+	_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_panel.add_child(_glow)
+	for layer in CWPauseMenu.GLOW:
+		var g := CWStyle.label("", CWStyle.SIZE_BODY, Color(1, 1, 1, 0))
+		g.add_theme_color_override("font_outline_color", Color(1, 1, 1, layer[1]))
+		g.add_theme_constant_override("outline_size", layer[0])
+		g.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_glow.add_child(g)
+
 	for i in rows.size():
 		var y: float = PAD + TITLE_H + i * ROW_H
 		var hit := Control.new()
@@ -123,19 +143,23 @@ func _build() -> void:
 		_panel.add_child(name_label)
 		_name_labels.append(name_label)
 
-		var value := CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT)
-		value.position = Vector2(W - PAD - 100, y + 5)
-		value.size = Vector2(100, 26)
-		value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		value.mouse_filter = Control.MOUSE_FILTER_STOP
-		value.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		value.gui_input.connect(func(e: InputEvent) -> void:
-			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
-				get_viewport().set_input_as_handled()
-				_sel = i
-				_cycle(i, 1))
-		_panel.add_child(value)
+		## 拨值箭头 ASCII 的 < >（点阵字库没有 ‹ ›），两枚都在**固定位置**；
+		## 值文本挂在两箭头正中。悬停箭头亮白光（_hot_arrow 记着谁，_repaint 统一画）
+		var left := _clicky("<", Vector2(ARROW_L_X, y + 5), func() -> void: _tap(i, -1))
+		var value := _clicky("", Vector2(ARROW_L_X + 14, y + 5), func() -> void: _tap(i, 1))
+		value.size = Vector2(ARROW_R_X - ARROW_L_X - 14, 26)
+		value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		var right := _clicky(">", Vector2(ARROW_R_X, y + 5), func() -> void: _tap(i, 1))
+		for arrow: Label in [left, right]:
+			arrow.mouse_entered.connect(func() -> void:
+				_hot_arrow = arrow
+				_repaint())
+			arrow.mouse_exited.connect(func() -> void:
+				if _hot_arrow == arrow:
+					_hot_arrow = null
+				_repaint())
 		_value_labels.append(value)
+		_arrows.append([left, right])
 
 	var hint := CWStyle.label("←→ 拨值 · 改动立即生效 · ESC 返回",
 		CWStyle.SIZE_LABEL, CWStyle.TEXT_OFF)
@@ -143,6 +167,27 @@ func _build() -> void:
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.position = Vector2(0, h + 8)
 	_panel.add_child(hint)
+
+
+## 可点击文字（同 config_panel._clicky——值行骨架还没抽公共件，见文件头）：
+## 命中框贴着字、手型光标、左键回调。必须标记已处理，
+## 否则会漏到 main.gd 被「过场中点一下跳过」接走（主菜单踩过的坑）。
+func _clicky(text: String, at: Vector2, on_click: Callable) -> Label:
+	var label := CWStyle.label(text, CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
+	label.position = at
+	label.mouse_filter = Control.MOUSE_FILTER_STOP
+	label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	label.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			get_viewport().set_input_as_handled()
+			on_click.call())
+	_panel.add_child(label)
+	return label
+
+
+func _tap(row: int, dir: int) -> void:
+	_sel = row
+	_cycle(row, dir)
 
 
 func _repaint() -> void:
@@ -153,6 +198,18 @@ func _repaint() -> void:
 		_name_labels[i].add_theme_color_override("font_color",
 			Color.WHITE if on else CWStyle.TEXT_DIM)
 		var cur: int = maxi(rows[i]["get"].call(), 0)
-		_value_labels[i].text = "< %s >" % rows[i]["texts"][cur]   ## 点阵字库没有 ‹ ›
+		_value_labels[i].text = rows[i]["texts"][cur]
 		_value_labels[i].add_theme_color_override("font_color",
 			CWStyle.TEXT_HI if on else CWStyle.TEXT)
+		## 拨值箭头只在焦点行亮出来；被悬停的那枚转白发光（同配置面板）
+		for arrow: Label in _arrows[i]:
+			arrow.visible = on
+			var hovering := arrow == _hot_arrow
+			arrow.add_theme_color_override("font_color",
+				Color.WHITE if hovering else CWStyle.IMMUNE)
+			arrow.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
+			arrow.add_theme_constant_override("outline_size", 8 if hovering else 0)
+	## 选中行标题的辉光跟焦点走（设置页总有一行被选中，不用收起）
+	_glow.position = Vector2(PAD + 16, PAD + TITLE_H + _sel * ROW_H + 5)
+	for layer in _glow.get_children():
+		(layer as Label).text = rows[_sel]["name"]

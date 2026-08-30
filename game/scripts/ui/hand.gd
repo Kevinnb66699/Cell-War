@@ -30,9 +30,12 @@
 class_name CWHand
 extends Control
 
-## 方案甲的两个手势（由询问桥消费；没在等询问时点了也只是空响，无副作用）
+## 方案甲的手势（由询问桥消费；没在等询问时点了也只是空响，无副作用）
 signal card_clicked(card_name: String)         ## 左键：打出
 signal card_right_clicked(card_name: String)   ## 右键：弃置
+## 双击：免确认直接打出（2026-08-30 对局内试玩追加）。双击本身已是明确意图，
+## 无目标卡不再走「确认打出」那一拍；有目标的卡照旧进选格——目标没法替玩家选。
+signal card_double_clicked(card_name: String)
 
 const CARD := Vector2(72, 112)
 const LEFT := 12.0
@@ -207,7 +210,12 @@ func _make_card(index: int) -> Control:
 		if mb == null or not mb.pressed:
 			return
 		if mb.button_index == MOUSE_BUTTON_LEFT:
-			card_clicked.emit(_name_at(index))
+			## 双击的第二下只发双击信号：第一下已经发过 card_clicked、
+			## 把流程推进到确认/选目标了，这里再发一次单击等于原地重进一遍
+			if mb.double_click:
+				card_double_clicked.emit(_name_at(index))
+			else:
+				card_clicked.emit(_name_at(index))
 		elif mb.button_index == MOUSE_BUTTON_RIGHT:
 			card_right_clicked.emit(_name_at(index)))
 	card.mouse_entered.connect(func() -> void: _hover(index))

@@ -204,7 +204,8 @@ func _ask_action(req: Dictionary) -> int:
 	return 0                        ## 放弃这一局时从 while 条件退出来
 
 
-## 手牌手势（方案甲，团队 2026-08-29 定）。gesture = ["play" 或 "discard", 卡名]。
+## 手牌手势（方案甲，团队 2026-08-29 定）。gesture = ["play" 或 "discard", 卡名]；
+## 第三个元素为 true = 双击来的「免确认」旗（2026-08-30 追加）。
 ## 打出：有目标 → 棋盘点选（cid 目标高亮其所在格，敌橙友青沿用现有标记色）；
 ##       无目标 → 补一拍「确认打出」（定案③：统一节奏 + 防误触）。
 ## 弃置：右键进确认条（定案②：低频动作不占常驻按钮位）。
@@ -212,6 +213,8 @@ func _ask_action(req: Dictionary) -> int:
 ## 返回：选项下标；"cancel" 回按钮栏；Array = 中途改点了另一张卡；null = 放弃对局。
 func _pick_hand(options: Array, gesture: Array) -> Variant:
 	var card: String = gesture[1]
+	## 「确认打出」那一拍本是防误触（定案③）；双击本身已是明确意图，再确认反而拖节奏
+	var direct: bool = gesture.size() > 2
 	var discard_i := -1
 	var plays: Array = []
 	for i in options.size():
@@ -255,9 +258,12 @@ func _pick_hand(options: Array, gesture: Array) -> Variant:
 			elif d.has("cid"):
 				tiles[game.cells[d["cid"]]["pos"]] = i
 		if tiles.is_empty():
-			got = await _prompt("确认打出？", "【%s】不需要选目标" % card,
-				[{ "title": "确认打出", "cost": "" }, { "title": "取消", "cost": "右键 / Esc" }],
-				[plays[0], "cancel"], {}, null, 1, true, HAND_INSET)
+			if direct:
+				got = plays[0]   ## 双击：跳过确认直接打出
+			else:
+				got = await _prompt("确认打出？", "【%s】不需要选目标" % card,
+					[{ "title": "确认打出", "cost": "" }, { "title": "取消", "cost": "右键 / Esc" }],
+					[plays[0], "cancel"], {}, null, 1, true, HAND_INSET)
 		else:
 			got = await _prompt("选择目标", "打出【%s】· 高亮 %d 格可选 · 右键或 Esc 退出" % [card, tiles.size()],
 				[{ "title": "取消", "cost": "右键 / Esc" }], ["cancel"], tiles, null, 0, true, HAND_INSET)
@@ -366,6 +372,8 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	var on_end := func() -> void: ans.fire(end_value)
 	## 行动询问期间手牌可点（方案甲）；其余询问（落子/复活等）不收手牌手势
 	var on_card := func(n: String) -> void: ans.fire(["play", n])
+	## 双击带「免确认」旗，分派逻辑见 _pick_hand 的 direct
+	var on_card2 := func(n: String) -> void: ans.fire(["play", n, true])
 	## 右键的归属只看这一问有没有「取消」：有（目标态/各确认条）→ 右键一律=取消，
 	## 哪怕点在卡上——按钮上就标着「右键 / Esc」，卡不该抢走它（试玩第三轮报的）；
 	## 没有（主按钮栏）→ 卡上右键才是弃置入口
@@ -376,6 +384,7 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 			ans.fire(["discard", n])
 	if hand_play and hand != null:
 		hand.card_clicked.connect(on_card)
+		hand.card_double_clicked.connect(on_card2)
 		hand.card_right_clicked.connect(on_dcard)
 	if panel != null:
 		panel.show_end_turn(end_value != null)
@@ -392,6 +401,7 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	_pending = null
 	if hand_play and hand != null:
 		hand.card_clicked.disconnect(on_card)
+		hand.card_double_clicked.disconnect(on_card2)
 		hand.card_right_clicked.disconnect(on_dcard)
 	if panel != null and end_value != null:
 		panel.end_turn_pressed.disconnect(on_end)

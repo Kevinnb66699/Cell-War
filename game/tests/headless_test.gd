@@ -997,6 +997,14 @@ func t_hover_info() -> void:
 		"详情：占据者、能量与标记")
 	check(CWTileInfo.describe(g, Vector2i(0, 0)).size() == 1, "健康空格只有一行")
 
+	## 宽度按最长行实测撑开：核心储量行装不进 208（试玩第一轮的出框），短内容保底 208
+	var wide := CWTileInfo.width_for(CWTileInfo.describe(g, c))
+	var row_w: float = CWStyle.FONT.get_string_size("代谢核心 · 储量 1.0",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_BODY).x
+	check(wide >= row_w + 24.0 and wide > 208.0, "核心储量行超 208：卡片实测加宽到 %d" % int(wide))
+	check(CWTileInfo.width_for(CWTileInfo.describe(g, Vector2i(0, 0))) == 208.0,
+		"短内容仍用最小宽 208")
+
 	## place 也是纯函数：贴右栏翻左、上下钳进画布
 	var screen := CWView.screen_size()
 	var box := Vector2(208, 120)
@@ -1200,6 +1208,17 @@ func t_settings() -> void:
 	root.add_child(page)
 	await process_frame
 	page.open()
+	## 2026-08-30 与配置面板对齐：箭头钉在固定位、只在焦点行亮，标题辉光跟焦点走
+	check(page._arrows[0][0].position.x == CWSettingsPage.ARROW_L_X \
+		and page._arrows[1][1].position.x == CWSettingsPage.ARROW_R_X,
+		"两行箭头都钉在固定位置（不随值字宽跑）")
+	check(page._arrows[0][0].visible and not page._arrows[1][0].visible,
+		"箭头只在焦点行亮出来")
+	check((page._glow.get_child(0) as Label).text == "AI 节奏", "标题辉光落在焦点行")
+	page._hot_arrow = page._arrows[0][1]
+	page._repaint()
+	check(page._arrows[0][1].get_theme_constant("outline_size") == 8, "悬停的箭头亮起白光")
+	page._hot_arrow = null
 	var right := InputEventAction.new()
 	right.action = "ui_right"
 	right.pressed = true
@@ -1209,6 +1228,9 @@ func t_settings() -> void:
 	page.handle_input(right)                 ## 标准 → 慢
 	check(CWSettings.ai_delay_ms == CWSettings.AI_DELAYS[2], "AI 节奏拨到慢（即时生效）")
 	page.handle_input(down)
+	check(not page._arrows[0][0].visible and page._arrows[1][0].visible \
+		and (page._glow.get_child(0) as Label).text == "掷骰动画",
+		"焦点下移：箭头与辉光一起跟过去")
 	page.handle_input(right)                 ## 演出 → 跳过
 	check(not CWSettings.dice_anim, "掷骰动画拨到跳过")
 	check(FileAccess.file_exists(CWSettings.PATH), "改动已落盘")
@@ -4236,10 +4258,30 @@ func t_hand_play() -> void:
 	await process_frame
 	check(r5b[0] == 6, "取消后仍能正常结束回合")
 
-	# ⑥ 卡控件的鼠标事件真的接到了信号上（左键/右键各一发）
+	# ⑦ 双击无目标卡 → 免确认直接打出（2026-08-30 对局内试玩追加）
+	var r7 := [-99]
+	var run7 := func() -> void: r7[0] = await b.ask(areq)
+	run7.call()
+	hand.card_double_clicked.emit("溶酶体强化")
+	await process_frame
+	check(r7[0] == 2, "双击无目标卡：跳过「确认打出」直接打")
+
+	# ⑧ 双击有目标的卡：目标没法替玩家选，照旧进选目标态
+	var r8 := [-99]
+	var run8 := func() -> void: r8[0] = await b.ask(areq)
+	run8.call()
+	hand.card_double_clicked.emit("交叉呈递")
+	await process_frame
+	check(r8[0] == -99 and b.marks.has(tpos), "双击有目标卡：仍要在棋盘上选")
+	board.tile_clicked.emit(tpos)
+	await process_frame
+	check(r8[0] == 1, "选完目标正常还原下标")
+
+	# ⑥ 卡控件的鼠标事件真的接到了信号上（左键/右键/双击各一发）
 	var seen: Array = []
 	hand.card_clicked.connect(func(n: String) -> void: seen.append(["L", n]))
 	hand.card_right_clicked.connect(func(n: String) -> void: seen.append(["R", n]))
+	hand.card_double_clicked.connect(func(n: String) -> void: seen.append(["D", n]))
 	var ev := InputEventMouseButton.new()
 	ev.pressed = true
 	ev.button_index = MOUSE_BUTTON_LEFT
@@ -4248,7 +4290,14 @@ func t_hand_play() -> void:
 	ev2.pressed = true
 	ev2.button_index = MOUSE_BUTTON_RIGHT
 	hand._cards[1].gui_input.emit(ev2)
-	check(seen == [["L", "交叉呈递"], ["R", "乳酸酸化"]], "卡上的左右键事件映射到手势信号")
+	## 双击的第二下：double_click=true，只发双击信号、不再发一次单击
+	var ev3 := InputEventMouseButton.new()
+	ev3.pressed = true
+	ev3.button_index = MOUSE_BUTTON_LEFT
+	ev3.double_click = true
+	hand._cards[0].gui_input.emit(ev3)
+	check(seen == [["L", "交叉呈递"], ["R", "乳酸酸化"], ["D", "交叉呈递"]],
+		"卡上的左右键与双击事件映射到手势信号")
 
 	g.dispose()
 	hand.free()
