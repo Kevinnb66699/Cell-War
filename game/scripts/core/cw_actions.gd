@@ -417,7 +417,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int) -> void:
 				var thr: int = CWData.PHAGO_THRESHOLD_MACRO \
 					if cell["itype"] == CWData.ImmuneType.MACRO else CWData.PHAGO_THRESHOLD
 				if target["energy"] <= thr:
-					game.log_msg("　【吞噬体成熟】目标余量仅 %s（≤%s），直接死亡" % [
+					game.log_msg("　【吞噬体成熟】目标余量仅 %s（不高于 %s），直接死亡" % [
 						CWData.fmt(target["energy"]), CWData.fmt(thr)])
 					game.kill(target)
 					game.update_marks()

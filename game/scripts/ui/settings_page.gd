@@ -153,6 +153,6 @@ func _repaint() -> void:
 		_name_labels[i].add_theme_color_override("font_color",
 			Color.WHITE if on else CWStyle.TEXT_DIM)
 		var cur: int = maxi(rows[i]["get"].call(), 0)
-		_value_labels[i].text = "‹ %s ›" % rows[i]["texts"][cur]
+		_value_labels[i].text = "< %s >" % rows[i]["texts"][cur]   ## 点阵字库没有 ‹ ›
 		_value_labels[i].add_theme_color_override("font_color",
 			CWStyle.TEXT_HI if on else CWStyle.TEXT)

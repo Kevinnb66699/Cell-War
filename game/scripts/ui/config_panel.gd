@@ -8,7 +8,8 @@
 ##
 ## 键盘：上下选行（菱形标随焦点走，和主菜单同一颗）、左右拨值、
 ## 回车在「进入棋盘」上才开局；Esc 退回主菜单。鼠标：点值/箭头拨值、点按钮开局。
-## **打开时焦点就停在「进入棋盘」**：回车两下 = 默认配置直接开。取值在局与局之间保留。
+## **打开时焦点停在第一行「人数」**（Kevin 2026-08-29 定：默认停在按钮上，
+## 玩家会以为配置改不了）。行上回车 = 拨值，走到按钮再回车才开局。取值局间保留。
 class_name CWConfigPanel
 extends Control
 
@@ -62,7 +63,7 @@ func _ready() -> void:
 
 
 func open() -> void:
-	_sel = N_ROWS
+	_sel = 0   ## 焦点落第一行，见文件头（停在按钮上会让玩家以为不能改）
 	visible = true
 	modulate.a = 0.0
 	create_tween().tween_property(self, "modulate:a", 1.0, FADE_IN)
@@ -226,9 +227,10 @@ func _build_row(i: int) -> void:
 	add_child(name_label)
 	_name_labels.append(name_label)
 
-	var left := _clicky("‹", Vector2(VALUE_X - 22, y), func() -> void: _tap(i, -1))
+	## 拨值箭头用 ASCII 的 < >：点阵字库没有 ‹ ›（字形覆盖测试盯着这类字符）
+	var left := _clicky("<", Vector2(VALUE_X - 22, y), func() -> void: _tap(i, -1))
 	var value := _clicky("", Vector2(VALUE_X, y), func() -> void: _tap(i, 1))
-	var right := _clicky("›", Vector2(VALUE_X, y), func() -> void: _tap(i, 1))
+	var right := _clicky(">", Vector2(VALUE_X, y), func() -> void: _tap(i, 1))
 	_value_labels.append(value)
 	_arrows.append([left, right])
 

@@ -876,7 +876,8 @@ func t_config_panel() -> void:
 	check(cfg["players"] == 4 and cfg["faction"] == CWData.Faction.IMMUNE \
 		and cfg["smart"] == false, "默认配置：4 人 · 免疫细胞 · 普通 AI")
 	check(int(cfg["seed"]) >= 10000000, "随机种子开局就有一枚（8 位）")
-	## 打开时焦点在「进入棋盘」：一下回车 = 默认配置直接开
+	## 打开时焦点在第一行：回车是拨值不是开局（Kevin 8-29：停在按钮上
+	## 玩家会以为配置改不了）
 	var got: Array = []
 	p.confirmed.connect(func(c: Dictionary) -> void: got.append(c))
 	p.open()
@@ -885,32 +886,34 @@ func t_config_panel() -> void:
 	accept.action = "ui_accept"
 	accept.pressed = true
 	p.handle_input(accept)
-	check(got.size() == 1 and not p.visible, "焦点默认在「进入棋盘」，回车直接开局")
-	## 键盘拨值：种子行拨=换一枚；AI 强度→较强；阵营环到观战；人数环 4→6→2
+	check(got.is_empty() and p.config()["players"] == 6 and p.visible,
+		"焦点默认在第一行：回车 = 拨值（人数 4 → 6），不会误开局")
+	var down := InputEventAction.new()
+	down.action = "ui_down"
+	down.pressed = true
+	for i in 4:
+		p.handle_input(down)   ## 人数 → 阵营 → AI → 种子 → 进入棋盘
+	p.handle_input(accept)
+	check(got.size() == 1 and not p.visible, "走到「进入棋盘」回车才开局")
+	## 键盘拨值：人数成环；阵营环到观战；AI → 较强；种子拨一下换一枚
 	p.open()
-	var up := InputEventAction.new()
-	up.action = "ui_up"
-	up.pressed = true
 	var right := InputEventAction.new()
 	right.action = "ui_right"
 	right.pressed = true
-	var seed0: int = p.config()["seed"]
-	p.handle_input(up)          ## 进入棋盘 → 随机种子
 	p.handle_input(right)
-	check(p.config()["seed"] != seed0, "种子行拨一下 = 换一枚")
-	p.handle_input(up)          ## → AI 强度
-	p.handle_input(right)
-	check(p.config()["smart"] == true, "AI 强度 → 较强")
-	p.handle_input(up)          ## → 我的阵营
+	check(p.config()["players"] == 2, "人数 6 再往右回到 2（取值成环）")
+	p.handle_input(down)        ## → 我的阵营
 	p.handle_input(right)
 	check(p.config()["faction"] == CWData.Faction.CANCER, "阵营 → 癌细胞")
 	p.handle_input(right)
 	check(p.config()["faction"] == -1, "再拨 → 观战")
-	p.handle_input(up)          ## → 人数
+	p.handle_input(down)        ## → AI 强度
 	p.handle_input(right)
-	check(p.config()["players"] == 6, "人数 4 → 6")
+	check(p.config()["smart"] == true, "AI 强度 → 较强")
+	p.handle_input(down)        ## → 随机种子
+	var seed0: int = p.config()["seed"]
 	p.handle_input(right)
-	check(p.config()["players"] == 2, "6 再往右回到 2（取值成环）")
+	check(p.config()["seed"] != seed0, "种子行拨一下 = 换一枚")
 	## Esc 收面板发 cancelled（菜单靠它把自己淡回来），不开局；取值局间保留
 	var cancels: Array = []
 	p.cancelled.connect(func() -> void: cancels.append(1))
@@ -1083,10 +1086,10 @@ func t_rules_page() -> void:
 		for line in s["lines"]:
 			all += line + "|"
 	var tune := CWTuning.new()
-	check(all.contains("加权占地 ≥ %d" % tune.cancer_win_weighted), "胜利线跟着旋钮走")
+	check(all.contains("加权占地达到 %d" % tune.cancer_win_weighted), "胜利线跟着旋钮走")
 	check(all.contains("上限 %d 个世界回合" % CWData.LIMIT_ROUND), "回合上限跟着常量走")
-	check(all.contains("−%s" % CWData.fmt(tune.attack_dmg_success))
-		and all.contains("−%s" % CWData.fmt(tune.attack_dmg_crit)), "攻击伤害跟着旋钮走")
+	check(all.contains("-%s" % CWData.fmt(tune.attack_dmg_success))
+		and all.contains("-%s" % CWData.fmt(tune.attack_dmg_crit)), "攻击伤害跟着旋钮走")
 	check(not all.contains("受反击"), "规则原文反弹无伤害 → 默认不显示反击那半句")
 	check(all.contains("上限 %d 张" % CWData.HAND_MAX)
 		and all.contains("每回合至多 %d 次" % CWData.DRAW_MAX_PER_TURN), "手牌与抽卡上限")
@@ -2580,7 +2583,16 @@ func t_buttons_dim() -> void:
 ## 扫的是**字符串字面量**，注释不算（注释不上屏，里面写 ≥ ⌈⌉ 没关系）。
 func t_font_coverage() -> void:
 	print("[字形覆盖]")
-	var font: Font = CWStyle.FONT
+	## 判定不用 has_char：整套 UI 测试跑过之后它会经由字体回退链把系统字也算进来，
+	## 于是「字库里没有」的字形照样放行（≥ − ‹ › 就是这样漏上屏的，2026-08-29 实锤：
+	## 同一段扫描单独跑能抓到、套件里跑抓不到）。get_supported_chars 只报**这份字库
+	## 自己**有什么，拿它建一次成员表，不受运行顺序影响。
+	var chars := CWStyle.FONT.get_supported_chars()
+	var supported := {}
+	for k in chars.length():
+		supported[chars.unicode_at(k)] = true
+	check(not supported.has(0x2265) and supported.has(0x00B7),
+		"判定器自检：≥ 该缺、· 该有（防这个测试再次哑火）")
 	var bad := {}
 	var files: Array[String] = []
 	_collect_gd("res://scripts", files)
@@ -2589,7 +2601,7 @@ func t_font_coverage() -> void:
 		for s in _string_literals(FileAccess.get_file_as_string(path)):
 			for k in s.length():
 				var code: int = s.unicode_at(k)
-				if code > 0x7F and not font.has_char(code):
+				if code > 0x7F and not supported.has(code):
 					bad["U+%04X %s" % [code, s[k]]] = path.get_file()
 	var msg := ""
 	for k in bad:

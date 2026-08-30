@@ -23,6 +23,14 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
+	## 右键关闭必须接在 gui_input：本层是 STOP，鼠标事件在这儿就被吃掉了，
+	## 永远到不了菜单路由的 _unhandled_input（Kevin 试玩当场抓到「右键关不掉」）。
+	## Esc 是键盘事件不受 STOP 影响，走下面的 handle_input。
+	gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed \
+				and e.button_index == MOUSE_BUTTON_RIGHT:
+			accept_event()
+			visible = false)
 	_build()
 
 
@@ -32,9 +40,7 @@ func open() -> void:
 
 ## 由 CWMainMenu 路由（覆盖层统一走菜单路由，同配置面板）
 func handle_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel") \
-			or (event is InputEventMouseButton and event.pressed
-				and event.button_index == MOUSE_BUTTON_RIGHT):
+	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		visible = false
 
@@ -44,7 +50,8 @@ static func sections() -> Array:
 	var tune := CWTuning.new()   ## 默认值 = 规则原文
 	return [
 		{ "title": "怎么赢", "lines": [
-			"癌方：加权占地 ≥ %d（癌组织记 1、固化记 2）" % tune.cancer_win_weighted,
+			## 点阵字库没有 ≥ − 这类数学符号（字形覆盖测试盯着），中文说法代替
+			"癌方：加权占地达到 %d（癌组织记 1、固化记 2）" % tune.cancer_win_weighted,
 			"免疫方：癌细胞全灭且无可复活的固化癌组织",
 			"两条都在世界回合 E 的最后判；上限 %d 个世界回合" % CWData.LIMIT_ROUND,
 		] },
@@ -57,7 +64,7 @@ static func sections() -> Array:
 			## 规则原文反弹无伤害（旋钮默认 0）；平衡实验开了反击就跟着显示
 			"1-2 失败：弹回原格（费用不退）" + ("" if tune.counter_dmg_on_fail == 0
 				else "，受反击 %s" % CWData.fmt(tune.counter_dmg_on_fail)),
-			"3-5 成功（−%s） · 6 大成功（−%s）" % [
+			"3-5 成功（-%s） · 6 大成功（-%s）" % [
 				CWData.fmt(tune.attack_dmg_success), CWData.fmt(tune.attack_dmg_crit)],
 			"目标带【标记】：本次损失翻倍，随后消耗一层标记",
 		] },
