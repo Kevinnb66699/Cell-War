@@ -874,8 +874,9 @@ func t_config_panel() -> void:
 	await process_frame   ## _ready（面板搭建）在入树后的下一帧才跑
 	var cfg := p.config()
 	check(cfg["players"] == 4 and cfg["faction"] == CWData.Faction.IMMUNE \
-		and cfg["smart"] == false, "默认配置：4 人 · 免疫方 · 普通 AI")
-	## 打开时焦点在「开始对局」：一下回车 = 默认配置直接开
+		and cfg["smart"] == false, "默认配置：4 人 · 免疫细胞 · 普通 AI")
+	check(int(cfg["seed"]) >= 10000000, "随机种子开局就有一枚（8 位）")
+	## 打开时焦点在「进入棋盘」：一下回车 = 默认配置直接开
 	var got: Array = []
 	p.confirmed.connect(func(c: Dictionary) -> void: got.append(c))
 	p.open()
@@ -884,8 +885,8 @@ func t_config_panel() -> void:
 	accept.action = "ui_accept"
 	accept.pressed = true
 	p.handle_input(accept)
-	check(got.size() == 1 and not p.visible, "焦点默认在「开始」，回车直接确认并收面板")
-	## 键盘拨值：上到 AI 强度行右拨 → 较强；再上到人数行验证环形
+	check(got.size() == 1 and not p.visible, "焦点默认在「进入棋盘」，回车直接开局")
+	## 键盘拨值：种子行拨=换一枚；AI 强度→较强；阵营环到观战；人数环 4→6→2
 	p.open()
 	var up := InputEventAction.new()
 	up.action = "ui_up"
@@ -893,24 +894,35 @@ func t_config_panel() -> void:
 	var right := InputEventAction.new()
 	right.action = "ui_right"
 	right.pressed = true
-	p.handle_input(up)
+	var seed0: int = p.config()["seed"]
+	p.handle_input(up)          ## 进入棋盘 → 随机种子
 	p.handle_input(right)
-	check(p.config()["smart"] == true, "←→ 在选项行上拨值（AI 强度 → 较强）")
-	p.handle_input(up)
-	p.handle_input(up)
+	check(p.config()["seed"] != seed0, "种子行拨一下 = 换一枚")
+	p.handle_input(up)          ## → AI 强度
+	p.handle_input(right)
+	check(p.config()["smart"] == true, "AI 强度 → 较强")
+	p.handle_input(up)          ## → 我的阵营
+	p.handle_input(right)
+	check(p.config()["faction"] == CWData.Faction.CANCER, "阵营 → 癌细胞")
+	p.handle_input(right)
+	check(p.config()["faction"] == -1, "再拨 → 观战")
+	p.handle_input(up)          ## → 人数
 	p.handle_input(right)
 	check(p.config()["players"] == 6, "人数 4 → 6")
 	p.handle_input(right)
 	check(p.config()["players"] == 2, "6 再往右回到 2（取值成环）")
-	## Esc 只收面板不开局；取值在局与局之间保留
+	## Esc 收面板发 cancelled（菜单靠它把自己淡回来），不开局；取值局间保留
+	var cancels: Array = []
+	p.cancelled.connect(func() -> void: cancels.append(1))
 	var esc := InputEventAction.new()
 	esc.action = "ui_cancel"
 	esc.pressed = true
 	p.handle_input(esc)
-	check(not p.visible and got.size() == 1, "Esc 只收面板，不开局")
+	check(not p.visible and got.size() == 1 and cancels.size() == 1,
+		"Esc 收面板并发 cancelled，不开局")
 	p.open()
-	check(p.config()["players"] == 2 and p.config()["smart"] == true,
-		"再次打开保留上次取值")
+	check(p.config()["players"] == 2 and p.config()["smart"] == true \
+		and p.config()["faction"] == -1, "再次打开保留上次取值")
 	root.remove_child(p)
 	p.free()
 

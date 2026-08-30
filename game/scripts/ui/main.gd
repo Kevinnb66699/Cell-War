@@ -64,6 +64,8 @@ func _begin(cfg: Dictionary) -> void:
 		seats.append(seat)
 	match_node.human_players = seats
 	match_node.ai_smart = cfg["smart"]
+	## 配置面板给的随机种子（拨一下换一个）：填进去这局就可复现
+	match_node.match_seed = int(cfg.get("seed", 0))
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
 	menu.dismiss(T_DECOR, DECOR_DRIFT)

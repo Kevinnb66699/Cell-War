@@ -97,6 +97,11 @@ var _confirm_sel := 1            ## 默认停在「取消」，别让回车顺�
 var _config: CWConfigPanel       ## 对局配置面板；null = 还没建过
 var _rules: CWRulesPage          ## 规则速查页；null = 还没建过
 var _settings: CWSettingsPage    ## 设置页；null = 还没建过
+var _swap: Tween                 ## 菜单↔配置的槽位换面板动画（0.30s 出 / 0.32s 入）
+
+## 面板槽换内容的节拍（开局过场原型定稿）：菜单淡出 0.30s，配置随后自己淡入 0.32s，
+## 两段不重叠——两组字叠在一起会糊成一片
+const T_SWAP_OUT := 0.30
 
 @onready var _decor_root: Node2D = $Decor
 @onready var _items: Control = $UI/Screen/Items
@@ -289,6 +294,10 @@ func _on_item_input(event: InputEvent, i: int) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	## 槽位换面板的半秒里两边都不收键：菜单在淡、配置还没现身，
+	## 这时回车可能把退出确认之类的东西莫名其妙敲出来
+	if _swap != null and _swap.is_running():
+		return
 	## 覆盖层统一走菜单路由，谁开着路由给谁 —— 两个 _unhandled_input 抢事件的
 	## 顺序问题从根上不存在（同暂停菜单对 Esc 归属的取舍）
 	if _config != null and _config.visible:
@@ -467,11 +476,29 @@ func _activate(i: int) -> void:
 			_open_confirm()
 
 
-## 「开始对局」→ 先过配置面板（人数/阵营/AI 强度），面板上确认才真的开
+## 「开始对局」→ 槽位换面板：菜单整层（含左侧暗罩）淡出，对局配置在同一位置淡入。
+## 配置面板自带一份暗罩，所以菜单可以整层走——内容换、位置不换（原型的基本语法）。
 func _open_config() -> void:
+	if _swap != null and _swap.is_running():
+		return
 	if _config == null:
 		_config = CWConfigPanel.new()
 		_ui.add_child(_config)
 		_config.confirmed.connect(func(cfg: Dictionary) -> void:
 			start_requested.emit(cfg))
-	_config.open()
+		_config.cancelled.connect(_close_config)
+	## 淡到 0 的 Control 照样挡点击（dismiss 踩过的同一坑），先把菜单项摘掉
+	for label in _labels:
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_swap = create_tween()
+	_swap.tween_property($UI/Screen, "modulate:a", 0.0, T_SWAP_OUT)
+	_swap.tween_callback(_config.open)
+
+
+## 配置面板 Esc 退回：原路把菜单淡回来
+func _close_config() -> void:
+	if _swap != null and _swap.is_running():
+		_swap.kill()
+	_apply_filters()
+	_swap = create_tween()
+	_swap.tween_property($UI/Screen, "modulate:a", 1.0, T_SWAP_OUT)
