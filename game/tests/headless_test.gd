@@ -61,6 +61,7 @@ func _run_all() -> void:
 	await t_ai_mc()
 	await t_config_panel()
 	await t_hover_info()
+	await t_log_panel()
 	t_board_view()
 	t_hex_pick()
 	await t_ui_bridge()
@@ -1010,6 +1011,51 @@ func t_hover_info() -> void:
 	check(panel._tip == null, "reset 清掉悬浮框")
 	root.remove_child(panel)
 	panel.free()
+	g.dispose()
+
+
+# ---- 对局日志面板：窗口/着色是纯函数，开关与滚动走真节点 ----
+func t_log_panel() -> void:
+	print("[对局日志面板]")
+	check(CWLogPanel.first_line(100, 20, 0) == 80, "窗口贴底")
+	check(CWLogPanel.first_line(100, 20, 30) == 50, "上翻 30 行")
+	check(CWLogPanel.first_line(10, 20, 0) == 0, "不足一屏从头显示")
+	check(CWLogPanel.line_color("▶ 玩家1 的回合") == CWStyle.TEXT_HI
+		and CWLogPanel.line_color("★ 免疫等级升至 II 级") == CWStyle.IMMUNE
+		and CWLogPanel.line_color("☠ 谁 死亡") == CWStyle.CANCER
+		and CWLogPanel.line_color("　细节行") == CWStyle.TEXT_DIM,
+		"行着色跟着日志前缀语法")
+
+	var g := _fx_game(2)
+	for i in 40:
+		g.log_msg("行 %d" % i)
+	var p := CWLogPanel.new()
+	root.add_child(p)
+	await process_frame
+	var lkey := InputEventKey.new()
+	lkey.keycode = KEY_L
+	lkey.pressed = true
+	p._unhandled_input(lkey)
+	check(not p.visible, "对局外不响应 L")
+	p.active = true
+	p._unhandled_input(lkey)
+	check(p.visible, "对局中 L 打开面板")
+	p.refresh(g)
+	var last: String = g.logs[g.logs.size() - 1]
+	check(p._lines[p._visible_n - 1].text == last, "默认跟到最新一行")
+	p._scroll(5)
+	p.refresh(g)
+	check(p._lines[p._visible_n - 1].text != last, "上翻后不再贴底")
+	p._scroll(-999)
+	p.refresh(g)
+	check(p._lines[p._visible_n - 1].text == last, "滚回底部继续跟随")
+	p._scroll(99999)
+	p.refresh(g)
+	check(p._lines[0].text == g.logs[0], "翻到顶被钳在第一行")
+	p._unhandled_input(lkey)
+	check(not p.visible, "再按 L 收起")
+	root.remove_child(p)
+	p.free()
 	g.dispose()
 
 
