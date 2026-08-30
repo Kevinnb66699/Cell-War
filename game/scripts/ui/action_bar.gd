@@ -196,15 +196,9 @@ func _make_button(entry: Dictionary, index: int) -> PanelContainer:
 	return p
 
 
-## 快捷键数字那一小块：灰底 + 比费用文字亮一档的字。
-func _key_badge(n: int) -> PanelContainer:
-	var p := PanelContainer.new()
-	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	p.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	p.add_theme_stylebox_override("panel",
-		CWStyle.plate(Color(CWStyle.TEXT_DIM, 0.25), 1, 3))
-	p.add_child(CWStyle.label(str(n), CWStyle.SIZE_LABEL, CWStyle.TEXT))
-	return p
+## 快捷键数字那一小块：样式统一走 CWStyle.keycap（「对局日志 L」也是它）
+func _key_badge(n: int) -> Control:
+	return CWStyle.keycap(str(n))
 
 
 ## 按钮下标 → 它在 _row 里的第几个孩子（目标选择态前面多了提示和弹簧两个孩子）

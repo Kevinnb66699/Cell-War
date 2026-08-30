@@ -1091,11 +1091,18 @@ func t_log_panel() -> void:
 	p.active = true
 	p._unhandled_input(lkey)
 	check(p.visible, "对局中 L 打开面板")
-	## 标题行右侧的 L 是键帽底框（试玩二轮要求：与左上角入口提示一个样）
+	## 标题行右侧的 L 是键帽（试玩二轮改定：和行动栏快捷键数字同款灰底垫块）
 	var cap: Panel = p.get_node("KeyCap")
-	check((cap.get_child(0) as Label).text == "L" \
-		and (cap.get_theme_stylebox("panel") as StyleBoxFlat).border_width_top == 1,
-		"面板标题行的 L 带键帽底框（CWStyle.keycap）")
+	var capbox := cap.get_theme_stylebox("panel") as StyleBoxFlat
+	var cl := cap.get_child(0) as Label
+	check(cl.text == "L" and capbox.bg_color == Color(CWStyle.TEXT_DIM, 0.25) \
+		and capbox.border_width_top == 0,
+		"面板标题行的 L 用行动栏同款灰底垫块（CWStyle.keycap）")
+	## 点阵行框虚高（ascent 11/descent 3），键帽按 10px 字形带手工对中：
+	## 带的顶行 = label_y + (ascent-10)，应落在 (14-10)/2 = 2
+	check(cap.size == Vector2(11, 14) \
+		and is_equal_approx(cl.position.y + CWStyle.FONT.get_ascent(CWStyle.SIZE_LABEL) - 10.0, 2.0),
+		"键帽定尺寸、字形带对中（行框居中不可信）")
 	p.refresh(g)
 	var last: String = g.logs[g.logs.size() - 1]
 	check(p._lines[p._visible_n - 1].text == last, "默认跟到最新一行")
@@ -2090,11 +2097,14 @@ func t_action_bar_width() -> void:
 			continue
 		total += (c as Control).get_combined_minimum_size().x
 		if n == 0:
-			## 费用行 = [快捷键数字（垫灰底）] + [费用文字]
+			## 费用行 = [快捷键数字（CWStyle.keycap 灰底垫块）] + [费用文字]
 			var line: Node = c.get_child(0).get_child(1)
-			plated = line.get_child(0) is PanelContainer
+			var cap0: Control = line.get_child(0)
+			plated = cap0 is Panel and \
+				(cap0.get_theme_stylebox("panel") as StyleBoxFlat).bg_color \
+					== Color(CWStyle.TEXT_DIM, 0.25)
 			if plated:
-				badge = (line.get_child(0).get_child(0) as Label).text
+				badge = (cap0.get_child(0) as Label).text
 		n += 1
 	total += CWActionBar.GAP * maxi(n - 1, 0)
 	check(n == 4, "四个技能按钮")

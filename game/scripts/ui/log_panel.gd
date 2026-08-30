@@ -40,10 +40,12 @@ func _ready() -> void:
 	var title := CWStyle.label("对局日志", CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
 	title.position = Vector2(PAD, PAD - 2)
 	add_child(title)
-	## 标题行右侧的 L 也是键帽底框（试玩二轮要求：和左上角入口提示一个样）
+	## 标题行右侧的 L 键帽（行动栏数字键同款垫块，定尺寸建成即知大小）：
+	## 钉右缘，对 20px 标题的字形带中心垂直居中——标题 y=PAD-2、ascent 22、
+	## 字形带 20px，带中心 = PAD-2+22-10 = PAD+10
 	var key := CWStyle.keycap("L")
 	key.name = "KeyCap"
-	key.position = Vector2(RECT.size.x - PAD - 16, PAD + 1)
+	key.position = Vector2(RECT.size.x - PAD - key.size.x, PAD + 10 - key.size.y / 2.0)
 	add_child(key)
 
 	## 行池：能摆多少行就建多少个 Label，之后只改 text/颜色

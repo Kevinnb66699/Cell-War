@@ -54,21 +54,24 @@ static func plate(bg: Color, pad_v: int, pad_h: int) -> StyleBoxFlat:
 	return b
 
 
-## 键帽：带底框的按键提示（「对局日志 L」的入口提示与面板标题行共用）。
-## 16px 的小件配全局那套 2px 描边太重，这里是全局唯一的 1px 描边。
+## 快捷键标记：灰底垫块 + 比费用文字亮一档的字。行动栏的数字键与
+## 「对局日志 L」共用这一份（试玩二轮定：全游戏快捷键提示统一这种底框）。
+## **定尺寸 + 字形带手工对中**：这套点阵字的行框虚高（ascent 11 / descent 3，
+## 行框 14 而字形只有 10px），交给行框去居中字必偏（试玩二轮报「L 不在正中」；
+## 自动包字的 PanelContainer 还会把行框的空高一起包进去）。
 static func keycap(text: String) -> Control:
 	var cap := Panel.new()
-	var b := StyleBoxFlat.new()
-	b.bg_color = Color("16232f")
-	b.border_color = Color(LINE, 1.0)
-	b.set_border_width_all(1)
-	cap.add_theme_stylebox_override("panel", b)
-	cap.size = Vector2(16, 16)
+	cap.add_theme_stylebox_override("panel", plate(Color(TEXT_DIM, 0.25), 0, 0))
 	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var l := label(text, SIZE_LABEL, TEXT_HI)
-	l.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var glyph_w: float = FONT.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, SIZE_LABEL).x
+	cap.size = Vector2(glyph_w + 6.0, 14.0)
+	cap.custom_minimum_size = cap.size            ## 进 HBox（行动栏费用行）时不被拉扁
+	cap.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	cap.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var l := label(text, SIZE_LABEL, TEXT)
+	## 字形带（数字/大写/汉字都是满高 10px）在行框里从 ascent-10 行开始：
+	## 把这条带对中到 14 高的垫块里，上下各留 2
+	l.position = Vector2(3.0, 2.0 - (FONT.get_ascent(SIZE_LABEL) - 10.0))
 	cap.add_child(l)
 	return cap
 

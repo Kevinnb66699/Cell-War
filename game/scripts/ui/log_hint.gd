@@ -10,7 +10,6 @@ extends Control
 signal pressed   ## 点提示 = 按 L（CWMatch 把它接到 CWLogPanel.toggle）
 
 const SIZE := Vector2(76, 22)
-const KEY_BOX := 16      ## 「L」底框的边长
 
 var _bg: Panel
 var _text: Label
@@ -40,8 +39,9 @@ func _ready() -> void:
 	_text.position = Vector2(7, 5)
 	add_child(_text)
 
+	## 键帽定尺寸（CWStyle.keycap），建成即知大小，直接钉右缘、垂直居中
 	var key := CWStyle.keycap("L")
-	key.position = Vector2(SIZE.x - KEY_BOX - 6, (SIZE.y - KEY_BOX) / 2.0)
+	key.position = Vector2(SIZE.x - 6.0 - key.size.x, (SIZE.y - key.size.y) / 2.0)
 	add_child(key)
 	_paint(false)
 
