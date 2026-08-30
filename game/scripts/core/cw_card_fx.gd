@@ -226,6 +226,10 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 	if CWCardData.CARDS[card]["kind"] == CWCardData.Kind.PERMANENT:
 		cell["hand"].erase(card)
 		cell["equipped"].append(card)
+		## 永久技能和即时卡混在同一条「打出先后」队列里结算（PRD 通则），所以
+		## 装备这一刻也要盖戳——用的是 add_mod 那把同样的尺
+		cell["play_n"] += 1
+		cell["equip_seq"][card] = cell["play_n"]
 		game.log_msg("　【%s】装备至角色面板（技 %d）" % [card, cell["equipped"].size()])
 		return
 	match card:

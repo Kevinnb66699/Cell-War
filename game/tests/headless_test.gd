@@ -3624,6 +3624,58 @@ func t_card_mods() -> void:
 	check(g.mods_of(imm, "炎症趋化").is_empty(), "「本回合」修饰随 end_turn 过期")
 	g.dispose()
 
+	## ①b 结算顺序按打出先后（PRD 通则，团队 2026-08-30 定案）——同样两张卡，
+	## 换个出牌顺序结果不同：先覆盖后减免能吃到减免，反过来减免被覆盖冲掉。
+	for order in [["炎症趋化", "CXCR3趋化"], ["CXCR3趋化", "炎症趋化"]]:
+		g = _fx_game(4)
+		var o := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0),
+			CWData.ImmuneType.BASIC, -1)
+		o["energy"] = 100
+		g.cells.append(o)
+		g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+		for card in order:
+			o["hand"] = [card]
+			await g.card_fx.play(o, { "act": "play", "card": card })
+		var got: int = g.actions._move_cost_mod(o, Vector2i(1, 0), g.tune.immune_move_cancerous[0])
+		if order[0] == "炎症趋化":
+			check(got == CWData.MOVE_CUT_MIN, "先覆盖后减免：0.5 − 0.5 → 下限 0.2")
+		else:
+			check(got == CWData.INFLAM_CHEMO_COST, "先减免后覆盖：减免被冲掉，回到 0.5")
+		g.dispose()
+
+	## ①c 减免只降不升：已经免费的价钱不会被减免卡抬回 0.2。
+	## 【组织驻留】先装备（首次向健康组织免费），之后打【CXCR3趋化】——
+	## 没有这条规则的话就是 0 − 0.5 钳成 0.2，一张打折卡把免费变成了收费。
+	g = _fx_game(4)
+	var free_cell := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0),
+		CWData.ImmuneType.BASIC, -1)
+	free_cell["energy"] = 100
+	g.cells.append(free_cell)
+	free_cell["hand"] = ["组织驻留"]
+	await g.card_fx.play(free_cell, { "act": "play", "card": "组织驻留" })
+	free_cell["hand"] = ["CXCR3趋化"]
+	await g.card_fx.play(free_cell, { "act": "play", "card": "CXCR3趋化" })
+	check(free_cell["equip_seq"]["组织驻留"] < g.mods_of(free_cell, "CXCR3趋化")[0]["seq"],
+		"永久技能与即时卡盖在同一把尺上（装备在前）")
+	check(g.actions._move_cost_mod(free_cell, Vector2i(0, 1), g.tune.immune_move_healthy[0]) == 0,
+		"先免费后减免：仍然免费，不被抬回 0.2")
+	g.dispose()
+
+	## ①d 世界事件排在所有卡牌之后：【基质阻隔】翻倍作用在卡牌算完的价上
+	g = _fx_game(4)
+	var bar := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0),
+		CWData.ImmuneType.BASIC, -1)
+	bar["energy"] = 100
+	g.cells.append(bar)
+	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+	bar["hand"] = ["炎症趋化"]
+	await g.card_fx.play(bar, { "act": "play", "card": "炎症趋化" })
+	g.events["active"].append({ "name": "基质阻隔", "left": 2, "stacks": 1, "data": {} })
+	check(g.actions._move_cost_mod(bar, Vector2i(1, 0), g.tune.immune_move_cancerous[0])
+		== CWData.INFLAM_CHEMO_COST * 2,
+		"基质阻隔在最后翻倍：0.5 → 1.0（不是先翻倍再被覆盖成 0.5）")
+	g.dispose()
+
 	## ② 上皮—间质转化（癌方）：向健康组织移动 0.2，前期 1 次
 	g = _fx_game(4)
 	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.MELANOMA)

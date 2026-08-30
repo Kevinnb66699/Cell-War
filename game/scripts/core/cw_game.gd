@@ -413,7 +413,9 @@ func install_event(ev_name: String, left: int, data: Dictionary = {}) -> void:
 ## （两张「下一次损失 -1.5」= 同一个下一次上减 3.0，不排队——定案 #57）。
 func add_mod(cell: Dictionary, mod_name: String, uses: int, until: String,
 		data: Dictionary = {}) -> void:
-	cell["mods"].append({ "name": mod_name, "uses": uses, "until": until, "data": data })
+	cell["play_n"] += 1   ## 盖上打出先后的戳（与 equip_seq 同一把尺，见 cw_setup 细胞结构）
+	cell["mods"].append({ "name": mod_name, "uses": uses, "until": until,
+		"seq": cell["play_n"], "data": data })
 
 
 func mods_of(cell: Dictionary, mod_name: String) -> Array:

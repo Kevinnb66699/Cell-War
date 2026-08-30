@@ -54,7 +54,12 @@ static func make_cell(id: int, pid: int, faction: int, pos: Vector2i,
 		"mark_left": 0,            # 【标记】还能翻倍几次（普通 1；呈递强化树突施加的 2）
 		"hand": [],                # 手牌里的卡名（上限 CWData.HAND_MAX）
 		"equipped": [],            # 已装备的永久技能名（打出即装备，死亡不掉）
-		"mods": [],                # 修饰卡条目 {name, uses, until, data}，见 CWGame.add_mod
+		"mods": [],                # 修饰卡条目 {name, uses, until, seq, data}，见 CWGame.add_mod
+		# 「数值修正按打出先后结算」（PRD 通则，2026-08-30 定案）要求即时卡与永久技能
+		# 能比较先后，而两者分住 mods / equipped 两个数组 —— 用一个**每细胞**的计数器
+		# 给双方盖同一把戳。只在同一个细胞内部比较，所以不必做成全局计数器。
+		"play_n": 0,               # 这个细胞打出过几张卡（含装备），单调递增
+		"equip_seq": {},           # 永久技能名 -> 装备时的 play_n
 		"fx_turn": {},             # 永久技能「每行动回合第一次」的闸门，begin_turn 清
 		"fx_round": {},            # 永久技能「每世界回合第一次」的闸门，S 阶段重置清
 		"differentiated": false,   # 每细胞每局限一次【分化】

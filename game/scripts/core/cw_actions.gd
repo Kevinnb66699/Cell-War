@@ -170,58 +170,117 @@ func _cancerous_adj(c: Vector2i) -> int:
 	return n
 
 
-## 移动费用的修正链，顺序（定案 #61）：**卡牌修饰先改基准价**（覆盖优先、再做增减）
-## → 世界事件加价（净化费/伪装）→ 翻倍（基质阻隔）→ 免费首移归零（迁移激活）。
-## 【双重触发】拉长的 4 回合事件可能与下一个触发共存，叠加顺序在此固定。
+## 会改「移动到某格的费用」的卡牌效果，按存放处分两组（别的修饰条目不掺和）。
+## 即时卡的效果住在 cell["mods"] 里，次序取条目的 seq。
+const MOVE_MODS := { "炎症趋化": true, "CXCR3趋化": true, "上皮—间质转化": true }
+## 永久技能住在 cell["equipped"] 里，次序取 equip_seq。
+## 【癌症干性】也在这组：它是永久技能，**但生效与否看复活时发的限次额度**
+## （那份额度是 mods 里的同名条目），所以位置按装备时刻排、有没有效看额度还剩没剩。
+const MOVE_SKILLS := {
+	"LFA-1黏附": true, "组织浸润": true, "组织巡航": true, "组织驻留": true,
+	"癌症干性": true,
+}
+
+## 移动费用的修正链。顺序照 PRD 通则「数值修正的结算顺序」（团队 2026-08-30 定案，
+## 口径 #61/#65 据此重写）：
+##   ① 基准价——行动本身 + 免疫等级 + 细胞自带技能（伪足穿透/极简胞浆，在基准价函数里）
+##   ② 卡牌效果——即时卡与永久技能**混在一条队列里，按打出/装备的先后**逐张结算
+##   ③ 世界事件——最后
 ## 卡牌修饰只在这里**标价**，消耗在 _spend_move_mods —— 两边谓词必须一致。
 func _move_cost_mod(cell: Dictionary, dest: Vector2i, base: int) -> int:
 	var cost := base
-	if cell["faction"] == CWData.Faction.IMMUNE:
-		if game.is_cancerous(dest):
-			## 【炎症趋化】把「向癌性组织的迁移费」定为 0.5；减免类（CXCR3 / 永久技能
-			## LFA-1黏附·浸润）在其上叠加，共同下限 0.2（口径 #65：覆盖先于增减）
-			if not game.mods_of(cell, "炎症趋化").is_empty():
-				cost = CWData.INFLAM_CHEMO_COST
-			var cuts := CWData.CXCR3_CUT * game.mods_of(cell, "CXCR3趋化").size()
-			if game.has_skill(cell, "LFA-1黏附") and not cell["fx_turn"].has("LFA-1黏附"):
-				cuts += CWData.LFA1_CUT   ## 每行动回合第一次，闸门在 _spend_move_mods 烧
-			if game.has_skill(cell, "组织浸润"):
-				cuts += CWData.INFILTRATE_CUT
-			if cuts > 0:
-				cost = maxi(cost - cuts, CWData.MOVE_CUT_MIN)
-		## 【组织巡航】首移免费，此后本回合每次 -0.2（任何目的地）
-		if game.has_skill(cell, "组织巡航"):
+	for name in _move_card_queue(cell):
+		cost = _apply_move_card(cell, dest, cost, name)
+	return _move_world_events(cell, dest, cost)
+
+
+## 这个细胞身上影响移动费的卡，按打出/装备先后排好（只返回名字）。
+## 即时卡的次序取 mods 条目的 seq、永久技能取 equip_seq——同一把尺（cell["play_n"]），
+## 所以两者能直接比大小。同名多条各占一位（两张 CXCR3 就减两次）。
+func _move_card_queue(cell: Dictionary) -> Array:
+	var q: Array = []
+	for m in cell["mods"]:
+		if MOVE_MODS.has(m["name"]):
+			q.append({ "seq": m.get("seq", 0), "name": m["name"] })
+	for s in cell["equipped"]:
+		if MOVE_SKILLS.has(s):
+			q.append({ "seq": cell["equip_seq"].get(s, 0), "name": s })
+	q.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["seq"] < b["seq"])
+	var names: Array = []
+	for e in q:
+		names.append(e["name"])
+	return names
+
+
+## 队列里的一张卡作用在当前价上。「降为 X」直接改写、「-X」按自己的下限扣。
+## 「每行动回合第一次」的闸门在这里只**查**不烧（烧在 _spend_move_mods）。
+func _apply_move_card(cell: Dictionary, dest: Vector2i, cost: int, name: String) -> int:
+	var to_cancerous := game.is_cancerous(dest)
+	var to_healthy: bool = game.tile(dest)["tissue"] == CWData.Tissue.HEALTHY
+	match name:
+		"炎症趋化":
+			if to_cancerous:
+				return CWData.INFLAM_CHEMO_COST      ## 降为 0.5
+		"CXCR3趋化":
+			if to_cancerous:
+				return _cut_cost(cost, CWData.CXCR3_CUT)
+		"LFA-1黏附":
+			if to_cancerous and not cell["fx_turn"].has("LFA-1黏附"):
+				return _cut_cost(cost, CWData.LFA1_CUT)
+		"组织浸润":
+			if to_cancerous:
+				return _cut_cost(cost, CWData.INFILTRATE_CUT)
+		"组织巡航":
+			## 首移免费，此后本回合每次 -0.2（任何目的地）
 			if not cell["fx_turn"].has("组织巡航"):
-				cost = 0
-			else:
-				cost = maxi(cost - CWData.CRUISE_CUT, CWData.MOVE_CUT_MIN)
-		## 【组织驻留】每行动回合第一次向健康组织迁移不消耗能量
-		if game.has_skill(cell, "组织驻留") \
-				and game.tile(dest)["tissue"] == CWData.Tissue.HEALTHY \
-				and not cell["fx_turn"].has("组织驻留"):
-			cost = 0
-		## 【免疫抑制因子】净化费 0.2（定案 W5）：进普通癌组织格必然触发净化，计入价签。
-		## 攻击进普通癌组织格同理——攻击失败时这 0.2 不退，当作出手成本（待团队确认）。
-		## 加在技能减免之后：净化费不吃迁移减免（它不是迁移费，口径 #65）
-		if game.tile(dest)["tissue"] == CWData.Tissue.CANCER:
-			cost += 2 * game.event_stacks("免疫抑制因子")
-	else:
-		## 【上皮—间质转化】把「向健康组织的移动费」定为 0.2
-		if game.tile(dest)["tissue"] == CWData.Tissue.HEALTHY \
-				and not game.mods_of(cell, "上皮—间质转化").is_empty():
-			cost = CWData.EMT_MOVE_COST
-		cost += 2 * game.event_stacks("免疫伪装")   ## 癌细胞移动 +0.2
-		## 【癌症干性】复活当个世界回合：向癌性组织的移动**不消耗能量**——
-		## 绝对免费，盖过免疫伪装的加价（基质阻隔 ×2 对 0 也无感）
-		if game.is_cancerous(dest) and not game.mods_of(cell, "癌症干性").is_empty():
-			cost = 0
-	cost = _barrier_fee(cost)
-	if game.world_fx.free_move_available(cell):
-		cost = 0   ## 【迁移激活】免疫细胞每回合首次移动免费
+				return 0
+			return _cut_cost(cost, CWData.CRUISE_CUT)
+		"组织驻留":
+			if to_healthy and not cell["fx_turn"].has("组织驻留"):
+				return 0
+		"上皮—间质转化":
+			if to_healthy:
+				return CWData.EMT_MOVE_COST          ## 降为 0.2
+		"癌症干性":
+			## 复活当个世界回合的限次额度（分期 1~2 次）用完就恢复原价
+			if to_cancerous and not game.mods_of(cell, "癌症干性").is_empty():
+				return 0
 	return cost
 
 
-## 【基质阻隔】移动能量花费翻倍。技能移动（转移/早期血行转移）也适用（对照 §六 假设）。
+## 减免类：按下限钳，且**只降不升**——已经免费（或已低于下限）的价钱不会被减免卡抬回 0.2。
+## 没这一条的话「先装组织驻留免费、后打 CXCR3」会算出 0 − 0.5 → 钳成 0.2，
+## 一张打折卡反而把免费变成收费（团队 2026-08-30 确认按「只降不升」写）。
+func _cut_cost(cost: int, amount: int) -> int:
+	return maxi(cost - amount, mini(cost, CWData.MOVE_CUT_MIN))
+
+
+## ③ 世界事件最后结算，按 active 里的先后（= 触发先后）。
+## 当前排期下同时只会有一个事件在场（见 cw_world_fx 头注），但容器按多个写。
+func _move_world_events(cell: Dictionary, dest: Vector2i, base: int) -> int:
+	var cost := base
+	for e in game.events["active"]:
+		match e["name"]:
+			"免疫抑制因子":
+				## 净化费 0.2（定案 W5）：进普通癌组织格必然触发净化，计入价签。
+				## 它是净化的钱不是迁移的钱，所以排在卡牌减免之后、砍不到（口径 #65）。
+				## 攻击进普通癌组织格同理——失败时这 0.2 不退，当作出手成本（待团队确认）。
+				if cell["faction"] == CWData.Faction.IMMUNE \
+						and game.tile(dest)["tissue"] == CWData.Tissue.CANCER:
+					cost += 2 * e["stacks"]
+			"免疫伪装":
+				if cell["faction"] == CWData.Faction.CANCER:
+					cost += 2 * e["stacks"]   ## 癌细胞移动 +0.2
+			"基质阻隔":
+				cost = _barrier_fee(cost)
+			"迁移激活":
+				if game.world_fx.free_move_available(cell):
+					cost = 0   ## 免疫细胞每回合首次移动免费
+	return cost
+
+
+## 【基质阻隔】移动能量花费翻倍。技能移动（转移/早期血行转移）也适用（对照 §六 假设）——
+## 那两个走固定费用、不进卡牌队列，所以它们直接调这个函数。
 func _barrier_fee(base: int) -> int:
 	for i in game.event_stacks("基质阻隔"):
 		base *= 2
