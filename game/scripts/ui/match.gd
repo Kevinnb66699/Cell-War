@@ -28,6 +28,9 @@ signal finished(winner: int)
 @export var player_count := 4
 ## 哪几个位置由人来打；留空 = 一局可观战的 AI 互搏
 @export var human_players: Array[int] = []
+## AI 强度：false = 启发式（普通），true = 蒙特卡洛推演（较强）。
+## 由对局配置面板拨；观战局也吃这一位。
+@export var ai_smart := false
 ## AI 每步之间的停顿（毫秒），纯观感，不影响结算
 @export var ai_delay_ms := 220
 ## 0 = 每局取当前时间做种子；填非 0 可复现同一局
@@ -147,6 +150,7 @@ func start() -> void:
 	bridge.camera = camera
 	bridge.hand = hand   ## 方案甲：打出/弃置手势从手牌抽屉来
 	bridge.human_pids = human_players
+	bridge.enabled = ai_smart    ## 「较强」= 蒙特卡洛推演（桥的基类），默认启发式
 	bridge.opening = _opening    ## 绽开演完前先不弹询问界面
 	bridge.delay_ms = ai_delay_ms
 	bridge.delay_node = self

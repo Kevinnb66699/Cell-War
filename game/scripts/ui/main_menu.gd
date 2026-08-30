@@ -9,8 +9,9 @@ extends Node2D
 ## 这么摆是因为「开始对局」的过场是同一个镜头往前推、不切场景，
 ## 菜单和棋盘必须活在同一棵树里，否则过场没法做。
 
-## 「开始对局」被点了。对局配置面板和推进过场都还没做，先把口子留在这儿。
-signal start_requested
+## 配置面板上按了「开始对局」。cfg 见 CWConfigPanel.config()：
+## { players: 人数, faction: 人类阵营（-1=观战）, smart: AI 强度 }。
+signal start_requested(cfg: Dictionary)
 
 ## 棋盘和相机都是同级节点。写成可导出的路径而不是写死 get_node("../Board")，
 ## 是为了将来换树形（比如过场时把菜单挪进别的容器）只改场景不改代码。
@@ -90,6 +91,7 @@ var _confirm_labels: Array[Label] = []
 var _confirm_bars: Array[ColorRect] = []
 var _confirm_glow: Control
 var _confirm_sel := 1            ## 默认停在「取消」，别让回车顺手就退了
+var _config: CWConfigPanel       ## 对局配置面板；null = 还没建过
 
 @onready var _decor_root: Node2D = $Decor
 @onready var _items: Control = $UI/Screen/Items
@@ -257,6 +259,11 @@ func _on_item_input(event: InputEvent, i: int) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	## 覆盖层统一走菜单路由，谁开着路由给谁 —— 两个 _unhandled_input 抢事件的
+	## 顺序问题从根上不存在（同暂停菜单对 Esc 归属的取舍）
+	if _config != null and _config.visible:
+		_config.handle_input(event)
+		return
 	if _confirm != null and _confirm.visible:
 		_confirm_input(event)
 		return
@@ -407,7 +414,16 @@ func _activate(i: int) -> void:
 		return
 	match ITEMS[i]["node"]:
 		"Start":
-			print("[主菜单] 开始对局 —— 对局配置与推进过场尚未实现")
-			start_requested.emit()
+			_open_config()
 		"Quit":
 			_open_confirm()
+
+
+## 「开始对局」→ 先过配置面板（人数/阵营/AI 强度），面板上确认才真的开
+func _open_config() -> void:
+	if _config == null:
+		_config = CWConfigPanel.new()
+		_ui.add_child(_config)
+		_config.confirmed.connect(func(cfg: Dictionary) -> void:
+			start_requested.emit(cfg))
+	_config.open()

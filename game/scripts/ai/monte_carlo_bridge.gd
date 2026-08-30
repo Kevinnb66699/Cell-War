@@ -20,10 +20,13 @@ extends CWHeuristicBridge
 ## 或者直接用启发式桥（架构说明书：平衡用 AI 与对战用 AI 不必是同一个）。
 var rollouts := 2
 var horizon := 40
+## 关闸 = 整座桥退化为启发式。给 CWUIBridge 当「AI 强度」开关用：
+## 它继承本类，人机对局里由对局配置面板拨这一位。
+var enabled := true
 
 
 func ask(req: Dictionary) -> int:
-	if req["kind"] != "action" or req["options"].size() <= 1:
+	if not enabled or req["kind"] != "action" or req["options"].size() <= 1:
 		return await super.ask(req)
 	return await _mc_pick(req)
 

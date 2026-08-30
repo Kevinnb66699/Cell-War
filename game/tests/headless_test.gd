@@ -59,6 +59,7 @@ func _run_all() -> void:
 	await t_ai_cards()
 	await t_ai_eval()
 	await t_ai_mc()
+	await t_config_panel()
 	t_board_view()
 	t_hex_pick()
 	await t_ui_bridge()
@@ -858,6 +859,68 @@ func t_ai_mc() -> void:
 		g3.dispose()
 	check(ws[0] >= 0, "蒙特卡洛桥整局跑完并分出胜负")
 	check(hs[0] == hs[1] and ws[0] == ws[1], "同种子两局哈希与胜者一致")
+
+
+# ---- 对局配置面板：默认值 / 拨值 / 座位规则 / AI 强度接线 ----
+func t_config_panel() -> void:
+	print("[对局配置面板]")
+	var p := CWConfigPanel.new()
+	root.add_child(p)
+	await process_frame   ## _ready（面板搭建）在入树后的下一帧才跑
+	var cfg := p.config()
+	check(cfg["players"] == 4 and cfg["faction"] == CWData.Faction.IMMUNE \
+		and cfg["smart"] == false, "默认配置：4 人 · 免疫方 · 普通 AI")
+	## 打开时焦点在「开始对局」：一下回车 = 默认配置直接开
+	var got: Array = []
+	p.confirmed.connect(func(c: Dictionary) -> void: got.append(c))
+	p.open()
+	check(p.visible, "open() 后面板可见")
+	var accept := InputEventAction.new()
+	accept.action = "ui_accept"
+	accept.pressed = true
+	p.handle_input(accept)
+	check(got.size() == 1 and not p.visible, "焦点默认在「开始」，回车直接确认并收面板")
+	## 键盘拨值：上到 AI 强度行右拨 → 较强；再上到人数行验证环形
+	p.open()
+	var up := InputEventAction.new()
+	up.action = "ui_up"
+	up.pressed = true
+	var right := InputEventAction.new()
+	right.action = "ui_right"
+	right.pressed = true
+	p.handle_input(up)
+	p.handle_input(right)
+	check(p.config()["smart"] == true, "←→ 在选项行上拨值（AI 强度 → 较强）")
+	p.handle_input(up)
+	p.handle_input(up)
+	p.handle_input(right)
+	check(p.config()["players"] == 6, "人数 4 → 6")
+	p.handle_input(right)
+	check(p.config()["players"] == 2, "6 再往右回到 2（取值成环）")
+	## Esc 只收面板不开局；取值在局与局之间保留
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	p.handle_input(esc)
+	check(not p.visible and got.size() == 1, "Esc 只收面板，不开局")
+	p.open()
+	check(p.config()["players"] == 2 and p.config()["smart"] == true,
+		"再次打开保留上次取值")
+	root.remove_child(p)
+	p.free()
+
+	## 座位规则：人类坐所选阵营在行动顺序里的第一个位置；观战不占座
+	check(CWConfigPanel.human_seat(2, CWData.Faction.IMMUNE) == 0
+		and CWConfigPanel.human_seat(2, CWData.Faction.CANCER) == 1
+		and CWConfigPanel.human_seat(4, CWData.Faction.CANCER) == 1
+		and CWConfigPanel.human_seat(6, CWData.Faction.IMMUNE) == 0
+		and CWConfigPanel.human_seat(6, CWData.Faction.CANCER) == 1,
+		"座位 = 该阵营在行动顺序里的第一个位置")
+	check(CWConfigPanel.human_seat(4, -1) == -1, "观战不占座位")
+
+	## AI 强度接线：UI 桥默认普通（关推演），纯蒙特卡洛桥默认开
+	check(CWUIBridge.new().enabled == false, "UI 桥默认普通 AI")
+	check(CWMonteCarloBridge.new().enabled == true, "蒙特卡洛桥默认开推演")
 
 
 # ---- 棋盘渲染：画出来的格子必须和 CWData 的轴坐标一一对应 ----
@@ -1696,7 +1759,7 @@ func t_enter_not_skipped() -> void:
 	var cam: Camera2D = main_scene.get_node("Camera2D")
 	check(is_equal_approx(cam.zoom.x, CWView.MENU_ZOOM), "起手停在菜单机位")
 
-	main_scene._begin()
+	main_scene._begin({ "players": 4, "faction": CWData.Faction.IMMUNE, "smart": false })
 	check(main_scene._tween != null and main_scene._tween.is_running(), "过场起步了")
 
 	var press := InputEventMouseButton.new()

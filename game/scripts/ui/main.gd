@@ -50,9 +50,18 @@ func _ready() -> void:
 	settle.chose.connect(_on_settle_chose)
 
 
-func _begin() -> void:
+## cfg 来自配置面板（CWConfigPanel.config()）。座位规则：人类坐所选阵营
+## 在行动顺序里的第一个位置；观战（faction -1）就一个人也不坐。
+func _begin(cfg: Dictionary) -> void:
 	if _entering:
 		return
+	match_node.player_count = cfg["players"]
+	var seats: Array[int] = []
+	var seat := CWConfigPanel.human_seat(cfg["players"], cfg["faction"])
+	if seat >= 0:
+		seats.append(seat)
+	match_node.human_players = seats
+	match_node.ai_smart = cfg["smart"]
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
 	menu.dismiss(T_DECOR, DECOR_DRIFT)
