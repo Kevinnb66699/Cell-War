@@ -1105,9 +1105,29 @@ func t_log_panel() -> void:
 	check(p._lines[0].text == g.logs[0], "翻到顶被钳在第一行")
 	p._unhandled_input(lkey)
 	check(not p.visible, "再按 L 收起")
+	p._scroll(5)
+	p.toggle()
+	check(p.visible and p._offset == 0, "开合走 toggle：重新贴底跟随最新行")
+	p.toggle()
 	root.remove_child(p)
 	p.free()
 	g.dispose()
+
+	## 左上角入口提示（定案A·2026-08-30）：钉在面板将来展开的那个角上，点击 = 按 L
+	var chip := CWLogHint.new()
+	root.add_child(chip)
+	await process_frame
+	check(chip.position == CWLogPanel.RECT.position and chip.size == CWLogHint.SIZE,
+		"提示钉在面板展开的角上（%s）" % str(CWLogPanel.RECT.position))
+	var hits := [0]
+	chip.pressed.connect(func() -> void: hits[0] += 1)
+	var mev := InputEventMouseButton.new()
+	mev.pressed = true
+	mev.button_index = MOUSE_BUTTON_LEFT
+	chip.gui_input.emit(mev)
+	check(hits[0] == 1, "点提示发出开关手势")
+	root.remove_child(chip)
+	chip.free()
 
 
 # ---- 规则速查：数字必须现读常量/旋钮，不许抄第二份 ----
@@ -1848,6 +1868,14 @@ func t_pause_and_teardown() -> void:
 	await process_frame          ## 细胞节点是 _process 里按 game.cells 建的，得让它跑一帧
 	check(m.game.count_tissue(CWData.Tissue.CANCER) > 0, "开局铺了癌组织")
 	check(m.ui.visible and pm.active, "开局后 HUD 出现、暂停菜单启用")
+	## 左上角入口提示的显隐链（定案A）：开局亮 → 面板开着让位 → 收起回来
+	check(m._log_hint != null and m._log_hint.visible, "「对局日志 L」入口提示亮着")
+	m._log_panel.toggle()
+	await process_frame
+	check(m._log_panel.visible and not m._log_hint.visible, "面板开着时提示让位（同一个角）")
+	m._log_panel.toggle()
+	await process_frame
+	check(m._log_hint.visible, "面板收起提示回来")
 	var n_cells: int = m._cell_nodes.size()
 	m.teardown()
 	check(m.game == null, "对局已释放")
@@ -1859,6 +1887,7 @@ func t_pause_and_teardown() -> void:
 			dirty += 1
 	check(dirty == 0, "棋盘擦回开局前，没有残留的癌性贴图（剩 %d 格）" % dirty)
 	check(not m.ui.visible and not pm.active, "HUD 收起、暂停菜单停用")
+	check(not m._log_hint.visible, "拆局后入口提示收起")
 
 	# ③ 拆完还能再开一局（人数可能变，面板要按新人数重建）
 	m.start()

@@ -115,6 +115,7 @@ var _fading := false  ## 正在演返场淡出：这期间**必须停掉每帧�
 var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
 var _tile_info: CWTileInfo   ## 悬停格子详情（_ready 里程序化补进 UI 层）
 var _log_panel: CWLogPanel   ## 对局日志面板（L 键开关），同样程序化补进
+var _log_hint: CWLogHint     ## 左上角「对局日志 L」入口提示（定案A），显隐跟着面板走
 
 
 func _ready() -> void:
@@ -137,6 +138,13 @@ func _ready() -> void:
 		_log_panel = CWLogPanel.new()
 		ui.add_child(_log_panel)
 		ui.move_child(_log_panel, _tile_info.get_index())
+		## 左上角入口提示（定案A·2026-08-30）：钉在面板展开的位置，点击 = 按 L。
+		## 显隐归本类管：开局亮、面板开着让位（_process 每帧对齐）、拆局收起。
+		_log_hint = CWLogHint.new()
+		_log_hint.visible = false
+		ui.add_child(_log_hint)
+		ui.move_child(_log_hint, _tile_info.get_index())
+		_log_hint.pressed.connect(func() -> void: _log_panel.toggle())
 		ui.visible = false
 	if autostart:
 		CWView.apply(camera, board, CWView.GAME_ZOOM, CWView.GAME_LOOK_AT, CWView.GAME_ANCHOR)
@@ -161,6 +169,8 @@ func start(snap: Dictionary = {}) -> void:
 		board.tile_hovered.connect(_tile_info.on_hover)
 	if _log_panel != null:
 		_log_panel.active = true
+	if _log_hint != null:
+		_log_hint.visible = true
 	game = CWGame.new()
 	game.init(CWData.FACTION_ORDER[player_count],
 		match_seed if match_seed != 0 else int(Time.get_unix_time_from_system()))
@@ -291,6 +301,8 @@ func teardown() -> void:
 	if _log_panel != null:
 		_log_panel.active = false
 		_log_panel.hide_now()
+	if _log_hint != null:
+		_log_hint.visible = false
 	if settle != null:
 		settle.reset()
 	## 退出游戏时 _exit_tree 也会走到这里，那时棋盘可能已经被释放了
@@ -333,6 +345,8 @@ func _process(delta: float) -> void:
 		_tile_info.sync(delta, game, board, camera, _opening or _fading)
 	if _log_panel != null:
 		_log_panel.refresh(game)
+	if _log_hint != null and _log_panel != null:
+		_log_hint.visible = not _log_panel.visible   ## 面板开着就让位（同一个角）
 
 
 func _sync_tiles() -> void:

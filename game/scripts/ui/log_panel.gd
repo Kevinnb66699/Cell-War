@@ -82,8 +82,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo \
 			and event.keycode == KEY_L:
 		get_viewport().set_input_as_handled()
-		visible = not visible
-		_offset = 0
+		toggle()
 		return
 	if not visible or not (event is InputEventMouseButton) or not event.pressed:
 		return
@@ -95,6 +94,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 		get_viewport().set_input_as_handled()
 		_scroll(-SCROLL_STEP)
+
+
+## 开/关面板。L 键与左上角入口提示（CWLogHint）共用这一条路，
+## 开合时回到跟随最新行——上次翻到哪儿早就过时了。
+func toggle() -> void:
+	visible = not visible
+	_offset = 0
 
 
 func _scroll(delta_lines: int) -> void:
