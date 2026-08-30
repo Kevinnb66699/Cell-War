@@ -29,8 +29,9 @@ const FADE_IN := 0.32        ## 原型节拍：菜单 0.30s 淡出后，配置 0
 
 ## 原型的行文字色（比 TEXT_DIM 亮半档，值列用 TEXT_HI）
 const ROW_LABEL := Color("9fb6bd")
-## 「进入棋盘」按钮底色**不做悬停变化**（Kevin 2026-08-29 定：现在的效果保留）——
-## 焦点/悬停用菱形标示意，和选项行同一颗，按钮本身一个像素不动。
+## 「进入棋盘」悬停/键盘焦点 = **原型预览图的效果**（Kevin 2026-08-29 第二次定案，
+## 推翻了同日早些的「底色不动」）：整块转白 + 白光 + 上浮 3px（.cbtn:hover 原样）。
+const BTN_LIFT := 3.0
 
 const ROW_NAMES := ["人数", "我的阵营", "AI 强度", "随机种子"]
 const ROW_PLAYERS := 0
@@ -51,7 +52,11 @@ var _name_labels: Array[Label] = []
 var _value_labels: Array[Label] = []
 var _arrows: Array = []      ## [[‹, ›], ...]；› 的横坐标随值宽变，_repaint 里摆
 var _marker: Node2D          ## 菱形焦点标（带光晕，和主菜单同一颗的做法）
+var _glow: Control           ## 选中行标题的辉光（主菜单悬停那套四层白描边）
 var _btn: Panel
+var _btn_rest: StyleBoxFlat
+var _btn_hot: StyleBoxFlat   ## 悬停/焦点：转白 + 白光（上浮在 _repaint 里挪位置）
+var _btn_hover := false
 
 
 func _ready() -> void:
@@ -176,6 +181,19 @@ func _build() -> void:
 	_marker = _build_marker()
 	add_child(_marker)
 
+	## 选中行标题的辉光：全面板只备一份、跟着焦点行走（先建，压在文字底下——
+	## 层数与 alpha 即 CWPauseMenu.GLOW，和主菜单悬停是同一套光）
+	_glow = Control.new()
+	_glow.size = Vector2(200, 28)
+	_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_glow)
+	for layer in CWPauseMenu.GLOW:
+		var g := CWStyle.label("", CWStyle.SIZE_BODY, Color(1, 1, 1, 0))
+		g.add_theme_color_override("font_outline_color", Color(1, 1, 1, layer[1]))
+		g.add_theme_constant_override("outline_size", layer[0])
+		g.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_glow.add_child(g)
+
 	for i in N_ROWS:
 		_build_row(i)
 	_build_button()
@@ -236,18 +254,20 @@ func _build_row(i: int) -> void:
 
 
 func _build_button() -> void:
-	## 底色 = IMMUNE、圆角 5（原型 .5cqw），没有任何悬停变体——见文件头 Kevin 的定案
-	var box := StyleBoxFlat.new()
-	box.bg_color = CWStyle.IMMUNE
-	box.set_corner_radius_all(5)
+	_btn_rest = _btn_box(CWStyle.IMMUNE, 0.0)
+	_btn_hot = _btn_box(Color.WHITE, 0.5)   ## 原型 .cbtn:hover：转白 + 50% 白光
 	_btn = Panel.new()
 	_btn.position = Vector2(SLOT_X, BTN_Y)
 	_btn.size = Vector2(BTN_W, BTN_H)
-	_btn.add_theme_stylebox_override("panel", box)
+	_btn.add_theme_stylebox_override("panel", _btn_rest)
 	_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_btn.mouse_entered.connect(func() -> void:
+		_btn_hover = true
 		_sel = N_ROWS
+		_repaint())
+	_btn.mouse_exited.connect(func() -> void:
+		_btn_hover = false
 		_repaint())
 	_btn.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
@@ -259,6 +279,17 @@ func _build_button() -> void:
 	text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	text.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_btn.add_child(text)
+
+
+## 实心按钮的底：圆角 5（原型 .5cqw）；hot 版转白并带一圈白光
+func _btn_box(bg: Color, glow: float) -> StyleBoxFlat:
+	var b := StyleBoxFlat.new()
+	b.bg_color = bg
+	b.set_corner_radius_all(5)
+	if glow > 0.0:
+		b.shadow_color = Color(1, 1, 1, glow)
+		b.shadow_size = 10
+	return b
 
 
 ## 可点击的文字：命中框贴着字、手型光标、左键回调（必须标记已处理，
@@ -326,8 +357,18 @@ func _repaint() -> void:
 		left.add_theme_color_override("font_color", CWStyle.IMMUNE)
 		right.add_theme_color_override("font_color", CWStyle.IMMUNE)
 		right.position.x = VALUE_X + value.get_minimum_size().x + 10
-	## 菱形标跟着焦点走：行上贴行首，按钮上贴按钮左侧（按钮底色不变，见头注）
+	## 选中行标题的辉光跟焦点走（在按钮上时收起——按钮有自己的高亮语言）
+	_glow.visible = _sel < N_ROWS
+	if _sel < N_ROWS:
+		_glow.position = Vector2(SLOT_X, ROW_Y0 + _sel * ROW_H)
+		for layer in _glow.get_children():
+			(layer as Label).text = ROW_NAMES[_sel]
+	## 菱形标跟着焦点走：行上贴行首，按钮上贴按钮左侧
 	if _sel < N_ROWS:
 		_marker.position = Vector2(SLOT_X - 18, ROW_Y0 + _sel * ROW_H + 13)
 	else:
 		_marker.position = Vector2(SLOT_X - 18, BTN_Y + BTN_H / 2.0)
+	## 「进入棋盘」悬停/键盘焦点：原型效果——转白 + 白光 + 上浮 3px
+	var hot := _btn_hover or _sel == N_ROWS
+	_btn.add_theme_stylebox_override("panel", _btn_hot if hot else _btn_rest)
+	_btn.position = Vector2(SLOT_X, BTN_Y - (BTN_LIFT if hot else 0.0))
