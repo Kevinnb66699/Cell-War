@@ -38,6 +38,11 @@ signal finished(winner: int)
 ## 单独跑本场景时自己开局；挂在 Main 下面时由 main.gd 在过场结束后调 start()
 @export var autostart := false
 
+## 此刻能不能存档：引擎只在 pending 边界有完整快照（CWSave 的写入条件）。
+## 暂停菜单拿它决定「保存并退出」亮不亮。
+func can_save_now() -> bool:
+	return game != null and not game._pending.is_empty() and not game.is_over()
+
 ## 固化癌组织的色标。硬化外壳的美术还没有，但**固化格必须能一眼认出来**——
 ## 【裂解】和癌方【复活】都只对它生效，看不出来就没法玩。压暗一档是临时手段。
 const MARK_SOLID := Color("0000004d")
@@ -139,7 +144,9 @@ func _ready() -> void:
 		start()
 
 
-func start() -> void:
+## snap 非空 = 从存档继续：装配完把快照原样放回去，run_game 会把存档那一刻
+## 待决的询问重新问出来（恢复点必然是 pending 边界，CWSave 只在那儿写得出档）。
+func start(snap: Dictionary = {}) -> void:
 	_fading = false
 	if _cells_root != null:
 		_cells_root.modulate.a = 1.0     ## 上一局淡出留下的，开新局要还原
@@ -150,6 +157,7 @@ func start() -> void:
 				(c as Control).modulate.a = 1.0
 	if pause_menu != null:
 		pause_menu.active = true
+		pause_menu.can_save = can_save_now
 	if _tile_info != null and not board.tile_hovered.is_connected(_tile_info.on_hover):
 		board.tile_hovered.connect(_tile_info.on_hover)
 	if _log_panel != null:
@@ -157,6 +165,8 @@ func start() -> void:
 	game = CWGame.new()
 	game.init(CWData.FACTION_ORDER[player_count],
 		match_seed if match_seed != 0 else int(Time.get_unix_time_from_system()))
+	if not snap.is_empty():
+		game.restore(snap)   ## rng 状态也在快照里，init 用的种子随之作废
 	bridge = CWUIBridge.new()
 	bridge.game = game
 	bridge.board = board

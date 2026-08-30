@@ -28,15 +28,18 @@ const HINT_H := 20
 ## enabled=false 的项按主菜单那套画成灰色、不响应鼠标。
 ## 「规则速查」「设置」在主菜单里也是灰的，这里保持一致：**做出来两边一起亮**。
 ## 带 confirm 的项要先过一道确认（团队 2026-08-27 要求：这两项都不可撤销）。
+## 「保存并退出」的亮灭另由 can_save 决定（只有 pending 边界能存，见 CWSave）——
+## 暂停期间整棵树冻着，开菜单那一刻算一次就是准的。
 const ITEMS := [
 	{ "id": "resume", "text": "继续对局", "enabled": true, "confirm": "" },
+	{ "id": "save_quit", "text": "保存并退出", "enabled": true, "confirm": "" },
 	{ "id": "rules", "text": "规则速查", "enabled": false, "confirm": "" },
 	{ "id": "settings", "text": "设置", "enabled": false, "confirm": "" },
 	{ "id": "menu", "text": "返回主菜单", "enabled": true, "confirm": "返回主菜单？" },
 	{ "id": "quit", "text": "退出游戏", "enabled": true, "confirm": "退出游戏？" },
 ]
 
-## 确认页。副标题写清楚代价 —— 存档还没做，这一局是真的没了。
+## 确认页。副标题写清楚代价 —— 直接退不保存，想留进度走「保存并退出」。
 const CONFIRM_HINT := "当前对局不会保存"
 const CONFIRM_ITEMS := [
 	{ "id": "yes", "text": "确定", "enabled": true, "confirm": "" },
@@ -50,6 +53,10 @@ const GLOW := [[24, 0.012], [16, 0.035], [10, 0.08], [6, 0.28]]
 
 ## 行动栏；用来判断 Esc 此刻该不该归暂停菜单
 var action_bar: CWActionBar
+
+## 「此刻能不能存档」的判据，由 CWMatch 注入（引擎在 pending 边界才有完整快照）。
+## 无效的 Callable 按「不能存」处理 —— 没接线就宁可灰着。
+var can_save := Callable()
 
 ## 对局进行中才响应 Esc。主菜单上按 Esc 不该弹出「暂停」——
 ## 由 CWMatch 在 start() / teardown() 里翻。
@@ -141,8 +148,17 @@ func _show_page(confirm_id: String) -> void:
 	_repaint()
 
 
+## 这一项此刻可不可用：静态 enabled 之外，「保存并退出」还要问 can_save
+func _enabled(item: Dictionary) -> bool:
+	if not item["enabled"]:
+		return false
+	if item["id"] == "save_quit":
+		return can_save.is_valid() and can_save.call()
+	return true
+
+
 func _activate(i: int) -> void:
-	if not _list[i]["enabled"]:
+	if not _enabled(_list[i]):
 		return
 	var id: String = _list[i]["id"]
 	if _confirming != "":
@@ -239,7 +255,7 @@ func _rebuild(list: Array) -> void:
 		label.size = label.get_minimum_size()   ## 命中框贴着字，别把右边空白也算进去
 		_panel.add_child(label)
 		_labels.append(label)
-		if not list[i]["enabled"]:
+		if not _enabled(list[i]):
 			continue
 		label.mouse_filter = Control.MOUSE_FILTER_STOP
 		label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -263,9 +279,10 @@ func _hover(i: int) -> void:
 
 func _repaint() -> void:
 	for i in _labels.size():
-		var on: bool = i == _selected and _list[i]["enabled"]
+		var usable := _enabled(_list[i])
+		var on: bool = i == _selected and usable
 		var color := CWStyle.TEXT_OFF
-		if _list[i]["enabled"]:
+		if usable:
 			color = Color.WHITE if on else CWStyle.TEXT
 		_labels[i].add_theme_color_override("font_color", color)
 		_bars[i].color = Color(CWStyle.IMMUNE, 1.0 if on else 0.0)
@@ -275,7 +292,7 @@ func _repaint() -> void:
 ## 辉光跟着选中项走，和主菜单同一套做法。
 ## 主菜单那边跟的是**悬停**，这里悬停会顺手把选中也带过去，所以键鼠两种输入下表现一致。
 func _move_glow() -> void:
-	var on: bool = _selected < _labels.size() and _list[_selected]["enabled"]
+	var on: bool = _selected < _labels.size() and _enabled(_list[_selected])
 	_glow.visible = on
 	if not on:
 		return
@@ -288,7 +305,7 @@ func _move_glow() -> void:
 func _step(dir: int) -> void:
 	var i := _selected + dir
 	while i >= 0 and i < _list.size():
-		if _list[i]["enabled"]:
+		if _enabled(_list[i]):
 			_selected = i
 			_repaint()
 			return

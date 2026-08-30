@@ -44,6 +44,7 @@ var _started_ms := 0   ## 本次过场起步的时刻
 
 func _ready() -> void:
 	menu.start_requested.connect(_begin)
+	menu.continue_requested.connect(_continue)
 	pause.chose.connect(_on_pause_chose)
 	pause.action_bar = match_node.action_bar
 	match_node.finished.connect(_on_match_finished)
@@ -114,8 +115,39 @@ func _on_pause_chose(action: String) -> void:
 	match action:
 		"menu":
 			_back_to_menu()
+		"save_quit":
+			## 先落盘再演返场——fade_out 会把对局 aborted，那之后就没得存了。
+			## 写失败（磁盘问题）就留在对局里，别让玩家以为存上了。
+			if CWSave.write(match_node.game, match_node.human_players, match_node.ai_smart):
+				_back_to_menu()
+			else:
+				push_warning("存档写入失败，留在对局中")
 		"quit":
 			get_tree().quit()
+
+
+## 「继续对局」：读档 → 按档里的人数/座位/AI 强度装配 → 镜头推进（不演绽开，
+## 那是新局的仪式）→ 恢复快照开跑，存档那一刻待决的询问会原样回来。
+func _continue() -> void:
+	if _entering:
+		return
+	var data := CWSave.read()
+	if data.is_empty():
+		return   ## 档坏了或没了：亮灭是按 exists() 算的，这里兜底
+	match_node.player_count = data["players"]
+	var seats: Array[int] = []
+	for s in data["human"]:
+		seats.append(int(s))
+	match_node.human_players = seats
+	match_node.ai_smart = data["smart"]
+	_entering = true
+	_started_ms = Time.get_ticks_msec()
+	menu.dismiss(T_DECOR, DECOR_DRIFT)
+	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_tween.tween_method(_look, 0.0, 1.0, T_ENTER)
+	await _tween.finished
+	match_node.start(data["snap"])
+	_entering = false
 
 
 ## 返回主菜单：镜头原路退回，棋盘擦干净，菜单淡回来。

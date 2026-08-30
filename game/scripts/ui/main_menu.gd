@@ -12,6 +12,8 @@ extends Node2D
 ## 配置面板上按了「开始对局」。cfg 见 CWConfigPanel.config()：
 ## { players: 人数, faction: 人类阵营（-1=观战）, smart: AI 强度 }。
 signal start_requested(cfg: Dictionary)
+## 「继续对局」被点了（只在存在存档时可点，读档由 main.gd 做）
+signal continue_requested
 
 ## 棋盘和相机都是同级节点。写成可导出的路径而不是写死 get_node("../Board")，
 ## 是为了将来换树形（比如过场时把菜单挪进别的容器）只改场景不改代码。
@@ -43,11 +45,12 @@ const CELL_FOOT_DY := 6.0
 ## ── 菜单项 ────────────────────────────────────────────────────
 ## node 是 Items 下的子节点名，顺序即上下顺序。
 ## enabled=false 的项按原型的 .mi.dim 画成灰色、不响应鼠标。
-## 原型里灰掉的是「退出」（网页里退不出去），实装反过来：
-## 还没做的才灰（继续对局=存档读档、设置），做出来就把 enabled 翻回 true。
+## 原型里灰掉的是「退出」（网页里退不出去），实装反过来：还没做的才灰（设置）。
+## 「继续对局」的 enabled 是**基础开关**，实际亮灭还要有存档才行 ——
+## 动态部分见 _item_enabled()，键盘跳灰用 enabled_mask() 现算。
 const ITEMS := [
 	{"node": "Start", "enabled": true},
-	{"node": "Continue", "enabled": false},
+	{"node": "Continue", "enabled": true},
 	{"node": "Rules", "enabled": true},
 	{"node": "Settings", "enabled": false},
 	{"node": "Quit", "enabled": true},
@@ -148,8 +151,7 @@ func appear(seconds: float) -> void:
 		_decor_root.remove_child(cell)
 		cell.queue_free()
 	_spawn_decor()
-	for i in _labels.size():
-		_labels[i].mouse_filter = Control.MOUSE_FILTER_STOP if ITEMS[i]["enabled"] 			else Control.MOUSE_FILTER_IGNORE
+	_apply_filters()   ## 「继续对局」的亮灭跟着存档有无走，回菜单时重新算
 	set_process_unhandled_input(true)
 	_hovered = -1
 	_selected = 0
@@ -190,13 +192,37 @@ func _setup_items() -> void:
 		_rest_y.append(label.position.y)
 		label.size = label.get_minimum_size()   ## 命中框贴着字，别把右边的空白也算进去
 		if not ITEMS[i]["enabled"]:
-			label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			continue
-		label.mouse_filter = Control.MOUSE_FILTER_STOP
+			continue   ## 基础灰项（设置）连信号都不接
 		label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		label.mouse_entered.connect(_on_item_entered.bind(i))
 		label.mouse_exited.connect(_on_item_exited.bind(i))
 		label.gui_input.connect(_on_item_input.bind(i))
+	_apply_filters()
+
+
+## 「此刻可不可点」：静态 enabled 之外，「继续对局」还要真的有存档
+func _item_enabled(i: int) -> bool:
+	if not ITEMS[i]["enabled"]:
+		return false
+	if ITEMS[i]["node"] == "Continue":
+		return CWSave.exists()
+	return true
+
+
+## 键盘跳灰用的可用位图。next_enabled 保持静态纯函数——测试想摆什么局面摆什么局面。
+func enabled_mask() -> Array:
+	var mask := []
+	for i in ITEMS.size():
+		mask.append(_item_enabled(i))
+	return mask
+
+
+## 鼠标命中随「此刻可不可点」走：有没有存档只会在进出菜单之间变化，
+## _ready 和 appear() 各刷一次就是准的。
+func _apply_filters() -> void:
+	for i in _labels.size():
+		_labels[i].mouse_filter = Control.MOUSE_FILTER_STOP if _item_enabled(i) \
+			else Control.MOUSE_FILTER_IGNORE
 
 
 ## 三种状态叠在一起画：静止 / 选中（菱形）/ 悬停（发光上浮）。
@@ -207,7 +233,7 @@ func _repaint() -> void:
 		var label: Label = _labels[i]
 		var hot := i == _hovered
 		var color := COLOR_DISABLED
-		if ITEMS[i]["enabled"]:
+		if _item_enabled(i):
 			color = COLOR_HOVER if hot else (COLOR_SELECTED if i == _selected else COLOR_REST)
 		label.add_theme_color_override("font_color", color)
 		label.position.y = _rest_y[i] - (HOVER_LIFT if hot else 0.0)
@@ -235,6 +261,8 @@ func _move_glow() -> void:
 
 
 func _on_item_entered(i: int) -> void:
+	if not _item_enabled(i):
+		return   ## 灰项的过滤器本就是 IGNORE，这里是第二道保险
 	_hovered = i
 	_selected = i
 	_repaint()
@@ -393,20 +421,20 @@ func _repaint_confirm() -> void:
 		(layer as Label).text = CONFIRM_ITEMS[_confirm_sel]
 
 
-## 从 from 往 dir 方向找下一个可用项，跳过灰掉的；到头就停在原地，不绕回。
-## 抽成 static 是为了让无头测试能直接查这条跳转规则（现在中间三项都是灰的，
-## 「开始对局」往下一步必须直接落到「退出」）。
-static func next_enabled(from: int, dir: int) -> int:
+## 从 from 往 dir 方向找下一个可用项，跳过 mask 里灰掉的；到头停在原地，不绕回。
+## mask 由 enabled_mask() 现算（「继续对局」随存档有无变），
+## 保持 static 纯函数是为了让无头测试想摆什么局面摆什么局面。
+static func next_enabled(from: int, dir: int, mask: Array) -> int:
 	var i := from + dir
-	while i >= 0 and i < ITEMS.size():
-		if ITEMS[i]["enabled"]:
+	while i >= 0 and i < mask.size():
+		if mask[i]:
 			return i
 		i += dir
 	return from
 
 
 func _step_selection(dir: int) -> void:
-	var next := next_enabled(_selected, dir)
+	var next := next_enabled(_selected, dir, enabled_mask())
 	if next == _selected:
 		return
 	_selected = next
@@ -414,11 +442,13 @@ func _step_selection(dir: int) -> void:
 
 
 func _activate(i: int) -> void:
-	if i < 0 or not ITEMS[i]["enabled"]:
+	if i < 0 or not _item_enabled(i):
 		return
 	match ITEMS[i]["node"]:
 		"Start":
 			_open_config()
+		"Continue":
+			continue_requested.emit()
 		"Rules":
 			if _rules == null:
 				_rules = CWRulesPage.new()

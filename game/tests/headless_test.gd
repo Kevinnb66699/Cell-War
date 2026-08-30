@@ -63,6 +63,7 @@ func _run_all() -> void:
 	await t_hover_info()
 	await t_log_panel()
 	await t_rules_page()
+	await t_save_load()
 	t_board_view()
 	t_hex_pick()
 	await t_ui_bridge()
@@ -1096,6 +1097,60 @@ func t_rules_page() -> void:
 	page.free()
 
 
+# ---- 存档读档：快照落盘、恢复逐位一致、继续走同一步仍一致 ----
+func t_save_load() -> void:
+	print("[存档读档]")
+	CWSave.clear()
+	check(not CWSave.exists(), "起手无档")
+	var g := make_game(2, 88)
+	check(not CWSave.write(g, [0], false), "还没到 pending 边界：拒写")
+	await run_setup(g)
+	for i in 30:
+		if (await g.pending()).is_empty():
+			break
+		await g.step(g.rng.randi_range(0, 3))
+	var req: Dictionary = await g.pending()
+	check(not req.is_empty(), "停在一个待决询问上")
+	check(CWSave.write(g, [0], true), "pending 边界：写档成功")
+	check(CWSave.exists(), "档落在盘上")
+	var h0 := g.state_hash()
+
+	var data := CWSave.read()
+	check(data["players"] == 2 and data["smart"] == true and int(data["human"][0]) == 0,
+		"配置字段原样读回")
+	var g2 := make_game(int(data["players"]), 1)   ## 种子无所谓：restore 会盖掉 rng
+	g2.restore(data["snap"])
+	check(g2.state_hash() == h0, "恢复后的局面逐位一致")
+	var r1: Dictionary = await g.pending()
+	var r2: Dictionary = await g2.pending()
+	check(r2["prompt"] == r1["prompt"] and r2["options"].size() == r1["options"].size(),
+		"存档那一刻待决的询问原样回来")
+	await g.step(1)
+	await g2.step(1)
+	check(g2.state_hash() == g.state_hash(), "两边各走同一步，仍逐位一致")
+	g.dispose()
+	g2.dispose()
+
+	## 暂停菜单：「保存并退出」按 can_save 亮灭（不真开菜单，别把测试树暂停了）
+	var pm := CWPauseMenu.new()
+	root.add_child(pm)
+	await process_frame
+	pm.can_save = func() -> bool: return false
+	pm._show_page("")
+	var save_item := {}
+	for it in pm._list:
+		if it["id"] == "save_quit":
+			save_item = it
+	check(not save_item.is_empty() and not pm._enabled(save_item),
+		"不能存时「保存并退出」灰着")
+	pm.can_save = func() -> bool: return true
+	check(pm._enabled(save_item), "能存时亮起")
+	root.remove_child(pm)
+	pm.free()
+	CWSave.clear()
+	check(not CWSave.exists(), "清档干净（不污染下一次测试）")
+
+
 # ---- 棋盘渲染：画出来的格子必须和 CWData 的轴坐标一一对应 ----
 # 渲染层用「行,列」下标，规则层用轴坐标 (q,r)，两套坐标必须描述同一个棋盘。
 # 2026-08-27 之前渲染层自己抄了一份特殊组织下标，地图改版后没跟上——这组检查就是防这个。
@@ -1986,13 +2041,16 @@ func t_main_menu() -> void:
 			names_ok = false
 	check(names_ok, "ITEMS 里的 %d 个节点名在场景里都存在" % menu_script.ITEMS.size())
 
-	# 键盘上下必须跳过灰掉的项。「规则速查」（第 2 项）已启用；
-	# 「继续对局」「设置」还灰着，所以 0 往下落到 2、2 往下跳过 3 落到末项。
+	# 键盘上下必须跳过灰掉的项。mask 由 enabled_mask() 现算（「继续对局」随存档
+	# 有无变化），这里直接摆两种局面验静态跳转规则。
 	var last: int = menu_script.ITEMS.size() - 1
-	check(menu_script.next_enabled(0, 1) == 2, "键盘往下跳过灰掉的「继续对局」落到规则速查")
-	check(menu_script.next_enabled(2, 1) == last, "再往下跳过灰掉的「设置」落到退出")
-	check(menu_script.next_enabled(last, -1) == 2, "键盘往上跳过灰掉的项")
-	check(menu_script.next_enabled(0, -1) == 0, "到顶了就停在原地，不绕回")
+	var no_save := [true, false, true, false, true]
+	check(menu_script.next_enabled(0, 1, no_save) == 2, "无档：往下跳过「继续对局」落到规则速查")
+	check(menu_script.next_enabled(2, 1, no_save) == last, "再往下跳过灰掉的「设置」落到退出")
+	check(menu_script.next_enabled(last, -1, no_save) == 2, "键盘往上跳过灰掉的项")
+	check(menu_script.next_enabled(0, -1, no_save) == 0, "到顶了就停在原地，不绕回")
+	var with_save := [true, true, true, false, true]
+	check(menu_script.next_enabled(0, 1, with_save) == 1, "有档：往下落到「继续对局」")
 
 	var grid_ok := true
 	var bad := ""
