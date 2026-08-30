@@ -482,6 +482,8 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 ## 结果同一件事在不同回合有两种节奏，反而显得乱。
 ## `CWDice.play()` 的快档参数保留着，将来做「加速观战」时直接接上。
 func show_roll(reason: String, value: int, sides: int, _pid: int, at: Vector2i) -> void:
+	if not CWSettings.dice_anim:
+		return   ## 设置「掷骰动画：跳过」：不演，结算说明（show_result）照常弹
 	if dice == null or board == null:
 		return
 	var ground: Vector2 = board.tile_center(at)

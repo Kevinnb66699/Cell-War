@@ -31,8 +31,7 @@ signal finished(winner: int)
 ## AI 强度：false = 启发式（普通），true = 蒙特卡洛推演（较强）。
 ## 由对局配置面板拨；观战局也吃这一位。
 @export var ai_smart := false
-## AI 每步之间的停顿（毫秒），纯观感，不影响结算
-@export var ai_delay_ms := 220
+## AI 每步之间的停顿改由设置页管（CWSettings.ai_delay_ms），纯观感不影响结算
 ## 0 = 每局取当前时间做种子；填非 0 可复现同一局
 @export var match_seed := 0
 ## 单独跑本场景时自己开局；挂在 Main 下面时由 main.gd 在过场结束后调 start()
@@ -179,7 +178,7 @@ func start(snap: Dictionary = {}) -> void:
 	bridge.human_pids = human_players
 	bridge.enabled = ai_smart    ## 「较强」= 蒙特卡洛推演（桥的基类），默认启发式
 	bridge.opening = _opening    ## 绽开演完前先不弹询问界面
-	bridge.delay_ms = ai_delay_ms
+	bridge.delay_ms = CWSettings.ai_delay_ms
 	bridge.delay_node = self
 	## 同一个桥对象注册给所有玩家：人类那几位走界面，其余走 AI，
 	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。

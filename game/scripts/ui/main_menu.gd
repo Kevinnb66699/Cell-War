@@ -45,14 +45,14 @@ const CELL_FOOT_DY := 6.0
 ## ── 菜单项 ────────────────────────────────────────────────────
 ## node 是 Items 下的子节点名，顺序即上下顺序。
 ## enabled=false 的项按原型的 .mi.dim 画成灰色、不响应鼠标。
-## 原型里灰掉的是「退出」（网页里退不出去），实装反过来：还没做的才灰（设置）。
-## 「继续对局」的 enabled 是**基础开关**，实际亮灭还要有存档才行 ——
-## 动态部分见 _item_enabled()，键盘跳灰用 enabled_mask() 现算。
+## 五项全亮（2026-08-29 深夜起）。「继续对局」的 enabled 是**基础开关**，
+## 实际亮灭还要有存档才行 —— 动态部分见 _item_enabled()，键盘跳灰用
+## enabled_mask() 现算。
 const ITEMS := [
 	{"node": "Start", "enabled": true},
 	{"node": "Continue", "enabled": true},
 	{"node": "Rules", "enabled": true},
-	{"node": "Settings", "enabled": false},
+	{"node": "Settings", "enabled": true},
 	{"node": "Quit", "enabled": true},
 ]
 
@@ -96,6 +96,7 @@ var _confirm_glow: Control
 var _confirm_sel := 1            ## 默认停在「取消」，别让回车顺手就退了
 var _config: CWConfigPanel       ## 对局配置面板；null = 还没建过
 var _rules: CWRulesPage          ## 规则速查页；null = 还没建过
+var _settings: CWSettingsPage    ## 设置页；null = 还没建过
 
 @onready var _decor_root: Node2D = $Decor
 @onready var _items: Control = $UI/Screen/Items
@@ -296,6 +297,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _rules != null and _rules.visible:
 		_rules.handle_input(event)
 		return
+	if _settings != null and _settings.visible:
+		_settings.handle_input(event)
+		return
 	if _confirm != null and _confirm.visible:
 		_confirm_input(event)
 		return
@@ -454,6 +458,11 @@ func _activate(i: int) -> void:
 				_rules = CWRulesPage.new()
 				_ui.add_child(_rules)
 			_rules.open()
+		"Settings":
+			if _settings == null:
+				_settings = CWSettingsPage.new()
+				_ui.add_child(_settings)
+			_settings.open()
 		"Quit":
 			_open_confirm()
 

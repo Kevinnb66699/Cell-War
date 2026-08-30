@@ -64,6 +64,7 @@ func _run_all() -> void:
 	await t_log_panel()
 	await t_rules_page()
 	await t_save_load()
+	await t_settings()
 	t_board_view()
 	t_hex_pick()
 	await t_ui_bridge()
@@ -1151,6 +1152,42 @@ func t_save_load() -> void:
 	check(not CWSave.exists(), "清档干净（不污染下一次测试）")
 
 
+# ---- 设置：两项偏好即改即存，读回一致；收尾必须还原默认（掷骰演出测试在后面）----
+func t_settings() -> void:
+	print("[设置]")
+	check(CWSettings.ai_delay_ms == 220 and CWSettings.dice_anim, "默认：标准节奏 + 演出")
+	var page := CWSettingsPage.new()
+	root.add_child(page)
+	await process_frame
+	page.open()
+	var right := InputEventAction.new()
+	right.action = "ui_right"
+	right.pressed = true
+	var down := InputEventAction.new()
+	down.action = "ui_down"
+	down.pressed = true
+	page.handle_input(right)                 ## 标准 → 慢
+	check(CWSettings.ai_delay_ms == CWSettings.AI_DELAYS[2], "AI 节奏拨到慢（即时生效）")
+	page.handle_input(down)
+	page.handle_input(right)                 ## 演出 → 跳过
+	check(not CWSettings.dice_anim, "掷骰动画拨到跳过")
+	check(FileAccess.file_exists(CWSettings.PATH), "改动已落盘")
+	## 读回：把内存值打乱再 load，应恢复成盘上的（慢 + 跳过）
+	CWSettings.ai_delay_ms = 220
+	CWSettings.dice_anim = true
+	CWSettings._loaded = false
+	CWSettings.load_prefs()
+	check(CWSettings.ai_delay_ms == CWSettings.AI_DELAYS[2] and not CWSettings.dice_anim,
+		"重新载入读回盘上的偏好")
+	root.remove_child(page)
+	page.free()
+	## 还原默认并清盘：dice_anim=false 会让后面的掷骰演出测试整段空转
+	CWSettings.ai_delay_ms = 220
+	CWSettings.dice_anim = true
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(CWSettings.PATH))
+	check(not FileAccess.file_exists(CWSettings.PATH), "测试收尾清掉偏好文件")
+
+
 # ---- 棋盘渲染：画出来的格子必须和 CWData 的轴坐标一一对应 ----
 # 渲染层用「行,列」下标，规则层用轴坐标 (q,r)，两套坐标必须描述同一个棋盘。
 # 2026-08-27 之前渲染层自己抄了一份特殊组织下标，地图改版后没跟上——这组检查就是防这个。
@@ -1744,7 +1781,7 @@ func t_pause_and_teardown() -> void:
 	## 交给 AI 打（不然 start() 会停在「请玩家落子」那一问上，一个细胞都还没有，
 	## 「细胞节点清干净了」就成了一句空话）
 	m.human_players = []
-	m.ai_delay_ms = 0
+	CWSettings.ai_delay_ms = 0   ## AI 停顿归设置管了；测试要跑得快，完事还原默认
 	m.start()
 	await process_frame          ## 细胞节点是 _process 里按 game.cells 建的，得让它跑一帧
 	check(m.game.count_tissue(CWData.Tissue.CANCER) > 0, "开局铺了癌组织")
@@ -1778,6 +1815,7 @@ func t_pause_and_teardown() -> void:
 	check(m.board.tile_hovered.get_connections().is_empty(), "拆局后悬停信号断干净")
 	check(m.board.tile_clicked.get_connections().is_empty(), "拆局后点击信号断干净")
 	check(m.bridge == null, "桥也放掉了")
+	CWSettings.ai_delay_ms = 220   ## 还原默认，别影响别的测试
 
 	main_scene.queue_free()
 
@@ -2044,12 +2082,12 @@ func t_main_menu() -> void:
 	# 键盘上下必须跳过灰掉的项。mask 由 enabled_mask() 现算（「继续对局」随存档
 	# 有无变化），这里直接摆两种局面验静态跳转规则。
 	var last: int = menu_script.ITEMS.size() - 1
-	var no_save := [true, false, true, false, true]
+	var no_save := [true, false, true, true, true]
 	check(menu_script.next_enabled(0, 1, no_save) == 2, "无档：往下跳过「继续对局」落到规则速查")
-	check(menu_script.next_enabled(2, 1, no_save) == last, "再往下跳过灰掉的「设置」落到退出")
-	check(menu_script.next_enabled(last, -1, no_save) == 2, "键盘往上跳过灰掉的项")
+	check(menu_script.next_enabled(2, 1, no_save) == 3, "规则速查再往下是设置")
+	check(menu_script.next_enabled(last, -1, no_save) == 3, "键盘往上一步到设置")
 	check(menu_script.next_enabled(0, -1, no_save) == 0, "到顶了就停在原地，不绕回")
-	var with_save := [true, true, true, false, true]
+	var with_save := [true, true, true, true, true]
 	check(menu_script.next_enabled(0, 1, with_save) == 1, "有档：往下落到「继续对局」")
 
 	var grid_ok := true

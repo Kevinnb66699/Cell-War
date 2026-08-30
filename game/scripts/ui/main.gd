@@ -43,6 +43,7 @@ var _started_ms := 0   ## 本次过场起步的时刻
 
 
 func _ready() -> void:
+	CWSettings.load_prefs()   ## 偏好尽早读：AI 节奏/掷骰动画在开局装配时就要用
 	menu.start_requested.connect(_begin)
 	menu.continue_requested.connect(_continue)
 	pause.chose.connect(_on_pause_chose)
