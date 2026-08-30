@@ -1869,6 +1869,37 @@ func t_pause_and_teardown() -> void:
 	pm._activate(0)                      ## 「确定」
 	check(fired.size() == 1 and fired[0] == "menu", "确认之后才真的执行")
 	check(not pm.visible and not pm.get_tree().paused, "执行时菜单收起并解除暂停")
+
+	# ①c 暂停菜单里的规则速查/设置（2026-08-30 接入）：页压页、树保持冻结
+	pm.open()
+	var rules_at := -1
+	var settings_at := -1
+	for i in CWPauseMenu.ITEMS.size():
+		match CWPauseMenu.ITEMS[i]["id"]:
+			"rules": rules_at = i
+			"settings": settings_at = i
+	check(pm._enabled(CWPauseMenu.ITEMS[rules_at]) \
+		and pm._enabled(CWPauseMenu.ITEMS[settings_at]), "规则速查与设置不再灰着")
+	pm._activate(rules_at)
+	check(pm._rules.visible and pm.visible and pm.get_tree().paused \
+		and not pm._panel.visible, "打开规则速查：页压页、树保持冻结、列表让位")
+	check(fired.size() == 1, "子页入口不发 chose（在菜单内部消化）")
+	pm._unhandled_input(esc)
+	check(not pm._rules.visible and pm._panel.visible and pm.get_tree().paused,
+		"规则页上 Esc：只关子页，暂停不解除")
+	pm._activate(settings_at)
+	check(pm._settings.visible, "打开设置页")
+	var sright := InputEventAction.new()
+	sright.action = "ui_right"
+	sright.pressed = true
+	pm._unhandled_input(sright)          ## 路由给设置页第一行：标准 → 慢
+	check(CWSettings.ai_delay_ms == CWSettings.AI_DELAYS[2], "键盘路由到设置页：拨值即时生效")
+	pm._unhandled_input(esc)
+	check(not pm._settings.visible and pm._panel.visible, "设置页上 Esc 退回暂停列表")
+	pm._unhandled_input(esc)
+	check(not pm.visible and not pm.get_tree().paused, "再按 Esc 才关掉暂停菜单")
+	CWSettings.ai_delay_ms = 220         ## 拨值动了真设置，还原并清盘
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(CWSettings.PATH))
 	pm.active = false
 
 	# ② 拆局：棋盘要擦回开局前
