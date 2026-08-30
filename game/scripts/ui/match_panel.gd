@@ -65,6 +65,9 @@ var _end: PanelContainer
 var _rows: Array = []      ## 每项 { bg, fac, icon, name, type, energy, pips, skills }
 var _built := 0            ## 已按几人局建好（0 = 还没建）
 var _level_y := 0.0        ## 免疫等级那一块的顶边；测试靠它核对 6 人局没溢出
+var _tip: Control = null   ## 被动技能悬浮框（悬停玩家行时列出已装备）
+var _tip_pid := -1         ## 正悬停哪一行；-1 = 收起
+var _tip_key := ""         ## 上次搭悬浮框用的键，没变不重搭
 
 
 func _ready() -> void:
@@ -121,6 +124,7 @@ func refresh(game: CWGame) -> void:
 
 	for pid in game.players.size():
 		_refresh_row(game, pid)
+	_update_tip(game)
 
 	_level.text = CWData.LEVEL_NAMES[game.immune_level]
 	_memory.text = "抗原记忆 %d" % game.memory
@@ -137,6 +141,9 @@ func reset() -> void:
 		c.queue_free()
 	_rows.clear()
 	_built = 0
+	_tip = null       ## 悬浮框也在刚才那波清掉了，别留野引用
+	_tip_pid = -1
+	_tip_key = ""
 
 
 func show_end_turn(on: bool) -> void:
@@ -208,6 +215,9 @@ func _build(n: int) -> void:
 		c.queue_free()
 	_rows.clear()
 	_built = n
+	_tip = null
+	_tip_pid = -1
+	_tip_key = ""
 
 	# ① 回合 / 阶段
 	_round = _put(CWStyle.label("", CWStyle.SIZE_BIG, CWStyle.TEXT_HI), PAD, PAD, W)
@@ -234,7 +244,7 @@ func _build(n: int) -> void:
 	# ③ 玩家列表
 	y = PAD + ROUND_H + GAP + SCORE_H + GAP
 	for i in n:
-		_rows.append(_build_row(y + i * ROW_H))
+		_rows.append(_build_row(y + i * ROW_H, i))
 
 	# ④ 免疫等级（上面一道分隔线）
 	y += n * ROW_H + GAP
@@ -253,13 +263,25 @@ func _build(n: int) -> void:
 	## ⑤「结束回合」钉在底部（设计稿 margin-top:auto），在 _chrome() 里建
 
 
-func _build_row(y: float) -> Dictionary:
+func _build_row(y: float, pid: int) -> Dictionary:
 	var bg := ColorRect.new()
 	bg.position = Vector2(PAD, y)
 	bg.size = Vector2(W, ROW_H)
 	bg.color = Color(0, 0, 0, 0)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
+
+	## 悬停整行 → 浮出该玩家的已装备清单（设计稿：贴着「技 N」往左浮）。
+	## 感应区做整行而不是只做「技 N」两个字：44px 的行才够格算命中目标。
+	var hover := Control.new()
+	hover.position = Vector2(PAD, y)
+	hover.size = Vector2(W, ROW_H)
+	hover.mouse_filter = Control.MOUSE_FILTER_PASS   ## 只感应悬停，不吃点击
+	hover.mouse_entered.connect(func() -> void: _tip_pid = pid)
+	hover.mouse_exited.connect(func() -> void:
+		if _tip_pid == pid:
+			_tip_pid = -1)
+	add_child(hover)
 
 	var x: float = PAD + ROW_PAD
 	var fac := ColorRect.new()            ## 阵营色条 4×30
@@ -317,6 +339,50 @@ func _build_end_button() -> PanelContainer:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			end_turn_pressed.emit())
 	return p
+
+
+# ============ 被动技能悬浮框 ============
+
+## 悬停玩家行时，在面板左侧浮出该细胞的已装备清单。没装备就不浮（空框是噪音）。
+## 每帧从 refresh() 进来：装备可以在悬停期间变（BCL-2 触发会弃掉自己），
+## 键没变就不重搭。死亡不掉装备（口径 #65 批），所以死了照样能看。
+func _update_tip(game: CWGame) -> void:
+	var equipped: Array = []
+	if _tip_pid >= 0 and _tip_pid < game.cells.size():
+		equipped = game.cell_of(_tip_pid)["equipped"]
+	if equipped.is_empty():
+		if _tip != null:
+			_tip.visible = false
+		_tip_key = ""
+		return
+	var key := "%d|%s" % [_tip_pid, ",".join(PackedStringArray(equipped))]
+	if key == _tip_key and _tip != null:
+		_tip.visible = true
+		return
+	_tip_key = key
+	if _tip != null:
+		remove_child(_tip)
+		_tip.queue_free()
+	_tip = Control.new()
+	_tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var h: float = 8 * 2 + 15 + equipped.size() * 24
+	_tip.size = Vector2(176, h)
+	var row_top: float = PAD + ROUND_H + GAP + SCORE_H + GAP + _tip_pid * ROW_H
+	_tip.position = Vector2(-(176.0 + 8.0),
+		clampf(row_top, 8.0, RECT.size.y - h - 8.0))
+	var bg := Panel.new()
+	bg.add_theme_stylebox_override("panel", CWStyle.box(0.45, CWStyle.BTN_BG))
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tip.add_child(bg)
+	var title := CWStyle.label("已装备 · 持续生效", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	title.position = Vector2(12, 8)
+	_tip.add_child(title)
+	for i in equipped.size():
+		var name_label := CWStyle.label(equipped[i], CWStyle.SIZE_BODY, CWStyle.TEXT)
+		name_label.position = Vector2(12, 8 + 15 + i * 24)
+		_tip.add_child(name_label)
+	add_child(_tip)
 
 
 ## 摆一个 Label 到面板内的绝对位置。

@@ -60,6 +60,7 @@ func _run_all() -> void:
 	await t_ai_eval()
 	await t_ai_mc()
 	await t_config_panel()
+	await t_hover_info()
 	t_board_view()
 	t_hex_pick()
 	await t_ui_bridge()
@@ -921,6 +922,95 @@ func t_config_panel() -> void:
 	## AI 强度接线：UI 桥默认普通（关推演），纯蒙特卡洛桥默认开
 	check(CWUIBridge.new().enabled == false, "UI 桥默认普通 AI")
 	check(CWMonteCarloBridge.new().enabled == true, "蒙特卡洛桥默认开推演")
+
+
+# ---- 悬停格子详情 + 被动技能悬浮框 ----
+func t_hover_info() -> void:
+	print("[悬停详情与技能悬浮框]")
+	var g := _fx_game(2)
+	var c: Vector2i = CWData.CORES[0]
+	g.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[c]["solid"] = 2
+	g.tiles[c]["store"] = 10
+	## cells 的下标就是 pid（cell_of 按下标取），追加顺序必须和玩家顺序一致
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(5, 0),
+		CWData.ImmuneType.BASIC, -1)
+	g.cells.append(imm)
+	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, c, -1, CWData.CancerType.MELANOMA)
+	can["energy"] = 38
+	can["marked"] = true
+	can["mark_left"] = 1
+	g.cells.append(can)
+
+	## describe 是纯函数：直接核对文案
+	var all := ""
+	for r in CWTileInfo.describe(g, c):
+		all += r["text"] + "|"
+	check(all.contains("癌组织") and all.contains("固化 2 / %d" % g.tune.solidify_threshold),
+		"详情：组织与固化进度")
+	check(all.contains("代谢核心 · 储量 1.0"), "详情：核心储量")
+	check(all.contains("恶性黑色素瘤") and all.contains("能量 3.8") and all.contains("标记 ×1"),
+		"详情：占据者、能量与标记")
+	check(CWTileInfo.describe(g, Vector2i(0, 0)).size() == 1, "健康空格只有一行")
+
+	## place 也是纯函数：贴右栏翻左、上下钳进画布
+	var screen := CWView.screen_size()
+	var box := Vector2(208, 120)
+	var pr := CWTileInfo.place(Vector2(650, 270), box, screen)
+	check(pr.x + box.x < 650.0, "贴右栏的格子翻到左侧")
+	check(CWTileInfo.place(Vector2(100, 10), box, screen).y >= 8.0, "顶边不越界")
+	check(CWTileInfo.place(Vector2(100, 530), box, screen).y + box.y <= screen.y - 7.9,
+		"底边不越界")
+
+	## 延迟与开关：0.25s 前不浮、换格重计时、演出期间不浮、出棋盘即收
+	var board := make_board()
+	var cam := Camera2D.new()
+	CWView.apply(cam, board, CWView.GAME_ZOOM, CWView.GAME_LOOK_AT, CWView.GAME_ANCHOR)
+	var info := CWTileInfo.new()
+	root.add_child(info)
+	await process_frame
+	info.on_hover(c)
+	info.sync(0.1, g, board, cam, false)
+	check(not info.visible, "悬停 0.1s：还没浮出")
+	info.sync(0.2, g, board, cam, false)
+	check(info.visible, "悬停满 0.25s：浮出")
+	info.on_hover(Vector2i(0, 1))
+	check(not info.visible, "换格子先收起重新计时")
+	info.sync(0.3, g, board, cam, false)
+	check(info.visible, "新格子计时满再浮出")
+	info.sync(0.3, g, board, cam, true)
+	check(not info.visible, "开场/返场演出期间不浮")
+	info.on_hover(Vector2i(99, 99))
+	info.sync(0.3, g, board, cam, false)
+	check(not info.visible, "移出棋盘收起")
+	root.remove_child(info)
+	info.free()
+	board.free()
+	cam.free()
+
+	## 技能悬浮框：无装备不浮、装备变化重搭、reset 清干净
+	var panel := CWMatchPanel.new()
+	root.add_child(panel)
+	await process_frame
+	panel.refresh(g)     ## 第一遍先按人数把行建出来（_build 会重置悬停状态）
+	panel._tip_pid = 1
+	panel.refresh(g)
+	check(panel._tip == null or not panel._tip.visible, "没装备不浮框")
+	can["equipped"] = ["组织驻留", "LFA-1黏附"]
+	panel.refresh(g)
+	check(panel._tip != null and panel._tip.visible, "有装备才浮出")
+	check(panel._tip.get_child_count() == 4, "清单 = 底板 + 标题 + 两条")
+	can["equipped"].append("免疫突触成熟")
+	panel.refresh(g)
+	check(panel._tip.get_child_count() == 5, "装备变化悬浮框跟着重搭")
+	panel._tip_pid = -1
+	panel.refresh(g)
+	check(not panel._tip.visible, "移开行即收起")
+	panel.reset()
+	check(panel._tip == null, "reset 清掉悬浮框")
+	root.remove_child(panel)
+	panel.free()
+	g.dispose()
 
 
 # ---- 棋盘渲染：画出来的格子必须和 CWData 的轴坐标一一对应 ----

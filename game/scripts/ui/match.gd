@@ -109,6 +109,7 @@ var _breath_step := 0    ## 全局呼吸步进（各细胞再按编号错相位�
 var _fading := false  ## 正在演返场淡出：这期间**必须停掉每帧刷新**，
                       ## 否则 _sync_tiles 会把刚淡成健康的格子又刷回癌性
 var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
+var _tile_info: CWTileInfo   ## 悬停格子详情（_ready 里程序化补进 UI 层）
 
 
 func _ready() -> void:
@@ -120,6 +121,13 @@ func _ready() -> void:
 	_dice = CWDice.new()
 	board.add_child(_dice)
 	if ui != null:
+		## 悬停格子详情：程序化补进 UI 层，但要压在暂停菜单**下面** ——
+		## 暂停时 _process 停了，信息卡收不掉，不能让它浮在暂停层上。
+		## 悬停信号在 start()/teardown() 里成对开合（拆局约定：信号必须断干净）。
+		_tile_info = CWTileInfo.new()
+		ui.add_child(_tile_info)
+		if pause_menu != null:
+			ui.move_child(_tile_info, pause_menu.get_index())
 		ui.visible = false
 	if autostart:
 		CWView.apply(camera, board, CWView.GAME_ZOOM, CWView.GAME_LOOK_AT, CWView.GAME_ANCHOR)
@@ -137,6 +145,8 @@ func start() -> void:
 				(c as Control).modulate.a = 1.0
 	if pause_menu != null:
 		pause_menu.active = true
+	if _tile_info != null and not board.tile_hovered.is_connected(_tile_info.on_hover):
+		board.tile_hovered.connect(_tile_info.on_hover)
 	game = CWGame.new()
 	game.init(CWData.FACTION_ORDER[player_count],
 		match_seed if match_seed != 0 else int(Time.get_unix_time_from_system()))
@@ -260,10 +270,14 @@ func teardown() -> void:
 		hand.clear()
 	if toast != null:
 		toast.hide_now()
+	if _tile_info != null:
+		_tile_info.hide_now()
 	if settle != null:
 		settle.reset()
 	## 退出游戏时 _exit_tree 也会走到这里，那时棋盘可能已经被释放了
 	if is_instance_valid(board):
+		if _tile_info != null and board.tile_hovered.is_connected(_tile_info.on_hover):
+			board.tile_hovered.disconnect(_tile_info.on_hover)
 		for c in CWData.all_coords():
 			board.set_tissue(c, CWData.Tissue.HEALTHY, CWData.special_of(c))
 		board.set_marks({})
@@ -296,6 +310,8 @@ func _process(delta: float) -> void:
 	_sync_hand()
 	if panel != null:
 		panel.refresh(game)
+	if _tile_info != null:
+		_tile_info.sync(delta, game, board, camera, _opening or _fading)
 
 
 func _sync_tiles() -> void:
