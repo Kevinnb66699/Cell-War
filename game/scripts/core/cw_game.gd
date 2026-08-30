@@ -660,7 +660,7 @@ func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: boo
 ## 事件的「失去 X 能量」）。走同一条管线，不吃攻防修正（标记/护甲只挂在 immune_hit），
 ## 但吃受击方的护盾类修饰卡（⑤ 固定减免）。
 ## skill=true 表示来源是**癌细胞的技能**（黏液破裂/乳酸酸化这类细胞技能与癌方即时卡）——
-## 【缺氧适应】只挡这一类；微环境压迫、世界事件、反弹都不算（定案 #62）。
+## 【缺氧适应】挡这一类**加上**微环境压迫（卡面重写后，见下）；世界事件、反弹不算（定案 #62）。
 func cancer_hit(target: Dictionary, base: int, reason: String, skill: bool = false) -> int:
 	var cut := 0
 	var mem := spend_mods(target, "细胞膜修复")
@@ -671,7 +671,9 @@ func cancer_hit(target: Dictionary, base: int, reason: String, skill: bool = fal
 	if ifn > 0:
 		cut += CWData.IFN1_CUT * ifn
 		log_msg("　【I型干扰素】减免 %s" % CWData.fmt(CWData.IFN1_CUT * ifn))
-	if skill:
+	## 【缺氧适应】挡「癌细胞技能」**或**【微环境压迫】（2026-08-30 卡面重写，口径 #62/#72）。
+	## 压迫不是技能，所以要在 skill 之外单认一次 reason。
+	if skill or reason == "微环境压迫":
 		var hyp := spend_mods(target, "缺氧适应")
 		if hyp > 0:
 			cut += CWData.HYPOXIA_CUT * hyp

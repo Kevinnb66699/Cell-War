@@ -3660,44 +3660,41 @@ func t_card_mods() -> void:
 	check(g.mods_of(s2, "I型干扰素").is_empty(), "干扰素盾随世界回合结束过期（没用上也作废）")
 	g.dispose()
 
-	## ④ 缺氧适应：免疫微环境压迫；只挡「癌细胞技能」的损失
+	## ④ 缺氧适应（2026-08-30 卡面重写）：一面一次性护盾，
+	## 「下一次【微环境压迫】或癌细胞技能造成的能量损失 -1.0」。世界事件不算。
 	g = _fx_game(4)
 	var hyp := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
 	hyp["energy"] = 100
 	g.cells.append(hyp)
-	for n in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 1)]:
-		g.tiles[n]["tissue"] = CWData.Tissue.CANCER
 	hyp["hand"] = ["缺氧适应"]
 	await g.card_fx.play(hyp, { "act": "play", "card": "缺氧适应" })
-	g.world._pressure()
-	check(hyp["energy"] == 100, "缺氧适应：微环境压迫完全免疫（3 邻本应 −0.5）")
 	g.cancer_hit(hyp, 10, "增殖抑制")
-	check(hyp["energy"] == 90, "世界事件的损失不算「癌细胞技能」，不减免")
+	check(hyp["energy"] == 90, "世界事件的损失既不是技能也不是压迫，不减免")
+	check(not g.mods_of(hyp, "缺氧适应").is_empty(), "不合条件的损失也不会白白吃掉盾")
 	g.cancer_hit(hyp, 15, "乳酸酸化", true)
-	check(hyp["energy"] == 90 - 5, "癌细胞技能的损失额外 −1.0")
-	check(g.mods_of(hyp, "缺氧适应").is_empty(), "减伤半句一次性消耗")
-	g.world._pressure()
-	check(hyp["energy"] == 85, "免压半句是持续状态，仍然生效")
+	check(hyp["energy"] == 90 - 5, "癌细胞技能的损失 -1.0")
+	check(g.mods_of(hyp, "缺氧适应").is_empty(), "护盾一次性消耗")
 	g.dispose()
 
-	## ④b 两个半句的时钟按卡面各读各的（2026-08-30 修正）：
-	## 减伤写「下一次」→ 跨世界回合等着；免压写「本世界回合」→ 回合末作废。
-	## 防守向的卡多半在别人回合才用得上，减伤挂 round 会让它经常白打。
+	## ④b 压迫侧：同一面盾也挡【微环境压迫】（不再是「免疫压迫」而是走管线减 1.0），
+	## 且写的是「下一次」→ 跨世界回合等着，不随回合作废。
 	g = _fx_game(4)
 	var hyp2 := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0),
 		CWData.ImmuneType.BASIC, -1)
 	hyp2["energy"] = 100
 	g.cells.append(hyp2)
+	for n in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 1)]:
+		g.tiles[n]["tissue"] = CWData.Tissue.CANCER
 	hyp2["hand"] = ["缺氧适应"]
 	await g.card_fx.play(hyp2, { "act": "play", "card": "缺氧适应" })
 	await g.world_fx.round_end()
 	check(not g.mods_of(hyp2, "缺氧适应").is_empty(),
-		"减伤半句跨世界回合仍在（卡面写的是「下一次」）")
-	check(g.mods_of(hyp2, "缺氧适应免压").is_empty(),
-		"免压半句照卡面「本世界回合」到期作废")
-	var before: int = hyp2["energy"]
-	g.cancer_hit(hyp2, 15, "乳酸酸化", true)
-	check(before - hyp2["energy"] == 5, "跨回合之后减伤照样兑现（1.5 - 1.0）")
+		"护盾跨世界回合仍在（卡面写的是「下一次」）")
+	g.world._pressure()
+	check(hyp2["energy"] == 100, "压迫 0.5 被 -1.0 完全吸收（钳在 0）")
+	check(g.mods_of(hyp2, "缺氧适应").is_empty(), "压迫吃掉了这面盾")
+	g.world._pressure()
+	check(hyp2["energy"] == 95, "盾没了，下一轮压迫照常掉 0.5")
 	g.dispose()
 
 	## ⑤ DNA损伤修复：挡事件/技能，不挡普通攻击（定案 #62）

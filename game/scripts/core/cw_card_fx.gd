@@ -268,15 +268,13 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 			game.add_mod(cell, card, 1, "")
 			game.log_msg("　下一次能量损失 -1.5（最低 0）")
 		"缺氧适应":
-			## 两个半句两个时钟，各自照卡面读：
-			## 「本世界回合不受【微环境压迫】」→ round（世界回合末清）；
-			## 「下一次癌细胞技能损失额外 -1.0」→ ""（只等被触发，跨回合等着）。
-			## 2026-08-30 修正：减伤原先也挂 round，世界回合一结束就作废，
-			## 与卡面的「下一次」不符——防守向的卡多半在别人回合才用得上，
-			## 挂 round 等于让它经常白打（同批「下一次」卡本来就用 ""）。
-			game.add_mod(cell, "缺氧适应免压", 1, "round")
-			game.add_mod(cell, "缺氧适应", 1, "")
-			game.log_msg("　本世界回合不受【微环境压迫】；下一次癌细胞技能损失额外 -1.0")
+			## 2026-08-30 卡面重写（团队定案，口径 #72）：从「本世界回合免疫压迫
+			## + 下一次技能损失 -1.0」两个半句，并成**一个**一次性护盾——
+			## 「下一次【微环境压迫】或癌细胞技能造成的能量损失 -1.0」。
+			## 时钟 ""：挂着等被触发，不随回合过期（防守牌多半在别人回合才用得上）。
+			game.add_mod(cell, card, 1, "")
+			game.log_msg("　下一次【微环境压迫】或癌细胞技能造成的损失 -%s（最低 0）"
+				% CWData.fmt(CWData.HYPOXIA_CUT))
 		"穿孔素-颗粒酶":
 			game.add_mod(cell, card, 1, "turn")
 			var per: int = CWData.PERFORIN_EXTRA_T if cell["itype"] == CWData.ImmuneType.T_CELL \

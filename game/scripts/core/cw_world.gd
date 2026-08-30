@@ -461,11 +461,8 @@ func _pressure() -> void:
 				adj += 1
 		if adj <= CWData.PRESSURE_FREE_ADJ:
 			continue
-		## 【缺氧适应】：本世界回合完全免疫压迫。损失根本不发生 ——
-		## 所以别走 cancer_hit（那会白白吃掉细胞膜修复这类「下一次损失」护盾）
-		if not game.mods_of(cell, "缺氧适应免压").is_empty():
-			game.log_msg("【缺氧适应】%s 不受微环境压迫" % game.cell_name(cell))
-			continue
+		## 压迫一律走 cancer_hit：【缺氧适应】重写后（2026-08-30）不再「免疫压迫」，
+		## 而是在损失管线里减 1.0，和癌细胞技能同一面盾——不需要在这里特判了
 		var loss: int = (adj - CWData.PRESSURE_FREE_ADJ) * CWData.PRESSURE_PER_ADJ
 		game.cancer_hit(cell, loss, "微环境压迫")
 
