@@ -926,6 +926,18 @@ func t_config_panel() -> void:
 	p.open()
 	check(p.config()["players"] == 2 and p.config()["smart"] == true \
 		and p.config()["faction"] == -1, "再次打开保留上次取值")
+	## 视觉终稿的可测部分：箭头定位固定、按钮只认鼠标悬停（Kevin 8-30）
+	check(p._arrows[0][1].position.x == CWConfigPanel.ARROW_R_X, "右箭头在固定位置")
+	p.handle_input(right)   ## 换一档，值文案长度变了
+	check(p._arrows[0][1].position.x == CWConfigPanel.ARROW_R_X, "换档后右箭头不挪窝")
+	for k in 4:
+		p.handle_input(down)
+	check(p._btn.get_theme_stylebox("panel") == p._btn_rest,
+		"键盘走到「进入棋盘」不变白（白底只认鼠标悬停）")
+	p._btn_hover = true
+	p._repaint()
+	check(p._btn.get_theme_stylebox("panel") == p._btn_hot, "鼠标悬停才转白")
+	p._btn_hover = false
 	root.remove_child(p)
 	p.free()
 

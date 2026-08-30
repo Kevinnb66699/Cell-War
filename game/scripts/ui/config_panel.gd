@@ -20,6 +20,9 @@ signal cancelled
 
 const SLOT_X := 120.0        ## 槽位左缘（眉题/标题/标签/按钮共用，原型 12.5cqw）
 const VALUE_X := 250.0       ## 值那一列（原型 26cqw）
+## 右拨值箭头**固定横坐标**，在最长值文案（4 人（2 免疫 · 2 癌症））右侧——
+## 跟着字宽跑的话，换一档箭头挪一次，玩家没法停在原地连点（Kevin 8-30）
+const ARROW_R_X := 500.0
 const ROW_Y0 := 251.0        ## 第一行的纵坐标
 const ROW_H := 42.0          ## 行距（和主菜单项一致）
 const BTN_Y := 438.0
@@ -29,8 +32,8 @@ const FADE_IN := 0.32        ## 原型节拍：菜单 0.30s 淡出后，配置 0
 
 ## 原型的行文字色（比 TEXT_DIM 亮半档，值列用 TEXT_HI）
 const ROW_LABEL := Color("9fb6bd")
-## 「进入棋盘」悬停/键盘焦点 = **原型预览图的效果**（Kevin 2026-08-29 第二次定案，
-## 推翻了同日早些的「底色不动」）：整块转白 + 白光 + 上浮 3px（.cbtn:hover 原样）。
+## 「进入棋盘」**只在鼠标悬停时**转白 + 白光 + 上浮 3px（.cbtn:hover 原样），
+## 移开立即回到蓝底；键盘焦点不变色，由菱形标示意（Kevin 2026-08-30 终稿）。
 const BTN_LIFT := 3.0
 
 const ROW_NAMES := ["人数", "我的阵营", "AI 强度", "随机种子"]
@@ -55,8 +58,9 @@ var _marker: Node2D          ## 菱形焦点标（带光晕，和主菜单同一
 var _glow: Control           ## 选中行标题的辉光（主菜单悬停那套四层白描边）
 var _btn: Panel
 var _btn_rest: StyleBoxFlat
-var _btn_hot: StyleBoxFlat   ## 悬停/焦点：转白 + 白光（上浮在 _repaint 里挪位置）
+var _btn_hot: StyleBoxFlat   ## 仅鼠标悬停：转白 + 白光（上浮在 _repaint 里挪位置）
 var _btn_hover := false
+var _hot_arrow: Label = null ## 正被鼠标悬停的拨值箭头；null = 没有
 
 
 func _ready() -> void:
@@ -199,7 +203,9 @@ func _build() -> void:
 	_build_button()
 
 
-## 菱形焦点标 + 径向光晕：参数照抄 MainMenu.tscn 的 Marker（同一颗才像一家人）
+## 菱形焦点标 + 径向光晕：参数照抄 MainMenu.tscn 的 Marker（同一颗才像一家人）。
+## 光晕用 Sprite2D（centered 默认开）——它天生以节点原点为中心画，
+## 菱形和光晕的圆心必然重合；第一版用 TextureRect 摆负偏移，圆心跑到了右下角。
 func _build_marker() -> Node2D:
 	var marker := Node2D.new()
 	var halo_grad := Gradient.new()
@@ -211,12 +217,10 @@ func _build_marker() -> Node2D:
 	halo_tex.fill = GradientTexture2D.FILL_RADIAL
 	halo_tex.fill_from = Vector2(0.5, 0.5)
 	halo_tex.fill_to = Vector2(1, 0.5)
-	var halo := TextureRect.new()
+	halo_tex.width = 48
+	halo_tex.height = 48
+	var halo := Sprite2D.new()
 	halo.texture = halo_tex
-	halo.position = Vector2(-24, -24)
-	halo.size = Vector2(48, 48)
-	halo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	halo.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	marker.add_child(halo)
 	var core := ColorRect.new()
 	core.position = Vector2(-7, -7)
@@ -245,10 +249,19 @@ func _build_row(i: int) -> void:
 	add_child(name_label)
 	_name_labels.append(name_label)
 
-	## 拨值箭头用 ASCII 的 < >：点阵字库没有 ‹ ›（字形覆盖测试盯着这类字符）
+	## 拨值箭头用 ASCII 的 < >（点阵字库没有 ‹ ›）；两枚都在**固定位置**，
+	## 悬停时和菜单项一样亮起白光（_hot_arrow 记着谁在被悬停，_repaint 统一画）
 	var left := _clicky("<", Vector2(VALUE_X - 22, y), func() -> void: _tap(i, -1))
 	var value := _clicky("", Vector2(VALUE_X, y), func() -> void: _tap(i, 1))
-	var right := _clicky(">", Vector2(VALUE_X, y), func() -> void: _tap(i, 1))
+	var right := _clicky(">", Vector2(ARROW_R_X, y), func() -> void: _tap(i, 1))
+	for arrow: Label in [left, right]:
+		arrow.mouse_entered.connect(func() -> void:
+			_hot_arrow = arrow
+			_repaint())
+		arrow.mouse_exited.connect(func() -> void:
+			if _hot_arrow == arrow:
+				_hot_arrow = null
+			_repaint())
 	_value_labels.append(value)
 	_arrows.append([left, right])
 
@@ -349,14 +362,15 @@ func _repaint() -> void:
 		value.text = _value_text(i)
 		value.add_theme_color_override("font_color",
 			Color.WHITE if on else CWStyle.TEXT_HI)
-		## 拨值箭头只在焦点行亮出来；› 跟在值的右边（值宽随文案变）
-		var left: Label = _arrows[i][0]
-		var right: Label = _arrows[i][1]
-		left.visible = on
-		right.visible = on
-		left.add_theme_color_override("font_color", CWStyle.IMMUNE)
-		right.add_theme_color_override("font_color", CWStyle.IMMUNE)
-		right.position.x = VALUE_X + value.get_minimum_size().x + 10
+		## 拨值箭头只在焦点行亮出来；位置固定不随字宽跑（见 ARROW_R_X）。
+		## 被悬停的那枚转白发光——和菜单项同一套「字亮起来」的语言
+		for arrow: Label in _arrows[i]:
+			arrow.visible = on
+			var hovering := arrow == _hot_arrow
+			arrow.add_theme_color_override("font_color",
+				Color.WHITE if hovering else CWStyle.IMMUNE)
+			arrow.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
+			arrow.add_theme_constant_override("outline_size", 8 if hovering else 0)
 	## 选中行标题的辉光跟焦点走（在按钮上时收起——按钮有自己的高亮语言）
 	_glow.visible = _sel < N_ROWS
 	if _sel < N_ROWS:
@@ -368,7 +382,7 @@ func _repaint() -> void:
 		_marker.position = Vector2(SLOT_X - 18, ROW_Y0 + _sel * ROW_H + 13)
 	else:
 		_marker.position = Vector2(SLOT_X - 18, BTN_Y + BTN_H / 2.0)
-	## 「进入棋盘」悬停/键盘焦点：原型效果——转白 + 白光 + 上浮 3px
-	var hot := _btn_hover or _sel == N_ROWS
-	_btn.add_theme_stylebox_override("panel", _btn_hot if hot else _btn_rest)
-	_btn.position = Vector2(SLOT_X, BTN_Y - (BTN_LIFT if hot else 0.0))
+	## 「进入棋盘」**只认鼠标悬停**（Kevin 8-30 定）：悬停=白底+白光+上浮，
+	## 移开就回到蓝底；键盘走到按钮上不变色，菱形标就是键盘焦点的示意
+	_btn.add_theme_stylebox_override("panel", _btn_hot if _btn_hover else _btn_rest)
+	_btn.position = Vector2(SLOT_X, BTN_Y - (BTN_LIFT if _btn_hover else 0.0))
