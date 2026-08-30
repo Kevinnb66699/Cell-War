@@ -193,7 +193,7 @@ func revive_immune(pid: int, pos: Vector2i) -> void:
 		game.cell_name(cell), str(pos), CWData.fmt(game.tune.immune_respawn_energy)])
 
 
-## 【S-有氧呼吸】能量 =（健康组织格数 − 坏死格数）÷ 总格数 × 3，**四舍五入到十分位**。
+## 【S-有氧呼吸】能量 =（健康组织格数 - 坏死格数）÷ 总格数 × 3，**四舍五入到十分位**。
 ## 每个免疫细胞各拿这么多，不按细胞数均分（PRD 如此；均分是 CWTuning.split_income() 的实验档）。
 ##
 ## 「坏死」格要扣掉：它虽然是健康组织，但不为免疫供能。
@@ -216,7 +216,7 @@ func _aerobic() -> void:
 	if game.tune.aerobic_split:
 		gain = gain / immune.size()
 	gain = game.tune.clamp_income(gain, game.tune.aerobic_floor, game.tune.aerobic_cap)
-	## 【TGF-β释放】：下一次有氧结算每份 −20%（逐份 ×80% 向下取整，定案 #63），
+	## 【TGF-β释放】：下一次有氧结算每份 -20%（逐份 ×80% 向下取整，定案 #63），
 	## 结算完消耗——条目挂在全局容器里，left=2 保证能活到下一个 S 阶段
 	var tgf := 0
 	var kept: Array = []
@@ -230,12 +230,12 @@ func _aerobic() -> void:
 		var before := gain
 		for i in tgf:
 			gain = gain * 8 / 10   ## 整数除法 = 向下取整到十分位
-		game.log_msg("【TGF-β释放】有氧呼吸 %s → %s（%d 份 −20%%，已消耗）" % [
+		game.log_msg("【TGF-β释放】有氧呼吸 %s → %s（%d 份 -20%%，已消耗）" % [
 			CWData.fmt(before), CWData.fmt(gain), tgf])
 	for cell in immune:
 		cell["energy"] += gain
 		## 【代谢适应】/【自分泌生存信号】的「额外获得」在基准收入之外加，
-		## 不吃 TGF-β 的 −20%（那句管的是有氧结算本身的所得，口径 #69）
+		## 不吃 TGF-β 的 -20%（那句管的是有氧结算本身的所得，口径 #69）
 		var bonus := 0
 		if game.has_skill(cell, "代谢适应"):
 			bonus += CWData.AEROBIC_ADAPT
@@ -435,7 +435,7 @@ func _solidify() -> void:
 		game.raise_solid(c, _solidify_step(c))   ## 门槛判定（含【固化加速】）在 raise_solid 里
 
 
-## 固化计数衰减：计数 > 0 且无癌细胞停留的**癌组织**，每世界回合 −0.5（PRD）
+## 固化计数衰减：计数 > 0 且无癌细胞停留的**癌组织**，每世界回合 -0.5（PRD）
 func _decay() -> void:
 	if game.event_stacks("基质稳定") > 0:
 		game.log_msg("【基质稳定】本世界回合固化计数不衰减")
@@ -449,7 +449,7 @@ func _decay() -> void:
 
 
 ## 【E-微环境压迫】：每个免疫细胞受相邻癌性组织的压迫，
-## 相邻数超过 2 格时损失（相邻数 − 2）× 0.5 能量。
+## 相邻数超过 2 格时损失（相邻数 - 2）× 0.5 能量。
 ##
 ## 这是 PRD 给癌方的**第一个稳定伤害来源**。在此之前免疫细胞几乎不可能死
 ## （旧说明 #23「免疫无死亡途径」），所以【复活】那一整套机制此前基本是空转的。
@@ -471,7 +471,7 @@ func _pressure() -> void:
 
 
 ## 「坏死」倒计时。PRD E 阶段第 8 步「更新持续时间类状态，并移除已经结束的『坏死』等状态」。
-## 按格记「还剩几个世界回合」，每个世界回合末 −1，归零即恢复。
+## 按格记「还剩几个世界回合」，每个世界回合末 -1，归零即恢复。
 func _tick_necrosis() -> void:
 	for t in game.tiles.values():
 		if t["necrosis"] > 0:

@@ -34,7 +34,7 @@ var anaerobic_per_solid := CWData.ANAEROBIC_PER_SOLID        # 每固化癌组�
 ## 无氧呼吸是否按连通块内癌细胞数均分（关掉=每个癌细胞独享全额，大幅提升多细胞癌方收入）
 var anaerobic_split := true
 
-## 【S-有氧呼吸】公式里的乘数：每个免疫细胞得 (健康 − 坏死) ÷ 总格数 × 本值 ÷ 10。
+## 【S-有氧呼吸】公式里的乘数：每个免疫细胞得 (健康 - 坏死) ÷ 总格数 × 本值 ÷ 10。
 var aerobic_mult := CWData.AEROBIC_MULT
 ## 有氧呼吸是否再按免疫细胞数均分。
 ## **PRD 是不均分的**，所以默认 false；true 时两边阵营总收入都与人数无关

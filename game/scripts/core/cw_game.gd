@@ -399,18 +399,18 @@ func event_stacks(name: String) -> int:
 
 
 ## 往修饰器容器里挂一个全局条目（卡牌的全局修饰用；世界事件走 world_fx.trigger）。
-## left 按世界回合倒计时，回合末 −1、归零移除 —— 与世界事件同一套时钟。
+## left 按世界回合倒计时，回合末 -1、归零移除 —— 与世界事件同一套时钟。
 func install_event(ev_name: String, left: int, data: Dictionary = {}) -> void:
 	events["active"].append({ "name": ev_name, "left": left, "stacks": 1, "data": data })
 
 
 # ---- 卡牌修饰：挂在细胞上的那部分（全局的用上面的 install_event）----
 ## 条目 {name, uses, until, data}：
-##   uses  还能触发几次，每次触发 −1，归零移除
+##   uses  还能触发几次，每次触发 -1，归零移除
 ##   until 过期时钟——"turn"=持有者行动回合结束（CWTurn.end_turn 清）/
 ##         "round"=世界回合结束（CWWorldFx.round_end 清）/ ""=只等次数用尽
 ## **同名多条同时生效**：一次符合条件的结算里所有同名条目一起触发、各扣一次
-## （两张「下一次损失 −1.5」= 同一个下一次上减 3.0，不排队——定案 #57）。
+## （两张「下一次损失 -1.5」= 同一个下一次上减 3.0，不排队——定案 #57）。
 func add_mod(cell: Dictionary, mod_name: String, uses: int, until: String,
 		data: Dictionary = {}) -> void:
 	cell["mods"].append({ "name": mod_name, "uses": uses, "until": until, "data": data })
@@ -610,7 +610,7 @@ static func settle_loss(base: int, add: int, mult: int, div: int, cut: int) -> i
 ##   ② 固定增加 —— 攻击类修饰卡的「额外造成 X」（add 参数，标记翻倍会连它一起翻——管线顺序如此）
 ##   ③ 倍增 —— 树突【I-标记】×2（消耗掉）
 ##   ④ 倍减 —— 树突【I-各司其职】自己攻击只造成 1/2
-##   ⑤ 减免 —— 印戒【囊性护甲】−0.5，每世界回合一次；癌卡【DNA损伤修复】挡事件/技能伤害
+##   ⑤ 减免 —— 印戒【囊性护甲】-0.5，每世界回合一次；癌卡【DNA损伤修复】挡事件/技能伤害
 func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: bool = true,
 		add: int = 0) -> int:
 	var mult := 1
@@ -679,10 +679,10 @@ func cancer_hit(target: Dictionary, base: int, reason: String, skill: bool = fal
 	if has_skill(target, "耗竭抵抗"):
 		if first_this_round(target, "耗竭抵抗"):
 			cut += CWData.EXHAUST_FIRST_CUT
-			log_msg("　【耗竭抵抗】本世界回合首次损失 −1.0")
+			log_msg("　【耗竭抵抗】本世界回合首次损失 -1.0")
 		if reason == "微环境压迫":
 			cut += CWData.EXHAUST_PRESSURE_CUT
-			log_msg("　【耗竭抵抗】微环境压迫额外 −0.5")
+			log_msg("　【耗竭抵抗】微环境压迫额外 -0.5")
 	var dmg := settle_loss(base, 0, 1, 1, cut)
 	log_msg("【%s】%s 损失 %s 能量（余 %s）" % [
 		reason, cell_name(target), CWData.fmt(dmg), CWData.fmt(maxi(target["energy"] - dmg, 0))])

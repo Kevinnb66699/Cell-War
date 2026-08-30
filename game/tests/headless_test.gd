@@ -1091,6 +1091,11 @@ func t_log_panel() -> void:
 	p.active = true
 	p._unhandled_input(lkey)
 	check(p.visible, "对局中 L 打开面板")
+	## 标题行右侧的 L 是键帽底框（试玩二轮要求：与左上角入口提示一个样）
+	var cap: Panel = p.get_node("KeyCap")
+	check((cap.get_child(0) as Label).text == "L" \
+		and (cap.get_theme_stylebox("panel") as StyleBoxFlat).border_width_top == 1,
+		"面板标题行的 L 带键帽底框（CWStyle.keycap）")
 	p.refresh(g)
 	var last: String = g.logs[g.logs.size() - 1]
 	check(p._lines[p._visible_n - 1].text == last, "默认跟到最新一行")
@@ -2669,6 +2674,12 @@ func t_font_coverage() -> void:
 		supported[chars.unicode_at(k)] = true
 	check(not supported.has(0x2265) and supported.has(0x00B7),
 		"判定器自检：≥ 该缺、· 该有（防这个测试再次哑火）")
+	## 扫描器自检：注释行之后的字面量必须抠得出来，LF 和 CRLF 行尾都得行。
+	## 2026-08-30 实锤过一次「com 粘死」：CRLF 下换行比对失败，# 之后全被跳过，
+	## 扫描空转、检查空心绿——「−1.5」就是这么溜上屏的。
+	check(_string_literals("# 注释\nvar s := \"甲\"\n") == ["甲"] \
+		and _string_literals("# 注释\r\nvar s := \"乙\"\r\n") == ["乙"],
+		"扫描器自检：LF/CRLF 下注释后的字符串都抠得出")
 	var bad := {}
 	var files: Array[String] = []
 	_collect_gd("res://scripts", files)
@@ -2709,8 +2720,11 @@ func _string_literals(src: String) -> Array[String]:
 	var com := false
 	for i in src.length():
 		var ch := src[i]
-		if ch == "
-":
+		## 换行必须写成 \n 转义并连 \r 一起认：上一版把**真实换行**写进字面量，
+		## 本文件被 git 换成 CRLF 行尾后字面量成了两个字符，单字符永远比不上，
+		## 于是第一个 # 之后 com 永远为真 → 整个扫描空转、检查空心绿
+		## （2026-08-30 「−1.5」上屏成豆腐块才揭穿；08-29 记的「套件里抓不到」真凶是它）
+		if ch == "\n" or ch == "\r":
 			com = false
 			continue
 		if com:

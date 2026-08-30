@@ -45,7 +45,7 @@ const INIT_ENERGY := 30                  # 初始 3.0
 # 健康组织那一档 PRD 从头到尾都是 0.5，没有等级加成。
 const IMMUNE_MOVE_HEALTHY := [5, 5, 5, 5]     # 迁移→健康，按等级 I/II/III/X
 const IMMUNE_MOVE_CANCEROUS := [10, 10, 7, 5] # 迁移→癌性，按等级
-# PRD【S-有氧呼吸】：能量 = (健康组织格数 − 坏死格数) ÷ 总格数 × 3，四舍五入到十分位。
+# PRD【S-有氧呼吸】：能量 = (健康组织格数 - 坏死格数) ÷ 总格数 × 3，四舍五入到十分位。
 # 每个免疫细胞各得这么多，**不按免疫细胞数均分**。等级加成（II 级 4、III 级 3）已从 PRD 删除。
 const AEROBIC_MULT := 30                      # 十分能量，即公式里的「×3」
 const LEVEL_MIN_MEMORY := [0, 6, 16, 31]      # I/II/III/X 记忆门槛（PRD：III = 16~30，X = 31+）
@@ -95,14 +95,14 @@ const ANAEROBIC_PER_CANCER := 4          # 每癌组织供能 0.4
 const ANAEROBIC_PER_SOLID := 10          # 每固化癌组织供能 1.0
 
 # 固化计数也用「十分」整数存（10 = 1 点）。PRD 里它不再是整数：
-# 衰减 −0.5、骨肉瘤【骨样硬化】+1.5、癌症卡【基质硬化】+1/+1.5/+2。
+# 衰减 -0.5、骨肉瘤【骨样硬化】+1.5、癌症卡【基质硬化】+1/+1.5/+2。
 const SOLIDIFY_THRESHOLD := 30           # 计数达 3.0 → 固化癌组织
 const SOLIDIFY_STEP := 10                # 癌细胞停留：+1.0
-const SOLIDIFY_DECAY := 5                # 无癌细胞停留：每世界回合 −0.5
+const SOLIDIFY_DECAY := 5                # 无癌细胞停留：每世界回合 -0.5
 const SOLIDIFY_ACCEL_AT := 20            # 【固化加速】：从 <2.0 涨到 ≥2.0 立即转化（定案 W4）
 
 # ---- 场景事件（PRD 场景事件）----
-# 【E-微环境压迫】：相邻癌性组织 > 2 格时，免疫细胞损失（相邻数 − 2）× 0.5。
+# 【E-微环境压迫】：相邻癌性组织 > 2 格时，免疫细胞损失（相邻数 - 2）× 0.5。
 # 这是癌方**第一个稳定的伤害来源** —— 在此之前免疫细胞几乎不可能死（旧说明 #23）。
 # 【E-增生】：没有免疫细胞的健康组织，按「相邻癌性组织数 × 4%」的概率转为癌组织。
 # 这条原本是团队 2026-08-26 的提案（引擎里做成了默认关闭的旋钮），PRD 已正式采纳。
@@ -119,12 +119,12 @@ const CHEMOTAX_STEP_COST := 2            # 【炎症性趋化】每步基准 0.2
 
 # ---- 修饰卡的数值（一次性/短时修饰，条目挂在 cell["mods"] 上）----
 const INFLAM_CHEMO_COST := 5             # 【炎症趋化】下一次向癌性组织迁移：费用降为 0.5
-const CXCR3_CUT := 5                     # 【CXCR3趋化】接下来 2 次向癌性组织迁移：每次 −0.5
+const CXCR3_CUT := 5                     # 【CXCR3趋化】接下来 2 次向癌性组织迁移：每次 -0.5
 const MOVE_CUT_MIN := 2                  # 迁移/移动减免类的共同下限 0.2（各卡面都写 0.2）
 const EMT_MOVE_COST := 2                 # 【上皮—间质转化】接下来 N 次向健康组织移动：费用 0.2
-const MEMBRANE_CUT := 15                 # 【细胞膜修复】下一次能量损失 −1.5
-const IFN1_CUT := 10                     # 【I型干扰素】每个免疫细胞下一次能量损失 −1.0
-const HYPOXIA_CUT := 10                  # 【缺氧适应】本世界回合下一次癌细胞技能损失额外 −1.0
+const MEMBRANE_CUT := 15                 # 【细胞膜修复】下一次能量损失 -1.5
+const IFN1_CUT := 10                     # 【I型干扰素】每个免疫细胞下一次能量损失 -1.0
+const HYPOXIA_CUT := 10                  # 【缺氧适应】本世界回合下一次癌细胞技能损失额外 -1.0
 const OPSONIN_EXTRA := 5                 # 【补体调理】最终成功/大成功额外 +0.5
 const PERFORIN_EXTRA := 10               # 【穿孔素-颗粒酶】下次攻击成功额外 +1.0
 const PERFORIN_EXTRA_T := 20             #   —— T 细胞改为 +2.0
@@ -132,14 +132,14 @@ const AFFINITY_EXTRA := 10               # 【高亲和力克隆】直接大成�
 const CASCADE_MAX_TILES := 2             # 【补体级联】成功后随机转化目标相邻最多 2 格
 
 # ---- 永久技能的数值（装备在 cell["equipped"]，被动查询）----
-const LFA1_CUT := 4                      # 【LFA-1黏附】每行动回合首次向癌性组织迁移 −0.4
-const INFILTRATE_CUT := 3                # 【组织浸润】每次向癌性组织迁移 −0.3
-const CRUISE_CUT := 2                    # 【组织巡航】首移免费之后，本回合每次迁移 −0.2
+const LFA1_CUT := 4                      # 【LFA-1黏附】每行动回合首次向癌性组织迁移 -0.4
+const INFILTRATE_CUT := 3                # 【组织浸润】每次向癌性组织迁移 -0.3
+const CRUISE_CUT := 2                    # 【组织巡航】首移免费之后，本回合每次迁移 -0.2
 const SKILL_HEAL := 5                    # 多个技能共用的「恢复 0.5」（模式识别/效应记忆/细胞因子网络/吞噬体巨噬）
 const AEROBIC_ADAPT := 5                 # 【代谢适应】每次有氧结算 +0.5
 const AEROBIC_AUTOCRINE := 8             # 【自分泌生存信号】每次有氧结算 +0.8
-const EXHAUST_FIRST_CUT := 10            # 【耗竭抵抗】每世界回合首次损失 −1.0
-const EXHAUST_PRESSURE_CUT := 5          #   —— 微环境压迫的损失额外 −0.5
+const EXHAUST_FIRST_CUT := 10            # 【耗竭抵抗】每世界回合首次损失 -1.0
+const EXHAUST_PRESSURE_CUT := 5          #   —— 微环境压迫的损失额外 -0.5
 const MATURED_ANTIBODY_COST := 5         # 【抗体亲和力成熟】B 细胞：抗体费 1.0 → 0.5
 const MATURED_ANTIBODY_DMG := 15         #   —— 抗体伤害 1.0 → 1.5
 const MATURED_ATTACK_EXTRA := 5          #   —— 每行动回合首次攻击邻健康的癌细胞 +0.5

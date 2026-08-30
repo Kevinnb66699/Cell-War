@@ -100,11 +100,11 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 			_evt(card, "免费【突变】", cell["pos"])
 			await _genome_instability(cell)
 		"I型干扰素":
-			## 每个免疫细胞领一面「下一次损失 −1.0」的盾，本世界回合结束作废
+			## 每个免疫细胞领一面「下一次损失 -1.0」的盾，本世界回合结束作废
 			for c in game.living_cells(CWData.Faction.IMMUNE):
 				game.add_mod(c, card, 1, "round")
-			game.log_msg("　【I型干扰素】所有免疫细胞下一次能量损失 −1.0（本世界回合内）")
-			_evt(card, "全体免疫下次损失 −1.0", cell["pos"])
+			game.log_msg("　【I型干扰素】所有免疫细胞下一次能量损失 -1.0（本世界回合内）")
+			_evt(card, "全体免疫下次损失 -1.0", cell["pos"])
 		"基质稳定":
 			## left=1：E 阶段衰减在回合末之前结算，挂到回合末正好盖住本回合那一次
 			game.install_event(card, 1)
@@ -112,10 +112,10 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 			_evt(card, "本回合固化计数不衰减", cell["pos"])
 		"TGF-β释放":
 			## left=2：下一次有氧在**下个**世界回合的 S 阶段，要活过本回合末；
-			## 结算时整条消耗（CWWorld._aerobic），多抽几张就多几条，逐份 −20%（#63）
+			## 结算时整条消耗（CWWorld._aerobic），多抽几张就多几条，逐份 -20%（#63）
 			game.install_event(card, 2)
-			game.log_msg("　【TGF-β释放】免疫方下一次【有氧呼吸】收入 −20%（可叠加）")
-			_evt(card, "免疫下次有氧呼吸 −20%", cell["pos"])
+			game.log_msg("　【TGF-β释放】免疫方下一次【有氧呼吸】收入 -20%（可叠加）")
+			_evt(card, "免疫下次有氧呼吸 -20%", cell["pos"])
 		_:
 			return false
 	return true
@@ -263,15 +263,15 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 			game.log_msg("　本回合下一次向癌性组织的迁移费用降为 0.5")
 		"CXCR3趋化":
 			game.add_mod(cell, card, 2, "turn")
-			game.log_msg("　本回合接下来 2 次向癌性组织的迁移费用 −0.5（最低 0.2）")
+			game.log_msg("　本回合接下来 2 次向癌性组织的迁移费用 -0.5（最低 0.2）")
 		"细胞膜修复":
 			game.add_mod(cell, card, 1, "")
-			game.log_msg("　下一次能量损失 −1.5（最低 0）")
+			game.log_msg("　下一次能量损失 -1.5（最低 0）")
 		"缺氧适应":
 			## 两个半句两个条目：免压是持续状态（不按次数消耗），减伤是一次性护盾
 			game.add_mod(cell, "缺氧适应免压", 1, "round")
 			game.add_mod(cell, "缺氧适应", 1, "round")
-			game.log_msg("　本世界回合不受【微环境压迫】；下一次癌细胞技能损失额外 −1.0")
+			game.log_msg("　本世界回合不受【微环境压迫】；下一次癌细胞技能损失额外 -1.0")
 		"穿孔素-颗粒酶":
 			game.add_mod(cell, card, 1, "turn")
 			var per: int = CWData.PERFORIN_EXTRA_T if cell["itype"] == CWData.ImmuneType.T_CELL \
@@ -288,7 +288,7 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 			game.log_msg("　下一次受到的普通攻击判定下降一级")
 		"DNA损伤修复":
 			game.add_mod(cell, card, 1, "")
-			game.log_msg("　下一次受到免疫方事件/技能的能量损失 −%s（最低 0）" % [
+			game.log_msg("　下一次受到免疫方事件/技能的能量损失 -%s（最低 0）" % [
 				CWData.fmt([10, 15, 20][_phase()])])
 		"上皮—间质转化":
 			var times: int = [1, 2, 3][_phase()]
@@ -351,7 +351,7 @@ func _marrow_mobilization(drawer: Dictionary) -> void:
 
 
 ## 【IFN-γ释放】（事件，圆心=抽卡者）/【IFN-γ高峰】（技能，圆心=所选免疫细胞）共用：
-## 2 格内癌细胞 −1.0，普通癌组织固化计数 −1.0（不低于 0）。
+## 2 格内癌细胞 -1.0，普通癌组织固化计数 -1.0（不低于 0）。
 ## title 是通报抬头（"事件【IFN-γ释放】" / "【IFN-γ高峰】"），效果说明两处共用。
 func _ifn_burst(source: Dictionary, center: Vector2i, title: String) -> void:
 	var hit := 0
@@ -362,9 +362,9 @@ func _ifn_burst(source: Dictionary, center: Vector2i, title: String) -> void:
 		var t: Dictionary = game.tile(c)
 		if t["tissue"] == CWData.Tissue.CANCER and t["solid"] > 0:
 			t["solid"] = maxi(t["solid"] - 10, 0)   ## 固化计数不是能量，不受【信号放大】影响
-	game.log_msg("　【IFN-γ】%s 周围 2 格：癌细胞 −%s 能量，固化计数 −1.0" % [
+	game.log_msg("　【IFN-γ】%s 周围 2 格：癌细胞 -%s 能量，固化计数 -1.0" % [
 		str(center), CWData.fmt(_amp(10))])
-	game.announce("%s%d 个癌细胞 −%s · 固化 −1.0" % [
+	game.announce("%s%d 个癌细胞 -%s · 固化 -1.0" % [
 		title, hit, CWData.fmt(_amp(10))], center)
 
 
@@ -425,7 +425,7 @@ func _reinforce(cell: Dictionary, ally: Dictionary) -> void:
 	await game.actions.enter_tile(cell, dest)
 
 
-## 【乳酸酸化】相邻免疫细胞 −0.8/1.5/2.0（分期）；其相邻癌性组织 ≥3 格时额外 −0.5
+## 【乳酸酸化】相邻免疫细胞 -0.8/1.5/2.0（分期）；其相邻癌性组织 ≥3 格时额外 -0.5
 func _lactic_acid(cell: Dictionary, target: Dictionary) -> void:
 	var base: int = [8, 15, 20][_phase()]
 	var adj := 0
@@ -490,7 +490,7 @@ func _free_walk(cell: Dictionary, steps: int, into_cancer: bool, tag: String) ->
 		await game.actions.enter_tile(cell, data["to"])
 
 
-## 【炎症风暴】选 1 个免疫细胞：其相邻无细胞占据的普通癌组织 → 健康；相邻癌细胞 −0.5
+## 【炎症风暴】选 1 个免疫细胞：其相邻无细胞占据的普通癌组织 → 健康；相邻癌细胞 -0.5
 func _inflammation_storm(cell: Dictionary, card: String) -> void:
 	_evt(card, "选择 1 个免疫细胞", cell["pos"])
 	var target := await _pick_immune(cell["pid"], card)
@@ -503,12 +503,12 @@ func _inflammation_storm(cell: Dictionary, card: String) -> void:
 		for enemy in game.cells_at(n, CWData.Faction.CANCER):
 			game.immune_hit(enemy, _amp(5), cell, false)
 			hit += 1
-	game.log_msg("　【炎症风暴】以 %s 为中心：%d 格转健康，%d 个癌细胞 −%s" % [
+	game.log_msg("　【炎症风暴】以 %s 为中心：%d 格转健康，%d 个癌细胞 -%s" % [
 		game.cell_name(target), purged, hit, CWData.fmt(_amp(5))])
-	_evt(card, "%d 格转健康 · %d 敌 −%s" % [purged, hit, CWData.fmt(_amp(5))], target["pos"])
+	_evt(card, "%d 格转健康 · %d 敌 -%s" % [purged, hit, CWData.fmt(_amp(5))], target["pos"])
 
 
-## 【免疫风暴】选 1 个免疫细胞：2 格内癌细胞 −1.0；范围内**无癌细胞占据**的普通癌组织 → 健康
+## 【免疫风暴】选 1 个免疫细胞：2 格内癌细胞 -1.0；范围内**无癌细胞占据**的普通癌组织 → 健康
 func _immune_storm(cell: Dictionary, card: String) -> void:
 	_evt(card, "选择 1 个免疫细胞", cell["pos"])
 	var target := await _pick_immune(cell["pid"], card)
@@ -522,9 +522,9 @@ func _immune_storm(cell: Dictionary, card: String) -> void:
 				and game.cells_at(c, CWData.Faction.CANCER).is_empty():
 			_to_healthy(c)
 			purged += 1
-	game.log_msg("　【免疫风暴】以 %s 为中心 2 格：%d 个癌细胞 −%s，%d 格转健康" % [
+	game.log_msg("　【免疫风暴】以 %s 为中心 2 格：%d 个癌细胞 -%s，%d 格转健康" % [
 		game.cell_name(target), hit, CWData.fmt(_amp(10)), purged])
-	_evt(card, "%d 敌 −%s · %d 格转健康" % [hit, CWData.fmt(_amp(10)), purged], target["pos"])
+	_evt(card, "%d 敌 -%s · %d 格转健康" % [hit, CWData.fmt(_amp(10)), purged], target["pos"])
 
 
 ## 风暴类的「选择 1 个免疫细胞」。抽卡者是免疫，所以候选至少有它自己，选择是强制的
@@ -595,8 +595,8 @@ func _genome_instability(cell: Dictionary) -> void:
 func _mutation_label(r: int) -> String:
 	match r:
 		1: return "无事发生"
-		2: return "抽 1 张 · 记忆 −1"
-	return "能量 −1.0 · 记忆 −3"
+		2: return "抽 1 张 · 记忆 -1"
+	return "能量 -1.0 · 记忆 -3"
 
 
 ## 【炎症性趋化】的一步有哪些去处：相邻的健康/普通癌组织（固化不行），
@@ -808,7 +808,7 @@ func _tnf_has_effect(cell: Dictionary) -> bool:
 	return false
 
 
-## 【TNF-α局部炎症】自身格及相邻格：癌细胞 −1.0、普通癌组织固化计数 −1.0，
+## 【TNF-α局部炎症】自身格及相邻格：癌细胞 -1.0、普通癌组织固化计数 -1.0，
 ## 并把这些癌组织冻住——本世界回合不能增加固化计数（冻结名单挂全局条目，
 ## raise_solid 逐格查询；left=1 随回合末解冻）
 func _tnf(cell: Dictionary) -> void:
@@ -823,7 +823,7 @@ func _tnf(cell: Dictionary) -> void:
 			t["solid"] = maxi(t["solid"] - 10, 0)   ## 固化计数不是能量，不过【信号放大】
 			frozen[c] = true
 	game.install_event("TNF-α局部炎症", 1, frozen)
-	game.log_msg("　【TNF-α局部炎症】%d 个癌细胞 −%s；%d 格癌组织固化 −1.0 且本回合冻结" % [
+	game.log_msg("　【TNF-α局部炎症】%d 个癌细胞 -%s；%d 格癌组织固化 -1.0 且本回合冻结" % [
 		hit, CWData.fmt(_amp(10)), frozen.size()])
 
 

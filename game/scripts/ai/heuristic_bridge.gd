@@ -286,7 +286,7 @@ func _worth_solidifying(me: Dictionary) -> bool:
 const SAFETY_BY_DIST := [-999, -40, -5, 6, 12]
 
 
-## 癌细胞移动打分：安全（保命）+ 定殖健康组织（占地=收入=胜利条件）+ 扩张前景 − 能量成本
+## 癌细胞移动打分：安全（保命）+ 定殖健康组织（占地=收入=胜利条件）+ 扩张前景 - 能量成本
 ## threat = 当前距最近免疫细胞的距离，贴脸时连「原地不动」都要重新估值。
 func _best_cancer_move(options: Array, me: Dictionary, _threat: int) -> int:
 	var best := -1

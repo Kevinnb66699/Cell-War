@@ -54,6 +54,25 @@ static func plate(bg: Color, pad_v: int, pad_h: int) -> StyleBoxFlat:
 	return b
 
 
+## 键帽：带底框的按键提示（「对局日志 L」的入口提示与面板标题行共用）。
+## 16px 的小件配全局那套 2px 描边太重，这里是全局唯一的 1px 描边。
+static func keycap(text: String) -> Control:
+	var cap := Panel.new()
+	var b := StyleBoxFlat.new()
+	b.bg_color = Color("16232f")
+	b.border_color = Color(LINE, 1.0)
+	b.set_border_width_all(1)
+	cap.add_theme_stylebox_override("panel", b)
+	cap.size = Vector2(16, 16)
+	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := label(text, SIZE_LABEL, TEXT_HI)
+	l.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	cap.add_child(l)
+	return cap
+
+
 ## 描边框：设计稿里所有面板/按钮都是 2px 单色描边，只有 alpha、底色和内边距不同。
 ## pad 对应设计稿的 padding，**不给默认值就是 0，边框会直接贴着字**（踩过）。
 static func box(border_alpha: float, bg: Color = BTN_BG,

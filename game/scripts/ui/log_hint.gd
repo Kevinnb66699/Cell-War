@@ -29,8 +29,8 @@ func _ready() -> void:
 	mouse_entered.connect(func() -> void: _paint(true))
 	mouse_exited.connect(func() -> void: _paint(false))
 
-	## 底板与「L」底框都用 1px 描边：整条提示只有 22px 高，
-	## 全局那套 2px 描边（CWStyle.box）在这个尺寸上太重，试过一眼假
+	## 底板用 1px 描边：整条提示只有 22px 高，全局那套 2px 描边（CWStyle.box）
+	## 在这个尺寸上太重，试过一眼假。「L」底框走 CWStyle.keycap（与面板标题行共用）
 	_bg = Panel.new()
 	_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -40,17 +40,9 @@ func _ready() -> void:
 	_text.position = Vector2(7, 5)
 	add_child(_text)
 
-	var key := Panel.new()
-	key.add_theme_stylebox_override("panel", _box(Color("16232f"), Color(CWStyle.LINE, 1.0)))
+	var key := CWStyle.keycap("L")
 	key.position = Vector2(SIZE.x - KEY_BOX - 6, (SIZE.y - KEY_BOX) / 2.0)
-	key.size = Vector2(KEY_BOX, KEY_BOX)
-	key.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(key)
-	var l := CWStyle.label("L", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
-	l.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	key.add_child(l)
 	_paint(false)
 
 

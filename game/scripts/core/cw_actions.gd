@@ -189,7 +189,7 @@ func _move_cost_mod(cell: Dictionary, dest: Vector2i, base: int) -> int:
 				cuts += CWData.INFILTRATE_CUT
 			if cuts > 0:
 				cost = maxi(cost - cuts, CWData.MOVE_CUT_MIN)
-		## 【组织巡航】首移免费，此后本回合每次 −0.2（任何目的地）
+		## 【组织巡航】首移免费，此后本回合每次 -0.2（任何目的地）
 		if game.has_skill(cell, "组织巡航"):
 			if not cell["fx_turn"].has("组织巡航"):
 				cost = 0
@@ -479,9 +479,9 @@ func _spend_move_mods(cell: Dictionary, to: Vector2i) -> void:
 			if game.spend_mods(cell, "炎症趋化") > 0:
 				game.log_msg("　【炎症趋化】生效：本次迁移费用降为 0.5")
 			if game.spend_mods(cell, "CXCR3趋化") > 0:
-				game.log_msg("　【CXCR3趋化】生效：本次迁移费用 −0.5")
+				game.log_msg("　【CXCR3趋化】生效：本次迁移费用 -0.5")
 			if game.has_skill(cell, "LFA-1黏附") and game.first_this_turn(cell, "LFA-1黏附"):
-				game.log_msg("　【LFA-1黏附】本回合首次向癌性组织迁移 −0.4")
+				game.log_msg("　【LFA-1黏附】本回合首次向癌性组织迁移 -0.4")
 		elif game.tile(to)["tissue"] == CWData.Tissue.HEALTHY \
 				and game.has_skill(cell, "组织驻留") and game.first_this_turn(cell, "组织驻留"):
 			game.log_msg("　【组织驻留】本回合首次向健康组织迁移免费")
