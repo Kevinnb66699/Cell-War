@@ -62,6 +62,7 @@ func _run_all() -> void:
 	await t_config_panel()
 	await t_hover_info()
 	await t_log_panel()
+	await t_rules_page()
 	t_board_view()
 	t_hex_pick()
 	await t_ui_bridge()
@@ -1059,6 +1060,42 @@ func t_log_panel() -> void:
 	g.dispose()
 
 
+# ---- 规则速查：数字必须现读常量/旋钮，不许抄第二份 ----
+func t_rules_page() -> void:
+	print("[规则速查]")
+	var all := ""
+	for s in CWRulesPage.sections():
+		all += s["title"] + "|"
+		for line in s["lines"]:
+			all += line + "|"
+	var tune := CWTuning.new()
+	check(all.contains("加权占地 ≥ %d" % tune.cancer_win_weighted), "胜利线跟着旋钮走")
+	check(all.contains("上限 %d 个世界回合" % CWData.LIMIT_ROUND), "回合上限跟着常量走")
+	check(all.contains("−%s" % CWData.fmt(tune.attack_dmg_success))
+		and all.contains("−%s" % CWData.fmt(tune.attack_dmg_crit)), "攻击伤害跟着旋钮走")
+	check(not all.contains("受反击"), "规则原文反弹无伤害 → 默认不显示反击那半句")
+	check(all.contains("上限 %d 张" % CWData.HAND_MAX)
+		and all.contains("每回合至多 %d 次" % CWData.DRAW_MAX_PER_TURN), "手牌与抽卡上限")
+	check(all.contains("蹲满 %d 回合" % tune.solidify_threshold), "固化门槛跟着旋钮走")
+	## 反击旋钮开了，那半句要跟着出现（平衡实验档）
+	## sections() 用的是默认 CWTuning，这里只验固定文案的另一半确实受控于旋钮：
+	## 直接构造开旋钮的行文对比不可行（sections 内建 tune），改为验默认关。见上一条。
+
+	## 页面开关
+	var page := CWRulesPage.new()
+	root.add_child(page)
+	await process_frame
+	page.open()
+	check(page.visible, "打开规则速查")
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	page.handle_input(esc)
+	check(not page.visible, "Esc 关闭")
+	root.remove_child(page)
+	page.free()
+
+
 # ---- 棋盘渲染：画出来的格子必须和 CWData 的轴坐标一一对应 ----
 # 渲染层用「行,列」下标，规则层用轴坐标 (q,r)，两套坐标必须描述同一个棋盘。
 # 2026-08-27 之前渲染层自己抄了一份特殊组织下标，地图改版后没跟上——这组检查就是防这个。
@@ -1949,10 +1986,12 @@ func t_main_menu() -> void:
 			names_ok = false
 	check(names_ok, "ITEMS 里的 %d 个节点名在场景里都存在" % menu_script.ITEMS.size())
 
-	# 键盘上下必须跳过灰掉的项。现在中间三项都没实现，从第 0 项往下应直接落到最后一项。
+	# 键盘上下必须跳过灰掉的项。「规则速查」（第 2 项）已启用；
+	# 「继续对局」「设置」还灰着，所以 0 往下落到 2、2 往下跳过 3 落到末项。
 	var last: int = menu_script.ITEMS.size() - 1
-	check(menu_script.next_enabled(0, 1) == last, "键盘往下跳过了灰掉的项")
-	check(menu_script.next_enabled(last, -1) == 0, "键盘往上跳过了灰掉的项")
+	check(menu_script.next_enabled(0, 1) == 2, "键盘往下跳过灰掉的「继续对局」落到规则速查")
+	check(menu_script.next_enabled(2, 1) == last, "再往下跳过灰掉的「设置」落到退出")
+	check(menu_script.next_enabled(last, -1) == 2, "键盘往上跳过灰掉的项")
 	check(menu_script.next_enabled(0, -1) == 0, "到顶了就停在原地，不绕回")
 
 	var grid_ok := true

@@ -44,11 +44,11 @@ const CELL_FOOT_DY := 6.0
 ## node 是 Items 下的子节点名，顺序即上下顺序。
 ## enabled=false 的项按原型的 .mi.dim 画成灰色、不响应鼠标。
 ## 原型里灰掉的是「退出」（网页里退不出去），实装反过来：
-## 退出能用，**中间三项因为还没做**才灰。三项做出来就把 enabled 翻回 true。
+## 还没做的才灰（继续对局=存档读档、设置），做出来就把 enabled 翻回 true。
 const ITEMS := [
 	{"node": "Start", "enabled": true},
 	{"node": "Continue", "enabled": false},
-	{"node": "Rules", "enabled": false},
+	{"node": "Rules", "enabled": true},
 	{"node": "Settings", "enabled": false},
 	{"node": "Quit", "enabled": true},
 ]
@@ -92,6 +92,7 @@ var _confirm_bars: Array[ColorRect] = []
 var _confirm_glow: Control
 var _confirm_sel := 1            ## 默认停在「取消」，别让回车顺手就退了
 var _config: CWConfigPanel       ## 对局配置面板；null = 还没建过
+var _rules: CWRulesPage          ## 规则速查页；null = 还没建过
 
 @onready var _decor_root: Node2D = $Decor
 @onready var _items: Control = $UI/Screen/Items
@@ -264,6 +265,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _config != null and _config.visible:
 		_config.handle_input(event)
 		return
+	if _rules != null and _rules.visible:
+		_rules.handle_input(event)
+		return
 	if _confirm != null and _confirm.visible:
 		_confirm_input(event)
 		return
@@ -415,6 +419,11 @@ func _activate(i: int) -> void:
 	match ITEMS[i]["node"]:
 		"Start":
 			_open_config()
+		"Rules":
+			if _rules == null:
+				_rules = CWRulesPage.new()
+				_ui.add_child(_rules)
+			_rules.open()
 		"Quit":
 			_open_confirm()
 
