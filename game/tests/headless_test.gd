@@ -3680,6 +3680,26 @@ func t_card_mods() -> void:
 	check(hyp["energy"] == 85, "免压半句是持续状态，仍然生效")
 	g.dispose()
 
+	## ④b 两个半句的时钟按卡面各读各的（2026-08-30 修正）：
+	## 减伤写「下一次」→ 跨世界回合等着；免压写「本世界回合」→ 回合末作废。
+	## 防守向的卡多半在别人回合才用得上，减伤挂 round 会让它经常白打。
+	g = _fx_game(4)
+	var hyp2 := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0),
+		CWData.ImmuneType.BASIC, -1)
+	hyp2["energy"] = 100
+	g.cells.append(hyp2)
+	hyp2["hand"] = ["缺氧适应"]
+	await g.card_fx.play(hyp2, { "act": "play", "card": "缺氧适应" })
+	await g.world_fx.round_end()
+	check(not g.mods_of(hyp2, "缺氧适应").is_empty(),
+		"减伤半句跨世界回合仍在（卡面写的是「下一次」）")
+	check(g.mods_of(hyp2, "缺氧适应免压").is_empty(),
+		"免压半句照卡面「本世界回合」到期作废")
+	var before: int = hyp2["energy"]
+	g.cancer_hit(hyp2, 15, "乳酸酸化", true)
+	check(before - hyp2["energy"] == 5, "跨回合之后减伤照样兑现（1.5 - 1.0）")
+	g.dispose()
+
 	## ⑤ DNA损伤修复：挡事件/技能，不挡普通攻击（定案 #62）
 	g = _fx_game(4)
 	var atk := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
