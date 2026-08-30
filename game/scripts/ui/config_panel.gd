@@ -32,8 +32,9 @@ const FADE_IN := 0.32        ## 原型节拍：菜单 0.30s 淡出后，配置 0
 
 ## 原型的行文字色（比 TEXT_DIM 亮半档，值列用 TEXT_HI）
 const ROW_LABEL := Color("9fb6bd")
-## 「进入棋盘」**只在鼠标悬停时**转白 + 白光 + 上浮 3px（.cbtn:hover 原样），
-## 移开立即回到蓝底；键盘焦点不变色，由菱形标示意（Kevin 2026-08-30 终稿）。
+## 「进入棋盘」的变白（白底+白光+上浮 3px）跟着**最后动的输入设备**走
+## （Kevin 2026-08-30 终稿）：键盘选到按钮 = 变白；鼠标一旦划过，
+## 颜色就按悬停状态算（悬停白、移开蓝），直到下一次键盘按键夺回焦点权。
 const BTN_LIFT := 3.0
 
 const ROW_NAMES := ["人数", "我的阵营", "AI 强度", "随机种子"]
@@ -61,6 +62,8 @@ var _btn_rest: StyleBoxFlat
 var _btn_hot: StyleBoxFlat   ## 仅鼠标悬停：转白 + 白光（上浮在 _repaint 里挪位置）
 var _btn_hover := false
 var _hot_arrow: Label = null ## 正被鼠标悬停的拨值箭头；null = 没有
+## 最后动的是不是鼠标——按钮变白的裁判（见文件头的焦点权规则）
+var _mouse_led := false
 
 
 func _ready() -> void:
@@ -73,6 +76,8 @@ func _ready() -> void:
 
 func open() -> void:
 	_sel = 0   ## 焦点落第一行，见文件头（停在按钮上会让玩家以为不能改）
+	_mouse_led = false
+	_btn_hover = false   ## 上次关面板时悬停着的话，exited 可能没来得及送到
 	visible = true
 	modulate.a = 0.0
 	create_tween().tween_property(self, "modulate:a", 1.0, FADE_IN)
@@ -81,6 +86,11 @@ func open() -> void:
 
 ## 由 CWMainMenu 的 _unhandled_input 转发（覆盖层统一走菜单路由）
 func handle_input(event: InputEvent) -> void:
+	## 键盘一动就夺回焦点权（按钮变白从此按键盘焦点算，直到鼠标再介入）
+	for act in ["ui_cancel", "ui_down", "ui_up", "ui_left", "ui_right", "ui_accept"]:
+		if event.is_action_pressed(act):
+			_mouse_led = false
+			break
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		visible = false
@@ -241,6 +251,7 @@ func _build_row(i: int) -> void:
 	hit.mouse_filter = Control.MOUSE_FILTER_PASS   ## 只感应悬停，点击留给值/箭头
 	hit.mouse_entered.connect(func() -> void:
 		_sel = i
+		_mouse_led = true
 		_repaint())
 	add_child(hit)
 
@@ -257,6 +268,7 @@ func _build_row(i: int) -> void:
 	for arrow: Label in [left, right]:
 		arrow.mouse_entered.connect(func() -> void:
 			_hot_arrow = arrow
+			_mouse_led = true
 			_repaint())
 		arrow.mouse_exited.connect(func() -> void:
 			if _hot_arrow == arrow:
@@ -277,10 +289,12 @@ func _build_button() -> void:
 	_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_btn.mouse_entered.connect(func() -> void:
 		_btn_hover = true
+		_mouse_led = true
 		_sel = N_ROWS
 		_repaint())
 	_btn.mouse_exited.connect(func() -> void:
 		_btn_hover = false
+		_mouse_led = true
 		_repaint())
 	_btn.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
@@ -322,6 +336,7 @@ func _clicky(text: String, at: Vector2, on_click: Callable) -> Label:
 
 func _tap(row: int, dir: int) -> void:
 	_sel = row
+	_mouse_led = true
 	_cycle(row, dir)
 
 
@@ -382,7 +397,8 @@ func _repaint() -> void:
 		_marker.position = Vector2(SLOT_X - 18, ROW_Y0 + _sel * ROW_H + 13)
 	else:
 		_marker.position = Vector2(SLOT_X - 18, BTN_Y + BTN_H / 2.0)
-	## 「进入棋盘」**只认鼠标悬停**（Kevin 8-30 定）：悬停=白底+白光+上浮，
-	## 移开就回到蓝底；键盘走到按钮上不变色，菱形标就是键盘焦点的示意
-	_btn.add_theme_stylebox_override("panel", _btn_hot if _btn_hover else _btn_rest)
-	_btn.position = Vector2(SLOT_X, BTN_Y - (BTN_LIFT if _btn_hover else 0.0))
+	## 「进入棋盘」的变白按**最后动的设备**裁决（文件头的焦点权规则）：
+	## 键盘当权 → 焦点在按钮上就白；鼠标当权 → 按悬停状态算
+	var hot := _btn_hover if _mouse_led else _sel == N_ROWS
+	_btn.add_theme_stylebox_override("panel", _btn_hot if hot else _btn_rest)
+	_btn.position = Vector2(SLOT_X, BTN_Y - (BTN_LIFT if hot else 0.0))

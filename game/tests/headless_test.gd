@@ -926,17 +926,30 @@ func t_config_panel() -> void:
 	p.open()
 	check(p.config()["players"] == 2 and p.config()["smart"] == true \
 		and p.config()["faction"] == -1, "再次打开保留上次取值")
-	## 视觉终稿的可测部分：箭头定位固定、按钮只认鼠标悬停（Kevin 8-30）
+	## 箭头定位固定；按钮变白按「最后动的设备」裁决（Kevin 8-30 终稿）：
+	## 键盘选到按钮=白；鼠标一旦介入按悬停算，直到下一次键盘按键夺回
 	check(p._arrows[0][1].position.x == CWConfigPanel.ARROW_R_X, "右箭头在固定位置")
 	p.handle_input(right)   ## 换一档，值文案长度变了
 	check(p._arrows[0][1].position.x == CWConfigPanel.ARROW_R_X, "换档后右箭头不挪窝")
 	for k in 4:
 		p.handle_input(down)
+	check(p._btn.get_theme_stylebox("panel") == p._btn_hot, "键盘走到「进入棋盘」变白")
+	p._btn_hover = false     ## 鼠标划过按钮又移开（exited 把焦点权抢给鼠标）
+	p._mouse_led = true
+	p._repaint()
 	check(p._btn.get_theme_stylebox("panel") == p._btn_rest,
-		"键盘走到「进入棋盘」不变白（白底只认鼠标悬停）")
+		"鼠标介入后按悬停算：没悬停就回蓝，哪怕键盘焦点还停在按钮上")
 	p._btn_hover = true
 	p._repaint()
-	check(p._btn.get_theme_stylebox("panel") == p._btn_hot, "鼠标悬停才转白")
+	check(p._btn.get_theme_stylebox("panel") == p._btn_hot, "悬停中 = 白")
+	var up := InputEventAction.new()
+	up.action = "ui_up"
+	up.pressed = true
+	p.handle_input(up)       ## 键盘再动：夺回焦点权，焦点走到种子行
+	check(p._btn.get_theme_stylebox("panel") == p._btn_rest,
+		"键盘一动夺回焦点权：焦点离开按钮，按钮回蓝（悬停不再算数）")
+	p.handle_input(down)
+	check(p._btn.get_theme_stylebox("panel") == p._btn_hot, "键盘再走到按钮又变白")
 	p._btn_hover = false
 	root.remove_child(p)
 	p.free()
