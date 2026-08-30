@@ -23,6 +23,7 @@ func _run_all() -> void:
 	await t_card_instants()
 	await t_card_choices()
 	await t_card_mods()
+	await t_settle_order_rulings()
 	await t_card_perms()
 	await t_world_events_draw()
 	t_ev_attack_mods()
@@ -4456,3 +4457,160 @@ func t_hand_play() -> void:
 	hand.free()
 	bar.free()
 	board.free()
+
+
+# ---- 2026-08-30 审查后的四条定案（A/B/C/D）----
+## 这一组盯的是**结算顺序**本身，而不是单张卡的数值。审查那天 683 项全绿却漏掉了
+## 全部六个问题，原因就是没有人从「两张卡先后顺序不同会怎样」这个角度写过断言。
+func t_settle_order_rulings() -> void:
+	print("[结算顺序定案 A/B/C/D]")
+	_t_ruling_a_rewrite()
+	await _t_ruling_d_keep_allowance()
+	_t_ruling_b_armor()
+	await _t_ruling_c_presentation()
+
+
+## 建一个只有棋盘的空对局（不落子），方便手工摆细胞
+func bare_game() -> CWGame:
+	var g := CWGame.new()
+	g.init(CWData.FACTION_ORDER[2], 1)
+	g.setup.build_board()
+	return g
+
+
+func put_immune(g: CWGame, at: Vector2i) -> Dictionary:
+	var c := CWSetup.make_cell(g.cells.size(), 0, CWData.Faction.IMMUNE, at,
+		CWData.ImmuneType.BASIC, -1, 200)
+	g.cells.append(c)
+	return c
+
+
+## 装备一个永久技能并盖上打出先后的戳（和 CWCardFx.play 的装备分支同口径）
+func put_skill(cell: Dictionary, skill: String) -> void:
+	cell["equipped"].append(skill)
+	cell["play_n"] += 1
+	cell["equip_seq"][skill] = cell["play_n"]
+
+
+## 定案 A：【炎症趋化】是「**改为** 0.5」而不是「降为」——它会把更便宜的价钱抬回 0.5。
+## 抬价本身是有意的（打出顺序要玩家权衡），所以这里钉的是「确实会抬」而不是「不许抬」。
+func _t_ruling_a_rewrite() -> void:
+	var canc := Vector2i(1, 0)
+	var g := bare_game()
+	g.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	var cell := put_immune(g, Vector2i.ZERO)
+	put_skill(cell, "组织巡航")
+	check(g.actions._move_cost_mod(cell, canc, 10) == 0, "只有【组织巡航】：首移免费")
+	g.add_mod(cell, "炎症趋化", 1, "turn")
+	check(g.actions._move_cost_mod(cell, canc, 10) == CWData.INFLAM_CHEMO_COST,
+		"A：后打的【炎症趋化】把 0 改写成 0.5（改为，不是降为）")
+	g.dispose()
+
+	## 反过来打就不会被抬——同两张卡、只差顺序，结果不同
+	var g2 := bare_game()
+	g2.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	var c2 := put_immune(g2, Vector2i.ZERO)
+	g2.add_mod(c2, "炎症趋化", 1, "turn")
+	put_skill(c2, "组织巡航")
+	check(g2.actions._move_cost_mod(c2, canc, 10) == 0,
+		"A：先打【炎症趋化】再装【组织巡航】则仍是 0（顺序决定结果）")
+	g2.dispose()
+
+
+## 定案 D：不改变费用的条目不结算、也不消耗额度。
+func _t_ruling_d_keep_allowance() -> void:
+	## D-1：两个「本回合首次免费」，一次移动只该用掉一个
+	var g := bare_game()
+	var cell := put_immune(g, Vector2i.ZERO)
+	put_skill(cell, "组织巡航")
+	put_skill(cell, "组织驻留")
+	var base_h: int = g.tune.immune_move_healthy[0]
+	check(g.actions._move_cost_mod(cell, Vector2i(1, 0), base_h) == 0, "D：首移→健康免费")
+	await g.actions._do_move(cell, Vector2i(1, 0), 0)
+	check(cell["fx_turn"].has("组织巡航"), "D：【组织巡航】的首移额度用掉了")
+	check(not cell["fx_turn"].has("组织驻留"),
+		"D：【组织驻留】没起作用，额度留着（旧版会一起烧掉）")
+	check(g.actions._move_cost_mod(cell, Vector2i(2, 0), base_h) == 0,
+		"D：同回合第二次→健康，靠【组织驻留】仍免费")
+	await g.actions._do_move(cell, Vector2i(2, 0), 0)
+	check(cell["fx_turn"].has("组织驻留"), "D：这一次才轮到【组织驻留】")
+	check(g.actions._move_cost_mod(cell, Vector2i(3, 0), base_h)
+		== maxi(base_h - CWData.CRUISE_CUT, CWData.MOVE_CUT_MIN),
+		"D：两个额度用尽后只剩【组织巡航】的 -0.2")
+	g.dispose()
+
+	## D-2：限次折扣卡在价钱已经到底时不该被扣次数
+	var canc := Vector2i(1, 0)
+	var g2 := bare_game()
+	g2.immune_level = 3                       ## X 级基准 0.5
+	g2.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	var c2 := put_immune(g2, Vector2i.ZERO)
+	put_skill(c2, "组织浸润")                   ## -0.3 → 0.2，已到 MOVE_CUT_MIN
+	g2.add_mod(c2, "CXCR3趋化", 2, "turn")
+	var quote: int = g2.actions._move_cost_mod(c2, canc, g2.actions._move_base_cost(c2, canc))
+	check(quote == CWData.MOVE_CUT_MIN, "D：0.5 −0.3 已踩到下限 0.2")
+	await g2.actions._do_move(c2, canc, quote)
+	var left: Array = g2.mods_of(c2, "CXCR3趋化")
+	check(left.size() == 1 and left[0]["uses"] == 2,
+		"D：【CXCR3趋化】这一次没减到钱，两次额度都留着")
+	g2.dispose()
+
+	## D-3：【迁移激活】的每回合免费额度同理
+	var g3 := bare_game()
+	var c3 := put_immune(g3, Vector2i.ZERO)
+	put_skill(c3, "组织巡航")
+	g3.events["active"].append({ "name": "迁移激活", "left": 2, "stacks": 1, "data": {} })
+	check(g3.actions._move_cost_mod(c3, Vector2i(1, 0), g3.tune.immune_move_healthy[0]) == 0,
+		"D：巡航已经把首移变免费")
+	await g3.actions._do_move(c3, Vector2i(1, 0), 0)
+	check(g3.world_fx.free_move_available(c3),
+		"D：【迁移激活】的免费额度没被白烧")
+	g3.dispose()
+
+
+## 定案 B：【囊性护甲】= 每世界回合第一次能量损失 -0.5，**不限来源**。
+## 旧实现只挂在 immune_hit 上，世界事件那条管线整个绕过去了。
+func _t_ruling_b_armor() -> void:
+	var g := bare_game()
+	var sig := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i(2, 0),
+		-1, CWData.CancerType.SIGNET, 100)
+	g.cells.append(sig)
+	var atk := CWSetup.make_cell(1, 1, CWData.Faction.IMMUNE, Vector2i(3, 0),
+		CWData.ImmuneType.BASIC, -1, 100)
+	g.cells.append(atk)
+	check(g.cancer_hit(sig, 5, "免疫抑制因子") == 0,
+		"B：世界事件的 0.5 被【囊性护甲】完全挡下（旧版挡不住）")
+	check(sig["armor_used"], "B：这一轮的护甲额度已用掉")
+	check(g.immune_hit(sig, 10, atk, false) == 10,
+		"B：同一世界回合内不再减免，两条管线共用同一个额度")
+	g.world._reset_round_flags()
+	check(g.immune_hit(sig, 10, atk, false) == 5, "B：新世界回合护甲恢复")
+	g.dispose()
+
+
+## 定案 C：【抗原呈递强化】按口径 #70「攻击发动即算攻过」——把目标当场打死，
+## 本世界回合的施加额度照样用掉。审查前这是 and 求值顺序的副产品，现在是明写的选择，
+## 而且必须有一句日志，否则玩家看不出额度没了。
+func _t_ruling_c_presentation() -> void:
+	var canc := Vector2i(1, 0)
+	var g := bare_game()
+	g.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	var dc := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.DENDRITIC, -1, 200)
+	put_skill(dc, "抗原呈递强化")
+	g.cells.append(dc)
+	var victim := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, canc,
+		-1, CWData.CancerType.SCLC, 5)
+	g.cells.append(victim)
+	g.tune.attack_dmg_success = 200   ## 保证一击必杀，把「目标已死」这条路走到
+	var n0: int = g.logs.size()
+	await g.actions._do_move(dc, canc, 0)
+	check(not victim["alive"], "C：目标被一击打死")
+	check(dc["fx_round"].has("抗原呈递强化"),
+		"C：按口径 #70，打死目标也算攻过，本世界回合额度用掉")
+	var told := false
+	for i in range(n0, g.logs.size()):
+		if "抗原呈递强化" in g.logs[i] and "已死亡" in g.logs[i]:
+			told = true
+	check(told, "C：日志要说清额度是怎么没的（旧版零反馈）")
+	g.dispose()

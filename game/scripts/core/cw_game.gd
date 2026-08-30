@@ -602,11 +602,27 @@ static func settle_loss(base: int, add: int, mult: int, div: int, cut: int) -> i
 	return maxi(v - cut, 0)
 
 
+## 印戒【囊性护甲】：**每世界回合第一次能量损失 -0.5**（团队 2026-08-30 定案 B，口径 #76）。
+##
+## 卡面原来写「受到的能量损失」，实现也就只挂在 immune_hit 上，于是世界事件
+## （【免疫抑制因子】对全体癌细胞的 0.5）那一路完全绕过了护甲 —— 2026-08-30 审查发现。
+## 新卡面**不再限定来源**，所以两条伤害管线都要来这里取减免，别再各写一份。
+##
+## 唯一没盖到的是【突变】第 3 面的自扣（cell["energy"] -= …，不走管线）——
+## 那条按口径 #68 的精神算「自己扣自己」，不是「受到损失」。⏳ 待团队确认。
+func armor_cut(target: Dictionary) -> int:
+	if target["ctype"] != CWData.CancerType.SIGNET or target["armor_used"]:
+		return 0
+	target["armor_used"] = true
+	log_msg("　【囊性护甲】减免 %s" % CWData.fmt(CWData.ARMOR_REDUCTION))
+	return CWData.ARMOR_REDUCTION
+
+
 ## 免疫来源的能量损失（普通攻击 / B 细胞【抗体】/ 免疫卡牌共用）。
 ##
 ## attack=false 表示这次损失**不是「攻击」**（卡牌伤害等）：树突【各司其职】减半与
-## 巨噬【吞噬】吸血都不触发——PRD 那两条明写"攻击"；而【标记】×2 和【囊性护甲】
-## 管的是"损失"，任何来源都生效。
+## 巨噬【吞噬】吸血都不触发——PRD 那两条明写"攻击"；而【标记】×2 管的是"损失"，
+## 任何来源都生效。【囊性护甲】同理，且**跨管线**生效（走 armor_cut，见那里的注释）。
 ##
 ## 落到五步管线上的分别是：
 ##   ② 固定增加 —— 攻击类修饰卡的「额外造成 X」（add 参数，标记翻倍会连它一起翻——管线顺序如此）
@@ -631,10 +647,7 @@ func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: boo
 			and attacker["itype"] == CWData.ImmuneType.DENDRITIC:
 		div *= 2
 		log_msg("　【各司其职】树突状细胞只造成 1/2 伤害")
-	if target["ctype"] == CWData.CancerType.SIGNET and not target["armor_used"]:
-		cut += CWData.ARMOR_REDUCTION
-		target["armor_used"] = true
-		log_msg("　【囊性护甲】减免 0.5")
+	cut += armor_cut(target)
 	## 【DNA损伤修复】只挡免疫方【事件】/【技能】的损失，普通攻击是【PD-L1表达】的领地
 	## （定案 #62）。数值按结算当刻的分期取（定案 #64）。
 	if not attack:
@@ -659,12 +672,12 @@ func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: boo
 
 
 ## 癌症来源**或世界事件等中立来源**的能量损失（微环境压迫、黏液破裂、癌症卡、
-## 事件的「失去 X 能量」）。走同一条管线，不吃攻防修正（标记/护甲只挂在 immune_hit），
-## 但吃受击方的护盾类修饰卡（⑤ 固定减免）。
+## 事件的「失去 X 能量」）。走同一条管线，不吃**攻防**修正（【标记】×2 与树突减半、
+## 巨噬吸血只挂在 immune_hit），但吃受击方的护盾类修饰卡与【囊性护甲】（⑤ 固定减免）。
 ## skill=true 表示来源是**癌细胞的技能**（黏液破裂/乳酸酸化这类细胞技能与癌方即时卡）——
 ## 【缺氧适应】挡这一类**加上**微环境压迫（卡面重写后，见下）；世界事件、反弹不算（定案 #62）。
 func cancer_hit(target: Dictionary, base: int, reason: String, skill: bool = false) -> int:
-	var cut := 0
+	var cut := armor_cut(target)
 	var mem := spend_mods(target, "细胞膜修复")
 	if mem > 0:
 		cut += CWData.MEMBRANE_CUT * mem

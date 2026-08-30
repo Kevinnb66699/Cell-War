@@ -263,8 +263,11 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 			game.add_mod(cell, card, 1, "turn")
 			game.log_msg("　本回合下一次攻击：失败自动重掷一次；最终命中额外 +0.5")
 		"炎症趋化":
+			## 卡面 2026-08-30 由「降为 0.5」改成「**改为** 0.5」（团队定案 A，口径 #74）：
+			## 它是改写不是减免——前面的卡已经把价钱压到 0.5 以下时会被它抬回 0.5，
+			## 所以打出顺序本身就是要玩家权衡的一部分。
 			game.add_mod(cell, card, 1, "turn")
-			game.log_msg("　本回合下一次向癌性组织的迁移费用降为 0.5")
+			game.log_msg("　本回合下一次向癌性组织的迁移费用改为 0.5")
 		"CXCR3趋化":
 			game.add_mod(cell, card, 2, "turn")
 			game.log_msg("　本回合接下来 2 次向癌性组织的迁移费用 -0.5（最低 0.2）")
@@ -626,7 +629,9 @@ func _chemotaxis_steps(cell: Dictionary) -> Array:
 
 ## 【炎症性趋化】连走最多 3 步：第 1 步就是手牌选项选好的目标，后两步逐步追问
 func _chemotaxis(cell: Dictionary, first: Dictionary) -> void:
-	await game.actions._do_move(cell, first["to"], first["cost"])
+	## 基准价要显式传：这一步不是「迁移」行动，起点是卡面自己的 0.2，
+	## 不能让 _do_move 按免疫等级现算（那会把修正链建在错的起点上）
+	await game.actions._do_move(cell, first["to"], first["cost"], CWData.CHEMOTAX_STEP_COST)
 	for step_no in [2, 3]:
 		if not cell["alive"]:
 			return
@@ -647,7 +652,7 @@ func _chemotaxis(cell: Dictionary, first: Dictionary) -> void:
 		if data.get("stop", false):
 			game.log_msg("　【炎症性趋化】提前停止")
 			return
-		await game.actions._do_move(cell, data["to"], data["cost"])
+		await game.actions._do_move(cell, data["to"], data["cost"], CWData.CHEMOTAX_STEP_COST)
 
 
 ## 【代谢耦联】payer 付得起哪几档：转 1.0/1.5/2.0，接收方得 1.2/2.0/2.5。
