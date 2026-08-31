@@ -72,6 +72,10 @@ static func sections(tune: CWTuning = null) -> Array:
 			"3-5 成功（-%s） · 6 大成功（-%s）" % [
 				CWData.fmt(tune.attack_dmg_success), CWData.fmt(tune.attack_dmg_crit)],
 			"目标带【标记】：本次损失翻倍，随后消耗一层标记",
+			## 上限是旋钮（口径 #88 定为 3）。0 = 不限时这一行要消失——
+			## 速查页不许出现和引擎不符的数
+			"每个行动回合最多攻击 %d 次" % tune.attack_max_per_turn
+				if tune.attack_max_per_turn > 0 else "攻击次数不限（只受能量约束）",
 		] },
 		{ "title": "常用费用（能量）", "lines": [
 			"迁移（免疫 I 级）：健康 %s / 癌性 %s，随等级降" % [

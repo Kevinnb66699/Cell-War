@@ -26,6 +26,7 @@ func _run_all() -> void:
 	await t_settle_order_rulings()
 	await t_review_fixes()
 	await t_review_0831()
+	await t_attack_cap()
 	await t_batch_death_and_triggers()
 	await t_design_required_checks()
 	await t_damage_pipeline()
@@ -1199,6 +1200,17 @@ func t_rules_page() -> void:
 		for line in s2["lines"]:
 			off += line + "|"
 	check(not off.contains("受反击"), "旋钮关掉时那半句要消失")
+	## 攻击次数上限（口径 #88）同样正反都钉
+	check(all.contains("每个行动回合最多攻击 %d 次" % tune.attack_max_per_turn),
+		"速查页写出攻击次数上限 %d" % tune.attack_max_per_turn)
+	var no_cap := CWTuning.new()
+	no_cap.attack_max_per_turn = 0
+	var uncapped := ""
+	for s3 in CWRulesPage.sections(no_cap):
+		for line in s3["lines"]:
+			uncapped += line + "|"
+	check(uncapped.contains("攻击次数不限"),
+		"上限设 0 时速查页改口说「不限」，不许留着和引擎不符的数")
 	check(all.contains("上限 %d 张" % CWData.HAND_MAX)
 		and all.contains("每回合至多 %d 次" % CWData.DRAW_MAX_PER_TURN), "手牌与抽卡上限")
 	check(all.contains("蹲满 %d 回合" % tune.solidify_threshold), "固化门槛跟着旋钮走")
@@ -5138,6 +5150,48 @@ func _area_hash(reverse: bool) -> String:
 
 
 ## 报告 §六.3：批量死亡分三遍走 + 伤后触发进稳定队列
+## 免疫每行动回合的攻击次数上限（sug 2 的实验旋钮）。默认 0 = 不限，本测试自己开。
+## 三条都要钉：**用完就没有攻击选项**、**别的迁移不受影响**、**回合开始重置**。
+## 只钉第一条的话，把上限实现成「用完就一个选项都不给」也会绿 —— 那是另一个 bug。
+func t_attack_cap() -> void:
+	print("[攻击次数上限]")
+	## 口径 #88：默认 3。这条单独钉住**默认值**——下面的用例自己开旋钮，
+	## 不钉这一条的话把默认改回 0（无限攻击）也全绿。
+	check(CWData.ATTACK_MAX_PER_TURN == 3, "默认每行动回合最多攻击 3 次")
+	check(CWTuning.new().attack_max_per_turn == CWData.ATTACK_MAX_PER_TURN,
+		"旋钮默认值 = 常量")
+	var g := bare_game()
+	g.tune.attack_max_per_turn = 1
+	var imm := put_immune(g, Vector2i(0, 0))
+	var can := _put_cancer(g, Vector2i(1, 0), 200)
+	## (0,1) 留空做对照：攻击用完之后它必须还在
+	var has_atk := func() -> bool:
+		for o in g.actions.immune_move_options(imm):
+			if o["data"]["to"] == Vector2i(1, 0):
+				return true
+		return false
+	var has_move := func() -> bool:
+		for o in g.actions.immune_move_options(imm):
+			if o["data"]["to"] == Vector2i(0, 1):
+				return true
+		return false
+	check(has_atk.call() and has_move.call(), "开局：攻击与普通迁移都在（前提成立）")
+	await g.actions._do_move(imm, Vector2i(1, 0), 0)
+	check(imm["attacks_used"] == 1, "攻击发动即计数（不看判定结果，口径 #70）")
+	check(not has_atk.call(), "用完次数：攻击选项消失")
+	check(has_move.call(), "用完次数：普通迁移不受影响")
+	## 合法性谓词是选项生成与提交复验共用的那一份（口径 #81），所以复验也该拒
+	check(not g.actions._is_move_legal_now(imm, Vector2i(1, 0)),
+		"用完次数：提交复验同样拒绝（与选项生成共用谓词）")
+	g.turn.begin_turn(0, imm)
+	check(imm["attacks_used"] == 0 and has_atk.call(), "新的行动回合重置，攻击又可选")
+	## 0 = 不限：同一局面下连攻不该被挡
+	g.tune.attack_max_per_turn = 0
+	imm["attacks_used"] = 99
+	check(has_atk.call(), "上限 0 = 不限，计数再高也不挡")
+	g.dispose()
+
+
 func t_batch_death_and_triggers() -> void:
 	print("[批量死亡与伤后触发队列]")
 

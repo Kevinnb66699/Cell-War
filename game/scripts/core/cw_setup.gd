@@ -71,6 +71,7 @@ static func make_cell(id: int, pid: int, faction: int, pos: Vector2i,
 		"metastasis_used": false,  # 黑色素瘤【早期血行转移】1 次/世界回合
 		# 下面这个每**行动回合**重置（见 CWTurn），不是每世界回合
 		"draws_used": 0,           # 【基因表达】3 次/行动回合
+		"attacks_used": 0,         # 本行动回合已攻击次数（上限见 CWTuning.attack_max_per_turn）
 		"respawn_round": -1,       # 免疫细胞死亡后可复活的世界回合（-1 = 未死亡/不复活）
 	}
 

@@ -827,12 +827,15 @@ func state_hash() -> String:
 		ft.sort()
 		var fr: Array = cell["fx_round"].keys()
 		fr.sort()
-		parts.append("c%d:%d,%s,%d,%d,%d,%d,%d|%s|%s|%s|k%d.%d|%s|%s" % [
+		## 「本行动回合已用几次」的计数器也是规则状态：快照恢复到回合**中途**时，
+		## 它决定还能不能抽卡/攻击。`draws_used` 此前漏了（本次一并补上）。
+		parts.append("c%d:%d,%s,%d,%d,%d,%d,%d|%s|%s|%s|k%d.%d|%s|%s|u%d.%d" % [
 			cell["id"], cell["faction"],
 			str(cell["pos"]), cell["energy"], 1 if cell["alive"] else 0,
 			cell["itype"], cell["ctype"], cell["respawn_round"],
 			",".join(cell["hand"]), ",".join(eq), ",".join(mods),
-			1 if cell["marked"] else 0, cell["mark_left"], str(ft), str(fr)])
+			1 if cell["marked"] else 0, cell["mark_left"], str(ft), str(fr),
+			cell["draws_used"], cell["attacks_used"]])
 	var ev: PackedStringArray = []
 	for e in events["active"]:
 		var dk: Array = e["data"].keys()

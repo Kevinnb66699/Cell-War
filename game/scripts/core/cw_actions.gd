@@ -109,6 +109,12 @@ func _is_move_legal_now(cell: Dictionary, to: Vector2i) -> bool:
 	var enemies: Array = game.cells_at(to, CWData.Faction.CANCER)
 	if enemies.is_empty():
 		return game.cells_at(to).is_empty()
+	## 每回合攻击次数上限。放在**共用谓词**里而不是选项生成里 ——
+	## 口径 #81 要求「选项生成与提交复验共用同一份谓词」，写两处必然漂移。
+	## 用完次数后只是这一格不能进（攻击不可选），别的迁移照常。
+	var cap: int = game.tune.attack_max_per_turn
+	if cap > 0 and cell["attacks_used"] >= cap:
+		return false
 	return _attackable(enemies[0])
 
 
@@ -352,6 +358,9 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		await enter_tile(cell, to)
 		return
 	var target: Dictionary = enemies[0]
+	## 计数在**发动**时加，不看判定结果 —— 与口径 #70「攻击发动即算攻过」一致：
+	## 失败被反弹也占一次，否则上限就成了「成功次数上限」，失败反而不受约束。
+	cell["attacks_used"] += 1
 	## ---- 判定链（定案 #59/#60）----
 	## 骰面 → 世界事件并给（attack_outcome）→【补体调理】失败自动重掷（重掷严格不劣，
 	## 不必发问）→ 防御方【PD-L1表达】最后压一级。【高亲和力克隆】不掷骰直接大成功，

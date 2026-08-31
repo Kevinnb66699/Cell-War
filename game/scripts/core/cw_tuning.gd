@@ -87,6 +87,8 @@ var sclc_move_healthy := CWData.SCLC_MOVE_HEALTHY
 var pseudopod_cost := CWData.PSEUDOPOD_COST
 
 # ---- 攻击 ----
+## 每个行动回合最多攻击几次，0 = 不限。现值 3（口径 #88）
+var attack_max_per_turn := CWData.ATTACK_MAX_PER_TURN
 var attack_dmg_success := CWData.ATTACK_DMG_SUCCESS
 var attack_dmg_crit := CWData.ATTACK_DMG_CRIT
 ## 攻击失败（1/3「被癌细胞反弹」）时，攻击者自身的能量损失。

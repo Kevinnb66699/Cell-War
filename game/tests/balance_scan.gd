@@ -24,6 +24,7 @@
 ##   sclc / pseu  【极简胞浆】与【伪足穿透】的折后价（现值 7 / 5，PRD 3 / 2）
 ##   lesion=off   关掉【原发灶】（癌细胞出生格开局固化）。默认 on
 ##   counter=0    攻击失败时攻击者的自损（现值 5 = PRD 的 0.5）
+##   atkmax=3     免疫每行动回合最多攻击几次（现值 0 = 不限）
 ##
 ## ⚠ 2026-08-31 口径 #82 之后，**不传旋钮 = 引擎现值，不是 PRD 原样**。
 ## 要跑 PRD 原样做对照得显式写全：`cmh=5 sclc=3 pseu=2 tiles=15`。
@@ -45,6 +46,7 @@ var afloor := -1
 var tiles := -1
 var counter := -1
 var lesion := ""    # "off" = 关掉原发灶
+var atkmax := -1
 var amult := -1
 var cmh := -1
 var cmc := -1
@@ -78,6 +80,7 @@ func _parse() -> void:
 			"tiles": tiles = int(kv[1])
 			"counter": counter = int(kv[1])
 			"lesion": lesion = kv[1]
+			"atkmax": atkmax = int(kv[1])
 			"amult": amult = int(kv[1])
 			"cmh": cmh = int(kv[1])
 			"cmc": cmc = int(kv[1])
@@ -116,7 +119,43 @@ func _tune() -> CWTuning:
 		t.sclc_move_healthy = sclc
 	if pseu >= 0:
 		t.pseudopod_cost = pseu
+	if counter >= 0:
+		t.counter_dmg_on_fail = counter
+	if atkmax >= 0:
+		t.attack_max_per_turn = atkmax
+	if lesion != "":
+		t.solid_at_cancer_spawn = lesion != "off"
 	return t
+
+
+## 把「本次真正改掉的旋钮」回读出来，打进结果行。
+## 2026-08-31 加：`atkmax` / `counter` / `lesion` 三个曾经**接漏了**——
+## 参数收下了、`_tune()` 里没赋值，于是整张网格跑出来一模一样，
+## 而输出里看不出任何异常。旋钮静默失效比没有旋钮更坏，所以现在强制回显。
+func _applied(t: CWTuning) -> String:
+	var d := CWTuning.new()
+	var out: Array = []
+	if t.immune_move_cancerous != d.immune_move_cancerous:
+		out.append("mv=%s" % str(t.immune_move_cancerous[0]))
+	for pair in [["ecap", t.anaerobic_cap, d.anaerobic_cap],
+			["efloor", t.anaerobic_floor, d.anaerobic_floor],
+			["acap", t.aerobic_cap, d.aerobic_cap],
+			["afloor", t.aerobic_floor, d.aerobic_floor],
+			["tiles", t.init_cancer_tiles, d.init_cancer_tiles],
+			["amult", t.aerobic_mult, d.aerobic_mult],
+			["cmh", t.cancer_move_healthy, d.cancer_move_healthy],
+			["cmc", t.cancer_move_cancerous, d.cancer_move_cancerous],
+			["sclc", t.sclc_move_healthy, d.sclc_move_healthy],
+			["pseu", t.pseudopod_cost, d.pseudopod_cost],
+			["counter", t.counter_dmg_on_fail, d.counter_dmg_on_fail],
+			["atkmax", t.attack_max_per_turn, d.attack_max_per_turn]]:
+		if pair[1] != pair[2]:
+			out.append("%s=%s" % [pair[0], str(pair[1])])
+	if t.solid_at_cancer_spawn != d.solid_at_cancer_spawn:
+		out.append("lesion=%s" % ("on" if t.solid_at_cancer_spawn else "off"))
+	if t.aerobic_split != d.aerobic_split:
+		out.append("tune=split")
+	return "默认值" if out.is_empty() else " ".join(out)
 
 
 func _bridge(g: CWGame, faction: int) -> Object:
@@ -175,6 +214,7 @@ func _run() -> void:
 		label if label != "" else order_str, order_str, ai,
 		cancer_wins * 100 / games, cancer_wins, games,
 		float(rounds_sum) / games, by_limit, float(cancerous_sum) / games, secs])
+	print("        旋钮：%s" % _applied(_tune()))
 	var ks: Array = kinds.keys()
 	ks.sort()
 	var parts: Array = []
