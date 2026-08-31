@@ -52,7 +52,7 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 			## 「裂解后要不要立刻净化」也是一个决定，摊成两个顶层选项 ——
 			## 埋在 execute() 里再问一次，AI 就没法把一个行动当成原子来推演了。
 			## 净化那一档在【免疫抑制因子】生效时要加 0.2 净化费（定案 W5）。
-			var purge_cost: int = CWData.LYSE_COST + 2 * game.event_stacks("免疫抑制因子")
+			var purge_cost: int = _purge_cost(cell)
 			if game.can_pay(cell, purge_cost):
 				opts.append({ "label": "裂解并净化（%s 能量）" % CWData.fmt(purge_cost),
 					"data": { "act": "lyse", "purge": true } })
@@ -115,7 +115,7 @@ func _type_options(cell: Dictionary, opts: Array) -> void:
 	match cell["ctype"]:
 		CWData.CancerType.MELANOMA:
 			# 【早期血行转移】：站在血管格上，每世界回合 1 次
-			var homing_cost := _barrier_fee(CWData.MELANOMA_HOMING_COST)
+			var homing_cost := _skill_move_cost(cell, CWData.MELANOMA_HOMING_COST)
 			if not cell["metastasis_used"] \
 					and CWData.special_of(cell["pos"]) == CWData.Special.VESSEL \
 					and game.can_pay(cell, homing_cost):
@@ -130,7 +130,7 @@ func _type_options(cell: Dictionary, opts: Array) -> void:
 				opts.append({ "label": "黏液破裂（耗尽能量并死亡）", "data": { "act": "mucus" } })
 		CWData.CancerType.SCLC:
 			# 【转移】：向某方向跃进 5 格
-			var jump_cost := _barrier_fee(CWData.METASTASIS_COST)
+			var jump_cost := _skill_move_cost(cell, CWData.METASTASIS_COST)
 			if game.can_pay(cell, jump_cost):
 				for c in _jump_targets(cell):
 					opts.append({
@@ -167,232 +167,28 @@ func _cancerous_adj(c: Vector2i) -> int:
 	return n
 
 
-## 会改「移动到某格的费用」的卡牌效果，按存放处分两组（别的修饰条目不掺和）。
-## 即时卡的效果住在 cell["mods"] 里，次序取条目的 seq。
-const MOVE_MODS := { "炎症趋化": true, "CXCR3趋化": true, "上皮—间质转化": true }
-## 永久技能住在 cell["equipped"] 里，次序取 equip_seq。
-## 【癌症干性】也在这组：它是永久技能，**但生效与否看复活时发的限次额度**
-## （那份额度是 mods 里的同名条目），所以位置按装备时刻排、有没有效看额度还剩没剩。
-const MOVE_SKILLS := {
-	"LFA-1黏附": true, "组织浸润": true, "组织巡航": true, "组织驻留": true,
-	"癌症干性": true,
-}
-
-
-## 移动费的**基准价**（修正链第①层）：行动本身 + 免疫等级 + 细胞自带技能
+## 移动费的**基准价**（设计 §四 的第②层）：行动本身 + 免疫等级 + 细胞自带技能
 ## （黑色素瘤【伪足穿透】、小细胞肺癌【极简胞浆】都在 _cancer_move_cost 里）。
-## 单独成函数是因为兑现（_do_move）要用和报价一模一样的起点把链条重算一遍。
+## 基准价之上的所有修饰交给 CWCost —— 卡牌、永久技能、世界事件一律以
+## CostModifier 的形式登记在 CWCost.TEMPLATES，本文件不再自己判谁减多少。
 func _move_base_cost(cell: Dictionary, dest: Vector2i) -> int:
 	if cell["faction"] == CWData.Faction.CANCER:
 		return _cancer_move_cost(cell, dest)
-	return game.tune.immune_move_cancerous[game.immune_level] if game.is_cancerous(dest) \
-		else game.tune.immune_move_healthy[game.immune_level]
+	if game.is_cancerous(dest):
+		return game.tune.immune_move_cancerous[game.immune_level]
+	return game.tune.immune_move_healthy[game.immune_level]
 
 
-## 移动费用的修正链。顺序照 PRD 通则「数值修正的结算顺序」（团队 2026-08-30 定案，
-## 口径 #61/#65 据此重写）：
-##   ① 基准价——见 _move_base_cost
-##   ② 卡牌效果——即时卡与永久技能**混在一条队列里，按打出/装备的先后**逐张结算
-##   ③ 世界事件——最后
-##
-## **报价和收费是同一个函数**：commit=false 只算钱，commit=true 一边算一边把
-## 额度/次数/闸门真的花掉。旧版拆成 _move_cost_mod + _spend_move_mods 两份，
-## 靠注释提醒「两边谓词必须一字不差」——2026-08-30 的审查正是在那条缝里找到问题的，
-## 所以合并成一份，从结构上消灭「标价与收费对不上」这类 bug。
-func _move_cost_chain(cell: Dictionary, dest: Vector2i, base: int, commit: bool) -> int:
-	var cost := base
-	for name in _move_card_queue(cell):
-		cost = _apply_move_card(cell, dest, cost, name, commit)
-	return _move_world_events(cell, dest, cost, commit)
-
-
-## 只报价，不消耗任何额度。行动菜单、AI 评估、界面价签都走这个。
+## 移动到某格要多少钱（**纯查询**，不消耗任何额度）。行动菜单、AI 评估、界面价签都走这个。
+## 2026-08-30 起转由 CWCost 计算：修饰按语义阶段排序，来源顺序只是同阶段的平局规则。
 func _move_cost_mod(cell: Dictionary, dest: Vector2i, base: int) -> int:
-	return _move_cost_chain(cell, dest, base, false)
+	return game.cost.quote(CWCost.context(cell, CWCost.Action.MOVE, base, dest))["final"]
 
 
-## 这个细胞身上影响移动费的卡，按打出/装备先后排好（只返回名字）。
-## 即时卡的次序取 mods 条目的 seq、永久技能取 equip_seq——同一把尺（cell["play_n"]），
-## 所以两者能直接比大小。同名多条各占一位（两张 CXCR3 就减两次）。
-func _move_card_queue(cell: Dictionary) -> Array:
-	var q: Array = []
-	for m in cell["mods"]:
-		if MOVE_MODS.has(m["name"]):
-			q.append({ "seq": m.get("seq", 0), "name": m["name"] })
-	for s in cell["equipped"]:
-		if MOVE_SKILLS.has(s):
-			q.append({ "seq": cell["equip_seq"].get(s, 0), "name": s })
-	q.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["seq"] < b["seq"])
-	var names: Array = []
-	for e in q:
-		names.append(e["name"])
-	return names
-
-
-## 队列里的一张卡作用在当前价上。返回改过的价钱；commit=true 时把额度真的花掉。
-##
-## 「改为 X」直接改写——**可能把价钱抬高**（团队 2026-08-30 定案 A：卡面从「降为」
-## 改成「改为」，抬价是打出顺序的一部分，见口径 #74）；「-X」按各自下限扣且只降不升。
-##
-## **免费额度省，限次折扣不省**（团队 2026-08-30 定案 D 乙案，口径 #75）：
-##   - `free = true` 的那几条（把费用变 0 的免费额度）—— 这一次已经免费就**不消耗**，
-##     额度留给后面真要花钱的移动。问题 6 说的就是这一类：同时装【组织巡航】+
-##     【组织驻留】时，一次移动本来会把两个「本回合首次免费」一起烧掉。
-##   - 其余（限次折扣 / 改写）**照旧消耗**：只要目的地对得上、次数还有，
-##     哪怕这一次一分钱没减到，次数也照扣。团队定的就是这个口径。
-##
-## 所以要分清两件事：**「这张卡适不适用」**（`applies`，目的地/次数对不对）与
-## **「它有没有真的改到钱」**（`after != cost`）。前者为假一律不消耗；
-## 后者只对免费额度那几条有意义。合成一个判据的话，
-## 「打出【炎症趋化】却往健康组织走」和「打出【炎症趋化】但价钱本来就是 0.5」
-## 会被当成同一件事，而团队对这两者的裁定是相反的。
-func _apply_move_card(cell: Dictionary, dest: Vector2i, cost: int, name: String,
-		commit: bool) -> int:
-	var to_cancerous := game.is_cancerous(dest)
-	var to_healthy: bool = game.tile(dest)["tissue"] == CWData.Tissue.HEALTHY
-	var after := cost
-	var applies := false   ## 目的地/次数对得上？为假则这张卡这一次根本不参与结算
-	var free := false      ## 是「把费用变 0」的免费额度？只有这类才省（定案 D 乙案）
-	var spend := ""        ## "mod"=扣一条修饰条目 / "gate"=烧一个本回合闸门 / ""=不消耗
-	var note := ""
-	match name:
-		"炎症趋化":
-			if to_cancerous:
-				applies = true
-				after = CWData.INFLAM_CHEMO_COST
-				spend = "mod"
-				note = "【炎症趋化】本次迁移费用改为 %s" % CWData.fmt(after)
-		"CXCR3趋化":
-			if to_cancerous:
-				applies = true
-				after = _cut_cost(cost, CWData.CXCR3_CUT)
-				spend = "mod"
-				note = "【CXCR3趋化】本次迁移费用 -%s" % CWData.fmt(CWData.CXCR3_CUT)
-		"LFA-1黏附":
-			if to_cancerous and not cell["fx_turn"].has("LFA-1黏附"):
-				applies = true
-				after = _cut_cost(cost, CWData.LFA1_CUT)
-				spend = "gate"
-				note = "【LFA-1黏附】本回合首次向癌性组织迁移 -%s" % CWData.fmt(CWData.LFA1_CUT)
-		"组织浸润":
-			## 无次数无闸门，每次都减 —— 没有额度可省，spend 留空
-			if to_cancerous:
-				applies = true
-				after = _cut_cost(cost, CWData.INFILTRATE_CUT)
-				note = "【组织浸润】向癌性组织迁移 -%s" % CWData.fmt(CWData.INFILTRATE_CUT)
-		"组织巡航":
-			## 首移免费，此后本回合每次 -0.2（任何目的地）
-			if not cell["fx_turn"].has("组织巡航"):
-				applies = true
-				free = true
-				after = 0
-				spend = "gate"
-				note = "【组织巡航】本回合首次迁移免费"
-			else:
-				applies = true
-				after = _cut_cost(cost, CWData.CRUISE_CUT)
-				note = "【组织巡航】本回合后续迁移 -%s" % CWData.fmt(CWData.CRUISE_CUT)
-		"组织驻留":
-			if to_healthy and not cell["fx_turn"].has("组织驻留"):
-				applies = true
-				free = true
-				after = 0
-				spend = "gate"
-				note = "【组织驻留】本回合首次向健康组织迁移免费"
-		"上皮—间质转化":
-			if to_healthy:
-				applies = true
-				after = CWData.EMT_MOVE_COST
-				spend = "mod"
-				note = "【上皮—间质转化】本次移动费用改为 %s" % CWData.fmt(after)
-		"癌症干性":
-			## 复活当个世界回合的限次额度（分期 1~2 次）用完就恢复原价
-			if to_cancerous and not game.mods_of(cell, "癌症干性").is_empty():
-				applies = true
-				free = true
-				after = 0
-				spend = "mod"
-				note = "【癌症干性】本次向癌性组织移动免费"
-	if not applies:
-		return cost      ## 目的地不对 / 次数用尽：这张卡这一次不参与，当然不消耗
-	if free and after == cost:
-		return cost      ## 免费额度：这一次本来就免费，额度留着（定案 D 乙案，口径 #75）
-	if commit:
-		var used := ""
-		match spend:
-			"mod":
-				_spend_one_mod(cell, name)
-				used = "次数"
-			"gate":
-				game.first_this_turn(cell, name)
-				used = "本回合额度"
-		if after != cost:
-			game.log_msg("　%s" % note)
-		elif used != "":
-			## 限次折扣**不省**，但玩家有权知道自己刚白花了一次
-			game.log_msg("　【%s】本次未改变费用，%s 仍消耗" % [name, used])
-	return after
-
-
-## 消耗**一条**同名修饰条目（用尽即移除），取最早打出的那条（数组即打出顺序）。
-## 移动费是逐条结算的，所以一次只扣一条 —— 区别于伤害管线的 CWGame.spend_mods
-## （同一次损失把同名的盾全用掉，定案 #57）。
-func _spend_one_mod(cell: Dictionary, mod_name: String) -> bool:
-	for i in cell["mods"].size():
-		var m: Dictionary = cell["mods"][i]
-		if m["name"] != mod_name:
-			continue
-		m["uses"] -= 1
-		if m["uses"] <= 0:
-			cell["mods"].remove_at(i)
-		return true
-	return false
-
-
-## 减免类：按下限钳，且**只降不升**——已经免费（或已低于下限）的价钱不会被减免卡抬回 0.2。
-## 没这一条的话「先装组织驻留免费、后打 CXCR3」会算出 0 − 0.5 → 钳成 0.2，
-## 一张打折卡反而把免费变成收费（团队 2026-08-30 确认按「只降不升」写）。
-func _cut_cost(cost: int, amount: int) -> int:
-	return maxi(cost - amount, mini(cost, CWData.MOVE_CUT_MIN))
-
-
-## ③ 世界事件最后结算，按 active 里的先后（= 触发先后）。
-## 当前排期下同时只会有一个**世界事件**在场（见 cw_world_fx 头注），但容器按多个写
-## ——卡牌挂的全局条目（基质稳定/TGF-β/TNF 冻结格）也住在同一个容器里。
-func _move_world_events(cell: Dictionary, dest: Vector2i, base: int, commit: bool) -> int:
-	var cost := base
-	for e in game.events["active"]:
-		match e["name"]:
-			"免疫抑制因子":
-				## 净化费 0.2（定案 W5）：进普通癌组织格必然触发净化，计入价签。
-				## 它是净化的钱不是迁移的钱，所以排在卡牌减免之后、砍不到（口径 #65）。
-				## 攻击进普通癌组织格同理——失败时这 0.2 不退，当作出手成本（待团队确认）。
-				if cell["faction"] == CWData.Faction.IMMUNE \
-						and game.tile(dest)["tissue"] == CWData.Tissue.CANCER:
-					cost += 2 * e["stacks"]
-			"免疫伪装":
-				if cell["faction"] == CWData.Faction.CANCER:
-					cost += 2 * e["stacks"]   ## 癌细胞移动 +0.2
-			"基质阻隔":
-				cost = _barrier_fee(cost)
-			"迁移激活":
-				## 免疫细胞每回合首次移动免费。它是**免费额度**，所以按定案 D 乙案
-				## （口径 #75）省着用：这一次本来就免费（比如靠【组织巡航】首移）
-				## 就不烧掉它，留给后面真要花钱的那一步
-				if cost > 0 and game.world_fx.free_move_available(cell):
-					cost = 0
-					if commit:
-						game.world_fx.consume_free_move(cell)
-						game.log_msg("　【迁移激活】本回合首次移动免费")
-	return cost
-
-
-## 【基质阻隔】移动能量花费翻倍。技能移动（转移/早期血行转移）也适用（对照 §六 假设）——
-## 那两个走固定费用、不进卡牌队列，所以它们直接调这个函数。
-func _barrier_fee(base: int) -> int:
-	for i in game.event_stacks("基质阻隔"):
-		base *= 2
-	return base
+## 技能移动（小细胞肺癌【转移】、黑色素瘤【早期血行转移】）的报价。
+## 它们不是【迁移】，走 CELL_SKILL 上下文——目前只有【基质阻隔】的翻倍挂得上。
+func _skill_move_cost(cell: Dictionary, base: int) -> int:
+	return game.cost.quote(CWCost.context(cell, CWCost.Action.CELL_SKILL, base))["final"]
 
 
 ## 这个细胞**理论上**会用到哪些主动技能，按「细胞种类 + 免疫等级」列，
@@ -481,20 +277,21 @@ func attack_outcome(r: int, attacker: Dictionary = {}) -> String:
 	return out
 
 
-## base = 修正链的起点。默认 -1 表示「现算」（_move_base_cost）——
+## base = 报价的起点。默认 -1 表示「现算」（_move_base_cost）——
 ## 只有【炎症性趋化】那种自带基准价（每步 0.2）的调用点需要显式传进来。
+##
+## cost 是**调用方看到的旧价钱**，只用来核对；真正扣多少以 commit() 当场重算为准
+## （设计 §七.2「不把旧价格当权威」）。两者不一致说明选项建好之后局面变了，
+## 喊一声，别静默按另一个价钱扣费。
 func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void:
-	if not game.pay(cell, cost):
+	var ctx := CWCost.context(cell, CWCost.Action.MOVE,
+		base if base >= 0 else _move_base_cost(cell, to), to)
+	var q := game.cost.commit(ctx)
+	if q.is_empty():
 		return
-	## 兑现修正链：额度/次数/闸门在这一刻才真的花掉。和报价走的是同一个函数，
-	## 所以标价与收费不可能对不上（旧版分两处写，正是审查发现问题 6 的地方）。
-	## 剩下的唯一风险是调用方报价时用的**基准价**和这里现算的不是同一个 ——
-	## 那会算出另一条链、扣掉另一批额度。守卫一句，别让它静默发生。
-	var charged := _move_cost_chain(cell, to,
-		base if base >= 0 else _move_base_cost(cell, to), true)
-	if charged != cost:
-		game.log_msg("! 移动费标价 %s 与兑现 %s 不一致（引擎缺陷）" % [
-			CWData.fmt(cost), CWData.fmt(charged)])
+	if int(q["final"]) != cost:
+		game.log_msg("! 移动费标价 %s 与兑现 %s 不一致（局面已变）" % [
+			CWData.fmt(cost), CWData.fmt(int(q["final"]))])
 	if cell["faction"] == CWData.Faction.CANCER:
 		var was_healthy: bool = game.tile(to)["tissue"] == CWData.Tissue.HEALTHY
 		await enter_tile(cell, to)
@@ -836,11 +633,15 @@ func _do_toxin(cell: Dictionary) -> void:
 			game.immune_hit(enemy, CWData.ATTACK_DMG_SUCCESS, cell, false)
 
 
+## 【裂解】的费用；purge=true 时【免疫抑制因子】的净化费经 PURIFY 上下文加在最后
+func _purge_cost(cell: Dictionary) -> int:
+	return game.cost.quote(CWCost.context(cell, CWCost.Action.PURIFY,
+		CWData.LYSE_COST))["final"]
+
+
 func _do_lyse(cell: Dictionary, purge: bool) -> void:
-	var cost := CWData.LYSE_COST
-	if purge:
-		cost += 2 * game.event_stacks("免疫抑制因子")   ## 净化费（定案 W5）
-	if not game.pay(cell, cost):
+	var act := CWCost.Action.PURIFY if purge else CWCost.Action.CELL_SKILL
+	if game.cost.commit(CWCost.context(cell, act, CWData.LYSE_COST)).is_empty():
 		return
 	var pos: Vector2i = cell["pos"]
 	var t: Dictionary = game.tile(pos)
@@ -923,7 +724,8 @@ func _homing_targets() -> Array[Vector2i]:
 
 
 func _do_homing(cell: Dictionary, to: Vector2i) -> void:
-	if not game.pay(cell, _barrier_fee(CWData.MELANOMA_HOMING_COST)):
+	if game.cost.commit(CWCost.context(cell, CWCost.Action.CELL_SKILL,
+			CWData.MELANOMA_HOMING_COST)).is_empty():
 		return
 	cell["metastasis_used"] = true
 	game.log_msg("【早期血行转移】%s 自血管转移至 %s" % [game.cell_name(cell), str(to)])
@@ -978,7 +780,8 @@ func _jump_targets(cell: Dictionary) -> Array:
 ## 跃进路径上不触发【定殖】、代谢核心/骨髓收取等效果，**终点可以触发**（PRD）——
 ## 所以这里直接 enter_tile 到终点，中间格连碰都不碰。
 func _do_jump(cell: Dictionary, to: Vector2i) -> void:
-	if not game.pay(cell, _barrier_fee(CWData.METASTASIS_COST)):
+	if game.cost.commit(CWCost.context(cell, CWCost.Action.CELL_SKILL,
+			CWData.METASTASIS_COST)).is_empty():
 		return
 	game.log_msg("【转移】%s 跃进 5 格至 %s" % [game.cell_name(cell), str(to)])
 	await enter_tile(cell, to)

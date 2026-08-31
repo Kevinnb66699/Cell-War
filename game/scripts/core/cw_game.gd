@@ -56,6 +56,7 @@ var actions: CWActions
 var cards: CWCards
 var card_fx: CWCardFx
 var world_fx: CWWorldFx
+var cost: CWCost
 
 
 ## faction_list：按行动顺序排列的阵营数组（如 CWData.FACTION_ORDER[4]）
@@ -68,7 +69,8 @@ func init(faction_list: Array, seed_value: int) -> void:
 	cards = CWCards.new()
 	card_fx = CWCardFx.new()
 	world_fx = CWWorldFx.new()
-	for m in [setup, world, turn, actions, cards, card_fx, world_fx]:
+	cost = CWCost.new()
+	for m in [setup, world, turn, actions, cards, card_fx, world_fx, cost]:
 		m.game = self
 	events["pool"] = CWWorldFx.EVENTS.duplicate()
 	var immune_i := 0
@@ -315,7 +317,7 @@ func restore(snap: Dictionary) -> void:
 
 
 func dispose() -> void:
-	for m in [setup, world, turn, actions, cards, card_fx, world_fx]:
+	for m in [setup, world, turn, actions, cards, card_fx, world_fx, cost]:
 		if m != null:
 			m.game = null
 	setup = null
@@ -325,6 +327,7 @@ func dispose() -> void:
 	cards = null
 	card_fx = null
 	world_fx = null
+	cost = null
 	for b in bridges.values():
 		b.game = null
 	bridges.clear()

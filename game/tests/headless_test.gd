@@ -3501,10 +3501,14 @@ func t_card_perms() -> void:
 	pv["energy"] = g.tune.attack_dmg_success + 12   ## 打完剩 1.2 ≤ 巨噬阈值 1.5
 	g.cells.append(pv)
 	var ph0: int = ph["energy"]
+	## 设计 §七.2：commit 按当前状态重新报价，调用方传的旧价钱不作数 ——
+	## 所以这里要把真实迁移费算进期望值，不能再假设「传 0 就免费」
+	var ph_fee: int = g.actions._move_cost_mod(ph, Vector2i(1, 0),
+		g.actions._move_base_cost(ph, Vector2i(1, 0)))
 	_rig_roll(g, 6, [3])
 	await g.actions._do_move(ph, Vector2i(1, 0), 0)
 	check(not pv["alive"], "吞噬体成熟：目标剩 1.2 ≤ 1.5，直接死亡")
-	check(ph["energy"] == ph0 + 10 + CWData.SKILL_HEAL,
+	check(ph["energy"] == ph0 - ph_fee + 10 + CWData.SKILL_HEAL,
 		"巨噬吸血 1.0（⌈2.0/2⌉）+ 吞噬体回 0.5")
 	g.dispose()
 
@@ -3531,10 +3535,15 @@ func t_card_perms() -> void:
 	ra["equipped"] = ["RAS持续激活"]
 	g.cells.append(ra)
 	g.round_no = 1
+	var f1: int = g.actions._move_cost_mod(ra, Vector2i(1, 0),
+		g.actions._move_base_cost(ra, Vector2i(1, 0)))
 	await g.actions._do_move(ra, Vector2i(1, 0), 0)
-	check(ra["energy"] == 100 + CWData.RAS_HEAL[0], "首次定殖 +0.3（前期）")
+	check(ra["energy"] == 100 - f1 + CWData.RAS_HEAL[0], "首次定殖 +0.3（前期）")
+	var e1: int = ra["energy"]
+	var f2: int = g.actions._move_cost_mod(ra, Vector2i(2, 0),
+		g.actions._move_base_cost(ra, Vector2i(2, 0)))
 	await g.actions._do_move(ra, Vector2i(2, 0), 0)
-	check(ra["energy"] == 100 + CWData.RAS_HEAL[0], "同回合第二次定殖不再触发")
+	check(ra["energy"] == e1 - f2, "同回合第二次定殖不再触发")
 	g.dispose()
 
 	## ⑯ BCL-2抗凋亡：致死损失改为存活（分期能量），本牌弃置可重抽
@@ -3639,10 +3648,11 @@ func t_card_mods() -> void:
 			o["hand"] = [card]
 			await g.card_fx.play(o, { "act": "play", "card": card })
 		var got: int = g.actions._move_cost_mod(o, Vector2i(1, 0), g.tune.immune_move_cancerous[0])
-		if order[0] == "炎症趋化":
-			check(got == CWData.MOVE_CUT_MIN, "先覆盖后减免：0.5 − 0.5 → 下限 0.2")
-		else:
-			check(got == CWData.INFLAM_CHEMO_COST, "先减免后覆盖：减免被冲掉，回到 0.5")
+		## 2026-08-30 起按队友《费用结算系统设计》走**语义阶段**：
+		## 基础值替换（阶段③）恒在固定减费（阶段⑤）之前，所以打出顺序不再影响结果。
+		## 旧口径 #73（按打出先后逐张结算）下这两种顺序会算出 0.2 / 0.5 两个数。
+		check(got == CWData.MOVE_CUT_MIN,
+			"语义阶段：无论先打哪张，都是「改为 0.5」再 −0.5 → 下限 0.2（%s 先）" % order[0])
 		g.dispose()
 
 	## ①c 减免只降不升：已经免费的价钱不会被减免卡抬回 0.2。
@@ -4497,93 +4507,104 @@ func put_skill(cell: Dictionary, skill: String) -> void:
 ## 抬价本身是有意的（打出顺序要玩家权衡），所以这里钉的是「确实会抬」而不是「不许抬」。
 func _t_ruling_a_rewrite() -> void:
 	var canc := Vector2i(1, 0)
-	var g := bare_game()
-	g.tiles[canc]["tissue"] = CWData.Tissue.CANCER
-	var cell := put_immune(g, Vector2i.ZERO)
-	put_skill(cell, "组织巡航")
-	check(g.actions._move_cost_mod(cell, canc, 10) == 0, "只有【组织巡航】：首移免费")
-	g.add_mod(cell, "炎症趋化", 1, "turn")
-	check(g.actions._move_cost_mod(cell, canc, 10) == CWData.INFLAM_CHEMO_COST,
-		"A：后打的【炎症趋化】把 0 改写成 0.5（改为，不是降为）")
-	g.dispose()
 
-	## 反过来打就不会被抬——同两张卡、只差顺序，结果不同
+	## ① 语义阶段下，「改为 X」（阶段③）恒在「-X」（阶段⑤）之前 —— 打出顺序不再影响结果
+	for order in [["组织巡航_先", "炎症趋化_后"], ["炎症趋化_先", "组织巡航_后"]]:
+		var g := bare_game()
+		g.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+		var cell := put_immune(g, Vector2i.ZERO)
+		if order[0].begins_with("组织巡航"):
+			put_skill(cell, "组织巡航")
+			g.add_mod(cell, "炎症趋化", 1, "turn")
+		else:
+			g.add_mod(cell, "炎症趋化", 1, "turn")
+			put_skill(cell, "组织巡航")
+		check(g.actions._move_cost_mod(cell, canc, 10) == 0,
+			"语义阶段：免费豁免（阶段⑨）盖过「改为 0.5」（阶段③），%s → 0" % order[0])
+		g.dispose()
+
+	## ② 「改为」不再能抬价：它只看基准值，抬不动已经更便宜的价钱
+	##（这一条正是旧定案 A 的立意，随语义阶段一并作废）
 	var g2 := bare_game()
 	g2.tiles[canc]["tissue"] = CWData.Tissue.CANCER
 	var c2 := put_immune(g2, Vector2i.ZERO)
 	g2.add_mod(c2, "炎症趋化", 1, "turn")
-	put_skill(c2, "组织巡航")
-	check(g2.actions._move_cost_mod(c2, canc, 10) == 0,
-		"A：先打【炎症趋化】再装【组织巡航】则仍是 0（顺序决定结果）")
+	g2.add_mod(c2, "CXCR3趋化", 2, "turn")
+	check(g2.actions._move_cost_mod(c2, canc, 10) == CWData.MOVE_CUT_MIN,
+		"改为 0.5 → −0.5 → 踩下限 0.2（改为恒在减费之前）")
 	g2.dispose()
+
+	## ③ ON_BENEFIT：基准价本来就是 0.5 时，「改为 0.5」什么也没干 → 不消耗
+	var g3 := bare_game()
+	g3.immune_level = 3                       ## X 级向癌性组织的基准价就是 0.5
+	g3.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	var c3 := put_immune(g3, Vector2i.ZERO)
+	g3.add_mod(c3, "炎症趋化", 1, "turn")
+	check(g3.actions._move_cost_mod(c3, canc, g3.actions._move_base_cost(c3, canc))
+		== CWData.INFLAM_CHEMO_COST, "X 级：改为 0.5 = 没变")
+	await g3.actions._do_move(c3, canc, CWData.INFLAM_CHEMO_COST)
+	check(g3.mods_of(c3, "炎症趋化").size() == 1,
+		"ON_BENEFIT：没改变费用就不消耗（设计 §七.3）")
+	g3.dispose()
+
+	## ④ 不适用就更不消耗：【炎症趋化】只管向癌性组织的迁移
+	var g4 := bare_game()
+	var c4 := put_immune(g4, Vector2i.ZERO)
+	g4.add_mod(c4, "炎症趋化", 1, "turn")
+	await g4.actions._do_move(c4, Vector2i(1, 0), 5)   ## (1,0) 是健康组织
+	check(g4.mods_of(c4, "炎症趋化").size() == 1, "目的地不对 → 不适用 → 不消耗")
+	g4.dispose()
 
 
 ## 定案 D（乙案，Kevin 2026-08-30）：**免费额度省，限次折扣不省**。
 ## 把费用变 0 的那几条（组织巡航首移 / 组织驻留 / 癌症干性 / 迁移激活）在这一次
 ## 本来就免费时不消耗；限次折扣与改写类照旧按目的地谓词消耗，哪怕一分钱没减到。
 func _t_ruling_d_keep_allowance() -> void:
-	## D-1：两个「本回合首次免费」，一次移动只该用掉一个
+	var base_h: int = 5      ## 免疫向健康组织的基准价 0.5
+	var canc := Vector2i(1, 0)
+
+	## ① 一次移动最多消耗一个免费额度；谁先被选中按**打出/装备先后**
+	##（队友 2026-08-30 答复 c：「按方便记忆可沿用打出先后顺序」，
+	## 覆盖了设计 §九「适用范围更窄者优先」的原文）
 	var g := bare_game()
 	var cell := put_immune(g, Vector2i.ZERO)
+	put_skill(cell, "组织驻留")     ## 先装的先用
 	put_skill(cell, "组织巡航")
-	put_skill(cell, "组织驻留")
-	var base_h: int = g.tune.immune_move_healthy[0]
-	check(g.actions._move_cost_mod(cell, Vector2i(1, 0), base_h) == 0, "D：首移→健康免费")
+	check(g.actions._move_cost_mod(cell, Vector2i(1, 0), base_h) == 0, "首移→健康免费")
 	await g.actions._do_move(cell, Vector2i(1, 0), 0)
-	check(cell["fx_turn"].has("组织巡航"), "D：【组织巡航】的首移额度用掉了")
-	check(not cell["fx_turn"].has("组织驻留"),
-		"D：【组织驻留】没起作用，额度留着（旧版会一起烧掉）")
-	check(g.actions._move_cost_mod(cell, Vector2i(2, 0), base_h) == 0,
-		"D：同回合第二次→健康，靠【组织驻留】仍免费")
+	check(cell["fx_turn"].has("组织驻留"), "先装的【组织驻留】先被豁免")
+	check(not cell["fx_turn"].has("组织巡航"), "一次只消耗一个额度，【组织巡航】保留")
+
+	## ② 驻留用掉后，同回合再向健康组织走轮到巡航
+	check(g.actions._move_cost_mod(cell, Vector2i(2, 0), base_h) == 0, "第二次仍免费（轮到巡航）")
 	await g.actions._do_move(cell, Vector2i(2, 0), 0)
-	check(cell["fx_turn"].has("组织驻留"), "D：这一次才轮到【组织驻留】")
+	check(cell["fx_turn"].has("组织巡航"), "这一次才轮到【组织巡航】")
+
+	## ③ 巡航的「后续 −0.2」只在它的免费额度**用掉之后**才开始（设计 §九.2）
 	check(g.actions._move_cost_mod(cell, Vector2i(3, 0), base_h)
 		== maxi(base_h - CWData.CRUISE_CUT, CWData.MOVE_CUT_MIN),
-		"D：两个额度用尽后只剩【组织巡航】的 -0.2")
+		"两个额度都用尽后，只剩【组织巡航】的 −0.2")
 	g.dispose()
 
-	## D-2：限次折扣**不省** —— 价钱已经到底、一分没减到，次数照扣（乙案）
-	var canc := Vector2i(1, 0)
+	## ④ 向**非健康**组织时【组织驻留】不适用，直接由【组织巡航】豁免（设计 §九.2）
 	var g2 := bare_game()
-	g2.immune_level = 3                       ## X 级基准 0.5
 	g2.tiles[canc]["tissue"] = CWData.Tissue.CANCER
 	var c2 := put_immune(g2, Vector2i.ZERO)
-	put_skill(c2, "组织浸润")                   ## -0.3 → 0.2，已到 MOVE_CUT_MIN
-	g2.add_mod(c2, "CXCR3趋化", 2, "turn")
-	var quote: int = g2.actions._move_cost_mod(c2, canc, g2.actions._move_base_cost(c2, canc))
-	check(quote == CWData.MOVE_CUT_MIN, "D：0.5 −0.3 已踩到下限 0.2")
-	var n0: int = g2.logs.size()
-	await g2.actions._do_move(c2, canc, quote)
-	var left: Array = g2.mods_of(c2, "CXCR3趋化")
-	check(left.size() == 1 and left[0]["uses"] == 1,
-		"D 乙案：【CXCR3趋化】没减到钱，次数照扣（限次折扣不省）")
-	var told := false
-	for i in range(n0, g2.logs.size()):
-		if "CXCR3趋化" in g2.logs[i] and "未改变费用" in g2.logs[i]:
-			told = true
-	check(told, "D 乙案：白花一次要有日志，别让玩家不明不白少一次")
+	put_skill(c2, "组织巡航")
+	put_skill(c2, "组织驻留")
+	await g2.actions._do_move(c2, canc, 0)
+	check(c2["fx_turn"].has("组织巡航"), "向癌性组织：巡航豁免")
+	check(not c2["fx_turn"].has("组织驻留"), "向癌性组织：驻留不适用，额度仍在")
 	g2.dispose()
 
-	## D-2b：目的地不对时**根本不适用**，任何情况下都不该消耗
-	##（这一条钉住乙案最容易写错的地方：「不适用」与「适用但没减到钱」是两码事）
-	var g2b := bare_game()
-	var c2b := put_immune(g2b, Vector2i.ZERO)
-	g2b.add_mod(c2b, "炎症趋化", 1, "turn")     ## 只管向癌性组织的迁移
-	await g2b.actions._do_move(c2b, Vector2i(1, 0), 0)   ## (1,0) 是健康组织
-	check(g2b.mods_of(c2b, "炎症趋化").size() == 1,
-		"D：往健康组织走，【炎症趋化】不适用 → 不消耗")
-	g2b.dispose()
-
-	## D-3：【迁移激活】的每回合免费额度同理
+	## ⑤ 【迁移激活】适用范围最宽，排在细胞自己的额度之后（spec=0）
 	var g3 := bare_game()
 	var c3 := put_immune(g3, Vector2i.ZERO)
 	put_skill(c3, "组织巡航")
 	g3.events["active"].append({ "name": "迁移激活", "left": 2, "stacks": 1, "data": {} })
-	check(g3.actions._move_cost_mod(c3, Vector2i(1, 0), g3.tune.immune_move_healthy[0]) == 0,
-		"D：巡航已经把首移变免费")
 	await g3.actions._do_move(c3, Vector2i(1, 0), 0)
-	check(g3.world_fx.free_move_available(c3),
-		"D：【迁移激活】的免费额度没被白烧")
+	check(c3["fx_turn"].has("组织巡航"), "细胞自己的额度先用")
+	check(g3.world_fx.free_move_available(c3), "【迁移激活】的额度保留，记为适用但未消耗")
 	g3.dispose()
 
 
@@ -4649,26 +4670,26 @@ func t_review_fixes() -> void:
 func _t_hash_knows_play_order() -> void:
 	var canc := Vector2i(1, 0)
 
-	## 局面甲：先装【组织巡航】，再打【炎症趋化】→ 首移到癌性组织收 0.5
+	## 语义阶段落地后，打出先后**不再改变移动费**（见 _t_ruling_a_rewrite），
+	## 但 applied_seq 仍是对局状态的一部分，设计 §六 明写它必须进快照与 state_hash()。
+	## 少了它，「先装巡航后打趋化」和反过来会被认成同一个局面 ——
+	## 将来任何按 applied_seq 平局的效果（同阶段同来源）都会失去确定性保障。
 	var a := bare_game()
 	a.tiles[canc]["tissue"] = CWData.Tissue.CANCER
 	var ca := put_immune(a, Vector2i.ZERO)
 	put_skill(ca, "组织巡航")
 	a.add_mod(ca, "炎症趋化", 1, "turn")
 
-	## 局面乙：只差打出顺序 —— 先打【炎症趋化】，再装【组织巡航】→ 首移免费
 	var b := bare_game()
 	b.tiles[canc]["tissue"] = CWData.Tissue.CANCER
 	var cb := put_immune(b, Vector2i.ZERO)
 	b.add_mod(cb, "炎症趋化", 1, "turn")
 	put_skill(cb, "组织巡航")
 
-	var cost_a: int = a.actions._move_cost_mod(ca, canc, 10)
-	var cost_b: int = b.actions._move_cost_mod(cb, canc, 10)
-	check(cost_a != cost_b, "只差打出顺序的两个局面，移动费确实不同（%s vs %s）" % [
-		CWData.fmt(cost_a), CWData.fmt(cost_b)])
+	check(a.actions._move_cost_mod(ca, canc, 10) == b.actions._move_cost_mod(cb, canc, 10),
+		"语义阶段：只差打出顺序的两个局面，移动费相同")
 	check(a.state_hash() != b.state_hash(),
-		"问题 2：结算结果不同 → state_hash 必须不同（旧版两者相同）")
+		"但 applied_seq 进了 state_hash，两个局面仍可区分（设计 §六）")
 	a.dispose()
 	b.dispose()
 
