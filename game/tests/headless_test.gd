@@ -191,8 +191,19 @@ func t_setup() -> void:
 	var g := make_game(4, 7)
 	await run_setup(g)
 	var cancerous := g.count_tissue(CWData.Tissue.CANCER) + g.count_tissue(CWData.Tissue.SOLID)
-	check(cancerous == CWData.INIT_CANCER_TILES,
-		"初始 %d 格癌性组织" % CWData.INIT_CANCER_TILES)
+	check(cancerous == CWData.init_cancer_tiles(4),
+		"初始 %d 格癌性组织（4 人局）" % CWData.init_cancer_tiles(4))
+	## 初始癌组织按人数分档（口径 #82）：6 人局要多铺，补免疫方随人数线性增长的收入。
+	## 这两条一起钉的是「分档真的生效」——只查 4 人局的话，把表换成定值也照样绿。
+	check(CWData.init_cancer_tiles(6) > CWData.init_cancer_tiles(4),
+		"6 人局初始癌组织（%d）多于 4 人局（%d）" % [
+			CWData.init_cancer_tiles(6), CWData.init_cancer_tiles(4)])
+	var g6 := make_game(6, 7)
+	await run_setup(g6)
+	check(g6.count_tissue(CWData.Tissue.CANCER) + g6.count_tissue(CWData.Tissue.SOLID)
+		== CWData.init_cancer_tiles(6),
+		"初始 %d 格癌性组织（6 人局）" % CWData.init_cancer_tiles(6))
+	g6.dispose()
 	check(g.is_cancerous(Vector2i.ZERO), "含中央格")
 	check(g.cells.size() == 4, "4 个细胞落子")
 	# 原发灶：每个癌症玩家的出生格开局即为固化癌组织
@@ -1796,12 +1807,12 @@ func t_opening() -> void:
 	main_scene.menu.dismiss(0.05, 4.0)   ## 走一遍菜单退场，顺带查它有没有停止吃鼠标
 	m.start_with_bloom(0.3)          ## 不 await：要在演的中途查状态
 	var hidden: int = m._bloom.size()
-	check(hidden >= CWData.INIT_CANCER_TILES - 1,
+	var n_tiles := CWData.init_cancer_tiles(m.game.order.size())
+	check(hidden >= n_tiles - 1,
 		"绽开刚开始时还有 %d 格没揭开（不是一次全出）" % hidden)
 	check(m.bridge.opening, "绽开期间桥被闸住，落子提示不弹出来")
-	check(m.game.count_tissue(CWData.Tissue.CANCER) == CWData.INIT_CANCER_TILES,
-		"引擎那边 %d 格初始癌组织其实早就就位了（藏起来的只是画面）"
-		% CWData.INIT_CANCER_TILES)
+	check(m.game.count_tissue(CWData.Tissue.CANCER) == n_tiles,
+		"引擎那边 %d 格初始癌组织其实早就就位了（藏起来的只是画面）" % n_tiles)
 
 	await create_timer(0.6).timeout
 	check(m._bloom.is_empty(), "演完后全部揭开")
@@ -3733,6 +3744,30 @@ func t_card_mods() -> void:
 		"上皮—间质转化：向健康组织移动费 0.2")
 	await g.actions._do_move(can, Vector2i(1, 0), CWData.EMT_MOVE_COST)
 	check(g.mods_of(can, "上皮—间质转化").is_empty(), "前期只有 1 次，用后消耗")
+	g.dispose()
+
+	## ②b 上皮—间质转化 × 黑色素瘤【伪足穿透】：2026-08-31 抬价后**新出现**的组合。
+	## 抬价前基准价就是 0.2、EMT 的「改为 0.2」是空操作（见 定案D范围确认 顺手带上④）；
+	## 现在基准 0.5 > EMT 的 0.2，这张卡对黑色素瘤第一次真的有用。
+	## 第一条断言钉的是**这个组合存在的前提** —— 谁把伪足穿透改回 0.2，这里会先红。
+	check(CWData.PSEUDOPOD_COST > CWData.EMT_MOVE_COST,
+		"伪足穿透(%s) 比 EMT 的改写值(%s) 贵，EMT 才有意义" % [
+			CWData.fmt(CWData.PSEUDOPOD_COST), CWData.fmt(CWData.EMT_MOVE_COST)])
+	g = _fx_game(4)
+	## 让 (1,0) 邻接两格癌组织，把【伪足穿透】的条件凑齐
+	g.tiles[Vector2i(1, -1)]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[Vector2i(0, 1)]["tissue"] = CWData.Tissue.CANCER
+	var mel := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.MELANOMA)
+	mel["energy"] = 100
+	g.cells.append(mel)
+	g.round_no = 1
+	var base_cost: int = g.actions._cancer_move_cost(mel, Vector2i(1, 0))
+	check(base_cost == CWData.PSEUDOPOD_COST, "黑色素瘤基准价走【伪足穿透】")
+	mel["hand"] = ["上皮—间质转化"]
+	await g.card_fx.play(mel, { "act": "play", "card": "上皮—间质转化" })
+	check(g.actions._move_cost_mod(mel, Vector2i(1, 0), base_cost) == CWData.EMT_MOVE_COST,
+		"EMT 把伪足穿透的 %s 改写为 %s（抬价前这一步是空操作）" % [
+			CWData.fmt(CWData.PSEUDOPOD_COST), CWData.fmt(CWData.EMT_MOVE_COST)])
 	g.dispose()
 
 	## ③ 护盾类：细胞膜修复 −1.5 / I型干扰素事件全体 −1.0 / 同时生效各消耗（定案 #57）

@@ -64,9 +64,10 @@ func clamp_income(gain: int, floor_v: int, cap_v: int) -> int:
 var init_energy_immune := CWData.INIT_ENERGY
 var init_energy_cancer := CWData.INIT_ENERGY
 
-## 初始癌组织格数。规则原文固定 7 格、不随人数变化——但棋盘也固定 61 格，
-## 于是 6 人局的 3 个免疫细胞每回合能净化 6~9 格，一个回合就能抹平整个癌区。
-var init_cancer_tiles := CWData.INIT_CANCER_TILES
+## 初始癌组织格数。**-1 = 按人数取**（`CWData.init_cancer_tiles`，现值 4 人 15 / 6 人 21）。
+## 只有平衡测试要把所有人数钉成同一个数时才设具体值 —— 那是扫这条杠杆的唯一办法，
+## 因为按人数分档的表本身就是被扫的对象。
+var init_cancer_tiles := -1
 
 # ---- 免疫行动费用 ----
 var immune_move_healthy: Array = CWData.IMMUNE_MOVE_HEALTHY.duplicate()
@@ -76,11 +77,13 @@ var immune_move_cancerous: Array = CWData.IMMUNE_MOVE_CANCEROUS.duplicate()
 ## 癌细胞每移动到一格健康组织就【定殖】一格，所以「移动费」就是「占地单价」。
 ## 《平衡方案_PRD版》第二节①认定的根因（转化比 4.6:1）全部落在这四个数上，
 ## 但它们此前是写死的常量、扫不了 —— 免疫那边一直有旋钮，这里补齐对称。
+## 2026-08-31 口径 #82 已把 CWData 那三个默认值抬上去了（1.2 / 0.7 / 0.5），
+## 所以这里的默认值**不再等于 PRD**，等于「引擎现值」。要跑 PRD 原样得显式传 PRD 的数。
 var cancer_move_cancerous := CWData.CANCER_MOVE_CANCEROUS
 var cancer_move_healthy := CWData.CANCER_MOVE_HEALTHY
-## 小细胞肺癌【极简胞浆】：移动至健康组织**永久** 0.3
+## 小细胞肺癌【极简胞浆】：移动至健康组织**永久**走这个折后价
 var sclc_move_healthy := CWData.SCLC_MOVE_HEALTHY
-## 黑色素瘤【伪足穿透】：目标邻接 ≥2 格癌性组织时 0.2，**无次数限制**
+## 黑色素瘤【伪足穿透】：目标邻接 ≥2 格癌性组织时走这个折后价，**无次数限制**
 var pseudopod_cost := CWData.PSEUDOPOD_COST
 
 # ---- 攻击 ----

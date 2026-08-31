@@ -15,7 +15,20 @@ enum CancerType { MELANOMA, SIGNET, OSTEO, SCLC }  # 黑色素瘤 / 印戒 / 骨
 # ---- 棋盘（2026-08-27 团队定案：半径 4 / 61 格 → 半径 6 / 127 格）----
 const BOARD_RADIUS := 6                  # 半径 6 蜂窝 = 1 + 3×6×7 = 127 格
 const TOTAL_TILES := 127
-const INIT_CANCER_TILES := 15            # PRD：15 初始癌组织 + 112 健康 = 127
+## 初始癌组织格数。**PRD 是固定 15 格、不随人数变化**，这里按人数分档，是 2026-08-31
+## 的平衡定案（候选乙，Kevin 拍板）。理由：免疫方阵营总收入随人数线性增长
+## （【S-有氧呼吸】每个免疫细胞各拿全额、不按细胞数均分），癌方不随人数变
+## （【E-无氧呼吸】连通块供能按块内癌细胞数均分）—— 人越多免疫越强，
+## 用开局布局把这一档补回来。实测斜率约 7 个百分点/格，够细。
+## 2 人局不在平衡目标内（Kevin 2026-08-31），沿用 PRD 的 15。
+## PRD 改字见 [PRD差异对照 §七](../../../docs/PRD差异对照.md)。
+const INIT_CANCER_TILES := { 2: 15, 4: 15, 6: 21 }
+
+
+## 按人数取初始癌组织格数。表里没有的人数退回 PRD 的 15 ——
+## `balance_scan.gd` 会拿 5 人／7 人这类非正式人数扫席位，不能让它崩。
+static func init_cancer_tiles(n_players: int) -> int:
+	return INIT_CANCER_TILES.get(n_players, 15)
 
 # ---- 胜负 ----
 # 2026-08-28：全部回到 PRD 原值。此前 20/85/64 是 2026-08-26 依据平衡测试定的暂行值，
@@ -57,12 +70,20 @@ const HAND_MAX := 8
 const IMMUNE_DRAW_COST := 5
 const CANCER_DRAW_COST := 10
 const CANCER_MOVE_CANCEROUS := 2
-const CANCER_MOVE_HEALTHY := 5
+## ⚠ **偏离 PRD（PRD 是 0.5）**：2026-08-31 平衡定案「候选乙」，Kevin 拍板。
+## 癌细胞每移动到一格健康组织就【定殖】一格，所以这个数就是**占地单价**；
+## 免疫【净化】一格是 1.0。0.5 对 1.0 的结果是实测占地转化比 4.6:1、癌方 100% 胜。
+## 下面【伪足穿透】【极简胞浆】两个折扣按同比例一起抬，保持相对关系。
+## 依据见 [平衡方案_PRD版 §八](../../../docs/平衡方案_PRD版.md)，PRD 改字见 PRD差异对照 §七。
+const CANCER_MOVE_HEALTHY := 12
 
 # ---- 癌细胞种类专属（PRD 癌细胞种类）----
 # 恶性黑色素瘤
 const MELANOMA_HOMING_COST := 10         # 【早期血行转移】1.0 能量，每世界回合 1 次
-const PSEUDOPOD_COST := 2                # 【伪足穿透】目标健康组织邻接 ≥2 格癌性组织时，移动费 0.2
+## ⚠ 偏离 PRD（PRD 是 0.2）：随占地单价同比例抬，见 CANCER_MOVE_HEALTHY。
+## 注意连带影响：抬到 0.5 之后，【上皮—间质转化】的「改为 0.2」对黑色素瘤
+## 从空操作变成真有用（0.5 → 0.2）—— 这是新出现的组合，已补测试。
+const PSEUDOPOD_COST := 5                # 【伪足穿透】目标健康组织邻接 ≥2 格癌性组织时的移动费
 const PSEUDOPOD_MIN_ADJ := 2
 # 印戒细胞癌
 const MUCUS_MIN_ENERGY := 20             # 【黏液破裂】至少 2.0 能量才能发动
@@ -72,7 +93,8 @@ const MUCUS_IMMUNE_LOSS := 20            # 范围内免疫细胞损失 2.0
 const ARMOR_REDUCTION := 5               # 【囊性护甲】受到的能量损失 -0.5，每世界回合 1 次
 # 骨肉瘤：【骨样硬化】见 SOLIDIFY_STEP 的用法；【刚性屏障】是攻击合法性限制，无数值
 # 小细胞肺癌
-const SCLC_MOVE_HEALTHY := 3             # 【极简胞浆】移动至健康组织永久 0.3
+## ⚠ 偏离 PRD（PRD 是 0.3）：随占地单价同比例抬，见 CANCER_MOVE_HEALTHY
+const SCLC_MOVE_HEALTHY := 7             # 【极简胞浆】移动至健康组织永久 0.7
 const METASTASIS_COST := 10              # 【转移】1.0 能量
 const METASTASIS_RANGE := 5              # 向某方向跃进 5 格
 const WARBURG_PERCENT := 110             # 【瓦伯格超速糖酵解】无氧呼吸 110%，向上取整到十分位

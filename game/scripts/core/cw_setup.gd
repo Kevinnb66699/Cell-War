@@ -102,7 +102,10 @@ func _place_primary_lesions() -> void:
 ## 下面保留了一个运行时提醒，万一将来又有人往中央格放特殊组织，日志会立刻喊出来。
 ## （规则原文由癌方自选布局，原型固定用这个默认铺法——见 docs/规则电子化说明.md 裁剪项）
 func _place_initial_cancer() -> void:
+	## 旋钮为 -1（默认）时按人数取；平衡测试钉死成具体值时才用旋钮那边的数
 	var target: int = game.tune.init_cancer_tiles
+	if target < 0:
+		target = CWData.init_cancer_tiles(game.order.size())
 	var chosen: Array[Vector2i] = [Vector2i.ZERO]
 	var frontier: Array[Vector2i] = [Vector2i.ZERO]
 	var seen := { Vector2i.ZERO: true }

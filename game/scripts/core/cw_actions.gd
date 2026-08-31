@@ -191,10 +191,10 @@ func _can_draw(cell: Dictionary) -> bool:
 func _cancer_move_cost(cell: Dictionary, dest: Vector2i) -> int:
 	if game.is_cancerous(dest):
 		return game.tune.cancer_move_cancerous
-	# 小细胞肺癌【极简胞浆】：移动至健康组织的消耗**永久**降为 0.3
+	# 小细胞肺癌【极简胞浆】：移动至健康组织的消耗**永久**降为折后价（口径 #82 后是 0.7）
 	if cell["ctype"] == CWData.CancerType.SCLC:
 		return game.tune.sclc_move_healthy
-	# 黑色素瘤【伪足穿透】：目标健康组织与 ≥2 格癌性组织相邻时，本次移动只要 0.2
+	# 黑色素瘤【伪足穿透】：目标健康组织与 ≥2 格癌性组织相邻时走折后价（口径 #82 后是 0.5）
 	if cell["ctype"] == CWData.CancerType.MELANOMA and _cancerous_adj(dest) >= CWData.PSEUDOPOD_MIN_ADJ:
 		return game.tune.pseudopod_cost
 	return game.tune.cancer_move_healthy
