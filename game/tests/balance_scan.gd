@@ -18,6 +18,7 @@
 ##   tune=prd     prd=PRD 原样｜split=免疫收入也按细胞数均分（报告 #29 的修法）
 ##   mv=4         免疫迁移到癌性组织的费用，十分能量，**各等级统一**（PRD 是 [10,10,7,5]）
 ##   ecap / efloor / acap / afloor   无氧／有氧呼吸的每细胞封顶与低保，十分能量
+##   tiles=32     初始癌组织格数（PRD 是 15）
 extends SceneTree
 
 var games := 100
@@ -33,6 +34,7 @@ var ecap := -1
 var efloor := -1
 var acap := -1
 var afloor := -1
+var tiles := -1
 
 
 func _initialize() -> void:
@@ -58,6 +60,7 @@ func _parse() -> void:
 			"efloor": efloor = int(kv[1])
 			"acap": acap = int(kv[1])
 			"afloor": afloor = int(kv[1])
+			"tiles": tiles = int(kv[1])
 
 
 func _order() -> Array:
@@ -79,6 +82,8 @@ func _tune() -> CWTuning:
 		t.aerobic_cap = acap
 	if afloor >= 0:
 		t.aerobic_floor = afloor
+	if tiles >= 0:
+		t.init_cancer_tiles = tiles
 	return t
 
 
