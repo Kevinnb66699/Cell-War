@@ -432,23 +432,10 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 				[CWDamage.Tag.IMMUNE, CWDamage.Tag.ATTACK, CWDamage.Tag.DIRECT,
 					CWDamage.Tag.UNPREVENTABLE, CWDamage.Tag.NO_LIFESTEAL],
 				"细胞毒性增强", 0, group))
-		var dealt := 0
-		for res in game.damage.submit(events):
-			dealt += int(res["actual"])
-		## 【吞噬体成熟】是**伤害后斩杀**：本次确实造成了损失、目标经死亡替代后仍存活、
-		## 且余量不高于阈值才成立（设计 §5.6）——攻击被完全减免时不该发生斩杀。
-		## 走 LethalEvent 而不是直接 kill()；按口径 #68，这道处决 BCL-2 救不回。
-		if game.has_skill(cell, "吞噬体成熟") and dealt > 0 and target["alive"]:
-			var thr := CWData.PHAGO_THRESHOLD
-			if cell["itype"] == CWData.ImmuneType.MACRO:
-				thr = CWData.PHAGO_THRESHOLD_MACRO
-			if target["energy"] <= thr:
-				game.log_msg("　【吞噬体成熟】目标余量仅 %s（不高于 %s）" % [
-					CWData.fmt(target["energy"]), CWData.fmt(thr)])
-				game.damage.lethal(target, "吞噬体成熟")
-				if cell["itype"] == CWData.ImmuneType.MACRO:
-					cell["energy"] += CWData.SKILL_HEAL
-					game.log_msg("　【吞噬体成熟】巨噬恢复 0.5 能量")
+		## 【吞噬体成熟】的伤害后斩杀、巨噬【吞噬】的吸血都在 CWDamage 的伤后触发
+		## 队列里（设计 §5.7）——2026-08-31 从这里挪走：死亡只该在死亡阶段发生，
+		## 在攻击流程里另起一刀等于绕开那条约定
+		game.damage.submit(events)
 		## 【补体级联】的组织转化不是能量损失，【抗原丢失】拦不住它
 		for i in game.spend_mods(cell, "补体级联"):
 			_cascade(target)

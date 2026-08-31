@@ -29,9 +29,25 @@ enum Tag {
 	NO_LIFESTEAL,
 }
 
+## 伤后触发的类别（设计 §5.7）。**枚举顺序即结算顺序**，别随手调换。
+enum Trigger {
+	ON_DEAL,       ## 1 造成伤害后
+	ON_TAKE,       ## 2 受到伤害后
+	LIFESTEAL,     ## 3 吸血 / 回复
+	ON_HIT,        ## 4 攻击成功后
+	ON_KILL,       ## 5 击杀后
+	ON_DEATH,      ## 6 死亡后
+	AFTER_ACTION,  ## 7 组织转化、抽牌等行动后续
+}
+
+## 同类触发的平局顺序（设计 §5.7 末）
+enum Rank { PASSIVE, CARD, SKILL, WORLD }
+
 var game: CWGame
 var _next_id := 0
 var _next_group := 0
+var _queue: Array = []
+var _queue_seq := 0
 
 
 ## 范围伤害的批次号（设计 §4.1 的 simultaneous_group）。
@@ -104,9 +120,9 @@ func _submit_batch(events: Array) -> Array:
 		results.append(_apply(plan))
 	## ⑤⑥ 批次状态稳定后，统一走濒死 → 死亡替代 → 批量死亡
 	_resolve_deaths(results)
-	## ⑦ 最后才抛伤后触发（吸血、斩杀…），此时盘面已经稳定
-	for r in results:
-		_after(r)
+	## ⑦ 最后才抛伤后触发（斩杀、吸血…），此时盘面已经稳定
+	_queue_triggers(results)
+	_flush_triggers()
 	game.update_marks()   ## §6.2：光环重新施加标记只能在整批结算完之后
 	return results
 
@@ -287,16 +303,39 @@ func _consume(target: Dictionary, c: Dictionary) -> void:
 
 # ============ ⑤⑥ 濒死 → 死亡替代 → 批量死亡 ============
 
-## 设计 §5.6：先找出全部濒死者，统一处理【BCL-2抗凋亡】等免死替代，
-## 剩下的再批量标记死亡。**不能边扣边死**，否则同批次里后面的目标会看到变化后的盘面。
+## 设计 §5.6，**分三遍走**（2026-08-31 按队友审查报告 §六.3 拆开）：
+##   一、纯挑选，谁也不动 —— 找出这一批被打到 0 以下的；
+##   二、死亡替代（【BCL-2抗凋亡】等免死）—— 它会改能量，必须在批量宣死之前；
+##   三、批量宣死 —— 到这一步盘面已经定了，各个 kill() 之间互不影响。
+##
+## 从前是一个循环里「查濒死 → 免死 → kill」连着做，虽然 kill() 副作用少、
+## 当时没出错，但那是**结构上的数组顺序依赖**：一旦将来 kill() 带上「死亡后」连锁
+## （掉落、光环消失、给相邻单位加护盾…），同一批里排在后面的目标就会看到变化后的盘面。
 func _resolve_deaths(results: Array) -> void:
+	## 一、挑出濒死的（同一目标可能在这一批里挨了不止一下，只收一次）
+	var dying: Array = []
 	for r in results:
-		var target: Dictionary = r["event"]["target"]
-		if not target["alive"] or target["energy"] > 0 or r["actual"] <= 0:
+		var t: Dictionary = r["event"]["target"]
+		if r["was_replaced"] or r["actual"] <= 0 or not t["alive"] or t["energy"] > 0:
 			continue
-		if _revive_by_bcl2(target):
+		dying.append(r)
+	if dying.is_empty():
+		return
+	## 二、死亡替代
+	var doomed: Array = []
+	for r in dying:
+		var t: Dictionary = r["event"]["target"]
+		if t["energy"] > 0:
+			continue                  ## 同一目标已被前一条的替代救回来了
+		if _revive_by_bcl2(t):
 			continue
-		game.kill(target)
+		doomed.append(r)
+	## 三、批量宣死
+	for r in doomed:
+		var t: Dictionary = r["event"]["target"]
+		if not t["alive"]:
+			continue                  ## 同一目标在这一批里挨了两下，只死一次
+		game.kill(t)
 		r["killed"] = true
 
 
@@ -329,18 +368,91 @@ func lethal(target: Dictionary, reason: String, preventable: bool = false) -> bo
 	return true
 
 
-# ============ ⑦ 伤后触发 ============
+# ============ ⑦ 伤后触发队列 ============
+#
+# 设计 §5.7：盘面稳定之后按固定类别入队，同类再按
+# 「显式优先级 → 角色被动 → 卡牌 → 技能 → 世界事件 → 入场顺序」稳定排序。
+#
+# 现在真正登记进来的只有两条（【吞噬体成熟】的斩杀、巨噬【吞噬】的吸血）。
+# 队列的价值不在条目多，而在于**加第三条时不用再想「它该插在哪、会不会被谁抢先」**
+# —— 从前这两条一个在 CWDamage 里、一个在 CWActions 的攻击流程里，
+# 顺序全靠调用位置，加新触发就得重新推理一遍。
 
-func _after(r: Dictionary) -> void:
-	var ev: Dictionary = r["event"]
-	if r["was_replaced"] or r["actual"] <= 0:
-		return                        ## 「造成伤害后」看 actual，不看判定
-	var source: Dictionary = ev["source"]
-	## 巨噬【吞噬】：攻击造成能量损失后恢复 ⌈**受击方实际损失** ÷ 2⌉。
-	## PRD 这里的取整符号外面没写「到十分位」，所以按**整数能量**向上取整。
-	## 读 actual 而不是理论伤害 —— 残血目标身上两者能差出整整 1.0（审查附一）
-	if Tag.ATTACK in ev["tags"] and not (Tag.NO_LIFESTEAL in ev["tags"]) \
-			and source.get("itype", -1) == CWData.ImmuneType.MACRO:
-		var heal: int = int(ceil(r["actual"] / 2.0 / 10.0)) * 10
-		source["energy"] += heal
-		game.log_msg("　巨噬【吞噬】恢复 %s 能量" % CWData.fmt(heal))
+func _enqueue(cat: Trigger, rank: Rank, label: String, fn: Callable) -> void:
+	_queue_seq += 1
+	_queue.append({ "cat": cat, "rank": rank, "seq": _queue_seq, "label": label, "fn": fn })
+
+
+static func _trigger_order(a: Dictionary, b: Dictionary) -> bool:
+	if a["cat"] != b["cat"]:
+		return a["cat"] < b["cat"]
+	if a["rank"] != b["rank"]:
+		return a["rank"] < b["rank"]
+	return a["seq"] < b["seq"]
+
+
+## 触发自己也可能再入队（斩杀 → 击杀后 → …），所以要循环抽干。
+## guard 是防呆护栏：正常对局远达不到，真撞上说明有环，宁可停下也别死循环。
+func _flush_triggers() -> void:
+	var guard := 0
+	while not _queue.is_empty() and guard < 8:
+		guard += 1
+		var batch: Array = _queue
+		_queue = []
+		batch.sort_custom(_trigger_order)
+		for e in batch:
+			e["fn"].call()
+
+
+func _queue_triggers(results: Array) -> void:
+	## 「造成伤害后」类的触发要看**这一批的合计**，不是单条事件 ——
+	## 同一个 (来源, 目标) 在一批里可能挨了不止一下（主攻击 + 无视减伤的次级伤害）
+	var dealt := {}
+	for r in results:
+		if r["was_replaced"] or r["actual"] <= 0:
+			continue
+		var ev: Dictionary = r["event"]
+		var src: Dictionary = ev["source"]
+		var tgt: Dictionary = ev["target"]
+		var key := "%d>%d" % [int(src.get("id", -1)), int(tgt["id"])]
+		if not dealt.has(key):
+			dealt[key] = { "source": src, "target": tgt, "total": 0, "attack": false }
+		dealt[key]["total"] += int(r["actual"])
+		if Tag.ATTACK in ev["tags"]:
+			dealt[key]["attack"] = true
+		## ③ 吸血 —— 巨噬【吞噬】：攻击造成能量损失后恢复 ⌈**受击方实际损失** ÷ 2⌉。
+		## PRD 这里的取整符号外面没写「到十分位」，所以按**整数能量**向上取整。
+		## 读 actual 而不是理论伤害 —— 残血目标身上两者能差出整整 1.0（审查附一）
+		if Tag.ATTACK in ev["tags"] and not (Tag.NO_LIFESTEAL in ev["tags"]) \
+				and src.get("itype", -1) == CWData.ImmuneType.MACRO:
+			var heal: int = int(ceil(r["actual"] / 2.0 / 10.0)) * 10
+			_enqueue(Trigger.LIFESTEAL, Rank.PASSIVE, "吞噬", func() -> void:
+				src["energy"] += heal
+				game.log_msg("　巨噬【吞噬】恢复 %s 能量" % CWData.fmt(heal)))
+	## ① 造成伤害后 —— 【吞噬体成熟】的伤害后斩杀
+	for d in dealt.values():
+		_queue_execution(d)
+
+
+## 【吞噬体成熟】是**伤害后斩杀**（设计 §5.6）：本批确实造成了损失、
+## 目标经死亡替代后仍存活、且余量不高于阈值才成立 —— 攻击被完全减免时不该发生斩杀。
+## 2026-08-31 从 CWActions 的攻击流程挪进来：从前它在伤害系统的死亡阶段**之后**
+## 另起一刀，等于绕开了「死亡只在死亡阶段发生」这条约定。
+func _queue_execution(d: Dictionary) -> void:
+	var src: Dictionary = d["source"]
+	if not d["attack"] or int(d["total"]) <= 0 or not src.has("equipped"):
+		return
+	if not game.has_skill(src, "吞噬体成熟"):
+		return
+	var target: Dictionary = d["target"]
+	var macro: bool = src.get("itype", -1) == CWData.ImmuneType.MACRO
+	var thr: int = CWData.PHAGO_THRESHOLD_MACRO if macro else CWData.PHAGO_THRESHOLD
+	_enqueue(Trigger.ON_DEAL, Rank.SKILL, "吞噬体成熟", func() -> void:
+		if not target["alive"] or target["energy"] > thr:
+			return
+		game.log_msg("　【吞噬体成熟】目标余量仅 %s（不高于 %s）" % [
+			CWData.fmt(target["energy"]), CWData.fmt(thr)])
+		lethal(target, "吞噬体成熟")
+		if macro:
+			src["energy"] += CWData.SKILL_HEAL
+			game.log_msg("　【吞噬体成熟】巨噬恢复 0.5 能量"))

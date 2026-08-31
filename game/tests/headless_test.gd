@@ -26,6 +26,7 @@ func _run_all() -> void:
 	await t_settle_order_rulings()
 	await t_review_fixes()
 	await t_review_0831()
+	await t_batch_death_and_triggers()
 	await t_damage_pipeline()
 	await t_card_perms()
 	await t_world_events_draw()
@@ -4985,3 +4986,90 @@ func _area_hash(reverse: bool) -> String:
 	var h := g.state_hash()
 	g.dispose()
 	return h
+
+
+## 报告 §六.3：批量死亡分三遍走 + 伤后触发进稳定队列
+func t_batch_death_and_triggers() -> void:
+	print("[批量死亡与伤后触发队列]")
+
+	## ① 同一批里两个目标同时被打死，BCL-2 在**批量宣死之前**统一替代
+	var g := bare_game()
+	var atk := put_immune(g, Vector2i.ZERO)
+	var a := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER,
+		Vector2i(2, 0), -1, CWData.CancerType.SCLC, 5)
+	g.cells.append(a)
+	## pid 只能取 0/1：bare_game() 是两人局，cell_name() 会拿它去索引 players
+	var b := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER,
+		Vector2i(3, 0), -1, CWData.CancerType.SCLC, 5)
+	b["equipped"] = ["BCL-2抗凋亡"]
+	g.cells.append(b)
+	g.round_no = 1
+	g.immune_hit_area([a, b], 30, atk, "IFN-γ")
+	check(not a["alive"], "①没有免死的当场死亡")
+	check(b["alive"] and b["energy"] == CWData.BCL2_ENERGY[0],
+		"①带 BCL-2 的在批量宣死之前被替代救回")
+	check(not ("BCL-2抗凋亡" in b["equipped"]), "①BCL-2 触发后本牌弃置")
+	g.dispose()
+
+	## ② 同一目标在一批里挨两下（主攻击 + 无视减伤的次级伤害）只死一次
+	var g2 := bare_game()
+	var s2 := put_immune(g2, Vector2i.ZERO)
+	var t2 := CWSetup.make_cell(g2.cells.size(), 1, CWData.Faction.CANCER,
+		Vector2i(2, 0), -1, CWData.CancerType.SCLC, 10)
+	g2.cells.append(t2)
+	var grp: int = g2.damage.next_group()
+	var out: Array = g2.damage.submit([
+		g2.damage.event(s2, t2, 30, CWDamage.Kind.ATTACK,
+			[CWDamage.Tag.IMMUNE, CWDamage.Tag.ATTACK], "攻击", 0, grp),
+		g2.damage.event(s2, t2, 10, CWDamage.Kind.ATTACK,
+			[CWDamage.Tag.IMMUNE, CWDamage.Tag.ATTACK, CWDamage.Tag.UNPREVENTABLE],
+			"细胞毒性增强", 0, grp),
+	])
+	var kills := 0
+	for r in out:
+		if r["killed"]:
+			kills += 1
+	check(not t2["alive"], "②目标死亡")
+	check(kills == 1, "②同一目标在一批里只被宣死一次")
+	g2.dispose()
+
+	## ③ 触发队列顺序：【吞噬体成熟】的斩杀（造成伤害后）排在巨噬【吞噬】的吸血之前
+	var g3 := bare_game()
+	g3.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+	var mac := CWSetup.make_cell(g3.cells.size(), 0, CWData.Faction.IMMUNE,
+		Vector2i.ZERO, CWData.ImmuneType.MACRO, -1, 200)
+	mac["equipped"] = ["吞噬体成熟"]
+	g3.cells.append(mac)
+	var prey := CWSetup.make_cell(g3.cells.size(), 1, CWData.Faction.CANCER,
+		Vector2i(1, 0), -1, CWData.CancerType.SCLC,
+		g3.tune.attack_dmg_success + 12)      ## 打完剩 1.2 ≤ 巨噬阈值 1.5
+	g3.cells.append(prey)
+	var n0: int = g3.logs.size()
+	_rig_roll(g3, 6, [3])
+	await g3.actions._do_move(mac, Vector2i(1, 0), 0)
+	check(not prey["alive"], "③吞噬体成熟：余量过低，斩杀成立")
+	var i_exec := -1
+	var i_heal := -1
+	for i in range(n0, g3.logs.size()):
+		if "吞噬体成熟" in g3.logs[i] and i_exec < 0:
+			i_exec = i
+		if "吞噬" in g3.logs[i] and "恢复" in g3.logs[i] and "吞噬体成熟" not in g3.logs[i]:
+			i_heal = i
+	check(i_exec >= 0 and i_heal >= 0, "③两条触发都发生了")
+	check(i_exec < i_heal, "③「造成伤害后」的斩杀排在「吸血」之前（设计 §5.7 的类别顺序）")
+	g3.dispose()
+
+	## ④ 攻击被完全减免时不该发生斩杀（本批 actual 为 0）
+	var g4 := bare_game()
+	g4.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+	var m4 := CWSetup.make_cell(g4.cells.size(), 0, CWData.Faction.IMMUNE,
+		Vector2i.ZERO, CWData.ImmuneType.MACRO, -1, 200)
+	m4["equipped"] = ["吞噬体成熟"]
+	g4.cells.append(m4)
+	var p4 := CWSetup.make_cell(g4.cells.size(), 1, CWData.Faction.CANCER,
+		Vector2i(1, 0), -1, CWData.CancerType.SCLC, 5)   ## 只剩 0.5，低于阈值
+	g4.cells.append(p4)
+	g4.damage.submit([g4.damage.event(m4, p4, 0, CWDamage.Kind.CARD,
+		[CWDamage.Tag.IMMUNE], "技能")])
+	check(p4["alive"], "④没造成实际伤害就不斩杀，哪怕余量早已低于阈值")
+	g4.dispose()
