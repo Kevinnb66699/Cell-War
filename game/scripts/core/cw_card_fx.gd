@@ -364,10 +364,10 @@ func _marrow_mobilization(drawer: Dictionary) -> void:
 ## 2 格内癌细胞 -1.0，普通癌组织固化计数 -1.0（不低于 0）。
 ## title 是通报抬头（"事件【IFN-γ释放】" / "【IFN-γ高峰】"），效果说明两处共用。
 func _ifn_burst(source: Dictionary, center: Vector2i, title: String) -> void:
-	var hit := 0
-	for t in _cancer_cells_in_range(center, 2):
-		game.immune_hit(t, _amp(10), source, false)
-		hit += 1
+	## 范围伤害必须整批同时提交（设计 §5.5），不能边遍历边扣能量、边死人
+	var victims := _cancer_cells_in_range(center, 2)
+	game.immune_hit_area(victims, _amp(10), source, "IFN-γ")
+	var hit: int = victims.size()
 	for c in _tiles_in_range(center, 2):
 		var t: Dictionary = game.tile(c)
 		if t["tissue"] == CWData.Tissue.CANCER and t["solid"] > 0:
@@ -505,14 +505,14 @@ func _inflammation_storm(cell: Dictionary, card: String) -> void:
 	_evt(card, "选择 1 个免疫细胞", cell["pos"])
 	var target := await _pick_immune(cell["pid"], card)
 	var purged := 0
-	var hit := 0
+	var victims: Array = []
 	for n in CWData.neighbors(target["pos"]):
 		if game.tile(n)["tissue"] == CWData.Tissue.CANCER and game.cells_at(n).is_empty():
 			_to_healthy(n)
 			purged += 1
-		for enemy in game.cells_at(n, CWData.Faction.CANCER):
-			game.immune_hit(enemy, _amp(5), cell, false)
-			hit += 1
+		victims.append_array(game.cells_at(n, CWData.Faction.CANCER))
+	game.immune_hit_area(victims, _amp(5), cell, card)
+	var hit: int = victims.size()
 	game.log_msg("　【炎症风暴】以 %s 为中心：%d 格转健康，%d 个癌细胞 -%s" % [
 		game.cell_name(target), purged, hit, CWData.fmt(_amp(5))])
 	_evt(card, "%d 格转健康 · %d 敌 -%s" % [purged, hit, CWData.fmt(_amp(5))], target["pos"])
@@ -522,10 +522,9 @@ func _inflammation_storm(cell: Dictionary, card: String) -> void:
 func _immune_storm(cell: Dictionary, card: String) -> void:
 	_evt(card, "选择 1 个免疫细胞", cell["pos"])
 	var target := await _pick_immune(cell["pid"], card)
-	var hit := 0
-	for t in _cancer_cells_in_range(target["pos"], 2):
-		game.immune_hit(t, _amp(10), cell, false)
-		hit += 1
+	var victims := _cancer_cells_in_range(target["pos"], 2)
+	game.immune_hit_area(victims, _amp(10), cell, card)
+	var hit: int = victims.size()
 	var purged := 0
 	for c in _tiles_in_range(target["pos"], 2):
 		if game.tile(c)["tissue"] == CWData.Tissue.CANCER \
@@ -824,16 +823,16 @@ func _tnf_has_effect(cell: Dictionary) -> bool:
 ## 并把这些癌组织冻住——本世界回合不能增加固化计数（冻结名单挂全局条目，
 ## raise_solid 逐格查询；left=1 随回合末解冻）
 func _tnf(cell: Dictionary) -> void:
-	var hit := 0
+	var victims: Array = []
 	var frozen := {}
 	for c in _tnf_area(cell):
-		for enemy in game.cells_at(c, CWData.Faction.CANCER):
-			game.immune_hit(enemy, _amp(10), cell, false)
-			hit += 1
+		victims.append_array(game.cells_at(c, CWData.Faction.CANCER))
 		var t: Dictionary = game.tile(c)
 		if t["tissue"] == CWData.Tissue.CANCER:
 			t["solid"] = maxi(t["solid"] - 10, 0)   ## 固化计数不是能量，不过【信号放大】
 			frozen[c] = true
+	game.immune_hit_area(victims, _amp(10), cell, "TNF-α局部炎症")
+	var hit: int = victims.size()
 	game.install_event("TNF-α局部炎症", 1, frozen)
 	game.log_msg("　【TNF-α局部炎症】%d 个癌细胞 -%s；%d 格癌组织固化 -1.0 且本回合冻结" % [
 		hit, CWData.fmt(_amp(10)), frozen.size()])

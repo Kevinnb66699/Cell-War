@@ -25,6 +25,7 @@ func _run_all() -> void:
 	await t_card_mods()
 	await t_settle_order_rulings()
 	await t_review_fixes()
+	await t_damage_pipeline()
 	await t_card_perms()
 	await t_world_events_draw()
 	t_ev_attack_mods()
@@ -4736,3 +4737,99 @@ func _t_no_fake_double_trigger() -> void:
 			replayed = true
 	check(replayed, "真的世界事件被加倍时，第二回合仍照常重演（别把修复做过头）")
 	g2.dispose()
+
+
+# ---- 伤害结算系统（按队友《攻击与伤害结算系统设计》，口径 #80）----
+## 这一组盯的是**事件化管线本身**：actual 与理论伤害的区别、ON_BENEFIT、
+## 整批同时结算、UNPREVENTABLE 不绕过死亡检查、斩杀走 LethalEvent。
+func t_damage_pipeline() -> void:
+	print("[伤害结算系统]")
+	_t_dmg_actual_not_theoretical()
+	_t_dmg_shield_on_benefit()
+	await _t_dmg_execute_needs_real_damage()
+	await _t_dmg_unpreventable_still_dies()
+
+
+## 设计 §4.2 / §6.1：吸血与「造成 X 伤害后」读 `actual`（目标**实际失去**多少），
+## 不读理论伤害。2026-08-30 的全量审查漏掉了这条，是队友的设计文档抓出来的。
+func _t_dmg_actual_not_theoretical() -> void:
+	var g := bare_game()
+	var mac := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.MACRO, -1, 100)
+	g.cells.append(mac)
+	var t := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0),
+		-1, CWData.CancerType.SCLC, 5)      ## 结算前只剩 0.5
+	t["marked"] = true
+	t["mark_left"] = 1
+	g.cells.append(t)
+	var before: int = mac["energy"]
+	## 理论伤害 = 2.0 ×2(标记) = 4.0，但目标只有 0.5 可失去
+	check(g.immune_hit(t, 20, mac, true) == 5, "immune_hit 返回实际损失 0.5，不是理论的 4.0")
+	check(mac["energy"] - before == 10,
+		"巨噬【吞噬】按实际损失回 ⌈0.5÷2⌉ = 1.0（旧版按理论伤害回 2.0）")
+	g.dispose()
+
+
+## 设计 §5.4：一组减免没把伤害压低就不消耗。**与定案 #57 正交** ——
+## #57 管的是「同名多条一起算」，这里管的是「这一组有没有起作用」。
+func _t_dmg_shield_on_benefit() -> void:
+	var g := bare_game()
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(2, 0),
+		CWData.ImmuneType.BASIC, -1, 100)
+	g.cells.append(imm)
+	g.add_mod(imm, "细胞膜修复", 1, "")        ## −1.5，一张就够挡下 0.5
+	g.add_mod(imm, "I型干扰素", 1, "round")    ## −1.0，这一次没有可挡的了
+	check(g.cancer_hit(imm, 5, "微环境压迫") == 0, "0.5 的压迫被完全挡下")
+	check(g.mods_of(imm, "细胞膜修复").is_empty(), "起了作用的那面盾照常消耗")
+	check(not g.mods_of(imm, "I型干扰素").is_empty(),
+		"ON_BENEFIT：没起作用的盾留着（旧版会一起烧掉）")
+
+	## 同名多条仍然一起算、一起消耗（定案 #57 不受影响）
+	var g2 := bare_game()
+	var i2 := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(2, 0),
+		CWData.ImmuneType.BASIC, -1, 100)
+	g2.cells.append(i2)
+	g2.add_mod(i2, "细胞膜修复", 1, "")
+	g2.add_mod(i2, "细胞膜修复", 1, "")
+	check(g2.cancer_hit(i2, 40, "微环境压迫") == 10, "两张 −1.5 在同一次损失上减 3.0（#57）")
+	check(g2.mods_of(i2, "细胞膜修复").is_empty(), "同名两条一起消耗（#57）")
+	g.dispose()
+	g2.dispose()
+
+
+## 设计 §5.6：【吞噬体成熟】是**伤害后**斩杀 —— 本次实际造成损失才成立。
+## 攻击被【抗原丢失】整个免疫掉时，不该还发生斩杀。
+func _t_dmg_execute_needs_real_damage() -> void:
+	var g := bare_game()
+	var atk := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.BASIC, -1, 200)
+	atk["equipped"] = ["吞噬体成熟"]
+	g.cells.append(atk)
+	var v := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0),
+		-1, CWData.CancerType.SCLC, 3)      ## 余 0.3，本来必被处决
+	g.cells.append(v)
+	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+	g.events["active"].append({ "name": "抗原丢失", "left": 1, "stacks": 1, "data": {} })
+	await g.actions._do_move(atk, Vector2i(1, 0), 0)
+	check(v["alive"], "【抗原丢失】下本次零伤害 → 不触发【吞噬体成熟】的斩杀")
+	g.dispose()
+
+
+## 设计 §6.4：「无视减伤」是带 UNPREVENTABLE 的伤害事件，只跳过数值减免，
+## **不**跳过日志、BCL-2 与死亡检查。旧版直接扣能量，容易在重构中丢掉这条链。
+func _t_dmg_unpreventable_still_dies() -> void:
+	var g := bare_game()
+	g.round_no = 1
+	var tc := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.T_CELL, -1, 200)
+	tc["equipped"] = ["细胞毒性增强"]
+	g.cells.append(tc)
+	var bv := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0),
+		-1, CWData.CancerType.SCLC, 5)
+	bv["equipped"] = ["BCL-2抗凋亡"]
+	g.cells.append(bv)
+	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+	await g.actions._do_move(tc, Vector2i(1, 0), 0)
+	check(not bv["equipped"].has("BCL-2抗凋亡"),
+		"UNPREVENTABLE 的次级伤害仍然走死亡替代：BCL-2 被触发并弃置")
+	g.dispose()

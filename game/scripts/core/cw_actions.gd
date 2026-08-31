@@ -366,8 +366,10 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 			var per: int = CWData.PERFORIN_EXTRA_T if cell["itype"] == CWData.ImmuneType.T_CELL \
 				else CWData.PERFORIN_EXTRA
 			extra += per * perf
-		## 【细胞毒性增强】非 T：每行动回合首次攻击成功 +1.0（进管线）；
-		## T 细胞：每次成功 +1.0 且「不受减伤效果影响」→ 绕开管线直接扣（口径 #67）
+		## 【细胞毒性增强】非 T：每行动回合首次攻击成功 +1.0（进管线的②固定增加）；
+		## T 细胞：每次成功 +1.0 且「不受减伤效果影响」（口径 #67）——按设计 §6.4
+		## 做成**关联到主攻击的次级伤害事件**，带 UNPREVENTABLE：
+		## 它跳过数值减免，但**不**跳过日志、实际伤害统计、BCL-2 与死亡检查。
 		var cytotox_direct := 0
 		if game.has_skill(cell, "细胞毒性增强"):
 			if cell["itype"] == CWData.ImmuneType.T_CELL:
@@ -376,27 +378,33 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 				extra += CWData.CYTOTOX_EXTRA
 		if extra > 0:
 			game.log_msg("　攻击类修饰：额外造成 %s 能量损失" % CWData.fmt(extra))
-		if game.event_stacks("抗原丢失") > 0:
-			game.log_msg("　【抗原丢失】本回合攻击无法使癌细胞损失能量")
-		else:
-			game.immune_hit(target, dmg, cell, true, extra)
-			if cytotox_direct > 0 and target["alive"]:
-				target["energy"] -= cytotox_direct
-				game.log_msg("　【细胞毒性增强】T 细胞：目标额外损失 %s（无视减伤，余 %s）" % [
-					CWData.fmt(cytotox_direct), CWData.fmt(maxi(target["energy"], 0))])
-				game._after_damage(target)   ## 可致死；BCL-2 的免死也在这条路上
-			## 【吞噬体成熟】造成损失后目标余量过低 → 直接死亡（巨噬阈值更高并回能）
-			if game.has_skill(cell, "吞噬体成熟") and target["alive"]:
-				var thr: int = CWData.PHAGO_THRESHOLD_MACRO \
-					if cell["itype"] == CWData.ImmuneType.MACRO else CWData.PHAGO_THRESHOLD
-				if target["energy"] <= thr:
-					game.log_msg("　【吞噬体成熟】目标余量仅 %s（不高于 %s），直接死亡" % [
-						CWData.fmt(target["energy"]), CWData.fmt(thr)])
-					game.kill(target)
-					game.update_marks()
-					if cell["itype"] == CWData.ImmuneType.MACRO:
-						cell["energy"] += CWData.SKILL_HEAL
-						game.log_msg("　【吞噬体成熟】巨噬恢复 0.5 能量")
+		## 【抗原丢失】的免疫判定住在管线的「替代/免疫」层（设计 §5.2），这里不再自己拦：
+		## 被整体免疫的事件视为未造成伤害，护盾、标记与斩杀都不会被骗掉
+		var events: Array = [game.damage.event(cell, target, dmg, CWDamage.Kind.ATTACK,
+			[CWDamage.Tag.IMMUNE, CWDamage.Tag.ATTACK], "攻击", extra)]
+		if cytotox_direct > 0:
+			events.append(game.damage.event(cell, target, cytotox_direct,
+				CWDamage.Kind.ATTACK,
+				[CWDamage.Tag.IMMUNE, CWDamage.Tag.ATTACK, CWDamage.Tag.DIRECT,
+					CWDamage.Tag.UNPREVENTABLE, CWDamage.Tag.NO_LIFESTEAL],
+				"细胞毒性增强"))
+		var dealt := 0
+		for res in game.damage.submit(events):
+			dealt += int(res["actual"])
+		## 【吞噬体成熟】是**伤害后斩杀**：本次确实造成了损失、目标经死亡替代后仍存活、
+		## 且余量不高于阈值才成立（设计 §5.6）——攻击被完全减免时不该发生斩杀。
+		## 走 LethalEvent 而不是直接 kill()；按口径 #68，这道处决 BCL-2 救不回。
+		if game.has_skill(cell, "吞噬体成熟") and dealt > 0 and target["alive"]:
+			var thr := CWData.PHAGO_THRESHOLD
+			if cell["itype"] == CWData.ImmuneType.MACRO:
+				thr = CWData.PHAGO_THRESHOLD_MACRO
+			if target["energy"] <= thr:
+				game.log_msg("　【吞噬体成熟】目标余量仅 %s（不高于 %s）" % [
+					CWData.fmt(target["energy"]), CWData.fmt(thr)])
+				game.damage.lethal(target, "吞噬体成熟")
+				if cell["itype"] == CWData.ImmuneType.MACRO:
+					cell["energy"] += CWData.SKILL_HEAL
+					game.log_msg("　【吞噬体成熟】巨噬恢复 0.5 能量")
 		## 【补体级联】的组织转化不是能量损失，【抗原丢失】拦不住它
 		for i in game.spend_mods(cell, "补体级联"):
 			_cascade(target)
@@ -575,10 +583,10 @@ func _do_antibody(cell: Dictionary) -> void:
 				break
 	if not targets.is_empty():
 		game.log_msg("【抗体】命中 %d 个与健康组织邻接的癌细胞" % targets.size())
-		for c in targets:
-			## attack=false：抗体是「技能」不是普通攻击——树突/巨噬那两条挂不上
-			## （B 细胞专属，本就挂不上），而【DNA损伤修复】明写挡「技能」，要挡得到它
-			game.immune_hit(c, dmg, cell, false)
+		## 多目标同时结算（设计 §5.5）。attack=false：抗体是「技能」不是普通攻击——
+		## 树突/巨噬那两条挂不上（B 细胞专属，本就挂不上），
+		## 而【DNA损伤修复】明写挡「技能」，要挡得到它
+		game.immune_hit_area(targets, dmg, cell, "抗体")
 		return
 	# 无目标 → 随机将与健康组织相邻的 X 格癌组织转为健康（2/3→1，1/3→2）
 	var eligible: Array[Vector2i] = []
@@ -627,10 +635,11 @@ func _do_toxin(cell: Dictionary) -> void:
 		_to_healthy(c)
 		game.tile(c)["necrosis"] = CWData.NECROSIS_TOXIN
 	game.log_msg("【细胞毒素】相邻 %d 格癌组织转为健康组织并进入「坏死」（不积累记忆）" % targets.size())
+	var victims: Array = []
 	for n in CWData.neighbors(cell["pos"]):
-		for enemy in game.cells_at(n, CWData.Faction.CANCER):
-			## attack=false：细胞毒素是「技能」，同上（T 细胞专属）；【DNA损伤修复】可挡
-			game.immune_hit(enemy, CWData.ATTACK_DMG_SUCCESS, cell, false)
+		victims.append_array(game.cells_at(n, CWData.Faction.CANCER))
+	## attack=false：细胞毒素是「技能」，同上（T 细胞专属）；【DNA损伤修复】可挡
+	game.immune_hit_area(victims, CWData.ATTACK_DMG_SUCCESS, cell, "细胞毒素")
 
 
 ## 【裂解】的费用；purge=true 时【免疫抑制因子】的净化费经 PURIFY 上下文加在最后
@@ -758,9 +767,10 @@ func _do_mucus(cell: Dictionary) -> void:
 	game.log_msg("【黏液破裂】%s 引爆：%d 格进入黏液侵染，其中 %d 格转为癌组织" % [
 		game.cell_name(cell), area.size(), picked.size()])
 	game.announce("黏液破裂", cell["pos"])
+	var victims: Array = []
 	for c in area:
-		for immune in game.cells_at(c, CWData.Faction.IMMUNE):
-			game.cancer_hit(immune, CWData.MUCUS_IMMUNE_LOSS, "黏液破裂", true)
+		victims.append_array(game.cells_at(c, CWData.Faction.IMMUNE))
+	game.cancer_hit_area(victims, CWData.MUCUS_IMMUNE_LOSS, "黏液破裂", true)
 	game.kill(cell)   # 自毁型技能：耗尽能量并死亡（说明 #8 的同类）
 	game.update_marks()
 

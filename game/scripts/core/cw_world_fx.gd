@@ -136,15 +136,13 @@ func _resolve(entry: Dictionary) -> void:
 		"增殖抑制":
 			## 「无法增生」是持续查询（CWWorld._proliferate）；失去/弃牌逐份结算
 			for i in stacks:
-				for c in game.living_cells(CWData.Faction.IMMUNE):
-					game.cancer_hit(c, 5, "增殖抑制")
+				game.cancer_hit_area(game.living_cells(CWData.Faction.IMMUNE), 5, "增殖抑制")
 				for c in game.living_cells(CWData.Faction.CANCER):
 					_discard_random(c)
 		"免疫抑制因子":
 			## 净化加价与不给记忆是持续查询（enter_tile / lyse）；这里只做一次性部分
 			for i in stacks:
-				for c in game.living_cells(CWData.Faction.CANCER):
-					game.cancer_hit(c, 5, "免疫抑制因子")
+				game.cancer_hit_area(game.living_cells(CWData.Faction.CANCER), 5, "免疫抑制因子")
 				for c in game.living_cells(CWData.Faction.IMMUNE):
 					_discard_random(c)
 		"营养缺乏":

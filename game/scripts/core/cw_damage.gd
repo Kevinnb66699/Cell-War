@@ -1,0 +1,319 @@
+## cw_damage.gd —— 伤害结算系统
+##
+## 按队友《攻击与伤害结算系统设计》实装（2026-08-30 Kevin 拍板「以两份设计为准」）。
+##
+## 七阶段管线（设计 §五）：
+##   建立事件 → 替代/免疫 → 数值计算 → 批量提交 → 濒死与死亡替代 → 批量死亡 → 伤后触发
+##
+## **三条铁律**：
+## ① 计算是纯函数，**先把整批算完再动能量**（§5.5）。边遍历边扣能量、边死人，
+##    数组顺序就会改变结果——范围伤害尤其怕这个。
+## ② 「攻击成功后」看**判定**，「造成伤害后」看 `DamageResult.actual > 0`（§三末）。
+##    吸血、统计、斩杀一律读 actual，不读理论伤害。
+## ③ 「无视减伤」仍然是伤害事件，只是带 `UNPREVENTABLE` 标签；**不允许**为了绕过
+##    减伤就直接 `target["energy"] -= v`，否则日志、BCL-2、死亡与统计会再次分叉（§4.1）。
+class_name CWDamage
+extends RefCounted
+
+## 伤害来源（设计 §4.1）
+enum Kind { ATTACK, CELL_SKILL, CARD, WORLD, REFLECT, SELF }
+
+## 跨来源性质的标签
+enum Tag {
+	IMMUNE,          ## 免疫方造成
+	CANCER,          ## 癌症方造成
+	ATTACK,          ## 是「攻击」——树突【各司其职】减半、巨噬【吞噬】吸血只认它
+	AREA,            ## 范围伤害（必须带 simultaneous_group）
+	DIRECT,          ## 直击
+	UNPREVENTABLE,   ## 跳过数值减免，但**不**跳过日志、BCL-2、死亡检查与统计
+	NO_LIFESTEAL,
+}
+
+var game: CWGame
+var _next_id := 0
+var _next_group := 0
+
+
+## 范围伤害的批次号（设计 §4.1 的 simultaneous_group）。
+## 同一批的事件必须在同一份「批前状态」上计算，见 submit()。
+func next_group() -> int:
+	_next_group += 1
+	return _next_group
+
+
+# ============ ① 建立事件 ============
+
+## 冻结来源、目标、基础伤害、固定额外伤害、位置与标签。
+## 这一步不扣能量、不烧护盾、不检查死亡。
+func event(source: Dictionary, target: Dictionary, base: int, kind: Kind,
+		tags: Array, ability: String, add: int = 0, group: int = 0) -> Dictionary:
+	_next_id += 1
+	return {
+		"id": _next_id,
+		"source": source,
+		"target": target,
+		"base_amount": base,
+		"bonus_amount": add,
+		"source_kind": kind,
+		"tags": tags,
+		"ability": ability,
+		"position": target["pos"],
+		"simultaneous_group": group,
+	}
+
+
+## 提交一批伤害事件，返回等长的 DamageResult 数组。
+## 单体伤害就是 size==1 的一批 —— 走同一条路，没有第二套逻辑。
+func submit(events: Array) -> Array:
+	if events.is_empty():
+		return []
+	## ②③ 先把整批算完（纯计算，谁也不动）
+	var plans: Array = []
+	for ev in events:
+		plans.append(_plan(ev))
+	## ④ 再统一扣能量、消耗修饰
+	var results: Array = []
+	for plan in plans:
+		results.append(_apply(plan))
+	## ⑤⑥ 批次状态稳定后，统一走濒死 → 死亡替代 → 批量死亡
+	_resolve_deaths(results)
+	## ⑦ 最后才抛伤后触发（吸血、斩杀…），此时盘面已经稳定
+	for r in results:
+		_after(r)
+	game.update_marks()   ## §6.2：光环重新施加标记只能在整批结算完之后
+	return results
+
+
+# ============ ②③ 替代/免疫 + 数值计算（纯函数）============
+
+func _plan(ev: Dictionary) -> Dictionary:
+	var target: Dictionary = ev["target"]
+	var plan := {
+		"event": ev,
+		"replaced": false,
+		"calculated": 0,
+		"attempted": ev["base_amount"] + ev["bonus_amount"],
+		"consume": [],      ## 提交时才真的扣掉的修饰 {name, uses_all}
+		"marks": [],        ## 提交时才写的「每世界回合首次」闸门
+		"logs": [],
+	}
+	## ② 替代与免疫：整个事件失效的效果先处理。被整体免疫的事件视为「未造成伤害」，
+	## 不触发吸血、受伤与斩杀，**也不消耗数值层的修饰**（设计 §5.2）
+	if _immune_to(ev):
+		plan["replaced"] = true
+		plan["logs"].append("　【抗原丢失】本回合攻击无法使癌细胞损失能量")
+		return plan
+	## ③ 数值计算：保留 PRD 五步数学
+	plan["calculated"] = _calculate(ev, plan)
+	return plan
+
+
+## 【抗原丢失】：本回合攻击无法使癌细胞损失能量
+func _immune_to(ev: Dictionary) -> bool:
+	return Tag.ATTACK in ev["tags"] and game.event_stacks("抗原丢失") > 0
+
+
+## 五步管线：max(floor((基础 + 固定增加) × 倍增 ÷ 倍减) - 固定减免, 0)
+func _calculate(ev: Dictionary, plan: Dictionary) -> int:
+	var target: Dictionary = ev["target"]
+	var mult := 1
+	var div := 1
+	## ③ 倍增 —— 树突【标记】。ON_BENEFIT：只有确实抬高了伤害才消耗（设计 §6.2）
+	if target["marked"] and ev["base_amount"] + ev["bonus_amount"] > 0:
+		mult *= 2
+		plan["consume"].append({ "kind": "mark" })
+	## ④ 倍减 —— 树突【各司其职】，只认「攻击」
+	if Tag.ATTACK in ev["tags"] and ev["source"].get("itype", -1) == CWData.ImmuneType.DENDRITIC:
+		div *= 2
+		plan["logs"].append("　【各司其职】树突状细胞只造成 1/2 伤害")
+	var dmg: int = (ev["base_amount"] + ev["bonus_amount"]) * mult / div
+	## ⑤ 固定减免。UNPREVENTABLE 跳过这一层——但日志、BCL-2、死亡检查照走（设计 §6.4）
+	if Tag.UNPREVENTABLE in ev["tags"]:
+		return maxi(dmg, 0)
+	return maxi(_reduce(ev, dmg, plan), 0)
+
+
+## 减免层。**同名多条一起算**（定案 #57：两张「下一次 -1.5」= 这一次减 3.0），
+## 不同名的按打出先后逐组结算，每组走 ON_BENEFIT：这一组没把伤害压低就不消耗
+## （设计 §5.4）。两条口径正交，互不冲突 —— 队友 2026-08-30 答复 b 已确认。
+func _reduce(ev: Dictionary, dmg: int, plan: Dictionary) -> int:
+	for g in _shield_groups(ev):
+		if dmg <= 0:
+			break                      ## 已经挡光了，后面的盾留着（ON_BENEFIT）
+		var after: int = maxi(dmg - g["cut"], 0)
+		if after == dmg:
+			continue                   ## 这一组没起作用 → 不消耗
+		plan["logs"].append("　【%s】减免 %s" % [g["name"], CWData.fmt(dmg - after)])
+		if g.has("mod"):
+			plan["consume"].append({ "kind": "mod", "name": g["name"] })
+		if g.has("mark"):
+			plan["marks"].append(g["mark"])
+		if g.get("armor", false):
+			plan["consume"].append({ "kind": "armor" })
+		dmg = after
+	return dmg
+
+
+## 这次事件上，受击方有哪些减免可用。按「打出先后」排（同名合并成一组）。
+func _shield_groups(ev: Dictionary) -> Array:
+	var t: Dictionary = ev["target"]
+	var out: Array = []
+	## 印戒【囊性护甲】：每世界回合第一次能量损失 -0.5，不限来源（口径 #76）
+	if t["ctype"] == CWData.CancerType.SIGNET and not t["armor_used"]:
+		out.append({ "name": "囊性护甲", "cut": CWData.ARMOR_REDUCTION, "armor": true,
+			"seq": -1 })
+	for name in ["细胞膜修复", "I型干扰素", "缺氧适应", "DNA损伤修复"]:
+		if not _shield_applies(name, ev):
+			continue
+		var entries: Array = game.mods_of(t, name)
+		if entries.is_empty():
+			continue
+		out.append({ "name": name, "cut": _shield_value(name, entries.size()),
+			"mod": true, "seq": int(entries[0].get("seq", 0)) })
+	## 【耗竭抵抗】是永久技能，没有「打出先后」，排在最后
+	if game.has_skill(t, "耗竭抵抗"):
+		var cut := 0
+		if not t["fx_round"].has("耗竭抵抗"):
+			cut += CWData.EXHAUST_FIRST_CUT
+		if ev["ability"] == "微环境压迫":
+			cut += CWData.EXHAUST_PRESSURE_CUT
+		if cut > 0:
+			out.append({ "name": "耗竭抵抗", "cut": cut, "mark": "耗竭抵抗", "seq": 1 << 30 })
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["seq"] < b["seq"])
+	return out
+
+
+## 各护盾认哪些来源（设计 §6.5：按标签语义识别，不靠布尔分叉）
+func _shield_applies(name: String, ev: Dictionary) -> bool:
+	match name:
+		"细胞膜修复", "I型干扰素":
+			return true                        ## 任何来源的能量损失
+		"缺氧适应":
+			## 癌细胞技能（含癌方即时卡）**或**【微环境压迫】（口径 #62/#72）
+			return ev["ability"] == "微环境压迫" \
+				or (Tag.CANCER in ev["tags"] and ev["source_kind"] != Kind.WORLD)
+		"DNA损伤修复":
+			## 只挡免疫方的【事件】/【技能】，普通攻击是 PD-L1 的领地（口径 #62）
+			return Tag.IMMUNE in ev["tags"] and not (Tag.ATTACK in ev["tags"])
+	return false
+
+
+func _shield_value(name: String, count: int) -> int:
+	match name:
+		"细胞膜修复":
+			return CWData.MEMBRANE_CUT * count
+		"I型干扰素":
+			return CWData.IFN1_CUT * count
+		"缺氧适应":
+			return CWData.HYPOXIA_CUT * count
+		"DNA损伤修复":
+			## 按结算当刻的分期取值（定案 #64）
+			return [10, 15, 20][CWCardData.cancer_phase(game.round_no)] * count
+	return 0
+
+
+# ============ ④ 提交（扣能量 + 消耗修饰）============
+
+func _apply(plan: Dictionary) -> Dictionary:
+	var ev: Dictionary = plan["event"]
+	var target: Dictionary = ev["target"]
+	var before: int = target["energy"]
+	var calculated: int = plan["calculated"]
+	## actual = 目标**实际失去**的能量，不能超过它结算前有多少（设计 §4.2）。
+	## 吸血、伤害统计、「造成 X 伤害后」一律读这个值 —— 读理论值会多回血（审查附一）
+	var actual: int = mini(calculated, maxi(before, 0))
+	for line in plan["logs"]:
+		game.log_msg(line)
+	if not plan["replaced"]:
+		for c in plan["consume"]:
+			_consume(target, c)
+		for m in plan["marks"]:
+			game.first_this_round(target, m)
+		target["energy"] = before - calculated
+	if calculated > 0:
+		game.log_msg("【%s】%s 损失 %s 能量（余 %s）" % [
+			ev["ability"], game.cell_name(target), CWData.fmt(actual),
+			CWData.fmt(maxi(target["energy"], 0))])
+	return {
+		"event_id": ev["id"], "event": ev,
+		"attempted": plan["attempted"], "calculated": calculated, "actual": actual,
+		"prevented": maxi(plan["attempted"] - calculated, 0),
+		"energy_before": before, "energy_after": target["energy"],
+		"was_replaced": plan["replaced"], "killed": false,
+	}
+
+
+func _consume(target: Dictionary, c: Dictionary) -> void:
+	match c["kind"]:
+		"mark":
+			target["mark_left"] -= 1
+			if target["mark_left"] <= 0:
+				target["marked"] = false
+				game.log_msg("　【标记】生效，伤害翻倍")
+			else:
+				game.log_msg("　【标记】生效，伤害翻倍（还可触发 %d 次）" % target["mark_left"])
+		"armor":
+			target["armor_used"] = true
+		"mod":
+			game.spend_mods(target, c["name"])   ## 同名一起扣（定案 #57）
+
+
+# ============ ⑤⑥ 濒死 → 死亡替代 → 批量死亡 ============
+
+## 设计 §5.6：先找出全部濒死者，统一处理【BCL-2抗凋亡】等免死替代，
+## 剩下的再批量标记死亡。**不能边扣边死**，否则同批次里后面的目标会看到变化后的盘面。
+func _resolve_deaths(results: Array) -> void:
+	for r in results:
+		var target: Dictionary = r["event"]["target"]
+		if not target["alive"] or target["energy"] > 0 or r["actual"] <= 0:
+			continue
+		if _revive_by_bcl2(target):
+			continue
+		game.kill(target)
+		r["killed"] = true
+
+
+## 【BCL-2抗凋亡】只救「受到的损失」（口径 #68）。返回 true 表示这次免于死亡。
+func _revive_by_bcl2(cell: Dictionary) -> bool:
+	if not game.has_skill(cell, "BCL-2抗凋亡"):
+		return false
+	var tier: int = CWData.BCL2_ENERGY[CWCardData.cancer_phase(game.round_no)]
+	cell["energy"] = tier
+	cell["equipped"].erase("BCL-2抗凋亡")
+	game.log_msg("　【BCL-2抗凋亡】%s 免于死亡，能量改为 %s（本牌弃置，可重新抽取）" % [
+		game.cell_name(cell), CWData.fmt(tier)])
+	return true
+
+
+## 「直接消灭」不由业务代码随手调 kill()，而是建一个 LethalEvent，
+## **显式**标记能不能被死亡替代阻止（设计 §5.6，队友答复 d 确认是技术层要求）。
+##
+## ⚠ preventable 的默认值必须选对：口径 #68 定的是【吞噬体成熟】的处决
+## **BCL-2 救不回**（先免死再被处决的顺序按字面走）。图省事让它默认可阻止的话，
+## #68 会被静默改掉，而且现有断言一条都不会红 —— 所以默认写成不可阻止。
+func lethal(target: Dictionary, reason: String, preventable: bool = false) -> bool:
+	if not target["alive"]:
+		return false
+	if preventable and _revive_by_bcl2(target):
+		return false
+	game.log_msg("　【%s】%s 被直接消灭" % [reason, game.cell_name(target)])
+	game.kill(target)
+	game.update_marks()
+	return true
+
+
+# ============ ⑦ 伤后触发 ============
+
+func _after(r: Dictionary) -> void:
+	var ev: Dictionary = r["event"]
+	if r["was_replaced"] or r["actual"] <= 0:
+		return                        ## 「造成伤害后」看 actual，不看判定
+	var source: Dictionary = ev["source"]
+	## 巨噬【吞噬】：攻击造成能量损失后恢复 ⌈**受击方实际损失** ÷ 2⌉。
+	## PRD 这里的取整符号外面没写「到十分位」，所以按**整数能量**向上取整。
+	## 读 actual 而不是理论伤害 —— 残血目标身上两者能差出整整 1.0（审查附一）
+	if Tag.ATTACK in ev["tags"] and not (Tag.NO_LIFESTEAL in ev["tags"]) \
+			and source.get("itype", -1) == CWData.ImmuneType.MACRO:
+		var heal: int = int(ceil(r["actual"] / 2.0 / 10.0)) * 10
+		source["energy"] += heal
+		game.log_msg("　巨噬【吞噬】恢复 %s 能量" % CWData.fmt(heal))

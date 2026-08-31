@@ -57,6 +57,7 @@ var cards: CWCards
 var card_fx: CWCardFx
 var world_fx: CWWorldFx
 var cost: CWCost
+var damage: CWDamage
 
 
 ## faction_list：按行动顺序排列的阵营数组（如 CWData.FACTION_ORDER[4]）
@@ -70,7 +71,8 @@ func init(faction_list: Array, seed_value: int) -> void:
 	card_fx = CWCardFx.new()
 	world_fx = CWWorldFx.new()
 	cost = CWCost.new()
-	for m in [setup, world, turn, actions, cards, card_fx, world_fx, cost]:
+	damage = CWDamage.new()
+	for m in [setup, world, turn, actions, cards, card_fx, world_fx, cost, damage]:
 		m.game = self
 	events["pool"] = CWWorldFx.EVENTS.duplicate()
 	var immune_i := 0
@@ -317,7 +319,7 @@ func restore(snap: Dictionary) -> void:
 
 
 func dispose() -> void:
-	for m in [setup, world, turn, actions, cards, card_fx, world_fx, cost]:
+	for m in [setup, world, turn, actions, cards, card_fx, world_fx, cost, damage]:
 		if m != null:
 			m.game = null
 	setup = null
@@ -328,6 +330,7 @@ func dispose() -> void:
 	card_fx = null
 	world_fx = null
 	cost = null
+	damage = null
 	for b in bridges.values():
 		b.game = null
 	bridges.clear()
@@ -623,116 +626,59 @@ func armor_cut(target: Dictionary) -> int:
 
 ## 免疫来源的能量损失（普通攻击 / B 细胞【抗体】/ 免疫卡牌共用）。
 ##
-## attack=false 表示这次损失**不是「攻击」**（卡牌伤害等）：树突【各司其职】减半与
-## 巨噬【吞噬】吸血都不触发——PRD 那两条明写"攻击"；而【标记】×2 管的是"损失"，
-## 任何来源都生效。【囊性护甲】同理，且**跨管线**生效（走 armor_cut，见那里的注释）。
+## 2026-08-30 起只是 CWDamage 的**薄壳**：建一个 DamageEvent 交给管线，
+## 返回目标**实际失去**的能量（DamageResult.actual）。所有减免、标记、护甲、
+## 死亡替代与伤后触发都住在 cw_damage.gd 里，这里不再自己算。
 ##
-## 落到五步管线上的分别是：
-##   ② 固定增加 —— 攻击类修饰卡的「额外造成 X」（add 参数，标记翻倍会连它一起翻——管线顺序如此）
-##   ③ 倍增 —— 树突【I-标记】×2（消耗掉）
-##   ④ 倍减 —— 树突【I-各司其职】自己攻击只造成 1/2
-##   ⑤ 减免 —— 印戒【囊性护甲】-0.5，每世界回合一次；癌卡【DNA损伤修复】挡事件/技能伤害
+## attack=false 表示这次损失**不是「攻击」**（卡牌伤害等）：树突【各司其职】减半与
+## 巨噬【吞噬】吸血都不触发——PRD 那两条明写"攻击"。
 func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: bool = true,
 		add: int = 0) -> int:
-	var mult := 1
-	var div := 1
-	var cut := 0
-	if target["marked"]:
-		mult *= 2
-		target["mark_left"] -= 1
-		if target["mark_left"] <= 0:
-			target["marked"] = false
-			log_msg("　【标记】生效，伤害翻倍")
-		else:
-			## 呈递强化树突施加的双份标记：翻倍两次才移除
-			log_msg("　【标记】生效，伤害翻倍（还可触发 %d 次）" % target["mark_left"])
-	if attack and attacker["faction"] == CWData.Faction.IMMUNE \
-			and attacker["itype"] == CWData.ImmuneType.DENDRITIC:
-		div *= 2
-		log_msg("　【各司其职】树突状细胞只造成 1/2 伤害")
-	cut += armor_cut(target)
-	## 【DNA损伤修复】只挡免疫方【事件】/【技能】的损失，普通攻击是【PD-L1表达】的领地
-	## （定案 #62）。数值按结算当刻的分期取（定案 #64）。
-	if not attack:
-		var repaired := spend_mods(target, "DNA损伤修复")
-		if repaired > 0:
-			var tier: int = [10, 15, 20][CWCardData.cancer_phase(round_no)] * repaired
-			cut += tier
-			log_msg("　【DNA损伤修复】减免 %s" % CWData.fmt(tier))
-	var dmg := settle_loss(base, add, mult, div, cut)
-	_lose_energy(target, dmg)
-	## 巨噬【吞噬】：攻击造成能量损失后恢复 ⌈受击方损失 ÷ 2⌉。
-	## PRD 这里的取整符号外面没写「到十分位」，所以按**整数能量**向上取整 ——
-	## 1.0 伤害回 1.0、2.0 伤害也回 1.0，比旧版固定 0.5 明显强。
-	if attack and attacker["faction"] == CWData.Faction.IMMUNE \
-			and attacker["itype"] == CWData.ImmuneType.MACRO and dmg > 0:
-		var heal: int = int(ceil(dmg / 2.0 / 10.0)) * 10
-		attacker["energy"] += heal
-		log_msg("　巨噬【吞噬】恢复 %s 能量" % CWData.fmt(heal))
-	if dmg > 0:
-		_after_damage(target)
-	return dmg
+	var tags: Array = [CWDamage.Tag.IMMUNE]
+	if attack:
+		tags.append(CWDamage.Tag.ATTACK)
+	var ev := damage.event(attacker, target, base,
+		CWDamage.Kind.ATTACK if attack else CWDamage.Kind.CARD,
+		tags, "攻击" if attack else "技能", add)
+	return damage.submit([ev])[0]["actual"]
 
 
 ## 癌症来源**或世界事件等中立来源**的能量损失（微环境压迫、黏液破裂、癌症卡、
-## 事件的「失去 X 能量」）。走同一条管线，不吃**攻防**修正（【标记】×2 与树突减半、
-## 巨噬吸血只挂在 immune_hit），但吃受击方的护盾类修饰卡与【囊性护甲】（⑤ 固定减免）。
-## skill=true 表示来源是**癌细胞的技能**（黏液破裂/乳酸酸化这类细胞技能与癌方即时卡）——
-## 【缺氧适应】挡这一类**加上**微环境压迫（卡面重写后，见下）；世界事件、反弹不算（定案 #62）。
+## 事件的「失去 X 能量」）。同样只是 CWDamage 的薄壳。
+## skill=true 表示来源是**癌细胞的技能**（含癌方即时卡）——【缺氧适应】挡这一类
+## 加上【微环境压迫】；世界事件与反弹不算（口径 #62）。
 func cancer_hit(target: Dictionary, base: int, reason: String, skill: bool = false) -> int:
-	var cut := armor_cut(target)
-	var mem := spend_mods(target, "细胞膜修复")
-	if mem > 0:
-		cut += CWData.MEMBRANE_CUT * mem
-		log_msg("　【细胞膜修复】减免 %s" % CWData.fmt(CWData.MEMBRANE_CUT * mem))
-	var ifn := spend_mods(target, "I型干扰素")
-	if ifn > 0:
-		cut += CWData.IFN1_CUT * ifn
-		log_msg("　【I型干扰素】减免 %s" % CWData.fmt(CWData.IFN1_CUT * ifn))
-	## 【缺氧适应】挡「癌细胞技能」**或**【微环境压迫】（2026-08-30 卡面重写，口径 #62/#72）。
-	## 压迫不是技能，所以要在 skill 之外单认一次 reason。
-	if skill or reason == "微环境压迫":
-		var hyp := spend_mods(target, "缺氧适应")
-		if hyp > 0:
-			cut += CWData.HYPOXIA_CUT * hyp
-			log_msg("　【缺氧适应】减免 %s" % CWData.fmt(CWData.HYPOXIA_CUT * hyp))
-	if has_skill(target, "耗竭抵抗"):
-		if first_this_round(target, "耗竭抵抗"):
-			cut += CWData.EXHAUST_FIRST_CUT
-			log_msg("　【耗竭抵抗】本世界回合首次损失 -1.0")
-		if reason == "微环境压迫":
-			cut += CWData.EXHAUST_PRESSURE_CUT
-			log_msg("　【耗竭抵抗】微环境压迫额外 -0.5")
-	var dmg := settle_loss(base, 0, 1, 1, cut)
-	log_msg("【%s】%s 损失 %s 能量（余 %s）" % [
-		reason, cell_name(target), CWData.fmt(dmg), CWData.fmt(maxi(target["energy"] - dmg, 0))])
-	_lose_energy(target, dmg, false)
-	if dmg > 0:
-		_after_damage(target)
-	return dmg
+	var ev := damage.event({}, target, base,
+		CWDamage.Kind.CELL_SKILL if skill else CWDamage.Kind.WORLD,
+		[CWDamage.Tag.CANCER], reason)
+	return damage.submit([ev])[0]["actual"]
 
 
-func _lose_energy(cell: Dictionary, dmg: int, verbose: bool = true) -> void:
-	cell["energy"] -= dmg
-	if verbose:
-		log_msg("　%s 损失 %s 能量（余 %s）" % [
-			cell_name(cell), CWData.fmt(dmg), CWData.fmt(maxi(cell["energy"], 0))])
+## 范围伤害：**一批事件同时提交**（设计 §5.5）。
+##
+## 必须走这两个入口，不要自己 for 循环逐个调 immune_hit/cancer_hit ——
+## 那样会边遍历边扣能量、边死人、边刷新标记，**数组顺序就会改变结果**。
+## 批量提交先在同一份批前状态上把每个目标算完，再统一扣、统一判死、统一抛触发。
+func immune_hit_area(targets: Array, base: int, attacker: Dictionary,
+		ability: String = "技能", attack: bool = false) -> Array:
+	var tags: Array = [CWDamage.Tag.IMMUNE, CWDamage.Tag.AREA]
+	if attack:
+		tags.append(CWDamage.Tag.ATTACK)
+	var events: Array = []
+	for t in targets:
+		events.append(damage.event(attacker, t, base,
+			CWDamage.Kind.ATTACK if attack else CWDamage.Kind.CARD,
+			tags, ability, 0, damage.next_group()))
+	return damage.submit(events)
 
 
-func _after_damage(cell: Dictionary) -> void:
-	## 【BCL-2抗凋亡】只救「受到的损失」——挂在这里而不是 kill() 里，
-	## 黏液破裂的自毁、突变的自扣不经过这条路，救不了（口径 #68）
-	if cell["energy"] <= 0 and has_skill(cell, "BCL-2抗凋亡"):
-		var tier: int = CWData.BCL2_ENERGY[CWCardData.cancer_phase(round_no)]
-		cell["energy"] = tier
-		cell["equipped"].erase("BCL-2抗凋亡")
-		log_msg("　【BCL-2抗凋亡】%s 免于死亡，能量改为 %s（本牌弃置，可重新抽取）" % [
-			cell_name(cell), CWData.fmt(tier)])
-		update_marks()
-		return
-	if cell["energy"] <= 0:
-		kill(cell)
-	update_marks()
+func cancer_hit_area(targets: Array, base: int, reason: String, skill: bool = false) -> Array:
+	var events: Array = []
+	for t in targets:
+		events.append(damage.event({}, t, base,
+			CWDamage.Kind.CELL_SKILL if skill else CWDamage.Kind.WORLD,
+			[CWDamage.Tag.CANCER, CWDamage.Tag.AREA], reason, 0, damage.next_group()))
+	return damage.submit(events)
 
 
 func kill(cell: Dictionary) -> void:
