@@ -186,16 +186,18 @@ func _can_draw(cell: Dictionary) -> bool:
 		and cell["hand"].size() < CWData.HAND_MAX
 
 
+## 四个单价都走 `game.tune`（默认值 = CWData 常量 = PRD），
+## 因为「占地单价」是平衡的根因，要能不改引擎就扫。见 CWTuning「癌方移动费用」那段。
 func _cancer_move_cost(cell: Dictionary, dest: Vector2i) -> int:
 	if game.is_cancerous(dest):
-		return CWData.CANCER_MOVE_CANCEROUS
+		return game.tune.cancer_move_cancerous
 	# 小细胞肺癌【极简胞浆】：移动至健康组织的消耗**永久**降为 0.3
 	if cell["ctype"] == CWData.CancerType.SCLC:
-		return CWData.SCLC_MOVE_HEALTHY
+		return game.tune.sclc_move_healthy
 	# 黑色素瘤【伪足穿透】：目标健康组织与 ≥2 格癌性组织相邻时，本次移动只要 0.2
 	if cell["ctype"] == CWData.CancerType.MELANOMA and _cancerous_adj(dest) >= CWData.PSEUDOPOD_MIN_ADJ:
-		return CWData.PSEUDOPOD_COST
-	return CWData.CANCER_MOVE_HEALTHY
+		return game.tune.pseudopod_cost
+	return game.tune.cancer_move_healthy
 
 
 func _cancerous_adj(c: Vector2i) -> int:

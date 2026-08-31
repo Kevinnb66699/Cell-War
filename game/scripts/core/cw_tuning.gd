@@ -72,6 +72,17 @@ var init_cancer_tiles := CWData.INIT_CANCER_TILES
 var immune_move_healthy: Array = CWData.IMMUNE_MOVE_HEALTHY.duplicate()
 var immune_move_cancerous: Array = CWData.IMMUNE_MOVE_CANCEROUS.duplicate()
 
+# ---- 癌方移动费用 = 占地单价 ----
+## 癌细胞每移动到一格健康组织就【定殖】一格，所以「移动费」就是「占地单价」。
+## 《平衡方案_PRD版》第二节①认定的根因（转化比 4.6:1）全部落在这四个数上，
+## 但它们此前是写死的常量、扫不了 —— 免疫那边一直有旋钮，这里补齐对称。
+var cancer_move_cancerous := CWData.CANCER_MOVE_CANCEROUS
+var cancer_move_healthy := CWData.CANCER_MOVE_HEALTHY
+## 小细胞肺癌【极简胞浆】：移动至健康组织**永久** 0.3
+var sclc_move_healthy := CWData.SCLC_MOVE_HEALTHY
+## 黑色素瘤【伪足穿透】：目标邻接 ≥2 格癌性组织时 0.2，**无次数限制**
+var pseudopod_cost := CWData.PSEUDOPOD_COST
+
 # ---- 攻击 ----
 var attack_dmg_success := CWData.ATTACK_DMG_SUCCESS
 var attack_dmg_crit := CWData.ATTACK_DMG_CRIT

@@ -678,6 +678,13 @@ func _couple(cell: Dictionary, ally: Dictionary) -> void:
 		dirs.append({ "label": "向 %s 索取" % game.cell_name(ally),
 			"data": { "from": ally["id"], "to_cid": cell["id"] } })
 	var di := 0
+	if dirs.is_empty():
+		## 选项是 hand_options 按**扣费前**的能量生成的，而这张卡自己也要花 0.2~0.3：
+		## 双方都卡在 1.0 出头时，扣完卡费两边就都付不起最低一档了 → dirs 空。
+		## 和下面「付不出…落空」是同一种处理，早返回，别让 dirs[di] 越界。
+		## （2026-08-31 并行跑蒙特卡洛网格时崩出来的，无头测试当时覆盖不到这个局面）
+		game.log_msg("　【代谢耦联】双方都付不出最低一档，落空")
+		return
 	if dirs.size() > 1:
 		di = await game.ask(cell["pid"], { "kind": "pick", "tag": "代谢耦联",
 			"prompt": "【代谢耦联】选择转移方向", "options": dirs })

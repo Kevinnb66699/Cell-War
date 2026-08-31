@@ -19,6 +19,9 @@
 ##   mv=4         免疫迁移到癌性组织的费用，十分能量，**各等级统一**（PRD 是 [10,10,7,5]）
 ##   ecap / efloor / acap / afloor   无氧／有氧呼吸的每细胞封顶与低保，十分能量
 ##   tiles=32     初始癌组织格数（PRD 是 15）
+##   amult=60     有氧呼吸系数（PRD 是 30 = 公式里的「×3」）
+##   cmh / cmc    癌方移动到健康／癌性组织的费用（PRD 5 / 2）—— 前者就是占地单价
+##   sclc / pseu  【极简胞浆】与【伪足穿透】的折后价（PRD 3 / 2）
 extends SceneTree
 
 var games := 100
@@ -35,6 +38,11 @@ var efloor := -1
 var acap := -1
 var afloor := -1
 var tiles := -1
+var amult := -1
+var cmh := -1
+var cmc := -1
+var sclc := -1
+var pseu := -1
 
 
 func _initialize() -> void:
@@ -61,6 +69,11 @@ func _parse() -> void:
 			"acap": acap = int(kv[1])
 			"afloor": afloor = int(kv[1])
 			"tiles": tiles = int(kv[1])
+			"amult": amult = int(kv[1])
+			"cmh": cmh = int(kv[1])
+			"cmc": cmc = int(kv[1])
+			"sclc": sclc = int(kv[1])
+			"pseu": pseu = int(kv[1])
 
 
 func _order() -> Array:
@@ -84,6 +97,16 @@ func _tune() -> CWTuning:
 		t.aerobic_floor = afloor
 	if tiles >= 0:
 		t.init_cancer_tiles = tiles
+	if amult >= 0:
+		t.aerobic_mult = amult
+	if cmh >= 0:
+		t.cancer_move_healthy = cmh
+	if cmc >= 0:
+		t.cancer_move_cancerous = cmc
+	if sclc >= 0:
+		t.sclc_move_healthy = sclc
+	if pseu >= 0:
+		t.pseudopod_cost = pseu
 	return t
 
 

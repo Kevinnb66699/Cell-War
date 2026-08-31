@@ -3233,6 +3233,33 @@ func t_card_choices() -> void:
 	check(cp1["energy"] == 15 and cp2["energy"] == 28, "转出 1.5、接收方得 2.0")
 	g.dispose()
 
+	## ⑧-补 代谢耦联：选项生成之后、结算之前双方都变得付不起 → 落空，不许越界
+	## 真实触发路径：选项按**扣费前**能量算，而这张卡自己要花 0.2~0.3。
+	## 下面按那个顺序复现：先在 1.1 能量下拿选项，再扣成 0.9 才结算。
+	pack = _choice_game()
+	g = pack[0]
+	var pr1 := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+	pr1["energy"] = 11
+	pr1["hand"] = ["代谢耦联"]
+	g.cells.append(pr1)
+	var pr2 := CWSetup.make_cell(1, 1, CWData.Faction.IMMUNE, Vector2i(0, 3), CWData.ImmuneType.BASIC, -1)
+	pr2["energy"] = 9
+	g.cells.append(pr2)
+	kopts = []
+	g.card_fx.hand_options(pr1, kopts)
+	check(kopts.size() == 1, "代谢耦联：扣费前 1.1 能量还能生成选项")
+	pr1["energy"] = 9          ## 打出这张卡自己花掉 0.2，两边就都付不起最低档了
+	var pn0 := g.logs.size()
+	await g.card_fx.play(pr1, kopts[0]["data"])
+	check(pr1["energy"] == 9 and pr2["energy"] == 9, "双方都付不起 → 能量一分不动")
+	check(g.logs.size() > pn0 and g.logs[-1].contains("落空"), "落空要留一行日志")
+	## 反过来也确认一遍：真的两边都付不起时，选项压根不该出现
+	pr2["energy"] = 9
+	kopts = []
+	g.card_fx.hand_options(pr1, kopts)
+	check(kopts.is_empty(), "代谢耦联：双方都付不起时选项不出现")
+	g.dispose()
+
 	## ⑨ 基质重塑：拆两格固化 → 从拆过的格及其邻格挑两格转健康
 	pack = _choice_game()
 	g = pack[0]
