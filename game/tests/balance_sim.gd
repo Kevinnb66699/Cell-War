@@ -64,8 +64,9 @@ func _run() -> void:
 	}
 	for k in kinds.keys():
 		print("%s：%d 局" % [kind_names.get(k, k), kinds[k]])
-	print("平均：终局回合 %.1f｜终局癌性组织 %.1f 格（初始 7，30 回合线 %d）｜抗原记忆 %.1f｜免疫等级 %.1f" % [
-		float(rounds_sum) / GAMES, float(cancerous_sum) / GAMES, CWData.LIMIT_CANCEROUS,
+	print("平均：终局回合 %.1f｜终局癌性组织 %.1f 格（初始 %d，30 回合线 %d）｜抗原记忆 %.1f｜免疫等级 %.1f" % [
+		float(rounds_sum) / GAMES, float(cancerous_sum) / GAMES,
+		CWData.INIT_CANCER_TILES, CWData.LIMIT_CANCEROUS,
 		float(memory_sum) / GAMES, float(level_sum) / GAMES + 1.0])
 	print("癌细胞种类表现（该种类上场的对局中癌症方胜率）：")
 	for t in CWData.CancerType.values():
