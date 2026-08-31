@@ -27,6 +27,7 @@ func _run_all() -> void:
 	await t_review_fixes()
 	await t_review_0831()
 	await t_batch_death_and_triggers()
+	await t_design_required_checks()
 	await t_damage_pipeline()
 	await t_card_perms()
 	await t_world_events_draw()
@@ -5072,4 +5073,191 @@ func t_batch_death_and_triggers() -> void:
 	g4.damage.submit([g4.damage.event(m4, p4, 0, CWDamage.Kind.CARD,
 		[CWDamage.Tag.IMMUNE], "技能")])
 	check(p4["alive"], "④没造成实际伤害就不斩杀，哪怕余量早已低于阈值")
+	g4.dispose()
+
+
+## 两份设计文档自己列的「必要测试」里，此前只被间接覆盖或完全没写的那几条。
+## 补齐的理由很简单：**没有断言盯着的行为，等于随时可以被下一次重构悄悄改掉**。
+func t_design_required_checks() -> void:
+	print("[设计文档要求的必要测试]")
+	_t_cost_required()
+	await _t_damage_required()
+
+
+func _put_cancer(g: CWGame, at: Vector2i, energy: int,
+		ctype: int = CWData.CancerType.SCLC) -> Dictionary:
+	var c := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER, at, -1, ctype, energy)
+	g.cells.append(c)
+	return c
+
+
+## 费用设计 §十一 的 1 / 4 / 5 / 10 / 11
+func _t_cost_required() -> void:
+	var canc := Vector2i(1, 0)
+
+	## §十一.1 反复报价不改变快照与 state_hash（quote() 必须是纯查询）
+	var g := bare_game()
+	g.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	var cell := put_immune(g, Vector2i.ZERO)
+	put_skill(cell, "组织巡航")
+	g.add_mod(cell, "炎症趋化", 1, "turn")
+	var h0 := g.state_hash()
+	var rng0 := g.rng.state
+	var logs0: int = g.logs.size()
+	for i in 50:
+		g.actions._move_cost_mod(cell, canc, 10)
+		g.actions._move_cost_mod(cell, Vector2i(0, 1), 5)
+	check(g.state_hash() == h0, "§11.1 报价 100 次，state_hash 不变")
+	check(g.rng.state == rng0, "§11.1 报价不消耗 rng")
+	check(g.logs.size() == logs0, "§11.1 报价不写日志")
+	check(g.mods_of(cell, "炎症趋化").size() == 1, "§11.1 报价不消耗修饰")
+	check(not cell["fx_turn"].has("组织巡航"), "§11.1 报价不占回合闸门")
+	g.dispose()
+
+	## §十一.4 局部减费下限**可被免费覆盖**；行动硬下限**不可**
+	var g2 := bare_game()
+	g2.immune_level = 3                      ## X 级向癌性组织基准 0.5
+	g2.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	var c2 := put_immune(g2, Vector2i.ZERO)
+	g2.add_mod(c2, "CXCR3趋化", 2, "turn")    ## −0.5，局部下限 0.2
+	var base2: int = g2.actions._move_base_cost(c2, canc)
+	check(g2.cost.quote(CWCost.context(c2, CWCost.Action.MOVE, base2, canc))["final"]
+		== CWData.MOVE_CUT_MIN, "§11.4 只有减费时踩在局部下限 0.2 上")
+	put_skill(c2, "组织巡航")                 ## 免费豁免在阶段⑨，排在减费之后
+	check(g2.cost.quote(CWCost.context(c2, CWCost.Action.MOVE, base2, canc))["final"] == 0,
+		"§11.4 免费可以把局部下限一路压到 0")
+	## 行动硬下限压在免费之后，免费压不下去
+	var q_hard := g2.cost.quote(CWCost.context(c2, CWCost.Action.MOVE, base2, canc, 3))
+	check(int(q_hard["final"]) == 3, "§11.4 行动硬下限免费也豁免不掉")
+	g2.dispose()
+
+	## §十一.5 免费不豁免明写的附加支付（【免疫抑制因子】的净化费走 SURCHARGE 层）
+	var g3 := bare_game()
+	g3.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	var c3 := put_immune(g3, Vector2i.ZERO)
+	put_skill(c3, "组织巡航")
+	g3.events["active"].append({ "name": "免疫抑制因子", "left": 1, "stacks": 1, "data": {} })
+	var q3 := g3.cost.quote(CWCost.context(c3, CWCost.Action.MOVE, 10, canc))
+	check(int(q3["normal_cost"]) > 0, "§11.5 普通费用本来不是 0")
+	check(int(q3["mandatory_extra"]) == 2, "§11.5 净化费落在不可豁免附加费层")
+	check(int(q3["final"]) == 2, "§11.5 免费把普通费用清零，附加费仍要付")
+	g3.dispose()
+
+	## §十一.10 同阶段同优先级：先按**来源**分层（卡牌 → 技能），再按 applied_seq。
+	## 装备/打出顺序反过来，结果必须一样。
+	var costs: Array = []
+	for order in [0, 1]:
+		var g4 := bare_game()
+		g4.immune_level = 3
+		g4.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+		var c4 := put_immune(g4, Vector2i.ZERO)
+		if order == 0:
+			g4.add_mod(c4, "CXCR3趋化", 2, "turn")   ## 卡牌
+			put_skill(c4, "组织浸润")                 ## 技能
+		else:
+			put_skill(c4, "组织浸润")
+			g4.add_mod(c4, "CXCR3趋化", 2, "turn")
+		costs.append(g4.actions._move_cost_mod(c4, canc, g4.actions._move_base_cost(c4, canc)))
+		g4.dispose()
+	check(costs[0] == costs[1], "§11.10 同阶段的两条修饰，换顺序结果不变（来源分层在前）")
+
+	## §十一.11 payment_floor 边界：能量正好等于费用时**付不起**（要留 0.1）
+	var g5 := bare_game()
+	var c5 := put_immune(g5, Vector2i.ZERO)
+	c5["energy"] = 5
+	check(not g5.cost.quote(CWCost.context(c5, CWCost.Action.MOVE, 5, Vector2i(1, 0)))["affordable"],
+		"§11.11 能量 = 费用：付不起（支付后不得降至 0）")
+	c5["energy"] = 6
+	check(g5.cost.quote(CWCost.context(c5, CWCost.Action.MOVE, 5, Vector2i(1, 0)))["affordable"],
+		"§11.11 能量 = 费用 + 0.1：付得起")
+	g5.dispose()
+
+
+## 攻击设计 §九 的 2 / 3 / 5 / 9
+func _t_damage_required() -> void:
+	var canc := Vector2i(1, 0)
+
+	## §九.2 攻击成功但最终 0 伤害：「攻击成功后」照常触发，「造成伤害后」不触发
+	var g := bare_game()
+	g.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[Vector2i(2, 0)]["tissue"] = CWData.Tissue.CANCER   ## 给补体级联留个可转化的格
+	var mac := CWSetup.make_cell(g.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.MACRO, -1, 200)
+	mac["equipped"] = ["吞噬体成熟"]
+	g.cells.append(mac)
+	var prey := _put_cancer(g, canc, 5)                 ## 余量早已低于斩杀阈值
+	g.add_mod(prey, "细胞膜修复", 1, "")                 ## −1.5，足够把 1.0 的攻击全挡掉
+	g.add_mod(mac, "补体级联", 1, "turn")                ## 「攻击成功后」的代表
+	## 期望能量：只扣迁移费，一分吸血都不该有。写成 <= 是弱断言（移动本来就扣钱），
+	## 必须钉死等号才拦得住「悄悄吸了血」
+	var fee: int = g.actions._move_cost_mod(mac, canc, g.actions._move_base_cost(mac, canc))
+	var e0: int = mac["energy"]
+	_rig_roll(g, 6, [3])
+	await g.actions._do_move(mac, canc, 0)
+	check(prey["energy"] == 5, "§9.2 伤害被完全减免，目标一点没掉")
+	check(g.tiles[Vector2i(2, 0)]["tissue"] == CWData.Tissue.HEALTHY,
+		"§9.2 「攻击成功后」的【补体级联】照常触发")
+	check(prey["alive"], "§9.2 「造成伤害后」的斩杀不触发（本次 actual 为 0）")
+	check(mac["energy"] == e0 - fee, "§9.2 「造成伤害后」的吸血不触发（只扣了迁移费）")
+	g.dispose()
+
+	## §九.3 事件被整体免疫 / 0 伤害时，标记与护甲都不许被骗掉
+	var g2 := bare_game()
+	var atk2 := put_immune(g2, Vector2i(5, 0))
+	var sig := _put_cancer(g2, Vector2i(2, 0), 100, CWData.CancerType.SIGNET)
+	sig["marked"] = true
+	sig["mark_left"] = 1
+	g2.events["active"].append({ "name": "抗原丢失", "left": 1, "stacks": 1, "data": {} })
+	g2.damage.submit([g2.damage.event(atk2, sig, 10, CWDamage.Kind.ATTACK,
+		[CWDamage.Tag.IMMUNE, CWDamage.Tag.ATTACK], "攻击")])
+	check(sig["energy"] == 100, "§9.3 【抗原丢失】：整个事件失效")
+	check(sig["marked"], "§9.3 事件失效时【标记】不被消耗")
+	check(not sig["armor_used"], "§9.3 事件失效时【囊性护甲】不被占用")
+	g2.events["active"].clear()
+	g2.damage.submit([g2.damage.event(atk2, sig, 0, CWDamage.Kind.CARD,
+		[CWDamage.Tag.IMMUNE], "技能")])
+	check(sig["marked"], "§9.3 0 点事件不能骗掉【标记】")
+	check(not sig["armor_used"], "§9.3 0 点事件不能骗掉【囊性护甲】")
+	g2.dispose()
+
+	## §九.5 T 细胞的无视减伤那一下仍要经过 BCL-2 与死亡检查
+	var g3 := bare_game()
+	g3.round_no = 1
+	g3.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	var tc := CWSetup.make_cell(g3.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.T_CELL, -1, 200)
+	tc["equipped"] = ["细胞毒性增强"]
+	g3.cells.append(tc)
+	var bcl := _put_cancer(g3, canc, 5)                 ## 主伤害就能打死
+	bcl["equipped"] = ["BCL-2抗凋亡"]
+	var n0: int = g3.logs.size()
+	_rig_roll(g3, 6, [3])
+	await g3.actions._do_move(tc, canc, 0)
+	check(bcl["alive"] and bcl["energy"] == CWData.BCL2_ENERGY[0],
+		"§9.5 无视减伤与主伤害同批，BCL-2 看到完整伤害后统一免死")
+	var told := false
+	for i in range(n0, g3.logs.size()):
+		if "细胞毒性增强" in g3.logs[i]:
+			told = true
+	check(told, "§9.5 无视减伤那一下照样写日志")
+	g3.dispose()
+
+	## §九.9 卡牌伤害不触发只认 ATTACK 的被动，但对应来源的护盾认得出它
+	var g4 := bare_game()
+	var mac4 := CWSetup.make_cell(g4.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.MACRO, -1, 100)
+	g4.cells.append(mac4)
+	var t4 := _put_cancer(g4, Vector2i(2, 0), 100)
+	var m0: int = mac4["energy"]
+	check(g4.immune_hit(t4, 10, mac4, false) == 10, "§9.9 卡牌伤害不吃树突/巨噬那两条")
+	check(mac4["energy"] == m0, "§9.9 巨噬【吞噬】不吸卡牌伤害的血")
+	## 树突用卡牌伤害同样不减半
+	var den := CWSetup.make_cell(g4.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i(4, 0),
+		CWData.ImmuneType.DENDRITIC, -1, 100)
+	g4.cells.append(den)
+	check(g4.immune_hit(t4, 10, den, false) == 10, "§9.9 树突【各司其职】只减普通攻击")
+	## 但【DNA损伤修复】明写挡「免疫方事件/技能」，必须认得出卡牌伤害
+	g4.round_no = 1
+	g4.add_mod(t4, "DNA损伤修复", 1, "")
+	check(g4.immune_hit(t4, 10, den, false) == 0, "§9.9 对应来源的护盾认得出卡牌伤害")
 	g4.dispose()
