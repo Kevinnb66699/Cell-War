@@ -24,7 +24,8 @@
 ##   sclc / pseu  【极简胞浆】与【伪足穿透】的折后价（现值 7 / 5，PRD 3 / 2）
 ##   lesion=off   关掉【原发灶】（癌细胞出生格开局固化）。默认 on
 ##   counter=0    攻击失败时攻击者的自损（现值 5 = PRD 的 0.5）
-##   atkmax=3     免疫每行动回合最多攻击几次（现值 0 = 不限）
+##   atkmax=3     免疫每行动回合最多攻击几次（现值 3）
+##   ecancer=60   癌细胞初始能量，十分能量（现值 30 = 3.0，与免疫同）
 ##
 ## ⚠ 2026-08-31 口径 #82 之后，**不传旋钮 = 引擎现值，不是 PRD 原样**。
 ## 要跑 PRD 原样做对照得显式写全：`cmh=5 sclc=3 pseu=2 tiles=15`。
@@ -47,6 +48,7 @@ var tiles := -1
 var counter := -1
 var lesion := ""    # "off" = 关掉原发灶
 var atkmax := -1
+var ecancer := -1
 var amult := -1
 var cmh := -1
 var cmc := -1
@@ -81,6 +83,7 @@ func _parse() -> void:
 			"counter": counter = int(kv[1])
 			"lesion": lesion = kv[1]
 			"atkmax": atkmax = int(kv[1])
+			"ecancer": ecancer = int(kv[1])
 			"amult": amult = int(kv[1])
 			"cmh": cmh = int(kv[1])
 			"cmc": cmc = int(kv[1])
@@ -123,6 +126,8 @@ func _tune() -> CWTuning:
 		t.counter_dmg_on_fail = counter
 	if atkmax >= 0:
 		t.attack_max_per_turn = atkmax
+	if ecancer >= 0:
+		t.init_energy_cancer = ecancer
 	if lesion != "":
 		t.solid_at_cancer_spawn = lesion != "off"
 	return t
@@ -148,7 +153,8 @@ func _applied(t: CWTuning) -> String:
 			["sclc", t.sclc_move_healthy, d.sclc_move_healthy],
 			["pseu", t.pseudopod_cost, d.pseudopod_cost],
 			["counter", t.counter_dmg_on_fail, d.counter_dmg_on_fail],
-			["atkmax", t.attack_max_per_turn, d.attack_max_per_turn]]:
+			["atkmax", t.attack_max_per_turn, d.attack_max_per_turn],
+			["ecancer", t.init_energy_cancer, d.init_energy_cancer]]:
 		if pair[1] != pair[2]:
 			out.append("%s=%s" % [pair[0], str(pair[1])])
 	if t.solid_at_cancer_spawn != d.solid_at_cancer_spawn:

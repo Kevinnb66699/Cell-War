@@ -46,8 +46,8 @@ var aerobic_split := false
 ## 低保防止落后方直接崩盘，封顶防止领先方滚雪球——两个一起用才是稳定器。
 ## 单位十分能量，每细胞每回合；0 = 不启用。
 var anaerobic_floor := 0
-var anaerobic_cap := 0
-var aerobic_floor := 0
+var anaerobic_cap := CWData.ANAEROBIC_CAP     ## 10.0（口径 #89）
+var aerobic_floor := CWData.AEROBIC_FLOOR     ## 2.0（口径 #89）——别贴到 3.0，那是公式上界
 var aerobic_cap := 0
 
 
@@ -62,7 +62,7 @@ func clamp_income(gain: int, floor_v: int, cap_v: int) -> int:
 
 # ---- 初始能量 ----
 var init_energy_immune := CWData.INIT_ENERGY
-var init_energy_cancer := CWData.INIT_ENERGY
+var init_energy_cancer := CWData.INIT_ENERGY_CANCER
 
 ## 初始癌组织格数。**-1 = 按人数取**（`CWData.init_cancer_tiles`，现值 4 人 15 / 6 人 21）。
 ## 只有平衡测试要把所有人数钉成同一个数时才设具体值 —— 那是扫这条杠杆的唯一办法，
