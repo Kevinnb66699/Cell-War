@@ -1,0 +1,150 @@
+## balance_scan.gd —— 参数化平衡扫描：席位组成 / 基准 AI / 单个旋钮都从命令行给
+##
+## 运行（注意旋钮参数要写在 `--` 之后）：
+##   godot --headless --path game --script res://tests/balance_scan.gd -- order=ICIC games=100 ai=heur
+##   godot --headless --path game --script res://tests/balance_scan.gd -- order=ICIICI games=30 ai=mc mv=4
+##
+## 和另外两个平衡脚本的分工：
+## - `balance_sim.gd`：一套固定配置跑详细报表（癌种表现、胜利方式），改配置要改常量。
+## - `balance_variants.gd`：多套 CWTuning **预设** × 多种人数的矩阵，加方案要写代码。
+## - 本脚本：**席位组成**和**单个旋钮**从命令行扫，不改代码就能跑网格。
+##   2026-08-31 评估「6 人局改 4v2」时加的 —— 那个问题要扫的是席位，前两个脚本都做不到。
+##
+## 参数（全部可省）：
+##   order=ICIC   席位与顺序，I=免疫 C=癌症，长度即人数
+##   games=100    局数    seed=20260800  起始种子
+##   ai=heur      heur=双方启发式｜mc=双方蒙特卡洛｜mc_immune／mc_cancer=只有一方用
+##   rollouts=1 horizon=12   蒙特卡洛参数
+##   tune=prd     prd=PRD 原样｜split=免疫收入也按细胞数均分（报告 #29 的修法）
+##   mv=4         免疫迁移到癌性组织的费用，十分能量，**各等级统一**（PRD 是 [10,10,7,5]）
+##   ecap / efloor / acap / afloor   无氧／有氧呼吸的每细胞封顶与低保，十分能量
+extends SceneTree
+
+var games := 100
+var base_seed := 20260800
+var order_str := "ICIC"
+var ai := "heur"
+var rollouts := 1
+var horizon := 12
+var label := ""
+var tune_name := "prd"
+var mv := -1        # -1 = 不改，下同
+var ecap := -1
+var efloor := -1
+var acap := -1
+var afloor := -1
+
+
+func _initialize() -> void:
+	_run()
+
+
+func _parse() -> void:
+	for a in OS.get_cmdline_user_args():
+		var kv: PackedStringArray = a.split("=", true, 1)
+		if kv.size() != 2:
+			continue
+		match kv[0]:
+			"order": order_str = kv[1]
+			"games": games = int(kv[1])
+			"seed": base_seed = int(kv[1])
+			"ai": ai = kv[1]
+			"rollouts": rollouts = int(kv[1])
+			"horizon": horizon = int(kv[1])
+			"label": label = kv[1]
+			"tune": tune_name = kv[1]
+			"mv": mv = int(kv[1])
+			"ecap": ecap = int(kv[1])
+			"efloor": efloor = int(kv[1])
+			"acap": acap = int(kv[1])
+			"afloor": afloor = int(kv[1])
+
+
+func _order() -> Array:
+	var out := []
+	for ch in order_str:
+		out.append(CWData.Faction.IMMUNE if ch == "I" else CWData.Faction.CANCER)
+	return out
+
+
+func _tune() -> CWTuning:
+	var t: CWTuning = CWTuning.split_income() if tune_name == "split" else CWTuning.new()
+	if mv >= 0:
+		t.immune_move_cancerous = [mv, mv, mv, mv]
+	if ecap >= 0:
+		t.anaerobic_cap = ecap
+	if efloor >= 0:
+		t.anaerobic_floor = efloor
+	if acap >= 0:
+		t.aerobic_cap = acap
+	if afloor >= 0:
+		t.aerobic_floor = afloor
+	return t
+
+
+func _bridge(g: CWGame, faction: int) -> Object:
+	var use_mc := ai == "mc" \
+		or (ai == "mc_immune" and faction == CWData.Faction.IMMUNE) \
+		or (ai == "mc_cancer" and faction == CWData.Faction.CANCER)
+	if not use_mc:
+		var h := CWHeuristicBridge.new()
+		h.game = g
+		return h
+	var m := CWMonteCarloBridge.new()
+	m.game = g
+	m.rollouts = rollouts
+	m.horizon = horizon
+	return m
+
+
+func _run() -> void:
+	_parse()
+	var order := _order()
+	var cancer_wins := 0
+	var rounds_sum := 0
+	var by_limit := 0
+	var cancerous_sum := 0
+	var kinds := {}
+	## 占地吞吐：转化比是判断「谁在抢地」的直接指标，比胜率更能指向根因
+	var colonize := 0
+	var prolif_n := 0
+	var purify := 0
+	var t0 := Time.get_ticks_msec()
+	for gi in games:
+		var g := CWGame.new()
+		g.tune = _tune()
+		g.init(order, base_seed + gi)
+		for pid in g.order:
+			g.bridges[pid] = _bridge(g, g.player(pid)["faction"])
+		var w: int = await g.run_game()
+		if w == CWData.Faction.CANCER:
+			cancer_wins += 1
+		if g.win_kind.begins_with("limit_"):
+			by_limit += 1
+		kinds[g.win_kind] = kinds.get(g.win_kind, 0) + 1
+		rounds_sum += g.round_no
+		cancerous_sum += g.count_tissue(CWData.Tissue.CANCER) + g.count_tissue(CWData.Tissue.SOLID)
+		## 蒙特卡洛试算期间 sim_quiet=true，推演里的行动不会进 logs，所以这里数的是真实盘面
+		for line in g.logs:
+			if line.contains("【定殖】"):
+				colonize += 1
+			elif line.contains("【净化】"):
+				purify += 1
+			elif line.contains("【增生】"):
+				prolif_n += int(line.split("】")[1].split(" ")[0])
+		g.dispose()
+	var secs := (Time.get_ticks_msec() - t0) / 1000.0
+	print("%-24s 席位 %-8s AI %-9s | 癌胜 %3d%% (%d/%d) | 平均 %4.1f 回合 | 上限判定 %2d 局 | 终局癌性 %5.1f 格 | %.0fs" % [
+		label if label != "" else order_str, order_str, ai,
+		cancer_wins * 100 / games, cancer_wins, games,
+		float(rounds_sum) / games, by_limit, float(cancerous_sum) / games, secs])
+	var ks: Array = kinds.keys()
+	ks.sort()
+	var parts: Array = []
+	for k in ks:
+		parts.append("%s %d" % [k, kinds[k]])
+	print("        胜法：%s" % ", ".join(parts))
+	print("        每局占地：癌【定殖】%.1f + 【增生】%.1f vs 免疫【净化】%.1f（转化比 %.1f:1）" % [
+		float(colonize) / games, float(prolif_n) / games, float(purify) / games,
+		float(colonize + prolif_n) / maxf(float(purify), 1.0)])
+	quit(0)
