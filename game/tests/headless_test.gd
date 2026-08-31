@@ -4518,7 +4518,9 @@ func _t_ruling_a_rewrite() -> void:
 	g2.dispose()
 
 
-## 定案 D：不改变费用的条目不结算、也不消耗额度。
+## 定案 D（乙案，Kevin 2026-08-30）：**免费额度省，限次折扣不省**。
+## 把费用变 0 的那几条（组织巡航首移 / 组织驻留 / 癌症干性 / 迁移激活）在这一次
+## 本来就免费时不消耗；限次折扣与改写类照旧按目的地谓词消耗，哪怕一分钱没减到。
 func _t_ruling_d_keep_allowance() -> void:
 	## D-1：两个「本回合首次免费」，一次移动只该用掉一个
 	var g := bare_game()
@@ -4540,7 +4542,7 @@ func _t_ruling_d_keep_allowance() -> void:
 		"D：两个额度用尽后只剩【组织巡航】的 -0.2")
 	g.dispose()
 
-	## D-2：限次折扣卡在价钱已经到底时不该被扣次数
+	## D-2：限次折扣**不省** —— 价钱已经到底、一分没减到，次数照扣（乙案）
 	var canc := Vector2i(1, 0)
 	var g2 := bare_game()
 	g2.immune_level = 3                       ## X 级基准 0.5
@@ -4550,11 +4552,27 @@ func _t_ruling_d_keep_allowance() -> void:
 	g2.add_mod(c2, "CXCR3趋化", 2, "turn")
 	var quote: int = g2.actions._move_cost_mod(c2, canc, g2.actions._move_base_cost(c2, canc))
 	check(quote == CWData.MOVE_CUT_MIN, "D：0.5 −0.3 已踩到下限 0.2")
+	var n0: int = g2.logs.size()
 	await g2.actions._do_move(c2, canc, quote)
 	var left: Array = g2.mods_of(c2, "CXCR3趋化")
-	check(left.size() == 1 and left[0]["uses"] == 2,
-		"D：【CXCR3趋化】这一次没减到钱，两次额度都留着")
+	check(left.size() == 1 and left[0]["uses"] == 1,
+		"D 乙案：【CXCR3趋化】没减到钱，次数照扣（限次折扣不省）")
+	var told := false
+	for i in range(n0, g2.logs.size()):
+		if "CXCR3趋化" in g2.logs[i] and "未改变费用" in g2.logs[i]:
+			told = true
+	check(told, "D 乙案：白花一次要有日志，别让玩家不明不白少一次")
 	g2.dispose()
+
+	## D-2b：目的地不对时**根本不适用**，任何情况下都不该消耗
+	##（这一条钉住乙案最容易写错的地方：「不适用」与「适用但没减到钱」是两码事）
+	var g2b := bare_game()
+	var c2b := put_immune(g2b, Vector2i.ZERO)
+	g2b.add_mod(c2b, "炎症趋化", 1, "turn")     ## 只管向癌性组织的迁移
+	await g2b.actions._do_move(c2b, Vector2i(1, 0), 0)   ## (1,0) 是健康组织
+	check(g2b.mods_of(c2b, "炎症趋化").size() == 1,
+		"D：往健康组织走，【炎症趋化】不适用 → 不消耗")
+	g2b.dispose()
 
 	## D-3：【迁移激活】的每回合免费额度同理
 	var g3 := bare_game()

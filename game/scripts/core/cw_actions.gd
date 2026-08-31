@@ -234,71 +234,103 @@ func _move_card_queue(cell: Dictionary) -> Array:
 ## 「改为 X」直接改写——**可能把价钱抬高**（团队 2026-08-30 定案 A：卡面从「降为」
 ## 改成「改为」，抬价是打出顺序的一部分，见口径 #74）；「-X」按各自下限扣且只降不升。
 ##
-## **不改变费用的条目不结算、也不消耗**（团队 2026-08-30 定案 D，口径 #75）：
-## 免费额度和限次折扣都是有限资源，白烧一次玩家在报价上根本看不出来。
-## 判据统一成「算出来的价钱和进来时一样 → 这一次它没起作用」，不为个别卡开特例。
+## **免费额度省，限次折扣不省**（团队 2026-08-30 定案 D 乙案，口径 #75）：
+##   - `free = true` 的那几条（把费用变 0 的免费额度）—— 这一次已经免费就**不消耗**，
+##     额度留给后面真要花钱的移动。问题 6 说的就是这一类：同时装【组织巡航】+
+##     【组织驻留】时，一次移动本来会把两个「本回合首次免费」一起烧掉。
+##   - 其余（限次折扣 / 改写）**照旧消耗**：只要目的地对得上、次数还有，
+##     哪怕这一次一分钱没减到，次数也照扣。团队定的就是这个口径。
+##
+## 所以要分清两件事：**「这张卡适不适用」**（`applies`，目的地/次数对不对）与
+## **「它有没有真的改到钱」**（`after != cost`）。前者为假一律不消耗；
+## 后者只对免费额度那几条有意义。合成一个判据的话，
+## 「打出【炎症趋化】却往健康组织走」和「打出【炎症趋化】但价钱本来就是 0.5」
+## 会被当成同一件事，而团队对这两者的裁定是相反的。
 func _apply_move_card(cell: Dictionary, dest: Vector2i, cost: int, name: String,
 		commit: bool) -> int:
 	var to_cancerous := game.is_cancerous(dest)
 	var to_healthy: bool = game.tile(dest)["tissue"] == CWData.Tissue.HEALTHY
 	var after := cost
-	var spend := ""    ## "mod"=扣一条修饰条目 / "gate"=烧一个本回合闸门 / ""=不消耗
+	var applies := false   ## 目的地/次数对得上？为假则这张卡这一次根本不参与结算
+	var free := false      ## 是「把费用变 0」的免费额度？只有这类才省（定案 D 乙案）
+	var spend := ""        ## "mod"=扣一条修饰条目 / "gate"=烧一个本回合闸门 / ""=不消耗
 	var note := ""
 	match name:
 		"炎症趋化":
 			if to_cancerous:
+				applies = true
 				after = CWData.INFLAM_CHEMO_COST
 				spend = "mod"
 				note = "【炎症趋化】本次迁移费用改为 %s" % CWData.fmt(after)
 		"CXCR3趋化":
 			if to_cancerous:
+				applies = true
 				after = _cut_cost(cost, CWData.CXCR3_CUT)
 				spend = "mod"
 				note = "【CXCR3趋化】本次迁移费用 -%s" % CWData.fmt(CWData.CXCR3_CUT)
 		"LFA-1黏附":
 			if to_cancerous and not cell["fx_turn"].has("LFA-1黏附"):
+				applies = true
 				after = _cut_cost(cost, CWData.LFA1_CUT)
 				spend = "gate"
 				note = "【LFA-1黏附】本回合首次向癌性组织迁移 -%s" % CWData.fmt(CWData.LFA1_CUT)
 		"组织浸润":
 			## 无次数无闸门，每次都减 —— 没有额度可省，spend 留空
 			if to_cancerous:
+				applies = true
 				after = _cut_cost(cost, CWData.INFILTRATE_CUT)
 				note = "【组织浸润】向癌性组织迁移 -%s" % CWData.fmt(CWData.INFILTRATE_CUT)
 		"组织巡航":
 			## 首移免费，此后本回合每次 -0.2（任何目的地）
 			if not cell["fx_turn"].has("组织巡航"):
+				applies = true
+				free = true
 				after = 0
 				spend = "gate"
 				note = "【组织巡航】本回合首次迁移免费"
 			else:
+				applies = true
 				after = _cut_cost(cost, CWData.CRUISE_CUT)
 				note = "【组织巡航】本回合后续迁移 -%s" % CWData.fmt(CWData.CRUISE_CUT)
 		"组织驻留":
 			if to_healthy and not cell["fx_turn"].has("组织驻留"):
+				applies = true
+				free = true
 				after = 0
 				spend = "gate"
 				note = "【组织驻留】本回合首次向健康组织迁移免费"
 		"上皮—间质转化":
 			if to_healthy:
+				applies = true
 				after = CWData.EMT_MOVE_COST
 				spend = "mod"
 				note = "【上皮—间质转化】本次移动费用改为 %s" % CWData.fmt(after)
 		"癌症干性":
 			## 复活当个世界回合的限次额度（分期 1~2 次）用完就恢复原价
 			if to_cancerous and not game.mods_of(cell, "癌症干性").is_empty():
+				applies = true
+				free = true
 				after = 0
 				spend = "mod"
 				note = "【癌症干性】本次向癌性组织移动免费"
-	if after == cost:
-		return cost      ## 这一次没起作用 → 额度留着（口径 #75）
+	if not applies:
+		return cost      ## 目的地不对 / 次数用尽：这张卡这一次不参与，当然不消耗
+	if free and after == cost:
+		return cost      ## 免费额度：这一次本来就免费，额度留着（定案 D 乙案，口径 #75）
 	if commit:
+		var used := ""
 		match spend:
 			"mod":
 				_spend_one_mod(cell, name)
+				used = "次数"
 			"gate":
 				game.first_this_turn(cell, name)
-		game.log_msg("　%s" % note)
+				used = "本回合额度"
+		if after != cost:
+			game.log_msg("　%s" % note)
+		elif used != "":
+			## 限次折扣**不省**，但玩家有权知道自己刚白花了一次
+			game.log_msg("　【%s】本次未改变费用，%s 仍消耗" % [name, used])
 	return after
 
 
@@ -344,8 +376,9 @@ func _move_world_events(cell: Dictionary, dest: Vector2i, base: int, commit: boo
 			"基质阻隔":
 				cost = _barrier_fee(cost)
 			"迁移激活":
-				## 免疫细胞每回合首次移动免费。**已经是 0 就不烧这份额度**
-				## （口径 #75，和卡牌那层同一条判据：不改变费用就不结算）
+				## 免疫细胞每回合首次移动免费。它是**免费额度**，所以按定案 D 乙案
+				## （口径 #75）省着用：这一次本来就免费（比如靠【组织巡航】首移）
+				## 就不烧掉它，留给后面真要花钱的那一步
 				if cost > 0 and game.world_fx.free_move_available(cell):
 					cost = 0
 					if commit:
