@@ -62,11 +62,38 @@ func event(source: Dictionary, target: Dictionary, base: int, kind: Kind,
 	}
 
 
-## 提交一批伤害事件，返回等长的 DamageResult 数组。
-## 单体伤害就是 size==1 的一批 —— 走同一条路，没有第二套逻辑。
+## 提交伤害事件，返回等长的 DamageResult 数组（顺序与传入一致）。
+##
+## **批次由事件自己的 `simultaneous_group` 决定，不由「调用方碰巧塞进同一个数组」决定**
+## （2026-08-31 队友审查问题 2）。四条语义写死在这里：
+##   ① `group == 0` = 未编组，**每个事件自成一批**——单体伤害的默认；
+##   ② 多批之间按**首次出现顺序**处理，后一批看得到前一批结算完的盘面；
+##   ③ **不允许**同一个 group 跨多次 submit() 追加——批次边界必须在一次调用里闭合；
+##   ④ 次级伤害（如 T 细胞【细胞毒性增强】的无视减伤那一下）归**当前批**。
+##      拆开的话主伤害会先结算死亡、BCL-2 先把能量拉回分期值，次级伤害再补一刀，
+##      反而可能绕过 BCL-2 把人打死。
 func submit(events: Array) -> Array:
 	if events.is_empty():
 		return []
+	var batches: Array = []
+	var at := {}                    ## group -> 它在 batches 里的下标
+	for ev in events:
+		var g: int = int(ev["simultaneous_group"])
+		if g != 0 and at.has(g):
+			batches[at[g]].append(ev)
+			continue
+		if g != 0:
+			at[g] = batches.size()
+		batches.append([ev])
+	var results: Array = []
+	for b in batches:
+		results.append_array(_submit_batch(b))
+	return results
+
+
+## 一个批次走完整的五步。**同批的每个目标都在同一份「批前状态」上计算**：
+## 边遍历边扣能量、边死人的话，数组顺序就会改变结果（设计 §5.5）。
+func _submit_batch(events: Array) -> Array:
 	## ②③ 先把整批算完（纯计算，谁也不动）
 	var plans: Array = []
 	for ev in events:

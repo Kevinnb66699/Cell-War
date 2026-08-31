@@ -67,13 +67,9 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 func immune_move_options(cell: Dictionary) -> Array:
 	var opts: Array = []
 	for n in CWData.neighbors(cell["pos"]):
+		if not _is_move_legal_now(cell, n):
+			continue          # 与提交时复验的是同一份谓词
 		var enemies: Array = game.cells_at(n, CWData.Faction.CANCER)
-		if enemies.is_empty():
-			# 空格才谈得上「迁移」；有己方细胞占着就去不了（一格一细胞）
-			if not game.cells_at(n).is_empty():
-				continue
-		elif not _attackable(enemies[0]):
-			continue          # 骨肉瘤【刚性屏障】：站在固化癌组织上时不可被攻击
 		var cost := _move_cost_mod(cell, n, _move_base_cost(cell, n))
 		if not game.can_pay(cell, cost):
 			continue
@@ -92,10 +88,53 @@ func _attackable(target: Dictionary) -> bool:
 		and game.tile(target["pos"])["tissue"] == CWData.Tissue.SOLID)
 
 
+# ---- 合法性谓词：选项生成与提交复验**共用同一份** ----
+#
+# 2026-08-31 队友审查发现 CWCost.commit() 只重新报价、不复验合法性，而注释却写着
+# 「重新验证 → 重新报价」。取消打断窗口后这条路暂时走不到（pending 生成选项后
+# 紧接着就 step 执行），但它是契约债：联机延迟、重复提交、快照回滚后复用旧选择、
+# 异步询问期间盘面变化，任何一条都会把它变成真 bug。
+#
+# **两边必须复用同一个函数。** 各写一套的话，就又长出了「标价与收费对不上」那类问题。
+
+## 迁移/攻击到相邻格是否合法。不看能量（那是报价的事），只看盘面。
+func _is_move_legal_now(cell: Dictionary, to: Vector2i) -> bool:
+	if not cell["alive"] or not CWData.is_on_board(to):
+		return false
+	if not (to in CWData.neighbors(cell["pos"])):
+		return false
+	if cell["faction"] == CWData.Faction.CANCER:
+		return game.cells_at(to).is_empty()          ## 一格一细胞
+	## 免疫：空格才谈得上「迁移」；有癌细胞则这一下是攻击，要过刚性屏障
+	var enemies: Array = game.cells_at(to, CWData.Faction.CANCER)
+	if enemies.is_empty():
+		return game.cells_at(to).is_empty()
+	return _attackable(enemies[0])
+
+
+## 黑色素瘤【早期血行转移】：站在血管格上、本世界回合还没用过、落点是空的健康组织
+func _is_homing_legal_now(cell: Dictionary, to: Vector2i) -> bool:
+	if not cell["alive"] or cell["metastasis_used"]:
+		return false
+	if CWData.special_of(cell["pos"]) != CWData.Special.VESSEL:
+		return false
+	return game.tile(to)["tissue"] == CWData.Tissue.HEALTHY and game.cells_at(to).is_empty()
+
+
+## 小细胞肺癌【转移】：落点在棋盘上且无细胞占据
+func _is_jump_legal_now(cell: Dictionary, to: Vector2i) -> bool:
+	return cell["alive"] and CWData.is_on_board(to) and game.cells_at(to).is_empty()
+
+
+## T 细胞【裂解】：脚下仍是固化癌组织
+func _is_lyse_legal_now(cell: Dictionary) -> bool:
+	return cell["alive"] and game.tile(cell["pos"])["tissue"] == CWData.Tissue.SOLID
+
+
 func _cancer_options(cell: Dictionary, opts: Array) -> void:
 	for n in CWData.neighbors(cell["pos"]):
-		if not game.cells_at(n).is_empty():
-			continue          # 一格一细胞：有任何细胞占着就去不了
+		if not _is_move_legal_now(cell, n):
+			continue          # 与提交时复验的是同一份谓词
 		var cost := _move_cost_mod(cell, n, _move_base_cost(cell, n))
 		if not game.can_pay(cell, cost):
 			continue
@@ -285,10 +324,11 @@ func attack_outcome(r: int, attacker: Dictionary = {}) -> String:
 ## 喊一声，别静默按另一个价钱扣费。
 func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void:
 	var ctx := CWCost.context(cell, CWCost.Action.MOVE,
-		base if base >= 0 else _move_base_cost(cell, to), to)
+		base if base >= 0 else _move_base_cost(cell, to), to, 0,
+		func() -> bool: return _is_move_legal_now(cell, to))
 	var q := game.cost.commit(ctx)
 	if q.is_empty():
-		return
+		return          ## 不合法或付不起——能量、修饰、闸门一概没动
 	if int(q["final"]) != cost:
 		game.log_msg("! 移动费标价 %s 与兑现 %s 不一致（局面已变）" % [
 			CWData.fmt(cost), CWData.fmt(int(q["final"]))])
@@ -380,14 +420,18 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 			game.log_msg("　攻击类修饰：额外造成 %s 能量损失" % CWData.fmt(extra))
 		## 【抗原丢失】的免疫判定住在管线的「替代/免疫」层（设计 §5.2），这里不再自己拦：
 		## 被整体免疫的事件视为未造成伤害，护盾、标记与斩杀都不会被骗掉
+		## 主攻击与它的次级伤害**必须同批**（2026-08-31 队友审查问题 2 的第四条语义）：
+		## 拆开的话主伤害先结算死亡、【BCL-2抗凋亡】先把能量拉回分期值，
+		## 次级伤害再补一刀 —— 反而可能绕过 BCL-2 把人打死。
+		var group := game.damage.next_group()
 		var events: Array = [game.damage.event(cell, target, dmg, CWDamage.Kind.ATTACK,
-			[CWDamage.Tag.IMMUNE, CWDamage.Tag.ATTACK], "攻击", extra)]
+			[CWDamage.Tag.IMMUNE, CWDamage.Tag.ATTACK], "攻击", extra, group)]
 		if cytotox_direct > 0:
 			events.append(game.damage.event(cell, target, cytotox_direct,
 				CWDamage.Kind.ATTACK,
 				[CWDamage.Tag.IMMUNE, CWDamage.Tag.ATTACK, CWDamage.Tag.DIRECT,
 					CWDamage.Tag.UNPREVENTABLE, CWDamage.Tag.NO_LIFESTEAL],
-				"细胞毒性增强"))
+				"细胞毒性增强", 0, group))
 		var dealt := 0
 		for res in game.damage.submit(events):
 			dealt += int(res["actual"])
@@ -650,7 +694,8 @@ func _purge_cost(cell: Dictionary) -> int:
 
 func _do_lyse(cell: Dictionary, purge: bool) -> void:
 	var act := CWCost.Action.PURIFY if purge else CWCost.Action.CELL_SKILL
-	if game.cost.commit(CWCost.context(cell, act, CWData.LYSE_COST)).is_empty():
+	if game.cost.commit(CWCost.context(cell, act, CWData.LYSE_COST, Vector2i.MAX, 0,
+			func() -> bool: return _is_lyse_legal_now(cell))).is_empty():
 		return
 	var pos: Vector2i = cell["pos"]
 	var t: Dictionary = game.tile(pos)
@@ -734,7 +779,8 @@ func _homing_targets() -> Array[Vector2i]:
 
 func _do_homing(cell: Dictionary, to: Vector2i) -> void:
 	if game.cost.commit(CWCost.context(cell, CWCost.Action.CELL_SKILL,
-			CWData.MELANOMA_HOMING_COST)).is_empty():
+			CWData.MELANOMA_HOMING_COST, to, 0,
+			func() -> bool: return _is_homing_legal_now(cell, to))).is_empty():
 		return
 	cell["metastasis_used"] = true
 	game.log_msg("【早期血行转移】%s 自血管转移至 %s" % [game.cell_name(cell), str(to)])
@@ -791,7 +837,8 @@ func _jump_targets(cell: Dictionary) -> Array:
 ## 所以这里直接 enter_tile 到终点，中间格连碰都不碰。
 func _do_jump(cell: Dictionary, to: Vector2i) -> void:
 	if game.cost.commit(CWCost.context(cell, CWCost.Action.CELL_SKILL,
-			CWData.METASTASIS_COST)).is_empty():
+			CWData.METASTASIS_COST, to, 0,
+			func() -> bool: return _is_jump_legal_now(cell, to))).is_empty():
 		return
 	game.log_msg("【转移】%s 跃进 5 格至 %s" % [game.cell_name(cell), str(to)])
 	await enter_tile(cell, to)

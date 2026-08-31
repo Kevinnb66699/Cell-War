@@ -664,20 +664,24 @@ func immune_hit_area(targets: Array, base: int, attacker: Dictionary,
 	var tags: Array = [CWDamage.Tag.IMMUNE, CWDamage.Tag.AREA]
 	if attack:
 		tags.append(CWDamage.Tag.ATTACK)
+	## 批次号**取一次**给全体目标——写在循环里的话，同一次范围伤害会被声明成
+	## 多个不同批次（2026-08-31 队友审查问题 2）
+	var group := damage.next_group()
 	var events: Array = []
 	for t in targets:
 		events.append(damage.event(attacker, t, base,
 			CWDamage.Kind.ATTACK if attack else CWDamage.Kind.CARD,
-			tags, ability, 0, damage.next_group()))
+			tags, ability, 0, group))
 	return damage.submit(events)
 
 
 func cancer_hit_area(targets: Array, base: int, reason: String, skill: bool = false) -> Array:
+	var group := damage.next_group()
 	var events: Array = []
 	for t in targets:
 		events.append(damage.event({}, t, base,
 			CWDamage.Kind.CELL_SKILL if skill else CWDamage.Kind.WORLD,
-			[CWDamage.Tag.CANCER, CWDamage.Tag.AREA], reason, 0, damage.next_group()))
+			[CWDamage.Tag.CANCER, CWDamage.Tag.AREA], reason, 0, group))
 	return damage.submit(events)
 
 

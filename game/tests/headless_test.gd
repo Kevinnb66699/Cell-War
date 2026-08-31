@@ -25,6 +25,7 @@ func _run_all() -> void:
 	await t_card_mods()
 	await t_settle_order_rulings()
 	await t_review_fixes()
+	await t_review_0831()
 	await t_damage_pipeline()
 	await t_card_perms()
 	await t_world_events_draw()
@@ -3329,9 +3330,11 @@ func t_card_perms() -> void:
 	## ④ 组织巡航：首移免费（任何目的地），此后每次 −0.2
 	imm["equipped"] = ["组织巡航"]
 	imm["fx_turn"] = {}
-	check(g.actions._move_cost_mod(imm, Vector2i(2, 2), base_h) == 0, "组织巡航：首移免费")
-	await g.actions._do_move(imm, Vector2i(2, 2), 0)
-	check(g.actions._move_cost_mod(imm, Vector2i(2, 3), base_h)
+	## 目的地必须是**相邻格**：这里原先写的 (2,2) 相对 (1,1) 并不相邻，
+	## 旧代码照走，2026-08-31 补上的合法性复验把它拦下来了（谓词生效的旁证）
+	check(g.actions._move_cost_mod(imm, Vector2i(2, 1), base_h) == 0, "组织巡航：首移免费")
+	await g.actions._do_move(imm, Vector2i(2, 1), 0)
+	check(g.actions._move_cost_mod(imm, Vector2i(2, 2), base_h)
 		== maxi(base_h - CWData.CRUISE_CUT, CWData.MOVE_CUT_MIN), "此后每次迁移 −0.2")
 	g.dispose()
 
@@ -4833,3 +4836,152 @@ func _t_dmg_unpreventable_still_dies() -> void:
 	check(not bv["equipped"].has("BCL-2抗凋亡"),
 		"UNPREVENTABLE 的次级伤害仍然走死亡替代：BCL-2 被触发并弃置")
 	g.dispose()
+
+
+# ---- 2026-08-31 队友审查的两个问题 ----
+## 问题 1：CWCost.commit() 要先复验行动合法性，失败时**什么都不能动**。
+## 问题 2：范围伤害的 simultaneous_group 必须正确且真的参与调度。
+func t_review_0831() -> void:
+	print("[8-31 审查：提交复验 + 批次号]")
+	await _t_commit_revalidates()
+	await _t_damage_batching()
+
+
+## 报告 §3.6：六条拒绝分支，每条都不许扣费/烧修饰/占闸门
+func _t_commit_revalidates() -> void:
+	var canc := Vector2i(1, 0)
+
+	## ① 报价后行动者位置变了 → 上下文作废
+	var g := bare_game()
+	var cell := put_immune(g, Vector2i.ZERO)
+	var ctx := CWCost.context(cell, CWCost.Action.MOVE, 5, Vector2i(1, 0), 0,
+		func() -> bool: return g.actions._is_move_legal_now(cell, Vector2i(1, 0)))
+	cell["pos"] = Vector2i(3, 0)          ## 别的效果把它挪走了
+	var e0: int = cell["energy"]
+	check(g.cost.commit(ctx).is_empty(), "①报价后位置变了：提交被拒")
+	check(cell["energy"] == e0, "①被拒时不扣费")
+	g.dispose()
+
+	## ② 报价后目标格被占
+	var g2 := bare_game()
+	var c2 := put_immune(g2, Vector2i.ZERO)
+	var ctx2 := CWCost.context(c2, CWCost.Action.MOVE, 5, Vector2i(1, 0), 0,
+		func() -> bool: return g2.actions._is_move_legal_now(c2, Vector2i(1, 0)))
+	put_immune(g2, Vector2i(1, 0))        ## 队友挤了进来
+	var e2: int = c2["energy"]
+	check(g2.cost.commit(ctx2).is_empty(), "②目标格被占：提交被拒")
+	check(c2["energy"] == e2, "②被拒时不扣费")
+	g2.dispose()
+
+	## ③ 攻击目标获得了不可攻击状态（骨肉瘤【刚性屏障】）
+	var g3 := bare_game()
+	g3.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	var c3 := put_immune(g3, Vector2i.ZERO)
+	var osteo := CWSetup.make_cell(g3.cells.size(), 1, CWData.Faction.CANCER, canc,
+		-1, CWData.CancerType.OSTEO, 100)
+	g3.cells.append(osteo)
+	check(g3.actions._is_move_legal_now(c3, canc), "③癌组织上的骨肉瘤可以打")
+	g3.tiles[canc]["tissue"] = CWData.Tissue.SOLID    ## 它站上了固化组织
+	check(not g3.actions._is_move_legal_now(c3, canc), "③刚性屏障生效后不可攻击")
+	var ctx3 := CWCost.context(c3, CWCost.Action.MOVE, 5, canc, 0,
+		func() -> bool: return g3.actions._is_move_legal_now(c3, canc))
+	var e3: int = c3["energy"]
+	check(g3.cost.commit(ctx3).is_empty(), "③目标不可攻击：提交被拒")
+	check(c3["energy"] == e3, "③被拒时不扣费")
+	g3.dispose()
+
+	## ④ 被拒时一次性额度与闸门都不能动
+	var g4 := bare_game()
+	var c4 := put_immune(g4, Vector2i.ZERO)
+	put_skill(c4, "组织巡航")                 ## 首移免费的额度
+	g4.add_mod(c4, "炎症趋化", 1, "turn")
+	put_immune(g4, Vector2i(1, 0))           ## 目标格被占，这一步注定失败
+	await g4.actions._do_move(c4, Vector2i(1, 0), 0)
+	check(not c4["fx_turn"].has("组织巡航"), "④被拒时不占回合闸门")
+	check(g4.mods_of(c4, "炎症趋化").size() == 1, "④被拒时不烧修饰")
+	g4.dispose()
+
+	## ⑤ 同一个旧选项重复提交：第二次必须被拒（位置已经变了）
+	var g5 := bare_game()
+	var c5 := put_immune(g5, Vector2i.ZERO)
+	var to5 := Vector2i(1, 0)
+	var mk := func() -> Dictionary:
+		return CWCost.context(c5, CWCost.Action.MOVE, 5, to5, 0,
+			func() -> bool: return g5.actions._is_move_legal_now(c5, to5))
+	check(not g5.cost.commit(mk.call()).is_empty(), "⑤第一次提交成功")
+	c5["pos"] = to5                          ## 动作层把它挪过去了
+	var e5: int = c5["energy"]
+	check(g5.cost.commit(mk.call()).is_empty(), "⑤同一旧选项重复提交被拒")
+	check(c5["energy"] == e5, "⑤第二次不扣费")
+	g5.dispose()
+
+	## ⑥ 死了就什么都提交不了
+	var g6 := bare_game()
+	var c6 := put_immune(g6, Vector2i.ZERO)
+	c6["alive"] = false
+	check(g6.cost.commit(CWCost.context(c6, CWCost.Action.MOVE, 5, Vector2i(1, 0))).is_empty(),
+		"⑥行动者已死：提交被拒")
+	g6.dispose()
+
+
+## 报告 §4.6：批次号正确、真的参与调度、且结果不依赖目标数组顺序
+func _t_damage_batching() -> void:
+	## ① 一次范围伤害的全部事件共享同一个**非零** group
+	var g := bare_game()
+	var atk := put_immune(g, Vector2i.ZERO)
+	var victims: Array = []
+	for i in 3:
+		var v := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER,
+			Vector2i(2 + i, 0), -1, CWData.CancerType.SCLC, 100)
+		g.cells.append(v)
+		victims.append(v)
+	var res: Array = g.immune_hit_area(victims, 10, atk, "IFN-γ")
+	var groups := {}
+	for r in res:
+		groups[int(r["event"]["simultaneous_group"])] = true
+	check(groups.size() == 1, "①同一次范围伤害只有一个批次号")
+	check(not groups.has(0), "①范围伤害的批次号非零")
+
+	## ② 两次范围伤害拿到不同的 group
+	var first: int = int(res[0]["event"]["simultaneous_group"])
+	var res2: Array = g.immune_hit_area(victims, 10, atk, "IFN-γ")
+	check(int(res2[0]["event"]["simultaneous_group"]) != first, "②两次范围伤害批次号不同")
+	g.dispose()
+
+	## ③ 同批目标数组倒序，最终状态与 state_hash() 必须一致
+	var h_forward := _area_hash(false)
+	var h_reverse := _area_hash(true)
+	check(h_forward == h_reverse, "③同批目标数组倒序不改变 state_hash()")
+
+	## ④ 单体伤害（group==0）各自独立成批：两条打同一目标时，
+	##    第二条看得到第一条结算完的能量
+	var g4 := bare_game()
+	var a4 := put_immune(g4, Vector2i.ZERO)
+	var t4 := CWSetup.make_cell(g4.cells.size(), 1, CWData.Faction.CANCER,
+		Vector2i(2, 0), -1, CWData.CancerType.SCLC, 30)
+	g4.cells.append(t4)
+	var out: Array = g4.damage.submit([
+		g4.damage.event(a4, t4, 10, CWDamage.Kind.CARD, [CWDamage.Tag.IMMUNE], "技能"),
+		g4.damage.event(a4, t4, 10, CWDamage.Kind.CARD, [CWDamage.Tag.IMMUNE], "技能"),
+	])
+	check(int(out[0]["energy_before"]) == 30, "④未编组事件各自成批：第一条看到 3.0")
+	check(int(out[1]["energy_before"]) == 20, "④第二条看到第一条扣完的 2.0")
+	g4.dispose()
+
+
+## 同一批范围伤害，正序与倒序打同一组目标，跑完后的全状态哈希应当一致
+func _area_hash(reverse: bool) -> String:
+	var g := bare_game()
+	var atk := put_immune(g, Vector2i.ZERO)
+	var victims: Array = []
+	for i in 3:
+		var v := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER,
+			Vector2i(2 + i, 0), -1, CWData.CancerType.SCLC, 15 + i * 10)
+		g.cells.append(v)
+		victims.append(v)
+	if reverse:
+		victims.reverse()
+	g.immune_hit_area(victims, 20, atk, "IFN-γ")
+	var h := g.state_hash()
+	g.dispose()
+	return h

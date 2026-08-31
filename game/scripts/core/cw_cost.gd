@@ -160,8 +160,12 @@ const TEMPLATES := {
 # ============ 上下文 ============
 
 ## 建一个费用上下文。base_cost 由调用方给（行动本身 + 免疫等级 + 细胞自带技能）。
+## validate：**无副作用**的合法性谓词，commit() 在报价之前调它（设计 §七.2 第一步）。
+## 由动作层提供，且必须与选项生成用的是**同一份**谓词 —— 两边各写一套的话，
+## 就又回到了「标价与收费对不上」那类问题的老路上。
 static func context(actor: Dictionary, action: Action, base_cost: int,
-		to: Vector2i = Vector2i.MAX, hard_floor: int = 0) -> Dictionary:
+		to: Vector2i = Vector2i.MAX, hard_floor: int = 0,
+		validate: Callable = Callable()) -> Dictionary:
 	return {
 		"actor": actor,
 		"action": action,
@@ -170,6 +174,7 @@ static func context(actor: Dictionary, action: Action, base_cost: int,
 		"base_cost": base_cost,
 		"payment_floor": DEFAULT_PAYMENT_FLOOR,
 		"hard_floor": hard_floor,   ## ⑩ 行动级最终硬下限，免费也压不下去
+		"validate": validate,
 	}
 
 
@@ -250,12 +255,31 @@ func can_pay(ctx: Dictionary) -> bool:
 	return quote(ctx)["affordable"]
 
 
+## 行动者与上下文是否仍然成立。没给 validate 的上下文只查最基本的两条。
+func _still_legal(ctx: Dictionary) -> bool:
+	var actor: Dictionary = ctx["actor"]
+	if not actor["alive"]:
+		return false
+	## 起点变了说明这个上下文是别的时刻建的，价钱与合法性都不该再当真
+	if actor["pos"] != ctx["from"]:
+		return false
+	var v: Callable = ctx.get("validate", Callable())
+	return not v.is_valid() or bool(v.call())
+
+
 # ============ 提交（原子）============
 
 ## 重新报价 → 校验 → 扣费 → 只消耗报价选中的修饰 → 写闸门。
 ## 返回实际使用的报价；付不起则返回空字典，**任何副作用都不发生**。
 func commit(ctx: Dictionary) -> Dictionary:
-	var q := quote(ctx)              ## 按**当前**状态重算，不信调用方存的旧价钱
+	## ① 先复验行动在**此刻**仍然合法（设计 §七.2 的第一步）。
+	## 价格会变，行动者、起点、目标和资格同样会变 —— 这是同一条原子性契约的两半。
+	## 从这里到扣费之间**不许出现 await**，否则中间的挂起会让复验白做。
+	if not _still_legal(ctx):
+		return {}
+	## ② 按**当前**状态重算，不信调用方存的旧价钱
+	var q := quote(ctx)
+	## ③ 余额与 payment_floor
 	if not q["affordable"]:
 		return {}
 	var actor: Dictionary = ctx["actor"]
