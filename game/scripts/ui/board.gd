@@ -144,6 +144,11 @@ const MARK_RING_DELAY := 0.045
 
 var _mark_nodes := {}    ## 轴坐标 -> Sprite2D
 var _mark_target := {}   ## 轴坐标 -> 目标颜色；set_marks 传进来的那个
+## fade_to_healthy() 建的过渡叠层。**必须留着句柄**：它们虽然挂在 `_marks` 下，
+## 却不在 `_mark_target` / `_mark_nodes` 里，`set_marks({})` 清不掉。
+## 而 board 是跨局复用的 —— 不主动取消的话，补间的回调会在**下一局**里把格子刷成健康贴图，
+## 且贴图只在 `set_tissue()` 时更新、不是每帧重刷，那一格会一直错到它下次变状态为止。
+var _fade_overs: Array[Sprite2D] = []
 var _mark_tweens := {}   ## 轴坐标 -> 正在跑的补间
 
 
@@ -225,11 +230,22 @@ func fade_to_healthy(seconds: float) -> void:
 		over.z_index = tile_z(c, Z_MARK)
 		over.modulate.a = 0.0
 		_marks.add_child(over)
+		_fade_overs.append(over)
 		var tw := over.create_tween()
 		tw.tween_property(over, "modulate:a", 1.0, seconds)
 		tw.tween_callback(func() -> void:
 			tile.texture = want
+			_fade_overs.erase(over)
 			over.queue_free())
+
+
+## 取消还没演完的「淡回健康」。开新局时必须调 —— 理由见 `_fade_overs` 的注释。
+## 叠层一 free，绑在它身上的补间跟着死，回调也就不会再落到下一局的格子上。
+func cancel_fade() -> void:
+	for o in _fade_overs:
+		if is_instance_valid(o):
+			o.queue_free()
+	_fade_overs.clear()
 
 
 func _make_mark(c: Vector2i, want: Color) -> Sprite2D:

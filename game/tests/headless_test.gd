@@ -1812,6 +1812,39 @@ func t_settle_screen() -> void:
 	check(not main_scene.settle.visible, "新局开始时结算屏收起来了")
 	check(main_scene.pause.active, "新局里暂停菜单又能用了")
 
+	## 返场/重开的过场被玩家点击**跳过**时：跳过只快进了相机补间（main.gd 的 `_tween`），
+	## 而 `fade_out()` 建在 `_cells_root` 上那条**没人管**。`_cells_root` 又是 teardown()
+	## 不销毁的节点，于是那条补间活过拆局、跑进下一局，继续把细胞 alpha 拉向 0 ——
+	## 表现就是「新局开局棋盘上一个细胞都看不见，HUD 却正常」
+	## （HUD 那几条只有 0.6 倍时长，通常已经先跑完了，所以只有细胞中招）。
+	## 这里用「长淡出 + 立刻拆局重开」复现，不依赖任何时序竞态。
+	main_scene.match_node.fade_out(5.0)
+	await process_frame
+	main_scene.match_node.teardown()
+	main_scene.match_node.start()
+	await process_frame
+	await process_frame
+	check(is_equal_approx(main_scene.match_node._cells_root.modulate.a, 1.0),
+		"跳过过场后重开：细胞不透明（上一局的淡出补间已被杀掉）")
+
+	## 同一个触发条件下的第二个症状：`fade_to_healthy()` 的过渡叠层挂在 `_marks` 下，
+	## 却不在 `set_marks` 管的表里，清不掉；它的回调会把格子刷成健康贴图。
+	## 而贴图只在 `set_tissue()` 时更新、**不是每帧重刷**，所以那一格会一直错下去。
+	## 用短淡出（0.05s）+ 立刻取消 + 等到远超淡出时长来判：没取消的话回调早就落下了。
+	var b2 := make_board()
+	root.add_child(b2)          ## **必须进场景树**：不在树里的节点补间根本不跑，
+	await process_frame         ## 那样这条测试无论修没修都是绿的（已实测过）
+	var cc := Vector2i(1, 0)
+	b2.set_tissue(cc, CWData.Tissue.CANCER, CWData.Special.NONE)
+	var tile2: Sprite2D = b2.map[b2.axial_to_rc(cc)]["instance"]
+	var before2: Texture2D = tile2.texture
+	b2.fade_to_healthy(0.05)
+	check(not b2._fade_overs.is_empty(), "淡回健康：过渡叠层已建起来（前提成立）")
+	b2.cancel_fade()
+	await create_timer(0.3).timeout
+	check(tile2.texture == before2, "取消淡出后，残留回调不会再把格子刷成健康")
+	b2.queue_free()
+
 	main_scene.queue_free()
 	s.queue_free()
 	g.dispose()

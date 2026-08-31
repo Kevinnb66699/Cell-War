@@ -102,6 +102,12 @@ var bridge: CWUIBridge
 
 var _dice: CWDice
 var _cells_root: Node2D
+## fade_out() 建的那几条补间的句柄。**必须留着**：它们绑在 `_cells_root` 和 HUD 上，
+## 而这两个节点 teardown() 都不销毁 —— 补间会活过拆局、跑进下一局继续把 alpha 拉向 0。
+## 返场过场被玩家点击跳过时最容易撞上：跳过只快进了相机补间（main.gd 的 `_tween`），
+## 这几条没人管。表现是「新局开局细胞全不可见、HUD 却正常」
+## （HUD 那几条只有 0.6 倍时长，通常已经先跑完）。start() 里统一杀掉。
+var _fade_tws: Array[Tween] = []
 var _cell_nodes: Array[Node2D] = []   ## 下标 = cell["id"]，和 game.cells 一一对应
 var _was_alive: Array[bool] = []      ## 上一帧的存活状态，用来认出「复活」这一下
 var _bloom := {}      ## 开场还没揭开的格子：一律先按健康组织画
@@ -155,6 +161,16 @@ func _ready() -> void:
 ## 待决的询问重新问出来（恢复点必然是 pending 边界，CWSave 只在那儿写得出档）。
 func start(snap: Dictionary = {}) -> void:
 	_fading = false
+	## 先杀上一局的淡出补间，再还原 alpha —— 顺序反了等于没改：
+	## 补间还活着的话，下一帧它会把刚设回 1.0 的 alpha 继续拉向 0。
+	for tw in _fade_tws:
+		if tw != null and tw.is_valid():
+			tw.kill()
+	_fade_tws.clear()
+	## 棋盘那边同一回事：fade_to_healthy() 的过渡叠层不归 set_marks 管，
+	## 残留回调会在这一局里把格子刷成健康贴图
+	if board != null:
+		board.cancel_fade()
 	if _cells_root != null:
 		_cells_root.modulate.a = 1.0     ## 上一局淡出留下的，开新局要还原
 	if ui != null:
@@ -260,12 +276,14 @@ func fade_out(seconds: float) -> void:
 	if _cells_root != null:
 		var tw := _cells_root.create_tween()
 		tw.tween_property(_cells_root, "modulate:a", 0.0, seconds)
+		_fade_tws.append(tw)
 	## HUD 稍微早一点淡完 —— 它不在棋盘上，跟着棋盘一起慢慢消反而拖沓
 	if ui != null:
 		for c in ui.get_children():
 			if c is Control and (c as Control).visible:
 				var ui_tw := (c as Control).create_tween()
 				ui_tw.tween_property(c, "modulate:a", 0.0, seconds * 0.6)
+				_fade_tws.append(ui_tw)
 
 
 ## 拆掉当前这一局，把棋盘擦回开局前的样子。
