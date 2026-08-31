@@ -391,7 +391,9 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		## 【抗原变异】攻击失败 → 被攻击的癌细胞抽牌（按层数）
 		for i in game.event_stacks("抗原变异"):
 			await game.cards.draw(target, "抗原变异")
-		# 规则原文反弹不造成伤害（旋钮默认 0）；平衡测试可给癌方反击手段
+		## PRD：攻击失败时攻击者「自身-0.5能量」（口径 #84）。走 cancer_hit 而不是直接扣，
+		## 是为了让它和别的损失一样吃减伤/护盾/死亡检查——注意按口径 #62，
+		## 反弹**不算**「癌细胞技能造成的损失」，【缺氧适应】挡不住它。
 		if game.tune.counter_dmg_on_fail > 0:
 			game.cancer_hit(cell, game.tune.counter_dmg_on_fail, "反弹")
 			if not cell["alive"]:

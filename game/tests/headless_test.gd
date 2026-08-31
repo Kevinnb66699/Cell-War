@@ -206,19 +206,35 @@ func t_setup() -> void:
 	g6.dispose()
 	check(g.is_cancerous(Vector2i.ZERO), "含中央格")
 	check(g.cells.size() == 4, "4 个细胞落子")
-	# 原发灶：每个癌症玩家的出生格开局即为固化癌组织
-	var cancer_cells := g.living_cells(CWData.Faction.CANCER)
+	## PRD「游戏开始」6．「所有癌组织固化计数初始为 0」——
+	## 原发灶 2026-08-31 取消（口径 #85），开局不该有任何固化癌组织
+	check(g.count_tissue(CWData.Tissue.SOLID) == 0, "开局没有固化癌组织（原发灶已取消）")
+	var solid_ct := 0
+	for c in g.tiles.keys():
+		if g.tiles[c]["solid"] > 0:
+			solid_ct += 1
+	check(solid_ct == 0, "开局所有癌组织的固化计数为 0")
+
+	## 机制本身没删，只是默认关：开旋钮要能照旧生效——
+	## 否则哪天平衡实验想把它开回来，会发现代码早就烂了而测试全绿
+	var tl := CWTuning.new()
+	tl.solid_at_cancer_spawn = true
+	var gl := make_game(4, 7)
+	gl.tune = tl
+	await run_setup(gl)
 	var spawns := {}
-	for c in cancer_cells:
+	for c in gl.living_cells(CWData.Faction.CANCER):
 		spawns[c["pos"]] = true
-	check(g.count_tissue(CWData.Tissue.SOLID) == spawns.size(),
-		"原发灶数 = 癌细胞出生格数（%d）" % spawns.size())
+	check(gl.count_tissue(CWData.Tissue.SOLID) == spawns.size(),
+		"旋钮打开时原发灶数 = 癌细胞出生格数（%d）" % spawns.size())
 	var all_solid := true
 	for pos in spawns.keys():
-		if g.tile(pos)["tissue"] != CWData.Tissue.SOLID:
+		if gl.tile(pos)["tissue"] != CWData.Tissue.SOLID:
 			all_solid = false
-	check(all_solid, "原发灶都位于癌细胞出生格")
-	# 落子时癌细胞必须在癌组织上；之后原发灶会把出生格升级为固化癌组织，故这里用 is_cancerous
+	check(all_solid, "旋钮打开时原发灶都位于癌细胞出生格")
+	gl.dispose()
+
+	# 落子时癌细胞必须在癌组织上（原发灶关掉后出生格就是普通癌组织）
 	var legal := true
 	for c in g.cells:
 		if c["faction"] == CWData.Faction.CANCER and not g.is_cancerous(c["pos"]):
@@ -1172,7 +1188,17 @@ func t_rules_page() -> void:
 	check(all.contains("上限 %d 个世界回合" % CWData.LIMIT_ROUND), "回合上限跟着常量走")
 	check(all.contains("-%s" % CWData.fmt(tune.attack_dmg_success))
 		and all.contains("-%s" % CWData.fmt(tune.attack_dmg_crit)), "攻击伤害跟着旋钮走")
-	check(not all.contains("受反击"), "规则原文反弹无伤害 → 默认不显示反击那半句")
+	## PRD：攻击失败自身 -0.5（口径 #84）。这一条**两个方向都要钉**——
+	## 只钉「显示了」的话，把条件式换成无脑拼接也照样绿。
+	check(all.contains("受反击 %s" % CWData.fmt(tune.counter_dmg_on_fail)),
+		"反弹自损跟着旋钮走，速查页显示 %s" % CWData.fmt(tune.counter_dmg_on_fail))
+	var no_counter := CWTuning.new()
+	no_counter.counter_dmg_on_fail = 0
+	var off := ""
+	for s2 in CWRulesPage.sections(no_counter):
+		for line in s2["lines"]:
+			off += line + "|"
+	check(not off.contains("受反击"), "旋钮关掉时那半句要消失")
 	check(all.contains("上限 %d 张" % CWData.HAND_MAX)
 		and all.contains("每回合至多 %d 次" % CWData.DRAW_MAX_PER_TURN), "手牌与抽卡上限")
 	check(all.contains("蹲满 %d 回合" % tune.solidify_threshold), "固化门槛跟着旋钮走")
@@ -3788,7 +3814,7 @@ func t_card_mods() -> void:
 		"同一次损失把两面盾都消耗掉")
 	g.cancer_hit(s1, 10, "测试")
 	check(s1["energy"] == 100 - 5 - 10, "第二次损失不再减免")
-	await g.world_fx.round_end()
+	g.world_fx.tick_durations()
 	check(g.mods_of(s2, "I型干扰素").is_empty(), "干扰素盾随世界回合结束过期（没用上也作废）")
 	g.dispose()
 
@@ -3819,7 +3845,7 @@ func t_card_mods() -> void:
 		g.tiles[n]["tissue"] = CWData.Tissue.CANCER
 	hyp2["hand"] = ["缺氧适应"]
 	await g.card_fx.play(hyp2, { "act": "play", "card": "缺氧适应" })
-	await g.world_fx.round_end()
+	g.world_fx.tick_durations()
 	check(not g.mods_of(hyp2, "缺氧适应").is_empty(),
 		"护盾跨世界回合仍在（卡面写的是「下一次」）")
 	g.world._pressure()
@@ -3946,7 +3972,7 @@ func t_card_mods() -> void:
 		and g.tiles[Vector2i(0, 1)]["solid"] == 0, "TNF：癌细胞 −1.0、固化计数 −1.0")
 	g.raise_solid(Vector2i(0, 1), 10)
 	check(g.tiles[Vector2i(0, 1)]["solid"] == 0, "冻结：本世界回合不能增加固化计数")
-	await g.world_fx.round_end()
+	g.world_fx.tick_durations()
 	g.raise_solid(Vector2i(0, 1), 10)
 	check(g.tiles[Vector2i(0, 1)]["solid"] == 10, "回合末解冻，固化恢复正常")
 	g.dispose()
@@ -3961,7 +3987,7 @@ func t_card_mods() -> void:
 	await g.card_fx.resolve_event(dr, "基质稳定")
 	g.world._decay()
 	check(g.tiles[Vector2i(3, 0)]["solid"] == 10, "基质稳定：本回合固化计数不衰减")
-	await g.world_fx.round_end()
+	g.world_fx.tick_durations()
 	g.world._decay()
 	check(g.tiles[Vector2i(3, 0)]["solid"] == 5, "事件到期后衰减恢复")
 	var iw := CWSetup.make_cell(1, 1, CWData.Faction.IMMUNE, Vector2i(-5, 0), CWData.ImmuneType.BASIC, -1)
@@ -4248,6 +4274,33 @@ func t_ev_chaos() -> void:
 	g.cells.append(blocker)
 	await g.world_fx._chaos_return(e)
 	check(imm["pos"] != Vector2i(0, 0), "紊乱：原位被占时留在原地")
+	g.dispose()
+
+	## E 阶段的步骤顺序（口径 #86）：第 7 步「其他 E 类效果」（＝紊乱返回）
+	## 必须排在第 9 步「移除新生」**之前**。
+	## 判据用一条**不变量**：跑完整个 e_phase()，盘面上不该剩下任何「新生」标记。
+	## 改回旧顺序（round_end 排在 _clear_newborn 之后）时这条会红 ——
+	## 紊乱返回触发【定殖】造出的癌组织会带着「新生」跨到下个世界回合，下回合也固化不了。
+	g = _fx_game(2)
+	var c2 := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 6), -1, CWData.CancerType.MELANOMA)
+	c2["energy"] = 50
+	g.cells.append(c2)
+	g.tiles[Vector2i(0, 6)]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[Vector2i(0, 5)]["tissue"] = CWData.Tissue.CANCER
+	var e2 := _install(g, "紊乱")
+	await g.world_fx._chaos(e2)
+	check(c2["pos"] == Vector2i(0, 5), "紊乱：癌细胞已传走")
+	## 把原位改回健康组织，这样返回时会触发【定殖】造出一格**新生**癌组织
+	g.tiles[Vector2i(0, 6)]["tissue"] = CWData.Tissue.HEALTHY
+	g.tiles[Vector2i(0, 6)]["newborn"] = false
+	await g.world.e_phase()
+	check(g.tiles[Vector2i(0, 6)]["tissue"] == CWData.Tissue.CANCER,
+		"紊乱返回触发【定殖】，原位转回癌组织")
+	var leftover := 0
+	for c in g.tiles.keys():
+		if g.tiles[c]["newborn"]:
+			leftover += 1
+	check(leftover == 0, "E 阶段跑完不留「新生」标记（第 7 步排在第 9 步之前）")
 
 
 func t_ev_memory() -> void:
@@ -4314,10 +4367,10 @@ func t_ev_lifecycle() -> void:
 	var g := _fx_game(2)
 	_install(g, "细胞毒", 1, 2)
 	_install(g, "抗原丢失", 1, 1)
-	await g.world_fx.round_end()
+	g.world_fx.tick_durations()
 	check(g.event_stacks("细胞毒") == 1 and g.event_stacks("抗原丢失") == 0,
 		"回合末：本回合事件到期，持续事件余 1 回合")
-	await g.world_fx.round_end()
+	g.world_fx.tick_durations()
 	check(g.events["active"].is_empty(), "第二个回合末全部到期")
 func t_ev_chaos_simul() -> void:
 	print("[世界事件·紊乱同时返回]")
@@ -4349,11 +4402,11 @@ func t_ev_double_instant() -> void:
 	var e: Dictionary = g.events["active"][0]
 	check(e["left"] == 2 and e["stacks"] == 1, "本回合类加倍：连续两回合各生效一遍（定案 #49 修订版）")
 	check(imm["energy"] == 95, "第一回合结算一遍（免疫 −0.5）")
-	await g.world_fx.round_end()
+	g.world_fx.tick_durations()
 	check(g.event_stacks("增殖抑制") == 1, "回合末仍在场（余 1 回合）")
 	await g.world_fx.on_round_start()
 	check(imm["energy"] == 90, "第二回合开头完整重演（再 −0.5）")
-	await g.world_fx.round_end()
+	g.world_fx.tick_durations()
 	check(g.events["active"].is_empty(), "第二回合末到期")
 func t_breath_sheets() -> void:
 	print("[细胞呼吸动画]")

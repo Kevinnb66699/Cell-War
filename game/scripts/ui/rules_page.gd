@@ -46,8 +46,12 @@ func handle_input(event: InputEvent) -> void:
 
 
 ## 速查内容：[{ title, lines }]。纯函数，数字全部现算。
-static func sections() -> Array:
-	var tune := CWTuning.new()   ## 默认值 = 规则原文
+## `tune` 可传入本局实际用的旋钮；不传则用默认值。
+## ⚠ 默认值**不等于 PRD** —— 口径 #82 起，癌方占地单价等四项为平衡刻意偏离 PRD。
+## 速查页显示的一律是**引擎实际在跑的数**，这正是它存在的意义（别让玩家看 PRD 对不上）。
+static func sections(tune: CWTuning = null) -> Array:
+	if tune == null:
+		tune = CWTuning.new()
 	return [
 		{ "title": "怎么赢", "lines": [
 			## 点阵字库没有 ≥ - 这类数学符号（字形覆盖测试盯着），中文说法代替
@@ -61,7 +65,8 @@ static func sections() -> Array:
 			"E 阶段：癌方【无氧呼吸】→ 增殖/侵蚀/压迫 → 固化衰减 → 判胜负",
 		] },
 		{ "title": "攻击判定（d6）", "lines": [
-			## 规则原文反弹无伤害（旋钮默认 0）；平衡实验开了反击就跟着显示
+			## PRD：失败时自身 -0.5 能量（口径 #84）。写成条件式是因为它是平衡旋钮，
+			## 平衡实验把它关掉时这半句要跟着消失——速查页不许出现和引擎不符的数
 			"1-2 失败：弹回原格（费用不退）" + ("" if tune.counter_dmg_on_fail == 0
 				else "，受反击 %s" % CWData.fmt(tune.counter_dmg_on_fail)),
 			"3-5 成功（-%s） · 6 大成功（-%s）" % [

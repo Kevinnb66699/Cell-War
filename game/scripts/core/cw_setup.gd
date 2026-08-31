@@ -75,9 +75,10 @@ static func make_cell(id: int, pid: int, faction: int, pos: Vector2i,
 	}
 
 
-## 原发灶：每个癌症玩家的出生格开局即为固化癌组织（2026-08-26 团队定案）
-## 作用是给癌方一次复活容错，破解「复活需固化组织 → 固化需停留 2 回合 → 停留就被打死」的死循环。
-## 注意：复活会消耗掉固化组织（降级为癌组织），所以每格只能救一次。
+## 原发灶：每个癌症玩家的出生格开局即为固化癌组织。
+## ⚠ **2026-08-31 起默认关闭**（口径 #85，PRD 里没有这条）——保留成旋钮供平衡实验用，
+## 见 `CWData.SOLID_AT_CANCER_SPAWN` 那段注释。开启时：复活会把固化组织降级回癌组织，
+## 所以每格只能救一次。
 func _place_primary_lesions() -> void:
 	if not game.tune.solid_at_cancer_spawn:
 		return

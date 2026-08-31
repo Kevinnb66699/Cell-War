@@ -38,10 +38,18 @@ const CANCER_WIN_WEIGHTED := 64          # 癌+2×固化 ≥ ⌈1/2×127⌉ 时�
 const LIMIT_ROUND := 30                  # 终局世界回合数
 const LIMIT_CANCEROUS := 42              # 终局判定线 ⌊1/3×127⌋
 
-# ---- 原发灶（2026-08-26 团队定案）----
-# 每个癌症玩家的出生格开局即为固化癌组织，给癌方一次复活容错，
-# 破解「复活需固化组织、固化需停留 2 回合、停留就被打死」的死循环。
-const SOLID_AT_CANCER_SPAWN := true
+# ---- 原发灶 ----
+# 「每个癌症玩家的出生格开局即为固化癌组织」，2026-08-26 团队定案加入，
+# 用来破解「复活需固化组织、固化需停留 2 回合、停留就被打死」的死循环。
+#
+# ⚠ **2026-08-31 Kevin 定案取消**（口径 #85）。原因是它从来不在 PRD 里 ——
+# PRD「游戏开始」第 6 条明写「所有癌组织固化计数初始为 0」，而这条偏离一直没记档，
+# 是 Kevin 实测时问「为什么一开局就固化了两个癌组织」才暴露的。
+# 关掉之后引擎与 PRD 一致，**癌方失去开局那次复活容错**。
+#
+# 机制保留成旋钮（`CWTuning.solid_at_cancer_spawn`）而不是删掉，是因为它是平衡实验里
+# 分量最重的一根杠杆：2026-08-27 实测把它关掉，「规则原文」在 2/4/6 人局癌胜率全部归零。
+const SOLID_AT_CANCER_SPAWN := false
 
 # ---- 免疫死亡与复活（2026-08-26 团队定案）----
 # 免疫细胞可被杀死，但罚停若干回合后在随机健康组织复活（无限次）。
@@ -109,6 +117,10 @@ const LYSE_COST := 10
 const REVIVE_ENERGY := 20                # 复活获得 2.0
 const ATTACK_DMG_SUCCESS := 10
 const ATTACK_DMG_CRIT := 20
+## 攻击失败（1/3「被癌细胞反弹」）时攻击者自身的能量损失。
+## PRD【迁移】：「1/3概率失败，不造成伤害，**自身-0.5能量**，免疫细胞移动后被癌细胞反弹」。
+## 2026-08-31 补实装（口径 #84）——此前引擎写死 0，是 61 格旧规则留下的。
+const COUNTER_DMG_ON_FAIL := 5
 const MACRO_HEAL_PURIFY := 3             # 巨噬【吞噬】：每次净化回 0.3
 # 攻击那一档 PRD 是 ⌈受击方损失能量 ÷ 2⌉，随伤害变化，不是常数 —— 见 CWGame.immune_hit
 
@@ -211,8 +223,11 @@ const MARROW_CANCER_PERIOD := 2
 const FACTION_ORDER := {
 	2: [Faction.IMMUNE, Faction.CANCER],
 	4: [Faction.IMMUNE, Faction.CANCER, Faction.IMMUNE, Faction.CANCER],
-	6: [Faction.IMMUNE, Faction.CANCER, Faction.CANCER,
-		Faction.IMMUNE, Faction.IMMUNE, Faction.CANCER],
+	## PRD「行动顺序」：6 名玩家 = 免疫A—癌A—免疫B—癌B—免疫C—癌C（严格交替）。
+	## 2026-08-31 改正（口径 #84）——此前是 免A-癌A-癌B-免B-免C-癌C，
+	## 那是 61 格旧规则的排法，PRD 升级时漏跟。4 人局两版一致，所以只看 4 人局发现不了。
+	6: [Faction.IMMUNE, Faction.CANCER, Faction.IMMUNE,
+		Faction.CANCER, Faction.IMMUNE, Faction.CANCER],
 }
 
 # ---- 名称表（日志/UI 用）----

@@ -36,17 +36,21 @@ func aerobic() -> void:
 	_aerobic()
 
 
+## 严格按 PRD「E 阶段」的十步走。2026-08-31 校正了第 7~9 步的先后（口径 #86）：
+## 此前 `world_fx.round_end()`（紊乱返回 + 事件到期）整体排在 `_clear_newborn()` 之后，
+## 于是紊乱返回时【定殖】造出的癌组织会多背一个世界回合的「新生」。
 func e_phase() -> void:
-	_pressure()
-	_proliferate()
-	_erosion()
-	_anaerobic()
-	_solidify()
-	_decay()
-	_tick_necrosis()   ## 「更新持续时间类状态」——目前只有「坏死」
-	_clear_newborn()
-	await game.world_fx.round_end()   ## 紊乱返回原位 + 事件倒计时/到期
-	## 胜利条件检查（E 阶段第 10 步）。免疫先判：PRD 的列举顺序如此，
+	_pressure()                              ## 1 【微环境压迫】
+	_proliferate()                           ## 2 【增生】
+	_erosion()                               ## 3 【侵蚀】
+	_anaerobic()                             ## 4 【无氧呼吸】
+	_solidify()                              ## 5 【固化】
+	_decay()                                 ## 6 固化计数衰减
+	await game.world_fx.round_effects()      ## 7 其他 E 类效果：目前只有【紊乱】返回原位
+	game.world_fx.tick_durations()           ## 8 世界事件倒计时/到期 + 「本世界回合」修饰过期
+	_tick_necrosis()                         ## 8 「坏死」倒计时（同属第 8 步）
+	_clear_newborn()                         ## 9 移除「新生」
+	## 10 胜利条件检查。免疫先判：PRD 的列举顺序如此，
 	## 而且两边同时满足时「癌细胞已全灭」比「占地达标」更靠后发生，判给免疫更符合直觉。
 	game.check_immune_win()
 	game.check_cancer_win()

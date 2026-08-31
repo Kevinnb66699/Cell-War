@@ -22,6 +22,8 @@
 ##   amult=60     有氧呼吸系数（PRD 是 30 = 公式里的「×3」）
 ##   cmh / cmc    癌方移动到健康／癌性组织的费用 —— 前者就是占地单价（现值 12 / 2，PRD 5 / 2）
 ##   sclc / pseu  【极简胞浆】与【伪足穿透】的折后价（现值 7 / 5，PRD 3 / 2）
+##   lesion=off   关掉【原发灶】（癌细胞出生格开局固化）。默认 on
+##   counter=0    攻击失败时攻击者的自损（现值 5 = PRD 的 0.5）
 ##
 ## ⚠ 2026-08-31 口径 #82 之后，**不传旋钮 = 引擎现值，不是 PRD 原样**。
 ## 要跑 PRD 原样做对照得显式写全：`cmh=5 sclc=3 pseu=2 tiles=15`。
@@ -41,6 +43,8 @@ var efloor := -1
 var acap := -1
 var afloor := -1
 var tiles := -1
+var counter := -1
+var lesion := ""    # "off" = 关掉原发灶
 var amult := -1
 var cmh := -1
 var cmc := -1
@@ -72,6 +76,8 @@ func _parse() -> void:
 			"acap": acap = int(kv[1])
 			"afloor": afloor = int(kv[1])
 			"tiles": tiles = int(kv[1])
+			"counter": counter = int(kv[1])
+			"lesion": lesion = kv[1]
 			"amult": amult = int(kv[1])
 			"cmh": cmh = int(kv[1])
 			"cmc": cmc = int(kv[1])

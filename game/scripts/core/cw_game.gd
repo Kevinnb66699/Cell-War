@@ -414,7 +414,7 @@ func install_event(ev_name: String, left: int, data: Dictionary = {}) -> void:
 ## 条目 {name, uses, until, data}：
 ##   uses  还能触发几次，每次触发 -1，归零移除
 ##   until 过期时钟——"turn"=持有者行动回合结束（CWTurn.end_turn 清）/
-##         "round"=世界回合结束（CWWorldFx.round_end 清）/ ""=只等次数用尽
+##         "round"=世界回合结束（CWWorldFx.tick_durations 清）/ ""=只等次数用尽
 ## **同名多条同时生效**：一次符合条件的结算里所有同名条目一起触发、各扣一次
 ## （两张「下一次损失 -1.5」= 同一个下一次上减 3.0，不排队——定案 #57）。
 func add_mod(cell: Dictionary, mod_name: String, uses: int, until: String,

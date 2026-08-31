@@ -110,19 +110,31 @@ func trigger() -> void:
 
 ## 回合末：紊乱先做本回合的返回（每个回合都是一个完整的传送-返回周期），
 ## 然后统一倒计时并移除到期事件
-func round_end() -> void:
-	var kept: Array = []
+## E 阶段**第 7 步**「结算其他尚未结算的 E 类技能、状态和效果」——目前只有【紊乱】送回原位。
+##
+## 2026-08-31 从 round_end() 里拆出来（口径 #86）。此前第 7、8 两步合成一个函数、
+## 而且整体排在「移除新生」**之后**，于是【紊乱】返回时【定殖】造出的癌组织
+## 会多背一个世界回合的「新生」——下个世界回合也固化不了。PRD 的顺序是
+## 第 7 步在「移除新生」（第 9 步）之前，返回造出的格子当回合就该被清掉「新生」。
+func round_effects() -> void:
 	for e in game.events["active"]:
 		if e["name"] == "紊乱":
 			await _chaos_return(e)
 			e["data"].clear()   ## 下一回合（若被加倍）重新记原位
+
+
+## E 阶段**第 8 步**「更新持续时间类状态」——世界事件倒计时与到期，
+## 外加「本世界回合」时钟的修饰卡条目（I型干扰素护盾…）。
+## 「坏死」的倒计时在 `CWWorld._tick_necrosis()`，同属第 8 步。
+func tick_durations() -> void:
+	var kept: Array = []
+	for e in game.events["active"]:
 		e["left"] -= 1
 		if e["left"] > 0:
 			kept.append(e)
 			continue
 		game.log_msg("【世界事件】【%s】效果结束" % e["name"])
 	game.events["active"] = kept
-	## 「本世界回合」时钟的修饰卡条目（I型干扰素护盾…）同步过期
 	for cell in game.cells:
 		game.clear_mods(cell, "round")
 
