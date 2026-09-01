@@ -42,15 +42,17 @@ func hide_now() -> void:
 
 
 ## 每帧由 CWMatch 调（它手里有 game/board/camera）。blocked = 开场/返场演出中。
+## costs / verb：正在选迁移目标时的每格耗能与用词，由 CWUIBridge 转手过来；
+## 空字典 = 此刻不在迁移态，不显示耗能行。
 func sync(delta: float, game: CWGame, board: Node2D, camera: Camera2D,
-		blocked: bool) -> void:
+		blocked: bool, costs: Dictionary = {}, verb: String = "") -> void:
 	if game == null or blocked or not game.tiles.has(_hover):
 		visible = false
 		return
 	_wait += delta
 	if _wait < DELAY:
 		return
-	var rows := describe(game, _hover)
+	var rows := describe(game, _hover, int(costs.get(_hover, -1)), verb)
 	var key := "%s|%s" % [str(_hover), str(rows)]
 	if key != _key:
 		_key = key
@@ -61,14 +63,22 @@ func sync(delta: float, game: CWGame, board: Node2D, camera: Camera2D,
 
 
 ## 这一格该显示什么：[{ text, size, color }]。纯函数，供测试直接核对文案。
-## 字段取舍见设计稿：组织 + 坐标 / 固化进度 / 特殊组织 / 坏死 / 占据者。
-static func describe(game: CWGame, c: Vector2i) -> Array:
+## 字段取舍见设计稿：组织 + 坐标 / **迁移耗能** / 固化进度 / 特殊组织 / 坏死 / 占据者。
+##
+## move_cost < 0 表示「此刻不在迁移态，或这一格不可达」，那一行就不出。
+## verb 分「迁移」（免疫）和「移动」（癌症）—— 规则里是两个词，不能混用。
+static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> Array:
 	var t: Dictionary = game.tile(c)
 	var rows: Array = []
 	var tissue: int = t["tissue"]
 	var tissue_color: Color = CWStyle.TEXT if tissue == CWData.Tissue.HEALTHY else CWStyle.CANCER
 	rows.append({ "text": CWData.TISSUE_NAMES[tissue], "size": CWStyle.SIZE_BODY,
 		"color": tissue_color, "right": str(c) })
+	## 耗能紧跟在组织名后面：选目标时这是玩家唯一真正在比较的数。
+	## 用高亮色（和格子高亮同一个青）表示「这格现在可选、价钱是这些」。
+	if move_cost >= 0:
+		rows.append({ "text": "%s耗能 %s" % [verb, CWData.fmt(move_cost)],
+			"size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
 	if tissue == CWData.Tissue.CANCER and t["solid"] > 0:
 		rows.append({ "text": "固化 %d / %d" % [t["solid"], game.tune.solidify_threshold],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.TEXT })

@@ -1132,6 +1132,46 @@ func t_config_panel() -> void:
 	check(CWMonteCarloBridge.new().enabled == true, "蒙特卡洛桥默认开推演")
 
 
+## 迁移耗能的接线：桥把引擎算好的 cost 抄进 move_costs，退出时清空。
+func _t_move_cost_wiring() -> void:
+	var board := make_board()
+	root.add_child(board)
+	var bar := CWActionBar.new()
+	root.add_child(bar)
+	var g := CWGame.new()
+	g.init(CWData.FACTION_ORDER[2], 3)
+	var b := CWUIBridge.new()
+	b.game = g
+	b.board = board
+	b.bar = bar
+	b.human_pids = [0]
+	var cell := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.BASIC, -1)
+	g.cells.append(cell)
+
+	check(b.move_costs.is_empty(), "没进迁移态时价目表是空的")
+	var opts: Array = [
+		{ "label": "", "data": { "act": "move", "to": Vector2i(1, 0), "cost": 5 } },
+		{ "label": "", "data": { "act": "move", "to": Vector2i(0, 1), "cost": 17 } },
+	]
+	var done := [false]
+	var run := func() -> void:
+		await b._pick_move(cell, opts, [0, 1])
+		done[0] = true
+	run.call()
+	await process_frame
+	check(b.move_costs == { Vector2i(1, 0): 5, Vector2i(0, 1): 17 },
+		"价目表逐格抄自引擎的 cost（%s）" % str(b.move_costs))
+	check(b.move_verb == "迁移", "免疫用「迁移」（%s）" % b.move_verb)
+	bar.chosen.emit(0)                      ## 「结束迁移」
+	await process_frame
+	check(done[0] and b.move_costs.is_empty(),
+		"退出迁移后价目表清空（否则悬停会显示上一轮的旧价钱）")
+	g.dispose()
+	bar.free()
+	board.free()
+
+
 # ---- 悬停格子详情 + 被动技能悬浮框 ----
 func t_hover_info() -> void:
 	print("[悬停详情与技能悬浮框]")
@@ -1160,6 +1200,28 @@ func t_hover_info() -> void:
 	check(all.contains("恶性黑色素瘤") and all.contains("能量 3.8") and all.contains("标记 ×1"),
 		"详情：占据者、能量与标记")
 	check(CWTileInfo.describe(g, Vector2i(0, 0)).size() == 1, "健康空格只有一行")
+
+	## 迁移耗能行（团队 2026-09-01 要的）：不在迁移态时不出，在迁移态时紧跟组织名。
+	## 规则里免疫叫「迁移」、癌症叫「移动」，是两个词，这一行也得跟着分
+	var empty_tile := Vector2i(0, 0)
+	check(CWTileInfo.describe(g, empty_tile, -1, "迁移").size() == 1,
+		"不在迁移态（cost < 0）→ 不出耗能行")
+	var with_cost := CWTileInfo.describe(g, empty_tile, 5, "迁移")
+	check(with_cost.size() == 2 and with_cost[1]["text"] == "迁移耗能 0.5",
+		"迁移态：耗能行紧跟组织名（%s）" % with_cost[1]["text"])
+	check(CWTileInfo.describe(g, empty_tile, 10, "移动")[1]["text"] == "移动耗能 1.0",
+		"癌方用「移动」不用「迁移」")
+	check(with_cost[1]["color"] == CWStyle.IMMUNE,
+		"耗能行用高亮色，和格子高亮同一个青")
+	## 0 也要显示 —— 免费迁移是【趋化募集】那类技能的效果，正是玩家最想确认的一格
+	check(CWTileInfo.describe(g, empty_tile, 0, "迁移")[1]["text"] == "迁移耗能 0.0",
+		"耗能 0 也要显示（免费迁移是技能效果，不是「没有数据」）")
+	## 加了一行之后宽度得跟着撑开，别把字压到框外（试玩第一轮出过这个框）
+	check(CWTileInfo.width_for(with_cost) >= 208.0, "有耗能行时宽度仍不小于最小宽")
+
+	## 接线：价目表由 _pick_move 从**引擎算好的选项**里抄，退出迁移要清干净。
+	## 纯函数测得再全，这一段坏了照样什么都不显示 / 显示上一轮的旧价钱
+	await _t_move_cost_wiring()
 
 	## 宽度按最长行实测撑开：核心储量行装不进 208（试玩第一轮的出框），短内容保底 208
 	var wide := CWTileInfo.width_for(CWTileInfo.describe(g, c))

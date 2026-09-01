@@ -24,6 +24,11 @@ var panel: CWMatchPanel
 var toast: CWToast     ## 骰子旁边那行字
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
 var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这里来（无界面时为 null）
+## 正在选迁移目标时，每一格的耗能（坐标 → 十分能量）。空 = 此刻不在迁移态。
+## 由 `_pick_move` 从引擎算好的选项里抄来，`CWMatch` 每帧喂给悬停格子详情。
+## **这里只是转手，不做任何计算**——价钱是规则，规则在引擎（架构约定 #11）。
+var move_costs := {}
+var move_verb := ""    ## 「迁移」还是「移动」：规则里免疫癌症用两个词，不能混用
 var human_pids: Array[int] = []
 
 ## 开场绽开还没演完时，人类的询问界面先不出来 ——
@@ -323,10 +328,20 @@ func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
 	for i in moves:
 		tiles[options[i]["data"]["to"]] = i
 	var verb := _move_title(cell)
-	return await _prompt("选择要%s到的组织" % verb,
+	## 每格多少钱**直接抄选项里引擎算好的 `cost`**，不在表现层重算一遍
+	## （架构约定 #11）。悬停格子详情靠它显示耗能——尤其是穿过友军那种
+	## 「收两格之和」的走法，不给数字玩家根本推不出来为什么这格贵一倍。
+	move_costs.clear()
+	for i in moves:
+		move_costs[options[i]["data"]["to"]] = int(options[i]["data"]["cost"])
+	move_verb = verb
+	var got: Variant = await _prompt("选择要%s到的组织" % verb,
 		"高亮 %d 格可达 · 可以连着走 · 右键或 Esc 退出" % tiles.size(),
 		[{ "title": "结束%s" % verb, "cost": "右键 / Esc" }], ["cancel"], tiles, null, 0,
 		false, 0.0, func(c: Vector2i) -> String: return game.actions.move_block_reason(cell, c))
+	## 这一问结束就把价目表收掉：留着的话，退出迁移后悬停还会显示上一轮的价钱
+	move_costs.clear()
+	return got
 
 
 # ============ 其余询问：有 to 的进棋盘，没 to 的进按钮 ============

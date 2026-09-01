@@ -372,7 +372,11 @@ func _process(delta: float) -> void:
 	if panel != null:
 		panel.refresh(game)
 	if _tile_info != null:
-		_tile_info.sync(delta, game, board, camera, _opening or _fading)
+		## 迁移态的每格耗能由询问桥转手过来（它那边是从引擎算好的选项里抄的）。
+		## 桥可能是纯 AI 桥（无界面跑测试时），所以要判一下有没有这两个字段
+		var costs: Dictionary = bridge.move_costs if bridge is CWUIBridge else {}
+		var verb: String = bridge.move_verb if bridge is CWUIBridge else ""
+		_tile_info.sync(delta, game, board, camera, _opening or _fading, costs, verb)
 	if _card_info != null:
 		## 阵营取「抽屉正在显示谁的手牌」，不是 current_pid —— 观战/热座时它们会不一样，
 		## 而详情框说的是**手上这张卡**，得跟着卡的主人走（只影响【代谢耦联】的措辞）
