@@ -89,6 +89,26 @@ func immune_move_options(cell: Dictionary) -> Array:
 #
 # **两边必须复用同一个函数。** 各写一套的话，就又长出了「标价与收费对不上」那类问题。
 
+## 点了一格却点不动 —— 为什么？返回空串 = 没什么好解释的
+## （不相邻、是空地、能量不够…看一眼棋盘就明白）。
+## 只解释**规则挡住**的那种：敌人就在旁边、也走得到，却偏偏点不动。
+##
+## 放引擎不放界面：这是规则，抄到界面里迟早和 _is_move_legal_now 漂移（架构约定 #10）。
+func move_block_reason(cell: Dictionary, to: Vector2i) -> String:
+	if _is_move_legal_now(cell, to):
+		return ""
+	if not cell["alive"] or not (to in CWData.neighbors(cell["pos"])):
+		return ""
+	if cell["faction"] != CWData.Faction.IMMUNE:
+		return ""
+	if game.cells_at(to, CWData.Faction.CANCER).is_empty():
+		return ""      ## 不是攻击，是普通迁移被占位挡了 —— 一眼看得出来
+	var cap: int = game.tune.attack_max_per_turn
+	if cap > 0 and cell["attacks_used"] >= cap:
+		return "本行动回合的攻击次数已用尽（%d/%d）" % [cell["attacks_used"], cap]
+	return ""
+
+
 ## 迁移/攻击到相邻格是否合法。不看能量（那是报价的事），只看盘面。
 func _is_move_legal_now(cell: Dictionary, to: Vector2i) -> bool:
 	if not cell["alive"] or not CWData.is_on_board(to):
@@ -341,7 +361,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 			CWData.fmt(cost), CWData.fmt(int(q["final"]))])
 	if cell["faction"] == CWData.Faction.CANCER:
 		var was_healthy: bool = game.tile(to)["tissue"] == CWData.Tissue.HEALTHY
-		await enter_tile(cell, to)
+		await enter_tile(cell, to, int(q["final"]))
 		## 【RAS持续激活】每行动回合第一次通过【移动】触发【定殖】→ 恢复（分期）。
 		## 只认移动——enter_tile 也服务传送/复活，所以钩在这里而不是那里
 		if was_healthy and game.has_skill(cell, "RAS持续激活") \
@@ -354,7 +374,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 	# 免疫迁移：目标格有癌细胞 → 触发攻击。一格一细胞，所以最多只有一个。
 	var enemies: Array = game.cells_at(to, CWData.Faction.CANCER)
 	if enemies.is_empty():
-		await enter_tile(cell, to)
+		await enter_tile(cell, to, int(q["final"]))
 		return
 	var target: Dictionary = enemies[0]
 	## 计数在**发动**时加，不看判定结果 —— 与口径 #70「攻击发动即算攻过」一致：
@@ -483,7 +503,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 			game.log_msg("　【抗原呈递强化】目标已死亡，本世界回合的施加额度就此用掉")
 	# 目标格已无存活癌细胞才进入（击杀进格；否则返回原格）
 	if game.cells_at(to, CWData.Faction.CANCER).is_empty():
-		await enter_tile(cell, to)
+		await enter_tile(cell, to, int(q["final"]))
 	else:
 		game.log_msg("　%s 返回原格" % game.cell_name(cell))
 
@@ -531,7 +551,9 @@ func _cascade(target: Dictionary) -> void:
 ## 进入一格的统一结算：癌细胞【定殖】、免疫【净化】、特殊组织收取、黏液清除、标记刷新。
 ## 是协程：踩上骨髓可能抽到要中途选择的事件卡（await 链见 cw_card_fx 头注），
 ## 所有调用点都要 await —— 漏了 await 的那条链会脱离结算顺序，复现测试会当场炸。
-func enter_tile(cell: Dictionary, dest: Vector2i) -> void:
+## paid = 这一步实际支付的能量；**-1 = 不是花钱走进来的**（传送 / 复活 / 血管 / 卡牌位移），
+## 那种情况不设巨噬回能的上限。
+func enter_tile(cell: Dictionary, dest: Vector2i, paid: int = -1) -> void:
 	cell["pos"] = dest
 	var t: Dictionary = game.tile(dest)
 	if cell["faction"] == CWData.Faction.CANCER and t["tissue"] == CWData.Tissue.HEALTHY:
@@ -547,8 +569,19 @@ func enter_tile(cell: Dictionary, dest: Vector2i) -> void:
 			game.gain_memory(1)
 			game.log_msg("　【净化】%s 转为健康组织（抗原记忆 %d）" % [str(dest), game.memory])
 		if cell["itype"] == CWData.ImmuneType.MACRO:
-			cell["energy"] += CWData.MACRO_HEAL_PURIFY
-			game.log_msg("　巨噬【吞噬】恢复 0.3 能量")
+			## 【I-吞噬】每次净化回 0.3 —— **但回的不能比这一步付的多**。
+			## 迁移减免的共同地板是 0.2（各卡面都写「最低 0.2」），等级 X 走癌性组织
+			## 本身也只要 0.2，回 0.3 就成了「走一格赚 0.1」：巨噬能在癌组织上无限走、
+			## 顺手把整片净化掉（队友 2026-09-01 报的「巨噬细胞可以无穷动」）。
+			## 治的是「靠移动赚钱」这个结构问题，而不是把某张减价卡调残。
+			var heal: int = CWData.MACRO_HEAL_PURIFY
+			if paid >= 0:
+				heal = mini(heal, paid)
+			if heal > 0:
+				cell["energy"] += heal
+				game.log_msg("　巨噬【吞噬】恢复 %s 能量%s" % [CWData.fmt(heal),
+					"（以本次迁移支付的 %s 为限）" % CWData.fmt(paid)
+						if heal < CWData.MACRO_HEAL_PURIFY else ""])
 		await _on_purify(cell)
 	# 「粘液」无法被技能清除，但被免疫细胞接触后立即消失（PRD 印戒细胞癌）
 	if cell["faction"] == CWData.Faction.IMMUNE and t["mucus"]:

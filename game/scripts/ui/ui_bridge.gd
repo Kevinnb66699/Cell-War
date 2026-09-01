@@ -330,7 +330,8 @@ func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
 	var verb := _move_title(cell)
 	return await _prompt("选择要%s到的组织" % verb,
 		"高亮 %d 格可达 · 可以连着走 · 右键或 Esc 退出" % tiles.size(),
-		[{ "title": "结束%s" % verb, "cost": "右键 / Esc" }], ["cancel"], tiles, null, 0)
+		[{ "title": "结束%s" % verb, "cost": "右键 / Esc" }], ["cancel"], tiles, null, 0,
+		false, 0.0, func(c: Vector2i) -> String: return game.actions.move_block_reason(cell, c))
 
 
 # ============ 其余询问：有 to 的进棋盘，没 to 的进按钮 ============
@@ -360,9 +361,11 @@ func _ask_generic(req: Dictionary) -> int:
 ## end_value 非 null 时，右侧竖条底部的「结束回合」也算这一问的一个答案，
 ## 按下它就返回该值。选目标格时传 null，那个按钮会一起收掉。
 ## cancel 指出 buttons 里哪一个是「取消」（右键 / Esc 的快捷方式）；-1 = 不能取消。
+## blocked：点到**不在选项里**的格子时问一句「为什么」，非空就弹出来。
+## 不给这个回调的询问（落子、复活…）沿用老行为：点不动就是没反应。
 func _prompt(title: String, hint: String, buttons: Array, values: Array,
 		tiles: Dictionary, end_value: Variant = null, cancel := -1,
-		hand_play := false, inset := 0.0) -> Variant:
+		hand_play := false, inset := 0.0, blocked := Callable()) -> Variant:
 	_tiles = tiles
 	_repaint_marks()
 	bar.show_bar(title, hint, buttons, cancel, inset)
@@ -393,6 +396,13 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	var on_tile := func(c: Vector2i) -> void:
 		if tiles.has(c):
 			ans.fire(tiles[c])
+			return
+		## 点了一格却没反应，是界面最难受的一种沉默 —— 有理由就说出来
+		## （攻击次数用尽是团队 2026-09-01 点名要的那一条）
+		if blocked.is_valid():
+			var why: String = blocked.call(c)
+			if why != "":
+				show_result(why, c)
 	var on_hover := func(_c: Vector2i) -> void: _repaint_marks()
 	bar.chosen.connect(on_button)
 	board.tile_clicked.connect(on_tile)

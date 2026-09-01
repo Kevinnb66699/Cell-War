@@ -5301,6 +5301,20 @@ func t_attack_cap() -> void:
 	check(not "
 ".join(g.logs.slice(n1)).contains("攻击次数已用尽"),
 		"上限 0 时不报「已用尽」")
+	## 点不动的时候要说得出理由（团队 2026-09-01 要的弹窗，文案由引擎给，界面只负责弹）
+	g.tune.attack_max_per_turn = 1
+	imm["attacks_used"] = 1
+	var why: String = g.actions.move_block_reason(imm, Vector2i(1, 0))
+	check(why.contains("攻击次数已用尽") and why.contains("1/1"), "点敌人格：说得出「次数用尽」")
+	check(g.actions.move_block_reason(imm, Vector2i(0, 1)) == "",
+		"点空地：本来就走得动，没什么可解释的")
+	check(g.actions.move_block_reason(imm, Vector2i(4, 4)) == "",
+		"点不相邻的格：不解释（一眼看得出）")
+	imm["attacks_used"] = 0
+	check(g.actions.move_block_reason(imm, Vector2i(1, 0)) == "",
+		"次数还有：点敌人格不该弹理由")
+	check(g.actions.move_block_reason(can, Vector2i(0, 0)) == "",
+		"癌细胞没有攻击，不走这条解释")
 	## 上限 3 时，第 2 次要报进度而不是报用尽
 	g.tune.attack_max_per_turn = 3
 	imm["attacks_used"] = 1
