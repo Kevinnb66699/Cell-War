@@ -206,17 +206,50 @@ func revive_cancer(pid: int, data: Dictionary) -> void:
 ## 那既没有骨髓这个抓手，也让复活变成了免费换阵地。
 func revive_options_immune(pid: int) -> Array:
 	var cell: Dictionary = game.cell_of(pid)
-	if cell["alive"] or cell["respawn_round"] < 0 \
-			or game.round_no < cell["respawn_round"]:
-		return []
+	if cell["alive"] or cell["respawn_round"] < 0 			or game.round_no < cell["respawn_round"]:
+		return []          ## 还没到复活回合 —— 不是「被挡住」，没什么可解释的
 	var options: Array = []
+	var cancerous: Array[Vector2i] = []
+	var taken: Array[Vector2i] = []
 	for c in CWData.MARROWS:
-		if game.tile(c)["tissue"] == CWData.Tissue.HEALTHY \
-				and game.cells_at(c).is_empty():
+		if game.tile(c)["tissue"] != CWData.Tissue.HEALTHY:
+			cancerous.append(c)          ## 被癌化：净化掉才能用
+		elif not game.cells_at(c).is_empty():
+			taken.append(c)              ## 有人站着：等它走开
+		else:
 			options.append({ "label": "复活于骨髓 %s" % str(c), "data": { "to": c } })
 	if options.is_empty():
-		game.log_msg("%s 无可用骨髓（健康且无细胞占据），无法复活" % game.cell_name(cell))
+		_report_no_revive_immune(cell, cancerous, taken)
 	return options
+
+
+## 免疫复活不了时说清楚**为什么**，和癌方那条（_report_no_revive）对称。
+##
+## 此前这里只有一句「无可用骨髓（健康且无细胞占据），无法复活」——话是说了，
+## 但玩家看不出该去救哪一格：六个骨髓里哪些被癌化了、哪些只是站了人，
+## 这两种情况的应对完全不同（前者要净化，后者只要等或挪开）。
+##
+## 只写日志 + 一句通报，**不碰任何状态**；sim_quiet 时整体跳过。
+func _report_no_revive_immune(cell: Dictionary, cancerous: Array[Vector2i],
+		taken: Array[Vector2i]) -> void:
+	if game.sim_quiet:
+		return
+	var who: String = game.cell_name(cell)
+	var parts: PackedStringArray = []
+	if not cancerous.is_empty():
+		var cs: PackedStringArray = []
+		for c in cancerous:
+			cs.append(str(c))
+		parts.append("被癌化 %s" % " ".join(cs))
+	if not taken.is_empty():
+		var ts: PackedStringArray = []
+		for c in taken:
+			ts.append("%s 被 %s 占据" % [str(c), game.cell_name(game.cells_at(c)[0])])
+		parts.append("有人站着（%s）" % "；".join(ts))
+	game.log_msg("【免疫复活】%s 无法复活：六个骨髓%s" % [who, "，".join(parts)])
+	## 提示挂在第一格被挡的骨髓上，玩家一眼知道该往哪儿使劲
+	var at: Vector2i = cancerous[0] if not cancerous.is_empty() else taken[0]
+	game.announce("%s 无法复活：骨髓不可用" % who, at)
 
 
 func revive_immune(pid: int, pos: Vector2i) -> void:

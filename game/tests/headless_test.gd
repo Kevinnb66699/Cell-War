@@ -504,7 +504,20 @@ func t_immune_respawn() -> void:
 	for c in CWData.MARROWS:
 		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
 	g.round_no = 4
+	var n0: int = g.logs.size()
 	check(g.world.revive_options_immune(pid).is_empty(), "骨髓全被癌化 → 没有落点")
+	## 说不出原因等于没说 —— 六个骨髓里「被癌化」和「站了人」的应对完全不同
+	## （前者要净化，后者只要等），所以必须分开报（与癌方 _report_no_revive 对称）
+	var said: String = "
+".join(g.logs.slice(n0))
+	check(said.contains("无法复活") and said.contains("被癌化"), "→ 报出「被癌化」")
+	check(said.contains(str(CWData.MARROWS[0])), "→ 报出是哪几格")
+	## 还没到复活回合：那是「还没轮到」，不该报「无法复活」
+	g.round_no = 3
+	var n1: int = g.logs.size()
+	check(g.world.revive_options_immune(pid).is_empty(), "没到复活回合 → 也没有落点")
+	check(g.logs.size() == n1, "→ 但一句话都不说（不是被挡住）")
+	g.round_no = 4
 	## 放开一个健康骨髓格
 	var m: Vector2i = CWData.MARROWS[0]
 	g.tiles[m]["tissue"] = CWData.Tissue.HEALTHY
@@ -514,6 +527,18 @@ func t_immune_respawn() -> void:
 	check(imm["alive"] and imm["pos"] == m, "在骨髓复活")
 	check(imm["energy"] == 10, "复活获得 1.0 能量（癌细胞是 2.0）")
 	check(imm["respawn_round"] == -1, "复活后清除标记")
+	## 有落点时不该再报「无法复活」
+	var n2: int = g.logs.size()
+	g.tiles[CWData.MARROWS[1]]["tissue"] = CWData.Tissue.HEALTHY   ## m 上站着刚复活的 imm
+	var imm3: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[1]
+	imm3["alive"] = false
+	imm3["respawn_round"] = 4
+	check(not g.world.revive_options_immune(imm3["pid"]).is_empty(), "有健康空骨髓 → 有落点")
+	check(not "
+".join(g.logs.slice(n2)).contains("无法复活"), "→ 有落点时不报「无法复活」")
+	imm3["alive"] = true
+	imm3["respawn_round"] = -1
+	g.tiles[CWData.MARROWS[1]]["tissue"] = CWData.Tissue.CANCER   ## 还原，下面那段要「只剩一个健康骨髓」
 	## 骨髓被别的细胞占着也不行
 	var imm2: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[1]
 	g.round_no = 5
