@@ -4084,6 +4084,32 @@ func t_card_mods() -> void:
 	await g.actions._do_move(pk, Vector2i(1, 0), 0)
 	check(pd["energy"] == pd_e and pk["pos"] == Vector2i(0, 0),
 		"PD-L1：成功压成失败，攻击者被反弹")
+	## 两层同时在场：一次攻击**只吃一层**，而且是**最早打出**的那层（团队 2026-09-01 裁定）。
+	## 刻意不走定案 #57 的「同名一次全算」—— 那样两张会被同一次攻击一起吃掉，
+	## 判定掉到「失败」之后再降没有意义，第二张等于白扔。
+	pd["hand"] = ["PD-L1表达", "PD-L1表达"]
+	await g.card_fx.play(pd, { "act": "play", "card": "PD-L1表达" })
+	await g.card_fx.play(pd, { "act": "play", "card": "PD-L1表达" })
+	var two: Array = g.mods_of(pd, "PD-L1表达")
+	check(two.size() == 2, "两层同时在场（同名【即时技能】手牌只留 1 张，但可以先打一张再抽一张）")
+	var early: int = mini(int(two[0]["seq"]), int(two[1]["seq"]))
+	var late: int = maxi(int(two[0]["seq"]), int(two[1]["seq"]))
+	pd_e = pd["energy"]
+	_rig_roll(g, 6, [4])
+	pk["pos"] = Vector2i(0, 0)
+	pk["attacks_used"] = 0        ## 这段一路打了好几次，别撞上每回合 3 次的上限
+	await g.actions._do_move(pk, Vector2i(1, 0), 0)
+	var rest: Array = g.mods_of(pd, "PD-L1表达")
+	check(rest.size() == 1, "一次攻击只消耗一层，剩一层")
+	check(int(rest[0]["seq"]) == late, "消耗的是**较早**打出的那层，晚的留下")
+	check(pd["energy"] == pd_e, "这一次只压一级：成功 → 失败，没伤害")
+	## 判定本来就已经是失败时，**照样消耗**（团队明确要，不加减伤那套 ON_BENEFIT）
+	_rig_roll(g, 6, [1])
+	pk["pos"] = Vector2i(0, 0)
+	pk["attacks_used"] = 0
+	await g.actions._do_move(pk, Vector2i(1, 0), 0)
+	check(g.mods_of(pd, "PD-L1表达").is_empty(), "判定已是失败也照样消耗最后一层")
+	check(int(early) < int(late), "seq 确实记录了打出先后（前提成立）")
 	g.dispose()
 
 	## ⑦ 高亲和力克隆：不掷骰直接大成功 +1.0；补体调理：失败重掷 + 命中 +0.5

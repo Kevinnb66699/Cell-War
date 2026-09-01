@@ -422,11 +422,17 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 			game.log_msg("　【补体调理】攻击失败：重新判定一次，以第二次结果为准")
 			r = await game.roll_shown(6, "攻击", cell["pid"], to)
 			outcome = _judged(r, cell)
-	for i in game.spend_mods(target, "PD-L1表达"):
+	## 【PD-L1表达】**一次攻击只消耗一层**，多层时消耗**最早打出**的那层（团队 2026-09-01 裁定）。
+	## 刻意不走定案 #57 的「同名一次全算」：那样两张会被同一次攻击一起吃掉，
+	## 判定掉到「失败」之后再降也没有意义，第二张等于白扔。
+	## 判定已经是失败时**照样消耗** —— 这是团队明确要的，所以也不加减伤那套 ON_BENEFIT。
+	if game.spend_one_mod(target, "PD-L1表达"):
 		var was := outcome
 		outcome = _downgrade(outcome)
-		game.log_msg("　【PD-L1表达】判定下降一级（%s → %s）" % [
-			VERDICT_NAMES[was], VERDICT_NAMES[outcome]])
+		var left: int = game.mods_of(target, "PD-L1表达").size()
+		game.log_msg("　【PD-L1表达】判定下降一级（%s → %s）%s" % [
+			VERDICT_NAMES[was], VERDICT_NAMES[outcome],
+			"，还剩 %d 层" % left if left > 0 else ""])
 	if outcome == "fail":
 		game.log_msg("　攻击失败，%s 被反弹回原格" % game.cell_name(cell))
 		game.announce("攻击失败", to)

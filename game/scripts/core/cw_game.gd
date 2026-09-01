@@ -451,6 +451,32 @@ func add_mod(cell: Dictionary, mod_name: String, uses: int, until: String,
 		"seq": cell["play_n"], "data": data })
 
 
+## 只消耗**一条**同名修饰，多条时取**最早打出**的那条（seq 最小）。
+##
+## 和 spend_mods（同名一次全消耗，定案 #57）是**两条并存的口径**，别互相改：
+## 减伤类走 #57（两张「下一次 -1.5」= 这一次减 3.0），而【PD-L1表达】按团队
+## 2026-09-01 的裁定走这条 —— 判定已经是失败也照样消耗，但一次攻击只吃掉一层，
+## 剩下的留给下一次攻击。返回是否真的消耗掉了一条。
+##
+## 用下标而不是 Array.erase：mods 里两条同名条目的字典内容可能完全一样，
+## 按值删会删错那条（seq 不同但先被匹配到的是另一条）。
+func spend_one_mod(cell: Dictionary, mod_name: String) -> bool:
+	var pick := -1
+	for i in cell["mods"].size():
+		var m: Dictionary = cell["mods"][i]
+		if m["name"] != mod_name:
+			continue
+		if pick < 0 or int(m.get("seq", 0)) < int(cell["mods"][pick].get("seq", 0)):
+			pick = i
+	if pick < 0:
+		return false
+	var e: Dictionary = cell["mods"][pick]
+	e["uses"] -= 1
+	if e["uses"] <= 0:
+		cell["mods"].remove_at(pick)
+	return true
+
+
 func mods_of(cell: Dictionary, mod_name: String) -> Array:
 	var out: Array = []
 	for m in cell["mods"]:
