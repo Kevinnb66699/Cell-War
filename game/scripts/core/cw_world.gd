@@ -124,23 +124,55 @@ func _vessel_teleport() -> void:
 
 
 ## 【S-复活】癌症：落点是**未被细胞占据**的固化癌组织；可自愿放弃（说明 #21）。
-## 没有可用落点时返回空数组，流程状态机会跳过这个玩家。
+## 没有可用落点时返回空数组，流程状态机会跳过这个玩家 —— **但会先说明为什么**，见 _report_no_revive。
 func revive_options_cancer(pid: int) -> Array:
 	var cell: Dictionary = game.cell_of(pid)
 	if cell["alive"]:
 		return []
 	var candidates: Array[Vector2i] = []
+	var taken: Array[Vector2i] = []
 	for c in game.tiles.keys():
-		if game.tiles[c]["tissue"] == CWData.Tissue.SOLID \
-				and game.cells_at(c).is_empty():
+		if game.tiles[c]["tissue"] != CWData.Tissue.SOLID:
+			continue
+		if game.cells_at(c).is_empty():
 			candidates.append(c)
+		else:
+			taken.append(c)     ## 有细胞站着的固化格：不是落点，但要说清楚是被谁占了
 	if candidates.is_empty():
+		taken.sort()
+		_report_no_revive(pid, cell, taken)
 		return []
 	candidates.sort()   ## 固定候选顺序，保证同种子可复现
 	var options: Array = [{ "label": "放弃本回合复活", "data": { "skip": true } }]
 	for c in candidates:
 		options.append({ "label": "复活于 %s" % str(c), "data": { "to": c } })
 	return options
+
+
+## 复活不了的时候，得让癌方知道**为什么**。
+##
+## 此前这里只是返回空数组，流程状态机静默跳过 —— 癌方玩家看到的就是
+## 「我死了，然后就没有然后了」，队友 2026-08-31 报的正是这个（口径 #93）。
+## 免疫站在固化癌组织上把复活位堵死是**有意的战术**（Kevin 裁定「这不算 bug，请保留」），
+## 但**被堵住这件事必须说出来**，否则玩家读不出这是战术，只会读成程序坏了。
+##
+## 每个世界回合每人只会走到这里一次（`_ask_each` 沿 flow["i"] 单向推进），所以不会刷屏。
+## 只写日志 + 一句通报，**不碰任何状态**，同种子可复现不受影响。
+func _report_no_revive(pid: int, cell: Dictionary, taken: Array[Vector2i]) -> void:
+	if game.sim_quiet:
+		return          ## 蒙特卡洛推演里没人看，也别去广播
+	var who: String = game.player(pid)["name"]
+	if taken.is_empty():
+		game.log_msg("【复活】%s 无法复活：场上没有固化癌组织" % who)
+		game.announce("%s 无法复活：没有固化癌组织" % who, cell["pos"])
+		return
+	var parts: PackedStringArray = []
+	for c in taken:
+		parts.append("%s 被 %s 占据" % [str(c), game.cell_name(game.cells_at(c)[0])])
+	game.log_msg("【复活】%s 无法复活：固化癌组织都有人站着（%s）" % [who, "；".join(parts)])
+	## 提示挂在**被占的那一格**上，玩家一眼能看到是哪儿被堵了
+	game.announce("%s 无法复活：固化癌组织被占据" % who, taken[0])
+
 
 
 func revive_cancer(pid: int, data: Dictionary) -> void:

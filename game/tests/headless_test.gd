@@ -49,6 +49,7 @@ func _run_all() -> void:
 	t_solidify_and_decay()
 	t_erosion()
 	t_immune_win()
+	t_cancer_revive_blocked()
 	t_cancer_s_win()
 	await t_immune_respawn()
 	t_pressure()
@@ -413,6 +414,59 @@ func t_immune_win() -> void:
 	imm["pos"] = solid
 	g.check_immune_win()
 	check(g.winner == CWData.Faction.IMMUNE, "占住全部固化格且无癌细胞 → 立即获胜")
+	g.dispose()
+
+
+# ---- 癌方复活被堵住时必须给出说明（口径 #93）----
+##
+## 免疫站在固化癌组织上把复活位占死是**有意的战术**（Kevin 2026-08-31 裁定「保留」），
+## 但引擎此前是**静默**返回空数组、流程直接跳过，玩家看到的就是「我死了，然后没有然后了」。
+## 这个测试盯的不是「能不能复活」（那条 t_immune_win 已经在管），是**有没有把原因说出来**。
+func t_cancer_revive_blocked() -> void:
+	print("[癌方复活反馈]")
+	var g := make_game(2, 1)
+	g.setup.build_board()
+	## make_game 只建棋盘不建细胞，细胞得自己摆（同 t_immune_win）
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(-3, 0),
+		CWData.ImmuneType.BASIC, -1)
+	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0),
+		-1, CWData.CancerType.MELANOMA)
+	g.cells.append(imm)
+	g.cells.append(can)
+	can["alive"] = false
+
+	## ① 场上一格固化都没有
+	var n := g.logs.size()
+	check(g.world.revive_options_cancer(1).is_empty(), "没有固化癌组织 → 没有落点")
+	var said: String = "
+".join(g.logs.slice(n))
+	check(said.contains("无法复活") and said.contains("没有固化癌组织"),
+		"→ 说明了「场上没有固化癌组织」")
+
+	## ② 有固化格，但被免疫站着
+	var solid := Vector2i(2, 2)
+	g.tiles[solid]["tissue"] = CWData.Tissue.SOLID
+	imm["pos"] = solid
+	n = g.logs.size()
+	check(g.world.revive_options_cancer(1).is_empty(), "固化格被占 → 没有落点")
+	said = "
+".join(g.logs.slice(n))
+	check(said.contains("无法复活") and said.contains(str(solid))
+			and said.contains(g.cell_name(imm)),
+		"→ 说明了是哪一格、被谁占的")
+
+	## ③ 免疫让开：既能复活，也**不该**再报「无法复活」
+	imm["pos"] = Vector2i(-3, 0)
+	n = g.logs.size()
+	check(not g.world.revive_options_cancer(1).is_empty(), "让开后有落点")
+	check(not "
+".join(g.logs.slice(n)).contains("无法复活"), "→ 有落点时不再报「无法复活」")
+
+	## ④ 活着的细胞不该被问、也不该被通报
+	can["alive"] = true
+	n = g.logs.size()
+	check(g.world.revive_options_cancer(1).is_empty(), "活着 → 没有复活询问")
+	check(g.logs.size() == n, "→ 活着时一句话都不说")
 	g.dispose()
 
 

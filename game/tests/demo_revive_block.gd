@@ -1,9 +1,13 @@
-## repro_revive.gd —— 复现「癌细胞原地固化 → 被打死 → 再也不复活」
+## demo_revive_block.gd —— 演示「免疫站在固化癌组织上把复活位堵死」这条战术
 ##
-## 队友 2026-08-31 报的现象：癌细胞一直待在一格不动（按规则那格会固化），
-## 结果它死掉之后一直没有复活。
+## 队友 2026-08-31 报成 bug，Kevin 裁定**不是 bug，是机制，保留**（口径 #93）：
+## 癌细胞原地把脚下顶成固化 → 免疫攻过去击杀 → **击杀会让攻击者进入目标格**，
+## 而【净化】只处理癌组织、不处理固化，于是免疫就站在了那格固化上，把唯一的复活位占住。
 ##
-## 跑：godot --headless --path game --script res://tests/repro_revive.gd
+## 保留这个脚本是因为它把整条链一次跑完，比读代码快；
+## 同时它验证 2026-08-31 补的那条反馈**确实会发出来**（此前是静默跳过）。
+##
+## 跑：godot --headless --path game --script res://tests/demo_revive_block.gd
 extends SceneTree
 
 
@@ -59,10 +63,16 @@ func _run() -> void:
 		str(lair), CWData.TISSUE_NAMES[g.tile(lair)["tissue"]]])
 
 	## ③ 下一个世界回合的 S 阶段，问它复活落点 —— 这才是队友看到的那一步
+	var before := g.logs.size()
 	var opts: Array = g.world.revive_options_cancer(1)
-	print("③ 复活选项 %d 个：%s" % [opts.size(), str(opts)])
+	print("③ 引擎给癌方的反馈：")
+	for line in g.logs.slice(before):
+		print("     " + line)
+	if g.logs.size() == before:
+		print("     （什么都没说 —— 反馈没发出来）")
+	print("   复活选项 %d 个：%s" % [opts.size(), str(opts)])
 	if opts.is_empty():
-		print("   ⇒ 复现了：没有任何复活落点，流程会**静默跳过**这个玩家")
+		print("   ⇒ 没有落点，流程会跳过这个玩家（但上面那句话已经说明了原因）")
 		var solid_tiles: Array = []
 		for c in g.tiles:
 			if g.tiles[c]["tissue"] == CWData.Tissue.SOLID:
