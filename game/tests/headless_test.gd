@@ -80,6 +80,7 @@ func _run_all() -> void:
 	await t_ui_bridge()
 	await t_human_ask()
 	await t_hand_play()
+	await t_hand_exit()
 	t_card_info()
 	t_match_panel()
 	await t_settle_screen()
@@ -4748,6 +4749,89 @@ func _drag_card(hand: CWHand, index: int, grab_local: Vector2, to: Vector2) -> v
 	up.button_index = MOUSE_BUTTON_LEFT
 	up.position = to
 	hand._input(up)
+
+
+## 离场动画（团队 2026-09-01）：拖拽打出=原地淡出、双击打出=向上、弃置=向下。
+func t_hand_exit() -> void:
+	print("[手牌离场动画]")
+	## ① 走的是**真正离开的那一张**，不是队尾那张。
+	##    这条是三个动画的地基：卡的身份是位置性的（名字由 _layout 按下标重贴），
+	##    老的 pop_back 在没动画时看着对，一做动画就会让错的卡飞走
+	check(CWHand.leaving_indices(PackedStringArray(["甲", "乙", "丙"]),
+		PackedStringArray(["乙", "丙"])) == [0], "打出第 0 张 → 走的是第 0 张")
+	check(CWHand.leaving_indices(PackedStringArray(["甲", "乙", "丙"]),
+		PackedStringArray(["甲", "丙"])) == [1], "打出中间那张 → 走的是中间那张")
+	check(CWHand.leaving_indices(PackedStringArray(["甲", "乙"]),
+		PackedStringArray(["甲", "乙"])) == [], "没少牌 → 没有卡离场")
+	check(CWHand.leaving_indices(PackedStringArray(["甲", "乙", "丙"]),
+		PackedStringArray(["乙"])) == [0, 2], "一次少两张 → 两张都认出来")
+
+	var hand := CWHand.new()
+	root.add_child(hand)
+	var names := PackedStringArray(["交叉呈递", "乳酸酸化", "免疫增援"])
+	hand.sync(3, Vector2.INF, names)
+	var y0: float = hand._cards[1].position.y
+
+	## ② 双击打出 → 向上淡出
+	hand._hint_exit("乳酸酸化", CWHand.Exit.UP)
+	var going: Control = hand._cards[1]
+	hand.sync(2, Vector2.INF, PackedStringArray(["交叉呈递", "免疫增援"]))
+	check(hand._flying.has(going) and hand._cards.size() == 2,
+		"打出的那张离开 _cards、进入飞出队列")
+	finish_exit(hand, going)
+	check(going.position.y < y0 - CWHand.EXIT_RISE + 1.0 and going.modulate.a < 0.02,
+		"双击打出：向上 %.0f 并淡到透明（y %.0f→%.0f）" % [
+			CWHand.EXIT_RISE, y0, going.position.y])
+
+	## ③ 弃置 → 向下淡出
+	hand.sync(3, Vector2.INF, names)
+	var y1: float = hand._cards[1].position.y
+	hand._hint_exit("乳酸酸化", CWHand.Exit.DOWN)
+	var dumped: Control = hand._cards[1]
+	hand.sync(2, Vector2.INF, PackedStringArray(["交叉呈递", "免疫增援"]))
+	finish_exit(hand, dumped)
+	check(dumped.position.y > y1 + CWHand.EXIT_FALL - 1.0 and dumped.modulate.a < 0.02,
+		"弃置：向下 %.0f 并淡到透明（y %.0f→%.0f）" % [
+			CWHand.EXIT_FALL, y1, dumped.position.y])
+
+	## ④ 拖拽打出 → **原地**淡出（不位移），且从松手的地方开始淡、不是从槽位
+	hand.sync(3, Vector2.INF, names)
+	var dropped: Control = hand._cards[1]
+	dropped.position = Vector2(500, 150)      ## 假装被拖到棋盘中间松手了
+	hand._hint_exit("乳酸酸化", CWHand.Exit.FADE)
+	hand.sync(2, Vector2.INF, PackedStringArray(["交叉呈递", "免疫增援"]))
+	finish_exit(hand, dropped)
+	check(dropped.position == Vector2(500, 150) and dropped.modulate.a < 0.02,
+		"拖拽打出：停在松手处原地淡出（位置 %s 没动）" % str(dropped.position))
+
+	## ⑤ 没有手势提示时（AI 打的、抽满弃牌等）退回原地淡出，不乱飞
+	hand.sync(3, Vector2.INF, names)
+	var y2: float = hand._cards[0].position.y
+	var silent: Control = hand._cards[0]
+	hand.sync(2, Vector2.INF, PackedStringArray(["乳酸酸化", "免疫增援"]))
+	finish_exit(hand, silent)
+	check(is_equal_approx(silent.position.y, y2), "没有手势提示 → 原地淡出，不上不下")
+
+	## ⑥ 拆局时正在飞的卡也要收掉 —— 它们不在 _cards 里，clear() 那圈捞不着
+	##    （细胞层踩过：补间活过拆局，跑进下一局继续把 alpha 拉回 0）
+	hand.sync(3, Vector2.INF, names)
+	hand._hint_exit("乳酸酸化", CWHand.Exit.UP)
+	hand.sync(2, Vector2.INF, PackedStringArray(["交叉呈递", "免疫增援"]))
+	check(not hand._flying.is_empty(), "确实有卡在飞")
+	hand.clear()
+	check(hand._flying.is_empty(), "clear() 把正在飞的卡也收干净了")
+	hand.free()
+
+
+## 把某张卡的离场补间一口气推到底。
+## **不等真实时间**：无头下每帧 delta 不确定，靠 await 帧数会时绿时红。
+## custom_step 推完后回调也跑了（queue_free 是延迟的，本帧内节点仍然可读）。
+func finish_exit(hand: CWHand, card: Control) -> void:
+	var tw: Tween = hand._tweens.get(card)
+	if tw == null or not tw.is_valid():
+		return
+	tw.pause()
+	tw.custom_step(CWHand.EXIT + 0.05)
 
 
 func t_hand_play() -> void:

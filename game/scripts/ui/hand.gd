@@ -59,6 +59,10 @@ const TWEEN := 0.12         ## 抬起/推开的补间
 const DEAL := 0.45          ## 抽到的卡飞进手牌
 const DEAL_SCALE := 0.25    ## 起飞时的缩放
 const NAME_PAD := 6         ## 卡名左右内边距
+const EXIT := 0.26          ## 离场淡出时长。比抬起(0.12)长、比抽卡(0.45)短——
+                            ## 要看得清是哪张走了，又不能拖住下一步操作
+const EXIT_RISE := 44.0     ## 双击打出：向上飘多远
+const EXIT_FALL := 44.0     ## 弃置：向下沉多远
 const SELECT_LIFT := 34.0   ## 目标选择态里选中卡的半抬高度（低于悬停的 86，给底条留位）
 
 var _cards: Array[Control] = []
@@ -71,6 +75,23 @@ var _names: PackedStringArray = PackedStringArray()
 var _selected := -1    ## 目标选择态里正在打的那张（下标；-1 = 无）
 var _drag := -1        ## 正被拖着的那张（下标；-1 = 没在拖）
 var _grab := Vector2.ZERO   ## 按下时光标相对卡左上角的偏移，拖动时保持不变（卡才不会跳）
+## 离场动画的种类（团队 2026-09-01）。**按手势分，不按结果分** ——
+## 三种都是「这张卡离开手牌」，玩家想知道的是「我刚才做了什么」。
+enum Exit { FADE, UP, DOWN }   ## 拖拽打出：原地淡出 / 双击打出：向上 / 弃置：向下
+## 下一次离场该演哪种：{ name: 卡名, kind: Exit }。
+##
+## **为什么要靠"提示"而不是直接知道**：手势发生在这里，而卡真正离开手牌是在
+## 引擎结算完、`_sync_hand()` 发现张数变了之后 —— 中间隔着一整趟异步，
+## 而且**打出可能被取消**（选目标时右键退出），那样卡根本不会走。
+## 所以这里只留一张便条，由下一次真的少了卡的 `sync()` 认领。
+##
+## 每次手势都覆盖它；被 `sync()` 消费一次就清掉。**便条过期最坏的后果只是
+## 淡出方向不对**（比如取消了打出、隔了很久又弃掉同名卡），不会错删卡、不会漏动画。
+var _exit_hint := {}
+## 正在飞出去的卡。它们已经不在 `_cards` 里，`_layout()` 管不到，
+## **所以 `clear()` 必须单独收拾它们** —— 否则拆局时留下几个跑着补间的孤儿节点
+## （细胞层踩过这个坑：补间活过了拆局，跑进下一局继续把 alpha 拉回 0）
+var _flying: Array[Control] = []
 
 
 func _ready() -> void:
@@ -82,14 +103,31 @@ func _ready() -> void:
 ## from 传 Vector2.INF 表示不演，直接就位（读档、切玩家时用）。
 func sync(count: int, from: Vector2 = Vector2.INF,
 		names: PackedStringArray = PackedStringArray()) -> void:
+	## **先按名字找出真正离开的那几张**。老办法是从队尾砍（`_cards.pop_back()`），
+	## 那在没有离场动画时看着是对的：卡的身份是位置性的，名字由 `_layout()` 按下标重贴，
+	## 砍掉队尾再重贴一遍，剩下的卡自然左移。但要**给离场做动画就不行了** ——
+	## 打出的是第 0 张时，飞走的必须是第 0 张那个节点，不能是队尾那个。
+	var was := _names
+	var leaving: Array = leaving_indices(was, names) if was.size() == _cards.size() else []
+	var hint: Dictionary = _exit_hint
+	_exit_hint = {}    ## 手势提示只管一次离场，用完即弃（详见 _exit_hint 的声明）
 	_names = names
 	_selected = -1     ## 手牌一变（打出/弃置/抽取）选中态就过时了，由桥重设
 	_drag = -1         ## 同理：张数一变下标就不作数了，正在拖的那张可能已经被 free 掉
+	## 倒着摘，前面的下标才不会被搅乱
+	for k in range(leaving.size() - 1, -1, -1):
+		var i: int = leaving[k]
+		var gone: Control = _cards[i]
+		_cards.remove_at(i)
+		var kind: int = hint.get("kind", Exit.FADE) if hint.get("name", "") == was[i] \
+			else Exit.FADE
+		_fly_out(gone, kind)
+	## 兜底：名字对不上（比如 names 没传）时仍按老办法从队尾砍，且不演动画
 	while _cards.size() > count:
-		var gone: Control = _cards.pop_back()
-		_dealing.erase(gone)
-		_tweens.erase(gone)
-		gone.queue_free()
+		var tail: Control = _cards.pop_back()
+		_dealing.erase(tail)
+		_tweens.erase(tail)
+		tail.queue_free()
 	while _cards.size() < count:
 		var card := _make_card(_cards.size())
 		_cards.append(card)
@@ -120,12 +158,77 @@ func deal_from(count: int, from: Vector2,
 func clear() -> void:
 	for c in _cards:
 		c.queue_free()
+	## 正在飞出去的也得收 —— 它们不在 _cards 里，上面那圈捞不着
+	for c in _flying:
+		if is_instance_valid(c):
+			c.queue_free()
+	_flying.clear()
 	_cards.clear()
 	_tweens.clear()
 	_dealing.clear()
 	_hovered = -1
 	_selected = -1
 	_drag = -1
+	_exit_hint = {}
+
+
+## 哪几张卡离开了手牌：拿旧名单和新名单做**多重集差**，返回旧名单里的下标（升序）。
+## 纯函数，测试直接核对「打出第 0 张时走的是第 0 张」。
+##
+## 用多重集而不是 Set：手牌理论上不会有同名（PRD「同名技能最多保留 1 张」），
+## 但差集写成多重集只多两行，而万一哪天规则放开，Set 版会静默地砍错张数。
+static func leaving_indices(was: PackedStringArray, now: PackedStringArray) -> Array:
+	var pool := {}
+	for n in now:
+		pool[n] = int(pool.get(n, 0)) + 1
+	var out: Array = []
+	for i in was.size():
+		var n: String = was[i]
+		if int(pool.get(n, 0)) > 0:
+			pool[n] = int(pool[n]) - 1
+		else:
+			out.append(i)
+	return out
+
+
+## 留一张便条给下一次离场。手势一发就写，写完覆盖上一张。
+func _hint_exit(card_name: String, kind: int) -> void:
+	_exit_hint = { "name": card_name, "kind": kind }
+
+
+## 离场：淡出，按种类附带上飘/下沉。演完自己删掉。
+##
+## **卡从"现在在哪儿"开始淡，不是从槽位开始。** 拖出去打的卡，松手那一刻
+## `_layout()` 已经起了一条 0.12s 的回程补间；不杀掉的话它会一边淡一边飞回手牌，
+## 看着像"打出去又被收回来了"。杀掉之后：拖出去立刻结算的卡就停在松手处淡掉，
+## 而要选目标的卡（选完才结算）那时早已回到槽位、就在槽位淡掉 ——
+## 后者恰恰是对的，因为选目标期间这张牌本来就还没打出去。
+func _fly_out(card: Control, kind: int) -> void:
+	var running: Tween = _tweens.get(card)
+	if running != null and running.is_valid():
+		running.kill()          ## 铁律：一张卡同时只能有一条补间
+	_tweens.erase(card)
+	_dealing.erase(card)
+	var to := card.position
+	if kind == Exit.UP:
+		to.y -= EXIT_RISE
+	elif kind == Exit.DOWN:
+		to.y += EXIT_FALL
+	card.z_index = 150            ## 飞在留下的卡上面，但让开正在拖的那张（200）
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE   ## 飞走途中别再接点击
+	_flying.append(card)
+	var tw := card.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(card, "modulate:a", 0.0, EXIT)
+	if to != card.position:
+		tw.parallel().tween_property(card, "position", to, EXIT)
+	## 补间建在卡自己身上，所以卡一 free 补间就没了 —— 不会像细胞层那样活过拆局
+	tw.tween_callback(func() -> void:
+		_tweens.erase(card)
+		_flying.erase(card)
+		card.queue_free())
+	## 照本文件的记账习惯登记：一张卡一条补间。飞出去的卡不在 _cards 里，
+	## _layout() 碰不到它，所以这里登记纯粹是为了「谁身上有补间」这本账是全的
+	_tweens[card] = tw
 
 
 # ============ 排布 ============
@@ -247,8 +350,10 @@ func _make_card(index: int) -> Control:
 				_begin_drag(index, mb.position)
 			return
 		if mb.button_index == MOUSE_BUTTON_LEFT:
+			_hint_exit(_name_at(index), Exit.UP)
 			play_requested.emit(_name_at(index))
 		elif mb.button_index == MOUSE_BUTTON_RIGHT:
+			_hint_exit(_name_at(index), Exit.DOWN)
 			discard_requested.emit(_name_at(index)))
 	card.mouse_entered.connect(func() -> void: _hover(index))
 	card.mouse_exited.connect(func() -> void: _hover(-1 if _hovered == index else _hovered))
@@ -327,6 +432,9 @@ func _input(event: InputEvent) -> void:
 	_drag = -1
 	_layout()                              ## 松手先让卡飞回抽屉，无论打不打得出去
 	if not drawer_rect(_screen()).has_point(at):
+		## 拖出去的卡就停在松手的地方淡掉 —— 玩家刚把它放在那儿，
+		## 再让它飘回手牌上方去淡，等于把这个动作又收回去了一半
+		_hint_exit(_name_at(i), Exit.FADE)
 		play_requested.emit(_name_at(i))
 
 
