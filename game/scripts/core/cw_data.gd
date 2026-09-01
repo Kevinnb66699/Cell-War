@@ -34,9 +34,9 @@ static func init_cancer_tiles(n_players: int) -> int:
 # 2026-08-28：全部回到 PRD 原值。此前 20/85/64 是 2026-08-26 依据平衡测试定的暂行值，
 # PRD 这一版已明确写死，团队决定「按 PRD 实现，差异不再讨论」。
 # 两个胜利条件现在**都是 E 类**，在 E 阶段最后统一判定（见 CWWorld.e_phase）。
-const CANCER_WIN_WEIGHTED := 64          # 癌+2×固化 ≥ ⌈1/2×127⌉ 时癌症即胜
+const CANCER_WIN_WEIGHTED := 85          # 癌+2×固化 ≥ ⌈2/3×127⌉ 时癌症即胜
 const LIMIT_ROUND := 30                  # 终局世界回合数
-const LIMIT_CANCEROUS := 42              # 终局判定线 ⌊1/3×127⌋
+const LIMIT_CANCEROUS := 63              # 终局判定线 ⌊1/2×127⌋
 
 # ---- 原发灶 ----
 # 「每个癌症玩家的出生格开局即为固化癌组织」，2026-08-26 团队定案加入，
@@ -111,6 +111,7 @@ const CANCER_MOVE_HEALTHY := 12
 # ---- 癌细胞种类专属（PRD 癌细胞种类）----
 # 恶性黑色素瘤
 const MELANOMA_HOMING_COST := 10         # 【早期血行转移】1.0 能量，每世界回合 1 次
+const HOMING_SPREAD := 3                 # 落点相邻格再随机最多 3 格转为癌组织（PRD 2026-09-01）
 ## ⚠ 偏离 PRD（PRD 是 0.2）：随占地单价同比例抬，见 CANCER_MOVE_HEALTHY。
 ## 注意连带影响：抬到 0.5 之后，【上皮—间质转化】的「改为 0.2」对黑色素瘤
 ## 从空操作变成真有用（0.5 → 0.2）—— 这是新出现的组合，已补测试。
@@ -119,10 +120,13 @@ const PSEUDOPOD_MIN_ADJ := 2
 # 印戒细胞癌
 const MUCUS_MIN_ENERGY := 20             # 【黏液破裂】至少 2.0 能量才能发动
 const MUCUS_RADIUS := 2                  # 自身所在格及周围 2 格
-const MUCUS_MAX_CONVERT := 8             # 其中随机最多 8 格立即转为癌组织
+const MUCUS_MAX_CONVERT := 10            # 其中随机最多 10 格立即转为癌组织
 const MUCUS_IMMUNE_LOSS := 20            # 范围内免疫细胞损失 2.0
 const ARMOR_REDUCTION := 5               # 【囊性护甲】受到的能量损失 -0.5，每世界回合 1 次
-# 骨肉瘤：【骨样硬化】见 SOLIDIFY_STEP 的用法；【刚性屏障】是攻击合法性限制，无数值
+# 骨肉瘤：【骨样硬化】见 SOLIDIFY_STEP 的用法
+## 【刚性屏障】2026-09-01 由「不能被攻击」改为减伤：站在固化癌组织上时受到的
+## 能量损失只剩 40%。它是**倍减**（能量损失计算顺序第 4 步），不是固定减免。
+const OSTEO_BARRIER_PERCENT := 40        # 受到的能量损失 ×40%，向下取整到十分位
 # 小细胞肺癌
 ## ⚠ 偏离 PRD（PRD 是 0.3）：随占地单价同比例抬，见 CANCER_MOVE_HEALTHY
 const SCLC_MOVE_HEALTHY := 7             # 【极简胞浆】移动至健康组织永久 0.7
@@ -132,8 +136,9 @@ const WARBURG_PERCENT := 110             # 【瓦伯格超速糖酵解】无氧�
 const MUTATE_COST := 5
 const MUTATE_EXTRA_LOSS := 10            # 突变第 3 种结果再扣 1.0（效果扣减，可致死）
 const ANTIBODY_COST := 10
-const ANTIBODY_DAMAGE := 10
-const ANTIBODY_MAX_PER_ROUND := 2        # PRD：B 细胞每世界回合最多 2 次
+const ANTIBODY_DAMAGE := 15              # 每目标 -1.5
+## 无目标时改为转化癌组织：2/3 概率 2 格、1/3 概率 3 格（PRD 2026-09-01）
+const ANTIBODY_NO_TARGET_X := [2, 3]
 const TOXIN_COST := 10
 const TOXIN_MAX_PER_ROUND := 3           # PRD：T 细胞每世界回合最多 3 次
 const LYSE_COST := 10

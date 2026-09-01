@@ -65,7 +65,6 @@ func _reset_round_flags() -> void:
 	for c in game.cells:
 		c["armor_used"] = false        ## 印戒【囊性护甲】每世界回合减免 1 次
 		c["mutate_used"] = false       ## 【突变】每世界回合 1 次
-		c["antibody_used"] = 0         ## B【抗体】2 次/世界回合
 		c["toxin_used"] = 0            ## T【细胞毒素】3 次/世界回合
 		c["metastasis_used"] = false   ## 黑色素瘤【早期血行转移】1 次/世界回合
 		c["fx_round"] = {}             ## 永久技能「每世界回合第一次」的闸门
@@ -330,6 +329,11 @@ func _erosion() -> void:
 ## 【E-增生】癌组织向外扩散：与癌性组织相邻的健康组织按概率被转化（PRD 已入规，概率见 CWTuning）
 ## 先统一掷骰收集、再统一转化 —— 保证「同时结算」，避免转化顺序影响后续格的相邻数。
 func _proliferate() -> void:
+	## 2026-09-01 起**只在世界事件回合结算**（PRD 改成「每世界事件回合-E-增生」，
+	## Kevin 确认按字面理解）。第 3/6/10/15/20/25/30 世界回合各一次，共 7 次 ——
+	## 此前是每个世界回合都算，这是对癌方扩张速度最直接的一刀。
+	if not CWData.is_world_event_round(game.round_no):
+		return
 	if game.event_stacks("增殖抑制") > 0:
 		game.log_msg("【增殖抑制】本回合组织无法增生")
 		return
@@ -472,26 +476,9 @@ func _solidify() -> void:
 		game.raise_solid(c, _solidify_step(c))   ## 门槛判定（含【固化加速】）在 raise_solid 里
 
 
-## 【E-能量上限】结算末把所有存活细胞的能量削到上限（Kevin 2026-08-31 定，口径 #92）。
-##
-## **为什么封存量而不是封流量。** 此前封的是【无氧呼吸】每回合的进账（10.0），
-## 但进账可以跨回合囤着：2026-08-31 的试玩里，免疫把癌组织压到 3 格、局面看着已经赢了，
-## 黑色素瘤下一回合掏出攒了几轮的 25.5 能量一口气占了 63 格，直接越过胜利线。
-## 封住账面余额之后，「一回合能占多少格」就从「攒了多久」变回「这一回合赚了多少」。
-##
-## 放在第 9 步之后、胜负判定之前：这一步不改地盘也不改死活，
-## 排在结算的最末尾，语义上就是「本回合账结完，多出来的不留到下回合」。
-## 卡牌在自己回合内把能量顶到上限以上是允许的 —— 封的是**跨回合**的囤积。
+## 【E-能量上限】E 阶段末的那一次结算，实体在 CWGame.cap_energy（还有另外两个结算点要用）。
 func _cap_energy() -> void:
-	var cap: int = game.tune.energy_cap
-	if cap <= 0:
-		return
-	for cell in game.living_cells():
-		if cell["energy"] <= cap:
-			continue
-		game.log_msg("【能量上限】%s 能量 %s → %s" % [
-			game.cell_name(cell), CWData.fmt(cell["energy"]), CWData.fmt(cap)])
-		cell["energy"] = cap
+	game.cap_energy()
 
 
 ## 固化计数衰减：计数 > 0 且无癌细胞停留的**癌组织**，每世界回合 -0.5（PRD）

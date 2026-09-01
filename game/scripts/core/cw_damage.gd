@@ -169,7 +169,16 @@ func _calculate(ev: Dictionary, plan: Dictionary) -> int:
 	if Tag.ATTACK in ev["tags"] and ev["source"].get("itype", -1) == CWData.ImmuneType.DENDRITIC:
 		div *= 2
 		plan["logs"].append("　【各司其职】树突状细胞只造成 1/2 伤害")
-	var dmg: int = (ev["base_amount"] + ev["bonus_amount"]) * mult / div
+	## ④ 倍减 —— 骨肉瘤【刚性屏障】（PRD 2026-09-01 改写：原本是「不能被攻击」）。
+	## 「受到的能量损失为 40%」，**不限来源**：攻击、技能、压迫都算。
+	var pct := 100
+	if target["ctype"] == CWData.CancerType.OSTEO 			and game.tile(target["pos"])["tissue"] == CWData.Tissue.SOLID:
+		pct = CWData.OSTEO_BARRIER_PERCENT
+		plan["logs"].append("　【刚性屏障】骨肉瘤立于固化癌组织，只受到 %d%% 的能量损失" % pct)
+	## 三个倍率**合成一次整数除法**：分开除会各自向下取整一次，
+	## 「×2 再 ÷2 再 ×40%」就会比「一次算」少掉一两个十分位。PRD 只要求最后
+	## 向下取整到十分位，而十分能量的整数除法天然就是这个取整。
+	var dmg: int = (ev["base_amount"] + ev["bonus_amount"]) * mult * pct / (div * 100)
 	## ⑤ 固定减免。UNPREVENTABLE 跳过这一层——但日志、BCL-2、死亡检查照走（设计 §6.4）
 	if Tag.UNPREVENTABLE in ev["tags"]:
 		return maxi(dmg, 0)

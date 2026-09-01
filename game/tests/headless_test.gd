@@ -607,7 +607,8 @@ func t_one_cell_per_tile() -> void:
 		if o["data"].get("to", Vector2i.MAX) == b:
 			can_go = true
 	check(not can_go, "己方细胞占着的格也不能进（不再是「同阵营可叠」）")
-	## 骨肉瘤站在固化癌组织上时不可被攻击
+	## 骨肉瘤【刚性屏障】：PRD 2026-09-01 由「不可被攻击」改为「受到的能量损失为 40%」。
+	## 所以这里查两件事：**攻击不再被禁**，以及**伤害确实只剩四成**。
 	var imm := CWSetup.make_cell(2, 0, CWData.Faction.IMMUNE, a,
 		CWData.ImmuneType.BASIC, -1)
 	g.cells.clear()
@@ -618,9 +619,19 @@ func t_one_cell_per_tile() -> void:
 	g.cells.append(mate)
 	g.cells.append(imm)
 	g.tiles[b]["tissue"] = CWData.Tissue.SOLID
-	check(not g.actions._attackable(mate), "固化癌组织上的骨肉瘤不可攻击")
+	check(g.actions._is_move_legal_now(imm, b), "固化上的骨肉瘤现在可以攻击了")
+	mate["energy"] = 100
+	g.immune_hit(mate, 20, imm, false)          ## 2.0 × 40% = 0.8
+	check(mate["energy"] == 92, "固化上的骨肉瘤：2.0 伤害只吃到 0.8")
 	g.tiles[b]["tissue"] = CWData.Tissue.CANCER
-	check(g.actions._attackable(mate), "破除固化后就能打了")
+	mate["energy"] = 100
+	g.immune_hit(mate, 20, imm, false)
+	check(mate["energy"] == 80, "不在固化上则照常吃满 2.0")
+	## 向下取整到十分位：0.5 × 40% = 0.2（不是 0.25）
+	g.tiles[b]["tissue"] = CWData.Tissue.SOLID
+	mate["energy"] = 100
+	g.immune_hit(mate, 5, imm, false)
+	check(mate["energy"] == 98, "0.5 伤害 ×40% 向下取整到 0.2")
 	g.dispose()
 
 
@@ -2623,23 +2634,27 @@ func t_step_atomic() -> void:
 		if not d.has("type"):
 			typed = false
 	check(typed, "每个分化选项自带 type，execute() 不必再问")
-	## 裂解：找一格空地，手动造成固化癌组织再站上去
-	var solid := Vector2i.MAX
-	for c in g.tiles.keys():
-		if g.cells_at(c).is_empty():
-			solid = c
-			break
-	check(solid != Vector2i.MAX, "找得到一格空地")
-	g.tiles[solid]["tissue"] = CWData.Tissue.SOLID
+	## 裂解（2026-09-01 改写）：目标是**相邻**的固化癌组织，每格一个顶层选项
 	imm["itype"] = CWData.ImmuneType.T_CELL
-	imm["pos"] = solid
+	imm["pos"] = Vector2i.ZERO
 	imm["energy"] = 50
-	var lyse := []
+	var nbs: Array[Vector2i] = CWData.neighbors(Vector2i.ZERO)
+	g.tiles[Vector2i.ZERO]["tissue"] = CWData.Tissue.SOLID   ## 脚下那格**不该**再算目标
+	g.tiles[nbs[0]]["tissue"] = CWData.Tissue.SOLID
+	g.tiles[nbs[1]]["tissue"] = CWData.Tissue.SOLID
+	var lyse: Array[Vector2i] = []
 	for o in g.actions.build_options(imm):
 		if o["data"].get("act", "") == "lyse":
-			lyse.append(o["data"]["purge"])
-	check(lyse.size() == 2 and (true in lyse) and (false in lyse),
-		"裂解摊成「并净化 / 暂不」两个顶层选项")
+			lyse.append(o["data"]["to"])
+	check(lyse.size() == 2 and nbs[0] in lyse and nbs[1] in lyse,
+		"两格相邻固化 → 两个顶层选项，脚下那格不算")
+	g.actions._do_lyse(imm, nbs[0])
+	check(g.tiles[nbs[0]]["tissue"] == CWData.Tissue.HEALTHY
+		and g.tiles[nbs[0]]["solid"] == 0, "裂解：相邻固化一步转为健康组织")
+	var mem_before: int = g.memory
+	g.actions._do_lyse(imm, nbs[1])
+	check(g.memory == mem_before, "裂解不再算【净化】，不给抗原记忆")
+	g.tiles[Vector2i.ZERO]["tissue"] = CWData.Tissue.HEALTHY
 	## 整份行动表里不该再有任何需要二次询问的项
 	var need_more := false
 	for o in g.actions.build_options(imm):
@@ -3470,12 +3485,15 @@ func t_card_perms() -> void:
 	await g.card_fx.play(imm, eopts[0]["data"])
 	check(imm["hand"].is_empty() and imm["equipped"] == ["组织驻留"], "打出即装备至角色面板")
 	check(not g.cards.is_legal(imm, "组织驻留"), "已装备的同名永久技能不再进抽卡候选")
-	## ② 组织驻留：每行动回合首次向健康组织迁移免费
+	## ② 组织驻留：每行动回合**前两次**向健康组织迁移免费（PRD 2026-09-01，此前是一次）
 	var base_h: int = g.tune.immune_move_healthy[0]
 	check(g.actions._move_cost_mod(imm, Vector2i(0, 1), base_h) == 0, "组织驻留：首次向健康组织迁移标价 0")
 	await g.actions._do_move(imm, Vector2i(0, 1), 0)
 	check(imm["energy"] == 100, "免费移动没扣钱")
-	check(g.actions._move_cost_mod(imm, Vector2i(0, 2), base_h) == base_h, "本回合第二次恢复原价")
+	check(g.actions._move_cost_mod(imm, Vector2i(0, 2), base_h) == 0, "第二次仍是标价 0")
+	await g.actions._do_move(imm, Vector2i(0, 2), 0)
+	check(imm["energy"] == 100, "第二次也没扣钱")
+	check(g.actions._move_cost_mod(imm, Vector2i(0, 3), base_h) == base_h, "本回合第三次恢复原价")
 	g.turn.begin_turn(0, imm)
 	check(g.actions._move_cost_mod(imm, Vector2i(0, 2), base_h) == 0, "新行动回合重新免费")
 	## ③ LFA-1黏附 + 组织浸润：向癌性组织的减免叠加，首移后只剩浸润
@@ -3589,6 +3607,7 @@ func t_card_perms() -> void:
 	wt["equipped"] = ["免疫监视"]
 	g.cells.append(wt)
 	g.tune.proliferate_per_adjacent = 1000   ## 必中，隔离概率因素
+	g.round_no = 3   ## 增生只在世界事件回合结算（PRD 2026-09-01）
 	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER    ## 全在守护圈内
 	g.tiles[Vector2i(5, 0)]["tissue"] = CWData.Tissue.CANCER    ## 圈外
 	g.world._proliferate()
@@ -4416,6 +4435,7 @@ func t_ev_proliferate() -> void:
 	print("[世界事件·增生类]")
 	var g := _fx_game(2)
 	g.tune.proliferate_per_adjacent = 1000   ## 必中，隔离概率因素
+	g.round_no = 3   ## 不设成世界事件回合的话，下面的 0 转化是被回合门挡掉的，测不出【增殖抑制】
 	g.tiles[Vector2i(0, 0)]["tissue"] = CWData.Tissue.CANCER
 	_install(g, "增殖抑制")
 	g.world._proliferate()
@@ -4434,6 +4454,7 @@ func t_ev_proliferate() -> void:
 	## 异常增殖：概率翻倍（50% 翻成 100% 验证）
 	var g2 := _fx_game(2)
 	g2.tune.proliferate_per_adjacent = 500
+	g2.round_no = 3
 	g2.tiles[Vector2i(0, 0)]["tissue"] = CWData.Tissue.CANCER
 	_install(g2, "异常增殖", 1, 2)
 	g2.world._proliferate()
@@ -4442,6 +4463,26 @@ func t_ev_proliferate() -> void:
 		if g2.tiles[c]["tissue"] != CWData.Tissue.CANCER:
 			all6 = false
 	check(all6, "异常增殖：增生概率翻倍（单邻 50% → 100% 必中）")
+	## 回合门：非世界事件回合整条【增生】不结算（PRD 2026-09-01「每世界事件回合-E-增生」）
+	var g3 := _fx_game(2)
+	g3.tune.proliferate_per_adjacent = 1000   ## 必中，所以转化数只取决于回合门
+	g3.tiles[Vector2i(0, 0)]["tissue"] = CWData.Tissue.CANCER
+	for rd in [1, 2, 4, 5, 7]:
+		g3.round_no = rd
+		g3.world._proliferate()
+	var quiet := true
+	for c in CWData.neighbors(Vector2i(0, 0)):
+		if g3.tiles[c]["tissue"] != CWData.Tissue.HEALTHY:
+			quiet = false
+	check(quiet, "非世界事件回合（1/2/4/5/7）一格都不增生")
+	g3.round_no = 6
+	g3.world._proliferate()
+	var grew := 0
+	for c in CWData.neighbors(Vector2i(0, 0)):
+		if g3.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+			grew += 1
+	check(grew == 6, "世界事件回合（6）照常增生")
+	g3.dispose()
 
 
 func t_ev_double() -> void:
@@ -4795,15 +4836,21 @@ func _t_ruling_d_keep_allowance() -> void:
 	check(cell["fx_turn"].has("组织驻留"), "先装的【组织驻留】先被豁免")
 	check(not cell["fx_turn"].has("组织巡航"), "一次只消耗一个额度，【组织巡航】保留")
 
-	## ② 驻留用掉后，同回合再向健康组织走轮到巡航
-	check(g.actions._move_cost_mod(cell, Vector2i(2, 0), base_h) == 0, "第二次仍免费（轮到巡航）")
+	## ② 【组织驻留】2026-09-01 起是**前两次**，所以第二次仍然由它出，巡航还没轮到
+	check(g.actions._move_cost_mod(cell, Vector2i(2, 0), base_h) == 0, "第二次仍免费")
 	await g.actions._do_move(cell, Vector2i(2, 0), 0)
+	check(cell["fx_turn"]["组织驻留"] == 2, "两次都记在【组织驻留】头上")
+	check(not cell["fx_turn"].has("组织巡航"), "驻留额度没用完，【组织巡航】不动")
+
+	## ③ 驻留两次用尽，第三次才轮到巡航
+	check(g.actions._move_cost_mod(cell, Vector2i(3, 0), base_h) == 0, "第三次仍免费（轮到巡航）")
+	await g.actions._do_move(cell, Vector2i(3, 0), 0)
 	check(cell["fx_turn"].has("组织巡航"), "这一次才轮到【组织巡航】")
 
-	## ③ 巡航的「后续 −0.2」只在它的免费额度**用掉之后**才开始（设计 §九.2）
-	check(g.actions._move_cost_mod(cell, Vector2i(3, 0), base_h)
+	## ④ 巡航的「后续 −0.2」只在它的免费额度**用掉之后**才开始（设计 §九.2）
+	check(g.actions._move_cost_mod(cell, Vector2i(4, 0), base_h)
 		== maxi(base_h - CWData.CRUISE_CUT, CWData.MOVE_CUT_MIN),
-		"两个额度都用尽后，只剩【组织巡航】的 −0.2")
+		"三个额度都用尽后，只剩【组织巡航】的 −0.2")
 	g.dispose()
 
 	## ④ 向**非健康**组织时【组织驻留】不适用，直接由【组织巡航】豁免（设计 §九.2）
@@ -5089,20 +5136,20 @@ func _t_commit_revalidates() -> void:
 	check(c2["energy"] == e2, "②被拒时不扣费")
 	g2.dispose()
 
-	## ③ 攻击目标获得了不可攻击状态（骨肉瘤【刚性屏障】）
+	## ③ 报价后攻击次数用尽（【刚性屏障】2026-09-01 改成减伤后，这是剩下的攻击合法性闸门）
 	var g3 := bare_game()
 	g3.tiles[canc]["tissue"] = CWData.Tissue.CANCER
 	var c3 := put_immune(g3, Vector2i.ZERO)
 	var osteo := CWSetup.make_cell(g3.cells.size(), 1, CWData.Faction.CANCER, canc,
 		-1, CWData.CancerType.OSTEO, 100)
 	g3.cells.append(osteo)
-	check(g3.actions._is_move_legal_now(c3, canc), "③癌组织上的骨肉瘤可以打")
-	g3.tiles[canc]["tissue"] = CWData.Tissue.SOLID    ## 它站上了固化组织
-	check(not g3.actions._is_move_legal_now(c3, canc), "③刚性屏障生效后不可攻击")
+	check(g3.actions._is_move_legal_now(c3, canc), "③次数没用完时可以打")
+	c3["attacks_used"] = g3.tune.attack_max_per_turn   ## 报价之后才用尽
+	check(not g3.actions._is_move_legal_now(c3, canc), "③攻击次数用尽后不可攻击")
 	var ctx3 := CWCost.context(c3, CWCost.Action.MOVE, 5, canc, 0,
 		func() -> bool: return g3.actions._is_move_legal_now(c3, canc))
 	var e3: int = c3["energy"]
-	check(g3.cost.commit(ctx3).is_empty(), "③目标不可攻击：提交被拒")
+	check(g3.cost.commit(ctx3).is_empty(), "③次数用尽：提交被拒")
 	check(c3["energy"] == e3, "③被拒时不扣费")
 	g3.dispose()
 

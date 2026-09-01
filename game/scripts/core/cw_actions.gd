@@ -39,8 +39,8 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 				"label": "分化为%s（免费）" % CWData.IMMUNE_TYPE_NAMES[t],
 				"data": { "act": "differentiate", "type": t },
 			})
+	## 【抗体】的「每世界回合最多 2 次」2026-09-01 起取消（PRD 删掉该条，Kevin 确认）
 	if cell["itype"] == CWData.ImmuneType.B_CELL \
-			and cell["antibody_used"] < CWData.ANTIBODY_MAX_PER_ROUND \
 			and game.can_pay(cell, antibody_cost(cell)):
 		opts.append({ "label": "抗体（%s 能量）" % CWData.fmt(antibody_cost(cell)),
 			"data": { "act": "antibody" } })
@@ -48,17 +48,14 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 		if cell["toxin_used"] < CWData.TOXIN_MAX_PER_ROUND \
 				and game.can_pay(cell, CWData.TOXIN_COST) and not _toxin_targets(cell).is_empty():
 			opts.append({ "label": "细胞毒素（1.0 能量）", "data": { "act": "toxin" } })
-		if game.tile(cell["pos"])["tissue"] == CWData.Tissue.SOLID:
-			## 「裂解后要不要立刻净化」也是一个决定，摊成两个顶层选项 ——
-			## 埋在 execute() 里再问一次，AI 就没法把一个行动当成原子来推演了。
-			## 净化那一档在【免疫抑制因子】生效时要加 0.2 净化费（定案 W5）。
-			var purge_cost: int = _purge_cost(cell)
-			if game.can_pay(cell, purge_cost):
-				opts.append({ "label": "裂解并净化（%s 能量）" % CWData.fmt(purge_cost),
-					"data": { "act": "lyse", "purge": true } })
-			if game.can_pay(cell, CWData.LYSE_COST):
-				opts.append({ "label": "裂解，暂不净化（1.0 能量）",
-					"data": { "act": "lyse", "purge": false } })
+		## 【裂解】2026-09-01 改写：目标从「脚下」变成「相邻」，且一步直接变健康组织
+		## （PRD 原文只说「转为健康组织」，不再提【净化】，所以**不给抗原记忆、
+		## 也不走净化连锁**）。每个可裂解的相邻格摊成一个顶层选项，理由同别处：
+		## 埋在 execute() 里再问一次，AI 就没法把一个行动当成原子来推演。
+		if game.can_pay(cell, CWData.LYSE_COST):
+			for c in _lyse_targets(cell):
+				opts.append({ "label": "裂解→%s（1.0 能量）" % str(c),
+					"data": { "act": "lyse", "to": c } })
 
 
 ## 免疫的迁移/攻击选项（含费用与可支付校验）。
@@ -81,11 +78,6 @@ func immune_move_options(cell: Dictionary) -> Array:
 	return opts
 
 
-## 骨肉瘤【刚性屏障】：免疫细胞无法攻击**处于固化癌组织上**的骨肉瘤细胞，
-## 必须先用【裂解】等技能破除其所在格的固化状态。
-func _attackable(target: Dictionary) -> bool:
-	return not (target["ctype"] == CWData.CancerType.OSTEO
-		and game.tile(target["pos"])["tissue"] == CWData.Tissue.SOLID)
 
 
 # ---- 合法性谓词：选项生成与提交复验**共用同一份** ----
@@ -105,7 +97,7 @@ func _is_move_legal_now(cell: Dictionary, to: Vector2i) -> bool:
 		return false
 	if cell["faction"] == CWData.Faction.CANCER:
 		return game.cells_at(to).is_empty()          ## 一格一细胞
-	## 免疫：空格才谈得上「迁移」；有癌细胞则这一下是攻击，要过刚性屏障
+	## 免疫：空格才谈得上「迁移」；有癌细胞则这一下是攻击
 	var enemies: Array = game.cells_at(to, CWData.Faction.CANCER)
 	if enemies.is_empty():
 		return game.cells_at(to).is_empty()
@@ -115,7 +107,7 @@ func _is_move_legal_now(cell: Dictionary, to: Vector2i) -> bool:
 	var cap: int = game.tune.attack_max_per_turn
 	if cap > 0 and cell["attacks_used"] >= cap:
 		return false
-	return _attackable(enemies[0])
+	return true
 
 
 ## 黑色素瘤【早期血行转移】：站在血管格上、本世界回合还没用过、落点是空的健康组织
@@ -132,9 +124,17 @@ func _is_jump_legal_now(cell: Dictionary, to: Vector2i) -> bool:
 	return cell["alive"] and CWData.is_on_board(to) and game.cells_at(to).is_empty()
 
 
-## T 细胞【裂解】：脚下仍是固化癌组织
-func _is_lyse_legal_now(cell: Dictionary) -> bool:
-	return cell["alive"] and game.tile(cell["pos"])["tissue"] == CWData.Tissue.SOLID
+## T 细胞【裂解】：目标是**相邻**的固化癌组织（2026-09-01 起，此前是脚下那一格）
+func _is_lyse_legal_now(cell: Dictionary, to: Vector2i) -> bool:
+	return cell["alive"] and (to in CWData.neighbors(cell["pos"])) 		and game.tile(to)["tissue"] == CWData.Tissue.SOLID
+
+
+func _lyse_targets(cell: Dictionary) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	for n in CWData.neighbors(cell["pos"]):
+		if game.tile(n)["tissue"] == CWData.Tissue.SOLID:
+			out.append(n)
+	return out
 
 
 func _cancer_options(cell: Dictionary, opts: Array) -> void:
@@ -286,7 +286,7 @@ func execute(cell: Dictionary, data: Dictionary) -> void:
 		"toxin":
 			_do_toxin(cell)
 		"lyse":
-			await _do_lyse(cell, data["purge"])
+			_do_lyse(cell, data["to"])
 		"mutate":
 			await _do_mutate(cell)
 		"homing":
@@ -616,7 +616,6 @@ func antibody_cost(cell: Dictionary) -> int:
 func _do_antibody(cell: Dictionary) -> void:
 	if not game.pay(cell, antibody_cost(cell)):
 		return
-	cell["antibody_used"] += 1
 	var dmg: int = CWData.MATURED_ANTIBODY_DMG if game.has_skill(cell, "抗体亲和力成熟") \
 		else CWData.ANTIBODY_DAMAGE
 	var targets: Array = []
@@ -647,7 +646,7 @@ func _do_antibody(cell: Dictionary) -> void:
 		game.log_msg("【抗体】无目标且无可转化癌组织，效果落空")
 		return
 	var roll: int = await game.roll_shown(3, "抗体", cell["pid"], cell["pos"])
-	var x: int = 1 if roll <= 2 else 2
+	var x: int = CWData.ANTIBODY_NO_TARGET_X[0 if roll <= 2 else 1]
 	game.announce("抗体：转化 %d 格" % x, cell["pos"])
 	for c in game.pick_random(eligible, x):
 		_to_healthy(c)
@@ -686,30 +685,15 @@ func _do_toxin(cell: Dictionary) -> void:
 	game.immune_hit_area(victims, CWData.ATTACK_DMG_SUCCESS, cell, "细胞毒素")
 
 
-## 【裂解】的费用；purge=true 时【免疫抑制因子】的净化费经 PURIFY 上下文加在最后
-func _purge_cost(cell: Dictionary) -> int:
-	return game.cost.quote(CWCost.context(cell, CWCost.Action.PURIFY,
-		CWData.LYSE_COST))["final"]
-
-
-func _do_lyse(cell: Dictionary, purge: bool) -> void:
-	var act := CWCost.Action.PURIFY if purge else CWCost.Action.CELL_SKILL
-	if game.cost.commit(CWCost.context(cell, act, CWData.LYSE_COST, Vector2i.MAX, 0,
-			func() -> bool: return _is_lyse_legal_now(cell))).is_empty():
+func _do_lyse(cell: Dictionary, to: Vector2i) -> void:
+	if game.cost.commit(CWCost.context(cell, CWCost.Action.CELL_SKILL, CWData.LYSE_COST,
+			to, 0, func() -> bool: return _is_lyse_legal_now(cell, to))).is_empty():
 		return
-	var pos: Vector2i = cell["pos"]
-	var t: Dictionary = game.tile(pos)
-	t["tissue"] = CWData.Tissue.CANCER
+	var t: Dictionary = game.tile(to)
+	t["tissue"] = CWData.Tissue.HEALTHY
 	t["solid"] = 0
-	game.log_msg("【裂解】%s 由固化癌组织转为癌组织" % str(pos))
-	if purge:
-		t["tissue"] = CWData.Tissue.HEALTHY
-		if game.event_stacks("免疫抑制因子") > 0:
-			game.log_msg("　【净化】%s 转为健康组织（免疫抑制因子：不获得抗原记忆）" % str(pos))
-		else:
-			game.gain_memory(1)
-			game.log_msg("　【净化】%s 转为健康组织（抗原记忆 %d）" % [str(pos), game.memory])
-		await _on_purify(cell)
+	t["newborn"] = false
+	game.log_msg("【裂解】%s 由固化癌组织转为健康组织" % str(to))
 
 
 ## 净化后的永久技能连锁——enter_tile 与裂解的「顺带净化」共用一个口。
@@ -785,6 +769,15 @@ func _do_homing(cell: Dictionary, to: Vector2i) -> void:
 	cell["metastasis_used"] = true
 	game.log_msg("【早期血行转移】%s 自血管转移至 %s" % [game.cell_name(cell), str(to)])
 	await enter_tile(cell, to)   # 落地即【定殖】，把该格转为癌组织
+	## PRD 2026-09-01 追加：「并将相邻格中随机最多 3 格转为癌组织」。
+	## 只取**健康组织**——癌组织已经是癌了，固化更不该被降级。
+	var spread: Array[Vector2i] = []
+	for n in CWData.neighbors(to):
+		if game.tile(n)["tissue"] == CWData.Tissue.HEALTHY:
+			spread.append(n)
+	for c in game.pick_random(spread, CWData.HOMING_SPREAD):
+		_to_cancer(c, true)
+		game.log_msg("　【早期血行转移】%s 转为癌组织" % str(c))
 
 
 # ---- 印戒细胞癌 ----

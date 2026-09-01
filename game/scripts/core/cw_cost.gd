@@ -47,6 +47,10 @@ enum Store { MOD, GATE, EVENT_FREE, NONE }
 
 ## 支付后必须保留的能量下限。规则总则「不能使能量降至 0」= 至少留 0.1。
 ## 从前藏在 `CWGame.pay()` 的 `<=` 里，现在按设计 §二 显式化。
+## 「每个行动回合前 N 次」的闸门额度，不写 = 1 次。
+## 【组织驻留】2026-09-01 由 1 次改为 2 次（PRD「前两次向健康组织发动【迁移】时不消耗能量」）。
+const GATE_USES := { "组织驻留": 2 }
+
 const DEFAULT_PAYMENT_FLOOR := 1
 
 var game: CWGame
@@ -364,9 +368,9 @@ func _cond_ok(cond: String, ctx: Dictionary, name: String) -> bool:
 		"cancer":
 			return actor["faction"] == CWData.Faction.CANCER
 		"gate_open":
-			return not actor["fx_turn"].has(name)
+			return actor["fx_turn"].get(name, 0) < GATE_USES.get(name, 1)
 		"gate_closed":
-			return actor["fx_turn"].has(name)
+			return actor["fx_turn"].get(name, 0) >= GATE_USES.get(name, 1)
 		"free_move_left":
 			return game.world_fx.free_move_available(actor)
 		"has_allowance":

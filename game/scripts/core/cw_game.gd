@@ -164,6 +164,8 @@ func step(choice: int) -> void:
 				_end_turn(pid, cell)
 			else:
 				await actions.execute(cell, data)
+				## 一次行动就是一次结算：卡牌把能量顶到 15 以上，到这里就削回去
+				cap_energy()
 				flow["acts"] += 1
 	await advance()
 
@@ -192,6 +194,7 @@ func advance() -> void:
 				if not _ask_each("revive", func(pid: int) -> Array:
 					return world.revive_options_cancer(pid)):
 					world.aerobic()
+					cap_energy()      ## S 阶段这一次结算完，溢出的不留
 					_goto("turn")
 			"turn":
 				_advance_turn()
@@ -352,6 +355,30 @@ func ask(pid: int, req: Dictionary) -> int:
 	return clampi(idx, 0, req["options"].size() - 1)
 
 
+## 【溢出】把所有存活细胞的能量削到上限（PRD 2026-09-01：「能量最高储存量为 15，
+## 超出则溢出消失」，数值修正结算顺序第 9 阶段）。
+##
+## **为什么封存量而不是封流量。** 此前封的是【无氧呼吸】每回合的进账（10.0），
+## 但进账可以跨回合囤着：2026-08-31 的试玩里，免疫把癌组织压到 3 格、局面看着已经赢了，
+## 黑色素瘤下一回合掏出攒了几轮的 25.5 能量一口气占了 63 格，直接越过胜利线。
+##
+## **为什么在「结算末」削而不是每次 += 都削。** PRD 明写「结算时先将能量增减相互抵消，
+## 再算溢出值」—— 一次结算里既有进账又有扣减时，要先抵消完再看溢出，
+## 否则中途那个高点会被白白削掉（例：【无氧呼吸】先给基础值、再给【GLUT1高表达】加成，
+## 中间削一刀就把加成吃了）。所以调用点是**三个结算边界**，见 CWWorld.e_phase、
+## CWGame.advance（S 阶段末）与 CWGame.step（每次行动结算后）。
+func cap_energy() -> void:
+	var cap: int = tune.energy_cap
+	if cap <= 0:
+		return
+	for cell in living_cells():
+		if cell["energy"] <= cap:
+			continue
+		log_msg("【溢出】%s 能量 %s → %s" % [
+			cell_name(cell), CWData.fmt(cell["energy"]), CWData.fmt(cap)])
+		cell["energy"] = cap
+
+
 # ---- 查询工具 ----
 func tile(c: Vector2i) -> Dictionary:
 	return tiles[c]
@@ -465,11 +492,13 @@ func has_skill(cell: Dictionary, skill: String) -> bool:
 
 ## 「每个行动回合第一次」的闸门：第一次调用返回 true 并记账（begin_turn 清）。
 ## 报价这类只读场合**别调它**——直接查 cell["fx_turn"].has(key)，免得把闸门白白烧掉。
+## 存的是**用了几次**而不是 true：多数闸门只要「是不是第一次」，
+## 但【组织驻留】这类「前 N 次」要数得出来（CWCost.GATE_USES）。
+## 返回值语义不变 —— 仍然是「这一次是不是第一次」。
 func first_this_turn(cell: Dictionary, key: String) -> bool:
-	if cell["fx_turn"].has(key):
-		return false
-	cell["fx_turn"][key] = true
-	return true
+	var n: int = cell["fx_turn"].get(key, 0)
+	cell["fx_turn"][key] = n + 1
+	return n == 0
 
 
 ## 「每世界回合第一次」的闸门（S 阶段 _reset_round_flags 清）

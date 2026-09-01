@@ -66,7 +66,6 @@ static func make_cell(id: int, pid: int, faction: int, pos: Vector2i,
 		# 以下计数每世界回合 S 阶段重置
 		"armor_used": false,       # 印戒【囊性护甲】
 		"mutate_used": false,      # 【突变】1 次/世界回合
-		"antibody_used": 0,        # B【抗体】2 次/世界回合
 		"toxin_used": 0,           # T【细胞毒素】3 次/世界回合
 		"metastasis_used": false,  # 黑色素瘤【早期血行转移】1 次/世界回合
 		# 下面这个每**行动回合**重置（见 CWTurn），不是每世界回合
