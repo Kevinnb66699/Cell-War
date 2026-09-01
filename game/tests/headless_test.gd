@@ -1194,8 +1194,11 @@ func t_hover_info() -> void:
 	var all := ""
 	for r in CWTileInfo.describe(g, c):
 		all += r["text"] + "|"
-	check(all.contains("癌组织") and all.contains("固化 2 / %d" % g.tune.solidify_threshold),
-		"详情：组织与固化进度")
+	## **写死人读的字面，不要拿常量插值**：拿常量插值等于把实现的格式化方式抄一遍，
+	## 实现打成「15 / 30」时期望串也跟着变成「15 / 30」，两边一起错、测试照样绿
+	## （2026-09-01 队友截图报的就是这个）。固化计数是十分整数，1.5 点存成 15
+	check(all.contains("癌组织") and all.contains("固化 0.2 / 3.0"),
+		"详情：组织与固化进度按小数显示，不是原始的十分整数")
 	check(all.contains("代谢核心 · 储量 1.0"), "详情：核心储量")
 	check(all.contains("恶性黑色素瘤") and all.contains("能量 3.8") and all.contains("标记 ×1"),
 		"详情：占据者、能量与标记")
@@ -1405,7 +1408,10 @@ func t_rules_page() -> void:
 		"上限设 0 时速查页改口说「不限」，不许留着和引擎不符的数")
 	check(all.contains("上限 %d 张" % CWData.HAND_MAX)
 		and all.contains("每回合至多 %d 次" % CWData.DRAW_MAX_PER_TURN), "手牌与抽卡上限")
-	check(all.contains("蹲满 %d 回合" % tune.solidify_threshold), "固化门槛跟着旋钮走")
+	## 同上：门槛存的是十分整数（30 = 3.0），而这句说的是「几个回合」。
+	## 原先拿 solidify_threshold 直接插值，页面显示「蹲满 30 回合」而测试照样绿
+	check(all.contains("蹲满 3 回合"), "固化门槛按回合数显示，不是十分整数")
+	check(not all.contains("蹲满 30 回合"), "别再把十分整数当回合数打出来")
 	## 反击旋钮开了，那半句要跟着出现（平衡实验档）
 	## sections() 用的是默认 CWTuning，这里只验固定文案的另一半确实受控于旋钮：
 	## 直接构造开旋钮的行文对比不可行（sections 内建 tune），改为验默认关。见上一条。

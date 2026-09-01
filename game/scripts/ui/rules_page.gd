@@ -92,7 +92,12 @@ static func sections(tune: CWTuning = null) -> Array:
 			"免疫死亡下个 S 阶段在骨髓复活；癌死亡需固化据点才能复活",
 		] },
 		{ "title": "固化癌组织", "lines": [
-			"癌细胞停在癌组织上蹲满 %d 回合 → 固化（复活据点+高供能）" % tune.solidify_threshold,
+			## ⚠ 门槛存的是**十分整数**（30 = 3.0），而这句话说的是「几个回合」——
+			## 一回合停留加 `SOLIDIFY_STEP`（10），所以要除一下。
+			## 直接打门槛会变成「蹲满 30 回合」，而玩家正是照这一页学规则的
+			## （2026-09-01 连同格子详情那处一起发现）
+			"癌细胞停在癌组织上蹲满 %d 回合 → 固化（复活据点+高供能）" \
+				% (tune.solidify_threshold / CWData.SOLIDIFY_STEP),
 			"固化格不可净化，免疫要先用 T 细胞【裂解】破除",
 		] },
 		{ "title": "卡牌", "lines": [

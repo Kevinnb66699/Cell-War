@@ -80,7 +80,12 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 		rows.append({ "text": "%s耗能 %s" % [verb, CWData.fmt(move_cost)],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
 	if tissue == CWData.Tissue.CANCER and t["solid"] > 0:
-		rows.append({ "text": "固化 %d / %d" % [t["solid"], game.tune.solidify_threshold],
+		## ⚠ 固化计数存的是**十分整数**（`SOLIDIFY_THRESHOLD = 30` 即 3.0）——
+		## PRD 里它不是整数：衰减 -0.5、【骨样硬化】+1.5、【基质硬化】+1/+1.5/+2。
+		## 这里必须走 `CWData.fmt()`，用 %d 直接打会显示成「固化 15 / 30」
+		## （2026-09-01 队友截图报的）
+		rows.append({ "text": "固化 %s / %s" % [CWData.fmt(t["solid"]),
+			CWData.fmt(game.tune.solidify_threshold)],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.TEXT })
 	match t["special"]:
 		CWData.Special.CORE:
