@@ -4689,13 +4689,13 @@ func t_hand_play() -> void:
 		{ "label": "", "data": { "act": "discard", "card": "永久样例" } },
 		{ "label": "", "data": { "act": "end" } }] }
 
-	# ① 点卡 → 高亮目标细胞所在格 → 点格 → 还原为对应选项下标
+	# ① 双击卡 → 高亮目标细胞所在格 → 点格 → 还原为对应选项下标
 	var r1 := [-99]
 	var run1 := func() -> void: r1[0] = await b.ask(areq)
 	run1.call()
-	hand.card_clicked.emit("交叉呈递")
+	hand.play_requested.emit("交叉呈递")
 	await process_frame
-	check(b.marks.size() == 1 and b.marks.has(tpos), "点卡后高亮目标细胞所在格")
+	check(b.marks.size() == 1 and b.marks.has(tpos), "双击卡后高亮目标细胞所在格")
 	check(hand._selected == 0, "被点的卡进入选中态（半抬）")
 	var pad: Control = bar._row.get_child(0)
 	check(not (pad is PanelContainer) and pad.custom_minimum_size.x == CWHand.LEFT + CWHand.SPAN,
@@ -4707,51 +4707,45 @@ func t_hand_play() -> void:
 	check(r1[0] == 1, "点目标格 → 还原成那张卡对那个目标的选项下标")
 	check(hand._selected == -1, "答完选中态清除")
 
-	# ② 目标态中途改点另一张卡 → 换卡；无目标卡走「确认打出」一拍（定案③）
+	# ② 目标态中途改双击另一张卡 → 换卡；无目标卡直接打出（2026-09-01 起没有确认拍了）
 	var r2 := [-99]
 	var run2 := func() -> void: r2[0] = await b.ask(areq)
 	run2.call()
-	hand.card_clicked.emit("交叉呈递")
+	hand.play_requested.emit("交叉呈递")
 	await process_frame
-	hand.card_clicked.emit("溶酶体强化")
+	check(b.marks.has(tpos), "先双击有目标卡：进选目标态")
+	hand.play_requested.emit("溶酶体强化")
 	await process_frame
 	check(b.marks.is_empty(), "换到无目标卡：不再高亮格子")
-	bar.chosen.emit(0)                        ## 「确认打出」
-	await process_frame
-	check(r2[0] == 2, "确认打出 → 无目标卡的选项下标")
+	check(r2[0] == 2, "无目标卡直接打出，不再补「确认打出」一拍")
 
-	# ③ 右键 → 弃置确认（定案②）
+	# ③ 右键双击 → 直接弃，不再走确认条（团队 2026-09-01）
 	var r3 := [-99]
 	var run3 := func() -> void: r3[0] = await b.ask(areq)
 	run3.call()
-	hand.card_right_clicked.emit("乳酸酸化")
+	hand.discard_requested.emit("乳酸酸化")
 	await process_frame
-	bar.chosen.emit(0)                        ## 「确认弃置」
-	await process_frame
-	check(r3[0] == 4, "确认弃置 → 那张卡的弃置选项下标")
+	check(r3[0] == 4, "右键双击 → 直接还原成那张卡的弃置选项下标")
 
 	# ④ 打不出的卡：给解释，可就地弃置
 	var r4 := [-99]
 	var run4 := func() -> void: r4[0] = await b.ask(areq)
 	run4.call()
-	hand.card_clicked.emit("永久样例")
+	hand.play_requested.emit("永久样例")
 	await process_frame
 	await process_frame
 	var last: Control = bar._row.get_child(bar._row.get_child_count() - 1)
 	check(last.position.x + last.size.x <= 674.0,
 		"让位形态下按钮不越过底条右缘（不会藏进右侧竖条底下）")
-	bar.chosen.emit(0)                        ## 「弃置它」→ 先进弃置确认（试玩第四轮）
+	bar.chosen.emit(0)                        ## 「弃置它」→ 和右键弃置同一条路 = 直接弃
 	await process_frame
-	check(r4[0] == -99, "「弃置它」不直接弃：先进确认条")
-	bar.chosen.emit(0)                        ## 「确认弃置」
-	await process_frame
-	check(r4[0] == 5, "确认后才真的弃置")
+	check(r4[0] == 5, "「弃置它」直接弃（那条路 2026-09-01 起没有确认拍）")
 
 	# ⑤ 取消回按钮栏，这一问还没答；手牌手势只在行动询问期间生效
 	var r5 := [-99]
 	var run5 := func() -> void: r5[0] = await b.ask(areq)
 	run5.call()
-	hand.card_clicked.emit("交叉呈递")
+	hand.play_requested.emit("交叉呈递")
 	await process_frame
 	bar.chosen.emit(0)                        ## 「取消」
 	await process_frame
@@ -4764,55 +4758,54 @@ func t_hand_play() -> void:
 	var r5b := [-99]
 	var run5b := func() -> void: r5b[0] = await b.ask(areq)
 	run5b.call()
-	hand.card_clicked.emit("交叉呈递")
+	hand.play_requested.emit("交叉呈递")
 	await process_frame
-	hand.card_right_clicked.emit("乳酸酸化")
+	hand.discard_requested.emit("乳酸酸化")
 	await process_frame
-	check(r5b[0] == -99 and b.marks.is_empty(), "目标态里右键点卡 = 取消，回到按钮栏")
+	check(r5b[0] == -99 and b.marks.is_empty(), "目标态里右键双击卡 = 取消，不是弃那张")
 	bar.chosen.emit(_buttons(bar) - 1)
 	await process_frame
 	check(r5b[0] == 6, "取消后仍能正常结束回合")
 
-	# ⑦ 双击无目标卡 → 免确认直接打出（2026-08-30 对局内试玩追加）
-	var r7 := [-99]
-	var run7 := func() -> void: r7[0] = await b.ask(areq)
-	run7.call()
-	hand.card_double_clicked.emit("溶酶体强化")
-	await process_frame
-	check(r7[0] == 2, "双击无目标卡：跳过「确认打出」直接打")
+	## 原⑦⑧（双击打出 / 双击有目标卡）已被①②覆盖：双击成了唯一的打出手势之后，
+	## 它们和①②是同一条路的同一组断言，留着只是把绿灯数灌水。2026-09-01 删。
 
-	# ⑧ 双击有目标的卡：目标没法替玩家选，照旧进选目标态
-	var r8 := [-99]
-	var run8 := func() -> void: r8[0] = await b.ask(areq)
-	run8.call()
-	hand.card_double_clicked.emit("交叉呈递")
-	await process_frame
-	check(r8[0] == -99 and b.marks.has(tpos), "双击有目标卡：仍要在棋盘上选")
-	board.tile_clicked.emit(tpos)
-	await process_frame
-	check(r8[0] == 1, "选完目标正常还原下标")
-
-	# ⑥ 卡控件的鼠标事件真的接到了信号上（左键/右键/双击各一发）
+	# ⑥ 卡控件的鼠标事件映射：**单击一律不发信号**，只有双击才发（团队 2026-09-01）
 	var seen: Array = []
-	hand.card_clicked.connect(func(n: String) -> void: seen.append(["L", n]))
-	hand.card_right_clicked.connect(func(n: String) -> void: seen.append(["R", n]))
-	hand.card_double_clicked.connect(func(n: String) -> void: seen.append(["D", n]))
-	var ev := InputEventMouseButton.new()
-	ev.pressed = true
-	ev.button_index = MOUSE_BUTTON_LEFT
-	hand._cards[0].gui_input.emit(ev)
-	var ev2 := InputEventMouseButton.new()
-	ev2.pressed = true
-	ev2.button_index = MOUSE_BUTTON_RIGHT
-	hand._cards[1].gui_input.emit(ev2)
-	## 双击的第二下：double_click=true，只发双击信号、不再发一次单击
-	var ev3 := InputEventMouseButton.new()
-	ev3.pressed = true
-	ev3.button_index = MOUSE_BUTTON_LEFT
-	ev3.double_click = true
-	hand._cards[0].gui_input.emit(ev3)
-	check(seen == [["L", "交叉呈递"], ["R", "乳酸酸化"], ["D", "交叉呈递"]],
-		"卡上的左右键与双击事件映射到手势信号")
+	hand.play_requested.connect(func(n: String) -> void: seen.append(["打出", n]))
+	hand.discard_requested.connect(func(n: String) -> void: seen.append(["弃置", n]))
+	var single_l := InputEventMouseButton.new()
+	single_l.pressed = true
+	single_l.button_index = MOUSE_BUTTON_LEFT
+	hand._cards[0].gui_input.emit(single_l)
+	var single_r := InputEventMouseButton.new()
+	single_r.pressed = true
+	single_r.button_index = MOUSE_BUTTON_RIGHT
+	hand._cards[1].gui_input.emit(single_r)
+	## 这一条是本次改动的**核心断言**：单击必须是彻底的哑火。
+	## 如果哪天有人「顺手」把单击接回去，误触就会带着不可逆的弃牌一起回来
+	check(seen.is_empty(), "左键单击、右键单击都不发任何手势信号")
+	var double_l := InputEventMouseButton.new()
+	double_l.pressed = true
+	double_l.button_index = MOUSE_BUTTON_LEFT
+	double_l.double_click = true
+	hand._cards[0].gui_input.emit(double_l)
+	var double_r := InputEventMouseButton.new()
+	double_r.pressed = true
+	double_r.button_index = MOUSE_BUTTON_RIGHT
+	double_r.double_click = true
+	hand._cards[1].gui_input.emit(double_r)
+	check(seen == [["打出", "交叉呈递"], ["弃置", "乳酸酸化"]],
+		"左键双击=打出、右键双击=弃置")
+
+	# ⑨ 卡底那两行提示放得进 72px 的卡（2026-08-29 试玩报过「右键弃置」被裁掉）
+	var note_w := 0.0
+	for n in hand._cards[0].get_children():
+		if n is Label and (n as Label).text.contains("双击"):
+			note_w = maxf(note_w, CWHand.NAME_PAD + CWStyle.FONT.get_string_size(
+				(n as Label).text, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x)
+	check(note_w > 0.0 and note_w <= CWHand.CARD.x,
+		"操作提示不超出卡宽 72（实测 %.0f）" % note_w)
 
 	g.dispose()
 	hand.free()

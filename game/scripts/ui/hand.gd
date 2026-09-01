@@ -9,7 +9,14 @@
 ##
 ## 卡名与类型是真的（卡池 2026-08-28 落地）；抬起后底部是**操作提示**——
 ## 方案甲（团队 2026-08-29 定）：左键点卡=打出、右键=弃置，手势信号发给询问桥。
-## 完整卡面排版（效果文等）另议，先不做。
+##
+## **2026-09-01 团队改成全双击**：左键双击=打出、右键双击=弃置，**单击一律不做事**。
+## 为什么单击留空：打出和弃置都不可逆，而卡只有 72px 宽、还互相压叠 26~52px，
+## 单击误触的代价太高。留空之后「点一下没反应」变成正常现象，靠卡底提示说清楚。
+## 同一次改动里弃置也不再走确认条了——双击已是强意图，再确认一拍是重复收费。
+##
+## 完整卡面排版（效果文等）另议，先不做：**效果文本引擎里根本不存在**，
+## `cw_card_data.gd` 只有卡名/类别/权重。团队要的「悬停查看详情」卡在这一步上。
 ##
 ## **卡面方案乙**（团队 2026-08-28 定）：静止时每张只露出顶上 26px，
 ## 名字就写在那 26px 里，10px 点阵字，**写全名、不加省略号** ——
@@ -30,12 +37,13 @@
 class_name CWHand
 extends Control
 
-## 方案甲的手势（由询问桥消费；没在等询问时点了也只是空响，无副作用）
-signal card_clicked(card_name: String)         ## 左键：打出
-signal card_right_clicked(card_name: String)   ## 右键：弃置
-## 双击：免确认直接打出（2026-08-30 对局内试玩追加）。双击本身已是明确意图，
-## 无目标卡不再走「确认打出」那一拍；有目标的卡照旧进选格——目标没法替玩家选。
-signal card_double_clicked(card_name: String)
+## 手牌手势（由询问桥消费；没在等询问时点了也只是空响，无副作用）。
+##
+## **按意图命名、不按手势命名**：手势这半年已经改过两轮（单击 → 双击），
+## 而「玩家想打这张 / 想弃这张」没变。旧名字 `card_double_clicked` 与
+## `card_right_clicked` 并排放着还会骗人——现在两个都是双击。
+signal play_requested(card_name: String)       ## 左键双击
+signal discard_requested(card_name: String)    ## 右键双击
 
 const CARD := Vector2(72, 112)
 const LEFT := 12.0
@@ -198,10 +206,13 @@ func _make_card(index: int) -> Control:
 	card.add_child(kind)
 	## 操作提示拆两行：卡只有 72px 宽，写一行会被 clip_contents 裁掉后半句
 	## （2026-08-29 试玩第一轮报的：「右键弃置」看不见）
-	var note := CWStyle.label("左键打出", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	## 改成双击后这两行更满了：10px 点阵字 × 6 字 = 60px，加左边距 6 = 66，卡宽 72。
+	## **单击不做事，所以这两行必须写清是「双击」**——否则玩家只会得到一次沉默。
+	## `t_hand_note_fits` 盯着别再加字。
+	var note := CWStyle.label("双击打出", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	note.position = Vector2(NAME_PAD, CARD.y - 34)
 	card.add_child(note)
-	var note2 := CWStyle.label("右键弃置", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	var note2 := CWStyle.label("右键双击弃置", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	note2.position = Vector2(NAME_PAD, CARD.y - 18)
 	card.add_child(note2)
 	
@@ -209,15 +220,15 @@ func _make_card(index: int) -> Control:
 		var mb := ev as InputEventMouseButton
 		if mb == null or not mb.pressed:
 			return
+		## 只认双击（团队 2026-09-01）。单击**故意什么都不发**——
+		## 以前左键单击就打出，双击的第二下要特判「别再发一次单击」；
+		## 现在两条路都只在 double_click 上开口，那个特判自然没了。
+		if not mb.double_click:
+			return
 		if mb.button_index == MOUSE_BUTTON_LEFT:
-			## 双击的第二下只发双击信号：第一下已经发过 card_clicked、
-			## 把流程推进到确认/选目标了，这里再发一次单击等于原地重进一遍
-			if mb.double_click:
-				card_double_clicked.emit(_name_at(index))
-			else:
-				card_clicked.emit(_name_at(index))
+			play_requested.emit(_name_at(index))
 		elif mb.button_index == MOUSE_BUTTON_RIGHT:
-			card_right_clicked.emit(_name_at(index)))
+			discard_requested.emit(_name_at(index)))
 	card.mouse_entered.connect(func() -> void: _hover(index))
 	card.mouse_exited.connect(func() -> void: _hover(-1 if _hovered == index else _hovered))
 	_paint(card, false)

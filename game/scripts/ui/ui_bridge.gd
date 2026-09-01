@@ -204,17 +204,17 @@ func _ask_action(req: Dictionary) -> int:
 	return 0                        ## 放弃这一局时从 while 条件退出来
 
 
-## 手牌手势（方案甲，团队 2026-08-29 定）。gesture = ["play" 或 "discard", 卡名]；
-## 第三个元素为 true = 双击来的「免确认」旗（2026-08-30 追加）。
+## 手牌手势（方案甲，团队 2026-08-29 定；2026-09-01 改成全双击）。
+## gesture = ["play" 或 "discard", 卡名]。
 ## 打出：有目标 → 棋盘点选（cid 目标高亮其所在格，敌橙友青沿用现有标记色）；
-##       无目标 → 补一拍「确认打出」（定案③：统一节奏 + 防误触）。
-## 弃置：右键进确认条（定案②：低频动作不占常驻按钮位）。
+##       无目标 → 直接打出。
+## 弃置：直接弃。
+## **两条路都不再有确认条**：防误触已经由「必须双击」承担，
+## 原先的确认拍（定案③打出 / 定案②弃置）是给单击配的，随单击一起去掉。
 ## 打不出的卡（效果未实现 / 此刻不可用）给出解释，并允许就地弃置腾位。
 ## 返回：选项下标；"cancel" 回按钮栏；Array = 中途改点了另一张卡；null = 放弃对局。
 func _pick_hand(options: Array, gesture: Array) -> Variant:
 	var card: String = gesture[1]
-	## 「确认打出」那一拍本是防误触（定案③）；双击本身已是明确意图，再确认反而拖节奏
-	var direct: bool = gesture.size() > 2
 	var discard_i := -1
 	var plays: Array = []
 	for i in options.size():
@@ -231,19 +231,17 @@ func _pick_hand(options: Array, gesture: Array) -> Variant:
 	## 剩下的宽度装不下「选择【九字卡名】的目标」这种长标题（试玩第一轮的重叠教训）
 	var got: Variant
 	if gesture[0] == "discard":
-		if discard_i < 0:
-			got = "cancel"     ## 这张卡此刻没有弃置选项（正常流程到不了这里）
-		else:
-			got = await _prompt("弃置这张？", "【%s】弃掉不会回来" % card,
-				[{ "title": "确认弃置", "cost": "" }, { "title": "取消", "cost": "右键 / Esc" }],
-				[discard_i, "cancel"], {}, null, 1, true, HAND_INSET)
+		## 直接弃，不再补确认条（团队 2026-09-01）：右键双击已经是强意图。
+		## 误触的口子被两道东西堵着——要双击，而且只在主按钮栏那一问才算弃置。
+		got = "cancel" if discard_i < 0 else discard_i   ## <0：这张此刻不能弃（正常流程到不了）
 	elif plays.is_empty():
 		var buttons: Array = []
 		var values: Array = []
 		if discard_i >= 0:
 			buttons.append({ "title": "弃置它", "cost": "" })
-			## 不直接弃：转进弃置确认那一问（和右键弃置同一条路，试玩第四轮要求）。
-			## 值是一个手势 Array——外层循环会把它当「又点了一次手牌」重新分派
+			## 走和右键弃置**同一条路**（试玩第四轮要求）——那条路 2026-09-01 起是直接弃，
+			## 所以这里也变成直接弃了。值是一个手势 Array，外层循环会把它当
+			## 「又点了一次手牌」重新分派；这里已经是玩家的第二次确认，不欠一拍。
 			values.append(["discard", card])
 		buttons.append({ "title": "返回", "cost": "右键 / Esc" })
 		values.append("cancel")
@@ -258,12 +256,9 @@ func _pick_hand(options: Array, gesture: Array) -> Variant:
 			elif d.has("cid"):
 				tiles[game.cells[d["cid"]]["pos"]] = i
 		if tiles.is_empty():
-			if direct:
-				got = plays[0]   ## 双击：跳过确认直接打出
-			else:
-				got = await _prompt("确认打出？", "【%s】不需要选目标" % card,
-					[{ "title": "确认打出", "cost": "" }, { "title": "取消", "cost": "右键 / Esc" }],
-					[plays[0], "cancel"], {}, null, 1, true, HAND_INSET)
+			## 无目标卡直接打出。「确认打出」那一拍（定案③）**随单击一起取消了**：
+			## 它防的是单击误触，而现在单击根本不发信号，留着就成了双重收费。
+			got = plays[0]
 		else:
 			got = await _prompt("选择目标", "打出【%s】· 高亮 %d 格可选 · 右键或 Esc 退出" % [card, tiles.size()],
 				[{ "title": "取消", "cost": "右键 / Esc" }], ["cancel"], tiles, null, 0, true, HAND_INSET)
@@ -374,21 +369,18 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	var on_button := func(i: int) -> void: ans.fire(values[i])
 	var on_end := func() -> void: ans.fire(end_value)
 	## 行动询问期间手牌可点（方案甲）；其余询问（落子/复活等）不收手牌手势
-	var on_card := func(n: String) -> void: ans.fire(["play", n])
-	## 双击带「免确认」旗，分派逻辑见 _pick_hand 的 direct
-	var on_card2 := func(n: String) -> void: ans.fire(["play", n, true])
+	var on_play := func(n: String) -> void: ans.fire(["play", n])
 	## 右键的归属只看这一问有没有「取消」：有（目标态/各确认条）→ 右键一律=取消，
-	## 哪怕点在卡上——按钮上就标着「右键 / Esc」，卡不该抢走它（试玩第三轮报的）；
-	## 没有（主按钮栏）→ 卡上右键才是弃置入口
-	var on_dcard := func(n: String) -> void:
+	## 哪怕点在卡上——按钮上就标着「右键 / Esc」，卡不该抢走它（试玩第三轮报的）。
+	## 团队 2026-09-01 复核过这条并保留：弃置只在**主按钮栏**（没有取消的那一问）生效。
+	var on_discard := func(n: String) -> void:
 		if cancel >= 0:
 			ans.fire(values[cancel])
 		else:
 			ans.fire(["discard", n])
 	if hand_play and hand != null:
-		hand.card_clicked.connect(on_card)
-		hand.card_double_clicked.connect(on_card2)
-		hand.card_right_clicked.connect(on_dcard)
+		hand.play_requested.connect(on_play)
+		hand.discard_requested.connect(on_discard)
 	if panel != null:
 		panel.show_end_turn(end_value != null)
 		if end_value != null:
@@ -410,9 +402,8 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	var got: Variant = await ans.done
 	_pending = null
 	if hand_play and hand != null:
-		hand.card_clicked.disconnect(on_card)
-		hand.card_double_clicked.disconnect(on_card2)
-		hand.card_right_clicked.disconnect(on_dcard)
+		hand.play_requested.disconnect(on_play)
+		hand.discard_requested.disconnect(on_discard)
 	if panel != null and end_value != null:
 		panel.end_turn_pressed.disconnect(on_end)
 	bar.chosen.disconnect(on_button)
