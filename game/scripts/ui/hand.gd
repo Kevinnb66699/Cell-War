@@ -69,6 +69,8 @@ var _dealing := {}     ## 卡 -> true，正在飞进来（走长补间、还要�
 ## 卡系统落地后由 CWMatch 把真名传进来，这里就是现成的。
 var _names: PackedStringArray = PackedStringArray()
 var _selected := -1    ## 目标选择态里正在打的那张（下标；-1 = 无）
+var _drag := -1        ## 正被拖着的那张（下标；-1 = 没在拖）
+var _grab := Vector2.ZERO   ## 按下时光标相对卡左上角的偏移，拖动时保持不变（卡才不会跳）
 
 
 func _ready() -> void:
@@ -82,6 +84,7 @@ func sync(count: int, from: Vector2 = Vector2.INF,
 		names: PackedStringArray = PackedStringArray()) -> void:
 	_names = names
 	_selected = -1     ## 手牌一变（打出/弃置/抽取）选中态就过时了，由桥重设
+	_drag = -1         ## 同理：张数一变下标就不作数了，正在拖的那张可能已经被 free 掉
 	while _cards.size() > count:
 		var gone: Control = _cards.pop_back()
 		_dealing.erase(gone)
@@ -122,6 +125,7 @@ func clear() -> void:
 	_dealing.clear()
 	_hovered = -1
 	_selected = -1
+	_drag = -1
 
 
 # ============ 排布 ============
@@ -141,6 +145,11 @@ func _stagger() -> float:
 func _layout() -> void:
 	for i in _cards.size():
 		var card: Control = _cards[i]
+		## 拖动中的那张由 _input 直接摆位。这里连碰都不能碰 ——
+		## 本文件的铁律是「一张卡同时只能有一条补间」，给它起补间会和拖动打架：
+		## 补间每帧把 position 拉向槽位，拖动每帧拉向光标，表现是卡黏在半路抖
+		if i == _drag:
+			continue
 		var to := _slot(i)
 		if _hovered >= 0:
 			if i == _hovered:
@@ -227,6 +236,10 @@ func _make_card(index: int) -> Control:
 		## 以前左键单击就打出，双击的第二下要特判「别再发一次单击」；
 		## 现在两条路都只在 double_click 上开口，那个特判自然没了。
 		if not mb.double_click:
+			## 左键按住 = 开始拖。**双击的那一下不开拖**：双击序列是
+			## 按-放-按(dc)-放，第一下已经开过一次拖，第二下再开只会在原地抖一下
+			if mb.button_index == MOUSE_BUTTON_LEFT:
+				_begin_drag(index, (make_input_local(mb) as InputEventMouse).position)
 			return
 		if mb.button_index == MOUSE_BUTTON_LEFT:
 			play_requested.emit(_name_at(index))
@@ -254,6 +267,59 @@ func set_selected(card_name: String) -> void:
 		return
 	_selected = idx
 	_layout()
+
+
+# ============ 拖出打出（团队 2026-09-01）============
+#
+# **拖出 = 双击**，就这一句。松手点在抽屉外面就发 `play_requested`，
+# 之后照常进选目标态——**落点那一格不算选中的目标**（团队定的，别自作主张接上）。
+#
+# 为什么判定放在「松手」而不是「越过边界那一刻」：松手才是玩家表达完意图的时刻，
+# 而且这样天然就有「拖出去又拖回来 = 反悔」，不用另写取消。
+
+
+## 抽屉自己占的那块矩形。松手点落在**外面**才算拖出。
+## 左边到 0 而不是到 LEFT：往左拖出画布不该算打出，那多半是手滑。
+## 纯函数，测试直接核对边界。
+static func drawer_rect(screen: Vector2) -> Rect2:
+	var top := REST_TOP - LIFT          ## 428：卡抬起后的顶边，抽屉的实际上沿
+	return Rect2(0.0, top, LEFT + SPAN, screen.y - top)
+
+
+func _begin_drag(index: int, at: Vector2) -> void:
+	if index < 0 or index >= _cards.size():
+		return
+	_drag = index
+	_grab = at - _cards[index].position    ## 记住抓的是卡上哪一点，拖起来才不会跳
+	_cards[index].z_index = 200            ## 压过所有卡（_layout 给的最高是悬停的 100）
+
+
+## 拖动中的卡不归 _layout() 管，所以事件得在这一层收：光标离开卡面之后，
+## 卡自己的 gui_input 就再也收不到了（Control 只在指针压在自己身上时才有 gui_input）。
+func _input(event: InputEvent) -> void:
+	if _drag < 0:
+		return
+	var me := event as InputEventMouse
+	if me == null:
+		return
+	var at: Vector2 = (make_input_local(me) as InputEventMouse).position
+	if event is InputEventMouseMotion:
+		_cards[_drag].position = at - _grab
+		return
+	var mb := event as InputEventMouseButton
+	if mb == null or mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
+		return
+	var i := _drag
+	_drag = -1
+	_layout()                              ## 松手先让卡飞回抽屉，无论打不打得出去
+	if not drawer_rect(_screen()).has_point(at):
+		play_requested.emit(_name_at(i))
+
+
+## 画布尺寸。**不用 get_viewport_rect()**：无头测试里没有真视口，
+## 而 CWView 那份是工程设置里的设计分辨率，两边都拿得到。
+func _screen() -> Vector2:
+	return CWView.screen_size()
 
 
 func _hover(i: int) -> void:

@@ -4725,6 +4725,25 @@ func t_card_info() -> void:
 	check(hi.y >= 8.0, "正文特别长时顶到画布上沿也不跑出去（y=%.0f）" % hi.y)
 
 
+## 模拟一次拖拽：在卡上按下 → 移动 → 在 to 处松手。
+## 按下要走卡自己的 gui_input（拖是从那儿起的），移动和松手走 hand._input ——
+## 光标一离开卡面，Control 就收不到 gui_input 了，这正是拖拽要在 hand 层收事件的原因。
+func _drag_card(hand: CWHand, index: int, from: Vector2, to: Vector2) -> void:
+	var down := InputEventMouseButton.new()
+	down.pressed = true
+	down.button_index = MOUSE_BUTTON_LEFT
+	down.position = from
+	hand._cards[index].gui_input.emit(down)
+	var move := InputEventMouseMotion.new()
+	move.position = to
+	hand._input(move)
+	var up := InputEventMouseButton.new()
+	up.pressed = false
+	up.button_index = MOUSE_BUTTON_LEFT
+	up.position = to
+	hand._input(up)
+
+
 func t_hand_play() -> void:
 	print("[打牌交互·方案甲]")
 	var board := make_board()
@@ -4879,6 +4898,37 @@ func t_hand_play() -> void:
 				(n as Label).text, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x)
 	check(note_w > 0.0 and note_w <= CWHand.CARD.x,
 		"操作提示不超出卡宽 72（实测 %.0f）" % note_w)
+
+	# ⑩ 抽屉矩形：卡抬起后的顶边 428 就是上沿；左边到 0，往左拖出画布不算打出
+	var dr := CWHand.drawer_rect(Vector2(960, 540))
+	check(dr.position == Vector2(0, CWHand.REST_TOP - CWHand.LIFT) \
+		and dr.end == Vector2(CWHand.LEFT + CWHand.SPAN, 540),
+		"抽屉矩形 = %s" % str(dr))
+	check(dr.has_point(Vector2(100, 500)) and not dr.has_point(Vector2(400, 200)) \
+		and not dr.has_point(Vector2(500, 500)),
+		"抽屉内外判定：手牌区内算内，棋盘上与行动栏都算外")
+
+	# ⑪ 拖出抽屉松手 = 打出（团队 2026-09-01）。落点那格**不算**选中的目标，
+	#    所以有目标的卡照旧要进选目标态、在棋盘上再点一次
+	var r10 := [-99]
+	var run10 := func() -> void: r10[0] = await b.ask(areq)
+	run10.call()
+	_drag_card(hand, 0, Vector2(40, 520), Vector2(400, 200))
+	await process_frame
+	check(b.marks.has(tpos), "拖出抽屉 = 打出（有目标卡进选目标态，落点不算目标）")
+	board.tile_clicked.emit(tpos)
+	await process_frame
+	check(r10[0] == 1, "再点目标格才结算")
+
+	# ⑫ 拖出去又拖回来 = 反悔。判定在松手那一刻，所以这是白送的
+	var r11 := [-99]
+	var run11 := func() -> void: r11[0] = await b.ask(areq)
+	run11.call()
+	_drag_card(hand, 0, Vector2(40, 520), Vector2(90, 500))
+	await process_frame
+	check(r11[0] == -99 and b.marks.is_empty(), "拖回抽屉内松手：什么都没发生")
+	bar.chosen.emit(_buttons(bar) - 1)        ## 结束回合，把这一问收掉
+	await process_frame
 
 	g.dispose()
 	hand.free()
