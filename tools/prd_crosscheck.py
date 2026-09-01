@@ -61,6 +61,7 @@ MAP = {
     "COUNTER_DMG_ON_FAIL":    "1/3概率失败，不造成伤害，自身-0.5能量",
     "IMMUNE_RESPAWN_ENERGY":  "复活**，**初始1能量",
     "MACRO_HEAL_PURIFY":      "巨噬细胞每触发一次【净化】，恢复0.3能量",
+    "MACRO_MOVE_NET_MIN":     "即一次【迁移】的净支出不低于0.1",
     "ANTIBODY_COST":          "【抗体】：消耗1点能量",
     "ANTIBODY_DAMAGE":        "使所有与**健康组织**邻接的癌细胞**能量**-1",
     "ANTIBODY_MAX_PER_ROUND": "B细胞每**世界回合**最多发动2次【抗体】",

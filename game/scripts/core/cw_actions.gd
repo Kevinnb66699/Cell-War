@@ -576,11 +576,12 @@ func enter_tile(cell: Dictionary, dest: Vector2i, paid: int = -1) -> void:
 			## 治的是「靠移动赚钱」这个结构问题，而不是把某张减价卡调残。
 			var heal: int = CWData.MACRO_HEAL_PURIFY
 			if paid >= 0:
-				heal = mini(heal, paid)
+				heal = mini(heal, maxi(paid - CWData.MACRO_MOVE_NET_MIN, 0))
 			if heal > 0:
 				cell["energy"] += heal
 				game.log_msg("　巨噬【吞噬】恢复 %s 能量%s" % [CWData.fmt(heal),
-					"（以本次迁移支付的 %s 为限）" % CWData.fmt(paid)
+					"（本次迁移实付 %s，净支出至少 %s）" % [
+						CWData.fmt(paid), CWData.fmt(CWData.MACRO_MOVE_NET_MIN)]
 						if heal < CWData.MACRO_HEAL_PURIFY else ""])
 		await _on_purify(cell)
 	# 「粘液」无法被技能清除，但被免疫细胞接触后立即消失（PRD 印戒细胞癌）

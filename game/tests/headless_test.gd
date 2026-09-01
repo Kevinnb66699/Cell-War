@@ -48,6 +48,7 @@ func _run_all() -> void:
 	t_breath_sheets()
 	t_solidify_and_decay()
 	t_erosion()
+	t_macro_purify_heal()
 	t_immune_win()
 	t_cancer_revive_blocked()
 	t_cancer_s_win()
@@ -586,6 +587,42 @@ func t_necrosis() -> void:
 	g.world._aerobic()
 	check(cell["energy"] == 30, "坏死到期后重新供能")
 	g.dispose()
+
+
+# ---- 巨噬【I-吞噬】：由【迁移】触发的净化，回能不能把这一步走成免费 ----
+##
+## 队友 2026-09-01 报「巨噬细胞可以无穷动」。根因是两条各自都合 PRD 的规则撞在一起：
+## 迁移减免的共同地板是 0.2（各卡面都写「最低 0.2」），而【I-吞噬】每次净化回 0.3。
+## 回的比付的多 → 走一格净赚 0.1，巨噬能在癌组织上无限走并顺手净化。
+## 现在回能封到「实付 − 0.1」，**一次迁移的净支出至少 0.1**。
+func t_macro_purify_heal() -> void:
+	print("[巨噬吞噬回能封顶]")
+	check(CWData.MACRO_MOVE_NET_MIN == 1, "净支出下限 0.1")
+	## 走一格癌组织，返回「这一步净花了多少」
+	var net := func(paid: int, skills: Array) -> int:
+		var g := bare_game()
+		var to := Vector2i(1, 0)
+		g.tiles[to]["tissue"] = CWData.Tissue.CANCER
+		var m := put_immune(g, Vector2i.ZERO)
+		m["itype"] = CWData.ImmuneType.MACRO
+		m["equipped"] = skills.duplicate()
+		m["energy"] = 200
+		var before: int = m["energy"]
+		await g.actions.enter_tile(m, to, paid)
+		if paid > 0:
+			m["energy"] -= paid                   ## enter_tile 不扣费，费在 commit 里扣
+		var out: int = before - m["energy"]
+		g.dispose()
+		return out
+	check(await net.call(7, []) == 4, "实付 0.7：回满 0.3，净花 0.4")
+	check(await net.call(5, []) == 2, "实付 0.5：回满 0.3，净花 0.2")
+	check(await net.call(4, []) == 1, "实付 0.4：回满 0.3，净花 0.1（正好卡在下限）")
+	check(await net.call(3, []) == 1, "实付 0.3：回能压到 0.2，净花 0.1")
+	check(await net.call(2, []) == 1, "实付 0.2（减免地板）：回能压到 0.1，净花 0.1 —— 不再是 0")
+	check(await net.call(1, []) == 1, "实付 0.1：一点都不回，净花 0.1")
+	check(await net.call(0, []) == 0, "免费迁移：不回能，也谈不上净花")
+	## 不是花钱走进来的（传送 / 复活 / 血管）不设这道上限
+	check(await net.call(-1, []) == -3, "paid=-1（传送等）：照回 0.3，净赚")
 
 
 # ---- 一格一细胞 + 骨肉瘤【刚性屏障】 ----
