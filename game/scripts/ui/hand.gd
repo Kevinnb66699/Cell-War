@@ -238,8 +238,13 @@ func _make_card(index: int) -> Control:
 		if not mb.double_click:
 			## 左键按住 = 开始拖。**双击的那一下不开拖**：双击序列是
 			## 按-放-按(dc)-放，第一下已经开过一次拖，第二下再开只会在原地抖一下
+			## ⚠ 这里给的 `mb.position` 是**卡自己的局部坐标**（0..72, 0..112）——
+			## `gui_input` 送来的事件 Godot 已经换算到该控件的局部空间了。
+			## 而抓取偏移要的正是「按在卡上的哪一点」，所以直接用，**不要再套
+			## make_input_local**（那是按手牌层换算的，套了会得到一个荒唐的偏移，
+			## 拖起来卡直接飞到画布外面 —— 2026-09-01 队友报的「拖动中卡牌消失」就是它）
 			if mb.button_index == MOUSE_BUTTON_LEFT:
-				_begin_drag(index, (make_input_local(mb) as InputEventMouse).position)
+				_begin_drag(index, mb.position)
 			return
 		if mb.button_index == MOUSE_BUTTON_LEFT:
 			play_requested.emit(_name_at(index))
@@ -286,12 +291,21 @@ static func drawer_rect(screen: Vector2) -> Rect2:
 	return Rect2(0.0, top, LEFT + SPAN, screen.y - top)
 
 
-func _begin_drag(index: int, at: Vector2) -> void:
+## `grab_local` = 按下点在**卡自己的局部坐标**里的位置，也就是「抓的是卡上哪一点」。
+## 拖动时 `position = 光标 - grab_local`，卡就不会跳到光标底下去。
+func _begin_drag(index: int, grab_local: Vector2) -> void:
 	if index < 0 or index >= _cards.size():
 		return
 	_drag = index
-	_grab = at - _cards[index].position    ## 记住抓的是卡上哪一点，拖起来才不会跳
-	_cards[index].z_index = 200            ## 压过所有卡（_layout 给的最高是悬停的 100）
+	_grab = grab_local
+	var card: Control = _cards[index]
+	card.z_index = 200                     ## 压过所有卡（_layout 给的最高是悬停的 100）
+	## 悬停抬起那条补间可能还在跑。不杀掉的话它会和拖动抢 position ——
+	## 补间拉向槽位、拖动拉向光标，前 0.12 秒卡会黏在半路抖（本文件铁律：一张卡一条补间）
+	var running: Tween = _tweens.get(card)
+	if running != null and running.is_valid():
+		running.kill()
+	_tweens.erase(card)
 
 
 ## 拖动中的卡不归 _layout() 管，所以事件得在这一层收：光标离开卡面之后，

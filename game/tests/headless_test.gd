@@ -4728,11 +4728,17 @@ func t_card_info() -> void:
 ## 模拟一次拖拽：在卡上按下 → 移动 → 在 to 处松手。
 ## 按下要走卡自己的 gui_input（拖是从那儿起的），移动和松手走 hand._input ——
 ## 光标一离开卡面，Control 就收不到 gui_input 了，这正是拖拽要在 hand 层收事件的原因。
-func _drag_card(hand: CWHand, index: int, from: Vector2, to: Vector2) -> void:
+##
+## ⚠ **两段事件的坐标空间不一样，这正是 2026-09-01「拖动中卡牌消失」的根因**：
+##   `gui_input` 的 position 是**卡的局部坐标**（0..72, 0..112），Godot 已经换算过；
+##   `_input` 的 position 是**画布坐标**。
+## 头一版这个辅助函数给按下也喂画布坐标，于是测试和实现「一起错」、绿得很稳，
+## 真跑起来卡直接飞出画布。所以 grab_local 必须是卡内的点，别图省事传画布坐标。
+func _drag_card(hand: CWHand, index: int, grab_local: Vector2, to: Vector2) -> void:
 	var down := InputEventMouseButton.new()
 	down.pressed = true
 	down.button_index = MOUSE_BUTTON_LEFT
-	down.position = from
+	down.position = grab_local
 	hand._cards[index].gui_input.emit(down)
 	var move := InputEventMouseMotion.new()
 	move.position = to
@@ -4913,7 +4919,8 @@ func t_hand_play() -> void:
 	var r10 := [-99]
 	var run10 := func() -> void: r10[0] = await b.ask(areq)
 	run10.call()
-	_drag_card(hand, 0, Vector2(40, 520), Vector2(400, 200))
+	## 抓在卡面 (30,20) 处——**卡的局部坐标**，Godot 的 gui_input 就是这么给的
+	_drag_card(hand, 0, Vector2(30, 20), Vector2(400, 200))
 	await process_frame
 	check(b.marks.has(tpos), "拖出抽屉 = 打出（有目标卡进选目标态，落点不算目标）")
 	board.tile_clicked.emit(tpos)
@@ -4924,10 +4931,42 @@ func t_hand_play() -> void:
 	var r11 := [-99]
 	var run11 := func() -> void: r11[0] = await b.ask(areq)
 	run11.call()
-	_drag_card(hand, 0, Vector2(40, 520), Vector2(90, 500))
+	_drag_card(hand, 0, Vector2(30, 20), Vector2(90, 500))
 	await process_frame
 	check(r11[0] == -99 and b.marks.is_empty(), "拖回抽屉内松手：什么都没发生")
 	bar.chosen.emit(_buttons(bar) - 1)        ## 结束回合，把这一问收掉
+	await process_frame
+
+	# ⑬ 拖动中卡要**跟在光标下**，而且不能跑出画布
+	#    （2026-09-01 队友报的「拖动中卡牌消失」：按下走 gui_input 给的是卡局部坐标，
+	#     移动走 _input 给的是画布坐标，头一版把两者当成同一个空间，卡被摆到 y=608）
+	var grab := Vector2(30, 20)
+	var down13 := InputEventMouseButton.new()
+	down13.pressed = true
+	down13.button_index = MOUSE_BUTTON_LEFT
+	down13.position = grab                    ## 卡局部坐标
+	hand._cards[0].gui_input.emit(down13)
+	var seen_pos: Array = []
+	for m in [Vector2(400, 200), Vector2(600, 80), Vector2(60, 500)]:
+		var mv := InputEventMouseMotion.new()
+		mv.position = m                       ## 画布坐标
+		hand._input(mv)
+		seen_pos.append(hand._cards[0].position)
+	var want_pos: Array = [Vector2(370, 180), Vector2(570, 60), Vector2(30, 480)]
+	check(seen_pos == want_pos, "卡精确跟在光标下（抓点保持不变）：%s" % str(seen_pos))
+	var canvas := Rect2(Vector2.ZERO, CWView.screen_size())
+	var outside: Array = []
+	for p in seen_pos:
+		if not canvas.has_point(p):
+			outside.append(p)
+	check(outside.is_empty(), "拖动中卡始终在画布内，不会消失（跑出去的：%s）" % str(outside))
+	var up13 := InputEventMouseButton.new()
+	up13.pressed = false
+	up13.button_index = MOUSE_BUTTON_LEFT
+	up13.position = Vector2(60, 500)          ## 收在抽屉内，别把这一问答掉
+	hand._input(up13)
+	await process_frame
+	bar.chosen.emit(_buttons(bar) - 1)
 	await process_frame
 
 	g.dispose()
