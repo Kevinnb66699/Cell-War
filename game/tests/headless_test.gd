@@ -5448,6 +5448,25 @@ func t_pass_through_ally() -> void:
 	var one: int = g.tune.immune_move_healthy[g.immune_level]
 	check(d[far]["data"]["cost"] == one * 2, "费用 = 两格之和")
 	check(g.actions.pass_through_mid(me, far) == Vector2i(1, 0), "中间格就是友军那格")
+	## 落点是队友**周围一圈**，不限正后方（2026-09-01 Kevin 修订）。
+	## 一个贴身友军实际开放 3 格：另外三格里一格是我自己、两格本来就和我相邻。
+	var ring: Array = CWData.neighbors(Vector2i(1, 0))
+	var opened := 0
+	for c in ring:
+		if c == Vector2i(0, 0):
+			check(not d.has(c) or true, "队友环里有我自己那格")
+			continue
+		if c in CWData.neighbors(Vector2i(0, 0)):
+			## 本来就相邻 → 走普通迁移，**不该**再出一个「穿过」选项（同一落点两个价）
+			check(d.has(c) and not d[c]["label"].begins_with("穿过"),
+				"%s 本来就相邻：仍是普通迁移，不重复出「穿过」" % str(c))
+			continue
+		check(d.has(c) and d[c]["label"].begins_with("穿过"), "%s 可以绕过去" % str(c))
+		opened += 1
+	check(opened == 3, "一个贴身友军开放 3 个新落点")
+	## 绕到侧后方也照两格之和收费
+	var side: Vector2i = Vector2i(2, -1)
+	check(d[side]["data"]["cost"] == one * 2, "绕到侧后方：同样是两格之和")
 	## 点了队友那格没反应时，要告诉玩家「该点它正后方那一格」—— 新规则得教一次
 	var why: String = g.actions.move_block_reason(me, Vector2i(1, 0))
 	check(why.contains("不能停留") and why.contains("穿过"), "点友军格：说清楚不能停但能穿")

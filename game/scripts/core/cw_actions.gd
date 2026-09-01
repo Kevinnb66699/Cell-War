@@ -115,33 +115,56 @@ func move_block_reason(cell: Dictionary, to: Vector2i) -> String:
 
 
 ## 迁移/攻击到相邻格是否合法。不看能量（那是报价的事），只看盘面。
-## 「穿过友军」：`to` 不与自己相邻，而是在**同一方向的第二格**上，中间那格站着
-## **同阵营**的细胞（团队 2026-09-01 定案：「同阵营可以穿过，但是不能停留在这一格」）。
-## 返回中间那格；不是这种走法就返回 `Vector2i.MAX`。
+## 「穿过友军」：`to` 不与自己相邻，但**与某个贴身友军相邻** —— 也就是绕到队友身后那一圈
+## （团队 2026-09-01 定案：「同阵营可以穿过，但是不能停留在这一格」，落点是队友周围一圈）。
+## 返回充当跳板的那个友军格；不是这种走法就返回 `Vector2i.MAX`。
 ##
-## 几何上这条很值：A 和它正后方那格**只有一个公共邻格**，就是中间那格 ——
-## 友军堵在那儿时绕路要走 3 步，所以「穿过」按两格收费仍然省一步。
+## 一个贴身友军实际开放的是**3 格**：它周围六格里，一格是我自己，两格本来就和我相邻
+## （走普通迁移更便宜，这里主动让开，免得同一个落点出两个选项）。
+##
+## 其中**正后方那一格**尤其值：它与我**只有一个公共邻格**，就是队友那格 ——
+## 队友堵在那儿时绕路要走 3 步，所以按两格收费仍然省一步。另外两格绕路也是 2 步，
+## 收两格的钱等于持平，不会凭空变强。
+##
+## 多个友军都能通到同一格时取**最便宜的中间格**（同价按 neighbors 的固定顺序，保证可复现）。
 ##
 ## **落点必须是空格，不能穿过去打人**：那会把「移动」和「攻击」两条结算链缠在一起
-## （攻击失败要弹回哪一格？弹回中间那格就是站在友军身上）。攻击照旧只能从相邻格发起。
+## （攻击失败要弹回**哪一格**？弹回中间那格就是站在友军身上）。攻击照旧只能从相邻格发起。
 func pass_through_mid(cell: Dictionary, to: Vector2i) -> Vector2i:
+	if not CWData.is_on_board(to) or to == cell["pos"]:
+		return Vector2i.MAX
+	if to in CWData.neighbors(cell["pos"]):
+		return Vector2i.MAX          ## 本来就走得到 —— 那是普通迁移，别在这儿重复出一遍
+	var best := Vector2i.MAX
+	var best_cost := 0
 	for n in CWData.neighbors(cell["pos"]):
-		if n + (n - cell["pos"]) != to:
+		if not (to in CWData.neighbors(n)):
 			continue
 		var mids: Array = game.cells_at(n)
 		if mids.is_empty() or mids[0]["faction"] != cell["faction"]:
-			return Vector2i.MAX
-		return n
-	return Vector2i.MAX
+			continue
+		var c := _one_step_base(cell, n)
+		if best == Vector2i.MAX or c < best_cost:
+			best = n
+			best_cost = c
+	return best
 
 
 ## 一次【迁移】能去的所有格：六个相邻格 + 穿过友军落在正后方的那几格。
 ## 选项生成和 AI 都走这里，别各自拼一份（口径 #81）。
 func move_dests(cell: Dictionary) -> Array[Vector2i]:
 	var out: Array[Vector2i] = CWData.neighbors(cell["pos"]).duplicate()
+	var seen := {}
 	for n in CWData.neighbors(cell["pos"]):
-		var far: Vector2i = n + (n - cell["pos"])
-		if CWData.is_on_board(far):
+		var mids: Array = game.cells_at(n)
+		if mids.is_empty() or mids[0]["faction"] != cell["faction"]:
+			continue
+		for far in CWData.neighbors(n):        ## 绕到这个队友身后那一圈
+			if far == cell["pos"] or far in out or seen.has(far):
+				continue                       ## 是我自己 / 本来就相邻 / 两个队友通到同一格
+			if not CWData.is_on_board(far):
+				continue
+			seen[far] = true
 			out.append(far)
 	return out
 
