@@ -2684,14 +2684,20 @@ func t_hand_limit() -> void:
 			cell["hand"].append(name)
 	check(cell["hand"].size() == 8, "手上 8 张")
 	cell["draws_used"] = 0
-	check(not _has_act(g.actions.build_options(cell), "draw"),
-		"满 8 张 → 抽卡选项直接不出现")
-	## 骨髓：手牌满时不发卡，**卡留着**
+	## PRD 2026-09-01 把上限从「满了不让抽」改成「抽完弃回 8 张」，两条都翻面：
+	check(_has_act(g.actions.build_options(cell), "draw"),
+		"满 8 张照样能抽（超限改成抽完再弃）")
+	## 骨髓：手牌满也照发，发完弃回上限（弃哪张由桥来答，基类答 0）
 	var m: Vector2i = CWData.MARROWS[0]
 	g.tiles[m]["cards"] = 1
 	await g.actions.collect_special(cell, m)
-	check(g.tiles[m]["cards"] == 1 and cell["hand"].size() == 8,
-		"手牌满时踩骨髓：卡留在骨髓里，没被浪费")
+	check(g.tiles[m]["cards"] == 0 and cell["hand"].size() == CWData.HAND_MAX,
+		"手牌满时踩骨髓：照样拿卡，随后弃回 8 张")
+	## 直接超发两张也要弃干净（while 而不是 if）
+	cell["hand"].append("细胞膜修复")
+	cell["hand"].append("细胞膜修复")
+	await g.cards.discard_to_limit(cell)
+	check(cell["hand"].size() == CWData.HAND_MAX, "超 2 张时连弃两次，弃到上限为止")
 	cell["hand"].resize(7)
 	await g.actions.collect_special(cell, m)
 	check(g.tiles[m]["cards"] == 0, "空出位置后骨髓就把卡给出去了")
@@ -4463,25 +4469,19 @@ func t_ev_proliferate() -> void:
 		if g2.tiles[c]["tissue"] != CWData.Tissue.CANCER:
 			all6 = false
 	check(all6, "异常增殖：增生概率翻倍（单邻 50% → 100% 必中）")
-	## 回合门：非世界事件回合整条【增生】不结算（PRD 2026-09-01「每世界事件回合-E-增生」）
+	## 【增生】**每个世界回合都结算**（2026-09-01 撤回了短命的「只在世界事件回合」，
+	## 改成把单格概率从 4% 降到 3%）。非事件回合照样要增生，这一条正着反着都钉。
+	check(CWData.PROLIFERATE_PER_ADJ == 30, "每相邻癌性组织 3%（千分率 30）")
 	var g3 := _fx_game(2)
-	g3.tune.proliferate_per_adjacent = 1000   ## 必中，所以转化数只取决于回合门
+	g3.tune.proliferate_per_adjacent = 1000   ## 必中，隔离概率因素
 	g3.tiles[Vector2i(0, 0)]["tissue"] = CWData.Tissue.CANCER
-	for rd in [1, 2, 4, 5, 7]:
-		g3.round_no = rd
-		g3.world._proliferate()
-	var quiet := true
-	for c in CWData.neighbors(Vector2i(0, 0)):
-		if g3.tiles[c]["tissue"] != CWData.Tissue.HEALTHY:
-			quiet = false
-	check(quiet, "非世界事件回合（1/2/4/5/7）一格都不增生")
-	g3.round_no = 6
+	g3.round_no = 1                            ## 不是世界事件回合
 	g3.world._proliferate()
 	var grew := 0
 	for c in CWData.neighbors(Vector2i(0, 0)):
 		if g3.tiles[c]["tissue"] == CWData.Tissue.CANCER:
 			grew += 1
-	check(grew == 6, "世界事件回合（6）照常增生")
+	check(grew == 6, "非世界事件回合（第 1 回合）照常增生")
 	g3.dispose()
 
 

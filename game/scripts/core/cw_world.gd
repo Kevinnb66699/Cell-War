@@ -329,11 +329,6 @@ func _erosion() -> void:
 ## 【E-增生】癌组织向外扩散：与癌性组织相邻的健康组织按概率被转化（PRD 已入规，概率见 CWTuning）
 ## 先统一掷骰收集、再统一转化 —— 保证「同时结算」，避免转化顺序影响后续格的相邻数。
 func _proliferate() -> void:
-	## 2026-09-01 起**只在世界事件回合结算**（PRD 改成「每世界事件回合-E-增生」，
-	## Kevin 确认按字面理解）。第 3/6/10/15/20/25/30 世界回合各一次，共 7 次 ——
-	## 此前是每个世界回合都算，这是对癌方扩张速度最直接的一刀。
-	if not CWData.is_world_event_round(game.round_no):
-		return
 	if game.event_stacks("增殖抑制") > 0:
 		game.log_msg("【增殖抑制】本回合组织无法增生")
 		return

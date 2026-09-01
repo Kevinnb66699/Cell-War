@@ -38,13 +38,34 @@ func draw(cell: Dictionary, source: String) -> void:
 			game.log_msg("　（该事件效果未实现，按无效果弃置）")
 			game.announce("事件【%s】效果待实现" % card, cell["pos"])
 		return
-	## 上限由调用方把关（CWActions._can_draw / collect_special）；这里再兜一道
-	if cell["hand"].size() >= CWData.HAND_MAX:
-		return
 	cell["hand"].append(card)
 	game.log_msg("　%s 经由「%s」抽到【%s】%s（手牌 %d）" % [
 		game.cell_name(cell), source, CWCardData.KIND_NAMES[kind], card,
 		cell["hand"].size()])
+	await discard_to_limit(cell)
+
+
+## 手牌超上限时弃到上限。**PRD 2026-09-01 改写**：原本是「手牌已满时无法发动
+## 【基因表达】、骨髓的卡留在原处」，现在是「每个细胞最多持有 8 张卡牌，
+## 超过 8 张时需要弃置到 8 张」—— 决策点从**抽之前**挪到了**抽之后**：
+## 照样抽得到，只是抽完要自己挑一张丢掉。
+##
+## 放在 draw() 里而不是各调用方：进手牌的口子只有这一个，摆这儿就漏不掉。
+func discard_to_limit(cell: Dictionary) -> void:
+	while cell["hand"].size() > CWData.HAND_MAX:
+		var opts: Array = []
+		for c in cell["hand"]:
+			opts.append({ "label": "弃置【%s】" % c, "data": { "card": c } })
+		var idx: int = await game.ask(cell["pid"], {
+			"kind": "pick", "tag": "手牌上限",
+			"prompt": "手牌 %d 张，超过上限 %d，选一张弃置" % [
+				cell["hand"].size(), CWData.HAND_MAX],
+			"options": opts,
+		})
+		var gone: String = opts[idx]["data"]["card"]
+		cell["hand"].erase(gone)
+		game.log_msg("　%s 手牌超限，弃置【%s】（手牌 %d）" % [
+			game.cell_name(cell), gone, cell["hand"].size()])
 
 
 ## 按权重从合法候选里抽一张，抽不出返回空串。

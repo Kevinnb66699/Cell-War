@@ -176,7 +176,7 @@ const SOLIDIFY_ACCEL_AT := 20            # 【固化加速】：从 <2.0 涨到 
 # 这是癌方**第一个稳定的伤害来源** —— 在此之前免疫细胞几乎不可能死（旧说明 #23）。
 # 【E-增生】：没有免疫细胞的健康组织，按「相邻癌性组织数 × 4%」的概率转为癌组织。
 # 这条原本是团队 2026-08-26 的提案（引擎里做成了默认关闭的旋钮），PRD 已正式采纳。
-const PROLIFERATE_PER_ADJ := 40          # 千分率：每个相邻癌性组织贡献 4%
+const PROLIFERATE_PER_ADJ := 30          # 千分率：每个相邻癌性组织贡献 3%
 
 const PRESSURE_FREE_ADJ := 2             # 前 2 格不造成损失
 const PRESSURE_PER_ADJ := 5              # 超出部分每格 0.5

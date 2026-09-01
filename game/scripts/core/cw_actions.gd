@@ -184,12 +184,11 @@ func _type_options(cell: Dictionary, opts: Array) -> void:
 					})
 
 
-## 能不能抽卡：每回合 3 次上限 + 手牌 8 张上限。
-## 手牌满时**选项直接不出现** —— 团队 2026-08-28 定：想抽就先主动弃牌，
-## 决策权留在玩家手上，也不必在抽完之后再插一次「弃哪张」的询问。
+## 能不能抽卡：只看每回合 3 次上限。
+## 手牌上限**不再挡抽卡**（PRD 2026-09-01 改成「超过 8 张时弃置到 8 张」），
+## 超限由 CWCards.discard_to_limit 在抽完之后追问。
 func _can_draw(cell: Dictionary) -> bool:
-	return cell["draws_used"] < CWData.DRAW_MAX_PER_TURN \
-		and cell["hand"].size() < CWData.HAND_MAX
+	return cell["draws_used"] < CWData.DRAW_MAX_PER_TURN
 
 
 ## 四个单价都走 `game.tune`（默认值 = CWData 常量 = PRD），
@@ -570,12 +569,10 @@ func collect_special(cell: Dictionary, c: Vector2i) -> void:
 		game.log_msg("　%s 从代谢核心获取 %s 能量" % [game.cell_name(cell), CWData.fmt(gain)])
 		t["store"] = 0
 	elif t["special"] == CWData.Special.MARROW and t["cards"] > 0:
-		## 手牌满时不发卡，**卡留在骨髓里**下次再来拿（团队 2026-08-28 定，不浪费）
-		if cell["hand"].size() >= CWData.HAND_MAX:
-			game.log_msg("　%s 手牌已满，骨髓的卡留着" % game.cell_name(cell))
-		else:
-			t["cards"] = 0
-			await game.cards.draw(cell, "骨髓")
+		## 手牌满也照发（PRD 2026-09-01：超限改成抽完再弃），
+		## 所以「卡留在骨髓里下次再拿」那条随之取消
+		t["cards"] = 0
+		await game.cards.draw(cell, "骨髓")
 
 
 # ---- 通用技能 ----
