@@ -96,7 +96,9 @@ const TEMPLATES := {
 			"cond": ["gate_closed"], "source": Source.SKILL, "store": Store.NONE,
 		},
 	],
-	## 只管「向健康组织」，比【组织巡航】的「任意迁移」窄 → 免费竞争时优先（设计 §九）
+	## 只管「向健康组织」，比【组织巡航】的「任意迁移」窄，所以 spec 更大。
+	## ⚠ **spec 不参与免费竞争的排序**（队友答复 c 覆盖了设计 §九 的「范围更窄者优先」，
+	## 见 _free_order）——它只是留作备查的字段。谁先用取决于**打出/装备先后**。
 	"组织驻留": [{
 		"action": Action.MOVE, "phase": Phase.FREE, "spec": 2,
 		"cond": ["to_healthy", "gate_open"], "source": Source.SKILL, "store": Store.GATE,
@@ -143,7 +145,10 @@ const TEMPLATES := {
 			"action": Action.MOVE, "phase": Phase.MULT, "value": 2,
 			"cond": [], "source": Source.WORLD, "store": Store.NONE,
 		},
-		## 技能移动（小细胞肺癌【转移】、黑色素瘤【早期血行转移】）也翻倍
+		## 技能移动（小细胞肺癌【转移】、黑色素瘤【早期血行转移】）也翻倍。
+		## PRD 只写「移动能量花费翻倍」，没说技能移动算不算——按「它们花的也是
+		## 位移的钱」外推（口径 #91）。⚠ 这是**引擎比 PRD 多做的一步**，
+		## 不是 PRD 明写的，改之前先看那条口径。
 		{
 			"action": Action.CELL_SKILL, "phase": Phase.MULT, "value": 2,
 			"cond": [], "source": Source.WORLD, "store": Store.NONE,

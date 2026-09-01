@@ -24,6 +24,14 @@ import os
 import re
 import sys
 
+## Windows 控制台默认 GBK，编不出 ✗ 这类符号。2026-08-31 踩过：
+## 工具**恰好在查到问题时**崩掉（没问题时不打这些行，反而看不出来）。
+## 标记一律用 ASCII，并给 stdout 兜一层 errors="replace"。
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 PRD = os.path.join(os.path.dirname(REPO), "Cell_War PRD.md")   # PRD 在仓库外
@@ -41,8 +49,8 @@ MAP = {
     "INIT_ENERGY_CANCER":     "癌细胞初始拥有6点能量",
     # ---- 收入 ----
     "AEROBIC_MULT":           "frac{健康组织格数-坏死格数}{总格数}times3",
-    "AEROBIC_FLOOR":          "每个免疫细胞每回合由此获得的能量不低于2点",
-    "ANAEROBIC_CAP":          "每个癌细胞每回合由此获得的能量不超过10点",
+    "AEROBIC_FLOOR":          "上式算出的数值不低于2点",
+    "ANAEROBIC_CAP":          "上式算出的数值不超过10点",
     "ANAEROBIC_PER_CANCER":   "癌组织个数times0.4",
     "ANAEROBIC_PER_SOLID":    "固化癌组织个数times1",
     # ---- 免疫行动 ----
@@ -177,9 +185,9 @@ def main():
              len(bad), len(unmapped)))
     for k in bad:
         v = consts[k]
-        print("  ✗ %-24s %-14s PRD 里找不到：%s" % (k, v, MAP[k]))
+        print("  [不符] %-22s %-14s PRD 里找不到：%s" % (k, v, MAP[k]))
     for k in unmapped:
-        print("  ? %-24s %-14s 没有映射，要人工判断它在 PRD 的哪一句" % (k, consts[k]))
+        print("  [没映射] %-20s %-14s 要人工判断它在 PRD 的哪一句" % (k, consts[k]))
     if bad or unmapped:
         print("\n对不上 = PRD 改了引擎没跟，或引擎多做了一步（后者更贵，见 HAND_MAX / 原发灶）")
         return 1
