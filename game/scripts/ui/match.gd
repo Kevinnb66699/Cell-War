@@ -120,6 +120,7 @@ var _fading := false  ## 正在演返场淡出：这期间**必须停掉每帧�
                       ## 否则 _sync_tiles 会把刚淡成健康的格子又刷回癌性
 var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
 var _tile_info: CWTileInfo   ## 悬停格子详情（_ready 里程序化补进 UI 层）
+var _card_info: CWCardInfo   ## 悬停手牌详情，同样程序化补进；与格子详情同一套打法
 var _log_panel: CWLogPanel   ## 对局日志面板（L 键开关），同样程序化补进
 var _log_hint: CWLogHint     ## 左上角「对局日志 L」入口提示（定案A），显隐跟着面板走
 
@@ -140,6 +141,10 @@ func _ready() -> void:
 		ui.add_child(_tile_info)
 		if pause_menu != null:
 			ui.move_child(_tile_info, pause_menu.get_index())
+		## 手牌详情与格子详情同层。两者不会同时出现——鼠标只能停在一处
+		_card_info = CWCardInfo.new()
+		ui.add_child(_card_info)
+		ui.move_child(_card_info, _tile_info.get_index())
 		## 日志面板压在信息卡下面：两者都开着时，悬停详情仍然读得到
 		_log_panel = CWLogPanel.new()
 		ui.add_child(_log_panel)
@@ -183,6 +188,8 @@ func start(snap: Dictionary = {}) -> void:
 		pause_menu.can_save = can_save_now
 	if _tile_info != null and not board.tile_hovered.is_connected(_tile_info.on_hover):
 		board.tile_hovered.connect(_tile_info.on_hover)
+	if _card_info != null and hand != null 			and not hand.card_hovered.is_connected(_card_info.on_hover):
+		hand.card_hovered.connect(_card_info.on_hover)
 	if _log_panel != null:
 		_log_panel.active = true
 	if _log_hint != null:
@@ -316,6 +323,11 @@ func teardown() -> void:
 		toast.hide_now()
 	if _tile_info != null:
 		_tile_info.hide_now()
+	if _card_info != null:
+		_card_info.hide_now()
+	## 手牌不属于棋盘，不能等下面那段 is_instance_valid(board) 里再断
+	if _card_info != null and hand != null and hand.card_hovered.is_connected(_card_info.on_hover):
+		hand.card_hovered.disconnect(_card_info.on_hover)
 	if _log_panel != null:
 		_log_panel.active = false
 		_log_panel.hide_now()
@@ -361,6 +373,11 @@ func _process(delta: float) -> void:
 		panel.refresh(game)
 	if _tile_info != null:
 		_tile_info.sync(delta, game, board, camera, _opening or _fading)
+	if _card_info != null:
+		## 阵营取「抽屉正在显示谁的手牌」，不是 current_pid —— 观战/热座时它们会不一样，
+		## 而详情框说的是**手上这张卡**，得跟着卡的主人走（只影响【代谢耦联】的措辞）
+		var info_faction: int = game.player(_hand_pid)["faction"] if _hand_pid >= 0 			else CWData.Faction.IMMUNE
+		_card_info.sync(delta, info_faction, _opening or _fading)
 	if _log_panel != null:
 		_log_panel.refresh(game)
 	if _log_hint != null and _log_panel != null:

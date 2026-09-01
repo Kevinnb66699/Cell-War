@@ -80,6 +80,7 @@ func _run_all() -> void:
 	await t_ui_bridge()
 	await t_human_ask()
 	await t_hand_play()
+	t_card_info()
 	t_match_panel()
 	await t_settle_screen()
 	await t_opening()
@@ -4674,6 +4675,56 @@ func t_breath_sheets() -> void:
 	check(ok, "每张都是横排 6 帧、帧宽 16/32、帧高 18/32/34")
 ## 打牌交互（方案甲，团队 2026-08-29 定）：点手牌 → 棋盘选目标。
 ## 和 t_human_ask 一样用合成信号驱动，逐步核对**下标映射**。
+
+## 手牌悬停详情（团队 2026-09-01 要的第三条）。只测纯函数：
+## 折行、按阵营换措辞、摆位不越界。真渲染那部分靠 screenshot.gd 用眼睛看。
+func t_card_info() -> void:
+	print("[手牌悬停详情]")
+	var max_w := CWCardInfo.W - CWCardInfo.PAD_H * 2.0
+	## PRD 自己的换行要保住：列表项各占一行，不能被并进上一行
+	var pd := CWCardInfo.wrap_text(
+		CWCardData.effect_of("PD-L1表达", CWData.Faction.CANCER), max_w)
+	check(pd.size() >= 4, "【PD-L1表达】折成 %d 行（含三个列表项）" % pd.size())
+	var bullets := 0
+	for l in pd:
+		if l.begins_with("·"):
+			bullets += 1
+	check(bullets == 3, "三个列表项各占一行（实为 %d）" % bullets)
+	## 每一行都得放得进框
+	var toolong: Array = []
+	for n in CWCardData.CARDS:
+		for f in [CWData.Faction.IMMUNE, CWData.Faction.CANCER]:
+			for l in CWCardInfo.wrap_text(CWCardData.effect_of(n, f), max_w):
+				if CWStyle.FONT.get_string_size(l, HORIZONTAL_ALIGNMENT_LEFT, -1,
+						CWStyle.SIZE_LABEL).x > max_w:
+					toolong.append("%s：%s" % [n, l])
+	check(toolong.is_empty(), "66 张卡折行后没有一行超宽（超的：%s）" % str(toolong.slice(0, 3)))
+	## 标点不该跑到行首（贪心折行最容易犯的毛病）
+	var badstart: Array = []
+	for n in CWCardData.CARDS:
+		var ls := CWCardInfo.wrap_text(CWCardData.effect_of(n, CWData.Faction.IMMUNE), max_w)
+		for i in range(1, ls.size()):
+			if ls[i] != "" and CWCardInfo.NO_LINE_START.contains(ls[i][0]) 					and not ls[i].begins_with("·"):
+				badstart.append("%s：%s" % [n, ls[i]])
+	check(badstart.is_empty(), "没有行以标点开头（犯规的：%s）" % str(badstart.slice(0, 3)))
+	## 按阵营换措辞只影响【代谢耦联】
+	var d_i := CWCardInfo.describe("代谢耦联", CWData.Faction.IMMUNE)
+	var d_c := CWCardInfo.describe("代谢耦联", CWData.Faction.CANCER)
+	check(d_i["lines"] != d_c["lines"] and d_i["name"] == "代谢耦联",
+		"【代谢耦联】详情按阵营给不同正文")
+	check(d_i["kind"] == "【即时】", "类别取自卡池数据（%s）" % d_i["kind"])
+	## 不认识的卡名不能崩（手牌里塞了还没实现的卡时会走到）
+	var d_x := CWCardInfo.describe("不存在的卡", CWData.Faction.IMMUNE)
+	check(d_x["lines"].is_empty() and d_x["kind"] == "", "不认识的卡名给空详情，不崩")
+	## 摆位：框底压在抬起后的卡顶（428）上方，且不越出画布上沿
+	var screen := Vector2(960, 540)
+	var lo := CWCardInfo.place(Vector2(CWCardInfo.W, 100), screen)
+	check(lo.x == CWHand.LEFT and lo.y + 100 <= CWHand.REST_TOP - CWHand.LIFT,
+		"矮框贴着卡顶往上长（y=%.0f）" % lo.y)
+	var hi := CWCardInfo.place(Vector2(CWCardInfo.W, 900), screen)
+	check(hi.y >= 8.0, "正文特别长时顶到画布上沿也不跑出去（y=%.0f）" % hi.y)
+
+
 func t_hand_play() -> void:
 	print("[打牌交互·方案甲]")
 	var board := make_board()

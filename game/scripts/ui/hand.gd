@@ -44,6 +44,9 @@ extends Control
 ## `card_right_clicked` 并排放着还会骗人——现在两个都是双击。
 signal play_requested(card_name: String)       ## 左键双击
 signal discard_requested(card_name: String)    ## 右键双击
+## 悬停到哪张卡上了（空串 = 移开了）。给 CWCardInfo 用——团队 2026-09-01 要的
+## 「悬停查看详情」。抽屉自己不画详情框：它只有 72px 宽，装不下效果正文
+signal card_hovered(card_name: String)
 
 const CARD := Vector2(72, 112)
 const LEFT := 12.0
@@ -257,6 +260,9 @@ func _hover(i: int) -> void:
 	if _hovered == i:
 		return
 	_hovered = i
+	## 详情框自己按 CWCardInfo.DELAY 延时浮出——这里只报「现在停在谁身上」。
+	## 移开时报空串，不是「保持上一张」：划过一串卡不该留下一路详情框。
+	card_hovered.emit(_name_at(i) if i >= 0 else "")
 	_layout()
 
 
