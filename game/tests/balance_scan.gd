@@ -21,6 +21,8 @@
 ##   emax=150   细胞账面能量上限（口径 #92，管的是存量不是流量）。0 = 不封
 ##   tiles=32     初始癌组织格数。**不传则按人数取**（现值 4 人 15 / 6 人 21，PRD 是固定 15）
 ##   amult=60     有氧呼吸系数（PRD 是 30 = 公式里的「×3」）
+##   agrow=2      【候选①】有氧系数每个世界回合再涨多少（0=关，第 1 回合恒等于 amult）
+##   upkeep=20    【候选③】癌细胞每回合按当前能量的百分之几自动损能（0=关）
 ##   cmh / cmc    癌方移动到健康／癌性组织的费用 —— 前者就是占地单价（现值 12 / 2，PRD 5 / 2）
 ##   sclc / pseu  【极简胞浆】与【伪足穿透】的折后价（现值 7 / 5，PRD 3 / 2）
 ##   lesion=off   关掉【原发灶】（癌细胞出生格开局固化）。默认 on
@@ -56,6 +58,8 @@ var cmh := -1
 var cmc := -1
 var sclc := -1
 var pseu := -1
+var agrow := -1
+var upkeep := -1
 
 
 func _initialize() -> void:
@@ -92,6 +96,8 @@ func _parse() -> void:
 			"cmc": cmc = int(kv[1])
 			"sclc": sclc = int(kv[1])
 			"pseu": pseu = int(kv[1])
+			"agrow": agrow = int(kv[1])
+			"upkeep": upkeep = int(kv[1])
 
 
 func _order() -> Array:
@@ -119,6 +125,10 @@ func _tune() -> CWTuning:
 		t.init_cancer_tiles = tiles
 	if amult >= 0:
 		t.aerobic_mult = amult
+	if agrow >= 0:
+		t.aerobic_mult_growth = agrow
+	if upkeep >= 0:
+		t.cancer_upkeep_pct = upkeep
 	if cmh >= 0:
 		t.cancer_move_healthy = cmh
 	if cmc >= 0:
@@ -154,6 +164,8 @@ func _applied(t: CWTuning) -> String:
 			["afloor", t.aerobic_floor, d.aerobic_floor],
 			["tiles", t.init_cancer_tiles, d.init_cancer_tiles],
 			["amult", t.aerobic_mult, d.aerobic_mult],
+			["agrow", t.aerobic_mult_growth, d.aerobic_mult_growth],
+			["upkeep", t.cancer_upkeep_pct, d.cancer_upkeep_pct],
 			["cmh", t.cancer_move_healthy, d.cancer_move_healthy],
 			["cmc", t.cancer_move_cancerous, d.cancer_move_cancerous],
 			["sclc", t.sclc_move_healthy, d.sclc_move_healthy],

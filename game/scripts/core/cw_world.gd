@@ -44,6 +44,7 @@ func e_phase() -> void:
 	_proliferate()                           ## 2 【增生】
 	_erosion()                               ## 3 【侵蚀】
 	_anaerobic()                             ## 4 【无氧呼吸】
+	_cancer_upkeep()                         ## 4.5 【代谢消耗】（PRD 之外，平衡候选③）
 	_solidify()                              ## 5 【固化】
 	_decay()                                 ## 6 固化计数衰减
 	await game.world_fx.round_effects()      ## 7 其他 E 类效果：目前只有【紊乱】返回原位
@@ -279,7 +280,7 @@ func _aerobic() -> void:
 		if t["necrosis"] > 0:
 			necrotic += 1
 	# 四舍五入到十分位：分子先 ×10 再加半个分母，整数除法即得（全程整数，无浮点）
-	var num: int = (healthy - necrotic) * game.tune.aerobic_mult
+	var num: int = (healthy - necrotic) * game.tune.aerobic_mult_at(game.round_no)
 	var den: int = CWData.TOTAL_TILES
 	var gain: int = (num + den / 2) / den
 	if game.tune.aerobic_split:
@@ -437,6 +438,30 @@ func _split_share(pool: int, count: int) -> int:
 	## (2p+n)/(2n) 是整数版的「p/n 四舍五入」：.5 进位，和有氧那边的 round 口径一致
 	var gain: int = ((2 * pool + count) / (2 * count)) if game.tune.anaerobic_split else pool
 	return game.tune.clamp_income(gain, game.tune.anaerobic_floor, game.tune.anaerobic_cap)
+
+
+## 【代谢消耗】（平衡候选③，PRD 之外）：每个癌细胞按**当前能量的百分比**自动损能。
+## 团队 2026-09-01 定的三条口径，每条都有代价，别顺手改：
+##   ① 扣在【无氧呼吸】**之后** —— 所以税的是「存款 + 这回合刚进的账」，不只是存款；
+##   ② **不算伤害事件** —— 不走 CWDamage 管线，【缺氧适应】【囊性护甲】【耗竭抵抗】
+##      一概挡不住，BCL-2 也不介入。它是「代谢开销」不是「谁打了谁」，
+##      进管线会让一堆减伤牌凭空多出一层用途；
+##   ③ 向下取整（整数除法）。
+##
+## ⚠ **它杀不死细胞**，这是数学性质不是防呆：按比例扣永远到不了 0，
+## 而且能量低到 `energy * pct < 100` 时整除直接得 0（0.4 能量扣 20% = 0.08 → 0）。
+## 正因为杀不死人，这里不需要死亡检查 —— 也就不必进伤害管线。
+func _cancer_upkeep() -> void:
+	var pct: int = game.tune.cancer_upkeep_pct
+	if pct <= 0:
+		return
+	for cell in game.living_cells(CWData.Faction.CANCER):
+		var lost: int = cell["energy"] * pct / 100
+		if lost <= 0:
+			continue
+		cell["energy"] -= lost
+		game.log_msg("【代谢消耗】%s 损失 %s 能量（余 %s）" % [
+			game.cell_name(cell), CWData.fmt(lost), CWData.fmt(cell["energy"])])
 
 
 ## 单独算某个癌细胞**此刻**的无氧供给（卡【糖酵解爆发】用），口径与 _anaerobic 一致
