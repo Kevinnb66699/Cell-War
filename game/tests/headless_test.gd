@@ -18,6 +18,7 @@ func _run_all() -> void:
 	await t_setup()
 	await t_hit_order()
 	t_anaerobic_round()
+	t_balance_candidates()
 	await t_card_events()
 	await t_card_events_cancer()
 	await t_card_instants()
@@ -291,6 +292,107 @@ func t_hit_order() -> void:
 
 
 # ---- 无氧呼吸：0.4/格 + 固化 1.0/格，块内均分，四舍五入到十分位；小细胞肺癌 110% ----
+
+## 四条平衡候选旋钮（团队 2026-09-01）。**四条刻意不并存**，这里只逐条验证「旋钮真的接上了」。
+##
+## 为什么必须有这组断言：本项目 8-31 出过「参数收下了、_tune() 里没赋值，
+## 整张网格跑出来一模一样」的事故 —— **旋钮静默失效比没有旋钮更坏**，
+## 因为你会拿着一堆看似有效的数据下结论。每一条都钉两头：关着时恒等、开着时确实改变。
+func t_balance_candidates() -> void:
+	print("[平衡候选旋钮]")
+	var t := CWTuning.new()
+
+	## ---- 候选①：有氧系数随回合增长 ----
+	check(t.aerobic_mult_growth == 0 and t.cancer_upkeep_pct == 0
+		and t.immune_attack_pct_growth == 0 and t.immune_attack_pct_per_memory == 0,
+		"四条候选默认全关（默认值必须 = 现行行为）")
+	check(t.aerobic_mult_at(1) == t.aerobic_mult and t.aerobic_mult_at(30) == t.aerobic_mult,
+		"①关着：任何回合都恒等于 aerobic_mult")
+	t.aerobic_mult_growth = 10
+	check(t.aerobic_mult_at(1) == t.aerobic_mult,
+		"①第 1 回合仍等于基值（团队硬约束：叫「随回合增长」不叫「整体抬高」）")
+	check(t.aerobic_mult_at(3) == t.aerobic_mult + 20, "①第 3 回合 = 基值 + 2 步")
+
+	## ①的整体接线：同一盘面、不同回合，收入必须真的不同
+	var g := make_game(2, 7)
+	g.setup.build_board()
+	var immune := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0),
+		CWData.ImmuneType.T_CELL, -1)
+	immune["energy"] = 0
+	g.cells.append(immune)
+	g.round_no = 1
+	g.world._aerobic()
+	var at_r1: int = immune["energy"]
+	immune["energy"] = 0
+	g.round_no = 5
+	g.world._aerobic()
+	check(at_r1 == immune["energy"], "①关着时第 1 回合与第 5 回合收入相同")
+	g.tune.aerobic_mult_growth = 10
+	immune["energy"] = 0
+	g.round_no = 1
+	g.world._aerobic()
+	var on_r1: int = immune["energy"]
+	immune["energy"] = 0
+	g.round_no = 5
+	g.world._aerobic()
+	check(on_r1 == at_r1, "①开着时第 1 回合收入不变")
+	check(immune["energy"] > on_r1, "①开着时第 5 回合收入确实更高")
+
+	## ---- 候选③：癌细胞每回合按比例损能 ----
+	var g3 := make_game(2, 7)
+	g3.setup.build_board()
+	var rich := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1,
+		CWData.CancerType.MELANOMA)
+	rich["energy"] = 100
+	var poor := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(2, 0), -1,
+		CWData.CancerType.MELANOMA)
+	poor["energy"] = 4
+	var mine := CWSetup.make_cell(2, 0, CWData.Faction.IMMUNE, Vector2i(4, 0),
+		CWData.ImmuneType.T_CELL, -1)
+	mine["energy"] = 100
+	g3.cells.append_array([rich, poor, mine])
+	g3.world._cancer_upkeep()
+	check(rich["energy"] == 100 and poor["energy"] == 4, "③关着：一分不扣")
+	g3.tune.cancer_upkeep_pct = 20
+	g3.world._cancer_upkeep()
+	check(rich["energy"] == 80, "③10.0 能量扣 20% = 8.0")
+	check(poor["energy"] == 4,
+		"③0.4 能量扣 20% 得 0 —— **按比例扣杀不死细胞**，所以不需要死亡检查")
+	check(mine["energy"] == 100, "③只扣癌细胞，免疫方不受影响")
+
+	## ---- 候选②④：免疫普攻倍率 ----
+	var t2 := CWTuning.new()
+	check(t2.immune_attack_pct(1, 0) == 100 and t2.immune_attack_pct(30, 50) == 100,
+		"②④关着：任何回合、任何记忆都是 100%")
+	t2.immune_attack_pct_growth = 20
+	check(t2.immune_attack_pct(1, 0) == 100, "②第 1 回合仍是 100%（团队硬约束）")
+	check(t2.immune_attack_pct(3, 0) == 140, "②第 3 回合 = 100 + 2×20")
+	var t4 := CWTuning.new()
+	t4.immune_attack_pct_per_memory = 10
+	check(t4.immune_attack_pct(1, 5) == 150, "④5 点记忆 = 100 + 5×10")
+	t4.immune_attack_pct_memory_cap = 30
+	check(t4.immune_attack_pct(1, 5) == 130, "④封顶把记忆加成压到 30 个百分点")
+
+	## ②④ 的整体接线，外加**范围收窄的证明**：团队 2026-09-01 明确「暂时只关注普攻伤害」，
+	## 所以非攻击来源（卡牌/技能伤害，tags 里没有 ATTACK）必须一点都不受影响。
+	var g2 := make_game(2, 7)
+	g2.setup.build_board()
+	var atk := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0),
+		CWData.ImmuneType.T_CELL, -1)
+	var vic := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(5, 0), -1,
+		CWData.CancerType.MELANOMA)
+	g2.cells.append_array([atk, vic])
+	vic["energy"] = 100
+	check(g2.immune_hit(vic, 10, atk, true) == 10, "②④关着：普攻 1.0 就是 1.0")
+	## per_memory=20 × memory=5 ⇒ 倍率 200%
+	g2.tune.immune_attack_pct_per_memory = 20
+	g2.memory = 5
+	vic["energy"] = 100
+	check(g2.immune_hit(vic, 10, atk, true) == 20, "④倍率 200% 时普攻 1.0 → 2.0")
+	vic["energy"] = 100
+	check(g2.immune_hit(vic, 10, atk, false) == 10,
+		"**只作用于普攻**：非攻击来源（卡牌/技能）倍率不生效")
+
 func t_anaerobic_round() -> void:
 	print("[无氧呼吸]")
 	var g := make_game(2, 1)

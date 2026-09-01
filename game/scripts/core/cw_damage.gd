@@ -175,10 +175,21 @@ func _calculate(ev: Dictionary, plan: Dictionary) -> int:
 	if target["ctype"] == CWData.CancerType.OSTEO 			and game.tile(target["pos"])["tissue"] == CWData.Tissue.SOLID:
 		pct = CWData.OSTEO_BARRIER_PERCENT
 		plan["logs"].append("　【刚性屏障】骨肉瘤立于固化癌组织，只受到 %d%% 的能量损失" % pct)
-	## 三个倍率**合成一次整数除法**：分开除会各自向下取整一次，
+	## 【平衡候选②④】免疫**普攻**倍率（百分点）。团队 2026-09-01 明确收窄了范围：
+	## **只作用于普通攻击** —— 同时带 IMMUNE 与 ATTACK 的事件。【细胞毒素】、
+	## 免疫方卡牌伤害都不算。两条口径已拍板：攻击自带的固定加成（【补体调理】
+	## 【穿孔素-颗粒酶】【抗体亲和力成熟】）在同一事件的 bonus_amount 里，一起乘；
+	## 【细胞毒性增强】T 细胞那一刀带 ATTACK 标签、也一起乘。
+	## 两个旋钮都默认 0，此时本值恒为 100 —— 关着的时候整条式子必须逐位不变。
+	var atk_pct := 100
+	if Tag.IMMUNE in ev["tags"] and Tag.ATTACK in ev["tags"]:
+		atk_pct = game.tune.immune_attack_pct(game.round_no, game.memory)
+	## 四个倍率**合成一次整数除法**：分开除会各自向下取整一次，
 	## 「×2 再 ÷2 再 ×40%」就会比「一次算」少掉一两个十分位。PRD 只要求最后
 	## 向下取整到十分位，而十分能量的整数除法天然就是这个取整。
-	var dmg: int = (ev["base_amount"] + ev["bonus_amount"]) * mult * pct / (div * 100)
+	## ⚠ atk_pct 进的是**同一次**除法（分母配一个 100），不许自己先除一遍。
+	var dmg: int = (ev["base_amount"] + ev["bonus_amount"]) \
+		* mult * pct * atk_pct / (div * 100 * 100)
 	## ⑤ 固定减免。UNPREVENTABLE 跳过这一层——但日志、BCL-2、死亡检查照走（设计 §6.4）
 	if Tag.UNPREVENTABLE in ev["tags"]:
 		return maxi(dmg, 0)

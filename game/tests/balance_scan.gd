@@ -23,6 +23,9 @@
 ##   amult=60     有氧呼吸系数（PRD 是 30 = 公式里的「×3」）
 ##   agrow=2      【候选①】有氧系数每个世界回合再涨多少（0=关，第 1 回合恒等于 amult）
 ##   upkeep=20    【候选③】癌细胞每回合按当前能量的百分之几自动损能（0=关）
+##   agrow2=10    【候选②】免疫普攻倍率每回合再涨几个百分点（0=关，第 1 回合恒为 100%）
+##   amem=5       【候选④】免疫普攻倍率每点抗原记忆涨几个百分点（0=关）
+##   amemcap=100  【候选④】记忆加成封顶，百分点（0=不封）
 ##   cmh / cmc    癌方移动到健康／癌性组织的费用 —— 前者就是占地单价（现值 12 / 2，PRD 5 / 2）
 ##   sclc / pseu  【极简胞浆】与【伪足穿透】的折后价（现值 7 / 5，PRD 3 / 2）
 ##   lesion=off   关掉【原发灶】（癌细胞出生格开局固化）。默认 on
@@ -60,6 +63,9 @@ var sclc := -1
 var pseu := -1
 var agrow := -1
 var upkeep := -1
+var agrow2 := -1
+var amem := -1
+var amemcap := -1
 
 
 func _initialize() -> void:
@@ -98,6 +104,9 @@ func _parse() -> void:
 			"pseu": pseu = int(kv[1])
 			"agrow": agrow = int(kv[1])
 			"upkeep": upkeep = int(kv[1])
+			"agrow2": agrow2 = int(kv[1])
+			"amem": amem = int(kv[1])
+			"amemcap": amemcap = int(kv[1])
 
 
 func _order() -> Array:
@@ -129,6 +138,12 @@ func _tune() -> CWTuning:
 		t.aerobic_mult_growth = agrow
 	if upkeep >= 0:
 		t.cancer_upkeep_pct = upkeep
+	if agrow2 >= 0:
+		t.immune_attack_pct_growth = agrow2
+	if amem >= 0:
+		t.immune_attack_pct_per_memory = amem
+	if amemcap >= 0:
+		t.immune_attack_pct_memory_cap = amemcap
 	if cmh >= 0:
 		t.cancer_move_healthy = cmh
 	if cmc >= 0:
@@ -166,6 +181,9 @@ func _applied(t: CWTuning) -> String:
 			["amult", t.aerobic_mult, d.aerobic_mult],
 			["agrow", t.aerobic_mult_growth, d.aerobic_mult_growth],
 			["upkeep", t.cancer_upkeep_pct, d.cancer_upkeep_pct],
+			["agrow2", t.immune_attack_pct_growth, d.immune_attack_pct_growth],
+			["amem", t.immune_attack_pct_per_memory, d.immune_attack_pct_per_memory],
+			["amemcap", t.immune_attack_pct_memory_cap, d.immune_attack_pct_memory_cap],
 			["cmh", t.cancer_move_healthy, d.cancer_move_healthy],
 			["cmc", t.cancer_move_cancerous, d.cancer_move_cancerous],
 			["sclc", t.sclc_move_healthy, d.sclc_move_healthy],

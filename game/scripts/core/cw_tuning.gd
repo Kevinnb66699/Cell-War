@@ -75,6 +75,20 @@ func aerobic_mult_at(n: int) -> int:
 	return aerobic_mult + aerobic_mult_growth * maxi(n - 1, 0)
 
 
+## 免疫普攻倍率（百分点）：候选②按世界回合加、候选④按抗原记忆加。
+## 两个旋钮都是 0 时**恒返回 100**，`_calculate` 里那次乘除因此逐位不变 ——
+## 候选②④刻意不并存，但把它们放进同一个倍率是有意的：
+## 一次乘法、一个取整点，比两条各自乘一遍少一次截断。
+func immune_attack_pct(n: int, memory: int) -> int:
+	var by_round := immune_attack_pct_growth * maxi(n - 1, 0)
+	var by_memory := immune_attack_pct_per_memory * maxi(memory, 0)
+	if immune_attack_pct_memory_cap > 0:
+		by_memory = mini(by_memory, immune_attack_pct_memory_cap)
+	## 下限 0：系数设成负数（= 削免疫）是要扫的合法方向，但倍率本身不能为负 ——
+	## 负分子会让整数除法从「向下取整」翻成「向零截断」，取整口径当场翻面。
+	return maxi(100 + by_round + by_memory, 0)
+
+
 ## 把每细胞收入钳制在低保与封顶之间
 func clamp_income(gain: int, floor_v: int, cap_v: int) -> int:
 	var out := gain
@@ -115,6 +129,21 @@ var pseudopod_cost := CWData.PSEUDOPOD_COST
 var attack_max_per_turn := CWData.ATTACK_MAX_PER_TURN
 var attack_dmg_success := CWData.ATTACK_DMG_SUCCESS
 var attack_dmg_crit := CWData.ATTACK_DMG_CRIT
+
+## 【平衡候选②】免疫**普攻**倍率随世界回合增长：第 n 回合 = 100 + 本值 ×(n−1) 个百分点。
+## 单位百分点/回合，**0 = 关闭**（默认）。
+## ⚠ 实测对局只有 6.0~6.7 个世界回合（MC，14 个分片上限判定全 0 局），
+## 所以这条斜坡的有效行程只有 5~6 步 —— 按 30 回合的直觉定系数会完全不起作用。
+var immune_attack_pct_growth := 0
+
+## 【平衡候选④】免疫**普攻**倍率随抗原记忆增长：每 1 点 `CWGame.memory` +本值 个百分点。
+## **0 = 关闭**（默认）。注意 memory 会**掉**（【突变】-1/-3），所以伤害也会往下走。
+var immune_attack_pct_per_memory := 0
+
+## 【候选④】记忆加成的封顶（百分点）；0 = 不封。
+## 不是防呆而是必需：`memory` 没有上限（一局能到 20~40），线性缩放不封会直接爆掉，
+## 不给这个旋钮的话候选④根本扫不出可用区间。
+var immune_attack_pct_memory_cap := 0
 ## 攻击失败（1/3「被癌细胞反弹」）时，攻击者自身的能量损失。
 ## 2026-08-31 补齐到 PRD 值 0.5（口径 #84）；此前写死 0，是 61 格旧规则留下的。
 ## 留成旋钮是因为它直接决定「进攻型免疫打法的风险」，是重跑平衡时要扫的一档。
