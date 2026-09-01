@@ -17,7 +17,8 @@
 ##   rollouts=1 horizon=12   蒙特卡洛参数
 ##   tune=prd     prd=PRD 原样｜split=免疫收入也按细胞数均分（报告 #29 的修法）
 ##   mv=4         免疫迁移到癌性组织的费用，十分能量，**各等级统一**（PRD 是 [10,10,7,5]）
-##   ecap / efloor / acap / afloor   无氧／有氧呼吸的每细胞封顶与低保，十分能量
+##   ecap / efloor / acap / afloor   无氧／有氧呼吸的每细胞**每回合进账**的封顶与低保，十分能量
+##   emax=150   细胞账面能量上限（口径 #92，管的是存量不是流量）。0 = 不封
 ##   tiles=32     初始癌组织格数。**不传则按人数取**（现值 4 人 15 / 6 人 21，PRD 是固定 15）
 ##   amult=60     有氧呼吸系数（PRD 是 30 = 公式里的「×3」）
 ##   cmh / cmc    癌方移动到健康／癌性组织的费用 —— 前者就是占地单价（现值 12 / 2，PRD 5 / 2）
@@ -41,6 +42,7 @@ var label := ""
 var tune_name := "prd"
 var mv := -1        # -1 = 不改，下同
 var ecap := -1
+var emax := -1
 var efloor := -1
 var acap := -1
 var afloor := -1
@@ -76,6 +78,7 @@ func _parse() -> void:
 			"tune": tune_name = kv[1]
 			"mv": mv = int(kv[1])
 			"ecap": ecap = int(kv[1])
+			"emax": emax = int(kv[1])
 			"efloor": efloor = int(kv[1])
 			"acap": acap = int(kv[1])
 			"afloor": afloor = int(kv[1])
@@ -104,6 +107,8 @@ func _tune() -> CWTuning:
 		t.immune_move_cancerous = [mv, mv, mv, mv]
 	if ecap >= 0:
 		t.anaerobic_cap = ecap
+	if emax >= 0:
+		t.energy_cap = emax
 	if efloor >= 0:
 		t.anaerobic_floor = efloor
 	if acap >= 0:
@@ -142,7 +147,8 @@ func _applied(t: CWTuning) -> String:
 	var out: Array = []
 	if t.immune_move_cancerous != d.immune_move_cancerous:
 		out.append("mv=%s" % str(t.immune_move_cancerous[0]))
-	for pair in [["ecap", t.anaerobic_cap, d.anaerobic_cap],
+	for pair in [["emax", t.energy_cap, d.energy_cap],
+			["ecap", t.anaerobic_cap, d.anaerobic_cap],
 			["efloor", t.anaerobic_floor, d.anaerobic_floor],
 			["acap", t.aerobic_cap, d.aerobic_cap],
 			["afloor", t.aerobic_floor, d.aerobic_floor],

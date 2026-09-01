@@ -50,7 +50,6 @@ MAP = {
     # ---- 收入 ----
     "AEROBIC_MULT":           "frac{健康组织格数-坏死格数}{总格数}times3",
     "AEROBIC_FLOOR":          "上式算出的数值不低于2点",
-    "ANAEROBIC_CAP":          "上式算出的数值不超过10点",
     "ANAEROBIC_PER_CANCER":   "癌组织个数times0.4",
     "ANAEROBIC_PER_SOLID":    "固化癌组织个数times1",
     # ---- 免疫行动 ----
@@ -151,6 +150,10 @@ INTENTIONAL = {
     "IMMUNE_RESPAWN_DELAY": "PRD 没有「罚停」概念，0 = 下一个 S 阶段即复活，与 PRD 一致",
     "INIT_CANCER_TILES":   "按人数分档，PRD 已落字（4 人 15 / 6 人 21），字典结构不便做串匹配",
     "SOLID_AT_CANCER_SPAWN": "【原发灶】已于 2026-08-31 取消（口径 #85），false = 与 PRD 一致",
+    # 下面两条是 2026-08-31 的平衡实验（口径 #92），PRD 里都还没有对应措辞，
+    # 定案后要回写 PRD 并把它们移回 MAP —— 见《PRD差异对照》§七
+    "ANAEROBIC_CAP":       "PRD 写「不超过10点」；引擎改为 999.0 形同不封顶，改封账面余额",
+    "ENERGY_CAP_PER_ROUND": "PRD 没有「细胞能量上限」这条，2026-08-31 新增的平衡实验",
 }
 
 

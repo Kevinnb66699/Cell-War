@@ -46,9 +46,14 @@ var aerobic_split := false
 ## 低保防止落后方直接崩盘，封顶防止领先方滚雪球——两个一起用才是稳定器。
 ## 单位十分能量，每细胞每回合；0 = 不启用。
 var anaerobic_floor := 0
-var anaerobic_cap := CWData.ANAEROBIC_CAP     ## 10.0（口径 #89）
+var anaerobic_cap := CWData.ANAEROBIC_CAP     ## 999.0 = 形同不封顶（口径 #92）
 var aerobic_floor := CWData.AEROBIC_FLOOR     ## 2.0（口径 #89）——别贴到 3.0，那是公式上界
 var aerobic_cap := 0
+
+## 【E-能量上限】每个世界回合结算末，所有存活细胞的能量削到这个数；0 = 不启用。
+## 和上面四个「收入低保/封顶」不是一回事：那四个管**这一回合进多少**，
+## 这个管**账上最多留多少**。囤积是靠这个封的（口径 #92）。
+var energy_cap := CWData.ENERGY_CAP_PER_ROUND
 
 
 ## 把每细胞收入钳制在低保与封顶之间

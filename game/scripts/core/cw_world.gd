@@ -50,6 +50,7 @@ func e_phase() -> void:
 	game.world_fx.tick_durations()           ## 8 世界事件倒计时/到期 + 「本世界回合」修饰过期
 	_tick_necrosis()                         ## 8 「坏死」倒计时（同属第 8 步）
 	_clear_newborn()                         ## 9 移除「新生」
+	_cap_energy()                            ## 9.5 能量上限（PRD 之外，见口径 #92）
 	## 10 胜利条件检查。免疫先判：PRD 的列举顺序如此，
 	## 而且两边同时满足时「癌细胞已全灭」比「占地达标」更靠后发生，判给免疫更符合直觉。
 	game.check_immune_win()
@@ -437,6 +438,28 @@ func _solidify() -> void:
 		if t["tissue"] != CWData.Tissue.CANCER or t["newborn"]:
 			continue
 		game.raise_solid(c, _solidify_step(c))   ## 门槛判定（含【固化加速】）在 raise_solid 里
+
+
+## 【E-能量上限】结算末把所有存活细胞的能量削到上限（Kevin 2026-08-31 定，口径 #92）。
+##
+## **为什么封存量而不是封流量。** 此前封的是【无氧呼吸】每回合的进账（10.0），
+## 但进账可以跨回合囤着：2026-08-31 的试玩里，免疫把癌组织压到 3 格、局面看着已经赢了，
+## 黑色素瘤下一回合掏出攒了几轮的 25.5 能量一口气占了 63 格，直接越过胜利线。
+## 封住账面余额之后，「一回合能占多少格」就从「攒了多久」变回「这一回合赚了多少」。
+##
+## 放在第 9 步之后、胜负判定之前：这一步不改地盘也不改死活，
+## 排在结算的最末尾，语义上就是「本回合账结完，多出来的不留到下回合」。
+## 卡牌在自己回合内把能量顶到上限以上是允许的 —— 封的是**跨回合**的囤积。
+func _cap_energy() -> void:
+	var cap: int = game.tune.energy_cap
+	if cap <= 0:
+		return
+	for cell in game.living_cells():
+		if cell["energy"] <= cap:
+			continue
+		game.log_msg("【能量上限】%s 能量 %s → %s" % [
+			game.cell_name(cell), CWData.fmt(cell["energy"]), CWData.fmt(cap)])
+		cell["energy"] = cap
 
 
 ## 固化计数衰减：计数 > 0 且无癌细胞停留的**癌组织**，每世界回合 -0.5（PRD）
