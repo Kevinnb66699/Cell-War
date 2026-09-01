@@ -19,6 +19,8 @@
 ##   order=ICIC   席位与顺序，I=免疫 C=癌症，长度即人数
 ##   seed=0       0 = 用当前时间；填非 0 可复现同一局
 ##   ai=heur      其余席位的 AI：heur=启发式｜mc=蒙特卡洛
+##   tiles=24     初始癌组织格数（不传则按人数取：4 人 15 / 6 人 21）
+##   agrow / agrow2 / upkeep / amem   四条平衡候选，名字与 balance_scan.gd 一致
 ##
 ## 协议（dir 下三个文件，外面用 shell 就能操作）：
 ##   ask.txt    引擎问什么：局面 + 编号选项。**首行 `#序号`**，序号变了才是新的一问。
@@ -37,6 +39,15 @@ var me: Array[int] = [0]
 var order_str := "ICIC"
 var seed_no := 0
 var ai := "heur"
+## 平衡旋钮。参数名与 balance_scan.gd **完全一致**，两个脚本不许各说各话 ——
+## 手打验证的必须是仿真跑出来的那一档，名字对不上就会打成另一个配置。
+## 哨兵用 -9999：负系数是合法值（反方向），-1 会把它吃掉。
+var tiles := -1
+var agrow := -9999
+var agrow2 := -9999
+var upkeep := -9999
+var amem := -9999
+var prolif := -1
 
 
 func _initialize() -> void:
@@ -53,7 +64,9 @@ func _run() -> void:
 		DirAccess.remove_absolute(dir.path_join(f))
 
 	var g := CWGame.new()
+	g.tune = _tune()          ## 必须在 init() 之前 —— 开局落子就要读旋钮
 	g.init(_order(), seed_no if seed_no != 0 else int(Time.get_unix_time_from_system()))
+	print("旋钮：%s" % _applied(g.tune))
 	var mine := CWFileBridge.new()
 	mine.game = g
 	mine.dir = dir
@@ -89,6 +102,48 @@ func _parse() -> void:
 			"order": order_str = kv[1].to_upper()
 			"seed": seed_no = int(kv[1])
 			"ai": ai = kv[1]
+			"tiles": tiles = int(kv[1])
+			"agrow": agrow = int(kv[1])
+			"agrow2": agrow2 = int(kv[1])
+			"upkeep": upkeep = int(kv[1])
+			"amem": amem = int(kv[1])
+			"prolif": prolif = int(kv[1])
+
+
+## 只接手打验证真正需要的那几个旋钮（推荐档 + 四条候选），不做全量镜像 ——
+## 全量镜像意味着 balance_scan 每加一个旋钮这里都要跟，迟早忘一个、而且忘了不会报错。
+func _tune() -> CWTuning:
+	var t := CWTuning.new()
+	if tiles >= 0:
+		t.init_cancer_tiles = tiles
+	if prolif >= 0:
+		t.proliferate_per_adjacent = prolif
+	if agrow != -9999:
+		t.aerobic_mult_growth = agrow
+	if agrow2 != -9999:
+		t.immune_attack_pct_growth = agrow2
+	if upkeep != -9999:
+		t.cancer_upkeep_pct = upkeep
+	if amem != -9999:
+		t.immune_attack_pct_per_memory = amem
+	return t
+
+
+## 开局回显真正生效的旋钮。理由同 balance_scan._applied()：
+## **旋钮静默失效比没有旋钮更坏** —— 手打一局要花掉几十分钟，
+## 打完才发现打的是默认配置，那几十分钟就白扔了。
+func _applied(t: CWTuning) -> String:
+	var d := CWTuning.new()
+	var out: Array = []
+	for pair in [["tiles", t.init_cancer_tiles, d.init_cancer_tiles],
+			["prolif", t.proliferate_per_adjacent, d.proliferate_per_adjacent],
+			["agrow", t.aerobic_mult_growth, d.aerobic_mult_growth],
+			["agrow2", t.immune_attack_pct_growth, d.immune_attack_pct_growth],
+			["upkeep", t.cancer_upkeep_pct, d.cancer_upkeep_pct],
+			["amem", t.immune_attack_pct_per_memory, d.immune_attack_pct_per_memory]]:
+		if pair[1] != pair[2]:
+			out.append("%s=%s" % [pair[0], str(pair[1])])
+	return "默认值" if out.is_empty() else " ".join(out)
 
 
 func _order() -> Array[int]:

@@ -312,6 +312,12 @@ func t_balance_candidates() -> void:
 	check(t.aerobic_mult_at(1) == t.aerobic_mult,
 		"①第 1 回合仍等于基值（团队硬约束：叫「随回合增长」不叫「整体抬高」）")
 	check(t.aerobic_mult_at(3) == t.aerobic_mult + 20, "①第 3 回合 = 基值 + 2 步")
+	## 负系数（反方向：削免疫收入）是合法值，但系数不能为负 ——
+	## 负分子会让 _aerobic() 那次整数除法从「向下取整」翻成「向零截断」。
+	t.aerobic_mult_growth = -10
+	check(t.aerobic_mult_at(1) == t.aerobic_mult, "①负系数下第 1 回合仍是基值")
+	check(t.aerobic_mult_at(20) == 0, "①负系数压到 0 为止，不会变成负系数")
+	t.aerobic_mult_growth = 10
 
 	## ①的整体接线：同一盘面、不同回合，收入必须真的不同
 	var g := make_game(2, 7)

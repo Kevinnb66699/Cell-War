@@ -21,6 +21,9 @@
 ##   emax=150   细胞账面能量上限（口径 #92，管的是存量不是流量）。0 = 不封
 ##   tiles=32     初始癌组织格数。**不传则按人数取**（现值 4 人 15 / 6 人 21，PRD 是固定 15）
 ##   amult=60     有氧呼吸系数（PRD 是 30 = 公式里的「×3」）
+##   prolif=35    【E-增生】每个相邻癌性组织贡献的概率，千分率（现值 30 = 3%）。
+##                9-01 二版 PRD 把它从 40 降到 30，当场实测 4 人局癌胜 64%→36%，
+##                是全库杠杆最重的一个旋钮，此前竟然扫不了。
 ##   agrow=2      【候选①】有氧系数每个世界回合再涨多少（0=关，第 1 回合恒等于 amult）
 ##   upkeep=20    【候选③】癌细胞每回合按当前能量的百分之几自动损能（0=关）
 ##   agrow2=10    【候选②】免疫普攻倍率每回合再涨几个百分点（0=关，第 1 回合恒为 100%）
@@ -61,11 +64,12 @@ var cmh := -1
 var cmc := -1
 var sclc := -1
 var pseu := -1
-var agrow := -1
-var upkeep := -1
-var agrow2 := -1
-var amem := -1
+var agrow := -9999   ## 负值合法（反方向），哨兵不能用 -1
+var upkeep := -9999   ## 负值合法（反方向），哨兵不能用 -1
+var agrow2 := -9999   ## 负值合法（反方向），哨兵不能用 -1
+var amem := -9999   ## 负值合法（反方向），哨兵不能用 -1
 var amemcap := -1
+var prolif := -1
 
 
 func _initialize() -> void:
@@ -107,6 +111,7 @@ func _parse() -> void:
 			"agrow2": agrow2 = int(kv[1])
 			"amem": amem = int(kv[1])
 			"amemcap": amemcap = int(kv[1])
+			"prolif": prolif = int(kv[1])
 
 
 func _order() -> Array:
@@ -134,16 +139,18 @@ func _tune() -> CWTuning:
 		t.init_cancer_tiles = tiles
 	if amult >= 0:
 		t.aerobic_mult = amult
-	if agrow >= 0:
+	if agrow != -9999:
 		t.aerobic_mult_growth = agrow
-	if upkeep >= 0:
+	if upkeep != -9999:
 		t.cancer_upkeep_pct = upkeep
-	if agrow2 >= 0:
+	if agrow2 != -9999:
 		t.immune_attack_pct_growth = agrow2
-	if amem >= 0:
+	if amem != -9999:
 		t.immune_attack_pct_per_memory = amem
 	if amemcap >= 0:
 		t.immune_attack_pct_memory_cap = amemcap
+	if prolif >= 0:
+		t.proliferate_per_adjacent = prolif
 	if cmh >= 0:
 		t.cancer_move_healthy = cmh
 	if cmc >= 0:
@@ -184,6 +191,7 @@ func _applied(t: CWTuning) -> String:
 			["agrow2", t.immune_attack_pct_growth, d.immune_attack_pct_growth],
 			["amem", t.immune_attack_pct_per_memory, d.immune_attack_pct_per_memory],
 			["amemcap", t.immune_attack_pct_memory_cap, d.immune_attack_pct_memory_cap],
+			["prolif", t.proliferate_per_adjacent, d.proliferate_per_adjacent],
 			["cmh", t.cancer_move_healthy, d.cancer_move_healthy],
 			["cmc", t.cancer_move_cancerous, d.cancer_move_cancerous],
 			["sclc", t.sclc_move_healthy, d.sclc_move_healthy],

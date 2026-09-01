@@ -72,7 +72,11 @@ var cancer_upkeep_pct := 0
 ## growth = 0 时恒等于 aerobic_mult —— 候选①关着的时候，这个函数必须是恒等式，
 ## 否则 924 条现有断言里凡是算过有氧收入的都会跟着漂。
 func aerobic_mult_at(n: int) -> int:
-	return aerobic_mult + aerobic_mult_growth * maxi(n - 1, 0)
+	## 下限 0 的理由同 immune_attack_pct()：负系数（= 反方向，削免疫收入）是要扫的
+	## 合法值，但系数本身不能为负 —— 负分子会让 `_aerobic()` 那次整数除法
+	## 从「向下取整」翻成「向零截断」，取整口径当场翻面。
+	## 2026-09-01 第一版漏了这句，负方向那批扫描数据因此不可用。
+	return maxi(aerobic_mult + aerobic_mult_growth * maxi(n - 1, 0), 0)
 
 
 ## 免疫普攻倍率（百分点）：候选②按世界回合加、候选④按抗原记忆加。
