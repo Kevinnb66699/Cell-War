@@ -361,6 +361,20 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 	## 计数在**发动**时加，不看判定结果 —— 与口径 #70「攻击发动即算攻过」一致：
 	## 失败被反弹也占一次，否则上限就成了「成功次数上限」，失败反而不受约束。
 	cell["attacks_used"] += 1
+	## 把「还剩几次」说出来。上限用完之后，攻击选项会直接从行动栏消失 ——
+	## 不报一声的话，玩家看到的就是「这一格刚才还能打，现在点不了了」，
+	## 和 2026-08-31 癌方复活那次是同一类问题（口径 #93）。
+	## 报在**用掉的这一刻**而不是事后解释：这一刻天然只发生一次，
+	## 不必往 fx_turn（规则状态，进 state_hash）里塞一个界面用的标记。
+	var cap: int = game.tune.attack_max_per_turn
+	if cap > 0:
+		var used: int = cell["attacks_used"]
+		if used >= cap:
+			game.log_msg("　【攻击】%s 本行动回合的攻击次数已用尽（%d/%d）"
+				% [game.cell_name(cell), used, cap])
+			game.announce("攻击次数已用尽（%d/%d）" % [used, cap], to)
+		else:
+			game.log_msg("　【攻击】第 %d/%d 次" % [used, cap])
 	## ---- 判定链（定案 #59/#60）----
 	## 骰面 → 世界事件并给（attack_outcome）→【补体调理】失败自动重掷（重掷严格不劣，
 	## 不必发问）→ 防御方【PD-L1表达】最后压一级。【高亲和力克隆】不掷骰直接大成功，

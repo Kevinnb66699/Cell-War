@@ -5277,8 +5277,13 @@ func t_attack_cap() -> void:
 				return true
 		return false
 	check(has_atk.call() and has_move.call(), "开局：攻击与普通迁移都在（前提成立）")
+	var n0: int = g.logs.size()
 	await g.actions._do_move(imm, Vector2i(1, 0), 0)
 	check(imm["attacks_used"] == 1, "攻击发动即计数（不看判定结果，口径 #70）")
+	## 用尽的那一刻必须报一声 —— 否则玩家只看到「刚才还能打的格子突然点不了了」
+	check("
+".join(g.logs.slice(n0)).contains("攻击次数已用尽"),
+		"次数用尽时给出提示")
 	check(not has_atk.call(), "用完次数：攻击选项消失")
 	check(has_move.call(), "用完次数：普通迁移不受影响")
 	## 合法性谓词是选项生成与提交复验共用的那一份（口径 #81），所以复验也该拒
@@ -5290,6 +5295,21 @@ func t_attack_cap() -> void:
 	g.tune.attack_max_per_turn = 0
 	imm["attacks_used"] = 99
 	check(has_atk.call(), "上限 0 = 不限，计数再高也不挡")
+	## 不限时不该冒出「已用尽」这句话（提示自己也要吃旋钮）
+	var n1: int = g.logs.size()
+	await g.actions._do_move(imm, Vector2i(1, 0), 0)
+	check(not "
+".join(g.logs.slice(n1)).contains("攻击次数已用尽"),
+		"上限 0 时不报「已用尽」")
+	## 上限 3 时，第 2 次要报进度而不是报用尽
+	g.tune.attack_max_per_turn = 3
+	imm["attacks_used"] = 1
+	var n2: int = g.logs.size()
+	await g.actions._do_move(imm, Vector2i(1, 0), 0)
+	var said: String = "
+".join(g.logs.slice(n2))
+	check(said.contains("第 2/3 次") and not said.contains("已用尽"),
+		"没到上限时报进度「第 2/3 次」")
 	g.dispose()
 
 
