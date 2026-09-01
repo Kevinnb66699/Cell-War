@@ -2786,6 +2786,28 @@ func t_card_pool() -> void:
 	check(CWCardData.cancer_phase(9) == 0 and CWCardData.cancer_phase(10) == 1 \
 		and CWCardData.cancer_phase(19) == 1 and CWCardData.cancer_phase(20) == 2,
 		"癌症卡分期切在第 10 / 20 回合")
+
+	## ---- 效果原文（2026-09-01 加，给手牌悬停详情用）----
+	## 只钉「每张都有、且不是空壳」——正文内容由生成脚本从 PRD 逐字抄，
+	## 在这里重写一遍断言就等于把 PRD 抄第三份了
+	var missing: Array = []
+	for n in CWCardData.CARDS:
+		var e: String = CWCardData.CARDS[n].get("effect", "")
+		if e.length() < 6:
+			missing.append(n)
+	check(missing.is_empty(), "66 张卡都带效果原文（缺：%s）" % str(missing))
+	## 【代谢耦联】是唯一同时进两个卡池的卡，PRD 给了它按阵营镜像的两套措辞
+	var mc_i := CWCardData.effect_of("代谢耦联", CWData.Faction.IMMUNE)
+	var mc_c := CWCardData.effect_of("代谢耦联", CWData.Faction.CANCER)
+	check(mc_i != mc_c and mc_i.contains("免疫细胞") and mc_c.contains("癌细胞"),
+		"【代谢耦联】按阵营给不同措辞")
+	var only_split := 0
+	for n in CWCardData.CARDS:
+		if CWCardData.CARDS[n].has("effect_cancer"):
+			only_split += 1
+	check(only_split == 1, "只有它一张需要分阵营（实为 %d 张）" % only_split)
+	check(CWCardData.effect_of("不存在的卡", CWData.Faction.IMMUNE) == "",
+		"问不认识的卡名返回空串，不崩")
 	## 同种子必须抽出同一张
 	var g := make_game(2, 1)
 	g.setup.build_board()
