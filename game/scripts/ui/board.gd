@@ -149,6 +149,13 @@ var _mark_target := {}   ## 轴坐标 -> 目标颜色；set_marks 传进来的�
 ## 而 board 是跨局复用的 —— 不主动取消的话，补间的回调会在**下一局**里把格子刷成健康贴图，
 ## 且贴图只在 `set_tissue()` 时更新、不是每帧重刷，那一格会一直错到它下次变状态为止。
 var _fade_overs: Array[Sprite2D] = []
+## 叠层身上那几条补间。**必须单独存着**，不能指望 `queue_free()` 顺手杀掉它们 ——
+## `queue_free()` 是**延迟**删除（帧末才真删），而补间在同一帧里照跑。
+## 机器负载高时单帧 delta 会远超淡出时长，补间当场跑完、回调落下
+## （`tile.texture = want`），然后才轮到删节点 —— 于是 `cancel_fade()` 形同虚设。
+## 这正是 2026-09-01 那条「一次红、五次绿」的不稳定断言的根因：
+## 它不是随机失败，是**只在机器被压满时**失败。
+var _fade_tweens: Array[Tween] = []
 var _mark_tweens := {}   ## 轴坐标 -> 正在跑的补间
 
 
@@ -232,16 +239,24 @@ func fade_to_healthy(seconds: float) -> void:
 		_marks.add_child(over)
 		_fade_overs.append(over)
 		var tw := over.create_tween()
+		_fade_tweens.append(tw)
 		tw.tween_property(over, "modulate:a", 1.0, seconds)
 		tw.tween_callback(func() -> void:
 			tile.texture = want
 			_fade_overs.erase(over)
+			_fade_tweens.erase(tw)
 			over.queue_free())
 
 
 ## 取消还没演完的「淡回健康」。开新局时必须调 —— 理由见 `_fade_overs` 的注释。
 ## 叠层一 free，绑在它身上的补间跟着死，回调也就不会再落到下一局的格子上。
 func cancel_fade() -> void:
+	## **先杀补间再删节点**，顺序不能反：queue_free() 帧末才生效，
+	## 那之前补间还有机会跑完并把回调落到格子上。kill() 是立即的。
+	for tw in _fade_tweens:
+		if tw != null and tw.is_valid():
+			tw.kill()
+	_fade_tweens.clear()
 	for o in _fade_overs:
 		if is_instance_valid(o):
 			o.queue_free()

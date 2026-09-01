@@ -31,7 +31,11 @@
 ##   amemcap=100  【候选④】记忆加成封顶，百分点（0=不封）
 ##   cmh / cmc    癌方移动到健康／癌性组织的费用 —— 前者就是占地单价（现值 12 / 2，PRD 5 / 2）
 ##   sclc / pseu  【极简胞浆】与【伪足穿透】的折后价（现值 7 / 5，PRD 3 / 2）
-##   lesion=off   关掉【原发灶】（癌细胞出生格开局固化）。默认 on
+##   lesion=on    开启【原发灶】（癌细胞出生格开局即固化）。**默认 off**
+##                —— 口径 #85（2026-08-31）已把 SOLID_AT_CANCER_SPAWN 关掉。
+##                这行原本写着「默认 on」，和 cw_data.gd:52 正好相反。
+##                2026-09-01 对抗式复核抓到，是本项目同日第三次
+##                「注释/测试与实现共享同一个错误前提」。
 ##   counter=0    攻击失败时攻击者的自损（现值 5 = PRD 的 0.5）
 ##   atkmax=3     免疫每行动回合最多攻击几次（现值 3）
 ##   ecancer=60   癌细胞初始能量，十分能量（现值 30 = 3.0，与免疫同）
@@ -235,6 +239,16 @@ func _run() -> void:
 	var colonize := 0
 	var prolif_n := 0
 	var purify := 0
+	## 攻击相关的三个计数器。**此前一个都没有** —— 于是「免疫普攻倍率」这类候选
+	## （2026-09-01 的候选②④）跑出来只有胜率一个数，看不出 AI 到底打没打架。
+	## 对抗式复核当场指出：启发式的攻击闸门是纯能量阈值、选目标只看敌人能量最低
+	## （heuristic_bridge.gd:115/149），**伤害倍率一个字都不进决策**；
+	## 蒙特卡洛那边一次净化值 125 分、一次普攻只值 10 分（cw_eval.gd）。
+	## 所以「加强普攻测不出差别」很可能测的是陪练不打架，而不是机制没杠杆。
+	## 不数出来就永远分不清这两件事。
+	var attacks := 0
+	var atk_fail := 0
+	var kills := 0
 	var t0 := Time.get_ticks_msec()
 	for gi in games:
 		var g := CWGame.new()
@@ -258,6 +272,17 @@ func _run() -> void:
 				purify += 1
 			elif line.contains("【增生】"):
 				prolif_n += int(line.split("】")[1].split(" ")[0])
+			elif line.contains("【攻击】第") or line.contains("的攻击次数已用尽"):
+				attacks += 1     ## 攻击**发动**即计数（口径 #70：失败被反弹也算攻过）
+			elif line.contains("攻击失败"):
+				atk_fail += 1
+			elif line.contains("☠"):
+				## 死亡日志是 `☠ X 死亡`（cw_game.gd:749），**不是**「被消灭」——
+				## 第一版就是照着直觉写的「被消灭」，跑出来每局击杀 0.0，
+				## 而同一批数据里免疫清场赢了一半以上的对局，自相矛盾。
+				## 【吞噬体成熟】那句「被直接消灭」是**斩杀前**的播报，
+				## 后面照样走 kill() 打 ☠，两个都数会重复计数。
+				kills += 1
 		g.dispose()
 	var secs := (Time.get_ticks_msec() - t0) / 1000.0
 	print("%-24s 席位 %-8s AI %-9s | 癌胜 %3d%% (%d/%d) | 平均 %4.1f 回合 | 上限判定 %2d 局 | 终局癌性 %5.1f 格 | %.0fs" % [
@@ -271,6 +296,9 @@ func _run() -> void:
 	for k in ks:
 		parts.append("%s %d" % [k, kinds[k]])
 	print("        胜法：%s" % ", ".join(parts))
+	print("        每局攻击：发动 %.1f 次（失败 %.1f）· 双方死亡 %.1f —— 对比净化 %.1f 次" % [
+		float(attacks) / games, float(atk_fail) / games,
+		float(kills) / games, float(purify) / games])
 	print("        每局占地：癌【定殖】%.1f + 【增生】%.1f vs 免疫【净化】%.1f（转化比 %.1f:1）" % [
 		float(colonize) / games, float(prolif_n) / games, float(purify) / games,
 		float(colonize + prolif_n) / maxf(float(purify), 1.0)])

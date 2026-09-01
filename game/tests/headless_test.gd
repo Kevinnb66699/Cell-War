@@ -2158,7 +2158,25 @@ func t_settle_screen() -> void:
 	var before2: Texture2D = tile2.texture
 	b2.fade_to_healthy(0.05)
 	check(not b2._fade_overs.is_empty(), "淡回健康：过渡叠层已建起来（前提成立）")
+	## ⚠ **先把补间引用抓在手里再取消**：cancel_fade() 里有一句 `_fade_tweens.clear()`，
+	## 清空之后再去遍历那个列表，补间死没死都是「空」—— 断言等于没写。
+	## 第一版就是这么写的，撤掉 kill() 之后照样全绿（当场验过）。
+	## 这就是本项目 2026-09-01 反复踩的「测试和实现共享同一份记账」。
+	var watched: Array[Tween] = []
+	for tw in b2._fade_tweens:
+		watched.append(tw)
+	check(not watched.is_empty(), "抓到了在跑的补间（前提成立）")
 	b2.cancel_fade()
+	## 确定性判据：不靠等，直接看那几条补间死没死。
+	## 下面 0.3 秒墙钟那条原本是唯一判据，而它只在机器被压满时才失败 ——
+	## 因为真 bug 是 cancel_fade() 靠 queue_free()（帧末才生效）杀补间，
+	## 单帧 delta 一大补间就先跑完并把回调落下了。两条一起留：一条钉机制，一条钉行为。
+	var alive := 0
+	for tw in watched:
+		if tw != null and tw.is_valid():
+			alive += 1
+	check(alive == 0 and b2._fade_overs.is_empty(),
+		"取消淡出：补间当场被 kill 掉，不是等 queue_free 顺手带走")
 	await create_timer(0.3).timeout
 	check(tile2.texture == before2, "取消淡出后，残留回调不会再把格子刷成健康")
 	b2.queue_free()
