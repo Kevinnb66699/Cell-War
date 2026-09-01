@@ -27,6 +27,7 @@ func _run_all() -> void:
 	await t_review_fixes()
 	await t_review_0831()
 	await t_attack_cap()
+	t_pass_through_ally()
 	await t_batch_death_and_triggers()
 	await t_design_required_checks()
 	await t_damage_pipeline()
@@ -5413,6 +5414,87 @@ func t_attack_cap() -> void:
 	check(said.contains("第 2/3 次") and not said.contains("已用尽"),
 		"没到上限时报进度「第 2/3 次」")
 	g.dispose()
+
+
+## 同阵营「可以穿过，但不能停留在这一格」（团队 2026-09-01 定案）。
+## 一步一格的模型下，「穿过」= 一次【迁移】落在**正后方第二格**，收**两格之和**。
+## 几何前提：A 和它正后方那格只有一个公共邻格（就是中间那格），所以友军堵住时
+## 绕路要 3 步 —— 穿过收 2 格的钱仍然省一步，这是这条规则的价值所在。
+func t_pass_through_ally() -> void:
+	print("[穿过友军]")
+	var g := bare_game()
+	var me := put_immune(g, Vector2i(0, 0))
+	var ally := put_immune(g, Vector2i(1, 0))
+	var far := Vector2i(2, 0)
+	var dests := func() -> Dictionary:
+		var out := {}
+		for o in g.actions.immune_move_options(me):
+			out[o["data"]["to"]] = o
+		return out
+
+	## 前提：正后方那格与自己不相邻，且和自己只有「中间那格」一个公共邻格
+	check(not (far in CWData.neighbors(Vector2i(0, 0))), "正后方第二格与自己不相邻")
+	var shared := 0
+	for n in CWData.neighbors(Vector2i(0, 0)):
+		if n in CWData.neighbors(far):
+			shared += 1
+	check(shared == 1, "A 与正后方那格只有一个公共邻格（绕路要 3 步的由来）")
+
+	var d: Dictionary = dests.call()
+	check(not d.has(Vector2i(1, 0)), "友军所在格：仍然不能停留")
+	check(d.has(far), "友军正后方那格：可以穿过去")
+	check(d[far]["label"].begins_with("穿过"), "标签标成「穿过」，让玩家看得出为什么贵")
+	## 两格都是健康组织 → 费用是单格的两倍
+	var one: int = g.tune.immune_move_healthy[g.immune_level]
+	check(d[far]["data"]["cost"] == one * 2, "费用 = 两格之和")
+	check(g.actions.pass_through_mid(me, far) == Vector2i(1, 0), "中间格就是友军那格")
+	## 点了队友那格没反应时，要告诉玩家「该点它正后方那一格」—— 新规则得教一次
+	var why: String = g.actions.move_block_reason(me, Vector2i(1, 0))
+	check(why.contains("不能停留") and why.contains("穿过"), "点友军格：说清楚不能停但能穿")
+	check(g.actions.move_block_reason(me, far) == "", "正后方那格本来就走得动，不解释")
+
+	## 中间没人 → 不是「穿过」，正后方那格照旧到不了
+	ally["pos"] = Vector2i(-1, 0)
+	check(not dests.call().has(far), "中间空着：正后方那格到不了（穿过不是普通远程移动）")
+
+	## 中间站的是**敌人** → 不能穿（那是攻击目标，攻击只能从相邻格发起）
+	ally["alive"] = false
+	var foe := _put_cancer(g, Vector2i(1, 0), 200)
+	check(not dests.call().has(far), "中间是敌人：不能穿过去")
+	check(g.actions.pass_through_mid(me, far) == Vector2i.MAX, "敌人不构成「穿过」的中间格")
+
+	## 落点被占（哪怕是友军）→ 不能停
+	foe["alive"] = false
+	ally["alive"] = true
+	ally["pos"] = Vector2i(1, 0)
+	var third := put_immune(g, far)
+	check(not dests.call().has(far), "落点站着人：不能停，所以也不能穿")
+	third["alive"] = false
+
+	## 落点出界 → 不可
+	me["pos"] = Vector2i(5, 0)
+	ally["pos"] = Vector2i(6, 0)
+	check(not dests.call().has(Vector2i(7, 0)), "落点出界：不可")
+
+	## 癌方同样适用（同阵营是对称的），且费用按各自组织类型分别计
+	var g2 := bare_game()
+	var c1 := _put_cancer(g2, Vector2i(0, 0), 200)
+	_put_cancer(g2, Vector2i(1, 0), 200)
+	g2.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER   ## 中间是癌组织（便宜）
+	var opts2 := {}
+	var tmp: Array = []
+	g2.actions._cancer_options(c1, tmp)
+	for o in tmp:
+		if o["data"].get("act", "") == "move":
+			opts2[o["data"]["to"]] = o
+	check(opts2.has(far) and opts2[far]["label"].begins_with("穿过"), "癌方也能穿过同伴")
+	## 小细胞肺癌走健康组织吃【极简胞浆】的折后价 —— 正好顺带钉住
+	## 「两格各自走完整定价链」，而不是拿落点的价格 ×2
+	check(opts2[far]["data"]["cost"]
+			== g2.tune.cancer_move_cancerous + g2.tune.sclc_move_healthy,
+		"癌方费用：中间癌组织 0.2 + 落点健康组织 0.7（极简胞浆），各按自己的类型算")
+	g.dispose()
+	g2.dispose()
 
 
 func t_batch_death_and_triggers() -> void:

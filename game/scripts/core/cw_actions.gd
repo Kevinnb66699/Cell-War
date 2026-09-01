@@ -63,14 +63,14 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 ## 迁移合法性和定价只定义一处，事件和行动栏永远口径一致。
 func immune_move_options(cell: Dictionary) -> Array:
 	var opts: Array = []
-	for n in CWData.neighbors(cell["pos"]):
+	for n in move_dests(cell):
 		if not _is_move_legal_now(cell, n):
 			continue          # 与提交时复验的是同一份谓词
 		var enemies: Array = game.cells_at(n, CWData.Faction.CANCER)
 		var cost := _move_cost_mod(cell, n, _move_base_cost(cell, n))
 		if not game.can_pay(cell, cost):
 			continue
-		var tag := "攻击" if not enemies.is_empty() else "迁移"
+		var tag := "攻击" if not enemies.is_empty() 			else ("穿过" if pass_through_mid(cell, n) != Vector2i.MAX else "迁移")
 		opts.append({
 			"label": "%s→%s（%s 能量）" % [tag, str(n), CWData.fmt(cost)],
 			"data": { "act": "move", "to": n, "cost": cost },
@@ -99,6 +99,11 @@ func move_block_reason(cell: Dictionary, to: Vector2i) -> String:
 		return ""
 	if not cell["alive"] or not (to in CWData.neighbors(cell["pos"])):
 		return ""
+	## 友军挡路：这条要说 —— 「不能停但可以穿过去」是新规则（口径 #98），
+	## 玩家点了队友那格没反应时，最需要知道的正是「该点它正后方那一格」
+	var here: Array = game.cells_at(to)
+	if not here.is_empty() and here[0]["faction"] == cell["faction"]:
+		return "同阵营不能停留在同一格，但可以穿过去 —— 点它正后方那一格"
 	if cell["faction"] != CWData.Faction.IMMUNE:
 		return ""
 	if game.cells_at(to, CWData.Faction.CANCER).is_empty():
@@ -110,11 +115,46 @@ func move_block_reason(cell: Dictionary, to: Vector2i) -> String:
 
 
 ## 迁移/攻击到相邻格是否合法。不看能量（那是报价的事），只看盘面。
+## 「穿过友军」：`to` 不与自己相邻，而是在**同一方向的第二格**上，中间那格站着
+## **同阵营**的细胞（团队 2026-09-01 定案：「同阵营可以穿过，但是不能停留在这一格」）。
+## 返回中间那格；不是这种走法就返回 `Vector2i.MAX`。
+##
+## 几何上这条很值：A 和它正后方那格**只有一个公共邻格**，就是中间那格 ——
+## 友军堵在那儿时绕路要走 3 步，所以「穿过」按两格收费仍然省一步。
+##
+## **落点必须是空格，不能穿过去打人**：那会把「移动」和「攻击」两条结算链缠在一起
+## （攻击失败要弹回哪一格？弹回中间那格就是站在友军身上）。攻击照旧只能从相邻格发起。
+func pass_through_mid(cell: Dictionary, to: Vector2i) -> Vector2i:
+	for n in CWData.neighbors(cell["pos"]):
+		if n + (n - cell["pos"]) != to:
+			continue
+		var mids: Array = game.cells_at(n)
+		if mids.is_empty() or mids[0]["faction"] != cell["faction"]:
+			return Vector2i.MAX
+		return n
+	return Vector2i.MAX
+
+
+## 一次【迁移】能去的所有格：六个相邻格 + 穿过友军落在正后方的那几格。
+## 选项生成和 AI 都走这里，别各自拼一份（口径 #81）。
+func move_dests(cell: Dictionary) -> Array[Vector2i]:
+	var out: Array[Vector2i] = CWData.neighbors(cell["pos"]).duplicate()
+	for n in CWData.neighbors(cell["pos"]):
+		var far: Vector2i = n + (n - cell["pos"])
+		if CWData.is_on_board(far):
+			out.append(far)
+	return out
+
+
 func _is_move_legal_now(cell: Dictionary, to: Vector2i) -> bool:
 	if not cell["alive"] or not CWData.is_on_board(to):
 		return false
 	if not (to in CWData.neighbors(cell["pos"])):
-		return false
+		## 「穿过友军」落在正后方第二格。落点必须**完全空着** ——
+		## 不能停在人身上，也不允许穿过去发起攻击（见 pass_through_mid 头注）
+		if pass_through_mid(cell, to) == Vector2i.MAX:
+			return false
+		return game.cells_at(to).is_empty()
 	if cell["faction"] == CWData.Faction.CANCER:
 		return game.cells_at(to).is_empty()          ## 一格一细胞
 	## 免疫：空格才谈得上「迁移」；有癌细胞则这一下是攻击
@@ -158,14 +198,16 @@ func _lyse_targets(cell: Dictionary) -> Array[Vector2i]:
 
 
 func _cancer_options(cell: Dictionary, opts: Array) -> void:
-	for n in CWData.neighbors(cell["pos"]):
+	for n in move_dests(cell):
 		if not _is_move_legal_now(cell, n):
 			continue          # 与提交时复验的是同一份谓词
 		var cost := _move_cost_mod(cell, n, _move_base_cost(cell, n))
 		if not game.can_pay(cell, cost):
 			continue
 		opts.append({
-			"label": "移动→%s（%s 能量）" % [str(n), CWData.fmt(cost)],
+			"label": "%s→%s（%s 能量）" % [
+				"穿过" if pass_through_mid(cell, n) != Vector2i.MAX else "移动",
+				str(n), CWData.fmt(cost)],
 			"data": { "act": "move", "to": n, "cost": cost },
 		})
 	if _can_draw(cell) and game.can_pay(cell, CWData.CANCER_DRAW_COST):
@@ -238,6 +280,15 @@ func _cancerous_adj(c: Vector2i) -> int:
 ## 基准价之上的所有修饰交给 CWCost —— 卡牌、永久技能、世界事件一律以
 ## CostModifier 的形式登记在 CWCost.TEMPLATES，本文件不再自己判谁减多少。
 func _move_base_cost(cell: Dictionary, dest: Vector2i) -> int:
+	var mid := pass_through_mid(cell, dest)
+	if mid != Vector2i.MAX:
+		## 穿过友军：中间格与落点格**各按自己的组织类型**计一次（定案「两格之和」）。
+		## 摆在这里而不是各调用方：行动菜单、AI 评估、界面价签、提交复验全走这一个口。
+		return _one_step_base(cell, mid) + _one_step_base(cell, dest)
+	return _one_step_base(cell, dest)
+
+
+func _one_step_base(cell: Dictionary, dest: Vector2i) -> int:
 	if cell["faction"] == CWData.Faction.CANCER:
 		return _cancer_move_cost(cell, dest)
 	if game.is_cancerous(dest):
