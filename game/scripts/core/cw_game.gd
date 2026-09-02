@@ -32,6 +32,7 @@ var phase := ""            # 开局布置 / 世界回合 S / 玩家回合 / 世�
 var current_pid := -1      # 正在行动的玩家；非玩家回合时为 -1
 var win_reason := ""
 var win_kind := ""         # immune_clear / cancer_weighted / limit_cancer / limit_immune（统计用）
+var cancer_win_streak := 0  # 癌方加权占地连续达标的回合末次数（见 tune.cancer_win_hold_rounds）；进快照与哈希
 var rng := RandomNumberGenerator.new()
 var bridges := {}          # player_id -> CWBridge
 var logs: PackedStringArray = []
@@ -296,6 +297,7 @@ func snapshot() -> Dictionary:
 		"pending": _pending.duplicate(true),
 		"round_no": round_no, "memory": memory, "immune_level": immune_level,
 		"winner": winner, "win_reason": win_reason, "win_kind": win_kind,
+		"cancer_win_streak": cancer_win_streak,
 		"current_pid": current_pid, "phase": phase,
 		"events": events.duplicate(true),
 		"rng": rng.state,
@@ -315,6 +317,7 @@ func restore(snap: Dictionary) -> void:
 	winner = snap["winner"]
 	win_reason = snap["win_reason"]
 	win_kind = snap["win_kind"]
+	cancer_win_streak = snap.get("cancer_win_streak", 0)   ## 旧存档没有这个键
 	current_pid = snap["current_pid"]
 	phase = snap["phase"]
 	events = snap["events"].duplicate(true)
@@ -828,10 +831,21 @@ func check_cancer_win() -> void:
 	if winner >= 0:
 		return
 	var w := count_tissue(CWData.Tissue.CANCER) + 2 * count_tissue(CWData.Tissue.SOLID)
-	if w >= tune.cancer_win_weighted:
-		winner = CWData.Faction.CANCER
-		win_kind = "cancer_weighted"
-		win_reason = "癌症胜利：加权占地 %d >= %d" % [w, tune.cancer_win_weighted]
+	if w < tune.cancer_win_weighted:
+		if cancer_win_streak > 0:
+			log_msg("癌方加权占地回落到 %d < %d，胜利计数归零" % [w, tune.cancer_win_weighted])
+		cancer_win_streak = 0
+		return
+	cancer_win_streak += 1
+	if cancer_win_streak < tune.cancer_win_hold_rounds:
+		## 达标但还没坐满：只拉响警报，给免疫方一个完整的回应回合（团队 2026-09-01 提案 B）。
+		## hold_rounds = 1（现行）时永远走不到这里 —— 第一次达标就判胜，逐位等于旧行为。
+		log_msg("★ 警报：癌方加权占地 %d >= %d（连续第 %d/%d 个回合末），下回合末仍达标即获胜" % [
+			w, tune.cancer_win_weighted, cancer_win_streak, tune.cancer_win_hold_rounds])
+		return
+	winner = CWData.Faction.CANCER
+	win_kind = "cancer_weighted"
+	win_reason = "癌症胜利：加权占地 %d >= %d" % [w, tune.cancer_win_weighted]
 
 
 # ---- 日志 / 调试 ----
@@ -854,7 +868,7 @@ func cell_name(c: Dictionary) -> String:
 ## 全状态哈希：确定性测试与未来联机对局校验用
 func state_hash() -> String:
 	var parts: PackedStringArray = []
-	parts.append("r%d m%d lv%d w%d" % [round_no, memory, immune_level, winner])
+	parts.append("r%d m%d lv%d w%d cs%d" % [round_no, memory, immune_level, winner, cancer_win_streak])
 	var coords := tiles.keys()
 	coords.sort()
 	for c in coords:

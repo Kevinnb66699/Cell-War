@@ -19,6 +19,7 @@ func _run_all() -> void:
 	await t_hit_order()
 	t_anaerobic_round()
 	t_balance_candidates()
+	t_cancer_win_hold()
 	t_storm_preview()
 	await t_card_events()
 	await t_card_events_cancer()
@@ -360,6 +361,55 @@ func t_storm_preview() -> void:
 		"炎症风暴：不含中心格（走 neighbors）")
 	check(fx2.storm_immune_tiles(mid).has(mid),
 		"免疫风暴：**含**中心格（走 _tiles_in_range，且只排除癌细胞占据）")
+
+## ---- 提案 B（团队 2026-09-01）：癌方占地胜利要**连续 N 个回合末**达标 ----
+## 旋钮 cancer_win_hold_rounds 默认 1 = 达标即胜（现行）。N=2 时第一次达标只拉警报，
+## 免疫方有一个完整回合回应；中途回落归零。计数进快照与哈希 —— 推演里达标一次不能污染主线。
+func t_cancer_win_hold() -> void:
+	print("[占地胜利·连续达标]")
+	check(CWTuning.new().cancer_win_hold_rounds == 1, "默认 1 = 达标即胜（现行规则，不改行为）")
+	var need := CWTuning.new().cancer_win_weighted
+	var g := _flat_board_with_cancer(7, need)
+	g.check_cancer_win()
+	check(g.winner == CWData.Faction.CANCER and g.win_kind == "cancer_weighted", "hold=1：第一次达标就判胜")
+	g.dispose()
+
+	var g2 := _flat_board_with_cancer(7, need)
+	g2.tune.cancer_win_hold_rounds = 2
+	var coords: Array = g2.tiles.keys()
+	var n0 := g2.logs.size()
+	g2.check_cancer_win()
+	check(g2.winner < 0 and g2.cancer_win_streak == 1, "hold=2：第一次达标不判胜，计数 1")
+	check(g2.logs.size() > n0 and g2.logs[-1].contains("1/2"), "达标那一刻记一条警报日志（连续第 1/2）")
+	var snap := g2.snapshot()
+	g2.check_cancer_win()
+	check(g2.winner == CWData.Faction.CANCER, "hold=2：连续第二个回合末仍达标 → 判胜")
+	g2.restore(snap)
+	check(g2.winner < 0 and g2.cancer_win_streak == 1, "restore 把计数和胜负一起放回（推演不污染主线）")
+	g2.tiles[coords[0]]["tissue"] = CWData.Tissue.HEALTHY
+	g2.check_cancer_win()
+	check(g2.winner < 0 and g2.cancer_win_streak == 0, "回落到线下：计数归零")
+	g2.tiles[coords[0]]["tissue"] = CWData.Tissue.CANCER
+	g2.check_cancer_win()
+	check(g2.winner < 0 and g2.cancer_win_streak == 1, "再次达标要从 1 重新数，不能沿用旧计数")
+	var h1 := g2.state_hash()
+	g2.cancer_win_streak = 0
+	check(g2.state_hash() != h1, "连续达标计数参与 state_hash（它决定下回合判不判胜）")
+	g2.dispose()
+
+
+## 全盘先铺成健康组织，再把前 n 格改成癌组织 —— 数量精确可控，
+## 不受 build_board 自带的初始癌组织影响（那会让「回落一格」测不出来）。
+func _flat_board_with_cancer(seed_value: int, n: int) -> CWGame:
+	var g := make_game(2, seed_value)
+	g.setup.build_board()
+	for c in g.tiles.keys():
+		g.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
+		g.tiles[c]["solid"] = 0
+	var coords: Array = g.tiles.keys()
+	for i in n:
+		g.tiles[coords[i]]["tissue"] = CWData.Tissue.CANCER
+	return g
 
 func t_balance_candidates() -> void:
 	print("[平衡候选旋钮]")

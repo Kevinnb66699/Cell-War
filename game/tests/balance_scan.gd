@@ -24,6 +24,8 @@
 ##   cwin=100     癌方加权占地胜利门槛（现值 85 = 癌组织×1 + 固化×2）。
 ##                注意固化在这条式子里**算 2 格**，所以「让固化更容易」会同时
 ##                加速癌方的占地胜利 —— 想拉长对局必须两个数一起动。
+##   chold=2      癌方占地胜利要**连续几个回合末**达标（现值 1 = 达标即胜）。团队 2026-09-01 提案 B：
+##                给免疫方一个完整的回应回合，专治「末位癌细胞一口气铺到线、紧接着就判」。
 ##   solid=10     【固化】门槛，十分整数（现值 30 = 蹲满 3 个回合）。
 ##                2026-09-01 手打发现：癌方最优打法是一直动、一直铺，
 ##                蹲 3 回合等于放弃 30 格扩张，所以**固化在实战中从不出现**
@@ -85,6 +87,7 @@ var amemcap := -1
 var prolif := -1
 var solid := -1
 var cwin := -1
+var chold := -1
 
 
 func _initialize() -> void:
@@ -129,6 +132,7 @@ func _parse() -> void:
 			"prolif": prolif = int(kv[1])
 			"solid": solid = int(kv[1])
 			"cwin": cwin = int(kv[1])
+			"chold": chold = int(kv[1])
 
 
 func _order() -> Array:
@@ -172,6 +176,8 @@ func _tune() -> CWTuning:
 		t.solidify_threshold = solid
 	if cwin >= 0:
 		t.cancer_win_weighted = cwin
+	if chold >= 1:
+		t.cancer_win_hold_rounds = chold
 	if cmh >= 0:
 		t.cancer_move_healthy = cmh
 	if cmc >= 0:
@@ -215,6 +221,7 @@ func _applied(t: CWTuning) -> String:
 			["prolif", t.proliferate_per_adjacent, d.proliferate_per_adjacent],
 			["solid", t.solidify_threshold, d.solidify_threshold],
 			["cwin", t.cancer_win_weighted, d.cancer_win_weighted],
+			["chold", t.cancer_win_hold_rounds, d.cancer_win_hold_rounds],
 			["cmh", t.cancer_move_healthy, d.cancer_move_healthy],
 			["cmc", t.cancer_move_cancerous, d.cancer_move_cancerous],
 			["sclc", t.sclc_move_healthy, d.sclc_move_healthy],

@@ -184,6 +184,11 @@ var limit_cancerous := CWData.LIMIT_CANCEROUS
 ## 癌方即时胜利门槛（癌组织 + 2×固化）。规则原文 41 = ⌈2/3×61⌉。
 ## 注意：这个门槛如果太低，对局会在回合上限之前就结束，使上限规则形同虚设。
 var cancer_win_weighted := CWData.CANCER_WIN_WEIGHTED
+## 癌方占地胜利要**连续几个世界回合末**都达标才判定。1 = 现行（达标即胜）。
+## 团队 2026-09-01 提出：现行顺序下末位行动的是癌方，最后一个癌细胞可以一口气铺到阈值、
+## 紧接着就是 E 阶段判定，免疫方没有任何回应窗口。设为 2 时第一次达标只拉响警报，
+## 免疫方有整整一个世界回合把占地压回阈值以下；下一回合末仍达标才判胜，中途掉下去计数归零。
+var cancer_win_hold_rounds := 1
 
 # ---- 原发灶：每个癌症玩家的出生格开局即为固化癌组织 ----
 var solid_at_cancer_spawn := CWData.SOLID_AT_CANCER_SPAWN

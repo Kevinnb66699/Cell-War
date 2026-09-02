@@ -21,6 +21,7 @@
 ##   ai=heur      其余席位的 AI：heur=启发式｜mc=蒙特卡洛
 ##   tiles=24     初始癌组织格数（不传则按人数取：4 人 15 / 6 人 21）
 ##   solid=10 cwin=110   固化门槛 / 癌方加权占地胜利门槛（节奏配置用）
+##   chold=2     癌方占地胜利要连续几个回合末达标（提案 B，现值 1）
 ##   agrow / agrow2 / upkeep / amem   四条平衡候选，名字与 balance_scan.gd 一致
 ## ⚠ 两个脚本的旋钮**必须同步加**。2026-09-01 手打第 5 局就栽在这儿：
 ##   solid/cwin 只加进了 balance_scan.gd，play.gd 照单全收却不赋值，
@@ -54,6 +55,7 @@ var amem := -9999
 var prolif := -1
 var solid := -1
 var cwin := -1
+var chold := -1
 
 
 func _initialize() -> void:
@@ -116,6 +118,7 @@ func _parse() -> void:
 			"prolif": prolif = int(kv[1])
 			"solid": solid = int(kv[1])
 			"cwin": cwin = int(kv[1])
+			"chold": chold = int(kv[1])
 
 
 ## 只接手打验证真正需要的那几个旋钮（推荐档 + 四条候选），不做全量镜像 ——
@@ -130,6 +133,8 @@ func _tune() -> CWTuning:
 		t.solidify_threshold = solid
 	if cwin >= 0:
 		t.cancer_win_weighted = cwin
+	if chold >= 1:
+		t.cancer_win_hold_rounds = chold
 	if agrow != -9999:
 		t.aerobic_mult_growth = agrow
 	if agrow2 != -9999:
@@ -151,6 +156,7 @@ func _applied(t: CWTuning) -> String:
 			["prolif", t.proliferate_per_adjacent, d.proliferate_per_adjacent],
 			["solid", t.solidify_threshold, d.solidify_threshold],
 			["cwin", t.cancer_win_weighted, d.cancer_win_weighted],
+			["chold", t.cancer_win_hold_rounds, d.cancer_win_hold_rounds],
 			["agrow", t.aerobic_mult_growth, d.aerobic_mult_growth],
 			["agrow2", t.immune_attack_pct_growth, d.immune_attack_pct_growth],
 			["upkeep", t.cancer_upkeep_pct, d.cancer_upkeep_pct],
