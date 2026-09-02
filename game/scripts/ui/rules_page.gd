@@ -55,7 +55,9 @@ static func sections(tune: CWTuning = null) -> Array:
 	return [
 		{ "title": "怎么赢", "lines": [
 			## 点阵字库没有 ≥ - 这类数学符号（字形覆盖测试盯着），中文说法代替
-			"癌方：加权占地达到 %d（癌组织记 1、固化记 2）" % tune.cancer_win_weighted,
+			"癌方：加权占地达到 %d（癌组织记 1、固化记 2）" % tune.cancer_win_weighted
+				+ ("，且连续 %d 个世界回合末都达标（首次达标只是警报）" % tune.cancer_win_hold_rounds
+				if tune.cancer_win_hold_rounds > 1 else ""),
 			"免疫方：癌细胞全灭且无可复活的固化癌组织",
 			"两条都在世界回合 E 的最后判；上限 %d 个世界回合" % CWData.LIMIT_ROUND,
 		] },

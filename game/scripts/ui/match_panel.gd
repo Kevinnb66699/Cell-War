@@ -57,6 +57,7 @@ var _round: Label
 var _phase: Label
 var _weighted: Label
 var _weighted_max: Label
+var _weighted_caption: Label   ## 平时写「癌性加权」，警报期换成「★ 警报 1/2」
 var _bar_fill: ColorRect
 var _level: Label
 var _memory: Label
@@ -120,6 +121,14 @@ func refresh(game: CWGame) -> void:
 	var goal: int = game.tune.cancer_win_weighted
 	_weighted.text = str(w)
 	_weighted_max.text = " / %d" % goal
+	## 定案 B（2026-09-01）：首次达标只拉警报。引擎的 cancer_win_streak > 0 就是「警报期」，
+	## 界面只负责把它显示出来（架构约定 #10），不自己数。
+	if game.cancer_win_streak > 0:
+		_weighted_caption.text = "★ 警报 %d/%d" % [game.cancer_win_streak, game.tune.cancer_win_hold_rounds]
+		_weighted_caption.add_theme_color_override("font_color", CWStyle.CANCER)
+	else:
+		_weighted_caption.text = "癌性加权"
+		_weighted_caption.add_theme_color_override("font_color", CWStyle.TEXT_DIM)
 	_bar_fill.size.x = W * clampf(float(w) / float(goal), 0.0, 1.0)
 
 	for pid in game.players.size():
@@ -225,7 +234,7 @@ func _build(n: int) -> void:
 
 	# ② 胜负进度：一行标签 + 一条进度条
 	var y := PAD + ROUND_H + GAP
-	_put(CWStyle.label("癌性加权", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM), PAD, y + 10, 100)
+	_weighted_caption = _put(CWStyle.label("癌性加权", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM), PAD, y + 10, 100)
 	_weighted_max = _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
 		PAD, y + 10, W, HORIZONTAL_ALIGNMENT_RIGHT)
 	_weighted = _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.CANCER),

@@ -839,7 +839,7 @@ func check_cancer_win() -> void:
 	cancer_win_streak += 1
 	if cancer_win_streak < tune.cancer_win_hold_rounds:
 		## 达标但还没坐满：只拉响警报，给免疫方一个完整的回应回合（团队 2026-09-01 提案 B）。
-		## hold_rounds = 1（现行）时永远走不到这里 —— 第一次达标就判胜，逐位等于旧行为。
+		## hold_rounds = 1（定案 B 之前的旧规则）时永远走不到这里 —— 第一次达标就判胜。
 		log_msg("★ 警报：癌方加权占地 %d >= %d（连续第 %d/%d 个回合末），下回合末仍达标即获胜" % [
 			w, tune.cancer_win_weighted, cancer_win_streak, tune.cancer_win_hold_rounds])
 		return

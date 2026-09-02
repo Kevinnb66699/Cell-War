@@ -35,6 +35,7 @@ static func init_cancer_tiles(n_players: int) -> int:
 # PRD 这一版已明确写死，团队决定「按 PRD 实现，差异不再讨论」。
 # 两个胜利条件现在**都是 E 类**，在 E 阶段最后统一判定（见 CWWorld.e_phase）。
 const CANCER_WIN_WEIGHTED := 85          # 癌+2×固化 ≥ ⌈2/3×127⌉ 时癌症即胜
+const CANCER_WIN_HOLD_ROUNDS := 2        # 要**连续**这么多个世界回合末都达标才判胜（团队 2026-09-01 定案 B：首次达标只拉警报）
 const LIMIT_ROUND := 30                  # 终局世界回合数
 const LIMIT_CANCEROUS := 63              # 终局判定线 ⌊1/2×127⌋
 

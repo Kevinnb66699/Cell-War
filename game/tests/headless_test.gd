@@ -85,7 +85,7 @@ func _run_all() -> void:
 	await t_hand_play()
 	await t_hand_exit()
 	t_card_info()
-	t_match_panel()
+	await t_match_panel()
 	await t_settle_screen()
 	await t_opening()
 	await t_pause_and_teardown()
@@ -367,11 +367,13 @@ func t_storm_preview() -> void:
 ## 免疫方有一个完整回合回应；中途回落归零。计数进快照与哈希 —— 推演里达标一次不能污染主线。
 func t_cancer_win_hold() -> void:
 	print("[占地胜利·连续达标]")
-	check(CWTuning.new().cancer_win_hold_rounds == 1, "默认 1 = 达标即胜（现行规则，不改行为）")
+	check(CWTuning.new().cancer_win_hold_rounds == 2 and CWData.CANCER_WIN_HOLD_ROUNDS == 2,
+		"默认 2 = 连续两个世界回合末达标（团队 2026-09-01 定案 B）")
 	var need := CWTuning.new().cancer_win_weighted
 	var g := _flat_board_with_cancer(7, need)
+	g.tune.cancer_win_hold_rounds = 1
 	g.check_cancer_win()
-	check(g.winner == CWData.Faction.CANCER and g.win_kind == "cancer_weighted", "hold=1：第一次达标就判胜")
+	check(g.winner == CWData.Faction.CANCER and g.win_kind == "cancer_weighted", "hold=1（旧规则）：第一次达标就判胜")
 	g.dispose()
 
 	var g2 := _flat_board_with_cancer(7, need)
@@ -708,7 +710,9 @@ func t_cancer_s_win() -> void:
 	check(g.winner < 0, "加权 %d < %d → 未获胜" % [need - 1, need])
 	g.tiles[coords[need - 1]]["tissue"] = CWData.Tissue.CANCER
 	g.check_cancer_win()
-	check(g.winner == CWData.Faction.CANCER, "加权 %d → 癌症胜利" % need)
+	check(g.winner < 0 and g.cancer_win_streak == 1, "加权 %d 首次达标 → 只拉警报，不判胜（定案 B）" % need)
+	g.check_cancer_win()
+	check(g.winner == CWData.Faction.CANCER, "连续第二个回合末仍达标 → 癌症胜利")
 	g.dispose()
 
 
@@ -1689,6 +1693,7 @@ func t_rules_page() -> void:
 			all += line + "|"
 	var tune := CWTuning.new()
 	check(all.contains("加权占地达到 %d" % tune.cancer_win_weighted), "胜利线跟着旋钮走")
+	check(all.contains("连续 %d 个世界回合末" % tune.cancer_win_hold_rounds), "占地胜利的连续回合数跟着旋钮走（定案 B）")
 	check(all.contains("上限 %d 个世界回合" % CWData.LIMIT_ROUND), "回合上限跟着常量走")
 	check(all.contains("-%s" % CWData.fmt(tune.attack_dmg_success))
 		and all.contains("-%s" % CWData.fmt(tune.attack_dmg_crit)), "攻击伤害跟着旋钮走")
@@ -2216,6 +2221,19 @@ func t_match_panel() -> void:
 		if p._next_event_round(pair[0]) != pair[1]:
 			ev = false
 	check(ev, "世界事件回合表：3 / 6 / 10 / 15 之后每 5 个")
+
+	## 定案 B（2026-09-01）的警报：标题只读引擎的 cancer_win_streak，界面自己不数
+	var g := make_game(6, 7)
+	await run_setup(g)
+	p.refresh(g)
+	check(p._weighted_caption.text == "癌性加权", "平时标题是「癌性加权」")
+	g.cancer_win_streak = 1
+	p.refresh(g)
+	check(p._weighted_caption.text == "★ 警报 1/2", "警报期标题换成「★ 警报 1/2」（%s）" % p._weighted_caption.text)
+	g.cancer_win_streak = 0
+	p.refresh(g)
+	check(p._weighted_caption.text == "癌性加权", "回落后标题复原")
+	g.dispose()
 
 	p.queue_free()
 
