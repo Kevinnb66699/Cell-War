@@ -2437,6 +2437,20 @@ func t_match_panel() -> void:
 	await run_setup(g)
 	p.refresh(g)
 	check(p._weighted_caption.text == "癌性加权", "平时标题是「癌性加权」")
+	## 进行中的世界事件常驻一行（2026-09-02 Kevin：此前只有日志里看得到）
+	check(not p._events.visible and p._events.text == "", "没有事件 → 那一行隐藏")
+	g.events["active"].append({ "name": "基质阻隔", "left": 2, "stacks": 1, "data": {} })
+	g.events["active"].append({ "name": "TGF-β释放", "left": 2, "stacks": 1, "data": {} })   ## 卡牌挂的全局修饰，不列
+	g.events["active"].append({ "name": "免疫抑制因子", "left": 1, "stacks": 2, "data": {} })
+	p.refresh(g)
+	check(p._events.visible and p._events.text == "【基质阻隔】剩2回合·【免疫抑制因子】×2本回合",
+		"列出世界事件、剩余回合与叠数，不列卡牌全局修饰：%s" % p._events.text)
+	check(p._events.position.y >= p._phase.position.y + 12
+		and p._events.position.y < CWMatchPanel.PAD + CWMatchPanel.ROUND_H + CWMatchPanel.GAP,
+		"那一行落在阶段行下面、胜负进度块上面的空档里（y=%d）" % int(p._events.position.y))
+	g.events["active"].clear()
+	p.refresh(g)
+	check(not p._events.visible, "事件到期移除 → 那一行收起")
 	g.cancer_win_streak = 1
 	p.refresh(g)
 	check(p._weighted_caption.text == "★ 警报 1/2", "警报期标题换成「★ 警报 1/2」（%s）" % p._weighted_caption.text)

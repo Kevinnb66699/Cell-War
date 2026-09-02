@@ -55,6 +55,10 @@ const CANCER_ICON := {
 
 var _round: Label
 var _phase: Label
+## 进行中的世界事件（名字 + 剩余回合）。此前只有对局日志里能看到，玩家在盘面上根本不知道
+## 【基质阻隔】还在（2026-09-02 Kevin：「有能量为什么走不进癌组织」的根源之一）。
+## 没有事件时整行隐藏；放在回合块底部那 14px 的空档里，不动任何块高（见文件头「一个数都别改」）。
+var _events: Label
 var _weighted: Label
 var _weighted_max: Label
 var _weighted_caption: Label   ## 平时写「癌性加权」，警报期换成「★ 警报 1/2」
@@ -115,6 +119,8 @@ func refresh(game: CWGame) -> void:
 		_build(game.players.size())
 	_round.text = "第 %d 回合" % game.round_no
 	_phase.text = "%s · 世界事件 第 %d 回合" % [game.phase, _next_event_round(game.round_no)]
+	_events.text = active_events_text(game)
+	_events.visible = _events.text != ""
 
 	var w := game.count_tissue(CWData.Tissue.CANCER) \
 		+ 2 * game.count_tissue(CWData.Tissue.SOLID)
@@ -228,9 +234,12 @@ func _build(n: int) -> void:
 	_tip_pid = -1
 	_tip_key = ""
 
-	# ① 回合 / 阶段
+	# ① 回合 / 阶段 / 进行中的世界事件
 	_round = _put(CWStyle.label("", CWStyle.SIZE_BIG, CWStyle.TEXT_HI), PAD, PAD, W)
 	_phase = _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM), PAD, PAD + 36, W)
+	_events = _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI), PAD, PAD + 50, W)
+	_events.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS   ## 同时挂着三个事件才会超宽；细节看日志
+	_events.visible = false
 
 	# ② 胜负进度：一行标签 + 一条进度条
 	var y := PAD + ROUND_H + GAP
@@ -403,6 +412,23 @@ func _set_pips(row: Dictionary, n: int, accent: Color) -> void:
 		var pip: ColorRect = row["pips"][k]
 		pip.color = accent if k < n else CWStyle.TEXT_OFF_DIM
 		pip.modulate.a = 1.0 if k < n else 0.45
+
+
+## 进行中的世界事件一行字：「【基质阻隔】本回合·【免疫抑制因子】剩2回合」。
+## 只列世界事件（`is_world_event`），卡牌挂的全局修饰（TGF-β…）不在这里 —— 那些有卡面可查。
+## `left` 含当前回合：触发当回合的持续事件是「剩2回合」，回合末倒计时后是「剩1回合」。
+## 写法故意不留空格：两个六字事件并排是 22 个字，232px 的行宽刚好放下；加空格就得省略号。
+static func active_events_text(game: CWGame) -> String:
+	var parts: Array = []
+	for e in game.events["active"]:
+		if not game.world_fx.is_world_event(e):
+			continue
+		var s := "【%s】" % e["name"]
+		if int(e["stacks"]) > 1:
+			s += "×%d" % int(e["stacks"])
+		s += "本回合" if int(e["left"]) <= 1 else "剩%d回合" % int(e["left"])
+		parts.append(s)
+	return "·".join(PackedStringArray(parts))
 
 
 func _put(l: Label, x: float, y: float, w: float,

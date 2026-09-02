@@ -105,6 +105,8 @@ func trigger() -> void:
 		game.events["active"].append(entry)
 	game.log_msg("【世界事件】抽到【%s】%s" % [
 		name, "（持续 %d 回合）" % left if left > 1 else ""])
+	## 盘面上也喊一声（棋盘中央的浮字），别只写日志 —— 常驻的那一行在右侧竖条（CWMatchPanel）
+	game.announce("世界事件：【%s】" % name, Vector2i.ZERO)
 	await _resolve(entry)
 
 
