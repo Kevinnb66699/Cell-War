@@ -1292,6 +1292,11 @@ func t_ai_eval() -> void:
 	check(dead_i - CWEval.score(g, CWData.Faction.IMMUNE)
 		== CWEval.DEAD_FOREVER - CWEval.DEAD_IMMUNE_TRIP - CWEval.DEAD_IMMUNE_ROUND,
 		"不再复活 → 比「下回合复活」再掉 %d" % (CWEval.DEAD_FOREVER - CWEval.DEAD_IMMUNE_TRIP - CWEval.DEAD_IMMUNE_ROUND))
+	## 癌方视角 lure=false：免疫死亡不算收益；免疫视角照旧
+	imm["respawn_round"] = g.round_no + 1
+	check(CWEval.score(g, CWData.Faction.CANCER, true, false) == CWEval.score(g, CWData.Faction.CANCER, false),
+		"lure=false：癌方视角对免疫死亡视而不见（= 不罚死亡的分）")
+	check(CWEval.score(g, CWData.Faction.IMMUNE, true, false) == dead_i, "lure=false 不影响免疫视角")
 	imm["alive"] = true
 	imm["respawn_round"] = -1
 	check(CWEval.score(g, CWData.Faction.IMMUNE) == base_i, "复活回来分数复原")
@@ -1360,8 +1365,10 @@ func t_heur_lifecare() -> void:
 		"v2-nodc：估值不罚死亡、其余照 v2")
 	m.set_version("v2-simnolc")
 	check(m.death_cost and m.lifecare and m.sim_no_lifecare, "v2-simnolc：只有陪练不惜命")
+	m.set_version("v2-nolure")
+	check(m.death_cost and not m.lure and m.version_tag() == "v2-nolure", "v2-nolure：癌方视角不计免疫死亡")
 	m.set_version("v1")
-	check(not m.death_cost and not m.lifecare and m.fixed_lineup and m.version_tag() == "v1", "v1：全关")
+	check(not m.death_cost and not m.lifecare and m.fixed_lineup and m.lure and m.version_tag() == "v1", "v1：全关")
 	g.dispose()
 	## ② 免疫惜命：能量 2.0，相邻两格可净化的癌组织 —— A 走进去回合末压迫 1.5（净化后只剩 1.0，会死）、B 压迫 0
 	var g2 := bare_game()

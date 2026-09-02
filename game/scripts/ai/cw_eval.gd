@@ -41,7 +41,9 @@ const DEAD_CANCER_NO_BASE := 1500
 ## 从 faction 视角给局面打分。先算「癌方优势」，免疫视角取负 —— 两个视角零和，
 ## 蒙特卡洛给任何一方用都不必换公式。
 ## death_cost=false = v1 的估值（死细胞直接跳过），只给 AI 版本交叉验证用。
-static func score(g: CWGame, faction: int, death_cost: bool = true) -> int:
+## lure=false：**癌方视角不计免疫死亡**（免疫死了下回合就复活，对癌方的价值已在地盘里；
+## 算成 +400 会引诱 MC 癌围着免疫细胞铺压迫、自己送死 —— 2026-09-02 交叉验证的怀疑对象）。免疫视角不受影响。
+static func score(g: CWGame, faction: int, death_cost: bool = true, lure: bool = true) -> int:
 	var adv := 0
 	if g.winner >= 0:
 		adv = WIN if g.winner == CWData.Faction.CANCER else -WIN
@@ -58,7 +60,10 @@ static func score(g: CWGame, faction: int, death_cost: bool = true) -> int:
 		if not cell["alive"]:
 			if death_cost:
 				var cost := _death_cost(g, cell)
-				adv += -cost if cell["faction"] == CWData.Faction.CANCER else cost
+				if cell["faction"] == CWData.Faction.CANCER:
+					adv -= cost
+				elif lure or faction == CWData.Faction.IMMUNE:
+					adv += cost
 			continue
 		var worth: int = cell["energy"] + cell["hand"].size() * CARD \
 			+ cell["equipped"].size() * EQUIP
