@@ -25,11 +25,23 @@ const CARD := 12
 const EQUIP := 40
 ## 免疫细胞离最近癌性组织每远 1 格给癌方的加分（战线：人不到场，地就收不回）
 const FAR := 8
+## 死亡不再免费（v2，2026-09-02 Kevin 定「让 AI 惜命」）。此前死细胞直接跳过：一个免疫细胞自杀式冲进压迫区，
+## 估值里只损失账上那点能量，甚至还甩掉了「离战线远」的罚分 —— MC 免疫每局死 5~8 次、复活罚停旋钮
+## 怎么扫都像全表最重的杠杆（第二张表 ④，MC +33~40），全是这一条的伪影。
+## 免疫：复活前每缺席一个世界回合 ≈ 少 2~3 次净化 + 一轮收入，按 2.5 格计；复活落在骨髓还得走回战线，再加 1.5 格。
+const DEAD_IMMUNE_TRIP := 150
+const DEAD_IMMUNE_ROUND := 250
+## 不再复活（immune_respawn_delay = -1）：永久少一个细胞
+const DEAD_FOREVER := 2000
+## 癌：复活要有固化据点，没有就是永久损失（也离免疫胜利只差把据点清掉）；有据点也要等 S 阶段、从据点重新出发。
+const DEAD_CANCER := 800
+const DEAD_CANCER_NO_BASE := 1500
 
 
 ## 从 faction 视角给局面打分。先算「癌方优势」，免疫视角取负 —— 两个视角零和，
 ## 蒙特卡洛给任何一方用都不必换公式。
-static func score(g: CWGame, faction: int) -> int:
+## death_cost=false = v1 的估值（死细胞直接跳过），只给 AI 版本交叉验证用。
+static func score(g: CWGame, faction: int, death_cost: bool = true) -> int:
 	var adv := 0
 	if g.winner >= 0:
 		adv = WIN if g.winner == CWData.Faction.CANCER else -WIN
@@ -44,6 +56,9 @@ static func score(g: CWGame, faction: int) -> int:
 	## 物质：存活细胞的能量与手牌/装备；免疫细胞另按离战线的距离罚分
 	for cell in g.cells:
 		if not cell["alive"]:
+			if death_cost:
+				var cost := _death_cost(g, cell)
+				adv += -cost if cell["faction"] == CWData.Faction.CANCER else cost
 			continue
 		var worth: int = cell["energy"] + cell["hand"].size() * CARD \
 			+ cell["equipped"].size() * EQUIP
@@ -55,6 +70,17 @@ static func score(g: CWGame, faction: int) -> int:
 	## 免疫科技（记忆与等级不属于哪个细胞，单独算）
 	adv -= g.memory * MEMORY + g.immune_level * LEVEL
 	return adv if faction == CWData.Faction.CANCER else -adv
+
+
+## 一个死细胞此刻对己方值多少损失（正数）。免疫按「离复活还有几个世界回合」计，罚停旋钮自然进入估值；
+## 癌按「有没有固化据点可复活」计。
+static func _death_cost(g: CWGame, cell: Dictionary) -> int:
+	if cell["faction"] == CWData.Faction.CANCER:
+		return DEAD_CANCER if g.count_tissue(CWData.Tissue.SOLID) > 0 else DEAD_CANCER_NO_BASE
+	var back: int = cell["respawn_round"]
+	if back < 0:
+		return DEAD_FOREVER
+	return DEAD_IMMUNE_TRIP + DEAD_IMMUNE_ROUND * maxi(back - g.round_no, 1)
 
 
 static func _dist_to_cancerous(g: CWGame, from: Vector2i) -> int:

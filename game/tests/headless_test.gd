@@ -54,6 +54,7 @@ func _run_all() -> void:
 	t_erosion()
 	t_macro_purify_heal()
 	await t_antibody_cap()
+	await t_heur_lifecare()
 	t_immune_win()
 	t_cancer_revive_blocked()
 	t_cancer_s_win()
@@ -1273,7 +1274,147 @@ func t_ai_eval() -> void:
 	g.winner = CWData.Faction.IMMUNE
 	check(CWEval.score(g, CWData.Faction.CANCER) <= -CWEval.WIN, "输掉的终局压倒性为负")
 	g.winner = -1
+	## v2 惜命（2026-09-02）：死细胞不再免费
+	var imm: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[0]
+	var base_i := CWEval.score(g, CWData.Faction.IMMUNE)
+	imm["alive"] = false
+	imm["respawn_round"] = g.round_no + 1
+	var dead_i := CWEval.score(g, CWData.Faction.IMMUNE)
+	check(CWEval.score(g, CWData.Faction.IMMUNE, false)
+		== dead_i + CWEval.DEAD_IMMUNE_TRIP + CWEval.DEAD_IMMUNE_ROUND,
+		"death_cost=false（v1 估值）→ 死亡不罚，只差那笔罚分")
+	check(base_i - dead_i >= CWEval.DEAD_IMMUNE_ROUND,
+		"免疫细胞死亡（下回合复活）：免疫分掉 %d（至少 %d）" % [base_i - dead_i, CWEval.DEAD_IMMUNE_ROUND])
+	imm["respawn_round"] = g.round_no + 2
+	check(CWEval.score(g, CWData.Faction.IMMUNE) == dead_i - CWEval.DEAD_IMMUNE_ROUND,
+		"多罚停一个世界回合 → 正好再掉 %d（罚停旋钮进了估值）" % CWEval.DEAD_IMMUNE_ROUND)
+	imm["respawn_round"] = -1
+	check(dead_i - CWEval.score(g, CWData.Faction.IMMUNE)
+		== CWEval.DEAD_FOREVER - CWEval.DEAD_IMMUNE_TRIP - CWEval.DEAD_IMMUNE_ROUND,
+		"不再复活 → 比「下回合复活」再掉 %d" % (CWEval.DEAD_FOREVER - CWEval.DEAD_IMMUNE_TRIP - CWEval.DEAD_IMMUNE_ROUND))
+	imm["alive"] = true
+	imm["respawn_round"] = -1
+	check(CWEval.score(g, CWData.Faction.IMMUNE) == base_i, "复活回来分数复原")
+	var can: Dictionary = g.living_cells(CWData.Faction.CANCER)[0]
+	var base_c := CWEval.score(g, CWData.Faction.CANCER)
+	can["alive"] = false
+	var dead_c := CWEval.score(g, CWData.Faction.CANCER)
+	check(base_c - dead_c >= CWEval.DEAD_CANCER_NO_BASE,
+		"癌细胞死亡且场上无固化据点：癌方分掉 %d（至少 %d）" % [base_c - dead_c, CWEval.DEAD_CANCER_NO_BASE])
+	var solid_at: Vector2i = Vector2i.MAX
+	for c in g.tiles.keys():
+		if g.tiles[c]["tissue"] == CWData.Tissue.CANCER and g.tiles[c]["solid"] == 0:
+			solid_at = c
+			break
+	g.tiles[solid_at]["tissue"] = CWData.Tissue.SOLID
+	check(CWEval.score(g, CWData.Faction.CANCER) - dead_c
+		== CWEval.DEAD_CANCER_NO_BASE - CWEval.DEAD_CANCER + CWEval.TILE,
+		"有固化据点可复活 → 罚得轻 %d（另加固化格本身多算的 1 格）" % (CWEval.DEAD_CANCER_NO_BASE - CWEval.DEAD_CANCER))
+	g.tiles[solid_at]["tissue"] = CWData.Tissue.CANCER
+	can["alive"] = true
 	g.dispose()
+
+
+# ---- 启发式 v2（2026-09-02）：分化按种子随机、免疫不走进压迫区、癌细胞贴脸留储备 ----
+func t_heur_lifecare() -> void:
+	print("[启发式 v2：随机分化与惜命]")
+	check(CWHeuristicBridge.AI_VERSION == "v2", "AI 版本号 v2（改 AI 行为要升号）")
+	## ① 分化：同局面同答案、不消耗 rng、不同 rng 状态选到不同种类、四种都选得到
+	var g := make_game(4, 5)
+	await run_setup(g)
+	var imm: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[0]
+	g.immune_level = 2
+	var h: CWHeuristicBridge = g.bridges[imm["pid"]]
+	var opts: Array = g.actions.build_options(imm)
+	var seen := {}
+	var same := true
+	var untouched := true
+	var st0: int = g.rng.state
+	for k in 40:
+		g.rng.state = st0 + k * 7919
+		var a: int = h._immune_action(imm["pid"], opts)
+		var b: int = h._immune_action(imm["pid"], opts)
+		same = same and a == b
+		untouched = untouched and g.rng.state == st0 + k * 7919
+		if opts[a]["data"].get("act", "") == "differentiate":
+			seen[opts[a]["data"]["type"]] = true
+	g.rng.state = st0
+	check(same, "同一局面两次问答案一致")
+	check(untouched, "选分化不消耗 rng")
+	check(seen.size() == 4, "40 个 rng 状态下四种细胞都被选到过（%d 种）" % seen.size())
+	## 退回 v1（按实例）：拿选项列表第一个
+	h.set_version("v1")
+	var first := -1
+	for i in opts.size():
+		if opts[i]["data"].get("act", "") == "differentiate":
+			first = i
+			break
+	check(h._immune_action(imm["pid"], opts) == first and h.version_tag() == "v1",
+		"set_version(v1) → 拿选项列表第一个、版本标 v1")
+	h.set_version("v2")
+	check(h.version_tag() == "v2", "拨回 v2")
+	## MC 桥的版本串可带交叉验证用的修饰
+	var m := CWMonteCarloBridge.new()
+	m.set_version("v2-nodc")
+	check(not m.death_cost and m.lifecare and not m.sim_no_lifecare and m.version_tag() == "v2-nodc",
+		"v2-nodc：估值不罚死亡、其余照 v2")
+	m.set_version("v2-simnolc")
+	check(m.death_cost and m.lifecare and m.sim_no_lifecare, "v2-simnolc：只有陪练不惜命")
+	m.set_version("v1")
+	check(not m.death_cost and not m.lifecare and m.fixed_lineup and m.version_tag() == "v1", "v1：全关")
+	g.dispose()
+	## ② 免疫惜命：能量 2.0，相邻两格可净化的癌组织 —— A 走进去回合末压迫 1.5（净化后只剩 1.0，会死）、B 压迫 0
+	var g2 := bare_game()
+	var me := put_immune(g2, Vector2i.ZERO)
+	me["energy"] = 20
+	var h2 := CWHeuristicBridge.new()
+	h2.game = g2
+	var a := Vector2i(1, 0)
+	var b := Vector2i(-1, 0)
+	g2.tiles[a]["tissue"] = CWData.Tissue.CANCER
+	g2.tiles[b]["tissue"] = CWData.Tissue.CANCER
+	for n in CWData.neighbors(a):
+		if n != Vector2i.ZERO:
+			g2.tiles[n]["tissue"] = CWData.Tissue.CANCER
+	check(g2.world.pressure_at(a) == 15 and g2.world.pressure_at(b) == 0, "场景：A 压迫 1.5、B 压迫 0")
+	var pick: int = h2._immune_action(0, g2.actions.build_options(me))
+	var pd: Dictionary = g2.actions.build_options(me)[pick]["data"]
+	## A 是癌性邻格最多的候选（5 个），旧版必选它；v2 只在活得下去的候选里挑（B 或 A 周围那圈里压迫为 0 的格）
+	check(pd.get("act", "") == "move" and pd["to"] != a
+		and me["energy"] - int(pd["cost"]) > g2.world.pressure_at(pd["to"]),
+		"净化不选会被压死的 A，选活得下去的格（旧版必选 A）：选了 %s" % str(pd))
+	h2.set_version("v1")
+	pick = h2._immune_action(0, g2.actions.build_options(me))
+	check(g2.actions.build_options(me)[pick]["data"].get("to", Vector2i.MAX) == a,
+		"退回 v1 → 仍选癌性邻格最多的 A（旧行为可复现，交叉验证的前提）")
+	h2.set_version("v2")
+	## 脚下本身会被压死 → 先逃到活得下去的格
+	for n in CWData.neighbors(Vector2i.ZERO):
+		g2.tiles[n]["tissue"] = CWData.Tissue.CANCER
+	check(g2.world.pressure_at(Vector2i.ZERO) == 20, "场景：脚下压迫 2.0 = 全部能量")
+	pick = h2._immune_action(0, g2.actions.build_options(me))
+	pd = g2.actions.build_options(me)[pick]["data"]
+	check(pd.get("act", "") == "move" and me["energy"] - int(pd["cost"]) > g2.world.pressure_at(pd["to"]),
+		"先逃生：挪到净化后仍活得下去的格（%s，压迫 %s）" % [str(pd.get("to")), CWData.fmt(g2.world.pressure_at(pd.get("to", Vector2i.ZERO)))])
+	h2.game = null
+	g2.dispose()
+	## ③ 癌方惜命：免疫在 2 格外，能量 3.0 —— 不往免疫身边铺（铺完剩 1.8 < 3.0 储备），往远处铺
+	var g3 := bare_game()
+	var foe := put_immune(g3, Vector2i(2, 0))
+	foe["energy"] = 50
+	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i.ZERO, -1,
+		CWData.CancerType.MELANOMA)
+	can["energy"] = 30
+	g3.cells.append(can)
+	var h3 := CWHeuristicBridge.new()
+	h3.game = g3
+	var opts3: Array = g3.actions.build_options(can)
+	var p3: int = h3._cancer_action(1, opts3)
+	var d3: Dictionary = opts3[p3]["data"]
+	check(d3.get("act", "") == "move" and CWData.hex_dist(d3["to"], Vector2i(2, 0)) >= 3,
+		"3.0 能量的癌细胞往离免疫 ≥3 格的方向铺，不贴脸花光：选了 %s" % str(d3))
+	h3.game = null
+	g3.dispose()
 
 
 # ---- AI·扁平蒙特卡洛：零污染、确定性、拿得下白送的击杀、整局能跑 ----
@@ -2835,6 +2976,33 @@ func t_action_bar_width() -> void:
 		"T细胞四技能合计 %d px，放得进 %d px" % [int(total), int(CWActionBar.BAR_RECT.size.x)])
 	check(plated and badge == "1", "第一个按钮的快捷键数字垫了灰底（%s）" % badge)
 	bar.queue_free()
+	## 目标选择态溢出（2026-09-02 Kevin 报【代谢耦联】第三档被挡在屏幕外）：按钮换行叠到提示行上方，
+	## 每个按钮的右缘都不许超出 PROMPT_RECT；短标签的一问仍是原来的一行。
+	var bar2 := CWActionBar.new()
+	root.add_child(bar2)
+	bar2.show_bar("【代谢耦联】选择转移数额", "", [
+		{ "title": "转出 1.0（接收方得 1.2）", "cost": "" },
+		{ "title": "转出 1.5（接收方得 2.0）", "cost": "" },
+		{ "title": "转出 2.0（接收方得 2.5）", "cost": "" }])
+	await process_frame
+	await process_frame
+	var right_edge: float = CWActionBar.PROMPT_RECT.end.x
+	var inside := true
+	var lowest := 0.0
+	for b in bar2._buttons:
+		var r: Rect2 = (b as Control).get_global_rect()
+		inside = inside and r.end.x <= right_edge + 0.5 and r.position.x >= CWActionBar.PROMPT_RECT.position.x - 0.5
+		lowest = maxf(lowest, r.end.y)
+	check(bar2._buttons.size() == 3 and bar2._count() == 3, "三个数额按钮都在（_count 走按钮表）")
+	check(not bar2._extra_rows.is_empty(), "放不下 → 另起了行（%d 行）" % bar2._extra_rows.size())
+	check(inside, "每个按钮的右缘都在 %d px 之内" % int(right_edge))
+	check(lowest <= CWActionBar.PROMPT_RECT.position.y + 0.5, "按钮行叠在提示行上方，不往下压手牌")
+	check(not bar2._is_disabled(2), "第 3 个按钮可点")
+	bar2.show_bar("选择分化方向", "", [{ "title": "B细胞", "cost": "" }, { "title": "T细胞", "cost": "" }])
+	check(bar2._extra_rows.is_empty() and bar2._row.get_child_count() >= 4, "放得下的一问照旧一行（提示 + 弹簧 + 按钮）")
+	bar2.clear()
+	check(bar2._buttons.is_empty() and bar2._extra_rows.is_empty(), "clear() 把另起的行一并收掉")
+	bar2.queue_free()
 
 # ---- 开场过场不能被启动它的那一下点击跳掉 ----
 ## Control 的 `gui_input` **不会自动吃掉事件**。不显式标记已处理的话，
@@ -6108,6 +6276,22 @@ func t_attack_cap() -> void:
 	## 点不动的时候要说得出理由（团队 2026-09-01 要的弹窗，文案由引擎给，界面只负责弹）
 	g.tune.attack_max_per_turn = 1
 	imm["attacks_used"] = 1
+	## 合法但付不起的一格：说清价钱与修正（2026-09-02 Kevin：「有能量为什么不能走癌组织」）
+	var e0: int = imm["energy"]
+	var far_c := Vector2i(0, 1)
+	var far_was: int = g.tiles[far_c]["tissue"]
+	g.tiles[far_c]["tissue"] = CWData.Tissue.CANCER
+	imm["energy"] = g.tune.immune_move_cancerous[g.immune_level]   ## 正好等于价钱 → 付完剩 0，不合规
+	var poor: String = g.actions.move_block_reason(imm, far_c)
+	check(poor.contains("要 %s" % CWData.fmt(imm["energy"])) and poor.contains("留 0.1"),
+		"账上正好等于价钱 → 解释「要 X，账上 X，付完至少留 0.1」：%s" % poor)
+	g.events["active"].append({ "name": "基质阻隔", "left": 2, "stacks": 1, "data": {} })
+	var doubled: String = g.actions.move_block_reason(imm, far_c)
+	check(doubled.contains("【基质阻隔】") and doubled.contains("要 %s" % CWData.fmt(imm["energy"] * 2)),
+		"【基质阻隔】翻倍后解释里点名事件与新价：%s" % doubled)
+	g.events["active"].pop_back()
+	imm["energy"] = e0
+	g.tiles[far_c]["tissue"] = far_was
 	var why: String = g.actions.move_block_reason(imm, Vector2i(1, 0))
 	check(why.contains("攻击次数已用尽") and why.contains("1/1"), "点敌人格：说得出「次数用尽」")
 	check(g.actions.move_block_reason(imm, Vector2i(0, 1)) == "",

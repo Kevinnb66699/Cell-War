@@ -24,6 +24,27 @@ var horizon := 40
 ## 关闸 = 整座桥退化为启发式。给 CWUIBridge 当「AI 强度」开关用：
 ## 它继承本类，人机对局里由对局配置面板拨这一位。
 var enabled := true
+## v2 估值罚死亡（CWEval._death_cost）。set_version("v1") 会关掉它 —— 和分化/惜命一起退回 v1，供交叉验证用。
+var death_cost := true
+## 推演里的陪练**不**惜命（分化仍随机）：把「陪练惜命」和「估值罚死亡」对 MC 强度的影响分开量。
+var sim_no_lifecare := false
+var _tag := AI_VERSION
+
+
+## 版本串 = 基础版本 + 可选修饰，修饰只给 AI 升级的交叉验证用（balance_scan aiver=）：
+##   "v2-nodc"     估值不罚死亡（陪练照旧 v2）
+##   "v2-simnolc"  陪练不惜命（估值照旧罚死亡）
+## 2026-09-02 v2 交叉验证发现 v2 癌在 6 人局比 v1 弱，就是用这两个开关归因的。
+func set_version(v: String) -> void:
+	super.set_version(v)
+	var parts: PackedStringArray = v.split("-")
+	death_cost = parts[0] != "v1" and not ("nodc" in parts)
+	sim_no_lifecare = "simnolc" in parts
+	_tag = v
+
+
+func version_tag() -> String:
+	return _tag
 
 
 func ask(req: Dictionary) -> int:
@@ -40,6 +61,8 @@ func _mc_pick(req: Dictionary) -> int:
 	## 推演代打：一个实例应付所有 pid（ask 的 req 自带 pid），且绝无演出延迟
 	var sim := CWHeuristicBridge.new()
 	sim.game = game
+	sim.fixed_lineup = fixed_lineup   ## 陪练跟本桥同版本：v1 的推演里跑的是 v1 的启发式
+	sim.lifecare = lifecare and not sim_no_lifecare
 	var saved_bridges := game.bridges
 	var sim_bridges := {}
 	for p in saved_bridges:
@@ -64,7 +87,7 @@ func _mc_pick(req: Dictionary) -> int:
 				var idx: int = await sim.ask(rq)
 				await game.step(idx)
 				plies += 1
-			total += CWEval.score(game, my_faction)
+			total += CWEval.score(game, my_faction, death_cost)
 			game.restore(snap)
 		if total > best_score:
 			best_score = total

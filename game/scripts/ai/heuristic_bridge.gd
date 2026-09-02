@@ -1,6 +1,7 @@
 ## heuristic_bridge.gd —— 启发式 AI 桥：给免疫/癌症双方提供基础决策，用于平衡模拟与人机对战
 ##
 ## 策略只依赖对局状态、不使用任何随机数 → 同一种子的对局完全可复现（确定性测试依赖这一点）。
+## （分化种类按「此刻 rng 状态」的 hash 选，仍是状态的函数、不消耗 rng，见 _pick_differentiation_option。）
 ## 数值阈值都是「十分能量」。观战模式设置 delay_ms>0 + delay_node 可放慢节奏。
 ##
 ## 会用卡（2026-08-29 起）：出牌免费，所以打牌决策只回答「时机对不对」——
@@ -10,8 +11,31 @@
 class_name CWHeuristicBridge
 extends CWBridge
 
+## 陪练 / 平衡标尺的版本号。**改任何 AI 行为（本桥、MC 桥、CWEval）都要升号**：所有用它量出来的平衡数字随之作废，
+## 表格要标明是哪一版量的。balance_scan 的结果行会打出来。
+## v1：2026-08 ~ 09-01 —— 分化拿选项列表第一个（固定 B→T→巨噬→树突）、死亡在估值里免费。
+## v2：2026-09-02（Kevin 与团队定「以浅层 MC 为标尺，先让 AI 惜命」）—— 分化按种子随机、
+##     免疫不走进会被压死的格、癌细胞贴着免疫时留 3.0 储备、CWEval 罚死亡。
+const AI_VERSION := "v2"
+## 每个桥实例可以单独退回 v1 的行为（set_version("v1")）：分化拿选项列表第一个、不惜命。
+## 用途是**验证 AI 升级**：新版本必须在两边都不比旧版弱（balance_scan 的 aiver_immune= / aiver_cancer= 交叉对局），
+## 否则标尺一换读数就漂、还分不清是规则变了还是量具变了（2026-09-02 v2 基线 6 人 24→10 就是这么查的）。对局里别拨。
+var fixed_lineup := false
+var lifecare := true
+
 var delay_ms := 0
 var delay_node: Node = null
+
+
+## 把这个桥拨到某个 AI 版本的行为（"v1" / "v2"）。MC 桥重写它以连带估值的死亡罚分。
+func set_version(v: String) -> void:
+	var base: String = v.split("-")[0]   ## "v2-nodc" 这类带修饰的串，修饰只有 MC 桥认
+	fixed_lineup = base == "v1"
+	lifecare = base != "v1"
+
+
+func version_tag() -> String:
+	return "v1" if fixed_lineup and not lifecare else AI_VERSION
 
 
 func ask(req: Dictionary) -> int:
@@ -86,10 +110,15 @@ func _setup_place(pid: int, options: Array) -> int:
 func _immune_action(pid: int, options: Array) -> int:
 	var me: Dictionary = game.cell_of(pid)
 	var e: int = me["energy"]
-	# 1. 分化免费，永远优先
-	var i := _find(options, "differentiate")
+	# 1. 分化免费，永远优先；选哪一种按种子随机（v2，见 _pick_differentiation_option）
+	var i := _pick_differentiation_option(pid, options)
 	if i >= 0:
 		return i
+	# 1.5 惜命（v2）：脚下这格回合末的【微环境压迫】会把自己压死 → 先挪到活得下去的格
+	if lifecare and game.world.pressure_at(me["pos"]) >= e:
+		i = _best_escape(options, me)
+		if i >= 0:
+			return i
 	# 2. 打牌（出牌免费；攻击增益要赶在攻击之前打出，所以排在这里）
 	i = _best_play(pid, options)
 	if i >= 0:
@@ -119,7 +148,7 @@ func _immune_action(pid: int, options: Array) -> int:
 	# 7. 净化：进入相邻的无人癌组织
 	var purge_cost: int = game.tune.immune_move_cancerous[game.immune_level]
 	if e >= purge_cost + 10:
-		var purge := _best_purge_move(options)
+		var purge := _best_purge_move(options, me)
 		if purge >= 0:
 			return purge
 	# 8. 手上余粮多就抽卡（0.5/张，每回合至多 3 次；手牌满时选项不出现）——
@@ -163,8 +192,9 @@ func _best_attack(options: Array) -> int:
 	return best
 
 
-## 可净化的相邻癌组织（无人、非固化），优先癌性邻格多的（顺着癌区推进）
-func _best_purge_move(options: Array) -> int:
+## 可净化的相邻癌组织（无人、非固化），优先癌性邻格多的（顺着癌区推进）——
+## 但走进去之后得活过回合末的【微环境压迫】（_survives_at，v2 惜命）
+func _best_purge_move(options: Array, me: Dictionary) -> int:
 	var best := -1
 	var best_score := -1
 	for i in options.size():
@@ -175,6 +205,8 @@ func _best_purge_move(options: Array) -> int:
 		if game.tile(to)["tissue"] != CWData.Tissue.CANCER:
 			continue
 		if not game.cells_at(to, CWData.Faction.CANCER).is_empty():
+			continue
+		if lifecare and not _survives_at(me, to, int(d.get("cost", 0))):
 			continue
 		var score := 0
 		for n in CWData.neighbors(to):
@@ -211,11 +243,63 @@ func _best_approach(options: Array, me: Dictionary) -> int:
 			continue
 		if not game.cells_at(d["to"], CWData.Faction.CANCER).is_empty():
 			continue  # 接近阶段不打架
+		if lifecare and not _survives_at(me, d["to"], int(d.get("cost", 0))):
+			continue  # v2 惜命：别为了靠近一步把自己送进压迫区
 		var nd: int = dist.get(d["to"], 9999)
 		if nd < best_d:
 			best_d = nd
 			best = i
 	return best
+
+
+## 惜命（v2，2026-09-02 Kevin 定「让 AI 惜命」）：E 阶段【微环境压迫】按「相邻癌性组织数 − 2」× 0.5 扣能量，扣到 0 就死。
+## 此前净化选格偏好癌性邻格最多的格，能量见底时一头扎进去、回合末被压迫打死 —— 启发式免疫每局死 3~5 次，
+## 复活免费所以看不出代价；复活罚停旋钮一加就雪崩（第二张表 ④），全是这条造成的伪影。
+## 规则：走进一格之后账上剩的能量必须**高于**那一格此刻的压迫损失（留 0.1 活命线）。
+## 只看此刻的邻格：后面行动的癌细胞还可能把它围上，但那是对手的功劳，不是自己送的。
+func _survives_at(me: Dictionary, to: Vector2i, cost: int) -> bool:
+	return me["energy"] - cost > game.world.pressure_at(to)
+
+
+## 脚下会被压死时的逃生：付得起、活得下去的迁移里，优先能顺手净化的，其次压迫最轻的
+func _best_escape(options: Array, me: Dictionary) -> int:
+	var best := -1
+	var best_score := -999999
+	for i in options.size():
+		var d: Dictionary = options[i]["data"]
+		if d["act"] != "move":
+			continue
+		var to: Vector2i = d["to"]
+		if not game.cells_at(to, CWData.Faction.CANCER).is_empty():
+			continue
+		var cost: int = int(d.get("cost", 0))
+		if not _survives_at(me, to, cost):
+			continue
+		var score: int = -game.world.pressure_at(to) - cost / 5
+		if game.tile(to)["tissue"] == CWData.Tissue.CANCER:
+			score += 20
+		if score > best_score:
+			best_score = score
+			best = i
+	return best
+
+
+## 分化选哪一种：在可选种类里**按种子随机**选（v2，2026-09-02 Kevin 定）。
+## 此前永远拿选项列表的第一个，也就是 _diff_choices 的固定顺序 B→T→巨噬→树突：4 人局两席免疫到 T 就没了，
+## 巨噬、树突在 4 人局的平衡网格里从未出现过，6 人局树突也从未出现。随机之后每种细胞 4 人局约一半对局出现、6 人局四分之三。
+## 不消耗 game.rng（本桥不引入随机数的约定不变，见文件头）：用「此刻的 rng 状态 + 席位」的 hash 选，
+## 同种子同局面同答案，也不扰动之后所有人的骰子。MC 推演里的陪练同样走这里，推演流由快照派生，选法自洽。
+## （kind="differentiate" 那条 _pick_differentiation 是死代码 —— 引擎从不发那种询问，留着没动。）
+func _pick_differentiation_option(pid: int, options: Array) -> int:
+	var idx: Array[int] = []
+	for i in options.size():
+		if options[i]["data"].get("act", "") == "differentiate":
+			idx.append(i)
+	if idx.is_empty():
+		return -1
+	if fixed_lineup:
+		return idx[0]
+	return idx[posmod(hash([game.rng.state, pid]), idx.size())]
 
 
 # ============ 癌症回合 ============
@@ -284,6 +368,10 @@ func _worth_solidifying(me: Dictionary) -> bool:
 ## 距免疫细胞不同距离的安全分。免疫每回合能连打 3 次（每次期望 0.83 伤害），
 ## 而癌细胞只有 3.0 能量：停在免疫身边基本等于送死，所以 1 格处是断崖式惩罚。
 const SAFETY_BY_DIST := [-999, -40, -5, 6, 12]
+## 惜命（v2）：停在免疫 2 格内时账上要留的储备 3.0 —— 免疫一回合能连打 3 次、每次期望 0.83。
+## 此前一律只留 0.5：癌细胞沿着免疫的正面一路铺到花光，紧接着行动的免疫两三刀打死 ——
+## 手打四局里 AI 癌方几乎都是这么死的（真人癌方不会这么停），MC 癌也一样（第二张表 8.5 第 2 点）。
+const CANCER_RESERVE_NEAR := 30
 
 
 ## 癌细胞移动打分：安全（保命）+ 定殖健康组织（占地=收入=胜利条件）+ 扩张前景 - 能量成本
@@ -296,9 +384,13 @@ func _best_cancer_move(options: Array, me: Dictionary, _threat: int) -> int:
 		if d["act"] != "move":
 			continue
 		var to: Vector2i = d["to"]
-		if me["energy"] < d["cost"] + 5:
-			continue  # 留 0.5 储备，别把自己走到濒死
-		var score: int = SAFETY_BY_DIST[mini(_dist_to_nearest_immune(to), 4)]
+		var threat_to := _dist_to_nearest_immune(to)
+		## 远离威胁只留 0.5 别把自己走到濒死；停到免疫 2 格内要留 3.0（CANCER_RESERVE_NEAR）。
+		## 退到安全格只要 0.5，所以贴脸低血时「撤」永远是可选项。
+		var reserve: int = CANCER_RESERVE_NEAR if lifecare and threat_to <= 2 else 5
+		if me["energy"] < d["cost"] + reserve:
+			continue
+		var score: int = SAFETY_BY_DIST[mini(threat_to, 4)]
 		if not game.is_cancerous(to):
 			score += 15  # 定殖：永久 +1 格地盘，是癌方的核心收益
 		for n in CWData.neighbors(to):

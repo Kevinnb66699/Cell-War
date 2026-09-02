@@ -29,6 +29,10 @@ const BTN_H := 52
 ## 标在标题上不行：那样每个按钮都变宽，四个加起来就出界了。
 
 var _row: HBoxContainer
+## 按下标排好的全部按钮节点。按钮**不一定都在 _row 里**：目标选择态一行放不下时
+## 会被搬到 _row 上方另起的行里（_extra_rows），所以数按钮、查灰、重画一律走这张表。
+var _buttons: Array = []
+var _extra_rows: Array = []
 var _hot := -1        ## 鼠标停在第几个按钮上
 var _cancel := -1     ## 哪个按钮是「取消」；-1 = 这一问没有取消
 var _disabled := {}   ## 灰掉的按钮节点集合。数字键和 _paint 都要查它
@@ -66,10 +70,7 @@ func show_bar(title: String, hint: String, entries: Array, cancel_index := -1,
 	## 在那儿按数字键退出太容易误触，Esc / 右键已经够用。
 	## 必须在建按钮**之前**定下来：按钮要按它决定费用行前面标不标数字。
 	_keys = title == "" and entries.size() > 0
-	_row_node()
-	for c in _row.get_children():
-		_row.remove_child(c)
-		c.queue_free()
+	_clear_rows()
 	_hot = -1
 	if title == "":
 		_row.position = BAR_RECT.position
@@ -96,11 +97,15 @@ func show_bar(title: String, hint: String, entries: Array, cancel_index := -1,
 			spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			_row.add_child(spacer)
 	_disabled.clear()
+	_buttons.clear()
 	for i in entries.size():
 		var btn := _make_button(entries[i], i)
 		if entries[i].get("disabled", false):
 			_disabled[btn] = true
 		_row.add_child(btn)
+		_buttons.append(btn)
+	if title != "":
+		_fit_prompt_row()
 	## 必须在全部按钮建好、_disabled 填满之后再刷一遍底色。
 	## **不能用 _set_hot(-1)** —— _hot 此刻就是 -1，那个函数开头就 return 了，
 	## 于是灰按钮永远画不出灰（2026-08-28 团队试玩时报的：点不动但看着是亮的）。
@@ -110,10 +115,57 @@ func show_bar(title: String, hint: String, entries: Array, cancel_index := -1,
 func clear() -> void:
 	visible = false
 	_disabled.clear()
+	_buttons.clear()
 	_keys = false
+	_clear_rows()
+
+
+## 收掉提示行里的全部孩子和溢出时另起的按钮行。show_bar 与 clear 共用 ——
+## 第一版只在 clear 里收另起的行，于是「上一问溢出、下一问不溢出」时旧按钮留在屏幕上。
+func _clear_rows() -> void:
 	for c in _row_node().get_children():
 		_row.remove_child(c)
 		c.queue_free()
+	for r in _extra_rows:
+		remove_child(r)
+		r.queue_free()
+	_extra_rows.clear()
+
+
+## 目标选择态一行放不下（按钮多或标签长，如【代谢耦联】三档数额，2026-09-02 Kevin 报「被挡一个选项」）：
+## 把按钮从提示行里摘出来，按可用宽度分行、靠右对齐，**叠在提示行上方**——行动栏底边不动（不压手牌），
+## 向上长进棋盘区。放得下时一个字都不改，完全照设计稿。
+func _fit_prompt_row() -> void:
+	var avail: float = PROMPT_RECT.size.x
+	if _row.get_combined_minimum_size().x <= avail:
+		return
+	for b in _buttons:
+		_row.remove_child(b)
+	var lines: Array = []
+	var cur: Array = []
+	var w := 0.0
+	for b in _buttons:
+		var bw: float = (b as Control).get_combined_minimum_size().x
+		if not cur.is_empty() and w + GAP + bw > avail:
+			lines.append(cur)
+			cur = []
+			w = 0.0
+		cur.append(b)
+		w += bw + (GAP if cur.size() > 1 else 0.0)
+	if not cur.is_empty():
+		lines.append(cur)
+	var y: float = PROMPT_RECT.position.y
+	for li in range(lines.size() - 1, -1, -1):
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", GAP)
+		h.alignment = BoxContainer.ALIGNMENT_END
+		y -= BTN_H + GAP
+		h.position = Vector2(PROMPT_RECT.position.x, y)
+		h.size = Vector2(avail, BTN_H)
+		for b in lines[li]:
+			h.add_child(b)
+		add_child(h)
+		_extra_rows.append(h)
 
 
 ## 这一问能不能取消。暂停菜单靠它判断 Esc 该给谁：
@@ -201,22 +253,10 @@ func _key_badge(n: int) -> Control:
 	return CWStyle.keycap(str(n))
 
 
-## 按钮下标 → 它在 _row 里的第几个孩子（目标选择态前面多了提示和弹簧两个孩子）
-func _button_index(child: int) -> int:
-	var n := 0
-	for i in child:
-		if _row.get_child(i) is PanelContainer:
-			n += 1
-	return n
-
-
 ## 按当前的 _hot 和 _disabled 把所有按钮重画一遍。
 func _repaint_all() -> void:
-	var n := 0
-	for c in _row_node().get_children():
-		if c is PanelContainer:
-			_paint(c, n == _hot)
-			n += 1
+	for i in _buttons.size():
+		_paint(_buttons[i], i == _hot)
 
 
 func _set_hot(index: int) -> void:
@@ -262,18 +302,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 
 func _is_disabled(index: int) -> bool:
-	var n := 0
-	for c in _row_node().get_children():
-		if c is PanelContainer:
-			if n == index:
-				return _disabled.has(c)
-			n += 1
-	return false
+	return index < _buttons.size() and _disabled.has(_buttons[index])
 
 
 func _count() -> int:
-	var n := 0
-	for c in _row_node().get_children():
-		if c is PanelContainer:
-			n += 1
-	return n
+	return _buttons.size()

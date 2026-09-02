@@ -96,7 +96,18 @@ func immune_move_options(cell: Dictionary) -> Array:
 ## 放引擎不放界面：这是规则，抄到界面里迟早和 _is_move_legal_now 漂移（架构约定 #10）。
 func move_block_reason(cell: Dictionary, to: Vector2i) -> String:
 	if _is_move_legal_now(cell, to):
-		return ""
+		## 盘面上合法却不在选项里 —— 选项生成只多做一道检查：付不付得起。那就把账算给玩家看：
+		## 要多少、含哪些修正、账上多少、付完至少留 0.1。
+		## 2026-09-02 Kevin 反馈「有能量为什么不能走癌组织」：【基质阻隔】把 1.0 翻成 2.0，
+		## 账上正好 2.0 付完剩 0 不合规，可界面一个字都不说，看起来就像 bug。
+		var q: Dictionary = game.cost.quote(CWCost.context(cell, CWCost.Action.MOVE,
+			_move_base_cost(cell, to), to))
+		if q["affordable"]:
+			return ""
+		var mods: Array = q["applied"]
+		var why: String = "" if mods.is_empty() else "（含【%s】）" % "】【".join(PackedStringArray(mods))
+		return "这一步要 %s%s，账上 %s —— 付完至少要留 0.1" % [
+			CWData.fmt(int(q["final"])), why, CWData.fmt(cell["energy"])]
 	if not cell["alive"] or not (to in CWData.neighbors(cell["pos"])):
 		return ""
 	## 友军挡路：这条要说 —— 「不能停但可以穿过去」是新规则（口径 #98），

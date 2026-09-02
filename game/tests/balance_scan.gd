@@ -56,6 +56,9 @@
 ##                只动 X 级那一档 —— 和 mv= 的「各等级统一」不是一回事
 ##   abmax=2      B 细胞【抗体】每世界回合上限（现值 0 = 不限；2 = 9-01 之前的旧 PRD）
 ##   rdelay=1     免疫死亡后**额外**罚停几个世界回合（现值 0 = 下一个 S 阶段就复活；-1 = 不再复活）
+##   aiver=v1     两边 AI 都退回 v1 的行为（分化固定顺序、不惜命、估值不罚死亡）；aiver_immune= / aiver_cancer= 只拨一边。
+##                用途：**验证 AI 升级** —— 新版本要在两边都不比旧版弱（同一对手下交叉对局），否则标尺换了读数就漂。
+##                结果行 `AI mc·v2` 或 `AI mc·I:v2·C:v1` 标出两边版本；两边不同版本的数只用来比较 AI，不进平衡表。
 ##
 ## ⚠ 2026-08-31 口径 #82 之后，**不传旋钮 = 引擎现值，不是 PRD 原样**。
 ## 要跑 PRD 原样做对照得显式写全：`cmh=5 sclc=3 pseu=2 tiles=15`。
@@ -98,6 +101,8 @@ var mheal := -1
 var mvx := -1
 var abmax := -1
 var rdelay := -9999   ## -1 是合法值（不再复活），哨兵不能用 -1
+var aiver_immune := "v2"
+var aiver_cancer := "v2"
 
 
 func _initialize() -> void:
@@ -147,6 +152,11 @@ func _parse() -> void:
 			"mvx": mvx = int(kv[1])
 			"abmax": abmax = int(kv[1])
 			"rdelay": rdelay = int(kv[1])
+			"aiver":
+				aiver_immune = kv[1]
+				aiver_cancer = kv[1]
+			"aiver_immune": aiver_immune = kv[1]
+			"aiver_cancer": aiver_cancer = kv[1]
 
 
 func _order() -> Array:
@@ -274,14 +284,17 @@ func _bridge(g: CWGame, faction: int) -> Object:
 	var use_mc := ai == "mc" \
 		or (ai == "mc_immune" and faction == CWData.Faction.IMMUNE) \
 		or (ai == "mc_cancer" and faction == CWData.Faction.CANCER)
+	var ver: String = aiver_immune if faction == CWData.Faction.IMMUNE else aiver_cancer
 	if not use_mc:
 		var h := CWHeuristicBridge.new()
 		h.game = g
+		h.set_version(ver)
 		return h
 	var m := CWMonteCarloBridge.new()
 	m.game = g
 	m.rollouts = rollouts
 	m.horizon = horizon
+	m.set_version(ver)
 	return m
 
 
@@ -307,6 +320,7 @@ func _run() -> void:
 	var attacks := 0
 	var atk_fail := 0
 	var kills := 0
+	var cancer_kills := 0   ## 死亡按阵营分开数（v2 惜命之后要看是谁在死）
 	var t0 := Time.get_ticks_msec()
 	for gi in games:
 		var g := CWGame.new()
@@ -341,10 +355,16 @@ func _run() -> void:
 				## 【吞噬体成熟】那句「被直接消灭」是**斩杀前**的播报，
 				## 后面照样走 kill() 打 ☠，两个都数会重复计数。
 				kills += 1
+				for cname in CWData.CANCER_TYPE_NAMES.values():
+					if line.contains("(%s)" % cname):
+						cancer_kills += 1
+						break
 		g.dispose()
 	var secs := (Time.get_ticks_msec() - t0) / 1000.0
+	## AI 版本跟着结果走（CWHeuristicBridge.AI_VERSION）：不同版本量出来的数不能放进同一张表
 	print("%-24s 席位 %-8s AI %-9s | 癌胜 %3d%% (%d/%d) | 平均 %4.1f 回合 | 上限判定 %2d 局 | 终局癌性 %5.1f 格 | %.0fs" % [
-		label if label != "" else order_str, order_str, ai,
+		label if label != "" else order_str, order_str,
+		"%s·%s" % [ai, aiver_immune if aiver_immune == aiver_cancer else "I:%s·C:%s" % [aiver_immune, aiver_cancer]],
 		cancer_wins * 100 / games, cancer_wins, games,
 		float(rounds_sum) / games, by_limit, float(cancerous_sum) / games, secs])
 	print("        旋钮：%s" % _applied(_tune()))
@@ -354,9 +374,10 @@ func _run() -> void:
 	for k in ks:
 		parts.append("%s %d" % [k, kinds[k]])
 	print("        胜法：%s" % ", ".join(parts))
-	print("        每局攻击：发动 %.1f 次（失败 %.1f）· 双方死亡 %.1f —— 对比净化 %.1f 次" % [
+	print("        每局攻击：发动 %.1f 次（失败 %.1f）· 双方死亡 %.1f（免疫 %.1f / 癌 %.1f）—— 对比净化 %.1f 次" % [
 		float(attacks) / games, float(atk_fail) / games,
-		float(kills) / games, float(purify) / games])
+		float(kills) / games, float(kills - cancer_kills) / games, float(cancer_kills) / games,
+		float(purify) / games])
 	print("        每局占地：癌【定殖】%.1f + 【增生】%.1f vs 免疫【净化】%.1f（转化比 %.1f:1）" % [
 		float(colonize) / games, float(prolif_n) / games, float(purify) / games,
 		float(colonize + prolif_n) / maxf(float(purify), 1.0)])
