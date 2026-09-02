@@ -635,7 +635,7 @@ func _cascade(target: Dictionary) -> void:
 		game.log_msg("　【补体级联】目标相邻无可转化的癌组织，落空")
 		return
 	for c in picked:
-		_to_healthy(c)
+		CWTissue.to_healthy(game.tile(c))
 		game.log_msg("　【补体级联】%s 转为健康组织" % str(c))
 
 
@@ -648,12 +648,10 @@ func enter_tile(cell: Dictionary, dest: Vector2i, paid: int = -1) -> void:
 	cell["pos"] = dest
 	var t: Dictionary = game.tile(dest)
 	if cell["faction"] == CWData.Faction.CANCER and t["tissue"] == CWData.Tissue.HEALTHY:
-		_to_cancer(dest, true)
+		CWTissue.to_cancer(t, true)
 		game.log_msg("　【定殖】%s 转为癌组织" % str(dest))
 	elif cell["faction"] == CWData.Faction.IMMUNE and t["tissue"] == CWData.Tissue.CANCER:
-		t["tissue"] = CWData.Tissue.HEALTHY
-		t["newborn"] = false
-		t["solid"] = 0
+		CWTissue.to_healthy(t)
 		if game.event_stacks("免疫抑制因子") > 0:
 			game.log_msg("　【净化】%s 转为健康组织（免疫抑制因子：不获得抗原记忆）" % str(dest))
 		else:
@@ -795,7 +793,7 @@ func _do_antibody(cell: Dictionary) -> void:
 	var x: int = CWData.ANTIBODY_NO_TARGET_X[0 if roll <= 2 else 1]
 	game.announce("抗体：转化 %d 格" % x, cell["pos"])
 	for c in game.pick_random(eligible, x):
-		_to_healthy(c)
+		CWTissue.to_healthy(game.tile(c))
 		game.log_msg("【抗体】无目标 → %s 转为健康组织" % str(c))
 
 
@@ -821,8 +819,7 @@ func _do_toxin(cell: Dictionary) -> void:
 		return
 	cell["toxin_used"] += 1
 	for c in targets:
-		_to_healthy(c)
-		game.tile(c)["necrosis"] = CWData.NECROSIS_TOXIN
+		CWTissue.to_necrotic(game.tile(c), CWData.NECROSIS_TOXIN)
 	game.log_msg("【细胞毒素】相邻 %d 格癌组织转为健康组织并进入「坏死」（不积累记忆）" % targets.size())
 	var victims: Array = []
 	for n in CWData.neighbors(cell["pos"]):
@@ -836,9 +833,7 @@ func _do_lyse(cell: Dictionary, to: Vector2i) -> void:
 			to, 0, func() -> bool: return _is_lyse_legal_now(cell, to))).is_empty():
 		return
 	var t: Dictionary = game.tile(to)
-	t["tissue"] = CWData.Tissue.HEALTHY
-	t["solid"] = 0
-	t["newborn"] = false
+	CWTissue.to_healthy(t)
 	game.log_msg("【裂解】%s 由固化癌组织转为健康组织" % str(to))
 
 
@@ -922,7 +917,7 @@ func _do_homing(cell: Dictionary, to: Vector2i) -> void:
 		if game.tile(n)["tissue"] == CWData.Tissue.HEALTHY:
 			spread.append(n)
 	for c in game.pick_random(spread, CWData.HOMING_SPREAD):
-		_to_cancer(c, true)
+		CWTissue.to_cancer(game.tile(c), true)
 		game.log_msg("　【早期血行转移】%s 转为癌组织" % str(c))
 
 
@@ -948,7 +943,7 @@ func _do_mucus(cell: Dictionary) -> void:
 			healthy.append(c)
 	var picked: Array = game.pick_random(healthy, CWData.MUCUS_MAX_CONVERT)
 	for c in picked:
-		_to_cancer(c, true)
+		CWTissue.to_cancer(game.tile(c), true)
 	game.log_msg("【黏液破裂】%s 引爆：%d 格进入黏液侵染，其中 %d 格转为癌组织" % [
 		game.cell_name(cell), area.size(), picked.size()])
 	game.announce("黏液破裂", cell["pos"])
@@ -988,23 +983,3 @@ func _adjacent_healthy(pos: Vector2i) -> bool:
 		if game.tile(n)["tissue"] == CWData.Tissue.HEALTHY:
 			return true
 	return false
-
-
-# ---- 组织状态切换（只有这两个函数能改 tissue，别在别处手写）----
-
-## 健康组织 → 癌组织。newborn 决定本世界回合能否被【固化】计数。
-## 「坏死」是健康组织才有的状态，转成癌组织时一并清掉。
-func _to_cancer(c: Vector2i, newborn: bool) -> void:
-	var t: Dictionary = game.tile(c)
-	t["tissue"] = CWData.Tissue.CANCER
-	t["newborn"] = newborn
-	t["solid"] = 0
-	t["necrosis"] = 0
-
-
-## 癌组织 → 健康组织（毒素/抗体反噬用；不积累记忆，见说明 #18）
-func _to_healthy(c: Vector2i) -> void:
-	var t: Dictionary = game.tile(c)
-	t["tissue"] = CWData.Tissue.HEALTHY
-	t["newborn"] = false
-	t["solid"] = 0

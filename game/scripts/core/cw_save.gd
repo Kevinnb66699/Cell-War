@@ -22,6 +22,11 @@ static func exists() -> bool:
 	return FileAccess.file_exists(PATH)
 
 
+## 物理文件存在不等于能恢复。主菜单必须用这个方法决定「继续对局」是否可点。
+static func can_continue() -> bool:
+	return not read().is_empty()
+
+
 ## 能写才写（pending 边界 + 文件真的落了盘），返回是否成功。
 static func write(game: CWGame, human: Array, smart: bool) -> bool:
 	if game == null or game._pending.is_empty() or game.is_over():
@@ -53,11 +58,37 @@ static func read() -> Dictionary:
 	f.close()
 	if not (payload is Dictionary) or payload.get("version", -1) != VERSION:
 		return {}
-	if not CWData.FACTION_ORDER.has(payload.get("players", 0)):
+	var players: int = int(payload.get("players", 0))
+	if not CWData.FACTION_ORDER.has(players):
 		return {}
-	if not (payload.get("snap") is Dictionary) or payload["snap"].is_empty():
+	if not (payload.get("human") is Array) or not (payload.get("smart") is bool):
+		return {}
+	for pid in payload["human"]:
+		if not (pid is int) or pid < 0 or pid >= players:
+			return {}
+	if not _valid_snapshot(payload.get("snap")):
 		return {}
 	return payload
+
+
+static func _valid_snapshot(snap: Variant) -> bool:
+	if not (snap is Dictionary):
+		return false
+	## 这是 restore() 的必需结构；细节由正常的游戏数据与既有 v1 格式保留。
+	for key in ["tiles", "cells", "players", "differentiated", "flow", "pending", "round_no",
+		"memory", "immune_level", "winner", "win_reason", "win_kind", "current_pid", "phase",
+		"events", "rng"]:
+		if not snap.has(key):
+			return false
+	if not (snap["tiles"] is Dictionary and snap["cells"] is Array and snap["players"] is Array):
+		return false
+	if not (snap["flow"] is Dictionary and snap["pending"] is Dictionary and snap["events"] is Dictionary):
+		return false
+	if not (snap["round_no"] is int and snap["memory"] is int and snap["immune_level"] is int):
+		return false
+	if not (snap["winner"] is int and snap["current_pid"] is int and snap["rng"] is int):
+		return false
+	return true
 
 
 static func clear() -> void:

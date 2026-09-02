@@ -262,9 +262,9 @@ func _build_row(i: int) -> void:
 
 	## 拨值箭头用 ASCII 的 < >（点阵字库没有 ‹ ›）；两枚都在**固定位置**，
 	## 悬停时和菜单项一样亮起白光（_hot_arrow 记着谁在被悬停，_repaint 统一画）
-	var left := _clicky("<", Vector2(VALUE_X - 22, y), func() -> void: _tap(i, -1))
-	var value := _clicky("", Vector2(VALUE_X, y), func() -> void: _tap(i, 1))
-	var right := _clicky(">", Vector2(ARROW_R_X, y), func() -> void: _tap(i, 1))
+	var left := CWStyle.clickable_label(self, "<", Vector2(VALUE_X - 22, y), func() -> void: _tap(i, -1))
+	var value := CWStyle.clickable_label(self, "", Vector2(VALUE_X, y), func() -> void: _tap(i, 1))
+	var right := CWStyle.clickable_label(self, ">", Vector2(ARROW_R_X, y), func() -> void: _tap(i, 1))
 	for arrow: Label in [left, right]:
 		arrow.mouse_entered.connect(func() -> void:
 			_hot_arrow = arrow
@@ -317,21 +317,6 @@ func _btn_box(bg: Color, glow: float) -> StyleBoxFlat:
 		b.shadow_color = Color(1, 1, 1, glow)
 		b.shadow_size = 10
 	return b
-
-
-## 可点击的文字：命中框贴着字、手型光标、左键回调（必须标记已处理，
-## 否则会漏到 main.gd 被「过场中点一下跳过」接走——主菜单踩过的坑）
-func _clicky(text: String, at: Vector2, on_click: Callable) -> Label:
-	var label := CWStyle.label(text, CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
-	label.position = at
-	label.mouse_filter = Control.MOUSE_FILTER_STOP
-	label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	label.gui_input.connect(func(e: InputEvent) -> void:
-		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
-			get_viewport().set_input_as_handled()
-			on_click.call())
-	add_child(label)
-	return label
 
 
 func _tap(row: int, dir: int) -> void:

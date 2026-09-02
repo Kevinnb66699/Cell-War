@@ -61,11 +61,13 @@ func _run_all() -> void:
 	await t_immune_respawn()
 	t_pressure()
 	t_necrosis()
+	await t_tissue_transitions()
 	t_one_cell_per_tile()
 	t_phase_order()
 	t_event_rounds()
 	t_draw_limit()
 	await t_snapshot()
+	await t_state_codec()
 	await t_rollout_isolation()
 	await t_step_atomic()
 	await t_full_game_2p()
@@ -74,6 +76,7 @@ func _run_all() -> void:
 	await t_ai_cards()
 	await t_ai_eval()
 	await t_ai_mc()
+	await t_mc_budget()
 	await t_config_panel()
 	await t_hover_info()
 	await t_log_panel()
@@ -1328,10 +1331,10 @@ class NoticeRecorder extends CWBridge:
 		got.append(text)
 
 
-# ---- 启发式 v2（2026-09-02）：分化按种子随机、免疫不走进压迫区、癌细胞贴脸留储备 ----
+# ---- 启发式 v3（2026-09-02）：继承 v2 的随机分化与惜命；MC 固定预算升版本 ----
 func t_heur_lifecare() -> void:
-	print("[启发式 v2：随机分化与惜命]")
-	check(CWHeuristicBridge.AI_VERSION == "v2", "AI 版本号 v2（改 AI 行为要升号）")
+	print("[启发式 v3：随机分化与惜命]")
+	check(CWHeuristicBridge.AI_VERSION == "v3", "AI 版本号 v3（改 AI 行为要升号）")
 	## ① 分化：同局面同答案、不消耗 rng、不同 rng 状态选到不同种类、四种都选得到
 	var g := make_game(4, 5)
 	await run_setup(g)
@@ -1364,15 +1367,15 @@ func t_heur_lifecare() -> void:
 			break
 	check(h._immune_action(imm["pid"], opts) == first and h.version_tag() == "v1",
 		"set_version(v1) → 拿选项列表第一个、版本标 v1")
-	h.set_version("v2")
-	check(h.version_tag() == "v2", "拨回 v2")
+	h.set_version("v3")
+	check(h.version_tag() == "v3", "拨回 v3")
 	## MC 桥的版本串可带交叉验证用的修饰
 	var m := CWMonteCarloBridge.new()
-	m.set_version("v2-nodc")
-	check(not m.death_cost and m.lifecare and not m.sim_no_lifecare and m.version_tag() == "v2-nodc",
-		"v2-nodc：估值不罚死亡、其余照 v2")
-	m.set_version("v2-simnolc")
-	check(m.death_cost and m.lifecare and m.sim_no_lifecare, "v2-simnolc：只有陪练不惜命")
+	m.set_version("v3-nodc")
+	check(not m.death_cost and m.lifecare and not m.sim_no_lifecare and m.version_tag() == "v3-nodc",
+		"v3-nodc：估值不罚死亡、其余照 v3")
+	m.set_version("v3-simnolc")
+	check(m.death_cost and m.lifecare and m.sim_no_lifecare, "v3-simnolc：只有陪练不惜命")
 	m.set_version("v1")
 	check(not m.death_cost and not m.lifecare and m.fixed_lineup and m.version_tag() == "v1", "v1：全关")
 	g.dispose()
@@ -1516,9 +1519,83 @@ func t_ai_mc() -> void:
 	check(hs[0] == hs[1] and ws[0] == ws[1], "同种子两局哈希与胜者一致")
 
 
+## ---- MC 确定性工作量预算：不以墙钟截断，且统计不允许外部改写 ----
+func t_mc_budget() -> void:
+	print("[AI·MC 确定性预算]")
+	var g := make_game(2, 20260902)
+	var pid := _immune_pid(g)
+	var mc := CWMonteCarloBridge.new()
+	mc.game = g
+	mc.rollouts = 2
+	mc.horizon = 12
+	mc.max_sim_steps = 3
+	g.bridges[pid] = mc
+	var req := await _to_action_for_test(g, pid)
+	var h := g.state_hash()
+	var first: int = await mc.ask(req)
+	var stat := mc.last_stats
+	check(stat["sim_steps"] == 3 and stat["budget_exhausted"] and stat["snapshots"] == 1
+		and stat["restores"] == stat["rollouts"], "3 步预算严格截断 rollout，且记录快照/恢复数")
+	stat["sim_steps"] = -1
+	check(mc.last_stats["sim_steps"] == 3, "last_stats 返回副本，调用方不能改写桥内记录")
+	var second: int = await mc.ask(req)
+	check(first == second and g.state_hash() == h, "固定种子与固定步数预算：答案稳定且不污染主线")
+	mc.max_sim_steps = 0
+	await mc.ask(req)
+	check(not mc.last_stats["budget_exhausted"] and mc.last_stats["sim_steps"] > 3,
+		"预算 0 保持旧版无限工作量语义")
+	g.dispose()
+	## 2/4/6 人浅层冒烟：同一固定种子重复决策，选择与统计均一致。
+	for n in [2, 4, 6]:
+		var picks: Array[int] = []
+		var steps: Array[int] = []
+		for repeat in 2:
+			var smoke := make_game(n, 7000 + n)
+			var smoke_pid := _immune_pid(smoke)
+			var shallow := CWMonteCarloBridge.new()
+			shallow.game = smoke
+			shallow.rollouts = 1
+			shallow.horizon = 2
+			shallow.max_sim_steps = 24
+			smoke.bridges[smoke_pid] = shallow
+			var smoke_req := await _to_action_for_test(smoke, smoke_pid)
+			picks.append(await shallow.ask(smoke_req))
+			steps.append(shallow.last_stats["sim_steps"])
+			smoke.dispose()
+		check(picks[0] == picks[1] and steps[0] == steps[1] and steps[0] <= 24,
+			"%d 人浅层 MC 冒烟：固定种子选择/步数一致（%d 步）" % [n, steps[0]])
+
+
+func _to_action_for_test(g: CWGame, pid: int) -> Dictionary:
+	while true:
+		var req: Dictionary = await g.pending()
+		if req.is_empty() or (req["kind"] == "action" and req["pid"] == pid):
+			return req
+		await g.step(await g.ask(req["pid"], req))
+	return {}
+
+
 # ---- 对局配置面板：默认值 / 拨值 / 座位规则 / AI 强度接线 ----
 func t_config_panel() -> void:
 	print("[对局配置面板]")
+	## 配置页和设置页共用的点击底座：保留命中、手型与左键回调，页面自己仍管理焦点。
+	var click_host := Control.new()
+	root.add_child(click_host)
+	var taps := [0]  ## 闭包按值捕获标量；数组让回调与断言共享同一可变槽。
+	var clicky := CWStyle.clickable_label(click_host, "<", Vector2(12, 18),
+		func() -> void: taps[0] += 1)
+	var mouse := InputEventMouseButton.new()
+	mouse.button_index = MOUSE_BUTTON_LEFT
+	mouse.pressed = true
+	clicky.gui_input.emit(mouse)
+	check(clicky.position == Vector2(12, 18), "CWStyle.clickable_label 保留文字位置")
+	check(clicky.mouse_filter == Control.MOUSE_FILTER_STOP, "CWStyle.clickable_label 拦截点击命中")
+	check(clicky.mouse_default_cursor_shape == Control.CURSOR_POINTING_HAND,
+		"CWStyle.clickable_label 保留手型光标")
+	check(taps[0] == 1, "CWStyle.clickable_label 保留左键回调")
+	root.remove_child(click_host)
+	click_host.free()
+
 	var p := CWConfigPanel.new()
 	root.add_child(p)
 	await process_frame   ## _ready（面板搭建）在入树后的下一帧才跑
@@ -1965,6 +2042,7 @@ func t_save_load() -> void:
 	print("[存档读档]")
 	CWSave.clear()
 	check(not CWSave.exists(), "起手无档")
+	check(not CWSave.can_continue(), "起手没有可恢复的档")
 	var g := make_game(2, 88)
 	check(not CWSave.write(g, [0], false), "还没到 pending 边界：拒写")
 	await run_setup(g)
@@ -1976,6 +2054,7 @@ func t_save_load() -> void:
 	check(not req.is_empty(), "停在一个待决询问上")
 	check(CWSave.write(g, [0], true), "pending 边界：写档成功")
 	check(CWSave.exists(), "档落在盘上")
+	check(CWSave.can_continue(), "完整 v1 档可以继续")
 	var h0 := g.state_hash()
 
 	var data := CWSave.read()
@@ -1993,6 +2072,17 @@ func t_save_load() -> void:
 	check(g2.state_hash() == g.state_hash(), "两边各走同一步，仍逐位一致")
 	g.dispose()
 	g2.dispose()
+	## 文件存在但内容坏了时，菜单不能点亮「继续对局」。
+	var bad := FileAccess.open(CWSave.PATH, FileAccess.WRITE)
+	bad.store_string("not a save")
+	bad.close()
+	check(CWSave.exists() and not CWSave.can_continue(), "损坏档存在但不可继续")
+	## 结构截断同样必须拒绝，避免点击后 restore() 才爆。
+	bad = FileAccess.open(CWSave.PATH, FileAccess.WRITE)
+	bad.store_string(var_to_str({ "version": CWSave.VERSION, "players": 2,
+		"human": [0], "smart": false, "snap": {} }))
+	bad.close()
+	check(not CWSave.can_continue(), "截断快照不可继续")
 
 	## 暂停菜单：「保存并退出」按 can_save 亮灭（不真开菜单，别把测试树暂停了）
 	var pm := CWPauseMenu.new()
@@ -2012,6 +2102,91 @@ func t_save_load() -> void:
 	pm.free()
 	CWSave.clear()
 	check(not CWSave.exists(), "清档干净（不污染下一次测试）")
+
+
+# ---- 组织转换：CWTissue 是 tissue 及关联生命周期字段的唯一所有者 ----
+func t_tissue_transitions() -> void:
+	print("[组织转换不变量]")
+	var g := make_game(2, 71)
+	g.setup.build_board()
+	var special: Vector2i = CWData.MARROWS[0]
+	var t: Dictionary = g.tile(special)
+	t["store"] = 30
+	t["cards"] = 2
+	t["prod"] = 1
+	t["mucus"] = true
+	t["solid"] = 20
+	t["necrosis"] = 4
+	t["newborn"] = true
+	CWTissue.to_healthy(t)
+	check(CWTissue.is_valid(t) and t["necrosis"] == 0, "转健康：清除固化/新生/坏死组合")
+	check(t["store"] == 30 and t["cards"] == 2 and t["prod"] == 1 and t["mucus"],
+		"无关转换保留特殊组织库存与黏液")
+	CWTissue.to_cancer(t, true)
+	check(CWTissue.is_valid(t) and t["newborn"], "转癌：显式保留本回合新生语义")
+	CWTissue.to_solid(t)
+	check(CWTissue.is_valid(t) and not t["newborn"], "转固化：清除新生与坏死")
+	CWTissue.crack_to_cancer(t)
+	check(CWTissue.is_valid(t) and not t["newborn"] and t["solid"] == 0,
+		"拆固化：降级为非新生普通癌组织")
+
+	# 进入格子：坏死健康组织定殖后不能同时是癌组织和坏死。
+	var colonize := Vector2i(1, 0)
+	g.tile(colonize)["necrosis"] = 3
+	var cancer := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i.ZERO,
+		-1, CWData.CancerType.MELANOMA)
+	g.cells.append(cancer)
+	await g.actions.enter_tile(cancer, colonize)
+	check(CWTissue.is_valid(g.tile(colonize)) and g.tile(colonize)["newborn"],
+		"进入格子：定殖清除坏死并标为新生")
+
+	# 侵蚀与增生都必须通过同一条新生转癌路径。
+	var erode := Vector2i(2, 0)
+	for c in g.tiles.keys():
+		CWTissue.to_cancer(g.tile(c), false)
+	CWTissue.to_healthy(g.tile(erode))
+	g.tile(erode)["necrosis"] = 2
+	g.world._erosion()
+	check(CWTissue.is_valid(g.tile(erode)) and g.tile(erode)["newborn"],
+		"侵蚀：坏死健康格转癌后坏死清零")
+	for c in g.tiles.keys():
+		CWTissue.to_healthy(g.tile(c))
+	var source := Vector2i.ZERO
+	var grow := Vector2i(1, 0)
+	CWTissue.to_cancer(g.tile(source), false)
+	g.tile(grow)["necrosis"] = 2
+	g.tune.proliferate_per_adjacent = 1000
+	g.world._proliferate()
+	check(CWTissue.is_valid(g.tile(grow)) and g.tile(grow)["newborn"],
+		"增生：坏死健康格转癌后坏死清零")
+
+	# 放疗、基质重塑、复活分别覆盖健康、拆固化与复活的转换语义。
+	var radio := Vector2i(-1, 0)
+	CWTissue.to_cancer(g.tile(radio), false)
+	g.card_fx._radiotherapy(radio)
+	check(g.tile(radio)["tissue"] == CWData.Tissue.HEALTHY and g.tile(radio)["necrosis"] > 0,
+		"放疗：癌组织先转健康，再施加坏死")
+	var solid := Vector2i(-2, 0)
+	CWTissue.to_cancer(g.tile(solid), false)
+	g.tile(solid)["solid"] = g.tune.solidify_threshold
+	CWTissue.to_solid(g.tile(solid))
+	var stop_bridge := CWBridge.new()
+	stop_bridge.game = g
+	g.bridges[0] = stop_bridge  # 基质重塑的「最多」分支固定选择停止，便于只验拆固化。
+	await g.card_fx._remodel(cancer, solid)
+	check(CWTissue.is_valid(g.tile(solid)) and g.tile(solid)["tissue"] == CWData.Tissue.CANCER,
+		"基质重塑：固化组织降级后不误标新生")
+	var revive := Vector2i(-3, 0)
+	g.tile(revive)["solid"] = g.tune.solidify_threshold
+	CWTissue.to_solid(g.tile(revive))
+	g.tile(revive)["necrosis"] = 3  # 构造旧代码曾能留下的非法状态。
+	cancer["alive"] = false
+	await g.world.revive_cancer(0, { "to": revive })
+	check(CWTissue.is_valid(g.tile(revive)) and g.tile(revive)["tissue"] == CWData.Tissue.CANCER,
+		"复活：固化组织降级后清除坏死")
+	for tile in g.tiles.values():
+		check(CWTissue.is_valid(tile), "全盘组织状态符合不变量")
+	g.dispose()
 
 
 # ---- 设置：两项偏好即改即存，读回一致；收尾必须还原默认（掷骰演出测试在后面）----
@@ -3366,6 +3541,58 @@ func t_snapshot() -> void:
 	g.restore(snap)
 	check(g.rng.randi() == a, "rng 状态也在快照里")
 	g.dispose()
+
+
+## CWStateCodec 的包含/排除边界。每次只动一个会改变后续结算的字段，哈希都必须变。
+func t_state_codec() -> void:
+	print("[状态编码]")
+	var g := make_game(2, 103)
+	await run_setup(g)
+	await g.pending()  ## 进入顶层待决边界，pending 本身也是规则状态。
+	var base := g.snapshot()
+	var cases := [
+		func(): g.rng.state += 1,
+		func(): g.flow["acts"] += 1,
+		func(): g._pending["pid"] = 1 - int(g._pending["pid"]),
+		func(): g.current_pid = int(g.current_pid) + 1,
+		func(): g.differentiated.append(CWData.ImmuneType.T_CELL),
+		func(): g.events["pool"].pop_back(),
+		func(): g.cells[0]["draws_used"] += 1,
+		func(): g.cells[0]["fx_turn"]["test"] = 1,
+		func(): g.cells[0]["antibody_used"] += 1,
+		func(): g.cells[0]["differentiated"] = not g.cells[0]["differentiated"],
+		func(): g.cells[0]["armor_used"] = not g.cells[0]["armor_used"],
+		func(): g.cells[0]["mutate_used"] = not g.cells[0]["mutate_used"],
+		func(): g.cells[0]["toxin_used"] += 1,
+		func(): g.cells[0]["metastasis_used"] = not g.cells[0]["metastasis_used"],
+		func(): g.cells[0]["hand"].append("状态测试卡"),
+		func(): g.cells[0]["mods"].append({ "name": "状态测试", "uses": 1, "until": "turn", "seq": 1, "data": {} }),
+		func(): _codec_mutate_tile(g),
+		func(): g.tune.attack_max_per_turn += 1,
+	]
+	for i in cases.size():
+		var mutate: Callable = cases[i]
+		g.restore(base)
+		var h := g.state_hash()
+		mutate.call()
+		check(g.state_hash() != h, "规则字段 #%d 单独变化会改变 state_hash" % i)
+	g.restore(base)
+	var h0 := g.state_hash()
+	g.logs.append("纯表现日志")
+	g.phase = "界面文案变化"
+	g.cells[0]["play_n"] += 99
+	check(g.state_hash() == h0, "日志、phase 与 play_n 不改变 state_hash")
+	g.restore(base)
+	var r := g.rng.randi()
+	g.restore(base)
+	check(g.rng.randi() == r and g.flow == base["flow"], "restore 同时还原 RNG 与流程游标")
+	g.dispose()
+
+
+func _codec_mutate_tile(g: CWGame) -> void:
+	var coords := g.tiles.keys()
+	coords.sort()
+	g.tiles[coords[0]]["store"] += 1
 
 
 # ---- 推演不能污染主线：这是「AI 能自己往前推」的验收条件 ----

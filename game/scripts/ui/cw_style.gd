@@ -42,6 +42,25 @@ static func label(text: String, size: int, color: Color) -> Label:
 	return l
 
 
+## 可点击的文字：命中框贴着字、手型光标、左键回调。
+## 必须在这里标记事件已处理，否则点击会漏到上层菜单，误触其「跳过过场」逻辑。
+## 调用者仍自行决定位置、悬停反馈和焦点；这里只收口两个页面完全相同的输入底座。
+static func clickable_label(parent: Control, text: String, at: Vector2,
+		on_click: Callable) -> Label:
+	var clickable := label(text, SIZE_BODY, TEXT_HI)
+	clickable.position = at
+	clickable.mouse_filter = Control.MOUSE_FILTER_STOP
+	clickable.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	clickable.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			var viewport := clickable.get_viewport()
+			if viewport != null:
+				viewport.set_input_as_handled()
+			on_click.call())
+	parent.add_child(clickable)
+	return clickable
+
+
 ## 无描边的垫块：只有底色和内边距。快捷键数字那种小标记用。
 static func plate(bg: Color, pad_v: int, pad_h: int) -> StyleBoxFlat:
 	var b := StyleBoxFlat.new()

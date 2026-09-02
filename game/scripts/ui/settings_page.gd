@@ -3,8 +3,8 @@
 ## 视觉与键盘模型照抄对局配置面板（上下选行、左右拨值、Esc 返回）；
 ## 2026-08-30 起连拨值语汇也对齐它：箭头**固定位置**不随字宽跑、悬停亮白光、
 ## 选中行标题带主菜单同款辉光（对局内试玩第一轮要求「和配置面板一样」）。
-## 两处值行面板还不抽公共控件——共性归共性，这边没有「开始」行、
-## 值改动是**即时副作用**（写 CWSettings + 存盘）而不是攒着确认，骨架并不同。
+## 两处值行面板仅共用 CWStyle.clickable_label 的点击底座：这边没有「开始」行、
+## 值改动是**即时副作用**（写 CWSettings + 存盘），骨架和焦点仍各自维护。
 class_name CWSettingsPage
 extends Control
 
@@ -145,11 +145,11 @@ func _build() -> void:
 
 		## 拨值箭头 ASCII 的 < >（点阵字库没有 ‹ ›），两枚都在**固定位置**；
 		## 值文本挂在两箭头正中。悬停箭头亮白光（_hot_arrow 记着谁，_repaint 统一画）
-		var left := _clicky("<", Vector2(ARROW_L_X, y + 5), func() -> void: _tap(i, -1))
-		var value := _clicky("", Vector2(ARROW_L_X + 14, y + 5), func() -> void: _tap(i, 1))
+		var left := CWStyle.clickable_label(_panel, "<", Vector2(ARROW_L_X, y + 5), func() -> void: _tap(i, -1))
+		var value := CWStyle.clickable_label(_panel, "", Vector2(ARROW_L_X + 14, y + 5), func() -> void: _tap(i, 1))
 		value.size = Vector2(ARROW_R_X - ARROW_L_X - 14, 26)
 		value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		var right := _clicky(">", Vector2(ARROW_R_X, y + 5), func() -> void: _tap(i, 1))
+		var right := CWStyle.clickable_label(_panel, ">", Vector2(ARROW_R_X, y + 5), func() -> void: _tap(i, 1))
 		for arrow: Label in [left, right]:
 			arrow.mouse_entered.connect(func() -> void:
 				_hot_arrow = arrow
@@ -167,22 +167,6 @@ func _build() -> void:
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.position = Vector2(0, h + 8)
 	_panel.add_child(hint)
-
-
-## 可点击文字（同 config_panel._clicky——值行骨架还没抽公共件，见文件头）：
-## 命中框贴着字、手型光标、左键回调。必须标记已处理，
-## 否则会漏到 main.gd 被「过场中点一下跳过」接走（主菜单踩过的坑）。
-func _clicky(text: String, at: Vector2, on_click: Callable) -> Label:
-	var label := CWStyle.label(text, CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
-	label.position = at
-	label.mouse_filter = Control.MOUSE_FILTER_STOP
-	label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	label.gui_input.connect(func(e: InputEvent) -> void:
-		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
-			get_viewport().set_input_as_handled()
-			on_click.call())
-	_panel.add_child(label)
-	return label
 
 
 func _tap(row: int, dir: int) -> void:

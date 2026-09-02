@@ -184,8 +184,7 @@ func revive_cancer(pid: int, data: Dictionary) -> void:
 	var pos: Vector2i = data["to"]
 	## 复活获得 2.0 能量，随后该固化癌组织降级为癌组织（计数清零，说明 #22）
 	var t: Dictionary = game.tile(pos)
-	t["tissue"] = CWData.Tissue.CANCER
-	t["solid"] = 0
+	CWTissue.crack_to_cancer(t)
 	cell["alive"] = true
 	cell["energy"] = CWData.REVIVE_ENERGY
 	## 【癌症干性】：复活能量提高（分期），本世界回合 1 次（20 回合起 2 次）
@@ -354,10 +353,7 @@ func _erosion() -> void:
 	# rng 消耗完全一样，平衡数据和同种子复现都不受影响，但 _erosion() 及其调用链要改成 async。
 	var count: int = 1 if game.roll_d3() <= 2 else 2  # 2/3→1 格，1/3→2 格
 	for c in game.pick_random(eligible, count):
-		var t: Dictionary = game.tile(c)
-		t["tissue"] = CWData.Tissue.CANCER
-		t["newborn"] = true
-		t["solid"] = 0
+		CWTissue.to_cancer(game.tile(c), true)
 		game.log_msg("【侵蚀】%s 转为癌组织" % str(c))
 
 
@@ -389,10 +385,7 @@ func _proliferate() -> void:
 		if adj > 0 and game.rng.randi_range(1, 1000) <= rate * adj:
 			converts.append(c)
 	for c in converts:
-		var t: Dictionary = game.tile(c)
-		t["tissue"] = CWData.Tissue.CANCER
-		t["newborn"] = true
-		t["solid"] = 0
+		CWTissue.to_cancer(game.tile(c), true)
 	if not converts.is_empty():
 		game.log_msg("【增生】%d 格健康组织被癌组织侵占" % converts.size())
 

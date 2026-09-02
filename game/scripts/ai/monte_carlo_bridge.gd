@@ -21,6 +21,14 @@ extends CWHeuristicBridge
 ## 或者直接用启发式桥（架构说明书：平衡用 AI 与对战用 AI 不必是同一个）。
 var rollouts := 2
 var horizon := 40
+## 单次决策允许实际推进的模拟 step() 总数；0 = 沿用旧版，不设总上限。
+## 这是工作量而不是墙钟：同一状态、同一预算在快慢机器上会评估同一批 rollout。
+var max_sim_steps := 0
+var _last_stats: Dictionary = {}
+## 给基准和诊断读的上一次决策统计。返回深拷贝，外部不能改写桥的记录。
+var last_stats: Dictionary:
+	get:
+		return _last_stats.duplicate(true)
 ## 关闸 = 整座桥退化为启发式。给 CWUIBridge 当「AI 强度」开关用：
 ## 它继承本类，人机对局里由对局配置面板拨这一位。
 var enabled := true
@@ -72,31 +80,51 @@ func _mc_pick(req: Dictionary) -> int:
 
 	var best := 0
 	var best_score := -(1 << 60)
+	var stats := {
+		"candidates": options.size(), "candidates_probed": 0, "snapshots": 1,
+		"restores": 0, "rollouts": 0, "sim_steps": 0,
+		"max_sim_steps": max_sim_steps, "budget_exhausted": false,
+	}
 	for i in options.size():
+		if _budget_exhausted(stats):
+			break
 		if not _worth_probing(pid, options[i]["data"]):
 			continue
+		stats["candidates_probed"] += 1
 		var total := 0
 		for r in rollouts:
+			if _budget_exhausted(stats):
+				break
 			game.rng.seed = _playout_seed(snap["rng"], r)
 			await game.step(i)
+			stats["sim_steps"] += 1
+			stats["rollouts"] += 1
 			var plies := 0
-			while plies < horizon and not game.is_over():
+			while plies < horizon and not game.is_over() and not _budget_exhausted(stats):
 				var rq: Dictionary = await game.pending()
 				if rq.is_empty():
 					break
 				var idx: int = await sim.ask(rq)
 				await game.step(idx)
 				plies += 1
+				stats["sim_steps"] += 1
 			total += CWEval.score(game, my_faction, death_cost)
 			game.restore(snap)
+			stats["restores"] += 1
 		if total > best_score:
 			best_score = total
 			best = i
 
+	stats["budget_exhausted"] = _budget_exhausted(stats)
+	_last_stats = stats
 	game.sim_quiet = false
 	game.bridges = saved_bridges
 	sim.game = null   ## 断环：sim 持 game、game.bridges 持本桥，留着会漏
 	return best
+
+
+func _budget_exhausted(stats: Dictionary) -> bool:
+	return max_sim_steps > 0 and int(stats["sim_steps"]) >= max_sim_steps
 
 
 ## 推演用的随机流：由「快照里的 rng 状态 + 第几条 playout」派生，**刻意不等于真实的 rng 状态**。

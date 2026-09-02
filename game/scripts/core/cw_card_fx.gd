@@ -235,8 +235,7 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 	match card:
 		"基质降解":
 			var t: Dictionary = game.tile(data["to"])
-			t["tissue"] = CWData.Tissue.CANCER
-			t["solid"] = 0
+			CWTissue.crack_to_cancer(t)
 			game.log_msg("　%s 由固化癌组织转为癌组织（计数清零）" % str(data["to"]))
 		"抗体依赖细胞毒作用":
 			var base := 15 if cell["itype"] == CWData.ImmuneType.B_CELL else 10
@@ -336,7 +335,7 @@ func _local_phagocytosis(cell: Dictionary) -> void:
 		_evt("局部吞噬", "落空（相邻无癌组织）", cell["pos"])
 		return
 	var c: Vector2i = cands[game.rng.randi_range(0, cands.size() - 1)]
-	_to_healthy(c)
+	CWTissue.to_healthy(game.tile(c))
 	game.gain_memory(1)
 	game.log_msg("　【局部吞噬】%s 转为健康组织，+1 抗原记忆（%d）" % [str(c), game.memory])
 	_evt("局部吞噬", "1 格转健康 · +1 记忆", c)
@@ -396,11 +395,11 @@ func _systemic_clearance(drawer: Dictionary) -> void:
 	for c in game.tiles.keys():
 		if game.tiles[c]["tissue"] == CWData.Tissue.CANCER \
 				and game.cells_at(c, CWData.Faction.CANCER).is_empty() \
-				and _adjacent_healthy_tile(c):
+				and _adjacent_healthy(c):
 			cands.append(c)
 	var picked := _pick_random(cands, 10)
 	for c in picked:
-		_to_healthy(c)
+		CWTissue.to_healthy(game.tile(c))
 	game.log_msg("　【全身性免疫清除】%d 格癌组织转为健康组织" % picked.size())
 	_evt("全身性免疫清除", "%d 格癌组织转健康" % picked.size(), drawer["pos"])
 
@@ -414,7 +413,7 @@ func _clonal_growth(cell: Dictionary) -> void:
 			cands.append(n)
 	var picked := _pick_random(cands, [1, 2, 3][_phase()])
 	for c in picked:
-		_to_cancer(c)
+		CWTissue.to_cancer(game.tile(c), true)
 	game.log_msg("　【克隆增殖】%d 格健康组织转为癌组织" % picked.size())
 	_evt("克隆增殖", "%d 格转癌组织" % picked.size(), cell["pos"])
 
@@ -423,7 +422,7 @@ func _clonal_growth(cell: Dictionary) -> void:
 func _lysosome(cell: Dictionary) -> void:
 	var picked := _pick_random(_adjacent_plain_cancer_empty(cell["pos"]), 4)
 	for c in picked:
-		_to_healthy(c)
+		CWTissue.to_healthy(game.tile(c))
 	game.log_msg("　【溶酶体强化】%d 格癌组织转为健康组织" % picked.size())
 	if cell["itype"] == CWData.ImmuneType.MACRO and not picked.is_empty():
 		_gain(cell, 3 * picked.size(), "巨噬")
@@ -536,7 +535,7 @@ func _inflammation_storm(cell: Dictionary, card: String) -> void:
 			return "净化 %d 格" % storm_inflammation_tiles(t["pos"]).size())
 	var purged := 0
 	for n in storm_inflammation_tiles(target["pos"]):
-		_to_healthy(n)
+		CWTissue.to_healthy(game.tile(n))
 		purged += 1
 	var victims: Array = []
 	for n in CWData.neighbors(target["pos"]):
@@ -560,7 +559,7 @@ func _immune_storm(cell: Dictionary, card: String) -> void:
 	var hit: int = victims.size()
 	var purged := 0
 	for c in storm_immune_tiles(target["pos"]):
-		_to_healthy(c)
+		CWTissue.to_healthy(game.tile(c))
 		purged += 1
 	game.log_msg("　【免疫风暴】以 %s 为中心 2 格：%d 个癌细胞 -%s，%d 格转健康" % [
 		game.cell_name(target), hit, CWData.fmt(_amp(10)), purged])
@@ -757,7 +756,8 @@ func _solid_in_range(center: Vector2i, r: int) -> Array[Vector2i]:
 ## 每一段都可提前停（「最多」给的是上限，不是义务）。
 func _remodel(cell: Dictionary, first: Vector2i) -> void:
 	var chosen: Array[Vector2i] = [first]
-	_crack(first)
+	CWTissue.crack_to_cancer(game.tile(first))
+	game.log_msg("　【基质重塑】%s 由固化癌组织转为癌组织（计数清零）" % str(first))
 	var more: Array = []
 	for c in _solid_in_range(cell["pos"], 2):
 		more.append({ "label": "再拆 %s" % str(c), "data": { "to": c } })
@@ -771,7 +771,8 @@ func _remodel(cell: Dictionary, first: Vector2i) -> void:
 		var data: Dictionary = opts[idx]["data"]
 		if not data.get("stop", false):
 			chosen.append(data["to"])
-			_crack(data["to"])
+			CWTissue.crack_to_cancer(game.tile(data["to"]))
+			game.log_msg("　【基质重塑】%s 由固化癌组织转为癌组织（计数清零）" % str(data["to"]))
 	for heal_no in 2:
 		var cands := _remodel_heal_cands(chosen)
 		if cands.is_empty():
@@ -787,15 +788,8 @@ func _remodel(cell: Dictionary, first: Vector2i) -> void:
 		var data: Dictionary = opts[idx]["data"]
 		if data.get("stop", false):
 			return
-		_to_healthy(data["to"])
+		CWTissue.to_healthy(game.tile(data["to"]))
 		game.log_msg("　【基质重塑】%s 转为健康组织" % str(data["to"]))
-
-
-func _crack(c: Vector2i) -> void:
-	var t: Dictionary = game.tile(c)
-	t["tissue"] = CWData.Tissue.CANCER
-	t["solid"] = 0
-	game.log_msg("　【基质重塑】%s 由固化癌组织转为癌组织（计数清零）" % str(c))
 
 
 ## 【基质重塑】第二段的候选：拆过的格自身 + 它们的相邻格里，无细胞占据的普通癌组织。
@@ -836,9 +830,8 @@ func _radiotherapy(start: Vector2i) -> void:
 	var cleared := 0
 	for c in region:
 		if game.is_cancerous(c):
-			_to_healthy(c)
 			cleared += 1
-		game.tile(c)["necrosis"] = maxi(game.tile(c)["necrosis"], CWData.NECROSIS_RADIO)
+		CWTissue.to_necrotic(game.tile(c), CWData.NECROSIS_RADIO)
 	game.log_msg("　【放疗】以 %s 为起点的 %d 格区域：%d 格癌性组织转为健康，全部进入「坏死」（%d 轮）" % [
 		str(start), region.size(), cleared, CWData.NECROSIS_RADIO])
 	game.announce("放疗：%d 格转健康 · %d 格坏死" % [cleared, region.size()], start)
@@ -936,21 +929,6 @@ func _gain(cell: Dictionary, n: int, tag: String = "") -> void:
 		game.cell_name(cell), tag, CWData.fmt(v), CWData.fmt(cell["energy"])])
 
 
-## 组织转化不走「进入」，所以不给记忆、不触发收取；黏液/新生按增生同口径处理
-func _to_healthy(c: Vector2i) -> void:
-	var t: Dictionary = game.tile(c)
-	t["tissue"] = CWData.Tissue.HEALTHY
-	t["solid"] = 0
-	t["newborn"] = false
-
-
-func _to_cancer(c: Vector2i) -> void:
-	var t: Dictionary = game.tile(c)
-	t["tissue"] = CWData.Tissue.CANCER
-	t["newborn"] = true
-	t["solid"] = 0
-
-
 func _adjacent_cancerous(pos: Vector2i) -> bool:
 	for n in CWData.neighbors(pos):
 		if game.is_cancerous(n):
@@ -963,10 +941,6 @@ func _adjacent_healthy(pos: Vector2i) -> bool:
 		if game.tile(n)["tissue"] == CWData.Tissue.HEALTHY:
 			return true
 	return false
-
-
-func _adjacent_healthy_tile(c: Vector2i) -> bool:
-	return _adjacent_healthy(c)
 
 
 func _adjacent_plain_cancer_empty(pos: Vector2i) -> Array[Vector2i]:

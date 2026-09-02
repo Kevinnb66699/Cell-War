@@ -211,7 +211,7 @@ func _item_enabled(i: int) -> bool:
 	if not ITEMS[i]["enabled"]:
 		return false
 	if ITEMS[i]["node"] == "Continue":
-		return CWSave.exists()
+		return CWSave.can_continue()
 	return true
 
 

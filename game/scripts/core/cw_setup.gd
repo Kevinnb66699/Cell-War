@@ -90,8 +90,8 @@ func _place_primary_lesions() -> void:
 			continue
 		marked[c] = true
 		var t: Dictionary = game.tile(c)
-		t["tissue"] = CWData.Tissue.SOLID
 		t["solid"] = game.tune.solidify_threshold
+		CWTissue.to_solid(t)
 	if not marked.is_empty():
 		game.log_msg("【原发灶】癌细胞出生的 %d 格转为固化癌组织" % marked.size())
 
@@ -125,7 +125,7 @@ func _place_initial_cancer() -> void:
 			chosen.append(n)
 			frontier.append(n)
 	for c in chosen:
-		game.tiles[c]["tissue"] = CWData.Tissue.CANCER  # 开局即有，不算「新生」
+		CWTissue.to_cancer(game.tiles[c], false)  # 开局即有，不算「新生」
 	game.log_msg("初始癌组织：自中央格向外铺 %d 格" % chosen.size())
 	if CWData.special_of(Vector2i.ZERO) != CWData.Special.NONE:
 		game.log_msg("! 中央格是特殊组织，与「癌组织不得与特殊组织重合」冲突（见说明 #34）")

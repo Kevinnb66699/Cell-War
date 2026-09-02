@@ -7,6 +7,39 @@
 class_name CWTuning
 extends RefCounted
 
+## 仅规则旋钮；name 只用于报告文字，不能让同一规则因标签不同而分叉。
+const RULE_FIELDS := [
+	"anaerobic_per_cancer", "anaerobic_per_solid", "anaerobic_split", "aerobic_mult",
+	"aerobic_mult_growth", "aerobic_split", "anaerobic_floor", "anaerobic_cap",
+	"aerobic_floor", "aerobic_cap", "energy_cap", "cancer_upkeep_pct",
+	"init_energy_immune", "init_energy_cancer", "init_cancer_tiles", "immune_move_healthy",
+	"immune_move_cancerous", "cancer_move_cancerous", "cancer_move_healthy", "sclc_move_healthy",
+	"pseudopod_cost", "attack_max_per_turn", "attack_dmg_success", "attack_dmg_crit",
+	"immune_attack_pct_growth", "immune_attack_pct_per_memory", "immune_attack_pct_memory_cap",
+	"counter_dmg_on_fail", "solidify_threshold", "limit_round", "limit_cancerous",
+	"cancer_win_weighted", "cancer_win_hold_rounds", "solid_at_cancer_spawn",
+	"immune_respawn_delay", "immune_respawn_energy", "macro_heal_purify",
+	"antibody_max_per_round", "proliferate_per_adjacent",
+]
+
+
+func rules_state() -> Dictionary:
+	var state := {}
+	for field in RULE_FIELDS:
+		state[field] = get(field)
+	return state
+
+
+func signature() -> String:
+	## 供存档/联机诊断使用；哈希实际由 CWStateCodec 统一计算。
+	return CWStateCodec._encode(rules_state()).sha256_text()
+
+
+func restore_rules_state(state: Dictionary) -> void:
+	for field in RULE_FIELDS:
+		if state.has(field):
+			set(field, state[field])
+
 ## 方案名（打印报告用）
 var name := "规则原文"
 

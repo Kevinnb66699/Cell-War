@@ -12,11 +12,11 @@ cd "$(dirname "$0")/.."
 OUT="$("$GODOT" --headless --path game --script res://tests/headless_test.gd 2>&1)"
 CODE=$?
 echo "$OUT" | grep -E "FAIL|✔|✘"
-ERRS="$(echo "$OUT" | grep -c "SCRIPT ERROR")"
+ERRS="$(echo "$OUT" | grep -Ec "SCRIPT ERROR|Parse Error|Failed to load script")"
 if [ "$ERRS" -gt 0 ]; then
-  echo ""
-  echo "✘ 另有 $ERRS 处运行时报错（断言没红，但代码在运行时就炸了）："
-  echo "$OUT" | grep "SCRIPT ERROR" -A 3
-  exit 1
+	echo ""
+	echo "✘ 另有 $ERRS 处运行时报错或测试脚本未加载（断言没红，也不能算通过）："
+	echo "$OUT" | grep -E "SCRIPT ERROR|Parse Error|Failed to load script" -A 3
+	exit 1
 fi
 exit $CODE

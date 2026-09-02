@@ -288,40 +288,11 @@ const PROMPTS := {
 ## 实测深拷贝一次约 0.16 ms。真要跑上万次推演的话，这个成本是主要开销，
 ## 届时应该换成「落子 / 悔子」（make-unmake）而不是整份复制 —— 但那要先有回滚日志。
 func snapshot() -> Dictionary:
-	return {
-		"tiles": tiles.duplicate(true),
-		"cells": cells.duplicate(true),
-		"players": players.duplicate(true),
-		"differentiated": differentiated.duplicate(),
-		"flow": flow.duplicate(),
-		"pending": _pending.duplicate(true),
-		"round_no": round_no, "memory": memory, "immune_level": immune_level,
-		"winner": winner, "win_reason": win_reason, "win_kind": win_kind,
-		"cancer_win_streak": cancer_win_streak,
-		"current_pid": current_pid, "phase": phase,
-		"events": events.duplicate(true),
-		"rng": rng.state,
-	}
+	return CWStateCodec.snapshot(self)
 
 
 func restore(snap: Dictionary) -> void:
-	tiles = snap["tiles"].duplicate(true)
-	cells = snap["cells"].duplicate(true)
-	players = snap["players"].duplicate(true)
-	differentiated = snap["differentiated"].duplicate()
-	flow = snap["flow"].duplicate()
-	_pending = snap["pending"].duplicate(true)
-	round_no = snap["round_no"]
-	memory = snap["memory"]
-	immune_level = snap["immune_level"]
-	winner = snap["winner"]
-	win_reason = snap["win_reason"]
-	win_kind = snap["win_kind"]
-	cancer_win_streak = snap.get("cancer_win_streak", 0)   ## 旧存档没有这个键
-	current_pid = snap["current_pid"]
-	phase = snap["phase"]
-	events = snap["events"].duplicate(true)
-	rng.state = snap["rng"]
+	CWStateCodec.restore(self, snap)
 
 
 func dispose() -> void:
@@ -555,7 +526,7 @@ func raise_solid(pos: Vector2i, amount: int) -> void:
 		and before < CWData.SOLIDIFY_ACCEL_AT and t["solid"] >= CWData.SOLIDIFY_ACCEL_AT
 	if t["solid"] < tune.solidify_threshold and not accel:
 		return
-	t["tissue"] = CWData.Tissue.SOLID
+	CWTissue.to_solid(t)
 	log_msg("【固化】%s 转为固化癌组织%s" % [str(pos),
 		"（固化加速）" if t["solid"] < tune.solidify_threshold else ""])
 
@@ -877,52 +848,4 @@ func cell_name(c: Dictionary) -> String:
 
 ## 全状态哈希：确定性测试与未来联机对局校验用
 func state_hash() -> String:
-	var parts: PackedStringArray = []
-	parts.append("r%d m%d lv%d w%d cs%d" % [round_no, memory, immune_level, winner, cancer_win_streak])
-	var coords := tiles.keys()
-	coords.sort()
-	for c in coords:
-		var t: Dictionary = tiles[c]
-		parts.append("%s:%d,%d,%d,%d,%d,%d,%d,%d" % [str(c), t["tissue"], t["solid"],
-			t["necrosis"], 1 if t["newborn"] else 0, 1 if t["mucus"] else 0,
-			t["store"], t["cards"], t["prod"]])
-	for cell in cells:
-		## **打出先后的戳必须进哈希**（2026-08-30 审查问题 2）：口径 #73 之后 seq /
-		## equip_seq 是**规则相关数据**（移动费链按它排序）。两个数组各自的内部次序
-		## 本来就被数组顺序捎带上了，但即时卡与永久技能**之间**的交错完全没进来 ——
-		## 于是「先装组织巡航后打炎症趋化」和反过来算出同一个哈希，而两者移动费差 0.5。
-		##
-		## `cell["play_n"]` 本身**不进哈希**：它是只增不减的计数器，绝对值不影响任何
-		## 结算（同一批条目无论从 3 还是从 5 往后发号，排出来的先后完全一样），
-		## 有意义的只是相对先后，而那已经被各条目的 seq 记住了。把它塞进来反而会打破
-		## 「挂上修饰 → 消耗掉 = 回到原状态」这条测试地基（t_card_mods ⑪）。
-		var mods: PackedStringArray = []
-		for m in cell["mods"]:
-			mods.append("%s*%d%s@%d" % [m["name"], m["uses"], m["until"], m.get("seq", 0)])
-		var eq: PackedStringArray = []
-		for s in cell["equipped"]:
-			eq.append("%s@%d" % [s, cell["equip_seq"].get(s, 0)])
-		var ft: Array = cell["fx_turn"].keys()
-		ft.sort()
-		var fr: Array = cell["fx_round"].keys()
-		fr.sort()
-		## 「本行动回合已用几次」的计数器也是规则状态：快照恢复到回合**中途**时，
-		## 它决定还能不能抽卡/攻击。`draws_used` 此前漏了（本次一并补上）。
-		parts.append("c%d:%d,%s,%d,%d,%d,%d,%d|%s|%s|%s|k%d.%d|%s|%s|u%d.%d" % [
-			cell["id"], cell["faction"],
-			str(cell["pos"]), cell["energy"], 1 if cell["alive"] else 0,
-			cell["itype"], cell["ctype"], cell["respawn_round"],
-			",".join(cell["hand"]), ",".join(eq), ",".join(mods),
-			1 if cell["marked"] else 0, cell["mark_left"], str(ft), str(fr),
-			cell["draws_used"], cell["attacks_used"]])
-	var ev: PackedStringArray = []
-	for e in events["active"]:
-		var dk: Array = e["data"].keys()
-		dk.sort()
-		var dp: PackedStringArray = []
-		for k in dk:
-			dp.append("%s=%s" % [str(k), str(e["data"][k])])
-		ev.append("%s:%d:%d:%s" % [e["name"], e["left"], e["stacks"], ";".join(dp)])
-	parts.append("ev dn%d pool:%s | %s" % [1 if events["double_next"] else 0,
-		",".join(events["pool"]), " ".join(ev)])
-	return "\n".join(parts).sha256_text()
+	return CWStateCodec.state_hash(self)

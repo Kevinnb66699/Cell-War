@@ -210,6 +210,8 @@ func start(snap: Dictionary = {}) -> void:
 	bridge.hand = hand   ## 方案甲：打出/弃置手势从手牌抽屉来
 	bridge.human_pids = human_players
 	bridge.enabled = ai_smart    ## 「较强」= 蒙特卡洛推演（桥的基类），默认启发式
+	## 真人档要有可预测的响应上限；预算按模拟 step 计，不受本机快慢影响。
+	bridge.max_sim_steps = 192 if ai_smart else 0
 	bridge.opening = _opening    ## 绽开演完前先不弹询问界面
 	bridge.delay_ms = CWSettings.ai_delay_ms
 	bridge.delay_node = self
