@@ -564,17 +564,18 @@ func t_solidify_and_decay() -> void:
 	g.cells.append(cell)
 	g.world._solidify()
 	check(g.tiles[pos]["solid"] == 10, "停留 1 回合 → 计数 1.0")
-	g.world._solidify()
-	check(g.tiles[pos]["tissue"] == CWData.Tissue.CANCER, "计数 2.0 还没到阈值")
-	g.world._solidify()
-	check(g.tiles[pos]["tissue"] == CWData.Tissue.SOLID, "计数到 3.0 → 固化癌组织")
-	## 骨肉瘤【骨样硬化】：同样的停留只要两回合就够 3.0
+	check(g.tiles[pos]["tissue"] == CWData.Tissue.CANCER, "计数 1.0 还没到阈值 %s" % CWData.fmt(CWData.SOLIDIFY_THRESHOLD))
+	## 阈值跟常量走（2026-09-01 定案乙 3.0→2.0 时这里原本写死 3.0）：再蹲到刚好够数的那一回合
+	for k in range(CWData.SOLIDIFY_THRESHOLD / CWData.SOLIDIFY_STEP - 1):
+		g.world._solidify()
+	check(g.tiles[pos]["tissue"] == CWData.Tissue.SOLID, "计数到 %s → 固化癌组织" % CWData.fmt(CWData.SOLIDIFY_THRESHOLD))
+	## 骨肉瘤【骨样硬化】：每回合 +1.5，一回合不够、两回合一定够
 	var op := Vector2i(-2, 1)
 	g.tiles[op]["tissue"] = CWData.Tissue.CANCER
 	cell["ctype"] = CWData.CancerType.OSTEO
 	cell["pos"] = op
 	g.world._solidify()
-	check(g.tiles[op]["solid"] == 15, "骨肉瘤停留 → 计数 +1.5")
+	check(g.tiles[op]["solid"] == 15 and g.tiles[op]["tissue"] == CWData.Tissue.CANCER, "骨肉瘤停留 → 计数 +1.5，一回合还不够")
 	g.world._solidify()
 	check(g.tiles[op]["tissue"] == CWData.Tissue.SOLID, "两回合即固化")
 	## 衰减：无细胞停留的癌组织每世界回合 −0.5
@@ -1468,7 +1469,7 @@ func t_hover_info() -> void:
 	## **写死人读的字面，不要拿常量插值**：拿常量插值等于把实现的格式化方式抄一遍，
 	## 实现打成「15 / 30」时期望串也跟着变成「15 / 30」，两边一起错、测试照样绿
 	## （2026-09-01 队友截图报的就是这个）。固化计数是十分整数，1.5 点存成 15
-	check(all.contains("癌组织") and all.contains("固化 0.2 / 3.0"),
+	check(all.contains("癌组织") and all.contains("固化 0.2 / 2.0"),
 		"详情：组织与固化进度按小数显示，不是原始的十分整数")
 	check(all.contains("代谢核心 · 储量 1.0"), "详情：核心储量")
 	check(all.contains("恶性黑色素瘤") and all.contains("能量 3.8") and all.contains("标记 ×1"),
@@ -1723,8 +1724,9 @@ func t_rules_page() -> void:
 		and all.contains("每回合至多 %d 次" % CWData.DRAW_MAX_PER_TURN), "手牌与抽卡上限")
 	## 同上：门槛存的是十分整数（30 = 3.0），而这句说的是「几个回合」。
 	## 原先拿 solidify_threshold 直接插值，页面显示「蹲满 30 回合」而测试照样绿
-	check(all.contains("蹲满 3 回合"), "固化门槛按回合数显示，不是十分整数")
-	check(not all.contains("蹲满 30 回合"), "别再把十分整数当回合数打出来")
+	check(all.contains("蹲满 %d 回合" % (CWData.SOLIDIFY_THRESHOLD / CWData.SOLIDIFY_STEP)),
+		"固化门槛按回合数显示，不是十分整数")
+	check(not all.contains("蹲满 %d 回合" % CWData.SOLIDIFY_THRESHOLD), "别再把十分整数当回合数打出来")
 	## 反击旋钮开了，那半句要跟着出现（平衡实验档）
 	## sections() 用的是默认 CWTuning，这里只验固定文案的另一半确实受控于旋钮：
 	## 直接构造开旋钮的行文对比不可行（sections 内建 tune），改为验默认关。见上一条。
@@ -4885,11 +4887,13 @@ func t_ev_solidify_accel() -> void:
 	g.raise_solid(pos, 10)
 	check(g.tiles[pos]["tissue"] == CWData.Tissue.SOLID,
 		"固化加速：从 <2.0 涨到 ≥2.0 立即转化（定案 W4，1.5+1.0 含骨样硬化口径）")
+	## 定案乙（2026-09-01）把固化阈值降到 2.0 后，「已 ≥2.0 却还没固化」的格不再存在，
+	## 原来那条「不追溯」断言失去了前提；改钉「没涨到 2.0 就不转化」这半边
 	var p2 := Vector2i(3, 2)
 	g.tiles[p2]["tissue"] = CWData.Tissue.CANCER
-	g.tiles[p2]["solid"] = 20
-	g.raise_solid(p2, 5)
-	check(g.tiles[p2]["tissue"] == CWData.Tissue.CANCER, "触发时已 ≥2.0 的格不追溯转化（W4 保守读法）")
+	g.tiles[p2]["solid"] = 15
+	g.raise_solid(p2, 4)
+	check(g.tiles[p2]["tissue"] == CWData.Tissue.CANCER, "固化加速：没涨到 2.0 的格不转化（1.5+0.4）")
 	g.events["active"].clear()
 	g.raise_solid(p2, 5)
 	check(g.tiles[p2]["tissue"] == CWData.Tissue.SOLID, "无事件时仍按 3.0 正常转化")

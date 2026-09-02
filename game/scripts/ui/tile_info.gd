@@ -88,7 +88,7 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
 	rows.append_array(pressure_rows(game, c, move_cost))
 	if tissue == CWData.Tissue.CANCER and t["solid"] > 0:
-		## ⚠ 固化计数存的是**十分整数**（`SOLIDIFY_THRESHOLD = 30` 即 3.0）——
+		## ⚠ 固化计数存的是**十分整数**（`SOLIDIFY_THRESHOLD = 20` 即 2.0）——
 		## PRD 里它不是整数：衰减 -0.5、【骨样硬化】+1.5、【基质硬化】+1/+1.5/+2。
 		## 这里必须走 `CWData.fmt()`，用 %d 直接打会显示成「固化 15 / 30」
 		## （2026-09-01 队友截图报的）

@@ -110,7 +110,7 @@ func clamp_income(gain: int, floor_v: int, cap_v: int) -> int:
 var init_energy_immune := CWData.INIT_ENERGY
 var init_energy_cancer := CWData.INIT_ENERGY_CANCER
 
-## 初始癌组织格数。**-1 = 按人数取**（`CWData.init_cancer_tiles`，现值 4 人 15 / 6 人 21）。
+## 初始癌组织格数。**-1 = 按人数取**（`CWData.init_cancer_tiles`，现值 4 人 15 / 6 人 24，2026-09-01 定案乙）。
 ## 只有平衡测试要把所有人数钉成同一个数时才设具体值 —— 那是扫这条杠杆的唯一办法，
 ## 因为按人数分档的表本身就是被扫的对象。
 var init_cancer_tiles := -1
