@@ -67,6 +67,13 @@ func sync(delta: float, game: CWGame, board: Node2D, camera: Camera2D,
 ##
 ## move_cost < 0 表示「此刻不在迁移态，或这一格不可达」，那一行就不出。
 ## verb 分「迁移」（免疫）和「移动」（癌症）—— 规则里是两个词，不能混用。
+##
+## **微环境压迫行**（2026-09-01 加）：只在「玩家正在为这一格做决定」时出 ——
+## 要么它是迁移候选（move_cost >= 0），要么上面站着免疫细胞。
+## 加它的理由是五局手打的实测：执行者死了 6 次，**4 次是没算这一刀**，
+## 而它是完全确定、算得出的数（`CWWorld.pressure_at`），界面此前一个字不给。
+## 而且免疫方净化效率最高的位置（六面皆癌）**正好**是压迫最大的位置（2.0）——
+## 这个张力设计得好，但它必须看得见。
 static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> Array:
 	var t: Dictionary = game.tile(c)
 	var rows: Array = []
@@ -79,6 +86,7 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 	if move_cost >= 0:
 		rows.append({ "text": "%s耗能 %s" % [verb, CWData.fmt(move_cost)],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
+	rows.append_array(pressure_rows(game, c, move_cost))
 	if tissue == CWData.Tissue.CANCER and t["solid"] > 0:
 		## ⚠ 固化计数存的是**十分整数**（`SOLIDIFY_THRESHOLD = 30` 即 3.0）——
 		## PRD 里它不是整数：衰减 -0.5、【骨样硬化】+1.5、【基质硬化】+1/+1.5/+2。
@@ -109,6 +117,28 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 		rows.append({ "text": "能量 %s%s" % [CWData.fmt(maxi(cell["energy"], 0)), mark],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.TEXT })
 	return rows
+
+
+## 站在这一格，本世界回合末会因【微环境压迫】损失多少 —— 该不该显示，以及怎么措辞。
+##
+## **算式不在这里**：调 `CWWorld.pressure_at()`，和 E 阶段结算用的是同一个函数。
+## 界面抄第二份必然漂（本项目 2026-09-01 已因「两份口径不一致」栽过三次）。
+##
+## ⚠ 措辞用「**至少**」不是精确值：癌方在免疫之后行动、会在它周围铺新格，
+## 所以回合末的真实值只会**大于等于**此刻这个数。写成精确值会骗人。
+static func pressure_rows(game: CWGame, c: Vector2i, move_cost: int) -> Array:
+	var here_immune := false
+	for cell in game.cells_at(c, CWData.Faction.IMMUNE):
+		here_immune = true
+	## 只在「正在为这一格做决定」时出：迁移候选，或者上面站着自己人
+	if move_cost < 0 and not here_immune:
+		return []
+	var loss: int = game.world.pressure_at(c)
+	if loss <= 0:
+		return [{ "text": "回合末压迫 无", "size": CWStyle.SIZE_LABEL,
+			"color": CWStyle.TEXT_DIM }]
+	return [{ "text": "回合末压迫 至少 %s" % CWData.fmt(loss),
+		"size": CWStyle.SIZE_BODY, "color": CWStyle.CANCER }]
 
 
 ## 卡片宽度：按最长一行的**实测**宽度撑开，W 只是下限。

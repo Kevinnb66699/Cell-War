@@ -552,17 +552,29 @@ func _decay() -> void:
 ##
 ## 这是 PRD 给癌方的**第一个稳定伤害来源**。在此之前免疫细胞几乎不可能死
 ## （旧说明 #23「免疫无死亡途径」），所以【复活】那一整套机制此前基本是空转的。
+## 站在 `c` 的免疫细胞在本世界回合末会因【微环境压迫】损失多少能量（十分能量）。
+##
+## **纯查询，界面直接调它**（悬停格子详情框显示「本回合末压迫 −X」）。
+## 抽出来的唯一理由：这条算式**只能有一份**。界面抄第二份必然漂，
+## 而本项目 2026-09-01 已经因为「注释/测试与实现共享错误前提」栽过三次。
+##
+## ⚠ 它算的是**此刻**的盘面。癌方在免疫之后行动、会在免疫周围铺新格，
+## 所以回合末的真实值只会**大于等于**这个数 —— 界面上要说清是「至少」。
+func pressure_at(c: Vector2i) -> int:
+	var adj := 0
+	for nb in CWData.neighbors(c):
+		if game.is_cancerous(nb):
+			adj += 1
+	return maxi(adj - CWData.PRESSURE_FREE_ADJ, 0) * CWData.PRESSURE_PER_ADJ
+
+
 func _pressure() -> void:
 	for cell in game.living_cells(CWData.Faction.IMMUNE):
-		var adj := 0
-		for nb in CWData.neighbors(cell["pos"]):
-			if game.is_cancerous(nb):
-				adj += 1
-		if adj <= CWData.PRESSURE_FREE_ADJ:
+		var loss := pressure_at(cell["pos"])
+		if loss <= 0:
 			continue
 		## 压迫一律走 cancer_hit：【缺氧适应】重写后（2026-08-30）不再「免疫压迫」，
 		## 而是在损失管线里减 1.0，和癌细胞技能同一面盾——不需要在这里特判了
-		var loss: int = (adj - CWData.PRESSURE_FREE_ADJ) * CWData.PRESSURE_PER_ADJ
 		game.cancer_hit(cell, loss, "微环境压迫")
 
 

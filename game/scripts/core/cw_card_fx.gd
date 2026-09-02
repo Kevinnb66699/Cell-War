@@ -502,16 +502,44 @@ func _free_walk(cell: Dictionary, steps: int, into_cancer: bool, tag: String) ->
 		await game.actions.enter_tile(cell, data["to"])
 
 
+## 【炎症风暴】以 `at` 为中心会净化哪些格：**相邻 1 格**、普通癌组织、**无任何细胞**占据。
+## **选目标时的预览与真正结算共用这一个函数** —— 抄第二份必然漂。
+##
+## 为什么值得抽出来：这张牌的最优选择完全取决于「哪个免疫细胞旁边癌组织最多」，
+## 而选择界面原本只列细胞名字。2026-09-01 手打时数了盘面那次清 6 格、
+## 凭印象那次清 0 格 —— 同一张牌，差别全在界面不给的那个数上。
+func storm_inflammation_tiles(at: Vector2i) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	for n in CWData.neighbors(at):
+		if game.tile(n)["tissue"] == CWData.Tissue.CANCER and game.cells_at(n).is_empty():
+			out.append(n)
+	return out
+
+
+## 【免疫风暴】以 `at` 为中心会净化哪些格：**2 格内**、普通癌组织、**无癌细胞**占据。
+## 判据和上面那条**不一样**（半径不同，且这条允许免疫站着的格子被转化），别合并。
+func storm_immune_tiles(at: Vector2i) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	for c in _tiles_in_range(at, 2):
+		var t: Dictionary = game.tile(c)
+		if t["tissue"] == CWData.Tissue.CANCER \
+				and game.cells_at(c, CWData.Faction.CANCER).is_empty():
+			out.append(c)
+	return out
+
+
 ## 【炎症风暴】选 1 个免疫细胞：其相邻无细胞占据的普通癌组织 → 健康；相邻癌细胞 -0.5
 func _inflammation_storm(cell: Dictionary, card: String) -> void:
 	_evt(card, "选择 1 个免疫细胞", cell["pos"])
-	var target := await _pick_immune(cell["pid"], card)
+	var target := await _pick_immune(cell["pid"], card,
+		func(t: Dictionary) -> String:
+			return "净化 %d 格" % storm_inflammation_tiles(t["pos"]).size())
 	var purged := 0
+	for n in storm_inflammation_tiles(target["pos"]):
+		_to_healthy(n)
+		purged += 1
 	var victims: Array = []
 	for n in CWData.neighbors(target["pos"]):
-		if game.tile(n)["tissue"] == CWData.Tissue.CANCER and game.cells_at(n).is_empty():
-			_to_healthy(n)
-			purged += 1
 		victims.append_array(game.cells_at(n, CWData.Faction.CANCER))
 	game.immune_hit_area(victims, _amp(5), cell, card)
 	var hit: int = victims.size()
@@ -523,16 +551,17 @@ func _inflammation_storm(cell: Dictionary, card: String) -> void:
 ## 【免疫风暴】选 1 个免疫细胞：2 格内癌细胞 -1.0；范围内**无癌细胞占据**的普通癌组织 → 健康
 func _immune_storm(cell: Dictionary, card: String) -> void:
 	_evt(card, "选择 1 个免疫细胞", cell["pos"])
-	var target := await _pick_immune(cell["pid"], card)
+	var target := await _pick_immune(cell["pid"], card,
+		func(t: Dictionary) -> String:
+			return "净化 %d 格 · %d 敌" % [storm_immune_tiles(t["pos"]).size(),
+				_cancer_cells_in_range(t["pos"], 2).size()])
 	var victims := _cancer_cells_in_range(target["pos"], 2)
 	game.immune_hit_area(victims, _amp(10), cell, card)
 	var hit: int = victims.size()
 	var purged := 0
-	for c in _tiles_in_range(target["pos"], 2):
-		if game.tile(c)["tissue"] == CWData.Tissue.CANCER \
-				and game.cells_at(c, CWData.Faction.CANCER).is_empty():
-			_to_healthy(c)
-			purged += 1
+	for c in storm_immune_tiles(target["pos"]):
+		_to_healthy(c)
+		purged += 1
 	game.log_msg("　【免疫风暴】以 %s 为中心 2 格：%d 个癌细胞 -%s，%d 格转健康" % [
 		game.cell_name(target), hit, CWData.fmt(_amp(10)), purged])
 	_evt(card, "%d 敌 -%s · %d 格转健康" % [hit, CWData.fmt(_amp(10)), purged], target["pos"])
@@ -540,11 +569,15 @@ func _immune_storm(cell: Dictionary, card: String) -> void:
 
 ## 风暴类的「选择 1 个免疫细胞」。抽卡者是免疫，所以候选至少有它自己，选择是强制的
 ## （事件抽取后立即生效，PRD 没给「放弃」）。
-func _pick_immune(pid: int, tag: String) -> Dictionary:
+## `preview` 给每个候选算一句**选中它会发生什么**（如「净化 3 格」），挂在标签后面。
+## 传空就退化成只有名字 —— 但两个风暴都必须传，理由见 storm_inflammation_tiles()。
+func _pick_immune(pid: int, tag: String, preview := Callable()) -> Dictionary:
 	var opts: Array = []
 	for t in game.living_cells(CWData.Faction.IMMUNE):
-		opts.append({ "label": "选择 %s" % game.cell_name(t),
-			"data": { "cid": t["id"], "to": t["pos"] } })
+		var label := "选择 %s" % game.cell_name(t)
+		if preview.is_valid():
+			label += "（%s）" % preview.call(t)
+		opts.append({ "label": label, "data": { "cid": t["id"], "to": t["pos"] } })
 	var idx: int = await game.ask(pid, {
 		"kind": "pick_cell", "tag": tag,
 		"prompt": "【%s】选择 1 个免疫细胞" % tag, "options": opts,

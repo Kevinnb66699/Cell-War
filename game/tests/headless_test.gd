@@ -19,6 +19,7 @@ func _run_all() -> void:
 	await t_hit_order()
 	t_anaerobic_round()
 	t_balance_candidates()
+	t_storm_preview()
 	await t_card_events()
 	await t_card_events_cancer()
 	await t_card_instants()
@@ -298,6 +299,68 @@ func t_hit_order() -> void:
 ## 为什么必须有这组断言：本项目 8-31 出过「参数收下了、_tune() 里没赋值，
 ## 整张网格跑出来一模一样」的事故 —— **旋钮静默失效比没有旋钮更坏**，
 ## 因为你会拿着一堆看似有效的数据下结论。每一条都钉两头：关着时恒等、开着时确实改变。
+
+## 两个风暴的「选目标预览」与真正结算共用同一份判据。
+##
+## 为什么要钉：这两张牌的最优选择完全取决于「哪个免疫细胞旁边能净化几格」，
+## 而选择界面原本只列细胞名字。2026-09-01 手打时数了盘面那次清 6 格、
+## 凭印象那次清 0 格 —— 整张牌白费。
+## 现在标签会带上预览，**但预览与结算必须永远相等**，否则界面就在骗人。
+func t_storm_preview() -> void:
+	print("[风暴预览]")
+	var g := _fx_game(2)
+	var mid := Vector2i(0, 0)
+	var nbs: Array = CWData.neighbors(mid)
+	var me := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, mid,
+		CWData.ImmuneType.BASIC, -1)
+	g.cells.append(me)
+	var fx: CWCardFx = g.card_fx
+
+	check(fx.storm_inflammation_tiles(mid).is_empty(), "炎症风暴：周围全健康 → 预览 0 格")
+	for n in nbs:
+		g.tiles[n]["tissue"] = CWData.Tissue.CANCER
+	check(fx.storm_inflammation_tiles(mid).size() == 6, "炎症风暴：六面皆癌 → 预览 6 格")
+
+	## 有细胞占据的格子**不算** —— 这正是判据里最容易抄错的一条
+	var squatter := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, nbs[0], -1,
+		CWData.CancerType.MELANOMA)
+	g.cells.append(squatter)
+	check(fx.storm_inflammation_tiles(mid).size() == 5,
+		"炎症风暴：被细胞占据的格子不计入")
+	## 固化癌组织也不算（判据写的是 Tissue.CANCER，不是 is_cancerous）
+	g.tiles[nbs[1]]["tissue"] = CWData.Tissue.SOLID
+	check(fx.storm_inflammation_tiles(mid).size() == 4,
+		"炎症风暴：固化癌组织不计入（判据是普通癌组织）")
+
+	## **同源性**：预览给的格数，必须正好是结算真正转掉的格数。
+	var before: int = g.count_tissue(CWData.Tissue.CANCER)
+	var predicted: int = fx.storm_inflammation_tiles(mid).size()
+	for n in fx.storm_inflammation_tiles(mid):
+		g.tiles[n]["tissue"] = CWData.Tissue.HEALTHY
+	check(before - g.count_tissue(CWData.Tissue.CANCER) == predicted,
+		"炎症风暴：预览的格数 = 结算真正转掉的格数")
+
+	## 免疫风暴的判据**不一样**：半径 2，且只排除**癌细胞**占据（免疫站着的照转）
+	var g2 := _fx_game(2)
+	var m2 := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, mid,
+		CWData.ImmuneType.BASIC, -1)
+	g2.cells.append(m2)
+	var fx2: CWCardFx = g2.card_fx
+	## ⚠ 只铺 6 个直接邻格是**测不出半径差别的**（两者都会是 6）——
+	## 半径 2 的外圈也得铺上，第一版就是这么写错的。
+	for c2 in fx2._tiles_in_range(mid, 2):
+		g2.tiles[c2]["tissue"] = CWData.Tissue.CANCER
+	var r1: int = fx2.storm_inflammation_tiles(mid).size()
+	var r2: int = fx2.storm_immune_tiles(mid).size()
+	check(r2 > r1, "免疫风暴半径 2 覆盖的格子多于炎症风暴的相邻 1 格（%d > %d）" % [r2, r1])
+	## 两者对**中心格**的处理不同，这是判据差异的第二处，别顺手「统一」掉：
+	## 炎症风暴走 CWData.neighbors()（不含中心）；免疫风暴走 _tiles_in_range()（含中心），
+	## 而它只排除**癌细胞**占据 —— 所以免疫自己站的那格若是癌组织，会被自己净化掉。
+	check(not fx2.storm_inflammation_tiles(mid).has(mid),
+		"炎症风暴：不含中心格（走 neighbors）")
+	check(fx2.storm_immune_tiles(mid).has(mid),
+		"免疫风暴：**含**中心格（走 _tiles_in_range，且只排除癌细胞占据）")
+
 func t_balance_candidates() -> void:
 	print("[平衡候选旋钮]")
 	var t := CWTuning.new()
@@ -1318,8 +1381,49 @@ func t_hover_info() -> void:
 	check(CWTileInfo.describe(g, empty_tile, -1, "迁移").size() == 1,
 		"不在迁移态（cost < 0）→ 不出耗能行")
 	var with_cost := CWTileInfo.describe(g, empty_tile, 5, "迁移")
-	check(with_cost.size() == 2 and with_cost[1]["text"] == "迁移耗能 0.5",
+	## ⚠ 这里**不**断言 rows.size() —— 第一版写死了 == 2，2026-09-01 加压迫行时当场变红。
+	## 断言要钉的是「耗能行紧跟组织名」这个**意图**，不是当时恰好有几行。
+	check(with_cost[1]["text"] == "迁移耗能 0.5",
 		"迁移态：耗能行紧跟组织名（%s）" % with_cost[1]["text"])
+
+	## ---- 微环境压迫行（2026-09-01）----
+	## 五局手打死了 6 次、4 次栽在没算这一刀上，而它完全算得出。这几条钉三件事：
+	## ① 只在「正在为这一格做决定」时出；② 数值与引擎同源；③ 措辞是「至少」不是精确值。
+	var pg := _fx_game(2)
+	var mid := Vector2i(0, 0)
+	var nbs: Array = CWData.neighbors(mid)
+	var me := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, mid,
+		CWData.ImmuneType.BASIC, -1)
+	pg.cells.append(me)
+	var far := Vector2i(5, 0)          ## 既不是迁移候选、也没人站
+	check(CWTileInfo.describe(pg, far, -1, "迁移").size() == 1,
+		"压迫行：不是候选格、也没有免疫细胞 → 不出")
+	var here0: Array = CWTileInfo.describe(pg, mid, -1, "迁移")
+	check(str(here0).contains("回合末压迫 无"),
+		"压迫行：站着免疫细胞就出，哪怕不在迁移态；相邻 0 格癌 → 无")
+	## 前 2 格免疫（PRESSURE_FREE_ADJ=2），第 3 格起每格 0.5
+	for i in 2:
+		pg.tiles[nbs[i]]["tissue"] = CWData.Tissue.CANCER
+	check(str(CWTileInfo.describe(pg, mid, -1, "迁移")).contains("回合末压迫 无"),
+		"压迫行：相邻 2 格癌仍然免疫（前 2 格不造成损失）")
+	pg.tiles[nbs[2]]["tissue"] = CWData.Tissue.CANCER
+	check(str(CWTileInfo.describe(pg, mid, -1, "迁移")).contains("至少 0.5"),
+		"压迫行：相邻 3 格 → 至少 0.5")
+	for i in range(3, 6):
+		pg.tiles[nbs[i]]["tissue"] = CWData.Tissue.CANCER
+	check(str(CWTileInfo.describe(pg, mid, -1, "迁移")).contains("至少 2.0"),
+		"压迫行：相邻 6 格 → 至少 2.0（上限）")
+	## **同源性**：界面显示的数必须等于 E 阶段真正扣掉的数。
+	## 这一条是这组断言里最重要的 —— 界面抄第二份算式正是本项目反复栽的坑。
+	me["energy"] = 100
+	pg.world._pressure()
+	check(100 - me["energy"] == pg.world.pressure_at(mid),
+		"压迫行：界面读的 pressure_at() 与 E 阶段实际扣的是同一个数")
+	## 迁移候选格（还没站人）也要出 —— 这才是「移过去会挨多少」的那一问
+	var cand: Vector2i = nbs[0]
+	pg.tiles[cand]["tissue"] = CWData.Tissue.HEALTHY
+	check(str(CWTileInfo.describe(pg, cand, 5, "迁移")).contains("回合末压迫"),
+		"压迫行：迁移候选格也出（这才是「移过去会挨多少」）")
 	check(CWTileInfo.describe(g, empty_tile, 10, "移动")[1]["text"] == "移动耗能 1.0",
 		"癌方用「移动」不用「迁移」")
 	check(with_cost[1]["color"] == CWStyle.IMMUNE,
