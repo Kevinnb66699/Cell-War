@@ -24,15 +24,15 @@ const GAP := 8
 const PAD_V := 6
 const PAD_H := 8
 const BTN_H := 52
+## 放不下时按钮标题最多缩到这个字号（正文 20）。再小就不是缩字号能救的了，该改文案
+const MIN_TITLE_SIZE := 14
 ## 快捷键数字标在**费用行前面**。实测四个技能（T细胞，最挤的情况）共 331 / 361，
 ## 只有「迁移」会因为加前缀而变宽（它的标题最短、费用最长），加完 349，仍然放得下。
 ## 标在标题上不行：那样每个按钮都变宽，四个加起来就出界了。
 
 var _row: HBoxContainer
-## 按下标排好的全部按钮节点。按钮**不一定都在 _row 里**：目标选择态一行放不下时
-## 会被搬到 _row 上方另起的行里（_extra_rows），所以数按钮、查灰、重画一律走这张表。
+## 按下标排好的全部按钮节点：数按钮、查灰、重画一律走这张表，不再从 _row 的孩子里筛
 var _buttons: Array = []
-var _extra_rows: Array = []
 var _hot := -1        ## 鼠标停在第几个按钮上
 var _cancel := -1     ## 哪个按钮是「取消」；-1 = 这一问没有取消
 var _disabled := {}   ## 灰掉的按钮节点集合。数字键和 _paint 都要查它
@@ -105,7 +105,7 @@ func show_bar(title: String, hint: String, entries: Array, cancel_index := -1,
 		_row.add_child(btn)
 		_buttons.append(btn)
 	if title != "":
-		_fit_prompt_row()
+		_shrink_to_fit()
 	## 必须在全部按钮建好、_disabled 填满之后再刷一遍底色。
 	## **不能用 _set_hot(-1)** —— _hot 此刻就是 -1，那个函数开头就 return 了，
 	## 于是灰按钮永远画不出灰（2026-08-28 团队试玩时报的：点不动但看着是亮的）。
@@ -120,52 +120,32 @@ func clear() -> void:
 	_clear_rows()
 
 
-## 收掉提示行里的全部孩子和溢出时另起的按钮行。show_bar 与 clear 共用 ——
-## 第一版只在 clear 里收另起的行，于是「上一问溢出、下一问不溢出」时旧按钮留在屏幕上。
+## 收掉提示行里的全部孩子。show_bar 与 clear 共用。
 func _clear_rows() -> void:
 	for c in _row_node().get_children():
 		_row.remove_child(c)
 		c.queue_free()
-	for r in _extra_rows:
-		remove_child(r)
-		r.queue_free()
-	_extra_rows.clear()
 
 
-## 目标选择态一行放不下（按钮多或标签长，如【代谢耦联】三档数额，2026-09-02 Kevin 报「被挡一个选项」）：
-## 把按钮从提示行里摘出来，按可用宽度分行、靠右对齐，**叠在提示行上方**——行动栏底边不动（不压手牌），
-## 向上长进棋盘区。放得下时一个字都不改，完全照设计稿。
-func _fit_prompt_row() -> void:
+## 目标选择态一行放不下时的兜底：**按钮位置一个都不动**，把按钮标题的字号一档档缩小（20 → 最小 14）直到放得下。
+## 2026-09-02 Kevin 报【代谢耦联】第三档被挡在屏幕外（673px 的 HBox 不压缩孩子，超宽就伸出右缘藏进右侧竖条底下）。
+## 第一版做成换行叠到提示行上方，Kevin 看了预览说丑、要求缩字数不动位置 —— 根治是缩短标签
+## （数额改成「1.0 → 1.2」、方向只写玩家名），这里只保证选项永远不会藏到屏幕外；放得下时一个像素不改。
+## 缩到 14 还放不下就 push_warning：那是文案该改了，不是排版能救的。
+func _shrink_to_fit() -> void:
 	var avail: float = PROMPT_RECT.size.x
-	if _row.get_combined_minimum_size().x <= avail:
-		return
-	for b in _buttons:
-		_row.remove_child(b)
-	var lines: Array = []
-	var cur: Array = []
-	var w := 0.0
-	for b in _buttons:
-		var bw: float = (b as Control).get_combined_minimum_size().x
-		if not cur.is_empty() and w + GAP + bw > avail:
-			lines.append(cur)
-			cur = []
-			w = 0.0
-		cur.append(b)
-		w += bw + (GAP if cur.size() > 1 else 0.0)
-	if not cur.is_empty():
-		lines.append(cur)
-	var y: float = PROMPT_RECT.position.y
-	for li in range(lines.size() - 1, -1, -1):
-		var h := HBoxContainer.new()
-		h.add_theme_constant_override("separation", GAP)
-		h.alignment = BoxContainer.ALIGNMENT_END
-		y -= BTN_H + GAP
-		h.position = Vector2(PROMPT_RECT.position.x, y)
-		h.size = Vector2(avail, BTN_H)
-		for b in lines[li]:
-			h.add_child(b)
-		add_child(h)
-		_extra_rows.append(h)
+	var size: int = CWStyle.SIZE_BODY
+	while _row.get_combined_minimum_size().x > avail and size > MIN_TITLE_SIZE:
+		size -= 1
+		for b in _buttons:
+			_title_of(b).add_theme_font_size_override("font_size", size)
+	if _row.get_combined_minimum_size().x > avail:
+		push_warning("行动栏放不下：%d 个按钮 + 提示合计 %d px > %d px，该缩短标签" % [
+			_buttons.size(), int(_row.get_combined_minimum_size().x), int(avail)])
+
+
+static func _title_of(b: PanelContainer) -> Label:
+	return b.get_child(0).get_child(0) as Label
 
 
 ## 这一问能不能取消。暂停菜单靠它判断 Esc 该给谁：

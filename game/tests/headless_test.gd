@@ -2976,32 +2976,42 @@ func t_action_bar_width() -> void:
 		"T细胞四技能合计 %d px，放得进 %d px" % [int(total), int(CWActionBar.BAR_RECT.size.x)])
 	check(plated and badge == "1", "第一个按钮的快捷键数字垫了灰底（%s）" % badge)
 	bar.queue_free()
-	## 目标选择态溢出（2026-09-02 Kevin 报【代谢耦联】第三档被挡在屏幕外）：按钮换行叠到提示行上方，
-	## 每个按钮的右缘都不许超出 PROMPT_RECT；短标签的一问仍是原来的一行。
+	## 目标选择态放不下（2026-09-02 Kevin 报【代谢耦联】第三档被挡在屏幕外）。
+	## ① 现在的【代谢耦联】文案（「1.0 → 1.2」+ 提示「转出 → 接收方得」）必须原字号放得下 —— 文案是根治
 	var bar2 := CWActionBar.new()
 	root.add_child(bar2)
-	bar2.show_bar("【代谢耦联】选择转移数额", "", [
-		{ "title": "转出 1.0（接收方得 1.2）", "cost": "" },
-		{ "title": "转出 1.5（接收方得 2.0）", "cost": "" },
-		{ "title": "转出 2.0（接收方得 2.5）", "cost": "" }])
+	var real_prompt := "【代谢耦联】转出 → 接收方得"
+	bar2.show_bar(real_prompt, "", [
+		{ "title": "1.0 → 1.2", "cost": "" }, { "title": "1.5 → 2.0", "cost": "" }, { "title": "2.0 → 2.5", "cost": "" }])
+	check(bar2._row.get_combined_minimum_size().x <= CWActionBar.PROMPT_RECT.size.x,
+		"【代谢耦联】三档新文案原字号放得下（%d / %d px）" % [int(bar2._row.get_combined_minimum_size().x), int(CWActionBar.PROMPT_RECT.size.x)])
+	check(CWActionBar._title_of(bar2._buttons[2]).get_theme_font_size("font_size") == CWStyle.SIZE_BODY, "→ 没有触发缩字号")
+	bar2.show_bar("【代谢耦联】选择转移方向", "", [{ "title": "送给 癌症B", "cost": "" }, { "title": "向 癌症B 索取", "cost": "" }])
+	check(bar2._row.get_combined_minimum_size().x <= CWActionBar.PROMPT_RECT.size.x, "方向两档（只写玩家名）也放得下")
+	## ② 兜底：同样的提示塞四档（原字号约 770px 放不下），按钮**位置不动**（仍在提示行里、一行），靠缩字号放进 PROMPT_RECT。
+	## 兜底只救得了「稍微超一点」；旧那种一句 14 字的长句缩到 14 号仍超宽、只会 push_warning —— 长句只能改文案。
+	bar2.show_bar(real_prompt, "", [
+		{ "title": "1.0 → 1.2", "cost": "" }, { "title": "1.5 → 2.0", "cost": "" },
+		{ "title": "2.0 → 2.5", "cost": "" }, { "title": "2.5 → 3.0", "cost": "" }])
 	await process_frame
 	await process_frame
 	var right_edge: float = CWActionBar.PROMPT_RECT.end.x
 	var inside := true
-	var lowest := 0.0
+	var same_row := true
 	for b in bar2._buttons:
 		var r: Rect2 = (b as Control).get_global_rect()
-		inside = inside and r.end.x <= right_edge + 0.5 and r.position.x >= CWActionBar.PROMPT_RECT.position.x - 0.5
-		lowest = maxf(lowest, r.end.y)
-	check(bar2._buttons.size() == 3 and bar2._count() == 3, "三个数额按钮都在（_count 走按钮表）")
-	check(not bar2._extra_rows.is_empty(), "放不下 → 另起了行（%d 行）" % bar2._extra_rows.size())
-	check(inside, "每个按钮的右缘都在 %d px 之内" % int(right_edge))
-	check(lowest <= CWActionBar.PROMPT_RECT.position.y + 0.5, "按钮行叠在提示行上方，不往下压手牌")
-	check(not bar2._is_disabled(2), "第 3 个按钮可点")
+		inside = inside and r.end.x <= right_edge + 0.5
+		same_row = same_row and b.get_parent() == bar2._row
+	var shrunk: int = CWActionBar._title_of(bar2._buttons[0]).get_theme_font_size("font_size")
+	check(bar2._buttons.size() == 4 and bar2._count() == 4 and same_row, "四个按钮都在、都还在原来那一行")
+	check(shrunk < CWStyle.SIZE_BODY and shrunk >= CWActionBar.MIN_TITLE_SIZE, "放不下 → 字号缩到 %d（20 → ≥14）" % shrunk)
+	check(inside, "缩完每个按钮的右缘都在 %d px 之内" % int(right_edge))
+	check(not bar2._is_disabled(3), "第 4 个按钮可点")
 	bar2.show_bar("选择分化方向", "", [{ "title": "B细胞", "cost": "" }, { "title": "T细胞", "cost": "" }])
-	check(bar2._extra_rows.is_empty() and bar2._row.get_child_count() >= 4, "放得下的一问照旧一行（提示 + 弹簧 + 按钮）")
+	check(CWActionBar._title_of(bar2._buttons[0]).get_theme_font_size("font_size") == CWStyle.SIZE_BODY,
+		"放得下的下一问字号回到 20（按钮每问新建，不带旧字号）")
 	bar2.clear()
-	check(bar2._buttons.is_empty() and bar2._extra_rows.is_empty(), "clear() 把另起的行一并收掉")
+	check(bar2._buttons.is_empty(), "clear() 清空按钮表")
 	bar2.queue_free()
 
 # ---- 开场过场不能被启动它的那一下点击跳掉 ----

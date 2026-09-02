@@ -698,7 +698,9 @@ func _couple_tiers(payer: Dictionary) -> Array:
 		var pay: int = _amp(tier[0])
 		var get: int = _amp(tier[1])
 		if payer["energy"] > pay:
-			out.append({ "label": "转出 %s（接收方得 %s）" % [CWData.fmt(pay), CWData.fmt(get)],
+			## 标签只写「付 → 得」：三档并排要塞进 673px 的行动栏，长句会把第三档挤出屏幕（2026-09-02 Kevin 报）；
+			## 「转出 / 接收方得」的说明放进提示行的标题里，只写一遍
+			out.append({ "label": "%s → %s" % [CWData.fmt(pay), CWData.fmt(get)],
 				"data": { "pay": pay, "get": get } })
 	return out
 
@@ -707,10 +709,11 @@ func _couple_tiers(payer: Dictionary) -> Array:
 func _couple(cell: Dictionary, ally: Dictionary) -> void:
 	var dirs: Array = []
 	if not _couple_tiers(cell).is_empty():
-		dirs.append({ "label": "送给 %s" % game.cell_name(ally),
+		## 方向按钮只写玩家名（「癌症B」），不带细胞种类那一长串 —— 理由同数额档：一行要放得下
+		dirs.append({ "label": "送给 %s" % game.players[ally["pid"]]["name"],
 			"data": { "from": cell["id"], "to_cid": ally["id"] } })
 	if not _couple_tiers(ally).is_empty():
-		dirs.append({ "label": "向 %s 索取" % game.cell_name(ally),
+		dirs.append({ "label": "向 %s 索取" % game.players[ally["pid"]]["name"],
 			"data": { "from": ally["id"], "to_cid": cell["id"] } })
 	var di := 0
 	if dirs.is_empty():
@@ -729,7 +732,7 @@ func _couple(cell: Dictionary, ally: Dictionary) -> void:
 	var ti := 0
 	if tiers.size() > 1:
 		ti = await game.ask(cell["pid"], { "kind": "pick", "tag": "代谢耦联",
-			"prompt": "【代谢耦联】选择转移数额", "options": tiers })
+			"prompt": "【代谢耦联】转出 → 接收方得", "options": tiers })
 	var pay: int = tiers[ti]["data"]["pay"]
 	var get: int = tiers[ti]["data"]["get"]
 	if not game.pay(payer, pay):
