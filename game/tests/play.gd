@@ -208,10 +208,26 @@ class CWFileBridge:
 			"·" + str(req.get("tag", "")) if req.has("tag") else "", req["prompt"]]
 		var opts: Array = req["options"]
 		for i in opts.size():
-			body += "  %2d) %s\n" % [i, opts[i]["label"]]
+			body += "  %2d) %s%s\n" % [i, opts[i]["label"], _pressure_hint(req, opts[i])]
 		write_text("ask.txt", body)
 		append_log(body)
 		return _wait_reply(opts.size())
+
+	## 迁移/攻击类选项后面挂一句「落点的回合末压迫」。
+	##
+	## 真 UI 是靠**悬停格子详情框**给这个数的，文件协议没有悬停，只能挂在选项上。
+	## 两边显示的是**同一个** `CWWorld.pressure_at()` —— 算式只有一份。
+	##
+	## 只给免疫方挂：压迫只打免疫细胞，给癌方标是噪音。
+	func _pressure_hint(req: Dictionary, opt: Dictionary) -> String:
+		if int(game.player(req["pid"])["faction"]) != CWData.Faction.IMMUNE:
+			return ""
+		var d: Dictionary = opt.get("data", {})
+		if not d.has("to"):
+			return ""
+		var pr: int = game.world.pressure_at(d["to"])
+		return "" if pr <= 0 else "  ⚠压迫 至少 %s" % CWData.fmt(pr)
+
 
 	## 掷骰是引擎先算好再广播给所有桥的（架构约定 #11），我只负责记下来给人看。
 	func show_roll(reason: String, value: int, sides: int, pid: int, at: Vector2i) -> void:
@@ -292,6 +308,13 @@ class CWFileBridge:
 				"｜攻 %d 抽 %d" % [c["attacks_used"], c["draws_used"]] if c["pid"] in seats else "",
 				"｜手牌 %s" % ("、".join(c["hand"]) if not c["hand"].is_empty() else "无")
 					if c["pid"] in seats else "｜手牌 %d 张" % c["hand"].size()]
+			## 真 UI 靠悬停格子详情框给这个数（CWTileInfo 的「回合末压迫」行），
+			## 文件协议没有悬停，所以直接摊在细胞行下面。
+			## **工具必须和真 UI 给一样多的信息** —— 否则手打出来的「人类打不过 AI」
+			## 里会混进一截是工具造成的（2026-09-01 那五局就是在没有这一行的界面上打的）。
+			if c["alive"] and c["faction"] == CWData.Faction.IMMUNE:
+				var pr: int = game.world.pressure_at(c["pos"])
+				out += "      回合末压迫 %s\n" % ("无" if pr <= 0 else "至少 " + CWData.fmt(pr))
 			if c["pid"] in seats and not c["equipped"].is_empty():
 				out += "      已装备：%s\n" % "、".join(c["equipped"])
 			if c["pid"] in seats and not c["mods"].is_empty():
