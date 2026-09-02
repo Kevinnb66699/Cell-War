@@ -28,8 +28,6 @@ var enabled := true
 var death_cost := true
 ## 推演里的陪练**不**惜命（分化仍随机）：把「陪练惜命」和「估值罚死亡」对 MC 强度的影响分开量。
 var sim_no_lifecare := false
-## 癌方视角是否把免疫死亡算成自己的收益（CWEval.score 的 lure）。-nolure 关掉，交叉验证用。
-var lure := true
 var _tag := AI_VERSION
 
 
@@ -42,7 +40,6 @@ func set_version(v: String) -> void:
 	var parts: PackedStringArray = v.split("-")
 	death_cost = parts[0] != "v1" and not ("nodc" in parts)
 	sim_no_lifecare = "simnolc" in parts
-	lure = not ("nolure" in parts)
 	_tag = v
 
 
@@ -90,7 +87,7 @@ func _mc_pick(req: Dictionary) -> int:
 				var idx: int = await sim.ask(rq)
 				await game.step(idx)
 				plies += 1
-			total += CWEval.score(game, my_faction, death_cost, lure)
+			total += CWEval.score(game, my_faction, death_cost)
 			game.restore(snap)
 		if total > best_score:
 			best_score = total

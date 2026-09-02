@@ -1292,29 +1292,30 @@ func t_ai_eval() -> void:
 	check(dead_i - CWEval.score(g, CWData.Faction.IMMUNE)
 		== CWEval.DEAD_FOREVER - CWEval.DEAD_IMMUNE_TRIP - CWEval.DEAD_IMMUNE_ROUND,
 		"不再复活 → 比「下回合复活」再掉 %d" % (CWEval.DEAD_FOREVER - CWEval.DEAD_IMMUNE_TRIP - CWEval.DEAD_IMMUNE_ROUND))
-	## 癌方视角 lure=false：免疫死亡不算收益；免疫视角照旧
+	## 癌方视角不计任何死亡项（v2 定稿：计了反而把 MC 癌吓弱，见 CWEval 头注的表）
 	imm["respawn_round"] = g.round_no + 1
-	check(CWEval.score(g, CWData.Faction.CANCER, true, false) == CWEval.score(g, CWData.Faction.CANCER, false),
-		"lure=false：癌方视角对免疫死亡视而不见（= 不罚死亡的分）")
-	check(CWEval.score(g, CWData.Faction.IMMUNE, true, false) == dead_i, "lure=false 不影响免疫视角")
+	check(CWEval.score(g, CWData.Faction.CANCER) == CWEval.score(g, CWData.Faction.CANCER, false),
+		"癌方视角：免疫死了也不算收益（= 不罚死亡的分）")
 	imm["alive"] = true
 	imm["respawn_round"] = -1
 	check(CWEval.score(g, CWData.Faction.IMMUNE) == base_i, "复活回来分数复原")
 	var can: Dictionary = g.living_cells(CWData.Faction.CANCER)[0]
-	var base_c := CWEval.score(g, CWData.Faction.CANCER)
+	var base_ci := CWEval.score(g, CWData.Faction.IMMUNE)
 	can["alive"] = false
-	var dead_c := CWEval.score(g, CWData.Faction.CANCER)
-	check(base_c - dead_c >= CWEval.DEAD_CANCER_NO_BASE,
-		"癌细胞死亡且场上无固化据点：癌方分掉 %d（至少 %d）" % [base_c - dead_c, CWEval.DEAD_CANCER_NO_BASE])
+	var dead_ci := CWEval.score(g, CWData.Faction.IMMUNE)
+	check(dead_ci - base_ci >= CWEval.DEAD_CANCER_NO_BASE,
+		"癌细胞死亡且场上无固化据点：免疫视角 +%d（至少 %d）" % [dead_ci - base_ci, CWEval.DEAD_CANCER_NO_BASE])
+	check(CWEval.score(g, CWData.Faction.CANCER) == CWEval.score(g, CWData.Faction.CANCER, false),
+		"癌方视角：自己死了也不另罚（陪练已把它的未来算保守，再罚是重复计价）")
 	var solid_at: Vector2i = Vector2i.MAX
 	for c in g.tiles.keys():
 		if g.tiles[c]["tissue"] == CWData.Tissue.CANCER and g.tiles[c]["solid"] == 0:
 			solid_at = c
 			break
 	g.tiles[solid_at]["tissue"] = CWData.Tissue.SOLID
-	check(CWEval.score(g, CWData.Faction.CANCER) - dead_c
-		== CWEval.DEAD_CANCER_NO_BASE - CWEval.DEAD_CANCER + CWEval.TILE,
-		"有固化据点可复活 → 罚得轻 %d（另加固化格本身多算的 1 格）" % (CWEval.DEAD_CANCER_NO_BASE - CWEval.DEAD_CANCER))
+	check(CWEval.score(g, CWData.Faction.IMMUNE) - dead_ci
+		== -(CWEval.DEAD_CANCER_NO_BASE - CWEval.DEAD_CANCER) - CWEval.TILE,
+		"有固化据点可复活 → 免疫视角少赚 %d（另加固化格本身多算的 1 格）" % (CWEval.DEAD_CANCER_NO_BASE - CWEval.DEAD_CANCER))
 	g.tiles[solid_at]["tissue"] = CWData.Tissue.CANCER
 	can["alive"] = true
 	g.dispose()
@@ -1372,10 +1373,8 @@ func t_heur_lifecare() -> void:
 		"v2-nodc：估值不罚死亡、其余照 v2")
 	m.set_version("v2-simnolc")
 	check(m.death_cost and m.lifecare and m.sim_no_lifecare, "v2-simnolc：只有陪练不惜命")
-	m.set_version("v2-nolure")
-	check(m.death_cost and not m.lure and m.version_tag() == "v2-nolure", "v2-nolure：癌方视角不计免疫死亡")
 	m.set_version("v1")
-	check(not m.death_cost and not m.lifecare and m.fixed_lineup and m.lure and m.version_tag() == "v1", "v1：全关")
+	check(not m.death_cost and not m.lifecare and m.fixed_lineup and m.version_tag() == "v1", "v1：全关")
 	g.dispose()
 	## ② 免疫惜命：能量 2.0，相邻两格可净化的癌组织 —— A 走进去回合末压迫 1.5（净化后只剩 1.0，会死）、B 压迫 0
 	var g2 := bare_game()

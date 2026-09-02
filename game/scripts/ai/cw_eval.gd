@@ -41,9 +41,17 @@ const DEAD_CANCER_NO_BASE := 1500
 ## 从 faction 视角给局面打分。先算「癌方优势」，免疫视角取负 —— 两个视角零和，
 ## 蒙特卡洛给任何一方用都不必换公式。
 ## death_cost=false = v1 的估值（死细胞直接跳过），只给 AI 版本交叉验证用。
-## lure=false：**癌方视角不计免疫死亡**（免疫死了下回合就复活，对癌方的价值已在地盘里；
-## 算成 +400 会引诱 MC 癌围着免疫细胞铺压迫、自己送死 —— 2026-09-02 交叉验证的怀疑对象）。免疫视角不受影响。
-static func score(g: CWGame, faction: int, death_cost: bool = true, lure: bool = true) -> int:
+##
+## **死亡项只进免疫视角**（v2 定稿，2026-09-02 夜交叉验证，对同一 v1 免疫、7 片 × 12 局）：
+## | 癌方估值 | 6 人癌胜 | 4 人（168 局） |
+## | v1（不计死亡） | 24 | 29 |
+## | 计死亡（自己 800/1500、免疫 +400） | **19** | 31 |
+## | 只去掉免疫死亡奖励 | 18 | 32 |
+## | 不计任何死亡项 | **36** | 28 |
+## 罚分没让 MC 癌少死（每局癌死亡 3.4 vs 3.6），只让它在 12 步视野里更偏向「不动」，6 人局直接弱掉 5~17 点；
+## 陪练（v2 启发式、贴脸留 3.0）已经把它的未来算得够保守，再叠一层罚分是重复计价。
+## 免疫那边相反：不复活等于「缺席」落在视野之外，不显式计价就会自杀式净化 —— 计了之后两档都比 v1 强（24→18 / 29→19）。
+static func score(g: CWGame, faction: int, death_cost: bool = true) -> int:
 	var adv := 0
 	if g.winner >= 0:
 		adv = WIN if g.winner == CWData.Faction.CANCER else -WIN
@@ -58,12 +66,9 @@ static func score(g: CWGame, faction: int, death_cost: bool = true, lure: bool =
 	## 物质：存活细胞的能量与手牌/装备；免疫细胞另按离战线的距离罚分
 	for cell in g.cells:
 		if not cell["alive"]:
-			if death_cost:
+			if death_cost and faction == CWData.Faction.IMMUNE:
 				var cost := _death_cost(g, cell)
-				if cell["faction"] == CWData.Faction.CANCER:
-					adv -= cost
-				elif lure or faction == CWData.Faction.IMMUNE:
-					adv += cost
+				adv += -cost if cell["faction"] == CWData.Faction.CANCER else cost
 			continue
 		var worth: int = cell["energy"] + cell["hand"].size() * CARD \
 			+ cell["equipped"].size() * EQUIP
