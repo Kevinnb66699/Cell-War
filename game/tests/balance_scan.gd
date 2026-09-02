@@ -21,6 +21,15 @@
 ##   emax=150   细胞账面能量上限（口径 #92，管的是存量不是流量）。0 = 不封
 ##   tiles=32     初始癌组织格数。**不传则按人数取**（现值 4 人 15 / 6 人 21，PRD 是固定 15）
 ##   amult=60     有氧呼吸系数（PRD 是 30 = 公式里的「×3」）
+##   cwin=100     癌方加权占地胜利门槛（现值 85 = 癌组织×1 + 固化×2）。
+##                注意固化在这条式子里**算 2 格**，所以「让固化更容易」会同时
+##                加速癌方的占地胜利 —— 想拉长对局必须两个数一起动。
+##   solid=10     【固化】门槛，十分整数（现值 30 = 蹲满 3 个回合）。
+##                2026-09-01 手打发现：癌方最优打法是一直动、一直铺，
+##                蹲 3 回合等于放弃 30 格扩张，所以**固化在实战中从不出现**
+##                （三局手打 36 次盘面快照全是 0）。而固化是癌方唯一的复活据点，
+##                于是「三个癌细胞被团灭」= 立刻结束 = 6 人局 66% 的对局。
+##                这条是「对局太短」的主因，扫它要看的是**回合数**不只是胜率。
 ##   prolif=35    【E-增生】每个相邻癌性组织贡献的概率，千分率（现值 30 = 3%）。
 ##                9-01 二版 PRD 把它从 40 降到 30，当场实测 4 人局癌胜 64%→36%，
 ##                是全库杠杆最重的一个旋钮，此前竟然扫不了。
@@ -74,6 +83,8 @@ var agrow2 := -9999   ## 负值合法（反方向），哨兵不能用 -1
 var amem := -9999   ## 负值合法（反方向），哨兵不能用 -1
 var amemcap := -1
 var prolif := -1
+var solid := -1
+var cwin := -1
 
 
 func _initialize() -> void:
@@ -116,6 +127,8 @@ func _parse() -> void:
 			"amem": amem = int(kv[1])
 			"amemcap": amemcap = int(kv[1])
 			"prolif": prolif = int(kv[1])
+			"solid": solid = int(kv[1])
+			"cwin": cwin = int(kv[1])
 
 
 func _order() -> Array:
@@ -155,6 +168,10 @@ func _tune() -> CWTuning:
 		t.immune_attack_pct_memory_cap = amemcap
 	if prolif >= 0:
 		t.proliferate_per_adjacent = prolif
+	if solid >= 0:
+		t.solidify_threshold = solid
+	if cwin >= 0:
+		t.cancer_win_weighted = cwin
 	if cmh >= 0:
 		t.cancer_move_healthy = cmh
 	if cmc >= 0:
@@ -196,6 +213,8 @@ func _applied(t: CWTuning) -> String:
 			["amem", t.immune_attack_pct_per_memory, d.immune_attack_pct_per_memory],
 			["amemcap", t.immune_attack_pct_memory_cap, d.immune_attack_pct_memory_cap],
 			["prolif", t.proliferate_per_adjacent, d.proliferate_per_adjacent],
+			["solid", t.solidify_threshold, d.solidify_threshold],
+			["cwin", t.cancer_win_weighted, d.cancer_win_weighted],
 			["cmh", t.cancer_move_healthy, d.cancer_move_healthy],
 			["cmc", t.cancer_move_cancerous, d.cancer_move_cancerous],
 			["sclc", t.sclc_move_healthy, d.sclc_move_healthy],
