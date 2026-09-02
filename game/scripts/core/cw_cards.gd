@@ -39,9 +39,11 @@ func draw(cell: Dictionary, source: String) -> void:
 			game.announce("事件【%s】效果待实现" % card, cell["pos"])
 		return
 	cell["hand"].append(card)
+	## 牌名只有本人能看：联机时别的席位看到的是公开替身（CWGame.log_msg 的后两个参数）
 	game.log_msg("　%s 经由「%s」抽到【%s】%s（手牌 %d）" % [
 		game.cell_name(cell), source, CWCardData.KIND_NAMES[kind], card,
-		cell["hand"].size()])
+		cell["hand"].size()], cell["pid"],
+		"　%s 经由「%s」抽到 1 张卡（手牌 %d）" % [game.cell_name(cell), source, cell["hand"].size()])
 	await discard_to_limit(cell)
 
 

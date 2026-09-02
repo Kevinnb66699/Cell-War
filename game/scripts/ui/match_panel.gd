@@ -76,6 +76,8 @@ var _level_y := 0.0        ## 免疫等级那一块的顶边；测试靠它核�
 var _tip: Control = null   ## 被动技能悬浮框（悬停玩家行时列出已装备）
 var _tip_pid := -1         ## 正悬停哪一行；-1 = 收起
 var _tip_key := ""         ## 上次搭悬浮框用的键，没变不重搭
+## 联机：房间视图里的席位表（下标 = pid）。AI 席 / 离线席在种类后面加个角标；本地对局留空
+var net_seats: Array = []
 
 
 func _ready() -> void:
@@ -160,6 +162,7 @@ func reset() -> void:
 		c.queue_free()
 	_rows.clear()
 	_built = 0
+	net_seats = []
 	_tip = null       ## 悬浮框也在刚才那波清掉了，别留野引用
 	_tip_pid = -1
 	_tip_key = ""
@@ -207,6 +210,12 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 		CWStyle.TEXT_OFF if dead else (CWStyle.TEXT_HI if on else CWStyle.TEXT))
 	row["type"].text = CWData.IMMUNE_TYPE_NAMES[cell["itype"]] if immune \
 		else CWData.CANCER_TYPE_NAMES[cell["ctype"]]
+	if pid < net_seats.size():
+		var seat: Dictionary = net_seats[pid]
+		if seat.get("kind", "") == "ai":
+			row["type"].text += " · AI"
+		elif seat.get("kind", "") == "human" and not seat.get("online", true):
+			row["type"].text += " · 离线代打"
 	row["energy"].text = CWData.fmt(maxi(cell["energy"], 0))
 	row["energy"].add_theme_color_override("font_color",
 		CWStyle.TEXT_OFF if dead else CWStyle.TEXT_HI)

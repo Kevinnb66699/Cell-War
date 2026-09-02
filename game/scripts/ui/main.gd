@@ -46,6 +46,8 @@ func _ready() -> void:
 	CWSettings.load_prefs()   ## 偏好尽早读：AI 节奏/掷骰动画在开局装配时就要用
 	menu.start_requested.connect(_begin)
 	menu.continue_requested.connect(_continue)
+	menu.online_match_requested.connect(_begin_online)
+	menu.online_lost.connect(_on_online_lost)
 	pause.chose.connect(_on_pause_chose)
 	pause.action_bar = match_node.action_bar
 	match_node.finished.connect(_on_match_finished)
@@ -79,6 +81,54 @@ func _begin(cfg: Dictionary) -> void:
 	_entering = false    ## 三拍走完才算「不在过场中」——忘了置回，返回主菜单会永远进不去
 
 
+## 联机开局：房间进入对局且第一份状态到了。过场和本地开局一样（推镜头 + 绽开），
+## 只是对局由服务器驱动（CWMatch.start_online）。
+func _begin_online(client: CWNetClient) -> void:
+	if _entering:
+		return
+	match_node.player_count = int(client.room.get("players", 4))
+	_entering = true
+	_started_ms = Time.get_ticks_msec()
+	menu.dismiss(T_DECOR, DECOR_DRIFT)
+	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_tween.tween_method(_look, 0.0, 1.0, T_ENTER)
+	await _tween.finished
+	await match_node.start_online_with_bloom(client, T_BLOOM)
+	_entering = false
+
+
+## 联机对局中房间没了（被关、令牌失效、重连失败）：收摊回主菜单
+func _on_online_lost(reason: String) -> void:
+	if not match_node.online:
+		return
+	if match_node.toast != null:
+		match_node.toast.show_at(reason, CWUIBridge.notice_anchor(), CWUIBridge.NOTICE_HOLD)
+	_leave_online()
+
+
+## 结算屏「回到等待室」：镜头退回菜单机位，面板槽里出来的是等待室而不是菜单项
+func _back_to_room() -> void:
+	if _entering:
+		return
+	_entering = true
+	_started_ms = Time.get_ticks_msec()
+	match_node.fade_out(T_BACK * 0.8)
+	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_tween.tween_method(_look, 1.0, 0.0, T_BACK)
+	await _tween.finished
+	match_node.teardown()
+	menu.appear_online(T_MENU_IN)
+	_entering = false
+
+
+## 离开联机（结算屏返回主菜单 / 暂停菜单离开房间 / 房间没了）：先和服务器告别再演返场
+func _leave_online() -> void:
+	if _entering:
+		return
+	menu.leave_online()
+	_back_to_menu()
+
+
 ## 对局跑完了。**中途放弃也会走到这里**（CWGame.run_game 在 aborted 时同样返回），
 ## 但那时 winner 仍是 -1 —— 那条路是「返回主菜单」自己在演返场，不该再弹结算屏。
 func _on_match_finished(winner: int) -> void:
@@ -95,9 +145,15 @@ func _on_match_finished(winner: int) -> void:
 func _on_settle_chose(action: String) -> void:
 	match action:
 		"restart":
-			_restart()
+			if match_node.online:
+				_back_to_room()
+			else:
+				_restart()
 		"menu":
-			_back_to_menu()
+			if match_node.online:
+				_leave_online()
+			else:
+				_back_to_menu()
 
 
 ## 再来一局：同样人数、新种子。棋盘先淡回健康，再原地开新局 ——
@@ -117,7 +173,10 @@ func _restart() -> void:
 func _on_pause_chose(action: String) -> void:
 	match action:
 		"menu":
-			_back_to_menu()
+			if match_node.online:
+				_leave_online()
+			else:
+				_back_to_menu()
 		"save_quit":
 			## 先落盘再演返场——fade_out 会把对局 aborted，那之后就没得存了。
 			## 写失败（磁盘问题）就留在对局里，别让玩家以为存上了。

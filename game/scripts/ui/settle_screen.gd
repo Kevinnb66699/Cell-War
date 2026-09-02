@@ -14,7 +14,8 @@
 class_name CWSettleScreen
 extends Control
 
-## "restart" = 再来一局（同人数、新种子）；"menu" = 返回主菜单
+## "restart" = 再来一局（同人数、新种子）；"menu" = 返回主菜单。
+## 联机局（online）里右边那颗按钮是「回到等待室」，仍发 "restart"，由 main.gd 按模式分流。
 signal chose(action: String)
 
 # ---- 版面（方向稿钉死的数）----
@@ -80,6 +81,10 @@ var _btn_titles: Array[Label] = []
 var _btn_costs: Array[Label] = []
 
 var _built := false
+var _built_online := false  ## 按钮是按哪种模式建的：模式变了就重建那两颗
+var online := false
+var _btn_parent: Control
+var _btn_right := 0.0
 var _tween: Tween
 var _playing := false       ## 演出中：这期间按键只用来跳过
 var _sel := 1               ## 默认停在「再来一局」上（.go 那个）
@@ -100,6 +105,8 @@ func _ready() -> void:
 func show_result(game: CWGame) -> void:
 	if not _built:
 		_build()
+	elif _built_online != online:
+		_rebuild_buttons()
 	_fill(game)
 	visible = true
 	_play()
@@ -430,12 +437,30 @@ func _build_bar(parent: Control, x: float, y: float) -> void:
 	tick_root.add_child(_bar_note)
 
 
-func _build_buttons(parent: Control, right: float) -> void:
-	## 从右往左摆，和行动栏的「靠右排」是同一套语汇
-	var specs := [
+func _button_specs() -> Array:
+	return [
 		{ "title": "返回主菜单", "cost": "Esc", "go": false },
-		{ "title": "再来一局", "cost": "同样人数 · 新种子", "go": true },
+		{ "title": "回到等待室", "cost": "房主可再开一局", "go": true } if online
+			else { "title": "再来一局", "cost": "同样人数 · 新种子", "go": true },
 	]
+
+
+## 模式在两局之间变了（本地 ↔ 联机）：只重建按钮，别的块不动
+func _rebuild_buttons() -> void:
+	for b in _btns:
+		b.queue_free()
+	_btns.clear()
+	_btn_titles.clear()
+	_btn_costs.clear()
+	_build_buttons(_btn_parent, _btn_right)
+
+
+func _build_buttons(parent: Control, right: float) -> void:
+	_btn_parent = parent
+	_btn_right = right
+	_built_online = online
+	## 从右往左摆，和行动栏的「靠右排」是同一套语汇
+	var specs := _button_specs()
 	var x: float = right
 	for i in range(specs.size() - 1, -1, -1):
 		var p := _make_button(specs[i], i)

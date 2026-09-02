@@ -14,6 +14,10 @@ extends Node2D
 signal start_requested(cfg: Dictionary)
 ## 「继续对局」被点了（只在存在存档时可点，读档由 main.gd 做）
 signal continue_requested
+## 联机面板里房间开局了：main.gd 推镜头进棋盘，对局由服务器驱动
+signal online_match_requested(client: CWNetClient)
+## 联机对局中房间没了：main.gd 收摊回主菜单
+signal online_lost(reason: String)
 
 ## 棋盘和相机都是同级节点。写成可导出的路径而不是写死 get_node("../Board")，
 ## 是为了将来换树形（比如过场时把菜单挪进别的容器）只改场景不改代码。
@@ -50,6 +54,7 @@ const CELL_FOOT_DY := 6.0
 ## enabled_mask() 现算。
 const ITEMS := [
 	{"node": "Start", "enabled": true},
+	{"node": "Online", "enabled": true},
 	{"node": "Continue", "enabled": true},
 	{"node": "Rules", "enabled": true},
 	{"node": "Settings", "enabled": true},
@@ -95,6 +100,7 @@ var _confirm_bars: Array[ColorRect] = []
 var _confirm_glow: Control
 var _confirm_sel := 1            ## 默认停在「取消」，别让回车顺手就退了
 var _config: CWConfigPanel       ## 对局配置面板；null = 还没建过
+var _online: CWOnlinePanel       ## 联机面板（连接 / 大厅 / 等待室）；null = 还没建过
 var _rules: CWRulesPage          ## 规则速查页；null = 还没建过
 var _settings: CWSettingsPage    ## 设置页；null = 还没建过
 var _swap: Tween                 ## 菜单↔配置的槽位换面板动画（0.30s 出 / 0.32s 入）
@@ -149,14 +155,7 @@ func dismiss(seconds: float, drift: float) -> void:
 ## 装饰细胞是漂散出去又淡掉的，位置和透明度都变了，所以直接重新生成一批 ——
 ## 它们本来就是纯装饰，位置由 DECOR 常量决定，重建比记账便宜也不会记漏。
 func appear(seconds: float) -> void:
-	if _leave != null:
-		_leave.kill()
-	visible = true
-	_ui.visible = true
-	for cell in _decor_root.get_children():
-		_decor_root.remove_child(cell)
-		cell.queue_free()
-	_spawn_decor()
+	_respawn_decor()
 	_apply_filters()   ## 「继续对局」的亮灭跟着存档有无走，回菜单时重新算
 	set_process_unhandled_input(true)
 	_hovered = -1
@@ -165,6 +164,39 @@ func appear(seconds: float) -> void:
 	var screen: Control = $UI/Screen
 	screen.modulate.a = 0.0
 	create_tween().tween_property(screen, "modulate:a", 1.0, seconds)
+
+
+## 联机结算后「回到等待室」：装饰细胞回来，但面板槽里放的是等待室，菜单项不出来
+func appear_online(_seconds: float) -> void:
+	_respawn_decor()
+	for label in _labels:
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	set_process_unhandled_input(true)
+	_hovered = -1
+	_selected = 0
+	_repaint()
+	($UI/Screen as Control).modulate.a = 0.0
+	if _online != null:
+		_online.return_to_room()
+
+
+## 离开联机：面板和服务器告别；随后 main.gd 会演返场、菜单 appear()
+func leave_online() -> void:
+	if _online != null:
+		_online.leave_online()
+
+
+## 从对局回来时把 dismiss() 改过的东西逐样还原。装饰细胞是漂散出去又淡掉的，
+## 位置和透明度都变了，所以直接重新生成一批 —— 纯装饰，重建比记账便宜也不会记漏。
+func _respawn_decor() -> void:
+	if _leave != null:
+		_leave.kill()
+	visible = true
+	_ui.visible = true
+	for cell in _decor_root.get_children():
+		_decor_root.remove_child(cell)
+		cell.queue_free()
+	_spawn_decor()
 
 
 ## 过场进行中再点一次 → 立即到位（团队要求，别等做完再补）
@@ -302,6 +334,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	## 顺序问题从根上不存在（同暂停菜单对 Esc 归属的取舍）
 	if _config != null and _config.visible:
 		_config.handle_input(event)
+		return
+	if _online != null and _online.visible:
+		_online.handle_input(event)
 		return
 	if _rules != null and _rules.visible:
 		_rules.handle_input(event)
@@ -460,6 +495,8 @@ func _activate(i: int) -> void:
 	match ITEMS[i]["node"]:
 		"Start":
 			_open_config()
+		"Online":
+			_open_online()
 		"Continue":
 			continue_requested.emit()
 		"Rules":
@@ -495,7 +532,26 @@ func _open_config() -> void:
 	_swap.tween_callback(_config.open)
 
 
-## 配置面板 Esc 退回：原路把菜单淡回来
+## 「联机对战」→ 同一套槽位换面板：菜单淡出，联机面板在同一位置淡入
+func _open_online() -> void:
+	if _swap != null and _swap.is_running():
+		return
+	if _online == null:
+		_online = CWOnlinePanel.new()
+		_ui.add_child(_online)
+		_online.cancelled.connect(_close_config)
+		_online.match_started.connect(func(client: CWNetClient) -> void:
+			online_match_requested.emit(client))
+		_online.match_lost.connect(func(reason: String) -> void:
+			online_lost.emit(reason))
+	for label in _labels:
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_swap = create_tween()
+	_swap.tween_property($UI/Screen, "modulate:a", 0.0, T_SWAP_OUT)
+	_swap.tween_callback(_online.open)
+
+
+## 配置面板 / 联机面板 Esc 退回：原路把菜单淡回来
 func _close_config() -> void:
 	if _swap != null and _swap.is_running():
 		_swap.kill()

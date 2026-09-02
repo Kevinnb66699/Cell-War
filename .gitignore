@@ -4,3 +4,6 @@ game/.godot/
 # 系统杂项
 Thumbs.db
 Desktop.ini
+
+# 客户端导出包（不入库；由 game/export_presets.cfg 生成）
+/dist/
