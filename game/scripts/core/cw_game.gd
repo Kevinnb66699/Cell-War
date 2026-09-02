@@ -633,6 +633,16 @@ func announce(text: String, at: Vector2i) -> void:
 		b.show_result(text, at)
 
 
+## 全局通报（不挂格子）：每个桥对象只通报一次，同 announce
+func notice(text: String) -> void:
+	var shown: Array = []
+	for b in bridges.values():
+		if b == null or shown.has(b):
+			continue
+		shown.append(b)
+		b.show_notice(text)
+
+
 ## 从数组中均匀随机取 n 个（不重复）
 func pick_random(arr: Array, n: int) -> Array:
 	var pool := arr.duplicate()

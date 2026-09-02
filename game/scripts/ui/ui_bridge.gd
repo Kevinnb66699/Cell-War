@@ -43,6 +43,9 @@ var marks := {}
 
 ## 结算说明在屏幕上停留多久
 const RESULT_HOLD := 1.1
+## 全局通报（抽到世界事件）停多久：一句「世界事件【基质阻隔】：移动能量花费翻倍（持续 2 回合）」要读完，
+## 而且 S 阶段没人盯着棋盘中央 —— 1.1 秒的骰子档等于没显示（2026-09-02 Kevin 问「触发时会自动弹出提示吗」）
+const NOTICE_HOLD := 3.0
 
 ## 行动栏按钮上的技能名。**费用一律现从 CWData 读，这里不写第二份数字**。
 ## 新增主动技能却忘了在这里登记，t_action_ui 会当场报出来。
@@ -527,6 +530,20 @@ func show_result(text: String, at: Vector2i) -> void:
 	## 沿用掷骰时那个位置：骰子这会儿已经收了，但玩家的视线还在那儿，
 	## 让「攻击」和「攻击大成功」出现在同一个地方比各自找最优位置更好读。
 	toast.show_at(text, _dice_rect(board.tile_center(at)), RESULT_HOLD)
+
+
+## 全局通报：浮在棋盘区**顶部居中**（不贴任何格子，不挡棋子），停 NOTICE_HOLD 秒。
+func show_notice(text: String) -> void:
+	if toast == null:
+		return
+	toast.show_at(text, notice_anchor(), NOTICE_HOLD)
+
+
+## 通报的锚点：棋盘区（屏幕去掉右侧竖条）顶边中点、零尺寸 —— CWToast.place 上面塞不下就翻到锚点下方，
+## 正好落在顶部 MARGIN + GAP 处、横向居中。抽成 static 是为了能直接测和做预览。
+static func notice_anchor() -> Rect2:
+	var screen := CWView.screen_size()
+	return Rect2(Vector2((screen.x - CWView.PANEL_WIDTH) * 0.5, CWToast.MARGIN), Vector2.ZERO)
 
 
 ## 骰子落在某格时，它在**屏幕**上占的那块矩形。提示靠它避让。

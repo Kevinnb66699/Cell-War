@@ -1320,6 +1320,13 @@ func t_ai_eval() -> void:
 	g.dispose()
 
 
+## 只记录全局通报的桥，给 t_match_panel 验 trigger → notice 用
+class NoticeRecorder extends CWBridge:
+	var got: Array = []
+	func show_notice(text: String) -> void:
+		got.append(text)
+
+
 # ---- 启发式 v2（2026-09-02）：分化按种子随机、免疫不走进压迫区、癌细胞贴脸留储备 ----
 func t_heur_lifecare() -> void:
 	print("[启发式 v2：随机分化与惜命]")
@@ -2448,9 +2455,48 @@ func t_match_panel() -> void:
 	check(p._events.position.y >= p._phase.position.y + 12
 		and p._events.position.y < CWMatchPanel.PAD + CWMatchPanel.ROUND_H + CWMatchPanel.GAP,
 		"那一行落在阶段行下面、胜负进度块上面的空档里（y=%d）" % int(p._events.position.y))
+	## 悬停事件行 → 左侧浮出每个事件的一句话效果与剩余回合（Kevin 2026-09-02 追加）
+	p._event_hover = true
+	p.refresh(g)
+	var tip_texts: Array = []
+	if p._event_tip != null:
+		for c in p._event_tip.get_children():
+			if c is Label:
+				tip_texts.append((c as Label).text)
+	check(p._event_tip != null and p._event_tip.visible
+		and tip_texts.has("【基质阻隔】") and tip_texts.has(CWWorldFx.BLURB["基质阻隔"])
+		and tip_texts.has("【免疫抑制因子】×2") and tip_texts.has("剩 2 回合") and tip_texts.has("本回合"),
+		"悬浮详情：每个世界事件的名字、叠数、剩余回合与一句话效果（%d 个标签）" % tip_texts.size())
+	check(not tip_texts.has("【TGF-β释放】"), "卡牌全局修饰不进悬浮详情")
+	p._event_hover = false
+	p.refresh(g)
+	check(not p._event_tip.visible, "移开鼠标 → 悬浮框藏起")
 	g.events["active"].clear()
 	p.refresh(g)
 	check(not p._events.visible, "事件到期移除 → 那一行收起")
+	## 一句话效果表覆盖全部 18 个事件，一个不多一个不少
+	var blurbed := true
+	for ev_name in CWWorldFx.EVENTS:
+		if not CWWorldFx.BLURB.has(ev_name) or String(CWWorldFx.BLURB[ev_name]).is_empty():
+			blurbed = false
+	check(blurbed and CWWorldFx.BLURB.size() == CWWorldFx.EVENTS.size(), "BLURB 覆盖全部 %d 个世界事件" % CWWorldFx.EVENTS.size())
+	## 抽到事件 → 全局通报一句「世界事件【X】：效果（持续 N 回合）」，每个桥对象只收一次
+	var rec := NoticeRecorder.new()
+	rec.game = g
+	for pid in g.order:
+		g.bridges[pid] = rec
+	g.events["pool"] = ["基质阻隔"]
+	await g.world_fx.trigger()
+	check(rec.got == ["世界事件【基质阻隔】：移动能量花费翻倍（持续 2 回合）"],
+		"trigger → notice 文本含效果与持续期、只通报一次：%s" % str(rec.got))
+	## 界面桥把通报放在棋盘区顶部居中：CWToast.place 对零尺寸锚点「上面塞不下」→ 翻到锚点下方
+	var anchor := CWUIBridge.notice_anchor()
+	var box := Vector2(300, 40)
+	var pos := CWToast.place(box, anchor, CWView.screen_size())
+	check(is_equal_approx(pos.y, CWToast.MARGIN + CWToast.GAP)
+		and is_equal_approx(pos.x + box.x * 0.5, (CWView.screen_size().x - CWView.PANEL_WIDTH) * 0.5),
+		"通报浮在棋盘区顶部居中（y=%d，中线 x=%d）" % [int(pos.y), int(pos.x + box.x * 0.5)])
+	check(CWUIBridge.NOTICE_HOLD >= 3.0, "通报停留 ≥3 秒（骰子结果那档是 %.1f）" % CWUIBridge.RESULT_HOLD)
 	g.cancer_win_streak = 1
 	p.refresh(g)
 	check(p._weighted_caption.text == "★ 警报 1/2", "警报期标题换成「★ 警报 1/2」（%s）" % p._weighted_caption.text)

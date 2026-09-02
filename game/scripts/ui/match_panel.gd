@@ -59,6 +59,9 @@ var _phase: Label
 ## 【基质阻隔】还在（2026-09-02 Kevin：「有能量为什么走不进癌组织」的根源之一）。
 ## 没有事件时整行隐藏；放在回合块底部那 14px 的空档里，不动任何块高（见文件头「一个数都别改」）。
 var _events: Label
+var _event_hover := false      ## 鼠标停在事件行上
+var _event_tip: Control        ## 事件行的悬浮详情（每个事件一句话效果 + 剩余回合）
+var _event_tip_key := ""
 var _weighted: Label
 var _weighted_max: Label
 var _weighted_caption: Label   ## 平时写「癌性加权」，警报期换成「★ 警报 1/2」
@@ -121,6 +124,7 @@ func refresh(game: CWGame) -> void:
 	_phase.text = "%s · 世界事件 第 %d 回合" % [game.phase, _next_event_round(game.round_no)]
 	_events.text = active_events_text(game)
 	_events.visible = _events.text != ""
+	_update_event_tip(game)
 
 	var w := game.count_tissue(CWData.Tissue.CANCER) \
 		+ 2 * game.count_tissue(CWData.Tissue.SOLID)
@@ -238,8 +242,14 @@ func _build(n: int) -> void:
 	_round = _put(CWStyle.label("", CWStyle.SIZE_BIG, CWStyle.TEXT_HI), PAD, PAD, W)
 	_phase = _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM), PAD, PAD + 36, W)
 	_events = _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI), PAD, PAD + 50, W)
-	_events.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS   ## 同时挂着三个事件才会超宽；细节看日志
+	_events.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS   ## 同时挂着三个事件才会超宽；细节看悬浮详情
 	_events.visible = false
+	_events.mouse_filter = Control.MOUSE_FILTER_STOP   ## 要接悬停：悬浮框里有每个事件的一句话效果（Kevin 2026-09-02）
+	_events.mouse_default_cursor_shape = Control.CURSOR_HELP
+	_events.mouse_entered.connect(func() -> void: _event_hover = true)
+	_events.mouse_exited.connect(func() -> void: _event_hover = false)
+	_event_tip = null
+	_event_tip_key = ""
 
 	# ② 胜负进度：一行标签 + 一条进度条
 	var y := PAD + ROUND_H + GAP
@@ -357,6 +367,63 @@ func _build_end_button() -> PanelContainer:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			end_turn_pressed.emit())
 	return p
+
+
+# ============ 世界事件悬浮框 ============
+
+## 悬停事件行时，在面板左侧浮出每个进行中事件的一句话效果（CWWorldFx.BLURB）和剩余回合。
+## 每帧从 refresh() 进来，键（事件行文字）没变就不重搭；没悬停或没事件就藏起来。
+func _update_event_tip(game: CWGame) -> void:
+	if not _event_hover or not _events.visible:
+		if _event_tip != null:
+			_event_tip.visible = false
+		return
+	var key := _events.text
+	if key == _event_tip_key and _event_tip != null:
+		_event_tip.visible = true
+		return
+	_event_tip_key = key
+	if _event_tip != null:
+		remove_child(_event_tip)
+		_event_tip.queue_free()
+	var items: Array = []
+	for e in game.events["active"]:
+		if game.world_fx.is_world_event(e):
+			items.append(e)
+	var tip_w := 280.0
+	var block_h := 24 + 30    ## 名字行（20px）+ 效果两行（10px 自动换行）
+	var h: float = 8 * 2 + 15 + items.size() * block_h
+	_event_tip = Control.new()
+	_event_tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_event_tip.size = Vector2(tip_w, h)
+	_event_tip.position = Vector2(-(tip_w + 8.0), clampf(_events.position.y, 8.0, RECT.size.y - h - 8.0))
+	var bg := Panel.new()
+	bg.add_theme_stylebox_override("panel", CWStyle.box(0.45, CWStyle.BTN_BG))
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_event_tip.add_child(bg)
+	var title := CWStyle.label("进行中的世界事件", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	title.position = Vector2(12, 8)
+	_event_tip.add_child(title)
+	for i in items.size():
+		var e: Dictionary = items[i]
+		var y: float = 8 + 15 + i * block_h
+		var head := "【%s】%s" % [e["name"], "×%d" % int(e["stacks"]) if int(e["stacks"]) > 1 else ""]
+		var name_label := CWStyle.label(head, CWStyle.SIZE_BODY, CWStyle.TEXT)
+		name_label.position = Vector2(12, y)
+		_event_tip.add_child(name_label)
+		var left_label := CWStyle.label("本回合" if int(e["left"]) <= 1 else "剩 %d 回合" % int(e["left"]),
+			CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+		left_label.position = Vector2(12, y + 4)
+		left_label.size = Vector2(tip_w - 24, 0)
+		left_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		_event_tip.add_child(left_label)
+		var blurb := CWStyle.label(CWWorldFx.BLURB.get(e["name"], ""), CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
+		blurb.position = Vector2(12, y + 24)
+		blurb.size = Vector2(tip_w - 24, 0)
+		blurb.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY   ## 中文没有词边界，按字换行
+		_event_tip.add_child(blurb)
+	add_child(_event_tip)
 
 
 # ============ 被动技能悬浮框 ============

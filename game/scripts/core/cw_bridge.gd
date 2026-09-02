@@ -38,3 +38,9 @@ func show_roll(_reason: String, _value: int, _sides: int, _pid: int, _at: Vector
 ## at = 这件事发生在哪一格，表现层拿它决定提示浮在哪儿。
 func show_result(_text: String, _at: Vector2i) -> void:
 	pass
+
+
+## 全局通报：不挂在哪一格上的大事（目前只有「抽到世界事件」）。
+## 与 show_result 分开是因为展示方式不同 —— 那个贴着骰子、1 秒多就走；这个要在棋盘上方停够看完一句话的时间。
+func show_notice(_text: String) -> void:
+	pass
