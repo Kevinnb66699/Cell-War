@@ -9,9 +9,10 @@
 ## 都由它即时应答，人类桥绝不会在推演里被问到；推演结束 restore + 换回，
 ## 主线状态零污染（t_rollout_isolation / t_ai_mc 验收这条）。
 ##
-## 确定性：桥自己不引入随机数 —— 候选之间共用快照里同一个 rng 状态，
-## 同一候选的多条 playout 靠「第 r 条先烧掉 r 个随机数」去相关。
+## 确定性：桥自己不引入随机数 —— 推演用的随机流由快照里的 rng 状态**派生**（见 _playout_seed），
+## 候选之间共用同一条流，同一候选的多条 playout 各用一条。
 ## 同种子同局面必然同答案，观战/回放/联机口径与启发式桥一致。
+## **推演不能用真实的 rng 状态**：那会让 AI 提前看到自己这一步的真骰子（2026-09-01 前的旧行为）。
 class_name CWMonteCarloBridge
 extends CWHeuristicBridge
 
@@ -53,8 +54,7 @@ func _mc_pick(req: Dictionary) -> int:
 			continue
 		var total := 0
 		for r in rollouts:
-			for burn in r:
-				game.rng.randi()
+			game.rng.seed = _playout_seed(snap["rng"], r)
 			await game.step(i)
 			var plies := 0
 			while plies < horizon and not game.is_over():
@@ -74,6 +74,20 @@ func _mc_pick(req: Dictionary) -> int:
 	game.bridges = saved_bridges
 	sim.game = null   ## 断环：sim 持 game、game.bridges 持本桥，留着会漏
 	return best
+
+
+## 推演用的随机流：由「快照里的 rng 状态 + 第几条 playout」派生，**刻意不等于真实的 rng 状态**。
+##
+## 2026-09-01 之前这里直接沿用快照里的真状态（第 r 条先烧 r 个随机数去相关）。
+## 那等于让 AI 先用**真骰子**把这一步玩一遍再决定：rollouts=1 时，候选行动的即时结果
+## （攻击成败、大成功与否、抽到哪张卡）对它是精确已知的 —— 一个只有 AI 才有的信息优势，
+## 而且落在掷骰最多的免疫方身上（每回合 3 次攻击、抗体、抽卡），
+## 是「MC 系统性高估免疫」（口径 #87）的一个具体来源。
+## 派生之后它和人一样只能按概率抽样。同种子同局面仍然同答案（派生是确定性的），
+## 候选之间仍共用同一条随机流（同 r 同种子）—— 比较候选时公用随机数能压方差，这点没变。
+## 用 hash() 而不是算术偏移：rng 是 LCG，「状态 + 常数」的两条流在头几个数上会有结构性相关。
+func _playout_seed(real_state: int, r: int) -> int:
+	return hash([real_state, r])
 
 
 ## 弃置只在手牌满（抽卡选项已消失）时才值得占一个候选名额 ——

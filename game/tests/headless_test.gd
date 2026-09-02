@@ -1094,6 +1094,47 @@ func _immune_pid(g: CWGame) -> int:
 	return -1
 
 
+## 「白送的击杀」标准场景（t_ai_mc ②④ 共用）：2 人局，全盘健康，蒙特卡洛桥坐免疫席，
+## 免疫在 (0,0) 只剩 0.6 能量（刚够一次行动），癌在 (1,0) 只剩 0.1 能量（什么都买不起，
+## 它那一轮不会掷任何骰 —— 否则它反击失败自伤致死会让「不打」那条 playout 也白捡终局分）。
+## 先推进到免疫的行动询问再摆场景、就地重摊选项：蒙特卡洛只在 pending 边界上快照，
+## 返回的 req 必须就是 _pending。返回 [game, mc, req]。
+func _free_kill_scene(seed_value: int, rollouts: int, horizon: int) -> Array:
+	var g := make_game(2, seed_value)
+	var ip := _immune_pid(g)
+	var mc := CWMonteCarloBridge.new()
+	mc.game = g
+	mc.rollouts = rollouts
+	mc.horizon = horizon
+	g.bridges[ip] = mc
+	await run_setup(g)
+	var req: Dictionary = {}
+	while true:
+		req = await g.pending()
+		if req.is_empty() or (req["kind"] == "action" and req["pid"] == ip):
+			break
+		await g.step(await g.ask(req["pid"], req))
+	for c in g.tiles.keys():
+		g.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
+		g.tiles[c]["solid"] = 0
+		g.tiles[c]["newborn"] = false
+	var imm: Dictionary = g.cell_of(ip)
+	var can: Dictionary = g.living_cells(CWData.Faction.CANCER)[0]
+	imm["pos"] = Vector2i(0, 0)
+	imm["energy"] = 6
+	imm["hand"] = []
+	can["pos"] = Vector2i(1, 0)
+	can["energy"] = 1
+	can["hand"] = []
+	req["options"] = g.actions.build_options(imm)
+	return [g, mc, req]
+
+
+## 上面场景里「攻击那个残血癌细胞」的选项：攻击 = 迁移到它所在的格
+func _is_free_kill(d: Dictionary) -> bool:
+	return d.get("act", "") == "move" and d.get("to", Vector2i.MAX) == Vector2i(1, 0)
+
+
 # ---- AI·静态估值：方向对、零和、终局压倒一切 ----
 func t_ai_eval() -> void:
 	print("[AI·静态估值]")
@@ -1149,40 +1190,45 @@ func t_ai_mc() -> void:
 	check(a1 == a2, "同局面两次评估答案一致（确定性）")
 	g.dispose()
 
-	## ② 白送的击杀要拿：残血癌细胞贴脸、无处可逃（截断内它还会占地），
-	## 评出来的应是攻击那一步。先推进到免疫的行动询问再摆场景，
-	## 然后就地重摊选项 —— 蒙特卡洛只在 pending 边界上快照，req 必须就是 _pending
-	var g2 := make_game(2, 55)
-	var ip2 := _immune_pid(g2)
-	var mc2 := CWMonteCarloBridge.new()
-	mc2.game = g2
-	mc2.rollouts = 3
-	mc2.horizon = 12
-	g2.bridges[ip2] = mc2
-	await run_setup(g2)
-	while true:
-		req = await g2.pending()
-		if req.is_empty() or (req["kind"] == "action" and req["pid"] == ip2):
-			break
-		await g2.step(await g2.ask(req["pid"], req))
-	for c in g2.tiles.keys():
-		g2.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
-		g2.tiles[c]["solid"] = 0
-		g2.tiles[c]["newborn"] = false
-	var imm: Dictionary = g2.cell_of(ip2)
-	var can: Dictionary = g2.living_cells(CWData.Faction.CANCER)[0]
-	imm["pos"] = Vector2i(0, 0)
-	imm["energy"] = 80
-	imm["hand"] = []
-	can["pos"] = Vector2i(1, 0)
-	can["energy"] = 5
-	can["hand"] = []
-	req["options"] = g2.actions.build_options(imm)
+	## ② 白送的击杀要拿：残血且动弹不得的癌细胞贴脸，免疫只剩**一次行动**的能量。
+	## 先打 = 2/3 当场清场；先抽卡 = 这回合再也打不成。评出来的应是攻击那一步。
+	## 能量刻意只给 0.6：给 8.0 时「先抽再打」和「先打」只差骰运（代打免疫在推演里
+	## 反正会补一刀），旧版断言其实是靠推演偷看到真骰子（5，成功）过的 —— 推演改诚实后
+	## 三条 playout 里抽卡那条两次靠后手补刀拿到终局分，攻击反而落选。
+	## horizon=0：只看这一步的即时结果。截断只要跨进下一世界回合，免疫 +3.0 收入之后
+	## 「下回合再打」在推演里和「现在打」一样好，这一问就分不出高下了。
+	var scene: Array = await _free_kill_scene(55, 3, 0)
+	var g2: CWGame = scene[0]
+	var mc2: CWMonteCarloBridge = scene[1]
+	req = scene[2]
 	var pick: int = await mc2.ask(req)
 	var pd: Dictionary = req["options"][pick]["data"]
-	check(pd.get("act", "") == "move" and pd.get("to", Vector2i.MAX) == Vector2i(1, 0),
-		"残血癌细胞贴脸 → 蒙特卡洛选择攻击（选了 %s）" % str(pd))
+	check(_is_free_kill(pd), "残血癌细胞贴脸、只剩一次行动 → 蒙特卡洛选择攻击（选了 %s）" % str(pd))
 	g2.dispose()
+
+	## ④ 推演不许偷看真骰子（2026-09-01）。同一场景，先把真 rng 烧到「下一颗 d6 必是失败面」
+	## 再让 rollouts=1 的 MC 决策：偷看真状态的旧实现看到的永远是失败，8 个种子里 **0** 次去打；
+	## 诚实的 MC 只按自己那条派生流抽样，约 2/3 会去打。
+	## horizon=2 是实测最能分开两者的档：horizon=0 时「打失败=自己死」在估值里反而不吃亏
+	## （复活免费、还免了离战线的罚分），旧实现在 0 步下也会 8/8 去打，分不出来。
+	var real_fail_attacks := 0
+	for s in 8:
+		var sc: Array = await _free_kill_scene(100 + s, 1, 2)
+		var g4: CWGame = sc[0]
+		var mc4: CWMonteCarloBridge = sc[1]
+		var rq4: Dictionary = sc[2]
+		while true:
+			var st: int = g4.rng.state
+			var v := g4.rng.randi_range(1, 6)
+			if g4.actions.base_verdict(v) == "fail":
+				g4.rng.state = st
+				break
+		var p4: int = await mc4.ask(rq4)
+		if _is_free_kill(rq4["options"][p4]["data"]):
+			real_fail_attacks += 1
+		g4.dispose()
+	check(real_fail_attacks >= 4,
+		"真骰子必失败的 8 个局面里，诚实 MC 仍去打了 %d 次（偷看真状态的实现为 0 次）" % real_fail_attacks)
 
 	## ③ 整局跑完 + 确定性：蒙特卡洛桥当免疫方，同种子两局同哈希
 	var hs: Array[String] = []
