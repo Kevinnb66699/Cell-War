@@ -53,6 +53,7 @@ func _run_all() -> void:
 	t_solidify_and_decay()
 	t_erosion()
 	t_macro_purify_heal()
+	await t_antibody_cap()
 	t_immune_win()
 	t_cancer_revive_blocked()
 	t_cancer_s_win()
@@ -775,6 +776,13 @@ func t_immune_respawn() -> void:
 	g.round_no = 6
 	check(g.world.revive_options_immune(imm2["pid"]).is_empty(),
 		"唯一的健康骨髓被队友占着 → 没有落点")
+	## 旋钮 immune_respawn_delay=1（2026-09-02 后期引擎对比表杠杆④）：多罚停一个世界回合
+	g.tune.immune_respawn_delay = 1
+	g.round_no = 5
+	g.kill(imm)
+	check(imm["respawn_round"] == 7, "罚停 1：死于第 5 回合 → 第 7 回合才复活（默认是第 6）")
+	imm["alive"] = true
+	imm["respawn_round"] = -1
 	## 旋钮关掉 → 永久死亡
 	g.tune.immune_respawn_delay = -1
 	g.kill(imm)
@@ -877,6 +885,58 @@ func t_macro_purify_heal() -> void:
 	check(await net.call(0, []) == 0, "免费迁移：不回能，也谈不上净花")
 	## 不是花钱走进来的（传送 / 复活 / 血管）不设这道上限
 	check(await net.call(-1, []) == -3, "paid=-1（传送等）：照回 0.3，净赚")
+	## 旋钮 macro_heal_purify（2026-09-02 后期引擎对比表杠杆①）：0 = 吞噬回能不适用于净化
+	var g0 := bare_game()
+	g0.tune.macro_heal_purify = 0
+	var to0 := Vector2i(1, 0)
+	g0.tiles[to0]["tissue"] = CWData.Tissue.CANCER
+	var m0 := put_immune(g0, Vector2i.ZERO)
+	m0["itype"] = CWData.ImmuneType.MACRO
+	await g0.actions.enter_tile(m0, to0, 7)
+	check(m0["energy"] == 200, "旋钮 0：实付 0.7 也一点不回")
+	check(g0.tiles[to0]["tissue"] == CWData.Tissue.HEALTHY, "→ 净化本身照常发生")
+	g0.dispose()
+
+
+# ---- B 细胞【抗体】每世界回合上限旋钮（2026-09-02 后期引擎对比表杠杆③）----
+##
+## PRD 2026-09-01 删掉了「每世界回合最多 2 次」，现行 = 不限（旋钮 0）。手打 D 局里 MC 免疫一回合 7~10 发抗体
+## 把所有暴露的癌细胞一次打光，是后期雪球的一根杠杆，所以把上限做回旋钮供扫描；默认值下行为逐位不变。
+func t_antibody_cap() -> void:
+	print("[抗体次数上限旋钮]")
+	var g := bare_game()
+	var b := put_immune(g, Vector2i.ZERO)
+	b["itype"] = CWData.ImmuneType.B_CELL
+	## 一个与健康组织相邻的癌细胞 = 抗体有目标；血厚到打不死
+	var foe := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(3, 0), -1,
+		CWData.CancerType.MELANOMA)
+	foe["energy"] = 500
+	g.cells.append(foe)
+	var has_ab := func() -> bool:
+		for o in g.actions.build_options(b):
+			if o["data"].get("act", "") == "antibody":
+				return true
+		return false
+	check(g.tune.antibody_max_per_round == 0, "默认 0 = 不限（现行 PRD）")
+	for k in 3:
+		check(has_ab.call(), "默认：第 %d 发前选项在" % (k + 1))
+		await g.actions.execute(b, { "act": "antibody" })
+	check(b["antibody_used"] == 3, "计数跟着走（3）")
+	check(has_ab.call(), "默认：打了 3 发选项仍在")
+	g.tune.antibody_max_per_round = 2
+	check(not has_ab.call(), "上限 2：本回合已用 3 → 选项消失")
+	g.world._reset_round_flags()
+	check(b["antibody_used"] == 0 and has_ab.call(), "S 阶段重置 → 选项回来")
+	await g.actions.execute(b, { "act": "antibody" })
+	await g.actions.execute(b, { "act": "antibody" })
+	check(not has_ab.call(), "上限 2：第 3 发不给选")
+	## 计数随 cells 进快照：MC 推演里打过的抗体回滚后不会漏回主线，主线打过的推演里也不会凭空多出额度
+	var snap := g.snapshot()
+	g.world._reset_round_flags()
+	check(g.cell_of(0)["antibody_used"] == 0, "重置后计数 0")
+	g.restore(snap)
+	check(g.cell_of(0)["antibody_used"] == 2, "restore 回到 2")
+	g.dispose()
 
 
 # ---- 一格一细胞 + 骨肉瘤【刚性屏障】 ----

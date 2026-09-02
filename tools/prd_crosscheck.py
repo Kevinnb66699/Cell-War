@@ -42,6 +42,8 @@ DATA = os.path.join(REPO, "game", "scripts", "core", "cw_data.gd")
 MAP = {
     # ---- 棋盘与胜负 ----
     "TOTAL_TILES":            "127枚六边形组织格",
+    ## 定案 B（2026-09-01）：门槛要连续两个世界回合末都达标；常量 2 对应「连续两个」
+    "CANCER_WIN_HOLD_ROUNDS":  "且该条件在**连续两个世界回合结束时**均成立",
     "CANCER_WIN_WEIGHTED":    "癌组织格数+2times固化癌组织格数",
     "LIMIT_ROUND":            "30回合后",
     # ---- 开局 ----
@@ -64,7 +66,7 @@ MAP = {
     "MACRO_MOVE_NET_MIN":     "即一次【迁移】的净支出不低于0.1",
     "ANTIBODY_COST":          "【抗体】：消耗1点能量",
     "ANTIBODY_DAMAGE":        "使所有与**健康组织**邻接的癌细胞**能量**-1",
-    "ANTIBODY_MAX_PER_ROUND": "B细胞每**世界回合**最多发动2次【抗体】",
+    "ANTIBODY_MAX_PER_ROUND": "【抗体】：消耗1点能量，使所有与**健康组织**邻接的癌细胞",
     "TOXIN_COST":             "【细胞毒素】：消耗1点能量",
     "TOXIN_MAX_PER_ROUND":    "T细胞每**世界回合**最多发动3次",
     "LYSE_COST":              "【裂解】：T细胞消耗1点能量可将相邻的",
@@ -98,7 +100,7 @@ MAP = {
     "METASTASIS_RANGE":       "向某方向跃进5格",
     "WARBURG_PERCENT":        "在无氧呼吸中能获得110%原产出",
     # ---- 固化 / 场景事件 ----
-    "SOLIDIFY_THRESHOLD":     "计数到达3时**癌组织**转为**固化癌组织**",
+    "SOLIDIFY_THRESHOLD":     "计数到达2时**癌组织**转为**固化癌组织**",
     "SOLIDIFY_STEP":          "【E-固化】：癌细胞停留的（非新生**）癌组织**的固化计数+1",
     "SOLIDIFY_DECAY":         "固化计数>0且没有癌细胞在其上的**癌组织**，固化计数-0.5",
     "SOLIDIFY_ACCEL_AT":      "癌组织固化计数从1达到>=2上时，立即转化为固化癌组织",

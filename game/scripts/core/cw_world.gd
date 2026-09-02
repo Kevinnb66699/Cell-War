@@ -67,6 +67,7 @@ func _reset_round_flags() -> void:
 		c["armor_used"] = false        ## 印戒【囊性护甲】每世界回合减免 1 次
 		c["mutate_used"] = false       ## 【突变】每世界回合 1 次
 		c["toxin_used"] = 0            ## T【细胞毒素】3 次/世界回合
+		c["antibody_used"] = 0         ## B【抗体】每世界回合上限（旋钮，默认不限）
 		c["metastasis_used"] = false   ## 黑色素瘤【早期血行转移】1 次/世界回合
 		c["fx_round"] = {}             ## 永久技能「每世界回合第一次」的闸门
 

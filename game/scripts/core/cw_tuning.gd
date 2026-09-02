@@ -198,6 +198,16 @@ var solid_at_cancer_spawn := CWData.SOLID_AT_CANCER_SPAWN
 var immune_respawn_delay := CWData.IMMUNE_RESPAWN_DELAY
 var immune_respawn_energy := CWData.IMMUNE_RESPAWN_ENERGY
 
+# ---- 免疫后期引擎（2026-09-02 第二张对比表的四根杠杆；默认值 = 现行规则）----
+## 手打 D 局（我坐三席癌 vs 诚实 MC 免疫，第 17 回合被清场）暴露的雪球：X 级巨噬净化净成本 0.2/格
+## （0.5 − 吞噬回 0.3，一回合 30 格）、抗体一发打全部暴露细胞且无次数上限、免疫死亡几乎免费。
+## 四根杠杆 = 下面两个 + 上面已有的 immune_move_cancerous[3]（X 级净化价）与 immune_respawn_delay（复活罚停）。
+## 巨噬【I-吞噬】每次净化回多少（十分能量）。默认 3 = PRD 的 0.3；**0 = 吞噬回能不适用于净化**
+## （攻击后的吸血是另一条，不受影响）。「实付 − 0.1」那道封顶照旧套在它上面。
+var macro_heal_purify := CWData.MACRO_HEAL_PURIFY
+## B 细胞【抗体】每世界回合最多几次。默认 0 = 不限（现行 PRD）；2 = 2026-09-01 之前的旧 PRD。
+var antibody_max_per_round := CWData.ANTIBODY_MAX_PER_ROUND
+
 # ---- 【E-增生】癌组织向外扩散（规则原文没有这条，团队 2026-08-26 提案）----
 ## 每个与癌性组织相邻的健康组织，按「相邻癌性组织数 × 本值」的概率转为癌组织。
 ## 单位千分率（40 = 每个相邻癌性组织贡献 4% = PRD 值），0 = 关闭。

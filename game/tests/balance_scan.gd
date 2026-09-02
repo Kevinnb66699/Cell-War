@@ -50,6 +50,12 @@
 ##   counter=0    攻击失败时攻击者的自损（现值 5 = PRD 的 0.5）
 ##   atkmax=3     免疫每行动回合最多攻击几次（现值 3）
 ##   ecancer=60   癌细胞初始能量，十分能量（现值 30 = 3.0，与免疫同）
+##   —— 2026-09-02「免疫后期引擎」对比表的四根杠杆（手打 D 局暴露的后期雪球）——
+##   mheal=0      巨噬【吞噬】每次净化回多少，十分能量（现值 3 = 0.3；0 = 吞噬回能不适用于净化）
+##   mvx=7        免疫 **X 级**迁移到癌性组织的费用（现值 5；III 级是 7、I/II 级 10）。
+##                只动 X 级那一档 —— 和 mv= 的「各等级统一」不是一回事
+##   abmax=2      B 细胞【抗体】每世界回合上限（现值 0 = 不限；2 = 9-01 之前的旧 PRD）
+##   rdelay=1     免疫死亡后**额外**罚停几个世界回合（现值 0 = 下一个 S 阶段就复活；-1 = 不再复活）
 ##
 ## ⚠ 2026-08-31 口径 #82 之后，**不传旋钮 = 引擎现值，不是 PRD 原样**。
 ## 要跑 PRD 原样做对照得显式写全：`cmh=5 sclc=3 pseu=2 tiles=15`。
@@ -88,6 +94,10 @@ var prolif := -1
 var solid := -1
 var cwin := -1
 var chold := -1
+var mheal := -1
+var mvx := -1
+var abmax := -1
+var rdelay := -9999   ## -1 是合法值（不再复活），哨兵不能用 -1
 
 
 func _initialize() -> void:
@@ -133,6 +143,10 @@ func _parse() -> void:
 			"solid": solid = int(kv[1])
 			"cwin": cwin = int(kv[1])
 			"chold": chold = int(kv[1])
+			"mheal": mheal = int(kv[1])
+			"mvx": mvx = int(kv[1])
+			"abmax": abmax = int(kv[1])
+			"rdelay": rdelay = int(kv[1])
 
 
 func _order() -> Array:
@@ -194,6 +208,14 @@ func _tune() -> CWTuning:
 		t.init_energy_cancer = ecancer
 	if lesion != "":
 		t.solid_at_cancer_spawn = lesion != "off"
+	if mheal >= 0:
+		t.macro_heal_purify = mheal
+	if mvx >= 0:
+		t.immune_move_cancerous[3] = mvx   ## 排在 mv= 之后：mv 铺满四档，mvx 再单独改 X 级
+	if abmax >= 0:
+		t.antibody_max_per_round = abmax
+	if rdelay != -9999:
+		t.immune_respawn_delay = rdelay
 	return t
 
 
@@ -205,7 +227,14 @@ func _applied(t: CWTuning) -> String:
 	var d := CWTuning.new()
 	var out: Array = []
 	if t.immune_move_cancerous != d.immune_move_cancerous:
-		out.append("mv=%s" % str(t.immune_move_cancerous[0]))
+		## 只动 X 级那一档时要打 mvx= —— 照旧打 [0] 会把 mvx=7 回显成「mv=10」，等于没回显
+		var arr: Array = t.immune_move_cancerous
+		if arr.slice(0, 3) == d.immune_move_cancerous.slice(0, 3):
+			out.append("mvx=%d" % arr[3])
+		elif arr.count(arr[0]) == arr.size():
+			out.append("mv=%s" % str(arr[0]))
+		else:
+			out.append("mv=%s" % str(arr))
 	for pair in [["emax", t.energy_cap, d.energy_cap],
 			["ecap", t.anaerobic_cap, d.anaerobic_cap],
 			["efloor", t.anaerobic_floor, d.anaerobic_floor],
@@ -228,7 +257,10 @@ func _applied(t: CWTuning) -> String:
 			["pseu", t.pseudopod_cost, d.pseudopod_cost],
 			["counter", t.counter_dmg_on_fail, d.counter_dmg_on_fail],
 			["atkmax", t.attack_max_per_turn, d.attack_max_per_turn],
-			["ecancer", t.init_energy_cancer, d.init_energy_cancer]]:
+			["ecancer", t.init_energy_cancer, d.init_energy_cancer],
+			["mheal", t.macro_heal_purify, d.macro_heal_purify],
+			["abmax", t.antibody_max_per_round, d.antibody_max_per_round],
+			["rdelay", t.immune_respawn_delay, d.immune_respawn_delay]]:
 		if pair[1] != pair[2]:
 			out.append("%s=%s" % [pair[0], str(pair[1])])
 	if t.solid_at_cancer_spawn != d.solid_at_cancer_spawn:

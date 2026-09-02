@@ -40,7 +40,7 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 				"data": { "act": "differentiate", "type": t },
 			})
 	## 【抗体】的「每世界回合最多 2 次」2026-09-01 起取消（PRD 删掉该条，Kevin 确认）
-	if cell["itype"] == CWData.ImmuneType.B_CELL \
+	if cell["itype"] == CWData.ImmuneType.B_CELL and _antibody_quota_left(cell) \
 			and game.can_pay(cell, antibody_cost(cell)):
 		opts.append({ "label": "抗体（%s 能量）" % CWData.fmt(antibody_cost(cell)),
 			"data": { "act": "antibody" } })
@@ -654,7 +654,8 @@ func enter_tile(cell: Dictionary, dest: Vector2i, paid: int = -1) -> void:
 			## 本身也只要 0.2，回 0.3 就成了「走一格赚 0.1」：巨噬能在癌组织上无限走、
 			## 顺手把整片净化掉（队友 2026-09-01 报的「巨噬细胞可以无穷动」）。
 			## 治的是「靠移动赚钱」这个结构问题，而不是把某张减价卡调残。
-			var heal: int = CWData.MACRO_HEAL_PURIFY
+			## 回多少走旋钮 `macro_heal_purify`（默认 = 常量 0.3；0 = 净化不回能，2026-09-02 后期引擎对比表扫它）。
+			var heal: int = game.tune.macro_heal_purify
 			if paid >= 0:
 				heal = mini(heal, maxi(paid - CWData.MACRO_MOVE_NET_MIN, 0))
 			if heal > 0:
@@ -662,7 +663,7 @@ func enter_tile(cell: Dictionary, dest: Vector2i, paid: int = -1) -> void:
 				game.log_msg("　巨噬【吞噬】恢复 %s 能量%s" % [CWData.fmt(heal),
 					"（本次迁移实付 %s，净支出至少 %s）" % [
 						CWData.fmt(paid), CWData.fmt(CWData.MACRO_MOVE_NET_MIN)]
-						if heal < CWData.MACRO_HEAL_PURIFY else ""])
+						if heal < game.tune.macro_heal_purify else ""])
 		await _on_purify(cell)
 	# 「粘液」无法被技能清除，但被免疫细胞接触后立即消失（PRD 印戒细胞癌）
 	if cell["faction"] == CWData.Faction.IMMUNE and t["mucus"]:
@@ -732,6 +733,14 @@ func _do_differentiate(cell: Dictionary, t: int) -> void:
 	game.update_marks()  # 分化出树突 → 立即标记相邻癌细胞
 
 
+## 【抗体】本世界回合还有没有额度。旋钮 `antibody_max_per_round` 0 = 不限，是现行 PRD
+## （2026-09-01 删掉了「每世界回合最多 2 次」）；上限留成旋钮是 2026-09-02 后期引擎对比表要扫它。
+## 计数 `antibody_used` 与 `toxin_used` 同一处重置（CWWorld._reset_round_flags），随 cells 进快照。
+func _antibody_quota_left(cell: Dictionary) -> bool:
+	var cap: int = game.tune.antibody_max_per_round
+	return cap <= 0 or cell["antibody_used"] < cap
+
+
 ## 【抗体亲和力成熟】B 细胞强化：抗体费 1.0 → 0.5、每目标伤害 1.0 → 1.5
 func antibody_cost(cell: Dictionary) -> int:
 	return CWData.MATURED_ANTIBODY_COST if game.has_skill(cell, "抗体亲和力成熟") \
@@ -741,6 +750,7 @@ func antibody_cost(cell: Dictionary) -> int:
 func _do_antibody(cell: Dictionary) -> void:
 	if not game.pay(cell, antibody_cost(cell)):
 		return
+	cell["antibody_used"] += 1
 	var dmg: int = CWData.MATURED_ANTIBODY_DMG if game.has_skill(cell, "抗体亲和力成熟") \
 		else CWData.ANTIBODY_DAMAGE
 	var targets: Array = []

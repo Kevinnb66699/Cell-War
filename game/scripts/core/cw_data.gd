@@ -146,6 +146,9 @@ const ANTIBODY_DAMAGE := 15              # 每目标 -1.5
 const ANTIBODY_NO_TARGET_X := [2, 3]
 const TOXIN_COST := 10
 const TOXIN_MAX_PER_ROUND := 3           # PRD：T 细胞每世界回合最多 3 次
+## B 细胞【抗体】每世界回合上限。**0 = 不限**：PRD 2026-09-01 删掉了「最多 2 次」（Kevin 确认），旧 PRD 是 2。
+## 留常量只为给 `CWTuning.antibody_max_per_round` 当默认值 —— 2026-09-02「免疫后期引擎」对比表要把上限扫回来试。
+const ANTIBODY_MAX_PER_ROUND := 0
 const LYSE_COST := 10
 const REVIVE_ENERGY := 20                # 复活获得 2.0
 ## 免疫细胞每个**行动回合**最多攻击几次。0 = 不限。
