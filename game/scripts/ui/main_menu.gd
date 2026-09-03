@@ -52,8 +52,11 @@ const CELL_FOOT_DY := 6.0
 ## 五项全亮（2026-08-29 深夜起）。「继续对局」的 enabled 是**基础开关**，
 ## 实际亮灭还要有存档才行 —— 动态部分见 _item_enabled()，键盘跳灰用
 ## enabled_mask() 现算。
+## 「自定义对局」（2026-09-03 Kevin）= 同一张配置面板多出「癌症A/B/C 种类」几行，让人挑初始癌种；
+## 「开始对局」照旧随机抽。七项行距 34（六项时 38），底边 532。
 const ITEMS := [
 	{"node": "Start", "enabled": true},
+	{"node": "Custom", "enabled": true},
 	{"node": "Online", "enabled": true},
 	{"node": "Continue", "enabled": true},
 	{"node": "Rules", "enabled": true},
@@ -494,7 +497,9 @@ func _activate(i: int) -> void:
 		return
 	match ITEMS[i]["node"]:
 		"Start":
-			_open_config()
+			_open_config(false)
+		"Custom":
+			_open_config(true)
 		"Online":
 			_open_online()
 		"Continue":
@@ -513,9 +518,10 @@ func _activate(i: int) -> void:
 			_open_confirm()
 
 
-## 「开始对局」→ 槽位换面板：菜单整层（含左侧暗罩）淡出，对局配置在同一位置淡入。
+## 「开始对局」/「自定义对局」→ 槽位换面板：菜单整层（含左侧暗罩）淡出，对局配置在同一位置淡入。
 ## 配置面板自带一份暗罩，所以菜单可以整层走——内容换、位置不换（原型的基本语法）。
-func _open_config() -> void:
+## custom = 自定义对局：同一张面板多出癌种几行（CWConfigPanel.custom），取值局间各自保留。
+func _open_config(custom: bool = false) -> void:
 	if _swap != null and _swap.is_running():
 		return
 	if _config == null:
@@ -524,6 +530,7 @@ func _open_config() -> void:
 		_config.confirmed.connect(func(cfg: Dictionary) -> void:
 			start_requested.emit(cfg))
 		_config.cancelled.connect(_close_config)
+	_config.custom = custom
 	## 淡到 0 的 Control 照样挡点击（dismiss 踩过的同一坑），先把菜单项摘掉
 	for label in _labels:
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE

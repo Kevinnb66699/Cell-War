@@ -26,6 +26,7 @@ const BTN_Y := 438.0
 const BTN_H := 38.0
 const STATUS_Y := 484.0
 const FADE_IN := 0.32
+const PAGE_FADE := 0.2       ## 面板内切页（连接→大厅→建房→等待室）：新页淡入，别硬切
 const LIST_Y0 := 296.0       ## 大厅列表第一行
 const LIST_H := 26.0
 const LIST_N := 5
@@ -55,6 +56,10 @@ var _create_names: Array[Label] = []
 var _create_values: Array[Label] = []
 var _create_arrows: Array = []
 var _create_marker: Node2D
+var _create_glow: Control    ## 建房页焦点行标题的辉光（同配置面板：CWPauseMenu.GLOW 四层白描边）
+var _create_btn: Panel
+var _hot_arrow: Label = null ## 正被鼠标悬停的拨值箭头；null = 没有
+var _page_tween: Tween
 ## 大厅
 var _lobby_rooms: Array = []
 var _lobby_labels: Array[Label] = []
@@ -106,7 +111,8 @@ func return_to_room() -> void:
 		client.sequenced = false
 		client.stream.clear()
 	visible = true
-	modulate.a = 1.0
+	modulate.a = 0.0
+	create_tween().tween_property(self, "modulate:a", 1.0, FADE_IN)
 	_set_status("")
 	_show_page(Page.ROOM if client != null and client.code != "" else Page.LOBBY)
 	if page == Page.LOBBY and client != null:
@@ -451,6 +457,17 @@ func _build_lobby(root: Control) -> void:
 func _build_create(root: Control) -> void:
 	_create_marker = _marker()
 	root.add_child(_create_marker)
+	## 焦点行标题的辉光（先建，压在文字底下；层数与 alpha 即 CWPauseMenu.GLOW，和主菜单 / 配置面板同一套光）
+	_create_glow = Control.new()
+	_create_glow.size = Vector2(200, 28)
+	_create_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_create_glow)
+	for layer in CWPauseMenu.GLOW:
+		var g := CWStyle.label("", CWStyle.SIZE_BODY, Color(1, 1, 1, 0))
+		g.add_theme_color_override("font_outline_color", Color(1, 1, 1, layer[1]))
+		g.add_theme_constant_override("outline_size", layer[0])
+		g.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_create_glow.add_child(g)
 	for i in N_CREATE_ROWS:
 		var y := ROW_Y0 + i * ROW_H
 		var nm := CWStyle.label(CREATE_ROWS[i], CWStyle.SIZE_BODY, ROW_LABEL)
@@ -465,14 +482,21 @@ func _build_create(root: Control) -> void:
 			_create_sel = i
 			_repaint_create())
 		root.add_child(hit)
-		var left := _clicky(root, "<", Vector2(VALUE_X - 22, y), func() -> void: _cycle_create(i, -1))
-		var value := _clicky(root, "", Vector2(VALUE_X, y), func() -> void: _cycle_create(i, 1))
-		var right := _clicky(root, ">", Vector2(ARROW_R_X, y), func() -> void: _cycle_create(i, 1))
+		## 拨值箭头与值：悬停反馈由 _repaint_create 统一画（_hot_arrow 记着谁在被悬停），不走 _clicky 的通用悬停
+		var left := _clicky(root, "<", Vector2(VALUE_X - 22, y), func() -> void: _cycle_create(i, -1), CWStyle.SIZE_BODY, false)
+		var value := _clicky(root, "", Vector2(VALUE_X, y), func() -> void: _cycle_create(i, 1), CWStyle.SIZE_BODY, false)
+		var right := _clicky(root, ">", Vector2(ARROW_R_X, y), func() -> void: _cycle_create(i, 1), CWStyle.SIZE_BODY, false)
 		for arrow: Label in [left, right]:
-			arrow.add_theme_color_override("font_color", CWStyle.IMMUNE)
+			arrow.mouse_entered.connect(func() -> void:
+				_hot_arrow = arrow
+				_repaint_create())
+			arrow.mouse_exited.connect(func() -> void:
+				if _hot_arrow == arrow:
+					_hot_arrow = null
+				_repaint_create())
 		_create_values.append(value)
 		_create_arrows.append([left, right])
-	_solid_button(root, "建房", Vector2(SLOT_X, BTN_Y), 182, _create_room)
+	_create_btn = _solid_button(root, "建房", Vector2(SLOT_X, BTN_Y), 182, _create_room)
 	_clicky(root, "返回大厅", Vector2(SLOT_X + 200, BTN_Y + 5), func() -> void: _show_page(Page.LOBBY))
 
 
@@ -498,9 +522,20 @@ func _build_room(root: Control) -> void:
 # ============ 呈现 ============
 
 func _show_page(p: Page) -> void:
+	## 面板开着的时候切页：新页从透明淡入（同一槽位换内容的节拍，和菜单↔面板一致，只是更短）
+	var fade := visible and page != p
 	page = p
 	for k in _roots:
 		_roots[k].visible = k == p
+	var shown: Control = _roots[p]
+	if _page_tween != null and _page_tween.is_valid():
+		_page_tween.kill()
+	if fade:
+		shown.modulate.a = 0.0
+		_page_tween = create_tween()
+		_page_tween.tween_property(shown, "modulate:a", 1.0, PAGE_FADE)
+	else:
+		shown.modulate.a = 1.0
 	_sub.text = ""
 	match p:
 		Page.CONNECT:
@@ -528,7 +563,7 @@ func _repaint_lobby() -> void:
 		l.text = "%s  %s 的房间  %d 人局 %d/%d  %s" % [r["code"], r["host"], r["players"],
 			r["seated"], r["players"], TIMER_TEXT.get(r["timer"], "%d 秒" % r["timer"])]
 		l.mouse_filter = Control.MOUSE_FILTER_STOP
-		l.add_theme_color_override("font_color", Color.WHITE if i == _lobby_sel else CWStyle.TEXT_HI)
+		_paint_link(l, Color.WHITE if i == _lobby_sel else CWStyle.TEXT_HI)
 		l.size = l.get_minimum_size()
 
 
@@ -552,12 +587,23 @@ func _repaint_create() -> void:
 		_create_values[i].text = _create_value_text(i)
 		_create_values[i].size = _create_values[i].get_minimum_size()
 		_create_values[i].add_theme_color_override("font_color", Color.WHITE if on else CWStyle.TEXT_HI)
+		## 箭头只在焦点行亮出来；被悬停的那枚转白发光（同 CWConfigPanel._repaint）
 		for arrow: Label in _create_arrows[i]:
 			arrow.visible = on
+			var hovering := arrow == _hot_arrow
+			arrow.add_theme_color_override("font_color", Color.WHITE if hovering else CWStyle.IMMUNE)
+			arrow.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
+			arrow.add_theme_constant_override("outline_size", 8 if hovering else 0)
+	## 焦点行标题的辉光跟焦点走（在按钮上时收起——按钮有自己的高亮语言）
+	_create_glow.visible = _create_sel < N_CREATE_ROWS
 	if _create_sel < N_CREATE_ROWS:
+		_create_glow.position = Vector2(SLOT_X, ROW_Y0 + _create_sel * ROW_H)
+		for layer in _create_glow.get_children():
+			(layer as Label).text = CREATE_ROWS[_create_sel]
 		_create_marker.position = Vector2(SLOT_X - 18, ROW_Y0 + _create_sel * ROW_H + 13)
 	else:
 		_create_marker.position = Vector2(SLOT_X - 18, BTN_Y + BTN_H / 2.0)
+	_btn_focus(_create_btn, _create_sel == N_CREATE_ROWS)
 
 
 ## 等待室整页按最新的 room 视图重画（席位行每次重建：行数、按钮集合都随视图变）
@@ -635,7 +681,7 @@ func _build_seat_row(i: int, s: Dictionary, host: bool, me: int, waiting: bool) 
 		_:
 			who = s["nick"] + ("（你）" if i == me else "")
 	var occupant := _clicky(_seat_root, who, Vector2(SLOT_X + 70, y + 4), func() -> void: _seat_click(i))
-	occupant.add_theme_color_override("font_color", who_color)
+	_paint_link(occupant, who_color)
 	if not (waiting and (s["kind"] == "" or i == me)):
 		occupant.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var state := ""
@@ -706,8 +752,11 @@ func _edit(root: Control, at: Vector2, w: float, placeholder: String, max_len: i
 	return e
 
 
-## 可点击的文字（同配置面板的 _clicky：命中框贴着字、手型光标、左键回调并标记已处理）
-func _clicky(root: Control, text: String, at: Vector2, on_click: Callable, size: int = CWStyle.SIZE_BODY) -> Label:
+## 可点击的文字（同配置面板的 _clicky：命中框贴着字、手型光标、左键回调并标记已处理）。
+## hover = 通用悬停反馈：转白 + 白光描边，移开还原（2026-09-03 Kevin：联机各页也要有和主菜单一样的辉光）；
+## 拨值箭头与值传 false，它们的悬停由 _repaint_create 统一画。
+func _clicky(root: Control, text: String, at: Vector2, on_click: Callable, size: int = CWStyle.SIZE_BODY,
+		hover: bool = true) -> Label:
 	var label := CWStyle.label(text, size, CWStyle.TEXT_HI)
 	label.position = at
 	label.size = label.get_minimum_size()
@@ -717,8 +766,41 @@ func _clicky(root: Control, text: String, at: Vector2, on_click: Callable, size:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			get_viewport().set_input_as_handled()
 			on_click.call())
+	if hover:
+		label.mouse_entered.connect(func() -> void: _link_hot(label, true))
+		label.mouse_exited.connect(func() -> void: _link_hot(label, false))
 	root.add_child(label)
 	return label
+
+
+## 文字链接的悬停态：白字 + 白光描边（正文 8 / 小字 6）；静止色记在 meta 里，移开时还原
+func _link_hot(label: Label, hot: bool) -> void:
+	label.set_meta("hot", hot)
+	if hot:
+		if not label.has_meta("rest"):
+			label.set_meta("rest", label.get_theme_color("font_color"))
+		label.add_theme_color_override("font_color", Color.WHITE)
+		label.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
+		label.add_theme_constant_override("outline_size",
+			8 if label.get_theme_font_size("font_size") >= CWStyle.SIZE_BODY else 6)
+	else:
+		label.add_theme_color_override("font_color", label.get_meta("rest", CWStyle.TEXT_HI))
+		label.add_theme_constant_override("outline_size", 0)
+
+
+## 给链接定静止色：正在悬停就只记下来，等移开再生效（重画不该把悬停的白光盖掉）
+func _paint_link(label: Label, color: Color) -> void:
+	label.set_meta("rest", color)
+	if not label.get_meta("hot", false):
+		label.add_theme_color_override("font_color", color)
+
+
+## 键盘焦点停在实心按钮上：按钮变白（同配置面板「进入棋盘」的键盘高亮）；鼠标移开也不掉
+func _btn_focus(p: Panel, on: bool) -> void:
+	if p == null:
+		return
+	p.set_meta("focus", on)
+	p.add_theme_stylebox_override("panel", p.get_meta("hot") if on else p.get_meta("rest"))
 
 
 ## 实心按钮（配置面板「进入棋盘」同款：青底圆角 5，悬停转白带白光）
@@ -729,10 +811,13 @@ func _solid_button(root: Control, text: String, at: Vector2, w: float, on_click:
 	p.position = at
 	p.size = Vector2(w, BTN_H)
 	p.add_theme_stylebox_override("panel", rest)
+	p.set_meta("rest", rest)
+	p.set_meta("hot", hot)
 	p.mouse_filter = Control.MOUSE_FILTER_STOP
 	p.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	p.mouse_entered.connect(func() -> void: p.add_theme_stylebox_override("panel", hot))
-	p.mouse_exited.connect(func() -> void: p.add_theme_stylebox_override("panel", rest))
+	p.mouse_exited.connect(func() -> void:
+		p.add_theme_stylebox_override("panel", hot if p.get_meta("focus", false) else rest))
 	p.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			get_viewport().set_input_as_handled()

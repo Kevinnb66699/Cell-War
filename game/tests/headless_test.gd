@@ -79,6 +79,7 @@ func _run_all() -> void:
 	await t_ai_mc()
 	await t_mc_budget()
 	await t_config_panel()
+	await t_config_custom()
 	await t_hover_info()
 	await t_log_panel()
 	await t_rules_page()
@@ -117,6 +118,7 @@ func _run_all() -> void:
 	await t_net_timeout()
 	await t_net_drain()
 	await t_online_panel()
+	await t_online_glow()
 	await t_match_online()
 	print("")
 	if fails == 0:
@@ -3400,14 +3402,24 @@ func t_main_menu() -> void:
 	# 键盘上下必须跳过灰掉的项。mask 由 enabled_mask() 现算（「继续对局」随存档
 	# 有无变化），这里直接摆两种局面验静态跳转规则。
 	var last: int = menu_script.ITEMS.size() - 1
-	## 六项：开始 / 联机 / 继续 / 规则 / 设置 / 退出（2026-09-02 加「联机对战」）
-	var no_save := [true, true, false, true, true, true]
-	check(menu_script.next_enabled(1, 1, no_save) == 3, "无档：从「联机对战」往下跳过「继续对局」落到规则速查")
-	check(menu_script.next_enabled(3, 1, no_save) == 4, "规则速查再往下是设置")
-	check(menu_script.next_enabled(last, -1, no_save) == 4, "键盘往上一步到设置")
+	## 七项：开始 / 自定义 / 联机 / 继续 / 规则 / 设置 / 退出（2026-09-03 加「自定义对局」）
+	check(menu_script.ITEMS.size() == 7 and menu_script.ITEMS[1]["node"] == "Custom", "「自定义对局」在「开始对局」之后")
+	var no_save := [true, true, true, false, true, true, true]
+	check(menu_script.next_enabled(2, 1, no_save) == 4, "无档：从「联机对战」往下跳过「继续对局」落到规则速查")
+	check(menu_script.next_enabled(4, 1, no_save) == 5, "规则速查再往下是设置")
+	check(menu_script.next_enabled(last, -1, no_save) == 5, "键盘往上一步到设置")
 	check(menu_script.next_enabled(0, -1, no_save) == 0, "到顶了就停在原地，不绕回")
-	var with_save := [true, true, true, true, true, true]
-	check(menu_script.next_enabled(1, 1, with_save) == 2, "有档：从「联机对战」往下落到「继续对局」")
+	var with_save := [true, true, true, true, true, true, true]
+	check(menu_script.next_enabled(2, 1, with_save) == 3, "有档：从「联机对战」往下落到「继续对局」")
+	## 七项要排得下：最后一项底边不出屏，相邻两项不重叠
+	var ys: Array = []
+	for item in menu_script.ITEMS:
+		ys.append((items.get_node(item["node"]) as Label).position.y)
+	var spaced := true
+	for i in range(1, ys.size()):
+		if ys[i] - ys[i - 1] < 28:
+			spaced = false
+	check(spaced and ys[-1] + 28 <= 540, "七项行距 ≥ 28、底边 ≤ 540（%s）" % str(ys))
 
 	var grid_ok := true
 	var bad := ""
@@ -7551,6 +7563,96 @@ func t_net_drain() -> void:
 
 
 # ============ 联机界面（M2）：联机面板四页、影子对局驱动的对局界面 ============
+
+## 自定义对局（2026-09-03 Kevin）：同一张配置面板多出癌种行，取值进 cfg["cancer_types"]
+func t_config_custom() -> void:
+	print("[自定义对局：自选癌种]")
+	var p := CWConfigPanel.new()
+	root.add_child(p)
+	await process_frame
+	p.open()
+	check(p.config()["cancer_types"].is_empty() and p._n_rows() == CWConfigPanel.N_ROWS
+		and p._btn.position.y == CWConfigPanel.BTN_Y and not p._name_labels[4].visible,
+		"普通对局：不带癌种、4 行、按钮在 438、癌种行收起")
+	p.custom = true
+	p.open()
+	check(p._title.text == "自定义对局" and p._eyebrow.text == "CUSTOM", "自定义：眉题 / 标题换了")
+	check(p._n_rows() == CWConfigPanel.N_ROWS + 2 and p._name_labels[4].visible and p._name_labels[5].visible
+		and not p._name_labels[6].visible and p._name_labels[4].text == "癌症A 种类", "4 人：多出癌症A / 癌症B 两行")
+	check(p.config()["cancer_types"] == [-1, -1], "默认都是随机")
+	var down := InputEventAction.new()
+	down.action = "ui_down"
+	down.pressed = true
+	var right := InputEventAction.new()
+	right.action = "ui_right"
+	right.pressed = true
+	for i in 4:
+		p.handle_input(down)   ## 人数 → 阵营 → AI → 种子 → 癌症A
+	p.handle_input(right)
+	check(p.config()["cancer_types"][0] == CWData.CancerType.MELANOMA and p._value_labels[4].text == "恶性黑色素瘤",
+		"癌症A 拨一格：随机 → 恶性黑色素瘤")
+	p.handle_input(down)
+	p.handle_input(right)
+	check(p.config()["cancer_types"][1] == CWData.CancerType.SIGNET, "癌症B 拨值跳过 A 已选走的黑色素瘤 → 印戒（同局不重复）")
+	var left := InputEventAction.new()
+	left.action = "ui_left"
+	left.pressed = true
+	p.handle_input(left)
+	check(p.config()["cancer_types"][1] == -1, "往回拨：印戒 → 随机（不落到被占的黑色素瘤上）")
+	p._players = 6
+	p._repaint()
+	check(p._n_rows() == 7 and p._name_labels[6].visible and p._name_labels[6].text == "癌症C 种类"
+		and p._btn.position.y + CWConfigPanel.BTN_H <= 540 and p._btn.position.y > p._row_y(6) + 20,
+		"6 人：7 行 + 按钮跟在最后一行下面、不出屏（按钮 y %.0f）" % p._btn.position.y)
+	p._players = 2
+	p._sel = 6
+	p._repaint()
+	check(p._n_rows() == 5 and not p._name_labels[5].visible and p._sel == 5, "2 人：只剩癌症A 一行，焦点收回到按钮")
+	var got: Array = []
+	p.confirmed.connect(func(c: Dictionary) -> void: got.append(c))
+	var accept := InputEventAction.new()
+	accept.action = "ui_accept"
+	accept.pressed = true
+	p.handle_input(accept)
+	check(got.size() == 1 and got[0]["cancer_types"] == [CWData.CancerType.MELANOMA],
+		"按钮上回车开局：cfg 只带露出来的那几席（%s）" % str(got[0]["cancer_types"] if not got.is_empty() else []))
+	p.queue_free()
+
+
+## 联机面板的辉光 / 悬停 / 切页动画（2026-09-03 Kevin：和开始游戏的面板一样）
+func t_online_glow() -> void:
+	print("[联机面板：辉光与动画]")
+	var p := CWOnlinePanel.new()
+	root.add_child(p)
+	await process_frame
+	p.visible = true
+	p._show_page(CWOnlinePanel.Page.CREATE)
+	check(p._create_glow.visible and (p._create_glow.get_child(0) as Label).text == "人数"
+		and p._create_glow.position.y == CWOnlinePanel.ROW_Y0, "建房页：焦点行标题有辉光，跟着第一行")
+	var arrow: Label = p._create_arrows[0][1]
+	arrow.mouse_entered.emit()
+	check(p._hot_arrow == arrow and arrow.get_theme_constant("outline_size") == 8
+		and arrow.get_theme_color("font_color") == Color.WHITE, "悬停拨值箭头：转白 + 白光描边 8")
+	arrow.mouse_exited.emit()
+	check(p._hot_arrow == null and arrow.get_theme_constant("outline_size") == 0
+		and arrow.get_theme_color("font_color") == CWStyle.IMMUNE, "移开：描边收掉、回青色")
+	p._create_sel = CWOnlinePanel.N_CREATE_ROWS
+	p._repaint_create()
+	check(not p._create_glow.visible and p._create_btn.get_theme_stylebox("panel") == p._create_btn.get_meta("hot"),
+		"焦点到「建房」按钮：辉光收起、按钮变白")
+	## 文字链接：悬停变白发光、移开还原成自己的静止色
+	p._stand_link.mouse_entered.emit()
+	check(p._stand_link.get_theme_color("font_color") == Color.WHITE and p._stand_link.get_theme_constant("outline_size") == 8,
+		"链接悬停：白字 + 白光")
+	p._stand_link.mouse_exited.emit()
+	check(p._stand_link.get_theme_color("font_color") == CWStyle.TEXT_HI and p._stand_link.get_theme_constant("outline_size") == 0,
+		"链接移开：还原")
+	## 切页：新页从透明淡入（面板开着才淡）
+	p._show_page(CWOnlinePanel.Page.LOBBY)
+	check(p._roots[CWOnlinePanel.Page.LOBBY].modulate.a < 1.0 and p._roots[CWOnlinePanel.Page.LOBBY].visible,
+		"切到大厅：新页从透明淡入")
+	p.queue_free()
+
 
 func t_online_panel() -> void:
 	print("[联机面板]")

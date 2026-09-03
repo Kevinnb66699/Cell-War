@@ -246,11 +246,21 @@ theme_override_fonts/font = SubResource("FontVariation_px20")
 theme_override_font_sizes/font_size = 20
 text = "开始对局"
 
+[node name="Custom" type="Label" parent="UI/Screen/Items"]
+offset_left = 165.0
+offset_top = 334.0
+offset_right = 365.0
+offset_bottom = 362.0
+theme_override_colors/font_color = Color(0.811765, 0.886275, 0.901961, 1)
+theme_override_fonts/font = SubResource("FontVariation_px20")
+theme_override_font_sizes/font_size = 20
+text = "自定义对局"
+
 [node name="Online" type="Label" parent="UI/Screen/Items"]
 offset_left = 165.0
-offset_top = 338.0
+offset_top = 368.0
 offset_right = 365.0
-offset_bottom = 366.0
+offset_bottom = 396.0
 theme_override_colors/font_color = Color(0.811765, 0.886275, 0.901961, 1)
 theme_override_fonts/font = SubResource("FontVariation_px20")
 theme_override_font_sizes/font_size = 20
@@ -258,9 +268,9 @@ text = "联机对战"
 
 [node name="Continue" type="Label" parent="UI/Screen/Items"]
 offset_left = 165.0
-offset_top = 376.0
+offset_top = 402.0
 offset_right = 365.0
-offset_bottom = 404.0
+offset_bottom = 430.0
 theme_override_colors/font_color = Color(0.811765, 0.886275, 0.901961, 1)
 theme_override_fonts/font = SubResource("FontVariation_px20")
 theme_override_font_sizes/font_size = 20
@@ -268,9 +278,9 @@ text = "继续对局"
 
 [node name="Rules" type="Label" parent="UI/Screen/Items"]
 offset_left = 165.0
-offset_top = 414.0
+offset_top = 436.0
 offset_right = 365.0
-offset_bottom = 442.0
+offset_bottom = 464.0
 theme_override_colors/font_color = Color(0.811765, 0.886275, 0.901961, 1)
 theme_override_fonts/font = SubResource("FontVariation_px20")
 theme_override_font_sizes/font_size = 20
@@ -278,9 +288,9 @@ text = "规则速查"
 
 [node name="Settings" type="Label" parent="UI/Screen/Items"]
 offset_left = 165.0
-offset_top = 452.0
+offset_top = 470.0
 offset_right = 365.0
-offset_bottom = 480.0
+offset_bottom = 498.0
 theme_override_colors/font_color = Color(0.811765, 0.886275, 0.901961, 1)
 theme_override_fonts/font = SubResource("FontVariation_px20")
 theme_override_font_sizes/font_size = 20
@@ -288,9 +298,9 @@ text = "设置"
 
 [node name="Quit" type="Label" parent="UI/Screen/Items"]
 offset_left = 165.0
-offset_top = 490.0
+offset_top = 504.0
 offset_right = 365.0
-offset_bottom = 518.0
+offset_bottom = 532.0
 theme_override_colors/font_color = Color(0.811765, 0.886275, 0.901961, 1)
 theme_override_fonts/font = SubResource("FontVariation_px20")
 theme_override_font_sizes/font_size = 20

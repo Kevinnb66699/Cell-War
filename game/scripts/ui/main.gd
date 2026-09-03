@@ -68,6 +68,8 @@ func _begin(cfg: Dictionary) -> void:
 	match_node.ai_smart = cfg["smart"]
 	## 配置面板给的随机种子（拨一下换一个）：填进去这局就可复现
 	match_node.match_seed = int(cfg.get("seed", 0))
+	## 自定义对局钉死的癌种（按癌席顺序，-1 = 随机；普通对局是空表）
+	match_node.cancer_types = Array(cfg.get("cancer_types", []))
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
 	menu.dismiss(T_DECOR, DECOR_DRIFT)

@@ -10,10 +10,16 @@
 ## 回车在「进入棋盘」上才开局；Esc 退回主菜单。鼠标：点值/箭头拨值、点按钮开局。
 ## **打开时焦点停在第一行「人数」**（Kevin 2026-08-29 定：默认停在按钮上，
 ## 玩家会以为配置改不了）。行上回车 = 拨值，走到按钮再回车才开局。取值局间保留。
+##
+## **自定义对局**（2026-09-03 Kevin）：主菜单「自定义对局」打开的是同一张面板（`custom = true`），
+## 四行之后多出「癌症A/B/C 种类」几行（随人数 1 / 2 / 3 行），每行在「随机」与四种癌之间拨、
+## 不同席位不许选同一种；cfg 多一项 `cancer_types`（按癌席顺序，-1 = 随机）→ CWTuning.cancer_types。
+## 七行 + 按钮放不进 42 的行距，自定义模式行距压到 32、按钮贴在最后一行下方；普通模式一个像素不动。
 class_name CWConfigPanel
 extends Control
 
-## cfg = { players: 2/4/6, faction: CWData.Faction 或 -1（观战）, smart: bool, seed: int }
+## cfg = { players: 2/4/6, faction: CWData.Faction 或 -1（观战）, smart: bool, seed: int,
+##         cancer_types: Array（自定义对局：按癌席顺序的 CWData.CancerType，-1 = 随机；普通对局为空表）}
 signal confirmed(cfg: Dictionary)
 ## Esc 退回：主菜单收到后把自己淡回来
 signal cancelled
@@ -45,11 +51,23 @@ const ROW_SEED := 3
 const N_ROWS := 4
 const PLAYER_STEPS := [2, 4, 6]
 const FACTION_STEPS := [CWData.Faction.IMMUNE, CWData.Faction.CANCER, -1]
+## 自定义对局：癌种行（最多 3 行 = 6 人局的三个癌席）。行距 32 才放得下 7 行 + 按钮（251 + 7×32 + 18 = 493，按钮底 531 < 540）
+const ROW_H_CUSTOM := 32.0
+const BTN_GAP := 18.0
+const CANCER_ROW_MAX := 3
+const CANCER_STEPS := [-1, CWData.CancerType.MELANOMA, CWData.CancerType.SIGNET,
+	CWData.CancerType.OSTEO, CWData.CancerType.SCLC]
 
 var _players := 4
 var _faction: int = CWData.Faction.IMMUNE   ## -1 = 观战
 var _smart := false
 var _seed := 0
+## 自定义对局开关：主菜单在 open() 之前拨；普通对局 false（癌种行全部收起、按钮在 438）
+var custom := false
+var _ctypes: Array = [-1, -1, -1]   ## 癌症A/B/C 的钉死癌种（-1 = 随机），局间保留
+var _eyebrow: Label
+var _title: Label
+var _hits: Array[Control] = []
 
 var _sel := N_ROWS           ## 焦点：0..3 = 行，N_ROWS = 「进入棋盘」
 var _name_labels: Array[Label] = []
@@ -76,6 +94,8 @@ func _ready() -> void:
 
 func open() -> void:
 	_sel = 0   ## 焦点落第一行，见文件头（停在按钮上会让玩家以为不能改）
+	_eyebrow.text = "CUSTOM" if custom else "SETUP"
+	_title.text = "自定义对局" if custom else "对局配置"
 	_mouse_led = false
 	_btn_hover = false   ## 上次关面板时悬停着的话，exited 可能没来得及送到
 	visible = true
@@ -96,7 +116,7 @@ func handle_input(event: InputEvent) -> void:
 		visible = false
 		cancelled.emit()
 	elif event.is_action_pressed("ui_down"):
-		_sel = mini(_sel + 1, N_ROWS)
+		_sel = mini(_sel + 1, _n_rows())
 		_repaint()
 	elif event.is_action_pressed("ui_up"):
 		_sel = maxi(_sel - 1, 0)
@@ -107,14 +127,45 @@ func handle_input(event: InputEvent) -> void:
 		_cycle(_sel, 1)
 	elif event.is_action_pressed("ui_accept"):
 		get_viewport().set_input_as_handled()
-		if _sel == N_ROWS:
+		if _sel == _n_rows():
 			_confirm()
 		else:
 			_cycle(_sel, 1)   ## 行上回车 = 往后拨一格（和点值一致）
 
 
 func config() -> Dictionary:
-	return { "players": _players, "faction": _faction, "smart": _smart, "seed": _seed }
+	return { "players": _players, "faction": _faction, "smart": _smart, "seed": _seed,
+		"cancer_types": _ctypes.slice(0, _n_cancer()) if custom else [] }
+
+
+## 自定义模式下的几何：癌席数 = 人数一半；行数 = 4 + 癌席数；行距 32；按钮贴最后一行下方
+func _n_cancer() -> int:
+	@warning_ignore("integer_division")
+	return _players / 2
+
+
+func _n_rows() -> int:
+	return N_ROWS + (_n_cancer() if custom else 0)
+
+
+func _row_h() -> float:
+	return ROW_H_CUSTOM if custom else ROW_H
+
+
+func _row_y(i: int) -> float:
+	return ROW_Y0 + i * _row_h()
+
+
+func _btn_y() -> float:
+	return ROW_Y0 + _n_rows() * ROW_H_CUSTOM + BTN_GAP if custom else BTN_Y
+
+
+## 某个癌种是否已被**另一席**（只算当前人数下露出来的席位）选走
+func _taken_elsewhere(t: int, k: int) -> bool:
+	for j in _n_cancer():
+		if j != k and _ctypes[j] == t:
+			return true
+	return false
 
 
 ## 人类坐第几号位：该阵营在行动顺序里的第一个座位（观战返回 -1）。
@@ -130,6 +181,18 @@ static func human_seat(n_players: int, faction: int) -> int:
 
 
 func _cycle(row: int, dir: int) -> void:
+	if row >= N_ROWS and row < _n_rows():
+		## 癌种行：在「随机」与四种癌之间拨；别的席位已选走的种类跳过（同局不重复，说明 #12）
+		var k := row - N_ROWS
+		var i := CANCER_STEPS.find(_ctypes[k])
+		for _step in CANCER_STEPS.size():
+			i = (i + dir + CANCER_STEPS.size()) % CANCER_STEPS.size()
+			var t: int = CANCER_STEPS[i]
+			if t < 0 or not _taken_elsewhere(t, k):
+				_ctypes[k] = t
+				break
+		_repaint()
+		return
 	match row:
 		ROW_PLAYERS:
 			var i := PLAYER_STEPS.find(_players)
@@ -176,14 +239,14 @@ func _build() -> void:
 	add_child(scrim)
 
 	## 眉题 SETUP：和主菜单 IMMUNE VS CANCER 同一套（px20 变体 + 青色）
-	var eyebrow := CWStyle.label("SETUP", CWStyle.SIZE_BODY, CWStyle.IMMUNE)
-	eyebrow.add_theme_font_override("font", _px20())
-	eyebrow.position = Vector2(SLOT_X, 127)
-	add_child(eyebrow)
+	_eyebrow = CWStyle.label("SETUP", CWStyle.SIZE_BODY, CWStyle.IMMUNE)
+	_eyebrow.add_theme_font_override("font", _px20())
+	_eyebrow.position = Vector2(SLOT_X, 127)
+	add_child(_eyebrow)
 
-	var title := CWStyle.label("对局配置", CWStyle.SIZE_BIG, CWStyle.TEXT_HI)
-	title.position = Vector2(SLOT_X, 160)
-	add_child(title)
+	_title = CWStyle.label("对局配置", CWStyle.SIZE_BIG, CWStyle.TEXT_HI)
+	_title.position = Vector2(SLOT_X, 160)
+	add_child(_title)
 
 	var rule := ColorRect.new()
 	rule.position = Vector2(SLOT_X, 230)
@@ -208,7 +271,8 @@ func _build() -> void:
 		g.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		_glow.add_child(g)
 
-	for i in N_ROWS:
+	## 四行基础 + 三行癌种一次建齐；露几行、摆在哪由 _repaint 按模式定
+	for i in N_ROWS + CANCER_ROW_MAX:
 		_build_row(i)
 	_build_button()
 
@@ -254,8 +318,10 @@ func _build_row(i: int) -> void:
 		_mouse_led = true
 		_repaint())
 	add_child(hit)
+	_hits.append(hit)
 
-	var name_label := CWStyle.label(ROW_NAMES[i], CWStyle.SIZE_BODY, ROW_LABEL)
+	var row_name: String = ROW_NAMES[i] if i < N_ROWS else "癌症%s 种类" % char(65 + i - N_ROWS)
+	var name_label := CWStyle.label(row_name, CWStyle.SIZE_BODY, ROW_LABEL)
 	name_label.position = Vector2(SLOT_X, y)
 	add_child(name_label)
 	_name_labels.append(name_label)
@@ -290,7 +356,7 @@ func _build_button() -> void:
 	_btn.mouse_entered.connect(func() -> void:
 		_btn_hover = true
 		_mouse_led = true
-		_sel = N_ROWS
+		_sel = _n_rows()
 		_repaint())
 	_btn.mouse_exited.connect(func() -> void:
 		_btn_hover = false
@@ -350,21 +416,36 @@ func _value_text(i: int) -> String:
 			return "较强" if _smart else "普通"
 		ROW_SEED:
 			return str(_seed)
+	if i >= N_ROWS and i - N_ROWS < CANCER_ROW_MAX:
+		var t: int = _ctypes[i - N_ROWS]
+		return "随机" if t < 0 else CWData.CANCER_TYPE_NAMES[t]
 	return ""
 
 
 func _repaint() -> void:
-	for i in N_ROWS:
-		var on := i == _sel
+	var n := _n_rows()
+	_sel = mini(_sel, n)   ## 人数拨少了，焦点可能停在已收起的癌种行上
+	for i in _name_labels.size():
+		var shown := i < n
+		var on := shown and i == _sel
+		var y := _row_y(i)
+		_name_labels[i].visible = shown
+		_name_labels[i].position = Vector2(SLOT_X, y)
 		_name_labels[i].add_theme_color_override("font_color",
 			Color.WHITE if on else ROW_LABEL)
+		_hits[i].visible = shown
+		_hits[i].position = Vector2(SLOT_X - 30, y - 8)
+		_hits[i].size = Vector2(420, _row_h() - 4)
 		var value: Label = _value_labels[i]
+		value.visible = shown
+		value.position = Vector2(VALUE_X, y)
 		value.text = _value_text(i)
 		value.add_theme_color_override("font_color",
 			Color.WHITE if on else CWStyle.TEXT_HI)
 		## 拨值箭头只在焦点行亮出来；位置固定不随字宽跑（见 ARROW_R_X）。
 		## 被悬停的那枚转白发光——和菜单项同一套「字亮起来」的语言
 		for arrow: Label in _arrows[i]:
+			arrow.position.y = y
 			arrow.visible = on
 			var hovering := arrow == _hot_arrow
 			arrow.add_theme_color_override("font_color",
@@ -372,18 +453,18 @@ func _repaint() -> void:
 			arrow.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
 			arrow.add_theme_constant_override("outline_size", 8 if hovering else 0)
 	## 选中行标题的辉光跟焦点走（在按钮上时收起——按钮有自己的高亮语言）
-	_glow.visible = _sel < N_ROWS
-	if _sel < N_ROWS:
-		_glow.position = Vector2(SLOT_X, ROW_Y0 + _sel * ROW_H)
+	_glow.visible = _sel < n
+	if _sel < n:
+		_glow.position = Vector2(SLOT_X, _row_y(_sel))
 		for layer in _glow.get_children():
-			(layer as Label).text = ROW_NAMES[_sel]
+			(layer as Label).text = _name_labels[_sel].text
 	## 菱形标跟着焦点走：行上贴行首，按钮上贴按钮左侧
-	if _sel < N_ROWS:
-		_marker.position = Vector2(SLOT_X - 18, ROW_Y0 + _sel * ROW_H + 13)
+	if _sel < n:
+		_marker.position = Vector2(SLOT_X - 18, _row_y(_sel) + 13)
 	else:
-		_marker.position = Vector2(SLOT_X - 18, BTN_Y + BTN_H / 2.0)
+		_marker.position = Vector2(SLOT_X - 18, _btn_y() + BTN_H / 2.0)
 	## 「进入棋盘」的变白按**最后动的设备**裁决（文件头的焦点权规则）：
 	## 键盘当权 → 焦点在按钮上就白；鼠标当权 → 按悬停状态算
-	var hot := _btn_hover if _mouse_led else _sel == N_ROWS
+	var hot := _btn_hover if _mouse_led else _sel == n
 	_btn.add_theme_stylebox_override("panel", _btn_hot if hot else _btn_rest)
-	_btn.position = Vector2(SLOT_X, BTN_Y - (BTN_LIFT if hot else 0.0))
+	_btn.position = Vector2(SLOT_X, _btn_y() - (BTN_LIFT if hot else 0.0))
