@@ -131,14 +131,23 @@ func _place_initial_cancer() -> void:
 		game.log_msg("! 中央格是特殊组织，与「癌组织不得与特殊组织重合」冲突（见说明 #34）")
 
 
-## 每个癌症玩家独立抽种类，同局不重复（说明 #12）
+## 每个癌症玩家独立抽种类，同局不重复（说明 #12）。
+## 平衡测试可用 `tune.cancer_types` 按癌席顺序钉死（2026-09-03 专项测「黑色素瘤 + 小细胞肺癌」时加）：
+## 钉死的席位不消耗 rng；没钉到、或钉的种类已被前一席占用的，照常抽。
 func _assign_cancer_types() -> void:
 	var pool: Array = CWData.CancerType.values()
+	var fixed: Array = game.tune.cancer_types
+	var ci := 0
 	for pid in game.order:
 		var p: Dictionary = game.player(pid)
 		if p["faction"] != CWData.Faction.CANCER:
 			continue
-		var t: int = game.pick_random(pool, 1)[0]
+		var t: int
+		if ci < fixed.size() and int(fixed[ci]) in pool:
+			t = int(fixed[ci])
+		else:
+			t = game.pick_random(pool, 1)[0]
+		ci += 1
 		pool.erase(t)
 		p["cancer_type"] = t
 		game.log_msg("%s 抽到种类：%s" % [p["name"], CWData.CANCER_TYPE_NAMES[t]])

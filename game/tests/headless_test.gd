@@ -53,6 +53,7 @@ func _run_all() -> void:
 	t_solidify_and_decay()
 	t_erosion()
 	t_macro_purify_heal()
+	t_cancer_lineup()
 	await t_antibody_cap()
 	await t_heur_lifecare()
 	t_immune_win()
@@ -872,9 +873,15 @@ func t_necrosis() -> void:
 func t_macro_purify_heal() -> void:
 	print("[巨噬吞噬回能封顶]")
 	check(CWData.MACRO_MOVE_NET_MIN == 1, "净支出下限 0.1")
-	## 走一格癌组织，返回「这一步净花了多少」
+	## 2026-09-03 Kevin 拍板 ①+②（平衡方案对比 §9.4～9.5）：两个默认值改了，旧值只剩旋钮能扫回来
+	check(CWData.MACRO_HEAL_PURIFY == 0 and CWTuning.new().macro_heal_purify == 0,
+		"定案 ①：默认吞噬回能不适用于净化（PRD 0.3 只能用 mheal=3 扫回）")
+	check(CWData.IMMUNE_MOVE_CANCEROUS == [10, 10, 7, 7] and CWTuning.new().immune_move_cancerous[3] == 7,
+		"定案 ②：X 级净化价 0.7，与 III 级同价（PRD 0.5 只能用 mvx=5 扫回）")
+	## 走一格癌组织，返回「这一步净花了多少」。封顶逻辑按 PRD 的 0.3 测 —— 定案 ① 后默认 0，得显式拨回
 	var net := func(paid: int, skills: Array) -> int:
 		var g := bare_game()
+		g.tune.macro_heal_purify = 3
 		var to := Vector2i(1, 0)
 		g.tiles[to]["tissue"] = CWData.Tissue.CANCER
 		var m := put_immune(g, Vector2i.ZERO)
@@ -908,6 +915,47 @@ func t_macro_purify_heal() -> void:
 	check(m0["energy"] == 200, "旋钮 0：实付 0.7 也一点不回")
 	check(g0.tiles[to0]["tissue"] == CWData.Tissue.HEALTHY, "→ 净化本身照常发生")
 	g0.dispose()
+
+
+# ---- 癌种钉死旋钮 tune.cancer_types（2026-09-03，专项测「黑色素瘤 + 小细胞肺癌」组合时加）----
+##
+## 默认空 = 每个癌席随机抽、同局不重复（说明 #12）。钉死按癌席出场顺序取；没钉到、或钉的种类已被
+## 前一席占用的席位照常抽 —— 这样 `lineup=mel` 也能用（只钉第一席）。
+func t_cancer_lineup() -> void:
+	print("[癌种钉死]")
+	var order := [CWData.Faction.IMMUNE, CWData.Faction.CANCER, CWData.Faction.IMMUNE, CWData.Faction.CANCER]
+	var g := CWGame.new()
+	g.tune.cancer_types = [CWData.CancerType.SCLC, CWData.CancerType.MELANOMA]
+	g.init(order, 7)
+	g.setup.begin()   ## 抽种类在开局无决策段（advance 的第一步），不在 init 里
+	check(g.player(1)["cancer_type"] == CWData.CancerType.SCLC
+		and g.player(3)["cancer_type"] == CWData.CancerType.MELANOMA, "按癌席出场顺序钉死")
+	g.dispose()
+	var seen := {}
+	for s in 12:
+		var g2 := CWGame.new()
+		g2.tune.cancer_types = [CWData.CancerType.OSTEO]
+		g2.init(order, 100 + s)
+		g2.setup.begin()
+		check(g2.player(1)["cancer_type"] == CWData.CancerType.OSTEO, "只钉首席（种子 %d）" % (100 + s))
+		seen[g2.player(3)["cancer_type"]] = true
+		g2.dispose()
+	check(not seen.has(CWData.CancerType.OSTEO) and seen.size() >= 2, "没钉到的席位随机抽，且不与钉死的重复")
+	var g3 := CWGame.new()
+	g3.tune.cancer_types = [CWData.CancerType.SIGNET, CWData.CancerType.SIGNET]
+	g3.init(order, 9)
+	g3.setup.begin()
+	check(g3.player(1)["cancer_type"] == CWData.CancerType.SIGNET
+		and g3.player(3)["cancer_type"] != CWData.CancerType.SIGNET, "钉了重复种类：后一席退回随机、仍不重复")
+	g3.dispose()
+	var seen0 := {}
+	for s in 12:
+		var g0 := CWGame.new()
+		g0.init(order, 200 + s)
+		g0.setup.begin()
+		seen0[g0.player(1)["cancer_type"]] = true
+		g0.dispose()
+	check(seen0.size() >= 3, "默认不钉：随机抽")
 
 
 # ---- B 细胞【抗体】每世界回合上限旋钮（2026-09-02 后期引擎对比表杠杆③）----
@@ -6080,8 +6128,10 @@ func _t_ruling_a_rewrite() -> void:
 	g2.dispose()
 
 	## ③ ON_BENEFIT：基准价本来就是 0.5 时，「改为 0.5」什么也没干 → 不消耗
+	## 2026-09-03 定案 ② 后 X 级默认 0.7，没有哪一档天然是 0.5 了 —— 显式把 X 级拨回 PRD 的 0.5，测的仍是同一条语义
 	var g3 := bare_game()
-	g3.immune_level = 3                       ## X 级向癌性组织的基准价就是 0.5
+	g3.immune_level = 3
+	g3.tune.immune_move_cancerous[3] = 5      ## X 级向癌性组织的基准价拨成 0.5
 	g3.tiles[canc]["tissue"] = CWData.Tissue.CANCER
 	var c3 := put_immune(g3, Vector2i.ZERO)
 	g3.add_mod(c3, "炎症趋化", 1, "turn")

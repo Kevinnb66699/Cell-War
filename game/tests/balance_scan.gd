@@ -59,9 +59,13 @@
 ##   aiver=v1     两边 AI 都退回 v1 的行为（分化固定顺序、不惜命、估值不罚死亡）；aiver_immune= / aiver_cancer= 只拨一边。
 ##                用途：**验证 AI 升级** —— 新版本要在两边都不比旧版弱（同一对手下交叉对局），否则标尺换了读数就漂。
 ##                结果行 `AI mc·v2` 或 `AI mc·I:v2·C:v1` 标出两边版本；两边不同版本的数只用来比较 AI，不进平衡表。
+##   lineup=mel,sclc  癌种钉死：按癌席出场顺序给种类（mel=黑色素瘤 sig=印戒 ost=骨肉瘤 sclc=小细胞肺癌），
+##                没钉到的席位照常随机抽。2026-09-03 队友手打报「黑色素瘤 + 小细胞肺癌」第 5 回合癌方占地胜，专项测组合用；
+##                不钉的时候结果也另打一行「癌种组合」分解（随机抽的局里每种组合只有十几局，只看方向）。
 ##
 ## ⚠ 2026-08-31 口径 #82 之后，**不传旋钮 = 引擎现值，不是 PRD 原样**。
 ## 要跑 PRD 原样做对照得显式写全：`cmh=5 sclc=3 pseu=2 tiles=15`。
+## 2026-09-03 定案 ①+② 进了默认值（mheal=0、mvx=7）：要复现乙基线得传 `mheal=3 mvx=5`。
 extends SceneTree
 
 var games := 100
@@ -103,6 +107,10 @@ var abmax := -1
 var rdelay := -9999   ## -1 是合法值（不再复活），哨兵不能用 -1
 var aiver_immune := "v2"
 var aiver_cancer := "v2"
+var lineup := ""
+
+const LINEUP_CODES := { "mel": CWData.CancerType.MELANOMA, "sig": CWData.CancerType.SIGNET,
+	"ost": CWData.CancerType.OSTEO, "sclc": CWData.CancerType.SCLC }
 
 
 func _initialize() -> void:
@@ -157,6 +165,7 @@ func _parse() -> void:
 				aiver_cancer = kv[1]
 			"aiver_immune": aiver_immune = kv[1]
 			"aiver_cancer": aiver_cancer = kv[1]
+			"lineup": lineup = kv[1]
 
 
 func _order() -> Array:
@@ -226,7 +235,20 @@ func _tune() -> CWTuning:
 		t.antibody_max_per_round = abmax
 	if rdelay != -9999:
 		t.immune_respawn_delay = rdelay
+	if lineup != "":
+		t.cancer_types = _lineup_types(lineup)
 	return t
+
+
+## `lineup=` 的代号 → 枚举值。不认识的代号打错、跳过 —— 结果行的回显会露出真正生效的钉死名单。
+func _lineup_types(spec: String) -> Array:
+	var out: Array = []
+	for code in spec.split(",", false):
+		if LINEUP_CODES.has(code):
+			out.append(LINEUP_CODES[code])
+		else:
+			printerr("lineup= 不认识的癌种代号：%s（可用 mel / sig / ost / sclc）" % code)
+	return out
 
 
 ## 把「本次真正改掉的旋钮」回读出来，打进结果行。
@@ -277,6 +299,11 @@ func _applied(t: CWTuning) -> String:
 		out.append("lesion=%s" % ("on" if t.solid_at_cancer_spawn else "off"))
 	if t.aerobic_split != d.aerobic_split:
 		out.append("tune=split")
+	if not t.cancer_types.is_empty():
+		var names: Array = []
+		for ct in t.cancer_types:
+			names.append(CWData.CANCER_TYPE_NAMES[ct])
+		out.append("lineup=%s" % "+".join(names))
 	return "默认值" if out.is_empty() else " ".join(out)
 
 
@@ -321,6 +348,12 @@ func _run() -> void:
 	var atk_fail := 0
 	var kills := 0
 	var cancer_kills := 0   ## 死亡按阵营分开数（v2 惜命之后要看是谁在死）
+	## 癌种组合（不分席位顺序）→ [局数, 癌胜, 回合和, 最快癌胜回合]。2026-09-03 队友报「黑色素瘤 + 小细胞肺癌」
+	## 第 5 回合占地胜 —— 组合是不是真的偏强，先要能按组合分开数。
+	var combos := {}
+	var homing := 0   ## 黑色素瘤【早期血行转移】发动次数
+	var meta := 0     ## 小细胞肺癌【转移】发动次数
+	var mucus := 0    ## 印戒【黏液破裂】发动次数
 	var t0 := Time.get_ticks_msec()
 	for gi in games:
 		var g := CWGame.new()
@@ -335,6 +368,22 @@ func _run() -> void:
 			by_limit += 1
 		kinds[g.win_kind] = kinds.get(g.win_kind, 0) + 1
 		rounds_sum += g.round_no
+		var types: Array = []
+		for pid in g.order:
+			if g.player(pid)["faction"] == CWData.Faction.CANCER:
+				types.append(g.player(pid)["cancer_type"])
+		types.sort()
+		var cnames: Array = []
+		for ct in types:
+			cnames.append(CWData.CANCER_TYPE_NAMES[ct])
+		var ckey := "+".join(cnames)
+		var cs: Array = combos.get(ckey, [0, 0, 0, 0])
+		cs[0] += 1
+		cs[2] += g.round_no
+		if w == CWData.Faction.CANCER:
+			cs[1] += 1
+			cs[3] = g.round_no if cs[3] == 0 else mini(cs[3], g.round_no)
+		combos[ckey] = cs
 		cancerous_sum += g.count_tissue(CWData.Tissue.CANCER) + g.count_tissue(CWData.Tissue.SOLID)
 		## 蒙特卡洛试算期间 sim_quiet=true，推演里的行动不会进 logs，所以这里数的是真实盘面
 		for line in g.logs:
@@ -348,6 +397,12 @@ func _run() -> void:
 				attacks += 1     ## 攻击**发动**即计数（口径 #70：失败被反弹也算攻过）
 			elif line.contains("攻击失败"):
 				atk_fail += 1
+			elif line.contains("自血管转移至"):
+				homing += 1
+			elif line.contains("跃进 5 格至"):
+				meta += 1
+			elif line.contains("【黏液破裂】") and line.contains("引爆"):
+				mucus += 1
 			elif line.contains("☠"):
 				## 死亡日志是 `☠ X 死亡`（cw_game.gd:749），**不是**「被消灭」——
 				## 第一版就是照着直觉写的「被消灭」，跑出来每局击杀 0.0，
@@ -381,4 +436,14 @@ func _run() -> void:
 	print("        每局占地：癌【定殖】%.1f + 【增生】%.1f vs 免疫【净化】%.1f（转化比 %.1f:1）" % [
 		float(colonize) / games, float(prolif_n) / games, float(purify) / games,
 		float(colonize + prolif_n) / maxf(float(purify), 1.0)])
+	var ckeys: Array = combos.keys()
+	ckeys.sort_custom(func(a, b): return float(combos[a][1]) / combos[a][0] > float(combos[b][1]) / combos[b][0])
+	var cparts: Array = []
+	for k in ckeys:
+		var cs: Array = combos[k]
+		cparts.append("%s %d/%d=%d%% · %.1f 回合%s" % [k, cs[1], cs[0], cs[1] * 100 / cs[0], float(cs[2]) / cs[0],
+			"" if cs[3] == 0 else " · 最快癌胜第 %d 回合" % cs[3]])
+	print("        癌种组合：%s" % " | ".join(cparts))
+	print("        癌种技能每局：早期血行转移 %.1f · 转移 %.1f · 黏液破裂 %.1f" % [
+		float(homing) / games, float(meta) / games, float(mucus) / games])
 	quit(0)

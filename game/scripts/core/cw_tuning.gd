@@ -148,8 +148,15 @@ var init_energy_cancer := CWData.INIT_ENERGY_CANCER
 ## 因为按人数分档的表本身就是被扫的对象。
 var init_cancer_tiles := -1
 
+## 癌种钉死（**平衡测试专用**）。空 = 每个癌席从四种里随机抽、同局不重复（说明 #12）；
+## 非空 = 按癌席出场顺序依次取 `CWData.CancerType` 枚举值，没钉到的席位照常抽（钉死的不消耗 rng）。
+## 2026-09-03 队友手打报「黑色素瘤 + 小细胞肺癌」第 5 回合癌方占地胜，专项测这一组合时加；
+## balance_scan / play 的 `lineup=mel,sclc`。
+var cancer_types: Array = []
+
 # ---- 免疫行动费用 ----
 var immune_move_healthy: Array = CWData.IMMUNE_MOVE_HEALTHY.duplicate()
+## X 级那一档 2026-09-03 定案 ①+② 抬到 0.7（PRD 0.5），见 CWData.IMMUNE_MOVE_CANCEROUS
 var immune_move_cancerous: Array = CWData.IMMUNE_MOVE_CANCEROUS.duplicate()
 
 # ---- 癌方移动费用 = 占地单价 ----
@@ -235,8 +242,8 @@ var immune_respawn_energy := CWData.IMMUNE_RESPAWN_ENERGY
 ## 手打 D 局（我坐三席癌 vs 诚实 MC 免疫，第 17 回合被清场）暴露的雪球：X 级巨噬净化净成本 0.2/格
 ## （0.5 − 吞噬回 0.3，一回合 30 格）、抗体一发打全部暴露细胞且无次数上限、免疫死亡几乎免费。
 ## 四根杠杆 = 下面两个 + 上面已有的 immune_move_cancerous[3]（X 级净化价）与 immune_respawn_delay（复活罚停）。
-## 巨噬【I-吞噬】每次净化回多少（十分能量）。默认 3 = PRD 的 0.3；**0 = 吞噬回能不适用于净化**
-## （攻击后的吸血是另一条，不受影响）。「实付 − 0.1」那道封顶照旧套在它上面。
+## 巨噬【I-吞噬】每次净化回多少（十分能量）。**默认 0 = 吞噬回能不适用于净化**（2026-09-03 定案 ①）；
+## 3 = PRD 的 0.3（攻击后的吸血是另一条，不受影响）。「实付 − 0.1」那道封顶照旧套在它上面。
 var macro_heal_purify := CWData.MACRO_HEAL_PURIFY
 ## B 细胞【抗体】每世界回合最多几次。默认 0 = 不限（现行 PRD）；2 = 2026-09-01 之前的旧 PRD。
 var antibody_max_per_round := CWData.ANTIBODY_MAX_PER_ROUND
