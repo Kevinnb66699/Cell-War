@@ -36,7 +36,12 @@ var sequenced := false
 var stream: Array = []
 const STREAM_KINDS := ["state", "ask", "roll", "result", "notice", "game_over"]
 const INBOX_MAX := 2000                  ## inbox 只给测试和机器人翻，界面跑一整晚也别让它无限长
+## 握手超时：TCP 握手包丢了、或来源 IP 被云安全组限流时，WebSocketPeer 会无限期停在 CONNECTING、不报任何错
+## （2026-09-03 线上验收两次撞到：几分钟内第 15 个短连接的握手根本没到服务器，18 秒后又一切正常）。
+## 到点就当连接失败发 disconnected，界面据此报错 / 重试，别让人对着「连接中…」干等。
+var connect_timeout_ms := 10000       ## 测试把它调短
 var _last_ping := 0
+var _connect_started := 0
 var _game_no := -1
 
 
@@ -52,6 +57,7 @@ func connect_to(p_url: String, p_nick: String = "", reconnect_code: String = "",
 	ws.max_queued_packets = 4096
 	var err := ws.connect_to_url(url)
 	status = "connecting" if err == OK else "closed"
+	_connect_started = Time.get_ticks_msec()
 	return err
 
 
@@ -91,6 +97,11 @@ func poll() -> void:
 				send({ "t": "ping" })
 			if autoplay != null and not pending_ask.is_empty():
 				await _auto_answer()
+		WebSocketPeer.STATE_CONNECTING:
+			if Time.get_ticks_msec() - _connect_started > connect_timeout_ms:
+				ws.close()
+				status = "closed"
+				disconnected.emit(-1, "connect timeout")
 		WebSocketPeer.STATE_CLOSED:
 			if status != "closed":
 				status = "closed"

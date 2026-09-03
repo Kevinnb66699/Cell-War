@@ -7002,6 +7002,15 @@ func t_net_lobby() -> void:
 		a.list_rooms()
 	ok = await _net_pump(srv, [a, b], func() -> bool: return a.status == "closed")
 	check(ok, "一秒 40 条非作答报文被断开")
+	## 握手超时：连一个不应答的保留地址（TEST-NET-3），WebSocketPeer 会一直 CONNECTING，客户端自己到点报断
+	var hole := CWNetClient.new()
+	hole.connect_timeout_ms = 400
+	var dropped: Array = []
+	hole.disconnected.connect(func(code: int, reason: String) -> void: dropped.append([code, reason]))
+	hole.connect_to("ws://203.0.113.1:8611", "黑洞")
+	ok = await _net_pump(srv, [hole], func() -> bool: return hole.status == "closed")
+	check(ok and dropped.size() == 1 and dropped[0][1] == "connect timeout", "握手 0.4 秒没通 → 客户端自己判连接失败（%s）" % str(dropped))
+	hole.dispose()
 	b.dispose()
 	old.dispose()
 	srv.stop()
