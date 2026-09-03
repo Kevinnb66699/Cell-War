@@ -2196,6 +2196,15 @@ func t_skill_info() -> void:
 	check(toolong.is_empty(), "技能正文折行后没有一行超宽（超的：%s）" % str(toolong.slice(0, 3)))
 	check(CWCardInfo.describe_act("draw", CWData.Faction.IMMUNE)["name"] == "基因表达",
 		"名字取自 ACT_NAMES")
+	## 摆位：右缘不许进右侧竖条（竖条上是回合数 / 能量 / 免疫等级，盖住就看不见了）
+	var screen := Vector2(960, 540)
+	var wide := Vector2(CWCardInfo.W, 160)
+	var far := CWCardInfo.place_at(wide, 900.0, screen)   ## 贴最右那枚按钮
+	check(far.x + wide.x <= screen.x - CWMatchPanel.RECT.size.x - 8.0,
+		"贴右缘的按钮：详情框往左让，不压右栏（右缘 %d，竖条左缘 %d）"
+			% [far.x + wide.x, screen.x - CWMatchPanel.RECT.size.x])
+	check(CWCardInfo.place_at(wide, 120.0, screen).x == 120.0, "左边放得下就贴着按钮不动")
+	check(far.y >= 8.0 and far.y + wide.y <= screen.y - 8.0, "上下不越出画布")
 	check(CWCardInfo.describe_ctype(CWData.CancerType.SCLC)["kind"] == "【细胞种类】"
 		and CWCardInfo.describe_ctype(CWData.CancerType.SCLC)["name"] == "小细胞肺癌",
 		"癌种详情给种类名与类别")
@@ -4076,16 +4085,20 @@ func t_diff_info() -> void:
 	var box := CWCardInfo.new()
 	root.add_child(box)
 	await process_frame
-	box.on_hover_info(CWCardInfo.describe_type(CWData.ImmuneType.T_CELL), 400.0)
+	box.on_hover_info(CWCardInfo.describe_type(CWData.ImmuneType.T_CELL), 300.0)
 	box.sync(0.1, CWData.Faction.IMMUNE, false)
 	check(not box.visible, "0.1s 还没浮出（与手牌详情同 0.25s）")
 	box.sync(0.2, CWData.Faction.IMMUNE, false)
-	check(box.visible and box.position.x == 400.0
+	check(box.visible and box.position.x == 300.0
 		and box.position.y + box.size.y <= CWActionBar.PROMPT_RECT.position.y, "0.25s 后浮出：贴按钮左缘、框底在行动栏上方")
 	box.on_hover_info(CWCardInfo.describe_type(CWData.ImmuneType.DENDRITIC), 900.0)
 	check(not box.visible, "换按钮：先收起重新计时")
 	box.sync(0.3, CWData.Faction.IMMUNE, false)
-	check(box.visible and box.position.x + CWCardInfo.W <= CWView.screen_size().x - 8.0, "靠右的按钮：框往左让、不越出画布")
+	## 2026-09-04 起「往左让」的界线是**右侧竖条的左缘**，不是画布右缘 ——
+	## 让到画布内还不够，压在竖条上就看不见自己的能量了
+	check(box.visible and box.position.x + CWCardInfo.W
+		<= CWView.screen_size().x - CWMatchPanel.RECT.size.x - 8.0,
+		"靠右的按钮：框往左让到右栏之外（右缘 %d）" % (box.position.x + CWCardInfo.W))
 	box.on_hover_info({}, 0.0)
 	check(not box.visible, "离开按钮：立刻收起")
 	box.on_hover("补体级联")

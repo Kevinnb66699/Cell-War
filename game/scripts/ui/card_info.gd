@@ -125,9 +125,14 @@ static func describe_ctype(t: int) -> Dictionary:
 	}
 
 
-## 自由文案的摆位：左缘贴着被悬停的按钮（右边放不下就往左让），框底压在行动栏提示条上方一点
+## 自由文案的摆位：左缘贴着被悬停的按钮（右边放不下就往左让），框底压在行动栏提示条上方一点。
+##
+## **右缘不进右侧竖条**（同 CWTileInfo.place 的规矩）：竖条上是回合数、玩家行、免疫等级，
+## 盖住它等于让玩家一边读技能一边看不见自己还剩多少能量（2026-09-04 预览图上当场看见）。
+## 右边那几枚按钮（细胞毒素、裂解）贴着棋盘右缘，不让的话框正好压上去。
 static func place_at(box: Vector2, anchor_x: float, screen: Vector2) -> Vector2:
-	var x := clampf(anchor_x, 8.0, screen.x - box.x - 8.0)
+	var panel_left := screen.x - CWMatchPanel.RECT.size.x   ## 右侧竖条的左缘
+	var x := clampf(anchor_x, 8.0, maxf(8.0, panel_left - 8.0 - box.x))
 	var y := CWActionBar.PROMPT_RECT.position.y - GAP_ABOVE_CARD - box.y
 	return Vector2(x, clampf(y, 8.0, screen.y - box.y - 8.0))
 
