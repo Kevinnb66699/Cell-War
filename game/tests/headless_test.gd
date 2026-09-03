@@ -3130,6 +3130,15 @@ func t_human_ask() -> void:
 	await process_frame
 	check(b._plan.size() == 1 and b._plan[0] == Vector2i(0, 1),
 		"按下高亮格 → 路线第一步（%s）" % str(b._plan))
+	## 提示行的「高亮 N 格可达」必须是**这一问真实的可达数** ——
+	## 读 `_tiles` 会读到还没赋值的旧值，真机上写成过「高亮 0 格可达」（2026-09-04）
+	check(b._plan_hint({ "energy": 100 }, 2).contains("2 格可达")
+		or b._planning, "非规划态的提示行用传进来的可达数")
+	var saved_planning := b._planning
+	b._planning = false
+	check(b._plan_hint({ "energy": 100 }, 7).contains("7 格可达"),
+		"可达数如实写进提示行：%s" % b._plan_hint({ "energy": 100 }, 7))
+	b._planning = saved_planning
 	## 这一问的选项是测试合成的，未必真走得通 —— 所以这里只核对「染上了规划色」，
 	## 报价语义（合计 / 走得通 / 停在第几步）由 t_plan_path 在**真对局**上核对
 	check(b.marks.get(Vector2i(0, 1)) in [board.MARK_PLAN, board.MARK_PLAN_BAD],

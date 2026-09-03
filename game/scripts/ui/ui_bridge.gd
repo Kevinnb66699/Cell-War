@@ -364,7 +364,7 @@ func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
 	_planning = false
 	_plan_drag = false
 	while not game.aborted:
-		var got: Variant = await _prompt("选择要%s到的组织" % verb, _plan_hint(cell),
+		var got: Variant = await _prompt("选择要%s到的组织" % verb, _plan_hint(cell, tiles.size()),
 			_move_buttons(cell, verb), _move_values(), tiles, null,
 			_move_buttons(cell, verb).size() - 1,
 			false, 0.0, func(c: Vector2i) -> String: return game.actions.move_block_reason(cell, c))
@@ -413,10 +413,14 @@ func _move_values() -> Array:
 	return ["plan_go", "plan_off", "cancel"] if _planning else ["plan_on", "cancel"]
 
 
-## 规划态的提示行：把账写在玩家眼前（几步、多少钱、还剩多少、哪一步走不通）
-func _plan_hint(cell: Dictionary) -> String:
+## 规划态的提示行：把账写在玩家眼前（几步、多少钱、还剩多少、哪一步走不通）。
+##
+## ⚠ `n_reach` 必须由调用方传进来，**不能读 `_tiles`** —— 第一次进这一问时
+## `_tiles` 要等 `_prompt()` 开头才赋值，而提示文案是 `_prompt()` 的**入参**，
+## 那时读到的还是上一问的（或空的），界面上就会写「高亮 0 格可达」（2026-09-04 真机截图抓到）。
+func _plan_hint(cell: Dictionary, n_reach: int) -> String:
 	if not _planning:
-		return "高亮 %d 格可达 · 可以连着走 · 右键或 Esc 退出" % _tiles.size()
+		return "高亮 %d 格可达 · 可以连着走 · 右键或 Esc 退出" % n_reach
 	if _plan.is_empty():
 		return "从高亮格按下左键、划过想走的路线 · 再点「按此路径走」"
 	var q: Dictionary = _plan_quote
@@ -463,7 +467,7 @@ func _plan_extend(cell: Dictionary, c: Vector2i) -> void:
 func _plan_requote(cell: Dictionary) -> void:
 	_plan_quote = game.actions.quote_path(cell, _plan) if not _plan.is_empty() else {}
 	if bar != null:
-		bar.show_bar("选择要%s到的组织" % _move_title(cell), _plan_hint(cell),
+		bar.show_bar("选择要%s到的组织" % _move_title(cell), _plan_hint(cell, _tiles.size()),
 			_move_buttons(cell, _move_title(cell)), _move_values().size() - 1)
 	_repaint_marks()
 

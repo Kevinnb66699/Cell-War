@@ -27,6 +27,8 @@
 ##   lineup=mel,sclc  癌种钉死，按癌席出场顺序（mel/sig/ost/sclc），与 balance_scan.gd 一致；2026-09-03 专项复现「黑色素瘤 + 小细胞肺癌」
 ##   renergy=5        免疫复活初始能量（十分能量，现值 10），与 balance_scan.gd 一致；2026-09-03「送死回血」战术
 ##   metamax / metacost  小细胞【转移】每世界回合上限 / 费用，与 balance_scan.gd 一致；2026-09-03 晚「黑 + 小同场」候选杠杆
+##   lvl=2            开局就把免疫等级给到 III（0=I 1=II 2=III 3=X）。**只给手打验证用**：
+##                    分化要 III 级解锁，正常得打十几回合，验证树突【趋化源】等不起。balance_scan 没有这个旋钮
 ## ⚠ 两个脚本的旋钮**必须同步加**。2026-09-01 手打第 5 局就栽在这儿：
 ##   solid/cwin 只加进了 balance_scan.gd，play.gd 照单全收却不赋值，
 ##   开局那句 _applied() 回显只打出 prolif=45 —— 幸好有它，否则整局白打。
@@ -52,6 +54,10 @@ var ai := "heur"
 ## 手打验证的必须是仿真跑出来的那一档，名字对不上就会打成另一个配置。
 ## 哨兵用 -9999：负系数是合法值（反方向），-1 会把它吃掉。
 var tiles := -1
+## 开局免疫等级（0=I 1=II 2=III 3=X）。**只给手打验证用** ——
+## 分化要 III 级解锁，正常要打十几回合才够抗原记忆，验证树突时等不起。
+## 不进 balance_scan：平衡数字必须从正常开局跑出来，不能从半局开始。
+var lvl := -1
 var agrow := -9999
 var agrow2 := -9999
 var upkeep := -9999
@@ -90,6 +96,10 @@ func _run() -> void:
 	var g := CWGame.new()
 	g.tune = _tune()          ## 必须在 init() 之前 —— 开局落子就要读旋钮
 	g.init(_order(), seed_no if seed_no != 0 else int(Time.get_unix_time_from_system()))
+	if lvl >= 0:
+		g.immune_level = clampi(lvl, 0, CWData.LEVEL_NAMES.size() - 1)
+		print("！手打验证：开局免疫等级直接给到 %s 级（lvl=%d）"
+			% [CWData.LEVEL_NAMES[g.immune_level], lvl])
 	print("旋钮：%s" % _applied(g.tune))
 	var mine := CWFileBridge.new()
 	mine.game = g
@@ -127,6 +137,7 @@ func _parse() -> void:
 			"seed": seed_no = int(kv[1])
 			"ai": ai = kv[1]
 			"tiles": tiles = int(kv[1])
+			"lvl": lvl = int(kv[1])
 			"agrow": agrow = int(kv[1])
 			"agrow2": agrow2 = int(kv[1])
 			"upkeep": upkeep = int(kv[1])
