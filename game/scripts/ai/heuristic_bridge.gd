@@ -16,7 +16,10 @@ extends CWBridge
 ## v1：2026-08 ~ 09-01 —— 分化拿选项列表第一个（固定 B→T→巨噬→树突）、死亡在估值里免费。
 ## v2：2026-09-02（Kevin 与团队定「以浅层 MC 为标尺，先让 AI 惜命」）—— 分化按种子随机、
 ##     免疫不走进会被压死的格、癌细胞贴着免疫时留 3.0 储备、CWEval 罚死亡。
-const AI_VERSION := "v3"
+## v4：2026-09-04 —— 「别蹲在自己刚铺的格子上」从**规则**改成**策略**（`_worth_solidifying` 只看
+##     `newborn` 标记，不看 `newborn_protect` 旋钮）。**`newborn_protect = true` 时 v4 与 v3 逐位相同**，
+##     所以机制还在时量的那些表（§9、§10.1~10.6）不作废；只有旋钮关掉时两者才分道扬镳。
+const AI_VERSION := "v4"
 ## 每个桥实例可以单独退回 v1 的行为（set_version("v1")）：分化拿选项列表第一个、不惜命。
 ## 用途是**验证 AI 升级**：新版本必须在两边都不比旧版弱（balance_scan 的 aiver_immune= / aiver_cancer= 交叉对局），
 ## 否则标尺一换读数就漂、还分不清是规则变了还是量具变了（2026-09-02 v2 基线 6 人 24→10 就是这么查的）。对局里别拨。
@@ -354,10 +357,20 @@ func _dist_to_nearest_immune(from: Vector2i) -> int:
 	return best
 
 
-## 脚下这格值不值得蹲：必须是能继续累计固化计数的癌组织
+## 脚下这格值不值得蹲：癌组织，且**不是本回合自己刚铺出来的那一格**。
+##
+## 「新生」这一条 2026-09-04 起是**策略**，不再只是规则（`newborn_protect` 关掉之后规则允许当回合就攒）。
+## 两件事必须分开看：
+## · 规则允不允许 —— 旋钮说了算；
+## · 值不值得这么打 —— **一直都不值得**。蹲两个回合把一格熬成固化换 +1 加权（固化记 2、癌组织记 1），
+##   而继续【定殖】0.2 能量就换 +1，还顺带把免疫推远。刚铺完就停下，等于用两回合买一格。
+##
+## 规则一取消就把这道判断也跟着关掉，是 v3 的错：全场癌细胞同时蹲下来，
+## 6 人局每局【定殖】从 157.7 掉到 93.7、癌胜从 43% 掉到 19%（§10.7 量到的就是这个）。
+## 所以这里**只看标记本身**，不看旋钮 —— 标记照常打、照常清，规则关掉也还在。
 func _worth_solidifying(me: Dictionary) -> bool:
 	var t: Dictionary = game.tile(me["pos"])
-	if t["tissue"] != CWData.Tissue.CANCER 			or (game.tune.newborn_protect and t["newborn"]):
+	if t["tissue"] != CWData.Tissue.CANCER or t["newborn"]:
 		return false
 	if t["solid"] >= game.tune.solidify_threshold - 1:
 		return true  # 差最后一轮就固化，值得停

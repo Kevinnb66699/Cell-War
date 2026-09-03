@@ -57,6 +57,7 @@ func _run_all() -> void:
 	await t_antibody_cap()
 	await t_jump_cap()
 	await t_heur_lifecare()
+	t_heur_no_squat_on_fresh()
 	t_immune_win()
 	t_cancer_revive_blocked()
 	t_cancer_s_win()
@@ -1457,9 +1458,47 @@ class NoticeRecorder extends CWBridge:
 
 
 # ---- 启发式 v3（2026-09-02）：继承 v2 的随机分化与惜命；MC 固定预算升版本 ----
+## v4（2026-09-04）：「别蹲在自己刚铺的格子上」从**规则**变成**策略**。
+## 规则那一条已被 `newborn_protect` 关掉，但这个判断**不许跟着关** ——
+## v3 跟着关的后果是全场癌细胞同时蹲下攒固化，6 人局癌胜 43% → 19%（§10.7）。
+func t_heur_no_squat_on_fresh() -> void:
+	print("[启发式 v4：不蹲在刚铺的格子上]")
+	check(CWHeuristicBridge.AI_VERSION == "v4", "AI 版本号 v4（改 AI 行为要升号）")
+	var g := _fx_game(2)
+	var can := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i.ZERO, -1,
+		CWData.CancerType.MELANOMA)
+	can["energy"] = 60
+	g.cells.append(can)
+	var h := CWHeuristicBridge.new()
+	h.game = g
+	var here: Dictionary = g.tile(Vector2i.ZERO)
+	## 场上没有任何固化据点、脚下是**本回合刚铺的**癌组织 —— 正是 v3 会蹲下去的局面
+	CWTissue.to_cancer(here, true)
+	check(g.count_tissue(CWData.Tissue.SOLID) == 0, "场上还没有固化据点（v3 蹲点的触发条件）")
+	for protect in [false, true]:
+		g.tune.newborn_protect = protect
+		check(not h._worth_solidifying(can),
+			"刚铺的格子不值得蹲（旋钮 newborn_protect = %s 时同样）" % str(protect))
+	## 同一格，不是新生了 → 才值得从头熬一个据点（这是老行为，别一起改没了）
+	here["newborn"] = false
+	check(h._worth_solidifying(can), "同一格不再是「新生」→ 值得熬据点")
+	## 差最后一轮就固化 → 无论如何都值得停。
+	## 注意「新生」与「差最后一轮」在真实盘面上互斥：`CWTissue.to_cancer` 会把 solid 清零，
+	## 所以刚转成癌组织的格子计数必然是 0，构造不出「又新生又快固化」的格
+	here["solid"] = g.tune.solidify_threshold - 1
+	check(h._worth_solidifying(can), "差最后一轮就固化 → 停")
+	CWTissue.to_cancer(here, true)
+	check(here["solid"] == 0, "转成癌组织会清零固化计数 →「新生」与「差最后一轮」不会同时出现")
+	## 已经有据点了，且脚下才刚起步 → 不值得再耗两个回合
+	here["newborn"] = false
+	CWTissue.to_solid(g.tile(Vector2i(3, 0)))
+	check(not h._worth_solidifying(can), "已有据点、脚下才起步 → 继续铺，不蹲")
+	h.game = null
+	g.dispose()
+
+
 func t_heur_lifecare() -> void:
-	print("[启发式 v3：随机分化与惜命]")
-	check(CWHeuristicBridge.AI_VERSION == "v3", "AI 版本号 v3（改 AI 行为要升号）")
+	print("[启发式：随机分化与惜命]")
 	## ① 分化：同局面同答案、不消耗 rng、不同 rng 状态选到不同种类、四种都选得到
 	var g := make_game(4, 5)
 	await run_setup(g)
@@ -1493,7 +1532,7 @@ func t_heur_lifecare() -> void:
 	check(h._immune_action(imm["pid"], opts) == first and h.version_tag() == "v1",
 		"set_version(v1) → 拿选项列表第一个、版本标 v1")
 	h.set_version("v3")
-	check(h.version_tag() == "v3", "拨回 v3")
+	check(h.version_tag() == CWHeuristicBridge.AI_VERSION, "拨回当前版本（%s）" % h.version_tag())
 	## MC 桥的版本串可带交叉验证用的修饰
 	var m := CWMonteCarloBridge.new()
 	m.set_version("v3-nodc")
