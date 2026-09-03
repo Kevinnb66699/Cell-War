@@ -32,6 +32,8 @@ const RULE_H := 7.0            ## 卡名与正文之间那条分隔线占的高
 const NO_LINE_START := "。，、；：？！）」』》%…—～·"
 
 var _card := ""      ## 正在悬停的卡名；空串 = 没有
+var _info := {}      ## 自由文案（分化提问里悬停种类按钮 → 细胞种类详情）；非空时压过 _card
+var _anchor_x := 0.0 ## 自由文案的锚点：贴着被悬停按钮的左缘摆
 var _wait := 0.0
 var _key := ""       ## 上次搭内容用的键；没变就不重搭（每帧 sync，重搭是浪费）
 
@@ -52,25 +54,62 @@ func on_hover(card_name: String) -> void:
 
 func hide_now() -> void:
 	_card = ""
+	_info = {}
+	visible = false
+
+
+## 分化提问：鼠标停在种类按钮上 → 浮该细胞种类的 PRD 原文（rows 由 describe_type 给）；
+## 传空字典 = 离开按钮，立刻收起。手感与手牌一致：同样等 DELAY 再浮出、换目标重新计时
+func on_hover_info(rows: Dictionary, anchor_x: float) -> void:
+	if rows.is_empty():
+		if not _info.is_empty():
+			_info = {}
+			_wait = 0.0
+			visible = false
+		return
+	if rows == _info:
+		return
+	_info = rows
+	_anchor_x = anchor_x
+	_wait = 0.0
 	visible = false
 
 
 ## 每帧由 CWMatch 调。faction 决定【代谢耦联】那张给哪套措辞；
 ## blocked = 开场/返场演出中，那会儿不该浮任何东西。
 func sync(delta: float, faction: int, blocked: bool) -> void:
-	if blocked or _card == "" or not CWCardData.CARDS.has(_card):
+	var free_text := not _info.is_empty()
+	if blocked or (not free_text and (_card == "" or not CWCardData.CARDS.has(_card))):
 		visible = false
 		return
 	_wait += delta
 	if _wait < DELAY:
 		return
-	var rows := describe(_card, faction)
-	var key := "%s|%d" % [_card, faction]
+	var rows: Dictionary = _info if free_text else describe(_card, faction)
+	var key: String = "info|%s" % rows["name"] if free_text else "%s|%d" % [_card, faction]
 	if key != _key:
 		_key = key
 		_rebuild(rows)
-	position = place(size, CWView.screen_size())
+	position = place_at(size, _anchor_x, CWView.screen_size()) if free_text \
+		else place(size, CWView.screen_size())
 	visible = true
+
+
+## 某种分化细胞该显示什么：{ name, kind, lines }。文案是 CWData.IMMUNE_TYPE_TEXT 里的 PRD 原文；
+## 没有文案的种类（未分化）给空行数组，不崩
+static func describe_type(t: int) -> Dictionary:
+	return {
+		"name": CWData.IMMUNE_TYPE_NAMES.get(t, ""),
+		"kind": "【分化】",
+		"lines": wrap_text(CWData.IMMUNE_TYPE_TEXT.get(t, ""), W - PAD_H * 2.0),
+	}
+
+
+## 自由文案的摆位：左缘贴着被悬停的按钮（右边放不下就往左让），框底压在行动栏提示条上方一点
+static func place_at(box: Vector2, anchor_x: float, screen: Vector2) -> Vector2:
+	var x := clampf(anchor_x, 8.0, screen.x - box.x - 8.0)
+	var y := CWActionBar.PROMPT_RECT.position.y - GAP_ABOVE_CARD - box.y
+	return Vector2(x, clampf(y, 8.0, screen.y - box.y - 8.0))
 
 
 ## 这张卡该显示什么：{ name, kind, lines }。纯函数，供测试直接核对文案。

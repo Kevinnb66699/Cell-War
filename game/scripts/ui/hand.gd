@@ -32,6 +32,11 @@
 ## **卡必须开 clip_contents**：名字最长 9 个字 = 90px，比卡本身还宽 18px。
 ## 非最后一张有后一张压着，看不出来；**最后一张没有邻居**，不裁就会溢到棋盘上。
 ##
+## **一行放不下的卡名折两行**（2026-09-03 Kevin 报「自分泌生存信号」抬起后尾字仍被裁掉）：
+## 一行只有 60px（72 − 6×2），中文 6 个字、ASCII 字只占一半宽，所以按**像素宽**判、不按字数
+## （「BCL-2抗凋亡」8 字只有 55px，不折）。折行点按词义登记在 `NAME_BREAK`，
+## 两行各放得进一行、仍然写全名不加省略号；静止时两行都落在顶上那 26px 里。
+##
 ## 代价是手牌一多就看不全：8 张时 `_stagger()` 压到 33px，一张只露得下 3 个字，
 ## 而且【补体级联】和【补体调理】都会显示成「补体级」「补体调」——只差最后一个字。
 ## 团队知道并选择先这样试。
@@ -62,6 +67,20 @@ const TWEEN := 0.12         ## 抬起/推开的补间
 const DEAL := 0.45          ## 抽到的卡飞进手牌
 const DEAL_SCALE := 0.25    ## 起飞时的缩放
 const NAME_PAD := 6         ## 卡名左右内边距
+const NAME_LINE_W := 60.0   ## 一行放得下的像素宽：72 − 6×2（中文 6 字；ASCII 字只占一半）
+const NAME_Y := 7.0         ## 单行卡名的顶边
+const NAME_Y2 := [2.0, 13.0]  ## 折两行时两行的顶边（第二行基线 13+11 = 24，仍在静止露出的 26px 里）
+## 一行放不下的卡名的折行点（前几个字归第一行）；没登记的按前半 ceil(n/2) 折。
+## `t_hand_long_name` 盯着：卡池里每个一行放不下的名字都得在这里登记，别让新卡随机折。
+const NAME_BREAK := {
+	"自分泌生存信号": 3,        # 自分泌 / 生存信号
+	"全身性免疫清除": 3,        # 全身性 / 免疫清除
+	"抗体亲和力成熟": 5,        # 抗体亲和力 / 成熟
+	"上皮—间质转化": 5,         # 上皮—间质 / 转化
+	"抗体依赖细胞毒作用": 4,    # 抗体依赖 / 细胞毒作用
+	"穿孔素-颗粒酶": 4,         # 穿孔素- / 颗粒酶（66px）
+	"TNF-α局部炎症": 5,         # TNF-α / 局部炎症（69px）
+}
 const EXIT := 0.26          ## 离场淡出时长。比抬起(0.12)长、比抽卡(0.45)短——
                             ## 要看得清是哪张走了，又不能拖住下一步操作
 const EXIT_RISE := 44.0     ## 双击打出：向上飘多远
@@ -276,9 +295,16 @@ func _layout() -> void:
 			tw.parallel().tween_property(card, "modulate:a", 1.0, DEAL * 0.5)
 			tw.tween_callback(func() -> void: _dealing.erase(card))
 		_tweens[card] = tw
-		## 名字写全，不做截断 —— 露不出的部分由后一张卡盖住 / 被 clip_contents 裁掉
+		## 名字写全，不做截断 —— 露不出的部分由后一张卡盖住 / 被 clip_contents 裁掉；
+		## 7 字以上折两行（见文件头）
 		var cname: String = _names[i] if i < _names.size() else ""
-		(card.get_node("Name") as Label).text = cname if cname != "" else "未定"
+		var lines := name_lines(cname if cname != "" else "未定")
+		var name_label := card.get_node("Name") as Label
+		var name2 := card.get_node("Name2") as Label
+		name_label.text = lines[0]
+		name_label.position.y = NAME_Y2[0] if lines.size() > 1 else NAME_Y
+		name2.text = lines[1] if lines.size() > 1 else ""
+		name2.visible = lines.size() > 1
 		if CWCardData.CARDS.has(cname):
 			(card.get_node("Kind") as Label).text = "【%s】" % \
 				CWCardData.KIND_NAMES[CWCardData.CARDS[cname]["kind"]]
@@ -292,6 +318,14 @@ func _layout() -> void:
 ## 界面里不用它（名字写全就完了），留着是给测试核对「到底能看见几个字」。
 func exposed_width(i: int) -> float:
 	return CARD.x if i >= _cards.size() - 1 else _stagger()
+
+
+## 卡面上的卡名按行拆开：一行放得下（像素宽 ≤ 60）就一行；更长的按 NAME_BREAK 折两行（写全、不加省略号）
+static func name_lines(cname: String) -> PackedStringArray:
+	if CWStyle.FONT.get_string_size(cname, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x <= NAME_LINE_W:
+		return PackedStringArray([cname])
+	var at: int = NAME_BREAK.get(cname, ceili(cname.length() / 2.0))
+	return PackedStringArray([cname.substr(0, at), cname.substr(at)])
 
 
 # ============ 卡面 ============
@@ -319,8 +353,14 @@ func _make_card() -> Control:
 	## 名字写在顶部那 26px 里 —— 静止时唯一看得见的地方。文本由 _layout() 按露出宽度截断。
 	var name_label := CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
 	name_label.name = "Name"
-	name_label.position = Vector2(NAME_PAD, 7)
+	name_label.position = Vector2(NAME_PAD, NAME_Y)
 	card.add_child(name_label)
+	## 第二行：只有 7 字以上的卡名才用（见文件头）
+	var name2 := CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
+	name2.name = "Name2"
+	name2.position = Vector2(NAME_PAD, NAME_Y2[1])
+	name2.visible = false
+	card.add_child(name2)
 	## 下面这两行只有抬起来才看得见，属于「详情」的一部分
 	var kind := CWStyle.label("【即时】", CWStyle.SIZE_LABEL, CWStyle.IMMUNE)
 	kind.name = "Kind"

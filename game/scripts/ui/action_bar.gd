@@ -13,6 +13,9 @@ class_name CWActionBar
 extends Control
 
 signal chosen(index: int)
+## 鼠标停到第几个按钮上（-1 = 离开）。分化提问靠它浮出细胞种类详情（2026-09-03 Kevin 要的）；
+## 只报状态、不做决定，仍然只有 chosen 一个出口
+signal hovered(index: int)
 
 ## 技能栏：设计稿 .actions{left:324;top:476;width:361}，内部靠右
 const BAR_RECT := Rect2(324, 476, 361, 52)
@@ -244,6 +247,14 @@ func _set_hot(index: int) -> void:
 		return
 	_hot = index
 	_repaint_all()
+	hovered.emit(index)
+
+
+## 第 index 个按钮的画布 x（左缘）。悬停详情框贴着它摆；HBox 排完版之后才准，悬停时早已排完
+func button_x(index: int) -> float:
+	if index < 0 or index >= _buttons.size():
+		return PROMPT_RECT.position.x
+	return (_buttons[index] as Control).global_position.x
 
 
 ## 三种态：灰掉 / 常态 / 悬停。灰掉的按钮描边和文字都压暗一档，

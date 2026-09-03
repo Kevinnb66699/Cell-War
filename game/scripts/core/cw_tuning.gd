@@ -20,6 +20,7 @@ const RULE_FIELDS := [
 	"cancer_win_weighted", "cancer_win_hold_rounds", "solid_at_cancer_spawn",
 	"immune_respawn_delay", "immune_respawn_energy", "macro_heal_purify",
 	"antibody_max_per_round", "proliferate_per_adjacent",
+	"metastasis_cost", "metastasis_max_per_round",
 ]
 
 
@@ -247,6 +248,12 @@ var immune_respawn_energy := CWData.IMMUNE_RESPAWN_ENERGY
 var macro_heal_purify := CWData.MACRO_HEAL_PURIFY
 ## B 细胞【抗体】每世界回合最多几次。默认 0 = 不限（现行 PRD）；2 = 2026-09-01 之前的旧 PRD。
 var antibody_max_per_round := CWData.ANTIBODY_MAX_PER_ROUND
+
+# ---- 小细胞肺癌【转移】（2026-09-03 晚，Kevin 问「黑 + 小同场怎么治」的候选杠杆；默认值 = 现行 PRD）----
+## 每次费用（十分能量，现值 10 = 1.0）与每世界回合上限（0 = 不限 = 现行 PRD；1 = 与黑色素瘤【早期血行转移】同款）。
+## 钉死黑 + 小的局里每局跳 8～16 次、6 人局只有黑 + 小同场才赢得了（§10.4），所以先量「限次」值多少，改不改团队定。
+var metastasis_cost := CWData.METASTASIS_COST
+var metastasis_max_per_round := 0
 
 # ---- 【E-增生】癌组织向外扩散（规则原文没有这条，团队 2026-08-26 提案）----
 ## 每个与癌性组织相邻的健康组织，按「相邻癌性组织数 × 本值」的概率转为癌组织。

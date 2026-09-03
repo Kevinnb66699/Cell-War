@@ -28,6 +28,8 @@ const STATUS_Y := 484.0
 const FADE_IN := 0.32
 const PAGE_FADE := 0.2       ## 面板内切页（连接→大厅→建房→等待室）：新页淡入，别硬切
 const LIST_Y0 := 296.0       ## 大厅列表第一行
+const LIST_W := 400.0        ## 大厅房间行定宽（面板 538 − 槽位 120 − 余量）；超出的加省略号
+const SEAT_NAME_W := 172.0   ## 等待室席位名定宽：SLOT_X+70 起、到状态列 SLOT_X+250 之前
 const LIST_H := 26.0
 const LIST_N := 5
 const SEAT_Y0 := 214.0       ## 等待室席位第一行
@@ -156,8 +158,7 @@ func handle_input(event: InputEvent) -> void:
 		Page.CONNECT:
 			if event.is_action_pressed("ui_cancel"):
 				get_viewport().set_input_as_handled()
-				visible = false
-				cancelled.emit()
+				_back_to_menu()
 			elif event.is_action_pressed("ui_accept"):
 				get_viewport().set_input_as_handled()
 				_connect()
@@ -412,6 +413,12 @@ func _build() -> void:
 	_build_room(_roots[Page.ROOM])
 
 
+## 连接页退回主菜单：Esc 与「返回主菜单」链接共用一条路；主菜单收到 cancelled 后把自己淡回来
+func _back_to_menu() -> void:
+	visible = false
+	cancelled.emit()
+
+
 func _build_connect(root: Control) -> void:
 	_row_label(root, "昵称", 0)
 	_nick = _edit(root, Vector2(VALUE_X, ROW_Y0 - 4), 200, "玩家", CWNet.NICK_MAX)
@@ -420,6 +427,9 @@ func _build_connect(root: Control) -> void:
 	_nick.text_submitted.connect(func(_t: String) -> void: _connect())
 	_addr.text_submitted.connect(func(_t: String) -> void: _connect())
 	_solid_button(root, "进入大厅", Vector2(SLOT_X, BTN_Y), 182, _connect)
+	## 「返回主菜单」（2026-09-03 Kevin 要的）：此前连接页只能按 Esc 退出，鼠标玩家没有出口。
+	## 与建房页「返回大厅」同位（按钮右侧 200）、同一套链接语言，走的就是 Esc 那条路。
+	_clicky(root, "返回主菜单", Vector2(SLOT_X + 200, BTN_Y + 5), _back_to_menu)
 
 
 func _build_lobby(root: Control) -> void:
@@ -507,6 +517,10 @@ func _build_room(root: Control) -> void:
 	root.add_child(_seat_root)
 	_members_label = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	_members_label.position = Vector2(SLOT_X, SEAT_Y0 + 6 * SEAT_H + 4)
+	## 未入座的人数没有上限，名单一长就出面板 → 定宽 + 省略号（2026-09-03 排版体检）
+	_members_label.clip_text = true
+	_members_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_members_label.size = Vector2(LIST_W, 16)
 	root.add_child(_members_label)
 	_ready_btn = _solid_button(root, "准备", Vector2(SLOT_X, BTN_Y), 120, _toggle_ready)
 	_ready_text = _ready_btn.get_child(0) as Label
@@ -560,11 +574,15 @@ func _repaint_lobby() -> void:
 			l.size = l.get_minimum_size()
 			continue
 		var r: Dictionary = _lobby_rooms[i]
-		l.text = "%s  %s 的房间  %d 人局 %d/%d  %s" % [r["code"], r["host"], r["players"],
-			r["seated"], r["players"], TIMER_TEXT.get(r["timer"], "%d 秒" % r["timer"])]
+		## 房主昵称放**最后**：昵称最长 12 字，一行定宽 400 加省略号，被截的只会是昵称尾巴，
+		## 房间码 / 人数 / 计时这些要拿来做决定的字段永远看得见（2026-09-03 排版体检）
+		l.text = "%s  %d 人局 %d/%d  %s  %s 的房间" % [r["code"], r["players"],
+			r["seated"], r["players"], TIMER_TEXT.get(r["timer"], "%d 秒" % r["timer"]), r["host"]]
 		l.mouse_filter = Control.MOUSE_FILTER_STOP
 		_paint_link(l, Color.WHITE if i == _lobby_sel else CWStyle.TEXT_HI)
-		l.size = l.get_minimum_size()
+		l.clip_text = true
+		l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		l.size = Vector2(LIST_W, l.get_minimum_size().y)
 
 
 func _create_value_text(i: int) -> String:
@@ -682,6 +700,10 @@ func _build_seat_row(i: int, s: Dictionary, host: bool, me: int, waiting: bool) 
 			who = s["nick"] + ("（你）" if i == me else "")
 	var occupant := _clicky(_seat_root, who, Vector2(SLOT_X + 70, y + 4), func() -> void: _seat_click(i))
 	_paint_link(occupant, who_color)
+	## 12 字昵称 +「（你）」= 300px，会压到 SLOT_X+250 的状态列 → 定宽 + 省略号（2026-09-03 排版体检）
+	occupant.clip_text = true
+	occupant.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	occupant.size = Vector2(SEAT_NAME_W, occupant.size.y)
 	if not (waiting and (s["kind"] == "" or i == me)):
 		occupant.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var state := ""

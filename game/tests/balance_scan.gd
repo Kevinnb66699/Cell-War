@@ -61,6 +61,8 @@
 ##                结果行 `AI mc·v3` 或 `AI mc·I:v3·C:v1` 标出两边版本 —— **标签取自桥的 version_tag()**（与 CWHeuristicBridge.AI_VERSION
 ##                一致；2026-09-03 之前打的是 aiver= 参数原文，线上把常量升到 v3 后曾出现「常量 v3、结果行 v2」的错位，Kevin 要求统一）。
 ##                两边不同版本的数只用来比较 AI，不进平衡表。
+##   metamax=1    小细胞肺癌【转移】每世界回合上限（现值 0 = 不限；1 = 与黑色素瘤【早期血行转移】同款）；
+##   metacost=15  【转移】每次费用，十分能量（现值 10）。2026-09-03 晚 Kevin 问「黑 + 小同场怎么治」，先量这两根。
 ##   renergy=5    免疫复活初始能量，十分能量（现值 10 = 1.0）。2026-09-03 Kevin 提出「能量见底时主动送死、复活回能」是战术：
 ##                复活没有罚停、回 1.0、免死压迫，扫它看这条战术值多少。
 ##   lineup=mel,sclc  癌种钉死：按癌席出场顺序给种类（mel=黑色素瘤 sig=印戒 ost=骨肉瘤 sclc=小细胞肺癌），
@@ -112,6 +114,8 @@ var rdelay := -9999   ## -1 是合法值（不再复活），哨兵不能用 -1
 var aiver_immune: String = CWHeuristicBridge.AI_VERSION
 var aiver_cancer: String = CWHeuristicBridge.AI_VERSION
 var renergy := -1
+var metamax := -1
+var metacost := -1
 var lineup := ""
 
 const LINEUP_CODES := { "mel": CWData.CancerType.MELANOMA, "sig": CWData.CancerType.SIGNET,
@@ -171,6 +175,8 @@ func _parse() -> void:
 			"aiver_immune": aiver_immune = kv[1]
 			"aiver_cancer": aiver_cancer = kv[1]
 			"renergy": renergy = int(kv[1])
+			"metamax": metamax = int(kv[1])
+			"metacost": metacost = int(kv[1])
 			"lineup": lineup = kv[1]
 
 
@@ -243,6 +249,10 @@ func _tune() -> CWTuning:
 		t.immune_respawn_delay = rdelay
 	if renergy >= 0:
 		t.immune_respawn_energy = renergy
+	if metamax >= 0:
+		t.metastasis_max_per_round = metamax
+	if metacost >= 0:
+		t.metastasis_cost = metacost
 	if lineup != "":
 		t.cancer_types = _lineup_types(lineup)
 	return t
@@ -301,7 +311,9 @@ func _applied(t: CWTuning) -> String:
 			["mheal", t.macro_heal_purify, d.macro_heal_purify],
 			["abmax", t.antibody_max_per_round, d.antibody_max_per_round],
 			["rdelay", t.immune_respawn_delay, d.immune_respawn_delay],
-			["renergy", t.immune_respawn_energy, d.immune_respawn_energy]]:
+			["renergy", t.immune_respawn_energy, d.immune_respawn_energy],
+			["metamax", t.metastasis_max_per_round, d.metastasis_max_per_round],
+			["metacost", t.metastasis_cost, d.metastasis_cost]]:
 		if pair[1] != pair[2]:
 			out.append("%s=%s" % [pair[0], str(pair[1])])
 	if t.solid_at_cancer_spawn != d.solid_at_cancer_spawn:

@@ -69,6 +69,7 @@ static func make_cell(id: int, pid: int, faction: int, pos: Vector2i,
 		"toxin_used": 0,           # T【细胞毒素】3 次/世界回合
 		"antibody_used": 0,        # B【抗体】每世界回合上限（旋钮 antibody_max_per_round，0 = 不限）
 		"metastasis_used": false,  # 黑色素瘤【早期血行转移】1 次/世界回合
+		"jump_used": 0,            # 小细胞肺癌【转移】本世界回合次数（旋钮 metastasis_max_per_round，0 = 不限）
 		# 下面这个每**行动回合**重置（见 CWTurn），不是每世界回合
 		"draws_used": 0,           # 【基因表达】3 次/行动回合
 		"attacks_used": 0,         # 本行动回合已攻击次数（上限见 CWTuning.attack_max_per_turn）

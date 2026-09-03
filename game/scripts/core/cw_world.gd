@@ -69,6 +69,7 @@ func _reset_round_flags() -> void:
 		c["toxin_used"] = 0            ## T【细胞毒素】3 次/世界回合
 		c["antibody_used"] = 0         ## B【抗体】每世界回合上限（旋钮，默认不限）
 		c["metastasis_used"] = false   ## 黑色素瘤【早期血行转移】1 次/世界回合
+		c["jump_used"] = 0             ## 小细胞肺癌【转移】每世界回合上限（旋钮，默认不限）
 		c["fx_round"] = {}             ## 永久技能「每世界回合第一次」的闸门
 
 

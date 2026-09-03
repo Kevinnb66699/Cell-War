@@ -270,6 +270,7 @@ func _wire_bridge(smart: bool) -> void:
 	bridge.board = board
 	bridge.dice = _dice
 	bridge.bar = action_bar
+	bridge.info = _card_info   ## 分化提问里悬停种类按钮 → 细胞种类详情（同一只详情框）
 	bridge.panel = panel
 	bridge.toast = toast
 	bridge.camera = camera

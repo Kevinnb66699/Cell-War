@@ -213,9 +213,17 @@ func _is_homing_legal_now(cell: Dictionary, to: Vector2i) -> bool:
 	return game.tile(to)["tissue"] == CWData.Tissue.HEALTHY and game.cells_at(to).is_empty()
 
 
-## 小细胞肺癌【转移】：落点在棋盘上且无细胞占据
+## 小细胞肺癌【转移】：落点在棋盘上且无细胞占据，且本世界回合还有次数（旋钮，默认不限）
 func _is_jump_legal_now(cell: Dictionary, to: Vector2i) -> bool:
-	return cell["alive"] and CWData.is_on_board(to) and game.cells_at(to).is_empty()
+	return cell["alive"] and _jump_quota_left(cell) \
+		and CWData.is_on_board(to) and game.cells_at(to).is_empty()
+
+
+## 【转移】本世界回合还有没有次数：旋钮 metastasis_max_per_round（0 = 不限）。
+## 计数 `cell["jump_used"]` 随 cells 进快照，S 阶段重置；旧存档没有这个键，按 0 读。
+func _jump_quota_left(cell: Dictionary) -> bool:
+	var cap: int = game.tune.metastasis_max_per_round
+	return cap <= 0 or int(cell.get("jump_used", 0)) < cap
 
 
 ## T 细胞【裂解】：目标是**相邻**的固化癌组织（2026-09-01 起，此前是脚下那一格）
@@ -270,9 +278,9 @@ func _type_options(cell: Dictionary, opts: Array) -> void:
 			if cell["energy"] >= CWData.MUCUS_MIN_ENERGY:
 				opts.append({ "label": "黏液破裂（耗尽能量并死亡）", "data": { "act": "mucus" } })
 		CWData.CancerType.SCLC:
-			# 【转移】：向某方向跃进 5 格
-			var jump_cost := _skill_move_cost(cell, CWData.METASTASIS_COST)
-			if game.can_pay(cell, jump_cost):
+			# 【转移】：向某方向跃进 5 格（费用与每世界回合上限都是旋钮，默认 = PRD：1.0、不限）
+			var jump_cost := _skill_move_cost(cell, game.tune.metastasis_cost)
+			if game.can_pay(cell, jump_cost) and _jump_quota_left(cell):
 				for c in _jump_targets(cell):
 					opts.append({
 						"label": "转移：跃进至 %s（%s 能量）" % [str(c), CWData.fmt(jump_cost)],
@@ -971,9 +979,10 @@ func _jump_targets(cell: Dictionary) -> Array:
 ## 所以这里直接 enter_tile 到终点，中间格连碰都不碰。
 func _do_jump(cell: Dictionary, to: Vector2i) -> void:
 	if game.cost.commit(CWCost.context(cell, CWCost.Action.CELL_SKILL,
-			CWData.METASTASIS_COST, to, 0,
+			game.tune.metastasis_cost, to, 0,
 			func() -> bool: return _is_jump_legal_now(cell, to))).is_empty():
 		return
+	cell["jump_used"] = int(cell.get("jump_used", 0)) + 1
 	game.log_msg("【转移】%s 跃进 5 格至 %s" % [game.cell_name(cell), str(to)])
 	await enter_tile(cell, to)
 

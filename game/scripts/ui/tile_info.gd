@@ -86,7 +86,8 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 	if move_cost >= 0:
 		rows.append({ "text": "%s耗能 %s" % [verb, CWData.fmt(move_cost)],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
-	rows.append_array(pressure_rows(game, c, move_cost))
+	## 压迫只落在免疫细胞身上：癌方选目标时（verb =「移动」）这一行不出（2026-09-03 Kevin 截图报的）
+	rows.append_array(pressure_rows(game, c, move_cost, verb != "移动"))
 	if tissue == CWData.Tissue.CANCER and t["solid"] > 0:
 		## ⚠ 固化计数存的是**十分整数**（`SOLIDIFY_THRESHOLD = 20` 即 2.0）——
 		## PRD 里它不是整数：衰减 -0.5、【骨样硬化】+1.5、【基质硬化】+1/+1.5/+2。
@@ -126,12 +127,13 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 ##
 ## ⚠ 措辞用「**至少**」不是精确值：癌方在免疫之后行动、会在它周围铺新格，
 ## 所以回合末的真实值只会**大于等于**此刻这个数。写成精确值会骗人。
-static func pressure_rows(game: CWGame, c: Vector2i, move_cost: int) -> Array:
+static func pressure_rows(game: CWGame, c: Vector2i, move_cost: int, mover_immune := true) -> Array:
 	var here_immune := false
 	for cell in game.cells_at(c, CWData.Faction.IMMUNE):
 		here_immune = true
-	## 只在「正在为这一格做决定」时出：迁移候选，或者上面站着自己人
-	if move_cost < 0 and not here_immune:
+	## 只在「正在为这一格做决定」时出：**免疫的**迁移候选，或者上面站着免疫细胞。
+	## 【E-微环境压迫】只扣免疫细胞的能量，癌细胞的移动候选格没有这一刀，写出来是骗人
+	if (move_cost < 0 or not mover_immune) and not here_immune:
 		return []
 	var loss: int = game.world.pressure_at(c)
 	if loss <= 0:

@@ -334,6 +334,10 @@ func _build_row(y: float, pid: int) -> Dictionary:
 	x += ICON + 8
 
 	var nm := _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT), x, y + 4, 110)
+	## 联机昵称最长 12 字（20px 字 = 240px），不裁会压到同一行右对齐的能量数上；
+	## 本地对局的「免疫A」只有 52px，不受影响（2026-09-03 排版体检）
+	nm.clip_text = true
+	nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	var ty := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM), x, y + 26, 110)
 	var right: float = PAD + W - ROW_PAD
 	var en := _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT_HI),
@@ -429,8 +433,11 @@ func _update_event_tip(game: CWGame) -> void:
 		_event_tip.add_child(left_label)
 		var blurb := CWStyle.label(CWWorldFx.BLURB.get(e["name"], ""), CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
 		blurb.position = Vector2(12, y + 24)
-		blurb.size = Vector2(tip_w - 24, 0)
+		## ⚠ 先开自动换行、再定宽：反过来的话，定宽那一刻 Label 的最小宽度还是整句的宽度，
+		## size.x 会被夹到整句那么宽、之后也不会缩回来 —— 一句话就单行溢出框外
+		## （2026-09-03 Kevin 截图：【免疫抑制因子】那句压到框边上）
 		blurb.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY   ## 中文没有词边界，按字换行
+		blurb.size = Vector2(tip_w - 24, 0)
 		_event_tip.add_child(blurb)
 	add_child(_event_tip)
 

@@ -20,6 +20,7 @@ extends CWMonteCarloBridge
 var board: Node2D          ## 取格子像素位置、收点选事件都只问它（架构约定 #10）
 var dice: CWDice
 var bar: CWActionBar
+var info: CWCardInfo   ## 悬停详情框：分化提问里停在种类按钮上时浮细胞种类详情；纯 AI 桥 / 测试里可为 null
 var panel: CWMatchPanel
 var toast: CWToast     ## 骰子旁边那行字
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
@@ -305,13 +306,22 @@ func _pick_sub(act: String, options: Array, picks: Array) -> Variant:
 		if data.has("to"):
 			tiles[data["to"]] = i
 		else:
-			buttons.append({ "title": _sub_label(act, data), "cost": "" })
+			buttons.append(_sub_entry(act, data))
 			values.append(i)
 	buttons.append({ "title": "取消", "cost": "右键 / Esc" })
 	values.append("cancel")
 	var hint := "" if tiles.is_empty() else "高亮 %d 格可选 · 右键或 Esc 退出" % tiles.size()
 	return await _prompt("选择%s的目标" % title, hint, buttons, values, tiles,
 		null, buttons.size() - 1)
+
+
+## 子选项的按钮条目：{ title, cost[, info] }。分化的条目带 info = 该细胞种类的详情（PRD 原文），
+## 鼠标停上去时由 _prompt 转给详情框（2026-09-03 Kevin 要的「分化时悬停显示细胞详情」）
+func _sub_entry(act: String, data: Dictionary) -> Dictionary:
+	var entry := { "title": _sub_label(act, data), "cost": "" }
+	if act == "differentiate":
+		entry["info"] = CWCardInfo.describe_type(data["type"])
+	return entry
 
 
 ## 子选项的按钮标题。分化给种类名，裂解给「顺带净化 / 暂不」，其余退回引擎给的 label。
@@ -414,7 +424,16 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 			if why != "":
 				show_result(why, c)
 	var on_hover := func(_c: Vector2i) -> void: _repaint_marks()
+	## 按钮悬停 → 带 info 的条目浮详情（此刻只有分化的种类按钮带），别的按钮 / 离开就收起
+	var on_bar_hover := func(i: int) -> void:
+		if info == null:
+			return
+		if i >= 0 and i < buttons.size() and buttons[i].has("info"):
+			info.on_hover_info(buttons[i]["info"], bar.button_x(i))
+		else:
+			info.on_hover_info({}, 0.0)
 	bar.chosen.connect(on_button)
+	bar.hovered.connect(on_bar_hover)
 	board.tile_clicked.connect(on_tile)
 	board.tile_hovered.connect(on_hover)
 	var got: Variant = await ans.done
@@ -425,6 +444,9 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	if panel != null and end_value != null:
 		panel.end_turn_pressed.disconnect(on_end)
 	bar.chosen.disconnect(on_button)
+	bar.hovered.disconnect(on_bar_hover)
+	if info != null:
+		info.on_hover_info({}, 0.0)   ## 这一问结束就收：按钮都没了，详情不能还挂着
 	board.tile_clicked.disconnect(on_tile)
 	board.tile_hovered.disconnect(on_hover)
 	return got
@@ -500,7 +522,7 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 		"homing":
 			return CWData.fmt(CWData.MELANOMA_HOMING_COST)
 		"jump":
-			return CWData.fmt(CWData.METASTASIS_COST)
+			return CWData.fmt(game.tune.metastasis_cost)   ## 旋钮（默认 = PRD 1.0）
 		"mucus":
 			return "耗尽能量"
 	return ""

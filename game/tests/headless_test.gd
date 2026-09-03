@@ -55,6 +55,7 @@ func _run_all() -> void:
 	t_macro_purify_heal()
 	t_cancer_lineup()
 	await t_antibody_cap()
+	await t_jump_cap()
 	await t_heur_lifecare()
 	t_immune_win()
 	t_cancer_revive_blocked()
@@ -99,6 +100,8 @@ func _run_all() -> void:
 	await t_pause_and_teardown()
 	t_hand()
 	await t_hand_limit()
+	await t_hand_long_name()
+	await t_diff_info()
 	t_card_pool()
 	t_font_coverage()
 	t_card_name_fit()
@@ -978,6 +981,42 @@ func t_cancer_lineup() -> void:
 ##
 ## PRD 2026-09-01 删掉了「每世界回合最多 2 次」，现行 = 不限（旋钮 0）。手打 D 局里 MC 免疫一回合 7~10 发抗体
 ## 把所有暴露的癌细胞一次打光，是后期雪球的一根杠杆，所以把上限做回旋钮供扫描；默认值下行为逐位不变。
+## 小细胞肺癌【转移】的费用 / 每世界回合上限旋钮（2026-09-03 晚，Kevin 问「黑 + 小同场怎么治」的候选杠杆；默认 = 现行 PRD）
+func t_jump_cap() -> void:
+	print("[小细胞【转移】次数 / 费用旋钮]")
+	var g := bare_game()
+	var c := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i.ZERO, -1, CWData.CancerType.SCLC)
+	c["energy"] = 500
+	g.cells.append(c)
+	var jumps := func() -> Array:
+		var out := []
+		for o in g.actions.build_options(c):
+			if o["data"].get("act", "") == "jump":
+				out.append(o)
+		return out
+	check(g.tune.metastasis_max_per_round == 0 and g.tune.metastasis_cost == CWData.METASTASIS_COST,
+		"默认：不限次、1.0 一次（现行 PRD）")
+	var first: Array = jumps.call()
+	check(not first.is_empty() and first[0]["label"].contains("1.0"), "默认：有跃进选项、标价 1.0")
+	await g.actions.execute(c, first[0]["data"])
+	check(c["jump_used"] == 1 and not jumps.call().is_empty(), "默认：跳完计数 1，选项仍在（不限次）")
+	g.tune.metastasis_max_per_round = 1
+	check(jumps.call().is_empty(), "上限 1：本回合已跳过 → 选项消失")
+	var to: Vector2i = g.actions._jump_targets(c)[0]
+	check(not g.actions._is_jump_legal_now(c, to), "上限 1：提交时复验同样拒绝（选项与谓词共用一份）")
+	g.world._reset_round_flags()
+	check(c["jump_used"] == 0 and not jumps.call().is_empty(), "S 阶段重置 → 选项回来")
+	g.tune.metastasis_cost = 15
+	check(jumps.call()[0]["label"].contains("1.5"), "费用旋钮 1.5 进标价")
+	## 计数随 cells 进快照：推演里跳过的回滚后不会漏回主线
+	var snap := g.snapshot()
+	await g.actions.execute(c, jumps.call()[0]["data"])
+	check(c["jump_used"] == 1, "跳一次计数 1")
+	g.restore(snap)
+	check(g.cells[0]["jump_used"] == 0, "restore 回到 0（restore 换了 cells 数组，旧引用不算）")
+	g.dispose()
+
+
 func t_antibody_cap() -> void:
 	print("[抗体次数上限旋钮]")
 	var g := bare_game()
@@ -1888,6 +1927,10 @@ func t_hover_info() -> void:
 	pg.tiles[cand]["tissue"] = CWData.Tissue.HEALTHY
 	check(str(CWTileInfo.describe(pg, cand, 5, "迁移")).contains("回合末压迫"),
 		"压迫行：迁移候选格也出（这才是「移过去会挨多少」）")
+	check(not str(CWTileInfo.describe(pg, cand, 12, "移动")).contains("压迫"),
+		"压迫行：癌方的移动候选格不出 —— 压迫只扣免疫细胞（2026-09-03 Kevin 截图）")
+	check(str(CWTileInfo.describe(pg, mid, 12, "移动")).contains("回合末压迫"),
+		"压迫行：癌方选目标时若那格站着免疫细胞，仍然出（说的是那个免疫细胞会挨多少）")
 	check(CWTileInfo.describe(g, empty_tile, 10, "移动")[1]["text"] == "移动耗能 1.0",
 		"癌方用「移动」不用「迁移」")
 	check(with_cost[1]["color"] == CWStyle.IMMUNE,
@@ -3760,6 +3803,107 @@ func t_step_atomic() -> void:
 
 
 # ---- 手牌上限 8：抽卡选项消失、骨髓不发卡、卡名按露出宽度截断 ----
+## 分化提问里悬停种类按钮 → 浮该细胞种类的详情（2026-09-03 Kevin 要的）
+func t_diff_info() -> void:
+	print("[分化提问悬停细胞详情]")
+	var max_w := CWCardInfo.W - CWCardInfo.PAD_H * 2.0
+	var missing: Array = []
+	var toolong: Array = []
+	for t in [CWData.ImmuneType.B_CELL, CWData.ImmuneType.T_CELL, CWData.ImmuneType.MACRO, CWData.ImmuneType.DENDRITIC]:
+		var d := CWCardInfo.describe_type(t)
+		if d["lines"].is_empty():
+			missing.append(CWData.IMMUNE_TYPE_NAMES[t])
+		for l in d["lines"]:
+			if CWStyle.FONT.get_string_size(l, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x > max_w:
+				toolong.append(l)
+		check(d["name"] == CWData.IMMUNE_TYPE_NAMES[t] and d["kind"] == "【分化】", "%s：名字 + 【分化】" % d["name"])
+	check(missing.is_empty() and toolong.is_empty(), "四种细胞都有 PRD 原文、折行后没有超宽（%s %s）" % [str(missing), str(toolong)])
+	check(CWCardInfo.describe_type(CWData.ImmuneType.BASIC)["lines"].is_empty(), "未分化没有文案，不崩")
+	var b_lines: PackedStringArray = CWCardInfo.describe_type(CWData.ImmuneType.B_CELL)["lines"]
+	check(b_lines[0].begins_with("【抗体】") and b_lines.size() >= 3, "B细胞：【抗体】起头、列表项各占一行（%d 行）" % b_lines.size())
+	## 询问桥：分化的子选项条目带 info，别的不带
+	var br := CWUIBridge.new()
+	var e := br._sub_entry("differentiate", { "act": "differentiate", "type": CWData.ImmuneType.MACRO })
+	check(e["title"] == "巨噬细胞" and e.has("info") and e["info"]["name"] == "巨噬细胞", "分化条目：标题种类名 + info")
+	check(not br._sub_entry("lyse", { "act": "lyse", "purge": true }).has("info"), "裂解条目不带 info")
+	## 行动栏：悬停信号进 / 出，按钮位置
+	var bar := CWActionBar.new()
+	root.add_child(bar)
+	await process_frame
+	var got: Array = []
+	bar.hovered.connect(func(i: int) -> void: got.append(i))
+	bar.show_bar("选择分化的目标", "", [e, { "title": "取消", "cost": "右键 / Esc" }], 1)
+	await process_frame
+	bar._set_hot(0)
+	bar._set_hot(0)
+	bar._set_hot(-1)
+	check(got == [0, -1], "行动栏悬停信号：进 0、出 -1，重复不重发（%s）" % str(got))
+	check(bar.button_x(0) >= CWActionBar.PROMPT_RECT.position.x and bar.button_x(9) == CWActionBar.PROMPT_RECT.position.x,
+		"button_x：按钮画布 x；越界下标退回提示条左缘")
+	## 详情框：等 0.25s 浮出、贴按钮左缘、压在行动栏上方；靠右不越界；离开即收
+	var box := CWCardInfo.new()
+	root.add_child(box)
+	await process_frame
+	box.on_hover_info(CWCardInfo.describe_type(CWData.ImmuneType.T_CELL), 400.0)
+	box.sync(0.1, CWData.Faction.IMMUNE, false)
+	check(not box.visible, "0.1s 还没浮出（与手牌详情同 0.25s）")
+	box.sync(0.2, CWData.Faction.IMMUNE, false)
+	check(box.visible and box.position.x == 400.0
+		and box.position.y + box.size.y <= CWActionBar.PROMPT_RECT.position.y, "0.25s 后浮出：贴按钮左缘、框底在行动栏上方")
+	box.on_hover_info(CWCardInfo.describe_type(CWData.ImmuneType.DENDRITIC), 900.0)
+	check(not box.visible, "换按钮：先收起重新计时")
+	box.sync(0.3, CWData.Faction.IMMUNE, false)
+	check(box.visible and box.position.x + CWCardInfo.W <= CWView.screen_size().x - 8.0, "靠右的按钮：框往左让、不越出画布")
+	box.on_hover_info({}, 0.0)
+	check(not box.visible, "离开按钮：立刻收起")
+	box.on_hover("补体级联")
+	box.sync(0.3, CWData.Faction.IMMUNE, false)
+	check(box.visible and box.position.x == CWHand.LEFT, "之后手牌悬停照常走原来的摆位")
+	bar.queue_free()
+	box.queue_free()
+
+
+## 7 字以上的卡名折两行（2026-09-03 Kevin 报「自分泌生存信号」抬起后尾字被裁）
+func t_hand_long_name() -> void:
+	print("[手牌长卡名折行]")
+	check(CWHand.name_lines("补体级联") == PackedStringArray(["补体级联"]), "6 字以内不折")
+	check(CWHand.name_lines("BCL-2抗凋亡") == PackedStringArray(["BCL-2抗凋亡"]), "8 字但 ASCII 窄、只有 55px → 不折（按像素宽判）")
+	check(CWHand.name_lines("穿孔素-颗粒酶") == PackedStringArray(["穿孔素-", "颗粒酶"]), "穿孔素-颗粒酶 66px → 折")
+	check(CWHand.name_lines("自分泌生存信号") == PackedStringArray(["自分泌", "生存信号"]), "自分泌 / 生存信号")
+	check(CWHand.name_lines("抗体依赖细胞毒作用") == PackedStringArray(["抗体依赖", "细胞毒作用"]), "抗体依赖 / 细胞毒作用")
+	check(CWHand.name_lines("一二三四五六七") == PackedStringArray(["一二三四", "五六七"]), "没登记的按前半折")
+	var unregistered: Array[String] = []
+	var bad: Array[String] = []
+	for cname in CWCardData.CARDS:
+		var lines := CWHand.name_lines(cname)
+		for line in lines:
+			if CWStyle.FONT.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x \
+					+ CWHand.NAME_PAD > CWHand.CARD.x:
+				bad.append(cname)
+		if lines.size() > 1 and not CWHand.NAME_BREAK.has(cname):
+			unregistered.append(cname)
+		if "".join(lines) != cname:
+			bad.append(cname + "(漏字)")
+	check(unregistered.is_empty(), "卡池里一行放不下的名字都登记了折行点（%s）" % str(unregistered))
+	check(bad.is_empty(), "每一行都放得进 72px 卡宽、拼回去还是全名（%s）" % str(bad))
+	var hand := CWHand.new()
+	root.add_child(hand)
+	hand.sync(2, Vector2.INF, PackedStringArray(["自分泌生存信号", "补体级联"]))
+	await process_frame
+	var long_card: Control = hand._cards[0]
+	var short_card: Control = hand._cards[1]
+	check((long_card.get_node("Name") as Label).text == "自分泌" and (long_card.get_node("Name2") as Label).text == "生存信号"
+		and long_card.get_node("Name2").visible, "长名两行：Name / Name2")
+	check(long_card.get_node("Name").position.y == CWHand.NAME_Y2[0]
+		and long_card.get_node("Name2").position.y == CWHand.NAME_Y2[1], "两行顶边 2 / 13")
+	var strip: float = CWView.screen_size().y - CWHand.REST_TOP
+	check(CWHand.NAME_Y2[1] + CWStyle.FONT.get_ascent(CWStyle.SIZE_LABEL) <= strip,
+		"第二行基线也落在静止露出的 %d px 里" % int(strip))
+	check((short_card.get_node("Name") as Label).text == "补体级联" and not short_card.get_node("Name2").visible
+		and short_card.get_node("Name").position.y == CWHand.NAME_Y, "短名单行、位置不变")
+	hand.queue_free()
+
+
 func t_hand_limit() -> void:
 	print("[手牌上限]")
 	check(CWData.HAND_MAX == 8, "上限是 8（团队 2026-08-28 定，PRD 没有这条）")
@@ -3894,7 +4038,7 @@ func t_card_name_fit() -> void:
 	check(clipped, "每张卡都开了 clip_contents —— 最后一张没有邻居遮挡，不裁会溢到棋盘上")
 	var texts: Array[String] = []
 	for c in hand._cards:
-		texts.append((c.get_node("Name") as Label).text)
+		texts.append((c.get_node("Name") as Label).text + (c.get_node("Name2") as Label).text)
 	check(texts == ["补体级联", "抗体依赖细胞毒作用", "缺氧适应"],
 		"名字一律写全，不加省略号（%s）" % str(texts))
 	## 露出宽度：前面的被压成 _stagger()，最后一张露整卡宽
@@ -7669,6 +7813,21 @@ func t_online_panel() -> void:
 	esc.pressed = true
 	p.handle_input(esc)
 	check(fired == ["cancel"] and not p.visible, "连接页 Esc 退回主菜单")
+	## 「返回主菜单」链接（2026-09-03 Kevin 要的）：与 Esc 同一条路
+	p.open()
+	var back: Label = null
+	for n in p.find_children("*", "Label", true, false):
+		if (n as Label).text == "返回主菜单" and n.is_visible_in_tree():
+			back = n
+	check(back != null, "连接页有「返回主菜单」链接")
+	if back != null:
+		check(is_equal_approx(back.position.y, CWOnlinePanel.BTN_Y + 5) and back.position.x > CWOnlinePanel.SLOT_X + 182,
+			"链接在「进入大厅」按钮右侧、与建房页「返回大厅」同一行")
+		var click := InputEventMouseButton.new()
+		click.button_index = MOUSE_BUTTON_LEFT
+		click.pressed = true
+		back.gui_input.emit(click)
+		check(fired == ["cancel", "cancel"] and not p.visible, "点链接：面板隐藏、主菜单淡回（同 Esc）")
 	## 建房页拨值（键盘模型同配置面板）
 	p.visible = true
 	p._show_page(CWOnlinePanel.Page.CREATE)
@@ -7689,14 +7848,20 @@ func t_online_panel() -> void:
 	p._lobby_sel = 0
 	p._repaint_lobby()
 	check(p._lobby_labels[0].text.begins_with("ABCDEF") and p._lobby_labels[0].text.contains("2/4"),
-		"大厅一行：房间码 · 房主 · 人数 · 计时（%s）" % p._lobby_labels[0].text)
+		"大厅一行：房间码 · 人数 · 计时 · 房主（%s）" % p._lobby_labels[0].text)
 	check(p._lobby_labels[1].text == "", "多余的行留空")
+	## 长昵称（12 字）不能把行撑出面板：定宽 400 + 省略号，房主名在最后、被截的只是它（2026-09-03 排版体检）
+	p._lobby_rooms = [{ "code": "ABCDEF", "host": "十二个字的昵称一二三四五", "players": 6, "seated": 6, "humans": 1, "timer": 90, "state": "waiting" }]
+	p._repaint_lobby()
+	check(p._lobby_labels[0].clip_text and p._lobby_labels[0].size.x == CWOnlinePanel.LIST_W
+		and p._lobby_labels[0].text.ends_with("的房间") and p._lobby_labels[0].text.begins_with("ABCDEF  6 人局 6/6  90 秒"),
+		"长昵称的房间行：定宽 %d + 省略号，房间码 / 人数 / 计时在前（%s）" % [int(CWOnlinePanel.LIST_W), p._lobby_labels[0].text])
 	## 等待室渲染：喂一份 room 视图
 	var seats := []
 	for i in 4:
 		seats.append({ "kind": "", "nick": "", "ready": false, "tier": "", "online": false, "faction": CWData.FACTION_ORDER[4][i] })
 	seats[0] = { "kind": "human", "nick": "甲", "ready": true, "tier": "", "online": true, "faction": CWData.Faction.IMMUNE }
-	seats[1] = { "kind": "human", "nick": "乙", "ready": false, "tier": "", "online": false, "faction": CWData.Faction.CANCER }
+	seats[1] = { "kind": "human", "nick": "十二个字的昵称一二三四五", "ready": false, "tier": "", "online": false, "faction": CWData.Faction.CANCER }
 	seats[3] = { "kind": "ai", "nick": "AI·专家", "ready": false, "tier": "mc", "online": false, "faction": CWData.Faction.CANCER }
 	p.client.room = { "t": "room", "code": "ABCDEF", "public": true, "timer": 60, "players": 4, "state": "waiting",
 		"host": "甲", "you_host": true, "you_seat": 0, "token": "x", "seats": seats, "members": ["甲", "乙", "丙"], "games": 0 }
@@ -7711,7 +7876,14 @@ func t_online_panel() -> void:
 	for c in p._seat_root.get_children():
 		if c is Label:
 			texts.append((c as Label).text)
-	check("甲（你）" in texts and "乙" in texts and "AI·专家" in texts and "离线" in texts, "席位行：昵称 / AI / 离线都画出来了")
+	check("甲（你）" in texts and "十二个字的昵称一二三四五" in texts and "AI·专家" in texts and "离线" in texts, "席位行：昵称 / AI / 离线都画出来了")
+	## 12 字昵称的席位名：定宽 + 省略号，别压到状态列（2026-09-03 排版体检）
+	var long_seat: Label = null
+	for c in p._seat_root.get_children():
+		if c is Label and (c as Label).text == "十二个字的昵称一二三四五":
+			long_seat = c
+	check(long_seat != null and long_seat.clip_text and long_seat.size.x == CWOnlinePanel.SEAT_NAME_W
+		and long_seat.text_overrun_behavior == TextServer.OVERRUN_TRIM_ELLIPSIS, "长昵称席位名：定宽 %d + 省略号" % int(CWOnlinePanel.SEAT_NAME_W))
 	check("新手AI" in texts and "专家AI" in texts and "撤掉" in texts and "踢出" in texts, "房主看得到放 AI / 撤掉 / 踢出")
 	p.client.room["you_host"] = false
 	p._repaint_room()
