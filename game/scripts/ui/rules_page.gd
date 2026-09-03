@@ -10,10 +10,11 @@
 class_name CWRulesPage
 extends Control
 
-const W := 660
+const W := 700
 const H := 470
 const PAD := 20
-const COL_W := 300     ## 两栏，各 300，中缝 20
+const COL_W := 320     ## 两栏，各 320，中缝 20（「E 阶段」那行 316px，300 放不下；2026-09-04）
+const COL_TOP := PAD + 44   ## 栏顶（标题 + 出处行之下）
 const TITLE_LINE := 24 ## 小节标题行高（20px 字）
 const LINE := 15       ## 正文行高（10px 字）
 const SECTION_GAP := 10
@@ -52,15 +53,17 @@ func handle_input(event: InputEvent) -> void:
 static func sections(tune: CWTuning = null) -> Array:
 	if tune == null:
 		tune = CWTuning.new()
+	## 点阵字库没有 ≥ - 这类数学符号（字形覆盖测试盯着），中文说法代替。
+	## 「连续 N 回合」那半句自己占一行：整句 470px，一行放不进栏宽，
+	## 曾经冲进右栏叠在「能量即生命」上（2026-09-04 Kevin 截图）。**每一行都得 ≤ COL_W**，回归量着
+	var win: Array = ["癌方：加权占地达到 %d（癌组织记 1、固化记 2）" % tune.cancer_win_weighted]
+	if tune.cancer_win_hold_rounds > 1:
+		win[0] += "，"
+		win.append("且连续 %d 个世界回合末都达标（首次达标只是警报）" % tune.cancer_win_hold_rounds)
+	win.append("免疫方：癌细胞全灭且无可复活的固化癌组织")
+	win.append("两条都在世界回合 E 的最后判；上限 %d 个世界回合" % CWData.LIMIT_ROUND)
 	return [
-		{ "title": "怎么赢", "lines": [
-			## 点阵字库没有 ≥ - 这类数学符号（字形覆盖测试盯着），中文说法代替
-			"癌方：加权占地达到 %d（癌组织记 1、固化记 2）" % tune.cancer_win_weighted
-				+ ("，且连续 %d 个世界回合末都达标（首次达标只是警报）" % tune.cancer_win_hold_rounds
-				if tune.cancer_win_hold_rounds > 1 else ""),
-			"免疫方：癌细胞全灭且无可复活的固化癌组织",
-			"两条都在世界回合 E 的最后判；上限 %d 个世界回合" % CWData.LIMIT_ROUND,
-		] },
+		{ "title": "怎么赢", "lines": win },
 		{ "title": "一个世界回合", "lines": [
 			"S 阶段：复活 → 免疫方【有氧呼吸】收入",
 			"玩家回合：按顺序行动，可连续行动到「结束回合」",
@@ -114,6 +117,24 @@ static func sections(tune: CWTuning = null) -> Array:
 	]
 
 
+## 分栏：小节按顺序塞左栏，放不下就整节起右栏。纯函数——回归用它钉「两栏都放得下」。
+## 返回 [{ "sections": [...], "height": 像素高 }]；正常只有两栏，出现第三栏就是内容超了
+static func columns(secs: Array, budget: float) -> Array:
+	var out: Array = [{ "sections": [], "height": 0.0 }]
+	for s in secs:
+		var need: float = TITLE_LINE + s["lines"].size() * LINE + SECTION_GAP
+		if out.back()["height"] + need > budget and not out.back()["sections"].is_empty():
+			out.append({ "sections": [], "height": 0.0 })
+		out.back()["sections"].append(s)
+		out.back()["height"] += need
+	return out
+
+
+## 一栏能有多高：栏顶到底部提示行之上
+static func column_budget() -> float:
+	return H - PAD - 20.0 - COL_TOP
+
+
 func _build() -> void:
 	var scrim := ColorRect.new()
 	scrim.color = Color(0, 0, 0, 0.55)
@@ -143,29 +164,28 @@ func _build() -> void:
 	src.position = Vector2(PAD, PAD + 12)
 	panel.add_child(src)
 
-	## 两栏铺小节：塞满左栏再起右栏（内容量是手工配平过的，正好两栏放下）
-	var top := PAD + 44.0
-	var limit := H - PAD - 20.0
-	var x := float(PAD)
-	var y := top
-	for s in sections():
-		var need: float = TITLE_LINE + s["lines"].size() * LINE + SECTION_GAP
-		if y + need > limit and x < COL_W:
-			x = PAD + COL_W + 20.0
-			y = top
-		var st := CWStyle.label(s["title"], CWStyle.SIZE_BODY, CWStyle.IMMUNE)
-		st.position = Vector2(x, y)
-		panel.add_child(st)
-		y += TITLE_LINE
-		for line in s["lines"]:
-			var l := CWStyle.label(line, CWStyle.SIZE_LABEL, CWStyle.TEXT)
-			l.position = Vector2(x, y + 2)
-			l.size = Vector2(COL_W, LINE)
-			l.clip_text = true
-			l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-			panel.add_child(l)
-			y += LINE
-		y += SECTION_GAP
+	## 两栏铺小节：塞满左栏再起右栏（内容量是手工配平过的，正好两栏放下；回归钉着）
+	var cols := columns(sections(), column_budget())
+	for ci in cols.size():
+		var x := PAD + ci * (COL_W + 20.0)
+		var y := float(COL_TOP)
+		for s in cols[ci]["sections"]:
+			var st := CWStyle.label(s["title"], CWStyle.SIZE_BODY, CWStyle.IMMUNE)
+			st.position = Vector2(x, y)
+			panel.add_child(st)
+			y += TITLE_LINE
+			for line in s["lines"]:
+				var l := CWStyle.label(line, CWStyle.SIZE_LABEL, CWStyle.TEXT)
+				## **先定裁切再定尺寸**：不裁切的 Label 最小宽 = 全文宽，先设 size 会被它撑开，
+				## 裁切等于没设，长行照样冲进右栏（2026-09-04 那张截图的直接原因）。
+				## 裁切只是兜底——行宽由回归钉在栏宽之内，玩家不该看到省略号
+				l.clip_text = true
+				l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+				l.position = Vector2(x, y + 2)
+				l.size = Vector2(COL_W, LINE)
+				panel.add_child(l)
+				y += LINE
+			y += SECTION_GAP
 
 	var hint := CWStyle.label("ESC / 右键 返回", CWStyle.SIZE_LABEL, CWStyle.TEXT_OFF)
 	hint.size = Vector2(W - PAD * 2, 14)

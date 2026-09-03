@@ -79,6 +79,7 @@ var _btn: Panel
 var _btn_rest: StyleBoxFlat
 var _btn_hot: StyleBoxFlat   ## 仅鼠标悬停：转白 + 白光（上浮在 _repaint 里挪位置）
 var _btn_hover := false
+var _back: Label             ## 「返回主菜单」链接：与 Esc 同一条路（2026-09-04 Kevin：两种配置页都要有鼠标出口）
 var _hot_arrow: Label = null ## 正被鼠标悬停的拨值箭头；null = 没有
 ## 最后动的是不是鼠标——按钮变白的裁判（见文件头的焦点权规则）
 var _mouse_led := false
@@ -113,8 +114,7 @@ func handle_input(event: InputEvent) -> void:
 			break
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
-		visible = false
-		cancelled.emit()
+		_cancel()
 	elif event.is_action_pressed("ui_down"):
 		_sel = mini(_sel + 1, _n_rows())
 		_repaint()
@@ -372,6 +372,23 @@ func _build_button() -> void:
 	text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	text.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_btn.add_child(text)
+	## 「返回主菜单」（2026-09-04 Kevin 要的，联机连接页已有同款）：按钮右侧 200、同一行；
+	## 悬停转白发光（和拨值箭头 / 联机链接同一套语言），点击走 Esc 那条路。自定义模式随按钮下移（_repaint）
+	_back = CWStyle.clickable_label(self, "返回主菜单", Vector2(SLOT_X + 200, BTN_Y + 5), _cancel)
+	_back.mouse_entered.connect(func() -> void: _link_hot(true))
+	_back.mouse_exited.connect(func() -> void: _link_hot(false))
+
+
+func _link_hot(hot: bool) -> void:
+	_back.add_theme_color_override("font_color", Color.WHITE if hot else CWStyle.TEXT_HI)
+	_back.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
+	_back.add_theme_constant_override("outline_size", 8 if hot else 0)
+
+
+## 收面板退回主菜单：Esc 与「返回主菜单」链接共用；主菜单收到 cancelled 后把自己淡回来
+func _cancel() -> void:
+	visible = false
+	cancelled.emit()
 
 
 ## 实心按钮的底：圆角 5（原型 .5cqw）；hot 版转白并带一圈白光
@@ -468,3 +485,4 @@ func _repaint() -> void:
 	var hot := _btn_hover if _mouse_led else _sel == n
 	_btn.add_theme_stylebox_override("panel", _btn_hot if hot else _btn_rest)
 	_btn.position = Vector2(SLOT_X, _btn_y() - (BTN_LIFT if hot else 0.0))
+	_back.position = Vector2(SLOT_X + 200, _btn_y() + 5)

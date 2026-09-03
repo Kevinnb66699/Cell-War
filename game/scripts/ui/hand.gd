@@ -136,6 +136,7 @@ func sync(count: int, from: Vector2 = Vector2.INF,
 	_names = names
 	_selected = -1     ## 手牌一变（打出/弃置/抽取）选中态就过时了，由桥重设
 	_drag = -1         ## 同理：张数一变下标就不作数了，正在拖的那张可能已经被 free 掉
+	var hovered_card: Control = _cards[_hovered] if _hovered >= 0 and _hovered < _cards.size() else null
 	## 倒着摘，前面的下标才不会被搅乱
 	for k in range(leaving.size() - 1, -1, -1):
 		var i: int = leaving[k]
@@ -150,6 +151,11 @@ func sync(count: int, from: Vector2 = Vector2.INF,
 		_dealing.erase(tail)
 		_tweens.erase(tail)
 		tail.queue_free()
+	## 悬停着的那张走了（打出 / 弃置）：离场的节点不会再发 mouse_exited，
+	## `card_hovered("")` 就永远不来，详情框一直挂着（2026-09-04 Kevin 截图）；
+	## 而且旧下标会落到左移过来的邻居上、把它抬起。这里替它报一次「没停在谁身上」
+	if _hovered >= 0 and (hovered_card == null or not _cards.has(hovered_card)):
+		_hover(-1)
 	while _cards.size() < count:
 		var card := _make_card()
 		_cards.append(card)
@@ -188,6 +194,7 @@ func clear() -> void:
 	_cards.clear()
 	_tweens.clear()
 	_dealing.clear()
+	_hovered = -1      ## 卡都没了，悬停下标也不作数（详情框由 CWMatch 拆局时自己收）
 	_hovered = -1
 	_selected = -1
 	_drag = -1

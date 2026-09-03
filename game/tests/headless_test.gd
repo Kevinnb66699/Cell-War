@@ -1766,6 +1766,19 @@ func t_config_panel() -> void:
 		and p.config()["faction"] == -1, "再次打开保留上次取值")
 	## 箭头定位固定；按钮变白按「最后动的设备」裁决（Kevin 8-30 终稿）：
 	## 键盘选到按钮=白；鼠标一旦介入按悬停算，直到下一次键盘按键夺回
+	## 「返回主菜单」链接（2026-09-04 Kevin：两种配置页都要有鼠标出口，同联机连接页）
+	var back: Label = p._back
+	check(back != null and back.text == "返回主菜单", "配置页有「返回主菜单」链接")
+	check(is_equal_approx(back.position.y, p._btn_y() + 5)
+		and back.position.x > CWConfigPanel.SLOT_X + CWConfigPanel.BTN_W,
+		"链接在「进入棋盘」按钮右侧、同一行")
+	var before := cancels.size()
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	back.gui_input.emit(click)
+	check(not p.visible and cancels.size() == before + 1, "点链接：收面板并发 cancelled（同 Esc）")
+	p.open()
 	check(p._arrows[0][1].position.x == CWConfigPanel.ARROW_R_X, "右箭头在固定位置")
 	p.handle_input(right)   ## 换一档，值文案长度变了
 	check(p._arrows[0][1].position.x == CWConfigPanel.ARROW_R_X, "换档后右箭头不挪窝")
@@ -2137,6 +2150,26 @@ func t_rules_page() -> void:
 	## sections() 用的是默认 CWTuning，这里只验固定文案的另一半确实受控于旋钮：
 	## 直接构造开旋钮的行文对比不可行（sections 内建 tune），改为验默认关。见上一条。
 
+	## 排版（2026-09-04 Kevin 截图：长行冲进右栏叠字）。**每一行都要放得进栏宽** ——
+	## 裁切只是兜底，玩家不该看到省略号
+	var wide: Array = []
+	for s4 in CWRulesPage.sections():
+		for line in s4["lines"]:
+			var w := CWStyle.FONT.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1,
+				CWStyle.SIZE_LABEL).x
+			if w > CWRulesPage.COL_W:
+				wide.append("%s：%d px" % [line, w])
+	check(wide.is_empty(), "每行都放得进栏宽 %d（超的：%s）" % [CWRulesPage.COL_W, str(wide)])
+	var cols := CWRulesPage.columns(CWRulesPage.sections(), CWRulesPage.column_budget())
+	check(cols.size() == 2, "内容正好铺两栏（实为 %d 栏）" % cols.size())
+	var overflow: Array = []
+	for c in cols:
+		if c["height"] > CWRulesPage.column_budget():
+			overflow.append(c["height"])
+	check(overflow.is_empty(), "两栏都没有超出可用高度 %d（超的：%s）"
+		% [CWRulesPage.column_budget(), str(overflow)])
+	check(CWRulesPage.PAD + CWRulesPage.COL_W * 2 + 20 + CWRulesPage.PAD <= CWRulesPage.W,
+		"两栏加中缝放得进面板宽 %d" % CWRulesPage.W)
 	## 页面开关
 	var page := CWRulesPage.new()
 	root.add_child(page)
@@ -6025,6 +6058,17 @@ func t_hand_index_after_exit() -> void:
 	dc.double_click = true
 	last.gui_input.emit(dc)
 	check(got[0] == "免疫增援", "双击最右那张：打出的是它自己（得「%s」）" % got[0])
+	## 悬停着的那张被打出：离场的节点不再发 mouse_exited，得替它报一次空串，
+	## 否则详情框一直挂在屏幕上（2026-09-04 Kevin 截图）
+	var hovers: Array = []
+	hand.card_hovered.connect(func(n: String) -> void: hovers.append(n))
+	hand._cards[0].mouse_entered.emit()
+	check(hand._hovered == 0 and hovers == ["乳酸酸化"], "悬停第 0 张：报卡名")
+	hand.sync(1, Vector2.INF, PackedStringArray(["免疫增援"]))   ## 停着的那张走了
+	check(hand._hovered == -1 and hovers == ["乳酸酸化", ""], "它离场：报空串，详情框收起")
+	hand._cards[0].mouse_entered.emit()
+	hand.clear()
+	check(hand._hovered == -1, "clear() 也复位悬停下标")
 	hand.queue_free()
 
 
