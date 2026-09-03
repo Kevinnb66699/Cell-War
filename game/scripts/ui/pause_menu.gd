@@ -64,6 +64,8 @@ var can_save := Callable()
 ## 对局进行中才响应 Esc。主菜单上按 Esc 不该弹出「暂停」——
 ## 由 CWMatch 在 start() / teardown() 里翻。
 var active := false
+## 联机局：没有「保存并退出」（状态在服务器），「返回主菜单」改成「离开房间」（本局交给 AI 代打）
+var online := false
 
 var _rules: CWRulesPage        ## 对局内的规则速查/设置：主菜单同款页面类的另一份实例
 var _settings: CWSettingsPage
@@ -170,16 +172,34 @@ func _show_page(confirm_id: String) -> void:
 	if confirm_id == "":
 		_title.text = "暂停"
 		_hint.text = ""
-		_rebuild(ITEMS)
+		_rebuild(items())
 		return
-	for item in ITEMS:
+	for item in items():
 		if item["id"] == confirm_id:
 			_title.text = item["confirm"]
 			break
-	_hint.text = CONFIRM_HINT
+	_hint.text = "离开后本局由 AI 代打" if online and confirm_id == "menu" else CONFIRM_HINT
 	_rebuild(CONFIRM_ITEMS)
 	_selected = 1                 ## 确认页默认停在「取消」上，别让回车顺手就确认了
 	_repaint()
+
+
+## 此刻的主列表：本地对局 = ITEMS；联机局去掉「保存并退出」、「返回主菜单」换成「离开房间」
+func items() -> Array:
+	if not online:
+		return ITEMS
+	var out: Array = []
+	for item in ITEMS:
+		if item["id"] == "save_quit":
+			continue
+		if item["id"] == "menu":
+			var leave: Dictionary = item.duplicate()
+			leave["text"] = "离开房间"
+			leave["confirm"] = "离开房间？"
+			out.append(leave)
+		else:
+			out.append(item)
+	return out
 
 
 ## 这一项此刻可不可用：静态 enabled 之外，「保存并退出」还要问 can_save

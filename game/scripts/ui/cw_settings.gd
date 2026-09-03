@@ -1,4 +1,4 @@
-## cw_settings.gd —— 玩家偏好：AI 行动节奏 + 掷骰动画开关
+## cw_settings.gd —— 玩家偏好：AI 行动节奏 + 掷骰动画开关 + 联机的昵称与服务器地址
 ##
 ## 只放**现在真的有东西可设**的两项。音量等 BGM/音效进了工程再加 ——
 ## 没有的东西不做空壳设置项（设置页里一排灰按钮比没有设置页更糟）。
@@ -13,6 +13,9 @@ const AI_DELAY_NAMES := ["快", "标准", "慢"]
 
 static var ai_delay_ms := 220
 static var dice_anim := true      ## false = 掷骰不演动画，结算说明照常弹
+## 联机面板上一次填的昵称与服务器地址（host:port）。默认地址是团队那台服务器，内网自测时改掉
+static var nick := ""
+static var server := "%s:%d" % [CWNet.DEFAULT_HOST, CWNet.DEFAULT_PORT]
 static var _loaded := false
 
 
@@ -25,10 +28,14 @@ static func load_prefs() -> void:
 		return   ## 第一次运行没有文件，用默认值
 	ai_delay_ms = int(cfg.get_value("play", "ai_delay_ms", ai_delay_ms))
 	dice_anim = bool(cfg.get_value("play", "dice_anim", dice_anim))
+	nick = str(cfg.get_value("online", "nick", nick))
+	server = str(cfg.get_value("online", "server", server))
 
 
 static func save_prefs() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("play", "ai_delay_ms", ai_delay_ms)
 	cfg.set_value("play", "dice_anim", dice_anim)
+	cfg.set_value("online", "nick", nick)
+	cfg.set_value("online", "server", server)
 	cfg.save(PATH)

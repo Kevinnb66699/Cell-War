@@ -108,6 +108,14 @@ func _run_all() -> void:
 	await t_quit_confirm()
 	await t_roll_hook()
 	t_dice()
+	await t_net_protocol()
+	await t_net_lobby()
+	await t_net_game()
+	await t_net_reconnect()
+	await t_net_timeout()
+	await t_net_drain()
+	await t_online_panel()
+	await t_match_online()
 	print("")
 	if fails == 0:
 		print("✔ 全部测试通过（%d 项检查）" % checks)
@@ -3330,13 +3338,14 @@ func t_main_menu() -> void:
 	# 键盘上下必须跳过灰掉的项。mask 由 enabled_mask() 现算（「继续对局」随存档
 	# 有无变化），这里直接摆两种局面验静态跳转规则。
 	var last: int = menu_script.ITEMS.size() - 1
-	var no_save := [true, false, true, true, true]
-	check(menu_script.next_enabled(0, 1, no_save) == 2, "无档：往下跳过「继续对局」落到规则速查")
-	check(menu_script.next_enabled(2, 1, no_save) == 3, "规则速查再往下是设置")
-	check(menu_script.next_enabled(last, -1, no_save) == 3, "键盘往上一步到设置")
+	## 六项：开始 / 联机 / 继续 / 规则 / 设置 / 退出（2026-09-02 加「联机对战」）
+	var no_save := [true, true, false, true, true, true]
+	check(menu_script.next_enabled(1, 1, no_save) == 3, "无档：从「联机对战」往下跳过「继续对局」落到规则速查")
+	check(menu_script.next_enabled(3, 1, no_save) == 4, "规则速查再往下是设置")
+	check(menu_script.next_enabled(last, -1, no_save) == 4, "键盘往上一步到设置")
 	check(menu_script.next_enabled(0, -1, no_save) == 0, "到顶了就停在原地，不绕回")
-	var with_save := [true, true, true, true, true]
-	check(menu_script.next_enabled(0, 1, with_save) == 1, "有档：往下落到「继续对局」")
+	var with_save := [true, true, true, true, true, true]
+	check(menu_script.next_enabled(1, 1, with_save) == 2, "有档：从「联机对战」往下落到「继续对局」")
 
 	var grid_ok := true
 	var bad := ""
@@ -6989,3 +6998,590 @@ func _t_damage_required() -> void:
 	g4.add_mod(t4, "DNA损伤修复", 1, "")
 	check(g4.immune_hit(t4, 10, den, false) == 0, "§9.9 对应来源的护盾认得出卡牌伤害")
 	g4.dispose()
+
+
+# ============ 联机（M1 通路：协议 / 大厅 / 对局 / 重连 / 计时 / 排空）============
+## 服务器与客户端都在本进程里、走 127.0.0.1 真实 WebSocket，靠 _net_pump 每帧轮转。
+## 无头主循环约 145 帧/秒（2026-09-02 实测），一次往返 2~3 帧。
+
+const NET_HOST := "127.0.0.1"
+
+
+func _net_server() -> CWNetServer:
+	var s := CWNetServer.new()
+	s.quiet = true
+	for p in range(18611, 18660):
+		if s.start(p, NET_HOST) == OK:
+			return s
+	return null
+
+
+func _net_client(nick: String, bot: bool = true) -> CWNetClient:
+	var c := CWNetClient.new()
+	c.nick = nick
+	if bot:
+		c.autoplay = CWHeuristicBridge.new()
+	return c
+
+
+## 服务器和客户端一起转，直到 until 成立；返回是否成立
+func _net_pump(srv: CWNetServer, clients: Array, until: Callable, max_frames := 9000) -> bool:
+	for i in max_frames:
+		srv.poll()
+		for c in clients:
+			await c.poll()
+		if until.call():
+			return true
+		await process_frame
+	return false
+
+
+func _net_pump_ms(srv: CWNetServer, clients: Array, ms: int) -> void:
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < ms:
+		srv.poll()
+		for c in clients:
+			await c.poll()
+		await process_frame
+
+
+func _net_count(c: CWNetClient, t: String) -> int:
+	var n := 0
+	for m in c.inbox:
+		if m["t"] == t:
+			n += 1
+	return n
+
+
+func _net_last(c: CWNetClient, t: String) -> Dictionary:
+	for i in range(c.inbox.size() - 1, -1, -1):
+		if c.inbox[i]["t"] == t:
+			return c.inbox[i]
+	return {}
+
+
+## 两个客户端连上、拿到 welcome
+func _net_pair(srv: CWNetServer, a: CWNetClient, b: CWNetClient) -> bool:
+	var url := "ws://%s:%d" % [NET_HOST, srv.port]
+	a.connect_to(url, a.nick)
+	b.connect_to(url, b.nick)
+	return await _net_pump(srv, [a, b], func() -> bool: return a.client_id >= 0 and b.client_id >= 0)
+
+
+## 甲建房、乙加入、各坐 0/1 号席并准备
+func _net_room(srv: CWNetServer, a: CWNetClient, b: CWNetClient, players: int, timer: int, seed_value: int) -> bool:
+	a.create_room(players, timer, true, seed_value)
+	if not await _net_pump(srv, [a, b], func() -> bool: return a.code != ""):
+		return false
+	b.join(a.code)
+	if not await _net_pump(srv, [a, b], func() -> bool: return b.code == a.code):
+		return false
+	a.sit(0)
+	b.sit(1)
+	if not await _net_pump(srv, [a, b], func() -> bool: return a.my_seat == 0 and b.my_seat == 1):
+		return false
+	a.ready()
+	b.ready()
+	return await _net_pump(srv, [a, b],
+		func() -> bool: return a.room["seats"][0]["ready"] and a.room["seats"][1]["ready"])
+
+
+func t_net_protocol() -> void:
+	## 编解码往返：Vector2i 键、嵌套字典、PackedStringArray
+	var msg := { "t": "state", "tiles": { Vector2i(1, -2): { "a": 1 } },
+		"logs": PackedStringArray(["甲", "乙"]), "at": Vector2i(3, 4) }
+	var bytes := CWNet.encode(msg)
+	check(CWNet.decode(bytes) == msg, "报文编解码往返一致（含 Vector2i 键）")
+	check(CWNet.decode(PackedByteArray([1, 2, 3])).is_empty(), "残报文解成空字典")
+	var junk := bytes.duplicate()
+	junk.encode_u32(0, 99999999)
+	check(CWNet.decode(junk).is_empty(), "原长超上限拒收")
+	check(CWNet.decode(CWNet.encode({ "x": 1 })).is_empty(), "没有 t 的报文拒收")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3
+	var code := CWNet.make_code(rng)
+	check(code.length() == 6 and not ("0" in code or "O" in code or "1" in code or "I" in code), "房间码 6 位、无 0/O/1/I")
+	check(CWNet.clean_nick("  ") == "玩家" and CWNet.clean_nick("一二三四五六七八九十一二三").length() == CWNet.NICK_MAX, "昵称清洗")
+
+	## 视角快照：rng 去掉、他人手牌占位、他人的待决选项去掉；影子对局 restore 后能用
+	var g := make_game(2, 5)
+	await run_setup(g)
+	g.cell_of(0)["hand"] = ["炎症趋化", "细胞毒性增强"]
+	g.cell_of(1)["hand"] = ["BCL-2抗凋亡"]
+	g._pending = { "kind": "action", "pid": 1, "prompt": "选择行动", "options": [{ "label": "打出【BCL-2抗凋亡】", "data": {} }] }
+	var v0 := CWNet.view_for(g, 0)
+	var v1 := CWNet.view_for(g, 1)
+	check(v0["rng"] == 0 and v1["rng"] == 0, "视角快照不带 rng")
+	check(v0["cells"][0]["hand"] == ["炎症趋化", "细胞毒性增强"] and v0["cells"][1]["hand"] == [CWNet.HIDDEN_CARD],
+		"自己的手牌可见，别人的只剩同长度占位")
+	check(v1["cells"][0]["hand"] == [CWNet.HIDDEN_CARD, CWNet.HIDDEN_CARD] and v1["cells"][1]["hand"] == ["BCL-2抗凋亡"],
+		"换到另一席看也一样")
+	check(v0["pending"]["options"].is_empty() and v1["pending"]["options"].size() == 1, "别人的待决选项（会写出他的牌名）不发")
+	check(CWNet.view_for(g, -1)["cells"][0]["hand"] == [CWNet.HIDDEN_CARD, CWNet.HIDDEN_CARD], "没坐下的人什么手牌都看不到")
+	var sh := CWGame.new()
+	sh.init(CWData.FACTION_ORDER[2], 0)
+	sh.restore(v0)
+	check(sh.tiles == g.tiles and sh.round_no == g.round_no and sh.cell_of(0)["pos"] == g.cell_of(0)["pos"],
+		"影子对局 restore 视角快照后棋盘一致")
+	check(CWNet.encode(v0).size() < 6000, "一份视角快照压缩后不到 6 KB（实测约 2 KB）")
+	sh.dispose()
+	## 日志替身
+	var n0: int = g.logs.size()
+	g.log_msg("　癌症A 经由「基因表达」抽到【技能】BCL-2抗凋亡（手牌 1）", 1, "　癌症A 经由「基因表达」抽到 1 张卡（手牌 1）")
+	g.log_msg("大家都看得到")
+	check(CWNet.logs_for(g, 0, n0) == PackedStringArray(["　癌症A 经由「基因表达」抽到 1 张卡（手牌 1）", "大家都看得到"]),
+		"别的席位看到替身")
+	check(CWNet.logs_for(g, 1, n0)[0].contains("BCL-2抗凋亡"), "本人看到原文")
+	check(g.log_secret.size() == g.logs.size() and g.log_public.size() == g.logs.size(), "三列日志始终平行")
+	g.dispose()
+
+
+func t_net_lobby() -> void:
+	var srv := _net_server()
+	check(srv != null, "联机：本机起服务器")
+	if srv == null:
+		return
+	var url := "ws://%s:%d" % [NET_HOST, srv.port]
+	var a := _net_client("甲")
+	var b := _net_client("乙")
+	check(await _net_pair(srv, a, b), "两个客户端握手拿到 welcome")
+	## 版本不符
+	var old := _net_client("旧")
+	old.hello_version = 999
+	old.connect_to(url, "旧")
+	var ok := await _net_pump(srv, [a, b, old],
+		func() -> bool: return old.last_error.get("code", "") == "version" and old.status == "closed")
+	check(ok, "旧版本客户端收到 version 错误并被断开")
+	## 建房 / 大厅 / 加入
+	a.create_room(4, 60, true, 0)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return a.code != "" and a.room.get("you_host", false))
+	check(ok and a.code.length() == 6, "建房拿到 6 位房间码，建房者是房主")
+	b.list_rooms()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return _net_count(b, "lobby") > 0)
+	var lobby := _net_last(b, "lobby")
+	check(ok and lobby["rooms"].size() == 1 and lobby["rooms"][0]["code"] == a.code and lobby["rooms"][0]["host"] == "甲",
+		"公开房进大厅列表")
+	b.join("nope")
+	ok = await _net_pump(srv, [a, b], func() -> bool: return b.last_error.get("code", "") == "no_room")
+	check(ok, "加入不存在的房间：no_room")
+	b.join(a.code.to_lower())
+	ok = await _net_pump(srv, [a, b], func() -> bool: return b.code == a.code)
+	check(ok, "房间码不分大小写，加入后拿到 room 视图")
+	check(b.room["members"].size() == 2 and not b.room["you_host"] and b.room["host"] == "甲", "成员两人，加入者不是房主")
+	## 坐席
+	a.sit(0)
+	b.sit(0)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return a.my_seat == 0 and b.last_error.get("code", "") == "seat_taken")
+	check(ok, "同一席位第二个人坐不下：seat_taken")
+	check(a.token != "" and b.token == "", "坐下的人拿到重连令牌，没坐的没有")
+	b.sit(3)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return b.my_seat == 3)
+	check(ok, "乙坐 3 号席")
+	b.sit(1)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return b.my_seat == 1 and a.room["seats"][3]["kind"] == "")
+	check(ok, "换席：旧席位空出来")
+	check(a.room["seats"][1]["faction"] == CWData.Faction.CANCER and a.room["seats"][0]["faction"] == CWData.Faction.IMMUNE,
+		"席位视图带阵营")
+	## 开局条件
+	b.start()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return b.last_error.get("code", "") == "not_host")
+	check(ok, "非房主不能开局")
+	a.start()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return a.last_error.get("code", "") == "seat_empty")
+	check(ok, "有空席不能开局")
+	b.set_ai(2, "heur")
+	ok = await _net_pump(srv, [a, b], func() -> bool: return b.last_error.get("code", "") == "not_host")
+	check(ok, "非房主不能放 AI")
+	a.set_ai(2, "heur")
+	a.set_ai(3, "mc")
+	ok = await _net_pump(srv, [a, b],
+		func() -> bool: return a.room["seats"][2]["kind"] == "ai" and a.room["seats"][3]["tier"] == "mc")
+	check(ok and a.room["seats"][3]["nick"] == "AI·专家", "房主给两个空席放新手/专家 AI")
+	a.set_ai(1, "heur")
+	ok = await _net_pump(srv, [a, b], func() -> bool: return a.last_error.get("code", "") == "seat_taken")
+	check(ok, "有人坐着的席位不能放 AI")
+	a.set_ai(3, "")
+	ok = await _net_pump(srv, [a, b], func() -> bool: return a.room["seats"][3]["kind"] == "")
+	check(ok, "AI 席可以撤掉")
+	a.set_ai(3, "mc")
+	a.start()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return a.last_error.get("code", "") == "not_ready")
+	check(ok, "有人没准备不能开局")
+	## 踢人 + 房主转移 + 空房
+	a.kick(1)
+	ok = await _net_pump(srv, [a, b],
+		func() -> bool: return b.last_error.get("code", "") == "kicked" and a.room["seats"][1]["kind"] == "")
+	check(ok and b.code == "", "房主踢人：被踢者出房、席位空出")
+	b.join(a.code)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return b.code == a.code)
+	a.leave()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return a.code == "" and b.room.get("you_host", false))
+	check(ok and b.room["seats"][0]["kind"] == "", "房主离开：房主转给下一位，离开者席位空出")
+	b.leave()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return b.code == "")
+	check(ok and srv.rooms.size() == 1 and srv.rooms.values()[0].empty_since > 0, "空房先保留")
+	srv.idle_ms = 0
+	await _net_pump_ms(srv, [a, b], 30)
+	check(srv.rooms.is_empty(), "空房超过限时自动关")
+	srv.idle_ms = CWNet.ROOM_IDLE_MS
+	## 频率限制
+	for i in 40:
+		a.list_rooms()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return a.status == "closed")
+	check(ok, "一秒 40 条非作答报文被断开")
+	## 握手超时：连一个不应答的保留地址（TEST-NET-3），WebSocketPeer 会一直 CONNECTING，客户端自己到点报断
+	var hole := CWNetClient.new()
+	hole.connect_timeout_ms = 400
+	var dropped: Array = []
+	hole.disconnected.connect(func(code: int, reason: String) -> void: dropped.append([code, reason]))
+	hole.connect_to("ws://203.0.113.1:8611", "黑洞")
+	ok = await _net_pump(srv, [hole], func() -> bool: return hole.status == "closed")
+	check(ok and dropped.size() == 1 and dropped[0][1] == "connect timeout", "握手 0.4 秒没通 → 客户端自己判连接失败（%s）" % str(dropped))
+	hole.dispose()
+	b.dispose()
+	old.dispose()
+	srv.stop()
+
+
+func t_net_game() -> void:
+	var srv := _net_server()
+	if srv == null:
+		return
+	var a := _net_client("甲")
+	var b := _net_client("乙")
+	await _net_pair(srv, a, b)
+	a.create_room(4, 0, false, 20260902)
+	await _net_pump(srv, [a, b], func() -> bool: return a.code != "")
+	b.list_rooms()
+	await _net_pump(srv, [a, b], func() -> bool: return _net_count(b, "lobby") > 0)
+	check(_net_last(b, "lobby")["rooms"].is_empty(), "私密房不进大厅列表")
+	b.join(a.code)
+	await _net_pump(srv, [a, b], func() -> bool: return b.code == a.code)
+	a.sit(0)
+	b.sit(1)
+	await _net_pump(srv, [a, b], func() -> bool: return a.my_seat == 0 and b.my_seat == 1)
+	a.set_ai(2, "heur")
+	a.set_ai(3, "mc")
+	a.ready()
+	b.ready()
+	var ok := await _net_pump(srv, [a, b], func() -> bool:
+		return a.room["seats"][3]["kind"] == "ai" and a.room["seats"][0]["ready"] and a.room["seats"][1]["ready"])
+	check(ok, "4 人房：两位真人 + 新手 AI + 专家 AI 就绪")
+	## 每收到一份 state 都核：restore 后再 snapshot 与原文一致、别人的手牌只见占位
+	var tally := { "states": 0, "view_bad": 0, "leak": 0 }
+	var audit := func(m: Dictionary) -> void:
+		if m["t"] != "state":
+			return
+		tally["states"] += 1
+		var snap := a.shadow.snapshot()
+		for k in m["view"]:
+			if k != "rng" and snap[k] != m["view"][k]:
+				tally["view_bad"] += 1
+		for c in m["view"]["cells"]:
+			if c["pid"] != 0:
+				for card in c["hand"]:
+					if card != CWNet.HIDDEN_CARD:
+						tally["leak"] += 1
+	a.message.connect(audit)
+	a.start()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return a.room.get("state", "") == "playing")
+	check(ok, "开局：房间进入 playing")
+	var room: CWRoom = srv.rooms[a.code]
+	room.bridge.mc.rollouts = 1     ## 专家席只要走到 MC 那条路，别在测试里烧时间
+	room.bridge.mc.horizon = 3
+	ok = await _net_pump(srv, [a, b], func() -> bool: return not a.game_over.is_empty() and not b.game_over.is_empty(), 20000)
+	check(ok, "两个机器人客户端 + 两个 AI 席打完整局（%d 份状态）" % tally["states"])
+	check(tally["view_bad"] == 0, "每份视角快照 restore 后再 snapshot 与原文一致")
+	check(tally["leak"] == 0, "别人的手牌只见占位")
+	check(a.game_over.get("winner", -9) == b.game_over.get("winner", -8), "双方收到同一个胜方")
+	check(a.shadow.winner == a.game_over["winner"] and a.shadow.round_no == a.game_over["round"], "终局快照与 game_over 一致")
+	check(room.state == CWRoom.State.WAITING and room.games_played == 1 and room.game == null, "局末房间回到等待中、对局已释放")
+	check(a.room["state"] == "waiting" and not a.room["seats"][0]["ready"], "局末准备状态清零")
+	## 日志：己方牌名可见，对方的被替换
+	var mine := 0
+	var leak := 0
+	var stand_in := 0
+	for line in a.logs:
+		if "抽到 1 张卡" in line:
+			stand_in += 1
+		elif "抽到【" in line and not ("【事件】" in line or "世界事件" in line):
+			if "免疫A(" in line:
+				mine += 1
+			else:
+				leak += 1
+	check(leak == 0 and stand_in > 0, "对局日志：别人抽到的牌名被隐去（%d 行替身）" % stand_in)
+	check(mine > 0, "自己抽到的牌名照常可见")
+	check(a.logs.size() > 100 and b.logs.size() == a.logs.size(), "双方日志行数一致（%d 行）" % a.logs.size())
+	check(_net_count(a, "roll") > 0 and _net_count(a, "roll") == _net_count(b, "roll"), "掷骰演出广播给双方各一次")
+	## 同一房间再开一局
+	a.ready()
+	b.ready()
+	await _net_pump(srv, [a, b], func() -> bool: return a.room["seats"][1]["ready"] and a.room["seats"][0]["ready"])
+	a.start()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return room.games_played == 2, 20000)
+	check(ok, "同一房间连开第二局")
+	## 对局中所有人离开 → 中止、关房
+	a.ready()
+	b.ready()
+	await _net_pump(srv, [a, b], func() -> bool: return a.room["seats"][1]["ready"] and a.room["seats"][0]["ready"])
+	a.start()
+	await _net_pump(srv, [a, b], func() -> bool: return room.state == CWRoom.State.PLAYING)
+	a.leave()
+	b.leave()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return srv.rooms.is_empty() and a.code == "" and b.code == "")
+	check(ok and room.game == null, "对局中所有人离开 → 中止对局、关房、释放")
+	a.message.disconnect(audit)     ## lambda 捕获了 a：不断开就成环
+	a.dispose()
+	b.dispose()
+	srv.stop()
+
+
+func t_net_reconnect() -> void:
+	var srv := _net_server()
+	if srv == null:
+		return
+	var url := "ws://%s:%d" % [NET_HOST, srv.port]
+	var a := _net_client("甲")
+	var b := _net_client("乙", false)      ## 乙手动作答，好卡在询问上
+	await _net_pair(srv, a, b)
+	check(await _net_room(srv, a, b, 2, 30, 777), "重连场景：2 人房、30 秒计时")
+	a.start()
+	var ok := await _net_pump(srv, [a, b], func() -> bool: return not b.pending_ask.is_empty())
+	check(ok, "乙收到自己的询问")
+	if not ok:
+		b.dispose(); srv.stop(); return       ## 泵超时（压满时的握手慢）：别在空询问上级联崩
+	var room: CWRoom = srv.rooms[a.code]
+	var ask_id: int = b.pending_ask["ask_id"]
+	var token: String = b.token
+	var code: String = b.code
+	check(b.pending_ask["left_ms"] > 25000 and b.pending_ask["left_ms"] <= 30000, "询问带剩余时间")
+	b.dispose()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return not room.seats[1]["online"])
+	check(ok, "乙断线：席位标离线、昵称保留（%s）" % room.seats[1]["nick"])
+	check(room.state == CWRoom.State.PLAYING and not room._ask.is_empty() and room._ask["ask_id"] == ask_id,
+		"有计时的房间：询问悬着等他回来")
+	var bad := _net_client("丙", false)
+	bad.connect_to(url, "丙", code, "deadbeef")
+	ok = await _net_pump(srv, [a, bad], func() -> bool: return bad.last_error.get("code", "") == "bad_token")
+	check(ok, "错误令牌：bad_token")
+	var b2 := _net_client("乙", false)
+	b2.connect_to(url, "乙", code, token)
+	ok = await _net_pump(srv, [a, b2], func() -> bool: return not b2.pending_ask.is_empty())
+	check(ok and b2.pending_ask["ask_id"] == ask_id and b2.my_seat == 1, "凭令牌重连：席位接回、同一次询问重发")
+	check(room.seats[1]["online"] and b2.shadow != null and b2.logs.size() > 0 and b2.token == token,
+		"重连拿到完整日志与当前状态")
+	b2.autoplay = CWHeuristicBridge.new()
+	ok = await _net_pump(srv, [a, b2], func() -> bool: return not a.game_over.is_empty() and not b2.game_over.is_empty(), 20000)
+	check(ok, "重连后打完整局")
+	## 无计时的房间：断线的询问立刻代打；对方一直不回来也能打完
+	var c := _net_client("丁", false)
+	c.connect_to(url, "丁")
+	await _net_pump(srv, [a, c], func() -> bool: return c.client_id >= 0)
+	check(await _net_room(srv, a, c, 2, 0, 778), "第二个房间：不计时")
+	a.start()
+	await _net_pump(srv, [a, c], func() -> bool: return not c.pending_ask.is_empty())
+	var room2: CWRoom = srv.rooms[a.code]
+	var id2: int = c.pending_ask["ask_id"]
+	c.dispose()
+	ok = await _net_pump(srv, [a, c], func() -> bool: return not room2.seats[1]["online"])
+	check(ok and (room2._ask.is_empty() or room2._ask["ask_id"] != id2), "无计时：断线的询问立刻由启发式代打")
+	ok = await _net_pump(srv, [a], func() -> bool: return room2.games_played == 1, 20000)
+	check(ok and not a.game_over.is_empty(), "对方一直离线，甲一个人也能把这局打完（离线席位由 AI 代打）")
+	a.dispose()
+	b2.dispose()
+	bad.dispose()
+	c.dispose()
+	srv.stop()
+
+
+func t_net_timeout() -> void:
+	var srv := _net_server()
+	if srv == null:
+		return
+	var a := _net_client("甲")
+	var b := _net_client("乙", false)
+	await _net_pair(srv, a, b)
+	check(await _net_room(srv, a, b, 2, 1, 55), "计时场景：2 人房、1 秒计时")
+	a.start()
+	var ok := await _net_pump(srv, [a, b], func() -> bool: return not b.pending_ask.is_empty())
+	var room: CWRoom = srv.rooms[a.code]
+	var id0: int = b.pending_ask["ask_id"]
+	check(ok and b.pending_ask["left_ms"] <= 1000, "1 秒计时的询问")
+	await _net_pump_ms(srv, [a, b], 1500)
+	check(room.timeouts >= 1 and (b.pending_ask.is_empty() or b.pending_ask["ask_id"] != id0),
+		"到点：服务器按启发式代打，对局继续（代打 %d 次）" % room.timeouts)
+	b.autoplay = CWHeuristicBridge.new()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return room.games_played == 1, 20000)
+	check(ok, "之后正常作答打完")
+	a.dispose()
+	b.dispose()
+	srv.stop()
+
+
+func t_net_drain() -> void:
+	var srv := _net_server()
+	if srv == null:
+		return
+	var url := "ws://%s:%d" % [NET_HOST, srv.port]
+	var a := _net_client("甲")
+	var b := _net_client("乙")
+	await _net_pair(srv, a, b)
+	check(await _net_room(srv, a, b, 2, 0, 99), "排空场景：2 人房")
+	srv.drain = true
+	a.start()
+	var ok := await _net_pump(srv, [a, b], func() -> bool: return a.last_error.get("code", "") == "maintenance")
+	check(ok, "维护中不能开局")
+	srv.drain = false
+	a.start()
+	var room: CWRoom = srv.rooms[a.code]
+	await _net_pump(srv, [a, b], func() -> bool: return room.state == CWRoom.State.PLAYING)
+	srv.drain = true
+	var fired := [false]
+	srv.drained.connect(func() -> void: fired[0] = true)
+	var c := _net_client("丙")
+	c.connect_to(url, "丙")
+	ok = await _net_pump(srv, [a, b, c], func() -> bool: return c.client_id >= 0)
+	check(ok and _net_last(c, "welcome")["maintenance"], "握手就告诉新来的：维护中")
+	c.create_room(2, 0, true)
+	ok = await _net_pump(srv, [a, b, c], func() -> bool: return c.last_error.get("code", "") == "maintenance")
+	check(ok, "维护中不能建房")
+	c.list_rooms()
+	ok = await _net_pump(srv, [a, b, c], func() -> bool: return _net_count(c, "lobby") > 0)
+	check(ok and _net_last(c, "lobby")["maintenance"], "大厅列表带维护标记")
+	check(not fired[0], "有对局在打，排空不结束")
+	ok = await _net_pump(srv, [a, b, c], func() -> bool: return room.games_played == 1, 20000)
+	srv.poll()
+	check(ok and fired[0], "最后一局打完 → drained")
+	a.dispose()
+	b.dispose()
+	c.dispose()
+	srv.stop()
+
+
+# ============ 联机界面（M2）：联机面板四页、影子对局驱动的对局界面 ============
+
+func t_online_panel() -> void:
+	print("[联机面板]")
+	var p := CWOnlinePanel.new()
+	root.add_child(p)
+	await process_frame
+	var fired: Array = []
+	p.cancelled.connect(func() -> void: fired.append("cancel"))
+	p.open()
+	check(p.visible and p.page == CWOnlinePanel.Page.CONNECT, "open() 落在连接页")
+	check(p._addr.text.contains(":"), "服务器地址默认填好（%s）" % p._addr.text)
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	p.handle_input(esc)
+	check(fired == ["cancel"] and not p.visible, "连接页 Esc 退回主菜单")
+	## 建房页拨值（键盘模型同配置面板）
+	p.visible = true
+	p._show_page(CWOnlinePanel.Page.CREATE)
+	check(p._title.text == "建房" and p._create["players"] == 4 and p._create["timer"] == 60 and p._create["public"],
+		"建房页默认 4 人 · 60 秒 · 公开")
+	p._cycle_create(0, 1)
+	p._cycle_create(1, 1)
+	p._cycle_create(2, 1)
+	check(p._create["players"] == 6 and p._create["timer"] == 90 and not p._create["public"], "三行各拨一格：6 人 · 90 秒 · 私密")
+	check(p._create_value_text(2).contains("私密") and p._create_value_text(1) == "90 秒", "值文案跟着走")
+	p._cycle_create(1, 1)
+	check(p._create["timer"] == 0 and p._create_value_text(1) == "不限", "计时拨到头是「不限」")
+	## 大厅列表渲染（不连服务器：直接喂视图）
+	p.client = CWNetClient.new()
+	p._show_page(CWOnlinePanel.Page.LOBBY)
+	check(p._lobby_labels[0].text.contains("暂无"), "没有公开房时第一行写「暂无」")
+	p._lobby_rooms = [{ "code": "ABCDEF", "host": "甲", "players": 4, "seated": 2, "humans": 1, "timer": 60, "state": "waiting" }]
+	p._lobby_sel = 0
+	p._repaint_lobby()
+	check(p._lobby_labels[0].text.begins_with("ABCDEF") and p._lobby_labels[0].text.contains("2/4"),
+		"大厅一行：房间码 · 房主 · 人数 · 计时（%s）" % p._lobby_labels[0].text)
+	check(p._lobby_labels[1].text == "", "多余的行留空")
+	## 等待室渲染：喂一份 room 视图
+	var seats := []
+	for i in 4:
+		seats.append({ "kind": "", "nick": "", "ready": false, "tier": "", "online": false, "faction": CWData.FACTION_ORDER[4][i] })
+	seats[0] = { "kind": "human", "nick": "甲", "ready": true, "tier": "", "online": true, "faction": CWData.Faction.IMMUNE }
+	seats[1] = { "kind": "human", "nick": "乙", "ready": false, "tier": "", "online": false, "faction": CWData.Faction.CANCER }
+	seats[3] = { "kind": "ai", "nick": "AI·专家", "ready": false, "tier": "mc", "online": false, "faction": CWData.Faction.CANCER }
+	p.client.room = { "t": "room", "code": "ABCDEF", "public": true, "timer": 60, "players": 4, "state": "waiting",
+		"host": "甲", "you_host": true, "you_seat": 0, "token": "x", "seats": seats, "members": ["甲", "乙", "丙"], "games": 0 }
+	p.client.code = "ABCDEF"
+	p.client.my_seat = 0
+	p._show_page(CWOnlinePanel.Page.ROOM)
+	check(p._title.text == "房间 ABCDEF" and p._sub.text.contains("公开") and p._sub.text.contains("60 秒"), "等待室标题与副标题")
+	check(p._ready_text.text == "取消准备" and p._start_btn.visible and p._stand_link.visible, "已准备的房主：按钮是「取消准备」，「开局」可见")
+	check(p._status.text.contains("空席"), "有空席时状态行提示（%s）" % p._status.text)
+	check(p._members_label.text.contains("丙") and not p._members_label.text.contains("甲"), "未入座的人单列")
+	var texts: Array = []
+	for c in p._seat_root.get_children():
+		if c is Label:
+			texts.append((c as Label).text)
+	check("甲（你）" in texts and "乙" in texts and "AI·专家" in texts and "离线" in texts, "席位行：昵称 / AI / 离线都画出来了")
+	check("新手AI" in texts and "专家AI" in texts and "撤掉" in texts and "踢出" in texts, "房主看得到放 AI / 撤掉 / 踢出")
+	p.client.room["you_host"] = false
+	p._repaint_room()
+	texts = []
+	for c in p._seat_root.get_children():
+		if c is Label:
+			texts.append((c as Label).text)
+	check(not ("踢出" in texts) and not p._start_btn.visible, "非房主没有踢人和开局")
+	check(CWOnlinePanel.seat_label(0, CWData.Faction.IMMUNE) == "免疫A" and CWOnlinePanel.seat_label(3, CWData.Faction.CANCER) == "癌症B"
+		and CWOnlinePanel.seat_label(4, CWData.Faction.IMMUNE) == "免疫C", "席位名按阵营各自编号")
+	## 开局 → 顺序播放模式 → 第一份状态到了才 match_started
+	var started: Array = []
+	p.match_started.connect(func(_c: CWNetClient) -> void: started.append(true))
+	p.client.room["state"] = "playing"
+	p.client.room["you_seat"] = 0
+	p._on_message(p.client.room)
+	check(p.client.sequenced and started.is_empty(), "房间进入 playing：对局流开始排队，但还没进棋盘")
+	p._on_message({ "t": "state", "view": {}, "logs": [], "turn": 0, "hash": "", "game": 0 })
+	check(started.size() == 1 and not p.visible and p.in_match, "第一份状态到了：面板藏起来、通知 main.gd 进棋盘")
+	p.client.dispose()
+	p.client = null
+	p.queue_free()
+
+
+## 影子对局驱动的对局界面：真服务器 + 界面客户端，第一问（落子）通过现有的桥弹出来、点格子作答
+func t_match_online() -> void:
+	print("[联机对局界面]")
+	var srv := _net_server()
+	if srv == null:
+		return
+	var a := _net_client("甲", false)
+	var b := _net_client("乙")
+	await _net_pair(srv, a, b)
+	check(await _net_room(srv, a, b, 2, 0, 20260903), "2 人房就绪")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.get_node("Match")
+	var bar: CWActionBar = main_scene.get_node("Match/UI/ActionBar")
+	var board: Node2D = main_scene.get_node("Board")
+	a.sequenced = true           ## CWOnlinePanel 在收到 room(playing) 时做的事
+	a.start()
+	var ok := await _net_pump(srv, [a, b], func() -> bool:
+		return not a.stream.is_empty() and a.stream[0]["t"] == "state")
+	check(ok, "开局后第一份状态排进了 stream")
+	m.start_online(a)
+	check(m.online and m.game == a.shadow and m.bridge.human_pids == [0] and not m.bridge.enabled,
+		"联机模式：影子对局 + 只服务我这一席的界面桥")
+	check(m.settle.online and m.pause_menu.online, "结算屏与暂停菜单切到联机文案")
+	check(not m.can_save_now(), "联机局不能存档")
+	ok = await _net_pump(srv, [a, b], func() -> bool: return bar.visible and not m.bridge.marks.is_empty())
+	check(ok, "第一问（落子）通过界面桥弹出：提示栏出现、候选格高亮 %d 格" % m.bridge.marks.size())
+	check(m.net_hud.seconds_left() == -1, "不计时的房间不显示倒计时")
+	var pick: Vector2i = m.bridge.marks.keys()[0]
+	var states0: int = _net_count(a, "state")
+	board.tile_clicked.emit(pick)
+	ok = await _net_pump(srv, [a, b], func() -> bool:
+		return _net_count(a, "state") > states0 and a.shadow.cells.size() >= 1)
+	check(ok and a.shadow.cells.size() >= 1 and a.shadow.cells[0]["pos"] == pick,
+		"点格子 → 答案发到服务器 → 新状态回来，细胞落在点的那格")
+	check(m.panel.net_seats.size() == 2, "右侧竖条拿到席位表")
+	m.teardown()
+	check(not m.online and m.game == null and a.shadow != null, "拆局：退出联机模式，影子对局留给客户端")
+	main_scene.queue_free()
+	a.dispose()
+	b.dispose()
+	srv.stop()

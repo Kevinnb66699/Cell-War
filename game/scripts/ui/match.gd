@@ -38,9 +38,9 @@ signal finished(winner: int)
 @export var autostart := false
 
 ## 此刻能不能存档：引擎只在 pending 边界有完整快照（CWSave 的写入条件）。
-## 暂停菜单拿它决定「保存并退出」亮不亮。
+## 暂停菜单拿它决定「保存并退出」亮不亮。联机局不写本地存档（状态在服务器，掉线凭令牌重连）。
 func can_save_now() -> bool:
-	return game != null and not game._pending.is_empty() and not game.is_over()
+	return game != null and not online and not game._pending.is_empty() and not game.is_over()
 
 ## 固化癌组织的色标。硬化外壳的美术还没有，但**固化格必须能一眼认出来**——
 ## 【裂解】和癌方【复活】都只对它生效，看不出来就没法玩。压暗一档是临时手段。
@@ -85,6 +85,14 @@ const BREATH_FRAMES := 6
 
 var game: CWGame
 var bridge: CWUIBridge
+## 联机模式（docs/联机设计 §七）：game 是客户端的影子对局（只读、由服务器的视角快照 restore），
+## 桥仍是 CWUIBridge，但询问与演出由 _net_loop 从 client.stream 里按顺序取出来驱动，
+## 引擎不在本机跑。start_online() 进入，teardown() 退出。
+var online := false
+var net_hud: CWNetHud
+var _client: CWNetClient
+var _loop_id := 0        ## 每次 start_online / teardown 递增：旧的 _net_loop 看到号变了就退出
+var _ask_serial := 0     ## 每收到一次询问递增：作答时核对，服务器代打后重问的旧答案不发
 
 @onready var board: Node2D = get_node(board_path)
 @onready var camera: Camera2D = get_node(camera_path)
@@ -156,6 +164,10 @@ func _ready() -> void:
 		ui.add_child(_log_hint)
 		ui.move_child(_log_hint, _tile_info.get_index())
 		_log_hint.pressed.connect(func() -> void: _log_panel.toggle())
+		## 联机的倒计时与断线遮罩，同层
+		net_hud = CWNetHud.new()
+		ui.add_child(net_hud)
+		ui.move_child(net_hud, _tile_info.get_index())
 		ui.visible = false
 	if autostart:
 		CWView.apply(camera, board, CWView.GAME_ZOOM, CWView.GAME_LOOK_AT, CWView.GAME_ANCHOR)
@@ -165,6 +177,58 @@ func _ready() -> void:
 ## snap 非空 = 从存档继续：装配完把快照原样放回去，run_game 会把存档那一刻
 ## 待决的询问重新问出来（恢复点必然是 pending 边界，CWSave 只在那儿写得出档）。
 func start(snap: Dictionary = {}) -> void:
+	_prepare_ui()
+	game = CWGame.new()
+	game.init(CWData.FACTION_ORDER[player_count],
+		match_seed if match_seed != 0 else int(Time.get_unix_time_from_system()))
+	if not snap.is_empty():
+		game.restore(snap)   ## rng 状态也在快照里，init 用的种子随之作废
+	_wire_bridge(ai_smart)
+	## 同一个桥对象注册给所有玩家：人类那几位走界面，其余走 AI，
+	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。
+	for pid in game.order:
+		game.bridges[pid] = bridge
+	_run()
+
+
+## 联机：影子对局来自客户端，桥只服务我这一席；询问与演出由 _net_loop 驱动。
+## 调用前 client 已进入顺序播放模式且第一份状态已排在 stream 里（CWOnlinePanel 保证）。
+func start_online(p_client: CWNetClient) -> void:
+	_prepare_ui()
+	online = true
+	_client = p_client
+	_loop_id += 1
+	_ask_serial += 1
+	while not _client.stream.is_empty() and _client.stream[0]["t"] == "state":
+		_client.apply_now(_client.stream.pop_front())   ## 先让第一份状态生效，影子对局才存在
+	if _client.shadow == null:
+		_client.shadow = CWGame.new()
+		_client.shadow.init(CWData.FACTION_ORDER[player_count], 0)
+	game = _client.shadow
+	player_count = game.players.size()
+	var seats: Array[int] = []
+	if _client.my_seat >= 0:
+		seats.append(_client.my_seat)
+	human_players = seats
+	_wire_bridge(false)
+	if pause_menu != null:
+		pause_menu.online = true
+	if settle != null:
+		settle.online = true
+	if net_hud != null:
+		net_hud.set_link("")
+		net_hud.stop_countdown()
+	_net_loop(_loop_id)
+
+
+func start_online_with_bloom(p_client: CWNetClient, seconds: float) -> void:
+	_opening = true
+	start_online(p_client)
+	await _play_bloom(seconds)
+
+
+## 开局前把上一局留下的东西还原、HUD 亮起来（start / start_online 共用）
+func _prepare_ui() -> void:
 	_fading = false
 	## 先杀上一局的淡出补间，再还原 alpha —— 顺序反了等于没改：
 	## 补间还活着的话，下一帧它会把刚设回 1.0 的 alpha 继续拉向 0。
@@ -194,11 +258,9 @@ func start(snap: Dictionary = {}) -> void:
 		_log_panel.active = true
 	if _log_hint != null:
 		_log_hint.visible = true
-	game = CWGame.new()
-	game.init(CWData.FACTION_ORDER[player_count],
-		match_seed if match_seed != 0 else int(Time.get_unix_time_from_system()))
-	if not snap.is_empty():
-		game.restore(snap)   ## rng 状态也在快照里，init 用的种子随之作废
+
+
+func _wire_bridge(smart: bool) -> void:
 	bridge = CWUIBridge.new()
 	bridge.game = game
 	bridge.board = board
@@ -209,17 +271,12 @@ func start(snap: Dictionary = {}) -> void:
 	bridge.camera = camera
 	bridge.hand = hand   ## 方案甲：打出/弃置手势从手牌抽屉来
 	bridge.human_pids = human_players
-	bridge.enabled = ai_smart    ## 「较强」= 蒙特卡洛推演（桥的基类），默认启发式
+	bridge.enabled = smart       ## 「较强」= 蒙特卡洛推演（桥的基类），默认启发式
 	## 真人档要有可预测的响应上限；预算按模拟 step 计，不受本机快慢影响。
-	bridge.max_sim_steps = 192 if ai_smart else 0
+	bridge.max_sim_steps = 192 if smart else 0
 	bridge.opening = _opening    ## 绽开演完前先不弹询问界面
 	bridge.delay_ms = CWSettings.ai_delay_ms
 	bridge.delay_node = self
-	## 同一个桥对象注册给所有玩家：人类那几位走界面，其余走 AI，
-	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。
-	for pid in game.order:
-		game.bridges[pid] = bridge
-	_run()
 
 
 ## 开场第二拍：初始癌组织从正中一格一格翻出来（团队定的三拍开场之二）。
@@ -236,6 +293,10 @@ func start_with_bloom(seconds: float) -> void:
 	## 守卫静默失效、绽开还没演完落子提示就弹了出来）。
 	_opening = true
 	start()
+	await _play_bloom(seconds)
+
+
+func _play_bloom(seconds: float) -> void:
 	var order := _bloom_order()
 	for c in order:
 		_bloom[c] = true
@@ -268,6 +329,65 @@ func _run() -> void:
 	finished.emit(winner)
 
 
+## 联机：按服务器发来的顺序消费对局流。演出（掷骰）要等播完再让下一条生效，
+## 所以 state 不在收到时 restore、而是在这里轮到它时才 apply_now。
+func _net_loop(id: int) -> void:
+	while online and _loop_id == id and _client != null and is_inside_tree():
+		if _client.stream.is_empty():
+			_sync_link()
+			await get_tree().process_frame
+			continue
+		var m: Dictionary = _client.stream.pop_front()
+		match m["t"]:
+			"state":
+				_client.apply_now(m)
+			"roll":
+				if bridge != null:
+					await bridge.show_roll(m["reason"], m["value"], m["sides"], m["pid"], m["at"])
+			"result":
+				if bridge != null:
+					bridge.show_result(m["text"], m["at"])
+			"notice":
+				if bridge != null:
+					bridge.show_notice(m["text"])
+			"ask":
+				_serve_ask(m)
+			"game_over":
+				_client.apply_now(m)
+				if online and _loop_id == id:
+					finished.emit(int(m["winner"]))
+				return
+
+
+## 一次询问：交给现有的界面桥，答完把下标发回服务器。不 await 它 —— 玩家在想的时候，
+## 对局流里的其它条目照常处理。服务器代打后重问的旧一问：先 abort 收掉界面，
+## 旧协程醒来发现序号变了就丢弃答案。
+func _serve_ask(m: Dictionary) -> void:
+	if bridge == null:
+		return
+	_ask_serial += 1
+	var my := _ask_serial
+	bridge.abort()
+	if net_hud != null:
+		net_hud.start_countdown(int(m.get("left_ms", -1)))
+	var idx: int = await bridge.ask(m["req"])
+	if _ask_serial != my or not online or _client == null or game == null:
+		return
+	if net_hud != null:
+		net_hud.stop_countdown()
+	_client.answer(int(m["ask_id"]), idx)
+
+
+## 断线遮罩与席位状态跟着客户端走
+func _sync_link() -> void:
+	if _client == null:
+		return
+	if net_hud != null:
+		net_hud.set_link("" if _client.status == "open" else "连接断开，正在重连…")
+	if panel != null:
+		panel.net_seats = _client.room.get("seats", [])
+
+
 ## 返场淡出：让棋盘上的东西**淡着消失**，而不是啪地不见（团队 2026-08-27 反馈）。
 ## 真正的拆解由 teardown() 在淡完之后做 —— 这里只管演。
 ##
@@ -276,7 +396,8 @@ func _run() -> void:
 func fade_out(seconds: float) -> void:
 	if game == null or _fading:
 		return
-	game.aborted = true
+	if not online:
+		game.aborted = true     ## 联机的影子对局没有引擎在跑，也不归本节点收摊
 	if bridge != null:
 		bridge.abort()
 	_fading = true
@@ -301,6 +422,21 @@ func fade_out(seconds: float) -> void:
 ## 不擦干净的话上一局的癌组织和细胞会留在菜单背景里。
 func teardown() -> void:
 	_fading = false
+	_loop_id += 1            ## 联机：让 _net_loop 退出
+	if online:
+		## 影子对局属于客户端（回到等待室还要用），这里只放手不销毁
+		if bridge != null:
+			bridge.abort()
+		game = null
+		online = false
+		_client = null
+		if net_hud != null:
+			net_hud.stop_countdown()
+			net_hud.set_link("")
+		if pause_menu != null:
+			pause_menu.online = false
+		if settle != null:
+			settle.online = false
 	if game != null:
 		## 顺序要紧：先让引擎收摊、再唤醒卡住的询问（它会同步一路展开回来），
 		## **最后**才 dispose。反过来的话展开途中会碰到已经置空的模块。
@@ -372,6 +508,8 @@ func _process(delta: float) -> void:
 	_animate_breath(delta)
 	_sync_hand()
 	if panel != null:
+		if online and _client != null:
+			panel.net_seats = _client.room.get("seats", [])
 		panel.refresh(game)
 	if _tile_info != null:
 		## 迁移态的每格耗能由询问桥转手过来（它那边是从引擎算好的选项里抄的）。

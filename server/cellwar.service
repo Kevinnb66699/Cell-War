@@ -1,0 +1,16 @@
+[Unit]
+Description=Cell War online server (WebSocket, TCP 8611)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/cellwar
+Environment=HOME=/home/ubuntu
+ExecStart=/home/ubuntu/cellwar/run.sh
+Restart=always
+RestartSec=2
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

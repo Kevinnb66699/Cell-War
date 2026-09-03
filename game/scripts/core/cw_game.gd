@@ -36,6 +36,10 @@ var cancer_win_streak := 0  # 癌方加权占地连续达标的回合末次数�
 var rng := RandomNumberGenerator.new()
 var bridges := {}          # player_id -> CWBridge
 var logs: PackedStringArray = []
+## 与 logs 平行的两列（联机视角用）：这一行只对哪个席位可见（-1 = 公开），以及给其他席位看的公开替身。
+## 目前唯一的秘密行是「谁抽到了哪张牌」（cw_cards.draw）——别人只该看到「抽到 1 张卡」。
+var log_secret: PackedInt32Array = []
+var log_public: PackedStringArray = []
 var tune := CWTuning.new() # 平衡旋钮；默认即规则原文，init() 之前可整体替换
 ## 推演静音：蒙特卡洛桥「快照→试走→回滚」期间置 true——那些「未来」没有真的发生，
 ## 日志既不落 logs 也不广播。不进快照：它描述的是谁在看，不是对局状态。
@@ -830,10 +834,13 @@ func check_cancer_win() -> void:
 
 
 # ---- 日志 / 调试 ----
-func log_msg(msg: String) -> void:
+## secret_pid >= 0 表示这行只有该席位能看原文，其他席位看 public_msg（联机视角；本地对局照常全显）。
+func log_msg(msg: String, secret_pid: int = -1, public_msg: String = "") -> void:
 	if sim_quiet:
 		return
 	logs.append(msg)
+	log_secret.append(secret_pid)
+	log_public.append(msg if secret_pid < 0 else public_msg)
 	log_line.emit(msg)
 
 
