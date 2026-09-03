@@ -132,7 +132,7 @@ func sync(count: int, from: Vector2 = Vector2.INF,
 		_tweens.erase(tail)
 		tail.queue_free()
 	while _cards.size() < count:
-		var card := _make_card(_cards.size())
+		var card := _make_card()
 		_cards.append(card)
 		add_child(card)
 		if from == Vector2.INF:
@@ -296,7 +296,11 @@ func exposed_width(i: int) -> float:
 
 # ============ 卡面 ============
 
-func _make_card(index: int) -> Control:
+## **卡上的事件按「此刻的下标」找卡，不捕获创建时的下标**（2026-09-03 队友报「最右侧卡牌无法突出显示」）：
+## `sync()` 会把打出 / 弃掉的那张从 `_cards` 中间摘走，后面的卡整体前移一位；闭包若记着创建时的下标，
+## 剩下的最后一张就会拿一个越界下标去 `_hover()`（谁也不抬），中间的卡则抬起右边的邻居，
+## 双击 / 拖动也会认错卡。`_cards.find(card)` 一次是 O(8)，不值得为它维护第二份下标。
+func _make_card() -> Control:
 	var card := Control.new()
 	card.size = CARD
 	## 名字写全不截断，靠这一条把溢出部分裁掉（理由见文件头）
@@ -338,6 +342,9 @@ func _make_card(index: int) -> Control:
 		var mb := ev as InputEventMouseButton
 		if mb == null or not mb.pressed:
 			return
+		var index := _cards.find(card)
+		if index < 0:
+			return   ## 正在飞走的卡（已摘出 _cards；它本来也不接点击）
 		## 只认双击（团队 2026-09-01）。单击**故意什么都不发**——
 		## 以前左键单击就打出，双击的第二下要特判「别再发一次单击」；
 		## 现在两条路都只在 double_click 上开口，那个特判自然没了。
@@ -358,8 +365,10 @@ func _make_card(index: int) -> Control:
 		elif mb.button_index == MOUSE_BUTTON_RIGHT:
 			_hint_exit(_name_at(index), Exit.DOWN)
 			discard_requested.emit(_name_at(index)))
-	card.mouse_entered.connect(func() -> void: _hover(index))
-	card.mouse_exited.connect(func() -> void: _hover(-1 if _hovered == index else _hovered))
+	card.mouse_entered.connect(func() -> void: _hover(_cards.find(card)))
+	card.mouse_exited.connect(func() -> void:
+		var index := _cards.find(card)
+		_hover(-1 if index >= 0 and _hovered == index else _hovered))
 	_paint(card, false)
 	return card
 

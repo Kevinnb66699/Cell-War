@@ -90,6 +90,7 @@ func _run_all() -> void:
 	await t_human_ask()
 	await t_hand_play()
 	await t_hand_exit()
+	t_hand_index_after_exit()
 	t_card_info()
 	await t_match_panel()
 	await t_settle_screen()
@@ -5830,6 +5831,34 @@ func t_hand_exit() -> void:
 ## 把某张卡的离场补间一口气推到底。
 ## **不等真实时间**：无头下每帧 delta 不确定，靠 await 帧数会时绿时红。
 ## custom_step 推完后回调也跑了（queue_free 是延迟的，本帧内节点仍然可读）。
+## 卡离开后剩下的卡下标前移，卡上的悬停 / 双击必须按「此刻的下标」找卡。
+## 2026-09-03 队友报「鼠标放在最右侧卡牌上不会突出显示」：旧代码的闭包记着创建时的下标，
+## 第 0 张打出后，最后一张拿越界下标去 _hover()，谁也不抬；中间的卡则抬起右边的邻居。
+func t_hand_index_after_exit() -> void:
+	print("[手牌下标：卡离开之后]")
+	var hand := CWHand.new()
+	root.add_child(hand)
+	hand.sync(3, Vector2.INF, PackedStringArray(["交叉呈递", "乳酸酸化", "免疫增援"]))
+	hand.sync(2, Vector2.INF, PackedStringArray(["乳酸酸化", "免疫增援"]))   ## 第 0 张走了，剩下两张各前移一位
+	var last: Control = hand._cards[1]
+	last.mouse_entered.emit()
+	check(hand._hovered == 1 and last.z_index == 100, "最右那张悬停：按现在的下标 1 抬起（旧代码用创建时的 2 → 越界、不抬）")
+	last.mouse_exited.emit()
+	check(hand._hovered == -1, "移开：复位")
+	hand._cards[0].mouse_entered.emit()
+	check(hand._hovered == 0 and hand._cards[0].z_index == 100, "左边那张悬停：下标 0 抬起、不再抬邻居")
+	hand._cards[0].mouse_exited.emit()
+	var got := [""]
+	hand.play_requested.connect(func(n: String) -> void: got[0] = n)
+	var dc := InputEventMouseButton.new()
+	dc.button_index = MOUSE_BUTTON_LEFT
+	dc.pressed = true
+	dc.double_click = true
+	last.gui_input.emit(dc)
+	check(got[0] == "免疫增援", "双击最右那张：打出的是它自己（得「%s」）" % got[0])
+	hand.queue_free()
+
+
 func finish_exit(hand: CWHand, card: Control) -> void:
 	var tw: Tween = hand._tweens.get(card)
 	if tw == null or not tw.is_valid():
