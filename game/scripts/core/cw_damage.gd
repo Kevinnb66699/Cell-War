@@ -22,7 +22,7 @@ enum Kind { ATTACK, CELL_SKILL, CARD, WORLD, REFLECT, SELF }
 enum Tag {
 	IMMUNE,          ## 免疫方造成
 	CANCER,          ## 癌症方造成
-	ATTACK,          ## 是「攻击」——树突【各司其职】减半、巨噬【吞噬】吸血只认它
+	ATTACK,          ## 是「攻击」——巨噬【吞噬】吸血只认它（树突【各司其职】2026-09-04 起不再是伤害层）
 	AREA,            ## 范围伤害（必须带 simultaneous_group）
 	DIRECT,          ## 直击
 	UNPREVENTABLE,   ## 跳过数值减免，但**不**跳过日志、BCL-2、死亡检查与统计
@@ -165,10 +165,10 @@ func _calculate(ev: Dictionary, plan: Dictionary) -> int:
 	if target["marked"] and ev["base_amount"] + ev["bonus_amount"] > 0:
 		mult *= 2
 		plan["consume"].append({ "kind": "mark" })
-	## ④ 倍减 —— 树突【各司其职】，只认「攻击」
-	if Tag.ATTACK in ev["tags"] and ev["source"].get("itype", -1) == CWData.ImmuneType.DENDRITIC:
-		div *= 2
-		plan["logs"].append("　【各司其职】树突状细胞只造成 1/2 伤害")
+	## ④ 倍减 —— **树突【各司其职】的「伤害减半」2026-09-04 随新 PRD 撤掉**。
+	## 新机制是「树突无法通过【迁移】攻击癌细胞、也无法移向癌细胞占据的组织」，
+	## 落在 `CWActions._is_move_legal_now()` 的移动合法性上，不再是伤害管线的一层。
+	## 卡牌 / 细胞毒素这类非攻击伤害本来也不该被它减半，撤掉后正好对上。
 	## ④ 倍减 —— 骨肉瘤【刚性屏障】（PRD 2026-09-01 改写：原本是「不能被攻击」）。
 	## 「受到的能量损失为 40%」，**不限来源**：攻击、技能、压迫都算。
 	var pct := 100

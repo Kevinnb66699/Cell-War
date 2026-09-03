@@ -58,6 +58,8 @@ func _run_all() -> void:
 	await t_jump_cap()
 	await t_heur_lifecare()
 	t_heur_no_squat_on_fresh()
+	await t_plan_path()
+	await t_dendritic_rework()
 	t_immune_win()
 	t_cancer_revive_blocked()
 	t_cancer_s_win()
@@ -309,10 +311,11 @@ func t_hit_order() -> void:
 	check(not target["marked"], "标记已消耗")
 	var dmg2 := g.immune_hit(target, 10, attacker)
 	check(dmg2 == 10, "囊性护甲每世界回合仅一次，第二击不减免")
-	## 【I-各司其职】：树突状细胞攻击只造成 1/2
+	## 【I-各司其职】2026-09-04 换了机制：不再是伤害减半，而是**根本不能移向癌细胞占据的格**。
+	## 所以伤害管线里不该再有树突那一层 —— 卡牌/毒素这类非攻击伤害此前也被它误减半
 	attacker["itype"] = CWData.ImmuneType.DENDRITIC
 	target["marked"] = false
-	check(g.immune_hit(target, 10, attacker) == 5, "树突攻击 1.0 → 0.5")
+	check(g.immune_hit(target, 10, attacker) == 10, "树突不再减半伤害（旧【各司其职】已撤）")
 	g.dispose()
 
 
@@ -907,11 +910,12 @@ func t_necrosis() -> void:
 func t_macro_purify_heal() -> void:
 	print("[巨噬吞噬回能封顶]")
 	check(CWData.MACRO_MOVE_NET_MIN == 1, "净支出下限 0.1")
-	## 2026-09-03 Kevin 拍板 ①+②（平衡方案对比 §9.4～9.5）：两个默认值改了，旧值只剩旋钮能扫回来
-	check(CWData.MACRO_HEAL_PURIFY == 0 and CWTuning.new().macro_heal_purify == 0,
-		"定案 ①：默认吞噬回能不适用于净化（PRD 0.3 只能用 mheal=3 扫回）")
-	check(CWData.IMMUNE_MOVE_CANCEROUS == [10, 10, 7, 7] and CWTuning.new().immune_move_cancerous[3] == 7,
-		"定案 ②：X 级净化价 0.7，与 III 级同价（PRD 0.5 只能用 mvx=5 扫回）")
+	## 2026-09-04：团队覆盖 PRD 正本时把定案①② 换回了旧文案，Kevin 定「以最新版 PRD 为标准」
+	## → 两个默认值回到 PRD 值，定案①② 的值只剩旋钮能扫回来（mheal=0 / mvx=7）
+	check(CWData.MACRO_HEAL_PURIFY == 3 and CWTuning.new().macro_heal_purify == 3,
+		"默认与 PRD 一致：吞噬每次净化回 0.3（定案① 的 0 用 mheal=0 扫回）")
+	check(CWData.IMMUNE_MOVE_CANCEROUS == [10, 10, 7, 5] and CWTuning.new().immune_move_cancerous[3] == 5,
+		"默认与 PRD 一致：X 级迁移到癌性组织 0.5（定案② 的 0.7 用 mvx=7 扫回）")
 	## 走一格癌组织，返回「这一步净花了多少」。封顶逻辑按 PRD 的 0.3 测 —— 定案 ① 后默认 0，得显式拨回
 	var net := func(paid: int, skills: Array) -> int:
 		var g := bare_game()
@@ -1009,12 +1013,15 @@ func t_jump_cap() -> void:
 			if o["data"].get("act", "") == "jump":
 				out.append(o)
 		return out
-	check(g.tune.metastasis_max_per_round == 0 and g.tune.metastasis_cost == CWData.METASTASIS_COST,
-		"默认：不限次、1.0 一次（现行 PRD）")
+	## 2026-09-04 新 PRD 给【转移】加了「每世界回合只能使用一次」→ 默认值跟着改成 1
+	check(g.tune.metastasis_max_per_round == 1 and g.tune.metastasis_cost == CWData.METASTASIS_COST,
+		"默认与 PRD 一致：每世界回合 1 次、1.0 一次")
 	var first: Array = jumps.call()
 	check(not first.is_empty() and first[0]["label"].contains("1.0"), "默认：有跃进选项、标价 1.0")
 	await g.actions.execute(c, first[0]["data"])
-	check(c["jump_used"] == 1 and not jumps.call().is_empty(), "默认：跳完计数 1，选项仍在（不限次）")
+	check(c["jump_used"] == 1 and jumps.call().is_empty(), "默认（上限 1）：跳完计数 1、选项消失")
+	g.tune.metastasis_max_per_round = 0
+	check(not jumps.call().is_empty(), "旋钮拨 0（不限次）→ 选项回来")
 	g.tune.metastasis_max_per_round = 1
 	check(jumps.call().is_empty(), "上限 1：本回合已跳过 → 选项消失")
 	var to: Vector2i = g.actions._jump_targets(c)[0]
@@ -1461,9 +1468,227 @@ class NoticeRecorder extends CWBridge:
 ## v4（2026-09-04）：「别蹲在自己刚铺的格子上」从**规则**变成**策略**。
 ## 规则那一条已被 `newborn_protect` 关掉，但这个判断**不许跟着关** ——
 ## v3 跟着关的后果是全场癌细胞同时蹲下攒固化，6 人局癌胜 43% → 19%（§10.7）。
+## 路径规划器（2026-09-04 Kevin 要的「拖一条路，程序算总价」）
+##
+## **最关键的一条**：报价必须等于**真走一遍**花掉的能量。价钱逐步会变
+## （癌细胞踩过的健康组织当场变癌组织 → 下一步从 1.0 变 0.2；黑色素瘤【伪足穿透】
+## 的「相邻 ≥2 格癌性」也会因此成立），所以这份账只能引擎算 ——
+## 这个测试就是防它和真实结算漂开。
+## 树突状细胞按 2026-09-04 新 PRD 重做：【I-各司其职】换机制 + 新增【I-趋化源】
+func t_dendritic_rework() -> void:
+	print("[树突状细胞（2026-09-04 新 PRD）]")
+	# ---- ① 【I-各司其职】：不能移向癌细胞占据的格（= 攻不了）----
+	var g := bare_game()
+	var foe_at := Vector2i(1, 0)
+	var dc := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.DENDRITIC, -1, 150)
+	g.cells.append(dc)
+	g.cells.append(CWSetup.make_cell(1, 1, CWData.Faction.CANCER, foe_at,
+		-1, CWData.CancerType.SCLC, 50))
+	check(not g.actions._is_move_legal_now(dc, foe_at), "树突：癌细胞占据的格走不进去")
+	check(g.actions.move_block_reason(dc, foe_at).contains("各司其职"),
+		"挡路原因点名【各司其职】：%s" % g.actions.move_block_reason(dc, foe_at))
+	var moves := 0
+	for o in g.actions.build_options(dc):
+		if o["data"].get("act", "") == "move" and o["data"]["to"] == foe_at:
+			moves += 1
+	check(moves == 0, "选项里没有「攻击那一格」")
+	## 换成巨噬：同一格立刻可攻 —— 证明拦的是种类，不是别的
+	dc["itype"] = CWData.ImmuneType.MACRO
+	check(g.actions._is_move_legal_now(dc, foe_at), "巨噬照旧能攻同一格")
+	dc["itype"] = CWData.ImmuneType.DENDRITIC
+
+	# ---- ② 【I-趋化源】：2.0 建一个、场上仅一个、持续 2 回合 ----
+	check(g.chemo.is_empty(), "开局场上没有趋化源")
+	var has_chemo := func() -> bool:
+		for o in g.actions.build_options(dc):
+			if o["data"].get("act", "") == "chemo":
+				return true
+		return false
+	check(has_chemo.call(), "树突有【趋化源】选项")
+	dc["energy"] = CWData.CHEMO_COST - 1
+	check(not has_chemo.call(), "钱不够 → 选项消失")
+	dc["energy"] = 150
+	## 落点靠 chemo_target 询问；这里用固定桥答第 0 个（= 遍历 tiles 的第一格）
+	var spot := Vector2i(3, 0)
+	g.bridges[0] = _FixedTileBridge.new(spot)
+	var before: int = dc["energy"]
+	await g.actions.execute(dc, { "act": "chemo" })
+	check(g.chemo.get("at", Vector2i.MAX) == spot and g.chemo["left"] == CWData.CHEMO_ROUNDS,
+		"建立成功：%s 持续 %s" % [str(g.chemo.get("at", "?")), str(g.chemo.get("left", "?"))])
+	check(dc["energy"] == before - CWData.CHEMO_COST, "付了 2.0（%s → %s）"
+		% [CWData.fmt(before), CWData.fmt(dc["energy"])])
+	check(not has_chemo.call(), "同一时刻仅一个 → 选项消失")
+
+	# ---- ③ 方向判定与百分比：免疫朝它 -30%、癌方背它 +40%、横着走两条都不沾 ----
+	var imm := CWSetup.make_cell(2, 2, CWData.Faction.IMMUNE, Vector2i(1, 0),
+		CWData.ImmuneType.B_CELL, -1, 150)
+	g.cells.append(imm)
+	var plain: int = g.tune.immune_move_healthy[g.immune_level]
+	var toward := Vector2i(2, 0)      ## 离 (3,0) 更近
+	var away := Vector2i(0, 0)        ## 更远
+	check(CWData.hex_dist(toward, spot) < CWData.hex_dist(imm["pos"], spot), "(2,0) 确实更靠近趋化源")
+	var q_toward: int = g.actions._move_cost_mod(imm, toward, plain)
+	check(q_toward == int(ceil(plain * CWData.CHEMO_IMMUNE_PCT / 100.0)),
+		"免疫朝它走：%s → %s（-30%%，向上取整）" % [CWData.fmt(plain), CWData.fmt(q_toward)])
+	check(g.actions._move_cost_mod(imm, away, plain) == plain, "免疫背它走：不打折")
+	var can := CWSetup.make_cell(3, 3, CWData.Faction.CANCER, Vector2i(1, 0),
+		-1, CWData.CancerType.SCLC, 150)
+	g.cells.append(can)
+	var cplain: int = g.tune.cancer_move_healthy
+	var c_away: int = g.actions._move_cost_mod(can, away, cplain)
+	check(c_away == int(ceil(cplain * CWData.CHEMO_CANCER_PCT / 100.0)),
+		"癌方背它走：%s → %s（+40%%，向上取整）" % [CWData.fmt(cplain), CWData.fmt(c_away)])
+	check(g.actions._move_cost_mod(can, toward, cplain) == cplain, "癌方朝它走：不加价")
+
+	# ---- ④ 进快照与哈希：它改变后续所有移动的价钱，漏了它推演就会算错 ----
+	var h0 := g.state_hash()
+	var snap := g.snapshot()
+	g.chemo = {}
+	check(g.state_hash() != h0, "趋化源进哈希（清掉后哈希变了）")
+	g.restore(snap)
+	check(g.state_hash() == h0 and g.chemo["at"] == spot, "restore 把趋化源带回来")
+
+	# ---- ⑤ 倒计时：E 阶段每回合减一，归零消散 ----
+	g.world._tick_chemo()
+	check(g.chemo["left"] == CWData.CHEMO_ROUNDS - 1, "回合末减一")
+	g.world._tick_chemo()
+	check(g.chemo.is_empty(), "归零 → 消散")
+	g.world._tick_chemo()   ## 空场再走一次不能崩
+	check(g.chemo.is_empty(), "场上没有时倒计时是空操作")
+	g.dispose()
+
+	# ---- ⑥ 【I-标记】：被伤害消耗掉之后，只要还贴着树突就该回补（同一回合可多次获得）----
+	var g2 := bare_game()
+	var d2 := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.DENDRITIC, -1, 150)
+	g2.cells.append(d2)
+	var vic := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0),
+		-1, CWData.CancerType.SCLC, 200)
+	g2.cells.append(vic)
+	g2.update_marks()
+	check(vic["marked"], "贴着树突 → 自动获得标记")
+	var mac := CWSetup.make_cell(2, 2, CWData.Faction.IMMUNE, Vector2i(1, -1),
+		CWData.ImmuneType.MACRO, -1, 150)
+	g2.cells.append(mac)
+	var hit := g2.immune_hit(vic, 10, mac)
+	check(hit == 20, "标记让这一击翻倍（%s）" % CWData.fmt(hit))
+	check(vic["marked"], "伤害结算后光环立刻回补 → 同一回合可以再次获得标记")
+	g2.dispose()
+
+	# ---- ⑦ 漩涡演出的轨道是纯函数：粒子不许跑出格子 ----
+	var maxr := 0.0
+	var squash_ok := true
+	for ring in CWChemoFx.RINGS:
+		for idx in CWChemoFx.PER_RING:
+			for k in 24:
+				var pos := CWChemoFx.particle_at(ring, idx, k * 0.13)
+				maxr = maxf(maxr, absf(pos.x))
+				if absf(pos.y) > CWChemoFx.ORBIT_R[ring] * CWChemoFx.ORBIT_SQUASH \
+						+ CWChemoFx.RING_LIFT[ring] + 0.01:
+					squash_ok = false
+	check(is_equal_approx(maxr, CWChemoFx.ORBIT_R[CWChemoFx.RINGS - 1]) or maxr <= 32.5,
+		"横向不超出格子外接圆（实测 %.1f）" % maxr)
+	check(squash_ok, "纵向被压扁（贴六边形的斜视角）")
+
+
+## 只答「某一格」的桥：给 chemo_target 那种「全局任意一格」的询问用
+class _FixedTileBridge:
+	extends CWBridge
+	var want: Vector2i
+	func _init(at: Vector2i) -> void:
+		want = at
+	func ask(req: Dictionary) -> int:
+		for i in req["options"].size():
+			if req["options"][i]["data"].get("to", Vector2i.MAX) == want:
+				return i
+		return 0
+
+
+func t_plan_path() -> void:
+	print("[路径规划器]")
+	var g := make_game(4, 5)
+	await run_setup(g)
+	var can: Dictionary = g.living_cells(CWData.Faction.CANCER)[0]
+	can["energy"] = 200
+	## 贪心挑一条 4 步的空格路线（每一步都问引擎「从这儿还能去哪」）
+	var path: Array[Vector2i] = []
+	var at: Vector2i = can["pos"]
+	for _k in 4:
+		var nexts: Array = g.actions.plan_next_dests(can, at)
+		if nexts.is_empty():
+			break
+		at = nexts[0]
+		path.append(at)
+	check(path.size() == 4, "挑出一条 4 步路线（实为 %d 步）" % path.size())
+
+	## ① 纯查询：算完盘面一个字节都没动
+	var before := g.state_hash()
+	var q: Dictionary = g.actions.quote_path(can, path)
+	check(g.state_hash() == before, "报价是纯查询：算完状态哈希不变")
+	check(can["pos"] == path[0] - (path[0] - can["pos"]), "细胞位置没被挪走")
+	check(q["ok"] and q["steps"].size() == 4, "四步全通（%s）" % str(q.get("ok", false)))
+	check(q["total"] > 0 and q["left"] == can["energy"] - q["total"],
+		"合计 %s、走完剩 %s" % [CWData.fmt(q["total"]), CWData.fmt(q["left"])])
+
+	## ② 报价 == 真走一遍。逐步执行的是引擎自己的 _do_move，走的是提交那条路
+	var e0: int = can["energy"]
+	var spent_steps: Array = []
+	for i in path.size():
+		var opts: Array = g.actions.build_options(can)
+		var pick := -1
+		for j in opts.size():
+			var d: Dictionary = opts[j]["data"]
+			if d.get("act", "") == "move" and d["to"] == path[i]:
+				pick = j
+				break
+		check(pick >= 0, "第 %d 步在真实选项里找得到" % (i + 1))
+		if pick < 0:
+			break
+		var before_e: int = can["energy"]
+		await g.actions.execute(can, opts[pick]["data"])
+		spent_steps.append(before_e - can["energy"])
+	var spent: int = e0 - can["energy"]
+	check(spent == q["total"], "真走一遍花掉 %s == 规划器报价 %s（逐步 %s）"
+		% [CWData.fmt(spent), CWData.fmt(q["total"]), str(spent_steps)])
+	var quoted: Array = []
+	for s in q["steps"]:
+		quoted.append(s["cost"])
+	check(str(quoted) == str(spent_steps), "每一步的价钱也对得上（报价 %s）" % str(quoted))
+	check(can["pos"] == path[-1], "细胞确实走到了路线终点")
+	g.dispose()
+
+	## ③ 走不通的路：撞上别人 → 停在那一步并给出原因；能量不够 → 同样停下
+	var g2 := make_game(4, 7)
+	await run_setup(g2)
+	var me: Dictionary = g2.living_cells(CWData.Faction.CANCER)[0]
+	me["energy"] = 200
+	var other: Dictionary = g2.living_cells(CWData.Faction.CANCER)[1]
+	var blocked_path: Array[Vector2i] = [other["pos"]]
+	var q2: Dictionary = g2.actions.quote_path(me, blocked_path)
+	check(not q2["ok"] and q2["stop"] == 0 and q2["total"] == 0,
+		"第一步就撞上别的细胞 → 停在第 0 步、总价 0")
+	check(q2["steps"][0]["blocked"].contains("占据"),
+		"给出原因：%s" % q2["steps"][0]["blocked"])
+	## 能量刚好只够一步
+	var one: Array = g2.actions.plan_next_dests(me, me["pos"])
+	if not one.is_empty():
+		var probe: Array[Vector2i] = [one[0]]
+		var step_cost: int = int(g2.actions.quote_path(me, probe)["total"])
+		var two: Array = g2.actions.plan_next_dests(me, one[0])
+		if not two.is_empty():
+			me["energy"] = step_cost
+			var q3: Dictionary = g2.actions.quote_path(me, [one[0], two[0]] as Array[Vector2i])
+			check(not q3["ok"] and q3["stop"] == 1 and q3["total"] == step_cost,
+				"钱只够第一步 → 停在第 1 步、总价 = 第一步的价（%s）" % CWData.fmt(step_cost))
+			check(q3["steps"][1]["blocked"].contains("能量"),
+				"原因写明能量不够：%s" % q3["steps"][1]["blocked"])
+	g2.dispose()
+
+
 func t_heur_no_squat_on_fresh() -> void:
 	print("[启发式 v4：不蹲在刚铺的格子上]")
-	check(CWHeuristicBridge.AI_VERSION == "v4", "AI 版本号 v4（改 AI 行为要升号）")
+	check(CWHeuristicBridge.AI_VERSION == "v5", "AI 版本号 v5（改 AI 行为要升号）")
 	var g := _fx_game(2)
 	var can := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i.ZERO, -1,
 		CWData.CancerType.MELANOMA)
@@ -1903,7 +2128,8 @@ func _t_move_cost_wiring() -> void:
 	check(b.move_costs == { Vector2i(1, 0): 5, Vector2i(0, 1): 17 },
 		"价目表逐格抄自引擎的 cost（%s）" % str(b.move_costs))
 	check(b.move_verb == "迁移", "免疫用「迁移」（%s）" % b.move_verb)
-	bar.chosen.emit(0)                      ## 「结束迁移」
+	## 2026-09-04 起 0 号是「规划路径」，「结束迁移」永远是最后一枚
+	bar.chosen.emit(_buttons(bar) - 1)      ## 「结束迁移」
 	await process_frame
 	check(done[0] and b.move_costs.is_empty(),
 		"退出迁移后价目表清空（否则悬停会显示上一轮的旧价钱）")
@@ -2893,9 +3119,29 @@ func t_human_ask() -> void:
 	var r3 := [-99]
 	var run3 := func() -> void: r3[0] = await b.ask(areq)
 	run3.call()
-	check(_buttons(bar) == 1 and b.marks.size() == 2,
+	## 2026-09-04 起选目标态有两枚按钮：「规划路径」+「结束迁移」（规划器，见 t_plan_path）
+	check(_buttons(bar) == 2 and b.marks.size() == 2,
 		"上一步走的是迁移 → 这一问直接回到选目标格，不再经过按钮栏")
-	bar.chosen.emit(0)                        ## 「结束迁移」
+	## 规划器：开 → 多一枚「按此路径走」；拖两格 → 路径染色；报价进提示行
+	bar.chosen.emit(0)                        ## 「规划路径」
+	await process_frame
+	check(b._planning and _buttons(bar) == 3, "开规划器：按此路径走 / 退出规划 / 结束迁移")
+	board.tile_clicked.emit(Vector2i(0, 1))   ## 按下起一条路
+	await process_frame
+	check(b._plan.size() == 1 and b._plan[0] == Vector2i(0, 1),
+		"按下高亮格 → 路线第一步（%s）" % str(b._plan))
+	## 这一问的选项是测试合成的，未必真走得通 —— 所以这里只核对「染上了规划色」，
+	## 报价语义（合计 / 走得通 / 停在第几步）由 t_plan_path 在**真对局**上核对
+	check(b.marks.get(Vector2i(0, 1)) in [board.MARK_PLAN, board.MARK_PLAN_BAD],
+		"路线那一格染成规划色（%s）" % str(b.marks.get(Vector2i(0, 1))))
+	check(r3[0] == -99, "规划态里点棋盘不作答")
+	board.tile_clicked.emit(Vector2i(0, 1))   ## 再点同一格 → 砍到它为止（不变）
+	await process_frame
+	check(b._plan.size() == 1, "点回路线上的格子只砍它之后的几步")
+	bar.chosen.emit(1)                        ## 「退出规划」
+	await process_frame
+	check(not b._planning and b._plan.is_empty() and _buttons(bar) == 2, "退出规划：路线清掉、按钮回到两枚")
+	bar.chosen.emit(1)                        ## 「结束迁移」
 	await process_frame
 	check(r3[0] == -99 and _buttons(bar) == 3, "退出迁移后回到按钮栏，这一问还没答")
 	check(not b._sticky_move, "退出后开关关掉了")
@@ -6729,8 +6975,11 @@ func _t_ruling_c_presentation() -> void:
 	var canc := Vector2i(1, 0)
 	var g := bare_game()
 	g.tiles[canc]["tissue"] = CWData.Tissue.CANCER
+	## 2026-09-04：树突【各司其职】改成「不能移向癌细胞占据的格」，攻不了了 ——
+	## 这条回归查的是「打死目标也算攻过、额度照扣」的**演出与额度**，与细胞种类无关，
+	## 所以换成巨噬来攻，【抗原呈递强化】的额度逻辑照旧
 	var dc := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
-		CWData.ImmuneType.DENDRITIC, -1, 200)
+		CWData.ImmuneType.MACRO, -1, 200)
 	put_skill(dc, "抗原呈递强化")
 	g.cells.append(dc)
 	var victim := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, canc,

@@ -50,6 +50,7 @@ func e_phase() -> void:
 	await game.world_fx.round_effects()      ## 7 其他 E 类效果：目前只有【紊乱】返回原位
 	game.world_fx.tick_durations()           ## 8 世界事件倒计时/到期 + 「本世界回合」修饰过期
 	_tick_necrosis()                         ## 8 「坏死」倒计时（同属第 8 步）
+	_tick_chemo()                            ## 8 树突【I-趋化源】倒计时（同属第 8 步）
 	_clear_newborn()                         ## 9 移除「新生」
 	_cap_energy()                            ## 9.5 能量上限（PRD 之外，见口径 #92）
 	## 10 胜利条件检查。免疫先判：PRD 的列举顺序如此，
@@ -581,6 +582,18 @@ func _pressure() -> void:
 
 ## 「坏死」倒计时。PRD E 阶段第 8 步「更新持续时间类状态，并移除已经结束的『坏死』等状态」。
 ## 按格记「还剩几个世界回合」，每个世界回合末 -1，归零即恢复。
+## 树突【I-趋化源】的「持续 2 回合」：与坏死同一步倒计时，归零即消失。
+## 建立的那个回合末算第一次减 —— 所以「持续 2 回合」= 建立当回合 + 下一个回合。
+func _tick_chemo() -> void:
+	if game.chemo.is_empty():
+		return
+	game.chemo["left"] = int(game.chemo["left"]) - 1
+	if game.chemo["left"] <= 0:
+		var at: Vector2i = game.chemo["at"]
+		game.chemo = {}
+		game.log_msg("【趋化源】%s 的趋化源消散" % str(at))
+
+
 func _tick_necrosis() -> void:
 	for t in game.tiles.values():
 		if t["necrosis"] > 0:

@@ -19,7 +19,10 @@ extends CWBridge
 ## v4：2026-09-04 —— 「别蹲在自己刚铺的格子上」从**规则**改成**策略**（`_worth_solidifying` 只看
 ##     `newborn` 标记，不看 `newborn_protect` 旋钮）。**`newborn_protect = true` 时 v4 与 v3 逐位相同**，
 ##     所以机制还在时量的那些表（§9、§10.1~10.6）不作废；只有旋钮关掉时两者才分道扬镳。
-const AI_VERSION := "v4"
+## v5：2026-09-04 —— 按新 PRD 重做树突之后学会新技能：会建【I-趋化源】（只要付得起就建、
+##     位置挑癌区最密的一格），`chemo_target` 有了专门的挑法。**树突不能攻击**之后
+##     攻击类选项自然从清单里消失，不必改策略（选项驱动的好处）。
+const AI_VERSION := "v5"
 ## 每个桥实例可以单独退回 v1 的行为（set_version("v1")）：分化拿选项列表第一个、不惜命。
 ## 用途是**验证 AI 升级**：新版本必须在两边都不比旧版弱（balance_scan 的 aiver_immune= / aiver_cancer= 交叉对局），
 ## 否则标尺一换读数就漂、还分不清是规则变了还是量具变了（2026-09-02 v2 基线 6 人 24→10 就是这么查的）。对局里别拨。
@@ -65,6 +68,8 @@ func ask(req: Dictionary) -> int:
 			return _pick_storm_center(req.get("tag", ""), options)
 		"pick_tile":
 			return _pick_tile_take(options)
+		"chemo_target":
+			return _pick_chemo_spot(options)
 		"pick":
 			match req.get("tag", ""):
 				"基因组不稳定":
@@ -139,6 +144,12 @@ func _immune_action(pid: int, options: Array) -> int:
 	# 5. T 细胞毒素：一次至少清 2 格
 	i = _find(options, "toxin")
 	if i >= 0 and e >= 25 and game.actions._toxin_targets(me).size() >= 2:
+		return i
+	# 5.5 树突【I-趋化源】：2.0 建一个，场上仅一个、持续 2 回合（2026-09-04 新 PRD）。
+	#     树突自己不能攻击（【各司其职】），光环就是它全部的输出，所以**只要建得起就建**，
+	#     只留一步迁移的钱（1.0）。过期了下回合再建 —— 这也是它唯一的能量出口。
+	i = _find(options, "chemo")
+	if i >= 0 and e >= CWData.CHEMO_COST + 10:
 		return i
 	# 6. 攻击相邻癌细胞。留足「攻击费 + 反弹反击」的储备避免自杀式进攻——
 	# 这正是免疫方能主动规避反击威胁的原因（团队 2026-08-26 已确认此问题）。
@@ -376,6 +387,33 @@ func _worth_solidifying(me: Dictionary) -> bool:
 		return true  # 差最后一轮就固化，值得停
 	# 场上还没有任何复活据点时，值得从头熬一个
 	return game.count_tissue(CWData.Tissue.SOLID) == 0
+
+
+## 趋化源建在哪：**癌区最密的那一格**。
+##
+## 两个效果都指向同一个位置：免疫**朝它**走 -30%（把免疫往癌区里拉），
+## 癌方**背它**走 +40%（癌方扩张就是在背离癌区中心，所以正好收它的过路费）。
+## 于是「癌性邻格最多的格」同时最大化两边收益。
+##
+## 只遍历存活癌细胞脚下那几格（不是全盘 127 格）：既便宜，又天然落在战线上。
+## 同分取坐标小的那个 —— 本桥不引入随机数，必须确定性（见文件头）。
+func _pick_chemo_spot(options: Array) -> int:
+	var best := -1
+	var best_score := -1
+	for i in options.size():
+		var c: Vector2i = options[i]["data"]["to"]
+		var score := 0
+		for n in CWData.neighbors(c):
+			if game.is_cancerous(n):
+				score += 1
+		if game.is_cancerous(c):
+			score += 1
+		if not game.cells_at(c, CWData.Faction.CANCER).is_empty():
+			score += 2      ## 有癌细胞站着的格更值：它下一步一定要动，一动就交钱
+		if score > best_score:
+			best_score = score
+			best = i
+	return maxi(best, 0)
 
 
 ## 距免疫细胞不同距离的安全分。免疫每回合能连打 3 次（每次期望 0.83 伤害），

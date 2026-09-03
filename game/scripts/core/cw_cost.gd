@@ -88,6 +88,21 @@ const TEMPLATES := {
 		"action": Action.MOVE, "phase": Phase.FLAT_CUT, "value": 3, "floor": 2,
 		"cond": ["to_cancerous"], "source": Source.SKILL, "store": Store.NONE,
 	}],
+	## ---- 树突状细胞【I-趋化源】（2026-09-04 新 PRD）----
+	## 场上实体（`game.chemo`）挂的全局条目，不住在任何人的 mods / equipped 里，
+	## 由 `_collect()` 单独发一条。两条方向互斥（一条只认免疫、一条只认癌方），
+	## 所以同一次报价里最多命中一条。
+	## **百分数用 `pct`**：这是本表第一个百分比费用修饰，规则见 `_apply()`。
+	"趋化源": [
+		{
+			"action": Action.MOVE, "phase": Phase.DIV, "pct": CWData.CHEMO_IMMUNE_PCT,
+			"cond": ["immune", "chemo_toward"], "source": Source.SKILL, "store": Store.NONE,
+		},
+		{
+			"action": Action.MOVE, "phase": Phase.MULT, "pct": CWData.CHEMO_CANCER_PCT,
+			"cond": ["cancer", "chemo_away"], "source": Source.SKILL, "store": Store.NONE,
+		},
+	],
 	## 设计 §九.2 的目标文案：「每行动回合**一次**，任意迁移免费；
 	## 该额度**使用后**，本回合后续迁移 -0.2」。所以 -0.2 那条以 gate_closed 为条件。
 	"组织巡航": [
@@ -320,6 +335,9 @@ func _collect(ctx: Dictionary) -> Array:
 	## 世界事件与卡牌挂的全局条目
 	for e in game.events["active"]:
 		_emit(out, ctx, e["name"], Store.EVENT_FREE, 0, e["stacks"])
+	## 树突【I-趋化源】：场上实体，不属于任何人的 mods / equipped，单独发一条
+	if not game.chemo.is_empty():
+		_emit(out, ctx, "趋化源", Store.NONE, 0)
 	return out
 
 
@@ -342,6 +360,9 @@ func _emit(out: Array, ctx: Dictionary, name: String, from_store: int,
 			"name": name,
 			"phase": t["phase"],
 			"value": int(t.get("value", 0)) * (stacks if t["source"] == Source.WORLD else 1),
+			## 百分比修饰（【趋化源】）：`pct` 必须原样带过来 ——
+			## 漏了它 `_apply` 就会走回 `value` 分支，而百分比条目没有 `value`（除零）
+			"pct": int(t["pct"]) if t.has("pct") else 0,
 			"floor": int(t.get("floor", 0)),
 			"source": t["source"],
 			"store": t.get("store", from_store),
@@ -373,11 +394,28 @@ func _cond_ok(cond: String, ctx: Dictionary, name: String) -> bool:
 			return actor["fx_turn"].get(name, 0) >= GATE_USES.get(name, 1)
 		"free_move_left":
 			return game.world_fx.free_move_available(actor)
+		## 【I-趋化源】的方向判定：PRD 明文「取决于迁移后距该格的距离增加/降低」。
+		## 起点用 ctx["from"]（= 报价时细胞所在格），所以规划器逐步模拟时也对。
+		"chemo_toward":
+			return _chemo_delta(ctx) < 0
+		"chemo_away":
+			return _chemo_delta(ctx) > 0
 		"has_allowance":
 			## 【癌症干性】那种「永久技能 + 复活时发的限次额度」：额度住在 mods 里，
 			## 用完就不该再从 equipped 那边冒出来
 			return not game.mods_of(actor, name).is_empty()
 	return false
+
+
+## 走这一步之后，离趋化源是远了还是近了（负 = 更近）。场上没有趋化源时返回 0（两条都不成立）。
+func _chemo_delta(ctx: Dictionary) -> int:
+	if game.chemo.is_empty():
+		return 0
+	var at: Vector2i = game.chemo["at"]
+	var to: Vector2i = ctx["to"]
+	if to == Vector2i.MAX:
+		return 0
+	return CWData.hex_dist(to, at) - CWData.hex_dist(ctx["from"], at)
 
 
 ## 一条修饰作用在当前价上。FLAT_CUT 的下限是**这一条自己的**局部下限，
@@ -391,13 +429,30 @@ func _apply(m: Dictionary, cost: int) -> int:
 		Phase.FLAT_CUT:
 			return maxi(cost - int(m["value"]), mini(cost, int(m["floor"])))
 		Phase.MULT:
+			if int(m.get("pct", 0)) > 0:
+				return _pct(cost, int(m["pct"]), int(m["stacks"]))
 			var v := cost
 			for i in int(m["stacks"]):
 				v *= int(m["value"])
 			return v
 		Phase.DIV:
+			if int(m.get("pct", 0)) > 0:
+				return _pct(cost, int(m["pct"]), int(m["stacks"]))
 			return cost / int(m["value"])
 	return cost
+
+
+## 百分比费用修饰（【趋化源】的 -30% / +40%）。
+##
+## ⚠ **取整口径**：费用一律**向上取整到十分位**。PRD 对趋化源没写取整，
+## 而它唯一写明的百分比取整是【瓦伯格超速糖酵解】的「向上取整到十分位」，
+## 所以沿用「向上」；方向上它一致地**把费用往贵的一侧收**（免疫少省一点、癌方多付一点），
+## 不偏袒任何一方。已记进 PRD差异对照，等团队复核。
+static func _pct(cost: int, pct: int, stacks: int) -> int:
+	var v := cost
+	for _i in maxi(stacks, 1):
+		v = int(ceil(float(v) * pct / 100.0))
+	return v
 
 
 ## 语义阶段 → 显式优先级 → 来源 → applied_seq → 名字（设计 §六）

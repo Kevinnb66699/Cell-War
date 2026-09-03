@@ -63,6 +63,14 @@ var _sticky_round := -1  ## 属于哪个世界回合。**换人或换回合都�
                          ## 不清掉的话新回合一开始就莫名其妙直接进了选目标格（团队反馈）
 var _pending: Answer   ## 正卡在「等玩家作答」上的那一次询问
 
+## ---- 路径规划器（2026-09-04 Kevin 要的）----
+## 只在「选迁移目标」这一问里活着。规划态下棋盘的点击不再直接作答，
+## 而是拖出一条路；账由引擎 `CWActions.quote_path()` 算（价钱逐步变，界面算不对，见那边头注）。
+var _plan: Array[Vector2i] = []   ## 依次要落脚的格（不含起点）
+var _planning := false            ## 规划器开着吗
+var _plan_drag := false           ## 正按着左键拖
+var _plan_quote := {}             ## 上一次的报价，给按钮文字和路径配色用
+
 
 func _init() -> void:
 	enabled = false   ## 人机默认普通 AI；「较强」由对局配置面板拨（CWMatch.ai_smart）
@@ -343,13 +351,140 @@ func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
 	for i in moves:
 		move_costs[options[i]["data"]["to"]] = int(options[i]["data"]["cost"])
 	move_verb = verb
-	var got: Variant = await _prompt("选择要%s到的组织" % verb,
-		"高亮 %d 格可达 · 可以连着走 · 右键或 Esc 退出" % tiles.size(),
-		[{ "title": "结束%s" % verb, "cost": "右键 / Esc" }], ["cancel"], tiles, null, 0,
-		false, 0.0, func(c: Vector2i) -> String: return game.actions.move_block_reason(cell, c))
-	## 这一问结束就把价目表收掉：留着的话，退出迁移后悬停还会显示上一轮的价钱
+	## 规划器交出来的路还没走完 → 接着走下一步，不再问。
+	## 每一步都在这里重新查一次当前选项：中途盘面变了（联机、卡牌效果）就走不成，
+	## 那时说明原因、回到普通选目标态，而不是按旧价钱硬走
+	if not _plan.is_empty():
+		var step: Variant = _plan_take_step(options, moves)
+		if step != null:
+			move_costs.clear()
+			return step
+	## 规划器开关只在这一问**内部**切换：它不是答案，点了不该把这一问结束掉
+	## （上一版直接 `ans.fire("plan_on")`，于是一点「规划路径」就退出了迁移态）
+	_planning = false
+	_plan_drag = false
+	while not game.aborted:
+		var got: Variant = await _prompt("选择要%s到的组织" % verb, _plan_hint(cell),
+			_move_buttons(cell, verb), _move_values(), tiles, null,
+			_move_buttons(cell, verb).size() - 1,
+			false, 0.0, func(c: Vector2i) -> String: return game.actions.move_block_reason(cell, c))
+		if got is String and got == "plan_on":
+			_planning = true
+			continue
+		if got is String and got == "plan_off":
+			_plan.clear()
+			_plan_quote = {}
+			_planning = false
+			_plan_drag = false
+			continue
+		## 这一问结束就把价目表收掉：留着的话，退出迁移后悬停还会显示上一轮的价钱
+		move_costs.clear()
+		## 「按此路径走」：交出**第一步**作为答案，余下几步留在 `_plan` 里，
+		## 由「迁移是切换式的」那条既有逻辑把这一问再问回来（见本函数开头）
+		if got is String and got == "plan_go":
+			_planning = false
+			_plan_drag = false
+			var first: Variant = _plan_take_step(options, moves)
+			return first if first != null else "cancel"
+		_plan_reset()
+		return got
 	move_costs.clear()
-	return got
+	_plan_reset()
+	return null
+
+
+## 选目标态的按钮：规划器开关 + （开着时）「按此路径走」+ 结束迁移。
+## 「结束迁移」永远是最后一个 —— `_prompt` 的 cancel 下标按它算。
+func _move_buttons(cell: Dictionary, verb: String) -> Array:
+	var out: Array = []
+	if _planning:
+		var total: int = int(_plan_quote.get("total", 0))
+		out.append({ "title": "按此路径走", "cost": "%s 能量 · %d 步" % [
+			CWData.fmt(total), _plan.size()],
+			"disabled": _plan.is_empty() or not _plan_quote.get("ok", false) })
+		out.append({ "title": "退出规划", "cost": "" })
+	else:
+		out.append({ "title": "规划路径", "cost": "拖动画线" })
+	out.append({ "title": "结束%s" % verb, "cost": "右键 / Esc" })
+	return out
+
+
+func _move_values() -> Array:
+	return ["plan_go", "plan_off", "cancel"] if _planning else ["plan_on", "cancel"]
+
+
+## 规划态的提示行：把账写在玩家眼前（几步、多少钱、还剩多少、哪一步走不通）
+func _plan_hint(cell: Dictionary) -> String:
+	if not _planning:
+		return "高亮 %d 格可达 · 可以连着走 · 右键或 Esc 退出" % _tiles.size()
+	if _plan.is_empty():
+		return "从高亮格按下左键、划过想走的路线 · 再点「按此路径走」"
+	var q: Dictionary = _plan_quote
+	var head := "%d 步 · 合计 %s · 走完剩 %s" % [_plan.size(),
+		CWData.fmt(int(q.get("total", 0))), CWData.fmt(int(q.get("left", cell["energy"])))]
+	if not q.get("ok", false):
+		var steps: Array = q.get("steps", [])
+		var why: String = steps[-1]["blocked"] if not steps.is_empty() else ""
+		return "%s ·（第 %d 步走不通：%s）" % [head, steps.size(), why]
+	return head
+
+
+func _plan_reset() -> void:
+	_plan.clear()
+	_planning = false
+	_plan_drag = false
+	_plan_quote = {}
+
+
+## 拖到某一格：能接就接上，往回划就砍掉后面几步（拖过头了不用重来）
+func _plan_extend(cell: Dictionary, c: Vector2i) -> void:
+	if c == cell["pos"]:
+		_plan.clear()
+		_plan_requote(cell)
+		return
+	var at: int = _plan.find(c)
+	if at >= 0:
+		_plan.resize(at + 1)      ## 划回已经在路线上的格 → 砍掉它之后的
+		_plan_requote(cell)
+		return
+	## **第一步认这一问自己的高亮格**：那是引擎给的移动选项（已经算过合法与付得起），
+	## 与棋盘上亮着的格子严格一致 —— 玩家看得见什么就能拖到什么。
+	## 之后几步棋盘上没有现成选项（细胞还没走过去），才去问 `plan_next_dests`
+	if _plan.is_empty():
+		if not _tiles.has(c):
+			return
+	else:
+		if not (c in game.actions.plan_next_dests(cell, _plan[-1])):
+			return                ## 接不上（不相邻 / 有人占着）—— 忽略，别打断拖动
+	_plan.append(c)
+	_plan_requote(cell)
+
+
+func _plan_requote(cell: Dictionary) -> void:
+	_plan_quote = game.actions.quote_path(cell, _plan) if not _plan.is_empty() else {}
+	if bar != null:
+		bar.show_bar("选择要%s到的组织" % _move_title(cell), _plan_hint(cell),
+			_move_buttons(cell, _move_title(cell)), _move_values().size() - 1)
+	_repaint_marks()
+
+
+## 从规划好的路里取下一步，返回它对应的选项下标；取不到返回 null。
+##
+## 「取不到」= 这一步此刻不在合法选项里（钱不够了、有人挡住了、盘面变了）。
+## 那就把整条路作废并说明原因 —— 按旧价钱硬走是最不能接受的一种错。
+func _plan_take_step(options: Array, moves: Array) -> Variant:
+	if _plan.is_empty():
+		return null
+	var next: Vector2i = _plan[0]
+	for i in moves:
+		if options[i]["data"]["to"] == next:
+			_plan.remove_at(0)
+			_plan_quote = {}
+			return i
+	_plan.clear()
+	_plan_quote = {}
+	show_result("路线走不下去了（%s 这一步已不可行），请重新规划" % str(next), next)
+	return null
 
 
 # ============ 其余询问：有 to 的进棋盘，没 to 的进按钮 ============
@@ -409,6 +544,11 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 		if end_value != null:
 			panel.end_turn_pressed.connect(on_end)
 	var on_tile := func(c: Vector2i) -> void:
+		## 规划态：棋盘的点击不作答，改成「按下开始拖」
+		if _planning:
+			_plan_drag = true
+			_plan_extend(game.cell_of(_sticky_pid), c)
+			return
 		if tiles.has(c):
 			ans.fire(tiles[c])
 			return
@@ -418,7 +558,12 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 			var why: String = blocked.call(c)
 			if why != "":
 				show_result(why, c)
-	var on_hover := func(_c: Vector2i) -> void: _repaint_marks()
+	var on_hover := func(c: Vector2i) -> void:
+		if _planning and _plan_drag and c != board.NO_TILE:
+			_plan_extend(game.cell_of(_sticky_pid), c)
+			return          ## _plan_extend 里已经重画过
+		_repaint_marks()
+	var on_release := func() -> void: _plan_drag = false
 	## 按钮悬停 → 带 info 的条目浮详情（行动栏的每个技能、分化提问的种类按钮都带），离开就收起
 	var on_bar_hover := func(i: int) -> void:
 		if info == null:
@@ -431,6 +576,7 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	bar.hovered.connect(on_bar_hover)
 	board.tile_clicked.connect(on_tile)
 	board.tile_hovered.connect(on_hover)
+	board.drag_ended.connect(on_release)
 	var got: Variant = await ans.done
 	_pending = null
 	if hand_play and hand != null:
@@ -444,6 +590,7 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 		info.on_hover_info({}, 0.0)   ## 这一问结束就收：按钮都没了，详情不能还挂着
 	board.tile_clicked.disconnect(on_tile)
 	board.tile_hovered.disconnect(on_hover)
+	board.drag_ended.disconnect(on_release)
 	return got
 
 
@@ -461,6 +608,12 @@ func _repaint_marks() -> void:
 			m[c] = board.MARK_ATTACK
 		else:
 			m[c] = board.MARK_MOVE
+	## 规划出来的路线压在可达高亮之上：这几格是玩家自己选的，得比「可以去」更实。
+	## 走不通的那一步标橙，配上提示行里的原因
+	var steps: Array = _plan_quote.get("steps", [])
+	for i in steps.size():
+		var s: Dictionary = steps[i]
+		m[s["to"]] = board.MARK_PLAN if s["afford"] else board.MARK_PLAN_BAD
 	marks = m
 
 

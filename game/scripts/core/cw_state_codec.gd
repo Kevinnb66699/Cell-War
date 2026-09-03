@@ -16,6 +16,7 @@ static func snapshot(game: CWGame) -> Dictionary:
 		"round_no": game.round_no, "memory": game.memory, "immune_level": game.immune_level,
 		"winner": game.winner, "win_reason": game.win_reason, "win_kind": game.win_kind,
 		"cancer_win_streak": game.cancer_win_streak,
+		"chemo": game.chemo.duplicate(),
 		"current_pid": game.current_pid, "phase": game.phase,
 		"events": game.events.duplicate(true), "rng": game.rng.state,
 		"tune": game.tune.rules_state(),
@@ -37,6 +38,8 @@ static func restore(game: CWGame, snap: Dictionary) -> void:
 	game.win_reason = snap["win_reason"]
 	game.win_kind = snap["win_kind"]
 	game.cancer_win_streak = snap.get("cancer_win_streak", 0)
+	## 旧档没有趋化源字段：当成场上没有，不能因补字段拒读旧档
+	game.chemo = snap.get("chemo", {}).duplicate()
 	game.current_pid = snap["current_pid"]
 	game.phase = snap["phase"]
 	game.events = snap["events"].duplicate(true)

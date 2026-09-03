@@ -79,6 +79,9 @@ func hex_at(p: Vector2) -> Vector2i:
 ## 全部由 CWUIBridge 决定**，棋盘不掺和规则。
 signal tile_clicked(coord: Vector2i)
 signal tile_hovered(coord: Vector2i)   ## 移出棋盘时给 NO_TILE
+## 左键抬起。路径规划器靠「按下 → 划过若干格 → 抬起」这一串认拖动；
+## 别的询问不接它，所以不影响原有交互。
+signal drag_ended
 
 var hovered := NO_TILE
 
@@ -95,7 +98,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if over != hovered:
 			hovered = over
 			tile_hovered.emit(over)
-	elif event is InputEventMouseButton and event.pressed 			and event.button_index == MOUSE_BUTTON_LEFT:
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if not event.pressed:
+			drag_ended.emit()
+			return
 		var hit := hex_at(at)
 		if hit != NO_TILE:
 			tile_clicked.emit(hit)
@@ -130,6 +136,10 @@ func tile_z(a: Vector2i, above: int) -> int:
 const MARK_MOVE := Color("30d1fa6e")     ## 可迁移/可移动：免疫青，0x6E ≈ 0.43
 const MARK_ATTACK := Color("ffb03a6e")   ## 可攻击：癌方橙，同混合比例
 const MARK_HOVER := Color("eaf8fc8f")    ## 鼠标所在格：提亮到 0.56
+## 规划器画的路径：走得通用免疫青加深一档（比 MARK_MOVE 更实，一眼看出「这几格是我选的」），
+## 走不通的那一步用癌方橙 —— 和「可攻击」同色不冲突：规划态里没有攻击格
+const MARK_PLAN := Color("30d1fabf")
+const MARK_PLAN_BAD := Color("ffb03abf")
 const MARK_SELF := Color("eaf8fc47")     ## 当前行动的细胞脚下：淡到 0.28
 
 var _marks: Node2D                  ## 高亮剪影与过场用的临时叠层

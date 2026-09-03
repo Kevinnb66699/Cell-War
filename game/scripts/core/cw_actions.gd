@@ -44,6 +44,13 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 			and game.can_pay(cell, antibody_cost(cell)):
 		opts.append({ "label": "抗体（%s 能量）" % CWData.fmt(antibody_cost(cell)),
 			"data": { "act": "antibody" } })
+	## 树突【I-趋化源】：2.0 能量在**全局任意位置**建一个，持续 2 回合，同一时刻仅一个。
+	## 「全局任意位置」有 127 格，全摊成顶层选项会把行动清单撑爆（AI 也没法推演），
+	## 所以这里只出**一个入口**，落点由 `_do_chemo` 再问一次（kind = "chemo_target"）。
+	if cell["itype"] == CWData.ImmuneType.DENDRITIC and game.chemo.is_empty() \
+			and game.can_pay(cell, CWData.CHEMO_COST):
+		opts.append({ "label": "趋化源（%s 能量）" % CWData.fmt(CWData.CHEMO_COST),
+			"data": { "act": "chemo" } })
 	if cell["itype"] == CWData.ImmuneType.T_CELL:
 		if cell["toxin_used"] < CWData.TOXIN_MAX_PER_ROUND \
 				and game.can_pay(cell, CWData.TOXIN_COST) and not _toxin_targets(cell).is_empty():
@@ -80,6 +87,99 @@ func immune_move_options(cell: Dictionary) -> Array:
 
 
 
+# ---- 路径规划器（2026-09-04 Kevin 要的「拖一条路，程序算总价」）----
+#
+# 为什么要引擎来算：一条路的**每一步价钱都取决于走到那一步时的盘面**——
+# 癌细胞踩过的健康组织当场变癌组织（【定殖】），于是下一步可能从「健康 1.0」变成「癌性 0.2」，
+# 黑色素瘤【伪足穿透】的「相邻 ≥2 格癌性」也会因此成立；免疫踩过癌组织当场【净化】成健康，
+# 下一步反而变贵。界面自己拿单格价钱乘步数**必然算错**，所以这份账只能engine 算。
+#
+# **纯查询**：动过的字段算完原样放回，`cell` / `tiles` 的对象身份不变
+# （不用 snapshot/restore —— 那会换掉整个 cells 数组，调用方手里的 cell 引用当场失效）。
+
+## 沿 path 逐格报价。path 是**依次要落脚的格子**（不含起点），一步一格。
+##
+## 只模拟「会改变后续价钱」的两件事：细胞位置、脚下组织按【定殖】/【净化】翻面。
+## 不模拟不影响价钱的副作用（抗原记忆、日志、骨髓抽卡、巨噬回能、RAS 回能）——
+## 那些是执行时的事，规划器只回答「这条路要花多少」。
+##
+## 返回 { steps: [{ to, cost, mid, legal, afford, blocked }], total, ok, left, stop }
+##   · legal  这一步在**走到它的时候**合法吗（与提交复验共用 `_is_move_legal_now`）
+##   · afford 走到这一步时账上还付得起吗（逐步扣，不是拿总价比总能量）
+##   · blocked 非空 = 为什么走不了，直接给玩家看
+##   · ok     整条路都走得通；stop = 第一步走不通的下标（-1 = 全通）
+func quote_path(cell: Dictionary, path: Array) -> Dictionary:
+	var saved_pos: Vector2i = cell["pos"]
+	var saved: Array = []          ## [[坐标, 动之前的组织字段]]，逆序放回
+	var steps: Array = []
+	var budget: int = cell["energy"]
+	var total := 0
+	var stop := -1
+	for i in path.size():
+		var to: Vector2i = path[i]
+		var mid := pass_through_mid(cell, to)
+		var occupied: bool = not game.cells_at(to).is_empty()
+		var legal: bool = _is_move_legal_now(cell, to) and not occupied
+		var cost := 0
+		var blocked := ""
+		if occupied:
+			## 规划器只规划**移动**：撞上谁就停在这儿。攻击要玩家自己点，
+			## 免得「拖过去」把一次攻击悄悄塞进路线里
+			blocked = "有细胞占据 —— 攻击请单独点它"
+		elif not legal:
+			blocked = move_block_reason(cell, to)
+			if blocked == "":
+				blocked = "走不到这一格"
+		else:
+			cost = _move_cost_mod(cell, to, _move_base_cost(cell, to))
+			if budget < cost:
+				blocked = "能量只剩 %s，这一步要 %s" % [CWData.fmt(budget), CWData.fmt(cost)]
+		var afford: bool = legal and blocked == ""
+		steps.append({ "to": to, "cost": cost, "mid": mid,
+			"legal": legal, "afford": afford, "blocked": blocked })
+		if not afford:
+			stop = i
+			break
+		budget -= cost
+		total += cost
+		## 走过去：位置动，脚下组织按【定殖】/【净化】翻面（enter_tile 里那两条，同样的条件）
+		var t: Dictionary = game.tile(to)
+		saved.append([to, _price_fields(t)])
+		if cell["faction"] == CWData.Faction.CANCER:
+			if t["tissue"] == CWData.Tissue.HEALTHY:
+				CWTissue.to_cancer(t, true)
+		elif t["tissue"] == CWData.Tissue.CANCER:
+			CWTissue.to_healthy(t)
+		cell["pos"] = to
+	## 原样放回（逆序：同一格可能被走过两次）
+	cell["pos"] = saved_pos
+	for k in range(saved.size() - 1, -1, -1):
+		var t2: Dictionary = game.tile(saved[k][0])
+		for key: String in saved[k][1]:
+			t2[key] = saved[k][1][key]
+	return { "steps": steps, "total": total, "ok": stop < 0, "left": budget, "stop": stop }
+
+
+## 影响移动价钱的那几个组织字段（规划器算完要原样放回）。
+## `store` / `cards` / `prod` / `mucus` 规划器不碰，所以不必存。
+func _price_fields(tile: Dictionary) -> Dictionary:
+	return { "tissue": tile["tissue"], "solid": tile["solid"],
+		"newborn": tile["newborn"], "necrosis": tile["necrosis"] }
+
+
+## 从 `from` 出发，这一步能落脚的格（规划器用：只要**空格**，攻击不进路线）。
+## 规划器每接一格都问一次这个 —— 起点是路径当前的末端，不是细胞此刻的位置。
+func plan_next_dests(cell: Dictionary, from: Vector2i) -> Array:
+	var saved: Vector2i = cell["pos"]
+	cell["pos"] = from
+	var out: Array = []
+	for n in move_dests(cell):
+		if game.cells_at(n).is_empty() and _is_move_legal_now(cell, n):
+			out.append(n)
+	cell["pos"] = saved
+	return out
+
+
 # ---- 合法性谓词：选项生成与提交复验**共用同一份** ----
 #
 # 2026-08-31 队友审查发现 CWCost.commit() 只重新报价、不复验合法性，而注释却写着
@@ -95,6 +195,11 @@ func immune_move_options(cell: Dictionary) -> Array:
 ##
 ## 放引擎不放界面：这是规则，抄到界面里迟早和 _is_move_legal_now 漂移（架构约定 #10）。
 func move_block_reason(cell: Dictionary, to: Vector2i) -> String:
+	## 树突撞在癌细胞上：这是【I-各司其职】，不是攻击次数用尽，得单独说清楚
+	if cell["faction"] == CWData.Faction.IMMUNE \
+			and cell["itype"] == CWData.ImmuneType.DENDRITIC \
+			and not game.cells_at(to, CWData.Faction.CANCER).is_empty():
+		return "【各司其职】树突状细胞不能攻击、也不能移向癌细胞占据的组织"
 	if _is_move_legal_now(cell, to):
 		## 盘面上合法却不在选项里 —— 选项生成只多做一道检查：付不付得起。那就把账算给玩家看：
 		## 要多少、含哪些修正、账上多少、付完至少留 0.1。
@@ -195,6 +300,12 @@ func _is_move_legal_now(cell: Dictionary, to: Vector2i) -> bool:
 	var enemies: Array = game.cells_at(to, CWData.Faction.CANCER)
 	if enemies.is_empty():
 		return game.cells_at(to).is_empty()
+	## 树突【I-各司其职】（2026-09-04 新 PRD）：**无法通过【迁移】攻击癌细胞，
+	## 也无法向癌细胞占据的组织移动**。攻击在本作里就是「走进敌人那一格」，
+	## 所以这一条落在移动合法性上就够，不必再在攻击结算里补一道。
+	## 旧机制（树突攻击只造成 1/2 伤害）已从 CWDamage 撤掉。
+	if cell["itype"] == CWData.ImmuneType.DENDRITIC:
+		return false
 	## 每回合攻击次数上限。放在**共用谓词**里而不是选项生成里 ——
 	## 口径 #81 要求「选项生成与提交复验共用同一份谓词」，写两处必然漂移。
 	## 用完次数后只是这一格不能进（攻击不可选），别的迁移照常。
@@ -371,6 +482,8 @@ func action_kinds(cell: Dictionary) -> Array[String]:
 			CWData.ImmuneType.T_CELL:
 				out.append("toxin")
 				out.append("lyse")
+			CWData.ImmuneType.DENDRITIC:
+				out.append("chemo")
 	else:
 		out.append("mutate")
 		match cell["ctype"]:
@@ -391,6 +504,8 @@ func execute(cell: Dictionary, data: Dictionary) -> void:
 			await _do_move(cell, data["to"], data["cost"])
 		"draw":
 			await _do_draw(cell)
+		"chemo":
+			await _do_chemo(cell)
 		"differentiate":
 			_do_differentiate(cell, data["type"])
 		"antibody":
@@ -732,6 +847,33 @@ func _do_discard(cell: Dictionary, card: String) -> void:
 
 
 # ---- 免疫技能 ----
+
+## 树突【I-趋化源】：问落点（全局任意一格）→ 付 2.0 → 场上立一个，持续 2 回合。
+##
+## 落点**不限组织类型、也不限有没有人站着** —— PRD 只说「全局任意位置」。
+## 建立本身不是移动：不触发【定殖】/【净化】、不占迁移次数。
+## 走 `Action.CELL_SKILL` 报价（与【转移】【早期血行转移】同一类），所以【基质阻隔】那类翻倍挂得上。
+func _do_chemo(cell: Dictionary) -> void:
+	if not game.chemo.is_empty():
+		return                      ## 同一时刻仅一个；选项那边也拦，这里是提交前复验
+	var spots: Array = []
+	for c: Vector2i in game.tiles:
+		spots.append({ "label": "趋化源→%s" % str(c), "data": { "to": c } })
+	var pick: int = await game.ask(cell["pid"], {
+		"kind": "chemo_target",
+		"prompt": "选择趋化源的位置（全局任意一格）", "options": spots,
+	})
+	var at: Vector2i = spots[pick]["data"]["to"]
+	if game.cost.commit(CWCost.context(cell, CWCost.Action.CELL_SKILL,
+			CWData.CHEMO_COST, at, 0,
+			func() -> bool: return game.chemo.is_empty())).is_empty():
+		return
+	game.chemo = { "at": at, "left": CWData.CHEMO_ROUNDS, "by": cell["pid"] }
+	game.log_msg("【趋化源】%s 在 %s 建立趋化源（持续 %d 回合：免疫朝它 -%d%%、癌方背它 +%d%%）" % [
+		game.cell_name(cell), str(at), CWData.CHEMO_ROUNDS,
+		100 - CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT - 100])
+	game.announce("趋化源", at)
+
 
 func _diff_choices() -> Array:
 	var out: Array = []

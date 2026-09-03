@@ -32,6 +32,9 @@ var phase := ""            # 开局布置 / 世界回合 S / 玩家回合 / 世�
 var current_pid := -1      # 正在行动的玩家；非玩家回合时为 -1
 var win_reason := ""
 var win_kind := ""         # immune_clear / cancer_weighted / limit_cancer / limit_immune（统计用）
+## 树突状细胞【I-趋化源】：{} = 场上没有；否则 { at: Vector2i, left: 剩余世界回合, by: 建立者 pid }。
+## **进快照与哈希**（它改变后续所有移动的价钱）。同一时刻仅一个，见 CWActions 的 chemo 选项。
+var chemo := {}
 var cancer_win_streak := 0  # 癌方加权占地连续达标的回合末次数（见 tune.cancer_win_hold_rounds）；进快照与哈希
 var rng := RandomNumberGenerator.new()
 var bridges := {}          # player_id -> CWBridge
@@ -778,6 +781,14 @@ func apply_mark(target: Dictionary, by: Dictionary) -> void:
 		charges = 2
 	target["mark_left"] = maxi(target["mark_left"], charges)
 
+
+## 【I-标记】的光环刷新：**任意时间**站在树突旁边的癌细胞都该带着标记（2026-09-04 新 PRD）。
+##
+## 旧写法只在「分化出树突」和「有人移动」之后刷一次，于是标记被伤害消耗掉之后
+## 即使还贴着树突也不会再回来 —— 新 PRD 的「同一回合一癌细胞可多次获得标记」要的正是那次回补。
+## 所以改成**每次可能改变邻接或消耗标记的结算之后都刷一遍**（移动、伤害、复活、卡牌位移）。
+## 幂等：已经带着标记的跳过，`maxi` 也保证【抗原呈递强化】的 2 层不会被降级，
+## 因此重复调用不会把层数堆到天上。
 
 func update_marks() -> void:
 	for c in living_cells(CWData.Faction.CANCER):

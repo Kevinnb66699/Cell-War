@@ -132,6 +132,7 @@ var _fading := false  ## 正在演返场淡出：这期间**必须停掉每帧�
 var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
 var _tile_info: CWTileInfo   ## 悬停格子详情（_ready 里程序化补进 UI 层）
 var _card_info: CWCardInfo   ## 悬停手牌详情，同样程序化补进；与格子详情同一套打法
+var _chemo_fx: CWChemoFx     ## 树突【I-趋化源】的漩涡核心演出（挂在棋盘层，跟着格子走）
 var _log_panel: CWLogPanel   ## 对局日志面板（L 键开关），同样程序化补进
 var _log_hint: CWLogHint     ## 左上角「对局日志 L」入口提示（定案A），显隐跟着面板走
 
@@ -148,6 +149,11 @@ func _ready() -> void:
 		## 悬停格子详情：程序化补进 UI 层，但要压在暂停菜单**下面** ——
 		## 暂停时 _process 停了，信息卡收不掉，不能让它浮在暂停层上。
 		## 悬停信号在 start()/teardown() 里成对开合（拆局约定：信号必须断干净）。
+		## 趋化源的漩涡：挂在**棋盘**上而不是 UI 层 —— 它是场上的东西，
+		## 得跟着相机缩放/平移，也得按格子的 z 序压在细胞下面
+		_chemo_fx = CWChemoFx.new()
+		_chemo_fx.visible = false
+		board.add_child(_chemo_fx)
 		_tile_info = CWTileInfo.new()
 		ui.add_child(_tile_info)
 		if pause_menu != null:
@@ -516,6 +522,7 @@ func _process(delta: float) -> void:
 	_sync_tiles()
 	_sync_cells()
 	_animate_breath(delta)
+	_sync_chemo(delta)
 	_sync_hand()
 	if panel != null:
 		if online and _client != null:
@@ -553,6 +560,21 @@ func _sync_tiles() -> void:
 	if bridge != null:
 		marks.merge(bridge.marks, true)
 	board.set_marks(marks)
+
+
+## 趋化源：场上有就把漩涡摆到那一格，没有就收起。
+## 「只剩 1 回合」喂给演出层换色加速 —— 玩家不必去翻日志就知道它快没了。
+func _sync_chemo(delta: float) -> void:
+	if _chemo_fx == null:
+		return
+	if game.chemo.is_empty():
+		_chemo_fx.visible = false
+		return
+	var at: Vector2i = game.chemo["at"]
+	_chemo_fx.visible = true
+	## 压在细胞下面（Z_MARK 那一层）：漩涡是地面上的东西，不该盖住站在上面的细胞
+	_chemo_fx.sync(delta, board.tile_center(at), board.tile_z(at, board.Z_MARK),
+		int(game.chemo["left"]) <= 1)
 
 
 func _sync_cells() -> void:
