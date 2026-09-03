@@ -524,7 +524,8 @@ func _solidify() -> void:
 			continue
 		counted[c] = true
 		var t: Dictionary = game.tile(c)
-		if t["tissue"] != CWData.Tissue.CANCER or t["newborn"]:
+		## 「新生」保护是旋钮（2026-09-04 Kevin 拍板取消，默认 false）：关掉后当回合新铺的格子当回合就累计
+		if t["tissue"] != CWData.Tissue.CANCER 				or (game.tune.newborn_protect and t["newborn"]):
 			continue
 		game.raise_solid(c, _solidify_step(c))   ## 门槛判定（含【固化加速】）在 raise_solid 里
 

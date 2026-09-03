@@ -96,12 +96,32 @@ func sync(delta: float, faction: int, blocked: bool) -> void:
 
 
 ## 某种分化细胞该显示什么：{ name, kind, lines }。文案是 CWData.IMMUNE_TYPE_TEXT 里的 PRD 原文；
-## 没有文案的种类（未分化）给空行数组，不崩
-static func describe_type(t: int) -> Dictionary:
+## 没有文案的种类（未分化）给空行数组，不崩。
+## kind 传「【细胞种类】」= 右栏固定详情在看这个细胞是什么；默认「【分化】」= 分化提问里在选它
+static func describe_type(t: int, kind := "【分化】") -> Dictionary:
 	return {
 		"name": CWData.IMMUNE_TYPE_NAMES.get(t, ""),
-		"kind": "【分化】",
+		"kind": kind,
 		"lines": wrap_text(CWData.IMMUNE_TYPE_TEXT.get(t, ""), W - PAD_H * 2.0),
+	}
+
+
+## 某个主动技能该显示什么：{ name, kind, lines }。文案是 CWData.skill_text() 里的 PRD 原文。
+## faction 决定「迁移 / 移动」「基因表达」两套措辞（规则里就是两个词、两个价）
+static func describe_act(act: String, faction: int) -> Dictionary:
+	return {
+		"name": CWData.act_name(act, faction),
+		"kind": "【主动技能】",
+		"lines": wrap_text(CWData.skill_text(act, faction), W - PAD_H * 2.0),
+	}
+
+
+## 某种癌细胞的自带技能：{ name, kind, lines }。与 describe_type（免疫种类）成对
+static func describe_ctype(t: int) -> Dictionary:
+	return {
+		"name": CWData.CANCER_TYPE_NAMES.get(t, ""),
+		"kind": "【细胞种类】",
+		"lines": wrap_text(CWData.CANCER_TYPE_TEXT.get(t, ""), W - PAD_H * 2.0),
 	}
 
 

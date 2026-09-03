@@ -16,6 +16,10 @@ extends Control
 
 ## 「结束回合」被按下（面板底部那个按钮，或空格）
 signal end_turn_pressed
+## 固定详情里停在某一条技能上：把它的 PRD 原文（CWCardInfo 的 { name, kind, lines }）
+## 和详情框该贴的横坐标交出去，由 CWMatch 转给同一只 CWCardInfo。
+## 离开时发空字典 —— 和行动栏那条悬停路径同一套约定
+signal skill_hovered(rows: Dictionary, anchor_x: float)
 
 const RECT := Rect2(696, 0, 264, 540)
 const PAD := 16
@@ -36,6 +40,8 @@ const ICON := 32
 const PIP := 6            ## 方块边长
 const PIP_GAP := 2
 const ENERGY_RESERVE := 52  ## 能量数字预留的宽度；「技 N」右对齐到它左边
+## 技能详情框的宽度。固定态要放下「停在技能上看详情 · 再点该行取消固定」这行小字（10px×18 字 = 180）
+const TIP_W := 200.0
 
 ## 玩家行里的种类图标。和棋盘上是同一批贴图，但棋盘那份要对齐脚底、这份是居中摆，
 ## 用途不同所以各留各的表（棋盘那份见 CWMatch.IMMUNE_ART / CANCER_ART）。
@@ -73,8 +79,9 @@ var _end: PanelContainer
 var _rows: Array = []      ## 每项 { bg, fac, icon, name, type, energy, pips, skills }
 var _built := 0            ## 已按几人局建好（0 = 还没建）
 var _level_y := 0.0        ## 免疫等级那一块的顶边；测试靠它核对 6 人局没溢出
-var _tip: Control = null   ## 被动技能悬浮框（悬停玩家行时列出已装备）
+var _tip: Control = null   ## 技能详情框（悬停玩家行时列出已装备；**点一下固定**后列全套技能）
 var _tip_pid := -1         ## 正悬停哪一行；-1 = 收起
+var _tip_pinned := -1      ## 被点住固定的那一行；-1 = 没固定。固定后框不随鼠标收起、条目可悬停
 var _tip_key := ""         ## 上次搭悬浮框用的键，没变不重搭
 ## 联机：房间视图里的席位表（下标 = pid）。AI 席 / 离线席在种类后面加个角标；本地对局留空
 var net_seats: Array = []
@@ -165,6 +172,7 @@ func reset() -> void:
 	net_seats = []
 	_tip = null       ## 悬浮框也在刚才那波清掉了，别留野引用
 	_tip_pid = -1
+	_tip_pinned = -1
 	_tip_key = ""
 
 
@@ -245,6 +253,7 @@ func _build(n: int) -> void:
 	_built = n
 	_tip = null
 	_tip_pid = -1
+	_tip_pinned = -1
 	_tip_key = ""
 
 	# ① 回合 / 阶段 / 进行中的世界事件
@@ -318,6 +327,13 @@ func _build_row(y: float, pid: int) -> Dictionary:
 	hover.mouse_exited.connect(func() -> void:
 		if _tip_pid == pid:
 			_tip_pid = -1)
+	## 点一下**固定**这一行的详情（2026-09-04 Kevin 要的）：不固定的话框会随鼠标一起消失，
+	## 想读技能正文就永远够不着它。再点同一行取消，点别的行直接换过去。
+	hover.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			_tip_pinned = -1 if _tip_pinned == pid else pid
+			_tip_key = ""      ## 固定与否决定列什么，键作废、强制重搭
+			skill_hovered.emit({}, 0.0))
 	add_child(hover)
 
 	var x: float = PAD + ROW_PAD
@@ -447,16 +463,71 @@ func _update_event_tip(game: CWGame) -> void:
 ## 悬停玩家行时，在面板左侧浮出该细胞的已装备清单。没装备就不浮（空框是噪音）。
 ## 每帧从 refresh() 进来：装备可以在悬停期间变（BCL-2 触发会弃掉自己），
 ## 键没变就不重搭。死亡不掉装备（口径 #65 批），所以死了照样能看。
+## 详情框里列什么：**纯函数**，测试直接核对，不用真渲染。
+##
+## 两档内容，因为两种用法的诉求不同：
+## · **悬停**（`full = false`）只列已装备的永久技能 —— 平时划过右栏时最少的打扰，
+##   没装备就干脆不浮（这是 2026-08-30 定的老行为，别因为加了固定就把它变吵）；
+## · **固定**（`full = true`，点了那一行）列全套：细胞种类的自带技能 → 主动技能 → 已装备。
+##   被动技能（【伪足穿透】【囊性护甲】【I-各司其职】…）**永远不进行动栏**，
+##   这里是玩家唯一读得到它们的地方（2026-09-04 Kevin 要的）。
+##
+## 每项是 { text, info }：`info` = 悬停时浮出的 PRD 原文；`head` 项是小标题，不可悬停。
+## 主动技能那一段直接走 `CWActions.action_kinds()` —— 和行动栏同一份清单，两处对不上是迟早的事。
+static func tip_rows(game: CWGame, pid: int, full: bool) -> Array:
+	if pid < 0 or pid >= game.cells.size():
+		return []
+	var cell: Dictionary = game.cell_of(pid)
+	var immune: bool = cell["faction"] == CWData.Faction.IMMUNE
+	var equipped: Array = cell["equipped"]
+	var out: Array = []
+	if not full:
+		if equipped.is_empty():
+			return []
+		out.append({ "head": "已装备 · 持续生效" })
+		for n in equipped:
+			out.append({ "text": n, "info": CWCardInfo.describe(n, cell["faction"]) })
+		return out
+	var tinfo: Dictionary = CWCardInfo.describe_type(cell["itype"], "【细胞种类】") if immune \
+		else CWCardInfo.describe_ctype(cell["ctype"])
+	if not tinfo["lines"].is_empty():
+		out.append({ "head": "细胞种类" })
+		out.append({ "text": tinfo["name"], "info": tinfo })
+	var acts: Array = []
+	for act in game.actions.action_kinds(cell):
+		acts.append({ "text": CWData.act_name(act, cell["faction"]),
+			"info": CWCardInfo.describe_act(act, cell["faction"]) })
+	if not acts.is_empty():
+		out.append({ "head": "主动技能" })
+		out.append_array(acts)
+	if not equipped.is_empty():
+		out.append({ "head": "已装备 · 持续生效" })
+		for n in equipped:
+			out.append({ "text": n, "info": CWCardInfo.describe(n, cell["faction"]) })
+	return out
+
+
+## 框高：小标题 15、条目 24、上下内边距各 8；固定态底下多一行操作提示
+static func tip_height(rows: Array, full: bool) -> float:
+	var h := 16.0
+	for r in rows:
+		h += 15.0 if r.has("head") else 24.0
+	return h + (15.0 if full else 0.0)
+
+
 func _update_tip(game: CWGame) -> void:
-	var equipped: Array = []
-	if _tip_pid >= 0 and _tip_pid < game.cells.size():
-		equipped = game.cell_of(_tip_pid)["equipped"]
-	if equipped.is_empty():
+	var full: bool = _tip_pinned >= 0
+	var pid: int = _tip_pinned if full else _tip_pid
+	var rows: Array = tip_rows(game, pid, full)
+	if rows.is_empty():
 		if _tip != null:
 			_tip.visible = false
 		_tip_key = ""
 		return
-	var key := "%d|%s" % [_tip_pid, ",".join(PackedStringArray(equipped))]
+	var names := PackedStringArray()
+	for r in rows:
+		names.append(r.get("head", r.get("text", "")))
+	var key := "%d|%d|%s" % [pid, int(full), ",".join(names)]
 	if key == _tip_key and _tip != null:
 		_tip.visible = true
 		return
@@ -466,23 +537,45 @@ func _update_tip(game: CWGame) -> void:
 		_tip.queue_free()
 	_tip = Control.new()
 	_tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var h: float = 8 * 2 + 15 + equipped.size() * 24
-	_tip.size = Vector2(176, h)
-	var row_top: float = PAD + ROUND_H + GAP + SCORE_H + GAP + _tip_pid * ROW_H
-	_tip.position = Vector2(-(176.0 + 8.0),
+	var h := tip_height(rows, full)
+	_tip.size = Vector2(TIP_W, h)
+	var row_top: float = PAD + ROUND_H + GAP + SCORE_H + GAP + pid * ROW_H
+	_tip.position = Vector2(-(TIP_W + 8.0),
 		clampf(row_top, 8.0, RECT.size.y - h - 8.0))
 	var bg := Panel.new()
 	bg.add_theme_stylebox_override("panel", CWStyle.box(0.45, CWStyle.BTN_BG))
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_tip.add_child(bg)
-	var title := CWStyle.label("已装备 · 持续生效", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	title.position = Vector2(12, 8)
-	_tip.add_child(title)
-	for i in equipped.size():
-		var name_label := CWStyle.label(equipped[i], CWStyle.SIZE_BODY, CWStyle.TEXT)
-		name_label.position = Vector2(12, 8 + 15 + i * 24)
-		_tip.add_child(name_label)
+	var y := 8.0
+	for r in rows:
+		if r.has("head"):
+			var head := CWStyle.label(r["head"], CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+			head.position = Vector2(12, y)
+			_tip.add_child(head)
+			y += 15.0
+			continue
+		var item := CWStyle.label(r["text"], CWStyle.SIZE_BODY, CWStyle.TEXT)
+		item.position = Vector2(12, y)
+		if full:
+			## 固定态才收鼠标：不固定时框会随鼠标离开玩家行而收起，
+			## 让它挡事件只会把「移开就收」变成「移不开」
+			item.size = Vector2(TIP_W - 24, 22)
+			item.mouse_filter = Control.MOUSE_FILTER_STOP
+			var info: Dictionary = r["info"]
+			item.mouse_entered.connect(func() -> void:
+				item.add_theme_color_override("font_color", Color.WHITE)
+				skill_hovered.emit(info, _tip.global_position.x - CWCardInfo.W - 8.0))
+			item.mouse_exited.connect(func() -> void:
+				item.add_theme_color_override("font_color", CWStyle.TEXT)
+				skill_hovered.emit({}, 0.0))
+		_tip.add_child(item)
+		y += 24.0
+	if full:
+		var hint := CWStyle.label("停在技能上看详情 · 再点该行取消固定",
+			CWStyle.SIZE_LABEL, CWStyle.TEXT_OFF)
+		hint.position = Vector2(12, y)
+		_tip.add_child(hint)
 	add_child(_tip)
 
 

@@ -357,7 +357,7 @@ func _dist_to_nearest_immune(from: Vector2i) -> int:
 ## 脚下这格值不值得蹲：必须是能继续累计固化计数的癌组织
 func _worth_solidifying(me: Dictionary) -> bool:
 	var t: Dictionary = game.tile(me["pos"])
-	if t["tissue"] != CWData.Tissue.CANCER or t["newborn"]:
+	if t["tissue"] != CWData.Tissue.CANCER 			or (game.tune.newborn_protect and t["newborn"]):
 		return false
 	if t["solid"] >= game.tune.solidify_threshold - 1:
 		return true  # 差最后一轮就固化，值得停

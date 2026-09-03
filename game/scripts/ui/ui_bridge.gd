@@ -49,16 +49,8 @@ const RESULT_HOLD := 1.1
 const NOTICE_HOLD := 3.0
 
 ## 行动栏按钮上的技能名。**费用一律现从 CWData 读，这里不写第二份数字**。
-## 新增主动技能却忘了在这里登记，t_action_ui 会当场报出来。
-const ACT_TITLE := {
-	"move": "迁移", "draw": "基因表达", "differentiate": "分化",
-	"antibody": "抗体", "toxin": "细胞毒素", "lyse": "裂解",
-	"mutate": "突变", "end": "结束回合",
-	## 癌细胞种类专属（PRD 四种真实癌症）
-	"homing": "血行转移", "mucus": "黏液破裂", "jump": "转移",
-	## 手牌（按钮不进行动栏，由手牌交互出；名字给日志和护栏测试用）
-	"play": "打出手牌", "discard": "弃牌",
-}
+## 表本体 2026-09-04 挪进 `CWData.ACT_NAMES`（右栏固定详情也要用同一份），这里只留别名。
+const ACT_TITLE := CWData.ACT_NAMES
 
 var _tiles := {}       ## 当前这一问里，哪些格子可点 → 点了返回什么
 var _enemy := -1       ## 当前提问者的敌对阵营，用来把「攻击格」标成橙色
@@ -178,6 +170,9 @@ func _ask_action(req: Dictionary) -> int:
 				"cost": _move_cost_text(options, moves) if act == "move" \
 					else _cost_text(cell, act),
 				"disabled": not live,
+				## 悬停这枚按钮时浮出的 PRD 原文（2026-09-04 Kevin 要的「技能栏显示详细作用」）。
+				## **灰掉的按钮也带** —— 想知道「这技能是干嘛的、我为什么用不了」正是那会儿最想问的
+				"info": CWCardInfo.describe_act(act, cell["faction"]),
 			})
 			values.append(act if live else "")
 		## 没有右侧竖条时（纯行动栏形态），「结束回合」退回按钮栏占一格
@@ -424,7 +419,7 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 			if why != "":
 				show_result(why, c)
 	var on_hover := func(_c: Vector2i) -> void: _repaint_marks()
-	## 按钮悬停 → 带 info 的条目浮详情（此刻只有分化的种类按钮带），别的按钮 / 离开就收起
+	## 按钮悬停 → 带 info 的条目浮详情（行动栏的每个技能、分化提问的种类按钮都带），离开就收起
 	var on_bar_hover := func(i: int) -> void:
 		if info == null:
 			return

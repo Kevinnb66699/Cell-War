@@ -100,9 +100,11 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 		CWData.Special.CORE:
 			rows.append({ "text": "代谢核心 · 储量 %s" % CWData.fmt(t["store"]),
 				"size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
+			rows.append(production_row(t))
 		CWData.Special.MARROW:
 			rows.append({ "text": "骨髓 · 卡牌 %d" % t["cards"],
 				"size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
+			rows.append(production_row(t))
 		CWData.Special.VESSEL:
 			rows.append({ "text": "血管", "size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
 	if t["necrosis"]:
@@ -118,6 +120,32 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 		rows.append({ "text": "能量 %s%s" % [CWData.fmt(maxi(cell["energy"], 0)), mark],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.TEXT })
 	return rows
+
+
+## 特殊组织「还有几回合产出」（2026-09-04 Kevin 要的）。
+##
+## **周期与产量一律现读 CWData，不写第二份**（同速查页的纪律）——
+## `prod` 是 S 阶段先 +1 再比周期，所以剩余 = 周期 − prod，最小 1（刚产完那回合显示「下回合」）。
+##
+## 三种情况措辞不同，因为机制本来就不同：
+## ① **癌性代谢核心每回合都产**（+0.4，没有周期计数），写「每回合 +0.4」而不是「还有 1 回合」；
+## ② **存满了就不再涨**（核心 2.0 上限、骨髓 1 张），这时说「还有几回合」是骗人 —— 写「已满」；
+## ③ 其余按剩余回合数写，顺带把这一次会产多少写出来，省得玩家回去翻规则。
+static func production_row(t: Dictionary) -> Dictionary:
+	var healthy: bool = t["tissue"] == CWData.Tissue.HEALTHY
+	var core: bool = t["special"] == CWData.Special.CORE
+	var full: bool = t["store"] >= CWData.CORE_STORE_MAX if core 		else t["cards"] >= CWData.MARROW_STORE_MAX
+	var text := ""
+	if full:
+		text = "已满 · 取走后继续攒"
+	elif core and not healthy:
+		text = "每回合 +%s" % CWData.fmt(CWData.CORE_CANCER_GAIN)
+	else:
+		var period: int = CWData.CORE_HEALTHY_PERIOD if core 			else (CWData.MARROW_HEALTHY_PERIOD if healthy else CWData.MARROW_CANCER_PERIOD)
+		var left: int = maxi(period - int(t["prod"]), 1)
+		var gain := "+%s" % CWData.fmt(CWData.CORE_HEALTHY_GAIN) if core else "+1 张"
+		text = "%s产出 %s" % ["下回合" if left <= 1 else "还有 %d 回合" % left, gain]
+	return { "text": text, "size": CWStyle.SIZE_LABEL, "color": CWStyle.TEXT_DIM }
 
 
 ## 站在这一格，本世界回合末会因【微环境压迫】损失多少 —— 该不该显示，以及怎么措辞。

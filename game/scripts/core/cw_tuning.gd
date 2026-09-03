@@ -21,6 +21,7 @@ const RULE_FIELDS := [
 	"immune_respawn_delay", "immune_respawn_energy", "macro_heal_purify",
 	"antibody_max_per_round", "proliferate_per_adjacent",
 	"metastasis_cost", "metastasis_max_per_round",
+	"newborn_protect",
 ]
 
 
@@ -254,6 +255,15 @@ var antibody_max_per_round := CWData.ANTIBODY_MAX_PER_ROUND
 ## 钉死黑 + 小的局里每局跳 8～16 次、6 人局只有黑 + 小同场才赢得了（§10.4），所以先量「限次」值多少，改不改团队定。
 var metastasis_cost := CWData.METASTASIS_COST
 var metastasis_max_per_round := 0
+
+# ---- 「新生癌组织」保护（2026-09-04 Kevin 拍板取消该机制）----
+## PRD（第 99 / 111~117 / 409~413 行）：本世界回合由【定殖】【侵蚀】【增生】等转化来的癌组织带「新生」，
+## 当回合不累计固化计数，E 阶段第 9 步统一清除；【基质硬化】也不能选「新生」格。
+## false = 取消（现行默认，Kevin 拍板）：当回合新铺的癌组织当回合就能累计固化 —— **这是癌方增强**。
+## true = 按 PRD 保护，平衡扫描用 `newborn=1` 拨回来对比。
+## 标记本身照常打、照常清（`CWTissue.to_cancer` / `_clear_newborn`），旋钮只管「读不读它」，
+## 这样拨回 true 就能逐位复现旧行为。
+var newborn_protect := false
 
 # ---- 【E-增生】癌组织向外扩散（规则原文没有这条，团队 2026-08-26 提案）----
 ## 每个与癌性组织相邻的健康组织，按「相邻癌性组织数 × 本值」的概率转为癌组织。

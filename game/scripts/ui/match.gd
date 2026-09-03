@@ -258,6 +258,9 @@ func _prepare_ui() -> void:
 		board.tile_hovered.connect(_tile_info.on_hover)
 	if _card_info != null and hand != null 			and not hand.card_hovered.is_connected(_card_info.on_hover):
 		hand.card_hovered.connect(_card_info.on_hover)
+	## 右栏固定详情里停在某条技能上 → 同一只详情框浮 PRD 原文（2026-09-04 Kevin 要的）
+	if _card_info != null and panel != null 			and not panel.skill_hovered.is_connected(_card_info.on_hover_info):
+		panel.skill_hovered.connect(_card_info.on_hover_info)
 	if _log_panel != null:
 		_log_panel.active = true
 	if _log_hint != null:
@@ -471,6 +474,8 @@ func teardown() -> void:
 	## 手牌不属于棋盘，不能等下面那段 is_instance_valid(board) 里再断
 	if _card_info != null and hand != null and hand.card_hovered.is_connected(_card_info.on_hover):
 		hand.card_hovered.disconnect(_card_info.on_hover)
+	if _card_info != null and panel != null 			and panel.skill_hovered.is_connected(_card_info.on_hover_info):
+		panel.skill_hovered.disconnect(_card_info.on_hover_info)
 	if _log_panel != null:
 		_log_panel.active = false
 		_log_panel.hide_now()

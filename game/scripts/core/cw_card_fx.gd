@@ -198,7 +198,8 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 				cands.append_array(CWData.neighbors(cell["pos"]))
 				for c in cands:
 					var t: Dictionary = game.tile(c)
-					if t["tissue"] == CWData.Tissue.CANCER and not t["newborn"]:
+					## 「非新生」这一条随旋钮走（2026-09-04 取消该机制后，新铺的格子也能选）
+					if t["tissue"] == CWData.Tissue.CANCER 							and not (game.tune.newborn_protect and t["newborn"]):
 						opts.append(_opt(card, "→%s" % str(c), { "to": c }))
 			"肿瘤细胞募集":
 				var r: int = [2, 3, 3][_phase()]

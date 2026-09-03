@@ -84,6 +84,8 @@ func _run_all() -> void:
 	await t_hover_info()
 	await t_log_panel()
 	await t_rules_page()
+	t_production_row()
+	await t_skill_info()
 	await t_save_load()
 	await t_settings()
 	t_board_view()
@@ -608,13 +610,25 @@ func t_solidify_and_decay() -> void:
 	check(g.tiles[d1]["solid"] == 0, "再减一次归零，不会变负")
 	g.world._decay()
 	check(g.tiles[d1]["solid"] == 0, "已经是 0 就不再减")
-	## 新生癌组织当回合不可固化
+	## 「新生」保护是旋钮（2026-09-04 Kevin 拍板取消该机制，默认关）。**正反两个方向都钉**：
+	## 只钉一边的话，把读取点删干净也照样绿，而旋钮拨回 true 就该逐位复现旧行为
 	var nb := Vector2i(0, 1)
 	g.tiles[nb]["tissue"] = CWData.Tissue.CANCER
 	g.tiles[nb]["newborn"] = true
+	cell["ctype"] = CWData.CancerType.MELANOMA   ## 骨肉瘤 +1.5，换回普通癌细胞看 +1.0
 	cell["pos"] = nb
+	check(not g.tune.newborn_protect, "默认：「新生」保护已取消（Kevin 2026-09-04 拍板）")
 	g.world._solidify()
-	check(g.tiles[nb]["solid"] == 0, "新生癌组织当回合不固化")
+	check(g.tiles[nb]["solid"] == CWData.SOLIDIFY_STEP,
+		"取消后：当回合新铺的癌组织当回合就累计固化（+%s）" % CWData.fmt(CWData.SOLIDIFY_STEP))
+	g.tiles[nb]["solid"] = 0
+	g.tune.newborn_protect = true
+	g.world._solidify()
+	check(g.tiles[nb]["solid"] == 0, "旋钮拨回 true：按 PRD 当回合不固化（旧行为）")
+	g.tiles[nb]["newborn"] = false
+	g.world._solidify()
+	check(g.tiles[nb]["solid"] == CWData.SOLIDIFY_STEP, "保护只管「新生」那一格，旧组织照常累计")
+	g.tune.newborn_protect = false
 	g.dispose()
 
 
@@ -2104,6 +2118,191 @@ func t_log_panel() -> void:
 
 
 # ---- 规则速查：数字必须现读常量/旋钮，不许抄第二份 ----
+## 特殊组织「还有几回合产出」（2026-09-04 Kevin 要的）。周期 / 产量现读 CWData，
+## 这里连措辞一起钉：三种情况（每回合产、存满、按剩余回合）说的是三件不同的事
+func t_production_row() -> void:
+	print("[特殊组织产出倒计时]")
+	var core := CWSetup.make_tile(CWData.CORES[0])
+	check(core["special"] == CWData.Special.CORE, "取到的确实是代谢核心格")
+	var text := func(t: Dictionary) -> String: return CWTileInfo.production_row(t)["text"]
+	check(text.call(core) == "还有 %d 回合产出 +%s"
+		% [CWData.CORE_HEALTHY_PERIOD, CWData.fmt(CWData.CORE_HEALTHY_GAIN)],
+		"健康核心刚归零：还有 %d 回合（得「%s」）" % [CWData.CORE_HEALTHY_PERIOD, text.call(core)])
+	core["prod"] = CWData.CORE_HEALTHY_PERIOD - 1
+	check(text.call(core).begins_with("下回合产出"), "只差一回合时说「下回合」，不说「还有 1 回合」")
+	core["prod"] = 0
+	CWTissue.to_cancer(core, false)
+	check(text.call(core) == "每回合 +%s" % CWData.fmt(CWData.CORE_CANCER_GAIN),
+		"癌性核心每回合都产，没有周期可倒数（得「%s」）" % text.call(core))
+	core["store"] = CWData.CORE_STORE_MAX
+	check(text.call(core).begins_with("已满"), "存满了就说「已满」——再报倒计时是骗人")
+	var marrow := CWSetup.make_tile(CWData.MARROWS[0])
+	check(text.call(marrow) == "还有 %d 回合产出 +1 张" % CWData.MARROW_HEALTHY_PERIOD,
+		"健康骨髓周期 %d（得「%s」）" % [CWData.MARROW_HEALTHY_PERIOD, text.call(marrow)])
+	CWTissue.to_cancer(marrow, false)
+	check(text.call(marrow) == "还有 %d 回合产出 +1 张" % CWData.MARROW_CANCER_PERIOD,
+		"癌化骨髓周期缩到 %d" % CWData.MARROW_CANCER_PERIOD)
+	marrow["cards"] = CWData.MARROW_STORE_MAX
+	check(text.call(marrow).begins_with("已满"), "骨髓存满一张也说「已满」")
+	## 真进详情：核心 / 骨髓两种格都要多出这一行，血管不该有
+	var g := bare_game()
+	var rows := CWTileInfo.describe(g, CWData.CORES[0])
+	var joined := ""
+	for r in rows:
+		joined += r["text"] + "|"
+	check(joined.contains("代谢核心") and joined.contains("回合产出"), "核心格详情里有产出行")
+	var vessel := ""
+	for r in CWTileInfo.describe(g, CWData.VESSELS[0]):
+		vessel += r["text"] + "|"
+	check(vessel.contains("血管") and not vessel.contains("产出"), "血管不产出，不加这一行")
+	g.dispose()
+
+
+## 技能详情（2026-09-04 Kevin 要的「技能栏显示详细作用」）：
+## ① 行动栏每个按钮都带 info；② 右栏玩家行点一下固定、条目可悬停
+func t_skill_info() -> void:
+	print("[技能详情]")
+	## 每个会上行动栏的技能都得有名字和 PRD 原文——漏登记在这里当场报出来
+	var missing: Array = []
+	for act in ["move", "draw", "differentiate", "antibody", "toxin", "lyse",
+			"mutate", "homing", "mucus", "jump", "end"]:
+		if not CWData.ACT_NAMES.has(act):
+			missing.append(act + "(名字)")
+		for f in [CWData.Faction.IMMUNE, CWData.Faction.CANCER]:
+			if CWData.skill_text(act, f) == "":
+				missing.append("%s(文案 f%d)" % [act, f])
+	check(missing.is_empty(), "行动栏的技能都有名字和 PRD 原文（缺的：%s）" % str(missing))
+	check(CWUIBridge.ACT_TITLE == CWData.ACT_NAMES, "行动栏名表就是 CWData 那一份，没有第二份")
+	## 阵营分两套措辞：规则里免疫叫【迁移】、癌症叫【移动】，抽卡价也不同
+	check(CWData.skill_text("move", CWData.Faction.IMMUNE).contains("【迁移】")
+		and CWData.skill_text("move", CWData.Faction.CANCER).contains("【移动】"),
+		"迁移 / 移动按阵营给各自的 PRD 原文")
+	check(CWData.skill_text("draw", CWData.Faction.IMMUNE)
+		!= CWData.skill_text("draw", CWData.Faction.CANCER), "两边【基因表达】价钱不同，文案也不同")
+	## 折行后每一行都要放得进详情框（同手牌详情那条纪律）
+	var toolong: Array = []
+	for act in CWData.ACT_NAMES:
+		for f in [CWData.Faction.IMMUNE, CWData.Faction.CANCER]:
+			var d := CWCardInfo.describe_act(act, f)
+			for l in d["lines"]:
+				if CWStyle.FONT.get_string_size(l, HORIZONTAL_ALIGNMENT_LEFT, -1,
+						CWStyle.SIZE_LABEL).x > CWCardInfo.W - CWCardInfo.PAD_H * 2.0:
+					toolong.append("%s：%s" % [act, l])
+	for t in CWData.CANCER_TYPE_TEXT:
+		for l in CWCardInfo.describe_ctype(t)["lines"]:
+			if CWStyle.FONT.get_string_size(l, HORIZONTAL_ALIGNMENT_LEFT, -1,
+					CWStyle.SIZE_LABEL).x > CWCardInfo.W - CWCardInfo.PAD_H * 2.0:
+				toolong.append("癌种：%s" % l)
+	check(toolong.is_empty(), "技能正文折行后没有一行超宽（超的：%s）" % str(toolong.slice(0, 3)))
+	check(CWCardInfo.describe_act("draw", CWData.Faction.IMMUNE)["name"] == "基因表达",
+		"名字取自 ACT_NAMES")
+	check(CWCardInfo.describe_ctype(CWData.CancerType.SCLC)["kind"] == "【细胞种类】"
+		and CWCardInfo.describe_ctype(CWData.CancerType.SCLC)["name"] == "小细胞肺癌",
+		"癌种详情给种类名与类别")
+	## 右栏：悬停只列已装备（老行为不许变吵），点一下固定才列全套
+	var g := _fx_game(2)
+	## cells 的下标就是 pid（cell_of 按下标取），追加顺序必须和玩家顺序一致
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(5, 0),
+		CWData.ImmuneType.BASIC, -1)
+	g.cells.append(imm)
+	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0),
+		-1, CWData.CancerType.MELANOMA)
+	g.cells.append(can)
+	can["equipped"] = ["组织驻留"]
+	check(CWMatchPanel.tip_rows(g, 0, false).is_empty(), "没装备时悬停不列任何东西（老行为）")
+	var hov := CWMatchPanel.tip_rows(g, 1, false)
+	check(hov.size() == 2 and hov[0]["head"] == "已装备 · 持续生效"
+		and hov[1]["text"] == "组织驻留", "有装备时悬停仍只列已装备")
+	var full := CWMatchPanel.tip_rows(g, 1, true)
+	var heads: Array = []
+	var items: Array = []
+	for r in full:
+		if r.has("head"):
+			heads.append(r["head"])
+		else:
+			items.append(r["text"])
+	check(heads == ["细胞种类", "主动技能", "已装备 · 持续生效"], "固定后分三段：%s" % str(heads))
+	check("组织驻留" in items and "突变" in items and "移动" in items,
+		"固定后列出装备、突变与移动（得 %s）" % str(items))
+	check(not ("迁移" in items), "癌方那一行说「移动」不说「迁移」——规则里是两个词")
+	check(CWData.act_name("move", CWData.Faction.IMMUNE) == "迁移"
+		and CWCardInfo.describe_act("move", CWData.Faction.CANCER)["name"] == "移动",
+		"详情框标题也按阵营给词")
+	## 主动技能那一段和行动栏同一份清单，不许各写各的
+	var kinds: Array = []
+	for a in g.actions.action_kinds(can):
+		kinds.append(CWData.act_name(a, can["faction"]))
+	for k in kinds:
+		check(k in items, "行动栏的「%s」在固定详情里也有" % k)
+	## 每一条都带 info，停上去才有东西浮
+	var noinfo: Array = []
+	for r in full:
+		if not r.has("head") and (not r.has("info") or r["info"]["lines"].is_empty()):
+			noinfo.append(r.get("text", "?"))
+	check(noinfo.is_empty(), "固定详情每一条都带 PRD 原文（缺的：%s）" % str(noinfo))
+	## 未分化的免疫细胞没有种类文案，那一段整段不出（不能留个空标题）
+	var basic := CWMatchPanel.tip_rows(g, 0, true)
+	var bheads: Array = []
+	for r in basic:
+		if r.has("head"):
+			bheads.append(r["head"])
+	check(not ("细胞种类" in bheads), "未分化免疫没有种类技能，那一段不出（得 %s）" % str(bheads))
+	## 框高按条目算；固定态底下多一行操作提示
+	check(CWMatchPanel.tip_height(hov, false) == 16.0 + 15.0 + 24.0, "悬停态框高 = 内边距 + 标题 + 一条")
+	check(CWMatchPanel.tip_height(hov, true) == 16.0 + 15.0 + 24.0 + 15.0, "固定态多一行提示")
+	## 点行 = 固定 / 再点取消（走真实控件，连信号一起验）
+	var panel := CWMatchPanel.new()
+	root.add_child(panel)
+	await process_frame
+	panel.refresh(g)
+	var seen: Array = []
+	panel.skill_hovered.connect(func(rows: Dictionary, _x: float) -> void: seen.append(rows))
+	var hits: Array = panel.find_children("*", "Control", false, false)
+	var row_hit: Control = null
+	for n in hits:
+		if n.size == Vector2(CWMatchPanel.W, CWMatchPanel.ROW_H) \
+				and is_equal_approx(n.position.y, CWMatchPanel.PAD + CWMatchPanel.ROUND_H
+					+ CWMatchPanel.GAP + CWMatchPanel.SCORE_H + CWMatchPanel.GAP + CWMatchPanel.ROW_H):
+			row_hit = n
+	check(row_hit != null, "找到癌方那一行的感应区")
+	if row_hit != null:
+		var click := InputEventMouseButton.new()
+		click.button_index = MOUSE_BUTTON_LEFT
+		click.pressed = true
+		row_hit.gui_input.emit(click)
+		check(panel._tip_pinned == 1, "点一下固定到癌方那一行")
+		panel.refresh(g)
+		check(panel._tip != null and panel._tip.visible, "固定后详情框在场")
+		## **停在条目上要真的把详情发出来** —— 这一整条链（条目收鼠标 → 信号 → 详情框）
+		## 只有在这里才验得到；截图工具的点击不一定造得出悬停态，别指望它兜底
+		var hot: Array = []
+		var conn := func(rows: Dictionary, x: float) -> void:
+			if not rows.is_empty():
+				hot.append([rows["name"], x])
+		panel.skill_hovered.connect(conn)
+		var stops := 0
+		for c in panel._tip.get_children():
+			if c is Label and (c as Label).mouse_filter == Control.MOUSE_FILTER_STOP:
+				stops += 1
+				(c as Label).mouse_entered.emit()
+		check(stops == items.size(),
+			"固定态每个条目都收鼠标（条目 %d，收鼠标的 %d）" % [items.size(), stops])
+		var names: Array = []
+		for h in hot:
+			names.append(h[0])
+		check(names == items, "每个条目各浮出自己的详情，顺序一致（得 %s）" % str(names))
+		check(hot.size() == stops and hot[0][1] < CWMatchPanel.RECT.position.x,
+			"详情框贴在详情条左侧，不盖住它（x=%s）" % str(hot[0][1] if hot.size() > 0 else -1))
+		panel.skill_hovered.disconnect(conn)
+		row_hit.gui_input.emit(click)
+		check(panel._tip_pinned == -1, "再点同一行取消固定")
+		check(seen.size() >= 2 and seen[0].is_empty(), "固定 / 取消都先把浮出的详情收掉")
+	panel.reset()
+	root.remove_child(panel)
+	panel.free()
+	g.dispose()
+
+
 func t_rules_page() -> void:
 	print("[规则速查]")
 	var all := ""

@@ -68,6 +68,7 @@ var lineup := ""
 var renergy := -1
 var metamax := -1
 var metacost := -1
+var newborn := -1
 
 const LINEUP_CODES := { "mel": CWData.CancerType.MELANOMA, "sig": CWData.CancerType.SIGNET,
 	"ost": CWData.CancerType.OSTEO, "sclc": CWData.CancerType.SCLC }
@@ -142,6 +143,7 @@ func _parse() -> void:
 			"renergy": renergy = int(kv[1])
 			"metamax": metamax = int(kv[1])
 			"metacost": metacost = int(kv[1])
+			"newborn": newborn = int(kv[1])
 
 
 ## 只接手打验证真正需要的那几个旋钮（推荐档 + 四条候选），不做全量镜像 ——
@@ -180,6 +182,8 @@ func _tune() -> CWTuning:
 		t.metastasis_max_per_round = metamax
 	if metacost >= 0:
 		t.metastasis_cost = metacost
+	if newborn >= 0:
+		t.newborn_protect = newborn != 0
 	for code in lineup.split(",", false):
 		if LINEUP_CODES.has(code):
 			t.cancer_types.append(LINEUP_CODES[code])
@@ -209,7 +213,8 @@ func _applied(t: CWTuning) -> String:
 			["rdelay", t.immune_respawn_delay, d.immune_respawn_delay],
 			["renergy", t.immune_respawn_energy, d.immune_respawn_energy],
 			["metamax", t.metastasis_max_per_round, d.metastasis_max_per_round],
-			["metacost", t.metastasis_cost, d.metastasis_cost]]:
+			["metacost", t.metastasis_cost, d.metastasis_cost],
+			["newborn", int(t.newborn_protect), int(d.newborn_protect)]]:
 		if pair[1] != pair[2]:
 			out.append("%s=%s" % [pair[0], str(pair[1])])
 	if not t.cancer_types.is_empty():
