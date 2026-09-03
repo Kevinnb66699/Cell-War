@@ -698,6 +698,19 @@ func t_cancer_revive_blocked() -> void:
 			and said.contains(g.cell_name(imm)),
 		"→ 说明了是哪一格、被谁占的")
 
+	## ③ 免疫席位也会被 _ask_each 问到这一段：死了的免疫细胞不归这里管，
+	## 既不能报「场上没有固化癌组织」（队友 2026-09-03 截图），也不能被当成癌细胞给「复活于固化格」
+	imm["pos"] = Vector2i(-3, 0)
+	imm["alive"] = false
+	imm["respawn_round"] = g.round_no
+	n = g.logs.size()
+	check(g.world.revive_options_cancer(0).is_empty(), "死了的免疫细胞走癌方复活段：不给固化格落点（哪怕 %s 空着）" % str(solid))
+	check(not "
+".join(g.logs.slice(n)).contains("无法复活"), "→ 也不替它报「没有固化癌组织」")
+	g.round_no = 5
+	can["respawn_round"] = -1
+	check(g.world.revive_options_immune(1).is_empty(), "死了的癌细胞走免疫复活段：同样直接放过")
+
 	## ③ 免疫让开：既能复活，也**不该**再报「无法复活」
 	imm["pos"] = Vector2i(-3, 0)
 	n = g.logs.size()

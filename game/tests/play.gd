@@ -25,6 +25,7 @@
 ##   agrow / agrow2 / upkeep / amem   四条平衡候选，名字与 balance_scan.gd 一致
 ##   mheal / mvx / abmax / rdelay     2026-09-02「免疫后期引擎」四根杠杆，名字与 balance_scan.gd 一致
 ##   lineup=mel,sclc  癌种钉死，按癌席出场顺序（mel/sig/ost/sclc），与 balance_scan.gd 一致；2026-09-03 专项复现「黑色素瘤 + 小细胞肺癌」
+##   renergy=5        免疫复活初始能量（十分能量，现值 10），与 balance_scan.gd 一致；2026-09-03「送死回血」战术
 ## ⚠ 两个脚本的旋钮**必须同步加**。2026-09-01 手打第 5 局就栽在这儿：
 ##   solid/cwin 只加进了 balance_scan.gd，play.gd 照单全收却不赋值，
 ##   开局那句 _applied() 回显只打出 prolif=45 —— 幸好有它，否则整局白打。
@@ -63,6 +64,7 @@ var mvx := -1
 var abmax := -1
 var rdelay := -9999   ## -1 是合法值（不再复活），哨兵不能用 -1
 var lineup := ""
+var renergy := -1
 
 const LINEUP_CODES := { "mel": CWData.CancerType.MELANOMA, "sig": CWData.CancerType.SIGNET,
 	"ost": CWData.CancerType.OSTEO, "sclc": CWData.CancerType.SCLC }
@@ -134,6 +136,7 @@ func _parse() -> void:
 			"abmax": abmax = int(kv[1])
 			"rdelay": rdelay = int(kv[1])
 			"lineup": lineup = kv[1]
+			"renergy": renergy = int(kv[1])
 
 
 ## 只接手打验证真正需要的那几个旋钮（推荐档 + 四条候选），不做全量镜像 ——
@@ -166,6 +169,8 @@ func _tune() -> CWTuning:
 		t.antibody_max_per_round = abmax
 	if rdelay != -9999:
 		t.immune_respawn_delay = rdelay
+	if renergy >= 0:
+		t.immune_respawn_energy = renergy
 	for code in lineup.split(",", false):
 		if LINEUP_CODES.has(code):
 			t.cancer_types.append(LINEUP_CODES[code])
@@ -192,7 +197,8 @@ func _applied(t: CWTuning) -> String:
 			["mheal", t.macro_heal_purify, d.macro_heal_purify],
 			["mvx", t.immune_move_cancerous[3], d.immune_move_cancerous[3]],
 			["abmax", t.antibody_max_per_round, d.antibody_max_per_round],
-			["rdelay", t.immune_respawn_delay, d.immune_respawn_delay]]:
+			["rdelay", t.immune_respawn_delay, d.immune_respawn_delay],
+			["renergy", t.immune_respawn_energy, d.immune_respawn_energy]]:
 		if pair[1] != pair[2]:
 			out.append("%s=%s" % [pair[0], str(pair[1])])
 	if not t.cancer_types.is_empty():

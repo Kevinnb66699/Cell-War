@@ -128,7 +128,10 @@ func _vessel_teleport() -> void:
 ## 没有可用落点时返回空数组，流程状态机会跳过这个玩家 —— **但会先说明为什么**，见 _report_no_revive。
 func revive_options_cancer(pid: int) -> Array:
 	var cell: Dictionary = game.cell_of(pid)
-	if cell["alive"]:
+	## 流程状态机对**每个席位**都问一遍（_ask_each），免疫席位也会走到这里：死了的免疫细胞归上一段
+	## revive_immune 管，这里必须直接放过 —— 否则它会被报成「场上没有固化癌组织」（队友 2026-09-03 截图），
+	## 而且场上有空固化格时还会被当成癌细胞问「复活于固化格」。
+	if cell["alive"] or cell["faction"] != CWData.Faction.CANCER:
 		return []
 	var candidates: Array[Vector2i] = []
 	var taken: Array[Vector2i] = []
@@ -207,6 +210,8 @@ func revive_cancer(pid: int, data: Dictionary) -> void:
 ## 那既没有骨髓这个抓手，也让复活变成了免费换阵地。
 func revive_options_immune(pid: int) -> Array:
 	var cell: Dictionary = game.cell_of(pid)
+	if cell["faction"] != CWData.Faction.IMMUNE:
+		return []          ## 癌席位归下一段 revive_cancer 管（与上面对称，别靠 respawn_round 恰好是 -1 撞对）
 	if cell["alive"] or cell["respawn_round"] < 0 			or game.round_no < cell["respawn_round"]:
 		return []          ## 还没到复活回合 —— 不是「被挡住」，没什么可解释的
 	var options: Array = []

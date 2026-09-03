@@ -58,7 +58,11 @@
 ##   rdelay=1     免疫死亡后**额外**罚停几个世界回合（现值 0 = 下一个 S 阶段就复活；-1 = 不再复活）
 ##   aiver=v1     两边 AI 都退回 v1 的行为（分化固定顺序、不惜命、估值不罚死亡）；aiver_immune= / aiver_cancer= 只拨一边。
 ##                用途：**验证 AI 升级** —— 新版本要在两边都不比旧版弱（同一对手下交叉对局），否则标尺换了读数就漂。
-##                结果行 `AI mc·v2` 或 `AI mc·I:v2·C:v1` 标出两边版本；两边不同版本的数只用来比较 AI，不进平衡表。
+##                结果行 `AI mc·v3` 或 `AI mc·I:v3·C:v1` 标出两边版本 —— **标签取自桥的 version_tag()**（与 CWHeuristicBridge.AI_VERSION
+##                一致；2026-09-03 之前打的是 aiver= 参数原文，线上把常量升到 v3 后曾出现「常量 v3、结果行 v2」的错位，Kevin 要求统一）。
+##                两边不同版本的数只用来比较 AI，不进平衡表。
+##   renergy=5    免疫复活初始能量，十分能量（现值 10 = 1.0）。2026-09-03 Kevin 提出「能量见底时主动送死、复活回能」是战术：
+##                复活没有罚停、回 1.0、免死压迫，扫它看这条战术值多少。
 ##   lineup=mel,sclc  癌种钉死：按癌席出场顺序给种类（mel=黑色素瘤 sig=印戒 ost=骨肉瘤 sclc=小细胞肺癌），
 ##                没钉到的席位照常随机抽。2026-09-03 队友手打报「黑色素瘤 + 小细胞肺癌」第 5 回合癌方占地胜，专项测组合用；
 ##                不钉的时候结果也另打一行「癌种组合」分解（随机抽的局里每种组合只有十几局，只看方向）。
@@ -105,8 +109,9 @@ var mheal := -1
 var mvx := -1
 var abmax := -1
 var rdelay := -9999   ## -1 是合法值（不再复活），哨兵不能用 -1
-var aiver_immune := "v2"
-var aiver_cancer := "v2"
+var aiver_immune: String = CWHeuristicBridge.AI_VERSION
+var aiver_cancer: String = CWHeuristicBridge.AI_VERSION
+var renergy := -1
 var lineup := ""
 
 const LINEUP_CODES := { "mel": CWData.CancerType.MELANOMA, "sig": CWData.CancerType.SIGNET,
@@ -165,6 +170,7 @@ func _parse() -> void:
 				aiver_cancer = kv[1]
 			"aiver_immune": aiver_immune = kv[1]
 			"aiver_cancer": aiver_cancer = kv[1]
+			"renergy": renergy = int(kv[1])
 			"lineup": lineup = kv[1]
 
 
@@ -235,6 +241,8 @@ func _tune() -> CWTuning:
 		t.antibody_max_per_round = abmax
 	if rdelay != -9999:
 		t.immune_respawn_delay = rdelay
+	if renergy >= 0:
+		t.immune_respawn_energy = renergy
 	if lineup != "":
 		t.cancer_types = _lineup_types(lineup)
 	return t
@@ -292,7 +300,8 @@ func _applied(t: CWTuning) -> String:
 			["ecancer", t.init_energy_cancer, d.init_energy_cancer],
 			["mheal", t.macro_heal_purify, d.macro_heal_purify],
 			["abmax", t.antibody_max_per_round, d.antibody_max_per_round],
-			["rdelay", t.immune_respawn_delay, d.immune_respawn_delay]]:
+			["rdelay", t.immune_respawn_delay, d.immune_respawn_delay],
+			["renergy", t.immune_respawn_energy, d.immune_respawn_energy]]:
 		if pair[1] != pair[2]:
 			out.append("%s=%s" % [pair[0], str(pair[1])])
 	if t.solid_at_cancer_spawn != d.solid_at_cancer_spawn:
@@ -305,6 +314,13 @@ func _applied(t: CWTuning) -> String:
 			names.append(CWData.CANCER_TYPE_NAMES[ct])
 		out.append("lineup=%s" % "+".join(names))
 	return "默认值" if out.is_empty() else " ".join(out)
+
+
+## 某一边实际会打出的版本标签：造一个同款桥拨到该版本，问它 version_tag()
+func _tag(ver: String, use_mc: bool) -> String:
+	var b: CWHeuristicBridge = CWMonteCarloBridge.new() if use_mc else CWHeuristicBridge.new()
+	b.set_version(ver)
+	return b.version_tag()
 
 
 func _bridge(g: CWGame, faction: int) -> Object:
@@ -416,10 +432,13 @@ func _run() -> void:
 						break
 		g.dispose()
 	var secs := (Time.get_ticks_msec() - t0) / 1000.0
-	## AI 版本跟着结果走（CWHeuristicBridge.AI_VERSION）：不同版本量出来的数不能放进同一张表
+	## AI 版本跟着结果走：不同版本量出来的数不能放进同一张表。标签问桥要（version_tag），不打 aiver= 的原文 ——
+	## 否则常量升号后结果行还在打旧号（2026-09-03 线上升 v3 时就错位过）。
+	var tag_i := _tag(aiver_immune, ai == "mc" or ai == "mc_immune")
+	var tag_c := _tag(aiver_cancer, ai == "mc" or ai == "mc_cancer")
 	print("%-24s 席位 %-8s AI %-9s | 癌胜 %3d%% (%d/%d) | 平均 %4.1f 回合 | 上限判定 %2d 局 | 终局癌性 %5.1f 格 | %.0fs" % [
 		label if label != "" else order_str, order_str,
-		"%s·%s" % [ai, aiver_immune if aiver_immune == aiver_cancer else "I:%s·C:%s" % [aiver_immune, aiver_cancer]],
+		"%s·%s" % [ai, tag_i if tag_i == tag_c else "I:%s·C:%s" % [tag_i, tag_c]],
 		cancer_wins * 100 / games, cancer_wins, games,
 		float(rounds_sum) / games, by_limit, float(cancerous_sum) / games, secs])
 	print("        旋钮：%s" % _applied(_tune()))
