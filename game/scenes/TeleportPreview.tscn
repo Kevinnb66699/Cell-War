@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://c2xg5vs0s06bo"]
+
+[ext_resource type="Script" uid="uid://cxgb6u8vcas5w" path="res://scripts/ui/teleport_preview.gd" id="1"]
+
+[node name="TeleportPreview" type="Node2D"]
+script = ExtResource("1")
