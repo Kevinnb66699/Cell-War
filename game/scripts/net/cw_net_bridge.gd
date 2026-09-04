@@ -41,3 +41,7 @@ func show_result(text: String, at: Vector2i) -> void:
 
 func show_notice(text: String) -> void:
 	room.broadcast({ "t": "notice", "text": text })
+
+
+func show_erosion(at: Vector2i, dir: int) -> void:
+	room.broadcast({ "t": "erosion", "at": at, "dir": dir })

@@ -133,6 +133,8 @@ var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
 var _tile_info: CWTileInfo   ## 悬停格子详情（_ready 里程序化补进 UI 层）
 var _card_info: CWCardInfo   ## 悬停手牌详情，同样程序化补进；与格子详情同一套打法
 var _chemo_fx: CWChemoFx     ## 树突【I-趋化源】的漩涡核心演出（挂在棋盘层，跟着格子走）
+## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
+var _erosion_fx := CWErosionFx.new()
 var _log_panel: CWLogPanel   ## 对局日志面板（L 键开关），同样程序化补进
 var _log_hint: CWLogHint     ## 左上角「对局日志 L」入口提示（定案A），显隐跟着面板走
 
@@ -283,6 +285,7 @@ func _wire_bridge(smart: bool) -> void:
 	bridge.panel = panel
 	bridge.toast = toast
 	bridge.camera = camera
+	bridge.erosion = _erosion_fx
 	bridge.hand = hand   ## 方案甲：打出/弃置手势从手牌抽屉来
 	bridge.human_pids = human_players
 	bridge.enabled = smart       ## 「较强」= 蒙特卡洛推演（桥的基类），默认启发式
@@ -364,6 +367,9 @@ func _net_loop(id: int) -> void:
 			"notice":
 				if bridge != null:
 					bridge.show_notice(m["text"])
+			"erosion":
+				if bridge != null:
+					bridge.show_erosion(m["at"], int(m["dir"]))
 			"ask":
 				_serve_ask(m)
 			"game_over":
@@ -467,6 +473,7 @@ func teardown() -> void:
 	_was_alive.clear()
 	_bloom.clear()
 	_flash.clear()
+	_erosion_fx.clear_all()
 	_hand_seen.clear()
 	_hand_pid = -1
 	if hand != null:
@@ -519,6 +526,7 @@ func _process(delta: float) -> void:
 		_flash[c] -= delta
 		if _flash[c] <= 0.0:
 			_flash.erase(c)
+	_erosion_fx.advance(delta)
 	_sync_tiles()
 	_sync_cells()
 	_animate_breath(delta)
@@ -549,6 +557,13 @@ func _sync_tiles() -> void:
 	var marks := {}
 	for c: Vector2i in game.tiles:
 		var t: Dictionary = game.tiles[c]
+		## 【E-侵蚀】过场：引擎早就把这一格翻成癌了，但玩家还没看见「癌是从哪边漫过来的」。
+		## 过场这 0.32 秒里改画过场图 —— 不加覆盖层，所以不会和高亮剪影抢 Z_MARK。
+		## 演完 frame_of() 返回 null，下面那行自然把它换成癌组织，不需要收尾代码。
+		var ero: Texture2D = _erosion_fx.frame_of(c)
+		if ero != null:
+			board.set_tile_tex(c, ero)
+			continue
 		## 开场绽开期间，还没轮到的那几格先按健康组织画
 		var tissue: int = CWData.Tissue.HEALTHY if _bloom.has(c) else int(t["tissue"])
 		board.set_tissue(c, tissue, t["special"])

@@ -359,9 +359,29 @@ func _erosion() -> void:
 	# 若团队改主意要演，把这行换成 `await game.roll_shown(3, "侵蚀")` 即可 ——
 	# rng 消耗完全一样，平衡数据和同种子复现都不受影响，但 _erosion() 及其调用链要改成 async。
 	var count: int = 1 if game.roll_d3() <= 2 else 2  # 2/3→1 格，1/3→2 格
-	for c in game.pick_random(eligible, count):
+	var picked: Array = game.pick_random(eligible, count)
+	## 过场方向要在**转化之前**全部算完：同一批里两格相邻时，
+	## 先转的那格会变成后转那格的「来源」，方向就不再是「侵蚀从哪来」了。
+	var from := {}
+	for c: Vector2i in picked:
+		from[c] = _erosion_dir(c)
+	for c: Vector2i in picked:
 		CWTissue.to_cancer(game.tile(c), true)
 		game.log_msg("【侵蚀】%s 转为癌组织" % str(c))
+		game.erosion_fx(c, int(from[c]))
+
+
+## 侵蚀是从哪一侧漫过来的：`CWData.DIRS` 的下标，取不到癌性邻居返回 -1。
+##
+## **刻意不掷骰**，哪怕有好几个癌性邻居也只按 DIRS 的固定顺序取第一个：
+## 这只是演出用的方向，走 rng 会多消耗随机数，
+## 同种子复现和此前所有平衡扫描数据当场作废（口径同 _erosion 里那句「静默掷骰」）。
+func _erosion_dir(c: Vector2i) -> int:
+	for i in CWData.DIRS.size():
+		var n: Vector2i = c + CWData.DIRS[i]
+		if CWData.is_on_board(n) and game.is_cancerous(n):
+			return i
+	return -1
 
 
 ## 【E-增生】癌组织向外扩散：与癌性组织相邻的健康组织按概率被转化（PRD 已入规，概率见 CWTuning）

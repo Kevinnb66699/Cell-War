@@ -71,6 +71,7 @@ func _run_all() -> void:
 	await t_immune_respawn()
 	t_pressure()
 	t_necrosis()
+	t_erosion_fx()
 	await t_tissue_transitions()
 	t_one_cell_per_tile()
 	t_phase_order()
@@ -1534,6 +1535,86 @@ func t_ai_eval() -> void:
 	g.tiles[solid_at]["tissue"] = CWData.Tissue.CANCER
 	can["alive"] = true
 	g.dispose()
+
+
+## 只记录【E-侵蚀】过场广播的桥
+class ErosionRecorder extends CWBridge:
+	var got: Array = []
+	func show_erosion(at: Vector2i, dir: int) -> void:
+		got.append([at, dir])
+
+
+# ---- 【E-侵蚀】的两帧过场（美术 2026-09-03 交付，2026-09-05 接上）----
+##
+## 三件事分开验：帧序（纯函数）、方向取法（不许掷骰）、引擎到桥的广播。
+## **方向与美术的对应是这一组测试的重点** —— 弄反了不会报错，只会让玩家
+## 看见癌从空的那一侧漫过来，而这种错没人会在日志里发现。
+func t_erosion_fx() -> void:
+	print("[侵蚀过场]")
+	var fx := CWErosionFx.new()
+	check(CWErosionFx.ART.size() == CWData.DIRS.size(),
+		"6 个方向的图与 CWData.DIRS 一一对应")
+
+	## 帧序：0~0.16 第一帧、0.16~0.32 第二帧、之后退场
+	fx.play(Vector2i.ZERO, 0)
+	check(fx.frame_of(Vector2i.ZERO) == CWErosionFx.ART[0][0], "刚开演：p33")
+	fx.advance(CWErosionFx.FRAME_TIME)
+	check(fx.frame_of(Vector2i.ZERO) == CWErosionFx.ART[0][1], "过了一帧：p66")
+	fx.advance(CWErosionFx.FRAME_TIME)
+	check(fx.frame_of(Vector2i.ZERO) == null and not fx.busy(),
+		"演完自动退场（不用收尾代码，_sync_tiles 下一帧就画回癌组织）")
+	## 没在演的格子不能返回图，否则 _sync_tiles 会把整块棋盘画成过场图
+	check(fx.frame_of(Vector2i(3, 0)) == null, "没在演的格子返回 null")
+	## 越界方向静默跳过：引擎取不到癌性邻居时传 -1
+	fx.play(Vector2i(1, 0), -1)
+	fx.play(Vector2i(2, 0), 99)
+	check(not fx.busy(), "方向越界/-1：不演，也不崩")
+	fx.play(Vector2i.ZERO, 3)
+	fx.clear_all()
+	check(not fx.busy(), "clear_all 清干净（拆局必须调，否则下一局同格会闪）")
+
+	## ---- 方向取法：按 DIRS 固定顺序取第一个癌性邻居，**不掷骰** ----
+	var g := bare_game()
+	var here := Vector2i.ZERO
+	for d in CWData.DIRS:
+		g.tiles[here + d]["tissue"] = CWData.Tissue.HEALTHY
+	check(g.world._erosion_dir(here) == -1, "四周都健康：返回 -1（不演）")
+	## 只让 DIRS[4] 是癌 → 必须报 4
+	g.tiles[here + CWData.DIRS[4]]["tissue"] = CWData.Tissue.CANCER
+	check(g.world._erosion_dir(here) == 4, "唯一的癌性邻居：报它的 DIRS 下标")
+	## 再让 DIRS[1] 也变癌 → 取下标更小的那个（固定顺序，不随机）
+	g.tiles[here + CWData.DIRS[1]]["tissue"] = CWData.Tissue.SOLID
+	var rng_before: int = g.rng.state
+	check(g.world._erosion_dir(here) == 1, "多个癌性邻居：取 DIRS 顺序最靠前的（固化也算）")
+	check(g.rng.state == rng_before,
+		"取方向**不消耗随机数** —— 消耗了的话同种子复现与全部平衡扫描数据当场作废")
+	g.dispose()
+
+	## ---- 引擎 → 桥：每转化一格就广播一次，方向合法 ----
+	var g2 := bare_game()
+	var rec := ErosionRecorder.new()
+	for pid in g2.order:
+		g2.bridges[pid] = rec
+	## 造一块被癌完全包住的健康孤岛：中心健康、六邻全癌，且不挨棋盘外缘
+	for c: Vector2i in g2.tiles:
+		g2.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	g2.tiles[here]["tissue"] = CWData.Tissue.HEALTHY
+	g2.world._erosion()
+	check(rec.got.size() >= 1, "侵蚀转化了格子 → 广播了过场（%d 次）" % rec.got.size())
+	var ok := true
+	for e in rec.got:
+		if int(e[1]) < 0 or int(e[1]) >= CWData.DIRS.size():
+			ok = false
+	check(ok, "广播的方向下标都在 0~5 之内")
+	check(rec.got[0][0] == here, "广播的格子就是被侵蚀的那一格")
+	g2.dispose()
+
+	## ---- 联机：演出报文必须进 STREAM_KINDS ----
+	## 不在白名单里的报文会被 CWNetClient 当场 _apply 掉，而 _apply 的 match 没有兜底分支，
+	## 于是**静默丢弃**：CWMatch._net_loop 里那个分支永远收不到，联机模式下动画就是不播，
+	## 还不报任何错。2026-09-05 接侵蚀过场时就漏了这一条，靠读代码才发现。
+	for kind in ["roll", "result", "notice", "erosion"]:
+		check(kind in CWNetClient.STREAM_KINDS, "演出报文「%s」在 STREAM_KINDS 里" % kind)
 
 
 ## 只记录全局通报的桥，给 t_match_panel 验 trigger → notice 用

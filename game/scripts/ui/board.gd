@@ -328,6 +328,20 @@ func set_tissue(a: Vector2i, tissue: int, special: int) -> void:
 		t.texture = tex
 
 
+## 直接指定某格的贴图（【E-侵蚀】过场用）。
+##
+## **不留状态**：`set_tissue()` 下一帧就会把它换回按组织算的那张，
+## 所以调用方必须**每帧**都调 —— 停了自动还原。这样棋盘不必知道「谁在演什么」，
+## 也不会和高亮剪影抢 Z_MARK 那一层（过场是把格子本身画成别的样子，不是盖一层）。
+func set_tile_tex(a: Vector2i, tex: Texture2D) -> void:
+	var key := axial_to_rc(a)
+	if not map.has(key):
+		return
+	var t: Sprite2D = map[key]["instance"]
+	if t.texture != tex:
+		t.texture = tex
+
+
 func new_tissue(i, j, x, y):
 	var new_t = TISSUE.instantiate()
 	new_t.position = Vector2(x, y)

@@ -40,6 +40,12 @@ func show_result(_text: String, _at: Vector2i) -> void:
 	pass
 
 
+## 【E-侵蚀】的过场：某格被侵蚀了，癌是从 `_dir`（CWData.DIRS 的下标）那一侧漫过来的。
+## 纯演出，不 await —— 侵蚀是世界自动结算，不该为了演出卡住 E 阶段。
+func show_erosion(_at: Vector2i, _dir: int) -> void:
+	pass
+
+
 ## 全局通报：不挂在哪一格上的大事（目前只有「抽到世界事件」）。
 ## 与 show_result 分开是因为展示方式不同 —— 那个贴着骰子、1 秒多就走；这个要在棋盘上方停够看完一句话的时间。
 func show_notice(_text: String) -> void:

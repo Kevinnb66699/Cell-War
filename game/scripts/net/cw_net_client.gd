@@ -34,7 +34,7 @@ var pending_ask := {}                    ## 最近收到、尚未作答的询问
 ## 顺序播放模式（界面用）：对局流报文先进 stream，等使用者 apply_now；机器人与测试保持 false
 var sequenced := false
 var stream: Array = []
-const STREAM_KINDS := ["state", "ask", "roll", "result", "notice", "game_over"]
+const STREAM_KINDS := ["state", "ask", "roll", "result", "notice", "erosion", "game_over"]
 const INBOX_MAX := 2000                  ## inbox 只给测试和机器人翻，界面跑一整晚也别让它无限长
 ## 握手超时：TCP 握手包丢了、或来源 IP 被云安全组限流时，WebSocketPeer 会无限期停在 CONNECTING、不报任何错
 ## （2026-09-03 线上验收两次撞到：几分钟内第 15 个短连接的握手根本没到服务器，18 秒后又一切正常）。

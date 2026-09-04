@@ -611,6 +611,17 @@ func announce(text: String, at: Vector2i) -> void:
 		b.show_result(text, at)
 
 
+## 【E-侵蚀】过场广播。去重规则同 announce（热座共用一个 UI 桥时只演一次）。
+## 不 await：过场自己会走完，不该卡住 E 阶段的后续步骤。
+func erosion_fx(at: Vector2i, dir: int) -> void:
+	var shown: Array = []
+	for b in bridges.values():
+		if b == null or shown.has(b):
+			continue
+		shown.append(b)
+		b.show_erosion(at, dir)
+
+
 ## 全局通报（不挂格子）：每个桥对象只通报一次，同 announce
 func notice(text: String) -> void:
 	var shown: Array = []

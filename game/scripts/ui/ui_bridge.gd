@@ -24,6 +24,7 @@ var info: CWCardInfo   ## 悬停详情框：分化提问里停在种类按钮上
 var panel: CWMatchPanel
 var toast: CWToast     ## 骰子旁边那行字
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
+var erosion: CWErosionFx   ## 【E-侵蚀】两帧过场；纯 AI 桥 / 测试里可为 null
 var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这里来（无界面时为 null）
 ## 正在选迁移目标时，每一格的耗能（坐标 → 十分能量）。空 = 此刻不在迁移态。
 ## 由 `_pick_move` 从引擎算好的选项里抄来，`CWMatch` 每帧喂给悬停格子详情。
@@ -704,6 +705,14 @@ func show_result(text: String, at: Vector2i) -> void:
 	## 沿用掷骰时那个位置：骰子这会儿已经收了，但玩家的视线还在那儿，
 	## 让「攻击」和「攻击大成功」出现在同一个地方比各自找最优位置更好读。
 	toast.show_at(text, _dice_rect(board.tile_center(at)), RESULT_HOLD)
+
+
+## 【E-侵蚀】过场：只登记「哪一格、癌从哪一侧来」，具体哪一帧由 CWMatch 每帧问 frame_of()。
+## 这里不 await —— 侵蚀是世界自动结算，演出不该卡住 E 阶段。
+func show_erosion(at: Vector2i, dir: int) -> void:
+	if erosion == null:
+		return
+	erosion.play(at, dir)
 
 
 ## 全局通报：浮在棋盘区**顶部居中**（不贴任何格子，不挡棋子），停 NOTICE_HOLD 秒。
