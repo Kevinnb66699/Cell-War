@@ -94,6 +94,7 @@ var lesion := ""    # "off" = 关掉原发灶
 var atkmax := -1
 var ecancer := -1
 var amult := -1
+var abhalf := -1
 var cmh := -1
 var cmc := -1
 var sclc := -1
@@ -153,6 +154,7 @@ func _parse() -> void:
 			"atkmax": atkmax = int(kv[1])
 			"ecancer": ecancer = int(kv[1])
 			"amult": amult = int(kv[1])
+			"abhalf": abhalf = int(kv[1])
 			"cmh": cmh = int(kv[1])
 			"cmc": cmc = int(kv[1])
 			"sclc": sclc = int(kv[1])
@@ -207,6 +209,8 @@ func _tune() -> CWTuning:
 		t.init_cancer_tiles = tiles
 	if amult >= 0:
 		t.aerobic_mult = amult
+	if abhalf >= 0:
+		t.antibody_halve = abhalf != 0
 	if agrow != -9999:
 		t.aerobic_mult_growth = agrow
 	if upkeep != -9999:

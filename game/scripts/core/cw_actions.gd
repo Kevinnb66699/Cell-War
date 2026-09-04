@@ -42,7 +42,10 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 	## 【抗体】的「每世界回合最多 2 次」2026-09-01 起取消（PRD 删掉该条，Kevin 确认）
 	if cell["itype"] == CWData.ImmuneType.B_CELL and _antibody_quota_left(cell) \
 			and game.can_pay(cell, antibody_cost(cell)):
-		opts.append({ "label": "抗体（%s 能量）" % CWData.fmt(antibody_cost(cell)),
+		## 标签带上「这一次打多少」：递减规则下同一个按钮的收益每次都不同，
+		## 不写出来玩家就会白花 1.0 能量打 0 伤害
+		opts.append({ "label": "抗体（%s 能量，伤害 %s）"
+			% [CWData.fmt(antibody_cost(cell)), CWData.fmt(antibody_damage(cell))],
 			"data": { "act": "antibody" } })
 	## 树突【I-趋化源】：2.0 能量在**全局任意位置**建一个，持续 2 回合，同一时刻仅一个。
 	## 「全局任意位置」有 127 格，全摊成顶层选项会把行动清单撑爆（AI 也没法推演），
@@ -929,6 +932,26 @@ func _antibody_quota_left(cell: Dictionary) -> bool:
 	return cap <= 0 or cell["antibody_used"] < cap
 
 
+## 【抗体】这一次实际打多少。**同一世界回合内每多放一次就减半**（团队 2026-09-04 定）：
+## 第 1 次 1.5、第 2 次 0.7、第 3 次 0.3、第 4 次 0.1、之后 0。
+##
+## **为什么要有这条**：2026-09-05 的智能体对局里，一个 B 细胞单回合连放 8 次
+## 把骨肉瘤从 14.7 打到 2.7 —— 抗体是免疫方唯一「不掷骰、不限次、无射程」的输出，
+## 而同阵营其他手段（普通攻击 3 次且 1/3 会失败、【细胞毒素】3 次、基因表达 3 次）全都写了限次。
+## 递减比硬性次数上限温和：第一次的强度一点没动，只是不能刷。
+##
+## 取整向下（十分能量的整数除法），所以会自然衰减到 0 而不是永远留个尾巴。
+## 旋钮 `antibody_halve` 关掉就是 2026-09-01~09-04 那版「每次都打满」的老行为，用来做对照局。
+func antibody_damage(cell: Dictionary) -> int:
+	var dmg: int = CWData.MATURED_ANTIBODY_DMG if game.has_skill(cell, "抗体亲和力成熟") \
+		else CWData.ANTIBODY_DAMAGE
+	if not game.tune.antibody_halve:
+		return dmg
+	for _i in int(cell["antibody_used"]):
+		dmg /= 2
+	return dmg
+
+
 ## 【抗体亲和力成熟】B 细胞强化：抗体费 1.0 → 0.5、每目标伤害 1.0 → 1.5
 func antibody_cost(cell: Dictionary) -> int:
 	return CWData.MATURED_ANTIBODY_COST if game.has_skill(cell, "抗体亲和力成熟") \
@@ -938,9 +961,9 @@ func antibody_cost(cell: Dictionary) -> int:
 func _do_antibody(cell: Dictionary) -> void:
 	if not game.pay(cell, antibody_cost(cell)):
 		return
+	## 顺序要紧：先按**本次之前**的使用次数算伤害，再累加计数
+	var dmg := antibody_damage(cell)
 	cell["antibody_used"] += 1
-	var dmg: int = CWData.MATURED_ANTIBODY_DMG if game.has_skill(cell, "抗体亲和力成熟") \
-		else CWData.ANTIBODY_DAMAGE
 	var targets: Array = []
 	for c in game.living_cells(CWData.Faction.CANCER):
 		for n in CWData.neighbors(c["pos"]):

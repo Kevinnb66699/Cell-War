@@ -88,6 +88,7 @@ var agrow2 := -9999
 var upkeep := -9999
 var amem := -9999
 var amult := -1
+var abhalf := -1
 var prolif := -1
 var solid := -1
 var cwin := -1
@@ -175,6 +176,7 @@ func _parse() -> void:
 			"tiles": tiles = int(kv[1])
 			"lvl": lvl = int(kv[1])
 			"amult": amult = int(kv[1])
+			"abhalf": abhalf = int(kv[1])
 			"agrow": agrow = int(kv[1])
 			"agrow2": agrow2 = int(kv[1])
 			"upkeep": upkeep = int(kv[1])
@@ -206,6 +208,8 @@ func _tune() -> CWTuning:
 		t.init_cancer_tiles = tiles
 	if amult >= 0:
 		t.aerobic_mult = amult
+	if abhalf >= 0:
+		t.antibody_halve = abhalf != 0
 	if prolif >= 0:
 		t.proliferate_per_adjacent = prolif
 	if solid >= 0:
@@ -254,6 +258,7 @@ func _applied(t: CWTuning) -> String:
 	var out: Array = []
 	for pair in [["tiles", t.init_cancer_tiles, d.init_cancer_tiles],
 			["amult", t.aerobic_mult, d.aerobic_mult],
+			["abhalf", int(t.antibody_halve), int(d.antibody_halve)],
 			["prolif", t.proliferate_per_adjacent, d.proliferate_per_adjacent],
 			["solid", t.solidify_threshold, d.solidify_threshold],
 			["cwin", t.cancer_win_weighted, d.cancer_win_weighted],

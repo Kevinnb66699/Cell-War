@@ -28,7 +28,7 @@ extends CWBridge
 ## v7：2026-09-04 —— 修 `CWEval.SOLID_TICK` 30→5。旧值下「进度 1.0 的癌组织(400)」比
 ##     「修成的固化格(200)」还值钱，**MC 会主动避免把固化修完**、到处留半成品，
 ##     癌方因此几乎拿不到复活据点。与 v6 的 `_base_return` 是同一个病的两个病灶。
-const AI_VERSION := "v7"
+const AI_VERSION := "v8"
 ## 每个桥实例可以单独退回 v1 的行为（set_version("v1")）：分化拿选项列表第一个、不惜命。
 ## 用途是**验证 AI 升级**：新版本必须在两边都不比旧版弱（balance_scan 的 aiver_immune= / aiver_cancer= 交叉对局），
 ## 否则标尺一换读数就漂、还分不清是规则变了还是量具变了（2026-09-02 v2 基线 6 人 24→10 就是这么查的）。对局里别拨。
@@ -141,9 +141,12 @@ func _immune_action(pid: int, options: Array) -> int:
 	i = _find(options, "lyse")
 	if i >= 0 and e >= 20:
 		return i
-	# 4. B 细胞抗体：目标够多才划算
+	# 4. B 细胞抗体：目标够多才划算。
+	#    v8 起还要看**这一发**打多少 —— 团队 2026-09-04 把抗体改成同回合递减
+	#    （1.5 / 0.7 / 0.3 / 0.1 / 0），照旧只看目标数会在第 4 发之后
+	#    继续花 1.0 能量打 0 伤害。这不是平衡问题，是 AI 在做无效动作。
 	i = _find(options, "antibody")
-	if i >= 0:
+	if i >= 0 and game.actions.antibody_damage(me) >= 5:
 		var n := _antibody_target_count()
 		if (n >= 2 and e >= 25) or (n >= 1 and e >= 40):
 			return i

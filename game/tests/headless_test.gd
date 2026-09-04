@@ -55,6 +55,7 @@ func _run_all() -> void:
 	t_macro_purify_heal()
 	t_cancer_lineup()
 	await t_antibody_cap()
+	await t_antibody_halve()
 	await t_jump_cap()
 	await t_heur_lifecare()
 	t_heur_no_squat_on_fresh()
@@ -1044,6 +1045,49 @@ func t_jump_cap() -> void:
 	g.dispose()
 
 
+## ---- B 细胞【抗体】同一世界回合内递减（团队 2026-09-04 定）----
+##
+## 2026-09-05 智能体对局里一个 B 细胞单回合连放 8 发，把骨肉瘤从 14.7 打到 2.7 ——
+## 抗体是免疫方唯一「不掷骰、不限次、无射程」的输出。团队定的解法不是硬性次数上限，
+## 而是**每多放一次减半**：第一次的强度一点没动，只是不能刷。
+## 这里盯三件事：数列对不对、旋钮关掉能回到老行为、S 阶段能重置。
+func t_antibody_halve() -> void:
+	print("[抗体同回合递减]")
+	var g := bare_game()
+	var b := put_immune(g, Vector2i.ZERO)
+	b["itype"] = CWData.ImmuneType.B_CELL
+	b["energy"] = 500
+	var foe := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(3, 0), -1,
+		CWData.CancerType.MELANOMA)
+	foe["energy"] = 500
+	g.cells.append(foe)
+
+	check(g.tune.antibody_halve, "默认打开（团队 2026-09-04 定）")
+	## 15 → 7 → 3 → 1 → 0：整数除法向下取整，自然衰减到 0 而不是永远留个尾巴
+	var want := [15, 7, 3, 1, 0]
+	for k in want.size():
+		check(g.actions.antibody_damage(b) == want[k],
+			"第 %d 发伤害 %s" % [k + 1, CWData.fmt(want[k])])
+		var before: int = g.cells[1]["energy"]
+		await g.actions.execute(b, { "act": "antibody" })
+		check(g.cells[1]["energy"] == before - want[k],
+			"第 %d 发实扣 %s" % [k + 1, CWData.fmt(want[k])])
+
+	## 选项标签要把「这一次打多少」写出来 —— 不写玩家会白花 1.0 能量打 0 伤害
+	var label := ""
+	for o in g.actions.build_options(b):
+		if o["data"].get("act", "") == "antibody":
+			label = o["label"]
+	check(label.contains("伤害"), "选项标签带上本次伤害：%s" % label)
+
+	g.world._reset_round_flags()
+	check(g.actions.antibody_damage(b) == 15, "S 阶段重置 → 伤害回到满值")
+
+	g.tune.antibody_halve = false
+	for k in 3:
+		await g.actions.execute(b, { "act": "antibody" })
+	check(g.actions.antibody_damage(b) == 15, "旋钮关掉 = 老行为，放几次都打满")
+
 func t_antibody_cap() -> void:
 	print("[抗体次数上限旋钮]")
 	var g := bare_game()
@@ -1816,7 +1860,7 @@ func t_plan_path() -> void:
 
 func t_heur_no_squat_on_fresh() -> void:
 	print("[启发式 v4：不蹲在刚铺的格子上]")
-	check(CWHeuristicBridge.AI_VERSION == "v7", "AI 版本号 v7（改 AI 行为要升号）")
+	check(CWHeuristicBridge.AI_VERSION == "v8", "AI 版本号 v8（改 AI 行为要升号）")
 	var g := _fx_game(2)
 	var can := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i.ZERO, -1,
 		CWData.CancerType.MELANOMA)
