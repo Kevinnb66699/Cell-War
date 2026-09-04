@@ -411,6 +411,7 @@ func _anaerobic() -> void:
 				pool += game.tune.anaerobic_per_solid
 			else:
 				pool += game.tune.anaerobic_per_cancer
+		pool = _sqrt_pool(pool)
 		var here: Array = []
 		for cell in game.living_cells(CWData.Faction.CANCER):
 			if members.has(cell["pos"]):
@@ -435,6 +436,27 @@ func _anaerobic() -> void:
 
 ## 连通块供能均分到一个细胞：四舍五入到十分位（定案 #43）+ 收入夹钳。
 ## E 阶段结算和卡【糖酵解爆发】共用 —— 改口径只改这里。
+## 【无氧呼吸】的**刹车**（Kevin 2026-09-02 提的候选，旋钮 `anaerobic_sqrt_coef`，默认 0 = 关）。
+##
+## **为什么要有它。** 现行是线性求和：连通块里每格癌组织 +0.4、每格固化 +1.0。
+## 分子随占地涨、分母是固定的玩家数，于是「占得越多 → 越有钱 → 占得越快」是个**没有刹车的正反馈**；
+## 而免疫的【有氧呼吸】= 健康格占比 × 系数，**随健康格下跌**。两条曲线方向相反，拉开就不可逆。
+## 2026-09-05 的六人局智能体对局把这条拍实了：癌组织净增 +11/+8/+13/+20/+20，
+## 三个癌细胞第 4~5 回合就顶到 15 能量上限**溢出浪费**，而免疫有氧从 2.9 掉到 1.6。
+##
+## 改成开方之后，前期几乎不变、后期腰斩：
+## 24 格时 √24×2.0 ≈ 9.8（线性 9.6），97 格时 √101×2.0 ≈ 20.1（线性 40.6）。
+## 换句话说**不动开局手感，只砍雪球**。
+##
+## 先把线性池折回「等效格数」再开方（而不是直接数格子），这样固化格的双倍权重不会丢。
+func _sqrt_pool(pool: int) -> int:
+	var coef: int = game.tune.anaerobic_sqrt_coef
+	if coef <= 0 or pool <= 0:
+		return pool
+	var tiles := float(pool) / float(game.tune.anaerobic_per_cancer)
+	return int(round(coef * sqrt(tiles)))
+
+
 func _split_share(pool: int, count: int) -> int:
 	## (2p+n)/(2n) 是整数版的「p/n 四舍五入」：.5 进位，和有氧那边的 round 口径一致
 	var gain: int = ((2 * pool + count) / (2 * count)) if game.tune.anaerobic_split else pool

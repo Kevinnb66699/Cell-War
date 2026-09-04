@@ -82,7 +82,7 @@ func immune_move_options(cell: Dictionary) -> Array:
 			continue
 		var tag := "攻击" if not enemies.is_empty() 			else ("穿过" if pass_through_mid(cell, n) != Vector2i.MAX else "迁移")
 		opts.append({
-			"label": "%s→%s（%s 能量）" % [tag, str(n), CWData.fmt(cost)],
+			"label": "%s→%s %s（%s 能量）" % [tag, str(n), tissue_tag(n), CWData.fmt(cost)],
 			"data": { "act": "move", "to": n, "cost": cost },
 		})
 	return opts
@@ -388,9 +388,9 @@ func _cancer_options(cell: Dictionary, opts: Array) -> void:
 		if not game.can_pay(cell, cost):
 			continue
 		opts.append({
-			"label": "%s→%s（%s 能量）" % [
+			"label": "%s→%s %s（%s 能量）" % [
 				"穿过" if pass_through_mid(cell, n) != Vector2i.MAX else "移动",
-				str(n), CWData.fmt(cost)],
+				str(n), tissue_tag(n), CWData.fmt(cost)],
 			"data": { "act": "move", "to": n, "cost": cost },
 		})
 	if _can_draw(cell) and game.can_pay(cell, CWData.CANCER_DRAW_COST):
@@ -930,6 +930,23 @@ func _do_differentiate(cell: Dictionary, t: int) -> void:
 func _antibody_quota_left(cell: Dictionary) -> bool:
 	var cap: int = game.tune.antibody_max_per_round
 	return cap <= 0 or cell["antibody_used"] < cap
+
+
+## 落点是什么组织，直接写进选项标签。
+##
+## **为什么。** 2026-09-05 的智能体对局里，好几个席位报告说 13×13 的 ASCII 棋盘
+## 「双字符 token 和单字符混排容易错位」，干脆放弃逐格核对、只信细胞列表的坐标；
+## 还有一位把「花费 1.0」误读成「这一步净化了癌格」（其实是两段 0.5 的健康格移动）。
+## 「这一步落到什么组织上」是移动决策里最要紧的一条信息，让人从网格里数出来是自找麻烦 ——
+## 标签里多五个字，比把棋盘画得再漂亮都管用。真 UI 那边有格子详情框，不需要这个。
+func tissue_tag(c: Vector2i) -> String:
+	match int(game.tile(c)["tissue"]):
+		CWData.Tissue.HEALTHY:
+			return "健康"
+		CWData.Tissue.SOLID:
+			return "固化"
+		_:
+			return "癌"
 
 
 ## 【抗体】这一次实际打多少。**同一世界回合内每多放一次就减半**（团队 2026-09-04 定）：

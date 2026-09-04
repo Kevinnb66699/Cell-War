@@ -56,6 +56,7 @@ func _run_all() -> void:
 	t_cancer_lineup()
 	await t_antibody_cap()
 	await t_antibody_halve()
+	t_anaerobic_sqrt()
 	await t_jump_cap()
 	await t_heur_lifecare()
 	t_heur_no_squat_on_fresh()
@@ -1051,6 +1052,31 @@ func t_jump_cap() -> void:
 ## 抗体是免疫方唯一「不掷骰、不限次、无射程」的输出。团队定的解法不是硬性次数上限，
 ## 而是**每多放一次减半**：第一次的强度一点没动，只是不能刷。
 ## 这里盯三件事：数列对不对、旋钮关掉能回到老行为、S 阶段能重置。
+## ---- 【无氧呼吸】开方刹车（Kevin 2026-09-02 提的候选，旋钮默认关）----
+##
+## 现行是线性求和，「占得越多 → 越有钱 → 占得越快」没有刹车；开方之后前期几乎不变、后期腰斩。
+## 这里只验算式本身（连通块的组装另有测试盯着），三个点：关着时恒等、系数对得上、后期真的被压住。
+func t_anaerobic_sqrt() -> void:
+	print("[无氧开方刹车]")
+	var g := bare_game()
+	check(g.tune.anaerobic_sqrt_coef == 0, "默认 0 = 关 = 现行线性规则")
+	check(g.world._sqrt_pool(406) == 406, "关着时恒等（不许悄悄改现行规则）")
+
+	g.tune.anaerobic_sqrt_coef = 20
+	## 池子先折回等效格数（除以每格 0.4），再开方 × 系数
+	check(g.world._sqrt_pool(96) == 98, "24 格：线性 9.6 → 开方 9.8（前期基本不动）")
+	check(g.world._sqrt_pool(406) == 201, "97 格+固化：线性 40.6 → 开方 20.1（后期腰斩）")
+	check(g.world._sqrt_pool(0) == 0, "空池子不炸")
+	## 单调不减：格子多了收入不能反而变少，否则会出现「自己拆自己的地」这种荒唐最优解
+	var prev := -1
+	for tiles in range(1, 120):
+		var cur: int = g.world._sqrt_pool(tiles * CWData.ANAEROBIC_PER_CANCER)
+		if cur < prev:
+			check(false, "单调性在 %d 格处断了" % tiles)
+			return
+		prev = cur
+	check(true, "1~119 格单调不减")
+
 func t_antibody_halve() -> void:
 	print("[抗体同回合递减]")
 	var g := bare_game()

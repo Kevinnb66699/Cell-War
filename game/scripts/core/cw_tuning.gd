@@ -19,7 +19,8 @@ const RULE_FIELDS := [
 	"counter_dmg_on_fail", "solidify_threshold", "limit_round", "limit_cancerous",
 	"cancer_win_weighted", "cancer_win_hold_rounds", "solid_at_cancer_spawn",
 	"immune_respawn_delay", "immune_respawn_energy", "macro_heal_purify",
-	"antibody_max_per_round", "antibody_halve", "proliferate_per_adjacent",
+	"antibody_max_per_round", "antibody_halve", "anaerobic_sqrt_coef",
+	"proliferate_per_adjacent",
 	"metastasis_cost", "metastasis_max_per_round",
 	"newborn_protect",
 ]
@@ -252,6 +253,9 @@ var antibody_max_per_round := CWData.ANTIBODY_MAX_PER_ROUND
 ## 【抗体】同一世界回合内每多放一次伤害减半（团队 2026-09-04 定，见 CWActions.antibody_damage）。
 ## 关掉 = 2026-09-01~09-04 那版「每次都打满、且不限次」的老行为，只给对照局用。
 var antibody_halve := true
+## 【无氧呼吸】改用 `系数 × √(等效癌组织数)` 而不是线性求和（Kevin 2026-09-02 提的候选）。
+## 单位十分能量，**0 = 关 = 现行线性规则**。见 CWWorld._anaerobic()。
+var anaerobic_sqrt_coef := 0
 
 # ---- 小细胞肺癌【转移】（2026-09-03 晚，Kevin 问「黑 + 小同场怎么治」的候选杠杆；默认值 = 现行 PRD）----
 ## 每次费用（十分能量，现值 10 = 1.0）与每世界回合上限（0 = 不限 = 现行 PRD；1 = 与黑色素瘤【早期血行转移】同款）。
