@@ -20,6 +20,10 @@ rm -rf "$D"; mkdir -p "$D/comm" "$D/log"
 	> "$D/engine.txt" 2>&1 &
 ENGINE=$!
 
+# 假智能体是瞬答的，30 秒等不到就说明对局已经收摊（或者别的席位打满上限收工了）——
+# 用短超时让四席一起收，否则先收工的那一席会让其余三席死等到默认超时
+export AGENT_TURN_TIMEOUT=30
+
 fake() {
 	local seat=$1 pick="" n=0 out rc
 	while :; do

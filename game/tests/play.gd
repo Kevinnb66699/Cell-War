@@ -30,6 +30,8 @@
 ##   tiles=24     初始癌组织格数（不传则按人数取：4 人 15 / 6 人 24）
 ##   solid=10 cwin=110   固化门槛 / 癌方加权占地胜利门槛（节奏配置用）
 ##   chold=1     癌方占地胜利要连续几个回合末达标（现值 2 = 定案 B；1 = 旧规则）
+##   amult=36     有氧呼吸系数（PRD 是 30 = 公式里的「×3」），名字与 balance_scan.gd 一致；
+##                2026-09-04 定的方向「加免疫收入」就是动它，2026-09-05 才发现 play.gd 一直没接
 ##   agrow / agrow2 / upkeep / amem   四条平衡候选，名字与 balance_scan.gd 一致
 ##   mheal / mvx / abmax / rdelay     2026-09-02「免疫后期引擎」四根杠杆，名字与 balance_scan.gd 一致
 ##   lineup=mel,sclc  癌种钉死，按癌席出场顺序（mel/sig/ost/sclc），与 balance_scan.gd 一致；2026-09-03 专项复现「黑色素瘤 + 小细胞肺癌」
@@ -78,6 +80,7 @@ var agrow := -9999
 var agrow2 := -9999
 var upkeep := -9999
 var amem := -9999
+var amult := -1
 var prolif := -1
 var solid := -1
 var cwin := -1
@@ -162,6 +165,7 @@ func _parse() -> void:
 			"ai": ai = kv[1]
 			"tiles": tiles = int(kv[1])
 			"lvl": lvl = int(kv[1])
+			"amult": amult = int(kv[1])
 			"agrow": agrow = int(kv[1])
 			"agrow2": agrow2 = int(kv[1])
 			"upkeep": upkeep = int(kv[1])
@@ -179,6 +183,10 @@ func _parse() -> void:
 			"metamax": metamax = int(kv[1])
 			"metacost": metacost = int(kv[1])
 			"newborn": newborn = int(kv[1])
+			## 认不出来的参数**必须报错**。头注里那条纪律（两个脚本的旋钮要同步加）
+			## 靠自觉守了三次都漏了一次 —— 2026-09-01 手打第 5 局、2026-09-05 的 amult
+			## 都是「传了、没接、静默按默认值打完一整局」。让它自己喊出来。
+			_: printerr("不认识的参数「%s」—— balance_scan.gd 有而这里没接？整局会按默认值打" % kv[0])
 
 
 ## 只接手打验证真正需要的那几个旋钮（推荐档 + 四条候选），不做全量镜像 ——
@@ -187,6 +195,8 @@ func _tune() -> CWTuning:
 	var t := CWTuning.new()
 	if tiles >= 0:
 		t.init_cancer_tiles = tiles
+	if amult >= 0:
+		t.aerobic_mult = amult
 	if prolif >= 0:
 		t.proliferate_per_adjacent = prolif
 	if solid >= 0:
@@ -234,6 +244,7 @@ func _applied(t: CWTuning) -> String:
 	var d := CWTuning.new()
 	var out: Array = []
 	for pair in [["tiles", t.init_cancer_tiles, d.init_cancer_tiles],
+			["amult", t.aerobic_mult, d.aerobic_mult],
 			["prolif", t.proliferate_per_adjacent, d.proliferate_per_adjacent],
 			["solid", t.solidify_threshold, d.solidify_threshold],
 			["cwin", t.cancer_win_weighted, d.cancer_win_weighted],
