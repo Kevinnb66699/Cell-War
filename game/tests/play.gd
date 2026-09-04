@@ -421,7 +421,11 @@ class CWFileBridge:
 		for c in game.cells:
 			if c["alive"]:
 				cell_at[c["pos"]] = c["pid"] if not cell_at.has(c["pos"]) else -1
-		var out := "—— 棋盘（组织 . 健康 + 癌 # 固化｜特殊 o 核 m 髓 v 管｜数字=玩家）——\n"
+		## 图例一律「符号 = 名字」写全。原来写的是「组织 . 健康 + 癌 # 固化」——
+		## 本意是「. 健康、+ 癌、# 固化」，但读的人会顺着断成「组织 .」「健康 +」「癌 #」，
+		## 整体错位一位，于是把**癌组织读成健康组织**。2026-09-05 一个智能体就是靠
+		## 亲眼看着自己那格从「+」变「#」才纠过来的。
+		var out := "—— 棋盘（底色 . 是健康、+ 是癌、# 是固化｜叠加 o 代谢核心、m 骨髓、v 血管、数字是玩家）——\n"
 		out += "    q="
 		for q in range(-CWData.BOARD_RADIUS, CWData.BOARD_RADIUS + 1):
 			out += "%3d" % q
