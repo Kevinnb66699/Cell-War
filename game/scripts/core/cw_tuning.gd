@@ -251,8 +251,12 @@ var macro_heal_purify := CWData.MACRO_HEAL_PURIFY
 ## B 细胞【抗体】每世界回合最多几次。默认 0 = 不限（现行 PRD）；2 = 2026-09-01 之前的旧 PRD。
 var antibody_max_per_round := CWData.ANTIBODY_MAX_PER_ROUND
 ## 【抗体】同一世界回合内每多放一次伤害减半（团队 2026-09-04 定，见 CWActions.antibody_damage）。
-## 关掉 = 2026-09-01~09-04 那版「每次都打满、且不限次」的老行为，只给对照局用。
-var antibody_halve := true
+##
+## **默认关（2026-09-04 团队第二次决定）**：团队要先把引擎退回「昨天凌晨那套测试值」
+## 作为新方案的起点，所以递减先不进默认值 —— 机制留着，`abhalf=1` 打开。
+## ⚠ PRD 正文此刻**已经写了递减**（见 docs/PRD改动_2026-09-04_抗体递减.diff），
+## 两边暂时不一致，等团队决定 PRD 是回退还是保留。
+var antibody_halve := false
 ## 【无氧呼吸】改用 `系数 × √(等效癌组织数)` 而不是线性求和（Kevin 2026-09-02 提的候选）。
 ## 单位十分能量，**0 = 关 = 现行线性规则**。见 CWWorld._anaerobic()。
 var anaerobic_sqrt_coef := 0

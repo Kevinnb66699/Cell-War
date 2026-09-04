@@ -1088,7 +1088,8 @@ func t_antibody_halve() -> void:
 	foe["energy"] = 500
 	g.cells.append(foe)
 
-	check(g.tune.antibody_halve, "默认打开（团队 2026-09-04 定）")
+	check(not g.tune.antibody_halve, "默认关（团队 09-04 第二次决定：先退回测试基线那套值）")
+	g.tune.antibody_halve = true      ## 下面验的是机制本身，先打开
 	## 15 → 7 → 3 → 1 → 0：整数除法向下取整，自然衰减到 0 而不是永远留个尾巴
 	var want := [15, 7, 3, 1, 0]
 	for k in want.size():

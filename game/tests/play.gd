@@ -91,6 +91,12 @@ var amult := -1
 var abhalf := -1
 var asqrt := -1
 var epc := -1
+## 2026-09-04 团队新方案要动的三个：能量上限 / 有氧下限 / 有氧上限。
+## 名字与 balance_scan.gd 一致 —— 头注那条纪律（两个脚本的旋钮必须同步加）
+## 到今天为止已经栽过三次，每次都是「传了、没接、静默按默认值打完一整局」。
+var emax := -1
+var afloor := -1
+var acap := -1
 var prolif := -1
 var solid := -1
 var cwin := -1
@@ -181,6 +187,9 @@ func _parse() -> void:
 			"abhalf": abhalf = int(kv[1])
 			"asqrt": asqrt = int(kv[1])
 			"epc": epc = int(kv[1])
+			"emax": emax = int(kv[1])
+			"afloor": afloor = int(kv[1])
+			"acap": acap = int(kv[1])
 			"agrow": agrow = int(kv[1])
 			"agrow2": agrow2 = int(kv[1])
 			"upkeep": upkeep = int(kv[1])
@@ -218,6 +227,12 @@ func _tune() -> CWTuning:
 		t.anaerobic_sqrt_coef = asqrt
 	if epc >= 0:
 		t.anaerobic_per_cancer = epc
+	if emax >= 0:
+		t.energy_cap = emax          ## 0 = 不封顶
+	if afloor >= 0:
+		t.aerobic_floor = afloor
+	if acap >= 0:
+		t.aerobic_cap = acap
 	if prolif >= 0:
 		t.proliferate_per_adjacent = prolif
 	if solid >= 0:
@@ -269,6 +284,9 @@ func _applied(t: CWTuning) -> String:
 			["abhalf", int(t.antibody_halve), int(d.antibody_halve)],
 			["asqrt", t.anaerobic_sqrt_coef, d.anaerobic_sqrt_coef],
 			["epc", t.anaerobic_per_cancer, d.anaerobic_per_cancer],
+			["emax", t.energy_cap, d.energy_cap],
+			["afloor", t.aerobic_floor, d.aerobic_floor],
+			["acap", t.aerobic_cap, d.aerobic_cap],
 			["prolif", t.proliferate_per_adjacent, d.proliferate_per_adjacent],
 			["solid", t.solidify_threshold, d.solidify_threshold],
 			["cwin", t.cancer_win_weighted, d.cancer_win_weighted],
