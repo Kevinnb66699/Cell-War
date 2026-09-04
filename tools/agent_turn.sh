@@ -54,6 +54,28 @@ if [ -n "$SAY" ] && [ -n "$TEAM_DIR" ]; then
 	printf 'P%s: %s\n' "$SEAT" "$SAY" >> "$TEAM_DIR/chat.txt"
 fi
 
+# 机器循环检测。**这不是洁癖，是数据完整性**：2026-09-04 有一席写了个 100 次的
+# shell 循环、每问盲答固定下标，连答 74 问（正常一个回合十来问），整局对照数据作废。
+# 会思考的调用方每个决策至少要几秒，所以「60 秒内交了 20 个以上答案」几乎必然是机器在刷。
+# 只警告不拦截：真有人手速快不该被误伤，而警告会连同问题一起打给调用方，它自己能看见。
+rate_check() {
+	local f="$DIR/.seat$SEAT.rate" now cnt
+	now=$(date +%s)
+	echo "$now" >> "$f"
+	cnt=$(awk -v t="$((now - 60))" '$1 > t' "$f" | wc -l)
+	if [ "$cnt" -gt 20 ]; then
+		echo "$(date +%H:%M:%S) 席位 $SEAT 60 秒内交了 $cnt 个答案" >> "$DIR/WARN.txt"
+		printf '
+!!! 你在 60 秒内交了 %s 个答案 —— 这是机器循环的速度，不是思考的速度。
+' "$cnt"
+		printf '!!! 如果你在用脚本循环作答，**立刻停下**：这样打出来的局是废数据，整轮评测都要作废。
+'
+		printf '!!! 一次工具调用 = 一个决策，每步都要看局面。
+
+'
+	fi
+}
+
 # ---- 先交上一问的答案 ----
 if [ -n "$PICK" ]; then
 	[ -n "$last" ] || { echo "本席位还没有被问过，不能作答" >&2; exit 1; }
@@ -61,6 +83,7 @@ if [ -n "$PICK" ]; then
 	# 先写临时文件再改名：引擎是轮询读的，直接覆写会有一瞬间读到半截
 	printf '%s:%s\n' "$last" "$PICK" > "$REPLY.tmp.$SEAT"
 	mv -f "$REPLY.tmp.$SEAT" "$REPLY"
+	rate_check
 fi
 
 # 队友说了什么（只打没看过的那几行）
