@@ -6,6 +6,11 @@
 ##
 ## 盖在棋盘左半（那一侧信息密度低），不遮右栏与行动栏。滚轮翻页；
 ## 偏移 0 = 跟着最新行走，往上翻过就停在原地，再滚回底部才继续跟。
+##
+## **一条日志可能占好几行**：原来是定高单行 Label + `TRIM_ELLIPSIS`，
+## 「免疫A（免疫细胞）经由【基因表达】抽到【永久】LFA-1黏附」这种长行会被截成省略号，
+## 而被截掉的恰恰是**抽到了什么牌**。所以先按面板宽度把每条日志折成若干「显示行」，
+## 再拿显示行去铺 Label 池 —— 面板本来就是按「行」翻页的，折完照旧翻。
 class_name CWLogPanel
 extends Control
 
@@ -19,7 +24,12 @@ const SCROLL_STEP := 3   ## 滚轮一格翻几行
 var active := false      ## 对局进行中才响应 L（同 CWPauseMenu.active 的语法）
 
 var _lines: Array[Label] = []
-var _offset := 0         ## 离底部多少行；0 = 跟随最新
+var _offset := 0         ## 离底部多少显示行；0 = 跟随最新
+## 折行后的显示行，以及每行来自第几条日志（着色跟源日志走，不看折行后的行首）。
+## 日志是只增的，所以按「已折到第几条」增量补，不用每帧重折。
+var _rows: Array[String] = []
+var _row_src: Array[int] = []
+var _built := 0
 var _thumb: ColorRect
 var _track: ColorRect
 var _visible_n := 0
@@ -54,8 +64,9 @@ func _ready() -> void:
 		var l := CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT)
 		l.position = Vector2(PAD, PAD + TITLE_H + i * LINE_H)
 		l.size = Vector2(RECT.size.x - PAD * 2 - 10, LINE_H)
+		## clip_text 留着只当兜底（单个字就比行宽还宽这种病态情况），
+		## 正常长行已经在 wrap_line() 里折过了，不会走到截断
 		l.clip_text = true
-		l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		add_child(l)
 		_lines.append(l)
 
@@ -113,7 +124,8 @@ func _scroll(delta_lines: int) -> void:
 func refresh(game: CWGame) -> void:
 	if not visible or game == null:
 		return
-	var total := game.logs.size()
+	_rebuild_rows(game)
+	var total := _rows.size()
 	_offset = clampi(_offset, 0, maxi(total - _visible_n, 0))
 	var first := first_line(total, _visible_n, _offset)
 	for i in _visible_n:
@@ -121,9 +133,11 @@ func refresh(game: CWGame) -> void:
 		if idx >= total or idx < 0:
 			_lines[i].text = ""
 			continue
-		var s: String = game.logs[idx]
-		_lines[i].text = s
-		_lines[i].add_theme_color_override("font_color", line_color(s))
+		_lines[i].text = _rows[idx]
+		## 着色看**源日志**的行首，不看折行后的续行（续行以缩进开头，
+		## 直接喂给 line_color 会被当成「细节行」而变灰）
+		_lines[i].add_theme_color_override("font_color",
+			line_color(game.logs[_row_src[idx]]))
 	## 滑块：高度按可见比例、位置按窗口在整卷里的位置
 	var frac := 1.0 if total <= _visible_n else float(_visible_n) / total
 	var h := maxf(_track.size.y * frac, 12.0)
@@ -134,12 +148,62 @@ func refresh(game: CWGame) -> void:
 	_thumb.size = Vector2(4, h)
 
 
+## 把新增的日志折成显示行。日志只增不改，所以只折没折过的那几条；
+## 万一变短了（重开一局、快照回滚）就整卷重折。
+func _rebuild_rows(game: CWGame) -> void:
+	if game.logs.size() < _built:
+		_rows.clear()
+		_row_src.clear()
+		_built = 0
+	if game.logs.size() == _built:
+		return
+	var w: float = _lines[0].size.x if not _lines.is_empty() \
+		else RECT.size.x - PAD * 2 - 10
+	while _built < game.logs.size():
+		for seg in wrap_line(game.logs[_built], w):
+			_rows.append(seg)
+			_row_src.append(_built)
+		_built += 1
+
+
+## 把一条日志按像素宽折成若干段。**纯函数，测试直接核对。**
+##
+## 逐字累加宽度而不是按空格断词：日志正文是中文，没有空格可断；
+## 续行加两个半角空格的缩进，让人一眼看出「这是上一行的接续」而不是新的一条。
+static func wrap_line(s: String, max_w: float) -> PackedStringArray:
+	var out := PackedStringArray()
+	if s.is_empty():
+		out.append("")
+		return out
+	const INDENT := "  "
+	var indent_w: float = CWStyle.FONT.get_string_size(
+		INDENT, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+	var cur := ""
+	var cur_w := 0.0
+	var limit := max_w
+	for i in s.length():
+		var ch := s[i]
+		var cw: float = CWStyle.FONT.get_string_size(
+			ch, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+		## 一个字都放不下就单独占一行，否则这里会死循环
+		if cur_w + cw > limit and not cur.is_empty():
+			out.append(cur)
+			cur = INDENT + ch
+			cur_w = indent_w + cw
+			limit = max_w
+		else:
+			cur += ch
+			cur_w += cw
+	out.append(cur)
+	return out
+
+
 func hide_now() -> void:
 	visible = false
 	_offset = 0
 
 
-## 窗口里第一行的下标：offset = 离底部多少行。纯函数，测试用。
+## 窗口里第一行的下标：offset = 离底部多少行。**行 = 折行后的显示行**。纯函数，测试用。
 static func first_line(total: int, lines: int, offset: int) -> int:
 	return maxi(total - lines - offset, 0)
 

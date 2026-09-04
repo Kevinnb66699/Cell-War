@@ -2509,6 +2509,22 @@ func t_log_panel() -> void:
 	check(CWLogPanel.first_line(100, 20, 0) == 80, "窗口贴底")
 	check(CWLogPanel.first_line(100, 20, 30) == 50, "上翻 30 行")
 	check(CWLogPanel.first_line(10, 20, 0) == 0, "不足一屏从头显示")
+	## 长行折行：真机上「免疫A（免疫细胞）经由【基因表达】抽到【永久】LFA-1黏附」
+	## 被 TRIM_ELLIPSIS 截成省略号，而截掉的恰恰是「抽到了什么牌」（Kevin 2026-09-04 报的）
+	var long_line := "免疫A（免疫细胞）经由【基因表达】抽到【永久】LFA-1黏附（LFA-1黏附）"
+	var row_w: float = CWLogPanel.RECT.size.x - CWLogPanel.PAD * 2 - 10
+	var segs := CWLogPanel.wrap_line(long_line, row_w)
+	check(segs.size() > 1, "长行被折成多行（%d 行）" % segs.size())
+	var joined := ""
+	for seg in segs:
+		joined += seg.lstrip(" ")
+	check(joined == long_line, "折行不丢字：拼回去等于原文")
+	for seg in segs:
+		check(CWStyle.FONT.get_string_size(seg, HORIZONTAL_ALIGNMENT_LEFT, -1,
+			CWStyle.SIZE_LABEL).x <= row_w, "每段都放得进行宽")
+	check(CWLogPanel.wrap_line("短行", row_w).size() == 1, "短行不折")
+	check(CWLogPanel.wrap_line("", row_w).size() == 1, "空行也给一行，别把行数算漏")
+
 	check(CWLogPanel.line_color("▶ 玩家1 的回合") == CWStyle.TEXT_HI
 		and CWLogPanel.line_color("★ 免疫等级升至 II 级") == CWStyle.IMMUNE
 		and CWLogPanel.line_color("☠ 谁 死亡") == CWStyle.CANCER
@@ -2553,6 +2569,15 @@ func t_log_panel() -> void:
 	p._scroll(99999)
 	p.refresh(g)
 	check(p._lines[0].text == g.logs[0], "翻到顶被钳在第一行")
+	## 折行后的显示行数 ≥ 日志条数，且续行的颜色跟源日志走（不能因为缩进就变灰）
+	g.log_msg("★ " + "很长的一条升级日志".repeat(6))
+	p._scroll(-999)          ## 上一段把窗口翻到顶了，先滚回底部才看得到这条
+	p.refresh(g)
+	check(p._rows.size() > g.logs.size(), "有长行时显示行数多于日志条数")
+	var tail_color: Color = p._lines[p._visible_n - 1].get_theme_color("font_color")
+	check(tail_color == CWStyle.IMMUNE, "续行沿用源日志的颜色（★ 仍是免疫色）")
+	p._scroll(-999)
+	p.refresh(g)
 	p._unhandled_input(lkey)
 	check(not p.visible, "再按 L 收起")
 	p._scroll(5)
