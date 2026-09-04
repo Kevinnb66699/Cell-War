@@ -96,6 +96,7 @@ var ecancer := -1
 var amult := -1
 var abhalf := -1
 var asqrt := -1
+var epc := -1
 var cmh := -1
 var cmc := -1
 var sclc := -1
@@ -157,6 +158,7 @@ func _parse() -> void:
 			"amult": amult = int(kv[1])
 			"abhalf": abhalf = int(kv[1])
 			"asqrt": asqrt = int(kv[1])
+			"epc": epc = int(kv[1])
 			"cmh": cmh = int(kv[1])
 			"cmc": cmc = int(kv[1])
 			"sclc": sclc = int(kv[1])
@@ -215,6 +217,8 @@ func _tune() -> CWTuning:
 		t.antibody_halve = abhalf != 0
 	if asqrt >= 0:
 		t.anaerobic_sqrt_coef = asqrt
+	if epc >= 0:
+		t.anaerobic_per_cancer = epc
 	if agrow != -9999:
 		t.aerobic_mult_growth = agrow
 	if upkeep != -9999:
@@ -304,6 +308,9 @@ func _applied(t: CWTuning) -> String:
 			["afloor", t.aerobic_floor, d.aerobic_floor],
 			["tiles", t.init_cancer_tiles, d.init_cancer_tiles],
 			["amult", t.aerobic_mult, d.aerobic_mult],
+			["asqrt", t.anaerobic_sqrt_coef, d.anaerobic_sqrt_coef],
+			["epc", t.anaerobic_per_cancer, d.anaerobic_per_cancer],
+			["abhalf", int(t.antibody_halve), int(d.antibody_halve)],
 			["agrow", t.aerobic_mult_growth, d.aerobic_mult_growth],
 			["upkeep", t.cancer_upkeep_pct, d.cancer_upkeep_pct],
 			["agrow2", t.immune_attack_pct_growth, d.immune_attack_pct_growth],
