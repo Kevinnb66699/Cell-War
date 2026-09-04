@@ -22,7 +22,10 @@ extends CWBridge
 ## v5：2026-09-04 —— 按新 PRD 重做树突之后学会新技能：会建【I-趋化源】（只要付得起就建、
 ##     位置挑癌区最密的一格），`chemo_target` 有了专门的挑法。**树突不能攻击**之后
 ##     攻击类选项自然从清单里消失，不必改策略（选项驱动的好处）。
-const AI_VERSION := "v5"
+## v6：2026-09-04 —— 学会**回据点**（`_base_return`）：本回合铺完之后退到固化计数最高的那一格
+##     结束回合。Kevin 指出真人会「占完周围再回到原来那格给队友蹲固化」，而【E-固化】只看回合末
+##     站在哪、不管走了多远 —— v5 之前把蹲固化当成移动的替代项，AI 永远拿不到复活据点。
+const AI_VERSION := "v6"
 ## 每个桥实例可以单独退回 v1 的行为（set_version("v1")）：分化拿选项列表第一个、不惜命。
 ## 用途是**验证 AI 升级**：新版本必须在两边都不比旧版弱（balance_scan 的 aiver_immune= / aiver_cancer= 交叉对局），
 ## 否则标尺一换读数就漂、还分不清是规则变了还是量具变了（2026-09-02 v2 基线 6 人 24→10 就是这么查的）。对局里别拨。
@@ -358,7 +361,42 @@ func _cancer_action(pid: int, options: Array) -> int:
 	var mv := _best_cancer_move(options, me, threat)
 	if mv >= 0:
 		return mv
+	# 6. 收尾**回据点**（Kevin 2026-09-04 指出的真人打法，v6 起）
+	i = _base_return(options, me)
+	if i >= 0:
+		return i
 	return _find(options, "end")
+
+
+## 收尾回据点：真人打法是「先把周围的格子占掉，再回到原来那一格给队友蹲固化」。
+##
+## **为什么这不是「原地不动」**：【E-固化】只看**回合末站在哪**
+## （`CWWorld._solidify()` 读 `cell["pos"]`），完全不管这一回合走了多远 ——
+## 所以「占地」和「攒固化」**根本不是二选一**，绕一圈回到同一格，两样都吃到，
+## 代价只有回程那 0.2。取消「新生」之后当回合铺的格也照样累计。
+##
+## v5 之前把「蹲固化」写成移动的**替代项**（`_worth_solidifying` 成立就原地不动），
+## 于是 AI 要么占地、要么蹲点，永远拿不到复活据点 ——
+## 前期一被打死就彻底出局。那量出来的不是规则的强度，是 AI 的短板。
+## （同一类错误 2026-09-04 已经犯过一次：v3 把这条判断绑在旋钮上，量出癌胜 19%，见 §10.8。）
+##
+## 做法：本回合已经没有值得走的占地步了，就退到**固化计数最高的那一格**结束回合。
+## 只认癌组织（健康格这一步会变成新格，攒不到已有进度），且要留够安全储备。
+func _base_return(options: Array, me: Dictionary) -> int:
+	var best := -1
+	var best_solid: int = game.tile(me["pos"])["solid"]
+	for i in options.size():
+		var d: Dictionary = options[i]["data"]
+		if d["act"] != "move":
+			continue
+		var t: Dictionary = game.tile(d["to"])
+		if t["tissue"] != CWData.Tissue.CANCER or int(t["solid"]) <= best_solid:
+			continue
+		if me["energy"] < int(d["cost"]) + 5:
+			continue          ## 回据点不该把自己走到濒死
+		best_solid = int(t["solid"])
+		best = i
+	return best
 
 
 func _dist_to_nearest_immune(from: Vector2i) -> int:

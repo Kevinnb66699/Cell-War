@@ -95,8 +95,13 @@ const TEMPLATES := {
 	## **百分数用 `pct`**：这是本表第一个百分比费用修饰，规则见 `_apply()`。
 	"趋化源": [
 		{
+			"action": Action.MOVE, "phase": Phase.DIV, "pct": CWData.CHEMO_SELF_PCT,
+			"cond": ["chemo_owner", "chemo_toward"], "source": Source.SKILL, "store": Store.NONE,
+		},
+		{
 			"action": Action.MOVE, "phase": Phase.DIV, "pct": CWData.CHEMO_IMMUNE_PCT,
-			"cond": ["immune", "chemo_toward"], "source": Source.SKILL, "store": Store.NONE,
+			"cond": ["immune", "not_chemo_owner", "chemo_toward"],
+			"source": Source.SKILL, "store": Store.NONE,
 		},
 		{
 			"action": Action.MOVE, "phase": Phase.MULT, "pct": CWData.CHEMO_CANCER_PCT,
@@ -394,6 +399,12 @@ func _cond_ok(cond: String, ctx: Dictionary, name: String) -> bool:
 			return actor["fx_turn"].get(name, 0) >= GATE_USES.get(name, 1)
 		"free_move_left":
 			return game.world_fx.free_move_available(actor)
+		## 建立趋化源的**那一个**细胞：它朝自己的源走减免 50%（其余免疫 30%）。
+		## 认的是 `chemo["by"]`（建立者 pid），不是「是不是树突」—— PRD 写的是「自身」。
+		"chemo_owner":
+			return not game.chemo.is_empty() and int(game.chemo.get("by", -1)) == int(actor["pid"])
+		"not_chemo_owner":
+			return game.chemo.is_empty() or int(game.chemo.get("by", -1)) != int(actor["pid"])
 		## 【I-趋化源】的方向判定：PRD 明文「取决于迁移后距该格的距离增加/降低」。
 		## 起点用 ctx["from"]（= 报价时细胞所在格），所以规划器逐步模拟时也对。
 		"chemo_toward":

@@ -302,6 +302,9 @@ const CANCER_TYPE_NAMES := {
 const CHEMO_COST := 20
 const CHEMO_ROUNDS := 2
 const CHEMO_IMMUNE_PCT := 70    # 免疫向靠近该格方向迁移：费用 ×0.7（-30%）
+## 建立者**自己**朝它走减免 50%（2026-09-04 下午那版 PRD 新增的一句）。
+## 只认「建立趋化源的那个细胞」，不是「所有树突」—— PRD 写的是「自身」。
+const CHEMO_SELF_PCT := 50
 const CHEMO_CANCER_PCT := 140   # 癌细胞向远离该格方向移动：费用 ×1.4（+40%）
 
 const IMMUNE_TYPE_NAMES := {

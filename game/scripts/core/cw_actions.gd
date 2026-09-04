@@ -246,42 +246,69 @@ func move_block_reason(cell: Dictionary, to: Vector2i) -> String:
 ##
 ## **落点必须是空格，不能穿过去打人**：那会把「移动」和「攻击」两条结算链缠在一起
 ## （攻击失败要弹回**哪一格**？弹回中间那格就是站在友军身上）。攻击照旧只能从相邻格发起。
+## 「借道前进」的全部落点与价钱：{ 落点 → [总费用, 第一跳的友军格] }。
+##
+## **2026-09-04 下午 PRD 把这条推广了**：原文从「穿过**该细胞**所在的格」改成
+## 「一次【迁移】可落在细胞**连通块**临近的任意一格，消耗为从连通块内**无视细胞通过**所需能量之和」——
+## 也就是可以**顺着一串友军一路借道**，不再限于一个。旧实现只认单个友军（口径 #98），
+## 相当于新规则里链长为 1 的特例。
+##
+## 算法：从自己出发，只在**友军占据的格**上扩展（它们是「连通块」），
+## 每进一格按该格自己的组织类型计费；从任何一个到达过的友军格，
+## 其相邻的**空格**都是合法落点，费用 = 走到那个友军格的累计 + 落点自己的费用。
+## 取最便宜的一条（Dijkstra 的小规模版本：棋盘 127 格、友军最多 3 个，队列很短）。
+##
+## 本来就与自己相邻的格**不进这张表** —— 那是普通迁移，价钱更低，不该出两个同名选项。
+func pass_through_map(cell: Dictionary) -> Dictionary:
+	var out := {}                ## 落点 → [费用, 第一跳]
+	var reached := {}            ## 友军格 → [累计费用, 第一跳]
+	var queue: Array = []
+	for n in CWData.neighbors(cell["pos"]):
+		if not _is_ally_tile(cell, n):
+			continue
+		reached[n] = [_one_step_base(cell, n), n]
+		queue.append(n)
+	while not queue.is_empty():
+		var cur: Vector2i = queue.pop_front()
+		var acc: int = reached[cur][0]
+		var first: Vector2i = reached[cur][1]
+		for m in CWData.neighbors(cur):
+			if m == cell["pos"] or not CWData.is_on_board(m):
+				continue
+			var cost: int = acc + _one_step_base(cell, m)
+			if _is_ally_tile(cell, m):
+				if not reached.has(m) or cost < reached[m][0]:
+					reached[m] = [cost, first]
+					queue.append(m)      ## 更便宜的路径要重新往外推一次
+			elif game.cells_at(m).is_empty():
+				if not out.has(m) or cost < out[m][0]:
+					out[m] = [cost, first]
+	for n in CWData.neighbors(cell["pos"]):
+		out.erase(n)             ## 相邻格走普通迁移更便宜
+	return out
+
+
+func _is_ally_tile(cell: Dictionary, c: Vector2i) -> bool:
+	var occ: Array = game.cells_at(c)
+	return not occ.is_empty() and occ[0]["faction"] == cell["faction"]
+
+
+## 借道落点的第一跳友军格（界面用它打「穿过」标签）；不是借道走法就返回 `Vector2i.MAX`。
 func pass_through_mid(cell: Dictionary, to: Vector2i) -> Vector2i:
 	if not CWData.is_on_board(to) or to == cell["pos"]:
 		return Vector2i.MAX
 	if to in CWData.neighbors(cell["pos"]):
 		return Vector2i.MAX          ## 本来就走得到 —— 那是普通迁移，别在这儿重复出一遍
-	var best := Vector2i.MAX
-	var best_cost := 0
-	for n in CWData.neighbors(cell["pos"]):
-		if not (to in CWData.neighbors(n)):
-			continue
-		var mids: Array = game.cells_at(n)
-		if mids.is_empty() or mids[0]["faction"] != cell["faction"]:
-			continue
-		var c := _one_step_base(cell, n)
-		if best == Vector2i.MAX or c < best_cost:
-			best = n
-			best_cost = c
-	return best
+	var m: Dictionary = pass_through_map(cell)
+	return m[to][1] if m.has(to) else Vector2i.MAX
 
 
 ## 一次【迁移】能去的所有格：六个相邻格 + 穿过友军落在正后方的那几格。
 ## 选项生成和 AI 都走这里，别各自拼一份（口径 #81）。
 func move_dests(cell: Dictionary) -> Array[Vector2i]:
 	var out: Array[Vector2i] = CWData.neighbors(cell["pos"]).duplicate()
-	var seen := {}
-	for n in CWData.neighbors(cell["pos"]):
-		var mids: Array = game.cells_at(n)
-		if mids.is_empty() or mids[0]["faction"] != cell["faction"]:
-			continue
-		for far in CWData.neighbors(n):        ## 绕到这个队友身后那一圈
-			if far == cell["pos"] or far in out or seen.has(far):
-				continue                       ## 是我自己 / 本来就相邻 / 两个队友通到同一格
-			if not CWData.is_on_board(far):
-				continue
-			seen[far] = true
-			out.append(far)
+	for far: Vector2i in pass_through_map(cell):
+		out.append(far)
 	return out
 
 
@@ -433,11 +460,13 @@ func _cancerous_adj(c: Vector2i) -> int:
 ## 基准价之上的所有修饰交给 CWCost —— 卡牌、永久技能、世界事件一律以
 ## CostModifier 的形式登记在 CWCost.TEMPLATES，本文件不再自己判谁减多少。
 func _move_base_cost(cell: Dictionary, dest: Vector2i) -> int:
-	var mid := pass_through_mid(cell, dest)
-	if mid != Vector2i.MAX:
-		## 穿过友军：中间格与落点格**各按自己的组织类型**计一次（定案「两格之和」）。
+	if not (dest in CWData.neighbors(cell["pos"])):
+		## 借道前进：**沿途每一格各按自己的组织类型计一次**，取最便宜的那条路
+		## （新 PRD「消耗为从连通块内无视细胞通过所需能量之和」）。
 		## 摆在这里而不是各调用方：行动菜单、AI 评估、界面价签、提交复验全走这一个口。
-		return _one_step_base(cell, mid) + _one_step_base(cell, dest)
+		var m: Dictionary = pass_through_map(cell)
+		if m.has(dest):
+			return m[dest][0]
 	return _one_step_base(cell, dest)
 
 

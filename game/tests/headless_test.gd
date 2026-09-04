@@ -60,6 +60,8 @@ func _run_all() -> void:
 	t_heur_no_squat_on_fresh()
 	await t_plan_path()
 	await t_dendritic_rework()
+	await t_solidify_roundtrip()
+	t_pass_through_chain()
 	t_immune_win()
 	t_cancer_revive_blocked()
 	t_cancer_s_win()
@@ -1013,13 +1015,15 @@ func t_jump_cap() -> void:
 			if o["data"].get("act", "") == "jump":
 				out.append(o)
 		return out
-	## 2026-09-04 新 PRD 给【转移】加了「每世界回合只能使用一次」→ 默认值跟着改成 1
-	check(g.tune.metastasis_max_per_round == 1 and g.tune.metastasis_cost == CWData.METASTASIS_COST,
-		"默认与 PRD 一致：每世界回合 1 次、1.0 一次")
+	## 2026-09-04 新 PRD 给【转移】加了每世界回合次数上限；当天下午那版又从 1 次改成 **2 次**
+	check(g.tune.metastasis_max_per_round == 2 and g.tune.metastasis_cost == CWData.METASTASIS_COST,
+		"默认与 PRD 一致：每世界回合 2 次、1.0 一次")
 	var first: Array = jumps.call()
 	check(not first.is_empty() and first[0]["label"].contains("1.0"), "默认：有跃进选项、标价 1.0")
 	await g.actions.execute(c, first[0]["data"])
-	check(c["jump_used"] == 1 and jumps.call().is_empty(), "默认（上限 1）：跳完计数 1、选项消失")
+	check(c["jump_used"] == 1 and not jumps.call().is_empty(), "默认（上限 2）：跳完 1 次还能再跳")
+	await g.actions.execute(c, jumps.call()[0]["data"])
+	check(c["jump_used"] == 2 and jumps.call().is_empty(), "默认（上限 2）：跳满 2 次 → 选项消失")
 	g.tune.metastasis_max_per_round = 0
 	check(not jumps.call().is_empty(), "旋钮拨 0（不限次）→ 选项回来")
 	g.tune.metastasis_max_per_round = 1
@@ -1475,6 +1479,90 @@ class NoticeRecorder extends CWBridge:
 ## 的「相邻 ≥2 格癌性」也会因此成立），所以这份账只能引擎算 ——
 ## 这个测试就是防它和真实结算漂开。
 ## 树突状细胞按 2026-09-04 新 PRD 重做：【I-各司其职】换机制 + 新增【I-趋化源】
+## 「出去占一圈、再回到原来那格攒固化」——Kevin 2026-09-04 指出的真人打法。
+## 先钉**规则**（回合末站在哪就给哪格加计数，与这一回合走了多远无关），
+## 再钉 **AI 会不会用**（v6 的 `_base_return`）。
+## 「借道前进」：2026-09-04 下午 PRD 从「穿过一个友军」推广到「穿过整个友军连通块」。
+## 旧规则是新规则里链长为 1 的特例，所以两种都要过。
+func t_pass_through_chain() -> void:
+	print("[借道前进（穿过友军连通块）]")
+	var g := bare_game()
+	var me := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i.ZERO, -1,
+		CWData.CancerType.SIGNET, 300)
+	g.cells.append(me)
+	## 一串友军：(1,0) (2,0)。落点 (3,0) 要穿过**两个**才够得到 —— 旧实现给不出这一格
+	g.cells.append(CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0), -1,
+		CWData.CancerType.SIGNET, 100))
+	g.cells.append(CWSetup.make_cell(2, 2, CWData.Faction.CANCER, Vector2i(2, 0), -1,
+		CWData.CancerType.SIGNET, 100))
+	var m: Dictionary = g.actions.pass_through_map(me)
+	check(m.has(Vector2i(2, 0)) == false, "友军自己占的格不是落点（不能停在人身上）")
+	check(m.has(Vector2i(3, 0)), "穿过**两个**友军能落到 (3,0)（链式借道，旧实现做不到）")
+	## 费用 = 沿途每格各按自己的组织类型计一次
+	var step: int = g.tune.cancer_move_healthy
+	check(int(m[Vector2i(3, 0)][0]) == step * 3,
+		"费用 = 三格之和 %s（实为 %s）" % [CWData.fmt(step * 3), CWData.fmt(int(m[Vector2i(3, 0)][0]))])
+	check(m[Vector2i(3, 0)][1] == Vector2i(1, 0), "第一跳记的是紧挨着我的那个友军")
+	check(int(g.actions._move_base_cost(me, Vector2i(3, 0))) == step * 3, "报价走同一个口")
+	check(Vector2i(3, 0) in g.actions.move_dests(me), "落点进了 move_dests")
+	check(g.actions._is_move_legal_now(me, Vector2i(3, 0)), "合法性谓词也认")
+	## 相邻格不该出现在借道表里（普通迁移更便宜，不能出两个同名选项）
+	for n in CWData.neighbors(me["pos"]):
+		check(not m.has(n), "相邻格 %s 不进借道表" % str(n))
+		break
+	## 敌军挡路不给借道
+	var g2 := bare_game()
+	var me2 := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.BASIC, -1, 300)
+	g2.cells.append(me2)
+	g2.cells.append(CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0), -1,
+		CWData.CancerType.SIGNET, 100))
+	check(g2.actions.pass_through_map(me2).is_empty(), "敌军不能借道")
+	g.dispose()
+	g2.dispose()
+
+
+func t_solidify_roundtrip() -> void:
+	print("[绕一圈回来照样攒固化（真人打法）]")
+	var g := bare_game()
+	var home := Vector2i.ZERO
+	var away := Vector2i(1, 0)
+	CWTissue.to_cancer(g.tile(home), false)
+	var c := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, home, -1,
+		CWData.CancerType.SIGNET, 200)
+	g.cells.append(c)
+	## ① 规则：走出去（把健康格定殖掉）再走回来，回合末照样给 home 加计数
+	check(g.tile(away)["tissue"] == CWData.Tissue.HEALTHY, "邻格一开始是健康组织")
+	await g.actions.execute(c, { "act": "move", "to": away,
+		"cost": g.actions._move_cost_mod(c, away, g.actions._move_base_cost(c, away)) })
+	check(g.tile(away)["tissue"] == CWData.Tissue.CANCER, "走过去把它定殖成癌组织")
+	await g.actions.execute(c, { "act": "move", "to": home,
+		"cost": g.actions._move_cost_mod(c, home, g.actions._move_base_cost(c, home)) })
+	check(c["pos"] == home, "又走回了原来那一格")
+	var before: int = g.tile(home)["solid"]
+	g.world._solidify()
+	check(g.tile(home)["solid"] == before + CWData.SOLIDIFY_STEP,
+		"回合末仍然给 home 加计数（占地与攒固化**不是二选一**）")
+	## ② AI：本回合没有值得走的占地步时，退到固化计数最高的那一格结束回合
+	var h := CWHeuristicBridge.new()
+	h.game = g
+	var side := Vector2i(0, 1)
+	CWTissue.to_cancer(g.tile(side), false)
+	await g.actions.execute(c, { "act": "move", "to": side,
+		"cost": g.actions._move_cost_mod(c, side, g.actions._move_base_cost(c, side)) })
+	check(c["pos"] == side and int(g.tile(side)["solid"]) == 0, "此刻站在一格没有进度的癌组织上")
+	var opts: Array = g.actions.build_options(c)
+	var pick: int = h._base_return(opts, c)
+	check(pick >= 0 and opts[pick]["data"]["to"] == home,
+		"AI 选择退回**计数最高**的 home（选了 %s）"
+			% (str(opts[pick]["data"].get("to", "?")) if pick >= 0 else "没选"))
+	## 已经站在最高的那一格上时不再乱动（否则会来回抖）
+	await g.actions.execute(c, opts[pick]["data"])
+	check(h._base_return(g.actions.build_options(c), c) < 0, "已在据点上就不再移动，不来回抖")
+	h.game = null
+	g.dispose()
+
+
 func t_dendritic_rework() -> void:
 	print("[树突状细胞（2026-09-04 新 PRD）]")
 	# ---- ① 【I-各司其职】：不能移向癌细胞占据的格（= 攻不了）----
@@ -1688,7 +1776,7 @@ func t_plan_path() -> void:
 
 func t_heur_no_squat_on_fresh() -> void:
 	print("[启发式 v4：不蹲在刚铺的格子上]")
-	check(CWHeuristicBridge.AI_VERSION == "v5", "AI 版本号 v5（改 AI 行为要升号）")
+	check(CWHeuristicBridge.AI_VERSION == "v6", "AI 版本号 v6（改 AI 行为要升号）")
 	var g := _fx_game(2)
 	var can := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i.ZERO, -1,
 		CWData.CancerType.MELANOMA)
