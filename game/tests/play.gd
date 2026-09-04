@@ -19,6 +19,11 @@
 ##                log.txt 是各席视角的问题原样追加起来的，里面有全场的手牌 ——
 ##                和 ask.txt 放同一个目录，任谁想「补一下前情」cat 一下就是全场明牌
 ##   me=0,2       我坐哪几个席位，逗号分隔。默认 0
+##   idle=14400   多久没人作答就替他按 0 号选项走（秒，默认 1800）。**这是个静默污染源**：
+##                2026-09-05 四个智能体同时撞上额度上限、四局全停，30 分钟后引擎就开始
+##                替他们代答，等我回来一看每局已经被代答了 3 步 —— 局面还在、数据废了。
+##                所以智能体对弈一律把它调大（代价是真卡住时进程不会自己收摊，
+##                但那本来就该我去查，而不是让它替我糊过去）。
 ##   hide=1       **多个席位由互不通气的几个人分别操作**时打开：手牌/装备/修饰这些私密信息
 ##                只对**当前被问到的那一席**显示，别席一律按对手的口径打印（只给张数）。
 ##                默认 0 = 老行为（`me=` 里全部席位的私密信息都摊开），因为原来的用法是
@@ -68,6 +73,8 @@ var seed_no := 0
 var ai := "heur"
 ## 私密信息只给当前被问到的那一席看（见头注 hide=）
 var hide_others := false
+## 多久没人作答就代答（秒）。见头注 idle=
+var idle_timeout := 1800
 ## 平衡旋钮。参数名与 balance_scan.gd **完全一致**，两个脚本不许各说各话 ——
 ## 手打验证的必须是仿真跑出来的那一档，名字对不上就会打成另一个配置。
 ## 哨兵用 -9999：负系数是合法值（反方向），-1 会把它吃掉。
@@ -130,6 +137,7 @@ func _run() -> void:
 	mine.seats = me
 	mine.hide_others = hide_others
 	mine.logdir = logdir
+	mine.idle_timeout = float(idle_timeout)
 	for pid in g.order:
 		g.bridges[pid] = mine if pid in me else _ai_bridge(g)
 	await g.run_game()
@@ -160,6 +168,7 @@ func _parse() -> void:
 				for s in kv[1].split(",", false):
 					me.append(int(s))
 			"hide": hide_others = kv[1] != "0"
+			"idle": idle_timeout = int(kv[1])
 			"order": order_str = kv[1].to_upper()
 			"seed": seed_no = int(kv[1])
 			"ai": ai = kv[1]
@@ -293,8 +302,10 @@ func _ai_bridge(g: CWGame) -> CWBridge:
 class CWFileBridge:
 	extends CWBridge
 
-	const POLL_MS := 120           ## 轮询 reply.txt 的间隔
-	const IDLE_TIMEOUT_S := 1800.0 ## 这么久没人作答就自己退出，别让无头进程永远挂着
+	const POLL_MS := 120          ## 轮询 reply.txt 的间隔
+	## 这么久没人作答就按 0 号选项替他走，别让无头进程永远挂着。
+	## **代答是静默的数据污染**（局面照走、数据已废），所以可以从命令行调大，见头注 idle=
+	var idle_timeout := 1800.0
 
 	var dir := ""
 	var logdir := ""
@@ -361,7 +372,7 @@ class CWFileBridge:
 	func _wait_reply(n_opts: int) -> int:
 		var path := dir.path_join("reply.txt")
 		var waited := 0.0
-		while waited < IDLE_TIMEOUT_S:
+		while waited < idle_timeout:
 			var f := FileAccess.open(path, FileAccess.READ)
 			if f != null:
 				var s := f.get_as_text().strip_edges()
@@ -385,7 +396,8 @@ class CWFileBridge:
 					append_log("  ⚠ 看不懂的作答「%s」，继续等\n" % s)
 			OS.delay_msec(POLL_MS)
 			waited += POLL_MS / 1000.0
-		append_log("  ⚠ 等作答超时，按下标 0 走\n")
+		append_log("  ⚠ 等作答超时（%ds），按下标 0 替他走 —— 这一步起数据已被污染\n"
+			% int(idle_timeout))
 		return 0
 
 	## 引擎自己的流水（谁做了什么、结算成什么样），只导没导过的那几行
