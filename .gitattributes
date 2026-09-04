@@ -1,0 +1,4 @@
+# Windows 上 core.autocrlf=true 会把 .sh 检出成 CRLF，bash 读到行尾那个回车会报
+# 「command not found」，而且报的是**下一行**的错，很难看出是行尾的问题。
+# 脚本一律按 LF 存、按 LF 检出。
+*.sh text eol=lf
