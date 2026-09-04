@@ -62,6 +62,7 @@ func _run_all() -> void:
 	await t_dendritic_rework()
 	await t_solidify_roundtrip()
 	t_pass_through_chain()
+	t_eval_solid_monotone()
 	t_immune_win()
 	t_cancer_revive_blocked()
 	t_cancer_s_win()
@@ -1453,9 +1454,12 @@ func t_ai_eval() -> void:
 			solid_at = c
 			break
 	g.tiles[solid_at]["tissue"] = CWData.Tissue.SOLID
+	## 2026-09-04 起还要减掉 FIRST_BASE：一格无人占据的固化癌组织**直接挡住免疫的清场胜**
+	## （`check_immune_win` 的原文），估值给它一次性加分
 	check(CWEval.score(g, CWData.Faction.IMMUNE) - dead_ci
-		== -(CWEval.DEAD_CANCER_NO_BASE - CWEval.DEAD_CANCER) - CWEval.TILE,
-		"有固化据点可复活 → 免疫视角少赚 %d（另加固化格本身多算的 1 格）" % (CWEval.DEAD_CANCER_NO_BASE - CWEval.DEAD_CANCER))
+		== -(CWEval.DEAD_CANCER_NO_BASE - CWEval.DEAD_CANCER) - CWEval.TILE - CWEval.FIRST_BASE,
+		"有固化据点可复活 → 免疫视角少赚 %d（另加固化格本身多算的 1 格 + 挡住清场胜的 %d）"
+			% [CWEval.DEAD_CANCER_NO_BASE - CWEval.DEAD_CANCER, CWEval.FIRST_BASE])
 	g.tiles[solid_at]["tissue"] = CWData.Tissue.CANCER
 	can["alive"] = true
 	g.dispose()
@@ -1484,6 +1488,42 @@ class NoticeRecorder extends CWBridge:
 ## 再钉 **AI 会不会用**（v6 的 `_base_return`）。
 ## 「借道前进」：2026-09-04 下午 PRD 从「穿过一个友军」推广到「穿过整个友军连通块」。
 ## 旧规则是新规则里链长为 1 的特例，所以两种都要过。
+## `CWEval` 的固化计价必须**单调**：把固化修完不能让估值下跌。
+## 2026-09-04 修的就是这个 —— 旧值 SOLID_TICK=30 下，「进度 1.0 的癌组织(400)」
+## 比「修成的固化格(200)」还值钱，MC 于是**主动避免把据点修完**、到处留半成品，
+## 癌方几乎拿不到复活据点。这条回归把「进度 → 完成」钉成单调不下降。
+func t_eval_solid_monotone() -> void:
+	print("[估值：固化进度到完成必须单调]")
+	var g := bare_game()
+	var c := Vector2i.ZERO
+	CWTissue.to_cancer(g.tile(c), false)
+	var scores: Array = []
+	for tick in [0, CWData.SOLIDIFY_STEP, CWData.SOLIDIFY_THRESHOLD - 1]:
+		g.tile(c)["tissue"] = CWData.Tissue.CANCER
+		g.tile(c)["solid"] = tick
+		scores.append(CWEval.score(g, CWData.Faction.CANCER))
+	CWTissue.to_solid(g.tile(c))
+	var done: int = CWEval.score(g, CWData.Faction.CANCER)
+	check(scores[0] <= scores[1] and scores[1] <= scores[2],
+		"进度越高分越高（%s）" % str(scores))
+	check(done >= scores[2],
+		"**修完固化不能掉分**：进度满 %d vs 修成 %d" % [scores[2], done])
+	check(CWEval.SOLID_TICK * CWData.SOLIDIFY_THRESHOLD <= CWEval.TILE,
+		"进度学分总和 %d 不超过「修成」的增量 %d"
+			% [CWEval.SOLID_TICK * CWData.SOLIDIFY_THRESHOLD, CWEval.TILE])
+	## 据点被免疫站住就不算「可复活」——与 check_immune_win 同一口径。
+	## 只断言**方向**：往盘面上加一个细胞还会动到能量、离战线距离等别的项，
+	## 拿它去凑精确差值是把测试写脆（第一版就是这么错的）。
+	var im := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(4, 0),
+		CWData.ImmuneType.BASIC, -1, 50)
+	g.cells.append(im)
+	var off_base: int = CWEval.score(g, CWData.Faction.CANCER)
+	im["pos"] = c                       ## 同一个细胞挪到据点上，其余项不变
+	check(CWEval.score(g, CWData.Faction.CANCER) < off_base,
+		"免疫站上据点 → 癌方估值下降（不再算「挡得住清场胜」）")
+	g.dispose()
+
+
 func t_pass_through_chain() -> void:
 	print("[借道前进（穿过友军连通块）]")
 	var g := bare_game()
@@ -1776,7 +1816,7 @@ func t_plan_path() -> void:
 
 func t_heur_no_squat_on_fresh() -> void:
 	print("[启发式 v4：不蹲在刚铺的格子上]")
-	check(CWHeuristicBridge.AI_VERSION == "v6", "AI 版本号 v6（改 AI 行为要升号）")
+	check(CWHeuristicBridge.AI_VERSION == "v7", "AI 版本号 v7（改 AI 行为要升号）")
 	var g := _fx_game(2)
 	var can := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i.ZERO, -1,
 		CWData.CancerType.MELANOMA)

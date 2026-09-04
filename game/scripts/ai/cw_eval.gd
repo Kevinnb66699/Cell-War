@@ -15,8 +15,27 @@ const WIN := 1000000
 ## 一格癌组织的分量。癌方胜利判「癌 1 + 固化 2 的加权占地 ≥ 阈值」，
 ## 占地同时是癌方收入来源 —— 这项是全局主导项，权重系数与胜利判据同口径。
 const TILE := 100
-## 癌组织上固化计数每一点的分量（快固化=快据点，给部分学分）
-const SOLID_TICK := 30
+## 癌组织上固化计数每一点的分量（进度学分）。
+##
+## ⚠ **必须小到让「修完固化」是净赚**（2026-09-04 修）：
+## 一格癌组织 = `TILE`(100) + 进度 × SOLID_TICK；修成之后 = `TILE * 2`(200)。
+## 门槛是 20 个刻度，所以 0→20 的进度学分总和**不能超过 100**，否则修完的那一刻估值反而下跌。
+## 旧值 30 意味着进度满格值 600 —— 于是「进度 1.0 的癌组织(400) 比修成的固化格(200) 还值钱」，
+## **MC 会主动避免把据点修完**，到处留半成品。癌方因此几乎从不拥有复活据点，
+## 一被清场就出局 —— 09-04 上午量到的「癌方前期一死就出局」有一半是这条造成的伪影。
+## 5 × 20 = 100，正好等于修成的增量，进度对完成**单调不下降**。
+const SOLID_TICK := 5
+## **第一个可复活据点**的额外分量（2026-09-04 加）。
+##
+## `CWGame.check_immune_win()` 的原文是「癌细胞全灭**且没有免疫未占据的固化癌组织**」——
+## 也就是说**只要场上还有一格无人占据的固化癌组织，免疫的「清场胜」就直接被挡住**。
+## 这是一条**胜负条件**级别的事实，而估值此前只把它当成「一格地盘 100 → 200」，
+## 完全没有体现「它挡掉了对方的一整条胜路、并把癌方的死从永久损失变成可复活」。
+## （后者本来只在 `_death_cost` 里体现：无据点 1500 / 有据点 800，差 700 ——
+## 但那要等真的死了才算得到，MC 的 horizon 常常看不到。）
+##
+## 所以给「拥有第一个据点」一次性加分；第二个及以后不再加（边际价值小得多）。
+const FIRST_BASE := 400
 ## 抗原记忆一点 / 免疫等级一级的分量（升级解锁分化、换更强的卡池）
 const MEMORY := 25
 const LEVEL := 150
@@ -53,6 +72,7 @@ const DEAD_CANCER_NO_BASE := 1500
 ## 免疫那边相反：不复活等于「缺席」落在视野之外，不显式计价就会自杀式净化 —— 计了之后两档都比 v1 强（24→18 / 29→19）。
 static func score(g: CWGame, faction: int, death_cost: bool = true) -> int:
 	var adv := 0
+	var has_base := false          ## 癌方有没有「无人占据的固化癌组织」= 挡得住清场胜
 	if g.winner >= 0:
 		adv = WIN if g.winner == CWData.Faction.CANCER else -WIN
 		return adv if faction == CWData.Faction.CANCER else -adv
@@ -63,6 +83,11 @@ static func score(g: CWGame, faction: int, death_cost: bool = true) -> int:
 			adv += TILE + t["solid"] * SOLID_TICK
 		elif t["tissue"] == CWData.Tissue.SOLID:
 			adv += TILE * 2
+			## 与 check_immune_win 同一口径：免疫站上去的据点不算「可复活」
+			if g.cells_at(c, CWData.Faction.IMMUNE).is_empty():
+				has_base = true
+	if has_base:
+		adv += FIRST_BASE
 	## 物质：存活细胞的能量与手牌/装备；免疫细胞另按离战线的距离罚分
 	for cell in g.cells:
 		if not cell["alive"]:
