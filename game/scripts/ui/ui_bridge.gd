@@ -32,6 +32,12 @@ var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这�
 var move_costs := {}
 var move_verb := ""    ## 「迁移」还是「移动」：规则里免疫癌症用两个词，不能混用
 var human_pids: Array[int] = []
+## 热座（本地多人，2026-09-05）：>= 2 位真人共用一台电脑。换手遮罩由 CWMatch 注入；无界面 / 测试时为 null。
+## current_human = 上一位「露过牌」的真人（遮罩确认过的那一席）；-1 = 此刻没人在看 ——
+## CWMatch 每帧读它决定手牌抽屉给谁看、日志面板按谁的视角过滤。
+var handoff: CWHandoff
+var hotseat := false
+var current_human := -1
 
 ## 开场绽开还没演完时，人类的询问界面先不出来 ——
 ## 团队定的三拍开场里，第三拍才把控制权交还玩家（CWMatch 演完后置回 false）。
@@ -100,10 +106,18 @@ class Answer:
 ## 引擎那边由 CWGame.aborted 收摊，两边配合才能安全展开。
 func abort() -> void:
 	_clear_ui()
+	if handoff != null:
+		handoff.hide_now()   ## 遮罩期间拆局：放掉等在 pass_to 上的那次询问
 	if _pending != null:
 		var p := _pending
 		_pending = null
 		p.fire(null)
+
+
+## 该不该先弹换手遮罩：热座、且这次被问的真人不是上一位露过牌的真人（第一问时 current_human = -1，也弹 —— 宣布谁先手）。
+## 同一人连续被问（复活选点、抽卡中途选择、迁移的多步）不弹；AI 席位不经此路。static 供测试直接核对。
+static func needs_handoff(p_hotseat: bool, p_current_human: int, pid: int) -> bool:
+	return p_hotseat and pid != p_current_human
 
 
 func ask(req: Dictionary) -> int:
@@ -116,6 +130,18 @@ func ask(req: Dictionary) -> int:
 func _ask_human(req: Dictionary) -> int:
 	while opening and board != null and board.is_inside_tree():
 		await board.get_tree().process_frame
+	## 热座换手：先把电脑交出去（遮罩），玩家点「开始回合」才出询问界面。
+	## 换手期间 current_human = -1：CWMatch 据此收起手牌抽屉、日志切到无人视角。
+	if handoff != null and needs_handoff(hotseat, current_human, req["pid"]):
+		current_human = -1
+		var pid: int = req["pid"]
+		var at: Vector2i = CWHandoff.INVALID
+		if pid < game.cells.size() and game.cell_of(pid)["alive"]:
+			at = game.cell_of(pid)["pos"]   ## 开局布置阶段还没有细胞：光环不画
+		await handoff.pass_to(pid, game.player(pid)["faction"], game.player(pid)["name"], at)
+		if game == null or game.aborted:
+			return 0                       ## 遮罩期间拆局了：随便答一个，引擎那边已在收摊
+		current_human = pid
 	_enemy = CWData.Faction.CANCER if game.player(req["pid"])["faction"] \
 		== CWData.Faction.IMMUNE else CWData.Faction.IMMUNE
 	var picked: int

@@ -33,6 +33,12 @@ var _built := 0
 var _thumb: ColorRect
 var _track: ColorRect
 var _visible_n := 0
+## 热座（2026-09-05）：filter 开着时按 viewer 的视角显示 —— 别人的秘密行（抽到什么牌）换成引擎记的公开替身
+## `log_public`，与联机 CWNet.logs_for 同一口径；viewer = -1 是换手期间的「无人视角」，全部秘密行都换。
+## 单人局 filter 关，行为与从前完全一样（仍看得到 AI 抽的牌名，要不要收另议）。
+var filter := false
+var viewer := -1
+var _built_key := -3      ## 上次折行时的 (filter, viewer) 组合；变了就整卷重折
 
 
 func _ready() -> void:
@@ -151,19 +157,31 @@ func refresh(game: CWGame) -> void:
 ## 把新增的日志折成显示行。日志只增不改，所以只折没折过的那几条；
 ## 万一变短了（重开一局、快照回滚）就整卷重折。
 func _rebuild_rows(game: CWGame) -> void:
-	if game.logs.size() < _built:
+	var key := viewer if filter else -2
+	if game.logs.size() < _built or key != _built_key:
 		_rows.clear()
 		_row_src.clear()
 		_built = 0
+		_built_key = key
 	if game.logs.size() == _built:
 		return
 	var w: float = _lines[0].size.x if not _lines.is_empty() \
 		else RECT.size.x - PAD * 2 - 10
 	while _built < game.logs.size():
-		for seg in wrap_line(game.logs[_built], w):
+		for seg in wrap_line(line_text(game, _built), w):
 			_rows.append(seg)
 			_row_src.append(_built)
 		_built += 1
+
+
+## 第 i 条日志在当前视角下显示成什么。**纯函数**（只读 game 与本节点两个开关），测试直接核对。
+func line_text(game: CWGame, i: int) -> String:
+	if not filter or i >= game.log_secret.size():
+		return game.logs[i]
+	var who: int = game.log_secret[i]
+	if who < 0 or who == viewer:
+		return game.logs[i]
+	return game.log_public[i]
 
 
 ## 把一条日志按像素宽折成若干段。**纯函数，测试直接核对。**

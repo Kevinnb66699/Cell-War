@@ -61,9 +61,12 @@ func _begin(cfg: Dictionary) -> void:
 		return
 	match_node.player_count = cfg["players"]
 	var seats: Array[int] = []
-	var seat := CWConfigPanel.human_seat(cfg["players"], cfg["faction"])
-	if seat >= 0:
-		seats.append(seat)
+	if cfg["faction"] == CWConfigPanel.HOTSEAT:
+		seats = CWConfigPanel.hotseat_seats(cfg)   ## 本地多人：席位表里为真人的下标（热座，2026-09-05）
+	else:
+		var seat := CWConfigPanel.human_seat(cfg["players"], cfg["faction"])
+		if seat >= 0:
+			seats.append(seat)
 	match_node.human_players = seats
 	match_node.ai_smart = cfg["smart"]
 	## 配置面板给的随机种子（拨一下换一个）：填进去这局就可复现

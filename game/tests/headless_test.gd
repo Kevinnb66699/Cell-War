@@ -73,6 +73,7 @@ func _run_all() -> void:
 	t_necrosis()
 	t_erosion_fx()
 	await t_teleport_fx()
+	await t_hotseat()
 	t_stroma_targets()
 	await t_batch2_rules()
 	t_immune_level_rules()
@@ -1646,6 +1647,170 @@ class ErosionRecorder extends CWBridge:
 ## 三件事分开验：帧序（纯函数）、方向取法（不许掷骰）、引擎到桥的广播。
 ## **方向与美术的对应是这一组测试的重点** —— 弄反了不会报错，只会让玩家
 ## 看见癌从空的那一侧漫过来，而这种错没人会在日志里发现。
+# ---- 热座（本地多人）：配置面板席位表、换手遮罩、桥的判定、日志视角过滤、整条接线 ----
+func press_action(name: String) -> InputEventAction:
+	var e := InputEventAction.new()
+	e.action = name
+	e.pressed = true
+	return e
+
+
+func t_hotseat() -> void:
+	print("[热座 · 本地多人]")
+	## ① 配置面板：第四档「本地多人」→ 右侧席位表；逐席拨真人 / AI；cfg.seats → 真人席位下标
+	var p := CWConfigPanel.new()
+	root.add_child(p)
+	await process_frame
+	p.open()
+	check(p._n_rows() == CWConfigPanel.N_ROWS and not p._sheet.visible, "普通模式：四行、席位表不出")
+	p.handle_input(press_action("ui_down"))                 ## → 我的阵营
+	for i in 3:
+		p.handle_input(press_action("ui_right"))            ## 免疫 → 癌 → 观战 → 本地多人
+	check(p.config()["faction"] == CWConfigPanel.HOTSEAT, "「我的阵营」第四档 = 本地多人")
+	check(p._n_rows() == CWConfigPanel.N_ROWS + 4 and p._sheet.visible, "四人局：多出 4 个席位行，席位表出现")
+	var seats: Array = p.config()["seats"]
+	check(seats.size() == 4 and not seats.has(false), "席位默认全部真人")
+	check(p._value_text(CWConfigPanel.ROW_PLAYERS) == "4 人（4 真人 · 0 AI）", "人数行改写成真人 / AI 计数")
+	check(p._value_text(CWConfigPanel.ROW_FACTION) == "本地多人", "阵营行显示「本地多人」")
+	check(CWConfigPanel.seat_name(4, 0) == "免疫A" and CWConfigPanel.seat_name(4, 1) == "癌症A" \
+		and CWConfigPanel.seat_name(4, 2) == "免疫B" and CWConfigPanel.seat_name(6, 5) == "癌症C",
+		"席位名与引擎 players[].name 同一套规则：免疫A / 癌症A / 免疫B …")
+	for i in 3:
+		p.handle_input(press_action("ui_down"))             ## AI 强度 → 随机种子 → 席位 1（免疫A）
+	check(p._sel == CWConfigPanel.N_ROWS and p._name_labels[p._sel].text == "免疫A", "焦点从左栏走进席位表第一行")
+	check(p._marker.position.x - 24 >= CWConfigPanel.SHEET_X, "焦点在席位行：菱形标连 48px 光晕都落在席位表内（Kevin 09-05）")
+	check(p._name_labels[p._sel].position.x == CWConfigPanel.SEAT_NAME_X \
+		and p._value_labels[p._sel].position.x == CWConfigPanel.SEAT_VALUE_X, "席位行摆在右侧席位表的列上")
+	p.handle_input(press_action("ui_down"))                 ## → 席位 2（癌症A）
+	p.handle_input(press_action("ui_right"))
+	check(p.config()["seats"][1] == false and p._value_text(CWConfigPanel.N_ROWS + 1) == "AI", "拨一下：癌症A 改成 AI")
+	check(CWConfigPanel.hotseat_seats(p.config()) == [0, 2, 3], "真人席位下标 = [0, 2, 3]")
+	check(p._value_text(CWConfigPanel.ROW_PLAYERS) == "4 人（3 真人 · 1 AI）", "人数行同步")
+	## 人数拨到 6：席位表 6 行，「进入棋盘」不动；自定义 + 热座：癌种行仍在左栏
+	p._sel = CWConfigPanel.ROW_PLAYERS
+	p.handle_input(press_action("ui_right"))                ## 4 → 6
+	check(p._n_rows() == CWConfigPanel.N_ROWS + 6 and p._btn.position.y == CWConfigPanel.BTN_Y, "六人局：6 个席位行，按钮位置不变")
+	check(p._seat_bars[5].visible and p._seat_bars[5].color == CWStyle.CANCER and p._seat_bars[0].color == CWStyle.IMMUNE, "六条阵营色竖条按席位阵营着色")
+	p.custom = true
+	p._repaint()
+	check(p._n_rows() == CWConfigPanel.N_ROWS + 6 + 3 and p._name_labels[CWConfigPanel.N_ROWS + 6].text == "癌症A 种类" \
+		and p._name_labels[CWConfigPanel.N_ROWS + 6].position.x == CWConfigPanel.SLOT_X, "自定义 + 热座：4 + 6 席 + 3 癌种，癌种行在左栏")
+	p.custom = false
+	## 拨回免疫：席位表淡出、cfg.seats 为空；取值局间保留（癌症A 仍是 AI）
+	p._sel = CWConfigPanel.ROW_FACTION
+	p.handle_input(press_action("ui_right"))                ## 本地多人 → 免疫
+	check(p.config()["faction"] == CWData.Faction.IMMUNE and p.config()["seats"].is_empty() and p._n_rows() == CWConfigPanel.N_ROWS, "拨回免疫：cfg.seats 为空、席位行收起")
+	await create_timer(CWConfigPanel.SHEET_FADE + 0.15).timeout
+	check(not p._sheet.visible, "席位表淡出后隐藏")
+	check(p._seats[1] == false, "席位取值局间保留")
+	root.remove_child(p)
+	p.free()
+
+	## ② 换手遮罩单体：开演 / Esc 无效 / Enter 确认 / hide_now 放行
+	var h := CWHandoff.new()
+	root.add_child(h)
+	await process_frame
+	check(not h.visible and not h.active, "起手隐藏")
+	var done := [0]
+	var run := func() -> void:
+		await h.pass_to(1, CWData.Faction.CANCER, "癌症A", Vector2i(2, 0))
+		done[0] += 1
+	run.call()
+	await process_frame
+	check(h.visible and h.active and h._name.text == "癌症A" and h.faction_color == CWStyle.CANCER \
+		and h.cell_pos == Vector2i(2, 0) and h._bar.color == CWStyle.CANCER, "开演：可见、活动中、席位名与阵营色对上")
+	check(h.pulse() >= 0.0 and h.pulse() <= 1.0, "脚下光环的呼吸值在 0~1")
+	h._unhandled_input(press_action("ui_cancel"))
+	check(h.active and done[0] == 0, "Esc 无效：隐私不是演出，不能跳过")
+	h._unhandled_input(press_action("ui_accept"))
+	await process_frame
+	check(done[0] == 1 and not h.active, "Enter 确认：pass_to 返回、不再活动")
+	await create_timer(CWHandoff.T_SCRIM + 0.15).timeout
+	check(not h.visible, "出场动画完隐藏")
+	run.call()
+	await process_frame
+	h.hide_now()
+	await process_frame
+	check(done[0] == 2 and not h.visible and not h.active, "hide_now 放掉等待并直接隐藏（拆局用）")
+	root.remove_child(h)
+	h.free()
+
+	## ③ 判定是纯函数
+	check(CWUIBridge.needs_handoff(true, -1, 0) and CWUIBridge.needs_handoff(true, 0, 1) \
+		and not CWUIBridge.needs_handoff(true, 1, 1) and not CWUIBridge.needs_handoff(false, -1, 0),
+		"换手判定：热座且换了人才弹（第一问也弹）；同一人连续询问、单人局不弹")
+
+	## ④ 日志面板按视角过滤
+	var g := bare_game()
+	g.log_msg("免疫A 抽到【X】", 0, "免疫A 抽了一张牌")
+	g.log_msg("公开一行")
+	var lp := CWLogPanel.new()
+	root.add_child(lp)
+	await process_frame
+	lp.filter = true
+	lp.viewer = 1
+	check(lp.line_text(g, 0) == "免疫A 抽了一张牌" and lp.line_text(g, 1) == "公开一行", "视角 = 癌症A：免疫A 的牌名换成公开替身，公开行照常")
+	lp.viewer = 0
+	check(lp.line_text(g, 0) == "免疫A 抽到【X】", "视角 = 免疫A：自己的牌名照常")
+	lp.viewer = -1
+	check(lp.line_text(g, 0) == "免疫A 抽了一张牌", "换手期间（无人视角）：秘密行全换")
+	lp.filter = false
+	check(lp.line_text(g, 0) == "免疫A 抽到【X】", "不过滤（单人局）：行为不变")
+	## 视角一变，折好的行要重折
+	lp.visible = true
+	lp.filter = true
+	lp.viewer = 1
+	lp.refresh(g)
+	var joined := "".join(lp._rows)
+	check("抽了一张牌" in joined and not ("【X】" in joined), "面板行按视角折出")
+	lp.viewer = 0
+	lp.refresh(g)
+	check("【X】" in "".join(lp._rows), "视角切换后整卷重折")
+	g.dispose()
+	root.remove_child(lp)
+	lp.free()
+
+	## ⑤ 接线：两位真人开局 → 第一问先弹遮罩、无人露牌；确认后免疫A 露牌；拆局（含遮罩期间）无残留
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	m.human_players = [0, 1]
+	CWSettings.ai_delay_ms = 0
+	m.start()
+	await process_frame
+	await process_frame
+	check(m.bridge.hotseat and m._handoff.active and m.bridge.current_human == -1, "两位真人：第一问先弹换手遮罩，此刻无人露牌")
+	check(m._handoff._name.text == "免疫A" and m._handoff.faction_color == CWStyle.IMMUNE, "遮罩写的是先手的席位名与阵营色")
+	check(m._log_panel.filter and m._log_panel.viewer == -1, "日志面板处于无人视角")
+	m._handoff.confirm()
+	await process_frame
+	check(m.bridge.current_human == 0 and not m._handoff.active, "确认后：免疫A 成为露牌者、遮罩收起")
+	check(m._log_panel.viewer == 0, "日志面板切到免疫A 的视角")
+	m.teardown()
+	await process_frame
+	check(not m._handoff.active and not m._handoff.visible and m.bridge == null, "拆局：遮罩收掉")
+	m.human_players = [0, 1]
+	m.start()
+	await process_frame
+	await process_frame
+	check(m._handoff.active, "第二局又先弹遮罩")
+	m.teardown()
+	await process_frame
+	check(not m._handoff.active and not m._handoff.visible, "遮罩期间拆局：无残留")
+	## 单人局不受影响：不弹遮罩，露牌者就是那一席
+	m.human_players = [0]
+	m.start()
+	await process_frame
+	await process_frame
+	check(not m.bridge.hotseat and not m._handoff.active and not m._log_panel.filter, "单人局：不是热座，遮罩与日志过滤都不介入")
+	m.teardown()
+	await process_frame
+	CWSettings.ai_delay_ms = 220
+	root.remove_child(main_scene)
+	main_scene.free()
+
+
 # ---- 传送演出：状态差分判传送、残影/真身各自的材质与时序、拆局清干净、开关（规格 docs/动画规格_传送.md） ----
 func t_teleport_fx() -> void:
 	print("[传送演出]")

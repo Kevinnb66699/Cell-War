@@ -141,6 +141,7 @@ var _teleport_fx := CWTeleportFx.new()
 var _last_pos: Array[Vector2i] = []   ## 上一帧位置，下标 = cell id；两格不相邻 = 传送
 var _log_panel: CWLogPanel   ## 对局日志面板（L 键开关），同样程序化补进
 var _log_hint: CWLogHint     ## 左上角「对局日志 L」入口提示（定案A），显隐跟着面板走
+var _handoff: CWHandoff      ## 热座换手遮罩（UI 层，压在暂停菜单下面）；桥在换人时 await 它
 
 
 func _ready() -> void:
@@ -183,6 +184,11 @@ func _ready() -> void:
 		net_hud = CWNetHud.new()
 		ui.add_child(net_hud)
 		ui.move_child(net_hud, _tile_info.get_index())
+		## 热座换手遮罩：盖住手牌 / 行动栏 / 详情框，只让暂停菜单压在它上面
+		_handoff = CWHandoff.new()
+		ui.add_child(_handoff)
+		if pause_menu != null:
+			ui.move_child(_handoff, pause_menu.get_index())
 		ui.visible = false
 	if autostart:
 		CWView.apply(camera, board, CWView.GAME_ZOOM, CWView.GAME_LOOK_AT, CWView.GAME_ANCHOR)
@@ -258,6 +264,8 @@ func _prepare_ui() -> void:
 		board.cancel_fade()
 	if _cells_root != null:
 		_cells_root.modulate.a = 1.0     ## 上一局淡出留下的，开新局要还原
+	if hand != null:
+		hand.visible = true              ## 热座换手期间会收起，开新局要还原
 	if ui != null:
 		ui.visible = true
 		for c in ui.get_children():
@@ -291,6 +299,8 @@ func _wire_bridge(smart: bool) -> void:
 	bridge.camera = camera
 	bridge.erosion = _erosion_fx
 	bridge.hand = hand   ## 方案甲：打出/弃置手势从手牌抽屉来
+	bridge.handoff = _handoff
+	bridge.hotseat = human_players.size() >= 2   ## 热座 = 一台电脑坐了两位以上真人
 	bridge.human_pids = human_players
 	bridge.enabled = smart       ## 「较强」= 蒙特卡洛推演（桥的基类），默认启发式
 	## 真人档要有可预测的响应上限；预算按模拟 step 计，不受本机快慢影响。
@@ -471,6 +481,8 @@ func teardown() -> void:
 		game = null
 	bridge = null
 	_opening = false
+	if _handoff != null:
+		_handoff.hide_now()
 	_teleport_fx.clear_all()   ## 先杀补间再删节点：残影/真身的补间不能活过拆局
 	for node in _cell_nodes:
 		node.queue_free()
@@ -554,6 +566,10 @@ func _process(delta: float) -> void:
 		var info_faction: int = game.player(_hand_pid)["faction"] if _hand_pid >= 0 			else CWData.Faction.IMMUNE
 		_card_info.sync(delta, info_faction, _opening or _fading)
 	if _log_panel != null:
+		## 热座：日志按「当前露牌的真人」视角过滤，换手期间（-1）所有秘密行都是公开替身；单人局不过滤
+		var hs := bridge is CWUIBridge and (bridge as CWUIBridge).hotseat
+		_log_panel.filter = hs
+		_log_panel.viewer = (bridge as CWUIBridge).current_human if hs else -1
 		_log_panel.refresh(game)
 	if _log_hint != null and _log_panel != null:
 		_log_hint.visible = not _log_panel.visible   ## 面板开着就让位（同一个角）
@@ -577,6 +593,9 @@ func _sync_tiles() -> void:
 			marks[c] = MARK_SOLID
 	for c: Vector2i in _flash:
 		marks[c] = Color(1, 1, 1, _flash[c] / FLASH_TIME * FLASH_ALPHA)
+	## 热座换手中：该玩家细胞脚下一圈阵营色光环呼吸，告诉 TA 自己在哪（开局还没落子时没有）
+	if _handoff != null and _handoff.active and _handoff.cell_pos != CWHandoff.INVALID:
+		marks[_handoff.cell_pos] = Color(_handoff.faction_color, 0.18 + 0.32 * _handoff.pulse())
 	## 交互高亮压过状态色标：正在选目标时，「这格能不能选」比「它是不是固化」重要。
 	if bridge != null:
 		marks.merge(bridge.marks, true)
@@ -671,7 +690,29 @@ func _play_teleports(jumps: Array) -> void:
 func _sync_hand() -> void:
 	if hand == null or human_players.is_empty():
 		return
-	if game.current_pid in human_players:
+	if bridge is CWUIBridge and (bridge as CWUIBridge).hotseat:
+		## 热座：抽屉跟「当前露牌的真人」（遮罩确认过的那一席），不跟「当前回合席位」——
+		## A 结束回合到 B 点「开始回合」之间谁也不该看见 B 的牌。换手期间整个收起，
+		## 确认后 B 的牌从 B 的细胞飞进抽屉（复用抽卡动画），行动栏随即出现。
+		var who: int = (bridge as CWUIBridge).current_human
+		if who < 0:
+			if _hand_pid >= 0:
+				hand.clear()
+				hand.visible = false
+				_hand_pid = -1
+				_hand_seen.clear()
+			return
+		if who >= game.cells.size():
+			return                   ## 开局布置阶段，这个人还没落子
+		if _hand_pid != who:
+			_hand_pid = who
+			hand.visible = true
+			var c0: Dictionary = game.cell_of(who)
+			var cards0: PackedStringArray = PackedStringArray(c0["hand"])
+			_hand_seen[who] = cards0.size()
+			hand.deal_from(cards0.size(), CWView.board_to_screen(camera, board.tile_center(c0["pos"])), cards0)
+			return
+	elif game.current_pid in human_players:
 		_hand_pid = game.current_pid
 	elif _hand_pid < 0:
 		_hand_pid = human_players[0]

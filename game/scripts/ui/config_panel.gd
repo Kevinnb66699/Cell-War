@@ -15,6 +15,12 @@
 ## 四行之后多出「癌症A/B/C 种类」几行（随人数 1 / 2 / 3 行），每行在「随机」与四种癌之间拨、
 ## 不同席位不许选同一种；cfg 多一项 `cancer_types`（按癌席顺序，-1 = 随机）→ CWTuning.cancer_types。
 ## 七行 + 按钮放不进 42 的行距，自定义模式行距压到 32、按钮贴在最后一行下方；普通模式一个像素不动。
+##
+## **本地多人 / 热座**（2026-09-05 Kevin）：「我的阵营」第四档「本地多人」。拨到它，右侧 0.2s 淡入一张**席位表**
+## （随人数 2 / 4 / 6 出 2 / 4 / 6 行，每席在「真人 / AI」之间拨），cfg 多一项 `seats`（按席位顺序的 bool），
+## main.gd 用 hotseat_seats() 把为真人的下标交给 CWMatch.human_players。席位表放右侧而不是左栏往下加行：
+## 自定义对局左栏已有 7 行，再加 6 席放不下 540 高；右侧 6 行 × 42 从 251 起正好落在 503。
+## 键盘焦点顺序：左栏四行 → 席位 → 自定义癌种行 → 进入棋盘。菱形标在席位行退到 -33，让 48px 光晕整个落在表内。
 class_name CWConfigPanel
 extends Control
 
@@ -50,11 +56,24 @@ const ROW_SMART := 2
 const ROW_SEED := 3
 const N_ROWS := 4
 const PLAYER_STEPS := [2, 4, 6]
-const FACTION_STEPS := [CWData.Faction.IMMUNE, CWData.Faction.CANCER, -1]
+const HOTSEAT := -2          ## 「我的阵营」第四档：本地多人（热座），席位在右侧席位表里逐席拨
+const FACTION_STEPS := [CWData.Faction.IMMUNE, CWData.Faction.CANCER, -1, HOTSEAT]
 ## 自定义对局：癌种行（最多 3 行 = 6 人局的三个癌席）。行距 32 才放得下 7 行 + 按钮（251 + 7×32 + 18 = 493，按钮底 531 < 540）
 const ROW_H_CUSTOM := 32.0
 const BTN_GAP := 18.0
 const CANCER_ROW_MAX := 3
+## 席位表（本地多人）：右侧一张 340×346 的板，眉题 / 标题 / 分隔线与左栏同一套纵坐标，行距固定 42（不随自定义模式压缩）
+const SEAT_ROW_MAX := 6
+const SHEET_X := 560.0
+const SHEET_Y := 110.0
+const SHEET_W := 340.0
+const SHEET_H := 346.0
+const SEAT_BAR_X := 616.0        ## 阵营色竖条 / 眉题 / 标题的左缘
+const SEAT_NAME_X := 630.0       ## 席位名
+const SEAT_VALUE_X := 760.0      ## 真人 / AI
+const SEAT_ARROW_R_X := 866.0    ## 右拨值箭头（固定位，同 ARROW_R_X 的理由）
+const SEAT_MARKER_DX := -33.0    ## 菱形标离席位名的距离：光晕半径 24，中心 597 → 573 仍在 560 之内
+const SHEET_FADE := 0.2          ## 席位表淡入淡出 = CWOnlinePanel.PAGE_FADE
 const CANCER_STEPS := [-1, CWData.CancerType.MELANOMA, CWData.CancerType.SIGNET,
 	CWData.CancerType.OSTEO, CWData.CancerType.SCLC]
 
@@ -65,6 +84,11 @@ var _seed := 0
 ## 自定义对局开关：主菜单在 open() 之前拨；普通对局 false（癌种行全部收起、按钮在 438）
 var custom := false
 var _ctypes: Array = [-1, -1, -1]   ## 癌症A/B/C 的钉死癌种（-1 = 随机），局间保留
+var _seats: Array[bool] = [true, true, true, true, true, true]   ## 本地多人：每席是真人吗（默认全真人），局间保留
+var _sheet: Control          ## 席位表（板 + 眉题 + 标题 + 色条 + 提示），随「本地多人」淡入淡出
+var _seat_bars: Array[ColorRect] = []
+var _seat_alpha := 0.0       ## 席位表当前透明度；席位行的字跟它一起淡
+var _sheet_tween: Tween
 var _eyebrow: Label
 var _title: Label
 var _hits: Array[Control] = []
@@ -102,6 +126,7 @@ func open() -> void:
 	visible = true
 	modulate.a = 0.0
 	create_tween().tween_property(self, "modulate:a", 1.0, FADE_IN)
+	_sync_sheet(true)
 	_repaint()
 
 
@@ -135,7 +160,8 @@ func handle_input(event: InputEvent) -> void:
 
 func config() -> Dictionary:
 	return { "players": _players, "faction": _faction, "smart": _smart, "seed": _seed,
-		"cancer_types": _ctypes.slice(0, _n_cancer()) if custom else [] }
+		"cancer_types": _ctypes.slice(0, _n_cancer()) if custom else [],
+		"seats": _seats.slice(0, _players) if _faction == HOTSEAT else [] }
 
 
 ## 自定义模式下的几何：癌席数 = 人数一半；行数 = 4 + 癌席数；行距 32；按钮贴最后一行下方
@@ -144,20 +170,69 @@ func _n_cancer() -> int:
 	return _players / 2
 
 
+func _n_seats() -> int:
+	return _players if _faction == HOTSEAT else 0
+
+
+## 可见行 = 左栏四行 + 席位行（本地多人）+ 癌种行（自定义），下标连续；按钮下标 = _n_rows()
 func _n_rows() -> int:
-	return N_ROWS + (_n_cancer() if custom else 0)
+	return N_ROWS + _n_seats() + (_n_cancer() if custom else 0)
+
+
+## 第 i 个可见行是什么：[kind, k]。kind 0 = 左栏四行（k = 行号）、1 = 席位表第 k 席、2 = 自定义癌种第 k 行
+func _row_kind(i: int) -> Array:
+	if i < N_ROWS:
+		return [0, i]
+	if i < N_ROWS + _n_seats():
+		return [1, i - N_ROWS]
+	return [2, i - N_ROWS - _n_seats()]
 
 
 func _row_h() -> float:
 	return ROW_H_CUSTOM if custom else ROW_H
 
 
+## 行名（标签）的位置。席位行在右侧席位表里、行距固定 42；癌种行接在左栏四行之下
+func _row_pos(i: int) -> Vector2:
+	var rk := _row_kind(i)
+	match int(rk[0]):
+		1:
+			return Vector2(SEAT_NAME_X, ROW_Y0 + int(rk[1]) * ROW_H)
+		2:
+			return Vector2(SLOT_X, ROW_Y0 + (N_ROWS + int(rk[1])) * _row_h())
+	return Vector2(SLOT_X, ROW_Y0 + i * _row_h())
+
+
 func _row_y(i: int) -> float:
-	return ROW_Y0 + i * _row_h()
+	return _row_pos(i).y
 
 
+func _value_x(i: int) -> float:
+	return SEAT_VALUE_X if int(_row_kind(i)[0]) == 1 else VALUE_X
+
+
+func _arrow_r_x(i: int) -> float:
+	return SEAT_ARROW_R_X if int(_row_kind(i)[0]) == 1 else ARROW_R_X
+
+
+## 菱形标离行名的横向距离：席位行退得更远（-33），让 48px 的光晕整个落在席位表里（Kevin 2026-09-05 看示意图提的）
+func _marker_dx(i: int) -> float:
+	return SEAT_MARKER_DX if int(_row_kind(i)[0]) == 1 else -18.0
+
+
+func _row_name(i: int) -> String:
+	var rk := _row_kind(i)
+	match int(rk[0]):
+		1:
+			return seat_name(_players, int(rk[1]))
+		2:
+			return "癌症%s 种类" % char(65 + int(rk[1]))
+	return ROW_NAMES[i]
+
+
+## 按钮只跟左栏走：席位表在右侧，不影响它
 func _btn_y() -> float:
-	return ROW_Y0 + _n_rows() * ROW_H_CUSTOM + BTN_GAP if custom else BTN_Y
+	return ROW_Y0 + (N_ROWS + _n_cancer()) * ROW_H_CUSTOM + BTN_GAP if custom else BTN_Y
 
 
 ## 某个癌种是否已被**另一席**（只算当前人数下露出来的席位）选走
@@ -180,10 +255,38 @@ static func human_seat(n_players: int, faction: int) -> int:
 	return -1
 
 
+## 席位名，与引擎 CWGame.init 给 players[].name 的规则同一套（免疫A / 癌症A / 免疫B …）：
+## 开局前还没有 game，面板只能自己按行动顺序数字母。static 供无头测试直接核对
+static func seat_name(n_players: int, k: int) -> String:
+	var order: Array = CWData.FACTION_ORDER[n_players]
+	var f: int = order[k]
+	var seq := 0
+	for j in k:
+		if order[j] == f:
+			seq += 1
+	return ("免疫" if f == CWData.Faction.IMMUNE else "癌症") + char(65 + seq)
+
+
+## 本地多人：cfg.seats 里为真人的席位下标 → CWMatch.human_players（全 AI 就是一局可看的 AI 互搏）
+static func hotseat_seats(cfg: Dictionary) -> Array[int]:
+	var out: Array[int] = []
+	var seats: Array = cfg.get("seats", [])
+	for i in seats.size():
+		if seats[i]:
+			out.append(i)
+	return out
+
+
 func _cycle(row: int, dir: int) -> void:
 	if row >= N_ROWS and row < _n_rows():
+		var rk := _row_kind(row)
+		if int(rk[0]) == 1:
+			## 席位行：真人 ↔ AI 两档，往哪边拨都是翻一下
+			_seats[int(rk[1])] = not _seats[int(rk[1])]
+			_repaint()
+			return
 		## 癌种行：在「随机」与四种癌之间拨；别的席位已选走的种类跳过（同局不重复，说明 #12）
-		var k := row - N_ROWS
+		var k := int(rk[1])
 		var i := CANCER_STEPS.find(_ctypes[k])
 		for _step in CANCER_STEPS.size():
 			i = (i + dir + CANCER_STEPS.size()) % CANCER_STEPS.size()
@@ -200,6 +303,7 @@ func _cycle(row: int, dir: int) -> void:
 		ROW_FACTION:
 			var i := FACTION_STEPS.find(_faction)
 			_faction = FACTION_STEPS[(i + dir + FACTION_STEPS.size()) % FACTION_STEPS.size()]
+			_sync_sheet(false)   ## 拨进 / 拨出「本地多人」：席位表淡入淡出
 		ROW_SMART:
 			_smart = not _smart
 		ROW_SEED:
@@ -237,6 +341,7 @@ func _build() -> void:
 	scrim.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(scrim)
+	_build_sheet()   ## 席位表的板要压在行文字底下，所以先建
 
 	## 眉题 SETUP：和主菜单 IMMUNE VS CANCER 同一套（px20 变体 + 青色）
 	_eyebrow = CWStyle.label("SETUP", CWStyle.SIZE_BODY, CWStyle.IMMUNE)
@@ -271,10 +376,69 @@ func _build() -> void:
 		g.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		_glow.add_child(g)
 
-	## 四行基础 + 三行癌种一次建齐；露几行、摆在哪由 _repaint 按模式定
-	for i in N_ROWS + CANCER_ROW_MAX:
+	## 四行基础 + 六行席位 + 三行癌种一次建齐；露几行、摆在哪、叫什么由 _repaint 按模式定
+	for i in N_ROWS + SEAT_ROW_MAX + CANCER_ROW_MAX:
 		_build_row(i)
 	_build_button()
+
+
+## 席位表：右侧一张板 + 眉题 SEATS + 标题「席位」+ 分隔线 + 六条阵营色竖条 + 键位提示。
+## 席位行本身（名字 / 值 / 箭头 / 命中区）是和左栏共用的行槽，由 _repaint 摆到板上；这里只建不动的部分。
+func _build_sheet() -> void:
+	_sheet = Control.new()
+	_sheet.visible = false
+	_sheet.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_sheet)
+	var plate := Panel.new()
+	var box := CWStyle.box(0.42, Color(CWStyle.PANEL, 0.92))
+	box.set_corner_radius_all(6)
+	plate.add_theme_stylebox_override("panel", box)
+	plate.position = Vector2(SHEET_X, SHEET_Y)
+	plate.size = Vector2(SHEET_W, SHEET_H)
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sheet.add_child(plate)
+	var eyebrow := CWStyle.label("SEATS", CWStyle.SIZE_BODY, CWStyle.IMMUNE)
+	eyebrow.add_theme_font_override("font", _px20())
+	eyebrow.position = Vector2(SEAT_BAR_X, 127)
+	_sheet.add_child(eyebrow)
+	var title := CWStyle.label("席位", CWStyle.SIZE_BIG, CWStyle.TEXT_HI)
+	title.position = Vector2(SEAT_BAR_X, 160)
+	_sheet.add_child(title)
+	var rule := ColorRect.new()
+	rule.position = Vector2(SEAT_BAR_X, 230)
+	rule.size = Vector2(SHEET_X + SHEET_W - 20 - SEAT_BAR_X, 1)
+	rule.color = Color(CWStyle.LINE, 0.42)
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sheet.add_child(rule)
+	for k in SEAT_ROW_MAX:
+		var bar := ColorRect.new()
+		bar.position = Vector2(SEAT_BAR_X, ROW_Y0 + k * ROW_H + 2)
+		bar.size = Vector2(3, 22)
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_sheet.add_child(bar)
+		_seat_bars.append(bar)
+	var hint := CWStyle.label("上下键在左栏与席位之间移动 · 左右键拨 真人 / AI", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	hint.position = Vector2(SEAT_BAR_X, SHEET_Y + SHEET_H - 26)
+	_sheet.add_child(hint)
+
+
+## 席位表随「本地多人」出没：0.2s 淡入淡出（联机面板切页的节拍）。instant = 打开面板时直接到位。
+## 席位行的字跟 _seat_alpha 一起淡（_repaint 里套 modulate），所以淡入是整张一起亮起来，不是板先字后。
+func _sync_sheet(instant: bool) -> void:
+	var want := _faction == HOTSEAT
+	if _sheet_tween != null and _sheet_tween.is_valid():
+		_sheet_tween.kill()
+	if instant:
+		_seat_alpha = 1.0 if want else 0.0
+		_sheet.visible = want
+		return
+	_sheet.visible = true
+	_sheet_tween = create_tween()
+	_sheet_tween.tween_method(func(a: float) -> void:
+		_seat_alpha = a
+		_repaint(), _seat_alpha, 1.0 if want else 0.0, SHEET_FADE)
+	if not want:
+		_sheet_tween.tween_callback(func() -> void: _sheet.visible = false)
 
 
 ## 菱形焦点标 + 径向光晕：参数照抄 MainMenu.tscn 的 Marker（同一颗才像一家人）。
@@ -320,7 +484,7 @@ func _build_row(i: int) -> void:
 	add_child(hit)
 	_hits.append(hit)
 
-	var row_name: String = ROW_NAMES[i] if i < N_ROWS else "癌症%s 种类" % char(65 + i - N_ROWS)
+	var row_name := ""   ## 这一槽此刻是哪一行由模式决定，名字在 _repaint 里填（见 _row_name）
 	var name_label := CWStyle.label(row_name, CWStyle.SIZE_BODY, ROW_LABEL)
 	name_label.position = Vector2(SLOT_X, y)
 	add_child(name_label)
@@ -418,14 +582,29 @@ func _px20() -> FontVariation:
 # ============ 呈现 ============
 
 func _value_text(i: int) -> String:
+	var rk := _row_kind(i)
+	match int(rk[0]):
+		1:
+			return "真人" if _seats[int(rk[1])] else "AI"
+		2:
+			var t: int = _ctypes[int(rk[1])]
+			return "随机" if t < 0 else CWData.CANCER_TYPE_NAMES[t]
 	match i:
 		ROW_PLAYERS:
+			if _faction == HOTSEAT:
+				var humans := 0
+				for k in _players:
+					if _seats[k]:
+						humans += 1
+				return "%d 人（%d 真人 · %d AI）" % [_players, humans, _players - humans]
 			if _faction < 0:
 				return "%d 人（AI × %d）" % [_players, _players]
 			@warning_ignore("integer_division")
 			var half := _players / 2
 			return "%d 人（%d 免疫 · %d 癌症）" % [_players, half, half]
 		ROW_FACTION:
+			if _faction == HOTSEAT:
+				return "本地多人"
 			if _faction < 0:
 				return "观战"
 			return "免疫细胞" if _faction == CWData.Faction.IMMUNE else "癌细胞"
@@ -433,51 +612,70 @@ func _value_text(i: int) -> String:
 			return "较强" if _smart else "普通"
 		ROW_SEED:
 			return str(_seed)
-	if i >= N_ROWS and i - N_ROWS < CANCER_ROW_MAX:
-		var t: int = _ctypes[i - N_ROWS]
-		return "随机" if t < 0 else CWData.CANCER_TYPE_NAMES[t]
 	return ""
 
 
 func _repaint() -> void:
 	var n := _n_rows()
-	_sel = mini(_sel, n)   ## 人数拨少了，焦点可能停在已收起的癌种行上
+	_sel = mini(_sel, n)   ## 人数拨少了 / 拨出本地多人，焦点可能停在已收起的行上
 	for i in _name_labels.size():
 		var shown := i < n
 		var on := shown and i == _sel
-		var y := _row_y(i)
-		_name_labels[i].visible = shown
-		_name_labels[i].position = Vector2(SLOT_X, y)
-		_name_labels[i].add_theme_color_override("font_color",
+		var seat_row := shown and int(_row_kind(i)[0]) == 1
+		var pos := _row_pos(i)
+		var a := _seat_alpha if seat_row else 1.0   ## 席位行跟席位表一起淡
+		var name_label: Label = _name_labels[i]
+		name_label.visible = shown
+		name_label.position = pos
+		name_label.text = _row_name(i) if shown else ""
+		name_label.modulate.a = a
+		name_label.add_theme_color_override("font_color",
 			Color.WHITE if on else ROW_LABEL)
 		_hits[i].visible = shown
-		_hits[i].position = Vector2(SLOT_X - 30, y - 8)
-		_hits[i].size = Vector2(420, _row_h() - 4)
+		if seat_row:
+			_hits[i].position = Vector2(SHEET_X + 8, pos.y - 8)
+			_hits[i].size = Vector2(SHEET_W - 16, ROW_H - 4)
+		else:
+			_hits[i].position = Vector2(SLOT_X - 30, pos.y - 8)
+			_hits[i].size = Vector2(420, _row_h() - 4)
 		var value: Label = _value_labels[i]
 		value.visible = shown
-		value.position = Vector2(VALUE_X, y)
-		value.text = _value_text(i)
+		value.position = Vector2(_value_x(i), pos.y)
+		value.text = _value_text(i) if shown else ""
+		value.modulate.a = a
 		value.add_theme_color_override("font_color",
 			Color.WHITE if on else CWStyle.TEXT_HI)
-		## 拨值箭头只在焦点行亮出来；位置固定不随字宽跑（见 ARROW_R_X）。
+		## 拨值箭头只在焦点行亮出来；位置固定不随字宽跑（见 ARROW_R_X / SEAT_ARROW_R_X）。
 		## 被悬停的那枚转白发光——和菜单项同一套「字亮起来」的语言
-		for arrow: Label in _arrows[i]:
-			arrow.position.y = y
+		var arrows: Array = _arrows[i]
+		(arrows[0] as Label).position = Vector2(_value_x(i) - 22, pos.y)
+		(arrows[1] as Label).position = Vector2(_arrow_r_x(i), pos.y)
+		for arrow: Label in arrows:
 			arrow.visible = on
+			arrow.modulate.a = a
 			var hovering := arrow == _hot_arrow
 			arrow.add_theme_color_override("font_color",
 				Color.WHITE if hovering else CWStyle.IMMUNE)
 			arrow.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
 			arrow.add_theme_constant_override("outline_size", 8 if hovering else 0)
+	## 席位色条：露几席画几条，颜色按该席阵营（和右栏玩家列表的色条同一语言）
+	for k in _seat_bars.size():
+		var bar: ColorRect = _seat_bars[k]
+		bar.visible = k < _n_seats()
+		if bar.visible:
+			var order: Array = CWData.FACTION_ORDER[_players]
+			bar.color = CWStyle.IMMUNE if order[k] == CWData.Faction.IMMUNE else CWStyle.CANCER
+	_sheet.modulate.a = _seat_alpha
 	## 选中行标题的辉光跟焦点走（在按钮上时收起——按钮有自己的高亮语言）
 	_glow.visible = _sel < n
 	if _sel < n:
-		_glow.position = Vector2(SLOT_X, _row_y(_sel))
+		_glow.position = _row_pos(_sel)
 		for layer in _glow.get_children():
 			(layer as Label).text = _name_labels[_sel].text
-	## 菱形标跟着焦点走：行上贴行首，按钮上贴按钮左侧
+	## 菱形标跟着焦点走：行上贴行首（席位行退到 -33，光晕整个落在表内），按钮上贴按钮左侧
 	if _sel < n:
-		_marker.position = Vector2(SLOT_X - 18, _row_y(_sel) + 13)
+		var p := _row_pos(_sel)
+		_marker.position = Vector2(p.x + _marker_dx(_sel), p.y + 13)
 	else:
 		_marker.position = Vector2(SLOT_X - 18, _btn_y() + BTN_H / 2.0)
 	## 「进入棋盘」的变白按**最后动的设备**裁决（文件头的焦点权规则）：
