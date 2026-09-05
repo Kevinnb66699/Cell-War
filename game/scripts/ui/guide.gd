@@ -14,7 +14,8 @@
 class_name CWGuide
 extends Control
 
-const PANEL := Rect2(16, 48, 470, 178)
+## 高度 192：标题行 / 提示行 / 正文 / 按钮四段各留约 10px 空档，按钮字底到底边 18px（Kevin 2026-09-05 看真机截图提的两处）
+const PANEL := Rect2(16, 48, 470, 192)
 const PAD := 14
 
 ## 关卡分隔：当前步骤每跨进新一章，就把「引导完成到这一关」写进进度。
@@ -80,26 +81,26 @@ func _build() -> void:
 	add_child(_title)
 
 	_hint = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.CANCER)
-	_hint.position = Vector2(PAD, PAD + 20)
+	_hint.position = Vector2(PAD, PAD + 28)   ## 标题 20px 字的行框到 PAD+26，再留 2px，别贴着
 	_hint.size = Vector2(PANEL.size.x - PAD * 2, 14)
 	_hint.clip_text = true
 	_hint.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	add_child(_hint)
 
 	_content = Control.new()
-	_content.position = Vector2(PAD, PAD + 38)
-	_content.size = Vector2(PANEL.size.x - PAD * 2, PANEL.size.y - PAD - 38 - 38)
+	_content.position = Vector2(PAD, PAD + 48)
+	_content.size = Vector2(PANEL.size.x - PAD * 2, PANEL.size.y - PAD - 48 - 38)
 	_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_content)
 
-	_btn = _clicky("继续", Vector2(PANEL.size.x - PAD - 46, PANEL.size.y - 26), func() -> void: _advance())
+	_btn = _clicky("继续", Vector2(PANEL.size.x - PAD - 46, PANEL.size.y - 38), func() -> void: _advance())
 	add_child(_btn)
 
-	_skip = _clicky("跳过引导", Vector2(PAD, PANEL.size.y - 26), func() -> void: dismiss())
+	_skip = _clicky("跳过引导", Vector2(PAD, PANEL.size.y - 38), func() -> void: dismiss())
 	add_child(_skip)
 
 	## 「跳过引导」20px 字 4 个 = 80px 宽，起点 PAD；这里要留出 ≥ 16px 的空档，不然两串字连成一句
-	_codex_btn = _clicky("知识之书", Vector2(PAD + 110, PANEL.size.y - 26),
+	_codex_btn = _clicky("知识之书", Vector2(PAD + 110, PANEL.size.y - 38),
 		func() -> void: _open_codex())
 	add_child(_codex_btn)   ## 三个按钮都只在这里挂一次（接入时发现这一个漏挂了）
 

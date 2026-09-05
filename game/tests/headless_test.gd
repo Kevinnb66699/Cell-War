@@ -4739,6 +4739,13 @@ func t_tutorial() -> void:
 		and m._guide._btn.position.x - codex_r >= 16.0,
 		"「跳过引导」「知识之书」「继续」都挂在面板上且彼此至少隔 16px（%.0f / %.0f）"
 		% [m._guide._codex_btn.position.x - skip_r, m._guide._btn.position.x - codex_r])
+	## 竖向也不挤（Kevin 09-05 看截图提的）：提示行在标题 20px 行框（28px）之下，正文在提示行之下，按钮基线离底边够远
+	check(m._guide._hint.position.y >= m._guide._title.position.y + 28
+		and m._guide._content.position.y >= m._guide._hint.position.y + 18
+		and CWGuide.PANEL.size.y - (m._guide._btn.position.y + 22) >= 16.0,
+		"标题 / 提示行 / 正文 / 按钮四段上下留空：提示 %.0f、正文 %.0f、按钮基线到底边 %.0f"
+		% [m._guide._hint.position.y - m._guide._title.position.y, m._guide._content.position.y - m._guide._hint.position.y,
+			CWGuide.PANEL.size.y - (m._guide._btn.position.y + 22)])
 	check(m.pause_menu.codex_open.is_valid() and not m.pause_menu.codex_open.call(),
 		"暂停菜单拿到了「书开着吗」判据，此刻没开")
 	## 引导面板「知识之书」直达：第 4 关（下标 3）对应 CODEX_PAGE[3]
