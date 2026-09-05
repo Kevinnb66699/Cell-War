@@ -266,6 +266,10 @@ func _advance_turn() -> void:
 
 
 func _end_turn(pid: int, cell: Dictionary) -> void:
+	## 【E-无氧呼吸】2026-09-05 起在癌细胞自己的回合末结算（旋钮 anaerobic_on_turn_end）；
+	## 排在 end_turn 之前，让「结束回合（能量 X）」那行日志写的是进账后的数
+	if tune.anaerobic_on_turn_end and cell["faction"] == CWData.Faction.CANCER and cell["alive"]:
+		world.settle_anaerobic_turn(cell)
 	turn.end_turn(pid, cell)
 	_next_player()
 
@@ -520,12 +524,9 @@ func first_this_round(cell: Dictionary, key: String) -> bool:
 ## 达到 3.0 即转固化；【固化加速】生效时，从 2.0 以下涨到 ≥2.0 也立即转化
 ## （定案 W4——只认「涨过线」，事件触发时已 ≥2.0 的格不追溯）。
 func raise_solid(pos: Vector2i, amount: int) -> void:
-	## 【TNF-α局部炎症】冻住的癌组织本世界回合不能增加固化计数
-	## （冻结格记在全局条目的 data 里，left=1 随回合末自动解冻）
-	for e in events["active"]:
-		if e["name"] == "TNF-α局部炎症" and e["data"].has(pos):
-			log_msg("　【TNF-α局部炎症】%s 本世界回合无法增加固化计数" % str(pos))
-			return
+	if solid_frozen(pos):
+		log_msg("　【TNF-α局部炎症】%s 本世界回合无法增加固化计数" % str(pos))
+		return
 	var t: Dictionary = tile(pos)
 	var before: int = t["solid"]
 	t["solid"] = before + amount
@@ -536,6 +537,19 @@ func raise_solid(pos: Vector2i, amount: int) -> void:
 	CWTissue.to_solid(t)
 	log_msg("【固化】%s 转为固化癌组织%s" % [str(pos),
 		"（固化加速）" if t["solid"] < tune.solidify_threshold else ""])
+
+
+## 这一格本世界回合被【TNF-α局部炎症】冻住了吗（冻结格记在全局条目的 data 里，
+## left=1 随回合末自动解冻）。**纯查询，不改任何状态。**
+##
+## 抽成一份是因为它有两个读者：`raise_solid()` 结算时拦，
+## 卡【基质硬化】**选目标时**也要拦。少了后者就会出现团队 2026-09-05 报的那个形状 ——
+## 选项照给、卡照吃、计数不动，玩家只看见「用了没反应」。
+func solid_frozen(pos: Vector2i) -> bool:
+	for e in events["active"]:
+		if e["name"] == "TNF-α局部炎症" and e["data"].has(pos):
+			return true
+	return false
 
 
 ## 坏死格数。**坏死不是第四种组织** —— Tissue 只有 健康/癌/固化 三种，

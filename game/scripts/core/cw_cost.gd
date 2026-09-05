@@ -343,6 +343,17 @@ func _collect(ctx: Dictionary) -> Array:
 	## 树突【I-趋化源】：场上实体，不属于任何人的 mods / equipped，单独发一条
 	if not game.chemo.is_empty():
 		_emit(out, ctx, "趋化源", Store.NONE, 0)
+	## 印戒「黏液侵染」：免疫**踏进**黏液格迁移费 +0.5（团队 2026-09-05 定）。
+	## 数值来自旋钮 `mucus_move_surcharge`，而 TEMPLATES 是 const 表读不到旋钮，
+	## 所以照 _emit 的形状直接发一条。走 FLAT_ADD（④ 固定加费），免费豁免照 PRD 管线能免掉它。
+	if ctx["action"] == Action.MOVE and actor["faction"] == CWData.Faction.IMMUNE \
+			and game.tune.mucus_move_surcharge > 0 and game.tile(ctx["to"])["mucus"]:
+		out.append({
+			"name": "黏液侵染", "phase": Phase.FLAT_ADD, "value": game.tune.mucus_move_surcharge,
+			"pct": 0, "floor": 0, "source": Source.SKILL, "store": Store.NONE,
+			"consume": Consume.ON_BENEFIT, "priority": 0, "specificity": 0,
+			"applied_seq": 0, "stacks": 1,
+		})
 	return out
 
 

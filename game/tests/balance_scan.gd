@@ -20,7 +20,18 @@
 ##   ecap / efloor / acap / afloor   无氧／有氧呼吸的每细胞**每回合进账**的封顶与低保，十分能量
 ##   emax=150   细胞账面能量上限（口径 #92，管的是存量不是流量）。0 = 不封
 ##   tiles=32     初始癌组织格数。**不传则按人数取**（现值 4 人 15 / 6 人 24，PRD 是固定 15）
-##   amult=60     有氧呼吸系数（PRD 是 30 = 公式里的「×3」）
+##   amult=60     有氧呼吸系数（**旧盘面公式**用，只在 abase=0 时生效）
+##   abase=20 astep=5  现行有氧公式：每份 = 基数 + 等级下标 × astep，十分能量（对玩家的写法「(等级−1)×0.5+基数」）。
+##                     **不传则基数按人数取**（四人 2.0 / 六人 1.8，2026-09-05 方案 f）；传 abase=N 让所有人数统一成 N。
+##                     abase=0 关掉整条新公式，退回 amult 那套盘面式（09-04 前的对照档）
+##   asqrt=20     无氧呼吸系数 c：每块供能 = c × √(块内癌格子数)。0 = 退回线性求和
+##   difflv=1     【分化】解锁所需免疫等级下标（0/1/2/3 = I/II/III/X）
+##   asplit=1     有氧是否按免疫细胞数均分（默认 0 = 每人全额；09-05 上午曾默认 1，MC 扫完同日改回，1 留作对照档）
+##   asplitref=2  均分按几个免疫细胞的量标定：≤ref 每人全额、>ref 均分（默认 2；0 = 纯「÷ 人数」）
+##   eturn=0      无氧在各癌细胞回合末结算（默认 1）；0 = 回到 E 阶段一次算
+##   necro=0      坏死格上的免疫不拿有氧（默认 1）；0 = 坏死无效果
+##   mucusfee=5   免疫踏进黏液格的迁移加费，十分能量（默认 5 = 0.5；0 = 关）
+##   ocost=20 orounds=2  骨肉瘤【骨样硬化】费用 / 几回合后固化
 ##   cwin=100     癌方加权占地胜利门槛（现值 90 = 癌组织×1 + 固化×2；2026-09-01 定案乙之前是 85）。
 ##                注意固化在这条式子里**算 2 格**，所以「让固化更容易」会同时
 ##                加速癌方的占地胜利 —— 想拉长对局必须两个数一起动。
@@ -96,6 +107,16 @@ var ecancer := -1
 var amult := -1
 var abhalf := -1
 var asqrt := -1
+var abase := -1
+var astep := -1
+var difflv := -1
+var asplit := -1
+var eturn := -1
+var necro := -1
+var mucusfee := -1
+var ocost := -1
+var orounds := -1
+var asplitref := -1
 var epc := -1
 var cmh := -1
 var cmc := -1
@@ -158,6 +179,16 @@ func _parse() -> void:
 			"amult": amult = int(kv[1])
 			"abhalf": abhalf = int(kv[1])
 			"asqrt": asqrt = int(kv[1])
+			"abase": abase = int(kv[1])
+			"astep": astep = int(kv[1])
+			"difflv": difflv = int(kv[1])
+			"asplit": asplit = int(kv[1])
+			"eturn": eturn = int(kv[1])
+			"necro": necro = int(kv[1])
+			"mucusfee": mucusfee = int(kv[1])
+			"ocost": ocost = int(kv[1])
+			"orounds": orounds = int(kv[1])
+			"asplitref": asplitref = int(kv[1])
 			"epc": epc = int(kv[1])
 			"cmh": cmh = int(kv[1])
 			"cmc": cmc = int(kv[1])
@@ -217,6 +248,26 @@ func _tune() -> CWTuning:
 		t.antibody_halve = abhalf != 0
 	if asqrt >= 0:
 		t.anaerobic_sqrt_coef = asqrt
+	if abase >= 0:
+		t.aerobic_level_base = abase
+	if astep >= 0:
+		t.aerobic_level_step = astep
+	if difflv >= 0:
+		t.differentiate_min_level = difflv
+	if asplit >= 0:
+		t.aerobic_split = asplit != 0
+	if eturn >= 0:
+		t.anaerobic_on_turn_end = eturn != 0
+	if necro >= 0:
+		t.necrosis_no_aerobic = necro != 0
+	if mucusfee >= 0:
+		t.mucus_move_surcharge = mucusfee
+	if ocost >= 0:
+		t.osteo_ossify_cost = ocost
+	if orounds >= 0:
+		t.osteo_ossify_rounds = orounds
+	if asplitref >= 0:
+		t.aerobic_split_ref = asplitref
 	if epc >= 0:
 		t.anaerobic_per_cancer = epc
 	if agrow != -9999:
@@ -309,6 +360,16 @@ func _applied(t: CWTuning) -> String:
 			["tiles", t.init_cancer_tiles, d.init_cancer_tiles],
 			["amult", t.aerobic_mult, d.aerobic_mult],
 			["asqrt", t.anaerobic_sqrt_coef, d.anaerobic_sqrt_coef],
+			["abase", t.aerobic_level_base, d.aerobic_level_base],
+			["astep", t.aerobic_level_step, d.aerobic_level_step],
+			["difflv", t.differentiate_min_level, d.differentiate_min_level],
+			["asplit", int(t.aerobic_split), int(d.aerobic_split)],
+			["eturn", int(t.anaerobic_on_turn_end), int(d.anaerobic_on_turn_end)],
+			["necro", int(t.necrosis_no_aerobic), int(d.necrosis_no_aerobic)],
+			["mucusfee", t.mucus_move_surcharge, d.mucus_move_surcharge],
+			["ocost", t.osteo_ossify_cost, d.osteo_ossify_cost],
+			["orounds", t.osteo_ossify_rounds, d.osteo_ossify_rounds],
+			["asplitref", t.aerobic_split_ref, d.aerobic_split_ref],
 			["epc", t.anaerobic_per_cancer, d.anaerobic_per_cancer],
 			["abhalf", int(t.antibody_halve), int(d.antibody_halve)],
 			["agrow", t.aerobic_mult_growth, d.aerobic_mult_growth],
@@ -338,8 +399,6 @@ func _applied(t: CWTuning) -> String:
 			out.append("%s=%s" % [pair[0], str(pair[1])])
 	if t.solid_at_cancer_spawn != d.solid_at_cancer_spawn:
 		out.append("lesion=%s" % ("on" if t.solid_at_cancer_spawn else "off"))
-	if t.aerobic_split != d.aerobic_split:
-		out.append("tune=split")
 	if not t.cancer_types.is_empty():
 		var names: Array = []
 		for ct in t.cancer_types:

@@ -11,6 +11,9 @@ extends RefCounted
 const RULE_FIELDS := [
 	"anaerobic_per_cancer", "anaerobic_per_solid", "anaerobic_split", "aerobic_mult",
 	"aerobic_mult_growth", "aerobic_split", "anaerobic_floor", "anaerobic_cap",
+	"aerobic_level_base", "aerobic_level_step", "differentiate_min_level",
+	"anaerobic_on_turn_end", "necrosis_no_aerobic", "mucus_move_surcharge", "aerobic_split_ref",
+	"osteo_ossify_cost", "osteo_ossify_rounds",
 	"aerobic_floor", "aerobic_cap", "energy_cap", "cancer_upkeep_pct",
 	"init_energy_immune", "init_energy_cancer", "init_cancer_tiles", "immune_move_healthy",
 	"immune_move_cancerous", "cancer_move_cancerous", "cancer_move_healthy", "sclc_move_healthy",
@@ -60,7 +63,7 @@ var name := "规则原文"
 static func split_income() -> CWTuning:
 	var t := CWTuning.new()
 	t.name = "PRD + 免疫收入均分"
-	t.aerobic_split = true
+	t.aerobic_split = true   ## 2026-09-05 起这已是默认值；预设保留只为老脚本的 tune=split 还能跑
 	return t
 
 
@@ -70,7 +73,17 @@ var anaerobic_per_solid := CWData.ANAEROBIC_PER_SOLID        # 每固化癌组�
 ## 无氧呼吸是否按连通块内癌细胞数均分（关掉=每个癌细胞独享全额，大幅提升多细胞癌方收入）
 var anaerobic_split := true
 
-## 【S-有氧呼吸】公式里的乘数：每个免疫细胞得 (健康 - 坏死) ÷ 总格数 × 本值 ÷ 10。
+## 【S-有氧呼吸】**现行公式**：每个免疫细胞得 `aerobic_level_base + 抗原记忆等级 × aerobic_level_step`。
+## 单位十分能量，默认 25 + 等级 × 5 → 2.5 / 3.0 / 3.5 / 4.0（团队 2026-09-04 定案）。
+##
+## **-1 = 按人数取**（`CWData.aerobic_level_base`，四人 2.0 / 六人 1.8，2026-09-05 方案 f）；
+## `>0` = 所有人数统一成这个数（balance_scan 的 `abase=`，扫这张表本身的唯一办法）；
+## `0` = **整条新公式关闭**，退回下面 `aerobic_mult` 那套盘面公式 —— 09-04 之前的扫描数据靠它复现。
+var aerobic_level_base := -1
+var aerobic_level_step := CWData.AEROBIC_LEVEL_STEP
+
+## 【S-有氧呼吸】**旧公式**里的乘数：每个免疫细胞得 (健康 - 坏死) ÷ 总格数 × 本值 ÷ 10。
+## 只在 `aerobic_level_base <= 0` 时生效。
 var aerobic_mult := CWData.AEROBIC_MULT
 ## 【平衡候选①】有氧呼吸系数**随世界回合线性增长**：第 n 回合的系数
 ## = aerobic_mult + 本值 × (n - 1)，见 aerobic_mult_at()。单位十分能量。
@@ -78,14 +91,43 @@ var aerobic_mult := CWData.AEROBIC_MULT
 ## 团队 2026-09-01 提的四条平衡候选之一 —— 四条**刻意不并存**，各自独立扫。
 var aerobic_mult_growth := 0
 ## 有氧呼吸是否再按免疫细胞数均分。
-## **PRD 是不均分的**，所以默认 false；true 时两边阵营总收入都与人数无关
-## （《平衡测试报告》#29 的修法，见 split_income()）。
-var aerobic_split := false
+## **2026-09-05 团队定案改为 true**（此前 PRD 是不均分的）。
+## 理由：有氧每人全额、无氧按块内癌细胞数均分 → 四人→六人免疫阵营收入 +50%、癌方 +0%，
+## 这就是同一个 c 下四人局 45% / 六人局 16% 那 29 个点的来源（《平衡测试报告》#29 的老问题）。
+## 均分之后两边阵营总收入都与人数无关。`asplit=0` 扫回旧行为。
+var aerobic_split := false   ## 2026-09-05 方案 f：不均分，人数不对称改由按人数分档的基数补。asplit=1 扫回均分档
+## 均分按几个免疫细胞的量标定（见 CWData.AEROBIC_SPLIT_REF）：n ≤ ref 每人全额，n > ref 把 ref 份均分。
+## 0 = 纯「基数 ÷ 人数」。默认 2：2.5 是四人局每人的数，二人/四人局不变，只把六人局拉下来。
+var aerobic_split_ref := CWData.AEROBIC_SPLIT_REF
+
+## 【E-无氧呼吸】改在**各癌细胞自己的行动回合末**结算，而不是 E 阶段一次算（团队 2026-09-05 定）。
+## 队友指出的后手优势：E 阶段一次算时，先手动完之后后面的癌细胞可以挤进它的连通块，
+## 把「池 ÷ 块内癌细胞数」的分母抬上去，先手无法阻止；末手看得见全部信息。
+## 改成回合末各算各的，分母就是**你结束回合那一刻**块里有几个癌细胞。
+## 代价是分子换成了「你结束回合那一刻的盘面」（后手盘面更大）—— 两种不公平谁更重，
+## `eturn=0` 对照档可扫。见 CWWorld.settle_anaerobic_turn()。
+var anaerobic_on_turn_end := true
+
+## 「坏死」的新效果（2026-09-05）：**站在坏死组织上的免疫细胞该回合不获得【有氧呼吸】**。
+## 有氧改成挂抗原记忆之后与盘面脱钩，PRD 原文「坏死不为有氧供能」失效了；
+## 这是那条口径的**局部版**：不再拉低全场比例，只罚站在坏死格上的那一个。
+## 【细胞毒素】因此重新有了代价 —— 放完得离开自己造出来的坏死区。`necro=0` 关。
+var necrosis_no_aerobic := true
+
+## 印戒「黏液侵染」：免疫细胞踏进黏液格时迁移费 +本值（十分能量，团队 2026-09-05 定 0.5）。0 = 关。
+var mucus_move_surcharge := CWData.MUCUS_MOVE_SURCHARGE
+
+## 骨肉瘤【骨样硬化】（2026-09-05 重做为主动技能）：费用与「几个世界回合后转化」。
+var osteo_ossify_cost := CWData.OSTEO_OSSIFY_COST
+var osteo_ossify_rounds := CWData.OSTEO_OSSIFY_ROUNDS
 
 # ---- 收入低保与封顶（Kevin 2026-08-26 提出「低保」，封顶是配套的另一半）----
 ## 收入挂钩地盘会形成雪球：领先方地盘涨、收入涨，落后方地盘跌、收入跌，双向加速。
 ## 低保防止落后方直接崩盘，封顶防止领先方滚雪球——两个一起用才是稳定器。
 ## 单位十分能量，每细胞每回合；0 = 不启用。
+## 【分化】解锁所需的免疫等级下标（2 = III 级 = PRD 原值）；difflv=1 可扫「下调到 II 级」那一档。
+var differentiate_min_level := CWData.DIFFERENTIATE_MIN_LEVEL
+
 var anaerobic_floor := 0
 var anaerobic_cap := CWData.ANAEROBIC_CAP     ## 999.0 = 形同不封顶（口径 #92）
 var aerobic_floor := CWData.AEROBIC_FLOOR     ## 2.0（口径 #89）——别贴到 3.0，那是公式上界
@@ -252,14 +294,12 @@ var macro_heal_purify := CWData.MACRO_HEAL_PURIFY
 var antibody_max_per_round := CWData.ANTIBODY_MAX_PER_ROUND
 ## 【抗体】同一世界回合内每多放一次伤害减半（团队 2026-09-04 定，见 CWActions.antibody_damage）。
 ##
-## **默认关（2026-09-04 团队第二次决定）**：团队要先把引擎退回「昨天凌晨那套测试值」
-## 作为新方案的起点，所以递减先不进默认值 —— 机制留着，`abhalf=1` 打开。
-## ⚠ **PRD 正本此刻仍写着递减**，与这里的默认值不一致 —— 团队 09-04 指定的临时状态
-## （「仓库中的 PRD 换回老版，本地的暂时不动」）。仓库里那份 diff 抬头已标「已撤回」。
-var antibody_halve := false
-## 【无氧呼吸】改用 `系数 × √(等效癌组织数)` 而不是线性求和（Kevin 2026-09-02 提的候选）。
-## 单位十分能量，**0 = 关 = 现行线性规则**。见 CWWorld._anaerobic()。
-var anaerobic_sqrt_coef := 0
+## **团队 2026-09-04 定案保留**，默认开；`abhalf=0` 关掉可跑「每次都打满」的对照档。
+## PRD 正本与仓库这份 diff 都已同步到这一条上（09-04 那次「已撤回」的标注随之作废）。
+var antibody_halve := true
+## 【E-无氧呼吸】改用 `c × √(连通块癌格子数)` 取代线性求和（团队 2026-09-04 定案）。
+## 单位十分能量，**0 = 关 = 09-04 之前的线性规则**（对照档用）。见 CWWorld._anaerobic_pool()。
+var anaerobic_sqrt_coef := CWData.ANAEROBIC_SQRT_COEF
 
 # ---- 小细胞肺癌【转移】（2026-09-03 晚，Kevin 问「黑 + 小同场怎么治」的候选杠杆；默认值 = 现行 PRD）----
 ## 每次费用（十分能量，现值 10 = 1.0）与每世界回合上限（0 = 不限 = 现行 PRD；1 = 与黑色素瘤【早期血行转移】同款）。

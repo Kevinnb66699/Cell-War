@@ -199,7 +199,11 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 				for c in cands:
 					var t: Dictionary = game.tile(c)
 					## 「非新生」这一条随旋钮走（2026-09-04 取消该机制后，新铺的格子也能选）
-					if t["tissue"] == CWData.Tissue.CANCER 							and not (game.tune.newborn_protect and t["newborn"]):
+					## 冻住的格子加不了计数（raise_solid 会拦），所以**这里就不该给选项** ——
+					## 给了就是「卡吃掉、什么也没发生」
+					if t["tissue"] == CWData.Tissue.CANCER \
+							and not (game.tune.newborn_protect and t["newborn"]) \
+							and not game.solid_frozen(c):
 						opts.append(_opt(card, "→%s" % str(c), { "to": c }))
 			"肿瘤细胞募集":
 				var r: int = [2, 3, 3][_phase()]

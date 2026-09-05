@@ -12,6 +12,7 @@ static func to_healthy(tile: Dictionary) -> void:
 	tile["solid"] = 0
 	tile["newborn"] = false
 	tile["necrosis"] = 0
+	tile["ossify_at"] = 0   ## 净化即取消【骨样硬化】的标记
 
 
 ## 坏死是叠在健康组织上的倒计时，不是第四种 tissue；重复施加取较长时长。
@@ -27,12 +28,14 @@ static func to_cancer(tile: Dictionary, newborn: bool) -> void:
 	tile["solid"] = 0
 	tile["newborn"] = newborn
 	tile["necrosis"] = 0
+	tile["ossify_at"] = 0
 
 
 static func to_solid(tile: Dictionary) -> void:
 	tile["tissue"] = CWData.Tissue.SOLID
 	tile["newborn"] = false
 	tile["necrosis"] = 0
+	tile["ossify_at"] = 0   ## 已经是固化了，标记完成使命
 
 
 ## 固化癌组织降级为已有癌组织，不应重新获得「新生」保护。

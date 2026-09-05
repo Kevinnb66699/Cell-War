@@ -33,7 +33,7 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 	opts.append_array(immune_move_options(cell))
 	if _can_draw(cell) and game.can_pay(cell, CWData.IMMUNE_DRAW_COST):
 		opts.append({ "label": "基因表达：抽卡（0.5 能量）", "data": { "act": "draw" } })
-	if lvl >= 2 and not cell["differentiated"]:
+	if lvl >= game.tune.differentiate_min_level and not cell["differentiated"]:
 		for t in _diff_choices():
 			opts.append({
 				"label": "分化为%s（免费）" % CWData.IMMUNE_TYPE_NAMES[t],
@@ -418,6 +418,15 @@ func _type_options(cell: Dictionary, opts: Array) -> void:
 			# 【黏液破裂】：耗尽全部能量并死亡，至少要有 2.0
 			if cell["energy"] >= CWData.MUCUS_MIN_ENERGY:
 				opts.append({ "label": "黏液破裂（耗尽能量并死亡）", "data": { "act": "mucus" } })
+		CWData.CancerType.OSTEO:
+			# 【骨样硬化】（2026-09-05 重做）：花 2.0 标记脚下，2 回合后固化。脚下得是没标过的普通癌组织
+			var ossify_cost: int = game.tune.osteo_ossify_cost
+			if _can_ossify(cell) and game.can_pay(cell, ossify_cost):
+				opts.append({
+					"label": "骨样硬化（%s 能量，第 %d 回合固化）" % [
+						CWData.fmt(ossify_cost), game.round_no + game.tune.osteo_ossify_rounds],
+					"data": { "act": "ossify" },
+				})
 		CWData.CancerType.SCLC:
 			# 【转移】：向某方向跃进 5 格（费用与每世界回合上限都是旋钮，默认 = PRD：1.0、不限）
 			var jump_cost := _skill_move_cost(cell, game.tune.metastasis_cost)
@@ -505,8 +514,9 @@ func _skill_move_cost(cell: Dictionary, base: int) -> int:
 func action_kinds(cell: Dictionary) -> Array[String]:
 	var out: Array[String] = ["move", "draw"]
 	if cell["faction"] == CWData.Faction.IMMUNE:
-		## 分化只在 III 级解锁、且每个细胞一辈子一次 —— 用掉之后按钮就不该再占位了
-		if game.immune_level >= 2 and not cell["differentiated"]:
+		## 分化只在 II 级及以上解锁（团队 2026-09-04 从 III 下调）、且每个细胞一辈子一次
+		## —— 用掉之后按钮就不该再占位了
+		if game.immune_level >= game.tune.differentiate_min_level and not cell["differentiated"]:
 			out.append("differentiate")
 		match cell["itype"]:
 			CWData.ImmuneType.B_CELL:
@@ -525,6 +535,8 @@ func action_kinds(cell: Dictionary) -> Array[String]:
 				out.append("mucus")
 			CWData.CancerType.SCLC:
 				out.append("jump")
+			CWData.CancerType.OSTEO:
+				out.append("ossify")
 	return out
 
 
@@ -554,6 +566,8 @@ func execute(cell: Dictionary, data: Dictionary) -> void:
 			_do_mucus(cell)
 		"jump":
 			await _do_jump(cell, data["to"])
+		"ossify":
+			_do_ossify(cell)
 		"play":
 			await game.card_fx.play(cell, data)
 		"discard":
@@ -802,39 +816,58 @@ func _cascade(target: Dictionary) -> void:
 func enter_tile(cell: Dictionary, dest: Vector2i, paid: int = -1) -> void:
 	cell["pos"] = dest
 	var t: Dictionary = game.tile(dest)
+	## 挪了窝，上一格的「蹲守」就作废（还站在同一格的话下面会重新登记）
+	if cell["faction"] == CWData.Faction.IMMUNE and int(cell.get("camp_round", -1)) >= 0 \
+			and cell["camp_pos"] != dest:
+		cell["camp_round"] = -1
 	if cell["faction"] == CWData.Faction.CANCER and t["tissue"] == CWData.Tissue.HEALTHY:
 		CWTissue.to_cancer(t, true)
 		game.log_msg("　【定殖】%s 转为癌组织" % str(dest))
+	elif cell["faction"] == CWData.Faction.IMMUNE and t["tissue"] == CWData.Tissue.CANCER \
+			and int(t.get("ossify_at", 0)) > 0:
+		## 骨肉瘤【骨样硬化】标记过的格：进来不能立刻净化，得停留一个世界回合
+		## （下一回合 S 阶段由 CWWorld._resolve_camping 兑现；标记到期在 E 阶段末，晚它半轮）
+		cell["camp_round"] = game.round_no
+		cell["camp_pos"] = dest
+		game.log_msg("　【骨样硬化】%s 正在硬化，%s 须在此停留一回合才能【净化】" % [
+			str(dest), game.cell_name(cell)])
 	elif cell["faction"] == CWData.Faction.IMMUNE and t["tissue"] == CWData.Tissue.CANCER:
-		CWTissue.to_healthy(t)
-		if game.event_stacks("免疫抑制因子") > 0:
-			game.log_msg("　【净化】%s 转为健康组织（免疫抑制因子：不获得抗原记忆）" % str(dest))
-		else:
-			game.gain_memory(1)
-			game.log_msg("　【净化】%s 转为健康组织（抗原记忆 %d）" % [str(dest), game.memory])
-		if cell["itype"] == CWData.ImmuneType.MACRO:
-			## 【I-吞噬】每次净化回 0.3 —— **但回的不能比这一步付的多**。
-			## 迁移减免的共同地板是 0.2（各卡面都写「最低 0.2」），等级 X 走癌性组织
-			## 本身也只要 0.2，回 0.3 就成了「走一格赚 0.1」：巨噬能在癌组织上无限走、
-			## 顺手把整片净化掉（队友 2026-09-01 报的「巨噬细胞可以无穷动」）。
-			## 治的是「靠移动赚钱」这个结构问题，而不是把某张减价卡调残。
-			## 回多少走旋钮 `macro_heal_purify`（默认 = 常量 0.3；0 = 净化不回能，2026-09-02 后期引擎对比表扫它）。
-			var heal: int = game.tune.macro_heal_purify
-			if paid >= 0:
-				heal = mini(heal, maxi(paid - CWData.MACRO_MOVE_NET_MIN, 0))
-			if heal > 0:
-				cell["energy"] += heal
-				game.log_msg("　巨噬【吞噬】恢复 %s 能量%s" % [CWData.fmt(heal),
-					"（本次迁移实付 %s，净支出至少 %s）" % [
-						CWData.fmt(paid), CWData.fmt(CWData.MACRO_MOVE_NET_MIN)]
-						if heal < game.tune.macro_heal_purify else ""])
-		await _on_purify(cell)
+		await purify_here(cell, dest, paid)
 	# 「粘液」无法被技能清除，但被免疫细胞接触后立即消失（PRD 印戒细胞癌）
 	if cell["faction"] == CWData.Faction.IMMUNE and t["mucus"]:
 		t["mucus"] = false
 		game.log_msg("　【黏液】%s 的黏液被免疫细胞清除" % str(dest))
 	await collect_special(cell, dest)
 	game.update_marks()
+
+
+## 【I-净化】本体：转健康、记忆、巨噬回能、永久技能连锁。
+## enter_tile 的正常进入和 _resolve_camping 的「蹲满一回合」两处共用 —— 口径只有这一份。
+func purify_here(cell: Dictionary, dest: Vector2i, paid: int) -> void:
+	var t: Dictionary = game.tile(dest)
+	CWTissue.to_healthy(t)
+	if game.event_stacks("免疫抑制因子") > 0:
+		game.log_msg("　【净化】%s 转为健康组织（免疫抑制因子：不获得抗原记忆）" % str(dest))
+	else:
+		game.gain_memory(1)
+		game.log_msg("　【净化】%s 转为健康组织（抗原记忆 %d）" % [str(dest), game.memory])
+	if cell["itype"] == CWData.ImmuneType.MACRO:
+		## 【I-吞噬】每次净化回 0.3 —— **但回的不能比这一步付的多**。
+		## 迁移减免的共同地板是 0.2（各卡面都写「最低 0.2」），等级 X 走癌性组织
+		## 本身也只要 0.2，回 0.3 就成了「走一格赚 0.1」：巨噬能在癌组织上无限走、
+		## 顺手把整片净化掉（队友 2026-09-01 报的「巨噬细胞可以无穷动」）。
+		## 治的是「靠移动赚钱」这个结构问题，而不是把某张减价卡调残。
+		## 回多少走旋钮 `macro_heal_purify`（默认 = 常量 0.3；0 = 净化不回能，2026-09-02 后期引擎对比表扫它）。
+		var heal: int = game.tune.macro_heal_purify
+		if paid >= 0:
+			heal = mini(heal, maxi(paid - CWData.MACRO_MOVE_NET_MIN, 0))
+		if heal > 0:
+			cell["energy"] += heal
+			game.log_msg("　巨噬【吞噬】恢复 %s 能量%s" % [CWData.fmt(heal),
+				"（本次迁移实付 %s，净支出至少 %s）" % [
+					CWData.fmt(paid), CWData.fmt(CWData.MACRO_MOVE_NET_MIN)]
+					if heal < game.tune.macro_heal_purify else ""])
+	await _on_purify(cell)
 
 
 ## 收取特殊组织存储（进入时 & 产出瞬间站于其上时调用）
@@ -1172,6 +1205,29 @@ func _do_mucus(cell: Dictionary) -> void:
 	game.cancer_hit_area(victims, CWData.MUCUS_IMMUNE_LOSS, "黏液破裂", true)
 	game.kill(cell)   # 自毁型技能：耗尽能量并死亡（说明 #8 的同类）
 	game.update_marks()
+
+
+# ---- 骨肉瘤 ----
+
+func _can_ossify(cell: Dictionary) -> bool:
+	var t: Dictionary = game.tile(cell["pos"])
+	return t["tissue"] == CWData.Tissue.CANCER and int(t.get("ossify_at", 0)) == 0
+
+
+## 【骨样硬化】（2026-09-05 重做）：花 osteo_ossify_cost 标记脚下的癌组织，
+## 第 (当前 + osteo_ossify_rounds) 世界回合的 E 阶段转为固化癌组织（CWWorld._ossify）。
+## 取代旧版「触发【E-固化】计数 +1.5」—— 那条在阈值 2.0 之下一回合都没省。
+## 新版的意义是**先标记、再走开**：骨肉瘤不必被钉在原地蹲两回合。
+## 代价：比蹲着慢一回合、要花 2.0、而且免疫蹲进来一回合就能拆掉。
+func _do_ossify(cell: Dictionary) -> void:
+	var at: Vector2i = cell["pos"]
+	if game.cost.commit(CWCost.context(cell, CWCost.Action.CELL_SKILL, game.tune.osteo_ossify_cost,
+			at, 0, func() -> bool: return _can_ossify(cell))).is_empty():
+		return
+	var t: Dictionary = game.tile(at)
+	t["ossify_at"] = game.round_no + game.tune.osteo_ossify_rounds
+	game.log_msg("【骨样硬化】%s 标记 %s，第 %d 世界回合 E 阶段转为固化癌组织" % [
+		game.cell_name(cell), str(at), t["ossify_at"]])
 
 
 # ---- 小细胞肺癌 ----

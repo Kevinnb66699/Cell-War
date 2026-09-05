@@ -90,6 +90,16 @@ var amem := -9999
 var amult := -1
 var abhalf := -1
 var asqrt := -1
+var abase := -1
+var astep := -1
+var difflv := -1
+var asplit := -1
+var eturn := -1
+var necro := -1
+var mucusfee := -1
+var ocost := -1
+var orounds := -1
+var asplitref := -1
 var epc := -1
 ## 2026-09-04 团队新方案要动的三个：能量上限 / 有氧下限 / 有氧上限。
 ## 名字与 balance_scan.gd 一致 —— 头注那条纪律（两个脚本的旋钮必须同步加）
@@ -186,6 +196,16 @@ func _parse() -> void:
 			"amult": amult = int(kv[1])
 			"abhalf": abhalf = int(kv[1])
 			"asqrt": asqrt = int(kv[1])
+			"abase": abase = int(kv[1])
+			"astep": astep = int(kv[1])
+			"difflv": difflv = int(kv[1])
+			"asplit": asplit = int(kv[1])
+			"eturn": eturn = int(kv[1])
+			"necro": necro = int(kv[1])
+			"mucusfee": mucusfee = int(kv[1])
+			"ocost": ocost = int(kv[1])
+			"orounds": orounds = int(kv[1])
+			"asplitref": asplitref = int(kv[1])
 			"epc": epc = int(kv[1])
 			"emax": emax = int(kv[1])
 			"afloor": afloor = int(kv[1])
@@ -225,6 +245,26 @@ func _tune() -> CWTuning:
 		t.antibody_halve = abhalf != 0
 	if asqrt >= 0:
 		t.anaerobic_sqrt_coef = asqrt
+	if abase >= 0:
+		t.aerobic_level_base = abase
+	if astep >= 0:
+		t.aerobic_level_step = astep
+	if difflv >= 0:
+		t.differentiate_min_level = difflv
+	if asplit >= 0:
+		t.aerobic_split = asplit != 0
+	if eturn >= 0:
+		t.anaerobic_on_turn_end = eturn != 0
+	if necro >= 0:
+		t.necrosis_no_aerobic = necro != 0
+	if mucusfee >= 0:
+		t.mucus_move_surcharge = mucusfee
+	if ocost >= 0:
+		t.osteo_ossify_cost = ocost
+	if orounds >= 0:
+		t.osteo_ossify_rounds = orounds
+	if asplitref >= 0:
+		t.aerobic_split_ref = asplitref
 	if epc >= 0:
 		t.anaerobic_per_cancer = epc
 	if emax >= 0:
@@ -283,6 +323,16 @@ func _applied(t: CWTuning) -> String:
 			["amult", t.aerobic_mult, d.aerobic_mult],
 			["abhalf", int(t.antibody_halve), int(d.antibody_halve)],
 			["asqrt", t.anaerobic_sqrt_coef, d.anaerobic_sqrt_coef],
+			["abase", t.aerobic_level_base, d.aerobic_level_base],
+			["astep", t.aerobic_level_step, d.aerobic_level_step],
+			["difflv", t.differentiate_min_level, d.differentiate_min_level],
+			["asplit", int(t.aerobic_split), int(d.aerobic_split)],
+			["eturn", int(t.anaerobic_on_turn_end), int(d.anaerobic_on_turn_end)],
+			["necro", int(t.necrosis_no_aerobic), int(d.necrosis_no_aerobic)],
+			["mucusfee", t.mucus_move_surcharge, d.mucus_move_surcharge],
+			["ocost", t.osteo_ossify_cost, d.osteo_ossify_cost],
+			["orounds", t.osteo_ossify_rounds, d.osteo_ossify_rounds],
+			["asplitref", t.aerobic_split_ref, d.aerobic_split_ref],
 			["epc", t.anaerobic_per_cancer, d.anaerobic_per_cancer],
 			["emax", t.energy_cap, d.energy_cap],
 			["afloor", t.aerobic_floor, d.aerobic_floor],

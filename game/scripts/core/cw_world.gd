@@ -25,6 +25,7 @@ var game: CWGame
 func round_start() -> void:
 	game.log_msg("━━━━ 第 %d 世界回合 ━━━━" % game.round_no)
 	_reset_round_flags()
+	await _resolve_camping()
 	await game.world_fx.on_round_start()
 	if CWData.is_world_event_round(game.round_no):
 		await game.world_fx.trigger()
@@ -43,9 +44,11 @@ func e_phase() -> void:
 	_pressure()                              ## 1 【微环境压迫】
 	_proliferate()                           ## 2 【增生】
 	_erosion()                               ## 3 【侵蚀】
-	_anaerobic()                             ## 4 【无氧呼吸】
+	if not game.tune.anaerobic_on_turn_end:
+		_anaerobic()                         ## 4 【无氧呼吸】（2026-09-05 起默认改在各癌细胞回合末，见 settle_anaerobic_turn）
 	_cancer_upkeep()                         ## 4.5 【代谢消耗】（PRD 之外，平衡候选③）
 	_solidify()                              ## 5 【固化】
+	_ossify()                                ## 5 骨肉瘤【骨样硬化】标记到期（同属第 5 步，排在计数固化之后）
 	_decay()                                 ## 6 固化计数衰减
 	await game.world_fx.round_effects()      ## 7 其他 E 类效果：目前只有【紊乱】返回原位
 	game.world_fx.tick_durations()           ## 8 世界事件倒计时/到期 + 「本世界回合」修饰过期
@@ -270,10 +273,13 @@ func revive_immune(pid: int, pos: Vector2i) -> void:
 		game.cell_name(cell), str(pos), CWData.fmt(game.tune.immune_respawn_energy)])
 
 
-## 【S-有氧呼吸】能量 =（健康组织格数 - 坏死格数）÷ 总格数 × 3，**四舍五入到十分位**。
+## 【S-有氧呼吸】能量 = **(抗原记忆等级 − 1) × 0.5 + 基数**（团队 09-04 定公式、Kevin 09-05 定写法；
+## 基数按人数分档 四人 2.0 / 六人 1.8，见 CWData.aerobic_level_base）。immune_level 0 起，故代码是 base + level × step。
 ## 每个免疫细胞各拿这么多，不按细胞数均分（PRD 如此；均分是 CWTuning.split_income() 的实验档）。
 ##
-## 「坏死」格要扣掉：它虽然是健康组织，但不为免疫供能。
+## 盘面口径（健康 - 坏死）现在只用来写日志了 —— 但**照旧要数**：
+## 旧公式仍能靠 `abase=0` 跑回来（09-04 之前的扫描数据都是那套），日志两边共用同一组数字。
+## 「坏死」格在旧公式里要扣掉：它虽然是健康组织，但不为免疫供能。
 func _aerobic() -> void:
 	var immune: Array = game.living_cells(CWData.Faction.IMMUNE)
 	if immune.is_empty():
@@ -286,13 +292,13 @@ func _aerobic() -> void:
 		healthy += 1
 		if t["necrosis"] > 0:
 			necrotic += 1
-	# 四舍五入到十分位：分子先 ×10 再加半个分母，整数除法即得（全程整数，无浮点）
-	var num: int = (healthy - necrotic) * game.tune.aerobic_mult_at(game.round_no)
-	var den: int = CWData.TOTAL_TILES
-	var gain: int = (num + den / 2) / den
+	## 低保/封顶夹在**基准**上、再均分 —— 顺序反过来的话 2.0 的低保会把 2.5÷3=0.8 顶回 2.0，
+	## 均分等于没开（2026-09-05 t_batch2_rules 当场抓到；此前 split 是关着的所以从没暴露）。
+	## aerobic_split=false 时两种顺序逐位相同，09-04 之前的数据不受影响。
+	var gain := game.tune.clamp_income(_aerobic_base(healthy, necrotic),
+		game.tune.aerobic_floor, game.tune.aerobic_cap)
 	if game.tune.aerobic_split:
-		gain = gain / immune.size()
-	gain = game.tune.clamp_income(gain, game.tune.aerobic_floor, game.tune.aerobic_cap)
+		gain = _split_aerobic(gain, immune.size())
 	## 【TGF-β释放】：下一次有氧结算每份 -20%（逐份 ×80% 向下取整，定案 #63），
 	## 结算完消耗——条目挂在全局容器里，left=2 保证能活到下一个 S 阶段
 	var tgf := 0
@@ -310,6 +316,11 @@ func _aerobic() -> void:
 		game.log_msg("【TGF-β释放】有氧呼吸 %s → %s（%d 份 -20%%，已消耗）" % [
 			CWData.fmt(before), CWData.fmt(gain), tgf])
 	for cell in immune:
+		## 「坏死」的新效果（2026-09-05）：站在坏死格上这一回合整份不拿，连技能加成也没有 ——
+		## 「每次结算有氧呼吸时额外获得」的前提是这次结算发生了
+		if game.tune.necrosis_no_aerobic and game.tile(cell["pos"])["necrosis"] > 0:
+			game.log_msg("　%s 站在坏死组织上，本回合不获得有氧呼吸" % game.cell_name(cell))
+			continue
 		cell["energy"] += gain
 		## 【代谢适应】/【自分泌生存信号】的「额外获得」在基准收入之外加，
 		## 不吃 TGF-β 的 -20%（那句管的是有氧结算本身的所得，口径 #69）
@@ -321,8 +332,39 @@ func _aerobic() -> void:
 		if bonus > 0:
 			cell["energy"] += bonus
 			game.log_msg("　%s 的永久技能额外 +%s 能量" % [game.cell_name(cell), CWData.fmt(bonus)])
-	game.log_msg("【有氧呼吸】所有免疫细胞 +%s 能量（健康 %d - 坏死 %d）" % [
-		CWData.fmt(gain), healthy, necrotic])
+	var why := "抗原记忆 %s 级" % CWData.LEVEL_NAMES[game.immune_level] \
+		if game.tune.aerobic_level_base != 0 else "健康 %d - 坏死 %d" % [healthy, necrotic]
+	game.log_msg("【有氧呼吸】所有免疫细胞 +%s 能量（%s）" % [CWData.fmt(gain), why])
+
+
+## 均分：n ≤ ref 每人全额；n > ref 把 ref 份总额均分，四舍五入到十分位（(2p+n)/(2n) 的整数写法，同 _split_share）。
+## ref = 0 退化成纯「÷ n」。**纯函数**，测试直接核对。
+func _split_aerobic(per_cell: int, n: int) -> int:
+	var ref: int = game.tune.aerobic_split_ref
+	if n <= 0:
+		return per_cell
+	if ref <= 0:
+		return (2 * per_cell + n) / (2 * n)
+	if n <= ref:
+		return per_cell
+	return (2 * per_cell * ref + n) / (2 * n)
+
+
+## 一份【有氧呼吸】的基准收入（均分与夹钳在调用处套）。
+##
+## 现行是等级式：`base + 等级 × step`，与盘面无关 —— 换掉盘面式的理由见 CWData.AEROBIC_LEVEL_BASE。
+## `aerobic_level_base <= 0` 退回盘面式，那条**必须逐位不变**，否则 09-04 之前的扫描数据全作废。
+func _aerobic_base(healthy: int, necrotic: int) -> int:
+	## -1 = 按人数取（四人 2.0 / 六人 1.8）；>0 = 整体覆盖；0 = 退回旧盘面式
+	var base: int = game.tune.aerobic_level_base
+	if base < 0:
+		base = CWData.aerobic_level_base(game.order.size())
+	if base > 0:
+		return base + game.tune.aerobic_level_step * game.immune_level
+	# 四舍五入到十分位：分子先 ×10 再加半个分母，整数除法即得（全程整数，无浮点）
+	var num: int = (healthy - necrotic) * game.tune.aerobic_mult_at(game.round_no)
+	var den: int = CWData.TOTAL_TILES
+	return (num + den / 2) / den
 
 
 # ---- E 阶段 ----
@@ -417,21 +459,16 @@ func _proliferate() -> void:
 		game.log_msg("【增生】%d 格健康组织被癌组织侵占" % converts.size())
 
 
-## 【E-无氧呼吸】：每块供能 =（癌×0.4 + 固化×1.0），块内癌细胞均分，
+## 【E-无氧呼吸】：每块供能 = `c × √(块内癌格子数)`，块内癌细胞均分，
 ## **四舍五入到十分位**（团队 2026-08-28 定案 #43，与有氧一致；PRD 本身没写取整方式）
 func _anaerobic() -> void:
 	var cancer_pred := func(c: Vector2i) -> bool:
 		return game.is_cancerous(c)
 	for block in game.blocks_of(cancer_pred):
-		var pool := 0
 		var members := {}
 		for c in block:
 			members[c] = true
-			if game.tiles[c]["tissue"] == CWData.Tissue.SOLID:
-				pool += game.tune.anaerobic_per_solid
-			else:
-				pool += game.tune.anaerobic_per_cancer
-		pool = _sqrt_pool(pool)
+		var pool := _anaerobic_pool(block)
 		var here: Array = []
 		for cell in game.living_cells(CWData.Faction.CANCER):
 			if members.has(cell["pos"]):
@@ -456,25 +493,33 @@ func _anaerobic() -> void:
 
 ## 连通块供能均分到一个细胞：四舍五入到十分位（定案 #43）+ 收入夹钳。
 ## E 阶段结算和卡【糖酵解爆发】共用 —— 改口径只改这里。
-## 【无氧呼吸】的**刹车**（Kevin 2026-09-02 提的候选，旋钮 `anaerobic_sqrt_coef`，默认 0 = 关）。
+## 一个癌性连通块这一次供多少能（还没按块内癌细胞数均分）。
+## E 阶段结算和卡【糖酵解爆发】共用 —— 口径只有这一份。
 ##
-## **为什么要有它。** 现行是线性求和：连通块里每格癌组织 +0.4、每格固化 +1.0。
-## 分子随占地涨、分母是固定的玩家数，于是「占得越多 → 越有钱 → 占得越快」是个**没有刹车的正反馈**；
-## 而免疫的【有氧呼吸】= 健康格占比 × 系数，**随健康格下跌**。两条曲线方向相反，拉开就不可逆。
+## **为什么从线性改成开方（团队 2026-09-04 定案）。** 旧式是线性求和：
+## 块里每格癌组织 +0.4、每格固化 +1.0。分子随占地涨、分母是固定的玩家数，
+## 于是「占得越多 → 越有钱 → 占得越快」是个**没有刹车的正反馈**；
+## 而免疫旧式【有氧呼吸】= 健康格占比 × 系数，**随健康格下跌**。两条曲线方向相反，拉开就不可逆。
 ## 2026-09-05 的六人局智能体对局把这条拍实了：癌组织净增 +11/+8/+13/+20/+20，
 ## 三个癌细胞第 4~5 回合就顶到 15 能量上限**溢出浪费**，而免疫有氧从 2.9 掉到 1.6。
 ##
-## 改成开方之后，前期几乎不变、后期腰斩：
-## 24 格时 √24×2.0 ≈ 9.8（线性 9.6），97 格时 √101×2.0 ≈ 20.1（线性 40.6）。
-## 换句话说**不动开局手感，只砍雪球**。
+## 开方之后前期几乎不变、后期腰斩：24 格时 √24×2.0 ≈ 9.8（线性 9.6），
+## 97 格时 √97×2.0 ≈ 19.7（线性 40.6 起）。换句话说**不动开局手感，只砍雪球**。
 ##
-## 先把线性池折回「等效格数」再开方（而不是直接数格子），这样固化格的双倍权重不会丢。
-func _sqrt_pool(pool: int) -> int:
+## ⚠ **固化格不再有双倍权重**：新公式只数格子（团队定的口径就是「连通块癌格子数」）。
+## 固化的价值因此完全落在「不能被【净化】」上，不再兼带供能加成。
+##
+## `anaerobic_sqrt_coef = 0` 退回线性式，供 09-04 之前的对照档使用。
+func _anaerobic_pool(block: Array) -> int:
 	var coef: int = game.tune.anaerobic_sqrt_coef
-	if coef <= 0 or pool <= 0:
-		return pool
-	var tiles := float(pool) / float(game.tune.anaerobic_per_cancer)
-	return int(round(coef * sqrt(tiles)))
+	if coef > 0:
+		return int(round(coef * sqrt(float(block.size()))))
+	var pool := 0
+	for c in block:
+		pool += game.tune.anaerobic_per_solid \
+			if game.tiles[c]["tissue"] == CWData.Tissue.SOLID \
+			else game.tune.anaerobic_per_cancer
+	return pool
 
 
 func _split_share(pool: int, count: int) -> int:
@@ -507,19 +552,62 @@ func _cancer_upkeep() -> void:
 			game.cell_name(cell), CWData.fmt(lost), CWData.fmt(cell["energy"])])
 
 
+## 【E-无氧呼吸】改在**这个癌细胞自己的行动回合末**结算（旋钮 anaerobic_on_turn_end，2026-09-05 默认开）。
+## 口径就是 anaerobic_gain_for —— 它本来就是「某个癌细胞此刻的份额」（含瓦伯格与 GLUT1）。
+## 分母 = 此刻块里有几个癌细胞：后面的人再挤进来也抬不了你的分母，这正是要修的那条不公平。
+func settle_anaerobic_turn(cell: Dictionary) -> void:
+	var gain := anaerobic_gain_for(cell)
+	if gain <= 0:
+		return
+	cell["energy"] += gain
+	game.log_msg("【无氧呼吸】%s 回合末 +%s 能量（现 %s）" % [
+		game.cell_name(cell), CWData.fmt(gain), CWData.fmt(cell["energy"])])
+
+
+## 骨肉瘤【骨样硬化】的标记到期：转为固化癌组织。
+## **走 CWTissue.to_solid，不碰固化计数、阈值与【固化加速】那套** —— 这是另一条独立的路。
+## 标记期间格子被净化过（tissue 已不是癌组织）就作废。tiles 按插入序遍历，不掷骰。
+func _ossify() -> void:
+	for c in game.tiles.keys():
+		var t: Dictionary = game.tiles[c]
+		var at: int = int(t.get("ossify_at", 0))
+		if at <= 0 or game.round_no < at:
+			continue
+		if t["tissue"] != CWData.Tissue.CANCER:
+			t["ossify_at"] = 0
+			continue
+		CWTissue.to_solid(t)
+		game.log_msg("【骨样硬化】%s 转为固化癌组织" % str(c))
+
+
+## 免疫细胞踏进【骨样硬化】标记格时不能立刻净化，得停留一个世界回合 ——
+## 到了下一回合的 S 阶段，还站在原格、格子还是癌组织，就在这里把净化补上。
+## 挪过窝（camp_pos 对不上）、或格子已经固化 / 被别人净化，标记就作废。
+## 放在 S 阶段而不是该细胞的行动回合开头：这样它在**任何人**行动之前生效，
+## 与 _ossify（E 阶段末）之间正好隔一整轮，「蹲一回合」的窗口清清楚楚。
+func _resolve_camping() -> void:
+	for cell in game.living_cells(CWData.Faction.IMMUNE):
+		if int(cell.get("camp_round", -1)) < 0:
+			continue
+		var at: Vector2i = cell["camp_pos"]
+		cell["camp_round"] = -1
+		if cell["pos"] != at or game.tile(at)["tissue"] != CWData.Tissue.CANCER:
+			continue
+		game.log_msg("　【骨样硬化】%s 在 %s 停留了一回合，完成【净化】" % [game.cell_name(cell), str(at)])
+		await game.actions.purify_here(cell, at, -1)
+
+
 ## 单独算某个癌细胞**此刻**的无氧供给（卡【糖酵解爆发】用），口径与 _anaerobic 一致
 func anaerobic_gain_for(target: Dictionary) -> int:
 	var cancer_pred := func(c: Vector2i) -> bool:
 		return game.is_cancerous(c)
 	for block in game.blocks_of(cancer_pred):
 		var members := {}
-		var pool := 0
 		for c in block:
 			members[c] = true
-			pool += game.tune.anaerobic_per_solid if game.tiles[c]["tissue"] == CWData.Tissue.SOLID \
-				else game.tune.anaerobic_per_cancer
 		if not members.has(target["pos"]):
 			continue
+		var pool := _anaerobic_pool(block)
 		var count := 0
 		for cell in game.living_cells(CWData.Faction.CANCER):
 			if members.has(cell["pos"]):
@@ -551,10 +639,9 @@ func _watched(c: Vector2i) -> bool:
 
 ## 骨肉瘤【骨样硬化】：该细胞触发的【E-固化】结算计数为 +1.5。
 ## 同格只可能有一个细胞（PRD「一个组织内只能容纳一个细胞」），所以不存在叠加问题。
-func _solidify_step(c: Vector2i) -> int:
-	for occupant in game.cells_at(c, CWData.Faction.CANCER):
-		if occupant["ctype"] == CWData.CancerType.OSTEO:
-			return CWData.SOLIDIFY_STEP + CWData.SOLIDIFY_STEP / 2
+## 每回合停留加多少。骨肉瘤旧版的 +1.5 已撤（2026-09-05）：阈值 2.0 之下 +1.0 与 +1.5
+## 都是蹲 2 回合，一回合没省 —— 它的【骨样硬化】重做成了主动技能，见 _ossify()。
+func _solidify_step(_c: Vector2i) -> int:
 	return CWData.SOLIDIFY_STEP
 
 

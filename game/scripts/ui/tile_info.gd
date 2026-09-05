@@ -96,6 +96,9 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 		rows.append({ "text": "固化 %s / %s" % [CWData.fmt(t["solid"]),
 			CWData.fmt(game.tune.solidify_threshold)],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.TEXT })
+	if int(t.get("ossify_at", 0)) > 0:
+		rows.append({ "text": "骨样硬化 · 第 %d 回合固化" % int(t["ossify_at"]),
+			"size": CWStyle.SIZE_BODY, "color": CWStyle.CANCER })
 	match t["special"]:
 		CWData.Special.CORE:
 			rows.append({ "text": "代谢核心 · 储量 %s" % CWData.fmt(t["store"]),

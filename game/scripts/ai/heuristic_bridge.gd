@@ -28,7 +28,7 @@ extends CWBridge
 ## v7：2026-09-04 —— 修 `CWEval.SOLID_TICK` 30→5。旧值下「进度 1.0 的癌组织(400)」比
 ##     「修成的固化格(200)」还值钱，**MC 会主动避免把固化修完**、到处留半成品，
 ##     癌方因此几乎拿不到复活据点。与 v6 的 `_base_return` 是同一个病的两个病灶。
-const AI_VERSION := "v8"
+const AI_VERSION := "v9"   ## v9（2026-09-05）：会用骨肉瘤重做后的【骨样硬化】；规则侧同日改了有氧均分/无氧回合末
 ## 每个桥实例可以单独退回 v1 的行为（set_version("v1")）：分化拿选项列表第一个、不惜命。
 ## 用途是**验证 AI 升级**：新版本必须在两边都不比旧版弱（balance_scan 的 aiver_immune= / aiver_cancer= 交叉对局），
 ## 否则标尺一换读数就漂、还分不清是规则变了还是量具变了（2026-09-02 v2 基线 6 人 24→10 就是这么查的）。对局里别拨。
@@ -347,6 +347,11 @@ func _cancer_action(pid: int, options: Array) -> int:
 	# 2. 黑色素瘤【早期血行转移】：站在血管上就是白捡一格地盘
 	i = _find(options, "homing")
 	if i >= 0 and e >= 20:
+		return i
+	# 2.5 骨肉瘤【骨样硬化】（v9）：还没有复活据点、且不是贴脸时，花 2.0 把脚下标记成两回合后的固化，
+	# 然后就能走开继续铺 —— 这正是重做的意义（旧版得蹲着）
+	i = _find(options, "ossify")
+	if i >= 0 and e >= 35 and threat >= 2 and game.count_tissue(CWData.Tissue.SOLID) == 0:
 		return i
 	# 3. 小细胞肺癌【转移】：远离威胁时用来抢空地，不做复杂评估
 	i = _find(options, "jump")

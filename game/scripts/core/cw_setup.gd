@@ -36,6 +36,7 @@ static func make_tile(c: Vector2i) -> Dictionary:
 		"necrosis": 0,   # 「坏死」还剩几个世界回合（>0 时不为免疫【有氧呼吸】供能）
 		"mucus": false,  # 印戒【黏液破裂】留下的「黏液侵染」；被免疫细胞踩到即消失
 		"newborn": false, # 本世界回合新转化的癌组织（不可固化）
+		"ossify_at": 0,   # 骨肉瘤【骨样硬化】：到第几世界回合的 E 阶段转固化；0 = 没标记
 		"store": 0,      # 代谢核心存储的十分能量
 		"cards": 0,      # 骨髓存储的卡牌数
 		"prod": 0,       # 特殊组织产出周期计数器
@@ -74,6 +75,8 @@ static func make_cell(id: int, pid: int, faction: int, pos: Vector2i,
 		"draws_used": 0,           # 【基因表达】3 次/行动回合
 		"attacks_used": 0,         # 本行动回合已攻击次数（上限见 CWTuning.attack_max_per_turn）
 		"respawn_round": -1,       # 免疫细胞死亡后可复活的世界回合（-1 = 未死亡/不复活）
+		"camp_round": -1,          # 免疫踏进【骨样硬化】标记格的世界回合（-1 = 没在蹲）；下一回合 S 阶段兑现净化
+		"camp_pos": Vector2i.ZERO, # 蹲的是哪一格（挪窝即作废）
 	}
 
 
