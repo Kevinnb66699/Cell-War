@@ -193,6 +193,7 @@ func _make_prompt(title: String, hint: String, wrap := false) -> Control:
 ## 尺寸由内容撑出来，和设计稿的 .btn 一致。
 func _make_button(entry: Dictionary, index: int) -> PanelContainer:
 	var p := PanelContainer.new()
+	p.set_meta("title", entry["title"])   ## 引导提亮按标题找按钮（button_rect）
 	p.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	p.custom_minimum_size.y = BTN_H
 	p.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -248,6 +249,23 @@ func _set_hot(index: int) -> void:
 	_hot = index
 	_repaint_all()
 	hovered.emit(index)
+
+
+## 引导提亮用（CWGuideSpotlight）：标题为 title 的那枚按钮的屏幕矩形；栏收着 / 这一问没它 → 零矩形
+func button_rect(title: String) -> Rect2:
+	if not visible:
+		return Rect2()
+	for b in _buttons:
+		if (b as Control).get_meta("title", "") == title:
+			return (b as Control).get_global_rect()
+	return Rect2()
+
+
+## 整条按钮栏的屏幕矩形；收着 → 零矩形
+func bar_rect() -> Rect2:
+	if not visible or _row == null:
+		return Rect2()
+	return _row.get_global_rect()
 
 
 ## 第 index 个按钮的画布 x（左缘）。悬停详情框贴着它摆；HBox 排完版之后才准，悬停时早已排完

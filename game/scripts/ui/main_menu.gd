@@ -18,8 +18,9 @@ signal continue_requested
 signal online_match_requested(client: CWNetClient)
 ## 联机对局中房间没了：main.gd 收摊回主菜单
 signal online_lost(reason: String)
-## 「新手引导」被点了：main.gd 开一局固定种子的教程对局
-signal tutorial_requested
+## 「新手引导」被点了：main.gd 开一局固定种子的教程对局，对手癌种随信号带过去
+## （首次钉死骨肉瘤；引导全部看完后再进，先弹一层让玩家自己挑 —— Kevin 2026-09-05 拍板）
+signal tutorial_requested(cancer_type: int)
 
 ## 棋盘和相机都是同级节点。写成可导出的路径而不是写死 get_node("../Board")，
 ## 是为了将来换树形（比如过场时把菜单挪进别的容器）只改场景不改代码。
@@ -55,7 +56,8 @@ const CELL_FOOT_DY := 6.0
 ## 实际亮灭还要有存档才行 —— 动态部分见 _item_enabled()，键盘跳灰用
 ## enabled_mask() 现算。
 ## 「自定义对局」（2026-09-03 Kevin）= 同一张配置面板多出「癌症A/B/C 种类」几行，让人挑初始癌种；
-## 「开始对局」照旧随机抽。七项行距 34（六项时 38），底边 532。
+## 「开始对局」照旧随机抽。九项行距 26（七项时 34、六项时 38），首项 278、末项底边 514：
+## 2026-09-05 加到九项后整块（副标题 / 标题 / 竖线 / 菜单项）上移 14px，底部留 26px（Kevin 选乙案）。
 const ITEMS := [
 	{"node": "Start", "enabled": true},
 	{"node": "Custom", "enabled": true},
@@ -79,33 +81,46 @@ const HOVER_LIFT := 2.0
 
 const MARKER_X := 147.0   ## 菱形中心的横坐标（原型：菜单项左边 -2.6cqw 处）
 
-## ── 退出确认 ──────────────────────────────────────────────────
+## ── 覆盖式小列表：退出确认 / 教程对手癌种 ─────────────────────────
 ## 暂停菜单里「返回主菜单 / 退出游戏」都要过一道确认（团队 2026-08-27 定），
 ## 主菜单的「退出游戏」当时漏了，2026-08-28 补上。
 ##
-## 视觉语汇**照抄暂停菜单的确认页**：压暗层 + 264 宽的面板 + 两项，
-## 默认停在「取消」，Esc / 右键 = 取消。连辉光都用 [CWPauseMenu] 的同一份参数 ——
+## 视觉语汇**照抄暂停菜单的确认页**：压暗层 + 264 宽的面板 + 几项，
+## 退出确认默认停在「取消」，Esc / 右键 = 取消。连辉光都用 [CWPauseMenu] 的同一份参数 ——
 ## 两处确认长得不一样的话，玩家会以为是两种不同的东西。
 ##
-## 为什么没抽成公共控件：现在只有两处，而暂停菜单那一套还绑着「暂停整棵树」
-## 和「两页切换」。等第三处确认出现时再抽，那时才看得清共性在哪。
+## 2026-09-05 起同一块覆盖层也给「教程对手癌种」用（引导全部看完后再进「新手引导」，先挑对手；
+## Kevin 拍板）：`_open_pick(标题, 项, 默认项, 选中回调)`，面板高度按项数现算，其余不变。
+## 仍没抽成公共控件：暂停菜单那一套还绑着「暂停整棵树」和「两页切换」，共性只在本文件内复用。
 const CONFIRM_TITLE := "退出游戏？"
 const CONFIRM_ITEMS := ["确定", "取消"]
 const CONFIRM_W := 264
 const CONFIRM_PAD := 16
 const CONFIRM_ITEM_H := 36
 const CONFIRM_TITLE_H := 42
+## 教程对手癌种（引导全部看完后再进「新手引导」时弹）：同一块覆盖层换一组项
+const TUTORIAL_PICK_TITLE := "教程对手癌种"
+## 首次教程钉死的对手：骨肉瘤是站桩型，剧本里「落子到癌区外侧 / 迁过去攻击」的提示才成立
+## （固定种子抽到的正好也是它，但抽种类走对局随机数，规则一改就可能换，所以钉死 —— Kevin 2026-09-05 拍板）
+const TUTORIAL_CANCER := CWData.CancerType.OSTEO
 
 var _labels: Array[Label] = []
 var _rest_y: Array[float] = []   ## 各项的静止纵坐标，悬停上浮后要还原
 var _selected := 0
 var _hovered := -1
 var _leave: Tween   ## 退场动画，快速点击要能一步到位
-var _confirm: Control            ## 退出确认的整块覆盖层；null = 还没建过
+var _confirm: Control            ## 覆盖式小列表（退出确认 / 教程对手癌种）的整块覆盖层；null = 还没建过
+var _confirm_panel: Control
+var _confirm_title: Label
 var _confirm_labels: Array[Label] = []
 var _confirm_bars: Array[ColorRect] = []
 var _confirm_glow: Control
-var _confirm_sel := 1            ## 默认停在「取消」，别让回车顺手就退了
+var _confirm_items: Array = []   ## 此刻列出的项（CONFIRM_ITEMS 或四种癌）
+var _confirm_on_pick := Callable()   ## 选了第 i 项做什么（关层由回调自己负责）
+var _confirm_sel := 1            ## 退出确认默认停在「取消」，别让回车顺手就退了
+## 「引导全部看完了吗」的判据。默认读 CWGuideProgress（user:// 里玩家的真实进度）；
+## 无头测试注入假判据，不碰真实文件
+var guide_done_check := Callable(CWGuideProgress, "all_done")
 var _config: CWConfigPanel       ## 对局配置面板；null = 还没建过
 var _online: CWOnlinePanel       ## 联机面板（连接 / 大厅 / 等待室）；null = 还没建过
 var _rules: CWRulesPage          ## 规则速查页；null = 还没建过
@@ -371,19 +386,48 @@ func _confirm_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		_close_confirm()
 	elif event.is_action_pressed("ui_down") or event.is_action_pressed("ui_up"):
-		_confirm_sel = 1 - _confirm_sel
+		## 小列表绕回（两项时就是来回切；四种癌也绕）
+		_confirm_sel = posmod(_confirm_sel + (1 if event.is_action_pressed("ui_down") else -1), _confirm_items.size())
 		_repaint_confirm()
 	elif event.is_action_pressed("ui_accept"):
 		get_viewport().set_input_as_handled()
 		_pick_confirm(_confirm_sel)
 
 
-# ── 退出确认 ──────────────────────────────────────────────────
+# ── 覆盖式小列表（退出确认 / 教程对手癌种） ──────────────────────
 
 func _open_confirm() -> void:
+	_open_pick(CONFIRM_TITLE, CONFIRM_ITEMS, 1, func(i: int) -> void:
+		if i == 0:
+			get_tree().quit()
+		else:
+			_close_confirm())
+
+
+## 「新手引导」：引导全部看完过的玩家先挑对手癌种再开局（Kevin 2026-09-05：过完教程可自由选）；
+## 没看完（或从没进过）就钉死骨肉瘤直接开
+func _open_tutorial() -> void:
+	if not (guide_done_check.is_valid() and guide_done_check.call()):
+		tutorial_requested.emit(TUTORIAL_CANCER)
+		return
+	var types: Array = CWData.CancerType.values()
+	var names: Array = []
+	for t in types:
+		names.append(CWData.CANCER_TYPE_NAMES[t])
+	_open_pick(TUTORIAL_PICK_TITLE, names, types.find(TUTORIAL_CANCER), func(i: int) -> void:
+		_close_confirm()
+		tutorial_requested.emit(types[i]))
+
+
+## 弹出覆盖式小列表：title 标题、items 各项文字、default_sel 默认停在哪一项、on_pick(i) 选中回调
+func _open_pick(title: String, items: Array, default_sel: int, on_pick: Callable) -> void:
 	if _confirm == null:
 		_build_confirm()
-	_confirm_sel = 1
+	_confirm_items = items
+	_confirm_on_pick = on_pick
+	_confirm_title.text = title
+	_fill_pick()
+	_confirm_sel = clampi(default_sel, 0, items.size() - 1)
 	_confirm.visible = true
 	_repaint_confirm()
 
@@ -394,12 +438,13 @@ func _close_confirm() -> void:
 
 
 func _pick_confirm(i: int) -> void:
-	if i == 0:
-		get_tree().quit()
+	if _confirm_on_pick.is_valid():
+		_confirm_on_pick.call(i)
 	else:
 		_close_confirm()
 
 
+## 覆盖层的壳只建一次：压暗层、面板、标题、辉光。项由 _fill_pick 按每次的列表现建
 func _build_confirm() -> void:
 	_confirm = Control.new()
 	_confirm.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -413,30 +458,25 @@ func _build_confirm() -> void:
 	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_confirm.add_child(scrim)
 
-	var h: float = CONFIRM_PAD + CONFIRM_TITLE_H \
-		+ CONFIRM_ITEMS.size() * CONFIRM_ITEM_H + CONFIRM_PAD
-	var screen := CWView.screen_size()
-	var panel := Control.new()
-	panel.position = Vector2((screen.x - CONFIRM_W) / 2.0, (screen.y - h) / 2.0)
-	panel.size = Vector2(CONFIRM_W, h)
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_confirm.add_child(panel)
+	_confirm_panel = Control.new()
+	_confirm_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_confirm.add_child(_confirm_panel)
 
 	var bg := Panel.new()
 	bg.add_theme_stylebox_override("panel", CWStyle.box(0.45, CWStyle.PANEL))
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(bg)
+	_confirm_panel.add_child(bg)
 
-	var title := CWStyle.label(CONFIRM_TITLE, CWStyle.SIZE_BIG, CWStyle.TEXT_HI)
-	title.position = Vector2(CONFIRM_PAD, CONFIRM_PAD)
-	panel.add_child(title)
+	_confirm_title = CWStyle.label(CONFIRM_TITLE, CWStyle.SIZE_BIG, CWStyle.TEXT_HI)
+	_confirm_title.position = Vector2(CONFIRM_PAD, CONFIRM_PAD)
+	_confirm_panel.add_child(_confirm_title)
 
 	## 辉光整套只备一份、跟着选中项走（同 CWPauseMenu）
 	_confirm_glow = Control.new()
 	_confirm_glow.size = Vector2(CONFIRM_W, 28)
 	_confirm_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(_confirm_glow)
+	_confirm_panel.add_child(_confirm_glow)
 	for layer in CWPauseMenu.GLOW:
 		var g := CWStyle.label("", CWStyle.SIZE_BODY, Color(1, 1, 1, 0))
 		g.add_theme_color_override("font_outline_color", Color(1, 1, 1, layer[1]))
@@ -444,16 +484,32 @@ func _build_confirm() -> void:
 		g.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		_confirm_glow.add_child(g)
 
-	for i in CONFIRM_ITEMS.size():
+
+## 按 _confirm_items 重建各项，并把面板按项数定高、居中
+func _fill_pick() -> void:
+	for label in _confirm_labels:
+		label.queue_free()
+	for bar in _confirm_bars:
+		bar.queue_free()
+	_confirm_labels.clear()
+	_confirm_bars.clear()
+
+	var h: float = CONFIRM_PAD + CONFIRM_TITLE_H \
+		+ _confirm_items.size() * CONFIRM_ITEM_H + CONFIRM_PAD
+	var screen := CWView.screen_size()
+	_confirm_panel.position = Vector2((screen.x - CONFIRM_W) / 2.0, (screen.y - h) / 2.0)
+	_confirm_panel.size = Vector2(CONFIRM_W, h)
+
+	for i in _confirm_items.size():
 		var y: float = CONFIRM_PAD + CONFIRM_TITLE_H + i * CONFIRM_ITEM_H
 		var mark := ColorRect.new()
 		mark.position = Vector2(CONFIRM_PAD, y + 6)
 		mark.size = Vector2(4, 22)
 		mark.color = Color(CWStyle.IMMUNE, 0.0)
 		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		panel.add_child(mark)
+		_confirm_panel.add_child(mark)
 		_confirm_bars.append(mark)
-		var label := CWStyle.label(CONFIRM_ITEMS[i], CWStyle.SIZE_BODY, CWStyle.TEXT)
+		var label := CWStyle.label(_confirm_items[i], CWStyle.SIZE_BODY, CWStyle.TEXT)
 		label.position = Vector2(CONFIRM_PAD + 16, y + 5)
 		label.size = label.get_minimum_size()   ## 命中框贴着字，别把右边空白也算进去
 		label.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -465,7 +521,7 @@ func _build_confirm() -> void:
 			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 				get_viewport().set_input_as_handled()   ## 理由同 _on_item_input
 				_pick_confirm(i))
-		panel.add_child(label)
+		_confirm_panel.add_child(label)
 		_confirm_labels.append(label)
 
 
@@ -477,7 +533,7 @@ func _repaint_confirm() -> void:
 		_confirm_bars[i].color = Color(CWStyle.IMMUNE, 1.0 if on else 0.0)
 	_confirm_glow.position = _confirm_labels[_confirm_sel].position
 	for layer in _confirm_glow.get_children():
-		(layer as Label).text = CONFIRM_ITEMS[_confirm_sel]
+		(layer as Label).text = _confirm_items[_confirm_sel]
 
 
 ## 从 from 往 dir 方向找下一个可用项，跳过 mask 里灰掉的；到头停在原地，不绕回。
@@ -523,7 +579,7 @@ func _activate(i: int) -> void:
 				_ui.add_child(_codex)
 			_codex.open()
 		"Guide":
-			tutorial_requested.emit()
+			_open_tutorial()
 		"Settings":
 			if _settings == null:
 				_settings = CWSettingsPage.new()

@@ -19,6 +19,10 @@ extends SceneTree
 ## 第五个参数是「操作脚本」，分号隔开，到点就执行：
 ##   `x,y@秒数`        在该位置点一下（先挪过去再按，悬停态才会触发）
 ##   `key:动作名@秒数`  按一次输入动作，如 `key:ui_cancel@7.5`（暂停菜单只能靠 Esc 唤出）
+##   `call:类名:方法@秒数`  在树里找到第一个挂着该 class_name 脚本的节点，调它的无参方法，
+##                       如 `call:CWGuide:_advance@5.2` = 按引导面板的「继续」。合成的鼠标点击
+##                       到不了 Control（2026-09-05 试过三种坐标系都不响应），只有按键的界面才能靠
+##                       `key:` 走到；引导面板 / 知识之书这类纯鼠标按钮就靠这一条
 ## 交互态（行动栏、目标选择、悬浮框）不点几下根本到不了，而这些恰恰是最需要
 ## 和设计稿比对的画面。例：`"420,240@1.2;640,500@4.0"`
 
@@ -54,6 +58,8 @@ func _initialize() -> void:
 			var at: float = float(parts[1]) if parts.size() > 1 else 0.0
 			if parts[0].begins_with("key:"):
 				_steps.append({ "at": at, "key": parts[0].substr(4) })
+			elif parts[0].begins_with("call:"):
+				_steps.append({ "at": at, "call": parts[0].substr(5).split(":") })
 			else:
 				var xy := parts[0].split(",")
 				_steps.append({ "at": at, "pos": Vector2(float(xy[0]), float(xy[1])) })
@@ -94,7 +100,28 @@ func _do_step(step: Dictionary) -> void:
 			Input.parse_input_event(act)
 		print("  按键 %s @ %.2fs" % [step["key"], _elapsed])
 		return
+	if step.has("call"):
+		var spec: PackedStringArray = step["call"]
+		var node := _find_by_class(root, spec[0])
+		if node == null:
+			print("  没找到 %s 的实例，跳过 %s @ %.2fs" % [spec[0], spec[1], _elapsed])
+		else:
+			node.call(spec[1])
+			print("  调用 %s.%s() @ %.2fs" % [spec[0], spec[1], _elapsed])
+		return
 	_click_at(step["pos"])
+
+
+## 树里第一个挂着 class_name 为 cls 的脚本的节点（深度优先）；没有返回 null
+func _find_by_class(node: Node, cls: String) -> Node:
+	var s: Script = node.get_script()
+	if s != null and s.get_global_name() == cls:
+		return node
+	for child in node.get_children():
+		var found := _find_by_class(child, cls)
+		if found != null:
+			return found
+	return null
 
 
 ## 先挪过去再按下抬起 —— 只发按下事件的话，悬停态和按钮的 mouse_entered 都不会触发。

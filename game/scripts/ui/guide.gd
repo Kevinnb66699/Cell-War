@@ -4,7 +4,10 @@
 ## 交给正常界面；引导只做三件事：
 ##   ① 挂一块一步步的说明面板（可继续 / 跳过引导 / 打开知识之书）；
 ##   ② 轮到你做决定时，给出「现在做什么」的实时提示（由 CWGuideBridge 喂进来）；
-##   ③ 按步骤把棋盘 / 特殊组织 / 行动栏等区域提亮，帮新手把视线放到正确地方。
+##   ③ 按步骤把棋盘 / 特殊组织 / 行动栏等区域提亮，帮新手把视线放到正确地方
+##      （本类只报当前步骤的 flag，描边由 CWGuideSpotlight 画）；
+##   ④ 「继续」在落子 / 结束回合 / 抽卡这几步能替玩家做（Kevin 2026-09-05 拍板：
+##      不自动演示，玩家要么亲手做、要么点「继续」让我做，然后剧本翻到下一步）。
 ##
 ## 设计上刻意不做硬锁步：教程里玩家做错了也不惩罚，提示永远只是建议。
 ## 这样引擎 / 询问桥一行规则都不用改，教程坏不了对局。
@@ -22,6 +25,14 @@ const PAD := 14
 ## 玩家跳过时，只有已经**按过完成**的章节会被标记（避免没看就全绿）。
 var active := false
 var auto_next := false
+## 「继续」的代做钩子（CWMatch 接线到 CWGuideBridge）：demo_ready 回答「此刻按继续会不会替玩家做这一步」，
+## demo 真去做（返回做没做）。无效的 Callable = 没接（无头测试 / 面板单独建）—— 继续就只翻页
+var demo := Callable()
+var demo_ready := Callable()
+## 「此刻该提示什么」：翻页时重新问桥一遍，提示跟着正在教的那一步走（教结束回合就说结束回合，不再停在迁移那句）
+var hint_now := Callable()
+## 提示行尾巴：代做可用时接在桥喂来的提示后面
+const OFFER_TAIL := "（点「继续」我替你做这一步）"
 
 var _match = null
 var _chapter := 0
@@ -123,6 +134,9 @@ func _clicky(text: String, at: Vector2, on_click: Callable) -> Label:
 
 
 func _advance() -> void:
+	## 正在教的这一步能代做（落子 / 结束回合 / 抽卡）且引擎正等着玩家 → 先替玩家做了，再按剧本翻页
+	if demo.is_valid():
+		demo.call()
 	_step += 1
 	while _chapter < CWGuideData.CHAPTER_COUNT and _step >= CWGuideData.steps(_chapter).size():
 		## 这一章看完了：记到进度。
@@ -174,16 +188,28 @@ func _open_codex() -> void:
 		_match.focus_codex_on_topic(CWGuideData.CODEX_PAGE[_chapter])
 
 
-## 由 CWGuideBridge 在 on_prompt 里喂进来的一句「现在做什么」。
+## 由 CWGuideBridge 在轮到玩家时喂进来的一句「现在做什么」。
 func set_hint(text: String) -> void:
-	if _hint_text == text:
-		return
 	_hint_text = text
-	if _hint != null:
-		_hint.text = text
+	_refresh_hint()
 
 
-## 当前步骤想提亮哪个区域（棋盘/特殊组织/能量/…）。由 match 每帧读走。
+## 提示行 = 桥喂来的一句 + 代做尾巴。步骤变了（_render）或提示变了（set_hint）都要重算尾巴：
+## 同一句提示，翻到「第一步：落子」之前没有尾巴、翻到之后就有
+func _refresh_hint() -> void:
+	if _hint == null:
+		return
+	if hint_now.is_valid():
+		var now: String = hint_now.call()
+		if now != "":
+			_hint_text = now
+	var tail := ""
+	if _hint_text != "" and demo_ready.is_valid() and demo_ready.call():
+		tail = OFFER_TAIL
+	_hint.text = _hint_text + tail
+
+
+## 当前步骤想提亮哪个区域（棋盘/特殊组织/能量/…）。CWMatch 每帧读走喂给 CWGuideSpotlight。
 func highlight_flag() -> String:
 	var all := CWGuideData.steps(_chapter)
 	if _step < 0 or _step >= all.size():
@@ -228,6 +254,7 @@ func _render() -> void:
 	var last_of_all: bool = _chapter >= CWGuideData.CHAPTER_COUNT - 1 and last_of_chapter
 	_btn.text = "下一章" if last_of_chapter and not last_of_all else ("完成引导" if last_of_all else "继续")
 	## 引导目录/章节选择放在「完成引导」之后不再重复出现，避免面板太挤
+	_refresh_hint()
 
 
 ## 引导结束时由 CWMatch 调用：隐藏面板并清掉引用

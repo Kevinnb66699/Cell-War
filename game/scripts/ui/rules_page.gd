@@ -62,13 +62,19 @@ static func sections(tune: CWTuning = null) -> Array:
 		win.append("且连续 %d 个世界回合末都达标（首次达标只是警报）" % tune.cancer_win_hold_rounds)
 	win.append("免疫方：癌细胞全灭且无可复活的固化癌组织")
 	win.append("两条都在世界回合 E 的最后判；上限 %d 个世界回合" % CWData.LIMIT_ROUND)
+	## 【无氧呼吸】写在它实际发生的那一段（旋钮 anaerobic_on_turn_end：各癌细胞回合末 / E 阶段统一），
+	## 与知识之书同一条纪律（Kevin 2026-09-05 拍板改）。回合末那句自己占一行——并进「玩家回合」会超栏宽
+	var round_lines: Array = [
+		"S 阶段：复活 → 免疫方【有氧呼吸】收入",
+		"玩家回合：按顺序行动，可连续行动到「结束回合」"]
+	if tune.anaerobic_on_turn_end:
+		round_lines.append("癌细胞每次「结束回合」时结算自己的【无氧呼吸】")
+		round_lines.append("E 阶段：增殖/侵蚀/压迫 → 固化衰减 → 判胜负")
+	else:
+		round_lines.append("E 阶段：癌方【无氧呼吸】→ 增殖/侵蚀/压迫 → 固化衰减 → 判胜负")
 	return [
 		{ "title": "怎么赢", "lines": win },
-		{ "title": "一个世界回合", "lines": [
-			"S 阶段：复活 → 免疫方【有氧呼吸】收入",
-			"玩家回合：按顺序行动，可连续行动到「结束回合」",
-			"E 阶段：癌方【无氧呼吸】→ 增殖/侵蚀/压迫 → 固化衰减 → 判胜负",
-		] },
+		{ "title": "一个世界回合", "lines": round_lines },
 		{ "title": "攻击判定（d6）", "lines": [
 			## PRD：失败时自身 -0.5 能量（口径 #84）。写成条件式是因为它是平衡旋钮，
 			## 平衡实验把它关掉时这半句要跟着消失——速查页不许出现和引擎不符的数

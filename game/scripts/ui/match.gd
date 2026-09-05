@@ -148,6 +148,7 @@ var _log_hint: CWLogHint     ## 左上角「对局日志 L」入口提示（定�
 var _handoff: CWHandoff      ## 热座换手遮罩（UI 层，压在暂停菜单下面）；桥在换人时 await 它
 var _guide: CWGuide          ## 教程局的新手引导面板（每局新建、拆局 queue_free；非教程为 null）
 var _codex: CWCodex          ## 对局内的知识之书（引导面板直达时懒建，拆局只隐藏；非教程为 null）
+var _spotlight: CWGuideSpotlight   ## 教程局的提亮层（引导面板之下，只画不挡；每局新建、拆局销毁；非教程为 null）
 
 
 func _ready() -> void:
@@ -340,6 +341,16 @@ func _attach_guide() -> void:
 	_guide.visible = true
 	if bridge is CWGuideBridge:
 		(bridge as CWGuideBridge).guide = _guide
+		## 「继续」代做（Kevin 2026-09-05）：面板问桥「此刻能代做吗」，按下时让桥替玩家作答
+		_guide.demo_ready = (bridge as CWGuideBridge).can_demo
+		_guide.demo = (bridge as CWGuideBridge).take_offer
+		_guide.hint_now = (bridge as CWGuideBridge).current_hint
+	## 提亮层压在 HUD 之上、引导面板之下；每帧在 _process 里按当前步骤的 flag 重算目标
+	if _spotlight != null and is_instance_valid(_spotlight):
+		_spotlight.queue_free()
+	_spotlight = CWGuideSpotlight.new()
+	ui.add_child(_spotlight)
+	ui.move_child(_spotlight, _guide.get_index())
 
 
 ## 引导面板「知识之书」直达：对局内把图鉴翻到当前关卡对应的章节（CWGuideData.CODEX_PAGE）。
@@ -560,6 +571,9 @@ func teardown() -> void:
 	if _guide != null and is_instance_valid(_guide):
 		_guide.queue_free()   ## 引导面板一局一份，拆局就销毁（下一局教程 _attach_guide 重建）
 	_guide = null
+	if _spotlight != null and is_instance_valid(_spotlight):
+		_spotlight.queue_free()
+	_spotlight = null
 	if _codex != null and is_instance_valid(_codex):
 		_codex.visible = false
 	if settle != null:
@@ -640,6 +654,11 @@ func _process(delta: float) -> void:
 		_log_panel.refresh(game)
 	if _log_hint != null and _log_panel != null:
 		_log_hint.visible = not _log_panel.visible   ## 面板开着就让位（同一个角）
+	if _spotlight != null and is_instance_valid(_spotlight):
+		var flag := ""
+		if _guide != null and is_instance_valid(_guide) and _guide.active:
+			flag = _guide.highlight_flag()
+		_spotlight.sync(flag, self)
 
 
 func _sync_tiles() -> void:

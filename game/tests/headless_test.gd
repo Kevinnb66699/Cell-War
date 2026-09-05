@@ -131,7 +131,9 @@ func _run_all() -> void:
 	t_guide_data()
 	t_codex()
 	await t_guide_bridge()
+	await t_guide_spotlight()
 	await t_quit_confirm()
+	await t_tutorial_pick()
 	await t_roll_hook()
 	t_dice()
 	await t_net_protocol()
@@ -3301,6 +3303,18 @@ func t_rules_page() -> void:
 	check(all.contains("蹲满 %d 回合" % (CWData.SOLIDIFY_THRESHOLD / CWData.SOLIDIFY_STEP)),
 		"固化门槛按回合数显示，不是十分整数")
 	check(not all.contains("蹲满 %d 回合" % CWData.SOLIDIFY_THRESHOLD), "别再把十分整数当回合数打出来")
+	## 【无氧呼吸】的时机跟着旋钮走（Kevin 2026-09-05 拍板：与知识之书同口径）。默认各癌细胞回合末结算 →
+	## 写在玩家回合那一段、E 阶段那行不再提它；旋钮拨回 E 阶段统一结算时那句要搬回去
+	check(all.contains("「结束回合」时结算自己的【无氧呼吸】") and not all.contains("E 阶段：癌方【无氧呼吸】"),
+		"无氧呼吸默认写在癌细胞回合末，E 阶段那行不再提它")
+	var e_phase := CWTuning.new()
+	e_phase.anaerobic_on_turn_end = false
+	var ep := ""
+	for s5 in CWRulesPage.sections(e_phase):
+		for line in s5["lines"]:
+			ep += line + "|"
+	check(ep.contains("E 阶段：癌方【无氧呼吸】") and not ep.contains("结算自己的【无氧呼吸】"),
+		"旋钮拨回 E 阶段统一结算时，那句搬回 E 阶段")
 	## 反击旋钮开了，那半句要跟着出现（平衡实验档）
 	## sections() 用的是默认 CWTuning，这里只验固定文案的另一半确实受控于旋钮：
 	## 直接构造开旋钮的行文对比不可行（sections 内建 tune），改为验默认关。见上一条。
@@ -4306,6 +4320,19 @@ func t_pause_and_teardown() -> void:
 	check(CWSettings.ai_delay_ms == CWSettings.AI_DELAYS[2], "键盘路由到设置页：拨值即时生效")
 	pm._unhandled_input(esc)
 	check(not pm._settings.visible and pm._panel.visible, "设置页上 Esc 退回暂停列表")
+	## 知识之书（Kevin 2026-09-05 拍板加进暂停菜单）：同样页压页、树保持冻结、方向键翻页、Esc 只关书
+	var codex_at := -1
+	for i in CWPauseMenu.ITEMS.size():
+		if CWPauseMenu.ITEMS[i]["id"] == "codex":
+			codex_at = i
+	check(codex_at == rules_at + 1, "「知识之书」排在「规则速查」之后")
+	pm._activate(codex_at)
+	check(pm._codex.visible and pm.visible and pm.get_tree().paused and not pm._panel.visible,
+		"打开知识之书：页压页、树保持冻结、列表让位")
+	pm._unhandled_input(sright)
+	check(pm._codex._page == 1, "方向键路由给书翻页")
+	pm._unhandled_input(esc)
+	check(not pm._codex.visible and pm._panel.visible and pm.get_tree().paused, "书上 Esc：只关书，暂停不解除")
 	pm._unhandled_input(esc)
 	check(not pm.visible and not pm.get_tree().paused, "再按 Esc 才关掉暂停菜单")
 	CWSettings.ai_delay_ms = 220         ## 拨值动了真设置，还原并清盘
@@ -4686,7 +4713,11 @@ func t_main_menu() -> void:
 	for i in range(1, ys.size()):
 		if ys[i] - ys[i - 1] < 26:
 			spaced = false
-	check(spaced and ys[-1] + 28 <= 540, "九项行距 ≥ 26、底边 ≤ 540（%s）" % str(ys))
+	## 整块上移 14px（Kevin 2026-09-05 选乙案）：首项 292 → 278，末项底边 528 → 514，屏幕底留 26px
+	check(spaced and ys[0] == 278 and ys[-1] + 28 <= 514, "九项行距 ≥ 26、首项 278、末项底边 ≤ 514（%s）" % str(ys))
+	var sub: Control = scene.get_node("UI/Screen/Sub")
+	var logo: Control = scene.get_node("UI/Screen/Logo")
+	check(sub.position.y == 119 and logo.position.y == 172, "副标题 / 标题跟着菜单项一起上移 14px（%d / %d）" % [sub.position.y, logo.position.y])
 
 	var grid_ok := true
 	var bad := ""
@@ -4718,7 +4749,7 @@ func t_tutorial() -> void:
 	m.human_players = [0]
 	m.ai_smart = false
 	m.match_seed = 20260903
-	m.cancer_types = []
+	m.cancer_types = [CWData.CancerType.OSTEO]   ## main.gd _begin_tutorial 钉死的对手
 	m.start()
 	await process_frame
 	await process_frame
@@ -4726,6 +4757,8 @@ func t_tutorial() -> void:
 	check(m._guide != null and is_instance_valid(m._guide) and m._guide.visible and m._guide.active,
 		"开局挂上引导面板并处于激活态")
 	check((m.bridge as CWGuideBridge).guide == m._guide, "引导桥拿到了面板引用")
+	check(m.game.player(1)["faction"] == CWData.Faction.CANCER
+		and m.game.player(1)["cancer_type"] == CWData.CancerType.OSTEO, "教程对手钉死为骨肉瘤（不随种子抽）")
 	check(m._guide.get_parent() == m.ui and m._guide.get_index() < m.pause_menu.get_index(),
 		"面板在 UI 层、压在暂停菜单下面")
 	check(m._guide._hint.text.contains("免疫细胞"),
@@ -4748,6 +4781,86 @@ func t_tutorial() -> void:
 			CWGuide.PANEL.size.y - (m._guide._btn.position.y + 22)])
 	check(m.pause_menu.codex_open.is_valid() and not m.pause_menu.codex_open.call(),
 		"暂停菜单拿到了「书开着吗」判据，此刻没开")
+	## 「继续」代做落子（Kevin 2026-09-05）：翻到「第一步：落子」时按继续 = 替玩家把第一个免疫细胞放下，再翻到下一步；
+	## 剧本没走到那一步之前提示行没有尾巴。这里直接把面板拨到第 2 关第 1 步（不写进度文件）
+	check(m._spotlight != null and is_instance_valid(m._spotlight) and m._spotlight.get_parent() == m.ui
+		and m._spotlight.get_index() < m._guide.get_index(), "提亮层挂在 UI 层、引导面板之下")
+	check(not m._guide._hint.text.contains("继续"), "第 1 关（讲解）里提示行没有「继续代做」尾巴")
+	m._guide._chapter = 1
+	m._guide._step = 0
+	m._guide._render()
+	check(m._guide._hint.text.ends_with(CWGuide.OFFER_TAIL), "翻到「第一步：落子」：提示行接上「点继续我替你做」（%s）" % m._guide._hint.text)
+	check(m.game.cells.is_empty(), "按继续之前棋盘上还没有细胞")
+	m._guide._advance()
+	await process_frame
+	await process_frame
+	check(m.game.cells.size() == 2 and m.game.cell_of(0)["faction"] == CWData.Faction.IMMUNE,
+		"按「继续」→ 免疫细胞替玩家落下，AI 随后也落了（%d 个细胞）" % m.game.cells.size())
+	check(m._guide.chapter() == 1 and m._guide.step_no() == 1,
+		"落完子剧本翻到下一步（%d/%d）" % [m._guide.chapter(), m._guide.step_no()])
+	var foot: Vector2i = m.game.cell_of(0)["pos"]
+	var by_cancer := false
+	for n in CWData.neighbors(foot):
+		if m.game.tiles.has(n) and m.game.is_cancerous(n):
+			by_cancer = true
+	check(by_cancer, "代做的落点紧邻癌区（和剧本建议的一样）")
+	check(m.game.round_no == 1 and m.action_bar.visible, "随后轮到玩家的第一个行动回合，行动栏已出现")
+	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["move"]["hint"], "「能量就是生命」这一步：提示是通用的迁移句、没有代做尾巴（%s）" % m._guide._hint.text)
+	m._guide._step = 4      ## 「别忘了结束回合」：翻页后提示换成结束回合那句、带代做尾巴（只 _render，不写进度）
+	m._guide._render()
+	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["end"]["hint"] + CWGuide.OFFER_TAIL,
+		"翻到「别忘了结束回合」：提示跟着换成结束回合那句 + 代做尾巴（%s）" % m._guide._hint.text)
+	m._guide._step = 1
+	m._guide._render()
+	## 提亮层：按 flag 找目标（棋盘 / 特殊组织 / 可落子格 / 右栏 / 行动栏按钮 / 结束回合 / 手牌抽屉）
+	var sp := m._spotlight
+	sp.sync("board", m)
+	check(sp.rects.size() == 1 and sp.hexes.is_empty() and sp.rects[0].size.x > 300, "board：整张棋盘一个包围框")
+	var n_special := 0
+	for c in CWData.all_coords():
+		if CWData.special_of(c) != CWData.Special.NONE:
+			n_special += 1
+	sp.sync("special", m)
+	check(sp.hexes.size() == n_special and n_special > 0, "special：%d 个特殊组织格各描一圈" % n_special)
+	sp.sync("place", m)
+	check(sp.hexes.size() > 0 and sp.hexes.size() < 40, "place：只描紧邻癌区的可落子格（%d 格）" % sp.hexes.size())
+	sp.sync("energy", m)
+	check(sp.rects.size() == 1 and sp.rects[0] == m.panel.rect_of("row:0")
+		and sp.rects[0].position.x >= CWMatchPanel.RECT.position.x, "energy：右栏里人类那一行")
+	sp.sync("immune_defend", m)
+	check(sp.hexes.size() == 1, "immune_defend：自己的免疫细胞脚下")
+	sp.sync("attack", m)
+	check(sp.hexes.size() == 1, "attack：癌细胞脚下")
+	sp.sync("purify", m)
+	check(sp.hexes.size() > 0, "purify：脚边可净化的癌组织（%d 格）" % sp.hexes.size())
+	sp.sync("draw", m)
+	check(sp.rects.size() == 1 and sp.rects[0] == m.action_bar.button_rect(CWData.ACT_NAMES["draw"]), "draw：行动栏「基因表达」按钮")
+	sp.sync("move", m)
+	check(sp.rects.size() == 1 and sp.rects[0] == m.action_bar.button_rect("迁移"), "move：行动栏「迁移」按钮")
+	sp.sync("attack_limit", m)
+	check(sp.rects.size() == 1 and sp.rects[0] == m.action_bar.bar_rect(), "attack_limit：整条行动栏")
+	sp.sync("end", m)
+	check(sp.rects.size() == 1 and m.panel._end.visible and sp.rects[0] == m.panel._end.get_global_rect(), "end：右栏「结束回合」按钮")
+	sp.sync("hand_card", m)
+	check(sp.rects.size() == 1 and sp.rects[0].position.y == CWHand.REST_TOP, "hand_card：左下角手牌抽屉")
+	sp.sync("hand_limit", m)
+	check(sp.rects.size() == 1 and sp.rects[0].size.x > 30, "hand_limit：右栏你那一行的手牌方块")
+	sp.sync("differentiate", m)
+	check(sp.rects.size() == 1 and sp.rects[0] == m.panel.rect_of("level"), "differentiate：I 级还没「分化」按钮 → 描右栏免疫等级块")
+	sp.sync("round", m)
+	check(sp.rects.size() == 1 and sp.rects[0] == m.panel.rect_of("round"), "round：右栏顶部回合块")
+	sp.sync("world_event", m)
+	check(sp.rects.size() == 2, "world_event：回合块 + 左上角「对局日志」入口")
+	sp.sync("graduated", m)
+	check(sp.rects.is_empty() and sp.hexes.is_empty(), "graduated：没有目标就什么都不画")
+	sp.sync("", m)
+	check(sp.rects.is_empty() and sp.hexes.is_empty(), "没有 flag 的步骤不画")
+	## 引导收起（跳过）后 _process 不再喂 flag
+	m._guide.dismiss()
+	await process_frame
+	check(sp.rects.is_empty() and sp.hexes.is_empty(), "跳过引导后提亮层清空")
+	m._guide.active = true
+	m._guide.visible = true
 	## 引导面板「知识之书」直达：第 4 关（下标 3）对应 CODEX_PAGE[3]
 	m._guide._chapter = 3
 	m._guide.open_codex_at_current()
@@ -4763,8 +4876,8 @@ func t_tutorial() -> void:
 	check(not m.pause_menu.codex_open.call(), "书关了：判据回到「没开」")
 	m.teardown()
 	await process_frame
-	check(m._guide == null and not m._codex.visible and not m.pause_menu.codex_open.is_valid(),
-		"拆局：面板销毁、书隐藏、让位判据清空")
+	check(m._guide == null and m._spotlight == null and not m._codex.visible and not m.pause_menu.codex_open.is_valid(),
+		"拆局：面板与提亮层销毁、书隐藏、让位判据清空")
 	## 正式局不带引导：同一个 CWMatch 复用
 	m.tutorial = false
 	m.start()
@@ -4898,7 +5011,7 @@ func t_guide_bridge() -> void:
 		"AUTO_ACTS 只含一步到位的 place/end/draw")
 	check(not CWGuideBridge.AUTO_ACTS.has("move") and not CWGuideBridge.AUTO_ACTS.has("attack"),
 		"move/attack 是两段式选格，留给玩家亲手点")
-	## 实跑一次：place 步骤轮到人类时自动演示
+	## 实跑一次：轮到人类时只喂提示、不再自动演示（Kevin 2026-09-05：落子要么亲手点、要么点「继续」代做）
 	var g := CWGame.new()
 	g.init(CWData.FACTION_ORDER[2], 7)
 	var b := CWGuideBridge.new()
@@ -4910,19 +5023,124 @@ func t_guide_bridge() -> void:
 		{ "label": "a", "data": { "to": Vector2i(1, 0) } },
 		{ "label": "b", "data": { "to": Vector2i(2, 0) } }] }
 	var idx: int = await b.ask(req)
-	check(idx == 0, "place 步骤自动演示：直接返回第一个合法选项")
-	check(fake.hints.size() == 1 and fake.hints[0].contains("演示"),
-		"演示后把「照着做」提示喂给面板")
-	check(b._demoed.get("1:0", false), "该步骤已记录为演示过")
-	var idx2: int = await b.ask(req)
-	check(idx2 == 0 and fake.hints.size() == 2 and not fake.hints[1].contains("演示"),
-		"同一步骤第二次只提示、不重复演示（无界面时退回 AI 代答，仍是第一个选项）")
+	check(idx >= 0 and idx < 2 and fake.hints.size() == 1 and not fake.hints[0].contains("演示"),
+		"落子那一问只喂提示、不替玩家落（无界面时退回 AI 代答）")
+	check(b._cur_req.is_empty() and not b.can_demo(), "作答完这一问就不再可代做")
+	## 「继续」代做：模拟一问正卡在等玩家（_pending 有值、_cur_req 是这一问）
+	var got: Array = []
+	var ans := CWUIBridge.Answer.new()
+	ans.done.connect(func(v: Variant) -> void: got.append(v))
+	b._cur_req = req
+	b._pending = ans
+	check(b.can_demo(), "正在教落子（第 2 关第 1 步）且引擎正等落子 → 「继续」可代做")
+	check(b.take_offer() and got.size() == 1 and int(got[0]) >= 0 and int(got[0]) < 2,
+		"按「继续」替玩家答了一个合法下标（%s）" % str(got))
+	check(not b.take_offer(), "同一问不会代做第二次")
+	## 教的不是一步到位的动作 → 不代做
+	fake._step = 2      ## 「第二步：迁移」（两段式，留给玩家亲手点）
+	b._cur_req = req
+	b._pending = CWUIBridge.Answer.new()
+	check(not b.can_demo() and not b.take_offer(), "教迁移时「继续」不代做（两段式选格留给玩家）")
+	## 结束回合 / 抽卡：从行动那一问里挑出对应选项的下标
+	fake._step = 4      ## 「别忘了结束回合」
+	var act_req := { "kind": "action", "pid": 0, "prompt": "", "options": [
+		{ "label": "迁移", "data": { "act": "move", "to": Vector2i(1, 0) } },
+		{ "label": "抽卡", "data": { "act": "draw" } },
+		{ "label": "结束回合", "data": { "act": "end" } }] }
+	got.clear()
+	var ans2 := CWUIBridge.Answer.new()
+	ans2.done.connect(func(v: Variant) -> void: got.append(v))
+	b._cur_req = act_req
+	b._pending = ans2
+	check(b.can_demo() and b.take_offer() and got == [2], "教结束回合时「继续」= 答「结束回合」那个下标")
+	## 提示跟着正在教的那一步走：同一问里教结束回合就说结束回合，教抽卡就说抽卡，教的不在这一问里就退回迁移那句
+	b._cur_req = act_req
+	check(b.current_hint() == CWGuideBridge.STEP_HINTS["end"]["hint"], "教结束回合：提示是结束回合那句")
+	fake._step = 1      ## 「能量就是生命」（展示型，不教动作）
+	check(b.current_hint() == CWGuideBridge.STEP_HINTS["move"]["hint"], "展示型步骤：退回通用的迁移提示")
+	fake._chapter = 2
+	fake._step = 0      ## 「怎么发起攻击」
+	check(b.current_hint() == CWGuideBridge.STEP_HINTS["attack"]["hint"], "教攻击：提示是攻击那句（选项里攻击就是迁移）")
+	b._cur_req = {}
+	check(b.current_hint() == "", "没在等人：没有提示")
+	fake._chapter = 3
+	fake._step = 0      ## 「抽卡入口」
+	b._cur_req = act_req
+	check(b._demo_index() == 1, "教抽卡时「继续」= 答「基因表达」那个下标")
+	## 落子代做挑紧邻癌区的格：从这局的真实盘面上各找一格「挨着癌区」和「不挨」的健康格，两种顺序都验
+	fake._chapter = 1
+	fake._step = 0
+	var near := Vector2i(9999, 9999)   ## 哨兵：还没找到
+	var far := near
+	for c in CWData.all_coords():
+		if g.tiles[c]["tissue"] != CWData.Tissue.HEALTHY:
+			continue
+		var adj := false
+		for n in CWData.neighbors(c):
+			if g.tiles.has(n) and g.is_cancerous(n):
+				adj = true
+		if adj and near == Vector2i(9999, 9999):
+			near = c
+		if not adj and far == Vector2i(9999, 9999):
+			far = c
+	check(near != Vector2i(9999, 9999) and far != Vector2i(9999, 9999), "盘面上既有挨着癌区的健康格也有不挨的（%s / %s）" % [near, far])
+	var far_req := { "kind": "setup_place", "pid": 0, "prompt": "选位置", "options": [
+		{ "label": "far", "data": { "to": far } },
+		{ "label": "near", "data": { "to": near } }] }
+	b._cur_req = far_req
+	b._pending = CWUIBridge.Answer.new()
+	check(b._demo_index() == 1, "代做落子挑紧邻癌区的那一格（剧本建议的位置）")
+	var near_req := { "kind": "setup_place", "pid": 0, "prompt": "选位置", "options": [
+		{ "label": "near", "data": { "to": near } },
+		{ "label": "far", "data": { "to": far } }] }
+	b._cur_req = near_req
+	check(b._demo_index() == 0, "顺序反过来也是挑挨着癌区的那格")
+	var none_req := { "kind": "setup_place", "pid": 0, "prompt": "选位置", "options": [
+		{ "label": "far", "data": { "to": far } }] }
+	b._cur_req = none_req
+	check(b._demo_index() == 0, "没有挨着癌区的候选就退回第一个合法格")
 	## guide 为空（无头 / 面板还没挂上）不能崩
 	b.guide = null
+	b._cur_req = req
+	b._pending = CWUIBridge.Answer.new()
+	check(not b.can_demo() and not b.take_offer(), "没有引导面板时不代做")
 	var idx3: int = await b.ask(req)
-	check(idx3 == 0, "没有引导面板时桥照常作答、不解引用空面板")
+	check(idx3 >= 0, "没有引导面板时桥照常作答、不解引用空面板")
 	fake.free()
 	g.dispose()
+
+
+## 引导提亮区域（Kevin 2026-09-05 拍板做完整版）：剧本每个 flag 都要有归宿，六边形描边的几何要和棋盘对得上。
+## 真对局里各 flag 找到什么目标，在 t_tutorial 里就着活的对局验。
+func t_guide_spotlight() -> void:
+	print("[引导提亮区域]")
+	var used := {}
+	for i in CWGuideData.CHAPTER_COUNT:
+		for st in CWGuideData.steps(i):
+			var f: String = str(st.get("flag", ""))
+			if f != "":
+				used[f] = true
+	var missing: Array = []
+	for f in used:
+		if not CWGuideSpotlight.FLAGS.has(f):
+			missing.append(f)
+	check(missing.is_empty(), "剧本 %d 个提亮键全部登记在 FLAGS 表（缺：%s）" % [used.size(), str(missing)])
+	var dead: Array = []
+	for f in CWGuideSpotlight.FLAGS:
+		if not used.has(f):
+			dead.append(f)
+	check(dead.is_empty(), "FLAGS 表里没有剧本不用的键（多：%s）" % str(dead))
+	## 六边形描边：宽 = 横向格距 36 × 缩放，高 ≈ 贴图顶面 26.7 × 缩放
+	var pts := CWGuideSpotlight.hex_points(Vector2(100, 100), 2.0)
+	var lo := pts[0]
+	var hi := pts[0]
+	for p in pts:
+		lo = lo.min(p)
+		hi = hi.max(p)
+	check(pts.size() == 7 and pts[0] == pts[6], "六边形描边 6 个顶点首尾闭合")
+	check(absf((hi.x - lo.x) - 72.0) < 0.01 and absf((hi.y - lo.y) - 53.3) < 0.2,
+		"描边宽高 = 格距 36 / 顶面 26.7 乘缩放 2（实为 %s）" % str(hi - lo))
+	check(absf((lo.x + hi.x) / 2.0 - 100.0) < 0.01 and absf((lo.y + hi.y) / 2.0 - 100.0) < 0.01, "描边以顶面中心为中心")
 
 
 func _all_labels(node: Node) -> Array[Label]:
@@ -5704,6 +5922,65 @@ func t_quit_confirm() -> void:
 	menu._selected = 0
 	menu._unhandled_input(down)
 	check(menu._selected != 0, "确认层关掉后方向键回到主菜单（跳到了第 %d 项）" % menu._selected)
+	root.queue_free()
+
+
+## 「新手引导」入口的对手癌种（Kevin 2026-09-05 拍板）：首次钉死骨肉瘤直接开；引导全部看完后先弹一层挑对手。
+## 「看完了吗」的判据可注入，不读也不写 user:// 里玩家真实的引导进度。
+func t_tutorial_pick() -> void:
+	print("[教程对手癌种]")
+	var menu: Node2D = load("res://scenes/MainMenu.tscn").instantiate()
+	var root := Node2D.new()
+	get_root().add_child(root)
+	var board := make_board()
+	board.name = "Board"
+	root.add_child(board)
+	var cam := Camera2D.new()
+	cam.name = "Camera2D"
+	root.add_child(cam)
+	root.add_child(menu)
+	await process_frame
+	var got: Array = []
+	menu.tutorial_requested.connect(func(t: int) -> void: got.append(t))
+	var guide_i := -1
+	for i in menu.ITEMS.size():
+		if menu.ITEMS[i]["node"] == "Guide":
+			guide_i = i
+	menu.guide_done_check = func() -> bool: return false
+	menu._activate(guide_i)
+	check(got == [CWData.CancerType.OSTEO] and (menu._confirm == null or not menu._confirm.visible),
+		"没看完引导：直接开教程、对手钉死骨肉瘤、不弹选种")
+	menu.guide_done_check = func() -> bool: return true
+	menu._activate(guide_i)
+	await process_frame
+	check(got.size() == 1 and menu._confirm != null and menu._confirm.visible, "引导全看完：先弹对手癌种选择，不直接开")
+	check(menu._confirm_title.text == menu.TUTORIAL_PICK_TITLE
+		and menu._confirm_items.size() == CWData.CancerType.size()
+		and menu._confirm_items[menu._confirm_sel] == CWData.CANCER_TYPE_NAMES[CWData.CancerType.OSTEO],
+		"四种癌全列出、默认停在骨肉瘤（%s）" % str(menu._confirm_items))
+	var down := InputEventAction.new()
+	down.action = "ui_down"
+	down.pressed = true
+	var accept := InputEventAction.new()
+	accept.action = "ui_accept"
+	accept.pressed = true
+	menu._confirm_input(down)
+	menu._confirm_input(accept)
+	check(got.size() == 2 and got[1] == CWData.CancerType.SCLC and not menu._confirm.visible,
+		"往下一项回车：选中的癌种随信号发出、覆盖层收起")
+	menu._activate(guide_i)
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	menu._confirm_input(esc)
+	check(got.size() == 2 and not menu._confirm.visible, "Esc = 不开教程，回主菜单")
+	## 退出确认共用这块覆盖层，别被改坏：标题、两项、默认停在「取消」
+	menu._activate(menu.ITEMS.size() - 1)
+	check(menu._confirm.visible and menu._confirm_title.text == menu.CONFIRM_TITLE
+		and menu._confirm_items == menu.CONFIRM_ITEMS and menu._confirm_sel == 1,
+		"退出确认仍是「退出游戏？」两项、默认停在「取消」")
+	menu._pick_confirm(1)
+	check(not menu._confirm.visible, "退出确认的「取消」照旧收层")
 	root.queue_free()
 
 

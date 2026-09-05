@@ -26,8 +26,8 @@ const TITLE_H := 42     ## 标题（30px）占的高度
 const HINT_H := 20
 
 ## enabled=false 的项按主菜单那套画成灰色、不响应鼠标。
-## 「规则速查」「设置」直接复用主菜单那两个页面类（2026-08-30 接入）：
-## 视图本身无状态（设置的真身在 CWSettings 静态里），暂停里再建一份实例即可；
+## 「规则速查」「知识之书」「设置」直接复用主菜单那三个页面类（2026-08-30 接入；知识之书 2026-09-05 Kevin 拍板加，
+## 正式局里翻图鉴不必回主菜单）：视图本身无状态（设置的真身在 CWSettings 静态里），暂停里再建一份实例即可；
 ## 挂在本节点下面顺便继承 PROCESS_MODE_ALWAYS，暂停期间照常收输入——
 ## 「页压页且保持暂停」就这么解决，见 _unhandled_input 里的子页路由。
 ## 带 confirm 的项要先过一道确认（团队 2026-08-27 要求：这两项都不可撤销）。
@@ -37,6 +37,7 @@ const ITEMS := [
 	{ "id": "resume", "text": "继续对局", "enabled": true, "confirm": "" },
 	{ "id": "save_quit", "text": "保存并退出", "enabled": true, "confirm": "" },
 	{ "id": "rules", "text": "规则速查", "enabled": true, "confirm": "" },
+	{ "id": "codex", "text": "知识之书", "enabled": true, "confirm": "" },
 	{ "id": "settings", "text": "设置", "enabled": true, "confirm": "" },
 	{ "id": "menu", "text": "返回主菜单", "enabled": true, "confirm": "返回主菜单？" },
 	{ "id": "quit", "text": "退出游戏", "enabled": true, "confirm": "退出游戏？" },
@@ -73,6 +74,7 @@ var online := false
 
 var _rules: CWRulesPage        ## 对局内的规则速查/设置：主菜单同款页面类的另一份实例
 var _settings: CWSettingsPage
+var _codex: CWCodex
 var _panel: Control
 var _title: Label
 var _hint: Label
@@ -96,8 +98,11 @@ func _ready() -> void:
 	add_child(_rules)
 	_settings = CWSettingsPage.new()
 	add_child(_settings)
+	_codex = CWCodex.new()
+	add_child(_codex)
 	_rules.visibility_changed.connect(_sub_changed)
 	_settings.visibility_changed.connect(_sub_changed)
+	_codex.visibility_changed.connect(_sub_changed)
 	visible = false
 
 
@@ -124,6 +129,8 @@ func close() -> void:
 		_rules.visible = false
 	if _settings != null:
 		_settings.visible = false
+	if _codex != null:
+		_codex.visible = false
 	## teardown() 在 _exit_tree 里也会调到这儿，那时已经离开场景树、get_tree() 是 null
 	if is_inside_tree():
 		get_tree().paused = false
@@ -132,7 +139,8 @@ func close() -> void:
 ## 子页开着时列表让位（两块面板同宽同位，叠着会透出一圈重影）；树保持冻结
 func _sub_changed() -> void:
 	var sub_open: bool = (_rules != null and _rules.visible) \
-		or (_settings != null and _settings.visible)
+		or (_settings != null and _settings.visible) \
+		or (_codex != null and _codex.visible)
 	_panel.visible = not sub_open
 
 
@@ -148,6 +156,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _settings != null and _settings.visible:
 		_settings.handle_input(event)
+		return
+	if _codex != null and _codex.visible:
+		_codex.handle_input(event)
 		return
 	if event.is_action_pressed("ui_cancel"):
 		## 正在选目标格时，Esc 归行动栏的「取消」，不开菜单
@@ -238,6 +249,9 @@ func _activate(i: int) -> void:
 		return
 	if id == "settings":
 		_settings.open()
+		return
+	if id == "codex":
+		_codex.open()
 		return
 	if _list[i]["confirm"] != "":
 		_show_page(id)

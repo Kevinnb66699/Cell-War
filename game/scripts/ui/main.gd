@@ -89,10 +89,11 @@ func _begin(cfg: Dictionary) -> void:
 
 
 ## 「新手引导」：开一局固定种子的 2 人教程局（免疫 vs 癌方，人类坐免疫位）。
-## 引擎照常跑，教程只是 CWGuideBridge + CWGuide 在旁边演示与提示（见 match.start() / guide_data.gd），
-## 做错不惩罚。固定种子是为了每关的演示 / 落子提示都出现在合理局面上；AI 用普通启发式，
+## 引擎照常跑，教程只是 CWGuideBridge + CWGuide 在旁边提示、代做与提亮（见 match.start() / guide_data.gd），
+## 做错不惩罚。固定种子是为了每关的落子提示都出现在合理局面上；AI 用普通启发式，
 ## 别让蒙特卡洛抢戏。过场和正式局一样三拍：新手也该先看到干净棋盘、再看到癌组织怎么铺开。
-func _begin_tutorial() -> void:
+## cancer_type 由主菜单决定：首次钉死骨肉瘤，引导全部看完后玩家自己挑（Kevin 2026-09-05）。
+func _begin_tutorial(cancer_type: int) -> void:
 	if _entering:
 		return
 	match_node.tutorial = true
@@ -100,7 +101,7 @@ func _begin_tutorial() -> void:
 	match_node.human_players = [0]       ## 2 人局行动顺序 = [免疫, 癌]，人类坐免疫
 	match_node.ai_smart = false
 	match_node.match_seed = 20260903     ## 固定种子，教程局面可复现
-	match_node.cancer_types = []         ## 上一局自定义钉死的癌种不带进教程
+	match_node.cancer_types = [cancer_type]   ## 教程对手钉死（2 人局只有一个癌席），不随种子抽
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
 	menu.dismiss(T_DECOR, DECOR_DRIFT)

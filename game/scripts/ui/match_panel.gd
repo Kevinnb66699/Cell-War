@@ -181,6 +181,35 @@ func show_end_turn(on: bool) -> void:
 	_end.visible = on
 
 
+## 引导提亮用（CWGuideSpotlight）：某块区域的屏幕矩形。"round" 回合 / 阶段 / 事件块，"row:<pid>" 玩家行，
+## "pips:<pid>" 该行的手牌方块，"level" 免疫等级块，"end" 结束回合按钮。没建好 / 此刻不显示 → 零矩形（提亮就不画）
+func rect_of(what: String) -> Rect2:
+	if _built == 0:
+		return Rect2()
+	var at := global_position
+	if what == "round":
+		return Rect2(at + Vector2(PAD, PAD), Vector2(W, ROUND_H))
+	if what == "level":
+		return Rect2(at + Vector2(PAD, _level_y), Vector2(W, LEVEL_H))
+	if what == "end":
+		return _end.get_global_rect() if _end != null and _end.visible else Rect2()
+	var parts := what.split(":")
+	if parts.size() != 2:
+		return Rect2()
+	var pid := int(parts[1])
+	if pid < 0 or pid >= _rows.size():
+		return Rect2()
+	if parts[0] == "row":
+		return (_rows[pid]["bg"] as Control).get_global_rect()
+	if parts[0] == "pips":
+		var pips: Array = _rows[pid]["pips"]
+		var r: Rect2 = (pips[0] as Control).get_global_rect()
+		for p in pips:
+			r = r.merge((p as Control).get_global_rect())
+		return r
+	return Rect2()
+
+
 ## 世界事件在第 3、6、10、15 个世界回合触发，之后每 5 个（判据在 CWData）。
 ## 这里只找「下一次是第几回合」，规则仍然只有 CWData 一处。
 func _next_event_round(from: int) -> int:
