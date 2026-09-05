@@ -74,6 +74,7 @@ func _run_all() -> void:
 	t_erosion_fx()
 	await t_teleport_fx()
 	await t_hotseat()
+	await t_tutorial()
 	t_stroma_targets()
 	await t_batch2_rules()
 	t_immune_level_rules()
@@ -127,6 +128,9 @@ func _run_all() -> void:
 	await t_buttons_dim()
 	await t_enter_not_skipped()
 	t_main_menu()
+	t_guide_data()
+	t_codex()
+	await t_guide_bridge()
 	await t_quit_confirm()
 	await t_roll_hook()
 	t_dice()
@@ -4662,24 +4666,27 @@ func t_main_menu() -> void:
 	# 键盘上下必须跳过灰掉的项。mask 由 enabled_mask() 现算（「继续对局」随存档
 	# 有无变化），这里直接摆两种局面验静态跳转规则。
 	var last: int = menu_script.ITEMS.size() - 1
-	## 七项：开始 / 自定义 / 联机 / 继续 / 规则 / 设置 / 退出（2026-09-03 加「自定义对局」）
-	check(menu_script.ITEMS.size() == 7 and menu_script.ITEMS[1]["node"] == "Custom", "「自定义对局」在「开始对局」之后")
-	var no_save := [true, true, true, false, true, true, true]
+	## 九项：开始 / 自定义 / 联机 / 继续 / 规则 / 知识之书 / 新手引导 / 设置 / 退出
+	## （2026-09-03 加「自定义对局」；2026-09-05 加「知识之书」「新手引导」）
+	check(menu_script.ITEMS.size() == 9 and menu_script.ITEMS[1]["node"] == "Custom"
+		and menu_script.ITEMS[5]["node"] == "Codex" and menu_script.ITEMS[6]["node"] == "Guide",
+		"「自定义对局」「知识之书」「新手引导」按序排在主菜单")
+	var no_save := [true, true, true, false, true, true, true, true, true]
 	check(menu_script.next_enabled(2, 1, no_save) == 4, "无档：从「联机对战」往下跳过「继续对局」落到规则速查")
-	check(menu_script.next_enabled(4, 1, no_save) == 5, "规则速查再往下是设置")
-	check(menu_script.next_enabled(last, -1, no_save) == 5, "键盘往上一步到设置")
+	check(menu_script.next_enabled(4, 1, no_save) == 5, "规则速查再往下是知识之书")
+	check(menu_script.next_enabled(last, -1, no_save) == 7, "键盘从「退出游戏」往上一步到设置")
 	check(menu_script.next_enabled(0, -1, no_save) == 0, "到顶了就停在原地，不绕回")
-	var with_save := [true, true, true, true, true, true, true]
+	var with_save := [true, true, true, true, true, true, true, true, true]
 	check(menu_script.next_enabled(2, 1, with_save) == 3, "有档：从「联机对战」往下落到「继续对局」")
-	## 七项要排得下：最后一项底边不出屏，相邻两项不重叠
+	## 九项要排得下：最后一项底边不出屏，相邻两项不重叠（行距 26：20px 字、28px 行框，字形不叠）
 	var ys: Array = []
 	for item in menu_script.ITEMS:
 		ys.append((items.get_node(item["node"]) as Label).position.y)
 	var spaced := true
 	for i in range(1, ys.size()):
-		if ys[i] - ys[i - 1] < 28:
+		if ys[i] - ys[i - 1] < 26:
 			spaced = false
-	check(spaced and ys[-1] + 28 <= 540, "七项行距 ≥ 28、底边 ≤ 540（%s）" % str(ys))
+	check(spaced and ys[-1] + 28 <= 540, "九项行距 ≥ 26、底边 ≤ 540（%s）" % str(ys))
 
 	var grid_ok := true
 	var bad := ""
@@ -4693,6 +4700,178 @@ func t_main_menu() -> void:
 
 	scene.free()
 	board.free()
+
+
+## 教程局的整场景装配（队友 09-04 设计、09-05 接入）：桥换成 CWGuideBridge、面板挂在 UI 层暂停菜单下、
+## 第一次询问就喂提示；引导面板「知识之书」直达对局内图鉴、Esc 先关书；拆局清干净；正式局不受影响。
+## 不碰 CWGuideProgress（那是 user:// 里玩家真实的引导进度，测试不该改它）。
+func t_tutorial() -> void:
+	print("[教程局 · 引导装配]")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	CWSettings.ai_delay_ms = 0
+	## 与 main.gd _begin_tutorial() 同一组参数（不走过场，直接开）
+	m.tutorial = true
+	m.player_count = 2
+	m.human_players = [0]
+	m.ai_smart = false
+	m.match_seed = 20260903
+	m.cancer_types = []
+	m.start()
+	await process_frame
+	await process_frame
+	check(m.bridge is CWGuideBridge, "教程局的桥是 CWGuideBridge")
+	check(m._guide != null and is_instance_valid(m._guide) and m._guide.visible and m._guide.active,
+		"开局挂上引导面板并处于激活态")
+	check((m.bridge as CWGuideBridge).guide == m._guide, "引导桥拿到了面板引用")
+	check(m._guide.get_parent() == m.ui and m._guide.get_index() < m.pause_menu.get_index(),
+		"面板在 UI 层、压在暂停菜单下面")
+	check(m._guide._hint.text.contains("免疫细胞"),
+		"第一次询问（落子）就把「现在做什么」喂给了面板：%s" % m._guide._hint.text)
+	check(m._guide._chapter_label.text.begins_with("1/%d" % CWGuideData.CHAPTER_COUNT),
+		"没有进度时从第 1 关开始（%s）" % m._guide._chapter_label.text)
+	## 底部三个按钮不能贴在一起（接入时真机截图里「跳过引导知识之书」连成了一句）
+	var skip_r: float = m._guide._skip.position.x + m._guide._skip.size.x
+	var codex_r: float = m._guide._codex_btn.position.x + m._guide._codex_btn.size.x
+	check(m._guide._codex_btn.get_parent() == m._guide and m._guide._codex_btn.position.x - skip_r >= 16.0
+		and m._guide._btn.position.x - codex_r >= 16.0,
+		"「跳过引导」「知识之书」「继续」都挂在面板上且彼此至少隔 16px（%.0f / %.0f）"
+		% [m._guide._codex_btn.position.x - skip_r, m._guide._btn.position.x - codex_r])
+	check(m.pause_menu.codex_open.is_valid() and not m.pause_menu.codex_open.call(),
+		"暂停菜单拿到了「书开着吗」判据，此刻没开")
+	## 引导面板「知识之书」直达：第 4 关（下标 3）对应 CODEX_PAGE[3]
+	m._guide._chapter = 3
+	m._guide.open_codex_at_current()
+	check(m._codex != null and m._codex.visible and m._codex._page == CWGuideData.CODEX_PAGE[3],
+		"直达：对局内知识之书翻到当前关对应的那一章（第 %d 页）" % (m._codex._page + 1))
+	check(m._codex.get_parent() == m.ui and m._codex.get_index() < m.pause_menu.get_index(),
+		"对局内的书也在 UI 层、暂停菜单下面")
+	check(m.pause_menu.codex_open.call(), "书开着：暂停菜单让位")
+	m._unhandled_input(press_action("ui_right"))
+	check(m._codex._page == CWGuideData.CODEX_PAGE[3] + 1, "书开着时方向键由 CWMatch 路由给书翻页")
+	m._unhandled_input(press_action("ui_cancel"))
+	check(not m._codex.visible and m._guide.visible, "Esc 先关书，引导面板还在")
+	check(not m.pause_menu.codex_open.call(), "书关了：判据回到「没开」")
+	m.teardown()
+	await process_frame
+	check(m._guide == null and not m._codex.visible and not m.pause_menu.codex_open.is_valid(),
+		"拆局：面板销毁、书隐藏、让位判据清空")
+	## 正式局不带引导：同一个 CWMatch 复用
+	m.tutorial = false
+	m.start()
+	await process_frame
+	await process_frame
+	check(not (m.bridge is CWGuideBridge) and m._guide == null, "正式局：普通桥、没有引导面板")
+	m.teardown()
+	await process_frame
+	CWSettings.ai_delay_ms = 220
+	root.remove_child(main_scene)
+	main_scene.free()
+
+func t_guide_data() -> void:
+	print("[新手引导剧本]")
+	check(CWGuideData.CHAPTER_COUNT == 6, "引导剧本共 6 关")
+	var want := [0, 4, 5, 6, 3, 8]
+	check(CWGuideData.CODEX_PAGE.size() == 6 and CWGuideData.CODEX_PAGE == want,
+		"每关都挂钩到知识之书的对应章节（%s）" % str(CWGuideData.CODEX_PAGE))
+	check(CWGuideData.chapter_titles().size() == CWGuideData.CHAPTER_COUNT,
+		"每关都有标题")
+	check(CWGuideData.chapter_subtitles().size() == CWGuideData.CHAPTER_COUNT,
+		"每关都有一句概括")
+	var sum := 0
+	for i in CWGuideData.CHAPTER_COUNT:
+		var sts: Array = CWGuideData.steps(i)
+		check(not sts.is_empty(), "第 %d 关至少一步" % i)
+		for st in sts:
+			check(st.has("t") and st.has("b") and (st["b"] as Array).size() > 0,
+				"第 %d 关每步都有标题与正文" % i)
+		sum += sts.size()
+	check(CWGuideData.total_steps() == sum,
+		"total_steps() 与逐关步骤数之和一致（%d）" % sum)
+	var cells: Array = CWGuideData.steps(5)
+	check(cells.size() >= 6, "细胞图鉴关覆盖免疫 / 癌方 / 速查（%d 步）" % cells.size())
+
+
+func t_codex() -> void:
+	print("[知识之书]")
+	var chs: Array = CWCodex.chapters()
+	check(chs.size() >= 13, "知识之书至少 13 章（当前 %d 章）" % chs.size())
+	var codex_ch: Dictionary = {}
+	for ch in chs:
+		check(ch.has("title") and not (ch["entries"] as Array).is_empty(), "每章都有标题与条目")
+		if ch["title"] == "细胞图鉴":
+			codex_ch = ch
+	check(not codex_ch.is_empty(), "知识之书存在「细胞图鉴」章节")
+	if codex_ch.is_empty():
+		return
+	var entries: Array = codex_ch["entries"]
+	check(entries.size() == 9, "细胞图鉴恰好 9 个条目（当前 %d 个）" % entries.size())
+	var blob := ""
+	for e in entries:
+		blob += str(e["t"]) + " " + " ".join(e["b"]) + " "
+	var need := ["抗体", "裂解", "标记", "血行转移", "黏液破裂", "骨样硬化", "瓦伯格"]
+	for kw in need:
+		check(blob.contains(kw), "细胞图鉴提到「%s」" % kw)
+
+
+class FakeGuide:
+	extends CWGuide
+	var hints: Array[String] = []
+	func _init() -> void:
+		active = true
+		_chapter = 1
+		_step = 0
+	func set_hint(text: String) -> void:
+		hints.append(text)
+
+
+func t_guide_bridge() -> void:
+	print("[引导桥]")
+	var data_acts := {}
+	for i in 4:
+		for st in CWGuideData.steps(i):
+			var a: String = str(st.get("act", ""))
+			if a != "":
+				data_acts[a] = true
+	check(not data_acts.is_empty(), "剧本里有需要玩家动手的动作步骤")
+	var missing := []
+	for a in data_acts:
+		if not CWGuideBridge.STEP_HINTS.has(a):
+			missing.append(a)
+	check(missing.is_empty(), "STEP_HINTS 覆盖剧本全部动作键（%s）" % str(data_acts.keys()))
+	check(CWGuideBridge.STEP_HINTS.size() == 5, "STEP_HINTS 恰好五组动作提示")
+	check(CWGuideBridge.AUTO_ACTS.size() == 3 and CWGuideBridge.AUTO_ACTS.has("place")
+		and CWGuideBridge.AUTO_ACTS.has("end") and CWGuideBridge.AUTO_ACTS.has("draw"),
+		"AUTO_ACTS 只含一步到位的 place/end/draw")
+	check(not CWGuideBridge.AUTO_ACTS.has("move") and not CWGuideBridge.AUTO_ACTS.has("attack"),
+		"move/attack 是两段式选格，留给玩家亲手点")
+	## 实跑一次：place 步骤轮到人类时自动演示
+	var g := CWGame.new()
+	g.init(CWData.FACTION_ORDER[2], 7)
+	var b := CWGuideBridge.new()
+	b.game = g
+	b.human_pids = [0]
+	var fake := FakeGuide.new()
+	b.guide = fake
+	var req := { "kind": "setup_place", "pid": 0, "prompt": "选位置", "options": [
+		{ "label": "a", "data": { "to": Vector2i(1, 0) } },
+		{ "label": "b", "data": { "to": Vector2i(2, 0) } }] }
+	var idx: int = await b.ask(req)
+	check(idx == 0, "place 步骤自动演示：直接返回第一个合法选项")
+	check(fake.hints.size() == 1 and fake.hints[0].contains("演示"),
+		"演示后把「照着做」提示喂给面板")
+	check(b._demoed.get("1:0", false), "该步骤已记录为演示过")
+	var idx2: int = await b.ask(req)
+	check(idx2 == 0 and fake.hints.size() == 2 and not fake.hints[1].contains("演示"),
+		"同一步骤第二次只提示、不重复演示（无界面时退回 AI 代答，仍是第一个选项）")
+	## guide 为空（无头 / 面板还没挂上）不能崩
+	b.guide = null
+	var idx3: int = await b.ask(req)
+	check(idx3 == 0, "没有引导面板时桥照常作答、不解引用空面板")
+	fake.free()
+	g.dispose()
 
 
 func _all_labels(node: Node) -> Array[Label]:

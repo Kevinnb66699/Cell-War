@@ -61,6 +61,10 @@ var action_bar: CWActionBar
 ## 无效的 Callable 按「不能存」处理 —— 没接线就宁可灰着。
 var can_save := Callable()
 
+## 知识之书开着时（CWMatch 注入的判据）Esc 先关书、不弹暂停。
+## 无效的 Callable 按「没开书」处理 —— 非教程局/未开时照常弹暂停。
+var codex_open := Callable()
+
 ## 对局进行中才响应 Esc。主菜单上按 Esc 不该弹出「暂停」——
 ## 由 CWMatch 在 start() / teardown() 里翻。
 var active := false
@@ -134,6 +138,8 @@ func _sub_changed() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not active:
+		return
+	if codex_open.is_valid() and codex_open.call():
 		return
 	## 页压页路由：子页开着时键盘输入全数转给它（Esc 由子页自己收——
 	## 关的是子页不是暂停菜单，树保持冻结，退回列表继续选）

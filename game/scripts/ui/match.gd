@@ -39,6 +39,10 @@ signal finished(winner: int)
 @export var cancer_types: Array = []
 ## 单独跑本场景时自己开局；挂在 Main 下面时由 main.gd 在过场结束后调 start()
 @export var autostart := false
+## 教程局（主菜单「新手引导」，main.gd 的 _begin_tutorial 置 true）：桥换成 CWGuideBridge、
+## 开局挂新手引导面板；装配见 _attach_guide()，引导面板直达知识之书见 focus_codex_on_topic()。
+## 正式局 / 读档 / 联机 / 再来一局的入口都把它复位成 false。
+@export var tutorial := false
 
 ## 此刻能不能存档：引擎只在 pending 边界有完整快照（CWSave 的写入条件）。
 ## 暂停菜单拿它决定「保存并退出」亮不亮。联机局不写本地存档（状态在服务器，掉线凭令牌重连）。
@@ -142,6 +146,8 @@ var _last_pos: Array[Vector2i] = []   ## 上一帧位置，下标 = cell id；�
 var _log_panel: CWLogPanel   ## 对局日志面板（L 键开关），同样程序化补进
 var _log_hint: CWLogHint     ## 左上角「对局日志 L」入口提示（定案A），显隐跟着面板走
 var _handoff: CWHandoff      ## 热座换手遮罩（UI 层，压在暂停菜单下面）；桥在换人时 await 它
+var _guide: CWGuide          ## 教程局的新手引导面板（每局新建、拆局 queue_free；非教程为 null）
+var _codex: CWCodex          ## 对局内的知识之书（引导面板直达时懒建，拆局只隐藏；非教程为 null）
 
 
 func _ready() -> void:
@@ -210,6 +216,8 @@ func start(snap: Dictionary = {}) -> void:
 	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。
 	for pid in game.order:
 		game.bridges[pid] = bridge
+	if tutorial:
+		_attach_guide()   ## 要在 _run()（第一次询问）之前：第一句提示 / 第一次演示就要读章节
 	_run()
 
 
@@ -274,6 +282,9 @@ func _prepare_ui() -> void:
 	if pause_menu != null:
 		pause_menu.active = true
 		pause_menu.can_save = can_save_now
+		## 对局内知识之书开着时 Esc 先关书、不弹暂停（非教程局 _codex 恒为 null = 没开书）
+		pause_menu.codex_open = func() -> bool:
+			return _codex != null and is_instance_valid(_codex) and _codex.visible
 	if _tile_info != null and not board.tile_hovered.is_connected(_tile_info.on_hover):
 		board.tile_hovered.connect(_tile_info.on_hover)
 	if _card_info != null and hand != null 			and not hand.card_hovered.is_connected(_card_info.on_hover):
@@ -288,7 +299,8 @@ func _prepare_ui() -> void:
 
 
 func _wire_bridge(smart: bool) -> void:
-	bridge = CWUIBridge.new()
+	## 教程局包一层引导桥（子类，只多演示与提示，其余装配完全相同）
+	bridge = CWGuideBridge.new() if tutorial else CWUIBridge.new()
 	bridge.game = game
 	bridge.board = board
 	bridge.dice = _dice
@@ -308,6 +320,39 @@ func _wire_bridge(smart: bool) -> void:
 	bridge.opening = _opening    ## 绽开演完前先不弹询问界面
 	bridge.delay_ms = CWSettings.ai_delay_ms
 	bridge.delay_node = self
+
+
+## 教程局装配：建引导面板（UI 层、压在暂停菜单下面）并把它交给引导桥。
+## start() 里在桥注册给所有玩家之后、_run()（第一次询问）之前调用 ——
+## 第一句提示 / 第一次演示发生时面板已经能读章节。每局都新建实例、不复用：
+## guide.setup() 会 _build()，复用等于把控件再挂一遍。
+func _attach_guide() -> void:
+	if ui == null:
+		return
+	if _guide != null and is_instance_valid(_guide):
+		_guide.queue_free()
+	_guide = CWGuide.new()
+	_guide.visible = false
+	ui.add_child(_guide)
+	if pause_menu != null:
+		ui.move_child(_guide, pause_menu.get_index())
+	_guide.setup(self)
+	_guide.visible = true
+	if bridge is CWGuideBridge:
+		(bridge as CWGuideBridge).guide = _guide
+
+
+## 引导面板「知识之书」直达：对局内把图鉴翻到当前关卡对应的章节（CWGuideData.CODEX_PAGE）。
+## 图鉴盖在引导面板上面，Esc / 右键关掉就回到引导；实例懒建，拆局只隐藏不销毁。
+func focus_codex_on_topic(page: int) -> void:
+	if ui == null:
+		return
+	if _codex == null or not is_instance_valid(_codex):
+		_codex = CWCodex.new()
+		ui.add_child(_codex)
+		if pause_menu != null:
+			ui.move_child(_codex, pause_menu.get_index())
+	_codex.open_to(page)
 
 
 ## 开场第二拍：初始癌组织从正中一格一格翻出来（团队定的三拍开场之二）。
@@ -512,6 +557,11 @@ func teardown() -> void:
 		_log_panel.hide_now()
 	if _log_hint != null:
 		_log_hint.visible = false
+	if _guide != null and is_instance_valid(_guide):
+		_guide.queue_free()   ## 引导面板一局一份，拆局就销毁（下一局教程 _attach_guide 重建）
+	_guide = null
+	if _codex != null and is_instance_valid(_codex):
+		_codex.visible = false
 	if settle != null:
 		settle.reset()
 	## 退出游戏时 _exit_tree 也会走到这里，那时棋盘可能已经被释放了
@@ -528,6 +578,7 @@ func teardown() -> void:
 	if ui != null:
 		ui.visible = false
 	if pause_menu != null:
+		pause_menu.codex_open = Callable()
 		pause_menu.active = false
 		pause_menu.close()
 
@@ -535,6 +586,18 @@ func teardown() -> void:
 ## 对局用完必须显式拆，否则 game 与各模块之间的强引用环不会被回收。
 func _exit_tree() -> void:
 	teardown()
+
+
+## 对局内知识之书开着时的键盘路由：Esc 关书、方向键翻页。书自己不收键盘 ——
+## 覆盖层统一由宿主路由（主菜单那份也是 CWMainMenu 路由的）。书没开就不管，
+## 暂停菜单 / 行动栏各管各的，不和 L / 空格抢。
+func _unhandled_input(event: InputEvent) -> void:
+	if _codex == null or not is_instance_valid(_codex) or not _codex.visible:
+		return
+	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("ui_left") \
+			or event.is_action_pressed("ui_right") or event.is_action_pressed("ui_up") \
+			or event.is_action_pressed("ui_down"):
+		_codex.handle_input(event)
 
 
 func _process(delta: float) -> void:

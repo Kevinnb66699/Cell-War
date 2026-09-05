@@ -46,6 +46,7 @@ func _ready() -> void:
 	CWSettings.load_prefs()   ## 偏好尽早读：AI 节奏/掷骰动画在开局装配时就要用
 	menu.start_requested.connect(_begin)
 	menu.continue_requested.connect(_continue)
+	menu.tutorial_requested.connect(_begin_tutorial)
 	menu.online_match_requested.connect(_begin_online)
 	menu.online_lost.connect(_on_online_lost)
 	pause.chose.connect(_on_pause_chose)
@@ -59,6 +60,7 @@ func _ready() -> void:
 func _begin(cfg: Dictionary) -> void:
 	if _entering:
 		return
+	match_node.tutorial = false   ## 正式局入口统一复位（教程标志只在 _begin_tutorial 置位）
 	match_node.player_count = cfg["players"]
 	var seats: Array[int] = []
 	if cfg["faction"] == CWConfigPanel.HOTSEAT:
@@ -86,11 +88,35 @@ func _begin(cfg: Dictionary) -> void:
 	_entering = false    ## 三拍走完才算「不在过场中」——忘了置回，返回主菜单会永远进不去
 
 
+## 「新手引导」：开一局固定种子的 2 人教程局（免疫 vs 癌方，人类坐免疫位）。
+## 引擎照常跑，教程只是 CWGuideBridge + CWGuide 在旁边演示与提示（见 match.start() / guide_data.gd），
+## 做错不惩罚。固定种子是为了每关的演示 / 落子提示都出现在合理局面上；AI 用普通启发式，
+## 别让蒙特卡洛抢戏。过场和正式局一样三拍：新手也该先看到干净棋盘、再看到癌组织怎么铺开。
+func _begin_tutorial() -> void:
+	if _entering:
+		return
+	match_node.tutorial = true
+	match_node.player_count = 2
+	match_node.human_players = [0]       ## 2 人局行动顺序 = [免疫, 癌]，人类坐免疫
+	match_node.ai_smart = false
+	match_node.match_seed = 20260903     ## 固定种子，教程局面可复现
+	match_node.cancer_types = []         ## 上一局自定义钉死的癌种不带进教程
+	_entering = true
+	_started_ms = Time.get_ticks_msec()
+	menu.dismiss(T_DECOR, DECOR_DRIFT)
+	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_tween.tween_method(_look, 0.0, 1.0, T_ENTER)
+	await _tween.finished
+	await match_node.start_with_bloom(T_BLOOM)
+	_entering = false
+
+
 ## 联机开局：房间进入对局且第一份状态到了。过场和本地开局一样（推镜头 + 绽开），
 ## 只是对局由服务器驱动（CWMatch.start_online）。
 func _begin_online(client: CWNetClient) -> void:
 	if _entering:
 		return
+	match_node.tutorial = false
 	match_node.player_count = int(client.room.get("players", 4))
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
@@ -166,6 +192,7 @@ func _on_settle_chose(action: String) -> void:
 func _restart() -> void:
 	if _entering:
 		return
+	match_node.tutorial = false   ## 再来一局是正式局，不带引导
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
 	match_node.fade_out(T_RESTART)
@@ -198,6 +225,7 @@ func _on_pause_chose(action: String) -> void:
 func _continue() -> void:
 	if _entering:
 		return
+	match_node.tutorial = false   ## 读档入口统一复位（存档里不记教程标志，读回来就是正式局）
 	var data := CWSave.read()
 	if data.is_empty():
 		return   ## 档坏了或没了：亮灭是按 exists() 算的，这里兜底

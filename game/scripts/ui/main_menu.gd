@@ -18,6 +18,8 @@ signal continue_requested
 signal online_match_requested(client: CWNetClient)
 ## 联机对局中房间没了：main.gd 收摊回主菜单
 signal online_lost(reason: String)
+## 「新手引导」被点了：main.gd 开一局固定种子的教程对局
+signal tutorial_requested
 
 ## 棋盘和相机都是同级节点。写成可导出的路径而不是写死 get_node("../Board")，
 ## 是为了将来换树形（比如过场时把菜单挪进别的容器）只改场景不改代码。
@@ -60,6 +62,8 @@ const ITEMS := [
 	{"node": "Online", "enabled": true},
 	{"node": "Continue", "enabled": true},
 	{"node": "Rules", "enabled": true},
+	{"node": "Codex", "enabled": true},
+	{"node": "Guide", "enabled": true},
 	{"node": "Settings", "enabled": true},
 	{"node": "Quit", "enabled": true},
 ]
@@ -105,6 +109,7 @@ var _confirm_sel := 1            ## 默认停在「取消」，别让回车顺�
 var _config: CWConfigPanel       ## 对局配置面板；null = 还没建过
 var _online: CWOnlinePanel       ## 联机面板（连接 / 大厅 / 等待室）；null = 还没建过
 var _rules: CWRulesPage          ## 规则速查页；null = 还没建过
+var _codex: CWCodex             ## 知识之书图鉴；null = 还没建过
 var _settings: CWSettingsPage    ## 设置页；null = 还没建过
 var _swap: Tween                 ## 菜单↔配置的槽位换面板动画（0.30s 出 / 0.32s 入）
 
@@ -347,6 +352,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _settings != null and _settings.visible:
 		_settings.handle_input(event)
 		return
+	if _codex != null and _codex.visible:
+		_codex.handle_input(event)
+		return
 	if _confirm != null and _confirm.visible:
 		_confirm_input(event)
 		return
@@ -509,6 +517,13 @@ func _activate(i: int) -> void:
 				_rules = CWRulesPage.new()
 				_ui.add_child(_rules)
 			_rules.open()
+		"Codex":
+			if _codex == null:
+				_codex = CWCodex.new()
+				_ui.add_child(_codex)
+			_codex.open()
+		"Guide":
+			tutorial_requested.emit()
 		"Settings":
 			if _settings == null:
 				_settings = CWSettingsPage.new()
