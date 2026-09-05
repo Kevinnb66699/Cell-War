@@ -35,6 +35,9 @@ func _rows() -> Array:
 		{ "name": "掷骰动画", "texts": ["演出", "跳过"],
 			"get": func() -> int: return 0 if CWSettings.dice_anim else 1,
 			"set": func(i: int) -> void: CWSettings.dice_anim = i == 0 },
+		{ "name": "传送演出", "texts": ["演出", "跳过"],
+			"get": func() -> int: return 0 if CWSettings.teleport_anim else 1,
+			"set": func(i: int) -> void: CWSettings.teleport_anim = i == 0 },
 	]
 
 

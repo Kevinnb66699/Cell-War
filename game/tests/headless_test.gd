@@ -72,6 +72,7 @@ func _run_all() -> void:
 	t_pressure()
 	t_necrosis()
 	t_erosion_fx()
+	await t_teleport_fx()
 	t_stroma_targets()
 	await t_batch2_rules()
 	t_immune_level_rules()
@@ -1645,6 +1646,116 @@ class ErosionRecorder extends CWBridge:
 ## 三件事分开验：帧序（纯函数）、方向取法（不许掷骰）、引擎到桥的广播。
 ## **方向与美术的对应是这一组测试的重点** —— 弄反了不会报错，只会让玩家
 ## 看见癌从空的那一侧漫过来，而这种错没人会在日志里发现。
+# ---- 传送演出：状态差分判传送、残影/真身各自的材质与时序、拆局清干净、开关（规格 docs/动画规格_传送.md） ----
+func t_teleport_fx() -> void:
+	print("[传送演出]")
+	## ① 单体：残影复制离场那一帧原地溶解；真身先藏住再凝出；演完材质摘掉、scale 归一、落地回调一次
+	var stage := Node2D.new()
+	root.add_child(stage)
+	var body := Sprite2D.new()
+	body.texture = CWMatch.CANCER_ART[CWData.CancerType.MELANOMA]
+	body.hframes = CWMatch.BREATH_FRAMES
+	body.offset = Vector2(0, -17)
+	body.frame = 4
+	body.position = Vector2(300, 200)
+	stage.add_child(body)
+	var fx := CWTeleportFx.new()
+	var landed := [0]
+	fx.play(stage, body, 7, Vector2(100, 100), 55, CWTeleportFx.EDGE_CANCER, 0.0,
+		func() -> void: landed[0] += 1)
+	check(fx.busy() and fx.ghost_count() == 1, "开演：一个残影在溶解")
+	var ghost: Sprite2D = fx._ghosts[0]["node"]
+	check(ghost.get_parent() == stage and ghost.position == Vector2(100, 100) and ghost.z_index == 55,
+		"残影挂在给的父层、站在离场那一格的原站位（含 STACK_DX 错位）")
+	check(ghost.texture == body.texture and ghost.hframes == body.hframes \
+		and ghost.frame == 4 and ghost.offset == body.offset, "残影复制离场那一帧：同贴图、同帧、同脚底锚点")
+	var gm := ghost.material as ShaderMaterial
+	check(gm != null and gm.shader == CWTeleportFx.SHADER and float(gm.get_shader_parameter("emerge")) == 0.0 \
+		and gm.get_shader_parameter("edge_color") == CWTeleportFx.EDGE_CANCER, "残影：沉入方向、阵营色边")
+	var bm := body.material as ShaderMaterial
+	check(bm != null and bm != gm and float(bm.get_shader_parameter("progress")) == 1.0 \
+		and float(bm.get_shader_parameter("emerge")) == 1.0 and bm.get_shader_parameter("edge_color") == Color.WHITE,
+		"真身：材质逐实例、先整个溶掉藏住、凝出方向 + 白边")
+	fx.sync_breath(2, CWMatch.BREATH_FRAMES)
+	check(ghost.frame == (2 + 7) % CWMatch.BREATH_FRAMES, "残影呼吸帧 = 全局步进 + 细胞下标（与 _animate_breath 同式）")
+	await create_timer(CWTeleportFx.LAG + CWTeleportFx.EMERGE + 0.2).timeout
+	await process_frame
+	check(not fx.busy() and not is_instance_valid(ghost), "0.45s 后：残影已删、真身演完")
+	check(body.material == null and body.scale == Vector2.ONE, "真身材质摘掉、scale 回到 ONE（否则下一帧 _sync_cells 覆写会抖一下）")
+	check(landed[0] == 1, "落地回调恰好一次（调用方拿它白闪目标格）")
+	## ② clear_all：补间先杀再删节点，真身还原
+	fx.play(stage, body, 7, Vector2(1, 1), 1, CWTeleportFx.EDGE_IMMUNE, 0.3, Callable())
+	check(fx.busy() and body.material != null, "带延迟的演出在排队，真身已藏住")
+	fx.clear_all()
+	await process_frame
+	check(not fx.busy() and body.material == null and body.scale == Vector2.ONE \
+		and stage.get_child_count() == 1, "clear_all：残影删净、补间杀掉、真身还原（只剩真身一个子节点）")
+	root.remove_child(stage)
+	stage.free()
+
+	## ③ 接线：CWMatch._sync_cells 的状态差分（不走引擎信号）
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	var g := bare_game()
+	var imm := put_immune(g, Vector2i(0, 0))
+	var can := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER, Vector2i(2, 0), -1, CWData.CancerType.MELANOMA, 60)
+	g.cells.append(can)
+	m.game = g
+	m._sync_cells()                      ## 首帧：两个节点都是「刚出现」→ 淡入，不算传送
+	check(m._cell_nodes.size() == 2 and not m._teleport_fx.busy(), "首帧出现走淡入，不触发传送")
+	imm["pos"] = Vector2i(1, 0)          ## 相邻一格：普通迁移
+	m._sync_cells()
+	check(not m._teleport_fx.busy(), "挪到相邻格是迁移，不演")
+	var before: Vector2 = m._cell_nodes[0].position
+	imm["pos"] = Vector2i(-4, 2)         ## 跳远：传送
+	m._sync_cells()
+	check(m._teleport_fx.ghost_count() == 1 and m._teleport_fx.played == 1, "两格不相邻 → 判定为传送，开演一次")
+	check(m._teleport_fx._ghosts[0]["node"].position == before, "残影落在上一帧实际画的位置")
+	check(m._cell_nodes[0].position == m.board.tile_center(Vector2i(-4, 2)) + Vector2(0, CWMatch.CELL_FOOT_DY),
+		"真身已经被 _sync_cells 摆到新格（演出不碰位移）")
+	check((m._cell_nodes[0].material as ShaderMaterial).get_shader_parameter("edge_color") == Color.WHITE \
+		and (m._teleport_fx._ghosts[0]["node"].material as ShaderMaterial).get_shader_parameter("edge_color") == CWTeleportFx.EDGE_IMMUNE,
+		"免疫细胞：残影青边离场、真身白边落场")
+	## 复活不是传送：死了再在远处活过来 → 淡入
+	m._teleport_fx.clear_all()
+	can["alive"] = false
+	m._sync_cells()
+	can["alive"] = true
+	can["pos"] = Vector2i(-2, -2)
+	m._sync_cells()
+	check(not m._teleport_fx.busy(), "死而复活落在远处：走淡入，不当传送（先查复活再查传送）")
+	## 血管互换：两端同帧检出，血管格先亮
+	imm["pos"] = CWData.VESSELS[0]
+	can["pos"] = CWData.VESSELS[1]
+	m._sync_cells()
+	m._teleport_fx.clear_all()
+	m._flash.clear()
+	imm["pos"] = CWData.VESSELS[1]
+	can["pos"] = CWData.VESSELS[0]
+	m._sync_cells()
+	check(m._teleport_fx.ghost_count() == 2, "血管互换：两端同一帧各出一个残影")
+	check(m._flash.has(CWData.VESSELS[0]) and m._flash.has(CWData.VESSELS[1]), "血管格先亮，交代「是血管干的」")
+	## 开关：关掉后检测照做、演出全跳
+	m._teleport_fx.clear_all()
+	CWSettings.teleport_anim = false
+	imm["pos"] = Vector2i(0, 0)
+	m._sync_cells()
+	check(not m._teleport_fx.busy() and m._last_pos[0] == Vector2i(0, 0), "开关关着：不演，位置记录照常更新")
+	CWSettings.teleport_anim = true
+	## 拆局：无残留
+	imm["pos"] = Vector2i(4, -4)
+	m._sync_cells()
+	check(m._teleport_fx.busy(), "拆局前有一个演出在跑")
+	m.teardown()
+	await process_frame
+	check(not m._teleport_fx.busy() and m._last_pos.is_empty() and m._cells_root.get_child_count() == 0,
+		"拆局：补间杀掉、残影删净、位置记录清空")
+	root.remove_child(main_scene)
+	main_scene.free()
+
+
 func t_erosion_fx() -> void:
 	print("[侵蚀过场]")
 	var fx := CWErosionFx.new()

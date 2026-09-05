@@ -135,6 +135,10 @@ var _card_info: CWCardInfo   ## 悬停手牌详情，同样程序化补进；与
 var _chemo_fx: CWChemoFx     ## 树突【I-趋化源】的漩涡核心演出（挂在棋盘层，跟着格子走）
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
 var _erosion_fx := CWErosionFx.new()
+## 细胞传送的溶解演出（规格 docs/动画规格_传送.md）。同样不是节点：残影挂在 _cells_root 下，句柄它自己收。
+## 「这是传送」由下面 _last_pos 的差分判定（上一帧与这一帧都活着、两格不相邻），不走引擎信号。
+var _teleport_fx := CWTeleportFx.new()
+var _last_pos: Array[Vector2i] = []   ## 上一帧位置，下标 = cell id；两格不相邻 = 传送
 var _log_panel: CWLogPanel   ## 对局日志面板（L 键开关），同样程序化补进
 var _log_hint: CWLogHint     ## 左上角「对局日志 L」入口提示（定案A），显隐跟着面板走
 
@@ -467,10 +471,12 @@ func teardown() -> void:
 		game = null
 	bridge = null
 	_opening = false
+	_teleport_fx.clear_all()   ## 先杀补间再删节点：残影/真身的补间不能活过拆局
 	for node in _cell_nodes:
 		node.queue_free()
 	_cell_nodes.clear()
 	_was_alive.clear()
+	_last_pos.clear()
 	_bloom.clear()
 	_flash.clear()
 	_erosion_fx.clear_all()
@@ -601,6 +607,7 @@ func _sync_cells() -> void:
 		if c["alive"]:
 			per_tile[c["pos"]] = per_tile.get(c["pos"], 0) + 1
 	var placed := {}
+	var jumps: Array = []   ## 本帧检出的传送：{ i, from, to, ghost_pos, ghost_z }
 	for i in game.cells.size():
 		var c: Dictionary = game.cells[i]
 		var node: Node2D = _cell_nodes[i]
@@ -608,9 +615,16 @@ func _sync_cells() -> void:
 		## 死而复活的也要淡入一次 —— 它和刚落子一样是「凭空出现」
 		if c["alive"] and not _was_alive[i]:
 			_pop_in(node)
+		## 传送 = 上一帧与这一帧都活着、两格**不相邻**（六邻域按轴坐标算，别用像素距离）。
+		## 判定顺序先复活再传送：复活走 _pop_in，不和传送混淆（规格 §三.1）。
+		## 残影要站在它上一帧**实际画的位置**：趁下面覆写 position 之前抄走，同格错位也就自动对上
+		elif c["alive"] and CWData.hex_dist(_last_pos[i], c["pos"]) > 1:
+			jumps.append({ "i": i, "from": _last_pos[i], "to": c["pos"],
+				"ghost_pos": node.position, "ghost_z": node.z_index })
 		_was_alive[i] = c["alive"]
 		if not c["alive"]:
 			continue
+		_last_pos[i] = c["pos"]
 		var pos: Vector2i = c["pos"]
 		var n: int = per_tile[pos]
 		var k: int = placed.get(pos, 0)
@@ -620,6 +634,33 @@ func _sync_cells() -> void:
 		node.z_index = board.tile_z(pos, board.Z_CELL)
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"])
+	if not jumps.is_empty():
+		_play_teleports(jumps)
+
+
+## 本帧检出的传送开演（规格 §三.2~3）。同一帧多个（紊乱全场齐传）按离重心的环数错峰；
+## 两端都是血管格 = 血管互换：两端同一延迟、完全同时演，血管格先白闪一下交代「是血管干的」。
+## 开关关着时检测照做、演出全跳（细胞照旧瞬移）—— AI 互搏观战局紊乱频繁，要这个降噪开关。
+func _play_teleports(jumps: Array) -> void:
+	if not CWSettings.teleport_anim:
+		return
+	var dests: Array = []
+	for j in jumps:
+		dests.append(j["to"])
+	var delays: Dictionary = board.ring_delays(dests, CWTeleportFx.RING_STEP) if jumps.size() > 1 else {}
+	for j in jumps:
+		var i: int = j["i"]
+		var from: Vector2i = j["from"]
+		var to: Vector2i = j["to"]
+		var delay: float = float(delays.get(to, 0.0))
+		if game.tiles[from]["special"] == CWData.Special.VESSEL \
+				and game.tiles[to]["special"] == CWData.Special.VESSEL:
+			_flash[from] = FLASH_TIME
+			_flash[to] = FLASH_TIME
+			delay = CWTeleportFx.VESSEL_LEAD
+		_teleport_fx.play(_cells_root, _cell_nodes[i] as Sprite2D, i, j["ghost_pos"], int(j["ghost_z"]),
+			CWTeleportFx.edge_for(int(game.cells[i]["faction"])), delay,
+			func() -> void: _flash[to] = FLASH_TIME)
 
 
 ## 手牌抽屉。抽到的卡从**发起抽卡的那个细胞**身上飞出来 ——
@@ -657,6 +698,7 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 		_set_cell_art(node, CANCER_ART[cell["ctype"]])
 	_cells_root.add_child(node)
 	_was_alive.append(false)   ## 下一次 _sync_cells 就会认出「刚出现」并淡入
+	_last_pos.append(cell["pos"])
 	return node
 
 
@@ -683,6 +725,7 @@ func _animate_breath(delta: float) -> void:
 		var s := _cell_nodes[i] as Sprite2D
 		if s.visible and s.hframes == BREATH_FRAMES:
 			s.frame = (_breath_step + i) % BREATH_FRAMES
+	_teleport_fx.sync_breath(_breath_step, BREATH_FRAMES)   ## 残影也要跟着呼吸，否则帧率不一致穿帮
 
 
 ## 分化会改 itype，所以贴图每帧对一次。
