@@ -1755,7 +1755,7 @@ func t_hotseat() -> void:
 	lp.viewer = -1
 	check(lp.line_text(g, 0) == "免疫A 抽了一张牌", "换手期间（无人视角）：秘密行全换")
 	lp.filter = false
-	check(lp.line_text(g, 0) == "免疫A 抽到【X】", "不过滤（单人局）：行为不变")
+	check(lp.line_text(g, 0) == "免疫A 抽到【X】", "filter 关（无真人的观战局）：原文照出")
 	## 视角一变，折好的行要重折
 	lp.visible = true
 	lp.filter = true
@@ -1803,7 +1803,8 @@ func t_hotseat() -> void:
 	m.start()
 	await process_frame
 	await process_frame
-	check(not m.bridge.hotseat and not m._handoff.active and not m._log_panel.filter, "单人局：不是热座，遮罩与日志过滤都不介入")
+	check(not m.bridge.hotseat and not m._handoff.active and m._log_panel.filter and m._log_panel.viewer == 0,
+		"单人局：不是热座、不弹遮罩，但日志仍按这一席的视角过滤（AI 抽的牌名也收，Kevin 09-05）")
 	m.teardown()
 	await process_frame
 	CWSettings.ai_delay_ms = 220

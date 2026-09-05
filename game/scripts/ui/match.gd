@@ -566,10 +566,14 @@ func _process(delta: float) -> void:
 		var info_faction: int = game.player(_hand_pid)["faction"] if _hand_pid >= 0 			else CWData.Faction.IMMUNE
 		_card_info.sync(delta, info_faction, _opening or _fading)
 	if _log_panel != null:
-		## 热座：日志按「当前露牌的真人」视角过滤，换手期间（-1）所有秘密行都是公开替身；单人局不过滤
+		## 日志按「屏幕前这位真人」的视角过滤：别人（含 AI）抽到什么牌换成公开替身（Kevin 2026-09-05：单人局也收）。
+		## 热座下视角 = 当前露牌的真人，换手期间（-1）所有秘密行都是替身；单人局 = 那一席；无真人的观战局不过滤、全看
 		var hs := bridge is CWUIBridge and (bridge as CWUIBridge).hotseat
-		_log_panel.filter = hs
-		_log_panel.viewer = (bridge as CWUIBridge).current_human if hs else -1
+		_log_panel.filter = not human_players.is_empty()
+		if hs:
+			_log_panel.viewer = (bridge as CWUIBridge).current_human
+		else:
+			_log_panel.viewer = human_players[0] if not human_players.is_empty() else -1
 		_log_panel.refresh(game)
 	if _log_hint != null and _log_panel != null:
 		_log_hint.visible = not _log_panel.visible   ## 面板开着就让位（同一个角）

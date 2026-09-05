@@ -35,7 +35,7 @@ var _track: ColorRect
 var _visible_n := 0
 ## 热座（2026-09-05）：filter 开着时按 viewer 的视角显示 —— 别人的秘密行（抽到什么牌）换成引擎记的公开替身
 ## `log_public`，与联机 CWNet.logs_for 同一口径；viewer = -1 是换手期间的「无人视角」，全部秘密行都换。
-## 单人局 filter 关，行为与从前完全一样（仍看得到 AI 抽的牌名，要不要收另议）。
+## 只要屏幕前有真人就开（单人局 viewer = 那一席，AI 抽的牌名也收，Kevin 2026-09-05 定）；无真人的观战局关、全看。
 var filter := false
 var viewer := -1
 var _built_key := -3      ## 上次折行时的 (filter, viewer) 组合；变了就整卷重折
