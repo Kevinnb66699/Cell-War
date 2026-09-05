@@ -115,8 +115,101 @@ func _next_page() -> void:
 
 
 ## 章节目录。纯函数：{ title, entries:[{t, b:[行...]}] }。数字现算、正文预折行。
+## 会随旋钮变的句子（能量上限、有氧公式、无氧时机、反击、攻击上限、占地胜连续回合……）
+## 按旋钮现值拼，关掉的机制整句消失 —— 和规则速查页同一条纪律：图鉴里不许出现和引擎不符的数
+## （2026-09-05 按当日落地的九条规则逐条核对过，见开发日志）。点阵字库没有 √ ≥ − 这类符号，
+## 公式一律写成汉字（「平方根」）和 ASCII 的 - / ×。
 static func chapters() -> Array:
 	var tune := CWTuning.new()
+	var lv: Array = CWData.LEVEL_NAMES
+	## 【S-有氧呼吸】现行等级式：基数 + 等级 × 步长（-1 = 基数按人数分档）；0 = 退回旧的盘面公式
+	var aerobic: Array = []
+	if tune.aerobic_level_base != 0:
+		aerobic.append("每个世界回合 S 阶段【有氧呼吸】，每个免疫细胞各拿一份：")
+		aerobic.append("（抗原记忆等级 - 1）× %s + 基数，等级 I/II/III/X 记 1/2/3/4。"
+			% CWData.fmt(tune.aerobic_level_step))
+		if tune.aerobic_level_base < 0:
+			var parts: Array[String] = []
+			var ns: Array = CWData.AEROBIC_LEVEL_BASE_BY_PLAYERS.keys()
+			ns.sort()
+			for n in ns:
+				parts.append("%d 人局 %s" % [n, CWData.fmt(CWData.aerobic_level_base(n))])
+			aerobic.append("基数按人数：" + "、".join(parts) + "。多净化、升等级，收入就涨。")
+		else:
+			aerobic.append("基数 %s。多净化、升等级，收入就涨。" % CWData.fmt(tune.aerobic_level_base))
+	else:
+		aerobic.append("每个世界回合 S 阶段【有氧呼吸】：按全盘健康组织占比 × %s 结算，"
+			% CWData.fmt(tune.aerobic_mult))
+		aerobic.append("每个免疫细胞各拿一份。")
+	if tune.aerobic_floor > 0:
+		aerobic.append("每人至少拿 %s（低保）。" % CWData.fmt(tune.aerobic_floor))
+	## 【E-无氧呼吸】：开方公式（0 = 退回线性求和）；时机看 anaerobic_on_turn_end（各癌细胞回合末 / E 阶段）
+	var when := "每个癌细胞在自己的行动回合末" if tune.anaerobic_on_turn_end else "每个世界回合 E 阶段"
+	var split := "，块内癌细胞均分。" if tune.anaerobic_split else "。"
+	var anaerobic: Array = [when + "结算【无氧呼吸】："]
+	if tune.anaerobic_sqrt_coef > 0:
+		anaerobic.append("%s × 所在癌组织连通块格数的平方根" % CWData.fmt(tune.anaerobic_sqrt_coef) + split)
+		anaerobic.append("块越大进账越多，但两个癌细胞挤一块不如各占一块。")
+	else:
+		anaerobic.append("所在连通块每格癌组织 %s、每格固化 %s" % [
+			CWData.fmt(tune.anaerobic_per_cancer), CWData.fmt(tune.anaerobic_per_solid)] + split)
+		anaerobic.append("癌组织铺得越开，进账越多。")
+	## 能量存量上限：0 = 不封（团队 2026-09-05 取消了 15.0 的封顶）
+	var energy: Array = ["免疫细胞开局 %s 能量，癌细胞开局 %s 能量。" % [
+		CWData.fmt(tune.init_energy_immune), CWData.fmt(tune.init_energy_cancer)]]
+	if tune.energy_cap > 0:
+		energy.append("每格账户最多存 %s，多出的部分在世界回合末消失。" % CWData.fmt(tune.energy_cap))
+	else:
+		energy.append("能量没有存量上限，攒多少都留得住。")
+	## 癌方占地胜：达标后要不要连续几个回合末都达标（默认 2：首次达标只是警报）
+	var cancer_win: Array = ["让「癌组织 + 2 × 固化癌组织」的加权占地达到 %d，" % tune.cancer_win_weighted]
+	if tune.cancer_win_hold_rounds > 1:
+		cancer_win.append("且连续 %d 个世界回合末都达标（首次达标只是警报）。" % tune.cancer_win_hold_rounds)
+	else:
+		cancer_win.append("E 阶段结算时立即获胜。")
+	## 攻击判定里随旋钮出没的两句
+	var fail_line := "1-2 失败：弹回原格（费用不退）"
+	if tune.counter_dmg_on_fail > 0:
+		fail_line += "，自身再 -%s" % CWData.fmt(tune.counter_dmg_on_fail)
+	fail_line += "；"
+	var atk_limit: Array = ["攻击次数不限，只受能量约束。"]
+	if tune.attack_max_per_turn > 0:
+		atk_limit = ["每个行动回合最多攻击 %d 次，" % tune.attack_max_per_turn,
+			"用完后攻击选项从行动栏消失，普通迁移不受影响。"]
+	## 玩家回合 / E 阶段：无氧呼吸写在它实际发生的那一段
+	var turn_lines: Array = [
+		"按行动顺序轮流行动，每个人可以连续行动多次，",
+		"直到自己按下「结束回合」。右侧竖条标明回合数与轮到谁。"]
+	var e_phase := "微环境压迫、增生、侵蚀、"
+	if tune.anaerobic_on_turn_end:
+		turn_lines.append("癌细胞按下「结束回合」那一刻，结算自己的【无氧呼吸】。")
+	else:
+		e_phase = "癌方结算【无氧呼吸】，随后" + e_phase
+	## 分化细胞里随旋钮出没的句子
+	var b_lines: Array = [
+		"【抗体】：范围内与健康组织邻接的癌细胞各受 %s 伤害；" % CWData.fmt(CWData.ANTIBODY_DAMAGE),
+		"没有目标时改为转化癌组织。"]
+	if tune.antibody_halve:
+		b_lines.append("同一世界回合内再放一次，伤害减半、再减半。")
+	var t_lines: Array = [
+		"【细胞毒素】把相邻癌组织转健康并留下坏死；",
+		"【裂解】破除相邻的固化癌组织。主攻手。"]
+	if tune.necrosis_no_aerobic:
+		t_lines.append("站在坏死格上的免疫细胞那一回合拿不到有氧收入，放完毒记得走开。")
+	var macro_line := "【吞噬】：攻击造成能量损失后，回复目标损失量的一半。"
+	var macro_codex := "免疫续航型分化：【吞噬】攻击造成损失后回血一半，"
+	if tune.macro_heal_purify > 0:
+		macro_line = "【吞噬】：每次净化恢复 %s 能量，攻击造成损失后再回血一半。" % CWData.fmt(tune.macro_heal_purify)
+		macro_codex = "免疫续航型分化：【吞噬】每次净化回 %s 能量、攻击后再回血一半，" % CWData.fmt(tune.macro_heal_purify)
+	## 癌细胞里随旋钮出没的句子
+	var mucus_tail := "；"
+	if tune.mucus_move_surcharge > 0:
+		mucus_tail = "，留下的黏液让免疫踏入时多付 %s；" % CWData.fmt(tune.mucus_move_surcharge)
+	var jump_limit := ""
+	if tune.metastasis_max_per_round > 0:
+		jump_limit = "（每世界回合最多 %d 次）" % tune.metastasis_max_per_round
+	var solid_rounds: int = tune.solidify_threshold / CWData.SOLIDIFY_STEP
+	var ev_rounds := event_rounds_text(tune.limit_round)
 	return [
 		{ "title": "目标与胜负", "entries": [
 			{ "t": "你要做什么", "b": [
@@ -128,13 +221,10 @@ static func chapters() -> Array:
 				"把场上所有癌细胞消灭，并且没有可供癌方复活的固化癌组织，",
 				"在世界回合 E 阶段结算时立即获胜。",
 			] },
-			{ "t": "癌方怎么赢", "b": [
-				"让「癌组织 + 2 × 固化癌组织」的加权占地达到 %d，" % tune.cancer_win_weighted,
-				"E 阶段结算时立即获胜。",
-			] },
+			{ "t": "癌方怎么赢", "b": cancer_win },
 			{ "t": "回合打满怎么办", "b": [
-				"最多 %d 个世界回合。" % CWData.LIMIT_ROUND,
-				"到点后癌性组织达到 %d 格判癌方胜，否则免疫胜。" % CWData.LIMIT_CANCEROUS,
+				"最多 %d 个世界回合。" % tune.limit_round,
+				"到点后癌性组织达到 %d 格判癌方胜，否则免疫胜。" % tune.limit_cancerous,
 			] },
 		] },
 		{ "title": "棋盘与地形", "entries": [
@@ -148,8 +238,8 @@ static func chapters() -> Array:
 				"癌细胞走进健康组织会把它定殖成癌组织。",
 			] },
 			{ "t": "癌组织", "b": [
-				"红色，癌方的地盘。癌细胞停留会积累「固化计数」，",
-				"攒满 %s 后变成固化癌组织。" % CWData.fmt(tune.solidify_threshold),
+				"红色，癌方的地盘。癌细胞在上面蹲满 %d 个世界回合，" % solid_rounds,
+				"这一格就变成固化癌组织。",
 			] },
 			{ "t": "固化癌组织", "b": [
 				"更深一档的癌组织，是癌方复活据点、加权占地记 2 分。",
@@ -166,20 +256,11 @@ static func chapters() -> Array:
 				"所有行动都要花能量，能量归零即死亡。",
 				"支付费用不能让能量降到 0，总要留一点底。",
 			] },
-			{ "t": "初始与上限", "b": [
-				"免疫细胞开局 %s 能量，癌细胞开局 %s 能量；" % [CWData.fmt(CWData.INIT_ENERGY), CWData.fmt(CWData.INIT_ENERGY_CANCER)],
-				"每格账户最多存 %s，溢出会消失。" % CWData.fmt(CWData.ENERGY_CAP_PER_ROUND),
-			] },
-			{ "t": "免疫的收入", "b": [
-				"每个世界回合 S 阶段【有氧呼吸】：按全盘健康组织占比 ×3 结算，",
-				"每个免疫细胞各拿一份，且有 %s 低保。" % CWData.fmt(CWData.AEROBIC_FLOOR),
-			] },
-			{ "t": "癌方的收入", "b": [
-				"每个世界回合 E 阶段【无氧呼吸】：按所处癌组织连通块的供能，",
-				"块内癌细胞均分。癌组织铺得越开，进账越多。",
-			] },
+			{ "t": "初始与上限", "b": energy },
+			{ "t": "免疫的收入", "b": aerobic },
+			{ "t": "癌方的收入", "b": anaerobic },
 			{ "t": "常用费用", "b": [
-				"免疫迁移健康 %s / 癌性按等级；" % CWData.fmt(CWData.IMMUNE_MOVE_HEALTHY[0]),
+				"免疫迁移健康 %s / 癌性按等级；" % CWData.fmt(tune.immune_move_healthy[0]),
 				"抽卡免疫 %s、癌方 %s；突变 %s；" % [CWData.fmt(CWData.IMMUNE_DRAW_COST), CWData.fmt(CWData.CANCER_DRAW_COST), CWData.fmt(CWData.MUTATE_COST)],
 				"细胞毒素 %s、裂解 %s。行动栏按钮上都会标价。" % [CWData.fmt(CWData.TOXIN_COST), CWData.fmt(CWData.LYSE_COST)],
 			] },
@@ -190,16 +271,13 @@ static func chapters() -> Array:
 				"再轮到复活（免疫在骨髓、癌方在固化组织），",
 				"最后免疫结算【有氧呼吸】收入。",
 			] },
-			{ "t": "玩家回合", "b": [
-				"按行动顺序轮流行动，每个人可以连续行动多次，",
-				"直到自己按下「结束回合」。右侧竖条标明回合数与轮到谁。",
-			] },
+			{ "t": "玩家回合", "b": turn_lines },
 			{ "t": "E 阶段", "b": [
-				"癌方结算【无氧呼吸】，随后微环境压迫、增生、侵蚀、",
+				e_phase,
 				"固化与衰减依次发生，最后统一判定胜负。",
 			] },
 			{ "t": "回合计数", "b": [
-				"世界事件只在第 3、6、10、15、20、25、30 回合触发。",
+				"世界事件只在第 %s 回合触发。" % ev_rounds,
 				"越往后局势越不受控制，别把决战拖到太晚。",
 			] },
 		] },
@@ -217,8 +295,8 @@ static func chapters() -> Array:
 				"可以连续走，右键或 Esc 结束。",
 			] },
 			{ "t": "净化与记忆", "b": [
-				"免疫每净化一格 +1 抗原记忆。记忆积累到 16 升 III 级、",
-				"31 升 X 级，免疫迁移到癌组织的费用随等级下降。",
+				"免疫每净化一格 +1 抗原记忆。记忆到 %d 升 II 级、" % CWData.LEVEL_MIN_MEMORY[1],
+				"%d 升 III 级、%d 升 X 级，迁入癌组织的费用随等级下降。" % [CWData.LEVEL_MIN_MEMORY[2], CWData.LEVEL_MIN_MEMORY[3]],
 			] },
 		] },
 		{ "title": "攻击与判定", "entries": [
@@ -227,55 +305,49 @@ static func chapters() -> Array:
 				"骰子会落在那一格上方演一遍，结算说明由引擎给出。",
 			] },
 			{ "t": "d6 判定", "b": [
-				"1-2 失败（自身 -%s 被反弹）；" % CWData.fmt(CWData.COUNTER_DMG_ON_FAIL),
-				"3-5 成功（目标 -%s）；6 大成功（目标 -%s）。" % [CWData.fmt(CWData.ATTACK_DMG_SUCCESS), CWData.fmt(CWData.ATTACK_DMG_CRIT)],
+				fail_line,
+				"3-5 成功（目标 -%s）；6 大成功（目标 -%s）。" % [CWData.fmt(tune.attack_dmg_success), CWData.fmt(tune.attack_dmg_crit)],
 			] },
 			{ "t": "标记翻倍", "b": [
 				"树突细胞给相邻癌细胞挂【标记】，带标记的目标受到的下一次",
 				"伤害翻倍，随后消耗一层标记。",
 			] },
-			{ "t": "攻击次数", "b": [
-				"每个行动回合最多攻击 %d 次，" % CWData.ATTACK_MAX_PER_TURN,
-				"用完后攻击选项从行动栏消失，普通迁移不受影响。",
-			] },
+			{ "t": "攻击次数", "b": atk_limit },
 		] },
 		{ "title": "免疫分化", "entries": [
 			{ "t": "分化规则", "b": [
-				"免疫等级升到 III 后可以分化，每个细胞一辈子一次，",
+				"免疫等级升到 %s 后可以分化，每个细胞一辈子一次，" % lv[tune.differentiate_min_level],
 				"每种分化全阵营限一个。分化免费。",
 			] },
-			{ "t": "B 细胞", "b": [
-				"【抗体】：范围内与健康组织邻接的癌细胞各受 %s 伤害；" % CWData.fmt(CWData.ANTIBODY_DAMAGE),
-				"没有目标时改为转化癌组织。",
-			] },
-			{ "t": "T 细胞", "b": [
-				"【细胞毒素】把相邻癌组织转健康并留下坏死；",
-				"【裂解】破除相邻的固化癌组织。主攻手。",
-			] },
+			{ "t": "B 细胞", "b": b_lines },
+			{ "t": "T 细胞", "b": t_lines },
 			{ "t": "巨噬细胞", "b": [
-				"【吞噬】：每次净化恢复 %s 能量。续航型，适合反复净化。" % CWData.fmt(CWData.MACRO_HEAL_PURIFY),
+				macro_line,
+				"续航型，越打越有钱，适合反复净化。",
 			] },
 			{ "t": "树突状细胞", "b": [
-				"给相邻癌细胞挂【标记】，让队友的攻击翻倍。",
-				"辅助型，配一个输出收益很高。",
+				"【趋化源】：花 %s 在任意格立源、持续 %d 回合，" % [CWData.fmt(CWData.CHEMO_COST), CWData.CHEMO_ROUNDS],
+				"免疫朝它走的迁移费 ×%d%%，癌细胞背它走的移动费 ×%d%%。" % [CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT],
+				"相邻癌细胞自动带【标记】，下一次受伤翻倍。自身不能攻击，纯辅助。",
 			] },
 		] },
 		{ "title": "四种癌细胞", "entries": [
 			{ "t": "恶性黑色素瘤", "b": [
-				"【早期血行转移】从血管传送到任意空地并扩散癌组织，",
-				"每世界回合一次。机动性极强。",
+				"【早期血行转移】从血管传送到任意空地并扩散癌组织，每世界回合一次；",
+				"【伪足穿透】目标邻接 %d 格以上癌性组织时移动只花 %s。" % [CWData.PSEUDOPOD_MIN_ADJ, CWData.fmt(tune.pseudopod_cost)],
+				"机动性极强。",
 			] },
 			{ "t": "印戒细胞癌", "b": [
-				"【黏液破裂】耗尽能量自爆、范围转化癌组织；",
-				"【囊性护甲】每回合减免一次伤害。肉盾型。",
+				"【黏液破裂】耗尽能量自爆、范围转化癌组织" + mucus_tail,
+				"【囊性护甲】每世界回合第一次能量损失减 %s。肉盾型。" % CWData.fmt(CWData.ARMOR_REDUCTION),
 			] },
 			{ "t": "骨肉瘤", "b": [
-				"【骨样硬化】固化计数 +%s，" % CWData.fmt(CWData.SOLIDIFY_STEP + CWData.SOLIDIFY_STEP / 2),
-				"蹲守更快成型；站在固化组织上受伤只剩 %d%%。阵地型。" % CWData.OSTEO_BARRIER_PERCENT,
+				"【骨样硬化】花 %s 标记脚下的癌组织，%d 个世界回合后直接固化；" % [CWData.fmt(tune.osteo_ossify_cost), tune.osteo_ossify_rounds],
+				"免疫踏进标记格得蹲满一回合才能净化。站在固化组织上受伤只剩 %d%%。阵地型。" % CWData.OSTEO_BARRIER_PERCENT,
 			] },
 			{ "t": "小细胞肺癌", "b": [
-				"【转移】向某方向跃进 5 格；【瓦伯格】无氧呼吸 %d%%；" % CWData.WARBURG_PERCENT,
-				"移动至健康组织还有折扣。爆发型。",
+				"【转移】向某方向跃进 %d 格" % CWData.METASTASIS_RANGE + jump_limit + "；【瓦伯格】无氧呼吸 %d%%；" % CWData.WARBURG_PERCENT,
+				"移动至健康组织只花 %s。爆发型。" % CWData.fmt(tune.sclc_move_healthy),
 			] },
 		] },
 		{ "title": "细胞图鉴", "entries": [
@@ -293,29 +365,30 @@ static func chapters() -> Array:
 				"克制骨肉瘤的骨壳，也能拆掉癌方的复活点。",
 			] },
 			{ "t": "巨噬细胞", "b": [
-				"免疫续航型分化：【吞噬】每次净化回 %s 能量，" % CWData.fmt(CWData.MACRO_HEAL_PURIFY),
+				macro_codex,
 				"配合反复净化能一直走下去，适合清扫大片癌组织。",
 			] },
 			{ "t": "树突状细胞", "b": [
-				"免疫辅助型分化：给相邻癌细胞挂【标记】，",
-				"带标记的目标下一次受到的伤害翻倍。配输出收益极高。",
+				"免疫辅助型分化：【趋化源】花 %s 立源，免疫朝它走打折、癌细胞背它走加价；" % CWData.fmt(CWData.CHEMO_COST),
+				"相邻癌细胞自动带【标记】，下一次受伤翻倍。自身不能攻击。",
 			] },
 			{ "t": "恶性黑色素瘤", "b": [
 				"癌方游击手：【早期血行转移】花 %s 能量，每世界回合一次，" % CWData.fmt(CWData.MELANOMA_HOMING_COST),
-				"从血管传送到任意空地并扩散癌组织。盯紧血管口。",
+				"从血管传送到任意空地并扩散癌组织；【伪足穿透】贴着癌区走只花 %s。" % CWData.fmt(tune.pseudopod_cost),
+				"盯紧血管口。",
 			] },
 			{ "t": "印戒细胞癌", "b": [
-				"癌方肉盾：【黏液破裂】耗尽能量自爆、范围转化最多 %d 格癌组织；" % CWData.MUCUS_MAX_CONVERT,
-				"【囊性护甲】每回合减免一次伤害。别让它扎进健康区。",
+				"癌方肉盾：【黏液破裂】耗尽能量自爆、范围转化最多 %d 格癌组织" % CWData.MUCUS_MAX_CONVERT + mucus_tail,
+				"【囊性护甲】每世界回合第一次能量损失减 %s。别让它扎进健康区。" % CWData.fmt(CWData.ARMOR_REDUCTION),
 			] },
 			{ "t": "骨肉瘤", "b": [
-				"癌方阵地：【骨样硬化】固化计数 +%s，" % CWData.fmt(CWData.SOLIDIFY_STEP + CWData.SOLIDIFY_STEP / 2),
-				"蹲守更快成型；站在固化组织上受伤只剩 %d%%。" % CWData.OSTEO_BARRIER_PERCENT,
+				"癌方阵地：【骨样硬化】花 %s 标记脚下癌组织，%d 回合后直接固化，" % [CWData.fmt(tune.osteo_ossify_cost), tune.osteo_ossify_rounds],
+				"免疫踏进标记格得蹲一回合才能净化；站在固化组织上受伤只剩 %d%%。" % CWData.OSTEO_BARRIER_PERCENT,
 				"用 T 细胞【裂解】拆壳最稳。",
 			] },
 			{ "t": "小细胞肺癌", "b": [
-				"癌方爆发：【转移】向某方向跃进 5 格；【瓦伯格】无氧呼吸 %d%%；" % CWData.WARBURG_PERCENT,
-				"移动至健康组织仅 %s。贴脸就能打乱免疫阵型。" % CWData.fmt(CWData.SCLC_MOVE_HEALTHY),
+				"癌方爆发：【转移】向某方向跃进 %d 格" % CWData.METASTASIS_RANGE + jump_limit + "；【瓦伯格】无氧呼吸 %d%%；" % CWData.WARBURG_PERCENT,
+				"移动至健康组织仅 %s。贴脸就能打乱免疫阵型。" % CWData.fmt(tune.sclc_move_healthy),
 			] },
 		] },
 
@@ -335,7 +408,7 @@ static func chapters() -> Array:
 		] },
 		{ "title": "世界事件", "entries": [
 			{ "t": "十八个事件", "b": [
-				"在第 3、6、10、15、20、25、30 回合从池中随机抽取，",
+				"在第 %s 回合从池中随机抽取，" % ev_rounds,
 				"同局不重复，每回合一个。效果可能持续一两个回合。",
 			] },
 			{ "t": "留意公告", "b": [
@@ -363,7 +436,7 @@ static func chapters() -> Array:
 		] },
 		{ "title": "给新手的三个提醒", "entries": [
 			{ "t": "先扩张收入", "b": [
-				"免疫多净化、癌方多定殖，把健康组织占比 / 癌组织连通块做大，",
+				"免疫多净化攒记忆、升等级，癌方多定殖把连通块做大，",
 				"收入才滚得起来。开局别只盯着一个细胞对砍。",
 			] },
 			{ "t": "守住复活点", "b": [
@@ -376,6 +449,16 @@ static func chapters() -> Array:
 			] },
 		] },
 	]
+
+
+## 世界事件回合的清单文字（「3、6、10、15、20、25、30」），现算自 CWData.is_world_event_round，
+## 图鉴与引导剧本共用，别在两处各写一份。
+static func event_rounds_text(limit: int) -> String:
+	var out: Array[String] = []
+	for r in range(1, limit + 1):
+		if CWData.is_world_event_round(r):
+			out.append(str(r))
+	return "、".join(out)
 
 func _build() -> void:
 	var scrim := ColorRect.new()

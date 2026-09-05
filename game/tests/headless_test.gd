@@ -4792,6 +4792,23 @@ func t_guide_data() -> void:
 		"total_steps() 与逐关步骤数之和一致（%d）" % sum)
 	var cells: Array = CWGuideData.steps(5)
 	check(cells.size() >= 6, "细胞图鉴关覆盖免疫 / 癌方 / 速查（%d 步）" % cells.size())
+	## 2026-09-05 核对：剧本文字同样现读规则，且每行装得进面板正文栏
+	var text := ""
+	var wide: Array = []
+	var budget: int = int(CWGuide.PANEL.size.x) - CWGuide.PAD * 2
+	for i in CWGuideData.CHAPTER_COUNT:
+		for st in CWGuideData.steps(i):
+			for line in st["b"]:
+				text += str(line) + " "
+				if CWStyle.FONT.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x > budget:
+					wide.append(line)
+	check(wide.is_empty(), "每行都放得进引导面板正文栏 %d（超的：%s）" % [budget, str(wide)])
+	check(text.contains("%d 升 III 级" % CWData.LEVEL_MIN_MEMORY[2]) and not text.contains("16 升"),
+		"剧本的记忆门槛现读 LEVEL_MIN_MEMORY")
+	check(text.contains("标记脚下") and not text.contains("固化成型更快"), "剧本的骨肉瘤按重做后的骨样硬化描述")
+	check(text.contains("结束回合时结算【无氧呼吸】"), "剧本的世界回合按回合末无氧结算描述（eturn=1）")
+	check(text.contains("左下角「跳过引导」"), "「跳过引导」按钮的位置说对了（面板左下角）")
+	check(text.contains("传到另一端"), "血管说的是「S 阶段传送」，不只是血行转移")
 
 
 func t_codex() -> void:
@@ -4814,6 +4831,33 @@ func t_codex() -> void:
 	var need := ["抗体", "裂解", "标记", "血行转移", "黏液破裂", "骨样硬化", "瓦伯格"]
 	for kw in need:
 		check(blob.contains(kw), "细胞图鉴提到「%s」" % kw)
+	## 2026-09-05 核对：图鉴文字跟着现行规则与旋钮走，且每一行都装得进正文栏（裁切只是兜底，玩家不该看到省略号）
+	var tune := CWTuning.new()
+	var all_text := ""
+	var wide: Array = []
+	var budget: int = CWCodex.W - CWCodex.PAD * 2
+	for ch in chs:
+		for e in ch["entries"]:
+			all_text += str(e["t"]) + " " + " ".join(e["b"]) + " "
+			for line in e["b"]:
+				if CWStyle.FONT.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x > budget:
+					wide.append(line)
+	check(wide.is_empty(), "每行都放得进正文栏宽 %d（超的：%s）" % [budget, str(wide)])
+	check(all_text.contains("（抗原记忆等级 - 1）× %s + 基数" % CWData.fmt(tune.aerobic_level_step))
+		and all_text.contains("6 人局 %s" % CWData.fmt(CWData.aerobic_level_base(6))),
+		"有氧呼吸按现行等级式描述、基数分档现读表")
+	check(all_text.contains("平方根") and all_text.contains("行动回合末结算【无氧呼吸】"),
+		"无氧呼吸：开方公式 + 各癌细胞回合末结算（eturn=1）")
+	check(not all_text.contains("占比") and not all_text.contains("最多存 0") and not all_text.contains("低保"),
+		"09-05 之前的口径（盘面占比 / 存量上限 / 低保）不再出现")
+	check(all_text.contains("%d 升 III 级" % CWData.LEVEL_MIN_MEMORY[2]) and not all_text.contains("16 升"),
+		"记忆门槛现读 LEVEL_MIN_MEMORY")
+	check(all_text.contains("标记脚下") and all_text.contains("%d 个世界回合后直接固化" % tune.osteo_ossify_rounds)
+		and not all_text.contains("固化计数 +"),
+		"骨样硬化按 09-05 重做后的主动技能描述")
+	check(all_text.contains("连续 %d 个世界回合末" % tune.cancer_win_hold_rounds), "癌方占地胜写明连续达标回合数")
+	check(all_text.contains("第 3、6、10、15、20、25、30 回合") and CWCodex.event_rounds_text(30) == "3、6、10、15、20、25、30",
+		"世界事件回合现算（与 is_world_event_round 一致）")
 
 
 class FakeGuide:
