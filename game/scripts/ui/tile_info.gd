@@ -109,7 +109,8 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 				"size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
 			rows.append(production_row(t))
 		CWData.Special.VESSEL:
-			rows.append({ "text": "血管", "size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
+			## 「不可固化」写在格子上（Kevin 2026-09-06 定的规则，CWTissue.solidifiable）
+			rows.append({ "text": "血管 · 不可固化", "size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
 	## 树突【I-趋化源】立在这一格：标出来（Kevin 2026-09-06 要的）。剩余回合与漩涡转暖橙同一口径
 	## （left ≤ 1 = 最后一回合）；折扣 / 加价现读 CWData，不写第二份
 	if not game.chemo.is_empty() and game.chemo["at"] == c:

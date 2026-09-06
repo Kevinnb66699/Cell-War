@@ -94,7 +94,7 @@ func _run_all() -> void:
 		t_ev_attack_flow, t_ev_costs, t_ev_suppressor, t_ev_supply,
 		t_ev_solidify_accel, t_ev_chaos, t_ev_chaos_simul, t_ev_memory,
 		t_ev_proliferate, t_ev_double, t_ev_double_instant, t_ev_lifecycle,
-		t_breath_sheets, t_solidify_and_decay, t_erosion, t_macro_purify_heal,
+		t_breath_sheets, t_solidify_and_decay, t_vessel_no_solid, t_erosion, t_macro_purify_heal,
 		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path,
 		t_dendritic_rework, t_mark_range, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
@@ -656,6 +656,72 @@ func t_solidify_and_decay() -> void:
 	g.world._solidify()
 	check(g.tiles[nb]["solid"] == CWData.SOLIDIFY_STEP, "保护只管「新生」那一格，旧组织照常累计")
 	g.tune.newborn_protect = false
+	g.dispose()
+
+
+## 血管不可被固化（Kevin 2026-09-06）：三条固化入口（【E-固化】计数 / 卡【基质硬化】/ 骨肉瘤【骨样硬化】）、
+## 【原发灶】旋钮与 AI 的蹲点判断都认 `CWTissue.solidifiable()`；格子详情写明「不可固化」
+func t_vessel_no_solid() -> void:
+	print("[血管不可固化]")
+	var g := _fx_game(2)
+	var v: Vector2i = CWData.VESSELS[0]
+	var plain := v + Vector2i(-1, 0)     ## 血管旁边的普通格，作对照
+	var ctrl := v + Vector2i(-1, 1)      ## 另一格对照
+	check(not CWTissue.solidifiable(g.tile(v)) and CWTissue.solidifiable(g.tile(plain)),
+		"solidifiable：血管 false、普通格 true")
+	for c in [v, plain, ctrl]:
+		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	var on_v := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER, v, -1, CWData.CancerType.MELANOMA)
+	on_v["energy"] = 100
+	g.cells.append(on_v)
+	var on_p := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER, plain, -1, CWData.CancerType.MELANOMA)
+	on_p["energy"] = 100
+	g.cells.append(on_p)
+	## ① 【E-固化】：蹲满阈值那么多回合，旁边的普通癌组织固化了，血管纹丝不动
+	var n0: int = g.logs.size()
+	for k in range(CWData.SOLIDIFY_THRESHOLD / CWData.SOLIDIFY_STEP):
+		g.world._solidify()
+	check(g.tiles[plain]["tissue"] == CWData.Tissue.SOLID, "对照：旁边的普通癌组织照常固化")
+	check(g.tiles[v]["tissue"] == CWData.Tissue.CANCER and g.tiles[v]["solid"] == 0,
+		"血管：蹲满回合也不累计、不固化")
+	check("\n".join(g.logs.slice(n0)).contains("不可固化"), "日志说明血管不可固化（别让玩家以为是 bug）")
+	## ② 直接加计数 / 【固化加速】也一样
+	_install(g, "固化加速")
+	g.raise_solid(v, CWData.SOLIDIFY_ACCEL_AT)
+	check(g.tiles[v]["tissue"] == CWData.Tissue.CANCER and g.tiles[v]["solid"] == 0,
+		"raise_solid + 【固化加速】：血管仍是普通癌组织、计数 0")
+	g.events["active"].clear()
+	## ③ 卡【基质硬化】选目标：脚下的血管不给选项，旁边的普通癌组织照给（同一把尺）
+	on_v["hand"] = ["基质硬化"]
+	var o: Array = []
+	g.card_fx.hand_options(on_v, o)
+	check(not _has_target(o, v) and _has_target(o, ctrl), "【基质硬化】：血管不是目标，旁边的普通癌组织是")
+	## ④ AI 蹲点判断：场上没有据点时，普通格值得从头熬、血管不值得
+	CWTissue.crack_to_cancer(g.tiles[plain])
+	check(g.count_tissue(CWData.Tissue.SOLID) == 0, "场上没有固化据点（蹲点的触发条件）")
+	var h := CWHeuristicBridge.new()
+	h.game = g
+	check(h._worth_solidifying(on_p) and not h._worth_solidifying(on_v), "AI：普通格值得蹲、血管不蹲（v11）")
+	## ⑤ 骨肉瘤【骨样硬化】：站在血管上没有选项、硬发也不落标记；挪到普通格就能标
+	on_v["ctype"] = CWData.CancerType.OSTEO
+	check(not _has_act(g.actions.build_options(on_v), "ossify"), "【骨样硬化】：血管上没有选项")
+	var e0: int = on_v["energy"]
+	await g.actions.execute(on_v, { "act": "ossify" })
+	check(int(g.tiles[v]["ossify_at"]) == 0 and on_v["energy"] == e0, "硬发也不落标记、不扣钱")
+	on_v["pos"] = ctrl
+	check(_has_act(g.actions.build_options(on_v), "ossify"), "挪到普通癌组织 → 选项回来")
+	on_v["pos"] = v
+	## ⑥ 【原发灶】旋钮开着：出生在血管上的那格也不转固化
+	g.tune.solid_at_cancer_spawn = true
+	g.setup._place_primary_lesions()
+	check(g.tiles[plain]["tissue"] == CWData.Tissue.SOLID and g.tiles[v]["tissue"] == CWData.Tissue.CANCER,
+		"【原发灶】：普通格转固化、血管不转")
+	g.tune.solid_at_cancer_spawn = false
+	## ⑦ 格子详情写明
+	var rows := ""
+	for r in CWTileInfo.describe(g, v):
+		rows += r["text"] + "|"
+	check(rows.contains("血管 · 不可固化"), "格子详情：血管 · 不可固化（%s）" % rows)
 	g.dispose()
 
 
@@ -2444,7 +2510,7 @@ func t_plan_path() -> void:
 
 func t_heur_no_squat_on_fresh() -> void:
 	print("[启发式 v4：不蹲在刚铺的格子上]")
-	check(CWHeuristicBridge.AI_VERSION == "v10", "AI 版本号 v10（改 AI 行为要升号；v10 = 树突按 2 格光环找位置）")
+	check(CWHeuristicBridge.AI_VERSION == "v11", "AI 版本号 v11（改 AI 行为要升号；v11 = 血管上不蹲固化）")
 	var g := _fx_game(2)
 	var can := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i.ZERO, -1,
 		CWData.CancerType.MELANOMA)
@@ -4244,7 +4310,7 @@ func t_match_panel() -> void:
 		g.bridges[pid] = rec
 	g.events["pool"] = ["基质阻隔"]
 	await g.world_fx.trigger()
-	check(rec.got == ["世界事件【基质阻隔】：移动能量花费翻倍（持续 2 回合）"],
+	check(rec.got == ["世界事件【基质阻隔】：癌细胞移动能量花费翻倍（持续 2 回合）"],
 		"trigger → notice 文本含效果与持续期、只通报一次：%s" % str(rec.got))
 	## 界面桥把通报放在棋盘区顶部居中：CWToast.place 对零尺寸锚点「上面塞不下」→ 翻到锚点下方
 	var anchor := CWUIBridge.notice_anchor()
@@ -7324,7 +7390,8 @@ func t_card_mods() -> void:
 		"先免费后减免：仍然免费，不被抬回 0.2")
 	g.dispose()
 
-	## ①d 世界事件排在所有卡牌之后：【基质阻隔】翻倍作用在卡牌算完的价上
+	## ①d 世界事件排在所有卡牌之后：【基质阻隔】翻倍作用在卡牌算完的价上。
+	## 2026-09-06 起它只翻癌细胞（Kevin），顺序拿癌方的【上皮—间质转化】来钉；免疫那边顺手钉「不再翻倍」
 	g = _fx_game(4)
 	var bar := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0),
 		CWData.ImmuneType.BASIC, -1)
@@ -7335,8 +7402,17 @@ func t_card_mods() -> void:
 	await g.card_fx.play(bar, { "act": "play", "card": "炎症趋化" })
 	g.events["active"].append({ "name": "基质阻隔", "left": 2, "stacks": 1, "data": {} })
 	check(g.actions._move_cost_mod(bar, Vector2i(1, 0), g.tune.immune_move_cancerous[0])
-		== CWData.INFLAM_CHEMO_COST * 2,
-		"基质阻隔在最后翻倍：0.5 → 1.0（不是先翻倍再被覆盖成 0.5）")
+		== CWData.INFLAM_CHEMO_COST,
+		"基质阻隔不翻免疫：炎症趋化的 0.5 原样（2026-09-06 起仅癌细胞）")
+	var emt := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(-2, 0), -1, CWData.CancerType.MELANOMA)
+	emt["energy"] = 100
+	g.cells.append(emt)
+	g.round_no = 1
+	emt["hand"] = ["上皮—间质转化"]
+	await g.card_fx.play(emt, { "act": "play", "card": "上皮—间质转化" })
+	check(g.actions._move_cost_mod(emt, Vector2i(-3, 0), CWData.CANCER_MOVE_HEALTHY)
+		== CWData.EMT_MOVE_COST * 2,
+		"基质阻隔在最后翻倍：EMT 改成 0.2 → 0.4（不是先翻倍再被覆盖成 0.2）")
 	g.dispose()
 
 	## ② 上皮—间质转化（癌方）：向健康组织移动 0.2，前期 1 次
@@ -7712,12 +7788,26 @@ func t_ev_costs() -> void:
 	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
 	imm["energy"] = 100
 	g.cells.append(imm)
-	## 基质阻隔：移动费翻倍（免疫移动 + 癌症技能移动）
+	## 基质阻隔：**只翻癌细胞**（Kevin 2026-09-06；此前免疫也翻）—— 免疫移动原价，癌细胞移动与技能移动翻倍
 	_install(g, "基质阻隔", 1, 2)
 	var opts: Array = []
 	g.actions._immune_options(imm, opts)
-	check(_find_act(opts, "move")["data"]["cost"] == g.tune.immune_move_healthy[0] * 2,
-		"基质阻隔：免疫移动费翻倍")
+	check(_find_act(opts, "move")["data"]["cost"] == g.tune.immune_move_healthy[0],
+		"基质阻隔：免疫移动费不翻倍（2026-09-06 起仅癌细胞）")
+	var blk := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER, Vector2i(3, 0), -1,
+		CWData.CancerType.MELANOMA)
+	blk["energy"] = 100
+	g.cells.append(blk)
+	opts = []
+	g.actions._cancer_options(blk, opts)
+	var blk_mv := {}
+	for o in opts:
+		if o["data"].get("act", "") == "move" and o["data"]["to"] == Vector2i(2, 0):
+			blk_mv = o
+	check(blk_mv["data"]["cost"] == CWData.CANCER_MOVE_HEALTHY * 2, "基质阻隔：癌细胞移动费翻倍")
+	check(g.actions._skill_move_cost(blk, g.tune.metastasis_cost) == g.tune.metastasis_cost * 2,
+		"基质阻隔：癌细胞技能移动（【转移】那类）也翻倍")
+	g.cells.erase(blk)
 	## 免疫伪装：癌细胞移动 +0.2
 	g.events["active"].clear()
 	_install(g, "免疫伪装", 1, 2)
@@ -9259,10 +9349,17 @@ func t_attack_cap() -> void:
 	var poor: String = g.actions.move_block_reason(imm, far_c)
 	check(poor.contains("要 %s" % CWData.fmt(imm["energy"])) and poor.contains("留 0.1"),
 		"账上正好等于价钱 → 解释「要 X，账上 X，付完至少留 0.1」：%s" % poor)
+	## 2026-09-06 起【基质阻隔】只翻癌细胞：免疫的解释里不再出现它、价也不变；
+	## 「点名修正与新价」这条路改拿【免疫抑制因子】（免疫进普通癌组织多付 0.2）来钉
 	g.events["active"].append({ "name": "基质阻隔", "left": 2, "stacks": 1, "data": {} })
-	var doubled: String = g.actions.move_block_reason(imm, far_c)
-	check(doubled.contains("【基质阻隔】") and doubled.contains("要 %s" % CWData.fmt(imm["energy"] * 2)),
-		"【基质阻隔】翻倍后解释里点名事件与新价：%s" % doubled)
+	var same: String = g.actions.move_block_reason(imm, far_c)
+	check(not same.contains("【基质阻隔】") and same.contains("要 %s" % CWData.fmt(imm["energy"])),
+		"【基质阻隔】不翻免疫：解释不点名它、价照旧：%s" % same)
+	g.events["active"].pop_back()
+	g.events["active"].append({ "name": "免疫抑制因子", "left": 1, "stacks": 1, "data": {} })
+	var taxed: String = g.actions.move_block_reason(imm, far_c)
+	check(taxed.contains("【免疫抑制因子】") and taxed.contains("要 %s" % CWData.fmt(imm["energy"] + 2)),
+		"【免疫抑制因子】加价后解释里点名事件与新价：%s" % taxed)
 	g.events["active"].pop_back()
 	imm["energy"] = e0
 	g.tiles[far_c]["tissue"] = far_was

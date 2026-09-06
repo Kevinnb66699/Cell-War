@@ -523,11 +523,15 @@ func first_this_round(cell: Dictionary, key: String) -> bool:
 ## 固化计数的**增加**一律走这里（【E-固化】与卡【基质硬化】共用）：
 ## 达到 3.0 即转固化；【固化加速】生效时，从 2.0 以下涨到 ≥2.0 也立即转化
 ## （定案 W4——只认「涨过线」，事件触发时已 ≥2.0 的格不追溯）。
+## 血管不可固化（Kevin 2026-09-06）：计数也不累计，日志说一句（癌细胞蹲在血管上时别让人以为是 bug）。
 func raise_solid(pos: Vector2i, amount: int) -> void:
 	if solid_frozen(pos):
 		log_msg("　【TNF-α局部炎症】%s 本世界回合无法增加固化计数" % str(pos))
 		return
 	var t: Dictionary = tile(pos)
+	if not CWTissue.solidifiable(t):
+		log_msg("　【固化】%s 是血管，不可固化（计数不累计）" % str(pos))
+		return
 	var before: int = t["solid"]
 	t["solid"] = before + amount
 	var accel: bool = event_stacks("固化加速") > 0 \

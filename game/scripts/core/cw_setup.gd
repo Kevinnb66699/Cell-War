@@ -92,8 +92,10 @@ func _place_primary_lesions() -> void:
 		var c: Vector2i = cell["pos"]
 		if marked.has(c):
 			continue
-		marked[c] = true
 		var t: Dictionary = game.tile(c)
+		if not CWTissue.solidifiable(t):
+			continue   ## 血管不可固化（Kevin 2026-09-06），出生在血管上也不例外
+		marked[c] = true
 		t["solid"] = game.tune.solidify_threshold
 		CWTissue.to_solid(t)
 	if not marked.is_empty():

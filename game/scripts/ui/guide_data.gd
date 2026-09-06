@@ -94,6 +94,7 @@ static func _chapter_intro() -> Array:
 				CWData.CORE_HEALTHY_PERIOD, CWData.fmt(CWData.CORE_HEALTHY_GAIN), CWData.fmt(CWData.CORE_STORE_MAX)],
 			"骨髓：踩上去拿卡，也是免疫复活的锚点。",
 			"血管：S 阶段把站在上面的细胞传到另一端；黑色素瘤在血管上还能【血行转移】。",
+			"血管永远不会固化，别指望在上面蹲出复活据点。",
 		] },
 		{ "t": "看完这页就动手", "flag": "", "b": [
 			"接下来我会带你把第一个免疫细胞放到棋盘上。",

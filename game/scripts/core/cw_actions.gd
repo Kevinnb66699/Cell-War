@@ -1219,7 +1219,8 @@ func _do_mucus(cell: Dictionary) -> void:
 
 func _can_ossify(cell: Dictionary) -> bool:
 	var t: Dictionary = game.tile(cell["pos"])
-	return t["tissue"] == CWData.Tissue.CANCER and int(t.get("ossify_at", 0)) == 0
+	return t["tissue"] == CWData.Tissue.CANCER and int(t.get("ossify_at", 0)) == 0 \
+		and CWTissue.solidifiable(t)   ## 血管不可固化（Kevin 2026-09-06）：标都不让标
 
 
 ## 【骨样硬化】（2026-09-05 重做）：花 osteo_ossify_cost 标记脚下的癌组织，

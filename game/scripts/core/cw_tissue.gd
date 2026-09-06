@@ -43,6 +43,14 @@ static func crack_to_cancer(tile: Dictionary) -> void:
 	to_cancer(tile, false)
 
 
+## 这一格能不能固化：**血管永远不能**（Kevin 2026-09-06，PRD「特殊组织」节同步）。
+## 三条固化入口（【E-固化】计数 / 卡【基质硬化】/ 骨肉瘤【骨样硬化】的标记）、【原发灶】旋钮
+## 与 AI 的蹲点判断都认它；**选目标那一侧也要拦** —— 只在结算处拦就是「用了没反应」
+## （团队 2026-09-05 报过的形状，见 CWGame.solid_frozen 的注释）。
+static func solidifiable(tile: Dictionary) -> bool:
+	return tile["special"] != CWData.Special.VESSEL
+
+
 static func is_valid(tile: Dictionary) -> bool:
 	match tile["tissue"]:
 		CWData.Tissue.HEALTHY:

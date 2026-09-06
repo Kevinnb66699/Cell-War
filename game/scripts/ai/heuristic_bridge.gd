@@ -31,7 +31,9 @@ extends CWBridge
 ## v9：2026-09-05 —— 会用骨肉瘤重做后的【骨样硬化】；规则侧同日改了有氧均分/无氧回合末。
 ## v10：2026-09-06 —— 【I-标记】光环「相邻格」→「相邻 2 格内」（Kevin 改规则）：树突的接近目标改成
 ##     「癌细胞 2 格内的任一空格」，不再非得贴脸。规则本身也变了，v9 及之前量的树突局面数字一并作废。
-const AI_VERSION := "v10"
+## v11：2026-09-06 —— 血管不可被固化（Kevin 改规则）：`_worth_solidifying` 站在血管上一律不蹲
+##     （【骨样硬化】的选项在血管上本来就不会出现，选项驱动不必改）。同日【基质阻隔】改成只翻癌细胞。
+const AI_VERSION := "v11"
 ## 每个桥实例可以单独退回 v1 的行为（set_version("v1")）：分化拿选项列表第一个、不惜命。
 ## 用途是**验证 AI 升级**：新版本必须在两边都不比旧版弱（balance_scan 的 aiver_immune= / aiver_cancer= 交叉对局），
 ## 否则标尺一换读数就漂、还分不清是规则变了还是量具变了（2026-09-02 v2 基线 6 人 24→10 就是这么查的）。对局里别拨。
@@ -437,8 +439,8 @@ func _dist_to_nearest_immune(from: Vector2i) -> int:
 ## 所以这里**只看标记本身**，不看旋钮 —— 标记照常打、照常清，规则关掉也还在。
 func _worth_solidifying(me: Dictionary) -> bool:
 	var t: Dictionary = game.tile(me["pos"])
-	if t["tissue"] != CWData.Tissue.CANCER or t["newborn"]:
-		return false
+	if t["tissue"] != CWData.Tissue.CANCER or t["newborn"] or not CWTissue.solidifiable(t):
+		return false   ## 血管永远熬不成据点（Kevin 2026-09-06，v11），别蹲
 	if t["solid"] >= game.tune.solidify_threshold - 1:
 		return true  # 差最后一轮就固化，值得停
 	# 场上还没有任何复活据点时，值得从头熬一个

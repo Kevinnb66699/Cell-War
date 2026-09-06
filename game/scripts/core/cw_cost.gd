@@ -164,18 +164,20 @@ const TEMPLATES := {
 		"action": Action.MOVE, "phase": Phase.FLAT_ADD, "value": 2,
 		"cond": ["cancer"], "source": Source.WORLD, "store": Store.NONE,
 	}],
+	## 2026-09-06 Kevin：改成**仅对癌细胞生效** —— 免疫的【迁移】（含【炎症性趋化】的每步）与
+	## T 细胞【裂解】（也走 CELL_SKILL）不再翻倍。PRD 正本同步为「癌细胞移动能量花费翻倍」。
 	"基质阻隔": [
 		{
 			"action": Action.MOVE, "phase": Phase.MULT, "value": 2,
-			"cond": [], "source": Source.WORLD, "store": Store.NONE,
+			"cond": ["cancer"], "source": Source.WORLD, "store": Store.NONE,
 		},
 		## 技能移动（小细胞肺癌【转移】、黑色素瘤【早期血行转移】）也翻倍。
 		## PRD 只写「移动能量花费翻倍」，没说技能移动算不算——按「它们花的也是
 		## 位移的钱」外推（口径 #91）。⚠ 这是**引擎比 PRD 多做的一步**，
-		## 不是 PRD 明写的，改之前先看那条口径。
+		## 不是 PRD 明写的，改之前先看那条口径。cancer 条件与上一条同口径（2026-09-06）。
 		{
 			"action": Action.CELL_SKILL, "phase": Phase.MULT, "value": 2,
-			"cond": [], "source": Source.WORLD, "store": Store.NONE,
+			"cond": ["cancer"], "source": Source.WORLD, "store": Store.NONE,
 		},
 	],
 	## 全场免疫细胞的每回合首次移动，适用范围最宽 → 竞争时排在细胞自己的额度之后
