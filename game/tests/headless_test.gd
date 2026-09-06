@@ -4789,7 +4789,7 @@ func t_tutorial() -> void:
 	m._guide._chapter = 1
 	m._guide._step = 0
 	m._guide._render()
-	check(m._guide._hint.text.ends_with(CWGuide.OFFER_TAIL), "翻到「第一步：落子」：提示行接上「点继续我替你做」（%s）" % m._guide._hint.text)
+	check(m._guide._hint.text.ends_with(CWGuide.OFFER_TAIL % "继续"), "翻到「第一步：落子」：提示行接上「点继续我替你做」（%s）" % m._guide._hint.text)
 	check(m.game.cells.is_empty(), "按继续之前棋盘上还没有细胞")
 	m._guide._advance()
 	await process_frame
@@ -4808,7 +4808,7 @@ func t_tutorial() -> void:
 	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["move"]["hint"], "「能量就是生命」这一步：提示是通用的迁移句、没有代做尾巴（%s）" % m._guide._hint.text)
 	m._guide._step = 4      ## 「别忘了结束回合」：翻页后提示换成结束回合那句、带代做尾巴（只 _render，不写进度）
 	m._guide._render()
-	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["end"]["hint"] + CWGuide.OFFER_TAIL,
+	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["end"]["hint"] + CWGuide.OFFER_TAIL % "下一章",
 		"翻到「别忘了结束回合」：提示跟着换成结束回合那句 + 代做尾巴（%s）" % m._guide._hint.text)
 	m._guide._step = 1
 	m._guide._render()
@@ -4861,6 +4861,22 @@ func t_tutorial() -> void:
 	check(sp.rects.is_empty() and sp.hexes.is_empty(), "跳过引导后提亮层清空")
 	m._guide.active = true
 	m._guide.visible = true
+	## 关卡最后一步按钮写「下一章」、全部最后一步写「完成引导」：尾巴要跟着按钮的字走，按钮按实际宽度靠右、右边留 PAD
+	## （Kevin 2026-09-05 截图：「别忘了结束回合 5/5」尾巴还说「继续」，「下一章」贴到边框）
+	m._guide._chapter = 1
+	m._guide._step = CWGuideData.steps(1).size() - 1      ## 「别忘了结束回合」：教 end，此刻正等行动 → 可代做
+	m._guide._render()
+	check(m._guide._btn.text == "下一章" and m._guide._hint.text.ends_with(CWGuide.OFFER_TAIL % "下一章"),
+		"关卡最后一步：尾巴写的是「下一章」（%s）" % m._guide._hint.text)
+	check(m._guide._btn.size.x >= 60 and m._guide._btn.position.x + m._guide._btn.size.x <= CWGuide.PANEL.size.x - CWGuide.PAD,
+		"「下一章」按实际宽度靠右，右边留 ≥ %d（右缘 %.0f）" % [CWGuide.PAD, m._guide._btn.position.x + m._guide._btn.size.x])
+	m._guide._chapter = CWGuideData.CHAPTER_COUNT - 1
+	m._guide._step = CWGuideData.steps(CWGuideData.CHAPTER_COUNT - 1).size() - 1
+	m._guide._render()
+	check(m._guide._btn.text == "完成引导" and m._guide._btn.position.x + m._guide._btn.size.x <= CWGuide.PANEL.size.x - CWGuide.PAD
+		and m._guide._btn.position.x - (m._guide._codex_btn.position.x + m._guide._codex_btn.size.x) >= 16.0,
+		"「完成引导」四个字同样靠右留边，且离「知识之书」≥ 16px")
+	check(not m._guide._hint.text.contains("我替你做"), "收尾页不教动作 → 没有代做尾巴（%s）" % m._guide._hint.text)
 	## 引导面板「知识之书」直达：第 4 关（下标 3）对应 CODEX_PAGE[3]
 	m._guide._chapter = 3
 	m._guide.open_codex_at_current()

@@ -31,8 +31,9 @@ var demo := Callable()
 var demo_ready := Callable()
 ## 「此刻该提示什么」：翻页时重新问桥一遍，提示跟着正在教的那一步走（教结束回合就说结束回合，不再停在迁移那句）
 var hint_now := Callable()
-## 提示行尾巴：代做可用时接在桥喂来的提示后面
-const OFFER_TAIL := "（点「继续」我替你做这一步）"
+## 提示行尾巴：代做可用时接在桥喂来的提示后面。%s = 右下角按钮此刻的字（继续 / 下一章 / 完成引导），
+## 关卡最后一步按钮写的是「下一章」，尾巴不能还说「继续」（Kevin 2026-09-05 截图报的）
+const OFFER_TAIL := "（点「%s」我替你做这一步）"
 
 var _match = null
 var _chapter := 0
@@ -204,8 +205,8 @@ func _refresh_hint() -> void:
 		if now != "":
 			_hint_text = now
 	var tail := ""
-	if _hint_text != "" and demo_ready.is_valid() and demo_ready.call():
-		tail = OFFER_TAIL
+	if _hint_text != "" and _btn != null and demo_ready.is_valid() and demo_ready.call():
+		tail = OFFER_TAIL % _btn.text
 	_hint.text = _hint_text + tail
 
 
@@ -253,6 +254,10 @@ func _render() -> void:
 	var last_of_chapter: bool = _step >= all.size() - 1
 	var last_of_all: bool = _chapter >= CWGuideData.CHAPTER_COUNT - 1 and last_of_chapter
 	_btn.text = "下一章" if last_of_chapter and not last_of_all else ("完成引导" if last_of_all else "继续")
+	## 按钮字数会变（继续 2 字 / 下一章 3 字 / 完成引导 4 字）：按实际宽度靠右对齐、右边留 PAD ——
+	## 原来按「继续」的宽度定死 x，「下一章」就顶到边框上（Kevin 2026-09-05 截图报的）
+	_btn.size = _btn.get_minimum_size()
+	_btn.position.x = PANEL.size.x - PAD - _btn.size.x
 	## 引导目录/章节选择放在「完成引导」之后不再重复出现，避免面板太挤
 	_refresh_hint()
 
