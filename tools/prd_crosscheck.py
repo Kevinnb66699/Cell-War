@@ -88,7 +88,7 @@ MAP = {
     # ---- 癌细胞种类 ----
     "MELANOMA_HOMING_COST":   "【早期血行转移】：消耗1点能量",
     "PSEUDOPOD_COST":         "本次移动的能量消耗为0.5",
-    "PSEUDOPOD_MIN_ADJ":      "若目标健康组织与至少2格癌性组织相邻",
+    "PSEUDOPOD_MIN_ADJ":      "若目标健康组织与至少3格癌性组织相邻",
     "MUCUS_MIN_ENERGY":       "消耗自身全部能量（至少2点）并死亡",
     "MUCUS_RADIUS":           "自身所在格及周围2格范围内所有组织进入“黏液侵染”状态",
     "MUCUS_MAX_CONVERT":      "系统从中随机选择最多10格立即转化为癌组织",

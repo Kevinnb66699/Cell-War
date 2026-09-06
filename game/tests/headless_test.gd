@@ -2175,7 +2175,7 @@ class NoticeRecorder extends CWBridge:
 ##
 ## **最关键的一条**：报价必须等于**真走一遍**花掉的能量。价钱逐步会变
 ## （癌细胞踩过的健康组织当场变癌组织 → 下一步从 1.0 变 0.2；黑色素瘤【伪足穿透】
-## 的「相邻 ≥2 格癌性」也会因此成立），所以这份账只能引擎算 ——
+## 的「相邻 ≥3 格癌性」也会因此成立），所以这份账只能引擎算 ——
 ## 这个测试就是防它和真实结算漂开。
 ## 树突状细胞按 2026-09-04 新 PRD 重做：【I-各司其职】换机制 + 新增【I-趋化源】
 ## 「出去占一圈、再回到原来那格攒固化」——Kevin 2026-09-04 指出的真人打法。
@@ -7440,15 +7440,18 @@ func t_card_mods() -> void:
 		"伪足穿透(%s) 比 EMT 的改写值(%s) 贵，EMT 才有意义" % [
 			CWData.fmt(CWData.PSEUDOPOD_COST), CWData.fmt(CWData.EMT_MOVE_COST)])
 	g = _fx_game(4)
-	## 让 (1,0) 邻接两格癌组织，把【伪足穿透】的条件凑齐
+	## 让 (1,0) 邻接三格癌组织，把【伪足穿透】的条件凑齐（门槛 2026-09-06 Kevin 由 2 改 3：两格不够）
 	g.tiles[Vector2i(1, -1)]["tissue"] = CWData.Tissue.CANCER
 	g.tiles[Vector2i(0, 1)]["tissue"] = CWData.Tissue.CANCER
 	var mel := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.MELANOMA)
 	mel["energy"] = 100
 	g.cells.append(mel)
 	g.round_no = 1
+	check(CWData.PSEUDOPOD_MIN_ADJ == 3 and g.actions._cancer_move_cost(mel, Vector2i(1, 0)) == CWData.CANCER_MOVE_HEALTHY,
+		"只邻接 2 格癌性组织 → 不触发【伪足穿透】，照付健康格全价")
+	g.tiles[Vector2i(1, 1)]["tissue"] = CWData.Tissue.CANCER
 	var base_cost: int = g.actions._cancer_move_cost(mel, Vector2i(1, 0))
-	check(base_cost == CWData.PSEUDOPOD_COST, "黑色素瘤基准价走【伪足穿透】")
+	check(base_cost == CWData.PSEUDOPOD_COST, "邻接 3 格 → 黑色素瘤基准价走【伪足穿透】")
 	mel["hand"] = ["上皮—间质转化"]
 	await g.card_fx.play(mel, { "act": "play", "card": "上皮—间质转化" })
 	check(g.actions._move_cost_mod(mel, Vector2i(1, 0), base_cost) == CWData.EMT_MOVE_COST,

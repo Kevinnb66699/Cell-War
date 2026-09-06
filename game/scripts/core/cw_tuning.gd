@@ -216,7 +216,7 @@ var cancer_move_cancerous := CWData.CANCER_MOVE_CANCEROUS
 var cancer_move_healthy := CWData.CANCER_MOVE_HEALTHY
 ## 小细胞肺癌【极简胞浆】：移动至健康组织**永久**走这个折后价
 var sclc_move_healthy := CWData.SCLC_MOVE_HEALTHY
-## 黑色素瘤【伪足穿透】：目标邻接 ≥2 格癌性组织时走这个折后价，**无次数限制**
+## 黑色素瘤【伪足穿透】：目标邻接 ≥3 格癌性组织（`CWData.PSEUDOPOD_MIN_ADJ`，2026-09-06 由 2 改 3）时走这个折后价，**无次数限制**
 var pseudopod_cost := CWData.PSEUDOPOD_COST
 
 # ---- 攻击 ----

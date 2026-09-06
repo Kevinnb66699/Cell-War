@@ -94,7 +94,7 @@ func immune_move_options(cell: Dictionary) -> Array:
 #
 # 为什么要引擎来算：一条路的**每一步价钱都取决于走到那一步时的盘面**——
 # 癌细胞踩过的健康组织当场变癌组织（【定殖】），于是下一步可能从「健康 1.0」变成「癌性 0.2」，
-# 黑色素瘤【伪足穿透】的「相邻 ≥2 格癌性」也会因此成立；免疫踩过癌组织当场【净化】成健康，
+# 黑色素瘤【伪足穿透】的「相邻 ≥3 格癌性」也会因此成立；免疫踩过癌组织当场【净化】成健康，
 # 下一步反而变贵。界面自己拿单格价钱乘步数**必然算错**，所以这份账只能engine 算。
 #
 # **纯查询**：动过的字段算完原样放回，`cell` / `tiles` 的对象身份不变
@@ -453,7 +453,7 @@ func _cancer_move_cost(cell: Dictionary, dest: Vector2i) -> int:
 	# 小细胞肺癌【极简胞浆】：移动至健康组织的消耗**永久**降为折后价（口径 #82 后是 0.7）
 	if cell["ctype"] == CWData.CancerType.SCLC:
 		return game.tune.sclc_move_healthy
-	# 黑色素瘤【伪足穿透】：目标健康组织与 ≥2 格癌性组织相邻时走折后价（口径 #82 后是 0.5）
+	# 黑色素瘤【伪足穿透】：目标健康组织与 ≥3 格癌性组织相邻时走折后价（口径 #82 后是 0.5；门槛 2026-09-06 由 2 改 3）
 	if cell["ctype"] == CWData.CancerType.MELANOMA and _cancerous_adj(dest) >= CWData.PSEUDOPOD_MIN_ADJ:
 		return game.tune.pseudopod_cost
 	return game.tune.cancer_move_healthy
