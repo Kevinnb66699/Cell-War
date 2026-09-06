@@ -15,6 +15,11 @@
 ## 文案一律来自 `CWCardData.effect_of()`，即 **PRD 原文**。这里一个字都不改写：
 ## 改写等于把规则抄第二份（架构约定 #10）。所以「0.8 / 1.5 / 2」这种分档写法会原样出现——
 ## 那正是 PRD 的写法，玩家看规则书读到的也是它。
+##
+## 分档写法里**当前生效的那一档高亮**（Kevin 2026-09-06）：`describe()` 多收一个 `phase`（癌症卡的分期，
+## `CWCardData.cancer_phase(round_no)`），`tier_marks()` 找出每行里该档的位置，`_rebuild()` 把那几个字
+## 单独画成亮字 + 底下一块阵营色板。文字本身仍是原文，一个字不动。**自由选择类不标**（【代谢耦联】那三档是
+## 玩家自己挑的，见 `FREE_CHOICE`）；「1/6 概率」这种没有空格的分数也不是分档写法，正则只认「a / b / c」。
 class_name CWCardInfo
 extends Control
 
@@ -30,6 +35,12 @@ const RULE_H := 7.0            ## 卡名与正文之间那条分隔线占的高
 ## 中文里不该出现在行首的字符。贪心折行会把它们甩到下一行开头，
 ## 看着像断句错了 —— 遇到就把断点往前挪一个字。
 const NO_LINE_START := "。，、；：？！）」』》%…—～·"
+
+## 卡面上的「a / b / c」不是按分期生效、而是让玩家自己挑一档的卡 —— 这种不高亮（Kevin 2026-09-06）
+const FREE_CHOICE := ["代谢耦联"]
+const HL_PAD := 2.0            ## 高亮色板比那几个字左右各宽出多少
+const HL_ALPHA := 0.5          ## 色板的透明度（阵营色压在深色面板上）
+static var _tier_re: RegEx     ## 「a / b / c」分档写法（至少三档、以「 / 」隔开），懒建
 
 var _card := ""      ## 正在悬停的卡名；空串 = 没有
 var _info := {}      ## 自由文案（分化提问里悬停种类按钮 → 细胞种类详情）；非空时压过 _card
@@ -76,8 +87,9 @@ func on_hover_info(rows: Dictionary, anchor_x: float) -> void:
 
 
 ## 每帧由 CWMatch 调。faction 决定【代谢耦联】那张给哪套措辞；
-## blocked = 开场/返场演出中，那会儿不该浮任何东西。
-func sync(delta: float, faction: int, blocked: bool) -> void:
+## blocked = 开场/返场演出中，那会儿不该浮任何东西；
+## phase = 癌症卡的分期（CWCardData.cancer_phase），决定分档写法里高亮哪一档，-1 = 不高亮。
+func sync(delta: float, faction: int, blocked: bool, phase := -1) -> void:
 	var free_text := not _info.is_empty()
 	if blocked or (not free_text and (_card == "" or not CWCardData.CARDS.has(_card))):
 		visible = false
@@ -85,8 +97,9 @@ func sync(delta: float, faction: int, blocked: bool) -> void:
 	_wait += delta
 	if _wait < DELAY:
 		return
-	var rows: Dictionary = _info if free_text else describe(_card, faction)
-	var key: String = "info|%s" % rows["name"] if free_text else "%s|%d" % [_card, faction]
+	var rows: Dictionary = _info if free_text else describe(_card, faction, phase)
+	## 分期进键：跨期那一刻框还开着的话要重搭，高亮才会挪到新的一档
+	var key: String = "info|%s" % rows["name"] if free_text else "%s|%d|%d" % [_card, faction, phase]
 	if key != _key:
 		_key = key
 		_rebuild(rows)
@@ -137,15 +150,22 @@ static func place_at(box: Vector2, anchor_x: float, screen: Vector2) -> Vector2:
 	return Vector2(x, clampf(y, 8.0, screen.y - box.y - 8.0))
 
 
-## 这张卡该显示什么：{ name, kind, lines }。纯函数，供测试直接核对文案。
-static func describe(card_name: String, faction: int) -> Dictionary:
+## 这张卡该显示什么：{ name, kind, lines, marks, accent }。纯函数，供测试直接核对文案。
+## phase = 癌症卡的分期下标（0/1/2），分档写法里高亮这一档；-1 或自由选择类的卡 → marks 全空。
+## accent = 高亮色板的颜色，按卡属于哪一方（免疫池权重全 0 = 癌症卡）。
+static func describe(card_name: String, faction: int, phase := -1) -> Dictionary:
 	var c: Dictionary = CWCardData.CARDS.get(card_name, {})
 	if c.is_empty():
 		return { "name": card_name, "kind": "", "lines": PackedStringArray() }
+	var text: String = CWCardData.effect_of(card_name, faction)
+	var lines := wrap_text(text, W - PAD_H * 2.0)
+	var tier: int = -1 if card_name in FREE_CHOICE else phase
 	return {
 		"name": card_name,
 		"kind": "【%s】" % CWCardData.KIND_NAMES[c["kind"]],
-		"lines": wrap_text(CWCardData.effect_of(card_name, faction), W - PAD_H * 2.0),
+		"lines": lines,
+		"marks": tier_marks(text, lines, tier),
+		"accent": CWStyle.CANCER if int(c["immune"].max()) == 0 else CWStyle.IMMUNE,
 	}
 
 
@@ -179,6 +199,56 @@ static func wrap_text(text: String, max_w: float) -> PackedStringArray:
 static func _text_w(s: String) -> float:
 	return CWStyle.FONT.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1,
 		CWStyle.SIZE_LABEL).x
+
+
+## 分档写法「a / b / c」里第 tier 档在各行的位置：与 lines 平行的数组，每项是该行的 [Vector2i(起, 长)…]，
+## 空数组 = 这行没有。tier < 0 = 不标。
+##
+## 在**折行前的整段**上找档、再按行切：折行是逐字贪心的，一组「1 / 1.5 / 2」可能被断在中间，
+## 只在单行上找会漏掉被拆开的那组；按段找完再把区间投影到各行，跨行的那一档两行各标各的一段
+## （wrap_text 不丢字，同一段的各行拼起来正好等于原段）。
+static func tier_marks(text: String, lines: PackedStringArray, tier: int) -> Array:
+	var marks: Array = []
+	for i in lines.size():
+		marks.append([])
+	if tier < 0:
+		return marks
+	var li := 0
+	for para in text.split("\n"):
+		if para == "":
+			continue
+		var spans := _tier_spans(para, tier)
+		var offset := 0
+		while li < lines.size() and offset < para.length():
+			var line: String = lines[li]
+			for sp in spans:
+				var s: int = maxi(sp.x, offset)
+				var e: int = mini(sp.x + sp.y, offset + line.length())
+				if e > s:
+					marks[li].append(Vector2i(s - offset, e - s))
+			offset += line.length()
+			li += 1
+	return marks
+
+
+## 一段文字里每组「a / b / c」的第 tier 档：[Vector2i(起, 长)…]。档数不够就取最后一档。
+## 只认**三档及以上**、以「 / 」（两边带空格）隔开的数字（可带正负号与小数）——
+## 「1/6 概率」这种分数、「a / b」两个数并列都不算。
+static func _tier_spans(para: String, tier: int) -> Array:
+	if _tier_re == null:
+		_tier_re = RegEx.new()
+		_tier_re.compile("[+\\-]?\\d+(?:\\.\\d+)?(?: / [+\\-]?\\d+(?:\\.\\d+)?)+")
+	var out: Array = []
+	for m in _tier_re.search_all(para):
+		var parts: PackedStringArray = m.get_string().split(" / ")
+		if parts.size() < 3:
+			continue
+		var idx: int = mini(tier, parts.size() - 1)
+		var start: int = m.get_start()
+		for k in idx:
+			start += parts[k].length() + 3
+		out.append(Vector2i(start, parts[idx].length()))
+	return out
 
 
 ## 摆位：左缘对齐手牌区，框底压在**抬起后的卡顶**上面一点，往上长。
@@ -223,9 +293,44 @@ func _rebuild(rows: Dictionary) -> void:
 	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(rule)
 
+	var marks: Array = rows.get("marks", [])
+	var accent: Color = rows.get("accent", CWStyle.IMMUNE)
 	var y := PAD_V + LINE_NAME + RULE_H
-	for line in lines:
-		var body := CWStyle.label(line, CWStyle.SIZE_LABEL, CWStyle.TEXT)
-		body.position = Vector2(PAD_H, y)
-		add_child(body)
+	for i in lines.size():
+		var spans: Array = marks[i] if i < marks.size() else []
+		if spans.is_empty():
+			var body := CWStyle.label(lines[i], CWStyle.SIZE_LABEL, CWStyle.TEXT)
+			body.position = Vector2(PAD_H, y)
+			add_child(body)
+		else:
+			_add_marked_line(lines[i], spans, y, accent)
 		y += LINE_BODY
+
+
+## 带高亮的一行：前文 / 那一档 / 后文各自一个标签接着排，x 用实测字宽推进
+## （像素字体没有字距，拼起来与整行一个标签画出来的一样）；那一档底下先铺一块阵营色板
+## （比字左右各宽 HL_PAD），字换亮色压在上面。文字一个字不改，只是分开画。
+func _add_marked_line(line: String, spans: Array, y: float, accent: Color) -> void:
+	var x := PAD_H
+	var cursor := 0
+	for sp in spans:
+		if sp.x > cursor:
+			x += _put_run(line.substr(cursor, sp.x - cursor), x, y, CWStyle.TEXT)
+		var seg: String = line.substr(sp.x, sp.y)
+		var chip := ColorRect.new()
+		chip.color = Color(accent, HL_ALPHA)
+		chip.position = Vector2(x - HL_PAD, y + 1.0)
+		chip.size = Vector2(_text_w(seg) + HL_PAD * 2.0, LINE_BODY - 2.0)
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(chip)
+		x += _put_run(seg, x, y, CWStyle.TEXT_HI)
+		cursor = sp.x + sp.y
+	if cursor < line.length():
+		_put_run(line.substr(cursor), x, y, CWStyle.TEXT)
+
+
+func _put_run(s: String, x: float, y: float, color: Color) -> float:
+	var l := CWStyle.label(s, CWStyle.SIZE_LABEL, color)
+	l.position = Vector2(x, y)
+	add_child(l)
+	return _text_w(s)

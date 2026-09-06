@@ -521,7 +521,8 @@ static func tip_rows(game: CWGame, pid: int, full: bool) -> Array:
 	var cell: Dictionary = game.cell_of(pid)
 	var immune: bool = cell["faction"] == CWData.Faction.IMMUNE
 	var equipped: Array = cell["equipped"]
-	var mods: Array = mod_rows(cell)
+	var phase := CWCardData.cancer_phase(game.round_no)   ## 分档写法高亮当前档（Kevin 2026-09-06）
+	var mods: Array = mod_rows(cell, phase)
 	var out: Array = []
 	if not full:
 		if equipped.is_empty() and mods.is_empty():
@@ -529,7 +530,7 @@ static func tip_rows(game: CWGame, pid: int, full: bool) -> Array:
 		if not equipped.is_empty():
 			out.append({ "head": "已装备 · 持续生效" })
 			for n in equipped:
-				out.append({ "text": n, "info": CWCardInfo.describe(n, cell["faction"]) })
+				out.append({ "text": n, "info": CWCardInfo.describe(n, cell["faction"], phase) })
 		out.append_array(mods)
 		return out
 	var tinfo: Dictionary = CWCardInfo.describe_type(cell["itype"], "【细胞种类】") if immune \
@@ -547,7 +548,7 @@ static func tip_rows(game: CWGame, pid: int, full: bool) -> Array:
 	if not equipped.is_empty():
 		out.append({ "head": "已装备 · 持续生效" })
 		for n in equipped:
-			out.append({ "text": n, "info": CWCardInfo.describe(n, cell["faction"]) })
+			out.append({ "text": n, "info": CWCardInfo.describe(n, cell["faction"], phase) })
 	out.append_array(mods)
 	return out
 
@@ -555,7 +556,8 @@ static func tip_rows(game: CWGame, pid: int, full: bool) -> Array:
 ## 即时卡挂在细胞上的修饰条目（CWGame.add_mod）按时钟分三段：本回合 / 本世界回合 / 待触发（不过期，挂着等触发）。
 ## 同名合并、次数 >1 写「×N」；条目悬停浮出的是那张卡的 PRD 原文。
 ## 名字带「·待发」的是引擎内部标记（如【细胞因子网络】的待发计数），不是玩家打出的东西，不列。
-static func mod_rows(cell: Dictionary) -> Array:
+## phase = 癌症卡的分期，条目详情里的分档写法高亮这一档（-1 = 不高亮）
+static func mod_rows(cell: Dictionary, phase := -1) -> Array:
 	var uses_by := { "turn": {}, "round": {}, "": {} }
 	for m in cell["mods"]:
 		var mod_name: String = m["name"]
@@ -572,7 +574,7 @@ static func mod_rows(cell: Dictionary) -> Array:
 		for mod_name in group:
 			var uses: int = group[mod_name]
 			out.append({ "text": mod_name if uses <= 1 else "%s ×%d" % [mod_name, uses],
-				"info": CWCardInfo.describe(mod_name, cell["faction"]) })
+				"info": CWCardInfo.describe(mod_name, cell["faction"], phase) })
 	return out
 
 
@@ -596,7 +598,8 @@ func _update_tip(game: CWGame) -> void:
 	var names := PackedStringArray()
 	for r in rows:
 		names.append(r.get("head", r.get("text", "")))
-	var key := "%d|%d|%s" % [pid, int(full), ",".join(names)]
+	## 分期进键：条目的详情（含分档高亮）是搭框时算好捏在闭包里的，跨期要重搭才会换档
+	var key := "%d|%d|%d|%s" % [pid, int(full), CWCardData.cancer_phase(game.round_no), ",".join(names)]
 	if key == _tip_key and _tip != null:
 		_tip.visible = true
 		return

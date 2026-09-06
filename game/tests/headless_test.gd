@@ -109,7 +109,7 @@ func _run_all() -> void:
 		t_log_panel, t_rules_page, t_production_row, t_skill_info,
 		t_save_load, t_settings, t_board_view, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
-		t_hand_index_after_exit, t_card_info, t_match_panel, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
+		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
 		t_card_name_fit, t_view_blend, t_announce, t_action_bar_width,
@@ -8191,6 +8191,117 @@ func t_card_info() -> void:
 		"矮框贴着卡顶往上长（y=%.0f）" % lo.y)
 	var hi := CWCardInfo.place(Vector2(CWCardInfo.W, 900), screen)
 	check(hi.y >= 8.0, "正文特别长时顶到画布上沿也不跑出去（y=%.0f）" % hi.y)
+
+
+
+## 卡面分档写法「a / b / c」里当前生效的那一档高亮（Kevin 2026-09-06）；自由选择类（【代谢耦联】）不高亮。
+## 找档是纯函数（describe / tier_marks），画法查子节点：那一档单独一个亮字标签 + 底下一块色板，x = 前文实测宽。
+func t_tier_highlight() -> void:
+	print("[卡面分档高亮]")
+	var CAN := CWData.Faction.CANCER
+	var d1 := CWCardInfo.describe("GLUT1高表达", CAN, 1)
+	check(_marked(d1) == ["0.8"], "中期：GLUT1 高亮 0.8（%s）" % str(_marked(d1)))
+	check(_marked(CWCardInfo.describe("GLUT1高表达", CAN, 0)) == ["0.5"], "前期：0.5")
+	check(_marked(CWCardInfo.describe("GLUT1高表达", CAN, 2)) == ["1"], "后期：1（后面的「能量」不带上）")
+	check(_marked(CWCardInfo.describe("GLUT1高表达", CAN)) == [], "不给分期 → 不高亮")
+	check(_marked(CWCardInfo.describe("基质硬化", CAN, 0)) == ["+1"], "正号连着一起高亮")
+	check(_marked(CWCardInfo.describe("肿瘤血管生成", CAN, 2)) == ["2.5"], "两边带空格的写法、小数档")
+	check(_marked(CWCardInfo.describe("肿瘤细胞募集", CAN, 2)) == ["3"], "第三档")
+	check(_marked(CWCardInfo.describe("代谢耦联", CAN, 1)) == []
+		and _marked(CWCardInfo.describe("代谢耦联", CWData.Faction.IMMUNE, 1)) == [],
+		"【代谢耦联】那三档是玩家自己挑的，不高亮")
+	check(_marked(CWCardInfo.describe("免疫突触成熟", CWData.Faction.IMMUNE, 1)) == [], "「1/6 概率」这种分数不是分档")
+	check(_marked(CWCardInfo.describe("CXCR3趋化", CWData.Faction.IMMUNE, 1)) == [], "没有分档写法的卡不高亮")
+	check(d1["accent"] == CWStyle.CANCER
+		and CWCardInfo.describe("CXCR3趋化", CWData.Faction.IMMUNE, 1)["accent"] == CWStyle.IMMUNE,
+		"色板按卡属于哪一方")
+	## 全覆盖：带「a / b / c」的卡（除自由选择）三期各恰好高亮到一档，高亮的正是拆开后的第 n 个
+	var n_cards := 0
+	var wrong: Array = []
+	for name in CWCardData.CARDS:
+		var eff: String = CWCardData.effect_of(name, CAN)
+		if not eff.contains(" / ") or name in CWCardInfo.FREE_CHOICE:
+			continue
+		n_cards += 1
+		var group: String = ""
+		var re := RegEx.new()
+		re.compile("[+\\-]?\\d+(?:\\.\\d+)?(?: / [+\\-]?\\d+(?:\\.\\d+)?)+")
+		var m := re.search(eff)
+		group = m.get_string() if m != null else ""
+		var parts: PackedStringArray = group.split(" / ")
+		for ph in 3:
+			var got := _marked(CWCardInfo.describe(name, CAN, ph))
+			if got != [parts[mini(ph, parts.size() - 1)]]:
+				wrong.append("%s@%d=%s" % [name, ph, str(got)])
+	## 66 张里带「a / b / c」的是 12 张（【免疫突触成熟】的「1/6 概率」没有空格，不算），去掉自由选择的【代谢耦联】剩 11
+	check(n_cards == 11 and wrong.is_empty(), "11 张分档卡三期各高亮到正确的一档（%d 张；错的：%s）" % [n_cards, str(wrong)])
+	## 折行把一组拆到两行：两行各标各的那一段
+	var m2 := CWCardInfo.tier_marks("x 1 / 1.5 / 2 y", PackedStringArray(["x 1 / 1", ".5 / 2 y"]), 1)
+	check(m2[0] == [Vector2i(6, 1)] and m2[1] == [Vector2i(0, 2)], "跨行的一档两行各标一段（%s）" % str(m2))
+	check(CWCardInfo.tier_marks("x 1 / 1.5 / 2 y", PackedStringArray(["x 1 / 1.5 / 2 y"]), -1) == [[]], "tier=-1 → 全空")
+	## 真渲染
+	var box := CWCardInfo.new()
+	root.add_child(box)
+	await process_frame
+	box.on_hover("GLUT1高表达")
+	box.sync(0.3, CAN, false, 1)
+	var seg: Label = null
+	var n_seg := 0
+	for c in box.get_children():
+		if c is Label and (c as Label).text == "0.8":
+			seg = c
+			n_seg += 1
+	check(box.visible and n_seg == 1, "中期：0.8 单独成一个亮字标签（%d 个）" % n_seg)
+	if seg != null:
+		var prefix := ""
+		for i in d1["lines"].size():
+			if not d1["marks"][i].is_empty():
+				prefix = String(d1["lines"][i]).substr(0, d1["marks"][i][0].x)
+		var want_x: float = CWCardInfo.PAD_H + CWStyle.FONT.get_string_size(prefix,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+		check(is_equal_approx(seg.position.x, want_x), "亮字的 x = 前文实测宽（%.0f / %.0f）" % [seg.position.x, want_x])
+		check(seg.get_theme_color("font_color") == CWStyle.TEXT_HI, "那一档用亮色")
+		var chip: ColorRect = null
+		for c in box.get_children():
+			if c is ColorRect and is_equal_approx((c as ColorRect).position.x, seg.position.x - CWCardInfo.HL_PAD):
+				chip = c
+		check(chip != null and is_equal_approx(chip.color.a, CWCardInfo.HL_ALPHA) and chip.color.a < 1.0
+			and chip.get_index() < seg.get_index(),
+			"底下一块半透明色板，压在亮字之下")
+		check(chip != null and chip.color.r == CWStyle.CANCER.r and chip.color.g == CWStyle.CANCER.g, "色板是癌方色")
+	## 跨期：框开着也要换档
+	box.sync(0.0, CAN, false, 2)
+	var texts: Array = []
+	for c in box.get_children():
+		if c is Label:
+			texts.append((c as Label).text)
+	check(texts.has("1") and not texts.has("0.8"), "换到后期 → 重搭，高亮挪到 1（%s）" % str(texts))
+	box.queue_free()
+	## 右栏技能详情同一套：装备着 GLUT1 的癌细胞在第 12 回合，条目详情里高亮 0.8；跨期时框的键要变
+	var g := _fx_game(2)
+	## tip_rows 按 pid 查 cells：免疫 pid 0 先进去，癌 pid 1 才排得上
+	g.cells.append(CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(3, 0), CWData.ImmuneType.BASIC, -1))
+	var can := CWSetup.make_cell(1, 1, CAN, Vector2i.ZERO, -1, CWData.CancerType.MELANOMA)
+	can["energy"] = 50
+	can["equipped"] = ["GLUT1高表达"]
+	g.cells.append(can)
+	g.round_no = 12
+	var info := {}
+	for r in CWMatchPanel.tip_rows(g, 1, true):
+		if r.get("text", "") == "GLUT1高表达":
+			info = r["info"]
+	check(not info.is_empty() and _marked(info) == ["0.8"], "右栏装备条目的详情按当前分期高亮（%s）" % str(_marked(info)))
+	g.dispose()
+
+
+## describe() 结果里被高亮的那几段文字，按行序排
+static func _marked(d: Dictionary) -> Array:
+	var out: Array = []
+	var marks: Array = d.get("marks", [])
+	for i in marks.size():
+		for sp in marks[i]:
+			out.append(String(d["lines"][i]).substr(sp.x, sp.y))
+	return out
 
 
 ## 模拟一次拖拽：在卡上按下 → 移动 → 在 to 处松手。

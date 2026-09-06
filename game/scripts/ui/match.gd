@@ -641,7 +641,8 @@ func _process(delta: float) -> void:
 		## 阵营取「抽屉正在显示谁的手牌」，不是 current_pid —— 观战/热座时它们会不一样，
 		## 而详情框说的是**手上这张卡**，得跟着卡的主人走（只影响【代谢耦联】的措辞）
 		var info_faction: int = game.player(_hand_pid)["faction"] if _hand_pid >= 0 			else CWData.Faction.IMMUNE
-		_card_info.sync(delta, info_faction, _opening or _fading)
+		## 分期给分档写法的高亮用（Kevin 2026-09-06）
+		_card_info.sync(delta, info_faction, _opening or _fading, CWCardData.cancer_phase(game.round_no))
 	if _log_panel != null:
 		## 日志按「屏幕前这位真人」的视角过滤：别人（含 AI）抽到什么牌换成公开替身（Kevin 2026-09-05：单人局也收）。
 		## 热座下视角 = 当前露牌的真人，换手期间（-1）所有秘密行都是替身；单人局 = 那一席；无真人的观战局不过滤、全看
