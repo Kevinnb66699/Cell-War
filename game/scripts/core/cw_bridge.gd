@@ -40,8 +40,8 @@ func show_result(_text: String, _at: Vector2i) -> void:
 	pass
 
 
-## 【E-侵蚀】的过场：某格被侵蚀了，癌是从 `_dir`（CWData.DIRS 的下标）那一侧漫过来的。
-## 纯演出，不 await —— 侵蚀是世界自动结算，不该为了演出卡住 E 阶段。
+## 癌吞掉一格健康组织的过场（【侵蚀】【增生】【定殖】共用，名字沿用最早接上的侵蚀）：
+## `_at` 变癌了，癌是从 `_dir`（CWData.DIRS 的下标）那一侧来的。纯演出，不 await —— 不该为了演出卡住结算。
 func show_erosion(_at: Vector2i, _dir: int) -> void:
 	pass
 

@@ -537,6 +537,29 @@ static func hex_dist(a: Vector2i, b: Vector2i) -> int:
 	return (abs(dq) + abs(dr) + abs(dq + dr)) / 2
 
 
+## 从 dest 看，from 在哪一侧：返回 `DIRS` 的下标（= 癌蔓延过场图的下标，方向名 = 癌来的那一侧）。
+## 相邻格按轴向精确取；不相邻（跃进 / 血管 / 传送落地）取六个方向里与来路夹角最小的那个——
+## 六边形格按轴坐标 (q, r) 摆平成 x = q + r/2、y = r·√3/2，点积最大即夹角最小；
+## 同一格（原地复活、【紊乱】返回原位）说不出「哪一侧」，返回 -1，调用方据此不演。
+## 纯几何、不掷骰（理由同 CWWorld._erosion_dir：演出用的方向走 rng 会毁掉同种子复现）。
+static func dir_toward(dest: Vector2i, from: Vector2i) -> int:
+	var d: Vector2i = from - dest
+	if d == Vector2i.ZERO:
+		return -1
+	var v := Vector2(d.x + d.y * 0.5, d.y * 0.8660254)
+	var best := -1
+	var best_dot := -INF
+	for i in DIRS.size():
+		if DIRS[i] == d:
+			return i   ## 相邻：就是这一侧
+		var u := Vector2(DIRS[i].x + DIRS[i].y * 0.5, DIRS[i].y * 0.8660254)
+		var dot := v.dot(u)
+		if dot > best_dot:
+			best_dot = dot
+			best = i
+	return best
+
+
 static func is_edge(c: Vector2i) -> bool:
 	# 棋盘外缘格：邻居不满 6 个
 	return neighbors(c).size() < 6

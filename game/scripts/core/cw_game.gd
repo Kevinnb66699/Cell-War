@@ -625,8 +625,10 @@ func announce(text: String, at: Vector2i) -> void:
 		b.show_result(text, at)
 
 
-## 【E-侵蚀】过场广播。去重规则同 announce（热座共用一个 UI 桥时只演一次）。
-## 不 await：过场自己会走完，不该卡住 E 阶段的后续步骤。
+## 「癌吞掉一格健康组织」的过场广播：【E-侵蚀】【E-增生】【定殖】三处共用——名字沿用最早接上的侵蚀，
+## 2026-09-06 起后两处也走它，对玩家是同一件事：这一格变癌了、癌从 `dir`（CWData.DIRS 下标）那一侧来。
+## 去重规则同 announce（热座共用一个 UI 桥时只演一次）。
+## 不 await：过场自己会走完，不该卡住 E 阶段 / 移动结算的后续步骤。
 func erosion_fx(at: Vector2i, dir: int) -> void:
 	var shown: Array = []
 	for b in bridges.values():

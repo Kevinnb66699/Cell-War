@@ -814,6 +814,7 @@ func _cascade(target: Dictionary) -> void:
 ## paid = 这一步实际支付的能量；**-1 = 不是花钱走进来的**（传送 / 复活 / 血管 / 卡牌位移），
 ## 那种情况不设巨噬回能的上限。
 func enter_tile(cell: Dictionary, dest: Vector2i, paid: int = -1) -> void:
+	var from: Vector2i = cell["pos"]   ## 来路：【定殖】过场要说「癌从哪一侧进来」
 	cell["pos"] = dest
 	var t: Dictionary = game.tile(dest)
 	## 挪了窝，上一格的「蹲守」就作废（还站在同一格的话下面会重新登记）
@@ -823,6 +824,10 @@ func enter_tile(cell: Dictionary, dest: Vector2i, paid: int = -1) -> void:
 	if cell["faction"] == CWData.Faction.CANCER and t["tissue"] == CWData.Tissue.HEALTHY:
 		CWTissue.to_cancer(t, true)
 		game.log_msg("　【定殖】%s 转为癌组织" % str(dest))
+		## 过场与【侵蚀】【增生】同一套（癌吞掉一格健康组织、从哪一侧来）。方向 = **这一步的前进方向**（Kevin 2026-09-06）：
+		## 癌从来路那一侧漫入、朝细胞前进的方向推进——相邻移动就是来路那一侧，跃进 / 传送落地取最接近来路的一侧；
+		## 原地不动（复活、紊乱返回）没有前进方向，不演（-1）
+		game.erosion_fx(dest, CWData.dir_toward(dest, from))
 	elif cell["faction"] == CWData.Faction.IMMUNE and t["tissue"] == CWData.Tissue.CANCER \
 			and int(t.get("ossify_at", 0)) > 0:
 		## 骨肉瘤【骨样硬化】标记过的格：进来不能立刻净化，得停留一个世界回合

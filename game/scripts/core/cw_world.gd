@@ -413,7 +413,7 @@ func _erosion() -> void:
 		game.erosion_fx(c, int(from[c]))
 
 
-## 侵蚀是从哪一侧漫过来的：`CWData.DIRS` 的下标，取不到癌性邻居返回 -1。
+## 侵蚀 / 增生是从哪一侧漫过来的（过场方向）：`CWData.DIRS` 的下标，取不到癌性邻居返回 -1。
 ##
 ## **刻意不掷骰**，哪怕有好几个癌性邻居也只按 DIRS 的固定顺序取第一个：
 ## 这只是演出用的方向，走 rng 会多消耗随机数，
@@ -453,8 +453,13 @@ func _proliferate() -> void:
 				adj += 1
 		if adj > 0 and game.rng.randi_range(1, 1000) <= rate * adj:
 			converts.append(c)
+	## 过场方向在转化**之前**取：这一批是同时结算的，先转的格不该成为后转格的「来源」（同 _erosion）
+	var from := {}
+	for c in converts:
+		from[c] = _erosion_dir(c)
 	for c in converts:
 		CWTissue.to_cancer(game.tile(c), true)
+		game.erosion_fx(c, int(from[c]))   ## 过场与【侵蚀】同一套：癌从哪一侧漫过来
 	if not converts.is_empty():
 		game.log_msg("【增生】%d 格健康组织被癌组织侵占" % converts.size())
 

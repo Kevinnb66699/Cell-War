@@ -99,7 +99,7 @@ func _run_all() -> void:
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path,
 		t_dendritic_rework, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
 		t_immune_win, t_cancer_revive_blocked, t_cancer_s_win, t_immune_respawn,
-		t_pressure, t_necrosis, t_erosion_fx, t_teleport_fx,
+		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_stroma_targets, t_batch2_rules,
 		t_immune_level_rules, t_tissue_transitions, t_one_cell_per_tile, t_phase_order,
 		t_event_rounds, t_draw_limit, t_snapshot, t_state_codec,
@@ -1986,6 +1986,74 @@ func t_erosion_fx() -> void:
 	## 还不报任何错。2026-09-05 接侵蚀过场时就漏了这一条，靠读代码才发现。
 	for kind in ["roll", "result", "notice", "erosion"]:
 		check(kind in CWNetClient.STREAM_KINDS, "演出报文「%s」在 STREAM_KINDS 里" % kind)
+
+
+# ---- 【增生】【定殖】也走侵蚀那套过场（Kevin 2026-09-06）----
+##
+## 三处对玩家是同一件事「这一格变癌了、癌从哪一侧来」。这里验的是**方向怎么定**：
+## 定殖取细胞的来路（相邻精确、远处取夹角最小的一侧、原地 -1），增生取转化**之前**的癌性邻居
+## （同批转的邻居不能互当来源——错了不会报错，只会让玩家看见癌从空的那侧漫过来）。
+func t_spread_fx() -> void:
+	print("[增生 / 定殖过场]")
+	var o := Vector2i.ZERO
+	var all_exact := true
+	for i in CWData.DIRS.size():
+		if CWData.dir_toward(o, o + CWData.DIRS[i]) != i:
+			all_exact = false
+	check(all_exact, "dir_toward：六个相邻格各报自己的 DIRS 下标")
+	check(CWData.dir_toward(o, o + CWData.DIRS[2] * 5) == 2, "跃进 5 格（轴线上）：报跃进来的那一侧")
+	check(CWData.dir_toward(o, Vector2i(3, -1)) == 0, "不在轴线上的远格 (3,-1)：取夹角最小的 E 侧")
+	check(CWData.dir_toward(o, Vector2i(-2, 3)) == 4, "远格 (-2,3)：取夹角最小的 SW 侧")
+	check(CWData.dir_toward(o, o) == -1, "同一格：说不出哪一侧，-1（不演）")
+
+	## ---- 定殖：癌细胞走进健康组织 → 广播一次，方向 = 来路那一侧 ----
+	var g := bare_game()
+	var rec := ErosionRecorder.new()
+	for pid in g.order:
+		g.bridges[pid] = rec
+	var from := Vector2i(2, 0)
+	var dest := Vector2i(1, 0)
+	var cancer := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, from, -1, CWData.CancerType.OSTEO)
+	g.cells.append(cancer)
+	g.tiles[dest]["tissue"] = CWData.Tissue.HEALTHY
+	await g.actions.enter_tile(cancer, dest)
+	check(g.tiles[dest]["tissue"] == CWData.Tissue.CANCER, "定殖：健康格转为癌组织")
+	check(rec.got.size() == 1 and rec.got[0][0] == dest and int(rec.got[0][1]) == 0,
+		"定殖广播一次：(2,0) 走进 (1,0)，癌从 E 侧（DIRS[0]）进来")
+	## 走进已经是癌的格：没有定殖，也就没有过场
+	rec.got.clear()
+	g.tiles[o]["tissue"] = CWData.Tissue.CANCER
+	await g.actions.enter_tile(cancer, o)
+	check(rec.got.is_empty(), "走进癌组织：不定殖、不演")
+	## 免疫细胞走进健康格：不演（净化有自己的表现，也不是「癌来了」）
+	var imm := put_immune(g, Vector2i(-2, 0))
+	g.tiles[Vector2i(-1, 0)]["tissue"] = CWData.Tissue.HEALTHY
+	await g.actions.enter_tile(imm, Vector2i(-1, 0))
+	check(rec.got.is_empty(), "免疫走进健康格：不演")
+	## 跃进落地（不相邻）：取最接近来路的一侧
+	g.tiles[Vector2i(4, 0)]["tissue"] = CWData.Tissue.HEALTHY
+	await g.actions.enter_tile(cancer, Vector2i(4, 0))
+	check(rec.got.size() == 1 and int(rec.got[0][1]) == 3,
+		"从 (0,0) 跃到 (4,0)：癌从 W 侧（DIRS[3]）来")
+	g.dispose()
+
+	## ---- 增生：中心一格癌、必中 → 六邻全转，六次过场的方向全指向中心 ----
+	var g2 := bare_game()
+	var rec2 := ErosionRecorder.new()
+	for pid in g2.order:
+		g2.bridges[pid] = rec2
+	for c: Vector2i in g2.tiles:
+		g2.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
+	g2.tiles[o]["tissue"] = CWData.Tissue.CANCER
+	g2.tune.proliferate_per_adjacent = 1000   ## 必中，隔离概率因素
+	g2.world._proliferate()
+	check(rec2.got.size() == 6, "增生六邻全转 → 广播六次（%d 次）" % rec2.got.size())
+	var toward_center := true
+	for e in rec2.got:
+		if int(e[1]) != CWData.dir_toward(e[0], o):
+			toward_center = false
+	check(toward_center, "每格的方向都指向中心那格：方向在转化之前取，同批转的邻居不互当来源")
+	g2.dispose()
 
 
 ## 只记录全局通报的桥，给 t_match_panel 验 trigger → notice 用

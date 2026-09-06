@@ -665,7 +665,7 @@ func _sync_tiles() -> void:
 	var marks := {}
 	for c: Vector2i in game.tiles:
 		var t: Dictionary = game.tiles[c]
-		## 【E-侵蚀】过场：引擎早就把这一格翻成癌了，但玩家还没看见「癌是从哪边漫过来的」。
+		## 癌蔓延过场（侵蚀 / 增生 / 定殖共用）：引擎早就把这一格翻成癌了，但玩家还没看见「癌是从哪边漫过来的」。
 		## 过场这 0.32 秒里改画过场图 —— 不加覆盖层，所以不会和高亮剪影抢 Z_MARK。
 		## 演完 frame_of() 返回 null，下面那行自然把它换成癌组织，不需要收尾代码。
 		var ero: Texture2D = _erosion_fx.frame_of(c)
