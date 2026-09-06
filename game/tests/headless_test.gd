@@ -4320,7 +4320,35 @@ func t_match_panel() -> void:
 	check(is_equal_approx(pos.y, CWToast.MARGIN + CWToast.GAP)
 		and is_equal_approx(pos.x + box.x * 0.5, (CWView.screen_size().x - CWView.PANEL_WIDTH) * 0.5),
 		"通报浮在棋盘区顶部居中（y=%d，中线 x=%d）" % [int(pos.y), int(pos.x + box.x * 0.5)])
-	check(CWUIBridge.NOTICE_HOLD >= 3.0, "通报停留 ≥3 秒（骰子结果那档是 %.1f）" % CWUIBridge.RESULT_HOLD)
+	check(CWUIBridge.NOTICE_HOLD >= 6.0 and CWUIBridge.RESULT_HOLD >= 2.0,
+		"通报停留 ≥6 秒、骰子结果 ≥2 秒（Kevin 2026-09-06 拉长；现 %.1f / %.1f）" % [CWUIBridge.NOTICE_HOLD, CWUIBridge.RESULT_HOLD])
+	## 通报排队（Kevin 2026-09-06「都显示得太快」的另一半）：忙着时后来的排着，走完一条才上下一条；收起清队
+	var tq := CWToast.new()
+	root.add_child(tq)
+	await process_frame
+	tq.queue_at("一", anchor, 1.0)
+	tq.queue_at("二", anchor, 1.0)
+	check(tq._label.text == "一" and tq._queue.size() == 1 and tq._busy, "第二条排队，不顶掉第一条")
+	tq._on_done()
+	check(tq._label.text == "二" and tq._queue.is_empty() and tq._busy, "第一条走完 → 第二条上")
+	tq.hide_now()
+	check(tq._queue.is_empty() and not tq._busy, "收起清队")
+	## 界面桥：通报走专用那只 toast，不碰骰子旁那只（两边互不顶掉）
+	var ub := CWUIBridge.new()
+	var t_res := CWToast.new()
+	var t_not := CWToast.new()
+	root.add_child(t_res)
+	root.add_child(t_not)
+	await process_frame
+	ub.toast = t_res
+	ub.notice_toast = t_not
+	ub.show_notice("世界事件【X】")
+	check(t_not._label.text == "世界事件【X】" and t_res._label.text == "", "通报走专用那行字，不碰骰子旁那行")
+	ub.notice_toast = null
+	ub.show_notice("退回")
+	check(t_res._label.text == "退回", "没装专用那只时退回共用那只")
+	for n in [tq, t_res, t_not]:
+		n.queue_free()
 	g.cancer_win_streak = 1
 	p.refresh(g)
 	check(p._weighted_caption.text == "★ 警报 1/2", "警报期标题换成「★ 警报 1/2」（%s）" % p._weighted_caption.text)

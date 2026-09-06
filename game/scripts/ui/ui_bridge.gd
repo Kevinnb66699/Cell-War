@@ -23,6 +23,7 @@ var bar: CWActionBar
 var info: CWCardInfo   ## 悬停详情框：分化提问里停在种类按钮上时浮细胞种类详情；纯 AI 桥 / 测试里可为 null
 var panel: CWMatchPanel
 var toast: CWToast     ## 骰子旁边那行字
+var notice_toast: CWToast   ## 全局通报专用的那行字（2026-09-06 与骰子旁那行分开：互不顶掉，且排队显示）
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
 var erosion: CWErosionFx   ## 癌蔓延两帧过场（侵蚀 / 增生 / 定殖共用）；纯 AI 桥 / 测试里可为 null
 var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这里来（无界面时为 null）
@@ -49,11 +50,12 @@ var opening := false
 ## set_marks() 里写、互相把对方擦掉。
 var marks := {}
 
-## 结算说明在屏幕上停留多久
-const RESULT_HOLD := 1.1
+## 结算说明在屏幕上停留多久。1.1 → 2.4（Kevin 2026-09-06「所有的事件都显示得太快」）
+const RESULT_HOLD := 2.4
 ## 全局通报（抽到世界事件）停多久：一句「世界事件【基质阻隔】：癌细胞移动能量花费翻倍（持续 2 回合）」要读完，
-## 而且 S 阶段没人盯着棋盘中央 —— 1.1 秒的骰子档等于没显示（2026-09-02 Kevin 问「触发时会自动弹出提示吗」）
-const NOTICE_HOLD := 3.0
+## 而且 S 阶段没人盯着棋盘中央 —— 1.1 秒的骰子档等于没显示（2026-09-02 Kevin 问「触发时会自动弹出提示吗」）。
+## 3.0 → 6.0（Kevin 2026-09-06 拉长）；通报走 notice_toast 排队，扎堆时一条条来、不再互相顶掉
+const NOTICE_HOLD := 6.0
 
 ## 行动栏按钮上的技能名。**费用一律现从 CWData 读，这里不写第二份数字**。
 ## 表本体 2026-09-04 挪进 `CWData.ACT_NAMES`（右栏固定详情也要用同一份），这里只留别名。
@@ -758,10 +760,12 @@ func show_erosion(at: Vector2i, dir: int) -> void:
 
 
 ## 全局通报：浮在棋盘区**顶部居中**（不贴任何格子，不挡棋子），停 NOTICE_HOLD 秒。
+## 走专用的 notice_toast 并排队 —— 和骰子结果分开，两边谁也顶不掉谁；没装专用那只（旧测试 / 极简装配）退回共用那只
 func show_notice(text: String) -> void:
-	if toast == null:
-		return
-	toast.show_at(text, notice_anchor(), NOTICE_HOLD)
+	if notice_toast != null:
+		notice_toast.queue_at(text, notice_anchor(), NOTICE_HOLD)
+	elif toast != null:
+		toast.show_at(text, notice_anchor(), NOTICE_HOLD)
 
 
 ## 通报的锚点：棋盘区（屏幕去掉右侧竖条）顶边中点、零尺寸 —— CWToast.place 上面塞不下就翻到锚点下方，

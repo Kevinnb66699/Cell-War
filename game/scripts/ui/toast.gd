@@ -23,6 +23,11 @@ const MARGIN := 8.0     ## 贴画布边时留的余量
 var _box: PanelContainer
 var _label: Label
 var _tween: Tween
+## 排队显示（全局通报那只实例用）：正在显示时后来的先排着，等这一条淡出再上下一条。
+## 世界事件、复活失败这类通报常在 S / E 阶段扎堆蹦出来，直接 show_at 会互相顶掉，
+## 玩家只看得见最后一条（Kevin 2026-09-06「都显示得太快」）—— 光拉长 hold 治不了顶掉。
+var _queue: Array = []   ## [{ text, avoid, hold }]
+var _busy := false
 
 
 func _ready() -> void:
@@ -68,7 +73,29 @@ static func place(box: Vector2, avoid: Rect2, screen: Vector2) -> Vector2:
 		clampf(y, MARGIN, screen.y - box.y - MARGIN))
 
 
+## 排队版 show_at：空闲就立刻显示，忙着就排到后面；hold 必须 > 0（排着的东西得自己走完）。
+## 一条走完（淡出结束）→ _on_done 上下一条。骰子旁那行字**不该**用它 —— 结果要贴着当下的骰子，
+## 排队会让说明落在盘面之后。
+func queue_at(text: String, avoid: Rect2, hold: float) -> void:
+	if _busy:
+		_queue.append({ "text": text, "avoid": avoid, "hold": maxf(hold, 0.1) })
+		return
+	_busy = true
+	show_at(text, avoid, maxf(hold, 0.1))
+	_tween.finished.connect(_on_done)
+
+
+func _on_done() -> void:
+	_busy = false
+	if _queue.is_empty():
+		return
+	var n: Dictionary = _queue.pop_front()
+	queue_at(n["text"], n["avoid"], n["hold"])
+
+
 func hide_now() -> void:
 	if _tween != null and _tween.is_valid():
 		_tween.kill()
+	_queue.clear()
+	_busy = false
 	_box.modulate.a = 0.0

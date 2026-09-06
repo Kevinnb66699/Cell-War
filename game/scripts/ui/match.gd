@@ -136,6 +136,7 @@ var _fading := false  ## 正在演返场淡出：这期间**必须停掉每帧�
 var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
 var _tile_info: CWTileInfo   ## 悬停格子详情（_ready 里程序化补进 UI 层）
 var _card_info: CWCardInfo   ## 悬停手牌详情，同样程序化补进；与格子详情同一套打法
+var _notice_toast: CWToast   ## 全局通报专用的那行字（2026-09-06）：与场景里骰子旁那只分开，排队显示
 var _chemo_fx: CWChemoFx     ## 树突【I-趋化源】的漩涡核心演出（挂在棋盘层，跟着格子走）
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
 var _erosion_fx := CWErosionFx.new()
@@ -176,6 +177,11 @@ func _ready() -> void:
 		_card_info = CWCardInfo.new()
 		ui.add_child(_card_info)
 		ui.move_child(_card_info, _tile_info.get_index())
+		## 全局通报专用的那行字（Kevin 2026-09-06「都显示得太快」）：与骰子旁那只分开，世界事件不再被下一次攻击结果顶掉，
+		## 扎堆时排队一条条来。同层放在详情框下面
+		_notice_toast = CWToast.new()
+		ui.add_child(_notice_toast)
+		ui.move_child(_notice_toast, _tile_info.get_index())
 		## 日志面板压在信息卡下面：两者都开着时，悬停详情仍然读得到
 		_log_panel = CWLogPanel.new()
 		ui.add_child(_log_panel)
@@ -309,6 +315,7 @@ func _wire_bridge(smart: bool) -> void:
 	bridge.info = _card_info   ## 分化提问里悬停种类按钮 → 细胞种类详情（同一只详情框）
 	bridge.panel = panel
 	bridge.toast = toast
+	bridge.notice_toast = _notice_toast
 	bridge.camera = camera
 	bridge.erosion = _erosion_fx
 	bridge.hand = hand   ## 方案甲：打出/弃置手势从手牌抽屉来
@@ -554,6 +561,8 @@ func teardown() -> void:
 		hand.clear()
 	if toast != null:
 		toast.hide_now()
+	if _notice_toast != null:
+		_notice_toast.hide_now()
 	if _tile_info != null:
 		_tile_info.hide_now()
 	if _card_info != null:
