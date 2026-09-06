@@ -50,8 +50,9 @@ var opening := false
 ## set_marks() 里写、互相把对方擦掉。
 var marks := {}
 
-## 紧跟骰子的结算说明停多久。**骰子这档不动**（Kevin 2026-09-06：「骰子的时长不要动，只要动后面弹出的文字提示」）
-const RESULT_HOLD := 1.1
+## 紧跟骰子的结算说明（攻击 / 突变 / 抗体的结果文字）停多久。1.1 → 2.4（Kevin 2026-09-06：结果文字停久些，
+## **骰子本身的演出不动** —— 那是 CWDice.play 的节拍，这里碰不到）。停久了就各自一只气泡，连着两次攻击才不会互相顶掉
+const RESULT_HOLD := 2.4
 ## 不是紧跟骰子的说明（事件卡效果、复活失败、次数用尽……）停多久：各自一只气泡（CWToast.bubble_at），互不顶掉
 const TEXT_HOLD := 4.0
 ## 全局通报（抽到世界事件）停多久：一句「世界事件【基质阻隔】：癌细胞移动能量花费翻倍（持续 2 回合）」要读完，
@@ -754,7 +755,9 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 		return
 	## 沿用掷骰时那个位置：骰子这会儿已经收了，但玩家的视线还在那儿，
 	## 让「攻击」和「攻击大成功」出现在同一个地方比各自找最优位置更好读。
-	toast.show_at(text, _dice_rect(board.tile_center(at)), RESULT_HOLD)
+	## 先收掉掷骰时那行「攻击」，结果另起一只气泡停 RESULT_HOLD（各自一只：停久了才不会被下一次攻击的结果顶掉）
+	toast.hide_box()
+	toast.bubble_at(text, _dice_rect(board.tile_center(at)), RESULT_HOLD)
 
 
 ## 癌蔓延过场（侵蚀 / 增生 / 定殖共用）：只登记「哪一格、癌从哪一侧来」，具体哪一帧由 CWMatch 每帧问 frame_of()。

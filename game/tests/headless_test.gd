@@ -4354,9 +4354,9 @@ func t_match_panel() -> void:
 	var wrapped := CWToast.wrap_body(long_notice, CWUIBridge.notice_max_w())
 	check(wrapped.contains("\n") and wrapped.replace("\n", "") == long_notice, "世界事件那句超宽 → 折成两行、一字不丢")
 	check(CWToast.wrap_body("短句", CWUIBridge.notice_max_w()) == "短句", "放得下的不折")
-	## 骰子那档时长不动（Kevin 2026-09-06「骰子的时长不要动」）；非骰子的文字提示另一档、更长
-	check(is_equal_approx(CWUIBridge.RESULT_HOLD, 1.1) and CWUIBridge.TEXT_HOLD >= 3.0 and CWUIBridge.NOTICE_HOLD >= 6.0,
-		"骰子结果 1.1 s 不动；非骰子说明 %.1f s、通报 %.1f s" % [CWUIBridge.TEXT_HOLD, CWUIBridge.NOTICE_HOLD])
+	## 三档时长（Kevin 2026-09-06）：骰子**结果文字** ≥2 s（骰子本身的演出在 CWDice，这里碰不到）；非骰子说明更长；通报最长
+	check(CWUIBridge.RESULT_HOLD >= 2.0 and CWUIBridge.TEXT_HOLD >= 3.0 and CWUIBridge.NOTICE_HOLD >= 6.0,
+		"骰子结果 %.1f s、非骰子说明 %.1f s、通报 %.1f s" % [CWUIBridge.RESULT_HOLD, CWUIBridge.TEXT_HOLD, CWUIBridge.NOTICE_HOLD])
 	## 通报排队（Kevin 2026-09-06「都显示得太快」的另一半）：忙着时后来的排着，走完一条才上下一条；收起清队
 	var tq := CWToast.new()
 	root.add_child(tq)
@@ -4431,6 +4431,9 @@ func t_match_panel() -> void:
 	check(t_res._label.text == "攻击成功" and t_res._bubbles.size() == 2 and b1 != b2,
 		"气泡各自一只，骰子旁那行字原样")
 	check(not Rect2(b1.position, b1.size).intersects(Rect2(b2.position, b2.size)), "第二只气泡避开第一只（%s / %s）" % [str(b1.position), str(b2.position)])
+	## 骰子结果也各自一只气泡：掷骰时的「攻击」标签在结果到时收掉，两次攻击的结果并存
+	t_res.hide_box()
+	check(is_zero_approx(t_res._box.modulate.a) and t_res._bubbles.size() == 2, "hide_box 只收骰子旁那只，气泡不动")
 	t_res.hide_now()
 	check(t_res._bubbles.is_empty(), "收起时气泡一并清掉")
 	for n in [tq, t_res, t_not]:

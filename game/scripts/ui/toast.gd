@@ -169,6 +169,13 @@ func _make_box() -> PanelContainer:
 	return box
 
 
+## 只收骰子旁那只 `_box`（掷骰时的「攻击」标签），气泡与队列不动 —— 骰子停稳、结果另起气泡时用
+func hide_box() -> void:
+	if _tween != null and _tween.is_valid():
+		_tween.kill()
+	_box.modulate.a = 0.0
+
+
 func hide_now() -> void:
 	if _tween != null and _tween.is_valid():
 		_tween.kill()
