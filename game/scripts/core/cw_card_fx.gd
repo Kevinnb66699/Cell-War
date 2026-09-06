@@ -419,6 +419,7 @@ func _clonal_growth(cell: Dictionary) -> void:
 	var picked := _pick_random(cands, [1, 2, 3][_phase()])
 	for c in picked:
 		CWTissue.to_cancer(game.tile(c), true)
+		game.erosion_fx(c, CWData.dir_toward(c, cell["pos"]))   ## 过场：癌从发动者那一侧漫入（Kevin 2026-09-06）
 	game.log_msg("　【克隆增殖】%d 格健康组织转为癌组织" % picked.size())
 	_evt("克隆增殖", "%d 格转癌组织" % picked.size(), cell["pos"])
 

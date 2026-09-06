@@ -630,6 +630,8 @@ func announce(text: String, at: Vector2i) -> void:
 ## 去重规则同 announce（热座共用一个 UI 桥时只演一次）。
 ## 不 await：过场自己会走完，不该卡住 E 阶段 / 移动结算的后续步骤。
 func erosion_fx(at: Vector2i, dir: int) -> void:
+	if dir < 0:
+		return   ## 取不出方向（原地复活、引爆者脚下……）：不演也不广播
 	var shown: Array = []
 	for b in bridges.values():
 		if b == null or shown.has(b):
@@ -809,7 +811,8 @@ func apply_mark(target: Dictionary, by: Dictionary) -> void:
 	target["mark_left"] = maxi(target["mark_left"], charges)
 
 
-## 【I-标记】的光环刷新：**任意时间**站在树突旁边的癌细胞都该带着标记（2026-09-04 新 PRD）。
+## 【I-标记】的光环刷新：**任意时间**处于树突 `CWData.MARK_RANGE` 格内的癌细胞都该带着标记
+## （2026-09-04 新 PRD；范围「相邻格」→「相邻 2 格内」是 Kevin 2026-09-06 改的，PRD 正本已同步）。
 ##
 ## 旧写法只在「分化出树突」和「有人移动」之后刷一次，于是标记被伤害消耗掉之后
 ## 即使还贴着树突也不会再回来 —— 新 PRD 的「同一回合一癌细胞可多次获得标记」要的正是那次回补。
@@ -818,17 +821,18 @@ func apply_mark(target: Dictionary, by: Dictionary) -> void:
 ## 因此重复调用不会把层数堆到天上。
 
 func update_marks() -> void:
+	var dendritics: Array = []
+	for ic in living_cells(CWData.Faction.IMMUNE):
+		if ic["itype"] == CWData.ImmuneType.DENDRITIC:
+			dendritics.append(ic)
+	if dendritics.is_empty():
+		return
 	for c in living_cells(CWData.Faction.CANCER):
 		if c["marked"]:
 			continue
-		for n in CWData.neighbors(c["pos"]):
-			var found := false
-			for ic in cells_at(n, CWData.Faction.IMMUNE):
-				if ic["itype"] == CWData.ImmuneType.DENDRITIC:
-					apply_mark(c, ic)
-					found = true
-					break
-			if found:
+		for ic in dendritics:
+			if CWData.hex_dist(c["pos"], ic["pos"]) <= CWData.MARK_RANGE:
+				apply_mark(c, ic)
 				break
 
 

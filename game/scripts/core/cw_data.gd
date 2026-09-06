@@ -358,6 +358,11 @@ const CHEMO_IMMUNE_PCT := 70    # 免疫向靠近该格方向迁移：费用 ×0
 const CHEMO_SELF_PCT := 50
 const CHEMO_CANCER_PCT := 140   # 癌细胞向远离该格方向移动：费用 ×1.4（+40%）
 
+# ---- 树突状细胞【I-标记】光环范围（Kevin 2026-09-06：「相邻 2 格内」，原 PRD 是相邻格）----
+## 六边形距离 ≤ 此值的癌细胞**任意时间**自动获得【标记】（CWGame.update_marks）。
+## 文案（细胞详情 / 知识之书 / 引导）和启发式 AI 的接近目标都现读这个数，不写第二份。
+const MARK_RANGE := 2
+
 const IMMUNE_TYPE_NAMES := {
 	ImmuneType.BASIC: "免疫细胞", ImmuneType.B_CELL: "B细胞", ImmuneType.T_CELL: "T细胞",
 	ImmuneType.MACRO: "巨噬细胞", ImmuneType.DENDRITIC: "树突状细胞",
@@ -383,7 +388,7 @@ const IMMUNE_TYPE_TEXT := {
 		+ "· 癌细胞向远离该格的方向移动时，移动费用增加40%\n"
 		+ "　· 是否靠近/远离取决于，迁移后距离该格的距离增加/降低\n"
 		+ "· 同一时刻场上仅能存在一个趋化源\n"
-		+ "【I-标记】：任意时间处于树突状细胞相邻格的癌细胞自动获得【标记】\n"
+		+ "【I-标记】：任意时间处于树突状细胞相邻2格内的癌细胞自动获得【标记】\n"
 		+ "· 被标记的癌细胞下一次受到免疫细胞造成的能量损失时，该次能量损失×2，随后移除【标记】\n"
 		+ "· 同一回合一癌细胞可多次获得标记",
 }

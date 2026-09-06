@@ -63,7 +63,7 @@ func sync(delta: float, game: CWGame, board: Node2D, camera: Camera2D,
 
 
 ## 这一格该显示什么：[{ text, size, color }]。纯函数，供测试直接核对文案。
-## 字段取舍见设计稿：组织 + 坐标 / **迁移耗能** / 固化进度 / 特殊组织 / 坏死 / 占据者。
+## 字段取舍见设计稿：组织 + 坐标 / **迁移耗能** / 固化进度 / 特殊组织 / 趋化源 / 坏死 / 占据者。
 ##
 ## move_cost < 0 表示「此刻不在迁移态，或这一格不可达」，那一行就不出。
 ## verb 分「迁移」（免疫）和「移动」（癌症）—— 规则里是两个词，不能混用。
@@ -110,6 +110,15 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 			rows.append(production_row(t))
 		CWData.Special.VESSEL:
 			rows.append({ "text": "血管", "size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
+	## 树突【I-趋化源】立在这一格：标出来（Kevin 2026-09-06 要的）。剩余回合与漩涡转暖橙同一口径
+	## （left ≤ 1 = 最后一回合）；折扣 / 加价现读 CWData，不写第二份
+	if not game.chemo.is_empty() and game.chemo["at"] == c:
+		var left := int(game.chemo["left"])
+		rows.append({ "text": "趋化源 · %s" % ("最后一回合" if left <= 1 else "还剩 %d 回合" % left),
+			"size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
+		rows.append({ "text": "免疫朝它 -%d%% · 癌方背它 +%d%%" % [
+				100 - CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT - 100],
+			"size": CWStyle.SIZE_LABEL, "color": CWStyle.TEXT_DIM })
 	if t["necrosis"]:
 		rows.append({ "text": "坏死", "size": CWStyle.SIZE_LABEL, "color": CWStyle.TEXT_DIM })
 	for cell in game.cells_at(c):

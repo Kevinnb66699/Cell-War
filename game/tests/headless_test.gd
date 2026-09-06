@@ -97,7 +97,7 @@ func _run_all() -> void:
 		t_breath_sheets, t_solidify_and_decay, t_erosion, t_macro_purify_heal,
 		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path,
-		t_dendritic_rework, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
+		t_dendritic_rework, t_mark_range, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
 		t_immune_win, t_cancer_revive_blocked, t_cancer_s_win, t_immune_respawn,
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_stroma_targets, t_batch2_rules,
@@ -105,7 +105,7 @@ func _run_all() -> void:
 		t_event_rounds, t_draw_limit, t_snapshot, t_state_codec,
 		t_rollout_isolation, t_step_atomic, t_full_game_2p, t_full_game_4p,
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
-		t_mc_budget, t_config_panel, t_config_custom, t_hover_info,
+		t_mc_budget, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_skill_info,
 		t_save_load, t_settings, t_board_view, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
@@ -2055,6 +2055,43 @@ func t_spread_fx() -> void:
 	check(toward_center, "每格的方向都指向中心那格：方向在转化之前取，同批转的邻居不互当来源")
 	g2.dispose()
 
+	## ---- 卡牌 / 技能直接转癌的格也演（Kevin 2026-09-06 补）：方向都朝发动者 / 落点那一侧 ----
+	var g3 := _fx_game(2)
+	var rec3 := ErosionRecorder.new()
+	for pid in g3.order:
+		g3.bridges[pid] = rec3
+	var a := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.MELANOMA)
+	g3.cells.append(a)
+	g3.round_no = 1
+	await g3.card_fx.resolve_event(a, "克隆增殖")
+	check(rec3.got.size() == 1 and int(rec3.got[0][1]) == CWData.dir_toward(rec3.got[0][0], a["pos"]),
+		"【克隆增殖】转的那格演过场，癌从发动者那一侧来")
+	## 【黏液破裂】：范围内随机转的格全演，方向朝引爆者；引爆者脚下那格取不出方向 → 引擎不广播
+	var sig := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(3, 0), -1, CWData.CancerType.SIGNET, 100)
+	g3.cells.append(sig)
+	rec3.got.clear()
+	g3.actions._do_mucus(sig)
+	check(rec3.got.size() >= 1, "【黏液破裂】转的格演过场（%d 格）" % rec3.got.size())
+	var toward_sig := true
+	for e in rec3.got:
+		if e[0] == Vector2i(3, 0) or int(e[1]) != CWData.dir_toward(e[0], Vector2i(3, 0)):
+			toward_sig = false
+	check(toward_sig, "方向都朝引爆者那一侧，且引爆者脚下那格没有广播")
+	## 【早期血行转移】：落点本身走 enter_tile（上面验过），落点周围随机转的那几格也演，方向朝落点
+	var mel := CWSetup.make_cell(2, 1, CWData.Faction.CANCER, CWData.VESSELS[0], -1, CWData.CancerType.MELANOMA, 100)
+	g3.cells.append(mel)
+	rec3.got.clear()
+	var land := Vector2i(-3, 1)
+	await g3.actions._do_homing(mel, land)
+	check(rec3.got.size() >= 2 and rec3.got[0][0] == land,
+		"落点先演（定殖），随后扩散的格也演（共 %d 格）" % rec3.got.size())
+	var toward_land := true
+	for i in range(1, rec3.got.size()):
+		if int(rec3.got[i][1]) != CWData.dir_toward(rec3.got[i][0], land):
+			toward_land = false
+	check(toward_land, "扩散格的方向都朝落点那一侧")
+	g3.dispose()
+
 
 ## 只记录全局通报的桥，给 t_match_panel 验 trigger → notice 用
 class NoticeRecorder extends CWBridge:
@@ -2407,7 +2444,7 @@ func t_plan_path() -> void:
 
 func t_heur_no_squat_on_fresh() -> void:
 	print("[启发式 v4：不蹲在刚铺的格子上]")
-	check(CWHeuristicBridge.AI_VERSION == "v9", "AI 版本号 v9（改 AI 行为要升号；v9 = 会用重做后的【骨样硬化】）")
+	check(CWHeuristicBridge.AI_VERSION == "v10", "AI 版本号 v10（改 AI 行为要升号；v10 = 树突按 2 格光环找位置）")
 	var g := _fx_game(2)
 	var can := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i.ZERO, -1,
 		CWData.CancerType.MELANOMA)
@@ -3084,6 +3121,80 @@ func t_hover_layer() -> void:
 	root.remove_child(panel)
 	panel.free()
 	g.dispose()
+
+
+# ---- 【I-标记】光环范围「相邻格」→「相邻 2 格内」（Kevin 2026-09-06，PRD 正本已同步）----
+func t_mark_range() -> void:
+	print("[标记光环 2 格]")
+	check(CWData.MARK_RANGE == 2, "范围常量 = 2（Kevin 2026-09-06：相邻 2 格内）")
+	var g := bare_game()
+	var dc := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO, CWData.ImmuneType.DENDRITIC, -1, 150)
+	g.cells.append(dc)
+	var near := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(2, 0), -1, CWData.CancerType.SCLC, 100)
+	var far := CWSetup.make_cell(2, 1, CWData.Faction.CANCER, Vector2i(3, 0), -1, CWData.CancerType.SCLC, 100)
+	g.cells.append(near)
+	g.cells.append(far)
+	g.update_marks()
+	check(near["marked"] and near["mark_left"] == 1, "距离 2 的癌细胞自动获得标记")
+	check(not far["marked"], "距离 3 的不获得")
+	## 任意时间：挪进 2 格内（斜向 (1,1) 距离也是 2）再刷就有
+	far["pos"] = Vector2i(1, 1)
+	g.update_marks()
+	check(far["marked"], "挪进 2 格内 → 立刻获得（任意时间）")
+	## 树突不在场：不施加（已有的标记归伤害结算去消耗，这里不管）
+	near["marked"] = false
+	near["mark_left"] = 0
+	dc["alive"] = false
+	g.update_marks()
+	check(not near["marked"], "树突不在场：不施加")
+	g.dispose()
+	## 文案现读：细胞详情是 PRD 原文，逐字对上改后的正本
+	check(CWData.IMMUNE_TYPE_TEXT[CWData.ImmuneType.DENDRITIC].contains("相邻2格内的癌细胞自动获得【标记】"),
+		"细胞详情文案（PRD 原文）已改成 2 格")
+
+
+# ---- 趋化源：格子详情标出来 + 漩涡改像素风（Kevin 2026-09-06）----
+func t_chemo_info() -> void:
+	print("[趋化源详情与像素漩涡]")
+	var g := bare_game()
+	var at := Vector2i(2, -1)
+	g.chemo = { "at": at, "left": 2, "by": 0 }
+	var all := ""
+	for r in CWTileInfo.describe(g, at):
+		all += r["text"] + "|"
+	check(all.contains("趋化源 · 还剩 2 回合"), "详情：趋化源与剩余回合（%s）" % all)
+	check(all.contains("免疫朝它 -30% · 癌方背它 +40%"), "详情：效果一句话，数字现读 CWData")
+	g.chemo["left"] = 1
+	all = ""
+	for r in CWTileInfo.describe(g, at):
+		all += r["text"] + "|"
+	check(all.contains("趋化源 · 最后一回合"), "只剩 1 回合写「最后一回合」（和漩涡转暖橙同一口径）")
+	var other := ""
+	for r in CWTileInfo.describe(g, Vector2i(0, 0)):
+		other += r["text"] + "|"
+	check(not other.contains("趋化源"), "别的格不标")
+	g.chemo = {}
+	all = ""
+	for r in CWTileInfo.describe(g, at):
+		all += r["text"] + "|"
+	check(not all.contains("趋化源"), "消散后不标")
+	g.dispose()
+
+	## 像素风：时间按 1/12 秒步进、粒子落在整数格上且不出格子附近、残影 = 前几格的位置
+	check(CWChemoFx.frame_of(0.10) == CWChemoFx.frame_of(0.12), "同一格时间画得一样")
+	check(CWChemoFx.frame_of(0.10) != CWChemoFx.frame_of(0.20), "跨格时间才动")
+	check(is_equal_approx(CWChemoFx.quantize(0.12), 1.0 / CWChemoFx.PIX_FPS), "quantize 取格子起点")
+	var inside := true
+	for ring in CWChemoFx.RINGS:
+		for idx in CWChemoFx.PER_RING:
+			for f in 40:
+				var p := CWChemoFx.frame_pos(ring, idx, f)
+				if absi(p.x) > 33 or p.y > 10 or p.y < -31:
+					inside = false
+	check(inside, "40 帧内所有粒子像素都在格子附近（横向 ≤33、纵向 -31..10：整体上抬 5 之后不压前缘）")
+	check(CWChemoFx.pixel_at(0, 0, 5.0 / CWChemoFx.PIX_FPS + 0.01) == CWChemoFx.frame_pos(0, 0, 5),
+		"pixel_at = 该时刻所在格的 frame_pos")
+	check(CWChemoFx.TRAIL + 1 == CWChemoFx.ALPHA_STEPS.size(), "残影每段一个透明度档位（本体 + TRAIL 段）")
 
 
 # ---- 对局日志面板：窗口/着色是纯函数，开关与滚动走真节点 ----
@@ -9356,8 +9467,9 @@ func _t_damage_required() -> void:
 	var m0: int = mac4["energy"]
 	check(g4.immune_hit(t4, 10, mac4, false) == 10, "§9.9 卡牌伤害不吃树突/巨噬那两条")
 	check(mac4["energy"] == m0, "§9.9 巨噬【吞噬】不吸卡牌伤害的血")
-	## 树突用卡牌伤害同样不减半
-	var den := CWSetup.make_cell(g4.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i(4, 0),
+	## 树突用卡牌伤害同样不减半。摆在 (5,0)：离目标 3 格，避开【I-标记】的 2 格光环
+	## （2026-09-06 光环改 2 格时它原本在 (4,0)，目标被标记、伤害翻倍，下面护盾那条就红了——这里不测标记）
+	var den := CWSetup.make_cell(g4.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i(5, 0),
 		CWData.ImmuneType.DENDRITIC, -1, 100)
 	g4.cells.append(den)
 	check(g4.immune_hit(t4, 10, den, false) == 10, "§9.9 树突【各司其职】只减普通攻击")

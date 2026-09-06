@@ -309,7 +309,7 @@ static func chapters() -> Array:
 				"3-5 成功（目标 -%s）；6 大成功（目标 -%s）。" % [CWData.fmt(tune.attack_dmg_success), CWData.fmt(tune.attack_dmg_crit)],
 			] },
 			{ "t": "标记翻倍", "b": [
-				"树突细胞给相邻癌细胞挂【标记】，带标记的目标受到的下一次",
+				"树突细胞给 %d 格内的癌细胞挂【标记】，带标记的目标受到的下一次" % CWData.MARK_RANGE,
 				"伤害翻倍，随后消耗一层标记。",
 			] },
 			{ "t": "攻击次数", "b": atk_limit },
@@ -328,7 +328,7 @@ static func chapters() -> Array:
 			{ "t": "树突状细胞", "b": [
 				"【趋化源】：花 %s 在任意格立源、持续 %d 回合，" % [CWData.fmt(CWData.CHEMO_COST), CWData.CHEMO_ROUNDS],
 				"免疫朝它走的迁移费 ×%d%%，癌细胞背它走的移动费 ×%d%%。" % [CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT],
-				"相邻癌细胞自动带【标记】，下一次受伤翻倍。自身不能攻击，纯辅助。",
+				"%d 格内的癌细胞自动带【标记】，下一次受伤翻倍。自身不能攻击，纯辅助。" % CWData.MARK_RANGE,
 			] },
 		] },
 		{ "title": "四种癌细胞", "entries": [
@@ -370,7 +370,7 @@ static func chapters() -> Array:
 			] },
 			{ "t": "树突状细胞", "b": [
 				"免疫辅助型分化：【趋化源】花 %s 立源，免疫朝它走打折、癌细胞背它走加价；" % CWData.fmt(CWData.CHEMO_COST),
-				"相邻癌细胞自动带【标记】，下一次受伤翻倍。自身不能攻击。",
+				"%d 格内的癌细胞自动带【标记】，下一次受伤翻倍。自身不能攻击。" % CWData.MARK_RANGE,
 			] },
 			{ "t": "恶性黑色素瘤", "b": [
 				"癌方游击手：【早期血行转移】花 %s 能量，每世界回合一次，" % CWData.fmt(CWData.MELANOMA_HOMING_COST),

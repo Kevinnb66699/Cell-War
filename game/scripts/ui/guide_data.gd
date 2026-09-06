@@ -251,7 +251,7 @@ static func _chapter_cells() -> Array:
 			macro,
 			"树突细胞：花 %s 能量建趋化源，免疫靠近少付 %d%%、癌方远离多付 %d%%。" % [
 				CWData.fmt(CWData.CHEMO_COST), 100 - CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT - 100],
-			"它还能给相邻癌细胞挂【标记】，让下一次受伤翻倍。",
+			"它还能给 %d 格内的癌细胞挂【标记】，让下一次受伤翻倍。" % CWData.MARK_RANGE,
 		] },
 		{ "t": "癌方 ①", "flag": "", "b": [
 			"黑色素瘤：在血管上花 %s 能量跳任意健康格并扩散一片癌组织。" % CWData.fmt(CWData.MELANOMA_HOMING_COST),

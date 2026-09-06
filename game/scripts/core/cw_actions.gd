@@ -1175,6 +1175,7 @@ func _do_homing(cell: Dictionary, to: Vector2i) -> void:
 			spread.append(n)
 	for c in game.pick_random(spread, CWData.HOMING_SPREAD):
 		CWTissue.to_cancer(game.tile(c), true)
+		game.erosion_fx(c, CWData.dir_toward(c, to))   ## 过场：癌从落点那一侧漫入（Kevin 2026-09-06：这些也接）
 		game.log_msg("　【早期血行转移】%s 转为癌组织" % str(c))
 
 
@@ -1201,6 +1202,8 @@ func _do_mucus(cell: Dictionary) -> void:
 	var picked: Array = game.pick_random(healthy, CWData.MUCUS_MAX_CONVERT)
 	for c in picked:
 		CWTissue.to_cancer(game.tile(c), true)
+		## 过场：癌从引爆者那一侧漫入；引爆者自己脚下那格取不出方向（-1），引擎那头就不广播
+		game.erosion_fx(c, CWData.dir_toward(c, cell["pos"]))
 	game.log_msg("【黏液破裂】%s 引爆：%d 格进入黏液侵染，其中 %d 格转为癌组织" % [
 		game.cell_name(cell), area.size(), picked.size()])
 	game.announce("黏液破裂", cell["pos"])

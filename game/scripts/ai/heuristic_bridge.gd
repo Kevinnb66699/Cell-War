@@ -28,7 +28,10 @@ extends CWBridge
 ## v7：2026-09-04 —— 修 `CWEval.SOLID_TICK` 30→5。旧值下「进度 1.0 的癌组织(400)」比
 ##     「修成的固化格(200)」还值钱，**MC 会主动避免把固化修完**、到处留半成品，
 ##     癌方因此几乎拿不到复活据点。与 v6 的 `_base_return` 是同一个病的两个病灶。
-const AI_VERSION := "v9"   ## v9（2026-09-05）：会用骨肉瘤重做后的【骨样硬化】；规则侧同日改了有氧均分/无氧回合末
+## v9：2026-09-05 —— 会用骨肉瘤重做后的【骨样硬化】；规则侧同日改了有氧均分/无氧回合末。
+## v10：2026-09-06 —— 【I-标记】光环「相邻格」→「相邻 2 格内」（Kevin 改规则）：树突的接近目标改成
+##     「癌细胞 2 格内的任一空格」，不再非得贴脸。规则本身也变了，v9 及之前量的树突局面数字一并作废。
+const AI_VERSION := "v10"
 ## 每个桥实例可以单独退回 v1 的行为（set_version("v1")）：分化拿选项列表第一个、不惜命。
 ## 用途是**验证 AI 升级**：新版本必须在两边都不比旧版弱（balance_scan 的 aiver_immune= / aiver_cancer= 交叉对局），
 ## 否则标尺一换读数就漂、还分不清是规则变了还是量具变了（2026-09-02 v2 基线 6 人 24→10 就是这么查的）。对局里别拨。
@@ -242,13 +245,17 @@ func _best_purge_move(options: Array, me: Dictionary) -> int:
 
 
 func _best_approach(options: Array, me: Dictionary) -> int:
-	# 目标：无人癌性组织（树突：癌细胞的相邻格——它只能靠光环输出）
+	# 目标：无人癌性组织（树突：癌细胞光环范围内的格——它只能靠光环输出）
 	var targets: Array[Vector2i] = []
 	if me["itype"] == CWData.ImmuneType.DENDRITIC:
-		for c in game.living_cells(CWData.Faction.CANCER):
-			for n in CWData.neighbors(c["pos"]):
-				if game.cells_at(n, CWData.Faction.CANCER).is_empty():
-					targets.append(n)
+		## 光环范围 CWData.MARK_RANGE（v10 起 2 格）：站到范围内任何一格就够，不必贴脸
+		for t: Vector2i in game.tiles:
+			if not game.cells_at(t, CWData.Faction.CANCER).is_empty():
+				continue
+			for c in game.living_cells(CWData.Faction.CANCER):
+				if CWData.hex_dist(t, c["pos"]) <= CWData.MARK_RANGE:
+					targets.append(t)
+					break
 	else:
 		for c in game.tiles.keys():
 			if game.is_cancerous(c) and game.cells_at(c, CWData.Faction.CANCER).is_empty():
