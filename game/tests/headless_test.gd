@@ -2051,7 +2051,7 @@ func t_erosion_fx() -> void:
 	## 不在白名单里的报文会被 CWNetClient 当场 _apply 掉，而 _apply 的 match 没有兜底分支，
 	## 于是**静默丢弃**：CWMatch._net_loop 里那个分支永远收不到，联机模式下动画就是不播，
 	## 还不报任何错。2026-09-05 接侵蚀过场时就漏了这一条，靠读代码才发现。
-	for kind in ["roll", "result", "notice", "erosion"]:
+	for kind in ["roll", "result", "notice", "erosion", "card_played"]:
 		check(kind in CWNetClient.STREAM_KINDS, "演出报文「%s」在 STREAM_KINDS 里" % kind)
 
 
@@ -3355,6 +3355,32 @@ func t_log_panel() -> void:
 	await process_frame
 	check(chip.position == CWLogPanel.RECT.position and chip.size == CWLogHint.SIZE,
 		"提示钉在面板展开的角上（%s）" % str(CWLogPanel.RECT.position))
+	## 方案 A（Kevin 2026-09-06）：入口长成迷你日志，但**不压棋盘顶行**（棋盘顶边 y=75）
+	check(chip.position.y + chip.size.y <= 72.0, "迷你日志条底 %.0f 在棋盘顶边（75）之上" % (chip.position.y + chip.size.y))
+	var lg := bare_game()
+	var lp := CWLogPanel.new()
+	root.add_child(lp)
+	await process_frame
+	lg.log_msg("▶ 癌症A 的回合（能量 6.0）")
+	lg.log_msg("　【定殖】(5, -4) 转为癌组织")
+	lg.log_msg("　癌症A 结束回合（能量 0.5）")
+	chip.refresh(lg, lp)
+	check(chip._rows[0].text == "　【定殖】(5, -4) 转为癌组织" and chip._rows[1].text == "　癌症A 结束回合（能量 0.5）",
+		"迷你日志显示日志尾巴的最后两行（%s | %s）" % [chip._rows[0].text, chip._rows[1].text])
+	check(chip._rows[1].get_theme_color("font_color").a > chip._rows[0].get_theme_color("font_color").a,
+		"越旧越淡，最后一行全亮")
+	lg.log_msg("这一句故意写得很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长")
+	chip.refresh(lg, lp)
+	check(chip._rows[0].text.length() > 0 and chip._rows[1].text.begins_with("  "),
+		"超宽的一条按面板同款折行，尾巴两行是同一条的两段（续行带缩进）")
+	## 视角过滤同面板那份：别人的秘密行换公开替身
+	lg.log_msg("免疫B 抽到【永久】LFA-1黏附", 1, "免疫B 抽到一张【永久】")
+	lp.filter = true
+	lp.viewer = 0
+	chip.refresh(lg, lp)
+	check(chip._rows[1].text == "免疫B 抽到一张【永久】", "迷你日志按面板视角换替身（%s）" % chip._rows[1].text)
+	lp.queue_free()
+	lg.dispose()
 	var hits := [0]
 	chip.pressed.connect(func() -> void: hits[0] += 1)
 	var mev := InputEventMouseButton.new()
@@ -4317,11 +4343,20 @@ func t_match_panel() -> void:
 	var anchor := CWUIBridge.notice_anchor()
 	var box := Vector2(300, 40)
 	var pos := CWToast.place(box, anchor, CWView.screen_size())
+	## 2026-09-06 方案 A 之后通报挪到顶带**右半**：左界 = 迷你日志右缘 + 8，右界 = 右栏左缘 − 8，居中；超宽按字折行
+	var band_l: float = CWLogHint.right_edge() + 8.0
+	var band_r: float = CWView.screen_size().x - CWView.PANEL_WIDTH - 8.0
 	check(is_equal_approx(pos.y, CWToast.MARGIN + CWToast.GAP)
-		and is_equal_approx(pos.x + box.x * 0.5, (CWView.screen_size().x - CWView.PANEL_WIDTH) * 0.5),
-		"通报浮在棋盘区顶部居中（y=%d，中线 x=%d）" % [int(pos.y), int(pos.x + box.x * 0.5)])
-	check(CWUIBridge.NOTICE_HOLD >= 6.0 and CWUIBridge.RESULT_HOLD >= 2.0,
-		"通报停留 ≥6 秒、骰子结果 ≥2 秒（Kevin 2026-09-06 拉长；现 %.1f / %.1f）" % [CWUIBridge.NOTICE_HOLD, CWUIBridge.RESULT_HOLD])
+		and is_equal_approx(pos.x + box.x * 0.5, (band_l + band_r) * 0.5),
+		"通报浮在顶带右半居中（y=%d，中线 x=%d）" % [int(pos.y), int(pos.x + box.x * 0.5)])
+	check(is_equal_approx(CWUIBridge.notice_max_w(), band_r - band_l), "通报最宽 = 顶带右半的宽度（%.0f）" % CWUIBridge.notice_max_w())
+	var long_notice := "世界事件【基质阻隔】：癌细胞移动能量花费翻倍（持续 2 回合）"
+	var wrapped := CWToast.wrap_body(long_notice, CWUIBridge.notice_max_w())
+	check(wrapped.contains("\n") and wrapped.replace("\n", "") == long_notice, "世界事件那句超宽 → 折成两行、一字不丢")
+	check(CWToast.wrap_body("短句", CWUIBridge.notice_max_w()) == "短句", "放得下的不折")
+	## 骰子那档时长不动（Kevin 2026-09-06「骰子的时长不要动」）；非骰子的文字提示另一档、更长
+	check(is_equal_approx(CWUIBridge.RESULT_HOLD, 1.1) and CWUIBridge.TEXT_HOLD >= 3.0 and CWUIBridge.NOTICE_HOLD >= 6.0,
+		"骰子结果 1.1 s 不动；非骰子说明 %.1f s、通报 %.1f s" % [CWUIBridge.TEXT_HOLD, CWUIBridge.NOTICE_HOLD])
 	## 通报排队（Kevin 2026-09-06「都显示得太快」的另一半）：忙着时后来的排着，走完一条才上下一条；收起清队
 	var tq := CWToast.new()
 	root.add_child(tq)
@@ -4347,6 +4382,57 @@ func t_match_panel() -> void:
 	ub.notice_toast = null
 	ub.show_notice("退回")
 	check(t_res._label.text == "退回", "没装专用那只时退回共用那只")
+	## 别人打牌弹窗（Kevin 2026-09-06）：自己打的不弹；别人的按阵营标「对手 / 队友」；观战全弹不标
+	ub.notice_toast = t_not
+	t_not.hide_now()
+	ub.game = g
+	ub.human_pids = [0]
+	ub.hotseat = false
+	ub.show_card_played(0, "免疫A 打出【CXCR3趋化】")
+	check(t_not._label.text == "" or t_not._label.text == "世界事件【X】", "自己打的卡不弹（%s）" % t_not._label.text)
+	t_not.hide_now()
+	ub.show_card_played(1, "癌症A 打出【糖酵解爆发】")
+	check(t_not._label.text == "对手 癌症A 打出【糖酵解爆发】", "对手打的卡：标「对手」（%s）" % t_not._label.text)
+	t_not.hide_now()
+	ub.show_card_played(2, "免疫B 打出【炎症趋化】")
+	check(t_not._label.text == "队友 免疫B 打出【炎症趋化】", "队友打的卡：标「队友」（%s）" % t_not._label.text)
+	t_not.hide_now()
+	ub.human_pids = []
+	ub.show_card_played(0, "免疫A 打出【CXCR3趋化】")
+	check(t_not._label.text == "免疫A 打出【CXCR3趋化】", "观战：全弹、不标关系（%s）" % t_not._label.text)
+	ub.hotseat = true
+	ub.current_human = 1
+	t_not.hide_now()
+	ub.show_card_played(1, "癌症A 打出【糖酵解爆发】")
+	check(t_not._label.text == "免疫A 打出【CXCR3趋化】", "热座：当前露牌的那位自己打的不弹（文字没变）")
+	## 引擎侧：打出即时 / 永久卡都会广播 card_played；文案用席位名
+	var cp := CardPlayRecorder.new()
+	cp.game = g
+	for pid in g.order:
+		g.bridges[pid] = cp
+	var mel_c := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER, Vector2i(3, 3), -1, CWData.CancerType.MELANOMA)
+	mel_c["energy"] = 100
+	mel_c["hand"] = ["GLUT1高表达", "上皮—间质转化"]
+	g.cells.append(mel_c)
+	g.round_no = 1
+	await g.card_fx.play(mel_c, { "act": "play", "card": "GLUT1高表达" })
+	await g.card_fx.play(mel_c, { "act": "play", "card": "上皮—间质转化" })
+	check(cp.got == [[1, "癌症A 打出【GLUT1高表达】"], [1, "癌症A 打出【上皮—间质转化】"]],
+		"永久 / 即时卡打出都广播，文案用席位名（%s）" % str(cp.got))
+	## 非骰子的说明带 linger（事件卡效果 / 复活失败 / 次数用尽……），骰子那几条不带
+	g.announce("攻击成功", Vector2i.ZERO)
+	g.announce("事件【X】效果", Vector2i.ZERO, true)
+	check(cp.results == [["攻击成功", false], ["事件【X】效果", true]], "announce 的 linger 逐桥传到（%s）" % str(cp.results))
+	## 界面：linger 走独立气泡，不碰骰子旁那只、互不顶掉；淡出后自毁
+	t_res.hide_now()
+	t_res.show_at("攻击成功", Rect2(300, 300, 40, 40), 1.0)
+	var b1: Control = t_res.bubble_at("事件【一】", Rect2(300, 300, 40, 40), 1.0)
+	var b2: Control = t_res.bubble_at("事件【二】", Rect2(300, 300, 40, 40), 1.0)
+	check(t_res._label.text == "攻击成功" and t_res._bubbles.size() == 2 and b1 != b2,
+		"气泡各自一只，骰子旁那行字原样")
+	check(not Rect2(b1.position, b1.size).intersects(Rect2(b2.position, b2.size)), "第二只气泡避开第一只（%s / %s）" % [str(b1.position), str(b2.position)])
+	t_res.hide_now()
+	check(t_res._bubbles.is_empty(), "收起时气泡一并清掉")
 	for n in [tq, t_res, t_not]:
 		n.queue_free()
 	g.cancer_win_streak = 1
@@ -4994,7 +5080,7 @@ class ResultRecorder:
 	extends CWHeuristicBridge
 	var said: Array = []
 	var where: Array = []
-	func show_result(text: String, at: Vector2i) -> void:
+	func show_result(text: String, at: Vector2i, _linger := false) -> void:
 		said.append(text)
 		where.append(at)
 
@@ -6740,7 +6826,7 @@ class CWScriptBridge:
 		if a is Callable:
 			return a.call(req)
 		return a
-	func show_result(text: String, _at: Vector2i) -> void:
+	func show_result(text: String, _at: Vector2i, _linger := false) -> void:
 		toasts.append(text)
 
 
@@ -8333,6 +8419,17 @@ static func _marked(d: Dictionary) -> Array:
 		for sp in marks[i]:
 			out.append(String(d["lines"][i]).substr(sp.x, sp.y))
 	return out
+
+
+
+## 记录 card_played 与 announce 的 linger（2026-09-06 别人打牌弹窗 / 非骰子说明另一档）
+class CardPlayRecorder extends CWHeuristicBridge:
+	var got: Array = []
+	var results: Array = []
+	func show_card_played(pid: int, text: String) -> void:
+		got.append([pid, text])
+	func show_result(text: String, _at: Vector2i, linger := false) -> void:
+		results.append([text, linger])
 
 
 ## 模拟一次拖拽：在卡上按下 → 移动 → 在 to 处松手。

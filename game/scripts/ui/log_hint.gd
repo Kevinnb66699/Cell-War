@@ -1,4 +1,9 @@
-## log_hint.gd —— 左上角「对局日志 L」常驻入口提示（团队 2026-08-30 定案：方案A）
+## log_hint.gd —— 左上角「对局日志 L」常驻入口 + **迷你日志**（Kevin 2026-09-06 定方案 A）
+##
+## 入口提示原地长成 300×52 的条：标题行「对局日志 L」+ 日志尾巴两行（折行后的显示行），
+## 别人回合里发生的每一步都会从这里滚过去，不用按 L。**不压棋盘顶行**（棋盘顶边在 y=75，条底 68）——
+## Kevin 看方案预览图时提的：日志框不要太靠下、别挡棋盘。视角过滤与折行、着色都复用 CWLogPanel 的纯函数，
+## 数据同一份（game.logs），新行淡入。
 ##
 ## 钉在日志面板将来展开的那个角上（CWLogPanel.RECT.position）：按 L 或点这条提示，
 ## 面板就从提示所在的位置长出来、盖掉提示——「提示在哪，面板就在哪」，空间上自洽；
@@ -9,10 +14,21 @@ extends Control
 
 signal pressed   ## 点提示 = 按 L（CWMatch 把它接到 CWLogPanel.toggle）
 
-const SIZE := Vector2(76, 22)
+const SIZE := Vector2(300, 52)
+const ROWS := 2               ## 日志尾巴几行（折行后的显示行）
+const ROW_Y := 21.0           ## 第一行日志的 y；标题行在 5
+const ROW_H := 15.0
+const PAD_X := 7.0
+const FADE := 0.25            ## 新行淡入
 
 var _bg: Panel
 var _text: Label
+var _rows: Array[Label] = []
+var _cache: PackedStringArray = PackedStringArray()   ## 折行后的显示行（增量）
+var _cache_src: PackedInt32Array = PackedInt32Array() ## 每行来自第几条日志
+var _built := 0
+var _built_key := -3
+var _last_total := -1
 
 
 func _ready() -> void:
@@ -36,14 +52,67 @@ func _ready() -> void:
 	add_child(_bg)
 
 	_text = CWStyle.label("对局日志", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	_text.position = Vector2(7, 5)
+	_text.position = Vector2(PAD_X, 5)
 	add_child(_text)
 
-	## 键帽定尺寸（CWStyle.keycap），建成即知大小，直接钉右缘、垂直居中
+	## 键帽定尺寸（CWStyle.keycap），建成即知大小，钉在标题行右缘
 	var key := CWStyle.keycap("L")
-	key.position = Vector2(SIZE.x - 6.0 - key.size.x, (SIZE.y - key.size.y) / 2.0)
+	key.position = Vector2(SIZE.x - 6.0 - key.size.x, 5.0 + 6.0 - key.size.y / 2.0)
 	add_child(key)
+	## 日志尾巴：定长的行池，每帧只改 text / 颜色（同 CWLogPanel）
+	for i in ROWS:
+		var l := CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT)
+		l.position = Vector2(PAD_X, ROW_Y + i * ROW_H)
+		l.size = Vector2(row_width(), ROW_H)
+		l.clip_text = true
+		add_child(l)
+		_rows.append(l)
 	_paint(false)
+
+
+## 条的右缘（通报锚点从这儿往右算，CWUIBridge.notice_anchor）
+static func right_edge() -> float:
+	return CWLogPanel.RECT.position.x + SIZE.x
+
+
+static func row_width() -> float:
+	return SIZE.x - PAD_X * 2.0
+
+
+## 每帧由 CWMatch 调（面板之后）：把日志尾巴的最后 ROWS 个显示行铺上去。
+## 视角（filter / viewer）直接用面板那份 —— 别人抽到什么牌在这里也是公开替身。
+func refresh(game: CWGame, panel: CWLogPanel) -> void:
+	if game == null or panel == null:
+		return
+	var key: int = panel.viewer if panel.filter else -2
+	if game.logs.size() < _built or key != _built_key:
+		_cache.clear()
+		_cache_src.clear()
+		_built = 0
+		_built_key = key
+	while _built < game.logs.size():
+		for seg in CWLogPanel.wrap_line(panel.line_text(game, _built), row_width()):
+			_cache.append(seg)
+			_cache_src.append(_built)
+		_built += 1
+	var total := _cache.size()
+	var first := maxi(total - ROWS, 0)
+	for i in ROWS:
+		var idx := first + i
+		if idx >= total:
+			_rows[i].text = ""
+			continue
+		_rows[i].text = _cache[idx]
+		var c: Color = CWLogPanel.line_color(game.logs[_cache_src[idx]])
+		## 越旧越淡：最后一行全亮
+		var age: int = ROWS - 1 - i
+		_rows[i].add_theme_color_override("font_color", Color(c, 1.0 - 0.35 * age))
+	if total != _last_total:
+		if _last_total >= 0 and total > 0:
+			var newest: Label = _rows[mini(total, ROWS) - 1]
+			newest.modulate.a = 0.15
+			create_tween().tween_property(newest, "modulate:a", 1.0, FADE)
+		_last_total = total
 
 
 ## 可点的东西要会答话（本作的悬停语言）：描边提亮一档、灰字转常规

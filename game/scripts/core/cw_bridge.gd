@@ -36,7 +36,15 @@ func show_roll(_reason: String, _value: int, _sides: int, _pid: int, _at: Vector
 ## **文字由引擎给** —— 点数怎么判读是规则，表现层不许照着点数自己再判一遍
 ## （那等于把规则抄了第二份，改一处就会对不上）。
 ## at = 这件事发生在哪一格，表现层拿它决定提示浮在哪儿。
-func show_result(_text: String, _at: Vector2i) -> void:
+## linger = 不是紧跟骰子的说明（事件卡效果、复活失败、次数用尽……）：要停得久些、且不该被下一条顶掉
+## （Kevin 2026-09-06：骰子那档时长不动，只拉长这种）。
+func show_result(_text: String, _at: Vector2i, _linger := false) -> void:
+	pass
+
+
+## 某位玩家打出了一张卡（即时 / 永久）。给**别人**看的弹窗（Kevin 2026-09-06）：
+## 界面桥按「屏幕前这位真人是不是 pid 本人」决定弹不弹，并按阵营标「对手 / 队友」。
+func show_card_played(_pid: int, _text: String) -> void:
 	pass
 
 

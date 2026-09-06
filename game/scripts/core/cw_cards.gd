@@ -22,7 +22,7 @@ func draw(cell: Dictionary, source: String) -> void:
 	var card := pick(cell)
 	if card == "":
 		game.log_msg("　%s 的卡池已无合法卡牌，抽卡落空" % game.cell_name(cell))
-		game.announce("抽卡落空", cell["pos"])
+		game.announce("抽卡落空", cell["pos"], true)
 		return
 	var kind: int = CWCardData.CARDS[card]["kind"]
 	if kind == CWCardData.Kind.EVENT:
@@ -36,7 +36,7 @@ func draw(cell: Dictionary, source: String) -> void:
 			game.cell_name(cell), source, card])
 		if not await game.card_fx.resolve_event(cell, card):
 			game.log_msg("　（该事件效果未实现，按无效果弃置）")
-			game.announce("事件【%s】效果待实现" % card, cell["pos"])
+			game.announce("事件【%s】效果待实现" % card, cell["pos"], true)
 		return
 	cell["hand"].append(card)
 	## 牌名只有本人能看：联机时别的席位看到的是公开替身（CWGame.log_msg 的后两个参数）

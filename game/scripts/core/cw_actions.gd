@@ -645,7 +645,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		if used >= cap:
 			game.log_msg("　【攻击】%s 本行动回合的攻击次数已用尽（%d/%d）"
 				% [game.cell_name(cell), used, cap])
-			game.announce("攻击次数已用尽（%d/%d）" % [used, cap], to)
+			game.announce("攻击次数已用尽（%d/%d）" % [used, cap], to, true)
 		else:
 			game.log_msg("　【攻击】第 %d/%d 次" % [used, cap])
 	## ---- 判定链（定案 #59/#60）----
@@ -942,7 +942,7 @@ func _do_chemo(cell: Dictionary) -> void:
 	game.log_msg("【趋化源】%s 在 %s 建立趋化源（持续 %d 回合：免疫朝它 -%d%%、癌方背它 +%d%%）" % [
 		game.cell_name(cell), str(at), CWData.CHEMO_ROUNDS,
 		100 - CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT - 100])
-	game.announce("趋化源", at)
+	game.announce("趋化源", at, true)
 
 
 func _diff_choices() -> Array:
@@ -1206,7 +1206,7 @@ func _do_mucus(cell: Dictionary) -> void:
 		game.erosion_fx(c, CWData.dir_toward(c, cell["pos"]))
 	game.log_msg("【黏液破裂】%s 引爆：%d 格进入黏液侵染，其中 %d 格转为癌组织" % [
 		game.cell_name(cell), area.size(), picked.size()])
-	game.announce("黏液破裂", cell["pos"])
+	game.announce("黏液破裂", cell["pos"], true)
 	var victims: Array = []
 	for c in area:
 		victims.append_array(game.cells_at(c, CWData.Faction.IMMUNE))

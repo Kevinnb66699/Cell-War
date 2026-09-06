@@ -26,8 +26,10 @@ var _tween: Tween
 ## 排队显示（全局通报那只实例用）：正在显示时后来的先排着，等这一条淡出再上下一条。
 ## 世界事件、复活失败这类通报常在 S / E 阶段扎堆蹦出来，直接 show_at 会互相顶掉，
 ## 玩家只看得见最后一条（Kevin 2026-09-06「都显示得太快」）—— 光拉长 hold 治不了顶掉。
-var _queue: Array = []   ## [{ text, avoid, hold }]
+var _queue: Array = []   ## [{ text, avoid, hold, max_w }]
 var _busy := false
+## 独立气泡（bubble_at）：非骰子的说明各自一只、各自淡出，互不顶掉；只在 hide_now 时一并清掉
+var _bubbles: Array = []
 
 
 func _ready() -> void:
@@ -46,8 +48,9 @@ func _ready() -> void:
 ## 在 avoid（骰子在屏幕上的外框）**旁边**显示一行字，不压到它上面。
 ## hold <= 0 表示一直留着，等下一次 show_at() 或 hide_now() ——
 ## 掷骰过程中显示「攻击」用的就是这一档，骰子停稳后再换成结果并给它一个 hold。
-func show_at(text: String, avoid: Rect2, hold: float) -> void:
-	_label.text = text
+## max_w > 0：超过这个宽度就按字折行（顶带右半只有三百多像素，世界事件那句会超）
+func show_at(text: String, avoid: Rect2, hold: float, max_w := 0.0) -> void:
+	_label.text = wrap_body(text, max_w) if max_w > 0.0 else text
 	_box.size = _box.get_combined_minimum_size()
 	_box.position = place(_box.size, avoid, CWView.screen_size())
 	if _tween != null and _tween.is_valid():
@@ -76,12 +79,12 @@ static func place(box: Vector2, avoid: Rect2, screen: Vector2) -> Vector2:
 ## 排队版 show_at：空闲就立刻显示，忙着就排到后面；hold 必须 > 0（排着的东西得自己走完）。
 ## 一条走完（淡出结束）→ _on_done 上下一条。骰子旁那行字**不该**用它 —— 结果要贴着当下的骰子，
 ## 排队会让说明落在盘面之后。
-func queue_at(text: String, avoid: Rect2, hold: float) -> void:
+func queue_at(text: String, avoid: Rect2, hold: float, max_w := 0.0) -> void:
 	if _busy:
-		_queue.append({ "text": text, "avoid": avoid, "hold": maxf(hold, 0.1) })
+		_queue.append({ "text": text, "avoid": avoid, "hold": maxf(hold, 0.1), "max_w": max_w })
 		return
 	_busy = true
-	show_at(text, avoid, maxf(hold, 0.1))
+	show_at(text, avoid, maxf(hold, 0.1), max_w)
 	_tween.finished.connect(_on_done)
 
 
@@ -90,7 +93,80 @@ func _on_done() -> void:
 	if _queue.is_empty():
 		return
 	var n: Dictionary = _queue.pop_front()
-	queue_at(n["text"], n["avoid"], n["hold"])
+	queue_at(n["text"], n["avoid"], n["hold"], float(n.get("max_w", 0.0)))
+
+
+## 独立气泡：不碰骰子旁那只 `_box`，自己一只、自己淡出、淡完自毁。非骰子的说明（事件卡效果、复活失败、
+## 次数用尽……）走这里 —— 它们要停得久（CWUIBridge.TEXT_HOLD），停久了就不能让下一条顶掉（Kevin 2026-09-06）。
+## 摆位同 place()，再避开还活着的气泡：重叠就往上挪一格（挪到顶了就往下）。
+func bubble_at(text: String, avoid: Rect2, hold: float, max_w := 0.0) -> Control:
+	var box := _make_box()
+	var label: Label = box.get_child(0)
+	label.text = wrap_body(text, max_w) if max_w > 0.0 else text
+	## 先进树再量尺寸：不在树里的容器还没拿到主题字体，最小尺寸量出来偏小，摆位和避让都会按错的高度算
+	add_child(box)
+	box.size = box.get_combined_minimum_size()
+	var pos := place(box.size, avoid, CWView.screen_size())
+	box.position = _dodge(pos, box.size)
+	_bubbles.append(box)
+	var tw := create_tween()
+	tw.tween_property(box, "modulate:a", 1.0, FADE_IN)
+	tw.tween_interval(maxf(hold, 0.1))
+	tw.tween_property(box, "modulate:a", 0.0, FADE_OUT)
+	tw.finished.connect(func() -> void:
+		_bubbles.erase(box)
+		if is_instance_valid(box):
+			box.queue_free())
+	return box
+
+
+## 和活着的气泡重叠就往上挪（气泡高 + 4），挪到画布上沿就改往下挪
+func _dodge(pos: Vector2, size_: Vector2) -> Vector2:
+	var rect := Rect2(pos, size_)
+	var up := true
+	for _k in 8:
+		var hit := false
+		for b in _bubbles:
+			if is_instance_valid(b) and Rect2(b.position, b.size).intersects(rect):
+				hit = true
+				break
+		if not hit:
+			break
+		if up and rect.position.y - size_.y - 4.0 < MARGIN:
+			up = false
+		rect.position.y += (-(size_.y + 4.0)) if up else (size_.y + 4.0)
+	return rect.position
+
+
+## 按字把一句 20px 正文折进 max_w（含内边距）：中文没有空格可断，逐字累加；标点不落行首（同 CWCardInfo）
+static func wrap_body(text: String, max_w: float) -> String:
+	var limit := max_w - PAD_H * 2.0
+	var out := PackedStringArray()
+	for para in text.split("\n"):
+		var line := ""
+		for ch in para:
+			var tryout := line + ch
+			if line != "" and CWStyle.FONT.get_string_size(tryout, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_BODY).x > limit:
+				if CWCardInfo.NO_LINE_START.contains(ch) and line.length() > 1:
+					out.append(line.substr(0, line.length() - 1))
+					line = line[line.length() - 1] + ch
+				else:
+					out.append(line)
+					line = ch
+			else:
+				line = tryout
+		out.append(line)
+	return "\n".join(out)
+
+
+func _make_box() -> PanelContainer:
+	var box := PanelContainer.new()
+	box.add_theme_stylebox_override("panel",
+		CWStyle.box(0.55, Color("0a1018f2"), PAD_V, PAD_H))
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT_HI))
+	box.modulate.a = 0.0
+	return box
 
 
 func hide_now() -> void:
@@ -99,3 +175,7 @@ func hide_now() -> void:
 	_queue.clear()
 	_busy = false
 	_box.modulate.a = 0.0
+	for b in _bubbles:
+		if is_instance_valid(b):
+			b.queue_free()
+	_bubbles.clear()

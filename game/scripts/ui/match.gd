@@ -440,10 +440,13 @@ func _net_loop(id: int) -> void:
 					await bridge.show_roll(m["reason"], m["value"], m["sides"], m["pid"], m["at"])
 			"result":
 				if bridge != null:
-					bridge.show_result(m["text"], m["at"])
+					bridge.show_result(m["text"], m["at"], bool(m.get("linger", false)))
 			"notice":
 				if bridge != null:
 					bridge.show_notice(m["text"])
+			"card_played":
+				if bridge != null:
+					bridge.show_card_played(int(m["pid"]), m["text"])
 			"erosion":
 				if bridge != null:
 					bridge.show_erosion(m["at"], int(m["dir"]))
@@ -664,6 +667,7 @@ func _process(delta: float) -> void:
 		_log_panel.refresh(game)
 	if _log_hint != null and _log_panel != null:
 		_log_hint.visible = not _log_panel.visible   ## 面板开着就让位（同一个角）
+		_log_hint.refresh(game, _log_panel)          ## 迷你日志：日志尾巴两行，视角跟面板同一份（方案 A，Kevin 2026-09-06）
 	if _spotlight != null and is_instance_valid(_spotlight):
 		var flag := ""
 		if _guide != null and is_instance_valid(_guide) and _guide.active:

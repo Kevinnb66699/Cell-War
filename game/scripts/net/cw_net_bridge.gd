@@ -35,8 +35,12 @@ func show_roll(reason: String, value: int, sides: int, pid: int, at: Vector2i) -
 	room.broadcast({ "t": "roll", "reason": reason, "value": value, "sides": sides, "pid": pid, "at": at })
 
 
-func show_result(text: String, at: Vector2i) -> void:
-	room.broadcast({ "t": "result", "text": text, "at": at })
+func show_result(text: String, at: Vector2i, linger := false) -> void:
+	room.broadcast({ "t": "result", "text": text, "at": at, "linger": linger })
+
+
+func show_card_played(pid: int, text: String) -> void:
+	room.broadcast({ "t": "card_played", "pid": pid, "text": text })
 
 
 func show_notice(text: String) -> void:

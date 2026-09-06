@@ -173,14 +173,14 @@ func _report_no_revive(pid: int, cell: Dictionary, taken: Array[Vector2i]) -> vo
 	var who: String = game.player(pid)["name"]
 	if taken.is_empty():
 		game.log_msg("【复活】%s 无法复活：场上没有固化癌组织" % who)
-		game.announce("%s 无法复活：没有固化癌组织" % who, cell["pos"])
+		game.announce("%s 无法复活：没有固化癌组织" % who, cell["pos"], true)
 		return
 	var parts: PackedStringArray = []
 	for c in taken:
 		parts.append("%s 被 %s 占据" % [str(c), game.cell_name(game.cells_at(c)[0])])
 	game.log_msg("【复活】%s 无法复活：固化癌组织都有人站着（%s）" % [who, "；".join(parts)])
 	## 提示挂在**被占的那一格**上，玩家一眼能看到是哪儿被堵了
-	game.announce("%s 无法复活：固化癌组织被占据" % who, taken[0])
+	game.announce("%s 无法复活：固化癌组织被占据" % who, taken[0], true)
 
 
 
@@ -260,7 +260,7 @@ func _report_no_revive_immune(cell: Dictionary, cancerous: Array[Vector2i],
 	game.log_msg("【免疫复活】%s 无法复活：六个骨髓%s" % [who, "，".join(parts)])
 	## 提示挂在第一格被挡的骨髓上，玩家一眼知道该往哪儿使劲
 	var at: Vector2i = cancerous[0] if not cancerous.is_empty() else taken[0]
-	game.announce("%s 无法复活：骨髓不可用" % who, at)
+	game.announce("%s 无法复活：骨髓不可用" % who, at, true)
 
 
 func revive_immune(pid: int, pos: Vector2i) -> void:

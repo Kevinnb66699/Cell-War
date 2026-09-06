@@ -228,6 +228,7 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 		if not game.pay(cell, fee):
 			return   ## 选项层已按费用把过关，这里只是兜底
 		game.log_msg("　【细胞应激】支付 %s 能量" % CWData.fmt(fee))
+	game.card_played(cell, card)   ## 给别人的弹窗（Kevin 2026-09-06）；付费失败的兜底分支已经 return 掉，不会误报
 	## 永久技能：置于角色面板持续生效（PRD 卡牌规则），效果在各挂接点按 equipped 查询
 	if CWCardData.CARDS[card]["kind"] == CWCardData.Kind.PERMANENT:
 		cell["hand"].erase(card)
@@ -382,7 +383,7 @@ func _ifn_burst(source: Dictionary, center: Vector2i, title: String) -> void:
 	game.log_msg("　【IFN-γ】%s 周围 2 格：癌细胞 -%s 能量，固化计数 -1.0" % [
 		str(center), CWData.fmt(_amp(10))])
 	game.announce("%s%d 个癌细胞 -%s · 固化 -1.0" % [
-		title, hit, CWData.fmt(_amp(10))], center)
+		title, hit, CWData.fmt(_amp(10))], center, true)
 
 
 func _ifn_has_effect(center: Vector2i) -> bool:
@@ -841,7 +842,7 @@ func _radiotherapy(start: Vector2i) -> void:
 		CWTissue.to_necrotic(game.tile(c), CWData.NECROSIS_RADIO)
 	game.log_msg("　【放疗】以 %s 为起点的 %d 格区域：%d 格癌性组织转为健康，全部进入「坏死」（%d 轮）" % [
 		str(start), region.size(), cleared, CWData.NECROSIS_RADIO])
-	game.announce("放疗：%d 格转健康 · %d 格坏死" % [cleared, region.size()], start)
+	game.announce("放疗：%d 格转健康 · %d 格坏死" % [cleared, region.size()], start, true)
 
 
 # ============ 修饰类（2026-08-29 第二批）============
@@ -908,7 +909,7 @@ func _phase() -> int:
 
 ## 事件卡的一句话通报（试玩后定：必须带上造成了什么效果）
 func _evt(card: String, text: String, at: Vector2i) -> void:
-	game.announce("事件【%s】%s" % [card, text], at)
+	game.announce("事件【%s】%s" % [card, text], at, true)
 
 
 func _opt(card: String, suffix: String, extra: Dictionary = {}) -> Dictionary:

@@ -50,8 +50,10 @@ var opening := false
 ## set_marks() 里写、互相把对方擦掉。
 var marks := {}
 
-## 结算说明在屏幕上停留多久。1.1 → 2.4（Kevin 2026-09-06「所有的事件都显示得太快」）
-const RESULT_HOLD := 2.4
+## 紧跟骰子的结算说明停多久。**骰子这档不动**（Kevin 2026-09-06：「骰子的时长不要动，只要动后面弹出的文字提示」）
+const RESULT_HOLD := 1.1
+## 不是紧跟骰子的说明（事件卡效果、复活失败、次数用尽……）停多久：各自一只气泡（CWToast.bubble_at），互不顶掉
+const TEXT_HOLD := 4.0
 ## 全局通报（抽到世界事件）停多久：一句「世界事件【基质阻隔】：癌细胞移动能量花费翻倍（持续 2 回合）」要读完，
 ## 而且 S 阶段没人盯着棋盘中央 —— 1.1 秒的骰子档等于没显示（2026-09-02 Kevin 问「触发时会自动弹出提示吗」）。
 ## 3.0 → 6.0（Kevin 2026-09-06 拉长）；通报走 notice_toast 排队，扎堆时一条条来、不再互相顶掉
@@ -743,8 +745,12 @@ func show_roll(reason: String, value: int, sides: int, _pid: int, at: Vector2i) 
 
 
 ## 掷骰的结算说明。文字是引擎给的，这里只负责把它摆到那一格上方。
-func show_result(text: String, at: Vector2i) -> void:
+## linger（非骰子的说明）走独立气泡、停 TEXT_HOLD：停得久就不能被下一条顶掉，也不能把骰子那行字挤走。
+func show_result(text: String, at: Vector2i, linger := false) -> void:
 	if toast == null or board == null or camera == null:
+		return
+	if linger:
+		toast.bubble_at(text, _dice_rect(board.tile_center(at)), TEXT_HOLD)
 		return
 	## 沿用掷骰时那个位置：骰子这会儿已经收了，但玩家的视线还在那儿，
 	## 让「攻击」和「攻击大成功」出现在同一个地方比各自找最优位置更好读。
@@ -763,16 +769,46 @@ func show_erosion(at: Vector2i, dir: int) -> void:
 ## 走专用的 notice_toast 并排队 —— 和骰子结果分开，两边谁也顶不掉谁；没装专用那只（旧测试 / 极简装配）退回共用那只
 func show_notice(text: String) -> void:
 	if notice_toast != null:
-		notice_toast.queue_at(text, notice_anchor(), NOTICE_HOLD)
+		notice_toast.queue_at(text, notice_anchor(), NOTICE_HOLD, notice_max_w())
 	elif toast != null:
-		toast.show_at(text, notice_anchor(), NOTICE_HOLD)
+		toast.show_at(text, notice_anchor(), NOTICE_HOLD, notice_max_w())
 
 
-## 通报的锚点：棋盘区（屏幕去掉右侧竖条）顶边中点、零尺寸 —— CWToast.place 上面塞不下就翻到锚点下方，
-## 正好落在顶部 MARGIN + GAP 处、横向居中。抽成 static 是为了能直接测和做预览。
+## 别人打出了卡（Kevin 2026-09-06）：屏幕前这位真人自己打的不弹（自己知道）；其余按阵营标「对手 / 队友」，
+## 走通报那条排队专线。观战（没有真人）或换手期间（current_human = -1）全弹、不标关系。
+func show_card_played(pid: int, text: String) -> void:
+	var viewer := viewing_pid()
+	if viewer == pid:
+		return
+	var shown := text
+	if viewer >= 0 and game != null:
+		var same: bool = game.player(viewer)["faction"] == game.player(pid)["faction"]
+		shown = ("队友 " if same else "对手 ") + text
+	if notice_toast != null:
+		notice_toast.queue_at(shown, notice_anchor(), NOTICE_HOLD, notice_max_w())
+	elif toast != null:
+		toast.show_at(shown, notice_anchor(), NOTICE_HOLD, notice_max_w())
+
+
+## 屏幕前这位真人是哪一席：热座 = 当前露牌的那位（换手期间 -1），单人局 = 那一席，观战 = -1
+func viewing_pid() -> int:
+	if hotseat:
+		return current_human
+	return human_pids[0] if not human_pids.is_empty() else -1
+
+
+## 通报的锚点：顶带**右半**（迷你日志占了左半，方案 A，2026-09-06）—— 左界 = 迷你日志右缘 + 8，右界 = 右侧竖条左缘 − 8，
+## 取中点、零尺寸：CWToast.place 上面塞不下就翻到锚点下方，正好落在顶部 MARGIN + GAP 处。抽成 static 是为了能直接测和做预览。
 static func notice_anchor() -> Rect2:
 	var screen := CWView.screen_size()
-	return Rect2(Vector2((screen.x - CWView.PANEL_WIDTH) * 0.5, CWToast.MARGIN), Vector2.ZERO)
+	var left := CWLogHint.right_edge() + 8.0
+	var right := screen.x - CWView.PANEL_WIDTH - 8.0
+	return Rect2(Vector2((left + right) * 0.5, CWToast.MARGIN), Vector2.ZERO)
+
+
+## 通报最宽多少：顶带右半的宽度，超了 CWToast 按字折行（世界事件那句三十来个字会超）
+static func notice_max_w() -> float:
+	return CWView.screen_size().x - CWView.PANEL_WIDTH - 8.0 - (CWLogHint.right_edge() + 8.0)
 
 
 ## 骰子落在某格时，它在**屏幕**上占的那块矩形。提示靠它避让。

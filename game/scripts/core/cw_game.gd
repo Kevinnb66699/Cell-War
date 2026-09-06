@@ -620,13 +620,27 @@ func roll_shown(sides: int, reason: String, pid: int, at: Vector2i) -> int:
 
 ## 把一句话通报广播给所有桥。去重规则同 roll_shown（热座共用一个 UI 桥时只报一次）。
 ## 不 await：提示自己会淡掉，不该卡住结算。
-func announce(text: String, at: Vector2i) -> void:
+## linger = 不是紧跟骰子的说明（事件卡效果、复活失败、次数用尽……），界面停得久些、不被顶掉（Kevin 2026-09-06）；
+## 攻击 / 突变 / 抗体那几条紧跟骰子的照旧 false —— 骰子那档时长不动。
+func announce(text: String, at: Vector2i, linger := false) -> void:
 	var shown: Array = []
 	for b in bridges.values():
 		if b == null or shown.has(b):
 			continue
 		shown.append(b)
-		b.show_result(text, at)
+		b.show_result(text, at, linger)
+
+
+## 某位玩家打出了一张卡：广播给所有桥，界面桥再决定给谁弹（Kevin 2026-09-06「别人用了卡牌也要弹窗提示」）。
+## 文案用席位名不用细胞名（「癌症A 打出【糖酵解爆发】」）。去重规则同 announce。
+func card_played(cell: Dictionary, card: String) -> void:
+	var text := "%s 打出【%s】" % [player(cell["pid"])["name"], card]
+	var shown: Array = []
+	for b in bridges.values():
+		if b == null or shown.has(b):
+			continue
+		shown.append(b)
+		b.show_card_played(cell["pid"], text)
 
 
 ## 「癌吞掉一格健康组织」的过场广播：【E-侵蚀】【E-增生】【定殖】三处共用——名字沿用最早接上的侵蚀，
