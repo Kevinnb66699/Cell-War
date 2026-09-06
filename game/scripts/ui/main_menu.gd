@@ -56,14 +56,14 @@ const CELL_FOOT_DY := 6.0
 ## 实际亮灭还要有存档才行 —— 动态部分见 _item_enabled()，键盘跳灰用
 ## enabled_mask() 现算。
 ## 「自定义对局」（2026-09-03 Kevin）= 同一张配置面板多出「癌症A/B/C 种类」几行，让人挑初始癌种；
-## 「开始对局」照旧随机抽。九项行距 26（七项时 34、六项时 38），首项 278、末项底边 514：
-## 2026-09-05 加到九项后整块（副标题 / 标题 / 竖线 / 菜单项）上移 14px，底部留 26px（Kevin 选乙案）。
+## 「开始对局」照旧随机抽。八项行距 28（九项时 26、七项时 34、六项时 38），首项 278、末项底边 502：
+## 2026-09-05 加到九项后整块（副标题 / 标题 / 竖线 / 菜单项）上移 14px，底部留 26px（Kevin 选乙案）；
+## 2026-09-06 Kevin 把「规则速查」从主菜单去掉（只留 Esc 菜单那份，CWRulesPage 类还在），首项位置不动、行距回到 28。
 const ITEMS := [
 	{"node": "Start", "enabled": true},
 	{"node": "Custom", "enabled": true},
 	{"node": "Online", "enabled": true},
 	{"node": "Continue", "enabled": true},
-	{"node": "Rules", "enabled": true},
 	{"node": "Codex", "enabled": true},
 	{"node": "Guide", "enabled": true},
 	{"node": "Settings", "enabled": true},
@@ -123,7 +123,6 @@ var _confirm_sel := 1            ## 退出确认默认停在「取消」，别�
 var guide_done_check := Callable(CWGuideProgress, "all_done")
 var _config: CWConfigPanel       ## 对局配置面板；null = 还没建过
 var _online: CWOnlinePanel       ## 联机面板（连接 / 大厅 / 等待室）；null = 还没建过
-var _rules: CWRulesPage          ## 规则速查页；null = 还没建过
 var _codex: CWCodex             ## 知识之书图鉴；null = 还没建过
 var _settings: CWSettingsPage    ## 设置页；null = 还没建过
 var _swap: Tween                 ## 菜单↔配置的槽位换面板动画（0.30s 出 / 0.32s 入）
@@ -361,9 +360,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _online != null and _online.visible:
 		_online.handle_input(event)
 		return
-	if _rules != null and _rules.visible:
-		_rules.handle_input(event)
-		return
 	if _settings != null and _settings.visible:
 		_settings.handle_input(event)
 		return
@@ -568,11 +564,6 @@ func _activate(i: int) -> void:
 			_open_online()
 		"Continue":
 			continue_requested.emit()
-		"Rules":
-			if _rules == null:
-				_rules = CWRulesPage.new()
-				_ui.add_child(_rules)
-			_rules.open()
 		"Codex":
 			if _codex == null:
 				_codex = CWCodex.new()

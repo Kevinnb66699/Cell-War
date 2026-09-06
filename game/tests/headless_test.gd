@@ -5293,19 +5293,24 @@ func t_main_menu() -> void:
 	# 键盘上下必须跳过灰掉的项。mask 由 enabled_mask() 现算（「继续对局」随存档
 	# 有无变化），这里直接摆两种局面验静态跳转规则。
 	var last: int = menu_script.ITEMS.size() - 1
-	## 九项：开始 / 自定义 / 联机 / 继续 / 规则 / 知识之书 / 新手引导 / 设置 / 退出
-	## （2026-09-03 加「自定义对局」；2026-09-05 加「知识之书」「新手引导」）
-	check(menu_script.ITEMS.size() == 9 and menu_script.ITEMS[1]["node"] == "Custom"
-		and menu_script.ITEMS[5]["node"] == "Codex" and menu_script.ITEMS[6]["node"] == "Guide",
-		"「自定义对局」「知识之书」「新手引导」按序排在主菜单")
-	var no_save := [true, true, true, false, true, true, true, true, true]
-	check(menu_script.next_enabled(2, 1, no_save) == 4, "无档：从「联机对战」往下跳过「继续对局」落到规则速查")
-	check(menu_script.next_enabled(4, 1, no_save) == 5, "规则速查再往下是知识之书")
-	check(menu_script.next_enabled(last, -1, no_save) == 7, "键盘从「退出游戏」往上一步到设置")
+	## 八项：开始 / 自定义 / 联机 / 继续 / 知识之书 / 新手引导 / 设置 / 退出
+	## （2026-09-03 加「自定义对局」；2026-09-05 加「知识之书」「新手引导」；2026-09-06 Kevin 去掉「规则速查」，只留 Esc 菜单那份）
+	check(menu_script.ITEMS.size() == 8 and menu_script.ITEMS[1]["node"] == "Custom"
+		and menu_script.ITEMS[4]["node"] == "Codex" and menu_script.ITEMS[5]["node"] == "Guide",
+		"「自定义对局」「知识之书」「新手引导」按序排在主菜单，没有「规则速查」")
+	var has_rules := false
+	for item in menu_script.ITEMS:
+		if item["node"] == "Rules":
+			has_rules = true
+	check(not has_rules and not items.has_node("Rules"), "主菜单里没有「规则速查」（脚本表与场景都没有）")
+	var no_save := [true, true, true, false, true, true, true, true]
+	check(menu_script.next_enabled(2, 1, no_save) == 4, "无档：从「联机对战」往下跳过「继续对局」落到知识之书")
+	check(menu_script.next_enabled(4, 1, no_save) == 5, "知识之书再往下是新手引导")
+	check(menu_script.next_enabled(last, -1, no_save) == 6, "键盘从「退出游戏」往上一步到设置")
 	check(menu_script.next_enabled(0, -1, no_save) == 0, "到顶了就停在原地，不绕回")
-	var with_save := [true, true, true, true, true, true, true, true, true]
+	var with_save := [true, true, true, true, true, true, true, true]
 	check(menu_script.next_enabled(2, 1, with_save) == 3, "有档：从「联机对战」往下落到「继续对局」")
-	## 九项要排得下：最后一项底边不出屏，相邻两项不重叠（行距 26：20px 字、28px 行框，字形不叠）
+	## 八项要排得下：最后一项底边不出屏，相邻两项不重叠（行距 28：20px 字、28px 行框，字形不叠）
 	var ys: Array = []
 	for item in menu_script.ITEMS:
 		ys.append((items.get_node(item["node"]) as Label).position.y)
@@ -5314,7 +5319,7 @@ func t_main_menu() -> void:
 		if ys[i] - ys[i - 1] < 26:
 			spaced = false
 	## 整块上移 14px（Kevin 2026-09-05 选乙案）：首项 292 → 278，末项底边 528 → 514，屏幕底留 26px
-	check(spaced and ys[0] == 278 and ys[-1] + 28 <= 514, "九项行距 ≥ 26、首项 278、末项底边 ≤ 514（%s）" % str(ys))
+	check(spaced and ys[0] == 278 and ys[-1] + 28 <= 514, "八项行距 ≥ 26、首项 278、末项底边 ≤ 514（%s）" % str(ys))
 	var sub: Control = scene.get_node("UI/Screen/Sub")
 	var logo: Control = scene.get_node("UI/Screen/Logo")
 	check(sub.position.y == 119 and logo.position.y == 172, "副标题 / 标题跟着菜单项一起上移 14px（%d / %d）" % [sub.position.y, logo.position.y])
@@ -5596,6 +5601,46 @@ func t_codex() -> void:
 	check(all_text.contains("连续 %d 个世界回合末" % tune.cancer_win_hold_rounds), "癌方占地胜写明连续达标回合数")
 	check(all_text.contains("第 3、6、10、15、20、25、30 回合") and CWCodex.event_rounds_text(30) == "3、6、10、15、20、25、30",
 		"世界事件回合现算（与 is_world_event_round 一致）")
+	## 搜索（Kevin 2026-09-06）：纯函数找档 —— 子串、大小写不分、标题与正文都搜、空词为空
+	var hits: Array = CWCodex.search("血管")
+	var hit_ok := not hits.is_empty()
+	for h in hits:
+		var src: Dictionary = chs[h["page"]]
+		if src["title"] != h["chapter"] or not (String(h["t"]).contains("血管") or String(h["line"]).contains("血管")):
+			hit_ok = false
+	check(hit_ok, "搜「血管」：每条都指回它所在的章，标题或那一行确实含词（%d 条）" % hits.size())
+	check(CWCodex.search("e 阶段").size() == CWCodex.search("E 阶段").size() and not CWCodex.search("e 阶段").is_empty(),
+		"大小写不分")
+	check(CWCodex.search("").is_empty() and CWCodex.search("   ").is_empty() and CWCodex.search("不存在的词xyz").is_empty(),
+		"空词 / 找不到 → 空")
+	check(CWCodex.search("细胞").size() <= CWCodex.MAX_HITS, "最多 %d 条" % CWCodex.MAX_HITS)
+	## 界面：打字铺结果页、回车跳第一条并滚到那个条目、Esc 先收起搜索再关书；结果页不翻章
+	var book := CWCodex.new()
+	root.add_child(book)
+	await process_frame
+	book.open()
+	book._search.text = "血管"
+	book._on_query("血管")
+	check(book._in_results and book._title.text == "搜索「血管」" and book._page_label.text == "%d 条" % hits.size()
+		and book._content.get_child_count() >= hits.size(), "打字 → 结果页：标题、条数、每条一行（%s）" % book._title.text)
+	var page_before: int = book._page
+	book._next_page()
+	check(book._in_results and book._page == page_before, "结果页里方向键不翻章")
+	book._on_submit("血管")
+	check(not book._in_results and book._page == int(hits[0]["page"]) and book._title.text == chs[book._page]["title"],
+		"回车 → 翻到第一条所在的那一章（第 %d 页）" % (book._page + 1))
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	book._on_query("血管")
+	book.handle_input(esc)
+	check(book.visible and not book._in_results and book._search.text == "", "结果页上 Esc：只收起搜索、清词，书还开着")
+	book.handle_input(esc)
+	check(not book.visible, "再按 Esc 才关书")
+	book.open()
+	book._on_query("不存在的词xyz")
+	check(book._in_results and book._page_label.text == "0 条", "找不到：结果页写 0 条")
+	book.queue_free()
 
 
 class FakeGuide:

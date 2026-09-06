@@ -10,6 +10,11 @@
 ## 交互：左右箭头 / 方向键 / 滚轮翻页（一章一页），页内装不下时滚轮先滚页内、
 ## 到顶底再翻章；Esc 或右键关闭。内容 chapters() 是纯函数，无头测试直接核对。
 ##
+## 搜索（Kevin 2026-09-06）：右上角一只输入框，边打字边把结果页铺出来 —— 每条「章 > 条目」+ 命中的那一行，
+## 命中的字用阵营色标出；回车跳到第一条，点某条跳到那一章并滚到那个条目。找档是纯函数 search()，
+## 只搜书里现有的内容（chapters()），不搜 PRD 原文（放不放进来另议）。输入框有焦点时 Esc 先收起搜索
+## （清词、回到原来那一页），再按一次才关书；方向键那会儿归输入框（挪光标），不翻页。
+##
 ## 正文渲染沿用规则速查页的做法：10px 点阵字、固定 15px 行高、预先手工折行，
 ## 不做运行时自动换行测量 —— 点阵字非整数行高会糊，测量又依赖字体排版细节，
 ## 固定行高最简单也最稳。chapters() 里每行的 b 就是折好的一行。
@@ -34,6 +39,14 @@ var _title: Label
 var _page_label: Label
 var _prev: Label
 var _next: Label
+var _search: LineEdit
+var _query := ""
+var _hits: Array = []
+var _in_results := false
+
+const SEARCH_W := 220
+const HIT_H := LINE * 2 + GAP   ## 结果页每条两行：章 › 条目 / 命中行
+const MAX_HITS := 40
 
 
 func _ready() -> void:
@@ -64,17 +77,33 @@ func _ensure_built() -> void:
 		_build()
 
 
-## 由 CWMainMenu / CWPauseMenu 路由（覆盖层统一走菜单路由）
+## 由 CWMainMenu / CWPauseMenu 路由（覆盖层统一走菜单路由）。
+## 输入框有焦点时：Esc = 收起搜索（有词先清词回原页），不关书；方向键归输入框，这里不接。
+## （被输入框吃掉的按键本来到不了这里，这段是给「输入框有焦点但事件漏过来」和无头测试走的同一条路）
 func handle_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
+		if _search != null and (_search.has_focus() or _in_results):
+			_dismiss_search()
+			return
 		visible = false
+	elif _search != null and _search.has_focus():
+		return
 	elif event.is_action_pressed("ui_right") or event.is_action_pressed("ui_down"):
 		get_viewport().set_input_as_handled()
 		_next_page()
 	elif event.is_action_pressed("ui_left") or event.is_action_pressed("ui_up"):
 		get_viewport().set_input_as_handled()
 		_prev_page()
+
+
+## 收起搜索：清词、放掉焦点、回到原来那一页
+func _dismiss_search() -> void:
+	if _search.has_focus():
+		_search.release_focus()
+	if _search.text != "":
+		_search.text = ""
+	_on_query("")
 
 
 ## 右键关闭接在 gui_input：本层是 STOP，鼠标事件到不了菜单路由（同规则速查页）。
@@ -103,12 +132,16 @@ func _scroll_by(delta: float) -> void:
 
 
 func _prev_page() -> void:
+	if _in_results:
+		return   ## 结果页不翻章：先 Esc 收起搜索
 	_page = maxi(_page - 1, 0)
 	_scroll = 0.0
 	_rebuild_page()
 
 
 func _next_page() -> void:
+	if _in_results:
+		return
 	_page = mini(_page + 1, chapters().size() - 1)
 	_scroll = 0.0
 	_rebuild_page()
@@ -453,6 +486,118 @@ static func chapters() -> Array:
 
 ## 世界事件回合的清单文字（「3、6、10、15、20、25、30」），现算自 CWData.is_world_event_round，
 ## 图鉴与引导剧本共用，别在两处各写一份。
+## 在图鉴里找一个词（大小写不分，子串匹配）：返回 [{ page, chapter, t, line }]，line 为空 = 命中在条目标题上。
+## 一个条目里命中多行各算一条；最多 MAX_HITS 条。纯函数，无头测试直接核对。
+static func search(query: String) -> Array:
+	var q := query.strip_edges().to_lower()
+	var out: Array = []
+	if q == "":
+		return out
+	var all := chapters()
+	for p in all.size():
+		var ch: Dictionary = all[p]
+		for entry in ch["entries"]:
+			if String(entry["t"]).to_lower().contains(q):
+				out.append({ "page": p, "chapter": ch["title"], "t": entry["t"], "line": "" })
+			for line in entry["b"]:
+				if String(line).to_lower().contains(q):
+					out.append({ "page": p, "chapter": ch["title"], "t": entry["t"], "line": line })
+			if out.size() >= MAX_HITS:
+				return out
+	return out
+
+
+## 输入框里的词变了：有词铺结果页，没词回到原来那一页
+func _on_query(q: String) -> void:
+	_query = q.strip_edges()
+	if _query == "":
+		_in_results = false
+		_hits.clear()
+		_rebuild_page()
+		return
+	_hits = search(_query)
+	_in_results = true
+	_rebuild_results()
+
+
+## 回车：跳到第一条
+func _on_submit(_q: String) -> void:
+	if not _hits.is_empty():
+		_goto(_hits[0])
+
+
+## 跳到某条：翻到那一章，把那个条目滚到正文顶部；搜索词留在框里（Esc 可清）
+func _goto(hit: Dictionary) -> void:
+	_in_results = false
+	if _search != null and _search.has_focus():
+		_search.release_focus()
+	open_to(int(hit["page"]))
+	var y := 0.0
+	for entry in chapters()[_page]["entries"]:
+		if entry["t"] == hit["t"]:
+			break
+		y += TITLE_LINE + entry["b"].size() * LINE + GAP
+	_scroll = clampf(y, 0.0, _max_scroll)
+	_layout()
+
+
+## 结果页：标题「搜索」、页码换成条数；每条两行（章 > 条目 / 命中行，命中的字用阵营色），整条可点
+func _rebuild_results() -> void:
+	for child in _content.get_children():
+		child.queue_free()
+	_title.text = "搜索「%s」" % _query
+	_page_label.text = "%d 条" % _hits.size()
+	_prev.add_theme_color_override("font_color", CWStyle.TEXT_OFF)
+	_next.add_theme_color_override("font_color", CWStyle.TEXT_OFF)
+	var y := 0.0
+	if _hits.is_empty():
+		var none := CWStyle.label("没有找到「%s」" % _query, CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+		none.position = Vector2(0, 4)
+		_content.add_child(none)
+		y = LINE + GAP
+	for hit in _hits:
+		var row := Control.new()
+		row.position = Vector2(0, y)
+		row.size = Vector2(_body.size.x, HIT_H)
+		row.mouse_filter = Control.MOUSE_FILTER_STOP
+		row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		## 分隔用 ASCII 的 > —— 点阵字库没有「›」，画出来是个方块（预览图里看见的）
+		var head := CWStyle.label("%s > %s" % [hit["chapter"], hit["t"]], CWStyle.SIZE_LABEL, CWStyle.IMMUNE)
+		head.position = Vector2(0, 0)
+		row.add_child(head)
+		_put_marked(row, String(hit["line"]) if hit["line"] != "" else String(hit["t"]), Vector2(0, LINE))
+		row.gui_input.connect(func(e: InputEvent) -> void:
+			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+				get_viewport().set_input_as_handled()
+				_goto(hit))
+		row.mouse_entered.connect(func() -> void: head.add_theme_color_override("font_color", CWStyle.TEXT_HI))
+		row.mouse_exited.connect(func() -> void: head.add_theme_color_override("font_color", CWStyle.IMMUNE))
+		_content.add_child(row)
+		y += HIT_H
+		_content.add_child(_rule(y - GAP / 2.0))
+	_content.size = Vector2(_body.size.x, y)
+	_scroll = 0.0
+	_layout()
+
+
+## 一行正文，命中的字换成阵营色：前文 / 命中 / 后文三个标签按实测字宽接排（同 CWCardInfo 的分档高亮画法）
+func _put_marked(parent: Control, line: String, at: Vector2) -> void:
+	var i := line.to_lower().find(_query.to_lower())
+	if i < 0:
+		var l := CWStyle.label(line, CWStyle.SIZE_LABEL, CWStyle.TEXT)
+		l.position = at
+		parent.add_child(l)
+		return
+	var x := at.x
+	for seg in [[line.substr(0, i), CWStyle.TEXT], [line.substr(i, _query.length()), CWStyle.CANCER], [line.substr(i + _query.length()), CWStyle.TEXT]]:
+		if String(seg[0]) == "":
+			continue
+		var l := CWStyle.label(seg[0], CWStyle.SIZE_LABEL, seg[1])
+		l.position = Vector2(x, at.y)
+		parent.add_child(l)
+		x += CWStyle.FONT.get_string_size(seg[0], HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+
+
 static func event_rounds_text(limit: int) -> String:
 	var out: Array[String] = []
 	for r in range(1, limit + 1):
@@ -484,12 +629,28 @@ func _build() -> void:
 	head.position = Vector2(PAD, PAD - 4)
 	panel.add_child(head)
 
-	var src := CWStyle.label("把新手引导的每一课沉淀成图鉴 · 细则以规则原文为准",
-		CWStyle.SIZE_LABEL, CWStyle.TEXT_OFF)
-	src.size = Vector2(W - PAD * 2, 14)
-	src.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	src.position = Vector2(PAD, PAD + 12)
-	panel.add_child(src)
+	## 搜索框（Kevin 2026-09-06）占了原来副标题的位置；副标题那句挪进页脚
+	_search = LineEdit.new()
+	_search.position = Vector2(W - PAD - SEARCH_W, PAD + 2)
+	_search.size = Vector2(SEARCH_W, 22)
+	_search.placeholder_text = "搜索图鉴… 回车跳到第一条"
+	_search.max_length = 24
+	_search.context_menu_enabled = false
+	_search.add_theme_font_override("font", CWStyle.FONT)
+	_search.add_theme_font_size_override("font_size", CWStyle.SIZE_LABEL)
+	_search.add_theme_color_override("font_color", CWStyle.TEXT_HI)
+	_search.add_theme_color_override("font_placeholder_color", CWStyle.TEXT_OFF)
+	_search.add_theme_color_override("caret_color", CWStyle.IMMUNE)
+	_search.add_theme_stylebox_override("normal", CWStyle.box(0.45, CWStyle.BTN_BG, 2, 6))
+	_search.add_theme_stylebox_override("focus", CWStyle.box(1.0, CWStyle.BTN_BG, 2, 6))
+	_search.text_changed.connect(_on_query)
+	_search.text_submitted.connect(_on_submit)
+	## 框里按 Esc：只收起搜索，不让事件漏到菜单路由去关书
+	_search.gui_input.connect(func(e: InputEvent) -> void:
+		if e.is_action_pressed("ui_cancel"):
+			_search.accept_event()
+			_dismiss_search())
+	panel.add_child(_search)
 
 	## 章标题行与页码（点阵字没有箭头，用 ASCII < > 做翻页按钮，同配置面板语汇）
 	_title = CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.IMMUNE)
@@ -517,7 +678,7 @@ func _build() -> void:
 	_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_body.add_child(_content)
 
-	var hint := CWStyle.label("ESC / 右键 返回 · ←→ 翻页 · 滚轮阅读",
+	var hint := CWStyle.label("ESC / 右键 返回 · ←→ 翻页 · 滚轮阅读 · 细则以规则原文为准",
 		CWStyle.SIZE_LABEL, CWStyle.TEXT_OFF)
 	hint.size = Vector2(W - PAD * 2, 14)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
