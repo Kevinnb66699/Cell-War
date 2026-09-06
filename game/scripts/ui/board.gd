@@ -85,6 +85,11 @@ signal drag_ended
 
 var hovered := NO_TILE
 
+## 「指针此刻是不是被某个界面控件占着」。默认问视口（4.2 起有这个查询）；无头测试里视口不跟踪悬停控件
+## （喂事件也不更新，2026-09-06 探过），所以做成可替换的 Callable —— 和 CWMainMenu.guide_done_check 同一个套路。
+var pointer_on_control: Callable = func() -> bool:
+	return get_viewport().gui_get_hovered_control() != null
+
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventMouse):
@@ -105,6 +110,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		var hit := hex_at(at)
 		if hit != NO_TILE:
 			tile_clicked.emit(hit)
+
+
+## 最上面的图层说了算（Kevin 2026-09-06 截图：固定态技能框的详情和底下那一格的详情叠在一起）。
+## 指针一进任何 STOP / PASS 过滤的控件（右栏、技能框、行动栏、手牌、日志、引导面板……），Godot 就把鼠标事件
+## 标成已处理，上面的 _unhandled_input 收不到「移出了格子」，hovered 会停在进控件前的最后一格。
+## 所以每帧问一下「指针是不是被控件占着」：占着就当没停在任何格上，报一次 NO_TILE（格子详情立即收起、
+## 桥的高亮照常重画）；指针回到棋盘后第一次移动会照常重报那一格，详情从头计时，和平时移进一格一样。
+func _process(_delta: float) -> void:
+	if hovered != NO_TILE and pointer_on_control.call():
+		hovered = NO_TILE
+		tile_hovered.emit(NO_TILE)
 
 
 ## ── 高亮层 ──────────────────────────────────────────────────────

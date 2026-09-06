@@ -574,7 +574,9 @@ func _update_tip(game: CWGame) -> void:
 	var bg := Panel.new()
 	bg.add_theme_stylebox_override("panel", CWStyle.box(0.45, CWStyle.BTN_BG))
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## 固定态整块底板也收鼠标：指针在框内任何位置都算「被控件占着」，棋盘就不会把底下那一格的详情浮上来
+	## （Kevin 2026-09-06 截图：技能详情和格子详情叠在一起）。不固定时照旧放行，理由同下面条目那段注释
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP if full else Control.MOUSE_FILTER_IGNORE
 	_tip.add_child(bg)
 	var y := 8.0
 	for r in rows:

@@ -107,7 +107,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_config_panel, t_config_custom, t_hover_info,
 		t_log_panel, t_rules_page, t_production_row, t_skill_info,
-		t_save_load, t_settings, t_board_view, t_hex_pick,
+		t_save_load, t_settings, t_board_view, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_match_panel, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -3019,6 +3019,68 @@ func t_hover_info() -> void:
 	check(not panel._tip.visible, "移开行即收起")
 	panel.reset()
 	check(panel._tip == null, "reset 清掉悬浮框")
+	root.remove_child(panel)
+	panel.free()
+	g.dispose()
+
+
+# ---- 悬停层级：最上面的图层说了算（Kevin 2026-09-06 截图：固定态技能框的详情和底下那一格的详情叠在一起）----
+##
+## 指针停在界面控件上时，STOP / PASS 过滤会把鼠标事件标成已处理，棋盘的 _unhandled_input 收不到
+## 「移出了格子」，hovered 就停在进控件前的最后一格。修法是棋盘每帧问一下「指针是不是被控件占着」。
+## 无头视口不跟踪悬停控件（喂事件也不更新，探过），所以那一问做成可替换的 Callable，这里直接换掉验流程；
+## 真机那一段靠 tests/screenshot.gd 的 `move:` 步骤看图。
+func t_hover_layer() -> void:
+	print("[悬停层级]")
+	var board := make_board()
+	root.add_child(board)   ## make_input_local 要在树里才能算
+	var got: Array = []
+	board.tile_hovered.connect(func(c: Vector2i) -> void: got.append(c))
+	var here := Vector2i.ZERO
+	var mv := InputEventMouseMotion.new()
+	mv.position = board.tile_center(here)
+	mv.global_position = mv.position
+	var default_check: Callable = board.pointer_on_control
+	check(not default_check.call(), "默认那一问对着视口：无头下没有悬停控件 → false，不炸")
+	board._unhandled_input(mv)
+	check(board.hovered == here and got == [here], "指针停在格上：报那一格")
+	board._process(0.0)
+	check(board.hovered == here and got.size() == 1, "没被控件占着：每帧问一下不改变什么")
+	## 指针被控件占着：立刻当「没停在任何格上」，报一次 NO_TILE（格子详情随之收起），之后不重复报
+	board.pointer_on_control = func() -> bool: return true
+	board._process(0.0)
+	board._process(0.0)
+	check(board.hovered == board.NO_TILE and got.size() == 2 and got[1] == board.NO_TILE,
+		"指针被控件占着：清掉悬停格、只报一次 NO_TILE")
+	## 回到棋盘：下一次移动重新报格（格子详情从头计时，和平时移进一格一样）
+	board.pointer_on_control = func() -> bool: return false
+	board._unhandled_input(mv)
+	check(got.size() == 3 and got[2] == here, "指针回到棋盘：下一次移动重新报那一格")
+	root.remove_child(board)
+	board.free()
+
+	## 右栏技能框：固定态整块底板也收鼠标（指针在框内任何位置都算「被控件占着」），不固定时照旧放行
+	var g := _fx_game(2)
+	g.cells.append(CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(5, 0),
+		CWData.ImmuneType.BASIC, -1))
+	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.MELANOMA)
+	g.cells.append(can)
+	var panel := CWMatchPanel.new()
+	root.add_child(panel)
+	await process_frame
+	panel.refresh(g)     ## 第一遍先按人数把行建出来
+	panel._tip_pinned = 1
+	panel.refresh(g)
+	check(panel._tip != null and panel._tip.visible, "固定态：浮出全套技能框")
+	check(panel._tip.get_child(0).mouse_filter == Control.MOUSE_FILTER_STOP,
+		"固定态底板 STOP：框内空白处也不漏给棋盘")
+	panel._tip_pinned = -1
+	panel._tip_pid = 1
+	can["equipped"] = ["组织驻留"]
+	panel.refresh(g)
+	check(panel._tip.visible and panel._tip.get_child(0).mouse_filter == Control.MOUSE_FILTER_IGNORE,
+		"不固定：底板照旧放行（框随指针离开玩家行而收起，挡事件会变成「移不开」）")
+	panel.reset()
 	root.remove_child(panel)
 	panel.free()
 	g.dispose()

@@ -19,6 +19,8 @@ extends SceneTree
 ## 第五个参数是「操作脚本」，分号隔开，到点就执行：
 ##   `x,y@秒数`        在该位置点一下（先挪过去再按，悬停态才会触发）
 ##   `key:动作名@秒数`  按一次输入动作，如 `key:ui_cancel@7.5`（暂停菜单只能靠 Esc 唤出）
+##   `move:x,y@秒数`   只把鼠标挪过去、不点。悬停态，以及「指针从格子挪进控件」这类层级问题只能靠它
+##                       （无头视口不跟踪悬停控件，2026-09-06 探过：喂事件也不更新，只有真渲染才验得了）
 ##   `call:类名:方法@秒数`  在树里找到第一个挂着该 class_name 脚本的节点，调它的无参方法，
 ##                       如 `call:CWGuide:_advance@5.2` = 按引导面板的「继续」。合成的鼠标点击
 ##                       到不了 Control（2026-09-05 试过三种坐标系都不响应），只有按键的界面才能靠
@@ -60,6 +62,9 @@ func _initialize() -> void:
 				_steps.append({ "at": at, "key": parts[0].substr(4) })
 			elif parts[0].begins_with("call:"):
 				_steps.append({ "at": at, "call": parts[0].substr(5).split(":") })
+			elif parts[0].begins_with("move:"):
+				var mxy := parts[0].substr(5).split(",")
+				_steps.append({ "at": at, "move": Vector2(float(mxy[0]), float(mxy[1])) })
 			else:
 				var xy := parts[0].split(",")
 				_steps.append({ "at": at, "pos": Vector2(float(xy[0]), float(xy[1])) })
@@ -109,6 +114,10 @@ func _do_step(step: Dictionary) -> void:
 			node.call(spec[1])
 			print("  调用 %s.%s() @ %.2fs" % [spec[0], spec[1], _elapsed])
 		return
+	if step.has("move"):
+		_move_to(step["move"])
+		print("  移动到 %s @ %.2fs" % [step["move"], _elapsed])
+		return
 	_click_at(step["pos"])
 
 
@@ -124,12 +133,17 @@ func _find_by_class(node: Node, cls: String) -> Node:
 	return null
 
 
-## 先挪过去再按下抬起 —— 只发按下事件的话，悬停态和按钮的 mouse_entered 都不会触发。
-func _click_at(pos: Vector2) -> void:
+## 只挪鼠标。走 parse_input_event 而不是 warp_mouse：要的是让控件收到 mouse_entered、棋盘收到移动。
+func _move_to(pos: Vector2) -> void:
 	var move := InputEventMouseMotion.new()
 	move.position = pos
 	move.global_position = pos
 	Input.parse_input_event(move)
+
+
+## 先挪过去再按下抬起 —— 只发按下事件的话，悬停态和按钮的 mouse_entered 都不会触发。
+func _click_at(pos: Vector2) -> void:
+	_move_to(pos)
 	for pressed in [true, false]:
 		var click := InputEventMouseButton.new()
 		click.button_index = MOUSE_BUTTON_LEFT
