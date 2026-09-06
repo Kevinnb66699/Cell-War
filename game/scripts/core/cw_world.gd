@@ -45,7 +45,7 @@ func e_phase() -> void:
 	_proliferate()                           ## 2 【增生】
 	_erosion()                               ## 3 【侵蚀】
 	if not game.tune.anaerobic_on_turn_end:
-		_anaerobic()                         ## 4 【无氧呼吸】（2026-09-05 起默认改在各癌细胞回合末，见 settle_anaerobic_turn）
+		_anaerobic()                         ## 4 【无氧呼吸】（默认走这里；`eturn=1` 改在各癌细胞回合末，见 settle_anaerobic_turn）
 	_cancer_upkeep()                         ## 4.5 【代谢消耗】（PRD 之外，平衡候选③）
 	_solidify()                              ## 5 【固化】
 	_ossify()                                ## 5 骨肉瘤【骨样硬化】标记到期（同属第 5 步，排在计数固化之后）
@@ -552,6 +552,7 @@ func _anaerobic() -> void:
 ## 固化的价值因此完全落在「不能被【净化】」上，不再兼带供能加成。
 ##
 ## `anaerobic_sqrt_coef = 0` 退回线性式，供 09-04 之前的对照档使用。
+## 2026-09-06 Kevin 把 c 从 2.0 改成 1.0（上面的数字减半：24 格 ≈ 4.9、97 格 ≈ 9.8）。
 func _anaerobic_pool(block: Array) -> int:
 	var coef: int = game.tune.anaerobic_sqrt_coef
 	if coef > 0:
@@ -594,7 +595,8 @@ func _cancer_upkeep() -> void:
 			game.cell_name(cell), CWData.fmt(lost), CWData.fmt(cell["energy"])])
 
 
-## 【E-无氧呼吸】改在**这个癌细胞自己的行动回合末**结算（旋钮 anaerobic_on_turn_end，2026-09-05 默认开）。
+## 【E-无氧呼吸】改在**这个癌细胞自己的行动回合末**结算（旋钮 anaerobic_on_turn_end：2026-09-05 默认开，
+## **2026-09-06 Kevin 改回 E 阶段统一结算、默认关**；这条路留作 `eturn=1` 对照档）。
 ## 口径就是 anaerobic_gain_for —— 它本来就是「某个癌细胞此刻的份额」（含瓦伯格与 GLUT1）。
 ## 分母 = 此刻块里有几个癌细胞：后面的人再挤进来也抬不了你的分母，这正是要修的那条不公平。
 func settle_anaerobic_turn(cell: Dictionary) -> void:

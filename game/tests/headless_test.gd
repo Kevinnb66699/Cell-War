@@ -1211,6 +1211,7 @@ func t_anaerobic_sqrt() -> void:
 	g.setup.build_board()
 	check(g.tune.anaerobic_sqrt_coef == CWData.ANAEROBIC_SQRT_COEF,
 		"默认开：c = %d" % CWData.ANAEROBIC_SQRT_COEF)
+	check(CWData.ANAEROBIC_SQRT_COEF == 10, "c 默认 1.0（Kevin 2026-09-06 定；09-05 的 2.0 是回合末结算下调的）")
 	## 开方式只数格子、不看组织类型，所以拿盘面上任意 n 格拼块都行
 	var keys: Array = g.tiles.keys()
 
@@ -3602,18 +3603,18 @@ func t_rules_page() -> void:
 	check(all.contains("蹲满 %d 回合" % (CWData.SOLIDIFY_THRESHOLD / CWData.SOLIDIFY_STEP)),
 		"固化门槛按回合数显示，不是十分整数")
 	check(not all.contains("蹲满 %d 回合" % CWData.SOLIDIFY_THRESHOLD), "别再把十分整数当回合数打出来")
-	## 【无氧呼吸】的时机跟着旋钮走（Kevin 2026-09-05 拍板：与知识之书同口径）。默认各癌细胞回合末结算 →
-	## 写在玩家回合那一段、E 阶段那行不再提它；旋钮拨回 E 阶段统一结算时那句要搬回去
-	check(all.contains("「结束回合」时结算自己的【无氧呼吸】") and not all.contains("E 阶段：癌方【无氧呼吸】"),
-		"无氧呼吸默认写在癌细胞回合末，E 阶段那行不再提它")
-	var e_phase := CWTuning.new()
-	e_phase.anaerobic_on_turn_end = false
+	## 【无氧呼吸】的时机跟着旋钮走（Kevin 2026-09-05 拍板：与知识之书同口径）。2026-09-06 Kevin 改回 E 阶段统一结算 →
+	## 默认写在 E 阶段那行、玩家回合段不提它；旋钮拨成回合末（eturn=1）时那句搬到玩家回合段
+	check(all.contains("E 阶段：癌方【无氧呼吸】") and not all.contains("结算自己的【无氧呼吸】"),
+		"无氧呼吸默认写在 E 阶段，玩家回合段不提它（2026-09-06 改回）")
+	var per_turn := CWTuning.new()
+	per_turn.anaerobic_on_turn_end = true
 	var ep := ""
-	for s5 in CWRulesPage.sections(e_phase):
+	for s5 in CWRulesPage.sections(per_turn):
 		for line in s5["lines"]:
 			ep += line + "|"
-	check(ep.contains("E 阶段：癌方【无氧呼吸】") and not ep.contains("结算自己的【无氧呼吸】"),
-		"旋钮拨回 E 阶段统一结算时，那句搬回 E 阶段")
+	check(ep.contains("「结束回合」时结算自己的【无氧呼吸】") and not ep.contains("E 阶段：癌方【无氧呼吸】"),
+		"旋钮拨成回合末结算时，那句搬到玩家回合段、E 阶段那行不再提它")
 	## 反击旋钮开了，那半句要跟着出现（平衡实验档）
 	## sections() 用的是默认 CWTuning，这里只验固定文案的另一半确实受控于旋钮：
 	## 直接构造开旋钮的行文对比不可行（sections 内建 tune），改为验默认关。见上一条。
@@ -5424,7 +5425,8 @@ func t_guide_data() -> void:
 	check(text.contains("%d 升 III 级" % CWData.LEVEL_MIN_MEMORY[2]) and not text.contains("16 升"),
 		"剧本的记忆门槛现读 LEVEL_MIN_MEMORY")
 	check(text.contains("标记脚下") and not text.contains("固化成型更快"), "剧本的骨肉瘤按重做后的骨样硬化描述")
-	check(text.contains("结束回合时结算【无氧呼吸】"), "剧本的世界回合按回合末无氧结算描述（eturn=1）")
+	check(text.contains("癌方结算【无氧呼吸】") and not text.contains("结束回合时结算【无氧呼吸】"),
+		"剧本的世界回合按 E 阶段无氧结算描述（eturn=0，Kevin 2026-09-06 改回）")
 	check(text.contains("左下角「跳过引导」"), "「跳过引导」按钮的位置说对了（面板左下角）")
 	check(text.contains("传到另一端"), "血管说的是「S 阶段传送」，不只是血行转移")
 
@@ -5464,8 +5466,9 @@ func t_codex() -> void:
 	check(all_text.contains("（抗原记忆等级 - 1）× %s + 基数" % CWData.fmt(tune.aerobic_level_step))
 		and all_text.contains("6 人局 %s" % CWData.fmt(CWData.aerobic_level_base(6))),
 		"有氧呼吸按现行等级式描述、基数分档现读表")
-	check(all_text.contains("平方根") and all_text.contains("行动回合末结算【无氧呼吸】"),
-		"无氧呼吸：开方公式 + 各癌细胞回合末结算（eturn=1）")
+	check(all_text.contains("平方根") and all_text.contains("E 阶段结算【无氧呼吸】")
+		and not all_text.contains("行动回合末结算【无氧呼吸】"),
+		"无氧呼吸：开方公式 + E 阶段统一结算（eturn=0，Kevin 2026-09-06 改回）")
 	check(not all_text.contains("占比") and not all_text.contains("最多存 0") and not all_text.contains("低保"),
 		"09-05 之前的口径（盘面占比 / 存量上限 / 低保）不再出现")
 	check(all_text.contains("%d 升 III 级" % CWData.LEVEL_MIN_MEMORY[2]) and not all_text.contains("16 升"),
@@ -8664,7 +8667,7 @@ func t_batch2_rules() -> void:
 	check(g.actions._move_cost_mod(ca, to, cb) == with_mucus, "癌细胞进黏液格：不加费（只罚免疫）")
 	g.dispose()
 
-	## ④ 无氧改在癌细胞自己的回合末结算；E 阶段不再重复算；旋钮关回到 E 阶段
+	## ④ 无氧的结算时机：默认 E 阶段统一算（Kevin 2026-09-06 改回）；拨 eturn=1 改在癌细胞自己的回合末、E 阶段不再重复算
 	g = bare_game()
 	var ca2 := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER, Vector2i.ZERO, -1,
 		CWData.CancerType.MELANOMA)
@@ -8675,18 +8678,23 @@ func t_batch2_rules() -> void:
 		g.tiles[Vector2i.ZERO + d]["tissue"] = CWData.Tissue.CANCER
 	var expect: int = g.world.anaerobic_gain_for(ca2)
 	check(expect == _pool_of(7), "7 格块独占：round(c×√7) = %s（实得 %s）" % [CWData.fmt(_pool_of(7)), CWData.fmt(expect)])
-	check(g.tune.anaerobic_on_turn_end, "回合末结算默认开")
+	check(not g.tune.anaerobic_on_turn_end, "默认 E 阶段统一结算（Kevin 2026-09-06 改回；09-05 曾默认回合末）")
 	g._end_turn(1, ca2)
-	check(ca2["energy"] == expect, "癌细胞回合末进账 %s" % CWData.fmt(expect))
+	check(ca2["energy"] == 0, "默认：回合末不进账")
+	await g.world.e_phase()
+	## E 阶段第 2~3 步的【增生】【侵蚀】可能先把块铺大，第 4 步按铺大后的块算 —— 拿结算后的块大小对
+	## （盘上只有这一块，增生 / 侵蚀出来的格都贴着它）
+	var n_after: int = g.count_tissue(CWData.Tissue.CANCER) + g.count_tissue(CWData.Tissue.SOLID)
+	check(ca2["energy"] > 0 and ca2["energy"] == _pool_of(n_after),
+		"默认：E 阶段一次算，进账 round(c×√%d) = %s（实得 %s）" % [n_after, CWData.fmt(_pool_of(n_after)), CWData.fmt(ca2["energy"])])
+	g.tune.anaerobic_on_turn_end = true
+	ca2["energy"] = 0
+	var expect_turn: int = g.world.anaerobic_gain_for(ca2)
+	g._end_turn(1, ca2)
+	check(expect_turn > 0 and ca2["energy"] == expect_turn, "eturn=1：癌细胞回合末进账 %s" % CWData.fmt(expect_turn))
 	ca2["energy"] = 0
 	await g.world.e_phase()
-	check(ca2["energy"] == 0, "E 阶段不再算第二遍")
-	g.tune.anaerobic_on_turn_end = false
-	ca2["energy"] = 0
-	g._end_turn(1, ca2)
-	check(ca2["energy"] == 0, "eturn=0：回合末不进账")
-	await g.world.e_phase()
-	check(ca2["energy"] > 0, "eturn=0：回到 E 阶段一次算（旧行为）")
+	check(ca2["energy"] == 0, "eturn=1：E 阶段不再算第二遍")
 	g.dispose()
 
 	## ⑤ 骨肉瘤【骨样硬化】重做：花 2.0 标记脚下，2 回合后固化

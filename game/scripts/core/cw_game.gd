@@ -266,7 +266,7 @@ func _advance_turn() -> void:
 
 
 func _end_turn(pid: int, cell: Dictionary) -> void:
-	## 【E-无氧呼吸】2026-09-05 起在癌细胞自己的回合末结算（旋钮 anaerobic_on_turn_end）；
+	## 【E-无氧呼吸】`eturn=1` 时在癌细胞自己的回合末结算（旋钮 anaerobic_on_turn_end；09-05 默认开，2026-09-06 Kevin 改回 E 阶段、默认关）；
 	## 排在 end_turn 之前，让「结束回合（能量 X）」那行日志写的是进账后的数
 	if tune.anaerobic_on_turn_end and cell["faction"] == CWData.Faction.CANCER and cell["alive"]:
 		world.settle_anaerobic_turn(cell)
