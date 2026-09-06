@@ -1,156 +1,148 @@
 ## headless_test.gd —— 无头单元/回归测试
 ##
 ## 运行：godot --headless --path game --script res://tests/headless_test.gd
+## 分片并行（Kevin 2026-09-05 提的：套件 2.5 分钟一跑，Godot 无头是单线程，开两个进程各跑一半）：
+##   ... --script res://tests/headless_test.gd -- --shard=0/2   （另一个进程 --shard=1/2）
+## 谁归哪片按耗时权重贪心均衡（WEIGHTS / _assign）；tools/run_tests.sh / .ps1 默认就这么开两片再汇总。
+## `-- --timing` 会在末尾列出最慢的几个测试（分片不均衡时看这个调）。
+## 每个进程的 user:// 都改到自己的 CellWar-tests/shard<i>（见 _isolate_user_dir）：两片同时读写同一份
+## 存档 / 设置文件会互相踩，顺便也让测试**再也碰不到玩家真实的 user://**。
 ## 注意：新增 class_name 脚本后必须先 `--import`，否则报 "Identifier not declared"。
 extends SceneTree
 
 var fails := 0
 var checks := 0
+var _shard := 0        ## 本进程跑第几片（0 起）
+var _shards := 1       ## 一共几片；1 = 不分片
+var _timing := false   ## 末尾列最慢的测试
+var _durations: Array = []   ## [毫秒, 测试名]
+## 各测试的耗时权重（秒，2026-09-05 `--timing` 实测；没列的按 0.1）。分片按「最重优先」贪心：先排最重的，
+## 每个放到此刻最轻的那一片。靠下标取模的话 t_net_game 一个就 79 s、落在哪片哪片就是 100 s，另一片 9 s 就跑完了。
+## 加了明显变慢的测试就把它填进来（跑一次 `-- --timing` 看末尾那张表）
+const WEIGHTS := {
+	"t_net_game": 79.0, "t_ai_mc": 7.4, "t_settle_screen": 4.6, "t_net_reconnect": 3.5,
+	"t_net_timeout": 3.0, "t_net_drain": 1.3, "t_net_lobby": 1.0, "t_hotseat": 0.8,
+	"t_teleport_fx": 0.7, "t_opening": 0.6,
+}
 
 
 func _initialize() -> void:
+	_parse_args()
+	_isolate_user_dir()
 	_run_all()
 
 
+## 每个测试归哪一片：按权重从重到轻（同重按原顺序）依次放到此刻最轻的片；不分片时全归 0
+func _assign(tests: Array[Callable]) -> Array[int]:
+	var owner: Array[int] = []
+	owner.resize(tests.size())
+	owner.fill(0)
+	if _shards <= 1:
+		return owner
+	var order: Array = range(tests.size())
+	order.sort_custom(func(a: int, b: int) -> bool:
+		var wa := _weight(tests[a])
+		var wb := _weight(tests[b])
+		return wa > wb if wa != wb else a < b)
+	var load: Array[float] = []
+	load.resize(_shards)
+	load.fill(0.0)
+	for i in order:
+		var s := 0
+		for k in range(1, _shards):
+			if load[k] < load[s]:
+				s = k
+		owner[i] = s
+		load[s] += _weight(tests[i])
+	return owner
+
+
+func _weight(t: Callable) -> float:
+	return float(WEIGHTS.get(t.get_method(), 0.1))
+
+
+## `--` 之后的参数：--shard=i/n、--timing
+func _parse_args() -> void:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--shard="):
+			var parts := a.substr(8).split("/")
+			if parts.size() == 2 and int(parts[1]) > 0:
+				_shards = int(parts[1])
+				_shard = clampi(int(parts[0]), 0, _shards - 1)
+		elif a == "--timing":
+			_timing = true
+
+
+## 把 user:// 改到测试自己的目录（%APPDATA%/CellWar-tests/shard<i>），运行时改工程设置即可生效，
+## 目录要自己建（引擎只在启动时建默认的那一个）。不分片时也隔离：存档 / 设置 / 引导进度都不再碰玩家的真实文件
+func _isolate_user_dir() -> void:
+	ProjectSettings.set_setting("application/config/use_custom_user_dir", true)
+	ProjectSettings.set_setting("application/config/custom_user_dir_name", "CellWar-tests/shard%d" % _shard)
+	DirAccess.make_dir_recursive_absolute(OS.get_user_data_dir())
+	print("user:// -> %s" % OS.get_user_data_dir())
+
+
 func _run_all() -> void:
-	t_board()
-	t_pay_rule()
-	await t_setup()
-	await t_hit_order()
-	t_anaerobic_round()
-	t_balance_candidates()
-	t_cancer_win_hold()
-	t_storm_preview()
-	await t_card_events()
-	await t_card_events_cancer()
-	await t_card_instants()
-	await t_card_choices()
-	await t_card_mods()
-	await t_settle_order_rulings()
-	await t_review_fixes()
-	await t_review_0831()
-	await t_attack_cap()
-	t_pass_through_ally()
-	await t_batch_death_and_triggers()
-	await t_design_required_checks()
-	await t_damage_pipeline()
-	await t_card_perms()
-	await t_world_events_draw()
-	t_ev_attack_mods()
-	await t_ev_attack_flow()
-	await t_ev_costs()
-	await t_ev_suppressor()
-	await t_ev_supply()
-	t_ev_solidify_accel()
-	await t_ev_chaos()
-	await t_ev_chaos_simul()
-	t_ev_memory()
-	t_ev_proliferate()
-	await t_ev_double()
-	await t_ev_double_instant()
-	await t_ev_lifecycle()
-	t_breath_sheets()
-	t_solidify_and_decay()
-	t_erosion()
-	t_macro_purify_heal()
-	t_cancer_lineup()
-	await t_antibody_cap()
-	await t_antibody_halve()
-	t_anaerobic_sqrt()
-	await t_jump_cap()
-	await t_heur_lifecare()
-	t_heur_no_squat_on_fresh()
-	await t_plan_path()
-	await t_dendritic_rework()
-	await t_solidify_roundtrip()
-	t_pass_through_chain()
-	t_eval_solid_monotone()
-	t_immune_win()
-	t_cancer_revive_blocked()
-	t_cancer_s_win()
-	await t_immune_respawn()
-	t_pressure()
-	t_necrosis()
-	t_erosion_fx()
-	await t_teleport_fx()
-	await t_hotseat()
-	await t_tutorial()
-	t_stroma_targets()
-	await t_batch2_rules()
-	t_immune_level_rules()
-	await t_tissue_transitions()
-	t_one_cell_per_tile()
-	t_phase_order()
-	t_event_rounds()
-	t_draw_limit()
-	await t_snapshot()
-	await t_state_codec()
-	await t_rollout_isolation()
-	await t_step_atomic()
-	await t_full_game_2p()
-	await t_full_game_4p()
-	await t_determinism()
-	await t_ai_cards()
-	await t_ai_eval()
-	await t_ai_mc()
-	await t_mc_budget()
-	await t_config_panel()
-	await t_config_custom()
-	await t_hover_info()
-	await t_log_panel()
-	await t_rules_page()
-	t_production_row()
-	await t_skill_info()
-	await t_save_load()
-	await t_settings()
-	t_board_view()
-	t_hex_pick()
-	await t_ui_bridge()
-	await t_human_ask()
-	await t_hand_play()
-	await t_hand_exit()
-	t_hand_index_after_exit()
-	t_card_info()
-	await t_match_panel()
-	await t_settle_screen()
-	await t_opening()
-	await t_pause_and_teardown()
-	t_hand()
-	await t_hand_limit()
-	await t_hand_long_name()
-	await t_diff_info()
-	t_card_pool()
-	t_font_coverage()
-	t_card_name_fit()
-	t_view_blend()
-	await t_announce()
-	t_action_bar_width()
-	await t_buttons_dim()
-	await t_enter_not_skipped()
-	t_main_menu()
-	t_guide_data()
-	t_codex()
-	await t_guide_bridge()
-	await t_guide_spotlight()
-	await t_quit_confirm()
-	await t_tutorial_pick()
-	await t_roll_hook()
-	t_dice()
-	await t_net_protocol()
-	await t_net_lobby()
-	await t_net_game()
-	await t_net_reconnect()
-	await t_net_timeout()
-	await t_net_drain()
-	await t_online_panel()
-	await t_online_glow()
-	await t_match_online()
+	## 顺序即原来一条条 await 的顺序；分片只决定谁归哪片（_assign），每片内部仍按这个顺序跑
+	var tests: Array[Callable] = [
+		t_board, t_pay_rule, t_setup, t_hit_order,
+		t_anaerobic_round, t_balance_candidates, t_cancer_win_hold, t_storm_preview,
+		t_card_events, t_card_events_cancer, t_card_instants, t_card_choices,
+		t_card_mods, t_settle_order_rulings, t_review_fixes, t_review_0831,
+		t_attack_cap, t_pass_through_ally, t_batch_death_and_triggers, t_design_required_checks,
+		t_damage_pipeline, t_card_perms, t_world_events_draw, t_ev_attack_mods,
+		t_ev_attack_flow, t_ev_costs, t_ev_suppressor, t_ev_supply,
+		t_ev_solidify_accel, t_ev_chaos, t_ev_chaos_simul, t_ev_memory,
+		t_ev_proliferate, t_ev_double, t_ev_double_instant, t_ev_lifecycle,
+		t_breath_sheets, t_solidify_and_decay, t_erosion, t_macro_purify_heal,
+		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
+		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path,
+		t_dendritic_rework, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
+		t_immune_win, t_cancer_revive_blocked, t_cancer_s_win, t_immune_respawn,
+		t_pressure, t_necrosis, t_erosion_fx, t_teleport_fx,
+		t_hotseat, t_tutorial, t_stroma_targets, t_batch2_rules,
+		t_immune_level_rules, t_tissue_transitions, t_one_cell_per_tile, t_phase_order,
+		t_event_rounds, t_draw_limit, t_snapshot, t_state_codec,
+		t_rollout_isolation, t_step_atomic, t_full_game_2p, t_full_game_4p,
+		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
+		t_mc_budget, t_config_panel, t_config_custom, t_hover_info,
+		t_log_panel, t_rules_page, t_production_row, t_skill_info,
+		t_save_load, t_settings, t_board_view, t_hex_pick,
+		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
+		t_hand_index_after_exit, t_card_info, t_match_panel, t_settle_screen,
+		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
+		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
+		t_card_name_fit, t_view_blend, t_announce, t_action_bar_width,
+		t_buttons_dim, t_enter_not_skipped, t_main_menu, t_guide_data,
+		t_codex, t_guide_bridge, t_guide_spotlight, t_quit_confirm,
+		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
+		t_net_lobby, t_net_game, t_net_reconnect, t_net_timeout,
+		t_net_drain, t_online_panel, t_online_glow, t_match_online,
+	]
+	var owner := _assign(tests)
+	var mine := 0
+	for i in tests.size():
+		if owner[i] != _shard:
+			continue
+		mine += 1
+		var t0 := Time.get_ticks_msec()
+		await tests[i].call()
+		_durations.append([Time.get_ticks_msec() - t0, tests[i].get_method()])
 	print("")
+	if _timing:
+		_durations.sort_custom(func(x: Array, y: Array) -> bool: return x[0] > y[0])
+		var total := 0
+		for d in _durations:
+			total += int(d[0])
+		print("耗时 %.1fs，最慢：" % (total / 1000.0))
+		for d in _durations.slice(0, 8):
+			print("  %6.1fs  %s" % [d[0] / 1000.0, d[1]])
+	var tag := "" if _shards == 1 else "分片 %d/%d " % [_shard + 1, _shards]
 	if fails == 0:
-		print("✔ 全部测试通过（%d 项检查）" % checks)
+		print("✔ %s全部测试通过（%d 项检查，%d 个测试）" % [tag, checks, mine])
 		quit(0)
 	else:
-		print("✘ %d 项检查失败（共 %d 项）" % [fails, checks])
+		print("✘ %s%d 项检查失败（共 %d 项，%d 个测试）" % [tag, fails, checks, mine])
 		quit(1)
 
 
@@ -5083,7 +5075,11 @@ func t_guide_bridge() -> void:
 	fake._step = 0      ## 「抽卡入口」
 	b._cur_req = act_req
 	check(b._demo_index() == 1, "教抽卡时「继续」= 答「基因表达」那个下标")
-	## 落子代做挑紧邻癌区的格：从这局的真实盘面上各找一格「挨着癌区」和「不挨」的健康格，两种顺序都验
+	## 落子代做挑紧邻癌区的格：g.init() 还没铺盘（开局第一步才铺），先铺一张全健康的盘、正中手涂一格癌组织，
+	## 再各找一格「挨着癌区」和「不挨」的健康格，两种顺序都验（之前直接读 g.tiles 报了 SCRIPT ERROR：套件只看断言，
+	## 运行时报错要靠 tools/run_tests.sh 才抓得到）
+	g.setup.build_board()
+	g.tiles[Vector2i.ZERO]["tissue"] = CWData.Tissue.CANCER
 	fake._chapter = 1
 	fake._step = 0
 	var near := Vector2i(9999, 9999)   ## 哨兵：还没找到

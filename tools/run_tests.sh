@@ -6,17 +6,57 @@
 # 只会打印一行 SCRIPT ERROR，**不影响退出码**——2026-08-31 就真踩到两次：
 # 一次是重构中途忘了删的 _after_damage 调用，一次是测试自己写错的 pid 越界，
 # 两次都显示「全部测试通过」。只看最后那行是不够的。
+#
+# 分片并行（Kevin 2026-09-05 提的）：套件 1900 项、单进程要 2.5 分钟，而 Godot 无头是单线程。
+# 默认开 SHARDS=2 个进程各跑一半（headless_test.gd 的 `-- --shard=i/n`，每片各自的 user://），
+# 各片输出先落到临时文件，跑完按片打印摘要；任一片红、或任一片有运行时报错，整体就算失败。
+# SHARDS=1 退回串行。
 set -u
 GODOT="${GODOT:-D:/Godot/Godot_v4.5-stable_win64.exe/Godot_v4.5-stable_win64_console.exe}"
+SHARDS="${SHARDS:-2}"
 cd "$(dirname "$0")/.."
-OUT="$("$GODOT" --headless --path game --script res://tests/headless_test.gd 2>&1)"
-CODE=$?
-echo "$OUT" | grep -E "FAIL|✔|✘"
-ERRS="$(echo "$OUT" | grep -Ec "SCRIPT ERROR|Parse Error|Failed to load script")"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+i=0
+while [ "$i" -lt "$SHARDS" ]; do
+	(
+		"$GODOT" --headless --path game --script res://tests/headless_test.gd -- "--shard=$i/$SHARDS" \
+			> "$TMP/shard$i.log" 2>&1
+		echo $? > "$TMP/shard$i.code"
+	) &
+	i=$((i + 1))
+done
+wait
+
+CODE=0
+ALL=""
+i=0
+while [ "$i" -lt "$SHARDS" ]; do
+	OUT="$(cat "$TMP/shard$i.log")"
+	ALL="$ALL
+$OUT"
+	echo "$OUT" | grep -E "FAIL|✔|✘"
+	if [ "$(cat "$TMP/shard$i.code")" -ne 0 ]; then
+		CODE=1
+	fi
+	i=$((i + 1))
+done
+
+ERRS="$(echo "$ALL" | grep -Ec "SCRIPT ERROR|Parse Error|Failed to load script")"
 if [ "$ERRS" -gt 0 ]; then
 	echo ""
 	echo "✘ 另有 $ERRS 处运行时报错或测试脚本未加载（断言没红，也不能算通过）："
-	echo "$OUT" | grep -E "SCRIPT ERROR|Parse Error|Failed to load script" -A 3
+	echo "$ALL" | grep -E "SCRIPT ERROR|Parse Error|Failed to load script" -A 3
 	exit 1
+fi
+if [ "$SHARDS" -gt 1 ]; then
+	# 通过的片写「（N 项检查」，红的片写「（共 N 项」，两种都算进合计
+	TOTAL="$(echo "$ALL" | grep -oE "（(共 )?[0-9]+ 项" | grep -oE "[0-9]+" | awk '{ s += $1 } END { print s + 0 }')"
+	if [ "$CODE" -eq 0 ]; then
+		echo "✔ ${SHARDS} 片合计 ${TOTAL} 项检查全部通过"
+	else
+		echo "✘ ${SHARDS} 片里有红（合计 ${TOTAL} 项检查）"
+	fi
 fi
 exit $CODE
