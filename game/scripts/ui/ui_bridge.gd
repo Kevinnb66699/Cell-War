@@ -394,7 +394,20 @@ func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
 		var got: Variant = await _prompt("选择要%s到的组织" % verb, _plan_hint(cell, tiles.size()),
 			_move_buttons(cell, verb), _move_values(), tiles, null,
 			_move_buttons(cell, verb).size() - 1,
-			false, 0.0, func(c: Vector2i) -> String: return game.actions.move_block_reason(cell, c))
+			true, 0.0, func(c: Vector2i) -> String: return game.actions.move_block_reason(cell, c), true)
+		## 选目标态下手牌照样能打 / 弃（Kevin 2026-09-06）：手势走和主按钮栏同一条路（_pick_hand）。
+		## 打出去的卡由引擎结算后重新询问，_sticky_move 还开着，于是自动回到选目标态（迁移是切换式的）；
+		## 从卡的流程退回（"cancel"）则留在选目标态，不算「结束迁移」。规划中的路线作废——盘面可能已经变了
+		if got is Array:
+			while got is Array:
+				got = await _pick_hand(options, got)
+			if got == null:
+				break
+			if got is String:
+				continue
+			move_costs.clear()
+			_plan_reset()
+			return got
 		if got is String and got == "plan_on":
 			_planning = true
 			continue
@@ -547,9 +560,12 @@ func _ask_generic(req: Dictionary) -> int:
 ## cancel 指出 buttons 里哪一个是「取消」（右键 / Esc 的快捷方式）；-1 = 不能取消。
 ## blocked：点到**不在选项里**的格子时问一句「为什么」，非空就弹出来。
 ## 不给这个回调的询问（落子、复活…）沿用老行为：点不动就是没反应。
+## hand_discard：有「取消」按钮的那一问里，右键双击卡默认 = 取消（团队 2026-09-01 复核保留）；
+## 只有迁移选目标态开着它（Kevin 2026-09-06：选目标态下要能直接对卡牌操作），右键双击卡 = 弃置，
+## 右键点空处 / Esc 照旧 = 结束迁移。
 func _prompt(title: String, hint: String, buttons: Array, values: Array,
 		tiles: Dictionary, end_value: Variant = null, cancel := -1,
-		hand_play := false, inset := 0.0, blocked := Callable()) -> Variant:
+		hand_play := false, inset := 0.0, blocked := Callable(), hand_discard := false) -> Variant:
 	_tiles = tiles
 	_repaint_marks()
 	bar.show_bar(title, hint, buttons, cancel, inset)
@@ -563,7 +579,7 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	## 哪怕点在卡上——按钮上就标着「右键 / Esc」，卡不该抢走它（试玩第三轮报的）。
 	## 团队 2026-09-01 复核过这条并保留：弃置只在**主按钮栏**（没有取消的那一问）生效。
 	var on_discard := func(n: String) -> void:
-		if cancel >= 0:
+		if cancel >= 0 and not hand_discard:
 			ans.fire(values[cancel])
 		else:
 			ans.fire(["discard", n])

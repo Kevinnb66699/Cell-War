@@ -280,10 +280,8 @@ func revive_immune(pid: int, pos: Vector2i) -> void:
 ## 盘面口径（健康 - 坏死）现在只用来写日志了 —— 但**照旧要数**：
 ## 旧公式仍能靠 `abase=0` 跑回来（09-04 之前的扫描数据都是那套），日志两边共用同一组数字。
 ## 「坏死」格在旧公式里要扣掉：它虽然是健康组织，但不为免疫供能。
-func _aerobic() -> void:
-	var immune: Array = game.living_cells(CWData.Faction.IMMUNE)
-	if immune.is_empty():
-		return
+## 盘面上的健康格数与其中的坏死格数（盘面式有氧基准和日志用）
+func _healthy_counts() -> Vector2i:
 	var healthy := 0
 	var necrotic := 0
 	for t in game.tiles.values():
@@ -292,29 +290,71 @@ func _aerobic() -> void:
 		healthy += 1
 		if t["necrosis"] > 0:
 			necrotic += 1
+	return Vector2i(healthy, necrotic)
+
+
+## 场上挂着几份【TGF-β释放】（卡牌挂的全局修饰，下一次有氧结算消耗）
+func _tgf_stacks() -> int:
+	var n := 0
+	for e in game.events["active"]:
+		if e["name"] == "TGF-β释放":
+			n += int(e["stacks"])
+	return n
+
+
+## 【有氧呼吸】这一次**每份**多少：基准 → 夹钳 → 均分 → 【TGF-β释放】逐份 -20%。
+## **只算不结算**（不消耗 TGF-β、不写日志）：右栏「预计收入」和 _aerobic 共用这一份算式 ——
+## 界面抄第二份必然漂（pressure_at 同款纪律，2026-09-06 Kevin 要能量旁边显示预计收入时拆出来的）。
+## with_tgf=false 只给 _aerobic 写「减免前 → 减免后」那行日志用。
+func aerobic_share(with_tgf := true) -> int:
+	var hn := _healthy_counts()
 	## 低保/封顶夹在**基准**上、再均分 —— 顺序反过来的话 2.0 的低保会把 2.5÷3=0.8 顶回 2.0，
 	## 均分等于没开（2026-09-05 t_batch2_rules 当场抓到；此前 split 是关着的所以从没暴露）。
 	## aerobic_split=false 时两种顺序逐位相同，09-04 之前的数据不受影响。
-	var gain := game.tune.clamp_income(_aerobic_base(healthy, necrotic),
+	var gain := game.tune.clamp_income(_aerobic_base(hn.x, hn.y),
 		game.tune.aerobic_floor, game.tune.aerobic_cap)
 	if game.tune.aerobic_split:
-		gain = _split_aerobic(gain, immune.size())
+		gain = _split_aerobic(gain, game.living_cells(CWData.Faction.IMMUNE).size())
+	if with_tgf:
+		for i in _tgf_stacks():
+			gain = gain * 8 / 10   ## 整数除法 = 向下取整到十分位（逐份 ×80%，定案 #63）
+	return gain
+
+
+## 【代谢适应】/【自分泌生存信号】的「每次结算有氧呼吸时额外获得」——在每份之外加，不吃 TGF-β 的 -20%（口径 #69）
+func _aerobic_bonus(cell: Dictionary) -> int:
+	var bonus := 0
+	if game.has_skill(cell, "代谢适应"):
+		bonus += CWData.AEROBIC_ADAPT
+	if game.has_skill(cell, "自分泌生存信号"):
+		bonus += CWData.AEROBIC_AUTOCRINE
+	return bonus
+
+
+## 某个免疫细胞下一次 S 阶段预计拿到多少（右栏能量旁的「+x.x」）：站在坏死格 = 整份不拿、连技能加成也没有；
+## 否则 = 每份 + 永久技能的额外获得。口径与 _aerobic 逐位一致 —— 回归拿它和真结算的差额对。
+func aerobic_income(cell: Dictionary) -> int:
+	if game.tune.necrosis_no_aerobic and game.tile(cell["pos"])["necrosis"] > 0:
+		return 0
+	return aerobic_share() + _aerobic_bonus(cell)
+
+
+func _aerobic() -> void:
+	var immune: Array = game.living_cells(CWData.Faction.IMMUNE)
+	if immune.is_empty():
+		return
+	var gain := aerobic_share()
 	## 【TGF-β释放】：下一次有氧结算每份 -20%（逐份 ×80% 向下取整，定案 #63），
-	## 结算完消耗——条目挂在全局容器里，left=2 保证能活到下一个 S 阶段
-	var tgf := 0
-	var kept: Array = []
-	for e in game.events["active"]:
-		if e["name"] == "TGF-β释放":
-			tgf += e["stacks"]
-		else:
-			kept.append(e)
+	## 结算完消耗——条目挂在全局容器里，left=2 保证能活到下一个 S 阶段。减免本身已算在 aerobic_share 里
+	var tgf := _tgf_stacks()
 	if tgf > 0:
+		var kept: Array = []
+		for e in game.events["active"]:
+			if e["name"] != "TGF-β释放":
+				kept.append(e)
 		game.events["active"] = kept
-		var before := gain
-		for i in tgf:
-			gain = gain * 8 / 10   ## 整数除法 = 向下取整到十分位
 		game.log_msg("【TGF-β释放】有氧呼吸 %s → %s（%d 份 -20%%，已消耗）" % [
-			CWData.fmt(before), CWData.fmt(gain), tgf])
+			CWData.fmt(aerobic_share(false)), CWData.fmt(gain), tgf])
 	for cell in immune:
 		## 「坏死」的新效果（2026-09-05）：站在坏死格上这一回合整份不拿，连技能加成也没有 ——
 		## 「每次结算有氧呼吸时额外获得」的前提是这次结算发生了
@@ -324,16 +364,13 @@ func _aerobic() -> void:
 		cell["energy"] += gain
 		## 【代谢适应】/【自分泌生存信号】的「额外获得」在基准收入之外加，
 		## 不吃 TGF-β 的 -20%（那句管的是有氧结算本身的所得，口径 #69）
-		var bonus := 0
-		if game.has_skill(cell, "代谢适应"):
-			bonus += CWData.AEROBIC_ADAPT
-		if game.has_skill(cell, "自分泌生存信号"):
-			bonus += CWData.AEROBIC_AUTOCRINE
+		var bonus := _aerobic_bonus(cell)
 		if bonus > 0:
 			cell["energy"] += bonus
 			game.log_msg("　%s 的永久技能额外 +%s 能量" % [game.cell_name(cell), CWData.fmt(bonus)])
+	var hn := _healthy_counts()
 	var why := "抗原记忆 %s 级" % CWData.LEVEL_NAMES[game.immune_level] \
-		if game.tune.aerobic_level_base != 0 else "健康 %d - 坏死 %d" % [healthy, necrotic]
+		if game.tune.aerobic_level_base != 0 else "健康 %d - 坏死 %d" % [hn.x, hn.y]
 	game.log_msg("【有氧呼吸】所有免疫细胞 +%s 能量（%s）" % [CWData.fmt(gain), why])
 
 

@@ -109,7 +109,7 @@ func _run_all() -> void:
 		t_log_panel, t_rules_page, t_production_row, t_skill_info,
 		t_save_load, t_settings, t_board_view, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
-		t_hand_index_after_exit, t_card_info, t_match_panel, t_settle_screen,
+		t_hand_index_after_exit, t_card_info, t_match_panel, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
 		t_card_name_fit, t_view_blend, t_announce, t_action_bar_width,
@@ -4263,6 +4263,189 @@ func t_match_panel() -> void:
 	g.dispose()
 
 	p.queue_free()
+
+# ---- 右栏「预计收入」：能量旁的小字来自引擎纯查询，和真结算逐位一致（Kevin 2026-09-06）----
+func t_income_display() -> void:
+	print("[预计收入]")
+	var g := _fx_game(2)
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(5, 0), CWData.ImmuneType.BASIC, -1, 100)
+	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.OSTEO, 100)
+	g.cells.append(imm)
+	g.cells.append(can)
+	## 免疫：预计 = 真结算的差额
+	var want: int = g.world.aerobic_income(imm)
+	var e0: int = imm["energy"]
+	g.world.aerobic()
+	check(want > 0 and imm["energy"] - e0 == want, "有氧：预计 %s = 结算差额 %s" % [CWData.fmt(want), CWData.fmt(imm["energy"] - e0)])
+	## 【TGF-β释放】挂着：预计已经把 -20% 算进去，结算后消耗
+	g.events["active"].append({ "name": "TGF-β释放", "left": 2, "stacks": 1, "data": {} })
+	var want_tgf: int = g.world.aerobic_income(imm)
+	check(want_tgf == want * 8 / 10, "TGF-β 在场：预计按 -20% 算（%s → %s）" % [CWData.fmt(want), CWData.fmt(want_tgf)])
+	e0 = imm["energy"]
+	g.world.aerobic()
+	check(imm["energy"] - e0 == want_tgf and g.events["active"].is_empty(), "结算差额一致，TGF-β 消耗掉")
+	check(g.world.aerobic_income(imm) == want, "预计是纯查询：没有消耗 TGF-β（消耗后回到原值）")
+	## 站在坏死格：整份不拿；永久技能加成算进预计
+	g.tune.necrosis_no_aerobic = true
+	g.tiles[imm["pos"]]["necrosis"] = 2
+	check(g.world.aerobic_income(imm) == 0, "坏死格上预计 0")
+	g.tiles[imm["pos"]]["necrosis"] = 0
+	imm["equipped"].append("代谢适应")
+	var want_bonus: int = g.world.aerobic_income(imm)
+	e0 = imm["energy"]
+	g.world.aerobic()
+	check(want_bonus == want + CWData.AEROBIC_ADAPT and imm["energy"] - e0 == want_bonus,
+		"【代谢适应】的额外获得算进预计，且与结算一致")
+	## 癌症：预计 = 回合末结算的差额（口径本来就是 anaerobic_gain_for），E 阶段那条路也一样
+	for c in [Vector2i(0, 0), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 1)]:
+		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	var want_c: int = g.world.anaerobic_gain_for(can)
+	var c0: int = can["energy"]
+	g.world.settle_anaerobic_turn(can)
+	check(want_c > 0 and can["energy"] - c0 == want_c, "无氧：预计 %s = 回合末结算差额" % CWData.fmt(want_c))
+	c0 = can["energy"]
+	g.world._anaerobic()
+	check(can["energy"] - c0 == want_c, "E 阶段整体结算那条路差额也一样")
+	## 右栏：小字文案 = 「+预计」，死亡 / 待落子不显示；摆在能量数左边、「技 N」再往左
+	var p := CWMatchPanel.new()
+	root.add_child(p)
+	await process_frame
+	p.refresh(g)
+	check(p._rows[0]["income"].text == "+" + CWData.fmt(g.world.aerobic_income(imm)),
+		"免疫行：%s" % p._rows[0]["income"].text)
+	check(p._rows[1]["income"].text == "+" + CWData.fmt(want_c), "癌症行：%s" % p._rows[1]["income"].text)
+	var inc: Label = p._rows[0]["income"]
+	var en: Label = p._rows[0]["energy"]
+	var sk: Label = p._rows[0]["skills"]
+	## 顶行从右往左：+x.x（贴行右缘）→ 能量 → 技 N（Kevin 2026-09-06 看截图定的顺序）
+	var pip_right: float = p._rows[0]["pips"][CWData.HAND_MAX - 1].position.x + CWMatchPanel.PIP
+	check(inc.position.x + inc.size.x == pip_right
+		and en.position.x + en.size.x == inc.position.x + inc.size.x - CWMatchPanel.INCOME_RESERVE
+		and sk.position.x + sk.size.x == en.position.x + en.size.x - CWMatchPanel.ENERGY_RESERVE
+		and inc.position.y == sk.position.y,
+		"小字贴行右缘（与手牌方块同一右缘），能量右对齐到它左边，「技 N」再让出 ENERGY_RESERVE")
+	check(p._rows[0]["name"].size.x == CWMatchPanel.NAME_W
+		and p._rows[0]["name"].position.x + CWMatchPanel.NAME_W <= sk.position.x + sk.size.x
+			- CWStyle.FONT.get_string_size("技 0", HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x,
+		"玩家名裁剪区不压到「技 N」")
+	can["alive"] = false
+	p.refresh(g)
+	check(p._rows[1]["income"].text == "", "死亡：不显示预计")
+	p.reset()
+	root.remove_child(p)
+	p.free()
+	g.dispose()
+
+
+# ---- 技能栏列出即时修饰（Kevin 2026-09-06：「现在看不到即时的 buff」）----
+func t_mods_tip() -> void:
+	print("[技能栏·即时修饰]")
+	var g := _fx_game(2)
+	g.cells.append(CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(5, 0), CWData.ImmuneType.BASIC, -1, 100))
+	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.MELANOMA, 100)
+	g.cells.append(can)
+	check(CWMatchPanel.tip_rows(g, 1, false).is_empty(), "没装备也没修饰：悬停不浮框")
+	g.add_mod(can, "上皮—间质转化", 2, "turn")
+	g.add_mod(can, "DNA损伤修复", 1, "")
+	g.add_mod(can, "细胞因子网络·待发", 1, "round")   ## 引擎内部标记，不列
+	var names := func(rows: Array) -> Array:
+		var out: Array = []
+		for r in rows:
+			out.append(r.get("head", r.get("text", "")))
+		return out
+	var hover: Array = CWMatchPanel.tip_rows(g, 1, false)
+	check(names.call(hover) == ["即时 · 本回合", "上皮—间质转化 ×2", "即时 · 待触发", "DNA损伤修复"],
+		"悬停：按时钟分段、次数写 ×N、内部标记不列（%s）" % str(names.call(hover)))
+	check(hover[1]["info"]["name"] == "上皮—间质转化" and not hover[1]["info"]["lines"].is_empty(),
+		"条目悬停浮出那张卡的原文")
+	var full: Array = CWMatchPanel.tip_rows(g, 1, true)
+	var fnames: Array = names.call(full)
+	check(fnames.has("细胞种类") and fnames.find("即时 · 本回合") > fnames.find("细胞种类")
+		and fnames[fnames.size() - 1] == "DNA损伤修复", "固定态：即时段排在最后")
+	## 用掉一层 → ×2 没了；本回合到期 → 那一段消失；已装备 + 即时同时有
+	g.spend_one_mod(can, "上皮—间质转化")
+	check(names.call(CWMatchPanel.tip_rows(g, 1, false))[1] == "上皮—间质转化", "剩 1 次不写 ×N")
+	g.clear_mods(can, "turn")
+	can["equipped"].append("癌症干性")
+	check(names.call(CWMatchPanel.tip_rows(g, 1, false)) == ["已装备 · 持续生效", "癌症干性", "即时 · 待触发", "DNA损伤修复"],
+		"本回合的到期后消失；已装备在前、即时在后")
+	## 真控件：修饰变化要触发重搭（键里带次数）
+	var p := CWMatchPanel.new()
+	root.add_child(p)
+	await process_frame
+	p.refresh(g)
+	p._tip_pid = 1
+	p.refresh(g)
+	check(p._tip != null and p._tip.visible and p._tip.get_child_count() == 1 + 4, "悬浮框 = 底板 + 两段四行")
+	g.add_mod(can, "细胞膜修复", 1, "")
+	p.refresh(g)
+	check(p._tip.get_child_count() == 1 + 5, "新挂一条修饰 → 框跟着重搭")
+	p.reset()
+	root.remove_child(p)
+	p.free()
+	g.dispose()
+
+
+# ---- 迁移选目标态下直接打 / 弃手牌（Kevin 2026-09-06）----
+func t_move_hand() -> void:
+	print("[选目标态·手牌]")
+	var board := make_board()
+	var bar := CWActionBar.new()
+	var hand := CWHand.new()
+	root.add_child(board)
+	root.add_child(bar)
+	root.add_child(hand)
+	var g := CWGame.new()
+	g.init(CWData.FACTION_ORDER[2], 3)
+	var b := CWUIBridge.new()
+	b.game = g
+	b.board = board
+	b.bar = bar
+	b.hand = hand
+	b.human_pids = [0]
+	var cell := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO, CWData.ImmuneType.BASIC, -1)
+	g.cells.append(cell)
+	var opts: Array = [
+		{ "label": "", "data": { "act": "move", "to": Vector2i(1, 0), "cost": 5 } },
+		{ "label": "", "data": { "act": "play", "card": "溶酶体强化" } },
+		{ "label": "", "data": { "act": "discard", "card": "乳酸酸化" } },
+		{ "label": "", "data": { "act": "discard", "card": "溶酶体强化" } },
+	]
+	## ① 选目标态里双击一张无目标卡 → 直接交出那张卡的选项下标（引擎结算后会再问，_sticky_move 让它回到选目标态）
+	var r := [-99]
+	var run := func() -> void: r[0] = await b._pick_move(cell, opts, [0])
+	run.call()
+	await process_frame
+	hand.play_requested.emit("溶酶体强化")
+	await process_frame
+	check(r[0] == 1, "选目标态下双击卡 → 打出（下标 %d）" % r[0])
+	check(b.move_costs.is_empty(), "交出答案时价目表收干净")
+	## ② 右键双击卡 → 弃置（不再被当成「结束迁移」）
+	r[0] = -99
+	run.call()
+	await process_frame
+	hand.discard_requested.emit("乳酸酸化")
+	await process_frame
+	check(r[0] == 2, "选目标态下右键双击卡 → 弃置（下标 %d）" % r[0])
+	## ③ 从卡的流程退回：留在选目标态，不算结束迁移；「结束迁移」照旧退出
+	r[0] = -99
+	run.call()
+	await process_frame
+	hand.play_requested.emit("乳酸酸化")            ## 打不出（没有 play 选项）→「还打不出」条
+	await process_frame
+	check(r[0] == -99 and _buttons(bar) == 2, "打不出的卡：浮出「弃置它 / 返回」，这一问还没结束")
+	bar.chosen.emit(1)                               ## 返回
+	await process_frame
+	check(r[0] == -99 and b.move_verb == "迁移" and b.move_costs == { Vector2i(1, 0): 5 },
+		"退回后仍在选目标态（价目表还在）")
+	bar.chosen.emit(_buttons(bar) - 1)               ## 结束迁移
+	await process_frame
+	check(r[0] is String and r[0] == "cancel" and b.move_costs.is_empty(), "「结束迁移」照旧退出")
+	g.dispose()
+	hand.free()
+	bar.free()
+	board.free()
+
 
 # ---- 结算屏 ----
 ## 团队 2026-08-28 从四个方向里选的「丁」。这里盯四件事：

@@ -39,7 +39,11 @@ const ICON := 32
 ## 永久技能则**没有上限**（X 级免疫池光永久技能就有 9 张），所以只能用数字，不能也方块化。
 const PIP := 6            ## 方块边长
 const PIP_GAP := 2
-const ENERGY_RESERVE := 52  ## 能量数字预留的宽度；「技 N」右对齐到它左边
+const INCOME_RESERVE := 30  ## 预计收入小字「+x.x」贴行右缘，预留的宽度（Kevin 2026-09-06：「能量往左、+ 多少放右边」）
+const ENERGY_RESERVE := 52  ## 能量数字预留的宽度，右对齐到预计收入左边；「技 N」再右对齐到它左边
+## 玩家名的裁剪宽度：原 110，给预计收入让位后 64。本地对局的「免疫A」52px 不受影响；
+## 联机长昵称本来就要裁（2026-09-03 排版体检），只是裁得更早一点
+const NAME_W := 64
 ## 技能详情框的宽度。固定态要放下「停在技能上看详情 · 再点该行取消固定」这行小字（10px×18 字 = 180）
 const TIP_W := 200.0
 
@@ -79,7 +83,7 @@ var _end: PanelContainer
 var _rows: Array = []      ## 每项 { bg, fac, icon, name, type, energy, pips, skills }
 var _built := 0            ## 已按几人局建好（0 = 还没建）
 var _level_y := 0.0        ## 免疫等级那一块的顶边；测试靠它核对 6 人局没溢出
-var _tip: Control = null   ## 技能详情框（悬停玩家行时列出已装备；**点一下固定**后列全套技能）
+var _tip: Control = null   ## 技能详情框（悬停玩家行时列出已装备 + 即时修饰；**点一下固定**后列全套技能）
 var _tip_pid := -1         ## 正悬停哪一行；-1 = 收起
 var _tip_pinned := -1      ## 被点住固定的那一行；-1 = 没固定。固定后框不随鼠标收起、条目可悬停
 var _tip_key := ""         ## 上次搭悬浮框用的键，没变不重搭
@@ -234,6 +238,7 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 		row["name"].add_theme_color_override("font_color", CWStyle.TEXT_OFF)
 		row["type"].text = "待落子"
 		row["energy"].text = ""
+		row["income"].text = ""
 		_set_pips(row, 0, CWStyle.TEXT_OFF_DIM)
 		row["skills"].text = ""
 		row["icon"].visible = false
@@ -256,6 +261,7 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 	row["energy"].text = CWData.fmt(maxi(cell["energy"], 0))
 	row["energy"].add_theme_color_override("font_color",
 		CWStyle.TEXT_OFF if dead else CWStyle.TEXT_HI)
+	row["income"].text = "" if dead else income_text(game, cell)
 	## 手牌方块：持有的填阵营色，其余留描边色
 	_set_pips(row, cell["hand"].size(), CWStyle.TEXT_OFF if dead else faction_color)
 	var n_skill: int = cell["equipped"].size()
@@ -378,15 +384,16 @@ func _build_row(y: float, pid: int) -> Dictionary:
 	add_child(icon)
 	x += ICON + 8
 
-	var nm := _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT), x, y + 4, 110)
+	var nm := _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT), x, y + 4, NAME_W)
 	## 联机昵称最长 12 字（20px 字 = 240px），不裁会压到同一行右对齐的能量数上；
 	## 本地对局的「免疫A」只有 52px，不受影响（2026-09-03 排版体检）
 	nm.clip_text = true
 	nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	var ty := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM), x, y + 26, 110)
 	var right: float = PAD + W - ROW_PAD
+	## 能量数右对齐到预计收入左边（顶行从右往左：+x.x → 能量 → 技 N，Kevin 2026-09-06 定的顺序）
 	var en := _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT_HI),
-		x, y + 4, right - x, HORIZONTAL_ALIGNMENT_RIGHT)
+		x, y + 4, right - INCOME_RESERVE - x, HORIZONTAL_ALIGNMENT_RIGHT)
 	## 手牌方块：右对齐贴到行的右缘，占行底那一行
 	var pips: Array = []
 	var total: float = CWData.HAND_MAX * (PIP + PIP_GAP) - PIP_GAP
@@ -397,11 +404,14 @@ func _build_row(y: float, pid: int) -> Dictionary:
 		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(pip)
 		pips.append(pip)
+	## 预计收入「+x.x」贴行右缘、能量数右边（Kevin 2026-09-06：每回合预计拿到的有氧 / 无氧呼吸，显示在能量边）
+	var inc := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
+		x, y + 10, right - x, HORIZONTAL_ALIGNMENT_RIGHT)
 	## 「技 N」放**能量那一行**（团队 2026-08-28 选的右边那版），右对齐到能量左侧
 	var sk := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
-		x, y + 10, right - ENERGY_RESERVE - x, HORIZONTAL_ALIGNMENT_RIGHT)
+		x, y + 10, right - ENERGY_RESERVE - INCOME_RESERVE - x, HORIZONTAL_ALIGNMENT_RIGHT)
 	return { "bg": bg, "fac": fac, "icon": icon,
-		"name": nm, "type": ty, "energy": en, "pips": pips, "skills": sk }
+		"name": nm, "type": ty, "energy": en, "income": inc, "pips": pips, "skills": sk }
 
 
 func _build_end_button() -> PanelContainer:
@@ -503,19 +513,24 @@ func _update_event_tip(game: CWGame) -> void:
 ##
 ## 每项是 { text, info }：`info` = 悬停时浮出的 PRD 原文；`head` 项是小标题，不可悬停。
 ## 主动技能那一段直接走 `CWActions.action_kinds()` —— 和行动栏同一份清单，两处对不上是迟早的事。
+## **即时卡挂上的修饰条目**（本回合 / 本世界回合 / 待触发）两种形态都列在最后（`mod_rows`）——
+## 之前只有日志里看得到它们（Kevin 2026-09-06：「现在看不到即时的 buff」）。
 static func tip_rows(game: CWGame, pid: int, full: bool) -> Array:
 	if pid < 0 or pid >= game.cells.size():
 		return []
 	var cell: Dictionary = game.cell_of(pid)
 	var immune: bool = cell["faction"] == CWData.Faction.IMMUNE
 	var equipped: Array = cell["equipped"]
+	var mods: Array = mod_rows(cell)
 	var out: Array = []
 	if not full:
-		if equipped.is_empty():
+		if equipped.is_empty() and mods.is_empty():
 			return []
-		out.append({ "head": "已装备 · 持续生效" })
-		for n in equipped:
-			out.append({ "text": n, "info": CWCardInfo.describe(n, cell["faction"]) })
+		if not equipped.is_empty():
+			out.append({ "head": "已装备 · 持续生效" })
+			for n in equipped:
+				out.append({ "text": n, "info": CWCardInfo.describe(n, cell["faction"]) })
+		out.append_array(mods)
 		return out
 	var tinfo: Dictionary = CWCardInfo.describe_type(cell["itype"], "【细胞种类】") if immune \
 		else CWCardInfo.describe_ctype(cell["ctype"])
@@ -533,6 +548,31 @@ static func tip_rows(game: CWGame, pid: int, full: bool) -> Array:
 		out.append({ "head": "已装备 · 持续生效" })
 		for n in equipped:
 			out.append({ "text": n, "info": CWCardInfo.describe(n, cell["faction"]) })
+	out.append_array(mods)
+	return out
+
+
+## 即时卡挂在细胞上的修饰条目（CWGame.add_mod）按时钟分三段：本回合 / 本世界回合 / 待触发（不过期，挂着等触发）。
+## 同名合并、次数 >1 写「×N」；条目悬停浮出的是那张卡的 PRD 原文。
+## 名字带「·待发」的是引擎内部标记（如【细胞因子网络】的待发计数），不是玩家打出的东西，不列。
+static func mod_rows(cell: Dictionary) -> Array:
+	var uses_by := { "turn": {}, "round": {}, "": {} }
+	for m in cell["mods"]:
+		var mod_name: String = m["name"]
+		if mod_name.contains("·待发"):
+			continue
+		var clock: String = m["until"] if uses_by.has(m["until"]) else ""
+		uses_by[clock][mod_name] = int(uses_by[clock].get(mod_name, 0)) + int(m["uses"])
+	var out: Array = []
+	for pair in [["turn", "即时 · 本回合"], ["round", "即时 · 本世界回合"], ["", "即时 · 待触发"]]:
+		var group: Dictionary = uses_by[pair[0]]
+		if group.is_empty():
+			continue
+		out.append({ "head": pair[1] })
+		for mod_name in group:
+			var uses: int = group[mod_name]
+			out.append({ "text": mod_name if uses <= 1 else "%s ×%d" % [mod_name, uses],
+				"info": CWCardInfo.describe(mod_name, cell["faction"]) })
 	return out
 
 
@@ -608,6 +648,15 @@ func _update_tip(game: CWGame) -> void:
 		hint.position = Vector2(12, y)
 		_tip.add_child(hint)
 	add_child(_tip)
+
+
+## 能量旁的「预计收入」小字：免疫 = 下一次 S 阶段的【有氧呼吸】（CWWorld.aerobic_income），
+## 癌症 = 回合末 / E 阶段的【无氧呼吸】份额（CWWorld.anaerobic_gain_for）。两个都是引擎的纯查询，
+## 界面不抄算式（约定 #11）。纯函数，测试直接核对文案。
+static func income_text(game: CWGame, cell: Dictionary) -> String:
+	var v: int = game.world.aerobic_income(cell) if cell["faction"] == CWData.Faction.IMMUNE \
+		else game.world.anaerobic_gain_for(cell)
+	return "+%s" % CWData.fmt(v)
 
 
 ## 摆一个 Label 到面板内的绝对位置。
