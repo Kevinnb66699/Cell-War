@@ -90,10 +90,19 @@ const CANCER_ART := {
 const BREATH_FPS := 6.0
 const BREATH_FRAMES := 6
 
-## 打出卡牌时在细胞头顶浮出的临时图标。用同一张像素 chip，和右侧历史保持一致。
+## 打出 / 抽到卡牌时在细胞头顶浮出的临时图标。用同一张像素 chip，和右侧的小卡保持一致。
+##
+## **三拍**（Kevin 2026-09-07：原来 0.42 秒一口气窜完，太快，看不清是什么）：
+##   ① 窜：快速上浮 12px（0.22s，缓出）
+##   ② 停：几乎不动，只飘 3px（0.45s）—— 这一拍是给人看清「是张卡」的
+##   ③ 收：再上浮 17px 并淡出（0.45s，缓入）
+## **抽到卡 = 把这三拍倒放**（卡从上方淡入、落到头顶；Kevin 问「能否倒放实现」——能，差的只有下面这一口）：
+## 纯倒放的终态是卡停在头上不动，所以末尾补一下缩小 + 淡出，读作「被细胞吸进去了」。
 const CARD_FX_TEXTURE := preload("res://assets/art/ui/card_chip.png")
-const CARD_FX_RISE := 28.0
-const CARD_FX_TIME := 0.42
+const CARD_FX_HEAD := 30.0                        ## 起点：细胞脚下往上这么多
+const CARD_FX_RISE: Array[float] = [12.0, 3.0, 17.0]
+const CARD_FX_TIME: Array[float] = [0.22, 0.45, 0.45]
+const CARD_FX_ABSORB := 0.14                      ## 倒放落到头顶后「被吸进去」的那一下
 const CARD_FX_SCALE := 1.1
 
 var game: CWGame
@@ -229,6 +238,8 @@ func start(snap: Dictionary = {}) -> void:
 		game.card_played.connect(_on_card_played)
 	if not game.event_drawn.is_connected(_on_event_drawn):
 		game.event_drawn.connect(_on_event_drawn)
+	if not game.card_drawn.is_connected(_on_card_drawn):
+		game.card_drawn.connect(_on_card_drawn)
 	_wire_bridge(ai_smart)
 	## 同一个桥对象注册给所有玩家：人类那几位走界面，其余走 AI，
 	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。
@@ -257,6 +268,8 @@ func start_online(p_client: CWNetClient) -> void:
 		game.card_played.connect(_on_card_played)
 	if not game.event_drawn.is_connected(_on_event_drawn):
 		game.event_drawn.connect(_on_event_drawn)
+	if not game.card_drawn.is_connected(_on_card_drawn):
+		game.card_drawn.connect(_on_card_drawn)
 	player_count = game.players.size()
 	var seats: Array[int] = []
 	if _client.my_seat >= 0:
@@ -471,6 +484,8 @@ func _net_loop(id: int) -> void:
 			"event_drawn":
 				## 同上：抽到即结算的事件卡，影子对局也发不出信号
 				_on_event_drawn(int(m["cell_id"]), int(m["pid"]), m["pos"], int(m["faction"]), m["card"])
+			"card_drawn":
+				_on_card_drawn(int(m["cell_id"]), int(m["pid"]), m["pos"], String(m.get("source", "")))
 			"erosion":
 				if bridge != null:
 					bridge.show_erosion(m["at"], int(m["dir"]))
@@ -566,6 +581,8 @@ func teardown() -> void:
 		active_game.card_played.disconnect(_on_card_played)
 	if active_game != null and active_game.event_drawn.is_connected(_on_event_drawn):
 		active_game.event_drawn.disconnect(_on_event_drawn)
+	if active_game != null and active_game.card_drawn.is_connected(_on_card_drawn):
+		active_game.card_drawn.disconnect(_on_card_drawn)
 	_clear_played_card_fx()
 	if game != null:
 		## 顺序要紧：先让引擎收摊、再唤醒卡住的询问（它会同步一路展开回来），
@@ -891,26 +908,55 @@ func _on_event_drawn(_cell_id: int, _pid: int, _pos: Vector2i, faction: int, car
 	panel.note_event_card(game, faction, card_name)
 
 
-func _play_card_fx(cell_id: int, pos: Vector2i) -> void:
+## 抽到一张卡：头顶演出（倒放）。**三种来源都演**（基因表达 / 骨髓 / 突变）——
+## 对玩家是同一件事「这个细胞抽到了一张」，来源在日志里分得清。要只演某一种就在这里按 source 过滤。
+func _on_card_drawn(cell_id: int, _pid: int, pos: Vector2i, _source: String) -> void:
+	_play_card_fx(cell_id, pos, true)
+
+
+## drawing = false：打出一张卡（三拍上浮）；true：抽到一张卡（三拍倒放，落进细胞）。见上面常量那段。
+func _play_card_fx(cell_id: int, pos: Vector2i, drawing := false) -> void:
 	if _cells_root == null or board == null:
 		return
-	var fx := Sprite2D.new()
-	fx.texture = CARD_FX_TEXTURE
-	fx.centered = true
-	fx.position = board.tile_center(pos) + Vector2(0, -30.0)
+	var base: Vector2 = board.tile_center(pos) + Vector2(0, -CARD_FX_HEAD)
 	if cell_id >= 0 and cell_id < _cell_nodes.size():
 		var node: Node2D = _cell_nodes[cell_id]
 		if node != null and is_instance_valid(node):
-			fx.position = node.position + Vector2(0, -30.0)
+			base = node.position + Vector2(0, -CARD_FX_HEAD)
+	var total: float = CARD_FX_RISE[0] + CARD_FX_RISE[1] + CARD_FX_RISE[2]
+	var fx := Sprite2D.new()
+	fx.texture = CARD_FX_TEXTURE
+	fx.centered = true
 	fx.scale = Vector2.ONE * CARD_FX_SCALE
-	fx.modulate = Color(1, 1, 1, 1)
 	fx.z_index = board.tile_z(pos, board.Z_DICE) + 1
+	## 打出：从头顶起、看得见；抽到：从三拍的终点（上方）起、全透明
+	fx.position = base - Vector2(0, total if drawing else 0.0)
+	fx.modulate = Color(1, 1, 1, 0.0 if drawing else 1.0)
 	_cells_root.add_child(fx)
 	_played_card_fx.append(fx)
-	var tw := fx.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tw.parallel().tween_property(fx, "position:y", fx.position.y - CARD_FX_RISE, CARD_FX_TIME)
-	tw.parallel().tween_property(fx, "modulate:a", 0.0, CARD_FX_TIME)
-	tw.parallel().tween_property(fx, "scale", Vector2.ONE * (CARD_FX_SCALE * 0.95), CARD_FX_TIME * 0.75)
+	## 默认线性（第②拍就该是匀速的慢），头尾两拍各自换成缓出 / 缓入
+	var tw := fx.create_tween().set_trans(Tween.TRANS_LINEAR)
+	var y: float = fx.position.y
+	if drawing:
+		y += CARD_FX_RISE[2]
+		tw.tween_property(fx, "position:y", y, CARD_FX_TIME[2]).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		tw.parallel().tween_property(fx, "modulate:a", 1.0, CARD_FX_TIME[2])
+		y += CARD_FX_RISE[1]
+		tw.tween_property(fx, "position:y", y, CARD_FX_TIME[1])
+		y += CARD_FX_RISE[0]
+		tw.tween_property(fx, "position:y", y, CARD_FX_TIME[0]).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		## 倒放差的那一口：落到头顶后被吸进去
+		tw.tween_property(fx, "scale", Vector2.ONE * (CARD_FX_SCALE * 0.5), CARD_FX_ABSORB)
+		tw.parallel().tween_property(fx, "modulate:a", 0.0, CARD_FX_ABSORB)
+	else:
+		y -= CARD_FX_RISE[0]
+		tw.tween_property(fx, "position:y", y, CARD_FX_TIME[0]).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		y -= CARD_FX_RISE[1]
+		tw.tween_property(fx, "position:y", y, CARD_FX_TIME[1])
+		y -= CARD_FX_RISE[2]
+		tw.tween_property(fx, "position:y", y, CARD_FX_TIME[2]).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		tw.parallel().tween_property(fx, "modulate:a", 0.0, CARD_FX_TIME[2])
+		tw.parallel().tween_property(fx, "scale", Vector2.ONE * (CARD_FX_SCALE * 0.95), CARD_FX_TIME[2])
 	tw.tween_callback(func() -> void:
 		_played_card_fx.erase(fx)
 		if is_instance_valid(fx):

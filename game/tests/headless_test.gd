@@ -109,7 +109,7 @@ func _run_all() -> void:
 		t_log_panel, t_rules_page, t_production_row, t_skill_info,
 		t_save_load, t_settings, t_board_view, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
-		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
+		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
 		t_card_name_fit, t_view_blend, t_announce, t_action_bar_width,
@@ -2051,7 +2051,7 @@ func t_erosion_fx() -> void:
 	## 不在白名单里的报文会被 CWNetClient 当场 _apply 掉，而 _apply 的 match 没有兜底分支，
 	## 于是**静默丢弃**：CWMatch._net_loop 里那个分支永远收不到，联机模式下动画就是不播，
 	## 还不报任何错。2026-09-05 接侵蚀过场时就漏了这一条，靠读代码才发现。
-	for kind in ["roll", "result", "notice", "erosion", "card_played", "event_drawn"]:
+	for kind in ["roll", "result", "notice", "erosion", "card_played", "event_drawn", "card_drawn"]:
 		check(kind in CWNetClient.STREAM_KINDS, "演出报文「%s」在 STREAM_KINDS 里" % kind)
 
 
@@ -8689,6 +8689,80 @@ func t_event_strip() -> void:
 	g.dispose()
 
 
+## 抽卡的头顶演出（Kevin 2026-09-07：「把出牌那段倒放」）+ 三拍节奏（「上浮 - 停顿 - 继续上浮消失」）。
+func t_card_draw_fx() -> void:
+	print("[抽卡演出与三拍]")
+	## ① 三拍：中间那拍位移最小（那是「停顿」），总时长比原来的 0.42 秒长得多
+	check(CWMatch.CARD_FX_RISE.size() == 3 and CWMatch.CARD_FX_TIME.size() == 3, "三拍")
+	check(CWMatch.CARD_FX_RISE[1] < CWMatch.CARD_FX_RISE[0] and CWMatch.CARD_FX_RISE[1] < CWMatch.CARD_FX_RISE[2],
+		"第②拍位移最小 = 停顿那一下（%s）" % str(CWMatch.CARD_FX_RISE))
+	var total_t: float = CWMatch.CARD_FX_TIME[0] + CWMatch.CARD_FX_TIME[1] + CWMatch.CARD_FX_TIME[2]
+	check(total_t > 1.0 and CWMatch.CARD_FX_TIME[1] >= CWMatch.CARD_FX_TIME[0] * 1.5,
+		"总时长 %.2f 秒（原来 0.42），停顿那拍不比第一拍短" % total_t)
+
+	## ② 引擎：每次抽到卡都发 card_drawn（带来源），抽空不发；同时广播给桥
+	var g := _fx_game(4)
+	var rec := CardPlayRecorder.new()
+	rec.game = g
+	for pid in g.order:
+		g.bridges[pid] = rec
+	var heard: Array = []
+	g.card_drawn.connect(func(cell_id: int, pid: int, pos: Vector2i, source: String) -> void:
+		heard.append([cell_id, pid, pos, source]))
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(2, 0), CWData.ImmuneType.BASIC, -1)
+	imm["energy"] = 500
+	g.cells.append(imm)
+	await g.cards.draw(imm, "基因表达")
+	check(heard.size() == 1 and heard[0][0] == 0 and heard[0][2] == Vector2i(2, 0) and heard[0][3] == "基因表达",
+		"抽到卡：发 card_drawn（细胞 / 席位 / 位置 / 来源）：%s" % str(heard))
+	check(rec.draws == [[0, "基因表达"]], "同时广播给桥（联机据此发报文）：%s" % str(rec.draws))
+	await g.cards.draw(imm, "骨髓")
+	check(heard.size() == 2 and heard[1][3] == "骨髓", "骨髓那条路也演（来源随信号带走）")
+	## 抽空（把这一档的技能全塞手上、事件卡又都抽不到时）不发：直接钉 pick 返回空的那条路
+	var lonely := _fx_game(2)
+	var l2 := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO, CWData.ImmuneType.BASIC, -1)
+	lonely.cells.append(l2)
+	var heard2: Array = []
+	lonely.card_drawn.connect(func(_a: int, _b: int, _c: Vector2i, _d: String) -> void: heard2.append(1))
+	for c in CWCardData.pool_of(CWData.Faction.IMMUNE, lonely.immune_level, lonely.round_no):
+		l2["hand"].append(c["name"])   ## 事件卡也塞进去，pick 的候选就真空了（事件卡不受同名限制，但它只看 hand/equipped）
+	var picked: String = lonely.cards.pick(l2)
+	if picked == "":
+		await lonely.cards.draw(l2, "基因表达")
+		check(heard2.is_empty(), "抽卡落空 → 不演")
+	else:
+		check(true, "这一档抽得出卡，落空那条路由 t_card_pool 盯着")
+	lonely.dispose()
+
+	## ③ 界面：打出 = 从头顶起、看得见；抽到 = 从三拍终点（上方）起、全透明（就是倒放）
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	## **不碰 CWSettings.ai_delay_ms**：那是全局的，改了不还原会把后面「设置页拨值」那条带偏（本次踩到）。
+	## 这里只走一帧就拆局，AI 节奏是多少都无所谓
+	m.start()
+	await process_frame
+	var at := Vector2i.ZERO
+	var head: float = m.board.tile_center(at).y - CWMatch.CARD_FX_HEAD
+	var rise: float = CWMatch.CARD_FX_RISE[0] + CWMatch.CARD_FX_RISE[1] + CWMatch.CARD_FX_RISE[2]
+	m._play_card_fx(-1, at, false)
+	var played: Sprite2D = m._played_card_fx[m._played_card_fx.size() - 1]
+	check(is_equal_approx(played.position.y, head) and is_equal_approx(played.modulate.a, 1.0),
+		"打出：从头顶起、满不透明（y=%.0f）" % played.position.y)
+	m._play_card_fx(-1, at, true)
+	var drawn: Sprite2D = m._played_card_fx[m._played_card_fx.size() - 1]
+	check(is_equal_approx(drawn.position.y, head - rise) and is_equal_approx(drawn.modulate.a, 0.0),
+		"抽到：从三拍终点（上方 %.0fpx）起、全透明，正是倒放（y=%.0f）" % [rise, drawn.position.y])
+	check(m._played_card_fx.size() == 2, "两只都记在案，拆局时一并清掉")
+	m.teardown()
+	await process_frame
+	check(m._played_card_fx.is_empty(), "拆局清空")
+	root.remove_child(main_scene)
+	main_scene.free()
+	g.dispose()
+
+
 ## describe() 结果里被高亮的那几段文字，按行序排
 static func _marked(d: Dictionary) -> Array:
 	var out: Array = []
@@ -8709,6 +8783,9 @@ class CardPlayRecorder extends CWHeuristicBridge:
 	var events: Array = []
 	func show_event_drawn(pid: int, info := {}) -> void:
 		events.append([pid, info.get("card", ""), info.get("faction", -1)])
+	var draws: Array = []
+	func show_card_drawn(pid: int, info := {}) -> void:
+		draws.append([pid, info.get("source", "")])
 	func show_result(text: String, _at: Vector2i, linger := false) -> void:
 		results.append([text, linger])
 

@@ -55,6 +55,12 @@ func show_event_drawn(_pid: int, _info := {}) -> void:
 	pass
 
 
+## 某位玩家抽到了一张卡（不说是哪张）。info = { cell_id, pos, source }。
+## 给头顶的抽卡演出用；联机桥原样转发。
+func show_card_drawn(_pid: int, _info := {}) -> void:
+	pass
+
+
 ## 癌吞掉一格健康组织的过场（【侵蚀】【增生】【定殖】共用，名字沿用最早接上的侵蚀）：
 ## `_at` 变癌了，癌是从 `_dir`（CWData.DIRS 的下标）那一侧来的。纯演出，不 await —— 不该为了演出卡住结算。
 func show_erosion(_at: Vector2i, _dir: int) -> void:

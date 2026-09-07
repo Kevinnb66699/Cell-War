@@ -11,6 +11,9 @@ signal card_played(cell_id: int, pid: int, pos: Vector2i, faction: int, card_nam
 ## 抽到即结算的事件卡（不进手牌、不算「谁打出的」）。与 card_played 分开：
 ## Kevin 2026-09-07「事件卡放在回合数那一栏结算，不要和细胞主动打出的卡放在一起」
 signal event_drawn(cell_id: int, pid: int, pos: Vector2i, faction: int, card_name: String)
+## 这个细胞**抽到了一张卡**（不说是哪张 —— 牌名只有本人能看）。给头顶的抽卡演出用（Kevin 2026-09-07）。
+## source = 「基因表达」/「骨髓」/「突变」，表现层要只演某一种时在那边过滤。
+signal card_drawn(cell_id: int, pid: int, pos: Vector2i, source: String)
 
 # ---- 状态 ----
 var tiles := {}            # Vector2i -> 组织格字典（见 cw_setup._make_tile）
@@ -627,12 +630,18 @@ func roll_shown(sides: int, reason: String, pid: int, at: Vector2i) -> int:
 ## linger = 不是紧跟骰子的说明（事件卡效果、复活失败、次数用尽……），界面停得久些、不被顶掉（Kevin 2026-09-06）；
 ## 攻击 / 突变 / 抗体那几条紧跟骰子的照旧 false —— 骰子那档时长不动。
 func announce(text: String, at: Vector2i, linger := false) -> void:
-	var shown: Array = []
-	for b in bridges.values():
-		if b == null or shown.has(b):
-			continue
-		shown.append(b)
+	for b in _unique_bridges():
 		b.show_result(text, at, linger)
+
+
+## 每个桥只发一次。**热座下所有席位共用同一个 UI 桥**，不去重就会弹好几遍同一句
+## （roll_shown 那条老规矩，2026-09-07 抽成一处：announce 与三条 broadcast_* 都用它）。
+func _unique_bridges() -> Array:
+	var out: Array = []
+	for b in bridges.values():
+		if b != null and not out.has(b):
+			out.append(b)
+	return out
 
 
 ## 某位玩家打出了一张卡：广播给所有桥，界面桥再决定给谁弹（Kevin 2026-09-06「别人用了卡牌也要弹窗提示」）。
@@ -642,11 +651,7 @@ func announce(text: String, at: Vector2i, linger := false) -> void:
 func broadcast_card_played(cell: Dictionary, card: String) -> void:
 	var text := "%s 打出【%s】" % [player(cell["pid"])["name"], card]
 	var info := { "cell_id": int(cell["id"]), "pos": cell["pos"], "faction": int(cell["faction"]), "card": card }
-	var shown: Array = []
-	for b in bridges.values():
-		if b == null or shown.has(b):
-			continue
-		shown.append(b)
+	for b in _unique_bridges():
 		b.show_card_played(cell["pid"], text, info)
 
 
@@ -654,12 +659,16 @@ func broadcast_card_played(cell: Dictionary, card: String) -> void:
 ## **不发「谁打出了卡」那种弹窗** —— 事件的效果自己会在格子上喊一句（CWCardFx._evt），再弹一次就是重复。
 func broadcast_event_drawn(cell: Dictionary, card: String) -> void:
 	var info := { "cell_id": int(cell["id"]), "pos": cell["pos"], "faction": int(cell["faction"]), "card": card }
-	var shown: Array = []
-	for b in bridges.values():
-		if b == null or shown.has(b):
-			continue
-		shown.append(b)
+	for b in _unique_bridges():
 		b.show_event_drawn(cell["pid"], info)
+
+
+## 抽到一张卡：广播给各桥（联机报文 card_drawn），本地表现层走 `card_drawn` 信号。
+## **不带牌名** —— 别人抽到什么只有本人能看（同 log_msg 的公开替身），演出只说「抽到了一张」。
+func broadcast_card_drawn(cell: Dictionary, source: String) -> void:
+	var info := { "cell_id": int(cell["id"]), "pos": cell["pos"], "source": source }
+	for b in _unique_bridges():
+		b.show_card_drawn(cell["pid"], info)
 
 
 ## 「癌吞掉一格健康组织」的过场广播：【E-侵蚀】【E-增生】【定殖】三处共用——名字沿用最早接上的侵蚀，

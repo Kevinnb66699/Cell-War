@@ -24,6 +24,10 @@ func draw(cell: Dictionary, source: String) -> void:
 		game.log_msg("　%s 的卡池已无合法卡牌，抽卡落空" % game.cell_name(cell))
 		game.announce("抽卡落空", cell["pos"], true)
 		return
+	## 头顶的抽卡演出（Kevin 2026-09-07）：**每一次抽到都发**，来源随信号带走，表现层要只演某一种时在那边过滤。
+	## 事件卡也算 —— 对玩家同样是「这个细胞抽到了一张」，只是它接着就当场结算掉了。
+	game.card_drawn.emit(int(cell["id"]), int(cell["pid"]), cell["pos"], source)
+	game.broadcast_card_drawn(cell, source)
 	var kind: int = CWCardData.CARDS[card]["kind"]
 	if kind == CWCardData.Kind.EVENT:
 		## 事件卡不进手牌：立即结算并弃置（CWCardFx）。**别偷偷把它塞进手牌**，
