@@ -310,6 +310,7 @@ func snapshot() -> Dictionary:
 
 
 func restore(snap: Dictionary) -> void:
+	_run_key = ""   ## 读档/联机快照换掉了整卷日志，上一条「连续行」的游标作废（2026-09-07）
 	CWStateCodec.restore(self, snap)
 
 
@@ -936,13 +937,45 @@ func check_cancer_win() -> void:
 
 # ---- 日志 / 调试 ----
 ## secret_pid >= 0 表示这行只有该席位能看原文，其他席位看 public_msg（联机视角；本地对局照常全显）。
+## 「连续同类行」的游标：一步一步走出来的【定殖】/【净化】会刷一屏，合并成一条读着才顺
+## （Kevin 2026-09-07）。合并**只改最后一条**，所以渲染那边不能再假设「日志只增不改」
+## （CWLogPanel / CWLogHint 的折行缓存已改成「末条每帧重折」）。
+var _run_key := ""
+var _run_items: PackedStringArray = PackedStringArray()
+var _run_at := -1
+
+
 func log_msg(msg: String, secret_pid: int = -1, public_msg: String = "") -> void:
 	if sim_quiet:
 		return
+	_run_key = ""   ## 中间插进任何别的行，连续就断了
 	logs.append(msg)
 	log_secret.append(secret_pid)
 	log_public.append(msg if secret_pid < 0 else public_msg)
 	log_line.emit(msg)
+
+
+## 连续同类的一串事情写成一条（Kevin 2026-09-07）：
+##   key   同一类且同一主体才合并（如「定殖:1」）；**还必须紧挨着上一条**，中间插了别的就另起一条
+##   item  这一次新增的那一小段（通常是坐标）
+##   prefix/suffix  合并后的头尾；suffix 每次都用最新的一份 —— 【净化】那句尾巴带累计抗原记忆，
+##                  要的正是最后那个数
+## 这几行本来就是公开信息（谁在哪儿铺了地、净化了哪几格，对手都看得见），所以不走秘密行那套。
+func log_run(key: String, item: String, prefix: String, suffix: String) -> void:
+	if sim_quiet:
+		return
+	if key != "" and key == _run_key and _run_at == logs.size() - 1 and _run_at >= 0:
+		_run_items.append(item)
+		var merged := prefix + "、".join(_run_items) + suffix
+		logs[_run_at] = merged
+		log_public[_run_at] = merged
+		log_line.emit(merged)
+		return
+	var at := logs.size()
+	log_msg(prefix + item + suffix)   ## 它会把 _run_key 清掉，所以下面三行必须在它之后
+	_run_key = key
+	_run_items = PackedStringArray([item])
+	_run_at = at
 
 
 func cell_name(c: Dictionary) -> String:

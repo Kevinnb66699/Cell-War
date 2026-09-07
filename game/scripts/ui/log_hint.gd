@@ -70,7 +70,7 @@ func _ready() -> void:
 	_paint(false)
 
 
-## 条的右缘（通报锚点从这儿往右算，CWUIBridge.notice_anchor）
+## 条的右缘（左侧那一列都按它对齐：事件列表 CWFeed 同 x 同宽）
 static func right_edge() -> float:
 	return CWLogPanel.RECT.position.x + SIZE.x
 
@@ -90,11 +90,20 @@ func refresh(game: CWGame, panel: CWLogPanel) -> void:
 		_cache_src.clear()
 		_built = 0
 		_built_key = key
-	while _built < game.logs.size():
+	## 末条可能被就地改写（连续的【定殖】/【净化】合并，Kevin 2026-09-07），每帧重折它
+	var stable: int = maxi(game.logs.size() - 1, 0)
+	while _built < stable:
 		for seg in CWLogPanel.wrap_line(panel.line_text(game, _built), row_width()):
 			_cache.append(seg)
 			_cache_src.append(_built)
 		_built += 1
+	while _cache_src.size() > 0 and _cache_src[_cache_src.size() - 1] >= stable:
+		_cache.remove_at(_cache.size() - 1)
+		_cache_src.remove_at(_cache_src.size() - 1)
+	if game.logs.size() > stable:
+		for seg in CWLogPanel.wrap_line(panel.line_text(game, stable), row_width()):
+			_cache.append(seg)
+			_cache_src.append(stable)
 	var total := _cache.size()
 	var first := maxi(total - ROWS, 0)
 	for i in ROWS:

@@ -823,7 +823,8 @@ func enter_tile(cell: Dictionary, dest: Vector2i, paid: int = -1) -> void:
 		cell["camp_round"] = -1
 	if cell["faction"] == CWData.Faction.CANCER and t["tissue"] == CWData.Tissue.HEALTHY:
 		CWTissue.to_cancer(t, true)
-		game.log_msg("　【定殖】%s 转为癌组织" % str(dest))
+		## 一步一步铺过去会刷一屏，连续的合并成一条（Kevin 2026-09-07）
+		game.log_run("定殖:%d" % cell["pid"], str(dest), "　【定殖】", " 转为癌组织")
 		## 过场与【侵蚀】【增生】同一套（癌吞掉一格健康组织、从哪一侧来）。方向 = **这一步的前进方向**（Kevin 2026-09-06）：
 		## 癌从来路那一侧漫入、朝细胞前进的方向推进——相邻移动就是来路那一侧，跃进 / 传送落地取最接近来路的一侧；
 		## 原地不动（复活、紊乱返回）没有前进方向，不演（-1）
@@ -851,15 +852,17 @@ func enter_tile(cell: Dictionary, dest: Vector2i, paid: int = -1) -> void:
 func purify_here(cell: Dictionary, dest: Vector2i, paid: int) -> void:
 	var t: Dictionary = game.tile(dest)
 	CWTissue.to_healthy(t)
+	## 连续净化合并成一条（Kevin 2026-09-07）。三种情形各自成一串：尾巴不一样，混在一起会看不懂；
+	## 正常那串的尾巴每次用最新的累计记忆数，正是想看的那个
+	var run := "净化:%d" % cell["pid"]
 	if game.event_stacks("免疫抑制因子") > 0:
-		game.log_msg("　【净化】%s 转为健康组织（免疫抑制因子：不获得抗原记忆）" % str(dest))
+		game.log_run(run + ":抑制", str(dest), "　【净化】", " 转为健康组织（免疫抑制因子：不获得抗原记忆）")
 	elif not game.purify_gives_memory():
-		## 抽到的卡连锁出来的净化（【效应细胞浸润】的免费移动、【全身免疫动员】的那一次迁移……）
-		## 不积累抗原记忆（Kevin 2026-09-07）
-		game.log_msg("　【净化】%s 转为健康组织（抽卡造成：不获得抗原记忆）" % str(dest))
+		## 卡牌连锁出来的净化（抽到的卡、打出的即时卡）不积累抗原记忆（Kevin 2026-09-07）
+		game.log_run(run + ":卡牌", str(dest), "　【净化】", " 转为健康组织（卡牌造成：不获得抗原记忆）")
 	else:
 		game.gain_memory(1)
-		game.log_msg("　【净化】%s 转为健康组织（抗原记忆 %d）" % [str(dest), game.memory])
+		game.log_run(run, str(dest), "　【净化】", " 转为健康组织（抗原记忆 %d）" % game.memory)
 	if cell["itype"] == CWData.ImmuneType.MACRO:
 		## 【I-吞噬】每次净化回 0.3 —— **但回的不能比这一步付的多**。
 		## 迁移减免的共同地板是 0.2（各卡面都写「最低 0.2」），等级 X 走癌性组织

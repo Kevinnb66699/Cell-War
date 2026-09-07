@@ -23,7 +23,7 @@ var bar: CWActionBar
 var info: CWCardInfo   ## 悬停详情框：分化提问里停在种类按钮上时浮细胞种类详情；纯 AI 桥 / 测试里可为 null
 var panel: CWMatchPanel
 var toast: CWToast     ## 骰子旁边那行字
-var notice_toast: CWToast   ## 全局通报专用的那行字（2026-09-06 与骰子旁那行分开：互不顶掉，且排队显示）
+var feed: CWFeed            ## 棋盘左侧的事件列表（2026-09-07 顶替了顶带那条通报气泡）
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
 var erosion: CWErosionFx   ## 癌蔓延两帧过场（侵蚀 / 增生 / 定殖共用）；纯 AI 桥 / 测试里可为 null
 var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这里来（无界面时为 null）
@@ -55,10 +55,6 @@ var marks := {}
 const RESULT_HOLD := 2.4
 ## 不是紧跟骰子的说明（事件卡效果、复活失败、次数用尽……）停多久：各自一只气泡（CWToast.bubble_at），互不顶掉
 const TEXT_HOLD := 4.0
-## 全局通报（抽到世界事件）停多久：一句「世界事件【基质阻隔】：癌细胞移动能量花费翻倍（持续 2 回合）」要读完，
-## 而且 S 阶段没人盯着棋盘中央 —— 1.1 秒的骰子档等于没显示（2026-09-02 Kevin 问「触发时会自动弹出提示吗」）。
-## 3.0 → 6.0（Kevin 2026-09-06 拉长）；通报走 notice_toast 排队，扎堆时一条条来、不再互相顶掉
-const NOTICE_HOLD := 6.0
 
 ## 行动栏按钮上的技能名。**费用一律现从 CWData 读，这里不写第二份数字**。
 ## 表本体 2026-09-04 挪进 `CWData.ACT_NAMES`（右栏固定详情也要用同一份），这里只留别名。
@@ -772,29 +768,43 @@ func show_erosion(at: Vector2i, dir: int) -> void:
 	erosion.play(at, dir)
 
 
-## 全局通报：浮在棋盘区**顶部居中**（不贴任何格子，不挡棋子），停 NOTICE_HOLD 秒。
-## 走专用的 notice_toast 并排队 —— 和骰子结果分开，两边谁也顶不掉谁；没装专用那只（旧测试 / 极简装配）退回共用那只
+## 全局通报（不挂在某一格上的大事）：**记进棋盘左侧的事件列表**（Kevin 2026-09-07：
+## 原来在顶带弹气泡，扎堆时挤成一团、走了还找不回来）。列表是留得住的，点一条看全文。
 func show_notice(text: String) -> void:
-	if notice_toast != null:
-		notice_toast.queue_at(text, notice_anchor(), NOTICE_HOLD, notice_max_w())
-	elif toast != null:
-		toast.show_at(text, notice_anchor(), NOTICE_HOLD, notice_max_w())
+	if feed != null and is_instance_valid(feed):
+		feed.add_entry("世界事件", text, CWStyle.CANCER)
 
 
-## 别人打出了卡（Kevin 2026-09-06）：屏幕前这位真人自己打的不弹（自己知道）；其余按阵营标「对手 / 队友」，
-## 走通报那条排队专线。观战（没有真人）或换手期间（current_human = -1）全弹、不标关系。
+## 别人打出了卡（Kevin 2026-09-06 要的提示，2026-09-07 从顶带气泡改进左侧列表）：
+## 屏幕前这位真人自己打的不记（自己知道）；其余按阵营标「对手 / 队友」。
+## 观战（没有真人）或换手期间（current_human = -1）全记、不标关系。
 func show_card_played(pid: int, text: String, _info := {}) -> void:
+	if feed == null or not is_instance_valid(feed):
+		return
 	var viewer := viewing_pid()
 	if viewer == pid:
 		return
-	var shown := text
+	var kind := "打出"
 	if viewer >= 0 and game != null:
-		var same: bool = game.player(viewer)["faction"] == game.player(pid)["faction"]
-		shown = ("队友 " if same else "对手 ") + text
-	if notice_toast != null:
-		notice_toast.queue_at(shown, notice_anchor(), NOTICE_HOLD, notice_max_w())
-	elif toast != null:
-		toast.show_at(shown, notice_anchor(), NOTICE_HOLD, notice_max_w())
+		kind = "队友" if game.player(viewer)["faction"] == game.player(pid)["faction"] else "对手"
+	feed.add_entry(kind, text, _side_color(pid))
+
+
+## 别人抽了一张卡（2026-09-07）：**不写是哪张**（牌名只有本人能看），只记「谁、经由什么」。
+## 自己抽的不记 —— 卡都飞进自己手牌了，再记一条是废话。
+func show_card_drawn(pid: int, info := {}) -> void:
+	if feed == null or not is_instance_valid(feed) or game == null:
+		return
+	if viewing_pid() == pid:
+		return
+	var src := String(info.get("source", ""))
+	feed.add_entry("抽卡", "%s 经由「%s」抽了 1 张" % [game.player(pid)["name"], src], _side_color(pid))
+
+
+func _side_color(pid: int) -> Color:
+	if game == null:
+		return CWStyle.TEXT_DIM
+	return CWStyle.IMMUNE if game.player(pid)["faction"] == CWData.Faction.IMMUNE else CWStyle.CANCER
 
 
 ## 屏幕前这位真人是哪一席：热座 = 当前露牌的那位（换手期间 -1），单人局 = 那一席，观战 = -1
@@ -804,18 +814,6 @@ func viewing_pid() -> int:
 	return human_pids[0] if not human_pids.is_empty() else -1
 
 
-## 通报的锚点：顶带**右半**（迷你日志占了左半，方案 A，2026-09-06）—— 左界 = 迷你日志右缘 + 8，右界 = 右侧竖条左缘 − 8，
-## 取中点、零尺寸：CWToast.place 上面塞不下就翻到锚点下方，正好落在顶部 MARGIN + GAP 处。抽成 static 是为了能直接测和做预览。
-static func notice_anchor() -> Rect2:
-	var screen := CWView.screen_size()
-	var left := CWLogHint.right_edge() + 8.0
-	var right := screen.x - CWView.PANEL_WIDTH - 8.0
-	return Rect2(Vector2((left + right) * 0.5, CWToast.MARGIN), Vector2.ZERO)
-
-
-## 通报最宽多少：顶带右半的宽度，超了 CWToast 按字折行（世界事件那句三十来个字会超）
-static func notice_max_w() -> float:
-	return CWView.screen_size().x - CWView.PANEL_WIDTH - 8.0 - (CWLogHint.right_edge() + 8.0)
 
 
 ## 骰子落在某格时，它在**屏幕**上占的那块矩形。提示靠它避让。

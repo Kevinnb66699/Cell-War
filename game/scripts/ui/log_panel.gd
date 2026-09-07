@@ -182,8 +182,8 @@ func refresh(game: CWGame) -> void:
 	_thumb.size = Vector2(4, h)
 
 
-## 把新增的日志折成显示行。日志只增不改，所以只折没折过的那几条；
-## 万一变短了（重开一局、快照回滚）就整卷重折。
+## 把新增的日志折成显示行。**最后一条可能被就地改写**（连续的【定殖】/【净化】合并成一条，
+## Kevin 2026-09-07），所以它每帧重折；它前面的照旧只折一次。变短了（重开一局、快照回滚）整卷重折。
 func _rebuild_rows(game: CWGame) -> void:
 	var key := viewer if filter else -2
 	if game.logs.size() < _built or key != _built_key:
@@ -191,15 +191,22 @@ func _rebuild_rows(game: CWGame) -> void:
 		_row_src.clear()
 		_built = 0
 		_built_key = key
-	if game.logs.size() == _built:
-		return
 	var w: float = _lines[0].size.x if not _lines.is_empty() \
 		else RECT.size.x - PAD * 2 - 10
-	while _built < game.logs.size():
+	var stable: int = maxi(game.logs.size() - 1, 0)
+	while _built < stable:
 		for seg in wrap_line(line_text(game, _built), w):
 			_rows.append(seg)
 			_row_src.append(_built)
 		_built += 1
+	## 末条：把上一帧折进去的那几行摘掉，按现在的文字重折
+	while not _row_src.is_empty() and _row_src[_row_src.size() - 1] >= stable:
+		_rows.remove_at(_rows.size() - 1)
+		_row_src.remove_at(_row_src.size() - 1)
+	if game.logs.size() > stable:
+		for seg in wrap_line(line_text(game, stable), w):
+			_rows.append(seg)
+			_row_src.append(stable)
 
 
 ## 第 i 条日志在当前视角下显示成什么。**纯函数**（只读 game 与本节点两个开关），测试直接核对。

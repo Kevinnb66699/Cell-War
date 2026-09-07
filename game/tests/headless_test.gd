@@ -4363,72 +4363,91 @@ func t_match_panel() -> void:
 	await g.world_fx.trigger()
 	check(rec.got == ["世界事件【基质阻隔】：癌细胞移动能量花费翻倍（持续 2 回合）"],
 		"trigger → notice 文本含效果与持续期、只通报一次：%s" % str(rec.got))
-	## 界面桥把通报放在棋盘区顶部居中：CWToast.place 对零尺寸锚点「上面塞不下」→ 翻到锚点下方
-	var anchor := CWUIBridge.notice_anchor()
-	var box := Vector2(300, 40)
-	var pos := CWToast.place(box, anchor, CWView.screen_size())
-	## 2026-09-06 方案 A 之后通报挪到顶带**右半**：左界 = 迷你日志右缘 + 8，右界 = 右栏左缘 − 8，居中；超宽按字折行
-	var band_l: float = CWLogHint.right_edge() + 8.0
-	var band_r: float = CWView.screen_size().x - CWView.PANEL_WIDTH - 8.0
-	check(is_equal_approx(pos.y, CWToast.MARGIN + CWToast.GAP)
-		and is_equal_approx(pos.x + box.x * 0.5, (band_l + band_r) * 0.5),
-		"通报浮在顶带右半居中（y=%d，中线 x=%d）" % [int(pos.y), int(pos.x + box.x * 0.5)])
-	check(is_equal_approx(CWUIBridge.notice_max_w(), band_r - band_l), "通报最宽 = 顶带右半的宽度（%.0f）" % CWUIBridge.notice_max_w())
-	var long_notice := "世界事件【基质阻隔】：癌细胞移动能量花费翻倍（持续 2 回合）"
-	var wrapped := CWToast.wrap_body(long_notice, CWUIBridge.notice_max_w())
-	check(wrapped.contains("\n") and wrapped.replace("\n", "") == long_notice, "世界事件那句超宽 → 折成两行、一字不丢")
-	check(CWToast.wrap_body("短句", CWUIBridge.notice_max_w()) == "短句", "放得下的不折")
-	## 三档时长（Kevin 2026-09-06）：骰子**结果文字** ≥2 s（骰子本身的演出在 CWDice，这里碰不到）；非骰子说明更长；通报最长
-	check(CWUIBridge.RESULT_HOLD >= 2.0 and CWUIBridge.TEXT_HOLD >= 3.0 and CWUIBridge.NOTICE_HOLD >= 6.0,
-		"骰子结果 %.1f s、非骰子说明 %.1f s、通报 %.1f s" % [CWUIBridge.RESULT_HOLD, CWUIBridge.TEXT_HOLD, CWUIBridge.NOTICE_HOLD])
+	## 2026-09-07 起通报不再在顶带弹气泡，改记进棋盘左侧的事件列表（Kevin：「右上角的提示太过拥挤」）——
+	## 那两条摆位断言随之作废；列表的摆位与行为在下面单独钉
+	check(CWFeed.RECT.position.x == CWLogPanel.RECT.position.x
+		and CWFeed.RECT.position.y >= CWLogHint.SIZE.y + CWLogPanel.RECT.position.y,
+		"事件列表贴在迷你日志正下方、同 x（%s）" % str(CWFeed.RECT.position))
+	check(CWFeed.RECT.end.x <= CWView.screen_size().x - CWView.PANEL_WIDTH
+		and CWFeed.RECT.end.y <= CWView.screen_size().y,
+		"整列在棋盘区内，不压右栏、不出屏")
+	## 两档时长（Kevin 2026-09-06）：骰子**结果文字** ≥2 s（骰子本身的演出在 CWDice，这里碰不到）；非骰子说明更长
+	check(CWUIBridge.RESULT_HOLD >= 2.0 and CWUIBridge.TEXT_HOLD >= 3.0,
+		"骰子结果 %.1f s、非骰子说明 %.1f s" % [CWUIBridge.RESULT_HOLD, CWUIBridge.TEXT_HOLD])
 	## 通报排队（Kevin 2026-09-06「都显示得太快」的另一半）：忙着时后来的排着，走完一条才上下一条；收起清队
 	var tq := CWToast.new()
 	root.add_child(tq)
 	await process_frame
-	tq.queue_at("一", anchor, 1.0)
-	tq.queue_at("二", anchor, 1.0)
+	## 锚点随便给一个（这里验的是排队本身，不是摆位）
+	var q_at := Rect2(Vector2(400, 300), Vector2.ZERO)
+	tq.queue_at("一", q_at, 1.0)
+	tq.queue_at("二", q_at, 1.0)
 	check(tq._label.text == "一" and tq._queue.size() == 1 and tq._busy, "第二条排队，不顶掉第一条")
 	tq._on_done()
 	check(tq._label.text == "二" and tq._queue.is_empty() and tq._busy, "第一条走完 → 第二条上")
 	tq.hide_now()
 	check(tq._queue.is_empty() and not tq._busy, "收起清队")
-	## 界面桥：通报走专用那只 toast，不碰骰子旁那只（两边互不顶掉）
+	## 界面桥：不挂在某一格上的大事**记进棋盘左侧的事件列表**（Kevin 2026-09-07 删掉了顶带那条通报气泡）
 	var ub := CWUIBridge.new()
 	var t_res := CWToast.new()
-	var t_not := CWToast.new()
+	var fd := CWFeed.new()
 	root.add_child(t_res)
-	root.add_child(t_not)
+	root.add_child(fd)
 	await process_frame
 	ub.toast = t_res
-	ub.notice_toast = t_not
+	ub.feed = fd
 	ub.show_notice("世界事件【X】")
-	check(t_not._label.text == "世界事件【X】" and t_res._label.text == "", "通报走专用那行字，不碰骰子旁那行")
-	ub.notice_toast = null
-	ub.show_notice("退回")
-	check(t_res._label.text == "退回", "没装专用那只时退回共用那只")
-	## 别人打牌弹窗（Kevin 2026-09-06）：自己打的不弹；别人的按阵营标「对手 / 队友」；观战全弹不标
-	ub.notice_toast = t_not
-	t_not.hide_now()
+	check(fd._rows.size() == 1 and String(fd._rows[0]["text"]) == "世界事件【X】" and t_res._label.text == "",
+		"通报进列表，不碰骰子旁那行字")
+	check(String(fd._rows[0]["kind"]) == "世界事件", "行首标出是哪一类")
+	## 别人打牌（Kevin 2026-09-06 要的提示）：自己打的不记；别人的按阵营标「对手 / 队友」；观战全记不标
 	ub.game = g
 	ub.human_pids = [0]
 	ub.hotseat = false
 	ub.show_card_played(0, "免疫A 打出【CXCR3趋化】")
-	check(t_not._label.text == "" or t_not._label.text == "世界事件【X】", "自己打的卡不弹（%s）" % t_not._label.text)
-	t_not.hide_now()
+	check(fd._rows.size() == 1, "自己打的卡不记")
 	ub.show_card_played(1, "癌症A 打出【糖酵解爆发】")
-	check(t_not._label.text == "对手 癌症A 打出【糖酵解爆发】", "对手打的卡：标「对手」（%s）" % t_not._label.text)
-	t_not.hide_now()
+	check(fd._rows.size() == 2 and String(fd._rows[1]["kind"]) == "对手", "对手打的卡：标「对手」")
 	ub.show_card_played(2, "免疫B 打出【炎症趋化】")
-	check(t_not._label.text == "队友 免疫B 打出【炎症趋化】", "队友打的卡：标「队友」（%s）" % t_not._label.text)
-	t_not.hide_now()
+	check(String(fd._rows[2]["kind"]) == "队友", "队友打的卡：标「队友」")
 	ub.human_pids = []
 	ub.show_card_played(0, "免疫A 打出【CXCR3趋化】")
-	check(t_not._label.text == "免疫A 打出【CXCR3趋化】", "观战：全弹、不标关系（%s）" % t_not._label.text)
+	check(String(fd._rows[3]["kind"]) == "打出", "观战：全记、不标关系")
 	ub.hotseat = true
 	ub.current_human = 1
-	t_not.hide_now()
+	var n_before: int = fd._rows.size()
 	ub.show_card_played(1, "癌症A 打出【糖酵解爆发】")
-	check(t_not._label.text == "免疫A 打出【CXCR3趋化】", "热座：当前露牌的那位自己打的不弹（文字没变）")
+	check(fd._rows.size() == n_before, "热座：当前露牌的那位自己打的不记")
+	## 别人抽卡也记一条，但**不写是哪张**（牌名只有本人能看）
+	ub.show_card_drawn(0, { "source": "基因表达" })
+	var drew: String = String(fd._rows[fd._rows.size() - 1]["text"])
+	check(String(fd._rows[fd._rows.size() - 1]["kind"]) == "抽卡" and drew.contains("基因表达")
+		and not drew.contains("【"), "抽卡记一条：谁、经由什么，不写牌名（%s）" % drew)
+	ub.show_card_drawn(1, { "source": "突变" })
+	check(String(fd._rows[fd._rows.size() - 1]["text"]).contains("抽了 1 张") or fd._rows.size() <= CWFeed.MAX_ROWS,
+		"自己那席（当前露牌的 pid 1）抽卡不记")
+	## 最多留 MAX_ROWS 条，旧的挤掉；点一条展开、再点收起；点别处也收起
+	for k in 8:
+		fd.add_entry("世界事件", "第 %d 条" % k, CWStyle.CANCER)
+	check(fd._rows.size() == CWFeed.MAX_ROWS, "最多留 %d 条，旧的挤掉" % CWFeed.MAX_ROWS)
+	check(String(fd._rows[fd._rows.size() - 1]["text"]) == "第 7 条", "最新的在最后（画的时候摆最上面）")
+	var top: Control = fd._rows[fd._rows.size() - 1]["box"]
+	var second: Control = fd._rows[fd._rows.size() - 2]["box"]
+	check(top.position.y < second.position.y, "最新的一条画在最上面")
+	var click := InputEventMouseButton.new()
+	click.pressed = true
+	click.button_index = MOUSE_BUTTON_LEFT
+	top.gui_input.emit(click)
+	check(fd._open == fd._rows.size() - 1 and fd._detail != null and is_instance_valid(fd._detail),
+		"点一条 → 展开看全文")
+	top.gui_input.emit(click)
+	check(fd._open == -1, "再点同一条 → 收起")
+	top.gui_input.emit(click)
+	fd._unhandled_input(click)
+	check(fd._open == -1, "点别处 → 收起")
+	fd.clear_all()
+	check(fd._rows.is_empty(), "拆局清空")
+	fd.queue_free()
 	## 引擎侧：打出即时 / 永久卡都会广播 card_played；文案用席位名
 	var cp := CardPlayRecorder.new()
 	cp.game = g
@@ -4460,7 +4479,7 @@ func t_match_panel() -> void:
 	check(is_zero_approx(t_res._box.modulate.a) and t_res._bubbles.size() == 2, "hide_box 只收骰子旁那只，气泡不动")
 	t_res.hide_now()
 	check(t_res._bubbles.is_empty(), "收起时气泡一并清掉")
-	for n in [tq, t_res, t_not]:
+	for n in [tq, t_res]:
 		n.queue_free()
 	g.cancer_win_streak = 1
 	p.refresh(g)
@@ -8980,8 +8999,8 @@ func t_draw_purify_memory() -> void:
 	var n0: int = g.logs.size()
 	await g.actions.purify_here(imm, at, -1)
 	var said := "\n".join(g.logs.slice(n0))
-	check(g.memory == m0 + 1 and said.contains("抽卡造成"),
-		"抽卡造成的净化：不给记忆，日志写明原因（%s）" % said.strip_edges())
+	check(g.memory == m0 + 1 and said.contains("卡牌造成"),
+		"卡牌引发的净化：不给记忆，日志写明原因（%s）" % said.strip_edges())
 	check(g.tiles[at]["tissue"] == CWData.Tissue.HEALTHY, "该净化的还是净化了，只是不给记忆")
 	## ③ 【局部吞噬】同一把尺：卡面也不再写「+1 抗原记忆」
 	g.tiles[at]["tissue"] = CWData.Tissue.CANCER
