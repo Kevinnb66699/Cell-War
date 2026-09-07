@@ -112,7 +112,12 @@ const BREATH_FRAMES := 6
 const CARD_FX_TEXTURE := preload("res://assets/art/ui/card_chip.png")
 const CARD_FX_HEAD := 30.0                        ## 起点：细胞脚下往上这么多
 const CARD_FX_RISE: Array[float] = [10.0, 3.0, 17.0]
-const CARD_FX_TIME: Array[float] = [0.16, 0.30, 0.36]
+## 三拍各自的时长。**拆成三个具名常量**是为了让下面的总时长能写成常量表达式
+## （GDScript 的 const 不能调函数，也不好对 const 数组下标求值）。
+const CARD_FX_T0 := 0.16
+const CARD_FX_T1 := 0.30
+const CARD_FX_T2 := 0.36
+const CARD_FX_TIME: Array[float] = [CARD_FX_T0, CARD_FX_T1, CARD_FX_T2]
 const CARD_FX_WINDUP := 0.07                     ## 真正上冲前先蓄力一下
 const CARD_FX_WINDUP_Y := 2.0
 const CARD_FX_HOLD := 0.08                       ## 上冲后留一拍给玩家认出「这是卡」
@@ -121,7 +126,10 @@ const CARD_FX_SCALE := 1.1
 const CARD_FX_SQUASH := Vector2(1.18, 0.84)       ## 出牌那一瞬先压一下，再弹开，更像 StS2 的出牌节奏
 const REVIVE_FX_TEXTURE := preload("res://assets/art/ui/revive_totem_sheet.png")
 const REVIVE_FX_FRAMES := 6
-const REVIVE_FX_TIME := 0.48
+## 复活图腾的时长 = **抽卡那套的总时长**（蓄力 + 三拍 + 留拍），Kevin 2026-09-07 要求对齐。
+## 两个演出都是「细胞头顶冒出一个东西」，节奏对不齐时同屏出现会显得一个赶一个拖。
+## **从卡那套现算，不写第二个 0.xx** —— 以后调出牌节奏，复活自动跟着走（原值 0.48，约为一半）。
+const REVIVE_FX_TIME := CARD_FX_WINDUP + CARD_FX_T0 + CARD_FX_T1 + CARD_FX_T2 + CARD_FX_HOLD
 
 var game: CWGame
 var bridge: CWUIBridge

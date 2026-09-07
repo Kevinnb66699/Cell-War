@@ -64,10 +64,12 @@ func _process(_delta: float) -> bool:
 		_pin(_feed, CWFeed.RECT.position)
 		## 最早的先加：这一列越新的越靠上
 		var deck := [
-			["免疫抑制因子", "癌症B", CWData.Faction.CANCER, true],   ## 事件卡：底行「谁 + 事件卡」
-			["自分泌生存信号", "癌症B", CWData.Faction.CANCER, false],
-			["炎症趋化", "免疫B", CWData.Faction.IMMUNE, false],
-			["糖酵解爆发", "癌症A", CWData.Faction.CANCER, false],
+			## 名字用**昵称**：联机局里 CWRoom._name_seats() 会把 players[pid]["name"] 换成玩家昵称，
+			## 单机才是「免疫A / 癌症B」。预览拿默认名会让人以为联机也显示那个（Kevin 2026-09-07 就这么问了）
+			["免疫抑制因子", "老王", CWData.Faction.CANCER, true],   ## 事件卡：底行「谁 + 事件卡」
+			["自分泌生存信号", "老王", CWData.Faction.CANCER, false],
+			["炎症趋化", "小李", CWData.Faction.IMMUNE, false],
+			["糖酵解爆发", "阿强", CWData.Faction.CANCER, false],
 		]
 		for d in deck:
 			_feed.add_card(String(d[0]), String(d[1]), int(d[2]),

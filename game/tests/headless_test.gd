@@ -9335,6 +9335,11 @@ func t_card_draw_fx() -> void:
 	## 三拍自身反而缩短了 —— 只数三拍会把这条断言测红（当天就红过一次）。
 	## 钉的是原本的意图：整套比最早那版 0.42 秒长一倍以上。
 	var beats: float = CWMatch.CARD_FX_TIME[0] + CWMatch.CARD_FX_TIME[1] + CWMatch.CARD_FX_TIME[2]
+	## 复活图腾与抽卡同长（Kevin 2026-09-07）：两个都是「头顶冒出个东西」，
+	## 对不齐时同屏出现一个赶一个拖。钉住这条关系，别让谁单独被调走
+	check(is_equal_approx(CWMatch.REVIVE_FX_TIME,
+		CWMatch.CARD_FX_WINDUP + beats + CWMatch.CARD_FX_HOLD),
+		"复活图腾 %.2f s = 抽卡那套的总时长" % CWMatch.REVIVE_FX_TIME)
 	var total_t: float = CWMatch.CARD_FX_WINDUP + beats + CWMatch.CARD_FX_HOLD
 	check(total_t > 0.42 * 2.0 and CWMatch.CARD_FX_TIME[1] >= CWMatch.CARD_FX_TIME[0] * 1.5,
 		"整套时长 %.2f 秒（最早 0.42），停顿那拍不比第一拍短" % total_t)
@@ -11947,6 +11952,10 @@ func t_match_online() -> void:
 		"cell_id": 0, "pos": Vector2i.ZERO, "faction": CWData.Faction.IMMUNE, "card": "炎症趋化" })
 	ok = await _net_pump(srv, [a, b], func() -> bool: return m._feed._rows.size() > feed_n)
 	check(ok, "**自己那席**打的卡也进出牌列（此前被 viewing_pid 滤掉了）")
+	## 卡面底行写的必须是**昵称**，不是引擎默认的「免疫A」——
+	## CWRoom._name_seats() 在 game.init() 之后立刻改名，客户端 restore 视角快照时一起过来
+	var who0: String = String(m._feed._rows[m._feed._rows.size() - 1]["who"])
+	check(who0.begins_with("甲"), "出牌列写的是昵称而不是「免疫A」（%s）" % who0)
 	feed_n = m._feed._rows.size()
 	a.stream.append({ "t": "card_played", "pid": 1, "text": "癌症A 打出【糖酵解爆发】",
 		"cell_id": 1, "pos": Vector2i(1, 0), "faction": CWData.Faction.CANCER, "card": "糖酵解爆发" })
