@@ -334,16 +334,19 @@ func _collect(ctx: Dictionary) -> Array:
 	## 即时卡与限次额度：住在 cell["mods"]，applied_seq 取条目的 seq
 	for m in actor["mods"]:
 		_emit(out, ctx, m["name"], Store.MOD, m.get("seq", 0))
-	## 永久技能：住在 cell["equipped"]，applied_seq 取 equip_seq
-	for s in actor["equipped"]:
+	## 永久技能：住在 cell["equipped"]，applied_seq 取 equip_seq。
+	## **这里绕过了 game.has_skill**，所以【中和抗体】的压制要在这儿再拦一道
+	## （2026-09-07：漏了这道，被中和的癌细胞照样能吃到永久卡的费用减免）。
+	for s in (actor["equipped"] if not game.neutralized(actor) else []):
 		if actor["mods"].any(func(m: Dictionary) -> bool: return m["name"] == s):
 			continue   ## 已经从 mods 那边收过了（【癌症干性】那种「技能+限次额度」）
 		_emit(out, ctx, s, Store.GATE, int(actor["equip_seq"].get(s, 0)))
 	## 世界事件与卡牌挂的全局条目
 	for e in game.events["active"]:
 		_emit(out, ctx, e["name"], Store.EVENT_FREE, 0, e["stacks"])
-	## 树突【I-趋化源】：场上实体，不属于任何人的 mods / equipped，单独发一条
-	if not game.chemo.is_empty():
+	## 树突【I-趋化源】：场上实体，不属于任何人的 mods / equipped，单独发一条。
+	## 【免疫猎杀】的【追踪趋化源】走同一套修饰（方向判定见 _chemo_toward / _chemo_away）。
+	if not game.chemo.is_empty() or not game.chemo_track.is_empty():
 		_emit(out, ctx, "趋化源", Store.NONE, 0)
 	## 印戒「黏液侵染」：免疫**踏进**黏液格迁移费 +0.5（团队 2026-09-05 定）。
 	## 数值来自旋钮 `mucus_move_surcharge`，而 TEMPLATES 是 const 表读不到旋钮，
@@ -421,9 +424,9 @@ func _cond_ok(cond: String, ctx: Dictionary, name: String) -> bool:
 		## 【I-趋化源】的方向判定：PRD 明文「取决于迁移后距该格的距离增加/降低」。
 		## 起点用 ctx["from"]（= 报价时细胞所在格），所以规划器逐步模拟时也对。
 		"chemo_toward":
-			return _chemo_delta(ctx) < 0
+			return _chemo_delta(ctx) < 0 or _track_delta(ctx) < 0
 		"chemo_away":
-			return _chemo_delta(ctx) > 0
+			return _chemo_delta(ctx) > 0 or _track_delta(ctx) > 0
 		"has_allowance":
 			## 【癌症干性】那种「永久技能 + 复活时发的限次额度」：额度住在 mods 里，
 			## 用完就不该再从 equipped 那边冒出来
@@ -438,6 +441,23 @@ func _chemo_delta(ctx: Dictionary) -> int:
 	var at: Vector2i = game.chemo["at"]
 	var to: Vector2i = ctx["to"]
 	if to == Vector2i.MAX:
+		return 0
+	return CWData.hex_dist(to, at) - CWData.hex_dist(ctx["from"], at)
+
+
+## 走这一步之后，离**追踪趋化源**（【免疫猎杀】附着的那个）是远了还是近了。
+## 特例：被追踪的**那个癌细胞自己**「移动视为远离趋化源」（PRD 明文）——
+## 它带着源跑，按距离算永远是 0，不特判就等于这条惩罚对正主无效。
+func _track_delta(ctx: Dictionary) -> int:
+	if game.chemo_track.is_empty():
+		return 0
+	var to: Vector2i = ctx["to"]
+	if to == Vector2i.MAX:
+		return 0
+	if int(game.chemo_track.get("cid", -1)) == int(ctx["actor"]["id"]):
+		return 1
+	var at := game.chemo_track_at()
+	if at == Vector2i.MAX:
 		return 0
 	return CWData.hex_dist(to, at) - CWData.hex_dist(ctx["from"], at)
 

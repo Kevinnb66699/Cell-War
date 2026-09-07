@@ -42,6 +42,12 @@ var win_kind := ""         # immune_clear / cancer_weighted / limit_cancer / lim
 ## 树突状细胞【I-趋化源】：{} = 场上没有；否则 { at: Vector2i, left: 剩余世界回合, by: 建立者 pid }。
 ## **进快照与哈希**（它改变后续所有移动的价钱）。同一时刻仅一个，见 CWActions 的 chemo 选项。
 var chemo := {}
+## 【免疫猎杀】附着在某个癌细胞身上的【追踪趋化源】：{ cid, at, left }。
+## **位置不存在这里**——活着时现读那个细胞的 pos（`chemo_track_at()`），
+## 死了才把 at 冻在死亡格上、cid 置 -1。否则每一条改 pos 的路（迁移/转移/紊乱/传送）都得记得同步。
+var chemo_track := {}
+## 免疫方上一次发动【效应应答】的世界回合（PRD：免疫方每个世界回合最多 1 次）
+var effector_round := -1
 var cancer_win_streak := 0  # 癌方加权占地连续达标的回合末次数（见 tune.cancer_win_hold_rounds）；进快照与哈希
 var rng := RandomNumberGenerator.new()
 var bridges := {}          # player_id -> CWBridge
@@ -505,7 +511,22 @@ func clear_mods(cell: Dictionary, until: String) -> void:
 
 # ---- 永久技能（装备在 cell["equipped"]，打出即装备、死亡不掉、同名限一张）----
 
+## 【中和抗体】（B 的效应应答）压住了这个癌细胞吗。PRD：「所有与健康组织相邻的癌细胞的
+## **种类特殊效果**/**永久卡牌效果**在当前回合和下一回合失效」。
+## 存的是「压到第几个世界回合末」而不是倒计时 —— 存档读档、快照回滚都不会走样。
+func neutralized(cell: Dictionary) -> bool:
+	return round_no <= int(cell.get("neutral_until", -1))
+
+
+## 这个癌细胞的**种类特殊效果**此刻生效吗。四个癌种的主动技能与被动（伪足穿透 / 极简胞浆 /
+## 刚性屏障 / 囊性护甲 / 瓦伯格）都过这一道，**别在各处自己写 ctype 判断**。
+func type_ability_on(cell: Dictionary) -> bool:
+	return not neutralized(cell)
+
+
 func has_skill(cell: Dictionary, skill: String) -> bool:
+	if neutralized(cell):
+		return false      ## 【中和抗体】：永久卡牌效果一并压住
 	return skill in cell["equipped"]
 
 
@@ -806,6 +827,10 @@ func kill(cell: Dictionary) -> void:
 	cell["energy"] = 0
 	cell["alive"] = false
 	cell["mods"] = []   ## 「自身」的修饰随细胞死亡消散，复活是新生
+	## 【免疫猎杀】：「癌细胞死亡后趋化源留在死亡格」——把位置冻下来、断开跟随
+	if not chemo_track.is_empty() and int(chemo_track.get("cid", -1)) == int(cell["id"]):
+		chemo_track["at"] = cell["pos"]
+		chemo_track["cid"] = -1
 
 	if cell["faction"] == CWData.Faction.CANCER:
 		log_msg("☠ %s 死亡" % cell_name(cell))
@@ -846,6 +871,44 @@ func gain_memory(n: int) -> void:
 	if lv > immune_level:
 		immune_level = lv
 		log_msg("★ 免疫等级升至 %s 级" % CWData.LEVEL_NAMES[lv])
+		if lv == 3:
+			## PRD：「抗原记忆升级为【效应记忆】重新从零计数，计数规则与抗原记忆相同」。
+			## 同一个计数器换了名字和用途（【效应应答】按它收费），所以就地清零 ——
+			## 也正因为如此，X 级之后 memory 的语义是「效应记忆」，界面文案要跟着改口。
+			memory = 0
+			log_msg("★ 抗原记忆升级为【效应记忆】，重新从零计数")
+
+
+## 这个细胞此刻能不能发动【效应应答】。**只查不改**，选项那边和提交前复验共用。
+## PRD 的五个条件：X 级 / 已分化 / 存活 / 每个细胞每局 1 次 / 免疫方每世界回合 1 次，外加付得起 15 效应记忆。
+## 「只能在自己的行动回合发动」由行动选项的调用时机保证（build_options 只在轮到它时调）。
+func can_effector(cell: Dictionary) -> bool:
+	return cell["faction"] == CWData.Faction.IMMUNE and cell["alive"] \
+		and immune_level >= 3 \
+		and cell["itype"] != CWData.ImmuneType.BASIC \
+		and not cell.get("effector_used", false) \
+		and effector_round != round_no \
+		and memory >= CWData.EFFECTOR_COST
+
+
+## 扣费并烧掉两处额度。**已发动过的记录在死亡、复活后仍然保留**（PRD 明文）——
+## effector_used 住在细胞字典上，而复活不重建细胞，所以天然满足。
+func spend_effector(cell: Dictionary, what: String) -> void:
+	reduce_memory(CWData.EFFECTOR_COST)
+	cell["effector_used"] = true
+	effector_round = round_no
+	log_msg("★【效应应答·%s】%s 发动（消耗 %d 效应记忆，余 %d）"
+		% [what, cell_name(cell), CWData.EFFECTOR_COST, memory])
+
+
+## 【追踪趋化源】此刻在哪一格。空表返回 Vector2i.MAX（调用方按「没有」处理）。
+func chemo_track_at() -> Vector2i:
+	if chemo_track.is_empty():
+		return Vector2i.MAX
+	var cid: int = int(chemo_track.get("cid", -1))
+	if cid >= 0 and cid < cells.size() and cells[cid]["alive"]:
+		return cells[cid]["pos"]
+	return chemo_track.get("at", Vector2i.MAX)
 
 
 func reduce_memory(n: int) -> void:

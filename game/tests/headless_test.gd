@@ -97,7 +97,7 @@ func _run_all() -> void:
 		t_breath_sheets, t_solidify_and_decay, t_vessel_no_solid, t_erosion, t_macro_purify_heal,
 		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path,
-		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
+		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_effector_responses, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
 		t_immune_win, t_cancer_revive_blocked, t_cancer_s_win, t_immune_respawn,
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_stroma_targets, t_batch2_rules,
@@ -3218,6 +3218,140 @@ func t_hover_layer() -> void:
 	g.dispose()
 
 
+## 【效应应答】四个 + 树突【E-组织黏连】（PRD 一直写着，引擎 2026-09-07 才实装）。
+## 门槛（X 级 / 已分化 / 每细胞每局 1 次 / 免疫方每世界回合 1 次 / 15 效应记忆）钉在第一段，
+## 四个效果各钉一段。
+func t_effector_responses() -> void:
+	print("[效应应答]")
+
+	## ---- ① X 级：抗原记忆改名【效应记忆】并从零重数 ----
+	var g0 := bare_game()
+	g0.memory = CWData.LEVEL_MIN_MEMORY[3] - 1
+	g0.gain_memory(1)
+	check(g0.immune_level == 3 and g0.memory == 0,
+		"升到 X 级：抗原记忆升级为效应记忆、就地清零（%d）" % g0.memory)
+	g0.dispose()
+
+	## ---- ② 发动门槛 ----
+	var g := _fx_game(2)
+	var bc := CWSetup.make_cell(g.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.B_CELL, -1, 100)
+	g.cells.append(bc)
+	g.memory = 100
+	check(not g.can_effector(bc), "III 级以下发动不了")
+	g.immune_level = 3
+	g.memory = CWData.EFFECTOR_COST - 1
+	check(not g.can_effector(bc), "效应记忆不够发动不了")
+	g.memory = CWData.EFFECTOR_COST
+	check(g.can_effector(bc), "X 级 + 已分化 + 够 15 效应记忆 → 可以发动")
+	var basic := CWSetup.make_cell(g.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i(0, 2),
+		CWData.ImmuneType.BASIC, -1, 100)
+	g.cells.append(basic)
+	check(not g.can_effector(basic), "未分化的免疫细胞不能发动")
+	bc["effector_used"] = true
+	check(not g.can_effector(bc), "每个细胞每局只有 1 次")
+	bc["effector_used"] = false
+	g.effector_round = g.round_no
+	check(not g.can_effector(bc), "免疫方每个世界回合只有 1 次")
+	g.dispose()
+
+	## ---- ③ 中和抗体：与健康组织相邻的癌细胞，种类技能与永久卡当前回合和下一回合失效 ----
+	var pack := _choice_game()
+	g = pack[0]
+	var b: CWScriptBridge = pack[1]
+	g.immune_level = 3
+	g.memory = 100
+	var bb := CWSetup.make_cell(g.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.B_CELL, -1, 100)
+	g.cells.append(bb)
+	var sclc := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER, Vector2i(3, 0),
+		-1, CWData.CancerType.SCLC, 100)
+	sclc["equipped"] = ["GLUT1高表达"]
+	g.cells.append(sclc)
+	g.tiles[Vector2i(3, 0)]["tissue"] = CWData.Tissue.CANCER
+	check(g.type_ability_on(sclc) and g.has_skill(sclc, "GLUT1高表达"), "中和之前：种类技能与永久卡都在")
+	await g.actions._do_effector(bb)
+	check(g.memory == 100 - CWData.EFFECTOR_COST, "扣 15 效应记忆（余 %d）" % g.memory)
+	check(not g.type_ability_on(sclc), "被中和：种类特殊效果失效")
+	check(not g.has_skill(sclc, "GLUT1高表达"), "被中和：永久卡牌效果一并失效")
+	g.round_no += 1
+	check(not g.type_ability_on(sclc), "下一个世界回合仍然失效")
+	g.round_no += 1
+	check(g.type_ability_on(sclc), "再下一个回合恢复")
+	g.dispose()
+
+	## ---- ④ 免疫猎杀：标记 + 追踪趋化源；死了源留在死亡格 ----
+	pack = _choice_game()
+	g = pack[0]
+	b = pack[1]
+	g.immune_level = 3
+	g.memory = 100
+	var dc := CWSetup.make_cell(g.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.DENDRITIC, -1, 100)
+	g.cells.append(dc)
+	var prey := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER, Vector2i(5, 0),
+		-1, CWData.CancerType.SCLC, 100)
+	g.cells.append(prey)
+	b.answers = [_pick_by("cid", prey["id"])]
+	await g.actions._do_effector(dc)
+	check(prey["marked"], "猎杀目标获得【标记】")
+	check(int(g.chemo_track.get("cid", -1)) == int(prey["id"])
+		and g.chemo_track_at() == prey["pos"], "附上【追踪趋化源】，位置现读那个细胞")
+	prey["pos"] = Vector2i(4, 0)
+	check(g.chemo_track_at() == Vector2i(4, 0), "它走到哪儿源跟到哪儿")
+	g.kill(prey)
+	check(g.chemo_track_at() == Vector2i(4, 0) and int(g.chemo_track["cid"]) == -1,
+		"死亡后源留在死亡格、不再跟随")
+	for i in CWData.HUNT_CHEMO_ROUNDS:
+		g.world._tick_chemo_track()
+	check(g.chemo_track.is_empty(), "持续 %d 个世界回合后消散" % CWData.HUNT_CHEMO_ROUNDS)
+	g.dispose()
+
+	## ---- ⑤ Excalibur：主射线转健康 + 坏死，固化不动；射线 -2.0、侧向 -1.0 ----
+	pack = _choice_game()
+	g = pack[0]
+	b = pack[1]
+	g.immune_level = 3
+	g.memory = 100
+	var tc := CWSetup.make_cell(g.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.T_CELL, -1, 100)
+	g.cells.append(tc)
+	var dir: Vector2i = CWData.DIRS[0]
+	var on_ray: Vector2i = dir * 2
+	g.tiles[on_ray]["tissue"] = CWData.Tissue.CANCER
+	var solid_at: Vector2i = dir * 3
+	g.tiles[solid_at]["tissue"] = CWData.Tissue.SOLID
+	var victim := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER, on_ray,
+		-1, CWData.CancerType.SCLC, 500)
+	g.cells.append(victim)
+	b.answers = [_pick_by("dir", 0)]
+	await g.actions._do_effector(tc)
+	check(g.tiles[on_ray]["tissue"] == CWData.Tissue.HEALTHY
+		and g.tiles[on_ray]["necrosis"] > 0, "主射线上的癌组织转健康并进入坏死")
+	check(g.tiles[solid_at]["tissue"] == CWData.Tissue.SOLID, "固化癌组织不被转化")
+	check(victim["energy"] == 500 - CWData.EXCALIBUR_RAY_DMG,
+		"主射线上的癌细胞 -%s" % CWData.fmt(CWData.EXCALIBUR_RAY_DMG))
+	g.dispose()
+
+	## ---- ⑥ E-组织黏连：传染两格内，且本阶段的感染不连锁 ----
+	g = bare_game()
+	var den := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.DENDRITIC, -1, 150)
+	g.cells.append(den)
+	var near := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(2, 0), -1, CWData.CancerType.SCLC, 100)
+	var mid := CWSetup.make_cell(2, 1, CWData.Faction.CANCER, Vector2i(4, 0), -1, CWData.CancerType.SCLC, 100)
+	var far := CWSetup.make_cell(3, 1, CWData.Faction.CANCER, Vector2i(6, 0), -1, CWData.CancerType.SCLC, 100)
+	g.cells.append(near)
+	g.cells.append(mid)
+	g.cells.append(far)
+	g.update_marks()
+	check(near["marked"] and not mid["marked"], "光环只够到 2 格内的那个")
+	g.world._mark_adhesion()
+	check(mid["marked"], "【组织黏连】把标记传染给两格内的癌细胞")
+	check(not far["marked"], "本阶段造成的感染不连锁（far 只挨着刚被染上的 mid）")
+	g.dispose()
+
+
 ## 线上版 PRD（Kevin 2026-09-07 拉的正本）带来的三条**行为**改动。
 ## 常量类的改动（15 回合终局、事件回合、卡池分期、坏死减半、X 级 30）钉在各自原有的测试里。
 func t_prd_online_0907() -> void:
@@ -5216,7 +5350,26 @@ func t_announce() -> void:
 	for t: String in rec2.said:
 		kinds[t.split("：")[0].substr(0, 2)] = true
 	check(not rec2.said.is_empty(), "一局里报出了 %d 条结算说明" % rec2.said.size())
-	check(kinds.has("攻击"), "攻击的判定结果有通报")
+	## 攻击那条**单独摆一次确定性的**：一局 AI 对局里会不会真的发生攻击，随规则改动而变
+	## （2026-09-07 攻击开始给抗原记忆之后，seed 99 那局的轨迹就不再包含攻击了）——
+	## 拿「某个种子的局里恰好打过一架」当断言，本质上是在赌运气。
+	var g3 := bare_game()
+	var rec3 := ResultRecorder.new()
+	rec3.game = g3
+	for pid in g3.order:
+		g3.bridges[pid] = rec3
+	var im3 := put_immune(g3, Vector2i.ZERO)
+	var ca3 := CWSetup.make_cell(g3.cells.size(), 1, CWData.Faction.CANCER,
+		Vector2i(1, 0), -1, CWData.CancerType.SCLC, 500)
+	g3.cells.append(ca3)
+	g3.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+	rec3.said.clear()
+	await g3.actions._do_move(im3, Vector2i(1, 0), 0)
+	var kinds3 := {}
+	for t: String in rec3.said:
+		kinds3[t.split("：")[0].substr(0, 2)] = true
+	check(kinds3.has("攻击"), "攻击的判定结果有通报（%s）" % str(rec3.said))
+	g3.dispose()
 	var blank := false
 	for t: String in rec2.said:
 		if t.strip_edges().is_empty():
@@ -5949,7 +6102,24 @@ func t_roll_hook() -> void:
 			in_range = false
 		reasons[r["reason"]] = true
 	check(in_range, "每次掷骰的点数都落在 1..面数 之内")
-	check(reasons.has("攻击"), "攻击掷骰走了演出钩子")
+	## 同上：攻击那条摆一次确定性的，不赌「这一局的 AI 会不会去打架」
+	var g4 := bare_game()
+	var spy := CWRollSpy.new()
+	spy.game = g4
+	for pid in g4.order:
+		g4.bridges[pid] = spy
+	var im4 := put_immune(g4, Vector2i.ZERO)
+	var ca4 := CWSetup.make_cell(g4.cells.size(), 1, CWData.Faction.CANCER,
+		Vector2i(1, 0), -1, CWData.CancerType.SCLC, 500)
+	g4.cells.append(ca4)
+	g4.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+	spy.rolls.clear()
+	await g4.actions._do_move(im4, Vector2i(1, 0), 0)
+	var reasons4 := {}
+	for r in spy.rolls:
+		reasons4[r["reason"]] = true
+	check(reasons4.has("攻击"), "攻击掷骰走了演出钩子（%s）" % str(reasons4.keys()))
+	g4.dispose()
 
 	var all_same := true
 	for b in spies:

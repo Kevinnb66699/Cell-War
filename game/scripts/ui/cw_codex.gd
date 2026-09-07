@@ -375,10 +375,25 @@ static func chapters() -> Array:
 				macro_line,
 				"续航型，越打越有钱，适合反复净化。",
 			] },
+			{ "t": "效应应答", "b": [
+				"免疫等级到 %s 之后，抗原记忆改叫【效应记忆】并从零重数；" % lv[3],
+				"已分化的免疫细胞各解锁一个大招，每次花 %d 效应记忆。" % CWData.EFFECTOR_COST,
+				"每个细胞一辈子一次，整个免疫方每个世界回合也只放得了一次。",
+				"B【中和抗体】：贴着健康组织的癌细胞，种类技能与永久卡失效两回合。",
+				"T【Excalibur】：选一个方向扫到棋盘边，癌组织转健康并坏死，",
+				"　射线上的癌细胞 -%s、被溅到的 -%s；固化癌组织不转。"
+					% [CWData.fmt(CWData.EXCALIBUR_RAY_DMG), CWData.fmt(CWData.EXCALIBUR_SPLASH_DMG)],
+				"巨噬【连续吞噬】：这一回合净化之后可以接着免费走，最多连 %d 格，" % CWData.CHAIN_PHAGO_MAX,
+				"　每连一格下一击多 %s 伤害。" % CWData.fmt(CWData.CHAIN_PHAGO_BONUS),
+				"树突【免疫猎杀】：给全场任意一个癌细胞挂上标记，外加一个跟着它跑的趋化源——",
+				"　它自己怎么走都算「远离」，也就是怎么走都要多付钱。",
+			] },
 			{ "t": "树突状细胞", "b": [
 				"【趋化源】：花 %s 在任意格立源、持续 %d 回合，" % [CWData.fmt(CWData.CHEMO_COST), CWData.CHEMO_ROUNDS],
 				"免疫朝它走的迁移费 ×%d%%，癌细胞背它走的移动费 ×%d%%。" % [CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT],
-				"%d 格内的癌细胞自动带【标记】，下一次受伤翻倍。自身不能攻击，纯辅助。" % CWData.MARK_RANGE,
+				"%d 格内的癌细胞自动带【标记】，下一次受伤翻倍；同一个癌细胞一回合只标得上一次。" % CWData.MARK_RANGE,
+				"【组织黏连】：世界回合末，带标记的癌细胞把标记传染给 %d 格内的同伴（不连锁）。" % CWData.ADHESION_RANGE,
+				"自身不能攻击，纯辅助。",
 			] },
 		] },
 		{ "title": "四种癌细胞", "entries": [
@@ -516,11 +531,15 @@ static func search(query: String) -> Array:
 		for entry in ch["entries"]:
 			if String(entry["t"]).to_lower().contains(q):
 				out.append({ "page": p, "chapter": ch["title"], "t": entry["t"], "line": "" })
+				if out.size() >= MAX_HITS:
+					return out
 			for line in entry["b"]:
 				if String(line).to_lower().contains(q):
 					out.append({ "page": p, "chapter": ch["title"], "t": entry["t"], "line": line })
-			if out.size() >= MAX_HITS:
-				return out
+					## 上限**逐条**判，不能等整个条目铺完再判：
+					## 那样一个多行条目能一次冲过 40（2026-09-07 加【效应应答】那条时正好撞上）
+					if out.size() >= MAX_HITS:
+						return out
 	return out
 
 

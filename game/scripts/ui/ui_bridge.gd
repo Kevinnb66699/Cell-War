@@ -705,6 +705,10 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 			return "%s 抽卡" % CWData.fmt(c)
 		"differentiate":
 			return "免费"
+		"effector":
+			## 【效应应答】收的是**效应记忆**不是能量 —— 价签必须把单位写出来，
+			## 否则玩家会以为是 15 点能量（那是全场没人付得起的数）
+			return "%d 效应记忆" % CWData.EFFECTOR_COST
 		"antibody":
 			## 【抗体亲和力成熟】把抗体费降到 0.5——价签跟着技能走
 			return CWData.fmt(game.actions.antibody_cost(cell))

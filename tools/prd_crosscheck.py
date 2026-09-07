@@ -149,6 +149,15 @@ MAP = {
     "MATURED_ATTACK_EXTRA":   "该次能量损失额外＋0.5",
     "MATURED_ANTIBODY_COST":  "【抗体】的能量消耗由1降低为0.5",
     ## 卡面写的是「能量消耗降低0.5」——减量，不是「降为 0.5」。
+    # ---- 【效应应答】与树突【E-组织黏连】（2026-09-07 实装）----
+    "EFFECTOR_COST":          "每次发动统一消耗**15效应记忆**",
+    "ADHESION_RANGE":         "传染给相邻两格内的所有癌细胞",
+    "HUNT_CHEMO_ROUNDS":      "【追踪趋化源】持续2回合",
+    "CHAIN_PHAGO_MAX":        "最多触发5次",
+    "CHAIN_PHAGO_BONUS":      "每连续净化1格，下一次攻击额外+0.5伤害",
+    "EXCALIBUR_SPLASH_PCT":   "主射线相邻的所有癌组织有60%概率进入范围",
+    "EXCALIBUR_RAY_DMG":      "主射线上的所有癌细胞损失2能量",
+    "EXCALIBUR_SPLASH_DMG":   "侧向波及上的所有癌细胞损失1能量",
     "MATURED_ANTIBODY_CUT":   "【抗体】的能量消耗降低0.5",
     "MATURED_ANTIBODY_DMG":   "【抗体】对每个癌细胞造成的初始能量损失为2",
     "PHAGO_THRESHOLD":        "若目标癌细胞剩余能量不超过0.5，则直接死亡",

@@ -386,6 +386,23 @@ const CHEMO_CANCER_PCT := 140   # 癌细胞向远离该格方向移动：费用 
 ## 文案（细胞详情 / 知识之书 / 引导）和启发式 AI 的接近目标都现读这个数，不写第二份。
 const MARK_RANGE := 2
 
+# ---- 【效应应答】（PRD「I-效应应答」，2026-09-07 实装）----
+## 门槛：免疫等级 X + 已分化 + 存活 + 自己的行动回合；每个细胞每局 1 次、免疫方每世界回合 1 次。
+## 费用是**效应记忆**不是能量 —— X 级时抗原记忆改名【效应记忆】并从零重数（见 CWGame.gain_memory）。
+const EFFECTOR_COST := 15
+const ADHESION_RANGE := 2        # 树突【E-组织黏连】的传染范围（PRD「相邻两格内」）
+const HUNT_CHEMO_ROUNDS := 2     # 【免疫猎杀】附着的【追踪趋化源】持续几个世界回合
+const CHAIN_PHAGO_MAX := 5       # 【连续吞噬】最多连几次
+const CHAIN_PHAGO_BONUS := 5     # 每连续净化 1 格，下一次攻击额外 +0.5
+const EXCALIBUR_SPLASH_PCT := 60 # 主射线相邻的癌组织进入范围的概率
+const EXCALIBUR_RAY_DMG := 20    # 主射线上的癌细胞 -2.0
+const EXCALIBUR_SPLASH_DMG := 10 # 侧向波及的癌细胞 -1.0
+## 四种分化各自的【效应应答】名字（PRD「免疫细胞种类」各节的小标题）
+const EFFECTOR_NAMES := {
+	ImmuneType.DENDRITIC: "免疫猎杀", ImmuneType.MACRO: "连续吞噬",
+	ImmuneType.B_CELL: "中和抗体", ImmuneType.T_CELL: "Excalibur",
+}
+
 const IMMUNE_TYPE_NAMES := {
 	ImmuneType.BASIC: "免疫细胞", ImmuneType.B_CELL: "B细胞", ImmuneType.T_CELL: "T细胞",
 	ImmuneType.MACRO: "巨噬细胞", ImmuneType.DENDRITIC: "树突状细胞",
@@ -500,6 +517,7 @@ const SKILL_TEXT := {
 const ACT_NAMES := {
 	"move": "迁移", "draw": "基因表达", "differentiate": "分化",
 	"antibody": "抗体", "toxin": "细胞毒素", "lyse": "裂解", "chemo": "趋化源",
+	"effector": "效应应答",   ## 四种分化各一个，具体是哪一个看 EFFECTOR_NAMES
 	"mutate": "突变", "end": "结束回合",
 	## 癌细胞种类专属（PRD 四种真实癌症）
 	"homing": "血行转移", "mucus": "黏液破裂", "jump": "转移", "ossify": "骨样硬化",

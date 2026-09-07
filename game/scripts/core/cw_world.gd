@@ -50,10 +50,12 @@ func e_phase() -> void:
 	_solidify()                              ## 5 【固化】
 	_ossify()                                ## 5 骨肉瘤【骨样硬化】标记到期（同属第 5 步，排在计数固化之后）
 	_decay()                                 ## 6 固化计数衰减
+	_mark_adhesion()                         ## 7 树突【E-组织黏连】（也是 E 类，排在紊乱返回之前）
 	await game.world_fx.round_effects()      ## 7 其他 E 类效果：目前只有【紊乱】返回原位
 	game.world_fx.tick_durations()           ## 8 世界事件倒计时/到期 + 「本世界回合」修饰过期
 	_tick_necrosis()                         ## 8 「坏死」倒计时（同属第 8 步）
 	_tick_chemo()                            ## 8 树突【I-趋化源】倒计时（同属第 8 步）
+	_tick_chemo_track()                      ## 8 【免疫猎杀】的追踪趋化源倒计时（同属第 8 步）
 	_clear_newborn()                         ## 9 移除「新生」
 	_cap_energy()                            ## 9.5 能量上限（PRD 之外，见口径 #92）
 	## 10 胜利条件检查。免疫先判：PRD 的列举顺序如此，
@@ -530,7 +532,7 @@ func _anaerobic() -> void:
 		var gain := _split_share(pool, here.size())
 		for cell in here:
 			## 小细胞肺癌【瓦伯格超速糖酵解】：110% 原产出，**向上取整到十分位**
-			if cell["ctype"] == CWData.CancerType.SCLC:
+			if cell["ctype"] == CWData.CancerType.SCLC and game.type_ability_on(cell):
 				cell["energy"] += int(ceil(gain * CWData.WARBURG_PERCENT / 100.0))
 			else:
 				cell["energy"] += gain
@@ -665,6 +667,49 @@ func _resolve_camping() -> void:
 		await game.actions.purify_here(cell, at, -1)
 
 
+## 树突【E-组织黏连】：被标记的癌细胞把标记传染给相邻 `CWData.ADHESION_RANGE` 格内的所有癌细胞。
+##
+## **本阶段造成的感染不会连锁**（PRD 明文）：所以先把「进入本阶段时就带标记的」抄一份，
+## 再照着这份传染 —— 边传边读活数据的话，一条癌组织长链会被一次结算全部点亮。
+## 传染同样走 `apply_mark`，因此照样受「同一回合只能获得一次标记」约束（PRD 上一条）。
+## 场上没有活着的树突就不发生：这是树突的被动，人没了效果也没了（同 update_marks 的口径）。
+func _mark_adhesion() -> void:
+	var dendritic: Dictionary = {}
+	for ic in game.living_cells(CWData.Faction.IMMUNE):
+		if ic["itype"] == CWData.ImmuneType.DENDRITIC:
+			dendritic = ic
+			break
+	if dendritic.is_empty():
+		return
+	var carriers: Array = []
+	for c in game.living_cells(CWData.Faction.CANCER):
+		if c["marked"]:
+			carriers.append(c)
+	if carriers.is_empty():
+		return
+	for target in game.living_cells(CWData.Faction.CANCER):
+		if target["marked"]:
+			continue
+		for src in carriers:
+			if CWData.hex_dist(target["pos"], src["pos"]) <= CWData.ADHESION_RANGE:
+				game.apply_mark(target, dendritic)
+				if target["marked"]:
+					game.log_msg("　【组织黏连】%s 的标记传染给 %s"
+						% [game.cell_name(src), game.cell_name(target)])
+				break
+
+
+## 【追踪趋化源】倒计时（与普通趋化源同一步）。
+func _tick_chemo_track() -> void:
+	if game.chemo_track.is_empty():
+		return
+	game.chemo_track["left"] = int(game.chemo_track["left"]) - 1
+	if game.chemo_track["left"] > 0:
+		return
+	game.log_msg("【追踪趋化源】%s 的追踪趋化源消散" % str(game.chemo_track_at()))
+	game.chemo_track = {}
+
+
 ## 单独算某个癌细胞**此刻**的无氧供给（卡【糖酵解爆发】用），口径与 _anaerobic 一致
 func anaerobic_gain_for(target: Dictionary) -> int:
 	var cancer_pred := func(c: Vector2i) -> bool:
@@ -682,7 +727,7 @@ func anaerobic_gain_for(target: Dictionary) -> int:
 				count += 1
 		var gain := _split_share(pool, maxi(count, 1))
 		## 小细胞肺癌【瓦伯格超速糖酵解】对这次结算同样生效
-		if target["ctype"] == CWData.CancerType.SCLC:
+		if target["ctype"] == CWData.CancerType.SCLC and game.type_ability_on(target):
 			gain = int(ceil(gain * CWData.WARBURG_PERCENT / 100.0))
 		## 【GLUT1高表达】「每次结算无氧呼吸」——糖酵解爆发的这次也算
 		return gain + _glut_bonus(target)
