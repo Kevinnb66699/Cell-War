@@ -19,6 +19,11 @@
 ##
 ## 线程化：推演放进 `Thread`（较强 AI 人机对局才开），主线程只提交 + await。
 ## 开不开线程，评估代码是同一条、结果逐位一致（无头测试/平衡模拟不开，绕圈验证跑得干净）。
+##
+## 叶子评分器（2026-09-07 重构）：树本体只认 `CWLeafValue` 接口，评分器按种类标签在
+## `_tree_search` 所在线程上新建（只穿 tag 字符串，对象不跨线程）。本桥默认 `classic`
+## （CWEval）。将来第四档 `CWMCTSValueBridge` 覆写 `_leaf_tag = "nn"` 换用神经网络
+## 评分器 —— 两者共用**同一棵树的代码**，不复制整份树。
 class_name CWMCTSBridge
 extends CWHeuristicBridge
 
@@ -40,6 +45,11 @@ var last_stats: Dictionary:
 var enabled := true
 ## 推演是否放副线程。只有真对局的较强 AI 才开（CWMatch 装配时拨）；默认关。
 var use_threading := false
+
+## 叶子评分器的种类标签。`_tree_search` 拿它建评分器 —— 用哪只手由**本桥的选择**决定
+## （第三档默认经典 CWEval）。子类 `CWMCTSValueBridge` 覆写它换用神经网络评分器
+## （第四档）。坚决不传评分器对象本身跨线程，只穿这根字符串。
+var _leaf_tag := &"classic"
 
 
 func set_version(v: String) -> void:
@@ -65,6 +75,9 @@ func _mcts_pick(req: Dictionary) -> int:
 		"max_sim_steps": max_sim_steps,
 		"fixed_lineup": fixed_lineup, "lifecare": lifecare,
 		"death_cost": true, "sim_no_lifecare": false,
+		## 叶子评分器只传「种类标签」，评分器本体在 _tree_search 所在线程上新建
+		##（对象本身不跨线程，只有 tag 这根字符串穿过去 —— 线程契约）。
+		"leaf": _leaf_tag,
 	}
 	var res: Dictionary
 	if use_threading:
@@ -111,7 +124,8 @@ class _Node:
 	extends RefCounted
 	var path_seed := 0      ## 决定本节点所有子边种子；由父边种子 + 动作号派生
 	var vis := 0            ## 经过本节点的迭代数
-	var val := 0            ## 见过的 CWEval 得分之和（UCT 用均值）
+	var val := 0.0          ## 见过的叶子得分之和（UCT 用均值）。经典评分器塞的是整数
+	                        ##（精度上等于旧的 int 累加），神经网络评分器塞 [0,1] 需要浮点
 	var opts: Array = []    ## 本决策点所有选项（与 children 并行）
 	var children: Array = []   ## opts 并行：未扩展的槽为 null
 
@@ -119,7 +133,6 @@ class _Node:
 ## 核心评估：`image` 必须是一份自洽的独立 CWGame（由 _build_image_static 造）。
 ## 只依赖 image 与 cfg，绝不碰外层 game / 场景树；协程但零真挂起（树内桥全同步）。
 static func _tree_search(image, options: Array, cfg: Dictionary) -> Dictionary:
-	var my_faction: int = int(cfg["my_faction"])
 	var iters: int = maxi(1, int(cfg["iterations"]))
 	var horizon_n: int = int(cfg["horizon"])
 	var ucb_cv: float = float(cfg.get("ucb", 1.0))
@@ -138,6 +151,10 @@ static func _tree_search(image, options: Array, cfg: Dictionary) -> Dictionary:
 	root.path_seed = hash([root_seed, 0x6D63])   ## 与扁平 MC 的流错开，避免碰撞
 	root.opts = options
 	root.children.resize(options.size())
+
+	## 在本线程上建叶子评分器（只认种类标签；本函数可能跑在副线程上，对象不跨线程）。
+	## 评分器无状态、纯函数式，worker 上用完即弃。
+	var leaf: CWLeafValue = _build_leaf(String(cfg.get("leaf", &"classic")))
 
 	for it in iters:
 		if _budget_exhausted(stats, max_steps):
@@ -184,10 +201,10 @@ static func _tree_search(image, options: Array, cfg: Dictionary) -> Dictionary:
 			stats["candidates_probed"] += 1
 			ply += 1
 		## 从当前（扩展后或走到头的）状态估一个分，一路回传给本迭代经过的节点。
-		var score: int = CWEval.score(image, my_faction, bool(cfg["death_cost"]))
+		var v: float = leaf.score(image, cfg)
 		for n in backpath:
 			n.vis += 1
-			n.val += score
+			n.val += v
 		stats["rollouts"] += 1
 		if _budget_exhausted(stats, max_steps):
 			break
@@ -242,3 +259,12 @@ static func _budget_exhausted(stats: Dictionary, max_steps: int) -> bool:
 ## 推演随机流派生，直接复用扁平 MC 的同一约定（不偷看真骰子、迭代间去结构相关）。
 static func _playout_seed(real_state: int, it: int) -> int:
 	return hash([real_state, it])
+
+
+## 叶子评分器工厂：按种类标签建评分器，在 _tree_search（可能在副线程）上被调。
+## 本桥默认经典（CWEval）；子类 `CWMCTSValueBridge` 覆写 `_leaf_tag` 换神经网络。
+## ⚠ 返回的评分器会跑在副线程上，必须无状态（纯函数式）。
+static func _build_leaf(tag: String) -> CWLeafValue:
+	if tag == "nn":
+		return CWNNLeafValue.new()
+	return CWClassicLeafValue.new()
