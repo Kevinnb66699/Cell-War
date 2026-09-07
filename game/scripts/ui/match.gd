@@ -53,6 +53,9 @@ func can_save_now() -> bool:
 ## 固化癌组织的色标。硬化外壳的美术还没有，但**固化格必须能一眼认出来**——
 ## 【裂解】和癌方【复活】都只对它生效，看不出来就没法玩。压暗一档是临时手段。
 const MARK_SOLID := Color("0000004d")
+## 癌细胞脚下固化组织的石化色；只覆盖细胞外圈，主体颜色仍保留癌细胞种类辨识度。
+const SOLID_CELL_COLOR := Color("d6b078")
+const SOLID_PROGRESS_SHADER := preload("res://assets/shaders/solid_progress.gdshader")
 
 ## 骨肉瘤【骨样硬化】标记格的脉冲色标（Kevin 2026-09-07 要的显示效果）。
 ## 这一格在倒计时，到点直接变固化癌组织 —— 而固化格【净化】不掉、只有 T 的【裂解】拆得动，
@@ -914,6 +917,8 @@ func _sync_cells() -> void:
 		node.z_index = board.tile_z(pos, board.Z_CELL)
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"])
+		else:
+			_sync_cancer_progress(node as Sprite2D, c, game.tile(pos))
 		## 这里必须在写入新位置之后播放。复活前 node 仍停在死亡时的旧坐标，
 		## 直接拿 node.position 会把图腾留在旧格子（而不是复活目标格）。
 		if is_revival:
@@ -1002,6 +1007,7 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 	## 免疫的 itype 会变，所以它的贴图交给 _sync_cells 每帧对一次。
 	if cell["faction"] == CWData.Faction.CANCER:
 		_set_cell_art(node, CANCER_ART[cell["ctype"]])
+		_add_solid_progress_overlay(node)
 	_cells_root.add_child(node)
 	_was_alive.append(false)   ## 下一次 _sync_cells 就会认出「刚出现」并淡入
 	_ever_alive.append(false)
@@ -1188,6 +1194,9 @@ func _animate_breath(delta: float) -> void:
 		var s := _cell_nodes[i] as Sprite2D
 		if s.visible and s.hframes == BREATH_FRAMES:
 			s.frame = (_breath_step + i) % BREATH_FRAMES
+			var overlay := s.get_node_or_null("SolidProgress") as Sprite2D
+			if overlay != null:
+				overlay.frame = s.frame
 	_teleport_fx.sync_breath(_breath_step, BREATH_FRAMES)   ## 残影也要跟着呼吸，否则帧率不一致穿帮
 
 
@@ -1204,6 +1213,41 @@ func _set_cell_art(s: Sprite2D, tex: Texture2D) -> void:
 	s.texture = tex
 	s.hframes = BREATH_FRAMES   ## 所有对局细胞贴图都是横排 6 帧呼吸表
 	s.offset = Vector2(0, -tex.get_height() / 2.0)
+	var overlay := s.get_node_or_null("SolidProgress") as Sprite2D
+	if overlay != null:
+		overlay.texture = tex
+		overlay.hframes = BREATH_FRAMES
+		overlay.offset = s.offset
+
+
+func _add_solid_progress_overlay(s: Sprite2D) -> void:
+	var overlay := Sprite2D.new()
+	overlay.name = "SolidProgress"
+	overlay.texture = s.texture
+	overlay.hframes = s.hframes
+	overlay.offset = s.offset
+	overlay.z_index = 1
+	overlay.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var material := ShaderMaterial.new()
+	material.shader = SOLID_PROGRESS_SHADER
+	material.set_shader_parameter("solid_color", SOLID_CELL_COLOR)
+	overlay.material = material
+	overlay.visible = false
+	s.add_child(overlay)
+
+
+func _sync_cancer_progress(s: Sprite2D, cell: Dictionary, tile: Dictionary) -> void:
+	var overlay := s.get_node_or_null("SolidProgress") as Sprite2D
+	if overlay == null:
+		return
+	var progress := 0.0
+	if tile["tissue"] == CWData.Tissue.SOLID:
+		progress = 1.0
+	elif tile["tissue"] == CWData.Tissue.CANCER:
+		var threshold: int = maxi(int(game.tune.solidify_threshold), 1)
+		progress = clampf(float(tile.get("solid", 0)) / float(threshold), 0.0, 1.0)
+	overlay.visible = cell["alive"] and progress > 0.0
+	(overlay.material as ShaderMaterial).set_shader_parameter("progress", progress)
 
 
 func _play_revive_fx(node: Node2D, cell: Dictionary) -> void:
