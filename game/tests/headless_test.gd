@@ -97,7 +97,7 @@ func _run_all() -> void:
 		t_breath_sheets, t_solidify_and_decay, t_vessel_no_solid, t_erosion, t_macro_purify_heal,
 		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path,
-		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
+		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_proliferate_tiers, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
 		t_immune_win, t_cancer_revive_blocked, t_cancer_s_win, t_immune_respawn,
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_stroma_targets, t_batch2_rules,
@@ -1220,9 +1220,9 @@ func t_anaerobic_sqrt() -> void:
 		"默认 = 常量：系数 %s / 指数 0.%d / 每格固化 %s" % [
 			CWData.fmt(CWData.ANAEROBIC_BLOCK_COEF), CWData.ANAEROBIC_BLOCK_EXP,
 			CWData.fmt(CWData.ANAEROBIC_SOLID_BONUS)])
-	check(CWData.ANAEROBIC_BLOCK_EXP == 30 and CWData.ANAEROBIC_BLOCK_COEF == 20
+	check(CWData.ANAEROBIC_BLOCK_EXP == 30 and CWData.ANAEROBIC_BLOCK_COEF == 28
 		and CWData.ANAEROBIC_SOLID_BONUS == 10,
-		"Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2 + 全图固化数 × 1.0")
+		"Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2.8 + 全图固化数 × 1.0")
 
 	## 取一块普通癌组织，逐格核对指数项（全图没有固化时第二项为 0）
 	var keys: Array = g.tiles.keys()
@@ -3558,6 +3558,81 @@ func t_effector_responses() -> void:
 	check(mid["marked"], "【组织黏连】把标记传染给两格内的癌细胞")
 	check(not far["marked"], "本阶段造成的感染不连锁（far 只挨着刚被染上的 mid）")
 	g.dispose()
+
+
+## 【E-增生】的连通块分档 + 【E-侵蚀】的格数（PRD 2026-09-07 两条一起改）。
+##
+## 分档**不赌概率**：把两档旋钮拉到 0 / 1000，于是「普通那档永不转、含固化那档必转」，
+## 直接验的是「按哪一档算」这件事本身。默认值另钉一条。
+func t_proliferate_tiers() -> void:
+	print("[增生分档 / 侵蚀格数]")
+	check(CWData.PROLIFERATE_PER_ADJ == 30 and CWData.PROLIFERATE_PER_ADJ_SOLID == 40,
+		"默认两档 = 3% / 4%")
+
+	## ① 判的是「所属连通块含不含固化」，不是「这个邻居自己是不是固化」。
+	## 摆两处：target_a 的邻居是普通癌组织、同块里没有固化；
+	##        target_b 的邻居也是普通癌组织，但同块里更远处有一格固化。
+	var g := _blank_board()
+	g.tune.proliferate_per_adjacent = 0        ## 普通档：永不转
+	g.tune.proliferate_per_adjacent_solid = 1000   ## 含固化档：必转
+	var target_a := Vector2i(-4, 0)
+	var target_b := Vector2i(3, 0)
+	var na: Vector2i = target_a + CWData.DIRS[0]
+	var nb: Vector2i = target_b + CWData.DIRS[0]
+	var far: Vector2i = nb + CWData.DIRS[0]    ## 与 nb 相连、离 target_b 两格
+	g.tiles[na]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[nb]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[far]["tissue"] = CWData.Tissue.SOLID
+	check(CWData.hex_dist(na, nb) > 1 and CWData.hex_dist(na, far) > 1,
+		"两处互不相邻，各成一个连通块")
+	g.world._proliferate()
+	check(g.tiles[target_a]["tissue"] == CWData.Tissue.HEALTHY,
+		"邻居所在块里没有固化 → 走 3% 那档（旋钮拨到 0，不转）")
+	check(g.tiles[target_b]["tissue"] != CWData.Tissue.HEALTHY,
+		"邻居自己不是固化，但同块里有固化 → 走 4% 那档（旋钮拨到 1000，必转）")
+	g.dispose()
+
+	## ② 两档同值 = 退回不分档的老口径（旋钮要能扫回去做对照）
+	var g2 := _blank_board()
+	g2.tune.proliferate_per_adjacent = 0
+	g2.tune.proliferate_per_adjacent_solid = 0
+	g2.tiles[nb]["tissue"] = CWData.Tissue.CANCER
+	g2.tiles[far]["tissue"] = CWData.Tissue.SOLID
+	g2.world._proliferate()
+	check(g2.tiles[target_b]["tissue"] == CWData.Tissue.HEALTHY, "两档同值：分档失效，按同一个数算")
+	g2.dispose()
+
+	## ③ 侵蚀格数：2/3 → 2 格、1/3 → 3 格
+	var counts := {}
+	for seed_i in 60:
+		var probe := _erosion_scene(seed_i)
+		var before: int = probe.count_tissue(CWData.Tissue.HEALTHY)
+		probe.world._erosion()
+		counts[before - probe.count_tissue(CWData.Tissue.HEALTHY)] = true
+		probe.dispose()
+	var got: Array = counts.keys()
+	got.sort()
+	check(got == [2, 3], "一次侵蚀转 2 或 3 格，不再有 1 格（实测 %s）" % str(got))
+
+
+## 一块全健康、没有细胞的棋盘（增生测试用）
+func _blank_board() -> CWGame:
+	var g := bare_game()
+	for c in g.tiles:
+		g.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
+		g.tiles[c]["solid"] = 0
+	return g
+
+
+## 「被癌性组织完全包围、内部有十来个合法格」的局面（侵蚀格数统计用）
+func _erosion_scene(seed_value: int) -> CWGame:
+	var g := bare_game()
+	g.rng.seed = seed_value
+	for c: Vector2i in g.tiles:
+		g.tiles[c]["tissue"] = CWData.Tissue.CANCER if CWData.hex_dist(c, Vector2i.ZERO) > 2 \
+			else CWData.Tissue.HEALTHY
+		g.tiles[c]["solid"] = 0
+	return g
 
 
 ## 线上版 PRD（Kevin 2026-09-07 拉的正本）带来的三条**行为**改动。

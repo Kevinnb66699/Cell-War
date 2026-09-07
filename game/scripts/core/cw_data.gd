@@ -102,7 +102,7 @@ const AEROBIC_FLOOR := 0                 # 2026-09-05 关：等级式有自己�
 # 沿革：09-04 线性求和 → 开方 c=2.0（09-05）→ c=1.0 且回 E 阶段（09-06）→ 本式（09-07）。
 # 系数 = 0 时退回 09-04 之前的线性求和（对照档，见 CWWorld._anaerobic_pool）。
 const ANAEROBIC_BLOCK_EXP := 30          # 百分数：连通块癌组织个数的指数 0.30
-const ANAEROBIC_BLOCK_COEF := 20         # 十分能量：指数项的系数 ×2.0
+const ANAEROBIC_BLOCK_COEF := 28         # 十分能量：指数项的系数 ×2.8（2026-09-07 由 2.0 抬上来）
 const ANAEROBIC_SOLID_BONUS := 10        # 十分能量：**全图**每格固化癌组织 +1.0
 const ANAEROBIC_CAP := 0                 # 0 = 不封（团队 2026-09-04 定案）
 
@@ -276,6 +276,10 @@ const SOLIDIFY_DECAY := 5                # 无癌细胞停留：每世界回合 
 # 【E-增生】：没有免疫细胞的健康组织，按「相邻癌性组织数 × 4%」的概率转为癌组织。
 # 这条原本是团队 2026-08-26 的提案（引擎里做成了默认关闭的旋钮），PRD 已正式采纳。
 const PROLIFERATE_PER_ADJ := 30          # 千分率：每个相邻癌性组织贡献 3%
+## 千分率：**所在癌性组织连通块里存在固化癌组织**的那些癌性组织，每个贡献 4%（PRD 2026-09-07 新增一句）。
+## 判的是「这一格所属的连通块含不含固化」，不是「这一格自己是不是固化」——
+## 一片地里固化了一格，整片的对外扩散都加速。
+const PROLIFERATE_PER_ADJ_SOLID := 40
 
 const PRESSURE_FREE_ADJ := 2             # 前 2 格不造成损失
 const PRESSURE_PER_ADJ := 5              # 超出部分每格 0.5

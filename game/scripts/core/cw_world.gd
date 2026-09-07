@@ -449,7 +449,7 @@ func _erosion() -> void:
 	# 一局要掷 7 次左右，每次都演会拖节奏（决策 ④，2026-08-27 定）。
 	# 若团队改主意要演，把这行换成 `await game.roll_shown(3, "侵蚀")` 即可 ——
 	# rng 消耗完全一样，平衡数据和同种子复现都不受影响，但 _erosion() 及其调用链要改成 async。
-	var count: int = 1 if game.roll_d3() <= 2 else 2  # 2/3→1 格，1/3→2 格
+	var count: int = 2 if game.roll_d3() <= 2 else 3  # 2/3→2 格，1/3→3 格（PRD 2026-09-07 各抬一格）
 	var picked: Array = game.pick_random(eligible, count)
 	## 过场方向要在**转化之前**全部算完：同一批里两格相邻时，
 	## 先转的那格会变成后转那格的「来源」，方向就不再是「侵蚀从哪来」了。
@@ -482,10 +482,27 @@ func _proliferate() -> void:
 		game.log_msg("【增殖抑制】本回合组织无法增生")
 		return
 	var rate: int = game.tune.proliferate_per_adjacent
+	var rate_solid: int = game.tune.proliferate_per_adjacent_solid
 	for i in game.event_stacks("异常增殖"):
-		rate *= 2   ## 【异常增殖】增生概率翻倍（叠加时按层数连乘）
-	if rate <= 0:
+		rate *= 2        ## 【异常增殖】增生概率翻倍（叠加时按层数连乘）
+		rate_solid *= 2  ## 两档一起翻，否则事件生效期间反而把分档抹平了
+	if rate <= 0 and rate_solid <= 0:
 		return
+	## PRD 2026-09-07：**所在连通块存在固化癌组织**的癌性组织，每个贡献 4% 而不是 3%。
+	## 先把这些格子一次性挑出来 —— 每格各算一遍连通块的话，一次增生要跑 127 遍洪水填充。
+	var boosted := {}
+	if rate_solid != rate:
+		var cancerous_pred := func(c: Vector2i) -> bool:
+			return game.is_cancerous(c)
+		for block in game.blocks_of(cancerous_pred):
+			var has_solid := false
+			for c: Vector2i in block:
+				if game.tiles[c]["tissue"] == CWData.Tissue.SOLID:
+					has_solid = true
+					break
+			if has_solid:
+				for c: Vector2i in block:
+					boosted[c] = true
 	var converts: Array[Vector2i] = []
 	var coords: Array = game.tiles.keys()
 	coords.sort()  # 固定遍历顺序，保证同种子可复现
@@ -496,11 +513,13 @@ func _proliferate() -> void:
 			continue  # 与【侵蚀】一致：免疫细胞所在格不被转化
 		if _watched(c):
 			continue  # 【免疫监视】守护范围内不做增生判定（不掷骰，rng 消耗随之变少）
-		var adj := 0
+		## 概率是**逐个邻居累加**的（不再是「邻居数 × 单一档位」）：
+		## 同一格的几个癌性邻居可能分属不同连通块，档位各不相同。
+		var chance := 0
 		for n in CWData.neighbors(c):
 			if game.is_cancerous(n):
-				adj += 1
-		if adj > 0 and game.rng.randi_range(1, 1000) <= rate * adj:
+				chance += rate_solid if boosted.has(n) else rate
+		if chance > 0 and game.rng.randi_range(1, 1000) <= chance:
 			converts.append(c)
 	## 过场方向在转化**之前**取：这一批是同时结算的，先转的格不该成为后转格的「来源」（同 _erosion）
 	var from := {}

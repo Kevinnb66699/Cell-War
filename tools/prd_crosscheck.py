@@ -55,12 +55,12 @@ MAP = {
     "ANAEROBIC_PER_CANCER":   "癌组织个数times0.4",
     ## 线性式的老常量（`anaerobic_block_coef=0` 时才走）。新公式里固化是「+全图固化癌组织个数」，
     ## 系数 1.0 就藏在那个加号里 —— 对到公式那一句上，PRD 一改公式这里就会失配。
-    "ANAEROBIC_PER_SOLID":    "times 2+全图固化癌组织个数",
+    "ANAEROBIC_PER_SOLID":    "times2.8+全图固化癌组织个数",
     ## 2026-09-07 换的两条呼吸公式：各段分别对一个常量（脚本先剥反斜杠、再去掉所有空白）
     "AEROBIC_LEVEL_BASE":     "times0.5+2",
     "AEROBIC_LEVEL_STEP":     "^2times0.5",
     "ANAEROBIC_BLOCK_EXP":    "连通块癌组织个数^{0.3}",
-    "ANAEROBIC_BLOCK_COEF":   "^{0.3}times2",
+    "ANAEROBIC_BLOCK_COEF":   "^{0.3}times2.8",
     "ANAEROBIC_SOLID_BONUS":  "+全图固化癌组织个数",
     # ---- 免疫行动 ----
     "IMMUNE_DRAW_COST":       "【基因表达】：消耗0.5**能量**抽卡，每回合最多发动3次",
@@ -150,6 +150,7 @@ MAP = {
     "MATURED_ANTIBODY_COST":  "【抗体】的能量消耗由1降低为0.5",
     ## 卡面写的是「能量消耗降低0.5」——减量，不是「降为 0.5」。
     # ---- 【效应应答】与树突【E-组织黏连】（2026-09-07 实装）----
+    "PROLIFERATE_PER_ADJ_SOLID": "每个癌性组织对增生的贡献为4%",
     "EFFECTOR_COST":          "每次发动统一消耗**15效应记忆**",
     "ADHESION_RANGE":         "传染给相邻两格内的所有癌细胞",
     "HUNT_CHEMO_ROUNDS":      "【追踪趋化源】持续2回合",
