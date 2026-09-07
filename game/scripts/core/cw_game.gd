@@ -826,6 +826,17 @@ func kill(cell: Dictionary) -> void:
 
 
 # ---- 抗原记忆 / 免疫等级 ----
+## 正在结算「抽到就当场生效」的卡（CWCards.draw → CWCardFx.resolve_event）。
+## **抽卡造成的净化不积累抗原记忆**（Kevin 2026-09-07）：抗原记忆该来自免疫细胞自己走进去净化，
+## 不该被随机抽到的卡白送。用计数不用布尔：抽到的卡里可能再抽卡（【免疫记忆库】首次净化免费抽一张），会套娃。
+## **只挡净化给的那一份**——【抗原摄取】【抗原呈递增强】这些卡的正业就是送记忆，照给。
+var drawn_card_depth := 0
+
+
+func purify_gives_memory() -> bool:
+	return drawn_card_depth <= 0
+
+
 func gain_memory(n: int) -> void:
 	var bonus := event_stacks("抗原暴露")   ## 每**次**获得时 +1，不按点数（按 stacks 叠）
 	if bonus > 0:

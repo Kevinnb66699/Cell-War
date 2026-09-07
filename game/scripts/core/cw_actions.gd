@@ -853,6 +853,10 @@ func purify_here(cell: Dictionary, dest: Vector2i, paid: int) -> void:
 	CWTissue.to_healthy(t)
 	if game.event_stacks("免疫抑制因子") > 0:
 		game.log_msg("　【净化】%s 转为健康组织（免疫抑制因子：不获得抗原记忆）" % str(dest))
+	elif not game.purify_gives_memory():
+		## 抽到的卡连锁出来的净化（【效应细胞浸润】的免费移动、【全身免疫动员】的那一次迁移……）
+		## 不积累抗原记忆（Kevin 2026-09-07）
+		game.log_msg("　【净化】%s 转为健康组织（抽卡造成：不获得抗原记忆）" % str(dest))
 	else:
 		game.gain_memory(1)
 		game.log_msg("　【净化】%s 转为健康组织（抗原记忆 %d）" % [str(dest), game.memory])

@@ -344,9 +344,15 @@ func _local_phagocytosis(cell: Dictionary) -> void:
 		return
 	var c: Vector2i = cands[game.rng.randi_range(0, cands.size() - 1)]
 	CWTissue.to_healthy(game.tile(c))
-	game.gain_memory(1)
-	game.log_msg("　【局部吞噬】%s 转为健康组织，+1 抗原记忆（%d）" % [str(c), game.memory])
-	_evt("局部吞噬", "1 格转健康 · +1 记忆", c)
+	## 抽卡造成的净化不积累抗原记忆（Kevin 2026-09-07）：这张卡是抽到就生效的，
+	## 原来卡面写「并获得1抗原记忆」，PRD 已同步删掉那半句
+	if game.purify_gives_memory():
+		game.gain_memory(1)
+		game.log_msg("　【局部吞噬】%s 转为健康组织，+1 抗原记忆（%d）" % [str(c), game.memory])
+		_evt("局部吞噬", "1 格转健康 · +1 记忆", c)
+	else:
+		game.log_msg("　【局部吞噬】%s 转为健康组织（抽卡造成：不获得抗原记忆）" % str(c))
+		_evt("局部吞噬", "1 格转健康", c)
 
 
 ## 【骨髓动员】全体免疫 +0.5；健康且空仓的骨髓立即产 1 张卡。

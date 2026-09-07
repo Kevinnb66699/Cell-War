@@ -109,7 +109,7 @@ func _run_all() -> void:
 		t_log_panel, t_rules_page, t_production_row, t_skill_info,
 		t_save_load, t_settings, t_board_view, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
-		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
+		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
 		t_card_name_fit, t_view_blend, t_announce, t_action_bar_width,
@@ -8931,6 +8931,56 @@ func t_ossify_cost_and_pin() -> void:
 	## 棋盘按 gui_get_hovered_control() 判，IGNORE 的控件它看不见
 	check(box.mouse_filter == Control.MOUSE_FILTER_STOP, "详情框挡鼠标：格子详情不会从它底下钻出来，也点不穿到棋盘")
 	box.queue_free()
+	g.dispose()
+
+
+## 抽卡造成的净化不积累抗原记忆（Kevin 2026-09-07）。开关是 CWGame.drawn_card_depth，
+## 两条给记忆的路（净化本身、局部吞噬）都认它；自己走进去净化照常给。
+func t_draw_purify_memory() -> void:
+	print("[抽卡造成的净化不给记忆]")
+	var g := _fx_game(2)
+	var imm := put_immune(g, Vector2i.ZERO)
+	var at := Vector2i(1, 0)
+	## ① 自己走进去净化：照常 +1
+	g.tiles[at]["tissue"] = CWData.Tissue.CANCER
+	var m0: int = g.memory
+	await g.actions.purify_here(imm, at, -1)
+	check(g.memory == m0 + 1, "自己净化：+1 抗原记忆")
+	## ② 抽卡结算期间：不给，且日志说得出为什么
+	g.tiles[at]["tissue"] = CWData.Tissue.CANCER
+	g.drawn_card_depth += 1
+	var n0: int = g.logs.size()
+	await g.actions.purify_here(imm, at, -1)
+	var said := "\n".join(g.logs.slice(n0))
+	check(g.memory == m0 + 1 and said.contains("抽卡造成"),
+		"抽卡造成的净化：不给记忆，日志写明原因（%s）" % said.strip_edges())
+	check(g.tiles[at]["tissue"] == CWData.Tissue.HEALTHY, "该净化的还是净化了，只是不给记忆")
+	## ③ 【局部吞噬】同一把尺：卡面也不再写「+1 抗原记忆」
+	g.tiles[at]["tissue"] = CWData.Tissue.CANCER
+	var m1: int = g.memory
+	await g.card_fx.resolve_event(imm, "局部吞噬")
+	check(g.memory == m1, "【局部吞噬】在抽卡结算里：不给记忆")
+	check(not CWCardData.effect_of("局部吞噬", CWData.Faction.IMMUNE).contains("抗原记忆"),
+		"卡面已同步（PRD 删掉了「并获得1抗原记忆」）：%s" % CWCardData.effect_of("局部吞噬", CWData.Faction.IMMUNE))
+	g.drawn_card_depth -= 1
+	## ④ 开关归零：抽完一张卡不能把它留在开着的状态
+	check(g.purify_gives_memory(), "结算完开关归零，之后自己净化照常给")
+	## ⑤ 真走一遍 draw()：结算期间开着、抽完归零
+	var depth_seen: Array = []
+	g.event_drawn.connect(func(_a: int, _b: int, _c: Vector2i, _d: int, _e: String) -> void:
+		depth_seen.append(g.drawn_card_depth))
+	for c in CWCardData.pool_of(CWData.Faction.IMMUNE, g.immune_level, g.round_no):
+		if CWCardData.CARDS[c["name"]]["kind"] != CWCardData.Kind.EVENT:
+			imm["hand"].append(c["name"])   ## 技能全塞手上 → 只抽得到事件卡
+	await g.cards.draw(imm, "基因表达")
+	check(depth_seen == [1], "抽到事件卡：结算期间开关开着（%s）" % str(depth_seen))
+	check(g.drawn_card_depth == 0 and g.purify_gives_memory(), "结算完归零")
+	## ⑥ 抗原记忆类的卡不受影响：它们的正业就是送记忆
+	var m2: int = g.memory
+	g.drawn_card_depth += 1
+	await g.card_fx.resolve_event(imm, "抗原呈递增强")
+	g.drawn_card_depth -= 1
+	check(g.memory == m2 + 3, "【抗原呈递增强】照给 +3（挡的只是净化那一份）")
 	g.dispose()
 
 

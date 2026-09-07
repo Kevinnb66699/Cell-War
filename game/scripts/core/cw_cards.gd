@@ -38,11 +38,17 @@ func draw(cell: Dictionary, source: String) -> void:
 		## 只有还没实现的事件在这里兜底喊一声。
 		game.log_msg("　%s 经由「%s」抽到【事件】%s（立即结算并弃置）" % [
 			game.cell_name(cell), source, card])
+		## 「抽卡造成的净化不给抗原记忆」（Kevin 2026-09-07）的开关。**从这里就开着**：
+		## 下面发的信号会让界面把小卡摆上去，表现层看到的和引擎的口径要一致。
+		## 用 +1/-1 包住而不是置真置假：里头可能再抽一张（【免疫记忆库】），会套娃
+		game.drawn_card_depth += 1
 		## 记进右栏「回合数」那一栏（Kevin 2026-09-07 方案乙）。**在结算之前发**：
 		## 结算可能要玩家中途做选择，先把小卡摆上去，玩家才知道自己在为哪张卡做决定
 		game.event_drawn.emit(int(cell["id"]), int(cell["pid"]), cell["pos"], int(cell["faction"]), card)
 		game.broadcast_event_drawn(cell, card)
-		if not await game.card_fx.resolve_event(cell, card):
+		var done := await game.card_fx.resolve_event(cell, card)
+		game.drawn_card_depth -= 1
+		if not done:
 			game.log_msg("　（该事件效果未实现，按无效果弃置）")
 			game.announce("事件【%s】效果待实现" % card, cell["pos"], true)
 		return
