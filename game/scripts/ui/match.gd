@@ -283,6 +283,7 @@ func start_online(p_client: CWNetClient) -> void:
 	if net_hud != null:
 		net_hud.set_link("")
 		net_hud.stop_countdown()
+		net_hud.hide_ping()
 	_net_loop(_loop_id)
 
 
@@ -523,6 +524,7 @@ func _sync_link() -> void:
 		return
 	if net_hud != null:
 		net_hud.set_link("" if _client.status == "open" else "连接断开，正在重连…")
+		net_hud.set_ping(_client.ping_ms)   ## 数字由客户端的心跳往返给（Kevin 2026-09-07）
 	if panel != null:
 		panel.net_seats = _client.room.get("seats", [])
 
@@ -573,6 +575,7 @@ func teardown() -> void:
 		if net_hud != null:
 			net_hud.stop_countdown()
 			net_hud.set_link("")
+			net_hud.hide_ping()
 		if pause_menu != null:
 			pause_menu.online = false
 		if settle != null:

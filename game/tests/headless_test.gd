@@ -109,7 +109,7 @@ func _run_all() -> void:
 		t_log_panel, t_rules_page, t_production_row, t_skill_info,
 		t_save_load, t_settings, t_board_view, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
-		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
+		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
 		t_card_name_fit, t_view_blend, t_announce, t_action_bar_width,
@@ -8760,6 +8760,164 @@ func t_card_draw_fx() -> void:
 	check(m._played_card_fx.is_empty(), "拆局清空")
 	root.remove_child(main_scene)
 	main_scene.free()
+	g.dispose()
+
+
+## 联机的当前延时（Kevin 2026-09-07）：数字来自已有的心跳往返，HUD 只负责显示。
+## 客户端那半用 `_apply` 直接喂报文（不必真连服务器）；HUD 那半是纯函数。
+func t_net_ping() -> void:
+	print("[联机延时显示]")
+	var c := CWNetClient.new()
+	check(c.ping_ms == -1, "还没量到：-1，不是 0")
+	## 没发过 ping 就收到 pong（服务器乱回）→ 不记
+	c._apply({ "t": "pong" })
+	check(c.ping_ms == -1, "没发过 ping 的 pong 不记")
+	c._ping_sent = Time.get_ticks_msec() - 40
+	c._apply({ "t": "pong" })
+	check(c.ping_ms >= 40 and c.ping_ms < 4000, "pong 回来 → 记下这一个往返（%d ms）" % c.ping_ms)
+	c.forget_ping()
+	check(c.ping_ms == -1, "断线后读数作废（重连前那个数字没意义）")
+	## CWNetClient 是 RefCounted，不能 free()（本次踩到：SCRIPT ERROR「Attempted to free a RefCounted object」）
+
+	## 文案与配色：没量到写「--」，超过门槛转暖橙
+	check(CWNetHud.ping_text(-1) == "延迟 --" and CWNetHud.ping_text(42) == "延迟 42 ms",
+		"文案：没量到写 --，量到写毫秒（%s）" % CWNetHud.ping_text(42))
+	check(CWNetHud.ping_color(-1) == CWStyle.TEXT_OFF
+		and CWNetHud.ping_color(CWNetHud.PING_WARN_MS - 1) == CWStyle.TEXT_DIM
+		and CWNetHud.ping_color(CWNetHud.PING_WARN_MS) == CWStyle.CANCER,
+		"配色：未知灰、正常暗、超 %d ms 转暖橙" % CWNetHud.PING_WARN_MS)
+
+	## 摆位：跟倒计时同一列、压在它下面，且不出棋盘区
+	var hud := CWNetHud.new()
+	root.add_child(hud)
+	await process_frame
+	hud.start_countdown(30000)
+	hud.set_ping(42)
+	check(hud._ping.visible and hud._ping.position.y > hud._count.position.y,
+		"延时压在倒计时下面（%.0f > %.0f）" % [hud._ping.position.y, hud._count.position.y])
+	check(is_equal_approx(hud._ping.position.x + hud._ping.size.x, CWNetHud.COUNT_RIGHT)
+		and hud._ping.position.x + hud._ping.size.x <= CWView.screen_size().x - CWView.PANEL_WIDTH,
+		"右缘和倒计时同一列、不进右栏（右缘 %.0f）" % (hud._ping.position.x + hud._ping.size.x))
+	hud.hide_ping()
+	check(not hud._ping.visible, "单机 / 拆局：收起")
+	hud.queue_free()
+
+	## 点日志空白处收起（Kevin 2026-09-07）
+	var lp := CWLogPanel.new()
+	root.add_child(lp)
+	await process_frame
+	lp.active = true
+	lp.toggle()
+	check(lp.visible, "L 开")
+	var click := InputEventMouseButton.new()
+	click.pressed = true
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.position = Vector2(CWLogPanel.RECT.size.x / 2.0, CWLogPanel.RECT.size.y / 2.0)
+	lp._gui_input(click)
+	check(not lp.visible, "点面板空白处 → 收起")
+	lp.toggle()
+	var wheel := InputEventMouseButton.new()
+	wheel.pressed = true
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	wheel.position = click.position
+	lp._gui_input(wheel)
+	check(lp.visible, "滚轮照旧翻页，不会把面板关掉")
+	## 点面板外面也收（Kevin 2026-09-07），且这一下被吃掉：不该顺手把细胞走过去
+	var outside := InputEventMouseButton.new()
+	outside.pressed = true
+	outside.button_index = MOUSE_BUTTON_LEFT
+	outside.position = Vector2(CWLogPanel.RECT.end.x + 80.0, CWLogPanel.RECT.end.y + 80.0)
+	check(not lp.get_rect().has_point(outside.position), "这个点确实在面板外")
+	lp._unhandled_input(outside)
+	check(not lp.visible, "点面板外面 → 收起")
+	lp.visible = false
+	lp.queue_free()
+
+	## 细胞信息栏（右栏固定态）：点外面取消固定，但**不吃**那一下
+	var g2 := _fx_game(4)
+	for pid in 4:
+		var f: int = g2.players[pid]["faction"]
+		g2.cells.append(CWSetup.make_cell(pid, pid, f, Vector2i(pid - 1, 2),
+			CWData.ImmuneType.BASIC if f == CWData.Faction.IMMUNE else -1,
+			-1 if f == CWData.Faction.IMMUNE else CWData.CancerType.MELANOMA))
+	var mp := CWMatchPanel.new()
+	root.add_child(mp)
+	await process_frame
+	mp.refresh(g2)
+	var closed: Array = []
+	mp.skill_hovered.connect(func(r: Dictionary, _x: float, _y: float) -> void:
+		if r.is_empty():
+			closed.append(1))
+	mp._tip_pinned = 1
+	mp.refresh(g2)
+	check(mp._tip != null and mp._tip.visible, "固定住细胞信息栏")
+	mp._unhandled_input(outside)
+	check(mp._tip_pinned == -1 and closed.size() == 1, "点外面 → 取消固定，并收掉旁边那张卡面")
+	mp.refresh(g2)
+	check(mp._tip == null or not mp._tip.visible, "重画后信息栏确实收了")
+	mp.queue_free()
+	g2.dispose()
+
+
+## 骨样硬化的价签（Kevin 2026-09-07：按钮上没写要花多少能量）+ 点开的详情框收得掉。
+func t_ossify_cost_and_pin() -> void:
+	print("[骨样硬化价签 / 详情框收起]")
+	var g := _fx_game(2)
+	var ub := CWUIBridge.new()
+	ub.game = g
+	var ost := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER, Vector2i.ZERO, -1,
+		CWData.CancerType.OSTEO)
+	ost["energy"] = 100
+	g.cells.append(ost)
+	g.tiles[Vector2i.ZERO]["tissue"] = CWData.Tissue.CANCER
+	check(ub._cost_text(ost, "ossify") == CWData.fmt(g.tune.osteo_ossify_cost),
+		"骨样硬化按钮写明费用，且现读旋钮（%s）" % ub._cost_text(ost, "ossify"))
+	g.tune.osteo_ossify_cost = 35
+	check(ub._cost_text(ost, "ossify") == CWData.fmt(35), "改旋钮价签跟着变，没写死")
+	g.tune.osteo_ossify_cost = CWData.OSTEO_OSSIFY_COST
+	## 这个癌种的主动技能一个都不许缺价签（骨样硬化就是这么漏的）
+	var blank: Array = []
+	for act in g.actions.action_kinds(ost):
+		if act != "move" and ub._cost_text(ost, act) == "":
+			blank.append(act)
+	check(blank.is_empty(), "骨肉瘤的主动技能都有价签（缺的：%s；「移动」的价随目的地变，另走 _move_cost_text）" % str(blank))
+
+	## 点小卡固定住的详情框：再点同一张 → 收；点别处 → 收；去停手牌 → 让位
+	var box := CWCardInfo.new()
+	root.add_child(box)
+	await process_frame
+	var rows: Dictionary = CWCardInfo.describe("GLUT1高表达", CWData.Faction.CANCER, 1)
+	box.show_info(rows, 300.0, 120.0)
+	check(box.visible, "点小卡 → 立刻显示")
+	box.sync(0.5, CWData.Faction.CANCER, false)
+	check(box.visible, "自己不会消失（这正是 Kevin 报的「卡在那里」的前提）")
+	box.show_info(rows, 300.0, 120.0)
+	check(not box.visible, "再点同一张 → 收起")
+	box.show_info(rows, 300.0, 120.0)
+	check(box.visible, "再点一下又开（开关式）")
+	var click := InputEventMouseButton.new()
+	click.pressed = true
+	click.button_index = MOUSE_BUTTON_LEFT
+	box._unhandled_input(click)
+	check(not box.visible, "点别处（棋盘 / 空处）→ 收起")
+	box.show_info(rows, 300.0, 120.0)
+	box.on_hover("补体调理")
+	box.sync(0.5, CWData.Faction.IMMUNE, false)
+	check(box.visible and box._card == "补体调理", "去停一张手牌 → 固定的让位，浮出那张卡的详情")
+	box.on_hover("")
+	box.hide_now()
+	## 悬停那种照旧：鼠标一走就收，不受固定那套影响
+	box.on_hover_info(CWCardInfo.describe_type(CWData.ImmuneType.T_CELL), 300.0, 100.0)
+	box.sync(0.5, CWData.Faction.IMMUNE, false)
+	check(box.visible, "悬停技能行照常浮出")
+	box._unhandled_input(click)
+	check(box.visible, "悬停那种不吃「点别处就收」那条（它自己会随鼠标离开收起）")
+	box.on_hover_info({}, 0.0, -1.0)
+	check(not box.visible, "离开 → 收起")
+	## 详情框要算「最上面的图层」（Kevin 2026-09-07 截图：停在框上，底下那一格的地图信息还浮出来）——
+	## 棋盘按 gui_get_hovered_control() 判，IGNORE 的控件它看不见
+	check(box.mouse_filter == Control.MOUSE_FILTER_STOP, "详情框挡鼠标：格子详情不会从它底下钻出来，也点不穿到棋盘")
+	box.queue_free()
 	g.dispose()
 
 

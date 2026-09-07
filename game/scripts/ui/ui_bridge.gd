@@ -723,6 +723,10 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 			return CWData.fmt(CWData.MELANOMA_HOMING_COST)
 		"jump":
 			return CWData.fmt(game.tune.metastasis_cost)   ## 旋钮（默认 = PRD 1.0）
+		"ossify":
+			## 2026-09-07 Kevin 报「骨样硬化按钮没有费用」—— 09-05 重做这个技能时漏了这一格。
+			## 同 jump：读旋钮不写死（默认 = PRD 的 2.0）
+			return CWData.fmt(game.tune.osteo_ossify_cost)
 		"mucus":
 			return "耗尽能量"
 	return ""

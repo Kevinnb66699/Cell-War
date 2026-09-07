@@ -137,6 +137,21 @@ func _chrome() -> void:
 		add_child(_end)
 
 
+## 点面板外面 → 取消固定的细胞信息栏（Kevin 2026-09-07）。点在面板 / 详情框自己身上的鼠标事件
+## 走不到这里（那两处都是 MOUSE_FILTER_STOP），所以能到这儿的就是「点了外面」。
+## **不吃这一下**：它只是个信息框，玩家点棋盘多半是要走子或选目标，顺手收起就好，别把那一下也吞了
+## —— 日志面板那边相反（它盖着大半个棋盘，点外面就是想关它）。
+func _unhandled_input(event: InputEvent) -> void:
+	if _tip_pinned < 0:
+		return
+	var mb := event as InputEventMouseButton
+	if mb == null or not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
+		return
+	_tip_pinned = -1
+	_tip_key = ""        ## 固定与否决定列什么，键作废、强制重搭
+	skill_hovered.emit({}, 0.0, -1.0)   ## 连带收掉浮在旁边的那张卡面
+
+
 func _unhandled_key_input(event: InputEvent) -> void:
 	## 设计稿把空格标成「结束回合」的快捷键
 	if _end != null and _end.visible and event.is_action_pressed("ui_accept"):

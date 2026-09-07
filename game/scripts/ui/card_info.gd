@@ -46,19 +46,30 @@ var _card := ""      ## 正在悬停的卡名；空串 = 没有
 var _info := {}      ## 自由文案（分化提问里悬停种类按钮 → 细胞种类详情）；非空时压过 _card
 var _anchor_x := 0.0 ## 自由文案的锚点：贴着被悬停按钮的左缘摆
 var _anchor_y := -1.0 ## 锚点的 y：≥0 = 框顶对齐到被悬停那一行（右栏技能行 / 历史小卡）；-1 = 压在行动栏提示条上方（分化按钮）
+## 点小卡「固定」住的那种（show_info）：悬停那种鼠标一走就收，这种没人来收它 ——
+## 2026-09-07 Kevin 报「点过一次小卡，详情栏就卡在那里」。收起的三条路见 show_info / on_hover / _unhandled_input。
+var _pinned := false
 var _wait := 0.0
 var _key := ""       ## 上次搭内容用的键；没变就不重搭（每帧 sync，重搭是浪费）
 
 
 func _ready() -> void:
 	visible = false
-	mouse_filter = Control.MOUSE_FILTER_IGNORE   ## 详情框不挡任何点击
+	## **要挡住鼠标**（2026-09-07 Kevin 截图：停在详情框上，底下那一格的地图信息还是浮出来了）。
+	## 两个理由：① 棋盘按「指针是不是被控件占着」判要不要报格（CWBoard._process，09-06 定的
+	## 「最上面的图层说了算」），IGNORE 的控件不算，格子详情就会从框底下钻出来；
+	## ② 点开的那种框浮在棋盘上，IGNORE 时点它等于点穿到棋盘上，会真的把细胞走过去。
+	mouse_filter = Control.MOUSE_FILTER_STOP
 
 
 ## 接 hand.card_hovered。换卡先收起再重新计时（划过一串卡不会闪一路框）。
 func on_hover(card_name: String) -> void:
 	if card_name == _card:
 		return
+	## 去停一张手牌 = 不再看点开的那张：固定的先让位，否则 sync 里自由文案压着卡面出不来
+	if _pinned and card_name != "":
+		_pinned = false
+		_info = {}
 	_card = card_name
 	_wait = 0.0
 	visible = false
@@ -67,7 +78,19 @@ func on_hover(card_name: String) -> void:
 func hide_now() -> void:
 	_card = ""
 	_info = {}
+	_pinned = false
 	visible = false
+
+
+## 点开之后点别处就收（Kevin 2026-09-07）。**不吃掉这一下**：那一下该干嘛还干嘛。
+## 走 `_unhandled_input` 收得到的是「点在棋盘 / 空处」；点在别的控件上（右栏行、手牌、行动栏）
+## 由那几条路各自的收起口负责（悬停换目标、这一问结束都会传空字典进来）。
+func _unhandled_input(event: InputEvent) -> void:
+	if not _pinned:
+		return
+	var mb := event as InputEventMouseButton
+	if mb != null and mb.pressed:
+		hide_now()
 
 
 ## 分化提问：鼠标停在种类按钮上 → 浮该细胞种类的 PRD 原文（rows 由 describe_type 给）；
@@ -95,6 +118,11 @@ func show_info(rows: Dictionary, anchor_x: float, anchor_y := -1.0) -> void:
 	if rows.is_empty():
 		hide_now()
 		return
+	## 再点同一张 = 收起（Kevin 2026-09-07）
+	if _pinned and visible and rows == _info:
+		hide_now()
+		return
+	_pinned = true
 	_card = ""
 	_info = rows
 	_anchor_x = anchor_x

@@ -93,8 +93,30 @@ func _ready() -> void:
 	add_child(hint)
 
 
-## 对局中随时可按 L 开关；面板开着时滚轮翻页（滚轮事件从 gui_input 进不来，
-## 因为行 Label 都不吃鼠标，所以统一在这里收）
+## 面板自己收鼠标（本层 MOUSE_FILTER_STOP，事件到不了下面的 _unhandled_input）：
+## · 左键点空白处 = 收起（Kevin 2026-09-07：展开后点日志空白处也能缩小）——
+##   面板里没有任何可点的东西，所以「空白处」就是除了滚轮之外的任何地方；
+## · 滚轮翻页。**两处都留着**：这两类事件到底走 gui_input 还是 _unhandled_input，
+##   取决于本层的 mouse_filter 与上层有没有先吃掉，两边各判一次最稳（重复不会翻两页：先到的那条会 accept）。
+func _gui_input(event: InputEvent) -> void:
+	if not active or not visible:
+		return
+	var mb := event as InputEventMouseButton
+	if mb == null or not mb.pressed:
+		return
+	match mb.button_index:
+		MOUSE_BUTTON_WHEEL_UP:
+			accept_event()
+			_scroll(SCROLL_STEP)
+		MOUSE_BUTTON_WHEEL_DOWN:
+			accept_event()
+			_scroll(-SCROLL_STEP)
+		MOUSE_BUTTON_LEFT:
+			accept_event()
+			toggle()
+
+
+## 对局中随时可按 L 开关；面板开着时滚轮翻页 / 左键收起（走到这儿说明本层没先收到，见上面那段）
 func _unhandled_input(event: InputEvent) -> void:
 	if not active:
 		return
@@ -104,6 +126,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		toggle()
 		return
 	if not visible or not (event is InputEventMouseButton) or not event.pressed:
+		return
+	if event.button_index == MOUSE_BUTTON_LEFT:
+		## 点面板外面也收（Kevin 2026-09-07）。**吃掉这一下**：这块面板盖着大半个棋盘，
+		## 点它外面就是「我想关掉它」，不该顺手把细胞走过去
+		get_viewport().set_input_as_handled()
+		toggle()
 		return
 	if not get_rect().has_point(event.position):
 		return   ## 只有指着面板滚才翻页，别把别处的滚轮吃掉

@@ -40,6 +40,10 @@ const INBOX_MAX := 2000                  ## inbox 只给测试和机器人翻，
 ## （2026-09-03 线上验收两次撞到：几分钟内第 15 个短连接的握手根本没到服务器，18 秒后又一切正常）。
 ## 到点就当连接失败发 disconnected，界面据此报错 / 重试，别让人对着「连接中…」干等。
 var connect_timeout_ms := 10000       ## 测试把它调短
+## 当前往返时延（毫秒），-1 = 还没量到。**复用已有的心跳**：ping 发出时记时刻，pong 回来就是一个往返，
+## 所以刷新周期 = CWNet.HEARTBEAT_MS（5 秒）。要更勤只能加密心跳，那是协议节奏，不为一个读数改（Kevin 2026-09-07）。
+var ping_ms := -1
+var _ping_sent := 0
 var _last_ping := 0
 var _connect_started := 0
 var _game_no := -1
@@ -79,6 +83,9 @@ func poll() -> void:
 					hello["room"] = code
 				send(hello)
 				_last_ping = Time.get_ticks_msec()
+				## 握手之后先补一发：不然要等满一个心跳周期才有第一个读数
+				_ping_sent = _last_ping
+				send({ "t": "ping" })
 				connected.emit()
 			while ws.get_available_packet_count() > 0:
 				var m := CWNet.decode(ws.get_packet())
@@ -94,6 +101,7 @@ func poll() -> void:
 				message.emit(m)
 			if Time.get_ticks_msec() - _last_ping > CWNet.HEARTBEAT_MS:
 				_last_ping = Time.get_ticks_msec()
+				_ping_sent = _last_ping
 				send({ "t": "ping" })
 			if autoplay != null and not pending_ask.is_empty():
 				await _auto_answer()
@@ -105,6 +113,7 @@ func poll() -> void:
 		WebSocketPeer.STATE_CLOSED:
 			if status != "closed":
 				status = "closed"
+				forget_ping()
 				disconnected.emit(ws.get_close_code(), ws.get_close_reason())
 
 
@@ -178,6 +187,10 @@ func _apply(m: Dictionary) -> void:
 	match m["t"]:
 		"welcome":
 			client_id = m.get("client_id", -1)
+		"pong":
+			## 一来一回就是一个往返。服务器的 pong 是收到即回，排队开销算在延时里 —— 这正是玩家感觉到的那个延时
+			if _ping_sent > 0:
+				ping_ms = Time.get_ticks_msec() - _ping_sent
 		"room":
 			if m.get("code", "") != code:      ## 换了房间：上一局的记录作废
 				_game_no = -1
@@ -201,6 +214,12 @@ func _apply(m: Dictionary) -> void:
 			last_error = m
 			if m.get("code", "") in ["room_closed", "kicked"]:
 				_clear_room()
+
+
+## 断线时读数作废：重连前那个数字已经没有意义了
+func forget_ping() -> void:
+	ping_ms = -1
+	_ping_sent = 0
 
 
 func _clear_room() -> void:
