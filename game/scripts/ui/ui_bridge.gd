@@ -23,7 +23,6 @@ var bar: CWActionBar
 var info: CWCardInfo   ## 悬停详情框：分化提问里停在种类按钮上时浮细胞种类详情；纯 AI 桥 / 测试里可为 null
 var panel: CWMatchPanel
 var toast: CWToast     ## 骰子旁边那行字
-var feed: CWFeed            ## 棋盘左侧的事件列表（2026-09-07 顶替了顶带那条通报气泡）
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
 var erosion: CWErosionFx   ## 癌蔓延两帧过场（侵蚀 / 增生 / 定殖共用）；纯 AI 桥 / 测试里可为 null
 var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这里来（无界面时为 null）
@@ -768,43 +767,9 @@ func show_erosion(at: Vector2i, dir: int) -> void:
 	erosion.play(at, dir)
 
 
-## 全局通报（不挂在某一格上的大事）：**记进棋盘左侧的事件列表**（Kevin 2026-09-07：
-## 原来在顶带弹气泡，扎堆时挤成一团、走了还找不回来）。列表是留得住的，点一条看全文。
-func show_notice(text: String) -> void:
-	if feed != null and is_instance_valid(feed):
-		feed.add_entry("世界事件", text, CWStyle.CANCER)
-
-
-## 别人打出了卡（Kevin 2026-09-06 要的提示，2026-09-07 从顶带气泡改进左侧列表）：
-## 屏幕前这位真人自己打的不记（自己知道）；其余按阵营标「对手 / 队友」。
-## 观战（没有真人）或换手期间（current_human = -1）全记、不标关系。
-func show_card_played(pid: int, text: String, _info := {}) -> void:
-	if feed == null or not is_instance_valid(feed):
-		return
-	var viewer := viewing_pid()
-	if viewer == pid:
-		return
-	var kind := "打出"
-	if viewer >= 0 and game != null:
-		kind = "队友" if game.player(viewer)["faction"] == game.player(pid)["faction"] else "对手"
-	feed.add_entry(kind, text, _side_color(pid))
-
-
-## 别人抽了一张卡（2026-09-07）：**不写是哪张**（牌名只有本人能看），只记「谁、经由什么」。
-## 自己抽的不记 —— 卡都飞进自己手牌了，再记一条是废话。
-func show_card_drawn(pid: int, info := {}) -> void:
-	if feed == null or not is_instance_valid(feed) or game == null:
-		return
-	if viewing_pid() == pid:
-		return
-	var src := String(info.get("source", ""))
-	feed.add_entry("抽卡", "%s 经由「%s」抽了 1 张" % [game.player(pid)["name"], src], _side_color(pid))
-
-
-func _side_color(pid: int) -> Color:
-	if game == null:
-		return CWStyle.TEXT_DIM
-	return CWStyle.IMMUNE if game.player(pid)["faction"] == CWData.Faction.IMMUNE else CWStyle.CANCER
+## 全局通报（`show_notice`）2026-09-07 起界面上没有位置了：世界事件本来就写进日志
+## （CWWorldFx 连写两条），抽到的那张事件卡则以卡面进棋盘左侧的出牌列（CWMatch._on_event_drawn）。
+## 基类的空实现留着 —— 联机那条 notice 报文照收不误，只是不再弹任何东西。
 
 
 ## 屏幕前这位真人是哪一席：热座 = 当前露牌的那位（换手期间 -1），单人局 = 那一席，观战 = -1
@@ -812,8 +777,6 @@ func viewing_pid() -> int:
 	if hotseat:
 		return current_human
 	return human_pids[0] if not human_pids.is_empty() else -1
-
-
 
 
 ## 骰子落在某格时，它在**屏幕**上占的那块矩形。提示靠它避让。

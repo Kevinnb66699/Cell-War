@@ -151,7 +151,7 @@ var _fading := false  ## 正在演返场淡出：这期间**必须停掉每帧�
 var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
 var _tile_info: CWTileInfo   ## 悬停格子详情（_ready 里程序化补进 UI 层）
 var _card_info: CWCardInfo   ## 悬停手牌详情，同样程序化补进；与格子详情同一套打法
-var _feed: CWFeed            ## 棋盘左侧的事件列表（2026-09-07 顶替顶带那条通报气泡）
+var _feed: CWFeed            ## 棋盘左侧的出牌列（2026-09-07：别人打出的卡 + 抽到的事件卡）
 var _chemo_fx: CWChemoFx     ## 树突【I-趋化源】的漩涡核心演出（挂在棋盘层，跟着格子走）
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
 var _erosion_fx := CWErosionFx.new()
@@ -193,8 +193,8 @@ func _ready() -> void:
 		_card_info = CWCardInfo.new()
 		ui.add_child(_card_info)
 		ui.move_child(_card_info, _tile_info.get_index())
-		## 棋盘左侧的事件列表（Kevin 2026-09-07：顶带那条通报「太过拥挤」，删掉换成留得住的一列）。
-		## 贴在迷你日志正下方、同 x 同宽
+		## 棋盘左侧的出牌列（Kevin 2026-09-07：顶带那条通报「太过拥挤」，删掉换成留得住的一列卡）。
+		## 机位已为它让出 CWView.LEFT_STRIP，压不到棋盘
 		_feed = CWFeed.new()
 		ui.add_child(_feed)
 		ui.move_child(_feed, _tile_info.get_index())
@@ -331,6 +331,9 @@ func _prepare_ui() -> void:
 		panel.skill_hovered.connect(_card_info.on_hover_info)
 	if _card_info != null and panel != null and not panel.played_card_pressed.is_connected(_card_info.show_info):
 		panel.played_card_pressed.connect(_card_info.show_info)
+	if _card_info != null and _feed != null and is_instance_valid(_feed) \
+			and not _feed.card_pressed.is_connected(_card_info.show_info):
+		_feed.card_pressed.connect(_card_info.show_info)
 	if _log_panel != null:
 		_log_panel.active = true
 	if _log_hint != null:
@@ -347,7 +350,6 @@ func _wire_bridge(smart: bool) -> void:
 	bridge.info = _card_info   ## 分化提问里悬停种类按钮 → 细胞种类详情（同一只详情框）
 	bridge.panel = panel
 	bridge.toast = toast
-	bridge.feed = _feed
 	bridge.camera = camera
 	bridge.erosion = _erosion_fx
 	bridge.hand = hand   ## 方案甲：打出/弃置手势从手牌抽屉来
@@ -904,13 +906,26 @@ func _on_card_played(cell_id: int, pid: int, pos: Vector2i, faction: int, card_n
 		return
 	if panel != null and is_instance_valid(panel):
 		panel.note_played_card(game, pid, faction, card_name)
+	## 左侧出牌列：**别人打的才记**（自己打的自己知道）。本地与联机都走这个回调，
+	## 所以喂列的活儿放在这里而不是界面桥里（联机那条 card_played 报文不带牌名）
+	if _feed != null and is_instance_valid(_feed) and game != null \
+			and (bridge == null or bridge.viewing_pid() != pid):
+		_feed.add_card(card_name, String(game.player(pid)["name"]), faction,
+			CWCardInfo.describe(card_name, faction, CWCardData.cancer_phase(game.round_no)))
 	_play_card_fx(cell_id, pos)
 
 
 ## 抽到即结算的事件卡：只记进右栏「回合数」那一栏（Kevin 2026-09-07 方案乙）。
 ## **不演头顶飞卡** —— 事件的效果自己会在那一格喊一句，两样叠在同一格上太吵。
 func _on_event_drawn(_cell_id: int, _pid: int, _pos: Vector2i, faction: int, card_name: String) -> void:
-	if card_name == "" or panel == null or not is_instance_valid(panel):
+	if card_name == "":
+		return
+	var rows: Dictionary = CWCardInfo.describe(card_name, faction,
+		CWCardData.cancer_phase(game.round_no) if game != null else 0)
+	## 事件卡谁都没「打出」，但它是全场的事 —— 一律进列，底下写「世界事件」
+	if _feed != null and is_instance_valid(_feed):
+		_feed.add_card(card_name, "", faction, rows, true)
+	if panel == null or not is_instance_valid(panel):
 		return
 	panel.note_event_card(game, faction, card_name)
 

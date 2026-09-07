@@ -4363,14 +4363,18 @@ func t_match_panel() -> void:
 	await g.world_fx.trigger()
 	check(rec.got == ["世界事件【基质阻隔】：癌细胞移动能量花费翻倍（持续 2 回合）"],
 		"trigger → notice 文本含效果与持续期、只通报一次：%s" % str(rec.got))
-	## 2026-09-07 起通报不再在顶带弹气泡，改记进棋盘左侧的事件列表（Kevin：「右上角的提示太过拥挤」）——
-	## 那两条摆位断言随之作废；列表的摆位与行为在下面单独钉
-	check(CWFeed.RECT.position.x == CWLogPanel.RECT.position.x
-		and CWFeed.RECT.position.y >= CWLogHint.SIZE.y + CWLogPanel.RECT.position.y,
-		"事件列表贴在迷你日志正下方、同 x（%s）" % str(CWFeed.RECT.position))
-	check(CWFeed.RECT.end.x <= CWView.screen_size().x - CWView.PANEL_WIDTH
-		and CWFeed.RECT.end.y <= CWView.screen_size().y,
-		"整列在棋盘区内，不压右栏、不出屏")
+	## 2026-09-07 起通报不再在顶带弹气泡：世界事件只写日志，抽到的事件卡以卡面进左侧出牌列
+	## （Kevin：「右上角的提示太过拥挤」）—— 那两条摆位断言随之作废。
+	## **出牌列与机位是一起算的**：它整列必须落在棋盘可用区间的左边，一格都不许压
+	## （Kevin 2026-09-07 亲自点出旧的一列压住了棋盘左上角）
+	var span := CWView.board_span()
+	check(CWFeed.RECT.end.x <= span.x and CWFeed.RECT.position.x >= 0.0,
+		"出牌列整列在棋盘左缘 %.0f 之外（%s）" % [span.x, str(CWFeed.RECT)])
+	check(CWFeed.RECT.position.y >= CWLogHint.SIZE.y + CWLogPanel.RECT.position.y
+		and CWFeed.RECT.end.y <= CWHand.REST_TOP,
+		"出牌列在迷你日志下方、不伸进手牌抽屉（%s）" % str(CWFeed.RECT))
+	check(CWView.LEFT_STRIP == int(CWFeed.RECT.size.x), "机位让出的宽度就是出牌列的宽度")
+	check(span.y <= CWView.screen_size().x - CWView.PANEL_WIDTH, "右边照旧让给竖条")
 	## 两档时长（Kevin 2026-09-06）：骰子**结果文字** ≥2 s（骰子本身的演出在 CWDice，这里碰不到）；非骰子说明更长
 	check(CWUIBridge.RESULT_HOLD >= 2.0 and CWUIBridge.TEXT_HOLD >= 3.0,
 		"骰子结果 %.1f s、非骰子说明 %.1f s" % [CWUIBridge.RESULT_HOLD, CWUIBridge.TEXT_HOLD])
@@ -4387,64 +4391,47 @@ func t_match_panel() -> void:
 	check(tq._label.text == "二" and tq._queue.is_empty() and tq._busy, "第一条走完 → 第二条上")
 	tq.hide_now()
 	check(tq._queue.is_empty() and not tq._busy, "收起清队")
-	## 界面桥：不挂在某一格上的大事**记进棋盘左侧的事件列表**（Kevin 2026-09-07 删掉了顶带那条通报气泡）
-	var ub := CWUIBridge.new()
-	var t_res := CWToast.new()
+	## 出牌列：一列**手牌那张卡缩一半**（Kevin 2026-09-07：「不要用小卡，就把手牌区抽到的卡
+	## 缩小放上去就行」「注明是谁打出的就行」）。喂它的是 CWMatch 的 card_played / event_drawn
+	## 两个回调（本地与联机都会响），所以这里直接验控件本身
 	var fd := CWFeed.new()
-	root.add_child(t_res)
+	var t_res := CWToast.new()   ## 骰子旁那只：下面那段气泡断言还要用
 	root.add_child(fd)
+	root.add_child(t_res)
 	await process_frame
-	ub.toast = t_res
-	ub.feed = fd
-	ub.show_notice("世界事件【X】")
-	check(fd._rows.size() == 1 and String(fd._rows[0]["text"]) == "世界事件【X】" and t_res._label.text == "",
-		"通报进列表，不碰骰子旁那行字")
-	check(String(fd._rows[0]["kind"]) == "世界事件", "行首标出是哪一类")
-	## 别人打牌（Kevin 2026-09-06 要的提示）：自己打的不记；别人的按阵营标「对手 / 队友」；观战全记不标
-	ub.game = g
-	ub.human_pids = [0]
-	ub.hotseat = false
-	ub.show_card_played(0, "免疫A 打出【CXCR3趋化】")
-	check(fd._rows.size() == 1, "自己打的卡不记")
-	ub.show_card_played(1, "癌症A 打出【糖酵解爆发】")
-	check(fd._rows.size() == 2 and String(fd._rows[1]["kind"]) == "对手", "对手打的卡：标「对手」")
-	ub.show_card_played(2, "免疫B 打出【炎症趋化】")
-	check(String(fd._rows[2]["kind"]) == "队友", "队友打的卡：标「队友」")
-	ub.human_pids = []
-	ub.show_card_played(0, "免疫A 打出【CXCR3趋化】")
-	check(String(fd._rows[3]["kind"]) == "打出", "观战：全记、不标关系")
-	ub.hotseat = true
-	ub.current_human = 1
-	var n_before: int = fd._rows.size()
-	ub.show_card_played(1, "癌症A 打出【糖酵解爆发】")
-	check(fd._rows.size() == n_before, "热座：当前露牌的那位自己打的不记")
-	## 别人抽卡也记一条，但**不写是哪张**（牌名只有本人能看）
-	ub.show_card_drawn(0, { "source": "基因表达" })
-	var drew: String = String(fd._rows[fd._rows.size() - 1]["text"])
-	check(String(fd._rows[fd._rows.size() - 1]["kind"]) == "抽卡" and drew.contains("基因表达")
-		and not drew.contains("【"), "抽卡记一条：谁、经由什么，不写牌名（%s）" % drew)
-	ub.show_card_drawn(1, { "source": "突变" })
-	check(String(fd._rows[fd._rows.size() - 1]["text"]).contains("抽了 1 张") or fd._rows.size() <= CWFeed.MAX_ROWS,
-		"自己那席（当前露牌的 pid 1）抽卡不记")
-	## 最多留 MAX_ROWS 条，旧的挤掉；点一条展开、再点收起；点别处也收起
-	for k in 8:
-		fd.add_entry("世界事件", "第 %d 条" % k, CWStyle.CANCER)
-	check(fd._rows.size() == CWFeed.MAX_ROWS, "最多留 %d 条，旧的挤掉" % CWFeed.MAX_ROWS)
-	check(String(fd._rows[fd._rows.size() - 1]["text"]) == "第 7 条", "最新的在最后（画的时候摆最上面）")
+	var rows_a: Dictionary = CWCardInfo.describe("糖酵解爆发", CWData.Faction.CANCER, 0)
+	fd.add_card("糖酵解爆发", "癌症A", CWData.Faction.CANCER, rows_a)
+	check(fd._rows.size() == 1 and String(fd._rows[0]["who"]) == "癌症A", "记一张：卡名 + 谁打的")
+	fd.add_card("炎症趋化", "免疫B", CWData.Faction.IMMUNE,
+		CWCardInfo.describe("炎症趋化", CWData.Faction.IMMUNE, 0))
 	var top: Control = fd._rows[fd._rows.size() - 1]["box"]
 	var second: Control = fd._rows[fd._rows.size() - 2]["box"]
-	check(top.position.y < second.position.y, "最新的一条画在最上面")
+	check(top.position.y < second.position.y, "最新的一张画在最上面")
+	## 事件卡：谁都没打出，底下写「世界事件」
+	fd.add_card("免疫抑制因子", "", CWData.Faction.CANCER,
+		CWCardInfo.describe("免疫抑制因子", CWData.Faction.CANCER, 0), true)
+	check(String(fd._rows[fd._rows.size() - 1]["who"]) == CWFeed.EVENT_WHO, "事件卡不写打出者")
+	## 卡面就是手牌那张卡的顶上一截：同宽、字号一步不动（缩过一版，10px 变 5px 糊成马赛克），
+	## 卡名折行也照搬手牌那套
+	var face: Control = fd._rows[0]["box"]
+	check(face.size == Vector2(CWFeed.CARD_W, CWFeed.CARD_H) and face.scale == Vector2.ONE
+		and is_equal_approx(CWFeed.CARD_W, CWHand.CARD.x),
+		"卡面与手牌同宽、原大不缩放（%s）" % str(face.size))
+	check(face.get_child_count() == 2 + CWHand.name_lines("糖酵解爆发").size(),
+		"卡面 = 底板 + 折好的卡名 + 一行「谁打的」")
+	check(CWHand.name_lines("自分泌生存信号").size() == 2, "长卡名照旧折两行（卡面装得下）")
+	## 点一张 → 把卡面内容交给详情框（同右栏历史小卡那条路）
+	var pressed := []
+	fd.card_pressed.connect(func(r: Dictionary, x: float, y: float) -> void: pressed.append([r, x, y]))
 	var click := InputEventMouseButton.new()
 	click.pressed = true
 	click.button_index = MOUSE_BUTTON_LEFT
-	top.gui_input.emit(click)
-	check(fd._open == fd._rows.size() - 1 and fd._detail != null and is_instance_valid(fd._detail),
-		"点一条 → 展开看全文")
-	top.gui_input.emit(click)
-	check(fd._open == -1, "再点同一条 → 收起")
-	top.gui_input.emit(click)
-	fd._unhandled_input(click)
-	check(fd._open == -1, "点别处 → 收起")
+	face.gui_input.emit(click)
+	check(pressed.size() == 1 and (pressed[0][0] as Dictionary) == rows_a, "点一张 → 出详情框")
+	## 最多留 MAX_ROWS 张，旧的挤掉
+	for k in CWFeed.MAX_ROWS + 3:
+		fd.add_card("糖酵解爆发", "癌症A", CWData.Faction.CANCER, rows_a)
+	check(fd._rows.size() == CWFeed.MAX_ROWS, "最多留 %d 张，旧的挤掉" % CWFeed.MAX_ROWS)
 	fd.clear_all()
 	check(fd._rows.is_empty(), "拆局清空")
 	fd.queue_free()
