@@ -11,6 +11,8 @@ signal card_played(cell_id: int, pid: int, pos: Vector2i, faction: int, card_nam
 ## 抽到即结算的事件卡（不进手牌、不算「谁打出的」）。与 card_played 分开：
 ## Kevin 2026-09-07「事件卡放在回合数那一栏结算，不要和细胞主动打出的卡放在一起」
 signal event_drawn(cell_id: int, pid: int, pos: Vector2i, faction: int, card_name: String)
+## 抽到一个**世界事件**（不是事件卡）。棋盘左侧那一列据此摆一张牌面。
+signal world_event(ev_name: String, left: int)
 ## 这个细胞**抽到了一张卡**（不说是哪张 —— 牌名只有本人能看）。给头顶的抽卡演出用（Kevin 2026-09-07）。
 ## source = 「基因表达」/「骨髓」/「突变」，表现层要只演某一种时在那边过滤。
 signal card_drawn(cell_id: int, pid: int, pos: Vector2i, source: String)
@@ -670,6 +672,15 @@ func broadcast_card_played(cell: Dictionary, card: String) -> void:
 	var info := { "cell_id": int(cell["id"]), "pos": cell["pos"], "faction": int(cell["faction"]), "card": card }
 	for b in _unique_bridges():
 		b.show_card_played(cell["pid"], text, info)
+
+
+## 抽到一个世界事件：广播给各桥（联机据此发报文），本地表现层走 `world_event` 信号。
+## 与 `notice()` 并存而不是复用它：notice 传的是一句拼好的话，而左侧那一列要的是
+## **结构化的事件名 + 剩余回合**（卡面写名字、详情框写效果）。从字符串里再解析出来太脆。
+func broadcast_world_event(ev_name: String, left: int) -> void:
+	world_event.emit(ev_name, left)
+	for b in _unique_bridges():
+		b.show_world_event(ev_name, { "left": left })
 
 
 ## 抽到即结算的事件卡：广播给各桥（联机据此发报文），本地表现层走 `event_drawn` 信号。

@@ -197,7 +197,9 @@ func refresh(game: CWGame) -> void:
 	_update_tip(game)
 
 	_level.text = CWData.LEVEL_NAMES[game.immune_level]
-	_memory.text = "抗原记忆 %d" % game.memory
+	## X 级起这个计数器改叫【效应记忆】并从零重数（PRD「免疫记忆」节）——
+	## 名字必须跟着改：X 级之后它管的是【效应应答】的费用，不再是升级进度（Kevin 2026-09-07）
+	_memory.text = "%s %d" % [CWData.memory_name(game.immune_level), game.memory]
 
 
 ## 回到主菜单时清空：下一局人数可能不同，节点结构要按新人数重建。

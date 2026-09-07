@@ -26,7 +26,10 @@ const TITLE_H := 42     ## 标题（30px）占的高度
 const HINT_H := 20
 
 ## enabled=false 的项按主菜单那套画成灰色、不响应鼠标。
-## 「规则速查」「知识之书」「设置」直接复用主菜单那三个页面类（2026-08-30 接入；知识之书 2026-09-05 Kevin 拍板加，
+## 「知识之书」「设置」直接复用主菜单那两个页面类（2026-08-30 接入；知识之书 2026-09-05 Kevin 拍板加，
+## **「规则速查」2026-09-07 Kevin 定去掉**：主菜单那份 09-06 已经撤了，这份是最后一处入口 ——
+## 硬数字总览交给知识之书，一份规则两处维护本来就容易漂。
+## `CWRulesPage` 类与 t_rules_page 因此成了孤儿，留着没删（要不要删由团队定）。
 ## 正式局里翻图鉴不必回主菜单）：视图本身无状态（设置的真身在 CWSettings 静态里），暂停里再建一份实例即可；
 ## 挂在本节点下面顺便继承 PROCESS_MODE_ALWAYS，暂停期间照常收输入——
 ## 「页压页且保持暂停」就这么解决，见 _unhandled_input 里的子页路由。
@@ -36,7 +39,6 @@ const HINT_H := 20
 const ITEMS := [
 	{ "id": "resume", "text": "继续对局", "enabled": true, "confirm": "" },
 	{ "id": "save_quit", "text": "保存并退出", "enabled": true, "confirm": "" },
-	{ "id": "rules", "text": "规则速查", "enabled": true, "confirm": "" },
 	{ "id": "codex", "text": "知识之书", "enabled": true, "confirm": "" },
 	{ "id": "settings", "text": "设置", "enabled": true, "confirm": "" },
 	{ "id": "menu", "text": "返回主菜单", "enabled": true, "confirm": "返回主菜单？" },
@@ -72,7 +74,6 @@ var active := false
 ## 联机局：没有「保存并退出」（状态在服务器），「返回主菜单」改成「离开房间」（本局交给 AI 代打）
 var online := false
 
-var _rules: CWRulesPage        ## 对局内的规则速查/设置：主菜单同款页面类的另一份实例
 var _settings: CWSettingsPage
 var _codex: CWCodex
 var _panel: Control
@@ -94,13 +95,10 @@ func _ready() -> void:
 	_build_chrome()
 	## 子页压在列表上面（后建的在上）。它们自己会在 Esc/右键时收起，
 	## 这里只需盯着 visibility_changed 决定列表要不要让位。
-	_rules = CWRulesPage.new()
-	add_child(_rules)
 	_settings = CWSettingsPage.new()
 	add_child(_settings)
 	_codex = CWCodex.new()
 	add_child(_codex)
-	_rules.visibility_changed.connect(_sub_changed)
 	_settings.visibility_changed.connect(_sub_changed)
 	_codex.visibility_changed.connect(_sub_changed)
 	visible = false
@@ -125,8 +123,6 @@ func close() -> void:
 	_confirming = ""
 	## 子页一并收掉：save_quit/teardown 这类外部关闭可能发生在子页开着的时候，
 	## 不收的话下次 open() 会顶着一张残留的规则页
-	if _rules != null:
-		_rules.visible = false
 	if _settings != null:
 		_settings.visible = false
 	if _codex != null:
@@ -138,8 +134,7 @@ func close() -> void:
 
 ## 子页开着时列表让位（两块面板同宽同位，叠着会透出一圈重影）；树保持冻结
 func _sub_changed() -> void:
-	var sub_open: bool = (_rules != null and _rules.visible) \
-		or (_settings != null and _settings.visible) \
+	var sub_open: bool = (_settings != null and _settings.visible) \
 		or (_codex != null and _codex.visible)
 	_panel.visible = not sub_open
 
@@ -151,9 +146,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	## 页压页路由：子页开着时键盘输入全数转给它（Esc 由子页自己收——
 	## 关的是子页不是暂停菜单，树保持冻结，退回列表继续选）
-	if _rules != null and _rules.visible:
-		_rules.handle_input(event)
-		return
 	if _settings != null and _settings.visible:
 		_settings.handle_input(event)
 		return
@@ -243,10 +235,7 @@ func _activate(i: int) -> void:
 	if id == "resume":
 		close()
 		return
-	## 规则/设置在菜单内部消化（页压页，不关菜单不解除暂停）；其余项发给 main.gd
-	if id == "rules":
-		_rules.open()
-		return
+	## 知识之书 / 设置在菜单内部消化（页压页，不关菜单不解除暂停）；其余项发给 main.gd
 	if id == "settings":
 		_settings.open()
 		return

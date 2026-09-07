@@ -55,6 +55,11 @@ func show_event_drawn(_pid: int, _info := {}) -> void:
 	pass
 
 
+## 抽到一个世界事件（联机桥发报文；本地表现层直接接 CWGame.world_event 信号）
+func show_world_event(_ev_name: String, _info := {}) -> void:
+	pass
+
+
 ## 某位玩家抽到了一张卡（不说是哪张）。info = { cell_id, pos, source }。
 ## 给头顶的抽卡演出用；联机桥原样转发。
 func show_card_drawn(_pid: int, _info := {}) -> void:

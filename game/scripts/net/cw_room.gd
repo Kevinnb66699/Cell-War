@@ -239,6 +239,28 @@ func kick(cid: int, seat: Variant) -> String:
 	return ""
 
 
+## 联机局里把引擎默认的「免疫A / 癌症B」换成玩家昵称（Kevin 2026-09-07）。
+##
+## 改的是 `game.players[pid]["name"]`，而 players 在快照里、也进状态哈希 —— 看着危险，其实最稳：
+## 客户端的影子对局是 init() 之后 **restore 服务器的视角快照**，名字随快照一起过去，
+## 两边永远一致。反过来「客户端自己按 seats 改名」才会掉进哈希不一致的坑。
+## 所以这件事**只能在服务器做**，而且必须在 init() 之后、任何快照推送之前。
+##
+## AI 席不改：它们的 nick 是档位名（「新手」「专家」），两个同档 AI 会重名，
+## 反倒不如「免疫A / 免疫B」认得清。空昵称同理保留默认。
+func _name_seats() -> void:
+	for pid in game.order:
+		if pid >= seats.size():
+			continue
+		var s: Dictionary = seats[pid]
+		if s["kind"] != "human":
+			continue
+		var nick := String(s["nick"]).strip_edges()
+		if nick == "":
+			continue
+		game.players[pid]["name"] = nick
+
+
 func start(cid: int) -> String:
 	if cid != host:
 		return "not_host"
@@ -260,6 +282,7 @@ func start(cid: int) -> String:
 	game = CWGame.new()
 	var seed_value: int = seed_override if seed_override != 0 else server.rng.randi()
 	game.init(CWData.FACTION_ORDER[player_count], seed_value)
+	_name_seats()
 	bridge = CWNetBridge.new()
 	bridge.room = self
 	bridge.game = game

@@ -69,6 +69,9 @@ var _sticky_round := -1  ## 属于哪个世界回合。**换人或换回合都�
                          ## 一个人每个世界回合只行动一次，所以「新回合」就是「这人的下一个回合」，
                          ## 不清掉的话新回合一开始就莫名其妙直接进了选目标格（团队反馈）
 var _pending: Answer   ## 正卡在「等玩家作答」上的那一次询问
+## 第三档「树搜索」的代打桥（CWMCTSBridge）。null = 不是这一档。
+## 它与本类的基类（扁平 MC）**并列**，所以只能挂着用，不能继承。
+var mcts: CWMCTSBridge = null
 
 ## ---- 路径规划器（2026-09-04 Kevin 要的）----
 ## 只在「选迁移目标」这一问里活着。规划态下棋盘的点击不再直接作答，
@@ -80,7 +83,7 @@ var _plan_quote := {}             ## 上一次的报价，给按钮文字和路�
 
 
 func _init() -> void:
-	enabled = false   ## 人机默认普通 AI；「较强」由对局配置面板拨（CWMatch.ai_smart）
+	enabled = false   ## 人机默认普通 AI；「较强」由对局配置面板拨（CWMatch.ai_level）
 
 
 ## 一次交互的应答口。
@@ -124,6 +127,11 @@ func ask(req: Dictionary) -> int:
 	if req["pid"] in human_pids and bar != null and board != null:
 		return await _ask_human(req)
 	_clear_ui()   ## 轮到别人：按钮和高亮一起收掉（定稿如此）
+	## 第三档「树搜索」：转给挂在这儿的 MCTS 桥（CWMatch._wire_bridge 装的）。
+	## 走组合而不是继承 —— 见那边的注释。挂着就整条 AI 路由都归它，
+	## 包括非顶层询问（它自己回落到启发式），免得两只桥各答一半、行为拼不齐。
+	if mcts != null:
+		return await mcts.ask(req)
 	return await super.ask(req)
 
 

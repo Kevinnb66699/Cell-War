@@ -25,7 +25,14 @@ const GAP := 4.0
 const MAX_ROWS := 6                     ## 再多就长到手牌抽屉里去了；旧的自动挤掉，全量仍在对局日志里
 const RECT := Rect2(8, 76, CARD_W, MAX_ROWS * (CARD_H + GAP) - GAP)
 const FADE := 0.22
-const EVENT_WHO := "世界事件"           ## 事件卡不是谁「打出」的
+## 事件卡不是谁「打出」的，底下那行写「事件卡」。
+## **别写「世界事件」**（Kevin 2026-09-07 拍到）：那是另一回事——世界事件是第 3/6/10/14 回合
+## 由系统抽的那 17 个全局事件，而这里是卡池里【事件】类的卡，抽到即结算。两者同名会把人绕晕。
+const EVENT_WHO := "事件卡"
+
+## 世界事件那一行写什么。**和事件卡分开**：世界事件是系统在第 3/6/10/14 回合抽的全局事件，
+## 不属于任何一方，所以底行写「世界事件」、顶边用中性色（事件卡按抽到者的阵营染色）。
+const WORLD_WHO := "世界事件"
 
 ## 点了某张卡：把它的卡面内容和屏幕位置交出去（对上 CWCardInfo.show_info 的签名）
 signal card_pressed(rows: Dictionary, x: float, y: float)
@@ -41,11 +48,12 @@ func _ready() -> void:
 
 
 ## 记一张。rows 是 CWCardInfo.describe() 的产物（点开时直接喂详情框，不必再算一遍）。
-## is_event 只改边色和底下那行字：事件卡不是谁打出的。
+## is_event 只改底下那行字（事件卡不是谁**打出**的）；**颜色照旧按阵营来** ——
+## Kevin 2026-09-07：「事件卡是谁抽到的就标记成哪一方的颜色」。事件卡也是某个细胞抽到的，
+## 一眼看出是哪边抽到的，比统一染成中性白有用。
 func add_card(card_name: String, who: String, faction: int, rows: Dictionary,
 		is_event := false) -> void:
-	var accent: Color = CWStyle.TEXT_HI if is_event else \
-		(CWStyle.IMMUNE if faction == CWData.Faction.IMMUNE else CWStyle.CANCER)
+	var accent: Color = CWStyle.IMMUNE if faction == CWData.Faction.IMMUNE else CWStyle.CANCER
 	var box := _make_face(card_name, EVENT_WHO if is_event else who, accent)
 	add_child(box)
 	_rows.append({ "box": box, "card": card_name, "who": EVENT_WHO if is_event else who })
@@ -112,3 +120,25 @@ func _layout() -> void:
 	for i in range(_rows.size() - 1, -1, -1):
 		(_rows[i]["box"] as Control).position = Vector2(0, y)
 		y += CARD_H + GAP
+
+
+## 记一个**世界事件**。牌面写事件名，底下写「世界事件」，顶边中性色 —— 它不属于任何一方。
+## 详情框的内容照 CWCardInfo.describe 的 { name, kind, lines } 形状拼，点开走同一只框。
+func add_world_event(ev_name: String, left: int) -> void:
+	var body: String = CWWorldFx.BLURB.get(ev_name, "")
+	if left > 1:
+		body += "（持续 %d 回合）" % left
+	var rows := {
+		"name": "【%s】" % ev_name,
+		"kind": "【世界事件】",
+		"lines": CWCardInfo.wrap_text(body, CWCardInfo.W - CWCardInfo.PAD_H * 2.0),
+	}
+	var box := _make_face(ev_name, WORLD_WHO, CWStyle.TEXT_HI)
+	add_child(box)
+	_rows.append({ "box": box, "card": ev_name, "who": WORLD_WHO, "rows": rows })
+	while _rows.size() > MAX_ROWS:
+		var gone: Dictionary = _rows.pop_front()
+		(gone["box"] as Node).queue_free()
+	_layout()
+	box.modulate.a = 0.0
+	create_tween().tween_property(box, "modulate:a", 1.0, FADE)

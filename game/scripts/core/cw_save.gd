@@ -28,14 +28,18 @@ static func can_continue() -> bool:
 
 
 ## 能写才写（pending 边界 + 文件真的落了盘），返回是否成功。
-static func write(game: CWGame, human: Array, smart: bool) -> bool:
+## ai_level：0 普通 / 1 较强 / 2 树搜索。**旧字段 smart 照写不误** ——
+## read() 的合法性校验认它，而且老版本的客户端读新档时还能退回两档语义。
+## 正因为两个字段并存，这次不必抬 VERSION（抬了等于让所有旧档作废）。
+static func write(game: CWGame, human: Array, ai_level: int) -> bool:
 	if game == null or game._pending.is_empty() or game.is_over():
 		return false
 	var payload := {
 		"version": VERSION,
 		"players": game.order.size(),
 		"human": Array(human),
-		"smart": smart,
+		"smart": ai_level >= 1,
+		"ai_level": ai_level,
 		"at": Time.get_datetime_string_from_system(false, true),
 		"snap": game.snapshot(),
 	}
@@ -69,6 +73,13 @@ static func read() -> Dictionary:
 	if not _valid_snapshot(payload.get("snap")):
 		return {}
 	return payload
+
+
+## 从存档里取 AI 档位。老档没有 ai_level，就按 smart 折回两档。
+static func ai_level_of(payload: Dictionary) -> int:
+	if payload.has("ai_level"):
+		return clampi(int(payload["ai_level"]), 0, 2)
+	return 1 if bool(payload.get("smart", false)) else 0
 
 
 static func _valid_snapshot(snap: Variant) -> bool:

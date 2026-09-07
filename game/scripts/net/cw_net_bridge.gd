@@ -51,6 +51,12 @@ func show_event_drawn(pid: int, info := {}) -> void:
 	room.broadcast(m)
 
 
+func show_world_event(ev_name: String, info := {}) -> void:
+	var m := { "t": "world_event", "ev": ev_name }
+	m.merge(info)
+	room.broadcast(m)
+
+
 func show_card_drawn(pid: int, info := {}) -> void:
 	var m := { "t": "card_drawn", "pid": pid }
 	m.merge(info)

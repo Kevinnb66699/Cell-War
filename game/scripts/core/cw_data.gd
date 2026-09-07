@@ -63,9 +63,13 @@ const SOLID_AT_CANCER_SPAWN := false
 # 免疫细胞可被杀死，但罚停若干回合后在随机健康组织复活（无限次）。
 # 注意：造成免疫死亡的手段尚未定案（反弹反击可被免疫主动规避，见开发日志），
 # 所以这套机制目前基本不会触发——等癌方主动伤害手段定下来才会真正生效。
-# PRD 没有罚停条款：死亡的免疫细胞在**下一个** S 阶段结算【复活】。
+# PRD 没有罚停条款：死亡的免疫细胞在**下一个** S 阶段结算【复活】，
 # 死于第 N 回合的玩家阶段 → 第 N+1 回合 S 阶段复活，天然就缺席了一整轮。
-const IMMUNE_RESPAWN_DELAY := 0
+# **2026-09-07 Kevin 定再加一回合罚停**（0 → 1）：死一次的代价原本只有「少走一轮」，
+# 而 09-07 起攻击开始给抗原记忆、免疫方节奏整体变快，死亡需要更实在的代价。
+# 这是**引擎有意偏离 PRD** 的一条，见 docs/PRD差异对照.md。旋钮 `immune_respawn_delay`，
+# 扫回 0 就是 PRD 原文；-1 = 不再复活（CWEval 认得这个值）。
+const IMMUNE_RESPAWN_DELAY := 1
 const IMMUNE_RESPAWN_ENERGY := 10        # PRD：复活初始 1.0 能量（癌细胞是 2.0，见 REVIVE_ENERGY）
 
 # ---- 能量与费用（十分能量）----
@@ -402,6 +406,12 @@ const EFFECTOR_NAMES := {
 	ImmuneType.DENDRITIC: "免疫猎杀", ImmuneType.MACRO: "连续吞噬",
 	ImmuneType.B_CELL: "中和抗体", ImmuneType.T_CELL: "Excalibur",
 }
+
+## 这个计数器此刻叫什么。X 级（下标 3）起 PRD 把它改名【效应记忆】并从零重数，
+## 之后它的用途是付【效应应答】的费用。**界面一律现读这里**，别在各处各写一份。
+static func memory_name(immune_level: int) -> String:
+	return "效应记忆" if immune_level >= 3 else "抗原记忆"
+
 
 const IMMUNE_TYPE_NAMES := {
 	ImmuneType.BASIC: "免疫细胞", ImmuneType.B_CELL: "B细胞", ImmuneType.T_CELL: "T细胞",

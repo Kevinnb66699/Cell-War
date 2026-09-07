@@ -30,7 +30,8 @@ signal finished(winner: int)
 @export var human_players: Array[int] = []
 ## AI 强度：false = 启发式（普通），true = 蒙特卡洛推演（较强）。
 ## 由对局配置面板拨；观战局也吃这一位。
-@export var ai_smart := false
+## AI 强度档位：0 普通 / 1 较强 / 2 树搜索。原为 bool `ai_smart`，2026-09-07 第三档进来后改成下标。
+@export var ai_level := 0
 ## AI 每步之间的停顿改由设置页管（CWSettings.ai_delay_ms），纯观感不影响结算
 ## 0 = 每局取当前时间做种子；填非 0 可复现同一局
 @export var match_seed := 0
@@ -52,6 +53,15 @@ func can_save_now() -> bool:
 ## 固化癌组织的色标。硬化外壳的美术还没有，但**固化格必须能一眼认出来**——
 ## 【裂解】和癌方【复活】都只对它生效，看不出来就没法玩。压暗一档是临时手段。
 const MARK_SOLID := Color("0000004d")
+
+## 骨肉瘤【骨样硬化】标记格的脉冲色标（Kevin 2026-09-07 要的显示效果）。
+## 这一格在倒计时，到点直接变固化癌组织 —— 而固化格【净化】不掉、只有 T 的【裂解】拆得动，
+## 所以「哪几格正在硬化」是免疫方**必须看得见**的信息，否则只能靠翻日志。
+## 用脉冲而不是静态色：静态色会和固化格的压暗混成一片，脉冲一眼就是「还在走的东西」。
+## 最后一个世界回合脉冲加快 —— 同【趋化源】只剩 1 回合时的加速，玩家已经认得这套语言。
+const MARK_OSSIFY := Color("e8d9a0")   ## 骨白偏暖，和癌方的洋红、固化的压暗都分得开
+const OSSIFY_ALPHA := Vector2(0.18, 0.46)   ## 脉冲的最暗 / 最亮
+const OSSIFY_HZ := 1.2                      ## 脉冲频率；最后一回合翻倍
 
 ## 开场绽开时每格翻面的那一下白闪
 const FLASH_TIME := 0.22
@@ -213,6 +223,11 @@ func _ready() -> void:
 		net_hud = CWNetHud.new()
 		ui.add_child(net_hud)
 		ui.move_child(net_hud, _tile_info.get_index())
+		## **两只详情框排到这一组的最上面**（Kevin 2026-09-07 拍到出牌列的卡盖在卡面详情上）。
+		## 这一组每个都是「插到 _tile_info 当前的位置」，于是**后插的反而更靠上**——
+		## _card_info 是第一个插的，不补这一手就沉在最底下，被出牌列 / 日志面板压住。
+		## 详情框是浮在别的东西上的提示，被压住就等于看不见。
+		ui.move_child(_card_info, _tile_info.get_index())
 		## 热座换手遮罩：盖住手牌 / 行动栏 / 详情框，只让暂停菜单压在它上面
 		_handoff = CWHandoff.new()
 		ui.add_child(_handoff)
@@ -240,7 +255,9 @@ func start(snap: Dictionary = {}) -> void:
 		game.event_drawn.connect(_on_event_drawn)
 	if not game.card_drawn.is_connected(_on_card_drawn):
 		game.card_drawn.connect(_on_card_drawn)
-	_wire_bridge(ai_smart)
+	if not game.world_event.is_connected(_on_world_event):
+		game.world_event.connect(_on_world_event)
+	_wire_bridge(ai_level)
 	## 同一个桥对象注册给所有玩家：人类那几位走界面，其余走 AI，
 	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。
 	for pid in game.order:
@@ -270,6 +287,8 @@ func start_online(p_client: CWNetClient) -> void:
 		game.event_drawn.connect(_on_event_drawn)
 	if not game.card_drawn.is_connected(_on_card_drawn):
 		game.card_drawn.connect(_on_card_drawn)
+	if not game.world_event.is_connected(_on_world_event):
+		game.world_event.connect(_on_world_event)
 	player_count = game.players.size()
 	var seats: Array[int] = []
 	if _client.my_seat >= 0:
@@ -340,7 +359,20 @@ func _prepare_ui() -> void:
 		_log_hint.visible = true
 
 
-func _wire_bridge(smart: bool) -> void:
+## 三档 AI 的名字。**唯一一处**：配置面板的行文、存档的兼容映射、装配都读它。
+const AI_LEVEL_NAMES := ["普通", "较强", "树搜索"]
+const AI_NORMAL := 0
+const AI_MC := 1        ## 扁平蒙特卡洛（CWUIBridge 的基类本体），也是平衡标尺
+const AI_MCTS := 2      ## UCT 树搜索（队友 2026-09-07 的 CWMCTSBridge）
+## 树搜索档的预算。扁平 MC 的专家档是 192 个模拟 step；树搜索给两倍，
+## 依据是「它该更强，也该更慢一点，但仍要有可预测的上限」——
+## ⚠ **这三个数没有对局数据支撑**，只是量纲上的合理取值，等有了 AI 互搏基准再定。
+const MCTS_ITERATIONS := 160
+const MCTS_HORIZON := 12
+const MCTS_MAX_STEPS := 384
+
+
+func _wire_bridge(level: int) -> void:
 	## 教程局包一层引导桥（子类，只多演示与提示，其余装配完全相同）
 	bridge = CWGuideBridge.new() if tutorial else CWUIBridge.new()
 	bridge.game = game
@@ -356,16 +388,42 @@ func _wire_bridge(smart: bool) -> void:
 	bridge.handoff = _handoff
 	bridge.hotseat = human_players.size() >= 2   ## 热座 = 一台电脑坐了两位以上真人
 	bridge.human_pids = human_players
-	bridge.enabled = smart       ## 「较强」= 蒙特卡洛推演（桥的基类），默认启发式
+	bridge.enabled = level == AI_MC   ## 「较强」= 扁平蒙特卡洛（桥的基类），默认启发式
 	## 真人档要有可预测的响应上限；预算按模拟 step 计，不受本机快慢影响。
-	bridge.max_sim_steps = 192 if smart else 0
-	## 较强 AI 的推演放进副线程（修「较强 AI 卡前端」）：主线程提交后只 await，
+	bridge.max_sim_steps = 192 if level == AI_MC else 0
+	## 会推演的两档都把评估放进副线程（修「较强 AI 卡前端」）：主线程提交后只 await，
 	## 评估在 `Thread` 上跑，相机/输入不再被同步评估块整段堵住。
 	## 教程局从不推演（CWGuideBridge 不开 MC），不冒线程化的险。
-	bridge.use_threading = smart and not tutorial
+	var thinking: bool = level != AI_NORMAL and not tutorial
+	bridge.use_threading = level == AI_MC and thinking
+	## 第三档：挂一只 MCTS 桥当代打。**组合而不是继承** —— CWUIBridge 已经继承了扁平 MC，
+	## 而 CWMCTSBridge 是与扁平 MC 并列的另一棵（队友刻意不继承，为的是不动平衡标尺）。
+	## 共用同一个 game；非顶层询问它自己会回落到启发式，delay 也走基类那条，行为与另两档一致。
+	bridge.mcts = null
+	if level == AI_MCTS and not tutorial:
+		var tree_ai := CWMCTSBridge.new()
+		tree_ai.game = game
+		tree_ai.iterations = MCTS_ITERATIONS
+		tree_ai.horizon = MCTS_HORIZON
+		tree_ai.max_sim_steps = MCTS_MAX_STEPS
+		tree_ai.use_threading = thinking
+		tree_ai.delay_ms = CWSettings.ai_delay_ms
+		tree_ai.delay_node = self
+		bridge.mcts = tree_ai
 	bridge.opening = _opening    ## 绽开演完前先不弹询问界面
 	bridge.delay_ms = CWSettings.ai_delay_ms
 	bridge.delay_node = self
+
+
+## 结算屏出场前，把还飘在棋盘上的临时 HUD 收掉。
+## 出牌列是「这一局发生了什么」的流水账，局都结束了就没有继续占着左边那条的理由 ——
+## 它压在结算屏上（Kevin 2026-09-07 拍到）。提示气泡同理（实测截到过「突变：无事发生」）。
+## **不拆节点、只清内容**：再来一局还用同一批控件。
+func clear_transient_hud() -> void:
+	if toast != null:
+		toast.hide_now()
+	if _feed != null and is_instance_valid(_feed):
+		_feed.clear_all()
 
 
 ## 教程局装配：建引导面板（UI 层、压在暂停菜单下面）并把它交给引导桥。
@@ -493,6 +551,9 @@ func _net_loop(id: int) -> void:
 				_on_event_drawn(int(m["cell_id"]), int(m["pid"]), m["pos"], int(m["faction"]), m["card"])
 			"card_drawn":
 				_on_card_drawn(int(m["cell_id"]), int(m["pid"]), m["pos"], String(m.get("source", "")))
+			"world_event":
+				## 影子对局不跑 world_fx，同样发不出信号 —— 靠报文驱动
+				_on_world_event(String(m["ev"]), int(m.get("left", 1)))
 			"erosion":
 				if bridge != null:
 					bridge.show_erosion(m["at"], int(m["dir"]))
@@ -592,6 +653,8 @@ func teardown() -> void:
 		active_game.event_drawn.disconnect(_on_event_drawn)
 	if active_game != null and active_game.card_drawn.is_connected(_on_card_drawn):
 		active_game.card_drawn.disconnect(_on_card_drawn)
+	if active_game != null and active_game.world_event.is_connected(_on_world_event):
+		active_game.world_event.disconnect(_on_world_event)
 	_clear_played_card_fx()
 	if game != null:
 		## 顺序要紧：先让引擎收摊、再唤醒卡住的询问（它会同步一路展开回来），
@@ -749,6 +812,8 @@ func _sync_tiles() -> void:
 		board.set_tissue(c, tissue, t["special"])
 		if tissue == CWData.Tissue.SOLID:
 			marks[c] = MARK_SOLID
+		elif int(t.get("ossify_at", 0)) > 0:
+			marks[c] = ossify_mark(int(t["ossify_at"]), game.round_no)
 	for c: Vector2i in _flash:
 		marks[c] = Color(1, 1, 1, _flash[c] / FLASH_TIME * FLASH_ALPHA)
 	## 热座换手中：该玩家细胞脚下一圈阵营色光环呼吸，告诉 TA 自己在哪（开局还没落子时没有）
@@ -758,6 +823,15 @@ func _sync_tiles() -> void:
 	if bridge != null:
 		marks.merge(bridge.marks, true)
 	board.set_marks(marks)
+
+
+## 【骨样硬化】标记格这一帧画成什么色。**纯函数**（时间从外面进来，无头测试直接核对）：
+## at_round = 转固化的那个世界回合，now = 当前世界回合。到期回合越近脉冲越快。
+static func ossify_mark(at_round: int, now: int, ms: int = -1) -> Color:
+	var t: float = float(Time.get_ticks_msec() if ms < 0 else ms) / 1000.0
+	var hz := OSSIFY_HZ * (2.0 if at_round - now <= 1 else 1.0)
+	var k := 0.5 + 0.5 * sin(t * hz * TAU)
+	return Color(MARK_OSSIFY, lerpf(OSSIFY_ALPHA.x, OSSIFY_ALPHA.y, k))
 
 
 ## 趋化源：场上有就把漩涡摆到那一格，没有就收起。
@@ -922,12 +996,20 @@ func _on_event_drawn(_cell_id: int, _pid: int, _pos: Vector2i, faction: int, car
 		return
 	var rows: Dictionary = CWCardInfo.describe(card_name, faction,
 		CWCardData.cancer_phase(game.round_no) if game != null else 0)
-	## 事件卡谁都没「打出」，但它是全场的事 —— 一律进列，底下写「世界事件」
+	## 事件卡谁都没「打出」，但它是全场的事 —— 一律进列，底下写「事件卡」
+	##（不是「世界事件」：那是系统在第 3/6/10/14 回合抽的那 17 个全局事件，两回事）
 	if _feed != null and is_instance_valid(_feed):
 		_feed.add_card(card_name, "", faction, rows, true)
 	if panel == null or not is_instance_valid(panel):
 		return
 	panel.note_event_card(game, faction, card_name)
+
+
+## 抽到一个世界事件：进棋盘左侧那一列（Kevin 2026-09-07）。**不演头顶飞卡** ——
+## 它不属于任何一个细胞，没有起飞的地方。
+func _on_world_event(ev_name: String, left: int) -> void:
+	if _feed != null and is_instance_valid(_feed):
+		_feed.add_world_event(ev_name, left)
 
 
 ## 抽到一张卡：头顶演出（倒放）。**三种来源都演**（基因表达 / 骨髓 / 突变）——

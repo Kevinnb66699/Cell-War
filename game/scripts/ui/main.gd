@@ -70,7 +70,7 @@ func _begin(cfg: Dictionary) -> void:
 		if seat >= 0:
 			seats.append(seat)
 	match_node.human_players = seats
-	match_node.ai_smart = cfg["smart"]
+	match_node.ai_level = int(cfg.get("ai", 0))
 	## 配置面板给的随机种子（拨一下换一个）：填进去这局就可复现
 	match_node.match_seed = int(cfg.get("seed", 0))
 	## 自定义对局钉死的癌种（按癌席顺序，-1 = 随机；普通对局是空表）
@@ -99,7 +99,7 @@ func _begin_tutorial(cancer_type: int) -> void:
 	match_node.tutorial = true
 	match_node.player_count = 2
 	match_node.human_players = [0]       ## 2 人局行动顺序 = [免疫, 癌]，人类坐免疫
-	match_node.ai_smart = false
+	match_node.ai_level = 0
 	match_node.match_seed = 20260903     ## 固定种子，教程局面可复现
 	match_node.cancer_types = [cancer_type]   ## 教程对手钉死（2 人局只有一个癌席），不随种子抽
 	_entering = true
@@ -172,9 +172,8 @@ func _on_match_finished(winner: int) -> void:
 		return
 	## 对局已结束，Esc 归结算屏（「返回主菜单」），不该再唤出暂停菜单
 	pause.active = false
-	## 上一条提示还飘着的话，结算屏一出来就显得脏（实测截到过「突变：无事发生」）
-	if match_node.toast != null:
-		match_node.toast.hide_now()
+	## 还飘在棋盘上的临时 HUD（提示气泡、左侧出牌列）一起收掉，否则结算屏一出来就显得脏
+	match_node.clear_transient_hud()
 	settle.show_result(match_node.game)
 
 
@@ -217,7 +216,7 @@ func _on_pause_chose(action: String) -> void:
 		"save_quit":
 			## 先落盘再演返场——fade_out 会把对局 aborted，那之后就没得存了。
 			## 写失败（磁盘问题）就留在对局里，别让玩家以为存上了。
-			if CWSave.write(match_node.game, match_node.human_players, match_node.ai_smart):
+			if CWSave.write(match_node.game, match_node.human_players, match_node.ai_level):
 				_back_to_menu()
 			else:
 				push_warning("存档写入失败，留在对局中")
@@ -239,7 +238,7 @@ func _continue() -> void:
 	for s in data["human"]:
 		seats.append(int(s))
 	match_node.human_players = seats
-	match_node.ai_smart = data["smart"]
+	match_node.ai_level = CWSave.ai_level_of(data)
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
 	menu.dismiss(T_DECOR, DECOR_DRIFT)

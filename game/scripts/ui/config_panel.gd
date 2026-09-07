@@ -79,7 +79,9 @@ const CANCER_STEPS := [-1, CWData.CancerType.MELANOMA, CWData.CancerType.SIGNET,
 
 var _players := 4
 var _faction: int = CWData.Faction.IMMUNE   ## -1 = 观战
-var _smart := false
+## AI 强度：0 普通（纯启发式）/ 1 较强（扁平蒙特卡洛）/ 2 树搜索（UCT，2026-09-07 接入）。
+## 原来是 bool，第三档进来之后改成下标 —— 名字与含义都在 CWMatch.AI_LEVEL_NAMES 一处。
+var _ai := 0
 var _seed := 0
 ## 自定义对局开关：主菜单在 open() 之前拨；普通对局 false（癌种行全部收起、按钮在 438）
 var custom := false
@@ -159,7 +161,7 @@ func handle_input(event: InputEvent) -> void:
 
 
 func config() -> Dictionary:
-	return { "players": _players, "faction": _faction, "smart": _smart, "seed": _seed,
+	return { "players": _players, "faction": _faction, "ai": _ai, "seed": _seed,
 		"cancer_types": _ctypes.slice(0, _n_cancer()) if custom else [],
 		"seats": _seats.slice(0, _players) if _faction == HOTSEAT else [] }
 
@@ -305,7 +307,7 @@ func _cycle(row: int, dir: int) -> void:
 			_faction = FACTION_STEPS[(i + dir + FACTION_STEPS.size()) % FACTION_STEPS.size()]
 			_sync_sheet(false)   ## 拨进 / 拨出「本地多人」：席位表淡入淡出
 		ROW_SMART:
-			_smart = not _smart
+			_ai = (_ai + dir + CWMatch.AI_LEVEL_NAMES.size()) % CWMatch.AI_LEVEL_NAMES.size()
 		ROW_SEED:
 			_seed = _roll_seed()   ## 种子没有「上一个」，拨就是换一个
 		_:
@@ -609,7 +611,7 @@ func _value_text(i: int) -> String:
 				return "观战"
 			return "免疫细胞" if _faction == CWData.Faction.IMMUNE else "癌细胞"
 		ROW_SMART:
-			return "较强" if _smart else "普通"
+			return CWMatch.AI_LEVEL_NAMES[_ai]
 		ROW_SEED:
 			return str(_seed)
 	return ""

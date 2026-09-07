@@ -10,7 +10,7 @@ extends Node2D
 ## 菜单和棋盘必须活在同一棵树里，否则过场没法做。
 
 ## 配置面板上按了「开始对局」。cfg 见 CWConfigPanel.config()：
-## { players: 人数, faction: 人类阵营（-1=观战）, smart: AI 强度 }。
+## { players: 人数, faction: 人类阵营（-1=观战）, ai: AI 强度档位 0/1/2 }。
 signal start_requested(cfg: Dictionary)
 ## 「继续对局」被点了（只在存在存档时可点，读档由 main.gd 做）
 signal continue_requested

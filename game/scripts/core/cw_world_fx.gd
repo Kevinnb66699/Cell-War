@@ -133,6 +133,9 @@ func trigger() -> void:
 	## 全局通报（CWGame.notice → 界面桥在棋盘上方浮 3 秒），别只写日志；常驻的那一行在右侧竖条（CWMatchPanel）
 	game.notice("世界事件【%s】：%s%s" % [name, BLURB.get(name, ""),
 		"（持续 %d 回合）" % left if left > 1 else ""])
+	## 棋盘左侧那一列（Kevin 2026-09-07：「真正的世界事件没有显示在左侧的滚动栏中」）——
+	## 09-07 删掉顶带通报之后，世界事件在主视野里就只剩右栏那一行小字了。
+	game.broadcast_world_event(name, left)
 	await _resolve(entry)
 
 

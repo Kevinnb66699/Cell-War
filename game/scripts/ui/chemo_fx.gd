@@ -22,7 +22,9 @@
 ##    「粒子没跑出格子」「都落在整数像素上」这种回归，粒子系统只能靠眼睛看。
 ##
 ## 颜色走免疫青（它是免疫方的技能），核心一组脉动的菱形表示「还在生效」；
-## 剩 1 回合时整体转成暖色并加快转速 —— 玩家不用去读日志也知道它快没了。
+## 剩 1 回合时**整体闪烁**并加快转速 —— 玩家不用去读日志也知道它快没了。
+## （2026-09-07 Kevin：警告改成闪烁，**颜色不要改** —— 青色是「这是免疫方的东西」，
+## 换成暖橙等于把阵营信息也一起改了，闪烁只表达「快没了」，两件事不该挤在同一个通道上。）
 ## 想看效果：`tests/preview_chemo.gd`（真渲染，连拍几帧）。
 class_name CWChemoFx
 extends Node2D
@@ -49,9 +51,10 @@ const CORE_GLOW_R: Array[int] = [4, 5]   ## 核心外圈菱形「半径」（像
 const CORE_R := 2                        ## 核心内圈菱形半径
 const CORE_PULSE_HZ := 2.0               ## 外圈每秒跳两次档
 
-const COLOR_LIVE := Color("30d1fa")      ## 免疫青：生效中
-const COLOR_LAST := Color("ffb03a")      ## 暖橙：只剩最后一回合
+const COLOR_LIVE := Color("30d1fa")      ## 免疫青：生效中。**只有这一个颜色**，最后一回合也不换
 const LAST_SPEEDUP := 1.6                ## 最后一回合转速倍率
+const BLINK_HZ := 3.0                    ## 最后一回合的闪烁频率（方波，不是渐变——渐变会被误读成脉动）
+const BLINK_DIM := 0.3                   ## 灭的那半拍剩多少不透明度
 
 var _t := 0.0
 var _last_round := false                 ## 只剩 1 回合？由 CWMatch 每帧喂
@@ -68,6 +71,9 @@ func sync(delta: float, at: Vector2, z: int, last_round: bool) -> void:
 	position = at
 	z_index = z
 	_last_round = last_round
+	## 闪烁走 modulate 而不是逐个颜色乘：整只演出（核心 + 三层粒子 + 残影）一起明灭，
+	## 各处的相对透明度关系原样保留
+	modulate.a = blink_alpha(_t, last_round)
 	queue_redraw()
 
 
@@ -100,8 +106,15 @@ static func pixel_at(ring: int, idx: int, t: float) -> Vector2i:
 	return frame_pos(ring, idx, frame_of(t))
 
 
+## 最后一回合的闪烁：方波，亮半拍 / 暗半拍。**纯函数**，无头测试直接核对。
+static func blink_alpha(t: float, last_round: bool) -> float:
+	if not last_round:
+		return 1.0
+	return 1.0 if int(floor(t * BLINK_HZ)) % 2 == 0 else BLINK_DIM
+
+
 func _draw() -> void:
-	var tint: Color = COLOR_LAST if _last_round else COLOR_LIVE
+	var tint: Color = COLOR_LIVE
 	var frame := frame_of(_t)
 	var core := Vector2i(0, -int(round(RING_LIFT[0])))
 	## 核心：两层菱形 —— 外圈在两档半径之间跳（脉动），内圈实

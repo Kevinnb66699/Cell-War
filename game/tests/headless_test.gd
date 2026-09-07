@@ -97,7 +97,7 @@ func _run_all() -> void:
 		t_breath_sheets, t_solidify_and_decay, t_vessel_no_solid, t_erosion, t_macro_purify_heal,
 		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path,
-		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_effector_responses, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
+		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
 		t_immune_win, t_cancer_revive_blocked, t_cancer_s_win, t_immune_respawn,
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_stroma_targets, t_batch2_rules,
@@ -865,12 +865,16 @@ func t_immune_respawn() -> void:
 	g.round_no = 3
 	g.kill(imm)
 	check(not imm["alive"], "免疫细胞死亡")
-	## PRD 没有罚停条款：下一个世界回合的 S 阶段就复活
-	check(imm["respawn_round"] == 4, "死于第 3 回合 → 第 4 回合复活")
+	## PRD 没有罚停条款（下一个世界回合的 S 阶段就复活）；
+	## 引擎 2026-09-07 起额外罚停 `immune_respawn_delay` 个回合（Kevin 定，默认 1）。
+	## **现读旋钮**：写死回合数的话，旋钮一动测试就红，而这正是它该扫的东西。
+	var back: int = 3 + 1 + g.tune.immune_respawn_delay
+	check(imm["respawn_round"] == back, "死于第 3 回合 → 第 %d 回合复活（罚停 %d）"
+		% [back, g.tune.immune_respawn_delay])
 	## 骨髓全被癌化 → 无处可复活
 	for c in CWData.MARROWS:
 		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
-	g.round_no = 4
+	g.round_no = back
 	var n0: int = g.logs.size()
 	check(g.world.revive_options_immune(pid).is_empty(), "骨髓全被癌化 → 没有落点")
 	## 说不出原因等于没说 —— 六个骨髓里「被癌化」和「站了人」的应对完全不同
@@ -884,7 +888,7 @@ func t_immune_respawn() -> void:
 	var n1: int = g.logs.size()
 	check(g.world.revive_options_immune(pid).is_empty(), "没到复活回合 → 也没有落点")
 	check(g.logs.size() == n1, "→ 但一句话都不说（不是被挡住）")
-	g.round_no = 4
+	g.round_no = back
 	## 放开一个健康骨髓格
 	var m: Vector2i = CWData.MARROWS[0]
 	g.tiles[m]["tissue"] = CWData.Tissue.HEALTHY
@@ -899,7 +903,7 @@ func t_immune_respawn() -> void:
 	g.tiles[CWData.MARROWS[1]]["tissue"] = CWData.Tissue.HEALTHY   ## m 上站着刚复活的 imm
 	var imm3: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[1]
 	imm3["alive"] = false
-	imm3["respawn_round"] = 4
+	imm3["respawn_round"] = back
 	check(not g.world.revive_options_immune(imm3["pid"]).is_empty(), "有健康空骨髓 → 有落点")
 	check(not "
 ".join(g.logs.slice(n2)).contains("无法复活"), "→ 有落点时不报「无法复活」")
@@ -2979,7 +2983,7 @@ func t_config_panel() -> void:
 	await process_frame   ## _ready（面板搭建）在入树后的下一帧才跑
 	var cfg := p.config()
 	check(cfg["players"] == 4 and cfg["faction"] == CWData.Faction.IMMUNE \
-		and cfg["smart"] == false, "默认配置：4 人 · 免疫细胞 · 普通 AI")
+		and cfg["ai"] == CWMatch.AI_NORMAL, "默认配置：4 人 · 免疫细胞 · 普通 AI")
 	check(int(cfg["seed"]) >= 10000000, "随机种子开局就有一枚（8 位）")
 	## 打开时焦点在第一行：回车是拨值不是开局（Kevin 8-29：停在按钮上
 	## 玩家会以为配置改不了）
@@ -3014,7 +3018,13 @@ func t_config_panel() -> void:
 	check(p.config()["faction"] == -1, "再拨 → 观战")
 	p.handle_input(down)        ## → AI 强度
 	p.handle_input(right)
-	check(p.config()["smart"] == true, "AI 强度 → 较强")
+	check(p.config()["ai"] == CWMatch.AI_MC, "AI 强度 → 较强")
+	p._cycle(CWConfigPanel.ROW_SMART, 1)
+	check(p.config()["ai"] == CWMatch.AI_MCTS, "再拨一格 → 树搜索（第三档，2026-09-07）")
+	p._cycle(CWConfigPanel.ROW_SMART, 1)
+	check(p.config()["ai"] == CWMatch.AI_NORMAL, "三档循环，拨回普通")
+	p._cycle(CWConfigPanel.ROW_SMART, -1)
+	check(p.config()["ai"] == CWMatch.AI_MCTS, "反向拨同样绕回来")
 	p.handle_input(down)        ## → 随机种子
 	var seed0: int = p.config()["seed"]
 	p.handle_input(right)
@@ -3029,7 +3039,7 @@ func t_config_panel() -> void:
 	check(not p.visible and got.size() == 1 and cancels.size() == 1,
 		"Esc 收面板并发 cancelled，不开局")
 	p.open()
-	check(p.config()["players"] == 2 and p.config()["smart"] == true \
+	check(p.config()["players"] == 2 and p.config()["ai"] == CWMatch.AI_MCTS \
 		and p.config()["faction"] == -1, "再次打开保留上次取值")
 	## 箭头定位固定；按钮变白按「最后动的设备」裁决（Kevin 8-30 终稿）：
 	## 键盘选到按钮=白；鼠标一旦介入按悬停算，直到下一次键盘按键夺回
@@ -3312,6 +3322,24 @@ func t_hover_layer() -> void:
 	mv.global_position = mv.position
 	var default_check: Callable = board.pointer_on_control
 	check(not default_check.call(), "默认那一问对着视口：无头下没有悬停控件 → false，不炸")
+	## 详情框必须压在出牌列 / 日志面板上面：装配时它们都「插到 _tile_info 的位置」，
+	## 后插的反而更靠上，_card_info 是第一个插的（Kevin 2026-09-07 报的重叠就是这么来的）。
+	## 走真场景：CWMatch 光 new() 出来没有 ui 容器，装配整段都不会跑。
+	var lscene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(lscene)
+	await process_frame
+	var lm: CWMatch = lscene.match_node
+	lm.start()
+	await process_frame
+	check(lm._card_info.get_index() > lm._feed.get_index()
+		and lm._card_info.get_index() > lm._log_panel.get_index(),
+		"卡面详情压在出牌列与日志面板之上（详情 %d / 出牌列 %d / 日志 %d）"
+		% [lm._card_info.get_index(), lm._feed.get_index(), lm._log_panel.get_index()])
+	check(lm._tile_info.get_index() > lm._feed.get_index(), "格子详情同样压在出牌列之上")
+	lm.teardown()
+	lscene.queue_free()
+	await process_frame
+
 	board._unhandled_input(mv)
 	check(board.hovered == here and got == [here], "指针停在格上：报那一格")
 	board._process(0.0)
@@ -3354,6 +3382,48 @@ func t_hover_layer() -> void:
 	root.remove_child(panel)
 	panel.free()
 	g.dispose()
+
+
+## 骨肉瘤【骨样硬化】标记格的脉冲色标（Kevin 2026-09-07 要的显示效果）。
+## 色标本身是纯函数，喂固定毫秒就能核对，不必真跑一帧。
+## 趋化源最后一回合的闪烁警告（Kevin 2026-09-07：颜色不许变，改成闪）。
+func t_chemo_blink() -> void:
+	print("[趋化源闪烁]")
+	## 一拍 = 1/HZ（floor(t*HZ)%2 每过一拍翻一次，整周期是两拍）
+	var beat: float = 1.0 / CWChemoFx.BLINK_HZ
+	check(is_equal_approx(CWChemoFx.blink_alpha(0.0, false), 1.0)
+		and is_equal_approx(CWChemoFx.blink_alpha(beat, false), 1.0),
+		"不是最后一回合：一直全亮，不闪")
+	check(is_equal_approx(CWChemoFx.blink_alpha(0.0, true), 1.0)
+		and is_equal_approx(CWChemoFx.blink_alpha(beat, true), CWChemoFx.BLINK_DIM),
+		"最后一回合：亮半拍、暗半拍")
+	check(is_equal_approx(CWChemoFx.blink_alpha(beat * 2.0, true), 1.0), "下一拍又亮回来")
+	check(not ("COLOR_LAST" in CWChemoFx.new().get_property_list().reduce(
+		func(a: String, p: Dictionary) -> String: return a + String(p["name"]), "")),
+		"暖橙那档颜色已经拿掉（警告只靠闪烁，颜色仍是免疫青）")
+
+
+func t_ossify_mark() -> void:
+	print("[骨样硬化色标]")
+	var lo: float = CWMatch.OSSIFY_ALPHA.x
+	var hi: float = CWMatch.OSSIFY_ALPHA.y
+	var half_ms: int = int(500.0 / CWMatch.OSSIFY_HZ)   ## 慢档半个周期
+	var a0 := CWMatch.ossify_mark(5, 1, 0)
+	var a1 := CWMatch.ossify_mark(5, 1, half_ms)
+	check(not is_equal_approx(a0.a, a1.a), "脉冲真的在动（%.3f → %.3f）" % [a0.a, a1.a])
+	var in_range := true
+	for ms in [0, 137, 250, 400, 613, 900]:
+		var a := CWMatch.ossify_mark(5, 1, ms).a
+		if a < lo - 0.001 or a > hi + 0.001:
+			in_range = false
+	check(in_range, "透明度始终落在 %.2f~%.2f 之间" % [lo, hi])
+	check(CWMatch.ossify_mark(5, 1, 0).is_equal_approx(CWMatch.ossify_mark(5, 1, 0)),
+		"同一时刻同一格 → 同一个色（纯函数）")
+	## 只剩一个世界回合时脉冲翻倍：同一毫秒下两档相位已经错开
+	check(not is_equal_approx(CWMatch.ossify_mark(5, 1, half_ms / 2).a,
+		CWMatch.ossify_mark(2, 1, half_ms / 2).a), "最后一回合脉冲更快")
+	check(CWMatch.MARK_OSSIFY != CWMatch.MARK_SOLID,
+		"和固化格的压暗不是同一个色（否则等于没提示）")
 
 
 ## 【效应应答】四个 + 树突【E-组织黏连】（PRD 一直写着，引擎 2026-09-07 才实装）。
@@ -4067,7 +4137,8 @@ func t_save_load() -> void:
 	var h0 := g.state_hash()
 
 	var data := CWSave.read()
-	check(data["players"] == 2 and data["smart"] == true and int(data["human"][0]) == 0,
+	check(data["players"] == 2 and CWSave.ai_level_of(data) == CWMatch.AI_MC
+		and int(data["human"][0]) == 0,
 		"配置字段原样读回")
 	var g2 := make_game(int(data["players"]), 1)   ## 种子无所谓：restore 会盖掉 rng
 	g2.restore(data["snap"])
@@ -4090,6 +4161,12 @@ func t_save_load() -> void:
 	bad = FileAccess.open(CWSave.PATH, FileAccess.WRITE)
 	bad.store_string(var_to_str({ "version": CWSave.VERSION, "players": 2,
 		"human": [0], "smart": false, "snap": {} }))
+	## 老档没有 ai_level，按 smart 折回两档；新档以 ai_level 为准（三档都存得住）
+	check(CWSave.ai_level_of({ "smart": false }) == CWMatch.AI_NORMAL
+		and CWSave.ai_level_of({ "smart": true }) == CWMatch.AI_MC,
+		"老档：按 smart 折回普通 / 较强")
+	check(CWSave.ai_level_of({ "smart": true, "ai_level": CWMatch.AI_MCTS }) == CWMatch.AI_MCTS,
+		"新档：以 ai_level 为准，第三档存得住")
 	bad.close()
 	check(not CWSave.can_continue(), "截断快照不可继续")
 
@@ -4750,6 +4827,8 @@ func t_match_panel() -> void:
 	fd.add_card("免疫抑制因子", "", CWData.Faction.CANCER,
 		CWCardInfo.describe("免疫抑制因子", CWData.Faction.CANCER, 0), true)
 	check(String(fd._rows[fd._rows.size() - 1]["who"]) == CWFeed.EVENT_WHO, "事件卡不写打出者")
+	check(CWFeed.EVENT_WHO != "世界事件",
+		"事件卡那行不叫「世界事件」——世界事件是另一回事（%s）" % CWFeed.EVENT_WHO)
 	## 卡面就是手牌那张卡的顶上一截：同宽、字号一步不动（缩过一版，10px 变 5px 糊成马赛克），
 	## 卡名折行也照搬手牌那套
 	var face: Control = fd._rows[0]["box"]
@@ -5097,6 +5176,12 @@ func t_settle_screen() -> void:
 	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
 	root.add_child(main_scene)
 	await process_frame
+	## 结算屏出场前要收掉左侧出牌列（Kevin 2026-09-07：它压在结算屏上）
+	main_scene.match_node._feed.add_card("糖酵解爆发", "癌症A", CWData.Faction.CANCER,
+		CWCardInfo.describe("糖酵解爆发", CWData.Faction.CANCER, 0))
+	check(not main_scene.match_node._feed._rows.is_empty(), "先往出牌列里放一张")
+	main_scene.match_node.clear_transient_hud()
+	check(main_scene.match_node._feed._rows.is_empty(), "结算前出牌列清空")
 	main_scene._on_match_finished(-1)
 	check(not main_scene.settle.visible,
 		"winner = -1（中途放弃）不弹结算屏 —— 那条路是返场，不是结算")
@@ -5268,21 +5353,28 @@ func t_pause_and_teardown() -> void:
 
 	# ①c 暂停菜单里的规则速查/设置（2026-08-30 接入）：页压页、树保持冻结
 	pm.open()
-	var rules_at := -1
 	var settings_at := -1
+	var codex_at := -1
 	for i in CWPauseMenu.ITEMS.size():
 		match CWPauseMenu.ITEMS[i]["id"]:
-			"rules": rules_at = i
+			"codex": codex_at = i
 			"settings": settings_at = i
-	check(pm._enabled(CWPauseMenu.ITEMS[rules_at]) \
-		and pm._enabled(CWPauseMenu.ITEMS[settings_at]), "规则速查与设置不再灰着")
-	pm._activate(rules_at)
-	check(pm._rules.visible and pm.visible and pm.get_tree().paused \
-		and not pm._panel.visible, "打开规则速查：页压页、树保持冻结、列表让位")
+	## 「规则速查」2026-09-07 从 Esc 菜单去掉（主菜单那份 09-06 已撤）——
+	## 硬数字总览交给知识之书，一份规则两处维护本来就容易漂
+	var has_rules := false
+	for it in CWPauseMenu.ITEMS:
+		if it["id"] == "rules":
+			has_rules = true
+	check(not has_rules, "Esc 菜单里没有「规则速查」")
+	check(pm._enabled(CWPauseMenu.ITEMS[codex_at]) \
+		and pm._enabled(CWPauseMenu.ITEMS[settings_at]), "知识之书与设置不再灰着")
+	pm._activate(codex_at)
+	check(pm._codex.visible and pm.visible and pm.get_tree().paused \
+		and not pm._panel.visible, "打开知识之书：页压页、树保持冻结、列表让位")
 	check(fired.size() == 1, "子页入口不发 chose（在菜单内部消化）")
 	pm._unhandled_input(esc)
-	check(not pm._rules.visible and pm._panel.visible and pm.get_tree().paused,
-		"规则页上 Esc：只关子页，暂停不解除")
+	check(not pm._codex.visible and pm._panel.visible and pm.get_tree().paused,
+		"子页上 Esc：只关子页，暂停不解除")
 	pm._activate(settings_at)
 	check(pm._settings.visible, "打开设置页")
 	var sright := InputEventAction.new()
@@ -5292,15 +5384,11 @@ func t_pause_and_teardown() -> void:
 	check(CWSettings.ai_delay_ms == CWSettings.AI_DELAYS[2], "键盘路由到设置页：拨值即时生效")
 	pm._unhandled_input(esc)
 	check(not pm._settings.visible and pm._panel.visible, "设置页上 Esc 退回暂停列表")
-	## 知识之书（Kevin 2026-09-05 拍板加进暂停菜单）：同样页压页、树保持冻结、方向键翻页、Esc 只关书
-	var codex_at := -1
-	for i in CWPauseMenu.ITEMS.size():
-		if CWPauseMenu.ITEMS[i]["id"] == "codex":
-			codex_at = i
-	check(codex_at == rules_at + 1, "「知识之书」排在「规则速查」之后")
+	## 再开一次书，验方向键路由（上面那次是验「页压页」；codex_at 复用上面找到的那个 ——
+	## 2026-09-07 去掉「规则速查」时这里留了一段旧块，重复声明把整个测试脚本弄得编译不过）
 	pm._activate(codex_at)
 	check(pm._codex.visible and pm.visible and pm.get_tree().paused and not pm._panel.visible,
-		"打开知识之书：页压页、树保持冻结、列表让位")
+		"再次打开知识之书：页压页、树保持冻结、列表让位")
 	pm._unhandled_input(sright)
 	check(pm._codex._page == 1, "方向键路由给书翻页")
 	pm._unhandled_input(esc)
@@ -5627,7 +5715,7 @@ func t_enter_not_skipped() -> void:
 	var cam: Camera2D = main_scene.get_node("Camera2D")
 	check(is_equal_approx(cam.zoom.x, CWView.MENU_ZOOM), "起手停在菜单机位")
 
-	main_scene._begin({ "players": 4, "faction": CWData.Faction.IMMUNE, "smart": false })
+	main_scene._begin({ "players": 4, "faction": CWData.Faction.IMMUNE, "ai": CWMatch.AI_NORMAL })
 	check(main_scene._tween != null and main_scene._tween.is_running(), "过场起步了")
 
 	var press := InputEventMouseButton.new()
@@ -5743,7 +5831,7 @@ func t_tutorial() -> void:
 	m.tutorial = true
 	m.player_count = 2
 	m.human_players = [0]
-	m.ai_smart = false
+	m.ai_level = CWMatch.AI_NORMAL
 	m.match_seed = 20260903
 	m.cancer_types = [CWData.CancerType.OSTEO]   ## main.gd _begin_tutorial 钉死的对手
 	m.start()
@@ -11331,12 +11419,17 @@ func t_net_game() -> void:
 		if "抽到 1 张卡" in line:
 			stand_in += 1
 		elif "抽到【" in line and not ("【事件】" in line or "世界事件" in line):
-			if "免疫A(" in line:
+			## 联机局里细胞名 = 玩家昵称（Kevin 2026-09-07），不再是引擎默认的「免疫A」
+			if (a.nick + "(") in line:
 				mine += 1
 			else:
 				leak += 1
 	check(leak == 0 and stand_in > 0, "对局日志：别人抽到的牌名被隐去（%d 行替身）" % stand_in)
 	check(mine > 0, "自己抽到的牌名照常可见")
+	check(String(a.shadow.player(0)["name"]) == a.nick
+		and String(a.shadow.player(1)["name"]) == b.nick,
+		"联机局的细胞名换成玩家昵称（%s / %s）"
+		% [a.shadow.player(0)["name"], a.shadow.player(1)["name"]])
 	check(a.logs.size() > 100 and b.logs.size() == a.logs.size(), "双方日志行数一致（%d 行）" % a.logs.size())
 	check(_net_count(a, "roll") > 0 and _net_count(a, "roll") == _net_count(b, "roll"), "掷骰演出广播给双方各一次")
 	## 同一房间再开一局
