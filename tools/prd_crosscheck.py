@@ -54,8 +54,12 @@ MAP = {
     "AEROBIC_FLOOR":          "max{2,",   # 2026-09-01 起下限写进公式本身（脚本会先去掉反斜杠）
     "ANAEROBIC_PER_CANCER":   "癌组织个数times0.4",
     "ANAEROBIC_PER_SOLID":    "固化癌组织个数times1",
-    ## 开方式（2026-09-04 定案）的系数 c，PRD 公式里的「1.0 \\times \\sqrt{…}」（脚本先剥反斜杠再去空白）
-    "ANAEROBIC_SQRT_COEF":    "frac{1.0times sqrt{连通块癌格子数}}{连通块中癌细胞数量}",
+    ## 2026-09-07 换的两条呼吸公式：各段分别对一个常量（脚本先剥反斜杠、再去掉所有空白）
+    "AEROBIC_LEVEL_BASE":     "times0.5+2",
+    "AEROBIC_LEVEL_STEP":     "^2times0.5",
+    "ANAEROBIC_BLOCK_EXP":    "连通块癌组织个数^{0.3}",
+    "ANAEROBIC_BLOCK_COEF":   "^{0.3}times2",
+    "ANAEROBIC_SOLID_BONUS":  "+全图固化癌组织个数",
     # ---- 免疫行动 ----
     "IMMUNE_DRAW_COST":       "【基因表达】：消耗0.5**能量**抽卡，每回合最多发动3次",
     "DRAW_MAX_PER_TURN":      "每回合最多发动3次",

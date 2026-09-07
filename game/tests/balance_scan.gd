@@ -24,12 +24,14 @@
 ##   abase=20 astep=5  现行有氧公式：每份 = 基数 + 等级下标 × astep，十分能量（对玩家的写法「(等级−1)×0.5+基数」）。
 ##                     **不传则基数按人数取**（四人 2.0 / 六人 1.8，2026-09-05 方案 f）；传 abase=N 让所有人数统一成 N。
 ##                     abase=0 关掉整条新公式，退回 amult 那套盘面式（09-04 前的对照档）
-##   asqrt=10     无氧呼吸系数 c：每块供能 = c × √(块内癌格子数)（默认 1.0，2026-09-06 Kevin 定；09-05 是 2.0）。0 = 退回线性求和
+##   asqrt=20     无氧呼吸指数项的系数（2026-09-07 新公式：块内**普通癌组织**数^0.3 × 本值 + **全图**固化数 × 1.0）。0 = 退回线性求和
+##   aexp=30      上式的指数（百分数，30 = 0.30）
+##   asolid=10    上式里每格**全图**固化癌组织加多少（十分能量）
 ##   difflv=1     【分化】解锁所需免疫等级下标（0/1/2/3 = I/II/III/X）
 ##   asplit=1     有氧是否按免疫细胞数均分（默认 0 = 每人全额；09-05 上午曾默认 1，MC 扫完同日改回，1 留作对照档）
 ##   asplitref=2  均分按几个免疫细胞的量标定：≤ref 每人全额、>ref 均分（默认 2；0 = 纯「÷ 人数」）
 ##   eturn=1      无氧在各癌细胞回合末结算（09-05 那版）；默认 0 = E 阶段一次算（2026-09-06 Kevin 改回）
-##   necro=0      坏死格上的免疫不拿有氧（默认 1）；0 = 坏死无效果
+##   necro=80     坏死格上的免疫拿几成有氧（百分数，2026-09-07 起；0 = 一份不给，100 = 坏死无影响）
 ##   mucusfee=5   免疫踏进黏液格的迁移加费，十分能量（默认 5 = 0.5；0 = 关）
 ##   ocost=20 orounds=2  骨肉瘤【骨样硬化】费用 / 几回合后固化
 ##   cwin=100     癌方加权占地胜利门槛（现值 90 = 癌组织×1 + 固化×2；2026-09-01 定案乙之前是 85）。
@@ -107,6 +109,8 @@ var ecancer := -1
 var amult := -1
 var abhalf := -1
 var asqrt := -1
+var aexp := -1
+var asolid := -1
 var abase := -1
 var astep := -1
 var difflv := -1
@@ -179,6 +183,8 @@ func _parse() -> void:
 			"amult": amult = int(kv[1])
 			"abhalf": abhalf = int(kv[1])
 			"asqrt": asqrt = int(kv[1])
+			"aexp": aexp = int(kv[1])
+			"asolid": asolid = int(kv[1])
 			"abase": abase = int(kv[1])
 			"astep": astep = int(kv[1])
 			"difflv": difflv = int(kv[1])
@@ -247,7 +253,11 @@ func _tune() -> CWTuning:
 	if abhalf >= 0:
 		t.antibody_halve = abhalf != 0
 	if asqrt >= 0:
-		t.anaerobic_sqrt_coef = asqrt
+		t.anaerobic_block_coef = asqrt   ## 旗标名沿用 asqrt=，值是新公式的指数项系数（2026-09-07）
+	if aexp >= 0:
+		t.anaerobic_block_exp = aexp
+	if asolid >= 0:
+		t.anaerobic_solid_bonus = asolid
 	if abase >= 0:
 		t.aerobic_level_base = abase
 	if astep >= 0:
@@ -259,7 +269,7 @@ func _tune() -> CWTuning:
 	if eturn >= 0:
 		t.anaerobic_on_turn_end = eturn != 0
 	if necro >= 0:
-		t.necrosis_no_aerobic = necro != 0
+		t.necrosis_aerobic_pct = necro   ## 百分数（2026-09-07 起）：80 = 现行、0 = 一份不给、100 = 无影响
 	if mucusfee >= 0:
 		t.mucus_move_surcharge = mucusfee
 	if ocost >= 0:
@@ -359,13 +369,15 @@ func _applied(t: CWTuning) -> String:
 			["afloor", t.aerobic_floor, d.aerobic_floor],
 			["tiles", t.init_cancer_tiles, d.init_cancer_tiles],
 			["amult", t.aerobic_mult, d.aerobic_mult],
-			["asqrt", t.anaerobic_sqrt_coef, d.anaerobic_sqrt_coef],
+			["asqrt", t.anaerobic_block_coef, d.anaerobic_block_coef],
+			["aexp", t.anaerobic_block_exp, d.anaerobic_block_exp],
+			["asolid", t.anaerobic_solid_bonus, d.anaerobic_solid_bonus],
 			["abase", t.aerobic_level_base, d.aerobic_level_base],
 			["astep", t.aerobic_level_step, d.aerobic_level_step],
 			["difflv", t.differentiate_min_level, d.differentiate_min_level],
 			["asplit", int(t.aerobic_split), int(d.aerobic_split)],
 			["eturn", int(t.anaerobic_on_turn_end), int(d.anaerobic_on_turn_end)],
-			["necro", int(t.necrosis_no_aerobic), int(d.necrosis_no_aerobic)],
+			["necro", t.necrosis_aerobic_pct, d.necrosis_aerobic_pct],
 			["mucusfee", t.mucus_move_surcharge, d.mucus_move_surcharge],
 			["ocost", t.osteo_ossify_cost, d.osteo_ossify_cost],
 			["orounds", t.osteo_ossify_rounds, d.osteo_ossify_rounds],

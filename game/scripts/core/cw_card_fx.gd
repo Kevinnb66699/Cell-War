@@ -240,6 +240,15 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 		cell["equip_seq"][card] = cell["play_n"]
 		game.log_msg("　【%s】装备至角色面板（技 %d）" % [card, cell["equipped"].size()])
 		return
+	## 打出的即时卡引发的净化也不积累抗原记忆（Kevin 2026-09-07 补的第二半；抽到的那半在 CWCards.draw）。
+	## 结算体另起一个函数，是因为里头有好几处 return —— 包在这里才保证开关一定关得回去。
+	game.card_resolve_depth += 1
+	await _resolve_played(cell, data, card)
+	game.card_resolve_depth -= 1
+
+
+## 打出的即时卡怎么结算。**只由 play() 调**（开关在那儿开合）。
+func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 	match card:
 		"基质降解":
 			var t: Dictionary = game.tile(data["to"])

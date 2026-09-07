@@ -159,7 +159,8 @@ static func chapters() -> Array:
 	var aerobic: Array = []
 	if tune.aerobic_level_base != 0:
 		aerobic.append("每个世界回合 S 阶段【有氧呼吸】，每个免疫细胞各拿一份：")
-		aerobic.append("（抗原记忆等级 - 1）× %s + 基数，等级 I/II/III/X 记 1/2/3/4。"
+		## Kevin 2026-09-07 换成平方式：(等级系数 − 1)² × 步长 + 基数
+		aerobic.append("（抗原记忆等级 - 1）的平方 × %s + 基数，等级 I/II/III/X 记 1/2/3/4。"
 			% CWData.fmt(tune.aerobic_level_step))
 		if tune.aerobic_level_base < 0:
 			var parts: Array[String] = []
@@ -169,7 +170,13 @@ static func chapters() -> Array:
 				parts.append("%d 人局 %s" % [n, CWData.fmt(CWData.aerobic_level_base(n))])
 			aerobic.append("基数按人数：" + "、".join(parts) + "。多净化、升等级，收入就涨。")
 		else:
-			aerobic.append("基数 %s。多净化、升等级，收入就涨。" % CWData.fmt(tune.aerobic_level_base))
+			aerobic.append("基数 %s，四档就是 %s。升等级的收益越到后面越大。" % [
+				CWData.fmt(tune.aerobic_level_base),
+				" / ".join(PackedStringArray([
+					CWData.fmt(tune.aerobic_level_base),
+					CWData.fmt(tune.aerobic_level_base + tune.aerobic_level_step),
+					CWData.fmt(tune.aerobic_level_base + tune.aerobic_level_step * 4),
+					CWData.fmt(tune.aerobic_level_base + tune.aerobic_level_step * 9)]))])
 	else:
 		aerobic.append("每个世界回合 S 阶段【有氧呼吸】：按全盘健康组织占比 × %s 结算，"
 			% CWData.fmt(tune.aerobic_mult))
@@ -180,9 +187,11 @@ static func chapters() -> Array:
 	var when := "每个癌细胞在自己的行动回合末" if tune.anaerobic_on_turn_end else "每个世界回合 E 阶段"
 	var split := "，块内癌细胞均分。" if tune.anaerobic_split else "。"
 	var anaerobic: Array = [when + "结算【无氧呼吸】："]
-	if tune.anaerobic_sqrt_coef > 0:
-		anaerobic.append("%s × 所在癌组织连通块格数的平方根" % CWData.fmt(tune.anaerobic_sqrt_coef) + split)
-		anaerobic.append("块越大进账越多，但两个癌细胞挤一块不如各占一块。")
+	if tune.anaerobic_block_coef > 0:
+		anaerobic.append("块内癌组织个数的 %.2f 次方 × %s，再加全图每格固化 %s" % [
+			tune.anaerobic_block_exp / 100.0, CWData.fmt(tune.anaerobic_block_coef),
+			CWData.fmt(tune.anaerobic_solid_bonus)] + split)
+		anaerobic.append("铺地的边际收益很平，固化则是全场一起吃 —— 攒固化比摊大饼划算。")
 	else:
 		anaerobic.append("所在连通块每格癌组织 %s、每格固化 %s" % [
 			CWData.fmt(tune.anaerobic_per_cancer), CWData.fmt(tune.anaerobic_per_solid)] + split)
@@ -227,8 +236,8 @@ static func chapters() -> Array:
 	var t_lines: Array = [
 		"【细胞毒素】把相邻癌组织转健康并留下坏死；",
 		"【裂解】破除相邻的固化癌组织。主攻手。"]
-	if tune.necrosis_no_aerobic:
-		t_lines.append("站在坏死格上的免疫细胞那一回合拿不到有氧收入，放完毒记得走开。")
+	if tune.necrosis_aerobic_pct < 100:
+		t_lines.append("站在坏死格上的免疫细胞那一回合的有氧收入只有 %d%%，放完毒记得走开。" % tune.necrosis_aerobic_pct)
 	var macro_line := "【吞噬】：攻击造成能量损失后，回复目标损失量的一半。"
 	var macro_codex := "免疫续航型分化：【吞噬】攻击造成损失后回血一半，"
 	if tune.macro_heal_purify > 0:

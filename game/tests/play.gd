@@ -90,6 +90,8 @@ var amem := -9999
 var amult := -1
 var abhalf := -1
 var asqrt := -1
+var aexp := -1
+var asolid := -1
 var abase := -1
 var astep := -1
 var difflv := -1
@@ -196,6 +198,8 @@ func _parse() -> void:
 			"amult": amult = int(kv[1])
 			"abhalf": abhalf = int(kv[1])
 			"asqrt": asqrt = int(kv[1])
+			"aexp": aexp = int(kv[1])
+			"asolid": asolid = int(kv[1])
 			"abase": abase = int(kv[1])
 			"astep": astep = int(kv[1])
 			"difflv": difflv = int(kv[1])
@@ -244,7 +248,11 @@ func _tune() -> CWTuning:
 	if abhalf >= 0:
 		t.antibody_halve = abhalf != 0
 	if asqrt >= 0:
-		t.anaerobic_sqrt_coef = asqrt
+		t.anaerobic_block_coef = asqrt   ## 旗标名沿用 asqrt=，值是新公式的指数项系数（2026-09-07）
+	if aexp >= 0:
+		t.anaerobic_block_exp = aexp
+	if asolid >= 0:
+		t.anaerobic_solid_bonus = asolid
 	if abase >= 0:
 		t.aerobic_level_base = abase
 	if astep >= 0:
@@ -256,7 +264,7 @@ func _tune() -> CWTuning:
 	if eturn >= 0:
 		t.anaerobic_on_turn_end = eturn != 0
 	if necro >= 0:
-		t.necrosis_no_aerobic = necro != 0
+		t.necrosis_aerobic_pct = necro   ## 百分数（2026-09-07 起）：80 = 现行、0 = 一份不给、100 = 无影响
 	if mucusfee >= 0:
 		t.mucus_move_surcharge = mucusfee
 	if ocost >= 0:
@@ -322,13 +330,15 @@ func _applied(t: CWTuning) -> String:
 	for pair in [["tiles", t.init_cancer_tiles, d.init_cancer_tiles],
 			["amult", t.aerobic_mult, d.aerobic_mult],
 			["abhalf", int(t.antibody_halve), int(d.antibody_halve)],
-			["asqrt", t.anaerobic_sqrt_coef, d.anaerobic_sqrt_coef],
+			["asqrt", t.anaerobic_block_coef, d.anaerobic_block_coef],
+			["aexp", t.anaerobic_block_exp, d.anaerobic_block_exp],
+			["asolid", t.anaerobic_solid_bonus, d.anaerobic_solid_bonus],
 			["abase", t.aerobic_level_base, d.aerobic_level_base],
 			["astep", t.aerobic_level_step, d.aerobic_level_step],
 			["difflv", t.differentiate_min_level, d.differentiate_min_level],
 			["asplit", int(t.aerobic_split), int(d.aerobic_split)],
 			["eturn", int(t.anaerobic_on_turn_end), int(d.anaerobic_on_turn_end)],
-			["necro", int(t.necrosis_no_aerobic), int(d.necrosis_no_aerobic)],
+			["necro", t.necrosis_aerobic_pct, d.necrosis_aerobic_pct],
 			["mucusfee", t.mucus_move_surcharge, d.mucus_move_surcharge],
 			["ocost", t.osteo_ossify_cost, d.osteo_ossify_cost],
 			["orounds", t.osteo_ossify_rounds, d.osteo_ossify_rounds],

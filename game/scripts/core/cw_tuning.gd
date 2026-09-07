@@ -12,7 +12,7 @@ const RULE_FIELDS := [
 	"anaerobic_per_cancer", "anaerobic_per_solid", "anaerobic_split", "aerobic_mult",
 	"aerobic_mult_growth", "aerobic_split", "anaerobic_floor", "anaerobic_cap",
 	"aerobic_level_base", "aerobic_level_step", "differentiate_min_level",
-	"anaerobic_on_turn_end", "necrosis_no_aerobic", "mucus_move_surcharge", "aerobic_split_ref",
+	"anaerobic_on_turn_end", "necrosis_aerobic_pct", "mucus_move_surcharge", "aerobic_split_ref",
 	"osteo_ossify_cost", "osteo_ossify_rounds",
 	"aerobic_floor", "aerobic_cap", "energy_cap", "cancer_upkeep_pct",
 	"init_energy_immune", "init_energy_cancer", "init_cancer_tiles", "immune_move_healthy",
@@ -22,7 +22,8 @@ const RULE_FIELDS := [
 	"counter_dmg_on_fail", "solidify_threshold", "limit_round", "limit_cancerous",
 	"cancer_win_weighted", "cancer_win_hold_rounds", "solid_at_cancer_spawn",
 	"immune_respawn_delay", "immune_respawn_energy", "macro_heal_purify",
-	"antibody_max_per_round", "antibody_halve", "anaerobic_sqrt_coef",
+	"antibody_max_per_round", "antibody_halve",
+	"anaerobic_block_exp", "anaerobic_block_coef", "anaerobic_solid_bonus",
 	"proliferate_per_adjacent",
 	"metastasis_cost", "metastasis_max_per_round",
 	"newborn_protect",
@@ -73,13 +74,14 @@ var anaerobic_per_solid := CWData.ANAEROBIC_PER_SOLID        # 每固化癌组�
 ## 无氧呼吸是否按连通块内癌细胞数均分（关掉=每个癌细胞独享全额，大幅提升多细胞癌方收入）
 var anaerobic_split := true
 
-## 【S-有氧呼吸】**现行公式**：每个免疫细胞得 `aerobic_level_base + 抗原记忆等级 × aerobic_level_step`。
-## 单位十分能量，默认 25 + 等级 × 5 → 2.5 / 3.0 / 3.5 / 4.0（团队 2026-09-04 定案）。
+## 【S-有氧呼吸】**现行公式**（Kevin 2026-09-07）：每个免疫细胞得
+## `aerobic_level_base + aerobic_level_step × 抗原记忆等级²`（等级 0 起 = 系数 I/II/III/X 的 1/2/3/4 减一）。
+## 默认 20 + 5 × 等级² → **2.0 / 2.5 / 4.0 / 6.5**。
 ##
-## **-1 = 按人数取**（`CWData.aerobic_level_base`，四人 2.0 / 六人 1.8，2026-09-05 方案 f）；
-## `>0` = 所有人数统一成这个数（balance_scan 的 `abase=`，扫这张表本身的唯一办法）；
+## **-1 = 基数按人数取**（`CWData.aerobic_level_base`，四人 2.0 / 六人 1.8 —— 09-05 方案 f，现退为对照档）；
+## `>0` = 所有人数统一成这个数（默认；balance_scan 的 `abase=`）；
 ## `0` = **整条新公式关闭**，退回下面 `aerobic_mult` 那套盘面公式 —— 09-04 之前的扫描数据靠它复现。
-var aerobic_level_base := -1
+var aerobic_level_base := CWData.AEROBIC_LEVEL_BASE
 var aerobic_level_step := CWData.AEROBIC_LEVEL_STEP
 
 ## 【S-有氧呼吸】**旧公式**里的乘数：每个免疫细胞得 (健康 - 坏死) ÷ 总格数 × 本值 ÷ 10。
@@ -110,11 +112,13 @@ var aerobic_split_ref := CWData.AEROBIC_SPLIT_REF
 ## Kevin 09-05 先定保留回合末，**09-06 改口径回到 E 阶段**（同日 c 2.0→1.0）。见 CWWorld.settle_anaerobic_turn()。
 var anaerobic_on_turn_end := false
 
-## 「坏死」的新效果（2026-09-05）：**站在坏死组织上的免疫细胞该回合不获得【有氧呼吸】**。
+## 「坏死」的效果：**站在坏死组织上的免疫细胞该回合的【有氧呼吸】打折**。
 ## 有氧改成挂抗原记忆之后与盘面脱钩，PRD 原文「坏死不为有氧供能」失效了；
 ## 这是那条口径的**局部版**：不再拉低全场比例，只罚站在坏死格上的那一个。
-## 【细胞毒素】因此重新有了代价 —— 放完得离开自己造出来的坏死区。`necro=0` 关。
-var necrosis_no_aerobic := true
+## 【细胞毒素】因此有代价 —— 放完最好离开自己造出来的坏死区。
+## 2026-09-05 定为「一份不给」，**2026-09-07 Kevin 改成只拿 80%**（这个旋钮是百分数：
+## 0 = 一份不给，扫回旧行为；100 = 坏死无影响）。`necro=` 传的就是它。
+var necrosis_aerobic_pct := CWData.NECROSIS_AEROBIC_PCT
 
 ## 印戒「黏液侵染」：免疫细胞踏进黏液格时迁移费 +本值（十分能量，团队 2026-09-05 定 0.5）。0 = 关。
 var mucus_move_surcharge := CWData.MUCUS_MOVE_SURCHARGE
@@ -299,9 +303,12 @@ var antibody_max_per_round := CWData.ANTIBODY_MAX_PER_ROUND
 ## **团队 2026-09-04 定案保留**，默认开；`abhalf=0` 关掉可跑「每次都打满」的对照档。
 ## PRD 正本与仓库这份 diff 都已同步到这一条上（09-04 那次「已撤回」的标注随之作废）。
 var antibody_halve := true
-## 【E-无氧呼吸】改用 `c × √(连通块癌格子数)` 取代线性求和（团队 2026-09-04 定案）。
-## 单位十分能量，**0 = 关 = 09-04 之前的线性规则**（对照档用）。见 CWWorld._anaerobic_pool()。
-var anaerobic_sqrt_coef := CWData.ANAEROBIC_SQRT_COEF
+## 【E-无氧呼吸】现行公式（Kevin 2026-09-07）：
+##   `(块内普通癌组织数 ^ (exp/100) × coef + 全图固化数 × solid_bonus) ÷ 块内癌细胞数`
+## 三个旋钮都是给扫描拨的；**coef = 0 = 关 = 09-04 之前的线性求和**（对照档）。见 CWWorld._anaerobic_pool()。
+var anaerobic_block_exp := CWData.ANAEROBIC_BLOCK_EXP
+var anaerobic_block_coef := CWData.ANAEROBIC_BLOCK_COEF
+var anaerobic_solid_bonus := CWData.ANAEROBIC_SOLID_BONUS
 
 # ---- 小细胞肺癌【转移】（2026-09-03 晚，Kevin 问「黑 + 小同场怎么治」的候选杠杆；默认值 = 现行 PRD）----
 ## 每次费用（十分能量，现值 10 = 1.0）与每世界回合上限（0 = 不限 = 现行 PRD；1 = 与黑色素瘤【早期血行转移】同款）。

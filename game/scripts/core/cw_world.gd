@@ -334,9 +334,16 @@ func _aerobic_bonus(cell: Dictionary) -> int:
 ## 某个免疫细胞下一次 S 阶段预计拿到多少（右栏能量旁的「+x.x」）：站在坏死格 = 整份不拿、连技能加成也没有；
 ## 否则 = 每份 + 永久技能的额外获得。口径与 _aerobic 逐位一致 —— 回归拿它和真结算的差额对。
 func aerobic_income(cell: Dictionary) -> int:
-	if game.tune.necrosis_no_aerobic and game.tile(cell["pos"])["necrosis"] > 0:
-		return 0
-	return aerobic_share() + _aerobic_bonus(cell)
+	return necrosis_cut(cell, aerobic_share() + _aerobic_bonus(cell))
+
+
+## 站在坏死组织上就打折（Kevin 2026-09-07：由「一份不给」改成 80%）。**整份一起打**——
+## 技能的「额外获得」也在这一份里（那句的前提是「这次结算发生了」，折扣是对这次结算整体的）。
+## 向下取整到十分位（整数除法），与 TGF-β 的 ×80% 同一口径。
+func necrosis_cut(cell: Dictionary, gain: int) -> int:
+	if game.tile(cell["pos"])["necrosis"] <= 0:
+		return gain
+	return gain * game.tune.necrosis_aerobic_pct / 100
 
 
 func _aerobic() -> void:
@@ -356,18 +363,18 @@ func _aerobic() -> void:
 		game.log_msg("【TGF-β释放】有氧呼吸 %s → %s（%d 份 -20%%，已消耗）" % [
 			CWData.fmt(aerobic_share(false)), CWData.fmt(gain), tgf])
 	for cell in immune:
-		## 「坏死」的新效果（2026-09-05）：站在坏死格上这一回合整份不拿，连技能加成也没有 ——
-		## 「每次结算有氧呼吸时额外获得」的前提是这次结算发生了
-		if game.tune.necrosis_no_aerobic and game.tile(cell["pos"])["necrosis"] > 0:
-			game.log_msg("　%s 站在坏死组织上，本回合不获得有氧呼吸" % game.cell_name(cell))
-			continue
-		cell["energy"] += gain
 		## 【代谢适应】/【自分泌生存信号】的「额外获得」在基准收入之外加，
 		## 不吃 TGF-β 的 -20%（那句管的是有氧结算本身的所得，口径 #69）
 		var bonus := _aerobic_bonus(cell)
+		## 「坏死」：站在坏死格上整份打折（Kevin 2026-09-07 由「一份不给」改成 80%）。
+		## **和右栏「预计收入」同一条路**（aerobic_income → necrosis_cut），界面不会和结算对不上
+		var got := necrosis_cut(cell, gain + bonus)
+		cell["energy"] += got
 		if bonus > 0:
-			cell["energy"] += bonus
 			game.log_msg("　%s 的永久技能额外 +%s 能量" % [game.cell_name(cell), CWData.fmt(bonus)])
+		if got != gain + bonus:
+			game.log_msg("　%s 站在坏死组织上，有氧呼吸打 %d 折后只拿 %s" % [
+				game.cell_name(cell), game.tune.necrosis_aerobic_pct / 10, CWData.fmt(got)])
 	var hn := _healthy_counts()
 	var why := "抗原记忆 %s 级" % CWData.LEVEL_NAMES[game.immune_level] \
 		if game.tune.aerobic_level_base != 0 else "健康 %d - 坏死 %d" % [hn.x, hn.y]
@@ -397,7 +404,9 @@ func _aerobic_base(healthy: int, necrotic: int) -> int:
 	if base < 0:
 		base = CWData.aerobic_level_base(game.order.size())
 	if base > 0:
-		return base + game.tune.aerobic_level_step * game.immune_level
+		## (等级系数 − 1)² × step + base（Kevin 2026-09-07 换的公式）。immune_level 是 0 起，
+		## 正好就是「等级系数 − 1」：I 0 / II 1 / III 2 / X 3 → 2.0 / 2.5 / 4.0 / 6.5
+		return base + game.tune.aerobic_level_step * game.immune_level * game.immune_level
 	# 四舍五入到十分位：分子先 ×10 再加半个分母，整数除法即得（全程整数，无浮点）
 	var num: int = (healthy - necrotic) * game.tune.aerobic_mult_at(game.round_no)
 	var den: int = CWData.TOTAL_TILES
@@ -551,13 +560,23 @@ func _anaerobic() -> void:
 ## ⚠ **固化格不再有双倍权重**：新公式只数格子（团队定的口径就是「连通块癌格子数」）。
 ## 固化的价值因此完全落在「不能被【净化】」上，不再兼带供能加成。
 ##
-## `anaerobic_sqrt_coef = 0` 退回线性式，供 09-04 之前的对照档使用。
-## 2026-09-06 Kevin 把 c 从 2.0 改成 1.0（上面的数字减半：24 格 ≈ 4.9、97 格 ≈ 9.8）。
-func _anaerobic_pool(block: Array) -> int:
-	var coef: int = game.tune.anaerobic_sqrt_coef
+## **2026-09-07 Kevin 换成**：`块内普通癌组织数^0.3 × 2 + 全图固化数 × 1.0`（分母在 _split_share 里）。
+## 两处要看清：① 指数项的底数**只数普通癌组织**，块里的固化不算进去；
+## ② 固化按**全图**计数、线性加 —— 固化的价值从「给本块供能」变成「给全场供能」，
+##    所以每个癌细胞的这一项都一样，谁的块小谁摊得多。
+## `anaerobic_block_coef = 0` 退回 09-04 之前的线性求和，供对照档使用。
+## 返回**十分能量的浮点数**（不在这里取整）：四舍五入只做一次，在 _split_share 里除完再做。
+func _anaerobic_pool(block: Array) -> float:
+	var coef: int = game.tune.anaerobic_block_coef
 	if coef > 0:
-		return int(round(coef * sqrt(float(block.size()))))
-	var pool := 0
+		var plain := 0
+		for c in block:
+			if game.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				plain += 1
+		var solid: int = game.count_tissue(CWData.Tissue.SOLID)
+		var exp_term := pow(float(plain), game.tune.anaerobic_block_exp / 100.0) if plain > 0 else 0.0
+		return exp_term * float(coef) + float(solid * game.tune.anaerobic_solid_bonus)
+	var pool := 0.0
 	for c in block:
 		pool += game.tune.anaerobic_per_solid \
 			if game.tiles[c]["tissue"] == CWData.Tissue.SOLID \
@@ -565,9 +584,10 @@ func _anaerobic_pool(block: Array) -> int:
 	return pool
 
 
-func _split_share(pool: int, count: int) -> int:
-	## (2p+n)/(2n) 是整数版的「p/n 四舍五入」：.5 进位，和有氧那边的 round 口径一致
-	var gain: int = ((2 * pool + count) / (2 * count)) if game.tune.anaerobic_split else pool
+## 池子按块内癌细胞数均分。**四舍五入只在这里做一次**（池子是浮点，见 _anaerobic_pool）：
+## 先取整再除会取整两次，和 PRD 的「四舍五入到十分位」对不上。
+func _split_share(pool: float, count: int) -> int:
+	var gain: int = int(round(pool / float(count))) if game.tune.anaerobic_split else int(round(pool))
 	return game.tune.clamp_income(gain, game.tune.anaerobic_floor, game.tune.anaerobic_cap)
 
 

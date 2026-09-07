@@ -556,7 +556,7 @@ func t_anaerobic_round() -> void:
 	print("[无氧呼吸]")
 	var g := make_game(2, 1)
 	g.setup.build_board()
-	# 连通块：3 癌 + 1 固化 = 0.4×3 + 1.0 = 2.2 → 2 个细胞各得 1.1
+	# 连通块：3 普通癌 + 1 固化。现行式（2026-09-07）：3^0.3 × 2 + 全图固化 1 格 × 1.0，2 个细胞均分
 	var coords := [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0), Vector2i(3, 0)]
 	for c in coords:
 		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
@@ -566,14 +566,14 @@ func t_anaerobic_round() -> void:
 			CWData.CancerType.MELANOMA)
 		cell["energy"] = 0
 		g.cells.append(cell)
-	## 现行是开方式：4 格 → round(c×√4)，2 个细胞均分（四舍五入）。**按常量算**，c 改了这里不用跟
+	## 现行式：块里 3 格普通癌 + 全图 1 格固化，2 个细胞均分。**按常量算**，旋钮改了这里不用跟
 	g.world._anaerobic()
-	var each4: int = _share(_pool_of(4), 2)
+	var each4: int = _share(_pool_of(3, 1), 2)
 	check(g.cells[0]["energy"] == each4 and g.cells[1]["energy"] == each4,
-		"开方 4 格 = %s / 2 细胞 = 各 %s" % [CWData.fmt(_pool_of(4)), CWData.fmt(each4)])
+		"3 普通癌 + 1 固化 = %.1f 十分 / 2 细胞 = 各 %s" % [_pool_of(3, 1), CWData.fmt(each4)])
 	## 以下切回线性对照档（团队 2026-09-04 之前的规则）——
 	## 那套的取整口径、固化双倍权重、瓦伯格 110% 都还得有测试盯着
-	g.tune.anaerobic_sqrt_coef = 0
+	g.tune.anaerobic_block_coef = 0
 	g.cells[0]["energy"] = 0
 	g.cells[1]["energy"] = 0
 	g.world._anaerobic()
@@ -978,7 +978,7 @@ func t_immune_level_rules() -> void:
 			"记忆 %d → %s 级" % [pair[0], CWData.LEVEL_NAMES[int(pair[1])]])
 		g2.dispose()
 
-	## 有氧 = 2.5 + 等级 × 0.5，与盘面无关
+	## 有氧 = 基数 + 等级² × 0.5（Kevin 2026-09-07 换成平方式），与盘面无关
 	var cell := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
 		CWData.ImmuneType.BASIC, -1)
 	g.cells.append(cell)
@@ -986,9 +986,11 @@ func t_immune_level_rules() -> void:
 		g.immune_level = lv
 		cell["energy"] = 0
 		g.world._aerobic()
-		var want_lv: int = CWData.AEROBIC_LEVEL_BASE + CWData.AEROBIC_LEVEL_STEP * lv
+		var want_lv: int = CWData.AEROBIC_LEVEL_BASE + CWData.AEROBIC_LEVEL_STEP * lv * lv
 		check(cell["energy"] == want_lv,
 			"%s 级有氧 = %s" % [CWData.LEVEL_NAMES[lv], CWData.fmt(want_lv)])
+	check(CWData.AEROBIC_LEVEL_BASE == 20 and CWData.AEROBIC_LEVEL_STEP == 5,
+		"四档就是 2.0 / 2.5 / 4.0 / 6.5（Kevin 2026-09-07 给的图）")
 	## 盘面被癌组织吃掉一半也不掉收入 —— 这正是换公式要解决的死亡螺旋
 	var half := 0
 	for c in g.tiles.keys():
@@ -1206,41 +1208,63 @@ func t_jump_cap() -> void:
 ## 这里只验算式本身（连通块的组装另有测试盯着）：默认值、系数对不对、后期真被压住、
 ## 单调不减、以及关掉能退回线性式。
 func t_anaerobic_sqrt() -> void:
-	print("[无氧开方]")
+	print("[无氧公式]")
 	var g := bare_game()
 	g.setup.build_board()
-	check(g.tune.anaerobic_sqrt_coef == CWData.ANAEROBIC_SQRT_COEF,
-		"默认开：c = %d" % CWData.ANAEROBIC_SQRT_COEF)
-	check(CWData.ANAEROBIC_SQRT_COEF == 10, "c 默认 1.0（Kevin 2026-09-06 定；09-05 的 2.0 是回合末结算下调的）")
-	## 开方式只数格子、不看组织类型，所以拿盘面上任意 n 格拼块都行
+	check(g.tune.anaerobic_block_coef == CWData.ANAEROBIC_BLOCK_COEF
+		and g.tune.anaerobic_block_exp == CWData.ANAEROBIC_BLOCK_EXP
+		and g.tune.anaerobic_solid_bonus == CWData.ANAEROBIC_SOLID_BONUS,
+		"默认 = 常量：系数 %s / 指数 0.%d / 每格固化 %s" % [
+			CWData.fmt(CWData.ANAEROBIC_BLOCK_COEF), CWData.ANAEROBIC_BLOCK_EXP,
+			CWData.fmt(CWData.ANAEROBIC_SOLID_BONUS)])
+	check(CWData.ANAEROBIC_BLOCK_EXP == 30 and CWData.ANAEROBIC_BLOCK_COEF == 20
+		and CWData.ANAEROBIC_SOLID_BONUS == 10,
+		"Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2 + 全图固化数 × 1.0")
+
+	## 取一块普通癌组织，逐格核对指数项（全图没有固化时第二项为 0）
 	var keys: Array = g.tiles.keys()
-
-	g.tune.anaerobic_sqrt_coef = 20
-	check(g.world._anaerobic_pool(keys.slice(0, 24)) == 98,
-		"24 格：√24×2.0 = 9.8（前期与线性的 9.6 基本齐平）")
-	check(g.world._anaerobic_pool(keys.slice(0, 97)) == 197,
-		"97 格：√97×2.0 = 19.7（同盘线性要 38.8 起，后期腰斩）")
-	check(g.world._anaerobic_pool(keys.slice(0, 1)) == 20, "1 格 = 2.0")
-	check(g.world._anaerobic_pool([]) == 0, "空块不炸")
-	## 单调不减：格子多了收入不能反而变少，否则会出现「自己拆自己的地」这种荒唐最优解
-	var prev := -1
-	for tiles in range(1, 120):
-		var cur: int = g.world._anaerobic_pool(keys.slice(0, tiles))
+	var blk: Array = []
+	for k in 24:
+		blk.append(keys[k])
+		g.tiles[keys[k]]["tissue"] = CWData.Tissue.CANCER
+	for n in [1, 4, 10, 24]:
+		var part: Array = blk.slice(0, n)
+		check(is_equal_approx(g.world._anaerobic_pool(part), _pool_of(n, 0)),
+			"%d 格：%.1f 十分能量" % [n, _pool_of(n, 0)])
+	check(g.world._anaerobic_pool([]) == 0.0, "空块不炸")
+	## 单调不减：格子多了收入不能反而变少
+	var prev := -1.0
+	var mono := true
+	for n2 in range(1, 24):
+		var cur: float = g.world._anaerobic_pool(blk.slice(0, n2))
 		if cur < prev:
-			check(false, "单调性在 %d 格处断了" % tiles)
-			return
+			mono = false
 		prev = cur
-	check(true, "1~119 格单调不减")
+	check(mono, "1~23 格单调不减")
 
-	## 关掉 = 退回 09-04 之前的线性式，固化格照旧算双倍权重
-	g.tune.anaerobic_sqrt_coef = 0
-	var blk: Array = keys.slice(0, 3)
-	for c in blk:
-		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	## 固化：**不进指数项、按全图线性加**。把块里一格改成固化 —— 指数项少一格，但全图多一格固化
+	var before: float = g.world._anaerobic_pool(blk)
 	g.tiles[blk[0]]["tissue"] = CWData.Tissue.SOLID
-	check(g.world._anaerobic_pool(blk)
-		== CWData.ANAEROBIC_PER_SOLID + 2 * CWData.ANAEROBIC_PER_CANCER,
-		"关掉 = 线性式：固化 1.0 + 癌 0.4×2 = 1.8")
+	check(is_equal_approx(g.world._anaerobic_pool(blk), _pool_of(23, 1)),
+		"块里一格转固化：指数项按 23 格算，另加全图 1 格固化")
+	check(g.world._anaerobic_pool(blk) > before, "固化比普通癌组织值钱（+1.0 对上 0.3 次方的那点边际）")
+	## 全图固化对**别的块**也算数（这正是新公式的用意）
+	var far: Array = [keys[80]]
+	g.tiles[keys[80]]["tissue"] = CWData.Tissue.CANCER
+	check(is_equal_approx(g.world._anaerobic_pool(far), _pool_of(1, 1)),
+		"另一块只有 1 格，也吃到全图那 1 格固化的 +1.0")
+
+	## 关掉（系数 0）→ 退回 09-04 之前的线性求和
+	g.tune.anaerobic_block_coef = 0
+	var lin: Array = [keys[0], keys[1], keys[2]]
+	for c in lin:
+		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[lin[0]]["tissue"] = CWData.Tissue.SOLID
+	check(is_equal_approx(g.world._anaerobic_pool(lin),
+			float(g.tune.anaerobic_per_solid + g.tune.anaerobic_per_cancer * 2)),
+		"系数 0：退回线性求和（对照档）")
+	g.dispose()
+
 
 func t_antibody_halve() -> void:
 	print("[抗体同回合递减]")
@@ -4469,10 +4493,13 @@ func t_income_display() -> void:
 	g.world.aerobic()
 	check(imm["energy"] - e0 == want_tgf and g.events["active"].is_empty(), "结算差额一致，TGF-β 消耗掉")
 	check(g.world.aerobic_income(imm) == want, "预计是纯查询：没有消耗 TGF-β（消耗后回到原值）")
-	## 站在坏死格：整份不拿；永久技能加成算进预计
-	g.tune.necrosis_no_aerobic = true
+	## 站在坏死格：整份打折（Kevin 2026-09-07 由「一份不给」改成 80%）；永久技能加成也在这一份里
 	g.tiles[imm["pos"]]["necrosis"] = 2
-	check(g.world.aerobic_income(imm) == 0, "坏死格上预计 0")
+	check(g.world.aerobic_income(imm) == want * CWData.NECROSIS_AEROBIC_PCT / 100,
+		"坏死格上预计打折（%s → %s）" % [CWData.fmt(want), CWData.fmt(g.world.aerobic_income(imm))])
+	g.tune.necrosis_aerobic_pct = 0
+	check(g.world.aerobic_income(imm) == 0, "necro=0 扫回旧行为：一份不给")
+	g.tune.necrosis_aerobic_pct = CWData.NECROSIS_AEROBIC_PCT
 	g.tiles[imm["pos"]]["necrosis"] = 0
 	imm["equipped"].append("代谢适应")
 	var want_bonus: int = g.world.aerobic_income(imm)
@@ -5585,12 +5612,11 @@ func t_codex() -> void:
 				if CWStyle.FONT.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x > budget:
 					wide.append(line)
 	check(wide.is_empty(), "每行都放得进正文栏宽 %d（超的：%s）" % [budget, str(wide)])
-	check(all_text.contains("（抗原记忆等级 - 1）× %s + 基数" % CWData.fmt(tune.aerobic_level_step))
-		and all_text.contains("6 人局 %s" % CWData.fmt(CWData.aerobic_level_base(6))),
-		"有氧呼吸按现行等级式描述、基数分档现读表")
-	check(all_text.contains("平方根") and all_text.contains("E 阶段结算【无氧呼吸】")
+	check(all_text.contains("平方") and all_text.contains(CWData.fmt(CWData.AEROBIC_LEVEL_BASE)),
+		"有氧呼吸按现行公式描述（等级差的平方 × 0.5 + 基数）")
+	check(all_text.contains("次方") and all_text.contains("全图") and all_text.contains("E 阶段结算【无氧呼吸】")
 		and not all_text.contains("行动回合末结算【无氧呼吸】"),
-		"无氧呼吸：开方公式 + E 阶段统一结算（eturn=0，Kevin 2026-09-06 改回）")
+		"无氧呼吸：现行式（块内癌组织的次方 + 全图固化）+ E 阶段统一结算")
 	check(not all_text.contains("占比") and not all_text.contains("最多存 0") and not all_text.contains("低保"),
 		"09-05 之前的口径（盘面占比 / 存量上限 / 低保）不再出现")
 	check(all_text.contains("%d 升 III 级" % CWData.LEVEL_MIN_MEMORY[2]) and not all_text.contains("16 升"),
@@ -6771,7 +6797,7 @@ func t_card_events_cancer() -> void:
 		if g.tiles[n]["tissue"] == CWData.Tissue.CANCER:
 			newborns += 1
 	check(newborns == 1, "克隆增殖：前期恰好转化 1 格")
-	## 糖酵解爆发：块 4 格 → round(2.0×√4)=4.0 / 1 细胞 → +4.0，口径与 E 阶段一致
+	## 糖酵解爆发：块里 3 格普通癌 + 全图 1 格固化 / 1 细胞，口径与 E 阶段一致（2026-09-07 新式）
 	for c in g.tiles.keys():
 		g.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
 	for c in [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0)]:
@@ -6779,7 +6805,8 @@ func t_card_events_cancer() -> void:
 	g.tiles[Vector2i(3, 0)]["tissue"] = CWData.Tissue.SOLID
 	a["energy"] = 0
 	await g.card_fx.resolve_event(a, "糖酵解爆发")
-	check(a["energy"] == _pool_of(4), "糖酵解爆发：立刻结算一次无氧呼吸（4 格独占 = %s）" % CWData.fmt(_pool_of(4)))
+	check(a["energy"] == _share(_pool_of(3, 1), 1),
+		"糖酵解爆发：立刻结算一次无氧呼吸（3 普通癌 + 1 固化独占 = %s）" % CWData.fmt(_share(_pool_of(3, 1), 1)))
 	g.dispose()
 
 
@@ -7053,8 +7080,9 @@ func t_card_choices() -> void:
 	var cm0: int = g.memory
 	b.answers = [0]   ## 第 2 步就停
 	await g.card_fx.play(chx, first)
+	## 2026-09-07 起**卡牌引发的净化不积累抗原记忆**（Kevin）：格子照净化，记忆不涨
 	check(chx["pos"] == Vector2i(1, 0) and g.tiles[Vector2i(1, 0)]["tissue"] == CWData.Tissue.HEALTHY
-		and g.memory == cm0 + 1, "第一步进癌组织触发净化")
+		and g.memory == cm0, "第一步进癌组织触发净化（打出的卡引发：不给抗原记忆）")
 	check(chx["energy"] == 28 and chx["hand"].is_empty(), "只走一步只扣 0.2，结算后弃置")
 	g.dispose()
 
@@ -7230,10 +7258,10 @@ func t_card_perms() -> void:
 	g.cells.append(gl)
 	g.tiles[Vector2i(5, 0)]["tissue"] = CWData.Tissue.CANCER
 	g.round_no = 12
-	check(g.world.anaerobic_gain_for(gl) == _pool_of(1) + CWData.GLUT1_BONUS[1],
-		"GLUT1：单格块无氧 %s + 中期 0.8（糖酵解爆发同口径）" % CWData.fmt(_pool_of(1)))
+	check(g.world.anaerobic_gain_for(gl) == _share(_pool_of(1, 0), 1) + CWData.GLUT1_BONUS[1],
+		"GLUT1：单格块无氧 %s + 中期 0.8（糖酵解爆发同口径）" % CWData.fmt(_share(_pool_of(1, 0), 1)))
 	g.world._anaerobic()
-	check(gl["energy"] == _pool_of(1) + CWData.GLUT1_BONUS[1], "E 阶段无氧同样加成")
+	check(gl["energy"] == _share(_pool_of(1, 0), 1) + CWData.GLUT1_BONUS[1], "E 阶段无氧同样加成")
 	g.dispose()
 
 	## ⑥ 净化连锁：模式识别增强 + 效应记忆形成（每世界回合一次）；免疫记忆库免费抽
@@ -8934,8 +8962,8 @@ func t_ossify_cost_and_pin() -> void:
 	g.dispose()
 
 
-## 抽卡造成的净化不积累抗原记忆（Kevin 2026-09-07）。开关是 CWGame.drawn_card_depth，
-## 两条给记忆的路（净化本身、局部吞噬）都认它；自己走进去净化照常给。
+## 卡牌引发的净化不积累抗原记忆（Kevin 2026-09-07：先定抽卡，当天又补上打出的即时卡）。
+## 开关是 CWGame.card_resolve_depth，两条给记忆的路（净化本身、局部吞噬）都认它；自己走进去净化照常给。
 func t_draw_purify_memory() -> void:
 	print("[抽卡造成的净化不给记忆]")
 	var g := _fx_game(2)
@@ -8948,7 +8976,7 @@ func t_draw_purify_memory() -> void:
 	check(g.memory == m0 + 1, "自己净化：+1 抗原记忆")
 	## ② 抽卡结算期间：不给，且日志说得出为什么
 	g.tiles[at]["tissue"] = CWData.Tissue.CANCER
-	g.drawn_card_depth += 1
+	g.card_resolve_depth += 1
 	var n0: int = g.logs.size()
 	await g.actions.purify_here(imm, at, -1)
 	var said := "\n".join(g.logs.slice(n0))
@@ -8962,24 +8990,38 @@ func t_draw_purify_memory() -> void:
 	check(g.memory == m1, "【局部吞噬】在抽卡结算里：不给记忆")
 	check(not CWCardData.effect_of("局部吞噬", CWData.Faction.IMMUNE).contains("抗原记忆"),
 		"卡面已同步（PRD 删掉了「并获得1抗原记忆」）：%s" % CWCardData.effect_of("局部吞噬", CWData.Faction.IMMUNE))
-	g.drawn_card_depth -= 1
+	g.card_resolve_depth -= 1
 	## ④ 开关归零：抽完一张卡不能把它留在开着的状态
 	check(g.purify_gives_memory(), "结算完开关归零，之后自己净化照常给")
 	## ⑤ 真走一遍 draw()：结算期间开着、抽完归零
 	var depth_seen: Array = []
 	g.event_drawn.connect(func(_a: int, _b: int, _c: Vector2i, _d: int, _e: String) -> void:
-		depth_seen.append(g.drawn_card_depth))
+		depth_seen.append(g.card_resolve_depth))
 	for c in CWCardData.pool_of(CWData.Faction.IMMUNE, g.immune_level, g.round_no):
 		if CWCardData.CARDS[c["name"]]["kind"] != CWCardData.Kind.EVENT:
 			imm["hand"].append(c["name"])   ## 技能全塞手上 → 只抽得到事件卡
 	await g.cards.draw(imm, "基因表达")
 	check(depth_seen == [1], "抽到事件卡：结算期间开关开着（%s）" % str(depth_seen))
-	check(g.drawn_card_depth == 0 and g.purify_gives_memory(), "结算完归零")
+	check(g.card_resolve_depth == 0 and g.purify_gives_memory(), "结算完归零")
+	## ⑤b 打出的即时卡同样（Kevin 2026-09-07 补）：【炎症性趋化】的每一步走进癌组织都会净化
+	imm["hand"] = ["补体调理"]
+	imm["energy"] = 100
+	await g.card_fx.play(imm, { "act": "play", "card": "补体调理" })
+	check(g.card_resolve_depth == 0 and g.purify_gives_memory(), "打完一张卡开关也归零")
+	var seen_play: Array = []
+	var probe := Vector2i(0, 1)
+	g.tiles[probe]["tissue"] = CWData.Tissue.CANCER
+	var m3: int = g.memory
+	g.card_resolve_depth += 1          ## 模拟「正在结算一张打出的卡」
+	await g.actions.purify_here(imm, probe, -1)
+	g.card_resolve_depth -= 1
+	check(g.memory == m3, "打出的卡引发的净化：同样不给记忆")
+	seen_play.append(1)
 	## ⑥ 抗原记忆类的卡不受影响：它们的正业就是送记忆
 	var m2: int = g.memory
-	g.drawn_card_depth += 1
+	g.card_resolve_depth += 1
 	await g.card_fx.resolve_event(imm, "抗原呈递增强")
-	g.drawn_card_depth -= 1
+	g.card_resolve_depth -= 1
 	check(g.memory == m2 + 3, "【抗原呈递增强】照给 +3（挡的只是净化那一份）")
 	g.dispose()
 
@@ -9408,15 +9450,22 @@ func t_batch2_rules() -> void:
 	check(CWData.aerobic_level_base(4) == 20 and CWData.aerobic_level_base(6) == 18
 		and CWData.aerobic_level_base(2) == 20 and CWData.aerobic_level_base(5) == CWData.AEROBIC_LEVEL_BASE,
 		"有氧基数按人数分档：二人/四人 2.0、六人 1.8、表外人数回退")
-	check(g.tune.aerobic_level_base == -1, "旋钮默认 -1 = 按人数取")
-	## 六人局引擎实算：一个免疫细胞、I 级 → 1.8（低保已关，不会被顶回 2.0）
+	check(g.tune.aerobic_level_base == CWData.AEROBIC_LEVEL_BASE,
+		"旋钮默认 = 固定基数 %s（Kevin 2026-09-07 换公式后不再按人数分档；-1 仍可扫回方案 f）"
+			% CWData.fmt(CWData.AEROBIC_LEVEL_BASE))
+	## 六人局引擎实算：默认已不按人数分档（2026-09-07），拨回 -1 才是方案 f 的 1.8
 	var g6 := make_game(6, 1)
 	g6.setup.build_board()
 	var i6 := CWSetup.make_cell(g6.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i.ZERO, CWData.ImmuneType.BASIC, -1)
 	i6["energy"] = 0
 	g6.cells.append(i6)
 	g6.world._aerobic()
-	check(i6["energy"] == 18, "六人局 I 级有氧 = 1.8（实得 %s）" % CWData.fmt(i6["energy"]))
+	check(i6["energy"] == CWData.AEROBIC_LEVEL_BASE,
+		"六人局 I 级有氧 = 固定基数 %s（实得 %s）" % [CWData.fmt(CWData.AEROBIC_LEVEL_BASE), CWData.fmt(i6["energy"])])
+	g6.tune.aerobic_level_base = -1
+	i6["energy"] = 0
+	g6.world._aerobic()
+	check(i6["energy"] == 18, "abase=-1 扫回方案 f：六人局 1.8（实得 %s）" % CWData.fmt(i6["energy"]))
 	g6.tune.aerobic_level_base = 25
 	i6["energy"] = 0
 	g6.world._aerobic()
@@ -9452,16 +9501,23 @@ func t_batch2_rules() -> void:
 	check(imms[0]["energy"] == B, "asplit=0：每人全额 %s" % CWData.fmt(B))
 	g.dispose()
 
-	## ② 坏死新效果：站在坏死格上的免疫这一回合不拿有氧
+	## ② 坏死：站在坏死格上的免疫这一回合有氧打折（Kevin 2026-09-07 由「一份不给」改成 80%）
 	g = bare_game()
 	var im := put_immune(g, Vector2i.ZERO)
 	im["energy"] = 0
 	g.tiles[Vector2i.ZERO]["necrosis"] = CWData.NECROSIS_TOXIN
 	g.world._aerobic()
-	check(im["energy"] == 0, "站在坏死格上：本回合不获得有氧（【细胞毒素】重新有了代价）")
-	g.tune.necrosis_no_aerobic = false
+	var cut: int = CWData.AEROBIC_LEVEL_BASE * CWData.NECROSIS_AEROBIC_PCT / 100
+	check(im["energy"] == cut, "站在坏死格上：只拿 %d%%（%s）" % [CWData.NECROSIS_AEROBIC_PCT, CWData.fmt(cut)])
+	check(CWData.NECROSIS_AEROBIC_PCT == 80, "现行是八折（Kevin 2026-09-07）")
+	im["energy"] = 0
+	g.tune.necrosis_aerobic_pct = 0
 	g.world._aerobic()
-	check(im["energy"] == CWData.AEROBIC_LEVEL_BASE, "necro=0：坏死无效果，照拿 %s" % CWData.fmt(CWData.AEROBIC_LEVEL_BASE))
+	check(im["energy"] == 0, "necro=0：扫回「一份不给」（09-05~09-07 的行为）")
+	im["energy"] = 0
+	g.tune.necrosis_aerobic_pct = 100
+	g.world._aerobic()
+	check(im["energy"] == CWData.AEROBIC_LEVEL_BASE, "necro=100：坏死无影响，照拿 %s" % CWData.fmt(CWData.AEROBIC_LEVEL_BASE))
 	g.dispose()
 
 	## ③ 黏液：免疫踏进黏液格迁移 +0.5；癌细胞不受影响；旋钮 0 关
@@ -9495,7 +9551,7 @@ func t_batch2_rules() -> void:
 	for d in CWData.DIRS:
 		g.tiles[Vector2i.ZERO + d]["tissue"] = CWData.Tissue.CANCER
 	var expect: int = g.world.anaerobic_gain_for(ca2)
-	check(expect == _pool_of(7), "7 格块独占：round(c×√7) = %s（实得 %s）" % [CWData.fmt(_pool_of(7)), CWData.fmt(expect)])
+	check(expect == _share(_pool_of(7, 0), 1), "7 格块独占：%.1f 十分（实得 %s）" % [_pool_of(7, 0), CWData.fmt(expect)])
 	check(not g.tune.anaerobic_on_turn_end, "默认 E 阶段统一结算（Kevin 2026-09-06 改回；09-05 曾默认回合末）")
 	g._end_turn(1, ca2)
 	check(ca2["energy"] == 0, "默认：回合末不进账")
@@ -9503,8 +9559,8 @@ func t_batch2_rules() -> void:
 	## E 阶段第 2~3 步的【增生】【侵蚀】可能先把块铺大，第 4 步按铺大后的块算 —— 拿结算后的块大小对
 	## （盘上只有这一块，增生 / 侵蚀出来的格都贴着它）
 	var n_after: int = g.count_tissue(CWData.Tissue.CANCER) + g.count_tissue(CWData.Tissue.SOLID)
-	check(ca2["energy"] > 0 and ca2["energy"] == _pool_of(n_after),
-		"默认：E 阶段一次算，进账 round(c×√%d) = %s（实得 %s）" % [n_after, CWData.fmt(_pool_of(n_after)), CWData.fmt(ca2["energy"])])
+	check(ca2["energy"] > 0 and ca2["energy"] == _share(_pool_of(n_after, 0), 1),
+		"默认：E 阶段一次算，进账 %.1f 十分（实得 %s）" % [_pool_of(n_after, 0), CWData.fmt(ca2["energy"])])
 	g.tune.anaerobic_on_turn_end = true
 	ca2["energy"] = 0
 	var expect_turn: int = g.world.anaerobic_gain_for(ca2)
@@ -9581,15 +9637,16 @@ func t_batch2_rules() -> void:
 	g.dispose()
 
 
-## 开方式无氧：n 格连通块的供能池（口径同 CWWorld._anaerobic_pool，按当前默认 c 算）。
-## 测试**不许**把 c 的结果写死成数字 —— c 是团队定值的旋钮，改一次不该让十几条断言跟着改
-static func _pool_of(tiles: int) -> int:
-	return int(round(CWData.ANAEROBIC_SQRT_COEF * sqrt(float(tiles))))
+## 无氧的供能池（十分能量，浮点；口径同 CWWorld._anaerobic_pool，按当前默认值算）。
+## 测试**不许**把结果写死成数字 —— 三个数都是旋钮，改一次不该让十几条断言跟着改。
+static func _pool_of(plain: int, solid_all: int) -> float:
+	var term := pow(float(plain), CWData.ANAEROBIC_BLOCK_EXP / 100.0) if plain > 0 else 0.0
+	return term * float(CWData.ANAEROBIC_BLOCK_COEF) + float(solid_all * CWData.ANAEROBIC_SOLID_BONUS)
 
 
 ## 池子按 k 个癌细胞均分，四舍五入到十分位（口径同 CWWorld._split_share）
-static func _share(pool: int, k: int) -> int:
-	return (2 * pool + k) / (2 * k)
+static func _share(pool: float, k: int) -> int:
+	return int(round(pool / float(k)))
 
 
 ## 选项里有没有指向某一格的目标（卡牌选项把目标放在 data["to"]）
