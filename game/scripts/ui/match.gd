@@ -357,6 +357,10 @@ func _wire_bridge(smart: bool) -> void:
 	bridge.enabled = smart       ## 「较强」= 蒙特卡洛推演（桥的基类），默认启发式
 	## 真人档要有可预测的响应上限；预算按模拟 step 计，不受本机快慢影响。
 	bridge.max_sim_steps = 192 if smart else 0
+	## 较强 AI 的推演放进副线程（修「较强 AI 卡前端」）：主线程提交后只 await，
+	## 评估在 `Thread` 上跑，相机/输入不再被同步评估块整段堵住。
+	## 教程局从不推演（CWGuideBridge 不开 MC），不冒线程化的险。
+	bridge.use_threading = smart and not tutorial
 	bridge.opening = _opening    ## 绽开演完前先不弹询问界面
 	bridge.delay_ms = CWSettings.ai_delay_ms
 	bridge.delay_node = self
