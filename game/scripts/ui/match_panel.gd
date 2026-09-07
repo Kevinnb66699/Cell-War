@@ -305,6 +305,7 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 	row["skills"].text = "技 %d" % n_skill
 	row["skills"].add_theme_color_override("font_color",
 		CWStyle.TEXT_HI if n_skill > 0 else CWStyle.TEXT_OFF)
+	_fit_type_label(row)
 
 	var icon: Sprite2D = row["icon"]
 	icon.visible = true
@@ -439,7 +440,13 @@ func _build_row(y: float, pid: int) -> Dictionary:
 	## 本地对局的「免疫A」只有 52px，不受影响（2026-09-03 排版体检）
 	nm.clip_text = true
 	nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	var ty := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM), x, y + 26, 110)
+	## **先开裁切再定尺寸**（架构约定；不裁的 Label 最小宽 = 全文宽，会把这里的 110 顶开）——
+	## 2026-09-07 Kevin 拍到「图标重叠」：联机局的「恶性黑色素瘤 · 离线代打」正是这么压到历史小卡底下的。
+	## 实际宽度每帧由 _fit_type_label() 按小卡占了多少再收一次
+	var ty := CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	ty.clip_text = true
+	ty.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_put(ty, x, y + 26, 110)
 	var right: float = PAD + W - ROW_PAD
 	## 能量数右对齐到预计收入左边（顶行从右往左：+x.x → 能量 → 技 N，Kevin 2026-09-06 定的顺序）
 	var en := _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT_HI),
@@ -470,6 +477,24 @@ func _build_row(y: float, pid: int) -> Dictionary:
 		x, y + 10, right - ENERGY_RESERVE - INCOME_RESERVE - x, HORIZONTAL_ALIGNMENT_RIGHT)
 	return { "bg": bg, "fac": fac, "history": history, "icon": icon,
 		"name": nm, "type": ty, "energy": en, "income": inc, "pips": pips, "skills": sk }
+
+
+## 第二行只有这么宽：种类文字 → 历史小卡 → 手牌方块。小卡占了多少，种类就让多少
+## （Kevin 2026-09-07：那一行会重叠）。没打过牌时种类一直铺到方块左边，不白让。
+func _fit_type_label(row: Dictionary) -> void:
+	var ty: Label = row["type"]
+	var pips: Array = row["pips"]
+	if pips.is_empty():
+		return
+	var limit: float = (pips[0] as Control).position.x - 4.0
+	var history: Control = row.get("history", null)
+	if history != null and is_instance_valid(history) and history.visible:
+		var n: int = history.get_child_count()
+		if n > 0:
+			## 收着时最左那张的位置：容器右缘往左退「一张 + (n-1) 个 2px」
+			var taken: float = (HISTORY_ICON + 2.0) + float(n - 1) * HISTORY_STEP
+			limit = history.position.x + history.size.x - taken - 4.0
+	ty.size.x = maxf(40.0, limit - ty.position.x)
 
 
 # ============ 历史卡牌 ============
@@ -522,6 +547,7 @@ func note_played_card(game: CWGame, pid: int, faction: int, card_name: String) -
 	history.visible = true
 	history.add_child(chip)
 	_layout_history(history)
+	_fit_type_label(row)   ## 小卡多一张，种类就再让一点（Kevin 2026-09-07）
 
 
 func _sync_history_round(game: CWGame) -> void:

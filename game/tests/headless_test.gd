@@ -8518,8 +8518,21 @@ func t_card_history() -> void:
 		and not (under.get_child(0) as Control).visible,
 		"离开整叠 → 下一帧收回 2px 叠放、底下那张图标藏起")
 	var pip0: ColorRect = row["pips"][0]
-	check(hist.position.x + hist.size.x <= pip0.position.x - 2.0 and hist.position.x >= row["type"].position.x + 60.0,
-		"小卡框在手牌方块左边、种类小字最长 6 字之外（%.0f..%.0f，方块 %.0f）" % [hist.position.x, hist.position.x + hist.size.x, pip0.position.x])
+	check(hist.position.x + hist.size.x <= pip0.position.x - 2.0,
+		"小卡框在手牌方块左边（%.0f..%.0f，方块 %.0f）" % [hist.position.x, hist.position.x + hist.size.x, pip0.position.x])
+	## 种类文字让到小卡左边，一个像素都不压（Kevin 2026-09-07 拍到的重叠）。
+	## 拿最长的那种癌症名 + 联机的「· 离线代打」凑最坏情况
+	var ty2: Label = row["type"]
+	p.net_seats = [{ "kind": "human", "online": true }, { "kind": "human", "online": false }]
+	p.refresh(g)
+	var left_chip: float = hist.position.x + hist.size.x - ((CWMatchPanel.HISTORY_ICON + 2.0) + float(hist.get_child_count() - 1) * CWMatchPanel.HISTORY_STEP)
+	check(ty2.clip_text and ty2.position.x + ty2.size.x <= left_chip,
+		"种类文字裁切、且右缘让到最左那张小卡之前（%.0f ≤ %.0f，文本「%s」）" % [ty2.position.x + ty2.size.x, left_chip, ty2.text])
+	var wide_enough: bool = ty2.size.x >= 40.0
+	p.net_seats = []
+	p.refresh(g)
+	check(wide_enough and ty2.position.x + ty2.size.x <= pip0.position.x,
+		"让归让，至少还留得下 4 个字；没小卡时一直铺到方块左边")
 	check(hist.position.y + hist.size.y <= row["bg"].position.y + CWMatchPanel.ROW_H, "小卡框不出行底")
 	check(row["name"].position.x == row["icon"].position.x + CWMatchPanel.ICON / 2.0 + 8.0, "玩家名还在头像右边 8px，没被推开")
 	var rows: Dictionary = hist.get_child(0).get_meta("rows")
