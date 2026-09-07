@@ -21,15 +21,19 @@ const CARD_W := 72.0                    ## 与手牌同宽 —— 卡名折行�
 const CARD_H := 42.0                    ## 只留顶上这一截：卡名两行 + 底下一行「谁打的」
 const WHO_Y := 27.0
 const WHO_H := 13.0
+## 底行右边留多少。**比卡名那行窄**（卡名用 CWHand.NAME_PAD = 6）：
+## 「癌症B 事件卡」实测 61.0 px，而 72 − 6×2 = 60.0 —— 正好差 1 px 被截成「事…」。
+## 底行文字左对齐，右边那几像素本来就是白留的，收到 2 就够了；左边仍与卡名对齐。
+const WHO_PAD_R := 2.0
 const GAP := 4.0
 const MAX_ROWS := 6                     ## 再多就长到手牌抽屉里去了；旧的自动挤掉，全量仍在对局日志里
 const RECT := Rect2(8, 76, CARD_W, MAX_ROWS * (CARD_H + GAP) - GAP)
 const FADE := 0.22
-## 事件卡底行的后缀：写成「<抽到者>·抽」（Kevin 2026-09-07 先要「别叫世界事件」、
-## 再要「也要显示是谁抽出来的」）。**「·抽」这半个字不能省** —— 只写名字的话，
-## 它和「谁打出的」那种卡长得一模一样，而抽到即结算的事件卡不是任何人主动打的。
+## 事件卡底行的后缀：写成「<抽到者> 事件卡」（Kevin 2026-09-07 定的措辞，前面是人、后面是类别）。
+## **后面那三个字不能省** —— 只写名字的话，它和「谁打出的」那种卡长得一模一样，
+## 而抽到即结算的事件卡不是任何人主动打的。
 ## 也**别写「世界事件」**：那是另一回事——世界事件是第 3/6/10/14 回合由系统抽的那 17 个全局事件。
-const EVENT_SUFFIX := "·抽"
+const EVENT_SUFFIX := " 事件卡"
 
 ## 世界事件那一行写什么。**和事件卡分开**：世界事件是系统在第 3/6/10/14 回合抽的全局事件，
 ## 不属于任何一方，所以底行写「世界事件」、顶边用中性色（事件卡按抽到者的阵营染色）。
@@ -89,7 +93,7 @@ func _make_face(card_name: String, who: String, accent: Color) -> Control:
 	who_label.clip_text = true
 	who_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	who_label.position = Vector2(CWHand.NAME_PAD, WHO_Y)
-	who_label.size = Vector2(CARD_W - CWHand.NAME_PAD * 2, WHO_H)
+	who_label.size = Vector2(CARD_W - CWHand.NAME_PAD - WHO_PAD_R, WHO_H)
 	who_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	face.add_child(who_label)
 	return face

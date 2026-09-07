@@ -64,7 +64,7 @@ func _process(_delta: float) -> bool:
 		_pin(_feed, CWFeed.RECT.position)
 		## 最早的先加：这一列越新的越靠上
 		var deck := [
-			["免疫抑制因子", "", CWData.Faction.CANCER, true],
+			["免疫抑制因子", "癌症B", CWData.Faction.CANCER, true],   ## 事件卡：底行「谁 + 事件卡」
 			["自分泌生存信号", "癌症B", CWData.Faction.CANCER, false],
 			["炎症趋化", "免疫B", CWData.Faction.IMMUNE, false],
 			["糖酵解爆发", "癌症A", CWData.Faction.CANCER, false],
@@ -72,7 +72,7 @@ func _process(_delta: float) -> bool:
 		for d in deck:
 			_feed.add_card(String(d[0]), String(d[1]), int(d[2]),
 				CWCardInfo.describe(String(d[0]), int(d[2]), 0), bool(d[3]))
-		_pin(CWStyle.label("← 别人打出的卡 / 抽到的事件卡，越新的越靠上；点一张看全文",
+		_pin(CWStyle.label("← 打出的卡 / 抽到的事件卡 / 世界事件，越新的越靠上；点一张看全文",
 			CWStyle.SIZE_LABEL, CWStyle.TEXT_HI), Vector2(70, 502))
 		return false
 	if _frames < WARMUP:
