@@ -9281,9 +9281,13 @@ func t_card_draw_fx() -> void:
 	check(CWMatch.CARD_FX_RISE.size() == 3 and CWMatch.CARD_FX_TIME.size() == 3, "三拍")
 	check(CWMatch.CARD_FX_RISE[1] < CWMatch.CARD_FX_RISE[0] and CWMatch.CARD_FX_RISE[1] < CWMatch.CARD_FX_RISE[2],
 		"第②拍位移最小 = 停顿那一下（%s）" % str(CWMatch.CARD_FX_RISE))
-	var total_t: float = CWMatch.CARD_FX_TIME[0] + CWMatch.CARD_FX_TIME[1] + CWMatch.CARD_FX_TIME[2]
-	check(total_t > 1.0 and CWMatch.CARD_FX_TIME[1] >= CWMatch.CARD_FX_TIME[0] * 1.5,
-		"总时长 %.2f 秒（原来 0.42），停顿那拍不比第一拍短" % total_t)
+	## 总时长要**把整套拍子都数上**：2026-09-07 细化节奏时在三拍前后各加了「蓄力」与「留拍」，
+	## 三拍自身反而缩短了 —— 只数三拍会把这条断言测红（当天就红过一次）。
+	## 钉的是原本的意图：整套比最早那版 0.42 秒长一倍以上。
+	var beats: float = CWMatch.CARD_FX_TIME[0] + CWMatch.CARD_FX_TIME[1] + CWMatch.CARD_FX_TIME[2]
+	var total_t: float = CWMatch.CARD_FX_WINDUP + beats + CWMatch.CARD_FX_HOLD
+	check(total_t > 0.42 * 2.0 and CWMatch.CARD_FX_TIME[1] >= CWMatch.CARD_FX_TIME[0] * 1.5,
+		"整套时长 %.2f 秒（最早 0.42），停顿那拍不比第一拍短" % total_t)
 
 	## ② 引擎：每次抽到卡都发 card_drawn（带来源），抽空不发；同时广播给桥
 	var g := _fx_game(4)
