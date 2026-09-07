@@ -109,7 +109,7 @@ func _run_all() -> void:
 		t_log_panel, t_rules_page, t_production_row, t_skill_info,
 		t_save_load, t_settings, t_board_view, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
-		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
+		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
 		t_card_name_fit, t_view_blend, t_announce, t_action_bar_width,
@@ -2051,7 +2051,7 @@ func t_erosion_fx() -> void:
 	## 不在白名单里的报文会被 CWNetClient 当场 _apply 掉，而 _apply 的 match 没有兜底分支，
 	## 于是**静默丢弃**：CWMatch._net_loop 里那个分支永远收不到，联机模式下动画就是不播，
 	## 还不报任何错。2026-09-05 接侵蚀过场时就漏了这一条，靠读代码才发现。
-	for kind in ["roll", "result", "notice", "erosion", "card_played"]:
+	for kind in ["roll", "result", "notice", "erosion", "card_played", "event_drawn"]:
 		check(kind in CWNetClient.STREAM_KINDS, "演出报文「%s」在 STREAM_KINDS 里" % kind)
 
 
@@ -8588,6 +8588,107 @@ func t_card_history() -> void:
 	g.dispose()
 
 
+## 抽到即结算的事件卡记进右栏「回合数」那一栏（Kevin 2026-09-07 拍板方案乙）：与世界事件同一行、右侧横排，
+## 悬停摊开 / 点击看卡面复用玩家行那套。这里钉三样：引擎的两路出口、右栏的摆位与清空、和玩家行那排分得开。
+func t_event_strip() -> void:
+	print("[事件卡进回合数栏]")
+	var g := _fx_game(4)
+	## ① 引擎：抽到事件卡 → 发 event_drawn 信号 + 广播到桥；抽到技能卡不发
+	var rec := CardPlayRecorder.new()
+	rec.game = g
+	for pid in g.order:
+		g.bridges[pid] = rec
+	var heard: Array = []
+	g.event_drawn.connect(func(cell_id: int, pid: int, pos: Vector2i, faction: int, card: String) -> void:
+		heard.append([cell_id, pid, pos, faction, card]))
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+	imm["energy"] = 500
+	g.cells.append(imm)
+	## 把这一档池子里的技能全塞进手牌 → 剩下的合法候选只有事件卡（同 t_card_pool 那条的做法）
+	for c in CWCardData.pool_of(CWData.Faction.IMMUNE, g.immune_level, g.round_no):
+		if CWCardData.CARDS[c["name"]]["kind"] != CWCardData.Kind.EVENT:
+			imm["hand"].append(c["name"])
+	var hand_before: int = imm["hand"].size()
+	await g.cards.draw(imm, "基因表达")
+	check(heard.size() == 1 and heard[0][0] == 0 and heard[0][3] == CWData.Faction.IMMUNE
+		and CWCardData.CARDS[heard[0][4]]["kind"] == CWCardData.Kind.EVENT,
+		"抽到事件卡：发 event_drawn（细胞 / 席位 / 位置 / 阵营 / 卡名）：%s" % str(heard))
+	check(rec.events.size() == 1 and rec.events[0][0] == 0 and rec.events[0][1] == heard[0][4],
+		"同时广播给桥（联机据此发报文）：%s" % str(rec.events))
+	check(imm["hand"].size() == hand_before, "事件卡不进手牌（PRD：抽取后立即结算并弃置）")
+	var drew: String = heard[0][4]
+	## 技能卡那条路不发 event_drawn（它进手牌，之后打出才算「打出的卡」）
+	imm["hand"].clear()
+	heard.clear()
+	rec.events.clear()
+	for k in 12:
+		if not heard.is_empty():
+			break
+		await g.cards.draw(imm, "基因表达")
+	var skill_only := true
+	for h in heard:
+		if CWCardData.CARDS[h[4]]["kind"] != CWCardData.Kind.EVENT:
+			skill_only = false
+	check(skill_only, "只有事件卡会发 event_drawn（抽到的技能卡不发）")
+
+	## ② 右栏：摆在世界事件那一行右侧、右缘对齐；世界事件文字给它让宽
+	var p := CWMatchPanel.new()
+	root.add_child(p)
+	await process_frame
+	g.round_no = 12
+	g.events["active"].append({ "name": "基质阻隔", "left": 2, "stacks": 1, "data": {} })
+	p.refresh(g)
+	var strip: Control = p._event_strip
+	var full_w: float = p._events.size.x
+	check(not strip.visible and is_equal_approx(full_w, CWMatchPanel.W), "还没抽到事件卡：横排藏着，世界事件文字占满整行")
+	p.note_event_card(g, CWData.Faction.IMMUNE, drew)
+	p.note_event_card(g, CWData.Faction.CANCER, "糖酵解爆发")
+	check(strip.visible and strip.get_child_count() == 2, "抽到两张 → 两张小卡")
+	var chip_w: float = CWMatchPanel.HISTORY_ICON + 2.0
+	var last: Control = strip.get_child(1)
+	check(is_equal_approx(strip.position.x + last.position.x + chip_w, CWMatchPanel.PAD + CWMatchPanel.W),
+		"最新那张贴面板内容右缘（%.0f）" % (strip.position.x + last.position.x + chip_w))
+	check(strip.position.y + last.position.y >= CWMatchPanel.PAD + 36.0
+		and strip.position.y + last.position.y + chip_w <= CWMatchPanel.PAD + CWMatchPanel.ROUND_H + CWMatchPanel.GAP,
+		"落在世界事件那一行、不压到分数块（%.0f..%.0f）" % [strip.position.y + last.position.y, strip.position.y + last.position.y + chip_w])
+	check(p._events.size.x < full_w and p._events.size.x + chip_w + 2.0 <= CWMatchPanel.W,
+		"世界事件文字裁到小卡左边（%.0f → %.0f）" % [full_w, p._events.size.x])
+	## 边色按阵营，和玩家行那排（主色）分得开
+	var sb0: StyleBoxFlat = strip.get_child(0).get_theme_stylebox("panel")
+	var sb1: StyleBoxFlat = last.get_theme_stylebox("panel")
+	check(sb0.border_color == CWStyle.IMMUNE and sb1.border_color == CWStyle.CANCER, "边色按抽到它的阵营：青 / 橙")
+	p.note_played_card(g, 1, CWData.Faction.CANCER, "GLUT1高表达")
+	var row_chip: Control = (p._rows[1]["history"] as Control).get_child(0)
+	check((row_chip.get_theme_stylebox("panel") as StyleBoxFlat).border_color == CWStyle.LINE,
+		"玩家行那排（自己打出的卡）仍是主色边，两排分得开")
+	check(strip.get_child_count() == 2, "打出的卡不进回合栏")
+
+	## ③ 行为照抄玩家行：悬停整叠摊开、点击发信号（带那张小卡的 y）
+	strip.get_child(0).mouse_entered.emit()
+	check(is_equal_approx(last.position.x - strip.get_child(0).position.x, chip_w), "悬停 → 整叠摊开，一张挨一张")
+	var clicked: Array = []
+	p.played_card_pressed.connect(func(r: Dictionary, ax: float, ay: float) -> void: clicked.append([r.get("name", ""), ax, ay]))
+	var ev := InputEventMouseButton.new()
+	ev.pressed = true
+	ev.button_index = MOUSE_BUTTON_LEFT
+	last.gui_input.emit(ev)
+	check(clicked.size() == 1 and clicked[0][0] == "糖酵解爆发"
+		and is_equal_approx(clicked[0][2], last.get_global_rect().position.y),
+		"点小卡 → 和玩家行同一条信号，锚点带自己的 y（%s）" % str(clicked))
+
+	## ④ 上限 8，超了丢最旧；换回合清空（和玩家行同一把尺）
+	for k in 8:
+		p.note_event_card(g, CWData.Faction.IMMUNE, "急性炎症反应")
+	check(strip.get_child_count() == CWMatchPanel.EVENT_STRIP_MAX, "最多留 %d 张" % CWMatchPanel.EVENT_STRIP_MAX)
+	check(String(strip.get_child(0).get_meta("card_name")) == "急性炎症反应", "超了丢最旧的那张")
+	g.round_no = 13
+	p.refresh(g)
+	check(not strip.visible and strip.get_child_count() == 0 and is_equal_approx(p._events.size.x, CWMatchPanel.W),
+		"换回合 → 清空、文字重新占满整行")
+	p.queue_free()
+	g.dispose()
+
+
 ## describe() 结果里被高亮的那几段文字，按行序排
 static func _marked(d: Dictionary) -> Array:
 	var out: Array = []
@@ -8605,6 +8706,9 @@ class CardPlayRecorder extends CWHeuristicBridge:
 	var results: Array = []
 	func show_card_played(pid: int, text: String, _info := {}) -> void:
 		got.append([pid, text])
+	var events: Array = []
+	func show_event_drawn(pid: int, info := {}) -> void:
+		events.append([pid, info.get("card", ""), info.get("faction", -1)])
 	func show_result(text: String, _at: Vector2i, linger := false) -> void:
 		results.append([text, linger])
 

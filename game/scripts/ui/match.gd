@@ -227,6 +227,8 @@ func start(snap: Dictionary = {}) -> void:
 		game.restore(snap)   ## rng 状态也在快照里，init 用的种子随之作废
 	if not game.card_played.is_connected(_on_card_played):
 		game.card_played.connect(_on_card_played)
+	if not game.event_drawn.is_connected(_on_event_drawn):
+		game.event_drawn.connect(_on_event_drawn)
 	_wire_bridge(ai_smart)
 	## 同一个桥对象注册给所有玩家：人类那几位走界面，其余走 AI，
 	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。
@@ -253,6 +255,8 @@ func start_online(p_client: CWNetClient) -> void:
 	game = _client.shadow
 	if not game.card_played.is_connected(_on_card_played):
 		game.card_played.connect(_on_card_played)
+	if not game.event_drawn.is_connected(_on_event_drawn):
+		game.event_drawn.connect(_on_event_drawn)
 	player_count = game.players.size()
 	var seats: Array[int] = []
 	if _client.my_seat >= 0:
@@ -464,6 +468,9 @@ func _net_loop(id: int) -> void:
 				## 影子对局不跑 card_fx.play、发不出 card_played 信号：头顶飞卡 / 右栏历史小卡靠报文里的细胞信息驱动
 				if m.has("card"):
 					_on_card_played(int(m["cell_id"]), int(m["pid"]), m["pos"], int(m["faction"]), m["card"], {})
+			"event_drawn":
+				## 同上：抽到即结算的事件卡，影子对局也发不出信号
+				_on_event_drawn(int(m["cell_id"]), int(m["pid"]), m["pos"], int(m["faction"]), m["card"])
 			"erosion":
 				if bridge != null:
 					bridge.show_erosion(m["at"], int(m["dir"]))
@@ -557,6 +564,8 @@ func teardown() -> void:
 			settle.online = false
 	if active_game != null and active_game.card_played.is_connected(_on_card_played):
 		active_game.card_played.disconnect(_on_card_played)
+	if active_game != null and active_game.event_drawn.is_connected(_on_event_drawn):
+		active_game.event_drawn.disconnect(_on_event_drawn)
 	_clear_played_card_fx()
 	if game != null:
 		## 顺序要紧：先让引擎收摊、再唤醒卡住的询问（它会同步一路展开回来），
@@ -872,6 +881,14 @@ func _on_card_played(cell_id: int, pid: int, pos: Vector2i, faction: int, card_n
 	if panel != null and is_instance_valid(panel):
 		panel.note_played_card(game, pid, faction, card_name)
 	_play_card_fx(cell_id, pos)
+
+
+## 抽到即结算的事件卡：只记进右栏「回合数」那一栏（Kevin 2026-09-07 方案乙）。
+## **不演头顶飞卡** —— 事件的效果自己会在那一格喊一句，两样叠在同一格上太吵。
+func _on_event_drawn(_cell_id: int, _pid: int, _pos: Vector2i, faction: int, card_name: String) -> void:
+	if card_name == "" or panel == null or not is_instance_valid(panel):
+		return
+	panel.note_event_card(game, faction, card_name)
 
 
 func _play_card_fx(cell_id: int, pos: Vector2i) -> void:
