@@ -33,6 +33,7 @@ const GAP := 8
 var _page := 0
 var _scroll := 0.0
 var _max_scroll := 0.0
+var _panel: Control
 var _body: Control
 var _content: Control
 var _title: Label
@@ -106,10 +107,17 @@ func _dismiss_search() -> void:
 	_on_query("")
 
 
-## 右键关闭接在 gui_input：本层是 STOP，鼠标事件到不了菜单路由（同规则速查页）。
+## 右键 / 空白处点击关闭接在 gui_input：本层是 STOP，鼠标事件到不了菜单路由
+## （同规则速查页）。点面板外的空白处（scrim 那层）左键也关，见 log_panel 同套路。
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_RIGHT:
+			accept_event()
+			visible = false
+		elif event.button_index == MOUSE_BUTTON_LEFT \
+				and not _panel.get_global_rect().has_point(event.position):
+			## 点在面板矩形之外 = 空白处，收起。面板内的点击各有去处
+			## （翻页箭头 / 搜索结果 / 输入框），不会走到这里。
 			accept_event()
 			visible = false
 		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
@@ -622,11 +630,12 @@ func _build() -> void:
 	add_child(scrim)
 
 	var screen := CWView.screen_size()
-	var panel := Control.new()
-	panel.position = Vector2((screen.x - W) / 2.0, (screen.y - H) / 2.0)
-	panel.size = Vector2(W, H)
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(panel)
+	_panel = Control.new()
+	_panel.position = Vector2((screen.x - W) / 2.0, (screen.y - H) / 2.0)
+	_panel.size = Vector2(W, H)
+	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_panel)
+	var panel := _panel   ## 下方代码仍按局部名 panel 引用（改造成本最低）
 
 	var bg := Panel.new()
 	bg.add_theme_stylebox_override("panel", CWStyle.box(0.45, CWStyle.PANEL))

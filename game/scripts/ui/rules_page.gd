@@ -19,17 +19,26 @@ const TITLE_LINE := 24 ## 小节标题行高（20px 字）
 const LINE := 15       ## 正文行高（10px 字）
 const SECTION_GAP := 10
 
+var _panel: Control
+
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
-	## 右键关闭必须接在 gui_input：本层是 STOP，鼠标事件在这儿就被吃掉了，
+	## 右键 / 空白处点击关闭必须接在 gui_input：本层是 STOP，鼠标事件在这儿就被吃掉了，
 	## 永远到不了菜单路由的 _unhandled_input（Kevin 试玩当场抓到「右键关不掉」）。
 	## Esc 是键盘事件不受 STOP 影响，走下面的 handle_input。
 	gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed \
 				and e.button_index == MOUSE_BUTTON_RIGHT:
+			accept_event()
+			visible = false
+		elif e is InputEventMouseButton and e.pressed \
+				and e.button_index == MOUSE_BUTTON_LEFT \
+				and not _panel.get_global_rect().has_point(e.position):
+			## 点面板矩形之外的空白处左键也关闭（面板内容纯展示，无内部点击）——
+			## 同 log_panel 的「左键点空白处 = 收起」套路。
 			accept_event()
 			visible = false)
 	_build()
@@ -149,11 +158,12 @@ func _build() -> void:
 	add_child(scrim)
 
 	var screen := CWView.screen_size()
-	var panel := Control.new()
-	panel.position = Vector2((screen.x - W) / 2.0, (screen.y - H) / 2.0)
-	panel.size = Vector2(W, H)
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(panel)
+	_panel = Control.new()
+	_panel.position = Vector2((screen.x - W) / 2.0, (screen.y - H) / 2.0)
+	_panel.size = Vector2(W, H)
+	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_panel)
+	var panel := _panel
 
 	var bg := Panel.new()
 	bg.add_theme_stylebox_override("panel", CWStyle.box(0.45, CWStyle.PANEL))

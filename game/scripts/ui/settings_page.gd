@@ -54,6 +54,17 @@ func open() -> void:
 	_repaint()
 
 
+## 点面板外的空白处左键直接关（同配置面板/规则速查/知识之书）。
+## 本层 FULL_RECT 且 STOP，scrim 那层 IGNORE——空白处点击会落到本层 _gui_input；
+## 面板内的点击（拨值箭头）被各 STOP 控件先收，不会走这条路，照常拨值。
+func _gui_input(event: InputEvent) -> void:
+	if visible and event is InputEventMouseButton and event.pressed \
+			and event.button_index == MOUSE_BUTTON_LEFT \
+			and not _panel.get_global_rect().has_point(event.position):
+		accept_event()
+		visible = false
+
+
 ## 由 CWMainMenu 路由（同配置面板/规则速查）
 func handle_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
