@@ -206,7 +206,9 @@ static func describe(card_name: String, faction: int, phase := -1) -> Dictionary
 	var c: Dictionary = CWCardData.CARDS.get(card_name, {})
 	if c.is_empty():
 		return { "name": card_name, "kind": "", "lines": PackedStringArray() }
-	var text: String = CWCardData.effect_of(card_name, faction)
+	## **先规范化再折行**：分档高亮 `tier_marks` 要把整段上的位置投影到各行，
+	## 两边必须是同一个字符串，否则高亮会整体错位
+	var text: String = space_digits(CWCardData.effect_of(card_name, faction))
 	var lines := wrap_text(text, W - PAD_H * 2.0)
 	var tier: int = -1 if card_name in FREE_CHOICE else phase
 	return {
@@ -224,7 +226,9 @@ static func describe(card_name: String, faction: int, phase := -1) -> Dictionary
 ## 名字不能叫 `wrap`：那是 @GlobalScope 的内置函数（数值取模回绕），重名会直接编译不过。
 static func wrap_text(text: String, max_w: float) -> PackedStringArray:
 	var out := PackedStringArray()
-	for para in text.split("\n"):
+	## 顺手规范化（幂等）：这样 describe_type / describe_act / 世界事件那一列等
+	## 所有走这条路的正文都能拿到同样的排版，不必各自记得调一次
+	for para in space_digits(text).split("\n"):
 		if para == "":
 			continue
 		var line := ""
@@ -383,3 +387,37 @@ func _put_run(s: String, x: float, y: float, color: Color) -> float:
 	l.position = Vector2(x, y)
 	add_child(l)
 	return _text_w(s)
+
+
+## 汉字与数字之间补一个空格（Kevin 2026-09-07：「汉字和数字中间要加一个空格」）。
+##
+## **纯显示层的规范化**：卡面正文是 `tools/gen_card_data.py` 从 PRD **逐字抄**来的
+## （架构约定 #10），去改 `cw_card_data.gd` 等于把规则抄第二份，PRD 一动就对不上。
+## 所以排版上的事在渲染前做，数据文件保持与 PRD 逐字一致。
+##
+## **幂等**：已经有空格就不再加，所以 wrap_text 里再调一次也不会变成两个空格。
+##
+## 只认**汉字**（U+4E00~U+9FFF），不碰标点：「，2」「）3」这类本来就断开了，
+## 再塞一个空格反而更难看。纯函数，无头测试直接核对。
+static func space_digits(text: String) -> String:
+	var out := ""
+	for i in text.length():
+		var ch: String = text[i]
+		if i > 0 and _wants_gap(text[i - 1], ch):
+			out += " "
+		out += ch
+	return out
+
+
+## 这两个字符之间该不该有空格：一边汉字、另一边数字（哪一边在前都算）
+static func _wants_gap(a: String, b: String) -> bool:
+	return (_is_han(a) and _is_ascii_digit(b)) or (_is_ascii_digit(a) and _is_han(b))
+
+
+static func _is_han(ch: String) -> bool:
+	var c: int = ch.unicode_at(0)
+	return c >= 0x4E00 and c <= 0x9FFF
+
+
+static func _is_ascii_digit(ch: String) -> bool:
+	return ch >= "0" and ch <= "9"

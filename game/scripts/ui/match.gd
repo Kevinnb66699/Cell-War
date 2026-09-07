@@ -1002,10 +1002,18 @@ func _on_card_played(cell_id: int, pid: int, pos: Vector2i, faction: int, card_n
 		return
 	if panel != null and is_instance_valid(panel):
 		panel.note_played_card(game, pid, faction, card_name)
-	## 左侧出牌列：**别人打的才记**（自己打的自己知道）。本地与联机都走这个回调，
-	## 所以喂列的活儿放在这里而不是界面桥里（联机那条 card_played 报文不带牌名）
-	if _feed != null and is_instance_valid(_feed) and game != null \
-			and (bridge == null or bridge.viewing_pid() != pid):
+	## 左侧出牌列：**每一张都记**，卡面底下写明是谁打的。
+	##
+	## 2026-09-07 之前这里滤掉了「自己打的」（理由是「自己知道」）。那条过滤有两个真问题，
+	## Kevin 当天两句话都点到了：
+	##   ① **热座 / 本地多人**：打牌的那位下一刻就换人了，`viewing_pid()` 跟着变 ——
+	##      于是那张卡**对所有人**都没在这一列出现过，等于凭空消失；
+	##   ② 玩家的感受是「我打了牌，左边没反应」，而他分不清是「故意不记」还是「漏了」。
+	## 这一列是**出牌流水**，流水就该是完整的；谁打的由卡面底行说清楚，不会混。
+	##
+	## 本地与联机都走这个回调（联机是收到 card_played 报文后直接调），所以喂列的活儿
+	## 放在这里而不是界面桥里。
+	if _feed != null and is_instance_valid(_feed) and game != null:
 		_feed.add_card(card_name, String(game.player(pid)["name"]), faction,
 			CWCardInfo.describe(card_name, faction, CWCardData.cancer_phase(game.round_no)))
 	_play_card_fx(cell_id, pos)
@@ -1013,15 +1021,17 @@ func _on_card_played(cell_id: int, pid: int, pos: Vector2i, faction: int, card_n
 
 ## 抽到即结算的事件卡：只记进右栏「回合数」那一栏（Kevin 2026-09-07 方案乙）。
 ## **不演头顶飞卡** —— 事件的效果自己会在那一格喊一句，两样叠在同一格上太吵。
-func _on_event_drawn(_cell_id: int, _pid: int, _pos: Vector2i, faction: int, card_name: String) -> void:
+func _on_event_drawn(_cell_id: int, pid: int, _pos: Vector2i, faction: int, card_name: String) -> void:
 	if card_name == "":
 		return
 	var rows: Dictionary = CWCardInfo.describe(card_name, faction,
 		CWCardData.cancer_phase(game.round_no) if game != null else 0)
-	## 事件卡谁都没「打出」，但它是全场的事 —— 一律进列，底下写「事件卡」
+	## 事件卡谁都没「打出」，但总归是**某个细胞抽到**的 —— 底行写「<抽到者>·抽」
 	##（不是「世界事件」：那是系统在第 3/6/10/14 回合抽的那 17 个全局事件，两回事）
 	if _feed != null and is_instance_valid(_feed):
-		_feed.add_card(card_name, "", faction, rows, true)
+		var who := String(game.player(pid)["name"]) if game != null and pid >= 0 \
+			and pid < game.players.size() else ""
+		_feed.add_card(card_name, who, faction, rows, true)
 	if panel == null or not is_instance_valid(panel):
 		return
 	panel.note_event_card(game, faction, card_name)

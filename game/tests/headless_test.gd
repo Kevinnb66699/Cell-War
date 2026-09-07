@@ -15,6 +15,11 @@ var checks := 0
 var _shard := 0        ## 本进程跑第几片（0 起）
 var _shards := 1       ## 一共几片；1 = 不分片
 var _timing := false   ## 末尾列最慢的测试
+## 看门狗（2026-09-07）：**测试进程必须自己走掉**。见 _process() 的注释。
+## `-- --timeout=秒` 改单个测试的上限；0 = 关掉看门狗。
+var _watchdog_floor_ms := 120000
+var _cur_test := ""           ## 此刻在跑哪个测试（看门狗报错时要说出名字）
+var _cur_started := 0          ## 它是什么时候开始的；协程一死这个数就不动了
 var _durations: Array = []   ## [毫秒, 测试名]
 ## 各测试的耗时权重（秒，2026-09-05 `--timing` 实测；没列的按 0.1）。分片按「最重优先」贪心：先排最重的，
 ## 每个放到此刻最轻的那一片。靠下标取模的话 t_net_game 一个就 79 s、落在哪片哪片就是 100 s，另一片 9 s 就跑完了。
@@ -71,6 +76,8 @@ func _parse_args() -> void:
 				_shard = clampi(int(parts[0]), 0, _shards - 1)
 		elif a == "--timing":
 			_timing = true
+		elif a.begins_with("--timeout="):
+			_watchdog_floor_ms = maxi(int(a.substr(10)), 0) * 1000
 
 
 ## 把 user:// 改到测试自己的目录（%APPDATA%/CellWar-tests/shard<i>），运行时改工程设置即可生效，
@@ -126,6 +133,8 @@ func _run_all() -> void:
 			continue
 		mine += 1
 		var t0 := Time.get_ticks_msec()
+		_cur_test = tests[i].get_method()   ## 看门狗要用：卡住时说得出是哪个
+		_cur_started = t0
 		await tests[i].call()
 		_durations.append([Time.get_ticks_msec() - t0, tests[i].get_method()])
 	print("")
@@ -137,6 +146,7 @@ func _run_all() -> void:
 		print("耗时 %.1fs，最慢：" % (total / 1000.0))
 		for d in _durations.slice(0, 8):
 			print("  %6.1fs  %s" % [d[0] / 1000.0, d[1]])
+	_cur_started = 0   ## 跑完了，关掉看门狗（下面就 quit）
 	var tag := "" if _shards == 1 else "分片 %d/%d " % [_shard + 1, _shards]
 	if fails == 0:
 		print("✔ %s全部测试通过（%d 项检查，%d 个测试）" % [tag, checks, mine])
@@ -144,6 +154,33 @@ func _run_all() -> void:
 	else:
 		print("✘ %s%d 项检查失败（共 %d 项，%d 个测试）" % [tag, fails, checks, mine])
 		quit(1)
+
+
+## 看门狗：**测试进程必须自己走掉，不能挂着**（Kevin 2026-09-07 报「报错后直接卡住」）。
+##
+## 挂住的成因是 GDScript 的协程语义：`_run_all()` 是 fire-and-forget 的协程，
+## 它里头任何一次 `await` **之后**出运行时错误，协程就地中止 —— 末尾那句 `quit()` 永远执行不到，
+## 而 SceneTree 还在空转，于是进程既不报错也不退出，CI 和人都只能干等。
+##
+## 判据是「当前这个测试跑了多久」：协程一死，`_cur_started` 就再也不动了。
+## 上限取 `WEIGHTS` 里那条实测耗时的 4 倍，再兜一个下限（默认 120 s）——
+## 最慢的 t_net_game 实测 79 s，快测试则在两分钟内就能被抓住。
+##
+## ⚠ **救不了单帧内的死循环**：那种情况 `_process` 根本轮不到（2026-09-07 的
+## `_next_event_round` 无上界 while 就是这种）。那一层由 `tools/run_tests.sh` 的 `timeout` 兜底。
+func _process(_delta: float) -> bool:
+	if _cur_started <= 0 or _watchdog_floor_ms <= 0:
+		return false
+	var limit: int = maxi(int(float(WEIGHTS.get(_cur_test, 0.1)) * 4000.0), _watchdog_floor_ms)
+	var spent: int = Time.get_ticks_msec() - _cur_started
+	if spent < limit:
+		return false
+	print("")
+	print("✘ 看门狗：%s 跑了 %.0f 秒还没结束（上限 %.0f 秒），判定为挂死"
+		% [_cur_test, spent / 1000.0, limit / 1000.0])
+	print("  多半是它内部出了运行时错误（往上翻 SCRIPT ERROR）：协程被打断 → quit() 执行不到。")
+	quit(1)
+	return true
 
 
 func check(cond: bool, name: String) -> void:
@@ -4901,9 +4938,22 @@ func t_match_panel() -> void:
 	## 事件卡：谁都没打出，底下写「世界事件」
 	fd.add_card("免疫抑制因子", "", CWData.Faction.CANCER,
 		CWCardInfo.describe("免疫抑制因子", CWData.Faction.CANCER, 0), true)
-	check(String(fd._rows[fd._rows.size() - 1]["who"]) == CWFeed.EVENT_WHO, "事件卡不写打出者")
-	check(CWFeed.EVENT_WHO != "世界事件",
-		"事件卡那行不叫「世界事件」——世界事件是另一回事（%s）" % CWFeed.EVENT_WHO)
+	check(String(fd._rows[fd._rows.size() - 1]["who"]).ends_with(CWFeed.EVENT_SUFFIX),
+		"事件卡底行写「<抽到者>·抽」（%s）" % String(fd._rows[fd._rows.size() - 1]["who"]))
+	check(CWFeed.EVENT_SUFFIX != "世界事件" and CWFeed.WORLD_WHO == "世界事件",
+		"事件卡与世界事件是两行不同的字")
+	## 世界事件那张卡也要点得开：2026-09-07 它那条路是照着 add_card 手抄的，抄漏了 gui_input
+	fd.add_world_event("基质阻隔", 2)
+	var last_box: Control = fd._rows[fd._rows.size() - 1]["box"]
+	check(not last_box.gui_input.get_connections().is_empty(), "世界事件那张卡接了点击")
+	var opened: Array = []
+	fd.card_pressed.connect(func(rows: Dictionary, _x: float, _y: float) -> void: opened.append(rows))
+	var tap := InputEventMouseButton.new()
+	tap.pressed = true
+	tap.button_index = MOUSE_BUTTON_LEFT
+	last_box.gui_input.emit(tap)
+	check(opened.size() == 1 and String(opened[0]["name"]).contains("基质阻隔"),
+		"点世界事件 → 出详情（%s）" % str(opened))
 	## 卡面就是手牌那张卡的顶上一截：同宽、字号一步不动（缩过一版，10px 变 5px 糊成马赛克），
 	## 卡名折行也照搬手牌那套
 	var face: Control = fd._rows[0]["box"]
@@ -11887,6 +11937,28 @@ func t_match_online() -> void:
 	ok = await _net_pump(srv, [a, b], func() -> bool: return bar.visible and not m.bridge.marks.is_empty())
 	check(ok, "第一问（落子）通过界面桥弹出：提示栏出现、候选格高亮 %d 格" % m.bridge.marks.size())
 	check(m.net_hud.seconds_left() == -1, "不计时的房间不显示倒计时")
+
+	## ---- 左侧出牌列：客户端**消费报文**这条路（Kevin 2026-09-07 在联机测试里报的）----
+	## 影子对局不跑 card_fx.play，发不出 card_played 信号，这一列完全靠报文驱动 ——
+	## 所以这里直接往 stream 里塞报文，验的是 _net_loop → _on_card_played → CWFeed 整条链。
+	check(m._feed != null and is_instance_valid(m._feed), "联机局也建了出牌列")
+	var feed_n: int = m._feed._rows.size()
+	a.stream.append({ "t": "card_played", "pid": 0, "text": "免疫A 打出【炎症趋化】",
+		"cell_id": 0, "pos": Vector2i.ZERO, "faction": CWData.Faction.IMMUNE, "card": "炎症趋化" })
+	ok = await _net_pump(srv, [a, b], func() -> bool: return m._feed._rows.size() > feed_n)
+	check(ok, "**自己那席**打的卡也进出牌列（此前被 viewing_pid 滤掉了）")
+	feed_n = m._feed._rows.size()
+	a.stream.append({ "t": "card_played", "pid": 1, "text": "癌症A 打出【糖酵解爆发】",
+		"cell_id": 1, "pos": Vector2i(1, 0), "faction": CWData.Faction.CANCER, "card": "糖酵解爆发" })
+	ok = await _net_pump(srv, [a, b], func() -> bool: return m._feed._rows.size() > feed_n)
+	check(ok, "别人打的卡进出牌列")
+	feed_n = m._feed._rows.size()
+	a.stream.append({ "t": "world_event", "ev": "基质阻隔", "left": 2 })
+	ok = await _net_pump(srv, [a, b], func() -> bool: return m._feed._rows.size() > feed_n)
+	check(ok, "世界事件也进出牌列")
+	var wbox: Control = m._feed._rows[m._feed._rows.size() - 1]["box"]
+	check(not wbox.gui_input.get_connections().is_empty(),
+		"联机收到的世界事件那张卡点得开（2026-09-07 漏接过 gui_input）")
 	var pick: Vector2i = m.bridge.marks.keys()[0]
 	var states0: int = _net_count(a, "state")
 	board.tile_clicked.emit(pick)

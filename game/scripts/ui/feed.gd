@@ -25,10 +25,11 @@ const GAP := 4.0
 const MAX_ROWS := 6                     ## 再多就长到手牌抽屉里去了；旧的自动挤掉，全量仍在对局日志里
 const RECT := Rect2(8, 76, CARD_W, MAX_ROWS * (CARD_H + GAP) - GAP)
 const FADE := 0.22
-## 事件卡不是谁「打出」的，底下那行写「事件卡」。
-## **别写「世界事件」**（Kevin 2026-09-07 拍到）：那是另一回事——世界事件是第 3/6/10/14 回合
-## 由系统抽的那 17 个全局事件，而这里是卡池里【事件】类的卡，抽到即结算。两者同名会把人绕晕。
-const EVENT_WHO := "事件卡"
+## 事件卡底行的后缀：写成「<抽到者>·抽」（Kevin 2026-09-07 先要「别叫世界事件」、
+## 再要「也要显示是谁抽出来的」）。**「·抽」这半个字不能省** —— 只写名字的话，
+## 它和「谁打出的」那种卡长得一模一样，而抽到即结算的事件卡不是任何人主动打的。
+## 也**别写「世界事件」**：那是另一回事——世界事件是第 3/6/10/14 回合由系统抽的那 17 个全局事件。
+const EVENT_SUFFIX := "·抽"
 
 ## 世界事件那一行写什么。**和事件卡分开**：世界事件是系统在第 3/6/10/14 回合抽的全局事件，
 ## 不属于任何一方，所以底行写「世界事件」、顶边用中性色（事件卡按抽到者的阵营染色）。
@@ -51,25 +52,12 @@ func _ready() -> void:
 ## is_event 只改底下那行字（事件卡不是谁**打出**的）；**颜色照旧按阵营来** ——
 ## Kevin 2026-09-07：「事件卡是谁抽到的就标记成哪一方的颜色」。事件卡也是某个细胞抽到的，
 ## 一眼看出是哪边抽到的，比统一染成中性白有用。
+## who 传抽到 / 打出它的那位的名字（联机局里是昵称）。is_event 只在名字后面缀「·抽」。
 func add_card(card_name: String, who: String, faction: int, rows: Dictionary,
 		is_event := false) -> void:
+	var line := who + EVENT_SUFFIX if is_event else who
 	var accent: Color = CWStyle.IMMUNE if faction == CWData.Faction.IMMUNE else CWStyle.CANCER
-	var box := _make_face(card_name, EVENT_WHO if is_event else who, accent)
-	add_child(box)
-	_rows.append({ "box": box, "card": card_name, "who": EVENT_WHO if is_event else who })
-	while _rows.size() > MAX_ROWS:
-		var gone: Dictionary = _rows.pop_front()
-		(gone["box"] as Node).queue_free()
-	_layout()
-	box.modulate.a = 0.0
-	create_tween().tween_property(box, "modulate:a", 1.0, FADE)
-	box.gui_input.connect(func(e: InputEvent) -> void:
-		var mb := e as InputEventMouseButton
-		if mb == null or not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
-			return
-		box.accept_event()
-		var at := box.get_global_rect().position
-		card_pressed.emit(rows, at.x, at.y))
+	_push(_make_face(card_name, line, accent), card_name, line, rows)
 
 
 ## 手牌那张卡的顶上一截：底板、顶边高光、卡名折行全照搬 CWHand（折行直接用它的 `name_lines`），
@@ -133,12 +121,28 @@ func add_world_event(ev_name: String, left: int) -> void:
 		"kind": "【世界事件】",
 		"lines": CWCardInfo.wrap_text(body, CWCardInfo.W - CWCardInfo.PAD_H * 2.0),
 	}
-	var box := _make_face(ev_name, WORLD_WHO, CWStyle.TEXT_HI)
+	_push(_make_face(ev_name, WORLD_WHO, CWStyle.TEXT_HI), ev_name, WORLD_WHO, rows)
+
+
+## 两个入口（打出/抽到的卡、世界事件）**共用的收尾**：挂上去、挤掉旧的、排版、淡入、
+## 连上「点开看详情」。
+##
+## 为什么非要收成一个：2026-09-07 世界事件那条路是照着 add_card 手抄的，
+## 抄漏了 `gui_input` 那一段 —— 于是世界事件那张卡点不开，而两边看起来都「写好了」。
+## 收尾只留一份，就不会再有下一次分叉。
+func _push(box: Control, card_name: String, who: String, rows: Dictionary) -> void:
 	add_child(box)
-	_rows.append({ "box": box, "card": ev_name, "who": WORLD_WHO, "rows": rows })
+	_rows.append({ "box": box, "card": card_name, "who": who, "rows": rows })
 	while _rows.size() > MAX_ROWS:
 		var gone: Dictionary = _rows.pop_front()
 		(gone["box"] as Node).queue_free()
 	_layout()
 	box.modulate.a = 0.0
 	create_tween().tween_property(box, "modulate:a", 1.0, FADE)
+	box.gui_input.connect(func(e: InputEvent) -> void:
+		var mb := e as InputEventMouseButton
+		if mb == null or not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		box.accept_event()
+		var at := box.get_global_rect().position
+		card_pressed.emit(rows, at.x, at.y))

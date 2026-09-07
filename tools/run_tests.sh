@@ -14,14 +14,27 @@
 set -u
 GODOT="${GODOT:-D:/Godot/Godot_v4.5-stable_win64.exe/Godot_v4.5-stable_win64_console.exe}"
 SHARDS="${SHARDS:-2}"
+# 每片的墙钟上限（秒）。0 = 不设。
+# 为什么要有：headless_test.gd 自己那只看门狗按「当前测试跑了多久」判，
+# 但**单帧里的死循环**根本轮不到 _process —— 2026-09-07 的 _next_event_round 无上界 while
+# 就把套件挂死过一次。只有外面这一刀杀得掉。
+TIMEOUT="${TIMEOUT:-900}"
 cd "$(dirname "$0")/.."
 TMP="$(mktemp -d)"
+RUNNER=""
+if [ "$TIMEOUT" -gt 0 ]; then
+	if command -v timeout >/dev/null 2>&1; then
+		RUNNER="timeout -k 10 $TIMEOUT"
+	else
+		echo "⚠ 找不到 timeout，跳过墙钟上限（单帧死循环将无人兜底）"
+	fi
+fi
 trap 'rm -rf "$TMP"' EXIT
 
 i=0
 while [ "$i" -lt "$SHARDS" ]; do
 	(
-		"$GODOT" --headless --path game --script res://tests/headless_test.gd -- "--shard=$i/$SHARDS" \
+		$RUNNER "$GODOT" --headless --path game --script res://tests/headless_test.gd -- "--shard=$i/$SHARDS" \
 			> "$TMP/shard$i.log" 2>&1
 		echo $? > "$TMP/shard$i.code"
 	) &
@@ -37,7 +50,12 @@ while [ "$i" -lt "$SHARDS" ]; do
 	ALL="$ALL
 $OUT"
 	echo "$OUT" | grep -E "FAIL|✔|✘"
-	if [ "$(cat "$TMP/shard$i.code")" -ne 0 ]; then
+	SC="$(cat "$TMP/shard$i.code")"
+	if [ "$SC" -eq 124 ] || [ "$SC" -eq 137 ]; then
+		echo "✘ 分片 $((i + 1))/$SHARDS 超过 ${TIMEOUT}s 被杀（挂死；日志末尾就是卡住的地方）"
+		tail -n 5 "$TMP/shard$i.log"
+	fi
+	if [ "$SC" -ne 0 ]; then
 		CODE=1
 	fi
 	i=$((i + 1))
