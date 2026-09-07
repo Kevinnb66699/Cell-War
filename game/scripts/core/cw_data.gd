@@ -40,7 +40,10 @@ static func init_cancer_tiles(n_players: int) -> int:
 ## 固化在这条式子里算 2 格，不配套抬门槛就等于「更容易固化 = 更容易占地胜」。
 const CANCER_WIN_WEIGHTED := 90          # 癌+2×固化 ≥ 90 时癌症即胜（PRD 原值 85）
 const CANCER_WIN_HOLD_ROUNDS := 2        # 要**连续**这么多个世界回合末都达标才判胜（团队 2026-09-01 定案 B：首次达标只拉警报）
-const LIMIT_ROUND := 30                  # 终局世界回合数
+## 终局世界回合数。2026-09-07 Kevin 换 PRD 正本：30 → **15**。
+## 连带：世界事件回合、癌症卡池分期都跟着压缩（见 is_world_event_round / CWCardData.cancer_phase），
+## 而**所有平衡标定作废** —— 后期池这下真能出场，癌方滚雪球却只剩一半时间（团队自行重标）。
+const LIMIT_ROUND := 15                  # 终局世界回合数
 const LIMIT_CANCEROUS := 63              # 终局判定线 ⌊1/2×127⌋
 
 # ---- 原发灶 ----
@@ -143,15 +146,18 @@ const AEROBIC_LEVEL_BASE_BY_PLAYERS := { 2: 20, 4: 20, 6: 18 }
 # 旋钮 aerobic_split_ref = 0 可扫回那种读法。
 const AEROBIC_LEVEL_STEP := 5                 # 十分能量，公式里的「× 0.5」（乘的是等级的平方，2026-09-07）
 const AEROBIC_SPLIT_REF := 2                  # 均分标定人数（均分默认已关，留作 asplit=1 对照档）
-## 站在坏死组织上的免疫细胞拿几成有氧（Kevin 2026-09-07：由「一份不给」改成八折）。
+## 站在坏死组织上的免疫细胞拿几成有氧。Kevin 2026-09-07 两次改口：「一份不给」→ 八折 → **减半**
+## （线上版 PRD 写的是「获得【有氧呼吸】的能量减半」）。
 ## 0 = 一份不给（09-05~09-07 的旧行为，necro=0 扫回）；100 = 坏死对有氧没有影响。
-const NECROSIS_AEROBIC_PCT := 80
+const NECROSIS_AEROBIC_PCT := 50
 
 
 ## 按人数取有氧基数。表里没有的人数退回 AEROBIC_LEVEL_BASE —— balance_scan 会扫 5 人／7 人这类非正式人数，不能崩。
 static func aerobic_level_base(n_players: int) -> int:
 	return AEROBIC_LEVEL_BASE_BY_PLAYERS.get(n_players, AEROBIC_LEVEL_BASE)
-const LEVEL_MIN_MEMORY := [0, 10, 20, 31]     # I/II/III/X 记忆门槛（团队 2026-09-04：6→10、16→20，X 的 31 不变）
+## I/II/III/X 记忆门槛（团队 2026-09-04：6→10、16→20）。
+## X 级 31 → **30**：PRD 写的是「X级别（30抗原记忆）」，Kevin 2026-09-07 明确「30 及以上都归 X 级」。
+const LEVEL_MIN_MEMORY := [0, 10, 20, 30]
 # 【分化】解锁所需的免疫等级下标（0/1/2/3 = I/II/III/X）。
 # 09-04 定案曾把它下调到 II 级，**09-05 团队复核后撤回这一条**：分化仍挂 III 级。
 # 注意记忆门槛那条**没有跟着撤**（仍是 10/20），所以 III 级实际比改动前晚到
@@ -259,7 +265,6 @@ const ANAEROBIC_PER_SOLID := 10          # 每固化癌组织供能 1.0
 const SOLIDIFY_THRESHOLD := 20           # 计数达 2.0 → 固化癌组织（PRD 原值 3.0）
 const SOLIDIFY_STEP := 10                # 癌细胞停留：+1.0
 const SOLIDIFY_DECAY := 5                # 无癌细胞停留：每世界回合 -0.5
-const SOLIDIFY_ACCEL_AT := 20            # 【固化加速】：从 <2.0 涨到 ≥2.0 立即转化（定案 W4）
 
 # ---- 场景事件（PRD 场景事件）----
 # 【E-微环境压迫】：相邻癌性组织 > 2 格时，免疫细胞损失（相邻数 - 2）× 0.5。
@@ -273,7 +278,9 @@ const PRESSURE_PER_ADJ := 5              # 超出部分每格 0.5
 
 # 「坏死」：该格不为免疫【有氧呼吸】供能，但可以被【定殖】。按格记「还剩几个世界回合」。
 const NECROSIS_TOXIN := 2                # T 细胞【细胞毒素】造成：两轮完整世界回合
-const NECROSIS_RADIO := 5                # 免疫卡【放疗】造成：五轮
+## 免疫卡【放疗】造成的坏死。2026-09-07 PRD 把「坏死」收成一条通用状态、统一持续两个世界回合，
+## 【放疗】卡面那句「五轮」随之删除 —— 这里跟着回到 2，与 NECROSIS_TOXIN 同值（保留两个常量：来源不同，将来可能再分家）。
+const NECROSIS_RADIO := 2
 const RADIO_REGION := 15                 # 【放疗】区域：含起点的随机连通 15 格
 const CHEMOTAX_STEP_COST := 2            # 【炎症性趋化】每步基准 0.2（再过移动费修正）
 
@@ -302,9 +309,9 @@ const AEROBIC_ADAPT := 5                 # 【代谢适应】每次有氧结算 
 const AEROBIC_AUTOCRINE := 8             # 【自分泌生存信号】每次有氧结算 +0.8
 const EXHAUST_FIRST_CUT := 10            # 【耗竭抵抗】每世界回合首次损失 -1.0
 const EXHAUST_PRESSURE_CUT := 5          #   —— 微环境压迫的损失额外 -0.5
-const MATURED_ANTIBODY_COST := 5         # 【抗体亲和力成熟】B 细胞：抗体费 1.0 → 0.5
-const MATURED_ANTIBODY_DMG := 15         #   —— 抗体伤害 1.0 → 1.5
-const MATURED_ATTACK_EXTRA := 5          #   —— 每行动回合首次攻击邻健康的癌细胞 +0.5
+const MATURED_ANTIBODY_CUT := 5          # 【抗体亲和力成熟】B 细胞：抗体费**降低** 0.5
+const MATURED_ANTIBODY_DMG := 20         #   —— 抗体的初始伤害改为 2.0（2026-09-07 卡面：1.5 → 2）
+const MATURED_ATTACK_EXTRA := 5          #   —— 攻击邻健康的癌细胞 +0.5（2026-09-07 起每次都加）
 const PHAGO_THRESHOLD := 5               # 【吞噬体成熟】处决线：余量 ≤0.5 直接死亡
 const PHAGO_THRESHOLD_MACRO := 15        #   —— 巨噬提高到 1.5，触发后自身恢复 0.5
 const CYTOTOX_EXTRA := 10                # 【细胞毒性增强】攻击成功额外 +1.0
@@ -312,7 +319,7 @@ const WATCH_RANGE := 3                   # 【免疫监视】守护半径（「�
 const GLUT1_BONUS: Array[int] = [5, 8, 10]        # 【GLUT1高表达】无氧 +0.5/0.8/1.0（分期）
 const RAS_HEAL: Array[int] = [3, 5, 7]            # 【RAS持续激活】首次定殖恢复（分期）
 const BCL2_ENERGY: Array[int] = [5, 8, 10]        # 【BCL-2抗凋亡】免死后的能量（分期）
-const STEMNESS_ENERGY: Array[int] = [25, 30, 35]  # 【癌症干性】复活能量（分期）
+const STEMNESS_ENERGY: Array[int] = [30, 40, 50]  # 【癌症干性】复活能量（分期，2026-09-07：2.5/3/3.5 → 3/4/5）
 
 # ---- 特殊组织（2026-08-27 团队定案，轴坐标，中心 (0,0)）----
 # 布局：**半径 3** 那一环的 6 个「角」上，代谢核心与骨髓**交替**排布（各 3 个）；
@@ -378,6 +385,23 @@ const CHEMO_CANCER_PCT := 140   # 癌细胞向远离该格方向移动：费用 
 ## 六边形距离 ≤ 此值的癌细胞**任意时间**自动获得【标记】（CWGame.update_marks）。
 ## 文案（细胞详情 / 知识之书 / 引导）和启发式 AI 的接近目标都现读这个数，不写第二份。
 const MARK_RANGE := 2
+
+# ---- 【效应应答】（PRD「I-效应应答」，2026-09-07 实装）----
+## 门槛：免疫等级 X + 已分化 + 存活 + 自己的行动回合；每个细胞每局 1 次、免疫方每世界回合 1 次。
+## 费用是**效应记忆**不是能量 —— X 级时抗原记忆改名【效应记忆】并从零重数（见 CWGame.gain_memory）。
+const EFFECTOR_COST := 15
+const ADHESION_RANGE := 2        # 树突【E-组织黏连】的传染范围（PRD「相邻两格内」）
+const HUNT_CHEMO_ROUNDS := 2     # 【免疫猎杀】附着的【追踪趋化源】持续几个世界回合
+const CHAIN_PHAGO_MAX := 5       # 【连续吞噬】最多连几次
+const CHAIN_PHAGO_BONUS := 5     # 每连续净化 1 格，下一次攻击额外 +0.5
+const EXCALIBUR_SPLASH_PCT := 60 # 主射线相邻的癌组织进入范围的概率
+const EXCALIBUR_RAY_DMG := 20    # 主射线上的癌细胞 -2.0
+const EXCALIBUR_SPLASH_DMG := 10 # 侧向波及的癌细胞 -1.0
+## 四种分化各自的【效应应答】名字（PRD「免疫细胞种类」各节的小标题）
+const EFFECTOR_NAMES := {
+	ImmuneType.DENDRITIC: "免疫猎杀", ImmuneType.MACRO: "连续吞噬",
+	ImmuneType.B_CELL: "中和抗体", ImmuneType.T_CELL: "Excalibur",
+}
 
 const IMMUNE_TYPE_NAMES := {
 	ImmuneType.BASIC: "免疫细胞", ImmuneType.B_CELL: "B细胞", ImmuneType.T_CELL: "T细胞",
@@ -493,6 +517,7 @@ const SKILL_TEXT := {
 const ACT_NAMES := {
 	"move": "迁移", "draw": "基因表达", "differentiate": "分化",
 	"antibody": "抗体", "toxin": "细胞毒素", "lyse": "裂解", "chemo": "趋化源",
+	"effector": "效应应答",   ## 四种分化各一个，具体是哪一个看 EFFECTOR_NAMES
 	"mutate": "突变", "end": "结束回合",
 	## 癌细胞种类专属（PRD 四种真实癌症）
 	"homing": "血行转移", "mucus": "黏液破裂", "jump": "转移", "ossify": "骨样硬化",
@@ -597,8 +622,8 @@ static func special_of(c: Vector2i) -> Special:
 
 
 static func is_world_event_round(r: int) -> bool:
-	# PRD：第 3、6、10、15、20、25、30 世界回合，**到 30 为止**（30 也是终局回合）
-	return r in [3, 6, 10, 15, 20, 25, 30]
+	# PRD：第 3、6、10、14 世界回合（2026-09-07 随 15 回合制改；14 而非 15 —— 终局那回合不再插事件）
+	return r in [3, 6, 10, 14]
 
 
 ## 十分能量 → 显示字符串（如 15 → "1.5"）

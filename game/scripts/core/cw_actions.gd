@@ -54,6 +54,14 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 			and game.can_pay(cell, CWData.CHEMO_COST):
 		opts.append({ "label": "趋化源（%s 能量）" % CWData.fmt(CWData.CHEMO_COST),
 			"data": { "act": "chemo" } })
+	## 【效应应答】：X 级解锁，四种分化各一个，费用是 15 **效应记忆**不是能量。
+	## 门槛全在 `game.can_effector()` 里（只查不改），这里只负责摆一个入口；
+	## 需要选目标的两个（免疫猎杀选癌细胞、Excalibur 选方向）在执行时再问一次 —— 同【趋化源】的理由。
+	if game.can_effector(cell):
+		var en: String = CWData.EFFECTOR_NAMES.get(cell["itype"], "")
+		if en != "" and _effector_ready(cell, en):
+			opts.append({ "label": "效应应答·%s（%d 效应记忆）" % [en, CWData.EFFECTOR_COST],
+				"data": { "act": "effector" } })
 	if cell["itype"] == CWData.ImmuneType.T_CELL:
 		if cell["toxin_used"] < CWData.TOXIN_MAX_PER_ROUND \
 				and game.can_pay(cell, CWData.TOXIN_COST) and not _toxin_targets(cell).is_empty():
@@ -400,8 +408,11 @@ func _cancer_options(cell: Dictionary, opts: Array) -> void:
 	_type_options(cell, opts)
 
 
-## 四种癌细胞各自的主动技能（PRD 癌细胞种类）
+## 四种癌细胞各自的主动技能（PRD 癌细胞种类）。
+## 被【中和抗体】压住时整段不出选项 —— 这是四个癌种主动技能的唯一入口，一道闸管全部。
 func _type_options(cell: Dictionary, opts: Array) -> void:
+	if not game.type_ability_on(cell):
+		return
 	match cell["ctype"]:
 		CWData.CancerType.MELANOMA:
 			# 【早期血行转移】：站在血管格上，每世界回合 1 次
@@ -451,10 +462,11 @@ func _cancer_move_cost(cell: Dictionary, dest: Vector2i) -> int:
 	if game.is_cancerous(dest):
 		return game.tune.cancer_move_cancerous
 	# 小细胞肺癌【极简胞浆】：移动至健康组织的消耗**永久**降为折后价（口径 #82 后是 0.7）
-	if cell["ctype"] == CWData.CancerType.SCLC:
+	if cell["ctype"] == CWData.CancerType.SCLC and game.type_ability_on(cell):
 		return game.tune.sclc_move_healthy
 	# 黑色素瘤【伪足穿透】：目标健康组织与 ≥3 格癌性组织相邻时走折后价（口径 #82 后是 0.5；门槛 2026-09-06 由 2 改 3）
-	if cell["ctype"] == CWData.CancerType.MELANOMA and _cancerous_adj(dest) >= CWData.PSEUDOPOD_MIN_ADJ:
+	if cell["ctype"] == CWData.CancerType.MELANOMA and game.type_ability_on(cell) \
+			and _cancerous_adj(dest) >= CWData.PSEUDOPOD_MIN_ADJ:
 		return game.tune.pseudopod_cost
 	return game.tune.cancer_move_healthy
 
@@ -526,6 +538,10 @@ func action_kinds(cell: Dictionary) -> Array[String]:
 				out.append("lyse")
 			CWData.ImmuneType.DENDRITIC:
 				out.append("chemo")
+		## 【效应应答】的按钮**只看种类和等级**（X 级解锁），不看效应记忆够不够 ——
+		## 这是行动栏「宽度不会跳」的依据（同 action_kinds 里其余各条）。
+		if cell["itype"] != CWData.ImmuneType.BASIC and game.immune_level >= 3:
+			out.append("effector")
 	else:
 		out.append("mutate")
 		match cell["ctype"]:
@@ -550,6 +566,8 @@ func execute(cell: Dictionary, data: Dictionary) -> void:
 			await _do_draw(cell)
 		"chemo":
 			await _do_chemo(cell)
+		"effector":
+			await _do_effector(cell)
 		"differentiate":
 			_do_differentiate(cell, data["type"])
 		"antibody":
@@ -590,7 +608,7 @@ func base_verdict(r: int, attacker: Dictionary = {}) -> String:
 ## 【免疫伪装】大成功并给成功（PRD：1/3 失败、2/3 成功；2026-08-29 按 PRD 改判）
 func attack_outcome(r: int, attacker: Dictionary = {}) -> String:
 	var out := base_verdict(r, attacker)
-	if out == "fail" and game.event_stacks("细胞毒") > 0:
+	if out == "fail" and game.event_stacks("抗原引导") > 0:
 		out = "success"
 	if out == "crit" and game.event_stacks("免疫伪装") > 0:
 		out = "success"
@@ -656,11 +674,10 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 	var opsonin := game.spend_mods(cell, "补体调理")
 	var affinity := game.spend_mods(cell, "高亲和力克隆")
 	var was_marked: bool = target["marked"]   ## 【抗原呈递强化】要知道攻击前的标记状态
-	## 【抗体亲和力成熟】每行动回合第一次攻击「与健康组织相邻」的癌细胞 +0.5。
-	## 闸门在攻击**发动**时消耗（判定失败也算攻过，口径 #70），加成只在命中时兑现
+	## 【抗体亲和力成熟】攻击「与健康组织相邻」的癌细胞 +0.5。
+	## 2026-09-07 卡面删掉了「每个行动回合第一次」这半句 → 变成**每次**都加，闸门随之取消。
 	var matured := 0
-	if game.has_skill(cell, "抗体亲和力成熟") and _adjacent_healthy(to) \
-			and game.first_this_turn(cell, "抗体亲和力成熟"):
+	if game.has_skill(cell, "抗体亲和力成熟") and _adjacent_healthy(to):
 		matured = CWData.MATURED_ATTACK_EXTRA
 	var outcome: String
 	var r := 0
@@ -722,6 +739,12 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 				cytotox_direct = CWData.CYTOTOX_EXTRA
 			elif game.first_this_turn(cell, "细胞毒性增强"):
 				extra += CWData.CYTOTOX_EXTRA
+		## 【连续吞噬】连了几格，「下一次攻击」就多几个 0.5 —— 用掉即清，不按回合过期
+		var chain: int = int(cell.get("chain_bonus", 0))
+		if chain > 0:
+			extra += chain
+			cell["chain_bonus"] = 0
+			game.log_msg("　【连续吞噬】连续净化的加成：本次攻击额外 +%s" % CWData.fmt(chain))
 		if extra > 0:
 			game.log_msg("　攻击类修饰：额外造成 %s 能量损失" % CWData.fmt(extra))
 		## 【抗原丢失】的免疫判定住在管线的「替代/免疫」层（设计 §5.2），这里不再自己拦：
@@ -741,7 +764,17 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		## 【吞噬体成熟】的伤害后斩杀、巨噬【吞噬】的吸血都在 CWDamage 的伤后触发
 		## 队列里（设计 §5.7）——2026-08-31 从这里挪走：死亡只该在死亡阶段发生，
 		## 在攻击流程里另起一刀等于绕开那条约定
-		game.damage.submit(events)
+		var hits: Array = game.damage.submit(events)
+		## PRD【迁移】：「累积与造成伤害的绝对值向下取整的抗原记忆」（Kevin 2026-09-07 定的措辞）。
+		## 引擎此前**整条没实现**（只有【净化】给记忆）。按实际造成的伤害算，不是尝试值：
+		## 被【抗原丢失】免疫掉、被减伤扣没了的部分不该换记忆。次级伤害（细胞毒性增强）同批计入。
+		var dealt := 0
+		for h in hits:
+			dealt += int(h["actual"])
+		if dealt >= 10:
+			game.gain_memory(dealt / 10)   ## 十分能量的整数除法 = 向下取整
+			game.log_msg("　【攻击】造成 %s 能量损失，+%d 抗原记忆（%d）"
+				% [CWData.fmt(dealt), dealt / 10, game.memory])
 		## 【补体级联】的组织转化不是能量损失，【抗原丢失】拦不住它
 		for i in game.spend_mods(cell, "补体级联"):
 			_cascade(target)
@@ -823,7 +856,8 @@ func enter_tile(cell: Dictionary, dest: Vector2i, paid: int = -1) -> void:
 		cell["camp_round"] = -1
 	if cell["faction"] == CWData.Faction.CANCER and t["tissue"] == CWData.Tissue.HEALTHY:
 		CWTissue.to_cancer(t, true)
-		game.log_msg("　【定殖】%s 转为癌组织" % str(dest))
+		## 一步一步铺过去会刷一屏，连续的合并成一条（Kevin 2026-09-07）
+		game.log_run("定殖:%d" % cell["pid"], str(dest), "　【定殖】", " 转为癌组织")
 		## 过场与【侵蚀】【增生】同一套（癌吞掉一格健康组织、从哪一侧来）。方向 = **这一步的前进方向**（Kevin 2026-09-06）：
 		## 癌从来路那一侧漫入、朝细胞前进的方向推进——相邻移动就是来路那一侧，跃进 / 传送落地取最接近来路的一侧；
 		## 原地不动（复活、紊乱返回）没有前进方向，不演（-1）
@@ -851,15 +885,17 @@ func enter_tile(cell: Dictionary, dest: Vector2i, paid: int = -1) -> void:
 func purify_here(cell: Dictionary, dest: Vector2i, paid: int) -> void:
 	var t: Dictionary = game.tile(dest)
 	CWTissue.to_healthy(t)
+	## 连续净化合并成一条（Kevin 2026-09-07）。三种情形各自成一串：尾巴不一样，混在一起会看不懂；
+	## 正常那串的尾巴每次用最新的累计记忆数，正是想看的那个
+	var run := "净化:%d" % cell["pid"]
 	if game.event_stacks("免疫抑制因子") > 0:
-		game.log_msg("　【净化】%s 转为健康组织（免疫抑制因子：不获得抗原记忆）" % str(dest))
+		game.log_run(run + ":抑制", str(dest), "　【净化】", " 转为健康组织（免疫抑制因子：不获得抗原记忆）")
 	elif not game.purify_gives_memory():
-		## 抽到的卡连锁出来的净化（【效应细胞浸润】的免费移动、【全身免疫动员】的那一次迁移……）
-		## 不积累抗原记忆（Kevin 2026-09-07）
-		game.log_msg("　【净化】%s 转为健康组织（抽卡造成：不获得抗原记忆）" % str(dest))
+		## 卡牌连锁出来的净化（抽到的卡、打出的即时卡）不积累抗原记忆（Kevin 2026-09-07）
+		game.log_run(run + ":卡牌", str(dest), "　【净化】", " 转为健康组织（卡牌造成：不获得抗原记忆）")
 	else:
 		game.gain_memory(1)
-		game.log_msg("　【净化】%s 转为健康组织（抗原记忆 %d）" % [str(dest), game.memory])
+		game.log_run(run, str(dest), "　【净化】", " 转为健康组织（抗原记忆 %d）" % game.memory)
 	if cell["itype"] == CWData.ImmuneType.MACRO:
 		## 【I-吞噬】每次净化回 0.3 —— **但回的不能比这一步付的多**。
 		## 迁移减免的共同地板是 0.2（各卡面都写「最低 0.2」），等级 X 走癌性组织
@@ -877,6 +913,10 @@ func purify_here(cell: Dictionary, dest: Vector2i, paid: int) -> void:
 					CWData.fmt(paid), CWData.fmt(CWData.MACRO_MOVE_NET_MIN)]
 					if heal < game.tune.macro_heal_purify else ""])
 	await _on_purify(cell)
+	## 巨噬【效应应答·连续吞噬】：本行动回合第一次【净化】之后接上连锁（见 _chain_phagocytosis）
+	if cell["itype"] == CWData.ImmuneType.MACRO and int(cell.get("chain_left", 0)) > 0 \
+			and not cell.get("chain_running", false):
+		await _chain_phagocytosis(cell)
 
 
 ## 收取特殊组织存储（进入时 & 产出瞬间站于其上时调用）
@@ -1011,10 +1051,12 @@ func antibody_damage(cell: Dictionary) -> int:
 	return dmg
 
 
-## 【抗体亲和力成熟】B 细胞强化：抗体费 1.0 → 0.5、每目标伤害 1.0 → 1.5
+## 【抗体亲和力成熟】B 细胞强化：抗体费**降低** 0.5（卡面 2026-09-07 从「降低为 0.5」改成「降低 0.5」，
+## 基础费 1.0 时两种读法同值，但基础费一旦变动，减量才是卡面说的那件事）
 func antibody_cost(cell: Dictionary) -> int:
-	return CWData.MATURED_ANTIBODY_COST if game.has_skill(cell, "抗体亲和力成熟") \
-		else CWData.ANTIBODY_COST
+	if not game.has_skill(cell, "抗体亲和力成熟"):
+		return CWData.ANTIBODY_COST
+	return maxi(CWData.ANTIBODY_COST - CWData.MATURED_ANTIBODY_CUT, 0)
 
 
 func _do_antibody(cell: Dictionary) -> void:
@@ -1272,3 +1314,174 @@ func _adjacent_healthy(pos: Vector2i) -> bool:
 		if game.tile(n)["tissue"] == CWData.Tissue.HEALTHY:
 			return true
 	return false
+
+
+# ============ 【效应应答】（PRD「I-效应应答」，2026-09-07 实装）============
+##
+## 四个大招共用一条路：`can_effector` 把门槛全查完 → 各自问目标 → `spend_effector` 扣 15 效应记忆
+## 并烧掉两处额度（本细胞每局 1 次、免疫方每世界回合 1 次）。**扣费放在问完目标之后**：
+## 中途退出不该白花记忆（同 `_do_chemo` 的先问后付）。
+
+## 有没有可打的目标 —— 没目标的大招不该出现在行动栏上（点了也只能空放）。
+func _effector_ready(cell: Dictionary, what: String) -> bool:
+	match what:
+		"免疫猎杀":
+			return not game.living_cells(CWData.Faction.CANCER).is_empty()
+		"中和抗体":
+			return not _neutralize_targets().is_empty()
+		_:
+			return true      ## 连续吞噬（挂个待触发的闸门）、Excalibur（六个方向永远打得出去）
+
+
+func _do_effector(cell: Dictionary) -> void:
+	var what: String = CWData.EFFECTOR_NAMES.get(cell["itype"], "")
+	if what == "" or not game.can_effector(cell) or not _effector_ready(cell, what):
+		return           ## 提交前复验：选项摆出来之后盘面可能已经变了
+	match what:
+		"免疫猎杀":
+			await _effector_hunt(cell)
+		"连续吞噬":
+			_effector_chain(cell)
+		"中和抗体":
+			_effector_neutralize(cell)
+		"Excalibur":
+			await _effector_excalibur(cell)
+
+
+## 树突【免疫猎杀】：选定全局任意一个癌细胞 → 给它【标记】，并在它身上附一个跟随的【追踪趋化源】。
+## 追踪源与普通趋化源**并存**（PRD 只说「同一时刻场上仅能存在一个**普通**趋化源」）。
+func _effector_hunt(cell: Dictionary) -> void:
+	var opts: Array = []
+	for c in game.living_cells(CWData.Faction.CANCER):
+		opts.append({ "label": "猎杀→%s" % game.cell_name(c), "data": { "cid": c["id"] } })
+	var pick: int = await game.ask(cell["pid"], {
+		"kind": "effector_target",
+		"prompt": "【免疫猎杀】选择一个癌细胞（全局任意）", "options": opts,
+	})
+	var target: Dictionary = game.cells[int(opts[pick]["data"]["cid"])]
+	game.spend_effector(cell, "免疫猎杀")
+	game.apply_mark(target, cell)
+	game.chemo_track = { "cid": int(target["id"]), "at": target["pos"],
+		"left": CWData.HUNT_CHEMO_ROUNDS }
+	game.log_msg("　【免疫猎杀】%s 被标记并附上【追踪趋化源】（持续 %d 回合，它自己怎么走都算「远离」）"
+		% [game.cell_name(target), CWData.HUNT_CHEMO_ROUNDS])
+	game.announce("免疫猎杀", target["pos"], true)
+
+
+## 巨噬【连续吞噬】：发动只是**架好闸门**，真正的连锁在本行动回合第一次【净化】之后触发
+## （见 `_chain_phagocytosis`）。所以这里不问目标、也不需要盘面条件。
+func _effector_chain(cell: Dictionary) -> void:
+	game.spend_effector(cell, "连续吞噬")
+	cell["chain_left"] = CWData.CHAIN_PHAGO_MAX
+	game.log_msg("　【连续吞噬】本行动回合首次【净化】后可连续免费迁移，最多 %d 次；每连一格下一击 +%s"
+		% [CWData.CHAIN_PHAGO_MAX, CWData.fmt(CWData.CHAIN_PHAGO_BONUS)])
+
+
+## B【中和抗体】：所有与健康组织相邻的癌细胞，其**种类特殊效果 / 永久卡牌效果**当前回合与下一回合失效。
+func _neutralize_targets() -> Array:
+	var out: Array = []
+	for c in game.living_cells(CWData.Faction.CANCER):
+		if _adjacent_healthy(c["pos"]):
+			out.append(c)
+	return out
+
+
+func _effector_neutralize(cell: Dictionary) -> void:
+	var targets := _neutralize_targets()
+	game.spend_effector(cell, "中和抗体")
+	for t in targets:
+		## 记「到第几个世界回合末为止」而不是倒计时：中途存档读档、快照回滚都不会走样
+		t["neutral_until"] = game.round_no + 1
+	game.log_msg("　【中和抗体】%d 个与健康组织相邻的癌细胞：种类技能与永久卡本回合和下一回合失效"
+		% targets.size())
+
+
+## T【Excalibur】：选一个方向，主射线打到棋盘边缘；主射线相邻的癌组织各有 60% 概率被波及。
+## 范围内**癌组织**转健康并进入「坏死」（固化癌组织不转）；主射线上的癌细胞 -2.0、侧向 -1.0。
+func _effector_excalibur(cell: Dictionary) -> void:
+	var opts: Array = []
+	for i in CWData.DIRS.size():
+		opts.append({ "label": "Excalibur→%s" % str(cell["pos"] + CWData.DIRS[i]),
+			"data": { "dir": i, "to": cell["pos"] + CWData.DIRS[i] } })
+	var pick: int = await game.ask(cell["pid"], {
+		"kind": "effector_target",
+		"prompt": "【Excalibur】选择释放方向", "options": opts,
+	})
+	var dir: Vector2i = CWData.DIRS[int(opts[pick]["data"]["dir"])]
+	game.spend_effector(cell, "Excalibur")
+	## 主射线：从自己所在格沿方向一路到棋盘外（不含起点）
+	var ray: Array[Vector2i] = []
+	var at: Vector2i = cell["pos"] + dir
+	while game.tiles.has(at):
+		ray.append(at)
+		at += dir
+	## 侧向波及：主射线**相邻的癌组织**各掷一次 60%（顺序固定 = 同种子可复现）
+	var splash: Array[Vector2i] = []
+	var seen := {}
+	for c in ray:
+		seen[c] = true
+	for c in ray:
+		for n in CWData.neighbors(c):
+			if seen.has(n) or not game.tiles.has(n):
+				continue
+			if game.tile(n)["tissue"] != CWData.Tissue.CANCER:
+				continue
+			seen[n] = true
+			if game.rng.randi_range(1, 100) <= CWData.EXCALIBUR_SPLASH_PCT:
+				splash.append(n)
+	game.log_msg("　【Excalibur】主射线 %d 格，侧向波及 %d 格" % [ray.size(), splash.size()])
+	_excalibur_sweep(ray, CWData.EXCALIBUR_RAY_DMG)
+	_excalibur_sweep(splash, CWData.EXCALIBUR_SPLASH_DMG)
+	game.announce("Excalibur", cell["pos"], true)
+
+
+## 扫一串格子：癌组织 → 健康 + 坏死（**固化癌组织不转**，PRD 明写），上面的癌细胞挨一下。
+## **先转组织再打伤害**：打死的细胞会走死亡结算，顺序反过来会让死亡格的组织状态不一致。
+## 伤害走 `cancer_hit_area` 而不是逐个 `cancer_hit`：同一次技能必须是同一批
+## （设计 §5.5——边打边死会让后面的目标在不同的盘面上结算）。
+func _excalibur_sweep(cells_at: Array, dmg: int) -> void:
+	for c in cells_at:
+		var t: Dictionary = game.tile(c)
+		if t["tissue"] == CWData.Tissue.CANCER:
+			CWTissue.to_healthy(t)
+			t["necrosis"] = CWData.NECROSIS_TOXIN
+	var hit: Array = []
+	for c in cells_at:
+		hit.append_array(game.cells_at(c, CWData.Faction.CANCER))
+	if not hit.is_empty():
+		game.cancer_hit_area(hit, dmg, "Excalibur", true)
+
+
+## 巨噬【效应应答·连续吞噬】的连锁：净化之后只要还能免费迁进相邻的**癌组织**就可以继续，
+## 最多 `CHAIN_PHAGO_MAX` 次；每连一格，下一次攻击额外 +0.5。
+##
+## `chain_running` 是**再入闸**：连锁里的每一步迁移都会再触发一次【净化】，
+## 而【净化】末尾又挂着这个钩子 —— 不拦就是无限递归。
+## 免费迁移走 `enter_tile`（同卡牌的 `_free_walk`）：那条路根本不进费用管线，所以是真免费。
+func _chain_phagocytosis(cell: Dictionary) -> void:
+	cell["chain_running"] = true
+	var linked := 0
+	while int(cell.get("chain_left", 0)) > 0 and cell["alive"]:
+		var opts: Array = []
+		for n in CWData.neighbors(cell["pos"]):
+			if game.tile(n)["tissue"] == CWData.Tissue.CANCER and game.cells_at(n).is_empty():
+				opts.append({ "label": "连续吞噬→%s（免费）" % str(n), "data": { "to": n } })
+		if opts.is_empty():
+			break
+		opts.append({ "label": "结束连续吞噬", "data": { "stop": true } })
+		var pick: int = await game.ask(cell["pid"], {
+			"kind": "free_move", "tag": "连续吞噬",
+			"prompt": "【连续吞噬】免费迁移到相邻癌组织（还可连 %d 次）" % int(cell["chain_left"]),
+			"options": opts,
+		})
+		if opts[pick]["data"].get("stop", false):
+			break
+		cell["chain_left"] = int(cell["chain_left"]) - 1
+		linked += 1
+		game.log_msg("　【连续吞噬】%s 免费迁移至 %s" % [game.cell_name(cell), str(opts[pick]["data"]["to"])])
+		await enter_tile(cell, opts[pick]["data"]["to"])
+	cell["chain_running"] = false
+	if linked > 0:
+		cell["chain_bonus"] = int(cell.get("chain_bonus", 0)) + linked * CWData.CHAIN_PHAGO_BONUS
+		game.log_msg("　【连续吞噬】连续净化 %d 格，下一次攻击额外 +%s"
+			% [linked, CWData.fmt(int(cell["chain_bonus"]))])

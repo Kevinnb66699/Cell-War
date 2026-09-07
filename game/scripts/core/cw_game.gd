@@ -42,6 +42,12 @@ var win_kind := ""         # immune_clear / cancer_weighted / limit_cancer / lim
 ## 树突状细胞【I-趋化源】：{} = 场上没有；否则 { at: Vector2i, left: 剩余世界回合, by: 建立者 pid }。
 ## **进快照与哈希**（它改变后续所有移动的价钱）。同一时刻仅一个，见 CWActions 的 chemo 选项。
 var chemo := {}
+## 【免疫猎杀】附着在某个癌细胞身上的【追踪趋化源】：{ cid, at, left }。
+## **位置不存在这里**——活着时现读那个细胞的 pos（`chemo_track_at()`），
+## 死了才把 at 冻在死亡格上、cid 置 -1。否则每一条改 pos 的路（迁移/转移/紊乱/传送）都得记得同步。
+var chemo_track := {}
+## 免疫方上一次发动【效应应答】的世界回合（PRD：免疫方每个世界回合最多 1 次）
+var effector_round := -1
 var cancer_win_streak := 0  # 癌方加权占地连续达标的回合末次数（见 tune.cancer_win_hold_rounds）；进快照与哈希
 var rng := RandomNumberGenerator.new()
 var bridges := {}          # player_id -> CWBridge
@@ -310,6 +316,7 @@ func snapshot() -> Dictionary:
 
 
 func restore(snap: Dictionary) -> void:
+	_run_key = ""   ## 读档/联机快照换掉了整卷日志，上一条「连续行」的游标作废（2026-09-07）
 	CWStateCodec.restore(self, snap)
 
 
@@ -504,7 +511,22 @@ func clear_mods(cell: Dictionary, until: String) -> void:
 
 # ---- 永久技能（装备在 cell["equipped"]，打出即装备、死亡不掉、同名限一张）----
 
+## 【中和抗体】（B 的效应应答）压住了这个癌细胞吗。PRD：「所有与健康组织相邻的癌细胞的
+## **种类特殊效果**/**永久卡牌效果**在当前回合和下一回合失效」。
+## 存的是「压到第几个世界回合末」而不是倒计时 —— 存档读档、快照回滚都不会走样。
+func neutralized(cell: Dictionary) -> bool:
+	return round_no <= int(cell.get("neutral_until", -1))
+
+
+## 这个癌细胞的**种类特殊效果**此刻生效吗。四个癌种的主动技能与被动（伪足穿透 / 极简胞浆 /
+## 刚性屏障 / 囊性护甲 / 瓦伯格）都过这一道，**别在各处自己写 ctype 判断**。
+func type_ability_on(cell: Dictionary) -> bool:
+	return not neutralized(cell)
+
+
 func has_skill(cell: Dictionary, skill: String) -> bool:
+	if neutralized(cell):
+		return false      ## 【中和抗体】：永久卡牌效果一并压住
 	return skill in cell["equipped"]
 
 
@@ -527,9 +549,8 @@ func first_this_round(cell: Dictionary, key: String) -> bool:
 	return true
 
 
-## 固化计数的**增加**一律走这里（【E-固化】与卡【基质硬化】共用）：
-## 达到 3.0 即转固化；【固化加速】生效时，从 2.0 以下涨到 ≥2.0 也立即转化
-## （定案 W4——只认「涨过线」，事件触发时已 ≥2.0 的格不追溯）。
+## 固化计数的**增加**一律走这里（【E-固化】与卡【基质硬化】共用）：达到阈值即转固化。
+## 2026-09-07 拆掉了【固化加速】的支路（该世界事件随 PRD 正本删除）。
 ## 血管不可固化（Kevin 2026-09-06）：计数也不累计，日志说一句（癌细胞蹲在血管上时别让人以为是 bug）。
 func raise_solid(pos: Vector2i, amount: int) -> void:
 	if solid_frozen(pos):
@@ -539,15 +560,11 @@ func raise_solid(pos: Vector2i, amount: int) -> void:
 	if not CWTissue.solidifiable(t):
 		log_msg("　【固化】%s 是血管，不可固化（计数不累计）" % str(pos))
 		return
-	var before: int = t["solid"]
-	t["solid"] = before + amount
-	var accel: bool = event_stacks("固化加速") > 0 \
-		and before < CWData.SOLIDIFY_ACCEL_AT and t["solid"] >= CWData.SOLIDIFY_ACCEL_AT
-	if t["solid"] < tune.solidify_threshold and not accel:
+	t["solid"] += amount
+	if t["solid"] < tune.solidify_threshold:
 		return
 	CWTissue.to_solid(t)
-	log_msg("【固化】%s 转为固化癌组织%s" % [str(pos),
-		"（固化加速）" if t["solid"] < tune.solidify_threshold else ""])
+	log_msg("【固化】%s 转为固化癌组织" % str(pos))
 
 
 ## 这一格本世界回合被【TNF-α局部炎症】冻住了吗（冻结格记在全局条目的 data 里，
@@ -810,6 +827,10 @@ func kill(cell: Dictionary) -> void:
 	cell["energy"] = 0
 	cell["alive"] = false
 	cell["mods"] = []   ## 「自身」的修饰随细胞死亡消散，复活是新生
+	## 【免疫猎杀】：「癌细胞死亡后趋化源留在死亡格」——把位置冻下来、断开跟随
+	if not chemo_track.is_empty() and int(chemo_track.get("cid", -1)) == int(cell["id"]):
+		chemo_track["at"] = cell["pos"]
+		chemo_track["cid"] = -1
 
 	if cell["faction"] == CWData.Faction.CANCER:
 		log_msg("☠ %s 死亡" % cell_name(cell))
@@ -850,6 +871,44 @@ func gain_memory(n: int) -> void:
 	if lv > immune_level:
 		immune_level = lv
 		log_msg("★ 免疫等级升至 %s 级" % CWData.LEVEL_NAMES[lv])
+		if lv == 3:
+			## PRD：「抗原记忆升级为【效应记忆】重新从零计数，计数规则与抗原记忆相同」。
+			## 同一个计数器换了名字和用途（【效应应答】按它收费），所以就地清零 ——
+			## 也正因为如此，X 级之后 memory 的语义是「效应记忆」，界面文案要跟着改口。
+			memory = 0
+			log_msg("★ 抗原记忆升级为【效应记忆】，重新从零计数")
+
+
+## 这个细胞此刻能不能发动【效应应答】。**只查不改**，选项那边和提交前复验共用。
+## PRD 的五个条件：X 级 / 已分化 / 存活 / 每个细胞每局 1 次 / 免疫方每世界回合 1 次，外加付得起 15 效应记忆。
+## 「只能在自己的行动回合发动」由行动选项的调用时机保证（build_options 只在轮到它时调）。
+func can_effector(cell: Dictionary) -> bool:
+	return cell["faction"] == CWData.Faction.IMMUNE and cell["alive"] \
+		and immune_level >= 3 \
+		and cell["itype"] != CWData.ImmuneType.BASIC \
+		and not cell.get("effector_used", false) \
+		and effector_round != round_no \
+		and memory >= CWData.EFFECTOR_COST
+
+
+## 扣费并烧掉两处额度。**已发动过的记录在死亡、复活后仍然保留**（PRD 明文）——
+## effector_used 住在细胞字典上，而复活不重建细胞，所以天然满足。
+func spend_effector(cell: Dictionary, what: String) -> void:
+	reduce_memory(CWData.EFFECTOR_COST)
+	cell["effector_used"] = true
+	effector_round = round_no
+	log_msg("★【效应应答·%s】%s 发动（消耗 %d 效应记忆，余 %d）"
+		% [what, cell_name(cell), CWData.EFFECTOR_COST, memory])
+
+
+## 【追踪趋化源】此刻在哪一格。空表返回 Vector2i.MAX（调用方按「没有」处理）。
+func chemo_track_at() -> Vector2i:
+	if chemo_track.is_empty():
+		return Vector2i.MAX
+	var cid: int = int(chemo_track.get("cid", -1))
+	if cid >= 0 and cid < cells.size() and cells[cid]["alive"]:
+		return cells[cid]["pos"]
+	return chemo_track.get("at", Vector2i.MAX)
 
 
 func reduce_memory(n: int) -> void:
@@ -862,6 +921,12 @@ func reduce_memory(n: int) -> void:
 ## by = 施加者：树突装备【抗原呈递强化】时，它施加的标记可触发 2 次翻倍再移除。
 ## 已有更多次数的标记不被弱化（maxi 取大）。
 func apply_mark(target: Dictionary, by: Dictionary) -> void:
+	## PRD 2026-09-07：「【标记】无法重叠，同一回合一癌细胞仅可获得一次标记」。
+	## 拦在这里而不是 update_marks：树突光环、【抗原呈递强化】、卡牌三条路都得守同一条规矩。
+	## （旧 PRD 是「可多次获得」，于是标记被伤害吃掉后光环立刻补一个，站在树突边上等于永久双倍。）
+	if int(target.get("mark_round", -1)) == round_no:
+		return
+	target["mark_round"] = round_no
 	target["marked"] = true
 	var charges := 1
 	if by["faction"] == CWData.Faction.IMMUNE and by["itype"] == CWData.ImmuneType.DENDRITIC \
@@ -936,13 +1001,45 @@ func check_cancer_win() -> void:
 
 # ---- 日志 / 调试 ----
 ## secret_pid >= 0 表示这行只有该席位能看原文，其他席位看 public_msg（联机视角；本地对局照常全显）。
+## 「连续同类行」的游标：一步一步走出来的【定殖】/【净化】会刷一屏，合并成一条读着才顺
+## （Kevin 2026-09-07）。合并**只改最后一条**，所以渲染那边不能再假设「日志只增不改」
+## （CWLogPanel / CWLogHint 的折行缓存已改成「末条每帧重折」）。
+var _run_key := ""
+var _run_items: PackedStringArray = PackedStringArray()
+var _run_at := -1
+
+
 func log_msg(msg: String, secret_pid: int = -1, public_msg: String = "") -> void:
 	if sim_quiet:
 		return
+	_run_key = ""   ## 中间插进任何别的行，连续就断了
 	logs.append(msg)
 	log_secret.append(secret_pid)
 	log_public.append(msg if secret_pid < 0 else public_msg)
 	log_line.emit(msg)
+
+
+## 连续同类的一串事情写成一条（Kevin 2026-09-07）：
+##   key   同一类且同一主体才合并（如「定殖:1」）；**还必须紧挨着上一条**，中间插了别的就另起一条
+##   item  这一次新增的那一小段（通常是坐标）
+##   prefix/suffix  合并后的头尾；suffix 每次都用最新的一份 —— 【净化】那句尾巴带累计抗原记忆，
+##                  要的正是最后那个数
+## 这几行本来就是公开信息（谁在哪儿铺了地、净化了哪几格，对手都看得见），所以不走秘密行那套。
+func log_run(key: String, item: String, prefix: String, suffix: String) -> void:
+	if sim_quiet:
+		return
+	if key != "" and key == _run_key and _run_at == logs.size() - 1 and _run_at >= 0:
+		_run_items.append(item)
+		var merged := prefix + "、".join(_run_items) + suffix
+		logs[_run_at] = merged
+		log_public[_run_at] = merged
+		log_line.emit(merged)
+		return
+	var at := logs.size()
+	log_msg(prefix + item + suffix)   ## 它会把 _run_key 清掉，所以下面三行必须在它之后
+	_run_key = key
+	_run_items = PackedStringArray([item])
+	_run_at = at
 
 
 func cell_name(c: Dictionary) -> String:

@@ -10,6 +10,8 @@ static func snapshot(game: CWGame) -> Dictionary:
 	return {
 		"tiles": game.tiles.duplicate(true),
 		"cells": game.cells.duplicate(true),
+		"chemo_track": game.chemo_track.duplicate(true),
+		"effector_round": game.effector_round,
 		"players": game.players.duplicate(true), "order": game.order.duplicate(),
 		"differentiated": game.differentiated.duplicate(),
 		"flow": game.flow.duplicate(), "pending": game._pending.duplicate(true),
@@ -26,6 +28,8 @@ static func snapshot(game: CWGame) -> Dictionary:
 static func restore(game: CWGame, snap: Dictionary) -> void:
 	game.tiles = snap["tiles"].duplicate(true)
 	game.cells = snap["cells"].duplicate(true)
+	game.chemo_track = snap.get("chemo_track", {}).duplicate(true)
+	game.effector_round = int(snap.get("effector_round", -1))
 	game.players = snap["players"].duplicate(true)
 	game.order = snap.get("order", game.order).duplicate()
 	game.differentiated = snap["differentiated"].duplicate()

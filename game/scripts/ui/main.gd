@@ -133,8 +133,12 @@ func _begin_online(client: CWNetClient) -> void:
 func _on_online_lost(reason: String) -> void:
 	if not match_node.online:
 		return
+	## 房间没了要说清楚为什么。2026-09-07 顶带那条通报删掉之后，这句改用棋盘中央偏上的气泡
+	## （这会儿正要收摊回主菜单，不进左侧事件列表 —— 那一列跟着对局一起清掉了）
 	if match_node.toast != null:
-		match_node.toast.show_at(reason, CWUIBridge.notice_anchor(), CWUIBridge.NOTICE_HOLD)
+		var screen := CWView.screen_size()
+		var at := Rect2(Vector2((screen.x - CWView.PANEL_WIDTH) * 0.5, CWToast.MARGIN), Vector2.ZERO)
+		match_node.toast.show_at(reason, at, CWUIBridge.TEXT_HOLD)
 	_leave_online()
 
 
