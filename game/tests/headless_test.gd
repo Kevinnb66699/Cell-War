@@ -20,7 +20,7 @@ var _durations: Array = []   ## [毫秒, 测试名]
 ## 每个放到此刻最轻的那一片。靠下标取模的话 t_net_game 一个就 79 s、落在哪片哪片就是 100 s，另一片 9 s 就跑完了。
 ## 加了明显变慢的测试就把它填进来（跑一次 `-- --timing` 看末尾那张表）
 const WEIGHTS := {
-	"t_net_game": 79.0, "t_ai_mc": 7.4, "t_settle_screen": 4.6, "t_net_reconnect": 3.5,
+	"t_net_game": 79.0, "t_ai_mc": 7.4, "t_ai_mcts": 0.7, "t_settle_screen": 4.6, "t_net_reconnect": 3.5,
 	"t_net_timeout": 3.0, "t_net_drain": 1.3, "t_net_lobby": 1.0, "t_hotseat": 0.8,
 	"t_teleport_fx": 0.7, "t_opening": 0.6,
 }
@@ -105,7 +105,7 @@ func _run_all() -> void:
 		t_event_rounds, t_draw_limit, t_snapshot, t_state_codec,
 		t_rollout_isolation, t_step_atomic, t_full_game_2p, t_full_game_4p,
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
-		t_mc_budget, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
+		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_skill_info,
 		t_save_load, t_settings, t_board_view, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
@@ -2800,6 +2800,144 @@ func t_mc_budget() -> void:
 			smoke.dispose()
 		check(picks[0] == picks[1] and steps[0] == steps[1] and steps[0] <= 24,
 			"%d 人浅层 MC 冒烟：固定种子选择/步数一致（%d 步）" % [n, steps[0]])
+
+
+# ---- AI·独立 MCTS（树搜索）：零污染、确定性、树能分叉回落、预算截断、白送击杀要拿 ----
+func t_ai_mcts() -> void:
+	print("[AI·独立 MCTS]")
+	## ① 主线零污染 + 同局面同答案
+	var g := make_game(2, 33)
+	var ip := _immune_pid(g)
+	var mc := CWMCTSBridge.new()
+	mc.game = g
+	mc.iterations = 6
+	mc.horizon = 4
+	g.bridges[ip] = mc
+	await run_setup(g)
+	var req: Dictionary = {}
+	while true:
+		req = await g.pending()
+		if req.is_empty() or (req["kind"] == "action" and req["pid"] == ip):
+			break
+		await g.step(await g.ask(req["pid"], req))
+	check(not req.is_empty(), "推进到了免疫的行动决策点")
+	var h0 := g.state_hash()
+	var n0 := g.logs.size()
+	var a1: int = await mc.ask(req)
+	check(g.state_hash() == h0, "MCTS 评估完主线状态逐位不变")
+	check(g.logs.size() == n0, "MCTS 推演没有留下日志")
+	check(not g.sim_quiet, "评估完静音已关（真日志照常记录）")
+	var a2: int = await mc.ask(req)
+	check(a1 == a2, "同局面两次评估答案一致（确定性）")
+	g.dispose()
+
+	## ② 白送的击杀要拿：残血癌细胞贴脸、免疫只剩**一次行动**的能量（同扁平 MC 的场景口径）
+	var scene: Array = await _free_kill_scene(55, 1, 2)   ## rollouts/horizon 参数在共享helper里；这里只取 game/req
+	var g2: CWGame = scene[0]
+	## _free_kill_scene 造的是扁平 MC 桥；就地换一个 MCTS 桥再评估
+	var mc2 := CWMCTSBridge.new()
+	mc2.game = g2
+	mc2.iterations = 30
+	mc2.horizon = 6
+	g2.bridges[_immune_pid(g2)] = mc2
+	var pick: int = await mc2.ask(scene[2])
+	var pd: Dictionary = scene[2]["options"][pick]["data"]
+	check(_is_free_kill(pd), "残血癌细胞贴脸、只剩一次行动 → MCTS 选择攻击（选了 %s）" % str(pd))
+	g2.dispose()
+
+	## ③ UCT 会复用已建分支：多次迭代统计出节点与访问，且高迭代下不退化
+	var g3 := make_game(2, 900)
+	var ip3 := _immune_pid(g3)
+	var mc3 := CWMCTSBridge.new()
+	mc3.game = g3
+	mc3.iterations = 20
+	mc3.horizon = 8
+	g3.bridges[ip3] = mc3
+	await run_setup(g3)
+	var r3: Dictionary = {}
+	while true:
+		r3 = await g3.pending()
+		if r3.is_empty() or (r3["kind"] == "action" and r3["pid"] == ip3):
+			break
+		await g3.step(await g3.ask(r3["pid"], r3))
+	await mc3.ask(r3)
+	var st3 := mc3.last_stats
+	check(int(st3["iterations"]) == 20, "统计记录迭代预算")
+	check(int(st3["nodes"]) <= int(st3["rollouts"]) and int(st3["nodes"]) >= 1,
+		"树里建过至少一个动作节点（%d 节点 / %d rollout）" % [int(st3["nodes"]), int(st3["rollouts"])])
+	g3.dispose()
+
+	## ④ 预算按 step 截断：固定种子 + max_sim_steps 下答案/步数稳定，且不污染主线
+	var g4 := make_game(2, 20260907)
+	var ip4 := _immune_pid(g4)
+	var mc4 := CWMCTSBridge.new()
+	mc4.game = g4
+	mc4.iterations = 50
+	mc4.horizon = 12
+	mc4.max_sim_steps = 5
+	g4.bridges[ip4] = mc4
+	var r4 := await _to_action_for_test(g4, ip4)
+	var h4 := g4.state_hash()
+	var first: int = await mc4.ask(r4)
+	var s4 := mc4.last_stats
+	check(int(s4["sim_steps"]) == 5 and bool(s4["budget_exhausted"]),
+		"5 步预算严格截断树搜索（实际 %d 步）" % int(s4["sim_steps"]))
+	var second: int = await mc4.ask(r4)
+	check(first == second and g4.state_hash() == h4,
+		"固定种子与固定步数预算：答案稳定且不污染主线")
+	mc4.max_sim_steps = 0
+	await mc4.ask(r4)
+	check(not mc4.last_stats["budget_exhausted"] and int(mc4.last_stats["sim_steps"]) > 5,
+		"预算 0 保持旧版无限工作量语义")
+	g4.dispose()
+
+	## ⑤ 2/4/6 人浅层冒烟：同一固定种子重复决策，选择与统计均一致
+	for n in [2, 4, 6]:
+		var picks: Array[int] = []
+		var nodes: Array[int] = []
+		for repeat in 2:
+			var smoke := make_game(n, 8000 + n)
+			var smoke_pid := _immune_pid(smoke)
+			var shallow := CWMCTSBridge.new()
+			shallow.game = smoke
+			shallow.iterations = 5
+			shallow.horizon = 2
+			shallow.max_sim_steps = 30
+			smoke.bridges[smoke_pid] = shallow
+			var smoke_req := await _to_action_for_test(smoke, smoke_pid)
+			picks.append(await shallow.ask(smoke_req))
+			nodes.append(int(shallow.last_stats["sim_steps"]))
+			smoke.dispose()
+		check(picks[0] == picks[1] and nodes[0] == nodes[1] and nodes[0] <= 30,
+			"%d 人浅层 MCTS 冒烟：固定种子选择/步数一致（%d 步）" % [n, nodes[0]])
+
+	## ⑥ 副线程路径与同步路径逐位一致（较强 AI 人机对局用它，见 match.gd）
+	var g5 := make_game(2, 20260707)
+	var ip5 := _immune_pid(g5)
+	var mc_sync := CWMCTSBridge.new()
+	mc_sync.game = g5
+	mc_sync.iterations = 5
+	mc_sync.horizon = 3
+	g5.bridges[ip5] = mc_sync
+	var r5 := await _to_action_for_test(g5, ip5)
+	var s_pick: int = await mc_sync.ask(r5)
+	var s_stats := mc_sync.last_stats
+	g5.dispose()
+
+	var g6 := make_game(2, 20260707)
+	var ip6 := _immune_pid(g6)
+	var mc_thr := CWMCTSBridge.new()
+	mc_thr.game = g6
+	mc_thr.iterations = 5
+	mc_thr.horizon = 3
+	mc_thr.use_threading = true
+	g6.bridges[ip6] = mc_thr
+	var r6 := await _to_action_for_test(g6, ip6)
+	var t_pick: int = await mc_thr.ask(r6)
+	var t_stats := mc_thr.last_stats
+	check(s_pick == t_pick and s_stats == t_stats,
+		"副线程与同步路径选择一致")
+	g6.dispose()
 
 
 func _to_action_for_test(g: CWGame, pid: int) -> Dictionary:
