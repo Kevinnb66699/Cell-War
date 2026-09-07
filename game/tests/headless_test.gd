@@ -3540,7 +3540,7 @@ func t_skill_info() -> void:
 	await process_frame
 	panel.refresh(g)
 	var seen: Array = []
-	panel.skill_hovered.connect(func(rows: Dictionary, _x: float) -> void: seen.append(rows))
+	panel.skill_hovered.connect(func(rows: Dictionary, _x: float, _y: float) -> void: seen.append(rows))
 	var hits: Array = panel.find_children("*", "Control", false, false)
 	var row_hit: Control = null
 	for n in hits:
@@ -3560,7 +3560,7 @@ func t_skill_info() -> void:
 		## **停在条目上要真的把详情发出来** —— 这一整条链（条目收鼠标 → 信号 → 详情框）
 		## 只有在这里才验得到；截图工具的点击不一定造得出悬停态，别指望它兜底
 		var hot: Array = []
-		var conn := func(rows: Dictionary, x: float) -> void:
+		var conn := func(rows: Dictionary, x: float, _y: float) -> void:
 			if not rows.is_empty():
 				hot.append([rows["name"], x])
 		panel.skill_hovered.connect(conn)
@@ -8538,7 +8538,53 @@ func t_card_history() -> void:
 	check(box.visible and box.position.x <= 500.0, "show_info 立刻显示（x=%.0f）" % box.position.x)
 	box.show_info({}, 0.0)
 	check(not box.visible, "空字典 → 收起")
+	## 带 y 的锚点（2026-09-07 Kevin：详情有时跑到窗口下方）：框顶对齐到被悬停那一行；不带 y 照旧压在行动栏提示条上方
+	box.show_info(rows, 900.0, 120.0)
+	check(is_equal_approx(box.position.y, 120.0) and box.position.x + CWCardInfo.W <= CWView.screen_size().x - CWMatchPanel.RECT.size.x - 8.0,
+		"带 y：框顶对齐到那一行、往左让出右栏（%.0f, %.0f）" % [box.position.x, box.position.y])
+	box.show_info(rows, 900.0, 530.0)
+	check(box.position.y + box.size.y <= CWView.screen_size().y - 8.0, "行在底部时框往上顶、不出屏")
+	box.on_hover_info({}, 0.0, -1.0)   ## 先离开：同一份 rows 再悬停会被当成没换目标、锚点不更新
+	box.on_hover_info(rows, 300.0, 200.0)
+	box.sync(0.3, CWData.Faction.CANCER, false)
+	check(box.visible and is_equal_approx(box.position.y, 200.0), "悬停路也认 y（%.0f）" % box.position.y)
+	box.on_hover_info({}, 0.0, -1.0)
+	box.on_hover_info(rows, 300.0)
+	box.sync(0.3, CWData.Faction.CANCER, false)
+	check(box.position.y + box.size.y <= CWActionBar.PROMPT_RECT.position.y, "不带 y（分化按钮那条路）照旧压在行动栏提示条上方")
 	box.queue_free()
+	## 右栏两条路都带 y：技能行悬停 = 那一行的画布 y；历史小卡点击 = 小卡的画布 y
+	var p2 := CWMatchPanel.new()
+	root.add_child(p2)
+	await process_frame
+	var heard: Array = []
+	p2.skill_hovered.connect(func(r: Dictionary, ax: float, ay: float) -> void: heard.append(["skill", r.get("name", ""), ax, ay]))
+	p2.played_card_pressed.connect(func(r: Dictionary, ax: float, ay: float) -> void: heard.append(["chip", r.get("name", ""), ax, ay]))
+	p2.refresh(g)
+	p2._tip_pinned = 1
+	p2.refresh(g)
+	var first_item: Label = null
+	for c in p2._tip.get_children():
+		if c is Label and c.mouse_filter == Control.MOUSE_FILTER_STOP and first_item == null:
+			first_item = c
+	check(first_item != null, "固定态技能框里有可悬停的条目")
+	if first_item != null:
+		first_item.mouse_entered.emit()
+		check(heard.size() == 1 and heard[0][0] == "skill" and is_equal_approx(heard[0][3], first_item.get_global_rect().position.y)
+			and is_equal_approx(heard[0][2], p2._tip.global_position.x - CWCardInfo.W - 8.0),
+			"技能行悬停：锚点 = 框左侧 + 那一行的 y（%s）" % str(heard))
+	p2._tip_pinned = -1
+	p2.refresh(g)
+	p2.note_played_card(g, 1, CWData.Faction.CANCER, "GLUT1高表达")
+	var chip2: Control = (p2._rows[1]["history"] as Control).get_child(0)
+	var click := InputEventMouseButton.new()
+	click.pressed = true
+	click.button_index = MOUSE_BUTTON_LEFT
+	chip2.gui_input.emit(click)
+	check(heard.size() >= 1 and heard[-1][0] == "chip" and heard[-1][1] == "GLUT1高表达"
+		and is_equal_approx(heard[-1][3], chip2.get_global_rect().position.y),
+		"历史小卡点击：锚点带小卡自己的 y（%s）" % str(heard[-1]))
+	p2.queue_free()
 	g.dispose()
 
 

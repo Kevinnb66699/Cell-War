@@ -19,8 +19,9 @@ signal end_turn_pressed
 ## 固定详情里停在某一条技能上：把它的 PRD 原文（CWCardInfo 的 { name, kind, lines }）
 ## 和详情框该贴的横坐标交出去，由 CWMatch 转给同一只 CWCardInfo。
 ## 离开时发空字典 —— 和行动栏那条悬停路径同一套约定
-signal skill_hovered(rows: Dictionary, anchor_x: float)
-signal played_card_pressed(rows: Dictionary, anchor_x: float)
+## anchor_y = 被悬停那一行的画布 y，详情框把框顶对齐到它（2026-09-07 之前没带 y，框被摆到窗口底部）；离开时发 -1
+signal skill_hovered(rows: Dictionary, anchor_x: float, anchor_y: float)
+signal played_card_pressed(rows: Dictionary, anchor_x: float, anchor_y: float)
 
 const RECT := Rect2(696, 0, 264, 540)
 const PAD := 16
@@ -382,7 +383,7 @@ func _build_row(y: float, pid: int) -> Dictionary:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			_tip_pinned = -1 if _tip_pinned == pid else pid
 			_tip_key = ""      ## 固定与否决定列什么，键作废、强制重搭
-			skill_hovered.emit({}, 0.0))
+			skill_hovered.emit({}, 0.0, -1.0))
 	add_child(hover)
 
 	var x: float = PAD + ROW_PAD
@@ -561,7 +562,8 @@ func _make_history_chip(rows: Dictionary, faction: int, card_name: String) -> Pa
 		var mb := e as InputEventMouseButton
 		if mb == null or not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
 			return
-		played_card_pressed.emit(rows, chip.get_global_rect().position.x)
+		var at := chip.get_global_rect().position
+		played_card_pressed.emit(rows, at.x, at.y)
 	)
 	return chip
 
@@ -791,10 +793,10 @@ func _update_tip(game: CWGame) -> void:
 			var info: Dictionary = r["info"]
 			item.mouse_entered.connect(func() -> void:
 				item.add_theme_color_override("font_color", Color.WHITE)
-				skill_hovered.emit(info, _tip.global_position.x - CWCardInfo.W - 8.0))
+				skill_hovered.emit(info, _tip.global_position.x - CWCardInfo.W - 8.0, item.get_global_rect().position.y))
 			item.mouse_exited.connect(func() -> void:
 				item.add_theme_color_override("font_color", CWStyle.TEXT)
-				skill_hovered.emit({}, 0.0))
+				skill_hovered.emit({}, 0.0, -1.0))
 		_tip.add_child(item)
 		y += 24.0
 	if full:

@@ -45,6 +45,7 @@ static var _tier_re: RegEx     ## 「a / b / c」分档写法（至少三档、�
 var _card := ""      ## 正在悬停的卡名；空串 = 没有
 var _info := {}      ## 自由文案（分化提问里悬停种类按钮 → 细胞种类详情）；非空时压过 _card
 var _anchor_x := 0.0 ## 自由文案的锚点：贴着被悬停按钮的左缘摆
+var _anchor_y := -1.0 ## 锚点的 y：≥0 = 框顶对齐到被悬停那一行（右栏技能行 / 历史小卡）；-1 = 压在行动栏提示条上方（分化按钮）
 var _wait := 0.0
 var _key := ""       ## 上次搭内容用的键；没变就不重搭（每帧 sync，重搭是浪费）
 
@@ -71,7 +72,9 @@ func hide_now() -> void:
 
 ## 分化提问：鼠标停在种类按钮上 → 浮该细胞种类的 PRD 原文（rows 由 describe_type 给）；
 ## 传空字典 = 离开按钮，立刻收起。手感与手牌一致：同样等 DELAY 再浮出、换目标重新计时
-func on_hover_info(rows: Dictionary, anchor_x: float) -> void:
+## anchor_y ≥ 0 = 框顶对齐到这个 y（右栏技能行传自己那一行的 y）；不传 = 压在行动栏提示条上方（分化按钮那条路）。
+## 2026-09-07 Kevin 报「详情有时莫名其妙显示在窗口下方」：就是右栏那条路此前没带 y、被当成行动栏按钮摆到了底部。
+func on_hover_info(rows: Dictionary, anchor_x: float, anchor_y := -1.0) -> void:
 	if rows.is_empty():
 		if not _info.is_empty():
 			_info = {}
@@ -82,22 +85,24 @@ func on_hover_info(rows: Dictionary, anchor_x: float) -> void:
 		return
 	_info = rows
 	_anchor_x = anchor_x
+	_anchor_y = anchor_y
 	_wait = 0.0
 	visible = false
 
 
 ## 点击右侧历史小卡：直接展示原始卡面，不等悬停延时。
-func show_info(rows: Dictionary, anchor_x: float) -> void:
+func show_info(rows: Dictionary, anchor_x: float, anchor_y := -1.0) -> void:
 	if rows.is_empty():
 		hide_now()
 		return
 	_card = ""
 	_info = rows
 	_anchor_x = anchor_x
+	_anchor_y = anchor_y
 	_wait = DELAY
 	_key = ""
 	_rebuild(rows)
-	position = place_at(size, _anchor_x, CWView.screen_size())
+	position = place_at(size, _anchor_x, CWView.screen_size(), _anchor_y)
 	visible = true
 
 
@@ -118,7 +123,7 @@ func sync(delta: float, faction: int, blocked: bool, phase := -1) -> void:
 	if key != _key:
 		_key = key
 		_rebuild(rows)
-	position = place_at(size, _anchor_x, CWView.screen_size()) if free_text \
+	position = place_at(size, _anchor_x, CWView.screen_size(), _anchor_y) if free_text \
 		else place(size, CWView.screen_size())
 	visible = true
 
@@ -158,10 +163,11 @@ static func describe_ctype(t: int) -> Dictionary:
 ## **右缘不进右侧竖条**（同 CWTileInfo.place 的规矩）：竖条上是回合数、玩家行、免疫等级，
 ## 盖住它等于让玩家一边读技能一边看不见自己还剩多少能量（2026-09-04 预览图上当场看见）。
 ## 右边那几枚按钮（细胞毒素、裂解）贴着棋盘右缘，不让的话框正好压上去。
-static func place_at(box: Vector2, anchor_x: float, screen: Vector2) -> Vector2:
+## anchor_y ≥ 0：框顶对齐到它（被悬停那一行的 y），放不下就往上顶；-1：压在行动栏提示条上方（分化按钮）。
+static func place_at(box: Vector2, anchor_x: float, screen: Vector2, anchor_y := -1.0) -> Vector2:
 	var panel_left := screen.x - CWMatchPanel.RECT.size.x   ## 右侧竖条的左缘
 	var x := clampf(anchor_x, 8.0, maxf(8.0, panel_left - 8.0 - box.x))
-	var y := CWActionBar.PROMPT_RECT.position.y - GAP_ABOVE_CARD - box.y
+	var y := anchor_y if anchor_y >= 0.0 else CWActionBar.PROMPT_RECT.position.y - GAP_ABOVE_CARD - box.y
 	return Vector2(x, clampf(y, 8.0, screen.y - box.y - 8.0))
 
 
