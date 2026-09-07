@@ -169,7 +169,9 @@ func refresh(game: CWGame) -> void:
 		_history_round = game.round_no
 		_clear_history()
 	_round.text = "第 %d 回合" % game.round_no
-	_phase.text = "%s · 世界事件 第 %d 回合" % [game.phase, _next_event_round(game.round_no)]
+	var next_ev := _next_event_round(game.round_no)
+	_phase.text = "%s · 世界事件 第 %d 回合" % [game.phase, next_ev] if next_ev > 0 \
+		else "%s · 世界事件已放完" % game.phase
 	_events.text = active_events_text(game)
 	_events.visible = _events.text != ""
 	_layout_event_row()
@@ -251,13 +253,15 @@ func rect_of(what: String) -> Rect2:
 	return Rect2()
 
 
-## 世界事件在第 3、6、10、15 个世界回合触发，之后每 5 个（判据在 CWData）。
-## 这里只找「下一次是第几回合」，规则仍然只有 CWData 一处。
+## 「下一次世界事件是第几回合」。判据仍然只有 CWData 一处，这里只做查找。
+## **必须有上界**：2026-09-07 事件表改成 3/6/10/14 之后，14 回合以后没有下一次了，
+## 原来那个无上界的 while 会在终局回合空转把游戏卡死（当天真踩到，测试跑不完）。
+## 找不到就返回 0，调用方改口播「无」。
 func _next_event_round(from: int) -> int:
-	var r := from
-	while not CWData.is_world_event_round(r):
-		r += 1
-	return r
+	for r in range(maxi(from, 1), CWData.LIMIT_ROUND + 1):
+		if CWData.is_world_event_round(r):
+			return r
+	return 0
 
 
 func _refresh_row(game: CWGame, pid: int) -> void:

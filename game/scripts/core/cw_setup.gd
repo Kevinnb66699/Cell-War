@@ -53,6 +53,7 @@ static func make_cell(id: int, pid: int, faction: int, pos: Vector2i,
 		"alive": true,
 		"marked": false,           # 树突【标记】
 		"mark_left": 0,            # 【标记】还能翻倍几次（普通 1；呈递强化树突施加的 2）
+		"mark_round": -1,          # 上一次获得【标记】是第几个世界回合（一回合只能得一次）
 		"hand": [],                # 手牌里的卡名（上限 CWData.HAND_MAX）
 		"equipped": [],            # 已装备的永久技能名（打出即装备，死亡不掉）
 		"mods": [],                # 修饰卡条目 {name, uses, until, seq, data}，见 CWGame.add_mod

@@ -528,9 +528,8 @@ func first_this_round(cell: Dictionary, key: String) -> bool:
 	return true
 
 
-## 固化计数的**增加**一律走这里（【E-固化】与卡【基质硬化】共用）：
-## 达到 3.0 即转固化；【固化加速】生效时，从 2.0 以下涨到 ≥2.0 也立即转化
-## （定案 W4——只认「涨过线」，事件触发时已 ≥2.0 的格不追溯）。
+## 固化计数的**增加**一律走这里（【E-固化】与卡【基质硬化】共用）：达到阈值即转固化。
+## 2026-09-07 拆掉了【固化加速】的支路（该世界事件随 PRD 正本删除）。
 ## 血管不可固化（Kevin 2026-09-06）：计数也不累计，日志说一句（癌细胞蹲在血管上时别让人以为是 bug）。
 func raise_solid(pos: Vector2i, amount: int) -> void:
 	if solid_frozen(pos):
@@ -540,15 +539,11 @@ func raise_solid(pos: Vector2i, amount: int) -> void:
 	if not CWTissue.solidifiable(t):
 		log_msg("　【固化】%s 是血管，不可固化（计数不累计）" % str(pos))
 		return
-	var before: int = t["solid"]
-	t["solid"] = before + amount
-	var accel: bool = event_stacks("固化加速") > 0 \
-		and before < CWData.SOLIDIFY_ACCEL_AT and t["solid"] >= CWData.SOLIDIFY_ACCEL_AT
-	if t["solid"] < tune.solidify_threshold and not accel:
+	t["solid"] += amount
+	if t["solid"] < tune.solidify_threshold:
 		return
 	CWTissue.to_solid(t)
-	log_msg("【固化】%s 转为固化癌组织%s" % [str(pos),
-		"（固化加速）" if t["solid"] < tune.solidify_threshold else ""])
+	log_msg("【固化】%s 转为固化癌组织" % str(pos))
 
 
 ## 这一格本世界回合被【TNF-α局部炎症】冻住了吗（冻结格记在全局条目的 data 里，
@@ -863,6 +858,12 @@ func reduce_memory(n: int) -> void:
 ## by = 施加者：树突装备【抗原呈递强化】时，它施加的标记可触发 2 次翻倍再移除。
 ## 已有更多次数的标记不被弱化（maxi 取大）。
 func apply_mark(target: Dictionary, by: Dictionary) -> void:
+	## PRD 2026-09-07：「【标记】无法重叠，同一回合一癌细胞仅可获得一次标记」。
+	## 拦在这里而不是 update_marks：树突光环、【抗原呈递强化】、卡牌三条路都得守同一条规矩。
+	## （旧 PRD 是「可多次获得」，于是标记被伤害吃掉后光环立刻补一个，站在树突边上等于永久双倍。）
+	if int(target.get("mark_round", -1)) == round_no:
+		return
+	target["mark_round"] = round_no
 	target["marked"] = true
 	var charges := 1
 	if by["faction"] == CWData.Faction.IMMUNE and by["itype"] == CWData.ImmuneType.DENDRITIC \

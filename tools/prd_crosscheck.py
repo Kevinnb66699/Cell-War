@@ -45,7 +45,7 @@ MAP = {
     ## 定案 B（2026-09-01）：门槛要连续两个世界回合末都达标；常量 2 对应「连续两个」
     "CANCER_WIN_HOLD_ROUNDS":  "且该条件在**连续两个世界回合结束时**均成立",
     "CANCER_WIN_WEIGHTED":    "癌组织格数+2times固化癌组织格数",
-    "LIMIT_ROUND":            "30回合后",
+    "LIMIT_ROUND":            "15回合后",
     # ---- 开局 ----
     "INIT_ENERGY":            "免疫细胞初始拥有3点能量",
     "INIT_ENERGY_CANCER":     "癌细胞初始拥有6能量",
@@ -53,7 +53,9 @@ MAP = {
     "AEROBIC_MULT":           "frac{健康组织格数-坏死格数}{总格数}times3",
     "AEROBIC_FLOOR":          "max{2,",   # 2026-09-01 起下限写进公式本身（脚本会先去掉反斜杠）
     "ANAEROBIC_PER_CANCER":   "癌组织个数times0.4",
-    "ANAEROBIC_PER_SOLID":    "固化癌组织个数times1",
+    ## 线性式的老常量（`anaerobic_block_coef=0` 时才走）。新公式里固化是「+全图固化癌组织个数」，
+    ## 系数 1.0 就藏在那个加号里 —— 对到公式那一句上，PRD 一改公式这里就会失配。
+    "ANAEROBIC_PER_SOLID":    "times 2+全图固化癌组织个数",
     ## 2026-09-07 换的两条呼吸公式：各段分别对一个常量（脚本先剥反斜杠、再去掉所有空白）
     "AEROBIC_LEVEL_BASE":     "times0.5+2",
     "AEROBIC_LEVEL_STEP":     "^2times0.5",
@@ -69,17 +71,19 @@ MAP = {
     "COUNTER_DMG_ON_FAIL":    "1/3概率失败，不造成伤害，自身-0.5能量",
     "IMMUNE_RESPAWN_ENERGY":  "复活**，**初始1能量",
     "MACRO_HEAL_PURIFY":      "巨噬细胞每触发一次【净化】，恢复0.3能量",
-    "MACRO_MOVE_NET_MIN":     "即一次【迁移】的净支出不低于0.1",
+    "MACRO_MOVE_NET_MIN":     "恢复量不超过 本次迁移实际支付的能量-0.1",
     "ANTIBODY_COST":          "【抗体】：消耗1点能量",
-    "ANTIBODY_DAMAGE":        "使所有与**健康组织**邻接的癌细胞**能量**-1",
+    "ANTIBODY_DAMAGE":        "默认能损为**1.5能量**",
     "ANTIBODY_MAX_PER_ROUND": "【抗体】：消耗1点能量，使所有与**健康组织**邻接的癌细胞",
     "TOXIN_COST":             "【细胞毒素】：消耗1点能量",
     "TOXIN_MAX_PER_ROUND":    "T细胞每**世界回合**最多发动3次",
-    "LYSE_COST":              "【裂解】：T细胞消耗1点能量可将相邻的",
-    "NECROSIS_TOXIN":         "两轮完整的世界回合结束后「坏死」状态被移除",
+    "LYSE_COST":              "【裂解】：T细胞消耗1点能量可将所在和相邻的",
+    ## 2026-09-07 线上版把「坏死」收成一条通用状态、统一两个世界回合，
+    ## 【放疗】卡面那句「五轮」随之消失 —— 两个常量现在对同一句话（来源不同，保留两个常量）。
+    "NECROSIS_TOXIN":         "「坏死」持续两个世界回合",
     "IMMUNE_MOVE_CANCEROUS":  "【迁移】迁移到**癌性组织**的耗能降为0.7",
     "IMMUNE_MOVE_HEALTHY":    "消耗0.5**能量**移动到**健康组织",
-    "LEVEL_MIN_MEMORY":       "III级别（16-30抗原记忆）",
+    "LEVEL_MIN_MEMORY":       "III级别（20-29抗原记忆）",
     # ---- 卡牌规则 ----
     "HAND_MAX":               "每个细胞最多持有8张卡牌，超过8张时需要弃置到8张",
     # ---- 癌方行动 ----
@@ -107,7 +111,7 @@ MAP = {
     "WARBURG_PERCENT":        "在无氧呼吸中能获得110%原产出",
     # ---- 固化 / 场景事件 ----
     "SOLIDIFY_THRESHOLD":     "计数到达2时**癌组织**转为**固化癌组织**",
-    "SOLIDIFY_STEP":          "【E-固化】：癌细胞停留的（非新生**）癌组织**的固化计数+1",
+    "SOLIDIFY_STEP":          "【E-固化】：癌细胞停留的**癌组织**的固化计数+1",
     "SOLIDIFY_DECAY":         "固化计数>0且没有癌细胞在其上的**癌组织**，固化计数-0.5",
     "SOLIDIFY_ACCEL_AT":      "癌组织固化计数从1达到>=2上时，立即转化为固化癌组织",
     "PRESSURE_PER_ADJ":       "则该免疫细胞损失（相邻**癌性组织**数量－2）×0.5能量",
@@ -144,13 +148,15 @@ MAP = {
     "EXHAUST_PRESSURE_CUT":   "自身受到的能量损失额外-0.5，最低为0",
     "MATURED_ATTACK_EXTRA":   "该次能量损失额外＋0.5",
     "MATURED_ANTIBODY_COST":  "【抗体】的能量消耗由1降低为0.5",
-    "MATURED_ANTIBODY_DMG":   "【抗体】对每个癌细胞造成的能量损失由1提高至1.5",
+    ## 卡面写的是「能量消耗降低0.5」——减量，不是「降为 0.5」。
+    "MATURED_ANTIBODY_CUT":   "【抗体】的能量消耗降低0.5",
+    "MATURED_ANTIBODY_DMG":   "【抗体】对每个癌细胞造成的初始能量损失为2",
     "PHAGO_THRESHOLD":        "若目标癌细胞剩余能量不超过0.5，则直接死亡",
     "PHAGO_THRESHOLD_MACRO":  "则该阈值提高至1.5",
     "CYTOTOX_EXTRA":          "使目标额外损失1能量",
     "WATCH_RANGE":            "自身所在格及自身相邻3格中的健康组织不进行【增生】判定",
     "RADIO_REGION":           "共15格且彼此连通的组织区域",
-    "NECROSIS_RADIO":         "五轮完整的世界回合结束后「坏死」状态被移除",
+    "NECROSIS_RADIO":         "「坏死」持续两个世界回合",
     "CHEMOTAX_STEP_COST":     "自身立即连续移动最多3步，每步消耗0.2能量",
 }
 

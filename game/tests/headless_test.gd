@@ -92,12 +92,12 @@ func _run_all() -> void:
 		t_attack_cap, t_pass_through_ally, t_batch_death_and_triggers, t_design_required_checks,
 		t_damage_pipeline, t_card_perms, t_world_events_draw, t_ev_attack_mods,
 		t_ev_attack_flow, t_ev_costs, t_ev_suppressor, t_ev_supply,
-		t_ev_solidify_accel, t_ev_chaos, t_ev_chaos_simul, t_ev_memory,
+		t_solidify_threshold, t_ev_chaos, t_ev_chaos_simul, t_ev_memory,
 		t_ev_proliferate, t_ev_double, t_ev_double_instant, t_ev_lifecycle,
 		t_breath_sheets, t_solidify_and_decay, t_vessel_no_solid, t_erosion, t_macro_purify_heal,
 		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path,
-		t_dendritic_rework, t_mark_range, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
+		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
 		t_immune_win, t_cancer_revive_blocked, t_cancer_s_win, t_immune_respawn,
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_stroma_targets, t_batch2_rules,
@@ -685,12 +685,10 @@ func t_vessel_no_solid() -> void:
 	check(g.tiles[v]["tissue"] == CWData.Tissue.CANCER and g.tiles[v]["solid"] == 0,
 		"血管：蹲满回合也不累计、不固化")
 	check("\n".join(g.logs.slice(n0)).contains("不可固化"), "日志说明血管不可固化（别让玩家以为是 bug）")
-	## ② 直接加计数 / 【固化加速】也一样
-	_install(g, "固化加速")
-	g.raise_solid(v, CWData.SOLIDIFY_ACCEL_AT)
+	## ② 直接一次加满阈值也一样（卡【基质硬化】走的就是这条路）
+	g.raise_solid(v, CWData.SOLIDIFY_THRESHOLD)
 	check(g.tiles[v]["tissue"] == CWData.Tissue.CANCER and g.tiles[v]["solid"] == 0,
-		"raise_solid + 【固化加速】：血管仍是普通癌组织、计数 0")
-	g.events["active"].clear()
+		"raise_solid 一次加满：血管仍是普通癌组织、计数 0")
 	## ③ 卡【基质硬化】选目标：脚下的血管不给选项，旁边的普通癌组织照给（同一把尺）
 	on_v["hand"] = ["基质硬化"]
 	var o: Array = []
@@ -967,10 +965,11 @@ func t_immune_level_rules() -> void:
 	print("[免疫等级：门槛/有氧/分化]")
 	var g := bare_game()
 	g.setup.build_board()
-	check(CWData.LEVEL_MIN_MEMORY == [0, 10, 20, 31], "记忆门槛 = 0 / 10 / 20 / 31")
+	check(CWData.LEVEL_MIN_MEMORY == [0, 10, 20, 30], "记忆门槛 = 0 / 10 / 20 / 30")
 
-	## 门槛边界：9 不升、10 升 II、19 不再升、20 升 III、30 不升、31 升 X
-	var want := [[9, 0], [10, 1], [19, 1], [20, 2], [30, 2], [31, 3]]
+	## 门槛边界：9 不升、10 升 II、19 不再升、20 升 III、29 不升、30 升 X
+	## （X 从 31 改回 PRD 的 30，Kevin 2026-09-07：「30 及以上都归 X 级」）
+	var want := [[9, 0], [10, 1], [19, 1], [20, 2], [29, 2], [30, 3]]
 	for pair in want:
 		var g2 := bare_game()
 		g2.gain_memory(int(pair[0]))
@@ -1410,15 +1409,15 @@ func t_phase_order() -> void:
 		"【增生】排在【侵蚀】之前")
 
 
-# ---- 世界事件回合表：3/6/10/15/20/25/30，到 30 为止 ----
+# ---- 世界事件回合表：3/6/10/14（2026-09-07 随 15 回合制压缩）----
 func t_event_rounds() -> void:
 	print("[世界事件回合]")
 	var hit: Array[int] = []
 	for r in range(1, 41):
 		if CWData.is_world_event_round(r):
 			hit.append(r)
-	check(hit == [3, 6, 10, 15, 20, 25, 30], "触发回合正是 PRD 那七个（%s）" % str(hit))
-	check(not CWData.is_world_event_round(35), "30 之后不再触发")
+	check(hit == [3, 6, 10, 14], "触发回合正是 PRD 那四个（%s）" % str(hit))
+	check(not CWData.is_world_event_round(15), "14 之后不再触发（终局那回合不插事件）")
 
 
 # ---- 【基因表达】每行动回合 3 次 ----
@@ -2420,7 +2419,12 @@ func t_dendritic_rework() -> void:
 	g2.cells.append(mac)
 	var hit := g2.immune_hit(vic, 10, mac)
 	check(hit == 20, "标记让这一击翻倍（%s）" % CWData.fmt(hit))
-	check(vic["marked"], "伤害结算后光环立刻回补 → 同一回合可以再次获得标记")
+	## 2026-09-07 PRD：「【标记】无法重叠，同一回合一癌细胞仅可获得一次标记」——
+	## 旧行为（伤害吃掉后光环立刻回补）等于站在树突边上永久双倍，正是这次要堵的
+	check(not vic["marked"], "同一回合不再回补标记")
+	g2.round_no += 1
+	g2.update_marks()
+	check(vic["marked"], "下一个世界回合光环才会再给一次")
 	g2.dispose()
 
 	# ---- ⑦ 漩涡演出的轨道是纯函数：粒子不许跑出格子 ----
@@ -3211,6 +3215,68 @@ func t_hover_layer() -> void:
 	panel.reset()
 	root.remove_child(panel)
 	panel.free()
+	g.dispose()
+
+
+## 线上版 PRD（Kevin 2026-09-07 拉的正本）带来的三条**行为**改动。
+## 常量类的改动（15 回合终局、事件回合、卡池分期、坏死减半、X 级 30）钉在各自原有的测试里。
+func t_prd_online_0907() -> void:
+	print("[线上版 PRD·09-07]")
+
+	## ① 【攻击】累积「与造成伤害的绝对值向下取整」的抗原记忆。
+	## 引擎此前**整条没实现**：只有【净化】给记忆，攻击一点不给。
+	var g := _fx_game(2)
+	var im := put_immune(g, Vector2i.ZERO)
+	var ca := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER,
+		Vector2i(1, 0), -1, CWData.CancerType.SCLC, 500)
+	g.cells.append(ca)
+	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+	var m0: int = g.memory
+	_rig_roll(g, 6, [3])                   ## 成功 → 1.0
+	await g.actions._do_move(im, Vector2i(1, 0), 0)
+	check(g.memory == m0 + 1, "攻击成功造成 1.0 → +1 抗原记忆（%d → %d）" % [m0, g.memory])
+	m0 = g.memory
+	_rig_roll(g, 6, [6])                   ## 大成功 → 2.0
+	await g.actions._do_move(im, Vector2i(1, 0), 0)
+	check(g.memory == m0 + 2, "大成功 2.0 → +2")
+	m0 = g.memory
+	_rig_roll(g, 6, [1])                   ## 失败 → 不造成伤害
+	await g.actions._do_move(im, Vector2i(1, 0), 0)
+	check(g.memory == m0, "攻击失败不给记忆（按实际伤害算，不是尝试值）")
+	g.dispose()
+
+	## ② 【标记】无法重叠，同一癌细胞一个世界回合只能获得一次。
+	## 旧 PRD 是「可多次获得」，于是标记被伤害吃掉后光环立刻补一个 —— 站在树突边上等于永久双倍。
+	g = bare_game()
+	var dc := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.DENDRITIC, -1, 150)
+	g.cells.append(dc)
+	var cc := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0),
+		-1, CWData.CancerType.SCLC, 100)
+	g.cells.append(cc)
+	g.update_marks()
+	check(cc["marked"], "树突光环：先拿到一个标记")
+	cc["marked"] = false                   ## 假装被伤害消耗掉
+	cc["mark_left"] = 0
+	g.update_marks()
+	check(not cc["marked"], "同一世界回合内不再补第二个标记")
+	g.round_no += 1
+	g.update_marks()
+	check(cc["marked"], "下一个世界回合可以再拿一次")
+	g.dispose()
+
+	## ③ 【骨样硬化】标记格上的蹲守净化：从「下一回合 S 阶段」挪到**本回合 E 阶段**
+	## （PRD：「须停留在该格，世界回合结束时完成【净化】」）
+	g = _fx_game(2)
+	var camp := put_immune(g, Vector2i(2, 0))
+	g.tiles[Vector2i(2, 0)]["tissue"] = CWData.Tissue.CANCER
+	camp["camp_round"] = g.round_no
+	camp["camp_pos"] = Vector2i(2, 0)
+	await g.world.round_start()
+	check(g.tiles[Vector2i(2, 0)]["tissue"] == CWData.Tissue.CANCER, "S 阶段不再补净化")
+	await g.world.e_phase()
+	check(g.tiles[Vector2i(2, 0)]["tissue"] == CWData.Tissue.HEALTHY,
+		"E 阶段（世界回合结束时）完成净化")
 	g.dispose()
 
 
@@ -4306,12 +4372,13 @@ func t_match_panel() -> void:
 		and CWMatchPanel.RECT.position.x == 960 - CWView.PANEL_WIDTH,
 		"竖条宽度与对局机位让出的 %d px 一致" % CWView.PANEL_WIDTH)
 
-	## 「下一次世界事件在第几回合」：第 3、6、10、15，之后每 5 个
+	## 「下一次世界事件在第几回合」：3 / 6 / 10 / 14，之后没有了（返回 0）——
+	## 最后那对钉的是 2026-09-07 那个死循环：事件表有尽头，查找就必须有上界
 	var ev := true
-	for pair in [[1, 3], [3, 3], [4, 6], [7, 10], [11, 15], [16, 20], [21, 25]]:
+	for pair in [[1, 3], [3, 3], [4, 6], [7, 10], [11, 14], [14, 14], [15, 0]]:
 		if p._next_event_round(pair[0]) != pair[1]:
 			ev = false
-	check(ev, "世界事件回合表：3 / 6 / 10 / 15 之后每 5 个")
+	check(ev, "世界事件回合表：3 / 6 / 10 / 14，之后返回 0（不空转）")
 
 	## 定案 B（2026-09-01）的警报：标题只读引擎的 cancer_win_streak，界面自己不数
 	var g := make_game(6, 7)
@@ -5631,7 +5698,7 @@ func t_codex() -> void:
 		and not all_text.contains("固化计数 +"),
 		"骨样硬化按 09-05 重做后的主动技能描述")
 	check(all_text.contains("连续 %d 个世界回合末" % tune.cancer_win_hold_rounds), "癌方占地胜写明连续达标回合数")
-	check(all_text.contains("第 3、6、10、15、20、25、30 回合") and CWCodex.event_rounds_text(30) == "3、6、10、15、20、25、30",
+	check(all_text.contains("第 3、6、10、14 回合") and CWCodex.event_rounds_text(tune.limit_round) == "3、6、10、14",
 		"世界事件回合现算（与 is_world_event_round 一致）")
 	## 搜索（Kevin 2026-09-06）：纯函数找档 —— 子串、大小写不分、标题与正文都搜、空词为空
 	var hits: Array = CWCodex.search("血管")
@@ -6325,9 +6392,9 @@ func t_card_pool() -> void:
 	for r in [1, 10, 20]:
 		var n: int = CWCardData.pool_of(CWData.Faction.CANCER, 0, r).size()
 		check(n == 17, "癌症池第 %d 回合 %d 张（不分等级）" % [r, n])
-	check(CWCardData.cancer_phase(9) == 0 and CWCardData.cancer_phase(10) == 1 \
-		and CWCardData.cancer_phase(19) == 1 and CWCardData.cancer_phase(20) == 2,
-		"癌症卡分期切在第 10 / 20 回合")
+	check(CWCardData.cancer_phase(5) == 0 and CWCardData.cancer_phase(6) == 1 \
+		and CWCardData.cancer_phase(10) == 1 and CWCardData.cancer_phase(11) == 2,
+		"癌症卡分期切在第 6 / 11 回合（PRD：1—5 / 6—10 / 11—15）")
 
 	## ---- 效果原文（2026-09-01 加，给手牌悬停详情用）----
 	## 只钉「每张都有、且不是空壳」——正文内容由生成脚本从 PRD 逐字抄，
@@ -6793,9 +6860,9 @@ func t_card_events_cancer() -> void:
 	b["energy"] = 0
 	g.cells.append(a)
 	g.cells.append(b)
-	g.round_no = 12
+	g.round_no = 8
 	await g.card_fx.resolve_event(a, "肿瘤血管生成")
-	check(a["energy"] == 25 and b["energy"] == 20, "肿瘤血管生成：中期全体 +2.0、抽卡者 +2.5")
+	check(a["energy"] == 25 and b["energy"] == 20, "肿瘤血管生成：中期全体 +2.0、抽卡者 +2.5（第 8 回合 = 中期）")
 	g.round_no = 1
 	await g.card_fx.resolve_event(a, "克隆增殖")
 	var newborns := 0
@@ -7039,7 +7106,7 @@ func t_card_choices() -> void:
 	check(b.asked.size() == 2, "每个免疫细胞各问一次")
 	g.dispose()
 
-	## ⑥ 基因组不稳定：免费突变不计次数；第 20 回合起两掷二选一
+	## ⑥ 基因组不稳定：免费突变不计次数；两掷二选一（2026-09-07 删掉「第 20 世界回合起」）
 	pack = _choice_game()
 	g = pack[0]
 	b = pack[1]
@@ -7047,18 +7114,14 @@ func t_card_choices() -> void:
 	mut["energy"] = 30
 	g.cells.append(mut)
 	g.round_no = 5
-	_rig_roll(g, 3, [1])   ## 单掷必出「无事发生」
-	await g.card_fx.resolve_event(mut, "基因组不稳定")
-	check(not mut["mutate_used"] and mut["energy"] == 30,
-		"基因组不稳定：免费（不扣 0.5）也不占每回合的突变次数")
-	check(b.asked.is_empty(), "第 20 回合前单掷，不发问")
-	g.round_no = 25
 	_rig_roll(g, 3, [1, 2])   ## 两掷不同 → 触发二选一
 	b.answers = [_pick_by("r", 1)]   ## 挑「无事发生」
 	var h0: int = mut["hand"].size()
 	await g.card_fx.resolve_event(mut, "基因组不稳定")
+	check(not mut["mutate_used"] and mut["energy"] == 30,
+		"基因组不稳定：免费（不扣 0.5）也不占每回合的突变次数")
 	check(b.asked.size() == 1 and b.asked[0]["kind"] == "pick"
-		and b.asked[0]["options"].size() == 2, "第 20 回合起：两掷不同时二选一")
+		and b.asked[0]["options"].size() == 2, "第 5 回合也两掷二选一（不再挂第 20 回合）")
 	check(mut["hand"].size() == h0 and mut["energy"] == 30, "挑了「无事发生」→ 什么都没发生")
 	g.dispose()
 
@@ -7263,7 +7326,7 @@ func t_card_perms() -> void:
 	gl["equipped"] = ["GLUT1高表达"]
 	g.cells.append(gl)
 	g.tiles[Vector2i(5, 0)]["tissue"] = CWData.Tissue.CANCER
-	g.round_no = 12
+	g.round_no = 8   ## 中期（PRD 分期 2026-09-07 改成 1—5 / 6—10 / 11—15）
 	check(g.world.anaerobic_gain_for(gl) == _share(_pool_of(1, 0), 1) + CWData.GLUT1_BONUS[1],
 		"GLUT1：单格块无氧 %s + 中期 0.8（糖酵解爆发同口径）" % CWData.fmt(_share(_pool_of(1, 0), 1)))
 	g.world._anaerobic()
@@ -7387,7 +7450,8 @@ func t_card_perms() -> void:
 	check(d1 == 20 and d2 == 20 and d3 == 10, "翻倍两次后标记才移除")
 	g.dispose()
 
-	## ⑫ 抗体亲和力成熟：B 抗体 0.5 费 / 1.5 伤；每行动回合首次攻击邻健康的目标 +0.5
+	## ⑫ 抗体亲和力成熟：抗体费**降低** 0.5 / 初始伤害 2.0；攻击邻健康的目标**每次** +0.5
+	## （2026-09-07 卡面三处都改了：降为→降低、1.5→2、删掉「每个行动回合第一次」）
 	g = _fx_game(4)
 	var bm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.B_CELL, -1)
 	bm["energy"] = 100
@@ -7396,15 +7460,21 @@ func t_card_perms() -> void:
 	var bt := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0), -1, CWData.CancerType.MELANOMA)
 	bt["energy"] = 500
 	g.cells.append(bt)
-	check(g.actions.antibody_cost(bm) == CWData.MATURED_ANTIBODY_COST, "抗体费 1.0 → 0.5")
+	var bm_fee: int = CWData.ANTIBODY_COST - CWData.MATURED_ANTIBODY_CUT
+	check(g.actions.antibody_cost(bm) == bm_fee, "抗体费降低 0.5")
 	await g.actions._do_antibody(bm)
-	check(bm["energy"] == 100 - CWData.MATURED_ANTIBODY_COST
-		and bt["energy"] == 500 - CWData.MATURED_ANTIBODY_DMG, "抗体伤害 1.0 → 1.5")
+	check(bm["energy"] == 100 - bm_fee
+		and bt["energy"] == 500 - CWData.MATURED_ANTIBODY_DMG, "抗体初始伤害 2.0")
 	var bt0: int = bt["energy"]
 	_rig_roll(g, 6, [3])
 	await g.actions._do_move(bm, Vector2i(1, 0), 0)
 	check(bt["energy"] == bt0 - g.tune.attack_dmg_success - CWData.MATURED_ATTACK_EXTRA,
-		"首次攻击邻健康的癌细胞 +0.5")
+		"攻击邻健康的癌细胞 +0.5")
+	bt0 = bt["energy"]
+	_rig_roll(g, 6, [3])
+	await g.actions._do_move(bm, Vector2i(1, 0), 0)
+	check(bt["energy"] == bt0 - g.tune.attack_dmg_success - CWData.MATURED_ATTACK_EXTRA,
+		"同一行动回合第二次攻击照样 +0.5（2026-09-07 取消「首次」闸门）")
 	g.dispose()
 
 	## ⑬ 吞噬体成熟：打剩 ≤0.5 直接死；巨噬阈值 1.5 并回 0.5
@@ -7490,14 +7560,19 @@ func t_card_perms() -> void:
 	g.tiles[Vector2i(3, 0)]["tissue"] = CWData.Tissue.SOLID
 	await g.world.revive_cancer(1, { "to": Vector2i(3, 0) })
 	check(sc["alive"] and sc["energy"] == CWData.STEMNESS_ENERGY[0],
-		"干性复活：能量 2.0 → 2.5（前期）")
+		"干性复活：能量 2.0 → 3.0（前期；2026-09-07 由 2.5 提到 3）")
 	g.tiles[Vector2i(4, 0)]["tissue"] = CWData.Tissue.CANCER
 	check(g.actions._move_cost_mod(sc, Vector2i(4, 0), CWData.CANCER_MOVE_CANCEROUS) == 0,
 		"本世界回合向癌性组织移动免费")
 	await g.actions._do_move(sc, Vector2i(4, 0), 0)
 	g.tiles[Vector2i(5, 0)]["tissue"] = CWData.Tissue.CANCER
-	check(g.actions._move_cost_mod(sc, Vector2i(5, 0), CWData.CANCER_MOVE_CANCEROUS)
-		== CWData.CANCER_MOVE_CANCEROUS, "前期只有 1 次额度，用完恢复原价")
+	## 2026-09-07 卡面：免费额度从「1 次（20 回合起 2 次）」统一成**前两次**
+	check(g.actions._move_cost_mod(sc, Vector2i(5, 0), CWData.CANCER_MOVE_CANCEROUS) == 0,
+		"第二次向癌性组织移动也免费")
+	await g.actions._do_move(sc, Vector2i(5, 0), 0)
+	g.tiles[Vector2i(6, 0)]["tissue"] = CWData.Tissue.CANCER
+	check(g.actions._move_cost_mod(sc, Vector2i(6, 0), CWData.CANCER_MOVE_CANCEROUS)
+		== CWData.CANCER_MOVE_CANCEROUS, "两次额度用完，第三次恢复原价")
 	g.dispose()
 
 
@@ -7920,10 +7995,10 @@ func _find_act(opts: Array, act: String) -> Dictionary:
 func t_world_events_draw() -> void:
 	print("[世界事件·抽取]")
 	var g := _fx_game(2)
-	check(g.events["pool"].size() == 18, "开局事件池 18 个")
+	check(g.events["pool"].size() == 17, "开局事件池 17 个（2026-09-07 删【固化加速】）")
 	for i in 7:
 		await g.world_fx.trigger()
-	check(g.events["pool"].size() == 11, "7 次触发后事件池剩 11（同局不重复，定案 #42）")
+	check(g.events["pool"].size() == 10, "7 次触发后事件池剩 10（同局不重复，定案 #42）")
 	var g2 := _fx_game(2)
 	for i in 7:
 		await g2.world_fx.trigger()
@@ -7941,10 +8016,10 @@ func t_ev_attack_mods() -> void:
 	var g := _fx_game(2)
 	check(g.actions.attack_outcome(1) == "fail" and g.actions.attack_outcome(3) == "success" \
 		and g.actions.attack_outcome(6) == "crit", "基础判定：1~2 失败 / 3~5 成功 / 6 大成功")
-	_install(g, "细胞毒", 1, 2)
+	_install(g, "抗原引导", 1, 2)
 	check(g.actions.attack_outcome(1) == "success" and g.actions.attack_outcome(2) == "success",
-		"细胞毒：失败概率并给成功（定案 W3）")
-	check(g.actions.attack_outcome(6) == "crit", "细胞毒：大成功不受影响")
+		"抗原引导：失败概率并给成功（定案 W3）")
+	check(g.actions.attack_outcome(6) == "crit", "抗原引导：大成功不受影响")
 	g.events["active"].clear()
 	_install(g, "免疫伪装", 1, 2)
 	check(g.actions.attack_outcome(6) == "success", "免疫伪装：大成功并给成功（PRD：1/3 失败、2/3 成功）")
@@ -7961,9 +8036,9 @@ func t_ev_attack_flow() -> void:
 	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0), -1, CWData.CancerType.MELANOMA)
 	can["energy"] = 500
 	g.cells.append(can)
-	## 抗原丢失：攻击不造成能量损失（细胞毒保证判定必然非失败）
+	## 抗原丢失：攻击不造成能量损失（抗原引导保证判定必然非失败）
 	_install(g, "抗原丢失")
-	_install(g, "细胞毒", 1, 2)
+	_install(g, "抗原引导", 1, 2)
 	var e0: int = can["energy"]
 	await g.actions._do_move(imm, Vector2i(1, 0), 0)
 	check(can["energy"] == e0, "抗原丢失：攻击无法使癌细胞损失能量")
@@ -8127,26 +8202,18 @@ func t_ev_supply() -> void:
 		"营养缺乏：本回合不产出")
 
 
-func t_ev_solidify_accel() -> void:
-	print("[世界事件·固化加速]")
+func t_solidify_threshold() -> void:
+	print("[固化·门槛]")
 	var g := _fx_game(2)
+	## 世界事件【固化加速】2026-09-07 随 PRD 删除（阈值降到 2.0 后它与常规固化同义）。
+	## 这里留下的是它当年真正在守的那半条：raise_solid 只认阈值，涨过就转、没涨过就不转。
 	var pos := Vector2i(2, 2)
 	g.tiles[pos]["tissue"] = CWData.Tissue.CANCER
 	g.tiles[pos]["solid"] = 15
-	_install(g, "固化加速")
-	g.raise_solid(pos, 10)
-	check(g.tiles[pos]["tissue"] == CWData.Tissue.SOLID,
-		"固化加速：从 <2.0 涨到 ≥2.0 立即转化（定案 W4：1.5 + 1.0）")
-	## 定案乙（2026-09-01）把固化阈值降到 2.0 后，「已 ≥2.0 却还没固化」的格不再存在，
-	## 原来那条「不追溯」断言失去了前提；改钉「没涨到 2.0 就不转化」这半边
-	var p2 := Vector2i(3, 2)
-	g.tiles[p2]["tissue"] = CWData.Tissue.CANCER
-	g.tiles[p2]["solid"] = 15
-	g.raise_solid(p2, 4)
-	check(g.tiles[p2]["tissue"] == CWData.Tissue.CANCER, "固化加速：没涨到 2.0 的格不转化（1.5+0.4）")
-	g.events["active"].clear()
-	g.raise_solid(p2, 5)
-	check(g.tiles[p2]["tissue"] == CWData.Tissue.SOLID, "无事件时仍按 3.0 正常转化")
+	g.raise_solid(pos, 4)
+	check(g.tiles[pos]["tissue"] == CWData.Tissue.CANCER, "没涨到阈值不转化（1.5 + 0.4）")
+	g.raise_solid(pos, 5)
+	check(g.tiles[pos]["tissue"] == CWData.Tissue.SOLID, "涨过阈值即转固化（1.9 + 0.5）")
 
 
 func t_ev_chaos() -> void:
@@ -8274,9 +8341,9 @@ func t_ev_double() -> void:
 		"可叠事件：触发两次（stacks=2，仍持续 2 回合）")
 	g.events["active"].clear()
 	g.events["double_next"] = true
-	g.events["pool"] = ["细胞毒"]
+	g.events["pool"] = ["抗原引导"]
 	await g.world_fx.trigger()
-	check(g.event_stacks("细胞毒") == 1 and g.events["active"][0]["left"] == 4,
+	check(g.event_stacks("抗原引导") == 1 and g.events["active"][0]["left"] == 4,
 		"开关类持续事件：一份强度接力 4 回合（定案 #49 修订版）")
 	check(not g.events["double_next"], "双重触发：标记已消耗")
 
@@ -8284,10 +8351,10 @@ func t_ev_double() -> void:
 func t_ev_lifecycle() -> void:
 	print("[世界事件·生命周期]")
 	var g := _fx_game(2)
-	_install(g, "细胞毒", 1, 2)
+	_install(g, "抗原引导", 1, 2)
 	_install(g, "抗原丢失", 1, 1)
 	g.world_fx.tick_durations()
-	check(g.event_stacks("细胞毒") == 1 and g.event_stacks("抗原丢失") == 0,
+	check(g.event_stacks("抗原引导") == 1 and g.event_stacks("抗原丢失") == 0,
 		"回合末：本回合事件到期，持续事件余 1 回合")
 	g.world_fx.tick_durations()
 	check(g.events["active"].is_empty(), "第二个回合末全部到期")
@@ -8405,7 +8472,7 @@ func t_tier_highlight() -> void:
 	check(_marked(CWCardInfo.describe("GLUT1高表达", CAN)) == [], "不给分期 → 不高亮")
 	check(_marked(CWCardInfo.describe("基质硬化", CAN, 0)) == ["+1"], "正号连着一起高亮")
 	check(_marked(CWCardInfo.describe("肿瘤血管生成", CAN, 2)) == ["2.5"], "两边带空格的写法、小数档")
-	check(_marked(CWCardInfo.describe("肿瘤细胞募集", CAN, 2)) == ["3"], "第三档")
+	check(_marked(CWCardInfo.describe("肿瘤细胞募集", CAN, 2)) == ["2"], "第三档")
 	check(_marked(CWCardInfo.describe("代谢耦联", CAN, 1)) == []
 		and _marked(CWCardInfo.describe("代谢耦联", CWData.Faction.IMMUNE, 1)) == [],
 		"【代谢耦联】那三档是玩家自己挑的，不高亮")
@@ -8484,7 +8551,7 @@ func t_tier_highlight() -> void:
 	can["energy"] = 50
 	can["equipped"] = ["GLUT1高表达"]
 	g.cells.append(can)
-	g.round_no = 12
+	g.round_no = 8
 	var info := {}
 	for r in CWMatchPanel.tip_rows(g, 1, true):
 		if r.get("text", "") == "GLUT1高表达":
@@ -8993,9 +9060,11 @@ func t_draw_purify_memory() -> void:
 	g.tiles[at]["tissue"] = CWData.Tissue.CANCER
 	var m1: int = g.memory
 	await g.card_fx.resolve_event(imm, "局部吞噬")
-	check(g.memory == m1, "【局部吞噬】在抽卡结算里：不给记忆")
-	check(not CWCardData.effect_of("局部吞噬", CWData.Faction.IMMUNE).contains("抗原记忆"),
-		"卡面已同步（PRD 删掉了「并获得1抗原记忆」）：%s" % CWCardData.effect_of("局部吞噬", CWData.Faction.IMMUNE))
+	## 2026-09-07 线上版 PRD 把「并获得1抗原记忆」写回了卡面 → 照给。
+	## Kevin 的口径：**卡面写明的算，没写明的净化不算** —— 与 purify_gives_memory 那条开关互不干涉。
+	check(g.memory == m1 + 1, "【局部吞噬】卡面明写「获得1抗原记忆」→ 抽卡结算里照样给")
+	check(CWCardData.effect_of("局部吞噬", CWData.Faction.IMMUNE).contains("并获得1抗原记忆"),
+		"卡面与 PRD 一致：%s" % CWCardData.effect_of("局部吞噬", CWData.Faction.IMMUNE))
 	g.card_resolve_depth -= 1
 	## ④ 开关归零：抽完一张卡不能把它留在开着的状态
 	check(g.purify_gives_memory(), "结算完开关归零，之后自己净化照常给")
@@ -9507,7 +9576,7 @@ func t_batch2_rules() -> void:
 	check(imms[0]["energy"] == B, "asplit=0：每人全额 %s" % CWData.fmt(B))
 	g.dispose()
 
-	## ② 坏死：站在坏死格上的免疫这一回合有氧打折（Kevin 2026-09-07 由「一份不给」改成 80%）
+	## ② 坏死：站在坏死格上的免疫这一回合有氧打折（Kevin 2026-09-07 两次改口，最终是**减半**）
 	g = bare_game()
 	var im := put_immune(g, Vector2i.ZERO)
 	im["energy"] = 0
@@ -9515,7 +9584,7 @@ func t_batch2_rules() -> void:
 	g.world._aerobic()
 	var cut: int = CWData.AEROBIC_LEVEL_BASE * CWData.NECROSIS_AEROBIC_PCT / 100
 	check(im["energy"] == cut, "站在坏死格上：只拿 %d%%（%s）" % [CWData.NECROSIS_AEROBIC_PCT, CWData.fmt(cut)])
-	check(CWData.NECROSIS_AEROBIC_PCT == 80, "现行是八折（Kevin 2026-09-07）")
+	check(CWData.NECROSIS_AEROBIC_PCT == 50, "现行是五折（线上版 PRD：坏死格有氧减半）")
 	im["energy"] = 0
 	g.tune.necrosis_aerobic_pct = 0
 	g.world._aerobic()

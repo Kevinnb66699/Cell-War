@@ -590,7 +590,7 @@ func base_verdict(r: int, attacker: Dictionary = {}) -> String:
 ## 【免疫伪装】大成功并给成功（PRD：1/3 失败、2/3 成功；2026-08-29 按 PRD 改判）
 func attack_outcome(r: int, attacker: Dictionary = {}) -> String:
 	var out := base_verdict(r, attacker)
-	if out == "fail" and game.event_stacks("细胞毒") > 0:
+	if out == "fail" and game.event_stacks("抗原引导") > 0:
 		out = "success"
 	if out == "crit" and game.event_stacks("免疫伪装") > 0:
 		out = "success"
@@ -656,11 +656,10 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 	var opsonin := game.spend_mods(cell, "补体调理")
 	var affinity := game.spend_mods(cell, "高亲和力克隆")
 	var was_marked: bool = target["marked"]   ## 【抗原呈递强化】要知道攻击前的标记状态
-	## 【抗体亲和力成熟】每行动回合第一次攻击「与健康组织相邻」的癌细胞 +0.5。
-	## 闸门在攻击**发动**时消耗（判定失败也算攻过，口径 #70），加成只在命中时兑现
+	## 【抗体亲和力成熟】攻击「与健康组织相邻」的癌细胞 +0.5。
+	## 2026-09-07 卡面删掉了「每个行动回合第一次」这半句 → 变成**每次**都加，闸门随之取消。
 	var matured := 0
-	if game.has_skill(cell, "抗体亲和力成熟") and _adjacent_healthy(to) \
-			and game.first_this_turn(cell, "抗体亲和力成熟"):
+	if game.has_skill(cell, "抗体亲和力成熟") and _adjacent_healthy(to):
 		matured = CWData.MATURED_ATTACK_EXTRA
 	var outcome: String
 	var r := 0
@@ -741,7 +740,17 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		## 【吞噬体成熟】的伤害后斩杀、巨噬【吞噬】的吸血都在 CWDamage 的伤后触发
 		## 队列里（设计 §5.7）——2026-08-31 从这里挪走：死亡只该在死亡阶段发生，
 		## 在攻击流程里另起一刀等于绕开那条约定
-		game.damage.submit(events)
+		var hits: Array = game.damage.submit(events)
+		## PRD【迁移】：「累积与造成伤害的绝对值向下取整的抗原记忆」（Kevin 2026-09-07 定的措辞）。
+		## 引擎此前**整条没实现**（只有【净化】给记忆）。按实际造成的伤害算，不是尝试值：
+		## 被【抗原丢失】免疫掉、被减伤扣没了的部分不该换记忆。次级伤害（细胞毒性增强）同批计入。
+		var dealt := 0
+		for h in hits:
+			dealt += int(h["actual"])
+		if dealt >= 10:
+			game.gain_memory(dealt / 10)   ## 十分能量的整数除法 = 向下取整
+			game.log_msg("　【攻击】造成 %s 能量损失，+%d 抗原记忆（%d）"
+				% [CWData.fmt(dealt), dealt / 10, game.memory])
 		## 【补体级联】的组织转化不是能量损失，【抗原丢失】拦不住它
 		for i in game.spend_mods(cell, "补体级联"):
 			_cascade(target)
@@ -1014,10 +1023,12 @@ func antibody_damage(cell: Dictionary) -> int:
 	return dmg
 
 
-## 【抗体亲和力成熟】B 细胞强化：抗体费 1.0 → 0.5、每目标伤害 1.0 → 1.5
+## 【抗体亲和力成熟】B 细胞强化：抗体费**降低** 0.5（卡面 2026-09-07 从「降低为 0.5」改成「降低 0.5」，
+## 基础费 1.0 时两种读法同值，但基础费一旦变动，减量才是卡面说的那件事）
 func antibody_cost(cell: Dictionary) -> int:
-	return CWData.MATURED_ANTIBODY_COST if game.has_skill(cell, "抗体亲和力成熟") \
-		else CWData.ANTIBODY_COST
+	if not game.has_skill(cell, "抗体亲和力成熟"):
+		return CWData.ANTIBODY_COST
+	return maxi(CWData.ANTIBODY_COST - CWData.MATURED_ANTIBODY_CUT, 0)
 
 
 func _do_antibody(cell: Dictionary) -> void:

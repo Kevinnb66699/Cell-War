@@ -28,10 +28,6 @@
 class_name CWCardFx
 extends RefCounted
 
-## 【基因组不稳定】从第 20 世界回合起掷两次二选一（PRD 明写 20，恰与Ⅲ期起点重合，
-## 但这是卡面自己的数字，不跟分期表走）
-const GENOME_TWIN_ROUND := 20
-
 var game: CWGame
 
 
@@ -207,7 +203,7 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 							and CWTissue.solidifiable(t):
 						opts.append(_opt(card, "→%s" % str(c), { "to": c }))
 			"肿瘤细胞募集":
-				var r: int = [2, 3, 3][_phase()]
+				var r: int = [3, 2, 2][_phase()]
 				if _empty_cancerous_in_range(cell["pos"], r).is_empty():
 					continue
 				for t in game.living_cells(CWData.Faction.CANCER):
@@ -353,15 +349,12 @@ func _local_phagocytosis(cell: Dictionary) -> void:
 		return
 	var c: Vector2i = cands[game.rng.randi_range(0, cands.size() - 1)]
 	CWTissue.to_healthy(game.tile(c))
-	## 抽卡造成的净化不积累抗原记忆（Kevin 2026-09-07）：这张卡是抽到就生效的，
-	## 原来卡面写「并获得1抗原记忆」，PRD 已同步删掉那半句
-	if game.purify_gives_memory():
-		game.gain_memory(1)
-		game.log_msg("　【局部吞噬】%s 转为健康组织，+1 抗原记忆（%d）" % [str(c), game.memory])
-		_evt("局部吞噬", "1 格转健康 · +1 记忆", c)
-	else:
-		game.log_msg("　【局部吞噬】%s 转为健康组织（抽卡造成：不获得抗原记忆）" % str(c))
-		_evt("局部吞噬", "1 格转健康", c)
+	## **卡面写明「并获得1抗原记忆」的照给**（Kevin 2026-09-07 的口径：写明的算，没写明的净化不算）。
+	## 线上版 PRD 把这半句加了回来，所以这里不再看 purify_gives_memory —— 那条管的是
+	## 「卡牌顺带造成的净化」，与卡面明写的奖励是两件事。
+	game.gain_memory(1)
+	game.log_msg("　【局部吞噬】%s 转为健康组织，+1 抗原记忆（%d）" % [str(c), game.memory])
+	_evt("局部吞噬", "1 格转健康 · +1 记忆", c)
 
 
 ## 【骨髓动员】全体免疫 +0.5；健康且空仓的骨髓立即产 1 张卡。
@@ -484,7 +477,7 @@ func _stroma_harden(pos: Vector2i) -> void:
 
 ## 【肿瘤细胞募集】把所选癌细胞传送到**自身**周围 2/3/3 格内随机空癌性组织。落地算「进入」
 func _recruit(cell: Dictionary, target: Dictionary) -> void:
-	var cands := _empty_cancerous_in_range(cell["pos"], [2, 3, 3][_phase()])
+	var cands := _empty_cancerous_in_range(cell["pos"], [3, 2, 2][_phase()])
 	var dest: Vector2i = cands[game.rng.randi_range(0, cands.size() - 1)]
 	game.log_msg("　%s 被募集至 %s" % [game.cell_name(target), str(dest)])
 	await game.actions.enter_tile(target, dest)
@@ -635,12 +628,11 @@ func _mobilization(drawer: Dictionary, card: String) -> void:
 		await game.actions._do_move(c, data["to"], data["cost"])
 
 
-## 【基因组不稳定】免费【突变】，不计次数限制；第 20 世界回合起掷两次、玩家挑一个结算
+## 【基因组不稳定】免费【突变】，不计次数限制；掷两次、玩家挑一个结算。
+## 2026-09-07：卡面删掉了「第 20 世界回合起」那半句（全局只剩 15 个回合，20 已经不存在了）——
+## 于是二选一从「后期福利」变成这张卡的常驻效果。
 func _genome_instability(cell: Dictionary) -> void:
 	game.log_msg("　【基因组不稳定】免费发动 1 次【突变】（不计入次数限制）")
-	if game.round_no < GENOME_TWIN_ROUND:
-		await game.actions.roll_mutation(cell)
-		return
 	var r1: int = await game.roll_shown(3, "突变", cell["pid"], cell["pos"])
 	var r2: int = await game.roll_shown(3, "突变", cell["pid"], cell["pos"])
 	var r := r1

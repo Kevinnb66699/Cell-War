@@ -25,7 +25,6 @@ var game: CWGame
 func round_start() -> void:
 	game.log_msg("━━━━ 第 %d 世界回合 ━━━━" % game.round_no)
 	_reset_round_flags()
-	await _resolve_camping()
 	await game.world_fx.on_round_start()
 	if CWData.is_world_event_round(game.round_no):
 		await game.world_fx.trigger()
@@ -47,6 +46,7 @@ func e_phase() -> void:
 	if not game.tune.anaerobic_on_turn_end:
 		_anaerobic()                         ## 4 【无氧呼吸】（默认走这里；`eturn=1` 改在各癌细胞回合末，见 settle_anaerobic_turn）
 	_cancer_upkeep()                         ## 4.5 【代谢消耗】（PRD 之外，平衡候选③）
+	await _resolve_camping()                 ## 4.9 骨样硬化标记格上的蹲守净化（排在固化之前，见 _resolve_camping）
 	_solidify()                              ## 5 【固化】
 	_ossify()                                ## 5 骨肉瘤【骨样硬化】标记到期（同属第 5 步，排在计数固化之后）
 	_decay()                                 ## 6 固化计数衰减
@@ -195,11 +195,12 @@ func revive_cancer(pid: int, data: Dictionary) -> void:
 	CWTissue.crack_to_cancer(t)
 	cell["alive"] = true
 	cell["energy"] = CWData.REVIVE_ENERGY
-	## 【癌症干性】：复活能量提高（分期），本世界回合 1 次（20 回合起 2 次）
-	## 向癌性组织的移动免费——免费额度挂成 round 时钟的修饰条目，计费在 _move_cost_mod
+	## 【癌症干性】：复活能量提高（分期），本世界回合**前两次**向癌性组织的移动免费。
+	## 2026-09-07 卡面改动：复活能量 2.5/3/3.5 → 3/4/5，免费次数从「1 次（20 回合起 2 次）」
+	## 统一成 2 次（15 回合制之下没有第 20 回合了）。免费额度挂成 round 时钟的修饰条目，计费在 _move_cost_mod
 	if game.has_skill(cell, "癌症干性"):
 		cell["energy"] = CWData.STEMNESS_ENERGY[CWCardData.cancer_phase(game.round_no)]
-		var freebies := 2 if game.round_no >= 20 else 1
+		var freebies := 2
 		game.add_mod(cell, "癌症干性", freebies, "round")
 		game.log_msg("　【癌症干性】复活能量提高至 %s，本世界回合 %d 次向癌性组织移动免费" % [
 			CWData.fmt(cell["energy"]), freebies])
@@ -644,11 +645,14 @@ func _ossify() -> void:
 		game.log_msg("【骨样硬化】%s 转为固化癌组织" % str(c))
 
 
-## 免疫细胞踏进【骨样硬化】标记格时不能立刻净化，得停留一个世界回合 ——
-## 到了下一回合的 S 阶段，还站在原格、格子还是癌组织，就在这里把净化补上。
+## 免疫细胞踏进【骨样硬化】标记格时不能立刻净化，得**在那儿站到世界回合结束**——
+## 还站在原格、格子还是癌组织，就在这里把净化补上。
 ## 挪过窝（camp_pos 对不上）、或格子已经固化 / 被别人净化，标记就作废。
-## 放在 S 阶段而不是该细胞的行动回合开头：这样它在**任何人**行动之前生效，
-## 与 _ossify（E 阶段末）之间正好隔一整轮，「蹲一回合」的窗口清清楚楚。
+##
+## 时机：2026-09-07 从「下一回合 S 阶段」挪到**本回合 E 阶段**（线上版 PRD 明写
+## 「须停留在该格，世界回合结束时完成【净化】」）—— 蹲的是半个回合而不是一整轮，对免疫是利好。
+## 排在 _ossify 之前：两边可能同一个 E 阶段到期，而 PRD 另有一句「标记期间该格被净化…标记作废」，
+## 所以净化优先。
 func _resolve_camping() -> void:
 	for cell in game.living_cells(CWData.Faction.IMMUNE):
 		if int(cell.get("camp_round", -1)) < 0:
