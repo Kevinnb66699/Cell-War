@@ -102,18 +102,26 @@ const BREATH_FRAMES := 6
 
 ## 打出 / 抽到卡牌时在细胞头顶浮出的临时图标。用同一张像素 chip，和右侧的小卡保持一致。
 ##
-## **三拍**（Kevin 2026-09-07：原来 0.42 秒一口气窜完，太快，看不清是什么）：
-##   ① 窜：快速上浮 12px（0.22s，缓出）
-##   ② 停：几乎不动，只飘 3px（0.45s）—— 这一拍是给人看清「是张卡」的
-##   ③ 收：再上浮 17px 并淡出（0.45s，缓入）
+## **三拍 + 起手蓄力**（Kevin 2026-09-07：原来 0.42 秒一口气窜完，太快，看不清是什么）：
+##   ① 压：向下压 2px，横向拉宽、纵向压扁（0.07s）
+##   ② 窜：快速上浮 10px并回弹到正常比例（0.16s，缓出）
+##   ③ 停：缓慢上浮 3px并停一拍（0.30s + 0.08s）——给玩家看清「是张卡」
+##   ④ 收：再上浮 17px并缩小淡出（0.36s，缓入）
 ## **抽到卡 = 把这三拍倒放**（卡从上方淡入、落到头顶；Kevin 问「能否倒放实现」——能，差的只有下面这一口）：
 ## 纯倒放的终态是卡停在头上不动，所以末尾补一下缩小 + 淡出，读作「被细胞吸进去了」。
 const CARD_FX_TEXTURE := preload("res://assets/art/ui/card_chip.png")
 const CARD_FX_HEAD := 30.0                        ## 起点：细胞脚下往上这么多
-const CARD_FX_RISE: Array[float] = [12.0, 3.0, 17.0]
-const CARD_FX_TIME: Array[float] = [0.22, 0.45, 0.45]
+const CARD_FX_RISE: Array[float] = [10.0, 3.0, 17.0]
+const CARD_FX_TIME: Array[float] = [0.16, 0.30, 0.36]
+const CARD_FX_WINDUP := 0.07                     ## 真正上冲前先蓄力一下
+const CARD_FX_WINDUP_Y := 2.0
+const CARD_FX_HOLD := 0.08                       ## 上冲后留一拍给玩家认出「这是卡」
 const CARD_FX_ABSORB := 0.14                      ## 倒放落到头顶后「被吸进去」的那一下
 const CARD_FX_SCALE := 1.1
+const CARD_FX_SQUASH := Vector2(1.18, 0.84)       ## 出牌那一瞬先压一下，再弹开，更像 StS2 的出牌节奏
+const REVIVE_FX_TEXTURE := preload("res://assets/art/ui/revive_totem_sheet.png")
+const REVIVE_FX_FRAMES := 6
+const REVIVE_FX_TIME := 0.48
 
 var game: CWGame
 var bridge: CWUIBridge
@@ -150,6 +158,7 @@ var _cells_root: Node2D
 var _fade_tws: Array[Tween] = []
 var _cell_nodes: Array[Node2D] = []   ## 下标 = cell["id"]，和 game.cells 一一对应
 var _was_alive: Array[bool] = []      ## 上一帧的存活状态，用来认出「复活」这一下
+var _ever_alive: Array[bool] = []     ## 只要曾经活过，就允许复活演出；初始出生不算复活
 var _bloom := {}      ## 开场还没揭开的格子：一律先按健康组织画
 var _hand_seen := {}  ## pid -> 上一帧的手牌数，用来认出「刚抽了一张」
 var _hand_pid := -1   ## 抽屉正在显示谁的手牌
@@ -170,6 +179,7 @@ var _erosion_fx := CWErosionFx.new()
 var _teleport_fx := CWTeleportFx.new()
 var _last_pos: Array[Vector2i] = []   ## 上一帧位置，下标 = cell id；两格不相邻 = 传送
 var _played_card_fx: Array[Sprite2D] = []   ## 本回合打出卡牌的头顶飞卡演出句柄
+var _revive_fx: Array[Sprite2D] = []       ## 正在播放的复活图腾演出句柄
 var _log_panel: CWLogPanel   ## 对局日志面板（L 键开关），同样程序化补进
 var _log_hint: CWLogHint     ## 左上角「对局日志 L」入口提示（定案A），显隐跟着面板走
 var _handoff: CWHandoff      ## 热座换手遮罩（UI 层，压在暂停菜单下面）；桥在换人时 await 它
@@ -328,6 +338,7 @@ func _prepare_ui() -> void:
 	if _cells_root != null:
 		_cells_root.modulate.a = 1.0     ## 上一局淡出留下的，开新局要还原
 	_clear_played_card_fx()
+	_clear_revive_fx()
 	if hand != null:
 		hand.visible = true              ## 热座换手期间会收起，开新局要还原
 	if ui != null:
@@ -656,6 +667,7 @@ func teardown() -> void:
 	if active_game != null and active_game.world_event.is_connected(_on_world_event):
 		active_game.world_event.disconnect(_on_world_event)
 	_clear_played_card_fx()
+	_clear_revive_fx()
 	if game != null:
 		## 顺序要紧：先让引擎收摊、再唤醒卡住的询问（它会同步一路展开回来），
 		## **最后**才 dispose。反过来的话展开途中会碰到已经置空的模块。
@@ -673,6 +685,7 @@ func teardown() -> void:
 		node.queue_free()
 	_cell_nodes.clear()
 	_was_alive.clear()
+	_ever_alive.clear()
 	_last_pos.clear()
 	_bloom.clear()
 	_flash.clear()
@@ -863,8 +876,10 @@ func _sync_cells() -> void:
 		var c: Dictionary = game.cells[i]
 		var node: Node2D = _cell_nodes[i]
 		node.visible = c["alive"]
+		var became_alive: bool = c["alive"] and not _was_alive[i]
+		var is_revival: bool = became_alive and _ever_alive[i]
 		## 死而复活的也要淡入一次 —— 它和刚落子一样是「凭空出现」
-		if c["alive"] and not _was_alive[i]:
+		if became_alive:
 			_pop_in(node)
 		## 传送 = 上一帧与这一帧都活着、两格**不相邻**（六邻域按轴坐标算，别用像素距离）。
 		## 判定顺序先复活再传送：复活走 _pop_in，不和传送混淆（规格 §三.1）。
@@ -873,6 +888,8 @@ func _sync_cells() -> void:
 			jumps.append({ "i": i, "from": _last_pos[i], "to": c["pos"],
 				"ghost_pos": node.position, "ghost_z": node.z_index })
 		_was_alive[i] = c["alive"]
+		if c["alive"]:
+			_ever_alive[i] = true
 		if not c["alive"]:
 			continue
 		_last_pos[i] = c["pos"]
@@ -885,6 +902,10 @@ func _sync_cells() -> void:
 		node.z_index = board.tile_z(pos, board.Z_CELL)
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"])
+		## 这里必须在写入新位置之后播放。复活前 node 仍停在死亡时的旧坐标，
+		## 直接拿 node.position 会把图腾留在旧格子（而不是复活目标格）。
+		if is_revival:
+			_play_revive_fx(node, c)
 	if not jumps.is_empty():
 		_play_teleports(jumps)
 
@@ -971,6 +992,7 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 		_set_cell_art(node, CANCER_ART[cell["ctype"]])
 	_cells_root.add_child(node)
 	_was_alive.append(false)   ## 下一次 _sync_cells 就会认出「刚出现」并淡入
+	_ever_alive.append(false)
 	_last_pos.append(cell["pos"])
 	return node
 
@@ -1031,7 +1053,7 @@ func _play_card_fx(cell_id: int, pos: Vector2i, drawing := false) -> void:
 	var fx := Sprite2D.new()
 	fx.texture = CARD_FX_TEXTURE
 	fx.centered = true
-	fx.scale = Vector2.ONE * CARD_FX_SCALE
+	fx.scale = CARD_FX_SQUASH if not drawing else Vector2.ONE * 0.82
 	fx.z_index = board.tile_z(pos, board.Z_DICE) + 1
 	## 打出：从头顶起、看得见；抽到：从三拍的终点（上方）起、全透明
 	fx.position = base - Vector2(0, total if drawing else 0.0)
@@ -1053,14 +1075,30 @@ func _play_card_fx(cell_id: int, pos: Vector2i, drawing := false) -> void:
 		tw.tween_property(fx, "scale", Vector2.ONE * (CARD_FX_SCALE * 0.5), CARD_FX_ABSORB)
 		tw.parallel().tween_property(fx, "modulate:a", 0.0, CARD_FX_ABSORB)
 	else:
+		## 先向下压 2px，卡面横向拉宽、纵向压扁；这一拍很短，但能让后面的上冲有「蓄力」
+		## 而不是图标从头到尾匀速往上飘。
+		y += CARD_FX_WINDUP_Y
+		tw.tween_property(fx, "position:y", y, CARD_FX_WINDUP) \
+			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw.parallel().tween_property(fx, "scale",
+			CARD_FX_SQUASH * Vector2(1.02, 0.96), CARD_FX_WINDUP)
 		y -= CARD_FX_RISE[0]
-		tw.tween_property(fx, "position:y", y, CARD_FX_TIME[0]).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw.tween_property(fx, "position:y", y, CARD_FX_TIME[0]) \
+			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw.parallel().tween_property(fx, "scale",
+			Vector2.ONE * CARD_FX_SCALE, CARD_FX_TIME[0])
 		y -= CARD_FX_RISE[1]
-		tw.tween_property(fx, "position:y", y, CARD_FX_TIME[1])
+		tw.tween_property(fx, "position:y", y, CARD_FX_TIME[1]) \
+			.set_trans(Tween.TRANS_LINEAR)
+		tw.parallel().tween_property(fx, "scale",
+			Vector2.ONE * (CARD_FX_SCALE * 1.04), CARD_FX_TIME[1] * 0.7)
+		tw.tween_interval(CARD_FX_HOLD)
 		y -= CARD_FX_RISE[2]
-		tw.tween_property(fx, "position:y", y, CARD_FX_TIME[2]).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		tw.tween_property(fx, "position:y", y, CARD_FX_TIME[2]) \
+			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 		tw.parallel().tween_property(fx, "modulate:a", 0.0, CARD_FX_TIME[2])
-		tw.parallel().tween_property(fx, "scale", Vector2.ONE * (CARD_FX_SCALE * 0.95), CARD_FX_TIME[2])
+		tw.parallel().tween_property(fx, "scale",
+			Vector2.ONE * (CARD_FX_SCALE * 0.86), CARD_FX_TIME[2])
 	tw.tween_callback(func() -> void:
 		_played_card_fx.erase(fx)
 		if is_instance_valid(fx):
@@ -1072,6 +1110,13 @@ func _clear_played_card_fx() -> void:
 		if fx != null and is_instance_valid(fx):
 			fx.queue_free()
 	_played_card_fx.clear()
+
+
+func _clear_revive_fx() -> void:
+	for fx in _revive_fx:
+		if fx != null and is_instance_valid(fx):
+			fx.queue_free()
+	_revive_fx.clear()
 
 
 ## 淡入 + 放大到位。只动 modulate 和 scale ——
@@ -1113,3 +1158,33 @@ func _set_cell_art(s: Sprite2D, tex: Texture2D) -> void:
 	s.texture = tex
 	s.hframes = BREATH_FRAMES   ## 所有对局细胞贴图都是横排 6 帧呼吸表
 	s.offset = Vector2(0, -tex.get_height() / 2.0)
+
+
+func _play_revive_fx(node: Node2D, cell: Dictionary) -> void:
+	if _cells_root == null or board == null or node == null:
+		return
+	var fx := Sprite2D.new()
+	fx.texture = REVIVE_FX_TEXTURE
+	fx.centered = true
+	fx.hframes = REVIVE_FX_FRAMES
+	fx.frame = 0
+	fx.scale = Vector2.ONE * 0.82
+	fx.modulate = Color(1, 1, 1, 0.0)
+	fx.position = node.position + Vector2(0, -28.0)
+	fx.z_index = board.tile_z(Vector2i(cell["pos"]), board.Z_DICE) + 4
+	_cells_root.add_child(fx)
+	_revive_fx.append(fx)
+	var tw := fx.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(fx, "position:y", fx.position.y - 18.0, REVIVE_FX_TIME)
+	tw.parallel().tween_property(fx, "scale", Vector2.ONE * 1.12, REVIVE_FX_TIME * 0.5)
+	tw.parallel().tween_property(fx, "modulate:a", 1.0, REVIVE_FX_TIME * 0.22)
+	tw.parallel().tween_method(func(v: float) -> void:
+		if is_instance_valid(fx):
+			fx.frame = clampi(roundi(v), 0, REVIVE_FX_FRAMES - 1)
+	, 0.0, float(REVIVE_FX_FRAMES - 1), REVIVE_FX_TIME)
+	tw.tween_property(fx, "scale", Vector2.ONE * 0.95, REVIVE_FX_TIME * 0.45)
+	tw.parallel().tween_property(fx, "modulate:a", 0.0, REVIVE_FX_TIME * 0.45)
+	tw.tween_callback(func() -> void:
+		_revive_fx.erase(fx)
+		if is_instance_valid(fx):
+			fx.queue_free())
