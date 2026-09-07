@@ -8498,6 +8498,25 @@ func t_card_history() -> void:
 	var sb: StyleBoxFlat = hist.get_child(0).get_theme_stylebox("panel")
 	check(is_equal_approx(sb.border_color.a, 1.0) and sb.border_color == CWStyle.LINE and sb.border_width_left == 1,
 		"边框不透明、主色、1px（露出来的 2px 才是一线边框一线卡面）")
+	## 悬停整叠摊开（Kevin 2026-09-07 照手牌区）：每张完整露出、紧挨着排，停着的那张抬 2px 白边，两张都画图标
+	var under: Control = hist.get_child(0)
+	var top: Control = hist.get_child(1)
+	under.mouse_entered.emit()
+	check(bool(hist.get_meta("expanded", false)) and is_equal_approx(top.position.x - under.position.x, CWMatchPanel.HISTORY_ICON + 2.0),
+		"停上去 → 整叠摊开成每张 %.0fpx 紧挨着排（%.0f / %.0f）" % [CWMatchPanel.HISTORY_ICON + 2.0, under.position.x, top.position.x])
+	check(is_equal_approx(under.position.y, 0.0) and is_equal_approx(top.position.y, 2.0) and under.z_index > top.z_index,
+		"停着的那张抬 2px、压在最上层")
+	check((under.get_child(0) as Control).visible and (top.get_child(0) as Control).visible
+		and (under.get_theme_stylebox("panel") as StyleBoxFlat).border_color == Color.WHITE,
+		"摊开后每张都画图标，停着的那张白边")
+	under.mouse_exited.emit()
+	top.mouse_entered.emit()
+	check(bool(hist.get_meta("expanded", false)) and is_equal_approx(top.position.y, 0.0), "划到相邻那张：仍摊开，抬起的换成它")
+	top.mouse_exited.emit()
+	await process_frame
+	check(not bool(hist.get_meta("expanded", false)) and is_equal_approx(top.position.x - under.position.x, 2.0)
+		and not (under.get_child(0) as Control).visible,
+		"离开整叠 → 下一帧收回 2px 叠放、底下那张图标藏起")
 	var pip0: ColorRect = row["pips"][0]
 	check(hist.position.x + hist.size.x <= pip0.position.x - 2.0 and hist.position.x >= row["type"].position.x + 60.0,
 		"小卡框在手牌方块左边、种类小字最长 6 字之外（%.0f..%.0f，方块 %.0f）" % [hist.position.x, hist.position.x + hist.size.x, pip0.position.x])

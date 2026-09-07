@@ -473,23 +473,46 @@ func _clear_history() -> void:
 			child.queue_free()
 
 
+## 两种姿态（Kevin 2026-09-07，照手牌区的做法）：
+## · 收着：叠 2px（1px 边框 + 1px 卡面），只有最上面那张画图标；
+## · 摊开（鼠标停在整叠上）：每张完整露出、紧挨着往左排（右缘钉着不动，临时盖住种类小字无妨），
+##   停在哪张哪张抬 2px、白边、压最上层。紧挨着排是有意的：张与张之间留缝的话，鼠标划过缝就算离开整叠、收回去又立刻摊开，会抖。
+## 位置直接摆、不做补间：像素界面上 20px 的挪动补不补都一样，少一份「一张卡两条补间」的坑。
 func _layout_history(history: Control) -> void:
 	if history == null:
 		return
 	var chips := history.get_children()
 	var count := chips.size()
+	var expanded := bool(history.get_meta("expanded", false))
+	var chip_w := HISTORY_ICON + 2.0
 	for i in count:
 		var chip: Control = chips[i]
 		var hot := bool(chip.get_meta("hovered", false))
-		var x := maxf(0.0, HISTORY_W - (HISTORY_ICON + 2.0) - float(count - 1 - i) * HISTORY_STEP)
+		var back := float(count - 1 - i)
+		var x := HISTORY_W - chip_w - back * (chip_w if expanded else HISTORY_STEP)
+		if not expanded:
+			x = maxf(0.0, x)
 		var base_y := 2.0   ## 框顶留 2px 给悬停上抬
 		chip.position = Vector2(x, base_y - (2.0 if hot else 0.0))
 		chip.set_meta("base_y", base_y)
 		chip.set_meta("base_z", i)
 		chip.set_meta("top", i == count - 1)
-		chip.z_index = i
-		## 被压住的卡只露边框 + 一线卡面，图标不画（悬停抬起时再显示）
-		(chip.get_child(0) as Control).visible = i == count - 1 or hot
+		chip.z_index = 50 if hot else i
+		chip.add_theme_stylebox_override("panel", _history_box(hot))
+		## 收着时被压住的卡只露边框 + 一线卡面，图标不画；摊开后每张都画
+		(chip.get_child(0) as Control).visible = expanded or i == count - 1 or hot
+
+
+## 鼠标离开某张之后（下一帧再看）：整叠上一张都没停着才收回去 —— 划到相邻那张时先 exited 再 entered，
+## 同一帧里看会误判成离开
+func _collapse_if_idle(history: Control) -> void:
+	if history == null or not is_instance_valid(history):
+		return
+	for c in history.get_children():
+		if bool(c.get_meta("hovered", false)):
+			return
+	history.set_meta("expanded", false)
+	_layout_history(history)
 
 
 ## 边框**不透明、1px**：叠放时露出来的 2px = 这 1px 边框 + 1px 卡面；半透明会和底下那张混成第三种颜色，
@@ -519,31 +542,20 @@ func _make_history_chip(rows: Dictionary, faction: int, card_name: String) -> Pa
 	tex.position = Vector2(1, 1)
 	tex.size = Vector2(HISTORY_ICON, HISTORY_ICON)
 	chip.add_child(tex)
+	## 停上去：整叠摊开、这张抬起（Kevin 2026-09-07：收着时叠 2px 根本点不到第二张）
 	chip.mouse_entered.connect(func() -> void:
 		chip.set_meta("hovered", true)
-		chip.add_theme_stylebox_override("panel", _history_box(true))
-		chip.z_index = 50
-		(chip.get_child(0) as Control).visible = true   ## 抬起来的那张露出图标
-		var base_y := float(chip.get_meta("base_y", chip.position.y))
-		var running: Tween = chip.get_meta("hover_tw", null)
-		if running != null and running.is_valid():
-			running.kill()
-		var tw := chip.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		tw.tween_property(chip, "position:y", base_y - 2.0, 0.08)
-		chip.set_meta("hover_tw", tw)
+		var history := chip.get_parent() as Control
+		if history != null:
+			history.set_meta("expanded", true)
+			_layout_history(history)
 	)
 	chip.mouse_exited.connect(func() -> void:
 		chip.set_meta("hovered", false)
-		chip.add_theme_stylebox_override("panel", _history_box(false))
-		chip.z_index = int(chip.get_meta("base_z", 0))
-		(chip.get_child(0) as Control).visible = bool(chip.get_meta("top", false))
-		var base_y := float(chip.get_meta("base_y", chip.position.y))
-		var running: Tween = chip.get_meta("hover_tw", null)
-		if running != null and running.is_valid():
-			running.kill()
-		var tw := chip.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		tw.tween_property(chip, "position:y", base_y, 0.08)
-		chip.set_meta("hover_tw", tw)
+		var history := chip.get_parent() as Control
+		if history != null:
+			_layout_history(history)                 ## 这张先落回去（仍是摊开姿态）
+			_collapse_if_idle.call_deferred(history)  ## 下一帧整叠没人停着才收
 	)
 	chip.gui_input.connect(func(e: InputEvent) -> void:
 		var mb := e as InputEventMouseButton

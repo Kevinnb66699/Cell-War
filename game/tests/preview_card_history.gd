@@ -1,7 +1,7 @@
 extends SceneTree
 ## 出牌表现层的预览图（队友 2026-09-06「新增卡牌特效」合并后）—— 给人看的工具，不是测试。
 ##
-## 一张图摆三样：① 左下角手牌悬停（描边转纯白）② 右栏玩家行的本回合历史小卡（行底手牌方块左边，三张叠 6px）
+## 一张图摆三样：① 左下角手牌悬停（描边转纯白）② 右栏玩家行的本回合历史小卡（行底手牌方块左边；免疫A 收着、癌症A 摊开且停在中间那张）
 ## ③ 棋盘上细胞头顶的飞卡（同一张 16px 小卡，定格在上浮途中）。
 ##
 ## 跑（**不能加 --headless**，要真渲染）：
@@ -66,6 +66,9 @@ func _initialize() -> void:
 	_panel.note_played_card(_game, 1, CWData.Faction.CANCER, "GLUT1高表达")
 	_panel.note_played_card(_game, 1, CWData.Faction.CANCER, "上皮—间质转化")
 	_panel.note_played_card(_game, 0, CWData.Faction.IMMUNE, "炎症趋化")
+	## 癌症A 那叠摊开、停在中间那张（模拟悬停：直接发 mouse_entered）
+	var hist: Control = _panel._rows[1]["history"]
+	hist.get_child(1).mouse_entered.emit()
 
 	## ① 手牌：三张，第一张悬停抬起
 	_hand = CWHand.new()
