@@ -8491,6 +8491,13 @@ func t_card_history() -> void:
 	p.note_played_card(g, 1, CWData.Faction.CANCER, "上皮—间质转化")
 	check(hist.get_child_count() == 2 and hist.get_child(1).position.x > hist.get_child(0).position.x,
 		"第二张叠在右边（最新在最右）")
+	## 叠放只露 2px（Kevin 2026-09-06）：1px 不透明主色边框 + 1px 卡面，被压住的那张不画图标
+	check(is_equal_approx(hist.get_child(1).position.x - hist.get_child(0).position.x, 2.0)
+		and not (hist.get_child(0).get_child(0) as Control).visible and (hist.get_child(1).get_child(0) as Control).visible,
+		"底下那张只露 2px、图标藏起；最上面那张画图标")
+	var sb: StyleBoxFlat = hist.get_child(0).get_theme_stylebox("panel")
+	check(is_equal_approx(sb.border_color.a, 1.0) and sb.border_color == CWStyle.LINE and sb.border_width_left == 1,
+		"边框不透明、主色、1px（露出来的 2px 才是一线边框一线卡面）")
 	var pip0: ColorRect = row["pips"][0]
 	check(hist.position.x + hist.size.x <= pip0.position.x - 2.0 and hist.position.x >= row["type"].position.x + 60.0,
 		"小卡框在手牌方块左边、种类小字最长 6 字之外（%.0f..%.0f，方块 %.0f）" % [hist.position.x, hist.position.x + hist.size.x, pip0.position.x])

@@ -47,11 +47,13 @@ const ENERGY_RESERVE := 52  ## 能量数字预留的宽度，右对齐到预计�
 const NAME_W := 64
 ## 技能详情框的宽度。固定态要放下「停在技能上看详情 · 再点该行取消固定」这行小字（10px×18 字 = 180）
 const TIP_W := 200.0
-## 本回合打出的历史小卡（队友 2026-09-06 的表现层）：16px 像素小卡 + 1px 边 = 18，三张叠 6px 放进 30px；
-## 摆在行底那一行、手牌方块左边 —— 行首插 60px 会把玩家名推到能量数上（合并时改的摆法，见开发日志）
+## 本回合打出的历史小卡（队友 2026-09-06 的表现层）：16px 像素小卡 + 1px 边 = 18，放进 30px；
+## 摆在行底那一行、手牌方块左边 —— 行首插 60px 会把玩家名推到能量数上（合并时改的摆法，见开发日志）。
+## 叠放只露 2px（Kevin 2026-09-06 看放大图定的）：1px 不透明主色边框 + 1px 深色卡面，图标只画最上面那张 ——
+## 原来叠 6px、边框半透明，底下每张的边框压在上一张的图标上，颜色太多有割裂感
 const HISTORY_W := 30.0
 const HISTORY_ICON := 18.0
-const HISTORY_STEP := 6.0
+const HISTORY_STEP := 2.0
 
 ## 玩家行里的种类图标。和棋盘上是同一批贴图，但棋盘那份要对齐脚底、这份是居中摆，
 ## 用途不同所以各留各的表（棋盘那份见 CWMatch.IMMUNE_ART / CANCER_ART）。
@@ -484,12 +486,18 @@ func _layout_history(history: Control) -> void:
 		chip.position = Vector2(x, base_y - (2.0 if hot else 0.0))
 		chip.set_meta("base_y", base_y)
 		chip.set_meta("base_z", i)
+		chip.set_meta("top", i == count - 1)
 		chip.z_index = i
+		## 被压住的卡只露边框 + 一线卡面，图标不画（悬停抬起时再显示）
+		(chip.get_child(0) as Control).visible = i == count - 1 or hot
 
 
+## 边框**不透明、1px**：叠放时露出来的 2px = 这 1px 边框 + 1px 卡面；半透明会和底下那张混成第三种颜色，
+## CWStyle.box 默认的 2px 描边则会让露出来的 2px 全是边框、糊成一道实心色带
 func _history_box(hot: bool) -> StyleBoxFlat:
-	var box := CWStyle.box(0.55 if hot else 0.35, Color("0e1620"), 1, 1)
-	box.border_color = Color.WHITE if hot else Color(CWStyle.LINE, 0.65)
+	var box := CWStyle.box(1.0, Color("0e1620"), 1, 1)
+	box.set_border_width_all(1)
+	box.border_color = Color.WHITE if hot else CWStyle.LINE
 	return box
 
 
@@ -515,6 +523,7 @@ func _make_history_chip(rows: Dictionary, faction: int, card_name: String) -> Pa
 		chip.set_meta("hovered", true)
 		chip.add_theme_stylebox_override("panel", _history_box(true))
 		chip.z_index = 50
+		(chip.get_child(0) as Control).visible = true   ## 抬起来的那张露出图标
 		var base_y := float(chip.get_meta("base_y", chip.position.y))
 		var running: Tween = chip.get_meta("hover_tw", null)
 		if running != null and running.is_valid():
@@ -527,6 +536,7 @@ func _make_history_chip(rows: Dictionary, faction: int, card_name: String) -> Pa
 		chip.set_meta("hovered", false)
 		chip.add_theme_stylebox_override("panel", _history_box(false))
 		chip.z_index = int(chip.get_meta("base_z", 0))
+		(chip.get_child(0) as Control).visible = bool(chip.get_meta("top", false))
 		var base_y := float(chip.get_meta("base_y", chip.position.y))
 		var running: Tween = chip.get_meta("hover_tw", null)
 		if running != null and running.is_valid():
