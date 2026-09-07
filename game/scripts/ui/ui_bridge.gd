@@ -779,7 +779,7 @@ func show_notice(text: String) -> void:
 
 ## 别人打出了卡（Kevin 2026-09-06）：屏幕前这位真人自己打的不弹（自己知道）；其余按阵营标「对手 / 队友」，
 ## 走通报那条排队专线。观战（没有真人）或换手期间（current_human = -1）全弹、不标关系。
-func show_card_played(pid: int, text: String) -> void:
+func show_card_played(pid: int, text: String, _info := {}) -> void:
 	var viewer := viewing_pid()
 	if viewer == pid:
 		return

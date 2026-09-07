@@ -7,6 +7,7 @@ class_name CWGame
 extends RefCounted
 
 signal log_line(text: String)
+signal card_played(cell_id: int, pid: int, pos: Vector2i, faction: int, card_name: String, data: Dictionary)
 
 # ---- 状态 ----
 var tiles := {}            # Vector2i -> 组织格字典（见 cw_setup._make_tile）
@@ -633,14 +634,17 @@ func announce(text: String, at: Vector2i, linger := false) -> void:
 
 ## 某位玩家打出了一张卡：广播给所有桥，界面桥再决定给谁弹（Kevin 2026-09-06「别人用了卡牌也要弹窗提示」）。
 ## 文案用席位名不用细胞名（「癌症A 打出【糖酵解爆发】」）。去重规则同 announce。
-func card_played(cell: Dictionary, card: String) -> void:
+## info 带 cell_id / pos / faction / card：联机的影子对局不跑 card_fx.play，客户端的头顶飞卡与右栏历史小卡
+## （队友 2026-09-06 的表现层，本地走 `card_played` 信号）靠这条报文驱动。方法名带 broadcast_ 是为了不和那个信号撞名。
+func broadcast_card_played(cell: Dictionary, card: String) -> void:
 	var text := "%s 打出【%s】" % [player(cell["pid"])["name"], card]
+	var info := { "cell_id": int(cell["id"]), "pos": cell["pos"], "faction": int(cell["faction"]), "card": card }
 	var shown: Array = []
 	for b in bridges.values():
 		if b == null or shown.has(b):
 			continue
 		shown.append(b)
-		b.show_card_played(cell["pid"], text)
+		b.show_card_played(cell["pid"], text, info)
 
 
 ## 「癌吞掉一格健康组织」的过场广播：【E-侵蚀】【E-增生】【定殖】三处共用——名字沿用最早接上的侵蚀，

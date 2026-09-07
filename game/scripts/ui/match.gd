@@ -90,6 +90,12 @@ const CANCER_ART := {
 const BREATH_FPS := 6.0
 const BREATH_FRAMES := 6
 
+## 打出卡牌时在细胞头顶浮出的临时图标。用同一张像素 chip，和右侧历史保持一致。
+const CARD_FX_TEXTURE := preload("res://assets/art/ui/card_chip.png")
+const CARD_FX_RISE := 28.0
+const CARD_FX_TIME := 0.42
+const CARD_FX_SCALE := 1.1
+
 var game: CWGame
 var bridge: CWUIBridge
 ## 联机模式（docs/联机设计 §七）：game 是客户端的影子对局（只读、由服务器的视角快照 restore），
@@ -144,6 +150,7 @@ var _erosion_fx := CWErosionFx.new()
 ## 「这是传送」由下面 _last_pos 的差分判定（上一帧与这一帧都活着、两格不相邻），不走引擎信号。
 var _teleport_fx := CWTeleportFx.new()
 var _last_pos: Array[Vector2i] = []   ## 上一帧位置，下标 = cell id；两格不相邻 = 传送
+var _played_card_fx: Array[Sprite2D] = []   ## 本回合打出卡牌的头顶飞卡演出句柄
 var _log_panel: CWLogPanel   ## 对局日志面板（L 键开关），同样程序化补进
 var _log_hint: CWLogHint     ## 左上角「对局日志 L」入口提示（定案A），显隐跟着面板走
 var _handoff: CWHandoff      ## 热座换手遮罩（UI 层，压在暂停菜单下面）；桥在换人时 await 它
@@ -218,6 +225,8 @@ func start(snap: Dictionary = {}) -> void:
 		match_seed if match_seed != 0 else int(Time.get_unix_time_from_system()))
 	if not snap.is_empty():
 		game.restore(snap)   ## rng 状态也在快照里，init 用的种子随之作废
+	if not game.card_played.is_connected(_on_card_played):
+		game.card_played.connect(_on_card_played)
 	_wire_bridge(ai_smart)
 	## 同一个桥对象注册给所有玩家：人类那几位走界面，其余走 AI，
 	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。
@@ -242,6 +251,8 @@ func start_online(p_client: CWNetClient) -> void:
 		_client.shadow = CWGame.new()
 		_client.shadow.init(CWData.FACTION_ORDER[player_count], 0)
 	game = _client.shadow
+	if not game.card_played.is_connected(_on_card_played):
+		game.card_played.connect(_on_card_played)
 	player_count = game.players.size()
 	var seats: Array[int] = []
 	if _client.my_seat >= 0:
@@ -279,6 +290,7 @@ func _prepare_ui() -> void:
 		board.cancel_fade()
 	if _cells_root != null:
 		_cells_root.modulate.a = 1.0     ## 上一局淡出留下的，开新局要还原
+	_clear_played_card_fx()
 	if hand != null:
 		hand.visible = true              ## 热座换手期间会收起，开新局要还原
 	if ui != null:
@@ -299,6 +311,8 @@ func _prepare_ui() -> void:
 	## 右栏固定详情里停在某条技能上 → 同一只详情框浮 PRD 原文（2026-09-04 Kevin 要的）
 	if _card_info != null and panel != null 			and not panel.skill_hovered.is_connected(_card_info.on_hover_info):
 		panel.skill_hovered.connect(_card_info.on_hover_info)
+	if _card_info != null and panel != null and not panel.played_card_pressed.is_connected(_card_info.show_info):
+		panel.played_card_pressed.connect(_card_info.show_info)
 	if _log_panel != null:
 		_log_panel.active = true
 	if _log_hint != null:
@@ -447,6 +461,9 @@ func _net_loop(id: int) -> void:
 			"card_played":
 				if bridge != null:
 					bridge.show_card_played(int(m["pid"]), m["text"])
+				## 影子对局不跑 card_fx.play、发不出 card_played 信号：头顶飞卡 / 右栏历史小卡靠报文里的细胞信息驱动
+				if m.has("card"):
+					_on_card_played(int(m["cell_id"]), int(m["pid"]), m["pos"], int(m["faction"]), m["card"], {})
 			"erosion":
 				if bridge != null:
 					bridge.show_erosion(m["at"], int(m["dir"]))
@@ -523,6 +540,7 @@ func fade_out(seconds: float) -> void:
 func teardown() -> void:
 	_fading = false
 	_loop_id += 1            ## 联机：让 _net_loop 退出
+	var active_game: CWGame = game
 	if online:
 		## 影子对局属于客户端（回到等待室还要用），这里只放手不销毁
 		if bridge != null:
@@ -537,6 +555,9 @@ func teardown() -> void:
 			pause_menu.online = false
 		if settle != null:
 			settle.online = false
+	if active_game != null and active_game.card_played.is_connected(_on_card_played):
+		active_game.card_played.disconnect(_on_card_played)
+	_clear_played_card_fx()
 	if game != null:
 		## 顺序要紧：先让引擎收摊、再唤醒卡住的询问（它会同步一路展开回来），
 		## **最后**才 dispose。反过来的话展开途中会碰到已经置空的模块。
@@ -575,6 +596,8 @@ func teardown() -> void:
 		hand.card_hovered.disconnect(_card_info.on_hover)
 	if _card_info != null and panel != null 			and panel.skill_hovered.is_connected(_card_info.on_hover_info):
 		panel.skill_hovered.disconnect(_card_info.on_hover_info)
+	if _card_info != null and panel != null and panel.played_card_pressed.is_connected(_card_info.show_info):
+		panel.played_card_pressed.disconnect(_card_info.show_info)
 	if _log_panel != null:
 		_log_panel.active = false
 		_log_panel.hide_now()
@@ -841,6 +864,47 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 	_was_alive.append(false)   ## 下一次 _sync_cells 就会认出「刚出现」并淡入
 	_last_pos.append(cell["pos"])
 	return node
+
+
+func _on_card_played(cell_id: int, pid: int, pos: Vector2i, faction: int, card_name: String, data: Dictionary) -> void:
+	if card_name == "":
+		return
+	if panel != null and is_instance_valid(panel):
+		panel.note_played_card(game, pid, faction, card_name)
+	_play_card_fx(cell_id, pos)
+
+
+func _play_card_fx(cell_id: int, pos: Vector2i) -> void:
+	if _cells_root == null or board == null:
+		return
+	var fx := Sprite2D.new()
+	fx.texture = CARD_FX_TEXTURE
+	fx.centered = true
+	fx.position = board.tile_center(pos) + Vector2(0, -30.0)
+	if cell_id >= 0 and cell_id < _cell_nodes.size():
+		var node: Node2D = _cell_nodes[cell_id]
+		if node != null and is_instance_valid(node):
+			fx.position = node.position + Vector2(0, -30.0)
+	fx.scale = Vector2.ONE * CARD_FX_SCALE
+	fx.modulate = Color(1, 1, 1, 1)
+	fx.z_index = board.tile_z(pos, board.Z_DICE) + 1
+	_cells_root.add_child(fx)
+	_played_card_fx.append(fx)
+	var tw := fx.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(fx, "position:y", fx.position.y - CARD_FX_RISE, CARD_FX_TIME)
+	tw.parallel().tween_property(fx, "modulate:a", 0.0, CARD_FX_TIME)
+	tw.parallel().tween_property(fx, "scale", Vector2.ONE * (CARD_FX_SCALE * 0.95), CARD_FX_TIME * 0.75)
+	tw.tween_callback(func() -> void:
+		_played_card_fx.erase(fx)
+		if is_instance_valid(fx):
+			fx.queue_free())
+
+
+func _clear_played_card_fx() -> void:
+	for fx in _played_card_fx:
+		if fx != null and is_instance_valid(fx):
+			fx.queue_free()
+	_played_card_fx.clear()
 
 
 ## 淡入 + 放大到位。只动 modulate 和 scale ——

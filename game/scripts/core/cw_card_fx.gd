@@ -228,8 +228,9 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 		if not game.pay(cell, fee):
 			return   ## 选项层已按费用把过关，这里只是兜底
 		game.log_msg("　【细胞应激】支付 %s 能量" % CWData.fmt(fee))
-	game.card_played(cell, card)   ## 给别人的弹窗（Kevin 2026-09-06）；付费失败的兜底分支已经 return 掉，不会误报
+	game.broadcast_card_played(cell, card)   ## 给别人的弹窗（Kevin 2026-09-06）；付费失败的兜底分支已经 return 掉，不会误报
 	## 永久技能：置于角色面板持续生效（PRD 卡牌规则），效果在各挂接点按 equipped 查询
+	game.card_played.emit(int(cell["id"]), int(cell["pid"]), Vector2i(cell["pos"]), int(cell["faction"]), card, data)
 	if CWCardData.CARDS[card]["kind"] == CWCardData.Kind.PERMANENT:
 		cell["hand"].erase(card)
 		cell["equipped"].append(card)

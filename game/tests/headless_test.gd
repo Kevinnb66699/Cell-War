@@ -109,7 +109,7 @@ func _run_all() -> void:
 		t_log_panel, t_rules_page, t_production_row, t_skill_info,
 		t_save_load, t_settings, t_board_view, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
-		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
+		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
 		t_card_name_fit, t_view_blend, t_announce, t_action_bar_width,
@@ -8459,6 +8459,63 @@ func t_tier_highlight() -> void:
 	g.dispose()
 
 
+## 队友 2026-09-06 的出牌表现层（合并自 Cell-War-main-0906-20.18 快照）：引擎 card_played 信号、右栏本回合历史小卡、
+## 详情框 show_info 立刻显示。合并时把小卡改摆行底手牌方块左边 —— 行首插 60px 会把玩家名推到能量数上，这里钉住「行首没动」。
+func t_card_history() -> void:
+	print("[出牌表现层：历史小卡]")
+	var g := _fx_game(4)
+	var got: Array = []
+	g.card_played.connect(func(cell_id: int, pid: int, pos: Vector2i, faction: int, card: String, _data: Dictionary) -> void:
+		got.append([cell_id, pid, pos, faction, card]))
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+	imm["energy"] = 100
+	g.cells.append(imm)
+	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(3, 0), -1, CWData.CancerType.MELANOMA)
+	can["energy"] = 100
+	can["hand"] = ["GLUT1高表达"]
+	g.cells.append(can)
+	g.round_no = 1
+	await g.card_fx.play(can, { "act": "play", "card": "GLUT1高表达" })
+	check(got == [[1, 1, Vector2i(3, 0), CWData.Faction.CANCER, "GLUT1高表达"]],
+		"打出卡 → 引擎发 card_played 信号（细胞 / 席位 / 位置 / 阵营 / 卡名）：%s" % str(got))
+	## 右栏：小卡摆在行底手牌方块左边，行首那一段一个像素没动
+	var p := CWMatchPanel.new()
+	root.add_child(p)
+	await process_frame
+	p.refresh(g)
+	var row: Dictionary = p._rows[1]
+	var hist: Control = row["history"]
+	check(not hist.visible, "没打过牌：历史框藏着")
+	p.note_played_card(g, 1, CWData.Faction.CANCER, "GLUT1高表达")
+	check(hist.visible and hist.get_child_count() == 1, "打出一张 → 一张小卡")
+	p.note_played_card(g, 1, CWData.Faction.CANCER, "上皮—间质转化")
+	check(hist.get_child_count() == 2 and hist.get_child(1).position.x > hist.get_child(0).position.x,
+		"第二张叠在右边（最新在最右）")
+	var pip0: ColorRect = row["pips"][0]
+	check(hist.position.x + hist.size.x <= pip0.position.x - 2.0 and hist.position.x >= row["type"].position.x + 60.0,
+		"小卡框在手牌方块左边、种类小字最长 6 字之外（%.0f..%.0f，方块 %.0f）" % [hist.position.x, hist.position.x + hist.size.x, pip0.position.x])
+	check(hist.position.y + hist.size.y <= row["bg"].position.y + CWMatchPanel.ROW_H, "小卡框不出行底")
+	check(row["name"].position.x == row["icon"].position.x + CWMatchPanel.ICON / 2.0 + 8.0, "玩家名还在头像右边 8px，没被推开")
+	var rows: Dictionary = hist.get_child(0).get_meta("rows")
+	check(_marked(rows) == ["0.5"], "小卡的详情按当前分期（前期）高亮（%s）" % str(_marked(rows)))
+	## 换回合清空（历史只属于本回合的显示层）
+	g.round_no = 2
+	p.refresh(g)
+	await process_frame
+	check(not hist.visible and hist.get_child_count() == 0, "换回合 → 小卡清空、框藏起")
+	p.queue_free()
+	## 详情框 show_info：点小卡不等 0.25s 延时
+	var box := CWCardInfo.new()
+	root.add_child(box)
+	await process_frame
+	box.show_info(rows, 500.0)
+	check(box.visible and box.position.x <= 500.0, "show_info 立刻显示（x=%.0f）" % box.position.x)
+	box.show_info({}, 0.0)
+	check(not box.visible, "空字典 → 收起")
+	box.queue_free()
+	g.dispose()
+
+
 ## describe() 结果里被高亮的那几段文字，按行序排
 static func _marked(d: Dictionary) -> Array:
 	var out: Array = []
@@ -8474,7 +8531,7 @@ static func _marked(d: Dictionary) -> Array:
 class CardPlayRecorder extends CWHeuristicBridge:
 	var got: Array = []
 	var results: Array = []
-	func show_card_played(pid: int, text: String) -> void:
+	func show_card_played(pid: int, text: String, _info := {}) -> void:
 		got.append([pid, text])
 	func show_result(text: String, _at: Vector2i, linger := false) -> void:
 		results.append([text, linger])

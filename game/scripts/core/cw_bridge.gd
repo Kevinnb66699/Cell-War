@@ -44,7 +44,8 @@ func show_result(_text: String, _at: Vector2i, _linger := false) -> void:
 
 ## 某位玩家打出了一张卡（即时 / 永久）。给**别人**看的弹窗（Kevin 2026-09-06）：
 ## 界面桥按「屏幕前这位真人是不是 pid 本人」决定弹不弹，并按阵营标「对手 / 队友」。
-func show_card_played(_pid: int, _text: String) -> void:
+## info = { cell_id, pos, faction, card }，联机桥原样转发，客户端拿它演头顶飞卡 / 右栏历史小卡。
+func show_card_played(_pid: int, _text: String, _info := {}) -> void:
 	pass
 
 

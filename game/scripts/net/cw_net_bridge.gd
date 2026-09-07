@@ -39,8 +39,10 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 	room.broadcast({ "t": "result", "text": text, "at": at, "linger": linger })
 
 
-func show_card_played(pid: int, text: String) -> void:
-	room.broadcast({ "t": "card_played", "pid": pid, "text": text })
+func show_card_played(pid: int, text: String, info := {}) -> void:
+	var m := { "t": "card_played", "pid": pid, "text": text }
+	m.merge(info)
+	room.broadcast(m)
 
 
 func show_notice(text: String) -> void:

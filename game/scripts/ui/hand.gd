@@ -384,7 +384,7 @@ func _make_card() -> Control:
 	var note2 := CWStyle.label("右键双击弃置", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	note2.position = Vector2(NAME_PAD, CARD.y - 18)
 	card.add_child(note2)
-	
+
 	card.gui_input.connect(func(ev: InputEvent) -> void:
 		var mb := ev as InputEventMouseButton
 		if mb == null or not mb.pressed:
@@ -411,7 +411,8 @@ func _make_card() -> Control:
 			play_requested.emit(_name_at(index))
 		elif mb.button_index == MOUSE_BUTTON_RIGHT:
 			_hint_exit(_name_at(index), Exit.DOWN)
-			discard_requested.emit(_name_at(index)))
+			discard_requested.emit(_name_at(index))
+	)
 	card.mouse_entered.connect(func() -> void: _hover(_cards.find(card)))
 	card.mouse_exited.connect(func() -> void:
 		var index := _cards.find(card)
@@ -518,5 +519,5 @@ func _paint(card: Control, hot: bool) -> void:
 	var box := CWStyle.box(1.0 if hot else 0.45, CWStyle.PANEL)
 	box.border_width_top = 4
 	if hot:
-		box.border_color = CWStyle.IMMUNE
+		box.border_color = Color.WHITE
 	(card.get_node("BG") as Panel).add_theme_stylebox_override("panel", box)

@@ -86,6 +86,21 @@ func on_hover_info(rows: Dictionary, anchor_x: float) -> void:
 	visible = false
 
 
+## 点击右侧历史小卡：直接展示原始卡面，不等悬停延时。
+func show_info(rows: Dictionary, anchor_x: float) -> void:
+	if rows.is_empty():
+		hide_now()
+		return
+	_card = ""
+	_info = rows
+	_anchor_x = anchor_x
+	_wait = DELAY
+	_key = ""
+	_rebuild(rows)
+	position = place_at(size, _anchor_x, CWView.screen_size())
+	visible = true
+
+
 ## 每帧由 CWMatch 调。faction 决定【代谢耦联】那张给哪套措辞；
 ## blocked = 开场/返场演出中，那会儿不该浮任何东西；
 ## phase = 癌症卡的分期（CWCardData.cancer_phase），决定分档写法里高亮哪一档，-1 = 不高亮。
