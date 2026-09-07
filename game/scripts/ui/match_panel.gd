@@ -20,6 +20,7 @@ signal end_turn_pressed
 ## 和详情框该贴的横坐标交出去，由 CWMatch 转给同一只 CWCardInfo。
 ## 离开时发空字典 —— 和行动栏那条悬停路径同一套约定
 signal skill_hovered(rows: Dictionary, anchor_x: float)
+signal played_card_pressed(rows: Dictionary, anchor_x: float)
 
 const RECT := Rect2(696, 0, 264, 540)
 const PAD := 16
@@ -46,6 +47,9 @@ const ENERGY_RESERVE := 52  ## 能量数字预留的宽度，右对齐到预计�
 const NAME_W := 64
 ## 技能详情框的宽度。固定态要放下「停在技能上看详情 · 再点该行取消固定」这行小字（10px×18 字 = 180）
 const TIP_W := 200.0
+const HISTORY_W := 60.0
+const HISTORY_ICON := 18.0
+const HISTORY_STEP := 12.0
 
 ## 玩家行里的种类图标。和棋盘上是同一批贴图，但棋盘那份要对齐脚底、这份是居中摆，
 ## 用途不同所以各留各的表（棋盘那份见 CWMatch.IMMUNE_ART / CANCER_ART）。
@@ -80,8 +84,9 @@ var _level: Label
 var _memory: Label
 var _bg: Panel
 var _end: PanelContainer
-var _rows: Array = []      ## 每项 { bg, fac, icon, name, type, energy, pips, skills }
+var _rows: Array = []      ## 每项 { bg, fac, history, icon, name, type, energy, pips, skills }
 var _built := 0            ## 已按几人局建好（0 = 还没建）
+var _history_round := -1    ## 当前回合号；换回合就清右侧历史
 var _level_y := 0.0        ## 免疫等级那一块的顶边；测试靠它核对 6 人局没溢出
 var _tip: Control = null   ## 技能详情框（悬停玩家行时列出已装备 + 即时修饰；**点一下固定**后列全套技能）
 var _tip_pid := -1         ## 正悬停哪一行；-1 = 收起
@@ -133,6 +138,9 @@ func refresh(game: CWGame) -> void:
 		return
 	if _built != game.players.size():
 		_build(game.players.size())
+	if _history_round != game.round_no:
+		_history_round = game.round_no
+		_clear_history()
 	_round.text = "第 %d 回合" % game.round_no
 	_phase.text = "%s · 世界事件 第 %d 回合" % [game.phase, _next_event_round(game.round_no)]
 	_events.text = active_events_text(game)
@@ -173,6 +181,7 @@ func reset() -> void:
 		c.queue_free()
 	_rows.clear()
 	_built = 0
+	_history_round = -1
 	net_seats = []
 	_tip = null       ## 悬浮框也在刚才那波清掉了，别留野引用
 	_tip_pid = -1
@@ -286,6 +295,7 @@ func _build(n: int) -> void:
 		c.queue_free()
 	_rows.clear()
 	_built = n
+	_history_round = -1
 	_tip = null
 	_tip_pid = -1
 	_tip_pinned = -1
@@ -378,6 +388,15 @@ func _build_row(y: float, pid: int) -> Dictionary:
 	add_child(fac)
 	x += 4 + 8
 
+	var history := Control.new()
+	history.position = Vector2(x, y + (ROW_H - (HISTORY_ICON + 2.0)) * 0.5)
+	history.size = Vector2(HISTORY_W, ROW_H)
+	history.clip_contents = true
+	history.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	history.visible = false
+	add_child(history)
+	x += HISTORY_W + 6
+
 	## 贴图有 16/24/32 三种尺寸，一律居中摆、不缩放 —— 非整数倍会糊。
 	var icon := Sprite2D.new()
 	icon.position = Vector2(x + ICON / 2.0, y + ROW_H / 2.0)
@@ -410,8 +429,118 @@ func _build_row(y: float, pid: int) -> Dictionary:
 	## 「技 N」放**能量那一行**（团队 2026-08-28 选的右边那版），右对齐到能量左侧
 	var sk := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
 		x, y + 10, right - ENERGY_RESERVE - INCOME_RESERVE - x, HORIZONTAL_ALIGNMENT_RIGHT)
-	return { "bg": bg, "fac": fac, "icon": icon,
+	return { "bg": bg, "fac": fac, "history": history, "icon": icon,
 		"name": nm, "type": ty, "energy": en, "income": inc, "pips": pips, "skills": sk }
+
+
+# ============ 历史卡牌 ============
+
+## 本回合刚打出的卡，往对应玩家头像左边追加一个小卡片。
+func note_played_card(game: CWGame, pid: int, faction: int, card_name: String) -> void:
+	if game == null or pid < 0 or pid >= _rows.size():
+		return
+	_sync_history_round(game)
+	var row: Dictionary = _rows[pid]
+	if not row.has("history"):
+		return
+	var history: Control = row["history"]
+	var rows: Dictionary = CWCardInfo.describe(card_name, faction)
+	var chip := _make_history_chip(rows, faction, card_name)
+	history.visible = true
+	history.add_child(chip)
+	_layout_history(history)
+
+
+func _sync_history_round(game: CWGame) -> void:
+	if game == null:
+		return
+	if _history_round == game.round_no:
+		return
+	_history_round = game.round_no
+	_clear_history()
+
+
+func _clear_history() -> void:
+	for row in _rows:
+		if not row.has("history"):
+			continue
+		var history: Control = row["history"]
+		history.visible = false
+		for child in history.get_children():
+			child.queue_free()
+
+
+func _layout_history(history: Control) -> void:
+	if history == null:
+		return
+	var chips := history.get_children()
+	var count := chips.size()
+	for i in count:
+		var chip: Control = chips[i]
+		var hot := bool(chip.get_meta("hovered", false))
+		var x := maxf(0.0, HISTORY_W - HISTORY_ICON - float(count - 1 - i) * HISTORY_STEP)
+		var base_y := (ROW_H - (HISTORY_ICON + 2.0)) * 0.5
+		chip.position = Vector2(x, base_y - (2.0 if hot else 0.0))
+		chip.set_meta("base_y", base_y)
+		chip.set_meta("base_z", i)
+		chip.z_index = i
+
+
+func _history_box(hot: bool) -> StyleBoxFlat:
+	var box := CWStyle.box(0.55 if hot else 0.35, Color("0e1620"), 1, 1)
+	box.border_color = Color.WHITE if hot else Color(CWStyle.LINE, 0.65)
+	return box
+
+
+func _make_history_chip(rows: Dictionary, faction: int, card_name: String) -> Panel:
+	var chip := Panel.new()
+	chip.size = Vector2(HISTORY_ICON + 2.0, HISTORY_ICON + 2.0)
+	chip.mouse_filter = Control.MOUSE_FILTER_STOP
+	chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	chip.add_theme_stylebox_override("panel", _history_box(false))
+	chip.set_meta("rows", rows)
+	chip.set_meta("faction", faction)
+	chip.set_meta("card_name", card_name)
+	chip.set_meta("hovered", false)
+	var tex := TextureRect.new()
+	tex.texture = preload("res://assets/art/ui/card_chip.png")
+	tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tex.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tex.position = Vector2(1, 1)
+	tex.size = Vector2(HISTORY_ICON, HISTORY_ICON)
+	chip.add_child(tex)
+	chip.mouse_entered.connect(func() -> void:
+		chip.set_meta("hovered", true)
+		chip.add_theme_stylebox_override("panel", _history_box(true))
+		chip.z_index = 50
+		var base_y := float(chip.get_meta("base_y", chip.position.y))
+		var running: Tween = chip.get_meta("hover_tw", null)
+		if running != null and running.is_valid():
+			running.kill()
+		var tw := chip.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw.tween_property(chip, "position:y", base_y - 2.0, 0.08)
+		chip.set_meta("hover_tw", tw)
+	)
+	chip.mouse_exited.connect(func() -> void:
+		chip.set_meta("hovered", false)
+		chip.add_theme_stylebox_override("panel", _history_box(false))
+		chip.z_index = int(chip.get_meta("base_z", 0))
+		var base_y := float(chip.get_meta("base_y", chip.position.y))
+		var running: Tween = chip.get_meta("hover_tw", null)
+		if running != null and running.is_valid():
+			running.kill()
+		var tw := chip.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw.tween_property(chip, "position:y", base_y, 0.08)
+		chip.set_meta("hover_tw", tw)
+	)
+	chip.gui_input.connect(func(e: InputEvent) -> void:
+		var mb := e as InputEventMouseButton
+		if mb == null or not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		played_card_pressed.emit(rows, chip.get_global_rect().position.x)
+	)
+	return chip
 
 
 func _build_end_button() -> PanelContainer:

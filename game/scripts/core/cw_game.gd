@@ -7,6 +7,7 @@ class_name CWGame
 extends RefCounted
 
 signal log_line(text: String)
+signal card_played(cell_id: int, pid: int, pos: Vector2i, faction: int, card_name: String, data: Dictionary)
 
 # ---- 状态 ----
 var tiles := {}            # Vector2i -> 组织格字典（见 cw_setup._make_tile）

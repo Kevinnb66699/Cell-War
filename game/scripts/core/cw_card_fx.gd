@@ -229,6 +229,7 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 			return   ## 选项层已按费用把过关，这里只是兜底
 		game.log_msg("　【细胞应激】支付 %s 能量" % CWData.fmt(fee))
 	## 永久技能：置于角色面板持续生效（PRD 卡牌规则），效果在各挂接点按 equipped 查询
+	game.card_played.emit(int(cell["id"]), int(cell["pid"]), Vector2i(cell["pos"]), int(cell["faction"]), card, data)
 	if CWCardData.CARDS[card]["kind"] == CWCardData.Kind.PERMANENT:
 		cell["hand"].erase(card)
 		cell["equipped"].append(card)
