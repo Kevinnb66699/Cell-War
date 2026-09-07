@@ -104,7 +104,7 @@ func _run_all() -> void:
 		t_breath_sheets, t_solidify_and_decay, t_vessel_no_solid, t_erosion, t_macro_purify_heal,
 		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path,
-		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_proliferate_tiers, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
+		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_feed_log, t_proliferate_tiers, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
 		t_immune_win, t_cancer_revive_blocked, t_cancer_s_win, t_immune_respawn,
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_stroma_targets, t_batch2_rules,
@@ -3670,6 +3670,54 @@ func _erosion_scene(seed_value: int) -> CWGame:
 			else CWData.Tissue.HEALTHY
 		g.tiles[c]["solid"] = 0
 	return g
+
+
+## 出牌流水进对局状态（方案甲，2026-09-07）：左侧那一列原先只靠一次性广播吃饭，
+## 客户端断线重连期间广播过的那几条就永久错过了。改成随快照走之后要保证三件事：
+## 记得下、不进哈希、快照往返还在。
+func t_feed_log() -> void:
+	print("[出牌流水进状态]")
+	check(CWData.FEED_KEEP >= CWFeed.MAX_ROWS,
+		"状态里留的条数 %d ≥ 那一列画得下的 %d（少了重连就补不满）"
+		% [CWData.FEED_KEEP, CWFeed.MAX_ROWS])
+
+	var g := bare_game()
+	check(g.feed_log.is_empty() and g.feed_seq == 0, "开局是空的")
+	g.note_feed("play", 0, CWData.Faction.IMMUNE, "炎症趋化")
+	g.note_feed("event", 1, CWData.Faction.CANCER, "克隆增殖")
+	g.note_feed("world", -1, -1, "基质阻隔", 2)
+	check(g.feed_log.size() == 3 and g.feed_seq == 3, "三条都记下了，seq 跟着涨")
+	check(int(g.feed_log[0]["seq"]) == 1 and String(g.feed_log[2]["kind"]) == "world"
+		and int(g.feed_log[2]["left"]) == 2, "字段齐全（含世界事件的剩余回合）")
+
+	## 只留最近 FEED_KEEP 条
+	for i in CWData.FEED_KEEP + 3:
+		g.note_feed("play", 0, CWData.Faction.IMMUNE, "炎症趋化")
+	check(g.feed_log.size() == CWData.FEED_KEEP, "最多留 %d 条" % CWData.FEED_KEEP)
+	check(int(g.feed_log[0]["seq"]) > 1, "挤掉的是最旧的")
+
+	## **不进哈希**：它是展示用的流水，改它不该让联机的一致性校验报警
+	var h0 := g.state_hash()
+	g.note_feed("play", 0, CWData.Faction.IMMUNE, "CXCR3趋化")
+	check(g.state_hash() == h0, "出牌流水不进状态哈希")
+
+	## 快照往返：重连补齐就靠这一条
+	var snap := g.snapshot()
+	var seq_before: int = g.feed_seq
+	var n_before: int = g.feed_log.size()
+	g.feed_log = []
+	g.feed_seq = 0
+	g.restore(snap)
+	check(g.feed_log.size() == n_before and g.feed_seq == seq_before,
+		"快照往返后流水还在（%d 条 / seq %d）" % [g.feed_log.size(), g.feed_seq])
+
+	## 推演不记：副本里的假动作不该污染快照
+	g.sim_quiet = true
+	var n2: int = g.feed_log.size()
+	g.note_feed("play", 0, CWData.Faction.IMMUNE, "炎症趋化")
+	check(g.feed_log.size() == n2, "sim_quiet 期间不记流水")
+	g.sim_quiet = false
+	g.dispose()
 
 
 ## 线上版 PRD（Kevin 2026-09-07 拉的正本）带来的三条**行为**改动。
@@ -11943,28 +11991,48 @@ func t_match_online() -> void:
 	check(ok, "第一问（落子）通过界面桥弹出：提示栏出现、候选格高亮 %d 格" % m.bridge.marks.size())
 	check(m.net_hud.seconds_left() == -1, "不计时的房间不显示倒计时")
 
-	## ---- 左侧出牌列：客户端**消费报文**这条路（Kevin 2026-09-07 在联机测试里报的）----
-	## 影子对局不跑 card_fx.play，发不出 card_played 信号，这一列完全靠报文驱动 ——
-	## 所以这里直接往 stream 里塞报文，验的是 _net_loop → _on_card_played → CWFeed 整条链。
+	## ---- 左侧出牌列：**状态的投影**（方案甲，2026-09-07）----
+	## 影子对局不跑 card_fx，这一列原先靠一次性广播吃饭 —— 断线重连期间那几条就永久错过了。
+	## 现在它随快照走，所以这里从**服务器**那边记流水、推状态，验的是
+	## 服务器 → 快照 → 影子对局 → 出牌列 这条完整的链。
 	check(m._feed != null and is_instance_valid(m._feed), "联机局也建了出牌列")
+	var room: CWRoom = srv.rooms.values()[0]
+	check(room.game != null, "服务器上有对局")
 	var feed_n: int = m._feed._rows.size()
-	a.stream.append({ "t": "card_played", "pid": 0, "text": "免疫A 打出【炎症趋化】",
-		"cell_id": 0, "pos": Vector2i.ZERO, "faction": CWData.Faction.IMMUNE, "card": "炎症趋化" })
+	room.game.note_feed("play", 0, CWData.Faction.IMMUNE, "炎症趋化")
+	room.push_state(-1)
 	ok = await _net_pump(srv, [a, b], func() -> bool: return m._feed._rows.size() > feed_n)
-	check(ok, "**自己那席**打的卡也进出牌列（此前被 viewing_pid 滤掉了）")
-	## 卡面底行写的必须是**昵称**，不是引擎默认的「免疫A」——
-	## CWRoom._name_seats() 在 game.init() 之后立刻改名，客户端 restore 视角快照时一起过来
-	var who0: String = String(m._feed._rows[m._feed._rows.size() - 1]["who"])
-	check(who0.begins_with("甲"), "出牌列写的是昵称而不是「免疫A」（%s）" % who0)
+	check(ok, "服务器记了一条流水 → 推状态 → 这一列长出一张")
+	var who0: String = String(m._feed._rows[m._feed._rows.size() - 1]["who"]) if ok else ""
+	check(who0.begins_with("甲"), "卡面底行写的是**昵称**而不是「免疫A」（%s）" % who0)
+
 	feed_n = m._feed._rows.size()
-	a.stream.append({ "t": "card_played", "pid": 1, "text": "癌症A 打出【糖酵解爆发】",
-		"cell_id": 1, "pos": Vector2i(1, 0), "faction": CWData.Faction.CANCER, "card": "糖酵解爆发" })
+	room.game.note_feed("event", 1, CWData.Faction.CANCER, "克隆增殖")
+	room.push_state(-1)
 	ok = await _net_pump(srv, [a, b], func() -> bool: return m._feed._rows.size() > feed_n)
-	check(ok, "别人打的卡进出牌列")
+	check(ok, "别人抽到的事件卡也进这一列")
+	var who1: String = String(m._feed._rows[m._feed._rows.size() - 1]["who"]) if ok else ""
+	check(who1.ends_with(CWFeed.EVENT_SUFFIX), "事件卡底行是「<抽到者> 事件卡」（%s）" % who1)
+
 	feed_n = m._feed._rows.size()
-	a.stream.append({ "t": "world_event", "ev": "基质阻隔", "left": 2 })
+	room.game.note_feed("world", -1, -1, "基质阻隔", 2)
+	room.push_state(-1)
 	ok = await _net_pump(srv, [a, b], func() -> bool: return m._feed._rows.size() > feed_n)
-	check(ok, "世界事件也进出牌列")
+	check(ok, "世界事件也进这一列")
+	if ok:
+		var wbox: Control = m._feed._rows[m._feed._rows.size() - 1]["box"]
+		check(not wbox.gui_input.get_connections().is_empty(),
+			"世界事件那张卡点得开（2026-09-07 漏接过 gui_input）")
+
+	## **断线重连补齐**（方案甲要解决的正主）：把列清空、游标归零 = 模拟「这几条广播我没收到」，
+	## 再照常推一次状态 —— 那一列必须自己长回来。这正是重连时走的路。
+	var had: int = m._feed._rows.size()
+	m._feed.clear_all()
+	m._feed_seq = 0
+	room.push_state(-1)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return m._feed._rows.size() >= had)
+	check(ok and had > 0, "清空后靠状态里的流水自己补齐了 %d 条（重连走的就是这条路）"
+		% m._feed._rows.size())
 	var wbox: Control = m._feed._rows[m._feed._rows.size() - 1]["box"]
 	check(not wbox.gui_input.get_connections().is_empty(),
 		"联机收到的世界事件那张卡点得开（2026-09-07 漏接过 gui_input）")

@@ -50,6 +50,17 @@ var chemo := {}
 var chemo_track := {}
 ## 免疫方上一次发动【效应应答】的世界回合（PRD：免疫方每个世界回合最多 1 次）
 var effector_round := -1
+## 左侧出牌列的**数据源**：最近 CWData.FEED_KEEP 条「打出 / 抽到事件卡 / 世界事件」。
+##
+## 为什么放进对局状态、而不是只靠 broadcast_*：广播是一次性的。客户端断线重连期间
+## （哪怕只断两秒、玩家毫无察觉）广播过的那几条就**永久错过**了 —— 日志有游标、
+## 棋盘有整份重推，唯独这一列什么都没有。进快照之后每次状态推送都带着它，
+## 重连与中途观战都自然补齐（2026-09-07 方案甲）。
+##
+## **不进状态哈希**（CWStateCodec.state_hash 里抹掉）：它是展示用的流水，不改任何结算，
+## 与 phase / win_reason 同类。seq 单调递增，界面据此只补没见过的那几条。
+var feed_log: Array = []
+var feed_seq := 0
 var cancer_win_streak := 0  # 癌方加权占地连续达标的回合末次数（见 tune.cancer_win_hold_rounds）；进快照与哈希
 var rng := RandomNumberGenerator.new()
 var bridges := {}          # player_id -> CWBridge
@@ -667,7 +678,20 @@ func _unique_bridges() -> Array:
 ## 文案用席位名不用细胞名（「癌症A 打出【糖酵解爆发】」）。去重规则同 announce。
 ## info 带 cell_id / pos / faction / card：联机的影子对局不跑 card_fx.play，客户端的头顶飞卡与右栏历史小卡
 ## （队友 2026-09-06 的表现层，本地走 `card_played` 信号）靠这条报文驱动。方法名带 broadcast_ 是为了不和那个信号撞名。
+## 往出牌流水里记一条。kind：play = 谁打出的 / event = 谁抽到的事件卡 / world = 世界事件。
+## 推演（sim_quiet）不记：那是副本里的假动作，记了既浪费又会污染快照。
+func note_feed(kind: String, pid: int, faction: int, card: String, left := 0) -> void:
+	if sim_quiet:
+		return
+	feed_seq += 1
+	feed_log.append({ "seq": feed_seq, "kind": kind, "pid": pid,
+		"faction": faction, "card": card, "left": left })
+	while feed_log.size() > CWData.FEED_KEEP:
+		feed_log.pop_front()
+
+
 func broadcast_card_played(cell: Dictionary, card: String) -> void:
+	note_feed("play", int(cell["pid"]), int(cell["faction"]), card)
 	var text := "%s 打出【%s】" % [player(cell["pid"])["name"], card]
 	var info := { "cell_id": int(cell["id"]), "pos": cell["pos"], "faction": int(cell["faction"]), "card": card }
 	for b in _unique_bridges():
@@ -678,6 +702,7 @@ func broadcast_card_played(cell: Dictionary, card: String) -> void:
 ## 与 `notice()` 并存而不是复用它：notice 传的是一句拼好的话，而左侧那一列要的是
 ## **结构化的事件名 + 剩余回合**（卡面写名字、详情框写效果）。从字符串里再解析出来太脆。
 func broadcast_world_event(ev_name: String, left: int) -> void:
+	note_feed("world", -1, -1, ev_name, left)
 	world_event.emit(ev_name, left)
 	for b in _unique_bridges():
 		b.show_world_event(ev_name, { "left": left })
@@ -686,6 +711,7 @@ func broadcast_world_event(ev_name: String, left: int) -> void:
 ## 抽到即结算的事件卡：广播给各桥（联机据此发报文），本地表现层走 `event_drawn` 信号。
 ## **不发「谁打出了卡」那种弹窗** —— 事件的效果自己会在格子上喊一句（CWCardFx._evt），再弹一次就是重复。
 func broadcast_event_drawn(cell: Dictionary, card: String) -> void:
+	note_feed("event", int(cell["pid"]), int(cell["faction"]), card)
 	var info := { "cell_id": int(cell["id"]), "pos": cell["pos"], "faction": int(cell["faction"]), "card": card }
 	for b in _unique_bridges():
 		b.show_event_drawn(cell["pid"], info)

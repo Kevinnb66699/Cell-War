@@ -178,7 +178,8 @@ var _fading := false  ## 正在演返场淡出：这期间**必须停掉每帧�
 var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
 var _tile_info: CWTileInfo   ## 悬停格子详情（_ready 里程序化补进 UI 层）
 var _card_info: CWCardInfo   ## 悬停手牌详情，同样程序化补进；与格子详情同一套打法
-var _feed: CWFeed            ## 棋盘左侧的出牌列（2026-09-07：别人打出的卡 + 抽到的事件卡）
+var _feed: CWFeed            ## 棋盘左侧的出牌列（打出的卡 / 抽到的事件卡 / 世界事件）
+var _feed_seq := 0           ## 已经补到 game.feed_log 的第几条（见 _sync_feed）
 var _chemo_fx: CWChemoFx     ## 树突【I-趋化源】的漩涡核心演出（挂在棋盘层，跟着格子走）
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
 var _erosion_fx := CWErosionFx.new()
@@ -443,6 +444,7 @@ func clear_transient_hud() -> void:
 		toast.hide_now()
 	if _feed != null and is_instance_valid(_feed):
 		_feed.clear_all()
+		_feed_seq = 0
 
 
 ## 教程局装配：建引导面板（UI 层、压在暂停菜单下面）并把它交给引导桥。
@@ -706,6 +708,7 @@ func teardown() -> void:
 		toast.hide_now()
 	if _feed != null and is_instance_valid(_feed):
 		_feed.clear_all()
+		_feed_seq = 0
 	if _tile_info != null:
 		_tile_info.hide_now()
 	if _card_info != null:
@@ -771,6 +774,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if game == null or game.tiles.is_empty() or _fading:
 		return
+	_sync_feed()   ## 出牌列跟着对局状态走（方案甲）：只补没见过的那几条，便宜
 	for c: Vector2i in _flash.keys():
 		_flash[c] -= delta
 		if _flash[c] <= 0.0:
@@ -1005,41 +1009,64 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 	return node
 
 
+## 把 `game.feed_log` 投影到左侧出牌列（方案甲，2026-09-07）。
+##
+## **这一列只有这一条数据通路**。原先是三个回调各自 `add_card`，那样它是「广播的副产品」——
+## 而广播是一次性的：客户端断线重连期间（哪怕只断两秒、玩家毫无察觉）那几条就永久错过了。
+## 日志有游标会整份补发、棋盘有整份重推，唯独这一列什么都没有。线上日志显示当晚这种
+## 「连断带连」出现了十几次，正好对上「有时候别人看不到我打的牌」。
+##
+## 改成投影之后：状态每推一次就补齐一次 —— 重连、中途观战、快照回滚全都自愈。
+## 幂等靠 seq，只补没见过的；seq 倒退 = 新开一局或回滚 → 整列重来。
+##
+## 代价：联机时这一列跟着状态推送走（每次询问推一次），最坏比头顶飞卡晚一次询问。
+## 用「晚一点但从不丢」换「快一点但偶尔永久缺一条」，这笔账值得。
+func _sync_feed() -> void:
+	if _feed == null or not is_instance_valid(_feed) or game == null:
+		return
+	if game.feed_seq < _feed_seq:
+		_feed.clear_all()
+		_feed_seq = 0
+	for e in game.feed_log:
+		var seq: int = int(e["seq"])
+		if seq <= _feed_seq:
+			continue
+		_feed_seq = seq
+		_feed_note(e)
+
+
+## 一条流水 → 一张卡面。世界事件不属于任何一方，走另一个入口（中性色 + 底行「世界事件」）。
+func _feed_note(e: Dictionary) -> void:
+	var card: String = String(e["card"])
+	if String(e["kind"]) == "world":
+		_feed.add_world_event(card, int(e["left"]))
+		return
+	var pid: int = int(e["pid"])
+	var faction: int = int(e["faction"])
+	var who := ""
+	if pid >= 0 and pid < game.players.size():
+		who = String(game.player(pid)["name"])   ## 联机局里这就是昵称
+	_feed.add_card(card, who, faction,
+		CWCardInfo.describe(card, faction, CWCardData.cancer_phase(game.round_no)),
+		String(e["kind"]) == "event")
+
+
 func _on_card_played(cell_id: int, pid: int, pos: Vector2i, faction: int, card_name: String, data: Dictionary) -> void:
 	if card_name == "":
 		return
 	if panel != null and is_instance_valid(panel):
 		panel.note_played_card(game, pid, faction, card_name)
-	## 左侧出牌列：**每一张都记**，卡面底下写明是谁打的。
-	##
-	## 2026-09-07 之前这里滤掉了「自己打的」（理由是「自己知道」）。那条过滤有两个真问题，
-	## Kevin 当天两句话都点到了：
-	##   ① **热座 / 本地多人**：打牌的那位下一刻就换人了，`viewing_pid()` 跟着变 ——
-	##      于是那张卡**对所有人**都没在这一列出现过，等于凭空消失；
-	##   ② 玩家的感受是「我打了牌，左边没反应」，而他分不清是「故意不记」还是「漏了」。
-	## 这一列是**出牌流水**，流水就该是完整的；谁打的由卡面底行说清楚，不会混。
-	##
-	## 本地与联机都走这个回调（联机是收到 card_played 报文后直接调），所以喂列的活儿
-	## 放在这里而不是界面桥里。
-	if _feed != null and is_instance_valid(_feed) and game != null:
-		_feed.add_card(card_name, String(game.player(pid)["name"]), faction,
-			CWCardInfo.describe(card_name, faction, CWCardData.cancer_phase(game.round_no)))
+	## 左侧出牌列**不在这里喂** —— 它由 `_sync_feed()` 从 `game.feed_log` 投影（方案甲，2026-09-07）。
+	## 这里只管头顶飞卡和右栏那排历史小卡。
 	_play_card_fx(cell_id, pos)
 
 
 ## 抽到即结算的事件卡：只记进右栏「回合数」那一栏（Kevin 2026-09-07 方案乙）。
 ## **不演头顶飞卡** —— 事件的效果自己会在那一格喊一句，两样叠在同一格上太吵。
-func _on_event_drawn(_cell_id: int, pid: int, _pos: Vector2i, faction: int, card_name: String) -> void:
+func _on_event_drawn(_cell_id: int, _pid: int, _pos: Vector2i, faction: int, card_name: String) -> void:
 	if card_name == "":
 		return
-	var rows: Dictionary = CWCardInfo.describe(card_name, faction,
-		CWCardData.cancer_phase(game.round_no) if game != null else 0)
-	## 事件卡谁都没「打出」，但总归是**某个细胞抽到**的 —— 底行写「<抽到者>·抽」
-	##（不是「世界事件」：那是系统在第 3/6/10/14 回合抽的那 17 个全局事件，两回事）
-	if _feed != null and is_instance_valid(_feed):
-		var who := String(game.player(pid)["name"]) if game != null and pid >= 0 \
-			and pid < game.players.size() else ""
-		_feed.add_card(card_name, who, faction, rows, true)
+	## 出牌列同样由 `_sync_feed()` 投影，这里只喂右栏「回合数」那一栏
 	if panel == null or not is_instance_valid(panel):
 		return
 	panel.note_event_card(game, faction, card_name)
@@ -1047,9 +1074,10 @@ func _on_event_drawn(_cell_id: int, pid: int, _pos: Vector2i, faction: int, card
 
 ## 抽到一个世界事件：进棋盘左侧那一列（Kevin 2026-09-07）。**不演头顶飞卡** ——
 ## 它不属于任何一个细胞，没有起飞的地方。
-func _on_world_event(ev_name: String, left: int) -> void:
-	if _feed != null and is_instance_valid(_feed):
-		_feed.add_world_event(ev_name, left)
+func _on_world_event(_ev_name: String, _left: int) -> void:
+	## 回调留着是为了**接住信号 / 报文**（不接的话联机那条 world_event 报文没人要），
+	## 但列的内容由 `_sync_feed()` 投影 —— 一条数据通路，重连才补得齐。
+	pass
 
 
 ## 抽到一张卡：头顶演出（倒放）。**三种来源都演**（基因表达 / 骨髓 / 突变）——

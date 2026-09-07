@@ -11,6 +11,8 @@ static func snapshot(game: CWGame) -> Dictionary:
 		"tiles": game.tiles.duplicate(true),
 		"cells": game.cells.duplicate(true),
 		"chemo_track": game.chemo_track.duplicate(true),
+		"feed_log": game.feed_log.duplicate(true),
+		"feed_seq": game.feed_seq,
 		"effector_round": game.effector_round,
 		"players": game.players.duplicate(true), "order": game.order.duplicate(),
 		"differentiated": game.differentiated.duplicate(),
@@ -29,6 +31,8 @@ static func restore(game: CWGame, snap: Dictionary) -> void:
 	game.tiles = snap["tiles"].duplicate(true)
 	game.cells = snap["cells"].duplicate(true)
 	game.chemo_track = snap.get("chemo_track", {}).duplicate(true)
+	game.feed_log = snap.get("feed_log", []).duplicate(true)
+	game.feed_seq = int(snap.get("feed_seq", 0))
 	game.effector_round = int(snap.get("effector_round", -1))
 	game.players = snap["players"].duplicate(true)
 	game.order = snap.get("order", game.order).duplicate()
@@ -59,6 +63,10 @@ static func state_hash(game: CWGame) -> String:
 	state.erase("phase")
 	state.erase("win_reason")
 	state.erase("win_kind")
+	## 出牌流水是**展示用**的，不改任何结算 —— 进快照（好让重连补齐），但不进哈希，
+	## 否则「界面上留几条」就成了对局一致性的一部分（2026-09-07）
+	state.erase("feed_log")
+	state.erase("feed_seq")
 	for cell in state["cells"]:
 		cell.erase("play_n")
 	return _encode(state).sha256_text()
