@@ -281,6 +281,10 @@ const PROLIFERATE_PER_ADJ := 30          # 千分率：每个相邻癌性组织�
 ## 一片地里固化了一格，整片的对外扩散都加速。
 const PROLIFERATE_PER_ADJ_SOLID := 40
 
+## 【E-侵蚀】一次转几格：2/3 概率取前者、1/3 概率取后者（PRD 2026-09-07 由 1/2 抬到 2/3）。
+## 做成常量是为了能扫 —— 它和增生一样是「癌方占地速度」的直接杠杆。
+const EROSION_TILES := Vector2i(2, 3)
+
 const PRESSURE_FREE_ADJ := 2             # 前 2 格不造成损失
 const PRESSURE_PER_ADJ := 5              # 超出部分每格 0.5
 

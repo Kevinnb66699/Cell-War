@@ -132,6 +132,8 @@ var agrow2 := -9999   ## 负值合法（反方向），哨兵不能用 -1
 var amem := -9999   ## 负值合法（反方向），哨兵不能用 -1
 var amemcap := -1
 var prolif := -1
+var prolifs := -1   ## 【E-增生】连通块含固化时那一档（千分率，现值 40 = 4%）
+var erosion := -1   ## 【E-侵蚀】一次转几格：传 N 表示 (N, N+1)，现值 2 → (2,3)；传 1 退回旧的 (1,2)
 var solid := -1
 var cwin := -1
 var chold := -1
@@ -206,6 +208,8 @@ func _parse() -> void:
 			"amem": amem = int(kv[1])
 			"amemcap": amemcap = int(kv[1])
 			"prolif": prolif = int(kv[1])
+			"prolifs": prolifs = int(kv[1])
+			"erosion": erosion = int(kv[1])
 			"solid": solid = int(kv[1])
 			"cwin": cwin = int(kv[1])
 			"chold": chold = int(kv[1])
@@ -292,6 +296,10 @@ func _tune() -> CWTuning:
 		t.immune_attack_pct_memory_cap = amemcap
 	if prolif >= 0:
 		t.proliferate_per_adjacent = prolif
+	if prolifs >= 0:
+		t.proliferate_per_adjacent_solid = prolifs
+	if erosion >= 0:
+		t.erosion_tiles = Vector2i(erosion, erosion + 1)
 	if solid >= 0:
 		t.solidify_threshold = solid
 	if cwin >= 0:
@@ -390,6 +398,8 @@ func _applied(t: CWTuning) -> String:
 			["amem", t.immune_attack_pct_per_memory, d.immune_attack_pct_per_memory],
 			["amemcap", t.immune_attack_pct_memory_cap, d.immune_attack_pct_memory_cap],
 			["prolif", t.proliferate_per_adjacent, d.proliferate_per_adjacent],
+			["prolifs", t.proliferate_per_adjacent_solid, d.proliferate_per_adjacent_solid],
+			["erosion", t.erosion_tiles.x, d.erosion_tiles.x],
 			["solid", t.solidify_threshold, d.solidify_threshold],
 			["cwin", t.cancer_win_weighted, d.cancer_win_weighted],
 			["chold", t.cancer_win_hold_rounds, d.cancer_win_hold_rounds],

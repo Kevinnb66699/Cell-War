@@ -449,7 +449,8 @@ func _erosion() -> void:
 	# 一局要掷 7 次左右，每次都演会拖节奏（决策 ④，2026-08-27 定）。
 	# 若团队改主意要演，把这行换成 `await game.roll_shown(3, "侵蚀")` 即可 ——
 	# rng 消耗完全一样，平衡数据和同种子复现都不受影响，但 _erosion() 及其调用链要改成 async。
-	var count: int = 2 if game.roll_d3() <= 2 else 3  # 2/3→2 格，1/3→3 格（PRD 2026-09-07 各抬一格）
+	## 2/3 概率取 x、1/3 概率取 y（PRD 2026-09-07 是 2/3；旋钮 erosion_tiles 可扫回 1/2）
+	var count: int = int(game.tune.erosion_tiles.x if game.roll_d3() <= 2 else game.tune.erosion_tiles.y)
 	var picked: Array = game.pick_random(eligible, count)
 	## 过场方向要在**转化之前**全部算完：同一批里两格相邻时，
 	## 先转的那格会变成后转那格的「来源」，方向就不再是「侵蚀从哪来」了。
