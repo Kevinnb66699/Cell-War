@@ -913,9 +913,7 @@ func purify_here(cell: Dictionary, dest: Vector2i, paid: int) -> void:
 	## 连续净化合并成一条（Kevin 2026-09-07）。三种情形各自成一串：尾巴不一样，混在一起会看不懂；
 	## 正常那串的尾巴每次用最新的累计记忆数，正是想看的那个
 	var run := "净化:%d" % cell["pid"]
-	if game.event_stacks("免疫抑制因子") > 0:
-		game.log_run(run + ":抑制", str(dest), "　【净化】", " 转为健康组织（免疫抑制因子：不获得抗原记忆）")
-	elif not game.purify_gives_memory():
+	if not game.purify_gives_memory():
 		## 卡牌连锁出来的净化（抽到的卡、打出的即时卡）不积累抗原记忆（Kevin 2026-09-07）
 		game.log_run(run + ":卡牌", str(dest), "　【净化】", " 转为健康组织（卡牌造成：不获得抗原记忆）")
 	else:

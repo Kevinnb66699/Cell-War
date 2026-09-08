@@ -98,7 +98,7 @@ func _run_all() -> void:
 		t_card_mods, t_settle_order_rulings, t_review_fixes, t_review_0831,
 		t_attack_cap, t_pass_through_ally, t_batch_death_and_triggers, t_design_required_checks,
 		t_damage_pipeline, t_card_perms, t_world_events_draw, t_ev_attack_mods,
-		t_ev_attack_flow, t_ev_costs, t_ev_suppressor, t_ev_supply,
+		t_ev_attack_flow, t_ev_costs, t_ev_supply,
 		t_solidify_threshold, t_ev_chaos, t_ev_chaos_simul, t_ev_memory,
 		t_ev_proliferate, t_ev_double, t_ev_double_instant, t_ev_lifecycle,
 		t_breath_sheets, t_solidify_and_decay, t_vessel_no_solid, t_erosion, t_macro_purify_heal,
@@ -4194,8 +4194,12 @@ func t_skill_info() -> void:
 	print("[技能详情]")
 	## 每个会上行动栏的技能都得有名字和 PRD 原文——漏登记在这里当场报出来
 	var missing: Array = []
-	for act in ["move", "draw", "differentiate", "antibody", "toxin", "lyse",
-			"mutate", "homing", "mucus", "jump", "end"]:
+	## **遍历 ACT_NAMES**（2026-09-08 由手写清单改过来）：原来那份清单漏了 effector，
+	## 于是【效应应答】的详情框空了一整块也没人报 —— Kevin 截图报上来才发现。
+	## play / discard 不上行动栏（名字只给日志和护栏用），跳过。
+	for act in CWData.ACT_NAMES:
+		if act in ["play", "discard"]:
+			continue
 		if not CWData.ACT_NAMES.has(act):
 			missing.append(act + "(名字)")
 		for f in [CWData.Faction.IMMUNE, CWData.Faction.CANCER]:
@@ -5061,9 +5065,9 @@ func t_match_panel() -> void:
 	check(not p._events.visible and p._events.text == "", "没有事件 → 那一行隐藏")
 	g.events["active"].append({ "name": "基质阻隔", "left": 2, "stacks": 1, "data": {} })
 	g.events["active"].append({ "name": "TGF-β释放", "left": 2, "stacks": 1, "data": {} })   ## 卡牌挂的全局修饰，不列
-	g.events["active"].append({ "name": "免疫抑制因子", "left": 1, "stacks": 2, "data": {} })
+	g.events["active"].append({ "name": "增殖抑制", "left": 1, "stacks": 2, "data": {} })
 	p.refresh(g)
-	check(p._events.visible and p._events.text == "【基质阻隔】剩2回合·【免疫抑制因子】×2本回合",
+	check(p._events.visible and p._events.text == "【基质阻隔】剩2回合·【增殖抑制】×2本回合",
 		"列出世界事件、剩余回合与叠数，不列卡牌全局修饰：%s" % p._events.text)
 	check(p._events.position.y >= p._phase.position.y + 12
 		and p._events.position.y < CWMatchPanel.PAD + CWMatchPanel.ROUND_H + CWMatchPanel.GAP,
@@ -5078,7 +5082,7 @@ func t_match_panel() -> void:
 				tip_texts.append((c as Label).text)
 	check(p._event_tip != null and p._event_tip.visible
 		and tip_texts.has("【基质阻隔】") and tip_texts.has(CWWorldFx.BLURB["基质阻隔"])
-		and tip_texts.has("【免疫抑制因子】×2") and tip_texts.has("剩 2 回合") and tip_texts.has("本回合"),
+		and tip_texts.has("【增殖抑制】×2") and tip_texts.has("剩 2 回合") and tip_texts.has("本回合"),
 		"悬浮详情：每个世界事件的名字、叠数、剩余回合与一句话效果（%d 个标签）" % tip_texts.size())
 	check(not tip_texts.has("【TGF-β释放】"), "卡牌全局修饰不进悬浮详情")
 	p._event_hover = false
@@ -5147,8 +5151,8 @@ func t_match_panel() -> void:
 	var second: Control = fd._rows[fd._rows.size() - 2]["box"]
 	check(top.position.y < second.position.y, "最新的一张画在最上面")
 	## 事件卡：谁都没打出，底下写「世界事件」
-	fd.add_card("免疫抑制因子", "", CWData.Faction.CANCER,
-		CWCardInfo.describe("免疫抑制因子", CWData.Faction.CANCER, 0), true)
+	fd.add_card("增殖抑制", "", CWData.Faction.CANCER,
+		CWCardInfo.describe("增殖抑制", CWData.Faction.CANCER, 0), true)
 	check(String(fd._rows[fd._rows.size() - 1]["who"]).ends_with(CWFeed.EVENT_SUFFIX),
 		"事件卡底行写「<抽到者>·抽」（%s）" % String(fd._rows[fd._rows.size() - 1]["who"]))
 	check(CWFeed.EVENT_SUFFIX != "世界事件" and CWFeed.WORLD_WHO == "世界事件",
@@ -8729,10 +8733,14 @@ func _find_act(opts: Array, act: String) -> Dictionary:
 func t_world_events_draw() -> void:
 	print("[世界事件·抽取]")
 	var g := _fx_game(2)
-	check(g.events["pool"].size() == 17, "开局事件池 17 个（2026-09-07 删【固化加速】）")
+	## 事件池大小跟着 CWWorldFx.EVENTS 走，别写死数字对不上：
+	## 17（09-07 删【固化加速】）→ **16**（09-08 删【免疫抑制因子】）
+	check(g.events["pool"].size() == CWWorldFx.EVENTS.size()
+		and g.events["pool"].size() == 16, "开局事件池 16 个 = EVENTS 表的长度")
 	for i in 7:
 		await g.world_fx.trigger()
-	check(g.events["pool"].size() == 10, "7 次触发后事件池剩 10（同局不重复，定案 #42）")
+	check(g.events["pool"].size() == CWWorldFx.EVENTS.size() - 7,
+		"7 次触发后事件池少 7 个（同局不重复，定案 #42）")
 	var g2 := _fx_game(2)
 	for i in 7:
 		await g2.world_fx.trigger()
@@ -8867,34 +8875,6 @@ func t_ev_costs() -> void:
 	check(not opts.is_empty(), "细胞应激：付得起时选项照常")
 	await g.card_fx.play(imm, opts[0]["data"])
 	check(imm["energy"] == 95, "细胞应激：打出时支付 0.5")
-
-
-func t_ev_suppressor() -> void:
-	print("[世界事件·免疫抑制因子]")
-	var g := _fx_game(2)
-	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
-	imm["energy"] = 100
-	imm["hand"] = ["测试卡A", "测试卡B"]
-	g.cells.append(imm)
-	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
-	var e := _install(g, "免疫抑制因子")
-	var opts: Array = []
-	g.actions._immune_options(imm, opts)
-	var mv := {}
-	for o in opts:
-		if o["data"].get("act", "") == "move" and o["data"]["to"] == Vector2i(1, 0):
-			mv = o
-	check(mv["data"]["cost"] == g.tune.immune_move_cancerous[0] + 2, "净化移动加价 0.2（定案 W5）")
-	var mem0: int = g.memory
-	await g.actions.enter_tile(imm, Vector2i(1, 0))
-	check(g.tiles[Vector2i(1, 0)]["tissue"] == CWData.Tissue.HEALTHY and g.memory == mem0,
-		"净化照常发生但不获得抗原记忆（定案 W5）")
-	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 3), -1, CWData.CancerType.MELANOMA)
-	can["energy"] = 20
-	g.cells.append(can)
-	await g.world_fx._resolve(e)
-	check(can["energy"] == 15, "一次性部分：所有癌细胞失去 0.5")
-	check(imm["hand"].size() == 1, "一次性部分：所有免疫随机弃 1 张（定案 W6）")
 
 
 func t_ev_supply() -> void:
@@ -10622,8 +10602,11 @@ func _t_ruling_b_armor() -> void:
 	var atk := CWSetup.make_cell(1, 1, CWData.Faction.IMMUNE, Vector2i(3, 0),
 		CWData.ImmuneType.BASIC, -1, 100)
 	g.cells.append(atk)
-	check(g.cancer_hit(sig, 5, "免疫抑制因子") == 0,
-		"B：世界事件的 0.5 被【囊性护甲】完全挡下（旧版挡不住）")
+	## 【免疫抑制因子】2026-09-08 随 PRD 删除后，**眼下没有任何世界事件伤害癌细胞**，
+	## 这条于是从「守一条活路径」变成「守一条契约」：减免不限来源，
+	## 下一个这类事件加进来时不该再踩一次「只挂 immune_hit」的坑（2026-08-30 那次审查）。
+	check(g.cancer_hit(sig, 5, "世界事件") == 0,
+		"B：非 immune_hit 来路的 0.5 也被【囊性护甲】挡下（旧版挡不住）")
 	check(sig["armor_used"], "B：这一轮的护甲额度已用掉")
 	check(g.immune_hit(sig, 10, atk, false) == 10,
 		"B：同一世界回合内不再减免，两条管线共用同一个额度")
@@ -10734,7 +10717,7 @@ func _t_no_fake_double_trigger() -> void:
 
 	## 真被【双重触发】加倍的本回合类**世界事件**，仍要照常重演
 	var g2 := bare_game()
-	g2.events["active"].append({ "name": "免疫抑制因子", "left": 2, "stacks": 1, "data": {} })
+	g2.events["active"].append({ "name": "增殖抑制", "left": 2, "stacks": 1, "data": {} })
 	var n1: int = g2.logs.size()
 	await g2.world_fx.on_round_start()
 	var replayed := false
@@ -11054,17 +11037,20 @@ func t_attack_cap() -> void:
 	check(poor.contains("要 %s" % CWData.fmt(imm["energy"])) and poor.contains("留 0.1"),
 		"账上正好等于价钱 → 解释「要 X，账上 X，付完至少留 0.1」：%s" % poor)
 	## 2026-09-06 起【基质阻隔】只翻癌细胞：免疫的解释里不再出现它、价也不变；
-	## 「点名修正与新价」这条路改拿【免疫抑制因子】（免疫进普通癌组织多付 0.2）来钉
+	## 「点名修正与新价」这条路 2026-09-08 改拿【黏液侵染】（免疫踏进黏液格 +0.5）——
+	## 原来用的【免疫抑制因子】随 PRD 删了，而删掉之后**没有任何世界事件抬高免疫的迁移费**，
+	## 所以这条只能换成非世界事件的加价。要钉的意图没变：解释里点名修正、报出新价。
 	g.events["active"].append({ "name": "基质阻隔", "left": 2, "stacks": 1, "data": {} })
 	var same: String = g.actions.move_block_reason(imm, far_c)
 	check(not same.contains("【基质阻隔】") and same.contains("要 %s" % CWData.fmt(imm["energy"])),
 		"【基质阻隔】不翻免疫：解释不点名它、价照旧：%s" % same)
 	g.events["active"].pop_back()
-	g.events["active"].append({ "name": "免疫抑制因子", "left": 1, "stacks": 1, "data": {} })
+	g.tiles[far_c]["mucus"] = true
 	var taxed: String = g.actions.move_block_reason(imm, far_c)
-	check(taxed.contains("【免疫抑制因子】") and taxed.contains("要 %s" % CWData.fmt(imm["energy"] + 2)),
-		"【免疫抑制因子】加价后解释里点名事件与新价：%s" % taxed)
-	g.events["active"].pop_back()
+	check(taxed.contains("【黏液侵染】")
+			and taxed.contains("要 %s" % CWData.fmt(imm["energy"] + g.tune.mucus_move_surcharge)),
+		"【黏液侵染】加价后解释里点名修正与新价：%s" % taxed)
+	g.tiles[far_c]["mucus"] = false
 	imm["energy"] = e0
 	g.tiles[far_c]["tissue"] = far_was
 	var why: String = g.actions.move_block_reason(imm, Vector2i(1, 0))
@@ -11331,17 +11317,10 @@ func _t_cost_required() -> void:
 	check(int(q_hard["final"]) == 3, "§11.4 行动硬下限免费也豁免不掉")
 	g2.dispose()
 
-	## §十一.5 免费不豁免明写的附加支付（【免疫抑制因子】的净化费走 SURCHARGE 层）
-	var g3 := bare_game()
-	g3.tiles[canc]["tissue"] = CWData.Tissue.CANCER
-	var c3 := put_immune(g3, Vector2i.ZERO)
-	put_skill(c3, "组织巡航")
-	g3.events["active"].append({ "name": "免疫抑制因子", "left": 1, "stacks": 1, "data": {} })
-	var q3 := g3.cost.quote(CWCost.context(c3, CWCost.Action.MOVE, 10, canc))
-	check(int(q3["normal_cost"]) > 0, "§11.5 普通费用本来不是 0")
-	check(int(q3["mandatory_extra"]) == 2, "§11.5 净化费落在不可豁免附加费层")
-	check(int(q3["final"]) == 2, "§11.5 免费把普通费用清零，附加费仍要付")
-	g3.dispose()
+	## §十一.5「免费不豁免明写的附加支付」这一组 2026-09-08 删掉了：它唯一的数据来源是
+	## 【免疫抑制因子】的净化费，那个世界事件随 PRD 删了，于是 Phase.SURCHARGE 层**一个条目都没有**，
+	## 没法再用数据驱动地验它。管线那一层没拆（见 CWCost 世界事件段的注释），
+	## **下一个用 SURCHARGE 的效果加进来时，把这一组按 git 历史补回来**（HEAD~ 的这个位置）。
 
 	## §十一.10 同阶段同优先级：先按**来源**分层（卡牌 → 技能），再按 applied_seq。
 	## 装备/打出顺序反过来，结果必须一样。

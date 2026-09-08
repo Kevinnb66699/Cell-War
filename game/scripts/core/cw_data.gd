@@ -555,7 +555,55 @@ const SKILL_TEXT := {
 		+ "· 免疫细胞进入被标记的格不能立即【净化】，须在该格停留一个世界回合，下一世界回合开始时完成净化（净化即取消标记）",
 	"jump": "【转移】：消耗1点能量向某方向跃进5格\n"
 		+ "· 跃进路径上无法触发【定殖】、代谢核心骨髓收取等效果，终点可以触发",
+	"effector": "【I-效应应答】：免疫等级达到X级后，分化后的免疫细胞解锁其专属【效应应答】
+"
+		+ "· 每次发动统一消耗15效应记忆
+"
+		+ "· 每个免疫细胞每局最多发动1次，已发动的记录在死亡、复活后仍然保留
+"
+		+ "· 免疫方每个世界回合最多发动1次
+"
+		+ "· 只能由存活的细胞在自己的行动回合发动；未分化的免疫细胞不能发动",
 	"end": "结束本回合的行动，交给下一位玩家。",
+}
+
+## 四种分化各自的【效应应答】正文（PRD「免疫细胞种类」各节）。
+## **和通用条文分开放**：上面那条讲「怎么才能发动」，四种细胞完全一样；
+## 这里讲「发动之后干什么」，四种完全不同。详情框把两段接起来显示。
+## 分开的实际好处：改门槛（费用、次数）只动一处，不必四条都跟着改。
+const EFFECTOR_TEXT := {
+	ImmuneType.DENDRITIC: "【效应应答-免疫猎杀】：选定全局任意一个癌细胞使其获得【标记】，
+"
+		+ "同时在其上附着跟随的【追踪趋化源】
+"
+		+ "· 【追踪趋化源】持续2回合，始终跟随该癌细胞
+"
+		+ "· 该癌细胞移动视为远离趋化源
+"
+		+ "· 癌细胞死亡后趋化源留在死亡格",
+	ImmuneType.MACRO: "【效应应答-连续吞噬】：发动后，本行动回合巨噬细胞第一次【净化】后，
+"
+		+ "可立即免费向相邻癌组织迁移
+"
+		+ "· 若再次净化则重复触发，最多触发5次
+"
+		+ "· 每连续净化1格，下一次攻击额外+0.5伤害",
+	ImmuneType.B_CELL: "【效应应答-中和抗体】：所有与健康组织相邻的癌细胞的
+"
+		+ "种类特殊效果 / 永久卡牌效果在当前回合和下一回合失效",
+	ImmuneType.T_CELL: "【效应应答-Excalibur】：发动时选择六个方向中的一个，
+"
+		+ "沿该方向释放大规模细胞毒性物质
+"
+		+ "· 主射线：以T细胞所在格为起点，向所选方向延伸至棋盘边缘
+"
+		+ "· 侧向波及：主射线相邻的所有癌组织有60%概率进入范围
+"
+		+ "· 范围内所有癌组织转为健康组织并进入「坏死」状态
+"
+		+ "　· 固化癌组织不被转化
+"
+		+ "· 主射线上的癌细胞损失2能量，侧向波及的癌细胞损失1能量",
 }
 
 
@@ -576,20 +624,28 @@ const ACT_NAMES := {
 
 ## 技能的显示名。**「迁移」（免疫）和「移动」（癌症）在规则里是两个词，不能混用**——
 ## 行动栏、右栏固定详情、详情框标题一律走这里，别各写各的（CWUIBridge._move_title 同口径）
-static func act_name(act: String, faction: int) -> String:
+static func act_name(act: String, faction: int, itype := -1) -> String:
 	if act == "move" and faction == Faction.CANCER:
 		return "移动"
+	## 【效应应答】四种分化各是一个技能，光写「效应应答」等于没说
+	if act == "effector" and EFFECTOR_NAMES.has(itype):
+		return "效应应答·" + EFFECTOR_NAMES[itype]
 	return ACT_NAMES.get(act, act)
 
 
 ## 某个主动技能的 PRD 原文；faction 分「迁移 / 移动」「基因表达」两套措辞。
-## 没登记的键返回空串（护栏测试盯着 ACT_TITLE 与这里的差集）
-static func skill_text(act: String, faction: int) -> String:
+## itype（免疫分化种类）目前只有【效应应答】用得上 —— 给了就把那一种的正文接在通用条文后面。
+## 没登记的键返回空串（护栏测试遍历 ACT_NAMES 盯这个，2026-09-08 由手写清单改成遍历）
+static func skill_text(act: String, faction: int, itype := -1) -> String:
 	var per_faction: Dictionary = SKILL_TEXT_IMMUNE if faction == Faction.IMMUNE \
 		else SKILL_TEXT_CANCER
 	if per_faction.has(act):
 		return per_faction[act]
-	return SKILL_TEXT.get(act, "")
+	var base: String = SKILL_TEXT.get(act, "")
+	if act == "effector" and EFFECTOR_TEXT.has(itype):
+		return base + "
+" + EFFECTOR_TEXT[itype]
+	return base
 
 
 const LEVEL_NAMES := ["I", "II", "III", "X"]

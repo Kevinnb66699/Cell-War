@@ -169,11 +169,13 @@ static func describe_type(t: int, kind := "【分化】") -> Dictionary:
 
 ## 某个主动技能该显示什么：{ name, kind, lines }。文案是 CWData.skill_text() 里的 PRD 原文。
 ## faction 决定「迁移 / 移动」「基因表达」两套措辞（规则里就是两个词、两个价）
-static func describe_act(act: String, faction: int) -> Dictionary:
+## itype = 免疫分化种类，只有【效应应答】用得上（四种分化各是一个技能，
+## 不传就只出通用条文、看不到「发动之后干什么」—— 2026-09-08 Kevin 报的正是这个）。
+static func describe_act(act: String, faction: int, itype := -1) -> Dictionary:
 	return {
-		"name": CWData.act_name(act, faction),
+		"name": CWData.act_name(act, faction, itype),
 		"kind": "【主动技能】",
-		"lines": wrap_text(CWData.skill_text(act, faction), W - PAD_H * 2.0),
+		"lines": wrap_text(CWData.skill_text(act, faction, itype), W - PAD_H * 2.0),
 	}
 
 

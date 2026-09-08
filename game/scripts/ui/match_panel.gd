@@ -755,7 +755,7 @@ func _update_event_tip(game: CWGame) -> void:
 		blurb.position = Vector2(12, y + 24)
 		## ⚠ 先开自动换行、再定宽：反过来的话，定宽那一刻 Label 的最小宽度还是整句的宽度，
 		## size.x 会被夹到整句那么宽、之后也不会缩回来 —— 一句话就单行溢出框外
-		## （2026-09-03 Kevin 截图：【免疫抑制因子】那句压到框边上）
+		## （2026-09-03 Kevin 截图：当时【免疫抑制因子】那句压到框边上）
 		blurb.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY   ## 中文没有词边界，按字换行
 		blurb.size = Vector2(tip_w - 24, 0)
 		_event_tip.add_child(blurb)
@@ -806,7 +806,7 @@ static func tip_rows(game: CWGame, pid: int, full: bool) -> Array:
 	var acts: Array = []
 	for act in game.actions.action_kinds(cell):
 		acts.append({ "text": CWData.act_name(act, cell["faction"]),
-			"info": CWCardInfo.describe_act(act, cell["faction"]) })
+			"info": CWCardInfo.describe_act(act, cell["faction"], int(cell["itype"])) })
 	if not acts.is_empty():
 		out.append({ "head": "主动技能" })
 		out.append_array(acts)
@@ -938,7 +938,7 @@ func _set_pips(row: Dictionary, n: int, accent: Color) -> void:
 		pip.modulate.a = 1.0 if k < n else 0.45
 
 
-## 进行中的世界事件一行字：「【基质阻隔】本回合·【免疫抑制因子】剩2回合」。
+## 进行中的世界事件一行字：「【基质阻隔】本回合·【增殖抑制】剩2回合」。
 ## 只列世界事件（`is_world_event`），卡牌挂的全局修饰（TGF-β…）不在这里 —— 那些有卡面可查。
 ## `left` 含当前回合：触发当回合的持续事件是「剩2回合」，回合末倒计时后是「剩1回合」。
 ## 写法故意不留空格：两个六字事件并排是 22 个字，232px 的行宽刚好放下；加空格就得省略号。

@@ -140,19 +140,9 @@ const TEMPLATES := {
 		"cond": ["to_cancerous", "has_allowance"], "source": Source.SKILL, "store": Store.MOD,
 	}],
 	# ---- 世界事件 ----
-	## 「净化的钱不是迁移的钱」（口径 #65）→ 落在不可豁免附加费层，
-	## 既砍不掉也免不掉（设计 §五的「额外支付 X」）
-	"免疫抑制因子": [
-		{
-			"action": Action.MOVE, "phase": Phase.SURCHARGE, "value": 2,
-			"cond": ["immune", "to_plain_cancer"], "source": Source.WORLD, "store": Store.NONE,
-		},
-		## 【裂解】顺带净化的那一档，同一笔净化费
-		{
-			"action": Action.PURIFY, "phase": Phase.SURCHARGE, "value": 2,
-			"cond": [], "source": Source.WORLD, "store": Store.NONE,
-		},
-	],
+	## ⚠【免疫抑制因子】2026-09-08 随 PRD 删除，它是**唯一**用 Phase.SURCHARGE 的条目。
+	## 那一层（不可豁免附加费，口径 #65「净化的钱不是迁移的钱」）暂时空着但**没有拆**——
+	## 拆掉要动整条报价管线与它的测试，而「额外支付 X」是设计 §五写明的一层，迟早还会用上。
 	## 【细胞应激】打出卡牌需支付 0.5/层。是普通加费，不是附加费——
 	## 将来若有「打牌免费」的卡，应当能豁免掉它
 	"细胞应激": [{
