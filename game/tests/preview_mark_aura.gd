@@ -41,8 +41,9 @@ func _process(d: float) -> bool:
 	for c in CWData.all_coords():
 		var dist := CWData.hex_dist(c, at)
 		if dist > 0 and dist <= CWData.MARK_RANGE:
-			tiles.append(_board.tile_center(c))
-	_fx.sync(d, [{ "origin": _board.tile_center(at), "tiles": tiles }], 100)
+			tiles.append({ "pos": _board.tile_center(c),
+				"z": _board.tile_z(c, _board.Z_MARK) })
+	_fx.sync(d, [{ "origin": _board.tile_center(at), "tiles": tiles }])
 	_t += d
 	if _t < SHOTS[_shot]:
 		return false

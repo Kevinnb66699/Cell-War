@@ -905,10 +905,12 @@ func _sync_mark_aura(delta: float) -> void:
 		for c in CWData.all_coords():
 			var d := CWData.hex_dist(c, at)
 			if d > 0 and d <= CWData.MARK_RANGE:
-				tiles.append(board.tile_center(c))
+				## **z 按格给**：棋盘是按排分层的，整只演出共用一个 z 的话，
+				## 比它靠前的那些排会把粒子盖掉（Kevin 2026-09-08 报的「有时候不显示」）。
+				## Z_MARK 这一层：压在细胞下面 —— 这是地面上的东西，不该盖住站在上面的细胞。
+				tiles.append({ "pos": board.tile_center(c), "z": board.tile_z(c, board.Z_MARK) })
 		auras.append({ "origin": board.tile_center(at), "tiles": tiles })
-	## 压在细胞下面（Z_MARK 那一层）：这是地面上的东西，不该盖住站在上面的细胞
-	_mark_aura_fx.sync(delta, auras, board.tile_z(Vector2i.ZERO, board.Z_MARK))
+	_mark_aura_fx.sync(delta, auras)
 
 
 func _sync_cells() -> void:

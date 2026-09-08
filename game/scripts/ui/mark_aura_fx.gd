@@ -40,18 +40,65 @@ const SEED_OFFSET: Array[Vector2] = [
 	Vector2(-5.0, -2.0), Vector2(4.0, -3.0), Vector2(0.0, 3.0),
 ]
 
+## 一格上的那几个粒子。
+##
+## **为什么每格要单独一个节点**：一个节点只有一个 `z_index`，而棋盘是**按排分层**的
+## （组织块的 z = 自己的 y，前一排 +20）。拿一个 z 画满 19 格的话，比它靠前的那些排
+## 会正正当当把粒子盖掉 —— Kevin 2026-09-08 报「有时候不显示」，其实是下半片一直被盖着，
+## 而且树突站得越靠后盖得越多。同 `CWBoard._marks` 的做法：一格一个节点，各拿自己那格的 z。
+class TileDots:
+	extends Node2D
+	var toward := Vector2.ZERO   ## 朝树突的方向（相对本格）
+	var phase := 0.0
+	var t := 0.0
+
+	func _draw() -> void:
+		var frame := CWMarkAuraFx.frame_of(t)
+		for k in CWMarkAuraFx.PER_TILE:
+			var prog := CWMarkAuraFx.progress_of(frame,
+				phase + float(k) / CWMarkAuraFx.PER_TILE)
+			var at: Vector2i = CWMarkAuraFx.offset_at(k, toward, prog)
+			draw_rect(Rect2(at.x, at.y, CWMarkAuraFx.DOT_PX, CWMarkAuraFx.DOT_PX),
+				Color(CWMarkAuraFx.COLOR, CWMarkAuraFx.alpha_of(prog)), true)
+
+
 var _t := 0.0
-var _auras: Array = []               ## [{ origin: Vector2, tiles: Array[Vector2] }]
+var _pool: Array[TileDots] = []      ## 复用的格子节点；多出来的藏起来，不销毁
 
 
-## 每帧喂：`auras` 每项是一只树突的 { origin（它自己的格心）, tiles（范围内各格的格心） }。
+## 每帧喂：`auras` 每项是一只树突的
+## { origin: 它自己的格心, tiles: [{ pos: 格心, z: 那一格的 z }] }。
 ## 空数组 = 场上没有树突，什么都不画。
-func sync(delta: float, auras: Array, z: int) -> void:
+##
+## **z 必须由调用方按格给**：只有棋盘知道每格该用什么 z（`CWBoard.tile_z`），
+## 演出层自己猜一个就会重演「下半片被盖住」那个 bug。
+func sync(delta: float, auras: Array) -> void:
 	_t += delta
-	_auras = auras
-	z_index = z
+	var need := 0
+	for a in auras:
+		need += (a["tiles"] as Array).size()
+	while _pool.size() < need:
+		var d := TileDots.new()
+		add_child(d)
+		_pool.append(d)
+	var i := 0
+	for a in auras:
+		var origin: Vector2 = a["origin"]
+		for e in a["tiles"]:
+			var pos: Vector2 = e["pos"]
+			var d: TileDots = _pool[i]
+			d.position = pos
+			d.z_index = int(e["z"])
+			d.toward = origin - pos
+			d.phase = phase_of(pos)
+			d.t = _t
+			d.visible = true
+			d.queue_redraw()
+			i += 1
+	## 树突死了 / 走开了：多出来的节点藏起来。每帧建删几十个节点纯属浪费
+	for k in range(i, _pool.size()):
+		_pool[k].visible = false
 	visible = not auras.is_empty()
-	queue_redraw()
 
 
 ## t 时刻落在第几格时间。同一格里的任何时刻画出来都一样。
@@ -86,14 +133,3 @@ static func phase_of(tile: Vector2) -> float:
 	return fposmod(sin(tile.x * 12.9898 + tile.y * 78.233) * 43758.5453, 1.0)
 
 
-func _draw() -> void:
-	var frame := frame_of(_t)
-	for a in _auras:
-		var origin: Vector2 = a["origin"]
-		for tile: Vector2 in a["tiles"]:
-			var toward: Vector2 = origin - tile
-			var phase := phase_of(tile)
-			for k in PER_TILE:
-				var prog := progress_of(frame, phase + float(k) / PER_TILE)
-				var at: Vector2i = Vector2i(tile.round()) + offset_at(k, toward, prog)
-				draw_rect(Rect2(at.x, at.y, DOT_PX, DOT_PX), Color(COLOR, alpha_of(prog)), true)

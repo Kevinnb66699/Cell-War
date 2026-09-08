@@ -4974,6 +4974,41 @@ func t_mark_aura() -> void:
 	var far: Vector2i = CWMarkAuraFx.offset_at(0, toward, 0.0)
 	check(near.y < far.y, "粒子朝树突那一侧移动（y %d → %d）" % [far.y, near.y])
 
+	## **每格必须拿自己那格的 z**。棋盘按排分层（组织块 z = 自己的 y，前一排 +20），
+	## 整只演出共用一个 z 的话，靠前那几排会正正当当把粒子盖掉 ——
+	## Kevin 2026-09-08 报的「有时候不显示」就是这个，而且树突站得越靠后盖得越多。
+	var board := make_board()
+	var fx := CWMarkAuraFx.new()
+	board.add_child(fx)
+	var at := Vector2i.ZERO
+	var tiles: Array = []
+	for c in CWData.all_coords():
+		var dist := CWData.hex_dist(c, at)
+		if dist > 0 and dist <= CWData.MARK_RANGE:
+			tiles.append({ "pos": board.tile_center(c), "z": board.tile_z(c, board.Z_MARK) })
+	fx.sync(0.1, [{ "origin": board.tile_center(at), "tiles": tiles }])
+	var zs := {}
+	var shown := 0
+	for ch in fx.get_children():
+		if (ch as Node2D).visible:
+			shown += 1
+			zs[(ch as Node2D).z_index] = true
+	check(shown == tiles.size(), "范围内 %d 格各有一个节点（实为 %d）" % [tiles.size(), shown])
+	check(zs.size() > 1, "这些节点的 z **不是同一个**（按排分层，共用一个 z 就会被盖住）")
+	## 每格的 z 必须正好等于那一格的 Z_MARK 层 —— 差一层就会钻到别的排后面
+	var want := {}
+	for e in tiles:
+		want[int(e["z"])] = true
+	check(zs.keys().size() == want.keys().size(), "z 的取值与棋盘给的逐一对上")
+	## 树突走开 / 死了：多出来的节点要藏起来，不能留在场上
+	fx.sync(0.1, [])
+	var left := 0
+	for ch in fx.get_children():
+		if (ch as Node2D).visible:
+			left += 1
+	check(left == 0 and not fx.visible, "场上没树突 → 全部藏起来")
+	board.queue_free()
+
 
 ## 代谢核心 / 骨髓的「积累进度外圈」（Kevin 2026-09-08 拍的 A′ 案）。
 ##
@@ -7965,8 +8000,22 @@ func t_card_events() -> void:
 	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
 	imm["energy"] = 0
 	g.cells.append(imm)
+	## 【急性炎症反应】2026-09-08 起给的是「等同于一次有氧呼吸」，不再是固定 1.5。
+	## **期望值现读 `aerobic_income`**：写死一个数就等于把有氧那套算式抄了第二份，
+	## 人数分档 / 免疫等级 / TGF-β / 坏死打折任何一处一动，这条就会指着旧数报错。
+	var e_before: int = imm["energy"]
+	var aero: int = g.world.aerobic_income(imm)
 	await g.card_fx.resolve_event(imm, "急性炎症反应")
-	check(imm["energy"] == 15, "急性炎症反应：+1.5 能量")
+	check(aero > 0 and imm["energy"] == e_before + aero,
+		"急性炎症反应：+%s 能量（= 该细胞一次有氧）" % CWData.fmt(aero))
+	## 坏死格上的一次有氧是打折的，这张卡也该跟着打折 —— 卡面说的是「一次有氧呼吸」
+	g.tile(imm["pos"])["necrosis"] = 2
+	var cut: int = g.world.aerobic_income(imm)
+	var e2: int = imm["energy"]
+	await g.card_fx.resolve_event(imm, "急性炎症反应")
+	check(cut < aero and imm["energy"] == e2 + cut,
+		"站在坏死格上：给的也是打折后的 %s（原 %s）" % [CWData.fmt(cut), CWData.fmt(aero)])
+	g.tile(imm["pos"])["necrosis"] = 0
 	await g.card_fx.resolve_event(imm, "抗原摄取")
 	check(g.memory == 1, "抗原摄取：不邻癌性组织 +1 记忆")
 	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER

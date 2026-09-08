@@ -39,8 +39,14 @@ var game: CWGame
 func resolve_event(cell: Dictionary, card: String) -> bool:
 	match card:
 		"急性炎症反应":
-			_gain(cell, 15)
-			_evt(card, "自身 +%s 能量" % CWData.fmt(_amp(15)), cell["pos"])
+			## 2026-09-08 由固定 1.5 改成「等同于一次有氧呼吸」。
+			## **直接复用 `aerobic_income`**（右栏那个「+x.x」读的也是它）——
+			## 卡面说的是「一次有氧呼吸」，那就该**连它的全部修正一起**：
+			## 人数分档的基数、免疫等级、永久技能的额外获得、TGF-β 的每份 −20%、
+			## 以及站在坏死格上的打折。自己另算一份的话，这些迟早会漂。
+			var aero: int = game.world.aerobic_income(cell)
+			_gain(cell, aero)
+			_evt(card, "自身 +%s 能量（一次有氧）" % CWData.fmt(_amp(aero)), cell["pos"])
 		"抗原摄取":
 			var n := 2 if _adjacent_cancerous(cell["pos"]) else 1
 			game.gain_memory(n)
