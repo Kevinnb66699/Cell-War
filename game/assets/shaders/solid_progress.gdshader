@@ -14,15 +14,20 @@ void fragment() {
 	vec4 base = texture(TEXTURE, UV);
 	float alive = step(0.01, base.a) * step(0.001, progress);
 
-	// 只取贴图轮廓外侧约 1px。四个采样点都以整数像素步长移动，保持像素边界。
+	// 只取贴图轮廓那一圈：**邻居里有透明的**才算边缘。
+	// ⚠ 这里原来写成 `1.0 - step(邻居.a, 0.01)`，判的是「邻居**不**透明」——
+	// 而细胞内部每个像素的邻居都不透明，于是整只细胞被涂成石化米色。
+	// 这个反判一直存在，只是 shader 从没编译成功过（fragment 里有 return），
+	// 2026-09-08 修好编译之后才第一次显形（Kevin 截图：印戒整只变成米色圆球）。
+	// 四个采样点都以整数像素步长移动，保持像素边界。
 	float edge = 0.0;
 	for (int i = 1; i <= 2; i++) {
 		// Sprite2D 的 hframes=6 让 UV 横向落在当前帧区域；采样相邻像素时要跨过整张表的 6 倍像素宽。
 		vec2 step_px = vec2(TEXTURE_PIXEL_SIZE.x * 6.0, TEXTURE_PIXEL_SIZE.y) * float(i);
-		edge = max(edge, 1.0 - step(texture(TEXTURE, UV + vec2(step_px.x, 0.0)).a, 0.01));
-		edge = max(edge, 1.0 - step(texture(TEXTURE, UV - vec2(step_px.x, 0.0)).a, 0.01));
-		edge = max(edge, 1.0 - step(texture(TEXTURE, UV + vec2(0.0, step_px.y)).a, 0.01));
-		edge = max(edge, 1.0 - step(texture(TEXTURE, UV - vec2(0.0, step_px.y)).a, 0.01));
+		edge = max(edge, step(texture(TEXTURE, UV + vec2(step_px.x, 0.0)).a, 0.01));
+		edge = max(edge, step(texture(TEXTURE, UV - vec2(step_px.x, 0.0)).a, 0.01));
+		edge = max(edge, step(texture(TEXTURE, UV + vec2(0.0, step_px.y)).a, 0.01));
+		edge = max(edge, step(texture(TEXTURE, UV - vec2(0.0, step_px.y)).a, 0.01));
 	}
 	// 1.0 / 2.0 显示上半圈，达到 2.0 / 2.0 后显示整圈。
 	float arc = progress >= 0.99 ? 1.0 : step(UV.y, 0.5);

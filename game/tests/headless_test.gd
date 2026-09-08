@@ -4812,7 +4812,13 @@ func t_shader_no_return() -> void:
 		var stop := rest.find("\nvoid ", 1)
 		if stop > 0:
 			rest = rest.substr(0, stop)
-		if rest.contains("return"):
+		## **先把注释剥掉**：这条护栏自己的说明就写着「fragment 里不许 return」，
+		## 不剥的话它会指着自己的注释报错（2026-09-08 当场误报了一次）。
+		var code := ""
+		for line in rest.split("\n"):
+			var c: int = line.find("//")
+			code += (line if c < 0 else line.substr(0, c)) + "\n"
+		if code.contains("return"):
 			bad.append(f)
 	check(seen >= 4, "扫到了 %d 个 shader（漏扫等于没守）" % seen)
 	check(bad.is_empty(), "没有 shader 在 fragment 里 return（犯规的：%s）" % str(bad))
@@ -5019,20 +5025,15 @@ func t_store_ring() -> void:
 
 	## 可见性与进度：负数 → 藏起来；0~1 → 显示并把值喂给 shader
 	var tile: Sprite2D = board.map[board.axial_to_rc(CWData.CORES[0])]["instance"]
-	## A′ 环 + B 条**两层都要**（Kevin 2026-09-08）：两层同生同灭、同一个进度
+	## **只有环这一层**：B 案的进度条 2026-09-08 当天加完又被 Kevin 撤掉了
 	var ring: Sprite2D = tile.get_node("StoreRing")
-	var bar: Sprite2D = tile.get_node("StoreBar")
-	check((bar.material as ShaderMaterial).get_shader_parameter("horizontal"),
-		"条那一层按横向填充（环是纵向）")
+	check(tile.get_node_or_null("StoreBar") == null, "条那一层已撤掉，不留残节点")
 	board.set_store(CWData.CORES[0], -1.0, CWData.Special.CORE)
-	check(not ring.visible and not bar.visible, "负数 → 两层都藏起来")
+	check(not ring.visible, "负数 → 圈藏起来")
 	board.set_store(CWData.CORES[0], 0.5, CWData.Special.CORE)
 	var mat := ring.material as ShaderMaterial
-	check(ring.visible and bar.visible
-			and is_equal_approx(float(mat.get_shader_parameter("progress")), 0.5)
-			and is_equal_approx(
-				float((bar.material as ShaderMaterial).get_shader_parameter("progress")), 0.5),
-		"0.5 → 两层都显示，进度都喂到了 shader")
+	check(ring.visible and is_equal_approx(float(mat.get_shader_parameter("progress")), 0.5),
+		"0.5 → 显示，且进度喂到了 shader")
 	var half: Color = mat.get_shader_parameter("lit_color")
 	board.set_store(CWData.CORES[0], 1.0, CWData.Special.CORE)
 	var full: Color = mat.get_shader_parameter("lit_color")
@@ -6420,8 +6421,10 @@ func t_action_bar_width() -> void:
 	check(CWActionBar._title_of(bar2._buttons[2]).get_theme_font_size("font_size") == CWStyle.SIZE_BODY, "→ 没有触发缩字号")
 	bar2.show_bar("【代谢耦联】选择转移方向", "", [{ "title": "送给 癌症B", "cost": "" }, { "title": "向 癌症B 索取", "cost": "" }])
 	check(bar2._row.get_combined_minimum_size().x <= CWActionBar.PROMPT_RECT.size.x, "方向两档（只写玩家名）也放得下")
-	## ② 兜底：同样的提示塞四档（原字号约 770px 放不下），按钮**位置不动**（仍在提示行里、一行），靠缩字号放进 PROMPT_RECT。
-	## 兜底只救得了「稍微超一点」；旧那种一句 14 字的长句缩到 14 号仍超宽、只会 push_warning —— 长句只能改文案。
+	## ② 兜底：同样的提示塞四档（原字号约 770px 放不下）。
+	## **2026-09-08 起让位的是提示，不是按钮** —— 提示能省略号截断、最小宽度归零，
+	## 于是按钮保持原字号且不会被顶出右缘（Kevin 截图：【全身免疫动员】那条把按钮切掉了半个字）。
+	## 按钮缩字号退成第二道闸：只在**按钮自己都摆不下**时才触发。
 	bar2.show_bar(real_prompt, "", [
 		{ "title": "1.0 → 1.2", "cost": "" }, { "title": "1.5 → 2.0", "cost": "" },
 		{ "title": "2.0 → 2.5", "cost": "" }, { "title": "2.5 → 3.0", "cost": "" }])
@@ -6436,8 +6439,23 @@ func t_action_bar_width() -> void:
 		same_row = same_row and b.get_parent() == bar2._row
 	var shrunk: int = CWActionBar._title_of(bar2._buttons[0]).get_theme_font_size("font_size")
 	check(bar2._buttons.size() == 4 and bar2._count() == 4 and same_row, "四个按钮都在、都还在原来那一行")
-	check(shrunk < CWStyle.SIZE_BODY and shrunk >= CWActionBar.MIN_TITLE_SIZE, "放不下 → 字号缩到 %d（20 → ≥14）" % shrunk)
-	check(inside, "缩完每个按钮的右缘都在 %d px 之内" % int(right_edge))
+	check(shrunk == CWStyle.SIZE_BODY, "按钮保持原字号 %d —— 让位的是提示，不是按钮" % shrunk)
+	check(inside, "每个按钮的右缘都在 %d px 之内" % int(right_edge))
+
+	## ③ Kevin 2026-09-08 报的那一条原样复现：提示里带玩家昵称，长得多。
+	## 从前它会把右边按钮切掉半个字；现在提示自己截断，按钮完整。
+	bar2.show_bar("【全身免疫动员】Kevin（树突状细胞） 可立即迁移 1 次（费用照付）", "高亮 4 格可选", [
+		{ "title": "免疫监视", "cost": "" }, { "title": "免疫增援", "cost": "" },
+		{ "title": "躲藏迁移", "cost": "" }])
+	await process_frame
+	await process_frame
+	var long_ok := true
+	for b in bar2._buttons:
+		long_ok = long_ok and (b as Control).get_global_rect().end.x <= right_edge + 0.5
+	check(long_ok, "长提示 + 三按钮：按钮右缘仍在 %d px 之内（原 bug 的样子）" % int(right_edge))
+	check(bar2._row.get_combined_minimum_size().x <= CWActionBar.PROMPT_RECT.size.x,
+		"整行最小宽度不再被提示顶爆（%d / %d px）"
+			% [int(bar2._row.get_combined_minimum_size().x), int(CWActionBar.PROMPT_RECT.size.x)])
 	check(not bar2._is_disabled(3), "第 4 个按钮可点")
 	bar2.show_bar("选择分化方向", "", [{ "title": "B细胞", "cost": "" }, { "title": "T细胞", "cost": "" }])
 	check(CWActionBar._title_of(bar2._buttons[0]).get_theme_font_size("font_size") == CWStyle.SIZE_BODY,

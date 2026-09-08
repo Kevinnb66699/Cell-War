@@ -1064,6 +1064,11 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 func _sync_feed() -> void:
 	if _feed == null or not is_instance_valid(_feed) or game == null:
 		return
+	## 对局一结束就收起（Kevin 2026-09-08 截图：结算屏都出来了，左边那一列还挂着）。
+	## 它在 CWView.LEFT_STRIP 里、结算屏盖不到，所以得自己藏。
+	## 判的是 `game.winner`（而不是「结算屏可见吗」）：这一列归对局层管，
+	## 不该反过来去问另一个面板的显隐状态。
+	_feed.visible = game.winner < 0
 	if game.feed_seq < _feed_seq:
 		_feed.clear_all()
 		_feed_seq = 0

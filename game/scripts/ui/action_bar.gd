@@ -94,11 +94,10 @@ func show_bar(title: String, hint: String, entries: Array, cancel_index := -1,
 			_row.add_child(pad)
 			_row.add_child(_make_prompt(title, hint, true))
 		else:
-			_row.add_child(_make_prompt(title, hint))
-			var spacer := Control.new()
-			spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			_row.add_child(spacer)
+			## 提示自己占住剩余宽度（原来是提示 + 一个弹性 spacer，视觉一样，
+			## 但那样提示是「定宽」的，长文案会把按钮顶出右缘截断 ——
+			## Kevin 2026-09-08 截图：【全身免疫动员】那条带昵称，右边按钮只剩半个字）
+			_row.add_child(_make_prompt(title, hint, false, true))
 	_disabled.clear()
 	_buttons.clear()
 	for i in entries.size():
@@ -135,6 +134,8 @@ func _clear_rows() -> void:
 ## 第一版做成换行叠到提示行上方，Kevin 看了预览说丑、要求缩字数不动位置 —— 根治是缩短标签
 ## （数额改成「1.0 → 1.2」、方向只写玩家名），这里只保证选项永远不会藏到屏幕外；放得下时一个像素不改。
 ## 缩到 14 还放不下就 push_warning：那是文案该改了，不是排版能救的。
+## 按钮放不下时缩字号。**提示不参与这一步** —— 它的最小宽度已经归零（见 `_elide`），
+## 会自己让出空间；这里管的是「按钮自己就摆不下」的情形。
 func _shrink_to_fit() -> void:
 	var avail: float = PROMPT_RECT.size.x
 	var size: int = CWStyle.SIZE_BODY
@@ -143,7 +144,7 @@ func _shrink_to_fit() -> void:
 		for b in _buttons:
 			_title_of(b).add_theme_font_size_override("font_size", size)
 	if _row.get_combined_minimum_size().x > avail:
-		push_warning("行动栏放不下：%d 个按钮 + 提示合计 %d px > %d px，该缩短标签" % [
+		push_warning("行动栏放不下：%d 个按钮缩到 %d px 仍 > %d px，该缩短按钮标签" % [
 			_buttons.size(), int(_row.get_combined_minimum_size().x), int(avail)])
 
 
@@ -172,21 +173,43 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## wrap=true（让位形态）：提示块吃掉行内剩余宽度（把按钮顶到右缘内侧），
 ## 提示行按可用宽度自动换行——最小宽度归零，怎么也挤不出 673px 的框。
-func _make_prompt(title: String, hint: String, wrap := false) -> Control:
+## `wrap` = 手牌那几问的自动换行；`elide` = 放不下时用省略号截断（不换行的那一路）。
+##
+## **为什么必须能截断**：Label 的最小宽度默认是整段文字的宽度，于是长提示会把
+## 整条 HBox 的最小宽度顶过 PROMPT_RECT，按钮被挤出右缘（`_shrink_to_fit` 只缩按钮字号，
+## 缩到底也救不回来）。按钮是能点的、提示只是说明 —— 该让位的是提示。
+##
+## ⚠ `clip_text` 必须在控件拿到尺寸**之前**打开：先定尺寸再开的话最小宽度已经按整段文字算死了
+## （feed.gd 那次行重叠就是这么来的，见架构说明书的同名约定）。
+func _make_prompt(title: String, hint: String, wrap := false, elide := false) -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 0)
 	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_child(CWStyle.label(title, CWStyle.SIZE_BODY, CWStyle.TEXT_HI))
+	var t := CWStyle.label(title, CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
+	if elide:
+		_elide(t)
+	v.add_child(t)
 	if hint != "":
 		var h := CWStyle.label(hint, CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 		if wrap:
 			h.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
 			h.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		elif elide:
+			_elide(h)
 		v.add_child(h)
-	if wrap:
+	if wrap or elide:
 		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return v
+
+
+## 让一个标签「放不下就用省略号截断」，并且**最小宽度归零**——
+## 后者才是关键：不归零的话它照样把按钮顶出去，省略号根本轮不到出场。
+func _elide(l: Label) -> void:
+	l.clip_text = true
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.custom_minimum_size.x = 0
 
 
 ## 一个按钮：2px 描边 + 上下两行（名字 20px / 费用 10px），内边距 6×8。
