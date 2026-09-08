@@ -5,12 +5,14 @@ shader_type canvas_item;
 uniform float progress : hint_range(0.0, 1.0) = 0.0;
 uniform vec4 solid_color : source_color = vec4(0.84, 0.69, 0.47, 1.0);
 
+// ⚠ **fragment 里不许 return**（Godot 4 直接拒绝编译：
+// "Using 'return' in the 'fragment' processor function is incorrect"），而且**失败是静默的**——
+// load() 照样给你一个 Shader 对象，只是渲染时整个 shader 不生效、什么都不画。
+// 这个文件原来就是那么写的，于是固化进度外圈上线后一直没画出来，直到 2026-09-08
+// 新写 store_progress 时撞上同一条报错才发现。改成算完再统一出 COLOR，不提前退出。
 void fragment() {
 	vec4 base = texture(TEXTURE, UV);
-	if (base.a <= 0.01 || progress <= 0.001) {
-		COLOR = vec4(0.0);
-		return;
-	}
+	float alive = step(0.01, base.a) * step(0.001, progress);
 
 	// 只取贴图轮廓外侧约 1px。四个采样点都以整数像素步长移动，保持像素边界。
 	float edge = 0.0;
@@ -24,6 +26,6 @@ void fragment() {
 	}
 	// 1.0 / 2.0 显示上半圈，达到 2.0 / 2.0 后显示整圈。
 	float arc = progress >= 0.99 ? 1.0 : step(UV.y, 0.5);
-	float mask = edge * arc;
+	float mask = edge * arc * alive;
 	COLOR = vec4(mix(base.rgb, solid_color.rgb, 0.92), base.a * mask);
 }

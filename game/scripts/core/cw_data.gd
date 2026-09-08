@@ -389,6 +389,26 @@ const MARROW_STORE_MAX := 1              # 骨髓存储上限 1 张
 const MARROW_HEALTHY_PERIOD := 3
 const MARROW_CANCER_PERIOD := 2
 
+
+## 这一格特殊组织「攒了多少」，0.0~1.0。棋盘的积累进度外圈（2026-09-08）读它。
+##
+## 两种组织问的其实是两件事，但玩家要的是同一个答案「还差多少能拿」：
+## · 代谢核心存的是**能量**，攒到 2.0 封顶 → 直接是 store / 上限；
+## · 骨髓存的是**卡**，而上限就 1 张 —— 所以有卡时是满，没卡时看的是「离下一张还有几回合」。
+## 不是特殊组织返回 -1（调用方据此不画圈），别拿 0 表示「没有」：0 是「空仓」，两回事。
+static func store_progress(t: Dictionary) -> float:
+	match int(t["special"]):
+		Special.CORE:
+			return clampf(float(t["store"]) / float(CORE_STORE_MAX), 0.0, 1.0)
+		Special.MARROW:
+			if int(t["cards"]) >= MARROW_STORE_MAX:
+				return 1.0
+			var period: int = MARROW_HEALTHY_PERIOD if int(t["tissue"]) == Tissue.HEALTHY \
+				else MARROW_CANCER_PERIOD
+			return clampf(float(t["prod"]) / float(maxi(period, 1)), 0.0, 1.0)
+		_:
+			return -1.0
+
 # ---- 行动顺序（规则只定义 4/6 人；2 人为电子版测试扩展，见说明 #5）----
 const FACTION_ORDER := {
 	2: [Faction.IMMUNE, Faction.CANCER],

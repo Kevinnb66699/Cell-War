@@ -114,7 +114,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_skill_info,
-		t_save_load, t_settings, t_board_view, t_hex_pick, t_hover_layer,
+		t_save_load, t_settings, t_board_view, t_store_ring, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -4745,6 +4745,156 @@ func t_settings() -> void:
 	CWSettings.dice_anim = true
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(CWSettings.PATH))
 	check(not FileAccess.file_exists(CWSettings.PATH), "测试收尾清掉偏好文件")
+
+
+## **shader 的 fragment 里不许 `return`** —— Godot 4 直接拒绝编译，
+## 而且**失败是静默的**：`load()` 照样给你一个 Shader 对象，`preload` 也不报错，
+## 只有真正渲染那一刻才在控制台吐一行 SHADER ERROR，画面上就是「这个效果没了」。
+##
+## 2026-09-08 撞上一次：`solid_progress.gdshader`（癌细胞固化进度外圈）从上线起
+## 就是这么写的，一直没画出来，直到新写 store_progress 时报同一条错才发现。
+## 这条护栏就是不让它再发生第二次 —— 无头测试渲染不了，只能从源码上守。
+func t_shader_no_return() -> void:
+	print("[shader 源码护栏]")
+	var dir := DirAccess.open("res://assets/shaders")
+	check(dir != null, "打得开 shader 目录")
+	if dir == null:
+		return
+	var bad: Array = []
+	var seen := 0
+	for f in dir.get_files():
+		if not f.ends_with(".gdshader"):
+			continue
+		seen += 1
+		var src := FileAccess.get_file_as_string("res://assets/shaders/" + f)
+		var at := src.find("void fragment()")
+		if at < 0:
+			continue
+		## 只看 fragment 这一段：vertex / 自定义函数里的 return 是合法的
+		var rest := src.substr(at)
+		var stop := rest.find("\nvoid ", 1)
+		if stop > 0:
+			rest = rest.substr(0, stop)
+		if rest.contains("return"):
+			bad.append(f)
+	check(seen >= 4, "扫到了 %d 个 shader（漏扫等于没守）" % seen)
+	check(bad.is_empty(), "没有 shader 在 fragment 里 return（犯规的：%s）" % str(bad))
+
+
+## 没能量时**不再替玩家自动结束回合**（Kevin 2026-09-08 要求删掉）。
+##
+## 删之前是「只剩「结束回合」一个选项 → 直接跳过这一席」。玩家那边看到的是
+## 「还没轮到我就过去了」，读不出这是「我确实没得动了」还是程序漏了我。
+##
+## 这条**删掉的时候一条测试都没红** —— 那个行为从来没人守。补上，免得哪天又被顺手加回去。
+func t_no_auto_end_turn() -> void:
+	print("[没能量也照样问]")
+	var g := make_game(2, 11)
+	await run_setup(g)
+	## 把当前这一席榨干：0 能量、没手牌 —— 除了「结束回合」什么都做不了
+	var req: Dictionary = await g.pending()
+	check(not req.is_empty(), "开局停在一问上")
+	var cell: Dictionary = g.cell_of(int(req["pid"]))
+	cell["energy"] = 0
+	cell["hand"] = []
+	var opts: Array = g.actions.build_options(cell)
+	check(opts.size() == 1 and opts[0]["data"].get("act", "") == "end",
+		"0 能量的细胞只剩「结束回合」一个选项（实为 %d 个）" % opts.size())
+
+	## **关键一条**：把**另一席**也榨干，然后结束当前这一席。
+	## 询问是提前建好的，所以只能拿下一席来验 —— 删改之前它会被静默跳过，
+	## 现在必须照样弹出一问（哪怕那一问里只有「结束回合」）。
+	for other in g.cells:
+		other["energy"] = 0
+		other["hand"] = []
+	var pid0: int = int(req["pid"])
+	var end_at := -1
+	for i in req["options"].size():
+		if req["options"][i]["data"].get("act", "") == "end":
+			end_at = i
+	check(end_at >= 0, "当前这一问里找得到「结束回合」")
+	await g.step(end_at)
+	var nxt: Dictionary = await g.pending()
+	check(not nxt.is_empty() and nxt.get("kind", "") == "action"
+			and int(nxt["pid"]) != pid0,
+		"下一席没能量也照样被问到，不再自动跳过（kind=%s pid=%s）"
+			% [str(nxt.get("kind", "")), str(nxt.get("pid", -1))])
+	check(nxt["options"].size() == 1
+			and nxt["options"][0]["data"].get("act", "") == "end",
+		"那一问里确实只剩「结束回合」——玩家自己按，不替他按")
+	g.dispose()
+
+
+## 代谢核心 / 骨髓的「积累进度外圈」（Kevin 2026-09-08 拍的 A′ 案）。
+##
+## 算式住在 `CWData.store_progress`，界面只负责画 —— 这组两头都验：
+## 算式本身对不对，以及棋盘只给该有的格子建了覆盖层。
+func t_store_ring() -> void:
+	print("[特殊组织积累进度]")
+	var g := bare_game()
+
+	## ---- 算式 ----
+	var plain: Dictionary = g.tile(Vector2i(1, 0))
+	check(CWData.store_progress(plain) < 0.0,
+		"普通格返回负数（= 不画圈；不能拿 0 表示「没有」，0 是「空仓」）")
+
+	var core: Dictionary = g.tile(CWData.CORES[0])
+	core["store"] = 0
+	check(is_equal_approx(CWData.store_progress(core), 0.0), "核心空仓 → 0.0")
+	core["store"] = CWData.CORE_STORE_MAX / 2
+	check(is_equal_approx(CWData.store_progress(core), 0.5), "核心 1.0 / 2.0 → 0.5")
+	core["store"] = CWData.CORE_STORE_MAX
+	check(is_equal_approx(CWData.store_progress(core), 1.0), "核心满仓 → 1.0")
+
+	var mar: Dictionary = g.tile(CWData.MARROWS[0])
+	mar["cards"] = 1
+	check(is_equal_approx(CWData.store_progress(mar), 1.0), "骨髓有卡 → 1.0（可以来拿了）")
+	mar["cards"] = 0
+	mar["prod"] = 1
+	check(is_equal_approx(CWData.store_progress(mar), 1.0 / 3.0),
+		"骨髓健康、攒了 1 回合 → 1/3（周期 %d）" % CWData.MARROW_HEALTHY_PERIOD)
+	mar["tissue"] = CWData.Tissue.CANCER
+	check(is_equal_approx(CWData.store_progress(mar), 0.5),
+		"同一格癌变之后 → 1/2（癌变周期 %d 更快）" % CWData.MARROW_CANCER_PERIOD)
+	mar["tissue"] = CWData.Tissue.HEALTHY
+
+	## ---- 棋盘：只给该有的格子建覆盖层 ----
+	var board := make_board()
+	var with_ring: Array[Vector2i] = []
+	for c in CWData.all_coords():
+		var t: Sprite2D = board.map[board.axial_to_rc(c)]["instance"]
+		if t.get_node_or_null("StoreRing") != null:
+			with_ring.append(c)
+	var want: Array[Vector2i] = []
+	want.append_array(CWData.CORES)
+	want.append_array(CWData.MARROWS)
+	with_ring.sort()
+	want.sort()
+	check(with_ring == want,
+		"只有 %d 个核心/骨髓建了覆盖层（实为 %d 格）" % [want.size(), with_ring.size()])
+
+	## 可见性与进度：负数 → 藏起来；0~1 → 显示并把值喂给 shader
+	var tile: Sprite2D = board.map[board.axial_to_rc(CWData.CORES[0])]["instance"]
+	## A′ 环 + B 条**两层都要**（Kevin 2026-09-08）：两层同生同灭、同一个进度
+	var ring: Sprite2D = tile.get_node("StoreRing")
+	var bar: Sprite2D = tile.get_node("StoreBar")
+	check((bar.material as ShaderMaterial).get_shader_parameter("horizontal"),
+		"条那一层按横向填充（环是纵向）")
+	board.set_store(CWData.CORES[0], -1.0, CWData.Special.CORE)
+	check(not ring.visible and not bar.visible, "负数 → 两层都藏起来")
+	board.set_store(CWData.CORES[0], 0.5, CWData.Special.CORE)
+	var mat := ring.material as ShaderMaterial
+	check(ring.visible and bar.visible
+			and is_equal_approx(float(mat.get_shader_parameter("progress")), 0.5)
+			and is_equal_approx(
+				float((bar.material as ShaderMaterial).get_shader_parameter("progress")), 0.5),
+		"0.5 → 两层都显示，进度都喂到了 shader")
+	var half: Color = mat.get_shader_parameter("lit_color")
+	board.set_store(CWData.CORES[0], 1.0, CWData.Special.CORE)
+	var full: Color = mat.get_shader_parameter("lit_color")
+	check(full != half and full.v > half.v, "满仓换成更亮的一档（「还在攒」和「可以来拿」要分得开）")
+	board.queue_free()
+	g.dispose()
 
 
 # ---- 棋盘渲染：画出来的格子必须和 CWData 的轴坐标一一对应 ----

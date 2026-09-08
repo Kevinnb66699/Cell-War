@@ -280,8 +280,14 @@ func _advance_turn() -> void:
 			current_pid = pid
 			flow["acts"] = 0
 		var opts: Array = actions.build_options(cell)
-		## 只剩「结束回合」，或者行动次数撞上护栏 → 直接收摊，不必问
-		if opts.size() <= 1 or flow["acts"] >= CWTurn.MAX_ACTIONS_PER_TURN:
+		## **没能量时不再替玩家收摊**（Kevin 2026-09-08 要求删掉）：以前只剩「结束回合」
+		## 一个选项就直接跳过这一席，玩家那边看到的是「还没轮到我就过去了」——
+		## 读不出这是「我确实没得动了」还是程序漏了我。现在照样问，玩家自己按结束。
+		## 不会因此卡死：那一问里必有「结束回合」，选了就走 _end_turn。
+		##
+		## 行动次数护栏**保留** —— 它防的是桥实现异常导致的死循环（正常对局远达不到 80 次），
+		## 和「没能量」是两回事，删了就没有兜底了。
+		if flow["acts"] >= CWTurn.MAX_ACTIONS_PER_TURN:
 			_end_turn(pid, cell)
 			continue
 		_pending = {

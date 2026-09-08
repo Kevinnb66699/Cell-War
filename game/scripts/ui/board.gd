@@ -8,6 +8,18 @@ const CANCER = preload("res://assets/art/tissue_cancer.png")
 ## 癌变版 2026-09-08 补上。改名统一成 vessel_normal.png 会动 uid，收益只是好看，没做。
 const VESSELH = preload("res://assets/art/vessel.png")
 const VESSELC = preload("res://assets/art/vessel_cancer.png")
+## 积累进度外圈（Kevin 2026-09-08 拍的 A′ 案）：一张顶面六边形的 2px 轮廓掩膜，
+## 核心与骨髓共用（几何本来就一样），颜色由 set_store() 按组织给。
+const STORE_RING = preload("res://assets/art/ui/store_ring.png")
+## 进度条掩膜（B 案，Kevin 要求与环**同时保留**）：顶面下缘 2px 的槽。
+## 两层各有各的长处 —— 环在站人时也整圈可见，条在低进度时最好认（暗槽衬底）。
+const STORE_BAR = preload("res://assets/art/ui/store_bar.png")
+const STORE_SHADER = preload("res://assets/shaders/store_progress.gdshader")
+## 圈的颜色取各自贴图上**图标本来的颜色** —— 不引第三种色，一眼看得出是这一格的东西。
+const STORE_COLOR := {
+	CWData.Special.CORE: Color8(63, 157, 95),
+	CWData.Special.MARROW: Color8(176, 127, 224),
+}
 const ENERGYH = preload("res://assets/art/energy_normal.png")
 const MARROWH = preload("res://assets/art/marrow_normal.png")
 const ENERGYC = preload("res://assets/art/energy_cancer.png")
@@ -348,6 +360,32 @@ func set_tissue(a: Vector2i, tissue: int, special: int) -> void:
 		t.texture = tex
 
 
+## 代谢核心 / 骨髓的积累进度外圈：`frac` 0~1，**负数 = 不是特殊组织，不画**。
+##
+## 同 `set_tissue()` 的用法：对局那边每帧无脑全刷。
+## **两层一起刷**（A′ 环 + B 条，Kevin 2026-09-08 要求都保留）。
+func set_store(a: Vector2i, frac: float, special: int) -> void:
+	var key := axial_to_rc(a)
+	if not map.has(key):
+		return
+	var t: Sprite2D = map[key]["instance"]
+	var show: bool = frac >= 0.0 and STORE_COLOR.has(special)
+	var base: Color = STORE_COLOR.get(special, Color.WHITE)
+	## 满仓换成更亮的一档 ——「还在攒」和「可以来拿了」是玩家真正要区分的两个状态，
+	## 光靠长度在一格 32px 上分不出最后那一小段
+	var col: Color = base.lerp(Color.WHITE, 0.45) if frac >= 0.999 else base
+	for n in ["StoreRing", "StoreBar"]:
+		var lay := t.get_node_or_null(n) as Sprite2D
+		if lay == null:
+			continue
+		lay.visible = show
+		if not show:
+			continue
+		var mat := lay.material as ShaderMaterial
+		mat.set_shader_parameter("progress", frac)
+		mat.set_shader_parameter("lit_color", col)
+
+
 ## 直接指定某格的贴图（【E-侵蚀】过场用）。
 ##
 ## **不留状态**：`set_tissue()` 下一帧就会把它换回按组织算的那张，
@@ -362,10 +400,34 @@ func set_tile_tex(a: Vector2i, tex: Texture2D) -> void:
 		t.texture = tex
 
 
+## 给一格挂上进度外圈的覆盖层。**只有核心和骨髓有**，别的格连节点都不建 ——
+## 127 格里只有 9 格用得上，全建等于白养 118 个带 shader 的节点。
+func _add_store_ring(s: Sprite2D) -> void:
+	_add_store_layer(s, "StoreRing", STORE_RING, false)
+	_add_store_layer(s, "StoreBar", STORE_BAR, true)
+
+
+## 一层进度覆盖。两层只差掩膜和填充方向，shader 是同一份。
+func _add_store_layer(s: Sprite2D, name_: String, tex: Texture2D, horizontal: bool) -> void:
+	var lay := Sprite2D.new()
+	lay.name = name_
+	lay.texture = tex
+	lay.z_index = 1
+	lay.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var mat := ShaderMaterial.new()
+	mat.shader = STORE_SHADER
+	mat.set_shader_parameter("horizontal", horizontal)
+	lay.material = mat
+	lay.visible = false
+	s.add_child(lay)
+
+
 func new_tissue(i, j, x, y):
 	var new_t = TISSUE.instantiate()
 	new_t.position = Vector2(x, y)
 	new_t.z_index = y
+	if Vector2(i, j) in energy_position or Vector2(i, j) in marrow_position:
+		_add_store_ring(new_t)
 	if Vector2(i, j) in vessel_position:
 		new_t.texture = VESSELH
 	elif Vector2(i, j) in energy_position:
