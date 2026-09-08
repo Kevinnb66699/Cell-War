@@ -307,7 +307,10 @@ var antibody_halve := true
 ##   `(块内普通癌组织数 ^ (exp/100) × coef + 全图固化数 × solid_bonus) ÷ 块内癌细胞数`
 ## 三个旋钮都是给扫描拨的；**coef = 0 = 关 = 09-04 之前的线性求和**（对照档）。见 CWWorld._anaerobic_pool()。
 var anaerobic_block_exp := CWData.ANAEROBIC_BLOCK_EXP
-var anaerobic_block_coef := CWData.ANAEROBIC_BLOCK_COEF
+## 无氧指数项的系数（十分能量）。**-1 = 按人数取**（`CWData.anaerobic_block_coef`：
+## 四人 2.0 / 六人 2.8，Kevin 2026-09-07 定的分档）；>0 = 所有人数统一成这个值（balance_scan 的 `asqrt=`）；
+## 0 = 退回 09-04 之前的线性求和（对照档）。
+var anaerobic_block_coef := -1
 var anaerobic_solid_bonus := CWData.ANAEROBIC_SOLID_BONUS
 
 # ---- 小细胞肺癌【转移】（2026-09-03 晚，Kevin 问「黑 + 小同场怎么治」的候选杠杆；默认值 = 现行 PRD）----

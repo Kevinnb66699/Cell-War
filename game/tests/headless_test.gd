@@ -1251,7 +1251,10 @@ func t_anaerobic_sqrt() -> void:
 	print("[无氧公式]")
 	var g := bare_game()
 	g.setup.build_board()
-	check(g.tune.anaerobic_block_coef == CWData.ANAEROBIC_BLOCK_COEF
+	## 系数默认 **-1 = 按人数取**（Kevin 2026-09-07：四人 2.0 / 六人 2.8）；另两项仍是常量
+	check(g.tune.anaerobic_block_coef == -1
+		and CWData.anaerobic_block_coef(4) == 20 and CWData.anaerobic_block_coef(6) == 28
+		and CWData.anaerobic_block_coef(5) == CWData.ANAEROBIC_BLOCK_COEF
 		and g.tune.anaerobic_block_exp == CWData.ANAEROBIC_BLOCK_EXP
 		and g.tune.anaerobic_solid_bonus == CWData.ANAEROBIC_SOLID_BONUS,
 		"默认 = 常量：系数 %s / 指数 0.%d / 每格固化 %s" % [
@@ -7524,7 +7527,7 @@ func t_card_events_cancer() -> void:
 	g.tiles[Vector2i(3, 0)]["tissue"] = CWData.Tissue.SOLID
 	a["energy"] = 0
 	await g.card_fx.resolve_event(a, "糖酵解爆发")
-	check(a["energy"] == _share(_pool_of(3, 1), 1),
+	check(a["energy"] == _share(_pool_of(3, 1), 1),   ## 这局是 _fx_game()：2 人
 		"糖酵解爆发：立刻结算一次无氧呼吸（3 普通癌 + 1 固化独占 = %s）" % CWData.fmt(_share(_pool_of(3, 1), 1)))
 	g.dispose()
 
@@ -7973,10 +7976,10 @@ func t_card_perms() -> void:
 	g.cells.append(gl)
 	g.tiles[Vector2i(5, 0)]["tissue"] = CWData.Tissue.CANCER
 	g.round_no = 8   ## 中期（PRD 分期 2026-09-07 改成 1—5 / 6—10 / 11—15）
-	check(g.world.anaerobic_gain_for(gl) == _share(_pool_of(1, 0), 1) + CWData.GLUT1_BONUS[1],
-		"GLUT1：单格块无氧 %s + 中期 0.8（糖酵解爆发同口径）" % CWData.fmt(_share(_pool_of(1, 0), 1)))
+	check(g.world.anaerobic_gain_for(gl) == _share(_pool_of(1, 0, 4), 1) + CWData.GLUT1_BONUS[1],
+		"GLUT1：单格块无氧 %s + 中期 0.8（糖酵解爆发同口径）" % CWData.fmt(_share(_pool_of(1, 0, 4), 1)))
 	g.world._anaerobic()
-	check(gl["energy"] == _share(_pool_of(1, 0), 1) + CWData.GLUT1_BONUS[1], "E 阶段无氧同样加成")
+	check(gl["energy"] == _share(_pool_of(1, 0, 4), 1) + CWData.GLUT1_BONUS[1], "E 阶段无氧同样加成")
 	g.dispose()
 
 	## ⑥ 净化连锁：模式识别增强 + 效应记忆形成（每世界回合一次）；免疫记忆库免费抽
@@ -10369,9 +10372,12 @@ func t_batch2_rules() -> void:
 
 ## 无氧的供能池（十分能量，浮点；口径同 CWWorld._anaerobic_pool，按当前默认值算）。
 ## 测试**不许**把结果写死成数字 —— 三个数都是旋钮，改一次不该让十几条断言跟着改。
-static func _pool_of(plain: int, solid_all: int) -> float:
+## `n_players` 不能省：系数 2026-09-07 起**按人数分档**（四人 2.0 / 六人 2.8），
+## 拿默认的 2 人去算四人局的期望值会差 40%（当天就这么红过一次）。
+static func _pool_of(plain: int, solid_all: int, n_players := 2) -> float:
 	var term := pow(float(plain), CWData.ANAEROBIC_BLOCK_EXP / 100.0) if plain > 0 else 0.0
-	return term * float(CWData.ANAEROBIC_BLOCK_COEF) + float(solid_all * CWData.ANAEROBIC_SOLID_BONUS)
+	var solid_part := float(solid_all * CWData.ANAEROBIC_SOLID_BONUS)
+	return term * float(CWData.anaerobic_block_coef(n_players)) + solid_part
 
 
 ## 池子按 k 个癌细胞均分，四舍五入到十分位（口径同 CWWorld._split_share）

@@ -590,7 +590,10 @@ func _anaerobic() -> void:
 ## `anaerobic_block_coef = 0` 退回 09-04 之前的线性求和，供对照档使用。
 ## 返回**十分能量的浮点数**（不在这里取整）：四舍五入只做一次，在 _split_share 里除完再做。
 func _anaerobic_pool(block: Array) -> float:
+	## -1 = 按人数取（四人 2.0 / 六人 2.8）；>0 = 整体覆盖；0 = 退回线性式
 	var coef: int = game.tune.anaerobic_block_coef
+	if coef < 0:
+		coef = CWData.anaerobic_block_coef(game.order.size())
 	if coef > 0:
 		var plain := 0
 		for c in block:

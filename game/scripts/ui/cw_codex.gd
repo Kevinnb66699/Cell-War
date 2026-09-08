@@ -195,9 +195,21 @@ static func chapters() -> Array:
 	var when := "每个癌细胞在自己的行动回合末" if tune.anaerobic_on_turn_end else "每个世界回合 E 阶段"
 	var split := "，块内癌细胞均分。" if tune.anaerobic_split else "。"
 	var anaerobic: Array = [when + "结算【无氧呼吸】："]
-	if tune.anaerobic_block_coef > 0:
+	if tune.anaerobic_block_coef != 0:
+		## -1 = 系数按人数分档（Kevin 2026-09-07：四人 2.0 / 六人 2.8）——
+		## 同有氧基数那条的写法：把每档都列出来，别只写一个数骗人
+		var coef_txt := ""
+		if tune.anaerobic_block_coef < 0:
+			var cs: Array[String] = []
+			var cns: Array = CWData.ANAEROBIC_BLOCK_COEF_BY_PLAYERS.keys()
+			cns.sort()
+			for n in cns:
+				cs.append("%d 人局 %s" % [n, CWData.fmt(CWData.anaerobic_block_coef(n))])
+			coef_txt = "（" + "、".join(cs) + "）"
+		else:
+			coef_txt = CWData.fmt(tune.anaerobic_block_coef)
 		anaerobic.append("块内癌组织个数的 %.2f 次方 × %s，再加全图每格固化 %s" % [
-			tune.anaerobic_block_exp / 100.0, CWData.fmt(tune.anaerobic_block_coef),
+			tune.anaerobic_block_exp / 100.0, coef_txt,
 			CWData.fmt(tune.anaerobic_solid_bonus)] + split)
 		anaerobic.append("铺地的边际收益很平，固化则是全场一起吃 —— 攒固化比摊大饼划算。")
 	else:

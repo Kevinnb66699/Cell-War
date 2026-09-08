@@ -102,7 +102,14 @@ const AEROBIC_FLOOR := 0                 # 2026-09-05 关：等级式有自己�
 # 沿革：09-04 线性求和 → 开方 c=2.0（09-05）→ c=1.0 且回 E 阶段（09-06）→ 本式（09-07）。
 # 系数 = 0 时退回 09-04 之前的线性求和（对照档，见 CWWorld._anaerobic_pool）。
 const ANAEROBIC_BLOCK_EXP := 30          # 百分数：连通块癌组织个数的指数 0.30
-const ANAEROBIC_BLOCK_COEF := 28         # 十分能量：指数项的系数 ×2.8（2026-09-07 由 2.0 抬上来）
+## 无氧指数项的系数（十分能量）。PRD 写的是 **2.8**，全人数一律。
+## **4 人局有意偏离成 2.0**（Kevin 2026-09-07）：同日重扫 4 人局癌胜 83%、6 人局 0%，
+## 两档撕裂到没法共用一个数 —— 这是全库对 4 人局最重的杠杆（2.8→2.0 让癌胜 83%→68%），
+## 而 6 人局的问题根本不在收入（免疫有氧调低照样 0%），动它只会让 6 人更惨。
+## 同 INIT_CANCER_TILES / AEROBIC_LEVEL_BASE_BY_PLAYERS 的哲学：一张按人数的表比一个共用值诚实。
+## 2 人局不在平衡目标内，沿用 PRD 的 2.8。
+const ANAEROBIC_BLOCK_COEF := 28         # 十分能量：PRD 值 ×2.8（表里没有的人数退回它）
+const ANAEROBIC_BLOCK_COEF_BY_PLAYERS := { 2: 28, 4: 20, 6: 28 }
 const ANAEROBIC_SOLID_BONUS := 10        # 十分能量：**全图**每格固化癌组织 +1.0
 const ANAEROBIC_CAP := 0                 # 0 = 不封（团队 2026-09-04 定案）
 
@@ -159,6 +166,11 @@ const NECROSIS_AEROBIC_PCT := 50
 ## 按人数取有氧基数。表里没有的人数退回 AEROBIC_LEVEL_BASE —— balance_scan 会扫 5 人／7 人这类非正式人数，不能崩。
 static func aerobic_level_base(n_players: int) -> int:
 	return AEROBIC_LEVEL_BASE_BY_PLAYERS.get(n_players, AEROBIC_LEVEL_BASE)
+
+
+## 按人数取无氧系数。表里没有的人数（balance_scan 会扫 5 人 / 7 人这类非正式人数）退回 PRD 值。
+static func anaerobic_block_coef(n_players: int) -> int:
+	return ANAEROBIC_BLOCK_COEF_BY_PLAYERS.get(n_players, ANAEROBIC_BLOCK_COEF)
 ## I/II/III/X 记忆门槛（团队 2026-09-04：6→10、16→20）。
 ## X 级 31 → **30**：PRD 写的是「X级别（30抗原记忆）」，Kevin 2026-09-07 明确「30 及以上都归 X 级」。
 const LEVEL_MIN_MEMORY := [0, 10, 20, 30]
