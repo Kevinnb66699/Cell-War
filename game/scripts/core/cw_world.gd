@@ -866,7 +866,7 @@ func _decay() -> void:
 
 
 ## 【E-微环境压迫】：每个免疫细胞受相邻组织的压迫，
-## 损失 = max(0, 相邻癌组织 + 相邻固化癌组织 × 2 − 相邻健康组织) × 0.5（PRD 2026-09-08 换的加权式）。
+## 损失 = max(0, 1/4 × (相邻癌组织 + 相邻固化癌组织 × 2 − 相邻健康组织))（PRD 2026-09-08）。
 ##
 ## 这是 PRD 给癌方的**第一个稳定伤害来源**。在此之前免疫细胞几乎不可能死
 ## （旧说明 #23「免疫无死亡途径」），所以【复活】那一整套机制此前基本是空转的。
@@ -891,7 +891,9 @@ func pressure_at(c: Vector2i) -> int:
 				raw += CWData.PRESSURE_SOLID_W
 			CWData.Tissue.HEALTHY:
 				raw += CWData.PRESSURE_HEALTHY_W
-	return maxi(raw, 0) * CWData.PRESSURE_PER_ADJ
+	## ×1/4 写成「×10 ÷4」的整数除法：能量单位是十分之一，1/4 能量不是整数格，
+	## 这么写天然向下取整到十分位（同 PRD【抗体】减半那条的取整口径）
+	return maxi(raw, 0) * CWData.PRESSURE_MUL / CWData.PRESSURE_DIV
 
 
 func _pressure() -> void:

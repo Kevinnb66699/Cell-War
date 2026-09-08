@@ -1219,9 +1219,12 @@ func apply_mutation(cell: Dictionary, r: int) -> void:
 		3:
 			# 效果扣减可致死（区别于费用支付，见规则总则）
 			cell["energy"] -= CWData.MUTATE_EXTRA_LOSS
-			game.log_msg("【突变】再扣 1.0 能量（余 %s），削减 3 抗原记忆" % CWData.fmt(maxi(cell["energy"], 0)))
-			game.announce("突变：能量 -1.0 · 记忆 -3", cell["pos"])
-			game.reduce_memory(3)
+			game.log_msg("【突变】再扣 %s 能量（余 %s），削减 %d 抗原记忆" % [
+				CWData.fmt(CWData.MUTATE_EXTRA_LOSS), CWData.fmt(maxi(cell["energy"], 0)),
+				CWData.MUTATE_MEMORY_CUT])
+			game.announce("突变：能量 -%s · 记忆 -%d" % [
+				CWData.fmt(CWData.MUTATE_EXTRA_LOSS), CWData.MUTATE_MEMORY_CUT], cell["pos"])
+			game.reduce_memory(CWData.MUTATE_MEMORY_CUT)
 			if cell["energy"] <= 0:
 				game.kill(cell)
 
