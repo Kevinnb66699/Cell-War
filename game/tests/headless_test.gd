@@ -113,7 +113,7 @@ func _run_all() -> void:
 		t_rollout_isolation, t_step_atomic, t_full_game_2p, t_full_game_4p,
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
-		t_log_panel, t_rules_page, t_production_row, t_skill_info,
+		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
 		t_save_load, t_settings, t_board_view, t_store_ring, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
@@ -4242,6 +4242,37 @@ func t_log_panel() -> void:
 	chip.free()
 
 
+## 格子详情框里的「黏液侵染」行（Kevin 2026-09-08：「粘液信息没有显示在格子的详情栏中」）。
+##
+## 它是这一格上**唯一一个会改价钱、却在格子上看不出来**的状态 —— 坏死、固化、
+## 趋化源、特殊组织都有行，只有它没有，于是免疫玩家踏进去才发现多付了 0.5。
+func t_mucus_row() -> void:
+	print("[格子详情·黏液侵染]")
+	var g := bare_game()
+	var c := Vector2i(2, 0)
+	var dump := func() -> String:
+		var out := ""
+		for r in CWTileInfo.describe(g, c):
+			out += r["text"] + "|"
+		return out
+
+	check(not dump.call().contains("黏液"), "没黏液的格子：不出这一行")
+	g.tile(c)["mucus"] = true
+	var said: String = dump.call()
+	check(said.contains("黏液侵染"), "有黏液 → 出这一行（%s）" % said)
+	check(said.contains(CWData.fmt(g.tune.mucus_move_surcharge)),
+		"写明免疫踏入要多付多少（现读旋钮 %s，不写死）" % CWData.fmt(g.tune.mucus_move_surcharge))
+	check(said.contains("消失"), "也写明「被免疫接触后消失」——这是免疫方唯一的清除手段")
+
+	## 旋钮调成 0 时那半句不出：写着「+0.0」比不写更糟
+	g.tune.mucus_move_surcharge = 0
+	var zero: String = dump.call()
+	check(zero.contains("黏液侵染") and not zero.contains("踏入"),
+		"加价关掉时只说状态、不报价（%s）" % zero)
+	g.tune.mucus_move_surcharge = CWData.MUCUS_MOVE_SURCHARGE
+	g.dispose()
+
+
 # ---- 规则速查：数字必须现读常量/旋钮，不许抄第二份 ----
 ## 特殊组织「还有几回合产出」（2026-09-04 Kevin 要的）。周期 / 产量现读 CWData，
 ## 这里连措辞一起钉：三种情况（每回合产、存满、按剩余回合）说的是三件不同的事
@@ -7435,13 +7466,15 @@ func t_card_pool() -> void:
 	cell["hand"] = []
 	cell["equipped"] = ["组织驻留"]
 	check(not g.cards.is_legal(cell, "组织驻留"), "已装备的同名永久技能 → 抽不到")
-	## I 级池只有 6 张技能（另外 5 张是事件），所以 I 级手牌最多 6 张 —— 碰不到 8 的上限
+	## I 级池的技能张数决定了 I 级手牌实际能有多少 —— 碰不到 8 的那个上限。
+	## **2026-09-08 由 6 变成 7**：【局部吞噬】从事件卡改成了即时技能，从事件那半挪到了技能这半。
+	## 这是那次改动的真实后果之一（不是测试写错），所以数字跟着走。
 	cell["equipped"] = []
 	var skills := 0
 	for c in CWCardData.pool_of(CWData.Faction.IMMUNE, 0, 1):
 		if CWCardData.CARDS[c["name"]]["kind"] != CWCardData.Kind.EVENT:
 			skills += 1
-	check(skills == 6, "I 级池只有 %d 张技能 → I 级手牌上限实际是 6" % skills)
+	check(skills == 7, "I 级池有 %d 张技能 → I 级手牌上限实际是 7" % skills)
 	## 候选被抽干之后就抽不出来了
 	var all_skills: Array = []
 	for c in CWCardData.pool_of(CWData.Faction.IMMUNE, 0, 1):
@@ -7810,9 +7843,13 @@ func t_card_events() -> void:
 	check(g.memory == 3, "抗原摄取：邻癌性组织改为 +2 记忆")
 	await g.card_fx.resolve_event(imm, "抗原呈递增强")
 	check(g.memory == 6, "抗原呈递增强：+3 记忆")
-	await g.card_fx.resolve_event(imm, "局部吞噬")
+	## 【局部吞噬】2026-09-08 由事件卡改成**即时技能** —— 走「打出」，不再是抽到即生效。
+	## 留在这一组里是因为效果本身没变，验的还是「转化唯一相邻癌组织并 +1 记忆」。
+	imm["hand"] = ["局部吞噬"]
+	await g.card_fx.play(imm, { "act": "play", "card": "局部吞噬" })
 	check(g.tiles[Vector2i(1, 0)]["tissue"] == CWData.Tissue.HEALTHY and g.memory == 7,
 		"局部吞噬：转化唯一相邻癌组织并 +1 记忆")
+	check(imm["hand"].is_empty(), "打出后从手牌消失")
 	var imm2 := CWSetup.make_cell(1, 1, CWData.Faction.IMMUNE, Vector2i(0, 6), CWData.ImmuneType.BASIC, -1)
 	imm2["energy"] = 0
 	g.cells.append(imm2)
@@ -10047,10 +10084,14 @@ func t_draw_purify_memory() -> void:
 	## ③ 【局部吞噬】同一把尺：卡面也不再写「+1 抗原记忆」
 	g.tiles[at]["tissue"] = CWData.Tissue.CANCER
 	var m1: int = g.memory
-	await g.card_fx.resolve_event(imm, "局部吞噬")
+	## 2026-09-08 起它是即时技能，走「打出」这条路 —— 而 play() 里 card_resolve_depth 照样 +1，
+	## 也就是说**打出的即时卡引发的净化同样不给记忆**。这条断言因此更值钱了：
+	## 在「不给记忆」的开关开着的情况下，卡面明写的那 1 点仍要给。
+	imm["hand"] = ["局部吞噬"]
+	await g.card_fx.play(imm, { "act": "play", "card": "局部吞噬" })
 	## 2026-09-07 线上版 PRD 把「并获得1抗原记忆」写回了卡面 → 照给。
 	## Kevin 的口径：**卡面写明的算，没写明的净化不算** —— 与 purify_gives_memory 那条开关互不干涉。
-	check(g.memory == m1 + 1, "【局部吞噬】卡面明写「获得1抗原记忆」→ 抽卡结算里照样给")
+	check(g.memory == m1 + 1, "【局部吞噬】卡面明写「获得1抗原记忆」→ 打出结算里照样给")
 	check(CWCardData.effect_of("局部吞噬", CWData.Faction.IMMUNE).contains("并获得1抗原记忆"),
 		"卡面与 PRD 一致：%s" % CWCardData.effect_of("局部吞噬", CWData.Faction.IMMUNE))
 	g.card_resolve_depth -= 1

@@ -50,8 +50,6 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 			game.gain_memory(3)
 			game.log_msg("　【抗原呈递增强】免疫方 +3 抗原记忆（%d）" % game.memory)
 			_evt(card, "+3 抗原记忆", cell["pos"])
-		"局部吞噬":
-			_local_phagocytosis(cell)
 		"骨髓动员":
 			_marrow_mobilization(cell)
 		"克隆扩增":
@@ -179,6 +177,13 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 			"TNF-α局部炎症":
 				if _tnf_has_effect(cell):
 					opts.append(_opt(card, ""))
+			"局部吞噬":
+				## 目标是**随机**的，所以不给玩家选格子；但相邻一个可转化的都没有时
+				## **这张就不该出选项** —— 给了就是「卡吃掉、什么也没发生」（同 TNF-α 那条的纪律）。
+				## 它还是事件卡的时候有「落空」这条路，因为抽到就必须结算、由不得玩家；
+				## 改成打出之后，落空就成了纯粹的坑，得在选项层挡掉。
+				if not _phagocytosis_targets(cell).is_empty():
+					opts.append(_opt(card, ""))
 			"放疗":
 				var all: Array = game.tiles.keys()
 				all.sort()   ## 固定候选顺序，保证同种子可复现
@@ -304,6 +309,10 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 		"补体级联":
 			game.add_mod(cell, card, 1, "turn")
 			game.log_msg("　本回合下一次攻击成功后：目标相邻最多 2 格癌组织转健康")
+		"局部吞噬":
+			## 2026-09-08 由事件卡改成即时技能：从「抽到即生效」搬到这里。
+			## 结算体一个字没改 —— 变的只是**谁来决定什么时候用**。
+			_local_phagocytosis(cell)
 		"高亲和力克隆":
 			game.add_mod(cell, card, 1, "turn")
 			game.log_msg("　本回合下一次攻击不判定，直接大成功并额外 +1.0")
@@ -337,13 +346,23 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 
 # ============ 各卡的结算 ============
 
-## 【局部吞噬】随机 1 格相邻、无细胞占据的普通癌组织 → 健康，+1 记忆（卡面明写才给记忆）
-func _local_phagocytosis(cell: Dictionary) -> void:
-	var cands: Array[Vector2i] = []
+## 【局部吞噬】能转化哪几格：相邻、普通癌组织（固化不算）、没有细胞占据。
+## **选项层与结算层共用这一份** —— 抽出来是因为改成即时技能之后（2026-09-08）
+## 「能不能打这张」和「打了转哪一格」问的是同一个集合，各写一份必漂。
+func _phagocytosis_targets(cell: Dictionary) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
 	for n in CWData.neighbors(cell["pos"]):
 		if game.tile(n)["tissue"] == CWData.Tissue.CANCER and game.cells_at(n).is_empty():
-			cands.append(n)
+			out.append(n)
+	return out
+
+
+## 【局部吞噬】随机 1 格相邻、无细胞占据的普通癌组织 → 健康，+1 记忆（卡面明写才给记忆）
+func _local_phagocytosis(cell: Dictionary) -> void:
+	var cands: Array[Vector2i] = _phagocytosis_targets(cell)
 	if cands.is_empty():
+		## 改成即时技能后选项层已经挡住了空手打的情况，这里是兜底
+		## （联机延迟、快照回滚之后重放旧选择都可能走到）
 		game.log_msg("　【局部吞噬】相邻没有可转化的癌组织，落空")
 		_evt("局部吞噬", "落空（相邻无癌组织）", cell["pos"])
 		return

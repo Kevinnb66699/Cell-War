@@ -120,6 +120,17 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 		rows.append({ "text": "免疫朝它 -%d%% · 癌方背它 +%d%%" % [
 				100 - CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT - 100],
 			"size": CWStyle.SIZE_LABEL, "color": CWStyle.TEXT_DIM })
+	## 印戒【黏液破裂】留下的「黏液侵染」（Kevin 2026-09-08：「粘液信息没有显示在格子的详情栏中」）。
+	## 它是**这一格上唯一一个会改价钱、却在格子上看不出来**的状态 —— 坏死、固化、趋化源都有行，
+	## 只有它没有，于是免疫玩家踏进去才发现多付了 0.5。
+	## 加价数值现读旋钮，不写第二份（同 CWCost 里那条动态模板的口径）；
+	## 旋钮调成 0 时那半句不出 —— 写着「+0.0」比不写更糟。
+	if t["mucus"]:
+		rows.append({ "text": "黏液侵染", "size": CWStyle.SIZE_BODY, "color": CWStyle.CANCER })
+		var tail := "免疫接触后消失"
+		if game.tune.mucus_move_surcharge > 0:
+			tail = "免疫踏入 +%s · " % CWData.fmt(game.tune.mucus_move_surcharge) + tail
+		rows.append({ "text": tail, "size": CWStyle.SIZE_LABEL, "color": CWStyle.TEXT_DIM })
 	if t["necrosis"]:
 		rows.append({ "text": "坏死", "size": CWStyle.SIZE_LABEL, "color": CWStyle.TEXT_DIM })
 	for cell in game.cells_at(c):
