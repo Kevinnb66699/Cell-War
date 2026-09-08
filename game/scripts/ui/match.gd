@@ -184,6 +184,7 @@ var _card_info: CWCardInfo   ## 悬停手牌详情，同样程序化补进；与
 var _feed: CWFeed            ## 棋盘左侧的出牌列（打出的卡 / 抽到的事件卡 / 世界事件）
 var _feed_seq := 0           ## 已经补到 game.feed_log 的第几条（见 _sync_feed）
 var _chemo_fx: CWChemoFx     ## 树突【I-趋化源】的漩涡核心演出（挂在棋盘层，跟着格子走）
+var _mark_aura_fx: CWMarkAuraFx  ## 树突【I-标记】光环范围的常驻粒子（同上，也挂棋盘层）
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
 var _erosion_fx := CWErosionFx.new()
 ## 细胞传送的溶解演出（规格 docs/动画规格_传送.md）。同样不是节点：残影挂在 _cells_root 下，句柄它自己收。
@@ -217,6 +218,11 @@ func _ready() -> void:
 		_chemo_fx = CWChemoFx.new()
 		_chemo_fx.visible = false
 		board.add_child(_chemo_fx)
+		## 标记光环范围：同样挂棋盘层。**一只节点画所有树突的范围**——
+		## 每只树突一个节点的话，两只挨在一起时重叠区会被画两遍、亮一倍。
+		_mark_aura_fx = CWMarkAuraFx.new()
+		_mark_aura_fx.visible = false
+		board.add_child(_mark_aura_fx)
 		_tile_info = CWTileInfo.new()
 		ui.add_child(_tile_info)
 		if pause_menu != null:
@@ -787,6 +793,7 @@ func _process(delta: float) -> void:
 	_sync_cells()
 	_animate_breath(delta)
 	_sync_chemo(delta)
+	_sync_mark_aura(delta)
 	_sync_hand()
 	if panel != null:
 		if online and _client != null:
@@ -877,6 +884,31 @@ func _sync_chemo(delta: float) -> void:
 	## 压在细胞下面（Z_MARK 那一层）：漩涡是地面上的东西，不该盖住站在上面的细胞
 	_chemo_fx.sync(delta, board.tile_center(at), board.tile_z(at, board.Z_MARK),
 		int(game.chemo["left"]) <= 1)
+
+
+## 【I-标记】光环范围的常驻粒子（Kevin 2026-09-08）：
+## 每只**活着的**树突罩住 `CWData.MARK_RANGE` 格，那一片里每格飘两个像素朝它去。
+##
+## 范围算式**现读 CWData.MARK_RANGE**，不写第二份 —— 规则那边（CWGame._refresh_marks）
+## 用的是同一个常量，两处对不上就会出现「画着光环却不标记」这种最难查的错。
+##
+## 树突自己站的那一格不画：它在范围内是不言自明的，画上去反而只是被细胞贴图盖住的一团。
+func _sync_mark_aura(delta: float) -> void:
+	if _mark_aura_fx == null:
+		return
+	var auras: Array = []
+	for cell in game.living_cells(CWData.Faction.IMMUNE):
+		if cell["itype"] != CWData.ImmuneType.DENDRITIC:
+			continue
+		var at: Vector2i = cell["pos"]
+		var tiles: Array = []
+		for c in CWData.all_coords():
+			var d := CWData.hex_dist(c, at)
+			if d > 0 and d <= CWData.MARK_RANGE:
+				tiles.append(board.tile_center(c))
+		auras.append({ "origin": board.tile_center(at), "tiles": tiles })
+	## 压在细胞下面（Z_MARK 那一层）：这是地面上的东西，不该盖住站在上面的细胞
+	_mark_aura_fx.sync(delta, auras, board.tile_z(Vector2i.ZERO, board.Z_MARK))
 
 
 func _sync_cells() -> void:

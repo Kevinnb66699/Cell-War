@@ -114,7 +114,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_save_load, t_settings, t_board_view, t_store_ring, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_save_load, t_settings, t_board_view, t_store_ring, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -4912,6 +4912,61 @@ func t_mutation_faces() -> void:
 	await g.actions.apply_mutation(alive, 3)
 	check(g.memory == 0, "记忆削到 0 就停，不会变负")
 	g.dispose()
+
+
+## 【I-标记】光环范围的常驻粒子（Kevin 2026-09-08）。
+##
+## 轨道是**纯函数**，所以这几条不用真渲染就能守 —— 同 chemo_fx 那套纪律。
+## 「整体密度合不合适」代码验不了，那个看 `tests/preview_mark_aura.gd` 的图。
+func t_mark_aura() -> void:
+	print("[标记光环粒子]")
+	check(CWMarkAuraFx.SEED_OFFSET.size() >= CWMarkAuraFx.PER_TILE,
+		"每格 %d 个粒子，起手偏移表够用" % CWMarkAuraFx.PER_TILE)
+
+	## 时间量化：同一格时间里任何时刻画出来都一样（像逐帧动画，不逐帧平滑）
+	var f0 := CWMarkAuraFx.frame_of(1.0)
+	check(CWMarkAuraFx.frame_of(1.0 + 0.5 / CWMarkAuraFx.PIX_FPS) == f0,
+		"同一格时间内帧号不变（%d）" % f0)
+	check(CWMarkAuraFx.frame_of(1.0 + 1.5 / CWMarkAuraFx.PIX_FPS) == f0 + 1, "跨一格就 +1")
+
+	## 相位：同一格每次都给同一个值（否则粒子会原地乱跳），且落在 0~1
+	var t1 := Vector2(120.0, -44.0)
+	check(is_equal_approx(CWMarkAuraFx.phase_of(t1), CWMarkAuraFx.phase_of(t1)),
+		"同一格的相位是稳定的")
+	var phases := {}
+	for c in CWData.all_coords():
+		var ph := CWMarkAuraFx.phase_of(Vector2(c) * 36.0)
+		if ph < 0.0 or ph >= 1.0:
+			phases["bad"] = ph
+	check(not phases.has("bad"), "所有格子的相位都落在 [0,1)")
+
+	## 进度在 [0,1)；透明度只取分档表里的值，没有连续渐变
+	var bad_prog := 0
+	var bad_alpha := 0
+	for fr in 40:
+		var prog := CWMarkAuraFx.progress_of(fr, 0.37)
+		if prog < 0.0 or prog >= 1.0:
+			bad_prog += 1
+		if not CWMarkAuraFx.ALPHA_STEPS.has(CWMarkAuraFx.alpha_of(prog)):
+			bad_alpha += 1
+	check(bad_prog == 0, "进度始终落在 [0,1)")
+	check(bad_alpha == 0, "透明度只取分档表里的值（不做连续渐变）")
+
+	## **粒子不许跑出自己的格子**：这是第一版真栽过的地方——飘 11px 会跨进邻格，
+	## 整片就成了随机闪烁，看不出范围。格宽 36，所以半格 18 是硬线。
+	var max_off := 0.0
+	for k in CWMarkAuraFx.PER_TILE:
+		for dir in [Vector2(1, 0), Vector2(-1, 0), Vector2(0.7, 0.7), Vector2(0, -1)]:
+			for step in 20:
+				var off: Vector2i = CWMarkAuraFx.offset_at(k, dir, step / 19.0)
+				max_off = maxf(max_off, Vector2(off).length())
+	check(max_off < 18.0, "粒子始终留在自己格子里（最远 %.1f < 半格 18）" % max_off)
+
+	## 朝树突飘：进度越大离树突越近。方向性正是「这一片归那只细胞管」的读法来源
+	var toward := Vector2(0, -100)          ## 树突在正上方
+	var near: Vector2i = CWMarkAuraFx.offset_at(0, toward, 1.0)
+	var far: Vector2i = CWMarkAuraFx.offset_at(0, toward, 0.0)
+	check(near.y < far.y, "粒子朝树突那一侧移动（y %d → %d）" % [far.y, near.y])
 
 
 ## 代谢核心 / 骨髓的「积累进度外圈」（Kevin 2026-09-08 拍的 A′ 案）。
