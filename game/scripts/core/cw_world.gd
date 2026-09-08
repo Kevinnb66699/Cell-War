@@ -896,6 +896,25 @@ func pressure_at(c: Vector2i) -> int:
 	return maxi(raw, 0) * CWData.PRESSURE_MUL / CWData.PRESSURE_DIV
 
 
+## 回合末的【微环境压迫】会不会把这只细胞压死。**界面预警用**（Kevin 2026-09-08）。
+##
+## **不能拿 `energy < pressure_at()` 糊弄**：压迫走的是完整的伤害管线，
+## 【缺氧适应】那面 −1.0 的盾、TGF-β 之类的减免都在里面。少算一层就会对着
+## 一只死不了的细胞报警 —— 误报的预警比没有预警更糟。
+##
+## 判的是 `>=` 不是 `>`：结算把能量减到 **0 就算死**（`_resolve_deaths`），
+## 不用减成负数。
+func pressure_lethal(cell: Dictionary) -> bool:
+	if not cell["alive"] or cell["faction"] != CWData.Faction.IMMUNE:
+		return false        ## 压迫只落在免疫细胞身上
+	var raw := pressure_at(cell["pos"])
+	if raw <= 0:
+		return false
+	var loss: int = game.damage.preview_amount(cell, raw, CWDamage.Kind.WORLD,
+		[CWDamage.Tag.CANCER], "微环境压迫")
+	return loss >= cell["energy"]
+
+
 func _pressure() -> void:
 	for cell in game.living_cells(CWData.Faction.IMMUNE):
 		var loss := pressure_at(cell["pos"])

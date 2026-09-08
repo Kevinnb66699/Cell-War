@@ -55,6 +55,13 @@ func can_save_now() -> bool:
 const MARK_SOLID := Color("0000004d")
 ## 癌细胞脚下固化组织的石化色；只覆盖细胞外圈，主体颜色仍保留癌细胞种类辨识度。
 const SOLID_CELL_COLOR := Color("d6b078")
+## 「回合末会被压死」的预警（Kevin 2026-09-08）：细胞外圈红色脉冲。
+## 复用 solid_progress 那个 shader —— 别被文件名骗了，它干的事就是
+## 「把贴图轮廓那一圈染成指定颜色」，和固化进度没有绑定关系。
+## 不撞车：压迫只落在**免疫**细胞上，固化进度外圈只画在**癌**细胞上。
+const DOOM_COLOR := Color("ff4d4d")
+const DOOM_ALPHA := Vector2(0.35, 1.0)   ## 脉冲的最暗 / 最亮
+const DOOM_HZ := 2.0                     ## 每秒两次 —— 比骨样硬化(1.2)急，是要人马上看见
 const SOLID_PROGRESS_SHADER := preload("res://assets/shaders/solid_progress.gdshader")
 
 ## 骨肉瘤【骨样硬化】标记格的脉冲色标（Kevin 2026-09-07 要的显示效果）。
@@ -953,6 +960,7 @@ func _sync_cells() -> void:
 		node.z_index = board.tile_z(pos, board.Z_CELL)
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"])
+			_sync_doom(node as Sprite2D, c)
 		else:
 			_sync_cancer_progress(node as Sprite2D, c, game.tile(pos))
 		## 这里必须在写入新位置之后播放。复活前 node 仍停在死亡时的旧坐标，
@@ -1044,6 +1052,8 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 	if cell["faction"] == CWData.Faction.CANCER:
 		_set_cell_art(node, CANCER_ART[cell["ctype"]])
 		_add_solid_progress_overlay(node)
+	else:
+		_add_doom_overlay(node)
 	_cells_root.add_child(node)
 	_was_alive.append(false)   ## 下一次 _sync_cells 就会认出「刚出现」并淡入
 	_ever_alive.append(false)
@@ -1254,11 +1264,33 @@ func _set_cell_art(s: Sprite2D, tex: Texture2D) -> void:
 	s.texture = tex
 	s.hframes = BREATH_FRAMES   ## 所有对局细胞贴图都是横排 6 帧呼吸表
 	s.offset = Vector2(0, -tex.get_height() / 2.0)
-	var overlay := s.get_node_or_null("SolidProgress") as Sprite2D
-	if overlay != null:
-		overlay.texture = tex
-		overlay.hframes = BREATH_FRAMES
-		overlay.offset = s.offset
+	## 两层描边覆盖（癌细胞的固化进度 / 免疫细胞的必死预警）跟着换贴图 ——
+	## 免疫分化会换贴图，不跟的话轮廓会对着上一形态描
+	for n in ["SolidProgress", "DoomRing"]:
+		var overlay := s.get_node_or_null(n) as Sprite2D
+		if overlay != null:
+			overlay.texture = tex
+			overlay.hframes = BREATH_FRAMES
+			overlay.offset = s.offset
+
+
+## 免疫细胞的「回合末必死」预警圈。建法与固化进度那圈相同，只差颜色和 progress 固定为 1
+## （整圈都画，不分半圈 —— 这不是进度，是一个开关）。
+func _add_doom_overlay(s: Sprite2D) -> void:
+	var ring := Sprite2D.new()
+	ring.name = "DoomRing"
+	ring.texture = s.texture
+	ring.hframes = s.hframes
+	ring.offset = s.offset
+	ring.z_index = 1
+	ring.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var material := ShaderMaterial.new()
+	material.shader = SOLID_PROGRESS_SHADER
+	material.set_shader_parameter("solid_color", DOOM_COLOR)
+	material.set_shader_parameter("progress", 1.0)
+	ring.material = material
+	ring.visible = false
+	s.add_child(ring)
 
 
 func _add_solid_progress_overlay(s: Sprite2D) -> void:
@@ -1275,6 +1307,27 @@ func _add_solid_progress_overlay(s: Sprite2D) -> void:
 	overlay.material = material
 	overlay.visible = false
 	s.add_child(overlay)
+
+
+## 「这只细胞撑不到下个回合」的预警：外圈红色脉冲。
+##
+## 判定现读 `CWWorld.pressure_lethal` —— 它走的是真结算那条伤害管线，
+## 界面不自己算（自己算就会漏掉【缺氧适应】那面盾，对着死不了的细胞报警）。
+func _sync_doom(s: Sprite2D, cell: Dictionary) -> void:
+	var ring := s.get_node_or_null("DoomRing") as Sprite2D
+	if ring == null:
+		return
+	var doomed: bool = game.world.pressure_lethal(cell)
+	ring.visible = doomed
+	if doomed:
+		ring.modulate.a = doom_pulse()
+
+
+## 预警的脉冲透明度。**纯函数**（时间从外面进来，无头测试直接核对），同 ossify_mark 的写法。
+static func doom_pulse(ms: int = -1) -> float:
+	var t: float = float(Time.get_ticks_msec() if ms < 0 else ms) / 1000.0
+	var k := 0.5 + 0.5 * sin(t * DOOM_HZ * TAU)
+	return lerpf(DOOM_ALPHA.x, DOOM_ALPHA.y, k)
 
 
 func _sync_cancer_progress(s: Sprite2D, cell: Dictionary, tile: Dictionary) -> void:

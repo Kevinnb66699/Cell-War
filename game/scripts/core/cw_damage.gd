@@ -57,6 +57,20 @@ func next_group() -> int:
 	return _next_group
 
 
+## 「这一下会扣多少」——**纯查询**：不扣能量、不烧盾、不写闸门、不出日志，
+## 也**不占用事件 id**（界面每帧都要问，占 id 的话会被刷爆）。
+##
+## 走的就是真结算那条 `_plan`，**不另抄一份五步数学** —— 界面拿它做「回合末必死」预警
+## （Kevin 2026-09-08），而少算一层减免就会对着一只死不了的细胞报警。
+## 误报的预警比没有预警更糟：玩家会为了躲一个不存在的死亡白跑一趟。
+func preview_amount(target: Dictionary, base: int, kind: Kind, tags: Array,
+		ability: String) -> int:
+	var keep := _next_id
+	var ev := event({}, target, base, kind, tags, ability)
+	_next_id = keep
+	return int(_plan(ev)["calculated"])
+
+
 # ============ ① 建立事件 ============
 
 ## 冻结来源、目标、基础伤害、固定额外伤害、位置与标签。

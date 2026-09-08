@@ -22,8 +22,13 @@ void fragment() {
 	// 四个采样点都以整数像素步长移动，保持像素边界。
 	float edge = 0.0;
 	for (int i = 1; i <= 2; i++) {
-		// Sprite2D 的 hframes=6 让 UV 横向落在当前帧区域；采样相邻像素时要跨过整张表的 6 倍像素宽。
-		vec2 step_px = vec2(TEXTURE_PIXEL_SIZE.x * 6.0, TEXTURE_PIXEL_SIZE.y) * float(i);
+		// ⚠ 横向**不要**再乘 hframes。原来写的是 `TEXTURE_PIXEL_SIZE.x * 6.0`，
+		// 理由是「UV 落在当前帧区域、要跨过整张表」—— 但 Godot 4 里带 hframes 的 Sprite2D，
+		// UV 本来就在**整张表**的坐标系里（只是被限制在本帧那一段），
+		// TEXTURE_PIXEL_SIZE 已经是整张表的一个纹素。再乘 6 等于一次跳 6 个像素，
+		// 24px 宽的细胞从中间跳两下就出界 —— 于是**每个像素都以为自己在边缘**，整只被涂满。
+		// （2026-09-08：这是这个文件里的第三个 bug，前两个是 fragment 里的 return 和反着的边缘判断。）
+		vec2 step_px = TEXTURE_PIXEL_SIZE * float(i);
 		edge = max(edge, step(texture(TEXTURE, UV + vec2(step_px.x, 0.0)).a, 0.01));
 		edge = max(edge, step(texture(TEXTURE, UV - vec2(step_px.x, 0.0)).a, 0.01));
 		edge = max(edge, step(texture(TEXTURE, UV + vec2(0.0, step_px.y)).a, 0.01));

@@ -114,7 +114,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_save_load, t_settings, t_board_view, t_store_ring, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_save_load, t_settings, t_board_view, t_store_ring, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -5010,6 +5010,77 @@ func t_mark_aura() -> void:
 	board.queue_free()
 
 
+## 「回合末会被压死」的预警（Kevin 2026-09-08：能量 < 回合末压迫时做个特效）。
+##
+## **这一组的重点不是「大于还是小于」，是「别自己另算一份」**：压迫走的是完整的
+## 伤害管线，【缺氧适应】那面 −1.0 的盾在管线里。界面若拿 `energy < pressure_at()`
+## 糊弄，就会对着一只死不了的细胞报警 —— 误报的预警比没有预警更糟，
+## 玩家会为了躲一个不存在的死亡白跑一趟。
+func t_pressure_doom() -> void:
+	print("[回合末必死预警]")
+	var g := bare_game()
+	var at := Vector2i.ZERO
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, at,
+		CWData.ImmuneType.BASIC, -1)
+	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(5, 0), -1,
+		CWData.CancerType.MELANOMA)
+	g.cells.append(imm)
+	g.cells.append(can)
+
+	## 没有压迫的地方：一律不报
+	check(not g.world.pressure_lethal(imm), "脚下没压迫 → 不报警")
+
+	## 四癌两健康 → 加权和 2 → 1/4 × 2 = 0.5
+	var nb: Array = CWData.neighbors(at)
+	for i in nb.size():
+		g.tiles[nb[i]]["tissue"] = CWData.Tissue.CANCER if i < 4 else CWData.Tissue.HEALTHY
+	var raw: int = g.world.pressure_at(at)
+	check(raw == 5, "场景：脚下压迫 %s" % CWData.fmt(raw))
+
+	imm["energy"] = raw + 1
+	check(not g.world.pressure_lethal(imm), "能量比压迫多一点 → 不报警")
+	imm["energy"] = raw
+	check(g.world.pressure_lethal(imm),
+		"能量正好等于压迫 → 报警（减到 0 就算死，不用减成负数）")
+	imm["energy"] = raw - 1
+	check(g.world.pressure_lethal(imm), "能量比压迫少 → 报警")
+
+	## **最要紧的一条**：有盾时不许报。【缺氧适应】在损失管线里减 1.0，
+	## 拿 `energy < pressure_at()` 糊弄的话这里必然误报
+	imm["hand"] = ["缺氧适应"]
+	await g.card_fx.play(imm, { "act": "play", "card": "缺氧适应" })
+	check(not g.world.pressure_lethal(imm),
+		"【缺氧适应】的盾吃掉了这点压迫 → **不报警**（界面不能自己算）")
+
+	## 预警是纯查询：问一遍不能动任何状态
+	var e0: int = imm["energy"]
+	var n0: int = g.logs.size()
+	for i in 5:
+		g.world.pressure_lethal(imm)
+	check(imm["energy"] == e0 and g.logs.size() == n0,
+		"连问 5 次：能量没动、一条日志都没多（界面每帧都要问）")
+
+	## 癌细胞不吃压迫，别给它报
+	can["pos"] = at
+	can["energy"] = 1
+	check(not g.world.pressure_lethal(can), "癌细胞不吃压迫 → 不报警")
+	## 死人也不报
+	imm["alive"] = false
+	check(not g.world.pressure_lethal(imm), "死了的不报警")
+
+	## 脉冲透明度：始终落在设定的两档之间
+	var lo := 9.0
+	var hi := -9.0
+	for ms in range(0, 2000, 37):
+		var a := CWMatch.doom_pulse(ms)
+		lo = minf(lo, a)
+		hi = maxf(hi, a)
+	check(lo >= CWMatch.DOOM_ALPHA.x - 0.001 and hi <= CWMatch.DOOM_ALPHA.y + 0.001,
+		"脉冲透明度在 [%.2f, %.2f] 之间（实测 %.2f~%.2f）"
+			% [CWMatch.DOOM_ALPHA.x, CWMatch.DOOM_ALPHA.y, lo, hi])
+	g.dispose()
+
+
 ## 代谢核心 / 骨髓的「积累进度外圈」（Kevin 2026-09-08 拍的 A′ 案）。
 ##
 ## 算式住在 `CWData.store_progress`，界面只负责画 —— 这组两头都验：
@@ -6444,6 +6515,42 @@ func t_action_bar_width() -> void:
 		"T细胞四技能合计 %d px，放得进 %d px" % [int(total), int(CWActionBar.BAR_RECT.size.x)])
 	check(plated and badge == "1", "第一个按钮的快捷键数字垫了灰底（%s）" % badge)
 	bar.queue_free()
+
+	## Kevin 2026-09-08 报的那一套原样复现：恶黑的四个行动。
+	## 出事的是「移动」那枚 —— 它原来把所有档位列成「0.2 / 0.3 / 0.5 / 0.7 / 1.2」，
+	## 五档之后一枚按钮就宽到把【血行转移】挤出屏幕。现在移动**不带价签**。
+	var bar3 := CWActionBar.new()
+	root.add_child(bar3)
+	bar3.show_bar("", "", [
+		{ "title": "移动", "cost": "" },
+		{ "title": "基因表达", "cost": "1.0 抽卡" },
+		{ "title": "突变", "cost": "0.5" },
+		{ "title": "血行转移", "cost": "1.0" }])
+	var w3 := 0.0
+	var k3 := 0
+	for c in bar3._row.get_children():
+		if c is PanelContainer:
+			w3 += (c as Control).get_combined_minimum_size().x
+			k3 += 1
+	w3 += CWActionBar.GAP * maxi(k3 - 1, 0)
+	check(k3 == 4 and w3 <= CWActionBar.BAR_RECT.size.x,
+		"恶黑四行动合计 %d px，放得进 %d px（移动不带价签之后）"
+			% [int(w3), int(CWActionBar.BAR_RECT.size.x)])
+	## 反过来钉一下：把那串价签加回去就会超宽 —— 说明这条用例真的在守这件事
+	bar3.show_bar("", "", [
+		{ "title": "移动", "cost": "0.2 / 0.3 / 0.5 / 0.7 / 1.2" },
+		{ "title": "基因表达", "cost": "1.0 抽卡" },
+		{ "title": "突变", "cost": "0.5" },
+		{ "title": "血行转移", "cost": "1.0" }])
+	var w4 := 0.0
+	for c in bar3._row.get_children():
+		if c is PanelContainer:
+			w4 += (c as Control).get_combined_minimum_size().x
+	w4 += CWActionBar.GAP * maxi(k3 - 1, 0)
+	check(w4 > CWActionBar.BAR_RECT.size.x,
+		"加回五档价签就超宽（%d > %d）—— 这才是当初挤没【血行转移】的原因"
+			% [int(w4), int(CWActionBar.BAR_RECT.size.x)])
+	bar3.queue_free()
 	## 目标选择态放不下（2026-09-02 Kevin 报【代谢耦联】第三档被挡在屏幕外）。
 	## ① 现在的【代谢耦联】文案（「1.0 → 1.2」+ 提示「转出 → 接收方得」）必须原字号放得下 —— 文案是根治
 	var bar2 := CWActionBar.new()
@@ -10199,7 +10306,7 @@ func t_ossify_cost_and_pin() -> void:
 	for act in g.actions.action_kinds(ost):
 		if act != "move" and ub._cost_text(ost, act) == "":
 			blank.append(act)
-	check(blank.is_empty(), "骨肉瘤的主动技能都有价签（缺的：%s；「移动」的价随目的地变，另走 _move_cost_text）" % str(blank))
+	check(blank.is_empty(), "骨肉瘤的主动技能都有价签（缺的：%s；「移动」2026-09-08 起不带价签，价看格子详情）" % str(blank))
 
 	## 点小卡固定住的详情框：再点同一张 → 收；点别处 → 收；去停手牌 → 让位
 	var box := CWCardInfo.new()

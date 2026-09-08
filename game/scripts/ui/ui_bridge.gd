@@ -210,8 +210,12 @@ func _ask_action(req: Dictionary) -> int:
 			var live: bool = groups.has(act)
 			buttons.append({
 				"title": _move_title(cell) if act == "move" else ACT_TITLE.get(act, act),
-				"cost": _move_cost_text(options, moves) if act == "move" \
-					else _cost_text(cell, act),
+				## **「移动 / 迁移」不带价签**（Kevin 2026-09-08）：它的价随目的地变，
+				## 原来把所有档位列成「0.2 / 0.3 / 0.5 / 0.7 / 1.2」——五档之后这一枚按钮
+				## 宽到把最后一个技能挤出屏幕，而那串数字玩家还对不上是哪一格。
+				## 每一格实际要多少，悬停那一格的详情框里写着（CWTileInfo 的「迁移耗能」行）——
+				## 那里才对得上「这一步值不值」，比按钮上一串无主的数字有用。
+				"cost": "" if act == "move" else _cost_text(cell, act),
 				"disabled": not live,
 				## 悬停这枚按钮时浮出的 PRD 原文（2026-09-04 Kevin 要的「技能栏显示详细作用」）。
 				## **灰掉的按钮也带** —— 想知道「这技能是干嘛的、我为什么用不了」正是那会儿最想问的
@@ -694,21 +698,6 @@ func _clear_ui() -> void:
 func _move_title(cell: Dictionary) -> String:
 	## 规则里免疫叫「迁移」、癌症叫「移动」，是两个词，别混用
 	return "迁移" if cell["faction"] == CWData.Faction.IMMUNE else "移动"
-
-
-## 迁移费用随目的地不同（健康 / 癌性，还看免疫等级），所以直接从各个选项里
-## 把实际费用收齐去重，显示成设计稿那样的「0.5 / 1.0」。不另算一遍。
-func _move_cost_text(options: Array, moves: Array) -> String:
-	var costs: Array = []
-	for i in moves:
-		var c: int = options[i]["data"]["cost"]
-		if c not in costs:
-			costs.append(c)
-	costs.sort()
-	var parts: PackedStringArray = []
-	for c in costs:
-		parts.append(CWData.fmt(c))
-	return " / ".join(parts)
 
 
 func _cost_text(cell: Dictionary, act: String) -> String:
