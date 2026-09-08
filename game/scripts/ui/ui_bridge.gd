@@ -472,8 +472,14 @@ func _plan_hint(cell: Dictionary, n_reach: int) -> String:
 	if _plan.is_empty():
 		return "从高亮格按下左键、划过想走的路线 · 再点「按此路径走」"
 	var q: Dictionary = _plan_quote
-	var head := "%d 步 · 合计 %s · 走完剩 %s" % [_plan.size(),
-		CWData.fmt(int(q.get("total", 0))), CWData.fmt(int(q.get("left", cell["energy"])))]
+	## 途中从【代谢核心】收到的能量单独列一项（2026-09-08）：不写的话玩家会看到
+	## 「合计 2.0 · 走完剩 3.5」这种对不上的账 —— 剩下的不等于「现有 − 合计」。
+	## `total` 保持纯花费、不与收入相抵，因为玩家问的是「这条路要花多少」。
+	var gained := int(q.get("gained", 0))
+	var head := "%d 步 · 合计 %s%s · 走完剩 %s" % [_plan.size(),
+		CWData.fmt(int(q.get("total", 0))),
+		" · 途中核心 +%s" % CWData.fmt(gained) if gained > 0 else "",
+		CWData.fmt(int(q.get("left", cell["energy"])))]
 	if not q.get("ok", false):
 		var steps: Array = q.get("steps", [])
 		var why: String = steps[-1]["blocked"] if not steps.is_empty() else ""

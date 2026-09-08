@@ -110,21 +110,33 @@ func immune_move_options(cell: Dictionary) -> Array:
 
 ## 沿 path 逐格报价。path 是**依次要落脚的格子**（不含起点），一步一格。
 ##
-## 只模拟「会改变后续价钱」的两件事：细胞位置、脚下组织按【定殖】/【净化】翻面。
-## 不模拟不影响价钱的副作用（抗原记忆、日志、骨髓抽卡、巨噬回能、RAS 回能）——
-## 那些是执行时的事，规划器只回答「这条路要花多少」。
+## 只模拟「会改变后续价钱**或后续付不付得起**」的三件事：细胞位置、脚下组织按
+## 【定殖】/【净化】翻面、**踩上【代谢核心】收到的能量**。
+##
+## 核心收入 2026-09-08 补进来（Kevin 报「规划路径不会计算代谢核心给的能量」）：
+## 它不改变任何一步的**单价**，但改变**账上还剩多少**，于是直接决定后面几步的 `afford`。
+## 少算它的后果是「明明走得完的路，规划器说第 4 步钱不够」——玩家只能放弃这条路线。
+## 取走之后本格 `store` 要清零，否则同一个核心来回踩两趟会被算成收两次钱。
+##
+## 仍不模拟的副作用（抗原记忆、日志、骨髓抽卡、RAS 回能）不影响价钱也不影响余额。
+## **巨噬【吞噬】净化回能是个例外**：它确实进余额，但规划器目前没算——
+## 少算它只会让规划器**偏保守**（说没钱、实际有），不会让玩家按错的账走进死路，
+## 所以留着没动，要补是另一件事。
 ##
 ## 返回 { steps: [{ to, cost, mid, legal, afford, blocked }], total, ok, left, stop }
 ##   · legal  这一步在**走到它的时候**合法吗（与提交复验共用 `_is_move_legal_now`）
 ##   · afford 走到这一步时账上还付得起吗（逐步扣，不是拿总价比总能量）
+##   · gain   这一步踩上【代谢核心】拿到的能量（0 = 没拿到）
 ##   · blocked 非空 = 为什么走不了，直接给玩家看
 ##   · ok     整条路都走得通；stop = 第一步走不通的下标（-1 = 全通）
+##   · gained 全程从核心拿到的能量合计（`total` 仍是纯花费，两者不相抵）
 func quote_path(cell: Dictionary, path: Array) -> Dictionary:
 	var saved_pos: Vector2i = cell["pos"]
 	var saved: Array = []          ## [[坐标, 动之前的组织字段]]，逆序放回
 	var steps: Array = []
 	var budget: int = cell["energy"]
 	var total := 0
+	var gained := 0
 	var stop := -1
 	for i in path.size():
 		var to: Vector2i = path[i]
@@ -146,8 +158,9 @@ func quote_path(cell: Dictionary, path: Array) -> Dictionary:
 			if budget < cost:
 				blocked = "能量只剩 %s，这一步要 %s" % [CWData.fmt(budget), CWData.fmt(cost)]
 		var afford: bool = legal and blocked == ""
-		steps.append({ "to": to, "cost": cost, "mid": mid,
-			"legal": legal, "afford": afford, "blocked": blocked })
+		var step := { "to": to, "cost": cost, "mid": mid,
+			"legal": legal, "afford": afford, "blocked": blocked, "gain": 0 }
+		steps.append(step)
 		if not afford:
 			stop = i
 			break
@@ -156,6 +169,14 @@ func quote_path(cell: Dictionary, path: Array) -> Dictionary:
 		## 走过去：位置动，脚下组织按【定殖】/【净化】翻面（enter_tile 里那两条，同样的条件）
 		var t: Dictionary = game.tile(to)
 		saved.append([to, _price_fields(t)])
+		## 收核心：**在付完这一步之后**，和真流程一致（先 pay 再 enter_tile→collect_special）。
+		## 所以这一步的 afford 判的是收钱**之前**的余额，下一步才花得到它。
+		var gain := core_gain(t)
+		if gain > 0:
+			step["gain"] = gain
+			gained += gain
+			budget += gain
+			t["store"] = 0        ## 取空：来回踩两趟不能收两次
 		if cell["faction"] == CWData.Faction.CANCER:
 			if t["tissue"] == CWData.Tissue.HEALTHY:
 				CWTissue.to_cancer(t, true)
@@ -168,14 +189,18 @@ func quote_path(cell: Dictionary, path: Array) -> Dictionary:
 		var t2: Dictionary = game.tile(saved[k][0])
 		for key: String in saved[k][1]:
 			t2[key] = saved[k][1][key]
-	return { "steps": steps, "total": total, "ok": stop < 0, "left": budget, "stop": stop }
+	return { "steps": steps, "total": total, "gained": gained,
+		"ok": stop < 0, "left": budget, "stop": stop }
 
 
-## 影响移动价钱的那几个组织字段（规划器算完要原样放回）。
-## `store` / `cards` / `prod` / `mucus` 规划器不碰，所以不必存。
+## 规划器预演时会动、算完要原样放回的组织字段。
+## `store` 2026-09-08 加进来：预演踩核心要把它清零（不清就会重复收钱），
+## 不存回去的话**光是把路拖过去看一眼，盘面上的核心就被吸干了**——纯查询的契约当场破。
+## `cards` / `prod` / `mucus` 规划器仍不碰（骨髓抽卡不影响价钱也不影响余额），所以不必存。
 func _price_fields(tile: Dictionary) -> Dictionary:
 	return { "tissue": tile["tissue"], "solid": tile["solid"],
-		"newborn": tile["newborn"], "necrosis": tile["necrosis"] }
+		"newborn": tile["newborn"], "necrosis": tile["necrosis"],
+		"store": tile["store"] }
 
 
 ## 从 `from` 出发，这一步能落脚的格（规划器用：只要**空格**，攻击不进路线）。
@@ -920,12 +945,24 @@ func purify_here(cell: Dictionary, dest: Vector2i, paid: int) -> void:
 
 
 ## 收取特殊组织存储（进入时 & 产出瞬间站于其上时调用）
+## 踩上这一格能从【代谢核心】拿到多少能量（0 = 拿不到：不是核心、或者已经被取空）。
+##
+## 抽出来是因为**要有两个调用方**：`collect_special()` 真收，`quote_path()` 预演。
+## 规划器抄第二份必然漂 —— 【代谢加速】那个翻倍是世界事件给的，忘了跟就会少算一半。
+## 同 `CWWorld.pressure_at` 的纪律：一条算式只留一份。
+func core_gain(t: Dictionary) -> int:
+	if t["special"] != CWData.Special.CORE or t["store"] <= 0:
+		return 0
+	var gain: int = t["store"]
+	for i in game.event_stacks("代谢加速"):
+		gain *= 2   ## 【代谢加速】进入代谢核心获得的能量翻倍
+	return gain
+
+
 func collect_special(cell: Dictionary, c: Vector2i) -> void:
 	var t: Dictionary = game.tile(c)
-	if t["special"] == CWData.Special.CORE and t["store"] > 0:
-		var gain: int = t["store"]
-		for i in game.event_stacks("代谢加速"):
-			gain *= 2   ## 【代谢加速】进入代谢核心获得的能量翻倍
+	var gain := core_gain(t)
+	if gain > 0:
 		cell["energy"] += gain
 		game.log_msg("　%s 从代谢核心获取 %s 能量" % [game.cell_name(cell), CWData.fmt(gain)])
 		t["store"] = 0

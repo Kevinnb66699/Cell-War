@@ -103,7 +103,7 @@ func _run_all() -> void:
 		t_ev_proliferate, t_ev_double, t_ev_double_instant, t_ev_lifecycle,
 		t_breath_sheets, t_solidify_and_decay, t_vessel_no_solid, t_erosion, t_macro_purify_heal,
 		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
-		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path,
+		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path, t_plan_core_gain,
 		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_eval_features, t_feed_log, t_proliferate_tiers, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
 		t_immune_win, t_cancer_revive_blocked, t_cancer_s_win, t_immune_respawn,
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
@@ -2526,7 +2526,7 @@ func t_plan_path() -> void:
 	check(g.state_hash() == before, "报价是纯查询：算完状态哈希不变")
 	check(can["pos"] == path[0] - (path[0] - can["pos"]), "细胞位置没被挪走")
 	check(q["ok"] and q["steps"].size() == 4, "四步全通（%s）" % str(q.get("ok", false)))
-	check(q["total"] > 0 and q["left"] == can["energy"] - q["total"],
+	check(q["total"] > 0 and q["left"] == can["energy"] - q["total"] + int(q["gained"]),
 		"合计 %s、走完剩 %s" % [CWData.fmt(q["total"]), CWData.fmt(q["left"])])
 
 	## ② 报价 == 真走一遍。逐步执行的是引擎自己的 _do_move，走的是提交那条路
@@ -2582,6 +2582,76 @@ func t_plan_path() -> void:
 			check(q3["steps"][1]["blocked"].contains("能量"),
 				"原因写明能量不够：%s" % q3["steps"][1]["blocked"])
 	g2.dispose()
+
+
+## 规划器要不要算【代谢核心】的收入（Kevin 2026-09-08 报「规划路径不会计算代谢核心给的能量」）。
+##
+## 少算它**不会**让某一步的单价错，但会让后面几步的 `afford` 判错 ——
+## 症状是「明明走得完的路，规划器说第 2 步钱不够」，玩家只好放弃这条路线。
+## 所以这组里 ④ 那条（钱只够一步、核心的钱接上第二步）才是真正要钉住的。
+func t_plan_core_gain() -> void:
+	print("[规划器：代谢核心收入]")
+	var g := bare_game()
+	var core: Vector2i = CWData.CORES[0]
+	var side: Array = CWData.neighbors(core)
+	var me := put_immune(g, side[0])
+	g.tile(core)["store"] = 20
+
+	## 基准：走一格普通健康组织多少钱（拿另一个邻格量，别用核心那格）
+	var step_cost: int = int(g.actions.quote_path(me, [side[1]] as Array[Vector2i])["total"])
+	check(step_cost > 0, "基准：走一格健康组织 %s" % CWData.fmt(step_cost))
+
+	## ① 收入进账；`total` 保持纯花费、不与收入相抵
+	me["energy"] = 100
+	var before := g.state_hash()
+	var q: Dictionary = g.actions.quote_path(me, [core] as Array[Vector2i])
+	check(int(q["gained"]) == 20 and int(q["steps"][0]["gain"]) == 20,
+		"踩上核心：gained = 2.0（实为 %s）" % CWData.fmt(int(q["gained"])))
+	check(int(q["total"]) == step_cost,
+		"total 仍是纯花费 %s，不与收入相抵" % CWData.fmt(int(q["total"])))
+	check(int(q["left"]) == 100 - step_cost + 20, "走完剩 = 现有 − 花费 + 核心收入")
+
+	## ② 纯查询：预演不能把核心吸干（store 进快照，所以哈希抓得到）
+	check(g.state_hash() == before and int(g.tile(core)["store"]) == 20,
+		"报价是纯查询：核心存量原样放回")
+
+	## ③ 同一个核心来回踩两趟只收一次
+	var q2: Dictionary = g.actions.quote_path(me, [core, side[0], core] as Array[Vector2i])
+	check(q2["ok"] and int(q2["gained"]) == 20,
+		"来回踩两趟只收一次（gained = %s）" % CWData.fmt(int(q2["gained"])))
+
+	## ④ **Kevin 报的那个症状**：钱只够第一步，而第一步站上核心、收到的钱接上第二步
+	var beyond: Array = g.actions.plan_next_dests(me, core)
+	check(not beyond.is_empty(), "核心那格还能往外走")
+	if not beyond.is_empty():
+		me["energy"] = step_cost
+		var q3: Dictionary = g.actions.quote_path(me, [core, beyond[0]] as Array[Vector2i])
+		check(q3["ok"], "钱只够一步，核心的 2.0 接上了第二步（改之前这里判「钱不够」）")
+		## 对照组：把核心取空，同一条路立刻走不通 —— 证明上面那条确实是核心的钱在起作用
+		g.tile(core)["store"] = 0
+		var q4: Dictionary = g.actions.quote_path(me, [core, beyond[0]] as Array[Vector2i])
+		check(not q4["ok"] and int(q4["stop"]) == 1,
+			"对照组：核心空了 → 同一条路停在第 2 步")
+		g.tile(core)["store"] = 20
+
+	## ⑤ 同源性：报价说的「走完剩」必须等于真走一遍之后账上的数。
+	##    这条最要紧 —— 规划器与 collect_special 共用 core_gain()，这里验它们真没分家
+	me["energy"] = 100
+	var q5: Dictionary = g.actions.quote_path(me, [core] as Array[Vector2i])
+	var opts: Array = g.actions.build_options(me)
+	var pick := -1
+	for j in opts.size():
+		var d: Dictionary = opts[j]["data"]
+		if d.get("act", "") == "move" and d.get("to", Vector2i.MAX) == core:
+			pick = j
+			break
+	check(pick >= 0, "核心那格在真实选项里找得到")
+	if pick >= 0:
+		await g.actions.execute(me, opts[pick]["data"])
+		check(me["energy"] == int(q5["left"]),
+			"真走一遍剩 %s == 报价 %s" % [CWData.fmt(me["energy"]), CWData.fmt(int(q5["left"]))])
+		check(int(g.tile(core)["store"]) == 0, "真走一遍之后核心才真的被取空")
+	g.dispose()
 
 
 func t_heur_no_squat_on_fresh() -> void:
