@@ -5080,10 +5080,30 @@ func t_match_panel() -> void:
 		for c in p._event_tip.get_children():
 			if c is Label:
 				tip_texts.append((c as Label).text)
+	## 效果正文现在是**自己折行**的（2026-09-08），所以比的是折行后的样子，不是 BLURB 原串
+	var wrapped_blurb := "
+".join(CWCardInfo.wrap_text(CWWorldFx.BLURB["基质阻隔"],
+		CWMatchPanel.EVENT_TIP_W - 24.0))
 	check(p._event_tip != null and p._event_tip.visible
-		and tip_texts.has("【基质阻隔】") and tip_texts.has(CWWorldFx.BLURB["基质阻隔"])
+		and tip_texts.has("【基质阻隔】") and tip_texts.has(wrapped_blurb)
 		and tip_texts.has("【增殖抑制】×2") and tip_texts.has("剩 2 回合") and tip_texts.has("本回合"),
 		"悬浮详情：每个世界事件的名字、叠数、剩余回合与一句话效果（%d 个标签）" % tip_texts.size())
+	## **字不许出框**：2026-09-08 Kevin 截图报【抗原变异】那句单行冲出右边框，
+	## 根因是赌了 Label 的 autowrap。这条守的是结果——把 BLURB 全表逐句折行后量宽。
+	## 顺带守块高：正文行数现算，三行的句子不许压到下一个事件的名字上。
+	var over: Array = []
+	for name in CWWorldFx.BLURB:
+		for line in CWCardInfo.wrap_text(CWWorldFx.BLURB[name], CWMatchPanel.EVENT_TIP_W - 24.0):
+			if CWStyle.FONT.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1,
+					CWStyle.SIZE_LABEL).x > CWMatchPanel.EVENT_TIP_W - 24.0:
+				over.append("%s：%s" % [name, line])
+	check(over.is_empty(), "世界事件效果正文折行后没有一行出框（超的：%s）" % str(over.slice(0, 3)))
+	var bottom := 0.0
+	for c in p._event_tip.get_children():
+		if c is Label:
+			bottom = maxf(bottom, (c as Label).position.y + CWMatchPanel.EVENT_LINE_H)
+	check(bottom <= p._event_tip.size.y,
+		"框高盖得住所有行（最低一行 %d、框高 %d）" % [int(bottom), int(p._event_tip.size.y)])
 	check(not tip_texts.has("【TGF-β释放】"), "卡牌全局修饰不进悬浮详情")
 	p._event_hover = false
 	p.refresh(g)

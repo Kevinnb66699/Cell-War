@@ -723,9 +723,18 @@ func _update_event_tip(game: CWGame) -> void:
 	for e in game.events["active"]:
 		if game.world_fx.is_world_event(e):
 			items.append(e)
-	var tip_w := 280.0
-	var block_h := 24 + 30    ## 名字行（20px）+ 效果两行（10px 自动换行）
-	var h: float = 8 * 2 + 15 + items.size() * block_h
+	var tip_w := EVENT_TIP_W
+	## 效果正文**自己折行**（CWCardInfo.wrap_text），不用 Label 的 autowrap。
+	## 2026-09-08 Kevin 截图：【抗原变异】那句 270px 宽的话在 256px 的框里没断开、
+	## 单行冲出右边框。同一处还有另半个 bug —— block_h 写死「效果两行」，
+	## 三行的句子会压到下一个事件的名字上。现在两件事一起解决：行数现算、块高跟着走。
+	## 顺带白拿 wrap_text 的两条排版规矩：汉字与数字之间补空格、标点不做行首。
+	var wrapped: Array = []                ## 与 items 一一对应的已折行正文
+	var h: float = 8 * 2 + 15
+	for e in items:
+		var ls := CWCardInfo.wrap_text(CWWorldFx.BLURB.get(e["name"], ""), tip_w - 24.0)
+		wrapped.append(ls)
+		h += EVENT_NAME_H + ls.size() * EVENT_LINE_H + EVENT_BLOCK_GAP
 	_event_tip = Control.new()
 	_event_tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_event_tip.size = Vector2(tip_w, h)
@@ -738,9 +747,9 @@ func _update_event_tip(game: CWGame) -> void:
 	var title := CWStyle.label("进行中的世界事件", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	title.position = Vector2(12, 8)
 	_event_tip.add_child(title)
+	var y: float = 8 + 15
 	for i in items.size():
 		var e: Dictionary = items[i]
-		var y: float = 8 + 15 + i * block_h
 		var head := "【%s】%s" % [e["name"], "×%d" % int(e["stacks"]) if int(e["stacks"]) > 1 else ""]
 		var name_label := CWStyle.label(head, CWStyle.SIZE_BODY, CWStyle.TEXT)
 		name_label.position = Vector2(12, y)
@@ -751,14 +760,11 @@ func _update_event_tip(game: CWGame) -> void:
 		left_label.size = Vector2(tip_w - 24, 0)
 		left_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		_event_tip.add_child(left_label)
-		var blurb := CWStyle.label(CWWorldFx.BLURB.get(e["name"], ""), CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
-		blurb.position = Vector2(12, y + 24)
-		## ⚠ 先开自动换行、再定宽：反过来的话，定宽那一刻 Label 的最小宽度还是整句的宽度，
-		## size.x 会被夹到整句那么宽、之后也不会缩回来 —— 一句话就单行溢出框外
-		## （2026-09-03 Kevin 截图：当时【免疫抑制因子】那句压到框边上）
-		blurb.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY   ## 中文没有词边界，按字换行
-		blurb.size = Vector2(tip_w - 24, 0)
+		var ls: PackedStringArray = wrapped[i]
+		var blurb := CWStyle.label("\n".join(ls), CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
+		blurb.position = Vector2(12, y + EVENT_NAME_H)
 		_event_tip.add_child(blurb)
+		y += EVENT_NAME_H + ls.size() * EVENT_LINE_H + EVENT_BLOCK_GAP
 	add_child(_event_tip)
 
 
@@ -936,6 +942,14 @@ func _set_pips(row: Dictionary, n: int, accent: Color) -> void:
 		var pip: ColorRect = row["pips"][k]
 		pip.color = accent if k < n else CWStyle.TEXT_OFF_DIM
 		pip.modulate.a = 1.0 if k < n else 0.45
+
+
+## 悬浮详情的排版常量。效果正文的行数现算（见 _build_event_tip），所以块高不是定值。
+## 世界事件悬浮框的排版常量。**别和上面被动技能框的 TIP_W(200) 混用**——两个框宽度不同。
+const EVENT_TIP_W := 280.0        ## 框宽；效果正文按 EVENT_TIP_W - 24 折行
+const EVENT_NAME_H := 24.0        ## 名字行（含右对齐的「剩 N 回合」）占的高度
+const EVENT_LINE_H := 15.0        ## 效果正文每行的行高
+const EVENT_BLOCK_GAP := 6.0      ## 两个事件之间留的空
 
 
 ## 进行中的世界事件一行字：「【基质阻隔】本回合·【增殖抑制】剩2回合」。
