@@ -982,15 +982,18 @@ func t_pressure() -> void:
 	for k in 2:
 		g.tiles[nb[k]]["tissue"] = CWData.Tissue.CANCER
 	g.world._pressure()
-	check(cell["energy"] == 50, "相邻 2 格不造成损失")
+	check(cell["energy"] == 50, "二癌四健康 → 被健康组织抵消，不掉能量")
 	g.tiles[nb[2]]["tissue"] = CWData.Tissue.CANCER
 	g.world._pressure()
-	check(cell["energy"] == 45, "相邻 3 格 → (3−2)×0.5 = 0.5")
+	check(cell["energy"] == 50, "三癌三健康 → 正好抵平，仍不掉（新式的分界线）")
+	g.tiles[nb[3]]["tissue"] = CWData.Tissue.CANCER
+	g.world._pressure()
+	check(cell["energy"] == 40, "四癌两健康 →（4 − 2）× 0.5 = 1.0")
 	for k in range(3, 6):
 		g.tiles[nb[k]]["tissue"] = CWData.Tissue.SOLID
 	cell["energy"] = 50
 	g.world._pressure()
-	check(cell["energy"] == 30, "相邻 6 格（含固化）→ (6−2)×0.5 = 2.0")
+	check(cell["energy"] == 5, "三癌三固化 →（3 + 3×2）× 0.5 = 4.5（固化权重翻倍）")
 	## 这是癌方第一个能真正打死免疫细胞的手段
 	cell["energy"] = 15
 	g.world._pressure()
@@ -2663,7 +2666,8 @@ func t_heur_lifecare() -> void:
 	m.set_version("v1")
 	check(not m.death_cost and not m.lifecare and m.fixed_lineup and m.version_tag() == "v1", "v1：全关")
 	g.dispose()
-	## ② 免疫惜命：能量 2.0，相邻两格可净化的癌组织 —— A 走进去回合末压迫 1.5（净化后只剩 1.0，会死）、B 压迫 0
+	## ② 免疫惜命：能量 2.0，相邻两格可净化的癌组织 —— A 走进去回合末压迫 2.0（净化后只剩 1.8，会死）、B 压迫 0
+	## （加权式改版后 A 由 1.5 涨到 2.0：A 的六个邻格里五癌一健康 →（5 − 1）× 0.5）
 	var g2 := bare_game()
 	var me := put_immune(g2, Vector2i.ZERO)
 	me["energy"] = 20
@@ -2676,7 +2680,7 @@ func t_heur_lifecare() -> void:
 	for n in CWData.neighbors(a):
 		if n != Vector2i.ZERO:
 			g2.tiles[n]["tissue"] = CWData.Tissue.CANCER
-	check(g2.world.pressure_at(a) == 15 and g2.world.pressure_at(b) == 0, "场景：A 压迫 1.5、B 压迫 0")
+	check(g2.world.pressure_at(a) == 20 and g2.world.pressure_at(b) == 0, "场景：A 压迫 2.0、B 压迫 0")
 	var pick: int = h2._immune_action(0, g2.actions.build_options(me))
 	var pd: Dictionary = g2.actions.build_options(me)[pick]["data"]
 	## A 是癌性邻格最多的候选（5 个），旧版必选它；v2 只在活得下去的候选里挑（B 或 A 周围那圈里压迫为 0 的格）
@@ -2691,7 +2695,7 @@ func t_heur_lifecare() -> void:
 	## 脚下本身会被压死 → 先逃到活得下去的格
 	for n in CWData.neighbors(Vector2i.ZERO):
 		g2.tiles[n]["tissue"] = CWData.Tissue.CANCER
-	check(g2.world.pressure_at(Vector2i.ZERO) == 20, "场景：脚下压迫 2.0 = 全部能量")
+	check(g2.world.pressure_at(Vector2i.ZERO) == 30, "场景：脚下压迫 3.0 > 全部能量 2.0，站着必死")
 	pick = h2._immune_action(0, g2.actions.build_options(me))
 	pd = g2.actions.build_options(me)[pick]["data"]
 	check(pd.get("act", "") == "move" and me["energy"] - int(pd["cost"]) > g2.world.pressure_at(pd["to"]),
@@ -3235,18 +3239,27 @@ func t_hover_info() -> void:
 	var here0: Array = CWTileInfo.describe(pg, mid, -1, "迁移")
 	check(str(here0).contains("回合末压迫 无"),
 		"压迫行：站着免疫细胞就出，哪怕不在迁移态；相邻 0 格癌 → 无")
-	## 前 2 格免疫（PRESSURE_FREE_ADJ=2），第 3 格起每格 0.5
-	for i in 2:
+	## 加权式（PRD 2026-09-08）：max(0, 癌 + 固化×2 − 健康) × 0.5。
+	## **三癌三健康 = 不掉能量**是这条新式最要紧的性质 —— 站在战线上不再挨刀，
+	## 深入癌区才急剧变贵。旧式在同样盘面是 0.5，这一条正是改动的意义所在。
+	for i in 3:
 		pg.tiles[nbs[i]]["tissue"] = CWData.Tissue.CANCER
 	check(str(CWTileInfo.describe(pg, mid, -1, "迁移")).contains("回合末压迫 无"),
-		"压迫行：相邻 2 格癌仍然免疫（前 2 格不造成损失）")
-	pg.tiles[nbs[2]]["tissue"] = CWData.Tissue.CANCER
-	check(str(CWTileInfo.describe(pg, mid, -1, "迁移")).contains("至少 0.5"),
-		"压迫行：相邻 3 格 → 至少 0.5")
-	for i in range(3, 6):
+		"压迫行：三癌三健康 → 抵消掉，不掉能量")
+	pg.tiles[nbs[3]]["tissue"] = CWData.Tissue.CANCER
+	check(str(CWTileInfo.describe(pg, mid, -1, "迁移")).contains("至少 1.0"),
+		"压迫行：四癌两健康 →（4−2）× 0.5 = 1.0")
+	for i in range(4, 6):
 		pg.tiles[nbs[i]]["tissue"] = CWData.Tissue.CANCER
-	check(str(CWTileInfo.describe(pg, mid, -1, "迁移")).contains("至少 2.0"),
-		"压迫行：相邻 6 格 → 至少 2.0（上限）")
+	check(str(CWTileInfo.describe(pg, mid, -1, "迁移")).contains("至少 3.0"),
+		"压迫行：六面癌组织 → 6 × 0.5 = 3.0")
+	## 固化权重翻倍：同样六面、全换成固化 → 12 × 0.5 = 6.0（新式的真上限）
+	for i in 6:
+		pg.tiles[nbs[i]]["tissue"] = CWData.Tissue.SOLID
+	check(str(CWTileInfo.describe(pg, mid, -1, "迁移")).contains("至少 6.0"),
+		"压迫行：六面固化 → 12 × 0.5 = 6.0（上限，固化权重 ×2）")
+	for i in 6:
+		pg.tiles[nbs[i]]["tissue"] = CWData.Tissue.CANCER
 	## **同源性**：界面显示的数必须等于 E 阶段真正扣掉的数。
 	## 这一条是这组断言里最重要的 —— 界面抄第二份算式正是本项目反复栽的坑。
 	me["energy"] = 100
@@ -8065,10 +8078,11 @@ func t_card_perms() -> void:
 	ex["energy"] = 100
 	ex["equipped"] = ["耗竭抵抗"]
 	g.cells.append(ex)
-	for n in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 1)]:
+	## 四癌两健康 = 压迫 1.0（加权式下三癌三健康正好抵平成 0，场景会空转 —— 2026-09-08 补到四癌）
+	for n in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 1), Vector2i(-1, 0)]:
 		g.tiles[n]["tissue"] = CWData.Tissue.CANCER
 	g.world._pressure()
-	check(ex["energy"] == 100, "压迫 0.5 被「首次 −1.0 + 压迫 −0.5」整个吃掉")
+	check(ex["energy"] == 100, "压迫 1.0 被「首次 −1.0 + 压迫 −0.5」整个吃掉")
 	g.cancer_hit(ex, 20, "测试")
 	check(ex["energy"] == 80, "首次闸门已烧，第二次损失全额")
 	g.dispose()
@@ -8424,7 +8438,8 @@ func t_card_mods() -> void:
 		CWData.ImmuneType.BASIC, -1)
 	hyp2["energy"] = 100
 	g.cells.append(hyp2)
-	for n in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 1)]:
+	## 四癌两健康 = 压迫 1.0（同上，加权式下三癌三健康是 0）
+	for n in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 1), Vector2i(-1, 0)]:
 		g.tiles[n]["tissue"] = CWData.Tissue.CANCER
 	hyp2["hand"] = ["缺氧适应"]
 	await g.card_fx.play(hyp2, { "act": "play", "card": "缺氧适应" })
@@ -8432,10 +8447,10 @@ func t_card_mods() -> void:
 	check(not g.mods_of(hyp2, "缺氧适应").is_empty(),
 		"护盾跨世界回合仍在（卡面写的是「下一次」）")
 	g.world._pressure()
-	check(hyp2["energy"] == 100, "压迫 0.5 被 -1.0 完全吸收（钳在 0）")
+	check(hyp2["energy"] == 100, "压迫 1.0 被 -1.0 完全吸收（钳在 0）")
 	check(g.mods_of(hyp2, "缺氧适应").is_empty(), "压迫吃掉了这面盾")
 	g.world._pressure()
-	check(hyp2["energy"] == 95, "盾没了，下一轮压迫照常掉 0.5")
+	check(hyp2["energy"] == 90, "盾没了，下一轮压迫照常掉 1.0")
 	g.dispose()
 
 	## ⑤ DNA损伤修复：挡事件/技能，不挡普通攻击（定案 #62）

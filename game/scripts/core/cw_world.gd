@@ -814,8 +814,8 @@ func _decay() -> void:
 			t["solid"] = maxi(t["solid"] - CWData.SOLIDIFY_DECAY, 0)
 
 
-## 【E-微环境压迫】：每个免疫细胞受相邻癌性组织的压迫，
-## 相邻数超过 2 格时损失（相邻数 - 2）× 0.5 能量。
+## 【E-微环境压迫】：每个免疫细胞受相邻组织的压迫，
+## 损失 = max(0, 相邻癌组织 + 相邻固化癌组织 × 2 − 相邻健康组织) × 0.5（PRD 2026-09-08 换的加权式）。
 ##
 ## 这是 PRD 给癌方的**第一个稳定伤害来源**。在此之前免疫细胞几乎不可能死
 ## （旧说明 #23「免疫无死亡途径」），所以【复活】那一整套机制此前基本是空转的。
@@ -828,11 +828,19 @@ func _decay() -> void:
 ## ⚠ 它算的是**此刻**的盘面。癌方在免疫之后行动、会在免疫周围铺新格，
 ## 所以回合末的真实值只会**大于等于**这个数 —— 界面上要说清是「至少」。
 func pressure_at(c: Vector2i) -> int:
-	var adj := 0
+	## 只读 `tissue` 一个字段：坏死是叠在健康组织上的计数，Kevin 2026-09-08 确认坏死格照算健康
+	## （所以这里**不能**图省事改用 is_cancerous —— 那会把健康组织的抵消项整个丢掉）。
+	## `neighbors()` 已经裁掉出界方向，棋盘边缘的细胞天然少几个邻居，不必特判。
+	var raw := 0
 	for nb in CWData.neighbors(c):
-		if game.is_cancerous(nb):
-			adj += 1
-	return maxi(adj - CWData.PRESSURE_FREE_ADJ, 0) * CWData.PRESSURE_PER_ADJ
+		match int(game.tiles[nb]["tissue"]):
+			CWData.Tissue.CANCER:
+				raw += CWData.PRESSURE_CANCER_W
+			CWData.Tissue.SOLID:
+				raw += CWData.PRESSURE_SOLID_W
+			CWData.Tissue.HEALTHY:
+				raw += CWData.PRESSURE_HEALTHY_W
+	return maxi(raw, 0) * CWData.PRESSURE_PER_ADJ
 
 
 func _pressure() -> void:
