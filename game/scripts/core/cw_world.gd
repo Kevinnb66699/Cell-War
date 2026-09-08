@@ -131,8 +131,20 @@ func _vessel_teleport() -> void:
 		await game.world_fx.on_vessel_pass(cell)
 
 
-## 【S-复活】癌症：落点是**未被细胞占据**的固化癌组织；可自愿放弃（说明 #21）。
+## 【S-复活】癌症：两条路，都可自愿放弃（说明 #21）。
+##
+## ① 直接落在**未被细胞占据**的固化癌组织上 —— 落点自己降级为癌组织；
+## ② 固化格被**己方癌细胞**占着时（PRD 2026-09-08 新增），落在它**相邻一圈**里
+##    未被占据的**癌性组织**上 —— 降级的是**作为依托的那个固化格**，不是落点。
+##
+## **被免疫占着的固化格两条路都不给**：免疫踩着固化格堵复活位是有意的战术
+## （Kevin 2026-08-31 裁定「这不算 bug，请保留」），新规则不该把这个战术废掉 ——
+## 队友能开出一圈落点，免疫踩上去仍然是彻底封死。
+##
 ## 没有可用落点时返回空数组，流程状态机会跳过这个玩家 —— **但会先说明为什么**，见 _report_no_revive。
+##
+## 顺带一提：这条新路**不影响【E-免疫胜利】**（CWGame.check_immune_win）——
+## 它要求有个**活着的**队友站在固化格上，而免疫胜利的前提正是癌细胞全灭，两者不可能同时成立。
 func revive_options_cancer(pid: int) -> Array:
 	var cell: Dictionary = game.cell_of(pid)
 	## 流程状态机对**每个席位**都问一遍（_ask_each），免疫席位也会走到这里：死了的免疫细胞归上一段
@@ -140,23 +152,44 @@ func revive_options_cancer(pid: int) -> Array:
 	## 而且场上有空固化格时还会被当成癌细胞问「复活于固化格」。
 	if cell["alive"] or cell["faction"] != CWData.Faction.CANCER:
 		return []
-	var candidates: Array[Vector2i] = []
-	var taken: Array[Vector2i] = []
+	var direct: Array[Vector2i] = []      ## ① 空着的固化格
+	var ring := {}                        ## ② 落点 -> 依托的固化格
+	var by_immune: Array[Vector2i] = []   ## 被免疫占着：两条路都堵死
+	var mates: Array[Vector2i] = []       ## 被队友占着：能不能用要看它周围一圈
 	for c in game.tiles.keys():
 		if game.tiles[c]["tissue"] != CWData.Tissue.SOLID:
 			continue
-		if game.cells_at(c).is_empty():
-			candidates.append(c)
-		else:
-			taken.append(c)     ## 有细胞站着的固化格：不是落点，但要说清楚是被谁占了
-	if candidates.is_empty():
-		taken.sort()
-		_report_no_revive(pid, cell, taken)
+		var here: Array = game.cells_at(c)
+		if here.is_empty():
+			direct.append(c)
+			continue
+		if here[0]["faction"] != CWData.Faction.CANCER:
+			by_immune.append(c)
+			continue
+		mates.append(c)
+		for n in CWData.neighbors(c):
+			if game.is_cancerous(n) and game.cells_at(n).is_empty():
+				## 一个落点可能同时挨着好几个队友的固化格。**取坐标最小的那个**当依托：
+				## 让玩家再选一次「碎哪一格」会给复活多加一问，收益远不抵这一步的打扰；
+				## 取最小值也让结果不依赖 tiles 的遍历顺序（同种子可复现）。
+				if not ring.has(n) or c < ring[n]:
+					ring[n] = c
+	for c in direct:
+		ring.erase(c)   ## 空固化格已由 ① 覆盖：同一个落点出两条选项，读起来像 bug
+	if direct.is_empty() and ring.is_empty():
+		by_immune.sort()
+		mates.sort()
+		_report_no_revive(pid, cell, by_immune, mates)
 		return []
-	candidates.sort()   ## 固定候选顺序，保证同种子可复现
+	direct.sort()      ## 固定候选顺序，保证同种子可复现
+	var ring_keys: Array = ring.keys()
+	ring_keys.sort()
 	var options: Array = [{ "label": "放弃本回合复活", "data": { "skip": true } }]
-	for c in candidates:
+	for c in direct:
 		options.append({ "label": "复活于 %s" % str(c), "data": { "to": c } })
+	for c in ring_keys:
+		options.append({ "label": "复活于 %s（依托队友脚下的 %s）" % [str(c), str(ring[c])],
+			"data": { "to": c, "anchor": ring[c] } })
 	return options
 
 
@@ -169,20 +202,32 @@ func revive_options_cancer(pid: int) -> Array:
 ##
 ## 每个世界回合每人只会走到这里一次（`_ask_each` 沿 flow["i"] 单向推进），所以不会刷屏。
 ## 只写日志 + 一句通报，**不碰任何状态**，同种子可复现不受影响。
-func _report_no_revive(pid: int, cell: Dictionary, taken: Array[Vector2i]) -> void:
+func _report_no_revive(pid: int, cell: Dictionary, by_immune: Array[Vector2i],
+		mates: Array[Vector2i]) -> void:
 	if game.sim_quiet:
 		return          ## 蒙特卡洛推演里没人看，也别去广播
 	var who: String = game.player(pid)["name"]
-	if taken.is_empty():
+	if by_immune.is_empty() and mates.is_empty():
 		game.log_msg("【复活】%s 无法复活：场上没有固化癌组织" % who)
 		game.announce("%s 无法复活：没有固化癌组织" % who, cell["pos"], true)
 		return
+	## 固化格是有的，只是两条路都不通。**两种处境分开说**——「被免疫踩着」要去把免疫赶走，
+	## 「队友踩着但一圈没空位」要去把队友旁边腾出来，混成一句话玩家读不出该干什么。
 	var parts: PackedStringArray = []
-	for c in taken:
-		parts.append("%s 被 %s 占据" % [str(c), game.cell_name(game.cells_at(c)[0])])
-	game.log_msg("【复活】%s 无法复活：固化癌组织都有人站着（%s）" % [who, "；".join(parts)])
-	## 提示挂在**被占的那一格**上，玩家一眼能看到是哪儿被堵了
-	game.announce("%s 无法复活：固化癌组织被占据" % who, taken[0], true)
+	if not by_immune.is_empty():
+		var who_on: PackedStringArray = []
+		for c in by_immune:
+			who_on.append("%s 被 %s 占据" % [str(c), game.cell_name(game.cells_at(c)[0])])
+		parts.append("被免疫占着的（%s）" % "；".join(who_on))
+	if not mates.is_empty():
+		var spots: PackedStringArray = []
+		for c in mates:
+			spots.append(str(c))
+		parts.append("队友脚下的（%s）周围没有空的癌性组织" % ", ".join(spots))
+	game.log_msg("【复活】%s 无法复活：%s" % [who, "；".join(parts)])
+	## 提示挂在**被堵的那一格**上，玩家一眼能看到是哪儿出的问题
+	var at: Vector2i = by_immune[0] if not by_immune.is_empty() else mates[0]
+	game.announce("%s 无法复活：固化癌组织都用不上" % who, at, true)
 
 
 
@@ -192,9 +237,11 @@ func revive_cancer(pid: int, data: Dictionary) -> void:
 		game.log_msg("%s 放弃复活" % game.player(pid)["name"])
 		return
 	var pos: Vector2i = data["to"]
-	## 复活获得 2.0 能量，随后该固化癌组织降级为癌组织（计数清零，说明 #22）
-	var t: Dictionary = game.tile(pos)
-	CWTissue.crack_to_cancer(t)
+	## 复活获得 2.0 能量，随后**被用掉的那一格**固化癌组织降级为癌组织（计数清零，说明 #22）。
+	## 走队友那条路（PRD 2026-09-08）时被用掉的是依托格、不是落点，所以这里读 anchor；
+	## 直接落在固化格上时两者是同一格，`get` 的兜底正好覆盖。
+	var anchor: Vector2i = data.get("anchor", pos)
+	CWTissue.crack_to_cancer(game.tile(anchor))
 	cell["alive"] = true
 	cell["energy"] = CWData.REVIVE_ENERGY
 	## 【癌症干性】：复活能量提高（分期），本世界回合**前两次**向癌性组织的移动免费。
@@ -207,8 +254,12 @@ func revive_cancer(pid: int, data: Dictionary) -> void:
 		game.log_msg("　【癌症干性】复活能量提高至 %s，本世界回合 %d 次向癌性组织移动免费" % [
 			CWData.fmt(cell["energy"]), freebies])
 	await game.actions.enter_tile(cell, pos)
-	game.log_msg("【复活】%s 复活于 %s（%s 能量），该格降级为癌组织" % [
-		game.cell_name(cell), str(pos), CWData.fmt(cell["energy"])])
+	if anchor == pos:
+		game.log_msg("【复活】%s 复活于 %s（%s 能量），该格降级为癌组织" % [
+			game.cell_name(cell), str(pos), CWData.fmt(cell["energy"])])
+	else:
+		game.log_msg("【复活】%s 复活于 %s（%s 能量），依托的固化癌组织 %s 降级为癌组织" % [
+			game.cell_name(cell), str(pos), CWData.fmt(cell["energy"]), str(anchor)])
 
 
 ## 【S-复活】免疫：玩家可选**任一骨髓中无细胞占据的健康组织**，初始 1.0 能量（PRD）。

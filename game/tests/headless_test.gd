@@ -105,7 +105,7 @@ func _run_all() -> void:
 		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path, t_plan_core_gain,
 		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_eval_features, t_feed_log, t_proliferate_tiers, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
-		t_immune_win, t_cancer_revive_blocked, t_cancer_s_win, t_immune_respawn,
+		t_immune_win, t_cancer_revive_blocked, t_cancer_revive_ring, t_cancer_s_win, t_immune_respawn,
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_stroma_targets, t_batch2_rules,
 		t_immune_level_rules, t_tissue_transitions, t_one_cell_per_tile, t_phase_order,
@@ -870,6 +870,101 @@ func t_cancer_revive_blocked() -> void:
 	n = g.logs.size()
 	check(g.world.revive_options_cancer(1).is_empty(), "活着 → 没有复活询问")
 	check(g.logs.size() == n, "→ 活着时一句话都不说")
+	g.dispose()
+
+
+## 【S-复活】癌症的第二条路（PRD 2026-09-08）：固化格被**队友**占着时，
+## 可以落在它相邻一圈里未被占据的**癌性组织**上；降级的是**依托格**，不是落点。
+##
+## 这组要钉四件事：谁能当依托、一圈里哪些格算落点、碎的是哪一格、免疫堵位仍然有效。
+func t_cancer_revive_ring() -> void:
+	print("[癌症复活·依托队友的固化格]")
+	var g := make_game(2, 3)
+	g.setup.build_board()
+	var solid := Vector2i(2, 2)
+	var nbs: Array = CWData.neighbors(solid)
+	var mate := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, solid, -1,
+		CWData.CancerType.MELANOMA)
+	var dead := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1,
+		CWData.CancerType.SIGNET)
+	var imm := CWSetup.make_cell(2, 0, CWData.Faction.IMMUNE, Vector2i(-4, 0),
+		CWData.ImmuneType.BASIC, -1)
+	g.cells.append(mate)
+	g.cells.append(dead)
+	g.cells.append(imm)
+	dead["alive"] = false
+	g.tiles[solid]["tissue"] = CWData.Tissue.SOLID
+
+	## 一圈布置：癌组织空着（可落）、健康组织空着（不可落）、癌组织被占（不可落）
+	var ok_spot: Vector2i = nbs[0]
+	var healthy: Vector2i = nbs[1]
+	var occupied: Vector2i = nbs[2]
+	g.tiles[ok_spot]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[healthy]["tissue"] = CWData.Tissue.HEALTHY
+	g.tiles[occupied]["tissue"] = CWData.Tissue.CANCER
+	imm["pos"] = occupied
+	for i in range(3, nbs.size()):
+		g.tiles[nbs[i]]["tissue"] = CWData.Tissue.HEALTHY
+
+	var tos: Array = []
+	for o in g.world.revive_options_cancer(1):
+		if o["data"].has("to"):
+			tos.append(o["data"]["to"])
+	check(tos.has(ok_spot), "空着的癌组织进落点（%s）" % str(ok_spot))
+	check(not tos.has(healthy), "健康组织不进落点（Kevin 2026-09-08：只能落在癌性组织）")
+	check(not tos.has(occupied), "有细胞站着的癌组织不进落点")
+	check(not tos.has(solid), "依托格自己不进落点（队友站着）")
+
+	## 碎的是**依托格**，不是落点 —— 这条最容易写反
+	var pick := {}
+	for o in g.world.revive_options_cancer(1):
+		if o["data"].get("to", Vector2i.MAX) == ok_spot:
+			pick = o["data"]
+	check(pick.get("anchor", Vector2i.MAX) == solid, "选项带上依托格 %s" % str(solid))
+	await g.world.revive_cancer(1, pick)
+	check(dead["alive"] and dead["pos"] == ok_spot, "复活在落点上")
+	check(g.tile(solid)["tissue"] == CWData.Tissue.CANCER, "**依托格**降级为癌组织")
+	check(g.tile(ok_spot)["tissue"] == CWData.Tissue.CANCER, "落点仍是癌组织，没被多碎一次")
+
+	## 免疫踩着固化格：两条路都封死（Kevin 2026-08-31 裁定的战术要保住）
+	var g2 := make_game(2, 4)
+	g2.setup.build_board()
+	var mate2 := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1,
+		CWData.CancerType.MELANOMA)
+	var dead2 := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1,
+		CWData.CancerType.SIGNET)
+	var imm2 := CWSetup.make_cell(2, 0, CWData.Faction.IMMUNE, solid,
+		CWData.ImmuneType.BASIC, -1)
+	g2.cells.append(mate2)
+	g2.cells.append(dead2)
+	g2.cells.append(imm2)
+	dead2["alive"] = false
+	g2.tiles[solid]["tissue"] = CWData.Tissue.SOLID
+	for c in CWData.neighbors(solid):
+		g2.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	var n := g2.logs.size()
+	check(g2.world.revive_options_cancer(1).is_empty(),
+		"免疫踩着固化格 → 一圈也不开（堵位战术仍然有效）")
+	check("|".join(g2.logs.slice(n)).contains("被免疫占着"),
+		"→ 说明是被免疫占着，而不是「周围没空位」")
+	g2.dispose()
+
+	## 队友踩着、但一圈全是健康组织 → 说的是另一种原因，玩家该去腾地方而不是赶免疫
+	var g3 := make_game(2, 5)
+	g3.setup.build_board()
+	var mate3 := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, solid, -1,
+		CWData.CancerType.MELANOMA)
+	var dead3 := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1,
+		CWData.CancerType.SIGNET)
+	g3.cells.append(mate3)
+	g3.cells.append(dead3)
+	dead3["alive"] = false
+	g3.tiles[solid]["tissue"] = CWData.Tissue.SOLID
+	n = g3.logs.size()
+	check(g3.world.revive_options_cancer(1).is_empty(), "队友踩着但一圈没癌性组织 → 没落点")
+	check("|".join(g3.logs.slice(n)).contains("周围没有空的癌性组织"),
+		"→ 说明的是「周围没空位」，与被免疫堵住分开讲")
+	g3.dispose()
 	g.dispose()
 
 
