@@ -4,7 +4,10 @@ extends Node2D
 const TISSUE = preload("res://scenes/Tissue.tscn")
 const HEALTH = preload("res://assets/art/tissue_normal.png")
 const CANCER = preload("res://assets/art/tissue_cancer.png")
-const VESSEL = preload("res://assets/art/vessel.png")
+## 血管：健康版仍叫 vessel.png（原本没有癌变版，所以当初没带 _normal 后缀），
+## 癌变版 2026-09-08 补上。改名统一成 vessel_normal.png 会动 uid，收益只是好看，没做。
+const VESSELH = preload("res://assets/art/vessel.png")
+const VESSELC = preload("res://assets/art/vessel_cancer.png")
 const ENERGYH = preload("res://assets/art/energy_normal.png")
 const MARROWH = preload("res://assets/art/marrow_normal.png")
 const ENERGYC = preload("res://assets/art/energy_cancer.png")
@@ -323,13 +326,14 @@ func _animate(c: Vector2i, to: Color, leaving: bool, delay: float) -> void:
 
 ## ── 按对局状态换贴图 ────────────────────────────────────────────
 ## 贴图表：每种特殊组织一对 [健康, 癌性]。
-## **固化癌组织暂时和普通癌组织同贴图**（硬化外壳还没画），靠 set_marks() 的色标区分；
-## **癌变血管也没有贴图**，两种状态都用同一张 vessel.png。两处都等美术。
+## **固化癌组织暂时和普通癌组织同贴图**（硬化外壳还没画），靠 set_marks() 的色标区分——这处仍等美术。
+## 癌变血管 2026-09-08 补上：顶面取普通癌组织那个红（Kevin 拍的 A 案），
+## 青色血管图标与侧面照另两对的变色规律，所以四种癌变格仍能一眼分清。
 const TISSUE_TEX := {
 	CWData.Special.NONE: [HEALTH, CANCER],
 	CWData.Special.CORE: [ENERGYH, ENERGYC],
 	CWData.Special.MARROW: [MARROWH, MARROWC],
-	CWData.Special.VESSEL: [VESSEL, VESSEL],
+	CWData.Special.VESSEL: [VESSELH, VESSELC],
 }
 
 
@@ -363,7 +367,7 @@ func new_tissue(i, j, x, y):
 	new_t.position = Vector2(x, y)
 	new_t.z_index = y
 	if Vector2(i, j) in vessel_position:
-		new_t.texture = VESSEL
+		new_t.texture = VESSELH
 	elif Vector2(i, j) in energy_position:
 		new_t.texture = ENERGYH
 		##new_t.texture = ENERGYC
