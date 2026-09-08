@@ -56,6 +56,31 @@ const DEAD_FOREVER := 2000
 const DEAD_CANCER := 800
 const DEAD_CANCER_NO_BASE := 1500
 
+## ---- 特征 × 权重（2026-09-07，为「用自对弈回归权重」铺路）----
+##
+## 估值的非终局部分本来就是一个**线性组合**，只是权重写死在上面那些 const 里。
+## 拆成 `features()` × `WEIGHTS` 之后，「学一组更好的权重」就退化成一次回归，
+## 不必动树搜索、不必引入任何运行时依赖。
+##
+## ⚠ **默认权重下 score() 的输出必须逐位不变**：扁平 MC 是平衡标尺，估值一动整套平衡表作废
+## （t_eval_features 钉着这条）。学出来的权重要用，请另开评分器（CWLeafValue 那套），别改这里的默认值。
+##
+## 特征顺序固定，改动要同步 FEATURE_NAMES —— 导出的训练数据按这个顺序写列。
+const FEATURE_NAMES: Array[String] = [
+	"cancer_tiles", "solid_tiles", "solid_progress", "has_base",
+	"cancer_energy", "cancer_hand", "cancer_equip",
+	"immune_energy", "immune_hand", "immune_equip", "immune_far",
+	"memory", "level",
+]
+## 与 FEATURE_NAMES 并行。**能量那两项的权重是 1**：估值的量纲就是十分能量（1 分 ≈ 0.1 能量），
+## 此前它没有名字、直接写在 `worth` 里 —— 拆出来才回归得动。
+const WEIGHTS: Array[int] = [
+	TILE, TILE * 2, SOLID_TICK, FIRST_BASE,
+	1, CARD, EQUIP,
+	-1, -CARD, -EQUIP, FAR,
+	-MEMORY, -LEVEL,
+]
+
 
 ## 从 faction 视角给局面打分。先算「癌方优势」，免疫视角取负 —— 两个视角零和，
 ## 蒙特卡洛给任何一方用都不必换公式。
@@ -71,40 +96,69 @@ const DEAD_CANCER_NO_BASE := 1500
 ## 陪练（v2 启发式、贴脸留 3.0）已经把它的未来算得够保守，再叠一层罚分是重复计价。
 ## 免疫那边相反：不复活等于「缺席」落在视野之外，不显式计价就会自杀式净化 —— 计了之后两档都比 v1 强（24→18 / 29→19）。
 static func score(g: CWGame, faction: int, death_cost: bool = true) -> int:
-	var adv := 0
-	var has_base := false          ## 癌方有没有「无人占据的固化癌组织」= 挡得住清场胜
+	return score_with(g, faction, WEIGHTS, death_cost)
+
+
+## 同 score()，但权重由外部给（长度须等于 FEATURE_NAMES）。回归出的权重靠这条上场，
+## **不必也不该改上面那些默认 const**（那是平衡标尺的一部分）。
+static func score_with(g: CWGame, faction: int, w: Array, death_cost: bool = true) -> int:
 	if g.winner >= 0:
-		adv = WIN if g.winner == CWData.Faction.CANCER else -WIN
-		return adv if faction == CWData.Faction.CANCER else -adv
-	## 地盘：与胜利判据同一口径（癌 1 / 固化 2），另给固化进度部分学分
+		var end_adv := WIN if g.winner == CWData.Faction.CANCER else -WIN
+		return end_adv if faction == CWData.Faction.CANCER else -end_adv
+	var f := features(g)
+	var adv := 0
+	for i in f.size():
+		adv += f[i] * int(w[i])
+	## 死亡项**不进线性部分**：它是条件式的（只在免疫视角计、且要看复活还差几回合），
+	## 硬塞进特征向量会让回归去拟合一个它看不全的量。留在这里按老口径算。
+	if death_cost and faction == CWData.Faction.IMMUNE:
+		for cell in g.cells:
+			if cell["alive"]:
+				continue
+			var cost := _death_cost(g, cell)
+			adv += -cost if cell["faction"] == CWData.Faction.CANCER else cost
+	return adv if faction == CWData.Faction.CANCER else -adv
+
+
+## 局面的特征向量，**一律从「癌方优势」视角取**（免疫视角在 score_with 末尾整体取负）。
+## 顺序与 FEATURE_NAMES 一一对应。纯函数，导出训练数据与打分共用这一份 —— 抄第二份必然漂。
+static func features(g: CWGame) -> Array[int]:
+	var cancer_tiles := 0
+	var solid_tiles := 0
+	var solid_progress := 0
+	var has_base := false          ## 癌方有没有「无人占据的固化癌组织」= 挡得住清场胜
 	for c in g.tiles.keys():
 		var t: Dictionary = g.tiles[c]
 		if t["tissue"] == CWData.Tissue.CANCER:
-			adv += TILE + t["solid"] * SOLID_TICK
+			cancer_tiles += 1
+			solid_progress += int(t["solid"])
 		elif t["tissue"] == CWData.Tissue.SOLID:
-			adv += TILE * 2
+			solid_tiles += 1
 			## 与 check_immune_win 同一口径：免疫站上去的据点不算「可复活」
 			if g.cells_at(c, CWData.Faction.IMMUNE).is_empty():
 				has_base = true
-	if has_base:
-		adv += FIRST_BASE
-	## 物质：存活细胞的能量与手牌/装备；免疫细胞另按离战线的距离罚分
+	var ce := 0
+	var ch := 0
+	var cq := 0
+	var ie := 0
+	var ih := 0
+	var iq := 0
+	var far := 0
 	for cell in g.cells:
 		if not cell["alive"]:
-			if death_cost and faction == CWData.Faction.IMMUNE:
-				var cost := _death_cost(g, cell)
-				adv += -cost if cell["faction"] == CWData.Faction.CANCER else cost
 			continue
-		var worth: int = cell["energy"] + cell["hand"].size() * CARD \
-			+ cell["equipped"].size() * EQUIP
 		if cell["faction"] == CWData.Faction.CANCER:
-			adv += worth
+			ce += int(cell["energy"])
+			ch += cell["hand"].size()
+			cq += cell["equipped"].size()
 		else:
-			adv -= worth
-			adv += mini(_dist_to_cancerous(g, cell["pos"]), 6) * FAR
-	## 免疫科技（记忆与等级不属于哪个细胞，单独算）
-	adv -= g.memory * MEMORY + g.immune_level * LEVEL
-	return adv if faction == CWData.Faction.CANCER else -adv
+			ie += int(cell["energy"])
+			ih += cell["hand"].size()
+			iq += cell["equipped"].size()
+			far += mini(_dist_to_cancerous(g, cell["pos"]), 6)
+	var out: Array[int] = [cancer_tiles, solid_tiles, solid_progress, 1 if has_base else 0,
+		ce, ch, cq, ie, ih, iq, far, g.memory, g.immune_level]
+	return out
 
 
 ## 一个死细胞此刻对己方值多少损失（正数）。免疫按「离复活还有几个世界回合」计，罚停旋钮自然进入估值；

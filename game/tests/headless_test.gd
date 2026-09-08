@@ -104,7 +104,7 @@ func _run_all() -> void:
 		t_breath_sheets, t_solidify_and_decay, t_vessel_no_solid, t_erosion, t_macro_purify_heal,
 		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path,
-		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_feed_log, t_proliferate_tiers, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
+		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_eval_features, t_feed_log, t_proliferate_tiers, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
 		t_immune_win, t_cancer_revive_blocked, t_cancer_s_win, t_immune_respawn,
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_stroma_targets, t_batch2_rules,
@@ -3718,6 +3718,83 @@ func t_feed_log() -> void:
 	check(g.feed_log.size() == n2, "sim_quiet 期间不记流水")
 	g.sim_quiet = false
 	g.dispose()
+
+
+## CWEval 拆成「特征 × 权重」之后的守护（2026-09-07，为回归权重铺路）。
+##
+## **最要紧的一条是「默认权重下打分逐位不变」**：扁平 MC 是平衡标尺，
+## 估值一动整套平衡表作废。这里把公式照抄一份对拍 —— 抄第二份平时是坏事，
+## 但守「重构不改行为」正需要一份独立的参照。
+func t_eval_features() -> void:
+	print("[估值特征化]")
+	check(CWEval.FEATURE_NAMES.size() == CWEval.WEIGHTS.size(),
+		"特征名与权重一一对应（%d / %d）" % [CWEval.FEATURE_NAMES.size(), CWEval.WEIGHTS.size()])
+
+	var g := bare_game()
+	g.setup.build_board()
+	var f: Array[int] = CWEval.features(g)
+	check(f.size() == CWEval.FEATURE_NAMES.size(), "特征向量长度对得上")
+
+	## 逐位不变：随便走一局，每一步都拿两种视角、两种 death_cost 对拍
+	var bad := 0
+	var n := 0
+	for seed_i in 3:
+		var probe := make_game(4, 41000 + seed_i)
+		probe.sim_quiet = true
+		await probe.run_game()
+		for fac in [CWData.Faction.CANCER, CWData.Faction.IMMUNE]:
+			for dc in [true, false]:
+				n += 1
+				if CWEval.score(probe, fac, dc) != _eval_reference(probe, fac, dc):
+					bad += 1
+		probe.dispose()
+	check(bad == 0, "默认权重下 score 与参照实现逐位一致（对拍 %d 次）" % n)
+
+	## 权重可注入：把「一格癌组织」的权重翻倍，分数必须跟着动
+	var g2 := bare_game()
+	g2.setup.build_board()
+	var w: Array = CWEval.WEIGHTS.duplicate()
+	var base: int = CWEval.score(g2, CWData.Faction.CANCER, false)
+	var tiles: int = CWEval.features(g2)[0]
+	w[0] = int(w[0]) * 2
+	check(CWEval.score_with(g2, CWData.Faction.CANCER, w, false) == base + tiles * CWEval.TILE,
+		"权重可注入：癌组织那一项翻倍，分数正好多出一份")
+	g2.dispose()
+	g.dispose()
+
+
+## `CWEval.score` 特征化**之前**的公式，逐字照抄，只给上面那条对拍用。
+func _eval_reference(g: CWGame, faction: int, death_cost: bool) -> int:
+	var adv := 0
+	var has_base := false
+	if g.winner >= 0:
+		adv = CWEval.WIN if g.winner == CWData.Faction.CANCER else -CWEval.WIN
+		return adv if faction == CWData.Faction.CANCER else -adv
+	for c in g.tiles.keys():
+		var t: Dictionary = g.tiles[c]
+		if t["tissue"] == CWData.Tissue.CANCER:
+			adv += CWEval.TILE + t["solid"] * CWEval.SOLID_TICK
+		elif t["tissue"] == CWData.Tissue.SOLID:
+			adv += CWEval.TILE * 2
+			if g.cells_at(c, CWData.Faction.IMMUNE).is_empty():
+				has_base = true
+	if has_base:
+		adv += CWEval.FIRST_BASE
+	for cell in g.cells:
+		if not cell["alive"]:
+			if death_cost and faction == CWData.Faction.IMMUNE:
+				var cost := CWEval._death_cost(g, cell)
+				adv += -cost if cell["faction"] == CWData.Faction.CANCER else cost
+			continue
+		var worth: int = cell["energy"] + cell["hand"].size() * CWEval.CARD \
+			+ cell["equipped"].size() * CWEval.EQUIP
+		if cell["faction"] == CWData.Faction.CANCER:
+			adv += worth
+		else:
+			adv -= worth
+			adv += mini(CWEval._dist_to_cancerous(g, cell["pos"]), 6) * CWEval.FAR
+	adv -= g.memory * CWEval.MEMORY + g.immune_level * CWEval.LEVEL
+	return adv if faction == CWData.Faction.CANCER else -adv
 
 
 ## 线上版 PRD（Kevin 2026-09-07 拉的正本）带来的三条**行为**改动。
