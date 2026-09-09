@@ -7619,6 +7619,70 @@ func t_guide_director() -> void:
 			"第 3 关敌方癌细胞 (1,0) 3.0 能量（%s）" % str(foe))
 		check(g3.tiles[Vector2i(1, 0)]["tissue"] == CWData.Tissue.CANCER,
 			"第 3 关目标格 (1,0) 是癌组织")
+	## 第 4 关「时间开始流动」：19 格、免疫 1.0、远离玩家两格癌组织
+	var g4 := CWGuideDirector.assemble(3)
+	check(g4 != null and g4.tiles.size() == 19, "第 4 关棋盘 19 格")
+	if g4 != null:
+		check(g4.cells.size() == 1 and g4.cells[0]["energy"] == 10
+			and g4.cells[0]["pos"] == Vector2i.ZERO, "第 4 关免疫细胞 (0,0) 能量 1.0")
+		var n_c4 := 0
+		for c in g4.tiles:
+			if g4.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				n_c4 += 1
+		check(n_c4 == 2, "第 4 关远离玩家的癌组织 2 格（%d）" % n_c4)
+	## 第 5 关「另一种生命」：37 格、癌症视角、中心 7 格癌组织连通块
+	var g5 := CWGuideDirector.assemble(4)
+	check(g5 != null and g5.tiles.size() == 37, "第 5 关棋盘 37 格")
+	if g5 != null:
+		check(g5.cells.size() == 1 and g5.cells[0]["faction"] == CWData.Faction.CANCER
+			and g5.cells[0]["pos"] == Vector2i.ZERO and g5.cells[0]["energy"] == 60,
+			"第 5 关玩家是 (0,0) 癌细胞 6.0 能量")
+		var block5: bool = g5.tiles[Vector2i.ZERO]["tissue"] == CWData.Tissue.CANCER
+		for c in CWData.neighbors(Vector2i.ZERO):
+			if g5.tiles[c]["tissue"] != CWData.Tissue.CANCER:
+				block5 = false
+		check(block5, "第 5 关中心 7 格构成癌组织连通块")
+	## 第 6 关「建立据点」：37 格、中心固化计数预设 1、共 4 格癌组织
+	var g6 := CWGuideDirector.assemble(5)
+	check(g6 != null and g6.tiles.size() == 37, "第 6 关棋盘 37 格")
+	if g6 != null:
+		check(g6.tiles[Vector2i.ZERO]["tissue"] == CWData.Tissue.CANCER
+			and g6.tiles[Vector2i.ZERO]["solid"] == 1,
+			"第 6 关中心癌组织固化计数预设 1")
+		var n_c6 := 0
+		for c in g6.tiles:
+			if g6.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				n_c6 += 1
+		check(n_c6 == 4, "第 6 关共 4 格癌组织（%d）" % n_c6)
+	## 第 7 关「组织里的基础设施」：37 格、核/髓/双管四个特殊组织、核预存 2.0、髓预存 1 张
+	var g7 := CWGuideDirector.assemble(6)
+	check(g7 != null and g7.tiles.size() == 37, "第 7 关棋盘 37 格")
+	if g7 != null:
+		check(g7.tiles[Vector2i(1, 0)]["special"] == CWData.Special.CORE
+			and g7.tiles[Vector2i(1, 0)]["store"] == 20,
+			"第 7 关代谢核心 (1,0) 预存 2.0 能量")
+		check(g7.tiles[Vector2i(-1, 1)]["special"] == CWData.Special.MARROW
+			and g7.tiles[Vector2i(-1, 1)]["cards"] == 1,
+			"第 7 关骨髓 (-1,1) 预存 1 张卡")
+		check(g7.tiles[Vector2i(0, -3)]["special"] == CWData.Special.VESSEL
+			and g7.tiles[Vector2i(0, 3)]["special"] == CWData.Special.VESSEL,
+			"第 7 关血管对 (0,-3)/(0,3)")
+		var n_sp7 := 0
+		for c in g7.tiles:
+			if g7.tiles[c]["special"] != CWData.Special.NONE:
+				n_sp7 += 1
+		check(n_sp7 == 4, "第 7 关特殊组织恰好 4 个、无正式布局残留（%d）" % n_sp7)
+	## 第 8 关「基因表达」：37 格、免疫 4.0、两格癌组织做卡牌测试目标
+	var g8 := CWGuideDirector.assemble(7)
+	check(g8 != null and g8.tiles.size() == 37, "第 8 关棋盘 37 格")
+	if g8 != null:
+		check(g8.cells.size() == 1 and g8.cells[0]["energy"] == 40,
+			"第 8 关免疫细胞 4.0 能量")
+		var n_c8 := 0
+		for c in g8.tiles:
+			if g8.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				n_c8 += 1
+		check(n_c8 == 2, "第 8 关癌组织测试目标 2 格（%d）" % n_c8)
 	## 第 16 关「毕业战」：正式规则原样 —— 127 格、3 核 6 髓 2 管、四人行动序
 	var g16 := CWGuideDirector.assemble(15)
 	check(g16 != null, "第 16 关装配出真实 CWGame")

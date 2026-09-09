@@ -34,6 +34,9 @@ static func _apply_fixture(g: CWGame, fx: Dictionary) -> void:
 		g.tiles[c]["special"] = CWData.Special.NONE
 	for c in fx.get("cancer_tiles", []):
 		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	for c in fx.get("tile_extras", {}):
+		for k in fx["tile_extras"][c]:
+			g.tiles[c][k] = fx["tile_extras"][c][k]
 	var cid := 0
 	for cell in fx.get("cells", []):
 		var pid := 1 if cell["faction"] == CWData.Faction.CANCER else 0

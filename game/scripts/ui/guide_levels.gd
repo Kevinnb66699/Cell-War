@@ -37,6 +37,8 @@ static func player_faction(level: int) -> int:
 ##   radius       棋盘半径（RADII 的冗余副本，导演直接读）
 ##   formal       true = 第 16 关，走正式四人初始化，其余字段无效
 ##   cancer_tiles 癌组织坐标（其余默认健康）
+##   tile_extras  逐格覆盖 {坐标: {字段: 值}}——固化计数 solid、特殊组织 special、
+##                代谢核心储能 store（十分之一）、骨髓存卡 cards 等
 ##   cells        开局细胞 [{faction, pos, energy, itype?, ctype?}]
 static func raw(level: int) -> Dictionary:
 	match level:
@@ -56,6 +58,61 @@ static func raw(level: int) -> Dictionary:
 				"cells": [
 					{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO, "energy": 60 },
 					{ "faction": CWData.Faction.CANCER, "pos": Vector2i(1, 0), "energy": 30 },
+				],
+			}
+		3:
+			return {
+				"radius": RADII[3],
+				## 第 4 关「时间开始流动」：免疫 1.0（有氧呼吸就要补上）、远离玩家的癌组织两格
+				"cancer_tiles": [Vector2i(-2, 0), Vector2i(-2, 1)],
+				"cells": [
+					{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO, "energy": 10 },
+				],
+			}
+		4:
+			return {
+				"radius": RADII[4],
+				## 第 5 关「另一种生命」：癌症视角，中心 7 格癌组织连通块供无氧呼吸
+				"cancer_tiles": [Vector2i.ZERO] + CWData.neighbors(Vector2i.ZERO),
+				"cells": [
+					{ "faction": CWData.Faction.CANCER, "pos": Vector2i.ZERO,
+						"energy": CWData.INIT_ENERGY_CANCER },
+				],
+			}
+		5:
+			return {
+				"radius": RADII[5],
+				## 第 6 关「建立据点」：中心固化计数预设 1（E 阶段一到即固化），另有 3 格普通癌组织
+				"cancer_tiles": [Vector2i.ZERO, Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 1)],
+				"tile_extras": {
+					Vector2i.ZERO: { "solid": 1 },
+				},
+				"cells": [
+					{ "faction": CWData.Faction.CANCER, "pos": Vector2i.ZERO,
+						"energy": CWData.INIT_ENERGY_CANCER },
+				],
+			}
+		6:
+			return {
+				"radius": RADII[6],
+				## 第 7 关「组织里的基础设施」：核预存 2.0、髓预存 1 张、血管一对
+				"tile_extras": {
+					Vector2i(1, 0): { "special": CWData.Special.CORE, "store": 20 },
+					Vector2i(-1, 1): { "special": CWData.Special.MARROW, "cards": 1 },
+					Vector2i(0, -3): { "special": CWData.Special.VESSEL },
+					Vector2i(0, 3): { "special": CWData.Special.VESSEL },
+				},
+				"cells": [
+					{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO },
+				],
+			}
+		7:
+			return {
+				"radius": RADII[7],
+				## 第 8 关「基因表达」：免疫 4.0，两格癌组织做卡牌测试目标
+				"cancer_tiles": [Vector2i(1, 0), Vector2i(1, 1)],
+				"cells": [
+					{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO, "energy": 40 },
 				],
 			}
 		15:
