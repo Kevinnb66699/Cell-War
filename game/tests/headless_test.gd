@@ -13058,6 +13058,15 @@ func t_surrender_seats() -> void:
 		"断满 %.1f 分钟 → 视同已离开，不再计入" % (CWNet.DROP_TO_LEFT_MS / 60000.0))
 	srv.stop()
 
+	## 倒计时（Kevin 2026-09-09 报「没有倒数的效果」）。病根是服务器**只在票况变化时**广播，
+	## `left_ms` 是那一刻的快照 —— 界面照着画就永远停在 30 秒。改成客户端按收到时刻自己走表。
+	var d := CWSurrenderVote.deadline_of(1000, CWNet.SURRENDER_VOTE_MS)
+	check(d == 1000 + CWNet.SURRENDER_VOTE_MS, "截止时刻 = 收到时刻 + 剩余")
+	check(CWSurrenderVote.seconds_left(d, 1000) == 30, "刚收到 → 30 秒")
+	check(CWSurrenderVote.seconds_left(d, 1000 + 5000) == 25, "过了 5 秒 → 25 秒（真的在减）")
+	check(CWSurrenderVote.seconds_left(d, 1000 + 29500) == 1, "剩 0.5 秒 → 向上取整成 1，不跳过 1")
+	check(CWSurrenderVote.seconds_left(d, 1000 + 999999) == 0, "过了截止 → 0，不出现负数")
+
 
 func t_net_drain() -> void:
 	var srv := _net_server()

@@ -23,9 +23,24 @@ var _clock: Label
 var _yes: Label
 var _no: Label
 var _voted := false          ## 我这一票投出去没有（本地记，服务器不回执单票）
-var _agreed := 0             ## 上一次收到的同意数，用来认出「票况变了」
+var _deadline := 0           ## 本地时钟上的截止时刻（ms）；0 = 没有在跑的投票
+var _stamp := 0              ## 上一条票面报文的收到时刻，用来认出「换了一条新的」
 
 signal voted(agree: bool)
+
+
+## 票面报文里的 `left_ms` 是**服务器广播那一刻**的剩余时间，而服务器只在票况变化时才广播 ——
+## 照着它画的话秒数永远不动（Kevin 2026-09-09 报「没有倒数的效果」）。
+## 所以换算成本地时钟上的一个截止时刻，之后每帧自己减。
+## **服务器仍然是超时的唯一裁判**：这里只负责把那个数画得像在走，
+## 真到点是服务器 `_end_vote("超时")` 说了算，客户端算快算慢都不影响判定。
+static func deadline_of(at_ms: int, left_ms: int) -> int:
+	return at_ms + maxi(left_ms, 0)
+
+
+## 还剩几秒（向上取整，且不为负）。抽成纯函数是为了无头测试能直接核对。
+static func seconds_left(deadline: int, now: int) -> int:
+	return int(ceil(maxf(float(deadline - now), 0.0) / 1000.0))
 
 
 func _ready() -> void:
@@ -71,9 +86,7 @@ func _cast(agree: bool) -> void:
 func sync(vote: Dictionary, my_pid: int, viewport_w: float) -> void:
 	if vote.is_empty():
 		if visible:
-			visible = false
-			_voted = false      ## 下一次投票要能重新投
-			_agreed = 0
+			reset()
 		return
 	position = Vector2((viewport_w - W) * 0.5, TOP)
 	var need: Array = vote.get("need", [])
@@ -93,12 +106,29 @@ func sync(vote: Dictionary, my_pid: int, viewport_w: float) -> void:
 		_count.text = "已同意 %d / %d" % [agreed.size(), need.size()]
 		_yes.visible = false
 		_no.visible = false
-	_clock.text = "%d 秒" % int(ceil(float(vote.get("left_ms", 0)) / 1000.0))
-	_agreed = agreed.size()
+	## 只在**收到新报文**时重算截止时刻。sync() 每帧都被调、而 vote 是同一份缓存，
+	## 每次都重算的话截止时刻会被一直往后推，秒数照样不动。
+	var at: int = int(vote.get("at_ms", 0))
+	if at != _stamp:
+		_stamp = at
+		_deadline = deadline_of(at, int(vote.get("left_ms", 0)))
+	_tick()
+
+
+## 秒数每帧自己走。**不能只靠 sync()** —— 它是 CWMatch._sync_link() 调的，
+## 而那个只在对局流播完的间隙才跑；掷骰、抽卡那几秒里秒数会卡住。
+func _process(_delta: float) -> void:
+	if visible and _deadline > 0:
+		_tick()
+
+
+func _tick() -> void:
+	_clock.text = "%d 秒" % seconds_left(_deadline, Time.get_ticks_msec())
 
 
 ## 拆局 / 终局时收摊
 func reset() -> void:
 	visible = false
 	_voted = false
-	_agreed = 0
+	_deadline = 0
+	_stamp = 0

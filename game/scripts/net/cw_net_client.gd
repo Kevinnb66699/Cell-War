@@ -226,6 +226,11 @@ func _apply(m: Dictionary) -> void:
 			## **不进 stream**：票面是「此刻」的状态，跟着对局流排队播的话，
 			## 倒计时会连着演出一起延后，30 秒的窗口就对不上了
 			surrender_vote = {} if int(m.get("faction", -1)) < 0 else m
+			## 盖一个收到时刻。服务器**只在票况变化时**广播，`left_ms` 是那一刻的快照，
+			## 界面照着它画就永远停在 30 秒 —— 倒数得由客户端自己走表，
+			## 从这个时刻起算（见 CWSurrenderVote.deadline_of）。
+			if not surrender_vote.is_empty():
+				surrender_vote["at_ms"] = Time.get_ticks_msec()
 		"left":
 			_clear_room()
 		"error":
