@@ -3792,19 +3792,22 @@ func t_effector_responses() -> void:
 
 ## 【E-增生】的连通块分档 + 【E-侵蚀】的格数（PRD 2026-09-07 两条一起改）。
 ##
-## 分档**不赌概率**：把两档旋钮拉到 0 / 1000，于是「普通那档永不转、含固化那档必转」，
-## 直接验的是「按哪一档算」这件事本身。默认值另钉一条。
+## 【E-增生】的概率公式（PRD 2026-09-08 云端修订版）：
+##   每个癌性邻居的贡献 = 3% + 1% × **它所在连通块里的固化癌组织数**。
+## 此前是「块里有固化 → 一律 4%」，不随固化数增长。
+##
+## **不赌概率**：把旋钮拨到让 chance 正好落在 0 或 ≥1000 上（`randi_range(1,1000) <= chance`），
+## 于是每条断言要么必转要么必不转，验的是算式本身而不是运气。
 func t_proliferate_tiers() -> void:
-	print("[增生分档 / 侵蚀格数]")
-	check(CWData.PROLIFERATE_PER_ADJ == 30 and CWData.PROLIFERATE_PER_ADJ_SOLID == 40,
-		"默认两档 = 3% / 4%")
+	print("[增生概率 / 侵蚀格数]")
+	check(CWData.PROLIFERATE_PER_ADJ == 30 and CWData.PROLIFERATE_PER_SOLID == 10,
+		"默认 3% + 每个固化 1%")
 
-	## ① 判的是「所属连通块含不含固化」，不是「这个邻居自己是不是固化」。
-	## 摆两处：target_a 的邻居是普通癌组织、同块里没有固化；
-	##        target_b 的邻居也是普通癌组织，但同块里更远处有一格固化。
+	## ① 数的是「**邻居所属连通块**里的固化数」，不是「这个邻居自己是不是固化」，
+	## 也不是全图固化数。摆两处互不相邻：a 的邻居那块没固化，b 的邻居那块更远处有一格。
 	var g := _blank_board()
-	g.tune.proliferate_per_adjacent = 0        ## 普通档：永不转
-	g.tune.proliferate_per_adjacent_solid = 1000   ## 含固化档：必转
+	g.tune.proliferate_per_adjacent = 0     ## 基础档拨到 0：只剩固化那一项在起作用
+	g.tune.proliferate_per_solid = 1000     ## 一格固化就顶满 → 必转
 	var target_a := Vector2i(-4, 0)
 	var target_b := Vector2i(3, 0)
 	var na: Vector2i = target_a + CWData.DIRS[0]
@@ -3817,20 +3820,35 @@ func t_proliferate_tiers() -> void:
 		"两处互不相邻，各成一个连通块")
 	g.world._proliferate()
 	check(g.tiles[target_a]["tissue"] == CWData.Tissue.HEALTHY,
-		"邻居所在块里没有固化 → 走 3% 那档（旋钮拨到 0，不转）")
+		"邻居那块固化数 = 0 → 概率 0，不转")
 	check(g.tiles[target_b]["tissue"] != CWData.Tissue.HEALTHY,
-		"邻居自己不是固化，但同块里有固化 → 走 4% 那档（旋钮拨到 1000，必转）")
+		"邻居自己不是固化，但同块里有 1 格 → 概率顶满，必转")
 	g.dispose()
 
-	## ② 两档同值 = 退回不分档的老口径（旋钮要能扫回去做对照）
+	## ② **固化数进乘法**：每格 500 时，一格固化只有 500（不保证），两格就顶满 1000。
+	## 与 ① 的「一格 ×1000 必转」合起来，钉住的正是「乘以固化数」这件事。
 	var g2 := _blank_board()
 	g2.tune.proliferate_per_adjacent = 0
-	g2.tune.proliferate_per_adjacent_solid = 0
+	g2.tune.proliferate_per_solid = 500
+	var far2: Vector2i = far + CWData.DIRS[0]   ## 再接一格，凑成同块两格固化
 	g2.tiles[nb]["tissue"] = CWData.Tissue.CANCER
 	g2.tiles[far]["tissue"] = CWData.Tissue.SOLID
+	g2.tiles[far2]["tissue"] = CWData.Tissue.SOLID
 	g2.world._proliferate()
-	check(g2.tiles[target_b]["tissue"] == CWData.Tissue.HEALTHY, "两档同值：分档失效，按同一个数算")
+	check(g2.tiles[target_b]["tissue"] != CWData.Tissue.HEALTHY,
+		"同块两格固化 × 每格 500 = 顶满，必转（一格时只有 500，不保证）")
 	g2.dispose()
+
+	## ③ 固化那一项拨到 0 = 退回「只按基础档」的老口径（旋钮要能扫回去做对照）
+	var g3 := _blank_board()
+	g3.tune.proliferate_per_adjacent = 0
+	g3.tune.proliferate_per_solid = 0
+	g3.tiles[nb]["tissue"] = CWData.Tissue.CANCER
+	g3.tiles[far]["tissue"] = CWData.Tissue.SOLID
+	g3.world._proliferate()
+	check(g3.tiles[target_b]["tissue"] == CWData.Tissue.HEALTHY,
+		"固化项拨到 0：固化再多也不加成")
+	g3.dispose()
 
 	## ③ 侵蚀格数：2/3 → 2 格、1/3 → 3 格
 	var counts := {}
@@ -9609,9 +9627,9 @@ func t_world_events_draw() -> void:
 	print("[世界事件·抽取]")
 	var g := _fx_game(2)
 	## 事件池大小跟着 CWWorldFx.EVENTS 走，别写死数字对不上：
-	## 17（09-07 删【固化加速】）→ **16**（09-08 删【免疫抑制因子】）
+	## 17（09-07 删【固化加速】）→ 16（09-08 删【免疫抑制因子】）→ **15**（09-08 云端版删【抗原丢失】）
 	check(g.events["pool"].size() == CWWorldFx.EVENTS.size()
-		and g.events["pool"].size() == 16, "开局事件池 16 个 = EVENTS 表的长度")
+		and g.events["pool"].size() == 15, "开局事件池 15 个 = EVENTS 表的长度")
 	for i in 7:
 		await g.world_fx.trigger()
 	check(g.events["pool"].size() == CWWorldFx.EVENTS.size() - 7,
@@ -9653,12 +9671,12 @@ func t_ev_attack_flow() -> void:
 	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0), -1, CWData.CancerType.MELANOMA)
 	can["energy"] = 500
 	g.cells.append(can)
-	## 抗原丢失：攻击不造成能量损失（抗原引导保证判定必然非失败）
-	_install(g, "抗原丢失")
+	## 【抗原引导】保证判定必然非失败 —— 后面那几条都靠它把随机性摘掉。
+	## （这里原本还验【抗原丢失】让攻击不掉能量，那个事件 2026-09-08 随 PRD 删了。）
 	_install(g, "抗原引导", 1, 2)
 	var e0: int = can["energy"]
 	await g.actions._do_move(imm, Vector2i(1, 0), 0)
-	check(can["energy"] == e0, "抗原丢失：攻击无法使癌细胞损失能量")
+	check(can["energy"] < e0, "抗原引导下攻击必然造成能量损失")
 	check(imm["pos"] == Vector2i(0, 0), "目标未死 → 攻击者返回原格")
 	## 抗原变异：失败/大成功触发抽牌（多打几次总会掷出）
 	g.events["active"].clear()
@@ -9940,10 +9958,12 @@ func t_ev_double() -> void:
 func t_ev_lifecycle() -> void:
 	print("[世界事件·生命周期]")
 	var g := _fx_game(2)
+	## 样本：一个持续事件 + 一个「本回合」类事件。后者原来用【抗原丢失】，
+	## 它 2026-09-08 随 PRD 删了，换成同为「本回合」类的【营养缺乏】
 	_install(g, "抗原引导", 1, 2)
-	_install(g, "抗原丢失", 1, 1)
+	_install(g, "营养缺乏", 1, 1)
 	g.world_fx.tick_durations()
-	check(g.event_stacks("抗原引导") == 1 and g.event_stacks("抗原丢失") == 0,
+	check(g.event_stacks("抗原引导") == 1 and g.event_stacks("营养缺乏") == 0,
 		"回合末：本回合事件到期，持续事件余 1 回合")
 	g.world_fx.tick_durations()
 	check(g.events["active"].is_empty(), "第二个回合末全部到期")
@@ -11665,8 +11685,11 @@ func _t_dmg_shield_on_benefit() -> void:
 	g2.dispose()
 
 
-## 设计 §5.6：【吞噬体成熟】是**伤害后**斩杀 —— 本次实际造成损失才成立。
-## 攻击被【抗原丢失】整个免疫掉时，不该还发生斩杀。
+## 设计 §5.6：【吞噬体成熟】是**伤害后**斩杀 —— 本次**实际**造成损失才成立。
+##
+## 原来走的是【抗原丢失】把整个事件免疫掉那条路，那个世界事件 2026-09-08 随 PRD 删了。
+## 换成**零伤害的攻击事件**：同样落在 `_queue_triggers` 的 `actual <= 0` 那道闸上，
+## 而且是活路径 —— 减伤把伤害扣没、残血目标实际损失为 0 都会走到这里。
 func _t_dmg_execute_needs_real_damage() -> void:
 	var g := bare_game()
 	var atk := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
@@ -11677,9 +11700,10 @@ func _t_dmg_execute_needs_real_damage() -> void:
 		-1, CWData.CancerType.SCLC, 3)      ## 余 0.3，本来必被处决
 	g.cells.append(v)
 	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
-	g.events["active"].append({ "name": "抗原丢失", "left": 1, "stacks": 1, "data": {} })
-	await g.actions._do_move(atk, Vector2i(1, 0), 0)
-	check(v["alive"], "【抗原丢失】下本次零伤害 → 不触发【吞噬体成熟】的斩杀")
+	var r: Array = g.damage.submit([g.damage.event(atk, v, 0, CWDamage.Kind.ATTACK,
+		[CWDamage.Tag.IMMUNE, CWDamage.Tag.ATTACK], "攻击")])
+	check(int(r[0]["actual"]) == 0, "场景：这一下实际造成 0 损失")
+	check(v["alive"], "本次零伤害 → 不触发【吞噬体成熟】的斩杀（残血目标本该必死）")
 	g.dispose()
 
 
@@ -12259,19 +12283,20 @@ func _t_damage_required() -> void:
 	check(mac["energy"] == e0 - fee, "§9.2 「造成伤害后」的吸血不触发（只扣了迁移费）")
 	g.dispose()
 
-	## §九.3 事件被整体免疫 / 0 伤害时，标记与护甲都不许被骗掉
+	## §九.3 0 伤害时，标记与护甲都不许被骗掉。
+	##
+	## **原来这里还有一半**：用【抗原丢失】把整个事件免疫掉，验同样两条保护。
+	## 那个世界事件随 PRD 2026-09-08 云端修订版删了，「替代/免疫」层**再没有活的触发者** ——
+	## 那半路径已经走不到，删掉。保护本身没有失去覆盖：0 伤害这一半验的是同两条，
+	## 只是换了条路进来。将来有卡牌住进免疫层时，请把那半照着 git 历史加回来。
 	var g2 := bare_game()
 	var atk2 := put_immune(g2, Vector2i(5, 0))
 	var sig := _put_cancer(g2, Vector2i(2, 0), 100, CWData.CancerType.SIGNET)
 	sig["marked"] = true
 	sig["mark_left"] = 1
-	g2.events["active"].append({ "name": "抗原丢失", "left": 1, "stacks": 1, "data": {} })
-	g2.damage.submit([g2.damage.event(atk2, sig, 10, CWDamage.Kind.ATTACK,
-		[CWDamage.Tag.IMMUNE, CWDamage.Tag.ATTACK], "攻击")])
-	check(sig["energy"] == 100, "§9.3 【抗原丢失】：整个事件失效")
-	check(sig["marked"], "§9.3 事件失效时【标记】不被消耗")
-	check(not sig["armor_used"], "§9.3 事件失效时【囊性护甲】不被占用")
-	g2.events["active"].clear()
+	check(not g2.damage._immune_to(g2.damage.event(atk2, sig, 10, CWDamage.Kind.ATTACK,
+			[CWDamage.Tag.IMMUNE, CWDamage.Tag.ATTACK], "攻击")),
+		"§9.3 免疫层现在恒为 false（唯一触发者已随 PRD 删除，这一层保留成契约）")
 	g2.damage.submit([g2.damage.event(atk2, sig, 0, CWDamage.Kind.CARD,
 		[CWDamage.Tag.IMMUNE], "技能")])
 	check(sig["marked"], "§9.3 0 点事件不能骗掉【标记】")

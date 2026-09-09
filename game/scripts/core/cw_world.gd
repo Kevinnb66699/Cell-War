@@ -534,27 +534,29 @@ func _proliferate() -> void:
 		game.log_msg("【增殖抑制】本回合组织无法增生")
 		return
 	var rate: int = game.tune.proliferate_per_adjacent
-	var rate_solid: int = game.tune.proliferate_per_adjacent_solid
+	var per_solid: int = game.tune.proliferate_per_solid
 	for i in game.event_stacks("异常增殖"):
 		rate *= 2        ## 【异常增殖】增生概率翻倍（叠加时按层数连乘）
-		rate_solid *= 2  ## 两档一起翻，否则事件生效期间反而把分档抹平了
-	if rate <= 0 and rate_solid <= 0:
+		per_solid *= 2   ## 两项一起翻，否则事件生效期间反而把固化的加成压扁了
+	if rate <= 0 and per_solid <= 0:
 		return
-	## PRD 2026-09-07：**所在连通块存在固化癌组织**的癌性组织，每个贡献 4% 而不是 3%。
-	## 先把这些格子一次性挑出来 —— 每格各算一遍连通块的话，一次增生要跑 127 遍洪水填充。
-	var boosted := {}
-	if rate_solid != rate:
+	## PRD 2026-09-08 云端修订版：每个癌性组织的贡献 = 3% + 1% × **它所在连通块里的固化癌组织数**。
+	## （此前是「块里有固化 → 一律 4%」，不随固化数增长。）
+	##
+	## 先把每格所属连通块的固化数一次性算出来 —— 每格各跑一遍洪水填充的话，
+	## 一次增生要跑 127 遍。
+	var solids_of := {}   ## 癌性格 -> 它那个连通块里的固化数
+	if per_solid > 0:
 		var cancerous_pred := func(c: Vector2i) -> bool:
 			return game.is_cancerous(c)
 		for block in game.blocks_of(cancerous_pred):
-			var has_solid := false
+			var n_solid := 0
 			for c: Vector2i in block:
 				if game.tiles[c]["tissue"] == CWData.Tissue.SOLID:
-					has_solid = true
-					break
-			if has_solid:
+					n_solid += 1
+			if n_solid > 0:
 				for c: Vector2i in block:
-					boosted[c] = true
+					solids_of[c] = n_solid
 	var converts: Array[Vector2i] = []
 	var coords: Array = game.tiles.keys()
 	coords.sort()  # 固定遍历顺序，保证同种子可复现
@@ -565,12 +567,12 @@ func _proliferate() -> void:
 			continue  # 与【侵蚀】一致：免疫细胞所在格不被转化
 		if _watched(c):
 			continue  # 【免疫监视】守护范围内不做增生判定（不掷骰，rng 消耗随之变少）
-		## 概率是**逐个邻居累加**的（不再是「邻居数 × 单一档位」）：
-		## 同一格的几个癌性邻居可能分属不同连通块，档位各不相同。
+		## 概率是**逐个邻居累加**的（不是「邻居数 × 单一档位」）：
+		## 同一格的几个癌性邻居可能分属不同连通块，各自的固化数不一样。
 		var chance := 0
 		for n in CWData.neighbors(c):
 			if game.is_cancerous(n):
-				chance += rate_solid if boosted.has(n) else rate
+				chance += rate + per_solid * int(solids_of.get(n, 0))
 		if chance > 0 and game.rng.randi_range(1, 1000) <= chance:
 			converts.append(c)
 	## 过场方向在转化**之前**取：这一批是同时结算的，先转的格不该成为后转格的「来源」（同 _erosion）

@@ -158,16 +158,21 @@ func _plan(ev: Dictionary) -> Dictionary:
 	## 不触发吸血、受伤与斩杀，**也不消耗数值层的修饰**（设计 §5.2）
 	if _immune_to(ev):
 		plan["replaced"] = true
-		plan["logs"].append("　【抗原丢失】本回合攻击无法使癌细胞损失能量")
+		plan["logs"].append("　这次伤害被整体免疫，未造成能量损失")
 		return plan
 	## ③ 数值计算：保留 PRD 五步数学
 	plan["calculated"] = _calculate(ev, plan)
 	return plan
 
 
-## 【抗原丢失】：本回合攻击无法使癌细胞损失能量
-func _immune_to(ev: Dictionary) -> bool:
-	return Tag.ATTACK in ev["tags"] and game.event_stacks("抗原丢失") > 0
+## 整体免疫掉一次伤害事件（设计 §5.2 的「替代/免疫」层）。
+##
+## **目前恒为 false**：唯一的触发者【抗原丢失】随 PRD 2026-09-08 云端修订版删除了。
+## 这一层**保留不删** —— 它是伤害管线设计里的一环（被免疫的事件视为「未造成伤害」，
+## 不触发吸血、受伤与斩杀，也不消耗数值层的修饰），将来的卡牌会住进来；
+## 现在拆掉的话，下一个需要它的效果只会绕过管线自己扣能量，那正是三条铁律要防的事。
+func _immune_to(_ev: Dictionary) -> bool:
+	return false
 
 
 ## 五步管线：max(floor((基础 + 固定增加) × 倍增 ÷ 倍减) - 固定减免, 0)

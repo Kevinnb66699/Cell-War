@@ -24,7 +24,7 @@ const RULE_FIELDS := [
 	"immune_respawn_delay", "immune_respawn_energy", "macro_heal_purify",
 	"antibody_max_per_round", "antibody_halve", "world_events_on",
 	"anaerobic_block_exp", "anaerobic_block_coef", "anaerobic_solid_bonus",
-	"proliferate_per_adjacent", "proliferate_per_adjacent_solid", "erosion_tiles",
+	"proliferate_per_adjacent", "proliferate_per_solid", "erosion_tiles",
 	"metastasis_cost", "metastasis_max_per_round",
 	"newborn_protect",
 ]
@@ -346,6 +346,6 @@ var newborn_protect := false
 ## 作用是让地盘能脱离癌细胞自行生长，打破「癌细胞一死就彻底崩盘」的负反馈。
 var proliferate_per_adjacent := CWData.PROLIFERATE_PER_ADJ
 ## 连通块含固化癌组织时的那一档（PRD 2026-09-07）。设成与上面同值 = 退回不分档的老口径。
-var proliferate_per_adjacent_solid := CWData.PROLIFERATE_PER_ADJ_SOLID
+var proliferate_per_solid := CWData.PROLIFERATE_PER_SOLID
 ## 【E-侵蚀】一次转几格（x = 2/3 概率那档，y = 1/3 概率那档）。PRD 2026-09-07 是 (2,3)，此前 (1,2)。
 var erosion_tiles := CWData.EROSION_TILES

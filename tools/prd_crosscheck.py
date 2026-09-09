@@ -150,7 +150,7 @@ MAP = {
     "MATURED_ANTIBODY_COST":  "【抗体】的能量消耗由1降低为0.5",
     ## 卡面写的是「能量消耗降低0.5」——减量，不是「降为 0.5」。
     # ---- 【效应应答】与树突【E-组织黏连】（2026-09-07 实装）----
-    "PROLIFERATE_PER_ADJ_SOLID": "每个癌性组织对增生的贡献为4%",
+    "PROLIFERATE_PER_SOLID": "1 \%\times癌性组织联通块中固化癌组织数",
     "EFFECTOR_COST":          "每次发动统一消耗**15效应记忆**",
     "ADHESION_RANGE":         "传染给相邻两格内的所有癌细胞",
     "HUNT_CHEMO_ROUNDS":      "【追踪趋化源】持续2回合",

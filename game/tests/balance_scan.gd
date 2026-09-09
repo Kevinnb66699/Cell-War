@@ -297,7 +297,7 @@ func _tune() -> CWTuning:
 	if prolif >= 0:
 		t.proliferate_per_adjacent = prolif
 	if prolifs >= 0:
-		t.proliferate_per_adjacent_solid = prolifs
+		t.proliferate_per_solid = prolifs
 	if erosion >= 0:
 		t.erosion_tiles = Vector2i(erosion, erosion + 1)
 	if solid >= 0:
@@ -398,7 +398,7 @@ func _applied(t: CWTuning) -> String:
 			["amem", t.immune_attack_pct_per_memory, d.immune_attack_pct_per_memory],
 			["amemcap", t.immune_attack_pct_memory_cap, d.immune_attack_pct_memory_cap],
 			["prolif", t.proliferate_per_adjacent, d.proliferate_per_adjacent],
-			["prolifs", t.proliferate_per_adjacent_solid, d.proliferate_per_adjacent_solid],
+			["prolifs", t.proliferate_per_solid, d.proliferate_per_solid],
 			["erosion", t.erosion_tiles.x, d.erosion_tiles.x],
 			["solid", t.solidify_threshold, d.solidify_threshold],
 			["cwin", t.cancer_win_weighted, d.cancer_win_weighted],

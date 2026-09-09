@@ -776,7 +776,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 			game.log_msg("　【连续吞噬】连续净化的加成：本次攻击额外 +%s" % CWData.fmt(chain))
 		if extra > 0:
 			game.log_msg("　攻击类修饰：额外造成 %s 能量损失" % CWData.fmt(extra))
-		## 【抗原丢失】的免疫判定住在管线的「替代/免疫」层（设计 §5.2），这里不再自己拦：
+		## 「整体免疫掉一次伤害」的判定住在管线的「替代/免疫」层（设计 §5.2），这里不再自己拦：
 		## 被整体免疫的事件视为未造成伤害，护盾、标记与斩杀都不会被骗掉
 		## 主攻击与它的次级伤害**必须同批**（2026-08-31 队友审查问题 2 的第四条语义）：
 		## 拆开的话主伤害先结算死亡、【BCL-2抗凋亡】先把能量拉回分期值，
@@ -796,7 +796,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		var hits: Array = game.damage.submit(events)
 		## PRD【迁移】：「累积与造成伤害的绝对值向下取整的抗原记忆」（Kevin 2026-09-07 定的措辞）。
 		## 引擎此前**整条没实现**（只有【净化】给记忆）。按实际造成的伤害算，不是尝试值：
-		## 被【抗原丢失】免疫掉、被减伤扣没了的部分不该换记忆。次级伤害（细胞毒性增强）同批计入。
+		## 被整体免疫掉、被减伤扣没了的部分不该换记忆。次级伤害（细胞毒性增强）同批计入。
 		var dealt := 0
 		for h in hits:
 			dealt += int(h["actual"])
@@ -804,7 +804,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 			game.gain_memory(dealt / 10)   ## 十分能量的整数除法 = 向下取整
 			game.log_msg("　【攻击】造成 %s 能量损失，+%d 抗原记忆（%d）"
 				% [CWData.fmt(dealt), dealt / 10, game.memory])
-		## 【补体级联】的组织转化不是能量损失，【抗原丢失】拦不住它
+		## 【补体级联】的组织转化不是能量损失，「整体免疫」那一层拦不住它
 		for i in game.spend_mods(cell, "补体级联"):
 			_cascade(target)
 		## 【抗原变异】攻击大成功 → 攻击方抽牌（按层数）
