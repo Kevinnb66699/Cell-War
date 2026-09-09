@@ -997,7 +997,9 @@ func _sync_mark_aura(delta: float) -> void:
 			continue
 		var at: Vector2i = cell["pos"]
 		var tiles: Array = []
-		for c in CWData.all_coords():
+		## 遍历**这一局真有的格**，不是正式布局的 127 格 —— 教程小棋盘上
+		## 板外格的 tile_center() 返回 (0,0)，粒子会全飘到棋盘原点去
+		for c in game.tiles:
 			var d := CWData.hex_dist(c, at)
 			if d > 0 and d <= CWData.MARK_RANGE:
 				## **z 按格给**：棋盘是按排分层的，整只演出共用一个 z 的话，

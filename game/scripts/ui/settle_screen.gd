@@ -72,6 +72,7 @@ var _chip: PanelContainer
 var _chip_text: Label
 var _reason: Label
 var _meta: Label
+var _board_size: Label       ## 「终局盘面 N 格」；N 现读对局，见 _fill
 var _stat_num: Array[Label] = []
 var _stat_lbl: Array[Label] = []
 var _w_num: Label           ## 加权当前值
@@ -142,6 +143,7 @@ func _fill(game: CWGame) -> void:
 	_chip.add_theme_stylebox_override("panel", chip_box)
 	_reason.text = _reason_text(game)
 
+	_board_size.text = "终局盘面　%d 格" % game.tiles.size()
 	_stats = [
 		game.count_tissue(CWData.Tissue.HEALTHY),
 		game.count_tissue(CWData.Tissue.CANCER),
@@ -375,10 +377,11 @@ func _row(y: float) -> Control:
 
 
 func _build_stats(parent: Control, x: float, y: float) -> void:
-	var lbl := CWStyle.label("终局盘面　%d 格" % CWData.all_coords().size(),
-		CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	lbl.position = Vector2(x, y)
-	parent.add_child(lbl)
+	## 格数在 _fill() 里按**这一局的盘面**填（教程小棋盘不是 127 格）——
+	## _build() 只跑一次，把数字写死在这儿就永远是正式局那个数
+	_board_size = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	_board_size.position = Vector2(x, y)
+	parent.add_child(_board_size)
 	var col: float = STAT_W / 4.0
 	for i in STAT_LABELS.size():
 		## 健康是好事用亮色，癌与固化用癌方色，坏死是叠加项所以压暗一档

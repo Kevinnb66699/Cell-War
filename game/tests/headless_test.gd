@@ -6793,6 +6793,22 @@ func t_settle_screen() -> void:
 	check(s._w_num.text == str(weighted), "加权 %d = 癌 + 2×固化" % weighted)
 	check(s._reason.text.contains(">="), "胜因用 ASCII 的 >=（字体里没有 U+2265）")
 	check(s._meta.text.contains("第 12 回合"), "回合数来自引擎")
+	## 盘面格数也得现读对局：这行以前是 _build() 里写死的 CWData.all_coords().size()，
+	## 教程小棋盘上就永远显示 127（2026-09-09 合 PR #3 之后补）
+	check(s._board_size.text.contains(str(g.tiles.size())),
+		"「终局盘面 N 格」的 N 来自 game.tiles（%d）" % g.tiles.size())
+	var small := CWGame.new()
+	small.init(CWData.FACTION_ORDER[2], 7)
+	small.setup.build_board(1)          ## 半径 1 = 7 格
+	small.winner = CWData.Faction.IMMUNE
+	small.win_kind = "immune_clear"
+	s.show_result(small)
+	check(s._board_size.text.contains("7"), "换成 7 格的小棋盘，这行跟着变（实为「%s」）"
+		% s._board_size.text)
+	small.dispose()
+	## 把屏恢复成 g 的那一局：底下的断言（刻度、按钮）都还按它来
+	s.show_result(g)
+	s.skip()
 
 	## 胜利线刻度：加权超过阈值时条填满，刻度按比例落在条内
 	check(s._bar_tick.position.x > 0.0 and s._bar_tick.position.x <= CWSettleScreen.BAR_W,

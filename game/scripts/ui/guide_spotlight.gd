@@ -75,8 +75,10 @@ func sync(flag: String, m) -> void:
 		"board":
 			_rect(_board_rect(m))
 		"special":
-			for c in CWData.all_coords():
-				if CWData.special_of(c) != CWData.Special.NONE:
+			## 读**这一局格子上**的 special：正式局 make_tile 就是拿 special_of(c) 填的，
+			## 逐格相同；而教程里导演会先清空再按 fixture 加，只有读 tiles 才对得上
+			for c in m.game.tiles:
+				if int(m.game.tiles[c]["special"]) != CWData.Special.NONE:
 					_hex(m, c)
 		"place":
 			for c in place_tiles(m.game):
