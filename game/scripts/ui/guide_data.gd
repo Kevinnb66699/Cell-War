@@ -52,6 +52,8 @@ static func chapter_step_count(chapter: int) -> int:
 ##   b  正文行（已折好的一行一元素，10px 字体固定 15px 行高）
 ##   flag 可选：本步骤需要在棋盘/界面高亮哪块视觉（guide.gd 按名字找）
 ##   act 可选：等玩家操作时交给 CWGuideBridge 的提示键，也是它的 STEPS 索引
+##   watch 可选：状态完成键（placed/moved）——CWGuide.check_progress 按真实局面自动翻页；
+##        与 act 分工：act 驱动提示与代做，watch 驱动翻页判定
 static func steps(chapter: int) -> Array:
 	match chapter:
 		0: return _chapter_intro()
@@ -107,7 +109,7 @@ static func _chapter_intro() -> Array:
 static func _chapter_placement() -> Array:
 	var tune := CWTuning.new()
 	return [
-		{ "t": "第一步：落子", "flag": "place", "act": "place", "b": [
+		{ "t": "第一步：落子", "flag": "place", "act": "place", "watch": "placed", "b": [
 			"开局要轮流把细胞放到棋盘上。",
 			"点一个高亮的健康组织，把免疫细胞放下去。",
 			"我建议选在紧邻癌区外侧的健康组织上，方便下一步进攻。",
@@ -117,7 +119,7 @@ static func _chapter_placement() -> Array:
 				CWData.fmt(tune.init_energy_immune), CWData.fmt(tune.init_energy_cancer)],
 			"行动要花能量；支付不能让能量降到 0，归零就死亡。",
 		] },
-		{ "t": "第二步：迁移", "flag": "move", "act": "move", "b": [
+		{ "t": "第二步：迁移", "flag": "move", "act": "move", "watch": "moved", "b": [
 			"轮到你时，点底部「迁移」按钮，再点一个高亮的相邻健康组织。",
 			"走进癌组织会自动【净化】，并让免疫 +1 抗原记忆。",
 		] },
@@ -281,3 +283,12 @@ static func act_of(chapter: int, step: int) -> String:
 	if step < 0 or step >= s.size():
 		return ""
 	return str(s[step].get("act", ""))
+
+
+## 某一步的「状态完成」键：空串 = 讲解型步骤，仍按「继续」翻页。
+## placed = 人类席位的细胞已落盘；moved = 人类席位细胞位置相对进入本步时变了。
+static func watch_of(chapter: int, step: int) -> String:
+	var s: Array = steps(chapter)
+	if step < 0 or step >= s.size():
+		return ""
+	return str(s[step].get("watch", ""))
