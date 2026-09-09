@@ -39,10 +39,21 @@ var timeouts := 0               ## 超时代打次数（统计/测试）
 var _ask := {}                  ## 正悬着的真人询问 {pid, ask_id, req, deadline, waiter}
 var _ask_seq := 0
 var _log_cursor := {}           ## client id -> 已发到第几行日志
+var _vote := {}                 ## 正在进行的投降投票 {faction, by, agreed:{pid:true}, deadline}
+var _vote_block := {}           ## 阵营 -> 冷却到第几个世界回合（含）为止不许再发起
 
 
+## `left` / `off_at` 是**投降投票**要用的（2026-09-09）：
+## · `left = true`  主动点了「离开房间」——人已经走了，投票不计入他
+## · `left = false` 且 `online = false` 是**网络断开**，仍要计入（他可能马上回来）
+## · `off_at` 掉线的时刻（ms），断满 `CWNet.DROP_TO_LEFT_MS` 由 tick() 转成 left
+##
+## ⚠ 这两种情况**此前是同一条路**（本文件 leave() 的原注释就写着「主动离开与掉线同路」），
+## 而且掉线 20 秒后 `CWNet.DEAD_MS` 会把连接判死、照样走 leave() ——
+## 不显式区分的话，20 秒之后两者的席位状态一模一样，分不出来。
 static func empty_seat() -> Dictionary:
-	return { "kind": "", "client": -1, "nick": "", "ready": false, "tier": "", "token": "", "online": false }
+	return { "kind": "", "client": -1, "nick": "", "ready": false, "tier": "", "token": "",
+		"online": false, "left": false, "off_at": 0 }
 
 
 static func ai_seat(tier: String) -> Dictionary:
@@ -78,8 +89,10 @@ func join(cid: int, nick: String) -> void:
 		push_state_to(cid, _ask.get("pid", -1))
 
 
-## 主动离开与掉线同路
-func leave(cid: int) -> void:
+## 主动离开与掉线走同一条路，**只差 `voluntary` 这一个标记**（2026-09-09）：
+## 投降投票要区分「人走了」和「网断了」—— 前者不计入、后者要计入（见 CWNet 那段注释）。
+## 席位状态其余部分完全一样，所以只在这里分叉，别的地方不必知道。
+func leave(cid: int, voluntary: bool = false) -> void:
 	if not members.has(cid):
 		return
 	members.erase(cid)
@@ -91,6 +104,9 @@ func leave(cid: int) -> void:
 			s["client"] = -1
 			s["online"] = false
 			s["ready"] = false
+			s["left"] = voluntary
+			s["off_at"] = server.now_ms()
+			_refresh_vote()   ## 少一个人要投 → 可能正好凑齐（或投票该作废了）
 		else:
 			seats[pid] = empty_seat()
 	if cid == host:
@@ -150,6 +166,8 @@ func reconnect(cid: int, nick: String, token: String) -> String:
 			server.unbind(old)
 		s["client"] = cid
 		s["online"] = true
+		s["left"] = false     ## 回来了就不再是「已离开」，重新计入投票
+		s["off_at"] = 0
 		if nick != "":
 			s["nick"] = nick
 		members[cid] = s["nick"]
@@ -333,6 +351,8 @@ func _teardown_game() -> void:
 	game = null
 	bridge = null
 	_ask = {}
+	_vote = {}
+	_vote_block = {}   ## 冷却按世界回合算，下一局回合数从头来，留着会误伤
 
 
 ## 中止对局：引擎停在某个真人的询问上，答它一个 0 让协程展开，run_game 看到 aborted 就收摊
@@ -387,9 +407,24 @@ func forgive_stall(gap: int) -> void:
 		_ask["deadline"] += gap
 
 
-## 服务器每帧调：计时到点就代打
+## 服务器每帧调：计时到点就代打；顺带推投降投票的两个钟。
 func tick(now: int) -> void:
-	if state != State.PLAYING or _ask.is_empty():
+	if state != State.PLAYING:
+		return
+	## 断线够久 → 视同已离开，不再计入投票。
+	## 没有这一条的话，一个再也不回来、又没点过「离开房间」的人，
+	## 能把队友永远锁在这一局里（全票制下他那一票永远凑不齐）。
+	var turned := false
+	for s in seats:
+		if s["kind"] == "human" and not s["online"] and not s["left"] \
+				and s["off_at"] > 0 and now - s["off_at"] >= CWNet.DROP_TO_LEFT_MS:
+			s["left"] = true
+			turned = true
+	if turned:
+		_refresh_vote()
+	if not _vote.is_empty() and now >= int(_vote["deadline"]):
+		_end_vote("超时")
+	if _ask.is_empty():
 		return
 	var dl: int = _ask["deadline"]
 	if dl > 0 and now >= dl:
@@ -403,6 +438,104 @@ func _auto_answer() -> void:
 	if _ask != a:
 		return
 	a["waiter"].done.emit(idx)
+
+
+# ---- 投降投票（2026-09-09）----
+## 服务器是**唯一裁判**：谁必须投、够不够票、超时与冷却全在这儿算。
+## 客户端只负责「把我这一票送上来」和「把当前票况画出来」——
+## 让客户端自己判会给作弊留口子（改个客户端就能替队友投同意）。
+##
+## 规则见 `CWNet` 那段常量的注释：AI 一律同意、主动离开不计入、网络断开要计入。
+
+
+## 这一阵营此刻必须投票的席位（**在线真人**）。AI 与已离开的不在其中 = 自动同意。
+func _voters(faction: int) -> Array[int]:
+	var out: Array[int] = []
+	for pid in seats.size():
+		var s: Dictionary = seats[pid]
+		if s["kind"] != "human" or s["left"]:
+			continue
+		if CWData.FACTION_ORDER[player_count][pid] == faction:
+			out.append(pid)
+	return out
+
+
+## 收到一票（或发起）。`agree=false` 当场否决 —— 全票制下一个反对就没戏了，
+## 拖着只是让发起人干等 30 秒。
+func surrender(cid: int, agree: Variant) -> String:
+	if state != State.PLAYING or game == null:
+		return "not_waiting"
+	var pid := pid_of_client(cid)
+	if pid < 0:
+		return "not_seated"
+	var faction: int = CWData.FACTION_ORDER[player_count][pid]
+	var yes: bool = agree if typeof(agree) == TYPE_BOOL else true
+	if _vote.is_empty():
+		if not yes:
+			return "no_vote"          ## 没投票可反对
+		if int(_vote_block.get(faction, -1)) >= game.round_no:
+			return "vote_cooldown"
+		_vote = { "faction": faction, "by": pid, "agreed": { pid: true },
+			"deadline": server.now_ms() + CWNet.SURRENDER_VOTE_MS }
+		game.log_msg("【投降】%s 发起投降投票" % seats[pid]["nick"])
+		_refresh_vote()
+		return ""
+	if _vote["faction"] != faction:
+		return "no_vote"              ## 对方阵营的投票，与你无关
+	if not yes:
+		_end_vote("有人反对")
+		return ""
+	if _vote["agreed"].has(pid):
+		return "voted"
+	_vote["agreed"][pid] = true
+	_refresh_vote()
+	return ""
+
+
+## 重算票况：够了就认输，不够就把最新进度广播出去。
+## **每次席位或回合有变动都要叫一次** —— 少一个要投的人（离开 / 掉线转已离开）
+## 可能正好把票凑齐，不重算的话投票会卡在那儿直到超时。
+func _refresh_vote() -> void:
+	if _vote.is_empty():
+		return
+	if state != State.PLAYING or game == null or game.is_over():
+		_vote = {}
+		return
+	var need := _voters(_vote["faction"])
+	var missing: Array[int] = []
+	for pid in need:
+		if not _vote["agreed"].has(pid):
+			missing.append(pid)
+	if missing.is_empty():
+		_pass_vote()
+		return
+	broadcast({ "t": "surrender_vote", "faction": _vote["faction"], "by": _vote["by"],
+		"need": need, "agreed": _vote["agreed"].keys(),
+		"left_ms": maxi(0, int(_vote["deadline"]) - server.now_ms()) })
+
+
+## 全票通过：认输。**顺序照 CWMatch.surrender_now** —— 先定结果，再唤醒卡住的询问，
+## 否则 run_game 会拿着一个无意义的答案替人多走一步（`winner >= 0` 那条跳出就是为它加的）。
+func _pass_vote() -> void:
+	var faction: int = _vote["faction"]
+	_vote = {}
+	broadcast({ "t": "surrender_vote", "faction": -1 })   ## 收起票面
+	game.surrender(faction)
+	if not _ask.is_empty():
+		var a := _ask
+		_ask = {}
+		a["waiter"].done.emit(0)
+
+
+func _end_vote(why: String) -> void:
+	if _vote.is_empty():
+		return
+	var faction: int = _vote["faction"]
+	_vote = {}
+	if game != null:
+		_vote_block[faction] = game.round_no + CWNet.SURRENDER_COOLDOWN_ROUNDS
+		game.log_msg("【投降】投票未通过（%s）" % why)
+	broadcast({ "t": "surrender_vote", "faction": -1 })
 
 
 func push_state(turn_pid: int) -> void:

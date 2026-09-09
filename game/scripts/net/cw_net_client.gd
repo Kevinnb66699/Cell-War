@@ -28,6 +28,9 @@ var logs: PackedStringArray = []         ## 本局累积的对局日志（已按
 var last_state := {}
 var last_error := {}
 var game_over := {}
+## 正在进行的投降投票（服务器裁决，客户端只画）。空 = 没有。
+## 字段见 CWRoom._refresh_vote：{faction, by, need, agreed, left_ms}
+var surrender_vote := {}
 var inbox: Array = []                    ## 所有收到的报文（测试与机器人用；界面用 message 信号）
 var autoplay: CWBridge                   ## 机器人模式：收到 ask 就用这个桥作答（桥的 game 会指向 shadow）
 var pending_ask := {}                    ## 最近收到、尚未作答的询问
@@ -181,6 +184,12 @@ func answer(ask_id: int, index: int) -> void:
 	send({ "t": "answer", "ask_id": ask_id, "index": index })
 
 
+## 投降：没有正在进行的投票就是**发起**，有就是**投票**。
+## 够不够票、超时、冷却全由服务器算 —— 客户端自己判会给作弊留口子。
+func surrender(agree: bool = true) -> void:
+	send({ "t": "surrender", "agree": agree })
+
+
 # ---- 收到的报文 ----
 ## 顺序播放模式下由使用者在合适的时机调：让一条对局流报文真正生效
 func apply_now(m: Dictionary) -> void:
@@ -212,6 +221,11 @@ func _apply(m: Dictionary) -> void:
 		"game_over":
 			game_over = m
 			pending_ask = {}
+			surrender_vote = {}
+		"surrender_vote":
+			## **不进 stream**：票面是「此刻」的状态，跟着对局流排队播的话，
+			## 倒计时会连着演出一起延后，30 秒的窗口就对不上了
+			surrender_vote = {} if int(m.get("faction", -1)) < 0 else m
 		"left":
 			_clear_room()
 		"error":
@@ -232,6 +246,7 @@ func _clear_room() -> void:
 	token = ""
 	my_seat = -1
 	pending_ask = {}
+	surrender_vote = {}
 
 
 func _apply_state(m: Dictionary) -> void:

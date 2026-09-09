@@ -22,7 +22,9 @@ class_name CWNet
 extends RefCounted
 
 ## 协议或规则一变就升号：服务器拒绝版本不符的客户端（error code=version）。
-const NET_VERSION := 1
+## v2（2026-09-09）：投降投票 —— 新增 surrender 上行与 surrender_vote 下行。
+## 服务器对不认识的报文回 bad_message，所以**旧客户端必须更新才连得上**（Kevin 已同意）。
+const NET_VERSION := 2
 const DEFAULT_HOST := "124.221.78.13"
 const DEFAULT_PORT := 8611
 ## 单条报文（压缩后）上限；超过即断开
@@ -68,7 +70,23 @@ const ERRORS := {
 	"kicked": "你被房主请出了房间",
 	"room_closed": "房间已关闭",
 	"rate": "发送过于频繁",
+	"no_vote": "没有正在进行的投降投票",
+	"voted": "你已经投过票了",
+	"vote_cooldown": "刚投过一次，等一个世界回合再来",
 }
+
+# ---- 投降投票（2026-09-09）----
+## 一人发起，**同阵营全票通过**才认输（Kevin 定案，照王者荣耀那套）。
+##
+## 谁必须投票：本阵营**在线的真人**席位。
+## · AI 席位一律同意 —— 否则单机式的「带 AI 队友」永远投不了降，而那正是最想要这功能的场合。
+## · **主动离开**的席位不计入（他人已经走了，本局由 AI 代打）。
+## · **网络断开**的席位仍要计入（Kevin 定）：他可能马上回来，不该替他做决定。
+##   代价是断线期间投不出去 —— 所以断线超过 DROP_TO_LEFT_MS 自动转成「已离开」，
+##   否则一个再也不回来的人能把队友永远锁在这一局里。
+const SURRENDER_VOTE_MS := 30000        ## 投票时限，到点算否决
+const SURRENDER_COOLDOWN_ROUNDS := 1    ## 否决后隔几个世界回合才能再发起
+const DROP_TO_LEFT_MS := 150000         ## 断线满 2.5 分钟 → 视同主动离开（不再计入投票）
 
 
 static func encode(msg: Dictionary) -> PackedByteArray:

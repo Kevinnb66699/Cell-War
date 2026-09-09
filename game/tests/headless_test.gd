@@ -124,7 +124,7 @@ func _run_all() -> void:
 		t_codex, t_guide_bridge, t_guide_spotlight, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_game, t_net_reconnect, t_net_timeout,
-		t_net_drain, t_online_panel, t_online_glow, t_match_online,
+		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -12910,6 +12910,107 @@ func t_net_timeout() -> void:
 	check(ok, "之后正常作答打完")
 	a.dispose()
 	b.dispose()
+	srv.stop()
+
+
+## 投降投票（联机，Kevin 2026-09-09）。**服务器是唯一裁判**，所以这条走真 socket：
+## 4 人房、两个真人同坐免疫（pid 0 与 2，FACTION_ORDER[4] = 免/癌/免/癌），癌方两席交给 AI。
+## 一个真人发起 → 票不够 → 队友补票 → 才认输。
+func t_net_surrender() -> void:
+	var srv := _net_server()
+	if srv == null:
+		return
+	var a := _net_client("甲")
+	var b := _net_client("乙", false)
+	await _net_pair(srv, a, b)
+	a.create_room(4, 0, true, 77)
+	var ok := await _net_pump(srv, [a, b], func() -> bool: return a.code != "")
+	b.join(a.code)
+	ok = ok and await _net_pump(srv, [a, b], func() -> bool: return b.code == a.code)
+	a.sit(0)
+	b.sit(2)                       ## 0 与 2 同为免疫席
+	a.set_ai(1, "heur")
+	a.set_ai(3, "heur")
+	ok = ok and await _net_pump(srv, [a, b], func() -> bool: return a.my_seat == 0 and b.my_seat == 2)
+	a.ready()
+	b.ready()
+	ok = ok and await _net_pump(srv, [a, b],
+		func() -> bool: return a.room["seats"][0]["ready"] and a.room["seats"][2]["ready"])
+	check(ok, "4 人房：两个真人同坐免疫，癌方两席 AI")
+	a.start()
+	var room: CWRoom = srv.rooms[a.code]
+	ok = await _net_pump(srv, [a, b], func() -> bool: return room.state == CWRoom.State.PLAYING)
+	check(ok, "开局")
+
+	## ---- 发起：一票不够 ----
+	a.surrender(true)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return not b.surrender_vote.is_empty())
+	check(ok and room.game.winner < 0, "一个人点了投降**还没有**认输（要全票）")
+	var v: Dictionary = b.surrender_vote
+	check(Array(v["need"]) == [0, 2] and Array(v["agreed"]) == [0],
+		"要投的是同阵营两席、已同意只有发起人（need=%s agreed=%s）" % [str(v["need"]), str(v["agreed"])])
+	check(int(v["left_ms"]) > 0 and int(v["left_ms"]) <= CWNet.SURRENDER_VOTE_MS, "带倒计时")
+
+	## ---- 反对：当场结束，并进冷却 ----
+	b.surrender(false)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return b.surrender_vote.is_empty())
+	check(ok and room.game.winner < 0, "队友反对 → 投票作废，没有认输")
+	a.surrender(true)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return a.last_error.get("code", "") == "vote_cooldown")
+	check(ok, "刚被否掉，同一个世界回合里不许再发起（冷却）")
+
+	## ---- 冷却过去之后：全票 → 认输 ----
+	room._vote_block.clear()       ## 冷却按世界回合走，测试里不便真等一整轮
+	a.surrender(true)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return not b.surrender_vote.is_empty())
+	b.surrender(true)
+	ok = ok and await _net_pump(srv, [a, b], func() -> bool: return not b.game_over.is_empty())
+	check(ok, "两票齐 → 认输")
+	var over: Dictionary = b.game_over
+	check(int(over["winner"]) == CWData.Faction.CANCER and over["kind"] == "surrender_cancer",
+		"免疫投降 → 癌方胜（kind=%s）" % over.get("kind", ""))
+	check(b.surrender_vote.is_empty(), "终局把票面收掉")
+	a.dispose()
+	b.dispose()
+	srv.stop()
+
+
+## 「主动离开」与「网络断开」在投票里算得不一样（Kevin 2026-09-09）。
+## 这条**不走 socket**：要验的是 CWRoom 的席位分支，用真连接反而更难摆出「掉线但没离开」。
+func t_surrender_seats() -> void:
+	print("[投降：离开 vs 掉线]")
+	var srv := _net_server()
+	if srv == null:
+		return
+	var r := CWRoom.new()
+	r.configure(srv, "TESTAA", 4, 0, true, true)
+	for pid in 4:
+		r.seats[pid] = { "kind": "human", "client": 100 + pid, "nick": "P%d" % pid,
+			"ready": true, "tier": "", "token": "t%d" % pid, "online": true,
+			"left": false, "off_at": 0 }
+	check(Array(r._voters(CWData.Faction.IMMUNE)) == [0, 2],
+		"免疫方要投的是 pid 0 与 2（FACTION_ORDER[4] 交替）")
+
+	## AI 席位不在名单里 = 自动同意。否则「带 AI 队友」永远投不了降。
+	r.seats[2] = CWRoom.ai_seat("heur")
+	check(Array(r._voters(CWData.Faction.IMMUNE)) == [0], "AI 席位不计入（视同意）")
+
+	## 主动离开 → 不计入；网络断开 → 仍要计入
+	r.seats[2] = { "kind": "human", "client": -1, "nick": "P2", "ready": false, "tier": "",
+		"token": "t2", "online": false, "left": true, "off_at": 1 }
+	check(Array(r._voters(CWData.Faction.IMMUNE)) == [0], "主动离开的不计入")
+	r.seats[2]["left"] = false
+	check(Array(r._voters(CWData.Faction.IMMUNE)) == [0, 2],
+		"网络断开的**仍要计入**（他可能马上回来，不该替他做决定）")
+
+	## 断够久自动转「已离开」—— 没有这条，一个再也不回来的人能把队友永远锁在局里
+	r.state = CWRoom.State.PLAYING
+	r.seats[2]["off_at"] = 1000
+	r.tick(1000 + CWNet.DROP_TO_LEFT_MS - 1)
+	check(not r.seats[2]["left"], "断线还没到 %d ms：仍计入" % CWNet.DROP_TO_LEFT_MS)
+	r.tick(1000 + CWNet.DROP_TO_LEFT_MS)
+	check(r.seats[2]["left"] and Array(r._voters(CWData.Faction.IMMUNE)) == [0],
+		"断满 %.1f 分钟 → 视同已离开，不再计入" % (CWNet.DROP_TO_LEFT_MS / 60000.0))
 	srv.stop()
 
 

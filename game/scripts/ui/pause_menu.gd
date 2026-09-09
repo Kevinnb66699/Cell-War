@@ -42,8 +42,8 @@ const ITEMS := [
 	{ "id": "codex", "text": "知识之书", "enabled": true, "confirm": "" },
 	{ "id": "settings", "text": "设置", "enabled": true, "confirm": "" },
 	## **不走二级确认**（Kevin 2026-09-09：「不然太麻烦」）—— 与「返回主菜单」「退出游戏」
-	## 那条「不可撤销就要确认」的惯例是有意的例外。联机侧本来就有投票当摩擦；
-	## 本地侧点下去即生效，代价是手滑会直接判负（本地局重开就是了）。
+	## 那条「不可撤销就要确认」的惯例是有意的例外。联机侧点下去只是**发起投票**（队友还要同意），
+	## 本地侧才是立刻生效，代价是手滑会直接判负（本地局重开就是了）。
 	{ "id": "surrender", "text": "投降", "enabled": true, "confirm": "" },
 	{ "id": "menu", "text": "返回主菜单", "enabled": true, "confirm": "返回主菜单？" },
 	{ "id": "quit", "text": "退出游戏", "enabled": true, "confirm": "退出游戏？" },
@@ -209,10 +209,6 @@ func items() -> Array:
 	var out: Array = []
 	for item in ITEMS:
 		if item["id"] == "save_quit":
-			continue
-		## 联机的投降要走「同阵营全票」的投票，报文与服务器裁决还没上线（协议要升到 v2）。
-		## 先不露出来 —— 露一个点了没反应的按钮比没有更糟。第二阶段接上后删掉这三行。
-		if item["id"] == "surrender":
 			continue
 		if item["id"] == "menu":
 			var leave: Dictionary = item.duplicate()

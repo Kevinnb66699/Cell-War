@@ -60,17 +60,23 @@ func viewing_faction() -> int:
 	return int(game.player(pid)["faction"])
 
 
-## 【投降】屏幕前这位代表本方认输。
+## 【投降】屏幕前这位代表本方认输。**两条路**：
 ##
-## **本地是「发起即生效」，没有投票**（Kevin 2026-09-09）：热座同阵营的人就坐在一起、
-## 开口商量比走一遍投票 UI 快；单机的 AI 队友一律同意，投票也只是走个过场。
-## 投票只在联机、且同阵营有两个以上真人时才成立 —— 那半归服务器裁决（协议 v2）。
+## · **联机**：只是把「我要投降」送给服务器，够不够票由它算（`CWRoom.surrender`）。
+##   本地这份影子对局一个字都不能改 —— 结果要等服务器的 game_over 报文回来。
+##   自己先判的话，队友一反对就得把已经判过的胜负收回去。
+## · **本地**：发起即生效，没有投票（Kevin 2026-09-09）。热座同阵营的人就坐在一起、
+##   开口商量比走一遍投票 UI 快；单机的 AI 队友一律同意，投票也只是走个过场。
 ##
-## 顺序要紧：**先认定结果，再唤醒卡住的询问**。投降总是发生在「某人正被问着」的时候
-## （ESC 菜单压在询问界面上），先叫醒的话 run_game 会拿着一个无意义的答案 step() 一步。
+## 本地那条的顺序要紧：**先认定结果，再唤醒卡住的询问**。投降总是发生在「某人正被问着」
+## 的时候（ESC 菜单压在询问界面上），先叫醒的话 run_game 会拿着一个无意义的答案 step() 一步。
 func surrender_now() -> void:
 	var faction := viewing_faction()
 	if faction < 0:
+		return
+	if online:
+		if _client != null:
+			_client.surrender(true)
 		return
 	game.surrender(faction)
 	if bridge != null:
@@ -180,6 +186,7 @@ var bridge: CWUIBridge
 var online := false
 var net_hud: CWNetHud
 var _client: CWNetClient
+var _vote: CWSurrenderVote   ## 投降票面（只有联机会用；本地是发起即生效，没有投票）
 var _loop_id := 0        ## 每次 start_online / teardown 递增：旧的 _net_loop 看到号变了就退出
 var _ask_serial := 0     ## 每收到一次询问递增：作答时核对，服务器代打后重问的旧答案不发
 
@@ -274,6 +281,14 @@ func _ready() -> void:
 		_feed = CWFeed.new()
 		ui.add_child(_feed)
 		ui.move_child(_feed, _tile_info.get_index())
+		## 投降票面（联机才会露面）。摆在顶部居中那条唯一还空着的带子上，不做模态 ——
+		## 30 秒里对局照常进行，队友不该因为要投票被冻住
+		_vote = CWSurrenderVote.new()
+		ui.add_child(_vote)
+		ui.move_child(_vote, _tile_info.get_index())
+		_vote.voted.connect(func(agree: bool) -> void:
+			if _client != null:
+				_client.surrender(agree))
 		## 日志面板压在信息卡下面：两者都开着时，悬停详情仍然读得到
 		_log_panel = CWLogPanel.new()
 		ui.add_child(_log_panel)
@@ -664,6 +679,9 @@ func _sync_link() -> void:
 		net_hud.set_ping(_client.ping_ms)   ## 数字由客户端的心跳往返给（Kevin 2026-09-07）
 	if panel != null:
 		panel.net_seats = _client.room.get("seats", [])
+	## 票面每帧对一次：倒计时要走，票况随时会变（服务器每收一票就重播一遍）
+	if _vote != null:
+		_vote.sync(_client.surrender_vote, _client.my_seat, get_viewport_rect().size.x)
 
 
 ## 返场淡出：让棋盘上的东西**淡着消失**，而不是啪地不见（团队 2026-08-27 反馈）。

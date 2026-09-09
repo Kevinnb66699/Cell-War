@@ -144,6 +144,8 @@ func _drop(cid: int) -> void:
 		return
 	var c: Dictionary = clients[cid]
 	clients.erase(cid)
+	## 这条路是**掉线**（socket 断了、DEAD_MS 判死、被踢），不传 voluntary ——
+	## 这些人没有表示要走，投降投票仍然要等他们那一票（断满 DROP_TO_LEFT_MS 才自动转「已离开」）
 	if c["room"] != "" and rooms.has(c["room"]):
 		rooms[c["room"]].leave(cid)
 	if c["hello"]:
@@ -160,14 +162,18 @@ func _kick(cid: int, code: String) -> void:
 	_drop(cid)
 
 
-## 把客户端从它的房间里解绑（房间那边已经/将要把它从成员表移除）
-func unbind(cid: int) -> void:
+## 把客户端从它的房间里解绑（房间那边已经/将要把它从成员表移除）。
+##
+## `voluntary` 只有一处传 true：玩家自己点了「离开房间」。掉线、被踢、
+## 以及重连时旧连接让位都不算 —— 那些人没有表示要走。
+## 投降投票据此区分「人走了」和「网断了」，见 CWRoom.leave。
+func unbind(cid: int, voluntary: bool = false) -> void:
 	if not clients.has(cid):
 		return
 	var code: String = clients[cid]["room"]
 	clients[cid]["room"] = ""
 	if code != "" and rooms.has(code):
-		rooms[code].leave(cid)
+		rooms[code].leave(cid, voluntary)
 
 
 func close_room(r: CWRoom) -> void:
@@ -243,7 +249,7 @@ func _handle(cid: int, bytes: PackedByteArray) -> void:
 		"reconnect":
 			_reconnect(cid, str(msg.get("code", "")), str(msg.get("token", "")))
 		"leave_room":
-			unbind(cid)
+			unbind(cid, true)   ## true = **主动**离开（投降投票不再计入他，见 CWRoom.leave）
 			send(cid, { "t": "left" })     ## 回一声，客户端据此清掉本地的房间状态（比本地先清更稳：房间视图可能还在路上）
 		_:
 			var r := _room_of(cid)
@@ -259,6 +265,7 @@ func _handle(cid: int, bytes: PackedByteArray) -> void:
 				"kick": e = r.kick(cid, msg.get("seat"))
 				"start": e = r.start(cid)
 				"answer": e = r.answer(cid, msg.get("ask_id"), msg.get("index"))
+				"surrender": e = r.surrender(cid, msg.get("agree", true))
 				_: e = "bad_message"
 			if e != "":
 				_error(cid, e)
