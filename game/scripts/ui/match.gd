@@ -903,6 +903,9 @@ func _process(delta: float) -> void:
 	if _log_hint != null and _log_panel != null:
 		_log_hint.visible = not _log_panel.visible   ## 面板开着就让位（同一个角）
 		_log_hint.refresh(game, _log_panel)          ## 迷你日志：日志尾巴两行，视角跟面板同一份（方案 A，Kevin 2026-09-06）
+	## 状态推进：带 watch 的步骤由真实局面翻页（不代做）；讲解型步骤不受影响
+	if _guide != null and is_instance_valid(_guide) and _guide.active:
+		_guide.check_progress()
 	if _spotlight != null and is_instance_valid(_spotlight):
 		var flag := ""
 		if _guide != null and is_instance_valid(_guide) and _guide.active:
