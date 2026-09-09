@@ -13,7 +13,9 @@ config_version=5
 config/name="Cell War"
 config/description="《Cell War》免疫细胞 vs 癌细胞 桌游电子化"
 config/version="0.1.0"
-run/main_scene="res://scenes/Main.tscn"
+; 启动器：先挂补丁包再进 Main（见 scripts/boot.gd）。补丁必须在游戏代码首次 load 之前挂上，
+; 所以主场景只能是它 —— 直接进 Main 的话，等 Main 加载完补丁已经盖不上了。
+run/main_scene="res://scenes/Boot.tscn"
 config/features=PackedStringArray("4.5", "Forward Plus")
 
 [display]

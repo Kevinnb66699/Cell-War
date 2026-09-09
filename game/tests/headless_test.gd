@@ -114,7 +114,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_save_load, t_settings, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_hot_patch, t_save_load, t_settings, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -4639,6 +4639,51 @@ func t_rules_page() -> void:
 
 
 # ---- 存档读档：快照落盘、恢复逐位一致、继续走同一步仍一致 ----
+## 热更新（2026-09-09 第一阶段）。**整条链是渲染验的**（真打补丁 → 挂上 → 主菜单标题变了；
+## 另验了指纹不符隔离、上次没活下来回退、新增 class_name 打包直接拒），见开发日志。
+## 这里守的是代码里能守的两件事：指纹算得对不对，以及那条「启动器不许碰游戏类」的硬约束。
+func t_hot_patch() -> void:
+	print("[热更新]")
+	var PatchState := load("res://scripts/patch_state.gd")
+
+	## SHA-256 拿一个已知答案的空串对：补丁是可执行代码，指纹算错等于护栏形同虚设
+	var tmp := "user://_t_hot_probe.bin"
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	f.store_string("")
+	f.close()
+	check(PatchState.sha256_of(tmp)
+		== "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		"空文件的 SHA-256 = 标准值（算法接对了）")
+	f = FileAccess.open(tmp, FileAccess.WRITE)
+	f.store_string("abc")
+	f.close()
+	check(PatchState.sha256_of(tmp)
+		== "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+		"「abc」的 SHA-256 = 标准值")
+	check(PatchState.sha256_of("user://_不存在的文件_.bin") == "", "文件不在 → 空串（挂载前必然对不上）")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
+
+	## **启动器不许引用游戏里的类。** 引用谁，谁就在挂载补丁之前被解析进缓存，
+	## 于是那个类**永远打不了补丁**；实验里还撞到过 Godot 直接挂死。
+	## 这条约束只活在注释里的话，下一个人加一行 `CWStyle.label(...)` 就会静默毁掉整个热更。
+	for path in ["res://scripts/boot.gd", "res://scripts/patch_state.gd"]:
+		var src := FileAccess.open(path, FileAccess.READ).get_as_text()
+		var offenders: Array = []
+		for line in src.split("\n"):
+			var code: String = line.split("##")[0].split("#")[0]
+			for m in ["CWStyle", "CWData", "CWMatch", "CWNet", "CWGame", "CWSettings"]:
+				if code.contains(m):
+					offenders.append(m)
+		check(offenders.is_empty(),
+			"%s 不碰任何游戏类（碰了的：%s）" % [path.get_file(), str(offenders)])
+
+	## 主场景必须是启动器 —— 直接指向 Main 的话补丁永远盖不上（挂载晚于首次 load）
+	check(ProjectSettings.get_setting("application/run/main_scene") == "res://scenes/Boot.tscn",
+		"run/main_scene 指向启动器")
+	check(PatchState.PCK.begins_with(PatchState.DIR)
+		and PatchState.STATE.begins_with(PatchState.DIR), "补丁文件都在 user://patch 底下")
+
+
 func t_save_load() -> void:
 	print("[存档读档]")
 	CWSave.clear()
