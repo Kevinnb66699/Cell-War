@@ -1008,19 +1008,26 @@ func _cancer_cells_in_range(center: Vector2i, r: int) -> Array:
 	return out
 
 
+## 「r 环内无细胞占据的健康组织」。**含中心格** —— PRD 2026-09-08 云端版把
+## 「相邻 n 格范围内」统一改写成「n 环内」，而 n 环按定义含中心。
+##
+## 原来这里显式写了 `c != center`。那句是**冗余**的：本函数的调用方一律以
+## **某个活着的细胞**为中心，中心格站着它自己，「无细胞占据」那一条已经把它排除了。
+## 留着反而与新术语矛盾 —— 会让人以为中心格是被有意剔除的。
 func _empty_healthy_in_range(center: Vector2i, r: int) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	for c in _tiles_in_range(center, r):
-		if c != center and game.tile(c)["tissue"] == CWData.Tissue.HEALTHY \
+		if game.tile(c)["tissue"] == CWData.Tissue.HEALTHY \
 				and game.cells_at(c).is_empty():
 			out.append(c)
 	return out
 
 
+## 「r 环内无细胞占据的癌性组织」。**含中心格**，理由同上一个函数。
 func _empty_cancerous_in_range(center: Vector2i, r: int) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	for c in _tiles_in_range(center, r):
-		if c != center and game.is_cancerous(c) and game.cells_at(c).is_empty():
+		if game.is_cancerous(c) and game.cells_at(c).is_empty():
 			out.append(c)
 	return out
 
