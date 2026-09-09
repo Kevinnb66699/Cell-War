@@ -20,9 +20,10 @@
 class_name CWCost
 extends RefCounted
 
-## 行为类型。目前只有 MOVE / PURIFY / PLAY_CARD 真的有修饰挂上来，
+## 行为类型。目前只有 MOVE / PURIFY / PLAY_CARD / SKILL_MOVE 真的有修饰挂上来
+## （SKILL_MOVE 是【转移】/【早期血行转移】这类技能位移，【基质阻隔】翻倍挂它），
 ## 其余几种先占位：它们的费用是常量，走 quote() 只是为了口径统一。
-enum Action { MOVE, DRAW, PURIFY, DIFFERENTIATE, CELL_SKILL, PLAY_CARD }
+enum Action { MOVE, DRAW, PURIFY, DIFFERENTIATE, CELL_SKILL, PLAY_CARD, SKILL_MOVE }
 
 ## 语义阶段（设计 §四的 11 步里，属于「修饰」的那几层）。
 ## 顺序即枚举顺序，`_order()` 直接比它的整数值。
@@ -166,7 +167,7 @@ const TEMPLATES := {
 		## 位移的钱」外推（口径 #91）。⚠ 这是**引擎比 PRD 多做的一步**，
 		## 不是 PRD 明写的，改之前先看那条口径。cancer 条件与上一条同口径（2026-09-06）。
 		{
-			"action": Action.CELL_SKILL, "phase": Phase.MULT, "value": 2,
+			"action": Action.SKILL_MOVE, "phase": Phase.MULT, "value": 2,
 			"cond": ["cancer"], "source": Source.WORLD, "store": Store.NONE,
 		},
 	],
