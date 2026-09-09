@@ -1019,6 +1019,11 @@ func update_marks() -> void:
 func check_immune_win() -> void:
 	if winner >= 0 or not living_cells(CWData.Faction.CANCER).is_empty():
 		return
+	## 「能用于【复活】的固化癌组织」= **不被免疫细胞占据**、且 1 环内有无细胞占据的癌性组织
+	## （PRD 定稿，见 CWWorld.revive_options_cancer）。这里只查前半句，**够了**：
+	## 走到这一行的前提是**癌细胞已经全灭**，所以任何非免疫占据的固化格自己就是空的，
+	## 而 1 环含中心格（通用规则 2）—— 它自己就是那个「无细胞占据的癌性组织」，后半句必然成立。
+	## 别看到两条件只查了一条就来「补全」：补上是等价的，只是白跑一圈。
 	for c in tiles.keys():
 		if tiles[c]["tissue"] == CWData.Tissue.SOLID \
 				and cells_at(c, CWData.Faction.IMMUNE).is_empty():

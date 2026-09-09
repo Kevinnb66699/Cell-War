@@ -1006,9 +1006,39 @@ func t_cancer_revive_ring() -> void:
 	g3.tiles[solid]["tissue"] = CWData.Tissue.SOLID
 	n = g3.logs.size()
 	check(g3.world.revive_options_cancer(1).is_empty(), "队友踩着但一圈没癌性组织 → 没落点")
-	check("|".join(g3.logs.slice(n)).contains("周围没有空的癌性组织"),
-		"→ 说明的是「周围没空位」，与被免疫堵住分开讲")
+	check("|".join(g3.logs.slice(n)).contains("1 环内没有空的癌性组织"),
+		"→ 说明的是「一圈没空位」，与被免疫堵住分开讲")
 	g3.dispose()
+
+	## **空着的固化格同样开出一整圈**（PRD 定稿 2026-09-09：依托只要求「没有被免疫细胞占据」）。
+	## 2026-09-09 之前只有「队友踩着」的固化格才开圈，空着的只能落在它自己身上 ——
+	## 那是把 09-08 的两条路分开写留下的痕迹，定稿合并成一条之后不该再有这个区别。
+	var g4 := make_game(2, 6)
+	g4.setup.build_board()
+	## cell_of(pid) 走 players[pid]["cell_id"] 索引 cells，所以死者必须落在下标 1 上；
+	## 下标 0 塞一个离得远远的免疫细胞占位（同 g / g2 的摆法）
+	g4.cells.append(CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(-4, 0),
+		CWData.ImmuneType.BASIC, -1))
+	var dead4 := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1,
+		CWData.CancerType.SIGNET)
+	g4.cells.append(dead4)
+	dead4["alive"] = false
+	g4.tiles[solid]["tissue"] = CWData.Tissue.SOLID       ## 空着，没有任何细胞站上去
+	var near: Vector2i = nbs[0]
+	g4.tiles[near]["tissue"] = CWData.Tissue.CANCER
+	for i in range(1, nbs.size()):
+		g4.tiles[nbs[i]]["tissue"] = CWData.Tissue.HEALTHY
+	var tos4 := {}
+	for o in g4.world.revive_options_cancer(1):
+		if o["data"].has("to"):
+			tos4[o["data"]["to"]] = o["data"]["anchor"]
+	check(tos4.has(solid), "空固化格自己是落点（1 环含中心格）")
+	check(tos4.has(near), "**空固化格旁边的癌组织也是落点**（改之前只有队友踩着才开圈）")
+	## 落到旁边那格时碎的仍是依托格 —— 于是人站在癌组织上、固化格没了；
+	## 落到固化格自己身上时碎的就是脚下那格。两条都读 anchor，写反了这里会红。
+	check(tos4.get(near, Vector2i.MAX) == solid, "落在旁边时，碎的是固化格 %s" % str(solid))
+	check(tos4.get(solid, Vector2i.MAX) == solid, "落在固化格自己身上时，碎的就是它自己")
+	g4.dispose()
 	g.dispose()
 
 
