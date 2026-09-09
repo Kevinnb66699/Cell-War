@@ -21,6 +21,11 @@ const ENERGYH = preload("res://assets/art/energy_normal.png")
 const MARROWH = preload("res://assets/art/marrow_normal.png")
 const ENERGYC = preload("res://assets/art/energy_cancer.png")
 const MARROWC = preload("res://assets/art/marrow_cancer.png")
+## 骨髓的「空仓」两张：图标那个框还在，里面的骨头没了。
+## 由 marrow_normal / marrow_cancer 去掉骨头那 26 个像素推出来（2026-09-08）——
+## 美术要重画的话直接换这两个文件，代码不用动。
+const MARROWH_E = preload("res://assets/art/marrow_empty_normal.png")
+const MARROWC_E = preload("res://assets/art/marrow_empty_cancer.png")
 
 var radius = CWData.BOARD_RADIUS + 1  ## 六边形每边的格数（= 最大环号 + 1）
 var distance_x = 36 ## 块的横距离
@@ -344,15 +349,24 @@ const TISSUE_TEX := {
 	CWData.Special.MARROW: [MARROWH, MARROWC],
 	CWData.Special.VESSEL: [VESSELH, VESSELC],
 }
+## 骨髓**空仓**时改用这一对（Kevin 2026-09-08：「把卡抽了以后贴图不变」）。
+## 积累进度那圈其实是变的（1.0 → 0），但一圈细边不够醒目 —— 图标里的骨头有没有，
+## 隔着半个屏幕都看得出。**只有骨髓分两套**：代谢核心存的是连续的能量、
+## 没有「有 / 没有」这种二态，它继续靠进度环表达。
+const MARROW_EMPTY_TEX := [MARROWH_E, MARROWC_E]
 
 
 ## 贴图没变就什么都不做，所以对局那边可以每帧无脑全刷 127 格，不必自己记脏标记。
-func set_tissue(a: Vector2i, tissue: int, special: int) -> void:
+## `stocked` 只对**骨髓**有意义：仓里有没有卡。其余组织忽略它。
+func set_tissue(a: Vector2i, tissue: int, special: int, stocked: bool = true) -> void:
 	var key := axial_to_rc(a)
 	if not map.has(key):
 		return
 	var t: Sprite2D = map[key]["instance"]
-	var tex: Texture2D = TISSUE_TEX[special][0 if tissue == CWData.Tissue.HEALTHY else 1]
+	var i: int = 0 if tissue == CWData.Tissue.HEALTHY else 1
+	var tex: Texture2D = MARROW_EMPTY_TEX[i] \
+		if special == CWData.Special.MARROW and not stocked \
+		else TISSUE_TEX[special][i]
 	if t.texture != tex:
 		t.texture = tex
 

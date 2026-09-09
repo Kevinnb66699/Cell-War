@@ -851,7 +851,8 @@ func _sync_tiles() -> void:
 			continue
 		## 开场绽开期间，还没轮到的那几格先按健康组织画
 		var tissue: int = CWData.Tissue.HEALTHY if _bloom.has(c) else int(t["tissue"])
-		board.set_tissue(c, tissue, t["special"])
+		## 骨髓空仓换另一张贴图（Kevin 2026-09-08）；其余组织忽略最后这个参数
+		board.set_tissue(c, tissue, t["special"], int(t["cards"]) > 0)
 		## 积累进度外圈（2026-09-08）：算式在 CWData.store_progress，界面不自己算
 		board.set_store(c, CWData.store_progress(t), int(t["special"]))
 		if tissue == CWData.Tissue.SOLID:

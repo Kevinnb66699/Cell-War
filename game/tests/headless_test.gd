@@ -5114,6 +5114,46 @@ func t_store_ring() -> void:
 		"同一格癌变之后 → 1/2（癌变周期 %d 更快）" % CWData.MARROW_CANCER_PERIOD)
 	mar["tissue"] = CWData.Tissue.HEALTHY
 
+	## **走真流程再验一遍**（Kevin 2026-09-08 报「骨髓把卡抽了以后贴图不变」）：
+	## 上面那几条是直接改字段，这里让细胞真的踩上去，看 enter_tile → collect_special
+	## 那条链走完之后进度有没有跟着掉。
+	mar["cards"] = 1
+	mar["prod"] = 0
+	var before: float = CWData.store_progress(mar)
+	var walker := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0),
+		CWData.ImmuneType.BASIC, -1, 200)
+	g.cells.append(walker)
+	await g.actions.enter_tile(walker, CWData.MARROWS[0])
+	var after: float = CWData.store_progress(mar)
+	check(is_equal_approx(before, 1.0) and after < before,
+		"踩上去把卡拿走 → 进度从 %.2f 掉到 %.2f（不是一直满着）" % [before, after])
+	## **别断言「进了手牌」**：骨髓抽到的可能是**事件卡**，那种立即结算并弃置、
+	## 根本不进手牌（第一版这么写当场就红了）。要验的是「格子清空 + 确实抽了一张」。
+	check(int(mar["cards"]) == 0, "→ 格子里的卡清空了")
+	check("|".join(g.logs).contains("经由「骨髓」抽到"), "→ 日志里确实抽了一张")
+
+	## 骨髓「有卡 / 空仓」两套贴图（Kevin 2026-09-08：卡抽走以后贴图不变）。
+	## 进度环其实是变的（上面刚验过 1.0 → 0），但一圈细边不够醒目 ——
+	## 图标里的骨头有没有，隔着半个屏幕都看得出。
+	var bd := make_board()
+	var mc := CWData.MARROWS[0]
+	var mspr: Sprite2D = bd.map[bd.axial_to_rc(mc)]["instance"]
+	bd.set_tissue(mc, CWData.Tissue.HEALTHY, CWData.Special.MARROW, true)
+	var stocked: Texture2D = mspr.texture
+	bd.set_tissue(mc, CWData.Tissue.HEALTHY, CWData.Special.MARROW, false)
+	check(mspr.texture != stocked, "骨髓空仓 → 换另一张贴图")
+	bd.set_tissue(mc, CWData.Tissue.CANCER, CWData.Special.MARROW, false)
+	check(mspr.texture != stocked and mspr.texture != bd.MARROW_EMPTY_TEX[0],
+		"癌变的空仓骨髓也有自己那张（四种组合各一张）")
+	## 别的组织不吃这个参数 —— 只有骨髓有「有 / 没有」这种二态
+	var cc := CWData.CORES[0]
+	var cspr: Sprite2D = bd.map[bd.axial_to_rc(cc)]["instance"]
+	bd.set_tissue(cc, CWData.Tissue.HEALTHY, CWData.Special.CORE, true)
+	var core_tex: Texture2D = cspr.texture
+	bd.set_tissue(cc, CWData.Tissue.HEALTHY, CWData.Special.CORE, false)
+	check(cspr.texture == core_tex, "代谢核心不分两套（它存的是连续能量，没有二态）")
+	bd.queue_free()
+
 	## ---- 棋盘：只给该有的格子建覆盖层 ----
 	var board := make_board()
 	var with_ring: Array[Vector2i] = []
