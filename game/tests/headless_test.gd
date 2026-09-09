@@ -4690,7 +4690,11 @@ func t_hot_patch() -> void:
 		"run/main_scene 指向启动器")
 	check(PatchState.PCK.begins_with(PatchState.DIR)
 		and PatchState.STATE.begins_with(PatchState.DIR), "补丁文件都在 user://patch 底下")
-	check(PatchState.base_build() > 0, "base_build.txt 读得出来（min_base 全靠它比）")
+	## ⚠ 基线号**必须是脚本常量**，不能放进 .txt：导出预设是 `export_filter="all_resources"`，
+	## 而没有导入器的散文件不算 resource —— 2026-09-09 第一版放在 base_build.txt 里，
+	## 根本没进导出包，线上读出来是 0、每次都判「基线太老」，补丁一个也收不到。
+	check(PatchState.base_build() == PatchState.BASE_BUILD and PatchState.BASE_BUILD > 0,
+		"基线号读得出来且来自脚本常量（散文件进不了导出包）")
 
 	## ---- 第二阶段：「该不该装这个补丁」的判定（纯函数）----
 	var Boot := load("res://scripts/boot.gd")
@@ -4706,6 +4710,10 @@ func t_hot_patch() -> void:
 	check(Boot.decide(good, 0, 200, 100)["act"] == "skip", "这一版装崩过 → 永不再下")
 	check(Boot.decide(good, 100, 0, 99)["act"] == "too_old",
 		"基线比 min_base 老 → 提示下完整包，而不是硬套一个可能用不了的补丁")
+	## 读不出基线时**放行**，两种失败模式的代价不对称：拦错了 = 热更看着在跑其实一个补丁都收不到
+	## （2026-09-09 真踩过），放行错了有 SHA 校验、启动证明期与拉黑名单兜着。
+	check(Boot.decide(good, 100, 0, 0)["act"] == "install",
+		"基线读不出来（0）→ 放行，而不是一律判太老")
 
 	## manifest 不干净就当没看见 —— 它给的地址与指纹都要再挡一道
 	var evil: Dictionary = good.duplicate()

@@ -63,7 +63,11 @@ mkdir -p "$OUTDIR"
 
 # min_base 取当前的基线号：补丁是照着 HEAD 打的，就只保证能装在这一档基线上。
 # 比它老的客户端会被 boot.gd 拦下来，提示去下完整包，而不是硬套一个可能用不了的补丁。
-MIN_BASE="$(tr -d '[:space:]' < game/base_build.txt)"
+# 基线号从 patch_state.gd 的常量读（放 .txt 里的第一版没进导出包，见那边的注释）。
+# ⚠ **2026-09-09 的过渡期**：已发出去的 client-2026-09-09-4 读不到自己的基线（读成 0），
+#   而它那版 decide() 会把 0 判成「太老」→ 一个补丁都收不到。所以在**下一个全量版发出去之前**，
+#   手工把 latest.json 的 min_base 改成 0 再上传。之后这个注释可以删。
+MIN_BASE="$(grep -oE '^const BASE_BUILD := [0-9]+' game/scripts/patch_state.gd | grep -oE '[0-9]+$')"
 SHA="$(sha256sum "$OUT" | cut -d' ' -f1)"
 HOST="https://github.com/Kevinnb66699/Cell-War/releases/download/patch-latest"
 cat > "$OUTDIR/latest.json" <<JSON

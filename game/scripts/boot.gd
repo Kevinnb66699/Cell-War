@@ -90,7 +90,12 @@ static func decide(m: Dictionary, installed: int, blocked: int, base: int) -> Di
 		return skip                       ## 这一版装崩过，别再下（不挡就会无限重下）
 	## 基线太老：补丁可能引用了老包里没有的东西。**base 必须在挂载前读**，
 	## 否则等于让补丁自己说自己能装（见 PatchState.BASE_BUILD 的注释）。
-	if int(m.get("min_base", 0)) > base:
+	##
+	## `base <= 0` = **读不出自己的基线**，一律放行。理由是两种失败模式的代价不对称：
+	## 拦错了 = 热更整个系统看着在跑、其实一个补丁都收不到（2026-09-09 真踩过：
+	## 基线放在 .txt 里没进导出包，线上读出来是 0，每次都判「太老」）；
+	## 放行错了 = 装上一个不合适的补丁，而那有 SHA 校验、启动证明期与拉黑名单兜着。
+	if base > 0 and int(m.get("min_base", 0)) > base:
 		return { "act": "too_old", "url": "", "sha": "", "build": build }
 	var url := str(m.get("pck", ""))
 	var sha := str(m.get("sha256", ""))

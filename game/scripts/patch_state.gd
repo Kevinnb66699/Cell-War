@@ -18,9 +18,16 @@ const INCOMING := DIR + "/incoming.pck"   ## 下载中的临时文件，校验�
 ## 这个包是哪一次**全量发版**出来的。补丁的 manifest 用 min_base 和它比，
 ## 太老就让玩家去下完整包而不是硬套一个用不了的补丁。
 ##
-## ⚠ **必须在挂载补丁之前读**：它是一个普通资源，补丁完全可以覆盖它 ——
-## 挂完再读就成了「补丁自己说自己能装」。boot.gd 的顺序保证了这一点。
-const BASE_BUILD := "res://base_build.txt"
+## ⚠ **写成常量，不要放进 .txt**：2026-09-09 第一版放在 `res://base_build.txt`，
+## 导出预设是 `export_filter="all_resources"`，而**没有导入器的散文件不算 resource**，
+## 于是那个 txt 根本没进包 —— 线上客户端读出来是 0、每次都判「基线太老」，
+## 补丁一个也收不到。脚本一定进包，所以改成常量。
+##
+## 补丁能覆盖本文件，但**读取发生在挂载之前**（boot.gd 的顺序），
+## 所以拿到的永远是基线包里的值，补丁没法自己给自己开绿灯。
+##
+## **全量发版时往上改**（用当天日期）。补丁不必动它。
+const BASE_BUILD := 20260909
 ## 挂上补丁之后活过这么久，才认为它是好的。够长到能盖住主场景构建与首帧渲染，
 ## 又不至于长到「随手开一下就关」都算失败（那种误判由 STRIKES 兜底）。
 const PROVE_SEC := 3.0
@@ -50,14 +57,7 @@ static func installed_build() -> int:
 
 ## 这个客户端包的基线版本号（随全量发版更新，补丁改不动 —— 见 BASE_BUILD 的注释）
 static func base_build() -> int:
-	if not ResourceLoader.exists(BASE_BUILD) and not FileAccess.file_exists(BASE_BUILD):
-		return 0
-	var f := FileAccess.open(BASE_BUILD, FileAccess.READ)
-	if f == null:
-		return 0
-	var v := int(f.get_as_text().strip_edges())
-	f.close()
-	return v
+	return BASE_BUILD
 
 
 ## 装崩过、已经被永久拉黑的那个补丁版本号。
