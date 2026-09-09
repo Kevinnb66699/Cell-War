@@ -9,8 +9,10 @@
 ##        → 世界事件到期（紊乱返回、持续效果倒计时）→ **胜利条件检查**
 ##
 ## 两个容易踩的点：
-## ① **增生在侵蚀之前**。增生会把健康组织变成癌组织，从而改变「完全包围」的判定结果，
-##    顺序反了侵蚀的选格就不一样。
+## ① **增生在侵蚀之前**，但增生这一轮**新造的格子不作侵蚀的来源**
+##    （PRD 的「注」：新癌组织下一世界回合才参与结算；Kevin 2026-09-09 定的读法）。
+##    所以 `_proliferate()` 把新格返回给 `_erosion()`，两者不再是单纯的先后关系。
+##    「完全包围」仍按实时盘面算 —— 新格已经不是健康组织了，连通块本来就变了，不去还原。
 ## ② **两个胜利条件都是 E 类**，在 E 阶段最后一步统一判。
 ##    2026-08-28 之前免疫胜利是净化后立即判（I 类）、癌症胜利是 S 阶段开头判，PRD 已推翻。
 class_name CWWorld
@@ -41,8 +43,8 @@ func aerobic() -> void:
 ## 于是紊乱返回时【定殖】造出的癌组织会多背一个世界回合的「新生」。
 func e_phase() -> void:
 	_pressure()                              ## 1 【微环境压迫】
-	_proliferate()                           ## 2 【增生】
-	_erosion()                               ## 3 【侵蚀】
+	## 增生把它这一轮造出来的格子交给侵蚀，让侵蚀**不要拿它们当来源**（PRD 的「注」，Kevin 2026-09-09 定读法）
+	_erosion(_proliferate())                 ## 2 【增生】→ 3 【侵蚀】
 	if not game.tune.anaerobic_on_turn_end:
 		_anaerobic()                         ## 4 【无氧呼吸】（默认走这里；`eturn=1` 改在各癌细胞回合末，见 settle_anaerobic_turn）
 	_cancer_upkeep()                         ## 4.5 【代谢消耗】（PRD 之外，平衡候选③）
@@ -470,7 +472,19 @@ func _aerobic_base(healthy: int, necrotic: int) -> int:
 # ---- E 阶段 ----
 
 ## 【E-侵蚀】：全局掷一次，从所有被完全包围连通块的合法格中随机选（说明 #11）
-func _erosion() -> void:
+##
+## `fresh` = **本回合【增生】刚造出来的癌组织**。PRD 的「注」：「【增生】与【侵蚀】创造的
+## 新癌组织在下一世界回合才能参与结算【增生】与【侵蚀】」。Kevin 2026-09-09 定的读法是
+## **只把新格排除在「来源」之外** —— 也就是只影响下面那道「与癌性组织相邻」的判定，
+## 「完全包围」仍按**实时盘面**算（新格已经不是健康组织了，连通块的形状本来就变了，不去还原）。
+##
+## 增生与侵蚀**各自内部**早就是快照式的（先选完再转），这里补的是**两者之间**那一道：
+## 从前增生跑在侵蚀之前、侵蚀读转化后的盘面，于是增生这一轮新造的格子当场就能当侵蚀的来源。
+func _erosion(fresh: Array[Vector2i] = []) -> void:
+	## 转成集合查表：eligible 的内层循环是 O(格数 × 6)，用 Array.has 会退化
+	var fresh_set := {}
+	for c: Vector2i in fresh:
+		fresh_set[c] = true
 	var eligible: Array[Vector2i] = []
 	var healthy_pred := func(c: Vector2i) -> bool:
 		return game.tiles[c]["tissue"] == CWData.Tissue.HEALTHY
@@ -489,7 +503,8 @@ func _erosion() -> void:
 				continue  # 【免疫监视】守护范围内不能被侵蚀
 			var near_cancer := false
 			for n in CWData.neighbors(c):
-				if game.is_cancerous(n):
+				## 本回合增生刚造的格子不算「来源」——它要到下一世界回合才参与侵蚀结算
+				if game.is_cancerous(n) and not fresh_set.has(n):
 					near_cancer = true
 					break
 			if near_cancer:
@@ -529,17 +544,19 @@ func _erosion_dir(c: Vector2i) -> int:
 
 ## 【E-增生】癌组织向外扩散：与癌性组织相邻的健康组织按概率被转化（PRD 已入规，概率见 CWTuning）
 ## 先统一掷骰收集、再统一转化 —— 保证「同时结算」，避免转化顺序影响后续格的相邻数。
-func _proliferate() -> void:
+## 返回**本回合新造出来的癌组织**，交给 `_erosion()` 当作「这一轮不算来源」的名单（见那边的注释）。
+func _proliferate() -> Array[Vector2i]:
+	var none: Array[Vector2i] = []
 	if game.event_stacks("增殖抑制") > 0:
 		game.log_msg("【增殖抑制】本回合组织无法增生")
-		return
+		return none
 	var rate: int = game.tune.proliferate_per_adjacent
 	var per_solid: int = game.tune.proliferate_per_solid
 	for i in game.event_stacks("异常增殖"):
 		rate *= 2        ## 【异常增殖】增生概率翻倍（叠加时按层数连乘）
 		per_solid *= 2   ## 两项一起翻，否则事件生效期间反而把固化的加成压扁了
 	if rate <= 0 and per_solid <= 0:
-		return
+		return none
 	## PRD 2026-09-08 云端修订版：每个癌性组织的贡献 = 3% + 1% × **它所在连通块里的固化癌组织数**。
 	## （此前是「块里有固化 → 一律 4%」，不随固化数增长。）
 	##
@@ -584,6 +601,7 @@ func _proliferate() -> void:
 		game.erosion_fx(c, int(from[c]))   ## 过场与【侵蚀】同一套：癌从哪一侧漫过来
 	if not converts.is_empty():
 		game.log_msg("【增生】%d 格健康组织被癌组织侵占" % converts.size())
+	return converts
 
 
 ## 【E-无氧呼吸】：每块供能 = `c × √(块内癌格子数)`，块内癌细胞均分，

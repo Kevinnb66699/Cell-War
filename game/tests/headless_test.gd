@@ -1601,21 +1601,50 @@ func t_phase_order() -> void:
 	var src := FileAccess.get_file_as_string("res://scripts/core/cw_world.gd")
 	var body := src.substr(src.find("func e_phase"))
 	body = body.substr(0, body.find("# ---- S 阶段"))
-	var seq: Array[String] = []
-	for name in ["_pressure", "_proliferate", "_erosion", "_anaerobic",
-			"_solidify", "_decay", "_tick_necrosis", "_clear_newborn"]:
-		seq.append(name)
+	## 增生与侵蚀 2026-09-09 起是**嵌套调用**（见下面那条），所以这一格搜的是整个调用式
+	var seq: Array[String] = ["_pressure()", "_erosion(_proliferate())", "_anaerobic()",
+		"_solidify()", "_decay()", "_tick_necrosis()", "_clear_newborn()"]
 	var last := -1
 	var ordered := true
 	for name in seq:
-		var at: int = body.find(name + "()")
+		var at: int = body.find(name)
 		if at < 0 or at < last:
 			ordered = false
 		last = at
-	check(ordered, "E 阶段八步都在、且顺序和 PRD 一致")
-	## 单独把最容易搞反的一对钉死：增生会改变「完全包围」的判定结果
-	check(body.find("_proliferate()") < body.find("_erosion()"),
-		"【增生】排在【侵蚀】之前")
+	check(ordered, "E 阶段各步都在、且顺序和 PRD 一致")
+	## 最容易搞反的一对：增生会改变「完全包围」的判定结果，必须先增生后侵蚀。
+	## 2026-09-09 起这一对写成 `_erosion(_proliferate())` —— 参数先求值，增生仍然在前，
+	## 而且增生新造的格子作为「这一轮不算来源」的名单传进侵蚀（PRD 的「注」）。
+	## **这里钉的就是这种写法**：拆回两句独立调用，顺序还对、但那份名单会悄悄丢掉。
+	check(body.contains("_erosion(_proliferate())"),
+		"【增生】排在【侵蚀】之前，且新格名单直接喂进侵蚀")
+
+	## 行为验证：**本回合增生刚造的癌组织不算侵蚀的「来源」**（PRD 的「注」，
+	## Kevin 2026-09-09 定「只把新格排除在来源之外」）。
+	## 造一个最小局面：除一格内部健康组织外全是癌组织 —— 那一格自成一个不挨边缘的
+	## 健康连通块、四周全是癌性，正好满足「完全包围」，于是它是唯一的合法侵蚀目标。
+	var g := bare_game()
+	var mid := Vector2i.ZERO
+	for c: Vector2i in g.tiles.keys():
+		if not CWData.is_edge(c):
+			mid = c
+			break
+	for c: Vector2i in g.tiles.keys():
+		if c != mid:
+			CWTissue.to_cancer(g.tiles[c], false)
+	g.tiles[mid]["tissue"] = CWData.Tissue.HEALTHY
+	## 对照：不给名单 → 这一格被侵蚀
+	g.world._erosion()
+	check(g.tiles[mid]["tissue"] == CWData.Tissue.CANCER, "对照组：不给名单时这一格被侵蚀")
+	## 把它的邻居全当成「本回合增生刚造的」→ 没有合法来源，这一格活下来
+	g.tiles[mid]["tissue"] = CWData.Tissue.HEALTHY
+	var fresh: Array[Vector2i] = []
+	for n: Vector2i in CWData.neighbors(mid):
+		fresh.append(n)
+	g.world._erosion(fresh)
+	check(g.tiles[mid]["tissue"] == CWData.Tissue.HEALTHY,
+		"邻居都是本回合增生新造的 → 不算来源，这一格不被侵蚀")
+	g.dispose()
 
 
 # ---- 世界事件回合表：3/6/10/14（2026-09-07 随 15 回合制压缩）----
