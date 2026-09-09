@@ -114,7 +114,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_save_load, t_settings, t_board_view, t_store_ring, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_save_load, t_settings, t_board_view, t_store_ring, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -5081,6 +5081,71 @@ func t_pressure_doom() -> void:
 	g.dispose()
 
 
+## 黑色素瘤【早期血行转移】的按钮价签（Kevin 2026-09-08：「黑色素放不出血行转移，
+## 这回合并没有使用过这个技能」，截图里按钮写着 1.0、细胞有 6.9 能量，却是灰的）。
+##
+## 根因：**按钮上的价签和「能不能用」的判定不是同一个数**。
+## 判定走 `skill_move_cost`（过【基质阻隔】的翻倍），价签直接返回常量 1.0。
+## 于是「写着 1.0、我有 6.9、却点不动」——玩家只能理解成 bug。
+##
+## 【转移】（小细胞肺癌）同一条路，一并验。
+func t_skill_move_price_tag() -> void:
+	print("[技能移动的价签]")
+	var g := make_game(2, 7)
+	g.setup.build_board()
+	var vessel: Vector2i = CWData.VESSELS[0]
+	var mel := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, vessel, -1,
+		CWData.CancerType.MELANOMA, 69)
+	g.cells.append(mel)
+	var bridge := CWUIBridge.new()
+	bridge.game = g
+
+	## ① 没有【基质阻隔】时：价签 = 真费用，按钮亮着
+	var base_tag: String = bridge._cost_text(mel, "homing")
+	var base_real: int = g.actions.skill_move_cost(mel, CWData.MELANOMA_HOMING_COST)
+	check(base_tag == CWData.fmt(base_real),
+		"没有世界事件时价签 %s = 真费用 %s" % [base_tag, CWData.fmt(base_real)])
+
+	## ② 挂上【基质阻隔】：真费用翻倍，价签必须跟着翻
+	g.events["active"].append({ "name": "基质阻隔", "left": 2, "stacks": 2, "data": {} })
+	var tag: String = bridge._cost_text(mel, "homing")
+	var real: int = g.actions.skill_move_cost(mel, CWData.MELANOMA_HOMING_COST)
+	## 2 层 ×2 就该是 ×4。**曾经是 ×16** —— 层数在 `_emit` 和 `_apply` 里各算了一遍
+	## （单层时两种算法结果相同，所以这个坑一直没露头）。
+	check(real == base_real * 4,
+		"2 层【基质阻隔】= ×4（%s → %s），不是把层数算两遍的 ×16"
+			% [CWData.fmt(base_real), CWData.fmt(real)])
+	check(tag == CWData.fmt(real),
+		"价签跟着涨到 %s（曾经写死成基础价 %s，于是「写着 1.0 我有 6.9 却点不动」）"
+			% [CWData.fmt(real), tag])
+
+	## ③ 价签与「能不能用」必须同口径：付得起就该有选项，付不起就该没有
+	## `can_pay` 是**严格大于**（付完至少要留 0.1），所以「正好等于」是付不起的
+	mel["energy"] = real + 1
+	var opts: Array = g.actions.build_options(mel)
+	var has_homing := false
+	for o in opts:
+		if o["data"].get("act", "") == "homing":
+			has_homing = true
+	check(has_homing, "比真费用多 0.1 → 出得来（费用 %s）" % CWData.fmt(real))
+	mel["energy"] = real
+	opts = g.actions.build_options(mel)
+	has_homing = false
+	for o in opts:
+		if o["data"].get("act", "") == "homing":
+			has_homing = true
+	check(not has_homing, "正好等于真费用 → 出不来（付完要留 0.1）；此时按钮该灰、价签写的就是这个数")
+
+	## ④ 小细胞肺癌【转移】走同一条报价，别只修一个
+	var sclc := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1,
+		CWData.CancerType.SCLC, 200)
+	g.cells.append(sclc)
+	check(bridge._cost_text(sclc, "jump")
+			== CWData.fmt(g.actions.skill_move_cost(sclc, g.tune.metastasis_cost)),
+		"【转移】的价签同样跟着世界事件走")
+	g.dispose()
+
+
 ## 代谢核心 / 骨髓的「积累进度外圈」（Kevin 2026-09-08 拍的 A′ 案）。
 ##
 ## 算式住在 `CWData.store_progress`，界面只负责画 —— 这组两头都验：
@@ -9453,7 +9518,7 @@ func t_ev_costs() -> void:
 		if o["data"].get("act", "") == "move" and o["data"]["to"] == Vector2i(2, 0):
 			blk_mv = o
 	check(blk_mv["data"]["cost"] == CWData.CANCER_MOVE_HEALTHY * 2, "基质阻隔：癌细胞移动费翻倍")
-	check(g.actions._skill_move_cost(blk, g.tune.metastasis_cost) == g.tune.metastasis_cost * 2,
+	check(g.actions.skill_move_cost(blk, g.tune.metastasis_cost) == g.tune.metastasis_cost * 2,
 		"基质阻隔：癌细胞技能移动（【转移】那类）也翻倍")
 	g.cells.erase(blk)
 	## 免疫伪装：癌细胞移动 +0.2

@@ -352,6 +352,22 @@ func _collect(ctx: Dictionary) -> Array:
 	return out
 
 
+## `value` 该不该按层数放大。
+##
+## **加减法要**（2 层「+1.5」= +3.0），**倍增 / 倍减不要** —— `_apply` 已经
+## 按层数连乘了一遍，这里再乘一次就是把层数算了两遍：2 层 ×2 会变成 **×16 而不是 ×4**。
+##
+## 这个坑藏了很久，因为**单层时两种算法结果相同**（×2 就是 ×2），
+## 只有叠到 2 层才炸。2026-09-08 由 Kevin 报「黑色素放不出血行转移」查出来：
+## 【基质阻隔】叠 2 层把 1.0 的技能移动抬到了 16.0，细胞有 6.9 自然点不动。
+##
+## 非世界事件来源一律按 1 层（层数是世界事件独有的概念）。
+static func _value_stacks(t: Dictionary, stacks: int) -> int:
+	if t["source"] != Source.WORLD:
+		return 1
+	return 1 if t["phase"] == Phase.MULT or t["phase"] == Phase.DIV else stacks
+
+
 ## 按模板生成一条 CostModifier（条件不符就不生成）
 func _emit(out: Array, ctx: Dictionary, name: String, from_store: int,
 		seq: int, stacks: int = 1) -> void:
@@ -370,7 +386,7 @@ func _emit(out: Array, ctx: Dictionary, name: String, from_store: int,
 		out.append({
 			"name": name,
 			"phase": t["phase"],
-			"value": int(t.get("value", 0)) * (stacks if t["source"] == Source.WORLD else 1),
+			"value": int(t.get("value", 0)) * _value_stacks(t, stacks),
 			## 百分比修饰（【趋化源】）：`pct` 必须原样带过来 ——
 			## 漏了它 `_apply` 就会走回 `value` 分支，而百分比条目没有 `value`（除零）
 			"pct": int(t["pct"]) if t.has("pct") else 0,

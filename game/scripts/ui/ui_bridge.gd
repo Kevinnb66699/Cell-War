@@ -721,10 +721,13 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 			return CWData.fmt(CWData.LYSE_COST)
 		"mutate":
 			return CWData.fmt(CWData.MUTATE_COST)
+		## 技能移动这两个**必须走真报价**，不能打常量：
+		## 【基质阻隔】那类世界事件会把它们抬上去，而「能不能用」判的是抬完的数。
+		## 两边不同源的话就会出现「按钮写着 1.0、我有 6.9、却点不动」（Kevin 2026-09-08）。
 		"homing":
-			return CWData.fmt(CWData.MELANOMA_HOMING_COST)
+			return CWData.fmt(game.actions.skill_move_cost(cell, CWData.MELANOMA_HOMING_COST))
 		"jump":
-			return CWData.fmt(game.tune.metastasis_cost)   ## 旋钮（默认 = PRD 1.0）
+			return CWData.fmt(game.actions.skill_move_cost(cell, game.tune.metastasis_cost))
 		"ossify":
 			## 2026-09-07 Kevin 报「骨样硬化按钮没有费用」—— 09-05 重做这个技能时漏了这一格。
 			## 同 jump：读旋钮不写死（默认 = PRD 的 2.0）

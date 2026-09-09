@@ -441,7 +441,7 @@ func _type_options(cell: Dictionary, opts: Array) -> void:
 	match cell["ctype"]:
 		CWData.CancerType.MELANOMA:
 			# 【早期血行转移】：站在血管格上，每世界回合 1 次
-			var homing_cost := _skill_move_cost(cell, CWData.MELANOMA_HOMING_COST)
+			var homing_cost := skill_move_cost(cell, CWData.MELANOMA_HOMING_COST)
 			if not cell["metastasis_used"] \
 					and CWData.special_of(cell["pos"]) == CWData.Special.VESSEL \
 					and game.can_pay(cell, homing_cost):
@@ -465,7 +465,7 @@ func _type_options(cell: Dictionary, opts: Array) -> void:
 				})
 		CWData.CancerType.SCLC:
 			# 【转移】：向某方向跃进 5 格（费用与每世界回合上限都是旋钮，默认 = PRD：1.0、不限）
-			var jump_cost := _skill_move_cost(cell, game.tune.metastasis_cost)
+			var jump_cost := skill_move_cost(cell, game.tune.metastasis_cost)
 			if game.can_pay(cell, jump_cost) and _jump_quota_left(cell):
 				for c in _jump_targets(cell):
 					opts.append({
@@ -535,7 +535,11 @@ func _move_cost_mod(cell: Dictionary, dest: Vector2i, base: int) -> int:
 
 ## 技能移动（小细胞肺癌【转移】、黑色素瘤【早期血行转移】）的报价。
 ## 它们不是【迁移】，走 CELL_SKILL 上下文——目前只有【基质阻隔】的翻倍挂得上。
-func _skill_move_cost(cell: Dictionary, base: int) -> int:
+##
+## **公开给界面用**：行动栏的价签必须和「能不能用」读同一个数。
+## 2026-09-08 之前价签直接打常量，于是【基质阻隔】生效时按钮写着 1.0、
+## 细胞有 6.9 能量却是灰的（Kevin 报的）——玩家只能理解成 bug。
+func skill_move_cost(cell: Dictionary, base: int) -> int:
 	return game.cost.quote(CWCost.context(cell, CWCost.Action.CELL_SKILL, base))["final"]
 
 
