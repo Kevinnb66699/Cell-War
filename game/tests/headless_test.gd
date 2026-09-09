@@ -5418,13 +5418,18 @@ func t_hunt_fx() -> void:
 	var fx := CWHuntFx.new()
 	fx.visible = false
 	board.add_child(fx)
-	fx.play(board.tile_center(Vector2i.ZERO))
+	fx.play(board.tile_center(Vector2i(0, 1)), board.tile_center(Vector2i.ZERO))
 	check(fx.visible, "play() 之后露出来")
-	for i in 15:
+	for i in 21:
 		fx.sync(0.1)
-	check(fx.visible, "1.5 秒时还在（全程 1.6 秒）")
+	check(fx.visible, "2.1 秒时还在（全程 %.1f 秒）" % CWHuntFx.TOTAL)
 	fx.sync(0.2)
-	check(not fx.visible, "过了 1.6 秒自己收掉")
+	check(not fx.visible, "过了 %.1f 秒自己收掉" % CWHuntFx.TOTAL)
+	## 三拍的先后不能被谁顺手改乱：搜索 < 锁定 < 收场
+	check(CWHuntFx.SEARCH < CWHuntFx.LOCK and CWHuntFx.LOCK < CWHuntFx.TOTAL,
+		"三拍时间轴单调（搜索 %.2f < 锁定 %.2f < 收场 %.2f）"
+		% [CWHuntFx.SEARCH, CWHuntFx.LOCK, CWHuntFx.TOTAL])
+	check(CWHuntFx.R_FAR > CWHuntFx.R_NEAR, "方框是收缩的，不是张开的")
 	board.queue_free()
 
 

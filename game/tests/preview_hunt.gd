@@ -7,12 +7,13 @@ extends SceneTree
 ## （骰子 2026-08-27 栽的是同一个坑）。
 ##
 ## 画法：把准星打在棋盘中下部的一格（那里前排格子的 z 最大，最容易压住它），
-## 连拍三帧看收缩过程 —— 搜索青 → 捕获粉。
+## 连拍三帧看三拍：搜索的砂白大框 → 收缩中 → 锁定的琥珀方框。
 ##
 ## 跑（**不能加 --headless**，要真渲染）：
 ##   godot --path game --script res://tests/preview_hunt.gd -- <输出.png>
 const WARMUP := 12
-const SHOTS := [0.2, 0.8, 1.4]     ## 单帧看不出「收缩」，也撞不上换色那一下
+## 三拍各取一帧：搜索（砂白大框）／收缩中／锁定（琥珀，四角夹住目标）
+const SHOTS := [0.3, 1.1, 1.9]
 
 var _out := "user://hunt.png"
 var _board: Node2D
@@ -39,7 +40,7 @@ func _process(d: float) -> bool:
 	if _frames < WARMUP:
 		return false
 	if _frames == WARMUP:
-		_fx.play(_board.tile_center(Vector2i(0, 1)))
+		_fx.play(_board.tile_center(Vector2i(0, 1)), _board.tile_center(Vector2i.ZERO))
 	_fx.sync(d)
 	_t += d
 	if _t < SHOTS[_shot]:

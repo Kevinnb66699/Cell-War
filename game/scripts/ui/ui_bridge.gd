@@ -761,7 +761,8 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 	## 通报文案当分派键是没办法的事：准星是一次性演出，没有可以每帧去读的状态
 	## （趋化源和标记光环都是读 game 的常驻状态）。名字至少引正本，别在这儿再抄一份。
 	if text == CWData.EFFECTOR_NAMES[CWData.ImmuneType.DENDRITIC] 			and hunt_fx != null and board != null:
-		hunt_fx.play(board.tile_center(at))
+		## 第二个点是搜索起点 —— 盘心。选稿里方框先在全图上摆，再收到目标身上
+		hunt_fx.play(board.tile_center(at), board.tile_center(Vector2i.ZERO))
 	if toast == null or board == null or camera == null:
 		return
 	if linger:
