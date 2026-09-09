@@ -930,8 +930,17 @@ func purify_here(cell: Dictionary, dest: Vector2i, paid: int) -> void:
 		## 顺手把整片净化掉（队友 2026-09-01 报的「巨噬细胞可以无穷动」）。
 		## 治的是「靠移动赚钱」这个结构问题，而不是把某张减价卡调残。
 		## 回多少走旋钮 `macro_heal_purify`（默认 = 常量 0.3；0 = 净化不回能，2026-09-02 后期引擎对比表扫它）。
+		## **只有【迁移】触发的净化才回能**（PRD 2026-09-08 云端修订版写明「每通过【迁移】
+		## 触发一次【净化】」）。传送 / 复活 / 血管 / 卡牌位移 / 蹲守净化都是 paid = -1，一律不回 ——
+		## 这两个边界原来正好是**反的**：paid = -1 回满、免费迁移（paid = 0）反被封顶压成 0。
+		##
+		## 免费迁移回满 0.3 不会重演「无穷动」：那条封顶针对的是**付费**迁移 ——
+		## 减免的共同地板是 0.2，回 0.3 就成了走一格赚 0.1，能一直走下去；
+		## 而免费迁移的次数由给它的那个效果自己限着，走不了几步。
 		var heal: int = game.tune.macro_heal_purify
-		if paid >= 0:
+		if paid < 0:
+			heal = 0
+		elif paid > 0:
 			heal = mini(heal, maxi(paid - CWData.MACRO_MOVE_NET_MIN, 0))
 		if heal > 0:
 			cell["energy"] += heal
@@ -1426,7 +1435,10 @@ func _effector_chain(cell: Dictionary) -> void:
 		% [CWData.CHAIN_PHAGO_MAX, CWData.fmt(CWData.CHAIN_PHAGO_BONUS)])
 
 
-## B【中和抗体】：所有与健康组织相邻的癌细胞，其**种类特殊效果 / 永久卡牌效果**当前回合与下一回合失效。
+## B【中和抗体】：所有与健康组织相邻的癌细胞，其**种类特殊效果 / 永久卡牌效果**失效，**持续 1 世界回合**。
+##
+## 2026-09-08 云端修订版由「当前回合与下一回合」改成「持续 1 世界回合」，按新的通用规则 3
+## （「持续 n 世界回合」= 第「当前 + n − 1」世界回合 E 阶段结束）就是**只到本回合末**，短了一半。
 func _neutralize_targets() -> Array:
 	var out: Array = []
 	for c in game.living_cells(CWData.Faction.CANCER):
@@ -1439,8 +1451,9 @@ func _effector_neutralize(cell: Dictionary) -> void:
 	var targets := _neutralize_targets()
 	game.spend_effector(cell, "中和抗体")
 	for t in targets:
-		## 记「到第几个世界回合末为止」而不是倒计时：中途存档读档、快照回滚都不会走样
-		t["neutral_until"] = game.round_no + 1
+		## 记「到第几个世界回合末为止」而不是倒计时：中途存档读档、快照回滚都不会走样。
+		## 持续 1 世界回合 = 到**本**回合末（通用规则 3：第「当前 + 1 − 1」回合 E 阶段结束）
+		t["neutral_until"] = game.round_no
 	game.log_msg("　【中和抗体】%d 个与健康组织相邻的癌细胞：种类技能与永久卡本回合和下一回合失效"
 		% targets.size())
 

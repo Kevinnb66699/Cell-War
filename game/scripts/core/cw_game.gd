@@ -531,7 +531,7 @@ func clear_mods(cell: Dictionary, until: String) -> void:
 # ---- 永久技能（装备在 cell["equipped"]，打出即装备、死亡不掉、同名限一张）----
 
 ## 【中和抗体】（B 的效应应答）压住了这个癌细胞吗。PRD：「所有与健康组织相邻的癌细胞的
-## **种类特殊效果**/**永久卡牌效果**在当前回合和下一回合失效」。
+## **种类特殊效果**/**永久卡牌效果**失效，持续 1 世界回合」（2026-09-08 云端版由「当前+下一回合」缩短）。
 ## 存的是「压到第几个世界回合末」而不是倒计时 —— 存档读档、快照回滚都不会走样。
 func neutralized(cell: Dictionary) -> bool:
 	return round_no <= int(cell.get("neutral_until", -1))

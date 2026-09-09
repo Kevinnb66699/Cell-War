@@ -1235,9 +1235,12 @@ func t_macro_purify_heal() -> void:
 	check(await net.call(3, []) == 1, "实付 0.3：回能压到 0.2，净花 0.1")
 	check(await net.call(2, []) == 1, "实付 0.2（减免地板）：回能压到 0.1，净花 0.1 —— 不再是 0")
 	check(await net.call(1, []) == 1, "实付 0.1：一点都不回，净花 0.1")
-	check(await net.call(0, []) == 0, "免费迁移：不回能，也谈不上净花")
-	## 不是花钱走进来的（传送 / 复活 / 血管）不设这道上限
-	check(await net.call(-1, []) == -3, "paid=-1（传送等）：照回 0.3，净赚")
+	## **两个边界 2026-09-08 反过来了**（云端修订版写明「每通过【迁移】触发一次【净化】」，
+	## 并单列「免费迁移触发净化时恢复 0.3」）：
+	## 免费迁移原来被封顶压成 0，现在回满；传送/蹲守那类原来回满，现在一分不回。
+	check(await net.call(0, []) == -3, "免费迁移：回满 0.3，净赚（PRD 单列的一条）")
+	check(await net.call(-1, []) == 0,
+		"paid=-1（传送 / 复活 / 血管 / 卡牌位移 / 蹲守净化）：不是【迁移】触发的，一分不回")
 	## 旋钮 macro_heal_purify（2026-09-02 后期引擎对比表杠杆①）：0 = 吞噬回能不适用于净化
 	var g0 := bare_game()
 	g0.tune.macro_heal_purify = 0
@@ -3712,10 +3715,10 @@ func t_effector_responses() -> void:
 	check(g.memory == 100 - CWData.EFFECTOR_COST, "扣 15 效应记忆（余 %d）" % g.memory)
 	check(not g.type_ability_on(sclc), "被中和：种类特殊效果失效")
 	check(not g.has_skill(sclc, "GLUT1高表达"), "被中和：永久卡牌效果一并失效")
+	## **2026-09-08 云端修订版缩短成「持续 1 世界回合」**（= 只到本回合末，通用规则 3）。
+	## 原来是「当前回合与下一回合」，那时下一回合仍失效、再下一回合才恢复。
 	g.round_no += 1
-	check(not g.type_ability_on(sclc), "下一个世界回合仍然失效")
-	g.round_no += 1
-	check(g.type_ability_on(sclc), "再下一个回合恢复")
+	check(g.type_ability_on(sclc), "下一个世界回合就恢复了（持续 1 世界回合 = 只到本回合末）")
 	g.dispose()
 
 	## ---- ④ 免疫猎杀：标记 + 追踪趋化源；死了源留在死亡格 ----
