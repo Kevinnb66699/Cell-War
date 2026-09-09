@@ -74,9 +74,9 @@ var anaerobic_per_solid := CWData.ANAEROBIC_PER_SOLID        # 每固化癌组�
 ## 无氧呼吸是否按连通块内癌细胞数均分（关掉=每个癌细胞独享全额，大幅提升多细胞癌方收入）
 var anaerobic_split := true
 
-## 【S-有氧呼吸】**现行公式**（Kevin 2026-09-07）：每个免疫细胞得
-## `aerobic_level_base + aerobic_level_step × 抗原记忆等级²`（等级 0 起 = 系数 I/II/III/X 的 1/2/3/4 减一）。
-## 默认 20 + 5 × 等级² → **2.0 / 2.5 / 4.0 / 6.5**。
+## 【S-有氧呼吸】**现行公式**（PRD 2026-09-09 云端版）：每个免疫细胞得
+## `aerobic_level_base + aerobic_level_step × 抗原记忆等级`（等级 0 起 = 系数 I/II/III/X 的 1/2/3/4 减一）。
+## 默认 20 + 15 × 等级 → **2.0 / 3.5 / 5.0 / 6.5**。（09-07~09-09 是平方式 20 + 5 × 等级²。）
 ##
 ## **-1 = 基数按人数取**（`CWData.aerobic_level_base`，四人 2.0 / 六人 1.8 —— 09-05 方案 f，现退为对照档）；
 ## `>0` = 所有人数统一成这个数（默认；balance_scan 的 `abase=`）；
@@ -120,7 +120,7 @@ var anaerobic_on_turn_end := false
 ## 0 = 一份不给，扫回旧行为；100 = 坏死无影响）。`necro=` 传的就是它。
 var necrosis_aerobic_pct := CWData.NECROSIS_AEROBIC_PCT
 
-## 印戒「黏液侵染」：免疫细胞踏进黏液格时迁移费 +本值（十分能量，团队 2026-09-05 定 0.5）。0 = 关。
+## 印戒「黏液侵染」：免疫细胞踏进黏液格时迁移费 +本值（十分能量；09-05 定 0.5，Kevin 09-09 降到 0.2）。0 = 关。
 var mucus_move_surcharge := CWData.MUCUS_MOVE_SURCHARGE
 
 ## 骨肉瘤【骨样硬化】（2026-09-05 重做为主动技能）：费用与「几个世界回合后转化」。

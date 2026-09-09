@@ -459,9 +459,9 @@ func _aerobic_base(healthy: int, necrotic: int) -> int:
 	if base < 0:
 		base = CWData.aerobic_level_base(game.order.size())
 	if base > 0:
-		## (等级系数 − 1)² × step + base（Kevin 2026-09-07 换的公式）。immune_level 是 0 起，
-		## 正好就是「等级系数 − 1」：I 0 / II 1 / III 2 / X 3 → 2.0 / 2.5 / 4.0 / 6.5
-		return base + game.tune.aerobic_level_step * game.immune_level * game.immune_level
+		## (等级系数 − 1) × step + base（PRD 2026-09-09 云端版，由平方式改回线性）。
+		## immune_level 是 0 起，正好就是「等级系数 − 1」：I 0 / II 1 / III 2 / X 3 → 2.0 / 3.5 / 5.0 / 6.5
+		return base + game.tune.aerobic_level_step * game.immune_level
 	# 四舍五入到十分位（PRD 通用规则 1）；算式只有 CWData.round_tenth 一份
 	var num: int = (healthy - necrotic) * game.tune.aerobic_mult_at(game.round_no)
 	return CWData.round_tenth(num, CWData.TOTAL_TILES)

@@ -169,8 +169,8 @@ static func chapters() -> Array:
 	var aerobic: Array = []
 	if tune.aerobic_level_base != 0:
 		aerobic.append("每个世界回合 S 阶段【有氧呼吸】，每个免疫细胞各拿一份：")
-		## Kevin 2026-09-07 换成平方式：(等级系数 − 1)² × 步长 + 基数
-		aerobic.append("（抗原记忆等级 - 1）的平方 × %s + 基数，等级 I/II/III/X 记 1/2/3/4。"
+		## PRD 2026-09-09 云端版改回线性：(等级系数 − 1) × 步长 + 基数
+		aerobic.append("（抗原记忆等级 - 1）× %s + 基数，等级 I/II/III/X 记 1/2/3/4。"
 			% CWData.fmt(tune.aerobic_level_step))
 		if tune.aerobic_level_base < 0:
 			var parts: Array[String] = []
@@ -180,13 +180,13 @@ static func chapters() -> Array:
 				parts.append("%d 人局 %s" % [n, CWData.fmt(CWData.aerobic_level_base(n))])
 			aerobic.append("基数按人数：" + "、".join(parts) + "。多净化、升等级，收入就涨。")
 		else:
-			aerobic.append("基数 %s，四档就是 %s。升等级的收益越到后面越大。" % [
+			aerobic.append("基数 %s，四档就是 %s。每升一级涨得一样多。" % [
 				CWData.fmt(tune.aerobic_level_base),
 				" / ".join(PackedStringArray([
 					CWData.fmt(tune.aerobic_level_base),
 					CWData.fmt(tune.aerobic_level_base + tune.aerobic_level_step),
-					CWData.fmt(tune.aerobic_level_base + tune.aerobic_level_step * 4),
-					CWData.fmt(tune.aerobic_level_base + tune.aerobic_level_step * 9)]))])
+					CWData.fmt(tune.aerobic_level_base + tune.aerobic_level_step * 2),
+					CWData.fmt(tune.aerobic_level_base + tune.aerobic_level_step * 3)]))])
 	else:
 		aerobic.append("每个世界回合 S 阶段【有氧呼吸】：按全盘健康组织占比 × %s 结算，"
 			% CWData.fmt(tune.aerobic_mult))
@@ -358,9 +358,14 @@ static func chapters() -> Array:
 				"「迁移 / 移动」是切换式：走完一步仍停在选目标格上，",
 				"可以连续走，右键或 Esc 结束。",
 			] },
+			## 门槛按人数分档（Kevin 2026-09-09），而图鉴是**静态**的、拿不到当前人数，
+			## 所以两档都写出来。写死一档的话有一半的局看到的是错的。
 			{ "t": "净化与记忆", "b": [
-				"免疫每净化一格 +1 抗原记忆。记忆到 %d 升 II 级、" % CWData.LEVEL_MIN_MEMORY[1],
-				"%d 升 III 级、%d 升 X 级，迁入癌组织的费用随等级下降。" % [CWData.LEVEL_MIN_MEMORY[2], CWData.LEVEL_MIN_MEMORY[3]],
+				"免疫每净化一格 +1 抗原记忆。四人局记忆到 %d / %d 升 II / III 级，" % [
+					CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][1], CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][2]],
+				"六人局 %d / %d；两者都是 %d 升 X 级。" % [
+					CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2], CWData.LEVEL_MIN_MEMORY[3]],
+				"迁入癌组织的费用随等级下降。",
 			] },
 		] },
 		{ "title": "攻击与判定", "entries": [

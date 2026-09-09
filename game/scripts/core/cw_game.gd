@@ -534,7 +534,7 @@ func clear_mods(cell: Dictionary, until: String) -> void:
 # ---- 永久技能（装备在 cell["equipped"]，打出即装备、死亡不掉、同名限一张）----
 
 ## 【中和抗体】（B 的效应应答）压住了这个癌细胞吗。PRD：「所有与健康组织相邻的癌细胞的
-## **种类特殊效果**/**永久卡牌效果**失效，持续 1 世界回合」（2026-09-08 云端版由「当前+下一回合」缩短）。
+## **种类特殊效果**/**永久卡牌效果**失效，持续 2 世界回合」（09-08 缩到 1 回合，09-09 云端版又改了回来）。
 ## 存的是「压到第几个世界回合末」而不是倒计时 —— 存档读档、快照回滚都不会走样。
 func neutralized(cell: Dictionary) -> bool:
 	return round_no <= int(cell.get("neutral_until", -1))
@@ -914,7 +914,10 @@ func gain_memory(n: int) -> void:
 		log_msg("　【抗原暴露】抗原记忆额外 +%d" % bonus)
 	memory += n + bonus
 	var lv := immune_level
-	while lv < 3 and memory >= CWData.LEVEL_MIN_MEMORY[lv + 1]:
+	## 门槛按人数分档（四人 6/16/30、六人 10/20/30，Kevin 2026-09-09）——
+	## **别读 CWData.LEVEL_MIN_MEMORY 那张常量表**，那是六人档兼缺省。
+	var tiers: Array = CWData.level_min_memory(order.size())
+	while lv < 3 and memory >= int(tiers[lv + 1]):
 		lv += 1
 	if lv > immune_level:
 		immune_level = lv

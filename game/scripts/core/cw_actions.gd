@@ -155,8 +155,12 @@ func quote_path(cell: Dictionary, path: Array) -> Dictionary:
 				blocked = "走不到这一格"
 		else:
 			cost = _move_cost_mod(cell, to, _move_base_cost(cell, to))
-			if budget < cost:
-				blocked = "能量只剩 %s，这一步要 %s" % [CWData.fmt(budget), CWData.fmt(cost)]
+			## 判据走 CWCost.affordable，**别在这儿自己写比较** —— 付完至少要留 0.1，
+			## 而这里比的是「走到这一步时的余额」而不是细胞此刻的能量，所以用静态版。
+			if not CWCost.affordable(budget, cost):
+				blocked = "能量只剩 %s，这一步要 %s —— 付完至少要留 %s" % [
+					CWData.fmt(budget), CWData.fmt(cost),
+					CWData.fmt(CWCost.DEFAULT_PAYMENT_FLOOR)]
 		var afford: bool = legal and blocked == ""
 		var step := { "to": to, "cost": cost, "mid": mid,
 			"legal": legal, "afford": afford, "blocked": blocked, "gain": 0 }
@@ -1335,12 +1339,14 @@ func _do_homing(cell: Dictionary, to: Vector2i) -> void:
 
 # ---- 印戒细胞癌 ----
 
-## 【黏液破裂】：耗尽全部能量（至少 2.0）并死亡。自身所在格及周围 2 格所有组织进入
-## 「黏液侵染」，其中随机最多 8 格立即转为癌组织，范围内的免疫细胞损失 2.0 能量。
+## 【I-黏液破裂】：耗尽全部能量（至少 2.0）并死亡。自身所在格及周围 2 格所有组织进入
+## 「黏液侵染」，其中随机最多 MUCUS_MAX_CONVERT 格**健康组织**立即转为癌组织，
+## 范围内的免疫细胞损失 2.0 能量。（转化只挑健康格 —— PRD 2026-09-09 云端版补写明确，
+## 引擎本来就是这么做的。）
 ##
-## ⚠ PRD 只说了「粘液」无法被技能清除、被免疫细胞接触后消失，**没有写它本身有什么效果**。
-## 这里如实实现成一个标记：会随棋盘存续、会被免疫细胞踩掉，但不产生任何结算影响。
-## 等 PRD 补上效果再往 t["mucus"] 上挂。
+## 「黏液侵染」本身的效果 PRD 2026-09-09 云端版补齐了两条，都已实装：
+##   · 无法被技能清除、免疫细胞进入该格后立即消失 —— 见 CWActions.enter_tile 清 t["mucus"]
+##   · 免疫细胞迁移进入时耗能 +0.2（Kevin 09-09 由 0.5 降）—— 见 CWCost 的 mucus_move_surcharge 旋钮
 func _do_mucus(cell: Dictionary) -> void:
 	var area: Array[Vector2i] = []
 	for c in game.tiles.keys():
@@ -1485,10 +1491,11 @@ func _effector_chain(cell: Dictionary) -> void:
 		% [CWData.CHAIN_PHAGO_MAX, CWData.fmt(CWData.CHAIN_PHAGO_BONUS)])
 
 
-## B【中和抗体】：所有与健康组织相邻的癌细胞，其**种类特殊效果 / 永久卡牌效果**失效，**持续 1 世界回合**。
+## B【中和抗体】：所有与健康组织相邻的癌细胞，其**种类特殊效果 / 永久卡牌效果**失效，**持续 2 世界回合**。
 ##
-## 2026-09-08 云端修订版由「当前回合与下一回合」改成「持续 1 世界回合」，按新的通用规则 3
-## （「持续 n 世界回合」= 第「当前 + n − 1」世界回合 E 阶段结束）就是**只到本回合末**，短了一半。
+## 时长在两版 PRD 之间来回过一次，别再改回去：09-08 云端修订版写「持续 1 世界回合」，
+## 按通用规则 3（「持续 n 世界回合」= 第「当前 + n − 1」世界回合 E 阶段结束）就是**只到本回合末**；
+## 09-09 云端版改成「持续 2 世界回合」= 到**下一**回合末，等于绕一圈回到了 09-08 之前的「当前+下一回合」。
 func _neutralize_targets() -> Array:
 	var out: Array = []
 	for c in game.living_cells(CWData.Faction.CANCER):
@@ -1502,8 +1509,8 @@ func _effector_neutralize(cell: Dictionary) -> void:
 	game.spend_effector(cell, "中和抗体")
 	for t in targets:
 		## 记「到第几个世界回合末为止」而不是倒计时：中途存档读档、快照回滚都不会走样。
-		## 持续 1 世界回合 = 到**本**回合末（通用规则 3：第「当前 + 1 − 1」回合 E 阶段结束）
-		t["neutral_until"] = game.round_no
+		## 持续 2 世界回合 = 到**下一**回合末（通用规则 3：第「当前 + 2 − 1」回合 E 阶段结束）
+		t["neutral_until"] = game.round_no + 1
 	game.log_msg("　【中和抗体】%d 个与健康组织相邻的癌细胞：种类技能与永久卡本回合和下一回合失效"
 		% targets.size())
 

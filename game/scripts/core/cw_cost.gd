@@ -263,13 +263,25 @@ func quote(ctx: Dictionary) -> Dictionary:
 		"normal_cost": normal_cost,
 		"mandatory_extra": surcharge,
 		"final": final_cost,
-		"affordable": actor["energy"] - final_cost >= int(ctx["payment_floor"]),
+		"affordable": affordable(actor["energy"], final_cost, int(ctx["payment_floor"])),
 		"applied": applied,
 		"applicable_but_unused": unused,
 		"consume_on_commit": consume,
 		"usage_marks": marks,
 		"breakdown": breakdown,
 	}
+
+
+## 「这笔钱付得起吗」的**唯一**判据：付完至少还要留下 floor_v（默认 0.1）。
+##
+## 抽成静态纯函数是因为路径规划器**不能**用上面那个 `affordable` ——
+## 它算的是一条路，每一步要拿「走到这一步时的余额」去问，而不是细胞此刻的能量。
+## 2026-09-04 写规划器时就地抄了一句 `budget < cost`，**漏了这条下限**：
+## 于是「走完剩 0.0」的路被画成绿的、提示写着「走完剩 0.0」，
+## 玩家照着走，最后一步却被引擎的选项生成挡下来（Kevin 2026-09-09 报「规划会把自己走死」）。
+## 判据只此一份，两边都调它，就不会再各自漂。
+static func affordable(balance: int, cost: int, floor_v: int = DEFAULT_PAYMENT_FLOOR) -> bool:
+	return balance - cost >= floor_v
 
 
 ## 纯判定：付得起吗（含 payment_floor）
@@ -339,7 +351,7 @@ func _collect(ctx: Dictionary) -> Array:
 	## 【免疫猎杀】的【追踪趋化源】走同一套修饰（方向判定见 _chemo_toward / _chemo_away）。
 	if not game.chemo.is_empty() or not game.chemo_track.is_empty():
 		_emit(out, ctx, "趋化源", Store.NONE, 0)
-	## 印戒「黏液侵染」：免疫**踏进**黏液格迁移费 +0.5（团队 2026-09-05 定）。
+	## 印戒「黏液侵染」：免疫**踏进**黏液格迁移费 +0.2（09-05 定 0.5，Kevin 09-09 降价）。
 	## 数值来自旋钮 `mucus_move_surcharge`，而 TEMPLATES 是 const 表读不到旋钮，
 	## 所以照 _emit 的形状直接发一条。走 FLAT_ADD（④ 固定加费），免费豁免照 PRD 管线能免掉它。
 	if ctx["action"] == Action.MOVE and actor["faction"] == CWData.Faction.IMMUNE \

@@ -166,10 +166,12 @@ static func _stage_genes() -> Array:
 
 static func _stage_memory() -> Array:
 	return [
+		## 门槛按人数分档（Kevin 2026-09-09）；引导也是静态的，两档都写。
 		{ "t": "记忆与等级", "flag": "", "b": [
-			"净化攒记忆：%d 升 II、%d 升 III、%d 升 X。" % [
-				CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2], CWData.LEVEL_MIN_MEMORY[3]],
-			"升级换更强的卡池。"] },
+			"净化攒记忆升 II / III：四人 %d / %d，六人 %d / %d。" % [
+				CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][1], CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][2],
+				CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2]],
+			"%d 升 X，换更强的卡池。" % CWData.LEVEL_MIN_MEMORY[3]] },
 		{ "t": "等级收益", "flag": "differentiate", "b": [
 			"III 级起迁癌组织打折。", "还解锁「分化」。"] },
 	]

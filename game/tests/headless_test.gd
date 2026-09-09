@@ -104,6 +104,7 @@ func _run_all() -> void:
 		t_breath_sheets, t_solidify_and_decay, t_vessel_no_solid, t_erosion, t_macro_purify_heal,
 		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path, t_plan_core_gain,
+		t_plan_payment_floor,
 		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_eval_features, t_feed_log, t_proliferate_tiers, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
 		t_immune_win, t_surrender, t_cancer_revive_blocked, t_cancer_revive_ring, t_cancer_s_win, t_immune_respawn,
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
@@ -1150,7 +1151,20 @@ func t_immune_level_rules() -> void:
 	print("[免疫等级：门槛/有氧/分化]")
 	var g := bare_game()
 	g.setup.build_board()
-	check(CWData.LEVEL_MIN_MEMORY == [0, 10, 20, 30], "记忆门槛 = 0 / 10 / 20 / 30")
+	check(CWData.LEVEL_MIN_MEMORY == [0, 10, 20, 30], "记忆门槛（六人档兼缺省）= 0 / 10 / 20 / 30")
+	## 按人数分档（Kevin 2026-09-09）。四人局只有 2 个免疫、六人局 3 个，同一门槛下四人要多花
+	## 约一半的回合才升得上去 —— 分档是把「升级要几回合」拉回同一档。
+	check(CWData.level_min_memory(4) == [0, 6, 16, 30], "四人局门槛 = 0 / 6 / 16 / 30")
+	check(CWData.level_min_memory(6) == [0, 10, 20, 30], "六人局门槛 = 0 / 10 / 20 / 30")
+	check(CWData.level_min_memory(2) == CWData.LEVEL_MIN_MEMORY
+			and CWData.level_min_memory(5) == CWData.LEVEL_MIN_MEMORY,
+		"PRD 没定的人数（含二人局）退回缺省档，不擅自造数")
+	## 真在四人局里升一次：门槛读的是分档表而不是那张常量表
+	var g4 := make_game(4, 1)
+	g4.setup.build_board()
+	g4.gain_memory(6)
+	check(g4.immune_level == 1, "四人局：记忆 6 就升到 II 级（六人档要 10）")
+	g4.dispose()
 
 	## 门槛边界：9 不升、10 升 II、19 不再升、20 升 III、29 不升、30 升 X
 	## （X 从 31 改回 PRD 的 30，Kevin 2026-09-07：「30 及以上都归 X 级」）
@@ -1162,7 +1176,7 @@ func t_immune_level_rules() -> void:
 			"记忆 %d → %s 级" % [pair[0], CWData.LEVEL_NAMES[int(pair[1])]])
 		g2.dispose()
 
-	## 有氧 = 基数 + 等级² × 0.5（Kevin 2026-09-07 换成平方式），与盘面无关
+	## 有氧 = 基数 + 等级 × 1.5（PRD 2026-09-09 云端版改回线性），与盘面无关
 	var cell := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
 		CWData.ImmuneType.BASIC, -1)
 	g.cells.append(cell)
@@ -1170,11 +1184,13 @@ func t_immune_level_rules() -> void:
 		g.immune_level = lv
 		cell["energy"] = 0
 		g.world._aerobic()
-		var want_lv: int = CWData.AEROBIC_LEVEL_BASE + CWData.AEROBIC_LEVEL_STEP * lv * lv
+		var want_lv: int = CWData.AEROBIC_LEVEL_BASE + CWData.AEROBIC_LEVEL_STEP * lv
 		check(cell["energy"] == want_lv,
 			"%s 级有氧 = %s" % [CWData.LEVEL_NAMES[lv], CWData.fmt(want_lv)])
-	check(CWData.AEROBIC_LEVEL_BASE == 20 and CWData.AEROBIC_LEVEL_STEP == 5,
-		"四档就是 2.0 / 2.5 / 4.0 / 6.5（Kevin 2026-09-07 给的图）")
+	## 这两个数**写死**是有意的：公式改一次这里就该红一次，逼着改的人回头核对 PRD 原文。
+	## 09-07 平方式是 2.0 / 2.5 / 4.0 / 6.5，09-09 云端版改回线性后中段各抬 1.0。
+	check(CWData.AEROBIC_LEVEL_BASE == 20 and CWData.AEROBIC_LEVEL_STEP == 15,
+		"四档就是 2.0 / 3.5 / 5.0 / 6.5（PRD 2026-09-09 云端版）")
 	## 盘面被癌组织吃掉一半也不掉收入 —— 这正是换公式要解决的死亡螺旋
 	var half := 0
 	for c in g.tiles.keys():
@@ -1253,10 +1269,10 @@ func t_macro_purify_heal() -> void:
 	## → 两个默认值回到 PRD 值，定案①② 的值只剩旋钮能扫回来（mheal=0 / mvx=7）
 	check(CWData.MACRO_HEAL_PURIFY == 3 and CWTuning.new().macro_heal_purify == 3,
 		"默认与 PRD 一致：吞噬每次净化回 0.3（定案① 的 0 用 mheal=0 扫回）")
-	## 2026-09-09：III 级由 0.7 改 0.8；**X 级不再另有减免**（Kevin 确认「删了」）——
-	## 等级只升不降、好处累加，所以 X 级沿用 III 级那档，两格同值。
-	check(CWData.IMMUNE_MOVE_CANCEROUS == [10, 10, 8, 8] and CWTuning.new().immune_move_cancerous[3] == 8,
-		"默认与 PRD 一致：III 与 X 级迁移到癌性组织同为 0.8（X 级的额外减免已删）")
+	## 2026-09-09 晚 Kevin 给了新分档：**II 级 0.8、III 级 0.7**（I 级 1.0 是基准价，没有减免）。
+	## **X 级不再另有减免**（同日确认「删了」）—— 等级只升不降、好处累加，所以 X 沿用 III 那档。
+	check(CWData.IMMUNE_MOVE_CANCEROUS == [10, 8, 7, 7] and CWTuning.new().immune_move_cancerous[3] == 7,
+		"默认与 PRD 一致：迁移到癌性组织 1.0 / 0.8 / 0.7 / 0.7（X 级的额外减免已删）")
 	## 走一格癌组织，返回「这一步净花了多少」。封顶逻辑按 PRD 的 0.3 测 —— 定案 ① 后默认 0，得显式拨回
 	var net := func(paid: int, skills: Array) -> int:
 		var g := bare_game()
@@ -2727,7 +2743,9 @@ func t_plan_path() -> void:
 		var step_cost: int = int(g2.actions.quote_path(me, probe)["total"])
 		var two: Array = g2.actions.plan_next_dests(me, one[0])
 		if not two.is_empty():
-			me["energy"] = step_cost
+			## +下限：付完第一步剩 0.1，刚好还站得住，于是停在**第 1 步**而不是第 0 步。
+			## （只给 step_cost 的话第 0 步自己就不合规了 —— 见 t_plan_payment_floor。）
+			me["energy"] = step_cost + CWCost.DEFAULT_PAYMENT_FLOOR
 			var q3: Dictionary = g2.actions.quote_path(me, [one[0], two[0]] as Array[Vector2i])
 			check(not q3["ok"] and q3["stop"] == 1 and q3["total"] == step_cost,
 				"钱只够第一步 → 停在第 1 步、总价 = 第一步的价（%s）" % CWData.fmt(step_cost))
@@ -2776,7 +2794,9 @@ func t_plan_core_gain() -> void:
 	var beyond: Array = g.actions.plan_next_dests(me, core)
 	check(not beyond.is_empty(), "核心那格还能往外走")
 	if not beyond.is_empty():
-		me["energy"] = step_cost
+		## 给 step_cost + 下限：付完第一步剩 0.1，正好是「刚好还站得住」的那条线。
+		## （2026-09-09 前这里写的是 step_cost —— 那是照着规划器漏了下限的旧判据配的。）
+		me["energy"] = step_cost + CWCost.DEFAULT_PAYMENT_FLOOR
 		var q3: Dictionary = g.actions.quote_path(me, [core, beyond[0]] as Array[Vector2i])
 		check(q3["ok"], "钱只够一步，核心的 2.0 接上了第二步（改之前这里判「钱不够」）")
 		## 对照组：把核心取空，同一条路立刻走不通 —— 证明上面那条确实是核心的钱在起作用
@@ -2803,6 +2823,53 @@ func t_plan_core_gain() -> void:
 		check(me["energy"] == int(q5["left"]),
 			"真走一遍剩 %s == 报价 %s" % [CWData.fmt(me["energy"]), CWData.fmt(int(q5["left"]))])
 		check(int(g.tile(core)["store"]) == 0, "真走一遍之后核心才真的被取空")
+	g.dispose()
+
+
+## 规划器的「付得起」必须和真扣钱那条路**同一把尺子**：付完至少留 0.1。
+##
+## Kevin 2026-09-09 报「规划现在会把自己走死（剩余 0.0 能量）」。根因是规划器
+## 2026-09-04 就地抄了一句 `budget < cost`，漏了 payment_floor —— 于是一条
+## 「走完剩 0.0」的路被画成绿的、提示也写着「走完剩 0.0」，玩家照着走，
+## 最后一步却被选项生成（`immune_move_options` 走 `can_pay`）挡下来。
+##
+## 这里钉的是**两条路的一致性**，不是某个具体数：只要两边判据再次分家，本测试就红。
+func t_plan_payment_floor() -> void:
+	print("[规划器：付完至少留 0.1]")
+	var g := bare_game()
+	var core: Vector2i = CWData.CORES[0]
+	var me := put_immune(g, CWData.neighbors(core)[0])
+	var dests: Array = g.actions.move_dests(me)
+	var to: Vector2i = Vector2i.MAX
+	for d: Vector2i in dests:
+		if g.cells_at(d).is_empty() and d != core:   ## 躲开核心，免得它的收入把余额补回来
+			to = d
+			break
+	check(to != Vector2i.MAX, "找得到一格普通落点")
+	var cost: int = int(g.actions.quote_path(me, [to] as Array[Vector2i])["total"])
+	check(cost > 0, "这一步要 %s" % CWData.fmt(cost))
+
+	## ① 账上正好等于价钱 = 走完剩 0.0 —— 规划器必须判走不通
+	me["energy"] = cost
+	var q: Dictionary = g.actions.quote_path(me, [to] as Array[Vector2i])
+	check(not q["ok"], "账上正好 %s：规划器判走不通（走完会剩 0.0）" % CWData.fmt(cost))
+	check(str(q["steps"][0]["blocked"]).contains("至少要留"), "并说明为什么：%s" % q["steps"][0]["blocked"])
+
+	## ② 同一局面下，引擎的移动选项里也确实没有这一格 —— 两条路口径一致
+	var listed := false
+	for o in g.actions.immune_move_options(me):
+		if o["data"]["to"] == to:
+			listed = true
+	check(not listed, "引擎的移动选项里同样没有这一格（两条路同一把尺子）")
+
+	## ③ 多给 0.1 就走得通了，且两边同时放行
+	me["energy"] = cost + CWCost.DEFAULT_PAYMENT_FLOOR
+	check(g.actions.quote_path(me, [to] as Array[Vector2i])["ok"], "多 0.1 就走得通")
+	var listed2 := false
+	for o in g.actions.immune_move_options(me):
+		if o["data"]["to"] == to:
+			listed2 = true
+	check(listed2, "引擎的移动选项里也出现了这一格")
 	g.dispose()
 
 
@@ -3787,10 +3854,13 @@ func t_effector_responses() -> void:
 	check(g.memory == 100 - CWData.EFFECTOR_COST, "扣 15 效应记忆（余 %d）" % g.memory)
 	check(not g.type_ability_on(sclc), "被中和：种类特殊效果失效")
 	check(not g.has_skill(sclc, "GLUT1高表达"), "被中和：永久卡牌效果一并失效")
-	## **2026-09-08 云端修订版缩短成「持续 1 世界回合」**（= 只到本回合末，通用规则 3）。
-	## 原来是「当前回合与下一回合」，那时下一回合仍失效、再下一回合才恢复。
+	## **2026-09-09 云端版改成「持续 2 世界回合」**（= 到下一回合末，通用规则 3）——
+	## 09-08 曾缩到 1 回合（只到本回合末），这次绕回了 09-08 之前的时长。所以要卡两个点：
+	## 下一回合**仍然**压着，再下一回合才恢复。只测后者的话，改回 1 回合也照样绿。
 	g.round_no += 1
-	check(g.type_ability_on(sclc), "下一个世界回合就恢复了（持续 1 世界回合 = 只到本回合末）")
+	check(not g.type_ability_on(sclc), "下一个世界回合仍然被压着（持续 2 世界回合 = 到下一回合末）")
+	g.round_no += 1
+	check(g.type_ability_on(sclc), "再下一个世界回合恢复")
 	g.dispose()
 
 	## ---- ④ 免疫猎杀：标记 + 追踪趋化源；死了源留在死亡格 ----
@@ -7587,8 +7657,12 @@ func t_guide_data() -> void:
 				if CWStyle.FONT.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x > budget:
 					wide.append(line)
 	check(wide.is_empty(), "每行都放得进引导面板正文栏 %d（超的：%s）" % [budget, str(wide)])
-	check(text.contains("%d 升 III" % CWData.LEVEL_MIN_MEMORY[2]) and not text.contains("16 升"),
-		"剧本的记忆门槛现读 LEVEL_MIN_MEMORY")
+	## 门槛按人数分档（Kevin 2026-09-09），引导是静态的、拿不到人数，所以两档都要写出来。
+	check(text.contains("四人 %d / %d" % [CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][1],
+				CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][2]])
+			and text.contains("六人 %d / %d" % [CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2]])
+			and text.contains("%d 升 X" % CWData.LEVEL_MIN_MEMORY[3]),
+		"剧本的记忆门槛现读分档表，且四人 / 六人两档都写了")
 	check(text.contains("最多持 %d 张" % CWData.HAND_MAX), "手牌上限现读 HAND_MAX")
 	check(text.contains("最多攻击 %d 次" % tune.attack_max_per_turn), "攻击上限现读 attack_max_per_turn")
 	## 旧进度迁移：6 关制「全部完成」= done 6；16 关制下应从第 7 关续读（clamp 现行为）
@@ -7706,15 +7780,19 @@ func t_codex() -> void:
 				if CWStyle.FONT.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x > budget:
 					wide.append(line)
 	check(wide.is_empty(), "每行都放得进正文栏宽 %d（超的：%s）" % [budget, str(wide)])
-	check(all_text.contains("平方") and all_text.contains(CWData.fmt(CWData.AEROBIC_LEVEL_BASE)),
-		"有氧呼吸按现行公式描述（等级差的平方 × 0.5 + 基数）")
+	check(all_text.contains("（抗原记忆等级 - 1）× ") and all_text.contains(CWData.fmt(CWData.AEROBIC_LEVEL_BASE))
+			and not all_text.contains("平方"),
+		"有氧呼吸按现行公式描述（（等级 − 1）× 步长 + 基数，不再是平方式）")
 	check(all_text.contains("次方") and all_text.contains("全图") and all_text.contains("E 阶段结算【无氧呼吸】")
 		and not all_text.contains("行动回合末结算【无氧呼吸】"),
 		"无氧呼吸：现行式（块内癌组织的次方 + 全图固化）+ E 阶段统一结算")
 	check(not all_text.contains("占比") and not all_text.contains("最多存 0") and not all_text.contains("低保"),
 		"09-05 之前的口径（盘面占比 / 存量上限 / 低保）不再出现")
-	check(all_text.contains("%d 升 III 级" % CWData.LEVEL_MIN_MEMORY[2]) and not all_text.contains("16 升"),
-		"记忆门槛现读 LEVEL_MIN_MEMORY")
+	## 同 t_guide_script：图鉴静态、拿不到人数，四人 / 六人两档都得写。
+	check(all_text.contains("四人局记忆到 %d / %d" % [CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][1],
+				CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][2]])
+			and all_text.contains("六人局 %d / %d" % [CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2]]),
+		"记忆门槛现读分档表，且四人 / 六人两档都写了")
 	check(all_text.contains("标记脚下") and all_text.contains("%d 个世界回合后直接固化" % tune.osteo_ossify_rounds)
 		and not all_text.contains("固化计数 +"),
 		"骨样硬化按 09-05 重做后的主动技能描述")
@@ -11711,7 +11789,8 @@ func t_batch2_rules() -> void:
 	var plain: int = g.actions._move_cost_mod(im2, to, base)
 	g.tiles[to]["mucus"] = true
 	check(g.actions._move_cost_mod(im2, to, base) == plain + CWData.MUCUS_MOVE_SURCHARGE,
-		"免疫踏进黏液格：迁移 %s → %s（+0.5）" % [CWData.fmt(plain), CWData.fmt(plain + CWData.MUCUS_MOVE_SURCHARGE)])
+		"免疫踏进黏液格：迁移 %s → %s（+%s）" % [CWData.fmt(plain),
+			CWData.fmt(plain + CWData.MUCUS_MOVE_SURCHARGE), CWData.fmt(CWData.MUCUS_MOVE_SURCHARGE)])
 	g.tune.mucus_move_surcharge = 0
 	check(g.actions._move_cost_mod(im2, to, base) == plain, "mucusfee=0：不加费")
 	g.tune.mucus_move_surcharge = CWData.MUCUS_MOVE_SURCHARGE
@@ -12426,7 +12505,7 @@ func t_attack_cap() -> void:
 	check(poor.contains("要 %s" % CWData.fmt(imm["energy"])) and poor.contains("留 0.1"),
 		"账上正好等于价钱 → 解释「要 X，账上 X，付完至少留 0.1」：%s" % poor)
 	## 2026-09-06 起【基质阻隔】只翻癌细胞：免疫的解释里不再出现它、价也不变；
-	## 「点名修正与新价」这条路 2026-09-08 改拿【黏液侵染】（免疫踏进黏液格 +0.5）——
+	## 「点名修正与新价」这条路 2026-09-08 改拿【黏液侵染】（免疫踏进黏液格加价）——
 	## 原来用的【免疫抑制因子】随 PRD 删了，而删掉之后**没有任何世界事件抬高免疫的迁移费**，
 	## 所以这条只能换成非世界事件的加价。要钉的意图没变：解释里点名修正、报出新价。
 	g.events["active"].append({ "name": "基质阻隔", "left": 2, "stacks": 1, "data": {} })
