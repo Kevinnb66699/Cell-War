@@ -107,7 +107,7 @@ func _run_all() -> void:
 		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_eval_features, t_feed_log, t_proliferate_tiers, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
 		t_immune_win, t_surrender, t_cancer_revive_blocked, t_cancer_revive_ring, t_cancer_s_win, t_immune_respawn,
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
-		t_hotseat, t_tutorial, t_stroma_targets, t_batch2_rules,
+		t_hotseat, t_tutorial, t_tutorial_auto_advance, t_stroma_targets, t_batch2_rules,
 		t_immune_level_rules, t_tissue_transitions, t_one_cell_per_tile, t_phase_order,
 		t_event_rounds, t_draw_limit, t_snapshot, t_state_codec,
 		t_rollout_isolation, t_step_atomic, t_full_game_2p, t_full_game_4p,
@@ -7447,6 +7447,80 @@ func t_guide_data() -> void:
 				if CWStyle.FONT.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x > budget:
 					wide.append(line)
 	check(wide.is_empty(), "每行都放得进引导面板正文栏 %d（超的：%s）" % [budget, str(wide)])
+
+## 状态推进（16 关重构切片①）：教「迁移」的步骤改由真实局面判定完成——
+## 玩家亲手迁移一次，剧本自动翻页，全程不按「继续」；没迁移就停在原步。
+## 作答走 take_offer 同一条缝（_pending.fire）：无头下这就是「玩家点了一下」。
+func t_tutorial_auto_advance() -> void:
+	print("[教程 · 状态推进]")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	CWSettings.ai_delay_ms = 0
+	## 与 t_tutorial 同一组参数（不走过场，直接开）
+	m.tutorial = true
+	m.player_count = 2
+	m.human_players = [0]
+	m.ai_level = CWMatch.AI_NORMAL
+	m.match_seed = 20260903
+	m.cancer_types = [CWData.CancerType.OSTEO]
+	m.start()
+	await process_frame
+	await process_frame
+	## 同 t_tutorial 的起手：翻到第 2 关第 1 步（落子）按「继续」代做落子
+	m._guide._chapter = 1
+	m._guide._step = 0
+	m._guide._render()
+	m._guide._advance()
+	await process_frame
+	await process_frame
+	check(m.game.cells.size() == 2, "代做落子后双方细胞都在（%d 个）" % m.game.cells.size())
+	## 拨到教「迁移」的那一步；此刻引擎应把人类的行动询问挂在桥上
+	m._guide._step = 2
+	m._guide._render()
+	check(CWGuideData.act_of(1, 2) == "move", "第 2 关第 3 步教的是迁移")
+	check(m._guide.step_no() == 2, "翻页前停在教迁移那一步（%d）" % m._guide.step_no())
+	var gb := m.bridge as CWGuideBridge
+	check(gb != null and not gb._cur_req.is_empty() and gb._pending != null, "行动询问挂在桥上")
+	if gb == null or gb._cur_req.is_empty() or gb._pending == null:
+		m.teardown()
+		await process_frame
+		CWSettings.ai_delay_ms = 220
+		root.remove_child(main_scene)
+		main_scene.free()
+		return
+	## 像玩家一样作答：从引擎给的合法选项里挑一个落点为空的迁移
+	var idx := -1
+	var opts: Array = gb._cur_req["options"]
+	for i in opts.size():
+		if str(opts[i]["data"].get("act", "")) == "move" \
+				and m.game.cells_at(opts[i]["data"]["to"]).is_empty():
+			idx = i
+			break
+	check(idx >= 0, "选项里有落点为空的合法迁移（下标 %d）" % idx)
+	if idx < 0:
+		m.teardown()
+		await process_frame
+		CWSettings.ai_delay_ms = 220
+		root.remove_child(main_scene)
+		main_scene.free()
+		return
+	var from: Vector2i = m.game.cell_of(0)["pos"]
+	gb._pending.fire(idx)
+	await process_frame
+	await process_frame
+	await process_frame
+	check(m.game.cell_of(0)["pos"] != from, "玩家细胞真的迁移了（%s → %s）"
+		% [str(from), str(m.game.cell_of(0)["pos"])])
+	check(m._guide.step_no() == 3, "迁移完成后剧本自动翻页、全程没按「继续」（现在 %d）" % m._guide.step_no())
+	m.teardown()
+	await process_frame
+	CWSettings.ai_delay_ms = 220
+	root.remove_child(main_scene)
+	main_scene.free()
+
+
 	check(text.contains("%d 升 III 级" % CWData.LEVEL_MIN_MEMORY[2]) and not text.contains("16 升"),
 		"剧本的记忆门槛现读 LEVEL_MIN_MEMORY")
 	check(text.contains("标记脚下") and not text.contains("固化成型更快"), "剧本的骨肉瘤按重做后的骨样硬化描述")
