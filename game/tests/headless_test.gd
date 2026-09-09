@@ -7401,6 +7401,39 @@ func t_codex() -> void:
 	book.open()
 	book._on_query("不存在的词xyz")
 	check(book._in_results and book._page_label.text == "0 条", "找不到：结果页写 0 条")
+
+	## 翻页箭头的悬停辉光（Kevin 2026-09-09 报「换页箭头没有加辉光」）。
+	## **无头视口不跟踪悬停控件**，所以这里直接摆 `_hot_arrow` 再调 `_paint_arrows()` ——
+	## 与 mouse_entered 回调走的是同一条路（回调本身只做这两件事）。
+	var glow := func(a: Label) -> int:
+		return int(a.get_theme_constant("outline_size"))
+	book._on_query("")            ## 回到正常翻页页面
+	book.open_to(0)
+	book._hot_arrow = null
+	book._paint_arrows()
+	check(glow.call(book._next) == 0 and glow.call(book._prev) == 0, "没悬停 → 两枚都不发光")
+	book._hot_arrow = book._next
+	book._paint_arrows()
+	check(glow.call(book._next) == 8
+		and book._next.get_theme_color("font_color") == Color.WHITE,
+		"悬停可翻的那枚 → 8px 白光 + 字转白（同 CWConfigPanel 的拨值箭头）")
+	## 首页的「<」翻不动：**悬停它也不该发光** —— 亮起来等于许一个做不到的承诺
+	book._hot_arrow = book._prev
+	book._paint_arrows()
+	check(glow.call(book._prev) == 0
+		and book._prev.get_theme_color("font_color") == CWStyle.TEXT_OFF,
+		"首页悬停「<」→ 不发光、保持压暗（到头了，点了也没反应）")
+	## 末页反过来
+	book.open_to(chs.size() - 1)
+	book._hot_arrow = book._next
+	book._paint_arrows()
+	check(glow.call(book._next) == 0, "末页悬停「>」→ 不发光")
+	## 结果页两枚都翻不动（_prev_page / _next_page 见 _in_results 直接 return）
+	book._on_query("血管")
+	book._hot_arrow = book._next
+	book._paint_arrows()
+	check(glow.call(book._next) == 0 and glow.call(book._prev) == 0,
+		"结果页：两枚都翻不动，悬停也不发光")
 	book.queue_free()
 
 

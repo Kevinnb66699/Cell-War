@@ -44,6 +44,8 @@ var _search: LineEdit
 var _query := ""
 var _hits: Array = []
 var _in_results := false
+var _hot_arrow: Label = null   ## 正被鼠标悬停的翻页箭头；null = 没有（同 CWConfigPanel）
+var _n_pages := 0              ## 章数，_rebuild_page 时记下 —— 免得每次悬停都重建整本书
 
 const SEARCH_W := 220
 const HIT_H := LINE * 2 + GAP   ## 结果页每条两行：章 › 条目 / 命中行
@@ -595,8 +597,7 @@ func _rebuild_results() -> void:
 		child.queue_free()
 	_title.text = "搜索「%s」" % _query
 	_page_label.text = "%d 条" % _hits.size()
-	_prev.add_theme_color_override("font_color", CWStyle.TEXT_OFF)
-	_next.add_theme_color_override("font_color", CWStyle.TEXT_OFF)
+	_paint_arrows()   ## 结果页两枚都翻不动，_paint_arrows 自己会把它们压暗、不发光
 	var y := 0.0
 	if _hits.is_empty():
 		var none := CWStyle.label("没有找到「%s」" % _query, CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
@@ -714,6 +715,16 @@ func _build() -> void:
 
 	_prev = _clicky("<", Vector2(W - PAD - 40, PAD + HEADER_H - 24), _prev_page, panel)
 	_next = _clicky(">", Vector2(W - PAD - 20, PAD + HEADER_H - 24), _next_page, panel)
+	## 悬停亮起白光 —— 和 CWConfigPanel / CWOnlinePanel 的拨值箭头同一套语言
+	## （Kevin 2026-09-09 报「换页箭头没有加辉光」：这两枚此前只换字色，光是漏的）
+	for arrow: Label in [_prev, _next]:
+		arrow.mouse_entered.connect(func() -> void:
+			_hot_arrow = arrow
+			_paint_arrows())
+		arrow.mouse_exited.connect(func() -> void:
+			if _hot_arrow == arrow:
+				_hot_arrow = null
+			_paint_arrows())
 
 	## 正文滚动区：clip 裁掉越界部分，_content 随 _scroll 上下移动
 	_body = Control.new()
@@ -733,6 +744,26 @@ func _build() -> void:
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.position = Vector2(PAD, H - PAD - 10)
 	panel.add_child(hint)
+
+
+## 两枚翻页箭头的配色与辉光。
+##
+## **翻不动的那枚不发光**：首末页各有一枚到头，搜索结果页两枚都翻不动
+## （`_prev_page` / `_next_page` 见 `_in_results` 直接 return）。
+## 让死箭头亮起来等于许一个做不到的承诺 —— 玩家会以为自己点漏了。
+func _paint_arrows() -> void:
+	_paint_arrow(_prev, not _in_results and _page > 0)
+	_paint_arrow(_next, not _in_results and _page < _n_pages - 1)
+
+
+## 描边参数（白、0.5、8px）**和 CWConfigPanel / CWOnlinePanel 的拨值箭头逐字相同**；
+## 三处要改一起改，否则同一个手势在不同面板上会亮出不一样的光。
+func _paint_arrow(arrow: Label, live: bool) -> void:
+	var hot: bool = live and arrow == _hot_arrow
+	arrow.add_theme_color_override("font_color",
+		Color.WHITE if hot else (CWStyle.TEXT_HI if live else CWStyle.TEXT_OFF))
+	arrow.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
+	arrow.add_theme_constant_override("outline_size", 8 if hot else 0)
 
 
 ## 可点击文字（同 config_panel._clicky——覆盖层里收点击都要标记已处理）
@@ -760,10 +791,8 @@ func _rebuild_page() -> void:
 	var ch: Dictionary = all[_page]
 	_title.text = ch["title"]
 	_page_label.text = "%d / %d" % [_page + 1, all.size()]
-	_prev.add_theme_color_override("font_color",
-		CWStyle.TEXT_HI if _page > 0 else CWStyle.TEXT_OFF)
-	_next.add_theme_color_override("font_color",
-		CWStyle.TEXT_HI if _page < all.size() - 1 else CWStyle.TEXT_OFF)
+	_n_pages = all.size()
+	_paint_arrows()
 
 	var y := 0.0
 	for entry in ch["entries"]:
