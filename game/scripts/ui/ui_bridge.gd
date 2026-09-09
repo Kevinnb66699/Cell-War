@@ -758,7 +758,9 @@ func show_roll(reason: String, value: int, sides: int, _pid: int, at: Vector2i) 
 ## 掷骰的结算说明。文字是引擎给的，这里只负责把它摆到那一格上方。
 ## linger（非骰子的说明）走独立气泡、停 TEXT_HOLD：停得久就不能被下一条顶掉，也不能把骰子那行字挤走。
 func show_result(text: String, at: Vector2i, linger := false) -> void:
-	if text == "免疫猎杀" and hunt_fx != null and board != null:
+	## 通报文案当分派键是没办法的事：准星是一次性演出，没有可以每帧去读的状态
+	## （趋化源和标记光环都是读 game 的常驻状态）。名字至少引正本，别在这儿再抄一份。
+	if text == CWData.EFFECTOR_NAMES[CWData.ImmuneType.DENDRITIC] 			and hunt_fx != null and board != null:
 		hunt_fx.play(board.tile_center(at))
 	if toast == null or board == null or camera == null:
 		return

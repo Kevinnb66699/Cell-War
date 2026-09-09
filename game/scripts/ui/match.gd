@@ -283,6 +283,9 @@ func _ready() -> void:
 		board.add_child(_mark_aura_fx)
 		_hunt_fx = CWHuntFx.new()
 		_hunt_fx.visible = false
+		## 不设这个就停在 z=0，整只准星沉到棋盘底下（格子的 z 是它自己的贴图 y）。
+		## 骰子 2026-08-27 栽的是同一个坑，见 board.gd 的 z 约定
+		_hunt_fx.z_index = board.Z_OVER_BOARD
 		board.add_child(_hunt_fx)
 		_tile_info = CWTileInfo.new()
 		ui.add_child(_tile_info)

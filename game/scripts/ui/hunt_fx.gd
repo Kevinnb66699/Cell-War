@@ -27,6 +27,10 @@ func sync(delta: float) -> void:
 	queue_redraw()
 
 func _draw() -> void:
+	## 没在演就一笔都不画。不加这道闸的话，谁把它裸着 add_child 进去
+	## （没跟着写 visible = false），棋盘原点就凭空多一圈 72px 的准星
+	if not _active:
+		return
 	var p := clampf(_t / 1.6, 0.0, 1.0)
 	var r := lerpf(72.0, 18.0, 1.0 - pow(1.0 - p, 3.0))
 	var color := COLOR_CAPTURED if p >= 0.6 else COLOR_SEARCH

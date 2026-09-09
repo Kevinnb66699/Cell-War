@@ -182,6 +182,12 @@ const Z_MARK := 1    ## 高亮剪影
 const Z_CELL := 2    ## 细胞
 const Z_DICE := 3    ## 骰子
 
+## **横跨好几排的一次性演出**（【免疫猎杀】准星）用这个，别走 tile_z()。
+## 上面那套是给「站在一格上」的东西排深浅的；准星起手半径 72px，横跨四五排，
+## 按排给它一个 z，下半圈就会被前排格子压掉 —— 2026-09-09 渲图逐帧确认过。
+## 它本来就是个瞄准框，该盖在所有格子上面。
+const Z_OVER_BOARD := 4096   ## RenderingServer.CANVAS_ITEM_Z_MAX
+
 
 func tile_z(a: Vector2i, above: int) -> int:
 	var key := axial_to_rc(a)

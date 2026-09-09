@@ -115,7 +115,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_hot_patch, t_save_load, t_settings, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_hot_patch, t_save_load, t_settings, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -5383,6 +5383,48 @@ func t_mark_aura() -> void:
 		if (ch as Node2D).visible:
 			left += 1
 	check(left == 0 and not fx.visible, "场上没树突 → 全部藏起来")
+	board.queue_free()
+
+
+# ---- 【免疫猎杀】捕获准星：z 不设就整只沉到棋盘底下 ----
+func t_hunt_fx() -> void:
+	print("[猎杀准星]")
+	## **准星必须压住整块棋盘**。它起手半径 72px，横跨四五排；
+	## 而组织块的 z 就是自己的贴图 y，所以「不设 z」= 停在 0 = 被几乎每一格盖掉
+	## （合进来的第一版就是这样，渲图确认只从格缝里漏出几个像素，2026-09-09）。
+	## 按排给它一个 z 也不行 —— 下半圈照样被前排压掉，两种都出过图。
+	var src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	var wire := src.substr(src.find("_hunt_fx = CWHuntFx.new()"))
+	wire = wire.substr(0, wire.find("board.add_child(_hunt_fx)"))
+	check(wire.contains("_hunt_fx.z_index = board.Z_OVER_BOARD"),
+		"准星挂上棋盘之前先拿到 Z_OVER_BOARD（不设就沉底）")
+	var board := make_board()
+	check(board.Z_OVER_BOARD > board.tile_z(Vector2i.ZERO, board.Z_DICE),
+		"Z_OVER_BOARD 高过棋盘上任何一格的任何一层")
+
+	## 触发键引 CWData 的正本，不在界面层再抄一遍那四个字
+	var bridge_src := FileAccess.get_file_as_string("res://scripts/ui/ui_bridge.gd")
+	check(bridge_src.contains("CWData.EFFECTOR_NAMES[CWData.ImmuneType.DENDRITIC]"),
+		"分派键读 EFFECTOR_NAMES，不写字面量")
+	check(CWData.EFFECTOR_NAMES[CWData.ImmuneType.DENDRITIC] == "免疫猎杀",
+		"树突的效应应答就叫【免疫猎杀】（引擎 announce 的也是这个）")
+
+	## 演出必须自己收场。它是一次性的，没有「树突走开了」这种状态可读 ——
+	## 停不下来就会一直挂在棋盘上，挡着后面的对局
+	## 藏是**调用方**的事（两个兄弟节点 CWChemoFx / CWMarkAuraFx 也都这样装配），
+	## 类这边守的是「没在演就一笔不画」——见 hunt_fx.gd 的 _draw
+	var src2 := FileAccess.get_file_as_string("res://scripts/ui/hunt_fx.gd")
+	check(src2.contains("if not _active:"), "_draw 有「没在演就不画」那道闸")
+	var fx := CWHuntFx.new()
+	fx.visible = false
+	board.add_child(fx)
+	fx.play(board.tile_center(Vector2i.ZERO))
+	check(fx.visible, "play() 之后露出来")
+	for i in 15:
+		fx.sync(0.1)
+	check(fx.visible, "1.5 秒时还在（全程 1.6 秒）")
+	fx.sync(0.2)
+	check(not fx.visible, "过了 1.6 秒自己收掉")
 	board.queue_free()
 
 
