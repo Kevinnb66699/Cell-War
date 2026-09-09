@@ -27,7 +27,8 @@ const HEX_SQUASH := 20.0 / (36.0 * sqrt(3.0) / 2.0)
 const FLAGS := {
 	"board": "board",                ## 整张棋盘一个包围框
 	"special": "special",            ## 代谢核心 / 骨髓 / 血管各描一圈
-	"place": "place",                ## 可落子且紧邻癌区的健康格（剧本建议的位置）
+	## "place"（可落子且紧邻癌区的健康格）2026-09-10 起无剧本使用：第 1 关细胞预置、
+	## 后续关卡也不教落子。需要时把键加回来（sync 分支还在）。
 	"energy": "energy",              ## 右栏里你自己那一行（能量数在那）
 	"move": "move",                  ## 行动栏「迁移」按钮
 	"purify": "purify",              ## 你脚边可净化的癌组织
@@ -75,8 +76,9 @@ func sync(flag: String, m) -> void:
 		"board":
 			_rect(_board_rect(m))
 		"special":
-			for c in CWData.all_coords():
-				if CWData.special_of(c) != CWData.Special.NONE:
+			## 按本局棋盘读（教程小棋盘的特殊组织来自 fixture 覆盖，不是正式布局）
+			for c in m.game.tiles:
+				if m.game.tiles[c]["special"] != CWData.Special.NONE:
 					_hex(m, c)
 		"place":
 			for c in place_tiles(m.game):

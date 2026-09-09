@@ -723,11 +723,11 @@ static func all_coords(radius := BOARD_RADIUS) -> Array[Vector2i]:
 	return out
 
 
-static func neighbors(c: Vector2i) -> Array[Vector2i]:
+static func neighbors(c: Vector2i, radius := BOARD_RADIUS) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	for d in DIRS:
 		var n: Vector2i = c + d
-		if is_on_board(n):
+		if is_on_board(n, radius):
 			out.append(n)
 	return out
 

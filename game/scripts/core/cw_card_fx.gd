@@ -138,7 +138,7 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 			continue
 		match card:
 			"基质降解":
-				for n in CWData.neighbors(cell["pos"]):
+				for n in game.neighbors(cell["pos"]):
 					if game.tile(n)["tissue"] == CWData.Tissue.SOLID:
 						opts.append(_opt(card, "→%s" % str(n), { "to": n }))
 			"抗体依赖细胞毒作用":
@@ -197,12 +197,12 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 					if game.is_cancerous(c):
 						opts.append(_opt(card, "→%s" % str(c), { "to": c }))
 			"乳酸酸化":
-				for n in CWData.neighbors(cell["pos"]):
+				for n in game.neighbors(cell["pos"]):
 					for t in game.cells_at(n, CWData.Faction.IMMUNE):
 						opts.append(_opt(card, "→%s" % game.cell_name(t), { "cid": t["id"] }))
 			"基质硬化":
 				var cands: Array[Vector2i] = [cell["pos"]]
-				cands.append_array(CWData.neighbors(cell["pos"]))
+				cands.append_array(game.neighbors(cell["pos"]))
 				for c in cands:
 					var t: Dictionary = game.tile(c)
 					## 「非新生」这一条随旋钮走（2026-09-04 取消该机制后，新铺的格子也能选）
@@ -357,7 +357,7 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 ## 「能不能打这张」和「打了转哪一格」问的是同一个集合，各写一份必漂。
 func _phagocytosis_targets(cell: Dictionary) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
-	for n in CWData.neighbors(cell["pos"]):
+	for n in game.neighbors(cell["pos"]):
 		if game.tile(n)["tissue"] == CWData.Tissue.CANCER and game.cells_at(n).is_empty():
 			out.append(n)
 	return out
@@ -449,7 +449,7 @@ func _systemic_clearance(drawer: Dictionary) -> void:
 ## 【克隆增殖】相邻、未被免疫占据的健康组织，随机最多 1/2/3 格（按分期）→ 癌组织
 func _clonal_growth(cell: Dictionary) -> void:
 	var cands: Array[Vector2i] = []
-	for n in CWData.neighbors(cell["pos"]):
+	for n in game.neighbors(cell["pos"]):
 		if game.tile(n)["tissue"] == CWData.Tissue.HEALTHY \
 				and game.cells_at(n, CWData.Faction.IMMUNE).is_empty():
 			cands.append(n)
@@ -483,7 +483,7 @@ func _reinforce(cell: Dictionary, ally: Dictionary) -> void:
 func _lactic_acid(cell: Dictionary, target: Dictionary) -> void:
 	var base: int = [8, 15, 20][_phase()]
 	var adj := 0
-	for n in CWData.neighbors(target["pos"]):
+	for n in game.neighbors(target["pos"]):
 		if game.is_cancerous(n):
 			adj += 1
 	if adj >= 3:
@@ -521,7 +521,7 @@ func _free_walk(cell: Dictionary, steps: int, into_cancer: bool, tag: String) ->
 		if not cell["alive"]:
 			return
 		var opts: Array = [{ "label": "停在这里", "data": { "stop": true } }]
-		for n in CWData.neighbors(cell["pos"]):
+		for n in game.neighbors(cell["pos"]):
 			if not game.cells_at(n).is_empty():
 				continue
 			var t: Dictionary = game.tile(n)
@@ -552,7 +552,7 @@ func _free_walk(cell: Dictionary, steps: int, into_cancer: bool, tag: String) ->
 ## 凭印象那次清 0 格 —— 同一张牌，差别全在界面不给的那个数上。
 func storm_inflammation_tiles(at: Vector2i) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
-	for n in CWData.neighbors(at):
+	for n in game.neighbors(at):
 		if game.tile(n)["tissue"] == CWData.Tissue.CANCER and game.cells_at(n).is_empty():
 			out.append(n)
 	return out
@@ -581,7 +581,7 @@ func _inflammation_storm(cell: Dictionary, card: String) -> void:
 		CWTissue.to_healthy(game.tile(n))
 		purged += 1
 	var victims: Array = []
-	for n in CWData.neighbors(target["pos"]):
+	for n in game.neighbors(target["pos"]):
 		victims.append_array(game.cells_at(n, CWData.Faction.CANCER))
 	game.immune_hit_area(victims, _amp(5), cell, card)
 	var hit: int = victims.size()
@@ -690,7 +690,7 @@ func _mutation_label(r: int) -> String:
 ## 迁移激活的免费首移都照常适用（这是「移动」，事件文本没排除它）。
 func _chemotaxis_steps(cell: Dictionary) -> Array:
 	var out: Array = []
-	for n in CWData.neighbors(cell["pos"]):
+	for n in game.neighbors(cell["pos"]):
 		var t: Dictionary = game.tile(n)
 		if t["tissue"] != CWData.Tissue.HEALTHY and t["tissue"] != CWData.Tissue.CANCER:
 			continue
@@ -841,7 +841,7 @@ func _remodel_heal_cands(chosen: Array[Vector2i]) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	for base in chosen:
 		var around: Array[Vector2i] = [base]
-		around.append_array(CWData.neighbors(base))
+		around.append_array(game.neighbors(base))
 		for c in around:
 			if seen.has(c):
 				continue
@@ -858,7 +858,7 @@ func _remodel_heal_cands(chosen: Array[Vector2i]) -> Array[Vector2i]:
 func _radiotherapy(start: Vector2i) -> void:
 	var region: Array[Vector2i] = [start]
 	var in_region := { start: true }
-	var frontier: Array[Vector2i] = CWData.neighbors(start)
+	var frontier: Array[Vector2i] = game.neighbors(start)
 	while region.size() < CWData.RADIO_REGION and not frontier.is_empty():
 		var i := game.rng.randi_range(0, frontier.size() - 1)
 		var c: Vector2i = frontier[i]
@@ -867,7 +867,7 @@ func _radiotherapy(start: Vector2i) -> void:
 			continue   ## 同一格会从多个方向进候选，去重靠这里
 		region.append(c)
 		in_region[c] = true
-		for n in CWData.neighbors(c):
+		for n in game.neighbors(c):
 			if not in_region.has(n):
 				frontier.append(n)
 	var cleared := 0
@@ -888,7 +888,7 @@ func _radiotherapy(start: Vector2i) -> void:
 
 func _tnf_area(cell: Dictionary) -> Array[Vector2i]:
 	var out: Array[Vector2i] = [cell["pos"]]
-	out.append_array(CWData.neighbors(cell["pos"]))
+	out.append_array(game.neighbors(cell["pos"]))
 	return out
 
 
@@ -973,14 +973,14 @@ func _gain(cell: Dictionary, n: int, tag: String = "") -> void:
 
 
 func _adjacent_cancerous(pos: Vector2i) -> bool:
-	for n in CWData.neighbors(pos):
+	for n in game.neighbors(pos):
 		if game.is_cancerous(n):
 			return true
 	return false
 
 
 func _adjacent_healthy(pos: Vector2i) -> bool:
-	for n in CWData.neighbors(pos):
+	for n in game.neighbors(pos):
 		if game.tile(n)["tissue"] == CWData.Tissue.HEALTHY:
 			return true
 	return false
@@ -988,7 +988,7 @@ func _adjacent_healthy(pos: Vector2i) -> bool:
 
 func _adjacent_plain_cancer_empty(pos: Vector2i) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
-	for n in CWData.neighbors(pos):
+	for n in game.neighbors(pos):
 		if game.tile(n)["tissue"] == CWData.Tissue.CANCER and game.cells_at(n).is_empty():
 			out.append(n)
 	return out

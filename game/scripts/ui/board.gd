@@ -103,7 +103,7 @@ func hex_at(p: Vector2) -> Vector2i:
 	var squash: float = distance_x * sqrt(3.0) / 2.0 / distance_y
 	var best := NO_TILE
 	var best_d: float = distance_x / sqrt(3.0)
-	for c in CWData.all_coords():
+	for c in CWData.all_coords(radius - 1):
 		var d: Vector2 = p - tile_center(c)
 		var dist := Vector2(d.x, d.y * squash).length()
 		if dist < best_d:
@@ -515,6 +515,32 @@ func _ready():
 	vessel_position = CWData.VESSELS.map(axial_to_rc)
 	energy_position = CWData.CORES.map(axial_to_rc)
 	marrow_position = CWData.MARROWS.map(axial_to_rc)
+	_grid()
+	_mark_material = ShaderMaterial.new()
+	_mark_material.shader = SILHOUETTE
+	_marks = Node2D.new()
+	_marks.name = "Marks"
+	add_child(_marks)
+
+
+## 按棋盘半径重建组织格网格（教程小棋盘用；正式局仍是 127 格一张不变）。
+## Main 只有一张棋盘，教程跨章换半径时全量重建：先清旧格、复位游标、再铺新格。
+func build_for(board_radius: int) -> void:
+	var want: int = board_radius + 1
+	if want == radius and not map.is_empty():
+		return
+	for key in map:
+		var t: Node = map[key]["instance"]
+		if t != null:
+			t.queue_free()
+	map.clear()
+	radius = want
+	first_x = -100
+	first_y = -120
+	_grid()
+
+
+func _grid() -> void:
 	for i in range(0, radius*2-1):
 		if i < radius-1:
 			for j in range(0, radius+i):
@@ -526,8 +552,3 @@ func _ready():
 			first_x -= distance_x/2
 		else:
 			first_x += distance_x/2
-	_mark_material = ShaderMaterial.new()
-	_mark_material.shader = SILHOUETTE
-	_marks = Node2D.new()
-	_marks.name = "Marks"
-	add_child(_marks)

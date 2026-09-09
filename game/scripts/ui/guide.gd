@@ -29,6 +29,10 @@ var auto_next := false
 ## demo 真去做（返回做没做）。无效的 Callable = 没接（无头测试 / 面板单独建）—— 继续就只翻页
 var demo := Callable()
 var demo_ready := Callable()
+## 章节切换钩子（CWMatch 接导演后设）：跨入新章节时回调一次，参数 = 新章节号。
+## 教程每一关是导演装配的独立局面，章节切换意味着**换一局**——面板只管翻页，
+## 换局由对局侧执行；未设置（无头 / 老测试）时行为与原先完全一致。
+var on_chapter_done := Callable()
 ## 「此刻该提示什么」：翻页时重新问桥一遍，提示跟着正在教的那一步走（教结束回合就说结束回合，不再停在迁移那句）
 var hint_now := Callable()
 ## 提示行尾巴：代做可用时接在桥喂来的提示后面。%s = 右下角按钮此刻的字（继续 / 下一章 / 完成引导），
@@ -144,6 +148,7 @@ func _advance() -> void:
 ## 只翻页、不做动作。状态推进（check_progress）专用：动作玩家已亲手完成，
 ## 再走 demo 等于替玩家多做一次他已经做过的事。
 func _turn_page() -> void:
+	var chapter_before := _chapter
 	_step += 1
 	while _chapter < CWGuideData.CHAPTER_COUNT and _step >= CWGuideData.steps(_chapter).size():
 		## 这一章看完了：记到进度。
@@ -160,6 +165,8 @@ func _turn_page() -> void:
 			visible = false
 		return
 	auto_next = false
+	if _chapter != chapter_before and on_chapter_done.is_valid():
+		on_chapter_done.call(_chapter)   ## 跨章 = 换一局（导演装配新局面）
 	_render()
 
 
@@ -167,12 +174,15 @@ func _turn_page() -> void:
 ## 玩家主动跳过前面的内容时，进度就跟着跳。
 func goto_chapter(idx: int) -> void:
 	idx = clampi(idx, 0, CWGuideData.CHAPTER_COUNT - 1)
+	var chapter_before := _chapter
 	for i in range(idx):
 		if not CWGuideProgress.has_done(i):
 			CWGuideProgress.set_done(i)
 	_chapter = idx
 	_step = 0
 	auto_next = false
+	if _chapter != chapter_before and on_chapter_done.is_valid():
+		on_chapter_done.call(_chapter)   ## 目录跳章同样换局面
 	_render()
 
 

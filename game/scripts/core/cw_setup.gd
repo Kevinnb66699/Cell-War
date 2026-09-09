@@ -123,7 +123,7 @@ func _place_initial_cancer() -> void:
 	# 广度优先向外扩，保证每一格都与已选区域相邻（连通性）
 	while chosen.size() < target and not frontier.is_empty():
 		var cur: Vector2i = frontier.pop_front()
-		for n in CWData.neighbors(cur):
+		for n in game.neighbors(cur):
 			if chosen.size() >= target:
 				break
 			if seen.has(n):

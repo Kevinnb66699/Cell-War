@@ -167,7 +167,7 @@ func revive_options_cancer(pid: int) -> Array:
 			by_immune.append(c)
 			continue
 		mates.append(c)
-		for n in CWData.neighbors(c):
+		for n in game.neighbors(c):
 			if game.is_cancerous(n) and game.cells_at(n).is_empty():
 				## 一个落点可能同时挨着好几个队友的固化格。**取坐标最小的那个**当依托：
 				## 让玩家再选一次「碎哪一格」会给复活多加一问，收益远不抵这一步的打扰；
@@ -488,7 +488,7 @@ func _erosion() -> void:
 			if _watched(c):
 				continue  # 【免疫监视】守护范围内不能被侵蚀
 			var near_cancer := false
-			for n in CWData.neighbors(c):
+			for n in game.neighbors(c):
 				if game.is_cancerous(n):
 					near_cancer = true
 					break
@@ -570,7 +570,7 @@ func _proliferate() -> void:
 		## 概率是**逐个邻居累加**的（不是「邻居数 × 单一档位」）：
 		## 同一格的几个癌性邻居可能分属不同连通块，各自的固化数不一样。
 		var chance := 0
-		for n in CWData.neighbors(c):
+		for n in game.neighbors(c):
 			if game.is_cancerous(n):
 				chance += rate + per_solid * int(solids_of.get(n, 0))
 		if chance > 0 and game.rng.randi_range(1, 1000) <= chance:
@@ -885,7 +885,7 @@ func pressure_at(c: Vector2i) -> int:
 	## （所以这里**不能**图省事改用 is_cancerous —— 那会把健康组织的抵消项整个丢掉）。
 	## `neighbors()` 已经裁掉出界方向，棋盘边缘的细胞天然少几个邻居，不必特判。
 	var raw := 0
-	for nb in CWData.neighbors(c):
+	for nb in game.neighbors(c):
 		match int(game.tiles[nb]["tissue"]):
 			CWData.Tissue.CANCER:
 				raw += CWData.PRESSURE_CANCER_W

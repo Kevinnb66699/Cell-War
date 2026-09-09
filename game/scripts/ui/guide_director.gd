@@ -78,12 +78,11 @@ static func _place_cells(g: CWGame, fx: Dictionary) -> void:
 			if (1 if cell["faction"] == CWData.Faction.CANCER else 0) == pid:
 				picked = cell
 		if picked.is_empty():
-			var pos: Vector2i = g.tiles.keys()[0]
-			for c in g.tiles:
-				if not live_pos.has(c):
-					pos = c
-					break
-			var ph := g.setup.make_cell(pid, pid, g.player(pid)["faction"], pos, -1, -1, 0)
+			## 缺席玩家的死亡占位：站板外哨兵位（不占任何格子）——选项枚举当它透明，
+			## 但迁移执行按「一细胞一格」会撞上它回滚（2026-09-10 探针实锤）。
+			## 板外坐标对邻居枚举天然为空集，一切按位置的查询都安全。
+			var ph := g.setup.make_cell(pid, pid, g.player(pid)["faction"],
+				Vector2i(9999, 9999), -1, -1, 0)
 			ph["alive"] = false
 			ordered.append(ph)
 		else:
@@ -94,9 +93,19 @@ static func _place_cells(g: CWGame, fx: Dictionary) -> void:
 	var cid := 0
 	for cell in ordered:
 		var pid := 1 if cell["faction"] == CWData.Faction.CANCER else 0
+		var it := int(cell.get("itype", -1))
+		if cell["faction"] == CWData.Faction.IMMUNE and it < 0:
+			it = CWData.ImmuneType.BASIC   ## 免疫主细胞默认未分化（BASIC）；-1 只留给缺席占位
 		var nc := g.setup.make_cell(cid, pid, cell["faction"], cell["pos"],
-			int(cell.get("itype", -1)), int(cell.get("ctype", -1)),
+			it, int(cell.get("ctype", -1)),
 			int(cell.get("energy", CWData.INIT_ENERGY)))
 		nc["alive"] = cell.get("alive", true)
 		g.cells.append(nc)
 		cid += 1
+	## 玩家的癌种与主细胞一致（fixture 声明了就钉死、不随种子抽；免疫席 -1）
+	## ——正式局这活由 setup._assign_cancer_types 干，fixture 关跳过了开局流程。
+	for pid in g.order:
+		var ct := -1
+		if g.player(pid)["faction"] == CWData.Faction.CANCER:
+			ct = int(g.cell_of(pid)["ctype"])
+		g.players[pid]["cancer_type"] = ct
