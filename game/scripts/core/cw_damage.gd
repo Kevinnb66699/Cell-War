@@ -294,6 +294,45 @@ func _shield_value(name: String, count: int) -> int:
 	return 0
 
 
+## 细胞悬浮详情用的受击状态纯查询：[{ kind: "易伤"/"减伤", name, detail }]。
+## 判据和值与伤害管线共用本类函数和常量；这里只描述当前状态，不构造或提交伤害事件。
+func status_rows(target: Dictionary) -> Array:
+	var out: Array = []
+	if target["marked"]:
+		out.append({ "kind": "易伤", "name": "标记",
+			"detail": "下次能量损失 ×2（剩 %d 次）" % int(target["mark_left"]) })
+	if target["faction"] == CWData.Faction.CANCER and game.event_stacks("抗原丢失") > 0:
+		out.append({ "kind": "减伤", "name": "抗原丢失", "detail": "本回合免疫普通攻击无效" })
+	var pdl1 := game.mods_of(target, "PD-L1表达").size()
+	if pdl1 > 0:
+		out.append({ "kind": "减伤", "name": "PD-L1表达",
+			"detail": "下次普通攻击判定降级%s" % ("（×%d）" % pdl1 if pdl1 > 1 else "") })
+	if target["ctype"] == CWData.CancerType.OSTEO and game.type_ability_on(target) \
+			and game.tile(target["pos"])["tissue"] == CWData.Tissue.SOLID:
+		out.append({ "kind": "减伤", "name": "刚性屏障",
+			"detail": "所有能量损失降至 %d%%" % CWData.OSTEO_BARRIER_PERCENT })
+	if target["faction"] == CWData.Faction.CANCER and target["ctype"] == CWData.CancerType.SIGNET \
+			and not target["armor_used"] and game.type_ability_on(target):
+		out.append({ "kind": "减伤", "name": "囊性护甲",
+			"detail": "本世界回合首次损失 -%s" % CWData.fmt(CWData.ARMOR_REDUCTION) })
+	for pair in [
+		["细胞膜修复", "下一次任意能量损失"], ["I型干扰素", "下一次任意能量损失"],
+		["缺氧适应", "下一次癌细胞技能或微环境压迫"], ["DNA损伤修复", "下一次免疫事件或技能"],
+	]:
+		var entries: Array = game.mods_of(target, pair[0])
+		if entries.is_empty():
+			continue
+		out.append({ "kind": "减伤", "name": pair[0],
+			"detail": "%s -%s" % [pair[1], CWData.fmt(_shield_value(pair[0], entries.size()))] })
+	if game.has_skill(target, "耗竭抵抗"):
+		var parts := PackedStringArray()
+		if not target["fx_round"].has("耗竭抵抗"):
+			parts.append("本世界回合首次损失 -%s" % CWData.fmt(CWData.EXHAUST_FIRST_CUT))
+		parts.append("微环境压迫额外 -%s" % CWData.fmt(CWData.EXHAUST_PRESSURE_CUT))
+		out.append({ "kind": "减伤", "name": "耗竭抵抗", "detail": "；".join(parts) })
+	return out
+
+
 # ============ ④ 提交（扣能量 + 消耗修饰）============
 
 func _apply(plan: Dictionary) -> Dictionary:

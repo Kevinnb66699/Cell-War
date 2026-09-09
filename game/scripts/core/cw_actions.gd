@@ -534,14 +534,64 @@ func _move_cost_mod(cell: Dictionary, dest: Vector2i, base: int) -> int:
 
 
 ## 技能移动（小细胞肺癌【转移】、黑色素瘤【早期血行转移】）的报价。
-## 它们不是【迁移】，走 CELL_SKILL 上下文——目前只有【基质阻隔】的翻倍挂得上。
-##
+## 它们不是【迁移】，但也不能和骨样硬化等非位移技能共用费用类别——
+## 【基质阻隔】只翻倍“移动能量花费”，所以单列 SKILL_MOVE。
 ## **公开给界面用**：行动栏的价签必须和「能不能用」读同一个数。
 ## 2026-09-08 之前价签直接打常量，于是【基质阻隔】生效时按钮写着 1.0、
 ## 细胞有 6.9 能量却是灰的（Kevin 报的）——玩家只能理解成 bug。
 func skill_move_cost(cell: Dictionary, base: int) -> int:
-	return game.cost.quote(CWCost.context(cell, CWCost.Action.CELL_SKILL, base))["final"]
+	return game.cost.quote(CWCost.context(cell, CWCost.Action.SKILL_MOVE, base))["final"]
 
+
+## 某个行动此刻实际受到哪些费用特效影响。给悬浮详情用，返回
+## [{ name, changes: ["0.5→1.0"], targets, total }]；全程只调 CWCost.quote()，不消耗额度。
+## 迁移逐个合法目的地报价，因此【黏液侵染】这类目标相关效果会标出影响了几格。
+func cost_effects_for(cell: Dictionary, act: String) -> Array:
+	var quotes: Array = []
+	if act == "move":
+		for to in move_dests(cell):
+			if _is_move_legal_now(cell, to):
+				quotes.append(game.cost.quote(CWCost.context(cell, CWCost.Action.MOVE,
+					_move_base_cost(cell, to), to)))
+	else:
+		var base := _cell_skill_base(act)
+		if base >= 0:
+			var action := CWCost.Action.SKILL_MOVE if act in ["homing", "jump"] \
+				else CWCost.Action.CELL_SKILL
+			quotes.append(game.cost.quote(CWCost.context(cell, action, base)))
+	var by_name := {}
+	for quote: Dictionary in quotes:
+		var hit := {}
+		for step: Dictionary in quote["breakdown"]:
+			if step["before"] == step["after"] and step["note"] == "":
+				continue
+			var name: String = step["name"]
+			if not by_name.has(name):
+				by_name[name] = { "name": name, "changes": PackedStringArray(),
+					"targets": 0, "total": quotes.size() }
+			var change := "%s→%s" % [CWData.fmt(step["before"]), CWData.fmt(step["after"])]
+			if change not in by_name[name]["changes"]:
+				by_name[name]["changes"].append(change)
+			hit[name] = true
+		for name: String in hit:
+			by_name[name]["targets"] += 1
+	var out: Array = by_name.values()
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["name"] < b["name"])
+	return out
+
+
+## 只有真正经 CWCost.Action.CELL_SKILL 付款的技能才在这里登记；其余常量费用没有费用修饰。
+func _cell_skill_base(act: String) -> int:
+	match act:
+		"homing":
+			return CWData.MELANOMA_HOMING_COST
+		"jump":
+			return game.tune.metastasis_cost
+		"ossify":
+			return game.tune.osteo_ossify_cost
+		"lyse":
+			return CWData.LYSE_COST
+	return -1
 
 ## 这个细胞**理论上**会用到哪些主动技能，按「细胞种类 + 免疫等级」列，
 ## **不看当前能量、位置、次数**。返回的是 act 串，顺序即按钮从左到右的顺序。
@@ -1014,7 +1064,7 @@ func _do_discard(cell: Dictionary, card: String) -> void:
 ##
 ## 落点**不限组织类型、也不限有没有人站着** —— PRD 只说「全局任意位置」。
 ## 建立本身不是移动：不触发【定殖】/【净化】、不占迁移次数。
-## 走 `Action.CELL_SKILL` 报价（与【转移】【早期血行转移】同一类），所以【基质阻隔】那类翻倍挂得上。
+## 走普通 `Action.CELL_SKILL` 报价；它不是位移，不能吃【基质阻隔】的移动费翻倍。
 func _do_chemo(cell: Dictionary) -> void:
 	if not game.chemo.is_empty():
 		return                      ## 同一时刻仅一个；选项那边也拦，这里是提交前复验
@@ -1264,7 +1314,7 @@ func _homing_targets() -> Array[Vector2i]:
 
 
 func _do_homing(cell: Dictionary, to: Vector2i) -> void:
-	if game.cost.commit(CWCost.context(cell, CWCost.Action.CELL_SKILL,
+	if game.cost.commit(CWCost.context(cell, CWCost.Action.SKILL_MOVE,
 			CWData.MELANOMA_HOMING_COST, to, 0,
 			func() -> bool: return _is_homing_legal_now(cell, to))).is_empty():
 		return
@@ -1358,7 +1408,7 @@ func _jump_targets(cell: Dictionary) -> Array:
 ## 跃进路径上不触发【定殖】、代谢核心/骨髓收取等效果，**终点可以触发**（PRD）——
 ## 所以这里直接 enter_tile 到终点，中间格连碰都不碰。
 func _do_jump(cell: Dictionary, to: Vector2i) -> void:
-	if game.cost.commit(CWCost.context(cell, CWCost.Action.CELL_SKILL,
+	if game.cost.commit(CWCost.context(cell, CWCost.Action.SKILL_MOVE,
 			game.tune.metastasis_cost, to, 0,
 			func() -> bool: return _is_jump_legal_now(cell, to))).is_empty():
 		return
