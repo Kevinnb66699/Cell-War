@@ -23,8 +23,12 @@ extends RefCounted
 
 ## 协议或规则一变就升号：服务器拒绝版本不符的客户端（error code=version）。
 ## v2（2026-09-09）：投降投票 —— 新增 surrender 上行与 surrender_vote 下行。
+## v3（2026-09-09）：技能四条数值更新，其中【免疫记忆】III 级迁移耗能 0.7 → 0.8
+##   动的是 `immune_move_cancerous` —— 它在 `CWTuning.RULE_FIELDS` 里、**进状态哈希**。
+##   规则一变就必须升号：不升的话老客户端照样连得上，然后每一步的哈希都对不上，
+##   表现为莫名其妙的不同步而不是一句「请更新」。
 ## 服务器对不认识的报文回 bad_message，所以**旧客户端必须更新才连得上**（Kevin 已同意）。
-const NET_VERSION := 2
+const NET_VERSION := 3
 const DEFAULT_HOST := "124.221.78.13"
 const DEFAULT_PORT := 8611
 ## 单条报文（压缩后）上限；超过即断开
