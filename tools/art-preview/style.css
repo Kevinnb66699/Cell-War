@@ -1,0 +1,28 @@
+*{box-sizing:border-box}
+body{margin:0;background:#111917;color:#edf0de;font:14px 'Microsoft YaHei',sans-serif}
+header{height:72px;border-bottom:1px solid #39493d;display:flex;align-items:center;justify-content:space-between;padding:0 36px}
+.brand{font:700 21px Georgia,serif;letter-spacing:3px;color:#edf0de;text-decoration:none}
+.brand small{font:10px monospace;color:#9dad98;letter-spacing:2px;margin-left:22px}
+.status{font-size:11px;color:#d3d98e}.layout{display:grid;grid-template-columns:220px 1fr;max-width:1680px;margin:auto}
+aside{padding:34px 26px;border-right:1px solid #39493d}.eyebrow{font:10px monospace;letter-spacing:2px;color:#a8b899}
+h1{font-size:42px;line-height:1.25;font-weight:500;margin:25px 0}h1 em{font-style:normal;color:#d6e69b}
+.intro,.side-note{color:#99aa95;line-height:1.9;font-size:12px}.side-note{margin-top:25px;padding-top:20px;border-top:1px solid #39493d}
+nav{display:grid;gap:5px;margin:28px -10px}button,select{font:inherit;color:inherit;border:1px solid #516046;background:transparent;border-radius:2px;padding:8px 12px;cursor:pointer}
+button:hover,select:hover{background:#34402a}button:disabled{opacity:.4;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid #e4edae;outline-offset:3px}
+nav button{border-color:transparent;text-align:left;padding:12px;font-size:13px}nav button.active{background:#d6e69b;color:#1c291c}
+nav button span{float:right;font:10px monospace;opacity:.65;margin-left:10px}main{padding:34px;min-width:0}
+.heading{display:flex;gap:18px;justify-content:space-between;min-height:136px}.heading h2{font-size:30px;margin:12px 0;font-weight:500}
+.heading p:last-child{color:#aab8a3;line-height:1.8;max-width:750px;margin-bottom:20px}#revision{align-self:flex-start;font-size:10px;padding:6px 8px;border:1px solid #637448;color:#d1df9f;white-space:nowrap}
+.toolbar{border-top:1px solid #39493d;padding:16px 0;display:flex;align-items:center;justify-content:space-between;font-size:12px;gap:10px}
+.toolbar>div{display:flex;align-items:center;gap:10px}.toolbar label{white-space:nowrap}select{background:#1b271c}input{accent-color:#d6e69b}
+#studies{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.study{border:1px solid #415037;background:#1a261e;overflow:hidden}.study.chosen{border-color:#d6e69b;box-shadow:0 0 0 1px #d6e69b}
+.study-head{display:flex;align-items:center;justify-content:space-between;padding:15px 17px}.letter{font:italic 28px Georgia,serif;color:#d6e69b}.study-head small{color:#a8b88b;font-size:10px}
+canvas{display:block;width:100%;height:auto;image-rendering:pixelated;background:#101a19}.study-body{padding:18px}.study h3{font-size:17px;margin:0 0 10px;font-weight:500}.study p{font-size:12px;line-height:1.8;color:#afbc9f;min-height:87px;margin:0 0 16px}.study button{width:100%;font-size:12px}.study.chosen button{background:#d6e69b;color:#1c291c;border-color:#d6e69b}
+.timeline{display:flex;align-items:center;gap:12px;margin-top:18px;font:11px monospace;color:#bfcea6}.timeline input{flex:1;min-width:20px}#phase{width:88px}#seconds{width:46px}
+.notes{display:flex;gap:20px;border-bottom:1px solid #39493d;padding:20px 0 25px;font-size:12px;line-height:1.9;color:#9fb08e}.notes span{white-space:nowrap;color:#d6e69b}.notes p{margin:0}
+.selection{background:#213020;padding:24px;margin-top:28px}.selection h3{font-size:20px;font-weight:500;margin:10px 0 20px}.selection h3 span{font:12px monospace;color:#b6c88e;margin-left:16px}
+#picks{display:flex;flex-wrap:wrap;gap:8px}#picks button{font-size:11px;color:#9eb38f}#picks button.picked{color:#e2edb1;border-color:#91a36d}.export{display:flex;gap:10px;border-top:1px solid #45553a;margin-top:20px;padding-top:18px;font-size:12px}#feedback{font-size:11px;color:#a6bb90;line-height:1.8}textarea{width:100%;height:170px;color:#e2edcc;background:#111917;border:1px solid #536247;padding:12px}
+footer{display:flex;justify-content:space-between;gap:15px;padding:20px 36px;border-top:1px solid #39493d;color:#8fa27f;font-size:11px}
+@media(max-width:1100px){.layout{grid-template-columns:170px 1fr}aside{padding:26px 20px}h1{font-size:32px}main{padding:26px 20px}.study-body{padding:12px}.study p{min-height:115px}.study h3{font-size:15px}}
+@media(max-width:760px){header{padding:0 18px;height:62px}.brand small{display:none}.layout{display:block}aside{border-right:0;border-bottom:1px solid #39493d;padding:18px 20px}h1,.intro,.side-note{display:none}nav{display:flex;overflow:auto;margin:14px 0 0}nav button{white-space:nowrap}main{padding:22px 16px}#studies{grid-template-columns:1fr}.study p{min-height:0}.heading{min-height:145px}.heading h2{font-size:27px}#revision{max-width:118px;white-space:normal;line-height:1.8}.study-body{padding:18px}canvas{max-height:370px;object-fit:contain}footer{padding:20px;flex-direction:column}.selection{padding:18px}}

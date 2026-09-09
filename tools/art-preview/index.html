@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cell War · 像素美术选稿 R2</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header><a href="#" class="brand">CELL WAR <small>ART LAB / R2</small></a><span class="status">● 按反馈重画 · 像素风</span></header>
+  <div class="layout">
+    <aside><p class="eyebrow">SECOND PASS / 第二轮</p><h1>吞噬。<br>锁定。<br><em>强化。</em></h1><p class="intro">保留已选方向，<br>比较本轮重新绘制的动作。</p><nav id="nav" aria-label="设计项目"></nav><p class="side-note">已确认<br>黏液破裂 A · Excalibur B<br>中和抗体 A 飞行 + 双环<br><br>全效应应答 · 全像素绘制</p></aside>
+    <main>
+      <div class="heading"><div><p class="eyebrow" id="category"></p><h2 id="title"></h2><p id="description"></p></div><span id="revision"></span></div>
+      <div class="toolbar"><div><button id="play">播放</button><button id="replay">重播</button><label>速度 <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option></select></label></div><label><input id="context" type="checkbox" checked> 显示棋盘</label></div>
+      <section id="studies" aria-label="三种像素设计"></section>
+      <div class="timeline"><output id="phase"></output><input id="time" aria-label="动画进度" type="range" min="0" max="1000" value="0"><output id="seconds"></output></div>
+      <div class="notes"><span>本轮说明</span><p id="note"></p></div>
+      <section class="selection"><p class="eyebrow">YOUR COMBINATION</p><h3>你的搭配 <span id="selected-count"></span></h3><div id="picks"></div><div class="export"><button id="copy">复制选稿清单</button><button id="download">导出 JSON</button></div><p id="feedback" role="status">已记录你的指定方向。其余项目可以独立选择；重复点击可取消。</p><textarea id="summary" aria-label="选稿内容" readonly hidden></textarea></section>
+    </main>
+  </div>
+  <footer><span>整数像素 · 12fps · 无模糊光效</span><span>本轮为动画草稿，选定后接入游戏。</span></footer>
+  <script type="module" src="app.js"></script>
+</body></html>
