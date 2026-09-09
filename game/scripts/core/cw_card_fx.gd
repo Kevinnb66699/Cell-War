@@ -430,7 +430,8 @@ func _ifn_has_effect(center: Vector2i) -> bool:
 	return false
 
 
-## 【全身性免疫清除】全场「与健康组织相邻、无癌细胞占据」的普通癌组织，随机最多 10 格 → 健康
+## 【全身性免疫清除】全场「与健康组织相邻、无癌细胞占据」的普通癌组织，
+## 随机最多 `CWData.SYSTEMIC_CLEAR` 格 → 健康（PRD 2026-09-09 由 10 格改为 5 格）
 func _systemic_clearance(drawer: Dictionary) -> void:
 	var cands: Array[Vector2i] = []
 	for c in game.tiles.keys():
@@ -438,7 +439,7 @@ func _systemic_clearance(drawer: Dictionary) -> void:
 				and game.cells_at(c, CWData.Faction.CANCER).is_empty() \
 				and _adjacent_healthy(c):
 			cands.append(c)
-	var picked := _pick_random(cands, 10)
+	var picked := _pick_random(cands, CWData.SYSTEMIC_CLEAR)
 	for c in picked:
 		CWTissue.to_healthy(game.tile(c))
 	game.log_msg("　【全身性免疫清除】%d 格癌组织转为健康组织" % picked.size())
@@ -850,8 +851,9 @@ func _remodel_heal_cands(chosen: Array[Vector2i]) -> Array[Vector2i]:
 	return out
 
 
-## 【放疗】以所选癌性组织为起点，随机生长出含它的连通 15 格区域：
-## 区域内所有癌性组织（含固化、含有细胞站着的）→ 健康，全部 15 格进入「坏死」5 轮。
+## 【放疗】以所选癌性组织为起点，随机生长出含它的连通 `CWData.RADIO_REGION` 格区域
+## （PRD 2026-09-09 由 15 格改为 10 格）：
+## 区域内所有癌性组织（含固化、含有细胞站着的）→ 健康，整片进入「坏死」5 轮。
 ## 「坏死」沿用毒素那套倒计时（不为免疫供能、可被定殖，定殖时清除——同一口径）。
 func _radiotherapy(start: Vector2i) -> void:
 	var region: Array[Vector2i] = [start]

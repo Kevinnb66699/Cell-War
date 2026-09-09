@@ -1249,8 +1249,10 @@ func t_macro_purify_heal() -> void:
 	## → 两个默认值回到 PRD 值，定案①② 的值只剩旋钮能扫回来（mheal=0 / mvx=7）
 	check(CWData.MACRO_HEAL_PURIFY == 3 and CWTuning.new().macro_heal_purify == 3,
 		"默认与 PRD 一致：吞噬每次净化回 0.3（定案① 的 0 用 mheal=0 扫回）")
-	check(CWData.IMMUNE_MOVE_CANCEROUS == [10, 10, 7, 5] and CWTuning.new().immune_move_cancerous[3] == 5,
-		"默认与 PRD 一致：X 级迁移到癌性组织 0.5（定案② 的 0.7 用 mvx=7 扫回）")
+	## III 级那一档 2026-09-09 由 0.7 改成 0.8（团队给的新【免疫记忆】文本）。
+	## X 级仍是 0.5 —— 新文本没再提它，**没提不等于删**，保持不动等团队确认。
+	check(CWData.IMMUNE_MOVE_CANCEROUS == [10, 10, 8, 5] and CWTuning.new().immune_move_cancerous[3] == 5,
+		"默认与 PRD 一致：III 级 0.8 / X 级迁移到癌性组织 0.5（定案② 的 0.7 用 mvx=7 扫回）")
 	## 走一格癌组织，返回「这一步净花了多少」。封顶逻辑按 PRD 的 0.3 测 —— 定案 ① 后默认 0，得显式拨回
 	var net := func(paid: int, skills: Array) -> int:
 		var g := bare_game()
@@ -2572,8 +2574,12 @@ func t_dendritic_rework() -> void:
 	g.cells.append(can)
 	var cplain: int = g.tune.cancer_move_healthy
 	var c_away: int = g.actions._move_cost_mod(can, away, cplain)
-	check(c_away == int(ceil(cplain * CWData.CHEMO_CANCER_PCT / 100.0)),
-		"癌方背它走：%s → %s（+40%%，向上取整）" % [CWData.fmt(cplain), CWData.fmt(c_away)])
+	## 取整走 `CWData.round_tenth`（四舍五入，2026-09-08 起全仓统一）。
+	## ⚠ 这里原来写的是 `ceil`：+40% 时 12×1.4=16.8 两种取整都得 17，**巧合地对**，
+	## 一直没暴露；2026-09-09 改成 +20% 后 14.4 才分道扬镳（round 得 14、ceil 得 15）。
+	check(c_away == CWData.round_tenth(cplain * CWData.CHEMO_CANCER_PCT, 100),
+		"癌方背它走：%s → %s（+%d%%，四舍五入）"
+			% [CWData.fmt(cplain), CWData.fmt(c_away), CWData.CHEMO_CANCER_PCT - 100])
 	check(g.actions._move_cost_mod(can, toward, cplain) == cplain, "癌方朝它走：不加价")
 
 	# ---- ④ 进快照与哈希：它改变后续所有移动的价钱，漏了它推演就会算错 ----
@@ -4153,7 +4159,9 @@ func t_chemo_info() -> void:
 	for r in CWTileInfo.describe(g, at):
 		all += r["text"] + "|"
 	check(all.contains("趋化源 · 还剩 2 回合"), "详情：趋化源与剩余回合（%s）" % all)
-	check(all.contains("免疫朝它 -30% · 癌方背它 +40%"), "详情：效果一句话，数字现读 CWData")
+	check(all.contains("免疫朝它 -%d%% · 癌方背它 +%d%%"
+			% [100 - CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT - 100]),
+		"详情：效果一句话，数字现读 CWData（这条断言自己以前也把数字写死了）")
 	g.chemo["left"] = 1
 	all = ""
 	for r in CWTileInfo.describe(g, at):
@@ -8688,7 +8696,7 @@ func t_card_events() -> void:
 	await g.card_fx.resolve_event(imm, "IFN-γ释放")
 	check(foe["energy"] == 20 and g.tiles[Vector2i(0, 1)]["solid"] == 10,
 		"IFN-γ释放：2 格内癌细胞 −1.0、固化计数 −1.0")
-	## 全身性免疫清除：12 个孤立候选，随机清 10
+	## 全身性免疫清除：12 个孤立候选，随机清 SYSTEMIC_CLEAR 格（PRD 2026-09-09 由 10 改 5）
 	for c in g.tiles.keys():
 		g.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
 		g.tiles[c]["solid"] = 0
@@ -8704,7 +8712,8 @@ func t_card_events() -> void:
 	for c in spots:
 		if g.tiles[c]["tissue"] == CWData.Tissue.CANCER:
 			left += 1
-	check(left == 2, "全身性免疫清除：12 个候选随机清掉 10 个")
+	check(left == spots.size() - CWData.SYSTEMIC_CLEAR,
+		"全身性免疫清除：%d 个候选随机清掉 %d 个" % [spots.size(), CWData.SYSTEMIC_CLEAR])
 	g.dispose()
 
 
@@ -9103,7 +9112,8 @@ func t_card_choices() -> void:
 	g.card_fx.hand_options(rd, dopts)
 	check(dopts.size() == blob, "放疗：全图每格癌性组织一个选项（%d）" % blob)
 	await g.card_fx.play(rd, { "act": "play", "card": "放疗", "to": Vector2i(3, 0) })
-	check(g.count_necrosis() == CWData.RADIO_REGION, "放疗：恰好 15 格进入坏死")
+	check(g.count_necrosis() == CWData.RADIO_REGION,
+		"放疗：恰好 %d 格进入坏死（PRD 2026-09-09 由 15 改 10）" % CWData.RADIO_REGION)
 	check(g.tiles[Vector2i(3, 0)]["tissue"] == CWData.Tissue.HEALTHY
 		and g.tiles[Vector2i(3, 0)]["necrosis"] == CWData.NECROSIS_RADIO,
 		"起点固化癌组织转健康并坏死 5 轮")
