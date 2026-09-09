@@ -41,6 +41,10 @@ void fragment() {
 	float ang = atan(d.y, d.x);               // 屏幕 y 向下：底 = +PI/2，左 = PI，顶 = -PI/2
 	float along = fract((ang - 1.5707963) / 6.2831853);
 	// <= 而不是 <：progress 恰好等于某像素位置时也该亮，否则满仓时末端差一格
-	float lit = step(along, progress + 0.001);
+	// <= 而不是 <：progress 恰好等于某像素位置时也该亮，否则满仓时末端差一格。
+	// ⚠ 但那点容差在 **progress 恰好为 0** 时会点亮起点那一个像素 ——
+	// 空仓的骨髓底下于是挂着一小截「进度条」（Kevin 2026-09-09 报）。
+	// 所以再乘一道「进度大于 0 才有亮段」：空仓就该是**整圈暗槽**，一个亮点都不留。
+	float lit = step(along, progress + 0.001) * step(0.0001, progress);
 	COLOR = vec4(lit_color.rgb, mask.a * mix(dim_alpha, lit_color.a, lit));
 }

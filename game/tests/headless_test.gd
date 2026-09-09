@@ -4991,6 +4991,14 @@ func t_shader_no_return() -> void:
 	check(seen >= 4, "扫到了 %d 个 shader（漏扫等于没守）" % seen)
 	check(bad.is_empty(), "没有 shader 在 fragment 里 return（犯规的：%s）" % str(bad))
 
+	## 积累进度环：**进度为 0 时一个亮点都不许有**。
+	## 那圈扫描从底顶点起，而「满仓时末端别差一格」的 +0.001 容差会在 progress==0 时
+	## 点亮起点那一个像素 —— 空仓的骨髓底下于是挂着一小截「进度条」（Kevin 2026-09-09 报）。
+	## shader 的逻辑无头测不了，只能扫源码守住那道零值闸。
+	var ring := FileAccess.get_file_as_string("res://assets/shaders/store_progress.gdshader")
+	check(ring.contains("step(0.0001, progress)"),
+		"store_progress 有「progress 大于 0 才有亮段」那道闸（空仓必须是整圈暗槽）")
+
 
 ## 没能量时**不再替玩家自动结束回合**（Kevin 2026-09-08 要求删掉）。
 ##
