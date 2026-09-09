@@ -147,7 +147,7 @@ func sync(delta: float, faction: int, blocked: bool, phase := -1) -> void:
 		return
 	var rows: Dictionary = _info if free_text else describe(_card, faction, phase)
 	## 分期进键：跨期那一刻框还开着的话要重搭，高亮才会挪到新的一档
-	var key: String = "info|%s" % rows["name"] if free_text else "%s|%d|%d" % [_card, faction, phase]
+	var key: String = "info|%s" % str(rows) if free_text else "%s|%d|%d" % [_card, faction, phase]
 	if key != _key:
 		_key = key
 		_rebuild(rows)
@@ -177,6 +177,24 @@ static func describe_act(act: String, faction: int, itype := -1) -> Dictionary:
 		"kind": "【主动技能】",
 		"lines": wrap_text(CWData.skill_text(act, faction, itype), W - PAD_H * 2.0),
 	}
+
+
+## 主动技能的实时版本：PRD 原文之后追加当前费用特效。无影响也明确写「无」，
+## 让每一枚技能按钮都能回答同一个问题。实际数值来自 CWActions.cost_effects_for()。
+static func describe_act_for(game: CWGame, cell: Dictionary, act: String) -> Dictionary:
+	var rows := describe_act(act, cell["faction"], int(cell["itype"]))
+	var text := "当前影响：无"
+	var effects: Array = game.actions.cost_effects_for(cell, act)
+	if not effects.is_empty():
+		var parts := PackedStringArray()
+		for effect: Dictionary in effects:
+			var scope := ""
+			if int(effect["total"]) > 1 and int(effect["targets"]) < int(effect["total"]):
+				scope = "（%d/%d 个目标）" % [effect["targets"], effect["total"]]
+			parts.append("【%s】%s%s" % [effect["name"], " / ".join(effect["changes"]), scope])
+		text = "当前影响 · " + "；".join(parts)
+	rows["lines"].append_array(wrap_text(text, W - PAD_H * 2.0))
+	return rows
 
 
 ## 某种癌细胞的自带技能：{ name, kind, lines }。与 describe_type（免疫种类）成对
