@@ -23,6 +23,11 @@ var cells: Array = []      # 细胞字典数组，含死亡细胞（alive=false�
 var players: Array = []    # {id, name, faction, cell_id}
 var order: Array = []      # 行动顺序（player id 列表）
 var round_no := 1          # 当前世界回合（从 1 起）
+var board_radius := CWData.BOARD_RADIUS   # 本局棋盘半径：正式局固定 6；教程小棋盘由 build_board(radius) 落定。
+## 引擎内的在板判断一律走本方法（不是 CWData 的静态版）——小棋盘上静态版会把板外格
+## 误判成在板，随后的 tiles 查询就会炸（2026-09-10 教程导演切片⑦踩出的接缝缺陷）。
+func is_on_board(c: Vector2i) -> bool:
+	return CWData.is_on_board(c, board_radius)
 var memory := 0            # 免疫方抗原记忆（阵营共享）
 var immune_level := 0      # 0..3 = I/II/III/X，只升不降
 var differentiated: Array = []   # 已被分化占用的免疫种类（每种全阵营限一个）

@@ -544,7 +544,7 @@ func _erosion(fresh: Array[Vector2i] = []) -> void:
 func _erosion_dir(c: Vector2i) -> int:
 	for i in CWData.DIRS.size():
 		var n: Vector2i = c + CWData.DIRS[i]
-		if CWData.is_on_board(n) and game.is_cancerous(n):
+		if game.is_on_board(n) and game.is_cancerous(n):
 			return i
 	return -1
 

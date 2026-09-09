@@ -122,7 +122,7 @@ func _run_all() -> void:
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
 		t_card_name_fit, t_view_blend, t_announce, t_action_bar_width,
 		t_buttons_dim, t_enter_not_skipped, t_main_menu, t_guide_data,
-		t_codex, t_guide_bridge, t_guide_spotlight, t_quit_confirm,
+		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_online_glow, t_match_online,
@@ -7774,6 +7774,367 @@ func t_guide_data() -> void:
 	check(probe.chapter() == 6, "旧进度 done=6 在 16 关制下从第 7 关续读（实际第 %d 关）" % (probe.chapter() + 1))
 	probe.free()
 	CWGuideProgress.clear()
+
+
+## 逐关真实局面导演（16 关重构切片③）：1–15 关用 fixture 在真实 CWGame 上装配开局，
+## 第 16 关走正式规则；教程装配不得污染正式口径。
+func t_guide_director() -> void:
+	print("[教程导演·逐关局面]")
+	## 半径接缝：默认不动正式口径，参数化后各档 = 3r²+3r+1
+	check(CWData.all_coords().size() == CWData.TOTAL_TILES,
+		"all_coords() 默认仍是正式 %d 格（当前 %d）" % [CWData.TOTAL_TILES, CWData.all_coords().size()])
+	for r in range(1, 7):
+		var want := 3 * r * r + 3 * r + 1
+		check(CWData.all_coords(r).size() == want,
+			"all_coords(%d) 蜂窝 %d 格（当前 %d）" % [r, want, CWData.all_coords(r).size()])
+	## 逐关局面声明：16 关齐、半径按方案表、第 5 关癌症视角
+	check(CWGuideLevels.count() == CWGuideData.CHAPTER_COUNT,
+		"每关都有局面声明（%d/%d）" % [CWGuideLevels.count(), CWGuideData.CHAPTER_COUNT])
+	var want_radius := [1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 6]
+	var bad_radius: Array = []
+	for i in want_radius.size():
+		if CWGuideLevels.radius(i) != want_radius[i]:
+			bad_radius.append("%d:%d≠%d" % [i, CWGuideLevels.radius(i), want_radius[i]])
+	check(bad_radius.is_empty(), "半径按方案递增 7/19/19/19/37×4/61×7/127（坏：%s）" % str(bad_radius))
+	check(CWGuideLevels.player_faction(4) == CWData.Faction.CANCER
+		and CWGuideLevels.player_faction(0) == CWData.Faction.IMMUNE,
+		"第 5 关癌症视角、第 1 关免疫视角")
+	## 第 1 关「苏醒」：7 格全健康 + 一枚免疫细胞 (0,0) 3.0 能量，装配不推进流程
+	var g1 := CWGuideDirector.assemble(0)
+	check(g1 != null, "第 1 关装配出真实 CWGame")
+	if g1 == null:
+		return
+	check(g1.tiles.size() == 7, "第 1 关棋盘 7 格（当前 %d）" % g1.tiles.size())
+	var sick: Array = []
+	for c in g1.tiles:
+		if g1.tiles[c]["tissue"] != CWData.Tissue.HEALTHY:
+			sick.append(c)
+	check(sick.is_empty(), "第 1 关开局全是健康组织（%s）" % str(sick))
+	check(g1.cell_of(0)["alive"] and g1.cell_of(0)["pos"] == Vector2i.ZERO
+		and g1.cell_of(0)["faction"] == CWData.Faction.IMMUNE
+		and g1.cell_of(0)["energy"] == CWData.INIT_ENERGY
+		and not g1.cell_of(1)["alive"],
+		"第 1 关：免疫细胞一枚在 (0,0)、能量 3.0，癌方为死亡占位（%s）" % str(g1.cells))
+	check(g1.round_no == 1 and g1.flow["stage"] == "round_start",
+		"第 1 关装配停在回合开头（%s / 第 %d 回合）" % [str(g1.flow["stage"]), g1.round_no])
+	## 第 3 关「第一次接触」：19 格、(0,0) 免疫 6.0、(1,0) 癌 3.0、目标格癌组织
+	var g3 := CWGuideDirector.assemble(2)
+	check(g3 != null and g3.tiles.size() == 19, "第 3 关棋盘 19 格")
+	if g3 != null:
+		var me := {}
+		var foe := {}
+		for c in g3.cells:
+			if c["faction"] == CWData.Faction.IMMUNE:
+				me = c
+			elif c["faction"] == CWData.Faction.CANCER:
+				foe = c
+		check(not me.is_empty() and me["pos"] == Vector2i.ZERO and me["energy"] == 60,
+			"第 3 关玩家 (0,0) 免疫细胞 6.0 能量（%s）" % str(me))
+		check(not foe.is_empty() and foe["pos"] == Vector2i(1, 0) and foe["energy"] == 30,
+			"第 3 关敌方癌细胞 (1,0) 3.0 能量（%s）" % str(foe))
+		check(g3.tiles[Vector2i(1, 0)]["tissue"] == CWData.Tissue.CANCER,
+			"第 3 关目标格 (1,0) 是癌组织")
+	## 第 4 关「时间开始流动」：19 格、免疫 1.0、远离玩家两格癌组织
+	var g4 := CWGuideDirector.assemble(3)
+	check(g4 != null and g4.tiles.size() == 19, "第 4 关棋盘 19 格")
+	if g4 != null:
+		check(g4.cell_of(0)["energy"] == 10
+			and g4.cell_of(0)["pos"] == Vector2i.ZERO,
+			"第 4 关免疫细胞 (0,0) 能量 1.0")
+		var n_c4 := 0
+		for c in g4.tiles:
+			if g4.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				n_c4 += 1
+		check(n_c4 == 2, "第 4 关远离玩家的癌组织 2 格（%d）" % n_c4)
+	## 第 5 关「另一种生命」：37 格、癌症视角、中心 7 格癌组织连通块
+	var g5 := CWGuideDirector.assemble(4)
+	check(g5 != null and g5.tiles.size() == 37, "第 5 关棋盘 37 格")
+	if g5 != null:
+		check(not g5.cell_of(0)["alive"] and g5.cell_of(1)["alive"]
+			and g5.cell_of(1)["faction"] == CWData.Faction.CANCER
+			and g5.cell_of(1)["pos"] == Vector2i.ZERO and g5.cell_of(1)["energy"] == 60,
+			"第 5 关玩家是 (0,0) 癌细胞 6.0 能量（免方死亡占位）")
+		var block5: bool = g5.tiles[Vector2i.ZERO]["tissue"] == CWData.Tissue.CANCER
+		for c in CWData.neighbors(Vector2i.ZERO):
+			if g5.tiles[c]["tissue"] != CWData.Tissue.CANCER:
+				block5 = false
+		check(block5, "第 5 关中心 7 格构成癌组织连通块")
+	## 第 6 关「建立据点」：37 格、中心固化计数预设 1、共 4 格癌组织
+	var g6 := CWGuideDirector.assemble(5)
+	check(g6 != null and g6.tiles.size() == 37, "第 6 关棋盘 37 格")
+	if g6 != null:
+		check(g6.tiles[Vector2i.ZERO]["tissue"] == CWData.Tissue.CANCER
+			and g6.tiles[Vector2i.ZERO]["solid"] == 1,
+			"第 6 关中心癌组织固化计数预设 1")
+		var n_c6 := 0
+		for c in g6.tiles:
+			if g6.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				n_c6 += 1
+		check(n_c6 == 4, "第 6 关共 4 格癌组织（%d）" % n_c6)
+	## 第 7 关「组织里的基础设施」：37 格、核/髓/双管四个特殊组织、核预存 2.0、髓预存 1 张
+	var g7 := CWGuideDirector.assemble(6)
+	check(g7 != null and g7.tiles.size() == 37, "第 7 关棋盘 37 格")
+	if g7 != null:
+		check(g7.tiles[Vector2i(1, 0)]["special"] == CWData.Special.CORE
+			and g7.tiles[Vector2i(1, 0)]["store"] == 20,
+			"第 7 关代谢核心 (1,0) 预存 2.0 能量")
+		check(g7.tiles[Vector2i(-1, 1)]["special"] == CWData.Special.MARROW
+			and g7.tiles[Vector2i(-1, 1)]["cards"] == 1,
+			"第 7 关骨髓 (-1,1) 预存 1 张卡")
+		check(g7.tiles[Vector2i(0, -3)]["special"] == CWData.Special.VESSEL
+			and g7.tiles[Vector2i(0, 3)]["special"] == CWData.Special.VESSEL,
+			"第 7 关血管对 (0,-3)/(0,3)")
+		var n_sp7 := 0
+		for c in g7.tiles:
+			if g7.tiles[c]["special"] != CWData.Special.NONE:
+				n_sp7 += 1
+		check(n_sp7 == 4, "第 7 关特殊组织恰好 4 个、无正式布局残留（%d）" % n_sp7)
+	## 第 8 关「基因表达」：37 格、免疫 4.0、两格癌组织做卡牌测试目标
+	var g8 := CWGuideDirector.assemble(7)
+	check(g8 != null and g8.tiles.size() == 37, "第 8 关棋盘 37 格")
+	if g8 != null:
+		check(g8.cell_of(0)["energy"] == 40,
+			"第 8 关免疫细胞 4.0 能量")
+		var n_c8 := 0
+		for c in g8.tiles:
+			if g8.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				n_c8 += 1
+		check(n_c8 == 2, "第 8 关癌组织测试目标 2 格（%d）" % n_c8)
+	## 第 9 关「免疫记忆」：61 格、抗原记忆 8/10、两格易净化癌组织
+	var g9 := CWGuideDirector.assemble(8)
+	check(g9 != null and g9.tiles.size() == 61, "第 9 关棋盘 61 格")
+	if g9 != null:
+		check(g9.memory == 8, "第 9 关抗原记忆 8/10（当前 %d）" % g9.memory)
+		var n_c9 := 0
+		for c in g9.tiles:
+			if g9.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				n_c9 += 1
+		var alive9 := 0
+		for c in g9.cells:
+			if c["alive"]:
+				alive9 += 1
+		check(n_c9 == 2 and alive9 == 1,
+			"第 9 关两格易净化癌组织 + 一枚免疫细胞（%d 活细胞 / %d 格）" % [alive9, n_c9])
+	## 第 10 关「分化」：四个实验区，zones() 报数、每区都是真实 61 格局面
+	check(CWGuideLevels.zones(9) == 4, "第 10 关有四个实验区（%d）" % CWGuideLevels.zones(9))
+	for z in 4:
+		var gz := CWGuideDirector.assemble(9, z)
+		check(gz != null and gz.tiles.size() == 61, "第 10 关实验区 %d 棋盘 61 格" % z)
+	## 10A 树突状细胞区：玩家树突 + 盟友免疫 + 癌细胞同场
+	var g10a := CWGuideDirector.assemble(9, 0)
+	if g10a != null:
+		var nd := 0
+		var na := 0
+		var nc10 := 0
+		for c in g10a.cells:
+			if c["faction"] == CWData.Faction.CANCER:
+				nc10 += 1
+			elif c["itype"] == CWData.ImmuneType.DENDRITIC:
+				nd += 1
+			elif c["itype"] == CWData.ImmuneType.BASIC:
+				na += 1
+		check(nd == 1 and na == 1 and nc10 == 1,
+			"10A：树突 + 盟友免疫 + 癌细胞各一（%d/%d/%d）" % [nd, na, nc10])
+	## 10B 巨噬细胞区：玩家巨噬 + 连续 3 格癌组织待净化
+	var g10b := CWGuideDirector.assemble(9, 1)
+	if g10b != null:
+		check(g10b.cells.size() >= 1 and g10b.cells[0]["itype"] == CWData.ImmuneType.MACRO,
+			"10B：玩家是巨噬细胞")
+		var b_c := 0
+		for c in g10b.tiles:
+			if g10b.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				b_c += 1
+		check(b_c == 3, "10B：连续 3 格癌组织（%d）" % b_c)
+	## 10C B细胞区：玩家 B 细胞 + 边缘 3 个癌细胞
+	var g10c := CWGuideDirector.assemble(9, 2)
+	if g10c != null:
+		var is_b := false
+		var n_cc := 0
+		for c in g10c.cells:
+			if c["faction"] == CWData.Faction.CANCER:
+				n_cc += 1
+			elif c["itype"] == CWData.ImmuneType.B_CELL:
+				is_b = true
+		check(is_b and n_cc == 3, "10C：B 细胞 + 边缘 3 个癌细胞（%d）" % n_cc)
+	## 10D T细胞区：玩家 T 细胞 + 固化癌组织 + 癌细胞
+	var g10d := CWGuideDirector.assemble(9, 3)
+	if g10d != null:
+		var is_t := false
+		var has_foe := false
+		for c in g10d.cells:
+			if c["faction"] == CWData.Faction.CANCER:
+				has_foe = true
+			elif c["itype"] == CWData.ImmuneType.T_CELL:
+				is_t = true
+		var has_solid := false
+		for c in g10d.tiles:
+			if g10d.tiles[c]["tissue"] == CWData.Tissue.SOLID:
+				has_solid = true
+		check(is_t and has_foe and has_solid, "10D：T 细胞 + 癌细胞 + 固化癌组织")
+	## 第 11 关「癌症并不只有一种」：四个癌细胞实验区，玩家带 CancerType
+	check(CWGuideLevels.zones(10) == 4, "第 11 关四个实验区（%d）" % CWGuideLevels.zones(10))
+	var g11a := CWGuideDirector.assemble(10, 0)
+	if g11a != null:
+		check(g11a.cell_of(1)["alive"] and g11a.cell_of(1)["ctype"] == CWData.CancerType.MELANOMA
+			and g11a.cell_of(1)["pos"] == Vector2i(0, -3)
+			and g11a.tiles[Vector2i(0, -3)]["special"] == CWData.Special.VESSEL,
+			"11A：黑色素瘤玩家站在血管上")
+	var g11b := CWGuideDirector.assemble(10, 1)
+	if g11b != null:
+		var player11b: Dictionary = {}
+		var n_foe11b := 0
+		for c in g11b.cells:
+			if c["faction"] == CWData.Faction.CANCER:
+				player11b = c
+			else:
+				n_foe11b += 1
+		check(not player11b.is_empty() and player11b["ctype"] == CWData.CancerType.SIGNET
+			and player11b["energy"] == 40 and n_foe11b == 1,
+			"11B：印戒玩家 4.0 能量、周围有一枚免疫细胞")
+	var g11c := CWGuideDirector.assemble(10, 2)
+	if g11c != null:
+		check(g11c.cell_of(1)["alive"] and g11c.cell_of(1)["ctype"] == CWData.CancerType.OSTEO
+			and g11c.tiles[g11c.cell_of(1)["pos"]]["tissue"] == CWData.Tissue.CANCER,
+			"11C：骨肉瘤玩家站在普通癌组织上")
+	var g11d := CWGuideDirector.assemble(10, 3)
+	if g11d != null:
+		check(g11d.cell_of(1)["alive"] and g11d.cell_of(1)["ctype"] == CWData.CancerType.SCLC,
+			"11D：小细胞肺癌玩家")
+	## 第 12 关「肿瘤微环境」：压迫 / 增生 / 侵蚀 / 坏死四个教学场景
+	check(CWGuideLevels.zones(11) == 4, "第 12 关四个教学场景（%d）" % CWGuideLevels.zones(11))
+	var g12a := CWGuideDirector.assemble(11, 0)
+	if g12a != null:
+		var adj12a := 0
+		for c in CWData.neighbors(Vector2i.ZERO):
+			if g12a.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				adj12a += 1
+		check(g12a.cell_of(0)["alive"] and adj12a == 5,
+			"12A：免疫细胞被 5 格癌性组织包围（%d）" % adj12a)
+	var g12b := CWGuideDirector.assemble(11, 1)
+	if g12b != null:
+		var adj12b := 0
+		for c in CWData.neighbors(Vector2i(1, 0)):
+			if g12b.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				adj12b += 1
+		check(adj12b == 3 and g12b.tiles[Vector2i(1, 0)]["tissue"] == CWData.Tissue.HEALTHY,
+			"12B：健康组织 (1,0) 与 3 格癌组织相邻（%d）" % adj12b)
+	var g12c := CWGuideDirector.assemble(11, 2)
+	if g12c != null:
+		var closed: bool = g12c.tiles[Vector2i(2, 0)]["tissue"] == CWData.Tissue.HEALTHY
+		for c in CWData.neighbors(Vector2i(2, 0)):
+			if g12c.tiles[c]["tissue"] != CWData.Tissue.CANCER:
+				closed = false
+		check(closed, "12C：健康孤岛 (2,0) 被 6 格癌组织完全封闭")
+	var g12n := CWGuideDirector.assemble(11, 3)
+	if g12n != null:
+		check(g12n.tiles[Vector2i.ZERO]["necrosis"] == 2 and g12n.cell_of(0)["alive"],
+			"12 坏死：免疫细胞站在坏死组织上（剩余 2 世界回合）")
+	## 第 13 关「世界并不稳定」：开局停在第 3 世界回合（事件回合）
+	var g13 := CWGuideDirector.assemble(12)
+	if g13 != null:
+		check(g13.round_no == 3 and g13.cell_of(0)["alive"] and not g13.cell_of(1)["alive"],
+			"第 13 关从世界回合 3 开始（当前 %d）" % g13.round_no)
+	## 第 14 关「终末免疫」：抗原记忆 29/30（III 级）、玩家已分化
+	var g14 := CWGuideDirector.assemble(13)
+	var it14 := -2
+	if g14 != null and g14.cell_of(0)["alive"]:
+		it14 = int(g14.cell_of(0)["itype"])
+	if g14 != null:
+		check(g14.memory == 29 and g14.cell_of(0)["alive"]
+			and it14 != CWData.ImmuneType.BASIC,
+			"第 14 关记忆 29/30 且玩家已分化（%d / itype %d）" % [g14.memory, it14])
+	## 第 15 关「怎样真正赢下一局」：三个残局
+	check(CWGuideLevels.zones(14) == 3, "第 15 关三个残局（%d）" % CWGuideLevels.zones(14))
+	var g15a := CWGuideDirector.assemble(14, 0)
+	if g15a != null:
+		var solid15 := 0
+		var foe15 := 0
+		for c in g15a.tiles:
+			if g15a.tiles[c]["tissue"] == CWData.Tissue.SOLID:
+				solid15 += 1
+		for c in g15a.cells:
+			if c["faction"] == CWData.Faction.CANCER:
+				foe15 += 1
+		check(solid15 == 1 and foe15 == 1, "15A：最后一个癌细胞 + 一个固化癌组织")
+	var g15b := CWGuideDirector.assemble(14, 1)
+	if g15b != null:
+		var cw15 := 0
+		var sw15 := 0
+		for c in g15b.tiles:
+			if g15b.tiles[c]["tissue"] == CWData.Tissue.SOLID:
+				sw15 += 1
+			elif g15b.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				cw15 += 1
+		check(cw15 + 2 * sw15 == 89,
+			"15B：癌症加权进度 89/90（癌 %d + 固化 %d×2）" % [cw15, sw15])
+	var g15c := CWGuideDirector.assemble(14, 2)
+	if g15c != null:
+		check(g15c.round_no == 15, "15C：直接进入第 15 世界回合判定（当前 %d）" % g15c.round_no)
+	## 「可开局」契约（切片⑦）：fixture 关 flow 直接进世界回合（跳过落子、
+	## 避开 setup.begin() 重建棋盘）、主细胞与玩家下标对齐、活细胞不共格
+	for lvl in 15:
+		var zcount := CWGuideLevels.zones(lvl)
+		for z in zcount:
+			var ga := CWGuideDirector.assemble(lvl, z)
+			if ga == null:
+				continue
+			check(ga.flow["stage"] == "round_start",
+				"第 %d 关区 %d：装配后直接进入世界回合（%s）" % [lvl + 1, z, str(ga.flow["stage"])])
+			var align_ok := ga.cells.size() >= ga.order.size()
+			for pid in ga.order:
+				if ga.cells.size() > pid and ga.cell_of(pid)["pid"] != pid:
+					align_ok = false
+			check(align_ok, "第 %d 关区 %d：主细胞与玩家下标对齐" % [lvl + 1, z])
+			var occ7 := {}
+			var dup7 := false
+			for c in ga.cells:
+				if c.get("alive", true) and occ7.has(c["pos"]):
+					dup7 = true
+				occ7[c["pos"]] = true
+			check(not dup7, "第 %d 关区 %d：活细胞不共格" % [lvl + 1, z])
+	## 第 16 关仍走完整正式开局（init → 落子 → 世界回合）
+	var g16f := CWGuideDirector.assemble(15)
+	if g16f != null:
+		check(g16f.flow["stage"] == "init", "第 16 关保留完整正式开局（init）")
+	## L1 真实推进冒烟：S 阶段过后停在免疫玩家的行动询问上；合法作答后细胞迁移、扣能量
+	var gsmoke := CWGuideDirector.assemble(0)
+	if gsmoke != null:
+		await gsmoke.advance()
+		check(not gsmoke._pending.is_empty(), "L1 冒烟：第一次推进停在玩家询问上")
+		if not gsmoke._pending.is_empty():
+			var ask_pid: int = gsmoke._pending["pid"]
+			var from_s: Vector2i = gsmoke.cell_of(ask_pid)["pos"]
+			var opts_s: Array = gsmoke._pending["options"]
+			check(ask_pid == 0 and not opts_s.is_empty(),
+				"L1 冒烟：先问免疫玩家的行动（pid %d / %d 个选项）" % [ask_pid, opts_s.size()])
+			var e0: int = gsmoke.cell_of(ask_pid)["energy"]
+			gsmoke.step(0)
+			check(gsmoke.cell_of(ask_pid)["pos"] != from_s
+				and e0 - gsmoke.cell_of(ask_pid)["energy"] >= 5,
+				"L1 冒烟：迁移成功且扣了至少 0.5 能量（%d → %d）"
+					% [e0, int(gsmoke.cell_of(ask_pid)["energy"])])
+	## 第 16 关「毕业战」：正式规则原样 —— 127 格、3 核 6 髓 2 管、四人行动序
+	var g16 := CWGuideDirector.assemble(15)
+	check(g16 != null, "第 16 关装配出真实 CWGame")
+	if g16 != null:
+		check(g16.tiles.size() == CWData.TOTAL_TILES,
+			"第 16 关是正式 127 格棋盘（当前 %d）" % g16.tiles.size())
+		var n_special := {CWData.Special.CORE: 0, CWData.Special.MARROW: 0, CWData.Special.VESSEL: 0}
+		for c in g16.tiles:
+			var sp = g16.tiles[c]["special"]
+			if n_special.has(sp):
+				n_special[sp] += 1
+		check(n_special[CWData.Special.CORE] == CWData.CORES.size()
+			and n_special[CWData.Special.MARROW] == CWData.MARROWS.size()
+			and n_special[CWData.Special.VESSEL] == CWData.VESSELS.size(),
+			"第 16 关特殊组织按正式布局 3 核/6 髓/2 管（%s）" % str(n_special))
+		check(g16.order.size() == 4, "第 16 关四人局（%d 名玩家）" % g16.order.size())
+	## 正式隔离：教程装配之后，正式 build_board 仍是 127 格
+	var gf := CWGame.new()
+	gf.init(CWData.FACTION_ORDER[4], 20260909)
+	gf.setup.build_board()
+	check(gf.tiles.size() == CWData.TOTAL_TILES,
+		"教程装配不污染正式口径：build_board() 仍是 127 格（当前 %d）" % gf.tiles.size())
 
 
 ## 状态推进（16 关重构切片①）：教「迁移」的步骤改由真实局面判定完成——

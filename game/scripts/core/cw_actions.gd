@@ -313,7 +313,7 @@ func pass_through_map(cell: Dictionary) -> Dictionary:
 		var acc: int = reached[cur][0]
 		var first: Vector2i = reached[cur][1]
 		for m in CWData.neighbors(cur):
-			if m == cell["pos"] or not CWData.is_on_board(m):
+			if m == cell["pos"] or not game.is_on_board(m):
 				continue
 			var cost: int = acc + _one_step_base(cell, m)
 			if _is_ally_tile(cell, m):
@@ -335,7 +335,7 @@ func _is_ally_tile(cell: Dictionary, c: Vector2i) -> bool:
 
 ## 借道落点的第一跳友军格（界面用它打「穿过」标签）；不是借道走法就返回 `Vector2i.MAX`。
 func pass_through_mid(cell: Dictionary, to: Vector2i) -> Vector2i:
-	if not CWData.is_on_board(to) or to == cell["pos"]:
+	if not game.is_on_board(to) or to == cell["pos"]:
 		return Vector2i.MAX
 	if to in CWData.neighbors(cell["pos"]):
 		return Vector2i.MAX          ## 本来就走得到 —— 那是普通迁移，别在这儿重复出一遍
@@ -353,7 +353,7 @@ func move_dests(cell: Dictionary) -> Array[Vector2i]:
 
 
 func _is_move_legal_now(cell: Dictionary, to: Vector2i) -> bool:
-	if not cell["alive"] or not CWData.is_on_board(to):
+	if not cell["alive"] or not game.is_on_board(to):
 		return false
 	if not (to in CWData.neighbors(cell["pos"])):
 		## 「穿过友军」落在正后方第二格。落点必须**完全空着** ——
@@ -394,7 +394,7 @@ func _is_homing_legal_now(cell: Dictionary, to: Vector2i) -> bool:
 ## 小细胞肺癌【转移】：落点在棋盘上且无细胞占据，且本世界回合还有次数（旋钮，默认不限）
 func _is_jump_legal_now(cell: Dictionary, to: Vector2i) -> bool:
 	return cell["alive"] and _jump_quota_left(cell) \
-		and CWData.is_on_board(to) and game.cells_at(to).is_empty()
+		and game.is_on_board(to) and game.cells_at(to).is_empty()
 
 
 ## 【转移】本世界回合还有没有次数：旋钮 metastasis_max_per_round（0 = 不限）。
@@ -1406,7 +1406,7 @@ func _jump_targets(cell: Dictionary) -> Array:
 	var out: Array = []
 	for d in CWData.DIRS:
 		var to: Vector2i = cell["pos"] + d * CWData.METASTASIS_RANGE
-		if CWData.is_on_board(to) and game.cells_at(to).is_empty():
+		if game.is_on_board(to) and game.cells_at(to).is_empty():
 			out.append(to)
 	return out
 
