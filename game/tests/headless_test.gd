@@ -115,7 +115,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_hot_patch, t_save_load, t_settings, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_hot_patch, t_save_load, t_settings, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -5430,6 +5430,67 @@ func t_hunt_fx() -> void:
 		"三拍时间轴单调（搜索 %.2f < 锁定 %.2f < 收场 %.2f）"
 		% [CWHuntFx.SEARCH, CWHuntFx.LOCK, CWHuntFx.TOTAL])
 	check(CWHuntFx.R_FAR > CWHuntFx.R_NEAR, "方框是收缩的，不是张开的")
+	board.queue_free()
+
+
+# ---- 【黏液破裂】引爆与【中和抗体】封禁环 ----
+func t_effector_fx() -> void:
+	print("[破裂与封禁演出]")
+	var board := make_board()
+
+	## 液浪是**贴地**的：y 必须被压扁。这只演出的全部意思就在「沿着地面推出去」，
+	## 压扁比丢了就读成一圈立着的光环
+	var ring := CWMucusFx.ground_ring(Vector2.ZERO, 40.0, CWMucusFx.SQUASH)
+	var w := 0.0
+	var h := 0.0
+	for q: Vector2 in ring:
+		w = maxf(w, absf(q.x))
+		h = maxf(h, absf(q.y))
+	check(absf(w - 40.0) < 0.01 and absf(h - 40.0 * CWMucusFx.SQUASH) < 0.01,
+		"贴地环宽 %.0f、高 %.0f（压扁比 %.2f）" % [w, h, CWMucusFx.SQUASH])
+	## 液浪要盖过整个作用范围：MUCUS_RADIUS 格 × 横向格距 36
+	check(CWMucusFx.WAVE_R > float(CWData.MUCUS_RADIUS) * 36.0,
+		"液浪 %.0fpx 扫得过 %d 格的作用范围" % [CWMucusFx.WAVE_R, CWData.MUCUS_RADIUS])
+
+	var mf := CWMucusFx.new()
+	mf.visible = false
+	board.add_child(mf)
+	mf.play(board.tile_center(Vector2i.ZERO))
+	check(mf.visible, "引爆后露出来")
+	for i in 17:
+		mf.sync(0.1)
+	check(mf.visible, "1.7 秒时还在（全程 %.2f 秒）" % CWMucusFx.TOTAL)
+	mf.sync(0.2)
+	check(not mf.visible, "过了 %.2f 秒自己收掉" % CWMucusFx.TOTAL)
+
+	## 封禁环是**常驻**的：压制期间一直在，不像别的演出放完就走
+	var sf := CWSealFx.new()
+	board.add_child(sf)
+	check(not sf.visible, "没封住谁的时候是藏着的")
+	var t1: Vector2 = board.tile_center(Vector2i(1, 0))
+	sf.sync(0.1, [t1] as Array[Vector2])
+	check(sf.visible, "有格子被封住就一直在")
+	sf.sync(0.1, [] as Array[Vector2])
+	check(not sf.visible, "压制过期就收掉")
+
+	## **抗体没飞到之前那一格的环不许亮**：引擎是一瞬间把压制全记上的，
+	## 照状态直接画的话三个环会在抗体起飞前就亮起来，投递那一拍白演
+	sf.play(board.tile_center(Vector2i(-2, 1)), [t1] as Array[Vector2])
+	sf.sync(0.0, [t1] as Array[Vector2])
+	check(sf._inflight().has(t1), "刚发出时目标还在半路上（环先不画）")
+	sf.sync(CWSealFx.FLIGHT + 0.1, [t1] as Array[Vector2])
+	check(not sf._inflight().has(t1), "飞到了，环才显形")
+
+	## 「谁还被压着」的判据必须问引擎，不许在表现层重算「谁挨着健康组织」
+	var src := FileAccess.get_file_as_string("res://scripts/ui/ui_bridge.gd")
+	check(src.contains("game.neutralized(c)"), "封禁范围问 game.neutralized，不自己判邻接")
+	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(msrc.contains("game.neutralized(c)"), "常驻那半也问引擎（_sync_seal）")
+
+	## 引擎得真的把这句通报发出来，否则演出永远起不来
+	var asrc := FileAccess.get_file_as_string("res://scripts/core/cw_actions.gd")
+	check(asrc.contains('game.announce("中和抗体"'), "引擎发【中和抗体】的通报")
+	check(asrc.contains('game.announce("黏液破裂"'), "引擎发【黏液破裂】的通报")
 	board.queue_free()
 
 

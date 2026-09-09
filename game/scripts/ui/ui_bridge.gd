@@ -24,6 +24,8 @@ var info: CWCardInfo   ## 悬停详情框：分化提问里停在种类按钮上
 var panel: CWMatchPanel
 var toast: CWToast     ## 骰子旁边那行字
 var hunt_fx: CWHuntFx
+var mucus_fx: CWMucusFx
+var seal_fx: CWSealFx
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
 var erosion: CWErosionFx   ## 癌蔓延两帧过场（侵蚀 / 增生 / 定殖共用）；纯 AI 桥 / 测试里可为 null
 var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这里来（无界面时为 null）
@@ -757,12 +759,31 @@ func show_roll(reason: String, value: int, sides: int, _pid: int, at: Vector2i) 
 
 ## 掷骰的结算说明。文字是引擎给的，这里只负责把它摆到那一格上方。
 ## linger（非骰子的说明）走独立气泡、停 TEXT_HOLD：停得久就不能被下一条顶掉，也不能把骰子那行字挤走。
+## 此刻仍被【中和抗体】压住的癌细胞在哪几格。**判据问引擎**（`game.neutralized`）——
+## 「谁挨着健康组织」是规则，表现层不许照着再判一遍。
+func _sealed_centers() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	if game == null or board == null:
+		return out
+	for c in game.living_cells(CWData.Faction.CANCER):
+		if game.neutralized(c):
+			out.append(board.tile_center(c["pos"]))
+	return out
+
+
 func show_result(text: String, at: Vector2i, linger := false) -> void:
 	## 通报文案当分派键是没办法的事：准星是一次性演出，没有可以每帧去读的状态
 	## （趋化源和标记光环都是读 game 的常驻状态）。名字至少引正本，别在这儿再抄一份。
-	if text == CWData.EFFECTOR_NAMES[CWData.ImmuneType.DENDRITIC] 			and hunt_fx != null and board != null:
+	if text == CWData.EFFECTOR_NAMES[CWData.ImmuneType.DENDRITIC] \
+			and hunt_fx != null and board != null:
 		## 第二个点是搜索起点 —— 盘心。选稿里方框先在全图上摆，再收到目标身上
 		hunt_fx.play(board.tile_center(at), board.tile_center(Vector2i.ZERO))
+	if text == "黏液破裂" and mucus_fx != null and board != null:
+		mucus_fx.play(board.tile_center(at))
+	## 【中和抗体】封住了谁**问引擎**（game.neutralized），不在这儿重算「谁挨着健康组织」
+	if text == CWData.EFFECTOR_NAMES[CWData.ImmuneType.B_CELL] \
+			and seal_fx != null and board != null and game != null:
+		seal_fx.play(board.tile_center(at), _sealed_centers())
 	if toast == null or board == null or camera == null:
 		return
 	if linger:

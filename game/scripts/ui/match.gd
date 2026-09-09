@@ -243,6 +243,8 @@ var _feed_seq := 0           ## 已经补到 game.feed_log 的第几条（见 _s
 var _chemo_fx: CWChemoFx     ## 树突【I-趋化源】的漩涡核心演出（挂在棋盘层，跟着格子走）
 var _mark_aura_fx: CWMarkAuraFx  ## 树突【I-标记】光环范围的常驻粒子（同上，也挂棋盘层）
 var _hunt_fx: CWHuntFx         ## 免疫猎杀捕获准星
+var _mucus_fx: CWMucusFx       ## 印戒【黏液破裂】的引爆
+var _seal_fx: CWSealFx         ## B【中和抗体】的投递与封禁环（后者常驻，见 _sync_seal）
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
 var _erosion_fx := CWErosionFx.new()
 ## 细胞传送的溶解演出（规格 docs/动画规格_传送.md）。同样不是节点：残影挂在 _cells_root 下，句柄它自己收。
@@ -287,6 +289,14 @@ func _ready() -> void:
 		## 骰子 2026-08-27 栽的是同一个坑，见 board.gd 的 z 约定
 		_hunt_fx.z_index = board.Z_OVER_BOARD
 		board.add_child(_hunt_fx)
+		## 这两只同理：液浪 92px、封禁环立在细胞身上，都横跨好几排
+		_mucus_fx = CWMucusFx.new()
+		_mucus_fx.visible = false
+		_mucus_fx.z_index = board.Z_OVER_BOARD
+		board.add_child(_mucus_fx)
+		_seal_fx = CWSealFx.new()
+		_seal_fx.z_index = board.Z_OVER_BOARD
+		board.add_child(_seal_fx)
 		_tile_info = CWTileInfo.new()
 		ui.add_child(_tile_info)
 		if pause_menu != null:
@@ -479,6 +489,8 @@ func _wire_bridge(level: int) -> void:
 	## 教程局包一层引导桥（子类，只多演示与提示，其余装配完全相同）
 	bridge = CWGuideBridge.new() if tutorial else CWUIBridge.new()
 	bridge.hunt_fx = _hunt_fx
+	bridge.mucus_fx = _mucus_fx
+	bridge.seal_fx = _seal_fx
 	bridge.game = game
 	bridge.board = board
 	bridge.dice = _dice
@@ -883,6 +895,9 @@ func _process(delta: float) -> void:
 	_sync_mark_aura(delta)
 	if _hunt_fx != null:
 		_hunt_fx.sync(delta)
+	if _mucus_fx != null:
+		_mucus_fx.sync(delta)
+	_sync_seal(delta)
 	_sync_hand()
 	if panel != null:
 		if online and _client != null:
@@ -988,6 +1003,18 @@ func _sync_chemo(delta: float) -> void:
 ## 用的是同一个常量，两处对不上就会出现「画着光环却不标记」这种最难查的错。
 ##
 ## 树突自己站的那一格不画：它在范围内是不言自明的，画上去反而只是被细胞贴图盖住的一团。
+## 【中和抗体】的封禁环：**常驻**，压制期间一直在。谁还被压着一律问 `game.neutralized`，
+## 不在这儿重算「谁挨着健康组织」——那是规则，表现层抄第二份迟早对不上。
+func _sync_seal(delta: float) -> void:
+	if _seal_fx == null:
+		return
+	var sealed: Array[Vector2] = []
+	for c in game.living_cells(CWData.Faction.CANCER):
+		if game.neutralized(c):
+			sealed.append(board.tile_center(c["pos"]))
+	_seal_fx.sync(delta, sealed)
+
+
 func _sync_mark_aura(delta: float) -> void:
 	if _mark_aura_fx == null:
 		return

@@ -1513,6 +1513,7 @@ func _effector_neutralize(cell: Dictionary) -> void:
 		t["neutral_until"] = game.round_no + 1
 	game.log_msg("　【中和抗体】%d 个与健康组织相邻的癌细胞：种类技能与永久卡本回合和下一回合失效"
 		% targets.size())
+	game.announce("中和抗体", cell["pos"], true)
 
 
 ## T【Excalibur】：选一个方向，主射线打到棋盘边缘；主射线相邻的癌组织各有 60% 概率被波及。
