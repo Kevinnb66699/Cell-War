@@ -55,13 +55,12 @@ const CELL_FOOT_DY := 6.0
 ## 五项全亮（2026-08-29 深夜起）。「继续对局」的 enabled 是**基础开关**，
 ## 实际亮灭还要有存档才行 —— 动态部分见 _item_enabled()，键盘跳灰用
 ## enabled_mask() 现算。
-## 「自定义对局」（2026-09-03 Kevin）= 同一张配置面板多出「癌症A/B/C 种类」几行，让人挑初始癌种；
-## 「开始对局」照旧随机抽。八项行距 28（九项时 26、七项时 34、六项时 38），首项 278、末项底边 502：
+## 「自定义对局」已并入「开始对局」的配置面板，由面板内的「对局类型」切换。
+## 主菜单只保留一个开始入口。七项行距 28，首项 278、末项底边 474：
 ## 2026-09-05 加到九项后整块（副标题 / 标题 / 竖线 / 菜单项）上移 14px，底部留 26px（Kevin 选乙案）；
 ## 2026-09-06 Kevin 把「规则速查」从主菜单去掉（只留 Esc 菜单那份，CWRulesPage 类还在），首项位置不动、行距回到 28。
 const ITEMS := [
 	{"node": "Start", "enabled": true},
-	{"node": "Custom", "enabled": true},
 	{"node": "Online", "enabled": true},
 	{"node": "Continue", "enabled": true},
 	{"node": "Codex", "enabled": true},
@@ -557,9 +556,7 @@ func _activate(i: int) -> void:
 		return
 	match ITEMS[i]["node"]:
 		"Start":
-			_open_config(false)
-		"Custom":
-			_open_config(true)
+			_open_config()
 		"Online":
 			_open_online()
 		"Continue":
@@ -580,10 +577,10 @@ func _activate(i: int) -> void:
 			_open_confirm()
 
 
-## 「开始对局」/「自定义对局」→ 槽位换面板：菜单整层（含左侧暗罩）淡出，对局配置在同一位置淡入。
+## 「开始对局」→ 槽位换面板：菜单整层（含左侧暗罩）淡出，对局配置在同一位置淡入。
 ## 配置面板自带一份暗罩，所以菜单可以整层走——内容换、位置不换（原型的基本语法）。
-## custom = 自定义对局：同一张面板多出癌种几行（CWConfigPanel.custom），取值局间各自保留。
-func _open_config(custom: bool = false) -> void:
+## 标准 / 自定义由 CWConfigPanel 内部切换，取值局间保留。
+func _open_config() -> void:
 	if _swap != null and _swap.is_running():
 		return
 	if _config == null:
@@ -592,7 +589,6 @@ func _open_config(custom: bool = false) -> void:
 		_config.confirmed.connect(func(cfg: Dictionary) -> void:
 			start_requested.emit(cfg))
 		_config.cancelled.connect(_close_config)
-	_config.custom = custom
 	## 淡到 0 的 Control 照样挡点击（dismiss 踩过的同一坑），先把菜单项摘掉
 	for label in _labels:
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE

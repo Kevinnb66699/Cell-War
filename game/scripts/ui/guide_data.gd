@@ -1,283 +1,260 @@
-## guide_data.gd —— 新手引导剧本数据（纯静态、无状态）
+## guide_data.gd —— 16 关新手引导剧本数据（纯静态、无状态）
 ##
-## 设计目标：把「一步一步教新手熟悉机制」这件事写成**数据**，UI 与桥只负责
-## 照着演。引导不硬锁对局：剧本里每个需要玩家操作的步骤都只提供提示与可选演示，
-## 玩家做错就继续提示，绝不拦住引擎。
-##
-## 剧本按「关卡 + 步骤」组织。关卡是主题块（关卡 1: 认识棋盘/目标；关卡 2: 落子/移动/
-## 净化；关卡 3: 攻击/判定；关卡 4: 抽卡/手牌/分化；关卡 5: 世界回合/收尾/自由游玩）。
-## 每一关的步骤绝大多数是「展示型」（只需要玩家点继续），少数是「操作型」
-## （由 CWGuideBridge 在等玩家作答时喂提示）。
-##
-## steps() 是纯函数：数字一律现读 CWData / CWTuning 默认值，不在这里写第二份。
+## 教程只描述现行规则，不复制规则计算。所有数字从 CWData / CWTuning 读取；
+## 每步正文最多两行，细节交给高亮、悬停详情和知识之书。
 class_name CWGuideData
 extends RefCounted
 
-## 引导剧本有几关
-const CHAPTER_COUNT := 6
+const CHAPTER_COUNT := 16
 
-## 每关在 CWCodex 里对应的章节目录下标（详见 cw_codex.chapters()）。
-## 通过这个挂钩，玩家在引导面板里点「翻到知识之书」能直达正在学的内容。
-const CODEX_PAGE := [0, 4, 5, 6, 3, 8]
+## 每关对应的 CWCodex 章节下标。
+const CODEX_PAGE := [4, 4, 5, 3, 3, 1, 1, 9, 2, 6, 7, 3, 10, 6, 0, 12]
 
-## 关卡名（也用于进度显示）
+
 static func chapter_titles() -> Array[String]:
 	return [
-		"认识棋盘",
-		"落子与移动",
-		"攻击与判定",
-		"抽卡与手牌",
-		"世界回合",
-		"细胞图鉴",
+		"苏醒", "病灶", "第一次接触", "时间开始流动",
+		"另一种生命", "建立据点", "组织里的基础设施", "基因表达",
+		"免疫记忆", "分化", "癌症并不只有一种", "肿瘤微环境",
+		"世界并不稳定", "终末免疫", "怎样真正赢下一局", "毕业战",
 	]
 
-## 关卡一句概括（新手引导目录页用）
+
 static func chapter_subtitles() -> Array[String]:
 	return [
-		"先看懂目标、棋盘和地形。",
-		"学会落子、迁移，以及把癌组织净化回健康。",
-		"看懂骰子、攻击成功与失败，学习进攻节奏。",
-		"学会抽卡、读卡、打开/弃置手牌，了解分化入口。",
-		"看懂一整个世界回合，然后自由开始你的第一局。",
-		"九种细胞一页看懂：谁是谁、怎么用、怕什么。",
+		"落子、迁移与能量。", "净化癌组织，攒抗原记忆。",
+		"第一次向癌细胞出手。", "世界回合的 S 与 E。",
+		"换癌方视角看扩张。", "固化与复活据点。",
+		"三种特殊组织。", "卡牌与手牌。",
+		"记忆、等级与卡池。", "四种免疫分化方向。",
+		"四种真实癌症。", "压迫、增生、侵蚀、坏死。",
+		"全场规则突变。", "X 级与效应应答。",
+		"真正的胜利条件。", "自由对局开始。",
 	]
 
-## 关卡图标：00/01/02/03/04（UI 画步骤进度用）
+
 static func chapter_step_count(chapter: int) -> int:
 	return steps(chapter).size()
 
-## 返回某一关的步骤数组。
-## 每步字段：
-##   t  标题（短，面板标题栏用）
-##   b  正文行（已折好的一行一元素，10px 字体固定 15px 行高）
-##   flag 可选：本步骤需要在棋盘/界面高亮哪块视觉（guide.gd 按名字找）
-##   act 可选：等玩家操作时交给 CWGuideBridge 的提示键，也是它的 STEPS 索引
+
+## 字段：t 标题；b 正文；flag 高亮目标；act 动作提示；watch 真实状态完成键。
 static func steps(chapter: int) -> Array:
 	match chapter:
-		0: return _chapter_intro()
-		1: return _chapter_placement()
-		2: return _chapter_attack()
-		3: return _chapter_cards()
-		4: return _chapter_world()
-		5: return _chapter_cells()
+		0: return _stage_awaken()
+		1: return _stage_lesion()
+		2: return _stage_contact()
+		3: return _stage_time()
+		4: return _stage_cancer_life()
+		5: return _stage_stronghold()
+		6: return _stage_infrastructure()
+		7: return _stage_genes()
+		8: return _stage_memory()
+		9: return _stage_differentiate()
+		10: return _stage_cancer_types()
+		11: return _stage_microenvironment()
+		12: return _stage_events()
+		13: return _stage_effector()
+		14: return _stage_victory()
+		15: return _stage_graduation()
 		_: return []
 
 
 static func total_steps() -> int:
-	var n := 0
-	for i in CHAPTER_COUNT:
-		n += steps(i).size()
-	return n
+	var total := 0
+	for chapter in CHAPTER_COUNT:
+		total += steps(chapter).size()
+	return total
 
 
-## ---- 第一关：认识棋盘 ----
-static func _chapter_intro() -> Array:
+static func _stage_awaken() -> Array:
 	var tune := CWTuning.new()
 	return [
-		{ "t": "欢迎来到细胞战争", "flag": "", "b": [
-			"这一套新手引导会带你走完一整局基础流程。",
-			"我会像教练一样陪伴你：一边讲一边让你亲手操作。",
-			"想随时退出时，点面板左下角「跳过引导」即可。",
-		] },
-		{ "t": "这一局的目标", "flag": "", "b": [
-			"你扮演免疫方，AI 扮演癌方。",
-			"免疫要清剿所有癌细胞，并且没有可供复活的固化癌组织。",
-			"癌方要把癌组织铺开，让加权占地达到 %d。" % tune.cancer_win_weighted,
-		] },
-		{ "t": "认识棋盘", "flag": "board", "b": [
-			"六边形棋盘共 %d 格。" % CWData.TOTAL_TILES,
-			"青绿色是健康组织，红色是癌组织。",
-			"悬停任意格稍候，会弹出那一格的地形详情。",
-		] },
-		{ "t": "三种特殊组织", "flag": "special", "b": [
-			"代谢核心：健康时每 %d 个世界回合存 %s 能量（最多 %s），踩上去当场收走。" % [
-				CWData.CORE_HEALTHY_PERIOD, CWData.fmt(CWData.CORE_HEALTHY_GAIN), CWData.fmt(CWData.CORE_STORE_MAX)],
-			"骨髓：踩上去拿卡，也是免疫复活的锚点。",
-			"血管：S 阶段把站在上面的细胞传到另一端；黑色素瘤在血管上还能【血行转移】。",
-			"血管永远不会固化，别指望在上面蹲出复活据点。",
-		] },
-		{ "t": "看完这页就动手", "flag": "", "b": [
-			"接下来我会带你把第一个免疫细胞放到棋盘上。",
-			"不用紧张，做错也不会有惩罚。",
-		] },
-	]
-
-
-## ---- 第二关：落子与移动 ----
-static func _chapter_placement() -> Array:
-	var tune := CWTuning.new()
-	return [
-		{ "t": "第一步：落子", "flag": "place", "act": "place", "b": [
-			"开局要轮流把细胞放到棋盘上。",
-			"点一个高亮的健康组织，把免疫细胞放下去。",
-			"我建议选在紧邻癌区外侧的健康组织上，方便下一步进攻。",
-		] },
+		{ "t": "欢迎来到细胞战争", "flag": "board", "b": [
+			"你执免疫方，AI 执癌方。", "做错不惩罚——跟着高亮走就好。"] },
+		{ "t": "第一步：落子", "flag": "place", "act": "place", "watch": "placed", "b": [
+			"开局轮流把细胞放上棋盘。", "点一个高亮的健康组织。"] },
 		{ "t": "能量就是生命", "flag": "energy", "b": [
-			"右侧竖条显示你当前的能量。开局免疫 %s、癌方 %s。" % [
-				CWData.fmt(tune.init_energy_immune), CWData.fmt(tune.init_energy_cancer)],
-			"行动要花能量；支付不能让能量降到 0，归零就死亡。",
-		] },
-		{ "t": "第二步：迁移", "flag": "move", "act": "move", "b": [
-			"轮到你时，点底部「迁移」按钮，再点一个高亮的相邻健康组织。",
-			"走进癌组织会自动【净化】，并让免疫 +1 抗原记忆。",
-		] },
-		{ "t": "净化与记忆", "flag": "purify", "b": [
-			"净化把癌组织变回健康组织，这是免疫争夺地盘的基本方式。",
-			"每净化一格 +1 抗原记忆；记忆到 %d 升 II 级、%d 升 III 级、%d 升 X 级。" % [
-				CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2], CWData.LEVEL_MIN_MEMORY[3]],
-		] },
+			"行动花能量，归零即死。", "开局免疫 %s、癌方 %s。" % [
+				CWData.fmt(tune.init_energy_immune), CWData.fmt(tune.init_energy_cancer)]] },
+		{ "t": "第二步：迁移", "flag": "move", "act": "move", "watch": "moved", "b": [
+			"点「迁移」再点相邻一格。", "健康组织 %s、癌组织 %s。" % [
+				CWData.fmt(tune.immune_move_healthy[0]), CWData.fmt(tune.immune_move_cancerous[0])]] },
 		{ "t": "别忘了结束回合", "flag": "end", "act": "end", "b": [
-			"一个人可以连续行动多次，直到点右侧「结束回合」（或空格）。",
-		] },
+			"一人可连续行动多次。", "点右侧「结束回合」交棒。"] },
 	]
 
 
-## ---- 第三关：攻击与判定 ----
-static func _chapter_attack() -> Array:
+static func _stage_lesion() -> Array:
+	return [
+		{ "t": "进癌组织＝净化", "flag": "purify", "b": [
+			"免疫走进癌组织，立即净化回健康。", "悬停格子看迁移费用。"] },
+		{ "t": "抗原记忆", "flag": "", "b": [
+			"每净化一格 +1 抗原记忆。", "记忆攒够，免疫升级。"] },
+	]
+
+
+static func _stage_contact() -> Array:
 	var tune := CWTuning.new()
-	var fail := "1-2 失败：免疫被弹回原格"
-	if tune.counter_dmg_on_fail > 0:
-		fail += "，并损失 %s 能量" % CWData.fmt(tune.counter_dmg_on_fail)
-	fail += "。"
-	var limit: Array = ["攻击次数不限，只受能量约束。"]
+	var limit := ["攻击次数不限，只受能量约束。"]
 	if tune.attack_max_per_turn > 0:
-		limit = ["每个免疫细胞每行动回合最多攻击 %d 次。" % tune.attack_max_per_turn,
-			"用完攻击选项会从行动栏消失，普通迁移不受影响。"]
+		limit = ["每行动回合最多攻击 %d 次。" % tune.attack_max_per_turn,
+			"用完按钮变灰，迁移不受影响。"]
 	return [
-		{ "t": "怎么发起攻击", "flag": "attack", "act": "attack", "b": [
-			"免疫走进站有癌细胞的一格就是一次攻击。",
-			"骰子会落在目标格上方演一遍；结算说明由引擎给出。",
-		] },
+		{ "t": "走进癌细胞＝攻击", "flag": "attack", "act": "attack", "b": [
+			"迁向站有癌细胞的一格就是攻击。", "骰子会落在目标格旁。"] },
 		{ "t": "看懂骰子", "flag": "d6", "b": [
-			fail,
-			"3-5 成功：目标失去 %s 能量。" % CWData.fmt(tune.attack_dmg_success),
-			"6 大成功：目标失去 %s 能量。" % CWData.fmt(tune.attack_dmg_crit),
-		] },
+			"1-2 失败弹回并自伤 %s。" % CWData.fmt(tune.counter_dmg_on_fail),
+			"3-5 成功 -%s、6 大成功 -%s。" % [
+				CWData.fmt(tune.attack_dmg_success), CWData.fmt(tune.attack_dmg_crit)]] },
 		{ "t": "攻击次数", "flag": "attack_limit", "b": limit },
-		{ "t": "失败也会发生", "flag": "", "b": [
-			"进攻不是稳赢：失败会丢能量、又站回原位。",
-			"学会在能量充裕、角度占优时出手。",
-		] },
-		{ "t": "进攻节奏", "flag": "", "b": [
-			"清剿癌细胞前先想：它踩在什么组织上？旁边有没有友军/地形加成？",
-			"用净化扩张地盘，用攻击拔除威胁，两者交替。",
-		] },
 	]
 
 
-## ---- 第四关：抽卡与手牌 ----
-static func _chapter_cards() -> Array:
+static func _stage_time() -> Array:
+	return [
+		{ "t": "S → 行动 → E", "flag": "round", "b": [
+			"世界回合先 S 结算、再轮流行动、末了 E。", "右栏顶部看进度。"] },
+		{ "t": "有氧呼吸", "flag": "energy", "b": [
+			"S 阶段每个免疫细胞拿一份能量。", "等级越高拿得越多。"] },
+		{ "t": "E 阶段", "flag": "round", "b": [
+			"压迫、增生、侵蚀、固化都在 E。", "结束回合前想一遍。"] },
+	]
+
+
+static func _stage_cancer_life() -> Array:
+	return [
+		{ "t": "癌方扩张＝定殖", "flag": "cancer_grow", "b": [
+			"癌细胞走进健康组织即转癌。", "这叫【定殖】。"] },
+		{ "t": "无氧呼吸", "flag": "cancer_grow", "b": [
+			"E 阶段按连通块给癌方供能。", "块越大能量越足。"] },
+	]
+
+
+static func _stage_stronghold() -> Array:
 	var tune := CWTuning.new()
 	return [
-		{ "t": "抽卡入口", "flag": "draw", "act": "draw", "b": [
-			"点底部「基因表达」花 %s 抽一张卡。" % CWData.fmt(CWData.IMMUNE_DRAW_COST),
-			"抽到的卡会从你的细胞身上飞进左下角手牌抽屉。",
-		] },
-		{ "t": "三类卡牌", "flag": "card_kinds", "b": [
-			"【事件】：抽到立刻结算并弃置，不进手牌。",
-			"【技能】：进手牌，打出一张就没一张。",
-			"【永久技能】：打出即装备在细胞上，死亡也不掉。",
-		] },
-		{ "t": "读一张卡", "flag": "hand_card", "b": [
-			"悬停手牌会抬高；左键点牌可以打出/选目标，右键进入弃置确认。",
-			"打牌也消耗一次行动，所以要判断时机。",
-		] },
+		{ "t": "固化计数", "flag": "cancer_grow", "b": [
+			"癌细胞停在癌组织上，E 时固化 +1。",
+			"到 %s 变固化癌组织。" % CWData.fmt(tune.solidify_threshold)] },
+		{ "t": "复活据点", "flag": "", "b": [
+			"固化癌组织净化不掉。", "也是癌细胞复活点。"] },
+	]
+
+
+static func _stage_infrastructure() -> Array:
+	return [
+		{ "t": "三种特殊组织", "flag": "special", "b": [
+			"核心存能量、骨髓发卡、血管传送。", "悬停任一格看详情。"] },
+		{ "t": "归属会变", "flag": "special", "b": [
+			"特殊组织也会被定殖。", "谁控制就为谁产资源。"] },
+	]
+
+
+static func _stage_genes() -> Array:
+	return [
+		{ "t": "抽卡", "flag": "draw", "act": "draw", "b": [
+			"「基因表达」花 %s 抽一张。" % CWData.fmt(CWData.IMMUNE_DRAW_COST),
+			"每回合最多 %d 次。" % CWData.DRAW_MAX_PER_TURN] },
+		{ "t": "三类卡", "flag": "card_kinds", "b": [
+			"事件立即结算、技能进手牌。", "永久技能装上一直生效。"] },
+		{ "t": "读卡与打出", "flag": "hand_card", "b": [
+			"悬停手牌看效果原文。", "双击打出、右键双击弃置。"] },
 		{ "t": "手牌上限", "flag": "hand_limit", "b": [
-			"每个细胞最多持有 %d 张牌，超了要弃到 %d 张。" % [CWData.HAND_MAX, CWData.HAND_MAX],
-			"骨髓每 %d 个世界回合还会发一张卡，别忘了去收。" % CWData.MARROW_HEALTHY_PERIOD,
-		] },
-		{ "t": "分化预览", "flag": "differentiate", "b": [
-			"免疫等级升到 %s 后可以免费分化（B/T/巨噬/树突）。" % CWData.LEVEL_NAMES[tune.differentiate_min_level],
-			"每种分化全阵营限一个，尽量配齐阵容。",
-		] },
+			"最多持 %d 张，超了要弃。" % CWData.HAND_MAX, "骨髓发的卡记得去收。"] },
 	]
 
 
-## ---- 第五关：世界回合与收尾 ----
-static func _chapter_world() -> Array:
-	var tune := CWTuning.new()
-	## 无氧呼吸写在它实际发生的那一段（eturn=1：各癌细胞回合末；0：E 阶段）
-	var turn := "玩家回合：按行动顺序轮流行动"
-	var e := "E 阶段："
-	if tune.anaerobic_on_turn_end:
-		turn += "；癌细胞结束回合时结算【无氧呼吸】。"
-	else:
-		turn += "。"
-		e += "癌方结算【无氧呼吸】、"
-	e += "微环境压迫、增生、侵蚀、固化，最后判胜负。"
+static func _stage_memory() -> Array:
 	return [
-		{ "t": "一个世界回合", "flag": "round", "b": [
-			"S 阶段：世界事件、特殊组织产出、血管传送，然后复活，免疫拿【有氧呼吸】。",
-			turn,
-			e,
-		] },
-		{ "t": "癌方如何成长", "flag": "cancer_grow", "b": [
-			"癌细胞每走进健康组织就【定殖】一格（花 %s 能量）。" % CWData.fmt(tune.cancer_move_healthy),
-			"癌细胞停在癌组织上会积累固化计数，固化后更像要塞。",
-		] },
-		{ "t": "免疫如何防守", "flag": "immune_defend", "b": [
-			"净化癌组织、清理固化、攻击癌细胞，三件事一起做。",
-			"别让自己的免疫细胞陷在癌区深处（微环境压迫会扣能量）。",
-		] },
+		{ "t": "记忆与等级", "flag": "", "b": [
+			"净化攒记忆：%d 升 II、%d 升 III、%d 升 X。" % [
+				CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2], CWData.LEVEL_MIN_MEMORY[3]],
+			"升级换更强的卡池。"] },
+		{ "t": "等级收益", "flag": "differentiate", "b": [
+			"III 级起迁癌组织打折。", "还解锁「分化」。"] },
+	]
+
+
+static func _stage_differentiate() -> Array:
+	var tune := CWTuning.new()
+	return [
+		{ "t": "何时分化", "flag": "differentiate", "b": [
+			"%s 解锁、免费、一局一次。" % CWData.LEVEL_NAMES[tune.differentiate_min_level],
+			"全阵营每种限一个。"] },
+		{ "t": "四个方向", "flag": "differentiate", "b": [
+			"B / T / 巨噬 / 树突各有所长。", "图鉴里查技能原文。"] },
+	]
+
+
+static func _stage_cancer_types() -> Array:
+	return [
+		{ "t": "四种真实癌症", "flag": "", "b": [
+			"黑色素瘤会转移、印戒会自爆。", "骨肉瘤会硬化、小细胞跑得快。"] },
+		{ "t": "对位思路", "flag": "", "b": [
+			"悬停癌细胞看种类与能量。", "知识之书查全部技能。"] },
+	]
+
+
+static func _stage_microenvironment() -> Array:
+	return [
+		{ "t": "微环境压迫", "flag": "immune_defend", "b": [
+			"身边癌组织太多，回合末掉能量。", "悬停格子看预计损失。"] },
+		{ "t": "增生与侵蚀", "flag": "round", "b": [
+			"癌组织向邻居增生。", "被包住的健康块会被侵蚀。"] },
+		{ "t": "坏死", "flag": "", "b": [
+			"有些效果把格子变坏死。", "坏死不给有氧供能。"] },
+	]
+
+
+static func _stage_events() -> Array:
+	var tune := CWTuning.new()
+	return [
 		{ "t": "世界事件", "flag": "world_event", "b": [
-			"第 %s 世界回合会触发世界事件。" % CWCodex.event_rounds_text(tune.limit_round),
-			"事件可能同时影响两边，注意右上角/日志的通报。",
-		] },
-		{ "t": "你出师了", "flag": "graduated", "b": [
-			"基础你都会了！可以继续自由游玩这一局。",
-			"回主菜单后，记得用「知识之书」随时查图鉴、看速查。",
-		] },
+			"第 %s 回合全场变规则。" % CWCodex.event_rounds_text(tune.limit_round),
+			"左侧事件列随时查。"] },
 	]
 
 
-## ---- 第六关：细胞图鉴（展示型：九种细胞各一组速览） ----
-static func _chapter_cells() -> Array:
-	var tune := CWTuning.new()
-	var macro := "巨噬细胞：攻击造成损失后回血一半"
-	if tune.macro_heal_purify > 0:
-		macro = "巨噬细胞：每次净化回 %s 能量、攻击后再回血一半" % CWData.fmt(tune.macro_heal_purify)
-	macro += "，跟着大部队越打越富。"
+static func _stage_effector() -> Array:
 	return [
-		{ "t": "免疫主力", "flag": "", "b": [
-			"免疫细胞是开局就有的基础细胞：能迁移、能净化、能攻击。",
-			"净化癌组织 +1 抗原记忆，是免疫争夺地盘的基本方式。",
-			"记住一句话：进癌组织=净化，进癌细胞=攻击。",
-		] },
-		{ "t": "分化阵容 ①", "flag": "differentiate", "b": [
-			"B细胞：花 %s 能量放【抗体】，让邻接健康组织的癌细胞集体受伤。" % CWData.fmt(CWData.ANTIBODY_COST),
-			"T细胞：花 %s 能量【细胞毒素】清癌、%s 能量【裂解】破固化。" % [CWData.fmt(CWData.TOXIN_COST), CWData.fmt(CWData.LYSE_COST)],
-			"两者都要免疫等级 %s 解锁，全阵营各限一个。" % CWData.LEVEL_NAMES[tune.differentiate_min_level],
-		] },
-		{ "t": "分化阵容 ②", "flag": "", "b": [
-			macro,
-			"树突细胞：花 %s 能量建趋化源，免疫靠近少付 %d%%、癌方远离多付 %d%%。" % [
-				CWData.fmt(CWData.CHEMO_COST), 100 - CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT - 100],
-			"它还能给 %d 格内的癌细胞挂【标记】，让下一次受伤翻倍。" % CWData.MARK_RANGE,
-		] },
-		{ "t": "癌方 ①", "flag": "", "b": [
-			"黑色素瘤：在血管上花 %s 能量跳任意健康格并扩散一片癌组织。" % CWData.fmt(CWData.MELANOMA_HOMING_COST),
-			"印戒细胞：弃光全部能量自爆，把周围最多 %d 格拉成癌组织。" % CWData.MUCUS_MAX_CONVERT,
-			"前者要拆机动，后者要防它贴脸自爆。",
-		] },
-		{ "t": "癌方 ②", "flag": "", "b": [
-			"骨肉瘤：花 %s 标记脚下癌组织，%d 回合后直接固化；站在固化组织上受伤只剩 %d%%。" % [
-				CWData.fmt(tune.osteo_ossify_cost), tune.osteo_ossify_rounds, CWData.OSTEO_BARRIER_PERCENT],
-			"小细胞肺癌：移入健康格只花 %s，还能向某方向跃 %d 格。" % [
-				CWData.fmt(tune.sclc_move_healthy), CWData.METASTASIS_RANGE],
-			"速度与滚雪球兼备，别让它把地盘滚大。",
-		] },
-		{ "t": "图鉴速查", "flag": "", "b": [
-			"九种细胞的完整技能都在「知识之书 → 细胞图鉴」里。",
-			"对局中把鼠标悬停到右栏细胞或技能上，也能看技能原文。",
-			"到这里，新手引导就全部完成啦——去自由游玩吧！",
-		] },
+		{ "t": "X 级与效应记忆", "flag": "differentiate", "b": [
+			"X 级后记忆改攒效应记忆。", "攒 %d 份可发动效应应答。" % CWData.EFFECTOR_COST] },
+		{ "t": "效应应答", "flag": "", "b": [
+			"每个分化方向一种终极手段。", "一局一次、足以翻盘。"] },
 	]
 
 
-## 从「教程桥」视角：某个操作步骤要演示/提示的动作键。
-## 返回空串表示这不是一个操作步骤。
+static func _stage_victory() -> Array:
+	var tune := CWTuning.new()
+	return [
+		{ "t": "免疫怎么赢", "flag": "round", "b": [
+			"杀光癌细胞还不够。", "还要清掉可复活的固化据点。"] },
+		{ "t": "癌症怎么赢", "flag": "round", "b": [
+			"加权占地至少 %d，连 %d 个回合末达标。" % [
+				tune.cancer_win_weighted, tune.cancer_win_hold_rounds], "第一次达标只响警报。"] },
+		{ "t": "回合上限", "flag": "round", "b": [
+			"%d 回合没分胜负按占地判定。" % tune.limit_round,
+			"癌性组织至少 %d 格癌胜。" % tune.limit_cancerous] },
+	]
+
+
+static func _stage_graduation() -> Array:
+	return [
+		{ "t": "你出师了", "flag": "graduated", "b": [
+			"接下来是自由对局。", "知识之书随时查规则。"] },
+	]
+
+
 static func act_of(chapter: int, step: int) -> String:
-	var s: Array = steps(chapter)
-	if step < 0 or step >= s.size():
+	var chapter_steps: Array = steps(chapter)
+	if step < 0 or step >= chapter_steps.size():
 		return ""
-	return str(s[step].get("act", ""))
+	return str(chapter_steps[step].get("act", ""))
+
+
+## placed / moved 只观察真实局面；空串表示讲解型步骤。
+static func watch_of(chapter: int, step: int) -> String:
+	var chapter_steps: Array = steps(chapter)
+	if step < 0 or step >= chapter_steps.size():
+		return ""
+	return str(chapter_steps[step].get("watch", ""))

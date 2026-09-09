@@ -138,6 +138,12 @@ func _advance() -> void:
 	## 正在教的这一步能代做（落子 / 结束回合 / 抽卡）且引擎正等着玩家 → 先替玩家做了，再按剧本翻页
 	if demo.is_valid():
 		demo.call()
+	_turn_page()
+
+
+## 只翻页、不做动作。状态推进（check_progress）专用：动作玩家已亲手完成，
+## 再走 demo 等于替玩家多做一次他已经做过的事。
+func _turn_page() -> void:
 	_step += 1
 	while _chapter < CWGuideData.CHAPTER_COUNT and _step >= CWGuideData.steps(_chapter).size():
 		## 这一章看完了：记到进度。
@@ -227,6 +233,41 @@ func step_no() -> int:
 	return _step
 
 
+## ---- 状态推进：带 watch 的步骤由真实局面判定完成 ----
+## 哨兵 = 没有人类席 / 细胞还没落（与 board.NO_TILE 同一约定）
+const WATCH_NONE := Vector2i(9999, 9999)
+## watch=moved 的基线：步骤成为当前的这一刻人类细胞在哪（_render 里取）
+var _watch_pos := WATCH_NONE
+
+
+## 每帧由 CWMatch._process 喂：当前步骤带 watch 且真实局面已满足 → 自动翻页（不代做）。
+## 讲解型步骤（无 watch）不经过这里，仍只认「继续」。
+func check_progress() -> void:
+	if not active:
+		return
+	match CWGuideData.watch_of(_chapter, _step):
+		"placed":
+			if _human_pos() != WATCH_NONE:
+				_turn_page()
+		"moved":
+			var now := _human_pos()
+			if now != WATCH_NONE and now != _watch_pos:
+				_turn_page()
+
+
+## 人类席位细胞的当前位置。不走 cell_of（按 id 直取，未落子时会越界），按 pid 现找。
+func _human_pos() -> Vector2i:
+	if _match == null or not is_instance_valid(_match) or _match.game == null:
+		return WATCH_NONE
+	if _match.human_players.is_empty():
+		return WATCH_NONE
+	var pid: int = _match.human_players[0]
+	for c in _match.game.cells:
+		if int(c["pid"]) == pid and c["alive"]:
+			return c["pos"]
+	return WATCH_NONE
+
+
 func _render() -> void:
 	var all := CWGuideData.steps(_chapter)
 	if all.is_empty():
@@ -260,6 +301,8 @@ func _render() -> void:
 	_btn.position.x = PANEL.size.x - PAD - _btn.size.x
 	## 引导目录/章节选择放在「完成引导」之后不再重复出现，避免面板太挤
 	_refresh_hint()
+	## watch=moved 的基线在「步骤成为当前」的瞬间取好（渲染即当前）
+	_watch_pos = _human_pos()
 
 
 ## 引导结束时由 CWMatch 调用：隐藏面板并清掉引用

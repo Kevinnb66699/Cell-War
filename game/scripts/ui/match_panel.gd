@@ -820,7 +820,7 @@ static func tip_rows(game: CWGame, pid: int, full: bool) -> Array:
 	var acts: Array = []
 	for act in game.actions.action_kinds(cell):
 		acts.append({ "text": CWData.act_name(act, cell["faction"]),
-			"info": CWCardInfo.describe_act(act, cell["faction"], int(cell["itype"])) })
+			"info": CWCardInfo.describe_act_for(game, cell, act) })
 	if not acts.is_empty():
 		out.append({ "head": "主动技能" })
 		out.append_array(acts)
@@ -876,7 +876,7 @@ func _update_tip(game: CWGame) -> void:
 		return
 	var names := PackedStringArray()
 	for r in rows:
-		names.append(r.get("head", r.get("text", "")))
+		names.append(r.get("head", r.get("text", "")) + str(r.get("info", {}).get("lines", [])))
 	## 分期进键：条目的详情（含分档高亮）是搭框时算好捏在闭包里的，跨期要重搭才会换档
 	var key := "%d|%d|%d|%s" % [pid, int(full), CWCardData.cancer_phase(game.round_no), ",".join(names)]
 	if key == _tip_key and _tip != null:

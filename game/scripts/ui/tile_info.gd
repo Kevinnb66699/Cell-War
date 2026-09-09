@@ -143,6 +143,10 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 		var mark := "　标记 ×%d" % cell["mark_left"] if cell["marked"] else ""
 		rows.append({ "text": "能量 %s%s" % [CWData.fmt(maxi(cell["energy"], 0)), mark],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.TEXT })
+		for status: Dictionary in game.damage.status_rows(cell):
+			rows.append({ "text": "　%s · 【%s】%s" % [status["kind"], status["name"], status["detail"]],
+				"size": CWStyle.SIZE_LABEL,
+				"color": CWStyle.CANCER if status["kind"] == "易伤" else CWStyle.IMMUNE })
 	return rows
 
 
