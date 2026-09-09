@@ -65,6 +65,10 @@ func _ready() -> void:
 	if say != "":
 		_note.text = say
 		await get_tree().create_timer(2.0).timeout
+	## 自己把那层字收掉，别指望 change_scene 顺手释放本节点 ——
+	## 只有「本节点就是 current_scene」时它才会。真机是这样（Boot 就是 main_scene），
+	## 但 tests/screenshot.gd 是 `root.add_child()` 挂的，那时字会一直浮在主菜单上。
+	_note.get_parent().queue_free()
 	get_tree().change_scene_to_file(MAIN_SCENE)
 
 

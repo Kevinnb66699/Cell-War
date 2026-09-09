@@ -21,8 +21,15 @@ const INCOMING := DIR + "/incoming.pck"   ## 下载中的临时文件，校验�
 ## ⚠ **必须在挂载补丁之前读**：它是一个普通资源，补丁完全可以覆盖它 ——
 ## 挂完再读就成了「补丁自己说自己能装」。boot.gd 的顺序保证了这一点。
 const BASE_BUILD := "res://base_build.txt"
-## 挂上补丁之后活过这么久，才认为它是好的。够长到能盖住主场景构建与首帧渲染。
-const PROVE_SEC := 6.0
+## 挂上补丁之后活过这么久，才认为它是好的。够长到能盖住主场景构建与首帧渲染，
+## 又不至于长到「随手开一下就关」都算失败（那种误判由 STRIKES 兜底）。
+const PROVE_SEC := 3.0
+## 连续失败几次才把这一版永久拉黑。
+##
+## **一次不算数**：玩家开了游戏 3 秒内关掉，也会留下「没活到 mark_good」的旗子 ——
+## 2026-09-09 用截图工具验链路时就这么误伤过一个好补丁（进程 5 秒被杀）。
+## 真坏的补丁每次都起不来，两次就够认出来；好补丁被随手关一次不该判死刑。
+const STRIKES := 2
 
 
 static func _cfg() -> ConfigFile:
@@ -53,10 +60,10 @@ static func base_build() -> int:
 	return v
 
 
-## 装崩过、已经被隔离的那个补丁版本号。
+## 装崩过、已经被永久拉黑的那个补丁版本号。
 ##
 ## **没有这条会死循环**：坏补丁挂了 → 下次启动隔离掉 → 但 manifest 还在推同一版 →
-## 又下下来 → 又挂。所以隔离时要把版本号记下来，之后不再碰它。
+## 又下下来 → 又挂。所以确认它真坏（连续 STRIKES 次）之后要把版本号记下来，之后不再碰。
 static func blocked_build() -> int:
 	return int(_cfg().get_value("patch", "blocked", 0))
 
@@ -84,6 +91,8 @@ static func mark_pending() -> void:
 static func mark_good() -> void:
 	var c := _cfg()
 	c.set_value("patch", "pending", false)
+	c.set_value("patch", "fails", 0)        ## 起来了就把之前的误伤计数清零
+	c.set_value("patch", "last_bad", 0)
 	_save(c)
 
 
@@ -95,16 +104,25 @@ static func record(build: int, sha256: String) -> void:
 	_save(c)
 
 
-## 把坏补丁挪开（不删：留着好查为什么坏的），记下它的版本号别再下，并清空其余记录
+
+## 把没能正常启动的补丁挪开（不删：留着好查为什么坏的），跑原版。
+##
+## **攒够 STRIKES 次才永久拉黑**：只失败一次的话下次会重新下回来，给它第二次机会 ——
+## 那一次很可能只是玩家随手把游戏关了。真坏的补丁两次都起不来，照样拉黑。
+## 补丁只有几十 KB，多下一次的代价可以忽略；误伤一个好补丁的代价是玩家永远收不到修复。
 static func quarantine() -> void:
 	var bad := installed_build()
+	var prev := _cfg()
+	var fails := int(prev.get_value("patch", "fails", 0)) + 1 		if int(prev.get_value("patch", "last_bad", 0)) == bad else 1
 	if FileAccess.file_exists(PCK):
 		DirAccess.rename_absolute(PCK, DIR + "/bad.pck")
 	var c := ConfigFile.new()
 	c.set_value("patch", "build", 0)
 	c.set_value("patch", "sha256", "")
 	c.set_value("patch", "pending", false)
-	if bad > 0:
+	c.set_value("patch", "last_bad", bad)
+	c.set_value("patch", "fails", fails)
+	if bad > 0 and fails >= STRIKES:
 		c.set_value("patch", "blocked", bad)   ## 见 blocked_build()：不记就会无限重下同一个坏包
 	_save(c)
 
