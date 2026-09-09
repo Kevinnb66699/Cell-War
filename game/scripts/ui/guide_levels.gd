@@ -23,6 +23,11 @@ static func count() -> int:
 	return RADII.size()
 
 
+## 第 level 关的实验区数（第 10/11 关四个小实验区，其余 1）
+static func zones(level: int) -> int:
+	return 4 if level == 9 or level == 10 else 1
+
+
 ## 第 level 关（0 起）的棋盘半径
 static func radius(level: int) -> int:
 	return RADII[level]
@@ -113,6 +118,64 @@ static func raw(level: int) -> Dictionary:
 				"cancer_tiles": [Vector2i(1, 0), Vector2i(1, 1)],
 				"cells": [
 					{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO, "energy": 40 },
+				],
+			}
+		8:
+			return {
+				"radius": RADII[8],
+				## 第 9 关「免疫记忆」：抗原记忆 8/10，两格易净化癌组织推到升级
+				"memory": 8,
+				"cancer_tiles": [Vector2i(1, 0), Vector2i(1, 1)],
+				"cells": [
+					{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO },
+				],
+			}
+		9:
+			return {
+				"radius": RADII[9],
+				## 第 10 关「分化」：四个实验区（树突 / 巨噬 / B / T），局面字段在各区里
+				"zones": [
+					{   ## 10A 树突状细胞：玩家树突 + 盟友免疫 + 癌细胞同场
+						"cells": [
+							{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO,
+								"itype": CWData.ImmuneType.DENDRITIC },
+							{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i(0, 1),
+								"itype": CWData.ImmuneType.BASIC },
+							{ "faction": CWData.Faction.CANCER, "pos": Vector2i(2, 0),
+								"energy": 30 },
+						],
+					},
+					{   ## 10B 巨噬细胞：玩家能量较低 + 连续 3 格癌组织待吞噬净化
+						"cancer_tiles": [Vector2i(1, 0), Vector2i(2, 0), Vector2i(3, 0)],
+						"cells": [
+							{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO,
+								"itype": CWData.ImmuneType.MACRO, "energy": 10 },
+						],
+					},
+					{   ## 10C B 细胞：边缘 3 个与健康组织接触的癌细胞
+						"cells": [
+							{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO,
+								"itype": CWData.ImmuneType.B_CELL },
+							{ "faction": CWData.Faction.CANCER, "pos": Vector2i(4, 0),
+								"energy": 30 },
+							{ "faction": CWData.Faction.CANCER, "pos": Vector2i(4, -2),
+								"energy": 30 },
+							{ "faction": CWData.Faction.CANCER, "pos": Vector2i(4, -4),
+								"energy": 30 },
+						],
+					},
+					{   ## 10D T 细胞：普通癌组织若干 + 固化癌组织（上站癌细胞）
+						"cancer_tiles": [Vector2i(1, 1), Vector2i(2, 0)],
+						"tile_extras": {
+							Vector2i(1, 0): { "tissue": CWData.Tissue.SOLID },
+						},
+						"cells": [
+							{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO,
+								"itype": CWData.ImmuneType.T_CELL },
+							{ "faction": CWData.Faction.CANCER, "pos": Vector2i(1, 0),
+								"energy": 30 },
+						],
+					},
 				],
 			}
 		15:

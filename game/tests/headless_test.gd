@@ -7683,6 +7683,73 @@ func t_guide_director() -> void:
 			if g8.tiles[c]["tissue"] == CWData.Tissue.CANCER:
 				n_c8 += 1
 		check(n_c8 == 2, "第 8 关癌组织测试目标 2 格（%d）" % n_c8)
+	## 第 9 关「免疫记忆」：61 格、抗原记忆 8/10、两格易净化癌组织
+	var g9 := CWGuideDirector.assemble(8)
+	check(g9 != null and g9.tiles.size() == 61, "第 9 关棋盘 61 格")
+	if g9 != null:
+		check(g9.memory == 8, "第 9 关抗原记忆 8/10（当前 %d）" % g9.memory)
+		var n_c9 := 0
+		for c in g9.tiles:
+			if g9.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				n_c9 += 1
+		check(n_c9 == 2 and g9.cells.size() == 1,
+			"第 9 关两格易净化癌组织 + 一枚免疫细胞（%d 细胞 / %d 格）" % [g9.cells.size(), n_c9])
+	## 第 10 关「分化」：四个实验区，zones() 报数、每区都是真实 61 格局面
+	check(CWGuideLevels.zones(9) == 4, "第 10 关有四个实验区（%d）" % CWGuideLevels.zones(9))
+	for z in 4:
+		var gz := CWGuideDirector.assemble(9, z)
+		check(gz != null and gz.tiles.size() == 61, "第 10 关实验区 %d 棋盘 61 格" % z)
+	## 10A 树突状细胞区：玩家树突 + 盟友免疫 + 癌细胞同场
+	var g10a := CWGuideDirector.assemble(9, 0)
+	if g10a != null:
+		var nd := 0
+		var na := 0
+		var nc10 := 0
+		for c in g10a.cells:
+			if c["faction"] == CWData.Faction.CANCER:
+				nc10 += 1
+			elif c["itype"] == CWData.ImmuneType.DENDRITIC:
+				nd += 1
+			elif c["itype"] == CWData.ImmuneType.BASIC:
+				na += 1
+		check(nd == 1 and na == 1 and nc10 == 1,
+			"10A：树突 + 盟友免疫 + 癌细胞各一（%d/%d/%d）" % [nd, na, nc10])
+	## 10B 巨噬细胞区：玩家巨噬 + 连续 3 格癌组织待净化
+	var g10b := CWGuideDirector.assemble(9, 1)
+	if g10b != null:
+		check(g10b.cells.size() >= 1 and g10b.cells[0]["itype"] == CWData.ImmuneType.MACRO,
+			"10B：玩家是巨噬细胞")
+		var b_c := 0
+		for c in g10b.tiles:
+			if g10b.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				b_c += 1
+		check(b_c == 3, "10B：连续 3 格癌组织（%d）" % b_c)
+	## 10C B细胞区：玩家 B 细胞 + 边缘 3 个癌细胞
+	var g10c := CWGuideDirector.assemble(9, 2)
+	if g10c != null:
+		var is_b := false
+		var n_cc := 0
+		for c in g10c.cells:
+			if c["faction"] == CWData.Faction.CANCER:
+				n_cc += 1
+			elif c["itype"] == CWData.ImmuneType.B_CELL:
+				is_b = true
+		check(is_b and n_cc == 3, "10C：B 细胞 + 边缘 3 个癌细胞（%d）" % n_cc)
+	## 10D T细胞区：玩家 T 细胞 + 固化癌组织 + 癌细胞
+	var g10d := CWGuideDirector.assemble(9, 3)
+	if g10d != null:
+		var is_t := false
+		var has_foe := false
+		for c in g10d.cells:
+			if c["faction"] == CWData.Faction.CANCER:
+				has_foe = true
+			elif c["itype"] == CWData.ImmuneType.T_CELL:
+				is_t = true
+		var has_solid := false
+		for c in g10d.tiles:
+			if g10d.tiles[c]["tissue"] == CWData.Tissue.SOLID:
+				has_solid = true
+		check(is_t and has_foe and has_solid, "10D：T 细胞 + 癌细胞 + 固化癌组织")
 	## 第 16 关「毕业战」：正式规则原样 —— 127 格、3 核 6 髓 2 管、四人行动序
 	var g16 := CWGuideDirector.assemble(15)
 	check(g16 != null, "第 16 关装配出真实 CWGame")

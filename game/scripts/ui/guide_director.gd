@@ -13,17 +13,24 @@
 class_name CWGuideDirector
 
 
-## 装配第 level 关（0 起）的开局局面。返回未推进流程的真实 CWGame。
-static func assemble(level: int) -> CWGame:
+## 装配第 level 关（0 起）的开局局面；带实验区的关用 zone 选区（默认 0）。
+## 返回未推进流程的真实 CWGame。
+static func assemble(level: int, zone: int = 0) -> CWGame:
 	var fx := CWGuideLevels.raw(level)
 	var formal := bool(fx.get("formal", false))
+	## 实验区：分区关的局面字段在 zones[zone] 里，半径关级共享
+	var zf: Dictionary = fx
+	if fx.has("zones"):
+		var zs: Array = fx["zones"]
+		zf = zs[clampi(zone, 0, zs.size() - 1)] if not zs.is_empty() else {}
+		zf["radius"] = fx.get("radius", CWGuideLevels.radius(level))
 	var factions: Array = CWData.FACTION_ORDER[4] if formal else CWData.FACTION_ORDER[2]
 	var g := CWGame.new()
 	## 种子按关派生：同关可复现、异关不串线；正式对局的种子不经过这里
 	g.init(factions, 20260910 + level)
-	g.setup.build_board(int(fx.get("radius", CWData.BOARD_RADIUS)))
+	g.setup.build_board(int(zf.get("radius", CWData.BOARD_RADIUS)))
 	if not formal:
-		_apply_fixture(g, fx)
+		_apply_fixture(g, zf)
 	return g
 
 
@@ -32,6 +39,8 @@ static func assemble(level: int) -> CWGame:
 static func _apply_fixture(g: CWGame, fx: Dictionary) -> void:
 	for c in g.tiles:
 		g.tiles[c]["special"] = CWData.Special.NONE
+	if fx.has("memory"):
+		g.memory = int(fx["memory"])   ## 抗原记忆（阵营共享）；等级由记忆推导，无需另设
 	for c in fx.get("cancer_tiles", []):
 		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
 	for c in fx.get("tile_extras", {}):
