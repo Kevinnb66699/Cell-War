@@ -708,17 +708,17 @@ const DIRS: Array[Vector2i] = [
 ]
 
 
-static func is_on_board(c: Vector2i) -> bool:
-	return abs(c.x) <= BOARD_RADIUS and abs(c.y) <= BOARD_RADIUS \
-		and abs(c.x + c.y) <= BOARD_RADIUS
+static func is_on_board(c: Vector2i, radius := BOARD_RADIUS) -> bool:
+	return abs(c.x) <= radius and abs(c.y) <= radius \
+		and abs(c.x + c.y) <= radius
 
 
-static func all_coords() -> Array[Vector2i]:
+static func all_coords(radius := BOARD_RADIUS) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
-	for q in range(-BOARD_RADIUS, BOARD_RADIUS + 1):
-		for r in range(-BOARD_RADIUS, BOARD_RADIUS + 1):
+	for q in range(-radius, radius + 1):
+		for r in range(-radius, radius + 1):
 			var c := Vector2i(q, r)
-			if is_on_board(c):
+			if is_on_board(c, radius):
 				out.append(c)
 	return out
 

@@ -23,8 +23,8 @@ func finish() -> void:
 	game.log_msg("—— 开局完成，进入世界回合 ——")
 
 
-func build_board() -> void:
-	for c in CWData.all_coords():
+func build_board(radius := CWData.BOARD_RADIUS) -> void:
+	for c in CWData.all_coords(radius):
 		game.tiles[c] = make_tile(c)
 
 

@@ -121,7 +121,7 @@ func _run_all() -> void:
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
 		t_card_name_fit, t_view_blend, t_announce, t_action_bar_width,
 		t_buttons_dim, t_enter_not_skipped, t_main_menu, t_guide_data,
-		t_codex, t_guide_bridge, t_guide_spotlight, t_quit_confirm,
+		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_online_glow, t_match_online,
@@ -7560,6 +7560,87 @@ func t_guide_data() -> void:
 	check(probe.chapter() == 6, "旧进度 done=6 在 16 关制下从第 7 关续读（实际第 %d 关）" % (probe.chapter() + 1))
 	probe.free()
 	CWGuideProgress.clear()
+
+
+## 逐关真实局面导演（16 关重构切片③）：1–15 关用 fixture 在真实 CWGame 上装配开局，
+## 第 16 关走正式规则；教程装配不得污染正式口径。
+func t_guide_director() -> void:
+	print("[教程导演·逐关局面]")
+	## 半径接缝：默认不动正式口径，参数化后各档 = 3r²+3r+1
+	check(CWData.all_coords().size() == CWData.TOTAL_TILES,
+		"all_coords() 默认仍是正式 %d 格（当前 %d）" % [CWData.TOTAL_TILES, CWData.all_coords().size()])
+	for r in range(1, 7):
+		var want := 3 * r * r + 3 * r + 1
+		check(CWData.all_coords(r).size() == want,
+			"all_coords(%d) 蜂窝 %d 格（当前 %d）" % [r, want, CWData.all_coords(r).size()])
+	## 逐关局面声明：16 关齐、半径按方案表、第 5 关癌症视角
+	check(CWGuideLevels.count() == CWGuideData.CHAPTER_COUNT,
+		"每关都有局面声明（%d/%d）" % [CWGuideLevels.count(), CWGuideData.CHAPTER_COUNT])
+	var want_radius := [1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 6]
+	var bad_radius: Array = []
+	for i in want_radius.size():
+		if CWGuideLevels.radius(i) != want_radius[i]:
+			bad_radius.append("%d:%d≠%d" % [i, CWGuideLevels.radius(i), want_radius[i]])
+	check(bad_radius.is_empty(), "半径按方案递增 7/19/19/19/37×4/61×7/127（坏：%s）" % str(bad_radius))
+	check(CWGuideLevels.player_faction(4) == CWData.Faction.CANCER
+		and CWGuideLevels.player_faction(0) == CWData.Faction.IMMUNE,
+		"第 5 关癌症视角、第 1 关免疫视角")
+	## 第 1 关「苏醒」：7 格全健康 + 一枚免疫细胞 (0,0) 3.0 能量，装配不推进流程
+	var g1 := CWGuideDirector.assemble(0)
+	check(g1 != null, "第 1 关装配出真实 CWGame")
+	if g1 == null:
+		return
+	check(g1.tiles.size() == 7, "第 1 关棋盘 7 格（当前 %d）" % g1.tiles.size())
+	var sick: Array = []
+	for c in g1.tiles:
+		if g1.tiles[c]["tissue"] != CWData.Tissue.HEALTHY:
+			sick.append(c)
+	check(sick.is_empty(), "第 1 关开局全是健康组织（%s）" % str(sick))
+	check(g1.cells.size() == 1 and g1.cells[0]["pos"] == Vector2i.ZERO
+		and g1.cells[0]["faction"] == CWData.Faction.IMMUNE
+		and g1.cells[0]["energy"] == CWData.INIT_ENERGY,
+		"第 1 关：免疫细胞一枚在 (0,0)、能量 3.0（%s）" % str(g1.cells))
+	check(g1.round_no == 1 and g1.flow["stage"] == "init",
+		"第 1 关装配不推进流程（%s / 第 %d 回合）" % [str(g1.flow["stage"]), g1.round_no])
+	## 第 3 关「第一次接触」：19 格、(0,0) 免疫 6.0、(1,0) 癌 3.0、目标格癌组织
+	var g3 := CWGuideDirector.assemble(2)
+	check(g3 != null and g3.tiles.size() == 19, "第 3 关棋盘 19 格")
+	if g3 != null:
+		var me := {}
+		var foe := {}
+		for c in g3.cells:
+			if c["faction"] == CWData.Faction.IMMUNE:
+				me = c
+			elif c["faction"] == CWData.Faction.CANCER:
+				foe = c
+		check(not me.is_empty() and me["pos"] == Vector2i.ZERO and me["energy"] == 60,
+			"第 3 关玩家 (0,0) 免疫细胞 6.0 能量（%s）" % str(me))
+		check(not foe.is_empty() and foe["pos"] == Vector2i(1, 0) and foe["energy"] == 30,
+			"第 3 关敌方癌细胞 (1,0) 3.0 能量（%s）" % str(foe))
+		check(g3.tiles[Vector2i(1, 0)]["tissue"] == CWData.Tissue.CANCER,
+			"第 3 关目标格 (1,0) 是癌组织")
+	## 第 16 关「毕业战」：正式规则原样 —— 127 格、3 核 6 髓 2 管、四人行动序
+	var g16 := CWGuideDirector.assemble(15)
+	check(g16 != null, "第 16 关装配出真实 CWGame")
+	if g16 != null:
+		check(g16.tiles.size() == CWData.TOTAL_TILES,
+			"第 16 关是正式 127 格棋盘（当前 %d）" % g16.tiles.size())
+		var n_special := {CWData.Special.CORE: 0, CWData.Special.MARROW: 0, CWData.Special.VESSEL: 0}
+		for c in g16.tiles:
+			var sp = g16.tiles[c]["special"]
+			if n_special.has(sp):
+				n_special[sp] += 1
+		check(n_special[CWData.Special.CORE] == CWData.CORES.size()
+			and n_special[CWData.Special.MARROW] == CWData.MARROWS.size()
+			and n_special[CWData.Special.VESSEL] == CWData.VESSELS.size(),
+			"第 16 关特殊组织按正式布局 3 核/6 髓/2 管（%s）" % str(n_special))
+		check(g16.order.size() == 4, "第 16 关四人局（%d 名玩家）" % g16.order.size())
+	## 正式隔离：教程装配之后，正式 build_board 仍是 127 格
+	var gf := CWGame.new()
+	gf.init(CWData.FACTION_ORDER[4], 20260909)
+	gf.setup.build_board()
+	check(gf.tiles.size() == CWData.TOTAL_TILES,
+		"教程装配不污染正式口径：build_board() 仍是 127 格（当前 %d）" % gf.tiles.size())
 
 
 ## 状态推进（16 关重构切片①）：教「迁移」的步骤改由真实局面判定完成——
