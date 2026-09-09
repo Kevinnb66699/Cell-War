@@ -732,7 +732,11 @@ func _update_event_tip(game: CWGame) -> void:
 	var wrapped: Array = []                ## 与 items 一一对应的已折行正文
 	var h: float = 8 * 2 + 15
 	for e in items:
-		var ls := CWCardInfo.wrap_text(CWWorldFx.BLURB.get(e["name"], ""), tip_w - 24.0)
+		var blurb: String = CWWorldFx.BLURB.get(e["name"], "")
+		var dl := doubled_line(String(e.get("doubled", "")))
+		if dl != "":
+			blurb += "\n" + dl
+		var ls := CWCardInfo.wrap_text(blurb, tip_w - 24.0)
 		wrapped.append(ls)
 		h += EVENT_NAME_H + ls.size() * EVENT_LINE_H + EVENT_BLOCK_GAP
 	_event_tip = Control.new()
@@ -956,17 +960,39 @@ const EVENT_BLOCK_GAP := 6.0      ## 两个事件之间留的空
 ## 只列世界事件（`is_world_event`），卡牌挂的全局修饰（TGF-β…）不在这里 —— 那些有卡面可查。
 ## `left` 含当前回合：触发当回合的持续事件是「剩2回合」，回合末倒计时后是「剩1回合」。
 ## 写法故意不留空格：两个六字事件并排是 22 个字，232px 的行宽刚好放下；加空格就得省略号。
+## 被【双重触发】加倍的事件，在名字后面加一枚「双重」标（Kevin 2026-09-08：
+## 「不然玩家们不知道有双重触发」）。**三档都要标** —— 原来只有「数值翻倍」那档
+## 因为 stacks>1 顺带露出个「×2」，另外两档（持续翻倍、连演两回合）在界面上
+## 和普通事件一模一样，玩家完全看不出为什么这一条格外难缠。
 static func active_events_text(game: CWGame) -> String:
 	var parts: Array = []
 	for e in game.events["active"]:
 		if not game.world_fx.is_world_event(e):
 			continue
-		var s := "【%s】" % e["name"]
+		var s := "【%s" % e["name"]
+		if String(e.get("doubled", "")) != "":
+			s += "·双重"
+		s += "】"
 		if int(e["stacks"]) > 1:
 			s += "×%d" % int(e["stacks"])
 		s += "本回合" if int(e["left"]) <= 1 else "剩%d回合" % int(e["left"])
 		parts.append(s)
 	return "·".join(PackedStringArray(parts))
+
+
+## 悬浮详情里补的那一句：【双重触发】把这条事件**怎么**加倍了。
+## 三档说的是三件不同的事，不能糊成一句「效果翻倍」——
+## 「数值翻倍」和「多演一个回合」对玩家的应对完全不同。
+static func doubled_line(mode: String) -> String:
+	match mode:
+		"stacks":
+			return "【双重触发】：两份同时生效，数值翻倍"
+		"rounds":
+			return "【双重触发】：持续回合翻倍"
+		"repeat":
+			return "【双重触发】：连续两个回合各完整生效一遍"
+		_:
+			return ""
 
 
 func _put(l: Label, x: float, y: float, w: float,

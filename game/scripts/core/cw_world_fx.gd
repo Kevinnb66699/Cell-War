@@ -9,6 +9,11 @@
 ##   - stacks 叠加层数。正常 1；【双重触发】加倍下一个事件时按**三档**（定案 #49 修订版）：
 ##            持续·数量类 stacks=2（强度×2）；持续·开关类 left=4（一份强度接力 2+2）；
 ##            本回合类 left=2（连续两个回合各完整生效一遍，见 on_round_start 的重演）。
+##   - doubled 被【双重触发】加倍时记下**是哪一档**（"stacks" / "rounds" / "repeat"），
+##            没被加倍就是空串。**只为让界面说得出「这条被双重触发了」**——
+##            光看 left/stacks 反推不出来：left=2 既可能是普通持续事件，
+##            也可能是被加倍的「本回合」类（Kevin 2026-09-08：「不然玩家们不知道有双重触发」）。
+##            旧档没有这个键，读的地方一律 `.get("doubled", "")`。
 ##   - data   事件私有簿记（紊乱=原位 / 营养输送=已领 / 迁移激活=已用），
 ##            键一律用 cell["id"]，随快照深拷贝、进 state_hash。
 ##
@@ -114,18 +119,23 @@ func trigger() -> void:
 	var name: String = pool.pop_at(game.rng.randi_range(0, pool.size() - 1))
 	var stacks := 1
 	var left: int = 2 if DURATION.has(name) else 1
+	var doubled := ""   ## 被加倍的是哪一档；空串 = 没被加倍
 	if game.events["double_next"]:
 		game.events["double_next"] = false
 		if not DURATION.has(name):
 			left = 2   ## 本回合类：连续两个回合各完整生效一遍
+			doubled = "repeat"
 			game.log_msg("【双重触发】【%s】连续两个回合各完整生效一遍" % name)
 		elif STACKABLE.has(name):
 			stacks = 2
+			doubled = "stacks"
 			game.log_msg("【双重触发】【%s】两份同时生效（数值翻倍）" % name)
 		else:
 			left = 4   ## 开关类：一份强度接力 2+2 回合
+			doubled = "rounds"
 			game.log_msg("【双重触发】【%s】改为持续 4 回合" % name)
-	var entry := { "name": name, "left": left, "stacks": stacks, "data": {} }
+	var entry := { "name": name, "left": left, "stacks": stacks,
+		"doubled": doubled, "data": {} }
 	## 【双重触发】的效果全在 double_next 标记里，挂进 active 反而会在回合末
 	## 打出一句误导人的「效果结束」——它不挂，其余事件（含「本回合」类）都挂
 	if name != "双重触发":

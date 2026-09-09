@@ -114,7 +114,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_save_load, t_settings, t_board_view, t_store_ring, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_save_load, t_settings, t_board_view, t_store_ring, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -5143,6 +5143,73 @@ func t_skill_move_price_tag() -> void:
 	check(bridge._cost_text(sclc, "jump")
 			== CWData.fmt(g.actions.skill_move_cost(sclc, g.tune.metastasis_cost)),
 		"【转移】的价签同样跟着世界事件走")
+	g.dispose()
+
+
+## 受【双重触发】影响的世界事件要在界面上标出来（Kevin 2026-09-08：
+## 「不然玩家们不知道有双重触发」）。
+##
+## **三档都要验**。原来只有「数值翻倍」那一档因为 stacks>1 顺带露出个「×2」，
+## 另外两档（持续翻倍、连演两回合）在界面上和普通事件长得一模一样 ——
+## 玩家看不出这一条为什么格外难缠，只会觉得是 bug（血行转移那次就是这么来的）。
+func t_doubled_marker() -> void:
+	print("[双重触发的标记]")
+	var g := make_game(2, 3)
+	g.setup.build_board()
+
+	## ---- ① 引擎：三档各自记下自己是哪一档 ----
+	## 「数值类」持续事件 → stacks=2
+	var got := {}
+	for probe in [{"name": "基质阻隔", "want": "stacks"},      ## 持续 + 可叠
+			{"name": "抗原引导", "want": "rounds"},               ## 持续 + 不可叠（开关类）
+			{"name": "营养缺乏", "want": "repeat"}]:               ## 本回合类
+		var name: String = probe["name"]
+		g.events["active"] = []
+		g.events["pool"] = [name]
+		g.events["double_next"] = true
+		g.world_fx.trigger()
+		var e: Dictionary = {}
+		for x in g.events["active"]:
+			if x["name"] == name:
+				e = x
+		got[name] = String(e.get("doubled", "")) if not e.is_empty() else "（没挂上）"
+		check(got[name] == probe["want"],
+			"【%s】被双重触发 → 记作 %s（实为 %s）" % [name, probe["want"], got[name]])
+
+	## 没有【双重触发】时不该留下标记
+	g.events["active"] = []
+	g.events["pool"] = ["基质阻隔"]
+	g.events["double_next"] = false
+	g.world_fx.trigger()
+	var plain: Dictionary = g.events["active"][0]
+	check(String(plain.get("doubled", "")) == "", "没被双重触发 → 不留标记")
+
+	## ---- ② 界面：名字后面挂「双重」，三档都挂 ----
+	var txt_plain := CWMatchPanel.active_events_text(g)
+	check(not txt_plain.contains("双重"), "普通事件行不出现「双重」（%s）" % txt_plain)
+
+	for mode in ["stacks", "rounds", "repeat"]:
+		g.events["active"] = [{ "name": "基质阻隔", "left": 2, "stacks": 1,
+			"doubled": mode, "data": {} }]
+		var txt := CWMatchPanel.active_events_text(g)
+		check(txt.contains("【基质阻隔·双重】"),
+			"%s 档也挂上了「双重」标（%s）" % [mode, txt])
+
+	## ---- ③ 悬浮详情：三档说三件不同的事 ----
+	var lines := {}
+	for mode in ["stacks", "rounds", "repeat"]:
+		lines[mode] = CWMatchPanel.doubled_line(mode)
+		check(lines[mode] != "", "%s 档有自己的说明" % mode)
+	check(lines["stacks"] != lines["rounds"] and lines["rounds"] != lines["repeat"]
+			and lines["stacks"] != lines["repeat"],
+		"三档的说明各不相同 —— 「数值翻倍」和「多演一个回合」玩家的应对完全不同")
+	check(CWMatchPanel.doubled_line("") == "", "没被加倍时不出这一句")
+
+	## ---- ④ 旧存档没有这个键：不能因为补字段就炸 ----
+	g.events["active"] = [{ "name": "基质阻隔", "left": 2, "stacks": 1, "data": {} }]
+	var old_txt := CWMatchPanel.active_events_text(g)
+	check(old_txt.contains("基质阻隔") and not old_txt.contains("双重"),
+		"旧档（没有 doubled 键）照读不误，也不误标（%s）" % old_txt)
 	g.dispose()
 
 
