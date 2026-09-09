@@ -21,8 +21,12 @@ const ENERGYH = preload("res://assets/art/energy_normal.png")
 const MARROWH = preload("res://assets/art/marrow_normal.png")
 const ENERGYC = preload("res://assets/art/energy_cancer.png")
 const MARROWC = preload("res://assets/art/marrow_cancer.png")
-## 骨髓的「空仓」两张：图标那个框还在，里面的骨头没了。
-## 由 marrow_normal / marrow_cancer 去掉骨头那 26 个像素推出来（2026-09-08）——
+## 骨髓的「空仓」两张：图标那个框照旧，里面的骨头**淡下去**（保留 35% 的图标色）。
+## 由 marrow_normal / marrow_cancer 把骨头那 26 个像素朝底色混出来（2026-09-08）。
+##
+## **为什么是淡化而不是抹掉**：第一版直接删掉，Kevin 说「直接消失在视觉效果上比较怪」——
+## 框会变成一个空洞，像贴图缺了一块。淡化则读成「这里本来有东西、现在没了」。
+## 35% 是三档里试出来的：22% 太淡、几乎还是空洞；50% 和「有卡」的亮度差不够一眼分清。
 ## 美术要重画的话直接换这两个文件，代码不用动。
 const MARROWH_E = preload("res://assets/art/marrow_empty_normal.png")
 const MARROWC_E = preload("res://assets/art/marrow_empty_cancer.png")
