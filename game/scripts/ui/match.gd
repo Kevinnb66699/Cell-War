@@ -242,6 +242,7 @@ var _feed: CWFeed            ## 棋盘左侧的出牌列（打出的卡 / 抽到
 var _feed_seq := 0           ## 已经补到 game.feed_log 的第几条（见 _sync_feed）
 var _chemo_fx: CWChemoFx     ## 树突【I-趋化源】的漩涡核心演出（挂在棋盘层，跟着格子走）
 var _mark_aura_fx: CWMarkAuraFx  ## 树突【I-标记】光环范围的常驻粒子（同上，也挂棋盘层）
+var _hunt_fx: CWHuntFx         ## 免疫猎杀捕获准星
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
 var _erosion_fx := CWErosionFx.new()
 ## 细胞传送的溶解演出（规格 docs/动画规格_传送.md）。同样不是节点：残影挂在 _cells_root 下，句柄它自己收。
@@ -280,6 +281,9 @@ func _ready() -> void:
 		_mark_aura_fx = CWMarkAuraFx.new()
 		_mark_aura_fx.visible = false
 		board.add_child(_mark_aura_fx)
+		_hunt_fx = CWHuntFx.new()
+		_hunt_fx.visible = false
+		board.add_child(_hunt_fx)
 		_tile_info = CWTileInfo.new()
 		ui.add_child(_tile_info)
 		if pause_menu != null:
@@ -471,6 +475,7 @@ const MCTS_MAX_STEPS := 384
 func _wire_bridge(level: int) -> void:
 	## 教程局包一层引导桥（子类，只多演示与提示，其余装配完全相同）
 	bridge = CWGuideBridge.new() if tutorial else CWUIBridge.new()
+	bridge.hunt_fx = _hunt_fx
 	bridge.game = game
 	bridge.board = board
 	bridge.dice = _dice
@@ -873,6 +878,8 @@ func _process(delta: float) -> void:
 	_animate_breath(delta)
 	_sync_chemo(delta)
 	_sync_mark_aura(delta)
+	if _hunt_fx != null:
+		_hunt_fx.sync(delta)
 	_sync_hand()
 	if panel != null:
 		if online and _client != null:

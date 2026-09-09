@@ -23,6 +23,7 @@ var bar: CWActionBar
 var info: CWCardInfo   ## 悬停详情框：分化提问里停在种类按钮上时浮细胞种类详情；纯 AI 桥 / 测试里可为 null
 var panel: CWMatchPanel
 var toast: CWToast     ## 骰子旁边那行字
+var hunt_fx: CWHuntFx
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
 var erosion: CWErosionFx   ## 癌蔓延两帧过场（侵蚀 / 增生 / 定殖共用）；纯 AI 桥 / 测试里可为 null
 var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这里来（无界面时为 null）
@@ -757,6 +758,8 @@ func show_roll(reason: String, value: int, sides: int, _pid: int, at: Vector2i) 
 ## 掷骰的结算说明。文字是引擎给的，这里只负责把它摆到那一格上方。
 ## linger（非骰子的说明）走独立气泡、停 TEXT_HOLD：停得久就不能被下一条顶掉，也不能把骰子那行字挤走。
 func show_result(text: String, at: Vector2i, linger := false) -> void:
+	if text == "免疫猎杀" and hunt_fx != null and board != null:
+		hunt_fx.play(board.tile_center(at))
 	if toast == null or board == null or camera == null:
 		return
 	if linger:
