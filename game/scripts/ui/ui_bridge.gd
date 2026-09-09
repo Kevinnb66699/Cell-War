@@ -219,7 +219,7 @@ func _ask_action(req: Dictionary) -> int:
 				"disabled": not live,
 				## 悬停这枚按钮时浮出的 PRD 原文（2026-09-04 Kevin 要的「技能栏显示详细作用」）。
 				## **灰掉的按钮也带** —— 想知道「这技能是干嘛的、我为什么用不了」正是那会儿最想问的
-				"info": CWCardInfo.describe_act(act, cell["faction"], int(cell["itype"])),
+				"info": CWCardInfo.describe_act_for(game, cell, act),
 			})
 			values.append(act if live else "")
 		## 没有右侧竖条时（纯行动栏形态），「结束回合」退回按钮栏占一格
