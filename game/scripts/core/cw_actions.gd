@@ -1601,10 +1601,12 @@ func _chain_phagocytosis(cell: Dictionary) -> void:
 		cell["chain_left"] = int(cell["chain_left"]) - 1
 		linked += 1
 		game.log_msg("　【连续吞噬】%s 免费迁移至 %s" % [game.cell_name(cell), str(opts[pick]["data"]["to"])])
-		await enter_tile(cell, opts[pick]["data"]["to"])
-		## 演出的触发点。放在 enter_tile **之后**：那时细胞已经站在落点上，
-		## 表现层才数得出这是第几口（现读 chain_left，不另存一份计数）
+		## 演出的触发点。放在 enter_tile **之前**：这一口要演「从哪扑到哪」，
+		## 挪完之后细胞已经站在落点上，起点就取不到了。
+		## 此刻 chain_left 刚减过，表现层拿它数得出这是第几口（不另存一份计数）；
+		## 扑过去的那只巨噬认 `chain_running`（引擎的再入闸，全场至多一只）
 		game.announce("连续吞噬", opts[pick]["data"]["to"])
+		await enter_tile(cell, opts[pick]["data"]["to"])
 	cell["chain_running"] = false
 	if linked > 0:
 		cell["chain_bonus"] = int(cell.get("chain_bonus", 0)) + linked * CWData.CHAIN_PHAGO_BONUS

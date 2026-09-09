@@ -5526,18 +5526,52 @@ func t_effector_fx() -> void:
 
 	## ---- 连续吞噬的每一口 ----
 	## 连到第几口现读引擎的 chain_left，表现层不另存一份计数
-	check(src.contains("CWData.CHAIN_PHAGO_MAX - int(c.get(\"chain_left\""),
+	check(src.contains("CWData.CHAIN_PHAGO_MAX - int(eater.get(\"chain_left\""),
 		"层数由 CHAIN_PHAGO_MAX 减 chain_left 算出来，不另记一份")
+	check(src.contains("chain_running"), "扑过去的那只巨噬认引擎的再入闸 chain_running")
+	check(asrc.find('game.announce("连续吞噬"') < asrc.find("await enter_tile(cell, opts[pick]"),
+		"通报排在 enter_tile 之前——挪完就取不到起点了，这一口没法演「从哪扑到哪」")
+
+	## 大嘴是**代替**巨噬贴图画的，所以连锁那几帧真身必须让位
+	check(msrc.contains("_chain_fx.chewing_cid == i"), "连锁期间 _sync_cells 把真身藏起来")
+
+	## 张口：起手微张 → 途中张到最大 → 咬合后几乎闭上（但不归零，全闭就读不出是嘴）
+	var wide := CWChainFx.opening_at(0.29)
+	check(wide > CWChainFx.opening_at(0.0) and wide > CWChainFx.opening_at(0.55),
+		"张口在冲刺途中最大（%.2f）" % wide)
+	check(CWChainFx.opening_at(0.9) > 0.0
+		and CWChainFx.opening_at(0.9) < CWChainFx.opening_at(0.0),
+		"咬合之后几乎闭上，但不归零")
+
+	## 缺口必须正对着咬的方向。证据是那个楔形里**一个轮廓点都没有** ——
+	## 第 0 个点是圆心（嘴的两片唇都收到它上面），其余都在弧上
+	var shape := CWChainFx.maw_shape(Vector2.ZERO, 16.0, 0.6, 0.0)
+	var intruder := 0
+	for i in range(1, shape.size()):
+		var q: Vector2 = shape[i]
+		if absf(q.angle()) < 0.6 - 0.001:      ## 咬的方向是 0 弧度，张口半角 0.6
+			intruder += 1
+	check(shape[0] == Vector2.ZERO, "轮廓从圆心起笔（两片唇收在这儿）")
+	check(intruder == 0, "张口那个楔形里没有轮廓点（闯进去 %d 个）" % intruder)
+	## 反过来：把嘴闭到 0，轮廓就该绕满整整一圈
+	var closed := CWChainFx.maw_shape(Vector2.ZERO, 16.0, 0.0, 0.0)
+	var spans := false
+	for i in range(1, closed.size()):
+		if absf((closed[i] as Vector2).angle()) < 0.05:
+			spans = true
+	check(spans, "张口为 0 时轮廓绕满一圈（说明缺口确实是张口角撑出来的）")
+
 	var cf := CWChainFx.new()
 	board.add_child(cf)
-	check(not cf.visible, "没咬之前是藏着的")
-	cf.play(board.tile_center(Vector2i.ZERO), 2)
-	check(cf.visible, "咬下去就露出来")
+	check(not cf.visible and cf.chewing_cid == -1, "没咬之前是藏着的、也不占着谁")
+	cf.play(board.tile_center(Vector2i(-1, 0)), board.tile_center(Vector2i.ZERO), 2, 3)
+	check(cf.visible and cf.chewing_cid == 3, "咬下去就露出来，并认领 3 号细胞")
 	for i in 6:
 		cf.sync(0.1)
 	check(cf.visible, "0.6 秒时还在（全程 %.1f 秒）" % CWChainFx.TOTAL)
 	cf.sync(0.2)
-	check(not cf.visible, "过了 %.1f 秒自己收掉" % CWChainFx.TOTAL)
+	check(not cf.visible and cf.chewing_cid == -1,
+		"过了 %.1f 秒自己收掉，真身也放回去" % CWChainFx.TOTAL)
 	board.queue_free()
 
 

@@ -1,14 +1,14 @@
 extends SceneTree
 ## 【连续吞噬】每一口的对照图 —— 给人看的工具，不是测试。
 ##
-## **为什么非得出图**：这只演出的意思全在「连得越多越有劲」——
-## 粒子密度随层数涨得够不够看得出来，只能三档摆一起看。
+## **为什么非得出图**：大嘴是**代替**巨噬贴图画的（张口的胞体 + 缺口朝着咬的方向），
+## 「张口够不够大、朝向对不对、连得越多是不是真的更有劲」都只能看图。
 ##
 ## 跑（**不能加 --headless**，要真渲染）：
 ##   godot --path game --script res://tests/preview_chain.gd -- <输出.png>
 const WARMUP := 12
 const LEVELS := [1, 2, 3]          ## 三档各拍一张（连了 1 / 2 / 3 口）
-const AT := 0.25                   ## 每张都取「咬下去 0.25 秒」那一帧
+const AT := 0.32                   ## 取「冲刺途中、口张到最大」那一帧
 var _out := "user://chain.png"
 var _board: Node2D
 var _fx: CWChainFx
@@ -34,7 +34,8 @@ func _process(d: float) -> bool:
 	if _frames < WARMUP:
 		return false
 	if _t == 0.0:
-		_fx.play(_board.tile_center(Vector2i.ZERO), LEVELS[_shot])
+		_fx.play(_board.tile_center(Vector2i(-1, 0)), _board.tile_center(Vector2i(0, 0)),
+			LEVELS[_shot], 0)
 	_fx.sync(d)
 	_t += d
 	if _t < AT:

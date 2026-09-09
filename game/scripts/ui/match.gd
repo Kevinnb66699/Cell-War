@@ -1068,7 +1068,9 @@ func _sync_cells() -> void:
 	for i in game.cells.size():
 		var c: Dictionary = game.cells[i]
 		var node: Node2D = _cell_nodes[i]
-		node.visible = c["alive"]
+		## 【连续吞噬】那一口由 CWChainFx 整只代画（选稿画的是张着口的胞体，
+		## 不是在细胞上叠一层），所以这几帧真身要让位
+		node.visible = c["alive"] and not (_chain_fx != null and _chain_fx.chewing_cid == i)
 		var became_alive: bool = c["alive"] and not _was_alive[i]
 		var is_revival: bool = became_alive and _ever_alive[i]
 		## 死而复活的也要淡入一次 —— 它和刚落子一样是「凭空出现」

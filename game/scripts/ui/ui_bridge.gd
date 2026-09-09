@@ -773,13 +773,14 @@ func _sealed_centers() -> Array[Vector2]:
 	return out
 
 
-## 站在这一格上的巨噬已经连了几口。`chain_left` 是引擎的倒计数，
-## 满额减去它就是「连了几口」——**不在表现层另存一份**，那是第二份状态。
-func _chain_level(at: Vector2i) -> int:
-	for c in game.cells_at(at):
-		if int(c.get("itype", -1)) == CWData.ImmuneType.MACRO:
-			return CWData.CHAIN_PHAGO_MAX - int(c.get("chain_left", CWData.CHAIN_PHAGO_MAX))
-	return 0
+## 此刻正在连锁的那只巨噬。`chain_running` 是引擎的再入闸，**全场至多一只**——
+## 拿它认人比猜 `cell_of(current_pid)` 稳（分化之后一个玩家不止一只细胞）。
+## 返回 {} 表示没找到（通报来自影子对局之类）。
+func _chaining_cell() -> Dictionary:
+	for c in game.cells:
+		if c.get("chain_running", false) and c["alive"]:
+			return c
+	return {}
 
 
 func show_result(text: String, at: Vector2i, linger := false) -> void:
@@ -789,10 +790,15 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 			and hunt_fx != null and board != null:
 		## 第二个点是搜索起点 —— 盘心。选稿里方框先在全图上摆，再收到目标身上
 		hunt_fx.play(board.tile_center(at), board.tile_center(Vector2i.ZERO))
-	## 【连续吞噬】连到第几口**现读引擎**的 chain_left，不在表现层另记一份计数
+	## 【连续吞噬】：起点是那只巨噬**此刻**站的格（通报在它挪过去之前发），
+	## 层数现读引擎的 chain_left，都不在表现层另记一份
 	if text == CWData.EFFECTOR_NAMES[CWData.ImmuneType.MACRO] \
 			and chain_fx != null and board != null and game != null:
-		chain_fx.play(board.tile_center(at), _chain_level(at))
+		var eater := _chaining_cell()
+		if not eater.is_empty():
+			chain_fx.play(board.tile_center(eater["pos"]), board.tile_center(at),
+				CWData.CHAIN_PHAGO_MAX - int(eater.get("chain_left", CWData.CHAIN_PHAGO_MAX)),
+				int(eater["id"]))
 	if text == "黏液破裂" and mucus_fx != null and board != null:
 		mucus_fx.play(board.tile_center(at))
 	## 【中和抗体】封住了谁**问引擎**（game.neutralized），不在这儿重算「谁挨着健康组织」
