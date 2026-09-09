@@ -114,7 +114,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_save_load, t_settings, t_board_view, t_store_ring, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_save_load, t_settings, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -3655,8 +3655,9 @@ func t_ossify_mark() -> void:
 	## 只剩一个世界回合时脉冲翻倍：同一毫秒下两档相位已经错开
 	check(not is_equal_approx(CWMatch.ossify_mark(5, 1, half_ms / 2).a,
 		CWMatch.ossify_mark(2, 1, half_ms / 2).a), "最后一回合脉冲更快")
-	check(CWMatch.MARK_OSSIFY != CWMatch.MARK_SOLID,
-		"和固化格的压暗不是同一个色（否则等于没提示）")
+	## 这里原本还有一条：`MARK_OSSIFY != MARK_SOLID`（骨样硬化的脉冲别和固化格的压暗撞色）。
+	## `MARK_SOLID` 2026-09-09 随石化贴图上线删了 —— 固化格现在有自己的贴图，
+	## 不再往标记层放色标，这条断言没有了对照物。
 
 
 ## 【效应应答】四个 + 树突【E-组织黏连】（PRD 一直写着，引擎 2026-09-07 才实装）。
@@ -5452,6 +5453,72 @@ func t_store_ring() -> void:
 	var full: Color = mat.get_shader_parameter("lit_color")
 	check(full != half and full.v > half.v, "满仓换成更亮的一档（「还在攒」和「可以来拿」要分得开）")
 	board.queue_free()
+	g.dispose()
+
+
+## 固化计数的石化贴图族（Kevin 2026-09-09 选定「结晶核扩散」）。
+##
+## 图**长什么样**代码验不了（见 `tests/preview_solidify.gd` 的真机图），
+## 这里守的是选图逻辑那几条会静默出错的：档位分界、门槛跟旋钮走、变体只认坐标。
+func t_solid_tissue_art() -> void:
+	print("[固化石化贴图]")
+	var g := bare_game()
+
+	## ---- 算式：门槛**必须**从外面传，不能写死 20 ----
+	var t: Dictionary = g.tile(Vector2i(1, 0))
+	CWTissue.to_cancer(t, false)
+	t["solid"] = 10
+	check(is_equal_approx(CWData.solid_progress(t, 20), 0.5), "计数 1.0 / 门槛 2.0 → 0.5")
+	check(is_equal_approx(CWData.solid_progress(t, 40), 0.25),
+		"同一格、门槛调到 4.0 → 0.25（平衡旋钮动了界面要跟着动）")
+	## 【基质硬化】能把计数顶过门槛（15 的格子 +2.0 = 35），不钳住就会算出大于 1
+	t["solid"] = 35
+	check(is_equal_approx(CWData.solid_progress(t, 20), 1.0), "计数超过门槛 → 钳到 1.0")
+	CWTissue.to_solid(t)
+	check(is_equal_approx(CWData.solid_progress(t, 20), 1.0), "固化格恒为 1.0")
+	CWTissue.to_healthy(t)
+	check(is_equal_approx(CWData.solid_progress(t, 20), 0.0), "健康组织 → 0.0")
+
+	## ---- 棋盘选图 ----
+	var bd := make_board()
+	var c := Vector2i(1, 0)
+	var spr: Sprite2D = bd.map[bd.axial_to_rc(c)]["instance"]
+	bd.set_tissue(c, CWData.Tissue.CANCER, CWData.Special.NONE, true, 0.0)
+	var clean: Texture2D = spr.texture
+
+	## **任何非零进度都要换图**：刚攒上 0.5 的格子和干净格子长得一样的话，这套贴图就白做了
+	bd.set_tissue(c, CWData.Tissue.CANCER, CWData.Special.NONE, true, 0.01)
+	check(spr.texture != clean, "进度只要 > 0 就换图（档位向上取整，不是向下）")
+
+	## 四档必须是四张不同的图，否则中间档等于没做
+	var seen := {}
+	for frac in [0.25, 0.5, 0.75, 1.0]:
+		bd.set_tissue(c, CWData.Tissue.CANCER, CWData.Special.NONE, true, frac)
+		seen[spr.texture] = true
+	check(seen.size() == 4, "0.25/0.5/0.75/1.0 各自一张（实为 %d 张）" % seen.size())
+
+	## 变体只认格坐标：同一格反复刷必须稳定，否则图案会逐帧乱跳
+	bd.set_tissue(c, CWData.Tissue.CANCER, CWData.Special.NONE, true, 0.5)
+	var first: Texture2D = spr.texture
+	bd.set_tissue(c, CWData.Tissue.HEALTHY, CWData.Special.NONE, true, 0.0)
+	bd.set_tissue(c, CWData.Tissue.CANCER, CWData.Special.NONE, true, 0.5)
+	check(spr.texture == first, "同一格同一进度 → 同一张（变体按坐标定，不掷骰子）")
+
+	## 血管不可固化（CWTissue.solidifiable），所以贴图族里根本没有它那一套
+	var vc: Vector2i = CWData.VESSELS[0]
+	var vspr: Sprite2D = bd.map[bd.axial_to_rc(vc)]["instance"]
+	bd.set_tissue(vc, CWData.Tissue.CANCER, CWData.Special.VESSEL, true, 0.0)
+	var vtex: Texture2D = vspr.texture
+	bd.set_tissue(vc, CWData.Tissue.CANCER, CWData.Special.VESSEL, true, 1.0)
+	check(vspr.texture == vtex, "血管不画石头（它压根不可固化，查不到贴图就照原样）")
+
+	## 核心 / 骨髓有自己那一族 —— 传普通癌组织那张的话，图标会被石头盖掉
+	var cc: Vector2i = CWData.CORES[0]
+	var cspr: Sprite2D = bd.map[bd.axial_to_rc(cc)]["instance"]
+	bd.set_tissue(cc, CWData.Tissue.CANCER, CWData.Special.CORE, true, 1.0)
+	bd.set_tissue(c, CWData.Tissue.CANCER, CWData.Special.NONE, true, 1.0)
+	check(cspr.texture != spr.texture, "核心的石化图和普通癌组织不是同一张")
+	bd.queue_free()
 	g.dispose()
 
 

@@ -416,6 +416,22 @@ static func store_progress(t: Dictionary) -> float:
 		_:
 			return -1.0
 
+
+## 这一格的固化进度 0.0~1.0。棋盘按它挑石化贴图（2026-09-09）。
+##
+## **门槛要从外面传进来**：`solidify_threshold` 是 CWTuning 的旋钮，平衡标定会动它。
+## 写死 SOLIDIFY_THRESHOLD 的话，旋钮一调，界面画的档位就和真实进度对不上了。
+##
+## 固化格恒为 1.0：`CWTissue.to_solid()` **不清零** solid，而【基质硬化】可能把计数
+## 顶过门槛（在 15 的格子上 +2.0 就是 35），不钳住的话会算出大于 1 的进度。
+static func solid_progress(t: Dictionary, threshold: int) -> float:
+	if int(t["tissue"]) == Tissue.SOLID:
+		return 1.0
+	if int(t["tissue"]) != Tissue.CANCER:
+		return 0.0   ## 健康组织不累计固化（净化时 to_healthy 已经清零，这里是双保险）
+	return clampf(float(t["solid"]) / float(maxi(threshold, 1)), 0.0, 1.0)
+
+
 # ---- 行动顺序（规则只定义 4/6 人；2 人为电子版测试扩展，见说明 #5）----
 const FACTION_ORDER := {
 	2: [Faction.IMMUNE, Faction.CANCER],

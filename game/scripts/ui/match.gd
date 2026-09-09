@@ -52,15 +52,16 @@ signal finished(winner: int)
 func can_save_now() -> bool:
 	return game != null and not online and not game._pending.is_empty() and not game.is_over()
 
-## 固化癌组织的色标。硬化外壳的美术还没有，但**固化格必须能一眼认出来**——
-## 【裂解】和癌方【复活】都只对它生效，看不出来就没法玩。压暗一档是临时手段。
-const MARK_SOLID := Color("0000004d")
+## 固化格曾经靠一层压暗（`MARK_SOLID = #0000004d`）认出来，
+## **2026-09-09 随石化贴图上线删掉** —— 那一层的注释当初就写着「硬化外壳的美术还没有……
+## 压暗一档是临时手段」。真机对照图（`tests/preview_solidify.gd` 出两张）显示：
+## 压暗会把 1.5 和 2.0 两档的明度拉近，反而**削弱**了固化格的辨识度，
+## 而固化是【裂解】和癌方【复活】唯一认的离散状态，必须最醒目。
 ## 癌细胞脚下固化组织的石化色；只覆盖细胞外圈，主体颜色仍保留癌细胞种类辨识度。
-const SOLID_CELL_COLOR := Color("d6b078")
 ## 「回合末会被压死」的预警（Kevin 2026-09-08）：细胞外圈红色脉冲。
 ## 复用 solid_progress 那个 shader —— 别被文件名骗了，它干的事就是
-## 「把贴图轮廓那一圈染成指定颜色」，和固化进度没有绑定关系。
-## 不撞车：压迫只落在**免疫**细胞上，固化进度外圈只画在**癌**细胞上。
+## 「把贴图轮廓那一圈染成指定颜色」，和固化进度没有绑定关系
+## （2026-09-09 癌细胞那圈删掉之后，这里是它**唯一**的使用者）。
 const DOOM_COLOR := Color("ff4d4d")
 const DOOM_ALPHA := Vector2(0.35, 1.0)   ## 脉冲的最暗 / 最亮
 const DOOM_HZ := 2.0                     ## 每秒两次 —— 比骨样硬化(1.2)急，是要人马上看见
@@ -854,13 +855,15 @@ func _sync_tiles() -> void:
 			continue
 		## 开场绽开期间，还没轮到的那几格先按健康组织画
 		var tissue: int = CWData.Tissue.HEALTHY if _bloom.has(c) else int(t["tissue"])
-		## 骨髓空仓换另一张贴图（Kevin 2026-09-08）；其余组织忽略最后这个参数
-		board.set_tissue(c, tissue, t["special"], int(t["cards"]) > 0)
+		## 骨髓空仓换另一张贴图（Kevin 2026-09-08）；其余组织忽略 stocked。
+		## 最后那个是固化进度（2026-09-09）：算式在 CWData.solid_progress，界面不自己算。
+		## 绽开期间按健康组织画，所以进度也得跟着按 tissue 走，不能直接读 t。
+		var solid: float = 0.0 if tissue == CWData.Tissue.HEALTHY \
+			else CWData.solid_progress(t, int(game.tune.solidify_threshold))
+		board.set_tissue(c, tissue, t["special"], int(t["cards"]) > 0, solid)
 		## 积累进度外圈（2026-09-08）：算式在 CWData.store_progress，界面不自己算
 		board.set_store(c, CWData.store_progress(t), int(t["special"]))
-		if tissue == CWData.Tissue.SOLID:
-			marks[c] = MARK_SOLID
-		elif int(t.get("ossify_at", 0)) > 0:
+		if int(t.get("ossify_at", 0)) > 0:
 			marks[c] = ossify_mark(int(t["ossify_at"]), game.round_no)
 	for c: Vector2i in _flash:
 		marks[c] = Color(1, 1, 1, _flash[c] / FLASH_TIME * FLASH_ALPHA)
@@ -965,8 +968,6 @@ func _sync_cells() -> void:
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"])
 			_sync_doom(node as Sprite2D, c)
-		else:
-			_sync_cancer_progress(node as Sprite2D, c, game.tile(pos))
 		## 这里必须在写入新位置之后播放。复活前 node 仍停在死亡时的旧坐标，
 		## 直接拿 node.position 会把图腾留在旧格子（而不是复活目标格）。
 		if is_revival:
@@ -1055,7 +1056,6 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 	## 免疫的 itype 会变，所以它的贴图交给 _sync_cells 每帧对一次。
 	if cell["faction"] == CWData.Faction.CANCER:
 		_set_cell_art(node, CANCER_ART[cell["ctype"]])
-		_add_solid_progress_overlay(node)
 	else:
 		_add_doom_overlay(node)
 	_cells_root.add_child(node)
@@ -1249,9 +1249,10 @@ func _animate_breath(delta: float) -> void:
 		var s := _cell_nodes[i] as Sprite2D
 		if s.visible and s.hframes == BREATH_FRAMES:
 			s.frame = (_breath_step + i) % BREATH_FRAMES
-			var overlay := s.get_node_or_null("SolidProgress") as Sprite2D
-			if overlay != null:
-				overlay.frame = s.frame
+			## 预警圈是同一张呼吸表叠上去的，不跟帧就会和身体错开一格穿帮
+			var ring := s.get_node_or_null("DoomRing") as Sprite2D
+			if ring != null:
+				ring.frame = s.frame
 	_teleport_fx.sync_breath(_breath_step, BREATH_FRAMES)   ## 残影也要跟着呼吸，否则帧率不一致穿帮
 
 
@@ -1268,14 +1269,12 @@ func _set_cell_art(s: Sprite2D, tex: Texture2D) -> void:
 	s.texture = tex
 	s.hframes = BREATH_FRAMES   ## 所有对局细胞贴图都是横排 6 帧呼吸表
 	s.offset = Vector2(0, -tex.get_height() / 2.0)
-	## 两层描边覆盖（癌细胞的固化进度 / 免疫细胞的必死预警）跟着换贴图 ——
-	## 免疫分化会换贴图，不跟的话轮廓会对着上一形态描
-	for n in ["SolidProgress", "DoomRing"]:
-		var overlay := s.get_node_or_null(n) as Sprite2D
-		if overlay != null:
-			overlay.texture = tex
-			overlay.hframes = BREATH_FRAMES
-			overlay.offset = s.offset
+	## 必死预警的描边覆盖跟着换贴图 —— 免疫分化会换贴图，不跟的话轮廓会对着上一形态描
+	var ring := s.get_node_or_null("DoomRing") as Sprite2D
+	if ring != null:
+		ring.texture = tex
+		ring.hframes = BREATH_FRAMES
+		ring.offset = s.offset
 
 
 ## 免疫细胞的「回合末必死」预警圈。建法与固化进度那圈相同，只差颜色和 progress 固定为 1
@@ -1297,22 +1296,6 @@ func _add_doom_overlay(s: Sprite2D) -> void:
 	s.add_child(ring)
 
 
-func _add_solid_progress_overlay(s: Sprite2D) -> void:
-	var overlay := Sprite2D.new()
-	overlay.name = "SolidProgress"
-	overlay.texture = s.texture
-	overlay.hframes = s.hframes
-	overlay.offset = s.offset
-	overlay.z_index = 1
-	overlay.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	var material := ShaderMaterial.new()
-	material.shader = SOLID_PROGRESS_SHADER
-	material.set_shader_parameter("solid_color", SOLID_CELL_COLOR)
-	overlay.material = material
-	overlay.visible = false
-	s.add_child(overlay)
-
-
 ## 「这只细胞撑不到下个回合」的预警：外圈红色脉冲。
 ##
 ## 判定现读 `CWWorld.pressure_lethal` —— 它走的是真结算那条伤害管线，
@@ -1332,20 +1315,6 @@ static func doom_pulse(ms: int = -1) -> float:
 	var t: float = float(Time.get_ticks_msec() if ms < 0 else ms) / 1000.0
 	var k := 0.5 + 0.5 * sin(t * DOOM_HZ * TAU)
 	return lerpf(DOOM_ALPHA.x, DOOM_ALPHA.y, k)
-
-
-func _sync_cancer_progress(s: Sprite2D, cell: Dictionary, tile: Dictionary) -> void:
-	var overlay := s.get_node_or_null("SolidProgress") as Sprite2D
-	if overlay == null:
-		return
-	var progress := 0.0
-	if tile["tissue"] == CWData.Tissue.SOLID:
-		progress = 1.0
-	elif tile["tissue"] == CWData.Tissue.CANCER:
-		var threshold: int = maxi(int(game.tune.solidify_threshold), 1)
-		progress = clampf(float(tile.get("solid", 0)) / float(threshold), 0.0, 1.0)
-	overlay.visible = cell["alive"] and progress > 0.0
-	(overlay.material as ShaderMaterial).set_shader_parameter("progress", progress)
 
 
 func _play_revive_fx(node: Node2D, cell: Dictionary) -> void:

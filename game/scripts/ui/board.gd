@@ -31,6 +31,25 @@ const MARROWC = preload("res://assets/art/marrow_cancer.png")
 const MARROWH_E = preload("res://assets/art/marrow_empty_normal.png")
 const MARROWC_E = preload("res://assets/art/marrow_empty_cancer.png")
 
+## 固化进度的石化贴图族（`tools/gen_solid_tissue.py` 烘的，结晶核扩散）。
+## 键 = 底图名，值 = 变体数，**必须与生成器的 BASES 对上**（那边加变体，这边跟着加）。
+const SOLIDIFY_BASES := {
+	"tissue_cancer": 4,          ## 癌组织成片固化，一个变体一眼看出是克隆的
+	"energy_cancer": 1,          ## 核心与骨髓散布各处、互不相邻，一个够用
+	"marrow_cancer": 1,
+	"marrow_empty_cancer": 1,
+}
+## 文件名里的档位（计数 ×10）。四档对应贴图族的四张，见生成器文件头。
+const SOLIDIFY_STEPS := [5, 10, 15, 20]
+## 特殊组织 → 石化贴图族的底图名。**血管不在表里**：它不可固化
+## （`CWTissue.solidifiable`），查不到就不画石头，正是想要的行为。
+const SOLID_BASE_OF := {
+	CWData.Special.NONE: "tissue_cancer",
+	CWData.Special.CORE: "energy_cancer",
+	CWData.Special.MARROW: "marrow_cancer",
+}
+var _solidify := {}   ## 底图名 -> [档位][变体] 的贴图表，_ready() 里装
+
 var radius = CWData.BOARD_RADIUS + 1  ## 六边形每边的格数（= 最大环号 + 1）
 var distance_x = 36 ## 块的横距离
 var distance_y = 20 ## 块的纵距离
@@ -362,7 +381,8 @@ const MARROW_EMPTY_TEX := [MARROWH_E, MARROWC_E]
 
 ## 贴图没变就什么都不做，所以对局那边可以每帧无脑全刷 127 格，不必自己记脏标记。
 ## `stocked` 只对**骨髓**有意义：仓里有没有卡。其余组织忽略它。
-func set_tissue(a: Vector2i, tissue: int, special: int, stocked: bool = true) -> void:
+func set_tissue(a: Vector2i, tissue: int, special: int, stocked: bool = true,
+		solid: float = 0.0) -> void:
 	var key := axial_to_rc(a)
 	if not map.has(key):
 		return
@@ -371,8 +391,47 @@ func set_tissue(a: Vector2i, tissue: int, special: int, stocked: bool = true) ->
 	var tex: Texture2D = MARROW_EMPTY_TEX[i] \
 		if special == CWData.Special.MARROW and not stocked \
 		else TISSUE_TEX[special][i]
+	if solid > 0.0:
+		var stone: Texture2D = _solid_tex(a, tissue, special, stocked, solid)
+		if stone != null:
+			tex = stone
 	if t.texture != tex:
 		t.texture = tex
+
+
+## 一次把石化族全读进来。**按命名约定拼路径**而不是写 28 行 preload ——
+## 生成器改变体数时这边只改 SOLIDIFY_BASES 的数字，不必跟着抄一遍文件名。
+## （导出预设是 `export_filter="all_resources"`、只排除 `tests/*`，所以 load() 的也进包。）
+func _load_solidify() -> void:
+	for base: String in SOLIDIFY_BASES:
+		var steps: Array = []
+		for c: int in SOLIDIFY_STEPS:
+			var variants: Array[Texture2D] = []
+			for v in int(SOLIDIFY_BASES[base]):
+				variants.append(load("res://assets/art/solidify/%s_%02d_%d.png" % [base, c, v]))
+			steps.append(variants)
+		_solidify[base] = steps
+
+
+## 这一格该用石化族里的哪一张；不该石化（健康 / 血管）返回 null。
+##
+## **档位向上取整**：任何非零进度都至少画第一档 —— 刚攒上 0.5 的格子和干净格子长得一样
+## 的话，这套贴图就白做了。
+## **变体按格坐标定，不掷骰子**：这个函数每帧对 127 格各跑一次，
+## 用随机数的话同一格的图案会逐帧乱跳。
+func _solid_tex(a: Vector2i, tissue: int, special: int, stocked: bool,
+		solid: float) -> Texture2D:
+	if tissue == CWData.Tissue.HEALTHY:
+		return null
+	var base: String = "marrow_empty_cancer" \
+		if special == CWData.Special.MARROW and not stocked \
+		else SOLID_BASE_OF.get(special, "")
+	if not _solidify.has(base):
+		return null
+	var steps: Array = _solidify[base]
+	var step: int = clampi(int(ceil(solid * steps.size())) - 1, 0, steps.size() - 1)
+	var variants: Array = steps[step]
+	return variants[absi(a.x * 7 + a.y * 13) % variants.size()]
 
 
 ## 代谢核心 / 骨髓的积累进度外圈：`frac` 0~1，**负数 = 不是特殊组织，不画**。
@@ -452,6 +511,7 @@ func new_tissue(i, j, x, y):
 	add_child(new_t)
 	
 func _ready():
+	_load_solidify()
 	vessel_position = CWData.VESSELS.map(axial_to_rc)
 	energy_position = CWData.CORES.map(axial_to_rc)
 	marrow_position = CWData.MARROWS.map(axial_to_rc)
