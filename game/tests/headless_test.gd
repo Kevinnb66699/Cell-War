@@ -1249,10 +1249,10 @@ func t_macro_purify_heal() -> void:
 	## → 两个默认值回到 PRD 值，定案①② 的值只剩旋钮能扫回来（mheal=0 / mvx=7）
 	check(CWData.MACRO_HEAL_PURIFY == 3 and CWTuning.new().macro_heal_purify == 3,
 		"默认与 PRD 一致：吞噬每次净化回 0.3（定案① 的 0 用 mheal=0 扫回）")
-	## III 级那一档 2026-09-09 由 0.7 改成 0.8（团队给的新【免疫记忆】文本）。
-	## X 级仍是 0.5 —— 新文本没再提它，**没提不等于删**，保持不动等团队确认。
-	check(CWData.IMMUNE_MOVE_CANCEROUS == [10, 10, 8, 5] and CWTuning.new().immune_move_cancerous[3] == 5,
-		"默认与 PRD 一致：III 级 0.8 / X 级迁移到癌性组织 0.5（定案② 的 0.7 用 mvx=7 扫回）")
+	## 2026-09-09：III 级由 0.7 改 0.8；**X 级不再另有减免**（Kevin 确认「删了」）——
+	## 等级只升不降、好处累加，所以 X 级沿用 III 级那档，两格同值。
+	check(CWData.IMMUNE_MOVE_CANCEROUS == [10, 10, 8, 8] and CWTuning.new().immune_move_cancerous[3] == 8,
+		"默认与 PRD 一致：III 与 X 级迁移到癌性组织同为 0.8（X 级的额外减免已删）")
 	## 走一格癌组织，返回「这一步净花了多少」。封顶逻辑按 PRD 的 0.3 测 —— 定案 ① 后默认 0，得显式拨回
 	var net := func(paid: int, skills: Array) -> int:
 		var g := bare_game()
@@ -12443,10 +12443,15 @@ func _t_cost_required() -> void:
 
 	## §十一.4 局部减费下限**可被免费覆盖**；行动硬下限**不可**
 	var g2 := bare_game()
-	g2.immune_level = 3                      ## X 级向癌性组织基准 0.5
+	g2.immune_level = 3                      ## X 级向癌性组织基准 0.8（2026-09-09 起与 III 级同值）
 	g2.tiles[canc]["tissue"] = CWData.Tissue.CANCER
 	var c2 := put_immune(g2, Vector2i.ZERO)
-	g2.add_mod(c2, "CXCR3趋化", 2, "turn")    ## −0.5，局部下限 0.2
+	## **两条**减免：0.8 − 0.5 − 0.5 = −0.2，被局部下限抬回 0.2。
+	## 原来一条就够（X 级基准还是 0.5 时 0.5−0.5=0），2026-09-09 删掉 X 级的额外减免之后，
+	## 癌性组织各档基准都 ≥ 0.8，单条 −0.5 落在 0.3 上、压根碰不到下限，这条断言就名不副实了。
+	## 【CXCR3趋化】只对癌性组织生效（`to_cancerous`），所以不能改用健康组织来凑小基准。
+	g2.add_mod(c2, "CXCR3趋化", 2, "turn")
+	g2.add_mod(c2, "CXCR3趋化", 2, "turn")
 	var base2: int = g2.actions._move_base_cost(c2, canc)
 	check(g2.cost.quote(CWCost.context(c2, CWCost.Action.MOVE, base2, canc))["final"]
 		== CWData.MOVE_CUT_MIN, "§11.4 只有减费时踩在局部下限 0.2 上")

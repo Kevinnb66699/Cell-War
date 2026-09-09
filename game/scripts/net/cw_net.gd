@@ -27,8 +27,9 @@ extends RefCounted
 ##   动的是 `immune_move_cancerous` —— 它在 `CWTuning.RULE_FIELDS` 里、**进状态哈希**。
 ##   规则一变就必须升号：不升的话老客户端照样连得上，然后每一步的哈希都对不上，
 ##   表现为莫名其妙的不同步而不是一句「请更新」。
+## v4（2026-09-09）：X 级不再有额外的迁移减免（沿用 III 级 0.8）。同一个旋钮，同样进哈希。
 ## 服务器对不认识的报文回 bad_message，所以**旧客户端必须更新才连得上**（Kevin 已同意）。
-const NET_VERSION := 3
+const NET_VERSION := 4
 const DEFAULT_HOST := "124.221.78.13"
 const DEFAULT_PORT := 8611
 ## 单条报文（压缩后）上限；超过即断开
