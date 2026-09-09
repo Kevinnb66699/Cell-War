@@ -17,6 +17,13 @@
 #   ② HEAD == origin/main —— 发的必须是已经推上去的那一版
 #   ③ 两个包都在，且**比 HEAD 那次提交新** —— 防止改完代码忘了重导，把旧包发出去
 #   ④ tag 还不存在      —— 免得覆盖历史版本
+#
+# ⚠ **别把这个脚本接管道**（`tools/publish_release.sh | tail -7` 之类）。
+# 脚本自己 `set -eu`、失败时老老实实退 1；但接了管道之后，`$?` 是**管道最后一段**的
+# 退出码 —— `tail` 永远成功，于是发布失败会被读成成功。2026-09-09 就这么误判过一次：
+# 网络抖动让 `gh` 报了 `error checking for existing release: ... EOF`，
+# 退出码却是 0，靠事后 `gh release list` 交叉核对才发现包根本没发上去。
+# 要截断输出就先落文件（`… >/tmp/pub.log 2>&1; rc=$?`），或者 `set -o pipefail`。
 set -eu
 
 cd "$(dirname "$0")/.."
