@@ -7330,7 +7330,6 @@ func t_tutorial() -> void:
 	m.player_count = 2
 	m.human_players = [0]
 	m.ai_level = CWMatch.AI_NORMAL
-	m.match_seed = 20260903
 	m.cancer_types = [CWData.CancerType.OSTEO]   ## main.gd _begin_tutorial 钉死的对手
 	m.start()
 	await process_frame
@@ -7930,6 +7929,16 @@ func t_guide_director() -> void:
 	gf.setup.build_board()
 	check(gf.tiles.size() == CWData.TOTAL_TILES,
 		"教程装配不污染正式口径：build_board() 仍是 127 格（当前 %d）" % gf.tiles.size())
+	## 固定随机隔离：同一教程关可复现；正式局仍由自己的 match seed 驱动。
+	var seeded_a := CWGuideDirector.assemble(2)
+	var seeded_b := CWGuideDirector.assemble(2)
+	check(seeded_a.rng.state == seeded_b.rng.state,
+		"同一教程关的固定随机序列可复现（state=%d）" % seeded_a.rng.state)
+	var formal_seeded := CWGame.new()
+	formal_seeded.init(CWData.FACTION_ORDER[2], 20260910)
+	check(formal_seeded.rng.state != seeded_a.rng.state,
+		"正式对局随机流不继承教程固定随机（tutorial=%d formal=%d）"
+			% [seeded_a.rng.state, formal_seeded.rng.state])
 
 
 ## 状态推进（16 关重构切片①）：教「迁移」的步骤改由真实局面判定完成——
@@ -7947,7 +7956,6 @@ func t_tutorial_auto_advance() -> void:
 	m.player_count = 2
 	m.human_players = [0]
 	m.ai_level = CWMatch.AI_NORMAL
-	m.match_seed = 20260903
 	m.cancer_types = [CWData.CancerType.OSTEO]
 	m.start()
 	await process_frame

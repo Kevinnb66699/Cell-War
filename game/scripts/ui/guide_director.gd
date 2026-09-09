@@ -13,6 +13,9 @@
 ## 与正式对局的种子互不相干。
 class_name CWGuideDirector
 
+## 教程随机流只由章节决定；正式局永远从 CWMatch.match_seed 单独初始化。
+const SEED_BASE := 20260910
+
 
 ## 装配第 level 关（0 起）的开局局面；带实验区的关用 zone 选区（默认 0）。
 ## 返回未推进流程的真实 CWGame。
@@ -28,7 +31,7 @@ static func assemble(level: int, zone: int = 0) -> CWGame:
 	var factions: Array = CWData.FACTION_ORDER[4] if formal else CWData.FACTION_ORDER[2]
 	var g := CWGame.new()
 	## 种子按关派生：同关可复现、异关不串线；正式对局的种子不经过这里
-	g.init(factions, 20260910 + level)
+	g.init(factions, SEED_BASE + level)
 	g.setup.build_board(int(zf.get("radius", CWData.BOARD_RADIUS)))
 	if not formal:
 		_apply_fixture(g, zf)
