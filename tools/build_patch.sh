@@ -57,7 +57,9 @@ for f in "${CHANGED[@]}"; do
 done
 
 mkdir -p "$OUTDIR"
-"$GODOT" --headless --path game --script res://tests/build_patch.gd -- "$OUT" "${ARGS[@]}"
+# 输出路径同样得给绝对的 —— 理由和上面那段一样（打包器跑在 `--path game` 底下，
+# 相对路径会被当成 res:// 里的）。2026-09-09 第一次真打补丁时就是漏了这一处。
+"$GODOT" --headless --path game --script res://tests/build_patch.gd -- "$PWD/$OUT" "${ARGS[@]}"
 
 # min_base 取当前的基线号：补丁是照着 HEAD 打的，就只保证能装在这一档基线上。
 # 比它老的客户端会被 boot.gd 拦下来，提示去下完整包，而不是硬套一个可能用不了的补丁。
