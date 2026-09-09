@@ -11,8 +11,8 @@
 ## **打开时焦点停在第一行「人数」**（Kevin 2026-08-29 定：默认停在按钮上，
 ## 玩家会以为配置改不了）。行上回车 = 拨值，走到按钮再回车才开局。取值局间保留。
 ##
-## **自定义对局**（2026-09-03 Kevin）：主菜单「自定义对局」打开的是同一张面板（`custom = true`），
-## 四行之后多出「癌症A/B/C 种类」几行（随人数 1 / 2 / 3 行），每行在「随机」与四种癌之间拨、
+## **自定义对局**（2026-09-09）：作为本面板第一项「对局类型」的一个选项；切到自定义后，
+## 四个基础设置之后多出「癌症A/B/C 种类」几行（随人数 1 / 2 / 3 行），每行在「随机」与四种癌之间拨、
 ## 不同席位不许选同一种；cfg 多一项 `cancer_types`（按癌席顺序，-1 = 随机）→ CWTuning.cancer_types。
 ## 七行 + 按钮放不进 42 的行距，自定义模式行距压到 32、按钮贴在最后一行下方；普通模式一个像素不动。
 ##
@@ -60,6 +60,7 @@ const ROW_SMART := 2
 const ROW_EVENTS := 3
 const ROW_SEED := 4
 const N_ROWS := 5
+const ROW_MODE_Y := 209.0       ## 放在分隔线前；其余五个基础设置保持原来的 251 起点
 const PLAYER_STEPS := [2, 4, 6]
 const HOTSEAT := -2          ## 「我的阵营」第四档：本地多人（热座），席位在右侧席位表里逐席拨
 const FACTION_STEPS := [CWData.Faction.IMMUNE, CWData.Faction.CANCER, -1, HOTSEAT]
@@ -93,7 +94,7 @@ var _faction: int = CWData.Faction.IMMUNE   ## -1 = 观战
 var _ai := 0
 var _world_events := true   ## 世界事件总开关（Kevin 2026-09-08）；默认开
 var _seed := 0
-## 自定义对局开关：主菜单在 open() 之前拨；普通对局 false（癌种行全部收起、按钮在 438）
+## 对局类型：面板内第一项切换；标准对局 false（癌种行全部收起、按钮在 438）
 var custom := false
 var _ctypes: Array = [-1, -1, -1]   ## 癌症A/B/C 的钉死癌种（-1 = 随机），局间保留
 var _seats: Array[bool] = [true, true, true, true, true, true]   ## 本地多人：每席是真人吗（默认全真人），局间保留
@@ -103,6 +104,8 @@ var _seat_alpha := 0.0       ## 席位表当前透明度；席位行的字跟它
 var _sheet_tween: Tween
 var _eyebrow: Label
 var _title: Label
+var _mode_value: Label
+var _mode_arrows: Array[Label] = []
 var _hits: Array[Control] = []
 
 var _sel := N_ROWS           ## 焦点：0..3 = 行，N_ROWS = 「进入棋盘」
@@ -131,8 +134,7 @@ func _ready() -> void:
 
 func open() -> void:
 	_sel = 0   ## 焦点落第一行，见文件头（停在按钮上会让玩家以为不能改）
-	_eyebrow.text = "CUSTOM" if custom else "SETUP"
-	_title.text = "自定义对局" if custom else "对局配置"
+	_sync_mode_title()
 	_mouse_led = false
 	_btn_hover = false   ## 上次关面板时悬停着的话，exited 可能没来得及送到
 	visible = true
@@ -156,7 +158,7 @@ func handle_input(event: InputEvent) -> void:
 		_sel = mini(_sel + 1, _n_rows())
 		_repaint()
 	elif event.is_action_pressed("ui_up"):
-		_sel = maxi(_sel - 1, 0)
+		_sel = maxi(_sel - 1, -1)   ## 人数上方是对局类型；保留默认人数焦点。
 		_repaint()
 	elif event.is_action_pressed("ui_left"):
 		_cycle(_sel, -1)
@@ -291,6 +293,9 @@ static func hotseat_seats(cfg: Dictionary) -> Array[int]:
 
 
 func _cycle(row: int, dir: int) -> void:
+	if row == -1:
+		_cycle_mode(dir)
+		return
 	if row >= N_ROWS and row < _n_rows():
 		var rk := _row_kind(row)
 		if int(rk[0]) == 1:
@@ -325,6 +330,19 @@ func _cycle(row: int, dir: int) -> void:
 			_seed = _roll_seed()   ## 种子没有「上一个」，拨就是换一个
 		_:
 			return
+	_repaint()
+
+
+func _sync_mode_title() -> void:
+	_eyebrow.text = "CUSTOM" if custom else "SETUP"
+	_title.text = "自定义对局" if custom else "对局配置"
+	if _mode_value != null:
+		_mode_value.text = "自定义对局" if custom else "标准对局"
+
+
+func _cycle_mode(_dir: int = 1) -> void:
+	custom = not custom
+	_sync_mode_title()
 	_repaint()
 
 
@@ -367,6 +385,20 @@ func _build() -> void:
 	_title = CWStyle.label("对局配置", CWStyle.SIZE_BIG, CWStyle.TEXT_HI)
 	_title.position = Vector2(SLOT_X, 160)
 	add_child(_title)
+
+	## 标准 / 自定义是「开始对局」内部的模式选项；独立放在分隔线前，不挪动原四行配置。
+	var mode_name := CWStyle.label("对局类型", CWStyle.SIZE_BODY, ROW_LABEL)
+	mode_name.position = Vector2(SLOT_X, ROW_MODE_Y)
+	add_child(mode_name)
+	var mode_left := CWStyle.clickable_label(self, "<", Vector2(VALUE_X - 22, ROW_MODE_Y), _cycle_mode)
+	_mode_value = CWStyle.clickable_label(self, "标准对局", Vector2(VALUE_X, ROW_MODE_Y), _cycle_mode)
+	var mode_right := CWStyle.clickable_label(self, ">", Vector2(ARROW_R_X, ROW_MODE_Y), _cycle_mode)
+	_mode_arrows = [mode_left, mode_right]
+	for control: Label in [mode_left, _mode_value, mode_right]:
+		control.mouse_entered.connect(func() -> void:
+			_sel = -1
+			_mouse_led = true
+			_repaint())
 
 	var rule := ColorRect.new()
 	rule.position = Vector2(SLOT_X, 230)
@@ -686,11 +718,13 @@ func _repaint() -> void:
 	## 选中行标题的辉光跟焦点走（在按钮上时收起——按钮有自己的高亮语言）
 	_glow.visible = _sel < n
 	if _sel < n:
-		_glow.position = _row_pos(_sel)
+		_glow.position = Vector2(SLOT_X, ROW_MODE_Y) if _sel == -1 else _row_pos(_sel)
 		for layer in _glow.get_children():
-			(layer as Label).text = _name_labels[_sel].text
+			(layer as Label).text = "对局类型" if _sel == -1 else _name_labels[_sel].text
 	## 菱形标跟着焦点走：行上贴行首（席位行退到 -33，光晕整个落在表内），按钮上贴按钮左侧
-	if _sel < n:
+	if _sel == -1:
+		_marker.position = Vector2(SLOT_X - 18, ROW_MODE_Y + 13)
+	elif _sel < n:
 		var p := _row_pos(_sel)
 		_marker.position = Vector2(p.x + _marker_dx(_sel), p.y + 13)
 	else:
