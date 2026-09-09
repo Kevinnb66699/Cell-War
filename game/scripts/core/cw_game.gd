@@ -135,7 +135,10 @@ func run_game() -> int:
 		if req.is_empty():
 			break
 		var idx: int = await ask(req["pid"], req)
-		if aborted:
+		## `winner >= 0` 也要跳出：投降是在**别人正被问着**的时候发生的
+		## （ESC 菜单压在询问界面上），桥被唤醒后会带着一个无意义的 idx 回来，
+		## 照着它 step() 等于替人多走一步。aborted 仍然只表示「放弃对局」。
+		if aborted or winner >= 0:
 			break
 		await step(idx)
 	log_msg("=== 对局结束：%s ===" % win_reason)
@@ -1042,6 +1045,32 @@ func check_cancer_win() -> void:
 	winner = CWData.Faction.CANCER
 	win_kind = "cancer_weighted"
 	win_reason = "癌症胜利：加权占地 %d >= %d" % [w, tune.cancer_win_weighted]
+
+
+## 【投降】一方认输，对方立即获胜（Kevin 2026-09-09 定案）。
+##
+## **这不是规则条款，是玩家的退出通道。** 同日一并定的是「**不做**一方团灭就自动结算」——
+## 免疫被清空且骨髓全癌化时，局面照样打满 15 回合按 63 线判。理由是「团灭」不等于「输」：
+## 免疫可能已经把癌方压在 40 格，最后几回合癌方未必铺得到胜利线，替他们判负不合理。
+## 想早点结束就自己投降，不由引擎替谁做决定。
+##
+## 引擎只认定**结果**。「谁能发起、要不要全票、AI 与掉线席位怎么算」一概在外面：
+## 本地发起即生效（同阵营的人就坐在一起，开口商量即可），联机由服务器裁决投票。
+## 投票**不该进引擎** —— 它会跟着进快照和状态哈希，而投票是过程，不是对局状态。
+##
+## ⚠ `win_kind` 里的阵营名跟着既有那四个的规矩走，指的都是**胜方**
+## （`limit_cancer` = 癌方胜）。所以「免疫投降」记的是 `surrender_cancer`。
+func surrender(faction: int) -> void:
+	if winner >= 0 or aborted:
+		return
+	if faction != CWData.Faction.IMMUNE and faction != CWData.Faction.CANCER:
+		return   ## 观战席位没有阵营，投不了降
+	winner = CWData.Faction.CANCER if faction == CWData.Faction.IMMUNE else CWData.Faction.IMMUNE
+	win_kind = "surrender_cancer" if winner == CWData.Faction.CANCER else "surrender_immune"
+	win_reason = "%s投降：%s胜利" % [
+		"免疫方" if faction == CWData.Faction.IMMUNE else "癌方",
+		"癌症" if winner == CWData.Faction.CANCER else "免疫"]
+	log_msg("=== %s ===" % win_reason)
 
 
 # ---- 日志 / 调试 ----

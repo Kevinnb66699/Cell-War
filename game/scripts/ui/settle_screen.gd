@@ -42,6 +42,9 @@ const KIND_CHIP := {
 	"cancer_weighted": "占地",
 	"limit_immune": "限时判定",
 	"limit_cancer": "限时判定",
+	## 阵营名指的是**胜方**（同 limit_ 那两条）：`surrender_cancer` = 免疫投降、癌方胜。
+	"surrender_immune": "投降",
+	"surrender_cancer": "投降",
 }
 
 ## 四个大数的字段名。顺序就是屏上从左到右的顺序。

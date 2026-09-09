@@ -222,6 +222,11 @@ func _on_pause_chose(action: String) -> void:
 				_back_to_menu()
 			else:
 				push_warning("存档写入失败，留在对局中")
+		"surrender":
+			## 菜单先收起来：投降立刻定胜负，结算屏跟着就上来，
+			## 留着暂停菜单会压在它上面（pause.active 要等 finished 才关）
+			pause.close()
+			match_node.surrender_now()
 		"quit":
 			get_tree().quit()
 

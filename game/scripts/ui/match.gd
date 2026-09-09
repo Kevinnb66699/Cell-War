@@ -49,6 +49,34 @@ signal finished(winner: int)
 
 ## 此刻能不能存档：引擎只在 pending 边界有完整快照（CWSave 的写入条件）。
 ## 暂停菜单拿它决定「保存并退出」亮不亮。联机局不写本地存档（状态在服务器，掉线凭令牌重连）。
+## 屏幕前这位属于哪个阵营；观战、热座换手中、对局已结束都返回 -1。
+## 暂停菜单据此决定「投降」亮不亮（`pause_menu.surrender_faction`）。
+func viewing_faction() -> int:
+	if game == null or game.is_over() or bridge == null:
+		return -1
+	var pid: int = bridge.viewing_pid()
+	if pid < 0 or pid >= game.players.size():
+		return -1
+	return int(game.player(pid)["faction"])
+
+
+## 【投降】屏幕前这位代表本方认输。
+##
+## **本地是「发起即生效」，没有投票**（Kevin 2026-09-09）：热座同阵营的人就坐在一起、
+## 开口商量比走一遍投票 UI 快；单机的 AI 队友一律同意，投票也只是走个过场。
+## 投票只在联机、且同阵营有两个以上真人时才成立 —— 那半归服务器裁决（协议 v2）。
+##
+## 顺序要紧：**先认定结果，再唤醒卡住的询问**。投降总是发生在「某人正被问着」的时候
+## （ESC 菜单压在询问界面上），先叫醒的话 run_game 会拿着一个无意义的答案 step() 一步。
+func surrender_now() -> void:
+	var faction := viewing_faction()
+	if faction < 0:
+		return
+	game.surrender(faction)
+	if bridge != null:
+		bridge.abort()
+
+
 func can_save_now() -> bool:
 	return game != null and not online and not game._pending.is_empty() and not game.is_over()
 
@@ -381,6 +409,7 @@ func _prepare_ui() -> void:
 		## 对局内知识之书开着时 Esc 先关书、不弹暂停（非教程局 _codex 恒为 null = 没开书）
 		pause_menu.codex_open = func() -> bool:
 			return _codex != null and is_instance_valid(_codex) and _codex.visible
+		pause_menu.surrender_faction = viewing_faction
 	if _tile_info != null and not board.tile_hovered.is_connected(_tile_info.on_hover):
 		board.tile_hovered.connect(_tile_info.on_hover)
 	if _card_info != null and hand != null 			and not hand.card_hovered.is_connected(_card_info.on_hover):
@@ -770,6 +799,7 @@ func teardown() -> void:
 		ui.visible = false
 	if pause_menu != null:
 		pause_menu.codex_open = Callable()
+		pause_menu.surrender_faction = Callable()
 		pause_menu.active = false
 		pause_menu.close()
 

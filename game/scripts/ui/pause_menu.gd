@@ -41,6 +41,10 @@ const ITEMS := [
 	{ "id": "save_quit", "text": "保存并退出", "enabled": true, "confirm": "" },
 	{ "id": "codex", "text": "知识之书", "enabled": true, "confirm": "" },
 	{ "id": "settings", "text": "设置", "enabled": true, "confirm": "" },
+	## **不走二级确认**（Kevin 2026-09-09：「不然太麻烦」）—— 与「返回主菜单」「退出游戏」
+	## 那条「不可撤销就要确认」的惯例是有意的例外。联机侧本来就有投票当摩擦；
+	## 本地侧点下去即生效，代价是手滑会直接判负（本地局重开就是了）。
+	{ "id": "surrender", "text": "投降", "enabled": true, "confirm": "" },
 	{ "id": "menu", "text": "返回主菜单", "enabled": true, "confirm": "返回主菜单？" },
 	{ "id": "quit", "text": "退出游戏", "enabled": true, "confirm": "退出游戏？" },
 ]
@@ -67,6 +71,11 @@ var can_save := Callable()
 ## 知识之书开着时（CWMatch 注入的判据）Esc 先关书、不弹暂停。
 ## 无效的 Callable 按「没开书」处理 —— 非教程局/未开时照常弹暂停。
 var codex_open := Callable()
+
+## 「屏幕前这位属于哪个阵营」，由 CWMatch 注入，返回 CWData.Faction 或 -1（观战 / 热座换手中）。
+## 「投降」按它亮灭 —— 没有阵营的人投不了降。
+## 无效的 Callable 按「没有阵营」处理，和 can_save 同一条兜底纪律：没接线就宁可灰着。
+var surrender_faction := Callable()
 
 ## 对局进行中才响应 Esc。主菜单上按 Esc 不该弹出「暂停」——
 ## 由 CWMatch 在 start() / teardown() 里翻。
@@ -201,6 +210,10 @@ func items() -> Array:
 	for item in ITEMS:
 		if item["id"] == "save_quit":
 			continue
+		## 联机的投降要走「同阵营全票」的投票，报文与服务器裁决还没上线（协议要升到 v2）。
+		## 先不露出来 —— 露一个点了没反应的按钮比没有更糟。第二阶段接上后删掉这三行。
+		if item["id"] == "surrender":
+			continue
 		if item["id"] == "menu":
 			var leave: Dictionary = item.duplicate()
 			leave["text"] = "离开房间"
@@ -217,6 +230,8 @@ func _enabled(item: Dictionary) -> bool:
 		return false
 	if item["id"] == "save_quit":
 		return can_save.is_valid() and can_save.call()
+	if item["id"] == "surrender":
+		return surrender_faction.is_valid() and int(surrender_faction.call()) >= 0
 	return true
 
 

@@ -105,7 +105,7 @@ func _run_all() -> void:
 		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path, t_plan_core_gain,
 		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_eval_features, t_feed_log, t_proliferate_tiers, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
-		t_immune_win, t_cancer_revive_blocked, t_cancer_revive_ring, t_cancer_s_win, t_immune_respawn,
+		t_immune_win, t_surrender, t_cancer_revive_blocked, t_cancer_revive_ring, t_cancer_s_win, t_immune_respawn,
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_stroma_targets, t_batch2_rules,
 		t_immune_level_rules, t_tissue_transitions, t_one_cell_per_tile, t_phase_order,
@@ -805,6 +805,45 @@ func t_immune_win() -> void:
 	g.check_immune_win()
 	check(g.winner == CWData.Faction.IMMUNE, "占住全部固化格且无癌细胞 → 立即获胜")
 	g.dispose()
+
+
+# ---- 投降（Kevin 2026-09-09）----
+## 引擎只认定**结果**，投票在外面。这里守的是「结果对不对」和「投完不许再动」。
+func t_surrender() -> void:
+	print("[投降]")
+	var g := make_game(2, 1)
+	g.setup.build_board()
+	## 阵营名指的是**胜方**：免疫投降 → 癌方胜 → surrender_cancer
+	g.surrender(CWData.Faction.IMMUNE)
+	check(g.winner == CWData.Faction.CANCER and g.win_kind == "surrender_cancer",
+		"免疫投降 → 癌方胜，win_kind 记胜方（%s）" % g.win_kind)
+	check(g.win_reason.contains("免疫方投降"), "结束语写清是谁投的（%s）" % g.win_reason)
+	check(g.is_over(), "投降即终局")
+	check(not g.aborted, "投降**不是**放弃对局：aborted 仍为 false（结算屏要靠它区分）")
+	## 已经分出胜负之后再投不许翻盘 —— 联机里两边同时点会走到这条
+	g.surrender(CWData.Faction.CANCER)
+	check(g.winner == CWData.Faction.CANCER and g.win_kind == "surrender_cancer",
+		"局已终结，第二次投降不改结果")
+	g.dispose()
+
+	var g2 := make_game(2, 1)
+	g2.setup.build_board()
+	g2.surrender(CWData.Faction.CANCER)
+	check(g2.winner == CWData.Faction.IMMUNE and g2.win_kind == "surrender_immune",
+		"癌方投降 → 免疫胜")
+	g2.dispose()
+
+	## 观战没有阵营，投不了降（-1 是 CWMatch.viewing_faction 的「没有阵营」值）
+	var g3 := make_game(2, 1)
+	g3.setup.build_board()
+	g3.surrender(-1)
+	check(g3.winner < 0 and g3.win_kind == "", "没有阵营（观战 / 热座换手中）投不了降")
+	g3.dispose()
+
+	## 结算屏认得这两种
+	check(CWSettleScreen.KIND_CHIP.get("surrender_immune", "") == "投降"
+		and CWSettleScreen.KIND_CHIP.get("surrender_cancer", "") == "投降",
+		"结算屏两种投降都标「投降」")
 
 
 # ---- 癌方复活被堵住时必须给出说明（口径 #93）----
@@ -6374,12 +6413,13 @@ func t_settle_screen() -> void:
 	check(s._bar_tick.position.x > 0.0 and s._bar_tick.position.x <= CWSettleScreen.BAR_W,
 		"胜利线刻度落在条上（x=%d / %d）" % [int(s._bar_tick.position.x), CWSettleScreen.BAR_W])
 
-	## 四种结局各有各的标签，判定那两种不能写得像击溃
+	## 每种结局各有各的标签，判定那两种不能写得像击溃
 	var chips := true
-	for kind in ["immune_clear", "cancer_weighted", "limit_immune", "limit_cancer"]:
+	for kind in ["immune_clear", "cancer_weighted", "limit_immune", "limit_cancer",
+			"surrender_immune", "surrender_cancer"]:
 		if not CWSettleScreen.KIND_CHIP.has(kind):
 			chips = false
-	check(chips, "四种 win_kind 都有结局标签")
+	check(chips, "六种 win_kind 都有结局标签")
 	check(CWSettleScreen.KIND_CHIP["limit_immune"] == "限时判定"
 		and CWSettleScreen.KIND_CHIP["immune_clear"] == "清场",
 		"限时判定和清场分开说")
