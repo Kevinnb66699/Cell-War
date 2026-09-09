@@ -3436,6 +3436,27 @@ func t_hover_info() -> void:
 	check(all.contains("代谢核心 · 储量 1.0"), "详情：核心储量")
 	check(all.contains("恶性黑色素瘤") and all.contains("能量 3.8") and all.contains("标记 ×1"),
 		"详情：占据者、能量与标记")
+	## 细胞身上的易伤 / 减伤直接跟在占据者信息后面；查询不能消耗标记或护盾。
+	g.add_mod(can, "DNA损伤修复", 1, "")
+	var before_status := g.state_hash()
+	all = ""
+	for r in CWTileInfo.describe(g, c):
+		all += r["text"] + "|"
+	check(all.contains("易伤 · 【标记】") and all.contains("减伤 · 【DNA损伤修复】"),
+		"详情：列出当前细胞的易伤与减伤特效（%s）" % all)
+	check(g.state_hash() == before_status and can["marked"] and g.mods_of(can, "DNA损伤修复").size() == 1,
+		"悬浮查询不消耗标记 / 护盾，也不改变状态")
+	can["mods"].clear()   ## 后续装备悬浮用无修饰场景，不能继承本段护盾。
+	can["ctype"] = CWData.CancerType.SIGNET
+	check(str(CWTileInfo.describe(g, c)).contains("囊性护甲"), "未用护甲显示减伤")
+	can["armor_used"] = true
+	check(not str(CWTileInfo.describe(g, c)).contains("囊性护甲"), "护甲已用不再显示可用减伤")
+	can["ctype"] = CWData.CancerType.OSTEO
+	check(not str(CWTileInfo.describe(g, c)).contains("刚性屏障"), "非固化组织不显示刚性屏障")
+	g.tiles[c]["tissue"] = CWData.Tissue.SOLID
+	check(str(CWTileInfo.describe(g, c)).contains("刚性屏障"), "固化组织上的骨肉瘤显示屏障")
+	g.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	can["ctype"] = CWData.CancerType.MELANOMA
 	check(CWTileInfo.describe(g, Vector2i(0, 0)).size() == 1, "健康空格只有一行")
 
 	## 迁移耗能行（团队 2026-09-01 要的）：不在迁移态时不出，在迁移态时紧跟组织名。
@@ -4478,6 +4499,18 @@ func t_skill_info() -> void:
 	check(CWData.act_name("move", CWData.Faction.IMMUNE) == "迁移"
 		and CWCardInfo.describe_act("move", CWData.Faction.CANCER)["name"] == "移动",
 		"详情框标题也按阵营给词")
+	## 行动技能详情追加「当前影响」；目的地相关费用从 CWCost.quote 读取，悬浮不得清黏液或烧额度。
+	var mucus_at := Vector2i(4, 0)
+	g.tiles[mucus_at]["mucus"] = true
+	var before_effect := g.state_hash()
+	var affected := CWCardInfo.describe_act_for(g, imm, "move")
+	check("\n".join(affected["lines"]).contains("【黏液侵染】"),
+		"迁移详情列出当前可达目标上的黏液加费")
+	check(g.state_hash() == before_effect and g.tiles[mucus_at]["mucus"],
+		"技能悬浮报价是纯查询，不清黏液、不改变状态")
+	var plain := CWCardInfo.describe_act_for(g, imm, "draw")
+	check("\n".join(plain["lines"]).contains("当前影响：无"),
+		"没有特效影响的技能也明确显示当前影响为无")
 	## 主动技能那一段和行动栏同一份清单，不许各写各的
 	var kinds: Array = []
 	for a in g.actions.action_kinds(can):
@@ -7196,24 +7229,24 @@ func t_main_menu() -> void:
 	# 键盘上下必须跳过灰掉的项。mask 由 enabled_mask() 现算（「继续对局」随存档
 	# 有无变化），这里直接摆两种局面验静态跳转规则。
 	var last: int = menu_script.ITEMS.size() - 1
-	## 八项：开始 / 自定义 / 联机 / 继续 / 知识之书 / 新手引导 / 设置 / 退出
-	## （2026-09-03 加「自定义对局」；2026-09-05 加「知识之书」「新手引导」；2026-09-06 Kevin 去掉「规则速查」，只留 Esc 菜单那份）
-	check(menu_script.ITEMS.size() == 8 and menu_script.ITEMS[1]["node"] == "Custom"
-		and menu_script.ITEMS[4]["node"] == "Codex" and menu_script.ITEMS[5]["node"] == "Guide",
-		"「自定义对局」「知识之书」「新手引导」按序排在主菜单，没有「规则速查」")
+	## 七项：自定义对局已并入「开始对局」的配置面板，不再单占主菜单一行。
+	check(menu_script.ITEMS.size() == 7 and menu_script.ITEMS[1]["node"] == "Online"
+		and menu_script.ITEMS[3]["node"] == "Codex" and menu_script.ITEMS[4]["node"] == "Guide",
+		"主菜单只留一个开始入口，自定义对局在开始对局内部")
 	var has_rules := false
 	for item in menu_script.ITEMS:
 		if item["node"] == "Rules":
 			has_rules = true
 	check(not has_rules and not items.has_node("Rules"), "主菜单里没有「规则速查」（脚本表与场景都没有）")
-	var no_save := [true, true, true, false, true, true, true, true]
-	check(menu_script.next_enabled(2, 1, no_save) == 4, "无档：从「联机对战」往下跳过「继续对局」落到知识之书")
-	check(menu_script.next_enabled(4, 1, no_save) == 5, "知识之书再往下是新手引导")
-	check(menu_script.next_enabled(last, -1, no_save) == 6, "键盘从「退出游戏」往上一步到设置")
+	check(not items.has_node("Custom"), "主菜单场景不再保留独立「自定义对局」节点")
+	var no_save := [true, true, false, true, true, true, true]
+	check(menu_script.next_enabled(1, 1, no_save) == 3, "无档：从「联机对战」往下跳过「继续对局」落到知识之书")
+	check(menu_script.next_enabled(3, 1, no_save) == 4, "知识之书再往下是新手引导")
+	check(menu_script.next_enabled(last, -1, no_save) == 5, "键盘从「退出游戏」往上一步到设置")
 	check(menu_script.next_enabled(0, -1, no_save) == 0, "到顶了就停在原地，不绕回")
-	var with_save := [true, true, true, true, true, true, true, true]
-	check(menu_script.next_enabled(2, 1, with_save) == 3, "有档：从「联机对战」往下落到「继续对局」")
-	## 八项要排得下：最后一项底边不出屏，相邻两项不重叠（行距 28：20px 字、28px 行框，字形不叠）
+	var with_save := [true, true, true, true, true, true, true]
+	check(menu_script.next_enabled(1, 1, with_save) == 2, "有档：从「联机对战」往下落到「继续对局」")
+	## 七项要排得下：最后一项底边不出屏，相邻两项不重叠。
 	var ys: Array = []
 	for item in menu_script.ITEMS:
 		ys.append((items.get_node(item["node"]) as Label).position.y)
@@ -7222,7 +7255,7 @@ func t_main_menu() -> void:
 		if ys[i] - ys[i - 1] < 26:
 			spaced = false
 	## 整块上移 14px（Kevin 2026-09-05 选乙案）：首项 292 → 278，末项底边 528 → 514，屏幕底留 26px
-	check(spaced and ys[0] == 278 and ys[-1] + 28 <= 514, "八项行距 ≥ 26、首项 278、末项底边 ≤ 514（%s）" % str(ys))
+	check(spaced and ys[0] == 278 and ys[-1] + 28 <= 514, "七项行距 ≥ 26、首项 278、末项底边 ≤ 514（%s）" % str(ys))
 	var sub: Control = scene.get_node("UI/Screen/Sub")
 	var logo: Control = scene.get_node("UI/Screen/Logo")
 	check(sub.position.y == 119 and logo.position.y == 172, "副标题 / 标题跟着菜单项一起上移 14px（%d / %d）" % [sub.position.y, logo.position.y])
@@ -7290,12 +7323,12 @@ func t_tutorial() -> void:
 	check(m.pause_menu.codex_open.is_valid() and not m.pause_menu.codex_open.call(),
 		"暂停菜单拿到了「书开着吗」判据，此刻没开")
 	## 「继续」代做落子（Kevin 2026-09-05）：翻到「第一步：落子」时按继续 = 替玩家把第一个免疫细胞放下，再翻到下一步；
-	## 剧本没走到那一步之前提示行没有尾巴。这里直接把面板拨到第 2 关第 1 步（不写进度文件）
+	## 剧本没走到那一步之前提示行没有尾巴。这里直接把面板拨到第 1 关第 2 步（不写进度文件）
 	check(m._spotlight != null and is_instance_valid(m._spotlight) and m._spotlight.get_parent() == m.ui
 		and m._spotlight.get_index() < m._guide.get_index(), "提亮层挂在 UI 层、引导面板之下")
 	check(not m._guide._hint.text.contains("继续"), "第 1 关（讲解）里提示行没有「继续代做」尾巴")
-	m._guide._chapter = 1
-	m._guide._step = 0
+	m._guide._chapter = 0
+	m._guide._step = 1
 	m._guide._render()
 	check(m._guide._hint.text.ends_with(CWGuide.OFFER_TAIL % "继续"), "翻到「第一步：落子」：提示行接上「点继续我替你做」（%s）" % m._guide._hint.text)
 	check(m.game.cells.is_empty(), "按继续之前棋盘上还没有细胞")
@@ -7304,7 +7337,7 @@ func t_tutorial() -> void:
 	await process_frame
 	check(m.game.cells.size() == 2 and m.game.cell_of(0)["faction"] == CWData.Faction.IMMUNE,
 		"按「继续」→ 免疫细胞替玩家落下，AI 随后也落了（%d 个细胞）" % m.game.cells.size())
-	check(m._guide.chapter() == 1 and m._guide.step_no() == 1,
+	check(m._guide.chapter() == 0 and m._guide.step_no() == 2,
 		"落完子剧本翻到下一步（%d/%d）" % [m._guide.chapter(), m._guide.step_no()])
 	var foot: Vector2i = m.game.cell_of(0)["pos"]
 	var by_cancer := false
@@ -7318,7 +7351,7 @@ func t_tutorial() -> void:
 	m._guide._render()
 	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["end"]["hint"] + CWGuide.OFFER_TAIL % "下一章",
 		"翻到「别忘了结束回合」：提示跟着换成结束回合那句 + 代做尾巴（%s）" % m._guide._hint.text)
-	m._guide._step = 1
+	m._guide._step = 2
 	m._guide._render()
 	## 提亮层：按 flag 找目标（棋盘 / 特殊组织 / 可落子格 / 右栏 / 行动栏按钮 / 结束回合 / 手牌抽屉）
 	var sp := m._spotlight
@@ -7371,8 +7404,8 @@ func t_tutorial() -> void:
 	m._guide.visible = true
 	## 关卡最后一步按钮写「下一章」、全部最后一步写「完成引导」：尾巴要跟着按钮的字走，按钮按实际宽度靠右、右边留 PAD
 	## （Kevin 2026-09-05 截图：「别忘了结束回合 5/5」尾巴还说「继续」，「下一章」贴到边框）
-	m._guide._chapter = 1
-	m._guide._step = CWGuideData.steps(1).size() - 1      ## 「别忘了结束回合」：教 end，此刻正等行动 → 可代做
+	m._guide._chapter = 0
+	m._guide._step = CWGuideData.steps(0).size() - 1      ## 「别忘了结束回合」：教 end，此刻正等行动 → 可代做
 	m._guide._render()
 	check(m._guide._btn.text == "下一章" and m._guide._hint.text.ends_with(CWGuide.OFFER_TAIL % "下一章"),
 		"关卡最后一步：尾巴写的是「下一章」（%s）" % m._guide._hint.text)
@@ -7414,12 +7447,20 @@ func t_tutorial() -> void:
 	root.remove_child(main_scene)
 	main_scene.free()
 
+
 func t_guide_data() -> void:
 	print("[新手引导剧本]")
-	check(CWGuideData.CHAPTER_COUNT == 6, "引导剧本共 6 关")
-	var want := [0, 4, 5, 6, 3, 8]
-	check(CWGuideData.CODEX_PAGE.size() == 6 and CWGuideData.CODEX_PAGE == want,
-		"每关都挂钩到知识之书的对应章节（%s）" % str(CWGuideData.CODEX_PAGE))
+	var tune := CWTuning.new()
+	check(CWGuideData.CHAPTER_COUNT == 16, "引导剧本共 16 关（当前 %d）" % CWGuideData.CHAPTER_COUNT)
+	## 知识之书直达映射：16 项、每项都指到真实存在的章节
+	var n_codex: int = CWCodex.chapters().size()
+	check(CWGuideData.CODEX_PAGE.size() == CWGuideData.CHAPTER_COUNT,
+		"每关都挂钩知识之书（%d/%d 项）" % [CWGuideData.CODEX_PAGE.size(), CWGuideData.CHAPTER_COUNT])
+	var bad_page: Array = []
+	for p in CWGuideData.CODEX_PAGE:
+		if p < 0 or p >= n_codex:
+			bad_page.append(p)
+	check(bad_page.is_empty(), "CODEX_PAGE 全部落在章节范围内（坏的：%s）" % str(bad_page))
 	check(CWGuideData.chapter_titles().size() == CWGuideData.CHAPTER_COUNT,
 		"每关都有标题")
 	check(CWGuideData.chapter_subtitles().size() == CWGuideData.CHAPTER_COUNT,
@@ -7429,14 +7470,33 @@ func t_guide_data() -> void:
 		var sts: Array = CWGuideData.steps(i)
 		check(not sts.is_empty(), "第 %d 关至少一步" % i)
 		for st in sts:
-			check(st.has("t") and st.has("b") and (st["b"] as Array).size() > 0,
+			check(st.has("t") and st.has("b") and not (st["b"] as Array).is_empty(),
 				"第 %d 关每步都有标题与正文" % i)
+			check((st["b"] as Array).size() <= 2,
+				"低文本契约：每步正文 ≤ 2 行（%s 有 %d 行）"
+					% [str(st["t"]), (st["b"] as Array).size()])
 		sum += sts.size()
 	check(CWGuideData.total_steps() == sum,
 		"total_steps() 与逐关步骤数之和一致（%d）" % sum)
-	var cells: Array = CWGuideData.steps(5)
-	check(cells.size() >= 6, "细胞图鉴关覆盖免疫 / 癌方 / 速查（%d 步）" % cells.size())
-	## 2026-09-05 核对：剧本文字同样现读规则，且每行装得进面板正文栏
+	## 动作键与状态完成键的取值域
+	var bad_act: Array = []
+	var bad_watch: Array = []
+	for i in CWGuideData.CHAPTER_COUNT:
+		for j in CWGuideData.steps(i).size():
+			var a: String = CWGuideData.act_of(i, j)
+			if a != "" and not CWGuideBridge.STEP_HINTS.has(a):
+				bad_act.append("%d:%d %s" % [i, j, a])
+			var w: String = CWGuideData.watch_of(i, j)
+			if w != "" and not (w == "placed" or w == "moved"):
+				bad_watch.append("%d:%d %s" % [i, j, w])
+	check(bad_act.is_empty(), "动作键都在 STEP_HINTS 里（坏的：%s）" % str(bad_act))
+	check(bad_watch.is_empty(), "watch 键只有 placed/moved（坏的：%s）" % str(bad_watch))
+	## 状态推进契约：第 1 关的落子/迁移两步带 watch（t_tutorial_auto_advance 依赖这两个位置）
+	check(CWGuideData.act_of(0, 1) == "place" and CWGuideData.watch_of(0, 1) == "placed",
+		"第 1 关第 2 步：落子（act=place + watch=placed）")
+	check(CWGuideData.act_of(0, 3) == "move" and CWGuideData.watch_of(0, 3) == "moved",
+		"第 1 关第 4 步：迁移（act=move + watch=moved）")
+	## 剧本文字现读规则，且每行装得进面板正文栏
 	var text := ""
 	var wide: Array = []
 	var budget: int = int(CWGuide.PANEL.size.x) - CWGuide.PAD * 2
@@ -7447,6 +7507,19 @@ func t_guide_data() -> void:
 				if CWStyle.FONT.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x > budget:
 					wide.append(line)
 	check(wide.is_empty(), "每行都放得进引导面板正文栏 %d（超的：%s）" % [budget, str(wide)])
+	check(text.contains("%d 升 III" % CWData.LEVEL_MIN_MEMORY[2]) and not text.contains("16 升"),
+		"剧本的记忆门槛现读 LEVEL_MIN_MEMORY")
+	check(text.contains("最多持 %d 张" % CWData.HAND_MAX), "手牌上限现读 HAND_MAX")
+	check(text.contains("最多攻击 %d 次" % tune.attack_max_per_turn), "攻击上限现读 attack_max_per_turn")
+	## 旧进度迁移：6 关制「全部完成」= done 6；16 关制下应从第 7 关续读（clamp 现行为）
+	CWGuideProgress.clear()
+	CWGuideProgress.set_done(5)   ## 旧版最后一关（下标 5）→ 存量 done = 6
+	var probe := CWGuide.new()
+	probe._read_progress()
+	check(probe.chapter() == 6, "旧进度 done=6 在 16 关制下从第 7 关续读（实际第 %d 关）" % (probe.chapter() + 1))
+	probe.free()
+	CWGuideProgress.clear()
+
 
 ## 状态推进（16 关重构切片①）：教「迁移」的步骤改由真实局面判定完成——
 ## 玩家亲手迁移一次，剧本自动翻页，全程不按「继续」；没迁移就停在原步。
@@ -7468,19 +7541,19 @@ func t_tutorial_auto_advance() -> void:
 	m.start()
 	await process_frame
 	await process_frame
-	## 同 t_tutorial 的起手：翻到第 2 关第 1 步（落子）按「继续」代做落子
-	m._guide._chapter = 1
-	m._guide._step = 0
+	## 同 t_tutorial 的起手：翻到第 1 关第 2 步（落子）按「继续」代做落子
+	m._guide._chapter = 0
+	m._guide._step = 1
 	m._guide._render()
 	m._guide._advance()
 	await process_frame
 	await process_frame
 	check(m.game.cells.size() == 2, "代做落子后双方细胞都在（%d 个）" % m.game.cells.size())
 	## 拨到教「迁移」的那一步；此刻引擎应把人类的行动询问挂在桥上
-	m._guide._step = 2
+	m._guide._step = 3
 	m._guide._render()
-	check(CWGuideData.act_of(1, 2) == "move", "第 2 关第 3 步教的是迁移")
-	check(m._guide.step_no() == 2, "翻页前停在教迁移那一步（%d）" % m._guide.step_no())
+	check(CWGuideData.act_of(0, 3) == "move", "第 1 关第 4 步教的是迁移")
+	check(m._guide.step_no() == 3, "翻页前停在教迁移那一步（%d）" % m._guide.step_no())
 	var gb := m.bridge as CWGuideBridge
 	check(gb != null and not gb._cur_req.is_empty() and gb._pending != null, "行动询问挂在桥上")
 	if gb == null or gb._cur_req.is_empty() or gb._pending == null:
@@ -7513,21 +7586,12 @@ func t_tutorial_auto_advance() -> void:
 	await process_frame
 	check(m.game.cell_of(0)["pos"] != from, "玩家细胞真的迁移了（%s → %s）"
 		% [str(from), str(m.game.cell_of(0)["pos"])])
-	check(m._guide.step_no() == 3, "迁移完成后剧本自动翻页、全程没按「继续」（现在 %d）" % m._guide.step_no())
+	check(m._guide.step_no() == 4, "迁移完成后剧本自动翻页、全程没按「继续」（现在 %d）" % m._guide.step_no())
 	m.teardown()
 	await process_frame
 	CWSettings.ai_delay_ms = 220
 	root.remove_child(main_scene)
 	main_scene.free()
-
-
-	check(text.contains("%d 升 III 级" % CWData.LEVEL_MIN_MEMORY[2]) and not text.contains("16 升"),
-		"剧本的记忆门槛现读 LEVEL_MIN_MEMORY")
-	check(text.contains("标记脚下") and not text.contains("固化成型更快"), "剧本的骨肉瘤按重做后的骨样硬化描述")
-	check(text.contains("癌方结算【无氧呼吸】") and not text.contains("结束回合时结算【无氧呼吸】"),
-		"剧本的世界回合按 E 阶段无氧结算描述（eturn=0，Kevin 2026-09-06 改回）")
-	check(text.contains("左下角「跳过引导」"), "「跳过引导」按钮的位置说对了（面板左下角）")
-	check(text.contains("传到另一端"), "血管说的是「S 阶段传送」，不只是血行转移")
 
 
 func t_codex() -> void:
@@ -7657,8 +7721,8 @@ class FakeGuide:
 	var hints: Array[String] = []
 	func _init() -> void:
 		active = true
-		_chapter = 1
-		_step = 0
+		_chapter = 0
+		_step = 1
 	func set_hint(text: String) -> void:
 		hints.append(text)
 
@@ -7704,12 +7768,12 @@ func t_guide_bridge() -> void:
 	ans.done.connect(func(v: Variant) -> void: got.append(v))
 	b._cur_req = req
 	b._pending = ans
-	check(b.can_demo(), "正在教落子（第 2 关第 1 步）且引擎正等落子 → 「继续」可代做")
+	check(b.can_demo(), "正在教落子（第 1 关第 2 步）且引擎正等落子 → 「继续」可代做")
 	check(b.take_offer() and got.size() == 1 and int(got[0]) >= 0 and int(got[0]) < 2,
 		"按「继续」替玩家答了一个合法下标（%s）" % str(got))
 	check(not b.take_offer(), "同一问不会代做第二次")
 	## 教的不是一步到位的动作 → 不代做
-	fake._step = 2      ## 「第二步：迁移」（两段式，留给玩家亲手点）
+	fake._step = 3      ## 「第二步：迁移」（两段式，留给玩家亲手点）
 	b._cur_req = req
 	b._pending = CWUIBridge.Answer.new()
 	check(not b.can_demo() and not b.take_offer(), "教迁移时「继续」不代做（两段式选格留给玩家）")
@@ -7728,14 +7792,14 @@ func t_guide_bridge() -> void:
 	## 提示跟着正在教的那一步走：同一问里教结束回合就说结束回合，教抽卡就说抽卡，教的不在这一问里就退回迁移那句
 	b._cur_req = act_req
 	check(b.current_hint() == CWGuideBridge.STEP_HINTS["end"]["hint"], "教结束回合：提示是结束回合那句")
-	fake._step = 1      ## 「能量就是生命」（展示型，不教动作）
+	fake._step = 2      ## 「能量就是生命」（展示型，不教动作）
 	check(b.current_hint() == CWGuideBridge.STEP_HINTS["move"]["hint"], "展示型步骤：退回通用的迁移提示")
 	fake._chapter = 2
 	fake._step = 0      ## 「怎么发起攻击」
 	check(b.current_hint() == CWGuideBridge.STEP_HINTS["attack"]["hint"], "教攻击：提示是攻击那句（选项里攻击就是迁移）")
 	b._cur_req = {}
 	check(b.current_hint() == "", "没在等人：没有提示")
-	fake._chapter = 3
+	fake._chapter = 7
 	fake._step = 0      ## 「抽卡入口」
 	b._cur_req = act_req
 	check(b._demo_index() == 1, "教抽卡时「继续」= 答「基因表达」那个下标")
@@ -7744,8 +7808,8 @@ func t_guide_bridge() -> void:
 	## 运行时报错要靠 tools/run_tests.sh 才抓得到）
 	g.setup.build_board()
 	g.tiles[Vector2i.ZERO]["tissue"] = CWData.Tissue.CANCER
-	fake._chapter = 1
-	fake._step = 0
+	fake._chapter = 0
+	fake._step = 1
 	var near := Vector2i(9999, 9999)   ## 哨兵：还没找到
 	var far := near
 	for c in CWData.all_coords():
@@ -10927,6 +10991,18 @@ func t_ossify_cost_and_pin() -> void:
 	g.tune.osteo_ossify_cost = 35
 	check(ub._cost_text(ost, "ossify") == CWData.fmt(35), "改旋钮价签跟着变，没写死")
 	g.tune.osteo_ossify_cost = CWData.OSTEO_OSSIFY_COST
+	## 【基质阻隔】只翻倍位移费用；骨样硬化也是 CELL_SKILL，但不是移动。
+	g.events["active"].append({ "name": "基质阻隔", "left": 2, "stacks": 1, "data": {} })
+	ost["energy"] = 30
+	check(g.actions.cost_effects_for(ost, "ossify").is_empty(),
+		"基质阻隔不影响非移动技能的悬浮报价")
+	var ossify_opts: Array = []
+	g.actions._type_options(ost, ossify_opts)
+	check(ossify_opts.any(func(o: Dictionary) -> bool: return o["data"]["act"] == "ossify"),
+		"3.0 能量付得起 2.0：骨样硬化选项可用")
+	g.actions._do_ossify(ost)
+	check(ost["energy"] == 10 and int(g.tile(Vector2i.ZERO)["ossify_at"]) > 0,
+		"骨样硬化按 2.0 原价提交，不被基质阻隔翻倍")
 	## 这个癌种的主动技能一个都不许缺价签（骨样硬化就是这么漏的）
 	var blank: Array = []
 	for act in g.actions.action_kinds(ost):
@@ -10966,6 +11042,13 @@ func t_ossify_cost_and_pin() -> void:
 	check(box.visible, "悬停那种不吃「点别处就收」那条（它自己会随鼠标离开收起）")
 	box.on_hover_info({}, 0.0, -1.0)
 	check(not box.visible, "离开 → 收起")
+	box.on_hover_info({ "name": "迁移", "kind": "【主动技能】", "lines": ["当前影响：无"] }, 120.0)
+	box.sync(0.5, CWData.Faction.IMMUNE, false)
+	var old_height := box.size.y
+	box.on_hover_info({ "name": "迁移", "kind": "【主动技能】",
+		"lines": ["当前影响", "【黏液侵染】0.5→1.0"] }, 120.0)
+	box.sync(0.5, CWData.Faction.IMMUNE, false)
+	check(box.size.y > old_height, "同名技能影响变化后重新搭建实际内容，不复用旧详情")
 	## 详情框要算「最上面的图层」（Kevin 2026-09-07 截图：停在框上，底下那一格的地图信息还浮出来）——
 	## 棋盘按 gui_get_hovered_control() 判，IGNORE 的控件它看不见
 	check(box.mouse_filter == Control.MOUSE_FILTER_STOP, "详情框挡鼠标：格子详情不会从它底下钻出来，也点不穿到棋盘")
@@ -13272,15 +13355,16 @@ func t_config_custom() -> void:
 	## **行下标一律从 `N_ROWS` 推，别写死** —— 2026-09-08 加「世界事件」行时，
 	## 这一组因为把 4 当成「第一个癌种行」而整片变红。
 	var first_cancer: int = CWConfigPanel.N_ROWS
+	check(p._mode_value.text == "标准对局",
+		"开始对局内部第一项选择标准 / 自定义")
 	check(p.config()["cancer_types"].is_empty() and p._n_rows() == CWConfigPanel.N_ROWS
 		and p._btn.position.y == CWConfigPanel.BTN_Y
 		and not p._name_labels[first_cancer].visible,
-		"普通对局：不带癌种、%d 行、按钮在 %.0f、癌种行收起"
+		"标准对局：不带癌种、%d 行、按钮在 %.0f、癌种行收起"
 			% [CWConfigPanel.N_ROWS, CWConfigPanel.BTN_Y])
-	p.custom = true
-	p.open()
+	p._cycle_mode()
 	check(p._title.text == "自定义对局" and p._eyebrow.text == "CUSTOM", "自定义：眉题 / 标题换了")
-	check(p._n_rows() == CWConfigPanel.N_ROWS + 2
+	check(p._mode_value.text == "自定义对局" and p._n_rows() == CWConfigPanel.N_ROWS + 2
 			and p._name_labels[first_cancer].visible and p._name_labels[first_cancer + 1].visible
 			and not p._name_labels[first_cancer + 2].visible
 			and p._name_labels[first_cancer].text == "癌症A 种类", "4 人：多出癌症A / 癌症B 两行")
