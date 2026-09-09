@@ -8,7 +8,7 @@ extends RefCounted
 
 static func snapshot(game: CWGame) -> Dictionary:
 	return {
-		"tiles": game.tiles.duplicate(true),
+		"tiles": game.tiles.duplicate(true), "board_radius": game.board_radius,
 		"cells": game.cells.duplicate(true),
 		"chemo_track": game.chemo_track.duplicate(true),
 		"feed_log": game.feed_log.duplicate(true),
@@ -29,6 +29,8 @@ static func snapshot(game: CWGame) -> Dictionary:
 
 static func restore(game: CWGame, snap: Dictionary) -> void:
 	game.tiles = snap["tiles"].duplicate(true)
+	## 旧档没有这个字段：正式局一律 6，按默认补
+	game.board_radius = int(snap.get("board_radius", CWData.BOARD_RADIUS))
 	game.cells = snap["cells"].duplicate(true)
 	game.chemo_track = snap.get("chemo_track", {}).duplicate(true)
 	game.feed_log = snap.get("feed_log", []).duplicate(true)
@@ -67,6 +69,10 @@ static func state_hash(game: CWGame) -> String:
 	## 否则「界面上留几条」就成了对局一致性的一部分（2026-09-07）
 	state.erase("feed_log")
 	state.erase("feed_seq")
+	## 棋盘半径**进快照不进哈希**：它一局之内不变，而且 tiles 已经把「哪些格存在」
+	## 逐格编进去了 —— 半径只是同一件事的一个缓存上界，两边真要不一样，tiles 先炸。
+	## 放进哈希只会平白改掉所有对局的状态哈希、逼着升 NET_VERSION（2026-09-09）
+	state.erase("board_radius")
 	for cell in state["cells"]:
 		cell.erase("play_n")
 	return _encode(state).sha256_text()

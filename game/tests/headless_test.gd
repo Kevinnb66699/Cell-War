@@ -8754,6 +8754,31 @@ func t_state_codec() -> void:
 	var r := g.rng.randi()
 	g.restore(base)
 	check(g.rng.randi() == r and g.flow == base["flow"], "restore 同时还原 RNG 与流程游标")
+
+	## **棋盘半径要跟着存档走**。教程小棋盘的 tiles 只有 7 格，而 board_radius 丢了就退回 6 ——
+	## 引擎于是认为板外格「在板」，随后的 tiles 查询直接炸。这正是切片⑦在推进那条路上
+	## 修掉的接缝缺陷，从存档这条路又回来了一次（2026-09-09 合 PR #3 时钉住）。
+	var small := CWGame.new()
+	small.init(CWData.FACTION_ORDER[2], 7)
+	small.setup.build_board(1)                    ## 半径 1 = 7 格
+	var off := Vector2i(3, 0)                     ## 半径 1 的板外格
+	check(small.tiles.size() == 7 and not small.is_on_board(off), "半径 1 就是 7 格，(3,0) 在板外")
+	var back := CWGame.new()
+	back.init(CWData.FACTION_ORDER[2], 7)
+	back.restore(small.snapshot())
+	check(back.board_radius == 1, "存档往返之后半径还是 1（丢了会退回 6）")
+	check(not back.is_on_board(off), "板外格读档后仍判在板外")
+
+	## 但它**不进哈希**：一局之内不变，且 tiles 已经逐格编进去了。
+	## 进哈希就会平白改掉所有对局的状态哈希、逼着升 NET_VERSION。
+	var wide := CWGame.new()
+	wide.init(CWData.FACTION_ORDER[2], 7)
+	wide.restore(small.snapshot())
+	wide.board_radius = 6                         ## 只动半径，tiles 一格不改
+	check(wide.state_hash() == back.state_hash(), "board_radius 不参与 state_hash（协议不受影响）")
+	small.dispose()
+	back.dispose()
+	wide.dispose()
 	g.dispose()
 
 
