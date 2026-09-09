@@ -41,6 +41,8 @@ static func _apply_fixture(g: CWGame, fx: Dictionary) -> void:
 		g.tiles[c]["special"] = CWData.Special.NONE
 	if fx.has("memory"):
 		g.memory = int(fx["memory"])   ## 抗原记忆（阵营共享）；等级由记忆推导，无需另设
+	if fx.has("round"):
+		g.round_no = int(fx["round"])  ## 开局世界回合（第 13 关事件回合 / 15C 最终回合）
 	for c in fx.get("cancer_tiles", []):
 		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
 	for c in fx.get("tile_extras", {}):

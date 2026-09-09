@@ -23,9 +23,11 @@ static func count() -> int:
 	return RADII.size()
 
 
-## 第 level 关的实验区数（第 10/11 关四个小实验区，其余 1）
+## 第 level 关的实验区数（第 10/11/12 关四个、第 15 关三个，其余 1）
 static func zones(level: int) -> int:
-	return 4 if level == 9 or level == 10 else 1
+	if level == 9 or level == 10 or level == 11:
+		return 4
+	return 3 if level == 14 else 1
 
 
 ## 第 level 关（0 起）的棋盘半径
@@ -183,6 +185,139 @@ static func raw(level: int) -> Dictionary:
 				"radius": RADII[15],
 				## 第 16 关「毕业战」：正式 127 格四人初始化，教程只叠加建议 / 预测 / 解释
 				"formal": true,
+			}
+		10:
+			return {
+				"radius": RADII[10],
+				## 第 11 关「癌症并不只有一种」：四种癌细胞实验区（癌症视角）
+				"zones": [
+					{   ## 11A 恶性黑色素瘤：玩家站在血管上，练早期血行转移
+						"tile_extras": {
+							Vector2i(0, -3): { "special": CWData.Special.VESSEL },
+							Vector2i(0, 3): { "special": CWData.Special.VESSEL },
+						},
+						"cells": [
+							{ "faction": CWData.Faction.CANCER, "pos": Vector2i(0, -3),
+								"ctype": CWData.CancerType.MELANOMA, "energy": 30 },
+						],
+					},
+					{   ## 11B 印戒细胞癌：4.0 能量、周围一枚免疫细胞，练黏液破裂
+						"cells": [
+							{ "faction": CWData.Faction.CANCER, "pos": Vector2i.ZERO,
+								"ctype": CWData.CancerType.SIGNET, "energy": 40 },
+							{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i(0, 1) },
+						],
+					},
+					{   ## 11C 骨肉瘤：站在普通癌组织上，练骨样硬化
+						"cancer_tiles": [Vector2i.ZERO, Vector2i(1, 0), Vector2i(0, 1)],
+						"cells": [
+							{ "faction": CWData.Faction.CANCER, "pos": Vector2i.ZERO,
+								"ctype": CWData.CancerType.OSTEO,
+								"energy": CWData.INIT_ENERGY_CANCER },
+						],
+					},
+					{   ## 11D 小细胞肺癌：练转移跃进与健康迁移 0.7
+						"cancer_tiles": [Vector2i.ZERO],
+						"cells": [
+							{ "faction": CWData.Faction.CANCER, "pos": Vector2i.ZERO,
+								"ctype": CWData.CancerType.SCLC,
+								"energy": CWData.INIT_ENERGY_CANCER },
+						],
+					},
+				],
+			}
+		11:
+			return {
+				"radius": RADII[11],
+				## 第 12 关「肿瘤微环境」：压迫 / 增生 / 侵蚀 / 坏死四个教学场景
+				"zones": [
+					{   ## 12A 微环境压迫：免疫细胞被 5 格癌性组织包围
+						"cancer_tiles": [Vector2i(1, 0), Vector2i(1, -1), Vector2i(-1, 0),
+							Vector2i(-1, 1), Vector2i(0, 1)],
+						"cells": [
+							{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO },
+						],
+					},
+					{   ## 12B 增生：健康组织 (1,0) 与 3 格癌组织相邻
+						"cancer_tiles": [Vector2i(2, 0), Vector2i(2, -1), Vector2i(1, 1)],
+						"cells": [
+							{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i(-1, 0) },
+						],
+					},
+					{   ## 12C 侵蚀：健康孤岛 (2,0) 被癌组织完全封闭
+						"cancer_tiles": CWData.neighbors(Vector2i(2, 0)),
+						"cells": [
+							{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO },
+						],
+					},
+					{   ## 坏死：免疫细胞站在坏死组织上（剩余 2 世界回合）
+						"tile_extras": {
+							Vector2i.ZERO: { "necrosis": 2 },
+						},
+						"cells": [
+							{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO },
+						],
+					},
+				],
+			}
+		12:
+			return {
+				"radius": RADII[12],
+				## 第 13 关「世界并不稳定」：停在第 3 世界回合（事件回合 3/6/10/14）
+				"round": 3,
+				"cancer_tiles": [Vector2i(1, 0)],
+				"cells": [
+					{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO },
+				],
+			}
+		13:
+			return {
+				"radius": RADII[13],
+				## 第 14 关「终末免疫」：记忆 29/30（III 级），玩家已分化为 T 细胞
+				"memory": 29,
+				"cells": [
+					{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO,
+						"itype": CWData.ImmuneType.T_CELL },
+				],
+			}
+		14:
+			var coords15: Array = CWData.all_coords(RADII[14])
+			## 15B 癌症胜利警报：33 格癌组织 + 28 格固化占满 61 格，加权 33+2×28=89/90
+			var zone_b: Dictionary = {
+				"cancer_tiles": [],
+				"tile_extras": {},
+				"cells": [
+					{ "faction": CWData.Faction.CANCER, "pos": Vector2i.ZERO,
+						"energy": CWData.INIT_ENERGY_CANCER },
+				],
+			}
+			for i in coords15.size():
+				if i < 28:
+					zone_b["tile_extras"][coords15[i]] = { "tissue": CWData.Tissue.SOLID }
+				else:
+					zone_b["cancer_tiles"].append(coords15[i])
+			return {
+				"radius": RADII[14],
+				## 第 15 关「怎样真正赢下一局」：三个残局
+				"zones": [
+					{   ## 15A 免疫胜利：最后一个癌细胞 + 一个固化据点
+						"tile_extras": {
+							Vector2i(2, 0): { "tissue": CWData.Tissue.SOLID },
+						},
+						"cells": [
+							{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO },
+							{ "faction": CWData.Faction.CANCER, "pos": Vector2i(1, 0),
+								"energy": 30 },
+						],
+					},
+					zone_b,
+					{   ## 15C 第 15 回合判定：直接进最终回合
+						"round": 15,
+						"cells": [
+							{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO },
+						],
+					},
+				],
 			}
 		_:
 			## 其余关：只有半径先行（台词与半径已由 t_guide_data / t_guide_director 盯住），

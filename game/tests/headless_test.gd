@@ -7750,6 +7750,105 @@ func t_guide_director() -> void:
 			if g10d.tiles[c]["tissue"] == CWData.Tissue.SOLID:
 				has_solid = true
 		check(is_t and has_foe and has_solid, "10D：T 细胞 + 癌细胞 + 固化癌组织")
+	## 第 11 关「癌症并不只有一种」：四个癌细胞实验区，玩家带 CancerType
+	check(CWGuideLevels.zones(10) == 4, "第 11 关四个实验区（%d）" % CWGuideLevels.zones(10))
+	var g11a := CWGuideDirector.assemble(10, 0)
+	if g11a != null:
+		check(g11a.cells.size() == 1 and g11a.cells[0]["ctype"] == CWData.CancerType.MELANOMA
+			and g11a.cells[0]["pos"] == Vector2i(0, -3)
+			and g11a.tiles[Vector2i(0, -3)]["special"] == CWData.Special.VESSEL,
+			"11A：黑色素瘤玩家站在血管上")
+	var g11b := CWGuideDirector.assemble(10, 1)
+	if g11b != null:
+		var player11b: Dictionary = {}
+		var n_foe11b := 0
+		for c in g11b.cells:
+			if c["faction"] == CWData.Faction.CANCER:
+				player11b = c
+			else:
+				n_foe11b += 1
+		check(not player11b.is_empty() and player11b["ctype"] == CWData.CancerType.SIGNET
+			and player11b["energy"] == 40 and n_foe11b == 1,
+			"11B：印戒玩家 4.0 能量、周围有一枚免疫细胞")
+	var g11c := CWGuideDirector.assemble(10, 2)
+	if g11c != null:
+		check(g11c.cells.size() == 1 and g11c.cells[0]["ctype"] == CWData.CancerType.OSTEO
+			and g11c.tiles[g11c.cells[0]["pos"]]["tissue"] == CWData.Tissue.CANCER,
+			"11C：骨肉瘤玩家站在普通癌组织上")
+	var g11d := CWGuideDirector.assemble(10, 3)
+	if g11d != null:
+		check(g11d.cells.size() == 1 and g11d.cells[0]["ctype"] == CWData.CancerType.SCLC,
+			"11D：小细胞肺癌玩家")
+	## 第 12 关「肿瘤微环境」：压迫 / 增生 / 侵蚀 / 坏死四个教学场景
+	check(CWGuideLevels.zones(11) == 4, "第 12 关四个教学场景（%d）" % CWGuideLevels.zones(11))
+	var g12a := CWGuideDirector.assemble(11, 0)
+	if g12a != null:
+		var adj12a := 0
+		for c in CWData.neighbors(Vector2i.ZERO):
+			if g12a.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				adj12a += 1
+		check(g12a.cells.size() == 1 and adj12a == 5,
+			"12A：免疫细胞被 5 格癌性组织包围（%d）" % adj12a)
+	var g12b := CWGuideDirector.assemble(11, 1)
+	if g12b != null:
+		var adj12b := 0
+		for c in CWData.neighbors(Vector2i(1, 0)):
+			if g12b.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				adj12b += 1
+		check(adj12b == 3 and g12b.tiles[Vector2i(1, 0)]["tissue"] == CWData.Tissue.HEALTHY,
+			"12B：健康组织 (1,0) 与 3 格癌组织相邻（%d）" % adj12b)
+	var g12c := CWGuideDirector.assemble(11, 2)
+	if g12c != null:
+		var closed: bool = g12c.tiles[Vector2i(2, 0)]["tissue"] == CWData.Tissue.HEALTHY
+		for c in CWData.neighbors(Vector2i(2, 0)):
+			if g12c.tiles[c]["tissue"] != CWData.Tissue.CANCER:
+				closed = false
+		check(closed, "12C：健康孤岛 (2,0) 被 6 格癌组织完全封闭")
+	var g12n := CWGuideDirector.assemble(11, 3)
+	if g12n != null:
+		check(g12n.tiles[Vector2i.ZERO]["necrosis"] == 2 and g12n.cells.size() == 1,
+			"12 坏死：免疫细胞站在坏死组织上（剩余 2 世界回合）")
+	## 第 13 关「世界并不稳定」：开局停在第 3 世界回合（事件回合）
+	var g13 := CWGuideDirector.assemble(12)
+	if g13 != null:
+		check(g13.round_no == 3 and g13.cells.size() == 1,
+			"第 13 关从世界回合 3 开始（当前 %d）" % g13.round_no)
+	## 第 14 关「终末免疫」：抗原记忆 29/30（III 级）、玩家已分化
+	var g14 := CWGuideDirector.assemble(13)
+	var it14 := -2
+	if g14 != null and g14.cells.size() == 1:
+		it14 = int(g14.cells[0]["itype"])
+	if g14 != null:
+		check(g14.memory == 29 and g14.cells.size() == 1
+			and it14 != CWData.ImmuneType.BASIC,
+			"第 14 关记忆 29/30 且玩家已分化（%d / itype %d）" % [g14.memory, it14])
+	## 第 15 关「怎样真正赢下一局」：三个残局
+	check(CWGuideLevels.zones(14) == 3, "第 15 关三个残局（%d）" % CWGuideLevels.zones(14))
+	var g15a := CWGuideDirector.assemble(14, 0)
+	if g15a != null:
+		var solid15 := 0
+		var foe15 := 0
+		for c in g15a.tiles:
+			if g15a.tiles[c]["tissue"] == CWData.Tissue.SOLID:
+				solid15 += 1
+		for c in g15a.cells:
+			if c["faction"] == CWData.Faction.CANCER:
+				foe15 += 1
+		check(solid15 == 1 and foe15 == 1, "15A：最后一个癌细胞 + 一个固化癌组织")
+	var g15b := CWGuideDirector.assemble(14, 1)
+	if g15b != null:
+		var cw15 := 0
+		var sw15 := 0
+		for c in g15b.tiles:
+			if g15b.tiles[c]["tissue"] == CWData.Tissue.SOLID:
+				sw15 += 1
+			elif g15b.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+				cw15 += 1
+		check(cw15 + 2 * sw15 == 89,
+			"15B：癌症加权进度 89/90（癌 %d + 固化 %d×2）" % [cw15, sw15])
+	var g15c := CWGuideDirector.assemble(14, 2)
+	if g15c != null:
+		check(g15c.round_no == 15, "15C：直接进入第 15 世界回合判定（当前 %d）" % g15c.round_no)
 	## 第 16 关「毕业战」：正式规则原样 —— 127 格、3 核 6 髓 2 管、四人行动序
 	var g16 := CWGuideDirector.assemble(15)
 	check(g16 != null, "第 16 关装配出真实 CWGame")
