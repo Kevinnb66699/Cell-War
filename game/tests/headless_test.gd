@@ -5491,6 +5491,53 @@ func t_effector_fx() -> void:
 	var asrc := FileAccess.get_file_as_string("res://scripts/core/cw_actions.gd")
 	check(asrc.contains('game.announce("中和抗体"'), "引擎发【中和抗体】的通报")
 	check(asrc.contains('game.announce("黏液破裂"'), "引擎发【黏液破裂】的通报")
+	check(asrc.contains('game.announce("连续吞噬"'), "引擎发【连续吞噬】的通报（每连一格一次）")
+	check(asrc.contains("game.beam_fx(cell[\"pos\"]"), "引擎广播 Excalibur 的光束过场")
+
+	## ---- Excalibur 的光束 ----
+	## 「从哪到哪」必须由引擎给：六个方向都合法，表现层猜不出；
+	## 侧向波及更是引擎掷的 60%，猜也猜不对。所以它走独立报文而不是 show_result
+	var bsrc := FileAccess.get_file_as_string("res://scripts/core/cw_bridge.gd")
+	check(bsrc.contains("func show_beam("), "桥基类有 show_beam 钩子")
+	var nsrc := FileAccess.get_file_as_string("res://scripts/net/cw_net_client.gd")
+	check(nsrc.contains('"beam"'), "beam 进对局流（STREAM_KINDS）——演出得按顺序播，不能插队")
+
+	var bf := CWBeamFx.new()
+	bf.visible = false
+	board.add_child(bf)
+	var none: Array[Vector2] = []
+	bf.play(board.tile_center(Vector2i(-3, 1)), board.tile_center(Vector2i(3, 1)), none)
+	check(bf.visible, "发动后露出来")
+	for i in 21:
+		bf.sync(0.1)
+	check(bf.visible, "2.1 秒时还在（全程 %.1f 秒）" % CWBeamFx.TOTAL)
+	bf.sync(0.2)
+	check(not bf.visible, "过了 %.1f 秒自己收掉" % CWBeamFx.TOTAL)
+	check(CWBeamFx.CHARGE < CWBeamFx.TOTAL and CWBeamFx.SPLASH_AT < CWBeamFx.TOTAL,
+		"蓄力与侧向波及都排在收场之前")
+
+	## 贴着棋盘边发动、那个方向一格都没有：射线为空，不该演也不该广播
+	var g := make_game(2, 5)
+	await run_setup(g)
+	var before: int = g.logs.size()
+	g.beam_fx(Vector2i(2, 2), Vector2i(2, 2), [])
+	check(g.logs.size() == before, "射线为空（from == to）时 beam_fx 什么都不做")
+	g.dispose()
+
+	## ---- 连续吞噬的每一口 ----
+	## 连到第几口现读引擎的 chain_left，表现层不另存一份计数
+	check(src.contains("CWData.CHAIN_PHAGO_MAX - int(c.get(\"chain_left\""),
+		"层数由 CHAIN_PHAGO_MAX 减 chain_left 算出来，不另记一份")
+	var cf := CWChainFx.new()
+	board.add_child(cf)
+	check(not cf.visible, "没咬之前是藏着的")
+	cf.play(board.tile_center(Vector2i.ZERO), 2)
+	check(cf.visible, "咬下去就露出来")
+	for i in 6:
+		cf.sync(0.1)
+	check(cf.visible, "0.6 秒时还在（全程 %.1f 秒）" % CWChainFx.TOTAL)
+	cf.sync(0.2)
+	check(not cf.visible, "过了 %.1f 秒自己收掉" % CWChainFx.TOTAL)
 	board.queue_free()
 
 

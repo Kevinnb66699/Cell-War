@@ -26,6 +26,8 @@ var toast: CWToast     ## 骰子旁边那行字
 var hunt_fx: CWHuntFx
 var mucus_fx: CWMucusFx
 var seal_fx: CWSealFx
+var beam_fx: CWBeamFx
+var chain_fx: CWChainFx
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
 var erosion: CWErosionFx   ## 癌蔓延两帧过场（侵蚀 / 增生 / 定殖共用）；纯 AI 桥 / 测试里可为 null
 var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这里来（无界面时为 null）
@@ -771,6 +773,15 @@ func _sealed_centers() -> Array[Vector2]:
 	return out
 
 
+## 站在这一格上的巨噬已经连了几口。`chain_left` 是引擎的倒计数，
+## 满额减去它就是「连了几口」——**不在表现层另存一份**，那是第二份状态。
+func _chain_level(at: Vector2i) -> int:
+	for c in game.cells_at(at):
+		if int(c.get("itype", -1)) == CWData.ImmuneType.MACRO:
+			return CWData.CHAIN_PHAGO_MAX - int(c.get("chain_left", CWData.CHAIN_PHAGO_MAX))
+	return 0
+
+
 func show_result(text: String, at: Vector2i, linger := false) -> void:
 	## 通报文案当分派键是没办法的事：准星是一次性演出，没有可以每帧去读的状态
 	## （趋化源和标记光环都是读 game 的常驻状态）。名字至少引正本，别在这儿再抄一份。
@@ -778,6 +789,10 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 			and hunt_fx != null and board != null:
 		## 第二个点是搜索起点 —— 盘心。选稿里方框先在全图上摆，再收到目标身上
 		hunt_fx.play(board.tile_center(at), board.tile_center(Vector2i.ZERO))
+	## 【连续吞噬】连到第几口**现读引擎**的 chain_left，不在表现层另记一份计数
+	if text == CWData.EFFECTOR_NAMES[CWData.ImmuneType.MACRO] \
+			and chain_fx != null and board != null and game != null:
+		chain_fx.play(board.tile_center(at), _chain_level(at))
 	if text == "黏液破裂" and mucus_fx != null and board != null:
 		mucus_fx.play(board.tile_center(at))
 	## 【中和抗体】封住了谁**问引擎**（game.neutralized），不在这儿重算「谁挨着健康组织」
@@ -798,6 +813,15 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 
 ## 癌蔓延过场（侵蚀 / 增生 / 定殖共用）：只登记「哪一格、癌从哪一侧来」，具体哪一帧由 CWMatch 每帧问 frame_of()。
 ## 这里不 await —— 演出不该卡住结算。
+func show_beam(from: Vector2i, to: Vector2i, splash: Array) -> void:
+	if beam_fx == null or board == null:
+		return
+	var pts: Array[Vector2] = []
+	for c in splash:
+		pts.append(board.tile_center(c))
+	beam_fx.play(board.tile_center(from), board.tile_center(to), pts)
+
+
 func show_erosion(at: Vector2i, dir: int) -> void:
 	if erosion == null:
 		return

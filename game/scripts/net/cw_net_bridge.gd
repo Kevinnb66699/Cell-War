@@ -67,5 +67,9 @@ func show_notice(text: String) -> void:
 	room.broadcast({ "t": "notice", "text": text })
 
 
+func show_beam(from: Vector2i, to: Vector2i, splash: Array) -> void:
+	room.broadcast({ "t": "beam", "from": from, "to": to, "splash": splash })
+
+
 func show_erosion(at: Vector2i, dir: int) -> void:
 	room.broadcast({ "t": "erosion", "at": at, "dir": dir })

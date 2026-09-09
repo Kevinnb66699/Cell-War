@@ -244,6 +244,8 @@ var _chemo_fx: CWChemoFx     ## 树突【I-趋化源】的漩涡核心演出（�
 var _mark_aura_fx: CWMarkAuraFx  ## 树突【I-标记】光环范围的常驻粒子（同上，也挂棋盘层）
 var _hunt_fx: CWHuntFx         ## 免疫猎杀捕获准星
 var _mucus_fx: CWMucusFx       ## 印戒【黏液破裂】的引爆
+var _beam_fx: CWBeamFx         ## T【Excalibur】的双螺旋光束
+var _chain_fx: CWChainFx       ## 巨噬【连续吞噬】的每一口
 var _seal_fx: CWSealFx         ## B【中和抗体】的投递与封禁环（后者常驻，见 _sync_seal）
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
 var _erosion_fx := CWErosionFx.new()
@@ -297,6 +299,13 @@ func _ready() -> void:
 		_seal_fx = CWSealFx.new()
 		_seal_fx.z_index = board.Z_OVER_BOARD
 		board.add_child(_seal_fx)
+		_beam_fx = CWBeamFx.new()
+		_beam_fx.visible = false
+		_beam_fx.z_index = board.Z_OVER_BOARD
+		board.add_child(_beam_fx)
+		_chain_fx = CWChainFx.new()
+		_chain_fx.z_index = board.Z_OVER_BOARD
+		board.add_child(_chain_fx)
 		_tile_info = CWTileInfo.new()
 		ui.add_child(_tile_info)
 		if pause_menu != null:
@@ -491,6 +500,8 @@ func _wire_bridge(level: int) -> void:
 	bridge.hunt_fx = _hunt_fx
 	bridge.mucus_fx = _mucus_fx
 	bridge.seal_fx = _seal_fx
+	bridge.beam_fx = _beam_fx
+	bridge.chain_fx = _chain_fx
 	bridge.game = game
 	bridge.board = board
 	bridge.dice = _dice
@@ -674,6 +685,9 @@ func _net_loop(id: int) -> void:
 			"erosion":
 				if bridge != null:
 					bridge.show_erosion(m["at"], int(m["dir"]))
+			"beam":
+				if bridge != null:
+					bridge.show_beam(m["from"], m["to"], m.get("splash", []))
 			"ask":
 				_serve_ask(m)
 			"game_over":
@@ -897,6 +911,10 @@ func _process(delta: float) -> void:
 		_hunt_fx.sync(delta)
 	if _mucus_fx != null:
 		_mucus_fx.sync(delta)
+	if _beam_fx != null:
+		_beam_fx.sync(delta)
+	if _chain_fx != null:
+		_chain_fx.sync(delta)
 	_sync_seal(delta)
 	_sync_hand()
 	if panel != null:

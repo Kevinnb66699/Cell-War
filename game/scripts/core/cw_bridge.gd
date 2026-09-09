@@ -72,6 +72,15 @@ func show_erosion(_at: Vector2i, _dir: int) -> void:
 	pass
 
 
+## T【Excalibur】的光束：从 `_from` 打到 `_to`（主射线最后一格），`_splash` 是侧向被波及的格。
+##
+## **为什么不能走 `show_result`**：那个只带一个坐标，而光束要「从哪到哪」两个点 ——
+## 表现层猜不出方向（六个方向都合法），侧向波及更是引擎掷骰的结果，猜也猜不对。
+## 同 `show_erosion` 的理由：过场需要的信息比一个格子多，就得单独开一条。
+func show_beam(_from: Vector2i, _to: Vector2i, _splash: Array) -> void:
+	pass
+
+
 ## 全局通报：不挂在哪一格上的大事（目前只有「抽到世界事件」）。
 ## 与 show_result 分开是因为展示方式不同 —— 那个贴着骰子、1 秒多就走；这个要在棋盘上方停够看完一句话的时间。
 func show_notice(_text: String) -> void:

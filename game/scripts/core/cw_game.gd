@@ -743,6 +743,18 @@ func broadcast_card_drawn(cell: Dictionary, source: String) -> void:
 ## 2026-09-06 起后两处也走它，对玩家是同一件事：这一格变癌了、癌从 `dir`（CWData.DIRS 下标）那一侧来。
 ## 去重规则同 announce（热座共用一个 UI 桥时只演一次）。
 ## 不 await：过场自己会走完，不该卡住 E 阶段 / 移动结算的后续步骤。
+## Excalibur 的光束过场。射线为空（发动者贴着棋盘边、那个方向一格都没有）就不演也不广播。
+func beam_fx(from: Vector2i, to: Vector2i, splash: Array) -> void:
+	if from == to:
+		return
+	var shown: Array = []
+	for b in bridges.values():
+		if b == null or shown.has(b):
+			continue
+		shown.append(b)
+		b.show_beam(from, to, splash)
+
+
 func erosion_fx(at: Vector2i, dir: int) -> void:
 	if dir < 0:
 		return   ## 取不出方向（原地复活、引爆者脚下……）：不演也不广播

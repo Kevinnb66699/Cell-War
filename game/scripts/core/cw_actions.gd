@@ -1550,6 +1550,8 @@ func _effector_excalibur(cell: Dictionary) -> void:
 			if game.rng.randi_range(1, 100) <= CWData.EXCALIBUR_SPLASH_PCT:
 				splash.append(n)
 	game.log_msg("　【Excalibur】主射线 %d 格，侧向波及 %d 格" % [ray.size(), splash.size()])
+	## 光束先演、伤害随后落。射线为空（贴边发动）时 beam_fx 自己不广播
+	game.beam_fx(cell["pos"], ray[-1] if not ray.is_empty() else cell["pos"], splash)
 	_excalibur_sweep(ray, CWData.EXCALIBUR_RAY_DMG)
 	_excalibur_sweep(splash, CWData.EXCALIBUR_SPLASH_DMG)
 	game.announce("Excalibur", cell["pos"], true)
@@ -1600,6 +1602,9 @@ func _chain_phagocytosis(cell: Dictionary) -> void:
 		linked += 1
 		game.log_msg("　【连续吞噬】%s 免费迁移至 %s" % [game.cell_name(cell), str(opts[pick]["data"]["to"])])
 		await enter_tile(cell, opts[pick]["data"]["to"])
+		## 演出的触发点。放在 enter_tile **之后**：那时细胞已经站在落点上，
+		## 表现层才数得出这是第几口（现读 chain_left，不另存一份计数）
+		game.announce("连续吞噬", opts[pick]["data"]["to"])
 	cell["chain_running"] = false
 	if linked > 0:
 		cell["chain_bonus"] = int(cell.get("chain_bonus", 0)) + linked * CWData.CHAIN_PHAGO_BONUS
