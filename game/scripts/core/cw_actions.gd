@@ -1139,15 +1139,19 @@ func _do_antibody(cell: Dictionary) -> void:
 		game.log_msg("【抗体】无目标 → %s 转为健康组织" % str(c))
 
 
+## **1 环 = 含自己脚下那格**（PRD 2026-09-08 换的术语，Kevin 同日确认「是的」）。
+## 原来是 `neighbors()`，不含中心。免疫细胞**确实可能站在癌组织上**——
+## 骨样硬化标记过的格要蹲一回合才净化、传送/卡牌位移进来的也没净化，
+## 所以这一格的有无是真的会差一格结果，不是纸面差别。
 func _toxin_targets(cell: Dictionary) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
-	for n in CWData.neighbors(cell["pos"]):
+	for n in CWData.ring(cell["pos"], 1):
 		if game.tile(n)["tissue"] == CWData.Tissue.CANCER:
 			out.append(n)
 	return out
 
 
-## 【细胞毒素】（PRD T 细胞）：消耗 1.0，使**相邻所有格**中的癌组织转为健康组织，
+## 【细胞毒素】（PRD T 细胞）：消耗 1.0，使**1 环内**（含自己脚下那格）的癌组织转为健康组织，
 ## 对范围内所有癌细胞造成 1.0 能量损失，并使范围内**新生健康组织**所有格进入「坏死」。
 ## 每世界回合最多 3 次。
 ##
@@ -1162,9 +1166,12 @@ func _do_toxin(cell: Dictionary) -> void:
 	cell["toxin_used"] += 1
 	for c in targets:
 		CWTissue.to_necrotic(game.tile(c), CWData.NECROSIS_TOXIN)
-	game.log_msg("【细胞毒素】相邻 %d 格癌组织转为健康组织并进入「坏死」（不积累记忆）" % targets.size())
+	game.log_msg("【细胞毒素】1 环内 %d 格癌组织转为健康组织并进入「坏死」（不积累记忆）" % targets.size())
+	## 伤害范围同样按 1 环。中心格上站着的就是施法者自己（一格只容一个细胞），
+	## 所以这里含不含中心其实不改结果 —— 写成 ring 是为了**和上面那半用同一把尺**，
+	## 免得将来有人只改一处。
 	var victims: Array = []
-	for n in CWData.neighbors(cell["pos"]):
+	for n in CWData.ring(cell["pos"], 1):
 		victims.append_array(game.cells_at(n, CWData.Faction.CANCER))
 	## attack=false：细胞毒素是「技能」，同上（T 细胞专属）；【DNA损伤修复】可挡
 	game.immune_hit_area(victims, CWData.ATTACK_DMG_SUCCESS, cell, "细胞毒素")

@@ -393,11 +393,12 @@ func aerobic_income(cell: Dictionary) -> int:
 
 ## 站在坏死组织上就打折（Kevin 2026-09-07：由「一份不给」改成 80%）。**整份一起打**——
 ## 技能的「额外获得」也在这一份里（那句的前提是「这次结算发生了」，折扣是对这次结算整体的）。
-## 向下取整到十分位（整数除法），与 TGF-β 的 ×80% 同一口径。
+## **四舍五入**到十分位（PRD 通用规则 1）—— PRD 只说「减半」，没写取整方式，
+## 所以归总则管。**与 TGF-β 的 ×80% 不同口径**：那条卡面明写「向下取整」。
 func necrosis_cut(cell: Dictionary, gain: int) -> int:
 	if game.tile(cell["pos"])["necrosis"] <= 0:
 		return gain
-	return gain * game.tune.necrosis_aerobic_pct / 100
+	return CWData.round_tenth(gain * game.tune.necrosis_aerobic_pct, 100)
 
 
 func _aerobic() -> void:
@@ -461,10 +462,9 @@ func _aerobic_base(healthy: int, necrotic: int) -> int:
 		## (等级系数 − 1)² × step + base（Kevin 2026-09-07 换的公式）。immune_level 是 0 起，
 		## 正好就是「等级系数 − 1」：I 0 / II 1 / III 2 / X 3 → 2.0 / 2.5 / 4.0 / 6.5
 		return base + game.tune.aerobic_level_step * game.immune_level * game.immune_level
-	# 四舍五入到十分位：分子先 ×10 再加半个分母，整数除法即得（全程整数，无浮点）
+	# 四舍五入到十分位（PRD 通用规则 1）；算式只有 CWData.round_tenth 一份
 	var num: int = (healthy - necrotic) * game.tune.aerobic_mult_at(game.round_no)
-	var den: int = CWData.TOTAL_TILES
-	return (num + den / 2) / den
+	return CWData.round_tenth(num, CWData.TOTAL_TILES)
 
 
 # ---- E 阶段 ----
@@ -891,9 +891,8 @@ func pressure_at(c: Vector2i) -> int:
 				raw += CWData.PRESSURE_SOLID_W
 			CWData.Tissue.HEALTHY:
 				raw += CWData.PRESSURE_HEALTHY_W
-	## ×1/4 写成「×10 ÷4」的整数除法：能量单位是十分之一，1/4 能量不是整数格，
-	## 这么写天然向下取整到十分位（同 PRD【抗体】减半那条的取整口径）
-	return maxi(raw, 0) * CWData.PRESSURE_MUL / CWData.PRESSURE_DIV
+	## ×1/4 不是整数格（能量单位是十分之一），按 PRD 通用规则 1 四舍五入到十分位
+	return CWData.round_tenth(maxi(raw, 0) * CWData.PRESSURE_MUL, CWData.PRESSURE_DIV)
 
 
 ## 回合末的【微环境压迫】会不会把这只细胞压死。**界面预警用**（Kevin 2026-09-08）。

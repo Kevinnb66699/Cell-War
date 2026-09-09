@@ -114,7 +114,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_save_load, t_settings, t_board_view, t_store_ring, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_save_load, t_settings, t_board_view, t_store_ring, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -1088,9 +1088,10 @@ func t_pressure() -> void:
 		g.tiles[nb[k]]["tissue"] = CWData.Tissue.SOLID
 	cell["energy"] = 50
 	g.world._pressure()
-	## 1/4 × 9 = 2.25 → **向下取整到十分位 = 2.2**（整数除法 9×10/4 = 22）。
-	## 这一条同时钉住取整口径：写 2.3 或 2.25 都是错的。
-	check(cell["energy"] == 28, "三癌三固化 → 1/4 ×（3 + 3×2）= 2.2（向下取整到十分位）")
+	## 1/4 × 9 = 2.25 → **四舍五入到十分位 = 2.3**（PRD 2026-09-08 加的通用规则 1；
+	## 09-08 上午曾按向下取整落成 2.2，总则写明后改过来）。
+	## 这一条同时钉住取整口径：写 2.2 或 2.25 都是错的。
+	check(cell["energy"] == 27, "三癌三固化 → 1/4 ×（3 + 3×2）= 2.3（四舍五入到十分位）")
 	## 这是癌方第一个能真正打死免疫细胞的手段
 	cell["energy"] = 15
 	g.world._pressure()
@@ -2863,12 +2864,12 @@ func t_heur_lifecare() -> void:
 	h2.set_version("v2")
 	## 脚下本身会被压死 → 先逃到活得下去的格
 	## 系数改成 1/4 之后**六面全癌只有 1.5**，压不死 2.0 能量的细胞 —— 场景会空转。
-	## 改成三癌三固化：1/4 ×（3 + 3×2）= 2.2 > 2.0，仍是「站着必死」，
+	## 改成三癌三固化：1/4 ×（3 + 3×2）= 2.3 > 2.0，仍是「站着必死」，
 	## 而且留了三格普通癌组织当逃生口（六面全固化的话净化不了、无处可逃，验的就不是惜命了）。
 	var nb0: Array = CWData.neighbors(Vector2i.ZERO)
 	for i in nb0.size():
 		g2.tiles[nb0[i]]["tissue"] = CWData.Tissue.SOLID if i >= 3 else CWData.Tissue.CANCER
-	check(g2.world.pressure_at(Vector2i.ZERO) == 22, "场景：脚下压迫 2.2 > 全部能量 2.0，站着必死")
+	check(g2.world.pressure_at(Vector2i.ZERO) == 23, "场景：脚下压迫 2.3 > 全部能量 2.0，站着必死")
 	pick = h2._immune_action(0, g2.actions.build_options(me))
 	pd = g2.actions.build_options(me)[pick]["data"]
 	check(pd.get("act", "") == "move" and me["energy"] - int(pd["cost"]) > g2.world.pressure_at(pd["to"]),
@@ -5295,6 +5296,35 @@ func t_world_events_off() -> void:
 	var room2 := CWRoom.new()
 	room2.configure(null, "TEST2", 4, 60, true)
 	check(room2.world_events, "不传这个参数时默认开（= 改动之前的行为）")
+
+
+## PRD 2026-09-08 云端版的新术语「n 环」（曼哈顿距离 ≤ n，**含中心格**），
+## 以及它带来的第一处真实范围变化：【细胞毒素】由「相邻所有格」改成「1 环」。
+func t_ring_and_toxin() -> void:
+	print("[n 环 · 细胞毒素含中心格]")
+	var r0: Array[Vector2i] = CWData.ring(Vector2i.ZERO, 0)
+	check(r0.size() == 1 and r0[0] == Vector2i.ZERO, "0 环 = 只有中心格本身")
+	var r1: Array[Vector2i] = CWData.ring(Vector2i.ZERO, 1)
+	check(r1.size() == 7 and r1.has(Vector2i.ZERO),
+		"1 环 = 中心 + 六个邻格 = 7 格（实为 %d）" % r1.size())
+	check(CWData.ring(Vector2i.ZERO, 2).size() == 19, "2 环 = 19 格")
+	## 棋盘外不算：最边上的格子环里格数会少
+	check(CWData.ring(Vector2i(6, 0), 1).size() < 7, "贴边的格子：棋盘外的方向不计")
+
+	## **含中心格是真的会差一格**：免疫细胞确实可能站在癌组织上
+	## （骨样硬化标记过的格要蹲一回合才净化，传送/卡牌位移进来的也没净化）
+	var g := bare_game()
+	var at := Vector2i(2, 0)
+	var t := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, at, CWData.ImmuneType.T_CELL, -1, 200)
+	g.cells.append(t)
+	g.tiles[at]["tissue"] = CWData.Tissue.CANCER          ## 脚下这格
+	g.tiles[CWData.neighbors(at)[0]]["tissue"] = CWData.Tissue.CANCER
+	await g.actions._do_toxin(t)
+	check(g.tile(at)["tissue"] == CWData.Tissue.HEALTHY,
+		"**脚下那格也被转成健康组织**（1 环含中心格，Kevin 2026-09-08 确认）")
+	check(g.tile(CWData.neighbors(at)[0])["tissue"] == CWData.Tissue.HEALTHY, "邻格照旧转化")
+	check(g.tile(at)["necrosis"] > 0, "脚下那格同样进入「坏死」")
+	g.dispose()
 
 
 ## 代谢核心 / 骨髓的「积累进度外圈」（Kevin 2026-09-08 拍的 A′ 案）。
