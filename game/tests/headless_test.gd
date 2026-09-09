@@ -4682,6 +4682,38 @@ func t_hot_patch() -> void:
 		"run/main_scene 指向启动器")
 	check(PatchState.PCK.begins_with(PatchState.DIR)
 		and PatchState.STATE.begins_with(PatchState.DIR), "补丁文件都在 user://patch 底下")
+	check(PatchState.base_build() > 0, "base_build.txt 读得出来（min_base 全靠它比）")
+
+	## ---- 第二阶段：「该不该装这个补丁」的判定（纯函数）----
+	var Boot := load("res://scripts/boot.gd")
+	var SHA := "a".repeat(64)
+	var good := { "build": 200, "min_base": 100, "sha256": SHA,
+		"pck": Boot.HOST + "patch-latest/patch-200.pck" }
+
+	check(Boot.decide(good, 100, 0, 100)["act"] == "install", "有更新且基线够 → 装")
+	check(Boot.decide({}, 0, 0, 100)["act"] == "skip", "拿不到 manifest（断网/超时）→ 照原样进游戏")
+	check(Boot.decide(good, 200, 0, 100)["act"] == "skip", "已经是这一版 → 不动")
+	check(Boot.decide(good, 300, 0, 100)["act"] == "skip", "本地比它新 → 不动（不许降级）")
+	## 没有这一条会**死循环**：坏补丁挂了→隔离→manifest 还推同一版→又下→又挂
+	check(Boot.decide(good, 0, 200, 100)["act"] == "skip", "这一版装崩过 → 永不再下")
+	check(Boot.decide(good, 100, 0, 99)["act"] == "too_old",
+		"基线比 min_base 老 → 提示下完整包，而不是硬套一个可能用不了的补丁")
+
+	## manifest 不干净就当没看见 —— 它给的地址与指纹都要再挡一道
+	var evil: Dictionary = good.duplicate()
+	evil["pck"] = "https://evil.example.com/patch.pck"
+	check(Boot.decide(evil, 100, 0, 100)["act"] == "skip", "下载地址不在写死的前缀底下 → 拒绝")
+	evil = good.duplicate()
+	evil["pck"] = "http://github.com/Kevinnb66699/Cell-War/releases/download/x/p.pck"
+	check(Boot.decide(evil, 100, 0, 100)["act"] == "skip", "明文 http → 拒绝（HOST 本身带 https）")
+	for bad_sha in ["", "abc", "z".repeat(64), "a".repeat(63)]:
+		evil = good.duplicate()
+		evil["sha256"] = bad_sha
+		if Boot.decide(evil, 100, 0, 100)["act"] != "skip":
+			check(false, "指纹「%s」应被拒绝" % bad_sha)
+			break
+	check(true, "指纹必须是 64 位十六进制，否则拒绝（空 / 太短 / 非法字符都试过）")
+	check(Boot.HOST.begins_with("https://github.com/"), "下载来源写死在常量里且是 HTTPS")
 
 
 func t_save_load() -> void:
