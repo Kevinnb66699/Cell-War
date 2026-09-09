@@ -24,6 +24,7 @@ func finish() -> void:
 
 
 func build_board(radius := CWData.BOARD_RADIUS) -> void:
+	game.board_radius = radius
 	for c in CWData.all_coords(radius):
 		game.tiles[c] = make_tile(c)
 

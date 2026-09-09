@@ -5,7 +5,8 @@
 ##   走的都是引擎公开字段与 CWSetup 的建造函数，不复制也不改写任何正式规则；
 ## - 第 16 关（毕业战）：正式 127 格四人初始化原样跑（与 CWMatch.start 同款调用序），
 ##   教程只叠加建议 / 预测 / 解释；
-## - 装配不推进流程（flow 停在 init）：推进仍由 CWMatch 的正常询问循环驱动。
+## - 装配不执行任何结算：fixture 关流程停在回合开头（round_start，首次 advance
+##   才跑 S 阶段），第 16 关停在 init 走完整开局；推进都由 CWMatch 的询问循环驱动。
 ##
 ## 正式对局隔离：本类不持有全局状态、不动 CWData 常量；装配完的 CWGame
 ## 与一局正式对局在引擎眼里无差别。种子按关固定（教程可复现），
@@ -36,6 +37,8 @@ static func assemble(level: int, zone: int = 0) -> CWGame:
 
 ## 把 fixture 写进对局状态。小棋盘先清掉正式布局的特殊组织
 ## （半径 3 起会撞上 CORES/MARROWS 的内圈坐标），fixture 声明了再加。
+## 最后把流程停在回合开头（round_start）：跳过 setup.begin() 的重建棋盘与
+## 初始癌组织铺设（fixture 自带局面），也跳过落子询问（细胞已按 fixture 在场）。
 static func _apply_fixture(g: CWGame, fx: Dictionary) -> void:
 	for c in g.tiles:
 		g.tiles[c]["special"] = CWData.Special.NONE
@@ -48,10 +51,52 @@ static func _apply_fixture(g: CWGame, fx: Dictionary) -> void:
 	for c in fx.get("tile_extras", {}):
 		for k in fx["tile_extras"][c]:
 			g.tiles[c][k] = fx["tile_extras"][c][k]
-	var cid := 0
+	_place_cells(g, fx)
+	g.flow = { "stage": "round_start", "i": 0, "acts": 0 }
+
+
+## 玩家主细胞与 pid 下标对齐（players[i].cell_id = i）：每方第一枚为主细胞，
+## 配角排后；缺席方补一枚死亡占位（免疫视角关的癌方、第 5 关癌症视角的免方），
+## 死亡占位站一枚无活细胞的格，正式的复活询问按引擎规则自然处理。
+static func _place_cells(g: CWGame, fx: Dictionary) -> void:
+	var principals: Array = []
+	var extras: Array = []
+	var seen := {}
+	var live_pos: Array = []
 	for cell in fx.get("cells", []):
+		live_pos.append(cell["pos"])
 		var pid := 1 if cell["faction"] == CWData.Faction.CANCER else 0
-		g.cells.append(g.setup.make_cell(cid, pid, cell["faction"], cell["pos"],
+		if not seen.has(pid):
+			seen[pid] = true
+			principals.append(cell)
+		else:
+			extras.append(cell)
+	var ordered: Array = []
+	for pid in g.order:
+		var picked: Dictionary = {}
+		for cell in principals:
+			if (1 if cell["faction"] == CWData.Faction.CANCER else 0) == pid:
+				picked = cell
+		if picked.is_empty():
+			var pos: Vector2i = g.tiles.keys()[0]
+			for c in g.tiles:
+				if not live_pos.has(c):
+					pos = c
+					break
+			var ph := g.setup.make_cell(pid, pid, g.player(pid)["faction"], pos, -1, -1, 0)
+			ph["alive"] = false
+			ordered.append(ph)
+		else:
+			ordered.append(picked)
+	for cell in extras:
+		ordered.append(cell)
+	g.cells.clear()
+	var cid := 0
+	for cell in ordered:
+		var pid := 1 if cell["faction"] == CWData.Faction.CANCER else 0
+		var nc := g.setup.make_cell(cid, pid, cell["faction"], cell["pos"],
 			int(cell.get("itype", -1)), int(cell.get("ctype", -1)),
-			int(cell.get("energy", CWData.INIT_ENERGY))))
+			int(cell.get("energy", CWData.INIT_ENERGY)))
+		nc["alive"] = cell.get("alive", true)
+		g.cells.append(nc)
 		cid += 1

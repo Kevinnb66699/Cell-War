@@ -7596,12 +7596,13 @@ func t_guide_director() -> void:
 		if g1.tiles[c]["tissue"] != CWData.Tissue.HEALTHY:
 			sick.append(c)
 	check(sick.is_empty(), "第 1 关开局全是健康组织（%s）" % str(sick))
-	check(g1.cells.size() == 1 and g1.cells[0]["pos"] == Vector2i.ZERO
-		and g1.cells[0]["faction"] == CWData.Faction.IMMUNE
-		and g1.cells[0]["energy"] == CWData.INIT_ENERGY,
-		"第 1 关：免疫细胞一枚在 (0,0)、能量 3.0（%s）" % str(g1.cells))
-	check(g1.round_no == 1 and g1.flow["stage"] == "init",
-		"第 1 关装配不推进流程（%s / 第 %d 回合）" % [str(g1.flow["stage"]), g1.round_no])
+	check(g1.cell_of(0)["alive"] and g1.cell_of(0)["pos"] == Vector2i.ZERO
+		and g1.cell_of(0)["faction"] == CWData.Faction.IMMUNE
+		and g1.cell_of(0)["energy"] == CWData.INIT_ENERGY
+		and not g1.cell_of(1)["alive"],
+		"第 1 关：免疫细胞一枚在 (0,0)、能量 3.0，癌方为死亡占位（%s）" % str(g1.cells))
+	check(g1.round_no == 1 and g1.flow["stage"] == "round_start",
+		"第 1 关装配停在回合开头（%s / 第 %d 回合）" % [str(g1.flow["stage"]), g1.round_no])
 	## 第 3 关「第一次接触」：19 格、(0,0) 免疫 6.0、(1,0) 癌 3.0、目标格癌组织
 	var g3 := CWGuideDirector.assemble(2)
 	check(g3 != null and g3.tiles.size() == 19, "第 3 关棋盘 19 格")
@@ -7623,8 +7624,9 @@ func t_guide_director() -> void:
 	var g4 := CWGuideDirector.assemble(3)
 	check(g4 != null and g4.tiles.size() == 19, "第 4 关棋盘 19 格")
 	if g4 != null:
-		check(g4.cells.size() == 1 and g4.cells[0]["energy"] == 10
-			and g4.cells[0]["pos"] == Vector2i.ZERO, "第 4 关免疫细胞 (0,0) 能量 1.0")
+		check(g4.cell_of(0)["energy"] == 10
+			and g4.cell_of(0)["pos"] == Vector2i.ZERO,
+			"第 4 关免疫细胞 (0,0) 能量 1.0")
 		var n_c4 := 0
 		for c in g4.tiles:
 			if g4.tiles[c]["tissue"] == CWData.Tissue.CANCER:
@@ -7634,9 +7636,10 @@ func t_guide_director() -> void:
 	var g5 := CWGuideDirector.assemble(4)
 	check(g5 != null and g5.tiles.size() == 37, "第 5 关棋盘 37 格")
 	if g5 != null:
-		check(g5.cells.size() == 1 and g5.cells[0]["faction"] == CWData.Faction.CANCER
-			and g5.cells[0]["pos"] == Vector2i.ZERO and g5.cells[0]["energy"] == 60,
-			"第 5 关玩家是 (0,0) 癌细胞 6.0 能量")
+		check(not g5.cell_of(0)["alive"] and g5.cell_of(1)["alive"]
+			and g5.cell_of(1)["faction"] == CWData.Faction.CANCER
+			and g5.cell_of(1)["pos"] == Vector2i.ZERO and g5.cell_of(1)["energy"] == 60,
+			"第 5 关玩家是 (0,0) 癌细胞 6.0 能量（免方死亡占位）")
 		var block5: bool = g5.tiles[Vector2i.ZERO]["tissue"] == CWData.Tissue.CANCER
 		for c in CWData.neighbors(Vector2i.ZERO):
 			if g5.tiles[c]["tissue"] != CWData.Tissue.CANCER:
@@ -7676,7 +7679,7 @@ func t_guide_director() -> void:
 	var g8 := CWGuideDirector.assemble(7)
 	check(g8 != null and g8.tiles.size() == 37, "第 8 关棋盘 37 格")
 	if g8 != null:
-		check(g8.cells.size() == 1 and g8.cells[0]["energy"] == 40,
+		check(g8.cell_of(0)["energy"] == 40,
 			"第 8 关免疫细胞 4.0 能量")
 		var n_c8 := 0
 		for c in g8.tiles:
@@ -7692,8 +7695,12 @@ func t_guide_director() -> void:
 		for c in g9.tiles:
 			if g9.tiles[c]["tissue"] == CWData.Tissue.CANCER:
 				n_c9 += 1
-		check(n_c9 == 2 and g9.cells.size() == 1,
-			"第 9 关两格易净化癌组织 + 一枚免疫细胞（%d 细胞 / %d 格）" % [g9.cells.size(), n_c9])
+		var alive9 := 0
+		for c in g9.cells:
+			if c["alive"]:
+				alive9 += 1
+		check(n_c9 == 2 and alive9 == 1,
+			"第 9 关两格易净化癌组织 + 一枚免疫细胞（%d 活细胞 / %d 格）" % [alive9, n_c9])
 	## 第 10 关「分化」：四个实验区，zones() 报数、每区都是真实 61 格局面
 	check(CWGuideLevels.zones(9) == 4, "第 10 关有四个实验区（%d）" % CWGuideLevels.zones(9))
 	for z in 4:
@@ -7754,8 +7761,8 @@ func t_guide_director() -> void:
 	check(CWGuideLevels.zones(10) == 4, "第 11 关四个实验区（%d）" % CWGuideLevels.zones(10))
 	var g11a := CWGuideDirector.assemble(10, 0)
 	if g11a != null:
-		check(g11a.cells.size() == 1 and g11a.cells[0]["ctype"] == CWData.CancerType.MELANOMA
-			and g11a.cells[0]["pos"] == Vector2i(0, -3)
+		check(g11a.cell_of(1)["alive"] and g11a.cell_of(1)["ctype"] == CWData.CancerType.MELANOMA
+			and g11a.cell_of(1)["pos"] == Vector2i(0, -3)
 			and g11a.tiles[Vector2i(0, -3)]["special"] == CWData.Special.VESSEL,
 			"11A：黑色素瘤玩家站在血管上")
 	var g11b := CWGuideDirector.assemble(10, 1)
@@ -7772,12 +7779,12 @@ func t_guide_director() -> void:
 			"11B：印戒玩家 4.0 能量、周围有一枚免疫细胞")
 	var g11c := CWGuideDirector.assemble(10, 2)
 	if g11c != null:
-		check(g11c.cells.size() == 1 and g11c.cells[0]["ctype"] == CWData.CancerType.OSTEO
-			and g11c.tiles[g11c.cells[0]["pos"]]["tissue"] == CWData.Tissue.CANCER,
+		check(g11c.cell_of(1)["alive"] and g11c.cell_of(1)["ctype"] == CWData.CancerType.OSTEO
+			and g11c.tiles[g11c.cell_of(1)["pos"]]["tissue"] == CWData.Tissue.CANCER,
 			"11C：骨肉瘤玩家站在普通癌组织上")
 	var g11d := CWGuideDirector.assemble(10, 3)
 	if g11d != null:
-		check(g11d.cells.size() == 1 and g11d.cells[0]["ctype"] == CWData.CancerType.SCLC,
+		check(g11d.cell_of(1)["alive"] and g11d.cell_of(1)["ctype"] == CWData.CancerType.SCLC,
 			"11D：小细胞肺癌玩家")
 	## 第 12 关「肿瘤微环境」：压迫 / 增生 / 侵蚀 / 坏死四个教学场景
 	check(CWGuideLevels.zones(11) == 4, "第 12 关四个教学场景（%d）" % CWGuideLevels.zones(11))
@@ -7787,7 +7794,7 @@ func t_guide_director() -> void:
 		for c in CWData.neighbors(Vector2i.ZERO):
 			if g12a.tiles[c]["tissue"] == CWData.Tissue.CANCER:
 				adj12a += 1
-		check(g12a.cells.size() == 1 and adj12a == 5,
+		check(g12a.cell_of(0)["alive"] and adj12a == 5,
 			"12A：免疫细胞被 5 格癌性组织包围（%d）" % adj12a)
 	var g12b := CWGuideDirector.assemble(11, 1)
 	if g12b != null:
@@ -7806,20 +7813,20 @@ func t_guide_director() -> void:
 		check(closed, "12C：健康孤岛 (2,0) 被 6 格癌组织完全封闭")
 	var g12n := CWGuideDirector.assemble(11, 3)
 	if g12n != null:
-		check(g12n.tiles[Vector2i.ZERO]["necrosis"] == 2 and g12n.cells.size() == 1,
+		check(g12n.tiles[Vector2i.ZERO]["necrosis"] == 2 and g12n.cell_of(0)["alive"],
 			"12 坏死：免疫细胞站在坏死组织上（剩余 2 世界回合）")
 	## 第 13 关「世界并不稳定」：开局停在第 3 世界回合（事件回合）
 	var g13 := CWGuideDirector.assemble(12)
 	if g13 != null:
-		check(g13.round_no == 3 and g13.cells.size() == 1,
+		check(g13.round_no == 3 and g13.cell_of(0)["alive"] and not g13.cell_of(1)["alive"],
 			"第 13 关从世界回合 3 开始（当前 %d）" % g13.round_no)
 	## 第 14 关「终末免疫」：抗原记忆 29/30（III 级）、玩家已分化
 	var g14 := CWGuideDirector.assemble(13)
 	var it14 := -2
-	if g14 != null and g14.cells.size() == 1:
-		it14 = int(g14.cells[0]["itype"])
+	if g14 != null and g14.cell_of(0)["alive"]:
+		it14 = int(g14.cell_of(0)["itype"])
 	if g14 != null:
-		check(g14.memory == 29 and g14.cells.size() == 1
+		check(g14.memory == 29 and g14.cell_of(0)["alive"]
 			and it14 != CWData.ImmuneType.BASIC,
 			"第 14 关记忆 29/30 且玩家已分化（%d / itype %d）" % [g14.memory, it14])
 	## 第 15 关「怎样真正赢下一局」：三个残局
@@ -7849,6 +7856,49 @@ func t_guide_director() -> void:
 	var g15c := CWGuideDirector.assemble(14, 2)
 	if g15c != null:
 		check(g15c.round_no == 15, "15C：直接进入第 15 世界回合判定（当前 %d）" % g15c.round_no)
+	## 「可开局」契约（切片⑦）：fixture 关 flow 直接进世界回合（跳过落子、
+	## 避开 setup.begin() 重建棋盘）、主细胞与玩家下标对齐、活细胞不共格
+	for lvl in 15:
+		var zcount := CWGuideLevels.zones(lvl)
+		for z in zcount:
+			var ga := CWGuideDirector.assemble(lvl, z)
+			if ga == null:
+				continue
+			check(ga.flow["stage"] == "round_start",
+				"第 %d 关区 %d：装配后直接进入世界回合（%s）" % [lvl + 1, z, str(ga.flow["stage"])])
+			var align_ok := ga.cells.size() >= ga.order.size()
+			for pid in ga.order:
+				if ga.cells.size() > pid and ga.cell_of(pid)["pid"] != pid:
+					align_ok = false
+			check(align_ok, "第 %d 关区 %d：主细胞与玩家下标对齐" % [lvl + 1, z])
+			var occ7 := {}
+			var dup7 := false
+			for c in ga.cells:
+				if c.get("alive", true) and occ7.has(c["pos"]):
+					dup7 = true
+				occ7[c["pos"]] = true
+			check(not dup7, "第 %d 关区 %d：活细胞不共格" % [lvl + 1, z])
+	## 第 16 关仍走完整正式开局（init → 落子 → 世界回合）
+	var g16f := CWGuideDirector.assemble(15)
+	if g16f != null:
+		check(g16f.flow["stage"] == "init", "第 16 关保留完整正式开局（init）")
+	## L1 真实推进冒烟：S 阶段过后停在免疫玩家的行动询问上；合法作答后细胞迁移、扣能量
+	var gsmoke := CWGuideDirector.assemble(0)
+	if gsmoke != null:
+		await gsmoke.advance()
+		check(not gsmoke._pending.is_empty(), "L1 冒烟：第一次推进停在玩家询问上")
+		if not gsmoke._pending.is_empty():
+			var ask_pid: int = gsmoke._pending["pid"]
+			var from_s: Vector2i = gsmoke.cell_of(ask_pid)["pos"]
+			var opts_s: Array = gsmoke._pending["options"]
+			check(ask_pid == 0 and not opts_s.is_empty(),
+				"L1 冒烟：先问免疫玩家的行动（pid %d / %d 个选项）" % [ask_pid, opts_s.size()])
+			var e0: int = gsmoke.cell_of(ask_pid)["energy"]
+			gsmoke.step(0)
+			check(gsmoke.cell_of(ask_pid)["pos"] != from_s
+				and e0 - gsmoke.cell_of(ask_pid)["energy"] >= 5,
+				"L1 冒烟：迁移成功且扣了至少 0.5 能量（%d → %d）"
+					% [e0, int(gsmoke.cell_of(ask_pid)["energy"])])
 	## 第 16 关「毕业战」：正式规则原样 —— 127 格、3 核 6 髓 2 管、四人行动序
 	var g16 := CWGuideDirector.assemble(15)
 	check(g16 != null, "第 16 关装配出真实 CWGame")
