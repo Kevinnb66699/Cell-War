@@ -112,6 +112,11 @@ func is_world_event(entry: Dictionary) -> bool:
 
 ## 触发回合：抽一个事件并结算。由 CWWorld.round_start 调用，位于特殊组织产出之前。
 func trigger() -> void:
+	## 整局关掉世界事件（Kevin 2026-09-08 要的开关）。**拦在最外面**：
+	## 不抽牌、不挂条目、不通报，事件池原样留着 —— 中途拨回来还能照常开抽。
+	## 也不写日志：每个事件回合都来一句「已关闭」纯属刷屏，状态在右栏那行常驻写着。
+	if not game.tune.world_events_on:
+		return
 	var pool: Array = game.events["pool"]
 	if pool.is_empty():
 		game.log_msg("【世界事件】事件池已空，本回合无事件")   # 18 事件 7 次触发，正常到不了

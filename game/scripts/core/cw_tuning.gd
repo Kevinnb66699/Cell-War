@@ -22,7 +22,7 @@ const RULE_FIELDS := [
 	"counter_dmg_on_fail", "solidify_threshold", "limit_round", "limit_cancerous",
 	"cancer_win_weighted", "cancer_win_hold_rounds", "solid_at_cancer_spawn",
 	"immune_respawn_delay", "immune_respawn_energy", "macro_heal_purify",
-	"antibody_max_per_round", "antibody_halve",
+	"antibody_max_per_round", "antibody_halve", "world_events_on",
 	"anaerobic_block_exp", "anaerobic_block_coef", "anaerobic_solid_bonus",
 	"proliferate_per_adjacent", "proliferate_per_adjacent_solid", "erosion_tiles",
 	"metastasis_cost", "metastasis_max_per_round",
@@ -303,6 +303,13 @@ var antibody_max_per_round := CWData.ANTIBODY_MAX_PER_ROUND
 ## **团队 2026-09-04 定案保留**，默认开；`abhalf=0` 关掉可跑「每次都打满」的对照档。
 ## PRD 正本与仓库这份 diff 都已同步到这一条上（09-04 那次「已撤回」的标注随之作废）。
 var antibody_halve := true
+
+## 世界事件总开关（Kevin 2026-09-08 要的：单机与联机都能整局关掉）。
+## 关掉后 `CWWorldFx.trigger()` 直接返回 —— 不抽、不挂、不通报，事件池原样留着。
+##
+## **进 RULE_FIELDS**：它改的是规则，必须随快照下发、并进状态哈希 ——
+## 否则联机时服务器不放事件、客户端影子对局却以为该放，两边立刻对不上账。
+var world_events_on := true
 ## 【E-无氧呼吸】现行公式（Kevin 2026-09-07）：
 ##   `(块内普通癌组织数 ^ (exp/100) × coef + 全图固化数 × solid_bonus) ÷ 块内癌细胞数`
 ## 三个旋钮都是给扫描拨的；**coef = 0 = 关 = 09-04 之前的线性求和**（对照档）。见 CWWorld._anaerobic_pool()。

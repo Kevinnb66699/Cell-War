@@ -19,6 +19,10 @@ enum State { WAITING, PLAYING, CLOSED }
 var code := ""
 var public := true
 var timer_secs := 60            ## 每次决策的秒数，0 = 不限
+## 世界事件开关（Kevin 2026-09-08）。房主建房时拨，整局有效。
+## **只存在房间这一份**：开局时喂给 `game.tune`，之后随快照下发给客户端 ——
+## 客户端的影子对局据此判断该不该等事件，不必自己收一份设置。
+var world_events := true
 var player_count := 4
 var seed_override := 0          ## 非 0 则每局用这个种子（测试用）
 var seats: Array = []           ## 下标 = pid，元素见 empty_seat()
@@ -49,12 +53,14 @@ static func ai_seat(tier: String) -> Dictionary:
 	return s
 
 
-func configure(p_server: CWNetServer, p_code: String, players: int, timer: int, p_public: bool) -> void:
+func configure(p_server: CWNetServer, p_code: String, players: int, timer: int,
+		p_public: bool, p_world_events: bool = true) -> void:
 	server = p_server
 	code = p_code
 	player_count = players
 	timer_secs = timer
 	public = p_public
+	world_events = p_world_events
 	seats = []
 	for i in players:
 		seats.append(empty_seat())
@@ -280,6 +286,8 @@ func start(cid: int) -> String:
 		if s["kind"] == "human" and not s["ready"]:
 			return "not_ready"
 	game = CWGame.new()
+	## 必须在 init 之前：开局第一步就可能撞上事件回合
+	game.tune.world_events_on = world_events
 	var seed_value: int = seed_override if seed_override != 0 else server.rng.randi()
 	game.init(CWData.FACTION_ORDER[player_count], seed_value)
 	_name_seats()
@@ -433,6 +441,7 @@ func view_for(cid: int) -> Dictionary:
 	for c in members:
 		names.append(members[c])
 	return { "t": "room", "code": code, "public": public, "timer": timer_secs, "players": player_count,
+		"world_events": world_events,
 		"state": "playing" if state == State.PLAYING else "waiting",
 		"host": members.get(host, ""), "you_host": cid == host, "you_seat": my_pid,
 		"token": seats[my_pid]["token"] if my_pid >= 0 else "",
@@ -454,5 +463,5 @@ func summary() -> Dictionary:
 		if s["kind"] == "human":
 			humans += 1
 	return { "code": code, "players": player_count, "seated": seated, "humans": humans,
-		"timer": timer_secs, "host": members.get(host, ""),
+		"timer": timer_secs, "world_events": world_events, "host": members.get(host, ""),
 		"state": "playing" if state == State.PLAYING else "waiting" }

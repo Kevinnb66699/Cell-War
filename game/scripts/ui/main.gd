@@ -75,6 +75,8 @@ func _begin(cfg: Dictionary) -> void:
 	match_node.match_seed = int(cfg.get("seed", 0))
 	## 自定义对局钉死的癌种（按癌席顺序，-1 = 随机；普通对局是空表）
 	match_node.cancer_types = Array(cfg.get("cancer_types", []))
+	## 世界事件开关（Kevin 2026-09-08）。默认开；关掉整局不触发
+	match_node.world_events = bool(cfg.get("world_events", true))
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
 	menu.dismiss(T_DECOR, DECOR_DRIFT)

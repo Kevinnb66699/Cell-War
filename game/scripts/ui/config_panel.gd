@@ -37,7 +37,10 @@ const VALUE_X := 250.0       ## 值那一列（原型 26cqw）
 const ARROW_R_X := 500.0
 const ROW_Y0 := 251.0        ## 第一行的纵坐标
 const ROW_H := 42.0          ## 行距（和主菜单项一致）
-const BTN_Y := 438.0
+## 普通对局的按钮纵坐标。**跟着行数走**：2026-09-08 加「世界事件」行之后，
+## 最后一行落到 251 + 4×42 = 419，按钮还留在 438 就会压到它头上。
+## 438 → 480 保住了原来那 61px 的呼吸（419 + 61），按钮底 518 < 540 仍不出屏。
+const BTN_Y := 480.0
 const BTN_W := 182.0
 const BTN_H := 38.0
 const FADE_IN := 0.32        ## 原型节拍：菜单 0.30s 淡出后，配置 0.32s 淡入
@@ -49,17 +52,23 @@ const ROW_LABEL := Color("9fb6bd")
 ## 颜色就按悬停状态算（悬停白、移开蓝），直到下一次键盘按键夺回焦点权。
 const BTN_LIFT := 3.0
 
-const ROW_NAMES := ["人数", "我的阵营", "AI 强度", "随机种子"]
+const ROW_NAMES := ["人数", "我的阵营", "AI 强度", "世界事件", "随机种子"]
 const ROW_PLAYERS := 0
 const ROW_FACTION := 1
 const ROW_SMART := 2
-const ROW_SEED := 3
-const N_ROWS := 4
+## 「世界事件」排在随机种子**之前**：种子是调试项，习惯上留在最后一行
+const ROW_EVENTS := 3
+const ROW_SEED := 4
+const N_ROWS := 5
 const PLAYER_STEPS := [2, 4, 6]
 const HOTSEAT := -2          ## 「我的阵营」第四档：本地多人（热座），席位在右侧席位表里逐席拨
 const FACTION_STEPS := [CWData.Faction.IMMUNE, CWData.Faction.CANCER, -1, HOTSEAT]
-## 自定义对局：癌种行（最多 3 行 = 6 人局的三个癌席）。行距 32 才放得下 7 行 + 按钮（251 + 7×32 + 18 = 493，按钮底 531 < 540）
-const ROW_H_CUSTOM := 32.0
+## 自定义对局：癌种行（最多 3 行 = 6 人局的三个癌席）。**行距是被屏高逼出来的**——
+## 最挤的一档是 6 人自定义：N_ROWS(5) + 3 癌席 = 8 行。
+## 251 + 8×32 + 18 = 525，按钮底 563 **出屏**（屏高 540）；
+## 收到 28 之后 251 + 8×28 + 18 = 493，按钮底 531 < 540 才放得下。
+## （2026-09-08 加「世界事件」行时由 32 收到 28。再加行就得另想办法了，比如分页。）
+const ROW_H_CUSTOM := 28.0
 const BTN_GAP := 18.0
 const CANCER_ROW_MAX := 3
 ## 席位表（本地多人）：右侧一张 340×346 的板，眉题 / 标题 / 分隔线与左栏同一套纵坐标，行距固定 42（不随自定义模式压缩）
@@ -82,6 +91,7 @@ var _faction: int = CWData.Faction.IMMUNE   ## -1 = 观战
 ## AI 强度：0 普通（纯启发式）/ 1 较强（扁平蒙特卡洛）/ 2 树搜索（UCT，2026-09-07 接入）。
 ## 原来是 bool，第三档进来之后改成下标 —— 名字与含义都在 CWMatch.AI_LEVEL_NAMES 一处。
 var _ai := 0
+var _world_events := true   ## 世界事件总开关（Kevin 2026-09-08）；默认开
 var _seed := 0
 ## 自定义对局开关：主菜单在 open() 之前拨；普通对局 false（癌种行全部收起、按钮在 438）
 var custom := false
@@ -162,6 +172,7 @@ func handle_input(event: InputEvent) -> void:
 
 func config() -> Dictionary:
 	return { "players": _players, "faction": _faction, "ai": _ai, "seed": _seed,
+		"world_events": _world_events,
 		"cancer_types": _ctypes.slice(0, _n_cancer()) if custom else [],
 		"seats": _seats.slice(0, _players) if _faction == HOTSEAT else [] }
 
@@ -308,6 +319,8 @@ func _cycle(row: int, dir: int) -> void:
 			_sync_sheet(false)   ## 拨进 / 拨出「本地多人」：席位表淡入淡出
 		ROW_SMART:
 			_ai = (_ai + dir + CWMatch.AI_LEVEL_NAMES.size()) % CWMatch.AI_LEVEL_NAMES.size()
+		ROW_EVENTS:
+			_world_events = not _world_events
 		ROW_SEED:
 			_seed = _roll_seed()   ## 种子没有「上一个」，拨就是换一个
 		_:
@@ -592,6 +605,8 @@ func _value_text(i: int) -> String:
 			var t: int = _ctypes[int(rk[1])]
 			return "随机" if t < 0 else CWData.CANCER_TYPE_NAMES[t]
 	match i:
+		ROW_EVENTS:
+			return "开" if _world_events else "关（整局不触发）"
 		ROW_PLAYERS:
 			if _faction == HOTSEAT:
 				var humans := 0

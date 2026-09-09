@@ -37,8 +37,8 @@ const SEAT_H := 30.0
 const RETRY_MS := 3000
 const ROW_LABEL := Color("9fb6bd")
 const TIMER_TEXT := { 0: "不限", 30: "30 秒", 60: "60 秒", 90: "90 秒" }
-const CREATE_ROWS := ["人数", "每步计时", "可见性"]
-const N_CREATE_ROWS := 3
+const CREATE_ROWS := ["人数", "每步计时", "可见性", "世界事件"]
+const N_CREATE_ROWS := 4
 
 var client: CWNetClient
 var page := Page.CONNECT
@@ -52,7 +52,7 @@ var _status: Label
 var _title: Label
 var _sub: Label
 ## 建房页的取值与焦点（与配置面板同一套键盘模型：上下选行、左右拨值）
-var _create := { "players": 4, "timer": 60, "public": true }
+var _create := { "players": 4, "timer": 60, "public": true, "world_events": true }
 var _create_sel := 0
 var _create_names: Array[Label] = []
 var _create_values: Array[Label] = []
@@ -239,7 +239,8 @@ func _disconnect() -> void:
 func _create_room() -> void:
 	if client == null:
 		return
-	client.create_room(_create["players"], _create["timer"], _create["public"])
+	client.create_room(_create["players"], _create["timer"], _create["public"], 0,
+		_create["world_events"])
 	_set_status("建房中…")
 
 
@@ -289,6 +290,8 @@ func _cycle_create(row: int, dir: int) -> void:
 			_create["timer"] = CWNet.TIMER_CHOICES[(i + dir + CWNet.TIMER_CHOICES.size()) % CWNet.TIMER_CHOICES.size()]
 		2:
 			_create["public"] = not _create["public"]
+		3:
+			_create["world_events"] = not _create["world_events"]
 		_:
 			return
 	_repaint_create()
@@ -595,6 +598,8 @@ func _create_value_text(i: int) -> String:
 			return TIMER_TEXT.get(_create["timer"], "%d 秒" % _create["timer"])
 		2:
 			return "公开（进大厅列表）" if _create["public"] else "私密（凭房间码）"
+		3:
+			return "开" if _create["world_events"] else "关（整局不触发）"
 	return ""
 
 

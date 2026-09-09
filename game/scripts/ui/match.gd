@@ -38,6 +38,8 @@ signal finished(winner: int)
 ## 自定义对局钉死的癌种：按癌席顺序的 CWData.CancerType（-1 = 随机），空表 = 普通对局全随机。
 ## 只在 start() 开新局时喂给 tune；重开（_restart）沿用，读档 / 联机不经过这里。
 @export var cancer_types: Array = []
+## 世界事件开关（Kevin 2026-09-08）。关掉后整局不触发；联机由房主在建房页拨、随快照下发
+@export var world_events := true
 ## 单独跑本场景时自己开局；挂在 Main 下面时由 main.gd 在过场结束后调 start()
 @export var autostart := false
 ## 教程局（主菜单「新手引导」，main.gd 的 _begin_tutorial 置 true）：桥换成 CWGuideBridge、
@@ -280,6 +282,7 @@ func start(snap: Dictionary = {}) -> void:
 	_prepare_ui()
 	game = CWGame.new()
 	game.tune.cancer_types = cancer_types.duplicate()   ## 必须在 init 之前：抽种类在开局第一步
+	game.tune.world_events_on = world_events
 	game.init(CWData.FACTION_ORDER[player_count],
 		match_seed if match_seed != 0 else int(Time.get_unix_time_from_system()))
 	if not snap.is_empty():

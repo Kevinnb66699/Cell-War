@@ -127,8 +127,12 @@ func list_rooms() -> void:
 	send({ "t": "list_rooms" })
 
 
-func create_room(players: int, timer: int, public: bool, seed_value: int = 0) -> void:
-	var m := { "t": "create_room", "players": players, "timer": timer, "public": public }
+## `world_events` 默认 true = 改动之前的行为；服务器那边也按 true 兜底，
+## 所以老客户端连新服务器照常建房。
+func create_room(players: int, timer: int, public: bool, seed_value: int = 0,
+		world_events: bool = true) -> void:
+	var m := { "t": "create_room", "players": players, "timer": timer, "public": public,
+		"world_events": world_events }
 	if seed_value != 0:
 		m["seed"] = seed_value
 	send(m)

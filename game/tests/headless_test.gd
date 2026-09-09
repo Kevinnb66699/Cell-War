@@ -114,7 +114,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_save_load, t_settings, t_board_view, t_store_ring, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_save_load, t_settings, t_board_view, t_store_ring, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -1907,8 +1907,10 @@ func t_hotseat() -> void:
 	check(CWConfigPanel.seat_name(4, 0) == "免疫A" and CWConfigPanel.seat_name(4, 1) == "癌症A" \
 		and CWConfigPanel.seat_name(4, 2) == "免疫B" and CWConfigPanel.seat_name(6, 5) == "癌症C",
 		"席位名与引擎 players[].name 同一套规则：免疫A / 癌症A / 免疫B …")
-	for i in 3:
-		p.handle_input(press_action("ui_down"))             ## AI 强度 → 随机种子 → 席位 1（免疫A）
+	## **步数由常量推**，别写死：2026-09-08 加「世界事件」行时这里就因为写死 3 而红了。
+	## 此刻焦点在「我的阵营」，一路往下走到左栏之外的第一个席位行（下标 = N_ROWS）。
+	for i in CWConfigPanel.N_ROWS - CWConfigPanel.ROW_FACTION:
+		p.handle_input(press_action("ui_down"))             ## …一路走到席位 1（免疫A）
 	check(p._sel == CWConfigPanel.N_ROWS and p._name_labels[p._sel].text == "免疫A", "焦点从左栏走进席位表第一行")
 	check(p._marker.position.x - 24 >= CWConfigPanel.SHEET_X, "焦点在席位行：菱形标连 48px 光晕都落在席位表内（Kevin 09-05）")
 	check(p._name_labels[p._sel].position.x == CWConfigPanel.SEAT_NAME_X \
@@ -3215,8 +3217,9 @@ func t_config_panel() -> void:
 	var down := InputEventAction.new()
 	down.action = "ui_down"
 	down.pressed = true
-	for i in 4:
-		p.handle_input(down)   ## 人数 → 阵营 → AI → 种子 → 进入棋盘
+	## 步数 = 左栏行数（从第一行走到按钮）。**别写死** —— 加一行就会红
+	for i in CWConfigPanel.N_ROWS:
+		p.handle_input(down)   ## 一路走到「进入棋盘」
 	p.handle_input(accept)
 	check(got.size() == 1 and not p.visible, "走到「进入棋盘」回车才开局")
 	## 键盘拨值：人数成环；阵营环到观战；AI → 较强；种子拨一下换一枚
@@ -3240,7 +3243,9 @@ func t_config_panel() -> void:
 	check(p.config()["ai"] == CWMatch.AI_NORMAL, "三档循环，拨回普通")
 	p._cycle(CWConfigPanel.ROW_SMART, -1)
 	check(p.config()["ai"] == CWMatch.AI_MCTS, "反向拨同样绕回来")
-	p.handle_input(down)        ## → 随机种子
+	## 同上：从「AI 强度」走到「随机种子」的步数由常量推
+	for _i in CWConfigPanel.ROW_SEED - CWConfigPanel.ROW_SMART:
+		p.handle_input(down)
 	var seed0: int = p.config()["seed"]
 	p.handle_input(right)
 	check(p.config()["seed"] != seed0, "种子行拨一下 = 换一枚")
@@ -3274,7 +3279,7 @@ func t_config_panel() -> void:
 	check(p._arrows[0][1].position.x == CWConfigPanel.ARROW_R_X, "右箭头在固定位置")
 	p.handle_input(right)   ## 换一档，值文案长度变了
 	check(p._arrows[0][1].position.x == CWConfigPanel.ARROW_R_X, "换档后右箭头不挪窝")
-	for k in 4:
+	for k in CWConfigPanel.N_ROWS:
 		p.handle_input(down)
 	check(p._btn.get_theme_stylebox("panel") == p._btn_hot, "键盘走到「进入棋盘」变白")
 	p._btn_hover = false     ## 鼠标划过按钮又移开（exited 把焦点权抢给鼠标）
@@ -5211,6 +5216,85 @@ func t_doubled_marker() -> void:
 	check(old_txt.contains("基质阻隔") and not old_txt.contains("双重"),
 		"旧档（没有 doubled 键）照读不误，也不误标（%s）" % old_txt)
 	g.dispose()
+
+
+## 「关闭世界事件」开关（Kevin 2026-09-08：单机与联机都要能整局关掉）。
+func t_world_events_off() -> void:
+	print("[世界事件总开关]")
+
+	## ---- ① 关掉就不触发，事件池原样留着 ----
+	var g := make_game(2, 5)
+	g.setup.build_board()
+	var pool_n: int = g.events["pool"].size()
+	g.tune.world_events_on = false
+	for i in 3:
+		g.world_fx.trigger()
+	check(g.events["active"].is_empty(), "关掉后连触发 3 次：一个事件都没挂上")
+	check(g.events["pool"].size() == pool_n,
+		"事件池一张没少（%d）—— 中途拨回来还能照常开抽" % g.events["pool"].size())
+
+	## ---- ② 拨回来立刻恢复 ----
+	g.tune.world_events_on = true
+	g.world_fx.trigger()
+	check(not g.events["active"].is_empty() or g.events["double_next"],
+		"拨回来 → 照常抽（抽到【双重触发】时它不挂 active，所以两者取其一）")
+	check(g.events["pool"].size() == pool_n - 1, "池里少了一张")
+
+	## ---- ③ **必须进 RULE_FIELDS**：联机靠快照把它带给客户端 ----
+	check("world_events_on" in CWTuning.RULE_FIELDS,
+		"world_events_on 在 RULE_FIELDS 里 —— 否则客户端影子对局会以为该放事件，两边对不上账")
+	var off := make_game(2, 5)
+	off.setup.build_board()
+	off.tune.world_events_on = false
+	var snap: Dictionary = CWStateCodec.snapshot(off)
+	var shadow := make_game(2, 999)
+	shadow.setup.build_board()
+	check(shadow.tune.world_events_on, "影子对局默认是开的")
+	CWStateCodec.restore(shadow, snap)
+	check(not shadow.tune.world_events_on, "快照还原之后跟着关上了（联机就靠这一条）")
+	off.dispose()
+	shadow.dispose()
+	g.dispose()
+
+	## ---- ④ 右栏那行别再倒计时一个永远不来的事件 ----
+	var g2 := make_game(2, 5)
+	g2.setup.build_board()
+	var p := CWMatchPanel.new()
+	root.add_child(p)
+	await process_frame
+	p.refresh(g2)
+	check(p._phase.text.contains("世界事件"), "开着时那行照旧写世界事件")
+	g2.tune.world_events_on = false
+	p.refresh(g2)
+	check(p._phase.text.contains("已关闭"),
+		"关掉后写「已关闭」，不再倒计时（%s）" % p._phase.text)
+	p.queue_free()
+	g2.dispose()
+
+	## ---- ⑤ 单机：配置面板拨得动、进得了 cfg ----
+	var cp := CWConfigPanel.new()
+	root.add_child(cp)
+	await process_frame
+	cp.open()
+	check(cp.config()["world_events"], "默认开")
+	check(cp._value_text(CWConfigPanel.ROW_EVENTS) == "开", "值文案：开")
+	cp._cycle(CWConfigPanel.ROW_EVENTS, 1)
+	check(not cp.config()["world_events"]
+			and cp._value_text(CWConfigPanel.ROW_EVENTS).begins_with("关"),
+		"拨一下 → 关（%s）" % cp._value_text(CWConfigPanel.ROW_EVENTS))
+	cp._cycle(CWConfigPanel.ROW_EVENTS, 1)
+	check(cp.config()["world_events"], "再拨一下 → 拨回开（两档来回）")
+	cp.queue_free()
+
+	## ---- ⑥ 联机：房间存得住、房间状态里说得出 ----
+	var room := CWRoom.new()
+	room.configure(null, "TEST", 4, 60, true, false)
+	check(not room.world_events, "建房时拨的「关」存进了房间")
+	check(room.summary().get("world_events", true) == false,
+		"大厅列表里也带着 —— 进来的人看得到这房不放事件")
+	var room2 := CWRoom.new()
+	room2.configure(null, "TEST2", 4, 60, true)
+	check(room2.world_events, "不传这个参数时默认开（= 改动之前的行为）")
 
 
 ## 代谢核心 / 骨髓的「积累进度外圈」（Kevin 2026-09-08 拍的 A′ 案）。
@@ -12680,14 +12764,21 @@ func t_config_custom() -> void:
 	root.add_child(p)
 	await process_frame
 	p.open()
+	## **行下标一律从 `N_ROWS` 推，别写死** —— 2026-09-08 加「世界事件」行时，
+	## 这一组因为把 4 当成「第一个癌种行」而整片变红。
+	var first_cancer: int = CWConfigPanel.N_ROWS
 	check(p.config()["cancer_types"].is_empty() and p._n_rows() == CWConfigPanel.N_ROWS
-		and p._btn.position.y == CWConfigPanel.BTN_Y and not p._name_labels[4].visible,
-		"普通对局：不带癌种、4 行、按钮在 438、癌种行收起")
+		and p._btn.position.y == CWConfigPanel.BTN_Y
+		and not p._name_labels[first_cancer].visible,
+		"普通对局：不带癌种、%d 行、按钮在 %.0f、癌种行收起"
+			% [CWConfigPanel.N_ROWS, CWConfigPanel.BTN_Y])
 	p.custom = true
 	p.open()
 	check(p._title.text == "自定义对局" and p._eyebrow.text == "CUSTOM", "自定义：眉题 / 标题换了")
-	check(p._n_rows() == CWConfigPanel.N_ROWS + 2 and p._name_labels[4].visible and p._name_labels[5].visible
-		and not p._name_labels[6].visible and p._name_labels[4].text == "癌症A 种类", "4 人：多出癌症A / 癌症B 两行")
+	check(p._n_rows() == CWConfigPanel.N_ROWS + 2
+			and p._name_labels[first_cancer].visible and p._name_labels[first_cancer + 1].visible
+			and not p._name_labels[first_cancer + 2].visible
+			and p._name_labels[first_cancer].text == "癌症A 种类", "4 人：多出癌症A / 癌症B 两行")
 	check(p.config()["cancer_types"] == [-1, -1], "默认都是随机")
 	var down := InputEventAction.new()
 	down.action = "ui_down"
@@ -12695,10 +12786,11 @@ func t_config_custom() -> void:
 	var right := InputEventAction.new()
 	right.action = "ui_right"
 	right.pressed = true
-	for i in 4:
-		p.handle_input(down)   ## 人数 → 阵营 → AI → 种子 → 癌症A
+	for i in CWConfigPanel.N_ROWS:
+		p.handle_input(down)   ## 从第一行一路走到癌症A（步数 = 左栏行数）
 	p.handle_input(right)
-	check(p.config()["cancer_types"][0] == CWData.CancerType.MELANOMA and p._value_labels[4].text == "恶性黑色素瘤",
+	check(p.config()["cancer_types"][0] == CWData.CancerType.MELANOMA
+			and p._value_labels[first_cancer].text == "恶性黑色素瘤",
 		"癌症A 拨一格：随机 → 恶性黑色素瘤")
 	p.handle_input(down)
 	p.handle_input(right)
@@ -12710,13 +12802,23 @@ func t_config_custom() -> void:
 	check(p.config()["cancer_types"][1] == -1, "往回拨：印戒 → 随机（不落到被占的黑色素瘤上）")
 	p._players = 6
 	p._repaint()
-	check(p._n_rows() == 7 and p._name_labels[6].visible and p._name_labels[6].text == "癌症C 种类"
-		and p._btn.position.y + CWConfigPanel.BTN_H <= 540 and p._btn.position.y > p._row_y(6) + 20,
-		"6 人：7 行 + 按钮跟在最后一行下面、不出屏（按钮 y %.0f）" % p._btn.position.y)
+	## **最挤的一档**：6 人自定义 = 左栏 N_ROWS 行 + 3 个癌席。
+	## 「按钮不出屏」这条是行距 ROW_H_CUSTOM 的唯一约束 —— 2026-09-08 加行之后
+	## 32 的行距会让按钮底落到 563（屏高 540），因此收到了 28。
+	var last_row: int = CWConfigPanel.N_ROWS + 2
+	check(p._n_rows() == CWConfigPanel.N_ROWS + 3 and p._name_labels[last_row].visible
+			and p._name_labels[last_row].text == "癌症C 种类"
+			and p._btn.position.y + CWConfigPanel.BTN_H <= 540
+			and p._btn.position.y > p._row_y(last_row) + 20,
+		"6 人：%d 行 + 按钮跟在最后一行下面、不出屏（按钮底 %.0f ≤ 540）"
+			% [CWConfigPanel.N_ROWS + 3, p._btn.position.y + CWConfigPanel.BTN_H])
 	p._players = 2
-	p._sel = 6
+	p._sel = last_row
 	p._repaint()
-	check(p._n_rows() == 5 and not p._name_labels[5].visible and p._sel == 5, "2 人：只剩癌症A 一行，焦点收回到按钮")
+	check(p._n_rows() == CWConfigPanel.N_ROWS + 1
+			and not p._name_labels[first_cancer + 1].visible
+			and p._sel == CWConfigPanel.N_ROWS + 1,
+		"2 人：只剩癌症A 一行，焦点收回到按钮")
 	var got: Array = []
 	p.confirmed.connect(func(c: Dictionary) -> void: got.append(c))
 	var accept := InputEventAction.new()

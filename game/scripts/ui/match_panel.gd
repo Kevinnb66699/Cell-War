@@ -169,9 +169,13 @@ func refresh(game: CWGame) -> void:
 		_history_round = game.round_no
 		_clear_history()
 	_round.text = "第 %d 回合" % game.round_no
-	var next_ev := _next_event_round(game.round_no)
-	_phase.text = "%s · 世界事件 第 %d 回合" % [game.phase, next_ev] if next_ev > 0 \
-		else "%s · 世界事件已放完" % game.phase
+	## 关掉时别再倒计时一个永远不会来的事件（Kevin 2026-09-08 的开关）
+	if not game.tune.world_events_on:
+		_phase.text = "%s · 世界事件已关闭" % game.phase
+	else:
+		var next_ev := _next_event_round(game.round_no)
+		_phase.text = "%s · 世界事件 第 %d 回合" % [game.phase, next_ev] if next_ev > 0 \
+			else "%s · 世界事件已放完" % game.phase
 	_events.text = active_events_text(game)
 	_events.visible = _events.text != ""
 	_layout_event_row()

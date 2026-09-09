@@ -271,8 +271,11 @@ func _create_room(cid: int, msg: Dictionary) -> void:
 	var n: Variant = msg.get("players", 4)
 	var timer: Variant = msg.get("timer", 60)
 	var pub: Variant = msg.get("public", true)
+	## 老客户端不带这个字段 → 默认开（与改动之前的行为一致）
+	var wev: Variant = msg.get("world_events", true)
 	if not (n in CWNet.PLAYER_CHOICES) or typeof(timer) != TYPE_INT or timer < 0 \
-			or timer > CWNet.TIMER_MAX or typeof(pub) != TYPE_BOOL:
+			or timer > CWNet.TIMER_MAX or typeof(pub) != TYPE_BOOL \
+			or typeof(wev) != TYPE_BOOL:
 		_error(cid, "bad_param")
 		return
 	unbind(cid)
@@ -280,14 +283,15 @@ func _create_room(cid: int, msg: Dictionary) -> void:
 	while rooms.has(code):
 		code = CWNet.make_code(rng)
 	var r := CWRoom.new()
-	r.configure(self, code, n, timer, pub)
+	r.configure(self, code, n, timer, pub, wev)
 	var sd: Variant = msg.get("seed", 0)
 	if sd is int:
 		r.seed_override = sd
 	rooms[code] = r
 	clients[cid]["room"] = code
 	r.join(cid, clients[cid]["nick"])
-	say("建房 %s：%d 人，计时 %d s，%s，房主 %s" % [code, n, timer, "公开" if pub else "私密", clients[cid]["nick"]])
+	say("建房 %s：%d 人，计时 %d s，%s%s，房主 %s" % [code, n, timer,
+		"公开" if pub else "私密", "" if wev else "，无世界事件", clients[cid]["nick"]])
 
 
 func _join_room(cid: int, code: String) -> void:
