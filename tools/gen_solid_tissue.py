@@ -59,7 +59,11 @@ STONE = (194, 172, 140)       # 石身
 STONE_EDGE = (92, 78, 58)     # 轮廓：比石头和红肉都暗，靠明度把形状抠出来
 
 # 计数 -> (顶面覆盖率, 侧面覆盖率)
-COVER = {5: (0.16, 0.16), 10: (0.38, 0.38), 15: (0.66, 0.66), 20: (1.00, 0.85)}
+# 计数 -> 覆盖率。**三个面一起算**（2026-09-09 改成三维连续之后），
+# 所以只用得上第一个数；第二个留着是历史（此前顶面/侧面分开排名）。
+# 满档 0.94 而不是 1.0：留一点红。全局排名下**最后石化的必然是侧面底部**
+# （核放在顶面那一层，侧面像素在三维里离得最远），所以红缝正好落在老设计想要的位置。
+COVER = {5: (0.16, 0.16), 10: (0.38, 0.38), 15: (0.66, 0.66), 20: (0.94, 0.94)}
 HI_SHARE = 0.30
 
 SEEDS, WARP, FREQ, BIAS = 2, 0.14, 9.0, 0.55
@@ -103,14 +107,67 @@ def perlin(shape, freq, rng):
     return a * (1 - v) + b * v
 
 
-def order_field(h, w, rng):
-    """石化顺序：值小的先石化。到最近结晶核的距离 + 柏林扰动。"""
-    cy, cx = h / 2.0, w / 2.0
-    ys = cy + (rng.uniform(0, h, SEEDS) - cy) * (1.0 - BIAS)
-    xs = cx + (rng.uniform(0, w, SEEDS) - cx) * (1.0 - BIAS)
-    yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
-    d = np.stack([np.hypot(yy - y, xx - x) for y, x in zip(ys, xs)], axis=0).min(axis=0)
-    return d / max(h, w) + WARP * perlin((h, w), 1.0 / FREQ, rng)
+# 顶面是个**压扁的六边形**：图里横向半径 16px、纵向半径 13px。
+# 把纵向除回去，顶面就还原成正六边形 —— 三维里的距离才是各向同性的，
+# 不然石头会被拉成椭圆。
+SQUASH = 13.0 / 16.0
+
+
+def face_world(base_img, faces):
+    """每个面像素在**三维**里的位置 (wx, wy, wz)，单位 = 顶面像素。
+
+    这是「三个面连成一体」的关键（Kevin 2026-09-09：要保持三个面的连续性）。
+    此前顶面和两个侧面各排各的名，等于三张互不相干的图，棱边处对不上。
+
+    · 顶面：wz = 0，(wx, wy) 由图像坐标还原压扁得到
+    · 侧面：它挂在顶面某条下边缘的正下方 —— 取**同一列**最上面那个侧面像素，
+      它正上方就是顶面的边缘点；侧面继承那个点的 (wx, wy)，往下走多少就是 -wz。
+      这样棱边两侧的世界坐标**连续**，石头自然卷过去。
+    """
+    h, w = base_img.shape[:2]
+    cx, cy = (w - 1) / 2.0, 12.5      # 顶面中心（顶面占 y 0..25）
+    pos = {}
+    for src, _k, kind in faces:
+        m = np.all(base_img[:, :, :3] == np.array(src, np.uint8), axis=2)
+        ys, xs = np.where(m)
+        if ys.size == 0:
+            continue
+        if kind == "top":
+            pos[src] = (m, xs - cx, (ys - cy) / SQUASH, np.zeros_like(xs, float))
+            continue
+        top_y = {int(x): int(ys[xs == x].min()) for x in np.unique(xs)}
+        seam = np.array([top_y[int(x)] - 1 for x in xs], float)   # 正上方那个顶面像素
+        pos[src] = (m, xs - cx, (seam - cy) / SQUASH, -(ys - seam))
+    return pos
+
+
+def order3d(pos, rng):
+    """石化顺序（值小的先）：到最近结晶核的三维距离 + 柏林扰动。
+
+    核放在顶面那一层（wz≈0）——石化是从表面开始的，不是从块心。
+    往中心收（BIAS）的理由同二维版：贴边的核只能长出被切掉一半的石头，形状读不出来。
+    """
+    r = 16.0
+    seeds = []
+    for _ in range(SEEDS):
+        a = rng.uniform(0, 2 * np.pi)
+        d = r * (1.0 - BIAS) * np.sqrt(rng.uniform(0, 1))
+        seeds.append((d * np.cos(a), d * np.sin(a), rng.uniform(-1.0, 1.0)))
+    warp = perlin((34, 32), 1.0 / FREQ, rng)      # 一张扰动图，按图像坐标取样即可
+    out = {}
+    for src, (m, wx, wy, wz) in pos.items():
+        dist = np.min([np.sqrt((wx - sx) ** 2 + (wy - sy) ** 2 + (wz - sz) ** 2)
+                       for sx, sy, sz in seeds], axis=0)
+        ys, xs = np.where(m)
+        out[src] = dist / 32.0 + WARP * warp[ys, xs]
+    return out
+
+
+def FACES_OF(base_img):
+    """这张地块的三个面：(底色, 明度比, 类别)。顶面色按种类不同，自动认。"""
+    return ((top_color(base_img), SHADE["top"], "top"),
+            (SIDE_M, SHADE["mid"], "side"),
+            (SIDE_D, SHADE["dark"], "side"))
 
 
 def _shade(rgb, k):
@@ -126,29 +183,38 @@ def top_color(img):
     return tuple(int(v) for v in vals[cnt.argmax()])
 
 
-def bake(base_img, field, count):
-    """按计数把石头画上去。**只碰三个底色的像素** —— 核心/骨髓的图标
-    （绿色烧瓶、紫色骨头）和它的抗锯齿边都不在这三色里，于是自动保住，不必单独抠。"""
+def bake(base_img, order, count):
+    """按计数把石头画上去。`order` 是 `order3d()` 出的「每个面像素的石化先后」。
+
+    **只碰三个底色的像素** —— 核心/骨髓的图标（绿色烧瓶、紫色骨头）和它的抗锯齿边
+    都不在这三色里，于是自动保住，不必单独抠。"""
     out = base_img.copy()
-    top_c = top_color(base_img)
-    faces = ((top_c, SHADE["top"], "top"), (SIDE_M, SHADE["mid"], "side"),
-             (SIDE_D, SHADE["dark"], "side"))
+    faces = FACES_OF(base_img)
     stone = np.zeros(out.shape[:2], bool)
 
-    for src, k, kind in faces:
-        mask = np.all(out[:, :, :3] == np.array(src, np.uint8), axis=2)
-        n = int(mask.sum())
-        cover = COVER[count][0 if kind == "top" else 1]
-        if n == 0 or cover <= 0:
+    # **三个面一起排一次名**（Kevin 2026-09-09 要的连续性）。
+    # 此前是每个面各排各的 —— 那等于三张互不相干的图，石头在棱边处对不上，
+    # 看着就是「一块贴在顶面上的斑」而不是一个石化的立方体。
+    all_y, all_x, all_v, all_face = [], [], [], []
+    for i, (src, _k, _kind) in enumerate(faces):
+        if src not in order:
             continue
-        idx = np.where(mask)
-        rank = np.argsort(np.argsort(field[mask]))
-        take = int(round(n * cover))
-        sel = rank < take
-        out[idx[0][sel], idx[1][sel], :3] = _shade(STONE, k)
-        hi = rank < int(round(take * HI_SHARE))
-        out[idx[0][hi], idx[1][hi], :3] = _shade(STONE_HI, k)
-        stone[idx[0][sel], idx[1][sel]] = True
+        ys, xs = np.where(np.all(base_img[:, :, :3] == np.array(src, np.uint8), axis=2))
+        all_y.append(ys); all_x.append(xs); all_v.append(order[src])
+        all_face.append(np.full(ys.shape, i))
+    ys = np.concatenate(all_y); xs = np.concatenate(all_x)
+    vals = np.concatenate(all_v); face_of = np.concatenate(all_face)
+    rank = np.argsort(np.argsort(vals))
+    cover = COVER[count][0]
+    take = int(round(len(vals) * cover))
+    sel = rank < take
+    hi = rank < int(round(take * HI_SHARE))
+    for i, (_src, k, _kind) in enumerate(faces):
+        f = face_of == i
+        s_i, h_i = sel & f, hi & f
+        out[ys[s_i], xs[s_i], :3] = _shade(STONE, k)
+        out[ys[h_i], xs[h_i], :3] = _shade(STONE_HI, k)
+    stone[ys[sel], xs[sel]] = True
 
     # 轮廓**只在同一个面内**算，否则顶面与侧面的交界会被当成边，整块被描一圈
     for src, k, _ in faces:
@@ -166,13 +232,14 @@ def gen_all():
     made = []
     for name, n_var in BASES.items():
         base = np.array(Image.open(os.path.join(ART, name + ".png")).convert("RGBA"))
-        h, w = base.shape[:2]
         for v in range(n_var):
-            # 一个变体一张顺序场，四档共用 —— 这就是「高档是低档超集」的来源
-            f = order_field(h, w, np.random.default_rng(seed_of(name, v)))
+            # 一个变体一份顺序，四档共用 —— 这就是「高档是低档超集」的来源。
+            # 三个面**一起**算、一起排名，石化才是一条卷过棱边的连续锋面。
+            rng = np.random.default_rng(seed_of(name, v))
+            order = order3d(face_world(base, FACES_OF(base)), rng)
             for c in sorted(COVER):
                 p = os.path.join(OUT, "%s_%02d_%d.png" % (name, c, v))
-                Image.fromarray(bake(base, f, c), "RGBA").save(p)
+                Image.fromarray(bake(base, order, c), "RGBA").save(p)
                 made.append(p)
     return made
 

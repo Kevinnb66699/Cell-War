@@ -5726,6 +5726,40 @@ func t_solid_tissue_art() -> void:
 	bd.set_tissue(vc, CWData.Tissue.CANCER, CWData.Special.VESSEL, true, 1.0)
 	check(vspr.texture == vtex, "血管不画石头（它压根不可固化，查不到贴图就照原样）")
 
+	## ---- 三个面必须连成一体（Kevin 2026-09-09 报「要保持三个面的连续性」）----
+	##
+	## 老生成器给顶面和两个侧面**各排各的名**，等于三张互不相干的图叠在一个立方体上，
+	## 棱边处必然对不上 —— 看着是「一块斑贴在顶面」。改成三维世界坐标 + 三面一起排名之后
+	## 石化是一条卷过棱边的锋面。
+	##
+	## 这条护栏直接**读烘好的 PNG**：找顶面与侧面**紧挨着**的那些列，
+	## 看有没有哪一列棱边两侧都是石头。一列都没有 = 石头没跨过棱边 = 退回老毛病。
+	var base_img: Image = load("res://assets/art/tissue_cancer.png").get_image()
+	var seams: Array = []            ## [列, 顶面最后一行]
+	for x in base_img.get_width():
+		var last_top := -1
+		for y in base_img.get_height():
+			var px := base_img.get_pixel(x, y)
+			if px.a > 0.5 and px.is_equal_approx(base_img.get_pixel(15, 12)):
+				last_top = y
+		if last_top >= 0 and last_top + 1 < base_img.get_height() 				and base_img.get_pixel(x, last_top + 1).a > 0.5:
+			seams.append([x, last_top])
+	check(seams.size() >= 8, "找到 %d 条顶面/侧面紧邻的列（找不到就无从验起）" % seams.size())
+	var crossed := {}
+	for f in ["10", "15", "20"]:
+		var img: Image = load("res://assets/art/solidify/tissue_cancer_%s_0.png" % f).get_image()
+		var n := 0
+		for pair in seams:
+			var x: int = pair[0]
+			var y: int = pair[1]
+			## 「是石头」= 和原始地块那一格的颜色不一样（石色有三档明度，逐色比反而脆）
+			if not img.get_pixel(x, y).is_equal_approx(base_img.get_pixel(x, y)) 					and not img.get_pixel(x, y + 1).is_equal_approx(base_img.get_pixel(x, y + 1)):
+				n += 1
+		crossed[f] = n
+	check(int(crossed["15"]) > 0 and int(crossed["20"]) > 0,
+		"石头跨过棱边连到侧面（计数 1.5 有 %d 列、2.0 有 %d 列）"
+			% [crossed["15"], crossed["20"]])
+
 	## 核心 / 骨髓有自己那一族 —— 传普通癌组织那张的话，图标会被石头盖掉
 	var cc: Vector2i = CWData.CORES[0]
 	var cspr: Sprite2D = bd.map[bd.axial_to_rc(cc)]["instance"]
