@@ -69,7 +69,13 @@ mkdir -p "$OUTDIR"
 #   手工把 latest.json 的 min_base 改成 0 再上传。之后这个注释可以删。
 MIN_BASE="$(grep -oE '^const BASE_BUILD := [0-9]+' game/scripts/patch_state.gd | grep -oE '[0-9]+$')"
 SHA="$(sha256sum "$OUT" | cut -d' ' -f1)"
-HOST="https://github.com/Kevinnb66699/Cell-War/releases/download/patch-latest"
+# 补丁包放**自家服务器**（Kevin 2026-09-09：国内比 GitHub 快一个量级）。
+# 明文 HTTP 没关系：完整性由下面写进 manifest 的 SHA-256 保证，
+# 客户端挂载前必校验 —— 中间人改一个字节就装不上。见 boot.gd 文件头「两段路」。
+HOST="http://124.221.78.13/cellwar"
+echo "上传补丁包到服务器 …"
+scp -o BatchMode=yes -o ConnectTimeout=15 "$OUT" cellwar:/var/www/cellwar/ >/dev/null
+echo "  http://124.221.78.13/cellwar/$(basename "$OUT")"
 cat > "$OUTDIR/latest.json" <<JSON
 {
   "build": $BUILD,
@@ -83,7 +89,7 @@ echo
 echo "manifest → $OUTDIR/latest.json"
 cat "$OUTDIR/latest.json"
 echo
-echo "上传："
+echo "补丁包已在服务器上。**manifest 仍要发到 GitHub**（它是信任锚，必须走认证过的 HTTPS）："
 echo "  export PATH=\"/c/Program Files/GitHub CLI:\$PATH\""
 echo "  gh release create patch-latest -t '热更补丁' -n '' 2>/dev/null || true"
-echo "  gh release upload patch-latest $OUT $OUTDIR/latest.json --clobber"
+echo "  gh release upload patch-latest $OUTDIR/latest.json --clobber"

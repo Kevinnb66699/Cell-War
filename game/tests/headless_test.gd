@@ -4700,7 +4700,7 @@ func t_hot_patch() -> void:
 	var Boot := load("res://scripts/boot.gd")
 	var SHA := "a".repeat(64)
 	var good := { "build": 200, "min_base": 100, "sha256": SHA,
-		"pck": Boot.HOST + "patch-latest/patch-200.pck" }
+		"pck": Boot.PCK_HOSTS[0] + "patch-200.pck" }
 
 	check(Boot.decide(good, 100, 0, 100)["act"] == "install", "有更新且基线够 → 装")
 	check(Boot.decide({}, 0, 0, 100)["act"] == "skip", "拿不到 manifest（断网/超时）→ 照原样进游戏")
@@ -4720,8 +4720,15 @@ func t_hot_patch() -> void:
 	evil["pck"] = "https://evil.example.com/patch.pck"
 	check(Boot.decide(evil, 100, 0, 100)["act"] == "skip", "下载地址不在写死的前缀底下 → 拒绝")
 	evil = good.duplicate()
-	evil["pck"] = "http://github.com/Kevinnb66699/Cell-War/releases/download/x/p.pck"
-	check(Boot.decide(evil, 100, 0, 100)["act"] == "skip", "明文 http → 拒绝（HOST 本身带 https）")
+	evil["pck"] = "http://124.221.78.13.evil.com/cellwar/p.pck"
+	check(Boot.decide(evil, 100, 0, 100)["act"] == "skip",
+		"前缀只是**看着像**（域名后面接了别的）→ 拒绝")
+	## 补丁包走明文 HTTP 是**有意的**：自家服务器国内快得多，而完整性靠 manifest 里的
+	## SHA-256（挂载前必校验），不靠传输层。manifest 本身仍走 GitHub HTTPS。
+	check(Boot.PCK_HOSTS[0].begins_with("http://124.221.78.13/"),
+		"补丁包默认走自家服务器（明文，但有 SHA 兜底）")
+	check(Boot.decide(good.duplicate(), 100, 0, 100)["act"] == "install",
+		"自家服务器的地址接受")
 	for bad_sha in ["", "abc", "z".repeat(64), "a".repeat(63)]:
 		evil = good.duplicate()
 		evil["sha256"] = bad_sha
@@ -4729,7 +4736,10 @@ func t_hot_patch() -> void:
 			check(false, "指纹「%s」应被拒绝" % bad_sha)
 			break
 	check(true, "指纹必须是 64 位十六进制，否则拒绝（空 / 太短 / 非法字符都试过）")
-	check(Boot.HOST.begins_with("https://github.com/"), "下载来源写死在常量里且是 HTTPS")
+	check(Boot.MANIFEST.begins_with("https://github.com/"),
+		"**manifest 必须走 HTTPS** —— 它是信任锚，里面的 SHA 决定装什么代码")
+	check(Boot.pinned(Boot.MANIFEST) and not Boot.pinned("https://evil.example.com/x.pck"),
+		"只有写死的那几个前缀放行")
 
 	## **一次启动失败不该判死刑。** 2026-09-09 验下载链路时真误伤过：截图工具 5 秒杀进程，
 	## 补丁没活到 mark_good，下一次开机就把一个好补丁永久拉黑了 ——

@@ -27,30 +27,46 @@ extends Node
 ##
 ## ## 安全：这是在下发**可执行代码**
 ##
+## **两段路，信任模型不同**（Kevin 2026-09-09 要求把补丁包放自家服务器，国内快得多）：
+##
+## · **manifest 走 GitHub HTTPS** —— 它是**信任锚**，必须是认证过的传输。
+##   才 300 字节，慢网上也就一瞬，没必要为它牺牲认证。
+## · **补丁包走自家服务器的明文 HTTP** —— 大文件走快路。完整性**不靠传输层**，
+##   靠 manifest 里那个 SHA-256：中间人改一个字节，挂载前的校验就把它丢掉。
+##   也换不成旧包：manifest 同时钉死 `build`，而只有比本地新的才装。
+##
+## **为什么补丁包不一起上 HTTPS**：那台机器上的证书会断 ——
+## 2026-09-09 查的时候四个站已经死了两个，剩下一个 10 天后到期。
+## 热更不该因为谁忘了续证就静默失效，而这条路本来就不需要传输层的保证。
+##
 ## 三条纪律，缺一条整套就不成立：
-## ① **地址写死在常量里**，不许来自配置文件、命令行或 manifest 之外的任何地方 ——
-##    否则改一行配置就等于远程执行。`decide()` 还会再挡一次 manifest 里给的下载地址。
+## ① **地址写死在常量里**（`MANIFEST` / `PCK_HOSTS`），不许来自配置文件、命令行，
+##    manifest 里给的下载地址也要再过一遍 `PCK_HOSTS` —— 否则改一个 json 就等于远程执行。
 ## ② **挂载前必校验 SHA-256**，对不上就当它被换过。
-## ③ 只认 HTTPS。
+## ③ 只走写死的那几个前缀，别的一律不请求。
 ## 信任面和全量发版一样（谁能发 Release 谁就能给玩家发代码），热更没有扩大它 ——
 ## 但这三条写死才守得住。
 
 const PatchState := preload("res://scripts/patch_state.gd")
 const MAIN_SCENE := "res://scenes/Main.tscn"
 
-## ⚠ 写死，且必须是 https。改这里之外的任何地方都不该能影响下载来源。
-## `decide()` 还会拿它挡一道 manifest 里的下载地址 —— manifest 本身可信
-## （HTTPS + 只有能发 Release 的人能改），但多挡这一道能把「改一个 json 就能投毒」
-## 变成「还得攻下 GitHub」。
-const HOST := "https://github.com/Kevinnb66699/Cell-War/releases/download/"
-const MANIFEST := HOST + "patch-latest/latest.json"
+## ⚠ 写死。manifest 是信任锚，**必须走 HTTPS**（见文件头的两段路）。
+const MANIFEST_HOST := "https://github.com/Kevinnb66699/Cell-War/releases/download/"
+const MANIFEST := MANIFEST_HOST + "patch-latest/latest.json"
+## 补丁包允许来自哪儿。**自家服务器排前面**（国内比 GitHub 快一个量级）；
+## GitHub 留着当退路，万一自家机器挂了还能发。
+## manifest 里给的地址必须落在其中之一 —— 这一道把「改一个 json 就能投毒」
+## 变成「还得先攻下 GitHub、再攻下这两个前缀之一」。
+const PCK_HOSTS := [
+	"http://124.221.78.13/cellwar/",
+	MANIFEST_HOST,
+]
 ## 查更新最多等这么久。**查不到就照原样进游戏** —— 联网是锦上添花，
 ## 不该让一个断网的人打不开单机（Kevin 的队友常在手机热点下玩）。
 const NET_TIMEOUT := 6.0
 
 var _note: Label
 var _http: HTTPRequest
-var _seq := 0        ## 请求序号，让每口超时钟只掐得动自己那一次（见 _request）
 
 
 func _ready() -> void:
@@ -100,9 +116,20 @@ static func decide(m: Dictionary, installed: int, blocked: int, base: int) -> Di
 	var url := str(m.get("pck", ""))
 	var sha := str(m.get("sha256", ""))
 	## manifest 自己不干净就当没看见：地址必须落在写死的前缀底下，指纹必须是 64 位十六进制
-	if not url.begins_with(HOST) or not sha.is_valid_hex_number() or sha.length() != 64:
+	if not pinned(url) or not sha.is_valid_hex_number() or sha.length() != 64:
 		return skip
 	return { "act": "install", "url": url, "sha": sha, "build": build }
+
+
+## 这个地址是不是写死的那几个前缀之一。**唯一的放行口** ——
+## 除了 manifest 本身，什么都要过这一关，包括 manifest 自己报出来的下载地址。
+static func pinned(url: String) -> bool:
+	if url == MANIFEST or url.begins_with(MANIFEST + "?"):
+		return true
+	for h in PCK_HOSTS:
+		if url.begins_with(h):
+			return true
+	return false
 
 
 ## 返回要给玩家看的话；空串 = 没事发生（正常启动不该多一屏「正在检查更新」）。
@@ -147,26 +174,38 @@ func _download(url: String, to: String) -> bool:
 
 ## 一次 HTTP GET。`to` 非空则直接写文件（补丁包不必整个读进内存）。
 ## 失败一律返回空 —— 调用方据此「什么都不做」，绝不半途而废地改盘上的东西。
+##
+## ⚠⚠ **绝对不能写成 `await _http.request_completed`。**
+## `cancel_request()` **不会**发那个信号，于是网络连不上时 await 永远醒不过来 ——
+## 主场景永远不切，玩家看到的是启动器那块深色底：**黑屏**。
+## 2026-09-09 队友就这么中招了（国内连 GitHub 本来就时好时坏），
+## 而我这边网络通、怎么试都正常，是他报上来才发现的。
+##
+## 改成**自己轮询**：拿到结果、或者到点，两条路都必然走得出去。
+## 这也顺手解决了上一版那个「两次请求共用一口超时钟、第一口把第二次掐掉」的问题 ——
+## 每次请求自己数自己的表，没有跨请求的状态。
 func _request(url: String, to: String) -> PackedByteArray:
-	if not url.begins_with("https://"):
-		return PackedByteArray()          ## 见文件头安全第 ③ 条
+	if not pinned(url):
+		return PackedByteArray()          ## 见文件头安全第 ③ 条：只走写死的那几个前缀
 	_http.download_file = to
-	var err := _http.request(url)
-	if err != OK:
+	if _http.request(url) != OK:
 		return PackedByteArray()
-	## 超时钟要**认得出自己那一次请求**：先查 manifest 再下补丁，两次是连着的，
-	## 第一次的钟在第二次进行中敲响的话会把下载掐掉（`cancel_request` 不区分是哪一次）。
-	_seq += 1
-	var mine := _seq
-	get_tree().create_timer(NET_TIMEOUT).timeout.connect(func() -> void:
-		if _seq == mine:
-			_http.cancel_request())
-	var res: Array = await _http.request_completed
-	_seq += 1                              ## 这一次已经结束，之后那口钟自然作废
+	var got: Array = []
+	_http.request_completed.connect(
+		func(result: int, code: int, _h: PackedStringArray, body: PackedByteArray) -> void:
+			got.append([result, code, body]),
+		CONNECT_ONE_SHOT)
+	var deadline := Time.get_ticks_msec() + int(NET_TIMEOUT * 1000.0)
+	while got.is_empty() and Time.get_ticks_msec() < deadline:
+		await get_tree().process_frame
+	if got.is_empty():
+		_http.cancel_request()
+		return PackedByteArray()          ## 超时：什么都不做，照原样进游戏
+	var res: Array = got[0]
 	if int(res[0]) != HTTPRequest.RESULT_SUCCESS or int(res[1]) != 200:
 		return PackedByteArray()
 	## 写文件模式下 body 是空的，用一个非空标记表示成功
-	return res[3] if to == "" else PackedByteArray([1])
+	return res[2] if to == "" else PackedByteArray([1])
 
 
 # ---- 挂载（这之后任何 load 都会进缓存，补丁再也盖不上）----
