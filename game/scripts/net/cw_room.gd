@@ -473,7 +473,11 @@ func surrender(cid: int, agree: Variant) -> String:
 	if _vote.is_empty():
 		if not yes:
 			return "no_vote"          ## 没投票可反对
-		if int(_vote_block.get(faction, -1)) >= game.round_no:
+		## `_vote_block` 存的是「到这个世界回合就能再发起」。
+		## ⚠ 这里原来写 `>= round_no`，把冷却拖成了**两个**世界回合
+		## （否决那轮拦一次、下一轮又拦一次），而定的是「隔一个世界回合」。
+		## 世界回合很长，两轮下来玩家的体感就是「再也发不起了」（Kevin 2026-09-09 报）。
+		if game.round_no < int(_vote_block.get(faction, 0)):
 			return "vote_cooldown"
 		_vote = { "faction": faction, "by": pid, "agreed": { pid: true },
 			"deadline": server.now_ms() + CWNet.SURRENDER_VOTE_MS }

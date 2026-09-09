@@ -13,9 +13,14 @@ extends Control
 ## 没投过票时露两个按钮；投过了改成「等队友」——**投出去就不能改**（服务器只收第一票），
 ## 所以按钮必须消失，留着会让人以为还能反悔。
 
-const W := 320.0
-const H := 74.0
+## 顶栏那条带子上已经有两户人家：左边迷你日志（`CWLogHint` 到 x=316），
+## 右边网络读数（`CWNetHud` 的在线人数与延迟，右对齐到 684）。
+## 票面只能挤在中间那段 —— 第一版 320 宽压住了「延迟」（Kevin 2026-09-09 报）。
+const W := 244.0
+const H := 60.0
 const TOP := 12.0
+## 右边给网络读数留出的宽度。「延迟 999 ms」这类字串最长约 80px，留 84 稳妥。
+const HUD_RESERVE := 84.0
 
 var _title: Label
 var _count: Label
@@ -53,19 +58,21 @@ func _ready() -> void:
 	panel.add_theme_stylebox_override("panel", CWStyle.box(0.75, CWStyle.PANEL, 0, 0))
 	add_child(panel)
 
+	## 两行：标题 + 按钮同一行，票数与秒数并到第二行。
+	## 挤成两行是为了把宽度从 320 压到 244 —— 顶栏中间那段只有约 280 可用。
 	_title = CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
-	_title.position = Vector2(14, 8)
+	_title.position = Vector2(12, 6)
 	add_child(_title)
 	_count = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	_count.position = Vector2(14, 34)
+	_count.position = Vector2(12, 38)
 	add_child(_count)
 	_clock = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.CANCER)
-	_clock.position = Vector2(14, 50)
+	_clock.position = Vector2(W - 60, 38)
 	add_child(_clock)
 
-	_yes = CWStyle.clickable_label(self, "同意", Vector2(W - 132, 26),
+	_yes = CWStyle.clickable_label(self, "同意", Vector2(W - 100, 8),
 		func() -> void: _cast(true))
-	_no = CWStyle.clickable_label(self, "拒绝", Vector2(W - 64, 26),
+	_no = CWStyle.clickable_label(self, "拒绝", Vector2(W - 50, 8),
 		func() -> void: _cast(false))
 	_no.add_theme_color_override("font_color", CWStyle.TEXT_DIM)
 
@@ -88,7 +95,7 @@ func sync(vote: Dictionary, my_pid: int, viewport_w: float) -> void:
 		if visible:
 			reset()
 		return
-	position = Vector2((viewport_w - W) * 0.5, TOP)
+	position = Vector2(x_for(viewport_w), TOP)
 	var need: Array = vote.get("need", [])
 	var agreed: Array = vote.get("agreed", [])
 	## 服务器不回执单票，所以「我投过没有」这件事本地记；
@@ -113,6 +120,15 @@ func sync(vote: Dictionary, my_pid: int, viewport_w: float) -> void:
 		_stamp = at
 		_deadline = deadline_of(at, int(vote.get("left_ms", 0)))
 	_tick()
+
+
+## 摆在顶栏中间那段的正中 —— 左让开迷你日志、右让开网络读数。
+## **不是屏幕正中**：第一版按屏幕居中，320 宽的票面右缘压到了延迟读数上。
+## 挤不下时（窄窗口）就贴着日志右边放，宁可右边压一点也别把标题推出屏外。
+static func x_for(viewport_w: float) -> float:
+	var left := CWLogHint.right_edge() + 8.0
+	var right := minf(viewport_w, float(CWNetHud.COUNT_RIGHT)) - HUD_RESERVE
+	return left if right - left < W else left + (right - left - W) * 0.5
 
 
 ## 秒数每帧自己走。**不能只靠 sync()** —— 它是 CWMatch._sync_link() 调的，

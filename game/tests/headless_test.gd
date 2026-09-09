@@ -13043,9 +13043,24 @@ func t_net_surrender() -> void:
 	a.surrender(true)
 	ok = await _net_pump(srv, [a, b], func() -> bool: return a.last_error.get("code", "") == "vote_cooldown")
 	check(ok, "刚被否掉，同一个世界回合里不许再发起（冷却）")
+	## **拒绝要让人看得见**：对局中联机面板是隐藏的，`_set_status()` 写进的是看不见的标签，
+	## 于是「被冷却挡住」表现为点了没反应 —— Kevin 2026-09-09 就是这么以为「只能发起一次」的。
+	check(a.error_seq > 0, "拒绝理由带序号发回客户端（对局界面据此弹气泡）")
 
-	## ---- 冷却过去之后：全票 → 认输 ----
-	room._vote_block.clear()       ## 冷却按世界回合走，测试里不便真等一整轮
+	## ---- 冷却**只隔一个世界回合**（原来写成 >= 拖成了两轮）----
+	var blocked_at: int = int(room._vote_block[CWData.Faction.IMMUNE])
+	check(blocked_at == room.game.round_no + CWNet.SURRENDER_COOLDOWN_ROUNDS,
+		"冷却到第 %d 个世界回合为止" % blocked_at)
+	room.game.round_no = blocked_at - 1
+	check(room.surrender(a.client_id, true) == "vote_cooldown", "还差一轮：仍挡着")
+	room.game.round_no = blocked_at
+	room._vote = {}
+	check(room.surrender(a.client_id, true) == "",
+		"到了第 %d 轮就能再发起（不是两轮）" % blocked_at)
+
+	## ---- 全票 → 认输 ----
+	room._vote = {}
+	room._vote_block.clear()
 	a.surrender(true)
 	ok = await _net_pump(srv, [a, b], func() -> bool: return not b.surrender_vote.is_empty())
 	b.surrender(true)

@@ -31,6 +31,7 @@ var game_over := {}
 ## 正在进行的投降投票（服务器裁决，客户端只画）。空 = 没有。
 ## 字段见 CWRoom._refresh_vote：{faction, by, need, agreed, left_ms}
 var surrender_vote := {}
+var error_seq := 0            ## 收到第几条 error 报文（对局界面靠它认出新错误）
 var inbox: Array = []                    ## 所有收到的报文（测试与机器人用；界面用 message 信号）
 var autoplay: CWBridge                   ## 机器人模式：收到 ask 就用这个桥作答（桥的 game 会指向 shadow）
 var pending_ask := {}                    ## 最近收到、尚未作答的询问
@@ -235,6 +236,10 @@ func _apply(m: Dictionary) -> void:
 			_clear_room()
 		"error":
 			last_error = m
+			## 序号让对局界面认得出「又来了一条」——**对局中联机面板是隐藏的**，
+			## 它那句 `_set_status()` 写进的是看不见的标签。2026-09-09 Kevin 报
+			## 「投降只能发起一次」，真相就是冷却被拒之后**零反馈**，看着像坏了。
+			error_seq += 1
 			if m.get("code", "") in ["room_closed", "kicked"]:
 				_clear_room()
 

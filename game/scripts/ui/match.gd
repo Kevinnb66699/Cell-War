@@ -49,6 +49,17 @@ signal finished(winner: int)
 
 ## 此刻能不能存档：引擎只在 pending 边界有完整快照（CWSave 的写入条件）。
 ## 暂停菜单拿它决定「保存并退出」亮不亮。联机局不写本地存档（状态在服务器，掉线凭令牌重连）。
+## 错误气泡挂在哪一格：自己的细胞脚下（视线本来就在那儿）；没有细胞就挂棋盘中心。
+func _error_at() -> Vector2i:
+	if game == null or bridge == null:
+		return Vector2i.ZERO
+	var pid: int = bridge.viewing_pid()
+	if pid < 0 or pid >= game.players.size():
+		return Vector2i.ZERO
+	var cell: Dictionary = game.cell_of(pid)
+	return cell["pos"] if cell.get("alive", false) else Vector2i.ZERO
+
+
 ## 屏幕前这位属于哪个阵营；观战、热座换手中、对局已结束都返回 -1。
 ## 暂停菜单据此决定「投降」亮不亮（`pause_menu.surrender_faction`）。
 func viewing_faction() -> int:
@@ -187,6 +198,7 @@ var online := false
 var net_hud: CWNetHud
 var _client: CWNetClient
 var _vote: CWSurrenderVote   ## 投降票面（只有联机会用；本地是发起即生效，没有投票）
+var _seen_error := 0         ## 已经弹过的最后一条 error 序号
 var _loop_id := 0        ## 每次 start_online / teardown 递增：旧的 _net_loop 看到号变了就退出
 var _ask_serial := 0     ## 每收到一次询问递增：作答时核对，服务器代打后重问的旧答案不发
 
@@ -682,6 +694,14 @@ func _sync_link() -> void:
 	## 票面每帧对一次：倒计时要走，票况随时会变（服务器每收一票就重播一遍）
 	if _vote != null:
 		_vote.sync(_client.surrender_vote, _client.my_seat, get_viewport_rect().size.x)
+	## 服务器的拒绝理由要让人看见。**对局中联机面板是隐藏的**，它那句 _set_status()
+	## 写进的是看不见的标签 —— 于是「投降被冷却挡了」表现为点了没反应（Kevin 2026-09-09）。
+	## 这里统一兜住**所有**对局中的 error，不只是投降那几条。
+	if _client.error_seq != _seen_error and bridge != null:
+		_seen_error = _client.error_seq
+		var msg: String = str(_client.last_error.get("msg", ""))
+		if msg != "":
+			bridge.show_result(msg, _error_at(), true)
 
 
 ## 返场淡出：让棋盘上的东西**淡着消失**，而不是啪地不见（团队 2026-08-27 反馈）。
