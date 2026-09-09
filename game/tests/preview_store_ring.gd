@@ -36,8 +36,13 @@ func _setup() -> void:
 		if i == 2:
 			_board.set_tissue(c, CWData.Tissue.CANCER, CWData.Special.CORE)
 		_board.set_store(c, fracs[i], CWData.Special.CORE)
+	## 骨髓要连**贴图**一起摆：2026-09-08 起有卡 / 空仓是两张图，
+	## 只看环的话看不出这一对组合起来是什么样
 	var mf := [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0, 0.5, 1.0]
+	var stocked := [false, false, false, true, false, true]
 	for i in CWData.MARROWS.size():
+		_board.set_tissue(CWData.MARROWS[i], CWData.Tissue.HEALTHY,
+			CWData.Special.MARROW, stocked[i])
 		_board.set_store(CWData.MARROWS[i], mf[i], CWData.Special.MARROW)
 
 
