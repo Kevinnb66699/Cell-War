@@ -9,12 +9,10 @@
 # game/tests/build_patch.gd 用 PCKPacker 按 res:// 路径打包 →
 # 连 manifest 一起放到 dist/patch/，并打印怎么上传。
 #
-# 发出去（tag 固定用 patch-latest，--clobber 覆盖同名资产）：
-#   gh release create patch-latest -t "热更补丁" -n "" 2>/dev/null || true
-#   gh release upload patch-latest dist/patch/<补丁包名> dist/patch/latest.json --clobber
+# **全自动**：打包 → 签 manifest → scp 到自家服务器。跑完就生效，不用再手工上传。
 #
-# **补丁包名带版本号**，manifest 的地址却固定 —— 这样客户端拿 manifest 时加时间戳
-# 绕开 CDN 缓存即可，补丁包本身不会被缓存串味。
+# 补丁包名带版本号，manifest 的地址固定 —— 客户端取 manifest 时带时间戳绕缓存，
+# 补丁包本身因为文件名唯一，不会被缓存串味。
 #
 # 为什么客户端包能这么省：94 MB 里约 88 MB 是 Godot 运行时，几乎从不变；
 # 每天真正改的只有几十 KB 脚本。补丁包按 res:// 路径覆盖原包里的文件即可。
@@ -64,9 +62,6 @@ mkdir -p "$OUTDIR"
 # min_base 取当前的基线号：补丁是照着 HEAD 打的，就只保证能装在这一档基线上。
 # 比它老的客户端会被 boot.gd 拦下来，提示去下完整包，而不是硬套一个可能用不了的补丁。
 # 基线号从 patch_state.gd 的常量读（放 .txt 里的第一版没进导出包，见那边的注释）。
-# ⚠ **2026-09-09 的过渡期**：已发出去的 client-2026-09-09-4 读不到自己的基线（读成 0），
-#   而它那版 decide() 会把 0 判成「太老」→ 一个补丁都收不到。所以在**下一个全量版发出去之前**，
-#   手工把 latest.json 的 min_base 改成 0 再上传。之后这个注释可以删。
 MIN_BASE="$(grep -oE '^const BASE_BUILD := [0-9]+' game/scripts/patch_state.gd | grep -oE '[0-9]+$')"
 SHA="$(sha256sum "$OUT" | cut -d' ' -f1)"
 # 补丁包放**自家服务器**（Kevin 2026-09-09：国内比 GitHub 快一个量级）。
@@ -89,7 +84,13 @@ echo
 echo "manifest → $OUTDIR/latest.json"
 cat "$OUTDIR/latest.json"
 echo
-echo "补丁包已在服务器上。**manifest 仍要发到 GitHub**（它是信任锚，必须走认证过的 HTTPS）："
-echo "  export PATH=\"/c/Program Files/GitHub CLI:\$PATH\""
-echo "  gh release create patch-latest -t '热更补丁' -n '' 2>/dev/null || true"
-echo "  gh release upload patch-latest $OUTDIR/latest.json --clobber"
+# manifest 是信任锚 —— 必须**签名**，客户端拿烧在包里的公钥验（见 boot.gd 文件头）。
+# 私钥在 ~/.cellwar/patch_key.pem，不进仓库；没有它就发不了补丁，这是有意的。
+echo
+echo "给 manifest 签名 …"
+"$GODOT" --headless --path game --script res://tests/patch_key.gd -- 	sign "$PWD/$OUTDIR/latest.json" "$PWD/$OUTDIR/latest.json.sig" | tail -1
+scp -o BatchMode=yes -o ConnectTimeout=15 	"$OUTDIR/latest.json" "$OUTDIR/latest.json.sig" cellwar:/var/www/cellwar/ >/dev/null
+echo
+echo "✔ 全部就位，客户端下次启动就能收到："
+echo "   $HOST/$(basename "$OUT")"
+echo "   $HOST/latest.json（+ .sig）"

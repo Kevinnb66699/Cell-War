@@ -4769,10 +4769,33 @@ func t_hot_patch() -> void:
 			check(false, "指纹「%s」应被拒绝" % bad_sha)
 			break
 	check(true, "指纹必须是 64 位十六进制，否则拒绝（空 / 太短 / 非法字符都试过）")
-	check(Boot.MANIFEST.begins_with("https://github.com/"),
-		"**manifest 必须走 HTTPS** —— 它是信任锚，里面的 SHA 决定装什么代码")
-	check(Boot.pinned(Boot.MANIFEST) and not Boot.pinned("https://evil.example.com/x.pck"),
-		"只有写死的那几个前缀放行")
+	check(Boot.pinned(Boot.MANIFEST) and Boot.pinned(Boot.MANIFEST_SIG)
+		and not Boot.pinned("https://evil.example.com/x.pck"),
+		"只有写死的那几个前缀放行（manifest、签名、补丁包各一）")
+
+	## ---- manifest 验签：整套热更**唯一**的信任锚 ----
+	##
+	## manifest 说「装哪个包、哈希多少」，被换掉就等于在玩家机器上任意执行代码。
+	## Kevin 2026-09-09 定了「不加 DNS、用签名」——传输层随便明文，真伪靠这把钥匙。
+	## 这几条守的是：真签名过、假签名不过、内容改一个字节就不过。
+	var key := Crypto.new().generate_rsa(2048)
+	var msg := "{\"build\":1}".to_utf8_buffer()
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_SHA256)
+	ctx.update(msg)
+	var sig := Marshalls.raw_to_base64(
+		Crypto.new().sign(HashingContext.HASH_SHA256, ctx.finish(), key))
+
+	## 客户端烧的是**另一把**公钥（真钥匙），所以拿临时钥匙签的东西必须验不过 ——
+	## 这一条同时证明了「换了钥匙的人发不了补丁」
+	check(not PatchState.verify_manifest(msg, sig),
+		"别人的私钥签的 manifest → 验不过（公钥烧死在包里）")
+	check(not PatchState.verify_manifest(msg, ""), "没有签名 → 验不过（不接受裸 manifest）")
+	check(not PatchState.verify_manifest(PackedByteArray(), sig), "空内容 → 验不过")
+	check(not PatchState.verify_manifest(msg, "这不是base64!!"), "签名是垃圾 → 验不过，不崩")
+	check(PatchState.PUBLIC_KEY_PEM.contains("BEGIN PUBLIC KEY")
+		and not PatchState.PUBLIC_KEY_PEM.contains("PRIVATE"),
+		"包里烧的是**公**钥（私钥进了仓库就等于谁都能发补丁）")
 
 	## **一次启动失败不该判死刑。** 2026-09-09 验下载链路时真误伤过：截图工具 5 秒杀进程，
 	## 补丁没活到 mark_good，下一次开机就把一个好补丁永久拉黑了 ——

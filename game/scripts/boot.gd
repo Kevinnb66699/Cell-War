@@ -27,40 +27,36 @@ extends Node
 ##
 ## ## 安全：这是在下发**可执行代码**
 ##
-## **两段路，信任模型不同**（Kevin 2026-09-09 要求把补丁包放自家服务器，国内快得多）：
+## **全链路都在自家服务器上，信任不靠 TLS 而靠一把钥匙**
+## （Kevin 2026-09-09：国内比 GitHub 快一个量级，而且不受 GitHub 连不上影响）。
 ##
-## · **manifest 走 GitHub HTTPS** —— 它是**信任锚**，必须是认证过的传输。
-##   才 300 字节，慢网上也就一瞬，没必要为它牺牲认证。
-## · **补丁包走自家服务器的明文 HTTP** —— 大文件走快路。完整性**不靠传输层**，
-##   靠 manifest 里那个 SHA-256：中间人改一个字节，挂载前的校验就把它丢掉。
-##   也换不成旧包：manifest 同时钉死 `build`，而只有比本地新的才装。
+## · **manifest 带一份 RSA 签名**，公钥烧在 `PatchState.PUBLIC_KEY_PEM` 里。
+##   manifest 是信任锚 —— 它说「装哪个包、哈希多少」，被换掉就等于任意代码执行。
+##   签名之后传输层随便中间人怎么看怎么改：没有私钥就伪造不出能过验的一份。
+## · **补丁包只走明文** —— 完整性靠 manifest 里那个 SHA-256（挂载前必校验），
+##   换不成旧包：manifest 同时钉死 `build`，只有比本地新的才装。
 ##
-## **为什么补丁包不一起上 HTTPS**：那台机器上的证书会断 ——
-## 2026-09-09 查的时候四个站已经死了两个，剩下一个 10 天后到期。
-## 热更不该因为谁忘了续证就静默失效，而这条路本来就不需要传输层的保证。
+## **为什么不上 HTTPS**：那台机器上的证书老是过期 ——
+## 2026-09-09 查的时候四个站已经死了两个，剩一个 10 天后到期。
+## 热更不该因为谁忘了续证就静默失效，而签名给的保证比 TLS 更贴题（要的是真伪不是保密）。
 ##
-## 三条纪律，缺一条整套就不成立：
-## ① **地址写死在常量里**（`MANIFEST` / `PCK_HOSTS`），不许来自配置文件、命令行，
-##    manifest 里给的下载地址也要再过一遍 `PCK_HOSTS` —— 否则改一个 json 就等于远程执行。
-## ② **挂载前必校验 SHA-256**，对不上就当它被换过。
-## ③ 只走写死的那几个前缀，别的一律不请求。
-## 信任面和全量发版一样（谁能发 Release 谁就能给玩家发代码），热更没有扩大它 ——
-## 但这三条写死才守得住。
+## 四条纪律，缺一条整套就不成立：
+## ① **地址写死在常量里**（`MANIFEST` / `PCK_HOSTS`），不许来自配置文件或命令行，
+##    manifest 里给的下载地址也要再过一遍 `PCK_HOSTS`。
+## ② **manifest 验不过签名一律当没看见** —— 宁可收不到更新，也不装来路不明的代码。
+## ③ **挂载前必校验补丁包的 SHA-256**，对不上就当它被换过。
+## ④ 只走写死的那几个前缀，别的一律不请求。
 
 const PatchState := preload("res://scripts/patch_state.gd")
 const MAIN_SCENE := "res://scenes/Main.tscn"
 
-## ⚠ 写死。manifest 是信任锚，**必须走 HTTPS**（见文件头的两段路）。
-const MANIFEST_HOST := "https://github.com/Kevinnb66699/Cell-War/releases/download/"
-const MANIFEST := MANIFEST_HOST + "patch-latest/latest.json"
-## 补丁包允许来自哪儿。**自家服务器排前面**（国内比 GitHub 快一个量级）；
-## GitHub 留着当退路，万一自家机器挂了还能发。
-## manifest 里给的地址必须落在其中之一 —— 这一道把「改一个 json 就能投毒」
-## 变成「还得先攻下 GitHub、再攻下这两个前缀之一」。
-const PCK_HOSTS := [
-	"http://124.221.78.13/cellwar/",
-	MANIFEST_HOST,
-]
+## ⚠ 全部写死。明文没关系 —— manifest 靠签名验真伪，补丁包靠 manifest 里的 SHA-256。
+const SELF_HOST := "http://124.221.78.13/cellwar/"
+const MANIFEST := SELF_HOST + "latest.json"
+const MANIFEST_SIG := MANIFEST + ".sig"
+## 补丁包允许来自哪儿。manifest 里给的地址必须落在其中之一 ——
+## 就算私钥泄漏了，攻击者也只能从这几个前缀发东西，多一道门槛。
+const PCK_HOSTS := [SELF_HOST]
 ## 查更新最多等这么久。**查不到就照原样进游戏** —— 联网是锦上添花，
 ## 不该让一个断网的人打不开单机（Kevin 的队友常在手机热点下玩）。
 const NET_TIMEOUT := 6.0
@@ -126,6 +122,8 @@ static func decide(m: Dictionary, installed: int, blocked: int, base: int) -> Di
 static func pinned(url: String) -> bool:
 	if url == MANIFEST or url.begins_with(MANIFEST + "?"):
 		return true
+	if url == MANIFEST_SIG or url.begins_with(MANIFEST_SIG + "?"):
+		return true
 	for h in PCK_HOSTS:
 		if url.begins_with(h):
 			return true
@@ -134,7 +132,7 @@ static func pinned(url: String) -> bool:
 
 ## 返回要给玩家看的话；空串 = 没事发生（正常启动不该多一屏「正在检查更新」）。
 func _fetch_update() -> String:
-	var plan := decide(await _get_json(MANIFEST), PatchState.installed_build(),
+	var plan := decide(await _get_manifest(), PatchState.installed_build(),
 		PatchState.blocked_build(), PatchState.base_build())
 	if plan["act"] == "too_old":
 		return "有新版本需要完整更新，请到 GitHub Releases 下载新客户端"
@@ -158,11 +156,20 @@ func _fetch_update() -> String:
 	return "已更新到 %d" % build
 
 
-func _get_json(url: String) -> Dictionary:
-	## 加个时间戳绕开 CDN 缓存 —— manifest 的地址是固定的，内容却每次发补丁都变
-	var body := await _request(url + "?t=%d" % Time.get_unix_time_from_system(), "")
+## 取 manifest 并**验签**。验不过、取不到、签名缺一样，一律返回空 = 什么都不做。
+##
+## 时间戳是为了绕开中间缓存 —— manifest 的地址固定，内容每次发补丁都变。
+## **签名要连着一起取**：只有 manifest 没有签名，就是没法证明来路，直接放弃。
+func _get_manifest() -> Dictionary:
+	var stamp := "?t=%d" % Time.get_unix_time_from_system()
+	var body := await _request(MANIFEST + stamp, "")
 	if body.is_empty():
 		return {}
+	var sig := await _request(MANIFEST_SIG + stamp, "")
+	if sig.is_empty():
+		return {}
+	if not PatchState.verify_manifest(body, sig.get_string_from_utf8()):
+		return {}                        ## 见文件头纪律 ②
 	var parsed = JSON.parse_string(body.get_string_from_utf8())
 	return parsed if parsed is Dictionary else {}
 

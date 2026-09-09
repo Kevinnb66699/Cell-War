@@ -74,6 +74,12 @@ func _reject(pairs: Array) -> Array:
 		if res.ends_with("project.godot") or res.ends_with(".import"):
 			bad.append("%s：项目设置 / 导入配置在引擎启动时就读完了，补丁盖不住" % res)
 			continue
+		## 启动器自身**读在挂载之前**，所以补丁里的新版永远不会生效 ——
+		## 打进去只会造成「更新了」的假象。这两个文件只能全量发版。
+		## （这也正是安全模型成立的原因：补丁改不动验签公钥和基线号。）
+		if res in ["res://scripts/boot.gd", "res://scripts/patch_state.gd"]:
+			bad.append("%s：启动器在挂载补丁**之前**就读了它，补丁里的新版永远不生效" % res)
+			continue
 		if res.ends_with(".gd"):
 			var cls := _class_name_of(disk)
 			if cls != "" and not _class_known(cls):

@@ -28,6 +28,43 @@ const INCOMING := DIR + "/incoming.pck"   ## 下载中的临时文件，校验�
 ##
 ## **全量发版时往上改**（用当天日期）。补丁不必动它。
 const BASE_BUILD := 20260909
+## manifest 的验签公钥（Kevin 2026-09-09 定：manifest 也放自家服务器，靠签名而不是 TLS）。
+##
+## **为什么不靠 HTTPS**：那台机器上的证书老是过期（查的时候四个站死了两个、剩一个 10 天后到期），
+## 热更不该因为谁忘了续证就静默失效。签名把信任从「传输层」挪到了「这把钥匙」——
+## 传输随便中间人怎么看、怎么改，没有私钥就伪造不出一份能过验的 manifest。
+##
+## 私钥在 `~/.cellwar/patch_key.pem`（**不进仓库**），签名由 `tests/patch_key.gd` 做。
+## 换钥匙必须连着一次**全量发版**把新公钥带出去 —— 老客户端只认烧在自己包里的这一把。
+const PUBLIC_KEY_PEM := """-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4DYTY+jOLOOrhyONI+6A
+PsFov7glPtsJo91vElY5Utg44jBSF1duP3D+u1HMUA0QvvsG36OGqYmlFrCnQEMz
+yrAvBSpZ5r3VoQ7X6cROeBf81ikFOkwNLaPiNk33Lu2jh85rvfcyiCtEKr2hG6pO
+jHPpT/FTSt54JpQYjjrZpzSaal+tnFwPu8uPnkld3zxqz37QepwPf2Ddqc1UDQzZ
+9aonfkFEvaQq+50xnaTX76+r8MCgQB3OM0qitaa+RkhN+jjhfX7A+R+tVw8Ou/oH
+QQ2vtrwibhsywwqj+JM1YD14sH85aYVAwGhF2cn7AxsqJ0DW8X/zF4EHaI60eXF7
+MwIDAQAB
+-----END PUBLIC KEY-----"""
+
+
+## 这份 manifest 是不是我们自己签的。**验不过一律当没看见** ——
+## 宁可收不到更新，也不能装一份来路不明的代码。
+static func verify_manifest(body: PackedByteArray, sig_b64: String) -> bool:
+	if body.is_empty() or sig_b64.strip_edges() == "":
+		return false
+	var key := CryptoKey.new()
+	if key.load_from_string(PUBLIC_KEY_PEM, true) != OK:
+		return false
+	var sig := Marshalls.base64_to_raw(sig_b64.strip_edges())
+	if sig.is_empty():
+		return false
+	## 与 tests/patch_key.gd 的签名口径必须逐字一致：签的是**文件内容的 SHA-256**
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_SHA256)
+	ctx.update(body)
+	return Crypto.new().verify(HashingContext.HASH_SHA256, ctx.finish(), sig, key)
+
+
 ## 挂上补丁之后活过这么久，才认为它是好的。够长到能盖住主场景构建与首帧渲染，
 ## 又不至于长到「随手开一下就关」都算失败（那种误判由 STRIKES 兜底）。
 const PROVE_SEC := 3.0
