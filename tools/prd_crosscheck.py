@@ -63,6 +63,11 @@ MAP = {
     "AEROBIC_LEVEL_STEP":     "(免疫等级系数-1)times1.5",
     "ANAEROBIC_BLOCK_EXP":    "连通块癌组织个数^{0.3}",
     "ANAEROBIC_BLOCK_COEF":   "^{0.3}times2.8",
+    ## 无氧系数**按人数分两档**（PRD 2026-09-09 落字）。两条锚点各钉一档 ——
+    ## 只对其中一条的话，另一档被改了这里照样绿。
+    ## ⚠ 表里的 2 人局（2.8）PRD 没定，是沿用六人档，见 CWData 那边的注释。
+    "ANAEROBIC_BLOCK_COEF_BY_PLAYERS": ["四人局$能量=frac{连通块癌组织个数^{0.3}times2.0",
+                                        "六人局：$能量=frac{连通块癌组织个数^{0.3}times2.8"],
     "ANAEROBIC_SOLID_BONUS":  "+全图固化癌组织个数",
     # ---- 免疫行动 ----
     "IMMUNE_DRAW_COST":       "【基因表达】：消耗0.5**能量**抽卡，每行动回合最多发动3次",
@@ -222,10 +227,8 @@ INTENTIONAL = {
     ## 都是电子版自己的事。两张分档表见《PRD差异对照》§10.17 / §七。
     "AEROBIC_SPLIT_REF":   "有氧均分的标定人数；均分默认已关（asplit=0），留作对照档",
     "AEROBIC_LEVEL_BASE_BY_PLAYERS": "09-05 方案 f 的按人数基数表，默认 abase=20 不走它，留作 abase=-1 的对照档",
-    ## ⚠ 这一张**默认就在生效**（anaerobic_block_coef = -1 = 按人数取），
-    ## 4 人局用 2.0 而 PRD 公式写的是 2.8 —— **为平衡有意偏离，已在册**，
-    ## 见《PRD差异对照》§10.17。PRD 正文待团队改字，改了之后这条要移回 MAP。
-    "ANAEROBIC_BLOCK_COEF_BY_PLAYERS": "为平衡对 4 人局偏离成 2.0（PRD 全人数 2.8）；已拍板已实装，PRD 待改字",
+    ## ANAEROBIC_BLOCK_COEF_BY_PLAYERS 2026-09-09 已移回 MAP —— Kevin 当天把 PRD 改成
+    ## 按人数分两档，那是此前唯一一处**活跃**偏离，现在两边一致。
     ## 纯电子版的东西：一个是单位换算，一个是界面。
     "PRESSURE_MUL":        "十分能量的换算系数（加权和先 ×10 再 ÷4），不是 PRD 的数",
     "FEED_KEEP":           "左侧出牌列最多留几张，纯界面，PRD 没有也不该有",
