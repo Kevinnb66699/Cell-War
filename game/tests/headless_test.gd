@@ -662,8 +662,12 @@ func t_solidify_and_decay() -> void:
 	cell["pos"] = op
 	g.world._solidify()
 	check(g.tiles[op]["solid"] == 10 and g.tiles[op]["tissue"] == CWData.Tissue.CANCER, "骨肉瘤停留 → 计数 +1.0（不再 +1.5）")
-	g.world._solidify()
-	check(g.tiles[op]["tissue"] == CWData.Tissue.SOLID, "两回合固化，与其他癌种相同")
+	## 停留一回合 +1.0，所以要满门槛那么多回合。骨肉瘤此前 +1.5、2026-09-05 撤回，
+	## 这条守的是「和其他癌种同速」，与门槛具体是多少无关 —— 所以按常量算轮数。
+	for _i in CWData.SOLIDIFY_THRESHOLD / CWData.SOLIDIFY_STEP - 1:
+		g.world._solidify()
+	check(g.tiles[op]["tissue"] == CWData.Tissue.SOLID,
+		"%d 回合固化，与其他癌种相同" % (CWData.SOLIDIFY_THRESHOLD / CWData.SOLIDIFY_STEP))
 	## 衰减：无细胞停留的癌组织每世界回合 −0.5
 	var d1 := Vector2i(-1, 0)
 	g.tiles[d1]["tissue"] = CWData.Tissue.CANCER
@@ -3431,7 +3435,8 @@ func t_hover_info() -> void:
 	## **写死人读的字面，不要拿常量插值**：拿常量插值等于把实现的格式化方式抄一遍，
 	## 实现打成「15 / 30」时期望串也跟着变成「15 / 30」，两边一起错、测试照样绿
 	## （2026-09-01 队友截图报的就是这个）。固化计数是十分整数，1.5 点存成 15
-	check(all.contains("癌组织") and all.contains("固化 0.2 / 2.0"),
+	check(all.contains("癌组织") and all.contains("固化 0.2 / %s"
+			% CWData.fmt(CWData.SOLIDIFY_THRESHOLD)),
 		"详情：组织与固化进度按小数显示，不是原始的十分整数")
 	check(all.contains("代谢核心 · 储量 1.0"), "详情：核心储量")
 	check(all.contains("恶性黑色素瘤") and all.contains("能量 3.8") and all.contains("标记 ×1"),
@@ -10275,11 +10280,14 @@ func t_solidify_threshold() -> void:
 	## 这里留下的是它当年真正在守的那半条：raise_solid 只认阈值，涨过就转、没涨过就不转。
 	var pos := Vector2i(2, 2)
 	g.tiles[pos]["tissue"] = CWData.Tissue.CANCER
-	g.tiles[pos]["solid"] = 15
+	## 门槛现读常量：2026-09-09 由 2.0 改成 3.0，写死的话每次动门槛都要回来改这几行
+	var th: int = CWData.SOLIDIFY_THRESHOLD
+	g.tiles[pos]["solid"] = th - 5
 	g.raise_solid(pos, 4)
-	check(g.tiles[pos]["tissue"] == CWData.Tissue.CANCER, "没涨到阈值不转化（1.5 + 0.4）")
+	check(g.tiles[pos]["tissue"] == CWData.Tissue.CANCER,
+		"没涨到阈值不转化（%s + 0.4）" % CWData.fmt(th - 5))
 	g.raise_solid(pos, 5)
-	check(g.tiles[pos]["tissue"] == CWData.Tissue.SOLID, "涨过阈值即转固化（1.9 + 0.5）")
+	check(g.tiles[pos]["tissue"] == CWData.Tissue.SOLID, "涨过阈值即转固化")
 
 
 func t_ev_chaos() -> void:
