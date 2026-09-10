@@ -569,6 +569,18 @@ func _build_room(root: Control) -> void:
 ## 对局里那套（回车唤出的标签页）在这儿用不上：等待室没有棋盘要让，
 ## 右栏本来就空着，常驻显示比按键唤出更顺手。
 func _build_chat(root: Control) -> void:
+	## **底板不能省**：槽位那层暗罩只覆到 x 538 左右就淡没了，
+	## 而联机面板是开在菜单场景里的 —— 菜单淡出的只有那层字，**棋盘装饰一直在**。
+	## 没有板的话右栏的字直接压在亮棋盘上，根本读不清（Kevin 2026-09-09 问「会不会遮挡地图」，
+	## 出图才发现真正的问题是这个）。样式照 CWConfigPanel 的席位表那张板。
+	var plate := Panel.new()
+	var box := CWStyle.box(0.42, Color(CWStyle.PANEL, 0.92))
+	box.set_corner_radius_all(6)
+	plate.add_theme_stylebox_override("panel", box)
+	plate.position = Vector2(CHAT_X - 16, CHAT_Y - 40)
+	plate.size = Vector2(CHAT_W + 32, CHAT_ROWS * CHAT_ROW_H + 40 + 46)
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(plate)
 	var head := CWStyle.label("聊天", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	head.position = Vector2(CHAT_X, CHAT_Y - 18)
 	root.add_child(head)

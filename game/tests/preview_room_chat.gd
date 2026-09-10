@@ -4,12 +4,18 @@ extends SceneTree
 ## **为什么非得出图**：左栏被席位排满（214..394 席位、398 未入座、438 按钮），
 ## 聊天只能摆右栏。「右栏那张板会不会和席位挤在一起、会不会出槽」只能看图。
 ##
+## **背景必须画主菜单的棋盘装饰**（`CWView.MENU_*` 那套机位）——
+## 联机面板是在菜单场景里开的，菜单淡出的只有 `$UI/Screen` 那层字，
+## 棋盘装饰一直在。第一版预览用纯色背景，于是「会不会遮住右边的地图」这个问题
+## 在图上根本看不出来（Kevin 问的正是这个）。
+##
 ## 跑（**不能加 --headless**，要真渲染）：
 ##   godot --path game --script res://tests/preview_room_chat.gd -- <输出.png>
 const WARMUP := 30
 var _out := "user://room.png"
 var _frames := 0
 var _p: CWOnlinePanel
+var _cam: Camera2D
 
 func _initialize() -> void:
 	_out = OS.get_cmdline_user_args()[0]
@@ -17,6 +23,10 @@ func _initialize() -> void:
 	bg.color = CWStyle.GROUND
 	bg.size = Vector2(960, 540)
 	root.add_child(bg)
+	## 主菜单的棋盘装饰：菜单机位（放大 3.2、锚点 595,227）
+	root.add_child(load("res://scenes/Board.tscn").instantiate())
+	_cam = Camera2D.new()
+	root.add_child(_cam)
 	var ui := CanvasLayer.new()
 	root.add_child(ui)
 	_p = CWOnlinePanel.new()
@@ -49,6 +59,9 @@ func _initialize() -> void:
 
 func _process(_d: float) -> bool:
 	_frames += 1
+	_cam.zoom = Vector2(CWView.MENU_ZOOM, CWView.MENU_ZOOM)
+	_cam.position = CWView.camera_pos_for(CWView.MENU_LOOK_AT, CWView.MENU_ANCHOR,
+		CWView.MENU_ZOOM, Vector2(960, 540))
 	## **不能在 _initialize 里 open()**：那时节点刚 add_child、`_ready` 还没跑，
 	## 面板的 `_build()` 也就没跑，`_roots` 是空的 —— 上一个预览侥幸没踩到，
 	## 因为它把 open() 写在了 _process 里
