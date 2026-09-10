@@ -133,6 +133,24 @@ if [ "$DRY" = "1" ]; then
 	exit 0
 fi
 scp -o BatchMode=yes -o ConnectTimeout=15 	"$OUTDIR/latest.json" "$OUTDIR/latest.json.sig" cellwar:/var/www/cellwar/ >/dev/null
+
+# 回读**线上那份**，走一遍客户端的判定。
+# 「文件传上去了」离「玩家会装」还差得远：验签不过 / 地址不在白名单 /
+# min_base 写错，客户端一律**安静地当没看见**（boot.gd 纪律 ②）——
+# 中间的失败一声不响。所以发完自己验，别留一个「要靠人记得跑」的检查。
+LIVE_JSON="$(mktemp)"
+LIVE_SIG="$(mktemp)"
+trap 'rm -f "$CLASSES" "$LIVE_JSON" "$LIVE_SIG"' EXIT
+echo
+echo "回读线上那份，按客户端的走法验一遍 …"
+STAMP="$(date +%s)"
+curl -fsS --max-time 30 "$HOST/latest.json?t=$STAMP" -o "$LIVE_JSON" || die "回读 latest.json 失败"
+curl -fsS --max-time 30 "$HOST/latest.json.sig?t=$STAMP" -o "$LIVE_SIG" || die "回读 latest.json.sig 失败"
+if ! "$GODOT" --headless --path game --script res://tests/patch_live.gd -- "$LIVE_JSON" "$LIVE_SIG" "$MIN_BASE"; then
+	die "线上那份客户端不认（哪一条不对看上面）。
+   包已经在服务器上了，但玩家收不到 —— 查清楚再告诉人。"
+fi
+
 echo
 echo "✔ 全部就位，客户端下次启动就能收到："
 echo "   $HOST/$(basename "$OUT")"
