@@ -40,7 +40,12 @@ const END_H := 52
 ## 那条关系比「34 还是 38」耐改（换字号时会自己跟着走）。
 const BAR_DY := 38.0
 const BAR_H := 4.0
-const LEVEL_GAP := 8.0      ## 「免疫等级」与它后面那个罗马数字之间的字距
+## 「免疫等级」那四个字。数字要居中到它和记忆行之间，所以宽度得量它 ——
+## 写成常量是为了**只有一处**：量的字和摆的字必须是同一串（见 _layout_level）
+const LEVEL_CAPTION := "免疫等级"
+## 数字离两边各留多少才不算贴脸。**只有护栏在用** —— 版面本身是居中算的，
+## 这个数是「最挤的一档也得留出这么多」的下限（见 t_match_panel）
+const LEVEL_GAP := 8.0
 
 const W := 232          ## 内容宽 = 264 - 16×2
 const ROW_PAD := 6      ## 玩家行自己的左右内边距
@@ -217,6 +222,7 @@ func refresh(game: CWGame) -> void:
 	## 别读 CWData.LEVEL_MIN_MEMORY 那张常量表，那是六人档兼缺省（同 CWGame.gain_memory）
 	var tiers: Array = CWData.level_min_memory(game.order.size())
 	_memory.text = memory_text(game.memory, game.immune_level, tiers)
+	_layout_level()      ## 记忆行的宽度变了，数字要重新居中（见 _layout_level）
 	var p := level_progress(game.memory, game.immune_level, tiers)
 	## X 级没有「下一级」，条整个收起来 —— 画一根永远满的条等于骗人
 	_lv_bar_bg.visible = p >= 0.0
@@ -422,21 +428,22 @@ func _build(n: int) -> void:
 	rule.position = Vector2(PAD, y)
 	rule.size = Vector2(W, 1)
 	add_child(rule)
-	var lv_cap := CWStyle.label("免疫等级", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	var lv_cap := CWStyle.label(LEVEL_CAPTION, CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	_put(lv_cap, PAD, y + 20, 80)
-	## 等级数字**贴着它自己的标签**摆。原来是右对齐到一条固定中缝（`W - 92`），
-	## 那 92 是照旧文案「抗原记忆 5」的宽度留的；2026-09-10 记忆行加上「/ 下一档」
-	## 之后变成「抗原记忆 18 / 20」，右边那串往左长，正好顶到数字上（issue #6）。
-	## 现在两边各归各的锚：数字跟「免疫等级」，记忆行仍右对齐到 W ——
-	## 中间那段空白是缓冲，记忆行再长也撞不上，也不必再有人记得同步那个 92。
+	## 等级数字**居中在「免疫等级」和记忆行之间那道缝里**（Kevin 2026-09-10 定）。
+	##
+	## 位置**只能在 refresh() 里现算**（`_layout_level`）：缝的右边缘跟着记忆行的长短走，
+	## 而那串会变 ——「抗原记忆 0 / 6」和「抗原记忆 18 / 20」差着 15px，
+	## X 级还会换成「效应记忆 25」。在这儿算死就等于又埋一个要人记得同步的常数
+	## （issue #6 就是这么来的：原来数字右对齐到 `W - 92`，那 92 是照旧文案量的，
+	## 记忆行一加「/ 下一档」就顶到数字上了）。
 	##
 	## 纵向按**基线**对齐而不是按行框：两个字号的行框虚高不一样（10px 的 ascent 11、
 	## 20px 的 22），照行框顶对齐会差 3px，并排时一眼就看得出来。
 	var lv_y: float = y + 20 + CWStyle.FONT.get_ascent(CWStyle.SIZE_LABEL) \
 		- CWStyle.FONT.get_ascent(CWStyle.SIZE_BODY)
-	var lv_x: float = PAD + CWStyle.FONT.get_string_size(lv_cap.text,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x + LEVEL_GAP
-	_level = _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.IMMUNE), lv_x, lv_y, 60)
+	_level = _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.IMMUNE),
+		PAD, lv_y, 0, HORIZONTAL_ALIGNMENT_CENTER)
 	_memory = _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
 		PAD, y + 20, W, HORIZONTAL_ALIGNMENT_RIGHT)
 	## 升级进度条（Kevin 2026-09-10：「方便玩家观察和计算」）。
@@ -1053,6 +1060,26 @@ static func doubled_line(mode: String) -> String:
 			return "【双重触发】：连续两个回合各完整生效一遍"
 		_:
 			return ""
+
+
+## 把等级数字居中到「免疫等级」与记忆行之间那道缝里。
+##
+## **每次 refresh 都要重算**：缝的右边缘 = 记忆行的左缘，而记忆行右对齐、长度会变
+## （「抗原记忆 0 / 6」比「抗原记忆 18 / 20」窄 15px，X 级又换成「效应记忆 25」）。
+## 算死一个数就是又埋一个要人记得同步的常数 —— issue #6 正是那么来的。
+##
+## 做法是**把标签的盒子铺满整道缝、让它自己居中**，而不是算「中点减半个字宽」：
+## 这样 I / II / III / X 宽度不同也各自居中，不必再去量字。
+func _layout_level() -> void:
+	if _level == null or _memory == null:
+		return
+	var f := CWStyle.FONT
+	var cap_right: float = PAD + f.get_string_size(LEVEL_CAPTION,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+	var mem_left: float = PAD + W - f.get_string_size(_memory.text,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+	_level.position.x = cap_right
+	_level.size.x = maxf(mem_left - cap_right, 0.0)
 
 
 ## 当前这一档攒了多少（0..1）；**X 级返回 -1 = 没有下一级**，调用方据此把条收起来。

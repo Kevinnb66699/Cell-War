@@ -6746,35 +6746,49 @@ func t_match_panel() -> void:
 		"进度条（%d 起）离等级字的底（%d）至少两像素，不贴脸"
 		% [CWMatchPanel.BAR_DY, ink])
 
-	## ---- issue #6：罗马数字与记忆行撞在一起 ----
+	## ---- 罗马数字**居中在两条字之间**（issue #6 → Kevin 2026-09-10 再定）----
 	## 原来数字右对齐到一条固定中缝（`W - 92`），那 92 是照旧文案「抗原记忆 5」留的；
 	## 记忆行加上「/ 下一档」变成「抗原记忆 18 / 20」之后往左长，正好顶到数字上。
-	## 现在两边各归各的锚，**钉的是「最长的一档也撞不上」**，不是某个坐标。
-	var cap_w: float = CWStyle.FONT.get_string_size("免疫等级",
+	## 现在**每次 refresh 现算**：盒子铺满整道缝、标签自己居中。
+	## 钉的是「两边空隙一样宽」和「最挤的一档也不贴脸」，**不是某个坐标** ——
+	## 记忆行的长短一变，坐标就跟着变，钉死一个数等于又埋一颗雷。
+	var cap_w: float = CWStyle.FONT.get_string_size(CWMatchPanel.LEVEL_CAPTION,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
-	check(is_equal_approx(p._level.position.x,
-		CWMatchPanel.PAD + cap_w + CWMatchPanel.LEVEL_GAP),
-		"等级数字贴着「免疫等级」（隔 %d px），不再飘在中缝上"
-		% int(CWMatchPanel.LEVEL_GAP))
 	## 纵向按**基线**对齐：两个字号的行框虚高不一样，照行框顶对齐会差 3px ——
 	## 两个字并排时一眼看得出来
 	check(is_equal_approx(p._level.position.y + CWStyle.FONT.get_ascent(CWStyle.SIZE_BODY),
 		p._level_y + 20 + CWStyle.FONT.get_ascent(CWStyle.SIZE_LABEL)),
 		"等级数字与「免疫等级」基线对齐（ascent %d / %d）"
 		% [CWStyle.FONT.get_ascent(CWStyle.SIZE_LABEL), CWStyle.FONT.get_ascent(CWStyle.SIZE_BODY)])
-	## 最长的数字（III）撞最长的记忆行（六人局 II 级「抗原记忆 18 / 20」）
+	## 三档记忆行**各验一遍**：最短（六人局 I 级 0/10）、最长（II 级 18/20）、
+	## X 级换名的那档（效应记忆 25）。缝的右边缘跟着它们变，数字必须每次都重新居中
+	var six: Array = CWData.level_min_memory(6)
 	var widest_lv: float = 0.0
 	for name: String in CWData.LEVEL_NAMES:
 		widest_lv = maxf(widest_lv, CWStyle.FONT.get_string_size(name,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_BODY).x)
-	var mem_w: float = CWStyle.FONT.get_string_size(
-		CWMatchPanel.memory_text(18, 1, CWData.level_min_memory(6)),
-		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
-	var mem_left: float = CWMatchPanel.PAD + CWMatchPanel.W - mem_w
-	check(p._level.position.x + widest_lv + 8.0 <= mem_left,
-		"最长的等级数字（到 x %d）离记忆行左缘（x %d）还有八像素以上"
-		% [int(p._level.position.x + widest_lv), int(mem_left)])
-	var six: Array = CWData.level_min_memory(6)
+	for probe: Array in [[0, 0], [18, 1], [25, 3]]:
+		var g6 := make_game(6, 11)
+		await run_setup(g6)
+		g6.memory = int(probe[0])
+		g6.immune_level = int(probe[1])
+		p.refresh(g6)
+		var mem_w: float = CWStyle.FONT.get_string_size(p._memory.text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+		var cap_right: float = CWMatchPanel.PAD + cap_w
+		var mem_left: float = CWMatchPanel.PAD + CWMatchPanel.W - mem_w
+		## 盒子必须正好铺满整道缝 —— 居中靠的就是它
+		check(is_equal_approx(p._level.position.x, cap_right)
+			and is_equal_approx(p._level.size.x, mem_left - cap_right),
+			"「%s」这档：数字的盒子正好铺满缝（%d..%d）"
+			% [p._memory.text, int(cap_right), int(mem_left)])
+		## 最长的数字（III）摆进去，两边空隙一样宽、且都不贴脸
+		var left_gap: float = (p._level.size.x - widest_lv) / 2.0
+		check(left_gap >= CWMatchPanel.LEVEL_GAP,
+			"「%s」这档：最长的数字两边各留 %d px（下限 %d），不贴脸"
+			% [p._memory.text, int(left_gap), int(CWMatchPanel.LEVEL_GAP)])
+		g6.dispose()
+	## 面板停在最后一档（X 级）上没关系：下面那几条各自 refresh 自己的局
 	check(is_equal_approx(CWMatchPanel.level_progress(3, 0, six), 0.3)
 		and is_equal_approx(CWMatchPanel.level_progress(18, 1, six), 0.8),
 		"进度按**本档区间**算：六人局 I 级 3/10 = 0.3、II 级 18/20 = 0.8")
