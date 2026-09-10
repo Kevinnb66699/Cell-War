@@ -31,7 +31,7 @@ const INCOMING := DIR + "/incoming.pck"   ## 下载中的临时文件，校验�
 ## 于是 min_base 谁也拦不住：给第九版打的补丁会照样装进第七版的客户端。
 ## 这条纪律现在由 `tools/publish_release.sh` 的第 ⑤ 项闸住，不再靠人记得。
 ## 补丁不必动它（也改不动 —— 读取发生在挂载之前）。
-const BASE_BUILD := 202609100047
+const BASE_BUILD := 202609100125
 ## manifest 的验签公钥（Kevin 2026-09-09 定：manifest 也放自家服务器，靠签名而不是 TLS）。
 ##
 ## **为什么不靠 HTTPS**：那台机器上的证书老是过期（查的时候四个站死了两个、剩一个 10 天后到期），
