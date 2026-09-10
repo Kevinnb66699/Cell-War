@@ -63,8 +63,7 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 			opts.append({ "label": "效应应答·%s（%d 效应记忆）" % [en, CWData.EFFECTOR_COST],
 				"data": { "act": "effector" } })
 	if cell["itype"] == CWData.ImmuneType.T_CELL:
-		if cell["toxin_used"] < CWData.TOXIN_MAX_PER_ROUND \
-				and game.can_pay(cell, CWData.TOXIN_COST) and not _toxin_targets(cell).is_empty():
+		if _can_toxin(cell) and not _toxin_targets(cell).is_empty():
 			opts.append({ "label": "细胞毒素（1.0 能量）", "data": { "act": "toxin" } })
 		## 【裂解】2026-09-01 改写：目标从「脚下」变成「相邻」，且一步直接变健康组织
 		## （PRD 原文只说「转为健康组织」，不再提【净化】，所以**不给抗原记忆、
@@ -1206,6 +1205,20 @@ func _do_antibody(cell: Dictionary) -> void:
 ## 原来是 `neighbors()`，不含中心。免疫细胞**确实可能站在癌组织上**——
 ## 骨样硬化标记过的格要蹲一回合才净化、传送/卡牌位移进来的也没净化，
 ## 所以这一格的有无是真的会差一格结果，不是纸面差别。
+## 这一刻能不能放【细胞毒素】。两道限次：
+##   · **每个 T 细胞**每世界回合 3 次（`toxin_used`，PRD）
+##   · **同一格**每世界回合只能发动一次（2026-09-10 issue #10 新加）——
+##     记在**格子**上而不是细胞上：换个 T 细胞站过来也一样受限，那才是「同一格子」的意思。
+##     于是三次额度想用满就得挪窝，站着不动刷不出来。
+##     记的是回合号而不是布尔值，S 阶段就不必挨格清一遍（127 格 × 每回合）。
+func _can_toxin(cell: Dictionary) -> bool:
+	if cell["toxin_used"] >= CWData.TOXIN_MAX_PER_ROUND:
+		return false
+	if int(game.tile(cell["pos"]).get("toxin_round", 0)) == game.round_no:
+		return false
+	return game.can_pay(cell, CWData.TOXIN_COST)
+
+
 func _toxin_targets(cell: Dictionary) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	for n in CWData.ring(cell["pos"], 1):
@@ -1216,7 +1229,7 @@ func _toxin_targets(cell: Dictionary) -> Array[Vector2i]:
 
 ## 【细胞毒素】（PRD T 细胞）：消耗 1.0，使**1 环内**（含自己脚下那格）的癌组织转为健康组织，
 ## 对范围内所有癌细胞造成 1.0 能量损失，并使范围内**新生健康组织**所有格进入「坏死」。
-## 每世界回合最多 3 次。
+## 每世界回合最多 3 次，且**同一格每世界回合只能发动一次**（见 _can_toxin）。
 ##
 ## 注意这里**不再**回避「有癌细胞站着的格」（旧说明 #20）—— PRD 写的是「所有格中的癌组织」，
 ## 而且同一条技能紧接着就要对那些癌细胞造成伤害，显然是打算连人带地一起处理。
@@ -1224,9 +1237,10 @@ func _toxin_targets(cell: Dictionary) -> Array[Vector2i]:
 ## 已经站着的不会重新把脚下染回去。
 func _do_toxin(cell: Dictionary) -> void:
 	var targets := _toxin_targets(cell)
-	if targets.is_empty() or not game.pay(cell, CWData.TOXIN_COST):
+	if targets.is_empty() or not _can_toxin(cell) or not game.pay(cell, CWData.TOXIN_COST):
 		return
 	cell["toxin_used"] += 1
+	game.tile(cell["pos"])["toxin_round"] = game.round_no   ## 这一格本世界回合用过了
 	for c in targets:
 		CWTissue.to_necrotic(game.tile(c), CWData.NECROSIS_TOXIN)
 	game.log_msg("【细胞毒素】1 环内 %d 格癌组织转为健康组织并进入「坏死」（不积累记忆）" % targets.size())

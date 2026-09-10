@@ -347,7 +347,10 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 			game.log_msg("　下一次受到免疫方事件/技能的能量损失 -%s（最低 0）" % [
 				CWData.fmt([10, 15, 20][_phase()])])
 		"上皮—间质转化":
-			var times: int = [2, 3, 4][_phase()]   ## 2026-09-10 Kevin：1/2/3 → 2/3/4
+			## 2026-09-10 早上 Kevin 把它从 1/2/3 抬到 2/3/4，同日 issue #10 又要求改回
+			## 1/2/3（HXR-I 给的规格：即时技能 · 权重 5/4/3 · 接下来 1/2/3 次）。
+			## 数在 PRD 那份是正本，这里跟着它走。
+			var times: int = [1, 2, 3][_phase()]
 			game.add_mod(cell, card, times, "turn")
 			game.log_msg("　本回合接下来 %d 次向健康组织的移动费用降为 0.2" % times)
 		"TNF-α局部炎症":
@@ -726,11 +729,17 @@ func _genome_instability(cell: Dictionary) -> void:
 	await game.actions.apply_mutation(cell, r)
 
 
+## 二选一那两行字。**数从常量来，不许在这儿再抄一份** ——
+## 原来第三档写死成「能量 -1.0 · 记忆 -3」，而引擎实际扣的是 0.8 / 2
+## （`CWData.MUTATE_EXTRA_LOSS` / `MUTATE_MEMORY_CUT`，PRD 也是这两个数）：
+## 玩家照着一个假数字做二选一，选完扣的是另一回事（issue #10，2026-09-10）。
+## 这两行和 `CWActions.apply_mutation` 的通报必须是同一套数，所以都现算。
 func _mutation_label(r: int) -> String:
 	match r:
 		1: return "无事发生"
 		2: return "抽 1 张 · 记忆 -1"
-	return "能量 -1.0 · 记忆 -3"
+	return "能量 -%s · 记忆 -%d" % [
+		CWData.fmt(CWData.MUTATE_EXTRA_LOSS), CWData.MUTATE_MEMORY_CUT]
 
 
 ## 【炎症性趋化】的一步有哪些去处：相邻的健康/普通癌组织（固化不行），

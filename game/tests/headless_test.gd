@@ -4906,6 +4906,17 @@ func t_hot_patch() -> void:
 	var chain := [["res://scripts/ui/chain_fx.gd", ProjectSettings.globalize_path(
 		"res://scripts/ui/chain_fx.gd")]]
 	check(not Packer._reject(chain, older).is_empty(), "基线没有的 class_name 声明也拦")
+	## ③b 要过导入的资源（贴图等）也永远拦：导出包里存的是 `.ctex`，
+	## `res://…png` 靠 `.import` 重定向过去 —— 补丁塞原始 png 进去引擎根本不读，
+	## 和 `.gd` / `.gdc` 那个坑同类：每一步报成功，画面一点没变（2026-09-10 issue #10）
+	for asset in ["res://assets/art/solidify/tissue_cancer_20_0.png",
+			"res://assets/fonts/fusion_pixel_10px.ttf"]:
+		var art_bad: Array = Packer._reject([[asset,
+			ProjectSettings.globalize_path(asset)]], full)
+		check(art_bad.size() == 1 and String(art_bad[0]).contains("全量发版"),
+			"%s：要过导入的资源拦下来（%s）" % [asset.get_file(),
+				"已拦" if art_bad.size() == 1 else "漏了"])
+
 	## ④ 启动器与基线常量永远拦（它们读在挂载之前）
 	for f in ["res://scripts/boot.gd", "res://scripts/patch_state.gd"]:
 		check(not Packer._reject([[f, ProjectSettings.globalize_path(f)]], full).is_empty(),
@@ -6101,6 +6112,26 @@ func t_ring_and_toxin() -> void:
 		"**脚下那格也被转成健康组织**（1 环含中心格，Kevin 2026-09-08 确认）")
 	check(g.tile(CWData.neighbors(at)[0])["tissue"] == CWData.Tissue.HEALTHY, "邻格照旧转化")
 	check(g.tile(at)["necrosis"] > 0, "脚下那格同样进入「坏死」")
+
+	## ---- 同一格每世界回合只能发动一次（2026-09-10 issue #10 新规则）----
+	## 记在**格子**上而不是细胞上：三次额度想用满就得挪窝，站着不动刷不出来。
+	check(int(g.tile(at)["toxin_round"]) == g.round_no, "发动过的那一格盖上了本回合的章")
+	check(t["toxin_used"] == 1 and t["toxin_used"] < CWData.TOXIN_MAX_PER_ROUND,
+		"细胞自己的三次额度才用掉一次（还有额度，所以下面拦住的只可能是格子那条）")
+	g.tiles[CWData.neighbors(at)[1]]["tissue"] = CWData.Tissue.CANCER   ## 还有的打
+	check(not g.actions._can_toxin(t), "同一格、同一世界回合：第二次不给放")
+	## 换个格子就行 —— 这正是这条规则想逼出来的走位
+	var at2: Vector2i = CWData.neighbors(at)[0]
+	t["pos"] = at2
+	check(g.actions._can_toxin(t), "挪一格就能接着放（额度还在）")
+	## 换个 T 细胞站回原地也一样受限：限的是格子，不是谁
+	var t2 := CWSetup.make_cell(9, 0, CWData.Faction.IMMUNE, at, CWData.ImmuneType.T_CELL, -1, 200)
+	g.cells.append(t2)
+	check(not g.actions._can_toxin(t2),
+		"换一只没用过额度的 T 细胞站到那一格，照样不给放（限的是格子）")
+	## 到下一个世界回合解封
+	g.round_no += 1
+	check(g.actions._can_toxin(t2), "下一个世界回合，那一格解封")
 	g.dispose()
 
 
@@ -6244,6 +6275,43 @@ func t_solid_tissue_art() -> void:
 	## **任何非零进度都要换图**：刚攒上 0.5 的格子和干净格子长得一样的话，这套贴图就白做了
 	bd.set_tissue(c, CWData.Tissue.CANCER, CWData.Special.NONE, true, 0.01)
 	check(spr.texture != clean, "进度只要 > 0 就换图（档位向上取整，不是向下）")
+
+	## ---- 满档：**顶面一点红都不留**（2026-09-10 issue #10）----
+	## 「顶面还有红 = 还在数，顶面全石 = 已固化」是条硬边界：固化是离散状态
+	## （【裂解】和癌方【复活】只对它生效），1.5 和 2.0 必须一眼分得开。
+	## 上一版生成器只把全局排名切在 94%，注释里推断「剩下的 6% 必然落在侧面底部」——
+	## 那个推断是错的（核往中心收，顶面最外那两个尖角比上半截侧面还远），
+	## 于是满档的格子边上留了一圈粉。这条断言不许它再回去。
+	var solid_base: Image = load("res://assets/art/tissue_cancer.png").get_image()
+	var solid_full: Image = load("res://assets/art/solidify/tissue_cancer_20_0.png").get_image()
+	## 顶面色 = 底图里出现最多的不透明色（同生成器 top_color 的判据）
+	var tally := {}
+	for y in solid_base.get_height():
+		for x in solid_base.get_width():
+			var px := solid_base.get_pixel(x, y)
+			if px.a > 0.0:
+				var k := px.to_html(false)
+				tally[k] = int(tally.get(k, 0)) + 1
+	var top_html := ""
+	var best := 0
+	for k: String in tally:
+		if int(tally[k]) > best:
+			best = int(tally[k])
+			top_html = k
+	var left := 0
+	for y in solid_base.get_height():
+		for x in solid_base.get_width():
+			if solid_base.get_pixel(x, y).a > 0.0 and solid_base.get_pixel(x, y).to_html(false) == top_html 					and solid_full.get_pixel(x, y).to_html(false) == top_html:
+				left += 1
+	check(left == 0, "满档那张：顶面一个原色像素都不剩（还剩 %d 个）" % left)
+	## 侧面反过来**必须**留一道红，固化格才仍读得出是癌组织而不是中立石头
+	var side_left := 0
+	for y in solid_base.get_height():
+		for x in solid_base.get_width():
+			var b := solid_base.get_pixel(x, y)
+			if b.a > 0.0 and b.to_html(false) != top_html 					and solid_full.get_pixel(x, y).to_html(false) == b.to_html(false):
+				side_left += 1
+	check(side_left > 0, "侧面仍留着红（%d 个像素）—— 固化的是**癌**组织" % side_left)
 
 	## 四档必须是四张不同的图，否则中间档等于没做
 	var seen := {}
@@ -10869,6 +10937,15 @@ func t_card_choices() -> void:
 	check(b.asked.size() == 1 and b.asked[0]["kind"] == "pick"
 		and b.asked[0]["options"].size() == 2, "第 5 回合也两掷二选一（不再挂第 20 回合）")
 	check(mut["hand"].size() == h0 and mut["energy"] == 30, "挑了「无事发生」→ 什么都没发生")
+	## **二选一那两行字要和真实结算对得上**（2026-09-10 issue #10）：
+	## 第三档原来写死成「能量 -1.0 · 记忆 -3」，而引擎扣的是 0.8 / 2 ——
+	## 玩家照着一个假数字做二选一，选完扣的是另一回事。现在两处都从常量现算。
+	var lbl: String = g.card_fx._mutation_label(3)
+	check(lbl.contains(CWData.fmt(CWData.MUTATE_EXTRA_LOSS))
+		and lbl.contains(str(CWData.MUTATE_MEMORY_CUT)),
+		"二选一第三档写的就是真扣的数（%s）" % lbl)
+	check(not lbl.contains("1.0") and not lbl.contains("-3"),
+		"不再是写死的旧数字 1.0 / 3（实为「%s」）" % lbl)
 	g.dispose()
 
 	## ⑦ 炎症性趋化：每步 0.2、逐步追问、进癌组织触发净化、固化不在候选
@@ -11437,7 +11514,9 @@ func t_card_mods() -> void:
 		"基质阻隔在最后翻倍：EMT 改成 0.2 → 0.4（不是先翻倍再被覆盖成 0.2）")
 	g.dispose()
 
-	## ② 上皮—间质转化（癌方）：向健康组织移动 0.2，前期 2 次（2026-09-10 Kevin：1/2/3 → 2/3/4）
+	## ② 上皮—间质转化（癌方）：向健康组织移动 0.2，**前期 1 次**。
+	## 次数今天来回改过两趟：早上 Kevin 抬到 2/3/4，晚上 issue #10 又要求改回 1/2/3。
+	## 断言跟着 PRD 那份正本走，不在这儿再抄一个数。
 	g = _fx_game(4)
 	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.MELANOMA)
 	can["energy"] = 100
@@ -11448,11 +11527,9 @@ func t_card_mods() -> void:
 	check(g.actions._move_cost_mod(can, Vector2i(1, 0), CWData.CANCER_MOVE_HEALTHY) == CWData.EMT_MOVE_COST,
 		"上皮—间质转化：向健康组织移动费 0.2")
 	await g.actions._do_move(can, Vector2i(1, 0), CWData.EMT_MOVE_COST)
-	check(g.mods_of(can, "上皮—间质转化").size() == 1, "用掉一次还剩一次（前期共 2 次）")
+	check(g.mods_of(can, "上皮—间质转化").is_empty(), "前期一次用完就消耗掉")
 	check(g.actions._move_cost_mod(can, Vector2i(2, 0), CWData.CANCER_MOVE_HEALTHY)
-		== CWData.EMT_MOVE_COST, "第二次仍是 0.2")
-	await g.actions._do_move(can, Vector2i(2, 0), CWData.EMT_MOVE_COST)
-	check(g.mods_of(can, "上皮—间质转化").is_empty(), "两次用完才消耗掉")
+		== CWData.CANCER_MOVE_HEALTHY, "用完之后回到原价，不再是 0.2")
 	g.dispose()
 
 	## ②b 上皮—间质转化 × 黑色素瘤【伪足穿透】：2026-08-31 抬价后**新出现**的组合。

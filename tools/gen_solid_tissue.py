@@ -58,12 +58,20 @@ STONE_HI = (226, 214, 188)    # 结晶核心
 STONE = (194, 172, 140)       # 石身
 STONE_EDGE = (92, 78, 58)     # 轮廓：比石头和红肉都暗，靠明度把形状抠出来
 
-# 计数 -> (顶面覆盖率, 侧面覆盖率)
-# 计数 -> 覆盖率。**三个面一起算**（2026-09-09 改成三维连续之后），
-# 所以只用得上第一个数；第二个留着是历史（此前顶面/侧面分开排名）。
-# 满档 0.94 而不是 1.0：留一点红。全局排名下**最后石化的必然是侧面底部**
-# （核放在顶面那一层，侧面像素在三维里离得最远），所以红缝正好落在老设计想要的位置。
-COVER = {5: (0.16, 0.16), 10: (0.38, 0.38), 15: (0.66, 0.66), 20: (0.94, 0.94)}
+# 计数 -> 覆盖率。前三档**三个面一起排名、一刀切** ——
+# 那是「石化锋面卷过棱边」的来源（2026-09-09 改成三维连续之后）。
+#
+# 满档（20）**不走那一刀**：顶面直接铺满，侧面按侧面内部的名次留一道红。
+#
+# ⚠ 上一版满档只是把全局排名切在 0.94，注释写着「最后石化的必然是侧面底部
+# （核放在顶面那一层，侧面像素在三维里离得最远），所以红缝正好落在老设计想要的位置」——
+# **那个推断是错的**。核往中心收（BIAS=0.55），顶面最外那两个尖角（|wx|≈16）
+# 在三维里比上半截侧面还远，于是那 6% 的红有一部分留在了**顶面**上：
+# 满档的格子边上一圈粉，看着还在数（HXR-I 2026-09-10 报，issue #10）。
+# 「顶面还有红 = 还在数，顶面全石 = 已固化」是条硬边界，不能靠推断，得直接铺满。
+COVER = {5: 0.16, 10: 0.38, 15: 0.66, 20: 0.94}
+TOP_FULL_AT = 20        # 到这一档顶面一点红都不留
+SIDE_KEEP = 0.86        # 同一档侧面留下的石化比例：剩下的红让固化格仍读得出是**癌**组织
 HI_SHARE = 0.30
 
 SEEDS, WARP, FREQ, BIAS = 2, 0.14, 9.0, 0.55
@@ -205,10 +213,17 @@ def bake(base_img, order, count):
     ys = np.concatenate(all_y); xs = np.concatenate(all_x)
     vals = np.concatenate(all_v); face_of = np.concatenate(all_face)
     rank = np.argsort(np.argsort(vals))
-    cover = COVER[count][0]
-    take = int(round(len(vals) * cover))
+    take = int(round(len(vals) * COVER[count]))
     sel = rank < take
     hi = rank < int(round(take * HI_SHARE))
+    if count == TOP_FULL_AT:
+        # 顶面铺满、侧面按**侧面内部**的名次切（全局那一刀会把红留错地方，见 COVER 上面）。
+        # 顺序仍是同一份三维排名，所以这一档依旧是上一档的超集：计数只会长，不会重新洗牌。
+        is_top = np.isin(face_of, [i for i, (_s, _k, kind) in enumerate(faces)
+                                   if kind == "top"])
+        side_rank = np.argsort(np.argsort(np.where(is_top, np.inf, vals)))
+        keep = int(round((~is_top).sum() * SIDE_KEEP))
+        sel = np.where(is_top, True, side_rank < keep)
     for i, (_src, k, _kind) in enumerate(faces):
         f = face_of == i
         s_i, h_i = sel & f, hi & f

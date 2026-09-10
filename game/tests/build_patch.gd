@@ -120,6 +120,14 @@ static func _reject(pairs: Array, base: Dictionary) -> Array:
 		if res.ends_with("project.godot") or res.ends_with(".import"):
 			bad.append("%s：项目设置 / 导入配置在引擎启动时就读完了，补丁盖不住" % res)
 			continue
+		## **要经过导入的资源换不动**（2026-09-10 issue #10 那批美术上撞到的）：
+		## 导出包里存的是 `.godot/imported/xxx.png-<md5>.ctex`，`res://…png` 靠 `.import`
+		## 重定向过去 —— 补丁塞一张 `.png` 进去，引擎照样走重定向读老的 `.ctex`，
+		## 和 `.gd` / `.gdc` 那个坑是同一类：**每一步都报成功，而画面一点没变**。
+		if _needs_import(res):
+			bad.append("%s：贴图/音频这类要过导入的资源，包里存的是导入产物（.ctex 等），"
+				% res + "补丁里的原始文件不会被读到 —— 换美术只能全量发版")
+			continue
 		## 启动器自身**读在挂载之前**，所以补丁里的新版永远不会生效 ——
 		## 打进去只会造成「更新了」的假象。这两个文件只能全量发版。
 		## （这也正是安全模型成立的原因：补丁改不动验签公钥和基线号。）
@@ -139,6 +147,16 @@ static func _reject(pairs: Array, base: Dictionary) -> Array:
 		for miss: String in _missing_refs(src, base):
 			bad.append("%s：引用了 %s，而目标基线的类表里没有它" % [res, miss])
 	return bad
+
+
+## 这个路径是不是「要过导入」的资源。**宁可多列几种也别漏** ——
+## 漏掉的后果是发出去一个换不动东西的哑弹补丁，而且全程报成功。
+static func _needs_import(res: String) -> bool:
+	for ext in [".png", ".jpg", ".jpeg", ".webp", ".svg", ".ttf", ".otf",
+			".ogg", ".wav", ".mp3", ".glb", ".gltf", ".obj"]:
+		if res.ends_with(ext):
+			return true
+	return false
 
 
 ## 源码里出现、但目标基线不认识的全局类名。
