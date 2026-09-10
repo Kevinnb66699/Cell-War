@@ -5332,6 +5332,11 @@ func t_tissue_transitions() -> void:
 
 
 # ---- 设置：两项偏好即改即存，读回一致；收尾必须还原默认（掷骰演出测试在后面）----
+## boot.gd 刻意没有 class_name（它要在挂载补丁之前跑），所以按路径取它的静态判据
+func Boot_pinned(url: String) -> bool:
+	return bool(load("res://scripts/boot.gd").pinned(url))
+
+
 func t_settings() -> void:
 	print("[设置]")
 	check(CWSettings.ai_delay_ms == 220 and CWSettings.dice_anim, "默认：标准节奏 + 演出")
@@ -5372,8 +5377,59 @@ func t_settings() -> void:
 	CWSettings.load_prefs()
 	check(CWSettings.ai_delay_ms == CWSettings.AI_DELAYS[2] and not CWSettings.dice_anim,
 		"重新载入读回盘上的偏好")
+	## ---- 「检查更新」那一行（Kevin 2026-09-10：「不用退出游戏也能更新」）----
+	## **只给主菜单那份**：暂停菜单里那份也是同一个类，但装完要重启才生效
+	## （挂载必须早于游戏代码首次 load，boot.gd 硬约束 ①），重启会把正在打的这局丢掉。
+	check(not page.allow_update and page.focus_count() == page._rows().size()
+		and not page.on_update_row(),
+		"默认（暂停菜单那份）没有更新行，键盘也停不上去")
+	check(page._upd_link == null, "没开就不建那一块（不是建了再藏）")
 	root.remove_child(page)
 	page.free()
+
+	var up := CWSettingsPage.new()
+	up.allow_update = true          ## 必须在进树之前置：_ready 按它决定建不建
+	root.add_child(up)
+	await process_frame
+	up.open()
+	check(up.focus_count() == up._rows().size() + 1, "开了之后多一行可停")
+	check(up._upd_link != null and up._upd_link.text == "检查更新", "那行字建出来了")
+	## 一路往下走到最后一行 —— 中间几行是拨值行，不许被这一下改掉值
+	var before := CWSettings.ai_delay_ms
+	for _i in up._rows().size():
+		up.handle_input(down)
+	check(up.on_update_row(), "上下键能停到更新行（第 %d 行）" % up._sel)
+	check((up._glow.get_child(0) as Label).text == "检查更新",
+		"辉光跟到更新行上，不落回上一行")
+	## **停在更新行上时左右键不许拨值** —— 它没有值，拨了就是改到别行去了
+	up.handle_input(right)
+	up.handle_input(right)
+	check(CWSettings.ai_delay_ms == before, "停在更新行上按左右，别的行的值一个没动")
+	## 装好之后那行字换成「立即重启」（真的重启不在无头里试）
+	up._upd_ready = true
+	up._repaint()
+	check(up._upd_link.text == "立即重启", "下载完成后同一行变成「立即重启」")
+	## **每一句状态都要挤得进那一行** —— 超了会被省略号从尾巴吃起，
+	## 而尾巴恰恰是「该怎么办」那半句（第一版就是这么被吃成「…请去 GitHub …」的）
+	var note_w: float = CWSettingsPage.W - CWSettingsPage.PAD * 2 - 16
+	var over: Array = []
+	for key: String in CWSettingsPage.UPD_NOTES:
+		var text: String = String(CWSettingsPage.UPD_NOTES[key])
+		if text.contains("%d"):
+			text = text % 202609102359          ## 最长的一个补丁号
+		var wide: float = CWStyle.FONT.get_string_size(text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+		if wide > note_w:
+			over.append("%s(%d)" % [key, int(wide)])
+	check(over.is_empty(), "%d 句状态都装得进 %d px 那一行%s"
+		% [CWSettingsPage.UPD_NOTES.size(), int(note_w),
+			"" if over.is_empty() else "（超了：%s）" % ", ".join(over)])
+	## 地址白名单只有一处实现 —— 这儿只核对它确实拦得住
+	check(not Boot_pinned("http://example.com/evil.pck"), "更新只走写死的前缀，别处的地址一律不取")
+	check(Boot_pinned(load("res://scripts/boot.gd").MANIFEST), "manifest 自己在白名单里")
+	root.remove_child(up)
+	up.free()
+
 	## 还原默认并清盘：dice_anim=false 会让后面的掷骰演出测试整段空转
 	CWSettings.ai_delay_ms = 220
 	CWSettings.dice_anim = true

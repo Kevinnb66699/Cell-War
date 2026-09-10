@@ -14,6 +14,27 @@ const TITLE_H := 42
 const ROW_H := 36
 const ARROW_L_X := 148   ## 拨值箭头的固定横坐标（不随值字宽跑，同配置面板）
 const ARROW_R_X := 236
+## 「检查更新」那一块：一行可点的字 + 一行状态小字
+const UPDATE_H := 44
+
+## 启动器与热更状态。**按路径 preload，不靠 class_name** —— 那两个文件刻意没有
+## class_name（它们要在挂载补丁之前跑，不能进全局类表），见 boot.gd 文件头。
+## 这里只用它们的**静态判据**（decide / pinned / verify_manifest / record），
+## 白名单、验签、SHA 这几关只能有一处实现，不在这儿重抄一份。
+const Boot := preload("res://scripts/boot.gd")
+const PatchState := preload("res://scripts/patch_state.gd")
+
+## 「检查更新」这一行只给**主菜单**那份设置页（由 CWMainMenu 置 true）。
+## 对局中的暂停菜单里也有一份 —— 那儿不能给：补丁要重启才生效
+## （挂载必须早于游戏代码的首次 load，见 boot.gd 硬约束 ①），
+## 而重启会把正在打的这一局丢掉。
+var allow_update := false
+
+var _upd_link: Label       ## 「检查更新」/「立即重启」那行字
+var _upd_note: Label       ## 底下那行状态小字
+var _upd_busy := false     ## 正在查 / 正在下：连点不发第二次
+var _upd_ready := false    ## 已经装好，就差重启
+var _http: HTTPRequest
 
 var _sel := 0
 var _panel: Control
@@ -72,19 +93,33 @@ func handle_input(event: InputEvent) -> void:
 		visible = false
 	elif event.is_action_pressed("ui_down") or event.is_action_pressed("ui_up"):
 		_sel = posmod(_sel + (1 if event.is_action_pressed("ui_down") else -1),
-			_rows().size())
+			focus_count())
 		_repaint()
+	elif on_update_row():
+		## 更新那行没有值可拨，只认「按下去」这一下
+		if event.is_action_pressed("ui_accept") or event.is_action_pressed("ui_right"):
+			_tap_update()
 	elif event.is_action_pressed("ui_left"):
 		_cycle(_sel, -1)
 	elif event.is_action_pressed("ui_right") or event.is_action_pressed("ui_accept"):
 		_cycle(_sel, 1)
 
 
+## 键盘能停几行：拨值行 +（只有主菜单那份才有的）「检查更新」一行
+func focus_count() -> int:
+	return _rows().size() + (1 if allow_update else 0)
+
+
+## 焦点是不是停在「检查更新」上 —— 它排在所有拨值行后面
+func on_update_row() -> bool:
+	return allow_update and _sel == _rows().size()
+
+
 ## 拨一格：立即写 CWSettings 并落盘（设置没有「取消」，改了就是改了）
 func _cycle(row: int, dir: int) -> void:
 	var rows := _rows()
 	if row < 0 or row >= rows.size():
-		return
+		return   ## 更新行也走这条（它的下标就在 rows 之外）
 	var n: int = rows[row]["texts"].size()
 	var cur: int = maxi(rows[row]["get"].call(), 0)
 	rows[row]["set"].call((cur + dir + n) % n)
@@ -100,7 +135,7 @@ func _build() -> void:
 	add_child(scrim)
 
 	var rows := _rows()
-	var h: float = PAD + TITLE_H + rows.size() * ROW_H + PAD
+	var h: float = PAD + TITLE_H + rows.size() * ROW_H 		+ (UPDATE_H if allow_update else 0.0) + PAD
 	var screen := CWView.screen_size()
 	_panel = Control.new()
 	_panel.position = Vector2((screen.x - W) / 2.0, (screen.y - h) / 2.0)
@@ -173,6 +208,9 @@ func _build() -> void:
 		_value_labels.append(value)
 		_arrows.append([left, right])
 
+	if allow_update:
+		_build_update(PAD + TITLE_H + rows.size() * ROW_H)
+
 	var hint := CWStyle.label("←→ 拨值 · 改动立即生效 · ESC 返回",
 		CWStyle.SIZE_LABEL, CWStyle.TEXT_OFF)
 	hint.size = Vector2(W, 14)
@@ -205,7 +243,179 @@ func _repaint() -> void:
 				Color.WHITE if hovering else CWStyle.IMMUNE)
 			arrow.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
 			arrow.add_theme_constant_override("outline_size", 8 if hovering else 0)
-	## 选中行标题的辉光跟焦点走（设置页总有一行被选中，不用收起）
+	## 「检查更新」那一行（只有主菜单那份有）：没有值可拨，只有一行字 + 一行状态
+	if allow_update and _upd_link != null:
+		var on_upd := on_update_row()
+		_bars[rows.size()].color = Color(CWStyle.IMMUNE, 1.0 if on_upd else 0.0)
+		_upd_link.text = "立即重启" if _upd_ready else "检查更新"
+		_upd_link.add_theme_color_override("font_color",
+			Color.WHITE if on_upd else CWStyle.TEXT_DIM)
+	## 选中行标题的辉光跟焦点走（设置页总有一行被选中，不用收起）。
+	## 停在更新行上时它照的是那行字 —— 焦点在哪儿光就在哪儿，别让它落回上一行
+	var glow_name: String = _upd_link.text if on_update_row() and _upd_link != null 		else String(rows[mini(_sel, rows.size() - 1)]["name"])
 	_glow.position = Vector2(PAD + 16, PAD + TITLE_H + _sel * ROW_H + 5)
 	for layer in _glow.get_children():
-		(layer as Label).text = rows[_sel]["name"]
+		(layer as Label).text = glow_name
+
+
+# ============ 检查更新（Kevin 2026-09-10：「不用退出游戏也能更新」）============
+#
+# ## 为什么按下去之后还要重启
+#
+# 补丁是 `load_resource_pack()` 挂上去的，而**挂载必须早于游戏代码的首次 load**
+# （GDScript 一旦 load 过就进缓存，之后再挂也换不掉 —— boot.gd 硬约束 ①）。
+# 进到主菜单时半个游戏都已经 load 完了，所以这儿**只负责把包下到盘上并记账**，
+# 真正生效仍归下一次启动的 boot.gd。
+#
+# 于是这一行有两副面孔：查完之前是「检查更新」，装好之后变成「立即重启」。
+# `OS.set_restart_on_exit(true)` + `quit()` —— 退出后引擎自己把自己拉起来，
+# 玩家不必去桌面找图标。
+#
+# ## 为什么不去调 boot.gd 的下载函数
+#
+# 那几个是实例方法，绑着启动那一屏的 `_note` / `_skip` / `_t0`，搬不过来。
+# 但**判断**一个都没重写：白名单 `Boot.pinned`、装不装 `Boot.decide`、
+# 验签 `PatchState.verify_manifest`、指纹 `PatchState.sha256_of` 全是那边的静态函数。
+# 这里重写的只有「发一个 HTTP 请求并等它回来」这段管道。
+
+const UPD_TIMEOUT := 12.0        ## 每口请求等多久；比启动那屏宽松，这儿玩家是主动点的
+
+## 状态行那几句话。**集中写在一处**，因为它们都要挤进一行 216px
+## （面板 264 − 左右内边距 − 那 16 的缩进），超了就被省略号从**尾巴**吃起 ——
+## 而尾巴恰恰是「该怎么办」那半句（第一版的「…请去 GitHub Releases 下新客户端」
+## 就是这么被吃成「…请去 GitHub …」的）。护栏 `t_settings` 逐条量宽度。
+const UPD_NOTES := {
+	"checking": "正在检查更新…",
+	"offline": "连不上更新服务器，稍后再试",
+	"bad_sig": "更新信息验不过，已忽略",
+	"latest": "已经是最新版本",
+	"too_old": "基线太老，去 Releases 下新客户端",
+	"downloading": "正在下载更新…",
+	"incomplete": "更新没下完，稍后再试",
+	"bad_sha": "更新文件校验失败，本次跳过",
+	"done": "已下载 %d —— 重启后生效",
+}
+
+
+func _build_update(y: float) -> void:
+	var hit := Control.new()
+	hit.position = Vector2(0, y)
+	hit.size = Vector2(W, UPDATE_H)
+	hit.mouse_filter = Control.MOUSE_FILTER_PASS
+	hit.mouse_entered.connect(func() -> void:
+		_sel = _rows().size()
+		_repaint())
+	_panel.add_child(hit)
+
+	var bar := ColorRect.new()
+	bar.position = Vector2(PAD, y + 7)
+	bar.size = Vector2(4, 22)
+	bar.color = Color(CWStyle.IMMUNE, 0.0)
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_panel.add_child(bar)
+	_bars.append(bar)          ## 跟着拨值行一起进 _bars，_repaint 那边就不必分两种
+
+	_upd_link = CWStyle.clickable_label(_panel, "", Vector2(PAD + 16, y + 5),
+		func() -> void: _tap_update())
+	## 状态小字压在下面一行：网络那几种结果都得说清楚，光靠标题一行摆不下
+	_upd_note = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_OFF)
+	_upd_note.position = Vector2(PAD + 16, y + 28)
+	_upd_note.size = Vector2(W - PAD * 2 - 16, 14)
+	_upd_note.clip_text = true
+	_upd_note.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_upd_note.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_panel.add_child(_upd_note)
+
+
+func _tap_update() -> void:
+	_sel = _rows().size()
+	if _upd_busy:
+		return
+	if _upd_ready:
+		## 装好了：重启让 boot.gd 接手挂载。设置页是主菜单开的，没有对局会被丢掉。
+		OS.set_restart_on_exit(true)
+		get_tree().quit()
+		return
+	_check_update()
+
+
+## 查一遍更新。返回给玩家看的那句话（也写进 `_upd_note`），**测试直接核对它**。
+func _check_update() -> void:
+	_upd_busy = true
+	_say(UPD_NOTES["checking"])
+	var body := await _fetch(Boot.MANIFEST + "?t=%d" % Time.get_unix_time_from_system(), "")
+	var sig := await _fetch(Boot.MANIFEST_SIG + "?t=%d" % Time.get_unix_time_from_system(), "")
+	if body.is_empty() or sig.is_empty():
+		_done(UPD_NOTES["offline"])
+		return
+	if not PatchState.verify_manifest(body, sig.get_string_from_utf8()):
+		_done(UPD_NOTES["bad_sig"])      ## 见 boot.gd 纪律 ②：验不过就当没看见
+		return
+	var parsed: Variant = JSON.parse_string(body.get_string_from_utf8())
+	var plan: Dictionary = Boot.decide(parsed if parsed is Dictionary else {},
+		PatchState.installed_build(), PatchState.blocked_build(), PatchState.base_build())
+	match String(plan["act"]):
+		"too_old":
+			_done(UPD_NOTES["too_old"])
+		"install":
+			await _download(plan)
+		_:
+			_done(UPD_NOTES["latest"])
+
+
+func _download(plan: Dictionary) -> void:
+	_say(UPD_NOTES["downloading"])
+	if (await _fetch(String(plan["url"]), PatchState.INCOMING)).is_empty():
+		_done(UPD_NOTES["incomplete"])
+		return
+	## **校验在改名之前**：没过就不该有机会变成 current.pck（同 boot.gd）
+	if PatchState.sha256_of(PatchState.INCOMING) != String(plan["sha"]):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(PatchState.INCOMING))
+		_done(UPD_NOTES["bad_sha"])
+		return
+	if FileAccess.file_exists(PatchState.PCK):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(PatchState.PCK))
+	DirAccess.rename_absolute(ProjectSettings.globalize_path(PatchState.INCOMING),
+		ProjectSettings.globalize_path(PatchState.PCK))
+	PatchState.record(int(plan["build"]), String(plan["sha"]))
+	_upd_ready = true
+	_done(UPD_NOTES["done"] % int(plan["build"]))
+
+
+## 发一口请求并等回来。`to` 非空 = 下到那个文件（此时返回值只是个成功标记）。
+## 地址一律先过 `Boot.pinned`：白名单只有一处实现，这里只是再走一遍它。
+func _fetch(url: String, to: String) -> PackedByteArray:
+	if not Boot.pinned(url):
+		return PackedByteArray()
+	if _http == null:
+		_http = HTTPRequest.new()
+		add_child(_http)
+	_http.download_file = to
+	if _http.request(url) != OK:
+		return PackedByteArray()
+	var got: Array = []
+	_http.request_completed.connect(
+		func(result: int, code: int, _h: PackedStringArray, b: PackedByteArray) -> void:
+			got.append([result, code, b]),
+		CONNECT_ONE_SHOT)
+	var deadline := Time.get_ticks_msec() + int(UPD_TIMEOUT * 1000.0)
+	while got.is_empty() and Time.get_ticks_msec() < deadline:
+		await get_tree().process_frame
+	if got.is_empty():
+		_http.cancel_request()
+		return PackedByteArray()
+	var res: Array = got[0]
+	if int(res[0]) != HTTPRequest.RESULT_SUCCESS or int(res[1]) != 200:
+		return PackedByteArray()
+	return res[2] if to == "" else PackedByteArray([1])
+
+
+func _say(note: String) -> void:
+	if _upd_note != null:
+		_upd_note.text = note
+	_repaint()
+
+
+func _done(note: String) -> void:
+	_upd_busy = false
+	_say(note)

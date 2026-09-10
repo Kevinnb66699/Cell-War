@@ -621,6 +621,10 @@ func _activate(i: int) -> void:
 		"Settings":
 			if _settings == null:
 				_settings = CWSettingsPage.new()
+				## 「检查更新」只给主菜单这一份（Kevin 2026-09-10）——
+				## 暂停菜单里那份不给：装完要重启才生效，重启会把正在打的这局丢掉。
+				## **必须在 add_child 之前置** —— `_ready()` 就按它决定建不建那一块
+				_settings.allow_update = true
 				_ui.add_child(_settings)
 			_settings.open()
 		"Quit":
