@@ -61,6 +61,44 @@ static func clickable_label(parent: Control, text: String, at: Vector2,
 	return clickable
 
 
+## 焦点菱形：一颗免疫青的方块转 45 度 + 一圈径向光晕，摆在焦点行左边。
+## 主菜单（MainMenu.tscn 里那颗）、配置面板、联机建房页、回放列表用的是同一颗。
+##
+## 参数照抄 MainMenu.tscn 的 Marker（同一颗才像一家人）。
+## 光晕用 GradientTexture2D 而不是画描边：菱形只有 14px，描边会糊成一团小方块，
+## 而三档渐变（0.44 → 0.2 → 0）在深底上读起来才像「亮起来了」。
+## 而且必须挂 **Sprite2D**（centered 默认开，天生以节点原点为中心画，
+## 菱形与光晕的圆心必然重合）—— 第一版用 TextureRect 摆负偏移，圆心跑到了右下角。
+##
+## 放这儿的理由同 clickable_label / link_hot：2026-09-10 之前配置面板与联机面板
+## 各存了一份**逐字节相同**的拷贝，回放面板要用时差点又添第三份。
+static func focus_marker() -> Node2D:
+	var marker := Node2D.new()
+	var halo_grad := Gradient.new()
+	halo_grad.offsets = PackedFloat32Array([0.0, 0.34, 1.0])
+	halo_grad.colors = PackedColorArray([Color(IMMUNE, 0.44),
+		Color(IMMUNE, 0.2), Color(IMMUNE, 0.0)])
+	var halo_tex := GradientTexture2D.new()
+	halo_tex.gradient = halo_grad
+	halo_tex.fill = GradientTexture2D.FILL_RADIAL
+	halo_tex.fill_from = Vector2(0.5, 0.5)
+	halo_tex.fill_to = Vector2(1, 0.5)
+	halo_tex.width = 48
+	halo_tex.height = 48
+	var halo := Sprite2D.new()
+	halo.texture = halo_tex
+	marker.add_child(halo)
+	var core := ColorRect.new()
+	core.position = Vector2(-7, -7)
+	core.size = Vector2(14, 14)
+	core.rotation = PI / 4
+	core.pivot_offset = Vector2(7, 7)
+	core.color = IMMUNE
+	core.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	marker.add_child(core)
+	return marker
+
+
 ## 文字链接的悬停态：**转白 + 白光描边**（正文 8 / 小字 6），移开还原。
 ## 2026-09-03 Kevin 定的：联机各页也要有和主菜单一样的辉光。
 ##

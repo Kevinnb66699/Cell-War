@@ -496,7 +496,7 @@ func _build_lobby(root: Control) -> void:
 
 
 func _build_create(root: Control) -> void:
-	_create_marker = _marker()
+	_create_marker = CWStyle.focus_marker()
 	root.add_child(_create_marker)
 	## 焦点行标题的辉光（先建，压在文字底下；层数与 alpha 即 CWPauseMenu.GLOW，和主菜单 / 配置面板同一套光）
 	_create_glow = Control.new()
@@ -991,34 +991,6 @@ func _btn_box(bg: Color, glow: float) -> StyleBoxFlat:
 		b.shadow_color = Color(1, 1, 1, glow)
 		b.shadow_size = 10
 	return b
-
-
-## 菱形焦点标（参数同 CWConfigPanel._build_marker）
-func _marker() -> Node2D:
-	var marker := Node2D.new()
-	var halo_grad := Gradient.new()
-	halo_grad.offsets = PackedFloat32Array([0.0, 0.34, 1.0])
-	halo_grad.colors = PackedColorArray([Color(CWStyle.IMMUNE, 0.44),
-		Color(CWStyle.IMMUNE, 0.2), Color(CWStyle.IMMUNE, 0.0)])
-	var halo_tex := GradientTexture2D.new()
-	halo_tex.gradient = halo_grad
-	halo_tex.fill = GradientTexture2D.FILL_RADIAL
-	halo_tex.fill_from = Vector2(0.5, 0.5)
-	halo_tex.fill_to = Vector2(1, 0.5)
-	halo_tex.width = 48
-	halo_tex.height = 48
-	var halo := Sprite2D.new()
-	halo.texture = halo_tex
-	marker.add_child(halo)
-	var core := ColorRect.new()
-	core.position = Vector2(-7, -7)
-	core.size = Vector2(14, 14)
-	core.rotation = PI / 4
-	core.pivot_offset = Vector2(7, 7)
-	core.color = CWStyle.IMMUNE
-	core.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	marker.add_child(core)
-	return marker
 
 
 func _px20() -> FontVariation:

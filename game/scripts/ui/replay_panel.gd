@@ -56,6 +56,7 @@ var _sub: Label
 var _note: Label
 var _head: Label
 var _tabs: Array[Label] = []
+var _marker: Node2D                    ## 选中行左边那颗菱形（同配置面板 / 建房页）
 
 
 func _ready() -> void:
@@ -313,6 +314,10 @@ func _build() -> void:
 	_tabs.append(_clicky("服务器", Vector2(SLOT_X + 70, SRC_Y),
 		func() -> void: _use(Src.SERVER)))
 
+	## 选中行的菱形焦点标。先建（压在行文字底下），位置由 _repaint 跟着选中行走
+	_marker = CWStyle.focus_marker()
+	add_child(_marker)
+
 	_head = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	_head.position = Vector2(SLOT_X, LIST_Y0 - 16)
 	add_child(_head)
@@ -357,6 +362,12 @@ func _repaint() -> void:
 	for i in _tabs.size():
 		CWStyle.paint_link(_tabs[i], Color.WHITE if i == _src else CWStyle.TEXT_OFF)
 	_head.text = "这台机器上的回放" if _src == Src.LOCAL else "服务器上最近的对局"
+	## 菱形跟着选中行。**选中行不在这一页就藏起来** —— 翻到别页还亮着一颗，
+	## 指的就是一行不存在的东西。x 与 y 的偏移同配置面板（-18 / +13）
+	var row_i := _sel - _page * LIST_N
+	_marker.visible = _sel >= 0 and row_i >= 0 and row_i < LIST_N and _sel < _count()
+	if _marker.visible:
+		_marker.position = Vector2(SLOT_X - 18, LIST_Y0 + row_i * LIST_H + 13)
 	_repaint_sub()
 	for i in LIST_N:
 		var idx: int = _page * LIST_N + i

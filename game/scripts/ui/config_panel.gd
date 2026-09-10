@@ -407,7 +407,7 @@ func _build() -> void:
 	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(rule)
 
-	_marker = _build_marker()
+	_marker = CWStyle.focus_marker()
 	add_child(_marker)
 
 	## 选中行标题的辉光：全面板只备一份、跟着焦点行走（先建，压在文字底下——
@@ -486,36 +486,6 @@ func _sync_sheet(instant: bool) -> void:
 		_repaint(), _seat_alpha, 1.0 if want else 0.0, SHEET_FADE)
 	if not want:
 		_sheet_tween.tween_callback(func() -> void: _sheet.visible = false)
-
-
-## 菱形焦点标 + 径向光晕：参数照抄 MainMenu.tscn 的 Marker（同一颗才像一家人）。
-## 光晕用 Sprite2D（centered 默认开）——它天生以节点原点为中心画，
-## 菱形和光晕的圆心必然重合；第一版用 TextureRect 摆负偏移，圆心跑到了右下角。
-func _build_marker() -> Node2D:
-	var marker := Node2D.new()
-	var halo_grad := Gradient.new()
-	halo_grad.offsets = PackedFloat32Array([0.0, 0.34, 1.0])
-	halo_grad.colors = PackedColorArray([Color(CWStyle.IMMUNE, 0.44),
-		Color(CWStyle.IMMUNE, 0.2), Color(CWStyle.IMMUNE, 0.0)])
-	var halo_tex := GradientTexture2D.new()
-	halo_tex.gradient = halo_grad
-	halo_tex.fill = GradientTexture2D.FILL_RADIAL
-	halo_tex.fill_from = Vector2(0.5, 0.5)
-	halo_tex.fill_to = Vector2(1, 0.5)
-	halo_tex.width = 48
-	halo_tex.height = 48
-	var halo := Sprite2D.new()
-	halo.texture = halo_tex
-	marker.add_child(halo)
-	var core := ColorRect.new()
-	core.position = Vector2(-7, -7)
-	core.size = Vector2(14, 14)
-	core.rotation = PI / 4
-	core.pivot_offset = Vector2(7, 7)
-	core.color = CWStyle.IMMUNE
-	core.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	marker.add_child(core)
-	return marker
 
 
 func _build_row(i: int) -> void:

@@ -9234,6 +9234,19 @@ func t_replay_panel() -> void:
 	check(p._page == 2, "已经在最后一页，再点不动")
 	p._flip(-99)
 	check(p._page == 0 and p._sel == 0, "一路翻回第一页")
+	## 菱形焦点标（Kevin 2026-09-10：「左侧的蓝色菱形也加上去吧」）跟着选中行走
+	p._sel = 3
+	p._page = 0
+	p._repaint()
+	check(p._marker.visible and is_equal_approx(p._marker.position.y,
+		CWReplayPanel.LIST_Y0 + 3 * CWReplayPanel.LIST_H + 13), "菱形停在选中的那一行")
+	## 选中行翻到别页就藏起来 —— 还亮着的话它指的是一行**不存在**的东西
+	p._page = 1
+	p._repaint()
+	check(not p._marker.visible, "选中行不在这一页：菱形收起来")
+	p._page = 0
+	p._sel = 0
+	p._repaint()
 	p._server = p._server.slice(0, 3)
 	p._repaint()
 	check(not p._sub.text.contains("页"), "只剩 3 条 = 一页：页码不再出现（%s）" % p._sub.text)
@@ -9257,6 +9270,7 @@ func t_replay_panel() -> void:
 	p._files = PackedStringArray()
 	p._repaint()
 	check(p._rows[0].text.contains("服务器"), "本机空列表指路到另一栏：%s" % p._rows[0].text)
+	check(not p._marker.visible, "空列表：没有选中行，菱形也不出现")
 	## **悬停辉光**（Kevin 2026-09-10 问「字体的辉光效果加上了吗」——当时没加）：
 	## 大厅那两栏、配置页、主菜单都是这套光，这块面板漏了就一眼不是一家人
 	p._src = CWReplayPanel.Src.SERVER
