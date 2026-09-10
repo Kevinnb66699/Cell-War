@@ -498,6 +498,11 @@ func _build_buttons(parent: Control, right: float) -> void:
 	## `_rebuild_buttons` 那趟清不到，来回切几次就是好几条叠着
 	if _replay_link != null and is_instance_valid(_replay_link):
 		_replay_link.queue_free()
+		_replay_link = null
+	## 看回放临时下架（`CWMatch.REPLAY_ON`，见 docs/临时下架清单.md）：
+	## 主菜单那个入口灰着，这条链接点了会进一个进不去的地方，所以干脆不建
+	if not CWMatch.REPLAY_ON:
+		return
 	var link := CWStyle.label("看这局回放", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	link.size = link.get_minimum_size()
 	link.position = Vector2(x - LINK_GAP - link.size.x, (BTN_H - link.size.y) / 2.0)

@@ -587,8 +587,37 @@ func _ask_generic(req: Dictionary) -> int:
 			buttons.append({ "title": options[i]["label"], "cost": "" })
 			values.append(i)
 	var hint := "" if tiles.is_empty() else "高亮 %d 格可选" % tiles.size()
+	var mine := self_type_text(game, req)
+	if mine != "":
+		hint = mine if hint == "" else "%s · %s" % [mine, hint]
 	var got: Variant = await _prompt(req["prompt"], hint, buttons, values, tiles)
 	return 0 if got == null else int(got)
+
+
+## 开局落子那一问，提示里加一句「你是什么癌」（Kevin 2026-09-10）。**纯函数**，好直接测。
+##
+## **为什么值得多这一句**：癌种是开局随机发的，而落子点该选哪儿正取决于它 ——
+## 黑色素瘤要贴着边扩、骨肉瘤指望固化、小细胞靠【转移】。右栏确实列着每个人的种类，
+## 但落子那一刻玩家的眼睛在棋盘和这条提示上，而且那时他还不知道哪一行是自己。
+##
+## **只给癌方**：免疫开局一律是【免疫细胞】，分化在后头，报了也是废话。
+## 只在 `setup_place` 这一问出 —— 之后种类已经在棋盘上、在右栏、在详情框里了。
+## ⚠ 读的是 **player 上的 `cancer_type`**，不是细胞上的 `ctype`：
+## 落子这一问跑在细胞**出生之前**（`setup.begin()` 发种类 → 问落点 → `setup.place()` 才造细胞），
+## 那时 `cell_of()` 会当场越界。种类是 `_assign_cancer_types()` 记在玩家身上的。
+static func self_type_text(g: CWGame, req: Dictionary) -> String:
+	if g == null or String(req.get("kind", "")) != "setup_place":
+		return ""
+	var pid := int(req.get("pid", -1))
+	if pid < 0 or pid >= g.players.size():
+		return ""
+	var p := g.player(pid)
+	if int(p.get("faction", -1)) != CWData.Faction.CANCER:
+		return ""
+	var ctype := int(p.get("cancer_type", -1))
+	if not CWData.CANCER_TYPE_NAMES.has(ctype):
+		return ""
+	return "你是【%s】" % CWData.CANCER_TYPE_NAMES[ctype]
 
 
 ## 摆出一栏按钮 + 一组可点的格子，等玩家二选一，返回被选中那项的值。

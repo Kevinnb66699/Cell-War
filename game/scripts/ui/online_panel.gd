@@ -329,7 +329,11 @@ func _on_message(m: Dictionary) -> void:
 			_set_status("维护中：暂不能建新房" if m.get("maintenance", false) else "")
 		"lobby":
 			_lobby_rooms = m.get("rooms", [])
-			_lobby_live = m.get("live", [])
+			## 观战临时下架（`CWMatch.WATCH_ON`，见 docs/临时下架清单.md）：
+			## **收在这一处就够** —— `live` 空了，`_compose_lobby` 连
+			## 「进行中 · 可观战」那条小标题都不会摆，也没有行可选。
+			## 服务器照常在 lobby 报文里带 live，协议一个字没改
+			_lobby_live = m.get("live", []) if CWMatch.WATCH_ON else []
 			_compose_lobby()          ## 先合成，_first_room_row 才有得挑
 			_lobby_sel = _first_room_row()
 			_lobby_note.text = "服务器维护中，暂不能建房" if m.get("maintenance", false) else ""

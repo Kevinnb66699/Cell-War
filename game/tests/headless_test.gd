@@ -6404,6 +6404,32 @@ func t_ui_bridge() -> void:
 	b.dice = stub
 	b.human_pids = [0]
 
+	## ---- 开局落子那一问要报「你是什么癌」（Kevin 2026-09-10）----
+	## 癌种是开局随机发的，而落子点选哪儿正取决于它；右栏虽然列着每个人的种类，
+	## 但落子那一刻玩家还不知道哪一行是自己。**只给癌方、只给这一问**。
+	##
+	## ⚠ 这一问跑在细胞**出生之前**（发种类 → 问落点 → 才造细胞），
+	## 所以判据只能读玩家身上的 `cancer_type`。`begin()` 正是发种类那一步
+	g.setup.begin()
+	var cancer_pid := -1
+	var immune_pid := -1
+	for pid in g.order:
+		if int(g.player(pid)["faction"]) == CWData.Faction.CANCER:
+			cancer_pid = pid
+		else:
+			immune_pid = pid
+	check(g.cells.is_empty(), "落子这一问的时候细胞还没出生（所以不能读 cell_of）")
+	var ctype_name: String = CWData.CANCER_TYPE_NAMES[int(g.player(cancer_pid)["cancer_type"])]
+	check(CWUIBridge.self_type_text(g, { "kind": "setup_place", "pid": cancer_pid })
+		== "你是【%s】" % ctype_name,
+		"癌方落子：提示里报出自己的癌种（%s）" % ctype_name)
+	check(CWUIBridge.self_type_text(g, { "kind": "setup_place", "pid": immune_pid }) == "",
+		"免疫方不报 —— 开局一律是【免疫细胞】，分化在后头，报了也是废话")
+	check(CWUIBridge.self_type_text(g, { "kind": "revive", "pid": cancer_pid }) == "",
+		"只在开局落子那一问出；之后种类已经在棋盘、右栏、详情框里了")
+	check(CWUIBridge.self_type_text(null, { "kind": "setup_place", "pid": cancer_pid }) == "",
+		"没有对局时不炸（纯函数的兜底）")
+
 	var at := Vector2i(2, -3)
 	await b.show_roll("攻击", 5, 6, 1, at)
 	check(stub.played.size() == 1, "show_roll 真的演了一次（不是死代码）")
@@ -7238,12 +7264,17 @@ func t_settle_screen() -> void:
 	## 横幅留出的下内边距（PAD_T）—— 链接整条压在横幅那道底描边上，半截像出了框。
 	## 横向那个 320 也是拍出来的：联机局按钮更宽，两边空隙对不上。
 	## 现在贴最左那颗按钮往左量、和按钮同一条中线。**两种模式各验一遍**。
+	## **看回放临时下架期间这条链接根本不建**（CWMatch.REPLAY_ON）——
+	## 那时该验的是「一条都没有」，几何那几条留给它开回来的那天
 	for mode in [false, true]:
 		s.online = mode
 		s.show_result(g)
 		s.skip()
 		var who: String = "联机" if mode else "本地"
 		var link: Label = s._replay_link
+		if not CWMatch.REPLAY_ON:
+			check(link == null, "%s局：看回放下架期间不建「看这局回放」（点了会进一个进不去的地方）" % who)
+			continue
 		var btn_left: float = s._btns[0].position.x
 		check(link != null and link.position.x + link.size.x
 			<= btn_left - CWSettleScreen.BTN_GAP,
@@ -7266,7 +7297,8 @@ func t_settle_screen() -> void:
 	for c in s._btn_parent.get_children():
 		if c is Label and (c as Label).text == "看这局回放":
 			links += 1
-	check(links == 1, "本地 ↔ 联机来回切之后，链接仍然只有一条（现在 %d 条）" % links)
+	check(links == (1 if CWMatch.REPLAY_ON else 0),
+		"本地 ↔ 联机来回切之后，链接不多不少（%d 条）" % links)
 	s.online = false
 	s.show_result(g)
 	s.skip()
@@ -9520,8 +9552,17 @@ func t_replay_panel() -> void:
 	p._tabs[1].mouse_entered.emit()
 	check(p._tabs[1].get_theme_constant("outline_size") == 8, "两栏标签也有")
 	p._tabs[1].mouse_exited.emit()
-	var menu: Node = load("res://scripts/ui/main_menu.gd").new()
-	check(menu.enabled_mask()[3], "主菜单「对局回放」这一项一直亮着（不再按本机份数灰掉）")
+	## main_menu.gd 没有 class_name（不是全局类），所以只能 load 它的脚本
+	var menu_script: GDScript = load("res://scripts/ui/main_menu.gd")
+	var menu: Node = menu_script.new()
+	## 这一项**不按本机份数灰掉**（服务器那栏有你没打过的局），只跟着临时下架开关走。
+	## 开关开着 = 一直亮；关着 = 灰着**但仍在原位**（八项位置是场景钉死的，抽掉会留洞）
+	check(menu.enabled_mask()[3] == CWMatch.REPLAY_ON,
+		"主菜单「对局回放」跟着 CWMatch.REPLAY_ON 走（现在 %s），不按本机份数灰掉"
+		% ("亮" if CWMatch.REPLAY_ON else "灰"))
+	var menu_items: Array = menu_script.get_script_constant_map()["ITEMS"]
+	check(menu_items[3]["node"] == "Replay" and menu_items.size() == 8,
+		"下架期间那一项仍占着原位（八项一个不少），只是点不动")
 	menu.free()
 	p.queue_free()
 
@@ -15408,6 +15449,23 @@ func t_online_panel() -> void:
 	p._lobby_live = []
 	p._repaint_lobby()
 	check(p._lobby_labels[4].text.begins_with("W00004"), "没有可观战的房时，五行全是可加入的")
+	## ---- 观战临时下架（CWMatch.WATCH_ON，见 docs/临时下架清单.md）----
+	## **收在收报文那一处**：服务器照常在 lobby 里带 live，客户端把它当没有 ——
+	## 于是分隔行不摆、也没有行可选，五行全给可加入的房
+	p._on_message({ "t": "lobby", "rooms": wait5, "live": [
+		{ "code": "LIVE01", "host": "乙", "players": 6, "seated": 6, "humans": 2,
+			"timer": 60, "state": "playing", "watchers": 2, "watch_max": 8 }] })
+	if CWMatch.WATCH_ON:
+		check(p._lobby_live.size() == 1 and p._lobby_labels[3].text == "进行中 · 可观战",
+			"观战开着：lobby 报文里的 live 照常列出来")
+	else:
+		check(p._lobby_live.is_empty(), "观战下架：lobby 报文带来的 live 一律当没有")
+		var heads := 0
+		for l: Label in p._lobby_labels:
+			if l.text == "进行中 · 可观战":
+				heads += 1
+		check(heads == 0 and p._lobby_labels[4].text.begins_with("W00004"),
+			"观战下架：分隔行不摆，五行全给可加入的房")
 	## 等待室渲染：喂一份 room 视图
 	var seats := []
 	for i in 4:
