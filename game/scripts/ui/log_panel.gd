@@ -148,6 +148,11 @@ func _unhandled_input(event: InputEvent) -> void:
 func toggle() -> void:
 	visible = not visible
 	_offset = 0
+	## 展开即置顶（Kevin 2026-09-09）。这块地压着出牌列、也压着**抬起后的手牌**
+	## （手牌顶边 428 < 本面板底边 476），不置顶的话会被它们盖掉半截。
+	## `move_to_front()` 是把自己挪到同层的最后一个 —— 同层里就数它最上面。
+	if visible:
+		move_to_front()
 
 
 func _scroll(delta_lines: int) -> void:

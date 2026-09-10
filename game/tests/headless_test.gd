@@ -14066,6 +14066,29 @@ func t_chat_box() -> void:
 		"迷你条底边 %d 不压棋盘顶行（75）" % int(CWLogHint.SIZE.y + CWLogPanel.RECT.position.y))
 	check(CWLogPanel.RECT.position.x >= CWFeed.RECT.position.x,
 		"这块地与出牌列同一条左缘（左侧那一列对齐）")
+	## **展开即置顶**（Kevin 2026-09-09）。这块地压着出牌列、也压着抬起后的手牌
+	## （手牌顶边 428 < 面板底边 476），不置顶就会被它们盖掉半截。
+	## 而暂停菜单必须**更**顶：它是模态的，聊天开着时按 Esc 弹出菜单，
+	## 菜单不能被压在底下。
+	var layer := Control.new()
+	root.add_child(layer)
+	var pause := CWPauseMenu.new()
+	var lp := CWLogPanel.new()
+	var cb := CWChatBox.new()
+	for n in [pause, lp, cb]:
+		layer.add_child(n)
+	lp.visible = false
+	lp.toggle()
+	check(lp.get_index() == layer.get_child_count() - 1, "日志展开后排在同层最后（= 最上面）")
+	cb.open()
+	check(cb.get_index() == layer.get_child_count() - 1, "聊天展开后同理")
+	pause.open()
+	check(pause.get_index() == layer.get_child_count() - 1,
+		"暂停菜单比它们更顶（模态层不能被压住）")
+	if pause.is_inside_tree():
+		pause.get_tree().paused = false      ## open() 会暂停整棵树，测试里得放回来
+	layer.queue_free()
+
 	## 而左下角**摆不下**：出牌列到 y 348、手牌抬起到 y 428、行动提示条 466..518，
 	## 三样常驻件之间一点缝都没有 —— 这就是聊天从左下改到左上的原因
 	check(CWFeed.RECT.end.y > 300.0 and CWHand.REST_TOP - CWHand.LIFT < 480.0,

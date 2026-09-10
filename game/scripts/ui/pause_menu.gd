@@ -122,6 +122,9 @@ func toggle() -> void:
 
 func open() -> void:
 	visible = true
+	## **必须比日志 / 聊天更顶**：那两个展开时会 move_to_front()，
+	## 而这是模态层 —— 聊天开着时按 Esc 弹出菜单，菜单不能被压在它底下
+	move_to_front()
 	if is_inside_tree():
 		get_tree().paused = true
 	_show_page("")

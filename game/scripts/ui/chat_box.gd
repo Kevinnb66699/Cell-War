@@ -67,6 +67,7 @@ func toggle() -> void:
 func open() -> void:
 	_open = true
 	_unread = 0
+	move_to_front()      ## 展开即置顶，同 CWLogPanel.toggle 的理由
 	_panel.visible = true
 	_input.text = ""
 	_input.grab_focus()
