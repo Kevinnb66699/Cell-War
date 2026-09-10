@@ -133,10 +133,14 @@ func _seek_at(x: float) -> void:
 
 
 func _repaint() -> void:
-	## 暂停键用 ASCII 的 `II`：点阵字库里**没有** `❚` 这个字形，
-	## 直接渲成方块（出图时逮到的；同「拨值箭头用 ASCII < >」那条理由）。
-	## `▶` `◀◀` `▶▶` 字库里有，留着
-	_play.text = "▶" if paused else "II"
+	## 暂停键写两个 `▮`（U+25AE BLACK VERTICAL RECTANGLE）。
+	##
+	## 第一版写 `❚`（U+275A），点阵字库**没有**这个字形，直接渲成方块；
+	## 换 ASCII 的 `II` 又读成两个字母而不是图标。字库其实是有暂停符的 ——
+	## `⏸`（U+23F8）也在，但它的字形只有两根**很细很短**的竖条、还偏上，
+	## 摆在 `◀◀` `▶▶` 那两个实心三角中间明显轻一档（出图比过五个候选）。
+	## `▮` 是实心竖块，和三角同重量，两个并排就是标准暂停图标。
+	_play.text = "▶" if paused else "▮▮"
 	_count.text = "%d / %d" % [at, total]
 	_speed.text = ("%.2f" % speed).rstrip("0").rstrip(".") + "x"
 	var p: float = 0.0 if total <= 0 else clampf(float(at) / float(total), 0.0, 1.0)

@@ -110,7 +110,7 @@ func _run_all() -> void:
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_tutorial_auto_advance, t_stroma_targets, t_batch2_rules,
 		t_immune_level_rules, t_tissue_transitions, t_one_cell_per_tile, t_phase_order,
-		t_event_rounds, t_draw_limit, t_snapshot, t_state_codec, t_replay,
+		t_event_rounds, t_draw_limit, t_snapshot, t_state_codec, t_replay, t_replay_panel,
 		t_rollout_isolation, t_step_atomic, t_full_game_2p, t_full_game_4p,
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
@@ -4997,6 +4997,11 @@ func t_online_doc() -> void:
 		"%d 分钟**没人自动关" % (CWNet.ROOM_IDLE_MS / 60000): "空房自动关",
 		"%d 秒**内没投够" % (CWNet.SURRENDER_VOTE_MS / 1000): "投降票时限",
 		"%s:%d" % [CWNet.DEFAULT_HOST, CWNet.DEFAULT_PORT]: "默认服务器地址",
+		## 聊天与回放（2026-09-09 写进文档的那几档）
+		"最长 **%d 字**" % CWNet.CHAT_MAX: "一条聊天的上限",
+		"最多留 **%d** 份" % CWReplay.KEEP: "本机回放留几份",
+		"最近 **%d** 局" % CWNetServer.REPLAY_KEEP: "服务器回放柜留几局",
+		"一屏 %d 行" % CWReplayPanel.LIST_N: "回放列表一屏几行",
 	}
 	var stale: Array = []
 	for frag: String in want:
@@ -7740,17 +7745,19 @@ func t_main_menu() -> void:
 			has_rules = true
 	check(not has_rules and not items.has_node("Rules"), "主菜单里没有「规则速查」（脚本表与场景都没有）")
 	check(not items.has_node("Custom"), "主菜单场景不再保留独立「自定义对局」节点")
-	## 没存档、也没回放：两项都灰着，键盘要连着跳过它们
-	var no_save := [true, true, false, false, true, true, true, true]
-	check(menu_script.next_enabled(1, 1, no_save) == 4,
-		"无档无回放：从「联机对战」往下**连跳两项**落到知识之书")
-	check(menu_script.next_enabled(4, 1, no_save) == 5, "知识之书再往下是新手引导")
-	check(menu_script.next_enabled(last, -1, no_save) == 6, "键盘从「退出游戏」往上一步到设置")
-	## 有回放没存档：只跳过「继续对局」
-	var only_replay := [true, true, false, true, true, true, true, true]
-	check(menu_script.next_enabled(1, 1, only_replay) == 3,
-		"有回放没存档：从「联机对战」往下落到「对局回放」")
-	check(menu_script.next_enabled(0, -1, no_save) == 0, "到顶了就停在原地，不绕回")
+	## **连着两项**灰掉时键盘要一次跳过去。历史上这是「无档 + 本机无回放」；
+	## 2026-09-09 回放面板加了「服务器」那一栏之后回放那项一直亮（见 _item_enabled），
+	## 这条就留作纯粹的「连跳」用例 —— 跳几项是键盘的事，谁灰是别处的事
+	var two_dim := [true, true, false, false, true, true, true, true]
+	check(menu_script.next_enabled(1, 1, two_dim) == 4,
+		"连着两项灰掉：从「联机对战」往下**连跳两项**落到知识之书")
+	check(menu_script.next_enabled(4, 1, two_dim) == 5, "知识之书再往下是新手引导")
+	check(menu_script.next_enabled(last, -1, two_dim) == 6, "键盘从「退出游戏」往上一步到设置")
+	## 没存档（**现在真实的那个局面**）：只跳过「继续对局」
+	var no_save := [true, true, false, true, true, true, true, true]
+	check(menu_script.next_enabled(1, 1, no_save) == 3,
+		"没存档：从「联机对战」往下落到「对局回放」")
+	check(menu_script.next_enabled(0, -1, two_dim) == 0, "到顶了就停在原地，不绕回")
 	var with_save := [true, true, true, true, true, true, true]
 	check(menu_script.next_enabled(1, 1, with_save) == 2, "有档：从「联机对战」往下落到「继续对局」")
 	## 七项要排得下：最后一项底边不出屏，相邻两项不重叠。
@@ -9102,6 +9109,89 @@ func t_replay() -> void:
 	DirAccess.remove_absolute(path)
 	g.dispose()
 	g2.dispose()
+
+
+## 回放面板：两栏来源（本机 / 服务器）、翻页、摘要行不被省略号吃掉
+func t_replay_panel() -> void:
+	print("[回放面板]")
+	check(CWReplayPanel.last_page(0, 5) == 0 and CWReplayPanel.last_page(5, 5) == 0
+		and CWReplayPanel.last_page(6, 5) == 1 and CWReplayPanel.last_page(50, 5) == 9,
+		"页数：5 份一页、6 份两页、50 份十页")
+	check(CWReplayPanel.last_page(3, 0) == 0, "每页 0 行也不除零")
+	check(CWReplayPanel.short_time("2026-09-09 22:10:33") == "09-09 22:10", "时间去掉年与秒")
+	check(CWReplayPanel.short_time("") == "" and CWReplayPanel.short_time("坏数据") == "坏数据",
+		"认不出的时间原样返回（别把坏数据切成更坏的）")
+	check(CWReplayPanel.summary_line({}) == "（这份读不出来）", "读不出的那一份就地说明")
+	## 一行摘要**必须塞得进 LIST_W**。上一版写了年份和秒，量出来 460 > 400，
+	## 被省略号吃掉的恰好是尾巴上的胜方 —— 那正是最想知道的一段。
+	## 取最长的一档来量：6 人、三位数回合、「未分胜负」比「免疫胜」还宽一个字
+	var worst := { "at": "2026-09-09 22:10:33", "players": 6, "round": 128,
+		"winner": -1, "id": 50, "code": "ROOM01" }
+	var font: Font = CWStyle.FONT
+	var w_local: float = font.get_string_size(CWReplayPanel.summary_line(worst),
+		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_BODY).x
+	var w_srv: float = font.get_string_size(CWReplayPanel.server_line(worst),
+		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_BODY).x
+	check(w_local <= CWReplayPanel.LIST_W and w_srv <= CWReplayPanel.LIST_W,
+		"最长的一行也塞得下（本机 %d / 服务器 %d ≤ %d）"
+		% [int(w_local), int(w_srv), int(CWReplayPanel.LIST_W)])
+
+	var p := CWReplayPanel.new()
+	root.add_child(p)
+	await process_frame
+	## 翻页只看目录，不必连服务器（连上去列出来是 t_net_replay_download 那头的事）
+	p._src = CWReplayPanel.Src.SERVER
+	p._server = []
+	for i in 12:
+		p._server.append({ "id": 12 - i, "code": "R%05d" % i, "players": 4,
+			"round": 9, "winner": CWData.Faction.IMMUNE })
+	p._page = 0
+	p._sel = 0
+	p._repaint()
+	check(p._rows[0].text.begins_with("#12") and p._rows[4].text.begins_with("#8"),
+		"第一页列头 5 条，新的在前（%s … %s）" % [p._rows[0].text, p._rows[4].text])
+	## 没有可见的翻页键：页码与翻法都写在副标题上（摆在标题与列表之间那一行
+	## 会正好压在主菜单的装饰细胞上，出图当场逮到的）
+	check(p._sub.text.contains("第 1/3 页") and p._sub.text.contains("滚轮"),
+		"12 条 = 3 页，页码与翻法写在副标题上（%s）" % p._sub.text)
+	## 上下选到头**自己翻页**，所以不必再教玩家一套翻页键
+	for i in 5:
+		p._move(1)
+	check(p._sel == 5 and p._page == 1 and p._rows[0].text.begins_with("#7"),
+		"往下越过第 5 行就自己翻到第二页")
+	p._flip(1)
+	check(p._page == 2 and p._sel == 10, "下一页：选中跟到本页第一条")
+	p._flip(1)
+	check(p._page == 2, "已经在最后一页，再点不动")
+	p._flip(-99)
+	check(p._page == 0 and p._sel == 0, "一路翻回第一页")
+	p._server = p._server.slice(0, 3)
+	p._repaint()
+	check(not p._sub.text.contains("页"), "只剩 3 条 = 一页：页码不再出现（%s）" % p._sub.text)
+	## 滚轮翻页：行与按钮都是 STOP，滚轮落在它们身上不会冒到面板，所以那头也接了一手
+	p._server = p._server + p._server + p._server
+	p._page = 0
+	p._repaint()
+	var wheel := InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
+	wheel.pressed = true
+	p._rows[0].gui_input.emit(wheel)
+	check(p._page == 1, "指着列表往下滚 = 翻一页")
+	wheel = InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	wheel.pressed = true
+	p._gui_input(wheel)
+	check(p._page == 0, "面板空白处往上滚 = 翻回去")
+	## 本机空着要**指路**到另一栏 —— 没打过的人不是没得看，
+	## 主菜单那一项也因此不再按本机份数灰掉
+	p._src = CWReplayPanel.Src.LOCAL
+	p._files = PackedStringArray()
+	p._repaint()
+	check(p._rows[0].text.contains("服务器"), "本机空列表指路到另一栏：%s" % p._rows[0].text)
+	var menu: Node = load("res://scripts/ui/main_menu.gd").new()
+	check(menu.enabled_mask()[3], "主菜单「对局回放」这一项一直亮着（不再按本机份数灰掉）")
+	menu.free()
+	p.queue_free()
 
 
 func t_state_codec() -> void:
@@ -14160,6 +14250,32 @@ func t_net_replay_download() -> void:
 	srv2._load_replays()
 	check(srv2.replays.size() >= 3, "新起的服务器从盘上读回了 %d 份" % srv2.replays.size())
 	check(int(srv2._replay_seq) >= 3, "id 从盘上已有的最大值接着走，重启后不撞号")
+
+
+	## ---- 界面那一头：回放面板「服务器」那一栏 ----
+	## 面板自己连、自己要目录（连接是懒的：切到那一栏才连）。地址走 CWSettings，
+	## 所以这儿把它临时指到本机这台测试服务器上
+	var old_addr := CWSettings.server
+	CWSettings.server = "%s:%d" % [NET_HOST, srv.port]
+	var panel := CWReplayPanel.new()
+	root.add_child(panel)
+	await process_frame
+	panel._use(CWReplayPanel.Src.SERVER)
+	ok = await _net_pump(srv, [], func() -> bool: return panel._server.size() == 3)
+	check(ok, "面板自己连上去、列出服务器上的 %d 局" % panel._server.size())
+	check(panel._rows[0].text.begins_with("#3  ROOM02"),
+		"第一行是最新那局，认局靠 id + 房间码（%s）" % panel._rows[0].text)
+	var opened: Array = []
+	panel.picked.connect(func(d: Dictionary) -> void: opened.append(d))
+	panel._play(0)
+	ok = await _net_pump(srv, [], func() -> bool: return not opened.is_empty())
+	check(ok and CWReplay.valid(opened[0]), "点一行 → 取回正文 → 交给 main.gd 开看")
+	check(PackedInt32Array(opened[0]["answers"]) == PackedInt32Array([0, 1, 0]),
+		"下标串就是那一局的（不是列表里的摘要）")
+	## 开看之前先断开：回放面板没理由挂着一条长连接
+	check(panel.client == null, "开看之前连接已经断掉")
+	panel.queue_free()
+	CWSettings.server = old_addr
 
 	_wipe_server_replays()      ## 收尾：别留给下一次跑
 	a.close()

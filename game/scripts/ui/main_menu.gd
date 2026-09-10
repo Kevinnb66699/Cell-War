@@ -272,9 +272,10 @@ func _item_enabled(i: int) -> bool:
 		return false
 	if ITEMS[i]["node"] == "Continue":
 		return CWSave.can_continue()
-	## 一份回放都没有就灰着 —— 点进去看空列表比点不动更让人困惑
-	if ITEMS[i]["node"] == "Replay":
-		return not CWReplay.list_files().is_empty()
+	## 「对局回放」**一直亮着**。原来是「本机一份都没有就灰掉」——
+	## 那时面板里只有本机那一栏，空列表点进去确实没东西看；
+	## 2026-09-09 面板加了「服务器」那一栏（服务器留最近 50 局，含你没打过的），
+	## 再按本机的份数灰掉，等于把新入口对新玩家整个关死。
 	return true
 
 
