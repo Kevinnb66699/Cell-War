@@ -8214,6 +8214,11 @@ func t_guide_bridge() -> void:
 		"AUTO_ACTS 只含一步到位的 place/end/draw")
 	check(not CWGuideBridge.AUTO_ACTS.has("move") and not CWGuideBridge.AUTO_ACTS.has("attack"),
 		"move/attack 是两段式选格，留给玩家亲手点")
+	var correction := FakeGuide.new()
+	var correction_step := correction.step_no()
+	correction.record_mistake()
+	check(correction.mistake_count() == 1 and correction.step_no() == correction_step,
+		"教程纠错记录不推进步骤，之后仍可恢复作答")
 	check(CWGuideData.ui_stage(0) == 0 and CWGuideData.ui_stage(6) == 2
 		and CWGuideData.ui_stage(15) == 3,
 		"渐进 UI 按章节解锁：棋盘 → 高亮/资源 → 毕业战预测解释")
@@ -8444,7 +8449,7 @@ func t_dice() -> void:
 		1: Vector3(0, 0, 1),  6: Vector3(0, 0, -1),
 		2: Vector3(1, 0, 0),  5: Vector3(-1, 0, 0),
 		3: Vector3(0, 1, 0),  4: Vector3(0, -1, 0),
-	}
+}
 	var all_up := true
 	var opposite_ok := true
 	for v in range(1, 7):

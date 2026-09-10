@@ -622,6 +622,10 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 		if blocked.is_valid():
 			var why: String = blocked.call(c)
 			if why != "":
+				if has_meta("tutorial_guide"):
+					var guide = get_meta("tutorial_guide")
+					if guide != null and is_instance_valid(guide):
+						guide.record_mistake()
 				show_result(why, c)
 	var on_hover := func(c: Vector2i) -> void:
 		if _planning and _plan_drag and c != board.NO_TILE:

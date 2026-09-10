@@ -585,6 +585,7 @@ func _attach_guide() -> void:
 	_guide.visible = true
 	if bridge is CWGuideBridge:
 		(bridge as CWGuideBridge).guide = _guide
+		bridge.set_meta("tutorial_guide", _guide)
 		## 「继续」代做（Kevin 2026-09-05）：面板问桥「此刻能代做吗」，按下时让桥替玩家作答
 		_guide.demo_ready = (bridge as CWGuideBridge).can_demo
 		_guide.demo = (bridge as CWGuideBridge).take_offer

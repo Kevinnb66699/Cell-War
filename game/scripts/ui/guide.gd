@@ -44,6 +44,7 @@ var _chapter := 0
 var _step := 0
 var _hint_text := ""
 var _highlight := ""
+var _mistakes := 0
 var _tutorial_done := false   ## 引导全部看完了（由第 5 关最后一步置位）
 
 var _title: Label
@@ -246,6 +247,15 @@ func step_no() -> int:
 ## 当前教程辅助阶段；正式对局不创建 CWGuide，因此不会获得这些限制或提示。
 func ui_stage() -> int:
 	return CWGuideData.ui_stage(_chapter)
+
+
+## 纠错只记录在教程面板；不会改引擎状态，也不会阻止玩家重新尝试。
+func record_mistake() -> void:
+	_mistakes += 1
+
+
+func mistake_count() -> int:
+	return _mistakes
 
 
 ## 第 16 关只读辅助；不执行动作、不改正式局面。
