@@ -307,7 +307,14 @@ func _render() -> void:
 		l.queue_free()
 	_body.clear()
 	var y := 0.0
-	for line in s["b"]:
+	var body_lines: Array = s["b"].duplicate()
+	if _chapter == CWGuideData.CHAPTER_COUNT - 1 and _match != null \
+			and is_instance_valid(_match) and _match.game != null:
+		var assist := CWGuideData.graduation_assist(_match.game)
+		body_lines.append("建议：" + str(assist["suggestion"]))
+		body_lines.append("预测：" + str(assist["e_prediction"]))
+		body_lines.append("规则：" + str(assist["rule_explanation"]))
+	for line in body_lines:
 		var label := CWStyle.label(line, CWStyle.SIZE_LABEL, CWStyle.TEXT)
 		label.position = Vector2(0, y)
 		label.size = Vector2(_content.size.x, 15)
