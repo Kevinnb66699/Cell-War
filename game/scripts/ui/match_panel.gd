@@ -31,6 +31,10 @@ const SCORE_H := 56
 const ROW_H := 44
 const LEVEL_H := 44
 const END_H := 52
+## 升级进度条：贴免疫等级那一块的底边。**不许加高那一块**（见文件头），
+## 所以它只能长在文字墨迹底下那道缝里 —— 34 起、4 高，块高 44，还留 6px 到下边
+const BAR_DY := 34.0
+const BAR_H := 4.0
 
 const W := 232          ## 内容宽 = 264 - 16×2
 const ROW_PAD := 6      ## 玩家行自己的左右内边距
@@ -94,6 +98,8 @@ var _weighted_caption: Label   ## 平时写「癌性加权」，警报期换成�
 var _bar_fill: ColorRect
 var _level: Label
 var _memory: Label
+var _lv_bar_bg: ColorRect    ## 升级进度条的槽（胜负那条叫 _bar_fill，别混）
+var _lv_bar_fill: ColorRect  ## 已攒到的那一段
 var _bg: Panel
 var _end: PanelContainer
 var _rows: Array = []      ## 每项 { bg, fac, history, icon, name, type, energy, pips, skills }
@@ -201,9 +207,15 @@ func refresh(game: CWGame) -> void:
 	_update_tip(game)
 
 	_level.text = CWData.LEVEL_NAMES[game.immune_level]
-	## X 级起这个计数器改叫【效应记忆】并从零重数（PRD「免疫记忆」节）——
-	## 名字必须跟着改：X 级之后它管的是【效应应答】的费用，不再是升级进度（Kevin 2026-09-07）
-	_memory.text = "%s %d" % [CWData.memory_name(game.immune_level), game.memory]
+	## 门槛**按人数分档**（四人 6/16/30、六人 10/20/30）——
+	## 别读 CWData.LEVEL_MIN_MEMORY 那张常量表，那是六人档兼缺省（同 CWGame.gain_memory）
+	var tiers: Array = CWData.level_min_memory(game.order.size())
+	_memory.text = memory_text(game.memory, game.immune_level, tiers)
+	var p := level_progress(game.memory, game.immune_level, tiers)
+	## X 级没有「下一级」，条整个收起来 —— 画一根永远满的条等于骗人
+	_lv_bar_bg.visible = p >= 0.0
+	_lv_bar_fill.visible = p >= 0.0
+	_lv_bar_fill.size = Vector2(W * maxf(p, 0.0), BAR_H)
 
 
 ## 回到主菜单时清空：下一局人数可能不同，节点结构要按新人数重建。
@@ -409,6 +421,24 @@ func _build(n: int) -> void:
 		PAD, y + 12, W - 92, HORIZONTAL_ALIGNMENT_RIGHT)
 	_memory = _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
 		PAD, y + 20, W, HORIZONTAL_ALIGNMENT_RIGHT)
+	## 升级进度条（Kevin 2026-09-10：「方便玩家观察和计算」）。
+	##
+	## **摆在这一块的底边，而且只有 4px 高** —— 文件头那条「一个数都别改」是硬的：
+	## 6 人局五块加起来 530，只余 10px，把哪一块调高一点就溢出。
+	## 好在 44px 里文字的**墨迹**只到 y+31（点阵字的行框虚高 23px 而字形只有 10px），
+	## y+34 起是空的，细条正好塞得进去，不占任何人的地方。
+	_lv_bar_bg = ColorRect.new()
+	_lv_bar_bg.color = Color(CWStyle.TEXT_OFF, 0.30)
+	_lv_bar_bg.position = Vector2(PAD, y + BAR_DY)
+	_lv_bar_bg.size = Vector2(W, BAR_H)
+	_lv_bar_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_lv_bar_bg)
+	_lv_bar_fill = ColorRect.new()
+	_lv_bar_fill.color = CWStyle.IMMUNE
+	_lv_bar_fill.position = _lv_bar_bg.position
+	_lv_bar_fill.size = Vector2(0, BAR_H)
+	_lv_bar_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_lv_bar_fill)
 
 	## ⑤「结束回合」钉在底部（设计稿 margin-top:auto），在 _chrome() 里建
 
@@ -1005,6 +1035,32 @@ static func doubled_line(mode: String) -> String:
 			return "【双重触发】：连续两个回合各完整生效一遍"
 		_:
 			return ""
+
+
+## 当前这一档攒了多少（0..1）；**X 级返回 -1 = 没有下一级**，调用方据此把条收起来。
+## **纯函数**，好直接测 —— 这一段有两个容易错的地方：
+## ① 进度要按**本档区间**算（从 tiers[lv] 到 tiers[lv+1]），不是从 0 算，
+##    否则 I→II 走到一半时条会显示 80%；
+## ② 记忆**会被扣**（突变削 2），而等级只升不降 —— 于是 memory 可能掉到
+##    tiers[lv] 以下，算出来是负的。钳住。
+static func level_progress(memory: int, level: int, tiers: Array) -> float:
+	if level >= tiers.size() - 1:
+		return -1.0
+	var lo := int(tiers[level])
+	var hi := int(tiers[level + 1])
+	if hi <= lo:
+		return -1.0
+	return clampf(float(memory - lo) / float(hi - lo), 0.0, 1.0)
+
+
+## 右下角那行字。**升级前写成「8 / 10」**：光有当前值的话，「还差几次净化」
+## 得玩家自己去记门槛（而门槛还按人数分档，记不住）。
+## X 级之后没有门槛可写，回到只报数 —— 那时它管的是【效应应答】的费用，不是进度。
+static func memory_text(memory: int, level: int, tiers: Array) -> String:
+	var name := CWData.memory_name(level)
+	if level >= tiers.size() - 1:
+		return "%s %d" % [name, memory]
+	return "%s %d / %d" % [name, memory, int(tiers[level + 1])]
 
 
 func _put(l: Label, x: float, y: float, w: float,

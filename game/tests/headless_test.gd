@@ -6628,6 +6628,47 @@ func t_match_panel() -> void:
 		"结束回合钉在底部，下面正好留出 %d 内边距" % CWMatchPanel.PAD)
 	check(not p._end.visible, "默认不显示结束回合（轮到别人时整条行动入口都收掉）")
 
+	## ---- 升级进度条（Kevin 2026-09-10：「方便玩家观察和计算」）----
+	## 那一块高度写死 44（文件头：6 人局五块合计 530、只余 10px），
+	## 条只能长在文字墨迹底下那道缝里 —— 越界就是压到下一块
+	check(CWMatchPanel.BAR_DY + CWMatchPanel.BAR_H <= CWMatchPanel.LEVEL_H,
+		"进度条（%d..%d）不出免疫等级那一块（%d 高）"
+		% [CWMatchPanel.BAR_DY, CWMatchPanel.BAR_DY + CWMatchPanel.BAR_H, CWMatchPanel.LEVEL_H])
+	var six: Array = CWData.level_min_memory(6)
+	check(is_equal_approx(CWMatchPanel.level_progress(3, 0, six), 0.3)
+		and is_equal_approx(CWMatchPanel.level_progress(18, 1, six), 0.8),
+		"进度按**本档区间**算：六人局 I 级 3/10 = 0.3、II 级 18/20 = 0.8")
+	## 从 0 算的话 I 级走到一半就显示 80%（18/20 那档更明显：从 0 算是 0.9）
+	check(not is_equal_approx(CWMatchPanel.level_progress(18, 1, six), 0.9),
+		"不是拿 memory 直接除下一档门槛（那样 II 级会一直虚高）")
+	## **记忆会被扣**（突变削 2），而等级只升不降 —— memory 可能掉到本档门槛以下
+	check(CWMatchPanel.level_progress(9, 1, six) == 0.0,
+		"突变削记忆后掉到本档门槛以下：钳 0，不画成负的")
+	check(CWMatchPanel.level_progress(25, 3, six) < 0.0,
+		"X 级没有下一级：返回负数，界面据此把条整个收起来")
+	## 门槛**按人数分档**，读错表的话四人局会一路显示偏低
+	var four: Array = CWData.level_min_memory(4)
+	check(is_equal_approx(CWMatchPanel.level_progress(3, 0, four), 0.5)
+		and four != six,
+		"四人局门槛更低（3/6 = 0.5），六人局同样的 3 只有 0.3")
+	check(CWMatchPanel.memory_text(3, 0, six) == "抗原记忆 3 / 10"
+		and CWMatchPanel.memory_text(25, 3, six) == "效应记忆 25",
+		"升级前写「3 / 10」（省得玩家自己去记门槛），X 级回到只报数")
+	## 面板真的照着画：四人局 3 点记忆 = 半条
+	var g4 := make_game(4, 7)
+	await run_setup(g4)
+	g4.memory = 3
+	g4.immune_level = 0
+	p.refresh(g4)
+	check(p._lv_bar_fill.visible
+		and is_equal_approx(p._lv_bar_fill.size.x, CWMatchPanel.W * 0.5),
+		"四人局 3 点记忆画成半条（%d / %d）" % [p._lv_bar_fill.size.x, CWMatchPanel.W])
+	g4.immune_level = 3
+	p.refresh(g4)
+	check(not p._lv_bar_fill.visible and not p._lv_bar_bg.visible,
+		"X 级：槽和填充一起收起来")
+	g4.dispose()
+
 	## 面板宽度必须和对局机位让出的那一条严丝合缝，否则棋盘要么被压要么留缝
 	check(int(CWMatchPanel.RECT.size.x) == CWView.PANEL_WIDTH
 		and CWMatchPanel.RECT.position.x == 960 - CWView.PANEL_WIDTH,
