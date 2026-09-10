@@ -2450,9 +2450,14 @@ func t_spread_fx() -> void:
 	var a := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.MELANOMA)
 	g3.cells.append(a)
 	g3.round_no = 1
-	await g3.card_fx.resolve_event(a, "克隆增殖")
-	check(rec3.got.size() == 1 and int(rec3.got[0][1]) == CWData.dir_toward(rec3.got[0][0], a["pos"]),
-		"【克隆增殖】转的那格演过场，癌从发动者那一侧来")
+	a["hand"] = ["克隆增殖"]     ## 2026-09-10 起是【即时技能】，走 play
+	await g3.card_fx.play(a, { "act": "play", "card": "克隆增殖" })
+	var toward_actor := rec3.got.size() == 2
+	for e in rec3.got:
+		if int(e[1]) != CWData.dir_toward(e[0], a["pos"]):
+			toward_actor = false
+	check(toward_actor,
+		"【克隆增殖】转的两格都演过场，癌从发动者那一侧来（%d 格）" % rec3.got.size())
 	## 【黏液破裂】：范围内随机转的格全演，方向朝引爆者；引爆者脚下那格取不出方向 → 引擎不广播
 	var sig := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(3, 0), -1, CWData.CancerType.SIGNET, 100)
 	g3.cells.append(sig)
@@ -9911,7 +9916,7 @@ func t_hand_limit() -> void:
 # ---- 卡池：身份表 + 抽卡合法性（效果尚未实现）----
 func t_card_pool() -> void:
 	print("[卡池]")
-	check(CWCardData.CARDS.size() == 66, "66 张唯一卡（%d）" % CWCardData.CARDS.size())
+	check(CWCardData.CARDS.size() == 67, "67 张唯一卡（%d）" % CWCardData.CARDS.size())
 	## 四个免疫池 + 癌症三期的张数，逐个对照 PRD
 	var want := [11, 14, 17, 22]
 	for lv in 4:
@@ -9919,7 +9924,7 @@ func t_card_pool() -> void:
 		check(n == want[lv], "免疫 %s 级池 %d 张" % [CWData.LEVEL_NAMES[lv], n])
 	for r in [1, 10, 20]:
 		var n: int = CWCardData.pool_of(CWData.Faction.CANCER, 0, r).size()
-		check(n == 17, "癌症池第 %d 回合 %d 张（不分等级）" % [r, n])
+		check(n == 18, "癌症池第 %d 回合 %d 张（不分等级）" % [r, n])
 	check(CWCardData.cancer_phase(5) == 0 and CWCardData.cancer_phase(6) == 1 \
 		and CWCardData.cancer_phase(10) == 1 and CWCardData.cancer_phase(11) == 2,
 		"癌症卡分期切在第 6 / 11 回合（PRD：1—5 / 6—10 / 11—15）")
@@ -9932,7 +9937,7 @@ func t_card_pool() -> void:
 		var e: String = CWCardData.CARDS[n].get("effect", "")
 		if e.length() < 6:
 			missing.append(n)
-	check(missing.is_empty(), "66 张卡都带效果原文（缺：%s）" % str(missing))
+	check(missing.is_empty(), "67 张卡都带效果原文（缺：%s）" % str(missing))
 	## 【代谢耦联】是唯一同时进两个卡池的卡，PRD 给了它按阵营镜像的两套措辞
 	var mc_i := CWCardData.effect_of("代谢耦联", CWData.Faction.IMMUNE)
 	var mc_c := CWCardData.effect_of("代谢耦联", CWData.Faction.CANCER)
@@ -10424,12 +10429,16 @@ func t_card_events_cancer() -> void:
 	await g.card_fx.resolve_event(a, "肿瘤血管生成")
 	check(a["energy"] == 25 and b["energy"] == 20, "肿瘤血管生成：中期全体 +2.0、抽卡者 +2.5（第 8 回合 = 中期）")
 	g.round_no = 1
-	await g.card_fx.resolve_event(a, "克隆增殖")
+	## 2026-09-10 Kevin：【克隆增殖】从【事件】改成【即时技能】（所以走 play 不走 resolve_event），
+	## 格数 1/2/3 → 2/3/4
+	a["hand"] = ["克隆增殖"]
+	await g.card_fx.play(a, { "act": "play", "card": "克隆增殖" })
 	var newborns := 0
 	for n in CWData.neighbors(Vector2i(0, 0)):
 		if g.tiles[n]["tissue"] == CWData.Tissue.CANCER:
 			newborns += 1
-	check(newborns == 1, "克隆增殖：前期恰好转化 1 格")
+	check(newborns == 2, "克隆增殖：前期恰好转化 2 格（%d）" % newborns)
+	check(a["hand"].is_empty(), "即时技能结算后弃置（不再是抽到即结算的事件）")
 	## 糖酵解爆发：块里 3 格普通癌 + 全图 1 格固化 / 1 细胞，口径与 E 阶段一致（2026-09-07 新式）
 	for c in g.tiles.keys():
 		g.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
@@ -10513,6 +10522,49 @@ func t_card_instants() -> void:
 	await g.card_fx.play(lac, { "act": "play", "card": "肿瘤细胞募集", "cid": 6 })
 	check(CWData.hex_dist(rec["pos"], lac["pos"]) <= 2 and g.is_cancerous(rec["pos"]),
 		"肿瘤细胞募集：目标落到自身 2 格内的癌性组织")
+
+	## ---- 【肿瘤增援】（Kevin 2026-09-10 新增）----
+	## 和上面那张**互为镜像**：那张动的是别人、范围以自己为心；
+	## 这张动的是**自己**、范围以**对方**为心。两张一起留在池子里（Kevin 拍板）。
+	## 先在目标周围铺几格空癌组织当落点 —— 不铺的话这张卡根本没有合法落点
+	for n in CWData.neighbors(rec["pos"]):
+		if g.tiles.has(n) and g.cells_at(n).is_empty():
+			g.tiles[n]["tissue"] = CWData.Tissue.CANCER
+	var far := CWSetup.make_cell(7, 3, CWData.Faction.CANCER, Vector2i(-5, 2), -1,
+		CWData.CancerType.OSTEO)
+	g.cells.append(far)
+	var was: Vector2i = far["pos"]
+	far["hand"] = ["肿瘤增援"]
+	## **选项层要逐个目标各判一次**：镜像那张范围以自己为心，一次判完就够；
+	## 这张以对方为心，队友周围一格空癌组织都没有时那一条就不该出现 ——
+	## 出了就是「卡吃掉、什么也没发生」
+	var lone := CWSetup.make_cell(8, 4, CWData.Faction.CANCER, Vector2i(6, -3), -1,
+		CWData.CancerType.SIGNET)
+	g.cells.append(lone)
+	for n in CWData.all_coords():
+		if CWData.hex_dist(n, lone["pos"]) <= 3:
+			g.tiles[n]["tissue"] = CWData.Tissue.HEALTHY   ## 周围一格癌组织都没有
+	var reinf_opts: Array = []
+	g.card_fx.hand_options(far, reinf_opts)
+	var to_rec := 0
+	var to_lone := 0
+	for o: Dictionary in reinf_opts:
+		if String(o["data"].get("card", "")) != "肿瘤增援":
+			continue
+		if int(o["data"].get("cid", -1)) == int(rec["id"]):
+			to_rec += 1
+		if int(o["data"].get("cid", -1)) == int(lone["id"]):
+			to_lone += 1
+	check(to_rec == 1 and to_lone == 0,
+		"选项逐个目标判：周围有空癌组织的队友出（%d 条），一格都没有的不出（%d 条）"
+		% [to_rec, to_lone])
+	await g.card_fx.play(far, { "act": "play", "card": "肿瘤增援", "cid": 6 })
+	check(far["pos"] != was and CWData.hex_dist(far["pos"], rec["pos"]) <= 3
+		and g.is_cancerous(far["pos"]) and far["hand"].is_empty(),
+		"肿瘤增援：**自己**落到所选队友 3 环内的空癌性组织（%s → %s）"
+		% [str(was), str(far["pos"])])
+	check(rec["pos"] != far["pos"], "落点不许和目标重叠（要的是「无细胞占据」的格）")
+
 	lac["hand"] = ["乳酸酸化"]
 	g.actions._do_discard(lac, "乳酸酸化")
 	check(lac["hand"].is_empty(), "弃牌：随时可弃")
@@ -11251,7 +11303,7 @@ func t_card_mods() -> void:
 		"基质阻隔在最后翻倍：EMT 改成 0.2 → 0.4（不是先翻倍再被覆盖成 0.2）")
 	g.dispose()
 
-	## ② 上皮—间质转化（癌方）：向健康组织移动 0.2，前期 1 次
+	## ② 上皮—间质转化（癌方）：向健康组织移动 0.2，前期 2 次（2026-09-10 Kevin：1/2/3 → 2/3/4）
 	g = _fx_game(4)
 	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.MELANOMA)
 	can["energy"] = 100
@@ -11262,7 +11314,11 @@ func t_card_mods() -> void:
 	check(g.actions._move_cost_mod(can, Vector2i(1, 0), CWData.CANCER_MOVE_HEALTHY) == CWData.EMT_MOVE_COST,
 		"上皮—间质转化：向健康组织移动费 0.2")
 	await g.actions._do_move(can, Vector2i(1, 0), CWData.EMT_MOVE_COST)
-	check(g.mods_of(can, "上皮—间质转化").is_empty(), "前期只有 1 次，用后消耗")
+	check(g.mods_of(can, "上皮—间质转化").size() == 1, "用掉一次还剩一次（前期共 2 次）")
+	check(g.actions._move_cost_mod(can, Vector2i(2, 0), CWData.CANCER_MOVE_HEALTHY)
+		== CWData.EMT_MOVE_COST, "第二次仍是 0.2")
+	await g.actions._do_move(can, Vector2i(2, 0), CWData.EMT_MOVE_COST)
+	check(g.mods_of(can, "上皮—间质转化").is_empty(), "两次用完才消耗掉")
 	g.dispose()
 
 	## ②b 上皮—间质转化 × 黑色素瘤【伪足穿透】：2026-08-31 抬价后**新出现**的组合。
@@ -12044,7 +12100,7 @@ func t_tier_highlight() -> void:
 			if got != [parts[mini(ph, parts.size() - 1)]]:
 				wrong.append("%s@%d=%s" % [name, ph, str(got)])
 	## 66 张里带「a / b / c」的是 12 张（【免疫突触成熟】的「1/6 概率」没有空格，不算），去掉自由选择的【代谢耦联】剩 11
-	check(n_cards == 11 and wrong.is_empty(), "11 张分档卡三期各高亮到正确的一档（%d 张；错的：%s）" % [n_cards, str(wrong)])
+	check(n_cards == 12 and wrong.is_empty(), "12 张分档卡三期各高亮到正确的一档（%d 张；错的：%s）" % [n_cards, str(wrong)])
 	## 折行把一组拆到两行：两行各标各的那一段
 	var m2 := CWCardInfo.tier_marks("x 1 / 1.5 / 2 y", PackedStringArray(["x 1 / 1", ".5 / 2 y"]), 1)
 	check(m2[0] == [Vector2i(6, 1)] and m2[1] == [Vector2i(0, 2)], "跨行的一档两行各标一段（%s）" % str(m2))

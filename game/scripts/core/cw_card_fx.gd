@@ -86,8 +86,6 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 			var g := game.world.anaerobic_gain_for(cell)
 			_gain(cell, g, "糖酵解爆发")
 			_evt(card, "+%s 能量" % CWData.fmt(_amp(g)), cell["pos"])
-		"克隆增殖":
-			_clonal_growth(cell)
 		"肿瘤血管生成":
 			var v: int = _amp([10, 20, 25][_phase()])
 			for c in game.living_cells(CWData.Faction.CANCER):
@@ -220,6 +218,25 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 				for t in game.living_cells(CWData.Faction.CANCER):
 					if t["pid"] != cell["pid"]:
 						opts.append(_opt(card, "→%s" % game.cell_name(t), { "cid": t["id"] }))
+			"肿瘤增援":
+				## 【肿瘤细胞募集】的镜像：那张把别人拉到**自己**身边（范围以自己为心，
+				## 一次判完就够）；这张是把**自己**送过去，范围以**对方**为心 ——
+				## 所以要**逐个目标各判一次**，有的队友周围一格空癌组织都没有
+				var r2: int = [3, 2, 2][_phase()]
+				for t in game.living_cells(CWData.Faction.CANCER):
+					if t["pid"] == cell["pid"]:
+						continue
+					if _empty_cancerous_in_range(t["pos"], r2).is_empty():
+						continue
+					opts.append(_opt(card, "→%s 附近" % game.cell_name(t), { "cid": t["id"] }))
+			"克隆增殖":
+				## 2026-09-10 Kevin 把它从【事件】改成【即时技能】。
+				## 目标是**随机**的，所以不给玩家选格子；但相邻一个可转的健康格都没有时
+				## **这张就不该出选项** —— 给了就是「卡吃掉、什么也没发生」。
+				## 同【局部吞噬】那条：还是事件卡的时候有「落空」这条路（抽到就必须结算、
+				## 由不得玩家），改成打出之后落空就成了纯粹的坑，得在选项层挡掉
+				if not _clonal_growth_targets(cell).is_empty():
+					opts.append(_opt(card, ""))
 			_:
 				pass   ## 修饰类/永久的卡：还打不出去，选项不出现
 
@@ -330,7 +347,7 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 			game.log_msg("　下一次受到免疫方事件/技能的能量损失 -%s（最低 0）" % [
 				CWData.fmt([10, 15, 20][_phase()])])
 		"上皮—间质转化":
-			var times: int = [1, 2, 3][_phase()]
+			var times: int = [2, 3, 4][_phase()]   ## 2026-09-10 Kevin：1/2/3 → 2/3/4
 			game.add_mod(cell, card, times, "turn")
 			game.log_msg("　本回合接下来 %d 次向健康组织的移动费用降为 0.2" % times)
 		"TNF-α局部炎症":
@@ -341,6 +358,10 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 			_stroma_harden(data["to"])
 		"肿瘤细胞募集":
 			await _recruit(cell, game.cells[data["cid"]])
+		"肿瘤增援":
+			await _tumor_reinforce(cell, game.cells[data["cid"]])
+		"克隆增殖":
+			_clonal_growth(cell)
 		_:
 			game.log_msg("　（该卡效果未实现，未弃置）")
 			return
@@ -446,14 +467,23 @@ func _systemic_clearance(drawer: Dictionary) -> void:
 	_evt("全身性免疫清除", "%d 格癌组织转健康" % picked.size(), drawer["pos"])
 
 
-## 【克隆增殖】相邻、未被免疫占据的健康组织，随机最多 1/2/3 格（按分期）→ 癌组织
-func _clonal_growth(cell: Dictionary) -> void:
+## 【克隆增殖】能转的候选格：相邻、健康、且没有免疫细胞站着。
+## 单拆出来是给**选项层**用的：一格都没有时这张牌不该出现在可打列表里
+## （2026-09-10 它从【事件】改成【即时技能】，落空从「由不得玩家」变成了纯粹的坑）
+func _clonal_growth_targets(cell: Dictionary) -> Array[Vector2i]:
 	var cands: Array[Vector2i] = []
 	for n in game.neighbors(cell["pos"]):
 		if game.tile(n)["tissue"] == CWData.Tissue.HEALTHY \
 				and game.cells_at(n, CWData.Faction.IMMUNE).is_empty():
 			cands.append(n)
-	var picked := _pick_random(cands, [1, 2, 3][_phase()])
+	return cands
+
+
+## 【克隆增殖】相邻、未被免疫占据的健康组织，随机最多 2/3/4 格（按分期）→ 癌组织
+## （2026-09-10 Kevin：格数 1/2/3 → 2/3/4，且由【事件】改为【即时技能】）
+func _clonal_growth(cell: Dictionary) -> void:
+	var cands := _clonal_growth_targets(cell)
+	var picked := _pick_random(cands, [2, 3, 4][_phase()])
 	for c in picked:
 		CWTissue.to_cancer(game.tile(c), true)
 		game.erosion_fx(c, CWData.dir_toward(c, cell["pos"]))   ## 过场：癌从发动者那一侧漫入（Kevin 2026-09-06）
@@ -507,6 +537,25 @@ func _recruit(cell: Dictionary, target: Dictionary) -> void:
 	var dest: Vector2i = cands[game.rng.randi_range(0, cands.size() - 1)]
 	game.log_msg("　%s 被募集至 %s" % [game.cell_name(target), str(dest)])
 	await game.actions.enter_tile(target, dest)
+
+
+## 【肿瘤增援】（2026-09-10 新增）把**自己**传送到所选癌细胞周围 3/2/2 格内随机空癌性组织。
+##
+## 和【肿瘤细胞募集】**互为镜像**，两张同时在池子里（Kevin 拍板都留）：
+## 那张动的是**别人**、范围以**自己**为心；这张动的是**自己**、范围以**对方**为心。
+## 用起来是两回事 —— 一个是把队友拽来帮忙，一个是自己扑过去支援。
+## 落地同样走 `enter_tile`（定殖、特殊组织、踩黏液这些统一在那儿算）。
+##
+## 免疫方那张同类是【免疫增援】（`_reinforce`）：也是把自己送到队友身边，
+## 但落点是**健康组织**、范围固定 2 环 —— 两边各按各的地形，别把两个函数并成一个。
+func _tumor_reinforce(cell: Dictionary, target: Dictionary) -> void:
+	var cands := _empty_cancerous_in_range(target["pos"], [3, 2, 2][_phase()])
+	if cands.is_empty():
+		return          ## 选项层已逐个目标判过，这里只是兜底
+	var dest: Vector2i = cands[game.rng.randi_range(0, cands.size() - 1)]
+	game.log_msg("　%s 增援至 %s（%s 附近）" % [
+		game.cell_name(cell), str(dest), game.cell_name(target)])
+	await game.actions.enter_tile(cell, dest)
 
 
 # ============ 需中途选择的一批（2026-08-29 落地）============
