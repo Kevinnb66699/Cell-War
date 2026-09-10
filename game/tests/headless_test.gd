@@ -7724,20 +7724,32 @@ func t_main_menu() -> void:
 	# 键盘上下必须跳过灰掉的项。mask 由 enabled_mask() 现算（「继续对局」随存档
 	# 有无变化），这里直接摆两种局面验静态跳转规则。
 	var last: int = menu_script.ITEMS.size() - 1
-	## 七项：自定义对局已并入「开始对局」的配置面板，不再单占主菜单一行。
-	check(menu_script.ITEMS.size() == 7 and menu_script.ITEMS[1]["node"] == "Online"
-		and menu_script.ITEMS[3]["node"] == "Codex" and menu_script.ITEMS[4]["node"] == "Guide",
-		"主菜单只留一个开始入口，自定义对局在开始对局内部")
+	## 八项。自定义对局并进了「开始对局」的配置面板（不单占一行），
+	## 而「对局回放」2026-09-09 单开一行 —— 它**不是任何一项的变体**：
+	## 既不开新局也不接着打旧局，塞进配置面板会让底下的人数 / 阵营 / 种子全部失效。
+	## 位置钉在「继续对局」下面：两项都是「回到过去的某一局」，一个接着打、一个重看。
+	check(menu_script.ITEMS.size() == 8 and menu_script.ITEMS[1]["node"] == "Online"
+		and menu_script.ITEMS[2]["node"] == "Continue"
+		and menu_script.ITEMS[3]["node"] == "Replay"
+		and menu_script.ITEMS[4]["node"] == "Codex" and menu_script.ITEMS[5]["node"] == "Guide",
+		"主菜单八项，回放紧跟在继续对局下面")
+	check(items.has_node("Replay"), "场景里也有那一行（脚本表与场景必须对齐）")
 	var has_rules := false
 	for item in menu_script.ITEMS:
 		if item["node"] == "Rules":
 			has_rules = true
 	check(not has_rules and not items.has_node("Rules"), "主菜单里没有「规则速查」（脚本表与场景都没有）")
 	check(not items.has_node("Custom"), "主菜单场景不再保留独立「自定义对局」节点")
-	var no_save := [true, true, false, true, true, true, true]
-	check(menu_script.next_enabled(1, 1, no_save) == 3, "无档：从「联机对战」往下跳过「继续对局」落到知识之书")
-	check(menu_script.next_enabled(3, 1, no_save) == 4, "知识之书再往下是新手引导")
-	check(menu_script.next_enabled(last, -1, no_save) == 5, "键盘从「退出游戏」往上一步到设置")
+	## 没存档、也没回放：两项都灰着，键盘要连着跳过它们
+	var no_save := [true, true, false, false, true, true, true, true]
+	check(menu_script.next_enabled(1, 1, no_save) == 4,
+		"无档无回放：从「联机对战」往下**连跳两项**落到知识之书")
+	check(menu_script.next_enabled(4, 1, no_save) == 5, "知识之书再往下是新手引导")
+	check(menu_script.next_enabled(last, -1, no_save) == 6, "键盘从「退出游戏」往上一步到设置")
+	## 有回放没存档：只跳过「继续对局」
+	var only_replay := [true, true, false, true, true, true, true, true]
+	check(menu_script.next_enabled(1, 1, only_replay) == 3,
+		"有回放没存档：从「联机对战」往下落到「对局回放」")
 	check(menu_script.next_enabled(0, -1, no_save) == 0, "到顶了就停在原地，不绕回")
 	var with_save := [true, true, true, true, true, true, true]
 	check(menu_script.next_enabled(1, 1, with_save) == 2, "有档：从「联机对战」往下落到「继续对局」")

@@ -23,6 +23,11 @@ var bar: CWActionBar
 var info: CWCardInfo   ## 悬停详情框：分化提问里停在种类按钮上时浮细胞种类详情；纯 AI 桥 / 测试里可为 null
 var panel: CWMatchPanel
 var toast: CWToast     ## 骰子旁边那行字
+## 回放：录下来的下标串。非空 = 这一局是在放回放，`ask()` 按顺序念、谁也不问。
+## 游标由 `CWReplay.Player` 拨（快退时会被拨回去），所以**别在这儿另存一份进度**。
+var replay_answers: PackedInt32Array = []
+var replay_at := 0
+
 var hunt_fx: CWHuntFx
 var mucus_fx: CWMucusFx
 var seal_fx: CWSealFx
@@ -129,6 +134,16 @@ static func needs_handoff(p_hotseat: bool, p_current_human: int, pid: int) -> bo
 
 
 func ask(req: Dictionary) -> int:
+	## **回放**：按顺序念录下来的下标，谁也不问。
+	##
+	## 为什么让界面桥来念、而不是直接用 `CWReplay.Bridge`：掷骰演出、通报、过场
+	## **全都是走桥的**（`show_roll` / `show_result` / `show_erosion` …），
+	## 换成纯数据桥的话回放就成了一局没有任何演出的哑剧。
+	## `CWReplay.Bridge` 留给无头那条路（测试、核对哈希），它不需要演出。
+	if not replay_answers.is_empty():
+		var i: int = replay_answers[replay_at] if replay_at < replay_answers.size() else 0
+		replay_at += 1
+		return i
 	if req["pid"] in human_pids and bar != null and board != null:
 		return await _ask_human(req)
 	_clear_ui()   ## 轮到别人：按钮和高亮一起收掉（定稿如此）

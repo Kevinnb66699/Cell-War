@@ -14,6 +14,9 @@ extends Node2D
 signal start_requested(cfg: Dictionary)
 ## 「继续对局」被点了（只在存在存档时可点，读档由 main.gd 做）
 signal continue_requested
+
+## 从回放面板选了一份要看：main.gd 把镜头推进棋盘、用播放器跑
+signal replay_requested(data: Dictionary)
 ## 联机面板里房间开局了：main.gd 推镜头进棋盘，对局由服务器驱动
 signal online_match_requested(client: CWNetClient)
 ## 联机对局中房间没了：main.gd 收摊回主菜单
@@ -63,6 +66,9 @@ const ITEMS := [
 	{"node": "Start", "enabled": true},
 	{"node": "Online", "enabled": true},
 	{"node": "Continue", "enabled": true},
+	## 「对局回放」排在「继续对局」下面：两项都是「回到过去的某一局」——
+	## 一个接着打、一个重看，放一起读得顺（Kevin 2026-09-09 定）
+	{"node": "Replay", "enabled": true},
 	{"node": "Codex", "enabled": true},
 	{"node": "Guide", "enabled": true},
 	{"node": "Settings", "enabled": true},
@@ -122,6 +128,7 @@ var _confirm_sel := 1            ## 退出确认默认停在「取消」，别�
 var guide_done_check := Callable(CWGuideProgress, "all_done")
 var _config: CWConfigPanel       ## 对局配置面板；null = 还没建过
 var _online: CWOnlinePanel       ## 联机面板（连接 / 大厅 / 等待室）；null = 还没建过
+var _replay: CWReplayPanel       ## 回放面板（列表）；同上，懒建
 var _codex: CWCodex             ## 知识之书图鉴；null = 还没建过
 var _settings: CWSettingsPage    ## 设置页；null = 还没建过
 var _swap: Tween                 ## 菜单↔配置的槽位换面板动画（0.30s 出 / 0.32s 入）
@@ -265,6 +272,9 @@ func _item_enabled(i: int) -> bool:
 		return false
 	if ITEMS[i]["node"] == "Continue":
 		return CWSave.can_continue()
+	## 一份回放都没有就灰着 —— 点进去看空列表比点不动更让人困惑
+	if ITEMS[i]["node"] == "Replay":
+		return not CWReplay.list_files().is_empty()
 	return true
 
 
@@ -561,6 +571,8 @@ func _activate(i: int) -> void:
 			_open_online()
 		"Continue":
 			continue_requested.emit()
+		"Replay":
+			_open_replay()
 		"Codex":
 			if _codex == null:
 				_codex = CWCodex.new()
@@ -614,6 +626,23 @@ func _open_online() -> void:
 	_swap = create_tween()
 	_swap.tween_property($UI/Screen, "modulate:a", 0.0, T_SWAP_OUT)
 	_swap.tween_callback(_online.open)
+
+
+## 「对局回放」→ 同一套槽位换面板（同联机面板的路子）
+func _open_replay() -> void:
+	if _swap != null and _swap.is_running():
+		return
+	if _replay == null:
+		_replay = CWReplayPanel.new()
+		_ui.add_child(_replay)
+		_replay.cancelled.connect(_close_config)
+		_replay.picked.connect(func(d: Dictionary) -> void:
+			replay_requested.emit(d))
+	for label in _labels:
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_swap = create_tween()
+	_swap.tween_property($UI/Screen, "modulate:a", 0.0, T_SWAP_OUT)
+	_swap.tween_callback(_replay.open)
 
 
 ## 配置面板 / 联机面板 Esc 退回：原路把菜单淡回来

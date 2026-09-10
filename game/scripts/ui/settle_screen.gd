@@ -14,7 +14,8 @@
 class_name CWSettleScreen
 extends Control
 
-## "restart" = 再来一局（同人数、新种子）；"menu" = 返回主菜单。
+## "restart" = 再来一局（同人数、新种子）；"menu" = 返回主菜单；
+## "replay" = 看这局回放（结算屏右下角那个文字链接，2026-09-09）。
 ## 联机局（online）里右边那颗按钮是「回到等待室」，仍发 "restart"，由 main.gd 按模式分流。
 signal chose(action: String)
 
@@ -479,6 +480,18 @@ func _build_buttons(parent: Control, right: float) -> void:
 	_btns.reverse()
 	_btn_titles.reverse()
 	_btn_costs.reverse()
+	## 「看这局回放」做成**文字链接**而不是第三颗按钮：刚打完那一刻最想重看，
+	## 而这时人已经在结算屏上了 —— 让他走「返回主菜单 → 对局回放 → 从列表里找刚才那局」
+	## 三步没道理。做成链接是因为两颗按钮的宽度与间距是照定稿标的，加第三颗要重排。
+	var link := CWStyle.label("看这局回放", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	link.position = Vector2(right - 320.0, BTN_H + 8.0)
+	link.size = link.get_minimum_size()
+	link.mouse_filter = Control.MOUSE_FILTER_STOP
+	link.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	link.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			chose.emit("replay"))
+	parent.add_child(link)
 
 
 func _button_width(spec: Dictionary) -> float:

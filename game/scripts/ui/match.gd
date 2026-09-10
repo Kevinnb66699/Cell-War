@@ -200,6 +200,11 @@ var _client: CWNetClient
 var _vote: CWSurrenderVote   ## 投降票面（只有联机会用；本地是发起即生效，没有投票）
 var _seen_error := 0         ## 已经弹过的最后一条 error 序号
 var _loop_id := 0        ## 每次 start_online / teardown 递增：旧的 _net_loop 看到号变了就退出
+## 回放（`start_replay` 进入）。speed = 每帧走几步（0.25 = 四帧一步，4 = 一帧四步）
+var replay: CWReplay.Player
+var replay_paused := false
+var replay_speed := 1.0
+var _replay_target := -1     ## 待执行的拖拽目标；-1 = 没有。只由 _replay_loop 消费
 var _ask_serial := 0     ## 每收到一次询问递增：作答时核对，服务器代打后重问的旧答案不发
 
 @onready var board: Node2D = get_node(board_path)
@@ -386,6 +391,82 @@ func start(snap: Dictionary = {}) -> void:
 	if tutorial:
 		_attach_guide()   ## 要在 _run()（第一次询问）之前：第一句提示 / 第一次演示就要读章节
 	_run()
+
+
+## 回放：局面是**本地重建**的（`CWReplay.Player` 已经建好并跑着），
+## 界面这边只负责把它画出来 + 按播放控制推进。
+##
+## 与联机观战的区别：那边的 `game` 是服务器推下来的影子对局（手牌全是背面），
+## 这边是本地重建的真局面 —— **所有人的真手牌都在**，因为这一局已经结束了，
+## 没有什么可保密的（见 CWReplay 文件头）。
+##
+## 桥仍然是 `CWUIBridge`：掷骰演出、通报、过场全是走桥的，
+## 换成纯数据桥回放就成了没有演出的哑剧。`human_players` 留空 = 谁也不问，
+## 桥的 `replay_answers` 非空时 `ask()` 直接念下标。
+func start_replay(p: CWReplay.Player) -> void:
+	_prepare_ui()
+	replay = p
+	game = p.game
+	player_count = game.players.size()
+	for sig in [["card_played", _on_card_played], ["event_drawn", _on_event_drawn],
+			["card_drawn", _on_card_drawn], ["world_event", _on_world_event]]:
+		if not game.is_connected(sig[0], sig[1]):
+			game.connect(sig[0], sig[1])
+	human_players = []                 ## 回放没有「轮到你了」这回事
+	_wire_bridge(0)
+	p.attach(bridge)                   ## 下标串与进度交接给界面桥
+	if pause_menu != null:
+		pause_menu.online = true       ## 暂停菜单只留「离开」：回放不能存档、不能改规则
+	_replay_loop(_loop_id)
+
+
+## 回放的播放键。返回是否吃掉了这一下。
+##   空格 = 暂停 / 继续　　← → = 退 / 进 REPLAY_JUMP 步　　↑ ↓ = 倍速
+## 快退是真的重算（还原关键帧 + 快进），所以按住不放不会失步，只是慢一点
+const REPLAY_JUMP := 10        ## 一下跳几步
+const REPLAY_SPEEDS := [0.25, 0.5, 1.0, 2.0, 4.0]
+
+func _replay_key(event: InputEvent) -> bool:
+	if event.is_action_pressed("ui_accept"):
+		replay_paused = not replay_paused
+		return true
+	if event.is_action_pressed("ui_left") or event.is_action_pressed("ui_right"):
+		var d := REPLAY_JUMP if event.is_action_pressed("ui_right") else -REPLAY_JUMP
+		replay_paused = true          ## 拖完停住 —— 手动找位置时不该被自动播放带走
+		## **只设目标，不自己跑** —— `seek()` 是协程，在输入处理里 await 它
+		## 会让这个函数也变成协程，而且连按两下就是两个 seek 同时在推同一局。
+		## 交给 `_replay_loop` 单点执行：它一帧只处理一次，天然不会打架。
+		var from: int = _replay_target if _replay_target >= 0 else replay.at()
+		_replay_target = clampi(from + d, 0, replay.total)
+		return true
+	if event.is_action_pressed("ui_up") or event.is_action_pressed("ui_down"):
+		var i: int = REPLAY_SPEEDS.find(replay_speed)
+		i = clampi(i + (1 if event.is_action_pressed("ui_up") else -1),
+			0, REPLAY_SPEEDS.size() - 1)
+		replay_speed = REPLAY_SPEEDS[i]
+		return true
+	return false
+
+
+## 回放的推进循环。**速度不在播放器里管** —— 它只提供「往前一步」，
+## 隔多久走一步是这儿的事：暂停就不走，倍速就一帧多走几步。
+func _replay_loop(id: int) -> void:
+	var carry := 0.0
+	while _loop_id == id and replay != null:
+		await get_tree().process_frame
+		## 拖进度：一帧只做一次，做完清目标。快退是真的重算
+		## （还原关键帧 + 快进），所以连按几下只是慢一点，不会失步
+		if _replay_target >= 0:
+			var to: int = _replay_target
+			_replay_target = -1
+			await replay.seek(to)
+			continue
+		if replay_paused or replay.done():
+			continue
+		carry += replay_speed
+		while carry >= 1.0 and not replay.done():
+			carry -= 1.0
+			await replay.step_once()
 
 
 ## 联机：影子对局来自客户端，桥只服务我这一席；询问与演出由 _net_loop 驱动。
@@ -886,6 +967,12 @@ func _exit_tree() -> void:
 ## 覆盖层统一由宿主路由（主菜单那份也是 CWMainMenu 路由的）。书没开就不管，
 ## 暂停菜单 / 行动栏各管各的，不和 L / 空格抢。
 func _unhandled_input(event: InputEvent) -> void:
+	## 回放的播放控制。**接在这一层**：回放局没有行动栏、没有手牌手势，
+	## 方向键与空格本来就没人要，正好拿来当播放键
+	if replay != null and (_codex == null or not _codex.visible):
+		if _replay_key(event):
+			get_viewport().set_input_as_handled()
+			return
 	if _codex == null or not is_instance_valid(_codex) or not _codex.visible:
 		return
 	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("ui_left") \

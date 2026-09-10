@@ -46,6 +46,7 @@ func _ready() -> void:
 	CWSettings.load_prefs()   ## 偏好尽早读：AI 节奏/掷骰动画在开局装配时就要用
 	menu.start_requested.connect(_begin)
 	menu.continue_requested.connect(_continue)
+	menu.replay_requested.connect(_watch_replay)
 	menu.tutorial_requested.connect(_begin_tutorial)
 	menu.online_match_requested.connect(_begin_online)
 	menu.online_lost.connect(_on_online_lost)
@@ -183,8 +184,23 @@ func _on_match_finished(winner: int) -> void:
 	settle.show_result(match_node.game)
 
 
+## 结算屏的「看这局回放」：刚打完那一局就是**最新的一份**（本地局在
+## `_on_match_finished` 里刚存过，联机局由服务器随终局推下来、客户端存过）
+func _watch_latest_replay() -> void:
+	var files := CWReplay.list_files()
+	if files.is_empty():
+		return
+	var d := CWReplay.read(files[0])
+	if d.is_empty():
+		return
+	settle.reset()
+	_watch_replay(d)
+
+
 func _on_settle_chose(action: String) -> void:
 	match action:
+		"replay":
+			_watch_latest_replay()
 		"restart":
 			if match_node.online:
 				_back_to_room()
@@ -237,6 +253,26 @@ func _on_pause_chose(action: String) -> void:
 
 ## 「继续对局」：读档 → 按档里的人数/座位/AI 强度装配 → 镜头推进（不演绽开，
 ## 那是新局的仪式）→ 恢复快照开跑，存档那一刻待决的询问会原样回来。
+## 从回放面板选了一份：镜头照常推进棋盘，只是跑的是播放器而不是新对局
+func _watch_replay(d: Dictionary) -> void:
+	if _entering:
+		return
+	var p := CWReplay.Player.open(d)
+	if p == null:
+		return          ## 读得出但建不起来（版本/参数不认）：留在菜单，面板那边已经报过
+	match_node.tutorial = false
+	match_node.online = false
+	match_node.player_count = int(d.get("players", 4))
+	_entering = true
+	_started_ms = Time.get_ticks_msec()
+	menu.dismiss(T_DECOR, DECOR_DRIFT)
+	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_tween.tween_method(_look, 0.0, 1.0, T_ENTER)
+	await _tween.finished
+	match_node.start_replay(p)
+	_entering = false
+
+
 func _continue() -> void:
 	if _entering:
 		return

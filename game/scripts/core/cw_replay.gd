@@ -182,8 +182,13 @@ class Player extends RefCounted:
 
 	var data := {}
 	var game: CWGame
-	var bridge: Bridge
+	## 念下标的那个桥。无头那条路用 `CWReplay.Bridge`；
+	## **界面那条路用 `CWUIBridge`** —— 掷骰演出、通报、过场全是走桥的，
+	## 换成纯数据桥回放就成了没有任何演出的哑剧（见 CWUIBridge.ask 的注释）。
+	## 两者的游标字段名不同（`at` / `replay_at`），所以这儿留一个口味标记。
+	var bridge: Object
 	var total := 0               ## 一共几步
+	var _ui_flavor := false
 	var _keys: Array = []        ## [{at, snap}]，按 at 升序
 
 	## 开一份回放；数据不合法返回 null
@@ -201,12 +206,34 @@ class Player extends RefCounted:
 		p._keys = [{ "at": 0, "snap": g.snapshot() }]
 		return p
 
+	## 换一个桥来念（界面那条路：`CWMatch` 把自己的 `CWUIBridge` 装进来）。
+	## 下标串与当前进度一起交接，快退时拨的也是它。
+	func attach(b: Object) -> void:
+		var was := at()
+		bridge = b
+		_ui_flavor = not (b is Bridge)
+		if _ui_flavor:
+			b.replay_answers = PackedInt32Array(data["answers"])
+		else:
+			b.answers = PackedInt32Array(data["answers"])
+		for pid in game.order:
+			game.bridges[pid] = b
+		_set_at(was)
+
+
 	## 放到第几步了
 	func at() -> int:
-		return bridge.at
+		return int(bridge.replay_at if _ui_flavor else bridge.at)
+
+
+	func _set_at(n: int) -> void:
+		if _ui_flavor:
+			bridge.replay_at = n
+		else:
+			bridge.at = n
 
 	func done() -> bool:
-		return game.is_over() or bridge.at >= total
+		return game.is_over() or at() >= total
 
 	## 往前一步。放完 / 放到终局返回 false
 	func step_once() -> bool:
@@ -225,19 +252,19 @@ class Player extends RefCounted:
 	## 跳到「已经放了 n 步」的位置。往前接着推，往回先还原关键帧再推
 	func seek(n: int) -> void:
 		n = clampi(n, 0, total)
-		if n < bridge.at:
+		if n < at():
 			_rewind_to(n)
-		while bridge.at < n:
+		while at() < n:
 			if not await step_once():
 				break
 
 	func _maybe_key() -> void:
-		if bridge.at % KEY_EVERY != 0:
+		if at() % KEY_EVERY != 0:
 			return
 		for k: Dictionary in _keys:
-			if int(k["at"]) == bridge.at:
+			if int(k["at"]) == at():
 				return          ## 这一帧存过了（往回跳之后再推回来会重走同一段）
-		_keys.append({ "at": bridge.at, "snap": game.snapshot() })
+		_keys.append({ "at": at(), "snap": game.snapshot() })
 		_keys.sort_custom(func(x: Dictionary, y: Dictionary) -> bool:
 			return int(x["at"]) < int(y["at"]))
 
@@ -249,4 +276,4 @@ class Player extends RefCounted:
 			if int(k["at"]) <= n:
 				best = k
 		game.restore(best["snap"])
-		bridge.at = int(best["at"])
+		_set_at(int(best["at"]))
