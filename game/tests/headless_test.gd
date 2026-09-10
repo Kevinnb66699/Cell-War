@@ -6672,6 +6672,35 @@ func t_match_panel() -> void:
 	check(CWMatchPanel.BAR_DY >= ink + 2.0,
 		"进度条（%d 起）离等级字的底（%d）至少两像素，不贴脸"
 		% [CWMatchPanel.BAR_DY, ink])
+
+	## ---- issue #6：罗马数字与记忆行撞在一起 ----
+	## 原来数字右对齐到一条固定中缝（`W - 92`），那 92 是照旧文案「抗原记忆 5」留的；
+	## 记忆行加上「/ 下一档」变成「抗原记忆 18 / 20」之后往左长，正好顶到数字上。
+	## 现在两边各归各的锚，**钉的是「最长的一档也撞不上」**，不是某个坐标。
+	var cap_w: float = CWStyle.FONT.get_string_size("免疫等级",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+	check(is_equal_approx(p._level.position.x,
+		CWMatchPanel.PAD + cap_w + CWMatchPanel.LEVEL_GAP),
+		"等级数字贴着「免疫等级」（隔 %d px），不再飘在中缝上"
+		% int(CWMatchPanel.LEVEL_GAP))
+	## 纵向按**基线**对齐：两个字号的行框虚高不一样，照行框顶对齐会差 3px ——
+	## 两个字并排时一眼看得出来
+	check(is_equal_approx(p._level.position.y + CWStyle.FONT.get_ascent(CWStyle.SIZE_BODY),
+		p._level_y + 20 + CWStyle.FONT.get_ascent(CWStyle.SIZE_LABEL)),
+		"等级数字与「免疫等级」基线对齐（ascent %d / %d）"
+		% [CWStyle.FONT.get_ascent(CWStyle.SIZE_LABEL), CWStyle.FONT.get_ascent(CWStyle.SIZE_BODY)])
+	## 最长的数字（III）撞最长的记忆行（六人局 II 级「抗原记忆 18 / 20」）
+	var widest_lv: float = 0.0
+	for name: String in CWData.LEVEL_NAMES:
+		widest_lv = maxf(widest_lv, CWStyle.FONT.get_string_size(name,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_BODY).x)
+	var mem_w: float = CWStyle.FONT.get_string_size(
+		CWMatchPanel.memory_text(18, 1, CWData.level_min_memory(6)),
+		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+	var mem_left: float = CWMatchPanel.PAD + CWMatchPanel.W - mem_w
+	check(p._level.position.x + widest_lv + 8.0 <= mem_left,
+		"最长的等级数字（到 x %d）离记忆行左缘（x %d）还有八像素以上"
+		% [int(p._level.position.x + widest_lv), int(mem_left)])
 	var six: Array = CWData.level_min_memory(6)
 	check(is_equal_approx(CWMatchPanel.level_progress(3, 0, six), 0.3)
 		and is_equal_approx(CWMatchPanel.level_progress(18, 1, six), 0.8),
@@ -7203,6 +7232,44 @@ func t_settle_screen() -> void:
 	s._activate(0)
 	s._activate(1)
 	check(got == ["menu", "restart"], "两个出口分别是 menu / restart（%s）" % str(got))
+
+	## ---- issue #7：「看这局回放」错位 ----
+	## 原来写死 `(right - 320, BTN_H + 8)`：纵向落在按钮**下面** 8px，而按钮底边就是
+	## 横幅留出的下内边距（PAD_T）—— 链接整条压在横幅那道底描边上，半截像出了框。
+	## 横向那个 320 也是拍出来的：联机局按钮更宽，两边空隙对不上。
+	## 现在贴最左那颗按钮往左量、和按钮同一条中线。**两种模式各验一遍**。
+	for mode in [false, true]:
+		s.online = mode
+		s.show_result(g)
+		s.skip()
+		var who: String = "联机" if mode else "本地"
+		var link: Label = s._replay_link
+		var btn_left: float = s._btns[0].position.x
+		check(link != null and link.position.x + link.size.x
+			<= btn_left - CWSettleScreen.BTN_GAP,
+			"%s局：链接（右缘 %d）在最左那颗按钮（左缘 %d）左边"
+			% [who, int(link.position.x + link.size.x), int(btn_left)])
+		## **这条才是 issue #7 本身**：整条要落在按钮那一行之内，不许越到下边去
+		check(link.position.y >= 0.0
+			and link.position.y + link.size.y <= CWSettleScreen.BTN_H,
+			"%s局：链接整条在按钮那一行内（%d..%d，行高 %d）"
+			% [who, int(link.position.y), int(link.position.y + link.size.y),
+				CWSettleScreen.BTN_H])
+		## 左下角那行小字不能被压到（它和链接在同一块 r4 上）
+		check(s._meta.position.x + s._meta.get_minimum_size().x < link.position.x,
+			"%s局：底部小字（到 x %d）压不到链接（从 x %d 起）"
+			% [who, int(s._meta.position.x + s._meta.get_minimum_size().x),
+				int(link.position.x)])
+	## 来回切模式**不能越攒越多**：链接不在 `_btns` 里，`_rebuild_buttons` 那趟清不到它
+	await process_frame                  ## queue_free 要等一帧才真的走
+	var links := 0
+	for c in s._btn_parent.get_children():
+		if c is Label and (c as Label).text == "看这局回放":
+			links += 1
+	check(links == 1, "本地 ↔ 联机来回切之后，链接仍然只有一条（现在 %d 条）" % links)
+	s.online = false
+	s.show_result(g)
+	s.skip()
 
 	## ① 不跳过也能自己演完
 	s.show_result(g)

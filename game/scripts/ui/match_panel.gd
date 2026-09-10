@@ -40,6 +40,7 @@ const END_H := 52
 ## 那条关系比「34 还是 38」耐改（换字号时会自己跟着走）。
 const BAR_DY := 38.0
 const BAR_H := 4.0
+const LEVEL_GAP := 8.0      ## 「免疫等级」与它后面那个罗马数字之间的字距
 
 const W := 232          ## 内容宽 = 264 - 16×2
 const ROW_PAD := 6      ## 玩家行自己的左右内边距
@@ -421,9 +422,21 @@ func _build(n: int) -> void:
 	rule.position = Vector2(PAD, y)
 	rule.size = Vector2(W, 1)
 	add_child(rule)
-	_put(CWStyle.label("免疫等级", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM), PAD, y + 20, 80)
-	_level = _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.IMMUNE),
-		PAD, y + 12, W - 92, HORIZONTAL_ALIGNMENT_RIGHT)
+	var lv_cap := CWStyle.label("免疫等级", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	_put(lv_cap, PAD, y + 20, 80)
+	## 等级数字**贴着它自己的标签**摆。原来是右对齐到一条固定中缝（`W - 92`），
+	## 那 92 是照旧文案「抗原记忆 5」的宽度留的；2026-09-10 记忆行加上「/ 下一档」
+	## 之后变成「抗原记忆 18 / 20」，右边那串往左长，正好顶到数字上（issue #6）。
+	## 现在两边各归各的锚：数字跟「免疫等级」，记忆行仍右对齐到 W ——
+	## 中间那段空白是缓冲，记忆行再长也撞不上，也不必再有人记得同步那个 92。
+	##
+	## 纵向按**基线**对齐而不是按行框：两个字号的行框虚高不一样（10px 的 ascent 11、
+	## 20px 的 22），照行框顶对齐会差 3px，并排时一眼就看得出来。
+	var lv_y: float = y + 20 + CWStyle.FONT.get_ascent(CWStyle.SIZE_LABEL) \
+		- CWStyle.FONT.get_ascent(CWStyle.SIZE_BODY)
+	var lv_x: float = PAD + CWStyle.FONT.get_string_size(lv_cap.text,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x + LEVEL_GAP
+	_level = _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.IMMUNE), lv_x, lv_y, 60)
 	_memory = _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
 		PAD, y + 20, W, HORIZONTAL_ALIGNMENT_RIGHT)
 	## 升级进度条（Kevin 2026-09-10：「方便玩家观察和计算」）。

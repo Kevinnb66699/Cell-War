@@ -35,6 +35,9 @@ const BAR_W := 300          ## 右边加权条
 const BAR_H := 8
 const BTN_H := 52           ## 和 CWActionBar.BTN_H 是同一个数，两处按钮要一样高
 const BTN_GAP := 8
+## 「看这局回放」那条文字链接离最左那颗按钮多远。比 BTN_GAP 宽一档：
+## 它不是第三颗按钮，隔开一点才读得出「另一档分量」
+const LINK_GAP := 16.0
 
 ## 结局标签。四种 win_kind 里有两种是 30 回合到的**判定**，不是击溃 ——
 ## 标签必须把这件事说出来，否则「限时判定」会被读成「打赢了」。
@@ -84,6 +87,7 @@ var _bar_note: Label
 var _btns: Array[PanelContainer] = []
 var _btn_titles: Array[Label] = []
 var _btn_costs: Array[Label] = []
+var _replay_link: Label     ## 「看这局回放」；位置跟着最左那颗按钮走，见 _build_buttons
 
 var _built := false
 var _built_online := false  ## 按钮是按哪种模式建的：模式变了就重建那两颗
@@ -483,15 +487,27 @@ func _build_buttons(parent: Control, right: float) -> void:
 	## 「看这局回放」做成**文字链接**而不是第三颗按钮：刚打完那一刻最想重看，
 	## 而这时人已经在结算屏上了 —— 让他走「返回主菜单 → 对局回放 → 从列表里找刚才那局」
 	## 三步没道理。做成链接是因为两颗按钮的宽度与间距是照定稿标的，加第三颗要重排。
+	##
+	## **摆在按钮左边、和它们同一条中线**（2026-09-10 修 issue #7）。原来写的是
+	## `(right - 320, BTN_H + 8)`：纵向落在按钮**下面** 8px，而按钮底边就是横幅
+	## 留出的下内边距（PAD_T）—— 链接因此整条压在横幅那道底描边上，半截像出了框；
+	## 横向那个 320 是拍出来的常数，联机局的按钮更宽（「回到等待室 / 房主可再开一局」），
+	## 两边的空隙对不上。现在**贴着最左那颗按钮往左量**（循环出来的 `x` 正是
+	## 最左按钮的左缘减一个 BTN_GAP），按钮宽窄变了它自己跟着走。
+	## 重建（本地 ↔ 联机切换）时要把上一条**收掉**：它不在 `_btns` 里，
+	## `_rebuild_buttons` 那趟清不到，来回切几次就是好几条叠着
+	if _replay_link != null and is_instance_valid(_replay_link):
+		_replay_link.queue_free()
 	var link := CWStyle.label("看这局回放", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	link.position = Vector2(right - 320.0, BTN_H + 8.0)
 	link.size = link.get_minimum_size()
+	link.position = Vector2(x - LINK_GAP - link.size.x, (BTN_H - link.size.y) / 2.0)
 	link.mouse_filter = Control.MOUSE_FILTER_STOP
 	link.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	link.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			chose.emit("replay"))
 	parent.add_child(link)
+	_replay_link = link
 
 
 func _button_width(spec: Dictionary) -> float:
