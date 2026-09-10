@@ -60,13 +60,34 @@ const PCK_HOSTS := [SELF_HOST]
 ## 查更新最多等这么久。**查不到就照原样进游戏** —— 联网是锦上添花，
 ## 不该让一个断网的人打不开单机（Kevin 的队友常在手机热点下玩）。
 const NET_TIMEOUT := 6.0
+## 查 manifest 的**总**预算：manifest 与它的签名两口**合起来**不超过这个数。
+## 上一版是各给 NET_TIMEOUT = 最坏 12 秒白屏 —— 而这两口都是几百字节的元数据，
+## 慢到要分开各等 6 秒的网络，再等下去也拿不到（Kevin 2026-09-10）。
+## 补丁包本身仍用 NET_TIMEOUT 自己的那份：几十 KB 的下载值得多等一会儿。
+const CHECK_BUDGET := 6.0
+## 等了这么久还没查完，就把「跳过」露出来。
+##
+## **必须早于自动兜底**（`CHECK_BUDGET`），否则按钮刚亮游戏就自己进去了 ——
+## Kevin 最初提的是 10 秒，而那时最坏也只剩两秒可等，等于白加一个按钮。
+## 护栏 `t_hot_patch` 钉着 SKIP_AFTER < CHECK_BUDGET 这条关系。
+const SKIP_AFTER := 2.0
 
 var _note: Label
+var _skip: Button          ## 「跳过，直接进游戏」；等到 SKIP_AFTER 才露面
+var _skipped := false      ## 玩家按过跳过：在飞的请求就地放弃，后面的一律不发
 var _http: HTTPRequest
+var _t0 := 0               ## 启动时刻，用来算「等了多久」（按钮什么时候露面）
 
 
 func _ready() -> void:
+	_t0 = Time.get_ticks_msec()
 	_build_note()
+	## **一进来就写字**。上一版这一段是全空白的：`_note` 建出来是空的，
+	## 而「正在更新…」只在真要装补丁时才写 —— 于是断网的人看到的是
+	## 一块深色底、什么都没有，最长十几秒，和死机没法区分
+	## （Kevin 2026-09-10 就是这么问上来的：「会不会导致最后进入不了游戏？」）。
+	## 进不去是不会的（超时就照原样进），但**看起来像**进不去，那就得改。
+	_note.text = "正在检查更新…"
 	_http = HTTPRequest.new()
 	add_child(_http)
 	## 顺序要紧：**先把新补丁落到盘上，再统一走挂载那一步**。
@@ -130,7 +151,7 @@ static func pinned(url: String) -> bool:
 	return false
 
 
-## 返回要给玩家看的话；空串 = 没事发生（正常启动不该多一屏「正在检查更新」）。
+## 返回**查完之后**要给玩家看的话；空串 = 没事发生（那就别多停一屏，直接进游戏）。
 func _fetch_update() -> String:
 	var plan := decide(await _get_manifest(), PatchState.installed_build(),
 		PatchState.blocked_build(), PatchState.base_build())
@@ -162,10 +183,12 @@ func _fetch_update() -> String:
 ## **签名要连着一起取**：只有 manifest 没有签名，就是没法证明来路，直接放弃。
 func _get_manifest() -> Dictionary:
 	var stamp := "?t=%d" % Time.get_unix_time_from_system()
-	var body := await _request(MANIFEST + stamp, "")
+	## 两口**共用一个 deadline**：加起来才是玩家盯着屏幕等的时间（见 CHECK_BUDGET）
+	var by := Time.get_ticks_msec() + int(CHECK_BUDGET * 1000.0)
+	var body := await _request(MANIFEST + stamp, "", by)
 	if body.is_empty():
 		return {}
-	var sig := await _request(MANIFEST_SIG + stamp, "")
+	var sig := await _request(MANIFEST_SIG + stamp, "", by)
 	if sig.is_empty():
 		return {}
 	if not PatchState.verify_manifest(body, sig.get_string_from_utf8()):
@@ -191,7 +214,11 @@ func _download(url: String, to: String) -> bool:
 ## 改成**自己轮询**：拿到结果、或者到点，两条路都必然走得出去。
 ## 这也顺手解决了上一版那个「两次请求共用一口超时钟、第一口把第二次掐掉」的问题 ——
 ## 每次请求自己数自己的表，没有跨请求的状态。
-func _request(url: String, to: String) -> PackedByteArray:
+## `deadline_ms` 非 0 = 用调用方给的那个到点时刻（几口请求共用一份预算）；
+## 0 = 从现在起自己数 NET_TIMEOUT。
+func _request(url: String, to: String, deadline_ms := 0) -> PackedByteArray:
+	if _skipped:
+		return PackedByteArray()          ## 玩家已经说了不等，后面的请求一个都别发
 	if not pinned(url):
 		return PackedByteArray()          ## 见文件头安全第 ③ 条：只走写死的那几个前缀
 	_http.download_file = to
@@ -202,8 +229,15 @@ func _request(url: String, to: String) -> PackedByteArray:
 		func(result: int, code: int, _h: PackedStringArray, body: PackedByteArray) -> void:
 			got.append([result, code, body]),
 		CONNECT_ONE_SHOT)
-	var deadline := Time.get_ticks_msec() + int(NET_TIMEOUT * 1000.0)
-	while got.is_empty() and Time.get_ticks_msec() < deadline:
+	var deadline := deadline_ms
+	if deadline <= 0:
+		deadline = Time.get_ticks_msec() + int(NET_TIMEOUT * 1000.0)
+	while got.is_empty() and not _skipped and Time.get_ticks_msec() < deadline:
+		## 按钮就在这个轮询里露面 —— **不另起 Timer**：换场景之后本节点就没了，
+		## 挂在计时器上的回调会打到一个已经释放的按钮上。
+		## 而这儿是唯一真的在等网络的地方，等多久它自己知道。
+		if not _skip.visible and Time.get_ticks_msec() - _t0 >= int(SKIP_AFTER * 1000.0):
+			_skip.visible = true
 		await get_tree().process_frame
 	if got.is_empty():
 		_http.cancel_request()
@@ -253,8 +287,38 @@ func _build_note() -> void:
 	_note.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_note.add_theme_font_override("font",
-		load("res://assets/fonts/fusion_pixel_10px.ttf") as Font)
+	var font := load("res://assets/fonts/fusion_pixel_10px.ttf") as Font
+	_note.add_theme_font_override("font", font)
 	_note.add_theme_font_size_override("font_size", 20)
 	_note.add_theme_color_override("font_color", Color("eaf8fc"))
 	layer.add_child(_note)
+	## 逃生口：网络卡住时玩家自己决定不等了。**只跳过「下载补丁」这一件事** ——
+	## 不改联机、不进什么「离线模式」。启动时连不上补丁站（80 口的 nginx）
+	## 和连不连得上联机服务器（8611 的 WebSocket）是两码事，而且网络随时会恢复；
+	## 真正危险的「跳过了升协议的补丁还去联机」，服务器握手本来就会拒，
+	## 报的还是「客户端版本与服务器不符」，比一个灰按钮说得清楚（Kevin 2026-09-10 定）。
+	_skip = Button.new()
+	_skip.text = "跳过，直接进游戏"
+	_skip.visible = false
+	_skip.add_theme_font_override("font", font)
+	_skip.add_theme_font_size_override("font_size", 20)
+	_skip.add_theme_color_override("font_color", Color("cfe2e6"))
+	_skip.add_theme_color_override("font_hover_color", Color("ffffff"))
+	## 它得**看着像个能按的东西**：第一版只给了字，出图一看就是「第二行说明」，
+	## 而且默认底框贴着字，最后一个字被裁掉半个。所以自己画一份底框 + 内边距。
+	## 这里不能用 `CWStyle.box()` —— 那是游戏里的类，见文件头第 ② 条，
+	## 所以把它那几个取值手抄一份（改配色时记得这儿有一份影子）。
+	for state: String in ["normal", "hover", "pressed", "focus"]:
+		var box := StyleBoxFlat.new()
+		box.bg_color = Color("0a1018e6")
+		box.set_border_width_all(1)
+		box.border_color = Color("3fa5b6") if state == "normal" else Color("eaf8fc")
+		box.content_margin_left = 14.0
+		box.content_margin_right = 14.0
+		box.content_margin_top = 7.0
+		box.content_margin_bottom = 7.0
+		_skip.add_theme_stylebox_override(state, box)
+	_skip.pressed.connect(func() -> void: _skipped = true)
+	layer.add_child(_skip)
+	_skip.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_skip.position += Vector2(0, 52)      ## 摆在那行字底下，隔开一行的距离

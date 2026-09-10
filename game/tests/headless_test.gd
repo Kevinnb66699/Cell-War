@@ -4946,6 +4946,37 @@ func t_hot_patch() -> void:
 	check(Boot.decide(good, 100, 0, 0)["act"] == "install",
 		"基线读不出来（0）→ 放行，而不是一律判太老")
 
+	## ---- 断网时的启动兜底（Kevin 2026-09-10）----
+	## 起因：「玩家断网连不上服务器、一直黑屏，会不会最后进不了游戏？」
+	## 进不去是不会的 —— 每口请求都有硬上限，超时就照原样进（`decide({})` 那条已经钉着）。
+	## 但**查更新那一段屏幕上一个字都没有**，看起来就是死机。于是补三件：
+	## 一进来就写字、等久了露一个「跳过」、manifest 与签名共用一份预算。
+	##
+	## 这条护栏钉的是**按钮必须早于自动兜底出现**。Kevin 最初提的门槛是 10 秒，
+	## 而那时最坏也只剩两秒可等 —— 按钮刚亮游戏就自己进去了，等于白加。
+	check(Boot.SKIP_AFTER < Boot.CHECK_BUDGET,
+		"「跳过」（%.1fs）要早于自动兜底（%.1fs），否则按钮刚亮游戏就自己进了"
+		% [Boot.SKIP_AFTER, Boot.CHECK_BUDGET])
+	## 补丁包那口仍走自己的 NET_TIMEOUT：几十 KB 的下载值得比元数据多等一会儿
+	check(Boot.NET_TIMEOUT >= Boot.CHECK_BUDGET,
+		"补丁包的超时不短于查 manifest 的总预算（%.1fs / %.1fs）"
+		% [Boot.NET_TIMEOUT, Boot.CHECK_BUDGET])
+	## 「跳过」得**看着像个能按的东西**：第一版只给了一行字，出图一看就是
+	## 「第二行说明」，玩家不会去点。所以钉住它有底框、有内边距。
+	## **不进场景树**地建（`_ready` 一跑就要去连补丁站，套件不该依赖外网）——
+	## 底框与字体这些不看视口，照样验得了。
+	var boot: Node = Boot.new()
+	boot._build_note()
+	var box: StyleBox = boot._skip.get_theme_stylebox("normal")
+	check(not boot._skip.visible and boot._skip.text.contains("跳过"),
+		"按钮默认藏着，等到 SKIP_AFTER 才露面")
+	check(box is StyleBoxFlat and (box as StyleBoxFlat).border_width_left > 0
+		and box.content_margin_left >= 10.0,
+		"按钮有底框和内边距（不然就是一行字，而且末字会被裁）")
+	check(boot._skip.get_theme_font("font") == boot._note.get_theme_font("font"),
+		"按钮与提示同一份点阵字体（boot.gd 不许碰 CWStyle，字体只能按路径 load）")
+	boot.free()
+
 	## manifest 不干净就当没看见 —— 它给的地址与指纹都要再挡一道
 	var evil: Dictionary = good.duplicate()
 	evil["pck"] = "https://evil.example.com/patch.pck"
