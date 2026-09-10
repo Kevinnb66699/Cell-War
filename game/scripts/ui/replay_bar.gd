@@ -29,6 +29,11 @@ const BTN_W := 40.0
 const BAR_X := 200.0          ## 进度条左缘（相对本条）
 const BAR_H := 6.0
 const JUMP := 10              ## 快进快退一下几步（同键盘）
+## 暂停键那两块收紧几像素。两个 `▮` 各占一个整字宽，中间的空当比
+## `◀◀` / `▶▶` 内部的还大，三个键摆一排就不像一家人
+## （Kevin 2026-09-09：「间距改小一点」）。收 6 之后正好与三角那两个一致
+## （出图比过 0 / -2 / -4 / -6 / -8）
+const PAUSE_TIGHT := -6
 
 var total := 0
 var at := 0
@@ -40,6 +45,8 @@ var _bar_fill: ColorRect
 var _play: Label
 var _count: Label
 var _speed: Label
+var _tight: FontVariation   ## 只给暂停那两块用的紧字距
+var _play_x := 0.0          ## 暂停键的原始横坐标（换字距要拿它抵偏移）
 var _dragging := false
 
 
@@ -67,7 +74,11 @@ func _build() -> void:
 	add_child(plate)
 
 	_btn("◀◀", PAD, func() -> void: jumped.emit(at - JUMP))
-	_play = _btn("▶", PAD + BTN_W + 6.0, func() -> void: paused_toggled.emit())
+	_play_x = PAD + BTN_W + 6.0
+	_play = _btn("▶", _play_x, func() -> void: paused_toggled.emit())
+	_tight = FontVariation.new()
+	_tight.base_font = CWStyle.FONT
+	_tight.spacing_glyph = PAUSE_TIGHT
 	_btn("▶▶", PAD + (BTN_W + 6.0) * 2.0, func() -> void: jumped.emit(at + JUMP))
 
 	## 进度条：点哪儿跳哪儿，按住能拖
@@ -141,6 +152,11 @@ func _repaint() -> void:
 	## 摆在 `◀◀` `▶▶` 那两个实心三角中间明显轻一档（出图比过五个候选）。
 	## `▮` 是实心竖块，和三角同重量，两个并排就是标准暂停图标。
 	_play.text = "▶" if paused else "▮▮"
+	## 紧字距**只给暂停那两块**：`▶` 是单字，加负字距只会把它推歪
+	_play.add_theme_font_override("font", CWStyle.FONT if paused else _tight)
+	## 居中是按**测出来的串宽**算的，而负字距也记在末尾那一个字上 ——
+	## 于是两块整体右移半个字距，这儿抵回来
+	_play.position.x = _play_x + (0.0 if paused else PAUSE_TIGHT / 2.0)
 	_count.text = "%d / %d" % [at, total]
 	_speed.text = ("%.2f" % speed).rstrip("0").rstrip(".") + "x"
 	var p: float = 0.0 if total <= 0 else clampf(float(at) / float(total), 0.0, 1.0)

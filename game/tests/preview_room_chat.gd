@@ -68,7 +68,11 @@ func _process(_d: float) -> bool:
 	if _frames == 2:
 		_p.open()
 		_p._show_page(CWOnlinePanel.Page.ROOM)
-	if _frames < WARMUP:
+	## **等淡入真的走完再拍**，别数帧：`open()` 是 0.32 秒的**时间**补间，
+	## 而这个循环不吃 vsync，一帧可能只有几毫秒 —— 数十几帧只等到 0.1 秒，
+	## 拍下来整块 `modulate.a` 才 0.3，图里的字全是半透明的
+	## （2026-09-09 Kevin 一句「为什么这图片里面的字这么淡」才揭穿）
+	if _frames < WARMUP or _p.modulate.a < 1.0:
 		return false
 	root.get_texture().get_image().save_png(_out)
 	return true

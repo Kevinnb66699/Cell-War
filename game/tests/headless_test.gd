@@ -9091,6 +9091,22 @@ func t_replay() -> void:
 	## 条与行动栏同一条纵坐标（回放局行动栏不出现，这条顶它的位置）
 	check(CWReplayBar.RECT.position.y == CWActionBar.BAR_RECT.position.y,
 		"播放条与行动栏同一条纵坐标（%d）" % int(CWReplayBar.RECT.position.y))
+	## 暂停键那两块 `▮` 要收紧字距（Kevin 2026-09-09：「间距改小一点」），
+	## 但**只能给两块用** —— `▶` 是单字，加负字距只会把它推歪。
+	## 而收紧之后居中会整体右偏（居中按测出来的串宽算，负字距记在末尾那个字上），
+	## 所以横坐标要抵一次。这两条一起钉住，免得以后只改一半
+	var rb := CWReplayBar.new()
+	root.add_child(rb)
+	await process_frame
+	rb.refresh(10, 100, false, 1.0)
+	check(rb._play.text == "▮▮" and rb._play.get_theme_font("font") == rb._tight
+		and is_equal_approx(rb._play.position.x, rb._play_x + CWReplayBar.PAUSE_TIGHT / 2.0),
+		"放着：两块 ▮ + 紧字距 + 横坐标抵回半个字距")
+	rb.refresh(10, 100, true, 1.0)
+	check(rb._play.text == "▶" and rb._play.get_theme_font("font") == CWStyle.FONT
+		and is_equal_approx(rb._play.position.x, rb._play_x),
+		"暂停：单个 ▶ 用回常规字距、横坐标也回原位")
+	rb.queue_free()
 
 	## ---- 念完了要安静收场 ----
 	## 录漏尾巴（传输截断、手工改文件）时不能乱走：下标 0 是「停止 / 放弃」那一项
