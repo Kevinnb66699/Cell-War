@@ -382,6 +382,7 @@ func start(snap: Dictionary = {}) -> void:
 	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。
 	for pid in game.order:
 		game.bridges[pid] = bridge
+	game.record_replay = true          ## 真对局才录（MC 推演不录，见 CWGame.ask）
 	if tutorial:
 		_attach_guide()   ## 要在 _run()（第一次询问）之前：第一句提示 / 第一次演示就要读章节
 	_run()

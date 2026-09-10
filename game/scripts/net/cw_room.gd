@@ -323,6 +323,7 @@ func start(cid: int) -> String:
 	game.tune.world_events_on = world_events
 	var seed_value: int = seed_override if seed_override != 0 else server.rng.randi()
 	game.init(CWData.FACTION_ORDER[player_count], seed_value)
+	game.record_replay = true          ## 真对局才录（MC 推演不录，见 CWGame.ask）
 	_name_seats()
 	bridge = CWNetBridge.new()
 	bridge.room = self
@@ -346,8 +347,10 @@ func _run() -> void:
 		return
 	push_state(-1)
 	games_played += 1
+	## 回放**发给玩家**：服务器存在自己盘上没意义，要看的人在客户端那头。
+	## 这是 S→C 方向的新字段，老客户端读不到、行为照旧，所以不用升 NET_VERSION。
 	broadcast({ "t": "game_over", "winner": winner, "reason": game.win_reason,
-		"kind": game.win_kind, "round": game.round_no })
+		"kind": game.win_kind, "round": game.round_no, "replay": CWReplay.of(game) })
 	server.say("房间 %s 终局：%s（第 %d 回合）" % [code, game.win_reason, game.round_no])
 	state = State.WAITING
 	for s in seats:

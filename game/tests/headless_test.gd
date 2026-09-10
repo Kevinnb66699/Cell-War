@@ -110,7 +110,7 @@ func _run_all() -> void:
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_tutorial_auto_advance, t_stroma_targets, t_batch2_rules,
 		t_immune_level_rules, t_tissue_transitions, t_one_cell_per_tile, t_phase_order,
-		t_event_rounds, t_draw_limit, t_snapshot, t_state_codec,
+		t_event_rounds, t_draw_limit, t_snapshot, t_state_codec, t_replay,
 		t_rollout_isolation, t_step_atomic, t_full_game_2p, t_full_game_4p,
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
@@ -8956,6 +8956,79 @@ func t_snapshot() -> void:
 
 
 ## CWStateCodec 的包含/排除边界。每次只动一个会改变后续结算的字段，哈希都必须变。
+# ---- 回放：一局 = 开局参数 + 一串下标 ----
+func t_replay() -> void:
+	print("[回放]")
+	## 这条测试的全部意思：**录下来的东西能不能一模一样放回去**。
+	## 判据用 `state_hash()` —— 它就是「什么会改变下一步结算」的唯一清单，
+	## 两局的哈希一样就等于逐字段一样，比挨个比字段可靠得多。
+	var g := make_game(2, 4242)
+	g.record_replay = true
+	await run_setup(g)
+	## 用启发式桥把整局打完：AI 的每一次作答同样从 CWGame.ask 过，一样被录下
+	var heur := CWHeuristicBridge.new()
+	heur.game = g
+	for pid in g.order:
+		g.bridges[pid] = heur
+	await g.run_game()
+	check(g.is_over(), "录制局打完了（第 %d 回合，%s）" % [g.round_no, g.win_reason])
+	check(g.replay.size() > 20, "录到了 %d 次作答" % g.replay.size())
+	var want := g.state_hash()
+
+	## ---- 放回去 ----
+	var d := CWReplay.of(g)
+	check(CWReplay.valid(d), "取出来的这份是合法回放")
+	var g2 := CWReplay.build(d)
+	check(g2 != null, "按它重建了一局")
+	await run_setup(g2)
+	await g2.run_game()
+	check(g2.state_hash() == want,
+		"放完之后**逐字段一致**（哈希 %s vs %s）" % [g2.state_hash().substr(0, 8), want.substr(0, 8)])
+	check(g2.winner == g.winner and g2.round_no == g.round_no,
+		"同一个赢家、同一个回合数（%d 回合）" % g2.round_no)
+
+	## ---- 存盘往返 ----
+	var path := CWReplay.save(g)
+	check(path != "", "存得下（%s）" % path)
+	var back := CWReplay.read(path)
+	check(CWReplay.valid(back) and PackedInt32Array(back["answers"]) == g.replay,
+		"读回来的下标串与录的一致")
+	check(CWReplay.list_files().has(path), "列表里找得到它")
+
+	## ---- 坏文件一律当没有 ----
+	## 回放会被人拷来拷去，坏一个字段就该安静地当没这份，而不是半路崩在引擎里
+	check(not CWReplay.valid({}), "空字典不是回放")
+	var bad := back.duplicate()
+	bad["version"] = 999
+	check(not CWReplay.valid(bad), "版本认不出就不认")
+	bad = back.duplicate()
+	bad["players"] = 5
+	check(not CWReplay.valid(bad), "人数不合法就不认（只有 2/4/6）")
+	bad = back.duplicate()
+	bad["answers"] = "不是数组"
+	check(not CWReplay.valid(bad), "下标串类型不对就不认")
+	check(CWReplay.build(bad) == null, "认不出的回放建不出对局")
+	check(CWReplay.read("user://没有这个文件.cwr").is_empty(), "读不存在的文件返回空")
+
+	## ---- 念完了要安静收场 ----
+	## 录漏尾巴（传输截断、手工改文件）时不能乱走：下标 0 是「停止 / 放弃」那一项
+	var b := CWReplay.Bridge.new()
+	b.answers = PackedInt32Array([2, 1])
+	check(b.ask({}) == 2 and b.ask({}) == 1, "按顺序念")
+	check(b.left() == 0, "念完了")
+	check(b.ask({}) == 0, "念完之后一律返回 0（那是「停止 / 放弃」的位置）")
+
+	## ---- 默认不录 ----
+	## MC 推演每步要问上千次，录进去纯属白烧内存
+	var quiet := make_game(2, 9)
+	await run_setup(quiet)
+	check(not quiet.record_replay and quiet.replay.is_empty(), "开关默认关，不录")
+	quiet.dispose()
+	DirAccess.remove_absolute(path)
+	g.dispose()
+	g2.dispose()
+
+
 func t_state_codec() -> void:
 	print("[状态编码]")
 	var g := make_game(2, 103)

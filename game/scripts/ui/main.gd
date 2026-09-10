@@ -176,6 +176,10 @@ func _on_match_finished(winner: int) -> void:
 	pause.active = false
 	## 还飘在棋盘上的临时 HUD（提示气泡、左侧出牌列）一起收掉，否则结算屏一出来就显得脏
 	match_node.clear_transient_hud()
+	## 本地局的回放自己存（联机局是服务器随终局发下来、客户端那边存的）。
+	## 存不下就算了 —— 一局回放丢了不该挡住结算屏
+	if not match_node.online:
+		CWReplay.save(match_node.game)
 	settle.show_result(match_node.game)
 
 

@@ -23,6 +23,10 @@ var cells: Array = []      # 细胞字典数组，含死亡细胞（alive=false�
 var players: Array = []    # {id, name, faction, cell_id}
 var order: Array = []      # 行动顺序（player id 列表）
 var round_no := 1          # 当前世界回合（从 1 起）
+## 回放流水：这一局每次询问选了第几项，按顺序。**不进快照、不进哈希** ——
+## 它不改任何结算，是给人事后看的（同 feed_log 的道理）。开关默认关，见 ask()。
+var replay: PackedInt32Array = []
+var record_replay := false
 var board_radius := CWData.BOARD_RADIUS   # 本局棋盘半径：正式局固定 6；教程小棋盘由 build_board(radius) 落定。
 ## 引擎内的在板判断一律走本方法（不是 CWData 的静态版）——小棋盘上静态版会把板外格
 ## 误判成在板，随后的 tiles 查询就会炸（2026-09-10 教程导演切片⑦踩出的接缝缺陷）。
@@ -378,7 +382,14 @@ func ask(pid: int, req: Dictionary) -> int:
 	var idx := 0
 	if b != null:
 		idx = await b.ask(req)
-	return clampi(idx, 0, req["options"].size() - 1)
+	idx = clampi(idx, 0, req["options"].size() - 1)
+	## 回放流水（见 CWReplay）。录在这儿是因为**这里是引擎与决策者之间的唯一通道**
+	## （cw_bridge.gd 的文件头）：人类、AI、离线代打、超时代打全从这儿过，一个都漏不掉。
+	## 录的是**钳位之后**的值 —— 回放要复现的是引擎真正用了哪一项，不是谁报了什么。
+	## 默认关：MC 推演每步要问上千次，录进去纯属白烧内存。
+	if record_replay:
+		replay.append(idx)
+	return idx
 
 
 ## 【溢出】把所有存活细胞的能量削到上限（PRD 2026-09-01：「能量最高储存量为 15，

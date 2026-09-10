@@ -223,6 +223,11 @@ func _apply(m: Dictionary) -> void:
 			game_over = m
 			pending_ask = {}
 			surrender_vote = {}
+			## 联机局的回放由服务器随终局发下来（本地局是 CWMain 自己存）。
+			## 存不下就算了 —— 一局回放丢了不该影响任何别的事
+			var rep: Variant = m.get("replay")
+			if typeof(rep) == TYPE_DICTIONARY and CWReplay.valid(rep):
+				CWReplay.write(rep)
 		"surrender_vote":
 			## **不进 stream**：票面是「此刻」的状态，跟着对局流排队播的话，
 			## 倒计时会连着演出一起延后，30 秒的窗口就对不上了
