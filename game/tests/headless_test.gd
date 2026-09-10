@@ -115,7 +115,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_hot_patch, t_save_load, t_settings, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_hot_patch, t_online_doc, t_save_load, t_settings, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -4976,6 +4976,50 @@ func t_hot_patch() -> void:
 		"证明期 %.1f 秒：够盖住主场景构建与首帧，又不至于长到随手一关就算失败"
 			% PatchState.PROVE_SEC)
 
+
+# ---- 联机操作说明里的数字必须跟常量对得上 ----
+func t_online_doc() -> void:
+	print("[联机操作说明]")
+	## 这份文档是**给玩的人看**的，里面每个数字都对应一个常量。
+	## 没有护栏的话它会静默过期：改了常量、忘了改文档，队友照着旧数字做判断
+	## （「掉线多久算离开」「超时会不会判负」这种），比没有文档更糟。
+	## 同 prd_crosscheck.py 的路子，只是这边小到能塞进套件里。
+	var doc := FileAccess.get_file_as_string("res://../docs/联机操作说明.md")
+	check(doc.length() > 1000, "读得到 docs/联机操作说明.md（%d 字）" % doc.length())
+	if doc.is_empty():
+		return                          ## 读不到就没什么可对的，上面那条已经红了
+
+	var want := {
+		"%d 个字" % CWNet.NICK_MAX: "昵称上限",
+		"%d 位" % CWNet.CODE_LEN: "房间码长度",
+		"%d 秒** 发一次心跳" % (CWNet.HEARTBEAT_MS / 1000): "心跳间隔",
+		"%d 秒** 没收到" % (CWNet.DEAD_MS / 1000): "判掉线的静默时长",
+		"%d 分钟**没人自动关" % (CWNet.ROOM_IDLE_MS / 60000): "空房自动关",
+		"%d 秒**内没投够" % (CWNet.SURRENDER_VOTE_MS / 1000): "投降票时限",
+		"%s:%d" % [CWNet.DEFAULT_HOST, CWNet.DEFAULT_PORT]: "默认服务器地址",
+	}
+	var stale: Array = []
+	for frag: String in want:
+		if not doc.contains(frag):
+			stale.append("%s（找不到「%s」）" % [want[frag], frag])
+	check(stale.is_empty(), "文档里的数字与常量一致（对不上的：%s）" % str(stale))
+
+	## 2.5 分钟这种带小数的单独对：150000 ms = 2.5 分钟
+	var mins := float(CWNet.DROP_TO_LEFT_MS) / 60000.0
+	check(doc.contains("%s 分钟" % String.num(mins, 1)),
+		"「断线满 %.1f 分钟视同离开」与 DROP_TO_LEFT_MS 一致" % mins)
+
+	## 每步计时的四档必须一个不少 —— 玩家是照着这张表建房的
+	var timers: Array = []
+	for t: int in [0, 30, 60, 90]:
+		var word: String = "不限" if t == 0 else "%d 秒" % t
+		if not doc.contains(word):
+			timers.append(word)
+	check(timers.is_empty(), "四档每步计时都写在文档里（缺：%s）" % str(timers))
+
+	## **超时是代打不是判负**：这条传错了队友就不敢开计时，必须写明
+	check(doc.contains("代打") and doc.contains("不是判负"),
+		"文档写明「超时自动代打，不是判负」")
 
 func t_save_load() -> void:
 	print("[存档读档]")
