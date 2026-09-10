@@ -127,24 +127,12 @@ const MARK_OSSIFY := Color("e8d9a0")   ## 骨白偏暖，和癌方的洋红、�
 const OSSIFY_ALPHA := Vector2(0.18, 0.46)   ## 脉冲的最暗 / 最亮
 const OSSIFY_HZ := 1.2                      ## 脉冲频率；最后一回合翻倍
 
-## 印戒【黏液破裂】留下的「黏液侵染」（Kevin 2026-09-10 报：「黏液效果没有显示出来」）。
+## 印戒【黏液破裂】留下的「黏液侵染」画在哪：**见 `CWBoard.set_mucus`**。
 ##
-## 这是个**有真实效果的常驻状态** —— 免疫踏进去多付 `mucus_move_surcharge`、
-## 进去之后立刻清掉 —— 而在此之前它在棋盘上**完全没有表示**：玩家没法知道哪几格沾了，
-## 只能一格格悬停去看详情栏（09-08 补的那条）。`CWMucusFx` 的文件头写着
-## 「地上那层黏液不归这儿画，棋盘贴图自己会变」，那句话从写下来就是空头支票，
-## `CWBoard.set_tissue` 里从来没有过这一档。
-##
-## **用色标而不是新贴图**：一格黏液最多活到下一个免疫踏进来，为它做一族贴图不值；
-## 而色标这条路已经在跑（固化倒计时、悬停高亮都走它）。
-## 颜色取演出里那滴碎液（`CWMucusFx.INK_DROP`）—— 玩家刚看过它炸开，认得这个绿。
-## 透明度是**摆出来挑的**（tests/preview_mucus_layer.gd 出了 0.22 / 0.34 / 0.46 三张）：
-## 0.22 在癌组织的洋红上根本读不出来，而自爆之后那一片大半都是癌组织；
-## 0.46 又把洋红整个盖成土黄，癌组织不像癌组织了。0.34 两边都站得住。
-## **静态不脉冲**：脉冲是留给「还在走的倒计时」的（骨化、趋化源），
-## 黏液不走表，再加一个跳动的东西只会和它们抢眼睛。
-const MARK_MUCUS := Color("b4c76e")
-const MUCUS_ALPHA := 0.34
+## 这里只负责「哪几格有」，怎么画归棋盘 —— 那是一层照 `tools/art-preview`
+## 「黏液纹理 A」烤出来的半透明覆膜贴图，不是色标。
+## （第一版做成了色标，Kevin 2026-09-10 指出要的是选稿里那层膜：
+## 色标会把整格染成一个颜色，而选稿的要求正是「保留底层组织识别」。）
 
 ## 开场绽开时每格翻面的那一下白闪
 const FLASH_TIME := 0.22
@@ -1129,6 +1117,7 @@ func teardown() -> void:
 		for c in CWData.all_coords():
 			board.set_tissue(c, CWData.Tissue.HEALTHY, CWData.special_of(c))
 		board.set_marks({})
+		board.set_mucus([])   ## 覆膜也归拆局清：它不在 marks 里，set_marks({}) 收不掉
 	if action_bar != null:
 		action_bar.clear()
 	if panel != null:
@@ -1245,6 +1234,7 @@ func _process(delta: float) -> void:
 
 func _sync_tiles() -> void:
 	var marks := {}
+	var mucus: Array[Vector2i] = []
 	for c: Vector2i in game.tiles:
 		var t: Dictionary = game.tiles[c]
 		## 癌蔓延过场（侵蚀 / 增生 / 定殖共用）：引擎早就把这一格翻成癌了，但玩家还没看见「癌是从哪边漫过来的」。
@@ -1264,10 +1254,10 @@ func _sync_tiles() -> void:
 		board.set_tissue(c, tissue, t["special"], int(t["cards"]) > 0, solid)
 		## 积累进度外圈（2026-09-08）：算式在 CWData.store_progress，界面不自己算
 		board.set_store(c, CWData.store_progress(t), int(t["special"]))
-		## 黏液侵染（见 MARK_MUCUS）。**排在骨化前面**：骨化是走着的倒计时、更急，
-		## 两个状态撞在同一格时该让它压过来
+		## 黏液侵染：**覆膜是一层贴图，不走色标**（见 CWBoard.set_mucus）——
+		## 选稿那句「保留底层组织识别」用色标做不到，色标会把整格染成一个颜色
 		if bool(t.get("mucus", false)):
-			marks[c] = Color(MARK_MUCUS, MUCUS_ALPHA)
+			mucus.append(c)
 		if int(t.get("ossify_at", 0)) > 0:
 			marks[c] = ossify_mark(int(t["ossify_at"]), game.round_no)
 	for c: Vector2i in _flash:
@@ -1279,6 +1269,7 @@ func _sync_tiles() -> void:
 	if bridge != null:
 		marks.merge(bridge.marks, true)
 	board.set_marks(marks)
+	board.set_mucus(mucus)
 
 
 ## 【骨样硬化】标记格这一帧画成什么色。**纯函数**（时间从外面进来，无头测试直接核对）：

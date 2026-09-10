@@ -178,6 +178,9 @@ const SILHOUETTE := preload("res://assets/shaders/silhouette.gdshader")
 ## **别在别处自己算这个数。** tile_center() 给的是**顶面**中心，比贴图中心高 4px，
 ## 拿它的 y 直接当 z 用就会比自己那格低 4，东西会掉到棋盘后面去 ——
 ## 骰子就是这么掉下去的（2026-08-27，团队试玩时发现）。
+## 黏液覆膜：贴在格子顶面上，**比自己那格高、比剪影低**。
+## 它是「地上有东西」，不是「这格被选中」—— 剪影、细胞、骰子都该压在它上面。
+const Z_MUCUS := 0
 const Z_MARK := 1    ## 高亮剪影
 const Z_CELL := 2    ## 细胞
 const Z_DICE := 3    ## 骰子
@@ -205,6 +208,9 @@ const MARK_PLAN_BAD := Color("ffb03abf")
 const MARK_SELF := Color("eaf8fc47")     ## 当前行动的细胞脚下：淡到 0.28
 
 var _marks: Node2D                  ## 高亮剪影与过场用的临时叠层
+var _mucus_root: Node2D             ## 黏液覆膜层（见 set_mucus）
+var _mucus_nodes := {}              ## 轴坐标 -> 那一格的覆膜 Sprite2D
+var _mucus_tex: ImageTexture        ## 覆膜贴图，第一次用到时烤一张，之后所有格共用
 var _mark_material: ShaderMaterial  ## 所有剪影共用一份
 
 ## 高亮的淡入淡出时长。**不能直接建/删节点**——候选格「啪」地整片出现太硬
@@ -527,6 +533,12 @@ func _ready():
 	_marks = Node2D.new()
 	_marks.name = "Marks"
 	add_child(_marks)
+	## 黏液覆膜挂在高亮剪影**前面**建：两者的 z 只差 1（Z_MUCUS 0 / Z_MARK 1），
+	## 万一以后有人把它们调成一样，先建的在下 —— 覆膜本来就该在剪影底下
+	_mucus_root = Node2D.new()
+	_mucus_root.name = "Mucus"
+	add_child(_mucus_root)
+	move_child(_mucus_root, _marks.get_index())
 
 
 ## 按棋盘半径重建组织格网格（教程小棋盘用；正式局仍是 127 格一张不变）。
@@ -558,3 +570,112 @@ func _grid() -> void:
 			first_x -= distance_x/2
 		else:
 			first_x += distance_x/2
+
+
+# ============ 黏液覆膜 ============
+#
+# 印戒【黏液破裂】留下的「黏液侵染」。**照 `tools/art-preview` 的「黏液纹理 A」**
+# （`catalog.js` 的 `initialSelections.mucus = 0`，README：「保留用户原页面已选的黏液纹理 A」）
+# —— 选稿那句标注写得很清楚：**半透明覆膜 · 保留底层组织识别**。
+#
+# 所以它不是给格子换一种颜色，而是**在顶面上摊一层薄膜**：两片压扁的橄榄色椭圆
+# 错开叠着，加两道高光流痕和一个亮点。底下是健康还是癌变照样看得出来，
+# 这正是它和「色标」的区别 —— 色标会把整格染成一个颜色，那样癌组织就不像癌组织了。
+#
+# 选稿那份画在 canvas 上，坐标单位和这里**完全一样**：`tools/art-preview/draw.js`
+# 的 `tile()` 直接贴的就是 `game/assets/art/tissue_normal.png`，缩放 1，
+# 而它把贴图摆在 `y+4` —— 也就是说选稿里的 (x, y) 就是本文件的 `tile_center()`。
+# 下面的半径、偏移、颜色是逐个照抄的，改之前先回去看那份选稿。
+
+## 覆膜贴图在本地坐标里的原点偏移（贴图左上角相对顶面中心）。
+## 画的东西横跨 x∈[-11,12)、y∈[-5,7)，所以是 23×12 的一张小图。
+const MUCUS_ORIGIN := Vector2i(11, 5)
+const MUCUS_SIZE := Vector2i(23, 12)
+const MUCUS_ALPHA := 0.68           ## 选稿里的 globalAlpha
+
+
+## 哪些格子有黏液。传轴坐标的数组；没变就什么都不做。
+func set_mucus(cells: Array) -> void:
+	var want := {}
+	for c: Vector2i in cells:
+		want[c] = true
+	for c: Vector2i in _mucus_nodes.keys():
+		if not want.has(c):
+			var gone: Sprite2D = _mucus_nodes[c]
+			_mucus_nodes.erase(c)
+			if is_instance_valid(gone):
+				gone.queue_free()
+	for c: Vector2i in want:
+		if _mucus_nodes.has(c) or not map.has(axial_to_rc(c)):
+			continue
+		var s := Sprite2D.new()
+		s.texture = _mucus_film()
+		s.centered = false
+		s.position = tile_center(c) - Vector2(MUCUS_ORIGIN)
+		s.z_index = tile_z(c, Z_MUCUS)
+		_mucus_root.add_child(s)
+		_mucus_nodes[c] = s
+
+
+## 烤一张覆膜贴图，之后所有格共用。**只烤一次** —— 每格一张的话 19 格就是 19 份
+## 一模一样的像素，而这层膜每格长得完全一样（选稿里也没有随格变化的项）。
+##
+## 为什么烤成贴图而不是每帧 `_draw()`：选稿那两片椭圆是**逐像素**填的
+## （`draw.js` 的 `disc` 就是双重循环），一格两百多个 1px 方块，十九格就是四千多次
+## 绘制调用。烤成 23×12 的贴图之后每格只剩一次 `draw_texture`。
+func _mucus_film() -> ImageTexture:
+	if _mucus_tex != null:
+		return _mucus_tex
+	var img := Image.create(MUCUS_SIZE.x, MUCUS_SIZE.y, false, Image.FORMAT_RGBA8)
+	## 选稿的 `mucus(c, x, y, 0)`，逐笔照抄（颜色与半径见那边的 textures.js）
+	_film_disc(img, 0, 1, 11.0, 0.5, Color("789a42"))
+	_film_disc(img, -3, 0, 8.0, 0.45, Color("b6c970"))
+	_film_line(img, -9, 1, -6, -2, Color("e1eaaa"))
+	_film_line(img, 5, 3, 9, 1, Color("e1eaaa"))
+	_film_rect(img, 3, -2, 2, Color("dfeaaa"))
+	_mucus_tex = ImageTexture.create_from_image(img)
+	return _mucus_tex
+
+
+## 压扁的实心椭圆，判据和取整方式和选稿的 `disc()` 一模一样
+func _film_disc(img: Image, cx: int, cy: int, r: float, squash: float, col: Color) -> void:
+	var ry: int = int(ceil(r * squash))
+	for j in range(-ry, ry + 1):
+		for i in range(-int(ceil(r)), int(ceil(r)) + 1):
+			if float(i * i) / (r * r) + float(j * j) / (r * r * squash * squash) <= 1.0:
+				_film_px(img, cx + i, cy + j, col)
+
+
+## 选稿的 `line()`：按较长那一边的步数走，逐点落 1px（不是抗锯齿直线）
+func _film_line(img: Image, x0: int, y0: int, x1: int, y1: int, col: Color) -> void:
+	var n: int = maxi(maxi(absi(x1 - x0), absi(y1 - y0)), 1)
+	for i in range(n + 1):
+		var t := float(i) / float(n)
+		_film_px(img, int(round(lerpf(x0, x1, t))), int(round(lerpf(y0, y1, t))), col)
+
+
+## 选稿的 `pixel(..., size)`：从 (x, y) 往右下铺 size×size
+func _film_rect(img: Image, x: int, y: int, size: int, col: Color) -> void:
+	for j in size:
+		for i in size:
+			_film_px(img, x + i, y + j, col)
+
+
+## 往图上落一点。**source-over 合成**，和 canvas 里 `globalAlpha` 逐笔叠的结果一致
+## （合成有结合律：先把几笔叠成一张膜、再整张盖到格子上，等于一笔笔盖过去）。
+func _film_px(img: Image, x: int, y: int, col: Color) -> void:
+	var px: int = x + MUCUS_ORIGIN.x
+	var py: int = y + MUCUS_ORIGIN.y
+	if px < 0 or py < 0 or px >= MUCUS_SIZE.x or py >= MUCUS_SIZE.y:
+		return
+	var dst := img.get_pixel(px, py)
+	var sa := MUCUS_ALPHA
+	var out_a: float = sa + dst.a * (1.0 - sa)
+	if out_a <= 0.0:
+		img.set_pixel(px, py, Color(0, 0, 0, 0))
+		return
+	img.set_pixel(px, py, Color(
+		(col.r * sa + dst.r * dst.a * (1.0 - sa)) / out_a,
+		(col.g * sa + dst.g * dst.a * (1.0 - sa)) / out_a,
+		(col.b * sa + dst.b * dst.a * (1.0 - sa)) / out_a,
+		out_a))

@@ -7614,34 +7614,58 @@ func t_pause_and_teardown() -> void:
 	## 它是个**有真实效果的常驻状态**（免疫踏进多付、进去就清），此前在棋盘上一点表示都没有 ——
 	## `CWMucusFx` 的文件头写着「地上那层归棋盘贴图画」，而 `CWBoard.set_tissue` 里
 	## 从来没有过这一档。玩家只能一格格悬停去看详情栏。
+	##
+	## 画的是**照选稿烤的半透明覆膜贴图**（`tools/art-preview` 的「黏液纹理 A」），
+	## 不是色标 —— 选稿那句要求是「保留底层组织识别」，色标会把整格染成一个颜色。
 	var mucus_at: Array[Vector2i] = []
 	for c: Vector2i in m.game.tiles:
 		if CWData.hex_dist(c, Vector2i.ZERO) <= CWData.MUCUS_RADIUS:
 			mucus_at.append(c)
 			m.game.tile(c)["mucus"] = true
 	m._sync_tiles()
-	var painted := 0
-	for c: Vector2i in mucus_at:
-		if m.board._mark_target.get(c) == Color(CWMatch.MARK_MUCUS, CWMatch.MUCUS_ALPHA):
-			painted += 1
-	check(painted == mucus_at.size(),
-		"半径 %d 那一圈 %d 格全上了黏液色标（实到 %d）"
-		% [CWData.MUCUS_RADIUS, mucus_at.size(), painted])
-	## **骨化压过黏液**：骨化是走着的倒计时、更急；两个状态撞在同一格时该让它压过来
-	m.game.tile(mucus_at[0])["ossify_at"] = m.game.round_no + 1
-	m._sync_tiles()
-	check(m.board._mark_target.get(mucus_at[0]) != Color(CWMatch.MARK_MUCUS, CWMatch.MUCUS_ALPHA),
-		"同一格既有黏液又在骨化时，骨化的脉冲压过黏液")
-	m.game.tile(mucus_at[0])["ossify_at"] = 0
-	## 免疫踩进去就清掉（引擎那半边），色标要跟着走 —— 不然地上会留一片假黏液
+	check(m.board._mucus_nodes.size() == mucus_at.size(),
+		"半径 %d 那一圈 %d 格全铺了覆膜（实到 %d）"
+		% [CWData.MUCUS_RADIUS, mucus_at.size(), m.board._mucus_nodes.size()])
+	## 摆位要走 tile_center()，深浅要走 tile_z()：自己算的话会掉到棋盘后面去
+	## （骰子 2026-08-27 就是这么掉下去的）
+	var one: Sprite2D = m.board._mucus_nodes[mucus_at[0]]
+	check(one.position == m.board.tile_center(mucus_at[0]) - Vector2(m.board.MUCUS_ORIGIN)
+		and one.z_index == m.board.tile_z(mucus_at[0], m.board.Z_MUCUS),
+		"覆膜贴在顶面中心上、深浅按自己那一排排（z=%d）" % one.z_index)
+	## **比剪影低、比自己那格高**：它是「地上有东西」，不是「这格被选中」
+	check(m.board.Z_MUCUS < m.board.Z_MARK and m.board.Z_MUCUS < m.board.Z_CELL,
+		"覆膜压在高亮剪影与细胞底下（%d < %d / %d）"
+		% [m.board.Z_MUCUS, m.board.Z_MARK, m.board.Z_CELL])
+	## **半透明**才谈得上「保留底层组织识别」：烤出来的膜必须有透出底色的像素
+	var film: Image = (m.board._mucus_film() as ImageTexture).get_image()
+	var clear_px := 0
+	var solid_px := 0
+	for y in film.get_height():
+		for x in film.get_width():
+			var a: float = film.get_pixel(x, y).a
+			if a <= 0.01:
+				clear_px += 1
+			elif a >= 0.99:
+				solid_px += 1
+	check(solid_px == 0 and clear_px > 0,
+		"覆膜没有一个不透明像素（底下的组织照样看得见），也留着空白（%d 个全透明点）" % clear_px)
+	## 免疫踩进去就清掉（引擎那半边），覆膜要跟着走 —— 不然地上会留一片假黏液
 	for c: Vector2i in mucus_at:
 		m.game.tile(c)["mucus"] = false
 	m._sync_tiles()
-	var left := 0
+	check(m.board._mucus_nodes.is_empty(),
+		"黏液清掉之后覆膜跟着收（还剩 %d 格）" % m.board._mucus_nodes.size())
+	## 拆局也要收：覆膜不在 marks 里，`set_marks({})` 收不掉它
 	for c: Vector2i in mucus_at:
-		if m.board._mark_target.get(c) == Color(CWMatch.MARK_MUCUS, CWMatch.MUCUS_ALPHA):
-			left += 1
-	check(left == 0, "黏液清掉之后色标跟着收（还剩 %d 格）" % left)
+		m.game.tile(c)["mucus"] = true
+	m._sync_tiles()
+	var before_teardown: int = m.board._mucus_nodes.size()
+	m.teardown()
+	check(before_teardown > 0 and m.board._mucus_nodes.is_empty(),
+		"拆局清掉覆膜（拆之前有 %d 格）" % before_teardown)
+	m.human_players = []
+	m.start()
+	await process_frame
 	## 左上角入口提示的显隐链（定案A）：开局亮 → 面板开着让位 → 收起回来
 	check(m._log_hint != null and m._log_hint.visible, "「对局日志 L」入口提示亮着")
 	m._log_panel.toggle()
