@@ -1,8 +1,11 @@
 extends SceneTree
 ## 聊天框的对照图 —— 给人看的工具，不是测试。
 ##
-## 两种样子各一张：**开着**（标题栏 + 全体/己方 + 消息列 + 输入行）与
-## **关着**（左下常驻提示「聊天　Enter」+ 未读数 + 浮出最近两条）。
+## 两种样子各一张：**开着**（左上角那块地，标题栏 + 全体/己方 + 消息列 + 输入行）与
+## **关着**（迷你条切到聊天页，显示最近两条 + 标签上的未读数）。
+##
+## 图里连**手牌抽屉**和**出牌列**一起画 —— 第一版把聊天摆左下角，
+## 预览图没画这两样，于是「一格棋盘都没压」是假象（Kevin 一眼看出来）。
 ##
 ## 跑（**不能加 --headless**，要真渲染）：
 ##   godot --path game --script res://tests/preview_chat.gd -- <输出.png> [open|shut]
@@ -12,6 +15,7 @@ var _mode := "open"
 var _frames := 0
 var _cam: Camera2D
 var _chat: CWChatBox
+var _hint: CWLogHint
 
 func _initialize() -> void:
 	var a := OS.get_cmdline_user_args()
@@ -29,6 +33,21 @@ func _initialize() -> void:
 	root.add_child(ui)
 	_chat = CWChatBox.new()
 	ui.add_child(_chat)
+	_hint = CWLogHint.new()
+	ui.add_child(_hint)
+	_hint.set_chat(_chat)
+	## 常驻件的壳：出牌列与手牌抽屉（抬起态）——第一版就是没画它们才看走眼
+	for r: Array in [[CWFeed.RECT, "出牌列"],
+			[Rect2(12, CWHand.REST_TOP - CWHand.LIFT, 380, CWHand.LIFT + 26), "手牌（悬停抬起）"]]:
+		var p := Panel.new()
+		p.add_theme_stylebox_override("panel", CWStyle.box(0.35, Color("0a1018cc")))
+		p.position = (r[0] as Rect2).position
+		p.size = (r[0] as Rect2).size
+		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ui.add_child(p)
+		var t := CWStyle.label(str(r[1]), CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+		t.position = (r[0] as Rect2).position + Vector2(6, 4)
+		ui.add_child(t)
 
 func _process(_d: float) -> bool:
 	_frames += 1

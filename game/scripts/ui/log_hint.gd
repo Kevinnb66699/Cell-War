@@ -12,7 +12,17 @@
 class_name CWLogHint
 extends Control
 
-signal pressed   ## 点提示 = 按 L（CWMatch 把它接到 CWLogPanel.toggle）
+signal pressed        ## 点「对局日志」= 按 L（CWMatch 接到 CWLogPanel.toggle）
+signal chat_pressed   ## 点「聊天」= 按回车（CWMatch 接到 CWChatBox.toggle）
+
+## **聊天页**（Kevin 2026-09-09 定的标签页）。这条 300×52 的迷你条同时是两页的入口：
+## 默认显示日志尾巴，有人说话且聊天框关着时**临时切到聊天页**显示最近两条，
+## `CHAT_HOLD` 秒后自己切回去。
+##
+## 这就是「浮出两条」那个想法 —— 只是实现成标签切换，**零新增屏幕面积**。
+## 左下角摆不下：出牌列占 x 8..80 / y 76..348，手牌悬停抬起到 y 428，
+## 行动提示条 y 466..518，常驻件之间一点缝都没有（Kevin 一眼看出来的）。
+const CHAT_HOLD := 6.0
 
 const SIZE := Vector2(300, 52)
 const ROWS := 2               ## 日志尾巴几行（折行后的显示行）
@@ -29,6 +39,10 @@ var _cache_src: PackedInt32Array = PackedInt32Array() ## 每行来自第几条�
 var _built := 0
 var _built_key := -3
 var _last_total := -1
+var _chat: CWChatBox      ## 聊天框（联机局才有）；null = 这一局没有聊天
+var _chat_tab: Label
+var _chat_hold := 0.0     ## 还剩多久切回日志页
+var _chat_seen := 0       ## 已经因为「有新消息」闪过的条数
 
 
 func _ready() -> void:
@@ -59,6 +73,17 @@ func _ready() -> void:
 	var key := CWStyle.keycap("L")
 	key.position = Vector2(SIZE.x - 6.0 - key.size.x, 5.0 + 6.0 - key.size.y / 2.0)
 	add_child(key)
+	## 聊天页的标签，摆在「对局日志」右边。没有聊天框（单机局）时整个隐掉
+	_chat_tab = CWStyle.label("聊天", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	_chat_tab.position = Vector2(PAD_X + 74.0, 5)
+	_chat_tab.mouse_filter = Control.MOUSE_FILTER_STOP
+	_chat_tab.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_chat_tab.visible = false
+	_chat_tab.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			get_viewport().set_input_as_handled()
+			chat_pressed.emit())
+	add_child(_chat_tab)
 	## 日志尾巴：定长的行池，每帧只改 text / 颜色（同 CWLogPanel）
 	for i in ROWS:
 		var l := CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT)
@@ -68,6 +93,38 @@ func _ready() -> void:
 		add_child(l)
 		_rows.append(l)
 	_paint(false)
+
+
+## 聊天页：有新消息就切过来显示最近两条，CHAT_HOLD 秒后切回日志页。
+## 标签上的未读数一直挂着，直到玩家开过框
+func _refresh_chat(delta: float) -> void:
+	var total := _chat.unread()
+	if _chat.is_open():
+		_chat_hold = 0.0
+		_chat_seen = total
+	elif total > _chat_seen:
+		_chat_seen = total
+		_chat_hold = CHAT_HOLD          ## 又有人说话：把这两行让给聊天
+	elif _chat_hold > 0.0:
+		_chat_hold -= delta
+	_chat_tab.text = "聊天" if total <= 0 or _chat.is_open() else "聊天 %d" % total
+	_chat_tab.add_theme_color_override("font_color",
+		Color.WHITE if on_chat_tab() else
+		(CWStyle.TEXT_HI if total > 0 and not _chat.is_open() else CWStyle.TEXT_DIM))
+	_text.add_theme_color_override("font_color",
+		CWStyle.TEXT_DIM if on_chat_tab() else CWStyle.TEXT_HI)
+	if not on_chat_tab():
+		return
+	var lines := _chat.tail(ROWS)
+	for i in ROWS:
+		var idx: int = lines.size() - ROWS + i
+		var l: Label = _rows[i]
+		if idx < 0:
+			l.text = ""
+			continue
+		l.text = CWChatBox.line_text(lines[idx])
+		l.add_theme_color_override("font_color", CWChatBox.line_color(lines[idx]))
+		l.modulate.a = 1.0
 
 
 ## 条的右缘（左侧那一列都按它对齐：事件列表 CWFeed 同 x 同宽）
@@ -81,9 +138,32 @@ static func row_width() -> float:
 
 ## 每帧由 CWMatch 调（面板之后）：把日志尾巴的最后 ROWS 个显示行铺上去。
 ## 视角（filter / viewer）直接用面板那份 —— 别人抽到什么牌在这里也是公开替身。
+## 联机局开局时由 CWMatch 装进来。可能在 _ready 之前被调（节点刚 new 出来就装），
+## 所以标签的显隐推迟到 _process 里跟着状态一起刷
+func set_chat(box: CWChatBox) -> void:
+	_chat = box
+
+
+## 聊天页的计时自己走，**不挂在 refresh 上** —— 那个由 CWMatch 每帧喂，
+## 而聊天页该不该切回去跟对局状态没关系，挂上去只会多一条依赖
+func _process(delta: float) -> void:
+	if _chat_tab == null:
+		return
+	_chat_tab.visible = _chat != null
+	if _chat != null:
+		_refresh_chat(delta)
+
+
+## 此刻显示的是聊天页吗
+func on_chat_tab() -> bool:
+	return _chat != null and _chat_hold > 0.0
+
+
 func refresh(game: CWGame, panel: CWLogPanel) -> void:
 	if game == null or panel == null:
 		return
+	if on_chat_tab():
+		return          ## 聊天页占着这两行，日志那边先不折（省下每帧的折行）
 	var key: int = panel.viewer if panel.filter else -2
 	if game.logs.size() < _built or key != _built_key:
 		_cache.clear()

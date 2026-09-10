@@ -14055,10 +14055,22 @@ func t_chat_box() -> void:
 	check(CWChatBox.line_color({ "scope": "team", "faction": -1 })
 		== CWStyle.TEXT_DIM, "观众自成一档：没有阵营色，用中性偏暗")
 
-	## 浮出条别多到压棋盘：一条看不全一来一回，三条起就开始挡
-	check(CWChatBox.FLOAT_N == 2, "关着时浮出两条")
-	check(CWChatBox.RECT.size.x <= 320.0 and CWChatBox.RECT.end.y <= 540.0,
-		"默认位置整只落在屏内（%s）" % str(CWChatBox.RECT))
+	## **和对局日志共用左上角那块地**（Kevin 2026-09-09 的标签页方案）。
+	## 左下角摆不下：出牌列占 x 8..80 / y 76..348，手牌悬停抬起到 y 428，
+	## 行动提示条 y 466..518 —— 常驻件之间一点缝都没有。
+	check(CWChatBox.RECT == CWLogPanel.RECT, "聊天页与日志页同一块地（改一个要连着改另一个）")
+	## **真正要守的是那条常驻的迷你条**（300×52）：它一直在屏幕上，
+	## 所以不能压任何东西。展开后的面板是**唤出来的浮层**，压住抬起的手牌是它一直以来的样子
+	## （日志面板早就这样），玩家点一下就收，不算冲突。
+	check(CWLogHint.SIZE.y + CWLogPanel.RECT.position.y <= 75.0,
+		"迷你条底边 %d 不压棋盘顶行（75）" % int(CWLogHint.SIZE.y + CWLogPanel.RECT.position.y))
+	check(CWLogPanel.RECT.position.x >= CWFeed.RECT.position.x,
+		"这块地与出牌列同一条左缘（左侧那一列对齐）")
+	## 而左下角**摆不下**：出牌列到 y 348、手牌抬起到 y 428、行动提示条 466..518，
+	## 三样常驻件之间一点缝都没有 —— 这就是聊天从左下改到左上的原因
+	check(CWFeed.RECT.end.y > 300.0 and CWHand.REST_TOP - CWHand.LIFT < 480.0,
+		"左下角被出牌列（到 y %d）与抬起的手牌（从 y %d 起）夹住"
+		% [int(CWFeed.RECT.end.y), int(CWHand.REST_TOP - CWHand.LIFT)])
 
 
 func t_net_replay_download() -> void:

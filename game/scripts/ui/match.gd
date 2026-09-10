@@ -422,6 +422,16 @@ func start_replay(p: CWReplay.Player) -> void:
 	_replay_loop(_loop_id)
 
 
+## 开聊天页。**两页互斥** —— 它们共用左上角同一块地（CWLogPanel.RECT），
+## 同时开着就是两层叠在一起，谁也看不清
+func _toggle_chat() -> void:
+	if _chat == null:
+		return
+	if not _chat.is_open() and _log_panel != null and _log_panel.visible:
+		_log_panel.toggle()
+	_chat.toggle()
+
+
 ## 把客户端收到的聊天搬进框里。只补没见过的那几条（同 _sync_feed 的游标办法）——
 ## 聊天**不进对局流**，所以它到得比演出早，不能等演出播完再搬
 func _sync_chat() -> void:
@@ -603,6 +613,10 @@ func _wire_bridge(level: int) -> void:
 		_chat.said.connect(func(text: String, team: bool) -> void:
 			if _client != null:
 				_client.say(text, team))
+		## 和对局日志共用左上角那块：迷你条上多一页「聊天」，两页互斥
+		if _log_hint != null:
+			_log_hint.set_chat(_chat)
+			_log_hint.chat_pressed.connect(_toggle_chat)
 	bridge.game = game
 	bridge.board = board
 	bridge.dice = _dice
@@ -988,9 +1002,14 @@ func _exit_tree() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	## 聊天：回车唤出 / Esc 收起。**排在暂停菜单前面** ——
 	## 框开着时 Esc 该先收框，而不是弹出暂停菜单
-	if _chat != null and _chat.handle_key(event):
-		get_viewport().set_input_as_handled()
-		return
+	if _chat != null:
+		if CWChatBox.is_enter(event) and not _chat.is_open():
+			get_viewport().set_input_as_handled()
+			_toggle_chat()
+			return
+		if _chat.handle_key(event):
+			get_viewport().set_input_as_handled()
+			return
 	## 回放的播放控制。**接在这一层**：回放局没有行动栏、没有手牌手势，
 	## 方向键与空格本来就没人要，正好拿来当播放键
 	if replay != null and (_codex == null or not _codex.visible):
