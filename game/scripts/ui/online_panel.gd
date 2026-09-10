@@ -32,6 +32,15 @@ const LIST_W := 400.0        ## 大厅房间行定宽（面板 538 − 槽位 12
 const SEAT_NAME_W := 172.0   ## 等待室席位名定宽：SLOT_X+70 起、到状态列 SLOT_X+250 之前
 const LIST_H := 26.0
 const LIST_N := 5
+## 等待室的聊天：**右栏**一张板（同 CWConfigPanel 席位表的位置与理由 ——
+## 「放右侧而不是左栏往下加行」）。左栏已经被席位排满：
+## 214..394 席位、398 未入座名单、438 按钮，中间没有一行的空。
+const CHAT_X := 560.0
+const CHAT_Y := 214.0
+const CHAT_W := 340.0
+const CHAT_ROWS := 7
+const CHAT_ROW_H := 18.0
+
 const SEAT_Y0 := 214.0       ## 等待室席位第一行
 const SEAT_H := 30.0
 const RETRY_MS := 3000
@@ -69,6 +78,10 @@ var _lobby_live: Array = []    ## 正在打、可观战的（服务器的 live�
 ## 面板只有 5 行、下面 12px 就是按钮，塞不下两组表头 —— 所以「进行中」那组
 ## 只用一条分隔行开头，并且**永远至少留一行给它**（见 _compose_lobby）。
 var _lobby_view_rows: Array = []
+var _chat_rows: Array[Label] = []
+var _chat_input: LineEdit
+var _chat_scope: Label
+var _chat_team := false      ## 这一句发给谁：false 全体 / true 己方
 var _lobby_labels: Array[Label] = []
 var _lobby_sel := -1
 var _lobby_note: Label
@@ -337,6 +350,8 @@ func _on_message(m: Dictionary) -> void:
 			if m.get("state", "") == "playing" and not client.sequenced:
 				client.sequenced = true
 				_awaiting_state = true
+		"chat":
+			_repaint_chat()
 		"state":
 			if _awaiting_state and client.sequenced:
 				_awaiting_state = false
@@ -547,6 +562,53 @@ func _build_room(root: Control) -> void:
 		if client != null:
 			client.stand())
 	_leave_link = _clicky(root, "离开房间", Vector2(SLOT_X + 320, BTN_Y + 5), _leave_room)
+	_build_chat(root)
+
+
+## 等待室的聊天板。**约人、分阵营这些话都发生在开局之前** ——
+## 对局里那套（回车唤出的标签页）在这儿用不上：等待室没有棋盘要让，
+## 右栏本来就空着，常驻显示比按键唤出更顺手。
+func _build_chat(root: Control) -> void:
+	var head := CWStyle.label("聊天", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	head.position = Vector2(CHAT_X, CHAT_Y - 18)
+	root.add_child(head)
+	## 发给谁：点一下换。同对局里那套 —— 用颜色说话，不写「[全体]」前缀
+	_chat_scope = _clicky(root, "", Vector2(CHAT_X + CHAT_W - 60, CHAT_Y - 18), func() -> void:
+		_chat_team = not _chat_team
+		_repaint_chat(), CWStyle.SIZE_LABEL)
+	for i in CHAT_ROWS:
+		var l := CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
+		l.position = Vector2(CHAT_X, CHAT_Y + i * CHAT_ROW_H)
+		l.size = Vector2(CHAT_W, CHAT_ROW_H)
+		l.clip_text = true
+		l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		root.add_child(l)
+		_chat_rows.append(l)
+	_chat_input = _edit(root, Vector2(CHAT_X, CHAT_Y + CHAT_ROWS * CHAT_ROW_H + 8),
+		CHAT_W, "说点什么…", CWNet.CHAT_MAX)
+	_chat_input.text_submitted.connect(func(t: String) -> void:
+		if client != null:
+			client.say(t, _chat_team)
+		_chat_input.text = "")
+
+
+## 把客户端收到的聊天铺到板上。**每次收到就重铺**，不做增量 ——
+## 七行而已，比维护游标便宜
+func _repaint_chat() -> void:
+	if _chat_scope == null:
+		return
+	_chat_scope.text = "己方" if _chat_team else "全体"
+	_chat_scope.add_theme_color_override("font_color",
+		CWStyle.IMMUNE if _chat_team else CWStyle.TEXT_HI)
+	var log: Array = client.chat_log if client != null else []
+	for i in CHAT_ROWS:
+		var idx: int = log.size() - CHAT_ROWS + i
+		var l: Label = _chat_rows[i]
+		if idx < 0:
+			l.text = ""
+			continue
+		l.text = CWChatBox.line_text(log[idx])
+		l.add_theme_color_override("font_color", CWChatBox.line_color(log[idx]))
 
 
 # ============ 呈现 ============
@@ -578,6 +640,7 @@ func _show_page(p: Page) -> void:
 			_repaint_create()
 		Page.ROOM:
 			_repaint_room()
+			_repaint_chat()
 
 
 ## 把两栏拼成要渲的那几行。**给「进行中」留位**：只要有可观战的房，
