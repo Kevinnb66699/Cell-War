@@ -103,7 +103,6 @@ func _begin_tutorial(cancer_type: int) -> void:
 	match_node.player_count = 2
 	match_node.human_players = [0]       ## 2 人局行动顺序 = [免疫, 癌]，人类坐免疫
 	match_node.ai_level = 0
-	match_node.match_seed = 20260903     ## 固定种子，教程局面可复现
 	match_node.cancer_types = [cancer_type]   ## 教程对手钉死（2 人局只有一个癌席），不随种子抽
 	_entering = true
 	_started_ms = Time.get_ticks_msec()

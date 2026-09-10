@@ -253,7 +253,7 @@ func move_block_reason(cell: Dictionary, to: Vector2i) -> String:
 		var why: String = "" if mods.is_empty() else "（含【%s】）" % "】【".join(PackedStringArray(mods))
 		return "这一步要 %s%s，账上 %s —— 付完至少要留 0.1" % [
 			CWData.fmt(int(q["final"])), why, CWData.fmt(cell["energy"])]
-	if not cell["alive"] or not (to in CWData.neighbors(cell["pos"])):
+	if not cell["alive"] or not (to in game.neighbors(cell["pos"])):
 		return ""
 	## 友军挡路：这条要说 —— 「不能停但可以穿过去」是新规则（口径 #98），
 	## 玩家点了队友那格没反应时，最需要知道的正是「该点它正后方那一格」
@@ -303,7 +303,7 @@ func pass_through_map(cell: Dictionary) -> Dictionary:
 	var out := {}                ## 落点 → [费用, 第一跳]
 	var reached := {}            ## 友军格 → [累计费用, 第一跳]
 	var queue: Array = []
-	for n in CWData.neighbors(cell["pos"]):
+	for n in game.neighbors(cell["pos"]):
 		if not _is_ally_tile(cell, n):
 			continue
 		reached[n] = [_one_step_base(cell, n), n]
@@ -312,7 +312,7 @@ func pass_through_map(cell: Dictionary) -> Dictionary:
 		var cur: Vector2i = queue.pop_front()
 		var acc: int = reached[cur][0]
 		var first: Vector2i = reached[cur][1]
-		for m in CWData.neighbors(cur):
+		for m in game.neighbors(cur):
 			if m == cell["pos"] or not game.is_on_board(m):
 				continue
 			var cost: int = acc + _one_step_base(cell, m)
@@ -323,7 +323,7 @@ func pass_through_map(cell: Dictionary) -> Dictionary:
 			elif game.cells_at(m).is_empty():
 				if not out.has(m) or cost < out[m][0]:
 					out[m] = [cost, first]
-	for n in CWData.neighbors(cell["pos"]):
+	for n in game.neighbors(cell["pos"]):
 		out.erase(n)             ## 相邻格走普通迁移更便宜
 	return out
 
@@ -337,7 +337,7 @@ func _is_ally_tile(cell: Dictionary, c: Vector2i) -> bool:
 func pass_through_mid(cell: Dictionary, to: Vector2i) -> Vector2i:
 	if not game.is_on_board(to) or to == cell["pos"]:
 		return Vector2i.MAX
-	if to in CWData.neighbors(cell["pos"]):
+	if to in game.neighbors(cell["pos"]):
 		return Vector2i.MAX          ## 本来就走得到 —— 那是普通迁移，别在这儿重复出一遍
 	var m: Dictionary = pass_through_map(cell)
 	return m[to][1] if m.has(to) else Vector2i.MAX
@@ -346,7 +346,7 @@ func pass_through_mid(cell: Dictionary, to: Vector2i) -> Vector2i:
 ## 一次【迁移】能去的所有格：六个相邻格 + 穿过友军落在正后方的那几格。
 ## 选项生成和 AI 都走这里，别各自拼一份（口径 #81）。
 func move_dests(cell: Dictionary) -> Array[Vector2i]:
-	var out: Array[Vector2i] = CWData.neighbors(cell["pos"]).duplicate()
+	var out: Array[Vector2i] = game.neighbors(cell["pos"]).duplicate()
 	for far: Vector2i in pass_through_map(cell):
 		out.append(far)
 	return out
@@ -355,7 +355,7 @@ func move_dests(cell: Dictionary) -> Array[Vector2i]:
 func _is_move_legal_now(cell: Dictionary, to: Vector2i) -> bool:
 	if not cell["alive"] or not game.is_on_board(to):
 		return false
-	if not (to in CWData.neighbors(cell["pos"])):
+	if not (to in game.neighbors(cell["pos"])):
 		## 「穿过友军」落在正后方第二格。落点必须**完全空着** ——
 		## 不能停在人身上，也不允许穿过去发起攻击（见 pass_through_mid 头注）
 		if pass_through_mid(cell, to) == Vector2i.MAX:
@@ -406,12 +406,12 @@ func _jump_quota_left(cell: Dictionary) -> bool:
 
 ## T 细胞【裂解】：目标是**相邻**的固化癌组织（2026-09-01 起，此前是脚下那一格）
 func _is_lyse_legal_now(cell: Dictionary, to: Vector2i) -> bool:
-	return cell["alive"] and (to in CWData.neighbors(cell["pos"])) 		and game.tile(to)["tissue"] == CWData.Tissue.SOLID
+	return cell["alive"] and (to in game.neighbors(cell["pos"])) 		and game.tile(to)["tissue"] == CWData.Tissue.SOLID
 
 
 func _lyse_targets(cell: Dictionary) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
-	for n in CWData.neighbors(cell["pos"]):
+	for n in game.neighbors(cell["pos"]):
 		if game.tile(n)["tissue"] == CWData.Tissue.SOLID:
 			out.append(n)
 	return out
@@ -502,7 +502,7 @@ func _cancer_move_cost(cell: Dictionary, dest: Vector2i) -> int:
 
 func _cancerous_adj(c: Vector2i) -> int:
 	var n := 0
-	for m in CWData.neighbors(c):
+	for m in game.neighbors(c):
 		if game.is_cancerous(m):
 			n += 1
 	return n
@@ -513,7 +513,7 @@ func _cancerous_adj(c: Vector2i) -> int:
 ## 基准价之上的所有修饰交给 CWCost —— 卡牌、永久技能、世界事件一律以
 ## CostModifier 的形式登记在 CWCost.TEMPLATES，本文件不再自己判谁减多少。
 func _move_base_cost(cell: Dictionary, dest: Vector2i) -> int:
-	if not (dest in CWData.neighbors(cell["pos"])):
+	if not (dest in game.neighbors(cell["pos"])):
 		## 借道前进：**沿途每一格各按自己的组织类型计一次**，取最便宜的那条路
 		## （新 PRD「消耗为从连通块内无视细胞通过所需能量之和」）。
 		## 摆在这里而不是各调用方：行动菜单、AI 评估、界面价签、提交复验全走这一个口。
@@ -912,7 +912,7 @@ func _downgrade(v: String) -> String:
 ## 【补体级联】攻击成功后：目标癌细胞相邻的普通癌组织里，随机最多 2 格无细胞占据 → 健康
 func _cascade(target: Dictionary) -> void:
 	var cands: Array[Vector2i] = []
-	for n in CWData.neighbors(target["pos"]):
+	for n in game.neighbors(target["pos"]):
 		if game.tile(n)["tissue"] == CWData.Tissue.CANCER and game.cells_at(n).is_empty():
 			cands.append(n)
 	var picked: Array = game.pick_random(cands, CWData.CASCADE_MAX_TILES)
@@ -1169,7 +1169,7 @@ func _do_antibody(cell: Dictionary) -> void:
 	cell["antibody_used"] += 1
 	var targets: Array = []
 	for c in game.living_cells(CWData.Faction.CANCER):
-		for n in CWData.neighbors(c["pos"]):
+		for n in game.neighbors(c["pos"]):
 			if game.tile(n)["tissue"] == CWData.Tissue.HEALTHY:
 				targets.append(c)
 				break
@@ -1187,7 +1187,7 @@ func _do_antibody(cell: Dictionary) -> void:
 			continue
 		if not game.cells_at(c, CWData.Faction.CANCER).is_empty():
 			continue  # 说明 #20：不转化有癌细胞停留的格
-		for n in CWData.neighbors(c):
+		for n in game.neighbors(c):
 			if game.tile(n)["tissue"] == CWData.Tissue.HEALTHY:
 				eligible.append(c)
 				break
@@ -1328,7 +1328,7 @@ func _do_homing(cell: Dictionary, to: Vector2i) -> void:
 	## PRD 2026-09-01 追加：「并将相邻格中随机最多 3 格转为癌组织」。
 	## 只取**健康组织**——癌组织已经是癌了，固化更不该被降级。
 	var spread: Array[Vector2i] = []
-	for n in CWData.neighbors(to):
+	for n in game.neighbors(to):
 		if game.tile(n)["tissue"] == CWData.Tissue.HEALTHY:
 			spread.append(n)
 	for c in game.pick_random(spread, CWData.HOMING_SPREAD):
@@ -1424,7 +1424,7 @@ func _do_jump(cell: Dictionary, to: Vector2i) -> void:
 
 
 func _adjacent_healthy(pos: Vector2i) -> bool:
-	for n in CWData.neighbors(pos):
+	for n in game.neighbors(pos):
 		if game.tile(n)["tissue"] == CWData.Tissue.HEALTHY:
 			return true
 	return false
@@ -1541,7 +1541,7 @@ func _effector_excalibur(cell: Dictionary) -> void:
 	for c in ray:
 		seen[c] = true
 	for c in ray:
-		for n in CWData.neighbors(c):
+		for n in game.neighbors(c):
 			if seen.has(n) or not game.tiles.has(n):
 				continue
 			if game.tile(n)["tissue"] != CWData.Tissue.CANCER:
@@ -1585,7 +1585,7 @@ func _chain_phagocytosis(cell: Dictionary) -> void:
 	var linked := 0
 	while int(cell.get("chain_left", 0)) > 0 and cell["alive"]:
 		var opts: Array = []
-		for n in CWData.neighbors(cell["pos"]):
+		for n in game.neighbors(cell["pos"]):
 			if game.tile(n)["tissue"] == CWData.Tissue.CANCER and game.cells_at(n).is_empty():
 				opts.append({ "label": "连续吞噬→%s（免费）" % str(n), "data": { "to": n } })
 		if opts.is_empty():

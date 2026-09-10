@@ -172,8 +172,9 @@ func revive_options_cancer(pid: int) -> Array:
 		usable.append(c)
 		## 1 环 = 中心格 + 六个邻格（通用规则 2「含中心格」）。
 		## 不调 CWData.ring(c, 1) 是因为它要遍历全部 127 格算距离，这里每个固化格都要跑一遍。
+		## 邻居走 game.neighbors：静态那版按正式半径 6 裁，教程小棋盘会把板外格混进来
 		var around: Array[Vector2i] = [c]
-		around.append_array(CWData.neighbors(c))
+		around.append_array(game.neighbors(c))
 		for n in around:
 			if game.is_cancerous(n) and game.cells_at(n).is_empty():
 				## 一个落点可能同时落在好几个固化格的 1 环里。**依托取坐标最小的那个**：
@@ -509,7 +510,7 @@ func _erosion(fresh: Array[Vector2i] = []) -> void:
 			if _watched(c):
 				continue  # 【免疫监视】守护范围内不能被侵蚀
 			var near_cancer := false
-			for n in CWData.neighbors(c):
+			for n in game.neighbors(c):
 				## 本回合增生刚造的格子不算「来源」——它要到下一世界回合才参与侵蚀结算
 				if game.is_cancerous(n) and not fresh_set.has(n):
 					near_cancer = true
@@ -594,7 +595,7 @@ func _proliferate() -> Array[Vector2i]:
 		## 概率是**逐个邻居累加**的（不是「邻居数 × 单一档位」）：
 		## 同一格的几个癌性邻居可能分属不同连通块，各自的固化数不一样。
 		var chance := 0
-		for n in CWData.neighbors(c):
+		for n in game.neighbors(c):
 			if game.is_cancerous(n):
 				chance += rate + per_solid * int(solids_of.get(n, 0))
 		if chance > 0 and game.rng.randi_range(1, 1000) <= chance:
@@ -910,7 +911,7 @@ func pressure_at(c: Vector2i) -> int:
 	## （所以这里**不能**图省事改用 is_cancerous —— 那会把健康组织的抵消项整个丢掉）。
 	## `neighbors()` 已经裁掉出界方向，棋盘边缘的细胞天然少几个邻居，不必特判。
 	var raw := 0
-	for nb in CWData.neighbors(c):
+	for nb in game.neighbors(c):
 		match int(game.tiles[nb]["tissue"]):
 			CWData.Tissue.CANCER:
 				raw += CWData.PRESSURE_CANCER_W

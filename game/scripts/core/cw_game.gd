@@ -32,6 +32,11 @@ var board_radius := CWData.BOARD_RADIUS   # 本局棋盘半径：正式局固定
 ## 误判成在板，随后的 tiles 查询就会炸（2026-09-10 教程导演切片⑦踩出的接缝缺陷）。
 func is_on_board(c: Vector2i) -> bool:
 	return CWData.is_on_board(c, board_radius)
+
+
+## 同上：邻居枚举也按本局半径裁（静态版按正式半径 6，小棋盘会把板外格混进来）
+func neighbors(c: Vector2i) -> Array[Vector2i]:
+	return CWData.neighbors(c, board_radius)
 var memory := 0            # 免疫方抗原记忆（阵营共享）
 var immune_level := 0      # 0..3 = I/II/III/X，只升不降
 var differentiated: Array = []   # 已被分化占用的免疫种类（每种全阵营限一个）
@@ -642,7 +647,7 @@ func blocks_of(pred: Callable) -> Array:
 		while not queue.is_empty():
 			var cur: Vector2i = queue.pop_back()
 			block.append(cur)
-			for n in CWData.neighbors(cur):
+			for n in neighbors(cur):
 				if not seen.has(n) and pred.call(n):
 					seen[n] = true
 					queue.append(n)

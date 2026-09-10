@@ -29,6 +29,10 @@ var auto_next := false
 ## demo 真去做（返回做没做）。无效的 Callable = 没接（无头测试 / 面板单独建）—— 继续就只翻页
 var demo := Callable()
 var demo_ready := Callable()
+## 章节切换钩子（CWMatch 接导演后设）：跨入新章节时回调一次，参数 = 新章节号。
+## 教程每一关是导演装配的独立局面，章节切换意味着**换一局**——面板只管翻页，
+## 换局由对局侧执行；未设置（无头 / 老测试）时行为与原先完全一致。
+var on_chapter_done := Callable()
 ## 「此刻该提示什么」：翻页时重新问桥一遍，提示跟着正在教的那一步走（教结束回合就说结束回合，不再停在迁移那句）
 var hint_now := Callable()
 ## 提示行尾巴：代做可用时接在桥喂来的提示后面。%s = 右下角按钮此刻的字（继续 / 下一章 / 完成引导），
@@ -40,6 +44,7 @@ var _chapter := 0
 var _step := 0
 var _hint_text := ""
 var _highlight := ""
+var _mistakes := 0
 var _tutorial_done := false   ## 引导全部看完了（由第 5 关最后一步置位）
 
 var _title: Label
@@ -144,6 +149,7 @@ func _advance() -> void:
 ## 只翻页、不做动作。状态推进（check_progress）专用：动作玩家已亲手完成，
 ## 再走 demo 等于替玩家多做一次他已经做过的事。
 func _turn_page() -> void:
+	var chapter_before := _chapter
 	_step += 1
 	while _chapter < CWGuideData.CHAPTER_COUNT and _step >= CWGuideData.steps(_chapter).size():
 		## 这一章看完了：记到进度。
@@ -160,6 +166,8 @@ func _turn_page() -> void:
 			visible = false
 		return
 	auto_next = false
+	if _chapter != chapter_before and on_chapter_done.is_valid():
+		on_chapter_done.call(_chapter)   ## 跨章 = 换一局（导演装配新局面）
 	_render()
 
 
@@ -167,12 +175,15 @@ func _turn_page() -> void:
 ## 玩家主动跳过前面的内容时，进度就跟着跳。
 func goto_chapter(idx: int) -> void:
 	idx = clampi(idx, 0, CWGuideData.CHAPTER_COUNT - 1)
+	var chapter_before := _chapter
 	for i in range(idx):
 		if not CWGuideProgress.has_done(i):
 			CWGuideProgress.set_done(i)
 	_chapter = idx
 	_step = 0
 	auto_next = false
+	if _chapter != chapter_before and on_chapter_done.is_valid():
+		on_chapter_done.call(_chapter)   ## 目录跳章同样换局面
 	_render()
 
 
@@ -233,6 +244,29 @@ func step_no() -> int:
 	return _step
 
 
+## 当前教程辅助阶段；正式对局不创建 CWGuide，因此不会获得这些限制或提示。
+func ui_stage() -> int:
+	return CWGuideData.ui_stage(_chapter)
+
+
+## 纠错只记录在教程面板；不会改引擎状态，也不会阻止玩家重新尝试。
+func record_mistake() -> void:
+	_mistakes += 1
+
+
+func mistake_count() -> int:
+	return _mistakes
+
+
+## 第 16 关只读辅助；不执行动作、不改正式局面。
+func graduation_assist() -> Dictionary:
+	if _match == null or not is_instance_valid(_match) or _match.game == null:
+		return {}
+	if _chapter != CWGuideData.CHAPTER_COUNT - 1:
+		return {}
+	return CWGuideData.graduation_assist(_match.game)
+
+
 ## ---- 状态推进：带 watch 的步骤由真实局面判定完成 ----
 ## 哨兵 = 没有人类席 / 细胞还没落（与 board.NO_TILE 同一约定）
 const WATCH_NONE := Vector2i(9999, 9999)
@@ -283,7 +317,14 @@ func _render() -> void:
 		l.queue_free()
 	_body.clear()
 	var y := 0.0
-	for line in s["b"]:
+	var body_lines: Array = s["b"].duplicate()
+	if _chapter == CWGuideData.CHAPTER_COUNT - 1 and _match != null \
+			and is_instance_valid(_match) and _match.game != null:
+		var assist := CWGuideData.graduation_assist(_match.game)
+		body_lines.append("建议：" + str(assist["suggestion"]))
+		body_lines.append("预测：" + str(assist["e_prediction"]))
+		body_lines.append("规则：" + str(assist["rule_explanation"]))
+	for line in body_lines:
 		var label := CWStyle.label(line, CWStyle.SIZE_LABEL, CWStyle.TEXT)
 		label.position = Vector2(0, y)
 		label.size = Vector2(_content.size.x, 15)

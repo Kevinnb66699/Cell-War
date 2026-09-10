@@ -297,8 +297,14 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 	row["bg"].color = Color(faction_color, 0.10 if on else 0.0)
 	row["name"].add_theme_color_override("font_color",
 		CWStyle.TEXT_OFF if dead else (CWStyle.TEXT_HI if on else CWStyle.TEXT))
-	row["type"].text = CWData.IMMUNE_TYPE_NAMES[cell["itype"]] if immune \
-		else CWData.CANCER_TYPE_NAMES[cell["ctype"]]
+	## 种类名按阵营查表；死亡占位细胞（教程 fixture 的缺席方）种类为 -1，显示空串
+	var tname := ""
+	if immune:
+		if cell["itype"] >= 0:
+			tname = CWData.IMMUNE_TYPE_NAMES[cell["itype"]]
+	elif cell["ctype"] >= 0:
+		tname = CWData.CANCER_TYPE_NAMES[cell["ctype"]]
+	row["type"].text = tname
 	if pid < net_seats.size():
 		var seat: Dictionary = net_seats[pid]
 		if seat.get("kind", "") == "ai":
@@ -318,9 +324,11 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 	_fit_type_label(row)
 
 	var icon: Sprite2D = row["icon"]
-	icon.visible = true
+	var icon_ok: bool = cell["itype"] >= 0 if immune else cell["ctype"] >= 0
+	icon.visible = icon_ok          ## 死亡占位（教程 fixture 缺席方）没有种类图标
 	icon.modulate.a = 0.35 if dead else 1.0
-	icon.texture = IMMUNE_ICON[cell["itype"]] if immune else CANCER_ICON[cell["ctype"]]
+	if icon_ok:
+		icon.texture = IMMUNE_ICON[cell["itype"]] if immune else CANCER_ICON[cell["ctype"]]
 
 
 # ============ 建节点（只跑一次）============

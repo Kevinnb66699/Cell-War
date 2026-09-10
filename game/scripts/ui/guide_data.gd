@@ -10,6 +10,10 @@ const CHAPTER_COUNT := 16
 ## 每关对应的 CWCodex 章节下标。
 const CODEX_PAGE := [4, 4, 5, 3, 3, 1, 1, 9, 2, 6, 7, 3, 10, 6, 0, 12]
 
+## 渐进 UI 阶段：只控制教程辅助层，不改 CWGame 的正式行动集合。
+## 0 = 只看棋盘；1 = 目标高亮；2 = 规则/资源提示；3 = 预测与解释（毕业战）。
+const UI_STAGE := [0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3]
+
 
 static func chapter_titles() -> Array[String]:
 	return [
@@ -35,6 +39,10 @@ static func chapter_subtitles() -> Array[String]:
 
 static func chapter_step_count(chapter: int) -> int:
 	return steps(chapter).size()
+
+
+static func ui_stage(chapter: int) -> int:
+	return UI_STAGE[clampi(chapter, 0, CHAPTER_COUNT - 1)]
 
 
 ## 字段：t 标题；b 正文；flag 高亮目标；act 动作提示；watch 真实状态完成键。
@@ -67,20 +75,26 @@ static func total_steps() -> int:
 
 
 static func _stage_awaken() -> Array:
+	## 第 1 关「苏醒」（方案 §四·1）：7 格全健康、免疫细胞已在 (0,0)——
+	## 不教落子（细胞预置），只教三件事：六边形移动、健康组织、能量消耗。
+	## 世界回合条此关不出现（渐进 UI 切片处理）。
 	var tune := CWTuning.new()
 	return [
-		{ "t": "欢迎来到细胞战争", "flag": "board", "b": [
-			"你执免疫方，AI 执癌方。", "做错不惩罚——跟着高亮走就好。"] },
-		{ "t": "第一步：落子", "flag": "place", "act": "place", "watch": "placed", "b": [
-			"开局轮流把细胞放上棋盘。", "点一个高亮的健康组织。"] },
-		{ "t": "能量就是生命", "flag": "energy", "b": [
-			"行动花能量，归零即死。", "开局免疫 %s、癌方 %s。" % [
-				CWData.fmt(tune.init_energy_immune), CWData.fmt(tune.init_energy_cancer)]] },
-		{ "t": "第二步：迁移", "flag": "move", "act": "move", "watch": "moved", "b": [
-			"点「迁移」再点相邻一格。", "健康组织 %s、癌组织 %s。" % [
-				CWData.fmt(tune.immune_move_healthy[0]), CWData.fmt(tune.immune_move_cancerous[0])]] },
-		{ "t": "别忘了结束回合", "flag": "end", "act": "end", "b": [
-			"一人可连续行动多次。", "点右侧「结束回合」交棒。"] },
+		{ "t": "苏醒", "flag": "board", "b": [
+			"信号恢复。你是一枚尚未分化的免疫细胞。",
+			"周围是正常组织。先试着移动。"] },
+		{ "t": "第一次迁移", "flag": "move", "act": "move", "watch": "moved", "b": [
+			"点一个相邻的健康组织迁移过去。",
+			"注意左下角：移动消耗能量。"] },
+		{ "t": "自己选路", "flag": "board", "act": "move", "watch": "moved", "b": [
+			"很好。再自己选一个相邻组织迁移。",
+			"健康组织每格 %s。" % CWData.fmt(tune.immune_move_healthy[0])] },
+		{ "t": "长路径", "flag": "board", "act": "move", "watch": "moved", "b": [
+			"一次迁移可以连走多格。",
+			"路径越长，费用越高。"] },
+		{ "t": "小结", "flag": "energy", "b": [
+			"移动需要能量。接下来你会看到，",
+			"组织本身比移动更重要。"] },
 	]
 
 
@@ -111,13 +125,24 @@ static func _stage_contact() -> Array:
 
 
 static func _stage_time() -> Array:
+	## 第 4 关「时间开始流动」（方案 §四·4）：完整走两个世界回合——S 补能、
+	## 玩家亲手移动两次、**结束回合**交给 E 阶段。结束回合的动作教学在这里。
 	return [
-		{ "t": "S → 行动 → E", "flag": "round", "b": [
-			"世界回合先 S 结算、再轮流行动、末了 E。", "右栏顶部看进度。"] },
-		{ "t": "有氧呼吸", "flag": "energy", "b": [
-			"S 阶段每个免疫细胞拿一份能量。", "等级越高拿得越多。"] },
-		{ "t": "E 阶段", "flag": "round", "b": [
-			"压迫、增生、侵蚀、固化都在 E。", "结束回合前想一遍。"] },
+		{ "t": "时间开始流动", "flag": "round", "b": [
+			"真正的对局以「世界回合」推进：",
+			"S 结算 → 玩家行动 → E 结算。"] },
+		{ "t": "S：有氧呼吸", "flag": "energy", "b": [
+			"S 阶段免疫细胞靠【有氧呼吸】回能。",
+			"看你脚下组织的健康程度。"] },
+		{ "t": "行动：移动两次", "flag": "move", "act": "move", "watch": "moved", "b": [
+			"轮到你了：移动两次，",
+			"感受能量的进出。"] },
+		{ "t": "结束回合", "flag": "end", "act": "end", "b": [
+			"一人可连续行动多次。",
+			"点右侧「结束回合」，E 阶段开始。"] },
+		{ "t": "E：世界自己动", "flag": "round", "b": [
+			"压迫、增生、侵蚀、固化都在 E。",
+			"下个 S 阶段再见面。"] },
 	]
 
 
@@ -260,3 +285,20 @@ static func watch_of(chapter: int, step: int) -> String:
 	if step < 0 or step >= chapter_steps.size():
 		return ""
 	return str(chapter_steps[step].get("watch", ""))
+
+
+## 毕业战只读辅助文案：输入真实局面，绝不替引擎结算或改变随机流。
+static func graduation_assist(game: CWGame) -> Dictionary:
+	var cancerous := game.count_tissue(CWData.Tissue.CANCER)
+	var solid := 0
+	for c in game.tiles:
+		if int(game.tiles[c].get("tissue", -1)) == CWData.Tissue.CANCER \
+				and int(game.tiles[c].get("solid", 0)) > 0:
+			solid += 1
+	return {
+		"suggestion": "先看自己细胞周围的可行动作，再决定净化、攻击或结束回合。",
+		"e_prediction": "E 阶段将按正式顺序处理增生、侵蚀、压迫、固化衰减与胜负判定。",
+		"rule_explanation": "癌性组织计 1，固化组织计 2；免疫胜利还要求没有可复活的固化据点。",
+		"cancerous": cancerous,
+		"solid": solid,
+	}

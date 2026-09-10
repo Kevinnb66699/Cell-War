@@ -47,6 +47,12 @@ signal finished(winner: int)
 ## 正式局 / 读档 / 联机 / 再来一局的入口都把它复位成 false。
 @export var tutorial := false
 
+## 教程当前关（0 起）：start() 按 CWGuideProgress 算出，跨章时由 guide 的
+## on_chapter_done 回调更新并换一局（见 _advance_tutorial_chapter）。
+var _tutorial_ch := 0
+## 运行代际号：教程跨章换局时 +1，让旧局的 _run 协程安静退场（不再发 finished）。
+var _run_gen := 0
+
 ## 此刻能不能存档：引擎只在 pending 边界有完整快照（CWSave 的写入条件）。
 ## 暂停菜单拿它决定「保存并退出」亮不亮。联机局不写本地存档（状态在服务器，掉线凭令牌重连）。
 ## 错误气泡挂在哪一格：自己的细胞脚下（视线本来就在那儿）；没有细胞就挂棋盘中心。
@@ -370,21 +376,22 @@ func _ready() -> void:
 ## 待决的询问重新问出来（恢复点必然是 pending 边界，CWSave 只在那儿写得出档）。
 func start(snap: Dictionary = {}) -> void:
 	_prepare_ui()
-	game = CWGame.new()
-	game.tune.cancer_types = cancer_types.duplicate()   ## 必须在 init 之前：抽种类在开局第一步
-	game.tune.world_events_on = world_events
-	game.init(CWData.FACTION_ORDER[player_count],
-		match_seed if match_seed != 0 else int(Time.get_unix_time_from_system()))
-	if not snap.is_empty():
-		game.restore(snap)   ## rng 状态也在快照里，init 用的种子随之作废
-	if not game.card_played.is_connected(_on_card_played):
-		game.card_played.connect(_on_card_played)
-	if not game.event_drawn.is_connected(_on_event_drawn):
-		game.event_drawn.connect(_on_event_drawn)
-	if not game.card_drawn.is_connected(_on_card_drawn):
-		game.card_drawn.connect(_on_card_drawn)
-	if not game.world_event.is_connected(_on_world_event):
-		game.world_event.connect(_on_world_event)
+	if tutorial and snap.is_empty():
+		## 教程局（16 关重构切片⑧）：按进度当前关用导演装配——1–15 关 fixture 小棋盘、
+		## 第 16 关正式四人局；人类坐视角阵营的玩家席（第 5 关癌症视角坐 1 号席）。
+		_tutorial_ch = clampi(CWGuideProgress.done_count(), 0, CWGuideData.CHAPTER_COUNT - 1)
+		player_count = 4 if CWGuideLevels.formal(_tutorial_ch) else 2
+		human_players = [1 if CWGuideLevels.player_faction(_tutorial_ch) == CWData.Faction.CANCER else 0]
+		game = CWGuideDirector.assemble(_tutorial_ch, 0)
+	else:
+		game = CWGame.new()
+		game.tune.cancer_types = cancer_types.duplicate()   ## 必须在 init 之前：抽种类在开局第一步
+		game.tune.world_events_on = world_events
+		game.init(CWData.FACTION_ORDER[player_count],
+			match_seed if match_seed != 0 else int(Time.get_unix_time_from_system()))
+		if not snap.is_empty():
+			game.restore(snap)   ## rng 状态也在快照里，init 用的种子随之作废
+	_bind_game_signals()
 	_wire_bridge(ai_level)
 	## 同一个桥对象注册给所有玩家：人类那几位走界面，其余走 AI，
 	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。
@@ -393,6 +400,54 @@ func start(snap: Dictionary = {}) -> void:
 	game.record_replay = true          ## 真对局才录（MC 推演不录，见 CWGame.ask）
 	if tutorial:
 		_attach_guide()   ## 要在 _run()（第一次询问）之前：第一句提示 / 第一次演示就要读章节
+	_run()
+
+
+## 对局信号绑定（start 与教程跨章换局共用）：换的是新 CWGame，四个信号逐一接上；
+## 棋盘网格也按新局的半径重建（教程小棋盘，正式局 127 格不变）。
+func _bind_game_signals() -> void:
+	board.build_for(game.board_radius)
+	if not game.card_played.is_connected(_on_card_played):
+		game.card_played.connect(_on_card_played)
+	if not game.event_drawn.is_connected(_on_event_drawn):
+		game.event_drawn.connect(_on_event_drawn)
+	if not game.card_drawn.is_connected(_on_card_drawn):
+		game.card_drawn.connect(_on_card_drawn)
+	if not game.world_event.is_connected(_on_world_event):
+		game.world_event.connect(_on_world_event)
+
+
+## 教程跨章 = 换一局（CWGuide.on_chapter_done 回调）：新关局面由导演装配、
+## 人类席位按视角换边；旧局按拆局次序收摊（先 aborted、再唤醒卡住的询问、
+## 最后 dispose），旧运行协程由 _run 的代际号安静退场。
+func _advance_tutorial_chapter(next_ch: int) -> void:
+	if not tutorial or game == null:
+		return
+	_run_gen += 1
+	var old := game
+	_tutorial_ch = clampi(next_ch, 0, CWGuideData.CHAPTER_COUNT - 1)
+	player_count = 4 if CWGuideLevels.formal(_tutorial_ch) else 2
+	human_players = [1 if CWGuideLevels.player_faction(_tutorial_ch) == CWData.Faction.CANCER else 0]
+	game = CWGuideDirector.assemble(_tutorial_ch, 0)
+	_bind_game_signals()
+	_wire_bridge(ai_level)
+	for pid in game.order:
+		game.bridges[pid] = bridge
+	## **换局会新建一个桥**（_wire_bridge），所以要把**同一个**引导面板重新挂上去。
+	## 不重挂的话新桥的 guide 是空的 —— CWGuideBridge 每处都判空，于是不崩、
+	## 但从第 2 关起提示、演示、「继续」代做全部静默失效（合并时查出来的，
+	## PR 原样是漏的）。这儿不重建面板、只重接线：面板正处在自己的回调里
+	if _guide != null and is_instance_valid(_guide) and bridge is CWGuideBridge:
+		(bridge as CWGuideBridge).guide = _guide
+		bridge.set_meta("tutorial_guide", _guide)
+		_guide.demo_ready = (bridge as CWGuideBridge).can_demo
+	## 每一局都录（同 start()）：跨章换的是新 CWGame，不置位的话
+	## 从第 2 关起就不再录，最后 CWReplay.save 存出个空
+	game.record_replay = true
+	old.aborted = true
+	if bridge != null:
+		bridge.abort()
+	old.dispose()
 	_run()
 
 
@@ -704,10 +759,13 @@ func _attach_guide() -> void:
 	_guide.visible = true
 	if bridge is CWGuideBridge:
 		(bridge as CWGuideBridge).guide = _guide
+		bridge.set_meta("tutorial_guide", _guide)
 		## 「继续」代做（Kevin 2026-09-05）：面板问桥「此刻能代做吗」，按下时让桥替玩家作答
 		_guide.demo_ready = (bridge as CWGuideBridge).can_demo
 		_guide.demo = (bridge as CWGuideBridge).take_offer
 		_guide.hint_now = (bridge as CWGuideBridge).current_hint
+		## 跨章换局（16 关重构切片⑧）：面板翻章只管翻页，局面由对局侧重装配
+		_guide.on_chapter_done = _advance_tutorial_chapter
 	## 提亮层压在 HUD 之上、引导面板之下；每帧在 _process 里按当前步骤的 flag 重算目标
 	if _spotlight != null and is_instance_valid(_spotlight):
 		_spotlight.queue_free()
@@ -775,7 +833,10 @@ func _bloom_order() -> Array:
 
 
 func _run() -> void:
+	var gen := _run_gen
 	var winner: int = await game.run_game()
+	if gen != _run_gen:
+		return    ## 教程跨章换局：旧局协程安静退场，finished 由新局的 _run 发
 	finished.emit(winner)
 
 
@@ -1103,7 +1164,9 @@ func _process(delta: float) -> void:
 	if _spotlight != null and is_instance_valid(_spotlight):
 		var flag := ""
 		if _guide != null and is_instance_valid(_guide) and _guide.active:
-			flag = _guide.highlight_flag()
+			## 渐进 UI：第一关只保留棋盘状态，不提前亮出行动控件；后续阶段
+			## 由剧本数据逐步开放目标高亮。正式局没有 guide，不经过此闸。
+			flag = _guide.highlight_flag() if _guide.ui_stage() >= 1 else ""
 		_spotlight.sync(flag, self)
 
 
@@ -1335,8 +1398,10 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 	var node := Sprite2D.new()
 	## 癌细胞的种类一局之内不会变（会变形态的只有免疫方的分化），贴图建节点时定一次就够。
 	## 免疫的 itype 会变，所以它的贴图交给 _sync_cells 每帧对一次。
+	## 死亡占位（教程 fixture 的缺席方，ctype -1）：不配贴图，反正永不可见。
 	if cell["faction"] == CWData.Faction.CANCER:
-		_set_cell_art(node, CANCER_ART[cell["ctype"]])
+		if int(cell["ctype"]) >= 0:
+			_set_cell_art(node, CANCER_ART[cell["ctype"]])
 	else:
 		_add_doom_overlay(node)
 	_cells_root.add_child(node)

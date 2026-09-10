@@ -40,6 +40,11 @@ static func player_faction(level: int) -> int:
 	return CWData.Faction.CANCER if CANCER_POV.has(level) else CWData.Faction.IMMUNE
 
 
+## 第 level 关是否走正式规则（第 16 关毕业战：正式 127 格四人局）
+static func formal(level: int) -> bool:
+	return bool(raw(level).get("formal", false))
+
+
 ## 第 level 关的开局局面声明。字段（全部可选，按关递增）：
 ##   radius       棋盘半径（RADII 的冗余副本，导演直接读）
 ##   formal       true = 第 16 关，走正式四人初始化，其余字段无效
@@ -60,11 +65,13 @@ static func raw(level: int) -> Dictionary:
 		2:
 			return {
 				"radius": RADII[2],
-				## 第 3 关「第一次接触」：玩家 6.0、敌方癌细胞 (1,0) 3.0，目标格及其后方为癌组织
+				## 第 3 关「第一次接触」：玩家 6.0、敌方癌细胞 (1,0) 3.0（钉死骨肉瘤，
+				## 与主菜单教程对手同款），目标格及其后方为癌组织
 				"cancer_tiles": [Vector2i(1, 0), Vector2i(2, 0), Vector2i(2, -1)],
 				"cells": [
 					{ "faction": CWData.Faction.IMMUNE, "pos": Vector2i.ZERO, "energy": 60 },
-					{ "faction": CWData.Faction.CANCER, "pos": Vector2i(1, 0), "energy": 30 },
+					{ "faction": CWData.Faction.CANCER, "pos": Vector2i(1, 0), "energy": 30,
+						"ctype": CWData.CancerType.OSTEO },
 				],
 			}
 		3:

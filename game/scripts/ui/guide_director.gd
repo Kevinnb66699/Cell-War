@@ -13,6 +13,9 @@
 ## 与正式对局的种子互不相干。
 class_name CWGuideDirector
 
+## 教程随机流只由章节决定；正式局永远从 CWMatch.match_seed 单独初始化。
+const SEED_BASE := 20260910
+
 
 ## 装配第 level 关（0 起）的开局局面；带实验区的关用 zone 选区（默认 0）。
 ## 返回未推进流程的真实 CWGame。
@@ -28,7 +31,7 @@ static func assemble(level: int, zone: int = 0) -> CWGame:
 	var factions: Array = CWData.FACTION_ORDER[4] if formal else CWData.FACTION_ORDER[2]
 	var g := CWGame.new()
 	## 种子按关派生：同关可复现、异关不串线；正式对局的种子不经过这里
-	g.init(factions, 20260910 + level)
+	g.init(factions, SEED_BASE + level)
 	g.setup.build_board(int(zf.get("radius", CWData.BOARD_RADIUS)))
 	if not formal:
 		_apply_fixture(g, zf)
@@ -78,12 +81,11 @@ static func _place_cells(g: CWGame, fx: Dictionary) -> void:
 			if (1 if cell["faction"] == CWData.Faction.CANCER else 0) == pid:
 				picked = cell
 		if picked.is_empty():
-			var pos: Vector2i = g.tiles.keys()[0]
-			for c in g.tiles:
-				if not live_pos.has(c):
-					pos = c
-					break
-			var ph := g.setup.make_cell(pid, pid, g.player(pid)["faction"], pos, -1, -1, 0)
+			## 缺席玩家的死亡占位：站板外哨兵位（不占任何格子）——选项枚举当它透明，
+			## 但迁移执行按「一细胞一格」会撞上它回滚（2026-09-10 探针实锤）。
+			## 板外坐标对邻居枚举天然为空集，一切按位置的查询都安全。
+			var ph := g.setup.make_cell(pid, pid, g.player(pid)["faction"],
+				Vector2i(9999, 9999), -1, -1, 0)
 			ph["alive"] = false
 			ordered.append(ph)
 		else:
@@ -94,9 +96,19 @@ static func _place_cells(g: CWGame, fx: Dictionary) -> void:
 	var cid := 0
 	for cell in ordered:
 		var pid := 1 if cell["faction"] == CWData.Faction.CANCER else 0
+		var it := int(cell.get("itype", -1))
+		if cell["faction"] == CWData.Faction.IMMUNE and it < 0:
+			it = CWData.ImmuneType.BASIC   ## 免疫主细胞默认未分化（BASIC）；-1 只留给缺席占位
 		var nc := g.setup.make_cell(cid, pid, cell["faction"], cell["pos"],
-			int(cell.get("itype", -1)), int(cell.get("ctype", -1)),
+			it, int(cell.get("ctype", -1)),
 			int(cell.get("energy", CWData.INIT_ENERGY)))
 		nc["alive"] = cell.get("alive", true)
 		g.cells.append(nc)
 		cid += 1
+	## 玩家的癌种与主细胞一致（fixture 声明了就钉死、不随种子抽；免疫席 -1）
+	## ——正式局这活由 setup._assign_cancer_types 干，fixture 关跳过了开局流程。
+	for pid in g.order:
+		var ct := -1
+		if g.player(pid)["faction"] == CWData.Faction.CANCER:
+			ct = int(g.cell_of(pid)["ctype"])
+		g.players[pid]["cancer_type"] = ct
