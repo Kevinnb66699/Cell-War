@@ -12,11 +12,12 @@
 # 为什么要有这个脚本：客户端包此前只躺在本机 dist/（`.gitignore` 里，不入库），
 # 谁要谁问、也说不清哪个包对应哪次提交。放进 Release 之后，包和 commit 绑死。
 #
-# 发之前拦四件事，任一不满足直接退出 —— 这四条都是真踩过的坑：
+# 发之前拦五件事，任一不满足直接退出 —— 这几条都是真踩过的坑：
 #   ① 工作树干净        —— 否则发出去的包和仓库里的代码对不上
 #   ② HEAD == origin/main —— 发的必须是已经推上去的那一版
 #   ③ 两个包都在，且**比 HEAD 那次提交新** —— 防止改完代码忘了重导，把旧包发出去
 #   ④ tag 还不存在      —— 免得覆盖历史版本
+#   ⑤ BASE_BUILD 比上一次发版大 —— 热更的跨版本闸全靠它，不改就等于没有闸
 #
 # ⚠ **别把这个脚本接管道**（`tools/publish_release.sh | tail -7` 之类）。
 # 脚本自己 `set -eu`、失败时老老实实退 1；但接了管道之后，`$?` 是**管道最后一段**的
@@ -64,6 +65,33 @@ for f in "$WIN" "$MAC"; do
 		|| die "$f 比 HEAD 那次提交还旧：重导一遍，别把上一版的包发出去"
 done
 
+# ---- ⑤ 基线号必须比上一次发版大 ----
+# `PatchState.BASE_BUILD` 是热更的**唯一**跨版本闸：manifest 的 min_base 拿它比，
+# 比它老的客户端才会被 boot.gd 拦下来。
+# 它的注释从第一天就写着「全量发版时往上改」，但那是句口头纪律 ——
+# 2026-09-09 一天发了九个包，九个包的 BASE_BUILD 全是同一个 20260909，
+# 于是 min_base 谁也拦不住：给 -9 打的补丁会照样装进 -7 的客户端，
+# 而 -7 里没有 -9 新加的那五个类，玩家当场 `Identifier not declared`。
+# 所以把这条纪律变成闸。**日期粒度不够**（同一天发九次），用到分钟。
+base_build_at() {   # $1 = git ref（空 = 工作树）
+	if [ -z "${1:-}" ]; then
+		grep -oE '^const BASE_BUILD := [0-9]+' game/scripts/patch_state.gd
+	else
+		git show "$1:game/scripts/patch_state.gd" 2>/dev/null 			| grep -oE '^const BASE_BUILD := [0-9]+'
+	fi | grep -oE '[0-9]+$'
+}
+NOW_BASE="$(base_build_at || true)"
+[ -n "$NOW_BASE" ] || die "读不出 game/scripts/patch_state.gd 的 BASE_BUILD"
+PREV_TAG="$(git tag -l 'client-*' --sort=-creatordate | head -1)"
+if [ -n "$PREV_TAG" ]; then
+	PREV_BASE="$(base_build_at "$PREV_TAG" || true)"
+	if [ -n "$PREV_BASE" ] && [ "$NOW_BASE" -le "$PREV_BASE" ]; then
+		die "BASE_BUILD 没往上改（$PREV_TAG 是 $PREV_BASE，现在还是 $NOW_BASE）——
+   热更的跨版本闸全靠它：不改的话，给这一版打的补丁会装进上一版的客户端。
+   改 game/scripts/patch_state.gd 的 BASE_BUILD 到 $(date +%Y%m%d%H%M) 再发。"
+	fi
+fi
+
 # ---- ④ tag ----
 TAG="${1:-}"
 if [ -z "$TAG" ]; then
@@ -88,7 +116,7 @@ echo "win        $(du -h "$WIN" | cut -f1)"
 echo "mac        $(du -h "$MAC" | cut -f1)"
 
 if [ "$DRY" = "1" ]; then
-	echo "✔ 四项检查通过（DRY=1，没真发）"
+	echo "✔ 五项检查通过（DRY=1，没真发）"
 	exit 0
 fi
 command -v gh >/dev/null 2>&1 || die "没装 gh：装好并 gh auth login 之后再跑（登录那步要你自己来）"

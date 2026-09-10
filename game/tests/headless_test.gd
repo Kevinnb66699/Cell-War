@@ -4821,6 +4821,43 @@ func t_hot_patch() -> void:
 	print("[热更新]")
 	var PatchState := load("res://scripts/patch_state.gd")
 
+	## ---- 打包器的跨基线闸（2026-09-09 补）----
+	## 判据必须是**目标基线包**的类表，不是本机项目：本次新加的类在本机也已注册，
+	## 拿本机对照等于让补丁自己给自己开绿灯。真实后果：加了五只演出、发全量包之后，
+	## 任何碰 match.gd 的补丁都会引用 CWChainFx，而还停在更旧包上的玩家装了就当场报错。
+	var Packer := load("res://tests/build_patch.gd")
+	var full := {}
+	for c in ProjectSettings.get_global_class_list():
+		full[String(c.get("class", ""))] = true
+	## ① 目标基线什么都有 → 放行
+	var pairs := [["res://scripts/ui/match.gd", ProjectSettings.globalize_path(
+		"res://scripts/ui/match.gd")]]
+	check(Packer._reject(pairs, full).is_empty(), "基线认得所有类时，改 match.gd 放行")
+	## ② 目标基线缺 CWChainFx → 必须拦（match.gd 引用了它）
+	var older := full.duplicate()
+	older.erase("CWChainFx")
+	var bad: Array = Packer._reject(pairs, older)
+	check(bad.size() == 1 and String(bad[0]).contains("CWChainFx"),
+		"基线没有 CWChainFx 时拦下改 match.gd 的补丁（%s）" % str(bad))
+	## ③ 声明了基线没有的 class_name → 也要拦
+	var chain := [["res://scripts/ui/chain_fx.gd", ProjectSettings.globalize_path(
+		"res://scripts/ui/chain_fx.gd")]]
+	check(not Packer._reject(chain, older).is_empty(), "基线没有的 class_name 声明也拦")
+	## ④ 启动器与基线常量永远拦（它们读在挂载之前）
+	for f in ["res://scripts/boot.gd", "res://scripts/patch_state.gd"]:
+		check(not Packer._reject([[f, ProjectSettings.globalize_path(f)]], full).is_empty(),
+			"%s 永远打不进补丁" % f)
+
+	## 发版脚本得把「基线号必须往上改」闸住 —— 它是热更唯一的跨版本闸，
+	## 而它的注释从第一天就写着这条纪律、却一次都没被执行（九个包同一个号）
+	var pub := FileAccess.get_file_as_string("res://../tools/publish_release.sh")
+	if pub != "":
+		check(pub.contains("BASE_BUILD 没往上改"),
+			"publish_release.sh 拦住「基线号没改就发版」")
+	var bp := FileAccess.get_file_as_string("res://../tools/build_patch.sh")
+	if bp != "":
+		check(bp.contains("--base-classes="), "build_patch.sh 把目标基线的类表喂给打包器")
+
 	## SHA-256 拿一个已知答案的空串对：补丁是可执行代码，指纹算错等于护栏形同虚设
 	var tmp := "user://_t_hot_probe.bin"
 	var f := FileAccess.open(tmp, FileAccess.WRITE)

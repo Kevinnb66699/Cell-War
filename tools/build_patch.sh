@@ -18,7 +18,8 @@
 # 每天真正改的只有几十 KB 脚本。补丁包按 res:// 路径覆盖原包里的文件即可。
 #
 # ⚠ **这些改动打不进补丁，必须走 tools/publish_release.sh 全量发版**：
-#   · 新增 class_name（全局类表导出时烘死；build_patch.gd 会拦住）
+#   · 新增 class_name，**以及引用了目标基线没有的类**（全局类表导出时烘死）——
+#     判据是 $BASE 那次发版的 git 树，不是本机项目；build_patch.gd 会拦住
 #   · project.godot 的设置、Godot 版本、导出模板
 #   · 删除文件（补丁只能覆盖，表达不了「删掉」）
 #
@@ -54,10 +55,20 @@ for f in "${CHANGED[@]}"; do
 	ARGS+=("res://${f#game/}" "$PWD/$f")
 done
 
+# 目标基线的全局类表：从 **$BASE 那次发版的 git 树**里扒（不是本机项目）。
+# 本次新加的类在本机也已注册，拿本机对照等于让补丁自己给自己开绿灯 ——
+# 2026-09-09 加五只演出（CWHuntFx 等）之后，任何碰 match.gd 的补丁都会引用它们，
+# 而还停在更旧包上的玩家装了就是当场 `Identifier not declared`。
+CLASSES="$(mktemp)"
+trap 'rm -f "$CLASSES"' EXIT
+git grep -h -E '^class_name [A-Za-z_]' "$BASE" -- 'game/*.gd' 	| sed -E 's/^class_name +([A-Za-z_][A-Za-z0-9_]*).*//' | sort -u > "$CLASSES"
+[ -s "$CLASSES" ] || die "从 $BASE 扒不出全局类表 —— 那个 tag 的树里没有 class_name？"
+echo "目标基线 $BASE 的全局类表：$(wc -l < "$CLASSES") 个类"
+
 mkdir -p "$OUTDIR"
 # 输出路径同样得给绝对的 —— 理由和上面那段一样（打包器跑在 `--path game` 底下，
 # 相对路径会被当成 res:// 里的）。2026-09-09 第一次真打补丁时就是漏了这一处。
-"$GODOT" --headless --path game --script res://tests/build_patch.gd -- "$PWD/$OUT" "${ARGS[@]}"
+"$GODOT" --headless --path game --script res://tests/build_patch.gd -- 	"--base-classes=$CLASSES" "$PWD/$OUT" "${ARGS[@]}"
 
 # min_base 取当前的基线号：补丁是照着 HEAD 打的，就只保证能装在这一档基线上。
 # 比它老的客户端会被 boot.gd 拦下来，提示去下完整包，而不是硬套一个可能用不了的补丁。
