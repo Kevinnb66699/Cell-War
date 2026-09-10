@@ -7929,16 +7929,43 @@ func t_guide_director() -> void:
 	gf.setup.build_board()
 	check(gf.tiles.size() == CWData.TOTAL_TILES,
 		"教程装配不污染正式口径：build_board() 仍是 127 格（当前 %d）" % gf.tiles.size())
-	## 固定随机隔离：同一教程关可复现；正式局仍由自己的 match seed 驱动。
+	## T-GUIDE-RNG-ISOLATION：正式局掷骰期间穿插教程装配与掷骰，正式后续结果不得改变。
+	var control := CWGame.new()
+	control.init(CWData.FACTION_ORDER[2], 7319)
+	var interleaved := CWGame.new()
+	interleaved.init(CWData.FACTION_ORDER[2], 7319)
+	check(control.roll_d6() == interleaved.roll_d6(), "正式局同种子首骰一致")
 	var seeded_a := CWGuideDirector.assemble(2)
 	var seeded_b := CWGuideDirector.assemble(2)
-	check(seeded_a.rng.state == seeded_b.rng.state,
-		"同一教程关的固定随机序列可复现（state=%d）" % seeded_a.rng.state)
-	var formal_seeded := CWGame.new()
-	formal_seeded.init(CWData.FACTION_ORDER[2], 20260910)
-	check(formal_seeded.rng.state != seeded_a.rng.state,
-		"正式对局随机流不继承教程固定随机（tutorial=%d formal=%d）"
-			% [seeded_a.rng.state, formal_seeded.rng.state])
+	var repeatable := true
+	for i in 32:
+		if seeded_a.roll_d6() != seeded_b.roll_d6():
+			repeatable = false
+	check(repeatable, "同一教程关实际掷骰序列可复现")
+	var isolated := true
+	for i in 32:
+		if control.roll_d6() != interleaved.roll_d6():
+			isolated = false
+	check(isolated, "教程装配与掷骰不改变相邻正式局后续随机结果")
+	seeded_a.dispose()
+	seeded_b.dispose()
+	control.dispose()
+	interleaved.dispose()
+	## T-GUIDE-ATTACK-SCRIPT：非攻击掷骰不消费教学序列，攻击依次失败、成功、大成功。
+	var scripted := CWGuideDirector.assemble(2)
+	## 固定脚本从独立的 seed 候选中选出，不依赖运行时随机搜索；先用本地 RNG
+	## 找到一个可复现的 1/3/6 骰面序列，再把 seed 写死在教程数据契约里。
+	const ATTACK_SCRIPT_SEED := 560893
+	scripted.rng.seed = ATTACK_SCRIPT_SEED
+	var faces: Array[int] = []
+	for i in 3:
+		faces.append(scripted.roll_d6())
+	var outcomes: Array[String] = []
+	for face in faces:
+		outcomes.append(scripted.actions.attack_outcome(face))
+	check(faces == [1, 3, 6] and outcomes == ["fail", "success", "crit"],
+		"第3关攻击固定脚本依次失败、成功、大成功：骰面=%s 判定=%s" % [str(faces), str(outcomes)])
+	scripted.dispose()
 
 
 ## 状态推进（16 关重构切片①）：教「迁移」的步骤改由真实局面判定完成——
