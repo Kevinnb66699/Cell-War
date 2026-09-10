@@ -212,6 +212,19 @@ var replay_paused := false
 var replay_speed := 1.0
 var _replay_target := -1     ## 待执行的拖拽目标；-1 = 没有。只由 _replay_loop 消费
 var _replay_bar: CWReplayBar ## 播放控制条（回放局才建）
+## 房内聊天的总开关。**2026-09-10 Kevin 拍板暂时关掉** —— 关的是「界面上有没有它」：
+## `CWChatBox` 那个类、协议里的 say/chat、服务器那半边全都原样留着，
+## 只是这里不再把框建出来（`_chat` 恒为 null，下面每一处都已经按 null 兜底，
+## 迷你条那页「聊天」也跟着不出现）。开回来就是把这行改成 true。
+##
+## **开回来之前要修的三条**（Kevin 2026-09-10 实战报的）：
+##   ① 从迷你条点开之后关不掉 —— 展开的框（340×460）正好盖住迷你条自己那个「聊天」页，
+##      而标题写着的「Enter 收起」在框开着时被输入框吃掉了（空串提交 = 什么都不做）；
+##   ② 该能点框外空白处收起（`CWLogPanel` 早就是这么做的，这份漏了）；
+##   ③ **打字打到 L 就弹出对局日志** —— `CWLogPanel._unhandled_input` 的单键快捷键
+##      没有「玩家正在打字」这道闸。空格 / 方向键多半同病，要一并按焦点判。
+const CHAT_ON := false
+
 var _chat: CWChatBox         ## 房内聊天（只有联机局有：本地局没人可聊）
 var _chat_seen := 0          ## 已经搬到框里的第几条（同 _feed_seq 的路子）
 var _ask_serial := 0     ## 每收到一次询问递增：作答时核对，服务器代打后重问的旧答案不发
@@ -490,7 +503,9 @@ func start_replay(p: CWReplay.Player) -> void:
 	if _replay_bar != null:
 		_replay_bar.visible = true
 	if pause_menu != null:
-		pause_menu.online = true       ## 暂停菜单只留「离开」：回放不能存档、不能改规则
+		## 只留「退出回放」：回放不能存档、不能改规则。**不能借 online 那个开关** ——
+		## 借了就会写成「离开房间？离开后本局由 AI 代打」，三个词全是假的
+		pause_menu.replay = true
 	_replay_loop(_loop_id)
 
 
@@ -550,6 +565,9 @@ func _replay_loop(id: int) -> void:
 	var carry := 0.0
 	while _loop_id == id and replay != null:
 		await get_tree().process_frame
+		## 拆局可能正好落在这一帧里（teardown 会把播放器撒手），下面每一处都要碰它
+		if _loop_id != id or replay == null:
+			return
 		## 拖进度：一帧只做一次，做完清目标。快退是真的重算
 		## （还原关键帧 + 快进），所以连按几下只是慢一点，不会失步
 		if _replay_target >= 0:
@@ -560,7 +578,7 @@ func _replay_loop(id: int) -> void:
 		if replay_paused or replay.done():
 			continue
 		carry += replay_speed
-		while carry >= 1.0 and not replay.done():
+		while carry >= 1.0 and _loop_id == id and replay != null and not replay.done():
 			carry -= 1.0
 			await replay.step_once()
 
@@ -636,6 +654,11 @@ func _prepare_ui() -> void:
 				(c as Control).modulate.a = 1.0
 	if pause_menu != null:
 		pause_menu.active = true
+		## 菜单形制一律先还原成本地局，联机 / 回放各自的 start 会紧接着再打开。
+		## teardown 只在 online 时复位 online，所以看完一份回放再开本地局，
+		## 「保存并退出」会凭空消失、「返回主菜单」还写着「离开房间」
+		pause_menu.online = false
+		pause_menu.replay = false
 		pause_menu.can_save = can_save_now
 		## 对局内知识之书开着时 Esc 先关书、不弹暂停（非教程局 _codex 恒为 null = 没开书）
 		pause_menu.codex_open = func() -> bool:
@@ -680,8 +703,9 @@ func _wire_bridge(level: int) -> void:
 	bridge.seal_fx = _seal_fx
 	bridge.beam_fx = _beam_fx
 	bridge.chain_fx = _chain_fx
-	## 聊天框只在联机局建：本地局没人可聊，教程局更不该多一个能抢回车的东西
-	if online and _chat == null and ui != null:
+	## 聊天框只在联机局建：本地局没人可聊，教程局更不该多一个能抢回车的东西。
+	## **CHAT_ON 现在是关的**（Kevin 2026-09-10 拍板先停）—— 三条待修见常量那儿。
+	if CHAT_ON and online and _chat == null and ui != null:
 		_chat = CWChatBox.new()
 		ui.add_child(_chat)
 		_chat.said.connect(func(text: String, team: bool) -> void:
@@ -967,7 +991,16 @@ func fade_out(seconds: float) -> void:
 ## 不擦干净的话上一局的癌组织和细胞会留在菜单背景里。
 func teardown() -> void:
 	_fading = false
-	_loop_id += 1            ## 联机：让 _net_loop 退出
+	_loop_id += 1            ## 联机：让 _net_loop 退出（回放的 _replay_loop 同理）
+	## 播放器和控制条是这一份回放的，拆局就得撒手。**不撒手的话下一局带着走**：
+	## 控制条留在屏幕上；更糟的是 `_unhandled_input` 见 `replay != null` 就把方向键
+	## 和空格当播放键吃掉 —— 空格正是「结束回合」。（2026-09-10 顺着小字那条查出来的）
+	replay = null
+	replay_paused = false
+	replay_speed = 1.0
+	_replay_target = -1
+	if _replay_bar != null:
+		_replay_bar.visible = false
 	var active_game: CWGame = game
 	if online:
 		## 影子对局属于客户端（回到等待室还要用），这里只放手不销毁

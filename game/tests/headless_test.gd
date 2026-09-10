@@ -7487,6 +7487,42 @@ func t_pause_and_teardown() -> void:
 	check(m.board.tile_hovered.get_connections().is_empty(), "拆局后悬停信号断干净")
 	check(m.board.tile_clicked.get_connections().is_empty(), "拆局后点击信号断干净")
 	check(m.bridge == null, "桥也放掉了")
+
+	# ⑤ 回放：形制**不能借 online 那个开关**（Kevin 2026-09-10 逮到）
+	## 借了之后回放里退出写的是「离开房间？离开后本局由 AI 代打」——
+	## 没有房间、没有席位、没人替谁打，三个词全是假的。
+	## 顺带钉住拆局：播放器和控制条留给下一局的话，控制条会挂在新局屏幕上，
+	## 而 `_unhandled_input` 见 `replay != null` 就把方向键和空格当播放键吃掉（空格 = 结束回合）。
+	var rseed := CWGame.new()
+	rseed.init(CWData.FACTION_ORDER[2], 7)
+	var rp := CWReplay.Player.open(CWReplay.of(rseed))   ## 空下标串：开得起来、一步不走
+	rseed.dispose()
+	m.human_players = []
+	m.start_replay(rp)
+	await process_frame
+	check(pm.replay and not pm.online, "回放局：菜单挂的是 replay，不是 online")
+	var leave: Dictionary = {}
+	for it in pm.items():
+		if it["id"] == "menu":
+			leave = it
+	check(leave.get("text", "") == "退出回放" and leave.get("confirm", "") == "退出回放？",
+		"那一项叫「退出回放」，不叫「离开房间」")
+	check(CWPauseMenu.confirm_hint("menu", false, true) == "",
+		"回放的确认页**一句小字都不写**（没进度会丢，也没人代打）")
+	check(CWPauseMenu.confirm_hint("menu", true, false) == "离开后本局由 AI 代打", "联机那句照旧")
+	check(CWPauseMenu.confirm_hint("quit", true, false) == CWPauseMenu.CONFIRM_HINT,
+		"联机局的「退出游戏」用的还是通用那句")
+	var has_save := false
+	for it in pm.items():
+		if it["id"] == "save_quit":
+			has_save = true
+	check(not has_save, "回放同样没有「保存并退出」")
+	check(m._replay_bar != null and m._replay_bar.visible, "播放条亮着")
+	m.teardown()
+	check(m.replay == null and not m._replay_bar.visible, "拆局把播放器和控制条一并撒手")
+	m.start()
+	check(not pm.replay and not pm.online, "看完回放再开本地局，菜单形制还原（存档项回来）")
+	m.teardown()
 	CWSettings.ai_delay_ms = 220   ## 还原默认，别影响别的测试
 
 	main_scene.queue_free()
@@ -14400,7 +14436,9 @@ func t_net_chat() -> void:
 
 
 ## 从服务器取回放（v7 新增的两条 C→S 报文）
-## 聊天框的纯函数（形制见 CWChatBox 文件头）
+## 聊天框的纯函数（形制见 CWChatBox 文件头）。
+## ⚠ **界面上这个功能 2026-09-10 起是关的**（`CWMatch.CHAT_ON = false`，三条待修写在那儿）——
+## 类本身完好，这些断言照跑，好让它开回来的那天不用从头验一遍。
 func t_chat_box() -> void:
 	print("[聊天框]")
 	## **回车不能用 ui_accept**：Godot 里那个动作同时绑着回车**和空格**，
@@ -14419,6 +14457,40 @@ func t_chat_box() -> void:
 	check(not CWChatBox.is_enter(up), "松开不算")
 	enter.echo = true
 	check(not CWChatBox.is_enter(enter), "长按的重复键不算（不然按住回车会疯狂开合）")
+	enter.echo = false
+
+	## ---- Tab = 换发给谁（Kevin 2026-09-10 要的）----
+	## **同样不能按动作名判**：`ui_focus_next` 就绑在 Tab 上，按动作等于替焦点导航背书
+	var tab := InputEventKey.new()
+	tab.keycode = KEY_TAB
+	tab.pressed = true
+	check(CWChatBox.is_tab(tab), "Tab 认得出")
+	check(not CWChatBox.is_tab(enter) and not CWChatBox.is_enter(tab), "Tab 和回车互不相认")
+	tab.echo = true
+	check(not CWChatBox.is_tab(tab), "长按的重复键不算（不然按住 Tab 会疯狂来回切）")
+	tab.echo = false
+	var cb2 := CWChatBox.new()
+	root.add_child(cb2)
+	await process_frame
+	check(not cb2.handle_key(tab), "框关着时不接 Tab（那时它归焦点导航）")
+	cb2.open()
+	check(cb2._scope.text == "全体", "开着默认发全体")
+	check(cb2.handle_key(tab) and cb2._team and cb2._scope.text == "己方", "Tab 换到己方")
+	check(cb2.handle_key(tab) and not cb2._team and cb2._scope.text == "全体", "再按一下换回全体")
+	## 真正生效的是**输入框自己那一层**：框开着时焦点就在它上面，
+	## Godot 的焦点导航排在 `_unhandled_input` 前面，不在这层截就轮不到上面那条
+	cb2._input.gui_input.emit(tab)
+	check(cb2._team, "焦点在输入框上时，Tab 由输入框那层截住并换频道")
+	cb2.queue_free()
+	## 标题栏顺带当快捷键表 —— 这两下不标出来就只有翻代码才知道。
+	## 右边贴着「全体 / 己方」（x = 宽 − 76），写长了就压上去
+	var title_w: float = CWStyle.FONT.get_string_size(CWChatBox.TITLE,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+	check(CWChatBox.TITLE.contains("Tab") and CWChatBox.TITLE.contains("Enter"),
+		"标题栏把 Enter 和 Tab 都标出来了")
+	check(CWChatBox.PAD + title_w < CWChatBox.RECT.size.x - 76.0,
+		"标题那行（到 x %d）压不到「全体 / 己方」（x %d）"
+		% [int(CWChatBox.PAD + title_w), int(CWChatBox.RECT.size.x - 76.0)])
 
 	## 观众在名字后面标出来 —— 他没有阵营色可用，只能靠这个认
 	check(CWChatBox.line_text({ "nick": "甲", "seat": 0, "text": "走这边" }) == "甲：走这边",

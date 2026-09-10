@@ -38,6 +38,8 @@ const RECT := Rect2(16, 16, 340, 460)
 const ROW_H := 18.0
 const MAX_ROWS := 20                     ## 框里最多显示几条（460 高装得下）
 const PAD := 10.0
+## 标题栏左边那行。右边贴着「全体 / 己方」那块（x = 宽 − 76），别把它写长到压上去
+const TITLE := "聊天　Enter 收起　Tab 换频道"
 
 var _lines: Array = []                   ## 收到的消息，新的在后
 var _open := false
@@ -115,12 +117,31 @@ static func is_enter(event: InputEvent) -> bool:
 	return (event as InputEventKey).keycode in [KEY_ENTER, KEY_KP_ENTER]
 
 
+## Tab = 换「这一句发给谁」（Kevin 2026-09-10）。**同样不能用动作名** ——
+## `ui_focus_next` 就绑在 Tab 上，按动作判等于替焦点导航背书；这里认的是键本身。
+static func is_tab(event: InputEvent) -> bool:
+	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return false
+	return (event as InputEventKey).keycode == KEY_TAB
+
+
+## 全体 ⇄ 己方。标题栏点一下、按 Tab，两条路同一个出口
+func toggle_scope() -> void:
+	_team = not _team
+	_repaint()
+
+
 func handle_key(event: InputEvent) -> bool:
 	if is_enter(event) and not _open:
 		open()
 		return true
 	if _open and event.is_action_pressed("ui_cancel"):
 		close()
+		return true
+	## 兜底：框开着但焦点不在输入框上（点了别处）时，Tab 走的是这一条。
+	## 正常情况焦点在输入框上，那一下在 `_input` 自己那层就截住了（见 _build）
+	if _open and is_tab(event):
+		toggle_scope()
 		return true
 	return false
 
@@ -142,19 +163,19 @@ func _build() -> void:
 	_bar.size = Vector2(RECT.size.x, 22)
 	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_panel.add_child(_bar)
-	var title := CWStyle.label("聊天　Enter 收起", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
+	## 标题栏顺带当快捷键表：这两下都不在别处写着，不标出来就只有翻代码才知道
+	var title := CWStyle.label(TITLE, CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
 	title.position = Vector2(PAD, 4)
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_bar.add_child(title)
-	## 发给谁：点一下换。**用颜色说话**，不写「[全体]」那种前缀
+	## 发给谁：点一下换，或者按 Tab。**用颜色说话**，不写「[全体]」那种前缀
 	_scope = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
 	_scope.position = Vector2(RECT.size.x - 76, 4)
 	_scope.mouse_filter = Control.MOUSE_FILTER_STOP
 	_scope.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_scope.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
-			_team = not _team
-			_repaint())
+			toggle_scope())
 	_bar.add_child(_scope)
 
 	for i in MAX_ROWS:
@@ -175,6 +196,14 @@ func _build() -> void:
 	_input.add_theme_font_override("font", CWStyle.FONT)
 	_input.add_theme_font_size_override("font_size", CWStyle.SIZE_LABEL)
 	_input.text_submitted.connect(_submit)
+	## Tab **必须在输入框自己这一层截**：框开着时焦点就在它上面，
+	## 而 Godot 的焦点导航（`ui_focus_next`）排在 `_unhandled_input` 前面 ——
+	## 不 accept 的话这一下会被拿去切焦点，`handle_key` 那条根本轮不到，
+	## 而且输入框还会丢焦点（下一个字就打不进去了）
+	_input.gui_input.connect(func(e: InputEvent) -> void:
+		if is_tab(e):
+			_input.accept_event()
+			toggle_scope())
 	_panel.add_child(_input)
 
 func _submit(text: String) -> void:

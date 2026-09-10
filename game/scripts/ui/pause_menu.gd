@@ -82,6 +82,10 @@ var surrender_faction := Callable()
 var active := false
 ## 联机局：没有「保存并退出」（状态在服务器），「返回主菜单」改成「离开房间」（本局交给 AI 代打）
 var online := false
+## 回放：**和联机是两回事**，从前共用 online 那一个开关，于是回放里退出时
+## 写着「离开房间？离开后本局由 AI 代打」—— 没有房间、没有席位、没人替谁打
+## （Kevin 2026-09-10 逮到）。形制上它只和联机共享一条「没得存档」。
+var replay := false
 
 var _settings: CWSettingsPage
 var _codex: CWCodex
@@ -199,15 +203,27 @@ func _show_page(confirm_id: String) -> void:
 		if item["id"] == confirm_id:
 			_title.text = item["confirm"]
 			break
-	_hint.text = "离开后本局由 AI 代打" if online and confirm_id == "menu" else CONFIRM_HINT
+	_hint.text = confirm_hint(confirm_id, online, replay)
 	_rebuild(CONFIRM_ITEMS)
 	_selected = 1                 ## 确认页默认停在「取消」上，别让回车顺手就确认了
 	_repaint()
 
 
-## 此刻的主列表：本地对局 = ITEMS；联机局去掉「保存并退出」、「返回主菜单」换成「离开房间」
+## 确认页那行小字。**纯函数**，好直接测。
+## 回放那一档是空的：不是对局，没有进度会丢，也没人替你打 —— 现成的两句都是假话，
+## 那就一句都不说（副标题为空时整块会自己收高，见 _rebuild 里的 head）。
+static func confirm_hint(confirm_id: String, p_online: bool, p_replay: bool) -> String:
+	if p_replay:
+		return ""
+	if p_online and confirm_id == "menu":
+		return "离开后本局由 AI 代打"
+	return CONFIRM_HINT
+
+
+## 此刻的主列表：本地对局 = ITEMS；联机局去掉「保存并退出」、「返回主菜单」换成「离开房间」；
+## 回放同样没得存，那一项换成「退出回放」（它退回的是主菜单，不是什么房间）
 func items() -> Array:
-	if not online:
+	if not online and not replay:
 		return ITEMS
 	var out: Array = []
 	for item in ITEMS:
@@ -215,8 +231,8 @@ func items() -> Array:
 			continue
 		if item["id"] == "menu":
 			var leave: Dictionary = item.duplicate()
-			leave["text"] = "离开房间"
-			leave["confirm"] = "离开房间？"
+			leave["text"] = "退出回放" if replay else "离开房间"
+			leave["confirm"] = "退出回放？" if replay else "离开房间？"
 			out.append(leave)
 		else:
 			out.append(item)
