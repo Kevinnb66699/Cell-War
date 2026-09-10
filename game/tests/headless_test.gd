@@ -4853,6 +4853,37 @@ func t_hot_patch() -> void:
 	print("[热更新]")
 	var PatchState := load("res://scripts/patch_state.gd")
 
+	## ---- 导出脚本必须是**纯文本**，否则整条热更流水线是哑的（2026-09-10）----
+	## Godot 4.5 新建导出预设默认 `script_export_mode=2`（压缩二进制 token）：
+	## 导出时 `foo.gd` 编译成 `foo.gdc`、另放一个 `foo.gd.remap` 指过去，**包里没有 `.gd`**。
+	## 补丁塞的是纯文本 `.gd`，挂上之后 `.gd` 是有了，但 `.remap` 还在、还指着基线那份
+	## `.gdc` —— 引擎按 remap 走，补丁那份没人看。
+	##
+	## 于是从 09-02 建成到 09-10，**每一个补丁都是白发的**：下载成功、验签通过、
+	## SHA 对得上、`load_resource_pack` 返回 true、状态记上了、启动证明也过了 ——
+	## 每一步都报成功，而代码一个字节都没换。这条断言就是不许它再变回去。
+	##
+	## （真正的端到端验证在 `tools/build_patch.sh`：拿目标 tag 真导一个包、挂上补丁、
+	## 把探针里的补丁号读回来。这里只钉住那个最容易被顺手改回去的开关。）
+	var preset_cfg := FileAccess.get_file_as_string("res://export_presets.cfg")
+	var modes: Array = []
+	for line in preset_cfg.split("\n"):
+		if line.strip_edges().begins_with("script_export_mode="):
+			modes.append(int(line.split("=")[1]))
+	check(modes.size() >= 2, "两个导出预设都写着 script_export_mode（找到 %d 个）" % modes.size())
+	var all_text := not modes.is_empty()
+	for m in modes:
+		if m != 0:
+			all_text = false
+	check(all_text, "导出脚本一律纯文本（script_export_mode=0，现在是 %s）—— "
+		% str(modes) + "改成 1/2 会让每一个补丁都变成哑弹")
+	## 探针那两个文件必须在 `scripts/` 底下（`tests/*` 不进导出包，放那儿等于没有）
+	check(FileAccess.file_exists("res://scripts/patch_canary.gd")
+		and FileAccess.file_exists("res://scripts/patch_probe.gd"),
+		"探针与被探的那份都在 scripts/ 下（tests/ 不进导出包）")
+	check(int(load("res://scripts/patch_canary.gd").BUILD) == 0,
+		"仓库里那份探针永远是 0 —— 只有补丁包里那份才带真的补丁号")
+
 	## ---- 打包器的跨基线闸（2026-09-09 补）----
 	## 判据必须是**目标基线包**的类表，不是本机项目：本次新加的类在本机也已注册，
 	## 拿本机对照等于让补丁自己给自己开绿灯。真实后果：加了五只演出、发全量包之后，

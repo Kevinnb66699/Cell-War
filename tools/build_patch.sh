@@ -65,7 +65,7 @@ done
 # 2026-09-09 加五只演出（CWHuntFx 等）之后，任何碰 match.gd 的补丁都会引用它们，
 # 而还停在更旧包上的玩家装了就是当场 `Identifier not declared`。
 CLASSES="$(mktemp)"
-trap 'rm -f "$CLASSES"' EXIT
+trap 'rm -f "$CLASSES"' EXIT   # 探针那一步会用 cleanup 换掉它（连 worktree 一起收）
 # ⚠ 这条流水线 2026-09-09 写出来时就是坏的，2026-09-10 才发现。
 # sed 的替换串本该是「第一个捕获组」，但本文件当初是用 heredoc 落盘的，
 # 反斜杠被吃掉 → 替换成了控制字符 0x01，于是每个类名都变成一个 0x01，
@@ -89,7 +89,32 @@ echo "目标基线 $BASE 的全局类表：$N_CLASSES 个类"
 mkdir -p "$OUTDIR"
 # 输出路径同样得给绝对的 —— 理由和上面那段一样（打包器跑在 `--path game` 底下，
 # 相对路径会被当成 res:// 里的）。2026-09-09 第一次真打补丁时就是漏了这一处。
-"$GODOT" --headless --path game --script res://tests/build_patch.gd -- 	"--base-classes=$CLASSES" "$PWD/$OUT" "${ARGS[@]}"
+"$GODOT" --headless --path game --script res://tests/build_patch.gd -- 	"--base-classes=$CLASSES" "--build=$BUILD" "$PWD/$OUT" "${ARGS[@]}"
+
+# ---- 最后一道闸：挂上去之后，代码到底换没换 ----
+# 2026-09-10 查出来：这条流水线从 09-02 建成起打的**每一个补丁都是白发的**。
+# 下载成功、验签通过、SHA 对得上、load_resource_pack 返回 true、状态记上了、
+# 启动证明也过了 —— 每一步都报成功，而代码一个字节都没换。
+# 成因是导出预设的 script_export_mode（详见 game/scripts/patch_canary.gd 的文件头）。
+#
+# 前面所有检查（含发完回读那一趟）验的都是**装之前**的判断：manifest 过不过验签、
+# decide 判不判装。没有一条验「装完之后代码真的换了」—— 而那正是唯一会出事的地方。
+#
+# 所以这里拿**目标基线那次发版的 git 树**真导一个包（导出预设也用那时候的），
+# 挂上刚打好的补丁，把探针里的补丁号读回来。读到才算数。
+# 慢一分钟，换的是「热更能不能信」这件事有人真的验过。
+PROBE_DIR="$(mktemp -d)"
+cleanup() { rm -f "$CLASSES" "${LIVE_JSON:-}" "${LIVE_SIG:-}"; git worktree remove --force "$PROBE_DIR/wt" 2>/dev/null || true; rm -rf "$PROBE_DIR"; git worktree prune; }
+trap cleanup EXIT
+echo
+echo "验一遍「装上之后代码真的换了」——照 $BASE 的树导一个包 …"
+git worktree add -q --detach "$PROBE_DIR/wt" "$BASE"
+if [ ! -f "$PROBE_DIR/wt/game/scripts/patch_probe.gd" ]; then
+	die "$BASE 那次发版里还没有 scripts/patch_probe.gd —— 这道闸验不了。
+   先发一版完整客户端把探针带出去，再照那个 tag 打补丁。"
+fi
+"$GODOT" --headless --path "$PROBE_DIR/wt/game" --export-pack "Windows Desktop" 	"$PROBE_DIR/base.pck" >/dev/null 2>&1 || die "照 $BASE 导包失败"
+"$GODOT" --headless --main-pack "$PROBE_DIR/base.pck" 	--script res://scripts/patch_probe.gd -- "$PWD/$OUT" "$BUILD" 	|| die "**补丁装上去不生效**（上面写了哪一条不对）。包没上传，线上没有任何变化。"
 
 # min_base 取当前的基线号：补丁是照着 HEAD 打的，就只保证能装在这一档基线上。
 # 比它老的客户端会被 boot.gd 拦下来，提示去下完整包，而不是硬套一个可能用不了的补丁。
@@ -140,7 +165,9 @@ scp -o BatchMode=yes -o ConnectTimeout=15 	"$OUTDIR/latest.json" "$OUTDIR/latest
 # 中间的失败一声不响。所以发完自己验，别留一个「要靠人记得跑」的检查。
 LIVE_JSON="$(mktemp)"
 LIVE_SIG="$(mktemp)"
-trap 'rm -f "$CLASSES" "$LIVE_JSON" "$LIVE_SIG"' EXIT
+# **不要在这儿再 trap 一次** —— 那会顶掉上面带 worktree 清理的那个 cleanup，
+# 留下一个 git worktree 不删（下次跑 build_patch.sh 就会撞上「路径已存在」）。
+# cleanup 里已经把这两个临时文件算进去了。
 echo
 echo "回读线上那份，按客户端的走法验一遍 …"
 STAMP="$(date +%s)"

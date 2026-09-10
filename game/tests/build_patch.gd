@@ -26,11 +26,15 @@ func _initialize() -> void:
 	## 先把选项摘出去，剩下的才是「输出 + 若干对路径」
 	var base_classes := {}
 	var given := false          ## 给没给 --base-classes（和「给了但读出来是空的」是两回事）
+	var build := 0              ## 本次补丁号，写进探针文件；0 = 没给（旧调用方）
 	var rest: Array = []
 	for a: String in args:
 		if a.begins_with("--base-classes="):
 			given = true
 			base_classes = _read_class_list(a.substr(a.find("=") + 1))
+			continue
+		if a.begins_with("--build="):
+			build = int(a.substr(a.find("=") + 1))
 			continue
 		rest.append(a)
 	if rest.size() < 3 or (rest.size() - 1) % 2 != 0:
@@ -55,6 +59,17 @@ func _initialize() -> void:
 	var pairs: Array = []
 	for i in range((rest.size() - 1) / 2):
 		pairs.append([rest[1 + i * 2], rest[2 + i * 2]])
+	## 每个补丁都夹带一张**探针**：把本次补丁号写进 patch_canary.gd。
+	## 发之前 `scripts/patch_probe.gd` 在真导出的包上把它读回来 —— 读到补丁号才算
+	## 「代码真的换了」。2026-09-10 之前没有这一步，于是每一个补丁都是白发的
+	## 而全程无人察觉（成因见 scripts/patch_canary.gd 的文件头）。
+	if build > 0:
+		var canary := _write_canary(build)
+		if canary == "":
+			printerr("✘ 写不出探针文件 —— 没有它就没法验「补丁到底生效没有」，所以不出包。")
+			quit(4)
+			return
+		pairs.append(["res://scripts/patch_canary.gd", canary])
 
 	var bad := _reject(pairs, base_classes)
 	if not bad.is_empty():
@@ -145,6 +160,19 @@ static func _missing_refs(src: String, base: Dictionary) -> Array:
 			out.append(cls)
 	out.sort()
 	return out
+
+
+## 把本次补丁号写成一份探针源码，返回它的磁盘路径（写不出就返回空串）。
+## 内容必须**长得像仓库里那份**（同一个常量名），只是数不同 —— 探针读的就是这个数。
+static func _write_canary(build: int) -> String:
+	var path := "user://patch_canary_%d.gd" % build
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return ""
+	f.store_string("## 由 tests/build_patch.gd 随补丁生成 —— 见 scripts/patch_canary.gd 的文件头。\n")
+	f.store_string("const BUILD := %d\n" % build)
+	f.close()
+	return ProjectSettings.globalize_path(path)
 
 
 ## 一行一个类名的清单（build_patch.sh 从目标 tag 的 git 树里扒出来）
