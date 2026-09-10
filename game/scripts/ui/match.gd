@@ -127,6 +127,25 @@ const MARK_OSSIFY := Color("e8d9a0")   ## 骨白偏暖，和癌方的洋红、�
 const OSSIFY_ALPHA := Vector2(0.18, 0.46)   ## 脉冲的最暗 / 最亮
 const OSSIFY_HZ := 1.2                      ## 脉冲频率；最后一回合翻倍
 
+## 印戒【黏液破裂】留下的「黏液侵染」（Kevin 2026-09-10 报：「黏液效果没有显示出来」）。
+##
+## 这是个**有真实效果的常驻状态** —— 免疫踏进去多付 `mucus_move_surcharge`、
+## 进去之后立刻清掉 —— 而在此之前它在棋盘上**完全没有表示**：玩家没法知道哪几格沾了，
+## 只能一格格悬停去看详情栏（09-08 补的那条）。`CWMucusFx` 的文件头写着
+## 「地上那层黏液不归这儿画，棋盘贴图自己会变」，那句话从写下来就是空头支票，
+## `CWBoard.set_tissue` 里从来没有过这一档。
+##
+## **用色标而不是新贴图**：一格黏液最多活到下一个免疫踏进来，为它做一族贴图不值；
+## 而色标这条路已经在跑（固化倒计时、悬停高亮都走它）。
+## 颜色取演出里那滴碎液（`CWMucusFx.INK_DROP`）—— 玩家刚看过它炸开，认得这个绿。
+## 透明度是**摆出来挑的**（tests/preview_mucus_layer.gd 出了 0.22 / 0.34 / 0.46 三张）：
+## 0.22 在癌组织的洋红上根本读不出来，而自爆之后那一片大半都是癌组织；
+## 0.46 又把洋红整个盖成土黄，癌组织不像癌组织了。0.34 两边都站得住。
+## **静态不脉冲**：脉冲是留给「还在走的倒计时」的（骨化、趋化源），
+## 黏液不走表，再加一个跳动的东西只会和它们抢眼睛。
+const MARK_MUCUS := Color("b4c76e")
+const MUCUS_ALPHA := 0.34
+
 ## 开场绽开时每格翻面的那一下白闪
 const FLASH_TIME := 0.22
 const FLASH_ALPHA := 0.7
@@ -1245,6 +1264,10 @@ func _sync_tiles() -> void:
 		board.set_tissue(c, tissue, t["special"], int(t["cards"]) > 0, solid)
 		## 积累进度外圈（2026-09-08）：算式在 CWData.store_progress，界面不自己算
 		board.set_store(c, CWData.store_progress(t), int(t["special"]))
+		## 黏液侵染（见 MARK_MUCUS）。**排在骨化前面**：骨化是走着的倒计时、更急，
+		## 两个状态撞在同一格时该让它压过来
+		if bool(t.get("mucus", false)):
+			marks[c] = Color(MARK_MUCUS, MUCUS_ALPHA)
 		if int(t.get("ossify_at", 0)) > 0:
 			marks[c] = ossify_mark(int(t["ossify_at"]), game.round_no)
 	for c: Vector2i in _flash:

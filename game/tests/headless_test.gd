@@ -7609,6 +7609,39 @@ func t_pause_and_teardown() -> void:
 	await process_frame          ## 细胞节点是 _process 里按 game.cells 建的，得让它跑一帧
 	check(m.game.count_tissue(CWData.Tissue.CANCER) > 0, "开局铺了癌组织")
 	check(m.ui.visible and pm.active, "开局后 HUD 出现、暂停菜单启用")
+
+	## ---- 印戒【黏液破裂】留下的那层黏液要画在棋盘上（Kevin 2026-09-10 报）----
+	## 它是个**有真实效果的常驻状态**（免疫踏进多付、进去就清），此前在棋盘上一点表示都没有 ——
+	## `CWMucusFx` 的文件头写着「地上那层归棋盘贴图画」，而 `CWBoard.set_tissue` 里
+	## 从来没有过这一档。玩家只能一格格悬停去看详情栏。
+	var mucus_at: Array[Vector2i] = []
+	for c: Vector2i in m.game.tiles:
+		if CWData.hex_dist(c, Vector2i.ZERO) <= CWData.MUCUS_RADIUS:
+			mucus_at.append(c)
+			m.game.tile(c)["mucus"] = true
+	m._sync_tiles()
+	var painted := 0
+	for c: Vector2i in mucus_at:
+		if m.board._mark_target.get(c) == Color(CWMatch.MARK_MUCUS, CWMatch.MUCUS_ALPHA):
+			painted += 1
+	check(painted == mucus_at.size(),
+		"半径 %d 那一圈 %d 格全上了黏液色标（实到 %d）"
+		% [CWData.MUCUS_RADIUS, mucus_at.size(), painted])
+	## **骨化压过黏液**：骨化是走着的倒计时、更急；两个状态撞在同一格时该让它压过来
+	m.game.tile(mucus_at[0])["ossify_at"] = m.game.round_no + 1
+	m._sync_tiles()
+	check(m.board._mark_target.get(mucus_at[0]) != Color(CWMatch.MARK_MUCUS, CWMatch.MUCUS_ALPHA),
+		"同一格既有黏液又在骨化时，骨化的脉冲压过黏液")
+	m.game.tile(mucus_at[0])["ossify_at"] = 0
+	## 免疫踩进去就清掉（引擎那半边），色标要跟着走 —— 不然地上会留一片假黏液
+	for c: Vector2i in mucus_at:
+		m.game.tile(c)["mucus"] = false
+	m._sync_tiles()
+	var left := 0
+	for c: Vector2i in mucus_at:
+		if m.board._mark_target.get(c) == Color(CWMatch.MARK_MUCUS, CWMatch.MUCUS_ALPHA):
+			left += 1
+	check(left == 0, "黏液清掉之后色标跟着收（还剩 %d 格）" % left)
 	## 左上角入口提示的显隐链（定案A）：开局亮 → 面板开着让位 → 收起回来
 	check(m._log_hint != null and m._log_hint.visible, "「对局日志 L」入口提示亮着")
 	m._log_panel.toggle()
