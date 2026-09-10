@@ -4927,6 +4927,33 @@ func t_hot_patch() -> void:
 	check(PatchState.base_build() == PatchState.BASE_BUILD and PatchState.BASE_BUILD > 0,
 		"基线号读得出来且来自脚本常量（散文件进不了导出包）")
 
+	## ---- 脚本里不许有游离的控制字符 ----
+	## 2026-09-10 实锤：`build_patch.sh` 里 sed 的替换串本该是「第一个捕获组」，
+	## 但那个文件当初是用 heredoc 落盘的，**反斜杠被吃掉** → 变成控制字符 0x01。
+	## 于是每个类名都被替换成一个 0x01，打包器读到零个类名就静默退回本机类表 ——
+	## **跨基线闸从写出来那天起一天都没生效过**，而屏幕上只有一行警告、退出码还是 0。
+	##
+	## 这个坑这工程踩过好几次（`b` 变退格、`n` 变字面 n…），共同的痕迹就是
+	## 源码里出现了本不该有的控制字符。扫一遍比每次靠眼睛看划算。
+	var ctrl_bad: Array = []
+	for dir_path: String in ["res://../tools", "res://scripts", "res://tests"]:
+		var d := DirAccess.open(dir_path)
+		if d == null:
+			continue
+		for fname in d.get_files():
+			if not (fname.ends_with(".sh") or fname.ends_with(".gd") or fname.ends_with(".py")):
+				continue
+			var text := FileAccess.get_file_as_string("%s/%s" % [dir_path, fname])
+			for k in text.length():
+				var code := text.unicode_at(k)
+				## 制表 9 / 换行 10 / 回车 13 是正常的，别的低位字符都不该出现
+				if code < 32 and code != 9 and code != 10 and code != 13:
+					ctrl_bad.append("%s(U+%04X)" % [fname, code])
+					break
+	check(ctrl_bad.is_empty(),
+		"脚本里没有游离的控制字符（反斜杠被吃掉的痕迹）%s"
+		% ("" if ctrl_bad.is_empty() else "；有：" + str(ctrl_bad)))
+
 	## ---- 第二阶段：「该不该装这个补丁」的判定（纯函数）----
 	var Boot := load("res://scripts/boot.gd")
 	var SHA := "a".repeat(64)

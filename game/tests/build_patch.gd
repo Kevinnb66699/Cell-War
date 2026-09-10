@@ -25,14 +25,25 @@ func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	## 先把选项摘出去，剩下的才是「输出 + 若干对路径」
 	var base_classes := {}
+	var given := false          ## 给没给 --base-classes（和「给了但读出来是空的」是两回事）
 	var rest: Array = []
 	for a: String in args:
 		if a.begins_with("--base-classes="):
+			given = true
 			base_classes = _read_class_list(a.substr(a.find("=") + 1))
 			continue
 		rest.append(a)
 	if rest.size() < 3 or (rest.size() - 1) % 2 != 0:
 		printerr("用法：[--base-classes=<清单>] <输出.pck> <res路径> <磁盘路径> ...")
+		quit(2)
+		return
+	## **给了却一个类名都没读出来 = 当场停。**
+	## 上一版把它和「根本没给」归成一档，于是静默降级成本机类表 ——
+	## 2026-09-09 那条 sed 坏掉之后，这道闸就是这么一天都没生效过的，
+	## 而屏幕上只有一行警告、退出码还是 0。宁可不出包，也不要拿空表当判据。
+	if given and base_classes.is_empty():
+		printerr("✘ 给了 --base-classes，却一个类名都没读出来 —— 清单生成那一步坏了。")
+		printerr("   拿空表当判据等于这道跨基线闸根本不存在，所以不出包。")
 		quit(2)
 		return
 	if base_classes.is_empty():
@@ -143,9 +154,12 @@ static func _read_class_list(path: String) -> Dictionary:
 	if f == null:
 		printerr("✘ 读不到类表清单：", path)
 		return out
+	## **只收长得像类名的行**。上一版只判非空，于是一堆控制字符
+	## 也能冒充类表（那正是 2026-09-09 那条坏 sed 吐出来的东西）
+	var ok := RegEx.create_from_string("^[A-Za-z_][A-Za-z0-9_]*$")
 	while not f.eof_reached():
 		var line := f.get_line().strip_edges()
-		if line != "":
+		if ok.search(line) != null:
 			out[line] = true
 	f.close()
 	return out
