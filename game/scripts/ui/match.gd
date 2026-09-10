@@ -958,7 +958,9 @@ func _process(delta: float) -> void:
 	if _spotlight != null and is_instance_valid(_spotlight):
 		var flag := ""
 		if _guide != null and is_instance_valid(_guide) and _guide.active:
-			flag = _guide.highlight_flag()
+			## 渐进 UI：第一关只保留棋盘状态，不提前亮出行动控件；后续阶段
+			## 由剧本数据逐步开放目标高亮。正式局没有 guide，不经过此闸。
+			flag = _guide.highlight_flag() if _guide.ui_stage() >= 1 else ""
 		_spotlight.sync(flag, self)
 
 

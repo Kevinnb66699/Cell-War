@@ -8190,6 +8190,10 @@ func t_guide_bridge() -> void:
 	check(CWGuideData.ui_stage(0) == 0 and CWGuideData.ui_stage(6) == 2
 		and CWGuideData.ui_stage(15) == 3,
 		"渐进 UI 按章节解锁：棋盘 → 高亮/资源 → 毕业战预测解释")
+	var staged := FakeGuide.new()
+	check(staged.ui_stage() == 0, "第一阶段不提前开放辅助层")
+	staged._chapter = 6
+	check(staged.ui_stage() == 2, "进入第 7 关后开放资源/目标辅助层")
 	## 实跑一次：轮到人类时只喂提示、不再自动演示（Kevin 2026-09-05：落子要么亲手点、要么点「继续」代做）
 	var g := CWGame.new()
 	g.init(CWData.FACTION_ORDER[2], 7)
