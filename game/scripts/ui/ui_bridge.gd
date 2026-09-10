@@ -261,11 +261,14 @@ func _ask_action(req: Dictionary) -> int:
 		if act == "move":
 			_sticky_move = true
 			continue
-		## 一个技能只有一种打法 → 直接执行，不必再问
+		## **只有一种打法也要问**（issue #14，HXR-I 2026-09-10）。
+		## 从前这儿是「一个技能只有一种打法 → 直接执行，不必再问」，于是小细胞只有一个
+		## 可跃进的方向时，点「转移」当场就跳过去了 —— 玩家既没看清跳去哪，
+		## **也没有反悔的机会**（第二段那一屏才带「取消 · 右键 / Esc」）。
+		## 省下的那一次点击不值这个代价：这是不可撤销的一步棋。
+		## `_pick_sub` 本来就处理得了单项：高亮那一格 + 一个取消按钮。
 		var picks: Array = groups[act]
-		if picks.size() == 1:
-			return picks[0] as int
-		## 有多种打法（分化选种类、裂解要不要顺带净化、血行转移/跃进选落点）→ 第二段
+		## 多种打法（分化选种类、裂解要不要顺带净化、血行转移/跃进选落点）→ 第二段
 		var sub: Variant = await _pick_sub(act, options, picks)
 		if sub == null:
 			return 0

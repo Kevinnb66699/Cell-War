@@ -218,6 +218,12 @@ func _restart() -> void:
 	if _entering:
 		return
 	match_node.tutorial = false   ## 再来一局是正式局，不带引导
+	## **种子必须清掉**（issue #13，HXR-I 2026-09-10 报「再来一局新种子，实际不会用新种子」）。
+	## 配置面板每次开局都 `_roll_seed()` 给一个**非零**种子，而 `CWMatch.start()` 是
+	## 「非零就用它、为零才取时钟」—— 于是这颗种子一直钉在那儿，
+	## 「再来一局」年年重放同一局，而按钮上明写着「同样人数 · **新种子**」。
+	## 清成 0 = 让 start() 去取时钟。想复现某一局仍走主菜单，在配置面板里填那个种子。
+	match_node.match_seed = 0
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
 	match_node.fade_out(T_RESTART)

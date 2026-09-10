@@ -516,7 +516,9 @@ func t_balance_candidates() -> void:
 	immune["energy"] = 0
 	g.cells.append(immune)
 	## 候选①（系数随回合涨）挂在**旧盘面公式**上，现行等级式根本不看 aerobic_mult ——
-	## 要验这条杠杆就得先切回旧公式，否则三条断言会一起变成「恒等于 2.5」的空转
+	## 要验这条杠杆就得先切回旧公式，否则三条断言会一起变成「恒等于 2.5」的空转。
+	## 2026-09-10 起最优先的是按等级那张表（issue #13），也要一起清掉
+	g.tune.aerobic_by_level = []
 	g.tune.aerobic_level_base = 0
 	g.round_no = 1
 	g.world._aerobic()
@@ -1208,11 +1210,13 @@ func t_immune_level_rules() -> void:
 	print("[免疫等级：门槛/有氧/分化]")
 	var g := bare_game()
 	g.setup.build_board()
-	check(CWData.LEVEL_MIN_MEMORY == [0, 10, 20, 30], "记忆门槛（六人档兼缺省）= 0 / 10 / 20 / 30")
+	## X 级门槛 2026-09-10（issue #13）抬高：四人 30 → 50、六人 30 → 60。
+	## II / III 两档没动 —— 动的只是「什么时候进入效应记忆那一段」。
+	check(CWData.LEVEL_MIN_MEMORY == [0, 10, 20, 60], "记忆门槛（六人档兼缺省）= 0 / 10 / 20 / 60")
 	## 按人数分档（Kevin 2026-09-09）。四人局只有 2 个免疫、六人局 3 个，同一门槛下四人要多花
 	## 约一半的回合才升得上去 —— 分档是把「升级要几回合」拉回同一档。
-	check(CWData.level_min_memory(4) == [0, 6, 16, 30], "四人局门槛 = 0 / 6 / 16 / 30")
-	check(CWData.level_min_memory(6) == [0, 10, 20, 30], "六人局门槛 = 0 / 10 / 20 / 30")
+	check(CWData.level_min_memory(4) == [0, 6, 16, 50], "四人局门槛 = 0 / 6 / 16 / 50")
+	check(CWData.level_min_memory(6) == [0, 10, 20, 60], "六人局门槛 = 0 / 10 / 20 / 60")
 	check(CWData.level_min_memory(2) == CWData.LEVEL_MIN_MEMORY
 			and CWData.level_min_memory(5) == CWData.LEVEL_MIN_MEMORY,
 		"PRD 没定的人数（含二人局）退回缺省档，不擅自造数")
@@ -1223,9 +1227,9 @@ func t_immune_level_rules() -> void:
 	check(g4.immune_level == 1, "四人局：记忆 6 就升到 II 级（六人档要 10）")
 	g4.dispose()
 
-	## 门槛边界：9 不升、10 升 II、19 不再升、20 升 III、29 不升、30 升 X
-	## （X 从 31 改回 PRD 的 30，Kevin 2026-09-07：「30 及以上都归 X 级」）
-	var want := [[9, 0], [10, 1], [19, 1], [20, 2], [29, 2], [30, 3]]
+	## 门槛边界（缺省 = 六人档）：9 不升、10 升 II、19 不再升、20 升 III、
+	## **59 仍是 III、60 才升 X**（issue #13 把 X 从 30 抬到 60）
+	var want := [[9, 0], [10, 1], [19, 1], [20, 2], [59, 2], [60, 3]]
 	for pair in want:
 		var g2 := bare_game()
 		g2.gain_memory(int(pair[0]))
@@ -1233,7 +1237,7 @@ func t_immune_level_rules() -> void:
 			"记忆 %d → %s 级" % [pair[0], CWData.LEVEL_NAMES[int(pair[1])]])
 		g2.dispose()
 
-	## 有氧 = 基数 + 等级 × 1.5（PRD 2026-09-09 云端版改回线性），与盘面无关
+	## 有氧**按等级查表** = 2 / 3 / 4.5 / 5（issue #13，2026-09-10），与盘面无关
 	var cell := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
 		CWData.ImmuneType.BASIC, -1)
 	g.cells.append(cell)
@@ -1241,13 +1245,17 @@ func t_immune_level_rules() -> void:
 		g.immune_level = lv
 		cell["energy"] = 0
 		g.world._aerobic()
-		var want_lv: int = CWData.AEROBIC_LEVEL_BASE + CWData.AEROBIC_LEVEL_STEP * lv
+		var want_lv: int = int(CWData.AEROBIC_BY_LEVEL[lv])
 		check(cell["energy"] == want_lv,
 			"%s 级有氧 = %s" % [CWData.LEVEL_NAMES[lv], CWData.fmt(want_lv)])
-	## 这两个数**写死**是有意的：公式改一次这里就该红一次，逼着改的人回头核对 PRD 原文。
-	## 09-07 平方式是 2.0 / 2.5 / 4.0 / 6.5，09-09 云端版改回线性后中段各抬 1.0。
-	check(CWData.AEROBIC_LEVEL_BASE == 20 and CWData.AEROBIC_LEVEL_STEP == 15,
-		"四档就是 2.0 / 3.5 / 5.0 / 6.5（PRD 2026-09-09 云端版）")
+	## 这四个数**写死**是有意的：改一次这里就该红一次，逼着改的人回头核对 PRD 原文。
+	## 沿革：09-07 平方式 2.0/2.5/4.0/6.5 → 09-09 线性 2.0/3.5/5.0/6.5 →
+	## 09-10（issue #13）**查表** 2.0/3.0/4.5/5.0。这一版**不等差**，所以才从公式改成表。
+	check(CWData.AEROBIC_BY_LEVEL == [20, 30, 45, 50],
+		"四档就是 2.0 / 3.0 / 4.5 / 5.0（issue #13）")
+	check(CWData.AEROBIC_BY_LEVEL[1] - CWData.AEROBIC_BY_LEVEL[0]
+			!= CWData.AEROBIC_BY_LEVEL[2] - CWData.AEROBIC_BY_LEVEL[1],
+		"**不等差** —— 这正是它写不成 base + step × 等级、只能查表的原因")
 	## 盘面被癌组织吃掉一半也不掉收入 —— 这正是换公式要解决的死亡螺旋
 	var half := 0
 	for c in g.tiles.keys():
@@ -1296,9 +1304,12 @@ func t_necrosis() -> void:
 	## 团队 2026-09-04 换成等级式之后，PRD 原文「坏死不为有氧供能」那条**全局比例**失效了 ——
 	## 有氧已经和盘面脱钩。09-05 补的新效果是**局部**的：只罚站在坏死格上的那一个（见 t_batch2_rules）。
 	## 这里的细胞在 (0,0)，不在那 20 格里，所以照拿 2.5 —— 盯住的是「别处的坏死不影响我」。
-	check(cell["energy"] == CWData.AEROBIC_LEVEL_BASE, "别处的坏死不再拉低全场有氧（09-04 换公式后的口径）")
+	check(cell["energy"] == int(CWData.AEROBIC_BY_LEVEL[0]), "别处的坏死不再拉低全场有氧（09-04 换公式后的口径）")
 
-	## 以下切回旧盘面公式的对照档，坏死的原口径还得有测试盯着
+	## 以下切回旧盘面公式的对照档，坏死的原口径还得有测试盯着。
+	## **先把按等级那张表清掉** —— 2026-09-10 起它最优先（issue #13），
+	## 不清的话下面两条量的还是表里的数
+	g.tune.aerobic_by_level = []
 	g.tune.aerobic_level_base = 0
 	cell["energy"] = 0
 	g.world._aerobic()
@@ -3979,7 +3990,54 @@ func t_effector_responses() -> void:
 	for i in CWData.HUNT_CHEMO_ROUNDS:
 		g.world._tick_chemo_track()
 	check(g.chemo_track.is_empty(), "持续 %d 个世界回合后消散" % CWData.HUNT_CHEMO_ROUNDS)
+	check(CWData.HUNT_CHEMO_ROUNDS == 2, "PRD：追踪源持续 **2** 个世界回合（issue #13）")
 	g.dispose()
+
+	## ---- ④b 追踪源与普通趋化源**不叠加，按增益多的算**（issue #13，2026-09-10）----
+	## 两个源可以同时在场，但报价上只发**一条**「趋化源」修饰 ——
+	## 于是天然不会叠。而「按增益多的」体现在档位上：源的建立者走 ×0.5、
+	## 其他免疫走 ×0.7，拥有普通源的人朝**追踪源**走时拿的是 0.5 那档（更划算的那一档）。
+	check(CWData.CHEMO_SELF_PCT < CWData.CHEMO_IMMUNE_PCT,
+		"建立者那一档（×%.1f）本来就比旁人（×%.1f）便宜 —— 「增益多的」指的就是它"
+		% [CWData.CHEMO_SELF_PCT / 100.0, CWData.CHEMO_IMMUNE_PCT / 100.0])
+	var gs := bare_game()
+	gs.setup.build_board()
+	var owner := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(2, 0),
+		CWData.ImmuneType.DENDRITIC, -1, 200)
+	gs.cells.append(owner)
+	gs.chemo = { "at": Vector2i(6, 0), "left": 2, "by": 0 }          ## 普通源在右边，他建的
+	gs.chemo_track = { "cid": -1, "at": Vector2i(0, 0), "left": 2 }  ## 追踪源在左边
+	var quoted: Dictionary = gs.cost.quote(CWCost.context(owner, CWCost.Action.MOVE,
+		CWData.IMMUNE_MOVE_HEALTHY[0], Vector2i(1, 0)))
+	var chemo_mods := 0
+	for name: String in quoted["applied"]:   ## applied 里装的是**名字**，不是修饰字典
+		if name == "趋化源":
+			chemo_mods += 1
+	check(chemo_mods == 1,
+		"两个源同时在场、这一步同时靠近其中一个：只发一条修饰（不叠加，实为 %d 条）" % chemo_mods)
+	gs.dispose()
+
+	## ---- ③ 树突【标记】无法重叠：同一世界回合同一癌细胞只能获得一次（issue #13）----
+	var gm := bare_game()
+	gm.setup.build_board()
+	var dend := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.DENDRITIC, -1, 100)
+	gm.cells.append(dend)
+	var mk := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0),
+		-1, CWData.CancerType.SCLC, 100)
+	gm.cells.append(mk)
+	gm.round_no = 3
+	gm.apply_mark(mk, dend)
+	check(mk["marked"] and int(mk["mark_left"]) == 1, "第一次：拿到 1 层标记")
+	mk["mark_left"] = 0            ## 被伤害吃掉
+	mk["marked"] = false
+	gm.apply_mark(mk, dend)
+	check(int(mk["mark_left"]) == 0 and not mk["marked"],
+		"**同一世界回合内补不回来** —— 不然贴着树突站着就是永久双倍")
+	gm.round_no = 4
+	gm.apply_mark(mk, dend)
+	check(mk["marked"] and int(mk["mark_left"]) == 1, "换一个世界回合才能再拿一次")
+	gm.dispose()
 
 	## ---- ⑤ Excalibur：主射线转健康 + 坏死，固化不动；射线 -2.0、侧向 -1.0 ----
 	pack = _choice_game()
@@ -7530,13 +7588,23 @@ func t_settle_screen() -> void:
 	## 「再来一局」要真的能开出新局。这条路串了 fade_out → 等淡完 → teardown →
 	## 重新开局，中间全是 await —— **断一环的表现是永远停在黑屏上**，
 	## 而且只有玩到分出胜负才碰得到，肉眼几乎不可能发现。
+	## **种子要真的换**（issue #13 第 7 条：「再来一局新种子，实际不会用新种子」）：
+	## 配置面板每次开局都 `_roll_seed()` 给一个非零种子，而 `start()` 是「非零就用它」——
+	## 于是这颗种子一直钉着，「再来一局」年年重放同一局，而按钮上明写着「新种子」。
+	main_scene.match_node.match_seed = 123456
 	main_scene.match_node.start()
 	await process_frame
 	var first: CWGame = main_scene.match_node.game
+	var first_seed: int = int(first.rng.seed)
 	main_scene._on_settle_chose("restart")
 	await create_timer(2.4).timeout   ## T_RESTART 0.85 + 绽开 0.75 + 余量
 	check(main_scene.match_node.game != null and main_scene.match_node.game != first,
 		"再来一局：开出了新的一局")
+	check(main_scene.match_node.match_seed == 0,
+		"再来一局把钉住的种子清掉（清成 0 = 让 start() 去取时钟）")
+	check(int(main_scene.match_node.game.rng.seed) != first_seed,
+		"新局的种子和上一局不同（%d → %d）"
+		% [first_seed, int(main_scene.match_node.game.rng.seed)])
 	check(not main_scene.settle.visible, "新局开始时结算屏收起来了")
 	check(main_scene.pause.active, "新局里暂停菜单又能用了")
 
@@ -7795,6 +7863,31 @@ func t_pause_and_teardown() -> void:
 	m._sync_tiles()
 	check(m.board._mucus_nodes.is_empty(),
 		"黏液清掉之后覆膜跟着收（还剩 %d 格）" % m.board._mucus_nodes.size())
+
+	## ---- 【免疫猎杀】的【追踪趋化源】要画出来（issue #13 第 5 条）----
+	## HXR-I 报「树突细胞的猎杀后没有持续锁定效果」：机制一直在（两回合、被追的怎么走
+	## 都算远离、多付 20%），但棋盘上**一点表示都没有** —— 猎杀演出闪完就像什么都没发生。
+	## 和黏液那次同一类：有真实效果的常驻状态没有表示。
+	check(m._chemo_track_fx != null and m._chemo_fx != m._chemo_track_fx,
+		"追踪源另起一只演出（两个源可以同时在场，一只画不了两处）")
+	m._sync_chemo_track(0.016)
+	check(not m._chemo_track_fx.visible, "场上没有追踪源时收着")
+	var hunted: Dictionary = m.game.living_cells(CWData.Faction.CANCER)[0]
+	m.game.chemo_track = { "cid": int(hunted["id"]), "at": hunted["pos"],
+		"left": CWData.HUNT_CHEMO_ROUNDS }
+	m._sync_chemo_track(0.016)
+	check(m._chemo_track_fx.visible
+		and m._chemo_track_fx.position == m.board.tile_center(hunted["pos"]),
+		"附上之后画在被追那只脚下")
+	## **位置每帧现读**：它跟着那个癌细胞走，界面不另存一份坐标
+	var moved: Vector2i = hunted["pos"] + CWData.DIRS[0]
+	hunted["pos"] = moved
+	m._sync_chemo_track(0.016)
+	check(m._chemo_track_fx.position == m.board.tile_center(moved),
+		"癌细胞走到哪儿，源跟到哪儿")
+	m.game.chemo_track = {}
+	m._sync_chemo_track(0.016)
+	check(not m._chemo_track_fx.visible, "消散之后收掉")
 	## 拆局也要收：覆膜不在 marks 里，`set_marks({})` 收不掉它
 	for c: Vector2i in mucus_at:
 		m.game.tile(c)["mucus"] = true
@@ -11050,7 +11143,8 @@ func t_card_choices() -> void:
 	check(chx["energy"] == 28 and chx["hand"].is_empty(), "只走一步只扣 0.2，结算后弃置")
 	g.dispose()
 
-	## ⑧ 代谢耦联：方向唯一时不问方向，只问数额
+	## ⑧ 代谢耦联：**方向唯一也要问**（issue #14，2026-09-14 之前是「唯一就不问」）——
+	## 转出能量不可撤销，替玩家按掉那一下省不了什么
 	pack = _choice_game()
 	g = pack[0]
 	b = pack[1]
@@ -11064,9 +11158,11 @@ func t_card_choices() -> void:
 	var kopts: Array = []
 	g.card_fx.hand_options(cp1, kopts)
 	check(kopts.size() == 1 and kopts[0]["data"]["cid"] == 1, "代谢耦联：一个队友一个选项")
-	b.answers = [1]   ## 三档里挑 1.5 → 2.0
+	b.answers = [0, 1]   ## 先答唯一的那个方向，再从三档里挑 1.5 → 2.0
 	await g.card_fx.play(cp1, kopts[0]["data"])
-	check(b.asked.size() == 1, "方向唯一（对方付不起）→ 只问数额")
+	check(b.asked.size() == 2, "方向唯一（对方付不起）时**也问一次方向**，再问数额")
+	check(b.asked[0]["options"].size() == 1,
+		"那一问里就摆着唯一的那个方向 —— 玩家看得见自己在同意什么")
 	check(cp1["energy"] == 15 and cp2["energy"] == 28, "转出 1.5、接收方得 2.0")
 	g.dispose()
 
@@ -13450,8 +13546,10 @@ func t_batch2_rules() -> void:
 	i6["energy"] = 0
 	g6.cells.append(i6)
 	g6.world._aerobic()
-	check(i6["energy"] == CWData.AEROBIC_LEVEL_BASE,
-		"六人局 I 级有氧 = 固定基数 %s（实得 %s）" % [CWData.fmt(CWData.AEROBIC_LEVEL_BASE), CWData.fmt(i6["energy"])])
+	check(i6["energy"] == int(CWData.AEROBIC_BY_LEVEL[0]),
+		"六人局 I 级有氧 = 表里第一档 %s（实得 %s）"
+		% [CWData.fmt(int(CWData.AEROBIC_BY_LEVEL[0])), CWData.fmt(i6["energy"])])
+	g6.tune.aerobic_by_level = []   ## 同上：表最优先，扫对照档要先清掉它
 	g6.tune.aerobic_level_base = -1
 	i6["energy"] = 0
 	g6.world._aerobic()

@@ -27,7 +27,10 @@
 class_name CWReplay
 extends RefCounted
 
-const VERSION := 1
+## v2（2026-09-10，issue #14）：【代谢耦联】的方向与数额**只有一种时也要问**了 ——
+## 于是同一局的作答串比从前多几个下标。旧文件按新代码放会从那一处起整串错位，
+## 而且**放出来是另一局**、不会报错。升号让它们干脆读不出来（面板上写「这份读不出来」）。
+const VERSION := 2
 const DIR := "user://replays"
 const EXT := ".cwr"
 const KEEP := 20        ## 最多留几份；再多就从最旧的开始删（回放很小，但也不该无限长）

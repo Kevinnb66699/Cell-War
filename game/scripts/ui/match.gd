@@ -294,6 +294,9 @@ var _card_info: CWCardInfo   ## 悬停手牌详情，同样程序化补进；与
 var _feed: CWFeed            ## 棋盘左侧的出牌列（打出的卡 / 抽到的事件卡 / 世界事件）
 var _feed_seq := 0           ## 已经补到 game.feed_log 的第几条（见 _sync_feed）
 var _chemo_fx: CWChemoFx     ## 树突【I-趋化源】的漩涡核心演出（挂在棋盘层，跟着格子走）
+## 【免疫猎杀】附在某个癌细胞身上的【追踪趋化源】。**另起一只**，不和上面那只共用 ——
+## 两个源可以同时在场（普通源一个、追踪源一个），一只演出画不了两处。
+var _chemo_track_fx: CWChemoFx
 var _mark_aura_fx: CWMarkAuraFx  ## 树突【I-标记】光环范围的常驻粒子（同上，也挂棋盘层）
 var _hunt_fx: CWHuntFx         ## 免疫猎杀捕获准星
 var _mucus_fx: CWMucusFx       ## 印戒【黏液破裂】的引爆
@@ -333,6 +336,9 @@ func _ready() -> void:
 		_chemo_fx = CWChemoFx.new()
 		_chemo_fx.visible = false
 		board.add_child(_chemo_fx)
+		_chemo_track_fx = CWChemoFx.new()
+		_chemo_track_fx.visible = false
+		board.add_child(_chemo_track_fx)
 		## 标记光环范围：同样挂棋盘层。**一只节点画所有树突的范围**——
 		## 每只树突一个节点的话，两只挨在一起时重叠区会被画两遍、亮一倍。
 		_mark_aura_fx = CWMarkAuraFx.new()
@@ -1180,6 +1186,7 @@ func _process(delta: float) -> void:
 	_sync_cells()
 	_animate_breath(delta)
 	_sync_chemo(delta)
+	_sync_chemo_track(delta)
 	_sync_mark_aura(delta)
 	if _hunt_fx != null:
 		_hunt_fx.sync(delta)
@@ -1294,6 +1301,25 @@ func _sync_chemo(delta: float) -> void:
 	## 压在细胞下面（Z_MARK 那一层）：漩涡是地面上的东西，不该盖住站在上面的细胞
 	_chemo_fx.sync(delta, board.tile_center(at), board.tile_z(at, board.Z_MARK),
 		int(game.chemo["left"]) <= 1)
+
+
+## 【免疫猎杀】的【追踪趋化源】。**在此之前它在棋盘上一点表示都没有**
+## （HXR-I 2026-09-10 报「树突细胞的猎杀后没有持续锁定效果」，issue #13 第 5 条）——
+## 而它是个实打实的两回合机制：被追的癌细胞怎么走都算「远离」、多付 20%，
+## 免疫向它靠近还便宜 30%。看不见的话，猎杀演出闪完就像什么都没发生。
+##
+## 位置**每帧现读** `chemo_track_at()`：活着跟着那个癌细胞走，死了冻在死亡格上。
+## 引擎那头早就是这么算的，这儿只是跟着它画，不另存一份坐标。
+func _sync_chemo_track(delta: float) -> void:
+	if _chemo_track_fx == null:
+		return
+	var at := game.chemo_track_at()
+	if game.chemo_track.is_empty() or at == Vector2i.MAX:
+		_chemo_track_fx.visible = false
+		return
+	_chemo_track_fx.visible = true
+	_chemo_track_fx.sync(delta, board.tile_center(at), board.tile_z(at, board.Z_MARK),
+		int(game.chemo_track.get("left", 0)) <= 1)
 
 
 ## 【I-标记】光环范围的常驻粒子（Kevin 2026-09-08）：

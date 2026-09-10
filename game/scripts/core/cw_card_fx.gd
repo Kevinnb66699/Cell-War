@@ -804,7 +804,8 @@ func _couple_tiers(payer: Dictionary) -> Array:
 	return out
 
 
-## 【代谢耦联】结算：先问方向（谁付给谁），再问数额。只有一种选择就不问。
+## 【代谢耦联】结算：先问方向（谁付给谁），再问数额。**哪怕只有一种也问** ——
+## 转出能量不可撤销，替玩家按掉那一下省不了什么（issue #14，2026-09-10）。
 func _couple(cell: Dictionary, ally: Dictionary) -> void:
 	var dirs: Array = []
 	if not _couple_tiers(cell).is_empty():
@@ -822,14 +823,17 @@ func _couple(cell: Dictionary, ally: Dictionary) -> void:
 		## （2026-08-31 并行跑蒙特卡洛网格时崩出来的，无头测试当时覆盖不到这个局面）
 		game.log_msg("　【代谢耦联】双方都付不出最低一档，落空")
 		return
-	if dirs.size() > 1:
+	## **只有一个方向也要问**（issue #14）：转出能量是不可撤销的一步，
+	## 玩家该看见「往哪个方向、转多少」再点头，而不是替他按掉
+	if not dirs.is_empty():
 		di = await game.ask(cell["pid"], { "kind": "pick", "tag": "代谢耦联",
 			"prompt": "【代谢耦联】选择转移方向", "options": dirs })
 	var payer: Dictionary = game.cells[dirs[di]["data"]["from"]]
 	var getter: Dictionary = game.cells[dirs[di]["data"]["to_cid"]]
 	var tiers := _couple_tiers(payer)
 	var ti := 0
-	if tiers.size() > 1:
+	## 同上：只够转一档时也把那一档摆出来问一次（HXR-I 举的正是这个例子）
+	if not tiers.is_empty():
 		ti = await game.ask(cell["pid"], { "kind": "pick", "tag": "代谢耦联",
 			"prompt": "【代谢耦联】转出 → 接收方得", "options": tiers })
 	var pay: int = tiers[ti]["data"]["pay"]

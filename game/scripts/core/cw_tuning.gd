@@ -11,7 +11,7 @@ extends RefCounted
 const RULE_FIELDS := [
 	"anaerobic_per_cancer", "anaerobic_per_solid", "anaerobic_split", "aerobic_mult",
 	"aerobic_mult_growth", "aerobic_split", "anaerobic_floor", "anaerobic_cap",
-	"aerobic_level_base", "aerobic_level_step", "differentiate_min_level",
+	"aerobic_level_base", "aerobic_level_step", "aerobic_by_level", "differentiate_min_level",
 	"anaerobic_on_turn_end", "necrosis_aerobic_pct", "mucus_move_surcharge", "aerobic_split_ref",
 	"osteo_ossify_cost", "osteo_ossify_rounds",
 	"aerobic_floor", "aerobic_cap", "energy_cap", "cancer_upkeep_pct",
@@ -81,6 +81,9 @@ var anaerobic_split := true
 ## **-1 = 基数按人数取**（`CWData.aerobic_level_base`，四人 2.0 / 六人 1.8 —— 09-05 方案 f，现退为对照档）；
 ## `>0` = 所有人数统一成这个数（默认；balance_scan 的 `abase=`）；
 ## `0` = **整条新公式关闭**，退回下面 `aerobic_mult` 那套盘面公式 —— 09-04 之前的扫描数据靠它复现。
+## 【S-有氧呼吸】按等级查表（issue #13，2026-09-10）：非空时**它说了算**，
+## 下面 base / step 那条线性式退成对照档。置空（`abylv=0`）即回到线性 / 盘面式。
+var aerobic_by_level: Array = CWData.AEROBIC_BY_LEVEL.duplicate()
 var aerobic_level_base := CWData.AEROBIC_LEVEL_BASE
 var aerobic_level_step := CWData.AEROBIC_LEVEL_STEP
 

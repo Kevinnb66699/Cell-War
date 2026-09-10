@@ -464,6 +464,12 @@ func _split_aerobic(per_cell: int, n: int) -> int:
 ## 现行是等级式：`base + 等级 × step`，与盘面无关 —— 换掉盘面式的理由见 CWData.AEROBIC_LEVEL_BASE。
 ## `aerobic_level_base <= 0` 退回盘面式，那条**必须逐位不变**，否则 09-04 之前的扫描数据全作废。
 func _aerobic_base(healthy: int, necrotic: int) -> int:
+	## **按等级查表**（issue #13，2026-09-10）：I/II/III/X = 2 / 3 / 4.5 / 5。
+	## 这四个数不等差，写不成 base + step × 等级 —— 表非空时它最优先，
+	## 下面那两条（线性 / 盘面式）退成 balance_scan 的对照档。
+	var by_level: Array = game.tune.aerobic_by_level
+	if not by_level.is_empty():
+		return int(by_level[clampi(game.immune_level, 0, by_level.size() - 1)])
 	## -1 = 按人数取（四人 2.0 / 六人 1.8）；>0 = 整体覆盖；0 = 退回旧盘面式
 	var base: int = game.tune.aerobic_level_base
 	if base < 0:
