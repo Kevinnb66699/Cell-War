@@ -205,6 +205,7 @@ var replay: CWReplay.Player
 var replay_paused := false
 var replay_speed := 1.0
 var _replay_target := -1     ## 待执行的拖拽目标；-1 = 没有。只由 _replay_loop 消费
+var _replay_bar: CWReplayBar ## 播放控制条（回放局才建）
 var _chat: CWChatBox         ## 房内聊天（只有联机局有：本地局没人可聊）
 var _chat_seen := 0          ## 已经搬到框里的第几条（同 _feed_seq 的路子）
 var _ask_serial := 0     ## 每收到一次询问递增：作答时核对，服务器代打后重问的旧答案不发
@@ -417,6 +418,22 @@ func start_replay(p: CWReplay.Player) -> void:
 	human_players = []                 ## 回放没有「轮到你了」这回事
 	_wire_bridge(0)
 	p.attach(bridge)                   ## 下标串与进度交接给界面桥
+	## 播放控制条。摆在行动栏那条位置 —— 回放局没有真人席位，行动栏根本不出现
+	if _replay_bar == null and ui != null:
+		_replay_bar = CWReplayBar.new()
+		ui.add_child(_replay_bar)
+		## **只发信号，不自己推**：真正的推进统一由 _replay_loop 执行，
+		## 一帧一次，连点几下不会有两个 seek 同时推同一局（同键盘那条路）
+		_replay_bar.jumped.connect(func(to: int) -> void:
+			replay_paused = true
+			_replay_target = clampi(to, 0, replay.total))
+		_replay_bar.paused_toggled.connect(func() -> void:
+			replay_paused = not replay_paused)
+		_replay_bar.speed_cycled.connect(func() -> void:
+			var i: int = REPLAY_SPEEDS.find(replay_speed)
+			replay_speed = REPLAY_SPEEDS[(i + 1) % REPLAY_SPEEDS.size()])
+	if _replay_bar != null:
+		_replay_bar.visible = true
 	if pause_menu != null:
 		pause_menu.online = true       ## 暂停菜单只留「离开」：回放不能存档、不能改规则
 	_replay_loop(_loop_id)
@@ -1029,6 +1046,8 @@ func _process(delta: float) -> void:
 		return
 	_sync_feed()   ## 出牌列跟着对局状态走（方案甲）：只补没见过的那几条，便宜
 	_sync_chat()
+	if _replay_bar != null and replay != null:
+		_replay_bar.refresh(replay.at(), replay.total, replay_paused, replay_speed)
 	for c: Vector2i in _flash.keys():
 		_flash[c] -= delta
 		if _flash[c] <= 0.0:

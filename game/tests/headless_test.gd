@@ -9071,6 +9071,20 @@ func t_replay() -> void:
 		seen += cell["hand"].size()
 	check(seen >= 0, "回放局的手牌是真牌（本地重建，%d 张在场）" % seen)
 
+	## ---- 播放条：拖到哪儿是第几步 ----
+	## 纯函数拆出来就是为了这几条：拖到最左第 0 步、最右最后一步、中间线性、
+	## 拖出条外钳住。**边界错一格**在界面上表现为「拖到底却差最后一步没放完」
+	check(CWReplayBar.step_at(0.0, 300.0, 400) == 0, "最左 = 第 0 步")
+	check(CWReplayBar.step_at(300.0, 300.0, 400) == 400, "最右 = 最后一步")
+	check(CWReplayBar.step_at(150.0, 300.0, 400) == 200, "正中 = 一半")
+	check(CWReplayBar.step_at(-50.0, 300.0, 400) == 0, "拖出左边钳在 0")
+	check(CWReplayBar.step_at(999.0, 300.0, 400) == 400, "拖出右边钳在末尾")
+	check(CWReplayBar.step_at(10.0, 0.0, 400) == 0 and CWReplayBar.step_at(10.0, 300.0, 0) == 0,
+		"条宽或总步数为 0 时不除零")
+	## 条与行动栏同一条纵坐标（回放局行动栏不出现，这条顶它的位置）
+	check(CWReplayBar.RECT.position.y == CWActionBar.BAR_RECT.position.y,
+		"播放条与行动栏同一条纵坐标（%d）" % int(CWReplayBar.RECT.position.y))
+
 	## ---- 念完了要安静收场 ----
 	## 录漏尾巴（传输截断、手工改文件）时不能乱走：下标 0 是「停止 / 放弃」那一项
 	var b := CWReplay.Bridge.new()
