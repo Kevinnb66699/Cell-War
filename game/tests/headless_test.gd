@@ -8194,6 +8194,15 @@ func t_guide_bridge() -> void:
 	check(staged.ui_stage() == 0, "第一阶段不提前开放辅助层")
 	staged._chapter = 6
 	check(staged.ui_stage() == 2, "进入第 7 关后开放资源/目标辅助层")
+	var graduation := CWGuideDirector.assemble(15)
+	var rng_before: int = graduation.rng.state
+	var assist := CWGuideData.graduation_assist(graduation)
+	check(assist["suggestion"].contains("净化") and assist["e_prediction"].contains("增生")
+		and assist["rule_explanation"].contains("固化"),
+		"毕业战提供建议、E 阶段预测与正式规则解释")
+	check(graduation.rng.state == rng_before,
+		"毕业战辅助读取局面但不改写正式随机流")
+	graduation.dispose()
 	## 实跑一次：轮到人类时只喂提示、不再自动演示（Kevin 2026-09-05：落子要么亲手点、要么点「继续」代做）
 	var g := CWGame.new()
 	g.init(CWData.FACTION_ORDER[2], 7)

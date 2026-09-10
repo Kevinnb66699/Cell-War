@@ -248,6 +248,15 @@ func ui_stage() -> int:
 	return CWGuideData.ui_stage(_chapter)
 
 
+## 第 16 关只读辅助；不执行动作、不改正式局面。
+func graduation_assist() -> Dictionary:
+	if _match == null or not is_instance_valid(_match) or _match.game == null:
+		return {}
+	if _chapter != CWGuideData.CHAPTER_COUNT - 1:
+		return {}
+	return CWGuideData.graduation_assist(_match.game)
+
+
 ## ---- 状态推进：带 watch 的步骤由真实局面判定完成 ----
 ## 哨兵 = 没有人类席 / 细胞还没落（与 board.NO_TILE 同一约定）
 const WATCH_NONE := Vector2i(9999, 9999)
