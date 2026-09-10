@@ -34,6 +34,7 @@ var _upd_link: Label       ## 「检查更新」/「立即重启」那行字
 var _upd_note: Label       ## 底下那行状态小字
 var _upd_busy := false     ## 正在查 / 正在下：连点不发第二次
 var _upd_ready := false    ## 已经装好，就差重启
+var _upd_countdown := 0    ## >0 = 正在数秒准备自动重启；0 = 没在数（也用来取消）
 var _http: HTTPRequest
 
 var _sel := 0
@@ -83,6 +84,7 @@ func _gui_input(event: InputEvent) -> void:
 			and event.button_index == MOUSE_BUTTON_LEFT \
 			and not _panel.get_global_rect().has_point(event.position):
 		accept_event()
+		_cancel_restart()      ## 关页面 = 反悔：包留着，别把人的游戏关掉
 		visible = false
 
 
@@ -90,6 +92,7 @@ func _gui_input(event: InputEvent) -> void:
 func handle_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
+		_cancel_restart()      ## 同上：Esc 也是反悔的口子
 		visible = false
 	elif event.is_action_pressed("ui_down") or event.is_action_pressed("ui_up"):
 		_sel = posmod(_sel + (1 if event.is_action_pressed("ui_down") else -1),
@@ -279,6 +282,11 @@ func _repaint() -> void:
 # 这里重写的只有「发一个 HTTP 请求并等它回来」这段管道。
 
 const UPD_TIMEOUT := 12.0        ## 每口请求等多久；比启动那屏宽松，这儿玩家是主动点的
+## 下载完之后等几秒自动重启（Kevin 2026-09-10：「可以更新完自动重启」）。
+## **不是立刻退** —— 应用自己毫无预告地消失是很唬人的一件事；
+## 数三秒既让玩家看清「发生了什么」，也留出一个反悔的口子（Esc 关掉设置页就取消）。
+## 不想等的按那行字，立刻重启。
+const RESTART_DELAY := 3
 
 ## 状态行那几句话。**集中写在一处**，因为它们都要挤进一行 216px
 ## （面板 264 − 左右内边距 − 那 16 的缩进），超了就被省略号从**尾巴**吃起 ——
@@ -294,6 +302,7 @@ const UPD_NOTES := {
 	"incomplete": "更新没下完，稍后再试",
 	"bad_sha": "更新文件校验失败，本次跳过",
 	"done": "已下载 %d —— 重启后生效",
+	"armed": "已下载 %d —— %d 秒后重启",
 }
 
 
@@ -332,9 +341,7 @@ func _tap_update() -> void:
 	if _upd_busy:
 		return
 	if _upd_ready:
-		## 装好了：重启让 boot.gd 接手挂载。设置页是主菜单开的，没有对局会被丢掉。
-		OS.set_restart_on_exit(true)
-		get_tree().quit()
+		_restart()      ## 不想等那几秒的，按一下立刻走
 		return
 	_check_update()
 
@@ -379,7 +386,8 @@ func _download(plan: Dictionary) -> void:
 		ProjectSettings.globalize_path(PatchState.PCK))
 	PatchState.record(int(plan["build"]), String(plan["sha"]))
 	_upd_ready = true
-	_done(UPD_NOTES["done"] % int(plan["build"]))
+	_upd_busy = false
+	_arm_restart(int(plan["build"]))
 
 
 ## 发一口请求并等回来。`to` 非空 = 下到那个文件（此时返回值只是个成功标记）。
@@ -419,3 +427,35 @@ func _say(note: String) -> void:
 func _done(note: String) -> void:
 	_upd_busy = false
 	_say(note)
+
+
+## 下载完之后数几秒，然后自己重启（Kevin 要的「更新完自动重启」）。
+##
+## **留了一个反悔的口子**：Esc / 点面板外关掉设置页就取消（`_cancel_restart`）。
+## 玩家是主动点「检查更新」才走到这一步的，但一个应用毫无预告地把自己关掉
+## 仍然很唬人 —— 何况他可能只是想看看有没有更新，并不打算现在就重开。
+func _arm_restart(build: int) -> void:
+	_upd_countdown = RESTART_DELAY
+	while _upd_countdown > 0:
+		_say(UPD_NOTES["armed"] % [build, _upd_countdown])
+		await get_tree().create_timer(1.0).timeout
+		## 关页面 = 取消（把计数清零）；节点已经不在树上就更不该再动它
+		if not is_inside_tree() or _upd_countdown <= 0:
+			return
+		_upd_countdown -= 1
+	_restart()
+
+
+## 取消自动重启，但**包已经装好了**——那行字仍是「立即重启」，随时可以按。
+func _cancel_restart() -> void:
+	if _upd_countdown <= 0:
+		return
+	_upd_countdown = 0
+	_say(UPD_NOTES["done"] % PatchState.installed_build())
+
+
+func _restart() -> void:
+	## 退出后引擎把自己拉起来，下一次启动由 boot.gd 挂上刚下好的补丁。
+	## 设置页是主菜单开的（allow_update 只在那儿为真），没有对局会被丢掉。
+	OS.set_restart_on_exit(true)
+	get_tree().quit()

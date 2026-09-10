@@ -5387,6 +5387,9 @@ func t_settings() -> void:
 	root.remove_child(page)
 	page.free()
 
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
 	var up := CWSettingsPage.new()
 	up.allow_update = true          ## 必须在进树之前置：_ready 按它决定建不建
 	root.add_child(up)
@@ -5409,14 +5412,27 @@ func t_settings() -> void:
 	up._upd_ready = true
 	up._repaint()
 	check(up._upd_link.text == "立即重启", "下载完成后同一行变成「立即重启」")
+	## ---- 更新完自动重启（Kevin 2026-09-10）----
+	## **不是立刻退**：数 RESTART_DELAY 秒，中途关掉设置页就取消 ——
+	## 应用毫无预告地把自己关掉很唬人，何况玩家可能只是来看看有没有更新。
+	check(CWSettingsPage.RESTART_DELAY > 0, "下载完之后是数几秒再走，不是当场退")
+	up._upd_countdown = CWSettingsPage.RESTART_DELAY
+	up.handle_input(esc)
+	check(up._upd_countdown == 0 and not up.visible,
+		"Esc 关掉设置页 = 取消自动重启（倒计时清零）")
+	check(up._upd_ready and up._upd_link.text == "立即重启",
+		"取消的只是「自动」那半 —— 包已经装好，那行字仍是「立即重启」，随时能按")
 	## **每一句状态都要挤得进那一行** —— 超了会被省略号从尾巴吃起，
 	## 而尾巴恰恰是「该怎么办」那半句（第一版就是这么被吃成「…请去 GitHub …」的）
 	var note_w: float = CWSettingsPage.W - CWSettingsPage.PAD * 2 - 16
 	var over: Array = []
 	for key: String in CWSettingsPage.UPD_NOTES:
 		var text: String = String(CWSettingsPage.UPD_NOTES[key])
-		if text.contains("%d"):
-			text = text % 202609102359          ## 最长的一个补丁号
+		## 真实最坏情况：第一个占位是补丁号（12 位），后面那个是秒数（1 位）——
+		## 一律拿 12 位去填会把倒计时那句冤枉成 230px
+		match text.count("%d"):
+			1: text = text % 202609102359
+			2: text = text % [202609102359, CWSettingsPage.RESTART_DELAY]
 		var wide: float = CWStyle.FONT.get_string_size(text,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
 		if wide > note_w:

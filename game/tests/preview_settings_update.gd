@@ -8,7 +8,7 @@ extends SceneTree
 ## 四张（都摆在真主菜单上，不是平底色 —— 见记忆「界面预览必须画全常驻件」）：
 ##   <输出>_idle.png     停在更新行上，还没点
 ##   <输出>_busy.png     正在下载
-##   <输出>_ready.png    下好了，那行变成「立即重启」
+##   <输出>_ready.png    下好了，那行变成「立即重启」，小字在数秒
 ##   <输出>_toold.png    最长的一句：基线太老，要下完整包
 ##
 ## 跑（**不能加 --headless**，要真渲染）：
@@ -54,10 +54,10 @@ func _process(_d: float) -> bool:
 			strip.save_png(_out + "_busy.png")
 			print("已保存 ", _out, "_busy.png（正在下载）")
 			_page._upd_ready = true
-			_page._say(CWSettingsPage.UPD_NOTES["done"] % 202609100826)
+			_page._say(CWSettingsPage.UPD_NOTES["armed"] % [202609100826, CWSettingsPage.RESTART_DELAY])
 		2:
 			strip.save_png(_out + "_ready.png")
-			print("已保存 ", _out, "_ready.png（下好了，变成「立即重启」）")
+			print("已保存 ", _out, "_ready.png（下好了，正在数秒自动重启）")
 			_page._upd_ready = false
 			_page._say(CWSettingsPage.UPD_NOTES["too_old"])
 		3:
