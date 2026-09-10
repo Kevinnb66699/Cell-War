@@ -108,6 +108,7 @@ func _run_all() -> void:
 		t_immune_win, t_surrender, t_cancer_revive_blocked, t_cancer_revive_ring, t_cancer_s_win, t_immune_respawn,
 		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_tutorial_auto_advance, t_stroma_targets, t_batch2_rules,
+		t_tutorial_mechanism_trials,
 		t_immune_level_rules, t_tissue_transitions, t_one_cell_per_tile, t_phase_order,
 		t_event_rounds, t_draw_limit, t_snapshot, t_state_codec,
 		t_rollout_isolation, t_step_atomic, t_full_game_2p, t_full_game_4p,
@@ -1136,6 +1137,32 @@ func t_pressure() -> void:
 	g.world._pressure()
 	check(not cell["alive"], "压迫可以致死")
 	g.dispose()
+
+
+## T-TUTORIAL-MECHANISM-TRIALS：第 12 关三个实验区必须由真实 CWGame 状态触发。
+func t_tutorial_mechanism_trials() -> void:
+	print("[教程机制试炼]")
+	var pressure := CWGuideDirector.assemble(11, 0)
+	var pressure_cell: Dictionary = pressure.cell_of(0)
+	var pressure_energy: int = pressure_cell["energy"]
+	pressure.world._pressure()
+	check(pressure_cell["energy"] < pressure_energy, "第12A 压迫试炼：引擎实际扣除免疫能量")
+	pressure.dispose()
+
+	var proliferation := CWGuideDirector.assemble(11, 1)
+	proliferation.tune.proliferate_per_adjacent = 1000
+	var before_growth := proliferation.count_tissue(CWData.Tissue.CANCER)
+	proliferation.world._proliferate()
+	check(proliferation.count_tissue(CWData.Tissue.CANCER) > before_growth,
+		"第12B 增生试炼：引擎实际把健康组织转为癌性")
+	proliferation.dispose()
+
+	var erosion := CWGuideDirector.assemble(11, 2)
+	var before_erosion := erosion.count_tissue(CWData.Tissue.CANCER)
+	erosion.world._erosion()
+	check(erosion.count_tissue(CWData.Tissue.CANCER) > before_erosion,
+		"第12C 侵蚀试炼：引擎实际侵入封闭健康岛")
+	erosion.dispose()
 
 
 # ---- 免疫等级三件套（团队 2026-09-04 定案）：记忆门槛 10/20、有氧按等级、分化降到 II 级 ----
