@@ -124,7 +124,7 @@ func _run_all() -> void:
 		t_buttons_dim, t_enter_not_skipped, t_main_menu, t_guide_data,
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
-		t_net_lobby, t_net_watch, t_net_chat, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
+		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
@@ -13983,6 +13983,35 @@ func t_net_chat() -> void:
 	check(ok and int(b.chat_log[-1]["seat"]) < 0 and int(b.chat_log[-1]["faction"]) < 0,
 		"没坐下的人说话：seat < 0、faction < 0（界面据此标「观众」）")
 
+	## ---- 「己方」只发给同一档的人 ----
+	## 过滤在**服务器**做，不是发给所有人再让客户端自己不显示 ——
+	## 那样改个客户端就能偷看对面的私聊。所以这里验的是「压根没收到」。
+	## 甲坐 0 号席（免疫）、乙坐 1 号席（癌症）、丙是观众 —— 三档各不相同
+	var na: int = a.chat_log.size()
+	var nb: int = b.chat_log.size()
+	var nc: int = c.chat_log.size()
+	a.say("只给自己人听", true)
+	ok = await _net_pump(srv, [a, b, c], func() -> bool: return a.chat_log.size() > na)
+	check(ok and String(a.chat_log[-1]["scope"]) == "team", "甲发「己方」，自己收得到")
+	await _net_pump_ms(srv, [a, b, c], 60)      ## 给别人留足送达的时间再看有没有漏
+	check(b.chat_log.size() == nb, "对面阵营的乙**一个字都没收到**")
+	check(c.chat_log.size() == nc, "观众丙也没收到（他自成一档）")
+
+	## 观众之间说得上话：丙自己发「己方」，坐着的两位都收不到
+	na = a.chat_log.size()
+	nb = b.chat_log.size()
+	c.say("我们观众聊", true)
+	ok = await _net_pump(srv, [a, b, c], func() -> bool: return c.chat_log.size() > nc)
+	check(ok, "观众发「己方」自己收得到")
+	await _net_pump_ms(srv, [a, b, c], 60)
+	check(a.chat_log.size() == na and b.chat_log.size() == nb,
+		"坐着的两位都收不到观众的私聊")
+
+	## 认不出的 scope 拒掉 —— 别让一个拼错的字段变成「发给了所有人」
+	a.send({ "t": "chat", "text": "喂", "scope": "怪东西" })
+	ok = await _net_pump(srv, [a, b, c], func() -> bool: return a.last_error.get("code", "") == "bad_scope")
+	check(ok, "认不出的 scope 拒掉（bad_scope）")
+
 	a.close()
 	b.close()
 	c.close()
@@ -13990,6 +14019,48 @@ func t_net_chat() -> void:
 
 
 ## 从服务器取回放（v7 新增的两条 C→S 报文）
+## 聊天框的纯函数（形制见 CWChatBox 文件头）
+func t_chat_box() -> void:
+	print("[聊天框]")
+	## **回车不能用 ui_accept**：Godot 里那个动作同时绑着回车**和空格**，
+	## 而空格是「结束回合」的快捷键 —— 用 ui_accept 的话，玩家想结束回合会弹出聊天框
+	var enter := InputEventKey.new()
+	enter.keycode = KEY_ENTER
+	enter.pressed = true
+	check(CWChatBox.is_enter(enter), "回车认得出")
+	var space := InputEventKey.new()
+	space.keycode = KEY_SPACE
+	space.pressed = true
+	check(not CWChatBox.is_enter(space), "**空格不算**（那是结束回合）")
+	var up := InputEventKey.new()
+	up.keycode = KEY_ENTER
+	up.pressed = false
+	check(not CWChatBox.is_enter(up), "松开不算")
+	enter.echo = true
+	check(not CWChatBox.is_enter(enter), "长按的重复键不算（不然按住回车会疯狂开合）")
+
+	## 观众在名字后面标出来 —— 他没有阵营色可用，只能靠这个认
+	check(CWChatBox.line_text({ "nick": "甲", "seat": 0, "text": "走这边" }) == "甲：走这边",
+		"坐着的人：名字 + 话")
+	check(CWChatBox.line_text({ "nick": "丙", "seat": -1, "text": "稳" }).contains("（观众）"),
+		"观众在名字后标出来")
+
+	## **颜色分档**：全体中性、己方阵营色、观众的己方中性偏暗
+	check(CWChatBox.line_color({ "scope": "all", "faction": CWData.Faction.IMMUNE })
+		== CWStyle.TEXT_HI, "发给全体的一律中性色（免得满屏都是阵营色）")
+	check(CWChatBox.line_color({ "scope": "team", "faction": CWData.Faction.IMMUNE })
+		== CWStyle.IMMUNE, "免疫的己方话用免疫青")
+	check(CWChatBox.line_color({ "scope": "team", "faction": CWData.Faction.CANCER })
+		== CWStyle.CANCER, "癌方的己方话用癌方橙")
+	check(CWChatBox.line_color({ "scope": "team", "faction": -1 })
+		== CWStyle.TEXT_DIM, "观众自成一档：没有阵营色，用中性偏暗")
+
+	## 浮出条别多到压棋盘：一条看不全一来一回，三条起就开始挡
+	check(CWChatBox.FLOAT_N == 2, "关着时浮出两条")
+	check(CWChatBox.RECT.size.x <= 320.0 and CWChatBox.RECT.end.y <= 540.0,
+		"默认位置整只落在屏内（%s）" % str(CWChatBox.RECT))
+
+
 func t_net_replay_download() -> void:
 	## 回放柜是**落盘**的，所以上一次跑留下的文件会被这次的服务器读回来 ——
 	## 先洗干净再起，否则断言的是「这次塞了几份」却数到历史遗留（第一次跑就这么红的）

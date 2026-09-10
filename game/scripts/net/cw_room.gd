@@ -134,21 +134,44 @@ func leave(cid: int, voluntary: bool = false) -> void:
 
 
 ## 此刻有几个观众（在房里但没坐席位的人）
+## 一个人说话时算哪一「档」。坐着的按阵营，**没坐下的自成一档**
+## （Kevin 2026-09-09 定）：观众多半是队友在旁边看，他们互相说话是常态；
+## 而让他们看到某一方的私聊等于开了个信息后门 —— 跟「观众看不到手牌」同一条线。
+const CAMP_WATCHER := -1
+
+func camp_of(cid: int) -> int:
+	var pid := pid_of_client(cid)
+	return CWData.FACTION_ORDER[player_count][pid] if pid >= 0 else CAMP_WATCHER
+
+
 ## 房内聊天。**nick / seat / faction 一律由服务器填**：客户端只发一句话，
 ## 所以冒不了别人的名，也标不出自己没有的阵营。
 ## 空话与超长一律拒（不截断 —— 截一半发出去比不发更让人困惑）。
-func chat(cid: int, text: String) -> String:
+##
+## `scope`：`"all"` 发给房里所有人；`"team"` **只发给同一档的人** ——
+## 过滤在**服务器**做，不是发给所有人再让客户端自己不显示：
+## 那样改个客户端就能偷看对面的私聊。
+func chat(cid: int, text: String, scope: String = "all") -> String:
 	if not members.has(cid):
 		return "not_in_room"
+	if not (scope in ["all", "team"]):
+		return "bad_scope"
 	var msg := text.strip_edges()
 	if msg.is_empty():
 		return "empty_chat"
 	if msg.length() > CWNet.CHAT_MAX:
 		return "bad_param"
 	var pid := pid_of_client(cid)
-	broadcast({ "t": "chat", "nick": members[cid], "seat": pid,
+	var line := { "t": "chat", "nick": members[cid], "seat": pid, "scope": scope,
 		"faction": CWData.FACTION_ORDER[player_count][pid] if pid >= 0 else -1,
-		"text": msg })
+		"text": msg }
+	if scope == "all":
+		broadcast(line)
+		return ""
+	var camp := camp_of(cid)
+	for other in members.keys():
+		if camp_of(other) == camp:
+			server.send(other, line)
 	return ""
 
 

@@ -131,12 +131,14 @@ func send(msg: Dictionary) -> void:
 
 
 # ---- 发给服务器的操作 ----
-## 说一句话。空话不发 —— 服务器那头也会拒，但没必要为一个空串跑一趟
-func say(text: String) -> void:
+## 说一句话。空话不发 —— 服务器那头也会拒，但没必要为一个空串跑一趟。
+## team = 只发给同一档的人（坐着的按阵营，观众自成一档）
+func say(text: String, team: bool = false) -> void:
 	var msg := text.strip_edges()
 	if msg.is_empty():
 		return
-	send({ "t": "chat", "text": msg.substr(0, CWNet.CHAT_MAX) })
+	send({ "t": "chat", "text": msg.substr(0, CWNet.CHAT_MAX),
+		"scope": "team" if team else "all" })
 
 
 func fetch_replays() -> void:

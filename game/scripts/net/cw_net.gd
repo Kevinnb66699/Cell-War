@@ -13,13 +13,14 @@
 ##        ping · list_rooms · create_room{players, timer, public, seed?} · join_room{code}
 ##        leave_room · reconnect{code, token} · sit{seat} · stand · ready{ready}
 ##        set_ai{seat, tier} · kick{seat} · start（后三个房主专用）· answer{ask_id, index}
-##        chat{text}                        房内聊天（2026-09-09）
+##        chat{text, scope}                 房内聊天。scope = "all" 全体 / "team" 己方（2026-09-09）
 ##        list_replays · get_replay{id}     服务器留着的最近几局回放（2026-09-09）
 ##   S→C  welcome{client_id, ver, maintenance} · pong · lobby{rooms, maintenance}
 ##        room{...}（等待室全量视图，见 CWRoom.view_for）
 ##        state{view, logs, turn, hash, game}（视角快照 + 新增日志行 + 正在决策的席位）
 ##        ask{ask_id, req, left_ms}（只发给该席位）· roll · result · notice（三种演出）
-##        chat{nick, seat, faction, text}   房内聊天：seat < 0 = 观众，faction < 0 = 没阵营
+##        chat{nick, seat, faction, scope, text}
+##                                          房内聊天：seat < 0 = 观众，faction < 0 = 没阵营
 ##        replays{list}                     回放目录（不含正文，只有一行摘要）
 ##        replay{id, data}                  一份回放的正文（CWReplay 的那个字典）
 ##        game_over{winner, reason, kind, round, replay} · left（离开房间的回执）· error{code, msg}
@@ -105,6 +106,7 @@ const ERRORS := {
 	"bad_token": "重连令牌无效",
 	"bad_param": "参数不合法",
 	"empty_chat": "说点什么再发",
+	"bad_scope": "只能发给全体或己方",
 	"no_replay": "没有这份回放（服务器只留最近几局）",
 	"kicked": "你被房主请出了房间",
 	"room_closed": "房间已关闭",

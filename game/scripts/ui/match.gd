@@ -205,6 +205,8 @@ var replay: CWReplay.Player
 var replay_paused := false
 var replay_speed := 1.0
 var _replay_target := -1     ## 待执行的拖拽目标；-1 = 没有。只由 _replay_loop 消费
+var _chat: CWChatBox         ## 房内聊天（只有联机局有：本地局没人可聊）
+var _chat_seen := 0          ## 已经搬到框里的第几条（同 _feed_seq 的路子）
 var _ask_serial := 0     ## 每收到一次询问递增：作答时核对，服务器代打后重问的旧答案不发
 
 @onready var board: Node2D = get_node(board_path)
@@ -420,6 +422,16 @@ func start_replay(p: CWReplay.Player) -> void:
 	_replay_loop(_loop_id)
 
 
+## 把客户端收到的聊天搬进框里。只补没见过的那几条（同 _sync_feed 的游标办法）——
+## 聊天**不进对局流**，所以它到得比演出早，不能等演出播完再搬
+func _sync_chat() -> void:
+	if _chat == null or _client == null:
+		return
+	while _chat_seen < _client.chat_log.size():
+		_chat.push(_client.chat_log[_chat_seen])
+		_chat_seen += 1
+
+
 ## 回放的播放键。返回是否吃掉了这一下。
 ##   空格 = 暂停 / 继续　　← → = 退 / 进 REPLAY_JUMP 步　　↑ ↓ = 倍速
 ## 快退是真的重算（还原关键帧 + 快进），所以按住不放不会失步，只是慢一点
@@ -584,6 +596,13 @@ func _wire_bridge(level: int) -> void:
 	bridge.seal_fx = _seal_fx
 	bridge.beam_fx = _beam_fx
 	bridge.chain_fx = _chain_fx
+	## 聊天框只在联机局建：本地局没人可聊，教程局更不该多一个能抢回车的东西
+	if online and _chat == null and ui != null:
+		_chat = CWChatBox.new()
+		ui.add_child(_chat)
+		_chat.said.connect(func(text: String, team: bool) -> void:
+			if _client != null:
+				_client.say(text, team))
 	bridge.game = game
 	bridge.board = board
 	bridge.dice = _dice
@@ -967,6 +986,11 @@ func _exit_tree() -> void:
 ## 覆盖层统一由宿主路由（主菜单那份也是 CWMainMenu 路由的）。书没开就不管，
 ## 暂停菜单 / 行动栏各管各的，不和 L / 空格抢。
 func _unhandled_input(event: InputEvent) -> void:
+	## 聊天：回车唤出 / Esc 收起。**排在暂停菜单前面** ——
+	## 框开着时 Esc 该先收框，而不是弹出暂停菜单
+	if _chat != null and _chat.handle_key(event):
+		get_viewport().set_input_as_handled()
+		return
 	## 回放的播放控制。**接在这一层**：回放局没有行动栏、没有手牌手势，
 	## 方向键与空格本来就没人要，正好拿来当播放键
 	if replay != null and (_codex == null or not _codex.visible):
@@ -985,6 +1009,7 @@ func _process(delta: float) -> void:
 	if game == null or game.tiles.is_empty() or _fading:
 		return
 	_sync_feed()   ## 出牌列跟着对局状态走（方案甲）：只补没见过的那几条，便宜
+	_sync_chat()
 	for c: Vector2i in _flash.keys():
 		_flash[c] -= delta
 		if _flash[c] <= 0.0:

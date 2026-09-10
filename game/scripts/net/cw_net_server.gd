@@ -288,7 +288,7 @@ func _handle(cid: int, bytes: PackedByteArray) -> void:
 				"start": e = r.start(cid)
 				"answer": e = r.answer(cid, msg.get("ask_id"), msg.get("index"))
 				"surrender": e = r.surrender(cid, msg.get("agree", true))
-				"chat": e = r.chat(cid, str(msg.get("text", "")))
+				"chat": e = r.chat(cid, str(msg.get("text", "")), str(msg.get("scope", "all")))
 				_: e = "bad_message"
 			if e != "":
 				_error(cid, e)
