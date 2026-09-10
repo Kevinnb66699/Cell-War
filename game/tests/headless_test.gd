@@ -6634,6 +6634,17 @@ func t_match_panel() -> void:
 	check(CWMatchPanel.BAR_DY + CWMatchPanel.BAR_H <= CWMatchPanel.LEVEL_H,
 		"进度条（%d..%d）不出免疫等级那一块（%d 高）"
 		% [CWMatchPanel.BAR_DY, CWMatchPanel.BAR_DY + CWMatchPanel.BAR_H, CWMatchPanel.LEVEL_H])
+	## 上边也要留够：第一版摆 34，紧贴等级那个罗马数字，
+	## Kevin 2026-09-10 一眼看出来「太近了」。
+	##
+	## 量的是**字形墨迹的底**（基线 = position + ascent），**不是行框**：
+	## 这套点阵字的行框虚高（10px 字号下行框 14 而字形只有 10），
+	## 拿行框当界的话那道缝根本站不下东西 —— 而那道缝正是这条设计要用的地方。
+	## 钉成关系而不是钉死 38：换字号时它自己跟着走。
+	var ink: float = p._level.position.y - p._level_y 		+ CWStyle.FONT.get_ascent(CWStyle.SIZE_BODY)
+	check(CWMatchPanel.BAR_DY >= ink + 2.0,
+		"进度条（%d 起）离等级字的底（%d）至少两像素，不贴脸"
+		% [CWMatchPanel.BAR_DY, ink])
 	var six: Array = CWData.level_min_memory(6)
 	check(is_equal_approx(CWMatchPanel.level_progress(3, 0, six), 0.3)
 		and is_equal_approx(CWMatchPanel.level_progress(18, 1, six), 0.8),
