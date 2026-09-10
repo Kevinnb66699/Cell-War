@@ -565,7 +565,12 @@ func _build_room(root: Control) -> void:
 		if client != null:
 			client.stand())
 	_leave_link = _clicky(root, "离开房间", Vector2(SLOT_X + 320, BTN_Y + 5), _leave_room)
-	_build_chat(root)
+	## 聊天临时下架（`CWMatch.CHAT_ON`，见 docs/临时下架清单.md）：**整块不建**。
+	## 收在这一处就够 —— `_repaint_chat()` 开头判 `_chat_scope == null` 就返回，
+	## 两个调用点（收到 chat 报文、切到等待室页）都会安静地什么都不做。
+	## 协议的 say/chat、服务器那半边一个字没改。
+	if CWMatch.CHAT_ON:
+		_build_chat(root)
 
 
 ## 等待室的聊天板。**约人、分阵营这些话都发生在开局之前** ——

@@ -15601,6 +15601,18 @@ func t_online_panel() -> void:
 	check(p._ready_text.text == "取消准备" and p._start_btn.visible and p._stand_link.visible, "已准备的房主：按钮是「取消准备」，「开局」可见")
 	check(p._status.text.contains("空席"), "有空席时状态行提示（%s）" % p._status.text)
 	check(p._members_label.text.contains("丙") and not p._members_label.text.contains("甲"), "未入座的人单列")
+	## ---- 等待室聊天临时下架（CWMatch.CHAT_ON，见 docs/临时下架清单.md）----
+	## 整块不建；两个调用点（收到 chat 报文、切到等待室页）靠 `_chat_scope == null`
+	## 安静地什么都不做 —— 上面那句 `_show_page(ROOM)` 已经走过一次 `_repaint_chat()` 了，
+	## 没崩就说明兜底是通的
+	if CWMatch.CHAT_ON:
+		check(p._chat_scope != null and p._chat_rows.size() == CWOnlinePanel.CHAT_ROWS,
+			"聊天开着：等待室那块聊天板照常建")
+	else:
+		check(p._chat_scope == null and p._chat_rows.is_empty() and p._chat_input == null,
+			"聊天下架：等待室那块整个不建（板、行、输入框都没有）")
+		p._on_message({ "t": "chat", "nick": "甲", "text": "在吗", "scope": "all", "seat": 0 })
+		check(true, "收到 chat 报文也不炸（_repaint_chat 判空就返回）")
 	var texts: Array = []
 	for c in p._seat_root.get_children():
 		if c is Label:
