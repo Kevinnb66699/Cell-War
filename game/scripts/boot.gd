@@ -130,6 +130,15 @@ static func decide(m: Dictionary, installed: int, blocked: int, base: int) -> Di
 	## 放行错了 = 装上一个不合适的补丁，而那有 SHA 校验、启动证明期与拉黑名单兜着。
 	if base > 0 and int(m.get("min_base", 0)) > base:
 		return { "act": "too_old", "url": "", "sha": "", "build": build }
+	## **补丁比我的基线还老 = 它那点东西早就烧在包里了**，装了只会把包里更新的文件盖回旧的。
+	##
+	## 从前碰不到这一档，因为顺序一直是「先发版、再往上打补丁」，`build` 天然大于 `base`。
+	## 2026-09-10 第一次反过来：热更发出去之后当天又发了一版完整客户端 ——
+	## 新客户端一启动就会去装那个更老的补丁，把这一版新加的文件覆盖回去（`installed`
+	## 是**补丁号**，全新客户端是 0，光靠上面那条 `build <= installed` 拦不住）。
+	## 两个数同为 `YYYYMMDDHHMM`，直接比大小就行。
+	if base > 0 and build <= base:
+		return skip
 	var url := str(m.get("pck", ""))
 	var sha := str(m.get("sha256", ""))
 	## manifest 自己不干净就当没看见：地址必须落在写死的前缀底下，指纹必须是 64 位十六进制

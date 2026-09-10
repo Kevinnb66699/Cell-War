@@ -4977,6 +4977,17 @@ func t_hot_patch() -> void:
 	## （2026-09-09 真踩过），放行错了有 SHA 校验、启动证明期与拉黑名单兜着。
 	check(Boot.decide(good, 100, 0, 0)["act"] == "install",
 		"基线读不出来（0）→ 放行，而不是一律判太老")
+	## **补丁比我的基线还老 → 跳过**（2026-09-10 补的一档）。
+	## 从前碰不到：顺序一直是「先发版、再往上打补丁」，build 天然大于 base。
+	## 那天第一次反过来 —— 热更发出去当天又发了一版完整客户端，
+	## 新客户端一启动就会去装那个更老的补丁，把这一版新加的文件盖回旧的。
+	## 光靠上面那条 `build <= installed` 拦不住：`installed` 是**补丁号**，全新客户端是 0。
+	check(Boot.decide(good, 0, 0, 200)["act"] == "skip",
+		"补丁号 = 我的基线号 → 那点东西已经烧在包里了，不装")
+	check(Boot.decide(good, 0, 0, 300)["act"] == "skip",
+		"补丁比我的基线还老 → 不装（不然新客户端会被旧补丁盖回去）")
+	check(Boot.decide(good, 0, 0, 150)["act"] == "install",
+		"补丁比基线新 → 照装（正常那一档，别把它一起拦掉）")
 
 	## ---- 断网时的启动兜底（Kevin 2026-09-10）----
 	## 起因：「玩家断网连不上服务器、一直黑屏，会不会最后进不了游戏？」
@@ -7984,6 +7995,27 @@ func t_main_menu() -> void:
 			all_rendered = false
 	check(all_on, "%d 个装饰细胞的坐标都在棋盘范围内" % menu_script.DECOR.size())
 	check(all_rendered, "每个装饰细胞脚下都有一块真实存在的组织")
+
+	## ---- 右下角那行版本号（2026-09-10 补）----
+	## 起因：联机对不上版本，四个人谁也说不出自己手上是哪个包 —— 连着两次发版
+	## `config/version` 都写着 v0.1.0，而「这台能不能装上补丁」正是按**基线号**判的。
+	check(menu_script.version_text("0.1.0", 202609100730, 0) == "v0.1.0 · 202609100730",
+		"没装补丁：版本号 + 基线号")
+	check(menu_script.version_text("0.1.0", 202609100730, 202609100812)
+		== "v0.1.0 · 202609100730 + 202609100812",
+		"装了补丁：后面再跟补丁号（两个都是 YYYYMMDDHHMM，一眼比得出大小）")
+	check(menu_script.version_text("0.1.0", 202609100730, 202609100125)
+		== "v0.1.0 · 202609100730",
+		"补丁号不比基线新就不写 —— 那种补丁本来也不会装（见 Boot.decide）")
+	check(menu_script.version_text("0.1.0", 0, 0) == "v0.1.0",
+		"读不出基线时只写版本号，不写一个 0 骗人")
+	## 这一行右对齐摆在右下角那个盒子里，**盒子得装得下最长的一档**，
+	## 否则右对齐的长文本会往左溢出到画布外
+	var longest: String = menu_script.version_text("0.1.0", 202609100730, 202609102359)
+	var ver_w: float = CWStyle.FONT.get_string_size(longest,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+	check(ver_w <= 217.0,
+		"最长的那行版本号（%d px）装得进 MainMenu.tscn 给的盒子（217）" % int(ver_w))
 
 	# 机位：把相机摆到算出来的位置后，看点应当正好投影到锚点上
 	var screen := Vector2(960, 540)

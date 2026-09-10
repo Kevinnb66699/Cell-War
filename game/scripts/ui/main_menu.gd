@@ -149,9 +149,29 @@ func _ready() -> void:
 	_place_camera()
 	_spawn_decor()
 	_setup_items()
-	## 版本号读工程设置，别在界面里写死第二份
-	_version.text = "v" + str(ProjectSettings.get_setting("application/config/version", "0.0.0"))
+	## 版本号读工程设置，别在界面里写死第二份；**基线号与补丁号也要露出来**（见 version_text）
+	var ps := preload("res://scripts/patch_state.gd")
+	_version.text = version_text(
+		str(ProjectSettings.get_setting("application/config/version", "0.0.0")),
+		ps.base_build(), ps.installed_build())
 	_repaint()
+
+
+## 右下角那行版本号。**纯函数**，好直接测。
+##
+## **为什么非露基线号不可**：2026-09-10 联机对不上版本，四个人谁也说不出自己手上是哪个包 ——
+## `config/version` 连着两次发版都写着 `v0.1.0`，而「这台能不能装上补丁」恰恰是按
+## **基线号**判的（`boot.gd` 的 `too_old` 那一档）。只写一个 v0.1.0 等于什么都没说。
+##
+## 装过补丁再跟一个 `+补丁号`：这一行于是同时回答了两个问题 ——
+## 「我是哪个客户端」和「热更到没到」。两个都是 `YYYYMMDDHHMM`，一眼能比大小。
+static func version_text(ver: String, base: int, patched: int) -> String:
+	var s := "v%s" % ver
+	if base > 0:
+		s += " · %d" % base
+	if patched > base:
+		s += " + %d" % patched
+	return s
 
 
 ## 过场退场：菜单文字淡出，装饰细胞沿着**离棋盘中心的方向**往外漂散再淡掉。
