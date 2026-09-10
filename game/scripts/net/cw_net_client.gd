@@ -31,6 +31,10 @@ var game_over := {}
 ## 正在进行的投降投票（服务器裁决，客户端只画）。空 = 没有。
 ## 字段见 CWRoom._refresh_vote：{faction, by, need, agreed, left_ms}
 var surrender_vote := {}
+## 收到的聊天，**新的在后**（界面从尾巴往回读最近几条）。{nick, seat, faction, text}
+var chat_log: Array = []
+var replay_list: Array = []      ## 服务器回放目录（只有摘要）
+var replay_data := {}            ## 最近一次 get_replay 取回来的正文
 var error_seq := 0            ## 收到第几条 error 报文（对局界面靠它认出新错误）
 var inbox: Array = []                    ## 所有收到的报文（测试与机器人用；界面用 message 信号）
 var autoplay: CWBridge                   ## 机器人模式：收到 ask 就用这个桥作答（桥的 game 会指向 shadow）
@@ -127,6 +131,22 @@ func send(msg: Dictionary) -> void:
 
 
 # ---- 发给服务器的操作 ----
+## 说一句话。空话不发 —— 服务器那头也会拒，但没必要为一个空串跑一趟
+func say(text: String) -> void:
+	var msg := text.strip_edges()
+	if msg.is_empty():
+		return
+	send({ "t": "chat", "text": msg.substr(0, CWNet.CHAT_MAX) })
+
+
+func fetch_replays() -> void:
+	send({ "t": "list_replays" })
+
+
+func fetch_replay(id: int) -> void:
+	send({ "t": "get_replay", "id": id })
+
+
 func list_rooms() -> void:
 	send({ "t": "list_rooms" })
 
@@ -215,6 +235,20 @@ func _apply(m: Dictionary) -> void:
 			code = m.get("code", "")
 			my_seat = m.get("you_seat", -1)
 			token = m.get("token", "")
+		"chat":
+			## **不进对局流**：聊天是「此刻」的事，跟着演出排队的话，
+			## 一句「等一下别打」会在演完两个动画之后才出现，那就没意义了
+			## （同 surrender_vote 的理由）
+			chat_log.append(m)
+			if chat_log.size() > 200:
+				chat_log.pop_front()
+		"replays":
+			replay_list = m.get("list", [])
+		"replay":
+			var d: Variant = m.get("data")
+			if typeof(d) == TYPE_DICTIONARY and CWReplay.valid(d):
+				replay_data = d
+				CWReplay.write(d)      ## 下下来就落到本地，之后不用再联网也能看
 		"state":
 			_apply_state(m)
 		"ask":

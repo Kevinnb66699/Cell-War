@@ -124,7 +124,7 @@ func _run_all() -> void:
 		t_buttons_dim, t_enter_not_skipped, t_main_menu, t_guide_data,
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
-		t_net_lobby, t_net_watch, t_net_game, t_net_reconnect, t_net_timeout,
+		t_net_lobby, t_net_watch, t_net_chat, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
@@ -13877,6 +13877,120 @@ func t_net_watch() -> void:
 	c.close()
 	d.close()
 	srv.stop()
+
+
+## 房内聊天（v7 新增的 C→S 报文）
+func t_net_chat() -> void:
+	var srv := _net_server()
+	check(srv != null, "联机：本机起服务器")
+	if srv == null:
+		return
+	var a := _net_client("甲")
+	var b := _net_client("乙")
+	check(await _net_pair(srv, a, b), "两个客户端握手")
+	check(await _net_room(srv, a, b, 2, 0, 3), "两人坐进一间 2 人房")
+
+	a.say("这波我先手")
+	var ok := await _net_pump(srv, [a, b], func() -> bool: return b.chat_log.size() > 0)
+	check(ok, "乙收到了甲说的话")
+	var line: Dictionary = b.chat_log[-1]
+	check(String(line["text"]) == "这波我先手", "正文原样")
+	## **nick / seat / faction 一律由服务器填**：客户端只发一句话，所以冒不了别人的名
+	check(String(line["nick"]) == "甲" and int(line["seat"]) == 0
+		and int(line["faction"]) == CWData.Faction.IMMUNE,
+		"名字、席位、阵营都由服务器填（%s / %d / %d）"
+		% [line["nick"], int(line["seat"]), int(line["faction"])])
+	check(a.chat_log.size() > 0, "说话的人自己也收到（回声即送达确认）")
+
+	## 空话与超长一律拒。超长**不截断** —— 截一半发出去比不发更让人困惑
+	a.send({ "t": "chat", "text": "   " })
+	ok = await _net_pump(srv, [a, b], func() -> bool: return a.last_error.get("code", "") == "empty_chat")
+	check(ok, "空话拒掉（empty_chat）")
+	var before: int = b.chat_log.size()
+	a.send({ "t": "chat", "text": "字".repeat(CWNet.CHAT_MAX + 1) })
+	ok = await _net_pump(srv, [a, b], func() -> bool: return a.last_error.get("code", "") == "bad_param")
+	check(ok and b.chat_log.size() == before, "超过 %d 字拒掉，且一个字都没广播出去" % CWNet.CHAT_MAX)
+
+	## 观众也说得上话（seat < 0、没有阵营）
+	var c := _net_client("丙")
+	check(await _net_pair(srv, c, c), "第三个客户端握手")
+	c.join(a.code)
+	ok = await _net_pump(srv, [a, b, c], func() -> bool: return c.code == a.code)
+	c.say("我就看看")
+	ok = await _net_pump(srv, [a, b, c],
+		func() -> bool: return b.chat_log.size() > before and String(b.chat_log[-1]["nick"]) == "丙")
+	check(ok and int(b.chat_log[-1]["seat"]) < 0 and int(b.chat_log[-1]["faction"]) < 0,
+		"没坐下的人说话：seat < 0、faction < 0（界面据此标「观众」）")
+
+	a.close()
+	b.close()
+	c.close()
+	srv.stop()
+
+
+## 从服务器取回放（v7 新增的两条 C→S 报文）
+func t_net_replay_download() -> void:
+	## 回放柜是**落盘**的，所以上一次跑留下的文件会被这次的服务器读回来 ——
+	## 先洗干净再起，否则断言的是「这次塞了几份」却数到历史遗留（第一次跑就这么红的）
+	_wipe_server_replays()
+	var srv := _net_server()
+	check(srv != null, "联机：本机起服务器")
+	if srv == null:
+		return
+	## 回放柜单独测：往里塞几份合成的就够，不必真打几十局
+	## （真打一局的代价见 t_net_game —— 79 秒）
+	var made: Array = []
+	for i in 3:
+		var g := make_game(2, 100 + i)
+		g.record_replay = true
+		await run_setup(g)
+		g.replay = PackedInt32Array([0, 1, 0])
+		var rep := CWReplay.of(g)
+		rep["code"] = "ROOM%02d" % i
+		srv.keep_replay(rep)
+		made.append(rep)
+		g.dispose()
+	check(srv.replays.size() == 3 and int(srv.replays[0]["id"]) == 3,
+		"三份都收下了，**新的在前**（第一份 id=%d）" % int(srv.replays[0]["id"]))
+
+	var a := _net_client("甲")
+	check(await _net_pair(srv, a, a), "客户端握手")
+	a.fetch_replays()
+	var ok := await _net_pump(srv, [a], func() -> bool: return a.replay_list.size() == 3)
+	check(ok, "取回目录三条")
+	## 目录**只有摘要没有正文**：正文一局几 KB，二十局全推下去等于每次开列表发几百 KB
+	check(not a.replay_list[0].has("answers"), "目录里不带下标串（只有摘要）")
+	check(a.replay_list[0].has("code") and a.replay_list[0].has("round"),
+		"摘要带房间码与回合数（列表要拿它做选择）")
+
+	a.fetch_replay(int(a.replay_list[0]["id"]))
+	ok = await _net_pump(srv, [a], func() -> bool: return not a.replay_data.is_empty())
+	check(ok and CWReplay.valid(a.replay_data), "按 id 取回正文，且是一份合法回放")
+	check(PackedInt32Array(a.replay_data["answers"]) == PackedInt32Array([0, 1, 0]),
+		"下标串对得上")
+
+	a.fetch_replay(99999)
+	ok = await _net_pump(srv, [a], func() -> bool: return a.last_error.get("code", "") == "no_replay")
+	check(ok, "取不存在的 id：no_replay")
+
+	## **落盘 + 重启还在**（Kevin 2026-09-09 定要落盘）。
+	## 只放内存的话，那台 Restart=always 的机器崩一次「补看上一局」就没了
+	var srv2 := CWNetServer.new()
+	srv2._load_replays()
+	check(srv2.replays.size() >= 3, "新起的服务器从盘上读回了 %d 份" % srv2.replays.size())
+	check(int(srv2._replay_seq) >= 3, "id 从盘上已有的最大值接着走，重启后不撞号")
+
+	_wipe_server_replays()      ## 收尾：别留给下一次跑
+	a.close()
+	srv.stop()
+
+
+## 把服务器回放柜清空（测试专用）
+func _wipe_server_replays() -> void:
+	if not DirAccess.dir_exists_absolute(CWNetServer.REPLAY_DIR):
+		return
+	for f in DirAccess.get_files_at(CWNetServer.REPLAY_DIR):
+		DirAccess.remove_absolute("%s/%s" % [CWNetServer.REPLAY_DIR, f])
 
 
 func t_net_protocol() -> void:

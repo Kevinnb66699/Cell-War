@@ -13,11 +13,16 @@
 ##        ping · list_rooms · create_room{players, timer, public, seed?} · join_room{code}
 ##        leave_room · reconnect{code, token} · sit{seat} · stand · ready{ready}
 ##        set_ai{seat, tier} · kick{seat} · start（后三个房主专用）· answer{ask_id, index}
+##        chat{text}                        房内聊天（2026-09-09）
+##        list_replays · get_replay{id}     服务器留着的最近几局回放（2026-09-09）
 ##   S→C  welcome{client_id, ver, maintenance} · pong · lobby{rooms, maintenance}
 ##        room{...}（等待室全量视图，见 CWRoom.view_for）
 ##        state{view, logs, turn, hash, game}（视角快照 + 新增日志行 + 正在决策的席位）
 ##        ask{ask_id, req, left_ms}（只发给该席位）· roll · result · notice（三种演出）
-##        game_over{winner, reason, kind, round} · left（离开房间的回执）· error{code, msg}
+##        chat{nick, seat, faction, text}   房内聊天：seat < 0 = 观众，faction < 0 = 没阵营
+##        replays{list}                     回放目录（不含正文，只有一行摘要）
+##        replay{id, data}                  一份回放的正文（CWReplay 的那个字典）
+##        game_over{winner, reason, kind, round, replay} · left（离开房间的回执）· error{code, msg}
 class_name CWNet
 extends RefCounted
 
@@ -43,7 +48,18 @@ extends RefCounted
 ##     **空着的固化格也开出整个 1 环**（从前只有队友踩着才开圈）。落点集合变了 = 选项下标变了，
 ##     旧客户端按自己那份选项作答会选到别的格子上
 ## 服务器对不认识的报文回 bad_message，所以**旧客户端必须更新才连得上**（Kevin 已同意）。
-const NET_VERSION := 6
+## v7（2026-09-09）：**房内聊天** + **从服务器下载回放**。这一号必须升，理由和前面几条不同 ——
+##   这两样都是 **C→S 方向**的新报文（`chat` / `list_replays` / `get_replay`），
+##   而服务器对不认识的上行报文回 `bad_message`：新客户端连老服务器会「发一句话就被断开」，
+##   而不是一句「请更新」。升号让它在握手那一刻就说清楚。
+##   （对照：`beam` / `live` / `game_over.replay` 都是 S→C 方向，老客户端 `match` 认不出
+##   就静静落空、行为照旧，那几条都没升号。）
+const NET_VERSION := 7
+
+## 一条聊天最多多少字。定这个数不是怕刷屏（那有 RATE_PER_SEC 管），
+## 是**排版**：聊天行和大厅房间行共用同一条定宽，超了就是省略号，
+## 看不全的字发出去也没意义。
+const CHAT_MAX := 60
 const DEFAULT_HOST := "124.221.78.13"
 const DEFAULT_PORT := 8611
 ## 单条报文（压缩后）上限；超过即断开
@@ -88,6 +104,8 @@ const ERRORS := {
 	"bad_index": "选项不存在",
 	"bad_token": "重连令牌无效",
 	"bad_param": "参数不合法",
+	"empty_chat": "说点什么再发",
+	"no_replay": "没有这份回放（服务器只留最近几局）",
 	"kicked": "你被房主请出了房间",
 	"room_closed": "房间已关闭",
 	"rate": "发送过于频繁",

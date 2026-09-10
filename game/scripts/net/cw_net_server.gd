@@ -20,6 +20,19 @@ var port := 0
 var rng := RandomNumberGenerator.new()
 var clients := {}      ## client id -> {nick, room, hello, last_seen, ip, sec, count, kick_at}
 var rooms := {}        ## 房间码 -> CWRoom
+## 最近打完的几局回放，**落盘**（Kevin 2026-09-09 定；我原本提的是只放内存）。
+##
+## **这是服务器第一次往盘上写东西** —— 设计 §九 原本写着「只存内存状态、不落盘」，
+## 已随本次改动一并改掉。存的是棋盘决策 + 昵称，没有凭据也没有 IP。
+## 换来的是：服务器重启（非排空）之后回放还在，而那台机器 `Restart=always`，
+## 只放内存的话「补看上一局」这件事在崩一次之后就没了。
+##
+## 目录与客户端那份**分开**（`CWReplay.DIR` 是客户端的）：同一进程里起服务器 + 客户端
+## 是测试的常态，共用一个目录会互相看见对方的文件。
+var replays: Array = []
+const REPLAY_DIR := "user://server_replays"
+const REPLAY_KEEP := 50     ## 全服留最近几局（Kevin 2026-09-09 定）
+var _replay_seq := 0
 var drain := false
 var quiet := false     ## 测试时不打印
 var idle_ms := CWNet.ROOM_IDLE_MS   ## 空房多久自动关（测试调短）
@@ -40,6 +53,7 @@ func start(p_port: int, bind_address: String = "*") -> Error:
 	rng.randomize()
 	peer.peer_connected.connect(_on_connected)
 	peer.peer_disconnected.connect(_on_disconnected)
+	_load_replays()
 	_started = true
 	return OK
 
@@ -242,6 +256,14 @@ func _handle(cid: int, bytes: PackedByteArray) -> void:
 			send(cid, { "t": "pong" })
 		"list_rooms":
 			send(cid, lobby_view())
+		"list_replays":
+			send(cid, replay_list())
+		"get_replay":
+			var rep := replay_of(int(msg.get("id", 0)))
+			if rep.is_empty():
+				_error(cid, "no_replay")
+			else:
+				send(cid, { "t": "replay", "id": rep["id"], "data": rep })
 		"create_room":
 			_create_room(cid, msg)
 		"join_room":
@@ -266,6 +288,7 @@ func _handle(cid: int, bytes: PackedByteArray) -> void:
 				"start": e = r.start(cid)
 				"answer": e = r.answer(cid, msg.get("ask_id"), msg.get("index"))
 				"surrender": e = r.surrender(cid, msg.get("agree", true))
+				"chat": e = r.chat(cid, str(msg.get("text", "")))
 				_: e = "bad_message"
 			if e != "":
 				_error(cid, e)
@@ -338,6 +361,63 @@ func _reconnect(cid: int, code: String, token: String) -> void:
 ##
 ## 新加的 `live` 字段旧客户端读不到，它只认 `rooms` —— 行为和从前一模一样，
 ## 所以这一条**不用升 NET_VERSION**（同 `beam`：服务器→客户端方向，认不出就落空）。
+## 开机时把盘上的回放读回来。**读不出的一律跳过** ——
+## 回放柜坏一个文件不该让服务器起不来。
+func _load_replays() -> void:
+	replays = []
+	_replay_seq = 0
+	if not DirAccess.dir_exists_absolute(REPLAY_DIR):
+		return
+	var names := DirAccess.get_files_at(REPLAY_DIR)
+	names.sort()
+	for n in names:
+		if not n.ends_with(CWReplay.EXT):
+			continue
+		var rep := CWReplay.read("%s/%s" % [REPLAY_DIR, n])
+		if rep.is_empty():
+			continue
+		replays.push_front(rep)          ## 文件名按 id 排过，倒着推 = 新的在前
+		_replay_seq = maxi(_replay_seq, int(rep.get("id", 0)))
+	while replays.size() > REPLAY_KEEP:
+		replays.pop_back()
+
+
+## 房间打完一局就把回放交过来。给它一个自增 id —— 客户端按 id 取正文。
+## id 开机时从盘上已有的最大值接着往下走，所以重启之后不会跟旧回放撞号。
+func keep_replay(rep: Dictionary) -> void:
+	_replay_seq += 1
+	rep["id"] = _replay_seq
+	replays.push_front(rep)
+	DirAccess.make_dir_recursive_absolute(REPLAY_DIR)
+	var f := FileAccess.open("%s/%08d%s" % [REPLAY_DIR, _replay_seq, CWReplay.EXT],
+		FileAccess.WRITE)
+	if f != null:
+		f.store_string(var_to_str(rep))
+		f.close()
+	while replays.size() > REPLAY_KEEP:
+		var old: Dictionary = replays.pop_back()
+		DirAccess.remove_absolute("%s/%08d%s"
+			% [REPLAY_DIR, int(old.get("id", 0)), CWReplay.EXT])
+
+
+## 回放目录：**只有摘要没有正文**。正文一局几 KB，一次把二十局全推下去
+## 等于每次开列表都发几百 KB，而多数时候玩家只想看其中一局。
+func replay_list() -> Dictionary:
+	var out: Array = []
+	for r: Dictionary in replays:
+		out.append({ "id": r.get("id", 0), "code": r.get("code", ""),
+			"players": r.get("players", 0), "round": r.get("round", 0),
+			"winner": r.get("winner", -1), "at": r.get("at", "") })
+	return { "t": "replays", "list": out }
+
+
+func replay_of(id: int) -> Dictionary:
+	for r: Dictionary in replays:
+		if int(r.get("id", 0)) == id:
+			return r
+	return {}
+
+
 func lobby_view() -> Dictionary:
 	var list: Array = []
 	var live: Array = []

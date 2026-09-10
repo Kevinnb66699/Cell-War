@@ -134,6 +134,24 @@ func leave(cid: int, voluntary: bool = false) -> void:
 
 
 ## 此刻有几个观众（在房里但没坐席位的人）
+## 房内聊天。**nick / seat / faction 一律由服务器填**：客户端只发一句话，
+## 所以冒不了别人的名，也标不出自己没有的阵营。
+## 空话与超长一律拒（不截断 —— 截一半发出去比不发更让人困惑）。
+func chat(cid: int, text: String) -> String:
+	if not members.has(cid):
+		return "not_in_room"
+	var msg := text.strip_edges()
+	if msg.is_empty():
+		return "empty_chat"
+	if msg.length() > CWNet.CHAT_MAX:
+		return "bad_param"
+	var pid := pid_of_client(cid)
+	broadcast({ "t": "chat", "nick": members[cid], "seat": pid,
+		"faction": CWData.FACTION_ORDER[player_count][pid] if pid >= 0 else -1,
+		"text": msg })
+	return ""
+
+
 func watchers() -> int:
 	var n := 0
 	for cid in members.keys():
@@ -349,8 +367,11 @@ func _run() -> void:
 	games_played += 1
 	## 回放**发给玩家**：服务器存在自己盘上没意义，要看的人在客户端那头。
 	## 这是 S→C 方向的新字段，老客户端读不到、行为照旧，所以不用升 NET_VERSION。
+	var rep := CWReplay.of(game)
+	rep["code"] = code
+	server.keep_replay(rep)     ## 服务器留一份（内存），给没参与那局的人补看
 	broadcast({ "t": "game_over", "winner": winner, "reason": game.win_reason,
-		"kind": game.win_kind, "round": game.round_no, "replay": CWReplay.of(game) })
+		"kind": game.win_kind, "round": game.round_no, "replay": rep })
 	server.say("房间 %s 终局：%s（第 %d 回合）" % [code, game.win_reason, game.round_no])
 	state = State.WAITING
 	for s in seats:
