@@ -52,6 +52,10 @@ func _process(_d: float) -> bool:
 	CWView.apply(_cam, _board, CWView.MENU_ZOOM, CWView.MENU_LOOK_AT, CWView.MENU_ANCHOR)
 	if _frames == 2:
 		_panel.open()
+	if _frames == 4:
+		## 手工点一行的悬停：**无头视口不跟踪悬停控件**，鼠标位置驱动不了，
+		## 只能自己发信号（同护栏里的做法）。图里第 2 行就是悬停态
+		_panel._rows[1].mouse_entered.emit()
 	## **等淡入真的走完再拍**，别数帧：`open()` 是 0.32 秒的**时间**补间，
 	## 而这个循环不吃 vsync，一帧可能只有几毫秒 —— 数十几帧只等到 0.1 秒，
 	## 拍下来整块 `modulate.a` 才 0.3，图里的字全是半透明的

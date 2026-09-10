@@ -728,7 +728,7 @@ func _repaint_lobby() -> void:
 			l.text = "%s  %d 人局 %d/%d  %s  %s 的房间" % [r["code"], r["players"],
 				r["seated"], r["players"], TIMER_TEXT.get(r["timer"], "%d 秒" % r["timer"]), r["host"]]
 		l.mouse_filter = Control.MOUSE_FILTER_STOP
-		_paint_link(l, Color.WHITE if i == _lobby_sel else CWStyle.TEXT_HI)
+		CWStyle.paint_link(l, Color.WHITE if i == _lobby_sel else CWStyle.TEXT_HI)
 		l.clip_text = true
 		l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		l.size = Vector2(LIST_W, l.get_minimum_size().y)
@@ -850,7 +850,7 @@ func _build_seat_row(i: int, s: Dictionary, host: bool, me: int, waiting: bool) 
 		_:
 			who = s["nick"] + ("（你）" if i == me else "")
 	var occupant := _clicky(_seat_root, who, Vector2(SLOT_X + 70, y + 4), func() -> void: _seat_click(i))
-	_paint_link(occupant, who_color)
+	CWStyle.paint_link(occupant, who_color)
 	## 12 字昵称 +「（你）」= 300px，会压到 SLOT_X+250 的状态列 → 定宽 + 省略号（2026-09-03 排版体检）
 	occupant.clip_text = true
 	occupant.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -940,32 +940,10 @@ func _clicky(root: Control, text: String, at: Vector2, on_click: Callable, size:
 			get_viewport().set_input_as_handled()
 			on_click.call())
 	if hover:
-		label.mouse_entered.connect(func() -> void: _link_hot(label, true))
-		label.mouse_exited.connect(func() -> void: _link_hot(label, false))
+		label.mouse_entered.connect(func() -> void: CWStyle.link_hot(label, true))
+		label.mouse_exited.connect(func() -> void: CWStyle.link_hot(label, false))
 	root.add_child(label)
 	return label
-
-
-## 文字链接的悬停态：白字 + 白光描边（正文 8 / 小字 6）；静止色记在 meta 里，移开时还原
-func _link_hot(label: Label, hot: bool) -> void:
-	label.set_meta("hot", hot)
-	if hot:
-		if not label.has_meta("rest"):
-			label.set_meta("rest", label.get_theme_color("font_color"))
-		label.add_theme_color_override("font_color", Color.WHITE)
-		label.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
-		label.add_theme_constant_override("outline_size",
-			8 if label.get_theme_font_size("font_size") >= CWStyle.SIZE_BODY else 6)
-	else:
-		label.add_theme_color_override("font_color", label.get_meta("rest", CWStyle.TEXT_HI))
-		label.add_theme_constant_override("outline_size", 0)
-
-
-## 给链接定静止色：正在悬停就只记下来，等移开再生效（重画不该把悬停的白光盖掉）
-func _paint_link(label: Label, color: Color) -> void:
-	label.set_meta("rest", color)
-	if not label.get_meta("hot", false):
-		label.add_theme_color_override("font_color", color)
 
 
 ## 键盘焦点停在实心按钮上：按钮变白（同配置面板「进入棋盘」的键盘高亮）；鼠标移开也不掉

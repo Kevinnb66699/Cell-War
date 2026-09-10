@@ -61,6 +61,35 @@ static func clickable_label(parent: Control, text: String, at: Vector2,
 	return clickable
 
 
+## 文字链接的悬停态：**转白 + 白光描边**（正文 8 / 小字 6），移开还原。
+## 2026-09-03 Kevin 定的：联机各页也要有和主菜单一样的辉光。
+##
+## 静止色记在 `rest` meta 里 —— 列表是随时重画的，重画时直接写 font_color
+## 会把正悬停着的那一行的白光盖掉（所以定静止色一律走 `paint_link`）。
+##
+## 放这儿而不是各面板自己写一份：2026-09-10 回放面板漏了辉光，一眼就跟
+## 大厅那两栏不是一家人 —— 和 `clickable_label` 同一个理由（散着写就会漏）。
+static func link_hot(label: Label, hot: bool) -> void:
+	label.set_meta("hot", hot)
+	if hot:
+		if not label.has_meta("rest"):
+			label.set_meta("rest", label.get_theme_color("font_color"))
+		label.add_theme_color_override("font_color", Color.WHITE)
+		label.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
+		label.add_theme_constant_override("outline_size",
+			8 if label.get_theme_font_size("font_size") >= SIZE_BODY else 6)
+	else:
+		label.add_theme_color_override("font_color", label.get_meta("rest", TEXT_HI))
+		label.add_theme_constant_override("outline_size", 0)
+
+
+## 给链接定静止色：正在悬停就只记下来，等移开再生效
+static func paint_link(label: Label, color: Color) -> void:
+	label.set_meta("rest", color)
+	if not label.get_meta("hot", false):
+		label.add_theme_color_override("font_color", color)
+
+
 ## 无描边的垫块：只有底色和内边距。快捷键数字那种小标记用。
 static func plate(bg: Color, pad_v: int, pad_h: int) -> StyleBoxFlat:
 	var b := StyleBoxFlat.new()

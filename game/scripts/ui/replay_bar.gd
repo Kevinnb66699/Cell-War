@@ -114,6 +114,10 @@ func _btn(text: String, x: float, on_click: Callable) -> Label:
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.mouse_filter = Control.MOUSE_FILTER_STOP
 	l.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	## 悬停要有反应：这三个键是**裸文字**，不像行动栏那样有底板可以换 ——
+	## 不给辉光就是「看着能点、指上去毫无动静」（同菜单与各面板的文字链接）
+	l.mouse_entered.connect(func() -> void: CWStyle.link_hot(l, true))
+	l.mouse_exited.connect(func() -> void: CWStyle.link_hot(l, false))
 	l.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			get_viewport().set_input_as_handled()

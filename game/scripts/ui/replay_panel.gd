@@ -352,9 +352,10 @@ func _repaint_sub() -> void:
 
 
 func _repaint() -> void:
+	## 定静止色一律走 paint_link：这几个标签随时在重画，
+	## 直接写 font_color 会把正悬停着的那一个的白光盖掉
 	for i in _tabs.size():
-		_tabs[i].add_theme_color_override("font_color",
-			Color.WHITE if i == _src else CWStyle.TEXT_OFF)
+		CWStyle.paint_link(_tabs[i], Color.WHITE if i == _src else CWStyle.TEXT_OFF)
 	_head.text = "这台机器上的回放" if _src == Src.LOCAL else "服务器上最近的对局"
 	_repaint_sub()
 	for i in LIST_N:
@@ -363,7 +364,7 @@ func _repaint() -> void:
 		if idx >= _count():
 			l.text = _empty_text() if i == 0 and _count() == 0 else ""
 			l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			l.add_theme_color_override("font_color", CWStyle.TEXT_OFF)
+			CWStyle.paint_link(l, CWStyle.TEXT_OFF)
 			## **裁字要关掉**：这一行上一轮可能列过某一份（换来源、刷新之后就会），
 			## 那时开着 clip_text，而 clip_text 会让 get_minimum_size() 缩到近乎 0 ——
 			## 于是空态那句话被自己裁没，整行一片空白（出图逮到的）
@@ -376,8 +377,7 @@ func _repaint() -> void:
 		else:
 			l.text = server_line(_server[idx])
 		l.mouse_filter = Control.MOUSE_FILTER_STOP
-		l.add_theme_color_override("font_color",
-			Color.WHITE if idx == _sel else CWStyle.TEXT_HI)
+		CWStyle.paint_link(l, Color.WHITE if idx == _sel else CWStyle.TEXT_HI)
 		l.clip_text = true
 		l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		l.size = Vector2(LIST_W, l.get_minimum_size().y)
@@ -428,12 +428,17 @@ static func short_time(at: String) -> String:
 	return at.substr(5, 11)
 
 
+## 可点击的文字。**悬停要有辉光**（转白 + 白光描边）—— 大厅那两栏、配置页、
+## 主菜单都是这套光（Kevin 2026-09-03 定「联机各页也要有和主菜单一样的辉光」），
+## 这块面板漏了就一眼不是一家人（Kevin 2026-09-10 问出来的）
 func _clicky(text: String, at: Vector2, on_click: Callable) -> Label:
 	var label := CWStyle.label(text, CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
 	label.position = at
 	label.size = label.get_minimum_size()
 	label.mouse_filter = Control.MOUSE_FILTER_STOP
 	label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	label.mouse_entered.connect(func() -> void: CWStyle.link_hot(label, true))
+	label.mouse_exited.connect(func() -> void: CWStyle.link_hot(label, false))
 	label.gui_input.connect(func(e: InputEvent) -> void:
 		## 行与按钮都是 MOUSE_FILTER_STOP，滚轮落在它们身上就不会再冒到面板 ——
 		## 所以这儿也要接一手，否则「指着列表滚」这个最自然的动作反而没反应

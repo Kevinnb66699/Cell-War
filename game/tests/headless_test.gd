@@ -9106,6 +9106,12 @@ func t_replay() -> void:
 	check(rb._play.text == "▶" and rb._play.get_theme_font("font") == CWStyle.FONT
 		and is_equal_approx(rb._play.position.x, rb._play_x),
 		"暂停：单个 ▶ 用回常规字距、横坐标也回原位")
+	## 播放条那几个键是**裸文字**，不像行动栏那样有底板可以换 ——
+	## 不给辉光就是「看着能点、指上去毫无动静」
+	rb._play.mouse_entered.emit()
+	check(rb._play.get_theme_constant("outline_size") == 8, "指上暂停键：白光描边 8")
+	rb._play.mouse_exited.emit()
+	check(rb._play.get_theme_constant("outline_size") == 0, "移开：收掉")
 	rb.queue_free()
 
 	## ---- 念完了要安静收场 ----
@@ -9204,6 +9210,31 @@ func t_replay_panel() -> void:
 	p._files = PackedStringArray()
 	p._repaint()
 	check(p._rows[0].text.contains("服务器"), "本机空列表指路到另一栏：%s" % p._rows[0].text)
+	## **悬停辉光**（Kevin 2026-09-10 问「字体的辉光效果加上了吗」——当时没加）：
+	## 大厅那两栏、配置页、主菜单都是这套光，这块面板漏了就一眼不是一家人
+	p._src = CWReplayPanel.Src.SERVER
+	p._page = 0
+	p._sel = 0
+	p._repaint()
+	var row: Label = p._rows[1]
+	row.mouse_entered.emit()
+	check(row.get_theme_constant("outline_size") == 8
+		and row.get_theme_color("font_color") == Color.WHITE, "指上一行：转白 + 白光描边 8")
+	p._repaint()
+	check(row.get_theme_constant("outline_size") == 8,
+		"重画**不能**把悬停的白光盖掉（定静止色一律走 paint_link）")
+	row.mouse_exited.emit()
+	## 移开只收描边，字**还是白的** —— 因为指过一下就顺手选中了这一行
+	## （同大厅那两栏），而选中行本来就是白字。真正要验的静止色在下一条
+	check(row.get_theme_constant("outline_size") == 0 and p._sel == 1,
+		"移开：描边收掉（字还白着，因为这一行已经被指成选中了）")
+	p._sel = 0
+	p._repaint()
+	check(row.get_theme_color("font_color") == CWStyle.TEXT_HI,
+		"选中换到别行：这一行回静止色")
+	p._tabs[1].mouse_entered.emit()
+	check(p._tabs[1].get_theme_constant("outline_size") == 8, "两栏标签也有")
+	p._tabs[1].mouse_exited.emit()
 	var menu: Node = load("res://scripts/ui/main_menu.gd").new()
 	check(menu.enabled_mask()[3], "主菜单「对局回放」这一项一直亮着（不再按本机份数灰掉）")
 	menu.free()
