@@ -16,6 +16,12 @@ class Waiter extends RefCounted:
 
 enum State { WAITING, PLAYING, CLOSED }
 
+## 一个房间最多几个观众（Kevin 2026-09-09 定「按推荐的来」）。
+## **这不是产品洁癖，是服务器的账**：每步 `push_state` 要给每个成员发一份状态，
+## 观众再多单线程那边每步就多做几次序列化。观战视角本身已经合并成一份（见 push_state），
+## 但发送与日志游标仍是逐人的。
+const MAX_WATCHERS := 8
+
 var code := ""
 var public := true
 var timer_secs := 60            ## 每次决策的秒数，0 = 不限
@@ -125,6 +131,15 @@ func leave(cid: int, voluntary: bool = false) -> void:
 			_abort_game()
 		return
 	push_room()
+
+
+## 此刻有几个观众（在房里但没坐席位的人）
+func watchers() -> int:
+	var n := 0
+	for cid in members.keys():
+		if pid_of_client(cid) < 0:
+			n += 1
+	return n
 
 
 func pid_of_client(cid: int) -> int:
@@ -546,18 +561,27 @@ func push_state(turn_pid: int) -> void:
 	if game == null:
 		return
 	var h := game.state_hash()
+	## **观众的视角只算一次**：他们的 pid 全是 -1，`view_for` 出来的快照逐字节相同，
+	## 而那是一次全盘深拷 —— 逐人各算一遍的话，围观人数会直接变成每步的延迟。
+	## 日志仍要逐人算（各人的游标不同），那个便宜得多。
+	var watcher_view := {}
 	for cid in members.keys():
-		push_state_to(cid, turn_pid, h)
+		var pid := pid_of_client(cid)
+		if pid < 0 and watcher_view.is_empty():
+			watcher_view = CWNet.view_for(game, -1)
+		push_state_to(cid, turn_pid, h, watcher_view if pid < 0 else {})
 
 
-func push_state_to(cid: int, turn_pid: int, h: String = "") -> void:
+## `ready_view` = 已经算好的视角（`push_state` 给观众共用的那一份）；空 = 自己算
+func push_state_to(cid: int, turn_pid: int, h: String = "", ready_view: Dictionary = {}) -> void:
 	if game == null:
 		return
 	var pid := pid_of_client(cid)
 	var from: int = _log_cursor.get(cid, 0)
 	var lines := CWNet.logs_for(game, pid, from)
 	_log_cursor[cid] = game.logs.size()
-	server.send(cid, { "t": "state", "view": CWNet.view_for(game, pid), "logs": lines,
+	var view: Dictionary = ready_view if not ready_view.is_empty() else CWNet.view_for(game, pid)
+	server.send(cid, { "t": "state", "view": view, "logs": lines,
 		"turn": turn_pid, "hash": h if h != "" else game.state_hash(), "game": games_played })
 
 
@@ -601,4 +625,5 @@ func summary() -> Dictionary:
 			humans += 1
 	return { "code": code, "players": player_count, "seated": seated, "humans": humans,
 		"timer": timer_secs, "world_events": world_events, "host": members.get(host, ""),
+		"watchers": watchers(), "watch_max": MAX_WATCHERS,
 		"state": "playing" if state == State.PLAYING else "waiting" }

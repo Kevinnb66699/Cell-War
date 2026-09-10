@@ -124,7 +124,7 @@ func _run_all() -> void:
 		t_buttons_dim, t_enter_not_skipped, t_main_menu, t_guide_data,
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
-		t_net_lobby, t_net_game, t_net_reconnect, t_net_timeout,
+		t_net_lobby, t_net_watch, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
@@ -13734,6 +13734,78 @@ func _net_room(srv: CWNetServer, a: CWNetClient, b: CWNetClient, players: int, t
 		func() -> bool: return a.room["seats"][0]["ready"] and a.room["seats"][1]["ready"])
 
 
+## 中途观战（Kevin 2026-09-09：「一局进行到一半也应可以进入观战」）
+func t_net_watch() -> void:
+	var srv := _net_server()
+	check(srv != null, "联机：本机起服务器")
+	if srv == null:
+		return
+	var a := _net_client("甲")
+	var b := _net_client("乙")
+	check(await _net_pair(srv, a, b), "两个客户端握手")
+	check(await _net_room(srv, a, b, 2, 0, 7), "两人坐满一间 2 人房")
+	a.start()
+	var ok := await _net_pump(srv, [a, b],
+		func() -> bool: return srv.rooms.values()[0].state == CWRoom.State.PLAYING)
+	check(ok, "开局")
+	var r: CWRoom = srv.rooms.values()[0]
+
+	## ---- 大厅：进行中的房进 live 那一栏，不进 rooms ----
+	## 分栏是 Kevin 定的：玩家点进大厅多半是想找一局打，
+	## 把坐不进去的房混在同一列里会让人一个个点过去才发现
+	var c := _net_client("丙")
+	check(await _net_pair(srv, c, c), "第三个客户端握手")
+	c.list_rooms()
+	ok = await _net_pump(srv, [a, b, c], func() -> bool: return _net_count(c, "lobby") > 0)
+	var lobby := _net_last(c, "lobby")
+	check(ok and lobby["rooms"].is_empty(), "进行中的房**不在**可加入那一栏")
+	check(lobby.get("live", []).size() == 1 and lobby["live"][0]["code"] == a.code,
+		"它在 live 那一栏（可观战）")
+	check(int(lobby["live"][0]["watchers"]) == 0
+		and int(lobby["live"][0]["watch_max"]) == CWRoom.MAX_WATCHERS,
+		"行里带观众数与上限（%d/%d）" % [int(lobby["live"][0]["watchers"]), CWRoom.MAX_WATCHERS])
+
+	## ---- 中途加入 = 观众 ----
+	c.join(a.code)
+	ok = await _net_pump(srv, [a, b, c], func() -> bool: return c.code == a.code)
+	check(ok, "对局中也能进房（从前这里是 error playing）")
+	check(c.my_seat < 0 and c.token == "", "进去没有席位、也没有重连令牌（不占席位就不发令牌）")
+	ok = await _net_pump(srv, [a, b, c], func() -> bool: return _net_count(c, "state") > 0)
+	check(ok, "一进去就收到一份状态（CWRoom.join 见 PLAYING 会立刻推）")
+	check(r.watchers() == 1, "房间数得出 1 个观众")
+
+	## 观众看得到盘面、看不到任何人的手牌
+	var view: Dictionary = _net_last(c, "state")["view"]
+	check(not view["tiles"].is_empty(), "观众拿得到整块棋盘")
+	var peeked := 0
+	for cell: Dictionary in view["cells"]:
+		for card in cell["hand"]:
+			if String(card) != CWNet.HIDDEN_CARD:
+				peeked += 1
+	check(peeked == 0, "所有人的手牌都是背面（一张都不许露，%d 张露了）" % peeked)
+	check(int(view["rng"]) == 0, "rng 照旧去掉（观众也不能算下一张牌）")
+
+	## ---- 观众满了要拒 ----
+	## 塞满员表：没坐席位的 cid 就算观众（pid_of_client 返回 -1）
+	for i in CWRoom.MAX_WATCHERS:
+		r.members[900 + i] = "路人%d" % i
+	check(r.watchers() > CWRoom.MAX_WATCHERS - 1, "把观众塞到上限")
+	var d := _net_client("丁")
+	check(await _net_pair(srv, d, d), "第四个客户端握手")
+	d.join(a.code)
+	ok = await _net_pump(srv, [a, b, c, d],
+		func() -> bool: return d.last_error.get("code", "") == "watch_full")
+	check(ok, "观众满了就拒（watch_full）——这是服务器的账，每步都要给每人发一份状态")
+	for i in CWRoom.MAX_WATCHERS:
+		r.members.erase(900 + i)
+
+	a.close()
+	b.close()
+	c.close()
+	d.close()
+	srv.stop()
+
+
 func t_net_protocol() -> void:
 	## 编解码往返：Vector2i 键、嵌套字典、PackedStringArray
 	var msg := { "t": "state", "tiles": { Vector2i(1, -2): { "a": 1 } },
@@ -14405,6 +14477,35 @@ func t_online_panel() -> void:
 	check(p._lobby_labels[0].clip_text and p._lobby_labels[0].size.x == CWOnlinePanel.LIST_W
 		and p._lobby_labels[0].text.ends_with("的房间") and p._lobby_labels[0].text.begins_with("ABCDEF  6 人局 6/6  90 秒"),
 		"长昵称的房间行：定宽 %d + 省略号，房间码 / 人数 / 计时在前（%s）" % [int(CWOnlinePanel.LIST_W), p._lobby_labels[0].text])
+
+	## ---- 大厅分两栏（Kevin 2026-09-09）----
+	## 面板只有 5 行、下面 12px 就是按钮，塞不下两组表头 ——
+	## 所以「进行中」那组只用一条分隔行开头，且**永远至少留一行给它**：
+	## 否则五个待开的房会把观战入口整个挤没。
+	var wait5: Array = []
+	for k in 5:
+		wait5.append({ "code": "W%05d" % k, "host": "甲", "players": 4, "seated": 1,
+			"humans": 1, "timer": 60, "state": "waiting" })
+	p._lobby_rooms = wait5
+	p._lobby_live = [{ "code": "LIVE01", "host": "乙", "players": 6, "seated": 6,
+		"humans": 2, "timer": 60, "state": "playing", "watchers": 2, "watch_max": 8 }]
+	p._repaint_lobby()
+	check(p._lobby_labels[3].text == "进行中 · 可观战",
+		"待开的房再多，也要给「进行中」腾出分隔行（第 4 行实为「%s」）" % p._lobby_labels[3].text)
+	check(p._lobby_labels[4].text.begins_with("LIVE01") and p._lobby_labels[4].text.contains("观众 2/8"),
+		"进行中那行写的是**观众满没满**，不是席位（%s）" % p._lobby_labels[4].text)
+	check(p._lobby_labels[4].text.find("60 秒") < 0,
+		"进行中那行不写计时——坐不进去，计时对看客没有意义")
+	## 分隔行点不了也选不上，键盘上下要跳过它
+	check(p._row_code(3) == "" and p._row_code(4) == "LIVE01", "分隔行没有房间码，它下面那行有")
+	check(p._lobby_labels[3].mouse_filter == Control.MOUSE_FILTER_IGNORE, "分隔行不吃鼠标")
+	check(p._next_room_row(2, 1) == 4, "从最后一个可加入行往下走，直接落到进行中那行（跳过分隔）")
+	check(p._next_room_row(4, -1) == 2, "反向同理")
+	check(p._next_room_row(4, 1) == 4, "到底了就留在原地")
+	## 没有进行中的房时，五行全给可加入的（回到从前的样子）
+	p._lobby_live = []
+	p._repaint_lobby()
+	check(p._lobby_labels[4].text.begins_with("W00004"), "没有可观战的房时，五行全是可加入的")
 	## 等待室渲染：喂一份 room 视图
 	var seats := []
 	for i in 4:

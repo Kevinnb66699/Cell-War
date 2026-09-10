@@ -307,8 +307,12 @@ func _join_room(cid: int, code: String) -> void:
 		_error(cid, "no_room")
 		return
 	var r: CWRoom = rooms[code]
-	if r.state == CWRoom.State.PLAYING:
-		_error(cid, "playing")
+	## 对局中也能进 —— 进去就是**观众**（不占席位、看得到盘面、看不到任何人的手牌）。
+	## 房间层其实一直支持：`CWRoom.join` 见到 PLAYING 就给新成员推一份状态、
+	## 日志游标归零；挡着的只有这里从前那句 `_error(cid, "playing")`（2026-09-09 放开）。
+	## 私密房同样能观战，凭房间码 —— 码给了谁谁就能看（Kevin 2026-09-09 定）。
+	if r.state == CWRoom.State.PLAYING and r.watchers() >= CWRoom.MAX_WATCHERS:
+		_error(cid, "watch_full")
 		return
 	unbind(cid)
 	clients[cid]["room"] = code
@@ -328,9 +332,20 @@ func _reconnect(cid: int, code: String, token: String) -> void:
 	clients[cid]["room"] = code
 
 
+## 大厅分两栏：`rooms` 是能坐进去的，`live` 是**正在打、可以观战**的。
+## 分栏而不是混在一起 —— 玩家点进来多半是想「找一局打」，
+## 把打不了的房混在同一列里会让人一个个点过去才发现坐不下（Kevin 2026-09-09 定）。
+##
+## 新加的 `live` 字段旧客户端读不到，它只认 `rooms` —— 行为和从前一模一样，
+## 所以这一条**不用升 NET_VERSION**（同 `beam`：服务器→客户端方向，认不出就落空）。
 func lobby_view() -> Dictionary:
 	var list: Array = []
+	var live: Array = []
 	for r in rooms.values():
-		if r.public and r.state == CWRoom.State.WAITING:
+		if not r.public:
+			continue                          ## 私密房两栏都不进：它只凭房间码，观战也一样
+		if r.state == CWRoom.State.WAITING:
 			list.append(r.summary())
-	return { "t": "lobby", "rooms": list, "maintenance": drain }
+		elif r.state == CWRoom.State.PLAYING:
+			live.append(r.summary())
+	return { "t": "lobby", "rooms": list, "live": live, "maintenance": drain }

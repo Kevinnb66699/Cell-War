@@ -72,7 +72,9 @@ const ERRORS := {
 	"bad_message": "报文格式错误",
 	"maintenance": "服务器维护中，暂不能开新局",
 	"no_room": "没有这个房间",
+	## 2026-09-09 起对局中也能进（进去是观众），所以 "playing" 只剩「观众满了」这一种拒绝
 	"playing": "这个房间正在对局中",
+	"watch_full": "这局的观众满了，等下一局吧",
 	"not_in_room": "你不在房间里",
 	"not_host": "只有房主能这么做",
 	"not_waiting": "对局进行中不能这么做",

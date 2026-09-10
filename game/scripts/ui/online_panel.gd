@@ -63,7 +63,12 @@ var _create_btn: Panel
 var _hot_arrow: Label = null ## 正被鼠标悬停的拨值箭头；null = 没有
 var _page_tween: Tween
 ## 大厅
-var _lobby_rooms: Array = []
+var _lobby_rooms: Array = []   ## 能坐进去的（服务器的 rooms）
+var _lobby_live: Array = []    ## 正在打、可观战的（服务器的 live）
+## 真正渲出来的那几行：房间行 { room = {...} } 或分隔行 { head = "…" }。
+## 面板只有 5 行、下面 12px 就是按钮，塞不下两组表头 —— 所以「进行中」那组
+## 只用一条分隔行开头，并且**永远至少留一行给它**（见 _compose_lobby）。
+var _lobby_view_rows: Array = []
 var _lobby_labels: Array[Label] = []
 var _lobby_sel := -1
 var _lobby_note: Label
@@ -167,14 +172,15 @@ func handle_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 				_disconnect()
 			elif event.is_action_pressed("ui_down") or event.is_action_pressed("ui_up"):
-				if not _lobby_rooms.is_empty():
+				if _lobby_sel >= 0:
 					var d := 1 if event.is_action_pressed("ui_down") else -1
-					_lobby_sel = clampi(_lobby_sel + d, 0, _lobby_rooms.size() - 1)
+					_lobby_sel = _next_room_row(_lobby_sel, d)   ## 分隔行跳过去
 					_repaint_lobby()
 			elif event.is_action_pressed("ui_accept"):
 				get_viewport().set_input_as_handled()
-				if _lobby_sel >= 0 and _lobby_sel < _lobby_rooms.size():
-					client.join(_lobby_rooms[_lobby_sel]["code"])
+				var code := _row_code(_lobby_sel)
+				if code != "":
+					client.join(code)
 		Page.CREATE:
 			if event.is_action_pressed("ui_cancel"):
 				get_viewport().set_input_as_handled()
@@ -311,7 +317,9 @@ func _on_message(m: Dictionary) -> void:
 			_set_status("维护中：暂不能建新房" if m.get("maintenance", false) else "")
 		"lobby":
 			_lobby_rooms = m.get("rooms", [])
-			_lobby_sel = 0 if not _lobby_rooms.is_empty() else -1
+			_lobby_live = m.get("live", [])
+			_compose_lobby()          ## 先合成，_first_room_row 才有得挑
+			_lobby_sel = _first_room_row()
 			_lobby_note.text = "服务器维护中，暂不能建房" if m.get("maintenance", false) else ""
 			_repaint_lobby()
 		"room":
@@ -321,8 +329,12 @@ func _on_message(m: Dictionary) -> void:
 				_show_page(Page.ROOM)
 				_set_status("")
 			_repaint_room()
-			## 开局：从这一刻起对局流排队，等第一份状态到了再进棋盘
-			if m.get("state", "") == "playing" and m.get("you_seat", -1) >= 0 and not client.sequenced:
+			## 开局：从这一刻起对局流排队，等第一份状态到了再进棋盘。
+			## **不看有没有席位**（2026-09-09）：没坐下的人进去就是观众，
+			## `CWMatch.start_online` 见 `my_seat < 0` 就把 human_players 留空 = 纯看，
+			## 日志面板也跟着关过滤走全看视角。中途进来的人同样走这条路 ——
+			## `CWRoom.join` 见到 PLAYING 会立刻给他推一份状态。
+			if m.get("state", "") == "playing" and not client.sequenced:
 				client.sequenced = true
 				_awaiting_state = true
 		"state":
@@ -451,10 +463,11 @@ func _build_lobby(root: Control) -> void:
 	for i in LIST_N:
 		var row := _clicky(root, "", Vector2(SLOT_X, LIST_Y0 + i * LIST_H),
 			func() -> void:
-				if i < _lobby_rooms.size():
-					client.join(_lobby_rooms[i]["code"]))
+				var code := _row_code(i)
+				if code != "":
+					client.join(code))
 		row.mouse_entered.connect(func() -> void:
-			if i < _lobby_rooms.size():
+			if _row_code(i) != "":
 				_lobby_sel = i
 				_repaint_lobby())
 		_lobby_labels.append(row)
@@ -567,20 +580,78 @@ func _show_page(p: Page) -> void:
 			_repaint_room()
 
 
+## 把两栏拼成要渲的那几行。**给「进行中」留位**：只要有可观战的房，
+## 能坐的那组最多占 LIST_N − 2 行（一行分隔 + 至少一行进行中），
+## 否则五个待开的房就会把观战入口整个挤没。
+func _compose_lobby() -> void:
+	_lobby_view_rows = []
+	var join_cap: int = LIST_N if _lobby_live.is_empty() else LIST_N - 2
+	for r: Dictionary in _lobby_rooms:
+		if _lobby_view_rows.size() >= join_cap:
+			break
+		_lobby_view_rows.append({ "room": r })
+	if _lobby_live.is_empty():
+		return
+	_lobby_view_rows.append({ "head": "进行中 · 可观战" })
+	for r: Dictionary in _lobby_live:
+		if _lobby_view_rows.size() >= LIST_N:
+			break
+		_lobby_view_rows.append({ "room": r })
+
+
+## 第一个能选的行（分隔行不能选）；没有就 -1
+func _first_room_row() -> int:
+	for i in _lobby_view_rows.size():
+		if _lobby_view_rows[i].has("room"):
+			return i
+	return -1
+
+
+## 从 i 往 d 方向找下一个能选的行，找不到就留在原地
+func _next_room_row(i: int, d: int) -> int:
+	var j := i + d
+	while j >= 0 and j < _lobby_view_rows.size():
+		if _lobby_view_rows[j].has("room"):
+			return j
+		j += d
+	return i
+
+
+## 这一行对应的房间码；分隔行返回空串
+func _row_code(i: int) -> String:
+	if i < 0 or i >= _lobby_view_rows.size() or not _lobby_view_rows[i].has("room"):
+		return ""
+	return str(_lobby_view_rows[i]["room"]["code"])
+
+
 func _repaint_lobby() -> void:
+	_compose_lobby()          ## 只有 5 行，就地合成比让每个调用方记得调便宜
 	for i in LIST_N:
 		var l: Label = _lobby_labels[i]
-		if i >= _lobby_rooms.size():
-			l.text = "（暂无公开房间）" if i == 0 and _lobby_rooms.is_empty() else ""
+		if i >= _lobby_view_rows.size():
+			l.text = "（暂无公开房间）" if i == 0 and _lobby_view_rows.is_empty() else ""
 			l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			l.add_theme_color_override("font_color", CWStyle.TEXT_OFF)
 			l.size = l.get_minimum_size()
 			continue
-		var r: Dictionary = _lobby_rooms[i]
+		var row: Dictionary = _lobby_view_rows[i]
+		if row.has("head"):
+			## 分隔行：只是一句小标题，点不了也选不上
+			l.text = str(row["head"])
+			l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			l.add_theme_color_override("font_color", CWStyle.TEXT_DIM)
+			l.size = l.get_minimum_size()
+			continue
+		var r: Dictionary = row["room"]
 		## 房主昵称放**最后**：昵称最长 12 字，一行定宽 400 加省略号，被截的只会是昵称尾巴，
 		## 房间码 / 人数 / 计时这些要拿来做决定的字段永远看得见（2026-09-03 排版体检）
-		l.text = "%s  %d 人局 %d/%d  %s  %s 的房间" % [r["code"], r["players"],
-			r["seated"], r["players"], TIMER_TEXT.get(r["timer"], "%d 秒" % r["timer"]), r["host"]]
+		if str(r.get("state", "waiting")) == "playing":
+			## 进行中的房：坐不进去，写的是**观众满没满**——那才是这一行要拿来做的决定
+			l.text = "%s  %d 人局  观众 %d/%d  %s 的房间" % [r["code"], r["players"],
+				int(r.get("watchers", 0)), int(r.get("watch_max", 0)), r["host"]]
+		else:
+			l.text = "%s  %d 人局 %d/%d  %s  %s 的房间" % [r["code"], r["players"],
+				r["seated"], r["players"], TIMER_TEXT.get(r["timer"], "%d 秒" % r["timer"]), r["host"]]
 		l.mouse_filter = Control.MOUSE_FILTER_STOP
 		_paint_link(l, Color.WHITE if i == _lobby_sel else CWStyle.TEXT_HI)
 		l.clip_text = true
@@ -677,7 +748,7 @@ func _repaint_room() -> void:
 		else:
 			_set_status("全员就绪，等房主开局" if not host else "全员就绪，可以开局")
 	elif me < 0:
-		_set_status("对局进行中，你未入座；可以离开房间")
+		_set_status("对局进行中，正在进入观战…")
 
 
 func _build_seat_row(i: int, s: Dictionary, host: bool, me: int, waiting: bool) -> void:
