@@ -198,11 +198,10 @@ func handle_input(event: InputEvent) -> void:
 			if event.is_action_pressed("ui_cancel"):
 				get_viewport().set_input_as_handled()
 				_show_page(Page.LOBBY)
-			elif event.is_action_pressed("ui_down"):
-				_create_sel = mini(_create_sel + 1, N_CREATE_ROWS)
-				_repaint_create()
-			elif event.is_action_pressed("ui_up"):
-				_create_sel = maxi(_create_sel - 1, 0)
+			elif event.is_action_pressed("ui_down") or event.is_action_pressed("ui_up"):
+				## 0..N_CREATE_ROWS 共 N+1 格（最后一格是「建房」按钮），绕回
+				_create_sel = posmod(_create_sel
+					+ (1 if event.is_action_pressed("ui_down") else -1), N_CREATE_ROWS + 1)
 				_repaint_create()
 			elif event.is_action_pressed("ui_left"):
 				_cycle_create(_create_sel, -1)
@@ -683,13 +682,10 @@ func _first_room_row() -> int:
 
 
 ## 从 i 往 d 方向找下一个能选的行，找不到就留在原地
+## 下一个**真房间行**（分隔行跳过去），到头绕回
 func _next_room_row(i: int, d: int) -> int:
-	var j := i + d
-	while j >= 0 and j < _lobby_view_rows.size():
-		if _lobby_view_rows[j].has("room"):
-			return j
-		j += d
-	return i
+	return CWStyle.step_wrap(i, d, _lobby_view_rows.size(),
+		func(j: int) -> bool: return _lobby_view_rows[j].has("room"))
 
 
 ## 这一行对应的房间码；分隔行返回空串

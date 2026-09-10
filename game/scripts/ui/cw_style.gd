@@ -129,6 +129,24 @@ static func paint_link(label: Label, color: Color) -> void:
 
 
 ## 无描边的垫块：只有底色和内边距。快捷键数字那种小标记用。
+## 键盘上下选的下一格：**绕回**，并跳过 `ok(i)` 说不能停的那些。
+##
+## 三处在用（主菜单、暂停菜单、大厅房间列表），它们的「不能停」各不相同 ——
+## 灰掉的菜单项 / 灰掉的暂停项 / 大厅里的分隔行 —— 但「绕一圈就收手」这条
+## 一样，而写错它的后果是**死循环**（全灰时永远找不到落脚点）。所以收口在这儿。
+##
+## 绕满一圈还没有能停的（或只剩自己）就返回 from。
+static func step_wrap(from: int, dir: int, n: int, ok := Callable()) -> int:
+	if n <= 0 or dir == 0:
+		return from
+	var i := from
+	for _k in n:
+		i = posmod(i + dir, n)
+		if not ok.is_valid() or ok.call(i):
+			return i
+	return from
+
+
 static func plate(bg: Color, pad_v: int, pad_h: int) -> StyleBoxFlat:
 	var b := StyleBoxFlat.new()
 	b.bg_color = bg

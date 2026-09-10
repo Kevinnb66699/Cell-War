@@ -535,8 +535,10 @@ func _replay_key(event: InputEvent) -> bool:
 		return true
 	if event.is_action_pressed("ui_up") or event.is_action_pressed("ui_down"):
 		var i: int = REPLAY_SPEEDS.find(replay_speed)
-		i = clampi(i + (1 if event.is_action_pressed("ui_up") else -1),
-			0, REPLAY_SPEEDS.size() - 1)
+		## 绕回 —— 条上那个倍速按钮**一直**是绕的（`(i + 1) % size`），
+		## 键盘这条却是钳的，同一个控件两套手感（Kevin 2026-09-10 一并收口）
+		i = posmod(i + (1 if event.is_action_pressed("ui_up") else -1),
+			REPLAY_SPEEDS.size())
 		replay_speed = REPLAY_SPEEDS[i]
 		return true
 	return false

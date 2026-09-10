@@ -215,11 +215,12 @@ static func last_page(count: int, per_page: int) -> int:
 	return (count - 1) / per_page
 
 
-## 上下选行：**选到头就自己翻页**，所以不必再教玩家一套翻页键
+## 上下选行：**选到头就自己翻页**，所以不必再教玩家一套翻页键。
+## 走到最后一份再往下就**绕回第一份**（Kevin 2026-09-10）—— 页码跟着一起回第一页。
 func _move(d: int) -> void:
 	if _count() <= 0:
 		return
-	_sel = clampi(_sel + d, 0, _count() - 1)
+	_sel = posmod(maxi(_sel, 0) + d, _count())
 	_page = _sel / LIST_N
 	_repaint()
 

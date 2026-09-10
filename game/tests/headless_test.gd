@@ -7867,7 +7867,18 @@ func t_main_menu() -> void:
 	var no_save := [true, true, false, true, true, true, true, true]
 	check(menu_script.next_enabled(1, 1, no_save) == 3,
 		"没存档：从「联机对战」往下落到「对局回放」")
-	check(menu_script.next_enabled(0, -1, two_dim) == 0, "到顶了就停在原地，不绕回")
+	## **绕回**（Kevin 2026-09-10：「所有键盘选择全部改成循环选择」）。
+	## two_dim 的第 3、4 项灰着，从第 1 项往上要绕到最后一项（退出游戏）
+	check(menu_script.next_enabled(0, -1, two_dim) == two_dim.size() - 1,
+		"到顶了绕回最后一项（第 %d 项）" % menu_script.next_enabled(0, -1, two_dim))
+	check(menu_script.next_enabled(two_dim.size() - 1, 1, two_dim) == 0, "到底了绕回第一项")
+	## **一个都不能选时不许死循环** —— 绕一圈找不到落脚点就停在原地。
+	## 这是把「到头停住」改成「绕回」时唯一真正危险的地方
+	check(menu_script.next_enabled(2, 1, [false, false, false]) == 2,
+		"全灰：绕一圈没找到就留在原地，不死循环")
+	check(menu_script.next_enabled(1, 1, [false, true, false]) == 1, "只剩自己：同理")
+	check(CWStyle.step_wrap(0, 1, 0) == 0 and CWStyle.step_wrap(3, 0, 5) == 3,
+		"共用件自己也扛得住：0 项 / 0 方向都原地不动")
 	var with_save := [true, true, true, true, true, true, true]
 	check(menu_script.next_enabled(1, 1, with_save) == 2, "有档：从「联机对战」往下落到「继续对局」")
 	## 七项要排得下：最后一项底边不出屏，相邻两项不重叠。
@@ -10036,6 +10047,17 @@ func t_quit_confirm() -> void:
 	menu._selected = 0
 	menu._unhandled_input(down)
 	check(menu._selected != 0, "确认层关掉后方向键回到主菜单（跳到了第 %d 项）" % menu._selected)
+	## **主菜单上按 Esc = 退出确认**（Kevin 2026-09-10）。
+	## 各块面板的 Esc 都被 _unhandled_input 前面那几个路由分支先接走，
+	## 落到最后那一支的一定是「人就站在主菜单上」
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	menu._unhandled_input(esc)
+	check(menu._confirm.visible and menu._confirm_sel == 1,
+		"主菜单按 Esc 弹出退出确认，且默认仍停在「取消」")
+	menu._pick_confirm(1)
+	check(not menu._confirm.visible, "再取消掉，别留着影响后面的检查")
 	root.queue_free()
 
 
@@ -15213,7 +15235,9 @@ func t_online_panel() -> void:
 	check(p._lobby_labels[3].mouse_filter == Control.MOUSE_FILTER_IGNORE, "分隔行不吃鼠标")
 	check(p._next_room_row(2, 1) == 4, "从最后一个可加入行往下走，直接落到进行中那行（跳过分隔）")
 	check(p._next_room_row(4, -1) == 2, "反向同理")
-	check(p._next_room_row(4, 1) == 4, "到底了就留在原地")
+	check(p._next_room_row(4, 1) == 0,
+		"到底了绕回第一行（第 %d 行）" % p._next_room_row(4, 1))
+	check(p._next_room_row(0, -1) == 4, "反向从第一行绕到最后一行（跳过分隔行）")
 	## 没有进行中的房时，五行全给可加入的（回到从前的样子）
 	p._lobby_live = []
 	p._repaint_lobby()

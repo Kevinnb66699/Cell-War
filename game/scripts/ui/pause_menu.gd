@@ -386,11 +386,11 @@ func _move_glow() -> void:
 
 
 ## 往 dir 方向找下一个可用项，跳过灰掉的；到头就停在原地，不绕回（和主菜单同一条规则）
+## 绕回，跳过灰掉的（同主菜单 / 大厅列表，共用 CWStyle.step_wrap）
 func _step(dir: int) -> void:
-	var i := _selected + dir
-	while i >= 0 and i < _list.size():
-		if _enabled(_list[i]):
-			_selected = i
-			_repaint()
-			return
-		i += dir
+	var next := CWStyle.step_wrap(_selected, dir, _list.size(),
+		func(i: int) -> bool: return _enabled(_list[i]))
+	if next == _selected:
+		return
+	_selected = next
+	_repaint()

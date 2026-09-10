@@ -154,11 +154,11 @@ func handle_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		_cancel()
-	elif event.is_action_pressed("ui_down"):
-		_sel = mini(_sel + 1, _n_rows())
-		_repaint()
-	elif event.is_action_pressed("ui_up"):
-		_sel = maxi(_sel - 1, -1)   ## 人数上方是对局类型；保留默认人数焦点。
+	elif event.is_action_pressed("ui_down") or event.is_action_pressed("ui_up"):
+		## 行号从 **-1**（人数上方那行「对局类型」）到 _n_rows()（开始按钮），
+		## 共 n+2 格 —— 先平移到 0 起再绕回
+		_sel = posmod(_sel + 1 + (1 if event.is_action_pressed("ui_down") else -1),
+			_n_rows() + 2) - 1
 		_repaint()
 	elif event.is_action_pressed("ui_left"):
 		_cycle(_sel, -1)

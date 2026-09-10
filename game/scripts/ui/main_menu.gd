@@ -379,12 +379,24 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _confirm != null and _confirm.visible:
 		_confirm_input(event)
 		return
+	## 回放面板自己有 _unhandled_input（不像另外几块走 handle_input 路由）。
+	## 它开着的时候菜单一律不动 —— 它**不吃**上下键（只吃 Esc / 回车 / 左右），
+	## 于是在回放列表里按 ↓ 会连底下的菜单选中一起带走。绕回之后更明显。
+	if _replay != null and _replay.visible:
+		return
 	if event.is_action_pressed("ui_down"):
 		_step_selection(1)
 	elif event.is_action_pressed("ui_up"):
 		_step_selection(-1)
 	elif event.is_action_pressed("ui_accept"):
 		_activate(_selected)
+	elif event.is_action_pressed("ui_cancel"):
+		## 主菜单上按 Esc = 退出确认（Kevin 2026-09-10）。
+		## 各块面板的 Esc 都被上面那几个路由分支先接走了，落到这儿的
+		## 一定是「人就站在主菜单上」。走的是和「退出游戏」那一项同一个确认框 ——
+		## 默认停在「取消」，不会一个回车就退出去。
+		get_viewport().set_input_as_handled()
+		_open_confirm()
 
 
 func _confirm_input(event: InputEvent) -> void:
@@ -542,16 +554,15 @@ func _repaint_confirm() -> void:
 		(layer as Label).text = _confirm_items[_confirm_sel]
 
 
-## 从 from 往 dir 方向找下一个可用项，跳过 mask 里灰掉的；到头停在原地，不绕回。
+## 从 from 往 dir 方向找下一个可用项，跳过 mask 里灰掉的。
+## **到头绕回**（Kevin 2026-09-10：「所有键盘选择全部改成循环选择」）——
+## 在这之前是到头停住，而同一个文件里的覆盖式小列表（退出确认 / 教程癌种）
+## 一直是绕的，主菜单不绕反倒是那处的例外。
 ## mask 由 enabled_mask() 现算（「继续对局」随存档有无变），
 ## 保持 static 纯函数是为了让无头测试想摆什么局面摆什么局面。
 static func next_enabled(from: int, dir: int, mask: Array) -> int:
-	var i := from + dir
-	while i >= 0 and i < mask.size():
-		if mask[i]:
-			return i
-		i += dir
-	return from
+	return CWStyle.step_wrap(from, dir, mask.size(),
+		func(i: int) -> bool: return bool(mask[i]))
 
 
 func _step_selection(dir: int) -> void:

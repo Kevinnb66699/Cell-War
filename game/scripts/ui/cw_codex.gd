@@ -144,7 +144,7 @@ func _scroll_by(delta: float) -> void:
 func _prev_page() -> void:
 	if _in_results:
 		return   ## 结果页不翻章：先 Esc 收起搜索
-	_page = maxi(_page - 1, 0)
+	_page = posmod(_page - 1, chapters().size())   ## 绕回最后一章
 	_scroll = 0.0
 	_rebuild_page()
 
@@ -152,7 +152,7 @@ func _prev_page() -> void:
 func _next_page() -> void:
 	if _in_results:
 		return
-	_page = mini(_page + 1, chapters().size() - 1)
+	_page = posmod(_page + 1, chapters().size())   ## 绕回第一章
 	_scroll = 0.0
 	_rebuild_page()
 

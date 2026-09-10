@@ -70,11 +70,9 @@ func handle_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		visible = false
-	elif event.is_action_pressed("ui_down"):
-		_sel = mini(_sel + 1, _rows().size() - 1)
-		_repaint()
-	elif event.is_action_pressed("ui_up"):
-		_sel = maxi(_sel - 1, 0)
+	elif event.is_action_pressed("ui_down") or event.is_action_pressed("ui_up"):
+		_sel = posmod(_sel + (1 if event.is_action_pressed("ui_down") else -1),
+			_rows().size())
 		_repaint()
 	elif event.is_action_pressed("ui_left"):
 		_cycle(_sel, -1)
