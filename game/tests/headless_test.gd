@@ -7313,13 +7313,24 @@ func t_tutorial() -> void:
 		and m._guide._btn.position.x - codex_r >= 16.0,
 		"「跳过引导」「知识之书」「继续」都挂在面板上且彼此至少隔 16px（%.0f / %.0f）"
 		% [m._guide._codex_btn.position.x - skip_r, m._guide._btn.position.x - codex_r])
-	## 竖向也不挤（Kevin 09-05 看截图提的）：提示行在标题 20px 行框（28px）之下，正文在提示行之下，按钮基线离底边够远
-	check(m._guide._hint.position.y >= m._guide._title.position.y + 28
-		and m._guide._content.position.y >= m._guide._hint.position.y + 18
-		and CWGuide.PANEL.size.y - (m._guide._btn.position.y + 22) >= 16.0,
-		"标题 / 提示行 / 正文 / 按钮四段上下留空：提示 %.0f、正文 %.0f、按钮基线到底边 %.0f"
-		% [m._guide._hint.position.y - m._guide._title.position.y, m._guide._content.position.y - m._guide._hint.position.y,
-			CWGuide.PANEL.size.y - (m._guide._btn.position.y + 22)])
+	## 竖向也不挤（Kevin 09-05 看截图提的；09-10 改沉浸式浮层：眉行 → 标题 → 正文 → 行动提示 → 尾巴 → 按钮）：
+	## 相邻两段不重叠，按钮行底边不出浮层区
+	check(m._guide._content.position.y >= m._guide._title.position.y + 26
+		and m._guide._hint.position.y >= m._guide._content.position.y + m._guide._content.size.y
+		and m._guide._hint_tail.position.y > m._guide._hint.position.y
+		and CWGuide.ZONE.size.y - (m._guide._btn.position.y + m._guide._btn.size.y) >= 4.0,
+		"眉行 / 标题 / 正文 / 行动提示 / 尾巴 / 按钮六段自上而下不重叠（按钮底边到浮层底 %.0f）"
+		% [CWGuide.ZONE.size.y - (m._guide._btn.position.y + m._guide._btn.size.y)])
+	## 沉浸式浮层没有窗口框（Kevin 09-10）：白雾 / 柔光只画不挡，且柔光跟着行动提示同灭同亮
+	check(m._guide._fog.mouse_filter == Control.MOUSE_FILTER_IGNORE
+		and m._guide._halo.mouse_filter == Control.MOUSE_FILTER_IGNORE
+		and m._guide._halo.visible == m._guide._hint.visible
+		and m._guide._halo.get_index() < m._guide._hint.get_index(),
+		"白雾 / 柔光只画不挡，柔光挂在行动提示之下、随提示同灭同亮")
+	## 行动提示是主视觉（Kevin 09-10）：20px 字两行不截断的容量，超宽只会折行
+	check(m._guide._hint.size.y >= 2 * CWStyle.FONT.get_height(CWStyle.SIZE_BODY)
+		and m._guide._hint.autowrap_mode == TextServer.AUTOWRAP_WORD_SMART,
+		"行动提示有 20px 两行的容量且自动折行（高 %.0f）" % m._guide._hint.size.y)
 	check(m.pause_menu.codex_open.is_valid() and not m.pause_menu.codex_open.call(),
 		"暂停菜单拿到了「书开着吗」判据，此刻没开")
 	## 「继续」代做落子（Kevin 2026-09-05）：翻到「第一步：落子」时按继续 = 替玩家把第一个免疫细胞放下，再翻到下一步；
@@ -7330,7 +7341,10 @@ func t_tutorial() -> void:
 	m._guide._chapter = 0
 	m._guide._step = 1
 	m._guide._render()
-	check(m._guide._hint.text.ends_with(CWGuide.OFFER_TAIL % "继续"), "翻到「第一步：落子」：提示行接上「点继续我替你做」（%s）" % m._guide._hint.text)
+	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["place"]["hint"]
+		and m._guide._hint_tail.text == CWGuide.OFFER_TAIL % "继续",
+		"翻到「第一步：落子」：行动框是落子提示，代做尾巴贴到主按钮上方（%s | %s）"
+		% [m._guide._hint.text, m._guide._hint_tail.text])
 	check(m.game.cells.is_empty(), "按继续之前棋盘上还没有细胞")
 	m._guide._advance()
 	await process_frame
@@ -7349,8 +7363,10 @@ func t_tutorial() -> void:
 	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["move"]["hint"], "「能量就是生命」这一步：提示是通用的迁移句、没有代做尾巴（%s）" % m._guide._hint.text)
 	m._guide._step = 4      ## 「别忘了结束回合」：翻页后提示换成结束回合那句、带代做尾巴（只 _render，不写进度）
 	m._guide._render()
-	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["end"]["hint"] + CWGuide.OFFER_TAIL % "下一章",
-		"翻到「别忘了结束回合」：提示跟着换成结束回合那句 + 代做尾巴（%s）" % m._guide._hint.text)
+	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["end"]["hint"]
+		and m._guide._hint_tail.text == CWGuide.OFFER_TAIL % "下一章",
+		"翻到「别忘了结束回合」：提示跟着换成结束回合那句 + 代做尾巴（%s | %s）"
+		% [m._guide._hint.text, m._guide._hint_tail.text])
 	m._guide._step = 2
 	m._guide._render()
 	## 提亮层：按 flag 找目标（棋盘 / 特殊组织 / 可落子格 / 右栏 / 行动栏按钮 / 结束回合 / 手牌抽屉）
@@ -7407,17 +7423,17 @@ func t_tutorial() -> void:
 	m._guide._chapter = 0
 	m._guide._step = CWGuideData.steps(0).size() - 1      ## 「别忘了结束回合」：教 end，此刻正等行动 → 可代做
 	m._guide._render()
-	check(m._guide._btn.text == "下一章" and m._guide._hint.text.ends_with(CWGuide.OFFER_TAIL % "下一章"),
-		"关卡最后一步：尾巴写的是「下一章」（%s）" % m._guide._hint.text)
-	check(m._guide._btn.size.x >= 60 and m._guide._btn.position.x + m._guide._btn.size.x <= CWGuide.PANEL.size.x - CWGuide.PAD,
-		"「下一章」按实际宽度靠右，右边留 ≥ %d（右缘 %.0f）" % [CWGuide.PAD, m._guide._btn.position.x + m._guide._btn.size.x])
+	check(m._guide._btn.text == "下一章" and m._guide._hint_tail.text == CWGuide.OFFER_TAIL % "下一章",
+		"关卡最后一步：尾巴写的是「下一章」（%s | %s）" % [m._guide._btn.text, m._guide._hint_tail.text])
+	check(m._guide._btn.size.x >= 60 and m._guide._btn.position.x + m._guide._btn.size.x <= CWGuide.ZONE.size.x - CWGuide.PAD,
+		"「下一章」变宽后按钮行仍收在浮层内，右边留 ≥ %d（右缘 %.0f）" % [CWGuide.PAD, m._guide._btn.position.x + m._guide._btn.size.x])
 	m._guide._chapter = CWGuideData.CHAPTER_COUNT - 1
 	m._guide._step = CWGuideData.steps(CWGuideData.CHAPTER_COUNT - 1).size() - 1
 	m._guide._render()
-	check(m._guide._btn.text == "完成引导" and m._guide._btn.position.x + m._guide._btn.size.x <= CWGuide.PANEL.size.x - CWGuide.PAD
+	check(m._guide._btn.text == "完成引导" and m._guide._btn.position.x + m._guide._btn.size.x <= CWGuide.ZONE.size.x - CWGuide.PAD
 		and m._guide._btn.position.x - (m._guide._codex_btn.position.x + m._guide._codex_btn.size.x) >= 16.0,
-		"「完成引导」四个字同样靠右留边，且离「知识之书」≥ 16px")
-	check(not m._guide._hint.text.contains("我替你做"), "收尾页不教动作 → 没有代做尾巴（%s）" % m._guide._hint.text)
+		"「完成引导」四个字同样收在浮层内，且离「知识之书」≥ 16px")
+	check(not m._guide._hint_tail.visible, "收尾页不教动作 → 没有代做尾巴")
 	## 引导面板「知识之书」直达：第 4 关（下标 3）对应 CODEX_PAGE[3]
 	m._guide._chapter = 3
 	m._guide.open_codex_at_current()
@@ -7499,7 +7515,7 @@ func t_guide_data() -> void:
 	## 剧本文字现读规则，且每行装得进面板正文栏
 	var text := ""
 	var wide: Array = []
-	var budget: int = int(CWGuide.PANEL.size.x) - CWGuide.PAD * 2
+	var budget: int = int(CWGuide.ZONE.size.x) - CWGuide.PAD * 2
 	for i in CWGuideData.CHAPTER_COUNT:
 		for st in CWGuideData.steps(i):
 			for line in st["b"]:

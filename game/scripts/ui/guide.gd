@@ -2,7 +2,8 @@
 ##
 ## 这是**旁观式教练** + **轻量导演**：引擎照常跑、CWGuideBridge 照常把人类询问
 ## 交给正常界面；引导只做三件事：
-##   ① 挂一块一步步的说明面板（可继续 / 跳过引导 / 打开知识之书）；
+##   ① 挂一块一步步的说明（可继续 / 跳过引导 / 打开知识之书）——**沉浸式浮层**：
+##      不装窗口框，文字直接浮在棋盘上方居中，行动提示带一圈慢闪烁的白色柔光；
 ##   ② 轮到你做决定时，给出「现在做什么」的实时提示（由 CWGuideBridge 喂进来）；
 ##   ③ 按步骤把棋盘 / 特殊组织 / 行动栏等区域提亮，帮新手把视线放到正确地方
 ##      （本类只报当前步骤的 flag，描边由 CWGuideSpotlight 画）；
@@ -17,9 +18,27 @@
 class_name CWGuide
 extends Control
 
-## 高度 192：标题行 / 提示行 / 正文 / 按钮四段各留约 10px 空档，按钮字底到底边 18px（Kevin 2026-09-05 看真机截图提的两处）
-const PANEL := Rect2(16, 48, 470, 192)
-const PAD := 14
+## 沉浸式浮层（Kevin 2026-09-10 拍板：取消左上角窗口面板，原 470×260 描边框整个去掉）：
+## 说明文字直接浮在棋盘上方居中（棋盘带 x = [LEFT_STRIP+GUTTER*2, 960-PANEL_WIDTH-GUTTER]，
+## 与机位锚点 388 同心），行动提示一行带**慢闪烁的白色柔光**，像一句浮进来的画外音。
+## ZONE 只是布局边界，没有可见框；白雾 / 柔光是引导语音层的专属手段（DESIGN.md 已登记），
+## 其余界面仍守「无阴影、无装饰动效」。
+const ZONE := Rect2(88, 16, 600, 200)
+const PAD := 16
+## 纵向节奏（行框排死，改动先重算）：眉行 10px 行框 14、标题 20px 行框 28+2、正文 10px×2
+## 行框 16、行动提示 20px 两行 60、代做尾巴 10px 行框 14、按钮行 20px 行框 28。段间 4~6px。
+## 整簇压得越紧越好——浮层下缘每低一像素，就多压一排棋盘格（2026-09-10 截图定）。
+const ROW_META := 4.0
+const ROW_TITLE := 22.0
+const ROW_BODY := 58.0
+const ROW_HINT := 92.0
+const ROW_TAIL := 150.0
+const ROW_BTN := 164.0
+## 白色柔光慢闪烁：3.2s 一个亮暗周期（比提亮层的 1.2s 脉冲慢一截，读起来是「呼吸」不是「报警」），
+## 亮暗振幅给在纹理 alpha 之外靠 modulate 调
+const HALO_PERIOD := 3.2
+const HALO_ALPHA_LO := 0.35
+const HALO_ALPHA_HI := 1.0
 
 ## 关卡分隔：当前步骤每跨进新一章，就把「引导完成到这一关」写进进度。
 ## 玩家跳过时，只有已经**按过完成**的章节会被标记（避免没看就全绿）。
@@ -31,7 +50,7 @@ var demo := Callable()
 var demo_ready := Callable()
 ## 「此刻该提示什么」：翻页时重新问桥一遍，提示跟着正在教的那一步走（教结束回合就说结束回合，不再停在迁移那句）
 var hint_now := Callable()
-## 提示行尾巴：代做可用时接在桥喂来的提示后面。%s = 右下角按钮此刻的字（继续 / 下一章 / 完成引导），
+## 代做尾巴：代做可用时贴在按钮行上方的小字注解。%s = 按钮此刻的字（继续 / 下一章 / 完成引导），
 ## 关卡最后一步按钮写的是「下一章」，尾巴不能还说「继续」（Kevin 2026-09-05 截图报的）
 const OFFER_TAIL := "（点「%s」我替你做这一步）"
 
@@ -44,11 +63,15 @@ var _tutorial_done := false   ## 引导全部看完了（由第 5 关最后一�
 
 var _title: Label
 var _hint: Label
+var _hint_tail: Label   ## 「点『继续』我替你做」：贴按钮行上方的小字注解，不再和提示挤一行
 var _body: Array[Label] = []
 var _btn: Label
 var _skip: Label
 var _codex_btn: Label
 var _content: Control
+var _halo: TextureRect   ## 行动提示底下的白色柔光（慢闪烁的发光体，无可见框）
+var _fog: TextureRect    ## 整个浮层底下的白雾渐变：把字从花花的棋盘上托出来
+var _pulse_t := 0.0
 var _chapter_label: Label
 
 
@@ -74,59 +97,130 @@ func _read_progress() -> void:
 
 
 func _build() -> void:
-	position = PANEL.position
-	size = PANEL.size
+	position = ZONE.position
+	size = ZONE.size
 	mouse_filter = Control.MOUSE_FILTER_IGNORE   ## 空白处点击要漏给棋盘
 
-	var bg := Panel.new()
-	bg.add_theme_stylebox_override("panel", CWStyle.box(0.42, CWStyle.BTN_BG))
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bg)
+	_fog = _soft_rect(_soft_tex(GradientTexture2D.FILL_LINEAR,
+		Color(Color.WHITE, 0.12)), Vector2(-40, -8), ZONE.size + Vector2(80, 32))
+	add_child(_fog)
+	## 按钮行 / 代做尾巴的小片柔光：这一行离棋盘最近、底下常是亮格，白雾带到底部已经衰减，
+	## 再垫一小片把字托出来（同是软渐变，不出现可见边界）
+	var btn_glow := _soft_rect(_soft_tex(GradientTexture2D.FILL_RADIAL,
+		Color(Color.WHITE, 0.16)), Vector2(100, ROW_TAIL - 9), Vector2(400, 60))
+	add_child(btn_glow)
+
+	_halo = _soft_rect(_soft_tex(GradientTexture2D.FILL_RADIAL,
+		Color(Color.WHITE, 0.4)), Vector2(20, ROW_HINT + 30 - 45), Vector2(560, 90))
+	add_child(_halo)
 
 	_chapter_label = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	_chapter_label.position = Vector2(PAD, PAD - 2)
+	_chapter_label.position = Vector2(PAD, ROW_META)
+	_chapter_label.size = Vector2(ZONE.size.x - PAD * 2, 14)
+	_chapter_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(_chapter_label)
 
-	_title = CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.IMMUNE)
-	_title.position = Vector2(PAD + 90, PAD - 2)
+	_title = CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
+	_title.position = Vector2(PAD, ROW_TITLE)
+	_title.size = Vector2(ZONE.size.x - PAD * 2, 30)
+	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(_title)
 
-	_hint = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.CANCER)
-	_hint.position = Vector2(PAD, PAD + 28)   ## 标题 20px 字的行框到 PAD+26，再留 2px，别贴着
-	_hint.size = Vector2(PANEL.size.x - PAD * 2, 14)
-	_hint.clip_text = true
-	_hint.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	add_child(_hint)
-
 	_content = Control.new()
-	_content.position = Vector2(PAD, PAD + 48)
-	_content.size = Vector2(PANEL.size.x - PAD * 2, PANEL.size.y - PAD - 48 - 38)
+	_content.position = Vector2(PAD, ROW_BODY)
+	_content.size = Vector2(ZONE.size.x - PAD * 2, 32)
 	_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_content)
 
-	_btn = _clicky("继续", Vector2(PANEL.size.x - PAD - 46, PANEL.size.y - 38), func() -> void: _advance())
+	_hint = CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
+	_hint.position = Vector2(PAD, ROW_HINT)
+	_hint.size = Vector2(ZONE.size.x - PAD * 2, 60)
+	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hint.clip_text = true
+	add_child(_hint)
+
+	_hint_tail = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT)
+	_hint_tail.position = Vector2(PAD, ROW_TAIL)
+	_hint_tail.size = Vector2(ZONE.size.x - PAD * 2, 14)
+	_hint_tail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	add_child(_hint_tail)
+
+	_btn = _primary("继续")
 	add_child(_btn)
-
-	_skip = _clicky("跳过引导", Vector2(PAD, PANEL.size.y - 38), func() -> void: dismiss())
+	_skip = _clicky("跳过引导", func() -> void: dismiss())
 	add_child(_skip)
-
-	## 「跳过引导」20px 字 4 个 = 80px 宽，起点 PAD；这里要留出 ≥ 16px 的空档，不然两串字连成一句
-	_codex_btn = _clicky("知识之书", Vector2(PAD + 110, PANEL.size.y - 38),
-		func() -> void: _open_codex())
+	_codex_btn = _clicky("知识之书", func() -> void: _open_codex())
 	add_child(_codex_btn)   ## 三个按钮都只在这里挂一次（接入时发现这一个漏挂了）
+	## 按钮行的横向位置在 _render 里按实测宽度居中（按钮字数会变：继续/下一章/完成引导）
 
 
-func _clicky(text: String, at: Vector2, on_click: Callable) -> Label:
-	var label := CWStyle.label(text, CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
-	label.position = at
-	label.size = label.get_minimum_size()
+## 一块软渐变矩形：白雾（横条）和柔光（椭圆）共用。全局默认最近邻过滤（像素风），
+## 渐变必须就地切成线性采样，不然会采出一圈圈硬带
+func _soft_rect(tex: GradientTexture2D, at: Vector2, rect_size: Vector2) -> TextureRect:
+	var tr := TextureRect.new()
+	tr.texture = tex
+	tr.position = at
+	tr.size = rect_size
+	tr.stretch_mode = TextureRect.STRETCH_SCALE
+	tr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return tr
+
+
+## 两端透明、中间最亮的软渐变。fill 决定形状：LINEAR = 横向雾带，RADIAL = 椭圆柔光
+static func _soft_tex(fill: int, c: Color) -> GradientTexture2D:
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	g.colors = PackedColorArray([Color(c, 0.0), c, Color(c, 0.0)])
+	var t := GradientTexture2D.new()
+	t.gradient = g
+	t.fill = fill
+	t.fill_from = Vector2(0.5, 0.5)
+	t.fill_to = Vector2(0.5, 0.0) if fill == GradientTexture2D.FILL_RADIAL else Vector2(0.5, 1.0)
+	t.width = 64
+	t.height = 64
+	return t
+
+
+func _process(delta: float) -> void:
+	if _halo == null or not visible:
+		return
+	## 慢闪烁只动柔光的 modulate：白雾恒定，行动提示那一圈光慢慢呼吸
+	_pulse_t += delta
+	var k := 0.5 + 0.5 * sin(_pulse_t * TAU / HALO_PERIOD)
+	_halo.modulate.a = lerpf(HALO_ALPHA_LO, HALO_ALPHA_HI, k)
+
+
+## 主按钮（继续 / 下一章 / 完成引导）：浮层里唯一的主动作，用免疫青和两个暗色次级
+## 文字按钮拉开层级（青 = 全游戏「可交互」的语义色），悬停提白
+func _primary(text: String) -> Label:
+	var label := CWStyle.label(text, CWStyle.SIZE_BODY, CWStyle.IMMUNE)
 	label.mouse_filter = Control.MOUSE_FILTER_STOP
 	label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	label.mouse_entered.connect(func() -> void:
 		label.add_theme_color_override("font_color", Color.WHITE))
 	label.mouse_exited.connect(func() -> void:
-		label.add_theme_color_override("font_color", CWStyle.TEXT_HI))
+		label.add_theme_color_override("font_color", CWStyle.IMMUNE))
+	label.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			get_viewport().set_input_as_handled()
+			_advance())
+	return label
+
+
+## 可点击的文字按钮：命中框贴着字、手型光标、左键回调。次级动作（跳过 / 知识之书）用常规档
+## 的字（浮层直接压在棋盘上，再暗一档就读不清了），和主按钮的免疫青仍拉开层级；悬停提白
+func _clicky(text: String, on_click: Callable,
+		color: Color = CWStyle.TEXT, hovered: Color = Color.WHITE) -> Label:
+	var label := CWStyle.label(text, CWStyle.SIZE_BODY, color)
+	label.mouse_filter = Control.MOUSE_FILTER_STOP
+	label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	label.mouse_entered.connect(func() -> void:
+		label.add_theme_color_override("font_color", hovered))
+	label.mouse_exited.connect(func() -> void:
+		label.add_theme_color_override("font_color", color))
 	label.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			get_viewport().set_input_as_handled()
@@ -201,8 +295,9 @@ func set_hint(text: String) -> void:
 	_refresh_hint()
 
 
-## 提示行 = 桥喂来的一句 + 代做尾巴。步骤变了（_render）或提示变了（set_hint）都要重算尾巴：
-## 同一句提示，翻到「第一步：落子」之前没有尾巴、翻到之后就有
+## 行动提示 = 桥喂来的一句「现在做什么」；代做尾巴单独贴在按钮行上方 —— 它解释的是按钮不是动作，
+## 混在一起会稀释提示（Kevin 2026-09-10 重排）。步骤变了（_render）或提示变了（set_hint）都要重算：
+## 同一句提示，翻到「第一步：落子」之前没有尾巴、翻到之后才有
 func _refresh_hint() -> void:
 	if _hint == null:
 		return
@@ -213,7 +308,11 @@ func _refresh_hint() -> void:
 	var tail := ""
 	if _hint_text != "" and _btn != null and demo_ready.is_valid() and demo_ready.call():
 		tail = OFFER_TAIL % _btn.text
-	_hint.text = _hint_text + tail
+	_hint.text = _hint_text
+	_hint.visible = _hint_text != ""   ## 还没喂到提示时收着，柔光也跟着灭，别悬一团没来由的光
+	_halo.visible = _hint_text != ""
+	_hint_tail.text = tail
+	_hint_tail.visible = tail != ""
 
 
 ## 当前步骤想提亮哪个区域（棋盘/特殊组织/能量/…）。CWMatch 每帧读走喂给 CWGuideSpotlight。
@@ -274,11 +373,11 @@ func _render() -> void:
 		dismiss()
 		return
 	var s: Dictionary = all[mini(_step, all.size() - 1)]
-	_chapter_label.text = "%d/%d %s" % [
+	_chapter_label.text = "%d/%d %s · 步骤 %d/%d" % [
 		_chapter + 1, CWGuideData.CHAPTER_COUNT,
-		CWGuideData.chapter_titles()[_chapter]]
+		CWGuideData.chapter_titles()[_chapter], _step + 1, all.size()]
 	if _title != null:
-		_title.text = "%s  %d/%d" % [s["t"], _step + 1, all.size()]
+		_title.text = s["t"]
 	for l in _body:
 		l.queue_free()
 	_body.clear()
@@ -286,20 +385,27 @@ func _render() -> void:
 	for line in s["b"]:
 		var label := CWStyle.label(line, CWStyle.SIZE_LABEL, CWStyle.TEXT)
 		label.position = Vector2(0, y)
-		label.size = Vector2(_content.size.x, 15)
+		label.size = Vector2(_content.size.x, 16)
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		label.clip_text = true
 		label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		_content.add_child(label)
 		_body.append(label)
-		y += 15
+		y += 16
 	var last_of_chapter: bool = _step >= all.size() - 1
 	var last_of_all: bool = _chapter >= CWGuideData.CHAPTER_COUNT - 1 and last_of_chapter
 	_btn.text = "下一章" if last_of_chapter and not last_of_all else ("完成引导" if last_of_all else "继续")
-	## 按钮字数会变（继续 2 字 / 下一章 3 字 / 完成引导 4 字）：按实际宽度靠右对齐、右边留 PAD ——
-	## 原来按「继续」的宽度定死 x，「下一章」就顶到边框上（Kevin 2026-09-05 截图报的）
+	## 按钮行按实测宽度整行居中（按钮字数会变：继续 / 下一章 / 完成引导，先定字再量宽）
 	_btn.size = _btn.get_minimum_size()
-	_btn.position.x = PANEL.size.x - PAD - _btn.size.x
-	## 引导目录/章节选择放在「完成引导」之后不再重复出现，避免面板太挤
+	_skip.size = _skip.get_minimum_size()
+	_codex_btn.size = _codex_btn.get_minimum_size()
+	var gap := 16.0
+	var total: float = _skip.size.x + gap + _codex_btn.size.x + gap + _btn.size.x
+	var x := (ZONE.size.x - total) / 2.0
+	for c: Label in [_skip, _codex_btn, _btn]:
+		c.position = Vector2(x, ROW_BTN)
+		x += c.size.x + gap
+	## 引导目录/章节选择放在「完成引导」之后不再重复出现，避免浮层太挤
 	_refresh_hint()
 	## watch=moved 的基线在「步骤成为当前」的瞬间取好（渲染即当前）
 	_watch_pos = _human_pos()
