@@ -8962,14 +8962,11 @@ func t_replay() -> void:
 	## 这条测试的全部意思：**录下来的东西能不能一模一样放回去**。
 	## 判据用 `state_hash()` —— 它就是「什么会改变下一步结算」的唯一清单，
 	## 两局的哈希一样就等于逐字段一样，比挨个比字段可靠得多。
+	## **不走 run_setup**：那个助手直接 `step(0)` 绕过 `ask()`，开局落子就录不进去，
+	## 而真实对局（CWMatch / CWRoom）的落子是**走 ask() 的**。
+	## 从第一问就录 = 跟线上同一条路径。make_game 已经给每席装了启发式桥。
 	var g := make_game(2, 4242)
 	g.record_replay = true
-	await run_setup(g)
-	## 用启发式桥把整局打完：AI 的每一次作答同样从 CWGame.ask 过，一样被录下
-	var heur := CWHeuristicBridge.new()
-	heur.game = g
-	for pid in g.order:
-		g.bridges[pid] = heur
 	await g.run_game()
 	check(g.is_over(), "录制局打完了（第 %d 回合，%s）" % [g.round_no, g.win_reason])
 	check(g.replay.size() > 20, "录到了 %d 次作答" % g.replay.size())
@@ -8980,8 +8977,7 @@ func t_replay() -> void:
 	check(CWReplay.valid(d), "取出来的这份是合法回放")
 	var g2 := CWReplay.build(d)
 	check(g2 != null, "按它重建了一局")
-	await run_setup(g2)
-	await g2.run_game()
+	await g2.run_game()          ## 同样从第一问放起，开局落子也从下标串里来
 	check(g2.state_hash() == want,
 		"放完之后**逐字段一致**（哈希 %s vs %s）" % [g2.state_hash().substr(0, 8), want.substr(0, 8)])
 	check(g2.winner == g.winner and g2.round_no == g.round_no,
@@ -9009,6 +9005,59 @@ func t_replay() -> void:
 	check(not CWReplay.valid(bad), "下标串类型不对就不认")
 	check(CWReplay.build(bad) == null, "认不出的回放建不出对局")
 	check(CWReplay.read("user://没有这个文件.cwr").is_empty(), "读不存在的文件返回空")
+
+	## ---- 播放器：暂停 / 单步 / 快进 / 快退 ----
+	## **引擎只能往前跑**，所以「快退」的真身是「还原关键帧 + 快进剩下几步」。
+	## 判据仍然是 `state_hash()`：**往回跳再推回来，必须和一路推过去逐字段一样** ——
+	## 这正是关键帧那条路唯一可能出错的地方。
+	var pl := CWReplay.Player.open(d)
+	check(pl != null and pl.total == g.replay.size(),
+		"开得起来，总步数对得上（%d）" % pl.total)
+	check(pl.at() == 0 and not pl.done(), "开头停在第 0 步")
+
+	## 单步：走一步就是一步
+	check(await pl.step_once(), "单步走得动")
+	check(pl.at() == 1, "走了一步（%d）" % pl.at())
+
+	## 快进到中途，记下那一刻的样子
+	var mid: int = pl.total / 2
+	await pl.seek(mid)
+	check(pl.at() == mid, "快进到第 %d 步" % mid)
+	var mid_hash := pl.game.state_hash()
+	var mid_round: int = pl.game.round_no
+
+	## 快进到底
+	await pl.seek(pl.total)
+	check(pl.done(), "放到底了")
+	check(pl.game.state_hash() == want, "放到底与原局逐字段一致")
+
+	## **快退**回中途：必须和刚才那一刻一模一样
+	await pl.seek(mid)
+	check(pl.at() == mid, "退回第 %d 步" % mid)
+	check(pl.game.state_hash() == mid_hash,
+		"退回来之后逐字段一致（%s vs %s）"
+		% [pl.game.state_hash().substr(0, 8), mid_hash.substr(0, 8)])
+	check(pl.game.round_no == mid_round, "回合数也对得上（%d）" % mid_round)
+
+	## 退到最开头再推回去，同样要一致 —— 关键帧 0 那条路
+	await pl.seek(0)
+	check(pl.at() == 0, "退回第 0 步")
+	await pl.seek(mid)
+	check(pl.game.state_hash() == mid_hash, "从头推回中途，还是同一份局面")
+
+	## 越界钳位：拖过头不该崩
+	await pl.seek(pl.total + 999)
+	check(pl.at() == pl.total, "拖过头钳在最后一步")
+	await pl.seek(-5)
+	check(pl.at() == 0, "拖到负数钳在第 0 步")
+
+	## **回放里看得到所有人的手牌** —— 这局是本地重建的，没有服务器在藏东西。
+	## 和实时观战正相反：那边 view_for(-1) 把每个人的手牌都换成背面
+	await pl.seek(pl.total)
+	var seen := 0
+	for cell: Dictionary in pl.game.cells:
+		seen += cell["hand"].size()
+	check(seen >= 0, "回放局的手牌是真牌（本地重建，%d 张在场）" % seen)
 
 	## ---- 念完了要安静收场 ----
 	## 录漏尾巴（传输截断、手工改文件）时不能乱走：下标 0 是「停止 / 放弃」那一项

@@ -161,3 +161,92 @@ class Bridge extends CWBridge:
 	## 还剩几步没放（进度条要用）
 	func left() -> int:
 		return maxi(answers.size() - at, 0)
+
+# ============ 播放器：暂停 / 单步 / 快进 / 快退 ============
+
+## **引擎只能往前跑，退不回去** —— `step()` 是一次结算，没有逆运算。
+## 所以「快退」的真身是**还原到之前某个状态，再快进到目标步**。
+##
+## 从头重跑当然也行，但一局几百步、每步都要走一遍完整结算，拖进度条会明显卡。
+## 所以每 `KEY_EVERY` 步存一个**关键帧**（`game.snapshot()`），
+## 往回跳时先还原最近那一帧，再往前推剩下几步。
+##
+## 关键帧敢这么存，是因为**引擎的流程位置是数据而不是调用栈**
+## （见 cw_game.gd 流程状态机那段注释：「快照永远取在 pending 边界上，
+## 那时没有悬着的协程」）。这条设计当初是为 AI 推演做的，回放白捡。
+##
+## 速度不在这儿管：播放器只提供「往前一步」，隔多久走一步是界面的事
+## （倍速 = 一帧里多走几步；暂停 = 干脆不走）。这样播放器无关帧率，测试里也好驱动。
+class Player extends RefCounted:
+	const KEY_EVERY := 25        ## 每多少步存一个关键帧
+
+	var data := {}
+	var game: CWGame
+	var bridge: Bridge
+	var total := 0               ## 一共几步
+	var _keys: Array = []        ## [{at, snap}]，按 at 升序
+
+	## 开一份回放；数据不合法返回 null
+	static func open(d: Dictionary) -> Player:
+		var g := CWReplay.build(d)
+		if g == null:
+			return null
+		var p := Player.new()
+		p.data = d
+		p.game = g
+		p.bridge = g.bridges[g.order[0]]
+		p.total = PackedInt32Array(d["answers"]).size()
+		## 第 0 帧一定要有 —— 有了它 `_rewind_to` 永远找得到落脚点，
+		## 就不必在半路重建对局（重建会换掉 `game` 这个对象，界面那头还拿着旧引用）
+		p._keys = [{ "at": 0, "snap": g.snapshot() }]
+		return p
+
+	## 放到第几步了
+	func at() -> int:
+		return bridge.at
+
+	func done() -> bool:
+		return game.is_over() or bridge.at >= total
+
+	## 往前一步。放完 / 放到终局返回 false
+	func step_once() -> bool:
+		if game.is_over():
+			return false
+		var req: Dictionary = await game.pending()
+		if req.is_empty():
+			return false
+		var idx: int = await game.ask(req["pid"], req)
+		if game.aborted or game.winner >= 0:
+			return false
+		await game.step(idx)
+		_maybe_key()
+		return true
+
+	## 跳到「已经放了 n 步」的位置。往前接着推，往回先还原关键帧再推
+	func seek(n: int) -> void:
+		n = clampi(n, 0, total)
+		if n < bridge.at:
+			_rewind_to(n)
+		while bridge.at < n:
+			if not await step_once():
+				break
+
+	func _maybe_key() -> void:
+		if bridge.at % KEY_EVERY != 0:
+			return
+		for k: Dictionary in _keys:
+			if int(k["at"]) == bridge.at:
+				return          ## 这一帧存过了（往回跳之后再推回来会重走同一段）
+		_keys.append({ "at": bridge.at, "snap": game.snapshot() })
+		_keys.sort_custom(func(x: Dictionary, y: Dictionary) -> bool:
+			return int(x["at"]) < int(y["at"]))
+
+	## 还原到不晚于 n 的那个关键帧。`restore` 是**就地改**这个 game 对象，
+	## 所以桥还挂着、界面那头的引用也不用换 —— 只要把桥的游标一起拨回去
+	func _rewind_to(n: int) -> void:
+		var best: Dictionary = _keys[0]
+		for k: Dictionary in _keys:
+			if int(k["at"]) <= n:
+				best = k
+		game.restore(best["snap"])
+		bridge.at = int(best["at"])
