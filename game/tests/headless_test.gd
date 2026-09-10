@@ -8187,6 +8187,9 @@ func t_guide_bridge() -> void:
 		"AUTO_ACTS 只含一步到位的 place/end/draw")
 	check(not CWGuideBridge.AUTO_ACTS.has("move") and not CWGuideBridge.AUTO_ACTS.has("attack"),
 		"move/attack 是两段式选格，留给玩家亲手点")
+	check(CWGuideData.ui_stage(0) == 0 and CWGuideData.ui_stage(6) == 2
+		and CWGuideData.ui_stage(15) == 3,
+		"渐进 UI 按章节解锁：棋盘 → 高亮/资源 → 毕业战预测解释")
 	## 实跑一次：轮到人类时只喂提示、不再自动演示（Kevin 2026-09-05：落子要么亲手点、要么点「继续」代做）
 	var g := CWGame.new()
 	g.init(CWData.FACTION_ORDER[2], 7)

@@ -10,6 +10,10 @@ const CHAPTER_COUNT := 16
 ## 每关对应的 CWCodex 章节下标。
 const CODEX_PAGE := [4, 4, 5, 3, 3, 1, 1, 9, 2, 6, 7, 3, 10, 6, 0, 12]
 
+## 渐进 UI 阶段：只控制教程辅助层，不改 CWGame 的正式行动集合。
+## 0 = 只看棋盘；1 = 目标高亮；2 = 规则/资源提示；3 = 预测与解释（毕业战）。
+const UI_STAGE := [0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3]
+
 
 static func chapter_titles() -> Array[String]:
 	return [
@@ -35,6 +39,10 @@ static func chapter_subtitles() -> Array[String]:
 
 static func chapter_step_count(chapter: int) -> int:
 	return steps(chapter).size()
+
+
+static func ui_stage(chapter: int) -> int:
+	return UI_STAGE[clampi(chapter, 0, CHAPTER_COUNT - 1)]
 
 
 ## 字段：t 标题；b 正文；flag 高亮目标；act 动作提示；watch 真实状态完成键。

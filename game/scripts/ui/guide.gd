@@ -243,6 +243,11 @@ func step_no() -> int:
 	return _step
 
 
+## 当前教程辅助阶段；正式对局不创建 CWGuide，因此不会获得这些限制或提示。
+func ui_stage() -> int:
+	return CWGuideData.ui_stage(_chapter)
+
+
 ## ---- 状态推进：带 watch 的步骤由真实局面判定完成 ----
 ## 哨兵 = 没有人类席 / 细胞还没落（与 board.NO_TILE 同一约定）
 const WATCH_NONE := Vector2i(9999, 9999)
