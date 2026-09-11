@@ -5569,7 +5569,12 @@ func t_hot_patch() -> void:
 	check(boot_src.contains("stale_patch(PatchState.installed_build(), PatchState.installed_base(), PatchState.base_build())"),
 		"_apply_patch 挂载前先过这道闸")
 	var state_src := FileAccess.get_file_as_string("res://scripts/patch_state.gd")
-	check(state_src.contains("c.set_value(\"patch\", \"base\", BASE_BUILD)"), "record() 记下补丁是给哪个基线打的")
+	check(state_src.contains("c.set_value(\"patch\", \"base\", BASE_BUILD)"), "状态文件每次落盘都盖上写它的基线号")
+	## 换完整包整个清缓存（Kevin 2026-09-11）：要在查更新之前，不然上一版的拉黑名单压住这一版的补丁
+	var boot_head := boot_src.substr(0, boot_src.find("await _fetch_update()"))
+	check(boot_head.contains("PatchState.reset_if_version_changed()"), "启动器在查更新**之前**清上一版的补丁缓存")
+	check(state_src.contains("for name: String in [\"current.pck\", \"incoming.pck\", \"bad.pck\", \"stale.pck\", \"state.cfg\"]"),
+		"清的是整个 user://patch：补丁、坏包、旧包、状态（含拉黑名单）")
 	check(state_src.contains("static func discard()") and not state_src.contains("discard() -> void:\n\tquarantine"),
 		"弃用走 discard()，不走 quarantine（不计失败、不拉黑）")
 	## ⚠ 基线号**必须是脚本常量**，不能放进 .txt：导出预设是 `export_filter="all_resources"`，

@@ -31,7 +31,7 @@ const INCOMING := DIR + "/incoming.pck"   ## 下载中的临时文件，校验�
 ## 于是 min_base 谁也拦不住：给第九版打的补丁会照样装进第七版的客户端。
 ## 这条纪律现在由 `tools/publish_release.sh` 的第 ⑤ 项闸住，不再靠人记得。
 ## 补丁不必动它（也改不动 —— 读取发生在挂载之前）。
-const BASE_BUILD := 202609111001
+const BASE_BUILD := 202609111016
 ## manifest 的验签公钥（Kevin 2026-09-09 定：manifest 也放自家服务器，靠签名而不是 TLS）。
 ##
 ## **为什么不靠 HTTPS**：那台机器上的证书老是过期（查的时候四个站死了两个、剩一个 10 天后到期），
@@ -88,9 +88,28 @@ static func _cfg() -> ConfigFile:
 	return c
 
 
+## 每次落盘都盖上**写它的那一版**的基线号：换了完整包之后 reset_if_version_changed() 拿它认「这是上一版的东西」
 static func _save(c: ConfigFile) -> void:
+	c.set_value("patch", "base", BASE_BUILD)
 	DirAccess.make_dir_recursive_absolute(DIR)
 	c.save(STATE)
+
+
+## **换了完整包就把 user://patch 整个清掉**（Kevin 2026-09-11 要的「自动删缓存」）：补丁、隔离出来的坏包、
+## 弃用的旧包、拉黑名单、失败计数，全是上一版的事，带到新版只会添乱 —— 09-11 主菜单残留右侧竖条
+## 就是上一版的补丁跟过来挂上了。判据是状态文件上盖的基线号：不是这一版（老版本没盖过 = 0 也算）就清。
+## 没有状态文件 = 全新安装，没什么可清。返回清没清过，启动器据此打一行日志。
+## 放在启动最前面 —— 要赶在「查更新」之前，否则上一版的拉黑名单会把这一版该装的补丁压住。
+static func reset_if_version_changed() -> bool:
+	if not FileAccess.file_exists(STATE):
+		return false
+	if int(_cfg().get_value("patch", "base", 0)) == BASE_BUILD:
+		return false
+	for name: String in ["current.pck", "incoming.pck", "bad.pck", "stale.pck", "state.cfg"]:
+		var path: String = DIR + "/" + name
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	return true
 
 
 ## 已装补丁的版本号；0 = 没装
@@ -144,9 +163,8 @@ static func record(build: int, sha256: String) -> void:
 	var c := _cfg()
 	c.set_value("patch", "build", build)
 	c.set_value("patch", "sha256", sha256)
-	c.set_value("patch", "base", BASE_BUILD)
 	c.set_value("patch", "pending", false)
-	_save(c)
+	_save(c)   ## 基线号由 _save 盖
 
 
 ## 已装补丁是给哪个基线打的；0 = 没记（2026-09-11 之前的状态文件），boot.gd 一律当「不是这一版的」处理

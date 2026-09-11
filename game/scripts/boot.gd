@@ -88,6 +88,10 @@ func _ready() -> void:
 	## （Kevin 2026-09-10 就是这么问上来的：「会不会导致最后进入不了游戏？」）。
 	## 进不去是不会的（超时就照原样进），但**看起来像**进不去，那就得改。
 	_note.text = "正在检查更新…"
+	## 换了完整包 → 上一版的补丁缓存整个清掉（Kevin 2026-09-11）。**必须在查更新之前**：
+	## 上一版的拉黑名单还在的话，这一版该装的补丁会被它压住
+	if PatchState.reset_if_version_changed():
+		print("换了新版（基线 %d），上一版的补丁缓存已清" % PatchState.base_build())
 	_http = HTTPRequest.new()
 	add_child(_http)
 	## 顺序要紧：**先把新补丁落到盘上，再统一走挂载那一步**。
