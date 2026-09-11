@@ -45,6 +45,7 @@ var _from := Vector2.ZERO
 var _to := Vector2.ZERO
 var _level := 0
 var _active := false
+var bounce := false          ## 扑咬模式（普通攻击）：冲到六成就弹回 —— 引擎没有挪动它
 
 
 func _init() -> void:
@@ -57,10 +58,18 @@ func play(from: Vector2, to: Vector2, level: int, cid: int) -> void:
 	_to = to
 	_level = level
 	chewing_cid = cid
+	bounce = false
 	_t = 0.0
 	_active = true
 	visible = true
 	queue_redraw()
+
+
+## 巨噬的**普通攻击**也用这副嘴（Kevin 2026-09-11，issue #15「向癌细胞迁移的动画均改为连续吞噬」）：
+## 冲向目标咬一口再弹回原格 —— 引擎没有挪动它，所以路程只走到六成就往回收；碎屑照样在目标格爆开
+func play_bite(from: Vector2, to: Vector2, cid: int) -> void:
+	play(from, to, 0, cid)
+	bounce = true
 
 
 func sync(delta: float) -> void:
@@ -99,7 +108,7 @@ func _draw() -> void:
 	## 冲刺：缓入缓出，别匀速滑过去 —— 「扑」的力量感全在这条曲线上
 	var lunge := clampf((f - LUNGE_AT) / LUNGE_FOR, 0.0, 1.0)
 	var sprint: float = lunge * lunge * (3.0 - 2.0 * lunge)
-	var at := _from.lerp(_to, sprint).round()
+	var at := _from.lerp(_to, (sin(sprint * PI) * 0.6) if bounce else sprint).round()
 	var dir: float = (_to - _from).angle()
 	var r: float = BASE_R + float(_level)
 	var opening := opening_at(f)

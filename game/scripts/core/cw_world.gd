@@ -265,6 +265,7 @@ func revive_cancer(pid: int, data: Dictionary) -> void:
 		game.log_msg("　【癌症干性】复活能量提高至 %s，本世界回合 %d 次向癌性组织移动免费" % [
 			CWData.fmt(cell["energy"]), freebies])
 	await game.actions.enter_tile(cell, pos)
+	game.fx("revive_cancer", { "at": pos })
 	if anchor == pos:
 		game.log_msg("【复活】%s 复活于 %s（%s 能量），该格降级为癌组织" % [
 			game.cell_name(cell), str(pos), CWData.fmt(cell["energy"])])
@@ -334,6 +335,7 @@ func revive_immune(pid: int, pos: Vector2i) -> void:
 	cell["energy"] = game.tune.immune_respawn_energy
 	cell["respawn_round"] = -1
 	await game.actions.enter_tile(cell, pos)
+	game.fx("revive_immune", { "at": pos })
 	game.log_msg("【免疫复活】%s 于骨髓 %s 复活（%s 能量）" % [
 		game.cell_name(cell), str(pos), CWData.fmt(game.tune.immune_respawn_energy)])
 
@@ -436,6 +438,7 @@ func _aerobic() -> void:
 		## **和右栏「预计收入」同一条路**（aerobic_income → necrosis_cut），界面不会和结算对不上
 		var got := necrosis_cut(cell, gain + bonus)
 		cell["energy"] += got
+		game.fx("respire", { "at": cell["pos"] })
 		if bonus > 0:
 			game.log_msg("　%s 的永久技能额外 +%s 能量" % [game.cell_name(cell), CWData.fmt(bonus)])
 		if got != gain + bonus:
@@ -674,6 +677,8 @@ func _anaerobic() -> void:
 				cell["energy"] += glut
 				game.log_msg("　【GLUT1高表达】%s 额外 +%s 能量" % [
 					game.cell_name(cell), CWData.fmt(glut)])
+		for cell in here:
+			game.fx("anaerobic", { "at": cell["pos"], "sources": nearest_in(block, cell["pos"], 12) })
 		game.log_msg("【无氧呼吸】连通块（%d 格）内 %d 个癌细胞各 +%s 能量" % [
 			block.size(), here.size(), CWData.fmt(gain)])
 
@@ -872,6 +877,7 @@ func _mark_adhesion() -> void:
 				if target["marked"]:
 					game.log_msg("　【组织黏连】%s 的标记传染给 %s"
 						% [game.cell_name(src), game.cell_name(target)])
+					game.fx("adhesion", { "from": src["pos"], "to": target["pos"] })
 				break
 
 
@@ -884,6 +890,22 @@ func _tick_chemo_track() -> void:
 		return
 	game.log_msg("【追踪趋化源】%s 的追踪趋化源消散" % str(game.chemo_track_at()))
 	game.chemo_track = {}
+
+
+## 连通块里离 at 最近的 n 格（不含 at 自己），给【铜橙输能】当粒子起点。
+## 同距按坐标序 —— 不掷骰，同种子复现与平衡数据都不受影响
+static func nearest_in(block: Array, at: Vector2i, n: int) -> Array:
+	var out: Array = []
+	for c in block:
+		if c != at:
+			out.append(c)
+	out.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		var da := CWData.hex_dist(a, at)
+		var db := CWData.hex_dist(b, at)
+		if da != db:
+			return da < db
+		return a.y < b.y or (a.y == b.y and a.x < b.x))
+	return out.slice(0, n)
 
 
 ## 单独算某个癌细胞**此刻**的无氧供给（卡【糖酵解爆发】用），口径与 _anaerobic 一致

@@ -1,9 +1,32 @@
 import {tile,pixel,line,disc,ring,label} from './draw.js';
 
+export function tissueHex(c,x,y,top,side) {
+  for(let row=-10;row<=18;row++) {
+    const span=Math.floor(16-Math.max(0,-row-5,row-13)*3.2);
+    line(c,x-span,y+row,x+span,y+row,side);
+  }
+  for(let row=-10;row<=10;row++) {
+    const span=Math.floor(16-Math.max(0,Math.abs(row)-5)*3.2);
+    line(c,x-span,y+row,x+span,y+row,top);
+  }
+}
+export function necrosis(c,x,y,v=0) {
+  const palettes=[['#686761','#393d3b','#939084'],['#726356','#403e39','#a49278'],['#666e69','#343f3e','#9caaa0']];
+  const [base,dark,light]=palettes[v];tissueHex(c,x,y,base,dark);
+  line(c,x-9,y-2,x-3,y,dark);line(c,x-3,y,x+2,y-3,dark);
+  line(c,x+5,y+4,x+10,y+3,dark);
+  pixel(c,x-8,y+4,light,2);pixel(c,x+7,y-5,light,2);
+}
 export function marrow(c,x,y,v,cancer=false,empty=false) {
-  tile(c,x,y,cancer);
   const palettes=[['#69644f','#b2a17c','#e2d3a6','#ab6250'],['#5d6955','#9ba486','#ced1ad','#b0765e'],['#715747','#baa486','#e4d3b4','#a75844']];
   const [dark,bone,light,red]=palettes[v];
+  tissueHex(c,x,y,bone,dark);
+  for(let row=-8;row<=8;row++)for(let col=-14;col<=14;col++) {
+    if(Math.abs(col)>16-Math.max(0,Math.abs(row)-5)*3.2)continue;
+    const seed=Math.abs(col*23+row*41+col*row*7);
+    if(seed%19<6)pixel(c,x+col,y+row,seed%3?dark:light);
+    if(!empty&&seed%31<3)pixel(c,x+col,y+row,red);
+  }
   const core=empty?(cancer?'#8d6456':'#727765'):red;
   if(v===0) {
     disc(c,x,y,10,dark,.7);disc(c,x,y,7,core,.65);
@@ -43,7 +66,13 @@ export function mucus(c,x,y,v,t=0,amount=1) {
   c.restore();
 }
 export function drawTexture(c,id,v,t) {
-  if(id==='marrow') {
+  if(id==='necrosis') {
+    for(let i=0;i<3;i++) {
+      const x=55+i*105;c.save();c.translate(x,77);c.scale(2,2);necrosis(c,0,0,v);c.restore();
+      necrosis(c,x,145,v);label(c,'低密度裂纹',x,125);
+    }
+    label(c,'坏死组织 · 整格灰褐暗纹',160,187);
+  } else if(id==='marrow') {
     [[false,false],[true,false],[false,true],[true,true]].forEach(([cancer,empty],i)=>{
       const x=40+i*80;c.save();c.translate(x,68);c.scale(2,2);marrow(c,0,0,v,cancer,empty);c.restore();
       label(c,['健康 · 有卡','癌变 · 有卡','健康 · 空仓','癌变 · 空仓'][i],x,112);

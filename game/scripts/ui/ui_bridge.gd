@@ -33,6 +33,7 @@ var mucus_fx: CWMucusFx
 var seal_fx: CWSealFx
 var beam_fx: CWBeamFx
 var chain_fx: CWChainFx
+var skill_fx: CWSkillFx   ## 一次性技能演出的合集（issue #15）
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
 var erosion: CWErosionFx   ## 癌蔓延两帧过场（侵蚀 / 增生 / 定殖共用）；纯 AI 桥 / 测试里可为 null
 var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这里来（无界面时为 null）
@@ -883,6 +884,42 @@ func show_erosion(at: Vector2i, dir: int) -> void:
 	if erosion == null:
 		return
 	erosion.play(at, dir)
+
+
+## 演出数据里哪些键指的是**细胞**（落在细胞位 = 格顶面中心 + CELL_FOOT_DY）；其余 Vector2i 一律当格位
+const FX_BODY_KEYS := {
+	"antibody": ["from", "targets"], "toxin": ["from"], "lyse": ["from"], "adhesion": ["from", "to"],
+	"differentiate": ["at"], "respire": ["at"], "mutate": ["at"], "anaerobic": ["at"],
+}
+
+
+## 技能演出（issue #15）：把引擎给的轴坐标换成棋盘像素再交给演出层。
+## 巨噬扑咬走 CWChainFx（它要代画胞体，和连锁那一口是同一副嘴）。
+func show_fx(kind: String, data: Dictionary) -> void:
+	if board == null:
+		return
+	if kind == "chomp":
+		if chain_fx != null:
+			chain_fx.play_bite(board.tile_center(data["from"]), board.tile_center(data["to"]), int(data.get("cid", -1)))
+		return
+	if skill_fx == null:
+		return
+	var body_keys: Array = FX_BODY_KEYS.get(kind, [])
+	var out := {}
+	for key in data:
+		var v: Variant = data[key]
+		var dy: float = CWMatch.CELL_FOOT_DY if body_keys.has(key) else 0.0
+		if v is Vector2i:
+			out[key] = board.tile_center(v) + Vector2(0, dy)
+		elif v is Array:
+			var pts: Array = []
+			for c in v:
+				if c is Vector2i:
+					pts.append(board.tile_center(c) + Vector2(0, dy))
+			out[key] = pts
+		else:
+			out[key] = v
+	skill_fx.play(kind, out)
 
 
 ## 全局通报（`show_notice`）2026-09-07 起界面上没有位置了：世界事件本来就写进日志

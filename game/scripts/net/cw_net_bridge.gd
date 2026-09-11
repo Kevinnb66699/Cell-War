@@ -73,3 +73,8 @@ func show_beam(from: Vector2i, to: Vector2i, splash: Array) -> void:
 
 func show_erosion(at: Vector2i, dir: int) -> void:
 	room.broadcast({ "t": "erosion", "at": at, "dir": dir })
+
+
+## 技能演出（issue #15）：S→C 方向的新报文，老客户端认不出就静静落空（不升协议号，同 beam）
+func show_fx(kind: String, data: Dictionary) -> void:
+	room.broadcast({ "t": "fx", "kind": kind, "data": data })

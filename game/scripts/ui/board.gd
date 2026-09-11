@@ -210,6 +210,9 @@ const MARK_SELF := Color("eaf8fc47")     ## 当前行动的细胞脚下：淡到
 var _marks: Node2D                  ## 高亮剪影与过场用的临时叠层
 var _mucus_root: Node2D             ## 黏液覆膜层（见 set_mucus）
 var _mucus_nodes := {}              ## 轴坐标 -> 那一格的覆膜 Sprite2D
+var _necro_root: Node2D             ## 坏死纹理层（见 set_necrosis），压在黏液膜下面
+var _necro_nodes := {}              ## 轴坐标 -> 那一格的坏死 Sprite2D
+var _necro_tex: ImageTexture
 var _mucus_tex: ImageTexture        ## 覆膜贴图，第一次用到时烤一张，之后所有格共用
 var _mark_material: ShaderMaterial  ## 所有剪影共用一份
 
@@ -535,6 +538,10 @@ func _ready():
 	add_child(_marks)
 	## 黏液覆膜挂在高亮剪影**前面**建：两者的 z 只差 1（Z_MUCUS 0 / Z_MARK 1），
 	## 万一以后有人把它们调成一样，先建的在下 —— 覆膜本来就该在剪影底下
+	_necro_root = Node2D.new()
+	_necro_root.name = "Necrosis"
+	add_child(_necro_root)
+	move_child(_necro_root, _marks.get_index())
 	_mucus_root = Node2D.new()
 	_mucus_root.name = "Mucus"
 	add_child(_mucus_root)
@@ -623,6 +630,76 @@ func set_mucus(cells: Array) -> void:
 ## 为什么烤成贴图而不是每帧 `_draw()`：选稿那两片椭圆是**逐像素**填的
 ## （`draw.js` 的 `disc` 就是双重循环），一格两百多个 1px 方块，十九格就是四千多次
 ## 绘制调用。烤成 23×12 的贴图之后每格只剩一次 `draw_texture`。
+## 坏死格的纹理（issue #15，2026-09-11；选稿 textures.js necrosis v0「灰色干枯」）：整格灰褐底、
+## 两处短裂纹、两点淡色。此前坏死**根本没画**（只有悬停详情栏说一句），T 细胞放完毒素地上什么都看不出。
+## 覆在组织贴图上、压在黏液膜下面；贴图**只烤一次**，理由同 _mucus_film。
+const NECRO_ORIGIN := Vector2i(16, 10)
+const NECRO_SIZE := Vector2i(33, 29)
+const Z_NECRO := 0
+
+
+func set_necrosis(cells: Array) -> void:
+	var want := {}
+	for c: Vector2i in cells:
+		want[c] = true
+	for c: Vector2i in _necro_nodes.keys():
+		if not want.has(c):
+			var gone: Sprite2D = _necro_nodes[c]
+			_necro_nodes.erase(c)
+			if is_instance_valid(gone):
+				gone.queue_free()
+	for c: Vector2i in want:
+		if _necro_nodes.has(c) or not map.has(axial_to_rc(c)):
+			continue
+		var s := Sprite2D.new()
+		s.texture = _necrosis_film()
+		s.centered = false
+		s.position = tile_center(c) - Vector2(NECRO_ORIGIN)
+		s.z_index = tile_z(c, Z_NECRO)
+		_necro_root.add_child(s)
+		_necro_nodes[c] = s
+
+
+func _necrosis_film() -> ImageTexture:
+	if _necro_tex != null:
+		return _necro_tex
+	var img := Image.create(NECRO_SIZE.x, NECRO_SIZE.y, false, Image.FORMAT_RGBA8)
+	var base := Color("686761")
+	var dark := Color("393d3b")
+	var light := Color("939084")
+	## 选稿的 tissueHex：先铺侧面（−10..18 行），再铺顶面（−10..10 行），行宽按六边形收窄
+	for row in range(-10, 19):
+		var span := floori(16.0 - maxf(0.0, maxf(float(-row - 5), float(row - 13))) * 3.2)
+		_necro_line(img, -span, row, span, row, dark)
+	for row in range(-10, 11):
+		var span := floori(16.0 - maxf(0.0, float(absi(row) - 5)) * 3.2)
+		_necro_line(img, -span, row, span, row, base)
+	_necro_line(img, -9, -2, -3, 0, dark)
+	_necro_line(img, -3, 0, 2, -3, dark)
+	_necro_line(img, 5, 4, 10, 3, dark)
+	for j in 2:
+		for i in 2:
+			_necro_px(img, -8 + i, 4 + j, light)
+			_necro_px(img, 7 + i, -5 + j, light)
+	_necro_tex = ImageTexture.create_from_image(img)
+	return _necro_tex
+
+
+func _necro_line(img: Image, x0: int, y0: int, x1: int, y1: int, col: Color) -> void:
+	var n: int = maxi(maxi(absi(x1 - x0), absi(y1 - y0)), 1)
+	for i in range(n + 1):
+		var t := float(i) / float(n)
+		_necro_px(img, roundi(lerpf(x0, x1, t)), roundi(lerpf(y0, y1, t)), col)
+
+
+func _necro_px(img: Image, x: int, y: int, col: Color) -> void:
+	var px: int = x + NECRO_ORIGIN.x
+	var py: int = y + NECRO_ORIGIN.y
+	if px < 0 or py < 0 or px >= NECRO_SIZE.x or py >= NECRO_SIZE.y:
+		return
+	img.set_pixel(px, py, col)
+
+
 func _mucus_film() -> ImageTexture:
 	if _mucus_tex != null:
 		return _mucus_tex

@@ -85,3 +85,9 @@ func show_beam(_from: Vector2i, _to: Vector2i, _splash: Array) -> void:
 ## 与 show_result 分开是因为展示方式不同 —— 那个贴着骰子、1 秒多就走；这个要在棋盘上方停够看完一句话的时间。
 func show_notice(_text: String) -> void:
 	pass
+
+
+## 技能演出（issue #15，2026-09-11）：kind 见 CWSkillFx 文件头，data 只装 Vector2i / 数组 / 整数。
+## 基类不演 —— 纯 AI 桥与测试用不着；界面桥换成像素、联机桥原样广播。
+func show_fx(_kind: String, _data: Dictionary) -> void:
+	pass

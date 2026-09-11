@@ -2,7 +2,7 @@ export const WIDTH = 320;
 export const HEIGHT = 200;
 export const DURATION = 3.6;
 const images = new Map();
-export const assetNames = ['tissue_normal','tissue_cancer','cells/dendritic','cells/macrophage','cells/bcell','cells/tcell','cells/signet','cells/melanoma'];
+export const assetNames = ['tissue_normal','tissue_cancer','vessel','energy_normal','cells/immune','cells/osteo','cells/sclc','cells/dendritic','cells/macrophage','cells/bcell','cells/tcell','cells/signet','cells/melanoma'];
 export async function loadArt() {
   await Promise.all(assetNames.map(async name => {
     const image = new Image();

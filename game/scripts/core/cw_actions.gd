@@ -721,6 +721,16 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 			CWData.fmt(cost), CWData.fmt(int(q["final"]))])
 	if cell["faction"] == CWData.Faction.CANCER:
 		var was_healthy: bool = game.tile(to)["tissue"] == CWData.Tissue.HEALTHY
+		## 癌种被动的移动演出（issue #15）：黑色素瘤走折后价 = 邻格的伪足在拉；小细胞肺癌进健康格 = 细线疾行
+		if was_healthy and game.type_ability_on(cell):
+			if cell["ctype"] == CWData.CancerType.MELANOMA and _cancerous_adj(to) >= CWData.PSEUDOPOD_MIN_ADJ:
+				var roots: Array = []
+				for n in game.neighbors(to):
+					if n != cell["pos"] and game.is_cancerous(n):
+						roots.append(n)
+				game.fx("pseudopod", { "from": cell["pos"], "to": to, "roots": roots })
+			elif cell["ctype"] == CWData.CancerType.SCLC:
+				game.fx("minimal", { "from": cell["pos"], "to": to })
 		await enter_tile(cell, to, int(q["final"]))
 		## 【RAS持续激活】每行动回合第一次通过【移动】触发【定殖】→ 恢复（分期）。
 		## 只认移动——enter_tile 也服务传送/复活，所以钩在这里而不是那里
@@ -740,6 +750,9 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 	## 计数在**发动**时加，不看判定结果 —— 与口径 #70「攻击发动即算攻过」一致：
 	## 失败被反弹也占一次，否则上限就成了「成功次数上限」，失败反而不受约束。
 	cell["attacks_used"] += 1
+	## 巨噬的普通攻击也用【连续吞噬】那副嘴扑咬（Kevin 2026-09-11，issue #15）
+	if cell["itype"] == CWData.ImmuneType.MACRO:
+		game.fx("chomp", { "from": cell["pos"], "to": to, "cid": int(cell["id"]) })
 	## 把「还剩几次」说出来。上限用完之后，攻击选项会直接从行动栏消失 ——
 	## 不报一声的话，玩家看到的就是「这一格刚才还能打，现在点不了了」，
 	## 和 2026-08-31 癌方复活那次是同一类问题（口径 #93）。
@@ -1116,6 +1129,7 @@ func _do_differentiate(cell: Dictionary, t: int) -> void:
 	game.differentiated.append(t)
 	game.log_msg("【分化】%s 分化为 %s" % [game.player(cell["pid"])["name"], CWData.IMMUNE_TYPE_NAMES[t]])
 	game.update_marks()  # 分化出树突 → 立即标记相邻癌细胞
+	game.fx("differentiate", { "at": cell["pos"] })
 
 
 ## 【抗体】本世界回合还有没有额度。旋钮 `antibody_max_per_round` 0 = 不限，是现行 PRD
@@ -1185,6 +1199,10 @@ func _do_antibody(cell: Dictionary) -> void:
 				break
 	if not targets.is_empty():
 		game.log_msg("【抗体】命中 %d 个与健康组织邻接的癌细胞" % targets.size())
+		var hit_at: Array = []
+		for c in targets:
+			hit_at.append(c["pos"])
+		game.fx("antibody", { "from": cell["pos"], "targets": hit_at })
 		## 多目标同时结算（设计 §5.5）。attack=false：抗体是「技能」不是普通攻击——
 		## 树突/巨噬那两条挂不上（B 细胞专属，本就挂不上），
 		## 而【DNA损伤修复】明写挡「技能」，要挡得到它
@@ -1252,6 +1270,7 @@ func _do_toxin(cell: Dictionary) -> void:
 		return
 	cell["toxin_used"] += 1
 	game.tile(cell["pos"])["toxin_round"] = game.round_no   ## 这一格本世界回合用过了
+	game.fx("toxin", { "from": cell["pos"], "tiles": CWData.ring(cell["pos"], 1) })
 	for c in targets:
 		CWTissue.to_necrotic(game.tile(c), CWData.NECROSIS_TOXIN)
 	game.log_msg("【细胞毒素】1 环内 %d 格癌组织转为健康组织并进入「坏死」（不积累记忆）" % targets.size())
@@ -1269,6 +1288,7 @@ func _do_lyse(cell: Dictionary, to: Vector2i) -> void:
 	if game.cost.commit(CWCost.context(cell, CWCost.Action.CELL_SKILL, CWData.LYSE_COST,
 			to, 0, func() -> bool: return _is_lyse_legal_now(cell, to))).is_empty():
 		return
+	game.fx("lyse", { "from": cell["pos"], "to": to })
 	var t: Dictionary = game.tile(to)
 	CWTissue.to_healthy(t)
 	game.log_msg("【裂解】%s 由固化癌组织转为健康组织" % str(to))
@@ -1306,6 +1326,7 @@ func roll_mutation(cell: Dictionary) -> void:
 
 
 func apply_mutation(cell: Dictionary, r: int) -> void:
+	game.fx("mutate", { "at": cell["pos"] })
 	match r:
 		1:
 			game.log_msg("【突变】无事发生")
@@ -1348,6 +1369,7 @@ func _do_homing(cell: Dictionary, to: Vector2i) -> void:
 			func() -> bool: return _is_homing_legal_now(cell, to))).is_empty():
 		return
 	cell["metastasis_used"] = true
+	var from: Vector2i = cell["pos"]
 	game.log_msg("【早期血行转移】%s 自血管转移至 %s" % [game.cell_name(cell), str(to)])
 	await enter_tile(cell, to)   # 落地即【定殖】，把该格转为癌组织
 	## PRD 2026-09-01 追加：「并将相邻格中随机最多 3 格转为癌组织」。
@@ -1356,10 +1378,12 @@ func _do_homing(cell: Dictionary, to: Vector2i) -> void:
 	for n in game.neighbors(to):
 		if game.tile(n)["tissue"] == CWData.Tissue.HEALTHY:
 			spread.append(n)
-	for c in game.pick_random(spread, CWData.HOMING_SPREAD):
+	var picked: Array = game.pick_random(spread, CWData.HOMING_SPREAD)
+	for c in picked:
 		CWTissue.to_cancer(game.tile(c), true)
 		game.erosion_fx(c, CWData.dir_toward(c, to))   ## 过场：癌从落点那一侧漫入（Kevin 2026-09-06：这些也接）
 		game.log_msg("　【早期血行转移】%s 转为癌组织" % str(c))
+	game.fx("homing", { "from": from, "to": to, "spread": picked })
 
 
 # ---- 印戒细胞癌 ----

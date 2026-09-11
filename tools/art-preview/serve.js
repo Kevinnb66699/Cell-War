@@ -12,4 +12,4 @@ Bun.serve({hostname:'127.0.0.1',port:4317,async fetch(request){
   const file=Bun.file(path);if(!await file.exists())return new Response('Not found',{status:404});
   return new Response(file,{headers:{'Content-Type':types[extname(path)],'Cache-Control':'no-store'}});
 }});
-console.log('Cell War art R2: http://127.0.0.1:4317/tools/art-preview/index.html');
+console.log('Cell War art R3: http://127.0.0.1:4317/tools/art-preview/index.html');

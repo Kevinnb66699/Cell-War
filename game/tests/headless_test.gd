@@ -116,7 +116,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_hot_patch, t_online_doc, t_save_load, t_settings, t_feedback, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_hot_patch, t_online_doc, t_save_load, t_settings, t_feedback, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_skill_fx, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -1291,6 +1291,233 @@ func t_feedback() -> void:
 	pm.close()
 	root.remove_child(pm)
 	pm.free()
+	g.dispose()
+
+
+## 技能演出合集 + 常驻装饰 + 坏死纹理 + 引擎报演出 + 联机转发（issue #15，2026-09-11，选稿 R4）
+func t_skill_fx() -> void:
+	print("[技能演出 · 选稿 R4]")
+	## ① 每种演出：登记 → 走完时长自己收场；不认识的 kind 不登记；十三种一起画不报错
+	var fx := CWSkillFx.new()
+	root.add_child(fx)
+	var sample := {
+		"antibody": { "from": Vector2(0, 0), "targets": [Vector2(60, 10), Vector2(30, 40)] },
+		"toxin": { "from": Vector2(0, 0), "tiles": [Vector2(36, 0), Vector2(18, 20)] },
+		"lyse": { "from": Vector2(0, 0), "to": Vector2(36, 0) },
+		"adhesion": { "from": Vector2(0, 0), "to": Vector2(72, 0) },
+		"homing": { "from": Vector2(0, 0), "to": Vector2(108, 0), "spread": [Vector2(144, 0), Vector2(126, 20)] },
+		"pseudopod": { "from": Vector2(-36, 0), "to": Vector2(0, 0), "roots": [Vector2(36, 0), Vector2(18, -20), Vector2(-18, 20)] },
+		"minimal": { "from": Vector2(-36, 0), "to": Vector2(0, 0) },
+		"differentiate": { "at": Vector2(0, 0) }, "respire": { "at": Vector2(0, 0) },
+		"revive_immune": { "at": Vector2(0, 0) }, "revive_cancer": { "at": Vector2(0, 0) },
+		"mutate": { "at": Vector2(0, 0) },
+		"anaerobic": { "at": Vector2(0, 0), "sources": [Vector2(36, 0), Vector2(-36, 0)] },
+	}
+	for kind in sample:
+		fx.play(kind, sample[kind])
+	check(fx.active() == sample.size() and fx.visible, "十三种演出各登记一条（%d）" % fx.active())
+	fx.play("nonsense", {})
+	check(fx.active() == sample.size(), "不认识的 kind 不登记")
+	await process_frame
+	var longest := 0.0
+	for kind in sample:
+		longest = maxf(longest, CWSkillFx.duration(kind))
+	fx.sync(1.3)
+	await process_frame
+	check(fx.active() > 0 and fx.active() < sample.size(), "1.3 秒后短的（毒素 / 黏连 / 疾行 / 突变）收了、长的还在（余 %d）" % fx.active())
+	fx.sync(longest)
+	check(fx.active() == 0 and not fx.visible, "过了最长的 %.2f 秒全部收场、节点隐藏" % longest)
+	root.remove_child(fx)
+	fx.free()
+	## ② 像素笔的分段进度、装饰的纯函数
+	check(CWPix.phase(0.0, 0.3, 0.6) == 0.0 and is_equal_approx(CWPix.phase(0.6, 0.3, 0.6), 0.5)
+		and CWPix.phase(2.0, 0.3, 0.6) == 1.0, "phase：起点前 0、中点 0.5、过了钉 1")
+	check(CWCellDeco.marker_size(0.0) == 18 and CWCellDeco.marker_size(0.9) == 5, "冠印 0.3 秒起 0.6 秒内从 18 缩到 5")
+	var s0: Dictionary = CWCellDeco.shield_at(0.5, 0, Vector2.ZERO)
+	var s1: Dictionary = CWCellDeco.shield_at(0.5, 1, Vector2.ZERO)
+	check(bool(s0["front"]) and not bool(s1["front"]) and (s0["pos"] as Vector2).x > 0.0 and (s1["pos"] as Vector2).x < 0.0,
+		"两枚小盾相隔半圈，一前一后、一左一右")
+	var teeth: Array = CWCellDeco.teeth()
+	var behind := 0
+	for a in teeth:
+		if (a as Vector2).y < 0.0:
+			behind += 1
+	check(teeth.size() == 6 and behind == 2, "六枚骨牙：两枚在胞体后（y<0）、四枚在前，按 y 排好")
+	## ③ 坏死纹理：一格一张 Sprite、贴图 33×29、收得掉；黏液喷射十二向；巨噬扑咬会弹回并自己收场
+	var bd := make_board()
+	bd.set_necrosis([Vector2i.ZERO, Vector2i(1, 0)])
+	check(bd._necro_nodes.size() == 2 and bd._necrosis_film().get_size() == Vector2(33, 29), "坏死：两格两张、贴图 33×29")
+	bd.set_necrosis([])
+	check(bd._necro_nodes.is_empty(), "坏死消了贴图就收")
+	bd.free()
+	check(CWMucusFx.JETS == 12 and CWMucusFx.WAVE_R > float(CWData.MUCUS_RADIUS) * 36.0, "黏液破裂：十二向，喷得过 2 格圈")
+	var cf := CWChainFx.new()
+	root.add_child(cf)
+	cf.play_bite(Vector2.ZERO, Vector2(36, 0), 5)
+	check(cf.bounce and cf.chewing_cid == 5 and cf.visible, "扑咬：认领细胞、弹回模式")
+	await process_frame
+	cf.sync(CWChainFx.TOTAL + 0.1)
+	check(not cf.visible and cf.chewing_cid == -1, "扑咬完自己收场、放回真身")
+	cf.play(Vector2.ZERO, Vector2(36, 0), 1, 5)
+	check(not cf.bounce, "连锁那一口不弹回")
+	root.remove_child(cf)
+	cf.free()
+	## ④ 联机：S→C 多一种 fx 报文，客户端收、对局路由给桥；界面桥把轴坐标换成像素
+	check("fx" in CWNetClient.STREAM_KINDS, "客户端认 fx 报文")
+	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(msrc.contains("bridge.show_fx(String(m[\"kind\"])"), "对局把 fx 报文路由给桥")
+	check(msrc.contains("_skill_fx.z_index = board.Z_OVER_BOARD"), "技能演出层压在棋盘之上（不设就沉底）")
+	## ⑤ 引擎在结算那一刻报演出（每个桥对象只报一次）
+	var g := make_game(4, 3)
+	g.setup.build_board()
+	var rec: Variant = load("res://tests/fx_recorder.gd").new()   ## 见 tests/fx_recorder.gd 头注
+	rec.game = g
+	for pid in g.order:
+		g.bridges[pid] = rec
+	var kinds := func() -> Array:
+		var out: Array = []
+		for e in rec.got:
+			out.append(e[0])
+		return out
+	## 四人局的棋盘上手摆四只细胞（开局落子那一步不跑，同 t_pressure 的做法）
+	var immunes: Array = []
+	var cancers: Array = []
+	for spec in [[0, 0, CWData.Faction.IMMUNE, Vector2i(-2, 0), CWData.ImmuneType.BASIC, -1],
+			[1, 1, CWData.Faction.CANCER, Vector2i(0, 4), -1, CWData.CancerType.MELANOMA],
+			[2, 2, CWData.Faction.IMMUNE, Vector2i(2, 0), CWData.ImmuneType.BASIC, -1],
+			[3, 3, CWData.Faction.CANCER, Vector2i(-3, 3), -1, CWData.CancerType.SIGNET]]:
+		var made := CWSetup.make_cell(int(spec[0]), int(spec[1]), int(spec[2]), spec[3], int(spec[4]), int(spec[5]))
+		made["energy"] = 100
+		g.cells.append(made)
+		if int(spec[2]) == CWData.Faction.CANCER:
+			g.tiles[spec[3]]["tissue"] = CWData.Tissue.CANCER
+			cancers.append(made)
+		else:
+			immunes.append(made)
+	var tcell: Dictionary = immunes[0]
+	g.actions._do_differentiate(tcell, CWData.ImmuneType.T_CELL)
+	check(kinds.call().has("differentiate"), "分化 → differentiate")
+	var can: Dictionary = cancers[0]
+	await g.actions.apply_mutation(can, 1)
+	check(kinds.call().has("mutate"), "突变 → mutate")
+	g.world._aerobic()
+	check(kinds.call().count("respire") == immunes.size(), "有氧 → 每只免疫细胞一条 respire")
+	g.world._anaerobic()
+	var ana: Array = []
+	for e in rec.got:
+		if e[0] == "anaerobic":
+			ana.append(e[1])
+	check(not ana.is_empty() and (ana[0]["sources"] as Array).size() <= 12 and ana[0]["at"] is Vector2i,
+		"无氧 → 每只癌细胞一条 anaerobic，粒子起点最多 12 格、都是轴坐标")
+	## 细胞毒素：T 细胞脚下一圈铺满癌组织；裂解：相邻一格固化
+	tcell["energy"] = 100
+	var solid := Vector2i.MAX
+	for n in g.neighbors(tcell["pos"]):
+		if g.cells_at(n).is_empty():
+			g.tiles[n]["tissue"] = CWData.Tissue.CANCER
+			solid = n
+	await g.actions._do_toxin(tcell)
+	var tox: Array = []
+	for e in rec.got:
+		if e[0] == "toxin":
+			tox.append(e[1])
+	check(not tox.is_empty() and (tox[0]["tiles"] as Array).size() == 7, "细胞毒素 → toxin，七格（含脚下）")
+	g.tiles[solid]["tissue"] = CWData.Tissue.SOLID
+	await g.actions._do_lyse(tcell, solid)
+	check(kinds.call().has("lyse") and g.tiles[solid]["tissue"] == CWData.Tissue.HEALTHY, "裂解 → lyse，那格转健康")
+	## 抗体：B 细胞对与健康组织邻接的癌细胞
+	var bcell: Dictionary = immunes[1]
+	bcell["itype"] = CWData.ImmuneType.B_CELL
+	bcell["energy"] = 100
+	await g.actions._do_antibody(bcell)
+	check(kinds.call().has("antibody"), "抗体 → antibody")
+	## 复活
+	await g.world.revive_immune(int(tcell["pid"]), CWData.MARROWS[0])
+	check(kinds.call().has("revive_immune"), "免疫复活 → revive_immune")
+	## 巨噬扑咬：把一只癌细胞挪到巨噬旁边的健康格上，攻击 = 迁移进它那格
+	var macro: Dictionary = immunes[1]
+	macro["itype"] = CWData.ImmuneType.MACRO
+	macro["energy"] = 100
+	var foe: Dictionary = cancers[1]
+	var spot := Vector2i.MAX
+	for n in g.neighbors(macro["pos"]):
+		if g.cells_at(n).is_empty() and g.tiles[n]["tissue"] == CWData.Tissue.HEALTHY:
+			spot = n
+			break
+	if spot != Vector2i.MAX:
+		foe["pos"] = spot
+		foe["energy"] = 100
+		var cost := g.actions._move_cost_mod(macro, spot, g.actions._move_base_cost(macro, spot))
+		await g.actions._do_move(macro, spot, cost)
+		var chomp: Array = []
+		for e in rec.got:
+			if e[0] == "chomp":
+				chomp.append(e[1])
+		check(not chomp.is_empty() and int(chomp[0]["cid"]) == int(macro["id"]) and chomp[0]["to"] == spot,
+			"巨噬攻击 → chomp（带细胞下标与目标格）")
+	## 早期血行转移：黑色素瘤站血管上跳到远处健康格 → homing，带被感染的邻格
+	can["ctype"] = CWData.CancerType.MELANOMA
+	can["pos"] = CWData.VESSELS[0]
+	can["metastasis_used"] = false
+	can["energy"] = 100
+	var dest := Vector2i.MAX
+	for c in g.tiles.keys():
+		if g.tiles[c]["tissue"] == CWData.Tissue.HEALTHY and g.cells_at(c).is_empty() \
+				and CWData.hex_dist(c, CWData.VESSELS[0]) > 2 and CWData.special_of(c) != CWData.Special.VESSEL:
+			dest = c
+			break
+	await g.actions._do_homing(can, dest)
+	var hom: Array = []
+	for e in rec.got:
+		if e[0] == "homing":
+			hom.append(e[1])
+	check(not hom.is_empty() and hom[0]["from"] == CWData.VESSELS[0] and hom[0]["to"] == dest
+		and (hom[0]["spread"] as Array).size() <= CWData.HOMING_SPREAD, "早期血行转移 → homing，from/to/spread 齐全")
+	## 伪足穿透：目标格三面是癌 → pseudopod 带伸触手的邻格；极简胞浆：小细胞进健康格 → minimal
+	var step := Vector2i.MAX
+	for n in g.neighbors(can["pos"]):
+		if g.tiles[n]["tissue"] == CWData.Tissue.HEALTHY and g.cells_at(n).is_empty():
+			step = n
+			break
+	if step != Vector2i.MAX and g.type_ability_on(can):
+		var painted := 0
+		for n in g.neighbors(step):
+			if n != can["pos"] and painted < 3 and g.cells_at(n).is_empty():
+				g.tiles[n]["tissue"] = CWData.Tissue.CANCER
+				painted += 1
+		var pcost := g.actions._move_cost_mod(can, step, g.actions._move_base_cost(can, step))
+		await g.actions._do_move(can, step, pcost)
+		var ps: Array = []
+		for e in rec.got:
+			if e[0] == "pseudopod":
+				ps.append(e[1])
+		check(not ps.is_empty() and (ps[0]["roots"] as Array).size() >= 3 and ps[0]["to"] == step,
+			"伪足穿透 → pseudopod，伸触手的癌性邻格 ≥ 3")
+	var sclc: Dictionary = cancers[1]
+	sclc["ctype"] = CWData.CancerType.SCLC
+	sclc["energy"] = 100
+	var hop := Vector2i.MAX
+	for n in g.neighbors(sclc["pos"]):
+		if g.tiles[n]["tissue"] == CWData.Tissue.HEALTHY and g.cells_at(n).is_empty():
+			hop = n
+			break
+	if hop != Vector2i.MAX and g.type_ability_on(sclc):
+		var hcost := g.actions._move_cost_mod(sclc, hop, g.actions._move_base_cost(sclc, hop))
+		await g.actions._do_move(sclc, hop, hcost)
+		check(kinds.call().has("minimal"), "极简胞浆进健康格 → minimal")
+	## 黏连：树突在场、带标记的癌细胞旁边站一只没标记的
+	var dend: Dictionary = immunes[1]
+	dend["itype"] = CWData.ImmuneType.DENDRITIC
+	can["marked"] = true
+	can["mark_left"] = 2
+	var other: Dictionary = cancers[1]
+	other["marked"] = false
+	for n in g.neighbors(can["pos"]):
+		if g.cells_at(n).is_empty():
+			other["pos"] = n
+			break
+	g.world._mark_adhesion()
+	check(not bool(other["marked"]) or kinds.call().has("adhesion"), "黏连传染成立时报 adhesion")
 	g.dispose()
 
 

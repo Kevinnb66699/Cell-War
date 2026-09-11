@@ -302,6 +302,8 @@ var _hunt_fx: CWHuntFx         ## 免疫猎杀捕获准星
 var _mucus_fx: CWMucusFx       ## 印戒【黏液破裂】的引爆
 var _beam_fx: CWBeamFx         ## T【Excalibur】的双螺旋光束
 var _chain_fx: CWChainFx       ## 巨噬【连续吞噬】的每一口
+var _skill_fx: CWSkillFx       ## 一次性技能演出的合集（issue #15）
+var _decos: Array = []         ## 下标同 _cell_nodes：每只细胞 [背面, 正面] 两个 CWCellDeco（囊性护甲 / 刚性屏障 / 头顶标记）
 var _seal_fx: CWSealFx         ## B【中和抗体】的投递与封禁环（后者常驻，见 _sync_seal）
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
 var _erosion_fx := CWErosionFx.new()
@@ -365,6 +367,10 @@ func _ready() -> void:
 		_chain_fx = CWChainFx.new()
 		_chain_fx.z_index = board.Z_OVER_BOARD
 		board.add_child(_chain_fx)
+		## 一次性技能演出的合集（issue #15）：同样横跨好几排，压在棋盘之上
+		_skill_fx = CWSkillFx.new()
+		_skill_fx.z_index = board.Z_OVER_BOARD
+		board.add_child(_skill_fx)
 		_tile_info = CWTileInfo.new()
 		ui.add_child(_tile_info)
 		if pause_menu != null:
@@ -738,6 +744,7 @@ func _wire_bridge(level: int) -> void:
 	bridge.seal_fx = _seal_fx
 	bridge.beam_fx = _beam_fx
 	bridge.chain_fx = _chain_fx
+	bridge.skill_fx = _skill_fx
 	## 聊天框只在联机局建：本地局没人可聊，教程局更不该多一个能抢回车的东西。
 	## **CHAT_ON 现在是关的**（Kevin 2026-09-10 拍板先停）—— 三条待修见常量那儿。
 	if CHAT_ON and online and _chat == null and ui != null:
@@ -942,6 +949,9 @@ func _net_loop(id: int) -> void:
 			"beam":
 				if bridge != null:
 					bridge.show_beam(m["from"], m["to"], m.get("splash", []))
+			"fx":
+				if bridge != null:
+					bridge.show_fx(String(m["kind"]), m.get("data", {}))
 			"ask":
 				_serve_ask(m)
 			"game_over":
@@ -1078,6 +1088,10 @@ func teardown() -> void:
 	for node in _cell_nodes:
 		node.queue_free()
 	_cell_nodes.clear()
+	for pair in _decos:
+		for deco in pair:
+			(deco as Node).queue_free()
+	_decos.clear()
 	_was_alive.clear()
 	_ever_alive.clear()
 	_last_pos.clear()
@@ -1200,6 +1214,8 @@ func _process(delta: float) -> void:
 		_beam_fx.sync(delta)
 	if _chain_fx != null:
 		_chain_fx.sync(delta)
+	if _skill_fx != null:
+		_skill_fx.sync(delta)
 	_sync_seal(delta)
 	_sync_hand()
 	if panel != null:
@@ -1246,6 +1262,7 @@ func _process(delta: float) -> void:
 func _sync_tiles() -> void:
 	var marks := {}
 	var mucus: Array[Vector2i] = []
+	var necro: Array[Vector2i] = []
 	for c: Vector2i in game.tiles:
 		var t: Dictionary = game.tiles[c]
 		## 癌蔓延过场（侵蚀 / 增生 / 定殖共用）：引擎早就把这一格翻成癌了，但玩家还没看见「癌是从哪边漫过来的」。
@@ -1269,6 +1286,9 @@ func _sync_tiles() -> void:
 		## 选稿那句「保留底层组织识别」用色标做不到，色标会把整格染成一个颜色
 		if bool(t.get("mucus", false)):
 			mucus.append(c)
+		## 坏死：整格灰褐纹理（issue #15），此前根本没画
+		if int(t.get("necrosis", 0)) > 0:
+			necro.append(c)
 		if int(t.get("ossify_at", 0)) > 0:
 			marks[c] = ossify_mark(int(t["ossify_at"]), game.round_no)
 	for c: Vector2i in _flash:
@@ -1281,6 +1301,7 @@ func _sync_tiles() -> void:
 		marks.merge(bridge.marks, true)
 	board.set_marks(marks)
 	board.set_mucus(mucus)
+	board.set_necrosis(necro)
 
 
 ## 【骨样硬化】标记格这一帧画成什么色。**纯函数**（时间从外面进来，无头测试直接核对）：
@@ -1384,7 +1405,6 @@ func _sync_cells() -> void:
 		## 不是在细胞上叠一层），所以这几帧真身要让位
 		node.visible = c["alive"] and not (_chain_fx != null and _chain_fx.chewing_cid == i)
 		var became_alive: bool = c["alive"] and not _was_alive[i]
-		var is_revival: bool = became_alive and _ever_alive[i]
 		## 死而复活的也要淡入一次 —— 它和刚落子一样是「凭空出现」
 		if became_alive:
 			_pop_in(node)
@@ -1398,6 +1418,8 @@ func _sync_cells() -> void:
 		if c["alive"]:
 			_ever_alive[i] = true
 		if not c["alive"]:
+			for deco in _decos[i]:
+				(deco as CWCellDeco).visible = false
 			continue
 		_last_pos[i] = c["pos"]
 		var pos: Vector2i = c["pos"]
@@ -1407,13 +1429,18 @@ func _sync_cells() -> void:
 		var top: Vector2 = board.tile_center(pos)
 		node.position = top + Vector2((k - (n - 1) / 2.0) * STACK_DX, CELL_FOOT_DY)
 		node.z_index = board.tile_z(pos, board.Z_CELL)
+		## 装饰跟着走：位置是格顶面中心（选稿的坐标系）+ 同格错位，z 夹着细胞节点一前一后
+		for side in 2:
+			var deco: CWCellDeco = _decos[i][side]
+			deco.visible = true
+			deco.game = game
+			deco.position = top + Vector2((k - (n - 1) / 2.0) * STACK_DX, 0.0)
+			deco.z_index = node.z_index + (1 if side == 1 else -1)
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"])
 			_sync_doom(node as Sprite2D, c)
-		## 这里必须在写入新位置之后播放。复活前 node 仍停在死亡时的旧坐标，
-		## 直接拿 node.position 会把图腾留在旧格子（而不是复活目标格）。
-		if is_revival:
-			_play_revive_fx(node, c)
+		## 复活的图腾 2026-09-11 撤了（issue #15）：复活改由引擎报的 revive_immune / revive_cancer 演出
+		## （CWSkillFx「归拢重生」/「碎石重生」），单机联机都走同一条通报
 	if not jumps.is_empty():
 		_play_teleports(jumps)
 
@@ -1503,6 +1530,17 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 	else:
 		_add_doom_overlay(node)
 	_cells_root.add_child(node)
+	## 常驻装饰（囊性护甲 / 刚性屏障 / 头顶标记，issue #15）：前后各一个节点，跟着这只细胞走
+	var decos: Array = []
+	for is_front in [false, true]:
+		var deco := CWCellDeco.new()
+		deco.front = bool(is_front)
+		deco.game = game
+		deco.index = _cell_nodes.size()
+		deco.visible = false
+		_cells_root.add_child(deco)
+		decos.append(deco)
+	_decos.append(decos)
 	_was_alive.append(false)   ## 下一次 _sync_cells 就会认出「刚出现」并淡入
 	_ever_alive.append(false)
 	_last_pos.append(cell["pos"])
@@ -1759,33 +1797,3 @@ static func doom_pulse(ms: int = -1) -> float:
 	var t: float = float(Time.get_ticks_msec() if ms < 0 else ms) / 1000.0
 	var k := 0.5 + 0.5 * sin(t * DOOM_HZ * TAU)
 	return lerpf(DOOM_ALPHA.x, DOOM_ALPHA.y, k)
-
-
-func _play_revive_fx(node: Node2D, cell: Dictionary) -> void:
-	if _cells_root == null or board == null or node == null:
-		return
-	var fx := Sprite2D.new()
-	fx.texture = REVIVE_FX_TEXTURE
-	fx.centered = true
-	fx.hframes = REVIVE_FX_FRAMES
-	fx.frame = 0
-	fx.scale = Vector2.ONE * 0.82
-	fx.modulate = Color(1, 1, 1, 0.0)
-	fx.position = node.position + Vector2(0, -28.0)
-	fx.z_index = board.tile_z(Vector2i(cell["pos"]), board.Z_DICE) + 4
-	_cells_root.add_child(fx)
-	_revive_fx.append(fx)
-	var tw := fx.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tw.parallel().tween_property(fx, "position:y", fx.position.y - 18.0, REVIVE_FX_TIME)
-	tw.parallel().tween_property(fx, "scale", Vector2.ONE * 1.12, REVIVE_FX_TIME * 0.5)
-	tw.parallel().tween_property(fx, "modulate:a", 1.0, REVIVE_FX_TIME * 0.22)
-	tw.parallel().tween_method(func(v: float) -> void:
-		if is_instance_valid(fx):
-			fx.frame = clampi(roundi(v), 0, REVIVE_FX_FRAMES - 1)
-	, 0.0, float(REVIVE_FX_FRAMES - 1), REVIVE_FX_TIME)
-	tw.tween_property(fx, "scale", Vector2.ONE * 0.95, REVIVE_FX_TIME * 0.45)
-	tw.parallel().tween_property(fx, "modulate:a", 0.0, REVIVE_FX_TIME * 0.45)
-	tw.tween_callback(func() -> void:
-		_revive_fx.erase(fx)
-		if is_instance_valid(fx):
-			fx.queue_free())

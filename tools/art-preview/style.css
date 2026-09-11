@@ -1,4 +1,8 @@
 *{box-sizing:border-box}
+#studies.single-study{grid-template-columns:minmax(0,640px);justify-content:center}
+[hidden]{display:none!important}
+.filters{display:grid;gap:8px;margin-top:22px}.filters input{width:100%;min-width:0;padding:9px;background:#1b271c;border:1px solid #516046;color:#edf0de;font:inherit}.filters select{width:100%}.filters output{font-size:11px;color:#99aa95}
+#nav{max-height:530px;overflow-y:auto;margin-top:12px;scrollbar-width:thin}
 body{margin:0;background:#111917;color:#edf0de;font:14px 'Microsoft YaHei',sans-serif}
 header{height:72px;border-bottom:1px solid #39493d;display:flex;align-items:center;justify-content:space-between;padding:0 36px}
 .brand{font:700 21px Georgia,serif;letter-spacing:3px;color:#edf0de;text-decoration:none}

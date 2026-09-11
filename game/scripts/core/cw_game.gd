@@ -793,6 +793,18 @@ func erosion_fx(at: Vector2i, dir: int) -> void:
 		b.show_erosion(at, dir)
 
 
+## 技能演出（issue #15，2026-09-11）：引擎在结算的那一刻报「什么、在哪」，表现层各自去演。
+## 每个桥对象只报一次（同 announce）；data 里只放 Vector2i / 数组 / 整数 —— 联机桥要原样广播给客户端。
+## kind 一览见 CWSkillFx 文件头；"chomp" 是巨噬扑咬（走 CWChainFx）。
+func fx(kind: String, data: Dictionary) -> void:
+	var shown: Array = []
+	for b in bridges.values():
+		if b == null or shown.has(b):
+			continue
+		shown.append(b)
+		b.show_fx(kind, data)
+
+
 ## 全局通报（不挂格子）：每个桥对象只通报一次，同 announce
 func notice(text: String) -> void:
 	var shown: Array = []

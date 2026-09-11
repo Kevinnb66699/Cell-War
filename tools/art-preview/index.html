@@ -2,13 +2,14 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Cell War · 像素美术选稿 R2</title>
+  <title>Cell War · 像素选稿 R4</title>
+  <link rel="icon" type="image/png" href="../../game/assets/art/cells/immune.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header><a href="#" class="brand">CELL WAR <small>ART LAB / R2</small></a><span class="status">● 按反馈重画 · 像素风</span></header>
+  <header><a href="#" class="brand">CELL WAR <small>ART LAB / R4</small></a><span class="status">● 按选款更新 · 仅 HTML 预览</span></header>
   <div class="layout">
-    <aside><p class="eyebrow">SECOND PASS / 第二轮</p><h1>吞噬。<br>锁定。<br><em>强化。</em></h1><p class="intro">保留已选方向，<br>比较本轮重新绘制的动作。</p><nav id="nav" aria-label="设计项目"></nav><p class="side-note">已确认<br>黏液破裂 A · Excalibur B<br>中和抗体 A 飞行 + 双环<br><br>全效应应答 · 全像素绘制</p></aside>
+    <aside><p class="eyebrow">SKILL ATLAS / 全技能</p><h1>吞噬。<br>锁定。<br><em>强化。</em></h1><p class="intro">保留已有方案与选款，<br>逐项比较两阵营技能特效。</p><div class="filters"><input id="search" type="search" aria-label="搜索技能" placeholder="搜索技能…"><select id="filter" aria-label="筛选技能"><option value="all">全部项目</option><option value="original">原有方案与纹理</option><option value="immune">免疫细胞</option><option value="cancer">癌细胞</option><option value="shared">共享效果</option></select><output id="results" aria-live="polite"></output></div><nav id="nav" aria-label="设计项目"></nav><p class="side-note">已确认<br>黏液破裂 A · Excalibur B<br>中和抗体 A 飞行 + 双环<br><br>全效应应答 · 全像素绘制</p></aside>
     <main>
       <div class="heading"><div><p class="eyebrow" id="category"></p><h2 id="title"></h2><p id="description"></p></div><span id="revision"></span></div>
       <div class="toolbar"><div><button id="play">播放</button><button id="replay">重播</button><label>速度 <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option></select></label></div><label><input id="context" type="checkbox" checked> 显示棋盘</label></div>
@@ -18,6 +19,6 @@
       <section class="selection"><p class="eyebrow">YOUR COMBINATION</p><h3>你的搭配 <span id="selected-count"></span></h3><div id="picks"></div><div class="export"><button id="copy">复制选稿清单</button><button id="download">导出 JSON</button></div><p id="feedback" role="status">已记录你的指定方向。其余项目可以独立选择；重复点击可取消。</p><textarea id="summary" aria-label="选稿内容" readonly hidden></textarea></section>
     </main>
   </div>
-  <footer><span>整数像素 · 12fps · 无模糊光效</span><span>本轮为动画草稿，选定后接入游戏。</span></footer>
-  <script type="module" src="app.js"></script>
+  <footer><span>整数像素 · 12fps · 无模糊光效</span><span>仅 HTML 特效预览 · 本轮不实装游戏</span></footer>
+  <script type="module" src="app.js?revision=6"></script>
 </body></html>
