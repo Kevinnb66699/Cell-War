@@ -696,6 +696,9 @@ func _prepare_ui() -> void:
 		pause_menu.codex_open = func() -> bool:
 			return _codex != null and is_instance_valid(_codex) and _codex.visible
 		pause_menu.surrender_faction = viewing_faction
+		## 「反馈 bug」要带走此刻的对局快照（issue #19）；联机 / 回放里 game 是本地镜像，照样抓得到
+		pause_menu.feedback_snapshot = func() -> Dictionary:
+			return game.snapshot() if game != null else {}
 	if _tile_info != null and not board.tile_hovered.is_connected(_tile_info.on_hover):
 		board.tile_hovered.connect(_tile_info.on_hover)
 	if _card_info != null and hand != null 			and not hand.card_hovered.is_connected(_card_info.on_hover):
@@ -1133,6 +1136,7 @@ func teardown() -> void:
 	if pause_menu != null:
 		pause_menu.codex_open = Callable()
 		pause_menu.surrender_faction = Callable()
+		pause_menu.feedback_snapshot = Callable()
 		pause_menu.active = false
 		pause_menu.close()
 

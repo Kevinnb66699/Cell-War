@@ -116,7 +116,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_hot_patch, t_online_doc, t_save_load, t_settings, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_hot_patch, t_online_doc, t_save_load, t_settings, t_feedback, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -1178,6 +1178,119 @@ func t_pressure() -> void:
 	check(g.world.pressure_at(pos) == 34, "II 期 ×1.5：2.25 × 1.5 = 3.375 → 3.4（不是先取整成 2.3 再乘）")
 	g.round_no = 11
 	check(g.world.pressure_at(pos) == 45, "III 期 ×2：4.5")
+	g.dispose()
+
+
+## 「反馈 bug」（issue #19）：暂停菜单多一项 → 抓图 + 快照 → 说明 → POST 到收件口落盘。
+## 收件口是纯 RefCounted，这里在本机 127.0.0.1 起一个真的、用 StreamPeerTCP 发一个真的 POST。
+func t_feedback() -> void:
+	print("[反馈 bug]")
+	## ① 解析是纯函数：分段到达、不是 POST、路径不对、没 Content-Length、太大
+	var head := "POST /feedback HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\n".to_ascii_buffer()
+	check(CWFeedbackHTTP.parse(head.slice(0, 10))["status"] == "more", "头没收全 → 再等")
+	check(CWFeedbackHTTP.parse(head)["status"] == "more", "头齐了、正文还没到 → 再等")
+	var full := head.duplicate()
+	full.append_array("hello".to_ascii_buffer())
+	var r := CWFeedbackHTTP.parse(full)
+	check(r["status"] == "ok" and int(r["length"]) == 5
+		and full.slice(int(r["body_start"]), int(r["body_start"]) + 5).get_string_from_ascii() == "hello",
+		"头尾齐全 → ok，正文切得对")
+	check(int(CWFeedbackHTTP.parse("GET /feedback HTTP/1.1\r\n\r\n".to_ascii_buffer())["code"]) == 405, "不是 POST → 405")
+	check(int(CWFeedbackHTTP.parse("POST /other HTTP/1.1\r\nContent-Length: 1\r\n\r\n".to_ascii_buffer())["code"]) == 404, "路径不对 → 404")
+	check(int(CWFeedbackHTTP.parse("POST /feedback HTTP/1.1\r\n\r\n".to_ascii_buffer())["code"]) == 411, "没 Content-Length → 411")
+	check(int(CWFeedbackHTTP.parse(("POST /feedback HTTP/1.1\r\nContent-Length: %d\r\n\r\n" % (CWFeedbackHTTP.MAX_BODY + 1)).to_ascii_buffer())["code"]) == 413,
+		"超过 4 MB → 413")
+	## ② 打包：昵称 / 版本 / 说明 / 快照 / 截图都在，服务器那边 CWNet.decode 就能读
+	var g := make_game(2, 7)
+	g.setup.build_board()
+	var png := PackedByteArray([137, 80, 78, 71, 1, 2, 3])
+	var body := CWFeedback.pack("  棋盘卡住了  ", g.snapshot(), png, { "online": false })
+	var msg := CWNet.decode(body)
+	check(msg.get("t") == "feedback" and msg.get("text") == "棋盘卡住了" and msg.get("png") == png
+		and int(msg.get("round", -1)) == g.round_no and (msg.get("snapshot") as Dictionary).has("tiles") and msg.has("base"),
+		"报文装了说明（去掉首尾空白）、截图、快照、回合与版本")
+	check(str(CWNet.decode(CWFeedback.pack("x".repeat(500), {}, PackedByteArray()))["text"]).length() == CWFeedback.TEXT_MAX,
+		"说明超长截到 %d 字" % CWFeedback.TEXT_MAX)
+	## ③ 收件口端到端：本机起一个，真的 POST 过去（故意分两段发），落盘三个文件、回 200
+	var inbox := CWFeedbackHTTP.new()
+	inbox.quiet = true
+	var dir := "user://feedback_test_%d" % (Time.get_ticks_msec() % 100000)
+	check(inbox.start(18612, "127.0.0.1", dir) == OK, "收件口在 127.0.0.1:18612 起来了")
+	var tcp := StreamPeerTCP.new()
+	check(tcp.connect_to_host("127.0.0.1", 18612) == OK, "本机连得上")
+	var deadline := Time.get_ticks_msec() + 5000
+	while tcp.get_status() == StreamPeerTCP.STATUS_CONNECTING and Time.get_ticks_msec() < deadline:
+		tcp.poll()
+		inbox.poll()
+		await process_frame
+	check(tcp.get_status() == StreamPeerTCP.STATUS_CONNECTED, "TCP 已连接")
+	var req := ("POST /feedback HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n" % body.size()).to_ascii_buffer()
+	req.append_array(body)
+	tcp.put_data(req.slice(0, 40))
+	tcp.put_data(req.slice(40))
+	var reply := PackedByteArray()
+	deadline = Time.get_ticks_msec() + 5000
+	while inbox.received == 0 and Time.get_ticks_msec() < deadline:
+		inbox.poll()
+		tcp.poll()
+		await process_frame
+	for _i in 5:
+		inbox.poll()
+		tcp.poll()
+		await process_frame
+	if tcp.get_available_bytes() > 0:
+		reply = tcp.get_data(tcp.get_available_bytes())[1]
+	check(inbox.received == 1, "收件口收到一份")
+	check(reply.get_string_from_ascii().begins_with("HTTP/1.1 200"), "回 200（%s）" % reply.get_string_from_ascii().split("\r\n")[0])
+	var saved: Array = []
+	var d := DirAccess.open(dir)
+	if d != null:
+		for sub in d.get_directories():
+			for f in DirAccess.open(dir + "/" + sub).get_files():
+				saved.append(f)
+	check(saved.has("report.bin") and saved.has("shot.png") and saved.has("meta.json"),
+		"落盘 report.bin / shot.png / meta.json（%s）" % str(saved))
+	tcp.disconnect_from_host()
+	inbox.stop()
+	## ④ 暂停菜单：多一项「反馈 bug」；点下去抓图 + 快照进反馈页；提交走注入的发送口；回执切到「已提交」
+	var pm := CWPauseMenu.new()
+	root.add_child(pm)
+	await process_frame
+	pm.active = true
+	pm.feedback_snapshot = func() -> Dictionary: return g.snapshot()
+	var sent: Array = []
+	pm.feedback_post = func(b: PackedByteArray, done: Callable) -> void:
+		sent.append(b)
+		done.call(true, "")
+	pm.open()
+	var ids: Array = []
+	for item in pm.items():
+		ids.append(item["id"])
+	check(ids.has("feedback") and ids.find("feedback") < ids.find("surrender"), "主列表有「反馈 bug」，排在投降之前")
+	pm._activate(ids.find("feedback"))
+	for _i in 4:
+		await process_frame
+	check(pm.visible and pm._feedback_page == "edit" and pm._input.visible and pm._title.text == "反馈 bug",
+		"抓完图回到菜单、进了反馈页、输入框露面（页 = %s）" % pm._feedback_page)
+	check((pm._feedback_snapshot as Dictionary).has("tiles"), "快照抓到了")
+	pm._input.text = "第二回合免疫走不动"
+	pm._activate(0)                          ## 「提交」
+	check(sent.size() == 1 and CWNet.decode(sent[0])["text"] == "第二回合免疫走不动", "提交走注入的发送口，说明带上了")
+	check(pm._feedback_page == "done" and pm._hint.text == CWPauseMenu.FEEDBACK_HINT["done"], "回执成功 → 「已提交」")
+	pm._activate(0)                          ## 「返回」
+	check(pm._feedback_page == "" and pm._title.text == "暂停" and not pm._input.visible, "返回主列表，输入框收起")
+	## 失败回执 → 「发送失败」+ 可重试；Esc 从反馈页退回列表
+	pm.feedback_post = func(_b: PackedByteArray, done: Callable) -> void:
+		done.call(false, "HTTP 500")
+	pm._show_feedback_page("edit")
+	pm._activate(0)
+	check(pm._feedback_page == "failed" and pm._hint.text.contains("HTTP 500") and pm._list.size() == 2,
+		"失败 → 提示原因、给「重试 / 返回」")
+	pm._unhandled_input(press_action("ui_cancel"))
+	check(pm._feedback_page == "" and pm.visible, "Esc 从反馈页退回主列表（不关菜单）")
+	pm.close()
+	root.remove_child(pm)
+	pm.free()
 	g.dispose()
 
 

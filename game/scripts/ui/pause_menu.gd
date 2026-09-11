@@ -41,6 +41,9 @@ const ITEMS := [
 	{ "id": "save_quit", "text": "保存并退出", "enabled": true, "confirm": "" },
 	{ "id": "codex", "text": "知识之书", "enabled": true, "confirm": "" },
 	{ "id": "settings", "text": "设置", "enabled": true, "confirm": "" },
+	## 「反馈 bug」（issue #19，2026-09-11）：截图（不含本菜单）+ 对局快照 + 一句说明，POST 到自家服务器存档；
+	## 界面在 _show_feedback_page，打包与发送在 CWFeedback。联机 / 回放里也能用 —— 出问题的画面不分模式
+	{ "id": "feedback", "text": "反馈 bug", "enabled": true, "confirm": "" },
 	## **不走二级确认**（Kevin 2026-09-09：「不然太麻烦」）—— 与「返回主菜单」「退出游戏」
 	## 那条「不可撤销就要确认」的惯例是有意的例外。联机侧点下去只是**发起投票**（队友还要同意），
 	## 本地侧才是立刻生效，代价是手滑会直接判负（本地局重开就是了）。
@@ -55,6 +58,28 @@ const CONFIRM_ITEMS := [
 	{ "id": "yes", "text": "确定", "enabled": true, "confirm": "" },
 	{ "id": "no", "text": "取消", "enabled": true, "confirm": "" },
 ]
+
+## 反馈页（issue #19）的四种状态各给一组项与一句副标题：edit 还能改说明；sending 什么都不给点；
+## done / failed 只剩返回（failed 多一个重试）。副标题要短 —— 面板内宽 232px、10px 字。
+const FEEDBACK_ITEMS := {
+	"edit": [
+		{ "id": "fb_send", "text": "提交", "enabled": true, "confirm": "" },
+		{ "id": "fb_back", "text": "取消", "enabled": true, "confirm": "" },
+	],
+	"sending": [],
+	"done": [ { "id": "fb_back", "text": "返回", "enabled": true, "confirm": "" } ],
+	"failed": [
+		{ "id": "fb_send", "text": "重试", "enabled": true, "confirm": "" },
+		{ "id": "fb_back", "text": "返回", "enabled": true, "confirm": "" },
+	],
+}
+const FEEDBACK_HINT := {
+	"edit": "已抓截图与对局快照，可补一句说明",
+	"sending": "正在发送…",
+	"done": "已提交，谢谢！",
+	"failed": "发送失败，请稍后再试",
+}
+const INPUT_H := 34            ## 反馈页那格说明输入框的高度（同联机面板的 _edit）
 
 ## 主菜单那套辉光：四层白描边由外到内叠出来，越外越淡（尺寸与 alpha 照搬 MainMenu.tscn）。
 ## 为什么不用引擎的辉光后期：开 hdr_2d 会把整张画布的颜色都改掉。
@@ -87,6 +112,11 @@ var online := false
 ## （Kevin 2026-09-10 逮到）。形制上它只和联机共享一条「没得存档」。
 var replay := false
 
+## 「反馈 bug」要带走的对局快照，由 CWMatch 注入（返回 Dictionary）；无效 = 没有对局可抓，只发截图和说明
+var feedback_snapshot := Callable()
+## 测试注入的发送口：(body: PackedByteArray, done: Callable) —— 无效时走 CWFeedback.post 真发
+var feedback_post := Callable()
+
 var _settings: CWSettingsPage
 var _codex: CWCodex
 var _panel: Control
@@ -99,6 +129,11 @@ var _glow: Control             ## 全菜单共用一套，跟着选中项走
 var _selected := 0
 var _hovered := -1
 var _confirming := ""          ## 正在确认哪一项的 id；空 = 在主列表上
+var _input: LineEdit           ## 反馈页的说明输入框（只备一份，反馈页时露面）
+var _feedback_page := ""       ## "" = 不在反馈页；否则 edit / sending / done / failed（见 FEEDBACK_ITEMS）
+var _capturing := false        ## 正在藏起自己抓截图；close() 打断它
+var _feedback_png := PackedByteArray()
+var _feedback_snapshot := {}
 
 
 func _ready() -> void:
@@ -137,6 +172,10 @@ func open() -> void:
 func close() -> void:
 	visible = false
 	_confirming = ""
+	_feedback_page = ""
+	_capturing = false
+	if _input != null:
+		_input.visible = false
 	## 子页一并收掉：save_quit/teardown 这类外部关闭可能发生在子页开着的时候，
 	## 不收的话下次 open() 会顶着一张残留的规则页
 	if _settings != null:
@@ -173,8 +212,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		if not visible and action_bar != null and action_bar.can_cancel():
 			return
 		get_viewport().set_input_as_handled()
-		if _confirming != "":
-			_show_page("")      ## 确认页上按 Esc 是「退回上一层」，不是关掉整个菜单
+		if _confirming != "" or _feedback_page != "":
+			_show_page("")      ## 确认页 / 反馈页上按 Esc 是「退回上一层」，不是关掉整个菜单
 		else:
 			toggle()
 		return
@@ -194,6 +233,9 @@ func _unhandled_input(event: InputEvent) -> void:
 ## confirm_id 为空 = 主列表；否则是那一项的确认页。
 func _show_page(confirm_id: String) -> void:
 	_confirming = confirm_id
+	_feedback_page = ""
+	if _input != null:
+		_input.visible = false
 	if confirm_id == "":
 		_title.text = "暂停"
 		_hint.text = ""
@@ -272,11 +314,86 @@ func _activate(i: int) -> void:
 	if id == "codex":
 		_codex.open()
 		return
+	## 反馈 bug 的三步在菜单内部消化：抓图进反馈页 → 提交 / 重试 → 返回列表
+	if id == "feedback":
+		_start_feedback()
+		return
+	if id == "fb_send":
+		_send_feedback()
+		return
+	if id == "fb_back":
+		_show_page("")
+		return
 	if _list[i]["confirm"] != "":
 		_show_page(id)
 		return
 	close()
 	chose.emit(id)
+
+
+# ============ 反馈 bug（issue #19）============
+
+## 反馈页：标题「反馈 bug」，副标题说到哪一步了，输入框只在还能改说明时露面
+func _show_feedback_page(state: String) -> void:
+	_confirming = ""
+	_feedback_page = state
+	_title.text = "反馈 bug"
+	_hint.text = FEEDBACK_HINT[state]
+	_rebuild(FEEDBACK_ITEMS[state])
+
+
+## 「反馈 bug」：先把整层藏起来、让画面真画两帧，抓视口图（Kevin：截图不含 Esc 菜单），
+## 再露出来进反馈页。树仍是暂停的 —— 抓的就是玩家按 Esc 那一刻的盘面。
+## 中途被 close()（拆局 / 保存退出）打断就到此为止，别把一个已经关掉的菜单又摆出来。
+func _start_feedback() -> void:
+	_capturing = true
+	visible = false
+	if is_inside_tree():
+		await get_tree().process_frame
+		await get_tree().process_frame
+	if not _capturing:
+		return
+	_capturing = false
+	_feedback_png = _grab_png()
+	_feedback_snapshot = feedback_snapshot.call() if feedback_snapshot.is_valid() else {}
+	visible = true
+	_show_feedback_page("edit")
+
+
+## 视口此刻画着什么。无头环境没有画面，直接空 —— 反馈照发，只是没图。
+func _grab_png() -> PackedByteArray:
+	if DisplayServer.get_name() == "headless":
+		return PackedByteArray()
+	var vp := get_viewport()
+	if vp == null:
+		return PackedByteArray()
+	var tex := vp.get_texture()
+	if tex == null:
+		return PackedByteArray()
+	return CWFeedback.png_from(tex.get_image())
+
+
+func _send_feedback() -> void:
+	var text: String = _input.text
+	_show_feedback_page("sending")
+	var body := CWFeedback.pack(text, _feedback_snapshot, _feedback_png, { "online": online, "replay": replay })
+	if feedback_post.is_valid():
+		feedback_post.call(body, _feedback_done)
+	else:
+		CWFeedback.post(self, body, _feedback_done)
+
+
+## 发送回执。玩家已经退回列表 / 关掉菜单的话，结果没人看，什么都不改。
+func _feedback_done(ok: bool, detail: String) -> void:
+	if _feedback_page != "sending":
+		return
+	if ok:
+		_input.text = ""
+		_show_feedback_page("done")
+		return
+	_show_feedback_page("failed")
+	if detail != "":
+		_hint.text = "%s（%s）" % [FEEDBACK_HINT["failed"], detail]
 
 
 # ============ 外观 ============
@@ -308,6 +425,30 @@ func _build_chrome() -> void:
 	_hint.size = Vector2(W - PAD * 2, 0)
 	_panel.add_child(_hint)
 
+	## 反馈页的说明输入框：样式同联机面板的 _edit（点阵字、青色光标、按钮底框），只在反馈页露面。
+	## 回车 = 提交、Esc = 退回列表；上下键与空格被输入框吃掉，所以反馈页靠鼠标或这两个键
+	_input = LineEdit.new()
+	_input.visible = false
+	_input.placeholder_text = "说明（可不填）"
+	_input.max_length = CWFeedback.TEXT_MAX
+	_input.context_menu_enabled = false
+	_input.add_theme_font_override("font", CWStyle.FONT)
+	_input.add_theme_font_size_override("font_size", CWStyle.SIZE_BODY)
+	_input.add_theme_color_override("font_color", CWStyle.TEXT_HI)
+	_input.add_theme_color_override("font_placeholder_color", CWStyle.TEXT_OFF)
+	_input.add_theme_color_override("caret_color", CWStyle.IMMUNE)
+	_input.add_theme_stylebox_override("normal", CWStyle.box(0.45, CWStyle.BTN_BG, 2, 8))
+	_input.add_theme_stylebox_override("focus", CWStyle.box(1.0, CWStyle.BTN_BG, 2, 8))
+	_input.size = Vector2(W - PAD * 2, INPUT_H)
+	_input.text_submitted.connect(func(_t: String) -> void:
+		if _feedback_page == "edit" or _feedback_page == "failed":
+			_send_feedback())
+	_input.gui_input.connect(func(e: InputEvent) -> void:
+		if e.is_action_pressed("ui_cancel"):
+			_input.accept_event()
+			_show_page(""))
+	_panel.add_child(_input)
+
 	## 辉光整套只备一份、跟着选中项走 —— 同时只可能有一项被选中，不必每项各备一份
 	_glow = Control.new()
 	_glow.size = Vector2(W, 28)
@@ -334,10 +475,19 @@ func _rebuild(list: Array) -> void:
 	_hovered = -1
 
 	var head: float = TITLE_H + (HINT_H if _hint.text != "" else 0.0)
+	## 反馈页还能改说明时，副标题下面塞一格输入框，项往下让
+	var input_on := _feedback_page == "edit" or _feedback_page == "failed"
+	if input_on:
+		head += INPUT_H + 8
 	var h: float = PAD + head + list.size() * ITEM_H + PAD
 	var screen := CWView.screen_size()
 	_panel.position = Vector2((screen.x - W) / 2.0, (screen.y - h) / 2.0)
 	_panel.size = Vector2(W, h)
+	_input.visible = input_on
+	if input_on:
+		_input.position = Vector2(PAD, PAD + TITLE_H + HINT_H)
+		if _input.is_inside_tree():
+			_input.grab_focus()
 
 	for i in list.size():
 		var y: float = PAD + head + i * ITEM_H

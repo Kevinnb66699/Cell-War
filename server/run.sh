@@ -14,4 +14,7 @@ if [ -d next ]; then
   ./godot --headless --path game --import >/dev/null 2>&1 || true
 fi
 rm -f DRAIN
-exec ./godot --headless --path game --script res://server/server_main.gd -- port=8611 drain="$PWD/DRAIN"
+# feedback_*：「反馈 bug」收件口（issue #19），只绑本机，nginx 把 /cellwar/feedback 反代到 8612（server/nginx-feedback.conf）
+mkdir -p feedback
+exec ./godot --headless --path game --script res://server/server_main.gd -- port=8611 drain="$PWD/DRAIN" \
+  feedback_port=8612 feedback_bind=127.0.0.1 feedback_dir="$PWD/feedback"
