@@ -19,6 +19,8 @@ var _game: CWGame
 var _frames := 0
 var _t := 0.0
 var _shot := 0
+var _spots: Array = []
+var _cancers: Array = []
 
 
 func _initialize() -> void:
@@ -33,6 +35,7 @@ func _initialize() -> void:
 	_game.init(CWData.FACTION_ORDER[6], 7)
 	_game.setup.build_board()
 	var spots := [Vector2i(-3, 1), Vector2i(3, -1), Vector2i(0, 3)]
+	_spots = spots
 	var kinds := [CWData.CancerType.SIGNET, CWData.CancerType.OSTEO, CWData.CancerType.MELANOMA]
 	## 开局落子那一步不跑，细胞手摆（同 t_pressure 的做法）
 	var cancers: Array = []
@@ -41,6 +44,7 @@ func _initialize() -> void:
 		made["energy"] = 50
 		_game.cells.append(made)
 		cancers.append(made)
+	_cancers = cancers
 	for i in 3:
 		var c: Dictionary = cancers[i]
 		c["ctype"] = kinds[i]
@@ -49,6 +53,18 @@ func _initialize() -> void:
 		_game.tiles[spots[i]]["tissue"] = CWData.Tissue.SOLID if i == 1 else CWData.Tissue.CANCER
 		if i == 2:
 			c["marked"] = true
+	_fx = CWSkillFx.new()
+	_fx.z_index = _board.Z_OVER_BOARD
+	_board.add_child(_fx)
+	_mucus = CWMucusFx.new()
+	_mucus.z_index = _board.Z_OVER_BOARD
+	_board.add_child(_mucus)
+
+
+## 棋盘的 map 要等它自己 _ready 之后才有：格子贴图 / 坏死 / 细胞 / 装饰都在 WARMUP 那一帧再摆
+func _setup_scene() -> void:
+	var spots: Array = _spots
+	var cancers: Array = _cancers
 	_board.set_tissue(spots[1], CWData.Tissue.SOLID, _game.tiles[spots[1]]["special"], false, 1.0)
 	_board.set_tissue(spots[0], CWData.Tissue.CANCER, _game.tiles[spots[0]]["special"], false, 0.0)
 	_board.set_tissue(spots[2], CWData.Tissue.CANCER, _game.tiles[spots[2]]["special"], false, 0.0)
@@ -68,12 +84,6 @@ func _initialize() -> void:
 			deco.position = _board.tile_center(spots[i])
 			deco.z_index = sp.z_index + (1 if bool(is_front) else -1)
 			_board.add_child(deco)
-	_fx = CWSkillFx.new()
-	_fx.z_index = _board.Z_OVER_BOARD
-	_board.add_child(_fx)
-	_mucus = CWMucusFx.new()
-	_mucus.z_index = _board.Z_OVER_BOARD
-	_board.add_child(_mucus)
 
 
 func _at(c: Vector2i, body := false) -> Vector2:
@@ -85,6 +95,7 @@ func _process(d: float) -> bool:
 	if _frames < WARMUP:
 		return false
 	if _frames == WARMUP:
+		_setup_scene()
 		_mucus.play(_board.tile_center(Vector2i(-4, 3)))
 		_fx.play("antibody", { "from": _at(Vector2i(-4, -1), true), "targets": [_at(Vector2i(-1, -1), true)] })
 		_fx.play("lyse", { "from": _at(Vector2i(1, 2), true), "to": _at(Vector2i(2, 2)) })
