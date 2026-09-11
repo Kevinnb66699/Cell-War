@@ -5558,6 +5558,20 @@ func t_hot_patch() -> void:
 		"run/main_scene 指向启动器")
 	check(PatchState.PCK.begins_with(PatchState.DIR)
 		and PatchState.STATE.begins_with(PatchState.DIR), "补丁文件都在 user://patch 底下")
+	## ---- 第四道闸（2026-09-11）：换完整包之后 user:// 里的旧补丁不能再挂 ----
+	## 前三道全管「下不下载」；挂载那一步此前只核指纹，于是 09-10 早上的补丁换包之后照挂、盖住新脚本
+	var BootScript := load("res://scripts/boot.gd")
+	check(BootScript.stale_patch(202609100826, 202609100745, 202609110842), "补丁号比基线老 → 弃用")
+	check(BootScript.stale_patch(202609110900, 202609100745, 202609110842), "补丁号比基线新、但是给别的基线打的 → 弃用")
+	check(BootScript.stale_patch(202609110900, 0, 202609110842), "老状态文件没记基线（0）→ 当作不是这一版的，弃用")
+	check(not BootScript.stale_patch(202609110900, 202609110842, 202609110842), "给这一版打的、又比基线新 → 照挂")
+	var boot_src := FileAccess.get_file_as_string("res://scripts/boot.gd")
+	check(boot_src.contains("stale_patch(PatchState.installed_build(), PatchState.installed_base(), PatchState.base_build())"),
+		"_apply_patch 挂载前先过这道闸")
+	var state_src := FileAccess.get_file_as_string("res://scripts/patch_state.gd")
+	check(state_src.contains("c.set_value(\"patch\", \"base\", BASE_BUILD)"), "record() 记下补丁是给哪个基线打的")
+	check(state_src.contains("static func discard()") and not state_src.contains("discard() -> void:\n\tquarantine"),
+		"弃用走 discard()，不走 quarantine（不计失败、不拉黑）")
 	## ⚠ 基线号**必须是脚本常量**，不能放进 .txt：导出预设是 `export_filter="all_resources"`，
 	## 而没有导入器的散文件不算 resource —— 2026-09-09 第一版放在 base_build.txt 里，
 	## 根本没进导出包，线上读出来是 0、每次都判「基线太老」，补丁一个也收不到。

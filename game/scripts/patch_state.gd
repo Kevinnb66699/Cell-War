@@ -31,7 +31,7 @@ const INCOMING := DIR + "/incoming.pck"   ## 下载中的临时文件，校验�
 ## 于是 min_base 谁也拦不住：给第九版打的补丁会照样装进第七版的客户端。
 ## 这条纪律现在由 `tools/publish_release.sh` 的第 ⑤ 项闸住，不再靠人记得。
 ## 补丁不必动它（也改不动 —— 读取发生在挂载之前）。
-const BASE_BUILD := 202609110931
+const BASE_BUILD := 202609110943
 ## manifest 的验签公钥（Kevin 2026-09-09 定：manifest 也放自家服务器，靠签名而不是 TLS）。
 ##
 ## **为什么不靠 HTTPS**：那台机器上的证书老是过期（查的时候四个站死了两个、剩一个 10 天后到期），
@@ -137,10 +137,32 @@ static func mark_good() -> void:
 	_save(c)
 
 
+## 顺手记下**这份补丁是给哪个基线打的**（就是当时的 BASE_BUILD）：换完整包之后 boot.gd 拿它判「还能不能挂」。
 static func record(build: int, sha256: String) -> void:
 	var c := _cfg()
 	c.set_value("patch", "build", build)
 	c.set_value("patch", "sha256", sha256)
+	c.set_value("patch", "base", BASE_BUILD)
+	c.set_value("patch", "pending", false)
+	_save(c)
+
+
+## 已装补丁是给哪个基线打的；0 = 没记（2026-09-11 之前的状态文件），boot.gd 一律当「不是这一版的」处理
+static func installed_base() -> int:
+	return int(_cfg().get_value("patch", "base", 0))
+
+
+## 弃掉已装的补丁（换完整包之后旧补丁不能再挂，见 boot.gd 的 stale_patch）。
+## 和 quarantine() 不同：这不是「补丁坏了」，不计失败、不拉黑 —— 同一个补丁号将来给新基线重打时照常能装。
+## 文件挪开而不删，和 quarantine 同一条纪律：留着好查。
+static func discard() -> void:
+	if FileAccess.file_exists(PCK):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(DIR + "/stale.pck"))
+		DirAccess.rename_absolute(PCK, DIR + "/stale.pck")
+	var c := _cfg()
+	c.set_value("patch", "build", 0)
+	c.set_value("patch", "sha256", "")
+	c.set_value("patch", "base", 0)
 	c.set_value("patch", "pending", false)
 	_save(c)
 

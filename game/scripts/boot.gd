@@ -268,6 +268,16 @@ func _apply_patch() -> String:
 		return "上次的更新没能正常启动，已回退到原版"
 	if not FileAccess.file_exists(PatchState.PCK):
 		return ""
+	## **换过完整包之后，user:// 里那份补丁不能再挂**（2026-09-11 队友撞上：主菜单上残留着右侧竖条）。
+	## 三道闸全是管「下不下载」的，挂载这一步此前只核指纹 —— 而 user:// 跨版本存活，
+	## 09-10 早上装的 patch-202609100826 在换到 09-11 的完整包之后还躺在那儿、每次启动照挂。
+	## 从前它挂了也没事（script_export_mode=2，纯文本脚本被 remap 绕过去），
+	## 09-10 把导出改成纯文本之后，老补丁**真的盖住了新包的脚本**：旧 match.gd 配新场景，界面就残了。
+	if stale_patch(PatchState.installed_build(), PatchState.installed_base(), PatchState.base_build()):
+		print("旧补丁 %d（基线 %d）不属于这一版（基线 %d），已弃用" % [
+			PatchState.installed_build(), PatchState.installed_base(), PatchState.base_build()])
+		PatchState.discard()
+		return ""
 	## 补丁是**可执行代码**：挂之前必须核对指纹，对不上就当它被换过
 	var want := PatchState.installed_sha()
 	var got := PatchState.sha256_of(PatchState.PCK)
@@ -282,6 +292,14 @@ func _apply_patch() -> String:
 	PatchState.mark_pending()
 	get_tree().create_timer(PatchState.PROVE_SEC).timeout.connect(PatchState.mark_good)
 	return ""
+
+
+## 已装的补丁还能不能挂到**这一版**上。**纯函数**，无头测试直接核对。
+## 弃用的两种情形：补丁号不比基线新（它那点东西早烧在包里了，挂上只会把新文件盖回旧的）；
+## 或者它记的基线不是这一版（给别的完整包打的）。老状态文件没记基线（0）也算后者 ——
+## 那正是这条闸要拦的人：09-10 之前装的补丁。
+static func stale_patch(build: int, patch_base: int, base: int) -> bool:
+	return build <= base or patch_base != base
 
 
 ## 一行字，居中。**不用 CWStyle** —— 那是游戏里的类，见文件头第 ② 条。
