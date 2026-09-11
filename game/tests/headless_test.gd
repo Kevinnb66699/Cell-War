@@ -6091,6 +6091,7 @@ func t_skill_move_price_tag() -> void:
 func t_doubled_marker() -> void:
 	print("[双重触发的标记]")
 	var g := make_game(2, 3)
+	g.tune.world_events_on = true   ## 2026-09-10 起默认关，这条测的就是世界事件
 	g.setup.build_board()
 
 	## ---- ① 引擎：三档各自记下自己是哪一档 ----
@@ -6174,15 +6175,17 @@ func t_world_events_off() -> void:
 	## ---- ③ **必须进 RULE_FIELDS**：联机靠快照把它带给客户端 ----
 	check("world_events_on" in CWTuning.RULE_FIELDS,
 		"world_events_on 在 RULE_FIELDS 里 —— 否则客户端影子对局会以为该放事件，两边对不上账")
+	## **2026-09-10 起默认关**（云端 PRD：「暂时停止维护，正常对局不考虑世界事件」），
+	## 所以这儿反过来验：拨**开**的那一局存进快照，影子对局还原之后也得跟着开
 	var off := make_game(2, 5)
 	off.setup.build_board()
-	off.tune.world_events_on = false
+	off.tune.world_events_on = true
 	var snap: Dictionary = CWStateCodec.snapshot(off)
 	var shadow := make_game(2, 999)
 	shadow.setup.build_board()
-	check(shadow.tune.world_events_on, "影子对局默认是开的")
+	check(not shadow.tune.world_events_on, "影子对局默认是关的（2026-09-10 起）")
 	CWStateCodec.restore(shadow, snap)
-	check(not shadow.tune.world_events_on, "快照还原之后跟着关上了（联机就靠这一条）")
+	check(shadow.tune.world_events_on, "快照还原之后跟着开了（联机就靠这一条）")
 	off.dispose()
 	shadow.dispose()
 	g.dispose()
@@ -6193,6 +6196,7 @@ func t_world_events_off() -> void:
 	var p := CWMatchPanel.new()
 	root.add_child(p)
 	await process_frame
+	g2.tune.world_events_on = true      ## 默认已关，先拨开才验得到「开着」那一档
 	p.refresh(g2)
 	check(p._phase.text.contains("世界事件"), "开着时那行照旧写世界事件")
 	g2.tune.world_events_on = false
@@ -6207,14 +6211,14 @@ func t_world_events_off() -> void:
 	root.add_child(cp)
 	await process_frame
 	cp.open()
-	check(cp.config()["world_events"], "默认开")
-	check(cp._value_text(CWConfigPanel.ROW_EVENTS) == "开", "值文案：开")
+	check(not cp.config()["world_events"], "默认关（2026-09-10 起）")
+	check(cp._value_text(CWConfigPanel.ROW_EVENTS).begins_with("关"), "值文案：关")
 	cp._cycle(CWConfigPanel.ROW_EVENTS, 1)
-	check(not cp.config()["world_events"]
-			and cp._value_text(CWConfigPanel.ROW_EVENTS).begins_with("关"),
-		"拨一下 → 关（%s）" % cp._value_text(CWConfigPanel.ROW_EVENTS))
+	check(cp.config()["world_events"]
+			and cp._value_text(CWConfigPanel.ROW_EVENTS) == "开",
+		"拨一下 → 开（%s）" % cp._value_text(CWConfigPanel.ROW_EVENTS))
 	cp._cycle(CWConfigPanel.ROW_EVENTS, 1)
-	check(cp.config()["world_events"], "再拨一下 → 拨回开（两档来回）")
+	check(not cp.config()["world_events"], "再拨一下 → 拨回关（两档来回）")
 	cp.queue_free()
 
 	## ---- ⑥ 联机：房间存得住、房间状态里说得出 ----
@@ -7048,6 +7052,7 @@ func t_match_panel() -> void:
 
 	## 定案 B（2026-09-01）的警报：标题只读引擎的 cancer_win_streak，界面自己不数
 	var g := make_game(6, 7)
+	g.tune.world_events_on = true   ## 2026-09-10 起默认关；下面要验世界事件的通报与那一行字
 	await run_setup(g)
 	p.refresh(g)
 	check(p._weighted_caption.text == "癌性加权", "平时标题是「癌性加权」")
@@ -10714,8 +10719,15 @@ func t_stroma_targets() -> void:
 	g.dispose()
 
 
+## 卡牌 / 世界事件效果的公共台子：干净棋盘 + 世界事件开着。
+##
+## **世界事件在这儿要开**：2026-09-10 起引擎默认关掉了它（云端 PRD 标了
+## 「暂时停止维护，正常平衡性测试和对局不考虑世界事件」），而这台子上的测试
+## 一多半是冲着世界事件来的 —— 不开的话 `world_fx.trigger()` 整个空转，
+## 断言会一条条变成「什么都没发生」。要验「关掉之后不触发」的那几条自己拨回 false。
 func _fx_game(n_players := 2) -> CWGame:
 	var g := make_game(n_players, 1)
+	g.tune.world_events_on = true
 	g.setup.build_board()
 	for c in g.tiles.keys():
 		g.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
@@ -13775,11 +13787,19 @@ func t_batch2_rules() -> void:
 	check(int(imm["camp_round"]) == -1, "挪窝：蹲守作废")
 	await g.world._resolve_camping()
 	check(g.tiles[z]["tissue"] == CWData.Tissue.CANCER, "没蹲满：不净化")
-	## 到期那一回合才进来：E 阶段照样固化，蹲守落空
+	## 到期那一回合才进来：**现在挡得住了**。云端 PRD 2026-09-10 给 E-硬化加了条件
+	## 「最后**若不被免疫细胞占据**，则该组织转为固化癌组织并移除标记」——
+	## 站上去就不转，而且**标记留着**：人一走下个回合照样固化。
 	g.round_no = 7
 	await g.actions.enter_tile(imm, z)
 	g.world._ossify()
-	check(g.tiles[z]["tissue"] == CWData.Tissue.SOLID, "到期回合才进来：E 阶段照样固化")
+	check(g.tiles[z]["tissue"] == CWData.Tissue.CANCER
+			and int(g.tiles[z]["ossify_at"]) == 7,
+		"到期回合站上去：本回合不转固化，标记留着")
+	## 人一走就该转 —— 站一回合不等于把标记拆了
+	await g.actions.enter_tile(imm, Vector2i(1, 0))
+	g.world._ossify()
+	check(g.tiles[z]["tissue"] == CWData.Tissue.SOLID, "免疫细胞离开，下一次 E 阶段照样固化")
 	g.round_no = 8
 	await g.world._resolve_camping()
 	check(g.tiles[z]["tissue"] == CWData.Tissue.SOLID and int(imm["camp_round"]) == -1,

@@ -92,7 +92,10 @@ var _faction: int = CWData.Faction.IMMUNE   ## -1 = 观战
 ## AI 强度：0 普通（纯启发式）/ 1 较强（扁平蒙特卡洛）/ 2 树搜索（UCT，2026-09-07 接入）。
 ## 原来是 bool，第三档进来之后改成下标 —— 名字与含义都在 CWMatch.AI_LEVEL_NAMES 一处。
 var _ai := 0
-var _world_events := true   ## 世界事件总开关（Kevin 2026-09-08）；默认开
+var _world_events := false  ## 世界事件总开关（Kevin 2026-09-08）。
+                            ## **2026-09-10 起默认关**：云端 PRD 给整节标了
+                            ## 「暂时停止维护，正常平衡性测试和对局不考虑世界事件」。
+                            ## 拨一下就开，机制一行没删
 var _seed := 0
 ## 对局类型：面板内第一项切换；标准对局 false（癌种行全部收起、按钮在 438）
 var custom := false
