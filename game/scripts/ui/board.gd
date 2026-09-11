@@ -8,14 +8,23 @@ const CANCER = preload("res://assets/art/tissue_cancer.png")
 ## 癌变版 2026-09-08 补上。改名统一成 vessel_normal.png 会动 uid，收益只是好看，没做。
 const VESSELH = preload("res://assets/art/vessel.png")
 const VESSELC = preload("res://assets/art/vessel_cancer.png")
-## 积累进度外圈（Kevin 2026-09-08 拍的 A′ 案）：一张顶面六边形的 2px 轮廓掩膜，
-## 核心与骨髓共用（几何本来就一样），颜色由 set_store() 按组织给。
-const STORE_RING = preload("res://assets/art/ui/store_ring.png")
+## 积累进度外圈（Kevin 2026-09-08 拍的 A′ 案；2026-09-11 起换成 5yntaxEr 的手绘贴图，issue #24）：
+## 每种组织 × 健康 / 病变各一对「底」（暗色底圈）「满」（亮色满圈），两张同一像素集、只差颜色；
+## shader 按进度从底顶点顺时针把「满」露出来、其余露「底」，**按贴图纹素截取**。
+## 颜色全在贴图里，代码不再给色 —— 病变那两对的配色（癌化骨髓 = 绿、癌化核心 = 紫）
+## 也是 zip 里原样给的，要改直接换文件。下标 0 = 健康、1 = 病变（含固化，和 set_tissue 同一口径）。
 const STORE_SHADER = preload("res://assets/shaders/store_progress.gdshader")
-## 圈的颜色取各自贴图上**图标本来的颜色** —— 不引第三种色，一眼看得出是这一格的东西。
-const STORE_COLOR := {
-	CWData.Special.CORE: Color8(63, 157, 95),
-	CWData.Special.MARROW: Color8(176, 127, 224),
+const STORE_TRACK := {
+	CWData.Special.CORE: [preload("res://assets/art/ui/store/core_track_normal.png"),
+		preload("res://assets/art/ui/store/core_track_cancer.png")],
+	CWData.Special.MARROW: [preload("res://assets/art/ui/store/marrow_track_normal.png"),
+		preload("res://assets/art/ui/store/marrow_track_cancer.png")],
+}
+const STORE_LIT := {
+	CWData.Special.CORE: [preload("res://assets/art/ui/store/core_lit_normal.png"),
+		preload("res://assets/art/ui/store/core_lit_cancer.png")],
+	CWData.Special.MARROW: [preload("res://assets/art/ui/store/marrow_lit_normal.png"),
+		preload("res://assets/art/ui/store/marrow_lit_cancer.png")],
 }
 const ENERGYH = preload("res://assets/art/energy_normal.png")
 const MARROWH = preload("res://assets/art/marrow_normal.png")
@@ -464,29 +473,31 @@ func _solid_tex(a: Vector2i, tissue: int, special: int, stocked: bool,
 
 
 ## 代谢核心 / 骨髓的积累进度外圈：`frac` 0~1，**负数 = 不是特殊组织，不画**。
+## `tissue` 挑健康 / 病变那一对贴图（固化格算病变，同 set_tissue）。
 ## 骨髓「进度到头但卡还没结算」那一档**不在这里表达**：环照常画满，只有图标淡
 ## （`set_tissue` 的 pending；Kevin 2026-09-11 定的）。
+## 满仓不再另换亮色：贴图只有「底 / 满」两档，「可以来拿了」靠整圈亮 + 骨髓图标里的骨头。
 ##
 ## 同 `set_tissue()` 的用法：对局那边每帧无脑全刷。
-func set_store(a: Vector2i, frac: float, special: int) -> void:
+func set_store(a: Vector2i, frac: float, special: int, tissue: int = CWData.Tissue.HEALTHY) -> void:
 	var key := axial_to_rc(a)
 	if not map.has(key):
 		return
 	var t: Sprite2D = map[key]["instance"]
-	var show: bool = frac >= 0.0 and STORE_COLOR.has(special)
-	var base: Color = STORE_COLOR.get(special, Color.WHITE)
-	## 满仓换成更亮的一档 ——「还在攒」和「可以来拿了」是玩家真正要区分的两个状态，
-	## 光靠长度在一格 32px 上分不出最后那一小段
-	var col: Color = base.lerp(Color.WHITE, 0.45) if frac >= 0.999 else base
+	var show: bool = frac >= 0.0 and STORE_LIT.has(special)
 	var ring := t.get_node_or_null("StoreRing") as Sprite2D
 	if ring == null:
 		return
 	ring.visible = show
 	if not show:
 		return
+	var i: int = 0 if tissue == CWData.Tissue.HEALTHY else 1
+	var lit: Texture2D = STORE_LIT[special][i]
+	if ring.texture != lit:
+		ring.texture = lit
 	var mat := ring.material as ShaderMaterial
+	mat.set_shader_parameter("track_tex", STORE_TRACK[special][i])
 	mat.set_shader_parameter("progress", frac)
-	mat.set_shader_parameter("lit_color", col)
 
 
 ## 直接指定某格的贴图（【E-侵蚀】过场用）。
@@ -507,8 +518,7 @@ func set_tile_tex(a: Vector2i, tex: Texture2D) -> void:
 ## 127 格里只有 9 格用得上，全建等于白养 118 个带 shader 的节点。
 func _add_store_ring(s: Sprite2D) -> void:
 	var ring := Sprite2D.new()
-	ring.name = "StoreRing"
-	ring.texture = STORE_RING
+	ring.name = "StoreRing"    ## 贴图（「满」）与「底」由 set_store() 按组织 / 健康病变每帧给
 	ring.z_index = 1
 	ring.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	var mat := ShaderMaterial.new()

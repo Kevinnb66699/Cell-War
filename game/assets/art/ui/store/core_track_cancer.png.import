@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c51ak5gcn7j3f"
-path="res://.godot/imported/store_ring.png-e33913fefd1b4ce0cdffc29b3bea6692.ctex"
+uid="uid://cas4rfwchbd6m"
+path="res://.godot/imported/core_track_cancer.png-70db1435cd934012f66fcfbf6a7131f8.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/art/ui/store_ring.png"
-dest_files=["res://.godot/imported/store_ring.png-e33913fefd1b4ce0cdffc29b3bea6692.ctex"]
+source_file="res://assets/art/ui/store/core_track_cancer.png"
+dest_files=["res://.godot/imported/core_track_cancer.png-70db1435cd934012f66fcfbf6a7131f8.ctex"]
 
 [params]
 

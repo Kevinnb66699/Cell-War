@@ -6968,19 +6968,37 @@ func t_store_ring() -> void:
 	var mat := ring.material as ShaderMaterial
 	check(ring.visible and is_equal_approx(float(mat.get_shader_parameter("progress")), 0.5),
 		"0.5 → 显示，且进度喂到了 shader")
-	var half: Color = mat.get_shader_parameter("lit_color")
-	board.set_store(CWData.CORES[0], 1.0, CWData.Special.CORE)
-	var full: Color = mat.get_shader_parameter("lit_color")
-	check(full != half and full.v > half.v, "满仓换成更亮的一档（「还在攒」和「可以来拿」要分得开）")
+	## 2026-09-11 起颜色全在 5yntaxEr 的贴图里（issue #24）：Sprite 贴「满」、shader 的 track_tex 是「底」，
+	## 健康 / 病变各一对；固化格按病变那对（和 set_tissue 同一口径）
+	check(ring.texture == board.STORE_LIT[CWData.Special.CORE][0]
+		and mat.get_shader_parameter("track_tex") == board.STORE_TRACK[CWData.Special.CORE][0],
+		"健康核心：「满」贴在 Sprite 上、「底」喂给 shader")
+	board.set_store(CWData.CORES[0], 0.5, CWData.Special.CORE, CWData.Tissue.CANCER)
+	check(ring.texture == board.STORE_LIT[CWData.Special.CORE][1]
+		and mat.get_shader_parameter("track_tex") == board.STORE_TRACK[CWData.Special.CORE][1],
+		"癌化 → 换病变那一对")
+	board.set_store(CWData.CORES[0], 1.0, CWData.Special.CORE, CWData.Tissue.SOLID)
+	check(ring.texture == board.STORE_LIT[CWData.Special.CORE][1], "固化格也按病变那对画")
+	check(board.STORE_LIT[CWData.Special.MARROW][0] != board.STORE_LIT[CWData.Special.CORE][0]
+		and board.STORE_LIT[CWData.Special.MARROW][0] != board.STORE_TRACK[CWData.Special.MARROW][0],
+		"骨髓与核心各有各的贴图，「满」与「底」也不是同一张")
+	## 「按图片像素截取」（5yntaxEr 在 #24 叮嘱）：shader 的角度从纹素中心算，进度边界那颗纹素不会被劈成两色
+	var sh := FileAccess.get_file_as_string("res://assets/shaders/store_progress.gdshader")
+	check(sh.contains("floor(UV * tex_size)") and sh.contains("uniform sampler2D track_tex"),
+		"shader 按纹素判进度、底圈从贴图读")
 	## 「进度到头、卡还没结算」**不碰环**（Kevin 2026-09-11：「进度条不要变淡，就把中间的卡牌 icon 变淡」）：
 	## set_store 没有 pending 参数，pending 只喂给 set_tissue（第一版连环一起淡过，当天撤掉）
-	check(board.get_method_list().any(
-			func(m: Dictionary) -> bool: return m["name"] == "set_store" and m["args"].size() == 3),
-		"set_store 仍是三个参数：环不认 pending")
+	var store_args: Array = []
+	for m in board.get_method_list():
+		if m["name"] == "set_store":
+			for a in m["args"]:
+				store_args.append(a["name"])
+	check(not store_args.is_empty() and not store_args.has("pending"),
+		"set_store 不收 pending：环不认这一档（参数：%s）" % str(store_args))
 	var mt_src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
 	check(mt_src.contains("int(t[\"cards\"]) > 0, solid, CWData.store_pending(t))")
-		and mt_src.contains("board.set_store(c, CWData.store_progress(t), int(t[\"special\"]))"),
-		"_sync_tiles 把 store_pending 只喂给 set_tissue，set_store 照旧")
+		and mt_src.contains("board.set_store(c, CWData.store_progress(t), int(t[\"special\"]), tissue)"),
+		"_sync_tiles 把 store_pending 只喂给 set_tissue；set_store 收进度 + 组织 + 健康病变（绽开期间用同一个 tissue）")
 	board.queue_free()
 	g.dispose()
 

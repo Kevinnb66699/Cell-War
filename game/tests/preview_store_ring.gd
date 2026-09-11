@@ -35,7 +35,8 @@ func _setup() -> void:
 		var c: Vector2i = CWData.CORES[i]
 		if i == 2:
 			_board.set_tissue(c, CWData.Tissue.CANCER, CWData.Special.CORE)
-		_board.set_store(c, fracs[i], CWData.Special.CORE)
+		_board.set_store(c, fracs[i], CWData.Special.CORE,
+			CWData.Tissue.CANCER if i == 2 else CWData.Tissue.HEALTHY)
 	## 骨髓要连**贴图**一起摆：2026-09-08 起有卡 / 空仓是两张图，
 	## 只看环的话看不出这一对组合起来是什么样
 	var mf := [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0, 0.5, 1.0]
