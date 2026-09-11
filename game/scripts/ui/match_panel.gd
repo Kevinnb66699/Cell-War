@@ -21,7 +21,6 @@ signal end_turn_pressed
 ## 离开时发空字典 —— 和行动栏那条悬停路径同一套约定
 ## anchor_y = 被悬停那一行的画布 y，详情框把框顶对齐到它（2026-09-07 之前没带 y，框被摆到窗口底部）；离开时发 -1
 signal skill_hovered(rows: Dictionary, anchor_x: float, anchor_y: float)
-signal played_card_pressed(rows: Dictionary, anchor_x: float, anchor_y: float)
 
 const RECT := Rect2(696, 0, 264, 540)
 const PAD := 16
@@ -63,19 +62,6 @@ const ENERGY_RESERVE := 52  ## 能量数字预留的宽度，右对齐到预计�
 const NAME_W := 64
 ## 技能详情框的宽度。固定态要放下「停在技能上看详情 · 再点该行取消固定」这行小字（10px×18 字 = 180）
 const TIP_W := 200.0
-## 本回合打出的历史小卡（队友 2026-09-06 的表现层）：16px 像素小卡 + 1px 边 = 18，放进 30px；
-## 摆在行底那一行、手牌方块左边 —— 行首插 60px 会把玩家名推到能量数上（合并时改的摆法，见开发日志）。
-## 叠放只露 2px（Kevin 2026-09-06 看放大图定的）：1px 不透明主色边框 + 1px 深色卡面，图标只画最上面那张 ——
-## 原来叠 6px、边框半透明，底下每张的边框压在上一张的图标上，颜色太多有割裂感
-const HISTORY_W := 30.0
-const HISTORY_ICON := 18.0
-const HISTORY_STEP := 2.0
-## 抽到即结算的事件卡（Kevin 2026-09-07 拍板方案乙）：本世界回合内**所有人**抽到的，
-## 横排在世界事件那一行的右侧、右缘对齐。和玩家行那排「自己打出的卡」分开摆，边色也不同
-## （这里按抽到它的阵营：青 = 免疫、橙 = 癌方；那边是主色）—— 那正是这次要分开的两件事。
-## 世界事件文字裁到小卡左边（方案乙认下的代价）；最多留 8 张，再多丢最旧的，全量记录在对局日志里。
-const EVENT_STRIP_MAX := 8
-const EVENT_STRIP_Y := 56.0    ## 小卡 20px 高，56+2..56+22 = 58..78，正好停在分数块（78）之上
 
 ## 玩家行里的种类图标。和棋盘上是同一批贴图，但棋盘那份要对齐脚底、这份是居中摆，
 ## 用途不同所以各留各的表（棋盘那份见 CWMatch.IMMUNE_ART / CANCER_ART）。
@@ -99,7 +85,6 @@ var _phase: Label
 ## 【基质阻隔】还在（2026-09-02 Kevin：「有能量为什么走不进癌组织」的根源之一）。
 ## 没有事件时整行隐藏；放在回合块底部那 14px 的空档里，不动任何块高（见文件头「一个数都别改」）。
 var _events: Label
-var _event_strip: Control  ## 本世界回合抽到的事件卡（横排，右缘对齐）
 var _event_hover := false      ## 鼠标停在事件行上
 var _event_tip: Control        ## 事件行的悬浮详情（每个事件一句话效果 + 剩余回合）
 var _event_tip_key := ""
@@ -113,9 +98,8 @@ var _lv_bar_bg: ColorRect    ## 升级进度条的槽（胜负那条叫 _bar_fil
 var _lv_bar_fill: ColorRect  ## 已攒到的那一段
 var _bg: Panel
 var _end: PanelContainer
-var _rows: Array = []      ## 每项 { bg, fac, history, icon, name, type, energy, pips, skills }
+var _rows: Array = []      ## 每项 { bg, fac, icon, name, type, energy, pips, skills }
 var _built := 0            ## 已按几人局建好（0 = 还没建）
-var _history_round := -1    ## 当前回合号；换回合就清右侧历史
 var _level_y := 0.0        ## 免疫等级那一块的顶边；测试靠它核对 6 人局没溢出
 var _tip: Control = null   ## 技能详情框（悬停玩家行时列出已装备 + 即时修饰；**点一下固定**后列全套技能）
 var _tip_pid := -1         ## 正悬停哪一行；-1 = 收起
@@ -182,9 +166,6 @@ func refresh(game: CWGame) -> void:
 		return
 	if _built != game.players.size():
 		_build(game.players.size())
-	if _history_round != game.round_no:
-		_history_round = game.round_no
-		_clear_history()
 	_round.text = "第 %d 回合" % game.round_no
 	## 环境恶化（2026-09-11）：肿瘤分期直接改压迫/增生/侵蚀/固化门槛的数，玩家得看得见现在是第几期。
 	## 世界事件关着时（现在的默认）不再写「已关闭」—— 一句永远不变的话占着位置，分期更有用。
@@ -198,7 +179,6 @@ func refresh(game: CWGame) -> void:
 			else "%s · %s · 世界事件已放完" % [game.phase, stage_name]
 	_events.text = active_events_text(game)
 	_events.visible = _events.text != ""
-	_layout_event_row()
 	_update_event_tip(game)
 
 	var w := game.count_tissue(CWData.Tissue.CANCER) \
@@ -244,7 +224,6 @@ func reset() -> void:
 		c.queue_free()
 	_rows.clear()
 	_built = 0
-	_history_round = -1
 	net_seats = []
 	_tip = null       ## 悬浮框也在刚才那波清掉了，别留野引用
 	_tip_pid = -1
@@ -348,7 +327,6 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 	row["skills"].text = "技 %d" % n_skill
 	row["skills"].add_theme_color_override("font_color",
 		CWStyle.TEXT_HI if n_skill > 0 else CWStyle.TEXT_OFF)
-	_fit_type_label(row)
 
 	var icon: Sprite2D = row["icon"]
 	var icon_ok: bool = cell["itype"] >= 0 if immune else cell["ctype"] >= 0
@@ -369,7 +347,6 @@ func _build(n: int) -> void:
 		c.queue_free()
 	_rows.clear()
 	_built = n
-	_history_round = -1
 	_tip = null
 	_tip_pid = -1
 	_tip_pinned = -1
@@ -388,15 +365,6 @@ func _build(n: int) -> void:
 	_events.mouse_default_cursor_shape = Control.CURSOR_HELP
 	_events.mouse_entered.connect(func() -> void: _event_hover = true)
 	_events.mouse_exited.connect(func() -> void: _event_hover = false)
-	## 事件卡横排：和世界事件文字共用这一行（Kevin 2026-09-07 方案乙）。容器按**摊开 8 张**的宽度定，
-	## 收着时小卡右对齐贴在容器右缘 = 面板内容右缘
-	var strip_w: float = EVENT_STRIP_MAX * (HISTORY_ICON + 2.0)
-	_event_strip = Control.new()
-	_event_strip.position = Vector2(PAD + W - strip_w, EVENT_STRIP_Y)
-	_event_strip.size = Vector2(strip_w, HISTORY_ICON + 4.0)
-	_event_strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_event_strip.visible = false
-	add_child(_event_strip)
 	_event_tip = null
 	_event_tip_key = ""
 
@@ -516,9 +484,9 @@ func _build_row(y: float, pid: int) -> Dictionary:
 	## 本地对局的「免疫A」只有 52px，不受影响（2026-09-03 排版体检）
 	nm.clip_text = true
 	nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	## **先开裁切再定尺寸**（架构约定；不裁的 Label 最小宽 = 全文宽，会把这里的 110 顶开）——
-	## 2026-09-07 Kevin 拍到「图标重叠」：联机局的「恶性黑色素瘤 · 离线代打」正是这么压到历史小卡底下的。
-	## 实际宽度每帧由 _fit_type_label() 按小卡占了多少再收一次
+	## **先开裁切再定尺寸**（架构约定；不裁的 Label 最小宽 = 全文宽，会把定下的宽度顶开）——
+	## 2026-09-07 Kevin 拍到「图标重叠」：联机局的「恶性黑色素瘤 · 离线代打」正是这么压过去的。
+	## 实际宽度等下面手牌方块定了位再收到方块左边
 	var ty := CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	ty.clip_text = true
 	ty.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -537,216 +505,16 @@ func _build_row(y: float, pid: int) -> Dictionary:
 		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(pip)
 		pips.append(pip)
-	## 历史小卡：种类小字最长 6 字（60px）到 x=134，方块从 right-total=180 起，中间 46px 放三张叠 6px 的小卡刚好；
-	## 小卡 20px 高、贴行底（y+24..y+44），悬停抬 2px 仍在自己的框里
-	var history := Control.new()
-	history.position = Vector2(right - total - 4.0 - HISTORY_W, y + ROW_H - (HISTORY_ICON + 2.0) - 2.0)
-	history.size = Vector2(HISTORY_W, HISTORY_ICON + 2.0 + 2.0)
-	history.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	history.visible = false
-	add_child(history)
+	## 种类小字铺到手牌方块左边为止（这一行原来还摆着本回合历史小卡，Kevin 2026-09-11 删了）
+	ty.size.x = maxf(40.0, right - total - 4.0 - x)
 	## 预计收入「+x.x」贴行右缘、能量数右边（Kevin 2026-09-06：每回合预计拿到的有氧 / 无氧呼吸，显示在能量边）
 	var inc := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
 		x, y + 10, right - x, HORIZONTAL_ALIGNMENT_RIGHT)
 	## 「技 N」放**能量那一行**（团队 2026-08-28 选的右边那版），右对齐到能量左侧
 	var sk := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
 		x, y + 10, right - ENERGY_RESERVE - INCOME_RESERVE - x, HORIZONTAL_ALIGNMENT_RIGHT)
-	return { "bg": bg, "fac": fac, "history": history, "icon": icon,
+	return { "bg": bg, "fac": fac, "icon": icon,
 		"name": nm, "type": ty, "energy": en, "income": inc, "pips": pips, "skills": sk }
-
-
-## 第二行只有这么宽：种类文字 → 历史小卡 → 手牌方块。小卡占了多少，种类就让多少
-## （Kevin 2026-09-07：那一行会重叠）。没打过牌时种类一直铺到方块左边，不白让。
-func _fit_type_label(row: Dictionary) -> void:
-	var ty: Label = row["type"]
-	var pips: Array = row["pips"]
-	if pips.is_empty():
-		return
-	var limit: float = (pips[0] as Control).position.x - 4.0
-	var history: Control = row.get("history", null)
-	if history != null and is_instance_valid(history) and history.visible:
-		var n: int = history.get_child_count()
-		if n > 0:
-			## 收着时最左那张的位置：容器右缘往左退「一张 + (n-1) 个 2px」
-			var taken: float = (HISTORY_ICON + 2.0) + float(n - 1) * HISTORY_STEP
-			limit = history.position.x + history.size.x - taken - 4.0
-	ty.size.x = maxf(40.0, limit - ty.position.x)
-
-
-# ============ 历史卡牌 ============
-
-## 抽到即结算的事件卡：记进「回合数」那一栏（Kevin 2026-09-07 方案乙）。**不记在玩家行** ——
-## 它不是谁「打出」的，按 PRD 抽到就结算、不进手牌，记在回合上比记在人身上更贴事实。
-## 悬停摊开 / 点击看卡面复用玩家行那套（`_make_history_chip` / `_layout_history` 同一批函数）。
-func note_event_card(game: CWGame, faction: int, card_name: String) -> void:
-	if game == null or _event_strip == null or not is_instance_valid(_event_strip):
-		return
-	_sync_history_round(game)
-	var rows: Dictionary = CWCardInfo.describe(card_name, faction, CWCardData.cancer_phase(game.round_no))
-	var accent: Color = CWStyle.IMMUNE if faction == CWData.Faction.IMMUNE else CWStyle.CANCER
-	_event_strip.add_child(_make_history_chip(rows, faction, card_name, accent))
-	## 超出上限丢最旧的。**remove_child 之后再 queue_free**：只 queue_free 的话这一帧的 get_child_count 还算着它
-	while _event_strip.get_child_count() > EVENT_STRIP_MAX:
-		var oldest: Node = _event_strip.get_child(0)
-		_event_strip.remove_child(oldest)
-		oldest.queue_free()
-	_event_strip.visible = true
-	_layout_history(_event_strip)
-	_layout_event_row()
-
-
-## 世界事件文字与事件卡共用那一行：文字裁到小卡左边（方案乙认下的代价，同时挂三个世界事件时会裁得更早）。
-## 摊开时小卡会盖住文字 —— 那是临时浮层，和玩家行摊开盖住种类小字同一个道理。
-func _layout_event_row() -> void:
-	if _events == null or _event_strip == null or not is_instance_valid(_event_strip):
-		return
-	var n: int = _event_strip.get_child_count()
-	_event_strip.visible = n > 0
-	if n == 0:
-		_events.size.x = W          ## 没有小卡就占满整行，别白白扣掉留缝
-		return
-	var taken: float = (HISTORY_ICON + 2.0) + float(n - 1) * HISTORY_STEP
-	_events.size.x = maxf(40.0, W - taken - 6.0)
-
-
-## 本回合刚打出的卡，往对应玩家头像左边追加一个小卡片。
-func note_played_card(game: CWGame, pid: int, faction: int, card_name: String) -> void:
-	if game == null or pid < 0 or pid >= _rows.size():
-		return
-	_sync_history_round(game)
-	var row: Dictionary = _rows[pid]
-	if not row.has("history"):
-		return
-	var history: Control = row["history"]
-	var rows: Dictionary = CWCardInfo.describe(card_name, faction, CWCardData.cancer_phase(game.round_no))   ## 带分期高亮
-	var chip := _make_history_chip(rows, faction, card_name)   ## 主色边：和上面按阵营染色的事件卡区分开
-	history.visible = true
-	history.add_child(chip)
-	_layout_history(history)
-	_fit_type_label(row)   ## 小卡多一张，种类就再让一点（Kevin 2026-09-07）
-
-
-func _sync_history_round(game: CWGame) -> void:
-	if game == null:
-		return
-	if _history_round == game.round_no:
-		return
-	_history_round = game.round_no
-	_clear_history()
-
-
-func _clear_history() -> void:
-	if _event_strip != null and is_instance_valid(_event_strip):
-		for child in _event_strip.get_children():
-			_event_strip.remove_child(child)
-			child.queue_free()
-		_event_strip.visible = false
-		_layout_event_row()
-	for row in _rows:
-		if not row.has("history"):
-			continue
-		var history: Control = row["history"]
-		history.visible = false
-		for child in history.get_children():
-			child.queue_free()
-
-
-## 两种姿态（Kevin 2026-09-07，照手牌区的做法）：
-## · 收着：叠 2px（1px 边框 + 1px 卡面），只有最上面那张画图标；
-## · 摊开（鼠标停在整叠上）：每张完整露出、紧挨着往左排（右缘钉着不动，临时盖住种类小字无妨），
-##   停在哪张哪张抬 2px、白边、压最上层。紧挨着排是有意的：张与张之间留缝的话，鼠标划过缝就算离开整叠、收回去又立刻摊开，会抖。
-## 位置直接摆、不做补间：像素界面上 20px 的挪动补不补都一样，少一份「一张卡两条补间」的坑。
-func _layout_history(history: Control) -> void:
-	if history == null:
-		return
-	var chips := history.get_children()
-	var count := chips.size()
-	var expanded := bool(history.get_meta("expanded", false))
-	var chip_w := HISTORY_ICON + 2.0
-	for i in count:
-		var chip: Control = chips[i]
-		var hot := bool(chip.get_meta("hovered", false))
-		var back := float(count - 1 - i)
-		## 右缘按容器宽算，不写死 HISTORY_W —— 玩家行那只容器就是 HISTORY_W 宽，回合栏那只更宽（2026-09-07）
-		var x := history.size.x - chip_w - back * (chip_w if expanded else HISTORY_STEP)
-		if not expanded:
-			x = maxf(0.0, x)
-		var base_y := 2.0   ## 框顶留 2px 给悬停上抬
-		chip.position = Vector2(x, base_y - (2.0 if hot else 0.0))
-		chip.set_meta("base_y", base_y)
-		chip.set_meta("base_z", i)
-		chip.set_meta("top", i == count - 1)
-		chip.z_index = 50 if hot else i
-		chip.add_theme_stylebox_override("panel", _history_box(hot, chip.get_meta("accent", CWStyle.LINE)))
-		## 收着时被压住的卡只露边框 + 一线卡面，图标不画；摊开后每张都画
-		(chip.get_child(0) as Control).visible = expanded or i == count - 1 or hot
-
-
-## 鼠标离开某张之后（下一帧再看）：整叠上一张都没停着才收回去 —— 划到相邻那张时先 exited 再 entered，
-## 同一帧里看会误判成离开
-func _collapse_if_idle(history: Control) -> void:
-	if history == null or not is_instance_valid(history):
-		return
-	for c in history.get_children():
-		if bool(c.get_meta("hovered", false)):
-			return
-	history.set_meta("expanded", false)
-	_layout_history(history)
-
-
-## 边框**不透明、1px**：叠放时露出来的 2px = 这 1px 边框 + 1px 卡面；半透明会和底下那张混成第三种颜色，
-## CWStyle.box 默认的 2px 描边则会让露出来的 2px 全是边框、糊成一道实心色带
-## accent = 静止时的边色：玩家行那排（打出的卡）用主色，回合栏那排（抽到的事件卡）按阵营染（2026-09-07）
-func _history_box(hot: bool, accent := CWStyle.LINE) -> StyleBoxFlat:
-	var box := CWStyle.box(1.0, Color("0e1620"), 1, 1)
-	box.set_border_width_all(1)
-	box.border_color = Color.WHITE if hot else accent
-	return box
-
-
-func _make_history_chip(rows: Dictionary, faction: int, card_name: String,
-		accent := CWStyle.LINE) -> Panel:
-	var chip := Panel.new()
-	chip.size = Vector2(HISTORY_ICON + 2.0, HISTORY_ICON + 2.0)
-	chip.mouse_filter = Control.MOUSE_FILTER_STOP
-	chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	chip.add_theme_stylebox_override("panel", _history_box(false, accent))
-	chip.set_meta("accent", accent)
-	chip.set_meta("rows", rows)
-	chip.set_meta("faction", faction)
-	chip.set_meta("card_name", card_name)
-	chip.set_meta("hovered", false)
-	var tex := TextureRect.new()
-	tex.texture = preload("res://assets/art/ui/card_chip.png")
-	tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	tex.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
-	tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tex.position = Vector2(1, 1)
-	tex.size = Vector2(HISTORY_ICON, HISTORY_ICON)
-	chip.add_child(tex)
-	## 停上去：整叠摊开、这张抬起（Kevin 2026-09-07：收着时叠 2px 根本点不到第二张）
-	chip.mouse_entered.connect(func() -> void:
-		chip.set_meta("hovered", true)
-		var history := chip.get_parent() as Control
-		if history != null:
-			history.set_meta("expanded", true)
-			_layout_history(history)
-	)
-	chip.mouse_exited.connect(func() -> void:
-		chip.set_meta("hovered", false)
-		var history := chip.get_parent() as Control
-		if history != null:
-			_layout_history(history)                 ## 这张先落回去（仍是摊开姿态）
-			_collapse_if_idle.call_deferred(history)  ## 下一帧整叠没人停着才收
-	)
-	chip.gui_input.connect(func(e: InputEvent) -> void:
-		var mb := e as InputEventMouseButton
-		if mb == null or not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
-			return
-		var at := chip.get_global_rect().position
-		played_card_pressed.emit(rows, at.x, at.y)
-	)
-	return chip
 
 
 func _build_end_button() -> PanelContainer:

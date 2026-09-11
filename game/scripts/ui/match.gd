@@ -712,8 +712,6 @@ func _prepare_ui() -> void:
 	## 右栏固定详情里停在某条技能上 → 同一只详情框浮 PRD 原文（2026-09-04 Kevin 要的）
 	if _card_info != null and panel != null 			and not panel.skill_hovered.is_connected(_card_info.on_hover_info):
 		panel.skill_hovered.connect(_card_info.on_hover_info)
-	if _card_info != null and panel != null and not panel.played_card_pressed.is_connected(_card_info.show_info):
-		panel.played_card_pressed.connect(_card_info.show_info)
 	if _card_info != null and _feed != null and is_instance_valid(_feed) \
 			and not _feed.card_pressed.is_connected(_card_info.show_info):
 		_feed.card_pressed.connect(_card_info.show_info)
@@ -932,7 +930,7 @@ func _net_loop(id: int) -> void:
 			"card_played":
 				if bridge != null:
 					bridge.show_card_played(int(m["pid"]), m["text"])
-				## 影子对局不跑 card_fx.play、发不出 card_played 信号：头顶飞卡 / 右栏历史小卡靠报文里的细胞信息驱动
+				## 影子对局不跑 card_fx.play、发不出 card_played 信号：头顶飞卡靠报文里的细胞信息驱动
 				if m.has("card"):
 					_on_card_played(int(m["cell_id"]), int(m["pid"]), m["pos"], int(m["faction"]), m["card"], {})
 			"event_drawn":
@@ -1116,8 +1114,6 @@ func teardown() -> void:
 		hand.card_hovered.disconnect(_card_info.on_hover)
 	if _card_info != null and panel != null 			and panel.skill_hovered.is_connected(_card_info.on_hover_info):
 		panel.skill_hovered.disconnect(_card_info.on_hover_info)
-	if _card_info != null and panel != null and panel.played_card_pressed.is_connected(_card_info.show_info):
-		panel.played_card_pressed.disconnect(_card_info.show_info)
 	if _log_panel != null:
 		_log_panel.active = false
 		_log_panel.hide_now()
@@ -1594,25 +1590,19 @@ func _feed_note(e: Dictionary) -> void:
 		String(e["kind"]) == "event")
 
 
-func _on_card_played(cell_id: int, pid: int, pos: Vector2i, faction: int, card_name: String, data: Dictionary) -> void:
+func _on_card_played(cell_id: int, _pid: int, pos: Vector2i, _faction: int, card_name: String, _data: Dictionary) -> void:
 	if card_name == "":
 		return
-	if panel != null and is_instance_valid(panel):
-		panel.note_played_card(game, pid, faction, card_name)
 	## 左侧出牌列**不在这里喂** —— 它由 `_sync_feed()` 从 `game.feed_log` 投影（方案甲，2026-09-07）。
-	## 这里只管头顶飞卡和右栏那排历史小卡。
+	## 这里只管头顶飞卡（右栏那排本回合历史小卡 2026-09-11 按 Kevin 的意思删了）。
 	_play_card_fx(cell_id, pos)
 
 
-## 抽到即结算的事件卡：只记进右栏「回合数」那一栏（Kevin 2026-09-07 方案乙）。
-## **不演头顶飞卡** —— 事件的效果自己会在那一格喊一句，两样叠在同一格上太吵。
-func _on_event_drawn(_cell_id: int, _pid: int, _pos: Vector2i, faction: int, card_name: String) -> void:
-	if card_name == "":
-		return
-	## 出牌列同样由 `_sync_feed()` 投影，这里只喂右栏「回合数」那一栏
-	if panel == null or not is_instance_valid(panel):
-		return
-	panel.note_event_card(game, faction, card_name)
+## 抽到即结算的事件卡。**不演头顶飞卡** —— 事件的效果自己会在那一格喊一句，两样叠在同一格上太吵；
+## 右栏「回合数」那一栏的事件卡横排（09-07 方案乙）2026-09-11 按 Kevin 的意思删了，出牌列由 `_sync_feed()` 投影，
+## 于是这里和 `_on_world_event` 一样只是**接住信号 / 报文**。
+func _on_event_drawn(_cell_id: int, _pid: int, _pos: Vector2i, _faction: int, _card_name: String) -> void:
+	pass
 
 
 ## 抽到一个世界事件：进棋盘左侧那一列（Kevin 2026-09-07）。**不演头顶飞卡** ——

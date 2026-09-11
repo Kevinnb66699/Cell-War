@@ -118,7 +118,7 @@ func _run_all() -> void:
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
 		t_hot_patch, t_online_doc, t_save_load, t_settings, t_feedback, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_skill_fx, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
-		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_history, t_event_strip, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
+		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
 		t_card_name_fit, t_view_blend, t_announce, t_action_bar_width,
@@ -13177,10 +13177,11 @@ func t_tier_highlight() -> void:
 	g.dispose()
 
 
-## 队友 2026-09-06 的出牌表现层（合并自 Cell-War-main-0906-20.18 快照）：引擎 card_played 信号、右栏本回合历史小卡、
-## 详情框 show_info 立刻显示。合并时把小卡改摆行底手牌方块左边 —— 行首插 60px 会把玩家名推到能量数上，这里钉住「行首没动」。
-func t_card_history() -> void:
-	print("[出牌表现层：历史小卡]")
+## 队友 2026-09-06 的出牌表现层（合并自 Cell-War-main-0906-20.18 快照）：引擎 card_played 信号、详情框 show_info 立刻显示。
+## 右栏那排「本回合历史小卡」（连同回合栏的事件卡横排）2026-09-11 按 Kevin 的意思删了 —— 打出 / 抽到的卡
+## 只在左侧出牌列和对局日志里看。这里钉住它不再回来，并钉住第二行只剩「种类小字 → 手牌方块」时种类仍裁到方块左边。
+func t_card_played_signal() -> void:
+	print("[出牌表现层：card_played 信号与详情框]")
 	var g := _fx_game(4)
 	var got: Array = []
 	g.card_played.connect(func(cell_id: int, pid: int, pos: Vector2i, faction: int, card: String, _data: Dictionary) -> void:
@@ -13196,72 +13197,28 @@ func t_card_history() -> void:
 	await g.card_fx.play(can, { "act": "play", "card": "GLUT1高表达" })
 	check(got == [[1, 1, Vector2i(3, 0), CWData.Faction.CANCER, "GLUT1高表达"]],
 		"打出卡 → 引擎发 card_played 信号（细胞 / 席位 / 位置 / 阵营 / 卡名）：%s" % str(got))
-	## 右栏：小卡摆在行底手牌方块左边，行首那一段一个像素没动
+	## 右栏：历史小卡与事件卡横排都删了（Kevin 2026-09-11），行里没有那只框、面板也没有那两个入口
 	var p := CWMatchPanel.new()
 	root.add_child(p)
 	await process_frame
 	p.refresh(g)
 	var row: Dictionary = p._rows[1]
-	var hist: Control = row["history"]
-	check(not hist.visible, "没打过牌：历史框藏着")
-	p.note_played_card(g, 1, CWData.Faction.CANCER, "GLUT1高表达")
-	check(hist.visible and hist.get_child_count() == 1, "打出一张 → 一张小卡")
-	p.note_played_card(g, 1, CWData.Faction.CANCER, "上皮—间质转化")
-	check(hist.get_child_count() == 2 and hist.get_child(1).position.x > hist.get_child(0).position.x,
-		"第二张叠在右边（最新在最右）")
-	## 叠放只露 2px（Kevin 2026-09-06）：1px 不透明主色边框 + 1px 卡面，被压住的那张不画图标
-	check(is_equal_approx(hist.get_child(1).position.x - hist.get_child(0).position.x, 2.0)
-		and not (hist.get_child(0).get_child(0) as Control).visible and (hist.get_child(1).get_child(0) as Control).visible,
-		"底下那张只露 2px、图标藏起；最上面那张画图标")
-	var sb: StyleBoxFlat = hist.get_child(0).get_theme_stylebox("panel")
-	check(is_equal_approx(sb.border_color.a, 1.0) and sb.border_color == CWStyle.LINE and sb.border_width_left == 1,
-		"边框不透明、主色、1px（露出来的 2px 才是一线边框一线卡面）")
-	## 悬停整叠摊开（Kevin 2026-09-07 照手牌区）：每张完整露出、紧挨着排，停着的那张抬 2px 白边，两张都画图标
-	var under: Control = hist.get_child(0)
-	var top: Control = hist.get_child(1)
-	under.mouse_entered.emit()
-	check(bool(hist.get_meta("expanded", false)) and is_equal_approx(top.position.x - under.position.x, CWMatchPanel.HISTORY_ICON + 2.0),
-		"停上去 → 整叠摊开成每张 %.0fpx 紧挨着排（%.0f / %.0f）" % [CWMatchPanel.HISTORY_ICON + 2.0, under.position.x, top.position.x])
-	check(is_equal_approx(under.position.y, 0.0) and is_equal_approx(top.position.y, 2.0) and under.z_index > top.z_index,
-		"停着的那张抬 2px、压在最上层")
-	check((under.get_child(0) as Control).visible and (top.get_child(0) as Control).visible
-		and (under.get_theme_stylebox("panel") as StyleBoxFlat).border_color == Color.WHITE,
-		"摊开后每张都画图标，停着的那张白边")
-	under.mouse_exited.emit()
-	top.mouse_entered.emit()
-	check(bool(hist.get_meta("expanded", false)) and is_equal_approx(top.position.y, 0.0), "划到相邻那张：仍摊开，抬起的换成它")
-	top.mouse_exited.emit()
-	await process_frame
-	check(not bool(hist.get_meta("expanded", false)) and is_equal_approx(top.position.x - under.position.x, 2.0)
-		and not (under.get_child(0) as Control).visible,
-		"离开整叠 → 下一帧收回 2px 叠放、底下那张图标藏起")
-	var pip0: ColorRect = row["pips"][0]
-	check(hist.position.x + hist.size.x <= pip0.position.x - 2.0,
-		"小卡框在手牌方块左边（%.0f..%.0f，方块 %.0f）" % [hist.position.x, hist.position.x + hist.size.x, pip0.position.x])
-	## 种类文字让到小卡左边，一个像素都不压（Kevin 2026-09-07 拍到的重叠）。
+	check(not row.has("history") and not p.has_method("note_played_card") and not p.has_method("note_event_card")
+		and not p.has_signal("played_card_pressed"),
+		"右栏不再有打出的卡牌小卡：玩家行没有历史框、面板没有 note_played_card / note_event_card / played_card_pressed")
+	## 种类文字裁切、铺到手牌方块左边为止，一个像素都不压（2026-09-07 拍到的重叠别再犯）。
 	## 拿最长的那种癌症名 + 联机的「· 离线代打」凑最坏情况
+	var pip0: ColorRect = row["pips"][0]
 	var ty2: Label = row["type"]
 	p.net_seats = [{ "kind": "human", "online": true }, { "kind": "human", "online": false }]
 	p.refresh(g)
-	var left_chip: float = hist.position.x + hist.size.x - ((CWMatchPanel.HISTORY_ICON + 2.0) + float(hist.get_child_count() - 1) * CWMatchPanel.HISTORY_STEP)
-	check(ty2.clip_text and ty2.position.x + ty2.size.x <= left_chip,
-		"种类文字裁切、且右缘让到最左那张小卡之前（%.0f ≤ %.0f，文本「%s」）" % [ty2.position.x + ty2.size.x, left_chip, ty2.text])
-	var wide_enough: bool = ty2.size.x >= 40.0
+	check(ty2.clip_text and ty2.size.x >= 40.0 and ty2.position.x + ty2.size.x <= pip0.position.x,
+		"种类文字裁切、右缘不过手牌方块（%.0f ≤ %.0f，文本「%s」）" % [ty2.position.x + ty2.size.x, pip0.position.x, ty2.text])
 	p.net_seats = []
-	p.refresh(g)
-	check(wide_enough and ty2.position.x + ty2.size.x <= pip0.position.x,
-		"让归让，至少还留得下 4 个字；没小卡时一直铺到方块左边")
-	check(hist.position.y + hist.size.y <= row["bg"].position.y + CWMatchPanel.ROW_H, "小卡框不出行底")
 	check(row["name"].position.x == row["icon"].position.x + CWMatchPanel.ICON / 2.0 + 8.0, "玩家名还在头像右边 8px，没被推开")
-	var rows: Dictionary = hist.get_child(0).get_meta("rows")
-	check(_marked(rows) == ["0.5"], "小卡的详情按当前分期（前期）高亮（%s）" % str(_marked(rows)))
-	## 换回合清空（历史只属于本回合的显示层）
-	g.round_no = 2
-	p.refresh(g)
-	await process_frame
-	check(not hist.visible and hist.get_child_count() == 0, "换回合 → 小卡清空、框藏起")
 	p.queue_free()
-	## 详情框 show_info：点小卡不等 0.25s 延时
+	## 详情框 show_info：不等 0.25s 延时（左侧出牌列点一张走这条路）
+	var rows: Dictionary = CWCardInfo.describe("GLUT1高表达", CWData.Faction.CANCER, CWCardData.cancer_phase(g.round_no))
 	var box := CWCardInfo.new()
 	root.add_child(box)
 	await process_frame
@@ -13284,13 +13241,12 @@ func t_card_history() -> void:
 	box.sync(0.3, CWData.Faction.CANCER, false)
 	check(box.position.y + box.size.y <= CWActionBar.PROMPT_RECT.position.y, "不带 y（分化按钮那条路）照旧压在行动栏提示条上方")
 	box.queue_free()
-	## 右栏两条路都带 y：技能行悬停 = 那一行的画布 y；历史小卡点击 = 小卡的画布 y
+	## 右栏技能行悬停带 y：锚点 = 那一行的画布 y
 	var p2 := CWMatchPanel.new()
 	root.add_child(p2)
 	await process_frame
 	var heard: Array = []
 	p2.skill_hovered.connect(func(r: Dictionary, ax: float, ay: float) -> void: heard.append(["skill", r.get("name", ""), ax, ay]))
-	p2.played_card_pressed.connect(func(r: Dictionary, ax: float, ay: float) -> void: heard.append(["chip", r.get("name", ""), ax, ay]))
 	p2.refresh(g)
 	p2._tip_pinned = 1
 	p2.refresh(g)
@@ -13304,27 +13260,15 @@ func t_card_history() -> void:
 		check(heard.size() == 1 and heard[0][0] == "skill" and is_equal_approx(heard[0][3], first_item.get_global_rect().position.y)
 			and is_equal_approx(heard[0][2], p2._tip.global_position.x - CWCardInfo.W - 8.0),
 			"技能行悬停：锚点 = 框左侧 + 那一行的 y（%s）" % str(heard))
-	p2._tip_pinned = -1
-	p2.refresh(g)
-	p2.note_played_card(g, 1, CWData.Faction.CANCER, "GLUT1高表达")
-	var chip2: Control = (p2._rows[1]["history"] as Control).get_child(0)
-	var click := InputEventMouseButton.new()
-	click.pressed = true
-	click.button_index = MOUSE_BUTTON_LEFT
-	chip2.gui_input.emit(click)
-	check(heard.size() >= 1 and heard[-1][0] == "chip" and heard[-1][1] == "GLUT1高表达"
-		and is_equal_approx(heard[-1][3], chip2.get_global_rect().position.y),
-		"历史小卡点击：锚点带小卡自己的 y（%s）" % str(heard[-1]))
 	p2.queue_free()
 	g.dispose()
 
 
-## 抽到即结算的事件卡记进右栏「回合数」那一栏（Kevin 2026-09-07 拍板方案乙）：与世界事件同一行、右侧横排，
-## 悬停摊开 / 点击看卡面复用玩家行那套。这里钉三样：引擎的两路出口、右栏的摆位与清空、和玩家行那排分得开。
-func t_event_strip() -> void:
-	print("[事件卡进回合数栏]")
+## 抽到即结算的事件卡的两路出口（左侧出牌列 / 联机报文都靠它）：event_drawn 信号 + 广播到桥；抽到技能卡不发。
+## 右栏「回合数」那一栏的事件卡横排（2026-09-07 方案乙）2026-09-11 按 Kevin 的意思删了，面板那半截测试随之去掉。
+func t_event_drawn_signal() -> void:
+	print("[抽到事件卡的两路出口]")
 	var g := _fx_game(4)
-	## ① 引擎：抽到事件卡 → 发 event_drawn 信号 + 广播到桥；抽到技能卡不发
 	var rec := CardPlayRecorder.new()
 	rec.game = g
 	for pid in g.order:
@@ -13347,7 +13291,6 @@ func t_event_strip() -> void:
 	check(rec.events.size() == 1 and rec.events[0][0] == 0 and rec.events[0][1] == heard[0][4],
 		"同时广播给桥（联机据此发报文）：%s" % str(rec.events))
 	check(imm["hand"].size() == hand_before, "事件卡不进手牌（PRD：抽取后立即结算并弃置）")
-	var drew: String = heard[0][4]
 	## 技能卡那条路不发 event_drawn（它进手牌，之后打出才算「打出的卡」）
 	imm["hand"].clear()
 	heard.clear()
@@ -13361,62 +13304,6 @@ func t_event_strip() -> void:
 		if CWCardData.CARDS[h[4]]["kind"] != CWCardData.Kind.EVENT:
 			skill_only = false
 	check(skill_only, "只有事件卡会发 event_drawn（抽到的技能卡不发）")
-
-	## ② 右栏：摆在世界事件那一行右侧、右缘对齐；世界事件文字给它让宽
-	var p := CWMatchPanel.new()
-	root.add_child(p)
-	await process_frame
-	g.round_no = 12
-	g.events["active"].append({ "name": "基质阻隔", "left": 2, "stacks": 1, "data": {} })
-	p.refresh(g)
-	var strip: Control = p._event_strip
-	var full_w: float = p._events.size.x
-	check(not strip.visible and is_equal_approx(full_w, CWMatchPanel.W), "还没抽到事件卡：横排藏着，世界事件文字占满整行")
-	p.note_event_card(g, CWData.Faction.IMMUNE, drew)
-	p.note_event_card(g, CWData.Faction.CANCER, "糖酵解爆发")
-	check(strip.visible and strip.get_child_count() == 2, "抽到两张 → 两张小卡")
-	var chip_w: float = CWMatchPanel.HISTORY_ICON + 2.0
-	var last: Control = strip.get_child(1)
-	check(is_equal_approx(strip.position.x + last.position.x + chip_w, CWMatchPanel.PAD + CWMatchPanel.W),
-		"最新那张贴面板内容右缘（%.0f）" % (strip.position.x + last.position.x + chip_w))
-	check(strip.position.y + last.position.y >= CWMatchPanel.PAD + 36.0
-		and strip.position.y + last.position.y + chip_w <= CWMatchPanel.PAD + CWMatchPanel.ROUND_H + CWMatchPanel.GAP,
-		"落在世界事件那一行、不压到分数块（%.0f..%.0f）" % [strip.position.y + last.position.y, strip.position.y + last.position.y + chip_w])
-	check(p._events.size.x < full_w and p._events.size.x + chip_w + 2.0 <= CWMatchPanel.W,
-		"世界事件文字裁到小卡左边（%.0f → %.0f）" % [full_w, p._events.size.x])
-	## 边色按阵营，和玩家行那排（主色）分得开
-	var sb0: StyleBoxFlat = strip.get_child(0).get_theme_stylebox("panel")
-	var sb1: StyleBoxFlat = last.get_theme_stylebox("panel")
-	check(sb0.border_color == CWStyle.IMMUNE and sb1.border_color == CWStyle.CANCER, "边色按抽到它的阵营：青 / 橙")
-	p.note_played_card(g, 1, CWData.Faction.CANCER, "GLUT1高表达")
-	var row_chip: Control = (p._rows[1]["history"] as Control).get_child(0)
-	check((row_chip.get_theme_stylebox("panel") as StyleBoxFlat).border_color == CWStyle.LINE,
-		"玩家行那排（自己打出的卡）仍是主色边，两排分得开")
-	check(strip.get_child_count() == 2, "打出的卡不进回合栏")
-
-	## ③ 行为照抄玩家行：悬停整叠摊开、点击发信号（带那张小卡的 y）
-	strip.get_child(0).mouse_entered.emit()
-	check(is_equal_approx(last.position.x - strip.get_child(0).position.x, chip_w), "悬停 → 整叠摊开，一张挨一张")
-	var clicked: Array = []
-	p.played_card_pressed.connect(func(r: Dictionary, ax: float, ay: float) -> void: clicked.append([r.get("name", ""), ax, ay]))
-	var ev := InputEventMouseButton.new()
-	ev.pressed = true
-	ev.button_index = MOUSE_BUTTON_LEFT
-	last.gui_input.emit(ev)
-	check(clicked.size() == 1 and clicked[0][0] == "糖酵解爆发"
-		and is_equal_approx(clicked[0][2], last.get_global_rect().position.y),
-		"点小卡 → 和玩家行同一条信号，锚点带自己的 y（%s）" % str(clicked))
-
-	## ④ 上限 8，超了丢最旧；换回合清空（和玩家行同一把尺）
-	for k in 8:
-		p.note_event_card(g, CWData.Faction.IMMUNE, "急性炎症反应")
-	check(strip.get_child_count() == CWMatchPanel.EVENT_STRIP_MAX, "最多留 %d 张" % CWMatchPanel.EVENT_STRIP_MAX)
-	check(String(strip.get_child(0).get_meta("card_name")) == "急性炎症反应", "超了丢最旧的那张")
-	g.round_no = 13
-	p.refresh(g)
-	check(not strip.visible and strip.get_child_count() == 0 and is_equal_approx(p._events.size.x, CWMatchPanel.W),
-		"换回合 → 清空、文字重新占满整行")
-	p.queue_free()
 	g.dispose()
 
 
