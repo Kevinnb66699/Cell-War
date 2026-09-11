@@ -117,7 +117,7 @@ static func _stage_contact() -> Array:
 		{ "t": "走进癌细胞＝攻击", "flag": "attack", "act": "attack", "b": [
 			"迁向站有癌细胞的一格就是攻击。", "骰子会落在目标格旁。"] },
 		{ "t": "看懂骰子", "flag": "d6", "b": [
-			"1-2 无效弹回并自伤 %s。" % CWData.fmt(tune.counter_dmg_on_fail),
+			"1-2 失败弹回并自伤 %s。" % CWData.fmt(tune.counter_dmg_on_fail),
 			"3-5 成功 -%s、6 大成功 -%s。" % [
 				CWData.fmt(tune.attack_dmg_success), CWData.fmt(tune.attack_dmg_crit)]] },
 		{ "t": "攻击次数", "flag": "attack_limit", "b": limit },

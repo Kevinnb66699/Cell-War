@@ -751,13 +751,6 @@ func _ossify() -> void:
 		if t["tissue"] != CWData.Tissue.CANCER:
 			t["ossify_at"] = 0
 			continue
-		## **到期那一刻被免疫细胞占着就不转**（云端 PRD 2026-09-10：
-		## 「标记持续 3 世界回合，**最后若不被免疫细胞占据**，则该组织转为固化癌组织并移除标记」）。
-		## 标记**留着**不清：人一走就该固化，否则站上去一回合等于永久拆掉这个标记，
-		## 而 PRD 给免疫的手段是「站到回合末完成【净化】」（那条在 _camp_purge 里，排在本函数之前）。
-		if not game.cells_at(c, CWData.Faction.IMMUNE).is_empty():
-			game.log_msg("【骨样硬化】%s 被免疫细胞占着，本回合不转固化（标记留着）" % str(c))
-			continue
 		CWTissue.to_solid(t)
 		game.log_msg("【骨样硬化】%s 转为固化癌组织" % str(c))
 

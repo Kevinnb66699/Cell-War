@@ -128,7 +128,6 @@ func _submit_batch(events: Array) -> Array:
 	var plans: Array = []
 	for ev in events:
 		plans.append(_plan(ev))
-	_bcl2_pass(plans)
 	## ④ 再统一扣能量、消耗修饰
 	var results: Array = []
 	for plan in plans:
@@ -344,8 +343,6 @@ func _apply(plan: Dictionary) -> Dictionary:
 	## actual = 目标**实际失去**的能量，不能超过它结算前有多少（设计 §4.2）。
 	## 吸血、伤害统计、「造成 X 伤害后」一律读这个值 —— 读理论值会多回血（审查附一）
 	var actual: int = mini(calculated, maxi(before, 0))
-	## 【BCL-2抗凋亡】把这一刀整个免掉时，`plan` 里的 calculated 已经被清零（见 _bcl2_pass），
-	## 于是 actual 也是 0 —— 下游一切「造成 X 伤害后」自然落空。
 	for line in plan["logs"]:
 		game.log_msg(line)
 	if not plan["replaced"]:
@@ -354,8 +351,6 @@ func _apply(plan: Dictionary) -> Dictionary:
 		for m in plan["marks"]:
 			game.first_this_round(target, m)
 		target["energy"] = before - calculated
-	if plan.get("bcl2", -1) >= 0:
-		target["energy"] = int(plan["bcl2"])   ## 「能量改为 0.5 / 0.8 / 1」
 	if calculated > 0:
 		game.log_msg("【%s】%s 损失 %s 能量（余 %s）" % [
 			ev["ability"], game.cell_name(target), CWData.fmt(actual),
@@ -410,6 +405,8 @@ func _resolve_deaths(results: Array) -> void:
 		var t: Dictionary = r["event"]["target"]
 		if t["energy"] > 0:
 			continue                  ## 同一目标已被前一条的替代救回来了
+		if _revive_by_bcl2(t):
+			continue
 		doomed.append(r)
 	## 三、批量宣死
 	for r in doomed:
@@ -420,61 +417,16 @@ func _resolve_deaths(results: Array) -> void:
 		r["killed"] = true
 
 
-## 【BCL-2抗凋亡】：**按整批判，不逐条判。**
-##
-## 云端 PRD 2026-09-10 把它改成「若即将受到致命能量损失，则**免疫此次能量损失**」——
-## 从前是「先挨完、降到 ≤0，再在死亡阶段救回来」，那样 `actual` 记的是全额伤害，
-## 攻击方照样按它累计抗原记忆。Kevin 2026-09-10 说明了这正是差别所在：
-## **没造成伤害就不该给记忆**。所以要在扣能量之前把这一刀清零。
-##
-## 为什么必须按整批：同一批里可能有好几下（§9.5 主伤害 + 【细胞毒性增强】那道无视减伤）。
-## 逐条判的话第一下用掉卡、第二下照样把它打死 —— 那和「同批统一结算」那条口径正相反
-## （第一版就是这么写的，§9.5 当场红）。这里先把同一目标这一批的伤害加起来，
-## 够致命才动卡，动了就把这一批**它身上的每一条**都清零。
-func _bcl2_pass(plans: Array) -> void:
-	var total := {}                 ## 目标 id -> 这一批要扣它多少
-	for plan in plans:
-		if plan["replaced"]:
-			continue
-		var t: Dictionary = plan["event"]["target"]
-		total[int(t["id"])] = int(total.get(t["id"], 0)) + int(plan["calculated"])
-	for cid: int in total:
-		if int(total[cid]) <= 0:
-			continue
-		var cell: Dictionary = game.cells[cid]
-		if cell["energy"] - int(total[cid]) > 0:
-			continue                ## 这一批打不死它，用不着这张卡
-		var tier := _spend_bcl2(cell)
-		if tier < 0:
-			continue
-		for plan in plans:
-			if not plan["replaced"] and int(plan["event"]["target"]["id"]) == cid:
-				plan["calculated"] = 0
-				plan["bcl2"] = tier
-				## **每一下都要留痕**（设计 §6.4：无视减伤那一下也照样写日志）。
-				## 清零之后 `_apply` 的「损失 X 能量」那行不会打了，这儿补一句说明它去哪了 ——
-				## 不然日志上就成了「这一刀凭空消失」。
-				plan["logs"].append("　【%s】这一下被【BCL-2抗凋亡】免疫，未造成能量损失"
-					% plan["event"]["ability"])
-
-
-## 【BCL-2抗凋亡】只救「受到的损失」（口径 #68）。
-##
-## 两处调用，语义一样但时机不同：
-##   · `_apply`：能量损失还没落下就免掉（正路，`actual` 因此是 0）
-##   · `lethal(preventable = true)`：「直接消灭」那条路上的免死
-##     —— 目前没有调用方传 true（【吞噬体成熟】按口径 #68 救不回来），留着是接口
-## 返回免掉之后该有的能量（0.5 / 0.8 / 1 的十分值）；-1 = 没这张卡、免不掉。
-## **这里不动 energy** —— 调用方各自在合适的时机赋值（见 _apply 里那条注释）。
-func _spend_bcl2(cell: Dictionary) -> int:
-	## 2026-09-10 起它是**即时卡挂的一次性护盾**（同【细胞膜修复】），不再是装备
-	if game.mods_of(cell, "BCL-2抗凋亡").is_empty():
-		return -1
+## 【BCL-2抗凋亡】只救「受到的损失」（口径 #68）。返回 true 表示这次免于死亡。
+func _revive_by_bcl2(cell: Dictionary) -> bool:
+	if not game.has_skill(cell, "BCL-2抗凋亡"):
+		return false
 	var tier: int = CWData.BCL2_ENERGY[CWCardData.cancer_phase(game.round_no)]
-	game.spend_mods(cell, "BCL-2抗凋亡")
-	game.log_msg("　【BCL-2抗凋亡】%s 免疫此次能量损失，能量改为 %s（本牌弃置，可重新抽取）" % [
+	cell["energy"] = tier
+	cell["equipped"].erase("BCL-2抗凋亡")
+	game.log_msg("　【BCL-2抗凋亡】%s 免于死亡，能量改为 %s（本牌弃置，可重新抽取）" % [
 		game.cell_name(cell), CWData.fmt(tier)])
-	return tier
+	return true
 
 
 ## 「直接消灭」不由业务代码随手调 kill()，而是建一个 LethalEvent，
@@ -486,11 +438,8 @@ func _spend_bcl2(cell: Dictionary) -> int:
 func lethal(target: Dictionary, reason: String, preventable: bool = false) -> bool:
 	if not target["alive"]:
 		return false
-	if preventable:
-		var saved := _spend_bcl2(target)
-		if saved >= 0:
-			target["energy"] = saved
-			return false
+	if preventable and _revive_by_bcl2(target):
+		return false
 	game.log_msg("　【%s】%s 被直接消灭" % [reason, game.cell_name(target)])
 	game.kill(target)
 	game.update_marks()

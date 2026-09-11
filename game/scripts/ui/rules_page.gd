@@ -87,7 +87,7 @@ static func sections(tune: CWTuning = null) -> Array:
 		{ "title": "攻击判定（d6）", "lines": [
 			## PRD：失败时自身 -0.5 能量（口径 #84）。写成条件式是因为它是平衡旋钮，
 			## 平衡实验把它关掉时这半句要跟着消失——速查页不许出现和引擎不符的数
-			"1-2 无效：弹回原格（费用不退）" + ("" if tune.counter_dmg_on_fail == 0
+			"1-2 失败：弹回原格（费用不退）" + ("" if tune.counter_dmg_on_fail == 0
 				else "，受反击 %s" % CWData.fmt(tune.counter_dmg_on_fail)),
 			"3-5 成功（-%s） · 6 大成功（-%s）" % [
 				CWData.fmt(tune.attack_dmg_success), CWData.fmt(tune.attack_dmg_crit)],

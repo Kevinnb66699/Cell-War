@@ -255,16 +255,8 @@ static func wrap_text(text: String, max_w: float) -> PackedStringArray:
 		for ch in para:
 			var tryout := line + ch
 			if line != "" and _text_w(tryout) > max_w:
-				## **数字不许从中间断开**：一个「0.5」被劈成上行「0.」下行「5」，
-				## 读起来是两个数，分档高亮也跟着裂成两段
-				## （2026-09-10 云端 PRD 把【BCL-2抗凋亡】的卡面并成一长行之后当场撞上）。
-				## 整个数字挪到下一行去 —— 只要挪完前面还剩点东西，就不会空转。
-				var num := _trailing_number(line, ch)
-				if num > 0 and num < line.length():
-					out.append(line.substr(0, line.length() - num))
-					line = line.substr(line.length() - num) + ch
 				## 断点落在了不该做行首的字符前面：把前一个字一起带下去
-				elif NO_LINE_START.contains(ch) and line.length() > 1:
+				if NO_LINE_START.contains(ch) and line.length() > 1:
 					out.append(line.substr(0, line.length() - 1))
 					line = line[line.length() - 1] + ch
 				else:
@@ -275,21 +267,6 @@ static func wrap_text(text: String, max_w: float) -> PackedStringArray:
 		if line != "":
 			out.append(line)
 	return out
-
-
-## `line` 末尾那串数字有多长 —— 前提是下一个字 `ch` 还在同一个数里
-## （数字或小数点），否则这一刀不落在数字中间，返回 0。
-static func _trailing_number(line: String, ch: String) -> int:
-	if not _in_number(ch):
-		return 0
-	var n := 0
-	while n < line.length() and _in_number(line[line.length() - 1 - n]):
-		n += 1
-	return n
-
-
-static func _in_number(ch: String) -> bool:
-	return ch == "." or (ch >= "0" and ch <= "9")
 
 
 static func _text_w(s: String) -> float:

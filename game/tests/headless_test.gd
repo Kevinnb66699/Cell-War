@@ -1256,16 +1256,6 @@ func t_immune_level_rules() -> void:
 	check(CWData.AEROBIC_BY_LEVEL[1] - CWData.AEROBIC_BY_LEVEL[0]
 			!= CWData.AEROBIC_BY_LEVEL[2] - CWData.AEROBIC_BY_LEVEL[1],
 		"**不等差** —— 这正是它写不成 base + step × 等级、只能查表的原因")
-
-	## ---- 云端 PRD 2026-09-10 新写明的三条：**引擎本来就做到了** ----
-	## 记在这儿是为了「以后有人照着 PRD 改」时它们先红，而不是被悄悄改掉。
-	check(CWData.LEVEL_MIN_MEMORY[3] == 60 and CWData.level_min_memory(4)[3] == 50,
-		"X 级门槛 四人 50 / 六人 60（云端那版把 III 级写成 20-49 是笔误，Kevin 按图定 20-59）")
-	check(g.tune.metastasis_max_per_round == 2,
-		"小细胞【转移】每世界回合至多 2 次（云端 PRD 写明；引擎旋钮早就是 2）")
-	g.memory = 5
-	g.reduce_memory(999)
-	check(g.memory == 0, "抗原记忆减不到 0 以下（云端 PRD 新写明的一条）")
 	## 盘面被癌组织吃掉一半也不掉收入 —— 这正是换公式要解决的死亡螺旋
 	var half := 0
 	for c in g.tiles.keys():
@@ -2473,14 +2463,12 @@ func t_spread_fx() -> void:
 	g3.round_no = 1
 	a["hand"] = ["克隆增殖"]     ## 2026-09-10 起是【即时技能】，走 play
 	await g3.card_fx.play(a, { "act": "play", "card": "克隆增殖" })
-	## 前期转 1 格（云端 PRD 2026-09-10 写回 1/2/3）——**别把格数抄死在这儿**，
-	## 它今天就被来回改了两趟；这条盯的是「每一格都演了过场、方向朝着发动者」
-	var toward_actor := rec3.got.size() > 0
+	var toward_actor := rec3.got.size() == 2
 	for e in rec3.got:
 		if int(e[1]) != CWData.dir_toward(e[0], a["pos"]):
 			toward_actor = false
 	check(toward_actor,
-		"【克隆增殖】转的每一格都演过场，癌从发动者那一侧来（%d 格）" % rec3.got.size())
+		"【克隆增殖】转的两格都演过场，癌从发动者那一侧来（%d 格）" % rec3.got.size())
 	## 【黏液破裂】：范围内随机转的格全演，方向朝引爆者；引爆者脚下那格取不出方向 → 引擎不广播
 	var sig := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(3, 0), -1, CWData.CancerType.SIGNET, 100)
 	g3.cells.append(sig)
@@ -6091,7 +6079,6 @@ func t_skill_move_price_tag() -> void:
 func t_doubled_marker() -> void:
 	print("[双重触发的标记]")
 	var g := make_game(2, 3)
-	g.tune.world_events_on = true   ## 2026-09-10 起默认关，这条测的就是世界事件
 	g.setup.build_board()
 
 	## ---- ① 引擎：三档各自记下自己是哪一档 ----
@@ -6175,17 +6162,15 @@ func t_world_events_off() -> void:
 	## ---- ③ **必须进 RULE_FIELDS**：联机靠快照把它带给客户端 ----
 	check("world_events_on" in CWTuning.RULE_FIELDS,
 		"world_events_on 在 RULE_FIELDS 里 —— 否则客户端影子对局会以为该放事件，两边对不上账")
-	## **2026-09-10 起默认关**（云端 PRD：「暂时停止维护，正常对局不考虑世界事件」），
-	## 所以这儿反过来验：拨**开**的那一局存进快照，影子对局还原之后也得跟着开
 	var off := make_game(2, 5)
 	off.setup.build_board()
-	off.tune.world_events_on = true
+	off.tune.world_events_on = false
 	var snap: Dictionary = CWStateCodec.snapshot(off)
 	var shadow := make_game(2, 999)
 	shadow.setup.build_board()
-	check(not shadow.tune.world_events_on, "影子对局默认是关的（2026-09-10 起）")
+	check(shadow.tune.world_events_on, "影子对局默认是开的")
 	CWStateCodec.restore(shadow, snap)
-	check(shadow.tune.world_events_on, "快照还原之后跟着开了（联机就靠这一条）")
+	check(not shadow.tune.world_events_on, "快照还原之后跟着关上了（联机就靠这一条）")
 	off.dispose()
 	shadow.dispose()
 	g.dispose()
@@ -6196,7 +6181,6 @@ func t_world_events_off() -> void:
 	var p := CWMatchPanel.new()
 	root.add_child(p)
 	await process_frame
-	g2.tune.world_events_on = true      ## 默认已关，先拨开才验得到「开着」那一档
 	p.refresh(g2)
 	check(p._phase.text.contains("世界事件"), "开着时那行照旧写世界事件")
 	g2.tune.world_events_on = false
@@ -6211,14 +6195,14 @@ func t_world_events_off() -> void:
 	root.add_child(cp)
 	await process_frame
 	cp.open()
-	check(not cp.config()["world_events"], "默认关（2026-09-10 起）")
-	check(cp._value_text(CWConfigPanel.ROW_EVENTS).begins_with("关"), "值文案：关")
+	check(cp.config()["world_events"], "默认开")
+	check(cp._value_text(CWConfigPanel.ROW_EVENTS) == "开", "值文案：开")
 	cp._cycle(CWConfigPanel.ROW_EVENTS, 1)
-	check(cp.config()["world_events"]
-			and cp._value_text(CWConfigPanel.ROW_EVENTS) == "开",
-		"拨一下 → 开（%s）" % cp._value_text(CWConfigPanel.ROW_EVENTS))
+	check(not cp.config()["world_events"]
+			and cp._value_text(CWConfigPanel.ROW_EVENTS).begins_with("关"),
+		"拨一下 → 关（%s）" % cp._value_text(CWConfigPanel.ROW_EVENTS))
 	cp._cycle(CWConfigPanel.ROW_EVENTS, 1)
-	check(not cp.config()["world_events"], "再拨一下 → 拨回关（两档来回）")
+	check(cp.config()["world_events"], "再拨一下 → 拨回开（两档来回）")
 	cp.queue_free()
 
 	## ---- ⑥ 联机：房间存得住、房间状态里说得出 ----
@@ -7052,7 +7036,6 @@ func t_match_panel() -> void:
 
 	## 定案 B（2026-09-01）的警报：标题只读引擎的 cancer_win_streak，界面自己不数
 	var g := make_game(6, 7)
-	g.tune.world_events_on = true   ## 2026-09-10 起默认关；下面要验世界事件的通报与那一行字
 	await run_setup(g)
 	p.refresh(g)
 	check(p._weighted_caption.text == "癌性加权", "平时标题是「癌性加权」")
@@ -10118,25 +10101,20 @@ func t_step_atomic() -> void:
 		if not d.has("type"):
 			typed = false
 	check(typed, "每个分化选项自带 type，execute() 不必再问")
-	## 裂解：目标是**1 环内**（含脚下）的固化癌组织，每格一个顶层选项。
-	## 这一处来回改过两轮：09-01 从「脚下」改成「相邻」，09-10 云端 PRD 写成
-	## 「可将 1 环内的固化癌组织转为健康组织」—— 1 环 = 中心 + 六邻，两者都算。
+	## 裂解（2026-09-01 改写）：目标是**相邻**的固化癌组织，每格一个顶层选项
 	imm["itype"] = CWData.ImmuneType.T_CELL
 	imm["pos"] = Vector2i.ZERO
 	imm["energy"] = 50
 	var nbs: Array[Vector2i] = CWData.neighbors(Vector2i.ZERO)
-	g.tiles[Vector2i.ZERO]["tissue"] = CWData.Tissue.SOLID   ## 脚下那格**现在也算**（1 环含中心）
+	g.tiles[Vector2i.ZERO]["tissue"] = CWData.Tissue.SOLID   ## 脚下那格**不该**再算目标
 	g.tiles[nbs[0]]["tissue"] = CWData.Tissue.SOLID
 	g.tiles[nbs[1]]["tissue"] = CWData.Tissue.SOLID
 	var lyse: Array[Vector2i] = []
 	for o in g.actions.build_options(imm):
 		if o["data"].get("act", "") == "lyse":
 			lyse.append(o["data"]["to"])
-	check(lyse.size() == 3 and nbs[0] in lyse and nbs[1] in lyse and Vector2i.ZERO in lyse,
-		"1 环内三格固化 → 三个顶层选项，**脚下那格也在里头**")
-	## 选得出来就必须提交得了：合法性复验和选项生成用的是同一把尺
-	check(g.actions._is_lyse_legal_now(imm, Vector2i.ZERO),
-		"脚下那格的复验也放行（两处用同一个 1 环判据）")
+	check(lyse.size() == 2 and nbs[0] in lyse and nbs[1] in lyse,
+		"两格相邻固化 → 两个顶层选项，脚下那格不算")
 	g.actions._do_lyse(imm, nbs[0])
 	check(g.tiles[nbs[0]]["tissue"] == CWData.Tissue.HEALTHY
 		and g.tiles[nbs[0]]["solid"] == 0, "裂解：相邻固化一步转为健康组织")
@@ -10719,15 +10697,8 @@ func t_stroma_targets() -> void:
 	g.dispose()
 
 
-## 卡牌 / 世界事件效果的公共台子：干净棋盘 + 世界事件开着。
-##
-## **世界事件在这儿要开**：2026-09-10 起引擎默认关掉了它（云端 PRD 标了
-## 「暂时停止维护，正常平衡性测试和对局不考虑世界事件」），而这台子上的测试
-## 一多半是冲着世界事件来的 —— 不开的话 `world_fx.trigger()` 整个空转，
-## 断言会一条条变成「什么都没发生」。要验「关掉之后不触发」的那几条自己拨回 false。
 func _fx_game(n_players := 2) -> CWGame:
 	var g := make_game(n_players, 1)
-	g.tune.world_events_on = true
 	g.setup.build_board()
 	for c in g.tiles.keys():
 		g.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
@@ -10825,15 +10796,15 @@ func t_card_events_cancer() -> void:
 	await g.card_fx.resolve_event(a, "肿瘤血管生成")
 	check(a["energy"] == 25 and b["energy"] == 20, "肿瘤血管生成：中期全体 +2.0、抽卡者 +2.5（第 8 回合 = 中期）")
 	g.round_no = 1
-	## 2026-09-10：【克隆增殖】从【事件】改成【即时技能】（所以走 play 不走 resolve_event）。
-	## 格数当天来回改过两趟：早上 Kevin 抬到 2/3/4，晚上云端 PRD 又写回 **1/2/3**
+	## 2026-09-10 Kevin：【克隆增殖】从【事件】改成【即时技能】（所以走 play 不走 resolve_event），
+	## 格数 1/2/3 → 2/3/4
 	a["hand"] = ["克隆增殖"]
 	await g.card_fx.play(a, { "act": "play", "card": "克隆增殖" })
 	var newborns := 0
 	for n in CWData.neighbors(Vector2i(0, 0)):
 		if g.tiles[n]["tissue"] == CWData.Tissue.CANCER:
 			newborns += 1
-	check(newborns == 1, "克隆增殖：前期恰好转化 1 格（%d）" % newborns)
+	check(newborns == 2, "克隆增殖：前期恰好转化 2 格（%d）" % newborns)
 	check(a["hand"].is_empty(), "即时技能结算后弃置（不再是抽到即结算的事件）")
 	## 糖酵解爆发：块里 3 格普通癌 + 全图 1 格固化 / 1 细胞，口径与 E 阶段一致（2026-09-07 新式）
 	for c in g.tiles.keys():
@@ -11558,45 +11529,13 @@ func t_card_perms() -> void:
 	g = _fx_game(4)
 	var bc := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.MELANOMA)
 	bc["energy"] = 10
-	## 2026-09-10 起它是**即时卡挂的一次性护盾**（同【细胞膜修复】），不再是装备
-	g.add_mod(bc, "BCL-2抗凋亡", 1, "")
+	bc["equipped"] = ["BCL-2抗凋亡"]
 	g.cells.append(bc)
 	g.round_no = 1
 	g.cancer_hit(bc, 99, "测试")
-	check(bc["alive"] and bc["energy"] == CWData.BCL2_ENERGY[0]
-			and g.mods_of(bc, "BCL-2抗凋亡").is_empty(),
+	check(bc["alive"] and bc["energy"] == CWData.BCL2_ENERGY[0] and bc["equipped"].is_empty(),
 		"免死：能量改为 0.5，本牌弃置")
 	check(g.cards.is_legal(bc, "BCL-2抗凋亡"), "弃置后可重新抽取")
-	## **免疫掉的那一刀不给抗原记忆**（Kevin 2026-09-10 点明的正是这一条）：
-	## 云端 PRD 把它从「先挨完、降到 ≤0 再救回来」改成「免疫此次能量损失」——
-	## 前者 actual 记的是全额伤害，攻击方照样按它累计记忆；后者伤害根本没发生。
-	## 走**真的攻击流程**（记忆是在那儿发的），一次带盾、一次不带，比出来才算数。
-	var mem_with := -1
-	var mem_without := -1
-	for shielded in [true, false]:
-		var gm := bare_game()
-		gm.round_no = 1
-		var hit_at := Vector2i(1, 0)
-		gm.tiles[hit_at]["tissue"] = CWData.Tissue.CANCER
-		var atk := CWSetup.make_cell(gm.cells.size(), 0, CWData.Faction.IMMUNE,
-			Vector2i.ZERO, CWData.ImmuneType.T_CELL, -1, 200)
-		gm.cells.append(atk)
-		var prey2 := _put_cancer(gm, hit_at, 5)     ## 5 = 一下就致命
-		if shielded:
-			gm.add_mod(prey2, "BCL-2抗凋亡", 1, "")
-		gm.memory = 0
-		_rig_roll(gm, 6, [3])                        ## 钉成命中
-		await gm.actions._do_move(atk, hit_at, 0)
-		if shielded:
-			mem_with = gm.memory
-			check(prey2["alive"] and prey2["energy"] == CWData.BCL2_ENERGY[0],
-				"致命那一刀被免疫，能量改为 %s" % CWData.fmt(CWData.BCL2_ENERGY[0]))
-		else:
-			mem_without = gm.memory
-		gm.dispose()
-	check(mem_with == 0, "**被免疫掉就不给抗原记忆**（实为 %d）" % mem_with)
-	check(mem_without > 0,
-		"对照：同一刀没有 BCL-2 时记忆照常累计（%d）—— 免得上面那条恒成立" % mem_without)
 	g.cancer_hit(bc, 99, "测试")
 	check(not bc["alive"], "没有第二张 BCL-2 就真死了")
 	g.dispose()
@@ -12539,18 +12478,6 @@ func t_tier_highlight() -> void:
 			var got := _marked(CWCardInfo.describe(name, CAN, ph))
 			if got != [parts[mini(ph, parts.size() - 1)]]:
 				wrong.append("%s@%d=%s" % [name, ph, str(got)])
-	## **折行不许把数字劈开**：一个「0.5」断成上行「0.」下行「5」，读起来是两个数，
-	## 分档高亮也跟着裂成两段。2026-09-10 云端 PRD 把【BCL-2抗凋亡】的卡面并成一长行
-	## 之后当场撞上 —— 上面那一轮全覆盖断言正是靠「高亮是连续一段」逮住它的。
-	var split_num := CWCardInfo.wrap_text("能量改为0.5 / 0.8 / 1，就这样。", 44.0)
-	var broke := false
-	for i in split_num.size() - 1:
-		var tail: String = split_num[i].substr(split_num[i].length() - 1)
-		var head: String = split_num[i + 1].substr(0, 1)
-		if (tail == "." or (tail >= "0" and tail <= "9")) 				and (head == "." or (head >= "0" and head <= "9")):
-			broke = true
-	check(not broke, "窄到 44px 也不会把数字从中间断开（实为 %s）" % str(split_num))
-
 	## 66 张里带「a / b / c」的是 12 张（【免疫突触成熟】的「1/6 概率」没有空格，不算），去掉自由选择的【代谢耦联】剩 11
 	check(n_cards == 12 and wrong.is_empty(), "12 张分档卡三期各高亮到正确的一档（%d 张；错的：%s）" % [n_cards, str(wrong)])
 	## 折行把一组拆到两行：两行各标各的那一段
@@ -13787,19 +13714,11 @@ func t_batch2_rules() -> void:
 	check(int(imm["camp_round"]) == -1, "挪窝：蹲守作废")
 	await g.world._resolve_camping()
 	check(g.tiles[z]["tissue"] == CWData.Tissue.CANCER, "没蹲满：不净化")
-	## 到期那一回合才进来：**现在挡得住了**。云端 PRD 2026-09-10 给 E-硬化加了条件
-	## 「最后**若不被免疫细胞占据**，则该组织转为固化癌组织并移除标记」——
-	## 站上去就不转，而且**标记留着**：人一走下个回合照样固化。
+	## 到期那一回合才进来：E 阶段照样固化，蹲守落空
 	g.round_no = 7
 	await g.actions.enter_tile(imm, z)
 	g.world._ossify()
-	check(g.tiles[z]["tissue"] == CWData.Tissue.CANCER
-			and int(g.tiles[z]["ossify_at"]) == 7,
-		"到期回合站上去：本回合不转固化，标记留着")
-	## 人一走就该转 —— 站一回合不等于把标记拆了
-	await g.actions.enter_tile(imm, Vector2i(1, 0))
-	g.world._ossify()
-	check(g.tiles[z]["tissue"] == CWData.Tissue.SOLID, "免疫细胞离开，下一次 E 阶段照样固化")
+	check(g.tiles[z]["tissue"] == CWData.Tissue.SOLID, "到期回合才进来：E 阶段照样固化")
 	g.round_no = 8
 	await g.world._resolve_camping()
 	check(g.tiles[z]["tissue"] == CWData.Tissue.SOLID and int(imm["camp_round"]) == -1,
@@ -14191,11 +14110,11 @@ func _t_dmg_unpreventable_still_dies() -> void:
 	g.cells.append(tc)
 	var bv := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0),
 		-1, CWData.CancerType.SCLC, 5)
+	bv["equipped"] = ["BCL-2抗凋亡"]
 	g.cells.append(bv)
-	g.add_mod(bv, "BCL-2抗凋亡", 1, "")
 	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
 	await g.actions._do_move(tc, Vector2i(1, 0), 0)
-	check(g.mods_of(bv, "BCL-2抗凋亡").is_empty(),
+	check(not bv["equipped"].has("BCL-2抗凋亡"),
 		"UNPREVENTABLE 的次级伤害仍然走死亡替代：BCL-2 被触发并弃置")
 	g.dispose()
 
@@ -14564,14 +14483,14 @@ func t_batch_death_and_triggers() -> void:
 	## pid 只能取 0/1：bare_game() 是两人局，cell_name() 会拿它去索引 players
 	var b := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER,
 		Vector2i(3, 0), -1, CWData.CancerType.SCLC, 5)
-	g.add_mod(b, "BCL-2抗凋亡", 1, "")
+	b["equipped"] = ["BCL-2抗凋亡"]
 	g.cells.append(b)
 	g.round_no = 1
 	g.immune_hit_area([a, b], 30, atk, "IFN-γ")
 	check(not a["alive"], "①没有免死的当场死亡")
 	check(b["alive"] and b["energy"] == CWData.BCL2_ENERGY[0],
 		"①带 BCL-2 的在批量宣死之前被替代救回")
-	check(g.mods_of(b, "BCL-2抗凋亡").is_empty(), "①BCL-2 触发后本牌弃置")
+	check(not ("BCL-2抗凋亡" in b["equipped"]), "①BCL-2 触发后本牌弃置")
 	g.dispose()
 
 	## ② 同一目标在一批里挨两下（主攻击 + 无视减伤的次级伤害）只死一次
@@ -14790,7 +14709,7 @@ func _t_damage_required() -> void:
 	tc["equipped"] = ["细胞毒性增强"]
 	g3.cells.append(tc)
 	var bcl := _put_cancer(g3, canc, 5)                 ## 主伤害就能打死
-	g3.add_mod(bcl, "BCL-2抗凋亡", 1, "")
+	bcl["equipped"] = ["BCL-2抗凋亡"]
 	var n0: int = g3.logs.size()
 	_rig_roll(g3, 6, [3])
 	await g3.actions._do_move(tc, canc, 0)
