@@ -2164,6 +2164,24 @@ func t_hotseat() -> void:
 	await process_frame
 	p.open()
 	check(p._n_rows() == CWConfigPanel.N_ROWS and not p._sheet.visible, "普通模式：四行、席位表不出")
+	## issue #17：「对局类型」行和别的行同一套画法 —— 取焦行名转白、箭头才露面、悬停箭头带白光；分隔线不压字
+	var sel0: int = p._sel   ## 验完把焦点放回去，下面的键盘走位是从这里数的
+	check(not p._mode_arrows[0].visible and p._mode_name.get_theme_color("font_color") == CWConfigPanel.ROW_LABEL,
+		"焦点不在对局类型：箭头收着、行名是灰")
+	p._sel = -1
+	p._repaint()
+	check(p._mode_name.get_theme_color("font_color") == Color.WHITE and p._mode_arrows[0].visible and p._mode_arrows[1].visible,
+		"焦点在对局类型：行名转白、两枚箭头露面")
+	p._hot_arrow = p._mode_arrows[1]
+	p._repaint()
+	check(p._mode_arrows[1].get_theme_constant("outline_size") == 8 and p._mode_arrows[1].get_theme_color("font_color") == Color.WHITE,
+		"悬停对局类型的箭头：转白 + 白光描边（和别的行一样）")
+	p._hot_arrow = null
+	p._sel = sel0
+	p._repaint()
+	var foot: float = CWStyle.FONT.get_ascent(CWStyle.SIZE_BODY) + CWStyle.FONT.get_descent(CWStyle.SIZE_BODY)
+	check(CWConfigPanel.RULE_Y >= CWConfigPanel.ROW_MODE_Y + foot and CWConfigPanel.RULE_Y + 1 < CWConfigPanel.ROW_Y0,
+		"分隔线在「对局类型」的字脚（%d）之下、第一行（%d）之上，不再横穿那行字" % [int(CWConfigPanel.ROW_MODE_Y + foot), int(CWConfigPanel.ROW_Y0)])
 	p.handle_input(press_action("ui_down"))                 ## → 我的阵营
 	for i in 3:
 		p.handle_input(press_action("ui_right"))            ## 免疫 → 癌 → 观战 → 本地多人
@@ -2194,6 +2212,14 @@ func t_hotseat() -> void:
 	p.handle_input(press_action("ui_right"))                ## 4 → 6
 	check(p._n_rows() == CWConfigPanel.N_ROWS + 6 and p._btn.position.y == CWConfigPanel.BTN_Y, "六人局：6 个席位行，按钮位置不变")
 	check(p._seat_bars[5].visible and p._seat_bars[5].color == CWStyle.CANCER and p._seat_bars[0].color == CWStyle.IMMUNE, "六条阵营色竖条按席位阵营着色")
+	## issue #16：六人局最后两席掉到板外、键位提示压在第五席上 —— 板要按席数长高
+	var last_y: float = p._row_pos(CWConfigPanel.N_ROWS + 5).y
+	var plate_bottom: float = CWConfigPanel.SHEET_Y + p._plate.size.y
+	check(last_y + 28 <= p._sheet_hint.position.y and p._sheet_hint.position.y + 14 <= plate_bottom,
+		"六人局：最后一席（%d）在键位提示（%d）之上、提示在板底（%d）之内" % [int(last_y), int(p._sheet_hint.position.y), int(plate_bottom)])
+	check(plate_bottom <= CWView.screen_size().y - 8, "六人局：席位表底 %d 不出屏" % int(plate_bottom))
+	check(CWConfigPanel.sheet_height(4) == CWConfigPanel.SHEET_H and CWConfigPanel.sheet_height(2) == CWConfigPanel.SHEET_H,
+		"2 / 4 席仍是原来的板高，只有 6 席才长")
 	p.custom = true
 	p._repaint()
 	check(p._n_rows() == CWConfigPanel.N_ROWS + 6 + 3 and p._name_labels[CWConfigPanel.N_ROWS + 6].text == "癌症A 种类" \

@@ -84,6 +84,13 @@ const SEAT_VALUE_X := 760.0      ## 真人 / AI
 const SEAT_ARROW_R_X := 866.0    ## 右拨值箭头（固定位，同 ARROW_R_X 的理由）
 const SEAT_MARKER_DX := -33.0    ## 菱形标离席位名的距离：光晕半径 24，中心 597 → 573 仍在 560 之内
 const SHEET_FADE := 0.2          ## 席位表淡入淡出 = CWOnlinePanel.PAGE_FADE
+## 席位表按席数长高（issue #16：六人局最后两席掉到板外、键位提示压在第五席上）：
+## 最后一席的字脚（28）+ 键位提示一行（30）到板底。2 / 4 席算出来比 SHEET_H 矮，仍用 SHEET_H。
+const SHEET_TAIL := 58.0
+## 「对局类型」下面那条分隔线：字脚之下、第一行之上。原来在 230 —— 那是加「对局类型」行之前定的，
+## 加了行之后正好压在 ROW_MODE_Y 那行字的脚上（issue #17「蓝线横穿」）：20px 字 ascent 22 + descent 6，
+## 字脚在 209 + 28 = 237，第一行 251，取中间。右侧席位表那条线同一个高度，两边才对得齐。
+const RULE_Y := 243.0
 const CANCER_STEPS := [-1, CWData.CancerType.MELANOMA, CWData.CancerType.SIGNET,
 	CWData.CancerType.OSTEO, CWData.CancerType.SCLC]
 
@@ -107,8 +114,11 @@ var _seat_alpha := 0.0       ## 席位表当前透明度；席位行的字跟它
 var _sheet_tween: Tween
 var _eyebrow: Label
 var _title: Label
+var _mode_name: Label        ## 「对局类型」行名：取焦转白，和 _name_labels 同一套画法（issue #17）
 var _mode_value: Label
 var _mode_arrows: Array[Label] = []
+var _plate: Panel            ## 席位表的板，高度随席数（issue #16）
+var _sheet_hint: Label       ## 席位表底部的键位提示，跟着板底走
 var _hits: Array[Control] = []
 
 var _sel := N_ROWS           ## 焦点：0..3 = 行，N_ROWS = 「进入棋盘」
@@ -390,9 +400,21 @@ func _build() -> void:
 	add_child(_title)
 
 	## 标准 / 自定义是「开始对局」内部的模式选项；独立放在分隔线前，不挪动原四行配置。
-	var mode_name := CWStyle.label("对局类型", CWStyle.SIZE_BODY, ROW_LABEL)
-	mode_name.position = Vector2(SLOT_X, ROW_MODE_Y)
-	add_child(mode_name)
+	## 画法和 _build_row 那几行**同一套**（issue #17）：整行命中区悬停即取焦、行名取焦转白、
+	## 拨值箭头只在取焦时露面、悬停的箭头带白光 —— 从前这一行另起炉灶画的，箭头常亮又没光、行名不变白，
+	## 于是辉光衬在一行灰字底下，看着像一圈发虚的描边。
+	var mode_hit := Control.new()
+	mode_hit.position = Vector2(SLOT_X - 30, ROW_MODE_Y - 8)
+	mode_hit.size = Vector2(420, ROW_H - 4)
+	mode_hit.mouse_filter = Control.MOUSE_FILTER_PASS
+	mode_hit.mouse_entered.connect(func() -> void:
+		_sel = -1
+		_mouse_led = true
+		_repaint())
+	add_child(mode_hit)
+	_mode_name = CWStyle.label("对局类型", CWStyle.SIZE_BODY, ROW_LABEL)
+	_mode_name.position = Vector2(SLOT_X, ROW_MODE_Y)
+	add_child(_mode_name)
 	var mode_left := CWStyle.clickable_label(self, "<", Vector2(VALUE_X - 22, ROW_MODE_Y), _cycle_mode)
 	_mode_value = CWStyle.clickable_label(self, "标准对局", Vector2(VALUE_X, ROW_MODE_Y), _cycle_mode)
 	var mode_right := CWStyle.clickable_label(self, ">", Vector2(ARROW_R_X, ROW_MODE_Y), _cycle_mode)
@@ -402,9 +424,17 @@ func _build() -> void:
 			_sel = -1
 			_mouse_led = true
 			_repaint())
+	for arrow: Label in _mode_arrows:
+		arrow.mouse_entered.connect(func() -> void:
+			_hot_arrow = arrow
+			_repaint())
+		arrow.mouse_exited.connect(func() -> void:
+			if _hot_arrow == arrow:
+				_hot_arrow = null
+			_repaint())
 
 	var rule := ColorRect.new()
-	rule.position = Vector2(SLOT_X, 230)
+	rule.position = Vector2(SLOT_X, RULE_Y)
 	rule.size = Vector2(288, 1)
 	rule.color = Color(CWStyle.LINE, 0.42)
 	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -439,14 +469,14 @@ func _build_sheet() -> void:
 	_sheet.visible = false
 	_sheet.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_sheet)
-	var plate := Panel.new()
+	_plate = Panel.new()
 	var box := CWStyle.box(0.42, Color(CWStyle.PANEL, 0.92))
 	box.set_corner_radius_all(6)
-	plate.add_theme_stylebox_override("panel", box)
-	plate.position = Vector2(SHEET_X, SHEET_Y)
-	plate.size = Vector2(SHEET_W, SHEET_H)
-	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_sheet.add_child(plate)
+	_plate.add_theme_stylebox_override("panel", box)
+	_plate.position = Vector2(SHEET_X, SHEET_Y)
+	_plate.size = Vector2(SHEET_W, SHEET_H)   ## 高度在 _repaint 里按席数改（sheet_height）
+	_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sheet.add_child(_plate)
 	var eyebrow := CWStyle.label("SEATS", CWStyle.SIZE_BODY, CWStyle.IMMUNE)
 	eyebrow.add_theme_font_override("font", _px20())
 	eyebrow.position = Vector2(SEAT_BAR_X, 127)
@@ -455,7 +485,7 @@ func _build_sheet() -> void:
 	title.position = Vector2(SEAT_BAR_X, 160)
 	_sheet.add_child(title)
 	var rule := ColorRect.new()
-	rule.position = Vector2(SEAT_BAR_X, 230)
+	rule.position = Vector2(SEAT_BAR_X, RULE_Y)
 	rule.size = Vector2(SHEET_X + SHEET_W - 20 - SEAT_BAR_X, 1)
 	rule.color = Color(CWStyle.LINE, 0.42)
 	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -467,9 +497,14 @@ func _build_sheet() -> void:
 		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_sheet.add_child(bar)
 		_seat_bars.append(bar)
-	var hint := CWStyle.label("上下键在左栏与席位之间移动 · 左右键拨 真人 / AI", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	hint.position = Vector2(SEAT_BAR_X, SHEET_Y + SHEET_H - 26)
-	_sheet.add_child(hint)
+	_sheet_hint = CWStyle.label("上下键在左栏与席位之间移动 · 左右键拨 真人 / AI", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	_sheet_hint.position = Vector2(SEAT_BAR_X, SHEET_Y + SHEET_H - 26)   ## 纵坐标在 _repaint 里跟板底走
+	_sheet.add_child(_sheet_hint)
+
+
+## 席位表的板高：2 / 4 席仍是原来的 SHEET_H，6 席按行数长到能装下最后一席 + 键位提示（issue #16）
+static func sheet_height(n_seats: int) -> float:
+	return maxf(SHEET_H, ROW_Y0 + (n_seats - 1) * ROW_H + SHEET_TAIL - SHEET_Y)
 
 
 ## 席位表随「本地多人」出没：0.2s 淡入淡出（联机面板切页的节拍）。instant = 打开面板时直接到位。
@@ -688,6 +723,20 @@ func _repaint() -> void:
 			var order: Array = CWData.FACTION_ORDER[_players]
 			bar.color = CWStyle.IMMUNE if order[k] == CWData.Faction.IMMUNE else CWStyle.CANCER
 	_sheet.modulate.a = _seat_alpha
+	## 席位表按席数长高（issue #16）；键位提示贴着板底
+	var sheet_h := sheet_height(_n_seats())
+	_plate.size.y = sheet_h
+	_sheet_hint.position.y = SHEET_Y + sheet_h - 26
+	## 「对局类型」行和别的行同一套画法（issue #17）：取焦行名转白、拨值箭头才露面、悬停的箭头带白光
+	var mode_on := _sel == -1
+	_mode_name.add_theme_color_override("font_color", Color.WHITE if mode_on else ROW_LABEL)
+	_mode_value.add_theme_color_override("font_color", Color.WHITE if mode_on else CWStyle.TEXT_HI)
+	for arrow: Label in _mode_arrows:
+		arrow.visible = mode_on
+		var hovering := arrow == _hot_arrow
+		arrow.add_theme_color_override("font_color", Color.WHITE if hovering else CWStyle.IMMUNE)
+		arrow.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
+		arrow.add_theme_constant_override("outline_size", 8 if hovering else 0)
 	## 选中行标题的辉光跟焦点走（在按钮上时收起——按钮有自己的高亮语言）
 	_glow.visible = _sel < n
 	if _sel < n:
