@@ -6030,6 +6030,19 @@ func t_settings() -> void:
 	## 而尾巴恰恰是「该怎么办」那半句（第一版就是这么被吃成「…请去 GitHub …」的）
 	var note_w: float = CWSettingsPage.W - CWSettingsPage.PAD * 2 - 16
 	var over: Array = []
+	## 单打法：要选格才问、不用选格直接执行；子选项标题兜底用引擎的 label，别打字典（Kevin 2026-09-11 截图）
+	check(CWUIBridge.confirm_single({ "act": "jump", "to": Vector2i(1, 0) }) and not CWUIBridge.confirm_single({ "act": "draw" }),
+		"单打法：带 to（跃进 / 血行转移）才追问，抽卡这类直接执行")
+	check(CWUIBridge._sub_label("draw", { "label": "抽卡（1.0 能量）", "data": { "act": "draw" } }) == "抽卡（1.0 能量）"
+		and CWUIBridge._sub_label("differentiate", { "label": "x", "data": { "act": "differentiate", "type": CWData.ImmuneType.B_CELL } })
+			== CWData.IMMUNE_TYPE_NAMES[CWData.ImmuneType.B_CELL]
+		and not CWUIBridge._sub_label("mutate", { "data": { "act": "mutate" } }).begins_with("{"),
+		"子选项标题：分化给种类名，其余退回引擎的 label，兜底也不是字典")
+	## 被拉黑的那一版不能说「已经是最新」（Kevin 2026-09-11）
+	check(CWSettingsPage.skip_note(202609100826, 202609100826).contains("拉黑")
+		and CWSettingsPage.skip_note(202609100826, 0) == CWSettingsPage.UPD_NOTES["latest"]
+		and CWSettingsPage.skip_note(0, 202609100826) == CWSettingsPage.UPD_NOTES["latest"],
+		"服务器推的正是拉黑那一版 → 说拉黑；其他情形照旧「已经是最新」")
 	for key: String in CWSettingsPage.UPD_NOTES:
 		var text: String = String(CWSettingsPage.UPD_NOTES[key])
 		## 真实最坏情况：第一个占位是补丁号（12 位），后面那个是秒数（1 位）——
@@ -10715,9 +10728,10 @@ func t_diff_info() -> void:
 	check(b_lines[0].begins_with("【抗体】") and b_lines.size() >= 3, "B细胞：【抗体】起头、列表项各占一行（%d 行）" % b_lines.size())
 	## 询问桥：分化的子选项条目带 info，别的不带
 	var br := CWUIBridge.new()
-	var e := br._sub_entry("differentiate", { "act": "differentiate", "type": CWData.ImmuneType.MACRO })
+	## _sub_entry 2026-09-11 起收整条选项（要拿引擎的 label 兜底），不再只收 data
+	var e := br._sub_entry("differentiate", { "label": "分化为巨噬细胞", "data": { "act": "differentiate", "type": CWData.ImmuneType.MACRO } })
 	check(e["title"] == "巨噬细胞" and e.has("info") and e["info"]["name"] == "巨噬细胞", "分化条目：标题种类名 + info")
-	check(not br._sub_entry("lyse", { "act": "lyse", "purge": true }).has("info"), "裂解条目不带 info")
+	check(not br._sub_entry("lyse", { "label": "裂解", "data": { "act": "lyse", "purge": true } }).has("info"), "裂解条目不带 info")
 	## 行动栏：悬停信号进 / 出，按钮位置
 	var bar := CWActionBar.new()
 	root.add_child(bar)

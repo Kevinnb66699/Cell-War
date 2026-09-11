@@ -262,13 +262,14 @@ func _ask_action(req: Dictionary) -> int:
 		if act == "move":
 			_sticky_move = true
 			continue
-		## **只有一种打法也要问**（issue #14，HXR-I 2026-09-10）。
-		## 从前这儿是「一个技能只有一种打法 → 直接执行，不必再问」，于是小细胞只有一个
-		## 可跃进的方向时，点「转移」当场就跳过去了 —— 玩家既没看清跳去哪，
-		## **也没有反悔的机会**（第二段那一屏才带「取消 · 右键 / Esc」）。
-		## 省下的那一次点击不值这个代价：这是不可撤销的一步棋。
-		## `_pick_sub` 本来就处理得了单项：高亮那一格 + 一个取消按钮。
+		## 只有一种打法时**要选格的才问**（issue #14，HXR-I 2026-09-10）：小细胞只剩一个可跃进的方向时，
+		## 点「转移」不该当场跳过去 —— 玩家得看清跳去哪、还能反悔（第二段那一屏才带「取消 · 右键 / Esc」）。
+		## **不用选格的**单打法（抽卡、突变、大招、只剩一种的分化…）直接执行，和 #14 之前一样 ——
+		## 09-10 曾把整条「单打法直接执行」去掉，于是这些也进了第二段追问，按钮上还是一串 JSON
+		## （Kevin 2026-09-11 截图：点【基因表达】跳出 `{ "act": "draw" }`）。
 		var picks: Array = groups[act]
+		if picks.size() == 1 and not confirm_single(options[picks[0]]["data"]):
+			return picks[0] as int
 		## 多种打法（分化选种类、裂解要不要顺带净化、血行转移/跃进选落点）→ 第二段
 		var sub: Variant = await _pick_sub(act, options, picks)
 		if sub == null:
@@ -372,7 +373,7 @@ func _pick_sub(act: String, options: Array, picks: Array) -> Variant:
 		if data.has("to"):
 			tiles[data["to"]] = i
 		else:
-			buttons.append(_sub_entry(act, data))
+			buttons.append(_sub_entry(act, options[i]))
 			values.append(i)
 	buttons.append({ "title": "取消", "cost": "右键 / Esc" })
 	values.append("cancel")
@@ -381,23 +382,35 @@ func _pick_sub(act: String, options: Array, picks: Array) -> Variant:
 		null, buttons.size() - 1)
 
 
+## 单打法要不要先问一声：带 `to` = 要在棋盘上选（看清落点、能反悔）→ 问；其余直接执行。**纯函数**。
+static func confirm_single(data: Dictionary) -> bool:
+	return data.has("to")
+
+
 ## 子选项的按钮条目：{ title, cost[, info] }。分化的条目带 info = 该细胞种类的详情（PRD 原文），
 ## 鼠标停上去时由 _prompt 转给详情框（2026-09-03 Kevin 要的「分化时悬停显示细胞详情」）
-func _sub_entry(act: String, data: Dictionary) -> Dictionary:
-	var entry := { "title": _sub_label(act, data), "cost": "" }
+func _sub_entry(act: String, opt: Dictionary) -> Dictionary:
+	var entry := { "title": _sub_label(act, opt), "cost": "" }
 	if act == "differentiate":
-		entry["info"] = CWCardInfo.describe_type(data["type"])
+		entry["info"] = CWCardInfo.describe_type(opt["data"]["type"])
 	return entry
 
 
-## 子选项的按钮标题。分化给种类名，裂解给「顺带净化 / 暂不」，其余退回引擎给的 label。
-func _sub_label(act: String, data: Dictionary) -> String:
+## 子选项的按钮标题。分化给种类名，裂解给「顺带净化 / 暂不」，其余退回**引擎给的 label**
+## （从前兜底是 `str(data)`，那条路 #14 之前根本走不到，一走到就是一串 JSON 打在按钮上）。**纯函数**。
+static func _sub_label(act: String, opt: Dictionary) -> String:
+	var data: Dictionary = opt.get("data", {})
 	match act:
 		"differentiate":
 			return CWData.IMMUNE_TYPE_NAMES[data["type"]]
 		"lyse":
 			return "顺带净化" if data["purge"] else "暂不净化"
-	return str(data)
+	var label := String(opt.get("label", ""))
+	if label != "":
+		return label
+	## 连 label 都没有（不该发生）：退到动作名，再退到 act 键 —— 反正不打字典
+	var act_key := String(data.get("act", ""))
+	return String(ACT_TITLE.get(act_key, act_key if act_key != "" else "？"))
 
 
 ## 目标选择态：高亮可达格，等玩家点一格或退出。

@@ -297,6 +297,8 @@ const UPD_NOTES := {
 	"offline": "连不上更新服务器，稍后再试",
 	"bad_sig": "更新信息验不过，已忽略",
 	"latest": "已经是最新版本",
+	## 被拉黑的那一版：说「已经是最新」是骗人的 —— 不是没有新的，是它装崩过被拉黑了（Kevin 2026-09-11）
+	"blocked": "补丁装崩 %d 次已拉黑，等下一版",
 	"too_old": "基线太老，去 Releases 下新客户端",
 	"downloading": "正在下载更新…",
 	"incomplete": "更新没下完，稍后再试",
@@ -367,7 +369,16 @@ func _check_update() -> void:
 		"install":
 			await _download(plan)
 		_:
-			_done(UPD_NOTES["latest"])
+			_done(skip_note(int((parsed as Dictionary).get("build", 0)) if parsed is Dictionary else 0,
+				PatchState.blocked_build()))
+
+
+## decide 说「跳过」时给玩家看哪句：服务器在推的正是被拉黑的那一版 → 说清楚是拉黑了，别说「已经是最新」。
+## **纯函数**，测试直接核对。
+static func skip_note(offered: int, blocked: int) -> String:
+	if offered > 0 and offered == blocked:
+		return UPD_NOTES["blocked"] % PatchState.STRIKES
+	return UPD_NOTES["latest"]
 
 
 func _download(plan: Dictionary) -> void:
