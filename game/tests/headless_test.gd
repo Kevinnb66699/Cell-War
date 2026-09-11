@@ -5718,7 +5718,7 @@ func t_hot_patch() -> void:
 	## **一次启动失败不该判死刑。** 2026-09-09 验下载链路时真误伤过：截图工具 5 秒杀进程，
 	## 补丁没活到 mark_good，下一次开机就把一个好补丁永久拉黑了 ——
 	## 换成玩家就是「开了游戏随手关掉」。真坏的补丁每次都起不来，两次就够认。
-	check(PatchState.STRIKES >= 2, "要连续失败 %d 次才永久拉黑（不是一次）" % PatchState.STRIKES)
+	check(PatchState.STRIKES == 5, "要连续失败 %d 次才永久拉黑（Kevin 2026-09-11 定 5，不是一次也不是两次）" % PatchState.STRIKES)
 	check(PatchState.PROVE_SEC > 0.0 and PatchState.PROVE_SEC <= 5.0,
 		"证明期 %.1f 秒：够盖住主场景构建与首帧，又不至于长到随手一关就算失败"
 			% PatchState.PROVE_SEC)
