@@ -11,8 +11,8 @@ const VESSELC = preload("res://assets/art/vessel_cancer.png")
 ## 积累进度外圈（Kevin 2026-09-08 拍的 A′ 案；2026-09-11 起换成 5yntaxEr 的手绘贴图，issue #24）：
 ## 每种组织 × 健康 / 病变各一对「底」（暗色底圈）「满」（亮色满圈），两张同一像素集、只差颜色；
 ## shader 按进度从底顶点顺时针把「满」露出来、其余露「底」，**按贴图纹素截取**。
-## 颜色全在贴图里，代码不再给色 —— 病变那两对的配色（癌化骨髓 = 绿、癌化核心 = 紫）
-## 也是 zip 里原样给的，要改直接换文件。下标 0 = 健康、1 = 病变（含固化，和 set_tissue 同一口径）。
+## 颜色全在贴图里，代码不再给色。病变那两对在 zip 里名字写反了（癌化骨髓给的是绿、核心给的是紫），
+## 2026-09-11 Kevin 让整对（底 + 满）对调过来，现在四对都和各自健康那对同色系；要改直接换文件。下标 0 = 健康、1 = 病变（含固化，和 set_tissue 同一口径）。
 const STORE_SHADER = preload("res://assets/shaders/store_progress.gdshader")
 const STORE_TRACK := {
 	CWData.Special.CORE: [preload("res://assets/art/ui/store/core_track_normal.png"),
