@@ -6972,23 +6972,15 @@ func t_store_ring() -> void:
 	board.set_store(CWData.CORES[0], 1.0, CWData.Special.CORE)
 	var full: Color = mat.get_shader_parameter("lit_color")
 	check(full != half and full.v > half.v, "满仓换成更亮的一档（「还在攒」和「可以来拿」要分得开）")
-	## 「进度到头、卡还没结算」的环：照满画，但变淡、不换亮色（Kevin 2026-09-11）
-	board.set_store(CWData.MARROWS[0], 1.0, CWData.Special.MARROW, true)
-	var mring: Sprite2D = (board.map[board.axial_to_rc(CWData.MARROWS[0])]["instance"] as Sprite2D).get_node("StoreRing")
-	var mmat := mring.material as ShaderMaterial
-	var pend: Color = mmat.get_shader_parameter("lit_color")
-	check(mring.visible and is_equal_approx(float(mmat.get_shader_parameter("progress")), 1.0)
-		and is_equal_approx(pend.a, board.STORE_PENDING_ALPHA) and pend.a > 0.30 and pend.a < 1.0,
-		"pending：环满、整段变淡（α=%.2f，介于暗槽 0.30 与实亮 1.0 之间）" % pend.a)
-	board.set_store(CWData.MARROWS[0], 1.0, CWData.Special.MARROW, false)
-	var real_full: Color = mmat.get_shader_parameter("lit_color")
-	check(is_equal_approx(real_full.a, 1.0) and real_full.v > pend.v, "真满仓：不透明、更亮的那档")
-	## 对局每帧喂的是同一个判据（两处都要带，少一处就一边淡一边不淡）
+	## 「进度到头、卡还没结算」**不碰环**（Kevin 2026-09-11：「进度条不要变淡，就把中间的卡牌 icon 变淡」）：
+	## set_store 没有 pending 参数，pending 只喂给 set_tissue（第一版连环一起淡过，当天撤掉）
+	check(board.get_method_list().any(
+			func(m: Dictionary) -> bool: return m["name"] == "set_store" and m["args"].size() == 3),
+		"set_store 仍是三个参数：环不认 pending")
 	var mt_src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	check(mt_src.contains("var pending: bool = CWData.store_pending(t)")
-		and mt_src.contains("int(t[\"cards\"]) > 0, solid, pending)")
-		and mt_src.contains("int(t[\"special\"]), pending)"),
-		"_sync_tiles 把 store_pending 同时喂给 set_tissue 与 set_store")
+	check(mt_src.contains("int(t[\"cards\"]) > 0, solid, CWData.store_pending(t))")
+		and mt_src.contains("board.set_store(c, CWData.store_progress(t), int(t[\"special\"]))"),
+		"_sync_tiles 把 store_pending 只喂给 set_tissue，set_store 照旧")
 	board.queue_free()
 	g.dispose()
 

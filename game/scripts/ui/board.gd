@@ -31,8 +31,9 @@ const MARROWC = preload("res://assets/art/marrow_cancer.png")
 const MARROWH_E = preload("res://assets/art/marrow_empty_normal.png")
 const MARROWC_E = preload("res://assets/art/marrow_empty_cancer.png")
 ## 骨髓的第三档「进度到头、卡还没结算」（Kevin 2026-09-11：癌化后周期 3 → 2，攒到 2/3 的格子
-## 瞬间 2/2，环满了仓里却没卡）：空仓那对再把整个图标（框 + 骨头）淡到 35%，进度环也一起淡
-##（`set_store` 的 pending）。`tools/gen_marrow_pending.py` 推的；美术要重画直接换文件。
+## 瞬间 2/2，环满了仓里却没卡）：空仓那对再把整个图标（框 + 骨头）淡到 35%。
+## **进度环不动**（Kevin 同日定：「进度条不要变淡，就把中间的卡牌 icon 变淡」——
+## 第一版连环一起淡过，当天撤掉）。`tools/gen_marrow_pending.py` 推的；美术要重画直接换文件。
 const MARROWH_P = preload("res://assets/art/marrow_pending_normal.png")
 const MARROWC_P = preload("res://assets/art/marrow_pending_cancer.png")
 
@@ -462,17 +463,12 @@ func _solid_tex(a: Vector2i, tissue: int, special: int, stocked: bool,
 	return variants[absi(a.x * 7 + a.y * 13) % variants.size()]
 
 
-## 没点亮那段的不透明度是 shader 里的 0.30；「进度到头但卡还没结算」的环取 0.55 ——
-## 比暗槽亮、比真满仓暗，读成「满了、但先别来」。
-const STORE_PENDING_ALPHA := 0.55
-
-
 ## 代谢核心 / 骨髓的积累进度外圈：`frac` 0~1，**负数 = 不是特殊组织，不画**。
-## `pending` = 骨髓进度到头但卡还没结算（`CWData.store_pending`）：环照满画，但整段变淡、
-## 也不换「可以来拿了」的亮色（Kevin 2026-09-11）。
+## 骨髓「进度到头但卡还没结算」那一档**不在这里表达**：环照常画满，只有图标淡
+## （`set_tissue` 的 pending；Kevin 2026-09-11 定的）。
 ##
 ## 同 `set_tissue()` 的用法：对局那边每帧无脑全刷。
-func set_store(a: Vector2i, frac: float, special: int, pending: bool = false) -> void:
+func set_store(a: Vector2i, frac: float, special: int) -> void:
 	var key := axial_to_rc(a)
 	if not map.has(key):
 		return
@@ -481,9 +477,7 @@ func set_store(a: Vector2i, frac: float, special: int, pending: bool = false) ->
 	var base: Color = STORE_COLOR.get(special, Color.WHITE)
 	## 满仓换成更亮的一档 ——「还在攒」和「可以来拿了」是玩家真正要区分的两个状态，
 	## 光靠长度在一格 32px 上分不出最后那一小段
-	var col: Color = base.lerp(Color.WHITE, 0.45) if frac >= 0.999 and not pending else base
-	if pending:
-		col.a = STORE_PENDING_ALPHA
+	var col: Color = base.lerp(Color.WHITE, 0.45) if frac >= 0.999 else base
 	var ring := t.get_node_or_null("StoreRing") as Sprite2D
 	if ring == null:
 		return

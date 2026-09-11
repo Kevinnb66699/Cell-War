@@ -1275,11 +1275,10 @@ func _sync_tiles() -> void:
 		## 绽开期间按健康组织画，所以进度也得跟着按 tissue 走，不能直接读 t。
 		var solid: float = 0.0 if tissue == CWData.Tissue.HEALTHY \
 			else CWData.solid_progress(t, game.solidify_threshold())
-		## 骨髓「进度到头、卡还没结算」（Kevin 2026-09-11）：图标和进度环一起变淡，判据在 CWData.store_pending
-		var pending: bool = CWData.store_pending(t)
-		board.set_tissue(c, tissue, t["special"], int(t["cards"]) > 0, solid, pending)
+		## 骨髓「进度到头、卡还没结算」（Kevin 2026-09-11）：只淡图标、环不动，判据在 CWData.store_pending
+		board.set_tissue(c, tissue, t["special"], int(t["cards"]) > 0, solid, CWData.store_pending(t))
 		## 积累进度外圈（2026-09-08）：算式在 CWData.store_progress，界面不自己算
-		board.set_store(c, CWData.store_progress(t), int(t["special"]), pending)
+		board.set_store(c, CWData.store_progress(t), int(t["special"]))
 		## 黏液侵染：**覆膜是一层贴图，不走色标**（见 CWBoard.set_mucus）——
 		## 选稿那句「保留底层组织识别」用色标做不到，色标会把整格染成一个颜色
 		if bool(t.get("mucus", false)):
