@@ -6869,7 +6869,25 @@ func t_store_ring() -> void:
 	mar["tissue"] = CWData.Tissue.CANCER
 	check(is_equal_approx(CWData.store_progress(mar), 0.5),
 		"同一格癌变之后 → 1/2（癌变周期 %d 更快）" % CWData.MARROW_CANCER_PERIOD)
+	check(not CWData.store_pending(mar), "1/2 还在攒：不算「进度到头」")
 	mar["tissue"] = CWData.Tissue.HEALTHY
+
+	## 「进度到头、卡还没结算」（Kevin 2026-09-11）：健康时攒到 2/3，被癌化后周期缩到 2 → 2/2，
+	## 环报满、仓里却没卡，要等下一个 S 阶段才真的出。走真流程：CWTissue.to_cancer → _tissue_production
+	mar["prod"] = CWData.MARROW_HEALTHY_PERIOD - 1
+	check(not CWData.store_pending(mar) and CWData.store_progress(mar) < 1.0, "健康 2/3：没到头")
+	CWTissue.to_cancer(mar, false)
+	check(CWData.store_pending(mar) and is_equal_approx(CWData.store_progress(mar), 1.0),
+		"癌化后 2/2：进度报满但 cards=0 → pending")
+	await g.world._tissue_production()
+	check(int(mar["cards"]) == 1 and not CWData.store_pending(mar),
+		"下一个 S 阶段真出了卡 → 不再 pending（有卡的满仓照旧亮）")
+	mar["cards"] = 0
+	mar["prod"] = 0
+	CWTissue.to_healthy(mar)
+	var core_t: Dictionary = g.tile(CWData.CORES[0])
+	core_t["store"] = CWData.CORE_STORE_MAX
+	check(not CWData.store_pending(core_t), "核心没有这一档（存的是连续能量）")
 
 	## **走真流程再验一遍**（Kevin 2026-09-08 报「骨髓把卡抽了以后贴图不变」）：
 	## 上面那几条是直接改字段，这里让细胞真的踩上去，看 enter_tile → collect_special
@@ -6902,6 +6920,19 @@ func t_store_ring() -> void:
 	bd.set_tissue(mc, CWData.Tissue.CANCER, CWData.Special.MARROW, false)
 	check(mspr.texture != stocked and mspr.texture != bd.MARROW_EMPTY_TEX[0],
 		"癌变的空仓骨髓也有自己那张（四种组合各一张）")
+	## 第三档「进度到头、卡还没结算」：图标整个变淡的那张，压过 stocked（Kevin 2026-09-11）
+	var empty_c: Texture2D = mspr.texture
+	bd.set_tissue(mc, CWData.Tissue.CANCER, CWData.Special.MARROW, false, 0.0, true)
+	check(mspr.texture == bd.MARROW_PENDING_TEX[1] and mspr.texture != empty_c and mspr.texture != stocked,
+		"pending → 第三张（不是空仓那张、也不是有卡那张）")
+	bd.set_tissue(mc, CWData.Tissue.CANCER, CWData.Special.MARROW, true, 0.0, true)
+	check(mspr.texture == bd.MARROW_PENDING_TEX[1], "pending 压过 stocked")
+	bd.set_tissue(mc, CWData.Tissue.CANCER, CWData.Special.MARROW, false, 0.5, true)
+	check(mspr.texture != bd.MARROW_PENDING_TEX[1] and mspr.texture != empty_c
+		and mspr.texture == bd._solidify["marrow_pending_cancer"][1][0],
+		"带固化计数的 pending 骨髓走自己那族石化贴图（生成器 BASES 要对上）")
+	bd.set_tissue(mc, CWData.Tissue.CANCER, CWData.Special.MARROW, false, 0.0, false)
+	check(mspr.texture == empty_c, "pending 过去 → 回到空仓那张")
 	## 别的组织不吃这个参数 —— 只有骨髓有「有 / 没有」这种二态
 	var cc := CWData.CORES[0]
 	var cspr: Sprite2D = bd.map[bd.axial_to_rc(cc)]["instance"]
@@ -6941,6 +6972,23 @@ func t_store_ring() -> void:
 	board.set_store(CWData.CORES[0], 1.0, CWData.Special.CORE)
 	var full: Color = mat.get_shader_parameter("lit_color")
 	check(full != half and full.v > half.v, "满仓换成更亮的一档（「还在攒」和「可以来拿」要分得开）")
+	## 「进度到头、卡还没结算」的环：照满画，但变淡、不换亮色（Kevin 2026-09-11）
+	board.set_store(CWData.MARROWS[0], 1.0, CWData.Special.MARROW, true)
+	var mring: Sprite2D = (board.map[board.axial_to_rc(CWData.MARROWS[0])]["instance"] as Sprite2D).get_node("StoreRing")
+	var mmat := mring.material as ShaderMaterial
+	var pend: Color = mmat.get_shader_parameter("lit_color")
+	check(mring.visible and is_equal_approx(float(mmat.get_shader_parameter("progress")), 1.0)
+		and is_equal_approx(pend.a, board.STORE_PENDING_ALPHA) and pend.a > 0.30 and pend.a < 1.0,
+		"pending：环满、整段变淡（α=%.2f，介于暗槽 0.30 与实亮 1.0 之间）" % pend.a)
+	board.set_store(CWData.MARROWS[0], 1.0, CWData.Special.MARROW, false)
+	var real_full: Color = mmat.get_shader_parameter("lit_color")
+	check(is_equal_approx(real_full.a, 1.0) and real_full.v > pend.v, "真满仓：不透明、更亮的那档")
+	## 对局每帧喂的是同一个判据（两处都要带，少一处就一边淡一边不淡）
+	var mt_src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(mt_src.contains("var pending: bool = CWData.store_pending(t)")
+		and mt_src.contains("int(t[\"cards\"]) > 0, solid, pending)")
+		and mt_src.contains("int(t[\"special\"]), pending)"),
+		"_sync_tiles 把 store_pending 同时喂给 set_tissue 与 set_store")
 	board.queue_free()
 	g.dispose()
 

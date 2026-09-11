@@ -490,6 +490,19 @@ static func store_progress(t: Dictionary) -> float:
 			return -1.0
 
 
+## 骨髓「进度到头了、卡却还没结算出来」（Kevin 2026-09-11）：癌化后周期从 3 缩到 2，
+## 攒到 2/3 的格子瞬间变成 2/2 —— `store_progress` 报满、进度环亮成「可以来拿了」，
+## 仓里其实一张都没有，要等下一个 S 阶段 `_tissue_production` 才真的出卡。
+## 棋盘拿它把进度环和图标一起变淡，免得玩家白跑一趟。
+## 只有骨髓有这一档：核心存的是连续能量，`store_progress` 读的是 store 本身，不会先满后产。
+static func store_pending(t: Dictionary) -> bool:
+	if int(t["special"]) != Special.MARROW or int(t["cards"]) >= MARROW_STORE_MAX:
+		return false
+	var period: int = MARROW_HEALTHY_PERIOD if int(t["tissue"]) == Tissue.HEALTHY \
+		else MARROW_CANCER_PERIOD
+	return int(t["prod"]) >= period
+
+
 ## 这一格的固化进度 0.0~1.0。棋盘按它挑石化贴图（2026-09-09）。
 ##
 ## **门槛要从外面传进来**：`solidify_threshold` 是 CWTuning 的旋钮，平衡标定会动它。

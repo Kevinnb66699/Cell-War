@@ -30,6 +30,11 @@ const MARROWC = preload("res://assets/art/marrow_cancer.png")
 ## 美术要重画的话直接换这两个文件，代码不用动。
 const MARROWH_E = preload("res://assets/art/marrow_empty_normal.png")
 const MARROWC_E = preload("res://assets/art/marrow_empty_cancer.png")
+## 骨髓的第三档「进度到头、卡还没结算」（Kevin 2026-09-11：癌化后周期 3 → 2，攒到 2/3 的格子
+## 瞬间 2/2，环满了仓里却没卡）：空仓那对再把整个图标（框 + 骨头）淡到 35%，进度环也一起淡
+##（`set_store` 的 pending）。`tools/gen_marrow_pending.py` 推的；美术要重画直接换文件。
+const MARROWH_P = preload("res://assets/art/marrow_pending_normal.png")
+const MARROWC_P = preload("res://assets/art/marrow_pending_cancer.png")
 
 ## 固化进度的石化贴图族（`tools/gen_solid_tissue.py` 烘的，结晶核扩散）。
 ## 键 = 底图名，值 = 变体数，**必须与生成器的 BASES 对上**（那边加变体，这边跟着加）。
@@ -38,6 +43,7 @@ const SOLIDIFY_BASES := {
 	"energy_cancer": 1,          ## 核心与骨髓散布各处、互不相邻，一个够用
 	"marrow_cancer": 1,
 	"marrow_empty_cancer": 1,
+	"marrow_pending_cancer": 1,
 }
 ## 文件名里的档位（计数 ×10）。四档对应贴图族的四张，见生成器文件头。
 const SOLIDIFY_STEPS := [5, 10, 15, 20]
@@ -392,22 +398,27 @@ const TISSUE_TEX := {
 ## 隔着半个屏幕都看得出。**只有骨髓分两套**：代谢核心存的是连续的能量、
 ## 没有「有 / 没有」这种二态，它继续靠进度环表达。
 const MARROW_EMPTY_TEX := [MARROWH_E, MARROWC_E]
+const MARROW_PENDING_TEX := [MARROWH_P, MARROWC_P]
 
 
 ## 贴图没变就什么都不做，所以对局那边可以每帧无脑全刷 127 格，不必自己记脏标记。
-## `stocked` 只对**骨髓**有意义：仓里有没有卡。其余组织忽略它。
+## `stocked` / `pending` 只对**骨髓**有意义：仓里有没有卡 / 进度到头但卡还没结算
+## （`CWData.store_pending`，pending 压过 stocked）。其余组织忽略它们。
 func set_tissue(a: Vector2i, tissue: int, special: int, stocked: bool = true,
-		solid: float = 0.0) -> void:
+		solid: float = 0.0, pending: bool = false) -> void:
 	var key := axial_to_rc(a)
 	if not map.has(key):
 		return
 	var t: Sprite2D = map[key]["instance"]
 	var i: int = 0 if tissue == CWData.Tissue.HEALTHY else 1
-	var tex: Texture2D = MARROW_EMPTY_TEX[i] \
-		if special == CWData.Special.MARROW and not stocked \
-		else TISSUE_TEX[special][i]
+	var tex: Texture2D = TISSUE_TEX[special][i]
+	if special == CWData.Special.MARROW:
+		if pending:
+			tex = MARROW_PENDING_TEX[i]
+		elif not stocked:
+			tex = MARROW_EMPTY_TEX[i]
 	if solid > 0.0:
-		var stone: Texture2D = _solid_tex(a, tissue, special, stocked, solid)
+		var stone: Texture2D = _solid_tex(a, tissue, special, stocked, solid, pending)
 		if stone != null:
 			tex = stone
 	if t.texture != tex:
@@ -435,12 +446,14 @@ func _load_solidify() -> void:
 ## **变体按格坐标定，不掷骰子**：这个函数每帧对 127 格各跑一次，
 ## 用随机数的话同一格的图案会逐帧乱跳。
 func _solid_tex(a: Vector2i, tissue: int, special: int, stocked: bool,
-		solid: float) -> Texture2D:
+		solid: float, pending: bool = false) -> Texture2D:
 	if tissue == CWData.Tissue.HEALTHY:
 		return null
-	var base: String = "marrow_empty_cancer" \
-		if special == CWData.Special.MARROW and not stocked \
-		else SOLID_BASE_OF.get(special, "")
+	var base: String = SOLID_BASE_OF.get(special, "")
+	if special == CWData.Special.MARROW and pending:
+		base = "marrow_pending_cancer"
+	elif special == CWData.Special.MARROW and not stocked:
+		base = "marrow_empty_cancer"
 	if not _solidify.has(base):
 		return null
 	var steps: Array = _solidify[base]
@@ -449,10 +462,17 @@ func _solid_tex(a: Vector2i, tissue: int, special: int, stocked: bool,
 	return variants[absi(a.x * 7 + a.y * 13) % variants.size()]
 
 
+## 没点亮那段的不透明度是 shader 里的 0.30；「进度到头但卡还没结算」的环取 0.55 ——
+## 比暗槽亮、比真满仓暗，读成「满了、但先别来」。
+const STORE_PENDING_ALPHA := 0.55
+
+
 ## 代谢核心 / 骨髓的积累进度外圈：`frac` 0~1，**负数 = 不是特殊组织，不画**。
+## `pending` = 骨髓进度到头但卡还没结算（`CWData.store_pending`）：环照满画，但整段变淡、
+## 也不换「可以来拿了」的亮色（Kevin 2026-09-11）。
 ##
 ## 同 `set_tissue()` 的用法：对局那边每帧无脑全刷。
-func set_store(a: Vector2i, frac: float, special: int) -> void:
+func set_store(a: Vector2i, frac: float, special: int, pending: bool = false) -> void:
 	var key := axial_to_rc(a)
 	if not map.has(key):
 		return
@@ -461,7 +481,9 @@ func set_store(a: Vector2i, frac: float, special: int) -> void:
 	var base: Color = STORE_COLOR.get(special, Color.WHITE)
 	## 满仓换成更亮的一档 ——「还在攒」和「可以来拿了」是玩家真正要区分的两个状态，
 	## 光靠长度在一格 32px 上分不出最后那一小段
-	var col: Color = base.lerp(Color.WHITE, 0.45) if frac >= 0.999 else base
+	var col: Color = base.lerp(Color.WHITE, 0.45) if frac >= 0.999 and not pending else base
+	if pending:
+		col.a = STORE_PENDING_ALPHA
 	var ring := t.get_node_or_null("StoreRing") as Sprite2D
 	if ring == null:
 		return

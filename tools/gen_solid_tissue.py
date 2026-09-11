@@ -90,7 +90,7 @@ def seed_of(name, variant):
 # 血管不可固化（CWTissue.solidifiable），所以不生成。
 # 核心与骨髓散布在棋盘各处、互不相邻，一个变体够用；普通癌组织成片固化，要 4 个换着来。
 BASES = {"tissue_cancer": 4, "energy_cancer": 1, "marrow_cancer": 1,
-         "marrow_empty_cancer": 1}
+         "marrow_empty_cancer": 1, "marrow_pending_cancer": 1}
 
 
 def _fade(t):
