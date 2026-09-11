@@ -172,7 +172,7 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 			"基质重塑":
 				for c in _solid_in_range(cell["pos"], 2):
 					opts.append(_opt(card, "→%s" % str(c), { "to": c }))
-			"补体调理", "炎症趋化", "CXCR3趋化", "细胞膜修复", "缺氧适应", \
+			"补体调理", "炎症趋化", "CXCR3趋化", "细胞膜修复", "缺氧适应", "BCL-2抗凋亡", \
 			"穿孔素-颗粒酶", "补体级联", "高亲和力克隆", "PD-L1表达", "DNA损伤修复", \
 			"上皮—间质转化":
 				## 自我修饰类：无目标、随时可打（打了用不上是玩家自己的选择——
@@ -301,7 +301,7 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 			_radiotherapy(data["to"])
 		"补体调理":
 			game.add_mod(cell, card, 1, "turn")
-			game.log_msg("　本回合下一次攻击：失败自动重掷一次；最终命中额外 +0.5")
+			game.log_msg("　本回合下一次攻击：无效自动重掷一次；最终命中额外 +0.5")
 		"炎症趋化":
 			## 它属于费用结算的**③ 基础值替换**阶段（口径 #79），而各种「-X」在
 			## **⑤ 固定减费**、免费豁免在 ⑨ —— 都排在它后面，所以它**抬不了价**。
@@ -316,6 +316,15 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 		"细胞膜修复":
 			game.add_mod(cell, card, 1, "")
 			game.log_msg("　下一次能量损失 -1.5（最低 0）")
+		## 云端 PRD 2026-09-10 把它从永久技能改成**即时技能**，于是它和【细胞膜修复】
+		## 是同一种东西：打出去挂一个一次性护盾，等那一下真来了才消耗
+		## （Kevin 2026-09-10：「BCL-2 就像细胞膜修复一样打出不就行了吗」）。
+		## 区别只在护盾**怎么挡** —— 那不是减伤而是整笔免掉，所以不走 `_shield_value`
+		## 那套「减多少」，而是 CWDamage 的 `_bcl2_pass` 单独一条。
+		"BCL-2抗凋亡":
+			game.add_mod(cell, card, 1, "")
+			game.log_msg("　下一次致命能量损失被免疫，能量改为 %s"
+				% CWData.fmt(CWData.BCL2_ENERGY[_phase()]))
 		"缺氧适应":
 			## 2026-08-30 卡面重写（团队定案，口径 #72）：从「本世界回合免疫压迫
 			## + 下一次技能损失 -1.0」两个半句，并成**一个**一次性护盾——
@@ -482,11 +491,12 @@ func _clonal_growth_targets(cell: Dictionary) -> Array[Vector2i]:
 	return cands
 
 
-## 【克隆增殖】相邻、未被免疫占据的健康组织，随机最多 2/3/4 格（按分期）→ 癌组织
-## （2026-09-10 Kevin：格数 1/2/3 → 2/3/4，且由【事件】改为【即时技能】）
+## 【克隆增殖】相邻、未被免疫占据的健康组织，随机最多 1/2/3 格（按分期）→ 癌组织。
+## 格数今天来回改过两趟：早上 Kevin 抬到 2/3/4，晚上云端 PRD 又写回 **1/2/3**。
+## 「由【事件】改为【即时技能】」那半保留（云端也是即时技能）。
 func _clonal_growth(cell: Dictionary) -> void:
 	var cands := _clonal_growth_targets(cell)
-	var picked := _pick_random(cands, [2, 3, 4][_phase()])
+	var picked := _pick_random(cands, [1, 2, 3][_phase()])
 	for c in picked:
 		CWTissue.to_cancer(game.tile(c), true)
 		game.erosion_fx(c, CWData.dir_toward(c, cell["pos"]))   ## 过场：癌从发动者那一侧漫入（Kevin 2026-09-06）

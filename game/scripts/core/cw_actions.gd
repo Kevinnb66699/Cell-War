@@ -403,14 +403,18 @@ func _jump_quota_left(cell: Dictionary) -> bool:
 	return cap <= 0 or int(cell.get("jump_used", 0)) < cap
 
 
-## T 细胞【裂解】：目标是**相邻**的固化癌组织（2026-09-01 起，此前是脚下那一格）
+## T 细胞【裂解】：目标是**1 环内**的固化癌组织（含脚下；云端 PRD 2026-09-10）
 func _is_lyse_legal_now(cell: Dictionary, to: Vector2i) -> bool:
-	return cell["alive"] and (to in game.neighbors(cell["pos"])) 		and game.tile(to)["tissue"] == CWData.Tissue.SOLID
+	return cell["alive"] and (to in CWData.ring(cell["pos"], 1)) 		and game.tile(to)["tissue"] == CWData.Tissue.SOLID
 
 
 func _lyse_targets(cell: Dictionary) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
-	for n in game.neighbors(cell["pos"]):
+	## **1 环内**（含自己脚下那格）。这一处来回改过两轮：
+	## 2026-09-01 从「脚下」改成「相邻」，2026-09-10 云端 PRD 写成
+	## 「可将**1环内**的固化癌组织转为健康组织」—— 1 环 = 中心 + 六邻，两者都算。
+	## 免疫站在固化格上是合法的过渡态（传送/卡牌位移进来的），所以这一档不是空谈。
+	for n in CWData.ring(cell["pos"], 1):
 		if game.tile(n)["tissue"] == CWData.Tissue.SOLID:
 			out.append(n)
 	return out
@@ -772,7 +776,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		var rerolls := opsonin
 		while outcome == "fail" and rerolls > 0:
 			rerolls -= 1
-			game.log_msg("　【补体调理】攻击失败：重新判定一次，以第二次结果为准")
+			game.log_msg("　【补体调理】攻击无效：重新判定一次，以第二次结果为准")
 			r = await game.roll_shown(6, "攻击", cell["pid"], to)
 			outcome = _judged(r, cell)
 	## 【PD-L1表达】**一次攻击只消耗一层**，多层时消耗**最早打出**的那层（团队 2026-09-01 裁定）。
@@ -787,8 +791,8 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 			VERDICT_NAMES[was], VERDICT_NAMES[outcome],
 			"，还剩 %d 层" % left if left > 0 else ""])
 	if outcome == "fail":
-		game.log_msg("　攻击失败，%s 被反弹回原格" % game.cell_name(cell))
-		game.announce("攻击失败", to)
+		game.log_msg("　攻击无效，%s 被反弹回原格" % game.cell_name(cell))
+		game.announce("攻击无效", to)
 		## 【抗原变异】攻击失败 → 被攻击的癌细胞抽牌（按层数）
 		for i in game.event_stacks("抗原变异"):
 			await game.cards.draw(target, "抗原变异")
@@ -883,7 +887,10 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		game.log_msg("　%s 返回原格" % game.cell_name(cell))
 
 
-const VERDICT_NAMES := { "fail": "失败", "success": "成功", "crit": "大成功" }
+## 攻击判定三档的**正本**。云端 PRD 2026-09-10 把「失败」改称**「无效」**
+## （那一版里七处卡面一起改了口径），这儿跟着改；内部键仍是 "fail" ——
+## 它是代码里的标识符，不跟着文案走。
+const VERDICT_NAMES := { "fail": "无效", "success": "成功", "crit": "大成功" }
 
 
 ## 骰面 → 判定，顺带把世界事件的并给记进日志（重掷时会再走一遍）
@@ -891,7 +898,7 @@ func _judged(r: int, attacker: Dictionary) -> String:
 	var base := base_verdict(r, attacker)
 	var out := attack_outcome(r, attacker)
 	if base == "fail" and out != "fail":
-		game.log_msg("　【细胞毒】攻击不会失败：判定并给成功")
+		game.log_msg("　【细胞毒】攻击不会无效：判定并给成功")
 	elif base == "crit" and out != "crit":
 		game.log_msg("　【免疫伪装】攻击不会大成功：判定并给成功")
 	game.log_msg("　攻击掷骰 %d：%s" % [r, VERDICT_NAMES[out]])
@@ -1048,7 +1055,9 @@ func _do_draw(cell: Dictionary) -> void:
 		await game.cards.draw(cell, "基因表达")
 
 
-## 手牌可随时弃置（PRD 卡牌规则 3）。手牌满想抽新卡时先弃再抽（团队 2026-08-28 定）。
+## 手牌**只能在自己的行动回合弃置**（云端 PRD 2026-09-10 把「随时」改成了「行动回合」）。
+## 引擎本来就是这样：这几个选项只从 `build_options()` 出，而那是行动那一问的菜单 ——
+## 别人的回合里根本没人问你。手牌满想抽新卡时先弃再抽（团队 2026-08-28 定）。
 func _discard_options(cell: Dictionary, opts: Array) -> void:
 	for card in cell["hand"]:
 		opts.append({ "label": "弃置【%s】" % card, "data": { "act": "discard", "card": card } })
