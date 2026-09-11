@@ -264,6 +264,9 @@ func s_game_2p() -> void:
 	check(_count(a, "roll") == _count(b, "roll") and _count(a, "roll") > 0, "掷骰演出广播给双方各一次（%d 次）" % _count(a, "roll"))
 	check(a.status == "open" and b.status == "open", "整局没有掉线")
 	print("      相邻状态最长间隔 %d ms" % _max_state_gap_ms(a))
+	## 局末的 room 报文跟在 game_over 后面、可能落到下一次 poll 才到（服务器上另有真人局在打时差得更多，
+	## 2026-09-11 就这么红过一次）：等它到了再看，不拿「同一批到没到」赌
+	await _pump([a, b], func() -> bool: return a.room.get("state", "") == "waiting", 5000)
 	check(a.room.get("state", "") == "waiting" and not a.room["seats"][0]["ready"], "局末房间回到等待中、准备状态清零")
 	a.leave(); b.leave()
 	await _pump([a, b], func() -> bool: return a.code == "" and b.code == "", 10000)
