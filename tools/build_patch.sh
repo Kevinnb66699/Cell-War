@@ -41,6 +41,8 @@ DRY="${DRY:-0}"                      # 1 = 只打包与签名，不上传
 
 die() { echo "✘ $1" >&2; exit 1; }
 
+# 发版 tag 是 gh release create 在**远端**打的，本地不会自动有（2026-09-11 第一次在别的会话里打补丁就撞上）——先把 tag 拉下来
+git fetch -q --tags origin 2>/dev/null || true
 git rev-parse -q --verify "$BASE^{commit}" >/dev/null || die "找不到 $BASE（发版 tag 见 git tag -l 'client-*'）"
 [ -x "$GODOT" ] || die "找不到 Godot：$GODOT（用 GODOT=... 指定）"
 
