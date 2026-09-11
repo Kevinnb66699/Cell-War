@@ -301,7 +301,7 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 			_radiotherapy(data["to"])
 		"补体调理":
 			game.add_mod(cell, card, 1, "turn")
-			game.log_msg("　本回合下一次攻击：失败自动重掷一次；最终命中额外 +0.5")
+			game.log_msg("　本回合下一次攻击：无效自动重掷一次；最终命中额外 +0.5")
 		"炎症趋化":
 			## 它属于费用结算的**③ 基础值替换**阶段（口径 #79），而各种「-X」在
 			## **⑤ 固定减费**、免费豁免在 ⑨ —— 都排在它后面，所以它**抬不了价**。
@@ -482,11 +482,12 @@ func _clonal_growth_targets(cell: Dictionary) -> Array[Vector2i]:
 	return cands
 
 
-## 【克隆增殖】相邻、未被免疫占据的健康组织，随机最多 2/3/4 格（按分期）→ 癌组织
-## （2026-09-10 Kevin：格数 1/2/3 → 2/3/4，且由【事件】改为【即时技能】）
+## 【克隆增殖】相邻、未被免疫占据的健康组织，随机最多 1/2/3 格（按分期）→ 癌组织。
+## 格数今天来回改过两趟：早上 Kevin 抬到 2/3/4，晚上云端 PRD 又写回 **1/2/3**。
+## 「由【事件】改为【即时技能】」那半保留（云端也是即时技能）。
 func _clonal_growth(cell: Dictionary) -> void:
 	var cands := _clonal_growth_targets(cell)
-	var picked := _pick_random(cands, [2, 3, 4][_phase()])
+	var picked := _pick_random(cands, [1, 2, 3][_phase()])
 	for c in picked:
 		CWTissue.to_cancer(game.tile(c), true)
 		game.erosion_fx(c, CWData.dir_toward(c, cell["pos"]))   ## 过场：癌从发动者那一侧漫入（Kevin 2026-09-06）

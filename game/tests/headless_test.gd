@@ -1256,6 +1256,16 @@ func t_immune_level_rules() -> void:
 	check(CWData.AEROBIC_BY_LEVEL[1] - CWData.AEROBIC_BY_LEVEL[0]
 			!= CWData.AEROBIC_BY_LEVEL[2] - CWData.AEROBIC_BY_LEVEL[1],
 		"**不等差** —— 这正是它写不成 base + step × 等级、只能查表的原因")
+
+	## ---- 云端 PRD 2026-09-10 新写明的三条：**引擎本来就做到了** ----
+	## 记在这儿是为了「以后有人照着 PRD 改」时它们先红，而不是被悄悄改掉。
+	check(CWData.LEVEL_MIN_MEMORY[3] == 60 and CWData.level_min_memory(4)[3] == 50,
+		"X 级门槛 四人 50 / 六人 60（云端那版把 III 级写成 20-49 是笔误，Kevin 按图定 20-59）")
+	check(g.tune.metastasis_max_per_round == 2,
+		"小细胞【转移】每世界回合至多 2 次（云端 PRD 写明；引擎旋钮早就是 2）")
+	g.memory = 5
+	g.reduce_memory(999)
+	check(g.memory == 0, "抗原记忆减不到 0 以下（云端 PRD 新写明的一条）")
 	## 盘面被癌组织吃掉一半也不掉收入 —— 这正是换公式要解决的死亡螺旋
 	var half := 0
 	for c in g.tiles.keys():
@@ -2463,12 +2473,14 @@ func t_spread_fx() -> void:
 	g3.round_no = 1
 	a["hand"] = ["克隆增殖"]     ## 2026-09-10 起是【即时技能】，走 play
 	await g3.card_fx.play(a, { "act": "play", "card": "克隆增殖" })
-	var toward_actor := rec3.got.size() == 2
+	## 前期转 1 格（云端 PRD 2026-09-10 写回 1/2/3）——**别把格数抄死在这儿**，
+	## 它今天就被来回改了两趟；这条盯的是「每一格都演了过场、方向朝着发动者」
+	var toward_actor := rec3.got.size() > 0
 	for e in rec3.got:
 		if int(e[1]) != CWData.dir_toward(e[0], a["pos"]):
 			toward_actor = false
 	check(toward_actor,
-		"【克隆增殖】转的两格都演过场，癌从发动者那一侧来（%d 格）" % rec3.got.size())
+		"【克隆增殖】转的每一格都演过场，癌从发动者那一侧来（%d 格）" % rec3.got.size())
 	## 【黏液破裂】：范围内随机转的格全演，方向朝引爆者；引爆者脚下那格取不出方向 → 引擎不广播
 	var sig := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(3, 0), -1, CWData.CancerType.SIGNET, 100)
 	g3.cells.append(sig)
@@ -10101,20 +10113,25 @@ func t_step_atomic() -> void:
 		if not d.has("type"):
 			typed = false
 	check(typed, "每个分化选项自带 type，execute() 不必再问")
-	## 裂解（2026-09-01 改写）：目标是**相邻**的固化癌组织，每格一个顶层选项
+	## 裂解：目标是**1 环内**（含脚下）的固化癌组织，每格一个顶层选项。
+	## 这一处来回改过两轮：09-01 从「脚下」改成「相邻」，09-10 云端 PRD 写成
+	## 「可将 1 环内的固化癌组织转为健康组织」—— 1 环 = 中心 + 六邻，两者都算。
 	imm["itype"] = CWData.ImmuneType.T_CELL
 	imm["pos"] = Vector2i.ZERO
 	imm["energy"] = 50
 	var nbs: Array[Vector2i] = CWData.neighbors(Vector2i.ZERO)
-	g.tiles[Vector2i.ZERO]["tissue"] = CWData.Tissue.SOLID   ## 脚下那格**不该**再算目标
+	g.tiles[Vector2i.ZERO]["tissue"] = CWData.Tissue.SOLID   ## 脚下那格**现在也算**（1 环含中心）
 	g.tiles[nbs[0]]["tissue"] = CWData.Tissue.SOLID
 	g.tiles[nbs[1]]["tissue"] = CWData.Tissue.SOLID
 	var lyse: Array[Vector2i] = []
 	for o in g.actions.build_options(imm):
 		if o["data"].get("act", "") == "lyse":
 			lyse.append(o["data"]["to"])
-	check(lyse.size() == 2 and nbs[0] in lyse and nbs[1] in lyse,
-		"两格相邻固化 → 两个顶层选项，脚下那格不算")
+	check(lyse.size() == 3 and nbs[0] in lyse and nbs[1] in lyse and Vector2i.ZERO in lyse,
+		"1 环内三格固化 → 三个顶层选项，**脚下那格也在里头**")
+	## 选得出来就必须提交得了：合法性复验和选项生成用的是同一把尺
+	check(g.actions._is_lyse_legal_now(imm, Vector2i.ZERO),
+		"脚下那格的复验也放行（两处用同一个 1 环判据）")
 	g.actions._do_lyse(imm, nbs[0])
 	check(g.tiles[nbs[0]]["tissue"] == CWData.Tissue.HEALTHY
 		and g.tiles[nbs[0]]["solid"] == 0, "裂解：相邻固化一步转为健康组织")
@@ -10796,15 +10813,15 @@ func t_card_events_cancer() -> void:
 	await g.card_fx.resolve_event(a, "肿瘤血管生成")
 	check(a["energy"] == 25 and b["energy"] == 20, "肿瘤血管生成：中期全体 +2.0、抽卡者 +2.5（第 8 回合 = 中期）")
 	g.round_no = 1
-	## 2026-09-10 Kevin：【克隆增殖】从【事件】改成【即时技能】（所以走 play 不走 resolve_event），
-	## 格数 1/2/3 → 2/3/4
+	## 2026-09-10：【克隆增殖】从【事件】改成【即时技能】（所以走 play 不走 resolve_event）。
+	## 格数当天来回改过两趟：早上 Kevin 抬到 2/3/4，晚上云端 PRD 又写回 **1/2/3**
 	a["hand"] = ["克隆增殖"]
 	await g.card_fx.play(a, { "act": "play", "card": "克隆增殖" })
 	var newborns := 0
 	for n in CWData.neighbors(Vector2i(0, 0)):
 		if g.tiles[n]["tissue"] == CWData.Tissue.CANCER:
 			newborns += 1
-	check(newborns == 2, "克隆增殖：前期恰好转化 2 格（%d）" % newborns)
+	check(newborns == 1, "克隆增殖：前期恰好转化 1 格（%d）" % newborns)
 	check(a["hand"].is_empty(), "即时技能结算后弃置（不再是抽到即结算的事件）")
 	## 糖酵解爆发：块里 3 格普通癌 + 全图 1 格固化 / 1 细胞，口径与 E 阶段一致（2026-09-07 新式）
 	for c in g.tiles.keys():
@@ -12478,6 +12495,18 @@ func t_tier_highlight() -> void:
 			var got := _marked(CWCardInfo.describe(name, CAN, ph))
 			if got != [parts[mini(ph, parts.size() - 1)]]:
 				wrong.append("%s@%d=%s" % [name, ph, str(got)])
+	## **折行不许把数字劈开**：一个「0.5」断成上行「0.」下行「5」，读起来是两个数，
+	## 分档高亮也跟着裂成两段。2026-09-10 云端 PRD 把【BCL-2抗凋亡】的卡面并成一长行
+	## 之后当场撞上 —— 上面那一轮全覆盖断言正是靠「高亮是连续一段」逮住它的。
+	var split_num := CWCardInfo.wrap_text("能量改为0.5 / 0.8 / 1，就这样。", 44.0)
+	var broke := false
+	for i in split_num.size() - 1:
+		var tail: String = split_num[i].substr(split_num[i].length() - 1)
+		var head: String = split_num[i + 1].substr(0, 1)
+		if (tail == "." or (tail >= "0" and tail <= "9")) 				and (head == "." or (head >= "0" and head <= "9")):
+			broke = true
+	check(not broke, "窄到 44px 也不会把数字从中间断开（实为 %s）" % str(split_num))
+
 	## 66 张里带「a / b / c」的是 12 张（【免疫突触成熟】的「1/6 概率」没有空格，不算），去掉自由选择的【代谢耦联】剩 11
 	check(n_cards == 12 and wrong.is_empty(), "12 张分档卡三期各高亮到正确的一档（%d 张；错的：%s）" % [n_cards, str(wrong)])
 	## 折行把一组拆到两行：两行各标各的那一段

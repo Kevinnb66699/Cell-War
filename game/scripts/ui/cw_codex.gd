@@ -232,7 +232,7 @@ static func chapters() -> Array:
 	else:
 		cancer_win.append("E 阶段结算时立即获胜。")
 	## 攻击判定里随旋钮出没的两句
-	var fail_line := "1-2 失败：弹回原格（费用不退）"
+	var fail_line := "1-2 无效：弹回原格（费用不退）"
 	if tune.counter_dmg_on_fail > 0:
 		fail_line += "，自身再 -%s" % CWData.fmt(tune.counter_dmg_on_fail)
 	fail_line += "；"
