@@ -1257,7 +1257,7 @@ func _sync_tiles() -> void:
 		## 最后那个是固化进度（2026-09-09）：算式在 CWData.solid_progress，界面不自己算。
 		## 绽开期间按健康组织画，所以进度也得跟着按 tissue 走，不能直接读 t。
 		var solid: float = 0.0 if tissue == CWData.Tissue.HEALTHY \
-			else CWData.solid_progress(t, int(game.tune.solidify_threshold))
+			else CWData.solid_progress(t, game.solidify_threshold())
 		board.set_tissue(c, tissue, t["special"], int(t["cards"]) > 0, solid)
 		## 积累进度外圈（2026-09-08）：算式在 CWData.store_progress，界面不自己算
 		board.set_store(c, CWData.store_progress(t), int(t["special"]))

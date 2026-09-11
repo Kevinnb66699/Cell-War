@@ -94,7 +94,7 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 		## 这里必须走 `CWData.fmt()`，用 %d 直接打会显示成「固化 15 / 30」
 		## （2026-09-01 队友截图报的）
 		rows.append({ "text": "固化 %s / %s" % [CWData.fmt(t["solid"]),
-			CWData.fmt(game.tune.solidify_threshold)],
+			CWData.fmt(game.solidify_threshold())],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.TEXT })
 	if int(t.get("ossify_at", 0)) > 0:
 		rows.append({ "text": "骨样硬化 · 第 %d 回合固化" % int(t["ossify_at"]),

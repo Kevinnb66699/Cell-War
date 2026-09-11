@@ -496,10 +496,12 @@ func _cancer_move_cost(cell: Dictionary, dest: Vector2i) -> int:
 	# 小细胞肺癌【极简胞浆】：移动至健康组织的消耗**永久**降为折后价（口径 #82 后是 0.7）
 	if cell["ctype"] == CWData.CancerType.SCLC and game.type_ability_on(cell):
 		return game.tune.sclc_move_healthy
-	# 黑色素瘤【伪足穿透】：目标健康组织与 ≥3 格癌性组织相邻时走折后价（口径 #82 后是 0.5；门槛 2026-09-06 由 2 改 3）
-	if cell["ctype"] == CWData.CancerType.MELANOMA and game.type_ability_on(cell) \
-			and _cancerous_adj(dest) >= CWData.PSEUDOPOD_MIN_ADJ:
-		return game.tune.pseudopod_cost
+	# 黑色素瘤【伪足穿透】（issue #22，2026-09-11）：目标健康组织与 ≥3 格癌性组织相邻时
+	# 基础费 = 0.5 − 0.1 × (相邻癌性组织数 − 3)，钻得越深越便宜（4 格 0.4、六面 0.2）；门槛 2026-09-06 由 2 改 3
+	if cell["ctype"] == CWData.CancerType.MELANOMA and game.type_ability_on(cell):
+		var adj := _cancerous_adj(dest)
+		if adj >= CWData.PSEUDOPOD_MIN_ADJ:
+			return maxi(game.tune.pseudopod_cost - CWData.PSEUDOPOD_DISCOUNT * (adj - CWData.PSEUDOPOD_MIN_ADJ), 0)
 	return game.tune.cancer_move_healthy
 
 

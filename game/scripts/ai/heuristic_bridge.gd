@@ -441,7 +441,7 @@ func _worth_solidifying(me: Dictionary) -> bool:
 	var t: Dictionary = game.tile(me["pos"])
 	if t["tissue"] != CWData.Tissue.CANCER or t["newborn"] or not CWTissue.solidifiable(t):
 		return false   ## 血管永远熬不成据点（Kevin 2026-09-06，v11），别蹲
-	if t["solid"] >= game.tune.solidify_threshold - 1:
+	if t["solid"] >= game.solidify_threshold() - 1:
 		return true  # 差最后一轮就固化，值得停
 	# 场上还没有任何复活据点时，值得从头熬一个
 	return game.count_tissue(CWData.Tissue.SOLID) == 0

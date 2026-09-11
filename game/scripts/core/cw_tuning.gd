@@ -270,7 +270,8 @@ var immune_attack_pct_memory_cap := 0
 var counter_dmg_on_fail := CWData.COUNTER_DMG_ON_FAIL
 
 # ---- 固化 ----
-var solidify_threshold := CWData.SOLIDIFY_THRESHOLD
+## 按肿瘤分期的三档（下标 = 分期，环境恶化 2026-09-11）；结算、界面、AI 一律走 `CWGame.solidify_threshold()`。
+var solidify_threshold: Array = CWData.SOLIDIFY_THRESHOLD_BY_STAGE.duplicate()
 
 # ---- 胜负条件（PRD 原值：30 回合 / 加权 64 / 终局线 42）----
 var limit_round := CWData.LIMIT_ROUND
@@ -352,8 +353,9 @@ var newborn_protect := false
 ## 每个与癌性组织相邻的健康组织，按「相邻癌性组织数 × 本值」的概率转为癌组织。
 ## 单位千分率（40 = 每个相邻癌性组织贡献 4% = PRD 值），0 = 关闭。
 ## 作用是让地盘能脱离癌细胞自行生长，打破「癌细胞一死就彻底崩盘」的负反馈。
-var proliferate_per_adjacent := CWData.PROLIFERATE_PER_ADJ
-## 连通块含固化癌组织时的那一档（PRD 2026-09-07）。设成与上面同值 = 退回不分档的老口径。
-var proliferate_per_solid := CWData.PROLIFERATE_PER_SOLID
-## 【E-侵蚀】一次转几格（x = 2/3 概率那档，y = 1/3 概率那档）。PRD 2026-09-07 是 (2,3)，此前 (1,2)。
-var erosion_tiles := CWData.EROSION_TILES
+## 三个都按**肿瘤分期**分三档（下标 = 分期，环境恶化 2026-09-11）。扫描要一刀切时三档设同一个数。
+var proliferate_per_adjacent: Array = CWData.PROLIFERATE_BASE_BY_STAGE.duplicate()
+## 相邻连通块里每格固化再加的那一档（PRD 2026-09-07 加、09-11 改成按块去重求和）。设成 0 = 退回不看固化的老口径。
+var proliferate_per_solid: Array = CWData.PROLIFERATE_SOLID_BY_STAGE.duplicate()
+## 【E-侵蚀】一次转几格（x = 2/3 概率那档，y = 1/3 概率那档）。I/II 期 (2,3)，III 期 (3,5)。
+var erosion_tiles: Array = CWData.EROSION_TILES_BY_STAGE.duplicate()

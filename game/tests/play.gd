@@ -282,9 +282,9 @@ func _tune() -> CWTuning:
 	if acap >= 0:
 		t.aerobic_cap = acap
 	if prolif >= 0:
-		t.proliferate_per_adjacent = prolif
+		t.proliferate_per_adjacent = [prolif, prolif, prolif]
 	if solid >= 0:
-		t.solidify_threshold = solid
+		t.solidify_threshold = [solid, solid, solid]
 	if cwin >= 0:
 		t.cancer_win_weighted = cwin
 	if chold >= 1:

@@ -54,7 +54,7 @@ func _variants() -> Array[CWTuning]:
 	# 增生让地盘能脱离癌细胞自行生长；PRD 默认开着（4%/相邻癌性组织），关掉看它值多少
 	var no_pro := CWTuning.new()
 	no_pro.name = "规则原文-无增生"
-	no_pro.proliferate_per_adjacent = 0
+	no_pro.proliferate_per_adjacent = [0, 0, 0]
 	out.append(no_pro)
 
 	return out

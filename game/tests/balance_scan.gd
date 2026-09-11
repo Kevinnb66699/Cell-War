@@ -295,13 +295,13 @@ func _tune() -> CWTuning:
 	if amemcap >= 0:
 		t.immune_attack_pct_memory_cap = amemcap
 	if prolif >= 0:
-		t.proliferate_per_adjacent = prolif
+		t.proliferate_per_adjacent = [prolif, prolif, prolif]
 	if prolifs >= 0:
-		t.proliferate_per_solid = prolifs
+		t.proliferate_per_solid = [prolifs, prolifs, prolifs]
 	if erosion >= 0:
-		t.erosion_tiles = Vector2i(erosion, erosion + 1)
+		t.erosion_tiles = [Vector2i(erosion, erosion + 1), Vector2i(erosion, erosion + 1), Vector2i(erosion, erosion + 1)]
 	if solid >= 0:
-		t.solidify_threshold = solid
+		t.solidify_threshold = [solid, solid, solid]
 	if cwin >= 0:
 		t.cancer_win_weighted = cwin
 	if chold >= 1:
@@ -399,7 +399,7 @@ func _applied(t: CWTuning) -> String:
 			["amemcap", t.immune_attack_pct_memory_cap, d.immune_attack_pct_memory_cap],
 			["prolif", t.proliferate_per_adjacent, d.proliferate_per_adjacent],
 			["prolifs", t.proliferate_per_solid, d.proliferate_per_solid],
-			["erosion", t.erosion_tiles.x, d.erosion_tiles.x],
+			["erosion", t.erosion_tiles[0].x, d.erosion_tiles[0].x],
 			["solid", t.solidify_threshold, d.solidify_threshold],
 			["cwin", t.cancer_win_weighted, d.cancer_win_weighted],
 			["chold", t.cancer_win_hold_rounds, d.cancer_win_hold_rounds],

@@ -50,6 +50,7 @@ func e_phase() -> void:
 	_cancer_upkeep()                         ## 4.5 【代谢消耗】（PRD 之外，平衡候选③）
 	await _resolve_camping()                 ## 4.9 骨样硬化标记格上的蹲守净化（排在固化之前，见 _resolve_camping）
 	_solidify()                              ## 5 【固化】
+	_rooted()                                ## 5 【根深蒂固】（环境恶化 II/III 期，同属第 5 步：固化格给相邻癌组织加计数）
 	_ossify()                                ## 5 骨肉瘤【骨样硬化】标记到期（同属第 5 步，排在计数固化之后）
 	_decay()                                 ## 6 固化计数衰减
 	_mark_adhesion()                         ## 7 树突【E-组织黏连】（也是 E 类，排在紊乱返回之前）
@@ -529,8 +530,10 @@ func _erosion(fresh: Array[Vector2i] = []) -> void:
 	# 一局要掷 7 次左右，每次都演会拖节奏（决策 ④，2026-08-27 定）。
 	# 若团队改主意要演，把这行换成 `await game.roll_shown(3, "侵蚀")` 即可 ——
 	# rng 消耗完全一样，平衡数据和同种子复现都不受影响，但 _erosion() 及其调用链要改成 async。
-	## 2/3 概率取 x、1/3 概率取 y（PRD 2026-09-07 是 2/3；旋钮 erosion_tiles 可扫回 1/2）
-	var count: int = int(game.tune.erosion_tiles.x if game.roll_d3() <= 2 else game.tune.erosion_tiles.y)
+	## 2/3 概率取 x、1/3 概率取 y（PRD 2026-09-07 是 2/3；旋钮 erosion_tiles 可扫回 1/2）。
+	## 格数按**肿瘤分期**查表（环境恶化 2026-09-11）：I/II 期 (2,3)，III 期 (3,5)。
+	var tiles: Vector2i = game.tune.erosion_tiles[game.tumor_stage()]
+	var count: int = int(tiles.x if game.roll_d3() <= 2 else tiles.y)
 	var picked: Array = game.pick_random(eligible, count)
 	## 过场方向要在**转化之前**全部算完：同一批里两格相邻时，
 	## 先转的那格会变成后转那格的「来源」，方向就不再是「侵蚀从哪来」了。
@@ -564,30 +567,16 @@ func _proliferate() -> Array[Vector2i]:
 	if game.event_stacks("增殖抑制") > 0:
 		game.log_msg("【增殖抑制】本回合组织无法增生")
 		return none
-	var rate: int = game.tune.proliferate_per_adjacent
-	var per_solid: int = game.tune.proliferate_per_solid
+	var stage := game.tumor_stage()
+	var rate: int = game.tune.proliferate_per_adjacent[stage]
+	var per_solid: int = game.tune.proliferate_per_solid[stage]
 	for i in game.event_stacks("异常增殖"):
 		rate *= 2        ## 【异常增殖】增生概率翻倍（叠加时按层数连乘）
 		per_solid *= 2   ## 两项一起翻，否则事件生效期间反而把固化的加成压扁了
 	if rate <= 0 and per_solid <= 0:
 		return none
-	## PRD 2026-09-08 云端修订版：每个癌性组织的贡献 = 3% + 1% × **它所在连通块里的固化癌组织数**。
-	## （此前是「块里有固化 → 一律 4%」，不随固化数增长。）
-	##
-	## 先把每格所属连通块的固化数一次性算出来 —— 每格各跑一遍洪水填充的话，
-	## 一次增生要跑 127 遍。
-	var solids_of := {}   ## 癌性格 -> 它那个连通块里的固化数
-	if per_solid > 0:
-		var cancerous_pred := func(c: Vector2i) -> bool:
-			return game.is_cancerous(c)
-		for block in game.blocks_of(cancerous_pred):
-			var n_solid := 0
-			for c: Vector2i in block:
-				if game.tiles[c]["tissue"] == CWData.Tissue.SOLID:
-					n_solid += 1
-			if n_solid > 0:
-				for c: Vector2i in block:
-					solids_of[c] = n_solid
+	## 先把每格所属的连通块与各块的固化数一次性算出来 —— 每格各跑一遍洪水填充的话，一次增生要跑 127 遍。
+	var bs := _block_solids()
 	var converts: Array[Vector2i] = []
 	var coords: Array = game.tiles.keys()
 	coords.sort()  # 固定遍历顺序，保证同种子可复现
@@ -598,12 +587,7 @@ func _proliferate() -> Array[Vector2i]:
 			continue  # 与【侵蚀】一致：免疫细胞所在格不被转化
 		if _watched(c):
 			continue  # 【免疫监视】守护范围内不做增生判定（不掷骰，rng 消耗随之变少）
-		## 概率是**逐个邻居累加**的（不是「邻居数 × 单一档位」）：
-		## 同一格的几个癌性邻居可能分属不同连通块，各自的固化数不一样。
-		var chance := 0
-		for n in game.neighbors(c):
-			if game.is_cancerous(n):
-				chance += rate + per_solid * int(solids_of.get(n, 0))
+		var chance := _proliferate_chance(c, rate, per_solid, bs[0], bs[1])
 		if chance > 0 and game.rng.randi_range(1, 1000) <= chance:
 			converts.append(c)
 	## 过场方向在转化**之前**取：这一批是同时结算的，先转的格不该成为后转格的「来源」（同 _erosion）
@@ -616,6 +600,50 @@ func _proliferate() -> Array[Vector2i]:
 	if not converts.is_empty():
 		game.log_msg("【增生】%d 格健康组织被癌组织侵占" % converts.size())
 	return converts
+
+
+## 各癌性格所属的连通块编号 + 各块的固化数（增生要**按块去重**求和）。返回 [block_of, solids_in]。
+func _block_solids() -> Array:
+	var block_of := {}          ## 癌性格 -> 连通块编号
+	var solids_in: Array = []   ## 连通块编号 -> 块里的固化数
+	var cancerous_pred := func(c: Vector2i) -> bool:
+		return game.is_cancerous(c)
+	for block in game.blocks_of(cancerous_pred):
+		var n_solid := 0
+		for c: Vector2i in block:
+			if game.tiles[c]["tissue"] == CWData.Tissue.SOLID:
+				n_solid += 1
+			block_of[c] = solids_in.size()
+		solids_in.append(n_solid)
+	return [block_of, solids_in]
+
+
+## 某个健康格这一轮被【增生】转化的概率（千分率）——PRD 2026-09-11 云端版：
+##   相邻癌性组织数 × (基数 + 每固化 × **所有相邻癌性组织连通块**里的固化数之和)
+## 09-08 那版是逐个邻居各按「它所在块的固化数」累加；现在同一块的固化数只算一次、再乘相邻数 ——
+## 邻居分属两块时比从前高（多出交叉项），全在同一块时逐位相同。
+func _proliferate_chance(c: Vector2i, rate: int, per_solid: int, block_of: Dictionary, solids_in: Array) -> int:
+	var n_adj := 0
+	var solids := 0
+	var seen := {}   ## 同一块只加一次固化数
+	for n in game.neighbors(c):
+		if not game.is_cancerous(n):
+			continue
+		n_adj += 1
+		var bi: int = block_of[n]
+		if not seen.has(bi):
+			seen[bi] = true
+			solids += int(solids_in[bi])
+	return n_adj * (rate + per_solid * solids)
+
+
+## 公开的纯查询（测试核算式、界面将来显示「增生概率」用）：按当前分期与旋钮算某格的千分率，
+## **不含**世界事件的翻倍/抑制 —— 那两条在 _proliferate 里。
+func proliferate_chance(c: Vector2i) -> int:
+	var stage := game.tumor_stage()
+	var bs := _block_solids()
+	return _proliferate_chance(c, game.tune.proliferate_per_adjacent[stage],
+		game.tune.proliferate_per_solid[stage], bs[0], bs[1])
 
 
 ## 【E-无氧呼吸】：每块供能 = `c × √(块内癌格子数)`，块内癌细胞均分，
@@ -760,6 +788,39 @@ func _ossify() -> void:
 			continue
 		CWTissue.to_solid(t)
 		game.log_msg("【骨样硬化】%s 转为固化癌组织" % str(c))
+
+
+## 【根深蒂固】（环境恶化 II/III 期，PRD 2026-09-11 云端版）：每块**固化癌组织**随机使相邻最多 N 格**癌组织**
+## 的固化计数 +1.0，无目标则跳过 —— II 期 N=1、III 期 N=3（`CWData.ROOTED_BY_STAGE`），I 期没有这条。
+##
+## 排在【E-固化】之后、衰减之前：它和停留计数一样是「固化计数的增加」，走同一个 `raise_solid`
+## （到门槛当场转固化、血管不计、【TNF-α】冻结格照拦）。
+## **先抄一份固化格名单再动手**：本步刚被它推到门槛的格子，这一回合不再当「来源」去推别人 ——
+## 否则一条癌组织长链会在一次结算里连锁固化。来源按坐标序遍历、目标由 pick_random 掷骰，同种子可复现。
+## 一格癌组织夹在两块固化之间时可能被各推一次（+2.0）：PRD 是按「每块固化癌组织」写的，照字面。
+func _rooted() -> void:
+	var n: int = CWData.ROOTED_BY_STAGE[game.tumor_stage()]
+	if n <= 0:
+		return
+	var solids: Array[Vector2i] = []
+	var coords: Array = game.tiles.keys()
+	coords.sort()
+	for c in coords:
+		if game.tiles[c]["tissue"] == CWData.Tissue.SOLID:
+			solids.append(c)
+	var raised := 0
+	for s in solids:
+		var targets: Array = []
+		for nb in game.neighbors(s):
+			if game.tiles[nb]["tissue"] == CWData.Tissue.CANCER:
+				targets.append(nb)
+		if targets.is_empty():
+			continue
+		for c: Vector2i in game.pick_random(targets, n):
+			game.raise_solid(c, CWData.SOLIDIFY_STEP)
+			raised += 1
+	if raised > 0:
+		game.log_msg("【根深蒂固】固化癌组织使 %d 格相邻癌组织的固化计数 +%s" % [raised, CWData.fmt(CWData.SOLIDIFY_STEP)])
 
 
 ## 免疫细胞踏进【骨样硬化】标记格时不能立刻净化，得**在那儿站到世界回合结束**——
@@ -932,8 +993,9 @@ func pressure_at(c: Vector2i) -> int:
 				raw += CWData.PRESSURE_SOLID_W
 			CWData.Tissue.HEALTHY:
 				raw += CWData.PRESSURE_HEALTHY_W
-	## ×1/4 不是整数格（能量单位是十分之一），按 PRD 通用规则 1 四舍五入到十分位
-	return CWData.round_tenth(maxi(raw, 0) * CWData.PRESSURE_MUL, CWData.PRESSURE_DIV)
+	## ×1/4 不是整数格（能量单位是十分之一），按 PRD 通用规则 1 四舍五入到十分位。
+	## 环境恶化（2026-09-11）：II 期 ×1.5、III 期 ×2 —— 倍率并进乘数，整条只取整一次。
+	return CWData.round_tenth(maxi(raw, 0) * CWData.PRESSURE_MUL_BY_STAGE[game.tumor_stage()], CWData.PRESSURE_DIV)
 
 
 ## 回合末的【微环境压迫】会不会把这只细胞压死。**界面预警用**（Kevin 2026-09-08）。

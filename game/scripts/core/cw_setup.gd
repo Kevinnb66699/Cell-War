@@ -103,7 +103,7 @@ func _place_primary_lesions() -> void:
 		if not CWTissue.solidifiable(t):
 			continue   ## 血管不可固化（Kevin 2026-09-06），出生在血管上也不例外
 		marked[c] = true
-		t["solid"] = game.tune.solidify_threshold
+		t["solid"] = game.solidify_threshold()
 		CWTissue.to_solid(t)
 	if not marked.is_empty():
 		game.log_msg("【原发灶】癌细胞出生的 %d 格转为固化癌组织" % marked.size())

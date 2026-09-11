@@ -272,7 +272,7 @@ static func chapters() -> Array:
 	var jump_limit := ""
 	if tune.metastasis_max_per_round > 0:
 		jump_limit = "（每世界回合最多 %d 次）" % tune.metastasis_max_per_round
-	var solid_rounds: int = tune.solidify_threshold / CWData.SOLIDIFY_STEP
+	var solid_rounds: int = int(tune.solidify_threshold[0]) / CWData.SOLIDIFY_STEP
 	var ev_rounds := event_rounds_text(tune.limit_round)
 	return [
 		{ "title": "目标与胜负", "entries": [
@@ -339,6 +339,12 @@ static func chapters() -> Array:
 			{ "t": "E 阶段", "b": [
 				e_phase,
 				"固化与衰减依次发生，最后统一判定胜负。",
+			] },
+			{ "t": "环境恶化", "b": [
+				"第 6 回合起肿瘤 II 期、第 11 回合起 III 期：",
+				"压迫 ×1.5 / ×2，增生与侵蚀更凶；",
+				"II 期起固化格每回合再给相邻癌组织加 1.0 固化计数，",
+				"III 期固化门槛降到 %s。" % CWData.fmt(int(tune.solidify_threshold[2])),
 			] },
 			{ "t": "回合计数", "b": [
 				"世界事件只在第 %s 回合触发。" % ev_rounds,

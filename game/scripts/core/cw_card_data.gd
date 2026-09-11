@@ -22,7 +22,7 @@ const KIND_NAMES := {
 	Kind.EVENT: "事件", Kind.INSTANT: "即时", Kind.PERMANENT: "永久",
 }
 
-## 卡名 → { kind, immune: [I, II, III, X], cancer: [前期, 中期, 后期], effect }
+## 卡名 → { kind, immune: [I, II, III, X], cancer: [肿瘤I期, 肿瘤II期, 肿瘤III期], effect }
 const CARDS := {
 	"BCL-2抗凋亡": { "kind": Kind.INSTANT, "immune": [0,0,0,0], "cancer": [2,3,3],
 		"effect": "自身若即将受到致命能量损失，则免疫此次能量损失，能量改为0.5 / 0.8 / 1。" },
@@ -174,8 +174,9 @@ static func effect_of(name: String, faction: int) -> String:
 	return c["effect"]
 
 
-## 癌症卡池的分期：第 1—5 回合 = 前期，6—10 = 中期，11—15 = 后期
-## （PRD「卡池分期」节，2026-09-07 随 15 回合制从 1—9/10—19/20—30 压过来）。
+## 癌症卡池的分期 = **肿瘤分期**：第 1—5 回合 = I 期，6—10 = II 期，11—15 = III 期
+## （PRD「卡池分期」节，2026-09-07 随 15 回合制从 1—9/10—19/20—30 压过来；
+## 2026-09-11 云端版把「前期/中期/后期」改叫肿瘤 I/II/III 期，环境恶化也查这张表 —— 见 CWGame.tumor_stage）。
 static func cancer_phase(round_no: int) -> int:
 	if round_no <= 5:
 		return 0

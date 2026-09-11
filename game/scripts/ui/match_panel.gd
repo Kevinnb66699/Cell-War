@@ -186,13 +186,16 @@ func refresh(game: CWGame) -> void:
 		_history_round = game.round_no
 		_clear_history()
 	_round.text = "第 %d 回合" % game.round_no
+	## 环境恶化（2026-09-11）：肿瘤分期直接改压迫/增生/侵蚀/固化门槛的数，玩家得看得见现在是第几期。
+	## 世界事件关着时（现在的默认）不再写「已关闭」—— 一句永远不变的话占着位置，分期更有用。
 	## 关掉时别再倒计时一个永远不会来的事件（Kevin 2026-09-08 的开关）
+	var stage_name: String = CWData.STAGE_NAMES[game.tumor_stage()]
 	if not game.tune.world_events_on:
-		_phase.text = "%s · 世界事件已关闭" % game.phase
+		_phase.text = "%s · %s" % [game.phase, stage_name]
 	else:
 		var next_ev := _next_event_round(game.round_no)
-		_phase.text = "%s · 世界事件 第 %d 回合" % [game.phase, next_ev] if next_ev > 0 \
-			else "%s · 世界事件已放完" % game.phase
+		_phase.text = "%s · %s · 世界事件 第 %d 回合" % [game.phase, stage_name, next_ev] if next_ev > 0 \
+			else "%s · %s · 世界事件已放完" % [game.phase, stage_name]
 	_events.text = active_events_text(game)
 	_events.visible = _events.text != ""
 	_layout_event_row()

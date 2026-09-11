@@ -172,7 +172,7 @@ A("const KIND_NAMES := {")
 A('\tKind.EVENT: "事件", Kind.INSTANT: "即时", Kind.PERMANENT: "永久",')
 A("}")
 A("")
-A("## 卡名 → { kind, immune: [I, II, III, X], cancer: [前期, 中期, 后期], effect }")
+A("## 卡名 → { kind, immune: [I, II, III, X], cancer: [肿瘤I期, 肿瘤II期, 肿瘤III期], effect }")
 A("const CARDS := {")
 for n in names:
     c = cards[n]
@@ -198,8 +198,9 @@ A('\t\treturn c["effect_cancer"]')
 A('\treturn c["effect"]')
 A("")
 A("")
-A("## 癌症卡池的分期：第 1—5 回合 = 前期，6—10 = 中期，11—15 = 后期")
-A("## （PRD「卡池分期」节，2026-09-07 随 15 回合制从 1—9/10—19/20—30 压过来）。")
+A("## 癌症卡池的分期 = **肿瘤分期**：第 1—5 回合 = I 期，6—10 = II 期，11—15 = III 期")
+A("## （PRD「卡池分期」节，2026-09-07 随 15 回合制从 1—9/10—19/20—30 压过来；")
+A("## 2026-09-11 云端版把「前期/中期/后期」改叫肿瘤 I/II/III 期，环境恶化也查这张表 —— 见 CWGame.tumor_stage）。")
 A("static func cancer_phase(round_no: int) -> int:")
 A("\tif round_no <= 5:")
 A("\t\treturn 0")
@@ -227,6 +228,6 @@ print("%d 张唯一卡：事件 %d / 即时 %d / 永久 %d" % (len(cards), ev, i
 for lv, nm in enumerate(["I", "II", "III", "X"]):
     sub = [n for n in names if cards[n]["immune"][lv] > 0]
     print("  免疫 %-3s 池 %2d 张，权重合计 %d" % (nm, len(sub), sum(cards[n]["immune"][lv] for n in sub)))
-for ph, nm in enumerate(["前期", "中期", "后期"]):
+for ph, nm in enumerate(["肿瘤I期", "肿瘤II期", "肿瘤III期"]):
     sub = [n for n in names if cards[n]["cancer"][ph] > 0]
     print("  癌症 %s 池 %2d 张，权重合计 %d" % (nm, len(sub), sum(cards[n]["cancer"][ph] for n in sub)))

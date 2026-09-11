@@ -27,7 +27,8 @@ const TILE := 100
 ## 所以**从不变量推出来**，别再写死：门槛一动（2026-09-09 由 2.0 改 3.0）
 ## 写死的值就会破坏这条不变量，而症状是「AI 变蠢」这种没人会立刻归因到这儿的事。
 ## 现在门槛 3.0 → 3（3×30=90 ≤ 100）；换回 2.0 会自动回到 5，正是此前手工定的值。
-const SOLID_TICK := TILE / CWData.SOLIDIFY_THRESHOLD
+## 取 I 期门槛：III 期降到 2.0 只会让不变量更宽松（2×tick ≤ TILE），不必按期切换。
+const SOLID_TICK := TILE / CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0]
 ## **第一个可复活据点**的额外分量（2026-09-04 加）。
 ##
 ## `CWGame.check_immune_win()` 的原文是「癌细胞全灭**且没有免疫未占据的固化癌组织**」——

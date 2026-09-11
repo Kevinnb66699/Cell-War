@@ -107,7 +107,7 @@ func _run_all() -> void:
 		t_plan_payment_floor,
 		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_eval_features, t_feed_log, t_proliferate_tiers, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
 		t_immune_win, t_surrender, t_cancer_revive_blocked, t_cancer_revive_ring, t_cancer_s_win, t_immune_respawn,
-		t_pressure, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
+		t_pressure, t_tumor_stages, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
 		t_hotseat, t_tutorial, t_tutorial_auto_advance, t_stroma_targets, t_batch2_rules,
 		t_tutorial_mechanism_trials,
 		t_immune_level_rules, t_tissue_transitions, t_one_cell_per_tile, t_phase_order,
@@ -653,11 +653,11 @@ func t_solidify_and_decay() -> void:
 	g.cells.append(cell)
 	g.world._solidify()
 	check(g.tiles[pos]["solid"] == 10, "停留 1 回合 → 计数 1.0")
-	check(g.tiles[pos]["tissue"] == CWData.Tissue.CANCER, "计数 1.0 还没到阈值 %s" % CWData.fmt(CWData.SOLIDIFY_THRESHOLD))
+	check(g.tiles[pos]["tissue"] == CWData.Tissue.CANCER, "计数 1.0 还没到阈值 %s" % CWData.fmt(CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0]))
 	## 阈值跟常量走（2026-09-01 定案乙 3.0→2.0 时这里原本写死 3.0）：再蹲到刚好够数的那一回合
-	for k in range(CWData.SOLIDIFY_THRESHOLD / CWData.SOLIDIFY_STEP - 1):
+	for k in range(CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0] / CWData.SOLIDIFY_STEP - 1):
 		g.world._solidify()
-	check(g.tiles[pos]["tissue"] == CWData.Tissue.SOLID, "计数到 %s → 固化癌组织" % CWData.fmt(CWData.SOLIDIFY_THRESHOLD))
+	check(g.tiles[pos]["tissue"] == CWData.Tissue.SOLID, "计数到 %s → 固化癌组织" % CWData.fmt(CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0]))
 	## 骨肉瘤停留：2026-09-05 起与普通癌细胞同为 +1.0。旧版 +1.5 在阈值 2.0 之下一回合也没省
 	## （1.0→2.0 与 1.5→3.0 都是第 2 回合跨线），【骨样硬化】已重做成主动技能，见 t_batch2_rules
 	var op := Vector2i(-2, 1)
@@ -668,10 +668,10 @@ func t_solidify_and_decay() -> void:
 	check(g.tiles[op]["solid"] == 10 and g.tiles[op]["tissue"] == CWData.Tissue.CANCER, "骨肉瘤停留 → 计数 +1.0（不再 +1.5）")
 	## 停留一回合 +1.0，所以要满门槛那么多回合。骨肉瘤此前 +1.5、2026-09-05 撤回，
 	## 这条守的是「和其他癌种同速」，与门槛具体是多少无关 —— 所以按常量算轮数。
-	for _i in CWData.SOLIDIFY_THRESHOLD / CWData.SOLIDIFY_STEP - 1:
+	for _i in CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0] / CWData.SOLIDIFY_STEP - 1:
 		g.world._solidify()
 	check(g.tiles[op]["tissue"] == CWData.Tissue.SOLID,
-		"%d 回合固化，与其他癌种相同" % (CWData.SOLIDIFY_THRESHOLD / CWData.SOLIDIFY_STEP))
+		"%d 回合固化，与其他癌种相同" % (CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0] / CWData.SOLIDIFY_STEP))
 	## 衰减：无细胞停留的癌组织每世界回合 −0.5
 	var d1 := Vector2i(-1, 0)
 	g.tiles[d1]["tissue"] = CWData.Tissue.CANCER
@@ -724,14 +724,14 @@ func t_vessel_no_solid() -> void:
 	g.cells.append(on_p)
 	## ① 【E-固化】：蹲满阈值那么多回合，旁边的普通癌组织固化了，血管纹丝不动
 	var n0: int = g.logs.size()
-	for k in range(CWData.SOLIDIFY_THRESHOLD / CWData.SOLIDIFY_STEP):
+	for k in range(CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0] / CWData.SOLIDIFY_STEP):
 		g.world._solidify()
 	check(g.tiles[plain]["tissue"] == CWData.Tissue.SOLID, "对照：旁边的普通癌组织照常固化")
 	check(g.tiles[v]["tissue"] == CWData.Tissue.CANCER and g.tiles[v]["solid"] == 0,
 		"血管：蹲满回合也不累计、不固化")
 	check("\n".join(g.logs.slice(n0)).contains("不可固化"), "日志说明血管不可固化（别让玩家以为是 bug）")
 	## ② 直接一次加满阈值也一样（卡【基质硬化】走的就是这条路）
-	g.raise_solid(v, CWData.SOLIDIFY_THRESHOLD)
+	g.raise_solid(v, CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0])
 	check(g.tiles[v]["tissue"] == CWData.Tissue.CANCER and g.tiles[v]["solid"] == 0,
 		"raise_solid 一次加满：血管仍是普通癌组织、计数 0")
 	## ③ 卡【基质硬化】选目标：脚下的血管不给选项，旁边的普通癌组织照给（同一把尺）
@@ -1173,7 +1173,104 @@ func t_pressure() -> void:
 	cell["energy"] = 15
 	g.world._pressure()
 	check(not cell["alive"], "压迫可以致死")
+	## 环境恶化（2026-09-11）：同一盘面 raw=9 → II 期 ×1.5 = 3.375 → 3.4，III 期 ×2 = 4.5；整条只取整一次
+	g.round_no = 6
+	check(g.world.pressure_at(pos) == 34, "II 期 ×1.5：2.25 × 1.5 = 3.375 → 3.4（不是先取整成 2.3 再乘）")
+	g.round_no = 11
+	check(g.world.pressure_at(pos) == 45, "III 期 ×2：4.5")
 	g.dispose()
+
+
+## 环境恶化（PRD 2026-09-11 云端版）：第 6 回合起肿瘤 II 期、第 11 回合起 III 期 ——
+## 压迫 ×1.5 / ×2、侵蚀 III 期 (3,5)、固化门槛 III 期 2.0、【根深蒂固】II 期 1 格 / III 期 3 格。
+## 分期与癌症卡池的分期是同一张表（CWCardData.cancer_phase），只此一处。
+func t_tumor_stages() -> void:
+	print("[环境恶化·肿瘤分期]")
+	var g := _fx_game(2)
+	check(g.tumor_stage() == 0 and CWData.STAGE_NAMES.size() == 3, "第 1 回合 = I 期")
+	g.round_no = 5
+	check(g.tumor_stage() == 0, "第 5 回合仍是 I 期")
+	g.round_no = 6
+	check(g.tumor_stage() == 1, "第 6 回合起 II 期")
+	g.round_no = 10
+	check(g.tumor_stage() == 1, "第 10 回合仍是 II 期")
+	g.round_no = 11
+	check(g.tumor_stage() == 2 and g.tumor_stage() == CWCardData.cancer_phase(g.round_no),
+		"第 11 回合起 III 期，与癌症卡池的分期同一张表")
+	## ① 压迫倍率：六面癌组织 raw=6 → I 期 1.5、II 期 2.3（2.25 四舍五入）、III 期 3.0
+	var pos := Vector2i(0, 0)
+	for nb in CWData.neighbors(pos):
+		g.tiles[nb]["tissue"] = CWData.Tissue.CANCER
+	g.round_no = 1
+	check(g.world.pressure_at(pos) == 15, "I 期：1/4 × 6 = 1.5")
+	g.round_no = 6
+	check(g.world.pressure_at(pos) == 23, "II 期 ×1.5：2.25 → 2.3（整条只取整一次）")
+	g.round_no = 11
+	check(g.world.pressure_at(pos) == 30, "III 期 ×2：3.0")
+	## ② 固化门槛：III 期 2.0，raise_solid 到 2.0 就转
+	g.round_no = 1
+	check(g.solidify_threshold() == 30, "I 期门槛 3.0")
+	g.round_no = 11
+	check(g.solidify_threshold() == 20, "III 期门槛 2.0")
+	var c2 := Vector2i.MAX
+	for c in g.tiles.keys():
+		if CWTissue.solidifiable(g.tile(c)) and CWData.hex_dist(c, pos) > 1 and g.cells_at(c).is_empty():
+			c2 = c
+			break
+	g.tiles[c2]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[c2]["solid"] = 10
+	g.raise_solid(c2, 10)
+	check(g.tiles[c2]["tissue"] == CWData.Tissue.SOLID, "III 期计数到 2.0 就转固化（I 期要 3.0）")
+	## ③ 侵蚀格数表：I/II (2,3)、III (3,5)
+	check(g.tune.erosion_tiles[0] == Vector2i(2, 3) and g.tune.erosion_tiles[1] == Vector2i(2, 3)
+		and g.tune.erosion_tiles[2] == Vector2i(3, 5), "侵蚀格数表：I/II 期 (2,3)、III 期 (3,5)")
+	## 右栏阶段行要放得下最长的那种写法（分期 + 世界事件倒计时），否则被裁成省略号
+	var longest := "世界回合 E · %s · 世界事件 第 14 回合" % CWData.STAGE_NAMES[2]
+	check(CWStyle.FONT.get_string_size(longest, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x <= CWMatchPanel.W,
+		"右栏阶段行最长写法「%s」放得进 %d px" % [longest, CWMatchPanel.W])
+	g.dispose()
+	## ④ 【根深蒂固】：II 期每块固化随机推 1 格相邻癌组织 +1.0；III 期最多 3 格；I 期没有
+	var g2 := _blank_board()
+	var s := Vector2i(0, 0)
+	g2.tiles[s]["tissue"] = CWData.Tissue.SOLID
+	var ring: Array = CWData.neighbors(s)
+	for nb in ring:
+		g2.tiles[nb]["tissue"] = CWData.Tissue.CANCER
+	var sum_solid := func(gg: CWGame) -> int:
+		var n := 0
+		for nb in ring:
+			n += int(gg.tiles[nb]["solid"])
+		return n
+	g2.round_no = 1
+	g2.world._rooted()
+	check(sum_solid.call(g2) == 0, "I 期没有【根深蒂固】")
+	g2.round_no = 6
+	g2.world._rooted()
+	check(sum_solid.call(g2) == CWData.SOLIDIFY_STEP, "II 期：一块固化推了恰好 1 格 +1.0")
+	g2.dispose()
+	var g3 := _blank_board()
+	g3.tiles[s]["tissue"] = CWData.Tissue.SOLID
+	for nb in ring:
+		g3.tiles[nb]["tissue"] = CWData.Tissue.CANCER
+	g3.round_no = 11
+	g3.world._rooted()
+	check(sum_solid.call(g3) == 3 * CWData.SOLIDIFY_STEP, "III 期：推 3 格，各 +1.0（门槛 2.0，1.0 还没到）")
+	g3.dispose()
+	## 推到门槛就当场转固化；本步刚固化的格子这一回合不再当「来源」去推别人
+	var g4 := _blank_board()
+	g4.tiles[s]["tissue"] = CWData.Tissue.SOLID
+	var only: Vector2i = ring[0]
+	g4.tiles[only]["tissue"] = CWData.Tissue.CANCER
+	g4.tiles[only]["solid"] = 10
+	var beyond: Vector2i = only + (only - s)      ## only 的外侧：只与 only 相邻、不与 s 相邻
+	g4.tiles[beyond]["tissue"] = CWData.Tissue.CANCER
+	g4.round_no = 11
+	g4.world._rooted()
+	check(g4.tiles[only]["tissue"] == CWData.Tissue.SOLID, "唯一目标 1.0 + 1.0 = III 期门槛 2.0 → 当场转固化")
+	check(int(g4.tiles[beyond]["solid"]) == 0, "本步刚固化的格子不在这一回合当「来源」推别人")
+	g4.world._rooted()   ## 现在 s 与 only 都是固化：only 会推 beyond；s 没有癌组织邻居 → 跳过、不报错
+	check(int(g4.tiles[beyond]["solid"]) == CWData.SOLIDIFY_STEP, "下一回合它才作为来源推邻居")
+	g4.dispose()
 
 
 ## T-TUTORIAL-MECHANISM-TRIALS：第 12 关三个实验区必须由真实 CWGame 状态触发。
@@ -1187,7 +1284,7 @@ func t_tutorial_mechanism_trials() -> void:
 	pressure.dispose()
 
 	var proliferation := CWGuideDirector.assemble(11, 1)
-	proliferation.tune.proliferate_per_adjacent = 1000
+	proliferation.tune.proliferate_per_adjacent = [1000, 1000, 1000]
 	var before_growth := proliferation.count_tissue(CWData.Tissue.CANCER)
 	proliferation.world._proliferate()
 	check(proliferation.count_tissue(CWData.Tissue.CANCER) > before_growth,
@@ -2453,7 +2550,7 @@ func t_spread_fx() -> void:
 	for c: Vector2i in g2.tiles:
 		g2.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
 	g2.tiles[o]["tissue"] = CWData.Tissue.CANCER
-	g2.tune.proliferate_per_adjacent = 1000   ## 必中，隔离概率因素
+	g2.tune.proliferate_per_adjacent = [1000, 1000, 1000]   ## 必中，隔离概率因素
 	g2.world._proliferate()
 	check(rec2.got.size() == 6, "增生六邻全转 → 广播六次（%d 次）" % rec2.got.size())
 	var toward_center := true
@@ -2541,7 +2638,7 @@ func t_eval_solid_monotone() -> void:
 	var c := Vector2i.ZERO
 	CWTissue.to_cancer(g.tile(c), false)
 	var scores: Array = []
-	for tick in [0, CWData.SOLIDIFY_STEP, CWData.SOLIDIFY_THRESHOLD - 1]:
+	for tick in [0, CWData.SOLIDIFY_STEP, CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0] - 1]:
 		g.tile(c)["tissue"] = CWData.Tissue.CANCER
 		g.tile(c)["solid"] = tick
 		scores.append(CWEval.score(g, CWData.Faction.CANCER))
@@ -2551,9 +2648,9 @@ func t_eval_solid_monotone() -> void:
 		"进度越高分越高（%s）" % str(scores))
 	check(done >= scores[2],
 		"**修完固化不能掉分**：进度满 %d vs 修成 %d" % [scores[2], done])
-	check(CWEval.SOLID_TICK * CWData.SOLIDIFY_THRESHOLD <= CWEval.TILE,
+	check(CWEval.SOLID_TICK * CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0] <= CWEval.TILE,
 		"进度学分总和 %d 不超过「修成」的增量 %d"
-			% [CWEval.SOLID_TICK * CWData.SOLIDIFY_THRESHOLD, CWEval.TILE])
+			% [CWEval.SOLID_TICK * CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0], CWEval.TILE])
 	## 据点被免疫站住就不算「可复活」——与 check_immune_win 同一口径。
 	## 只断言**方向**：往盘面上加一个细胞还会动到能量、离战线距离等别的项，
 	## 拿它去凑精确差值是把测试写脆（第一版就是这么错的）。
@@ -3011,7 +3108,7 @@ func t_heur_no_squat_on_fresh() -> void:
 	## 差最后一轮就固化 → 无论如何都值得停。
 	## 注意「新生」与「差最后一轮」在真实盘面上互斥：`CWTissue.to_cancer` 会把 solid 清零，
 	## 所以刚转成癌组织的格子计数必然是 0，构造不出「又新生又快固化」的格
-	here["solid"] = g.tune.solidify_threshold - 1
+	here["solid"] = g.solidify_threshold() - 1
 	check(h._worth_solidifying(can), "差最后一轮就固化 → 停")
 	CWTissue.to_cancer(here, true)
 	check(here["solid"] == 0, "转成癌组织会清零固化计数 →「新生」与「差最后一轮」不会同时出现")
@@ -3617,7 +3714,7 @@ func t_hover_info() -> void:
 	## 实现打成「15 / 30」时期望串也跟着变成「15 / 30」，两边一起错、测试照样绿
 	## （2026-09-01 队友截图报的就是这个）。固化计数是十分整数，1.5 点存成 15
 	check(all.contains("癌组织") and all.contains("固化 0.2 / %s"
-			% CWData.fmt(CWData.SOLIDIFY_THRESHOLD)),
+			% CWData.fmt(CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0])),
 		"详情：组织与固化进度按小数显示，不是原始的十分整数")
 	check(all.contains("代谢核心 · 储量 1.0"), "详情：核心储量")
 	check(all.contains("恶性黑色素瘤") and all.contains("能量 3.8") and all.contains("标记 ×1"),
@@ -4098,22 +4195,24 @@ func t_effector_responses() -> void:
 
 ## 【E-增生】的连通块分档 + 【E-侵蚀】的格数（PRD 2026-09-07 两条一起改）。
 ##
-## 【E-增生】的概率公式（PRD 2026-09-08 云端修订版）：
-##   每个癌性邻居的贡献 = 3% + 1% × **它所在连通块里的固化癌组织数**。
-## 此前是「块里有固化 → 一律 4%」，不随固化数增长。
+## 【E-增生】的概率公式（PRD 2026-09-11 云端版，环境恶化）：
+##   相邻癌性组织数 × (基数 + 每固化 × **所有相邻癌性组织连通块的固化数之和**)，同一块只算一次；
+##   基数 / 每固化按分期：I 期 3% / 0.5%，II 期 3.5% / 1%，III 期 4% / 1%。
+## 09-08 那版是逐个邻居各按「它所在块的固化数」累加 —— 邻居全在同一块时两式逐位相同，
+## 分属两块时新式多出交叉项（见 ④）。①②③ 的局面邻居都只有一个，两式不分。
 ##
 ## **不赌概率**：把旋钮拨到让 chance 正好落在 0 或 ≥1000 上（`randi_range(1,1000) <= chance`），
 ## 于是每条断言要么必转要么必不转，验的是算式本身而不是运气。
 func t_proliferate_tiers() -> void:
 	print("[增生概率 / 侵蚀格数]")
-	check(CWData.PROLIFERATE_PER_ADJ == 30 and CWData.PROLIFERATE_PER_SOLID == 10,
-		"默认 3% + 每个固化 1%")
+	check(CWData.PROLIFERATE_BASE_BY_STAGE == [30, 35, 40] and CWData.PROLIFERATE_SOLID_BY_STAGE == [5, 10, 10],
+		"默认按分期：3%+0.5%×固化 / 3.5%+1%× / 4%+1%×（PRD 2026-09-11 环境恶化）")
 
 	## ① 数的是「**邻居所属连通块**里的固化数」，不是「这个邻居自己是不是固化」，
 	## 也不是全图固化数。摆两处互不相邻：a 的邻居那块没固化，b 的邻居那块更远处有一格。
 	var g := _blank_board()
-	g.tune.proliferate_per_adjacent = 0     ## 基础档拨到 0：只剩固化那一项在起作用
-	g.tune.proliferate_per_solid = 1000     ## 一格固化就顶满 → 必转
+	g.tune.proliferate_per_adjacent = [0, 0, 0]     ## 基础档拨到 0：只剩固化那一项在起作用
+	g.tune.proliferate_per_solid = [1000, 1000, 1000]     ## 一格固化就顶满 → 必转
 	var target_a := Vector2i(-4, 0)
 	var target_b := Vector2i(3, 0)
 	var na: Vector2i = target_a + CWData.DIRS[0]
@@ -4134,8 +4233,8 @@ func t_proliferate_tiers() -> void:
 	## ② **固化数进乘法**：每格 500 时，一格固化只有 500（不保证），两格就顶满 1000。
 	## 与 ① 的「一格 ×1000 必转」合起来，钉住的正是「乘以固化数」这件事。
 	var g2 := _blank_board()
-	g2.tune.proliferate_per_adjacent = 0
-	g2.tune.proliferate_per_solid = 500
+	g2.tune.proliferate_per_adjacent = [0, 0, 0]
+	g2.tune.proliferate_per_solid = [500, 500, 500]
 	var far2: Vector2i = far + CWData.DIRS[0]   ## 再接一格，凑成同块两格固化
 	g2.tiles[nb]["tissue"] = CWData.Tissue.CANCER
 	g2.tiles[far]["tissue"] = CWData.Tissue.SOLID
@@ -4147,14 +4246,69 @@ func t_proliferate_tiers() -> void:
 
 	## ③ 固化那一项拨到 0 = 退回「只按基础档」的老口径（旋钮要能扫回去做对照）
 	var g3 := _blank_board()
-	g3.tune.proliferate_per_adjacent = 0
-	g3.tune.proliferate_per_solid = 0
+	g3.tune.proliferate_per_adjacent = [0, 0, 0]
+	g3.tune.proliferate_per_solid = [0, 0, 0]
 	g3.tiles[nb]["tissue"] = CWData.Tissue.CANCER
 	g3.tiles[far]["tissue"] = CWData.Tissue.SOLID
 	g3.world._proliferate()
 	check(g3.tiles[target_b]["tissue"] == CWData.Tissue.HEALTHY,
 		"固化项拨到 0：固化再多也不加成")
 	g3.dispose()
+
+	## ④ 2026-09-11 云端版的算式：概率 = 相邻数 × (基数 + 每固化 × **相邻各块固化数之和**)，
+	## 同一块只算一次。直接核 `proliferate_chance` 的数，不赌骰子。
+	var g4 := _blank_board()
+	g4.tune.proliferate_per_adjacent = [0, 0, 0]
+	g4.tune.proliferate_per_solid = [250, 250, 250]
+	var t4 := Vector2i(0, 0)
+	var left: Vector2i = t4 + CWData.DIRS[0]
+	var right := Vector2i.MAX
+	for nbr in CWData.neighbors(t4):
+		if CWData.hex_dist(nbr, left) == 2:   ## 隔着一格的另一个邻居：两块互不相邻
+			right = nbr
+			break
+	var left_far: Vector2i = left + (left - t4)
+	var right_far: Vector2i = right + (right - t4)
+	g4.tiles[left]["tissue"] = CWData.Tissue.CANCER
+	g4.tiles[left_far]["tissue"] = CWData.Tissue.SOLID
+	g4.tiles[right]["tissue"] = CWData.Tissue.CANCER
+	g4.tiles[right_far]["tissue"] = CWData.Tissue.SOLID
+	check(g4.world.proliferate_chance(t4) == 2 * (250 * 2),
+		"两个相邻块各一格固化：2 × (0 + 250 × 2) = 1000（09-08 的逐邻居累加只有 500）")
+	## 固化在相邻格本身还是块深处，都按「所在块」算
+	g4.tiles[right_far]["tissue"] = CWData.Tissue.CANCER
+	g4.tiles[right]["tissue"] = CWData.Tissue.SOLID
+	check(g4.world.proliferate_chance(t4) == 2 * (250 * 2), "固化在相邻格本身还是块深处，都按「所在块」算")
+	## 同一块：两个互相相邻的邻居属于同一块 → 固化数只算一次
+	var g5 := _blank_board()
+	g5.tune.proliferate_per_adjacent = [0, 0, 0]
+	g5.tune.proliferate_per_solid = [250, 250, 250]
+	var n0: Vector2i = t4 + CWData.DIRS[0]
+	var n1 := Vector2i.MAX
+	for nbr in CWData.neighbors(t4):
+		if CWData.hex_dist(nbr, n0) == 1:
+			n1 = nbr
+			break
+	g5.tiles[n0]["tissue"] = CWData.Tissue.SOLID
+	g5.tiles[n1]["tissue"] = CWData.Tissue.CANCER
+	check(g5.world.proliferate_chance(t4) == 2 * (250 * 1),
+		"同一块只算一次固化：2 × (0 + 250 × 1) = 500，不是 1000")
+	## 默认值按分期：一个相邻癌组织、无固化 → I 期 30‰、II 期 35‰、III 期 40‰
+	var g6 := _blank_board()
+	g6.tiles[n1]["tissue"] = CWData.Tissue.CANCER
+	g6.round_no = 1
+	check(g6.world.proliferate_chance(t4) == 30, "I 期：3%")
+	g6.round_no = 6
+	check(g6.world.proliferate_chance(t4) == 35, "II 期（第 6 回合起）：3.5%")
+	g6.round_no = 11
+	check(g6.world.proliferate_chance(t4) == 40, "III 期（第 11 回合起）：4%")
+	g6.tiles[n0]["tissue"] = CWData.Tissue.SOLID   ## 同块再加一格固化：邻居 2、固化 1
+	check(g6.world.proliferate_chance(t4) == 2 * (40 + 10), "III 期每固化 1%：2 × (4% + 1%×1) = 10%")
+	g6.round_no = 1
+	check(g6.world.proliferate_chance(t4) == 2 * (30 + 5), "I 期每固化 0.5%：2 × (3% + 0.5%×1) = 7%")
+	g4.dispose()
+	g5.dispose()
+	g6.dispose()
 
 	## ③ 侵蚀格数：2/3 → 2 格、1/3 → 3 格
 	var counts := {}
@@ -4861,9 +5015,9 @@ func t_rules_page() -> void:
 		and all.contains("每回合至多 %d 次" % CWData.DRAW_MAX_PER_TURN), "手牌与抽卡上限")
 	## 同上：门槛存的是十分整数（30 = 3.0），而这句说的是「几个回合」。
 	## 原先拿 solidify_threshold 直接插值，页面显示「蹲满 30 回合」而测试照样绿
-	check(all.contains("蹲满 %d 回合" % (CWData.SOLIDIFY_THRESHOLD / CWData.SOLIDIFY_STEP)),
+	check(all.contains("蹲满 %d 回合" % (CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0] / CWData.SOLIDIFY_STEP)),
 		"固化门槛按回合数显示，不是十分整数")
-	check(not all.contains("蹲满 %d 回合" % CWData.SOLIDIFY_THRESHOLD), "别再把十分整数当回合数打出来")
+	check(not all.contains("蹲满 %d 回合" % CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0]), "别再把十分整数当回合数打出来")
 	## 【无氧呼吸】的时机跟着旋钮走（Kevin 2026-09-05 拍板：与知识之书同口径）。2026-09-06 Kevin 改回 E 阶段统一结算 →
 	## 默认写在 E 阶段那行、玩家回合段不提它；旋钮拨成回合末（eturn=1）时那句搬到玩家回合段
 	check(all.contains("E 阶段：癌方【无氧呼吸】") and not all.contains("结算自己的【无氧呼吸】"),
@@ -5367,7 +5521,7 @@ func t_tissue_transitions() -> void:
 	var grow := Vector2i(1, 0)
 	CWTissue.to_cancer(g.tile(source), false)
 	g.tile(grow)["necrosis"] = 2
-	g.tune.proliferate_per_adjacent = 1000
+	g.tune.proliferate_per_adjacent = [1000, 1000, 1000]
 	g.world._proliferate()
 	check(CWTissue.is_valid(g.tile(grow)) and g.tile(grow)["newborn"],
 		"增生：坏死健康格转癌后坏死清零")
@@ -5380,7 +5534,7 @@ func t_tissue_transitions() -> void:
 		"放疗：癌组织先转健康，再施加坏死")
 	var solid := Vector2i(-2, 0)
 	CWTissue.to_cancer(g.tile(solid), false)
-	g.tile(solid)["solid"] = g.tune.solidify_threshold
+	g.tile(solid)["solid"] = g.solidify_threshold()
 	CWTissue.to_solid(g.tile(solid))
 	var stop_bridge := CWBridge.new()
 	stop_bridge.game = g
@@ -5389,7 +5543,7 @@ func t_tissue_transitions() -> void:
 	check(CWTissue.is_valid(g.tile(solid)) and g.tile(solid)["tissue"] == CWData.Tissue.CANCER,
 		"基质重塑：固化组织降级后不误标新生")
 	var revive := Vector2i(-3, 0)
-	g.tile(revive)["solid"] = g.tune.solidify_threshold
+	g.tile(revive)["solid"] = g.solidify_threshold()
 	CWTissue.to_solid(g.tile(revive))
 	g.tile(revive)["necrosis"] = 3  # 构造旧代码曾能留下的非法状态。
 	cancer["alive"] = false
@@ -6199,10 +6353,15 @@ func t_world_events_off() -> void:
 	g2.tune.world_events_on = true      ## 默认已关，先拨开才验得到「开着」那一档
 	p.refresh(g2)
 	check(p._phase.text.contains("世界事件"), "开着时那行照旧写世界事件")
+	check(p._phase.text.contains(CWData.STAGE_NAMES[0]), "开着时同一行也带肿瘤分期（%s）" % p._phase.text)
 	g2.tune.world_events_on = false
 	p.refresh(g2)
-	check(p._phase.text.contains("已关闭"),
-		"关掉后写「已关闭」，不再倒计时（%s）" % p._phase.text)
+	## 2026-09-11 起关掉时那行改写肿瘤分期（环境恶化要让人看见第几期），不再写一句永远不变的「已关闭」
+	check(not p._phase.text.contains("世界事件") and p._phase.text.contains(CWData.STAGE_NAMES[0]),
+		"关掉后不再倒计时、也不提世界事件，改写分期（%s）" % p._phase.text)
+	g2.round_no = 11
+	p.refresh(g2)
+	check(p._phase.text.contains(CWData.STAGE_NAMES[2]), "第 11 回合起那行写 III 期（%s）" % p._phase.text)
 	p.queue_free()
 	g2.dispose()
 
@@ -11418,7 +11577,7 @@ func t_card_perms() -> void:
 	var wt := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
 	wt["equipped"] = ["免疫监视"]
 	g.cells.append(wt)
-	g.tune.proliferate_per_adjacent = 1000   ## 必中，隔离概率因素
+	g.tune.proliferate_per_adjacent = [1000, 1000, 1000]   ## 必中，隔离概率因素
 	g.round_no = 3   ## 增生只在世界事件回合结算（PRD 2026-09-01）
 	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER    ## 全在守护圈内
 	g.tiles[Vector2i(5, 0)]["tissue"] = CWData.Tissue.CANCER    ## 圈外
@@ -11786,6 +11945,13 @@ func t_card_mods() -> void:
 	check(g.actions._move_cost_mod(mel, Vector2i(1, 0), base_cost) == CWData.EMT_MOVE_COST,
 		"EMT 把伪足穿透的 %s 改写为 %s（抬价前这一步是空操作）" % [
 			CWData.fmt(CWData.PSEUDOPOD_COST), CWData.fmt(CWData.EMT_MOVE_COST)])
+	## issue #22（2026-09-11）：门槛之上每多一格相邻癌性组织再降 0.1 —— 4 格 0.4、六面 0.2
+	g.tiles[Vector2i(2, -1)]["tissue"] = CWData.Tissue.CANCER    ## (1,0) 的第四个癌性邻居
+	check(g.actions._cancer_move_cost(mel, Vector2i(1, 0)) == CWData.PSEUDOPOD_COST - CWData.PSEUDOPOD_DISCOUNT,
+		"邻接 4 格 → 0.5 − 0.1 = 0.4")
+	for nb in CWData.neighbors(Vector2i(1, 0)):
+		g.tiles[nb]["tissue"] = CWData.Tissue.CANCER     ## 含黑色素瘤脚下那格：六面皆癌
+	check(g.actions._cancer_move_cost(mel, Vector2i(1, 0)) == 2, "六面皆癌 → 0.5 − 0.1 × 3 = 0.2")
 	g.dispose()
 
 	## ③ 护盾类：细胞膜修复 −1.5 / I型干扰素事件全体 −1.0 / 同时生效各消耗（定案 #57）
@@ -12245,7 +12411,7 @@ func t_solidify_threshold() -> void:
 	var pos := Vector2i(2, 2)
 	g.tiles[pos]["tissue"] = CWData.Tissue.CANCER
 	## 门槛现读常量：2026-09-09 由 2.0 改成 3.0，写死的话每次动门槛都要回来改这几行
-	var th: int = CWData.SOLIDIFY_THRESHOLD
+	var th: int = CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0]
 	g.tiles[pos]["solid"] = th - 5
 	g.raise_solid(pos, 4)
 	check(g.tiles[pos]["tissue"] == CWData.Tissue.CANCER,
@@ -12324,7 +12490,7 @@ func t_ev_memory() -> void:
 func t_ev_proliferate() -> void:
 	print("[世界事件·增生类]")
 	var g := _fx_game(2)
-	g.tune.proliferate_per_adjacent = 1000   ## 必中，隔离概率因素
+	g.tune.proliferate_per_adjacent = [1000, 1000, 1000]   ## 必中，隔离概率因素
 	g.round_no = 3   ## 不设成世界事件回合的话，下面的 0 转化是被回合门挡掉的，测不出【增殖抑制】
 	g.tiles[Vector2i(0, 0)]["tissue"] = CWData.Tissue.CANCER
 	_install(g, "增殖抑制")
@@ -12343,7 +12509,7 @@ func t_ev_proliferate() -> void:
 	check(converted == 6, "解除后增生恢复（必中六邻全转）")
 	## 异常增殖：概率翻倍（50% 翻成 100% 验证）
 	var g2 := _fx_game(2)
-	g2.tune.proliferate_per_adjacent = 500
+	g2.tune.proliferate_per_adjacent = [500, 500, 500]
 	g2.round_no = 3
 	g2.tiles[Vector2i(0, 0)]["tissue"] = CWData.Tissue.CANCER
 	_install(g2, "异常增殖", 1, 2)
@@ -12355,9 +12521,9 @@ func t_ev_proliferate() -> void:
 	check(all6, "异常增殖：增生概率翻倍（单邻 50% → 100% 必中）")
 	## 【增生】**每个世界回合都结算**（2026-09-01 撤回了短命的「只在世界事件回合」，
 	## 改成把单格概率从 4% 降到 3%）。非事件回合照样要增生，这一条正着反着都钉。
-	check(CWData.PROLIFERATE_PER_ADJ == 30, "每相邻癌性组织 3%（千分率 30）")
+	check(CWData.PROLIFERATE_BASE_BY_STAGE[0] == 30, "每相邻癌性组织 3%（千分率 30，I 期基数）")
 	var g3 := _fx_game(2)
-	g3.tune.proliferate_per_adjacent = 1000   ## 必中，隔离概率因素
+	g3.tune.proliferate_per_adjacent = [1000, 1000, 1000]   ## 必中，隔离概率因素
 	g3.tiles[Vector2i(0, 0)]["tissue"] = CWData.Tissue.CANCER
 	g3.round_no = 1                            ## 不是世界事件回合
 	g3.world._proliferate()

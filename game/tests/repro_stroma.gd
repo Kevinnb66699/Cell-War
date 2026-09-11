@@ -65,7 +65,7 @@ func _initialize() -> void:
 
 	## 计数已经很高：+1.0 一步跨过阈值 → 当场转固化，玩家可能以为「没生效」
 	var r5 := _make(func(g, _c, h) -> void:
-		g.tiles[h]["solid"] = g.tune.solidify_threshold - 5)
+		g.tiles[h]["solid"] = g.solidify_threshold() - 5)
 	var b5: int = _g.tiles[r5[1]]["solid"]
 	await _g.card_fx.play(r5[0], { "act": "play", "card": "基质硬化", "to": r5[1] })
 	print("【差一点到阈值】solid %d → %d，tissue=%d（2=固化）" % [

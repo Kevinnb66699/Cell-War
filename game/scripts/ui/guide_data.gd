@@ -160,7 +160,7 @@ static func _stage_stronghold() -> Array:
 	return [
 		{ "t": "固化计数", "flag": "cancer_grow", "b": [
 			"癌细胞停在癌组织上，E 时固化 +1。",
-			"到 %s 变固化癌组织。" % CWData.fmt(tune.solidify_threshold)] },
+			"到 %s 变固化癌组织。" % CWData.fmt(int(tune.solidify_threshold[0]))] },
 		{ "t": "复活据点", "flag": "", "b": [
 			"固化癌组织净化不掉。", "也是癌细胞复活点。"] },
 	]

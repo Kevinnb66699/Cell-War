@@ -592,6 +592,17 @@ func first_this_round(cell: Dictionary, key: String) -> bool:
 	return true
 
 
+## 肿瘤分期（环境恶化，PRD 2026-09-11）：0/1/2 = I/II/III 期。与癌症卡池的分期是**同一张表**
+## （`CWCardData.cancer_phase`）—— 分期只此一处，压迫/增生/侵蚀/固化门槛/【根深蒂固】全从这里读。
+func tumor_stage() -> int:
+	return CWCardData.cancer_phase(round_no)
+
+
+## 本分期的固化门槛（III 期降为 2.0）。结算、界面、AI 一律走这里，别各自去查 `tune.solidify_threshold` 的表。
+func solidify_threshold() -> int:
+	return int(tune.solidify_threshold[tumor_stage()])
+
+
 ## 固化计数的**增加**一律走这里（【E-固化】与卡【基质硬化】共用）：达到阈值即转固化。
 ## 2026-09-07 拆掉了【固化加速】的支路（该世界事件随 PRD 正本删除）。
 ## 血管不可固化（Kevin 2026-09-06）：计数也不累计，日志说一句（癌细胞蹲在血管上时别让人以为是 bug）。
@@ -604,7 +615,7 @@ func raise_solid(pos: Vector2i, amount: int) -> void:
 		log_msg("　【固化】%s 是血管，不可固化（计数不累计）" % str(pos))
 		return
 	t["solid"] += amount
-	if t["solid"] < tune.solidify_threshold:
+	if t["solid"] < solidify_threshold():
 		return
 	CWTissue.to_solid(t)
 	log_msg("【固化】%s 转为固化癌组织" % str(pos))

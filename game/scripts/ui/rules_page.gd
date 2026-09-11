@@ -81,6 +81,10 @@ static func sections(tune: CWTuning = null) -> Array:
 		round_lines.append("E 阶段：增殖/侵蚀/压迫 → 固化衰减 → 判胜负")
 	else:
 		round_lines.append("E 阶段：癌方【无氧呼吸】→ 增殖/侵蚀/压迫 → 固化衰减 → 判胜负")
+	## 环境恶化（PRD 2026-09-11）：分期改的是压迫/增生/侵蚀/固化门槛的数，速查页得写；门槛跟旋钮走
+	round_lines.append("第 6 / 11 回合起肿瘤 II / III 期：压迫 ×1.5 / ×2、增生与侵蚀加重")
+	round_lines.append("III 期固化门槛 %s；II 期起固化格每回合给邻格加 1.0 固化计数"
+		% CWData.fmt(int(tune.solidify_threshold[2])))
 	return [
 		{ "title": "怎么赢", "lines": win },
 		{ "title": "一个世界回合", "lines": round_lines },
@@ -117,7 +121,7 @@ static func sections(tune: CWTuning = null) -> Array:
 			## 直接打门槛会变成「蹲满 30 回合」，而玩家正是照这一页学规则的
 			## （2026-09-01 连同格子详情那处一起发现）
 			"癌细胞停在癌组织上蹲满 %d 回合 → 固化（复活据点+高供能）" \
-				% (tune.solidify_threshold / CWData.SOLIDIFY_STEP),
+				% (int(tune.solidify_threshold[0]) / CWData.SOLIDIFY_STEP),
 			"固化格不可净化，免疫要先用 T 细胞【裂解】破除",
 		] },
 		{ "title": "卡牌", "lines": [
