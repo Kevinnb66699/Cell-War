@@ -11546,13 +11546,45 @@ func t_card_perms() -> void:
 	g = _fx_game(4)
 	var bc := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i(0, 0), -1, CWData.CancerType.MELANOMA)
 	bc["energy"] = 10
-	bc["equipped"] = ["BCL-2抗凋亡"]
+	## 2026-09-10 起它是**即时卡挂的一次性护盾**（同【细胞膜修复】），不再是装备
+	g.add_mod(bc, "BCL-2抗凋亡", 1, "")
 	g.cells.append(bc)
 	g.round_no = 1
 	g.cancer_hit(bc, 99, "测试")
-	check(bc["alive"] and bc["energy"] == CWData.BCL2_ENERGY[0] and bc["equipped"].is_empty(),
+	check(bc["alive"] and bc["energy"] == CWData.BCL2_ENERGY[0]
+			and g.mods_of(bc, "BCL-2抗凋亡").is_empty(),
 		"免死：能量改为 0.5，本牌弃置")
 	check(g.cards.is_legal(bc, "BCL-2抗凋亡"), "弃置后可重新抽取")
+	## **免疫掉的那一刀不给抗原记忆**（Kevin 2026-09-10 点明的正是这一条）：
+	## 云端 PRD 把它从「先挨完、降到 ≤0 再救回来」改成「免疫此次能量损失」——
+	## 前者 actual 记的是全额伤害，攻击方照样按它累计记忆；后者伤害根本没发生。
+	## 走**真的攻击流程**（记忆是在那儿发的），一次带盾、一次不带，比出来才算数。
+	var mem_with := -1
+	var mem_without := -1
+	for shielded in [true, false]:
+		var gm := bare_game()
+		gm.round_no = 1
+		var hit_at := Vector2i(1, 0)
+		gm.tiles[hit_at]["tissue"] = CWData.Tissue.CANCER
+		var atk := CWSetup.make_cell(gm.cells.size(), 0, CWData.Faction.IMMUNE,
+			Vector2i.ZERO, CWData.ImmuneType.T_CELL, -1, 200)
+		gm.cells.append(atk)
+		var prey2 := _put_cancer(gm, hit_at, 5)     ## 5 = 一下就致命
+		if shielded:
+			gm.add_mod(prey2, "BCL-2抗凋亡", 1, "")
+		gm.memory = 0
+		_rig_roll(gm, 6, [3])                        ## 钉成命中
+		await gm.actions._do_move(atk, hit_at, 0)
+		if shielded:
+			mem_with = gm.memory
+			check(prey2["alive"] and prey2["energy"] == CWData.BCL2_ENERGY[0],
+				"致命那一刀被免疫，能量改为 %s" % CWData.fmt(CWData.BCL2_ENERGY[0]))
+		else:
+			mem_without = gm.memory
+		gm.dispose()
+	check(mem_with == 0, "**被免疫掉就不给抗原记忆**（实为 %d）" % mem_with)
+	check(mem_without > 0,
+		"对照：同一刀没有 BCL-2 时记忆照常累计（%d）—— 免得上面那条恒成立" % mem_without)
 	g.cancer_hit(bc, 99, "测试")
 	check(not bc["alive"], "没有第二张 BCL-2 就真死了")
 	g.dispose()
@@ -14139,11 +14171,11 @@ func _t_dmg_unpreventable_still_dies() -> void:
 	g.cells.append(tc)
 	var bv := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0),
 		-1, CWData.CancerType.SCLC, 5)
-	bv["equipped"] = ["BCL-2抗凋亡"]
 	g.cells.append(bv)
+	g.add_mod(bv, "BCL-2抗凋亡", 1, "")
 	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
 	await g.actions._do_move(tc, Vector2i(1, 0), 0)
-	check(not bv["equipped"].has("BCL-2抗凋亡"),
+	check(g.mods_of(bv, "BCL-2抗凋亡").is_empty(),
 		"UNPREVENTABLE 的次级伤害仍然走死亡替代：BCL-2 被触发并弃置")
 	g.dispose()
 
@@ -14512,14 +14544,14 @@ func t_batch_death_and_triggers() -> void:
 	## pid 只能取 0/1：bare_game() 是两人局，cell_name() 会拿它去索引 players
 	var b := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER,
 		Vector2i(3, 0), -1, CWData.CancerType.SCLC, 5)
-	b["equipped"] = ["BCL-2抗凋亡"]
+	g.add_mod(b, "BCL-2抗凋亡", 1, "")
 	g.cells.append(b)
 	g.round_no = 1
 	g.immune_hit_area([a, b], 30, atk, "IFN-γ")
 	check(not a["alive"], "①没有免死的当场死亡")
 	check(b["alive"] and b["energy"] == CWData.BCL2_ENERGY[0],
 		"①带 BCL-2 的在批量宣死之前被替代救回")
-	check(not ("BCL-2抗凋亡" in b["equipped"]), "①BCL-2 触发后本牌弃置")
+	check(g.mods_of(b, "BCL-2抗凋亡").is_empty(), "①BCL-2 触发后本牌弃置")
 	g.dispose()
 
 	## ② 同一目标在一批里挨两下（主攻击 + 无视减伤的次级伤害）只死一次
@@ -14738,7 +14770,7 @@ func _t_damage_required() -> void:
 	tc["equipped"] = ["细胞毒性增强"]
 	g3.cells.append(tc)
 	var bcl := _put_cancer(g3, canc, 5)                 ## 主伤害就能打死
-	bcl["equipped"] = ["BCL-2抗凋亡"]
+	g3.add_mod(bcl, "BCL-2抗凋亡", 1, "")
 	var n0: int = g3.logs.size()
 	_rig_roll(g3, 6, [3])
 	await g3.actions._do_move(tc, canc, 0)

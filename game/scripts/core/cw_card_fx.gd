@@ -172,7 +172,7 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 			"基质重塑":
 				for c in _solid_in_range(cell["pos"], 2):
 					opts.append(_opt(card, "→%s" % str(c), { "to": c }))
-			"补体调理", "炎症趋化", "CXCR3趋化", "细胞膜修复", "缺氧适应", \
+			"补体调理", "炎症趋化", "CXCR3趋化", "细胞膜修复", "缺氧适应", "BCL-2抗凋亡", \
 			"穿孔素-颗粒酶", "补体级联", "高亲和力克隆", "PD-L1表达", "DNA损伤修复", \
 			"上皮—间质转化":
 				## 自我修饰类：无目标、随时可打（打了用不上是玩家自己的选择——
@@ -316,6 +316,15 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 		"细胞膜修复":
 			game.add_mod(cell, card, 1, "")
 			game.log_msg("　下一次能量损失 -1.5（最低 0）")
+		## 云端 PRD 2026-09-10 把它从永久技能改成**即时技能**，于是它和【细胞膜修复】
+		## 是同一种东西：打出去挂一个一次性护盾，等那一下真来了才消耗
+		## （Kevin 2026-09-10：「BCL-2 就像细胞膜修复一样打出不就行了吗」）。
+		## 区别只在护盾**怎么挡** —— 那不是减伤而是整笔免掉，所以不走 `_shield_value`
+		## 那套「减多少」，而是 CWDamage 的 `_bcl2_pass` 单独一条。
+		"BCL-2抗凋亡":
+			game.add_mod(cell, card, 1, "")
+			game.log_msg("　下一次致命能量损失被免疫，能量改为 %s"
+				% CWData.fmt(CWData.BCL2_ENERGY[_phase()]))
 		"缺氧适应":
 			## 2026-08-30 卡面重写（团队定案，口径 #72）：从「本世界回合免疫压迫
 			## + 下一次技能损失 -1.0」两个半句，并成**一个**一次性护盾——
