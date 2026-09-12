@@ -913,6 +913,17 @@ static func nearest_in(block: Array, at: Vector2i, n: int) -> Array:
 	return out.slice(0, n)
 
 
+## 【糖酵解爆发】要和 E 阶段的【无氧呼吸】演同一套「铜橙输能」（issue #28）：这只细胞所在连通块里
+## 离它最近的 12 格，同 _anaerobic 里那条 fx("anaerobic") 的口径；不在任何块里（不该发生）→ 空
+func anaerobic_sources_for(target: Dictionary) -> Array:
+	var cancer_pred := func(c: Vector2i) -> bool:
+		return game.is_cancerous(c)
+	for block in game.blocks_of(cancer_pred):
+		if (block as Array).has(target["pos"]):
+			return nearest_in(block, target["pos"], 12)
+	return []
+
+
 ## 单独算某个癌细胞**此刻**的无氧供给（卡【糖酵解爆发】用），口径与 _anaerobic 一致
 func anaerobic_gain_for(target: Dictionary) -> int:
 	var cancer_pred := func(c: Vector2i) -> bool:

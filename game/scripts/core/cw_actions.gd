@@ -831,6 +831,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 			var per: int = CWData.PERFORIN_EXTRA_T if cell["itype"] == CWData.ImmuneType.T_CELL \
 				else CWData.PERFORIN_EXTRA
 			extra += per * perf
+			game.fx("card_granule", { "from": cell["pos"], "to": target["pos"] })   ## issue #28：颗粒注入
 		## 【细胞毒性增强】非 T：每行动回合首次攻击成功 +1.0（进管线的②固定增加）；
 		## T 细胞：每次成功 +1.0 且「不受减伤效果影响」（口径 #67）——按设计 §6.4
 		## 做成**关联到主攻击的次级伤害事件**，带 UNPREVENTABLE：
@@ -879,7 +880,7 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 				% [CWData.fmt(dealt), dealt / 10, game.memory])
 		## 【补体级联】的组织转化不是能量损失，「整体免疫」那一层拦不住它
 		for i in game.spend_mods(cell, "补体级联"):
-			_cascade(target)
+			_cascade(cell, target)
 		## 【抗原变异】攻击大成功 → 攻击方抽牌（按层数）
 		if crit:
 			for i in game.event_stacks("抗原变异"):
@@ -932,7 +933,7 @@ func _downgrade(v: String) -> String:
 
 
 ## 【补体级联】攻击成功后：目标癌细胞相邻的普通癌组织里，随机最多 2 格无细胞占据 → 健康
-func _cascade(target: Dictionary) -> void:
+func _cascade(cell: Dictionary, target: Dictionary) -> void:
 	var cands: Array[Vector2i] = []
 	for n in game.neighbors(target["pos"]):
 		if game.tile(n)["tissue"] == CWData.Tissue.CANCER and game.cells_at(n).is_empty():
@@ -941,6 +942,7 @@ func _cascade(target: Dictionary) -> void:
 	if picked.is_empty():
 		game.log_msg("　【补体级联】目标相邻无可转化的癌组织，落空")
 		return
+	game.fx("card_cascade", { "from": cell["pos"], "to": target["pos"], "tiles": picked })   ## issue #28：命中连锁
 	for c in picked:
 		CWTissue.to_healthy(game.tile(c))
 		game.log_msg("　【补体级联】%s 转为健康组织" % str(c))

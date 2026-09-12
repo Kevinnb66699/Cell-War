@@ -85,11 +85,16 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 			## 立刻结算一次无氧呼吸，不影响 E 阶段的正常结算
 			var g := game.world.anaerobic_gain_for(cell)
 			_gain(cell, g, "糖酵解爆发")
+			## issue #28：卡面「复用已有输能方向」→ 和 E 阶段那条一样演「铜橙输能」
+			game.fx("anaerobic", { "at": cell["pos"], "sources": game.world.anaerobic_sources_for(cell) })
 			_evt(card, "+%s 能量" % CWData.fmt(_amp(g)), cell["pos"])
 		"肿瘤血管生成":
 			var v: int = _amp([10, 20, 25][_phase()])
+			var drinkers: Array = []   ## issue #28：全体各自回拢血色碎粒，抽卡者那口更大
 			for c in game.living_cells(CWData.Faction.CANCER):
 				c["energy"] += v
+				drinkers.append(c["pos"])
+			game.fx("card_blood", { "drawer": cell["pos"], "cells": drinkers })
 			_gain(cell, 5, "额外")
 			game.log_msg("　【肿瘤血管生成】所有癌细胞 +%s 能量" % CWData.fmt(v))
 			_evt(card, "全体癌细胞 +%s · 自身另 +%s" % [
@@ -277,13 +282,17 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 		"基质降解":
 			var t: Dictionary = game.tile(data["to"])
 			CWTissue.crack_to_cancer(t)
+			game.fx("card_degrade", { "at": data["to"] })   ## issue #28：矿物层散去
 			game.log_msg("　%s 由固化癌组织转为癌组织（计数清零）" % str(data["to"]))
 		"抗体依赖细胞毒作用":
 			var base := 15 if cell["itype"] == CWData.ImmuneType.B_CELL else 10
+			## issue #28：选稿画的就是 B 细胞那发 Y 形抗体（单目标），复用 antibody
+			game.fx("antibody", { "from": cell["pos"], "targets": [game.cells[data["cid"]]["pos"]] })
 			game.immune_hit(game.cells[data["cid"]], _amp(base), cell, false)
 		"交叉呈递":
 			var target: Dictionary = game.cells[data["cid"]]
 			target["marked"] = true
+			game.fx("card_mark", { "from": cell["pos"], "to": target["pos"] })   ## issue #28：头顶到头顶的粉流 + 菱形头标
 			game.log_msg("　%s 获得【标记】" % game.cell_name(target))
 		"溶酶体强化":
 			_lysosome(cell)
@@ -315,6 +324,7 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 			game.log_msg("　本回合接下来 2 次向癌性组织的迁移费用 -0.5（最低 0.2）")
 		"细胞膜修复":
 			game.add_mod(cell, card, 1, "")
+			game.fx("card_repair", { "at": cell["pos"] })   ## issue #28：切角徽盾收束
 			game.log_msg("　下一次能量损失 -1.5（最低 0）")
 		## 云端 PRD 2026-09-10 把它从永久技能改成**即时技能**，于是它和【细胞膜修复】
 		## 是同一种东西：打出去挂一个一次性护盾，等那一下真来了才消耗
@@ -497,6 +507,8 @@ func _clonal_growth_targets(cell: Dictionary) -> Array[Vector2i]:
 func _clonal_growth(cell: Dictionary) -> void:
 	var cands := _clonal_growth_targets(cell)
 	var picked := _pick_random(cands, [1, 2, 3][_phase()])
+	## issue #28：先报演出再翻格 —— 定殖过场按 CWSkillFx.arrival_in 各等自己那道感染流（第 i 格 1.3 + 0.3i 秒）
+	game.fx("card_clone", { "at": cell["pos"], "tiles": picked })
 	for c in picked:
 		CWTissue.to_cancer(game.tile(c), true)
 		game.erosion_fx(c, CWData.dir_toward(c, cell["pos"]))   ## 过场：癌从发动者那一侧漫入（Kevin 2026-09-06）
@@ -519,6 +531,7 @@ func _reinforce(cell: Dictionary, ally: Dictionary) -> void:
 	var cands := _empty_healthy_in_range(ally["pos"], 2)
 	var dest: Vector2i = cands[game.rng.randi_range(0, cands.size() - 1)]
 	game.log_msg("　%s 传送至 %s（%s 附近）" % [game.cell_name(cell), str(dest), game.cell_name(ally)])
+	game.fx("card_teleport", { "from": cell["pos"], "to": dest })   ## issue #28：原格散开、落点回拢（远跳另有传送溶解）
 	await game.actions.enter_tile(cell, dest)
 
 
@@ -531,6 +544,7 @@ func _lactic_acid(cell: Dictionary, target: Dictionary) -> void:
 			adj += 1
 	if adj >= 3:
 		base += 5
+	game.fx("card_acid", { "from": cell["pos"], "to": target["pos"] })   ## issue #28：酸滴 ×3 + 目标碎粒
 	game.cancer_hit(target, _amp(base), "乳酸酸化", true)   ## 癌方即时卡 = 癌细胞技能（#62）
 
 
@@ -660,6 +674,7 @@ func _immune_storm(cell: Dictionary, card: String) -> void:
 			return "净化 %d 格 · %d 敌" % [storm_immune_tiles(t["pos"]).size(),
 				_cancer_cells_in_range(t["pos"], 2).size()])
 	var victims := _cancer_cells_in_range(target["pos"], 2)
+	game.fx("card_storm", { "at": target["pos"], "tiles": Array(_tiles_in_range(target["pos"], 2)) })   ## issue #28：青色碎粒逐格扬起
 	game.immune_hit_area(victims, _amp(10), cell, card)
 	var hit: int = victims.size()
 	var purged := 0
@@ -855,6 +870,7 @@ func _couple(cell: Dictionary, ally: Dictionary) -> void:
 	game.log_msg("　【代谢耦联】%s 转出 %s，%s 获得 %s（现 %s）" % [
 		game.cell_name(payer), CWData.fmt(pay),
 		game.cell_name(getter), CWData.fmt(get), CWData.fmt(getter["energy"])])
+	game.fx("card_transfer", { "from": payer["pos"], "to": getter["pos"] })   ## issue #28：青流 ×3，收方回拢
 
 
 func _solid_in_range(center: Vector2i, r: int) -> Array[Vector2i]:
@@ -942,6 +958,7 @@ func _radiotherapy(start: Vector2i) -> void:
 		for n in game.neighbors(c):
 			if not in_region.has(n):
 				frontier.append(n)
+	game.fx("card_radiation", { "tiles": Array(region) })   ## issue #28：光柱逐格落下（区域定了就报，翻格在后）
 	var cleared := 0
 	for c in region:
 		if game.is_cancerous(c):
@@ -984,6 +1001,7 @@ func _tnf(cell: Dictionary) -> void:
 		if t["tissue"] == CWData.Tissue.CANCER:
 			t["solid"] = maxi(t["solid"] - 10, 0)   ## 固化计数不是能量，不过【信号放大】
 			frozen[c] = true
+	game.fx("card_inflammation", { "at": cell["pos"], "tiles": Array(_tnf_area(cell)) })   ## issue #28：暖橙碎粒逐格扬起
 	game.immune_hit_area(victims, _amp(10), cell, "TNF-α局部炎症")
 	var hit: int = victims.size()
 	game.install_event("TNF-α局部炎症", 1, frozen)

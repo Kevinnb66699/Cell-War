@@ -116,7 +116,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_hot_patch, t_online_doc, t_save_load, t_settings, t_feedback, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_skill_fx, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_hot_patch, t_online_doc, t_save_load, t_settings, t_feedback, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_skill_fx, t_card_fx_hooks, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_board_small, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -1298,7 +1298,7 @@ func t_feedback() -> void:
 ## 技能演出合集 + 常驻装饰 + 坏死纹理 + 引擎报演出 + 联机转发（issue #15，2026-09-11，选稿 R4）
 func t_skill_fx() -> void:
 	print("[技能演出 · 选稿 R4]")
-	## ① 每种演出：登记 → 走完时长自己收场；不认识的 kind 不登记；十三种一起画不报错
+	## ① 每种演出：登记 → 走完时长自己收场；不认识的 kind 不登记；十三种技能 + 十四种卡牌粒子（issue #28）一起画不报错
 	var fx := CWSkillFx.new()
 	root.add_child(fx)
 	var sample := {
@@ -1313,10 +1313,24 @@ func t_skill_fx() -> void:
 		"revive_immune": { "at": Vector2(0, 0) }, "revive_cancer": { "at": Vector2(0, 0) },
 		"mutate": { "at": Vector2(0, 0) },
 		"anaerobic": { "at": Vector2(0, 0), "sources": [Vector2(36, 0), Vector2(-36, 0)] },
+		"card_radiation": { "tiles": [Vector2(0, 0), Vector2(36, 0), Vector2(18, 20)] },
+		"card_storm": { "at": Vector2(0, 0), "tiles": [Vector2(0, 0), Vector2(36, 0)] },
+		"card_inflammation": { "at": Vector2(0, 0), "tiles": [Vector2(0, 0), Vector2(-36, 0)] },
+		"card_granule": { "from": Vector2(-36, 0), "to": Vector2(0, 0) },
+		"card_acid": { "from": Vector2(-36, 0), "to": Vector2(0, 0) },
+		"card_cascade": { "from": Vector2(-36, 0), "to": Vector2(0, 0), "tiles": [Vector2(36, 0), Vector2(18, 20)] },
+		"card_transfer": { "from": Vector2(-36, 0), "to": Vector2(36, 0) },
+		"card_teleport": { "from": Vector2(-36, 0), "to": Vector2(36, 0) },
+		"card_mark": { "from": Vector2(-36, 0), "to": Vector2(36, 0) },
+		"card_repair": { "at": Vector2(0, 0) }, "card_survive": { "at": Vector2(0, 0) },
+		"card_degrade": { "at": Vector2(0, 0) },
+		"card_clone": { "at": Vector2(0, 0), "tiles": [Vector2(36, 0), Vector2(18, 20), Vector2(-18, 20)],
+			"tiles_axial": [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 1)] },
+		"card_blood": { "drawer": Vector2(0, 0), "cells": [Vector2(0, 0), Vector2(36, 0)] },
 	}
 	for kind in sample:
 		fx.play(kind, sample[kind])
-	check(fx.active() == sample.size() and fx.visible, "十三种演出各登记一条（%d）" % fx.active())
+	check(fx.active() == sample.size() and fx.visible, "%d 种演出各登记一条" % fx.active())
 	fx.play("nonsense", {})
 	check(fx.active() == sample.size(), "不认识的 kind 不登记")
 	## 伪足拉细胞（issue #26）：登记那一刻细胞还按在旧格脚底，拉的那段在半路，演完放手
@@ -1326,6 +1340,10 @@ func t_skill_fx() -> void:
 	## issue #29：定殖过场要问「细胞几秒到新格」—— 登记那一刻 = 整段拉完的时刻；没伪足在拉的格 -1
 	check(is_equal_approx(fx.arrival_in(Vector2i(0, 0)), CWSkillFx.PSEUDOPOD_RETRACT_AT) and fx.arrival_in(Vector2i(5, 5)) < 0.0,
 		"新格 (0,0) 还有 %.2f 秒到；别的格没伪足 → -1" % fx.arrival_in(Vector2i(0, 0)))
+	## issue #28：【克隆增殖】三格各等自己那道感染流（选稿钟 1.3 + 0.3i，减去 0.4 s 起手）
+	check(is_equal_approx(fx.arrival_in(Vector2i(1, 0)), CWSkillFx.CLONE_FLIP_AT - CWSkillFx.CARD_LEAD)
+		and is_equal_approx(fx.arrival_in(Vector2i(-1, 1)), CWSkillFx.CLONE_FLIP_AT + 2.0 * CWSkillFx.CLONE_STAGGER - CWSkillFx.CARD_LEAD),
+		"克隆增殖第 1 格 %.2f 秒到、第 3 格 %.2f 秒到" % [fx.arrival_in(Vector2i(1, 0)), fx.arrival_in(Vector2i(-1, 1))])
 	await process_frame
 	var longest := 0.0
 	for kind in sample:
@@ -1348,8 +1366,10 @@ func t_skill_fx() -> void:
 		"伪足穿透 %.1f 秒收场、细胞 %.2f 秒到格" % [CWSkillFx.duration("pseudopod"), CWSkillFx.PSEUDOPOD_RETRACT_AT])
 	fx.sync(0.85)
 	await process_frame
-	check(fx.active() > 0 and fx.active() < sample.size(), "1.3 秒后短的（毒素 / 黏连 / 伪足 / 疾行 / 突变）收了、长的还在（余 %d）" % fx.active())
+	check(fx.active() > 0 and fx.active() < sample.size(), "1.3 秒后短的（毒素 / 黏连 / 伪足 / 疾行 / 突变 / 基质降解）收了、长的还在（余 %d）" % fx.active())
 	check(fx.carry_pos(7) == null and fx.arrival_in(Vector2i(0, 0)) < 0.0, "1.3 秒：伪足演完放手，细胞位置交还引擎，到格倒计时也没了")
+	check(is_zero_approx(fx.arrival_in(Vector2i(0, 1))) and is_equal_approx(fx.arrival_in(Vector2i(-1, 1)), 0.2),
+		"1.3 秒：克隆增殖第 2 格已到（0）、第 3 格还差 0.2")
 	fx.sync(longest)
 	check(fx.active() == 0 and not fx.visible, "过了最长的 %.2f 秒全部收场、节点隐藏" % longest)
 	root.remove_child(fx)
@@ -2858,6 +2878,102 @@ func t_teleport_fx() -> void:
 	main_scene.free()
 
 
+## issue #28（2026-09-12）：十六张卡的粒子演出 —— 引擎在结算那一刻报 fx，键只有格位（选稿 R5 全以格心为锚）
+func t_card_fx_hooks() -> void:
+	print("[卡牌粒子 · 引擎钩子]")
+	var g := _fx_game(4)
+	var rec: Variant = load("res://tests/fx_recorder.gd").new()
+	rec.game = g
+	for pid in g.order:
+		g.bridges[pid] = rec
+	var of := func(kind: String) -> Array:
+		var out: Array = []
+		for e in rec.got:
+			if e[0] == kind:
+				out.append(e[1])
+		return out
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.T_CELL, -1)
+	imm["energy"] = 100
+	g.cells.append(imm)
+	var foe := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0), -1, CWData.CancerType.MELANOMA)
+	foe["energy"] = 100
+	g.cells.append(foe)
+	g.round_no = 1
+	## 放疗：区域定了就整批报，翻格在后（起点放远处，别吃掉下面克隆增殖要用的邻格）
+	g.card_fx._radiotherapy(Vector2i(-4, 2))
+	var radio: Array = of.call("card_radiation")
+	check(radio.size() == 1 and (radio[0]["tiles"] as Array).size() == CWData.RADIO_REGION
+		and (radio[0]["tiles"] as Array).has(Vector2i(-4, 2)), "放疗 → card_radiation，%d 格区域含起点" % CWData.RADIO_REGION)
+	## TNF-α：自身 + 六邻
+	g.card_fx._tnf(imm)
+	var tnf: Array = of.call("card_inflammation")
+	check(tnf.size() == 1 and tnf[0]["at"] == Vector2i(0, 0) and (tnf[0]["tiles"] as Array).size() == 7,
+		"TNF-α局部炎症 → card_inflammation，自身 + 六邻 7 格")
+	## 乳酸酸化：癌细胞 → 免疫
+	g.card_fx._lactic_acid(foe, imm)
+	var acid: Array = of.call("card_acid")
+	check(acid.size() == 1 and acid[0]["from"] == Vector2i(1, 0) and acid[0]["to"] == Vector2i(0, 0), "乳酸酸化 → card_acid，from 癌 / to 免疫")
+	## 克隆增殖：先报再翻，tiles 就是翻癌的那几格（III 期最多 3）
+	g.round_no = 25
+	var cands: int = g.card_fx._clonal_growth_targets(foe).size()
+	g.card_fx._clonal_growth(foe)
+	var clone: Array = of.call("card_clone")
+	var flipped := 0
+	for n in g.neighbors(Vector2i(1, 0)):
+		if g.tiles[n]["tissue"] == CWData.Tissue.CANCER:
+			flipped += 1
+	check(clone.size() == 1 and clone[0]["at"] == Vector2i(1, 0) and (clone[0]["tiles"] as Array).size() == flipped
+		and flipped == mini(3, cands) and flipped > 0, "克隆增殖 → card_clone，tiles = 翻癌的 %d 格" % flipped)
+	## 补体级联：攻击方 → 目标 → 目标相邻的空癌组织（最多 2 格）
+	for n in [Vector2i(2, 0), Vector2i(2, -1), Vector2i(1, 1)]:
+		g.tiles[n]["tissue"] = CWData.Tissue.CANCER
+	g.actions._cascade(imm, foe)
+	var casc: Array = of.call("card_cascade")
+	check(casc.size() == 1 and casc[0]["from"] == Vector2i(0, 0) and casc[0]["to"] == Vector2i(1, 0)
+		and (casc[0]["tiles"] as Array).size() == CWData.CASCADE_MAX_TILES, "补体级联 → card_cascade，from / to / 转健康的 %d 格" % CWData.CASCADE_MAX_TILES)
+	## BCL-2 免死那一刻
+	g.add_mod(foe, "BCL-2抗凋亡", 1, "")
+	check(g.damage._spend_bcl2(foe) > 0 and of.call("card_survive").size() == 1 and of.call("card_survive")[0]["at"] == Vector2i(1, 0),
+		"BCL-2抗凋亡 免死 → card_survive")
+	## 打出即演的四张：细胞膜修复 / 基质降解 / 交叉呈递 / 抗体依赖细胞毒作用
+	imm["hand"] = ["细胞膜修复"]
+	await g.card_fx.play(imm, { "act": "play", "card": "细胞膜修复" })
+	check(of.call("card_repair").size() == 1 and of.call("card_repair")[0]["at"] == Vector2i(0, 0), "细胞膜修复 → card_repair")
+	g.tiles[Vector2i(-1, 0)]["tissue"] = CWData.Tissue.SOLID
+	g.tiles[Vector2i(-1, 0)]["solid"] = 30
+	imm["hand"] = ["基质降解"]
+	await g.card_fx.play(imm, { "act": "play", "card": "基质降解", "to": Vector2i(-1, 0) })
+	check(of.call("card_degrade").size() == 1 and of.call("card_degrade")[0]["at"] == Vector2i(-1, 0), "基质降解 → card_degrade")
+	imm["hand"] = ["交叉呈递"]
+	await g.card_fx.play(imm, { "act": "play", "card": "交叉呈递", "cid": 1 })
+	check(of.call("card_mark").size() == 1 and of.call("card_mark")[0]["to"] == Vector2i(1, 0), "交叉呈递 → card_mark，to = 目标")
+	imm["hand"] = ["抗体依赖细胞毒作用"]
+	await g.card_fx.play(imm, { "act": "play", "card": "抗体依赖细胞毒作用", "cid": 1 })
+	var ab: Array = of.call("antibody")
+	check(ab.size() == 1 and ab[0]["from"] == Vector2i(0, 0) and (ab[0]["targets"] as Array) == [Vector2i(1, 0)],
+		"抗体依赖细胞毒作用 → 复用 B 细胞那发 antibody（单目标）")
+	## 两张事件卡：糖酵解爆发复用 anaerobic（同块的癌性格做来源）、肿瘤血管生成 card_blood 全体
+	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+	await g.card_fx.resolve_event(foe, "糖酵解爆发")
+	var ana: Array = of.call("anaerobic")
+	var nsrc: int = (ana[0]["sources"] as Array).size() if ana.size() == 1 else 0
+	check(ana.size() == 1 and ana[0]["at"] == Vector2i(1, 0) and nsrc > 0, "糖酵解爆发 → anaerobic，来源 = 同连通块的 %d 格" % nsrc)
+	await g.card_fx.resolve_event(foe, "肿瘤血管生成")
+	var blood: Array = of.call("card_blood")
+	check(blood.size() == 1 and blood[0]["drawer"] == Vector2i(1, 0) and (blood[0]["cells"] as Array).has(Vector2i(1, 0)),
+		"肿瘤血管生成 → card_blood，drawer + 全体癌细胞")
+	## 要追问 / 要攻击链的四张（免疫风暴 / 代谢耦联 / 免疫增援 / 穿孔素-颗粒酶）：钩子在源码里，报文键同上
+	var csrc := FileAccess.get_file_as_string("res://scripts/core/cw_card_fx.gd")
+	var asrc := FileAccess.get_file_as_string("res://scripts/core/cw_actions.gd")
+	check(csrc.contains("fx(\"card_storm\"") and csrc.contains("fx(\"card_transfer\"") and csrc.contains("fx(\"card_teleport\"")
+		and asrc.contains("fx(\"card_granule\""), "免疫风暴 / 代谢耦联 / 免疫增援 / 穿孔素-颗粒酶 的钩子都在")
+	## 十四种 card_* 都有时长（不然桥登记不上）
+	for kind in ["card_radiation", "card_storm", "card_inflammation", "card_granule", "card_acid", "card_cascade",
+			"card_transfer", "card_teleport", "card_mark", "card_repair", "card_survive", "card_degrade", "card_clone", "card_blood"]:
+		check(CWSkillFx.duration(kind) > 0.0, "%s 有时长（%.1f s）" % [kind, CWSkillFx.duration(kind)])
+	g.dispose()
+
+
 func t_erosion_fx() -> void:
 	print("[侵蚀过场]")
 	var fx := CWErosionFx.new()
@@ -2911,6 +3027,16 @@ func t_erosion_fx() -> void:
 	fx.advance(CWSkillFx.PSEUDOPOD_RETRACT_AT)
 	check(not fx.waiting(Vector2i(0, 0)) and fx.frame_of(Vector2i(0, 0)) == CWErosionFx.ART[3][0],
 		"细胞到格那一刻（%.2f 秒）定殖过场开演" % CWSkillFx.PSEUDOPOD_RETRACT_AT)
+	## 【克隆增殖】（issue #28）：几格的定殖过场各等自己那道感染流，第 2 格比第 1 格晚 0.3 秒
+	fx.clear_all()
+	bridge.show_fx("card_clone", { "at": Vector2i(0, 0), "tiles": [Vector2i(1, 0), Vector2i(0, 1)] })
+	bridge.show_erosion(Vector2i(1, 0), 3)
+	bridge.show_erosion(Vector2i(0, 1), 5)
+	check(fx.waiting(Vector2i(1, 0)) and fx.waiting(Vector2i(0, 1)), "克隆增殖：两格的过场都在等")
+	fx.advance(CWSkillFx.CLONE_FLIP_AT - CWSkillFx.CARD_LEAD + 0.01)
+	check(fx.frame_of(Vector2i(1, 0)) == CWErosionFx.ART[3][0] and fx.waiting(Vector2i(0, 1)), "第 1 格到了开演，第 2 格还在等")
+	fx.advance(CWSkillFx.CLONE_STAGGER)
+	check(fx.frame_of(Vector2i(0, 1)) == CWErosionFx.ART[5][0], "再过 0.3 秒第 2 格开演")
 	fx.clear_all()
 	sfx.free()
 	bd.free()

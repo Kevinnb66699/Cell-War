@@ -472,6 +472,7 @@ func _spend_bcl2(cell: Dictionary) -> int:
 		return -1
 	var tier: int = CWData.BCL2_ENERGY[CWCardData.cancer_phase(game.round_no)]
 	game.spend_mods(cell, "BCL-2抗凋亡")
+	game.fx("card_survive", { "at": cell["pos"] })   ## issue #28：散开再回拢（免死不是复活，人还在原格）
 	game.log_msg("　【BCL-2抗凋亡】%s 免疫此次能量损失，能量改为 %s（本牌弃置，可重新抽取）" % [
 		game.cell_name(cell), CWData.fmt(tier)])
 	return tier

@@ -2,8 +2,10 @@ export const WIDTH = 320;
 export const HEIGHT = 200;
 export const DURATION = 3.6;
 const images = new Map();
+const cardView=new URLSearchParams(location.search).has('card');
 export const assetNames = ['tissue_normal','tissue_cancer','vessel','energy_normal','cells/immune','cells/osteo','cells/sclc','cells/dendritic','cells/macrophage','cells/bcell','cells/tcell','cells/signet','cells/melanoma'];
 export async function loadArt() {
+  if(!assetNames.includes('solidify/tissue_cancer_20_0'))assetNames.push('solidify/tissue_cancer_20_0');
   await Promise.all(assetNames.map(async name => {
     const image = new Image();
     image.src = `../../game/assets/art/${name}.png`;
@@ -66,5 +68,5 @@ export function burst(c,x,y,p,color,count=20,radius=45,inward=false) {
   }
 }
 export function startFrame(c) {
-  c.imageSmoothingEnabled=false;c.globalAlpha=1;c.fillStyle='#101a19';c.fillRect(0,0,WIDTH,HEIGHT);
+  c.imageSmoothingEnabled=false;c.globalAlpha=1;c.fillStyle=cardView?'#141f2e':'#101a19';c.fillRect(0,0,WIDTH,HEIGHT);
 }

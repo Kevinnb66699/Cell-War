@@ -951,6 +951,9 @@ func show_fx(kind: String, data: Dictionary) -> void:
 	## 伪足穿透另留新格的轴坐标：定殖过场（show_erosion）要问「细胞几秒到这一格」（issue #29）
 	if kind == "pseudopod" and data.get("to") is Vector2i:
 		out["to_tile"] = data["to"]
+	## 【克隆增殖】同理（issue #28）：那几格的定殖过场各等自己那道感染流
+	if kind == "card_clone" and data.get("tiles") is Array:
+		out["tiles_axial"] = data["tiles"]
 	skill_fx.play(kind, out)
 
 
