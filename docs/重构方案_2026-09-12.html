@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cell War 重构方案</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f6f4ef; --paper:#fffdf8; --ink:#1f2a2e; --muted:#5c6b70; --line:#d9d4c8;
+  --accent:#0f766e; --accent-ink:#0b5b55; --accent-soft:#d9efeb;
+  --warn:#b45309; --warn-soft:#fdebd0; --code-bg:#eeebe3; --thead:#ebe7dc;
+  --shadow:0 1px 0 rgba(31,42,46,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15191b; --paper:#1c2124; --ink:#e6e3da; --muted:#a3ada9; --line:#343c40;
+    --accent:#3fb8ac; --accent-ink:#8fe0d6; --accent-soft:#193b38;
+    --warn:#f2a54b; --warn-soft:#3d2a12; --code-bg:#242b2e; --thead:#252c30;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15191b; --paper:#1c2124; --ink:#e6e3da; --muted:#a3ada9; --line:#343c40;
+  --accent:#3fb8ac; --accent-ink:#8fe0d6; --accent-soft:#193b38;
+  --warn:#f2a54b; --warn-soft:#3d2a12; --code-bg:#242b2e; --thead:#252c30;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;font-size:15px;line-height:1.75;margin:0}
+.wrap{max-width:980px;margin:0 auto;padding:40px 24px 80px}
+header{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:28px}
+.kicker{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-ink)}
+h1{font-family:"Noto Serif SC","Songti SC",serif;font-weight:700;font-size:34px;line-height:1.25;margin:6px 0 10px;text-wrap:balance}
+h2{font-family:"Noto Serif SC","Songti SC",serif;font-weight:700;font-size:22px;margin:44px 0 12px;padding-top:10px;border-top:1px solid var(--line);text-wrap:balance}
+h3{font-size:16.5px;font-weight:700;margin:26px 0 8px;color:var(--accent-ink)}
+p{margin:8px 0;max-width:72ch}
+.lead{font-size:16px;color:var(--muted);max-width:76ch}
+.lead b{color:var(--ink)}
+ul,ol{padding-left:1.4em;max-width:80ch}
+li{margin:4px 0}
+li>ul{margin-top:2px}
+code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.86em;background:var(--code-bg);padding:1px 5px;border-radius:4px}
+pre{background:var(--code-bg);padding:14px 16px;border-radius:8px;overflow-x:auto;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12.5px;line-height:1.55}
+pre code{background:none;padding:0}
+.tbl{overflow-x:auto;margin:12px 0 18px;border:1px solid var(--line);border-radius:8px;background:var(--paper);box-shadow:var(--shadow)}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:14px}
+th,td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--thead);font-weight:700;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+td.num,th.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.phase{background:var(--paper);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:16px 20px;margin:16px 0;box-shadow:var(--shadow)}
+.phase h3{margin-top:0}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+.chip{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11.5px;padding:2px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent-ink)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.callout{border:1px solid var(--line);border-left:4px solid var(--warn);background:var(--paper);border-radius:8px;padding:12px 18px;margin:14px 0;max-width:none}
+.callout p{max-width:none}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:720px){.two{grid-template-columns:1fr}}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:14px 18px;box-shadow:var(--shadow)}
+.card h4{margin:0 0 6px;font-size:14px;color:var(--muted);font-weight:500;letter-spacing:.02em}
+.big{font-family:"Noto Serif SC",serif;font-size:30px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+.small{font-size:13px;color:var(--muted)}
+.mermaid{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px;overflow-x:auto}
+ol.decide li{margin:8px 0}
+ol.decide b{color:var(--accent-ink)}
+footer{margin-top:48px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+a{color:var(--accent-ink)}
+</style>
+
+<style>[hidden]{display:none!important} pre.fallback{font-size:12px}</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="kicker">Cell War · 部分重构 · 2026-09-12</div>
+  <h1>Cell War 重构方案</h1>
+  <p class="lead"><b>GDScript 不换，线上不停</b>，把两件事做掉：① 界面与规则引擎解耦；② 让 Fable 之外的人和 AI 也能维护。本页每个数字都是 09-12 凌晨从仓库量出来的；工作量是估的，单独标了。仓库正本：<code>docs/重构方案_2026-09-12.md</code>。</p>
+</header>
+
+<h2>〇、一句话结论</h2>
+<p>引擎（<code>scripts/core/</code>，19 个脚本）本来就是纯数据层：全是 <code>RefCounted</code>，一个 <code>Node</code> 引用都没有，服务器就是拿它无头跑的。<b>「UI 和内核绑定」绑在三条线上</b>，都在核心之外或核心边缘，可以分阶段拆，不用重写规则。</p>
+
+<div class="tbl"><table>
+<thead><tr><th>#</th><th>绑在哪</th><th>量出来的数</th></tr></thead>
+<tbody>
+<tr><td><b>A</b></td><td><b>演出穿透结算</b>：<code>CWBridge</code> 一个接口同时管「问决策」（<code>ask</code>）和「放演出」（10 个 <code>show_*</code>），引擎结算协程里 <code>await</code> 掷骰动画（<code>roll_shown</code>）</td><td>core 里 105 处 <code>await</code>（cw_actions 39 / cw_card_fx 37 / cw_world 16 / cw_game 13）；真正挂起点只有两个：<code>ask</code> 与 <code>show_roll</code></td></tr>
+<tr><td><b>B</b></td><td><b>界面直接摸引擎的裸字典</b>：<code>game.tiles[c]["kind"]</code>、<code>game.cells[i]["energy"]</code> 这类读法</td><td>16 个 ui 文件、250 处；最多的是 <code>game.tiles</code> 24、<code>game.cells</code> 22、<code>game.tune</code> 16、<code>game.logs</code> 13</td></tr>
+<tr><td><b>C</b></td><td><b><code>CWMatch</code> 是上帝对象</b>：装配、每帧全量同步、九个 fx 模块、联机粘合、回放、聊天、教程聚光灯全在一个文件</td><td><code>match.gd</code> 1800 行；<code>_process</code> 每帧跑 12 个 <code>_sync_*</code> 再 <code>panel.refresh(game)</code>；<code>ui_bridge.gd</code> 955 行且<b>继承 AI 桥</b>（<code>CWUIBridge → CWMonteCarloBridge → CWHeuristicBridge → CWBridge</code>）</td></tr>
+</tbody></table></div>
+
+<p><b>「除了 Fable 没人能维护」的根子不在代码分层，在三样东西的体量：</b></p>
+<div class="two">
+  <div class="card"><h4>tests/headless_test.gd</h4><div class="big">16,714 行</div><div class="small">190 个测试、2,745 个 check()，一个文件按下标分片。谁也不敢动、找不到该改哪条。</div></div>
+  <div class="card"><h4>docs/架构说明书.md</h4><div class="big">169 KB</div><div class="small">605 行，表格里一格就是三五千字的沿革；25 条约定分两段各自从 1 编号。读不完，也分不清哪句是「现在」。</div></div>
+</div>
+<div class="callout"><p><b>操作知识散在会话记忆里。</b>热更三条禁忌（补丁不能带新 <code>class_name</code>、改规则要升 <code>NET_VERSION</code> 并重部署、新类要先 <code>--import</code>）、PRD 在仓库外、<code>prd_crosscheck</code>、出图流程……散在架构说明书的表格深处和 Fable 的会话记忆里。换一个人或一个 AI 接手，第一天就踩坑。</p></div>
+<p>所以方案是<b>两条腿</b>：解耦（阶段 1–3）与交接体系（阶段 0、4）。<b>如果只能做一件，先做阶段 0 + 阶段 4 的文档部分</b>，它们对「别人能不能维护」的贡献比解耦大。</p>
+
+<h2>一、现状：引擎已经有的好东西（重构靠它们兜底）</h2>
+<ul>
+<li><b>流程是数据，推进是函数</b>：<code>CWGame.pending() / step() / advance()</code> 状态机，<code>flow</code> 字典记着「跑到哪」；快照永远取在 <code>pending()</code> 边界。AI 的推演就是「快照 → step → 回滚」几千次。</li>
+<li><b>决策只有一个通道</b>：<code>CWGame.ask()</code> 是引擎与决策者之间的唯一入口，人类 / AI / 联机 / 代打全从这儿过；回放（<code>CWReplay</code>）就录这里的下标，<code>t_determinism</code> 钉着同种子同哈希。</li>
+<li><b>快照与哈希</b>：<code>CWStateCodec</code> 是唯一编码器，联机靠 <code>state_hash</code> 逐字节对齐。</li>
+<li><b>联机已经是事件流</b>：服务器侧 <code>CWNetBridge</code> 把每个 <code>show_*</code> 变成一条报文（<code>roll / result / card_played / event_drawn / world_event / notice / beam / erosion / fx</code> 九种），客户端 <code>match.gd:930</code> 再一条条回放给本地桥。<b>这九种报文就是现成的事件 schema</b>，重构只是把它提升为引擎的原生输出。</li>
+<li><b>表现层已有铁律</b>（架构说明书约定 #15 / #16 / #19）：不存坐标、不决定结果、随机先由引擎掷出再经桥演出。</li>
+</ul>
+
+<h2>二、目标架构</h2>
+<pre class="mermaid">
+flowchart LR
+  subgraph D[决策者 CWDecider · 只有 ask]
+    H[人类输入 CWUIDecider]
+    AI[启发式 / MCTS 桥]
+    NR[联机桥 · 回放桥 · 测试桥]
+  end
+  subgraph CORE[core · 纯数据]
+    G[CWGame<br/>pending / step / advance]
+    EV[(events_out)]
+    V[CWGameView 只读查询]
+    G --> EV
+    G --> V
+  end
+  subgraph OBS[观众 · 只消费事件，从不被 await]
+    FX[CWFxQueue<br/>本地局 / 联机局同一条]
+    NB[CWNetBridge<br/>服务器原样广播]
+    LG[日志 · 出牌列 · 统计]
+  end
+  H --> G
+  AI --> G
+  NR --> G
+  EV --> FX
+  EV --> NB
+  EV --> LG
+  V --> M[CWMatch 装配 + 生命周期]
+  M --> MM[CWMatchMirror<br/>棋盘 / 细胞 / 手牌镜像，按脏标记刷]
+  FX -. 播放期间冻结 .-> MM
+</pre>
+<pre class="fallback" hidden>
+            决策者 CWDecider（只有 ask）                     观众（只消费事件，从不被 await）
+   人类输入 CWUIDecider ─┐                              ┌─ CWFxQueue（客户端演出队列，本地局 / 联机局同一条）
+   启发式 / MCTS 桥      ├──► CWGame（core，纯数据） ──► events_out ──┤─ CWNetBridge（服务器：原样广播，即现在的九种报文）
+   联机桥 / 回放桥 / 测试桥 ┘         │                                └─ 日志 / 出牌列 / 统计
+                                     ▼
+                              CWGameView（只读查询）
+                                     ▼
+              CWMatch（装配 + 生命周期）→ CWMatchMirror（棋盘 / 细胞 / 手牌镜像，按脏标记刷）
+</pre>
+
+
+<div class="tbl"><table>
+<thead><tr><th></th><th>现在</th><th>目标</th></tr></thead>
+<tbody>
+<tr><td>引擎挂起点</td><td><code>ask</code>（决策）+ <code>show_roll</code>（动画）</td><td><b>只剩 <code>ask</code></b></td></tr>
+<tr><td>桥</td><td><code>CWBridge</code> = ask + 10 个 show_*</td><td><code>CWDecider</code> = ask；演出改为 <code>events_out</code> 事件列表 + 信号</td></tr>
+<tr><td>演出时序</td><td>引擎停在骰子动画上等它播完</td><td>引擎一口气算完；客户端队列播事件，<b>播放期间冻结镜像</b>，播完再同步，玩家看到的顺序不变</td></tr>
+<tr><td>界面读状态</td><td>250 处直接索引字典</td><td>全走 <code>CWGameView</code> 查询函数；护栏禁止 ui/ 直接 <code>game.tiles[</code> / <code>game.cells[</code></td></tr>
+<tr><td>UI 桥</td><td>继承 AI 桥（四层）</td><td><code>CWUIDecider</code> 组合一个 AI 决策者（mcts 现在已是组合，照那条路）</td></tr>
+<tr><td>联机演出</td><td>客户端 <code>match.gd</code> 手写一段报文分发</td><td>报文 = 事件，客户端与本地局共用 <code>CWFxQueue</code>，那段分发消失</td></tr>
+<tr><td><code>CWMatch</code></td><td>1800 行</td><td>装配 ≤ 400 行 + 镜像 + 演出队列 + 联机粘合 + 回放控制，各 ≤ 500 行</td></tr>
+<tr><td>测试</td><td>一个 16,714 行文件</td><td><code>tests/unit/&lt;模块&gt;_test.gd</code> 十来个文件 + 一个 runner；分片逻辑在 runner</td></tr>
+<tr><td>文档</td><td>架构说明书 169 KB 沿革表</td><td>「现在是什么」≤ 40 KB + <code>docs/decisions/</code> 决策记录 + 每目录 README + <code>新人上手.md</code></td></tr>
+</tbody></table></div>
+
+<h2>三、分阶段方案</h2>
+<p>每个阶段独立可上线、测试全绿再进下一阶段；阶段之间可以停。「热更」还是「全量发版」标在标签上（补丁包带不了新 <code>class_name</code>）。</p>
+
+<pre class="mermaid">
+flowchart LR
+  P0[阶段 0<br/>护栏与安全网<br/>2–3 天 · 热更] --> P1[阶段 1<br/>桥拆二：决策者 / 事件流<br/>约 1 周 · 全量发版]
+  P1 --> P2[阶段 2<br/>只读视图<br/>约 1 周 · 热更]
+  P2 --> P3[阶段 3<br/>拆 CWMatch<br/>1–2 周 · 全量发版]
+  P0 -.-> P4[阶段 4 · 交接体系<br/>贯穿，每阶段收尾做一部分]
+  P1 -.-> P4
+  P2 -.-> P4
+  P3 -.-> P4
+</pre>
+
+<div class="phase">
+<h3>阶段 0 · 护栏与安全网</h3>
+<div class="meta"><span class="chip">估 2–3 天</span><span class="chip">热更可发</span><span class="chip">只加测试与文档</span></div>
+<p>先把「引擎行为一丝不变」变成可以机器证明的事，再动刀。</p>
+<ol>
+<li><b>拆测试文件</b>：<code>headless_test.gd</code> 按现有的 <code># ---- 分节</code> 切成 <code>tests/unit/*_test.gd</code>（core / cards / world / ai / net / ui / hot_patch …）；新 runner <code>tests/run.gd</code> 收集各文件的 <code>t_*</code>，分片与 <code>user://</code> 隔离逻辑搬进 runner；<code>tools/run_tests.sh</code> 命令不变。验收：3,182 项一个不少，两片并行时间不变。</li>
+<li><b>黄金回放</b>：录 6–10 局（四人 / 六人、四种癌、含教程一关、含中途选择的卡）存 <code>tests/golden/*.cwr</code> + 终局 <code>state_hash</code>；<code>t_golden</code> 用 <code>CWReplay.build()</code> 重放核哈希。阶段 1–3 每一步都拿它证明「规则没变」。</li>
+<li><b>架构护栏 <code>t_arch</code></b>（源码扫描，跟 <code>t_hot_patch</code> 一个路数）：<code>scripts/core</code>、<code>scripts/ai</code> 不得引用 ui；core 里 <code>await</code> 的函数名单以现状为基线只减不增；新文件 ≤ 600 行，现有超标的 7 个文件登记在案只减不增；ui/ 不得直接索引 <code>game.tiles[</code> / <code>game.cells[</code>（阶段 2 结束时打开）。</li>
+<li><b><code>docs/新人上手.md</code></b>：装 Godot → 跑 → 测 → 出图 → 发版 → 热更三条禁忌 → 联机版本与服务器 → PRD 在哪、两个核对脚本。把散在会话记忆里的操作知识全部落进仓库。</li>
+<li><b>对照队友的 AI 报告</b>：拿到原文后逐条标到 A / B / C 或「不成立」。</li>
+</ol>
+</div>
+
+<div class="phase">
+<h3>阶段 1 · 桥拆二：决策者 / 事件流（解耦的主刀）</h3>
+<div class="meta"><span class="chip">估 1 周</span><span class="chip warn">全量发版（新 class_name）</span><span class="chip">NET_VERSION 报文不变则不动</span></div>
+<ol>
+<li><code>CWGame</code> 新增 <code>events_out: Array</code>（每次 <code>step()</code> 开头清空）与信号 <code>presented(ev)</code>；事件用字典，schema 直接沿用 <code>CWNetBridge</code> 的九种报文，另加 <code>{"t": "state", "seq"}</code> 标记「这一步算完了」。</li>
+<li><code>roll_shown()</code> 不再 <code>await</code>：掷骰 → 追加 <code>roll</code> 事件 → 返回值。<code>announce()</code> 与 <code>broadcast_*</code> 同改。<code>CWBridge</code> 只剩 <code>ask()</code>，改名 <code>CWDecider</code>，保留 <code>CWBridge</code> 空壳一版过渡。</li>
+<li>引擎里凡是<b>不经过 <code>ask</code></b> 的函数去掉协程化（105 处 <code>await</code> 预计过半是纯演出链；黄金回放证明每一步）。</li>
+<li>决策者各就各位：启发式 / MCTS / 联机 / 回放 / 测试桥只实现 <code>ask</code>；<code>CWUIBridge</code> 拆成 <code>CWUIDecider</code>（人类输入，≤ 400 行）+ 组合一个 AI 决策者，<b>不再继承</b> <code>CWMonteCarloBridge</code>。</li>
+<li>客户端新 <code>CWFxQueue</code>：从 <code>events_out</code> 取事件排队播（骰子 / 通报 / 侵蚀 / 光束 / fx），<b>播放期间冻结镜像</b>（不跑 <code>_sync_tiles / _sync_cells / _sync_hand</code>），队列空了再同步 —— 「先见骰子后见结果」的节奏不变；热座共用桥的去重规则搬到事件层。</li>
+<li>联机：服务器把 <code>events_out</code> 原样广播；客户端同一条 <code>CWFxQueue</code> 消费，<code>match.gd:930</code> 那段手写分发删除。</li>
+</ol>
+<p><b>验收</b>：黄金回放哈希不变、<code>t_determinism</code> 不变、所有 <code>preview_*</code> 出图不变、真机走一局四人局 + 一局联机局 + 教程前三关。<br><b>风险</b>：演出与状态的时序靠「冻结镜像」兜，要真机验；教程的 <code>check_progress()</code> 靠读引擎状态翻页，冻结期间要用「播完再判」。</p>
+</div>
+
+<div class="phase">
+<h3>阶段 2 · 只读视图：界面不再摸裸字典</h3>
+<div class="meta"><span class="chip">估 1 周</span><span class="chip">热更可发（只加函数不加类）</span></div>
+<ol>
+<li><code>CWGameView</code>（或直接挂在 <code>CWGame</code> 上的查询区）：<code>tile(c) / cell(id) / cells_of(pid) / hand(pid) / level_info() / feed_since(seq) / logs_for(viewer) / income_preview(cell)</code>……现有的 <code>cell_of / cells_at / count_tissue / living_cells / is_cancerous / pressure_at / aerobic_income</code> 已经是这一层的一半。</li>
+<li>ui/ 的 250 处直接读全部改走查询；<code>t_arch</code> 第 4 条打开。</li>
+<li><code>docs/状态字典.md</code>：把 <code>make_cell / make_tile / req / options</code> 的键与含义写成一页，这是「AI 能读懂状态」的最低门槛。</li>
+<li><b>不做</b>字典 → 类的大爆炸：<code>cell["energy"]</code> 这类访问在 core 里成百上千处，改了收益不抵风险；留作可选阶段 5。</li>
+</ol>
+<p><b>验收</b>：ui/ 里 <code>game.tiles</code> / <code>game.cells</code> 直接索引归零；测试与出图不变。</p>
+</div>
+
+<div class="phase">
+<h3>阶段 3 · 拆 CWMatch</h3>
+<div class="meta"><span class="chip">估 1–2 周</span><span class="chip warn">全量发版</span></div>
+<ol>
+<li><code>match.gd</code> 1800 行 → <code>match.gd</code>（装配 + 生命周期 <code>teardown</code>，≤ 400）、<code>match_mirror.gd</code>（棋盘 / 细胞 / 手牌镜像，按 <code>state.seq</code> 脏标记刷新，不再每帧全量）、<code>fx_queue.gd</code>（阶段 1 已有，九个 fx 模块挂它）、<code>match_online.gd</code>（联机客户端粘合）、<code>match_replay.gd</code>（回放控制）。</li>
+<li><code>_process</code> 只剩动画推进；<code>panel.refresh(game)</code> / <code>log_panel.refresh(game)</code> 改为事件触发。</li>
+<li>教程（<code>guide.gd</code> / spotlight）深度依赖 <code>CWMatch</code> 内部（<code>highlight_flag / check_progress</code>），放这一阶段最后收口。</li>
+</ol>
+<p><b>验收</b>：<code>t_match_*</code> 全部照跑；<code>screenshot.gd</code> 固定流程逐屏比对；真机走完 16 关教程。</p>
+</div>
+
+<div class="phase">
+<h3>阶段 4 · 交接体系（贯穿）</h3>
+<div class="meta"><span class="chip">每阶段收尾做一部分</span><span class="chip">热更可发</span></div>
+<ol>
+<li><b>架构说明书瘦身</b>：只保留「现在是什么」；每行里的沿革搬到 <code>docs/decisions/ADR-&lt;编号&gt;-&lt;题&gt;.md</code>（一事一页：背景 / 决定 / 为什么 / 后果），开发日志照旧当流水账。目标 ≤ 40 KB，读完 20 分钟。</li>
+<li><b>每个目录一个 README</b>（core / ai / net / ui / tests）：这目录管什么、新加一个 X 要碰哪三处、别碰什么。</li>
+<li><b><code>AGENTS.md</code> 写给 AI</b>：精确命令、禁忌清单（heredoc 吃反斜杠、<code>--import</code>、补丁不带 <code>class_name</code>、<code>NET_VERSION</code>）、「改规则的固定流程」。</li>
+<li><b>「新人测试」</b>：让队友或他们的 AI <b>只看文档</b>完成一个小任务（加一张卡 / 改一个数值 / 加一个 fx），记录卡在哪，回填文档。这是「除了 Fable 没人能维护」的客观度量，每阶段跑一次。</li>
+</ol>
+</div>
+
+<h2>四、度量：改完怎么算数</h2>
+<div class="tbl"><table>
+<thead><tr><th>指标</th><th>现在</th><th>目标</th><th>谁盯</th></tr></thead>
+<tbody>
+<tr><td>引擎挂起点</td><td class="num">2（ask、show_roll）</td><td class="num">1（ask）</td><td><code>t_arch</code></td></tr>
+<tr><td>core 里 <code>await</code></td><td class="num">105 处</td><td class="num">只剩 ask 链（估 &lt; 40）</td><td><code>t_arch</code> 基线只减不增</td></tr>
+<tr><td>ui/ 直接索引引擎字典</td><td class="num">250 处 / 16 文件</td><td class="num">0</td><td><code>t_arch</code></td></tr>
+<tr><td><code>CWUIBridge</code> 继承链</td><td>4 层（含 AI 桥）</td><td>组合，不继承 AI</td><td><code>t_arch</code></td></tr>
+<tr><td>最大文件</td><td>match.gd 1800 / cw_actions 1663</td><td>新文件 ≤ 600；旧的只减不增</td><td><code>t_arch</code></td></tr>
+<tr><td>测试文件</td><td>1 个 16,714 行</td><td>≥ 10 个，最大 ≤ 2,500 行</td><td>runner</td></tr>
+<tr><td>架构说明书</td><td class="num">169 KB</td><td class="num">≤ 40 KB + ADR</td><td>人</td></tr>
+<tr><td>「新人测试」</td><td>没做过</td><td>队友 / AI 只看文档完成小任务</td><td>Kevin</td></tr>
+<tr><td>黄金回放</td><td>无</td><td>6–10 局哈希钉死</td><td><code>t_golden</code></td></tr>
+</tbody></table></div>
+
+<h2>五、不做什么</h2>
+<ul>
+<li>不换语言、不引框架、不做信号总线库。</li>
+<li>不重写规则结算；结算顺序照抄 PRD 的那套代码一行逻辑不动（黄金回放盯着）。</li>
+<li>不把字典状态改成类（可选阶段 5，等前面都稳了再议）。</li>
+<li>不改联机协议的形状（事件流用现成的九种报文）。</li>
+<li>不动 HXR-I 的分支、不动 RL 线（但接口变了要通知，见下）。</li>
+</ul>
+
+<h2>六、风险与要 Kevin 拍板的事</h2>
+<ol class="decide">
+<li><b>队友 AI 的报告我还没看到。</b>请把原文给我。它说的「不解耦」如果是 A / B / C 三条之一，本方案对得上；如果它说 core 引用了 Node，那是误报（量过：零引用）。不看原文就动手有修错方向的风险。</li>
+<li><b>发版节奏。</b>阶段 1 与阶段 3 各要一次全量发版，阶段 0 / 2 / 4 可热更。重构期间 main 上的线上小修照旧热更，重构走分支 <code>refactor/decouple</code>，每阶段合回 main 并发版。要定：这段时间 <code>match.gd</code> / <code>ui_bridge.gd</code> 冻结新功能吗（不冻结就一定冲突）。</li>
+<li><b>人力与时间。</b>阶段 0–3 合计约 3–5 周（单人、兼顾线上小修、真机验证；估的，误差大），阶段 4 贯穿。由谁做：如果还是 Fable 一个人做，做完仍是「只有 Fable 熟」。建议每阶段收尾由队友或他们的 AI 做一次「新人测试」，这是硬指标。</li>
+<li><b>RL 线。</b><code>codex/rl-env-validation</code> 里的 <code>scripts/rl/bridge.gd</code> <code>extends CWBridge</code>，阶段 1 改接口后它要跟着改成 <code>CWDecider</code>。RL 线保留，谁来同步？</li>
+<li><b>HXR-I 的分支</b>基于旧 <code>CWMatch</code>。如果他还有要合的东西，越早合越好；阶段 3 之后再合基本要重做。</li>
+<li><b>「能维护」的对象是人还是 AI？</b>两者要的文档不一样：人要图和入口，AI 要精确命令与禁忌。建议两者都做，但先做 AI 友好的 <code>AGENTS.md</code>（队友就是拿 AI 来查的）。</li>
+<li><b>教程。</b><code>guide.gd</code> + 16 关剧本靠读引擎状态翻页，阶段 1 的「冻结镜像」和阶段 3 的拆分都会牵到它。要不要把教程一起纳入验收（真机 16 关走一遍）？建议纳入。</li>
+<li>平衡工具（<code>balance_scan</code> / MC 桥）在阶段 1 后只会更快（不再有演出协程），这是收益不是风险，顺带一提。</li>
+</ol>
+
+<h2>八、与《离散事件架构：三层设计》的关系</h2>
+<p>09-12 03:15 <code>docs/</code> 里出现了一份 <code>离散事件架构_三层设计.md</code>（19 KB，未跟踪，不是我写的；它引用的《架构重设计_2026-09-12》我没有）。那是另一条路线：<b>在现有引擎旁边新建一个离散事件运行时</b>（Runtime / State Store / Observation / Session / Rules 五个模块；逻辑时序最小堆、同刻 LIFO 连锁、事务化版本、多世界分叉），拿现在的 GDScript 当黄金真相对拍，覆盖后再谈切换。它没写时间与人力。</p>
+<div class="two">
+<div class="card"><h4>两边一致、可以直接吸收</h4><ul>
+<li>核心从不等动画（它的 §3.5 ＝ 阶段 1）</li>
+<li>输入等待不靠调用栈（InputBarrier + continuation；现引擎顶层的 <code>pending / step</code> 已经是，缺的只是结算中途的 <code>ask</code>，它的 PaymentPending / Reservation 与本方案可选阶段 5 说的是同一件事）</li>
+<li>观察层只读、按版本对齐（Observation ＝ 阶段 2 的 <code>CWGameView</code> + 现有 <code>view_for</code>）</li>
+<li>事实 / 事件带稳定顺序（FactBatch ＝ <code>events_out</code> 与九种报文）</li>
+<li>先冻结黄金样本再动（它的 §4 ＝ 阶段 0）</li>
+</ul></div>
+<div class="card"><h4>分歧与顾虑</h4><ol>
+<li><b>体量</b>：那是新写一个引擎。core 约 1.1 万行规则按 7 个所有者重铸、3,182 项测试重定向、联机哈希 / 回放 / 存档 / 热更全部重来。季度级，和 09-11 晚「不换语言、部分重构」对不上。</li>
+<li><b>结算顺序的来源变了</b>：现在 <code>e_phase</code> 逐条照抄 PRD 步骤号；最小堆 +「同刻顺序由规则声明」等于重新推导一遍，规则电子化说明里 90 多条引擎自定口径都要重新落地，长尾很长。</li>
+<li><b>AI 推演性能</b>：首版「每事件完整 WorldImage 深复制」，MCTS 每步决策 <code>step</code> 几千次，会慢一到两个数量级；「分区写时复制」是第二个工程。</li>
+<li><b>双真相期</b>：新旧引擎并存时规则改动要改两份，PRD 还在周更。</li>
+<li><b>缺件</b>：《架构重设计_2026-09-12》和队友 AI 的检查报告都没拿到。</li>
+</ol></div>
+</div>
+<div class="callout"><p><b>建议</b>：把它当<b>阶段 5 的候选</b>，不当现在的起点。阶段 0–2（黄金回放、事件流、只读视图、测试拆分）是两条路线共同的前置；做完再拿真实数据（AI 推演耗时、规则漂移条数）决定上不上离散事件运行时。若走那条路，先定谁写、多久、GDScript 版冻结到哪一版、切换判据。<b>这是第 9 条要拍板的事</b>；那份文档要不要入库、叫什么名，也请定。</p></div>
+
+<h2>七、相关文件速查</h2>
+<ul>
+<li>引擎入口与状态机：<code>game/scripts/core/cw_game.gd</code>（<code>pending / step / advance / ask / roll_shown / announce</code>）</li>
+<li>桥接口：<code>game/scripts/core/cw_bridge.gd</code>；实现：<code>ai/heuristic_bridge.gd</code>、<code>ai/mcts_bridge.gd</code>、<code>net/cw_net_bridge.gd</code>、<code>core/cw_replay.gd</code>、<code>ui/ui_bridge.gd</code></li>
+<li>联机事件报文：<code>game/scripts/net/cw_net_bridge.gd</code>（服务器发）、<code>game/scripts/ui/match.gd:930</code>（客户端收）</li>
+<li>上帝对象：<code>game/scripts/ui/match.gd</code>（<code>_process</code> 在 1197 行）</li>
+<li>快照与哈希：<code>game/scripts/core/cw_state_codec.gd</code>；确定性测试 <code>t_determinism</code>；回放 <code>core/cw_replay.gd</code></li>
+<li>测试：<code>game/tests/headless_test.gd</code>；跑法 <code>tools/run_tests.sh</code></li>
+<li>热更约束：<code>docs/架构说明书.md</code> 热更新那一行；<code>tools/build_patch.sh</code></li>
+</ul>
+
+<footer>Cell War · 重构方案 · 2026-09-12 · 正本在仓库 <code>docs/重构方案_2026-09-12.md</code>，本页与之同步。</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>
+(function () {
+  var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  if (window.mermaid) {
+    mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "neutral", flowchart: { htmlLabels: true } });
+  } else {
+    // 拿不到 CDN（离线 / 被墙）：藏起 mermaid 源码，露出文字版结构图
+    document.querySelectorAll("pre.mermaid").forEach(function (p) { p.hidden = true; });
+    document.querySelectorAll("pre.fallback").forEach(function (p) { p.hidden = false; });
+  }
+})();
+</script>
+</body>
+</html>
