@@ -16887,6 +16887,17 @@ func t_lan_discovery() -> void:
 	check(CWOnlinePanel.found_text({ "nick": "甲", "ip": "10.0.0.7", "port": 8611, "ver": CWNet.NET_VERSION }) == "甲 · 10.0.0.7:8611"
 		and CWOnlinePanel.found_text({ "nick": "", "ip": "10.0.0.7", "port": 8611, "ver": 1 }) == "房主 · 10.0.0.7:8611（版本不符）",
 		"「附近」一行：昵称 · 地址:端口，空昵称写「房主」，协议号不对标出来")
+	## ①b 发送口按网卡：本机 IPv4 里回环 / 169.254 / IPv6 都不要；定向广播按 /24 猜（Kevin 09-12 报「搜不到」，是网卡出口）
+	check(CWLan.host_ips(["127.0.0.1", "169.254.4.228", "192.168.186.1", "172.20.10.2", "fe80::1", "198.18.0.1", "::1"])
+		== ["192.168.186.1", "172.20.10.2", "198.18.0.1"], "能发广播的网卡地址：去掉回环、自动配置、IPv6，顺序照旧")
+	check(CWLan.directed_of("172.20.10.2") == "172.20.10.255" and CWLan.directed_of("bad") == "", "定向广播地址按 /24：x.y.z.255")
+	var hb = CWLan.new()
+	check(hb.start_host(18651, "丁") == OK and hb._senders.size() >= 1, "真广播：每块网卡各一只发送口（本机 %d 只）" % hb._senders.size())
+	var per_nic: bool = hb._senders.size() == CWLan.host_ips(Array(IP.get_local_addresses())).size() or hb._senders.size() == 1
+	check(per_nic, "发送口数 = 能绑上的网卡数（一块都绑不上时退回一只不 bind 的）")
+	hb.poll_host(Time.get_ticks_msec())   ## 真发一轮，不该报错
+	hb.stop()
+	check(hb._senders.is_empty(), "stop 把发送口全关了")
 	## ② 过期：TTL 内留、过了摘
 	var now := 50000
 	var table := { "a": { "seen": now - CWLan.TTL_MS }, "b": { "seen": now - CWLan.TTL_MS - 1 } }
