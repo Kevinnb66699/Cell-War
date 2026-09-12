@@ -17,6 +17,7 @@ static var teleport_anim := true  ## false = 传送不演溶解、细胞直接�
 ## 联机面板上一次填的昵称与服务器地址（host:port）。默认地址是团队那台服务器，内网自测时改掉
 static var nick := ""
 static var server := "%s:%d" % [CWNet.DEFAULT_HOST, CWNet.DEFAULT_PORT]
+static var lan_port := CWNet.DEFAULT_PORT   ## 局域网开服上一次用的端口（Kevin 2026-09-12）
 static var _loaded := false
 
 
@@ -32,6 +33,7 @@ static func load_prefs() -> void:
 	teleport_anim = bool(cfg.get_value("play", "teleport_anim", teleport_anim))
 	nick = str(cfg.get_value("online", "nick", nick))
 	server = str(cfg.get_value("online", "server", server))
+	lan_port = int(cfg.get_value("online", "lan_port", lan_port))
 
 
 static func save_prefs() -> void:
@@ -41,4 +43,5 @@ static func save_prefs() -> void:
 	cfg.set_value("play", "teleport_anim", teleport_anim)
 	cfg.set_value("online", "nick", nick)
 	cfg.set_value("online", "server", server)
+	cfg.set_value("online", "lan_port", lan_port)
 	cfg.save(PATH)

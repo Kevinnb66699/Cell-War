@@ -126,7 +126,7 @@ func _run_all() -> void:
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
-		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_online_glow, t_match_online,
+		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -16736,3 +16736,71 @@ func t_match_online() -> void:
 	a.dispose()
 	b.dispose()
 	srv.stop()
+
+
+## 局域网开服（Kevin 2026-09-12）：本进程里起服务器、自己经回环连上、端口被占要报错、离开就停
+func t_lan_host() -> void:
+	print("[局域网开服]")
+	## ① 纯函数：端口校验、局域网地址筛选
+	check(CWOnlinePanel.lan_port_of("8611") == 8611 and CWOnlinePanel.lan_port_of(" 18650 ") == 18650,
+		"端口文字 → 端口号（两头的空白不算）")
+	check(CWOnlinePanel.lan_port_of("80") == 0 and CWOnlinePanel.lan_port_of("70000") == 0
+		and CWOnlinePanel.lan_port_of("abc") == 0 and CWOnlinePanel.lan_port_of("") == 0,
+		"1024 以下、65535 以上、不是整数 → 0（不开）")
+	check(CWOnlinePanel.lan_addresses_of(["127.0.0.1", "192.168.1.5", "fe80::1", "10.0.0.7", "169.254.3.3",
+			"8.8.8.8", "172.16.9.9", "172.32.1.1", "::1"]) == ["192.168.1.5", "10.0.0.7", "172.16.9.9"],
+		"只留 10.x / 172.16~31.x / 192.168.x 的 IPv4：回环、自动配置、公网、IPv6 都不要，顺序照旧")
+	## ② 面板：局域网页、开服 → 端口被占 → 自己连上 → 离开就停、端口放回来
+	var p := CWOnlinePanel.new()
+	root.add_child(p)
+	await process_frame
+	p.open()
+	check(p._lan_port_edit.text == str(CWSettings.lan_port), "局域网页的端口默认填上次用的（%s）" % p._lan_port_edit.text)
+	p._show_page(CWOnlinePanel.Page.LAN)
+	check(p._title.text == "局域网联机" and p._sub.text == "", "局域网页标题；没开服时副标题空着")
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	p.handle_input(esc)
+	check(p.page == CWOnlinePanel.Page.CONNECT, "局域网页 Esc 回连接页（不是退回主菜单）")
+	var port := 0
+	for cand in range(18670, 18700):
+		if p.start_lan(cand) == OK:
+			port = cand
+			break
+	check(port != 0 and p.lan != null and p.lan.port == port, "本进程里起了服务器（%d）" % port)
+	if port == 0:
+		root.remove_child(p)
+		p.free()
+		return
+	p.lan.quiet = true
+	var busy := CWNetServer.new()
+	busy.quiet = true
+	check(busy.start(port, NET_HOST) != OK, "同一端口再开一个：报错（端口被占用）")
+	p._show_page(CWOnlinePanel.Page.LOBBY)
+	check(p._sub.text.begins_with("局域网开服中") and p._sub.text.ends_with(":%d" % port),
+		"开着服时大厅副标题写地址:端口（%s）" % p._sub.text)
+	## 自己连自己：走回环，和 _host_lan 一样
+	var me := _net_client("房主")
+	me.connect_to("ws://127.0.0.1:%d" % port, "房主")
+	var ok := await _net_pump(p.lan, [me], func() -> bool: return _net_count(me, "welcome") > 0)
+	check(ok, "经 127.0.0.1 连上本机开的服务器、拿到 welcome")
+	me.dispose()
+	p.leave_online()
+	check(p.lan == null and p.lan_port == 0, "离开联机就停服")
+	var again := CWNetServer.new()
+	again.quiet = true
+	check(again.start(port, NET_HOST) == OK, "停服之后端口放回来了")
+	again.stop()
+	## ③ 面板每帧先轮询本机服务器；连接页有「在本机开服」入口与「默认」地址
+	var src := FileAccess.get_file_as_string("res://scripts/ui/online_panel.gd")
+	check(src.contains("lan.poll()") and src.find("lan.poll()") < src.find("client.poll()"),
+		"_process 先轮询本机服务器再轮询自己的客户端")
+	p.open()
+	var links: Array = []
+	for n in p.find_children("*", "Label", true, false):
+		if n.is_visible_in_tree():
+			links.append((n as Label).text)
+	check(links.has("在本机开服 ›") and links.has("默认"), "连接页有「在本机开服」入口和「默认」地址链接")
+	root.remove_child(p)
+	p.free()

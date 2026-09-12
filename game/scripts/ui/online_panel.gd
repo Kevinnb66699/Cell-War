@@ -8,6 +8,12 @@
 ## CWNetClient 由本面板持有并每帧轮询。process_mode = ALWAYS：对局里暂停菜单会冻结整棵树，
 ## 心跳一停服务器 20 秒就判掉线。对局开始后面板隐藏但继续轮询，CWMatch 只消费 client.stream。
 ## 断线：等待室或对局中且手里有令牌 → 每 3 秒凭令牌重连，直到房间没了（match_lost）或玩家主动离开。
+##
+## **局域网开服**（Kevin 2026-09-12，照 Minecraft「对局域网开放」）：连接页多一条「在本机开服」，第五页「局域网」
+## 填端口、列出本机的局域网地址；`start_lan()` 在**本进程**里起一个 CWNetServer（和无头服务器跑的是同一份代码），
+## 自己经 127.0.0.1 连上去走正常的大厅 / 建房流程，别人在「服务器」里填 本机地址:端口。`_process` 先轮询它再轮询
+## 自己的客户端；离开联机页面（Esc / 离开 / 房间没了）就 `stop_lan()`，房里的人会收到断线。
+## 不另开进程：热更补丁挂在本进程，子进程要自己挂一遍才不会跑旧规则；不开线程：服务器代码假定单线程。
 class_name CWOnlinePanel
 extends Control
 
@@ -15,7 +21,7 @@ signal cancelled                             ## 第一页 Esc：主菜单把自�
 signal match_started(client: CWNetClient)    ## 房间开局且第一份状态已排进 stream：main.gd 推镜头进棋盘
 signal match_lost(reason: String)            ## 对局中房间没了 / 令牌失效：main.gd 收摊回主菜单
 
-enum Page { CONNECT, LOBBY, CREATE, ROOM }
+enum Page { CONNECT, LOBBY, CREATE, ROOM, LAN }
 
 const SLOT_X := 120.0        ## 槽位左缘（同 CWConfigPanel）
 const VALUE_X := 250.0
@@ -48,6 +54,8 @@ const ROW_LABEL := Color("9fb6bd")
 const TIMER_TEXT := { 0: "不限", 30: "30 秒", 60: "60 秒", 90: "90 秒" }
 const CREATE_ROWS := ["人数", "每步计时", "可见性", "世界事件"]
 const N_CREATE_ROWS := 4
+const LAN_PORT_MIN := 1024      ## 1023 以下是系统端口，Windows / macOS 都要管理员才绑得上
+const LAN_PORT_MAX := 65535
 
 var client: CWNetClient
 var page := Page.CONNECT
@@ -56,6 +64,11 @@ var in_match := false        ## 面板藏着、对局在跑；此时 welcome/roo
 var _nick: LineEdit
 var _addr: LineEdit
 var _code: LineEdit
+## 局域网开服：本进程里的服务器（null = 没开）与它的端口；页上的端口框与本机地址
+var lan: CWNetServer = null
+var lan_port := 0
+var _lan_port_edit: LineEdit
+var _lan_ips: Label
 var _roots := {}             ## Page -> 该页的根 Control
 var _status: Label
 var _title: Label
@@ -110,6 +123,8 @@ func open() -> void:
 	in_match = false
 	_nick.text = CWSettings.nick
 	_addr.text = CWSettings.server
+	_lan_port_edit.text = str(CWSettings.lan_port)
+	_lan_ips.text = lan_address_text()
 	_set_status("")
 	_show_page(Page.ROOM if client != null and client.code != "" else
 		(Page.LOBBY if client != null and client.status == "open" else Page.CONNECT))
@@ -149,11 +164,14 @@ func leave_online() -> void:
 			client.leave()
 		client.dispose()
 		client = null
+	stop_lan()
 	visible = false
 	page = Page.CONNECT
 
 
 func _process(_delta: float) -> void:
+	if lan != null:
+		lan.poll()      ## 本机开的服务器先收发一轮，自己的客户端紧跟着轮询（同一帧内就能来回）
 	if client == null:
 		return
 	client.poll()
@@ -220,6 +238,13 @@ func handle_input(event: InputEvent) -> void:
 			elif event.is_action_pressed("ui_accept"):
 				get_viewport().set_input_as_handled()
 				_toggle_ready()
+		Page.LAN:
+			if event.is_action_pressed("ui_cancel"):
+				get_viewport().set_input_as_handled()
+				_show_page(Page.CONNECT)
+			elif event.is_action_pressed("ui_accept"):
+				get_viewport().set_input_as_handled()
+				_host_lan()
 
 
 # ============ 动作 ============
@@ -250,8 +275,100 @@ func _disconnect() -> void:
 	if client != null:
 		client.dispose()
 		client = null
+	stop_lan()
 	_show_page(Page.CONNECT)
 	_set_status("")
+
+
+# ============ 局域网开服 ============
+
+## 端口文字 → 端口号；不是整数、不在 LAN_PORT_MIN ~ LAN_PORT_MAX 内 → 0（不开）。**纯函数**。
+static func lan_port_of(text: String) -> int:
+	var t := text.strip_edges()
+	if not t.is_valid_int():
+		return 0
+	var p := int(t)
+	return p if p >= LAN_PORT_MIN and p <= LAN_PORT_MAX else 0
+
+
+## 本机的局域网 IPv4（10.x / 172.16~31.x / 192.168.x）—— 这是给别人填的地址，
+## 所以回环、169.254 自动配置、公网地址、IPv6 都不要；顺序照系统给的。**纯函数**。
+static func lan_addresses_of(all: Array) -> Array:
+	var out: Array = []
+	for a in all:
+		var s := str(a)
+		if s.contains(":") or not s.is_valid_ip_address():
+			continue
+		var b := s.split(".")
+		if b.size() != 4:
+			continue
+		var b0 := int(b[0])
+		var b1 := int(b[1])
+		if b0 == 10 or (b0 == 172 and b1 >= 16 and b1 <= 31) or (b0 == 192 and b1 == 168):
+			out.append(s)
+	return out
+
+
+static func lan_addresses() -> Array:
+	return lan_addresses_of(Array(IP.get_local_addresses()))
+
+
+func lan_address_text() -> String:
+	var ips := lan_addresses()
+	return " · ".join(PackedStringArray(ips)) if not ips.is_empty() else "没找到局域网地址（没连 Wi-Fi / 网线？）"
+
+
+## 「地址:端口」一条，给大厅 / 等待室的副标题用；几个网卡就取第一个
+func lan_where() -> String:
+	var ips := lan_addresses()
+	return "%s:%d" % [ips[0] if not ips.is_empty() else "127.0.0.1", lan_port]
+
+
+## 在本进程里起服务器。OK 之外的错误码 = 端口被占用或没权限，由调用方告诉玩家
+func start_lan(port: int) -> Error:
+	stop_lan()
+	var s := CWNetServer.new()
+	var err := s.start(port, "*")
+	if err != OK:
+		return err
+	lan = s
+	lan_port = port
+	return OK
+
+
+func stop_lan() -> void:
+	if lan == null:
+		return
+	lan.stop()
+	lan = null
+	lan_port = 0
+
+
+## 「开服并进入大厅」：起服务器 → 自己经回环连上（和 _connect 同一条路，只是地址不经过设置里的服务器项）
+func _host_lan() -> void:
+	var port := lan_port_of(_lan_port_edit.text)
+	if port == 0:
+		_set_status("端口要是 %d ~ %d 之间的整数" % [LAN_PORT_MIN, LAN_PORT_MAX])
+		return
+	var nick := CWNet.clean_nick(_nick.text)
+	CWSettings.nick = nick
+	CWSettings.lan_port = port
+	CWSettings.save_prefs()
+	var err := start_lan(port)
+	if err != OK:
+		_set_status("端口 %d 开不起来（%s），多半已被占用，换一个" % [port, error_string(err)])
+		return
+	if client != null:
+		client.dispose()
+	client = CWNetClient.new()
+	client.message.connect(_on_message)
+	client.disconnected.connect(_on_disconnected)
+	if client.connect_to("ws://127.0.0.1:%d" % port, nick) != OK:
+		client = null
+		stop_lan()
+		_set_status("连不上本机刚开的服务器")
+		return
+	_set_status("已在本机开服 · 局域网地址 %s:%d" % [lan_address_text(), port])
 
 
 func _create_room() -> void:
@@ -441,6 +558,7 @@ func _build() -> void:
 		add_child(root)
 		_roots[p] = root
 	_build_connect(_roots[Page.CONNECT])
+	_build_lan(_roots[Page.LAN])
 	_build_lobby(_roots[Page.LOBBY])
 	_build_create(_roots[Page.CREATE])
 	_build_room(_roots[Page.ROOM])
@@ -448,6 +566,7 @@ func _build() -> void:
 
 ## 连接页退回主菜单：Esc 与「返回主菜单」链接共用一条路；主菜单收到 cancelled 后把自己淡回来
 func _back_to_menu() -> void:
+	stop_lan()
 	visible = false
 	cancelled.emit()
 
@@ -459,10 +578,33 @@ func _build_connect(root: Control) -> void:
 	_addr = _edit(root, Vector2(VALUE_X, ROW_Y0 + ROW_H - 4), 250, "地址:端口", 64)
 	_nick.text_submitted.connect(func(_t: String) -> void: _connect())
 	_addr.text_submitted.connect(func(_t: String) -> void: _connect())
+	## 「默认」：填过局域网房主的地址之后一键回公网服务器（Kevin 2026-09-12 局域网联机顺带）
+	_clicky(root, "默认", Vector2(ARROW_R_X + 10, ROW_Y0 + ROW_H + 4), func() -> void:
+		_addr.text = "%s:%d" % [CWNet.DEFAULT_HOST, CWNet.DEFAULT_PORT], CWStyle.SIZE_LABEL)
+	## 第三行：局域网开服的入口（Kevin 2026-09-12）—— 端口与本机地址在下一页填
+	_row_label(root, "局域网", 2)
+	_clicky(root, "在本机开服 ›", Vector2(VALUE_X, ROW_Y0 + ROW_H * 2), func() -> void: _show_page(Page.LAN))
 	_solid_button(root, "进入大厅", Vector2(SLOT_X, BTN_Y), 182, _connect)
 	## 「返回主菜单」（2026-09-03 Kevin 要的）：此前连接页只能按 Esc 退出，鼠标玩家没有出口。
 	## 与建房页「返回大厅」同位（按钮右侧 200）、同一套链接语言，走的就是 Esc 那条路。
 	_clicky(root, "返回主菜单", Vector2(SLOT_X + 200, BTN_Y + 5), _back_to_menu)
+
+
+## 局域网页：端口 / 本机地址 / 两行提示；「开服并进入大厅」与连接页「进入大厅」同位同宽
+func _build_lan(root: Control) -> void:
+	_row_label(root, "端口", 0)
+	_lan_port_edit = _edit(root, Vector2(VALUE_X, ROW_Y0 - 4), 120, str(CWNet.DEFAULT_PORT), 5)
+	_lan_port_edit.text_submitted.connect(func(_t: String) -> void: _host_lan())
+	_row_label(root, "本机地址", 1)
+	_lan_ips = CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
+	_lan_ips.position = Vector2(VALUE_X, ROW_Y0 + ROW_H)
+	root.add_child(_lan_ips)
+	var hint := CWStyle.label("其他玩家在「服务器」里填 本机地址:端口 就能进来。\n首次开服 Windows 会问防火墙，选「允许」；你退出联机页面，服务就停。",
+		CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	hint.position = Vector2(SLOT_X, ROW_Y0 + ROW_H * 2)
+	root.add_child(hint)
+	_solid_button(root, "开服并进入大厅", Vector2(SLOT_X, BTN_Y), 182, _host_lan)
+	_clicky(root, "返回", Vector2(SLOT_X + 200, BTN_Y + 5), func() -> void: _show_page(Page.CONNECT))
 
 
 func _build_lobby(root: Control) -> void:
@@ -648,10 +790,14 @@ func _show_page(p: Page) -> void:
 		_page_tween.tween_property(shown, "modulate:a", 1.0, PAGE_FADE)
 	else:
 		shown.modulate.a = 1.0
-	_sub.text = ""
+	## 本机开着服的话，大厅 / 建房页的副标题一直写着地址 —— 房主等人的时候要念给别人听
+	_sub.text = "局域网开服中 · %s" % lan_where() if lan != null else ""
 	match p:
 		Page.CONNECT:
 			_title.text = "联机对战"
+		Page.LAN:
+			_title.text = "局域网联机"
+			_lan_ips.text = lan_address_text()   ## 每次进页重扫：Wi-Fi 刚连上地址才有
 		Page.LOBBY:
 			_title.text = "大厅"
 			_repaint_lobby()
@@ -789,6 +935,12 @@ func _repaint_room() -> void:
 	_sub.text = "%s · 每步 %s · %d 人局 · 房主 %s%s" % ["公开" if v["public"] else "私密",
 		TIMER_TEXT.get(v["timer"], "%d 秒" % v["timer"]), v["players"], v["host"],
 		"（对局进行中）" if v["state"] == "playing" else ""]
+	## 本机开着服：地址跟在后面，除非那一行长到要压进右栏的聊天板（长昵称 + 6 人局就会）
+	if lan != null:
+		var base := _sub.text
+		_sub.text = base + " · 局域网 " + lan_where()
+		if _sub.get_minimum_size().x > CHAT_X - SLOT_X - 10.0:
+			_sub.text = base
 	_sub.size = _sub.get_minimum_size()
 	for c in _seat_root.get_children():
 		_seat_root.remove_child(c)
