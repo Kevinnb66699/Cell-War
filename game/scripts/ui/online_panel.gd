@@ -69,6 +69,7 @@ var lan: CWNetServer = null
 var lan_port := 0
 var _lan_port_edit: LineEdit
 var _lan_ips: Label
+var _lan_nick: LineEdit    ## 与连接页的昵称双向同步（Kevin 09-12：开服的人也要能在这页填昵称）
 var _roots := {}             ## Page -> 该页的根 Control
 var _status: Label
 var _title: Label
@@ -123,6 +124,7 @@ func open() -> void:
 	in_match = false
 	_nick.text = CWSettings.nick
 	_addr.text = CWSettings.server
+	_lan_nick.text = _nick.text
 	_lan_port_edit.text = str(CWSettings.lan_port)
 	_lan_ips.text = lan_address_text()
 	_set_status("")
@@ -350,7 +352,7 @@ func _host_lan() -> void:
 	if port == 0:
 		_set_status("端口要是 %d ~ %d 之间的整数" % [LAN_PORT_MIN, LAN_PORT_MAX])
 		return
-	var nick := CWNet.clean_nick(_nick.text)
+	var nick := CWNet.clean_nick(_lan_nick.text)
 	CWSettings.nick = nick
 	CWSettings.lan_port = port
 	CWSettings.save_prefs()
@@ -558,7 +560,7 @@ func _build() -> void:
 		add_child(root)
 		_roots[p] = root
 	_build_connect(_roots[Page.CONNECT])
-	_build_lan(_roots[Page.LAN])
+	_build_lan(_roots[Page.LAN])     ## 要在连接页之后：它把昵称框和连接页的接在一起
 	_build_lobby(_roots[Page.LOBBY])
 	_build_create(_roots[Page.CREATE])
 	_build_room(_roots[Page.ROOM])
@@ -583,7 +585,7 @@ func _build_connect(root: Control) -> void:
 		_addr.text = "%s:%d" % [CWNet.DEFAULT_HOST, CWNet.DEFAULT_PORT], CWStyle.SIZE_LABEL)
 	## 第三行：局域网开服的入口（Kevin 2026-09-12）—— 端口与本机地址在下一页填
 	_row_label(root, "局域网", 2)
-	_clicky(root, "在本机开服 ›", Vector2(VALUE_X, ROW_Y0 + ROW_H * 2), func() -> void: _show_page(Page.LAN))
+	_clicky(root, "在本机开服", Vector2(VALUE_X, ROW_Y0 + ROW_H * 2), func() -> void: _show_page(Page.LAN))
 	_solid_button(root, "进入大厅", Vector2(SLOT_X, BTN_Y), 182, _connect)
 	## 「返回主菜单」（2026-09-03 Kevin 要的）：此前连接页只能按 Esc 退出，鼠标玩家没有出口。
 	## 与建房页「返回大厅」同位（按钮右侧 200）、同一套链接语言，走的就是 Esc 那条路。
@@ -592,16 +594,22 @@ func _build_connect(root: Control) -> void:
 
 ## 局域网页：端口 / 本机地址 / 两行提示；「开服并进入大厅」与连接页「进入大厅」同位同宽
 func _build_lan(root: Control) -> void:
-	_row_label(root, "端口", 0)
-	_lan_port_edit = _edit(root, Vector2(VALUE_X, ROW_Y0 - 4), 120, str(CWNet.DEFAULT_PORT), 5)
+	## 昵称和连接页是同一个人的：两个框双向同步（text_changed 只在玩家敲字时发，程序赋值不会来回弹）
+	_row_label(root, "昵称", 0)
+	_lan_nick = _edit(root, Vector2(VALUE_X, ROW_Y0 - 4), 200, "玩家", CWNet.NICK_MAX)
+	_lan_nick.text_changed.connect(func(t: String) -> void: _nick.text = t)
+	_nick.text_changed.connect(func(t: String) -> void: _lan_nick.text = t)
+	_lan_nick.text_submitted.connect(func(_t: String) -> void: _host_lan())
+	_row_label(root, "端口", 1)
+	_lan_port_edit = _edit(root, Vector2(VALUE_X, ROW_Y0 + ROW_H - 4), 120, str(CWNet.DEFAULT_PORT), 5)
 	_lan_port_edit.text_submitted.connect(func(_t: String) -> void: _host_lan())
-	_row_label(root, "本机地址", 1)
+	_row_label(root, "本机地址", 2)
 	_lan_ips = CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
-	_lan_ips.position = Vector2(VALUE_X, ROW_Y0 + ROW_H)
+	_lan_ips.position = Vector2(VALUE_X, ROW_Y0 + ROW_H * 2)
 	root.add_child(_lan_ips)
 	var hint := CWStyle.label("其他玩家在「服务器」里填 本机地址:端口 就能进来。\n首次开服 Windows 会问防火墙，选「允许」；你退出联机页面，服务就停。",
 		CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	hint.position = Vector2(SLOT_X, ROW_Y0 + ROW_H * 2)
+	hint.position = Vector2(SLOT_X, ROW_Y0 + ROW_H * 3)
 	root.add_child(hint)
 	_solid_button(root, "开服并进入大厅", Vector2(SLOT_X, BTN_Y), 182, _host_lan)
 	_clicky(root, "返回", Vector2(SLOT_X + 200, BTN_Y + 5), func() -> void: _show_page(Page.CONNECT))

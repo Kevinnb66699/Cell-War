@@ -16756,6 +16756,13 @@ func t_lan_host() -> void:
 	await process_frame
 	p.open()
 	check(p._lan_port_edit.text == str(CWSettings.lan_port), "局域网页的端口默认填上次用的（%s）" % p._lan_port_edit.text)
+	## 昵称框两页共享（Kevin 09-12）：哪边敲字另一边跟着变；开服读的是局域网页那只
+	p._nick.text = "甲"
+	p._nick.text_changed.emit("甲")
+	check(p._lan_nick.text == "甲", "连接页改昵称，局域网页跟着变")
+	p._lan_nick.text = "乙"
+	p._lan_nick.text_changed.emit("乙")
+	check(p._nick.text == "乙", "局域网页改昵称，连接页跟着变")
 	p._show_page(CWOnlinePanel.Page.LAN)
 	check(p._title.text == "局域网联机" and p._sub.text == "", "局域网页标题；没开服时副标题空着")
 	var esc := InputEventAction.new()
@@ -16774,9 +16781,13 @@ func t_lan_host() -> void:
 		p.free()
 		return
 	p.lan.quiet = true
+	## 占用检测按真实情形：另一个程序也绑 *（Windows 允许 127.0.0.1 与 * 同端口并存，那是端口劫持语义，不算占用）
 	var busy := CWNetServer.new()
 	busy.quiet = true
-	check(busy.start(port, NET_HOST) != OK, "同一端口再开一个：报错（端口被占用）")
+	var busy_err := busy.start(port, "*")
+	check(busy_err != OK, "同一端口再开一个（同样绑 *）：报错（端口被占用）")
+	if busy_err == OK:
+		busy.stop()
 	p._show_page(CWOnlinePanel.Page.LOBBY)
 	check(p._sub.text.begins_with("局域网开服中") and p._sub.text.ends_with(":%d" % port),
 		"开着服时大厅副标题写地址:端口（%s）" % p._sub.text)
@@ -16801,6 +16812,6 @@ func t_lan_host() -> void:
 	for n in p.find_children("*", "Label", true, false):
 		if n.is_visible_in_tree():
 			links.append((n as Label).text)
-	check(links.has("在本机开服 ›") and links.has("默认"), "连接页有「在本机开服」入口和「默认」地址链接")
+	check(links.has("在本机开服") and links.has("默认"), "连接页有「在本机开服」入口和「默认」地址链接")
 	root.remove_child(p)
 	p.free()
