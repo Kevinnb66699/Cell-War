@@ -21,7 +21,7 @@ const TOTAL_TILES := 127
 ## （【E-无氧呼吸】连通块供能按块内癌细胞数均分）—— 人越多免疫越强，
 ## 用开局布局把这一档补回来。实测斜率约 7 个百分点/格，够细。
 ## 2 人局不在平衡目标内（Kevin 2026-08-31），沿用 PRD 的 15。
-## PRD 改字见 [PRD差异对照 §七](../../../docs/PRD差异对照.md)。
+## PRD 改字见 [PRD差异对照 §七](../../../docs/archive/PRD差异对照.md)。
 ## 2026-09-01 定案乙：6 人 21→24。两种对称 AI 都说 6 人局癌方比 4 人局再弱 6~14 个点，
 ## 而全局杠杆动 4 人的幅度是动 6 人的两倍，只有这张按人数分档的表能单独补 6 人（启发式 +15 点）。
 const INIT_CANCER_TILES := { 2: 15, 4: 15, 6: 24 }
@@ -67,7 +67,7 @@ const SOLID_AT_CANCER_SPAWN := false
 # 死于第 N 回合的玩家阶段 → 第 N+1 回合 S 阶段复活，天然就缺席了一整轮。
 # **2026-09-07 Kevin 定再加一回合罚停**（0 → 1）：死一次的代价原本只有「少走一轮」，
 # 而 09-07 起攻击开始给抗原记忆、免疫方节奏整体变快，死亡需要更实在的代价。
-# 这是**引擎有意偏离 PRD** 的一条，见 docs/PRD差异对照.md。旋钮 `immune_respawn_delay`，
+# 这是**引擎有意偏离 PRD** 的一条，见 docs/archive/PRD差异对照.md（09-11 归档）。旋钮 `immune_respawn_delay`，
 # 扫回 0 就是 PRD 原文；-1 = 不再复活（CWEval 认得这个值）。
 const IMMUNE_RESPAWN_DELAY := 1
 const IMMUNE_RESPAWN_ENERGY := 10        # PRD：复活初始 1.0 能量（癌细胞是 2.0，见 REVIVE_ENERGY）
