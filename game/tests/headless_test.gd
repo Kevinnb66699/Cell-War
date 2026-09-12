@@ -118,7 +118,7 @@ func _run_all() -> void:
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
 		t_hot_patch, t_online_doc, t_save_load, t_settings, t_feedback, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_world_events_off, t_doubled_marker, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_skill_fx, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
-		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
+		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_board_small, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
 		t_card_name_fit, t_view_blend, t_announce, t_action_bar_width,
@@ -7003,6 +7003,37 @@ func t_store_ring() -> void:
 	g.dispose()
 
 
+## 教程小棋盘：`build_for(r)` 重铺格网后，行列换算、特殊组织下标、进度环节点都要跟着新半径走
+## （Kevin 2026-09-11 截图：细胞漂在棋盘外 —— axial_to_rc 曾写死正式半径 6）。
+func t_board_small() -> void:
+	print("[教程小棋盘的格网换算]")
+	var full := make_board()
+	var origin_full: Vector2 = full.tile_center(Vector2i.ZERO)
+	var bd := make_board()
+	bd.build_for(1)
+	check(bd.map.size() == 7, "build_for(1) → 7 格（实为 %d）" % bd.map.size())
+	check(bd.tile_center(Vector2i.ZERO) == origin_full and bd.tile_center(Vector2i(1, 0)) != Vector2.ZERO,
+		"半径 1 的格都能查到像素位置，且中央格钉在和正式盘同一个像素上（棋盘在画面中间，Kevin 2026-09-11）：%s vs %s"
+		% [str(bd.tile_center(Vector2i.ZERO)), str(origin_full)])
+	check(bd.tile_center(Vector2i(2, 0)) == Vector2.ZERO and bd.hex_at(Vector2(9999, 9999)) == bd.NO_TILE,
+		"圈外坐标查不到（不会把小棋盘外的格误当成存在）")
+	for c in CWData.all_coords(1):
+		check(bd.hex_at(bd.tile_center(c)) == c, "像素 ↔ 轴坐标来回：%s" % str(c))
+	## fixture 可以把特殊组织摆在任意格：小棋盘每格都有进度环节点，set_store 不会静默跳过
+	bd.set_tissue(Vector2i(1, 0), CWData.Tissue.HEALTHY, CWData.Special.CORE)
+	bd.set_store(Vector2i(1, 0), 0.5, CWData.Special.CORE)
+	var ring: Sprite2D = (bd.map[bd.axial_to_rc(Vector2i(1, 0))]["instance"] as Sprite2D).get_node_or_null("StoreRing")
+	check(ring != null and ring.visible, "小棋盘上任意格都能画进度环")
+	## 换回正式 127 格：格数与中央格位置都回到原样
+	bd.build_for(CWData.BOARD_RADIUS)
+	check(bd.map.size() == 127 and bd.tile_center(Vector2i.ZERO) == origin_full,
+		"build_for(6) → 127 格，中央格位置与新建的棋盘一致（%s vs %s）" % [str(bd.tile_center(Vector2i.ZERO)), str(origin_full)])
+	check(bd.marrow_position.size() == CWData.MARROWS.size() and bd.energy_position.size() == CWData.CORES.size(),
+		"特殊组织下标随格网重算：正式盘 %d 骨髓 / %d 核心" % [bd.marrow_position.size(), bd.energy_position.size()])
+	bd.queue_free()
+	full.queue_free()
+
+
 ## 固化计数的石化贴图族（Kevin 2026-09-09 选定「结晶核扩散」）。
 ##
 ## 图**长什么样**代码验不了（见 `tests/preview_solidify.gd` 的真机图），
@@ -9104,6 +9135,15 @@ func t_tutorial() -> void:
 	check(m.game.cell_of(0)["alive"] and m.game.cell_of(0)["pos"] == Vector2i.ZERO
 		and not m.game.cell_of(1)["alive"],
 		"免疫细胞按 fixture 在 (0,0)、癌方是死亡占位（免疫视角关）")
+	## 小棋盘的视觉格网要和引擎坐标对得上（Kevin 2026-09-11 截图：细胞漂在棋盘外）——
+	## axial_to_rc 从前写死正式半径 6，build_for(1) 之后 (0,0) 查不到格、tile_center 退回原点
+	check(m.board.map.size() == 7 and m.board.tile_center(Vector2i.ZERO) != Vector2.ZERO
+		and m.board.hex_at(m.board.tile_center(Vector2i(1, -1))) == Vector2i(1, -1),
+		"7 格小棋盘：中央格有真实坐标、像素 ↔ 轴坐标能来回")
+	var cell_node0: Node2D = m._cell_nodes[0]
+	check(is_equal_approx(cell_node0.position.x, m.board.tile_center(Vector2i.ZERO).x)
+		and is_equal_approx(cell_node0.position.y, m.board.tile_center(Vector2i.ZERO).y + CWMatch.CELL_FOOT_DY),
+		"免疫细胞节点就站在中央格上（%s vs 格 %s）" % [str(cell_node0.position), str(m.board.tile_center(Vector2i.ZERO))])
 	check(m.human_players == [0], "人类坐免疫视角席位")
 	check(m._guide.get_parent() == m.ui and m._guide.get_index() < m.pause_menu.get_index(),
 		"面板在 UI 层、压在暂停菜单下面")

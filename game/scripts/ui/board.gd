@@ -83,8 +83,11 @@ var marrow_position = []
 
 ## 轴坐标 (q,r) → 本文件的「行,列」下标。
 ## 中间那一行是 r=0，行内 q 自左向右递增；r 每 +1 往下走一行，整行同时右移半格。
+## ⚠ ring 必须跟着**当前格网**走，不能写死正式半径 6：教程小棋盘由 build_for() 按小半径重铺格网，
+## 换算若仍按 6 算，(0,0) 会落到一个不存在的行列 —— tile_center 退回原点、set_tissue 静默跳过，
+## 于是细胞漂在棋盘外、7 格全是默认贴图（Kevin 2026-09-11 截图）。
 func axial_to_rc(a: Vector2i) -> Vector2:
-	var ring: int = CWData.BOARD_RADIUS
+	var ring: int = radius - 1
 	var q_min: int = -ring if a.y >= 0 else -ring - a.y      ## 这一行最左边那格的 q
 	return Vector2(a.y + ring + 1, a.x - q_min + 1)
 
@@ -532,7 +535,10 @@ func new_tissue(i, j, x, y):
 	var new_t = TISSUE.instantiate()
 	new_t.position = Vector2(x, y)
 	new_t.z_index = y
-	if Vector2(i, j) in energy_position or Vector2(i, j) in marrow_position:
+	## 正式 127 格只给 9 个核心 / 骨髓挂进度环；教程小棋盘的 fixture 会把特殊组织摆在任意格
+	##（guide_levels.gd 的 tile_extras），所以小棋盘每格都挂 —— 最多 61 格，养得起
+	if Vector2(i, j) in energy_position or Vector2(i, j) in marrow_position \
+			or radius != CWData.BOARD_RADIUS + 1:
 		_add_store_ring(new_t)
 	if Vector2(i, j) in vessel_position:
 		new_t.texture = VESSELH
@@ -586,8 +592,18 @@ func build_for(board_radius: int) -> void:
 			t.queue_free()
 	map.clear()
 	radius = want
-	first_x = -100
-	first_y = -120
+	## 特殊组织的行列下标随格网换算（axial_to_rc 按新半径算；圈外的坐标不铺格，先滤掉）
+	var inside := func(c: Vector2i) -> bool: return CWData.is_on_board(c, radius - 1)
+	vessel_position = CWData.VESSELS.filter(inside).map(axial_to_rc)
+	energy_position = CWData.CORES.filter(inside).map(axial_to_rc)
+	marrow_position = CWData.MARROWS.filter(inside).map(axial_to_rc)
+	## 格网的起点要按半径推：正式 127 格从 (-100, -120) 铺起，中央格落在 (8, 0)；
+	## 小棋盘若也从 (-100, -120) 铺，中央格会往左上跑（半径 1 时跑到 (-82, -100)），
+	## 相机看的是中央格，整块棋盘就偏到画面左上（Kevin 2026-09-11：「把棋盘移到地图中间」）。
+	## 每少一环，起点就往右下挪半格宽 / 一格高，中央格永远钉在同一个像素上。
+	var shrink: int = CWData.BOARD_RADIUS - (radius - 1)
+	first_x = -100 + distance_x / 2.0 * shrink
+	first_y = -120 + distance_y * shrink
 	_grid()
 
 
