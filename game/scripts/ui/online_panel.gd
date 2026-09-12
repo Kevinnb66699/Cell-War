@@ -14,6 +14,8 @@
 ## 自己经 127.0.0.1 连上去走正常的大厅 / 建房流程，别人在「服务器」里填 本机地址:端口。`_process` 先轮询它再轮询
 ## 自己的客户端；离开联机页面（Esc / 离开 / 房间没了）就 `stop_lan()`，房里的人会收到断线。
 ## 不另开进程：热更补丁挂在本进程，子进程要自己挂一遍才不会跑旧规则；不开线程：服务器代码假定单线程。
+## **自动发现**（同日追加）：房主开服后每秒往局域网广播一条（`scripts/net/cw_lan.gd`，UDP 8619），
+## 连接页监听并列成「附近」名单，点一下就填地址连过去；离开连接页就停听。
 class_name CWOnlinePanel
 extends Control
 
@@ -56,6 +58,9 @@ const CREATE_ROWS := ["人数", "每步计时", "可见性", "世界事件"]
 const N_CREATE_ROWS := 4
 const LAN_PORT_MIN := 1024      ## 1023 以下是系统端口，Windows / macOS 都要管理员才绑得上
 const LAN_PORT_MAX := 65535
+const CWLan := preload("res://scripts/net/cw_lan.gd")   ## 局域网自动发现（没有 class_name：要走热更）
+const FOUND_ROWS := 3            ## 连接页「附近」最多列几个（第三行下面到按钮只剩三行的空）
+const FOUND_ROW_H := 20.0
 
 var client: CWNetClient
 var page := Page.CONNECT
@@ -70,12 +75,19 @@ var lan_port := 0
 var _lan_port_edit: LineEdit
 var _lan_ips: Label
 var _lan_nick: LineEdit    ## 与连接页的昵称双向同步（Kevin 09-12：开服的人也要能在这页填昵称）
+## 自动发现：房主那只广播、客户端那只监听（只在连接页期间活着）；「附近」三行与没听到时的说明
+var _beacon = null         ## CWLan，开服期间每秒广播
+var _scan = null           ## CWLan，连接页期间监听
+var _found_labels: Array[Label] = []
+var _found_note: Label
+var _found_sel := -1        ## 键盘选中的那一行（-1 = 没选；回车走地址框那条路）；选中行带白光（Kevin 09-12）
 var _roots := {}             ## Page -> 该页的根 Control
 var _status: Label
 var _title: Label
 var _sub: Label
 ## 建房页的取值与焦点（与配置面板同一套键盘模型：上下选行、左右拨值）
-var _create := { "players": 4, "timer": 60, "public": true, "world_events": true }
+## 世界事件建房默认**关**（Kevin 2026-09-12）：拨到「开」才触发
+var _create := { "players": 4, "timer": 60, "public": true, "world_events": false }
 var _create_sel := 0
 var _create_names: Array[Label] = []
 var _create_values: Array[Label] = []
@@ -167,11 +179,17 @@ func leave_online() -> void:
 		client.dispose()
 		client = null
 	stop_lan()
+	_stop_scan()
 	visible = false
 	page = Page.CONNECT
 
 
 func _process(_delta: float) -> void:
+	var now := Time.get_ticks_msec()
+	if _beacon != null:
+		_beacon.poll_host(now)
+	if _scan != null and _scan.poll_listen(now):
+		_repaint_found()
 	if lan != null:
 		lan.poll()      ## 本机开的服务器先收发一轮，自己的客户端紧跟着轮询（同一帧内就能来回）
 	if client == null:
@@ -197,9 +215,20 @@ func handle_input(event: InputEvent) -> void:
 			if event.is_action_pressed("ui_cancel"):
 				get_viewport().set_input_as_handled()
 				_back_to_menu()
+			elif event.is_action_pressed("ui_down") or event.is_action_pressed("ui_up"):
+				## 「附近」名单：上下选行，绕回；没听到人时上下键没事干
+				var n := _found_count()
+				if n > 0:
+					get_viewport().set_input_as_handled()
+					var d := 1 if event.is_action_pressed("ui_down") else -1
+					_found_sel = posmod(_found_sel + d, n) if _found_sel >= 0 else (0 if d > 0 else n - 1)
+					_repaint_found()
 			elif event.is_action_pressed("ui_accept"):
 				get_viewport().set_input_as_handled()
-				_connect()
+				if _found_sel >= 0:
+					_join_found(_found_sel)
+				else:
+					_connect()
 		Page.LOBBY:
 			if event.is_action_pressed("ui_cancel"):
 				get_viewport().set_input_as_handled()
@@ -327,7 +356,7 @@ func lan_where() -> String:
 
 
 ## 在本进程里起服务器。OK 之外的错误码 = 端口被占用或没权限，由调用方告诉玩家
-func start_lan(port: int) -> Error:
+func start_lan(port: int, nick: String = "") -> Error:
 	stop_lan()
 	var s := CWNetServer.new()
 	var err := s.start(port, "*")
@@ -335,15 +364,82 @@ func start_lan(port: int) -> Error:
 		return err
 	lan = s
 	lan_port = port
+	## 广播「我在这儿」：起不来（没网卡之类）不影响开服，别人手填地址照样进
+	_beacon = CWLan.new()
+	if _beacon.start_host(port, nick if nick != "" else CWSettings.nick) != OK:
+		_beacon = null
 	return OK
 
 
 func stop_lan() -> void:
+	if _beacon != null:
+		_beacon.stop()
+		_beacon = null
 	if lan == null:
 		return
 	lan.stop()
 	lan = null
 	lan_port = 0
+
+
+# ============ 局域网自动发现：连接页的「附近」名单 ============
+
+## 进连接页开始听，离开就停：监听占着 8619，本机第二个客户端会绑不上（那就只能手填），别一直占着
+func _start_scan() -> void:
+	if _scan != null:
+		return
+	_scan = CWLan.new()
+	if _scan.start_listen() != OK:
+		_scan = null
+	_repaint_found()
+
+
+func _stop_scan() -> void:
+	if _scan != null:
+		_scan.stop()
+		_scan = null
+
+
+## 「附近」一行的文案：昵称 · 地址:端口，协议号不对的标出来（连上去也会被拒，先说清楚）
+static func found_text(e: Dictionary) -> String:
+	var who: String = e["nick"] if e["nick"] != "" else "房主"
+	return "%s · %s:%d%s" % [who, e["ip"], e["port"], "（版本不符）" if int(e["ver"]) != CWNet.NET_VERSION else ""]
+
+
+func _found_count() -> int:
+	return mini(_scan.entries().size(), FOUND_ROWS) if _scan != null else 0
+
+
+func _repaint_found() -> void:
+	var list: Array = _scan.entries() if _scan != null else []
+	## 名单变了选中行要跟着钳：人走了就退到最后一行，全走了就没选
+	_found_sel = mini(_found_sel, mini(list.size(), FOUND_ROWS) - 1)
+	for i in _found_labels.size():
+		var l: Label = _found_labels[i]
+		if i < list.size():
+			l.text = found_text(list[i])
+			l.size = l.get_minimum_size()
+			l.visible = true
+			CWStyle.link_hot(l, i == _found_sel)     ## 选中行 = 悬停那一套白光（Kevin 09-12：选中要有辉光）
+		else:
+			l.text = ""
+			l.visible = false
+			CWStyle.link_hot(l, false)
+	if _scan == null:
+		_found_note.text = "没在听：8619 被占着（本机开着另一个客户端？），手填地址"
+	elif list.is_empty():
+		_found_note.text = "正在听局域网里的房主…（同一路由器下才收得到）"
+	else:
+		_found_note.text = ""
+
+
+## 点「附近」的一行：地址填进去、直接连（和手填后按回车同一条路）
+func _join_found(i: int) -> void:
+	var list: Array = _scan.entries() if _scan != null else []
+	if i >= list.size():
+		return
+	_addr.text = "%s:%d" % [list[i]["ip"], list[i]["port"]]
+	_connect()
 
 
 ## 「开服并进入大厅」：起服务器 → 自己经回环连上（和 _connect 同一条路，只是地址不经过设置里的服务器项）
@@ -356,7 +452,7 @@ func _host_lan() -> void:
 	CWSettings.nick = nick
 	CWSettings.lan_port = port
 	CWSettings.save_prefs()
-	var err := start_lan(port)
+	var err := start_lan(port, nick)
 	if err != OK:
 		_set_status("端口 %d 开不起来（%s），多半已被占用，换一个" % [port, error_string(err)])
 		return
@@ -569,6 +665,7 @@ func _build() -> void:
 ## 连接页退回主菜单：Esc 与「返回主菜单」链接共用一条路；主菜单收到 cancelled 后把自己淡回来
 func _back_to_menu() -> void:
 	stop_lan()
+	_stop_scan()
 	visible = false
 	cancelled.emit()
 
@@ -587,6 +684,20 @@ func _build_connect(root: Control) -> void:
 	## 第三行：局域网开服的入口（Kevin 2026-09-12）—— 端口与本机地址在下一页填
 	_row_label(root, "局域网", 2)
 	_clicky(root, "在本机开服", Vector2(VALUE_X, ROW_Y0 + ROW_H * 2), func() -> void: _show_page(Page.LAN))
+	## 第四行「附近」：自动发现听到的房主，最多三行（到按钮只剩这点空），点一行就连
+	_row_label(root, "附近", 3)
+	_found_note = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	_found_note.position = Vector2(VALUE_X, ROW_Y0 + ROW_H * 3 + 3)
+	root.add_child(_found_note)
+	for i in FOUND_ROWS:
+		var row := _clicky(root, "", Vector2(VALUE_X, ROW_Y0 + ROW_H * 3 + i * FOUND_ROW_H),
+			func() -> void: _join_found(i), CWStyle.SIZE_LABEL)
+		row.visible = false
+		## _clicky 的悬停白光移开就收；键盘选中的那一行要留着 —— 接在它后面再点一次
+		row.mouse_exited.connect(func() -> void:
+			if i == _found_sel:
+				CWStyle.link_hot(row, true))
+		_found_labels.append(row)
 	_solid_button(root, "进入大厅", Vector2(SLOT_X, BTN_Y), 182, _connect)
 	## 「返回主菜单」（2026-09-03 Kevin 要的）：此前连接页只能按 Esc 退出，鼠标玩家没有出口。
 	## 与建房页「返回大厅」同位（按钮右侧 200）、同一套链接语言，走的就是 Esc 那条路。
@@ -608,7 +719,7 @@ func _build_lan(root: Control) -> void:
 	_lan_ips = CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
 	_lan_ips.position = Vector2(VALUE_X, ROW_Y0 + ROW_H * 2)
 	root.add_child(_lan_ips)
-	var hint := CWStyle.label("其他玩家在「服务器」里填 本机地址:端口 就能进来。\n首次开服 Windows 会问防火墙，选「允许」；你退出联机页面，服务就停。",
+	var hint := CWStyle.label("开服后其他玩家的连接页会自动列出你（同一路由器下），也可手填 本机地址:端口。\n首次开服 Windows 会问防火墙，选「允许」；你退出联机页面，服务就停。",
 		CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	hint.position = Vector2(SLOT_X, ROW_Y0 + ROW_H * 3)
 	root.add_child(hint)
@@ -801,6 +912,11 @@ func _show_page(p: Page) -> void:
 		shown.modulate.a = 1.0
 	## 本机开着服的话，大厅 / 建房页的副标题一直写着地址 —— 房主等人的时候要念给别人听
 	_sub.text = "局域网开服中 · %s" % lan_where() if lan != null else ""
+	if p == Page.CONNECT:
+		_found_sel = -1
+		_start_scan()
+	else:
+		_stop_scan()
 	match p:
 		Page.CONNECT:
 			_title.text = "联机对战"

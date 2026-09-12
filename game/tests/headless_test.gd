@@ -126,7 +126,7 @@ func _run_all() -> void:
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
-		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_online_glow, t_match_online,
+		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -16557,8 +16557,9 @@ func t_online_panel() -> void:
 	## 建房页拨值（键盘模型同配置面板）
 	p.visible = true
 	p._show_page(CWOnlinePanel.Page.CREATE)
-	check(p._title.text == "建房" and p._create["players"] == 4 and p._create["timer"] == 60 and p._create["public"],
-		"建房页默认 4 人 · 60 秒 · 公开")
+	check(p._title.text == "建房" and p._create["players"] == 4 and p._create["timer"] == 60 and p._create["public"]
+		and not p._create["world_events"],
+		"建房页默认 4 人 · 60 秒 · 公开 · 世界事件关（Kevin 2026-09-12）")
 	p._cycle_create(0, 1)
 	p._cycle_create(1, 1)
 	p._cycle_create(2, 1)
@@ -16860,5 +16861,107 @@ func t_lan_host() -> void:
 		if n.is_visible_in_tree():
 			links.append((n as Label).text)
 	check(links.has("在本机开服") and links.has("默认"), "连接页有「在本机开服」入口和「默认」地址链接")
+	root.remove_child(p)
+	p.free()
+
+
+## 局域网自动发现（Kevin 2026-09-12）：广播包的形状、过期、回环收发、面板开服即广播 / 进连接页即监听
+func t_lan_discovery() -> void:
+	print("[局域网自动发现]")
+	var CWLan := preload("res://scripts/net/cw_lan.gd")
+	## ① 纯函数：包的形状
+	var good := CWLan.make_beacon(8611, "甲", CWNet.NET_VERSION)
+	var e: Dictionary = CWLan.parse_beacon(good, "192.168.1.5", 1000)
+	check(e.get("port", 0) == 8611 and e.get("nick", "") == "甲" and e.get("ip", "") == "192.168.1.5"
+		and int(e.get("ver", -1)) == CWNet.NET_VERSION and int(e.get("seen", 0)) == 1000,
+		"广播包 → 条目：端口 / 昵称 / 来源 ip / 协议号 / 听到的时刻")
+	check(CWLan.parse_beacon(var_to_bytes({ "t": "other", "port": 8611 }), "1.2.3.4", 0).is_empty()
+		and CWLan.parse_beacon(var_to_bytes({ "t": CWLan.MAGIC, "port": 80 }), "1.2.3.4", 0).is_empty()
+		and CWLan.parse_beacon(var_to_bytes({ "t": CWLan.MAGIC, "port": "8611" }), "1.2.3.4", 0).is_empty()
+		and CWLan.parse_beacon(PackedByteArray([1, 2, 3]), "1.2.3.4", 0).is_empty()
+		and CWLan.parse_beacon(PackedByteArray(), "1.2.3.4", 0).is_empty(),
+		"不是我们的 / 端口不在 1024~65535 / 端口不是整数 / 乱码 / 空包 → 一律扔")
+	var big := PackedByteArray()
+	big.resize(CWLan.MAX_LEN + 1)
+	check(CWLan.parse_beacon(big, "1.2.3.4", 0).is_empty(), "超长的包不解")
+	check(CWOnlinePanel.found_text({ "nick": "甲", "ip": "10.0.0.7", "port": 8611, "ver": CWNet.NET_VERSION }) == "甲 · 10.0.0.7:8611"
+		and CWOnlinePanel.found_text({ "nick": "", "ip": "10.0.0.7", "port": 8611, "ver": 1 }) == "房主 · 10.0.0.7:8611（版本不符）",
+		"「附近」一行：昵称 · 地址:端口，空昵称写「房主」，协议号不对标出来")
+	## ② 过期：TTL 内留、过了摘
+	var now := 50000
+	var table := { "a": { "seen": now - CWLan.TTL_MS }, "b": { "seen": now - CWLan.TTL_MS - 1 } }
+	var kept: Dictionary = CWLan.prune(table, now)
+	check(kept.has("a") and not kept.has("b"), "正好 TTL 的留着、多 1ms 的摘掉")
+	## ③ 回环收发：监听 8619，房主往 127.0.0.1 发（真机是 255.255.255.255）
+	var l = CWLan.new()
+	if l.start_listen() == OK:
+		var h = CWLan.new()
+		check(h.start_host(18650, "乙", CWNet.NET_VERSION, "127.0.0.1") == OK, "房主那只 socket 起来了")
+		var heard := false
+		for i in 120:
+			var t := Time.get_ticks_msec()
+			h.poll_host(t)
+			if l.poll_listen(t) and l.found.has("127.0.0.1:18650"):
+				heard = true
+				break
+			await process_frame
+		check(heard and l.entries().size() == 1 and l.entries()[0]["nick"] == "乙",
+			"一秒内听到回环上的房主：127.0.0.1:18650 · 乙")
+		l.found = CWLan.prune(l.found, Time.get_ticks_msec() + CWLan.TTL_MS + 1)
+		check(l.entries().is_empty(), "过了 TTL 没再听到就摘")
+		h.stop()
+		l.stop()
+	else:
+		print("  （8619 被占着，回环收发那段跳过 —— 本机是不是开着游戏的联机页？）")
+	## ④ 面板：开服即广播、停服即停；进连接页监听、离开停听
+	var p := CWOnlinePanel.new()
+	root.add_child(p)
+	await process_frame
+	var port := 0
+	for cand in range(18700, 18730):
+		if p.start_lan(cand, "丙") == OK:
+			port = cand
+			break
+	check(port != 0 and p._beacon != null, "开服就起广播")
+	p.stop_lan()
+	check(p._beacon == null, "停服广播也停")
+	p.open()
+	var listening: bool = p._scan != null
+	p._show_page(CWOnlinePanel.Page.LAN)
+	check(p._scan == null, "离开连接页就停听（%s）" % ("之前在听" if listening else "本机 8619 被占着，本来就没听上"))
+	## ⑤ 「附近」的键盘选中 + 辉光（Kevin 09-12）：喂两条假名单，上下键选、选中行 link_hot 亮着、名单缩了选中行跟着钳
+	p._show_page(CWOnlinePanel.Page.CONNECT)
+	p._stop_scan()
+	var fake = CWLan.new()
+	fake.found = {
+		"192.168.1.5:8611": { "ip": "192.168.1.5", "port": 8611, "nick": "甲", "ver": CWNet.NET_VERSION, "seen": 0 },
+		"192.168.1.9:8611": { "ip": "192.168.1.9", "port": 8611, "nick": "乙", "ver": CWNet.NET_VERSION, "seen": 0 } }
+	p._scan = fake
+	p._repaint_found()
+	check(p._found_sel == -1 and p._found_labels[0].visible and p._found_labels[1].visible and not p._found_labels[2].visible
+		and not p._found_labels[0].get_meta("hot", false), "两条列出来、第三行藏着、没选中时没有白光")
+	var down := InputEventAction.new()
+	down.action = "ui_down"
+	down.pressed = true
+	p.handle_input(down)
+	check(p._found_sel == 0 and p._found_labels[0].get_meta("hot", false) and not p._found_labels[1].get_meta("hot", false),
+		"按下：选中第一行，它亮白光")
+	p.handle_input(down)
+	check(p._found_sel == 1 and p._found_labels[1].get_meta("hot", false) and not p._found_labels[0].get_meta("hot", false),
+		"再按下：选中第二行，白光跟着走")
+	p.handle_input(down)
+	check(p._found_sel == 0, "到底绕回第一行")
+	var up := InputEventAction.new()
+	up.action = "ui_up"
+	up.pressed = true
+	p.handle_input(up)
+	check(p._found_sel == 1, "按上：从第一行绕到最后一行")
+	fake.found.erase("192.168.1.9:8611")
+	p._repaint_found()
+	check(p._found_sel == 0 and p._found_labels[0].get_meta("hot", false), "名单少了一行：选中行钳回到还在的那行")
+	fake.found.clear()
+	p._repaint_found()
+	check(p._found_sel == -1 and not p._found_labels[0].visible, "全走了：没选中、行都藏起来")
+	p._scan = null
 	root.remove_child(p)
 	p.free()

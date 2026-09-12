@@ -49,6 +49,15 @@ func _process(_d: float) -> bool:
 		for n in _panel.find_children("*", "Label", true, false):
 			if (n as Label).text == "默认":
 				CWStyle.link_hot(n as Label, true)
+		## 「附近」摆两条样例（一条版本不符）：真机是听 8619 广播听来的
+		var fake = preload("res://scripts/net/cw_lan.gd").new()
+		fake.found = {
+			"192.168.1.5:8611": { "ip": "192.168.1.5", "port": 8611, "nick": "甲", "ver": CWNet.NET_VERSION, "seen": 0 },
+			"192.168.1.9:8611": { "ip": "192.168.1.9", "port": 8611, "nick": "乙", "ver": 1, "seen": 0 } }
+		_panel._stop_scan()
+		_panel._scan = fake
+		_panel._found_sel = 0      ## 第一行摆成选中态：看白光（Kevin 09-12）
+		_panel._repaint_found()
 		return false
 	if _frames == WARMUP + 5:
 		root.get_texture().get_image().save_png(_out + "_connect.png")
