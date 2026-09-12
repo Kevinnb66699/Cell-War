@@ -196,7 +196,8 @@ static func _stage_memory() -> Array:
 			"净化攒记忆升 II / III：四人 %d / %d，六人 %d / %d。" % [
 				CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][1], CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][2],
 				CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2]],
-			"%d 升 X，换更强的卡池。" % CWData.LEVEL_MIN_MEMORY[3]] },
+			"四人 %d / 六人 %d 升 X，换更强的卡池。" % [
+				CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][3], CWData.LEVEL_MIN_MEMORY[3]]] },
 		{ "t": "等级收益", "flag": "differentiate", "b": [
 			"III 级起迁癌组织打折。", "还解锁「分化」。"] },
 	]

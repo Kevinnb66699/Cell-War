@@ -5,7 +5,7 @@
 
 ## 一、先读规则
 
-规则正本：`D:/Projects/SpringSense/2026-2027/Cell War/Cell_War PRD.md`
+规则正本：`D:/Projects/SpringSense/2026-2027/Cell War/Cell_War_玩法PRD.md`
 
 先通读一遍再落第一子。里面有胜负条件、能量收入、每种细胞的技能、卡牌、世界事件。
 

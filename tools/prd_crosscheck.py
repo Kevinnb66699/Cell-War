@@ -34,7 +34,7 @@ except Exception:
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-PRD = os.path.join(os.path.dirname(REPO), "Cell_War PRD.md")   # PRD 在仓库外
+PRD = os.path.join(os.path.dirname(REPO), "Cell_War_玩法PRD.md")   # PRD 在仓库外（2026-09-11 起叫这个名）
 DATA = os.path.join(REPO, "game", "scripts", "core", "cw_data.gd")
 
 # 常量 -> PRD 里应当出现的原文片段。比对前两边都去掉空白，
@@ -92,7 +92,7 @@ MAP = {
     "IMMUNE_MOVE_CANCEROUS":  ["耗能降为0.8", "耗能降为0.7", "消耗1**能量**移动到**癌性组织**"],
     "IMMUNE_MOVE_HEALTHY":    "消耗0.5**能量**移动到**健康组织",
     ## 这张是**六人档兼缺省**；四人档由 LEVEL_MIN_MEMORY_BY_PLAYERS 单独核
-    "LEVEL_MIN_MEMORY":       ["6人10-19抗原记忆", "6人20-59抗原记忆", "6人≥60抗原记忆"],
+    "LEVEL_MIN_MEMORY":       ["6人10-29抗原记忆", "6人30-69抗原记忆", "6人≥70抗原记忆"],
     # ---- 卡牌规则 ----
     "HAND_MAX":               "每个细胞最多持有8张卡牌，超过8张时需要弃置到8张",
     # ---- 癌方行动 ----
@@ -177,7 +177,7 @@ MAP = {
     "PRESSURE_HEALTHY_W":     "-相邻健康组织",
     ## 字典常量（工具 2026-09-09 起也扫，见 main 的解析）
     "INIT_CANCER_TILES":      ["4人局X=15", "6人局X=24"],
-    "LEVEL_MIN_MEMORY_BY_PLAYERS": ["4人0~5抗原记忆", "4人6~15抗原记忆", "4人16~49抗原记忆", "4人≥50抗原记忆"],
+    "LEVEL_MIN_MEMORY_BY_PLAYERS": ["4人0~9抗原记忆", "4人10~19抗原记忆", "4人20~49抗原记忆", "4人≥50抗原记忆"],
     "LFA1_CUT":               "该次迁移费用-0.4，最低为0.2",
     "INFILTRATE_CUT":         "迁移费用额外-0.3，最低为0.2",
     "CRUISE_CUT":             "此后本回合每次【迁移】费用额外-0.2，最低为0.2",

@@ -1647,26 +1647,26 @@ func t_immune_level_rules() -> void:
 	print("[免疫等级：门槛/有氧/分化]")
 	var g := bare_game()
 	g.setup.build_board()
-	## X 级门槛 2026-09-10（issue #13）抬高：四人 30 → 50、六人 30 → 60。
-	## II / III 两档没动 —— 动的只是「什么时候进入效应记忆那一段」。
-	check(CWData.LEVEL_MIN_MEMORY == [0, 10, 20, 60], "记忆门槛（六人档兼缺省）= 0 / 10 / 20 / 60")
-	## 按人数分档（Kevin 2026-09-09）。四人局只有 2 个免疫、六人局 3 个，同一门槛下四人要多花
+	## 2026-09-11 Kevin 按玩法 PRD 改表：四人 I 0~9 / II 10~19 / III 20~49 / X ≥50，
+	## 六人 I 0~9 / II 10~29 / III 30~69 / X ≥70（此前：四人 6/16/50、六人 10/20/60）。
+	check(CWData.LEVEL_MIN_MEMORY == [0, 10, 30, 70], "记忆门槛（六人档兼缺省）= 0 / 10 / 30 / 70")
+	## 按人数分档（Kevin 2026-09-09 起）。四人局只有 2 个免疫、六人局 3 个，同一门槛下四人要多花
 	## 约一半的回合才升得上去 —— 分档是把「升级要几回合」拉回同一档。
-	check(CWData.level_min_memory(4) == [0, 6, 16, 50], "四人局门槛 = 0 / 6 / 16 / 50")
-	check(CWData.level_min_memory(6) == [0, 10, 20, 60], "六人局门槛 = 0 / 10 / 20 / 60")
+	check(CWData.level_min_memory(4) == [0, 10, 20, 50], "四人局门槛 = 0 / 10 / 20 / 50")
+	check(CWData.level_min_memory(6) == [0, 10, 30, 70], "六人局门槛 = 0 / 10 / 30 / 70")
 	check(CWData.level_min_memory(2) == CWData.LEVEL_MIN_MEMORY
 			and CWData.level_min_memory(5) == CWData.LEVEL_MIN_MEMORY,
 		"PRD 没定的人数（含二人局）退回缺省档，不擅自造数")
 	## 真在四人局里升一次：门槛读的是分档表而不是那张常量表
 	var g4 := make_game(4, 1)
 	g4.setup.build_board()
-	g4.gain_memory(6)
-	check(g4.immune_level == 1, "四人局：记忆 6 就升到 II 级（六人档要 10）")
+	g4.gain_memory(20)
+	check(g4.immune_level == 2, "四人局：记忆 20 就升到 III 级（六人档要 30）")
 	g4.dispose()
 
-	## 门槛边界（缺省 = 六人档）：9 不升、10 升 II、19 不再升、20 升 III、
-	## **59 仍是 III、60 才升 X**（issue #13 把 X 从 30 抬到 60）
-	var want := [[9, 0], [10, 1], [19, 1], [20, 2], [59, 2], [60, 3]]
+	## 门槛边界（缺省 = 六人档）：9 不升、10 升 II、29 不再升、30 升 III、
+	## **69 仍是 III、70 才升 X**（2026-09-11 玩法 PRD）
+	var want := [[9, 0], [10, 1], [29, 1], [30, 2], [69, 2], [70, 3]]
 	for pair in want:
 		var g2 := bare_game()
 		g2.gain_memory(int(pair[0]))
@@ -1696,8 +1696,8 @@ func t_immune_level_rules() -> void:
 
 	## ---- 云端 PRD 2026-09-10 新写明的三条：**引擎本来就做到了** ----
 	## 记在这儿是为了「以后有人照着 PRD 改」时它们先红，而不是被悄悄改掉。
-	check(CWData.LEVEL_MIN_MEMORY[3] == 60 and CWData.level_min_memory(4)[3] == 50,
-		"X 级门槛 四人 50 / 六人 60（云端那版把 III 级写成 20-49 是笔误，Kevin 按图定 20-59）")
+	check(CWData.LEVEL_MIN_MEMORY[3] == 70 and CWData.level_min_memory(4)[3] == 50,
+		"X 级门槛 四人 50 / 六人 70（2026-09-11 玩法 PRD）")
 	check(g.tune.metastasis_max_per_round == 2,
 		"小细胞【转移】每世界回合至多 2 次（云端 PRD 写明；引擎旋钮早就是 2）")
 	g.memory = 5
@@ -7651,10 +7651,10 @@ func t_match_panel() -> void:
 		g6.dispose()
 	## 面板停在最后一档（X 级）上没关系：下面那几条各自 refresh 自己的局
 	check(is_equal_approx(CWMatchPanel.level_progress(3, 0, six), 0.3)
-		and is_equal_approx(CWMatchPanel.level_progress(18, 1, six), 0.8),
-		"进度按**本档区间**算：六人局 I 级 3/10 = 0.3、II 级 18/20 = 0.8")
-	## 从 0 算的话 I 级走到一半就显示 80%（18/20 那档更明显：从 0 算是 0.9）
-	check(not is_equal_approx(CWMatchPanel.level_progress(18, 1, six), 0.9),
+		and is_equal_approx(CWMatchPanel.level_progress(18, 1, six), 0.4),
+		"进度按**本档区间**算：六人局 I 级 3/10 = 0.3、II 级 (18-10)/(30-10) = 0.4")
+	## 从 0 算的话 II 级 18/30 会显示 0.6
+	check(not is_equal_approx(CWMatchPanel.level_progress(18, 1, six), 0.6),
 		"不是拿 memory 直接除下一档门槛（那样 II 级会一直虚高）")
 	## **记忆会被扣**（突变削 2），而等级只升不降 —— memory 可能掉到本档门槛以下
 	check(CWMatchPanel.level_progress(9, 1, six) == 0.0,
@@ -7663,21 +7663,22 @@ func t_match_panel() -> void:
 		"X 级没有下一级：返回负数，界面据此把条整个收起来")
 	## 门槛**按人数分档**，读错表的话四人局会一路显示偏低
 	var four: Array = CWData.level_min_memory(4)
-	check(is_equal_approx(CWMatchPanel.level_progress(3, 0, four), 0.5)
+	check(is_equal_approx(CWMatchPanel.level_progress(15, 1, four), 0.5)
+		and is_equal_approx(CWMatchPanel.level_progress(15, 1, six), 0.25)
 		and four != six,
-		"四人局门槛更低（3/6 = 0.5），六人局同样的 3 只有 0.3")
+		"II 级四人局区间 10~20：15 = 0.5；六人局区间 10~30：同样的 15 只有 0.25")
 	check(CWMatchPanel.memory_text(3, 0, six) == "抗原记忆 3 / 10"
 		and CWMatchPanel.memory_text(25, 3, six) == "效应记忆 25",
 		"升级前写「3 / 10」（省得玩家自己去记门槛），X 级回到只报数")
 	## 面板真的照着画：四人局 3 点记忆 = 半条
 	var g4 := make_game(4, 7)
 	await run_setup(g4)
-	g4.memory = 3
+	g4.memory = 5
 	g4.immune_level = 0
 	p.refresh(g4)
 	check(p._lv_bar_fill.visible
 		and is_equal_approx(p._lv_bar_fill.size.x, CWMatchPanel.W * 0.5),
-		"四人局 3 点记忆画成半条（%d / %d）" % [p._lv_bar_fill.size.x, CWMatchPanel.W])
+		"四人局 5 点记忆画成半条（%d / %d）" % [p._lv_bar_fill.size.x, CWMatchPanel.W])
 	g4.immune_level = 3
 	p.refresh(g4)
 	check(not p._lv_bar_fill.visible and not p._lv_bar_bg.visible,
@@ -9383,8 +9384,8 @@ func t_guide_data() -> void:
 	check(text.contains("四人 %d / %d" % [CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][1],
 				CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][2]])
 			and text.contains("六人 %d / %d" % [CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2]])
-			and text.contains("%d 升 X" % CWData.LEVEL_MIN_MEMORY[3]),
-		"剧本的记忆门槛现读分档表，且四人 / 六人两档都写了")
+			and text.contains("四人 %d / 六人 %d 升 X" % [CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][3], CWData.LEVEL_MIN_MEMORY[3]]),
+		"剧本的记忆门槛现读分档表，且四人 / 六人两档（含 X 级）都写了")
 	check(text.contains("最多持 %d 张" % CWData.HAND_MAX), "手牌上限现读 HAND_MAX")
 	check(text.contains("最多攻击 %d 次" % tune.attack_max_per_turn), "攻击上限现读 attack_max_per_turn")
 	## 旧进度迁移：6 关制「全部完成」= done 6；16 关制下应从第 7 关续读（clamp 现行为）
@@ -9904,8 +9905,9 @@ func t_codex() -> void:
 	## 同 t_guide_script：图鉴静态、拿不到人数，四人 / 六人两档都得写。
 	check(all_text.contains("四人局记忆到 %d / %d" % [CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][1],
 				CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][2]])
-			and all_text.contains("六人局 %d / %d" % [CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2]]),
-		"记忆门槛现读分档表，且四人 / 六人两档都写了")
+			and all_text.contains("六人局 %d / %d" % [CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2]])
+			and all_text.contains("X 级四人 %d、六人 %d" % [CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][3], CWData.LEVEL_MIN_MEMORY[3]]),
+		"记忆门槛现读分档表，且四人 / 六人两档（含 X 级）都写了")
 	check(all_text.contains("标记脚下") and all_text.contains("%d 个世界回合后直接固化" % tune.osteo_ossify_rounds)
 		and not all_text.contains("固化计数 +"),
 		"骨样硬化按 09-05 重做后的主动技能描述")

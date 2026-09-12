@@ -14,7 +14,7 @@ CWTuning，`prd_crosscheck.py` 那套反向核对够不着它们。这是行为�
 """
 import re, io
 
-PRD = "D:/Projects/SpringSense/2026-2027/Cell War/Cell_War PRD.md"
+PRD = "D:/Projects/SpringSense/2026-2027/Cell War/Cell_War_玩法PRD.md"   ## 2026-09-11 起叫这个名
 OUT = "D:/Projects/SpringSense/2026-2027/Cell War/Cell-War/game/scripts/core/cw_card_data.gd"
 
 L = [l.rstrip() for l in io.open(PRD, encoding="utf-8")]

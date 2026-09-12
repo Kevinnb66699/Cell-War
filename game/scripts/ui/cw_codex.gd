@@ -369,8 +369,9 @@ static func chapters() -> Array:
 			{ "t": "净化与记忆", "b": [
 				"免疫每净化一格 +1 抗原记忆。四人局记忆到 %d / %d 升 II / III 级，" % [
 					CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][1], CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][2]],
-				"六人局 %d / %d；两者都是 %d 升 X 级。" % [
-					CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2], CWData.LEVEL_MIN_MEMORY[3]],
+				"六人局 %d / %d；X 级四人 %d、六人 %d。" % [
+					CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2],
+					CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][3], CWData.LEVEL_MIN_MEMORY[3]],
 				"迁入癌组织的费用随等级下降。",
 			] },
 		] },
