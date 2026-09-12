@@ -634,6 +634,9 @@ func start_online(p_client: CWNetClient) -> void:
 	_prepare_ui()
 	online = true
 	_client = p_client
+	## 大厅里收到过的 error（房主点开始被「还有人没准备」挡回那类）到了对局里不该再弹一遍：
+	## 序号先对齐，只认开局之后新来的（issue #26，HXR-I 截到开局布置时飘着「还有人没准备」）
+	_seen_error = _client.error_seq
 	_loop_id += 1
 	_ask_serial += 1
 	while not _client.stream.is_empty() and _client.stream[0]["t"] == "state":
@@ -676,6 +679,8 @@ func start_online_with_bloom(p_client: CWNetClient, seconds: float) -> void:
 ## 开局前把上一局留下的东西还原、HUD 亮起来（start / start_online 共用）
 func _prepare_ui() -> void:
 	_fading = false
+	if toast != null:
+		toast.hide_now()                 ## 换页：上一页留下的气泡不带进这一局（issue #26）
 	## 先杀上一局的淡出补间，再还原 alpha —— 顺序反了等于没改：
 	## 补间还活着的话，下一帧它会把刚设回 1.0 的 alpha 继续拉向 0。
 	for tw in _fade_tws:
@@ -750,6 +755,7 @@ func _wire_bridge(level: int) -> void:
 	bridge.beam_fx = _beam_fx
 	bridge.chain_fx = _chain_fx
 	bridge.skill_fx = _skill_fx
+	bridge.cell_half_height = cell_half_height   ## 演出对准胞体中心要知道贴图多高（issue #26）
 	## 聊天框只在联机局建：本地局没人可聊，教程局更不该多一个能抢回车的东西。
 	## **CHAT_ON 现在是关的**（Kevin 2026-09-10 拍板先停）—— 三条待修见常量那儿。
 	if CHAT_ON and online and _chat == null and ui != null:
@@ -1434,14 +1440,20 @@ func _sync_cells() -> void:
 		var k: int = placed.get(pos, 0)
 		placed[pos] = k + 1
 		var top: Vector2 = board.tile_center(pos)
-		node.position = top + Vector2((k - (n - 1) / 2.0) * STACK_DX, CELL_FOOT_DY)
+		var foot := top + Vector2((k - (n - 1) / 2.0) * STACK_DX, CELL_FOOT_DY)
+		## 伪足穿透（issue #26）：触手把细胞从旧格**拉**到新格。引擎早已把 pos 记成新格，
+		## 演出那两秒里细胞画在哪由 CWSkillFx 代管（同扑咬那几帧真身让位的道理）
+		var carried: Variant = _skill_fx.carry_pos(i) if _skill_fx != null else null
+		if carried != null:
+			foot = carried
+		node.position = foot
 		node.z_index = board.tile_z(pos, board.Z_CELL)
 		## 装饰跟着走：位置是格顶面中心（选稿的坐标系）+ 同格错位，z 夹着细胞节点一前一后
 		for side in 2:
 			var deco: CWCellDeco = _decos[i][side]
 			deco.visible = true
 			deco.game = game
-			deco.position = top + Vector2((k - (n - 1) / 2.0) * STACK_DX, 0.0)
+			deco.position = foot - Vector2(0, CELL_FOOT_DY)
 			deco.z_index = node.z_index + (1 if side == 1 else -1)
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"])
@@ -1482,6 +1494,20 @@ func _play_teleports(jumps: Array) -> void:
 ##
 ## 显示谁的手牌：轮到哪个人类玩家就显示谁的；不是人类回合时保持上一次。
 ## （热座还没定案，定了之后这里就是现成的。）
+## 那一格上（第一只活着的）细胞贴图的半高 —— 演出要对准胞体中心时用（CWUIBridge.show_fx，issue #26）。
+## 空格或还没建节点的按 24px 贴图算（免疫普通细胞的尺寸）。
+func cell_half_height(pos: Vector2i) -> float:
+	if game == null:
+		return 12.0
+	for i in mini(game.cells.size(), _cell_nodes.size()):
+		var c: Dictionary = game.cells[i]
+		if c["alive"] and c["pos"] == pos:
+			var tex: Texture2D = (_cell_nodes[i] as Sprite2D).texture
+			if tex != null:
+				return tex.get_height() / 2.0
+	return 12.0
+
+
 func _sync_hand() -> void:
 	if hand == null or human_players.is_empty():
 		return

@@ -1306,7 +1306,7 @@ func t_skill_fx() -> void:
 		"lyse": { "from": Vector2(0, 0), "to": Vector2(36, 0) },
 		"adhesion": { "from": Vector2(0, 0), "to": Vector2(72, 0) },
 		"homing": { "from": Vector2(0, 0), "to": Vector2(108, 0), "spread": [Vector2(144, 0), Vector2(126, 20)] },
-		"pseudopod": { "from": Vector2(-36, 0), "to": Vector2(0, 0), "roots": [Vector2(36, 0), Vector2(18, -20), Vector2(-18, 20)] },
+		"pseudopod": { "from": Vector2(-36, 0), "to": Vector2(0, 0), "roots": [Vector2(36, 0), Vector2(18, -20), Vector2(-18, 20)], "cid": 7 },
 		"minimal": { "from": Vector2(-36, 0), "to": Vector2(0, 0) },
 		"differentiate": { "at": Vector2(0, 0) }, "respire": { "at": Vector2(0, 0) },
 		"revive_immune": { "at": Vector2(0, 0) }, "revive_cancer": { "at": Vector2(0, 0) },
@@ -1318,6 +1318,10 @@ func t_skill_fx() -> void:
 	check(fx.active() == sample.size() and fx.visible, "十三种演出各登记一条（%d）" % fx.active())
 	fx.play("nonsense", {})
 	check(fx.active() == sample.size(), "不认识的 kind 不登记")
+	## 伪足拉细胞（issue #26）：登记那一刻细胞还按在旧格脚底，拉的那段在半路，演完放手
+	var foot_from := Vector2(-36, CWMatch.CELL_FOOT_DY)
+	check(fx.carry_pos(7) == foot_from and fx.carry_pos(8) == null,
+		"伪足登记时细胞 7 按在旧格脚底（触手还没抓到）；别的细胞不受影响")
 	await process_frame
 	var longest := 0.0
 	for kind in sample:
@@ -1325,8 +1329,18 @@ func t_skill_fx() -> void:
 	fx.sync(1.3)
 	await process_frame
 	check(fx.active() > 0 and fx.active() < sample.size(), "1.3 秒后短的（毒素 / 黏连 / 疾行 / 突变）收了、长的还在（余 %d）" % fx.active())
+	var mid: Variant = fx.carry_pos(7)
+	check(mid != null and (mid as Vector2).x > foot_from.x and (mid as Vector2).x < 0.0
+		and is_equal_approx((mid as Vector2).y, CWMatch.CELL_FOOT_DY),
+		"1.3 秒：细胞被拉到半路（%s），仍贴着脚底那条线" % str(mid))
+	check(is_zero_approx(CWSkillFx.pull_phase(CWSkillFx.PSEUDOPOD_PULL_AT))
+		and is_equal_approx(CWSkillFx.pull_phase(CWSkillFx.PSEUDOPOD_PULL_AT + CWSkillFx.PSEUDOPOD_PULL), 1.0)
+		and CWSkillFx.PSEUDOPOD_PULL_AT + CWSkillFx.PSEUDOPOD_PULL <= CWSkillFx.PSEUDOPOD_RETRACT_AT
+		and CWSkillFx.PSEUDOPOD_RETRACT_AT < CWSkillFx.duration("pseudopod"),
+		"拉的那段起于 0、止于 1，拉完才收触手，收完才收场")
 	fx.sync(longest)
 	check(fx.active() == 0 and not fx.visible, "过了最长的 %.2f 秒全部收场、节点隐藏" % longest)
+	check(fx.carry_pos(7) == null, "演完放手，细胞位置交还引擎")
 	root.remove_child(fx)
 	fx.free()
 	## ② 像素笔的分段进度、装饰的纯函数
@@ -1491,8 +1505,9 @@ func t_skill_fx() -> void:
 		for e in rec.got:
 			if e[0] == "pseudopod":
 				ps.append(e[1])
-		check(not ps.is_empty() and (ps[0]["roots"] as Array).size() >= 3 and ps[0]["to"] == step,
-			"伪足穿透 → pseudopod，伸触手的癌性邻格 ≥ 3")
+		check(not ps.is_empty() and (ps[0]["roots"] as Array).size() >= 3 and ps[0]["to"] == step
+			and int(ps[0].get("cid", -1)) == int(can["id"]),
+			"伪足穿透 → pseudopod，伸触手的癌性邻格 ≥ 3，带被拉细胞的下标")
 	var sclc: Dictionary = cancers[1]
 	sclc["ctype"] = CWData.CancerType.SCLC
 	sclc["energy"] = 100

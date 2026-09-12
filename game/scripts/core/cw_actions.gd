@@ -728,7 +728,8 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 				for n in game.neighbors(to):
 					if n != cell["pos"] and game.is_cancerous(n):
 						roots.append(n)
-				game.fx("pseudopod", { "from": cell["pos"], "to": to, "roots": roots })
+				## cid：触手要**拉着这只细胞**从 from 走到 to（issue #26），演出层按它代管细胞位置
+				game.fx("pseudopod", { "from": cell["pos"], "to": to, "roots": roots, "cid": cell["id"] })
 			elif cell["ctype"] == CWData.CancerType.SCLC:
 				game.fx("minimal", { "from": cell["pos"], "to": to })
 		await enter_tile(cell, to, int(q["final"]))

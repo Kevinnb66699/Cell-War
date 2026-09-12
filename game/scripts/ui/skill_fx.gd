@@ -16,14 +16,18 @@
 ##   lyse          from（T 细胞）to（固化格）                   revised-effects.js lyse v1「三点连爆」
 ##   adhesion      from / to（两只癌细胞）                     immune-skills.js adhesion v1「紫晶冠印传递」
 ##   homing        from / to（血管格 / 落点）spread（被感染格）  revised-effects.js homing「双端血门 · 感染扩散」
-##   pseudopod     to（目标格）roots（伸触手的癌性邻格）        revised-effects.js pseudopod v0「低弧牵引」
+##   pseudopod     from / to（旧格 / 新格）roots（伸触手的癌性邻格）from_body / r（旧格上的胞体中心 / 半径）
+##                 cid（被拉的细胞）                          revised-effects.js pseudopod v0「低弧牵引」，issue #26 改成拉细胞
 ##   minimal       from / to（两格）                            cancer-skills.js minimal v0「细线疾行」
 ##   differentiate at（免疫细胞）                               common-skills.js differentiate v2「粒子重组」
-##   respire       at（免疫细胞）                               common-skills.js respire v0「轻量吸收」
+##   respire       at（免疫细胞脚底）at_body / r（胞体中心 / 半径）  common-skills.js respire v0「轻量吸收」
 ##   revive_immune at（复活格）                                 common-skills.js revive v0「归拢重生」
 ##   revive_cancer at（复活格）                                 common-skills.js revive v0「碎石重生」（癌方带碎石）
 ##   mutate        at（癌细胞）                                 common-skills.js mutate v0「双股消散」
-##   anaerobic     at（癌细胞）sources（同连通块的癌性格）      revised-effects.js anaerobic v0「铜橙输能」
+##   anaerobic     at（癌细胞脚底）at_body / r sources（同连通块的癌性格）  revised-effects.js anaerobic v0「铜橙输能」
+##
+## `*_body` / `r` 是 CWUIBridge.show_fx 按那一格上细胞贴图的高度另算的（issue #26：有氧 / 无氧原来对着
+## 脚底收拢，看着错位；粒子堆在贴图上的一点很诡异）。没给就退回脚底的老画法（测试的裸数据、旧报文）。
 class_name CWSkillFx
 extends Node2D
 
@@ -35,6 +39,14 @@ const DURATION := {
 }
 ## 头顶标记离细胞位多高（同 CWCellDeco.HEAD_DY）：黏连的传递轨迹从头到头
 const HEAD_DY := -33.0
+## 伪足穿透的四拍（issue #26，HXR-I：细胞已经到了新格触手还在演，要的是触手把细胞拉 / 推过去）：
+## 冒根 0~0.3 → 触手伸到**旧格**抓住胞体 0.3~0.9 → 拉着细胞走到新格 0.9~1.8 → 收回 1.8~2.3。
+## 细胞这两秒画在哪由 carry_pos() 代管（CWMatch._sync_cells 每帧问），引擎那边 pos 早已是新格。
+const PSEUDOPOD_SPROUT := 0.3
+const PSEUDOPOD_REACH := 0.6
+const PSEUDOPOD_PULL_AT := 0.9
+const PSEUDOPOD_PULL := 0.9
+const PSEUDOPOD_RETRACT_AT := 1.8
 
 const ICE := Color("b7ecff")
 const ICE_TAIL := Color("5688a5")
@@ -99,6 +111,29 @@ func sync(delta: float) -> void:
 
 static func duration(kind: String) -> float:
 	return float(DURATION.get(kind, 0.0))
+
+
+## 伪足拉到哪了：0 = 还按在旧格，1 = 到新格。缓入缓出，抓稳了才起步、快到了才慢下来
+static func pull_phase(t: float) -> float:
+	var f := CWPix.phase(t, PSEUDOPOD_PULL_AT, PSEUDOPOD_PULL)
+	return f * f * (3.0 - 2.0 * f)
+
+
+## 被伪足拉着走的细胞此刻该画在哪（**脚底**坐标，和 CWMatch 摆细胞用的是同一个点）；没被拉 → null。
+## 时间按 PIX_FPS 量化，和触手的画面同步走格。同一只细胞连着两次被拉（AI 连走）以最新那条为准。
+func carry_pos(cid: int) -> Variant:
+	for k in range(_plays.size() - 1, -1, -1):
+		var p: Dictionary = _plays[k]
+		if String(p["kind"]) != "pseudopod" or int((p["data"] as Dictionary).get("cid", -1)) != cid:
+			continue
+		var t: float = floorf(float(p["t"]) * PIX_FPS) / PIX_FPS
+		if t >= PSEUDOPOD_RETRACT_AT:
+			return null
+		var d: Dictionary = p["data"]
+		var foot_from := _v(d, "from") + Vector2(0, CWMatch.CELL_FOOT_DY)
+		var foot_to := _v(d, "to") + Vector2(0, CWMatch.CELL_FOOT_DY)
+		return foot_from.lerp(foot_to, pull_phase(t))
+	return null
 
 
 func _draw() -> void:
@@ -238,13 +273,18 @@ func _homing(t: float, d: Dictionary) -> void:
 					Color(BLOOD_SPREAD if k % 3 != 0 else BLOOD_SPARK, alpha), 1 if k % 3 != 0 else 2)
 
 
-## 低弧牵引：目标格的癌性邻格冒出根、伸出低弧触手抓住胞体边缘，抓稳后收回
+## 低弧牵引（issue #26 改成拉细胞）：新格的癌性邻格冒出根、伸出低弧触手到**旧格**抓住胞体边缘，
+## 然后把细胞拉到新格（细胞的位置见 carry_pos），到位后收回。触手的抓点跟着胞体走，越拉越短。
 func _pseudopod(t: float, d: Dictionary) -> void:
-	var b := _v(d, "to")
-	var actor := b + Vector2(0, -5)
-	var retract := CWPix.phase(t, 1.85, 0.5)
-	var sprout := CWPix.phase(t, 0.0, 0.3) * (1.0 - retract)
-	var reach := CWPix.phase(t, 0.3, 0.6)
+	var from := _v(d, "from")
+	var to := _v(d, "to")
+	var radius: float = float(d.get("r", 12.0))
+	var from_body: Vector2 = _v(d, "from_body") if d.has("from_body") \
+		else from + Vector2(0, CWMatch.CELL_FOOT_DY - radius)
+	var actor := from_body + (to - from) * pull_phase(t)
+	var retract := CWPix.phase(t, PSEUDOPOD_RETRACT_AT, 0.5)
+	var sprout := CWPix.phase(t, 0.0, PSEUDOPOD_SPROUT) * (1.0 - retract)
+	var reach := CWPix.phase(t, PSEUDOPOD_SPROUT, PSEUDOPOD_REACH)
 	var roots := _pts(d, "roots")
 	if sprout > 0.0:
 		for r: Vector2 in roots:
@@ -255,7 +295,7 @@ func _pseudopod(t: float, d: Dictionary) -> void:
 		return
 	for r: Vector2 in roots:
 		var angle := (r - actor).angle()
-		var grip := actor + Vector2(cos(angle) * 9.0, sin(angle) * 7.0)
+		var grip := actor + Vector2(cos(angle) * radius * 0.6, sin(angle) * radius * 0.45)
 		var end := r.lerp(grip, extension)
 		var pts: Array[Vector2] = []
 		for i in 17:
@@ -287,16 +327,17 @@ func _differentiate(t: float, d: Dictionary) -> void:
 	CWPix.burst(self, _v(d, "at") + Vector2(0, -5), t / 1.65, CYAN, 9, 20.0, true)
 
 
-## 轻量吸收：七粒青色颗粒沿螺旋往胞体里收，尾声胞体右上亮一点
+## 轻量吸收：七粒青色颗粒沿螺旋往**胞体中心**收（issue #26 前对着脚底收，看着错位），尾声胞体右上亮一点
 func _respire(t: float, d: Dictionary) -> void:
-	var a := _v(d, "at")
+	var a: Vector2 = _v(d, "at_body") if d.has("at_body") else _v(d, "at")
+	var radius: float = float(d.get("r", 12.0))
 	var p := t / 1.65
 	if p < 1.0:
 		for i in 7:
 			var f := fmod(p + float(i) / 9.0, 1.0)
 			CWPix.px(self, Vector2(a.x + cos(float(i) * 2.4) * (1.0 - f) * 22.0, a.y + (1.0 - f) * 18.0), CYAN, 1 + i % 2)
 	if p > 0.6:
-		CWPix.px(self, a + Vector2(14, -12), CYAN, 2)
+		CWPix.px(self, a + Vector2(radius * 0.9, -radius * 0.75), CYAN, 2)
 
 
 ## 归拢重生：十四粒青色碎粒往复活格收拢
@@ -336,16 +377,20 @@ func _mutate(t: float, d: Dictionary) -> void:
 		CWPix.px(self, Vector2(a.x - x, y), PINK)
 
 
-## 铜橙输能：同连通块的癌性格各送三串暖色颗粒进胞体，后半程胞体上方冒热气
+## 铜橙输能：同连通块的癌性格各送三串暖色颗粒进胞体，后半程胞体上方冒热气。
+## 颗粒**停在胞体轮廓上**就消失（issue #26：原来全挤到贴图上方的一个点，看着诡异）—— 像是钻进了细胞
 func _anaerobic(t: float, d: Dictionary) -> void:
-	var a := _v(d, "at")
+	var has_body: bool = d.has("at_body")
+	var a: Vector2 = _v(d, "at_body") if has_body else _v(d, "at") + Vector2(0, -5)
+	var radius: float = float(d.get("r", 12.0))
 	var p := t / 2.1
-	var end := a + Vector2(0, -5)
 	if p > 0.0 and p < 1.0:
 		for s: Vector2 in _pts(d, "sources"):
+			var edge := a + (s - a).normalized() * (radius - 1.0) if has_body else a
 			for i in 3:
-				CWPix.trail(self, s, end, fmod(p * 1.6 + float(i) / 3.0, 1.0), ANAEROBIC, 5)
+				CWPix.trail(self, s, edge, fmod(p * 1.6 + float(i) / 3.0, 1.0), ANAEROBIC, 5)
 	if p > 0.5:
+		var lid := a.y - radius - 2.0 if has_body else a.y - 13.0
 		for i in 6:
-			CWPix.px(self, Vector2(a.x - 9.0 + float(i) * 3.0, a.y - 18.0 - fmod(t * 9.0 + float(i) * 3.0, 14.0)),
+			CWPix.px(self, Vector2(a.x - 9.0 + float(i) * 3.0, lid - fmod(t * 9.0 + float(i) * 3.0, 14.0)),
 				ANAEROBIC_RISE, 2)

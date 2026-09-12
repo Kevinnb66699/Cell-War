@@ -904,6 +904,13 @@ const FX_BODY_KEYS := {
 	"antibody": ["from", "targets"], "toxin": ["from"], "lyse": ["from"], "adhesion": ["from", "to"],
 	"differentiate": ["at"], "respire": ["at"], "mutate": ["at"], "anaerobic": ["at"],
 }
+## 要对准**胞体中心**的那几种（issue #26，HXR-I：有氧 / 无氧的粒子对着脚底收拢看着错位、堆在细胞贴图上一点很诡异；
+## 伪足要抓的也是胞体）：另给一份 `<键>_body`（脚底再往上半个贴图高）和 `r`（半个贴图高，当胞体半径用）。
+## 原键照旧是脚底 —— 十三种演出里只这三种改用胞体中心，其余仍是选稿的脚底坐标，一个像素不动。
+const FX_BODY_CENTER := { "respire": ["at"], "anaerobic": ["at"], "pseudopod": ["from"] }
+## 那一格上站着的细胞贴图有多高（半高）。由 CWMatch 注入 —— 只有它认得细胞节点；
+## 没注入（无界面跑测试）按 24px 贴图算。
+var cell_half_height: Callable
 
 
 ## 技能演出（issue #15）：把引擎给的轴坐标换成棋盘像素再交给演出层。
@@ -932,6 +939,12 @@ func show_fx(kind: String, data: Dictionary) -> void:
 			out[key] = pts
 		else:
 			out[key] = v
+	for key in FX_BODY_CENTER.get(kind, []):
+		var c: Variant = data.get(key)
+		if c is Vector2i:
+			var half: float = float(cell_half_height.call(c)) if cell_half_height.is_valid() else 12.0
+			out[key + "_body"] = board.tile_center(c) + Vector2(0, CWMatch.CELL_FOOT_DY - half)
+			out["r"] = half
 	skill_fx.play(kind, out)
 
 
