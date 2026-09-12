@@ -17044,19 +17044,68 @@ func t_turn_mark() -> void:
 	check(closed, "轮廓 80 颗：顺时针闭合、颗颗相邻、不重复、颗颗都是顶面的边界像素（像素对齐）")
 	check(ring[0] == Vector2i(0, -bd.TOP_FACE_TOP) and ring[39] == Vector2i(0, 25 - bd.TOP_FACE_TOP) and ring[40] == Vector2i(-1, 25 - bd.TOP_FACE_TOP),
 		"从顶点右颗起走，第 40 颗是底点右颗、第 41 颗是底点左颗（%s / %s）" % [str(ring[39]), str(ring[40])])
-	## ③ 虚线跑马灯：亮 4 暗 4，周长 80 正好 10 个周期；拍子每 0.1 s 推一格
-	check(bd.turn_ring_lit(0, 0) and bd.turn_ring_lit(3, 0) and not bd.turn_ring_lit(4, 0) and not bd.turn_ring_lit(7, 0)
-		and bd.turn_ring_lit(8, 0) and bd.turn_ring_lit(72, 0) and not bd.turn_ring_lit(79, 0),
-		"亮 4 暗 4：第 73~76 颗亮、第 77~80 颗暗，接回第 1 颗亮 —— 接缝不断")
-	check(not bd.turn_ring_lit(0, 1) and bd.turn_ring_lit(4, 1) and not bd.turn_ring_lit(3, 4),
-		"拍子推一格，整条虚线挪一格")
-	check(80 % (bd.TURN_RING_DASH * 2) == 0 and is_equal_approx(bd.TURN_RING_FPS, 10.0), "周长能被虚线周期整除；每秒 10 拍")
+	## ②b 内圈（Kevin 第二轮：外沿和特殊组织的进度环撞）：顶面向内蚀 5 圈，52 颗轮廓，闭合、颗颗是内圈边界；
+	## 和六张进度环贴图逐像素比：底和轮廓都不压到环，轮廓连斜角都不挨着环（留一圈缝）
+	var inner: Dictionary = bd.face_pixels(bd.TURN_RING_INSET)
+	var iring: Array = bd.outline_of(inner)
+	var inner_ok := true
+	for p in inner:
+		if not img.get_pixel((p as Vector2i).x + bd.TOP_FACE_LEFT, (p as Vector2i).y + bd.TOP_FACE_TOP).is_equal_approx(top_ink):
+			inner_ok = false
+	var iclosed := iring.size() == 52
+	var iseen := {}
+	for i in iring.size():
+		var a: Vector2i = iring[i]
+		var b: Vector2i = iring[(i + 1) % iring.size()]
+		if maxi(absi(a.x - b.x), absi(a.y - b.y)) != 1 or iseen.has(a) or not inner.has(a):
+			iclosed = false
+		iseen[a] = true
+	check(inner_ok and inner.size() == 232 and iclosed and iring[0] == Vector2i(0, 5 - bd.TOP_FACE_TOP),
+		"内圈：232 颗都在顶面上；轮廓 52 颗顺时针闭合、颗颗相邻不重复，从顶点 (0,-8) 起（%d / %d）" % [inner.size(), iring.size()])
+	var ring_px := {}
+	for name in ["core_lit_normal", "core_track_normal", "marrow_lit_normal", "marrow_track_normal", "core_lit_cancer", "marrow_lit_cancer"]:
+		var rimg: Image = (load("res://assets/art/ui/store/%s.png" % name) as Texture2D).get_image()
+		for y in rimg.get_height():
+			for x in rimg.get_width():
+				if rimg.get_pixel(x, y).a > 0.0:
+					ring_px[Vector2i(x - bd.TOP_FACE_LEFT, y - bd.TOP_FACE_TOP)] = true
+	var touch := 0
+	var overlap := 0
+	for p in inner:
+		if ring_px.has(p):
+			overlap += 1
+	for p in iring:
+		for dx in [-1, 0, 1]:
+			for dy in [-1, 0, 1]:
+				if ring_px.has((p as Vector2i) + Vector2i(dx, dy)):
+					touch += 1
+	check(overlap == 0 and touch == 0 and ring_px.size() > 100,
+		"底和轮廓都不压到进度环，轮廓连斜角都不挨着环（压 %d、挨 %d，环贴图共 %d 颗）" % [overlap, touch, ring_px.size()])
+	## ③ 虚线跑马灯：按周长分周期，任何周长都无缝；拍子每 0.1 s 推一格
+	var n_in := iring.size()
+	var periods: int = bd.turn_ring_periods(n_in)
+	var lit_n := 0
+	var periodic := true
+	var shifts := true
+	for i in n_in:
+		if bd.turn_ring_lit(i, 0, n_in):
+			lit_n += 1
+		if bd.turn_ring_lit(i, 0, n_in) != bd.turn_ring_lit(i + n_in, 0, n_in):
+			periodic = false
+		if bd.turn_ring_lit(i, 1, n_in) != bd.turn_ring_lit(i - 1, 0, n_in):
+			shifts = false
+	check(periods == 7 and lit_n == n_in / 2 and periodic and shifts,
+		"52 颗分 7 个周期（段长 3~4）：亮暗各半、以周长为周期（接缝不断）、拍子推一格整条挪一格")
+	check(bd.turn_ring_lit(0, 0, 80) and bd.turn_ring_lit(3, 0, 80) and not bd.turn_ring_lit(4, 0, 80) and bd.turn_ring_lit(8, 0, 80),
+		"周长能被 8 整除时就是亮 4 暗 4")
+	check(is_equal_approx(bd.TURN_RING_FPS, 10.0), "每秒 10 拍")
 	## ④ 节点：放到某格 = 顶面中心、Z_MARK 层；同一拍不重画；清掉就藏
 	var c := Vector2i(1, 0)
 	bd.set_turn_ring(c, CWStyle.IMMUNE, 0.0)
 	var node: Node2D = bd._turn_ring
 	check(node != null and node.visible and node.position == bd.tile_center(c) and node.z_index == bd.tile_z(c, bd.Z_MARK)
-		and node.tick == 0 and node.color == CWStyle.IMMUNE, "脚标节点放在那格的顶面中心、高亮剪影那一层")
+		and node.tick == 0 and node.color == CWStyle.IMMUNE and node.outline.size() == 52 and node.periods == 7 and node.rows.size() == 16,
+		"脚标节点放在那格的顶面中心、高亮剪影那一层；画的是 52 颗内圈 + 16 行底")
 	bd.set_turn_ring(c, CWStyle.IMMUNE, 0.35)
 	check(node.tick == 3, "t=0.35 s → 第 3 拍")
 	bd.set_turn_ring(Vector2i(0, 1), CWStyle.CANCER, 0.35)
