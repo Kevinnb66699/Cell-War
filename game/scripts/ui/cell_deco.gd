@@ -18,10 +18,17 @@ const INK_MARK := Color("c39bff")
 const INK_MARK_CORE := Color("fff0ff")
 const HEAD_DY := -33.0        ## 冠印中心离细胞位（格顶面中心 + CELL_FOOT_DY）多高：选稿是胞体中心上 29px
 const TOOTH_H := 6
+## 小盾轨道（Kevin 2026-09-12「护甲穿模」）：选稿是贴地绕**脚底**转（18×7），小盾转到胞体两侧时被贴图切掉半个、
+## 像插在肉里。现在绕**胞体中心**转、再抬高 ORBIT_LIFT：横半径比 32px 贴图的半宽多出一个盾的宽度还余 3px
+## （侧面不与轮廓相交），后半圈从胞体上缘露头 —— 读成「转到后面去了」而不是「穿进去了」。
+const ORBIT_RX := 22.0
+const ORBIT_RY := 8.0
+const ORBIT_LIFT := 4.0
 
 var front := false            ## true = 画在细胞前面的那一半
 var game: CWGame
 var index := -1               ## game.cells 的下标
+var half_h := 17.0            ## 这只细胞贴图的半高（CWMatch._sync_cells 每帧给；癌细胞贴图 32×34）
 var _t := 0.0
 var _marked_since := -1.0     ## 标记出现的时刻（_t 的读数）；-1 = 此刻没标记
 
@@ -31,10 +38,12 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-## 某枚小盾此刻在哪、在前面还是后面（选稿：轨道 18×7、角速度 0.85、两枚相隔半圈）。**纯函数**。
-static func shield_at(t: float, i: int, body: Vector2) -> Dictionary:
+## 某枚小盾此刻在哪、在前面还是后面（角速度 0.85、两枚相隔半圈照选稿；轨道见 ORBIT_* 的注释）。
+## body 是脚底、half_h 是贴图半高 —— 轨道中心 = 胞体中心再抬 ORBIT_LIFT。**纯函数**。
+static func shield_at(t: float, i: int, body: Vector2, half_h_: float = 17.0) -> Dictionary:
 	var angle := t * 0.85 + float(i) * PI
-	return { "pos": body + Vector2(cos(angle) * 18.0, -3.0 + sin(angle) * 7.0), "front": sin(angle) >= 0.0 }
+	var center := body + Vector2(0, -half_h_ - ORBIT_LIFT)
+	return { "pos": center + Vector2(cos(angle) * ORBIT_RX, sin(angle) * ORBIT_RY), "front": sin(angle) >= 0.0 }
 
 
 ## 六枚骨牙的落点（选稿：q·13 + r·6.5, r·7，按 y 排序）。**纯函数**。
@@ -77,11 +86,11 @@ func _draw() -> void:
 		_marked_since = -1.0
 
 
-## 两枚小盾沿贴地椭圆轨道慢转，低透明度、细像素轮廓；前后各归各的节点画
+## 两枚小盾绕胞体中心的椭圆轨道慢转，低透明度、细像素轮廓；前后各归各的节点画
 func _armor(body: Vector2) -> void:
 	var ink := Color(INK_ARMOR, ARMOR_ALPHA)
 	for i in 2:
-		var s: Dictionary = shield_at(_t, i, body)
+		var s: Dictionary = shield_at(_t, i, body, half_h)
 		if bool(s["front"]) != front:
 			continue
 		var p: Vector2 = s["pos"]

@@ -1455,6 +1455,9 @@ func _sync_cells() -> void:
 			deco.game = game
 			deco.position = foot - Vector2(0, CELL_FOOT_DY)
 			deco.z_index = node.z_index + (1 if side == 1 else -1)
+			## 小盾轨道要绕胞体中心转（Kevin 2026-09-12），装饰得知道这只细胞的贴图多高
+			var tex: Texture2D = (node as Sprite2D).texture
+			deco.half_h = tex.get_height() / 2.0 if tex != null else 17.0
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"])
 			_sync_doom(node as Sprite2D, c)

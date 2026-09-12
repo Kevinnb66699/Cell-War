@@ -1351,6 +1351,15 @@ func t_skill_fx() -> void:
 	var s1: Dictionary = CWCellDeco.shield_at(0.5, 1, Vector2.ZERO)
 	check(bool(s0["front"]) and not bool(s1["front"]) and (s0["pos"] as Vector2).x > 0.0 and (s1["pos"] as Vector2).x < 0.0,
 		"两枚小盾相隔半圈，一前一后、一左一右")
+	## 轨道绕胞体中心转、抬高 ORBIT_LIFT（Kevin 2026-09-12 穿模）：侧面离 32px 贴图的轮廓还有 3px，后半圈最高点在轨道中心之上
+	var side: Dictionary = CWCellDeco.shield_at(0.0, 0, Vector2.ZERO, 17.0)
+	var back: Dictionary = CWCellDeco.shield_at(PI * 1.5 / 0.85, 0, Vector2.ZERO, 17.0)
+	var orbit_c := -17.0 - CWCellDeco.ORBIT_LIFT
+	check((side["pos"] as Vector2).x - 3.0 >= 16.0 + 3.0 and is_equal_approx((side["pos"] as Vector2).y, orbit_c)
+		and not bool(back["front"]) and (back["pos"] as Vector2).y < orbit_c,
+		"小盾绕胞体中心转、抬高 %d px：侧面不与轮廓相交，后半圈从胞体上缘露头" % int(CWCellDeco.ORBIT_LIFT))
+	var msrc_deco := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(msrc_deco.contains("deco.half_h = tex.get_height() / 2.0"), "_sync_cells 每帧把贴图半高给装饰（轨道中心靠它算）")
 	var teeth: Array = CWCellDeco.teeth()
 	var behind := 0
 	for a in teeth:
