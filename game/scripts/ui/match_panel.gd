@@ -276,6 +276,13 @@ func _next_event_round(from: int) -> int:
 	return 0
 
 
+## 底框标「轮到谁」（Kevin 2026-09-12：开局落子、复活阶段也要亮）：行动回合里是 current_pid；
+## 回合之外（落子 / 复活 / 卡牌追问）是引擎正在问的那一席 asking_pid（本地由 CWGame.ask 记，
+## 联机由 state 报文的 turn 记）；两者都没有（结算演出中）就谁都不亮。**纯函数**。
+static func acting_pid(game: CWGame) -> int:
+	return game.current_pid if game.current_pid >= 0 else game.asking_pid
+
+
 func _refresh_row(game: CWGame, pid: int) -> void:
 	var row: Dictionary = _rows[pid]
 	var p: Dictionary = game.player(pid)
@@ -283,12 +290,13 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 	var faction_color: Color = CWStyle.IMMUNE if immune else CWStyle.CANCER
 	row["fac"].color = faction_color
 	row["name"].text = p["name"]
+	var on: bool = acting_pid(game) == pid
 
 	## 开局布置阶段是一个一个落子的：玩家已经建好，细胞还没有。
-	## 这一行先只显示名字和阵营色，别去问一个还不存在的细胞。
+	## 这一行先只显示名字和阵营色，别去问一个还不存在的细胞 —— 但轮到它落子时底框照亮
 	if pid >= game.cells.size():
-		row["bg"].color = Color(faction_color, 0.0)
-		row["name"].add_theme_color_override("font_color", CWStyle.TEXT_OFF)
+		row["bg"].color = Color(faction_color, 0.10 if on else 0.0)
+		row["name"].add_theme_color_override("font_color", CWStyle.TEXT_HI if on else CWStyle.TEXT_OFF)
 		row["type"].text = "待落子"
 		row["energy"].text = ""
 		row["income"].text = ""
@@ -299,7 +307,6 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 
 	var cell: Dictionary = game.cell_of(pid)
 	var dead: bool = not cell["alive"]
-	var on: bool = game.current_pid == pid
 	row["bg"].color = Color(faction_color, 0.10 if on else 0.0)
 	row["name"].add_theme_color_override("font_color",
 		CWStyle.TEXT_OFF if dead else (CWStyle.TEXT_HI if on else CWStyle.TEXT))

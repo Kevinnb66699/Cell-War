@@ -7650,6 +7650,27 @@ func t_match_panel() -> void:
 	print("[右侧竖条]")
 	var p := CWMatchPanel.new()
 	root.add_child(p)
+	## 底框「轮到谁」（Kevin 2026-09-12）：落子 / 复活这类回合之外的询问也要亮 —— 看 asking_pid
+	var ga := make_game(4, 7)
+	var req: Dictionary = await ga.pending()
+	check(req.get("kind", "") == "setup_place" and ga.current_pid == -1 and ga.asking_pid == -1,
+		"开局落子：还没人被问时 asking_pid = -1")
+	await ga.ask(int(req["pid"]), req)
+	check(ga.asking_pid == int(req["pid"]), "ask() 记下被问的那一席（%d）" % ga.asking_pid)
+	p.refresh(ga)
+	var lit: Array = []
+	for i in 4:
+		if p._rows[i]["bg"].color.a > 0.05:
+			lit.append(i)
+	check(lit == [int(req["pid"])], "待落子那一行亮着底框，别的不亮（亮的：%s）" % str(lit))
+	check(p._rows[int(req["pid"])]["name"].get_theme_color("font_color") == CWStyle.TEXT_HI, "轮到的那位名字转亮")
+	check(CWMatchPanel.acting_pid(ga) == int(req["pid"]), "acting_pid：回合之外看 asking_pid")
+	ga.current_pid = 2
+	check(CWMatchPanel.acting_pid(ga) == 2, "行动回合里 current_pid 优先")
+	ga.current_pid = -1
+	ga._goto("e_phase")
+	check(ga.asking_pid == -1 and CWMatchPanel.acting_pid(ga) == -1, "换阶段清掉：结算演出中谁都不亮")
+	ga.dispose()
 
 	p._build(6)
 	var end_top: float = p._end.position.y

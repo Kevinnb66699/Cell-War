@@ -92,6 +92,10 @@ var sim_quiet := false
 ## stage 见 advance() 的 match；i 是玩家游标（order 的下标）。
 var flow := { "stage": "init", "i": 0, "acts": 0 }
 var _pending := {}         ## 当前待决策的询问；空 = 不需要任何人做决定
+## 正在（或刚刚）被问的那一席：开局落子、复活、卡牌追问都经 ask() 走，这里记下 pid 给界面画「轮到谁」的底框
+## （Kevin 2026-09-12：落子和复活阶段也要亮）。**瞬态，不进快照也不进哈希**；换流程阶段（_goto）清掉，
+## 所以同一阶段里两次询问之间不会闪一下；行动回合里界面优先看 current_pid，这里只管回合之外的询问。
+var asking_pid := -1
 ## 推进到这个阶段的**开头**就停下，不执行它。给测试和工具用（"" = 不停）。
 ## 例：想要「刚落完子、世界回合还没开始」的局面，就设成 "round_start"。
 var stop_at := ""
@@ -264,6 +268,7 @@ func _goto(stage: String) -> void:
 	flow["stage"] = stage
 	flow["i"] = 0
 	phase = PHASE_NAMES.get(stage, phase)
+	asking_pid = -1        ## 换阶段：上一阶段最后被问的那一席不再亮着
 
 
 ## 按行动顺序逐个玩家问一遍。返回 true 表示「已经问出去了，等作答」，
@@ -383,6 +388,7 @@ func ask(pid: int, req: Dictionary) -> int:
 	if aborted:
 		return 0
 	req["pid"] = pid
+	asking_pid = pid
 	var b: CWBridge = bridges.get(pid)
 	var idx := 0
 	if b != null:

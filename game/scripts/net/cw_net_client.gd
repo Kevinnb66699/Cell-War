@@ -314,6 +314,9 @@ func _apply_state(m: Dictionary) -> void:
 		shadow.logs = []
 		game_over = {}
 	shadow.restore(view)
+	## 服务器每次问人之前推一份状态，turn 就是被问的那一席（CWNetBridge.ask）；
+	## 快照里没有这个字段（瞬态），补上，右栏才知道落子 / 复活阶段轮到谁
+	shadow.asking_pid = int(m.get("turn", -1))
 	for line in m.get("logs", []):
 		logs.append(line)
 		shadow.logs.append(line)
