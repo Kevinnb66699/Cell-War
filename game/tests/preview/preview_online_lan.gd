@@ -45,13 +45,19 @@ func _process(_d: float) -> bool:
 		_panel.modulate.a = 1.0
 		return false
 	if _frames == WARMUP + 3:
+		## 「默认」摆成悬停态：看辉光（Kevin 2026-09-12 叮嘱）；真机是鼠标移上去才亮
+		for n in _panel.find_children("*", "Label", true, false):
+			if (n as Label).text == "默认":
+				CWStyle.link_hot(n as Label, true)
+		return false
+	if _frames == WARMUP + 5:
 		root.get_texture().get_image().save_png(_out + "_connect.png")
 		_panel._show_page(CWOnlinePanel.Page.LAN)
 		_panel._lan_ips.text = "192.168.1.5 · 10.0.0.7"   ## 无头机器上未必有局域网地址，摆两个看排版
 		_panel._set_status("端口 8611 开不起来（Already in use），多半已被占用，换一个")
 		return false
 	## 切页有 PAGE_FADE 淡入，等它走完再截，不然截到一张半透明的
-	if _frames == WARMUP + 3 + int(ceil(CWOnlinePanel.PAGE_FADE * 60.0)) + 4:
+	if _frames == WARMUP + 5 + int(ceil(CWOnlinePanel.PAGE_FADE * 60.0)) + 4:
 		root.get_texture().get_image().save_png(_out + "_lan.png")
 		return true
 	return false
