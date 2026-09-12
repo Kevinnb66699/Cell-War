@@ -198,21 +198,25 @@ static func chapters() -> Array:
 	var split := "，块内癌细胞均分。" if tune.anaerobic_split else "。"
 	var anaerobic: Array = [when + "结算【无氧呼吸】："]
 	if tune.anaerobic_block_coef != 0:
-		## -1 = 系数按人数分档（Kevin 2026-09-07：四人 2.0 / 六人 2.8）——
+		## 系数与指数都可能按人数分档（-1：系数 Kevin 2026-09-07、指数 PRD 2026-09-12）——
 		## 同有氧基数那条的写法：把每档都列出来，别只写一个数骗人
-		var coef_txt := ""
-		if tune.anaerobic_block_coef < 0:
+		## 一行放不下三档（正文栏 540px，护栏钉着），拆成「公式一行 + 各档一行」
+		if tune.anaerobic_block_coef < 0 or tune.anaerobic_block_exp < 0:
 			var cs: Array[String] = []
 			var cns: Array = CWData.ANAEROBIC_BLOCK_COEF_BY_PLAYERS.keys()
 			cns.sort()
 			for n in cns:
-				cs.append("%d 人局 %s" % [n, CWData.fmt(CWData.anaerobic_block_coef(n))])
-			coef_txt = "（" + "、".join(cs) + "）"
+				var e: int = tune.anaerobic_block_exp if tune.anaerobic_block_exp > 0 else CWData.anaerobic_block_exp(n)
+				var k: int = tune.anaerobic_block_coef if tune.anaerobic_block_coef > 0 else CWData.anaerobic_block_coef(n)
+				cs.append("%d 人 %.2f / %s" % [n, e / 100.0, CWData.fmt(k)])
+			anaerobic.append("块内癌组织个数的 指数 次方 × 系数，再加全图每格固化 %s" % CWData.fmt(tune.anaerobic_solid_bonus) + split)
+			anaerobic.append("指数 / 系数按人数：" + "，".join(cs) + "。")
 		else:
-			coef_txt = CWData.fmt(tune.anaerobic_block_coef)
-		anaerobic.append("块内癌组织个数的 %.2f 次方 × %s，再加全图每格固化 %s" % [
-			tune.anaerobic_block_exp / 100.0, coef_txt,
-			CWData.fmt(tune.anaerobic_solid_bonus)] + split)
+			anaerobic.append("块内癌组织个数的 %.2f 次方 × %s，再加全图每格固化 %s" % [
+				tune.anaerobic_block_exp / 100.0, CWData.fmt(tune.anaerobic_block_coef),
+				CWData.fmt(tune.anaerobic_solid_bonus)] + split)
+		if tune.anaerobic_floor > 0:
+			anaerobic.append("每个癌细胞至少拿 %s（下限）。" % CWData.fmt(tune.anaerobic_floor))
 		anaerobic.append("铺地的边际收益很平，固化则是全场一起吃 —— 攒固化比摊大饼划算。")
 	else:
 		anaerobic.append("所在连通块每格癌组织 %s、每格固化 %s" % [

@@ -359,7 +359,10 @@ static func stone_patch(ci: CanvasItem, a: Vector2, p: float) -> void:
 	while y <= 8:
 		var x := -13
 		while x <= 13:
-			if absf(float(x)) + absf(float(y)) * 0.6 <= 17.0 and posmod(x * 7 + y * 13 + 101, 23) <= p * 24.0:
+			## 露出顺序的散列要带交叉项：原来是 7x+13y 的线性式，同余的格子排成一条条斜线，
+			## 石粒散去时就成了「莫名其妙的白条」（HXR-I #27，2026-09-12）
+			if absf(float(x)) + absf(float(y)) * 0.6 <= 17.0 \
+					and posmod((x + 13) * 37 + (y + 9) * 101 + (x + 13) * (y + 9) * 7, 23) <= p * 24.0:
 				CWPix.px(ci, a + Vector2(x, y), STONE[posmod(x + y + 60, 3)], 3)
 			x += 3
 		y += 3

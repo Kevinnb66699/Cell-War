@@ -59,6 +59,7 @@ func e_phase() -> void:
 	_tick_necrosis()                         ## 8 「坏死」倒计时（同属第 8 步）
 	_tick_chemo()                            ## 8 树突【I-趋化源】倒计时（同属第 8 步）
 	_tick_chemo_track()                      ## 8 【免疫猎杀】的追踪趋化源倒计时（同属第 8 步）
+	_expire_marks()                          ## 8 树突【I-标记】到期：标记后第二次世界回合结算移除（PRD 2026-09-12，同属第 8 步）
 	_clear_newborn()                         ## 9 移除「新生」
 	_cap_energy()                            ## 9.5 能量上限（PRD 之外，见口径 #92）
 	## 10 胜利条件检查。免疫先判：PRD 的列举顺序如此，
@@ -718,7 +719,11 @@ func _anaerobic_pool(block: Array) -> float:
 			if game.tiles[c]["tissue"] == CWData.Tissue.CANCER:
 				plain += 1
 		var solid: int = game.count_tissue(CWData.Tissue.SOLID)
-		var exp_term := pow(float(plain), game.tune.anaerobic_block_exp / 100.0) if plain > 0 else 0.0
+		## 指数 -1 = 按人数取（四人 0.3 / 六人 0.35，PRD 2026-09-12）；>0 = 整体覆盖
+		var exp_pct: int = game.tune.anaerobic_block_exp
+		if exp_pct < 0:
+			exp_pct = CWData.anaerobic_block_exp(game.order.size())
+		var exp_term := pow(float(plain), exp_pct / 100.0) if plain > 0 else 0.0
 		return exp_term * float(coef) + float(solid * game.tune.anaerobic_solid_bonus)
 	var pool := 0.0
 	for c in block:
@@ -1067,6 +1072,23 @@ func _tick_necrosis() -> void:
 	for t in game.tiles.values():
 		if t["necrosis"] > 0:
 			t["necrosis"] -= 1
+
+
+## 【I-标记】的有效期（PRD 2026-09-12 覆盖版）：「被标记后第二次世界回合结算，【标记】被移除」——
+## 标记那一回合的 E 阶段算第一次，下一回合的 E 阶段算第二次，到点就摘。`mark_round` 是 apply_mark 写的施加回合
+## （「同一回合只给一次」那条也靠它）；没记的（测试手摆的）按本回合算，不会被提前摘。
+## 还贴着树突的癌细胞下一回合会再拿一次 —— 所以这条真正管的是离开了光环的那些。
+func _expire_marks() -> void:
+	for c in game.living_cells(CWData.Faction.CANCER):
+		if not c["marked"]:
+			continue
+		var born: int = int(c.get("mark_round", -1))
+		if born < 0:
+			born = game.round_no      ## 没记施加回合的（make_cell 默认 -1、测试手摆的）按本回合算
+		if game.round_no >= born + 1:
+			c["marked"] = false
+			c["mark_left"] = 0
+			game.log_msg("　%s 的【标记】到期移除" % game.cell_name(c))
 
 
 func _clear_newborn() -> void:

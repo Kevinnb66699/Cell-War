@@ -549,12 +549,12 @@ func _queue_triggers(results: Array) -> void:
 		dealt[key]["total"] += int(r["actual"])
 		if Tag.ATTACK in ev["tags"]:
 			dealt[key]["attack"] = true
-		## ③ 吸血 —— 巨噬【吞噬】：攻击造成能量损失后恢复 ⌈**受击方实际损失** ÷ 2⌉。
-		## PRD 这里的取整符号外面没写「到十分位」，所以按**整数能量**向上取整。
+		## ③ 吸血 —— 巨噬【吞噬】：攻击造成能量损失后恢复 **受击方实际损失** ÷ 2，**向上取整到十分位**
+		## （PRD 2026-09-12 覆盖版写明；此前 PRD 只有 ⌈…⌉，按整数能量取整）。
 		## 读 actual 而不是理论伤害 —— 残血目标身上两者能差出整整 1.0（审查附一）
 		if Tag.ATTACK in ev["tags"] and not (Tag.NO_LIFESTEAL in ev["tags"]) \
 				and src.get("itype", -1) == CWData.ImmuneType.MACRO:
-			var heal: int = int(ceil(r["actual"] / 2.0 / 10.0)) * 10
+			var heal: int = int(ceil(r["actual"] / 2.0))
 			_enqueue(Trigger.LIFESTEAL, Rank.PASSIVE, "吞噬", func() -> void:
 				src["energy"] += heal
 				game.log_msg("　巨噬【吞噬】恢复 %s 能量" % CWData.fmt(heal)))

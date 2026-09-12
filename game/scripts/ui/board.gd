@@ -684,8 +684,6 @@ func set_mucus(cells: Array) -> void:
 ## 坏死格的纹理（issue #15，2026-09-11；选稿 textures.js necrosis v0「灰色干枯」）：整格灰褐底、
 ## 两处短裂纹、两点淡色。此前坏死**根本没画**（只有悬停详情栏说一句），T 细胞放完毒素地上什么都看不出。
 ## 覆在组织贴图上、压在黏液膜下面；贴图**只烤一次**，理由同 _mucus_film。
-const NECRO_ORIGIN := Vector2i(16, 10)
-const NECRO_SIZE := Vector2i(33, 29)
 const Z_NECRO := 0
 
 
@@ -702,53 +700,33 @@ func set_necrosis(cells: Array) -> void:
 	for c: Vector2i in want:
 		if _necro_nodes.has(c) or not map.has(axial_to_rc(c)):
 			continue
+		## 整格覆盖（HXR-I #27，2026-09-12）：膜就是组织贴图的剪影，摆法照抄那一格的 Sprite
+		var t: Sprite2D = map[axial_to_rc(c)]["instance"]
 		var s := Sprite2D.new()
 		s.texture = _necrosis_film()
-		s.centered = false
-		s.position = tile_center(c) - Vector2(NECRO_ORIGIN)
+		s.centered = t.centered
+		s.offset = t.offset
+		s.position = t.position
 		s.z_index = tile_z(c, Z_NECRO)
 		_necro_root.add_child(s)
 		_necro_nodes[c] = s
 
 
+## 坏死膜：**纯色、整格**（HXR-I #27，2026-09-12；此前是 33×29 的灰褐纹理，盖不满格子还有花纹）。
+## 用健康组织贴图的透明度当剪影、填坏死的主色调 —— 贴图换了尺寸这里也跟着对。
 func _necrosis_film() -> ImageTexture:
 	if _necro_tex != null:
 		return _necro_tex
-	var img := Image.create(NECRO_SIZE.x, NECRO_SIZE.y, false, Image.FORMAT_RGBA8)
-	var base := Color("686761")
-	var dark := Color("393d3b")
-	var light := Color("939084")
-	## 选稿的 tissueHex：先铺侧面（−10..18 行），再铺顶面（−10..10 行），行宽按六边形收窄
-	for row in range(-10, 19):
-		var span := floori(16.0 - maxf(0.0, maxf(float(-row - 5), float(row - 13))) * 3.2)
-		_necro_line(img, -span, row, span, row, dark)
-	for row in range(-10, 11):
-		var span := floori(16.0 - maxf(0.0, float(absi(row) - 5)) * 3.2)
-		_necro_line(img, -span, row, span, row, base)
-	_necro_line(img, -9, -2, -3, 0, dark)
-	_necro_line(img, -3, 0, 2, -3, dark)
-	_necro_line(img, 5, 4, 10, 3, dark)
-	for j in 2:
-		for i in 2:
-			_necro_px(img, -8 + i, 4 + j, light)
-			_necro_px(img, 7 + i, -5 + j, light)
+	var src: Image = TISSUE_TEX[CWData.Special.NONE][0].get_image()
+	var img := Image.create(src.get_width(), src.get_height(), false, Image.FORMAT_RGBA8)
+	var ink := Color("686761")
+	for y in src.get_height():
+		for x in src.get_width():
+			var a := src.get_pixel(x, y).a
+			if a > 0.0:
+				img.set_pixel(x, y, Color(ink, a))
 	_necro_tex = ImageTexture.create_from_image(img)
 	return _necro_tex
-
-
-func _necro_line(img: Image, x0: int, y0: int, x1: int, y1: int, col: Color) -> void:
-	var n: int = maxi(maxi(absi(x1 - x0), absi(y1 - y0)), 1)
-	for i in range(n + 1):
-		var t := float(i) / float(n)
-		_necro_px(img, roundi(lerpf(x0, x1, t)), roundi(lerpf(y0, y1, t)), col)
-
-
-func _necro_px(img: Image, x: int, y: int, col: Color) -> void:
-	var px: int = x + NECRO_ORIGIN.x
-	var py: int = y + NECRO_ORIGIN.y
-	if px < 0 or py < 0 or px >= NECRO_SIZE.x or py >= NECRO_SIZE.y:
-		return
-	img.set_pixel(px, py, col)
 
 
 func _mucus_film() -> ImageTexture:

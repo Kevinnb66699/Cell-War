@@ -16,6 +16,7 @@ const RESPIRE_AT := Vector2i(-1, 0)
 const ANAEROBIC_AT := Vector2i(1, 0)
 const PULL_FROM := Vector2i(-1, 2)
 const PULL_TO := Vector2i(0, 2)
+const REVIVE_AT := Vector2i(0, 0)      ## 碎石重生（#27 白条）：固化格上复活
 var _out := "user://fx_cell"
 var _board: Node2D
 var _fx: CWSkillFx
@@ -79,6 +80,8 @@ func _setup_scene() -> void:
 		roots.append(_board.tile_center(n))
 	_fx.play("pseudopod", { "from": _board.tile_center(PULL_FROM), "to": _board.tile_center(PULL_TO),
 		"roots": roots, "from_body": p["body"], "r": p["r"], "cid": 7 })
+	_board.set_tissue(REVIVE_AT, CWData.Tissue.SOLID, CWData.Special.NONE, false, 1.0)
+	_fx.play("revive_cancer", { "at": _board.tile_center(REVIVE_AT) })
 
 
 func _process(d: float) -> bool:

@@ -354,8 +354,8 @@ func t_hit_order() -> void:
 	var dmg := g.immune_hit(target, 10, attacker)
 	check(dmg == 15, "1.0 ×2(标记) −0.5(囊性护甲) = 1.5")
 	check(target["energy"] == 35, "目标余 3.5")
-	## 巨噬【吞噬】= ⌈受击方损失 ÷ 2⌉，取整符号外没写「到十分位」→ 按整数能量
-	check(attacker["energy"] == before_atk + 10, "巨噬吞噬 ⌈1.5÷2⌉ = 1.0")
+	## 巨噬【吞噬】= 受击方损失 ÷ 2，向上取整到十分位（PRD 2026-09-12；此前按整数能量取整 → 1.0）
+	check(attacker["energy"] == before_atk + 8, "巨噬吞噬 1.5÷2 = 0.75 → 0.8")
 	check(not target["marked"], "标记已消耗")
 	var dmg2 := g.immune_hit(target, 10, attacker)
 	check(dmg2 == 10, "囊性护甲每世界回合仅一次，第二击不减免")
@@ -615,6 +615,7 @@ func t_anaerobic_round() -> void:
 	## 以下切回线性对照档（团队 2026-09-04 之前的规则）——
 	## 那套的取整口径、固化双倍权重、瓦伯格 110% 都还得有测试盯着
 	g.tune.anaerobic_block_coef = 0
+	g.tune.anaerobic_floor = 0     ## 对照档不带 PRD 2026-09-12 的 2.0 兜底：这一段测的是均分与取整，兜底另有断言（t_anaerobic_sqrt）
 	g.cells[0]["energy"] = 0
 	g.cells[1]["energy"] = 0
 	g.world._anaerobic()
@@ -1369,7 +1370,23 @@ func t_skill_fx() -> void:
 	## ③ 坏死纹理：一格一张 Sprite、贴图 33×29、收得掉；黏液喷射十二向；巨噬扑咬会弹回并自己收场
 	var bd := make_board()
 	bd.set_necrosis([Vector2i.ZERO, Vector2i(1, 0)])
-	check(bd._necro_nodes.size() == 2 and bd._necrosis_film().get_size() == Vector2(33, 29), "坏死：两格两张、贴图 33×29")
+	## 坏死膜纯色整格（HXR-I #27，2026-09-12）：尺寸 = 组织贴图、剪影 = 组织贴图的透明度、颜色只有一种
+	var film: Image = bd._necrosis_film().get_image()
+	var tissue: Image = bd.TISSUE_TEX[CWData.Special.NONE][0].get_image()
+	var same_shape := film.get_size() == tissue.get_size()
+	var one_ink := true
+	var opaque := 0
+	for y in film.get_height():
+		for x in film.get_width():
+			var f := film.get_pixel(x, y)
+			if (f.a > 0.0) != (tissue.get_pixel(x, y).a > 0.0):
+				same_shape = false
+			if f.a > 0.0:
+				opaque += 1
+				if not f.is_equal_approx(Color(Color("686761"), f.a)):
+					one_ink = false
+	check(bd._necro_nodes.size() == 2 and same_shape and one_ink and opaque > 500,
+		"坏死：两格两张、膜和组织贴图同形（%d 个不透明像素）、纯色 686761" % opaque)
 	bd.set_necrosis([])
 	check(bd._necro_nodes.is_empty(), "坏死消了贴图就收")
 	bd.free()
@@ -1574,6 +1591,8 @@ func t_tumor_stages() -> void:
 	## ② 固化门槛：III 期 2.0，raise_solid 到 2.0 就转
 	g.round_no = 1
 	check(g.solidify_threshold() == 30, "I 期门槛 3.0")
+	g.round_no = 6
+	check(g.solidify_threshold() == 20, "II 期门槛 2.0（PRD 2026-09-12 把 2.0 提前到 II 期）")
 	g.round_no = 11
 	check(g.solidify_threshold() == 20, "III 期门槛 2.0")
 	var c2 := Vector2i.MAX
@@ -1806,16 +1825,16 @@ func t_macro_purify_heal() -> void:
 	check(CWData.MACRO_MOVE_NET_MIN == 1, "净支出下限 0.1")
 	## 2026-09-04：团队覆盖 PRD 正本时把定案①② 换回了旧文案，Kevin 定「以最新版 PRD 为标准」
 	## → 两个默认值回到 PRD 值，定案①② 的值只剩旋钮能扫回来（mheal=0 / mvx=7）
-	check(CWData.MACRO_HEAL_PURIFY == 3 and CWTuning.new().macro_heal_purify == 3,
-		"默认与 PRD 一致：吞噬每次净化回 0.3（定案① 的 0 用 mheal=0 扫回）")
+	check(CWData.MACRO_HEAL_PURIFY == 2 and CWTuning.new().macro_heal_purify == 2,
+		"默认与 PRD 一致：吞噬每次净化回 0.2（PRD 2026-09-12 覆盖版 0.3 → 0.2；定案① 的 0 用 mheal=0 扫回）")
 	## 2026-09-09 晚 Kevin 给了新分档：**II 级 0.8、III 级 0.7**（I 级 1.0 是基准价，没有减免）。
 	## **X 级不再另有减免**（同日确认「删了」）—— 等级只升不降、好处累加，所以 X 沿用 III 那档。
-	check(CWData.IMMUNE_MOVE_CANCEROUS == [10, 8, 7, 7] and CWTuning.new().immune_move_cancerous[3] == 7,
-		"默认与 PRD 一致：迁移到癌性组织 1.0 / 0.8 / 0.7 / 0.7（X 级的额外减免已删）")
-	## 走一格癌组织，返回「这一步净花了多少」。封顶逻辑按 PRD 的 0.3 测 —— 定案 ① 后默认 0，得显式拨回
+	check(CWData.IMMUNE_MOVE_CANCEROUS == [10, 8, 8, 8] and CWTuning.new().immune_move_cancerous[3] == 8,
+		"默认与 PRD 一致：迁移到癌性组织 1.0 / 0.8 / 0.8 / 0.8（PRD 2026-09-12 删了 III 级的 0.7）")
+	## 走一格癌组织，返回「这一步净花了多少」。封顶逻辑按 PRD 的 0.2 测（显式拨上，别依赖默认）
 	var net := func(paid: int, skills: Array) -> int:
 		var g := bare_game()
-		g.tune.macro_heal_purify = 3
+		g.tune.macro_heal_purify = 2
 		var to := Vector2i(1, 0)
 		g.tiles[to]["tissue"] = CWData.Tissue.CANCER
 		var m := put_immune(g, Vector2i.ZERO)
@@ -1829,16 +1848,16 @@ func t_macro_purify_heal() -> void:
 		var out: int = before - m["energy"]
 		g.dispose()
 		return out
-	check(await net.call(7, []) == 4, "实付 0.7：回满 0.3，净花 0.4")
-	check(await net.call(5, []) == 2, "实付 0.5：回满 0.3，净花 0.2")
-	check(await net.call(4, []) == 1, "实付 0.4：回满 0.3，净花 0.1（正好卡在下限）")
-	check(await net.call(3, []) == 1, "实付 0.3：回能压到 0.2，净花 0.1")
+	check(await net.call(7, []) == 5, "实付 0.7：回满 0.2，净花 0.5")
+	check(await net.call(5, []) == 3, "实付 0.5：回满 0.2，净花 0.3")
+	check(await net.call(4, []) == 2, "实付 0.4：回满 0.2，净花 0.2")
+	check(await net.call(3, []) == 1, "实付 0.3：回满 0.2，净花 0.1（正好卡在下限）")
 	check(await net.call(2, []) == 1, "实付 0.2（减免地板）：回能压到 0.1，净花 0.1 —— 不再是 0")
 	check(await net.call(1, []) == 1, "实付 0.1：一点都不回，净花 0.1")
 	## **两个边界 2026-09-08 反过来了**（云端修订版写明「每通过【迁移】触发一次【净化】」，
 	## 并单列「免费迁移触发净化时恢复 0.3」）：
 	## 免费迁移原来被封顶压成 0，现在回满；传送/蹲守那类原来回满，现在一分不回。
-	check(await net.call(0, []) == -3, "免费迁移：回满 0.3，净赚（PRD 单列的一条）")
+	check(await net.call(0, []) == -2, "免费迁移：回满 0.2，净赚（PRD 单列的一条）")
 	check(await net.call(-1, []) == 0,
 		"paid=-1（传送 / 复活 / 血管 / 卡牌位移 / 蹲守净化）：不是【迁移】触发的，一分不回")
 	## 旋钮 macro_heal_purify（2026-09-02 后期引擎对比表杠杆①）：0 = 吞噬回能不适用于净化
@@ -1959,7 +1978,8 @@ func t_anaerobic_sqrt() -> void:
 	check(g.tune.anaerobic_block_coef == -1
 		and CWData.anaerobic_block_coef(4) == 20 and CWData.anaerobic_block_coef(6) == 28
 		and CWData.anaerobic_block_coef(5) == CWData.ANAEROBIC_BLOCK_COEF
-		and g.tune.anaerobic_block_exp == CWData.ANAEROBIC_BLOCK_EXP
+		and g.tune.anaerobic_block_exp == -1 and CWData.anaerobic_block_exp(4) == 30
+		and CWData.anaerobic_block_exp(6) == 35 and CWData.anaerobic_block_exp(5) == CWData.ANAEROBIC_BLOCK_EXP
 		and g.tune.anaerobic_solid_bonus == CWData.ANAEROBIC_SOLID_BONUS,
 		"默认 = 常量：系数 %s / 指数 0.%d / 每格固化 %s" % [
 			CWData.fmt(CWData.ANAEROBIC_BLOCK_COEF), CWData.ANAEROBIC_BLOCK_EXP,
@@ -1967,6 +1987,19 @@ func t_anaerobic_sqrt() -> void:
 	check(CWData.ANAEROBIC_BLOCK_EXP == 30 and CWData.ANAEROBIC_BLOCK_COEF == 28
 		and CWData.ANAEROBIC_SOLID_BONUS == 10,
 		"Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2.8 + 全图固化数 × 1.0")
+	## PRD 2026-09-12 覆盖版：六人局指数 0.35（四人仍 0.3）；每个癌细胞兜底 2.0（公式外面的 max{2, …}）
+	var g6 := make_game(6, 3)
+	g6.setup.build_board()
+	var keys6: Array = g6.tiles.keys()
+	var blk6: Array = []
+	for k in 10:
+		blk6.append(keys6[k])
+		g6.tiles[keys6[k]]["tissue"] = CWData.Tissue.CANCER
+	check(is_equal_approx(g6.world._anaerobic_pool(blk6), _pool_of(10, 0, 6)) and _pool_of(10, 0, 6) > _pool_of(10, 0, 4) * 1.3,
+		"六人局 10 格块：10^0.35 × 2.8 = %.1f（四人局 10^0.3 × 2.0 = %.1f）" % [_pool_of(10, 0, 6), _pool_of(10, 0, 4)])
+	check(g6.world._split_share(5.0, 4) == CWData.ANAEROBIC_FLOOR and g6.world._split_share(100.0, 4) == 25,
+		"挤 4 个细胞的小块：每人兜底 2.0；够分的照旧均分")
+	g6.dispose()
 
 	## 取一块普通癌组织，逐格核对指数项（全图没有固化时第二项为 0）
 	var keys: Array = g.tiles.keys()
@@ -4903,6 +4936,20 @@ func t_prd_online_0907() -> void:
 	g.round_no += 1
 	g.update_marks()
 	check(cc["marked"], "下一个世界回合可以再拿一次")
+	## 有效期（PRD 2026-09-12 覆盖版）：标记那一回合的 E 阶段是第一次结算、下一回合的是第二次，到点摘掉
+	var born: int = int(cc["mark_round"])
+	g.round_no = born
+	g.world._expire_marks()
+	check(cc["marked"], "标记当回合的结算不摘")
+	g.round_no = born + 1
+	g.world._expire_marks()
+	check(not cc["marked"] and int(cc["mark_left"]) == 0, "第二次世界回合结算：标记到期移除")
+	var loose := CWSetup.make_cell(2, 1, CWData.Faction.CANCER, Vector2i(3, 0), -1, CWData.CancerType.SCLC, 100)
+	loose["marked"] = true
+	loose["mark_left"] = 1
+	g.cells.append(loose)
+	g.world._expire_marks()
+	check(loose["marked"], "没记施加回合的标记（测试手摆的）按本回合算，不会被提前摘")
 	g.dispose()
 
 	## ③ 【骨样硬化】标记格上的蹲守净化：从「下一回合 S 阶段」挪到**本回合 E 阶段**
@@ -12221,8 +12268,8 @@ func t_card_perms() -> void:
 	_rig_roll(g, 6, [3])
 	await g.actions._do_move(ph, Vector2i(1, 0), 0)
 	check(not pv["alive"], "吞噬体成熟：目标剩 1.2 ≤ 1.5，直接死亡")
-	check(ph["energy"] == ph0 - ph_fee + 10 + CWData.SKILL_HEAL,
-		"巨噬吸血 1.0（⌈2.0/2⌉）+ 吞噬体回 0.5")
+	check(ph["energy"] == ph0 - ph_fee + 5 + CWData.SKILL_HEAL,
+		"巨噬吸血 0.5（1.0 ÷ 2，取整到十分位）+ 吞噬体回 0.5")
 	g.dispose()
 
 	## ⑭ 细胞毒性增强：T 细胞每次成功 +1.0 且无视减伤（囊性护甲拦不住那 1.0）
@@ -14411,14 +14458,14 @@ func t_batch2_rules() -> void:
 ## `n_players` 不能省：系数 2026-09-07 起**按人数分档**（四人 2.0 / 六人 2.8），
 ## 拿默认的 2 人去算四人局的期望值会差 40%（当天就这么红过一次）。
 static func _pool_of(plain: int, solid_all: int, n_players := 2) -> float:
-	var term := pow(float(plain), CWData.ANAEROBIC_BLOCK_EXP / 100.0) if plain > 0 else 0.0
+	var term := pow(float(plain), CWData.anaerobic_block_exp(n_players) / 100.0) if plain > 0 else 0.0
 	var solid_part := float(solid_all * CWData.ANAEROBIC_SOLID_BONUS)
 	return term * float(CWData.anaerobic_block_coef(n_players)) + solid_part
 
 
-## 池子按 k 个癌细胞均分，四舍五入到十分位（口径同 CWWorld._split_share）
+## 池子按 k 个癌细胞均分，四舍五入到十分位，再兜底 2.0（口径同 CWWorld._split_share；PRD 2026-09-12 的 max{2, …}）
 static func _share(pool: float, k: int) -> int:
-	return int(round(pool / float(k)))
+	return maxi(int(round(pool / float(k))), CWData.ANAEROBIC_FLOOR)
 
 
 ## 选项里有没有指向某一格的目标（卡牌选项把目标放在 data["to"]）
@@ -14725,8 +14772,8 @@ func _t_dmg_actual_not_theoretical() -> void:
 	var before: int = mac["energy"]
 	## 理论伤害 = 2.0 ×2(标记) = 4.0，但目标只有 0.5 可失去
 	check(g.immune_hit(t, 20, mac, true) == 5, "immune_hit 返回实际损失 0.5，不是理论的 4.0")
-	check(mac["energy"] - before == 10,
-		"巨噬【吞噬】按实际损失回 ⌈0.5÷2⌉ = 1.0（旧版按理论伤害回 2.0）")
+	check(mac["energy"] - before == 3,
+		"巨噬【吞噬】按实际损失回 0.5÷2 = 0.25 → 0.3（向上取整到十分位，PRD 2026-09-12；旧版按理论伤害回 2.0）")
 	g.dispose()
 
 

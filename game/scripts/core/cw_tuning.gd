@@ -137,7 +137,7 @@ var osteo_ossify_rounds := CWData.OSTEO_OSSIFY_ROUNDS
 ## 【分化】解锁所需的免疫等级下标（2 = III 级 = PRD 原值）；difflv=1 可扫「下调到 II 级」那一档。
 var differentiate_min_level := CWData.DIFFERENTIATE_MIN_LEVEL
 
-var anaerobic_floor := 0
+var anaerobic_floor := CWData.ANAEROBIC_FLOOR   ## 每个癌细胞每次至少拿 2.0（PRD 2026-09-12 的 max{2, …}）；0 = 不兜底
 var anaerobic_cap := CWData.ANAEROBIC_CAP     ## 999.0 = 形同不封顶（口径 #92）
 var aerobic_floor := CWData.AEROBIC_FLOOR     ## 2.0（口径 #89）——别贴到 3.0，那是公式上界
 var aerobic_cap := 0
@@ -320,7 +320,7 @@ var world_events_on := false
 ## 【E-无氧呼吸】现行公式（Kevin 2026-09-07）：
 ##   `(块内普通癌组织数 ^ (exp/100) × coef + 全图固化数 × solid_bonus) ÷ 块内癌细胞数`
 ## 三个旋钮都是给扫描拨的；**coef = 0 = 关 = 09-04 之前的线性求和**（对照档）。见 CWWorld._anaerobic_pool()。
-var anaerobic_block_exp := CWData.ANAEROBIC_BLOCK_EXP
+var anaerobic_block_exp := -1    ## -1 = 按人数取（四人 0.3 / 六人 0.35，PRD 2026-09-12）；>0 = 所有人数统一成这个百分数
 ## 无氧指数项的系数（十分能量）。**-1 = 按人数取**（`CWData.anaerobic_block_coef`：
 ## 四人 2.0 / 六人 2.8，Kevin 2026-09-07 定的分档）；>0 = 所有人数统一成这个值（balance_scan 的 `asqrt=`）；
 ## 0 = 退回 09-04 之前的线性求和（对照档）。
