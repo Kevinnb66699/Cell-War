@@ -423,6 +423,13 @@ func _ready() -> void:
 		start()
 
 
+## 教程开局时棋盘该露几环 = 当前进行到的那一关的半径。main.gd 在推镜头**之前**就按它把半径外的格淡掉，
+## 免得相机推到位之后棋盘才「猛地缩小」（Kevin 2026-09-11）；start() 里再设一次是幂等的。
+static func tutorial_board_radius() -> int:
+	var ch := clampi(CWGuideProgress.done_count(), 0, CWGuideData.CHAPTER_COUNT - 1)
+	return CWGuideLevels.radius(ch)
+
+
 ## snap 非空 = 从存档继续：装配完把快照原样放回去，run_game 会把存档那一刻
 ## 待决的询问重新问出来（恢复点必然是 pending 边界，CWSave 只在那儿写得出档）。
 func start(snap: Dictionary = {}) -> void:
@@ -455,9 +462,9 @@ func start(snap: Dictionary = {}) -> void:
 
 
 ## 对局信号绑定（start 与教程跨章换局共用）：换的是新 CWGame，四个信号逐一接上；
-## 棋盘网格也按新局的半径重建（教程小棋盘，正式局 127 格不变）。
+## 棋盘按新局的半径遮罩（教程小棋盘：127 格常驻、半径外淡掉；正式局全露）。
 func _bind_game_signals() -> void:
-	board.build_for(game.board_radius)
+	board.set_active_radius(game.board_radius)
 	if not game.card_played.is_connected(_on_card_played):
 		game.card_played.connect(_on_card_played)
 	if not game.event_drawn.is_connected(_on_event_drawn):
@@ -1015,6 +1022,8 @@ func fade_out(seconds: float) -> void:
 	_fading = true
 	board.set_marks({})                      ## 高亮自己会淡掉
 	board.fade_to_healthy(seconds)
+	## 教程小棋盘：半径外的格随镜头退回一起淡回来 —— 菜单要站在 127 格上（Kevin 2026-09-11）
+	board.set_active_radius(CWData.BOARD_RADIUS, seconds)
 	if _cells_root != null:
 		var tw := _cells_root.create_tween()
 		tw.tween_property(_cells_root, "modulate:a", 0.0, seconds)
@@ -1095,6 +1104,7 @@ func teardown() -> void:
 	_last_pos.clear()
 	_bloom.clear()
 	_flash.clear()
+	board.set_active_radius(CWData.BOARD_RADIUS, 0.0)   ## 兜底：不管从哪条路拆局，棋盘都回到 127 格全露
 	_erosion_fx.clear_all()
 	_hand_seen.clear()
 	_hand_pid = -1

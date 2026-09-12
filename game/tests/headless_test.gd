@@ -7003,35 +7003,36 @@ func t_store_ring() -> void:
 	g.dispose()
 
 
-## 教程小棋盘：`build_for(r)` 重铺格网后，行列换算、特殊组织下标、进度环节点都要跟着新半径走
-## （Kevin 2026-09-11 截图：细胞漂在棋盘外 —— axial_to_rc 曾写死正式半径 6）。
+## 教程小棋盘 = 127 格常驻 + 半径外遮罩（Kevin 2026-09-11 拍板：重铺格网会在过场里「猛地缩小」、返场又没换回来）。
 func t_board_small() -> void:
-	print("[教程小棋盘的格网换算]")
-	var full := make_board()
-	var origin_full: Vector2 = full.tile_center(Vector2i.ZERO)
+	print("[教程小棋盘的遮罩]")
 	var bd := make_board()
-	bd.build_for(1)
-	check(bd.map.size() == 7, "build_for(1) → 7 格（实为 %d）" % bd.map.size())
-	check(bd.tile_center(Vector2i.ZERO) == origin_full and bd.tile_center(Vector2i(1, 0)) != Vector2.ZERO,
-		"半径 1 的格都能查到像素位置，且中央格钉在和正式盘同一个像素上（棋盘在画面中间，Kevin 2026-09-11）：%s vs %s"
-		% [str(bd.tile_center(Vector2i.ZERO)), str(origin_full)])
-	check(bd.tile_center(Vector2i(2, 0)) == Vector2.ZERO and bd.hex_at(Vector2(9999, 9999)) == bd.NO_TILE,
-		"圈外坐标查不到（不会把小棋盘外的格误当成存在）")
-	for c in CWData.all_coords(1):
-		check(bd.hex_at(bd.tile_center(c)) == c, "像素 ↔ 轴坐标来回：%s" % str(c))
-	## fixture 可以把特殊组织摆在任意格：小棋盘每格都有进度环节点，set_store 不会静默跳过
+	var origin_full: Vector2 = bd.tile_center(Vector2i.ZERO)
+	bd.set_active_radius(1, 0.0)
+	var shown := 0
+	for c in CWData.all_coords():
+		if bd.tile_shown(c):
+			shown += 1
+	check(bd.map.size() == 127 and shown == 7 and bd.active_radius == 1,
+		"半径 1：格网仍是 127 格，只露 7 格（露了 %d）" % shown)
+	check(bd.tile_center(Vector2i.ZERO) == origin_full and bd.tile_center(Vector2i(3, 0)) != Vector2.ZERO,
+		"中央格像素不变、圈外的格照样能查位置（只是看不见）")
+	check(bd.hex_at(bd.tile_center(Vector2i(1, 0))) == Vector2i(1, 0)
+		and bd.hex_at(bd.tile_center(Vector2i(2, 0))) == bd.NO_TILE,
+		"点选只认活跃半径内的格：(1,0) 点得到、(2,0) 点不到")
+	## fixture 可以把特殊组织摆在任意格：进度环第一次要画时懒建，set_store 不再静默跳过
 	bd.set_tissue(Vector2i(1, 0), CWData.Tissue.HEALTHY, CWData.Special.CORE)
 	bd.set_store(Vector2i(1, 0), 0.5, CWData.Special.CORE)
 	var ring: Sprite2D = (bd.map[bd.axial_to_rc(Vector2i(1, 0))]["instance"] as Sprite2D).get_node_or_null("StoreRing")
-	check(ring != null and ring.visible, "小棋盘上任意格都能画进度环")
-	## 换回正式 127 格：格数与中央格位置都回到原样
-	bd.build_for(CWData.BOARD_RADIUS)
-	check(bd.map.size() == 127 and bd.tile_center(Vector2i.ZERO) == origin_full,
-		"build_for(6) → 127 格，中央格位置与新建的棋盘一致（%s vs %s）" % [str(bd.tile_center(Vector2i.ZERO)), str(origin_full)])
-	check(bd.marrow_position.size() == CWData.MARROWS.size() and bd.energy_position.size() == CWData.CORES.size(),
-		"特殊组织下标随格网重算：正式盘 %d 骨髓 / %d 核心" % [bd.marrow_position.size(), bd.energy_position.size()])
+	check(ring != null and ring.visible, "任意格都能画进度环（懒建）")
+	bd.set_active_radius(CWData.BOARD_RADIUS, 0.0)
+	shown = 0
+	for c in CWData.all_coords():
+		if bd.tile_shown(c):
+			shown += 1
+	check(shown == 127 and bd.hex_at(bd.tile_center(Vector2i(6, 0))) == Vector2i(6, 0),
+		"换回正式半径：127 格全露、边缘格又点得到")
 	bd.queue_free()
-	full.queue_free()
 
 
 ## 固化计数的石化贴图族（Kevin 2026-09-09 选定「结晶核扩散」）。
@@ -9135,11 +9136,17 @@ func t_tutorial() -> void:
 	check(m.game.cell_of(0)["alive"] and m.game.cell_of(0)["pos"] == Vector2i.ZERO
 		and not m.game.cell_of(1)["alive"],
 		"免疫细胞按 fixture 在 (0,0)、癌方是死亡占位（免疫视角关）")
-	## 小棋盘的视觉格网要和引擎坐标对得上（Kevin 2026-09-11 截图：细胞漂在棋盘外）——
-	## axial_to_rc 从前写死正式半径 6，build_for(1) 之后 (0,0) 查不到格、tile_center 退回原点
-	check(m.board.map.size() == 7 and m.board.tile_center(Vector2i.ZERO) != Vector2.ZERO
+	## 小棋盘 = 127 格常驻 + 半径外遮罩（Kevin 2026-09-11）：圈内看得见点得到、圈外淡掉；淡出要走完 ACTIVE_FADE
+	await create_timer(0.6).timeout
+	check(m.board.active_radius == 1 and m.board.map.size() == 127
+		and m.board.tile_shown(Vector2i(1, -1)) and not m.board.tile_shown(Vector2i(2, 0))
 		and m.board.hex_at(m.board.tile_center(Vector2i(1, -1))) == Vector2i(1, -1),
-		"7 格小棋盘：中央格有真实坐标、像素 ↔ 轴坐标能来回")
+		"7 格小棋盘：格网仍是 127 格，半径外淡掉、点不到；圈内照常")
+	check(CWMatch.tutorial_board_radius() == CWGuideLevels.radius(clampi(CWGuideProgress.done_count(), 0, CWGuideData.CHAPTER_COUNT - 1)),
+		"tutorial_board_radius 读的是当前进行到的那一关")
+	var main_src := FileAccess.get_file_as_string("res://scripts/ui/main.gd")
+	check(main_src.contains("set_active_radius(CWMatch.tutorial_board_radius()"),
+		"教程开局在推镜头**之前**就按当前关半径遮罩棋盘（不然镜头到位后棋盘才猛地缩小）")
 	var cell_node0: Node2D = m._cell_nodes[0]
 	check(is_equal_approx(cell_node0.position.x, m.board.tile_center(Vector2i.ZERO).x)
 		and is_equal_approx(cell_node0.position.y, m.board.tile_center(Vector2i.ZERO).y + CWMatch.CELL_FOOT_DY),
@@ -9291,6 +9298,8 @@ func t_tutorial() -> void:
 	await process_frame
 	check(m._guide == null and m._spotlight == null and not m._codex.visible and not m.pause_menu.codex_open.is_valid(),
 		"拆局：面板与提亮层销毁、书隐藏、让位判据清空")
+	check(m.board.active_radius == CWData.BOARD_RADIUS and m.board.tile_shown(Vector2i(6, 0)),
+		"拆局把 127 格全部放回来（菜单装饰要站在正式盘上，Kevin 2026-09-11）")
 	## 正式局不带引导：同一个 CWMatch 复用
 	m.tutorial = false
 	m.start()

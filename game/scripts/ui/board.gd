@@ -83,9 +83,7 @@ var marrow_position = []
 
 ## 轴坐标 (q,r) → 本文件的「行,列」下标。
 ## 中间那一行是 r=0，行内 q 自左向右递增；r 每 +1 往下走一行，整行同时右移半格。
-## ⚠ ring 必须跟着**当前格网**走，不能写死正式半径 6：教程小棋盘由 build_for() 按小半径重铺格网，
-## 换算若仍按 6 算，(0,0) 会落到一个不存在的行列 —— tile_center 退回原点、set_tissue 静默跳过，
-## 于是细胞漂在棋盘外、7 格全是默认贴图（Kevin 2026-09-11 截图）。
+## ring 取当前格网的最大环号（格网只在 _ready 铺一次、恒为正式盘；教程小棋盘靠遮罩，不重铺）。
 func axial_to_rc(a: Vector2i) -> Vector2:
 	var ring: int = radius - 1
 	var q_min: int = -ring if a.y >= 0 else -ring - a.y      ## 这一行最左边那格的 q
@@ -122,7 +120,7 @@ func hex_at(p: Vector2) -> Vector2i:
 	var squash: float = distance_x * sqrt(3.0) / 2.0 / distance_y
 	var best := NO_TILE
 	var best_d: float = distance_x / sqrt(3.0)
-	for c in CWData.all_coords(radius - 1):
+	for c in CWData.all_coords(active_radius):   ## 遮罩掉的格点不到（教程小棋盘）
 		var d: Vector2 = p - tile_center(c)
 		var dist := Vector2(d.x, d.y * squash).length()
 		if dist < best_d:
@@ -490,7 +488,12 @@ func set_store(a: Vector2i, frac: float, special: int, tissue: int = CWData.Tiss
 	var show: bool = frac >= 0.0 and STORE_LIT.has(special)
 	var ring := t.get_node_or_null("StoreRing") as Sprite2D
 	if ring == null:
-		return
+		if not show:
+			return
+		## 正式盘只给 9 个核心 / 骨髓预建了环；教程 fixture 会把特殊组织摆在任意格
+		##（guide_levels.gd 的 tile_extras），第一次要画时再建（2026-09-11）
+		_add_store_ring(t)
+		ring = t.get_node("StoreRing") as Sprite2D
 	ring.visible = show
 	if not show:
 		return
@@ -535,10 +538,7 @@ func new_tissue(i, j, x, y):
 	var new_t = TISSUE.instantiate()
 	new_t.position = Vector2(x, y)
 	new_t.z_index = y
-	## 正式 127 格只给 9 个核心 / 骨髓挂进度环；教程小棋盘的 fixture 会把特殊组织摆在任意格
-	##（guide_levels.gd 的 tile_extras），所以小棋盘每格都挂 —— 最多 61 格，养得起
-	if Vector2(i, j) in energy_position or Vector2(i, j) in marrow_position \
-			or radius != CWData.BOARD_RADIUS + 1:
+	if Vector2(i, j) in energy_position or Vector2(i, j) in marrow_position:
 		_add_store_ring(new_t)
 	if Vector2(i, j) in vessel_position:
 		new_t.texture = VESSELH
@@ -580,31 +580,40 @@ func _ready():
 	move_child(_mucus_root, _marks.get_index())
 
 
-## 按棋盘半径重建组织格网格（教程小棋盘用；正式局仍是 127 格一张不变）。
-## Main 只有一张棋盘，教程跨章换半径时全量重建：先清旧格、复位游标、再铺新格。
-func build_for(board_radius: int) -> void:
-	var want: int = board_radius + 1
-	if want == radius and not map.is_empty():
-		return
-	for key in map:
-		var t: Node = map[key]["instance"]
-		if t != null:
-			t.queue_free()
-	map.clear()
-	radius = want
-	## 特殊组织的行列下标随格网换算（axial_to_rc 按新半径算；圈外的坐标不铺格，先滤掉）
-	var inside := func(c: Vector2i) -> bool: return CWData.is_on_board(c, radius - 1)
-	vessel_position = CWData.VESSELS.filter(inside).map(axial_to_rc)
-	energy_position = CWData.CORES.filter(inside).map(axial_to_rc)
-	marrow_position = CWData.MARROWS.filter(inside).map(axial_to_rc)
-	## 格网的起点要按半径推：正式 127 格从 (-100, -120) 铺起，中央格落在 (8, 0)；
-	## 小棋盘若也从 (-100, -120) 铺，中央格会往左上跑（半径 1 时跑到 (-82, -100)），
-	## 相机看的是中央格，整块棋盘就偏到画面左上（Kevin 2026-09-11：「把棋盘移到地图中间」）。
-	## 每少一环，起点就往右下挪半格宽 / 一格高，中央格永远钉在同一个像素上。
-	var shrink: int = CWData.BOARD_RADIUS - (radius - 1)
-	first_x = -100 + distance_x / 2.0 * shrink
-	first_y = -120 + distance_y * shrink
-	_grid()
+## 教程小棋盘：**不重铺格网，只遮罩**（Kevin 2026-09-11 拍板）。127 格常驻，半径外的格淡掉、点不到；
+## 中央格永远是同一块贴图，机位 / 绽开 / 菜单装饰全部照旧，教程跨章换半径也只是淡进淡出。
+## 09-10 的第一版是按半径**重铺**格网：开局相机推完才重铺、画面「猛地缩小」，返场又没换回来，
+## 菜单就站在 7 格棋盘上、装饰细胞全落到原点（Kevin 当天报的两个现象）。
+## seconds = 0 立即到位（无头测试 / 拆局兜底）；淡出的格连同挂在它上面的进度环一起淡（modulate 继承）。
+const ACTIVE_FADE := 0.45
+var active_radius: int = CWData.BOARD_RADIUS   ## 当前看得见、点得到的最大环号
+var _active_tws := {}   ## 格坐标 -> 正在跑的淡入淡出补间；换向时先杀掉上一条，别让两条抢同一个 alpha
+
+func set_active_radius(board_radius: int, seconds: float = ACTIVE_FADE) -> void:
+	board_radius = clampi(board_radius, 0, CWData.BOARD_RADIUS)
+	active_radius = board_radius
+	for c in CWData.all_coords():
+		var key := axial_to_rc(c)
+		if not map.has(key):
+			continue
+		var tile: Sprite2D = map[key]["instance"]
+		var want: float = 1.0 if CWData.hex_dist(c, Vector2i.ZERO) <= board_radius else 0.0
+		var running: Tween = _active_tws.get(c)
+		if running != null and running.is_valid():
+			running.kill()
+		_active_tws.erase(c)
+		if seconds <= 0.0 or not is_inside_tree() or is_equal_approx(tile.modulate.a, want):
+			tile.modulate.a = want
+			continue
+		var tw := tile.create_tween()
+		tw.tween_property(tile, "modulate:a", want, seconds)
+		_active_tws[c] = tw
+
+
+## 这一格此刻在画面上吗（淡出补间走完后为假）。测试与拆局核对用。
+func tile_shown(c: Vector2i) -> bool:
+	var key := axial_to_rc(c)
+	return map.has(key) and (map[key]["instance"] as Sprite2D).modulate.a > 0.001
 
 
 func _grid() -> void:
