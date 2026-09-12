@@ -18,7 +18,7 @@
 ## 颜色走免疫青（同趋化源，都是免疫方的东西）。两者不会混淆：
 ## 趋化源是**一格**上的密集漩涡，这只是**一片**上的稀疏流动，形状完全不同。
 ##
-## 想看效果：`tests/preview_mark_aura.gd`（真渲染，连拍几帧）。
+## 想看效果：`tests/preview/preview_mark_aura.gd`（真渲染，连拍几帧）。
 class_name CWMarkAuraFx
 extends Node2D
 

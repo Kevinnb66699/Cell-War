@@ -2681,7 +2681,7 @@ func t_hotseat() -> void:
 	main_scene.free()
 
 
-# ---- 传送演出：状态差分判传送、残影/真身各自的材质与时序、拆局清干净、开关（规格 docs/动画规格_传送.md） ----
+# ---- 传送演出：状态差分判传送、残影/真身各自的材质与时序、拆局清干净、开关（规格 docs/archive/动画规格_传送.md） ----
 func t_teleport_fx() -> void:
 	print("[传送演出]")
 	## ① 单体：残影复制离场那一帧原地溶解；真身先藏住再凝出；演完材质摘掉、scale 归一、落地回调一次
@@ -6222,7 +6222,7 @@ func t_mutation_faces() -> void:
 ## 【I-标记】光环范围的常驻粒子（Kevin 2026-09-08）。
 ##
 ## 轨道是**纯函数**，所以这几条不用真渲染就能守 —— 同 chemo_fx 那套纪律。
-## 「整体密度合不合适」代码验不了，那个看 `tests/preview_mark_aura.gd` 的图。
+## 「整体密度合不合适」代码验不了，那个看 `tests/preview/preview_mark_aura.gd` 的图。
 func t_mark_aura() -> void:
 	print("[标记光环粒子]")
 	check(CWMarkAuraFx.SEED_OFFSET.size() >= CWMarkAuraFx.PER_TILE,
@@ -7037,7 +7037,7 @@ func t_board_small() -> void:
 
 ## 固化计数的石化贴图族（Kevin 2026-09-09 选定「结晶核扩散」）。
 ##
-## 图**长什么样**代码验不了（见 `tests/preview_solidify.gd` 的真机图），
+## 图**长什么样**代码验不了（见 `tests/preview/preview_solidify.gd` 的真机图），
 ## 这里守的是选图逻辑那几条会静默出错的：档位分界、门槛跟旋钮走、变体只认坐标。
 func t_solid_tissue_art() -> void:
 	print("[固化石化贴图]")

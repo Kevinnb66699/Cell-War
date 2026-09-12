@@ -105,7 +105,7 @@ func can_save_now() -> bool:
 
 ## 固化格曾经靠一层压暗（`MARK_SOLID = #0000004d`）认出来，
 ## **2026-09-09 随石化贴图上线删掉** —— 那一层的注释当初就写着「硬化外壳的美术还没有……
-## 压暗一档是临时手段」。真机对照图（`tests/preview_solidify.gd` 出两张）显示：
+## 压暗一档是临时手段」。真机对照图（`tests/preview/preview_solidify.gd` 出两张）显示：
 ## 压暗会把 1.5 和 2.0 两档的明度拉近，反而**削弱**了固化格的辨识度，
 ## 而固化是【裂解】和癌方【复活】唯一认的离散状态，必须最醒目。
 ## 癌细胞脚下固化组织的石化色；只覆盖细胞外圈，主体颜色仍保留癌细胞种类辨识度。
@@ -307,7 +307,7 @@ var _decos: Array = []         ## 下标同 _cell_nodes：每只细胞 [背面, 
 var _seal_fx: CWSealFx         ## B【中和抗体】的投递与封禁环（后者常驻，见 _sync_seal）
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
 var _erosion_fx := CWErosionFx.new()
-## 细胞传送的溶解演出（规格 docs/动画规格_传送.md）。同样不是节点：残影挂在 _cells_root 下，句柄它自己收。
+## 细胞传送的溶解演出（规格 docs/archive/动画规格_传送.md）。同样不是节点：残影挂在 _cells_root 下，句柄它自己收。
 ## 「这是传送」由下面 _last_pos 的差分判定（上一帧与这一帧都活着、两格不相邻），不走引擎信号。
 var _teleport_fx := CWTeleportFx.new()
 var _last_pos: Array[Vector2i] = []   ## 上一帧位置，下标 = cell id；两格不相邻 = 传送
