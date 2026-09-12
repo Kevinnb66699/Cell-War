@@ -62,15 +62,15 @@ MAP = {
     ## v10（2026-09-10 issue #13）起有氧改按等级查表，四个数不等差；线性式的 BASE/STEP 挪进 INTENTIONAL
     "AEROBIC_BY_LEVEL":       "能量=2~|~3~|~4.5~|~5",
     "ANAEROBIC_BLOCK_EXP":    "连通块癌组织个数^{0.3}",
-    ## 指数 2026-09-12 起也按人数分档：四人 0.3、六人 0.35；外面的 max{2, …} 是每细胞兜底
-    "ANAEROBIC_BLOCK_EXP_BY_PLAYERS": ["连通块癌组织个数^{0.3}times2.0", "连通块癌组织个数^{0.35}times2.8"],
+    ## 指数 2026-09-12 起也按人数分档：四人 0.3、六人 0.3（早上那版 0.35，issue #29 当晚改回）；外面的 max{2, …} 是每细胞兜底
+    "ANAEROBIC_BLOCK_EXP_BY_PLAYERS": ["连通块癌组织个数^{0.3}times2.0", "连通块癌组织个数^{0.3}times2.8"],
     "ANAEROBIC_FLOOR":        "能量=max{2,",
-    "ANAEROBIC_BLOCK_COEF":   "^{0.35}times2.8",
+    "ANAEROBIC_BLOCK_COEF":   "^{0.3}times2.8",
     ## 无氧系数**按人数分两档**（PRD 2026-09-09 落字）。两条锚点各钉一档 ——
     ## 只对其中一条的话，另一档被改了这里照样绿。
     ## 表里的 2 人局（2.8）PRD 没定，沿用六人档 —— 2 人局在平衡目标外，不是待办（《PRD差异对照》§7.6）。
     "ANAEROBIC_BLOCK_COEF_BY_PLAYERS": ["四人局$能量=max{2,frac{连通块癌组织个数^{0.3}times2.0",
-                                        "六人局：$能量=max{2,frac{连通块癌组织个数^{0.35}times2.8"],
+                                        "六人局：$能量=max{2,frac{连通块癌组织个数^{0.3}times2.8"],
     "ANAEROBIC_SOLID_BONUS":  "+全图固化癌组织个数",
     # ---- 免疫行动 ----
     "IMMUNE_DRAW_COST":       "【基因表达】：消耗0.5**能量**抽卡，每行动回合最多发动3次",

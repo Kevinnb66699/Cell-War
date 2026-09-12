@@ -43,17 +43,19 @@ const ART: Array = [
 	 preload("res://assets/art/erosion/transition_SE_p66.png")],
 ]
 
-var _live := {}    ## 格子 → { "dir": int, "t": float }
+var _live := {}    ## 格子 → { "dir": int, "t": float }；t < 0 = 还在等（issue #29：伪足的细胞到格才开演）
 
 
 ## 开演。`dir` 是 `CWData.DIRS` 的下标（癌从哪一侧来）；越界就当没这回事 ——
 ## 引擎那边取不到癌性邻居时会传 -1，静默跳过比崩掉好。
 ## 同一格重复调用会**从头再演**：一个世界回合里同一格不会被侵蚀两次，
 ## 真撞上了（存档回滚、联机补包）也该以最后一次为准。
-func play(at: Vector2i, dir: int) -> void:
+## `delay` > 0 = 先等这么久再开演（issue #29：伪足穿透把细胞拉到新格之前，那一格得照健康组织画）——
+## 等的这段 `waiting()` 为真、`frame_of()` 给 null，CWMatch._sync_tiles 按健康组织画。
+func play(at: Vector2i, dir: int, delay: float = 0.0) -> void:
 	if dir < 0 or dir >= ART.size():
 		return
-	_live[at] = { "dir": dir, "t": 0.0 }
+	_live[at] = { "dir": dir, "t": -maxf(delay, 0.0) }
 
 
 ## 这一格此刻该画哪张过场图；没在演返回 null。**纯函数（只读 _live）**。
@@ -61,6 +63,8 @@ func frame_of(c: Vector2i) -> Texture2D:
 	if not _live.has(c):
 		return null
 	var e: Dictionary = _live[c]
+	if float(e["t"]) < 0.0:
+		return null      ## 还在等细胞到格（issue #29）
 	var i := int(float(e["t"]) / FRAME_TIME)
 	if i < 0 or i >= FRAMES:
 		return null
@@ -73,6 +77,11 @@ func advance(delta: float) -> void:
 		_live[c]["t"] = float(_live[c]["t"]) + delta
 		if float(_live[c]["t"]) >= FRAME_TIME * FRAMES:
 			_live.erase(c)
+
+
+## 这一格登记了过场但还在等（伪足的细胞没到）—— 这段 _sync_tiles 先按健康组织画，别提前变红（issue #29）
+func waiting(c: Vector2i) -> bool:
+	return _live.has(c) and float(_live[c]["t"]) < 0.0
 
 
 func busy() -> bool:

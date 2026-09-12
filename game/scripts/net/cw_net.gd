@@ -105,7 +105,9 @@ extends RefCounted
 ## v14（2026-09-12）：PRD 覆盖版 + issue #27 的规则改动 —— 无氧每细胞兜底 2.0、六人指数 0.35、
 ##   II 期固化门槛 2.0、III 级迁移减免 0.7 删、【标记】第二次结算到期、巨噬净化回 0.2 / 吸血取整到十分位。
 ##   旋钮默认值（anaerobic_floor / anaerobic_block_exp）在 RULE_FIELDS 里，快照形状不变、值变了。
-const NET_VERSION := 14
+## v15（2026-09-12 晚）：issue #29 —— 六人局无氧指数 0.35 改回 0.3（PRD 当晚又改了；四人局本来就是 0.3）。
+##   还是 anaerobic_block_exp 的按人数表，形状不变、六人档的值变了。
+const NET_VERSION := 15
 
 ## 一条聊天最多多少字。定这个数不是怕刷屏（那有 RATE_PER_SEC 管），
 ## 是**排版**：聊天行和大厅房间行共用同一条定宽，超了就是省略号，

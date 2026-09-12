@@ -320,7 +320,7 @@ var world_events_on := false
 ## 【E-无氧呼吸】现行公式（Kevin 2026-09-07）：
 ##   `(块内普通癌组织数 ^ (exp/100) × coef + 全图固化数 × solid_bonus) ÷ 块内癌细胞数`
 ## 三个旋钮都是给扫描拨的；**coef = 0 = 关 = 09-04 之前的线性求和**（对照档）。见 CWWorld._anaerobic_pool()。
-var anaerobic_block_exp := -1    ## -1 = 按人数取（四人 0.3 / 六人 0.35，PRD 2026-09-12）；>0 = 所有人数统一成这个百分数
+var anaerobic_block_exp := -1    ## -1 = 按人数取（四人 0.3 / 六人 0.3，PRD 2026-09-12 + issue #29）；>0 = 所有人数统一成这个百分数
 ## 无氧指数项的系数（十分能量）。**-1 = 按人数取**（`CWData.anaerobic_block_coef`：
 ## 四人 2.0 / 六人 2.8，Kevin 2026-09-07 定的分档）；>0 = 所有人数统一成这个值（balance_scan 的 `asqrt=`）；
 ## 0 = 退回 09-04 之前的线性求和（对照档）。

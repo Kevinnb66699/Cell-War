@@ -8,9 +8,9 @@ extends SceneTree
 ##
 ## 跑（**不能加 --headless**，要真渲染）：
 ##   godot --path game --script res://tests/preview/preview_fx_cell.gd -- <输出前缀>
-## 连拍五帧：0.2 / 0.7 / 1.2 / 1.6 / 2.0 秒。
+## 连拍五帧：0.15 / 0.35 / 0.55 / 0.8 / 1.6 秒（前四张跟着伪足的四拍走 —— issue #29 压到 1 秒；末张看有氧 / 无氧的尾声）。
 const WARMUP := 12
-const SHOTS := [0.2, 0.7, 1.2, 1.6, 2.0]
+const SHOTS := [0.15, 0.35, 0.55, 0.8, 1.6]
 const ZOOM := 3.0
 const RESPIRE_AT := Vector2i(-1, 0)
 const ANAEROBIC_AT := Vector2i(1, 0)

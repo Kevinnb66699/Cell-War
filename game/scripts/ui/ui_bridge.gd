@@ -893,10 +893,13 @@ func show_beam(from: Vector2i, to: Vector2i, splash: Array) -> void:
 	beam_fx.play(board.tile_center(from), board.tile_center(to), pts)
 
 
+## issue #29：伪足穿透正把细胞往这一格拉的话，过场等细胞到了再演（CWSkillFx.arrival_in），
+## 等的那段 CWMatch._sync_tiles 把这一格照健康组织画 —— 先移动、再定殖。没伪足在拉的格 delay = 0，老路不变。
 func show_erosion(at: Vector2i, dir: int) -> void:
 	if erosion == null:
 		return
-	erosion.play(at, dir)
+	var wait: float = skill_fx.arrival_in(at) if skill_fx != null else -1.0
+	erosion.play(at, dir, maxf(wait, 0.0))
 
 
 ## 演出数据里哪些键指的是**细胞**（落在细胞位 = 格顶面中心 + CELL_FOOT_DY）；其余 Vector2i 一律当格位
@@ -945,6 +948,9 @@ func show_fx(kind: String, data: Dictionary) -> void:
 			var half: float = float(cell_half_height.call(c)) if cell_half_height.is_valid() else 12.0
 			out[key + "_body"] = board.tile_center(c) + Vector2(0, CWMatch.CELL_FOOT_DY - half)
 			out["r"] = half
+	## 伪足穿透另留新格的轴坐标：定殖过场（show_erosion）要问「细胞几秒到这一格」（issue #29）
+	if kind == "pseudopod" and data.get("to") is Vector2i:
+		out["to_tile"] = data["to"]
 	skill_fx.play(kind, out)
 
 

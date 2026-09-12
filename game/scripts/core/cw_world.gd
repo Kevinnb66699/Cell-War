@@ -719,7 +719,7 @@ func _anaerobic_pool(block: Array) -> float:
 			if game.tiles[c]["tissue"] == CWData.Tissue.CANCER:
 				plain += 1
 		var solid: int = game.count_tissue(CWData.Tissue.SOLID)
-		## 指数 -1 = 按人数取（四人 0.3 / 六人 0.35，PRD 2026-09-12）；>0 = 整体覆盖
+		## 指数 -1 = 按人数取（四人 0.3 / 六人 0.3，PRD 2026-09-12 + issue #29）；>0 = 整体覆盖
 		var exp_pct: int = game.tune.anaerobic_block_exp
 		if exp_pct < 0:
 			exp_pct = CWData.anaerobic_block_exp(game.order.size())

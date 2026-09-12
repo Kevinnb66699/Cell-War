@@ -1289,7 +1289,8 @@ func _sync_tiles() -> void:
 			board.set_tile_tex(c, ero)
 			continue
 		## 开场绽开期间，还没轮到的那几格先按健康组织画
-		var tissue: int = CWData.Tissue.HEALTHY if _bloom.has(c) else int(t["tissue"])
+		## 伪足穿透的目标格（issue #29）：细胞还在半路、定殖过场在等 → 也先按健康组织画，到格那一刻才变红
+		var tissue: int = CWData.Tissue.HEALTHY if (_bloom.has(c) or _erosion_fx.waiting(c)) else int(t["tissue"])
 		## 骨髓空仓换另一张贴图（Kevin 2026-09-08）；其余组织忽略 stocked。
 		## 最后那个是固化进度（2026-09-09）：算式在 CWData.solid_progress，界面不自己算。
 		## 绽开期间按健康组织画，所以进度也得跟着按 tissue 走，不能直接读 t。

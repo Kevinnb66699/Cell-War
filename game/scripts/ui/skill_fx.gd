@@ -17,7 +17,7 @@
 ##   adhesion      from / to（两只癌细胞）                     immune-skills.js adhesion v1「紫晶冠印传递」
 ##   homing        from / to（血管格 / 落点）spread（被感染格）  revised-effects.js homing「双端血门 · 感染扩散」
 ##   pseudopod     from / to（旧格 / 新格）roots（伸触手的癌性邻格）from_body / r（旧格上的胞体中心 / 半径）
-##                 cid（被拉的细胞）                          revised-effects.js pseudopod v0「低弧牵引」，issue #26 改成拉细胞
+##                 cid（被拉的细胞）to_tile（新格的轴坐标，定殖过场等它）revised-effects.js pseudopod v0「低弧牵引」，issue #26 改成拉细胞
 ##   minimal       from / to（两格）                            cancer-skills.js minimal v0「细线疾行」
 ##   differentiate at（免疫细胞）                               common-skills.js differentiate v2「粒子重组」
 ##   respire       at（免疫细胞脚底）at_body / r（胞体中心 / 半径）  common-skills.js respire v0「轻量吸收」
@@ -34,19 +34,22 @@ extends Node2D
 const PIX_FPS := 12.0
 const DURATION := {
 	"antibody": 1.4, "toxin": 1.05, "lyse": 2.05, "adhesion": 1.2, "homing": 2.9,
-	"pseudopod": 2.4, "minimal": 1.2, "differentiate": 1.65, "respire": 1.65,
+	"pseudopod": 1.0, "minimal": 1.2, "differentiate": 1.65, "respire": 1.65,
 	"revive_immune": 1.65, "revive_cancer": 1.65, "mutate": 1.2, "anaerobic": 2.1,
 }
 ## 头顶标记离细胞位多高（同 CWCellDeco.HEAD_DY）：黏连的传递轨迹从头到头
 const HEAD_DY := -33.0
 ## 伪足穿透的四拍（issue #26，HXR-I：细胞已经到了新格触手还在演，要的是触手把细胞拉 / 推过去）：
-## 冒根 0~0.3 → 触手伸到**旧格**抓住胞体 0.3~0.9 → 拉着细胞走到新格 0.9~1.8 → 收回 1.8~2.3。
-## 细胞这两秒画在哪由 carry_pos() 代管（CWMatch._sync_cells 每帧问），引擎那边 pos 早已是新格。
-const PSEUDOPOD_SPROUT := 0.3
-const PSEUDOPOD_REACH := 0.6
-const PSEUDOPOD_PULL_AT := 0.9
-const PSEUDOPOD_PULL := 0.9
-const PSEUDOPOD_RETRACT_AT := 1.8
+## 冒根 0~0.1 → 触手伸到**旧格**抓住胞体 0.1~0.25 → 拉着细胞走到新格 0.25~0.65 → 收回 0.65~0.9。
+## 细胞这不到一秒画在哪由 carry_pos() 代管（CWMatch._sync_cells 每帧问），引擎那边 pos 早已是新格。
+## issue #29（2026-09-12）：原来 2.4 秒（拉那段 0.9~1.8）嫌慢 —— 别的细胞是瞬移，伪足也得跟上，
+## 整段压到 1.0 秒、细胞 0.65 秒到格；拉的那段和巨噬扑咬的冲刺（CWChainFx.LUNGE_FOR 0.43）一个量级。
+const PSEUDOPOD_SPROUT := 0.1
+const PSEUDOPOD_REACH := 0.15
+const PSEUDOPOD_PULL_AT := 0.25
+const PSEUDOPOD_PULL := 0.4
+const PSEUDOPOD_RETRACT_AT := 0.65
+const PSEUDOPOD_RETRACT := 0.25
 
 const ICE := Color("b7ecff")
 const ICE_TAIL := Color("5688a5")
@@ -134,6 +137,19 @@ func carry_pos(cid: int) -> Variant:
 		var foot_to := _v(d, "to") + Vector2(0, CWMatch.CELL_FOOT_DY)
 		return foot_from.lerp(foot_to, pull_phase(t))
 	return null
+
+
+## 伪足正把细胞往这一格拉的话，还有几秒到（细胞 PSEUDOPOD_RETRACT_AT 到格）；没有 → -1。
+## 定殖过场（CWUIBridge.show_erosion → CWErosionFx.play 的 delay）拿它等细胞到了再翻格（issue #29：
+## 原来细胞还在半路格子就红了）。同一格连着两条以最新的为准，和 carry_pos 一个道理。
+func arrival_in(tile: Vector2i) -> float:
+	for k in range(_plays.size() - 1, -1, -1):
+		var p: Dictionary = _plays[k]
+		var d: Dictionary = p["data"]
+		if String(p["kind"]) != "pseudopod" or not d.has("to_tile") or d["to_tile"] != tile:
+			continue
+		return maxf(0.0, PSEUDOPOD_RETRACT_AT - float(p["t"]))
+	return -1.0
 
 
 func _draw() -> void:
@@ -282,7 +298,7 @@ func _pseudopod(t: float, d: Dictionary) -> void:
 	var from_body: Vector2 = _v(d, "from_body") if d.has("from_body") \
 		else from + Vector2(0, CWMatch.CELL_FOOT_DY - radius)
 	var actor := from_body + (to - from) * pull_phase(t)
-	var retract := CWPix.phase(t, PSEUDOPOD_RETRACT_AT, 0.5)
+	var retract := CWPix.phase(t, PSEUDOPOD_RETRACT_AT, PSEUDOPOD_RETRACT)
 	var sprout := CWPix.phase(t, 0.0, PSEUDOPOD_SPROUT) * (1.0 - retract)
 	var reach := CWPix.phase(t, PSEUDOPOD_SPROUT, PSEUDOPOD_REACH)
 	var roots := _pts(d, "roots")

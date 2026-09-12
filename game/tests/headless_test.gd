@@ -1307,7 +1307,7 @@ func t_skill_fx() -> void:
 		"lyse": { "from": Vector2(0, 0), "to": Vector2(36, 0) },
 		"adhesion": { "from": Vector2(0, 0), "to": Vector2(72, 0) },
 		"homing": { "from": Vector2(0, 0), "to": Vector2(108, 0), "spread": [Vector2(144, 0), Vector2(126, 20)] },
-		"pseudopod": { "from": Vector2(-36, 0), "to": Vector2(0, 0), "roots": [Vector2(36, 0), Vector2(18, -20), Vector2(-18, 20)], "cid": 7 },
+		"pseudopod": { "from": Vector2(-36, 0), "to": Vector2(0, 0), "roots": [Vector2(36, 0), Vector2(18, -20), Vector2(-18, 20)], "to_tile": Vector2i(0, 0), "cid": 7 },
 		"minimal": { "from": Vector2(-36, 0), "to": Vector2(0, 0) },
 		"differentiate": { "at": Vector2(0, 0) }, "respire": { "at": Vector2(0, 0) },
 		"revive_immune": { "at": Vector2(0, 0) }, "revive_cancer": { "at": Vector2(0, 0) },
@@ -1323,25 +1323,35 @@ func t_skill_fx() -> void:
 	var foot_from := Vector2(-36, CWMatch.CELL_FOOT_DY)
 	check(fx.carry_pos(7) == foot_from and fx.carry_pos(8) == null,
 		"伪足登记时细胞 7 按在旧格脚底（触手还没抓到）；别的细胞不受影响")
+	## issue #29：定殖过场要问「细胞几秒到新格」—— 登记那一刻 = 整段拉完的时刻；没伪足在拉的格 -1
+	check(is_equal_approx(fx.arrival_in(Vector2i(0, 0)), CWSkillFx.PSEUDOPOD_RETRACT_AT) and fx.arrival_in(Vector2i(5, 5)) < 0.0,
+		"新格 (0,0) 还有 %.2f 秒到；别的格没伪足 → -1" % fx.arrival_in(Vector2i(0, 0)))
 	await process_frame
 	var longest := 0.0
 	for kind in sample:
 		longest = maxf(longest, CWSkillFx.duration(kind))
-	fx.sync(1.3)
+	fx.sync(0.45)
 	await process_frame
-	check(fx.active() > 0 and fx.active() < sample.size(), "1.3 秒后短的（毒素 / 黏连 / 疾行 / 突变）收了、长的还在（余 %d）" % fx.active())
 	var mid: Variant = fx.carry_pos(7)
 	check(mid != null and (mid as Vector2).x > foot_from.x and (mid as Vector2).x < 0.0
 		and is_equal_approx((mid as Vector2).y, CWMatch.CELL_FOOT_DY),
-		"1.3 秒：细胞被拉到半路（%s），仍贴着脚底那条线" % str(mid))
+		"0.45 秒：细胞被拉到半路（%s），仍贴着脚底那条线" % str(mid))
+	check(is_equal_approx(fx.arrival_in(Vector2i(0, 0)), CWSkillFx.PSEUDOPOD_RETRACT_AT - 0.45),
+		"到格倒计时跟着走：还有 %.2f 秒" % fx.arrival_in(Vector2i(0, 0)))
 	check(is_zero_approx(CWSkillFx.pull_phase(CWSkillFx.PSEUDOPOD_PULL_AT))
 		and is_equal_approx(CWSkillFx.pull_phase(CWSkillFx.PSEUDOPOD_PULL_AT + CWSkillFx.PSEUDOPOD_PULL), 1.0)
 		and CWSkillFx.PSEUDOPOD_PULL_AT + CWSkillFx.PSEUDOPOD_PULL <= CWSkillFx.PSEUDOPOD_RETRACT_AT
-		and CWSkillFx.PSEUDOPOD_RETRACT_AT < CWSkillFx.duration("pseudopod"),
+		and CWSkillFx.PSEUDOPOD_RETRACT_AT + CWSkillFx.PSEUDOPOD_RETRACT <= CWSkillFx.duration("pseudopod"),
 		"拉的那段起于 0、止于 1，拉完才收触手，收完才收场")
+	## issue #29：别的细胞是瞬移，伪足整段压到 1 秒内、细胞 0.65 秒到格（原 2.4 秒 / 1.8 秒到格）
+	check(CWSkillFx.duration("pseudopod") <= 1.0 and CWSkillFx.PSEUDOPOD_RETRACT_AT <= 0.65,
+		"伪足穿透 %.1f 秒收场、细胞 %.2f 秒到格" % [CWSkillFx.duration("pseudopod"), CWSkillFx.PSEUDOPOD_RETRACT_AT])
+	fx.sync(0.85)
+	await process_frame
+	check(fx.active() > 0 and fx.active() < sample.size(), "1.3 秒后短的（毒素 / 黏连 / 伪足 / 疾行 / 突变）收了、长的还在（余 %d）" % fx.active())
+	check(fx.carry_pos(7) == null and fx.arrival_in(Vector2i(0, 0)) < 0.0, "1.3 秒：伪足演完放手，细胞位置交还引擎，到格倒计时也没了")
 	fx.sync(longest)
 	check(fx.active() == 0 and not fx.visible, "过了最长的 %.2f 秒全部收场、节点隐藏" % longest)
-	check(fx.carry_pos(7) == null, "演完放手，细胞位置交还引擎")
 	root.remove_child(fx)
 	fx.free()
 	## ② 像素笔的分段进度、装饰的纯函数
@@ -1979,7 +1989,7 @@ func t_anaerobic_sqrt() -> void:
 		and CWData.anaerobic_block_coef(4) == 20 and CWData.anaerobic_block_coef(6) == 28
 		and CWData.anaerobic_block_coef(5) == CWData.ANAEROBIC_BLOCK_COEF
 		and g.tune.anaerobic_block_exp == -1 and CWData.anaerobic_block_exp(4) == 30
-		and CWData.anaerobic_block_exp(6) == 35 and CWData.anaerobic_block_exp(5) == CWData.ANAEROBIC_BLOCK_EXP
+		and CWData.anaerobic_block_exp(6) == 30 and CWData.anaerobic_block_exp(5) == CWData.ANAEROBIC_BLOCK_EXP
 		and g.tune.anaerobic_solid_bonus == CWData.ANAEROBIC_SOLID_BONUS,
 		"默认 = 常量：系数 %s / 指数 0.%d / 每格固化 %s" % [
 			CWData.fmt(CWData.ANAEROBIC_BLOCK_COEF), CWData.ANAEROBIC_BLOCK_EXP,
@@ -1987,7 +1997,7 @@ func t_anaerobic_sqrt() -> void:
 	check(CWData.ANAEROBIC_BLOCK_EXP == 30 and CWData.ANAEROBIC_BLOCK_COEF == 28
 		and CWData.ANAEROBIC_SOLID_BONUS == 10,
 		"Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2.8 + 全图固化数 × 1.0")
-	## PRD 2026-09-12 覆盖版：六人局指数 0.35（四人仍 0.3）；每个癌细胞兜底 2.0（公式外面的 max{2, …}）
+	## PRD 2026-09-12 覆盖版：六人局指数早上 0.35、issue #29 当晚改回 0.3（四人一直 0.3），六人档只剩系数 2.8 比四人高；每个癌细胞兜底 2.0（公式外面的 max{2, …}）
 	var g6 := make_game(6, 3)
 	g6.setup.build_board()
 	var keys6: Array = g6.tiles.keys()
@@ -1996,7 +2006,7 @@ func t_anaerobic_sqrt() -> void:
 		blk6.append(keys6[k])
 		g6.tiles[keys6[k]]["tissue"] = CWData.Tissue.CANCER
 	check(is_equal_approx(g6.world._anaerobic_pool(blk6), _pool_of(10, 0, 6)) and _pool_of(10, 0, 6) > _pool_of(10, 0, 4) * 1.3,
-		"六人局 10 格块：10^0.35 × 2.8 = %.1f（四人局 10^0.3 × 2.0 = %.1f）" % [_pool_of(10, 0, 6), _pool_of(10, 0, 4)])
+		"六人局 10 格块：10^0.3 × 2.8 = %.1f（四人局 10^0.3 × 2.0 = %.1f）" % [_pool_of(10, 0, 6), _pool_of(10, 0, 4)])
 	check(g6.world._split_share(5.0, 4) == CWData.ANAEROBIC_FLOOR and g6.world._split_share(100.0, 4) == 25,
 		"挤 4 个细胞的小块：每人兜底 2.0；够分的照旧均分")
 	g6.dispose()
@@ -2868,6 +2878,42 @@ func t_erosion_fx() -> void:
 	fx.play(Vector2i(1, 0), -1)
 	fx.play(Vector2i(2, 0), 99)
 	check(not fx.busy(), "方向越界/-1：不演，也不崩")
+	## issue #29 先移动再定殖：带 delay 登记的过场先等着 —— 等的这段 waiting() 真、frame_of() 空（_sync_tiles 按健康组织画），
+	## 倒计时走完才从 p33 开演
+	fx.play(Vector2i(4, 0), 2, 0.3)
+	check(fx.waiting(Vector2i(4, 0)) and fx.frame_of(Vector2i(4, 0)) == null and fx.busy(),
+		"delay 0.3：登记了但还没开演（frame_of 空、waiting 真）")
+	fx.advance(0.1)
+	check(fx.waiting(Vector2i(4, 0)) and fx.frame_of(Vector2i(4, 0)) == null, "0.1 秒：还在等")
+	fx.advance(0.2)
+	check(not fx.waiting(Vector2i(4, 0)) and fx.frame_of(Vector2i(4, 0)) == CWErosionFx.ART[2][0], "0.3 秒到：p33 开演")
+	fx.advance(CWErosionFx.FRAME_TIME)
+	check(fx.frame_of(Vector2i(4, 0)) == CWErosionFx.ART[2][1], "再过一帧：p66")
+	fx.advance(CWErosionFx.FRAME_TIME)
+	check(fx.frame_of(Vector2i(4, 0)) == null and not fx.busy(), "演完退场")
+	fx.play(Vector2i(5, 0), 1)
+	check(not fx.waiting(Vector2i(5, 0)) and fx.frame_of(Vector2i(5, 0)) == CWErosionFx.ART[1][0], "不带 delay 的照旧立刻开演")
+	check(not fx.waiting(Vector2i(9, 9)), "没登记的格子不算在等")
+	fx.clear_all()
+	## 桥这一层：伪足正把细胞拉向某格时收到该格的定殖过场 → 等细胞到格那一刻才开演；别的格照旧立刻演
+	var bd := make_board()
+	var sfx := CWSkillFx.new()
+	var bridge := CWUIBridge.new()
+	bridge.board = bd
+	bridge.skill_fx = sfx
+	bridge.erosion = fx
+	bridge.show_fx("pseudopod", { "from": Vector2i(-1, 0), "to": Vector2i(0, 0), "roots": [Vector2i(1, 0)], "cid": 3 })
+	bridge.show_erosion(Vector2i(0, 0), 3)
+	bridge.show_erosion(Vector2i(2, 0), 0)
+	check(fx.waiting(Vector2i(0, 0)) and fx.frame_of(Vector2i(0, 0)) == null
+		and not fx.waiting(Vector2i(2, 0)) and fx.frame_of(Vector2i(2, 0)) == CWErosionFx.ART[0][0],
+		"伪足的目标格等着、无关的格立刻开演")
+	fx.advance(CWSkillFx.PSEUDOPOD_RETRACT_AT)
+	check(not fx.waiting(Vector2i(0, 0)) and fx.frame_of(Vector2i(0, 0)) == CWErosionFx.ART[3][0],
+		"细胞到格那一刻（%.2f 秒）定殖过场开演" % CWSkillFx.PSEUDOPOD_RETRACT_AT)
+	fx.clear_all()
+	sfx.free()
+	bd.free()
 	fx.play(Vector2i.ZERO, 3)
 	fx.clear_all()
 	check(not fx.busy(), "clear_all 清干净（拆局必须调，否则下一局同格会闪）")
