@@ -126,7 +126,7 @@ func _run_all() -> void:
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
-		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_online_glow, t_match_online,
+		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_turn_mark, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -16997,3 +16997,48 @@ func t_lan_discovery() -> void:
 	p._scan = null
 	root.remove_child(p)
 	p.free()
+
+
+## 回合脚标（Kevin 2026-09-12）：谁在行动谁脚下亮一层阵营色呼吸剪影
+func t_turn_mark() -> void:
+	print("[回合脚标]")
+	check(is_equal_approx(CWMatch.turn_mark_alpha(0.0), CWMatch.TURN_MARK_A0 + CWMatch.TURN_MARK_A1 * 0.5)
+		and CWMatch.turn_mark_alpha(CWMatch.TURN_MARK_PERIOD * 0.25) > CWMatch.turn_mark_alpha(0.0)
+		and CWMatch.turn_mark_alpha(CWMatch.TURN_MARK_PERIOD * 0.75) < CWMatch.turn_mark_alpha(0.0),
+		"呼吸：正弦，中点起、先亮后暗")
+	var lo := 1.0
+	var hi := 0.0
+	for i in 64:
+		var a := CWMatch.turn_mark_alpha(float(i) / 64.0 * CWMatch.TURN_MARK_PERIOD)
+		lo = minf(lo, a)
+		hi = maxf(hi, a)
+	var bd := make_board()
+	check(lo >= CWMatch.TURN_MARK_A0 - 0.001 and hi <= CWMatch.TURN_MARK_A0 + CWMatch.TURN_MARK_A1 + 0.001
+		and hi < bd.MARK_MOVE.a + 0.05, "透明度在 %.2f ~ %.2f 之间，不盖过可迁移格的高亮" % [lo, hi])
+	bd.free()
+	var g := make_game(4, 3)
+	var req: Dictionary = await g.pending()
+	check(req.get("kind", "") == "setup_place" and CWMatch.turn_mark_of(g, 0.0).is_empty(), "落子阶段：还没有细胞，不画")
+	while req.get("kind", "") == "setup_place":
+		await g.step(0)
+		req = await g.pending()
+	check(g.current_pid >= 0, "走完落子进了行动回合（%d）" % g.current_pid)
+	var tm := CWMatch.turn_mark_of(g, 0.0)
+	var actor: Dictionary = g.cell_of(g.current_pid)
+	check(tm.get("pos", Vector2i.MAX) == actor["pos"], "脚标在当前行动细胞脚下")
+	var base: Color = CWStyle.IMMUNE if actor["faction"] == CWData.Faction.IMMUNE else CWStyle.CANCER
+	check((tm["color"] as Color).is_equal_approx(Color(base.lerp(Color.WHITE, CWMatch.TURN_MARK_TINT), CWMatch.turn_mark_alpha(0.0))),
+		"阵营色往白拉一档、带呼吸透明度")
+	actor["alive"] = false
+	check(CWMatch.turn_mark_of(g, 0.0).is_empty(), "行动者的细胞死了（复活中）：不画")
+	actor["alive"] = true
+	g.current_pid = -1
+	g.asking_pid = -1
+	check(CWMatch.turn_mark_of(g, 0.0).is_empty(), "没人在动：不画")
+	g.dispose()
+	## 合成顺序：脚标在交互高亮之前进 marks（悬停 / 目标压得过它），换手中不叠
+	var src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(src.find("turn_mark_of(game") > 0 and src.find("turn_mark_of(game") < src.find("marks.merge(bridge.marks, true)"),
+		"脚标先进 marks，交互高亮后合并压上")
+	check(src.find("_handoff.active") > 0 and src.find("not _handoff.active") < src.find("turn_mark_of(game"),
+		"热座换手中不叠（那圈光环已经在闪）")
