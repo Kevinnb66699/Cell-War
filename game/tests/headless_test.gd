@@ -16999,46 +16999,94 @@ func t_lan_discovery() -> void:
 	p.free()
 
 
-## 回合脚标（Kevin 2026-09-12）：谁在行动谁脚下亮一层阵营色呼吸剪影
+## 回合脚标（Kevin 2026-09-12 选定方案 E「跑马灯轮廓」）：像素对齐 + 虚线跑马灯 + 谁在动
 func t_turn_mark() -> void:
-	print("[回合脚标]")
-	check(is_equal_approx(CWMatch.turn_mark_alpha(0.0), CWMatch.TURN_MARK_A0 + CWMatch.TURN_MARK_A1 * 0.5)
-		and CWMatch.turn_mark_alpha(CWMatch.TURN_MARK_PERIOD * 0.25) > CWMatch.turn_mark_alpha(0.0)
-		and CWMatch.turn_mark_alpha(CWMatch.TURN_MARK_PERIOD * 0.75) < CWMatch.turn_mark_alpha(0.0),
-		"呼吸：正弦，中点起、先亮后暗")
-	var lo := 1.0
-	var hi := 0.0
-	for i in 64:
-		var a := CWMatch.turn_mark_alpha(float(i) / 64.0 * CWMatch.TURN_MARK_PERIOD)
-		lo = minf(lo, a)
-		hi = maxf(hi, a)
+	print("[回合脚标 · 跑马灯轮廓]")
 	var bd := make_board()
-	check(lo >= CWMatch.TURN_MARK_A0 - 0.001 and hi <= CWMatch.TURN_MARK_A0 + CWMatch.TURN_MARK_A1 + 0.001
-		and hi < bd.MARK_MOVE.a + 0.05, "透明度在 %.2f ~ %.2f 之间，不盖过可迁移格的高亮" % [lo, hi])
+	## ① 顶面行表与贴图逐像素对上：每行的像素在 tissue_normal.png 里全是顶面色，行上下紧邻的外侧不是
+	var img: Image = bd.TISSUE_TEX[CWData.Special.NONE][0].get_image()
+	var top_ink := img.get_pixel(16, 12)          ## 顶面正中那颗
+	var rows: Array = bd.top_face_rows()
+	var rows_ok: bool = rows.size() == 26 and rows[0][0] == -bd.TOP_FACE_TOP and rows[25][0] == 25 - bd.TOP_FACE_TOP
+	var widths := []
+	for r in rows:
+		widths.append(int(r[2]) - int(r[1]) + 1)
+		for x in range(int(r[1]), int(r[2]) + 1):
+			var px: Color = img.get_pixel(x + bd.TOP_FACE_LEFT, int(r[0]) + bd.TOP_FACE_TOP)
+			if not px.is_equal_approx(top_ink):
+				rows_ok = false
+	check(rows_ok and widths[0] == 2 and widths[7] == 30 and widths[8] == 32 and widths[17] == 32 and widths[18] == 30 and widths[25] == 2,
+		"顶面 26 行全踩在贴图的顶面像素上：2,6,…,30 | 32×10 | 30,…,2（首行宽 %d、第 9 行 %d）" % [widths[0], widths[8]])
+	## ② 轮廓：80 颗、顺时针闭合、8 邻接、不重复、每颗都是顶面的边界像素（四邻里有一个不是顶面色）
+	var ring: Array = bd.top_face_outline()
+	var closed := ring.size() == 80
+	var seen := {}
+	for i in ring.size():
+		var a: Vector2i = ring[i]
+		var b: Vector2i = ring[(i + 1) % ring.size()]
+		if maxi(absi(a.x - b.x), absi(a.y - b.y)) != 1:
+			closed = false
+		if seen.has(a):
+			closed = false
+		seen[a] = true
+		var col: int = a.x + bd.TOP_FACE_LEFT
+		var row: int = a.y + bd.TOP_FACE_TOP
+		if not img.get_pixel(col, row).is_equal_approx(top_ink):
+			closed = false
+		var edge := false
+		for d: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var nc: int = col + d.x
+			var nr: int = row + d.y
+			if nc < 0 or nr < 0 or nc >= img.get_width() or nr >= img.get_height() or not img.get_pixel(nc, nr).is_equal_approx(top_ink):
+				edge = true
+		if not edge:
+			closed = false
+	check(closed, "轮廓 80 颗：顺时针闭合、颗颗相邻、不重复、颗颗都是顶面的边界像素（像素对齐）")
+	check(ring[0] == Vector2i(0, -bd.TOP_FACE_TOP) and ring[39] == Vector2i(0, 25 - bd.TOP_FACE_TOP) and ring[40] == Vector2i(-1, 25 - bd.TOP_FACE_TOP),
+		"从顶点右颗起走，第 40 颗是底点右颗、第 41 颗是底点左颗（%s / %s）" % [str(ring[39]), str(ring[40])])
+	## ③ 虚线跑马灯：亮 4 暗 4，周长 80 正好 10 个周期；拍子每 0.1 s 推一格
+	check(bd.turn_ring_lit(0, 0) and bd.turn_ring_lit(3, 0) and not bd.turn_ring_lit(4, 0) and not bd.turn_ring_lit(7, 0)
+		and bd.turn_ring_lit(8, 0) and bd.turn_ring_lit(72, 0) and not bd.turn_ring_lit(79, 0),
+		"亮 4 暗 4：第 73~76 颗亮、第 77~80 颗暗，接回第 1 颗亮 —— 接缝不断")
+	check(not bd.turn_ring_lit(0, 1) and bd.turn_ring_lit(4, 1) and not bd.turn_ring_lit(3, 4),
+		"拍子推一格，整条虚线挪一格")
+	check(80 % (bd.TURN_RING_DASH * 2) == 0 and is_equal_approx(bd.TURN_RING_FPS, 10.0), "周长能被虚线周期整除；每秒 10 拍")
+	## ④ 节点：放到某格 = 顶面中心、Z_MARK 层；同一拍不重画；清掉就藏
+	var c := Vector2i(1, 0)
+	bd.set_turn_ring(c, CWStyle.IMMUNE, 0.0)
+	var node: Node2D = bd._turn_ring
+	check(node != null and node.visible and node.position == bd.tile_center(c) and node.z_index == bd.tile_z(c, bd.Z_MARK)
+		and node.tick == 0 and node.color == CWStyle.IMMUNE, "脚标节点放在那格的顶面中心、高亮剪影那一层")
+	bd.set_turn_ring(c, CWStyle.IMMUNE, 0.35)
+	check(node.tick == 3, "t=0.35 s → 第 3 拍")
+	bd.set_turn_ring(Vector2i(0, 1), CWStyle.CANCER, 0.35)
+	check(node.position == bd.tile_center(Vector2i(0, 1)) and node.color == CWStyle.CANCER, "换格换色跟着走")
+	bd.clear_turn_ring()
+	check(not node.visible, "清掉就藏（节点留着复用）")
+	bd.set_turn_ring(Vector2i(99, 99), CWStyle.CANCER, 0.0)
+	check(not node.visible, "不在棋盘上的格：当没有")
 	bd.free()
+	## ⑤ 谁在动：落子没细胞不画、进回合后在行动细胞脚下、阵营本色、死了不画、没人不画
 	var g := make_game(4, 3)
 	var req: Dictionary = await g.pending()
-	check(req.get("kind", "") == "setup_place" and CWMatch.turn_mark_of(g, 0.0).is_empty(), "落子阶段：还没有细胞，不画")
+	check(req.get("kind", "") == "setup_place" and CWMatch.turn_mark_of(g).is_empty(), "落子阶段：还没有细胞，不画")
 	while req.get("kind", "") == "setup_place":
 		await g.step(0)
 		req = await g.pending()
-	check(g.current_pid >= 0, "走完落子进了行动回合（%d）" % g.current_pid)
-	var tm := CWMatch.turn_mark_of(g, 0.0)
+	var tm := CWMatch.turn_mark_of(g)
 	var actor: Dictionary = g.cell_of(g.current_pid)
-	check(tm.get("pos", Vector2i.MAX) == actor["pos"], "脚标在当前行动细胞脚下")
-	var base: Color = CWStyle.IMMUNE if actor["faction"] == CWData.Faction.IMMUNE else CWStyle.CANCER
-	check((tm["color"] as Color).is_equal_approx(Color(base.lerp(Color.WHITE, CWMatch.TURN_MARK_TINT), CWMatch.turn_mark_alpha(0.0))),
-		"阵营色往白拉一档、带呼吸透明度")
+	check(g.current_pid >= 0 and tm.get("pos", Vector2i.MAX) == actor["pos"]
+		and tm["color"] == (CWStyle.IMMUNE if actor["faction"] == CWData.Faction.IMMUNE else CWStyle.CANCER),
+		"进了行动回合：脚标在当前行动细胞脚下、阵营本色")
 	actor["alive"] = false
-	check(CWMatch.turn_mark_of(g, 0.0).is_empty(), "行动者的细胞死了（复活中）：不画")
+	check(CWMatch.turn_mark_of(g).is_empty(), "行动者的细胞死了（复活中）：不画")
 	actor["alive"] = true
 	g.current_pid = -1
 	g.asking_pid = -1
-	check(CWMatch.turn_mark_of(g, 0.0).is_empty(), "没人在动：不画")
+	check(CWMatch.turn_mark_of(g).is_empty(), "没人在动：不画")
 	g.dispose()
-	## 合成顺序：脚标在交互高亮之前进 marks（悬停 / 目标压得过它），换手中不叠
+	## ⑥ 接线：_sync_tiles 每帧 set / clear；换手中不叠；拆局 / 淡出都清
 	var src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	check(src.find("turn_mark_of(game") > 0 and src.find("turn_mark_of(game") < src.find("marks.merge(bridge.marks, true)"),
-		"脚标先进 marks，交互高亮后合并压上")
-	check(src.find("_handoff.active") > 0 and src.find("not _handoff.active") < src.find("turn_mark_of(game"),
-		"热座换手中不叠（那圈光环已经在闪）")
+	check(src.contains("board.set_turn_ring(tm[\"pos\"]") and src.contains("board.clear_turn_ring()")
+		and src.find("not _handoff.active") < src.find("board.set_turn_ring("), "每帧接线 + 换手中不叠")
+	check(src.count("board.clear_turn_ring()") >= 3, "拆局与淡出都清脚标（%d 处）" % src.count("board.clear_turn_ring()"))

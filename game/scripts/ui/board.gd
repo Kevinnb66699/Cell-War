@@ -225,6 +225,7 @@ const MARK_PLAN_BAD := Color("ffb03abf")
 const MARK_SELF := Color("eaf8fc47")     ## 当前行动的细胞脚下：淡到 0.28
 
 var _marks: Node2D                  ## 高亮剪影与过场用的临时叠层
+var _turn_ring: TurnRing = null     ## 回合脚标（方案 E 跑马灯轮廓），见 set_turn_ring
 var _mucus_root: Node2D             ## 黏液覆膜层（见 set_mucus）
 var _mucus_nodes := {}              ## 轴坐标 -> 那一格的覆膜 Sprite2D
 var _necro_root: Node2D             ## 坏死纹理层（见 set_necrosis），压在黏液膜下面
@@ -785,3 +786,127 @@ func _film_px(img: Image, x: int, y: int, col: Color) -> void:
 		(col.g * sa + dst.g * dst.a * (1.0 - sa)) / out_a,
 		(col.b * sa + dst.b * dst.a * (1.0 - sa)) / out_a,
 		out_a))
+
+
+# ============ 回合脚标：方案 E「跑马灯轮廓」（Kevin 2026-09-12 选定）============
+##
+## 正在行动的细胞脚下：顶面六边形的 1px 描边按「亮 4 暗 4」的虚线一格一格转，顶面再铺一层 0.14 的阵营色。
+## **像素对齐**（Kevin 特意叮嘱）：轮廓像素表不是画一个近似六边形，而是照 tissue_normal.png 的顶面**实际形状**
+## 算出来的 —— 32×34 的贴图里顶面是第 0~25 行：上下各 8 行的斜边每行进 2 px（台阶），中间 10 行满宽 32；
+## 描边就踩在这些台阶像素上，`t_turn_mark` 拿贴图逐像素核对。周长 80 px，4+4 的虚线正好 10 个周期，接缝不断。
+## 时间按 TURN_RING_FPS 量化（每 0.1 s 走一格），透明度只两档（底 / 描边）—— 同 chemo_fx 的三条像素纪律。
+## 画在 Z_MARK 层：压在高亮剪影之上、细胞之下 —— 轮廓的上半段被胞体挡住，读成「圈在脚下」。
+const TURN_RING_DASH := 4
+const TURN_RING_FPS := 10.0
+const TURN_RING_FILL_A := 0.14
+const TURN_RING_INK_A := 0.95
+const TOP_FACE_TOP := 13          ## 顶面在贴图里的第 0 行相对顶面中心（tile_center）在上方几 px
+const TOP_FACE_LEFT := 16         ## 贴图第 0 列相对顶面中心在左方几 px（32 宽、居中）
+
+
+## 顶面每一行的 [y, x0, x1]（相对 tile_center，含两端）。从贴图量出来的规律：
+## 第 r 行（0~25）：r≤7 → 15−2r..16+2r；8≤r≤17 → 0..31；r≥18 → 1+2(r−18)..30−2(r−18)。**纯函数**。
+static func top_face_rows() -> Array:
+	var out: Array = []
+	for r in 26:
+		var x0: int
+		var x1: int
+		if r <= 7:
+			x0 = 15 - 2 * r
+			x1 = 16 + 2 * r
+		elif r <= 17:
+			x0 = 0
+			x1 = 31
+		else:
+			x0 = 1 + 2 * (r - 18)
+			x1 = 30 - 2 * (r - 18)
+		out.append([r - TOP_FACE_TOP, x0 - TOP_FACE_LEFT, x1 - TOP_FACE_LEFT])
+	return out
+
+
+## 顶面轮廓像素，**顺时针**从顶点右边那颗起走一圈（相对 tile_center）。**纯函数**。
+## 台阶行每边两颗（本行新露出的那两个），满宽行每边一颗；一共 80 颗，首尾 8 邻接。
+static func top_face_outline() -> Array:
+	var rows := top_face_rows()
+	var out: Array = []
+	## 右半边：从上往下
+	out.append(Vector2i(rows[0][2], rows[0][0]))                       ## 顶点右颗
+	for r in range(1, 8):
+		out.append(Vector2i(rows[r][2] - 1, rows[r][0]))
+		out.append(Vector2i(rows[r][2], rows[r][0]))
+	for r in range(8, 18):
+		out.append(Vector2i(rows[r][2], rows[r][0]))
+	for r in range(18, 25):
+		out.append(Vector2i(rows[r][2], rows[r][0]))
+		out.append(Vector2i(rows[r][2] - 1, rows[r][0]))
+	out.append(Vector2i(rows[25][2], rows[25][0]))                     ## 底点右颗
+	## 左半边：从下往上
+	out.append(Vector2i(rows[25][1], rows[25][0]))                     ## 底点左颗
+	for r in range(24, 17, -1):
+		out.append(Vector2i(rows[r][1] + 1, rows[r][0]))
+		out.append(Vector2i(rows[r][1], rows[r][0]))
+	for r in range(17, 7, -1):
+		out.append(Vector2i(rows[r][1], rows[r][0]))
+	for r in range(7, 0, -1):
+		out.append(Vector2i(rows[r][1], rows[r][0]))
+		out.append(Vector2i(rows[r][1] + 1, rows[r][0]))
+	out.append(Vector2i(rows[0][1], rows[0][0]))                       ## 顶点左颗
+	return out
+
+
+## 第 i 颗轮廓像素在第 tick 拍亮不亮：亮 DASH 暗 DASH，tick 每拍往前推一格。**纯函数**。
+static func turn_ring_lit(i: int, tick: int) -> bool:
+	return posmod(i - tick, TURN_RING_DASH * 2) < TURN_RING_DASH
+
+
+## 把脚标放到某格（每帧调；同一格只在拍子变了才重画）。t 是秒。
+func set_turn_ring(c: Vector2i, color: Color, t: float) -> void:
+	if not map.has(axial_to_rc(c)):
+		clear_turn_ring()
+		return
+	if _turn_ring == null:
+		_turn_ring = TurnRing.new()
+		_turn_ring.name = "TurnRing"
+		_turn_ring.outline = top_face_outline()
+		_turn_ring.rows = top_face_rows()
+		_turn_ring.fill_a = TURN_RING_FILL_A
+		_turn_ring.ink_a = TURN_RING_INK_A
+		_turn_ring.dash = TURN_RING_DASH
+		add_child(_turn_ring)
+	var tick := int(floor(t * TURN_RING_FPS))
+	var pos := tile_center(c)
+	var z := tile_z(c, Z_MARK)
+	if _turn_ring.visible and _turn_ring.tick == tick and _turn_ring.color == color \
+			and _turn_ring.position == pos and _turn_ring.z_index == z:
+		return
+	_turn_ring.position = pos
+	_turn_ring.z_index = z
+	_turn_ring.color = color
+	_turn_ring.tick = tick
+	_turn_ring.visible = true
+	_turn_ring.queue_redraw()
+
+
+func clear_turn_ring() -> void:
+	if _turn_ring != null and _turn_ring.visible:
+		_turn_ring.visible = false
+
+
+## 画的那只节点：底 + 虚线描边，全是 1px 方块，落在整数像素上
+class TurnRing extends Node2D:
+	var color := Color.WHITE
+	var tick := 0
+	var outline: Array = []
+	var rows: Array = []
+	var fill_a := 0.14
+	var ink_a := 0.95
+	var dash := 4
+
+	func _draw() -> void:
+		var fill := Color(color, fill_a)
+		for r in rows:
+			draw_rect(Rect2(Vector2(r[1], r[0]), Vector2(r[2] - r[1] + 1, 1)), fill, true)
+		var ink := Color(color, ink_a)
+		for i in outline.size():
+			if posmod(i - tick, dash * 2) < dash:
+				draw_rect(Rect2(Vector2(outline[i]), Vector2(1, 1)), ink, true)

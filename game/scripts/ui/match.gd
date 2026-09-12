@@ -147,13 +147,8 @@ const CELL_POP_SCALE := 0.7
 const CELL_FOOT_DY := 6.0
 ## 同一格站了多个细胞时左右错开的间距
 const STACK_DX := 9.0
-## 回合脚标（Kevin 2026-09-12）：正在行动的细胞脚下一层阵营色的呼吸剪影，旁观者也看得出「现在是谁在动」。
-## 走高亮剪影那一层（同热座换手的光环）：颜色比可迁移格的青 / 橙往白拉一档（TURN_MARK_TINT），
-## 免得和自己回合里的目标高亮混成一片；透明度在 A0 ~ A0+A1 之间呼吸，最亮也不盖过可迁移格的 0.43。
-const TURN_MARK_TINT := 0.45
-const TURN_MARK_A0 := 0.20
-const TURN_MARK_A1 := 0.22
-const TURN_MARK_PERIOD := 1.6
+## 回合脚标（Kevin 2026-09-12 选定方案 E「跑马灯轮廓」，画在 CWBoard.set_turn_ring）：正在行动的细胞脚下
+## 顶面描一圈一格一格转的虚线 + 淡淡的阵营色底，旁观者也看得出「现在是谁在动」。第一版是呼吸剪影，Kevin 嫌不好看。
 
 ## 棋盘上的细胞用**横排 6 帧的静息呼吸表**（美术 2026-08-29 交付，帧内容上下浮动 0~2px）。
 ## 静态单帧图仍在 cells/ 根目录，主菜单装饰、右侧面板等静态场合继续用它们。
@@ -1034,6 +1029,7 @@ func fade_out(seconds: float) -> void:
 		bridge.abort()
 	_fading = true
 	board.set_marks({})                      ## 高亮自己会淡掉
+	board.clear_turn_ring()
 	board.fade_to_healthy(seconds)
 	## 教程小棋盘：半径外的格随镜头退回一起淡回来 —— 菜单要站在 127 格上（Kevin 2026-09-11）
 	board.set_active_radius(CWData.BOARD_RADIUS, seconds)
@@ -1159,6 +1155,7 @@ func teardown() -> void:
 		for c in CWData.all_coords():
 			board.set_tissue(c, CWData.Tissue.HEALTHY, CWData.special_of(c))
 		board.set_marks({})
+		board.clear_turn_ring()
 		board.set_mucus([])   ## 覆膜也归拆局清：它不在 marks 里，set_marks({}) 收不掉
 	if action_bar != null:
 		action_bar.clear()
@@ -1316,11 +1313,13 @@ func _sync_tiles() -> void:
 	## 热座换手中：该玩家细胞脚下一圈阵营色光环呼吸，告诉 TA 自己在哪（开局还没落子时没有）
 	if _handoff != null and _handoff.active and _handoff.cell_pos != CWHandoff.INVALID:
 		marks[_handoff.cell_pos] = Color(_handoff.faction_color, 0.18 + 0.32 * _handoff.pulse())
-	## 回合脚标：谁在行动谁脚下亮（换手中那圈已经在闪，不叠；交互高亮照样压在它上面）
-	if _handoff == null or not _handoff.active:
-		var tm := turn_mark_of(game, Time.get_ticks_msec() / 1000.0)
-		if not tm.is_empty():
-			marks[tm["pos"]] = tm["color"]
+	## 回合脚标（方案 E）：谁在行动谁脚下描跑马灯（换手中那圈光环已经在闪，不叠）；它在 CWBoard 自己的节点上，
+	## 和高亮剪影同一层、画在其上，细胞之下
+	var tm := turn_mark_of(game) if (_handoff == null or not _handoff.active) else {}
+	if tm.is_empty():
+		board.clear_turn_ring()
+	else:
+		board.set_turn_ring(tm["pos"], tm["color"], Time.get_ticks_msec() / 1000.0)
 	## 交互高亮压过状态色标：正在选目标时，「这格能不能选」比「它是不是固化」重要。
 	if bridge != null:
 		marks.merge(bridge.marks, true)
@@ -1329,21 +1328,16 @@ func _sync_tiles() -> void:
 	board.set_necrosis(necro)
 
 
-## 回合脚标这一帧画在哪、什么色：没人在动（结算演出中）、动的那席还没细胞（落子）、细胞已死（复活中）→ 空。
-## 「谁在动」和右栏底框同一个口径（CWMatchPanel.acting_pid）。**纯函数**（时间从外面进来）。
-static func turn_mark_of(game: CWGame, t: float) -> Dictionary:
+## 回合脚标画在哪、什么色：没人在动（结算演出中）、动的那席还没细胞（落子）、细胞已死（复活中）→ 空。
+## 「谁在动」和右栏底框同一个口径（CWMatchPanel.acting_pid）；颜色就是阵营色本色（方案 E）。**纯函数**。
+static func turn_mark_of(game: CWGame) -> Dictionary:
 	var pid := CWMatchPanel.acting_pid(game)
 	if pid < 0 or pid >= game.cells.size():
 		return {}
 	var cell: Dictionary = game.cell_of(pid)
 	if not cell["alive"]:
 		return {}
-	var base: Color = CWStyle.IMMUNE if cell["faction"] == CWData.Faction.IMMUNE else CWStyle.CANCER
-	return { "pos": cell["pos"], "color": Color(base.lerp(Color.WHITE, TURN_MARK_TINT), turn_mark_alpha(t)) }
-
-
-static func turn_mark_alpha(t: float) -> float:
-	return TURN_MARK_A0 + TURN_MARK_A1 * (0.5 + 0.5 * sin(TAU * t / TURN_MARK_PERIOD))
+	return { "pos": cell["pos"], "color": CWStyle.IMMUNE if cell["faction"] == CWData.Faction.IMMUNE else CWStyle.CANCER }
 
 
 ## 【骨样硬化】标记格这一帧画成什么色。**纯函数**（时间从外面进来，无头测试直接核对）：
