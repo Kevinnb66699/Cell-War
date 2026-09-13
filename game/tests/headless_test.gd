@@ -17172,122 +17172,66 @@ func t_lan_discovery() -> void:
 
 
 ## 回合脚标（Kevin 2026-09-12 选定方案 E「跑马灯轮廓」）：像素对齐 + 虚线跑马灯 + 谁在动
+
+
 func t_turn_mark() -> void:
-	print("[回合脚标 · 跑马灯轮廓]")
+	print("[回合脚标 · 头顶指示箭]")
 	var bd := make_board()
-	## ① 顶面行表与贴图逐像素对上：每行的像素在 tissue_normal.png 里全是顶面色，行上下紧邻的外侧不是
-	var img: Image = bd.TISSUE_TEX[CWData.Special.NONE][0].get_image()
-	var top_ink := img.get_pixel(16, 12)          ## 顶面正中那颗
-	var rows: Array = bd.top_face_rows()
-	var rows_ok: bool = rows.size() == 26 and rows[0][0] == -bd.TOP_FACE_TOP and rows[25][0] == 25 - bd.TOP_FACE_TOP
-	var widths := []
-	for r in rows:
-		widths.append(int(r[2]) - int(r[1]) + 1)
-		for x in range(int(r[1]), int(r[2]) + 1):
-			var px: Color = img.get_pixel(x + bd.TOP_FACE_LEFT, int(r[0]) + bd.TOP_FACE_TOP)
-			if not px.is_equal_approx(top_ink):
-				rows_ok = false
-	check(rows_ok and widths[0] == 2 and widths[7] == 30 and widths[8] == 32 and widths[17] == 32 and widths[18] == 30 and widths[25] == 2,
-		"顶面 26 行全踩在贴图的顶面像素上：2,6,…,30 | 32×10 | 30,…,2（首行宽 %d、第 9 行 %d）" % [widths[0], widths[8]])
-	## ② 轮廓：80 颗、顺时针闭合、8 邻接、不重复、每颗都是顶面的边界像素（四邻里有一个不是顶面色）
-	var ring: Array = bd.top_face_outline()
-	var closed := ring.size() == 80
-	var seen := {}
-	for i in ring.size():
-		var a: Vector2i = ring[i]
-		var b: Vector2i = ring[(i + 1) % ring.size()]
-		if maxi(absi(a.x - b.x), absi(a.y - b.y)) != 1:
-			closed = false
-		if seen.has(a):
-			closed = false
-		seen[a] = true
-		var col: int = a.x + bd.TOP_FACE_LEFT
-		var row: int = a.y + bd.TOP_FACE_TOP
-		if not img.get_pixel(col, row).is_equal_approx(top_ink):
-			closed = false
-		var edge := false
-		for d: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-			var nc: int = col + d.x
-			var nr: int = row + d.y
-			if nc < 0 or nr < 0 or nc >= img.get_width() or nr >= img.get_height() or not img.get_pixel(nc, nr).is_equal_approx(top_ink):
-				edge = true
-		if not edge:
-			closed = false
-	check(closed, "轮廓 80 颗：顺时针闭合、颗颗相邻、不重复、颗颗都是顶面的边界像素（像素对齐）")
-	check(ring[0] == Vector2i(0, -bd.TOP_FACE_TOP) and ring[39] == Vector2i(0, 25 - bd.TOP_FACE_TOP) and ring[40] == Vector2i(-1, 25 - bd.TOP_FACE_TOP),
-		"从顶点右颗起走，第 40 颗是底点右颗、第 41 颗是底点左颗（%s / %s）" % [str(ring[39]), str(ring[40])])
-	## ②b 内圈（Kevin 第二轮：外沿和特殊组织的进度环撞）：顶面向内蚀 5 圈，52 颗轮廓，闭合、颗颗是内圈边界；
-	## 和六张进度环贴图逐像素比：底和轮廓都不压到环，轮廓连斜角都不挨着环（留一圈缝）
-	var inner: Dictionary = bd.face_pixels(bd.TURN_RING_INSET)
-	var iring: Array = bd.outline_of(inner)
-	var inner_ok := true
-	for p in inner:
-		if not img.get_pixel((p as Vector2i).x + bd.TOP_FACE_LEFT, (p as Vector2i).y + bd.TOP_FACE_TOP).is_equal_approx(top_ink):
-			inner_ok = false
-	var iclosed := iring.size() == 52
-	var iseen := {}
-	for i in iring.size():
-		var a: Vector2i = iring[i]
-		var b: Vector2i = iring[(i + 1) % iring.size()]
-		if maxi(absi(a.x - b.x), absi(a.y - b.y)) != 1 or iseen.has(a) or not inner.has(a):
-			iclosed = false
-		iseen[a] = true
-	check(inner_ok and inner.size() == 232 and iclosed and iring[0] == Vector2i(0, 5 - bd.TOP_FACE_TOP),
-		"内圈：232 颗都在顶面上；轮廓 52 颗顺时针闭合、颗颗相邻不重复，从顶点 (0,-8) 起（%d / %d）" % [inner.size(), iring.size()])
-	var ring_px := {}
-	for name in ["core_lit_normal", "core_track_normal", "marrow_lit_normal", "marrow_track_normal", "core_lit_cancer", "marrow_lit_cancer"]:
-		var rimg: Image = (load("res://assets/art/ui/store/%s.png" % name) as Texture2D).get_image()
-		for y in rimg.get_height():
-			for x in rimg.get_width():
-				if rimg.get_pixel(x, y).a > 0.0:
-					ring_px[Vector2i(x - bd.TOP_FACE_LEFT, y - bd.TOP_FACE_TOP)] = true
-	var touch := 0
-	var overlap := 0
-	for p in inner:
-		if ring_px.has(p):
-			overlap += 1
-	for p in iring:
-		for dx in [-1, 0, 1]:
-			for dy in [-1, 0, 1]:
-				if ring_px.has((p as Vector2i) + Vector2i(dx, dy)):
-					touch += 1
-	check(overlap == 0 and touch == 0 and ring_px.size() > 100,
-		"底和轮廓都不压到进度环，轮廓连斜角都不挨着环（压 %d、挨 %d，环贴图共 %d 颗）" % [overlap, touch, ring_px.size()])
-	## ③ 虚线跑马灯：按周长分周期，任何周长都无缝；拍子每 0.1 s 推一格
-	var n_in := iring.size()
-	var periods: int = bd.turn_ring_periods(n_in)
-	var lit_n := 0
-	var periodic := true
-	var shifts := true
-	for i in n_in:
-		if bd.turn_ring_lit(i, 0, n_in):
-			lit_n += 1
-		if bd.turn_ring_lit(i, 0, n_in) != bd.turn_ring_lit(i + n_in, 0, n_in):
-			periodic = false
-		if bd.turn_ring_lit(i, 1, n_in) != bd.turn_ring_lit(i - 1, 0, n_in):
-			shifts = false
-	check(periods == 7 and lit_n == n_in / 2 and periodic and shifts,
-		"52 颗分 7 个周期（段长 3~4）：亮暗各半、以周长为周期（接缝不断）、拍子推一格整条挪一格")
-	check(bd.turn_ring_lit(0, 0, 80) and bd.turn_ring_lit(3, 0, 80) and not bd.turn_ring_lit(4, 0, 80) and bd.turn_ring_lit(8, 0, 80),
-		"周长能被 8 整除时就是亮 4 暗 4")
-	check(is_equal_approx(bd.TURN_RING_FPS, 10.0), "每秒 10 拍")
-	## ④ 节点：放到某格 = 顶面中心、Z_MARK 层；同一拍不重画；清掉就藏
+	## ① 箭：7 颗像素的 V 形，尖在原点、两条 1 px 斜线左右对称；拍子：每 0.5 s 在高低两位之间跳 2 px
+	var px: Array = bd.turn_arrow_pixels()
+	var sym: bool = px.size() == 7 and px.has(Vector2i(0, 0))
+	for p: Vector2i in px:
+		if absi(p.x) != -p.y or p.y < -3 or not px.has(Vector2i(-p.x, p.y)):
+			sym = false
+	check(sym, "箭 7 颗：尖 (0,0)，两侧 (±i,−i) i=1..3，左右对称")
+	check(bd.turn_arrow_lift(0.0) == 0 and bd.turn_arrow_lift(0.49) == 0 and bd.turn_arrow_lift(0.5) == bd.TURN_ARROW_BOB
+		and bd.turn_arrow_lift(0.99) == bd.TURN_ARROW_BOB and bd.turn_arrow_lift(1.0) == 0 and bd.TURN_ARROW_BOB == 2,
+		"拍子：0~0.5 s 低位、0.5~1 s 抬 2 px、1 s 再落 —— 画板 steps(2) 的节奏")
+	## ② 影子：16×6 的像素椭圆（行心采样），6 行 8/14/16/16/14/8，行 −3..2、每行居中、共 76 颗
+	var spans: Array = bd.turn_shadow_spans()
+	var total := 0
+	var shade_ok: bool = spans.size() == 6
+	for i in spans.size():
+		var s: Array = spans[i]
+		var w: int = int(s[2]) - int(s[1]) + 1
+		total += w
+		if int(s[0]) != i - 3 or w != int(bd.TURN_SHADOW_ROWS[i]) or int(s[1]) != -w / 2:
+			shade_ok = false
+	check(shade_ok and total == 76 and bd.TURN_SHADOW_ROWS == [8, 14, 16, 16, 14, 8] and is_equal_approx(bd.TURN_SHADOW_A, 0.45),
+		"影子 6 行 8/14/16/16/14/8 = 76 颗，行 −3..2、每行居中，0.45 阵营色")
+	## ③ 胞体最高行从贴图量：免疫系 32×32 的条最高行 3、癌系 32×34 的 0（呼吸六帧一起量，取最高那帧）
+	var imm_tex: Texture2D = CWMatch.IMMUNE_ART[CWData.ImmuneType.BASIC]
+	var mel_tex: Texture2D = CWMatch.CANCER_ART[CWData.CancerType.MELANOMA]
+	check(CWMatch.body_top_of(imm_tex) == 3 and CWMatch.body_top_of(mel_tex) == 0 and CWMatch.body_top_of(null) == 0
+		and CWMatch.body_top_of(imm_tex) == imm_tex.get_image().get_used_rect().position.y,
+		"免疫条最高不透明行 3、黑色素瘤条 0（拿 get_used_rect 量，不猜）")
+	## ④ 箭尖离脚底：胞体最高行上方第 3 行；被标记的癌细胞头顶有冠印 → 抬到冠印（HEAD_DY − 7）之上
+	check(is_equal_approx(CWMatch.turn_tip_dy(32, 3, false), -32.0) and is_equal_approx(CWMatch.turn_tip_dy(34, 0, false), -37.0)
+		and is_equal_approx(CWMatch.turn_tip_dy(34, 0, true), CWCellDeco.HEAD_DY - 7.0 - 3.0)
+		and CWMatch.turn_tip_dy(34, 0, true) < CWMatch.turn_tip_dy(34, 0, false) and CWMatch.TURN_TIP_GAP == 3,
+		"箭尖：免疫 −32、癌 −37；有冠印抬到 %.0f" % CWMatch.turn_tip_dy(34, 0, true))
+	## ⑤ 节点：箭在细胞之上（Z_CELL + 2）、影子在细胞之下（Z_MARK）；整数像素；换拍抬 2；换格换色；清掉就藏
 	var c := Vector2i(1, 0)
-	bd.set_turn_ring(c, CWStyle.IMMUNE, 0.0)
-	var node: Node2D = bd._turn_ring
-	check(node != null and node.visible and node.position == bd.tile_center(c) and node.z_index == bd.tile_z(c, bd.Z_MARK)
-		and node.tick == 0 and node.color == CWStyle.IMMUNE and node.outline.size() == 52 and node.periods == 7 and node.rows.size() == 16,
-		"脚标节点放在那格的顶面中心、高亮剪影那一层；画的是 52 颗内圈 + 16 行底")
-	bd.set_turn_ring(c, CWStyle.IMMUNE, 0.35)
-	check(node.tick == 3, "t=0.35 s → 第 3 拍")
-	bd.set_turn_ring(Vector2i(0, 1), CWStyle.CANCER, 0.35)
-	check(node.position == bd.tile_center(Vector2i(0, 1)) and node.color == CWStyle.CANCER, "换格换色跟着走")
-	bd.clear_turn_ring()
-	check(not node.visible, "清掉就藏（节点留着复用）")
-	bd.set_turn_ring(Vector2i(99, 99), CWStyle.CANCER, 0.0)
-	check(not node.visible, "不在棋盘上的格：当没有")
+	var foot: Vector2 = bd.tile_center(c) + Vector2(0.5, CWMatch.CELL_FOOT_DY)   ## 同格错位会给出半像素
+	bd.set_turn_mark(c, foot, -37.0, CWStyle.CANCER, 0.0)
+	var arrow: Node2D = bd._turn_arrow
+	var shadow: Node2D = bd._turn_shadow
+	check(arrow != null and arrow.visible and shadow.visible and arrow.color == CWStyle.CANCER and shadow.color == CWStyle.CANCER
+		and arrow.z_index == bd.tile_z(c, bd.Z_CELL) + 2 and shadow.z_index == bd.tile_z(c, bd.Z_MARK)
+		and arrow.position == Vector2(roundf(foot.x), roundf(foot.y) - 37.0) and shadow.position == Vector2(roundf(foot.x), roundf(foot.y) - 1.0)
+		and arrow.pixels.size() == 7 and shadow.spans.size() == 6 and is_equal_approx(shadow.alpha, 0.45),
+		"箭在 Z_CELL+2、影子在 Z_MARK；位置四舍五入到整数像素（箭尖 %s、影心 %s）" % [str(arrow.position), str(shadow.position)])
+	bd.set_turn_mark(c, foot, -37.0, CWStyle.CANCER, 0.6)
+	check(arrow.position.y == roundf(foot.y) - 37.0 - 2.0 and shadow.position.y == roundf(foot.y) - 1.0, "0.6 s：第二拍，箭抬 2 px，影子不动")
+	bd.set_turn_mark(Vector2i(0, 1), bd.tile_center(Vector2i(0, 1)) + Vector2(0, CWMatch.CELL_FOOT_DY), -32.0, CWStyle.IMMUNE, 0.0)
+	check(arrow.color == CWStyle.IMMUNE and shadow.color == CWStyle.IMMUNE and arrow.z_index == bd.tile_z(Vector2i(0, 1), bd.Z_CELL) + 2
+		and arrow.position.y == roundf(bd.tile_center(Vector2i(0, 1)).y + CWMatch.CELL_FOOT_DY) - 32.0, "换格换色跟着走")
+	bd.clear_turn_mark()
+	check(not arrow.visible and not shadow.visible, "清掉就藏（节点留着复用）")
+	bd.set_turn_mark(Vector2i(99, 99), Vector2.ZERO, -30.0, CWStyle.CANCER, 0.0)
+	check(not arrow.visible, "不在棋盘上的格：当没有")
 	bd.free()
-	## ⑤ 谁在动：落子没细胞不画、进回合后在行动细胞脚下、阵营本色、死了不画、没人不画
+	## ⑥ 谁在动：落子没细胞不画、进回合后跟着行动细胞（带 cid）、阵营本色、死了不画、没人不画
 	var g := make_game(4, 3)
 	var req: Dictionary = await g.pending()
 	check(req.get("kind", "") == "setup_place" and CWMatch.turn_mark_of(g).is_empty(), "落子阶段：还没有细胞，不画")
@@ -17296,9 +17240,9 @@ func t_turn_mark() -> void:
 		req = await g.pending()
 	var tm := CWMatch.turn_mark_of(g)
 	var actor: Dictionary = g.cell_of(g.current_pid)
-	check(g.current_pid >= 0 and tm.get("pos", Vector2i.MAX) == actor["pos"]
+	check(g.current_pid >= 0 and tm.get("pos", Vector2i.MAX) == actor["pos"] and int(tm.get("cid", -1)) == int(actor["id"])
 		and tm["color"] == (CWStyle.IMMUNE if actor["faction"] == CWData.Faction.IMMUNE else CWStyle.CANCER),
-		"进了行动回合：脚标在当前行动细胞脚下、阵营本色")
+		"进了行动回合：脚标跟着当前行动细胞（cid %d）、阵营本色" % int(tm.get("cid", -1)))
 	actor["alive"] = false
 	check(CWMatch.turn_mark_of(g).is_empty(), "行动者的细胞死了（复活中）：不画")
 	actor["alive"] = true
@@ -17306,8 +17250,9 @@ func t_turn_mark() -> void:
 	g.asking_pid = -1
 	check(CWMatch.turn_mark_of(g).is_empty(), "没人在动：不画")
 	g.dispose()
-	## ⑥ 接线：_sync_tiles 每帧 set / clear；换手中不叠；拆局 / 淡出都清
+	## ⑦ 接线：_sync_cells 每帧 set / clear（它才知道细胞此刻画在哪）；换手中不叠；拆局 / 淡出都清；E 的接口没了
 	var src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	check(src.contains("board.set_turn_ring(tm[\"pos\"]") and src.contains("board.clear_turn_ring()")
-		and src.find("not _handoff.active") < src.find("board.set_turn_ring("), "每帧接线 + 换手中不叠")
-	check(src.count("board.clear_turn_ring()") >= 3, "拆局与淡出都清脚标（%d 处）" % src.count("board.clear_turn_ring()"))
+	check(src.contains("board.set_turn_mark(pos, foot, turn_tip_dy(") and src.find("not _handoff.active") < src.find("board.set_turn_mark(")
+		and not src.contains("set_turn_ring") and not src.contains("clear_turn_ring"),
+		"每帧在 _sync_cells 接线 + 换手中不叠；跑马灯那套接口不再被引用")
+	check(src.count("board.clear_turn_mark()") >= 3, "拆局、淡出、没轮到谁都清脚标（%d 处）" % src.count("board.clear_turn_mark()"))

@@ -225,7 +225,8 @@ const MARK_PLAN_BAD := Color("ffb03abf")
 const MARK_SELF := Color("eaf8fc47")     ## 当前行动的细胞脚下：淡到 0.28
 
 var _marks: Node2D                  ## 高亮剪影与过场用的临时叠层
-var _turn_ring: TurnRing = null     ## 回合脚标（方案 E 跑马灯轮廓），见 set_turn_ring
+var _turn_arrow: TurnArrow = null   ## 回合脚标（方案 D 头顶指示箭）：头顶那枚箭，见 set_turn_mark
+var _turn_shadow: TurnShadow = null ## 同上：脚下那片影子
 var _mucus_root: Node2D             ## 黏液覆膜层（见 set_mucus）
 var _mucus_nodes := {}              ## 轴坐标 -> 那一格的覆膜 Sprite2D
 var _necro_root: Node2D             ## 坏死纹理层（见 set_necrosis），压在黏液膜下面
@@ -788,193 +789,104 @@ func _film_px(img: Image, x: int, y: int, col: Color) -> void:
 		out_a))
 
 
-# ============ 回合脚标：方案 E「跑马灯轮廓」（Kevin 2026-09-12 选定）============
+# ============ 回合脚标：方案 D「头顶指示箭」（Kevin 2026-09-12 晚改选；白天先定的 E 跑马灯轮廓撤了）============
 ##
-## 正在行动的细胞脚下：顶面**内圈**六边形的 1px 描边按虚线一格一格转，圈内再铺一层 0.14 的阵营色。
-## **像素对齐**（Kevin 特意叮嘱）：形状不是画一个近似六边形，而是照 tissue_normal.png 的顶面**实际形状**算出来的 ——
-## 32×34 的贴图里顶面是第 0~25 行：上下各 8 行的斜边每行进 2 px（台阶），中间 10 行满宽 32（`top_face_rows`）。
-## **画内圈不画外沿**（Kevin 2026-09-12 第二轮：外沿和骨髓 / 核心那圈进度环撞在一起）：顶面按四邻蚀掉
-## TURN_RING_INSET 圈得到内圈（`face_pixels`），它的边界像素（`outline_of`）就是描边 —— 蚀 5 圈之后离进度环
-## 的贴图还留一圈缝（`t_turn_mark` 拿六张环贴图逐像素核对，连斜角挨着都不许）。
-## 虚线按周长分周期（`turn_ring_lit`：周期数 = 周长 ÷ 8 四舍五入，亮暗各半），任何周长都无缝；
-## 时间按 TURN_RING_FPS 量化（每 0.1 s 走一格），透明度只两档（底 / 描边）—— 同 chemo_fx 的三条像素纪律。
-## 画在 Z_MARK 层：压在高亮剪影之上、细胞之下 —— 圈的上半段被胞体挡住，读成「圈在脚下」。
-const TURN_RING_DASH := 4          ## 目标虚线半周期（亮 4 暗 4）；周长不整除时由 turn_ring_lit 匀成 3~5
-const TURN_RING_INSET := 5         ## 顶面向内蚀几圈：5 圈之后离进度环贴图还有一圈缝（模型量过，见 t_turn_mark）
-const TURN_RING_FPS := 10.0
-const TURN_RING_FILL_A := 0.14
-const TURN_RING_INK_A := 0.95
-const TOP_FACE_TOP := 13          ## 顶面在贴图里的第 0 行相对顶面中心（tile_center）在上方几 px
-const TOP_FACE_LEFT := 16         ## 贴图第 0 列相对顶面中心在左方几 px（32 宽、居中）
+## 正在行动的细胞**头顶**一枚阵营色的像素 V 形箭（7 宽 4 高、1 px 线、尖朝下），每 0.5 s 一拍在高低两位之间跳 2 px
+## （画板：`bob .5s steps(2, jump-none) alternate`）；**脚下**一片 16×6 的阵营色影子（0.45）。
+## 战棋游戏的通用语言，一眼读懂「当前单位」；不碰脚下那层高亮。
+## **像素对齐**（Kevin 特意叮嘱）：箭的 7 颗像素、影子 6 行的宽度都是整数表（`turn_arrow_pixels` / `turn_shadow_spans`），
+## 位置四舍五入到整数像素；箭尖离胞体**最高那颗不透明像素**几行由 CWMatch.turn_tip_dy 算（贴图各不一样高、
+## 免疫系的条上头空 3 行 —— `CWMatch.body_top_of` 拿 get_used_rect 量的，不拿贴图高度猜）。
+## 两个节点：箭画在细胞**之上**（Z_CELL + 2，压过前后装饰），影子画在细胞**之下**（Z_MARK，同高亮剪影那层）。
+## 位置由 CWMatch._sync_cells 给（它才知道细胞此刻画在哪、贴图多高、头顶有没有冠印），这里只画。
+const TURN_ARROW_BOB := 2                          ## 跳多高（px）
+const TURN_ARROW_PERIOD := 0.5                     ## 每拍多久：低位、高位各停半秒
+const TURN_SHADOW_ROWS := [8, 14, 16, 16, 14, 8]   ## 影子 6 行各几 px 宽：16×6 的像素椭圆，按行心采样
+const TURN_SHADOW_A := 0.45
 
 
-## 顶面每一行的 [y, x0, x1]（相对 tile_center，含两端）。从贴图量出来的规律：
-## 第 r 行（0~25）：r≤7 → 15−2r..16+2r；8≤r≤17 → 0..31；r≥18 → 1+2(r−18)..30−2(r−18)。**纯函数**。
-static func top_face_rows() -> Array:
-	var out: Array = []
-	for r in 26:
-		var x0: int
-		var x1: int
-		if r <= 7:
-			x0 = 15 - 2 * r
-			x1 = 16 + 2 * r
-		elif r <= 17:
-			x0 = 0
-			x1 = 31
-		else:
-			x0 = 1 + 2 * (r - 18)
-			x1 = 30 - 2 * (r - 18)
-		out.append([r - TOP_FACE_TOP, x0 - TOP_FACE_LEFT, x1 - TOP_FACE_LEFT])
+## 箭的 7 颗像素（相对箭尖，y 向上为负）：尖 + 两条 1 px 斜线。**纯函数**
+static func turn_arrow_pixels() -> Array:
+	var out: Array = [Vector2i(0, 0)]
+	for i in range(1, 4):
+		out.append(Vector2i(-i, -i))
+		out.append(Vector2i(i, -i))
 	return out
 
 
-## 顶面轮廓像素，**顺时针**从顶点右边那颗起走一圈（相对 tile_center）。**纯函数**。
-## 台阶行每边两颗（本行新露出的那两个），满宽行每边一颗；一共 80 颗，首尾 8 邻接。
-static func top_face_outline() -> Array:
-	var rows := top_face_rows()
+## 这一拍箭抬多高：偶数拍低位、奇数拍抬 TURN_ARROW_BOB。**纯函数**
+static func turn_arrow_lift(t: float) -> int:
+	return TURN_ARROW_BOB if int(floor(t / TURN_ARROW_PERIOD)) % 2 == 1 else 0
+
+
+## 影子每行 [dy, x0, x1]（相对影心，含两端）：行 −3..2，偶数宽度居中 = x 从 −w/2 到 w/2−1。**纯函数**
+static func turn_shadow_spans() -> Array:
 	var out: Array = []
-	## 右半边：从上往下
-	out.append(Vector2i(rows[0][2], rows[0][0]))                       ## 顶点右颗
-	for r in range(1, 8):
-		out.append(Vector2i(rows[r][2] - 1, rows[r][0]))
-		out.append(Vector2i(rows[r][2], rows[r][0]))
-	for r in range(8, 18):
-		out.append(Vector2i(rows[r][2], rows[r][0]))
-	for r in range(18, 25):
-		out.append(Vector2i(rows[r][2], rows[r][0]))
-		out.append(Vector2i(rows[r][2] - 1, rows[r][0]))
-	out.append(Vector2i(rows[25][2], rows[25][0]))                     ## 底点右颗
-	## 左半边：从下往上
-	out.append(Vector2i(rows[25][1], rows[25][0]))                     ## 底点左颗
-	for r in range(24, 17, -1):
-		out.append(Vector2i(rows[r][1] + 1, rows[r][0]))
-		out.append(Vector2i(rows[r][1], rows[r][0]))
-	for r in range(17, 7, -1):
-		out.append(Vector2i(rows[r][1], rows[r][0]))
-	for r in range(7, 0, -1):
-		out.append(Vector2i(rows[r][1], rows[r][0]))
-		out.append(Vector2i(rows[r][1] + 1, rows[r][0]))
-	out.append(Vector2i(rows[0][1], rows[0][0]))                       ## 顶点左颗
+	for i in TURN_SHADOW_ROWS.size():
+		var w: int = TURN_SHADOW_ROWS[i]
+		out.append([i - 3, -w / 2, w / 2 - 1])
 	return out
 
 
-## 顶面向内蚀 inset 圈之后剩下的像素（相对 tile_center；四邻蚀：四个邻居都在才留下）。**纯函数**。
-static func face_pixels(inset: int) -> Dictionary:
-	var pixels := {}
-	for r in top_face_rows():
-		for x in range(int(r[1]), int(r[2]) + 1):
-			pixels[Vector2i(x, int(r[0]))] = true
-	for _k in inset:
-		var kept := {}
-		for p in pixels:
-			var v: Vector2i = p
-			if pixels.has(v + Vector2i(1, 0)) and pixels.has(v + Vector2i(-1, 0)) \
-					and pixels.has(v + Vector2i(0, 1)) and pixels.has(v + Vector2i(0, -1)):
-				kept[v] = true
-		pixels = kept
-	return pixels
-
-
-## 一堆像素的边界（四邻有一个不在就是边界），**顺时针**从顶点起排好；凸形按重心角排就是一圈。**纯函数**。
-static func outline_of(pixels: Dictionary) -> Array:
-	var edge: Array = []
-	var cx := 0.0
-	var cy := 0.0
-	for p in pixels:
-		var v: Vector2i = p
-		if not (pixels.has(v + Vector2i(1, 0)) and pixels.has(v + Vector2i(-1, 0))
-				and pixels.has(v + Vector2i(0, 1)) and pixels.has(v + Vector2i(0, -1))):
-			edge.append(v)
-			cx += v.x
-			cy += v.y
-	if edge.is_empty():
-		return edge
-	cx /= edge.size()
-	cy /= edge.size()
-	edge.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return fposmod(atan2(a.y - cy, a.x - cx) + PI / 2.0, TAU) < fposmod(atan2(b.y - cy, b.x - cx) + PI / 2.0, TAU))
-	return edge
-
-
-## 一堆像素按行合成 [y, x0, x1]（内圈每行是一段连续的，画底用）。**纯函数**。
-static func spans_of(pixels: Dictionary) -> Array:
-	var by_row := {}
-	for p in pixels:
-		var v: Vector2i = p
-		if not by_row.has(v.y):
-			by_row[v.y] = [v.x, v.x]
-		else:
-			by_row[v.y][0] = mini(by_row[v.y][0], v.x)
-			by_row[v.y][1] = maxi(by_row[v.y][1], v.x)
-	var ys: Array = by_row.keys()
-	ys.sort()
-	var out: Array = []
-	for y in ys:
-		out.append([y, by_row[y][0], by_row[y][1]])
-	return out
-
-
-## 周长 n 的圈分几个虚线周期：目标每周期 8 颗（亮 4 暗 4），四舍五入。**纯函数**。
-static func turn_ring_periods(n: int) -> int:
-	return maxi(1, int(round(float(n) / float(TURN_RING_DASH * 2))))
-
-
-## 第 i 颗轮廓像素在第 tick 拍亮不亮。按 (i − tick) × 周期数 对 n 取模看落在前一半还是后一半 ——
-## 只依赖 (i − tick)，所以每拍整条虚线挪一格；对 i 以 n 为周期，所以接缝处永远不断（周长不整除时段长在 3~5 之间匀）。**纯函数**。
-static func turn_ring_lit(i: int, tick: int, n: int) -> bool:
-	return posmod((i - tick) * turn_ring_periods(n), n) < n / 2
-
-
-## 把脚标放到某格（每帧调；同一格只在拍子变了才重画）。t 是秒。
-func set_turn_ring(c: Vector2i, color: Color, t: float) -> void:
+## 把脚标挂到某只细胞上（每帧调；拍子、位置、颜色都没变就不重画）。
+## foot = 细胞脚底（棋盘坐标，同 CWMatch 摆细胞用的点，同格错位会带半像素 —— 这里四舍五入），
+## tip_dy = 箭尖离脚底几 px（负数向上，CWMatch.turn_tip_dy 算），t 是秒。
+func set_turn_mark(c: Vector2i, foot: Vector2, tip_dy: float, color: Color, t: float) -> void:
 	if not map.has(axial_to_rc(c)):
-		clear_turn_ring()
+		clear_turn_mark()
 		return
-	if _turn_ring == null:
-		_turn_ring = TurnRing.new()
-		_turn_ring.name = "TurnRing"
-		var inner := face_pixels(TURN_RING_INSET)
-		_turn_ring.outline = outline_of(inner)
-		_turn_ring.rows = spans_of(inner)
-		_turn_ring.periods = turn_ring_periods(_turn_ring.outline.size())
-		_turn_ring.fill_a = TURN_RING_FILL_A
-		_turn_ring.ink_a = TURN_RING_INK_A
-		add_child(_turn_ring)
-	var tick := int(floor(t * TURN_RING_FPS))
-	var pos := tile_center(c)
-	var z := tile_z(c, Z_MARK)
-	if _turn_ring.visible and _turn_ring.tick == tick and _turn_ring.color == color \
-			and _turn_ring.position == pos and _turn_ring.z_index == z:
+	if _turn_arrow == null:
+		_turn_arrow = TurnArrow.new()
+		_turn_arrow.name = "TurnArrow"
+		_turn_arrow.pixels = turn_arrow_pixels()
+		add_child(_turn_arrow)
+		_turn_shadow = TurnShadow.new()
+		_turn_shadow.name = "TurnShadow"
+		_turn_shadow.spans = turn_shadow_spans()
+		_turn_shadow.alpha = TURN_SHADOW_A
+		add_child(_turn_shadow)
+	var tip := Vector2(roundf(foot.x), roundf(foot.y + tip_dy) - float(turn_arrow_lift(t)))
+	var shade := Vector2(roundf(foot.x), roundf(foot.y) - 1.0)
+	var z_arrow := tile_z(c, Z_CELL) + 2
+	var z_shadow := tile_z(c, Z_MARK)
+	if _turn_arrow.visible and _turn_arrow.position == tip and _turn_arrow.color == color \
+			and _turn_arrow.z_index == z_arrow and _turn_shadow.position == shade and _turn_shadow.z_index == z_shadow:
 		return
-	_turn_ring.position = pos
-	_turn_ring.z_index = z
-	_turn_ring.color = color
-	_turn_ring.tick = tick
-	_turn_ring.visible = true
-	_turn_ring.queue_redraw()
+	_turn_arrow.position = tip
+	_turn_arrow.z_index = z_arrow
+	_turn_arrow.color = color
+	_turn_arrow.visible = true
+	_turn_arrow.queue_redraw()
+	_turn_shadow.position = shade
+	_turn_shadow.z_index = z_shadow
+	_turn_shadow.color = color
+	_turn_shadow.visible = true
+	_turn_shadow.queue_redraw()
 
 
-func clear_turn_ring() -> void:
-	if _turn_ring != null and _turn_ring.visible:
-		_turn_ring.visible = false
+func clear_turn_mark() -> void:
+	if _turn_arrow != null and _turn_arrow.visible:
+		_turn_arrow.visible = false
+		_turn_shadow.visible = false
 
 
-## 画的那只节点：内圈底 + 虚线描边，全是 1px 方块，落在整数像素上
-class TurnRing extends Node2D:
+## 头顶那枚箭：7 颗 1 px 方块，原点在箭尖（像素表由外面注入 —— 内部类够不着外层的静态函数）
+class TurnArrow extends Node2D:
 	var color := Color.WHITE
-	var tick := 0
-	var outline: Array = []
-	var rows: Array = []
-	var periods := 1
-	var fill_a := 0.14
-	var ink_a := 0.95
+	var pixels: Array = []
 
 	func _draw() -> void:
-		var fill := Color(color, fill_a)
-		for r in rows:
-			draw_rect(Rect2(Vector2(r[1], r[0]), Vector2(r[2] - r[1] + 1, 1)), fill, true)
-		var ink := Color(color, ink_a)
-		var n := outline.size()
-		for i in n:
-			if posmod((i - tick) * periods, n) < n / 2:
-				draw_rect(Rect2(Vector2(outline[i]), Vector2(1, 1)), ink, true)
+		for p in pixels:
+			draw_rect(Rect2(Vector2(p), Vector2(1, 1)), color, true)
+
+
+## 脚下那片影子：6 行 1 px 高的横条，原点在影心
+class TurnShadow extends Node2D:
+	var color := Color.WHITE
+	var spans: Array = []
+	var alpha := 0.45
+
+	func _draw() -> void:
+		var col := Color(color, alpha)
+		for s in spans:
+			draw_rect(Rect2(Vector2(s[1], s[0]), Vector2(s[2] - s[1] + 1, 1)), col, true)

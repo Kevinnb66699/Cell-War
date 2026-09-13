@@ -147,8 +147,10 @@ const CELL_POP_SCALE := 0.7
 const CELL_FOOT_DY := 6.0
 ## 同一格站了多个细胞时左右错开的间距
 const STACK_DX := 9.0
-## 回合脚标（Kevin 2026-09-12 选定方案 E「跑马灯轮廓」，画在 CWBoard.set_turn_ring）：正在行动的细胞脚下
-## 顶面描一圈一格一格转的虚线 + 淡淡的阵营色底，旁观者也看得出「现在是谁在动」。第一版是呼吸剪影，Kevin 嫌不好看。
+## 回合脚标（Kevin 2026-09-12：白天选 E 跑马灯轮廓，晚上改选 D「头顶指示箭」，画在 CWBoard.set_turn_mark）：
+## 正在行动的细胞头顶一枚阵营色像素 V 形箭上下跳、脚下一片影子，旁观者也看得出「现在是谁在动」。第一版呼吸剪影 Kevin 嫌不好看。
+## 箭尖离胞体最高不透明行几行（TURN_TIP_GAP，中间空两行）；被标记的癌细胞头顶有冠印，箭再抬到冠印之上（turn_tip_dy）。
+const TURN_TIP_GAP := 3
 
 ## 棋盘上的细胞用**横排 6 帧的静息呼吸表**（美术 2026-08-29 交付，帧内容上下浮动 0~2px）。
 ## 静态单帧图仍在 cells/ 根目录，主菜单装饰、右侧面板等静态场合继续用它们。
@@ -1029,7 +1031,7 @@ func fade_out(seconds: float) -> void:
 		bridge.abort()
 	_fading = true
 	board.set_marks({})                      ## 高亮自己会淡掉
-	board.clear_turn_ring()
+	board.clear_turn_mark()
 	board.fade_to_healthy(seconds)
 	## 教程小棋盘：半径外的格随镜头退回一起淡回来 —— 菜单要站在 127 格上（Kevin 2026-09-11）
 	board.set_active_radius(CWData.BOARD_RADIUS, seconds)
@@ -1155,7 +1157,7 @@ func teardown() -> void:
 		for c in CWData.all_coords():
 			board.set_tissue(c, CWData.Tissue.HEALTHY, CWData.special_of(c))
 		board.set_marks({})
-		board.clear_turn_ring()
+		board.clear_turn_mark()
 		board.set_mucus([])   ## 覆膜也归拆局清：它不在 marks 里，set_marks({}) 收不掉
 	if action_bar != null:
 		action_bar.clear()
@@ -1314,13 +1316,6 @@ func _sync_tiles() -> void:
 	## 热座换手中：该玩家细胞脚下一圈阵营色光环呼吸，告诉 TA 自己在哪（开局还没落子时没有）
 	if _handoff != null and _handoff.active and _handoff.cell_pos != CWHandoff.INVALID:
 		marks[_handoff.cell_pos] = Color(_handoff.faction_color, 0.18 + 0.32 * _handoff.pulse())
-	## 回合脚标（方案 E）：谁在行动谁脚下描跑马灯（换手中那圈光环已经在闪，不叠）；它在 CWBoard 自己的节点上，
-	## 和高亮剪影同一层、画在其上，细胞之下
-	var tm := turn_mark_of(game) if (_handoff == null or not _handoff.active) else {}
-	if tm.is_empty():
-		board.clear_turn_ring()
-	else:
-		board.set_turn_ring(tm["pos"], tm["color"], Time.get_ticks_msec() / 1000.0)
 	## 交互高亮压过状态色标：正在选目标时，「这格能不能选」比「它是不是固化」重要。
 	if bridge != null:
 		marks.merge(bridge.marks, true)
@@ -1329,8 +1324,8 @@ func _sync_tiles() -> void:
 	board.set_necrosis(necro)
 
 
-## 回合脚标画在哪、什么色：没人在动（结算演出中）、动的那席还没细胞（落子）、细胞已死（复活中）→ 空。
-## 「谁在动」和右栏底框同一个口径（CWMatchPanel.acting_pid）；颜色就是阵营色本色（方案 E）。**纯函数**。
+## 回合脚标挂在谁头上、什么色：没人在动（结算演出中）、动的那席还没细胞（落子）、细胞已死（复活中）→ 空。
+## 「谁在动」和右栏底框同一个口径（CWMatchPanel.acting_pid）；颜色就是阵营色本色；cid = game.cells 的下标。**纯函数**。
 static func turn_mark_of(game: CWGame) -> Dictionary:
 	var pid := CWMatchPanel.acting_pid(game)
 	if pid < 0 or pid >= game.cells.size():
@@ -1338,7 +1333,29 @@ static func turn_mark_of(game: CWGame) -> Dictionary:
 	var cell: Dictionary = game.cell_of(pid)
 	if not cell["alive"]:
 		return {}
-	return { "pos": cell["pos"], "color": CWStyle.IMMUNE if cell["faction"] == CWData.Faction.IMMUNE else CWStyle.CANCER }
+	return { "cid": int(cell["id"]), "pos": cell["pos"],
+		"color": CWStyle.IMMUNE if cell["faction"] == CWData.Faction.IMMUNE else CWStyle.CANCER }
+
+
+## 某张细胞贴图最高的不透明行（六帧呼吸条一起量 = 呼吸最高那帧）：箭尖离它几行，不拿贴图高度猜
+## （免疫系 32×32 的条上头空 3 行、癌系 32×34 的顶到头）。量一次记一次。
+static var _body_tops := {}
+static func body_top_of(tex: Texture2D) -> int:
+	if tex == null:
+		return 0
+	if not _body_tops.has(tex):
+		var img: Image = tex.get_image()
+		_body_tops[tex] = int(img.get_used_rect().position.y) if img != null else 0
+	return int(_body_tops[tex])
+
+
+## 箭尖离脚底几 px（负 = 向上）：胞体最高行上方第 TURN_TIP_GAP 行；被标记的癌细胞头顶有冠印（CWCellDeco.HEAD_DY 处，
+## 两侧小钩最高到 −7），箭抬到冠印之上 —— 画板里「和冠印抢位置」那条代价的解法。**纯函数**
+static func turn_tip_dy(h: int, body_top: int, marked: bool) -> float:
+	var dy := -float(h - body_top) - float(TURN_TIP_GAP)
+	if marked:
+		dy = minf(dy, CWCellDeco.HEAD_DY - 7.0 - float(TURN_TIP_GAP))
+	return dy
 
 
 ## 【骨样硬化】标记格这一帧画成什么色。**纯函数**（时间从外面进来，无头测试直接核对）：
@@ -1435,6 +1452,9 @@ func _sync_cells() -> void:
 			per_tile[c["pos"]] = per_tile.get(c["pos"], 0) + 1
 	var placed := {}
 	var jumps: Array = []   ## 本帧检出的传送：{ i, from, to, ghost_pos, ghost_z }
+	## 回合脚标（方案 D）：谁在动（换手光环在闪时不叠）；轮到的那只在下面的循环里挂，没轮到谁就清
+	var tm := turn_mark_of(game) if (_handoff == null or not _handoff.active) else {}
+	var turn_placed := false
 	for i in game.cells.size():
 		var c: Dictionary = game.cells[i]
 		var node: Node2D = _cell_nodes[i]
@@ -1473,6 +1493,7 @@ func _sync_cells() -> void:
 		node.position = foot
 		node.z_index = board.tile_z(pos, board.Z_CELL)
 		## 装饰跟着走：位置是格顶面中心（选稿的坐标系）+ 同格错位，z 夹着细胞节点一前一后
+		var tex: Texture2D = (node as Sprite2D).texture
 		for side in 2:
 			var deco: CWCellDeco = _decos[i][side]
 			deco.visible = true
@@ -1480,13 +1501,22 @@ func _sync_cells() -> void:
 			deco.position = foot - Vector2(0, CELL_FOOT_DY)
 			deco.z_index = node.z_index + (1 if side == 1 else -1)
 			## 小盾轨道要绕胞体中心转（Kevin 2026-09-12），装饰得知道这只细胞的贴图多高
-			var tex: Texture2D = (node as Sprite2D).texture
 			deco.half_h = tex.get_height() / 2.0 if tex != null else 17.0
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"])
 			_sync_doom(node as Sprite2D, c)
+		## 回合脚标（方案 D，Kevin 2026-09-12 晚）：轮到的这只细胞头顶一枚箭、脚下一片影子。挂在这里而不是 _sync_tiles，
+		## 因为只有这里知道它此刻画在哪（同格错位、被伪足拉着走都算）、贴图多高、头顶有没有冠印
+		if int(tm.get("cid", -1)) == i:
+			var art: Texture2D = (node as Sprite2D).texture
+			var h: int = art.get_height() if art != null else 34
+			board.set_turn_mark(pos, foot, turn_tip_dy(h, body_top_of(art), bool(c.get("marked", false))),
+				tm["color"], Time.get_ticks_msec() / 1000.0)
+			turn_placed = true
 		## 复活的图腾 2026-09-11 撤了（issue #15）：复活改由引擎报的 revive_immune / revive_cancer 演出
 		## （CWSkillFx「归拢重生」/「碎石重生」），单机联机都走同一条通报
+	if not turn_placed:
+		board.clear_turn_mark()
 	if not jumps.is_empty():
 		_play_teleports(jumps)
 
