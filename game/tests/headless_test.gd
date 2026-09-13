@@ -287,6 +287,44 @@ func t_setup() -> void:
 		"初始 %d 格癌性组织（6 人局）" % CWData.init_cancer_tiles(6))
 	g6.dispose()
 	check(g.is_cancerous(Vector2i.ZERO), "含中央格")
+	## issue #32：形状由种子决定（PRD「系统使用对局的确定性随机数生成 X 个初始癌组织」）。
+	## 三条硬约束逐条核：连通、含中央格、不与特殊组织重合；再核「换种子换形状、同种子同形状」。
+	var blob_of := func(gg: CWGame) -> Dictionary:
+		var out := {}
+		for c: Vector2i in gg.tiles:
+			if gg.is_cancerous(c):
+				out[c] = true
+		return out
+	var g_a := make_game(4, 11)
+	await run_setup(g_a)
+	var g_b := make_game(4, 12)
+	await run_setup(g_b)
+	var g_a2 := make_game(4, 11)
+	await run_setup(g_a2)
+	var blob_a: Dictionary = blob_of.call(g_a)
+	var blob_b: Dictionary = blob_of.call(g_b)
+	check(blob_a.keys() != blob_b.keys() and blob_a.size() == blob_b.size(),
+		"换种子换形状（同样 %d 格，位置不同）" % blob_a.size())
+	check(blob_a.keys() == (blob_of.call(g_a2) as Dictionary).keys(),
+		"同种子同形状 —— 确定性随机，推演 / 回放 / 联机三边对得上")
+	## 连通：从中央格广度优先能走遍整块
+	var reach := { Vector2i.ZERO: true }
+	var queue: Array[Vector2i] = [Vector2i.ZERO]
+	while not queue.is_empty():
+		var cur: Vector2i = queue.pop_front()
+		for n in g_a.neighbors(cur):
+			if blob_a.has(n) and not reach.has(n):
+				reach[n] = true
+				queue.append(n)
+	var no_special := true
+	for c: Vector2i in blob_a:
+		if CWData.special_of(c) != CWData.Special.NONE:
+			no_special = false
+	check(reach.size() == blob_a.size() and blob_a.has(Vector2i.ZERO) and no_special,
+		"随机长出来的仍是一个连通块、含中央格、不压特殊组织（%d 格全连通）" % reach.size())
+	g_a.dispose()
+	g_b.dispose()
+	g_a2.dispose()
 	check(g.cells.size() == 4, "4 个细胞落子")
 	## PRD「游戏开始」6．「所有癌组织固化计数初始为 0」——
 	## 原发灶 2026-08-31 取消（口径 #85），开局不该有任何固化癌组织
@@ -3914,12 +3952,18 @@ func t_ai_mc() -> void:
 	g2.dispose()
 
 	## ④ 推演不许偷看真骰子（2026-09-01）。同一场景，先把真 rng 烧到「下一颗 d6 必是失败面」
-	## 再让 rollouts=1 的 MC 决策：偷看真状态的旧实现看到的永远是失败，8 个种子里 **0** 次去打；
-	## 诚实的 MC 只按自己那条派生流抽样，约 2/3 会去打。
+	## 再让 rollouts=1 的 MC 决策：偷看真状态的旧实现看到的永远是失败，**一次都不会去打**；
+	## 诚实的 MC 只按自己那条派生流抽样，去打的比例远高于 0。
 	## horizon=2 是实测最能分开两者的档：horizon=0 时「打失败=自己死」在估值里反而不吃亏
-	## （复活免费、还免了离战线的罚分），旧实现在 0 步下也会 8/8 去打，分不出来。
+	## （复活免费、还免了离战线的罚分），旧实现在 0 步下也会次次去打，分不出来。
+	##
+	## **阈值是松的，这是故意的**：rollouts=1 等于每次决策只抽一个样本，去打的比例完全取决于
+	## 那条派生流 —— 任何动到 rng 消耗次序的规则改动都会把它推来推去（issue #32 把开局癌组织
+	## 改成按种子长之后，实测从原来的 ~2/3 掉到 ~46%，2026-09-13 拿 24 个种子量的）。
+	## 这条护栏要抓的是**偷看**（那是恒等于 0），不是比例本身；把线钉在 0 附近才不会变成
+	## 「别的地方一改就红」的绊线。样本从 8 抬到 16，是为了让 46% 的波动别偶然掉到 0 附近。
 	var real_fail_attacks := 0
-	for s in 8:
+	for s in 16:
 		var sc: Array = await _free_kill_scene(100 + s, 1, 2)
 		var g4: CWGame = sc[0]
 		var mc4: CWMonteCarloBridge = sc[1]
@@ -3934,8 +3978,8 @@ func t_ai_mc() -> void:
 		if _is_free_kill(rq4["options"][p4]["data"]):
 			real_fail_attacks += 1
 		g4.dispose()
-	check(real_fail_attacks >= 4,
-		"真骰子必失败的 8 个局面里，诚实 MC 仍去打了 %d 次（偷看真状态的实现为 0 次）" % real_fail_attacks)
+	check(real_fail_attacks >= 3,
+		"真骰子必失败的 16 个局面里，诚实 MC 仍去打了 %d 次（偷看真状态的实现恒为 0 次）" % real_fail_attacks)
 
 	## ③ 整局跑完 + 确定性：蒙特卡洛桥当免疫方，同种子两局同哈希
 	var hs: Array[String] = []

@@ -116,32 +116,45 @@ func _place_primary_lesions() -> void:
 ## 就无法同时成立。127 格地图初版曾把骨髓放在中央格，2026-08-27 已把它移走（说明 #34）。
 ## 下面保留了一个运行时提醒，万一将来又有人往中央格放特殊组织，日志会立刻喊出来。
 ## （规则原文由癌方自选布局，原型固定用这个默认铺法——见 docs/规则电子化说明.md 裁剪项）
+## 开局癌组织：**按对局种子长出来**（issue #32；PRD 游戏开始 1「系统使用对局的确定性随机数
+## 生成 X 个初始癌组织」）。此前是固定的广度优先铺开 —— 同样人数每局的形状一模一样，
+## 换种子只换骰子和抽牌，开局盘面从来没变过。
+##
+## 长法：从中央格起，每步从**候选边缘**里随机挑一格并进来，再把它的新邻格放进候选。
+## 三条硬约束照 PRD：① 连通（每格都是从已选区域的邻格挑的）② 含中央格（种子就是它）
+## ③ 不与特殊组织重合（候选里直接不收，长的时候绕开它们）。
+## 随机只用 `game.rng` —— 同种子同盘面，推演、回放、联机三边都对得上。
 func _place_initial_cancer() -> void:
 	## 旋钮为 -1（默认）时按人数取；平衡测试钉死成具体值时才用旋钮那边的数
 	var target: int = game.tune.init_cancer_tiles
 	if target < 0:
 		target = CWData.init_cancer_tiles(game.order.size())
 	var chosen: Array[Vector2i] = [Vector2i.ZERO]
-	var frontier: Array[Vector2i] = [Vector2i.ZERO]
 	var seen := { Vector2i.ZERO: true }
-	# 广度优先向外扩，保证每一格都与已选区域相邻（连通性）
+	var frontier: Array[Vector2i] = []
+	_grow_frontier(Vector2i.ZERO, frontier, seen)
 	while chosen.size() < target and not frontier.is_empty():
-		var cur: Vector2i = frontier.pop_front()
-		for n in game.neighbors(cur):
-			if chosen.size() >= target:
-				break
-			if seen.has(n):
-				continue
-			seen[n] = true
-			if CWData.special_of(n) != CWData.Special.NONE:
-				continue  # 癌组织不能与特殊组织重合
-			chosen.append(n)
-			frontier.append(n)
+		var i: int = game.rng.randi_range(0, frontier.size() - 1)
+		var c: Vector2i = frontier[i]
+		frontier.remove_at(i)
+		chosen.append(c)
+		_grow_frontier(c, frontier, seen)
 	for c in chosen:
 		CWTissue.to_cancer(game.tiles[c], false)  # 开局即有，不算「新生」
-	game.log_msg("初始癌组织：自中央格向外铺 %d 格" % chosen.size())
+	game.log_msg("初始癌组织：自中央格随机长出 %d 格" % chosen.size())
 	if CWData.special_of(Vector2i.ZERO) != CWData.Special.NONE:
 		game.log_msg("! 中央格是特殊组织，与「癌组织不得与特殊组织重合」冲突（见说明 #34）")
+
+
+## 把 `c` 还没登记过的邻格收进候选边缘。特殊组织格**登记但不收** —— 登记是为了不重复看，
+## 不收是 PRD「癌组织不能与特殊组织的位置重合」；棋盘外的格 `neighbors` 本来就不给。
+func _grow_frontier(c: Vector2i, frontier: Array[Vector2i], seen: Dictionary) -> void:
+	for n in game.neighbors(c):
+		if seen.has(n):
+			continue
+		seen[n] = true
+		if CWData.special_of(n) == CWData.Special.NONE:
+			frontier.append(n)
 
 
 ## 每个癌症玩家独立抽种类，同局不重复（说明 #12）。
