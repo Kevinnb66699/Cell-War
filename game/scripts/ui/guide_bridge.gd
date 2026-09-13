@@ -40,6 +40,24 @@ var _cur_req := {}
 const AUTO_ACTS := { "place": true, "end": true, "draw": true }
 
 
+## 教程局静掉「谁复活不了」那类通报（Kevin 2026-09-12 截图）。
+## 教程的癌方是个**占位对手**：它一直是死的、场上又没有固化癌组织，于是每个 S 阶段都复活失败，
+## 一句「癌症A 无法复活：没有固化癌组织」弹在屏幕上方 —— 正好压在引导浮层的正文上，两层字叠着谁也读不了。
+## 而「对手复活不了」这件事对正在学的人没有任何意义。
+##
+## **只在这只桥里静**（文件头那条：教程的特殊处理都隔离在这儿）：正式局照旧要这句 ——
+## 口径 #93「被堵住这件事必须说出来」，否则癌方玩家读不出这是战术。日志也照写（`CWWorld` 那行 `log_msg` 不动），
+## 静掉的只是气泡。**纯函数**，护栏直接核。
+static func mutes_result(text: String) -> bool:
+	return text.contains(CWData.NO_REVIVE_MARK)
+
+
+func show_result(text: String, at: Vector2i, linger := false) -> void:
+	if mutes_result(text):
+		return
+	super.show_result(text, at, linger)
+
+
 ## 轮到人类玩家的某一次询问：记下这一问（「继续」代做要用）、把提示喂给面板，然后照常交给界面。
 func ask(req: Dictionary) -> int:
 	if req["pid"] in human_pids and _guide_key(req) != "":

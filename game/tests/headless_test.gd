@@ -121,7 +121,7 @@ func _run_all() -> void:
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_board_small, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
-		t_card_name_fit, t_view_blend, t_announce, t_action_bar_width,
+		t_card_name_fit, t_view_blend, t_guide_quiet, t_announce, t_action_bar_width,
 		t_buttons_dim, t_enter_not_skipped, t_main_menu, t_guide_data,
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
@@ -8942,6 +8942,60 @@ func t_hand() -> void:
 ## 这一条盯的是「两端都对、中间不对」——最难查的那类动画错。
 ## 直接插相机的 position 和 zoom，起点终点都严丝合缝，唯独途中取景会游走；
 ## 而这只有真的盯着动画看才觉得「不好看」，说不清哪儿不对（团队试玩报的就是这个）。
+## 教程叠层（Kevin 2026-09-12 截图：「癌症A 无法复活」的气泡压在引导浮层的字上）：
+## ① 教程桥静掉这类通报；② 气泡整体躲开浮层那块屏幕。
+func t_guide_quiet() -> void:
+	print("[教程：通报不压引导浮层]")
+	## ① 三句「复活不了」都用同一个前缀拼（改文案两头不会走散）
+	var wsrc := FileAccess.get_file_as_string("res://scripts/core/cw_world.gd")
+	var lines := wsrc.split("\n")
+	var marked := 0
+	var literal := 0
+	for ln: String in lines:
+		if not ln.contains("game.announce("):
+			continue
+		if ln.contains("CWData.NO_REVIVE_MARK"):
+			marked += 1
+		elif ln.contains("无法复活"):
+			literal += 1   ## 漏网的：还在自己拼字面量，界面就认不出来了
+	check(marked == 3 and literal == 0 and CWData.NO_REVIVE_MARK == "无法复活：",
+		"三句「复活不了」的通报都拿 CWData.NO_REVIVE_MARK 拼（%d 句，漏网 %d）" % [marked, literal])
+	## ② 教程桥认得这类通报、正常通报照放
+	check(CWGuideBridge.mutes_result("癌症A %s没有固化癌组织" % CWData.NO_REVIVE_MARK)
+		and CWGuideBridge.mutes_result("免疫A %s骨髓不可用" % CWData.NO_REVIVE_MARK)
+		and not CWGuideBridge.mutes_result("攻击大成功") and not CWGuideBridge.mutes_result("免疫猎杀"),
+		"教程桥只静「%s」那类，别的通报照放" % CWData.NO_REVIVE_MARK)
+	var gsrc := FileAccess.get_file_as_string("res://scripts/ui/guide_bridge.gd")
+	check(gsrc.contains("func show_result(text: String, at: Vector2i, linger := false) -> void:")
+		and gsrc.contains("if mutes_result(text):"),
+		"静音接在教程桥的 show_result 上（正式局那只桥不动）")
+	## ③ 气泡躲禁区：撞上就挪到禁区下沿；下面塞不下翻到上沿；没禁区 / 不相撞原位不动；只动 y
+	var screen := CWView.screen_size()
+	var box := Vector2(220, 40)
+	var zone := CWGuide.ZONE
+	var hit := Vector2(300, zone.position.y + 40)        ## 正落在浮层里
+	var moved: Vector2 = CWToast.clear_of(hit, box, zone, screen)
+	check(is_equal_approx(moved.x, hit.x) and is_equal_approx(moved.y, zone.end.y + CWToast.GAP)
+		and not zone.intersects(Rect2(moved, box)), "压着浮层 → 挪到浮层下沿 %d（横向不动）" % int(moved.y))
+	var free_pos := Vector2(300, 400)
+	check(CWToast.clear_of(free_pos, box, zone, screen) == free_pos
+		and CWToast.clear_of(hit, box, Rect2(), screen) == hit, "不相撞 / 没禁区：原位不动")
+	var tall := Rect2(0, 0, 960, 520)                     ## 禁区几乎占满屏：下面塞不下 → 翻上沿，上沿也不行就维持
+	check(CWToast.clear_of(Vector2(300, 100), box, tall, screen) == Vector2(300, 100),
+		"禁区大到两头都塞不下：维持原位（宁可压着也别推出屏幕）")
+	## ④ place 带上禁区：骰子在浮层里时，气泡落到浮层外
+	var dice_in_zone := Rect2(Vector2(300, zone.position.y + 60), Vector2(60, 60))
+	var placed: Vector2 = CWToast.place(box, dice_in_zone, screen, zone)
+	check(not zone.intersects(Rect2(placed, box)) and placed.y >= CWToast.MARGIN
+		and placed.y + box.y <= screen.y - CWToast.MARGIN, "place 带禁区：气泡落在浮层外、不出屏")
+	check(CWToast.place(box, dice_in_zone, screen) != placed, "不给禁区就还是老摆法（正式局一个像素不动）")
+	## ⑤ 接线：教程挂引导时设禁区、拆局撤禁区
+	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(msrc.contains("toast.keep_out = CWGuide.ZONE") and msrc.count("toast.keep_out = Rect2()") == 2,
+		"挂引导时设禁区；开局起手与拆局各撤一次（%d 处）—— 留着会让正式局的气泡也让位"
+			% msrc.count("toast.keep_out = Rect2()"))
+
+
 func t_view_blend() -> void:
 	print("[开场机位插值]")
 	var board := make_board()

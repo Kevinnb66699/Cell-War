@@ -221,7 +221,7 @@ func _report_no_revive(pid: int, cell: Dictionary, by_immune: Array[Vector2i],
 	var who: String = game.player(pid)["name"]
 	if by_immune.is_empty() and usable.is_empty():
 		game.log_msg("【复活】%s 无法复活：场上没有固化癌组织" % who)
-		game.announce("%s 无法复活：没有固化癌组织" % who, cell["pos"], true)
+		game.announce("%s %s没有固化癌组织" % [who, CWData.NO_REVIVE_MARK], cell["pos"], true)
 		return
 	## 固化格是有的，只是没有一格开得出落点。**两种处境分开说** ——「被免疫踩着」要去把免疫赶走，
 	## 「能用但一圈没空位」要去把它周围腾出来，混成一句话玩家读不出该干什么。
@@ -239,7 +239,7 @@ func _report_no_revive(pid: int, cell: Dictionary, by_immune: Array[Vector2i],
 	game.log_msg("【复活】%s 无法复活：%s" % [who, "；".join(parts)])
 	## 提示挂在**被堵的那一格**上，玩家一眼能看到是哪儿出的问题
 	var at: Vector2i = by_immune[0] if not by_immune.is_empty() else usable[0]
-	game.announce("%s 无法复活：固化癌组织都用不上" % who, at, true)
+	game.announce("%s %s固化癌组织都用不上" % [who, CWData.NO_REVIVE_MARK], at, true)
 
 
 
@@ -327,7 +327,7 @@ func _report_no_revive_immune(cell: Dictionary, cancerous: Array[Vector2i],
 	game.log_msg("【免疫复活】%s 无法复活：六个骨髓%s" % [who, "，".join(parts)])
 	## 提示挂在第一格被挡的骨髓上，玩家一眼知道该往哪儿使劲
 	var at: Vector2i = cancerous[0] if not cancerous.is_empty() else taken[0]
-	game.announce("%s 无法复活：骨髓不可用" % who, at, true)
+	game.announce("%s %s骨髓不可用" % [who, CWData.NO_REVIVE_MARK], at, true)
 
 
 func revive_immune(pid: int, pos: Vector2i) -> void:

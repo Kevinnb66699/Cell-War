@@ -686,6 +686,7 @@ func _prepare_ui() -> void:
 	_fading = false
 	if toast != null:
 		toast.hide_now()                 ## 换页：上一页留下的气泡不带进这一局（issue #26）
+		toast.keep_out = Rect2()         ## 禁区归教程局挂（_attach_guide 在这之后跑）：正式局起手一定是空的
 	## 先杀上一局的淡出补间，再还原 alpha —— 顺序反了等于没改：
 	## 补间还活着的话，下一帧它会把刚设回 1.0 的 alpha 继续拉向 0。
 	for tw in _fade_tws:
@@ -841,6 +842,9 @@ func _attach_guide() -> void:
 		ui.move_child(_guide, pause_menu.get_index())
 	_guide.setup(self)
 	_guide.visible = true
+	## 通报气泡别落在引导浮层上（Kevin 2026-09-12 截图）：把浮层那块屏幕设成气泡的禁区
+	if toast != null:
+		toast.keep_out = CWGuide.ZONE
 	if bridge is CWGuideBridge:
 		(bridge as CWGuideBridge).guide = _guide
 		bridge.set_meta("tutorial_guide", _guide)
@@ -1124,6 +1128,7 @@ func teardown() -> void:
 		hand.clear()
 	if toast != null:
 		toast.hide_now()
+		toast.keep_out = Rect2()   ## 禁区是教程局挂上的，拆局必须撤 —— 留着会让正式局的气泡也让位
 	if _feed != null and is_instance_valid(_feed):
 		_feed.clear_all()
 		_feed_seq = 0

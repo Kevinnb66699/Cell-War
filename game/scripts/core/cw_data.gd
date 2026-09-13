@@ -582,6 +582,11 @@ const CHAIN_PHAGO_BONUS := 5     # 每连续净化 1 格，下一次攻击额外
 const EXCALIBUR_SPLASH_PCT := 60 # 主射线相邻的癌组织进入范围的概率
 const EXCALIBUR_RAY_DMG := 20    # 主射线上的癌细胞 -2.0
 const EXCALIBUR_SPLASH_DMG := 10 # 侧向波及的癌细胞 -1.0
+## 「复活不了」那三句通报（`CWWorld._report_no_revive` / `_report_no_immune_revive`）的共同前缀。
+## 三句都拿它拼，界面也按它认这类通报 —— 教程局要把它静掉（CWGuideBridge.mutes_result，
+## Kevin 2026-09-12 截图：占位癌方每个 S 阶段弹一次，正好盖在引导浮层的字上）。
+## 改文案只改这一处，两头不会走散。
+const NO_REVIVE_MARK := "无法复活："
 ## 四种分化各自的【效应应答】名字（PRD「免疫细胞种类」各节的小标题）
 const EFFECTOR_NAMES := {
 	ImmuneType.DENDRITIC: "免疫猎杀", ImmuneType.MACRO: "连续吞噬",

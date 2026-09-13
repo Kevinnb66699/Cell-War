@@ -30,6 +30,9 @@ var _queue: Array = []   ## [{ text, avoid, hold, max_w }]
 var _busy := false
 ## 独立气泡（bubble_at）：非骰子的说明各自一只、各自淡出，互不顶掉；只在 hide_now 时一并清掉
 var _bubbles: Array = []
+## 不许压的那块屏幕（教程的引导浮层 `CWGuide.ZONE`，由 `CWMatch._attach_guide` 给；空 = 没有禁区）。
+## Kevin 2026-09-12 截图：通报气泡落在引导正文上。气泡撞上它就整只挪到禁区外面（`clear_of`）。
+var keep_out := Rect2()
 
 
 func _ready() -> void:
@@ -52,7 +55,7 @@ func _ready() -> void:
 func show_at(text: String, avoid: Rect2, hold: float, max_w := 0.0) -> void:
 	_label.text = wrap_body(text, max_w) if max_w > 0.0 else text
 	_box.size = _box.get_combined_minimum_size()
-	_box.position = place(_box.size, avoid, CWView.screen_size())
+	_box.position = place(_box.size, avoid, CWView.screen_size(), keep_out)
 	if _tween != null and _tween.is_valid():
 		_tween.kill()
 	_tween = create_tween()
@@ -67,13 +70,28 @@ func show_at(text: String, avoid: Rect2, hold: float, max_w := 0.0) -> void:
 ## 锚点必须是骰子的**外框**而不是格子中心 —— 骰子在屏幕上有一百多像素高，
 ## 拿格子中心当锚点，提示会直接压在骰面上（2026-08-28 团队截图报的就是这个）。
 ## 抽成 static 是为了能直接测：这类错只有截图才看得出来。
-static func place(box: Vector2, avoid: Rect2, screen: Vector2) -> Vector2:
+static func place(box: Vector2, avoid: Rect2, screen: Vector2, keep_out := Rect2()) -> Vector2:
 	var y: float = avoid.position.y - GAP - box.y
 	if y < MARGIN:
 		y = avoid.end.y + GAP                    ## 上面塞不下，翻到骰子下面
-	return Vector2(
+	return clear_of(Vector2(
 		clampf(avoid.get_center().x - box.x / 2.0, MARGIN, screen.x - box.x - MARGIN),
-		clampf(y, MARGIN, screen.y - box.y - MARGIN))
+		clampf(y, MARGIN, screen.y - box.y - MARGIN)), box, keep_out, screen)
+
+
+## 躲开禁区（教程的引导浮层）：撞上就整只挪到禁区**下沿**，下面塞不下再试上沿，
+## 两头都塞不下就维持原位 —— 宁可压着也别把气泡推出屏幕（读不到总比看不到强）。
+## 只动 y：横向对齐的是骰子中线，挪了就对不上那一格了。**纯函数**
+static func clear_of(pos: Vector2, box: Vector2, keep_out: Rect2, screen: Vector2) -> Vector2:
+	if keep_out.size == Vector2.ZERO or not keep_out.intersects(Rect2(pos, box)):
+		return pos
+	var below: float = keep_out.end.y + GAP
+	if below + box.y <= screen.y - MARGIN:
+		return Vector2(pos.x, below)
+	var above: float = keep_out.position.y - GAP - box.y
+	if above >= MARGIN:
+		return Vector2(pos.x, above)
+	return pos
 
 
 ## 排队版 show_at：空闲就立刻显示，忙着就排到后面；hold 必须 > 0（排着的东西得自己走完）。
@@ -106,8 +124,9 @@ func bubble_at(text: String, avoid: Rect2, hold: float, max_w := 0.0) -> Control
 	## 先进树再量尺寸：不在树里的容器还没拿到主题字体，最小尺寸量出来偏小，摆位和避让都会按错的高度算
 	add_child(box)
 	box.size = box.get_combined_minimum_size()
-	var pos := place(box.size, avoid, CWView.screen_size())
-	box.position = _dodge(pos, box.size)
+	var pos := place(box.size, avoid, CWView.screen_size(), keep_out)
+	## 叠气泡的避让可能把它又推回禁区里，所以挪完再躲一次
+	box.position = clear_of(_dodge(pos, box.size), box.size, keep_out, CWView.screen_size())
 	_bubbles.append(box)
 	var tw := create_tween()
 	tw.tween_property(box, "modulate:a", 1.0, FADE_IN)
