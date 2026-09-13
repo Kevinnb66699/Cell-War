@@ -177,7 +177,8 @@ func _assign_cancer_types() -> void:
 		ci += 1
 		pool.erase(t)
 		p["cancer_type"] = t
-		game.log_msg("%s 抽到种类：%s" % [p["name"], CWData.CANCER_TYPE_NAMES[t]])
+		## **不写日志**（Kevin 2026-09-13）：开局连报几行「谁抽到什么」没人看 ——
+		## 真到上了棋盘，每一行动作本来就用 `CWGame.cell_name` 写成「癌症A(印戒细胞癌)」，种类跑不掉
 
 
 ## 落子的候选格：癌细胞只能放癌组织，免疫只能放健康组织，
