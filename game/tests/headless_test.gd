@@ -126,7 +126,7 @@ func _run_all() -> void:
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
-		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_turn_mark, t_online_glow, t_match_online,
+		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_turn_mark, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -9424,6 +9424,62 @@ func t_watch_live() -> void:
 	check(hnd.get_child_count() >= 2, "真牌与背面混着也画得出来（全见档换背面档的那一刻）")
 	root.remove_child(hnd)
 	hnd.free()
+
+
+## 拆局要把棋盘擦干净（Kevin 2026-09-13 截图：回到等待室，背景棋盘上还挂着上一局的
+## 粒子和特殊组织的进度环）。棋盘是**和主菜单共用的同一块**，擦不干净就直接露在菜单背景里。
+func t_teardown_board() -> void:
+	print("[拆局：棋盘擦干净]")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	m.human_players = []          ## 全 AI：不需要有人作答，起得来就行
+	CWSettings.ai_delay_ms = 0
+	m.start()
+	await process_frame
+	var bd: Node2D = m.board
+	## 摆上「拆局该收掉」的那几样：进度环、坏死膜、几层演出各演一下
+	var core: Vector2i = CWData.CORES[0]
+	bd.set_store(core, 0.5, CWData.Special.CORE)
+	bd.set_necrosis([Vector2i(1, 0)])
+	m._skill_fx.play("respire", { "at": Vector2.ZERO })
+	m._beam_fx.play(Vector2.ZERO, Vector2(40, 0), [] as Array[Vector2])
+	m._hunt_fx.play(Vector2.ZERO, Vector2(40, 0))
+	m._mucus_fx.play(Vector2.ZERO)
+	m._chain_fx.play(Vector2.ZERO, Vector2(40, 0), 1, 0)
+	m._chemo_fx.visible = true
+	m._mark_aura_fx.visible = true
+	m._seal_fx.visible = true
+	var tile: Sprite2D = bd.map[bd.axial_to_rc(core)]["instance"]
+	check(tile.get_node_or_null("StoreRing") != null and (tile.get_node("StoreRing") as Sprite2D).visible
+		and bd._necro_nodes.size() == 1 and m._skill_fx.active() > 0,
+		"拆局前：环亮着、坏死膜挂着、演出在演")
+
+	m.teardown()
+	await process_frame
+	## ① 进度环：每一格都不该再挂着亮环
+	var rings := 0
+	for c: Vector2i in CWData.all_coords():
+		var t: Sprite2D = bd.map[bd.axial_to_rc(c)]["instance"]
+		var r: Sprite2D = t.get_node_or_null("StoreRing") as Sprite2D
+		if r != null and r.visible:
+			rings += 1
+	check(rings == 0, "拆局后一个进度环都不亮（%d 个还亮着）" % rings)
+	## ② 坏死膜
+	check(bd._necro_nodes.is_empty(), "坏死膜都收了（%d 张还在）" % bd._necro_nodes.size())
+	## ③ 几层演出：有状态的清空、只画不管状态的藏起来
+	check(m._skill_fx.active() == 0 and not m._skill_fx.visible
+		and not m._beam_fx.visible and not m._hunt_fx.visible
+		and not m._mucus_fx.visible and not m._chain_fx.visible,
+		"技能 / 光束 / 猎杀 / 黏液 / 连锁都擦了")
+	check(not m._chemo_fx.visible and not m._chemo_track_fx.visible
+		and not m._mark_aura_fx.visible and not m._seal_fx.visible,
+		"趋化源 / 追踪源 / 标记光环 / 封禁环都藏了")
+	## ④ 再擦一次不能崩（退出游戏时 _exit_tree 会再走一遍）
+	m.teardown()
+	check(true, "拆两次不崩")
+	main_scene.queue_free()
 
 
 ## 教程叠层（Kevin 2026-09-12 截图：「癌症A 无法复活」的气泡压在引导浮层的字上）：

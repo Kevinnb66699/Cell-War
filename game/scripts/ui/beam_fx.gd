@@ -45,6 +45,15 @@ func play(from: Vector2, to: Vector2, splash: Array[Vector2]) -> void:
 	queue_redraw()
 
 
+## 拆局：把这一层擦干净（Kevin 2026-09-13：上一局的特效留在等待室的棋盘上）。
+## **每个特效层都要有这个**：它们靠 `sync()` 每帧推进，也靠 `sync()` 把自己藏起来 ——
+## 拆局之后没人再调 sync，最后那一帧就永远停在屏幕上。
+func clear() -> void:
+	_active = false
+	visible = false
+	queue_redraw()
+
+
 func sync(delta: float) -> void:
 	if not _active:
 		return

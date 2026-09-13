@@ -1136,8 +1136,7 @@ func teardown() -> void:
 	_flash.clear()
 	board.set_active_radius(CWData.BOARD_RADIUS, 0.0)   ## 兜底：不管从哪条路拆局，棋盘都回到 127 格全露
 	_erosion_fx.clear_all()
-	if _attack_fx != null:
-		_attack_fx.clear()
+	_clear_board_fx()
 	_hand_seen.clear()
 	_hand_pid = -1
 	if hand != null:
@@ -1178,9 +1177,14 @@ func teardown() -> void:
 			board.tile_hovered.disconnect(_tile_info.on_hover)
 		for c in CWData.all_coords():
 			board.set_tissue(c, CWData.Tissue.HEALTHY, CWData.special_of(c))
+			## 积累进度环：**它不在 set_tissue 那条路上**（自己一个子节点），
+			## 不单独收的话，回到等待室 / 主菜单时核心与骨髓还挂着上一局的进度
+			## （Kevin 2026-09-13 截图）。负数 = 藏起来
+			board.set_store(c, -1.0, CWData.special_of(c))
 		board.set_marks({})
 		board.clear_turn_mark()
 		board.set_mucus([])   ## 覆膜也归拆局清：它不在 marks 里，set_marks({}) 收不掉
+		board.set_necrosis([])  ## 坏死膜同理：一层独立的 Sprite，set_tissue 收不掉
 	if action_bar != null:
 		action_bar.clear()
 	if panel != null:
@@ -1727,6 +1731,22 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 	_ever_alive.append(false)
 	_last_pos.append(cell["pos"])
 	return node
+
+
+## 拆局时把棋盘上那几层特效一次擦干净（Kevin 2026-09-13：上一局的特效留在等待室的棋盘背景上）。
+##
+## **为什么必须显式擦**：这些层都靠 `CWMatch._process` 每帧喂 `sync()` 推进，
+## 也靠 `sync()` 在演完 / 没有目标时把自己藏起来。拆局之后没人再喂，
+## 「最后那一帧」就原样留在屏幕上 —— 棋盘本身归主菜单用，于是玩家看到的是
+## 上一局的粒子挂在装饰细胞旁边。
+func _clear_board_fx() -> void:
+	for fx in [_skill_fx, _chain_fx, _beam_fx, _mucus_fx, _hunt_fx, _attack_fx]:
+		if fx != null and is_instance_valid(fx):
+			fx.clear()
+	## 这三层没有自己的状态，只是「有东西就画」：直接藏起来就干净了
+	for node in [_seal_fx, _chemo_fx, _chemo_track_fx, _mark_aura_fx]:
+		if node != null and is_instance_valid(node):
+			(node as CanvasItem).visible = false
 
 
 ## 把 `game.feed_log` 投影到左侧出牌列（方案甲，2026-09-07）。
