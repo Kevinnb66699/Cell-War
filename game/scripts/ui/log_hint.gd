@@ -25,6 +25,14 @@ signal chat_pressed   ## 点「聊天」= 按回车（CWMatch 接到 CWChatBox.t
 const CHAT_HOLD := 6.0
 
 const SIZE := Vector2(300, 52)
+## 教程局收成只剩「日志 L」那个入口（Kevin 2026-09-13）：300 宽的条横在 x 16..316，
+## 正好压住引导浮层（`CWGuide.ZONE` 从 x=88 起）的章节行和标题 —— 标题一长就被吃掉两个字。
+## 滚动的日志尾巴对新手也是噪音：这两行说的是引擎流水账，引导自己会讲。
+## **入口必须留着**：第 13 关教的就是「多看对局日志（L 键）」，提亮层也认它。
+## 宽度算出来之后钉死在浮层左沿之内（`t_guide_quiet` 盯着这条关系）。
+const COMPACT_H := 22.0
+const COMPACT_GAP := 8.0
+const COMPACT_TEXT := "日志"
 const ROWS := 2               ## 日志尾巴几行（折行后的显示行）
 const ROW_Y := 21.0           ## 第一行日志的 y；标题行在 5
 const ROW_H := 15.0
@@ -33,6 +41,8 @@ const FADE := 0.25            ## 新行淡入
 
 var _bg: Panel
 var _text: Label
+var _key: Control         ## 「L」键帽：收起 / 展开时要跟着右缘走
+var _compact := false     ## 教程局只留入口，见 set_compact
 var _rows: Array[Label] = []
 var _cache: PackedStringArray = PackedStringArray()   ## 折行后的显示行（增量）
 var _cache_src: PackedInt32Array = PackedInt32Array() ## 每行来自第几条日志
@@ -70,9 +80,9 @@ func _ready() -> void:
 	add_child(_text)
 
 	## 键帽定尺寸（CWStyle.keycap），建成即知大小，钉在标题行右缘
-	var key := CWStyle.keycap("L")
-	key.position = Vector2(SIZE.x - 6.0 - key.size.x, 5.0 + 6.0 - key.size.y / 2.0)
-	add_child(key)
+	_key = CWStyle.keycap("L")
+	_key.position = Vector2(SIZE.x - 6.0 - _key.size.x, 5.0 + 6.0 - _key.size.y / 2.0)
+	add_child(_key)
 	## 聊天页的标签，摆在「对局日志」右边。没有聊天框（单机局）时整个隐掉
 	_chat_tab = CWStyle.label("聊天", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	_chat_tab.position = Vector2(PAD_X + 74.0, 5)
@@ -93,6 +103,26 @@ func _ready() -> void:
 		add_child(l)
 		_rows.append(l)
 	_paint(false)
+
+
+## 收起 / 展开（教程局收起）。每局由 `CWMatch._prepare_ui` 设一次 —— 这只控件是**跨局复用**的，
+## 上一局教程留下的收起状态不撤，下一局正式对局就少了两行日志。
+## 收起时：只剩「日志 L」，两行尾巴和聊天页标签一起藏；点击、L 键、展开的面板都不受影响。
+func set_compact(on: bool) -> void:
+	if _compact == on or _key == null:
+		return
+	_compact = on
+	_text.text = COMPACT_TEXT if on else "对局日志"
+	size = Vector2(PAD_X + _text.get_minimum_size().x + COMPACT_GAP + _key.size.x + 6.0, COMPACT_H) if on else SIZE
+	_key.position = Vector2(size.x - 6.0 - _key.size.x, 5.0 + 6.0 - _key.size.y / 2.0)
+	for l in _rows:
+		l.visible = not on
+	if _chat_tab != null:
+		_chat_tab.visible = not on and _chat != null
+
+
+func compact() -> bool:
+	return _compact
 
 
 ## 聊天页：有新消息就切过来显示最近两条，CHAT_HOLD 秒后切回日志页。
@@ -149,7 +179,7 @@ func set_chat(box: CWChatBox) -> void:
 func _process(delta: float) -> void:
 	if _chat_tab == null:
 		return
-	_chat_tab.visible = _chat != null
+	_chat_tab.visible = _chat != null and not _compact
 	if _chat != null:
 		_refresh_chat(delta)
 
@@ -160,8 +190,8 @@ func on_chat_tab() -> bool:
 
 
 func refresh(game: CWGame, panel: CWLogPanel) -> void:
-	if game == null or panel == null:
-		return
+	if game == null or panel == null or _compact:
+		return          ## 收起时没有尾巴可铺，连折行都省了
 	if on_chat_tab():
 		return          ## 聊天页占着这两行，日志那边先不折（省下每帧的折行）
 	var key: int = panel.viewer if panel.filter else -2

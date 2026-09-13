@@ -9243,8 +9243,35 @@ func t_guide_quiet() -> void:
 	check(not zone.intersects(Rect2(placed, box)) and placed.y >= CWToast.MARGIN
 		and placed.y + box.y <= screen.y - CWToast.MARGIN, "place 带禁区：气泡落在浮层外、不出屏")
 	check(CWToast.place(box, dice_in_zone, screen) != placed, "不给禁区就还是老摆法（正式局一个像素不动）")
-	## ⑤ 接线：教程挂引导时设禁区、拆局撤禁区
+	## ⑤ 左上角那条迷你日志：教程局收成只剩入口，且整条钉在浮层左沿之内（另一处叠层，Kevin 2026-09-13）
+	var hint := CWLogHint.new()
+	root.add_child(hint)
+	check(not hint.compact() and is_equal_approx(hint.size.x, CWLogHint.SIZE.x)
+		and is_equal_approx(hint.size.y, CWLogHint.SIZE.y), "正式局：还是那条 300×52 的迷你日志")
+	hint.set_compact(true)
+	check(hint.compact() and hint.size.x < CWGuide.ZONE.position.x - CWLogPanel.RECT.position.x
+		and is_equal_approx(hint.size.y, CWLogHint.COMPACT_H),
+		"教程局收起：宽 %d px，整条在浮层左沿（x=%d）之内" % [int(hint.size.x), int(CWGuide.ZONE.position.x)])
+	## 只数**看得见**的子件：藏起来的两行尾巴和聊天页标签还按原来的宽度躺着，不算露在外面
+	var rows_hidden := true
+	var all_in := true
+	for child in hint.get_children():
+		var ctl := child as Control
+		if ctl == null or not ctl.visible:
+			continue
+		if ctl is Label and ctl.position.y >= CWLogHint.ROW_Y:
+			rows_hidden = false
+		if ctl.position.x + ctl.size.x > hint.size.x:
+			all_in = false
+	check(rows_hidden and all_in, "收起时两行尾巴藏掉，「L」键帽跟着右缘走（露在条外面的一个都没有）")
+	hint.set_compact(false)
+	check(not hint.compact() and is_equal_approx(hint.size.x, CWLogHint.SIZE.x),
+		"回正式局能展开回去（这只控件跨局复用，不撤就少两行）")
+	root.remove_child(hint)
+	hint.free()
+	## ⑥ 接线：教程挂引导时设禁区、拆局撤禁区、迷你日志按局收放
 	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(msrc.contains("_log_hint.set_compact(tutorial)"), "每局按是不是教程设一次（跨局复用，漏设就带过去）")
 	check(msrc.contains("toast.keep_out = CWGuide.ZONE") and msrc.count("toast.keep_out = Rect2()") == 2,
 		"挂引导时设禁区；开局起手与拆局各撤一次（%d 处）—— 留着会让正式局的气泡也让位"
 			% msrc.count("toast.keep_out = Rect2()"))

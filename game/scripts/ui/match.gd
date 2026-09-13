@@ -693,6 +693,10 @@ func _prepare_ui() -> void:
 	if toast != null:
 		toast.hide_now()                 ## 换页：上一页留下的气泡不带进这一局（issue #26）
 		toast.keep_out = Rect2()         ## 禁区归教程局挂（_attach_guide 在这之后跑）：正式局起手一定是空的
+	## 教程局把左上角那条迷你日志收成只剩入口（Kevin 2026-09-13）：300 宽的条压着引导浮层的标题。
+	## **每局都设**：这只控件跨局复用，不设的话教程收起来之后正式局也少两行
+	if _log_hint != null:
+		_log_hint.set_compact(tutorial)
 	## 先杀上一局的淡出补间，再还原 alpha —— 顺序反了等于没改：
 	## 补间还活着的话，下一帧它会把刚设回 1.0 的 alpha 继续拉向 0。
 	for tw in _fade_tws:
