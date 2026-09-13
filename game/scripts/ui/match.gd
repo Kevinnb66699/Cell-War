@@ -1321,7 +1321,9 @@ func _sync_tiles() -> void:
 		board.set_store(c, CWData.store_progress(t), int(t["special"]), tissue)
 		## 黏液侵染：**覆膜是一层贴图，不走色标**（见 CWBoard.set_mucus）——
 		## 选稿那句「保留底层组织识别」用色标做不到，色标会把整格染成一个颜色
-		if bool(t.get("mucus", false)):
+		## 黏液破裂正在往外推时，液浪没到的格先不画（issue #31：由里往外铺，不是一炸就整片贴上）
+		if bool(t.get("mucus", false)) \
+				and not (_mucus_fx != null and _mucus_fx.pending(board.tile_center(c))):
 			mucus.append(c)
 		## 坏死：整格灰褐纹理（issue #15），此前根本没画
 		if int(t.get("necrosis", 0)) > 0:

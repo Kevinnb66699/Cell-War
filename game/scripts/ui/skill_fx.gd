@@ -97,7 +97,11 @@ const STEEL := Color("8aa9b8")
 const CYAN := Color("83dce2")
 const COPPER := Color("d98d68")
 const PINK := Color("e88a9c")
-const STONE := [Color("899291"), Color("cbd0cf"), Color("e1e4e2")]
+## 碎石重生的马赛克直接从**固化癌组织的贴图**取色（Kevin 2026-09-13，issue #31：
+## 原来那把灰白石粒看着像「白块溶解」，应该是固化癌组织碎开）。取满档那张，变体 0。
+const SOLID_TEX := preload("res://assets/art/solidify/tissue_cancer_20_0.png")
+## 贴图里顶面中心的像素坐标：32×34 的图，横向正中 16；顶面中心比贴图中心高 4px（CWBoard.TOP_FACE_DY）
+const SOLID_TEX_CENTER := Vector2i(16, 13)
 const ANAEROBIC := Color("e58b65")
 const ANAEROBIC_RISE := Color("f5c79a")
 ## ---- 卡牌粒子（issue #28，选稿 R5 card-effects.js）----
@@ -118,10 +122,26 @@ const CARD_SAND := Color("e8d9a0")
 const CARD_MAUVE := Color("c980a0")
 const CARD_ROSE := Color("ff609c")
 const CARD_WHITE := Color("eaf8fc")
-const CARD_SHIELD_DARK := Color("141f2e")
-## 细胞膜修复的徽盾轮廓（选稿 blessingShield 的 profile：围着格心上 5 px 那一点，乘 scale）
-const SHIELD_PROFILE: Array[Vector2] = [Vector2(0, -17), Vector2(9, -14), Vector2(13, -10), Vector2(12, 3),
-	Vector2(8, 10), Vector2(0, 16), Vector2(-8, 10), Vector2(-12, 3), Vector2(-13, -10), Vector2(-9, -14)]
+## 细胞膜修复的盾（Kevin 2026-09-13：选稿那面描边盾「太丑了，应该做成简约像素风」）。
+## 现在是**手写的像素蒙版**：25 宽 30 高、平顶直边、下半收尖 —— 一眼就是「盾」的最少笔画，
+## 静止那一档正好圈住细胞（32×32 的贴图里胞体约 24px 宽）。
+## 只按**整数倍**放大（3 → 2 → 1 三跳收束），像素风最忌讳的就是非整数缩放。
+##
+## 写成**半宽表**而不是逐行 [y, x0, x1]：短一半，而且左右天然严格对称 —— 像素盾差一列就歪。
+const SHIELD_TOP := -15
+const SHIELD_HALF: Array = [10,
+	12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
+	11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 1, 0]
+
+
+## 盾的每一行 [y, x0, x1]（相对盾心）。**纯函数**，护栏直接核对称与收尖
+static func shield_rows() -> Array:
+	var out: Array = []
+	for i in SHIELD_HALF.size():
+		var h: int = SHIELD_HALF[i]
+		out.append([SHIELD_TOP + i, -h, h])
+	return out
+const SHIELD_FILL_A := 0.14
 
 var _plays: Array = []      ## [{ kind, t, data }]
 
@@ -432,19 +452,38 @@ func _revive_cancer(t: float, d: Dictionary) -> void:
 	CWPix.burst(self, a + Vector2(0, -5), p, COPPER, 14, 25.0, true)
 
 
-## 选稿的 stonePatch：3px 石粒按一条固定的伪随机序铺满一格；p 决定露出前几名（同一序，涨落都不洗牌）
+## 选稿的 stonePatch：3px 一块按一条固定的伪随机序铺满一格；p 决定露出前几名（同一序，涨落都不洗牌）。
+## **颜色取自固化癌组织的贴图**（issue #31）：整块用块心那一颗的颜色 = 马赛克。
 static func stone_patch(ci: CanvasItem, a: Vector2, p: float) -> void:
+	for b in solid_mosaic():
+		var at: Vector2i = b[0]
+		## 露出顺序的散列要带交叉项：原来是 7x+13y 的线性式，同余的格子排成一条条斜线，
+		## 石粒散去时就成了「莫名其妙的白条」（HXR-I #27，2026-09-12）
+		if posmod((at.x + 13) * 37 + (at.y + 9) * 101 + (at.x + 13) * (at.y + 9) * 7, 23) <= p * 24.0:
+			CWPix.px(ci, a + Vector2(at), b[1], 3)
+
+
+## 一格固化癌组织切成 3px 的马赛克：[[相对顶面中心的偏移, 颜色], …]。**只算一次**（贴图不会变）。
+## 透明的块（顶面之外）直接不要 —— 它们本来也不该有石头。
+static var _mosaic: Array = []
+static func solid_mosaic() -> Array:
+	if not _mosaic.is_empty():
+		return _mosaic
+	var img: Image = SOLID_TEX.get_image()
 	var y := -9
 	while y <= 8:
 		var x := -13
 		while x <= 13:
-			## 露出顺序的散列要带交叉项：原来是 7x+13y 的线性式，同余的格子排成一条条斜线，
-			## 石粒散去时就成了「莫名其妙的白条」（HXR-I #27，2026-09-12）
-			if absf(float(x)) + absf(float(y)) * 0.6 <= 17.0 \
-					and posmod((x + 13) * 37 + (y + 9) * 101 + (x + 13) * (y + 9) * 7, 23) <= p * 24.0:
-				CWPix.px(ci, a + Vector2(x, y), STONE[posmod(x + y + 60, 3)], 3)
+			if absf(float(x)) + absf(float(y)) * 0.6 <= 17.0:
+				## 取块心那一颗的颜色（3px 块，块心 +1,+1）
+				var px := SOLID_TEX_CENTER + Vector2i(x + 1, y + 1)
+				if px.x >= 0 and px.y >= 0 and px.x < img.get_width() and px.y < img.get_height():
+					var col := img.get_pixel(px.x, px.y)
+					if col.a > 0.5:
+						_mosaic.append([Vector2i(x, y), Color(col.r, col.g, col.b)])
 			x += 3
 		y += 3
+	return _mosaic
 
 
 ## 双股消散：两股铜 / 粉像素绕着胞体上方扭动，七成时长后散尽
@@ -602,56 +641,47 @@ func _card_blood(t: float, d: Dictionary) -> void:
 		_dust(p, CWPix.phase(r, 0.5 + float(i) * 0.06, 1.3), CARD_MAUVE, 30.0 if p == drawer else 23.0, true)
 
 
-## 细胞膜修复的切角徽盾（选稿 blessingShield）：0.35 s 起从 2.1 倍缓缩到 1 倍，停一停，1.75 s 起淡出。
-## 盾面逐行扫描多边形填 0.1 的青；深底 3 px + 青边 1 px；左上三段冰蓝高光、两道内侧斜线、顶上小菱形。
-## 透明度取四档（像素纪律 ③）。
-func _shield(p: Vector2, r: float) -> void:
+## 这一刻盾放大几倍：3 → 2 → 1 三跳收束，**只取整数**（Kevin 2026-09-13：像素风）。0 = 还没出来 / 已经收了。**纯函数**
+static func shield_scale(r: float) -> int:
 	if r < 0.35 or r >= 2.3:
+		return 0
+	if r < 0.5:
+		return 3
+	return 2 if r < 0.65 else 1
+
+
+## 细胞膜修复的盾：一面 13×16 的像素盾从三倍大小三跳收到细胞身上，停一会儿淡出。
+## 笔画只有三种 —— 盾面（0.14 的青）、1px 青边、左上一道冰蓝高光加一点白反光；
+## 透明度取四档、位置整数、放大只用整数倍（像素纪律三条）。
+func _shield(p: Vector2, r: float) -> void:
+	var scale := shield_scale(r)
+	if scale == 0:
 		return
-	var shrink := CWPix.phase(r, 0.35, 0.8)
-	var ease := 1.0 - pow(1.0 - shrink, 3.0)
-	var scale := lerpf(2.1, 1.0, ease)
-	var op := floorf(CWPix.phase(r, 0.35, 0.15) * (1.0 - CWPix.phase(r, 1.75, 0.55)) * 4.0) / 4.0
+	var op := floorf(CWPix.phase(r, 0.35, 0.12) * (1.0 - CWPix.phase(r, 1.9, 0.4)) * 4.0) / 4.0
 	if op <= 0.0:
 		return
-	var cy := p.y - 5.0
-	var pts: Array[Vector2] = []
-	for q: Vector2 in SHIELD_PROFILE:
-		pts.append(Vector2(roundf(p.x + q.x * scale), roundf(cy + q.y * scale)))
+	var c := Vector2(roundf(p.x), roundf(p.y) - 5.0)
 	var fill := CARD_CYAN
-	fill.a = 0.1 * op
-	var y1 := int(roundf(cy + 16.0 * scale))
-	for y in range(int(pts[0].y), y1 + 1):
-		var xs: Array[float] = []
-		for i in pts.size():
-			var a := pts[i]
-			var b := pts[(i + 1) % pts.size()]
-			if (a.y <= y and b.y > y) or (b.y <= y and a.y > y):
-				xs.append(a.x + (float(y) - a.y) * (b.x - a.x) / (b.y - a.y))
-		xs.sort()
-		if xs.size() >= 2:
-			CWPix.line(self, Vector2(ceilf(xs[0]), y), Vector2(floorf(xs[-1]), y), fill)
-	for stroke in [[CARD_SHIELD_DARK, 3, 0.55], [CARD_CYAN, 1, 0.8]]:
-		var col: Color = stroke[0]
-		col.a = float(stroke[2]) * op
-		for i in pts.size():
-			CWPix.line(self, pts[i], pts[(i + 1) % pts.size()], col, int(stroke[1]))
+	fill.a = SHIELD_FILL_A * op
+	var ink := CARD_CYAN
+	ink.a = 0.95 * op
+	var s := float(scale)
+	for row in shield_rows():
+		var y: float = c.y + float(row[0]) * s
+		var x0: float = c.x + float(row[1]) * s
+		var x1: float = c.x + float(row[2]) * s + s - 1.0
+		## 每行先铺底，再把这一行的两端画成边；顶行和底行整行都是边
+		CWPix.line(self, Vector2(x0, y), Vector2(x1, y), fill, int(s))
+		var edge: bool = int(row[0]) == SHIELD_TOP or int(row[0]) == SHIELD_TOP + SHIELD_HALF.size() - 1
+		if edge:
+			CWPix.line(self, Vector2(x0, y), Vector2(x1, y), ink, int(s))
+		else:
+			CWPix.px(self, Vector2(x0, y), ink, scale)
+			CWPix.px(self, Vector2(x1 - s + 1.0, y), ink, scale)
+	## 左上一道高光 + 一点白反光：盾有了厚度就不平了
 	var hi := CARD_ICE
-	hi.a = 0.9 * op
-	for i in [7, 8, 9]:
-		CWPix.line(self, pts[i], pts[(i + 1) % pts.size()], hi)
-	hi.a = 0.5 * op
-	for side in [-1.0, 1.0]:
-		CWPix.line(self, Vector2(p.x + side * 9.0 * scale, cy + 3.0 * scale),
-			Vector2(p.x + side * 6.0 * scale, cy + 9.0 * scale), hi)
-	var crest_y := cy - 12.0 * scale
-	var s2 := 2.0 * scale
+	hi.a = 0.8 * op
+	CWPix.line(self, Vector2(c.x - 8.0 * s, c.y - 11.0 * s), Vector2(c.x - 8.0 * s, c.y - 2.0 * s), hi, scale)
 	var white := CARD_WHITE
-	white.a = 0.85 * op
-	var cyan := CARD_CYAN
-	cyan.a = 0.85 * op
-	hi.a = 0.85 * op
-	CWPix.line(self, Vector2(p.x, crest_y - s2), Vector2(p.x + s2, crest_y), white)
-	CWPix.line(self, Vector2(p.x + s2, crest_y), Vector2(p.x, crest_y + s2), hi)
-	CWPix.line(self, Vector2(p.x, crest_y + s2), Vector2(p.x - s2, crest_y), cyan)
-	CWPix.line(self, Vector2(p.x - s2, crest_y), Vector2(p.x, crest_y - s2), hi)
+	white.a = 0.9 * op
+	CWPix.px(self, Vector2(c.x - 8.0 * s, c.y - 11.0 * s), white, scale)

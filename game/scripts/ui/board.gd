@@ -713,19 +713,33 @@ func set_necrosis(cells: Array) -> void:
 		_necro_nodes[c] = s
 
 
-## 坏死膜：**纯色、整格**（HXR-I #27，2026-09-12；此前是 33×29 的灰褐纹理，盖不满格子还有花纹）。
-## 用健康组织贴图的透明度当剪影、填坏死的主色调 —— 贴图换了尺寸这里也跟着对。
+## 坏死膜：**纯色大色块 + 一圈轮廓**（HXR-I #27 定的纯色；Kevin 2026-09-13 issue #31 补的轮廓 ——
+## 整片同色时几格连在一起读不出边界，描一圈深色边，一眼看得出是几格）。
+## 用健康组织贴图的透明度当剪影 —— 贴图换了尺寸这里也跟着对。
+## 轮廓 = 四邻里有一边是透明的那些像素（贴图自己的外沿），所以边总是贴着格子的形状走。
+const NECRO_INK := Color("686761")
+const NECRO_EDGE := Color("3f3e3a")
+
 func _necrosis_film() -> ImageTexture:
 	if _necro_tex != null:
 		return _necro_tex
 	var src: Image = TISSUE_TEX[CWData.Special.NONE][0].get_image()
-	var img := Image.create(src.get_width(), src.get_height(), false, Image.FORMAT_RGBA8)
-	var ink := Color("686761")
-	for y in src.get_height():
-		for x in src.get_width():
+	var w := src.get_width()
+	var h := src.get_height()
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	for y in h:
+		for x in w:
 			var a := src.get_pixel(x, y).a
-			if a > 0.0:
-				img.set_pixel(x, y, Color(ink, a))
+			if a <= 0.0:
+				continue
+			var edge := false
+			for d: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				var nx := x + d.x
+				var ny := y + d.y
+				if nx < 0 or ny < 0 or nx >= w or ny >= h or src.get_pixel(nx, ny).a <= 0.0:
+					edge = true
+					break
+			img.set_pixel(x, y, Color(NECRO_EDGE if edge else NECRO_INK, a))
 	_necro_tex = ImageTexture.create_from_image(img)
 	return _necro_tex
 

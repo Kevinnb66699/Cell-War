@@ -121,7 +121,7 @@ func _run_all() -> void:
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_board_small, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
-		t_card_name_fit, t_view_blend, t_guide_quiet, t_guide_no_win, t_attack_fx, t_announce, t_action_bar_width,
+		t_card_name_fit, t_view_blend, t_guide_quiet, t_guide_no_win, t_attack_fx, t_issue31_fx, t_announce, t_action_bar_width,
 		t_buttons_dim, t_enter_not_skipped, t_main_menu, t_guide_data,
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
@@ -1404,7 +1404,8 @@ func t_skill_fx() -> void:
 	var film: Image = bd._necrosis_film().get_image()
 	var tissue: Image = bd.TISSUE_TEX[CWData.Special.NONE][0].get_image()
 	var same_shape := film.get_size() == tissue.get_size()
-	var one_ink := true
+	## 只有两种颜色：填充 + 一圈轮廓（issue #31 加的边；逐像素核对在 t_issue31_fx）
+	var two_ink := true
 	var opaque := 0
 	for y in film.get_height():
 		for x in film.get_width():
@@ -1413,10 +1414,11 @@ func t_skill_fx() -> void:
 				same_shape = false
 			if f.a > 0.0:
 				opaque += 1
-				if not f.is_equal_approx(Color(Color("686761"), f.a)):
-					one_ink = false
-	check(bd._necro_nodes.size() == 2 and same_shape and one_ink and opaque > 500,
-		"坏死：两格两张、膜和组织贴图同形（%d 个不透明像素）、纯色 686761" % opaque)
+				if not f.is_equal_approx(Color(bd.NECRO_INK, f.a)) \
+						and not f.is_equal_approx(Color(bd.NECRO_EDGE, f.a)):
+					two_ink = false
+	check(bd._necro_nodes.size() == 2 and same_shape and two_ink and opaque > 500,
+		"坏死：两格两张、膜和组织贴图同形（%d 个不透明像素）、纯色填充 + 一圈轮廓" % opaque)
 	bd.set_necrosis([])
 	check(bd._necro_nodes.is_empty(), "坏死消了贴图就收")
 	bd.free()
@@ -8988,6 +8990,102 @@ func t_hand() -> void:
 ## 这一条盯的是「两端都对、中间不对」——最难查的那类动画错。
 ## 直接插相机的 position 和 zoom，起点终点都严丝合缝，唯独途中取景会游走；
 ## 而这只有真的盯着动画看才觉得「不好看」，说不清哪儿不对（团队试玩报的就是这个）。
+## issue #31（Kevin 2026-09-13）的四条演出改动，逐条钉住「改成了什么」。
+func t_issue31_fx() -> void:
+	print("[issue #31 · 四条演出]")
+	## ① 癌方复活：马赛克的颜色来自**固化癌组织的贴图**，不再是那把灰白石粒
+	var mosaic: Array = CWSkillFx.solid_mosaic()
+	var img: Image = CWSkillFx.SOLID_TEX.get_image()
+	var grid_ok := true
+	var color_ok := true
+	for b in mosaic:
+		var at: Vector2i = b[0]
+		if posmod(at.x + 13, 3) != 0 or posmod(at.y + 9, 3) != 0:
+			grid_ok = false
+		var px: Vector2i = CWSkillFx.SOLID_TEX_CENTER + at + Vector2i(1, 1)
+		var src: Color = img.get_pixel(px.x, px.y)
+		if src.a <= 0.5 or not is_equal_approx((b[1] as Color).r, src.r) or not is_equal_approx((b[1] as Color).g, src.g):
+			color_ok = false
+	check(mosaic.size() > 50 and grid_ok and color_ok,
+		"%d 块 3px 马赛克，颜色逐块取自 tissue_cancer_20_0（不再有灰白石粒）" % mosaic.size())
+	var src_fx := FileAccess.get_file_as_string("res://scripts/ui/skill_fx.gd")
+	check(not src_fx.contains("899291") and not src_fx.contains("const STONE"), "旧石粒调色板已删干净")
+	## ② 黏液：液浪没到的格先不铺（由里往外）
+	var mf := CWMucusFx.new()
+	root.add_child(mf)
+	var at := Vector2(100, 100)
+	check(not mf.pending(at) and is_zero_approx(mf.front()), "没在演：一格都不拦，地上那层照常全画")
+	mf.play(at)
+	check(mf.pending(at + Vector2(20, 0)) and is_zero_approx(mf.front()), "憋住那一拍：液浪还没出来，近处也得等")
+	mf.sync(CWMucusFx.CHARGE + (CWMucusFx.TOTAL - CWMucusFx.CHARGE) * 0.5)
+	var half: float = mf.front()
+	check(half > 0.0 and half < CWMucusFx.WAVE_R and not mf.pending(at + Vector2(half - 4.0, 0))
+		and mf.pending(at + Vector2(CWMucusFx.WAVE_R - 2.0, 0)),
+		"半程：前沿 %.0f px —— 里圈铺上了、外圈还等着" % half)
+	## 贴地椭圆：纵向压扁，上下和左右同时到（不换算的话上下要晚半拍）
+	check(not mf.pending(at + Vector2(0, (half - 4.0) * CWMucusFx.SQUASH)),
+		"纵向按 SQUASH 换算：正上方那圈和正左方同时铺上")
+	mf.sync(CWMucusFx.TOTAL)
+	check(not mf.pending(at + Vector2(CWMucusFx.WAVE_R, 0)), "演完：一格都不拦")
+	root.remove_child(mf)
+	mf.free()
+	var src_m := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(src_m.contains("_mucus_fx.pending(board.tile_center(c))"), "_sync_tiles 每帧问一次液浪到没到")
+	## ③ 坏死格：纯色大色块**加一圈轮廓**（整片同色时读不出边界）
+	var bd := make_board()
+	var film: Image = bd._necrosis_film().get_image()
+	var shape: Image = bd.TISSUE_TEX[CWData.Special.NONE][0].get_image()
+	var edge_n := 0
+	var body_n := 0
+	var film_ok := true
+	for y in shape.get_height():
+		for x in shape.get_width():
+			var a: float = shape.get_pixel(x, y).a
+			var got: Color = film.get_pixel(x, y)
+			if a <= 0.0:
+				if got.a > 0.0:
+					film_ok = false
+				continue
+			var on_edge := false
+			for d: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				var nx: int = x + d.x
+				var ny: int = y + d.y
+				if nx < 0 or ny < 0 or nx >= shape.get_width() or ny >= shape.get_height() \
+						or shape.get_pixel(nx, ny).a <= 0.0:
+					on_edge = true
+					break
+			var want: Color = bd.NECRO_EDGE if on_edge else bd.NECRO_INK
+			if not is_equal_approx(got.r, want.r) or not is_equal_approx(got.g, want.g) or not is_equal_approx(got.a, a):
+				film_ok = false
+			if on_edge:
+				edge_n += 1
+			else:
+				body_n += 1
+	check(film_ok and edge_n > 40 and body_n > edge_n and bd.NECRO_EDGE.v < bd.NECRO_INK.v,
+		"坏死膜：%d 颗轮廓（深色）+ %d 颗纯色填充，形状照组织贴图的剪影" % [edge_n, body_n])
+	bd.free()
+	## ④ 细胞膜修复：简约像素盾 —— 左右严格对称、下半收尖、只按整数倍收束
+	var rows: Array = CWSkillFx.shield_rows()
+	var sym := true
+	var taper := true
+	var prev: int = 99
+	for i in rows.size():
+		var r: Array = rows[i]
+		if int(r[1]) != -int(r[2]) or int(r[0]) != CWSkillFx.SHIELD_TOP + i:
+			sym = false
+		if i >= 17 and int(r[2]) > prev:
+			taper = false
+		prev = int(r[2])
+	check(sym and taper and rows.size() == 30 and int(rows[-1][2]) == 0 and int(rows[1][2]) == 12,
+		"盾 %d 行：每行左右严格对称、下半一路收到尖（宽 25 高 30）" % rows.size())
+	check(CWSkillFx.shield_scale(0.3) == 0 and CWSkillFx.shield_scale(0.4) == 3
+		and CWSkillFx.shield_scale(0.55) == 2 and CWSkillFx.shield_scale(1.2) == 1
+		and CWSkillFx.shield_scale(2.4) == 0,
+		"三跳收束 3 → 2 → 1，全是整数倍（像素风不做非整数缩放）")
+	check(not src_fx.contains("SHIELD_PROFILE") and not src_fx.contains("CARD_SHIELD_DARK"),
+		"选稿那面描边盾的多边形与深底色已删干净")
+
+
 ## 普通攻击的本体冲撞（队友 PR #30，2026-09-13 合入）。PR 自述没跑任何测试，这条是合入时补的：
 ## 演出层的登记 / 接管 / 退场是纯状态，无头直接核；引擎那头只核「什么时候报、报文带什么」。
 func t_attack_fx() -> void:

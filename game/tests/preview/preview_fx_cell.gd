@@ -80,7 +80,9 @@ func _setup_scene() -> void:
 		roots.append(_board.tile_center(n))
 	_fx.play("pseudopod", { "from": _board.tile_center(PULL_FROM), "to": _board.tile_center(PULL_TO),
 		"roots": roots, "from_body": p["body"], "r": p["r"], "cid": 7 })
-	_board.set_tissue(REVIVE_AT, CWData.Tissue.SOLID, CWData.Special.NONE, false, 1.0)
+	## 复活那一刻固化格已经碎成普通癌组织了（CWWorld.revive_cancer 先 crack_to_cancer 再报演出），
+	## 所以脚下摆普通癌组织 —— 摆成固化的话马赛克和底图同色，等于什么都看不见
+	_board.set_tissue(REVIVE_AT, CWData.Tissue.CANCER, CWData.Special.NONE, false, 0.0)
 	_fx.play("revive_cancer", { "at": _board.tile_center(REVIVE_AT) })
 
 

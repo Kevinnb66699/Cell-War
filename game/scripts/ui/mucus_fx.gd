@@ -36,6 +36,26 @@ var _at := Vector2.ZERO
 var _active := false
 
 
+## 地上那层黏液跟着液浪走（Kevin 2026-09-13，issue #31：「应该先炸开，然后随着中间黏液特效扩散，
+## 格子从里到外出现黏液，而不是直接出现」）。返回真 = 液浪还没推到这一格，这一帧先别画它
+## （`CWMatch._sync_tiles` 每帧问一次）。演出没在跑 → 一律假，地上那层照常全画。
+##
+## 比的是**贴地的椭圆**：等距棋盘上纵向被压扁了（同 ground_ring 的 SQUASH），
+## 不换算的话上下那两圈会比左右晚半拍才铺上。
+func pending(p: Vector2) -> bool:
+	if not _active:
+		return false
+	var d := p - _at
+	return Vector2(d.x, d.y / SQUASH).length() > front()
+
+
+## 此刻液浪推到多远（棋盘像素）。憋住那一拍还没炸，前沿是 0
+func front() -> float:
+	if not _active or _t <= CHARGE:
+		return 0.0
+	return WAVE_R * clampf((_t - CHARGE) / (TOTAL - CHARGE), 0.0, 1.0)
+
+
 func play(at: Vector2) -> void:
 	_at = at
 	_t = 0.0
