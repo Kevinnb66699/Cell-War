@@ -8947,7 +8947,8 @@ func t_hand() -> void:
 func t_attack_fx() -> void:
 	print("[普通攻击冲撞]")
 	## ① 登记 → 走完 TOTAL 自己退场；演出期间它代画双方（真身让位靠 owns）
-	var fx := CWAttackFx.new()
+	var AttackFx := preload("res://scripts/ui/attack_fx.gd")   ## 没有 class_name（要走热更），同 cw_lan.gd
+	var fx: Node2D = AttackFx.new()
 	root.add_child(fx)
 	var data := { "cid": 3, "target_id": 7, "entered": false, "target_alive": true,
 		"attacker_alive": true, "hit": true }
@@ -8955,10 +8956,10 @@ func t_attack_fx() -> void:
 	var mel: Texture2D = CWMatch.CANCER_ART[CWData.CancerType.MELANOMA]
 	fx.play(data, Vector2(-36, 0), Vector2(0, 0), imm, mel)
 	check(fx.owns(3) and fx.owns(7) and not fx.owns(4), "登记后代画攻防双方，别的细胞不受影响")
-	fx.sync(CWAttackFx.TOTAL * 0.5)
+	fx.sync(AttackFx.TOTAL * 0.5)
 	check(fx.owns(3), "半程还在演")
-	fx.sync(CWAttackFx.TOTAL * 0.6)
-	check(not fx.owns(3) and not fx.owns(7), "走完 %.2f s 自己退场，位置交还引擎" % CWAttackFx.TOTAL)
+	fx.sync(AttackFx.TOTAL * 0.6)
+	check(not fx.owns(3) and not fx.owns(7), "走完 %.2f s 自己退场，位置交还引擎" % AttackFx.TOTAL)
 	## ② 同一只细胞连着两次攻击：以最新那条为准（两段同时代画会打架）
 	fx.play(data, Vector2(-36, 0), Vector2(0, 0), imm, mel)
 	fx.sync(0.1)

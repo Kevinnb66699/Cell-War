@@ -147,6 +147,8 @@ const CELL_POP_SCALE := 0.7
 const CELL_FOOT_DY := 6.0
 ## 同一格站了多个细胞时左右错开的间距
 const STACK_DX := 9.0
+## 普通攻击的本体冲撞（队友 PR #30）：没有 class_name —— 新类名热更装不上，所以走 preload
+const ATTACK_FX := preload("res://scripts/ui/attack_fx.gd")
 ## 回合脚标（Kevin 2026-09-12：白天选 E 跑马灯轮廓，晚上改选 D「头顶指示箭」，画在 CWBoard.set_turn_mark）：
 ## 正在行动的细胞头顶一枚阵营色像素 V 形箭上下跳，旁观者也看得出「现在是谁在动」。第一版呼吸剪影 Kevin 嫌不好看；
 ## 画板里脚下那片阵营色影子上线后他也说不要，撤了。
@@ -308,7 +310,7 @@ var _mucus_fx: CWMucusFx       ## 印戒【黏液破裂】的引爆
 var _beam_fx: CWBeamFx         ## T【Excalibur】的双螺旋光束
 var _chain_fx: CWChainFx       ## 巨噬【连续吞噬】的每一口
 var _skill_fx: CWSkillFx       ## 一次性技能演出的合集（issue #15）
-var _attack_fx: CWAttackFx
+var _attack_fx: Node2D          ## 普通攻击的本体冲撞（PR #30）。**没有 class_name**（要走热更），见 ATTACK_FX
 var _decos: Array = []         ## 下标同 _cell_nodes：每只细胞 [背面, 正面] 两个 CWCellDeco（囊性护甲 / 刚性屏障 / 头顶标记）
 var _seal_fx: CWSealFx         ## B【中和抗体】的投递与封禁环（后者常驻，见 _sync_seal）
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
@@ -377,7 +379,7 @@ func _ready() -> void:
 		_skill_fx = CWSkillFx.new()
 		_skill_fx.z_index = board.Z_OVER_BOARD
 		board.add_child(_skill_fx)
-		_attack_fx = CWAttackFx.new()
+		_attack_fx = ATTACK_FX.new()
 		_attack_fx.z_index = board.Z_OVER_BOARD
 		board.add_child(_attack_fx)
 		_tile_info = CWTileInfo.new()
@@ -1476,7 +1478,7 @@ func _sync_cells() -> void:
 		## 【连续吞噬】那一口由 CWChainFx 整只代画（选稿画的是张着口的胞体，
 		## 不是在细胞上叠一层），所以这几帧真身要让位
 		node.visible = c["alive"] and not (_chain_fx != null and _chain_fx.chewing_cid == i)
-		var attack_owned := _attack_fx != null and _attack_fx.owns(i)
+		var attack_owned: bool = _attack_fx != null and _attack_fx.owns(i)   ## 演出层没有 class_name，返回值是 Variant，得显式标类型
 		if attack_owned:
 			node.visible = false
 		var became_alive: bool = c["alive"] and not _was_alive[i]

@@ -1,5 +1,8 @@
 ## 普通攻击临时代画双方原贴图。只消费结算结果，不改动细胞位置或生命状态。
-class_name CWAttackFx
+##
+## **没有 class_name**（2026-09-13 合入时改的）：新 class_name 热更装不上 ——
+## 全局类表在导出那一刻烘死，补丁里的新类名认不出来（`tools/build_patch.sh` 当场拦）。
+## 用法同 `scripts/net/cw_lan.gd`：`const CWAttackFx := preload(...)` 再 `.new()`。
 extends Node2D
 
 const TOTAL := 0.66

@@ -38,7 +38,7 @@ func _column(t: float, killed: bool) -> Node2D:
 
 func _fill(board: Node2D, t: float, killed: bool) -> void:
 	board.set_tissue(TO, CWData.Tissue.CANCER, CWData.Special.NONE, false, 0.0)
-	var fx := CWAttackFx.new()
+	var fx: Node2D = preload("res://scripts/ui/attack_fx.gd").new()   ## 没有 class_name（要走热更）
 	fx.z_index = board.Z_OVER_BOARD
 	board.add_child(fx)
 	var foot := Vector2(0, CWMatch.CELL_FOOT_DY)
