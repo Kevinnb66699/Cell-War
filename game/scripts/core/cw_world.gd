@@ -64,8 +64,12 @@ func e_phase() -> void:
 	_cap_energy()                            ## 9.5 能量上限（PRD 之外，见口径 #92）
 	## 10 胜利条件检查。免疫先判：PRD 的列举顺序如此，
 	## 而且两边同时满足时「癌细胞已全灭」比「占地达标」更靠后发生，判给免疫更符合直觉。
-	game.check_immune_win()
-	game.check_cancer_win()
+	## 教程 fixture 局跳过这两条「立刻赢」（game.win_checks，见那儿的注释）：摆拍局面一判就是免疫胜利。
+	if game.win_checks:
+		game.check_immune_win()
+		game.check_cancer_win()
+	## **回合上限这条不跟着关**：它要跑满 limit_round 个世界回合才触发，教程里到不了；
+	## 留着是为了任何一局都有终点 —— 关掉之后无头里的教程局会一路空转（t_tutorial_chapter_swap 当场挂死）。
 	if game.winner < 0 and game.round_no >= game.tune.limit_round:
 		_final_verdict()
 

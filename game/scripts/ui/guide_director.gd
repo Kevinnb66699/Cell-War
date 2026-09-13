@@ -34,6 +34,9 @@ static func assemble(level: int, zone: int = 0) -> CWGame:
 	g.init(factions, SEED_BASE + level)
 	g.setup.build_board(int(zf.get("radius", CWData.BOARD_RADIUS)))
 	if not formal:
+		## 教学摆拍局不判胜负：癌方只有死亡占位、常常一块固化都没有，E 阶段一判就是免疫胜利
+		## （Kevin 2026-09-12 截图：第一章过后直接弹结算）。毕业战是正式局，照常判。
+		g.win_checks = false
 		_apply_fixture(g, zf)
 	return g
 

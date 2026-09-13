@@ -121,7 +121,7 @@ func _run_all() -> void:
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_board_small, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
-		t_card_name_fit, t_view_blend, t_guide_quiet, t_announce, t_action_bar_width,
+		t_card_name_fit, t_view_blend, t_guide_quiet, t_guide_no_win, t_announce, t_action_bar_width,
 		t_buttons_dim, t_enter_not_skipped, t_main_menu, t_guide_data,
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
@@ -8942,6 +8942,43 @@ func t_hand() -> void:
 ## 这一条盯的是「两端都对、中间不对」——最难查的那类动画错。
 ## 直接插相机的 position 和 zoom，起点终点都严丝合缝，唯独途中取景会游走；
 ## 而这只有真的盯着动画看才觉得「不好看」，说不清哪儿不对（团队试玩报的就是这个）。
+## 教程局不判胜负（Kevin 2026-09-12 截图：第一章过后直接弹结算屏）。
+## 根因：1–15 关是教学摆拍 —— 癌方只有一枚死亡占位、场上一块固化都没有，
+## E 阶段第 10 步的【E-免疫胜利】（癌细胞全灭 + 无可复活的固化癌组织）当场成立。
+func t_guide_no_win() -> void:
+	print("[教程局不判胜负]")
+	## ① 装配出来的教程局就是那个局面：癌方没有活细胞、没有固化格
+	var g := CWGuideDirector.assemble(1, 0)      ## 第 2 关「病灶」：Kevin 截图里弹结算的那一关
+	var solid := 0
+	for c in g.tiles:
+		if int(g.tiles[c]["tissue"]) == CWData.Tissue.SOLID:
+			solid += 1
+	check(not g.win_checks and g.living_cells(CWData.Faction.CANCER).is_empty() and solid == 0,
+		"第 2 关：癌方只有死亡占位、0 格固化 —— 判定已关（win_checks=%s）" % str(g.win_checks))
+	## ② 跑一次真正的 E 阶段：关着判定就不该出胜负
+	await g.world.e_phase()
+	check(g.winner < 0, "跑完 E 阶段没有胜负（结算屏不会弹）")
+	## ③ 同一局面把判定打开 → 立刻免疫胜利，正是截图里那一屏（证明关掉的就是这条路）
+	var g2 := CWGuideDirector.assemble(1, 0)
+	g2.win_checks = true
+	await g2.world.e_phase()
+	check(g2.winner == CWData.Faction.IMMUNE and g2.win_kind == "immune_clear",
+		"开着判定的话同一局面当场就是「%s」" % g2.win_reason)
+	g2.dispose()
+	## ④ 毕业战（第 16 关）是正式四人局：照常判
+	var grad := CWGuideDirector.assemble(CWGuideLevels.count() - 1)
+	check(grad.win_checks and CWGuideLevels.formal(CWGuideLevels.count() - 1),
+		"毕业战是正式局，胜负照常判")
+	grad.dispose()
+	## ⑤ 正式对局默认开着；开关不进快照、不是旋钮（联机与存档一行不受影响）
+	var formal := make_game(4, 1)
+	check(formal.win_checks and not CWTuning.RULE_FIELDS.has("win_checks")
+		and not CWStateCodec.snapshot(formal).has("win_checks"),
+		"正式局默认判；win_checks 不在旋钮表、也不进快照")
+	formal.dispose()
+	g.dispose()
+
+
 ## 教程叠层（Kevin 2026-09-12 截图：「癌症A 无法复活」的气泡压在引导浮层的字上）：
 ## ① 教程桥静掉这类通报；② 气泡整体躲开浮层那块屏幕。
 func t_guide_quiet() -> void:
@@ -10343,11 +10380,11 @@ func t_guide_bridge() -> void:
 	correction.record_mistake()
 	check(correction.mistake_count() == 1 and correction.step_no() == correction_step,
 		"教程纠错记录不推进步骤，之后仍可恢复作答")
-	check(CWGuideData.ui_stage(0) == 0 and CWGuideData.ui_stage(6) == 2
+	check(CWGuideData.ui_stage(0) == 1 and CWGuideData.ui_stage(6) == 2
 		and CWGuideData.ui_stage(15) == 3,
-		"渐进 UI 按章节解锁：棋盘 → 高亮/资源 → 毕业战预测解释")
+		"渐进 UI 按章节解锁：目标高亮（第 1 关就有）→ 规则/资源 → 毕业战预测解释")
 	var staged := FakeGuide.new()
-	check(staged.ui_stage() == 0, "第一阶段不提前开放辅助层")
+	check(staged.ui_stage() >= 1, "第 1 关就开目标高亮（Kevin 2026-09-12：新手最需要知道该点哪儿）")
 	staged._chapter = 6
 	check(staged.ui_stage() == 2, "进入第 7 关后开放资源/目标辅助层")
 	var graduation := CWGuideDirector.assemble(15)
