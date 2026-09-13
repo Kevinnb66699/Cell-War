@@ -649,8 +649,7 @@ static func tip_rows(game: CWGame, pid: int, full: bool) -> Array:
 			return []
 		if not equipped.is_empty():
 			out.append({ "head": "已装备 · 持续生效" })
-			for n in equipped:
-				out.append({ "text": n, "info": CWCardInfo.describe(n, cell["faction"], phase) })
+			out.append_array(equip_rows(cell, phase))
 		out.append_array(mods)
 		return out
 	var tinfo: Dictionary = CWCardInfo.describe_type(cell["itype"], "【细胞种类】") if immune \
@@ -667,21 +666,46 @@ static func tip_rows(game: CWGame, pid: int, full: bool) -> Array:
 		out.append_array(acts)
 	if not equipped.is_empty():
 		out.append({ "head": "已装备 · 持续生效" })
-		for n in equipped:
-			out.append({ "text": n, "info": CWCardInfo.describe(n, cell["faction"], phase) })
+		out.append_array(equip_rows(cell, phase))
 	out.append_array(mods)
 	return out
+
+
+## 已装备的永久技能那一段。带**限次额度**的在名字后面写「余 N 次」：
+## 【癌症干性】是永久技能，可它复活时发的「前两次向癌性组织移动免费」额度住在 `cell["mods"]` 里，
+## 而 mods 那一段的标题写的是「即时 · …」—— 照直列，同一张卡就在框里出现两次，
+## 还被扣上「即时」的帽子（Kevin 2026-09-13：「『癌症干性』被同时视为即时和永久」）。
+## 所以额度归到它自己这一行来，`mod_rows` 那边跳过已装备的同名条目。
+static func equip_rows(cell: Dictionary, phase: int) -> Array:
+	var out: Array = []
+	for n: String in cell["equipped"]:
+		var left: int = mod_uses(cell, n)
+		out.append({ "text": n if left <= 0 else "%s 余%d次" % [n, left],
+			"info": CWCardInfo.describe(n, cell["faction"], phase) })
+	return out
+
+
+## 这只细胞身上叫这个名字的修饰条目还剩几次（各时钟相加）。0 = 没有这条。**纯函数**
+static func mod_uses(cell: Dictionary, mod_name: String) -> int:
+	var n := 0
+	for m in cell["mods"]:
+		if String(m["name"]) == mod_name:
+			n += int(m["uses"])
+	return n
 
 
 ## 即时卡挂在细胞上的修饰条目（CWGame.add_mod）按时钟分三段：本回合 / 本世界回合 / 待触发（不过期，挂着等触发）。
 ## 同名合并、次数 >1 写「×N」；条目悬停浮出的是那张卡的 PRD 原文。
 ## 名字带「·待发」的是引擎内部标记（如【细胞因子网络】的待发计数），不是玩家打出的东西，不列。
+## **和已装备永久技能同名的也不列**：那是那张永久技能自己的限次额度（【癌症干性】复活时发的
+## 免费移动），归到「已装备」那一行写成「余 N 次」（见 `equip_rows`）——
+## 列在这儿等于把一张永久技能又说成即时的（Kevin 2026-09-13）。
 ## phase = 癌症卡的分期，条目详情里的分档写法高亮这一档（-1 = 不高亮）
 static func mod_rows(cell: Dictionary, phase := -1) -> Array:
 	var uses_by := { "turn": {}, "round": {}, "": {} }
 	for m in cell["mods"]:
 		var mod_name: String = m["name"]
-		if mod_name.contains("·待发"):
+		if mod_name.contains("·待发") or cell["equipped"].has(mod_name):
 			continue
 		var clock: String = m["until"] if uses_by.has(m["until"]) else ""
 		uses_by[clock][mod_name] = int(uses_by[clock].get(mod_name, 0)) + int(m["uses"])

@@ -8469,6 +8469,19 @@ func t_mods_tip() -> void:
 	can["equipped"].append("癌症干性")
 	check(names.call(CWMatchPanel.tip_rows(g, 1, false)) == ["已装备 · 持续生效", "癌症干性", "即时 · 待触发", "DNA损伤修复"],
 		"本回合的到期后消失；已装备在前、即时在后")
+	## 【癌症干性】是**永久技能**，可它复活时发的免费移动额度住在 mods 里，
+	## 而 mods 那一段的标题写「即时 · …」—— 照直列，同一张卡在框里出现两次、
+	## 还被扣上「即时」的帽子（Kevin 2026-09-13：「被同时视为即时和永久」）。
+	## 额度归到它自己那一行写「余 N 次」，即时段里不许再有它。
+	g.add_mod(can, "癌症干性", 2, "round")
+	var stem: Array = names.call(CWMatchPanel.tip_rows(g, 1, false))
+	check(stem == ["已装备 · 持续生效", "癌症干性 余2次", "即时 · 待触发", "DNA损伤修复"],
+		"永久技能的限次额度写在它自己那一行（%s）" % str(stem))
+	check(not stem.has("即时 · 本世界回合"), "即时段里没有它 —— 一张卡不能同时是即时又是永久")
+	g.spend_one_mod(can, "癌症干性")
+	check(names.call(CWMatchPanel.tip_rows(g, 1, false))[1] == "癌症干性 余1次", "用掉一次跟着变")
+	g.clear_mods(can, "round")
+	check(names.call(CWMatchPanel.tip_rows(g, 1, false))[1] == "癌症干性", "额度用完只剩技能名，不留空壳")
 	## 真控件：修饰变化要触发重搭（键里带次数）
 	var p := CWMatchPanel.new()
 	root.add_child(p)
