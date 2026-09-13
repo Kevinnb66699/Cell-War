@@ -2204,9 +2204,10 @@ func t_antibody_no_target_x() -> void:
 	print("[抗体·无目标转化格数]")
 	check(CWData.antibody_no_target_x(2) == [3, 5] and CWData.antibody_no_target_x(3) == [4, 6],
 		"III 级 3/5、X 级 4/6（卡面 2026-09-13）")
-	## I / II 卡面没写（分化 2026-09-04 下调到 II 级之后就有 B 细胞了）——引擎沿用改版前的 2/3
-	check(CWData.antibody_no_target_x(0) == [2, 3] and CWData.antibody_no_target_x(1) == [2, 3],
-		"I / II 沿用旧值 2/3（卡面没写，别当成有意设计）")
+	## I / II 级到不了：分化挂 III 级，没有 B 细胞就放不出【抗体】。这两行纯兜底
+	check(CWData.antibody_no_target_x(0) == [2, 3] and CWData.antibody_no_target_x(1) == [2, 3]
+		and CWData.DIFFERENTIATE_MIN_LEVEL == 2,
+		"I / II 只是兜底：分化挂 III 级，那两级压根没有 B 细胞")
 	check(CWData.antibody_no_target_x(-1) == [2, 3] and CWData.antibody_no_target_x(9) == [4, 6],
 		"越界钳住，不崩")
 	## 掷 d3：1、2 取小，3 取大 —— 「2/3 概率」就是这么来的

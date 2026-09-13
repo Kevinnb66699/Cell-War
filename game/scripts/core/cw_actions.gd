@@ -652,8 +652,8 @@ func _cell_skill_base(act: String) -> int:
 func action_kinds(cell: Dictionary) -> Array[String]:
 	var out: Array[String] = ["move", "draw"]
 	if cell["faction"] == CWData.Faction.IMMUNE:
-		## 分化只在 II 级及以上解锁（团队 2026-09-04 从 III 下调）、且每个细胞一辈子一次
-		## —— 用掉之后按钮就不该再占位了
+		## 分化挂 **III 级**（`DIFFERENTIATE_MIN_LEVEL` = 2，PRD 原值；09-04 曾下调到 II，
+		## 09-05 团队复核撤回）、且每个细胞一辈子一次 —— 用掉之后按钮就不该再占位了
 		if game.immune_level >= game.tune.differentiate_min_level and not cell["differentiated"]:
 			out.append("differentiate")
 		match cell["itype"]:
