@@ -821,7 +821,8 @@ func show_roll(reason: String, value: int, sides: int, _pid: int, at: Vector2i) 
 	if toast != null and camera != null:
 		## hold=0：一直留着，等骰子停稳后被结算说明顶掉
 		toast.show_at(reason, _dice_rect(ground), 0.0)
-	dice.place_at(ground, board.tile_z(at, board.Z_DICE))
+	## 深度走 Z_DICE_TOP 这一整层，不再按排排（见 board.gd 那条注释）
+	dice.place_at(ground, board.Z_DICE_TOP)
 	await dice.play(value, sides)
 
 

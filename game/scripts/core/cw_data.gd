@@ -298,8 +298,18 @@ const MUTATE_EXTRA_LOSS := 8
 const MUTATE_MEMORY_CUT := 2             # 同一面削减的抗原记忆
 const ANTIBODY_COST := 10
 const ANTIBODY_DAMAGE := 15              # 每目标 -1.5
-## 无目标时改为转化癌组织：2/3 概率 2 格、1/3 概率 3 格（PRD 2026-09-01）
-const ANTIBODY_NO_TARGET_X := [2, 3]
+## 无目标时改为转化癌组织：掷 d3，2/3 概率取前一个数、1/3 概率取后一个数。
+## **按免疫等级分档**（PRD 2026-09-13 云端版，issue #37）：III 级 3/5、X 级 4/6。
+## ⚠ 卡面只写了 III 与 X 两档，而【分化】（B 细胞的唯一来源）2026-09-04 起 **II 级**就解锁了 ——
+## I / II 这两档 PRD 没写。这里**沿用改版前的 2/3**（改动已当面知会 Kevin），
+## 等团队补上卡面再动这一行；别当成有意设计。
+const ANTIBODY_NO_TARGET_X := [[2, 3], [2, 3], [3, 5], [4, 6]]
+
+
+## 这一档免疫等级下，【抗体】无目标时转化几格：[2/3 概率的数, 1/3 概率的数]。
+## `immune_level` 是引擎的 0 起口径（I/II/III/X = 0/1/2/3）
+static func antibody_no_target_x(immune_level: int) -> Array:
+	return ANTIBODY_NO_TARGET_X[clampi(immune_level, 0, ANTIBODY_NO_TARGET_X.size() - 1)]
 const TOXIN_COST := 10
 const TOXIN_MAX_PER_ROUND := 3           # PRD：T 细胞每世界回合最多 3 次
 ## B 细胞【抗体】每世界回合上限。**0 = 不限**：PRD 2026-09-01 删掉了「最多 2 次」（Kevin 确认），旧 PRD 是 2。

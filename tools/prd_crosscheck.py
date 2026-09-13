@@ -118,7 +118,8 @@ MAP = {
     "ARMOR_REDUCTION":        "【I-囊性护甲】：每世界回合第一次能量损失-0.5，不限来源",
     "OSTEO_BARRIER_PERCENT":  "受到的能量损失为40%",
     "HOMING_SPREAD":          "并将相邻格中随机最多3格转为癌组织",
-    "ANTIBODY_NO_TARGET_X":   "2/3概率X=2，1/3概率X=3",
+    # 2026-09-13 起分两档（III / X）；I、II 两档 PRD 没写，引擎沿用旧值（见常量注释）
+    "ANTIBODY_NO_TARGET_X":   ["2/3概率X=3，1/3概率X=5", "2/3概率X=4，1/3概率X=6"],
     "SCLC_MOVE_HEALTHY":      "【I-极简胞浆】：迁移至**健康组织**的能量消耗降为0.7点",
     "METASTASIS_COST":        "【I-转移】：消耗1点能量向某方向跃进5格",
     "METASTASIS_RANGE":       "向某方向跃进5格",

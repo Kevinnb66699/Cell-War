@@ -126,7 +126,7 @@ func _run_all() -> void:
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
-		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_turn_mark, t_online_glow, t_match_online,
+		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_turn_mark, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -2198,6 +2198,39 @@ func t_antibody_halve() -> void:
 	for k in 3:
 		await g.actions.execute(b, { "act": "antibody" })
 	check(g.actions.antibody_damage(b) == 15, "旋钮关掉 = 老行为，放几次都打满")
+
+## 【抗体】无目标时转化几格：PRD 2026-09-13 起按免疫等级分档（issue #37）
+func t_antibody_no_target_x() -> void:
+	print("[抗体·无目标转化格数]")
+	check(CWData.antibody_no_target_x(2) == [3, 5] and CWData.antibody_no_target_x(3) == [4, 6],
+		"III 级 3/5、X 级 4/6（卡面 2026-09-13）")
+	## I / II 卡面没写（分化 2026-09-04 下调到 II 级之后就有 B 细胞了）——引擎沿用改版前的 2/3
+	check(CWData.antibody_no_target_x(0) == [2, 3] and CWData.antibody_no_target_x(1) == [2, 3],
+		"I / II 沿用旧值 2/3（卡面没写，别当成有意设计）")
+	check(CWData.antibody_no_target_x(-1) == [2, 3] and CWData.antibody_no_target_x(9) == [4, 6],
+		"越界钳住，不崩")
+	## 掷 d3：1、2 取小，3 取大 —— 「2/3 概率」就是这么来的
+	var src := FileAccess.get_file_as_string("res://scripts/core/cw_actions.gd")
+	check(src.contains("CWData.antibody_no_target_x(game.immune_level)")
+		and src.contains("tier[0 if roll <= 2 else 1]"),
+		"结算处按等级取档、按 d3 分 2/3 与 1/3")
+
+
+## 【早期血行转移】那条血流要**连到落点**（Kevin 2026-09-13 issue #37）
+func t_homing_stream() -> void:
+	print("[血行转移·血流连线]")
+	var a := Vector2(100, 200)
+	for b: Vector2 in [Vector2(300, 40), Vector2(40, 360), Vector2(100, 20), Vector2(300, 200)]:
+		var mid := CWSkillFx.homing_stream_pos(a, b, 0.5)
+		var end := CWSkillFx.homing_stream_pos(a, b, 1.0)
+		var want_mid: Vector2 = a.lerp(b, 0.5) + Vector2(0, -7.0)
+		## 抖动最大 4px（垂直于连线），所以只要落在那个半径里就算「在线上」
+		check(mid.distance_to(want_mid) <= 4.01 and end.distance_to(b + Vector2(0, -7.0)) <= 4.01,
+			"%s → %s：中点 %s 贴着连线中点、终点 %s 贴着落点" % [str(a), str(b), str(mid), str(end)])
+	## 老毛病的判据：终点的 y 不能还停在起点那一行（那就是「永远水平」）
+	var up := CWSkillFx.homing_stream_pos(a, Vector2(300, 40), 1.0)
+	check(absf(up.y - (a.y - 7.0)) > 100.0, "终点真的抬到落点那边去了（y 差 %.0f）" % absf(up.y - (a.y - 7.0)))
+
 
 func t_antibody_cap() -> void:
 	print("[抗体次数上限旋钮]")
@@ -11233,7 +11266,22 @@ func t_dice() -> void:
 		if not (bd.tile_z(c, bd.Z_MARK) < bd.tile_z(c, bd.Z_CELL)
 				and bd.tile_z(c, bd.Z_CELL) < bd.tile_z(c, bd.Z_DICE)):
 			layered = false
-	check(depth_ok, "骰子压在自己那格上面、又低于前一排（不会掉到棋盘后面）")
+	check(depth_ok, "tile_z 那一套：骰子压在自己那格上面、又低于前一排（不会掉到棋盘后面）")
+	## **但真正摆骰子走的是 Z_DICE_TOP 这一整层**（Kevin 2026-09-13 issue #36：
+	## 「减伤特效应当在骰子图层之下」—— 囊性护甲的小盾绕着前排那只癌细胞转，
+	## 按排比大小它就是比后排格子上的骰子高）。所以这一层必须高过**任何一格**的任何装饰，
+	## 又低于全局演出层；顺带钉住 show_roll 真的用的是它。
+	var top_ok := true
+	for c in CWData.all_coords():
+		## 装饰 = 细胞 z ± 1，回合箭 = 细胞 z + 2（match.gd），取最高的那个比
+		if bd.Z_DICE_TOP <= bd.tile_z(c, bd.Z_CELL) + 2:
+			top_ok = false
+	check(top_ok and bd.Z_DICE_TOP < bd.Z_OVER_BOARD,
+		"骰子层 %d：高过每一格的细胞 / 装饰 / 回合箭，又低于全局演出层 %d"
+			% [bd.Z_DICE_TOP, bd.Z_OVER_BOARD])
+	var ubsrc := FileAccess.get_file_as_string("res://scripts/ui/ui_bridge.gd")
+	check(ubsrc.contains("dice.place_at(ground, board.Z_DICE_TOP)"),
+		"show_roll 摆骰子用的就是这一层（写死在别处就白改了）")
 	check(layered, "站在格子上的三层顺序：高亮 < 细胞 < 骰子")
 	check(bd.Z_DICE < bd.distance_y, "最上面那层仍低于前一排的 +%d" % bd.distance_y)
 
@@ -17266,6 +17314,23 @@ func t_surrender_seats() -> void:
 	r.tick(1000 + CWNet.DROP_TO_LEFT_MS)
 	check(r.seats[2]["left"] and Array(r._voters(CWData.Faction.IMMUNE)) == [0],
 		"断满 %.1f 分钟 → 视同已离开，不再计入" % (CWNet.DROP_TO_LEFT_MS / 60000.0))
+	## 一局打完回等待室：人已经不在房里的席位要腾空（Kevin 2026-09-13 issue #38：一个人占两个号）
+	var r2 := CWRoom.new()
+	r2.configure(srv, "TESTBB", 4, 0, true, true)
+	r2.members[100] = "在场的"
+	r2.seats[0] = { "kind": "human", "client": 100, "nick": "在场的", "ready": true, "tier": "",
+		"token": "t0", "online": true, "left": false, "off_at": 0 }
+	r2.seats[1] = { "kind": "human", "client": -1, "nick": "掉线的", "ready": false, "tier": "",
+		"token": "t1", "online": false, "left": false, "off_at": 1 }
+	r2.seats[2] = CWRoom.ai_seat("heur")
+	r2._release_offline_seats()
+	check(r2.seats[0]["nick"] == "在场的" and r2.seats[1]["kind"] == ""
+		and r2.seats[2]["kind"] == "ai",
+		"人还在的留着、人不在的腾空、AI 席不动（那是房主摆的，不是谁的连接）")
+	var rsrc := FileAccess.get_file_as_string("res://scripts/net/cw_room.gd")
+	## 出现两次 = 定义一次、调用一次。**只写函数不调等于没改**，而那种改法从行为上测不出来
+	check(rsrc.count("_release_offline_seats()") >= 2 and rsrc.contains("state = State.WAITING"),
+		"终局回等待室那一步真的调了它（源码里出现 %d 次）" % rsrc.count("_release_offline_seats()"))
 	srv.stop()
 
 	## 倒计时（Kevin 2026-09-09 报「没有倒数的效果」）。病根是服务器**只在票况变化时**广播，

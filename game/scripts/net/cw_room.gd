@@ -405,8 +405,23 @@ func _run() -> void:
 	state = State.WAITING
 	for s in seats:
 		s["ready"] = false
+	_release_offline_seats()
 	_teardown_game()
 	push_room()
+
+
+## 一局打完回等待室时，把**人已经不在房里**的席位腾空
+## （Kevin 2026-09-13 issue #38 截图：一个人占两个号 —— 一边挂着他的「离线」旧席、一边坐着他本人）。
+## 对局中掉线是要**保**席位的（凭令牌重连，见 leave / reconnect），可一局打完就不保了 ——
+## 等待室的规矩本来就是「掉线 = 起身」（文件头 §六）。不腾的话，那个人重开客户端再进来
+## 只会拿到一个新席位，旧席就永远挂在那儿；他若拿着旧令牌回来，reconnect 会答 bad_token，
+## 客户端退回大厅重新进房 —— 那正是「起身」该有的样子。
+## AI 席不动：那是房主摆的，不是谁的连接。
+func _release_offline_seats() -> void:
+	for pid in seats.size():
+		var s: Dictionary = seats[pid]
+		if s["kind"] == "human" and not members.has(int(s["client"])):
+			seats[pid] = empty_seat()
 
 
 func _teardown_game() -> void:

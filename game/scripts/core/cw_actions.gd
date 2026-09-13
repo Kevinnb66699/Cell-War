@@ -1258,7 +1258,7 @@ func _do_antibody(cell: Dictionary) -> void:
 		## 而【DNA损伤修复】明写挡「技能」，要挡得到它
 		game.immune_hit_area(targets, dmg, cell, "抗体")
 		return
-	# 无目标 → 随机将与健康组织相邻的 X 格癌组织转为健康（2/3→1，1/3→2）
+	# 无目标 → 随机将与健康组织相邻的 X 格癌组织转为健康（掷 d3：2/3 取小、1/3 取大；X 按免疫等级分档）
 	var eligible: Array[Vector2i] = []
 	for c in game.tiles.keys():
 		if game.tiles[c]["tissue"] != CWData.Tissue.CANCER:
@@ -1273,7 +1273,8 @@ func _do_antibody(cell: Dictionary) -> void:
 		game.log_msg("【抗体】无目标且无可转化癌组织，效果落空")
 		return
 	var roll: int = await game.roll_shown(3, "抗体", cell["pid"], cell["pos"])
-	var x: int = CWData.ANTIBODY_NO_TARGET_X[0 if roll <= 2 else 1]
+	var tier: Array = CWData.antibody_no_target_x(game.immune_level)
+	var x: int = int(tier[0 if roll <= 2 else 1])
 	game.announce("抗体：转化 %d 格" % x, cell["pos"])
 	for c in game.pick_random(eligible, x):
 		CWTissue.to_healthy(game.tile(c))

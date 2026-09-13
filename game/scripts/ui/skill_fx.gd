@@ -346,6 +346,15 @@ func _adhesion(t: float, d: Dictionary) -> void:
 
 
 ## 双端血门：两格各开一圈血环，血粒 1.25 秒流过去，落点炸一下，再逐格把感染送到邻格
+## 【早期血行转移】那条血流第 f（0~1）处画在哪。**纯函数**，护栏直接核。
+## 两个轴都插值（Kevin 2026-09-13 issue #37：「红线永远水平，不会连到传送目标」——
+## 原来只插 x、y 钉死在起点那一行，落点在哪都横着甩出去）；
+## 抖动垂直于连线，斜着连过去也仍是一条抖动的血流，而不是被压扁的正弦。
+static func homing_stream_pos(a: Vector2, b: Vector2, f: float) -> Vector2:
+	var dir: Vector2 = (b - a).normalized()
+	return a.lerp(b, f) + Vector2(0, -7.0) + Vector2(-dir.y, dir.x) * (sin(f * PI * 4.0) * 4.0)
+
+
 func _homing(t: float, d: Dictionary) -> void:
 	var a := _v(d, "from")
 	var b := _v(d, "to")
@@ -356,10 +365,13 @@ func _homing(t: float, d: Dictionary) -> void:
 		if open > 0.0:
 			CWPix.ring(self, at + Vector2(0, -7), 19.0 * open, BLOOD, 0.85)
 			CWPix.ring(self, at + Vector2(0, -7), 16.0 * open, BLOOD_PALE, 0.85, t * 3.0, t * 3.0 + 4.7)
+	## 血流**两个轴都要插值**（Kevin 2026-09-13 issue #37：「红线永远水平，不会连到传送目标」）——
+	## 原来只插 x、y 钉死在起点那一行，于是不管落点在哪，血流都横着甩出去。
+	## 抖动改成**垂直于连线**的，斜着连过去也还是一条抖动的血流，而不是被压扁的正弦
 	if p > 0.0 and p < 1.0:
 		for i in 13:
 			var f := clampf(p - float(i) * 0.022, 0.0, 1.0)
-			CWPix.px(self, Vector2(lerpf(a.x, b.x, f), a.y - 7.0 + sin(f * PI * 4.0) * 4.0),
+			CWPix.px(self, homing_stream_pos(a, b, f),
 				BLOOD_STREAM if i % 3 != 0 else BLOOD_SPARK, 2 if i % 4 != 0 else 3)
 	if t >= 1.3 and t < 1.85:
 		CWPix.burst(self, b + Vector2(0, -4), CWPix.phase(t, 1.3, 0.55), BLOOD_BURST, 17, 23.0)
