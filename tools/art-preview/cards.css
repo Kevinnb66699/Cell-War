@@ -1,0 +1,9 @@
+@font-face{font-family:CellPixel;src:url('../../game/assets/fonts/fusion_pixel_10px.ttf')}
+body.cards{background:#141f2e;color:#cfe2e6;font:20px CellPixel,monospace}
+.cards header,.cards aside,.cards .study,.cards .selection{background:#0f1822;border-color:#3fa5b6;border-radius:0;box-shadow:none}
+.cards h1,.cards h2,.cards h3,.cards .brand,.cards button,.cards select,.cards input{font-family:CellPixel,monospace}
+.cards h1{font-size:40px;color:#eaf8fc}.cards h2{font-size:30px;color:#eaf8fc}
+.cards button,.cards select,.cards input{background:#0a1018;color:#cfe2e6;border-color:#3fa5b6;border-radius:0}
+.cards nav button.active,.cards button:hover{color:#30d1fa;border-color:#30d1fa}
+.cards .intro,.cards .side-note,.cards #description,.cards .study-body p,.cards .notes p{font-size:20px;color:#7b929b;line-height:1.5}
+.cards .eyebrow,.cards .status,.cards .letter{color:#30d1fa}.cards .study canvas{image-rendering:pixelated}

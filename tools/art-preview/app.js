@@ -5,6 +5,15 @@ import {drawTexture} from './textures.js';
 import {requestedSelections} from './revised-catalog.js';
 
 const $=id=>document.getElementById(id);
+const requestedCard=new URLSearchParams(location.search).get('card');
+const cardOption=document.createElement('option');cardOption.value='cards';cardOption.textContent='卡牌粒子';$('filter').append(cardOption);
+if(requestedCard){
+  document.body.classList.add('cards');$('filter').value='cards';document.title='Cell War · 原贴图卡牌粒子';
+  document.querySelector('aside h1').textContent='卡牌粒子';
+  document.querySelector('.intro').textContent='原游戏细胞与组织贴图 · 16 张卡牌';
+  document.querySelector('.side-note').textContent='优先：范围结算、单体命中、生存状态、能量转移和组织变化。费用与概率卡牌采用轻提示。';
+  document.querySelector('.status').textContent='原素材 · 仅 HTML 预览';
+}
 const storageKey='cellwar-art-r2';
 let selections={...initialSelections};
 try {
@@ -130,6 +139,6 @@ function tick(now) {
   if(playing&&current.id!=='marrow'&&!document.hidden)time=(time+delta*Number($('speed').value))%DURATION;
   paint();requestAnimationFrame(tick);
 }
-open(current);
+open(items.find(item=>item.id===requestedCard)??current);
 try{await loadArt();ready=true;paint(true);requestAnimationFrame(tick);}
 catch(error){$('feedback').textContent=`素材未加载成功：${error.message}。请从仓库启动本地预览服务。`;}
