@@ -71,6 +71,7 @@ static func make_cell(id: int, pid: int, faction: int, pos: Vector2i,
 		"fx_turn": {},             # 永久技能「每行动回合第一次」的闸门，begin_turn 清
 		"fx_round": {},            # 永久技能「每世界回合第一次」的闸门，S 阶段重置清
 		"differentiated": false,   # 每细胞每局限一次【分化】
+		"chemo_cd": 0,             # 树突【I-趋化源】的技能冷却（世界回合），源消失那一刻开始算（issue #33）
 		# 以下计数每世界回合 S 阶段重置
 		"armor_used": false,       # 印戒【囊性护甲】
 		"mutate_used": false,      # 【突变】1 次/世界回合

@@ -419,7 +419,9 @@ static func chapters() -> Array:
 				"　它自己怎么走都算「远离」，也就是怎么走都要多付钱。",
 			] },
 			{ "t": "树突状细胞", "b": [
-				"【趋化源】：花 %s 在任意格立源、持续 %d 回合，" % [CWData.fmt(CWData.CHEMO_COST), CWData.CHEMO_ROUNDS],
+				"【趋化源】：花 %s 在任意格立源、持续 %d 个完整回合（到自己下个回合前），" % [
+					CWData.fmt(CWData.CHEMO_COST), CWData.CHEMO_FULL_TURNS],
+				"消失后本人冷却 %d 个世界回合才能再立；场上至多一个。" % CWData.CHEMO_COOLDOWN_ROUNDS,
 				"免疫朝它走的迁移费 ×%d%%，癌细胞背它走的移动费 ×%d%%。" % [CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT],
 				"%d 格内的癌细胞自动带【标记】，下一次受伤翻倍；同一个癌细胞一回合只标得上一次。" % CWData.MARK_RANGE,
 				"【组织黏连】：世界回合末，带标记的癌细胞把标记传染给 %d 格内的同伴（不连锁）。" % CWData.ADHESION_RANGE,

@@ -1401,8 +1401,9 @@ func _sync_chemo(delta: float) -> void:
 	var at: Vector2i = game.chemo["at"]
 	_chemo_fx.visible = true
 	## 压在细胞下面（Z_MARK 那一层）：漩涡是地面上的东西，不该盖住站在上面的细胞
-	_chemo_fx.sync(delta, board.tile_center(at), board.tile_z(at, board.Z_MARK),
-		int(game.chemo["left"]) <= 1)
+	## 末尾那个参数原来是「最后一回合转暖橙」。issue #33 把时长改成 1 完整回合之后没有这一档了 ——
+	## 它从立起到消失都是同一段，转暖橙会一直亮着，反而读不出信息
+	_chemo_fx.sync(delta, board.tile_center(at), board.tile_z(at, board.Z_MARK), false)
 
 
 ## 【免疫猎杀】的【追踪趋化源】。**在此之前它在棋盘上一点表示都没有**

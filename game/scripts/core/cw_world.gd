@@ -57,7 +57,7 @@ func e_phase() -> void:
 	await game.world_fx.round_effects()      ## 7 其他 E 类效果：目前只有【紊乱】返回原位
 	game.world_fx.tick_durations()           ## 8 世界事件倒计时/到期 + 「本世界回合」修饰过期
 	_tick_necrosis()                         ## 8 「坏死」倒计时（同属第 8 步）
-	_tick_chemo()                            ## 8 树突【I-趋化源】倒计时（同属第 8 步）
+	_tick_chemo_cd()                         ## 8 树突【I-趋化源】的技能冷却（同属第 8 步；源本身按完整回合过期）
 	_tick_chemo_track()                      ## 8 【免疫猎杀】的追踪趋化源倒计时（同属第 8 步）
 	_expire_marks()                          ## 8 树突【I-标记】到期：标记后第二次世界回合结算移除（PRD 2026-09-12，同属第 8 步）
 	_clear_newborn()                         ## 9 移除「新生」
@@ -1079,18 +1079,36 @@ func _pressure() -> void:
 		game.cancer_hit(cell, loss, "微环境压迫")
 
 
-## 「坏死」倒计时。PRD E 阶段第 8 步「更新持续时间类状态，并移除已经结束的『坏死』等状态」。
-## 按格记「还剩几个世界回合」，每个世界回合末 -1，归零即恢复。
-## 树突【I-趋化源】的「持续 2 回合」：与坏死同一步倒计时，归零即消失。
-## 建立的那个回合末算第一次减 —— 所以「持续 2 回合」= 建立当回合 + 下一个回合。
-func _tick_chemo() -> void:
-	if game.chemo.is_empty():
+## 「持续 n 完整回合」的倒计时（PRD 游戏流程 4：**当前玩家结束回合后，下 n 次该玩家行动回合前
+## 效果消失**；4.1：死亡的那一回合自动跳过但仍然计入）。由 `CWGame._advance_turn` 在每个席位
+## 开打**之前**调一次 —— 活着要调，死亡被跳过也要调。
+##
+## 眼下只有树突【I-趋化源】走这套时钟（issue #33）。世界回合制的那些（坏死、追踪趋化源、
+## 技能冷却）仍在 E 阶段第 8 步走，两套时钟别混。
+func tick_full_turn(pid: int) -> void:
+	if game.chemo.is_empty() or int(game.chemo.get("by", -1)) != pid:
 		return
 	game.chemo["left"] = int(game.chemo["left"]) - 1
-	if game.chemo["left"] <= 0:
-		var at: Vector2i = game.chemo["at"]
-		game.chemo = {}
-		game.log_msg("【趋化源】%s 的趋化源消散" % str(at))
+	if game.chemo["left"] > 0:
+		return
+	var at: Vector2i = game.chemo["at"]
+	## 冷却**从效果结束算起**（PRD「趋化源消失后，技能冷却 1 世界回合才能再次使用」）：
+	## 记在**建立它的那只细胞**身上（`cid`，不是拿 pid 去查 —— 那张表在半成品局面里未必对得上），
+	## E 阶段第 8 步每回合 -1。**先取再清**：清完 game.chemo 就没地方问 cid 了
+	var cid: int = int(game.chemo.get("cid", -1))
+	game.chemo = {}
+	if cid >= 0 and cid < game.cells.size():
+		game.cells[cid]["chemo_cd"] = CWData.CHEMO_COOLDOWN_ROUNDS
+	game.log_msg("【趋化源】%s 的趋化源消散（%s 冷却 %d 个世界回合）" % [
+		str(at), game.player(pid)["name"], CWData.CHEMO_COOLDOWN_ROUNDS])
+
+
+## 树突【I-趋化源】的技能冷却：每个世界回合末 -1，归零即可再次建立（issue #33）。
+## 记在细胞上而不是全局：PRD 写的是「技能冷却」，换个树突去立是另一个细胞的技能。
+func _tick_chemo_cd() -> void:
+	for c in game.cells:
+		if int(c.get("chemo_cd", 0)) > 0:
+			c["chemo_cd"] = int(c["chemo_cd"]) - 1
 
 
 func _tick_necrosis() -> void:

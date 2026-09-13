@@ -302,9 +302,14 @@ func _advance_turn() -> void:
 		var cell: Dictionary = cell_of(pid)
 		if not cell["alive"]:
 			log_msg("（%s 已死亡，跳过回合）" % player(pid)["name"])
+			## PRD 游戏流程 4.1：死亡的这一回合自动跳过，**但仍然计算回合数** ——
+			## 「持续 n 完整回合」的东西照样在这里走一格，不然建立者一死它就永远不过期
+			world.tick_full_turn(pid)
 			_next_player()
 			continue
 		if current_pid != pid:
+			## 「持续 n 完整回合」在本人这一回合**开始之前**结算（PRD 游戏流程 4）
+			world.tick_full_turn(pid)
 			turn.begin_turn(pid, cell)
 			current_pid = pid
 			flow["acts"] = 0

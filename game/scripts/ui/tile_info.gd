@@ -111,11 +111,11 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 		CWData.Special.VESSEL:
 			## 「不可固化」写在格子上（Kevin 2026-09-06 定的规则，CWTissue.solidifiable）
 			rows.append({ "text": "血管 · 不可固化", "size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
-	## 树突【I-趋化源】立在这一格：标出来（Kevin 2026-09-06 要的）。剩余回合与漩涡转暖橙同一口径
-	## （left ≤ 1 = 最后一回合）；折扣 / 加价现读 CWData，不写第二份
+	## 树突【I-趋化源】立在这一格：标出来（Kevin 2026-09-06 要的）。
+	## 时长 issue #33 起是「1 完整回合」—— 没有「还剩几回合」可数了，直接说到什么时候为止；
+	## 折扣 / 加价现读 CWData，不写第二份
 	if not game.chemo.is_empty() and game.chemo["at"] == c:
-		var left := int(game.chemo["left"])
-		rows.append({ "text": "趋化源 · %s" % ("最后一回合" if left <= 1 else "还剩 %d 回合" % left),
+		rows.append({ "text": "趋化源 · 到 %s 下个回合前" % game.player(int(game.chemo.get("by", -1)))["name"],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
 		rows.append({ "text": "免疫朝它 -%d%% · 癌方背它 +%d%%" % [
 				100 - CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT - 100],

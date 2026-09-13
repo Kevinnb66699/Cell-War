@@ -3463,10 +3463,11 @@ func t_dendritic_rework() -> void:
 	g.bridges[0] = _FixedTileBridge.new(spot)
 	var before: int = dc["energy"]
 	await g.actions.execute(dc, { "act": "chemo" })
-	check(g.chemo.get("at", Vector2i.MAX) == spot and g.chemo["left"] == CWData.CHEMO_ROUNDS,
-		"建立成功：%s 持续 %s" % [str(g.chemo.get("at", "?")), str(g.chemo.get("left", "?"))])
-	check(dc["energy"] == before - CWData.CHEMO_COST, "付了 2.0（%s → %s）"
-		% [CWData.fmt(before), CWData.fmt(dc["energy"])])
+	check(g.chemo.get("at", Vector2i.MAX) == spot and g.chemo["left"] == CWData.CHEMO_FULL_TURNS
+		and int(g.chemo.get("by", -1)) == int(dc["pid"]),
+		"建立成功：%s 持续 %s 个完整回合，记着建立者" % [str(g.chemo.get("at", "?")), str(g.chemo.get("left", "?"))])
+	check(dc["energy"] == before - CWData.CHEMO_COST and CWData.CHEMO_COST == 30,
+		"付了 %s（%s → %s）" % [CWData.fmt(CWData.CHEMO_COST), CWData.fmt(before), CWData.fmt(dc["energy"])])
 	check(not has_chemo.call(), "同一时刻仅一个 → 选项消失")
 
 	# ---- ③ 方向判定与百分比：免疫朝它 -30%、癌方背它 +40%、横着走两条都不沾 ----
@@ -3502,14 +3503,50 @@ func t_dendritic_rework() -> void:
 	g.restore(snap)
 	check(g.state_hash() == h0 and g.chemo["at"] == spot, "restore 把趋化源带回来")
 
-	# ---- ⑤ 倒计时：E 阶段每回合减一，归零消散 ----
-	g.world._tick_chemo()
-	check(g.chemo["left"] == CWData.CHEMO_ROUNDS - 1, "回合末减一")
-	g.world._tick_chemo()
-	check(g.chemo.is_empty(), "归零 → 消散")
-	g.world._tick_chemo()   ## 空场再走一次不能崩
-	check(g.chemo.is_empty(), "场上没有时倒计时是空操作")
+	# ---- ⑤ 时长：「持续 1 完整回合」= 建立者下一次行动回合**开始之前**消失（issue #33）----
+	## PRD 游戏流程 4：当前玩家结束回合后，下 n 次该玩家行动回合前效果消失。
+	## 走的是 CWWorld.tick_full_turn（世界回合那条 E 阶段时钟管不着它）。
+	##
+	## ⚠ 上面 ④ 的 `restore` 把 `g.cells` 整个换成了新字典，本地那个 `dc` 已经是**旧对象** ——
+	## 冷却记在新字典上，拿旧的去查永远是 0。重新取一次，闭包也得跟着重建
+	var dc2: Dictionary = g.cells[0]
+	var has_chemo2 := func() -> bool:
+		for o in g.actions.build_options(dc2):
+			if o["data"].get("act", "") == "chemo":
+				return true
+		return false
+	check(int(g.chemo.get("cid", -1)) == int(dc2["id"]), "快照带得回建立者那只细胞（cid）")
+	g.world.tick_full_turn(1)
+	check(not g.chemo.is_empty(), "别人的行动回合过去多少个都不动它（只认建立者那一席）")
+	g.world.tick_full_turn(int(dc2["pid"]))
+	check(g.chemo.is_empty(), "轮回建立者 → 消散")
+	check(int(dc2["chemo_cd"]) == CWData.CHEMO_COOLDOWN_ROUNDS,
+		"消散那一刻起冷却 %d 个世界回合（PRD：从效果结束后算）" % CWData.CHEMO_COOLDOWN_ROUNDS)
+	check(not has_chemo2.call(), "冷却期间：场上空着也不给再立")
+	g.world.tick_full_turn(int(dc2["pid"]))   ## 空场再走一次不能崩
+	check(g.chemo.is_empty() and int(dc2["chemo_cd"]) == CWData.CHEMO_COOLDOWN_ROUNDS,
+		"场上没有时走这条时钟是空操作（也不会多扣冷却）")
+	for i in CWData.CHEMO_COOLDOWN_ROUNDS:
+		g.world._tick_chemo_cd()
+	check(int(dc2["chemo_cd"]) == 0 and has_chemo2.call(), "冷却走完 → 选项回来")
+	## 接线：行动回合开打之前结算一次；死亡被跳过的那一回合也要算（PRD 4.1）
+	var gsrc := FileAccess.get_file_as_string("res://scripts/core/cw_game.gd")
+	check(gsrc.count("world.tick_full_turn(pid)") == 2
+		and gsrc.find("已死亡，跳过回合") < gsrc.find("turn.begin_turn(pid, cell)"),
+		"活着与死亡跳过两条路都走完整回合时钟（%d 处）" % gsrc.count("world.tick_full_turn(pid)"))
 	g.dispose()
+	## ⑥ 死亡也算一个行动回合：建立者死了，源照样在他下一个（被跳过的）回合前消失
+	var gd := bare_game()
+	var dd := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.DENDRITIC, -1, 150)
+	gd.cells.append(dd)
+	gd.chemo = { "at": Vector2i(2, 0), "left": CWData.CHEMO_FULL_TURNS,
+		"by": int(dd["pid"]), "cid": int(dd["id"]) }
+	dd["alive"] = false
+	gd.world.tick_full_turn(int(dd["pid"]))
+	check(gd.chemo.is_empty() and int(dd["chemo_cd"]) == CWData.CHEMO_COOLDOWN_ROUNDS,
+		"建立者死亡：那一回合自动跳过但照样计数，源跟着消散并开始冷却")
+	gd.dispose()
 
 	# ---- ⑥ 【I-标记】：被伤害消耗掉之后，只要还贴着树突就该回补（同一回合可多次获得）----
 	var g2 := bare_game()
@@ -5266,19 +5303,23 @@ func t_chemo_info() -> void:
 	print("[趋化源详情与像素漩涡]")
 	var g := bare_game()
 	var at := Vector2i(2, -1)
-	g.chemo = { "at": at, "left": 2, "by": 0 }
+	g.chemo = { "at": at, "left": CWData.CHEMO_FULL_TURNS, "by": 0, "cid": 0 }
 	var all := ""
 	for r in CWTileInfo.describe(g, at):
 		all += r["text"] + "|"
-	check(all.contains("趋化源 · 还剩 2 回合"), "详情：趋化源与剩余回合（%s）" % all)
+	## issue #33 起时长是「1 完整回合」，没有「还剩几回合」可数 —— 详情改说到什么时候为止
+	check(all.contains("趋化源 · 到 %s 下个回合前" % g.player(0)["name"]),
+		"详情：趋化源标出建立者与终止时刻（%s）" % all)
 	check(all.contains("免疫朝它 -%d%% · 癌方背它 +%d%%"
 			% [100 - CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT - 100]),
 		"详情：效果一句话，数字现读 CWData（这条断言自己以前也把数字写死了）")
-	g.chemo["left"] = 1
-	all = ""
-	for r in CWTileInfo.describe(g, at):
-		all += r["text"] + "|"
-	check(all.contains("趋化源 · 最后一回合"), "只剩 1 回合写「最后一回合」（和漩涡转暖橙同一口径）")
+	## 「最后一回合」那一档随时长口径一起撤了（issue #33）：从立起到消失就是一段，
+	## 漩涡那边也跟着不再转暖橙（CWMatch 传死 false）
+	check(not all.contains("最后一回合") and not all.contains("还剩"),
+		"没有「还剩 N 回合 / 最后一回合」那一档了（时长只有一段）")
+	var msrc_chemo := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(msrc_chemo.contains("board.tile_z(at, board.Z_MARK), false)"),
+		"漩涡不再按「最后一回合」转暖橙")
 	var other := ""
 	for r in CWTileInfo.describe(g, Vector2i(0, 0)):
 		other += r["text"] + "|"

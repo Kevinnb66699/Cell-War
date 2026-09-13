@@ -47,11 +47,12 @@ func _immune_options(cell: Dictionary, opts: Array) -> void:
 		opts.append({ "label": "抗体（%s 能量，伤害 %s）"
 			% [CWData.fmt(antibody_cost(cell)), CWData.fmt(antibody_damage(cell))],
 			"data": { "act": "antibody" } })
-	## 树突【I-趋化源】：2.0 能量在**全局任意位置**建一个，持续 2 回合，同一时刻仅一个。
+	## 树突【I-趋化源】：3.0 能量在**全局任意位置**建一个，持续 1 完整回合，同一时刻仅一个，
+	## 消失后本人还要冷却 1 个世界回合（issue #33）。
 	## 「全局任意位置」有 127 格，全摊成顶层选项会把行动清单撑爆（AI 也没法推演），
 	## 所以这里只出**一个入口**，落点由 `_do_chemo` 再问一次（kind = "chemo_target"）。
 	if cell["itype"] == CWData.ImmuneType.DENDRITIC and game.chemo.is_empty() \
-			and game.can_pay(cell, CWData.CHEMO_COST):
+			and int(cell.get("chemo_cd", 0)) <= 0 and game.can_pay(cell, CWData.CHEMO_COST):
 		opts.append({ "label": "趋化源（%s 能量）" % CWData.fmt(CWData.CHEMO_COST),
 			"data": { "act": "chemo" } })
 	## 【效应应答】：X 级解锁，四种分化各一个，费用是 15 **效应记忆**不是能量。
@@ -1097,14 +1098,15 @@ func _do_discard(cell: Dictionary, card: String) -> void:
 
 # ---- 免疫技能 ----
 
-## 树突【I-趋化源】：问落点（全局任意一格）→ 付 2.0 → 场上立一个，持续 2 回合。
+## 树突【I-趋化源】：问落点（全局任意一格）→ 付 3.0 → 场上立一个，持续 **1 完整回合**
+## （建立者下一次行动回合开始之前消失，见 CWWorld.tick_full_turn），之后本人冷却 1 个世界回合。
 ##
 ## 落点**不限组织类型、也不限有没有人站着** —— PRD 只说「全局任意位置」。
 ## 建立本身不是移动：不触发【定殖】/【净化】、不占迁移次数。
 ## 走普通 `Action.CELL_SKILL` 报价；它不是位移，不能吃【基质阻隔】的移动费翻倍。
 func _do_chemo(cell: Dictionary) -> void:
-	if not game.chemo.is_empty():
-		return                      ## 同一时刻仅一个；选项那边也拦，这里是提交前复验
+	if not game.chemo.is_empty() or int(cell.get("chemo_cd", 0)) > 0:
+		return                      ## 场上仅一个 + 本人不在冷却；选项那边也拦，这里是提交前复验
 	var spots: Array = []
 	for c: Vector2i in game.tiles:
 		spots.append({ "label": "趋化源→%s" % str(c), "data": { "to": c } })
@@ -1115,11 +1117,12 @@ func _do_chemo(cell: Dictionary) -> void:
 	var at: Vector2i = spots[pick]["data"]["to"]
 	if game.cost.commit(CWCost.context(cell, CWCost.Action.CELL_SKILL,
 			CWData.CHEMO_COST, at, 0,
-			func() -> bool: return game.chemo.is_empty())).is_empty():
+			func() -> bool: return game.chemo.is_empty() and int(cell.get("chemo_cd", 0)) <= 0)).is_empty():
 		return
-	game.chemo = { "at": at, "left": CWData.CHEMO_ROUNDS, "by": cell["pid"] }
-	game.log_msg("【趋化源】%s 在 %s 建立趋化源（持续 %d 回合：免疫朝它 -%d%%、癌方背它 +%d%%）" % [
-		game.cell_name(cell), str(at), CWData.CHEMO_ROUNDS,
+	## `cid` = 建立者那只细胞（冷却记在它身上）；`by` 是 pid，费用那边判「自身减免 50%」用的是它
+	game.chemo = { "at": at, "left": CWData.CHEMO_FULL_TURNS, "by": cell["pid"], "cid": int(cell["id"]) }
+	game.log_msg("【趋化源】%s 在 %s 建立趋化源（持续 %d 完整回合，到本人下个回合前：免疫朝它 -%d%%、癌方背它 +%d%%）" % [
+		game.cell_name(cell), str(at), CWData.CHEMO_FULL_TURNS,
 		100 - CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT - 100])
 	game.announce("趋化源", at, true)
 
