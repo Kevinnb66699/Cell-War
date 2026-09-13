@@ -16,10 +16,18 @@ static func to_healthy(tile: Dictionary) -> void:
 
 
 ## 坏死是叠在健康组织上的倒计时，不是第四种 tissue；重复施加取较长时长。
+##
+## **代谢核心 / 骨髓坏死了要清库存**（Kevin 2026-09-13，issue #31：「能量核心和骨髓「坏死」时
+## 清除所有储备产出，不再积累进度」）。这是本文件头「转换时必须保留库存」的**唯一例外** ——
+## 坏死不是组织转换，是组织死了：存着的能量 / 卡和攒到一半的进度一起没。
+## 「不再积累」那半句在 CWWorld._tissue_production（坏死期间整格跳过）。
 static func to_necrotic(tile: Dictionary, rounds: int) -> void:
 	var before: int = tile["necrosis"]
 	to_healthy(tile)
 	tile["necrosis"] = maxi(before, rounds)
+	tile["store"] = 0
+	tile["cards"] = 0
+	tile["prod"] = 0
 
 
 ## `newborn` 必须由调用方明确选择，避免旧组织被误当成当回合新生。

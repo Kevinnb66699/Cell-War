@@ -107,7 +107,9 @@ extends RefCounted
 ##   旋钮默认值（anaerobic_floor / anaerobic_block_exp）在 RULE_FIELDS 里，快照形状不变、值变了。
 ## v15（2026-09-12 晚）：issue #29 —— 六人局无氧指数 0.35 改回 0.3（PRD 当晚又改了；四人局本来就是 0.3）。
 ##   还是 anaerobic_block_exp 的按人数表，形状不变、六人档的值变了。
-const NET_VERSION := 15
+## v16（2026-09-13）：issue #31 的坏死补充 —— 代谢核心 / 骨髓坏死时清空储备与进度、坏死期间不再积累；
+##   血管任一端坏死则本世界回合不传送。三条都改局面推进，老客户端跟着算会分叉。
+const NET_VERSION := 16
 
 ## 一条聊天最多多少字。定这个数不是怕刷屏（那有 RATE_PER_SEC 管），
 ## 是**排版**：聊天行和大厅房间行共用同一条定宽，超了就是省略号，

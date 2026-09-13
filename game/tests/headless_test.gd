@@ -1843,6 +1843,52 @@ func t_necrosis() -> void:
 	check(cell["energy"] == 30, "盘面档：坏死到期后重新供能 → 满盘 127×3÷127 = 3.0")
 	g.dispose()
 
+	## ---- issue #31（Kevin 2026-09-13）坏死补三条 ----
+	var g2 := make_game(2, 2)
+	g2.setup.build_board()
+	## ① 坏死是健康组织的状态：癌细胞照样能【定殖】，定殖后坏死没了
+	var spot := Vector2i(1, 0)   ## 普通格：不是核心 (0,-3)/(3,0)/(-3,3)、骨髓或血管
+	CWTissue.to_necrotic(g2.tiles[spot], CWData.NECROSIS_TOXIN)
+	check(int(g2.tiles[spot]["tissue"]) == CWData.Tissue.HEALTHY and g2.tiles[spot]["necrosis"] > 0,
+		"坏死叠在健康组织上（不是第四种 tissue）")
+	CWTissue.to_cancer(g2.tiles[spot], true)
+	check(int(g2.tiles[spot]["tissue"]) == CWData.Tissue.CANCER and g2.tiles[spot]["necrosis"] == 0,
+		"被【定殖】后坏死状态移除")
+	## ② 代谢核心 / 骨髓坏死：储备与进度当场清零，坏死期间也不再积累
+	var core: Vector2i = CWData.CORES[0]
+	var marrow: Vector2i = CWData.MARROWS[0]
+	g2.tiles[core]["store"] = 20
+	g2.tiles[core]["prod"] = 1
+	g2.tiles[marrow]["cards"] = 2
+	g2.tiles[marrow]["prod"] = 1
+	CWTissue.to_necrotic(g2.tiles[core], CWData.NECROSIS_TOXIN)
+	CWTissue.to_necrotic(g2.tiles[marrow], CWData.NECROSIS_TOXIN)
+	check(g2.tiles[core]["store"] == 0 and g2.tiles[core]["prod"] == 0
+		and g2.tiles[marrow]["cards"] == 0 and g2.tiles[marrow]["prod"] == 0,
+		"核心 / 骨髓一坏死，存的和攒的一起清零")
+	await g2.world._tissue_production()
+	check(g2.tiles[core]["store"] == 0 and g2.tiles[core]["prod"] == 0
+		and g2.tiles[marrow]["cards"] == 0 and g2.tiles[marrow]["prod"] == 0,
+		"坏死期间产出这一步整格跳过（进度条也不动）")
+	## 坏死到期就恢复积累 —— 别把格子废掉
+	g2.world._tick_necrosis()
+	g2.world._tick_necrosis()
+	await g2.world._tissue_production()
+	check(g2.tiles[core]["prod"] > 0 and g2.tiles[marrow]["prod"] > 0, "坏死一过，两种格子照常攒")
+	## ③ 血管坏死：本世界回合不传送（两端互换，哪一端坏死都作废）
+	var va: Vector2i = CWData.VESSELS[0]
+	var vb: Vector2i = CWData.VESSELS[1]
+	var rider := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, va, CWData.ImmuneType.BASIC, -1)
+	g2.cells.append(rider)
+	CWTissue.to_necrotic(g2.tiles[vb], CWData.NECROSIS_TOXIN)
+	await g2.world._vessel_teleport()
+	check(rider["pos"] == va, "另一端血管坏死：不传送，人留在原地")
+	g2.world._tick_necrosis()
+	g2.world._tick_necrosis()
+	await g2.world._vessel_teleport()
+	check(rider["pos"] == vb, "坏死一过，血管照常把人送到另一端")
+	g2.dispose()
+
 
 # ---- 巨噬【I-吞噬】：由【迁移】触发的净化，回能不能把这一步走成免费 ----
 ##
@@ -10453,11 +10499,11 @@ func t_guide_bridge() -> void:
 	correction.record_mistake()
 	check(correction.mistake_count() == 1 and correction.step_no() == correction_step,
 		"教程纠错记录不推进步骤，之后仍可恢复作答")
-	check(CWGuideData.ui_stage(0) == 1 and CWGuideData.ui_stage(6) == 2
+	check(CWGuideData.ui_stage(0) == 0 and CWGuideData.ui_stage(6) == 2
 		and CWGuideData.ui_stage(15) == 3,
-		"渐进 UI 按章节解锁：目标高亮（第 1 关就有）→ 规则/资源 → 毕业战预测解释")
+		"渐进 UI 按章节解锁：棋盘 → 高亮/资源 → 毕业战预测解释")
 	var staged := FakeGuide.new()
-	check(staged.ui_stage() >= 1, "第 1 关就开目标高亮（Kevin 2026-09-12：新手最需要知道该点哪儿）")
+	check(staged.ui_stage() == 0, "第一阶段不提前开放辅助层（2026-09-12 提到 1 档当晚被 Kevin 回滚）")
 	staged._chapter = 6
 	check(staged.ui_stage() == 2, "进入第 7 关后开放资源/目标辅助层")
 	var graduation := CWGuideDirector.assemble(15)

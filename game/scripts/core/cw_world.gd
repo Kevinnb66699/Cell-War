@@ -96,6 +96,10 @@ func _tissue_production() -> void:
 		var t: Dictionary = game.tiles[c]
 		if t["special"] != CWData.Special.CORE and t["special"] != CWData.Special.MARROW:
 			continue
+		## 坏死期间不产也不攒（Kevin 2026-09-13，issue #31）。存量在转坏死那一刻就清了
+		## （CWTissue.to_necrotic），这里只管「进度条别再往前走」
+		if t["necrosis"] > 0:
+			continue
 		var healthy: bool = t["tissue"] == CWData.Tissue.HEALTHY
 		if t["special"] == CWData.Special.CORE:
 			if healthy:
@@ -125,6 +129,12 @@ func _vessel_teleport() -> void:
 	var cb: Array = game.cells_at(b)
 	if ca.is_empty() and cb.is_empty():
 		return
+	## 坏死的血管送不了人（Kevin 2026-09-13，issue #31）。传送是**两端互换**，
+	## 所以哪一端坏死都整体作废 —— 只送一半会凭空多出一个同格
+	for c in [a, b]:
+		if game.tile(c)["necrosis"] > 0:
+			game.log_msg("【血管】%s 坏死，本回合不传送" % str(c))
+			return
 	if not ca.is_empty() and not cb.is_empty() \
 			and ca[0]["faction"] != cb[0]["faction"]:
 		game.log_msg("【血管】两端阵营敌对，传送取消")
