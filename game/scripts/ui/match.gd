@@ -148,7 +148,8 @@ const CELL_FOOT_DY := 6.0
 ## 同一格站了多个细胞时左右错开的间距
 const STACK_DX := 9.0
 ## 回合脚标（Kevin 2026-09-12：白天选 E 跑马灯轮廓，晚上改选 D「头顶指示箭」，画在 CWBoard.set_turn_mark）：
-## 正在行动的细胞头顶一枚阵营色像素 V 形箭上下跳、脚下一片影子，旁观者也看得出「现在是谁在动」。第一版呼吸剪影 Kevin 嫌不好看。
+## 正在行动的细胞头顶一枚阵营色像素 V 形箭上下跳，旁观者也看得出「现在是谁在动」。第一版呼吸剪影 Kevin 嫌不好看；
+## 画板里脚下那片阵营色影子上线后他也说不要，撤了。
 ## 箭尖离胞体最高不透明行几行（TURN_TIP_GAP，中间空两行）；被标记的癌细胞头顶有冠印，箭再抬到冠印之上（turn_tip_dy）。
 const TURN_TIP_GAP := 3
 
@@ -1505,7 +1506,7 @@ func _sync_cells() -> void:
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"])
 			_sync_doom(node as Sprite2D, c)
-		## 回合脚标（方案 D，Kevin 2026-09-12 晚）：轮到的这只细胞头顶一枚箭、脚下一片影子。挂在这里而不是 _sync_tiles，
+		## 回合脚标（方案 D，Kevin 2026-09-12 晚）：轮到的这只细胞头顶一枚箭。挂在这里而不是 _sync_tiles，
 		## 因为只有这里知道它此刻画在哪（同格错位、被伪足拉着走都算）、贴图多高、头顶有没有冠印
 		if int(tm.get("cid", -1)) == i:
 			var art: Texture2D = (node as Sprite2D).texture

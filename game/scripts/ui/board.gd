@@ -226,7 +226,6 @@ const MARK_SELF := Color("eaf8fc47")     ## 当前行动的细胞脚下：淡到
 
 var _marks: Node2D                  ## 高亮剪影与过场用的临时叠层
 var _turn_arrow: TurnArrow = null   ## 回合脚标（方案 D 头顶指示箭）：头顶那枚箭，见 set_turn_mark
-var _turn_shadow: TurnShadow = null ## 同上：脚下那片影子
 var _mucus_root: Node2D             ## 黏液覆膜层（见 set_mucus）
 var _mucus_nodes := {}              ## 轴坐标 -> 那一格的覆膜 Sprite2D
 var _necro_root: Node2D             ## 坏死纹理层（见 set_necrosis），压在黏液膜下面
@@ -792,17 +791,15 @@ func _film_px(img: Image, x: int, y: int, col: Color) -> void:
 # ============ 回合脚标：方案 D「头顶指示箭」（Kevin 2026-09-12 晚改选；白天先定的 E 跑马灯轮廓撤了）============
 ##
 ## 正在行动的细胞**头顶**一枚阵营色的像素 V 形箭（7 宽 4 高、1 px 线、尖朝下），每 0.5 s 一拍在高低两位之间跳 2 px
-## （画板：`bob .5s steps(2, jump-none) alternate`）；**脚下**一片 16×6 的阵营色影子（0.45）。
+## （画板：`bob .5s steps(2, jump-none) alternate`）。画板里脚下那片阵营色影子 Kevin 上线后说不要，撤了 —— 只剩箭。
 ## 战棋游戏的通用语言，一眼读懂「当前单位」；不碰脚下那层高亮。
-## **像素对齐**（Kevin 特意叮嘱）：箭的 7 颗像素、影子 6 行的宽度都是整数表（`turn_arrow_pixels` / `turn_shadow_spans`），
-## 位置四舍五入到整数像素；箭尖离胞体**最高那颗不透明像素**几行由 CWMatch.turn_tip_dy 算（贴图各不一样高、
-## 免疫系的条上头空 3 行 —— `CWMatch.body_top_of` 拿 get_used_rect 量的，不拿贴图高度猜）。
-## 两个节点：箭画在细胞**之上**（Z_CELL + 2，压过前后装饰），影子画在细胞**之下**（Z_MARK，同高亮剪影那层）。
-## 位置由 CWMatch._sync_cells 给（它才知道细胞此刻画在哪、贴图多高、头顶有没有冠印），这里只画。
+## **像素对齐**（Kevin 特意叮嘱）：箭的 7 颗像素是整数表（`turn_arrow_pixels`），位置四舍五入到整数像素；
+## 箭尖离胞体**最高那颗不透明像素**几行由 CWMatch.turn_tip_dy 算（贴图各不一样高、免疫系的条上头空 3 行 ——
+## `CWMatch.body_top_of` 拿 get_used_rect 量的，不拿贴图高度猜）。
+## 箭画在细胞**之上**（Z_CELL + 2，压过前后装饰）。位置由 CWMatch._sync_cells 给（它才知道细胞此刻画在哪、
+## 贴图多高、头顶有没有冠印），这里只画。
 const TURN_ARROW_BOB := 2                          ## 跳多高（px）
 const TURN_ARROW_PERIOD := 0.5                     ## 每拍多久：低位、高位各停半秒
-const TURN_SHADOW_ROWS := [8, 14, 16, 16, 14, 8]   ## 影子 6 行各几 px 宽：16×6 的像素椭圆，按行心采样
-const TURN_SHADOW_A := 0.45
 
 
 ## 箭的 7 颗像素（相对箭尖，y 向上为负）：尖 + 两条 1 px 斜线。**纯函数**
@@ -819,15 +816,6 @@ static func turn_arrow_lift(t: float) -> int:
 	return TURN_ARROW_BOB if int(floor(t / TURN_ARROW_PERIOD)) % 2 == 1 else 0
 
 
-## 影子每行 [dy, x0, x1]（相对影心，含两端）：行 −3..2，偶数宽度居中 = x 从 −w/2 到 w/2−1。**纯函数**
-static func turn_shadow_spans() -> Array:
-	var out: Array = []
-	for i in TURN_SHADOW_ROWS.size():
-		var w: int = TURN_SHADOW_ROWS[i]
-		out.append([i - 3, -w / 2, w / 2 - 1])
-	return out
-
-
 ## 把脚标挂到某只细胞上（每帧调；拍子、位置、颜色都没变就不重画）。
 ## foot = 细胞脚底（棋盘坐标，同 CWMatch 摆细胞用的点，同格错位会带半像素 —— 这里四舍五入），
 ## tip_dy = 箭尖离脚底几 px（负数向上，CWMatch.turn_tip_dy 算），t 是秒。
@@ -840,34 +828,20 @@ func set_turn_mark(c: Vector2i, foot: Vector2, tip_dy: float, color: Color, t: f
 		_turn_arrow.name = "TurnArrow"
 		_turn_arrow.pixels = turn_arrow_pixels()
 		add_child(_turn_arrow)
-		_turn_shadow = TurnShadow.new()
-		_turn_shadow.name = "TurnShadow"
-		_turn_shadow.spans = turn_shadow_spans()
-		_turn_shadow.alpha = TURN_SHADOW_A
-		add_child(_turn_shadow)
 	var tip := Vector2(roundf(foot.x), roundf(foot.y + tip_dy) - float(turn_arrow_lift(t)))
-	var shade := Vector2(roundf(foot.x), roundf(foot.y) - 1.0)
 	var z_arrow := tile_z(c, Z_CELL) + 2
-	var z_shadow := tile_z(c, Z_MARK)
-	if _turn_arrow.visible and _turn_arrow.position == tip and _turn_arrow.color == color \
-			and _turn_arrow.z_index == z_arrow and _turn_shadow.position == shade and _turn_shadow.z_index == z_shadow:
+	if _turn_arrow.visible and _turn_arrow.position == tip and _turn_arrow.color == color and _turn_arrow.z_index == z_arrow:
 		return
 	_turn_arrow.position = tip
 	_turn_arrow.z_index = z_arrow
 	_turn_arrow.color = color
 	_turn_arrow.visible = true
 	_turn_arrow.queue_redraw()
-	_turn_shadow.position = shade
-	_turn_shadow.z_index = z_shadow
-	_turn_shadow.color = color
-	_turn_shadow.visible = true
-	_turn_shadow.queue_redraw()
 
 
 func clear_turn_mark() -> void:
 	if _turn_arrow != null and _turn_arrow.visible:
 		_turn_arrow.visible = false
-		_turn_shadow.visible = false
 
 
 ## 头顶那枚箭：7 颗 1 px 方块，原点在箭尖（像素表由外面注入 —— 内部类够不着外层的静态函数）
@@ -878,15 +852,3 @@ class TurnArrow extends Node2D:
 	func _draw() -> void:
 		for p in pixels:
 			draw_rect(Rect2(Vector2(p), Vector2(1, 1)), color, true)
-
-
-## 脚下那片影子：6 行 1 px 高的横条，原点在影心
-class TurnShadow extends Node2D:
-	var color := Color.WHITE
-	var spans: Array = []
-	var alpha := 0.45
-
-	func _draw() -> void:
-		var col := Color(color, alpha)
-		for s in spans:
-			draw_rect(Rect2(Vector2(s[1], s[0]), Vector2(s[2] - s[1] + 1, 1)), col, true)

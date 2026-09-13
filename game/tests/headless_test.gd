@@ -17187,18 +17187,10 @@ func t_turn_mark() -> void:
 	check(bd.turn_arrow_lift(0.0) == 0 and bd.turn_arrow_lift(0.49) == 0 and bd.turn_arrow_lift(0.5) == bd.TURN_ARROW_BOB
 		and bd.turn_arrow_lift(0.99) == bd.TURN_ARROW_BOB and bd.turn_arrow_lift(1.0) == 0 and bd.TURN_ARROW_BOB == 2,
 		"拍子：0~0.5 s 低位、0.5~1 s 抬 2 px、1 s 再落 —— 画板 steps(2) 的节奏")
-	## ② 影子：16×6 的像素椭圆（行心采样），6 行 8/14/16/16/14/8，行 −3..2、每行居中、共 76 颗
-	var spans: Array = bd.turn_shadow_spans()
-	var total := 0
-	var shade_ok: bool = spans.size() == 6
-	for i in spans.size():
-		var s: Array = spans[i]
-		var w: int = int(s[2]) - int(s[1]) + 1
-		total += w
-		if int(s[0]) != i - 3 or w != int(bd.TURN_SHADOW_ROWS[i]) or int(s[1]) != -w / 2:
-			shade_ok = false
-	check(shade_ok and total == 76 and bd.TURN_SHADOW_ROWS == [8, 14, 16, 16, 14, 8] and is_equal_approx(bd.TURN_SHADOW_A, 0.45),
-		"影子 6 行 8/14/16/16/14/8 = 76 颗，行 −3..2、每行居中，0.45 阵营色")
+	## ② 画板里脚下那片阵营色影子 Kevin 上线后说不要：源码里影子那套删干净
+	var bsrc := FileAccess.get_file_as_string("res://scripts/ui/board.gd")
+	check(not bsrc.contains("TurnShadow") and not bsrc.contains("TURN_SHADOW") and not bsrc.contains("turn_shadow"),
+		"只剩箭：TurnShadow / TURN_SHADOW_* / turn_shadow_spans 都没了")
 	## ③ 胞体最高行从贴图量：免疫系 32×32 的条最高行 3、癌系 32×34 的 0（呼吸六帧一起量，取最高那帧）
 	var imm_tex: Texture2D = CWMatch.IMMUNE_ART[CWData.ImmuneType.BASIC]
 	var mel_tex: Texture2D = CWMatch.CANCER_ART[CWData.CancerType.MELANOMA]
@@ -17210,24 +17202,23 @@ func t_turn_mark() -> void:
 		and is_equal_approx(CWMatch.turn_tip_dy(34, 0, true), CWCellDeco.HEAD_DY - 7.0 - 3.0)
 		and CWMatch.turn_tip_dy(34, 0, true) < CWMatch.turn_tip_dy(34, 0, false) and CWMatch.TURN_TIP_GAP == 3,
 		"箭尖：免疫 −32、癌 −37；有冠印抬到 %.0f" % CWMatch.turn_tip_dy(34, 0, true))
-	## ⑤ 节点：箭在细胞之上（Z_CELL + 2）、影子在细胞之下（Z_MARK）；整数像素；换拍抬 2；换格换色；清掉就藏
+	## ⑤ 节点：箭在细胞之上（Z_CELL + 2）；整数像素；换拍抬 2；换格换色；清掉就藏；脚下没有影子节点
 	var c := Vector2i(1, 0)
 	var foot: Vector2 = bd.tile_center(c) + Vector2(0.5, CWMatch.CELL_FOOT_DY)   ## 同格错位会给出半像素
 	bd.set_turn_mark(c, foot, -37.0, CWStyle.CANCER, 0.0)
 	var arrow: Node2D = bd._turn_arrow
-	var shadow: Node2D = bd._turn_shadow
-	check(arrow != null and arrow.visible and shadow.visible and arrow.color == CWStyle.CANCER and shadow.color == CWStyle.CANCER
-		and arrow.z_index == bd.tile_z(c, bd.Z_CELL) + 2 and shadow.z_index == bd.tile_z(c, bd.Z_MARK)
-		and arrow.position == Vector2(roundf(foot.x), roundf(foot.y) - 37.0) and shadow.position == Vector2(roundf(foot.x), roundf(foot.y) - 1.0)
-		and arrow.pixels.size() == 7 and shadow.spans.size() == 6 and is_equal_approx(shadow.alpha, 0.45),
-		"箭在 Z_CELL+2、影子在 Z_MARK；位置四舍五入到整数像素（箭尖 %s、影心 %s）" % [str(arrow.position), str(shadow.position)])
+	check(arrow != null and arrow.visible and arrow.color == CWStyle.CANCER
+		and arrow.z_index == bd.tile_z(c, bd.Z_CELL) + 2
+		and arrow.position == Vector2(roundf(foot.x), roundf(foot.y) - 37.0)
+		and arrow.pixels.size() == 7 and bd.get_node_or_null("TurnShadow") == null,
+		"箭在 Z_CELL+2；位置四舍五入到整数像素（箭尖 %s）；脚下没有影子节点" % str(arrow.position))
 	bd.set_turn_mark(c, foot, -37.0, CWStyle.CANCER, 0.6)
-	check(arrow.position.y == roundf(foot.y) - 37.0 - 2.0 and shadow.position.y == roundf(foot.y) - 1.0, "0.6 s：第二拍，箭抬 2 px，影子不动")
+	check(arrow.position.y == roundf(foot.y) - 37.0 - 2.0, "0.6 s：第二拍，箭抬 2 px")
 	bd.set_turn_mark(Vector2i(0, 1), bd.tile_center(Vector2i(0, 1)) + Vector2(0, CWMatch.CELL_FOOT_DY), -32.0, CWStyle.IMMUNE, 0.0)
-	check(arrow.color == CWStyle.IMMUNE and shadow.color == CWStyle.IMMUNE and arrow.z_index == bd.tile_z(Vector2i(0, 1), bd.Z_CELL) + 2
+	check(arrow.color == CWStyle.IMMUNE and arrow.z_index == bd.tile_z(Vector2i(0, 1), bd.Z_CELL) + 2
 		and arrow.position.y == roundf(bd.tile_center(Vector2i(0, 1)).y + CWMatch.CELL_FOOT_DY) - 32.0, "换格换色跟着走")
 	bd.clear_turn_mark()
-	check(not arrow.visible and not shadow.visible, "清掉就藏（节点留着复用）")
+	check(not arrow.visible, "清掉就藏（节点留着复用）")
 	bd.set_turn_mark(Vector2i(99, 99), Vector2.ZERO, -30.0, CWStyle.CANCER, 0.0)
 	check(not arrow.visible, "不在棋盘上的格：当没有")
 	bd.free()
