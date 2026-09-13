@@ -1014,6 +1014,13 @@ func _repaint_lobby() -> void:
 	_compose_lobby()          ## 只有 5 行，就地合成比让每个调用方记得调便宜
 	for i in LIST_N:
 		var l: Label = _lobby_labels[i]
+		## **先把裁剪关掉再往下走**（Kevin 2026-09-13 截图：「这里没有『可观战』的 title」）。
+		## 这一行上一轮很可能画的是房间行，那一支把 `clip_text` 和省略号打开了 ——
+		## 而 Label 一旦开着裁剪，`get_minimum_size()` 的**宽度就是 1 px**（它不再向父级要位置）。
+		## 小标题和「（暂无公开房间）」都照着最小尺寸定宽，于是被塞进 1 px 宽的框里：
+		## 字一直在，屏幕上什么都没有。房间行那一支下面自己会再打开。
+		l.clip_text = false
+		l.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
 		if i >= _lobby_view_rows.size():
 			l.text = "（暂无公开房间）" if i == 0 and _lobby_view_rows.is_empty() else ""
 			l.mouse_filter = Control.MOUSE_FILTER_IGNORE

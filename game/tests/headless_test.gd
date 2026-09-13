@@ -17704,6 +17704,30 @@ func t_watch_entry() -> void:
 	var osrc := FileAccess.get_file_as_string("res://scripts/ui/online_panel.gd")
 	check(osrc.contains('_create["world_events"], _create["watch_hands"])'),
 		"建房时把这一档发给服务器（漏了就永远是背面）")
+	## ①' 「进行中 · 可观战」这行小标题**真的画得出来**（Kevin 2026-09-13 截图：「这里没有可观战的 title」）。
+	## 字一直都在，塌的是**宽度**：房间行那一支开着 clip_text + 省略号，而 Label 在开着裁剪时
+	## `get_minimum_size()` 的宽度是 1 px，小标题那一支照着量就被塞进 1 px 宽的框里。
+	## 所以判据只能是**量出来的宽度**——只比 text 的话，出 bug 的那一版照样全绿。
+	var waiting := { "code": "AAAA", "players": 4, "seated": 1, "timer": 60, "host": "甲",
+		"watchers": 0, "watch_max": 8, "watch_hands": true, "state": "waiting" }
+	var playing: Dictionary = waiting.duplicate()
+	playing["code"] = "BBBB"
+	playing["state"] = "playing"
+	p._lobby_rooms = [waiting, waiting.duplicate()]
+	p._lobby_live = []
+	p._repaint_lobby()          ## 先让第 2 行画一次房间行 —— clip_text 就是在这儿打开的
+	p._lobby_rooms = [waiting]
+	p._lobby_live = [playing]
+	p._repaint_lobby()
+	var head_row: Label = p._lobby_labels[1]
+	check(head_row.text == "进行中 · 可观战" and not head_row.clip_text and head_row.size.x > 40.0,
+		"小标题这一行量出来 %d px 宽（画得出字），不是被上一轮的裁剪压成 1 px" % int(head_row.size.x))
+	## 顺带钉住同一个坑的另一处：列表空了要写「（暂无公开房间）」，它也在最小尺寸那条路上
+	p._lobby_rooms = []
+	p._lobby_live = []
+	p._repaint_lobby()
+	check(p._lobby_labels[0].text.contains("暂无公开房间") and p._lobby_labels[0].size.x > 40.0,
+		"「（暂无公开房间）」同理：%d px 宽" % int(p._lobby_labels[0].size.x))
 	root.remove_child(p)
 	p.free()
 	## ② 局域网「附近」：广播带「几局能看」，行里标出来；版本不符不标
