@@ -712,6 +712,8 @@ func _prepare_ui() -> void:
 		board.cancel_fade()
 	if _cells_root != null:
 		_cells_root.modulate.a = 1.0     ## 上一局淡出留下的，开新局要还原
+	for fx in _board_fx_layers():
+		fx.modulate.a = 1.0              ## 同上：返场淡出也把这几层拉到了 0
 	_clear_played_card_fx()
 	_clear_revive_fx()
 	if hand != null:
@@ -1058,6 +1060,15 @@ func fade_out(seconds: float) -> void:
 		var tw := _cells_root.create_tween()
 		tw.tween_property(_cells_root, "modulate:a", 0.0, seconds)
 		_fade_tws.append(tw)
+	## 棋盘上那几层演出跟着一起淡（Kevin 2026-09-13：「返回主菜单的过程中，地图上的特效
+	## 直接开始淡出，不要到了位一下子全部消失」）。**为什么原来它们纹丝不动**：每层都靠
+	## `_process` 每帧喂 `sync()` 推进，而 `_fading` 一置上 `_process` 整个就不跑了 ——
+	## 最后那一帧原地冻住，一直亮到淡完之后的 `teardown()` 才被一把擦掉。
+	for fx in _board_fx_layers():
+		var fx_tw: Tween = fx.create_tween()
+		fx_tw.tween_property(fx, "modulate:a", 0.0, seconds)
+		_fade_tws.append(fx_tw)
+	board.fade_extras(seconds)   ## 进度环和坏死膜挂在格子上，不在上面这条路上
 	## HUD 稍微早一点淡完 —— 它不在棋盘上，跟着棋盘一起慢慢消反而拖沓
 	if ui != null:
 		for c in ui.get_children():
@@ -1740,13 +1751,24 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 ## 「最后那一帧」就原样留在屏幕上 —— 棋盘本身归主菜单用，于是玩家看到的是
 ## 上一局的粒子挂在装饰细胞旁边。
 func _clear_board_fx() -> void:
-	for fx in [_skill_fx, _chain_fx, _beam_fx, _mucus_fx, _hunt_fx, _attack_fx]:
-		if fx != null and is_instance_valid(fx):
+	for fx in _board_fx_layers():
+		## 有自己状态的那几层（技能 / 连锁 / 光束 / 黏液 / 猎杀 / 攻击）要连状态一起清；
+		## 剩下的（封禁 / 趋化 / 追踪 / 标记光环）只是「有东西就画」，藏起来就干净
+		if fx.has_method("clear"):
 			fx.clear()
-	## 这三层没有自己的状态，只是「有东西就画」：直接藏起来就干净了
-	for node in [_seal_fx, _chemo_fx, _chemo_track_fx, _mark_aura_fx]:
-		if node != null and is_instance_valid(node):
-			(node as CanvasItem).visible = false
+		fx.visible = false
+
+
+## 棋盘上的演出层，**一份名单三处用**：返场淡出、开新局还原 alpha、拆局擦干净。
+## 分成三份的话，往后加一层必然只记得改其中一处 —— 而漏掉的那处不会报错，
+## 只会在某一局的菜单背景里留下半透明的粒子。各层类型不同，按 Variant 用。
+func _board_fx_layers() -> Array:
+	var out: Array = []
+	for fx in [_skill_fx, _chain_fx, _beam_fx, _mucus_fx, _hunt_fx, _attack_fx,
+			_seal_fx, _chemo_fx, _chemo_track_fx, _mark_aura_fx]:
+		if fx != null and is_instance_valid(fx):
+			out.append(fx)
+	return out
 
 
 ## 把 `game.feed_log` 投影到左侧出牌列（方案甲，2026-09-07）。

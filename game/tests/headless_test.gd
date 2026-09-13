@@ -8749,6 +8749,19 @@ func t_settle_screen() -> void:
 	await process_frame
 	check(is_equal_approx(main_scene.match_node._cells_root.modulate.a, 1.0),
 		"跳过过场后重开：细胞不透明（上一局的淡出补间已被杀掉）")
+	## 同一个坑，2026-09-13 新添的三样也要走一遍：返场把演出层 / 进度环 / 坏死膜的 alpha
+	## 也拉向 0 了，补间没杀干净的话新局开出来就是一堆半透明的东西（或者干脆看不见）。
+	var fx_back := true
+	for fx in main_scene.match_node._board_fx_layers():
+		if not is_equal_approx((fx as CanvasItem).modulate.a, 1.0):
+			fx_back = false
+	var bd3: Node2D = main_scene.match_node.board
+	var ring_back := true
+	for ring in bd3._store_rings():
+		if not is_equal_approx((ring as Sprite2D).modulate.a, 1.0):
+			ring_back = false
+	check(fx_back and ring_back and is_equal_approx(bd3._necro_root.modulate.a, 1.0),
+		"跳过过场后重开：演出层 / 进度环 / 坏死膜的 alpha 也还原了")
 
 	## 同一个触发条件下的第二个症状：`fade_to_healthy()` 的过渡叠层挂在 `_marks` 下，
 	## 却不在 `set_marks` 管的表里，清不掉；它的回调会把格子刷成健康贴图。
@@ -9455,6 +9468,27 @@ func t_teardown_board() -> void:
 	check(tile.get_node_or_null("StoreRing") != null and (tile.get_node("StoreRing") as Sprite2D).visible
 		and bd._necro_nodes.size() == 1 and m._skill_fx.active() > 0,
 		"拆局前：环亮着、坏死膜挂着、演出在演")
+
+	## **返场时这些要跟着镜头一起淡**（Kevin 2026-09-13：「地图上的特效直接开始淡出，
+	## 不要到了位一下子全部消失」）。从前它们纹丝不动地亮到 teardown() 才被一把擦掉 ——
+	## `_fading` 一置上 `_process` 就整个不跑了，最后那一帧原地冻住。
+	## 判据是「途中已经在往下走、但还没走完」：3 秒的淡出只走 0.35 秒，机器再卡也跑不完。
+	m.fade_out(3.0)
+	await create_timer(0.35).timeout
+	var mid_ok := true
+	for fx in m._board_fx_layers():
+		var a: float = (fx as CanvasItem).modulate.a
+		if a >= 1.0 or a <= 0.0:
+			mid_ok = false
+	## 名单空了的话上面那个循环一次都不跑，断言会「全绿地」什么都没查 —— 一并钉住
+	check(mid_ok and not m._board_fx_layers().is_empty(),
+		"淡出途中：%d 层演出的 alpha 都在 0 与 1 之间（在淡，不是冻着）"
+		% m._board_fx_layers().size())
+	var ring2: Sprite2D = tile.get_node("StoreRing") as Sprite2D
+	check(ring2.modulate.a > 0.0 and ring2.modulate.a < 1.0
+		and bd._necro_root.modulate.a > 0.0 and bd._necro_root.modulate.a < 1.0,
+		"进度环 %.2f / 坏死膜 %.2f 也在淡（它们挂在格子上，不在 fade_to_healthy 那条路上）"
+		% [ring2.modulate.a, bd._necro_root.modulate.a])
 
 	m.teardown()
 	await process_frame

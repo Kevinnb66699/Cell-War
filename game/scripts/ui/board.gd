@@ -347,6 +347,37 @@ func fade_to_healthy(seconds: float) -> void:
 			over.queue_free())
 
 
+## 返场淡出时把**挂在格子上的那两样**一起淡掉：积累进度环（每格一个子节点）和坏死膜（自己一层）。
+## 它们**不在 `fade_to_healthy` 那条路上** —— 组织和细胞跟着镜头淡的时候，这两样一直亮到
+## `teardown()` 才被一把擦掉，于是镜头一到菜单机位就「啪」地全没
+## （Kevin 2026-09-13：「返回主菜单的过程中直接开始淡出，不要到了位一下子全部消失」）。
+## 补间记进 `_fade_tweens`，开新局时 `cancel_fade()` 一起杀掉并还原 alpha。
+func fade_extras(seconds: float) -> void:
+	for ring in _store_rings():
+		if not ring.visible:
+			continue
+		var tw := ring.create_tween()
+		_fade_tweens.append(tw)
+		tw.tween_property(ring, "modulate:a", 0.0, seconds)
+	if _necro_root != null and not _necro_nodes.is_empty():
+		var ntw := _necro_root.create_tween()
+		_fade_tweens.append(ntw)
+		ntw.tween_property(_necro_root, "modulate:a", 0.0, seconds)
+
+
+## 棋盘上现有的积累进度环。正式盘只有 9 个核心 / 骨髓预建了环，教程 fixture 会临时加几个。
+func _store_rings() -> Array[Sprite2D]:
+	var out: Array[Sprite2D] = []
+	for c in CWData.all_coords():
+		var key := axial_to_rc(c)
+		if not map.has(key):
+			continue
+		var ring := (map[key]["instance"] as Sprite2D).get_node_or_null("StoreRing") as Sprite2D
+		if ring != null:
+			out.append(ring)
+	return out
+
+
 ## 取消还没演完的「淡回健康」。开新局时必须调 —— 理由见 `_fade_overs` 的注释。
 ## 叠层一 free，绑在它身上的补间跟着死，回调也就不会再落到下一局的格子上。
 func cancel_fade() -> void:
@@ -360,6 +391,12 @@ func cancel_fade() -> void:
 		if is_instance_valid(o):
 			o.queue_free()
 	_fade_overs.clear()
+	## `fade_extras()` 把进度环和坏死膜的 alpha 拉到了 0，开新局要还原。
+	## **放在杀补间之后**：顺序反了等于没改 —— 补间还活着的话，下一帧又把 1.0 拉回 0。
+	for ring in _store_rings():
+		ring.modulate.a = 1.0
+	if _necro_root != null:
+		_necro_root.modulate.a = 1.0
 
 
 func _make_mark(c: Vector2i, want: Color) -> Sprite2D:
