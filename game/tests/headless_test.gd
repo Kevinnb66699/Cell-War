@@ -10,6 +10,9 @@
 ## 注意：新增 class_name 脚本后必须先 `--import`，否则报 "Identifier not declared"。
 extends SceneTree
 
+## 教程步骤的完成判据（`guide_watch.gd` 没有 class_name —— 它要能走热更，见那个文件的头注）
+const GUIDE_WATCH := preload("res://scripts/ui/guide_watch.gd")
+
 var fails := 0
 var checks := 0
 var _shard := 0        ## 本进程跑第几片（0 起）
@@ -126,7 +129,7 @@ func _run_all() -> void:
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
-		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_turn_mark, t_online_glow, t_match_online,
+		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_guide_watch, t_turn_mark, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -9563,6 +9566,73 @@ func t_teardown_board() -> void:
 	main_scene.queue_free()
 
 
+## 教程步骤的**完成判据**（`guide_watch.gd`，2026-09-13 从两支写死的 match 摊成一张表）。
+## 判据是纯逻辑：两张快照比一比 —— 所以这里不起真局，直接喂快照。
+## **每加一条判据就要在这儿加一行**，否则「加了键没实现」只会在玩家卡在那一步时才发现。
+func t_guide_watch() -> void:
+	print("[引导：完成判据表]")
+	var none: Vector2i = GUIDE_WATCH.NONE
+	var base := { "pos": Vector2i(0, 0), "hand": 2, "play_n": 0, "diff": false, "attacks": 0,
+		"draws": 0, "memory": 3, "level": 1, "round": 4, "actor": 0 }
+	## 逐键：给一张「变了」的快照该成立，给基线自己不该成立
+	var moves := {
+		"placed": { "pos": Vector2i(1, 0) },
+		"moved": { "pos": Vector2i(1, 0) },
+		"purified": { "memory": 4 },
+		"attacked": { "attacks": 1 },
+		"drew": { "hand": 3 },
+		"played": { "play_n": 1 },
+		"differentiated": { "diff": true },
+		"leveled": { "level": 2 },
+		"ended": { "actor": 1 },
+		"round": { "round": 5, "actor": -1 },
+	}
+	var bad: Array = []
+	for key: String in GUIDE_WATCH.KEYS:
+		if not moves.has(key):
+			bad.append("%s（护栏没写）" % key)
+			continue
+		var now: Dictionary = base.duplicate()
+		for k: String in moves[key]:
+			now[k] = moves[key][k]
+		if not GUIDE_WATCH.done(key, base, now):
+			bad.append("%s（变了却判不成立）" % key)
+		## placed 例外：它问的是「上场了没有」，基线自己就已经上场了
+		if key != "placed" and GUIDE_WATCH.done(key, base, base):
+			bad.append("%s（什么都没做就成立）" % key)
+	check(bad.is_empty(), "%d 条判据逐条对得上（坏的：%s）" % [GUIDE_WATCH.KEYS.size(), str(bad)])
+	check(not GUIDE_WATCH.done("不存在的键", base, base), "不认识的键一律不成立（剧本写错键不该自己翻页）")
+	## 细胞还没上场：placed 不成立、moved 也不成立（别把「没有细胞」当成「动过了」）
+	var empty := { "pos": none, "round": 4, "actor": 0 }
+	check(not GUIDE_WATCH.done("placed", empty, empty)
+		and not GUIDE_WATCH.done("moved", base, empty),
+		"细胞不在场时 placed / moved 都不成立")
+	## 计数类只在同一个行动回合里可比 —— 换人 / 换回合，调用方要重新取基线
+	var next_turn: Dictionary = base.duplicate()
+	next_turn["actor"] = 1
+	check(GUIDE_WATCH.same_turn(base, base) and not GUIDE_WATCH.same_turn(base, next_turn),
+		"same_turn 认得出换人")
+	var gsrc := FileAccess.get_file_as_string("res://scripts/ui/guide.gd")
+	check(gsrc.contains("if not WATCH.same_turn(_watch_base, now):")
+		and gsrc.contains("_watch_base = now"),
+		"引导面板换回合就重新取基线（不然计数类判据要么永不成立、要么误判）")
+	## 真局面拍出来的快照：字段齐、跟着局面走
+	var g := bare_game()
+	var c := put_immune(g, Vector2i(1, 0))
+	g.memory = 7
+	var snap: Dictionary = GUIDE_WATCH.snapshot(g, 0)
+	check(snap["pos"] == Vector2i(1, 0) and int(snap["memory"]) == 7
+		and int(snap["round"]) == g.round_no, "快照读的是真局面（位置 %s 记忆 %d）"
+			% [str(snap["pos"]), int(snap["memory"])])
+	c["hand"] = ["急性炎症反应"]
+	c["play_n"] = 2
+	var snap2: Dictionary = GUIDE_WATCH.snapshot(g, 0)
+	check(GUIDE_WATCH.done("drew", snap, snap2) and GUIDE_WATCH.done("played", snap, snap2),
+		"手牌 / 打出计数都从真细胞上读")
+	check(GUIDE_WATCH.snapshot(null, 0)["pos"] == none, "没有局面时给哨兵，不崩")
+	g.dispose()
+
+
 ## 教程叠层（Kevin 2026-09-12 截图：「癌症A 无法复活」的气泡压在引导浮层的字上）：
 ## ① 教程桥静掉这类通报；② 气泡整体躲开浮层那块屏幕。
 func t_guide_quiet() -> void:
@@ -10297,6 +10367,10 @@ func t_guide_data() -> void:
 		"每关都有标题")
 	check(CWGuideData.chapter_subtitles().size() == CWGuideData.CHAPTER_COUNT,
 		"每关都有一句概括")
+	## 渐进 UI 档这张**平行表**也要跟关数对齐（逐关局面那张在 t_guide_levels 里查）——
+	## 少一项不会当场崩（`ui_stage()` 会 clamp），只会让最后几关悄悄用错档
+	check(CWGuideData.UI_STAGE.size() == CWGuideData.CHAPTER_COUNT,
+		"渐进 UI 档 %d 项，和关数 %d 对齐" % [CWGuideData.UI_STAGE.size(), CWGuideData.CHAPTER_COUNT])
 	var sum := 0
 	for i in CWGuideData.CHAPTER_COUNT:
 		var sts: Array = CWGuideData.steps(i)
@@ -10319,10 +10393,13 @@ func t_guide_data() -> void:
 			if a != "" and not CWGuideBridge.STEP_HINTS.has(a):
 				bad_act.append("%d:%d %s" % [i, j, a])
 			var w: String = CWGuideData.watch_of(i, j)
-			if w != "" and not (w == "placed" or w == "moved"):
+			if w != "" and not GUIDE_WATCH.KEYS.has(w):
 				bad_watch.append("%d:%d %s" % [i, j, w])
 	check(bad_act.is_empty(), "动作键都在 STEP_HINTS 里（坏的：%s）" % str(bad_act))
-	check(bad_watch.is_empty(), "watch 键只有 placed/moved（坏的：%s）" % str(bad_watch))
+	## **只查这一个方向**（剧本用到的键必须有实现），不查反向：
+	## 判据表是给**正在重写的剧本**备的词汇，表里暂时没人用的键是有意留的
+	check(bad_watch.is_empty(), "watch 键都在判据表里（%d 个可用；坏的：%s）"
+		% [GUIDE_WATCH.KEYS.size(), str(bad_watch)])
 	## 状态推进契约：第 1 关三步迁移全部由真实局面判定完成（t_tutorial_auto_advance 依赖这些位置）
 	for i in 3:
 		check(CWGuideData.act_of(0, i + 1) == "move" and CWGuideData.watch_of(0, i + 1) == "moved",
@@ -10980,7 +11057,18 @@ func t_guide_bridge() -> void:
 		if not CWGuideBridge.STEP_HINTS.has(a):
 			missing.append(a)
 	check(missing.is_empty(), "STEP_HINTS 覆盖剧本全部动作键（%s）" % str(data_acts.keys()))
-	check(CWGuideBridge.STEP_HINTS.size() == 5, "STEP_HINTS 恰好五组动作提示")
+	## 2026-09-13 起这张表是**给正在重写的剧本备的词汇**，不再钉死条数（原来钉 5）——
+	## 改钉两件不能松的事：每条都得有一句人话，且「继续」能代做的仍只有那三个。
+	## 代做的边界是拍过板的（Kevin 2026-09-05）：会替玩家做决定的动作一律不代做
+	var thin: Array = []
+	for a: String in CWGuideBridge.STEP_HINTS:
+		if str(CWGuideBridge.STEP_HINTS[a].get("hint", "")).length() < 6:
+			thin.append(a)
+	check(thin.is_empty(), "%d 条动作提示各有一句人话（太短的：%s）"
+		% [CWGuideBridge.STEP_HINTS.size(), str(thin)])
+	check(CWGuideBridge.AUTO_ACTS.size() == 3 and CWGuideBridge.AUTO_ACTS.has("place")
+		and CWGuideBridge.AUTO_ACTS.has("end") and CWGuideBridge.AUTO_ACTS.has("draw"),
+		"「继续」能代做的仍只有 落子 / 结束回合 / 抽卡（别的会替玩家做决定）")
 	check(CWGuideBridge.AUTO_ACTS.size() == 3 and CWGuideBridge.AUTO_ACTS.has("place")
 		and CWGuideBridge.AUTO_ACTS.has("end") and CWGuideBridge.AUTO_ACTS.has("draw"),
 		"AUTO_ACTS 只含一步到位的 place/end/draw")

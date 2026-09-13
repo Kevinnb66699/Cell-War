@@ -57,6 +57,9 @@ var hint_now := Callable()
 ## 代做尾巴：代做可用时贴在按钮行上方的小字注解。%s = 按钮此刻的字（继续 / 下一章 / 完成引导），
 ## 关卡最后一步按钮写的是「下一章」，尾巴不能还说「继续」（Kevin 2026-09-05 截图报的）
 const OFFER_TAIL := "（点「%s」我替你做这一步）"
+## 步骤的完成判据。**preload 而不是 class_name**：补丁里新增的 class_name 认不出来，
+## 而引导是天天在改的东西 —— 判据表要能跟着热更走（详见那个文件的头注）
+const WATCH := preload("res://scripts/ui/guide_watch.gd")
 
 var _match = null
 var _chapter := 0
@@ -367,38 +370,44 @@ func graduation_assist() -> Dictionary:
 
 
 ## ---- 状态推进：带 watch 的步骤由真实局面判定完成 ----
-## 哨兵 = 没有人类席 / 细胞还没落（与 board.NO_TILE 同一约定）
-const WATCH_NONE := Vector2i(9999, 9999)
-## watch=moved 的基线：步骤成为当前的这一刻人类细胞在哪（_render 里取）
-var _watch_pos := WATCH_NONE
+## 判据本身在 `guide_watch.gd`（哨兵、快照、逐键判定都在那儿）
+## 步骤成为当前的那一刻的局面快照（`_render` 里取）；判据全部拿它和此刻的比
+var _watch_base := {}
 
 
 ## 每帧由 CWMatch._process 喂：当前步骤带 watch 且真实局面已满足 → 自动翻页（不代做）。
 ## 讲解型步骤（无 watch）不经过这里，仍只认「继续」。
+##
+## **换了行动回合就重新取基线**：计数类判据（attacked / drew）引擎每个行动回合清零，
+## 拿跨回合的旧基线去比，要么永远不成立、要么当场误判成立。
+## 步骤刚成为当前时多半还没轮到玩家（actor = -1），所以这一支也是「等轮到你」的入口。
 func check_progress() -> void:
 	if not active:
 		return
-	match CWGuideData.watch_of(_chapter, _step):
-		"placed":
-			if _human_pos() != WATCH_NONE:
-				_turn_page()
-		"moved":
-			var now := _human_pos()
-			if now != WATCH_NONE and now != _watch_pos:
-				_turn_page()
+	var key: String = CWGuideData.watch_of(_chapter, _step)
+	if key == "":
+		return
+	var now: Dictionary = WATCH.snapshot(_game(), _human_pid())
+	if not WATCH.same_turn(_watch_base, now):
+		_watch_base = now
+		return
+	if WATCH.done(key, _watch_base, now):
+		_turn_page()
 
 
-## 人类席位细胞的当前位置。不走 cell_of（按 id 直取，未落子时会越界），按 pid 现找。
-func _human_pos() -> Vector2i:
-	if _match == null or not is_instance_valid(_match) or _match.game == null:
-		return WATCH_NONE
-	if _match.human_players.is_empty():
-		return WATCH_NONE
-	var pid: int = _match.human_players[0]
-	for c in _match.game.cells:
-		if int(c["pid"]) == pid and c["alive"]:
-			return c["pos"]
-	return WATCH_NONE
+## 屏幕前这位真人的席位（没有 = -1）。教程局永远只有一席，取第一个就够
+func _human_pid() -> int:
+	if _match == null or not is_instance_valid(_match) or _match.human_players.is_empty():
+		return -1
+	return int(_match.human_players[0])
+
+
+## 当前这一局（没有 = null）
+func _game() -> CWGame:
+	if _match == null or not is_instance_valid(_match):
+		return null
+	return _match.game
+
 
 
 func _render() -> void:
@@ -448,8 +457,8 @@ func _render() -> void:
 		x += c.size.x + gap
 	## 引导目录/章节选择放在「完成引导」之后不再重复出现，避免浮层太挤
 	_refresh_hint()
-	## watch=moved 的基线在「步骤成为当前」的瞬间取好（渲染即当前）
-	_watch_pos = _human_pos()
+	## 判据的基线在「步骤成为当前」的瞬间取好（渲染即当前）
+	_watch_base = WATCH.snapshot(_game(), _human_pid())
 
 
 ## 引导结束时由 CWMatch 调用：隐藏面板并清掉引用
