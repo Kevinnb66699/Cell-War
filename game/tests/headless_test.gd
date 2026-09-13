@@ -121,7 +121,7 @@ func _run_all() -> void:
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_board_small, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
-		t_card_name_fit, t_view_blend, t_guide_quiet, t_guide_no_win, t_announce, t_action_bar_width,
+		t_card_name_fit, t_view_blend, t_guide_quiet, t_guide_no_win, t_attack_fx, t_announce, t_action_bar_width,
 		t_buttons_dim, t_enter_not_skipped, t_main_menu, t_guide_data,
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
@@ -8942,6 +8942,78 @@ func t_hand() -> void:
 ## 这一条盯的是「两端都对、中间不对」——最难查的那类动画错。
 ## 直接插相机的 position 和 zoom，起点终点都严丝合缝，唯独途中取景会游走；
 ## 而这只有真的盯着动画看才觉得「不好看」，说不清哪儿不对（团队试玩报的就是这个）。
+## 普通攻击的本体冲撞（队友 PR #30，2026-09-13 合入）。PR 自述没跑任何测试，这条是合入时补的：
+## 演出层的登记 / 接管 / 退场是纯状态，无头直接核；引擎那头只核「什么时候报、报文带什么」。
+func t_attack_fx() -> void:
+	print("[普通攻击冲撞]")
+	## ① 登记 → 走完 TOTAL 自己退场；演出期间它代画双方（真身让位靠 owns）
+	var fx := CWAttackFx.new()
+	root.add_child(fx)
+	var data := { "cid": 3, "target_id": 7, "entered": false, "target_alive": true,
+		"attacker_alive": true, "hit": true }
+	var imm: Texture2D = CWMatch.IMMUNE_ART[CWData.ImmuneType.BASIC]
+	var mel: Texture2D = CWMatch.CANCER_ART[CWData.CancerType.MELANOMA]
+	fx.play(data, Vector2(-36, 0), Vector2(0, 0), imm, mel)
+	check(fx.owns(3) and fx.owns(7) and not fx.owns(4), "登记后代画攻防双方，别的细胞不受影响")
+	fx.sync(CWAttackFx.TOTAL * 0.5)
+	check(fx.owns(3), "半程还在演")
+	fx.sync(CWAttackFx.TOTAL * 0.6)
+	check(not fx.owns(3) and not fx.owns(7), "走完 %.2f s 自己退场，位置交还引擎" % CWAttackFx.TOTAL)
+	## ② 同一只细胞连着两次攻击：以最新那条为准（两段同时代画会打架）
+	fx.play(data, Vector2(-36, 0), Vector2(0, 0), imm, mel)
+	fx.sync(0.1)
+	var again := data.duplicate()
+	again["target_id"] = 9
+	fx.play(again, Vector2(0, 0), Vector2(36, 0), imm, mel)
+	check(fx.owns(3) and fx.owns(9) and not fx.owns(7), "连打：旧那条让位，只剩最新的一对")
+	## ③ 拆局清干净（不清的话下一局同下标的细胞会凭空隐身）
+	fx.clear()
+	check(not fx.owns(3) and not fx.owns(9), "clear() 之后不再代画任何细胞")
+	root.remove_child(fx)
+	fx.free()
+	## ④ 引擎：普通攻击结算完报 immune_attack，巨噬照旧只报 chomp（那边是【连续吞噬】那副嘴）
+	var g := make_game(2, 7)
+	g.setup.build_board()
+	var rec: Variant = load("res://tests/fx_recorder.gd").new()
+	rec.game = g
+	for pid in g.order:
+		g.bridges[pid] = rec
+	var foe := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0), -1, CWData.CancerType.MELANOMA)
+	foe["energy"] = 200
+	g.cells.append(foe)
+	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+	var t_cell := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO, CWData.ImmuneType.T_CELL, -1)
+	t_cell["energy"] = 200
+	g.cells.append(t_cell)
+	await g.actions._do_move(t_cell, Vector2i(1, 0), g.actions._move_base_cost(t_cell, Vector2i(1, 0)))
+	var atk: Array = []
+	var chomp: Array = []
+	for e in rec.got:
+		if e[0] == "immune_attack":
+			atk.append(e[1])
+		elif e[0] == "chomp":
+			chomp.append(e[1])
+	check(atk.size() == 1 and chomp.is_empty() and atk[0]["from"] == Vector2i.ZERO and atk[0]["to"] == Vector2i(1, 0)
+		and int(atk[0]["cid"]) == int(t_cell["id"]) and int(atk[0]["target_id"]) == int(foe["id"])
+		and atk[0].has("entered") and atk[0].has("target_alive") and atk[0].has("hit"),
+		"T 细胞攻击 → immune_attack，双方 id / 两格 / 结算结果齐全")
+	## 巨噬那只：只有扑咬，没有冲撞（不然一次攻击演两遍）
+	var macro := CWSetup.make_cell(2, 0, CWData.Faction.IMMUNE, Vector2i(-1, 0), CWData.ImmuneType.MACRO, -1)
+	macro["energy"] = 200
+	g.cells.append(macro)
+	var foe2 := CWSetup.make_cell(3, 1, CWData.Faction.CANCER, Vector2i(-2, 0), -1, CWData.CancerType.MELANOMA)
+	foe2["energy"] = 200
+	g.cells.append(foe2)
+	g.tiles[Vector2i(-2, 0)]["tissue"] = CWData.Tissue.CANCER
+	rec.got.clear()
+	await g.actions._do_move(macro, Vector2i(-2, 0), g.actions._move_base_cost(macro, Vector2i(-2, 0)))
+	var kinds: Array = []
+	for e in rec.got:
+		kinds.append(e[0])
+	check(kinds.has("chomp") and not kinds.has("immune_attack"), "巨噬只演扑咬，不叠冲撞（%s）" % str(kinds))
+	g.dispose()
+
+
 ## 教程局不判胜负（Kevin 2026-09-12 截图：第一章过后直接弹结算屏）。
 ## 根因：1–15 关是教学摆拍 —— 癌方只有一枚死亡占位、场上一块固化都没有，
 ## E 阶段第 10 步的【E-免疫胜利】（癌细胞全灭 + 无可复活的固化癌组织）当场成立。

@@ -34,6 +34,7 @@ var seal_fx: CWSealFx
 var beam_fx: CWBeamFx
 var chain_fx: CWChainFx
 var skill_fx: CWSkillFx   ## 一次性技能演出的合集（issue #15）
+var attack_animation: Callable
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
 var erosion: CWErosionFx   ## 癌蔓延两帧过场（侵蚀 / 增生 / 定殖共用）；纯 AI 桥 / 测试里可为 null
 var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这里来（无界面时为 null）
@@ -920,6 +921,10 @@ var cell_half_height: Callable
 ## 巨噬扑咬走 CWChainFx（它要代画胞体，和连锁那一口是同一副嘴）。
 func show_fx(kind: String, data: Dictionary) -> void:
 	if board == null:
+		return
+	if kind == "immune_attack":
+		if attack_animation.is_valid():
+			attack_animation.call(data)
 		return
 	if kind == "chomp":
 		if chain_fx != null:

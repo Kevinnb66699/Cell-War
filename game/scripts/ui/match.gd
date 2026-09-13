@@ -308,6 +308,7 @@ var _mucus_fx: CWMucusFx       ## 印戒【黏液破裂】的引爆
 var _beam_fx: CWBeamFx         ## T【Excalibur】的双螺旋光束
 var _chain_fx: CWChainFx       ## 巨噬【连续吞噬】的每一口
 var _skill_fx: CWSkillFx       ## 一次性技能演出的合集（issue #15）
+var _attack_fx: CWAttackFx
 var _decos: Array = []         ## 下标同 _cell_nodes：每只细胞 [背面, 正面] 两个 CWCellDeco（囊性护甲 / 刚性屏障 / 头顶标记）
 var _seal_fx: CWSealFx         ## B【中和抗体】的投递与封禁环（后者常驻，见 _sync_seal）
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
@@ -376,6 +377,9 @@ func _ready() -> void:
 		_skill_fx = CWSkillFx.new()
 		_skill_fx.z_index = board.Z_OVER_BOARD
 		board.add_child(_skill_fx)
+		_attack_fx = CWAttackFx.new()
+		_attack_fx.z_index = board.Z_OVER_BOARD
+		board.add_child(_attack_fx)
 		_tile_info = CWTileInfo.new()
 		ui.add_child(_tile_info)
 		if pause_menu != null:
@@ -761,6 +765,7 @@ func _wire_bridge(level: int) -> void:
 	bridge.beam_fx = _beam_fx
 	bridge.chain_fx = _chain_fx
 	bridge.skill_fx = _skill_fx
+	bridge.attack_animation = _play_attack_animation
 	bridge.cell_half_height = cell_half_height   ## 演出对准胞体中心要知道贴图多高（issue #26）
 	## 聊天框只在联机局建：本地局没人可聊，教程局更不该多一个能抢回车的东西。
 	## **CHAT_ON 现在是关的**（Kevin 2026-09-10 拍板先停）—— 三条待修见常量那儿。
@@ -1122,6 +1127,8 @@ func teardown() -> void:
 	_flash.clear()
 	board.set_active_radius(CWData.BOARD_RADIUS, 0.0)   ## 兜底：不管从哪条路拆局，棋盘都回到 127 格全露
 	_erosion_fx.clear_all()
+	if _attack_fx != null:
+		_attack_fx.clear()
 	_hand_seen.clear()
 	_hand_pid = -1
 	if hand != null:
@@ -1225,6 +1232,8 @@ func _process(delta: float) -> void:
 			_flash.erase(c)
 	_erosion_fx.advance(delta)
 	_sync_tiles()
+	if _attack_fx != null:
+		_attack_fx.sync(delta)
 	_sync_cells()
 	_animate_breath(delta)
 	_sync_chemo(delta)
@@ -1467,6 +1476,9 @@ func _sync_cells() -> void:
 		## 【连续吞噬】那一口由 CWChainFx 整只代画（选稿画的是张着口的胞体，
 		## 不是在细胞上叠一层），所以这几帧真身要让位
 		node.visible = c["alive"] and not (_chain_fx != null and _chain_fx.chewing_cid == i)
+		var attack_owned := _attack_fx != null and _attack_fx.owns(i)
+		if attack_owned:
+			node.visible = false
 		var became_alive: bool = c["alive"] and not _was_alive[i]
 		## 死而复活的也要淡入一次 —— 它和刚落子一样是「凭空出现」
 		if became_alive:
@@ -1502,7 +1514,7 @@ func _sync_cells() -> void:
 		var tex: Texture2D = (node as Sprite2D).texture
 		for side in 2:
 			var deco: CWCellDeco = _decos[i][side]
-			deco.visible = true
+			deco.visible = not attack_owned
 			deco.game = game
 			deco.position = foot - Vector2(0, CELL_FOOT_DY)
 			deco.z_index = node.z_index + (1 if side == 1 else -1)
@@ -1569,6 +1581,18 @@ func cell_half_height(pos: Vector2i) -> float:
 			if tex != null:
 				return tex.get_height() / 2.0
 	return 12.0
+
+
+func _play_attack_animation(data: Dictionary) -> void:
+	if _attack_fx == null or game == null:
+		return
+	var immune_type := int(data.get("itype", -1))
+	var cancer_type := int(data.get("ctype", -1))
+	if not IMMUNE_ART.has(immune_type) or not CANCER_ART.has(cancer_type):
+		return
+	var foot := Vector2(0, CELL_FOOT_DY)
+	_attack_fx.play(data, board.tile_center(data["from"]) + foot,
+		board.tile_center(data["to"]) + foot, IMMUNE_ART[immune_type], CANCER_ART[cancer_type])
 
 
 func _sync_hand() -> void:

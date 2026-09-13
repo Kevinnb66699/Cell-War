@@ -748,12 +748,13 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		await enter_tile(cell, to, int(q["final"]))
 		return
 	var target: Dictionary = enemies[0]
+	var attack_from: Vector2i = cell["pos"]
 	## 计数在**发动**时加，不看判定结果 —— 与口径 #70「攻击发动即算攻过」一致：
 	## 失败被反弹也占一次，否则上限就成了「成功次数上限」，失败反而不受约束。
 	cell["attacks_used"] += 1
-	## 巨噬的普通攻击也用【连续吞噬】那副嘴扑咬（Kevin 2026-09-11，issue #15）
+	## 巨噬保留原扑咬；其他免疫细胞在结算后演出本体冲撞。
 	if cell["itype"] == CWData.ImmuneType.MACRO:
-		game.fx("chomp", { "from": cell["pos"], "to": to, "cid": int(cell["id"]) })
+		game.fx("chomp", {"from": cell["pos"], "to": to, "cid": int(cell["id"])})
 	## 把「还剩几次」说出来。上限用完之后，攻击选项会直接从行动栏消失 ——
 	## 不报一声的话，玩家看到的就是「这一格刚才还能打，现在点不了了」，
 	## 和 2026-08-31 癌方复活那次是同一类问题（口径 #93）。
@@ -902,6 +903,12 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		await enter_tile(cell, to, int(q["final"]))
 	else:
 		game.log_msg("　%s 返回原格" % game.cell_name(cell))
+	if cell["itype"] != CWData.ImmuneType.MACRO:
+		game.fx("immune_attack", {"from": attack_from, "to": to,
+			"cid": int(cell["id"]), "target_id": int(target["id"]),
+			"itype": int(cell["itype"]), "ctype": int(target["ctype"]),
+			"target_alive": bool(target["alive"]), "attacker_alive": bool(cell["alive"]),
+			"entered": bool(cell["alive"]) and cell["pos"] == to, "hit": outcome != "fail"})
 
 
 ## 攻击判定三档的**正本**。云端 PRD 2026-09-10 把「失败」改称**「无效」**
