@@ -52,6 +52,10 @@ const CHAT_ROW_H := 18.0
 const SEAT_Y0 := 214.0       ## 等待室席位第一行
 const SEAT_H := 30.0
 const RETRY_MS := 3000
+## 大厅每隔这么久自己要一次房间表（Kevin 2026-09-13：「没有『进行中 · 可观战』这个栏目」）。
+## 根因不是那一栏没做：大厅原来**只在进页 / 离房 / 报错时**问一次，别人开打是之后的事，
+## 名单就一直停在「那会儿还没人在打」。报文只有几十字节，3 秒一次的代价比让人去点「刷新」小得多。
+const LOBBY_POLL_MS := 3000
 const ROW_LABEL := Color("9fb6bd")
 const TIMER_TEXT := { 0: "不限", 30: "30 秒", 60: "60 秒", 90: "90 秒" }
 const CREATE_ROWS := ["人数", "每步计时", "可见性", "世界事件", "观众视角"]
@@ -84,6 +88,7 @@ var _scan = null           ## CWLan，连接页期间监听
 var _found_labels: Array[Label] = []
 var _found_note: Label
 var _found_sel := -1        ## 键盘选中的那一行（-1 = 没选；回车走地址框那条路）；选中行带白光（Kevin 09-12）
+var _lobby_polled := 0      ## 上一次自动要房间表的时刻（ms）
 var _roots := {}             ## Page -> 该页的根 Control
 var _status: Label
 var _title: Label
@@ -205,6 +210,11 @@ func _process(_delta: float) -> void:
 	if client == null:
 		return
 	client.poll()
+	## 大厅停着的时候自己刷新：别人开打 / 打完了，这一栏才跟得上（Kevin 2026-09-13）
+	if page == Page.LOBBY and not in_match and client.status == "open" \
+			and now - _lobby_polled >= LOBBY_POLL_MS:
+		_lobby_polled = now
+		client.list_rooms()
 	if _want_reconnect and client.status == "closed" and Time.get_ticks_msec() >= _retry_at:
 		_retry_at = Time.get_ticks_msec() + RETRY_MS
 		_set_status("连接断开，重连中…")

@@ -1626,7 +1626,14 @@ func _play_attack_animation(data: Dictionary) -> void:
 
 
 func _sync_hand() -> void:
-	if hand == null or human_players.is_empty():
+	if hand == null:
+		return
+	## 观战（自己没有席位）：抽屉跟着**正在行动的那一席**走（同回合脚标、右栏底框的口径）。
+	## 这是观众唯一能看到手牌的地方 —— Kevin 2026-09-13：「现在观战不会显示卡牌」。
+	## 房主没开「观众全见」时服务器给的本来就是背面（`CWNet.HIDDEN_CARD`），抽屉照画，
+	## 读出来是「他有三张牌」；开了全见就是真牌名。
+	if human_players.is_empty():
+		_sync_hand_watch()
 		return
 	if bridge is CWUIBridge and (bridge as CWUIBridge).hotseat:
 		## 热座：抽屉跟「当前露牌的真人」（遮罩确认过的那一席），不跟「当前回合席位」——
@@ -1667,6 +1674,31 @@ func _sync_hand() -> void:
 		hand.deal_from(n, CWView.board_to_screen(camera, board.tile_center(cell["pos"])), cards)
 	else:
 		hand.sync(n, Vector2.INF, cards)   ## 首次显示 / 换人 / 打出去了：直接就位，不演
+
+
+## 观众的手牌抽屉：跟着正在行动的那一席。没人在动（结算演出中 / 落子阶段）就收起来。
+func _sync_hand_watch() -> void:
+	var who := CWMatchPanel.acting_pid(game)
+	if who < 0 or who >= game.cells.size():
+		if _hand_pid >= 0:
+			hand.clear()
+			hand.visible = false
+			_hand_pid = -1
+			_hand_seen.clear()
+		return
+	var cell: Dictionary = game.cell_of(who)
+	var cards: PackedStringArray = PackedStringArray(cell["hand"])
+	## 换人就整副重铺（不演飞入：那是「他抽到了一张」的语言，换人不是）
+	if _hand_pid != who:
+		_hand_pid = who
+		hand.visible = true
+		_hand_seen[who] = cards.size()
+		hand.sync(cards.size(), Vector2.INF, cards)
+		return
+	if int(_hand_seen.get(who, -1)) == cards.size():
+		return
+	_hand_seen[who] = cards.size()
+	hand.sync(cards.size(), Vector2.INF, cards)
 
 
 func _make_cell_node(cell: Dictionary) -> Node2D:

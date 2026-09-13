@@ -126,7 +126,7 @@ func _run_all() -> void:
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
-		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_turn_mark, t_online_glow, t_match_online,
+		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_turn_mark, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -7222,6 +7222,71 @@ func t_store_ring() -> void:
 	print("[特殊组织积累进度]")
 	var g := bare_game()
 
+	## ---- 角对齐（Kevin 2026-09-13：「三分之二的时候没正好够到右上角」）----
+	## 六个角在极角上的实际位置**从贴图逐行量出来**，再核 shader 里那张表逐字对得上；
+	## 极角 ≠ 弧长（这个六边形不是压扁的正六边形），所以 shader 把每条边摊成 1/6 —— 角必落在整数分之一上。
+	var ring_img: Image = (load("res://assets/art/ui/store/core_track_normal.png") as Texture2D).get_image()
+	var rows := {}
+	for y in ring_img.get_height():
+		var lo := -1
+		var hi := -1
+		for x in ring_img.get_width():
+			if ring_img.get_pixel(x, y).a > 0.0:
+				if lo < 0:
+					lo = x
+				hi = x
+		if lo >= 0:
+			rows[y] = [lo, hi]
+	var ys: Array = rows.keys()
+	ys.sort()
+	var y_top: int = ys[0]
+	var y_bot: int = ys[-1]
+	var wides: Array = []
+	for y: int in ys:
+		if int(rows[y][0]) == 0 and int(rows[y][1]) == ring_img.get_width() - 1:
+			wides.append(y)
+	## 一律按**像素中心**量：第 k 列的中心是 k+0.5，所以 0..31 列的中点是 16.0、0..25 行的中点是 13.0。
+	## 差这半个像素，左右两边的角就会差 0.0016 圈（shader 的 hex_center 同一口径）
+	var cx: float = (0.5 + float(ring_img.get_width() - 1) + 0.5) / 2.0
+	var cy: float = (float(y_top) + 0.5 + float(y_bot) + 0.5) / 2.0
+	var x_left: float = 0.5 - cx
+	var x_right: float = float(ring_img.get_width() - 1) + 0.5 - cx
+	## 六个角：底、左下、左上、顶、右上、右下（顺时针，从底顶点起）
+	var verts: Array = [Vector2(0.0, float(y_bot) + 0.5 - cy),
+		Vector2(x_left, float(wides[-1]) + 0.5 - cy), Vector2(x_left, float(wides[0]) + 0.5 - cy),
+		Vector2(0.0, float(y_top) + 0.5 - cy),
+		Vector2(x_right, float(wides[0]) + 0.5 - cy), Vector2(x_right, float(wides[-1]) + 0.5 - cy)]
+	var src := FileAccess.get_file_as_string("res://assets/shaders/store_progress.gdshader")
+	## shader 里那张表**逐个数值**核对（按字符串比会被四舍五入坑到，解析出来比数）
+	var listed := true
+	var along_of: Array = []
+	var head := src.substr(src.find("float[]("))
+	var nums: Array = []
+	for piece in head.substr(8, head.find(")") - 8).split(","):
+		nums.append(float(piece.strip_edges()))
+	for v: Vector2 in verts:
+		var a: float = fposmod((atan2(v.y, v.x) - PI / 2.0) / TAU, 1.0)
+		along_of.append(a)
+		var found := false
+		for n: float in nums:
+			if absf(n - a) < 0.0001:
+				found = true
+		if not found:
+			listed = false
+	if nums.size() != 7 or not is_equal_approx(float(nums[6]), 1.0):
+		listed = false
+	check(listed and verts.size() == 6 and is_zero_approx(along_of[0]) and is_equal_approx(along_of[3], 0.5),
+		"六个角量出来是 %.4f / %.4f / %.4f / %.4f / %.4f / %.4f，shader 的 VERT 表逐个对得上"
+			% [along_of[0], along_of[1], along_of[2], along_of[3], along_of[4], along_of[5]])
+	## 关键的一条：**极角不是弧长** —— 右上角在极角上是 0.705，不是 2/3。
+	## 正因为差这 0.038 圈，旧 shader 在 2/3 时停在角前面（Kevin 看出来的就是这个）
+	check(absf(along_of[4] - 2.0 / 3.0) > 0.03,
+		"右上角的极角是 %.4f 而不是 0.6667 —— 直接拿极角当进度就会差这一截" % along_of[4])
+	check(src.contains("for (int i = 0; i < 6; i++)") and src.contains("/ 6.0")
+		and not src.contains("hex_squash"),
+		"shader 把每条边摊成 1/6（压扁那条老路已删）")
+
+
 	## ---- 算式 ----
 	var plain: Dictionary = g.tile(Vector2i(1, 0))
 	check(CWData.store_progress(plain) < 0.0,
@@ -9333,6 +9398,32 @@ func t_guide_no_win() -> void:
 		"正式局默认判；win_checks 不在旋钮表、也不进快照")
 	formal.dispose()
 	g.dispose()
+
+
+## 观战的两条（Kevin 2026-09-13）：大厅自己刷新、观众看得到正在行动那一席的手牌。
+func t_watch_live() -> void:
+	print("[观战：大厅刷新与手牌]")
+	## ① 大厅原来只在进页 / 离房 / 报错时问一次房间表，别人开打之后那一栏永远不出现
+	var osrc := FileAccess.get_file_as_string("res://scripts/ui/online_panel.gd")
+	check(CWOnlinePanel.LOBBY_POLL_MS > 0 and CWOnlinePanel.LOBBY_POLL_MS <= 5000
+		and osrc.contains("now - _lobby_polled >= LOBBY_POLL_MS"),
+		"大厅每 %d ms 自己要一次房间表（停在大厅也跟得上别人开打）" % CWOnlinePanel.LOBBY_POLL_MS)
+	check(osrc.contains("page == Page.LOBBY and not in_match"),
+		"只在**停在大厅**时刷：进了房间 / 对局里不刷，免得白发报文")
+	## ② 观众的手牌抽屉跟着正在行动的那一席（同回合脚标的口径）
+	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(msrc.contains("if human_players.is_empty():") and msrc.contains("_sync_hand_watch()")
+		and msrc.contains("var who := CWMatchPanel.acting_pid(game)"),
+		"没有席位时抽屉跟着 acting_pid 走（原来是直接 return，观众一张牌都看不到）")
+	## 背面档给的就是 HIDDEN_CARD，抽屉照画得出来（卡名不认识时只是不写「【类型】」那行）
+	var hnd := CWHand.new()
+	root.add_child(hnd)
+	hnd.sync(3, Vector2.INF, PackedStringArray([CWNet.HIDDEN_CARD, CWNet.HIDDEN_CARD, CWNet.HIDDEN_CARD]))
+	check(hnd.get_child_count() >= 3, "三张背面牌画得出来（%d 个子节点）" % hnd.get_child_count())
+	hnd.sync(2, Vector2.INF, PackedStringArray(["急性炎症反应", CWNet.HIDDEN_CARD]))
+	check(hnd.get_child_count() >= 2, "真牌与背面混着也画得出来（全见档换背面档的那一刻）")
+	root.remove_child(hnd)
+	hnd.free()
 
 
 ## 教程叠层（Kevin 2026-09-12 截图：「癌症A 无法复活」的气泡压在引导浮层的字上）：
@@ -17754,13 +17845,27 @@ func t_lan_discovery() -> void:
 func t_turn_mark() -> void:
 	print("[回合脚标 · 头顶指示箭]")
 	var bd := make_board()
-	## ① 箭：7 颗像素的 V 形，尖在原点、两条 1 px 斜线左右对称；拍子：每 0.5 s 在高低两位之间跳 2 px
+	## ① 箭：**双层** V（Kevin 2026-09-13 要更醒目），每层 7 颗、层距 4；左右严格对称
 	var px: Array = bd.turn_arrow_pixels()
-	var sym: bool = px.size() == 7 and px.has(Vector2i(0, 0))
+	var sym: bool = px.size() == 7 * bd.TURN_ARROW_LAYERS and px.has(Vector2i(0, 0))
+	var tips := 0
 	for p: Vector2i in px:
-		if absi(p.x) != -p.y or p.y < -3 or not px.has(Vector2i(-p.x, p.y)):
-			sym = false
-	check(sym, "箭 7 颗：尖 (0,0)，两侧 (±i,−i) i=1..3，左右对称")
+		if not px.has(Vector2i(-p.x, p.y)):
+			sym = false            ## 左右不对称：像素风的箭差一列就歪
+		if p.x == 0:
+			tips += 1
+	for layer in bd.TURN_ARROW_LAYERS:
+		var dy: int = -layer * bd.TURN_ARROW_GAP
+		if not px.has(Vector2i(0, dy)) or not px.has(Vector2i(-3, dy - 3)) or not px.has(Vector2i(3, dy - 3)):
+			sym = false            ## 每层都要有尖和两条到 ±3 的斜线
+	check(sym and tips == bd.TURN_ARROW_LAYERS and bd.TURN_ARROW_LAYERS == 2 and bd.TURN_ARROW_GAP == 4,
+		"双层箭：%d 颗像素、两个尖、层距 %d、左右对称" % [px.size(), bd.TURN_ARROW_GAP])
+	## 两层之间要留一行空 —— 贴在一起会糊成一个实心三角
+	var gap_clear := true
+	for p: Vector2i in px:
+		if p.y == -bd.TURN_ARROW_GAP + 1 and absi(p.x) <= 1:
+			gap_clear = false
+	check(gap_clear, "两层之间留着空行（糊成实心三角就不是箭了）")
 	check(bd.turn_arrow_lift(0.0) == 0 and bd.turn_arrow_lift(0.49) == 0 and bd.turn_arrow_lift(0.5) == bd.TURN_ARROW_BOB
 		and bd.turn_arrow_lift(0.99) == bd.TURN_ARROW_BOB and bd.turn_arrow_lift(1.0) == 0 and bd.TURN_ARROW_BOB == 2,
 		"拍子：0~0.5 s 低位、0.5~1 s 抬 2 px、1 s 再落 —— 画板 steps(2) 的节奏")
@@ -17787,7 +17892,7 @@ func t_turn_mark() -> void:
 	check(arrow != null and arrow.visible and arrow.color == CWStyle.CANCER
 		and arrow.z_index == bd.tile_z(c, bd.Z_CELL) + 2
 		and arrow.position == Vector2(roundf(foot.x), roundf(foot.y) - 37.0)
-		and arrow.pixels.size() == 7 and bd.get_node_or_null("TurnShadow") == null,
+		and arrow.pixels.size() == 7 * bd.TURN_ARROW_LAYERS and bd.get_node_or_null("TurnShadow") == null,
 		"箭在 Z_CELL+2；位置四舍五入到整数像素（箭尖 %s）；脚下没有影子节点" % str(arrow.position))
 	bd.set_turn_mark(c, foot, -37.0, CWStyle.CANCER, 0.6)
 	check(arrow.position.y == roundf(foot.y) - 37.0 - 2.0, "0.6 s：第二拍，箭抬 2 px")
