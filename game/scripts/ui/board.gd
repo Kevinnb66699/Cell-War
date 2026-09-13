@@ -813,23 +813,21 @@ func _film_px(img: Image, x: int, y: int, col: Color) -> void:
 ## 箭画在细胞**之上**（Z_CELL + 2，压过前后装饰）。位置由 CWMatch._sync_cells 给（它才知道细胞此刻画在哪、
 ## 贴图多高、头顶有没有冠印），这里只画。
 const TURN_ARROW_BOB := 2                          ## 跳多高（px）
-const TURN_ARROW_LAYERS := 2                       ## 几层 V（Kevin 2026-09-13 要双层）
-const TURN_ARROW_GAP := 4                          ## 层与层的间距：4 = 一层高（3）+ 一行空
+const TURN_ARROW_THICK := 2                        ## 箭的线粗几 px（Kevin 2026-09-13：「把箭头加厚」）
 const TURN_ARROW_PERIOD := 0.5                     ## 每拍多久：低位、高位各停半秒
 
 
-## 箭的像素（相对**下面那层**的箭尖，y 向上为负）：**双层 V**（Kevin 2026-09-13：
-## 「改成双层箭头，这样显示效果更明显」）。一层是尖 + 两条 1 px 斜线共 7 颗，
-## 第二层整体上移 TURN_ARROW_GAP，于是读成「⌄ 叠在 ⌄ 上」，比单层醒目得多。
-## 两层之间留一行空：贴在一起会糊成一个实心三角。**纯函数**
+## 箭的像素（相对箭尖，y 向上为负）：一个 V，线**粗 TURN_ARROW_THICK 像素**
+## （Kevin 2026-09-13：「把箭头加厚」—— 1 px 的细线在棋盘上太不起眼）。
+## 加粗的方向是**往上叠**：每多一层就整条往上挪一格，于是箭尖始终是最低那一颗，
+## `turn_tip_dy` 那套「箭尖离胞体几行」的算法一个字都不用改。**纯函数**
 static func turn_arrow_pixels() -> Array:
 	var out: Array = []
-	for layer in TURN_ARROW_LAYERS:
-		var dy: int = -layer * TURN_ARROW_GAP
-		out.append(Vector2i(0, dy))
+	for k in TURN_ARROW_THICK:
+		out.append(Vector2i(0, -k))
 		for i in range(1, 4):
-			out.append(Vector2i(-i, dy - i))
-			out.append(Vector2i(i, dy - i))
+			out.append(Vector2i(-i, -i - k))
+			out.append(Vector2i(i, -i - k))
 	return out
 
 

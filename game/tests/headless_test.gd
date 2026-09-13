@@ -17845,27 +17845,22 @@ func t_lan_discovery() -> void:
 func t_turn_mark() -> void:
 	print("[回合脚标 · 头顶指示箭]")
 	var bd := make_board()
-	## ① 箭：**双层** V（Kevin 2026-09-13 要更醒目），每层 7 颗、层距 4；左右严格对称
+	## ① 箭：一个 V，线粗 TURN_ARROW_THICK（Kevin 2026-09-13「把箭头加厚」）；左右严格对称
 	var px: Array = bd.turn_arrow_pixels()
-	var sym: bool = px.size() == 7 * bd.TURN_ARROW_LAYERS and px.has(Vector2i(0, 0))
-	var tips := 0
+	var sym: bool = px.size() == 7 * bd.TURN_ARROW_THICK and px.has(Vector2i(0, 0))
 	for p: Vector2i in px:
 		if not px.has(Vector2i(-p.x, p.y)):
 			sym = false            ## 左右不对称：像素风的箭差一列就歪
-		if p.x == 0:
-			tips += 1
-	for layer in bd.TURN_ARROW_LAYERS:
-		var dy: int = -layer * bd.TURN_ARROW_GAP
-		if not px.has(Vector2i(0, dy)) or not px.has(Vector2i(-3, dy - 3)) or not px.has(Vector2i(3, dy - 3)):
-			sym = false            ## 每层都要有尖和两条到 ±3 的斜线
-	check(sym and tips == bd.TURN_ARROW_LAYERS and bd.TURN_ARROW_LAYERS == 2 and bd.TURN_ARROW_GAP == 4,
-		"双层箭：%d 颗像素、两个尖、层距 %d、左右对称" % [px.size(), bd.TURN_ARROW_GAP])
-	## 两层之间要留一行空 —— 贴在一起会糊成一个实心三角
-	var gap_clear := true
+	for k in bd.TURN_ARROW_THICK:
+		if not px.has(Vector2i(0, -k)) or not px.has(Vector2i(-3, -3 - k)) or not px.has(Vector2i(3, -3 - k)):
+			sym = false            ## 每一层都是完整的一条 V（尖 + 两条到 ±3 的斜线）
+	check(sym and bd.TURN_ARROW_THICK == 2,
+		"加厚的箭：%d 颗像素、线粗 %d、左右对称" % [px.size(), bd.TURN_ARROW_THICK])
+	## 箭尖必须是**最低**那一颗：加厚往上叠，`turn_tip_dy` 那套「箭尖离胞体几行」才不用跟着改
+	var lowest := -99
 	for p: Vector2i in px:
-		if p.y == -bd.TURN_ARROW_GAP + 1 and absi(p.x) <= 1:
-			gap_clear = false
-	check(gap_clear, "两层之间留着空行（糊成实心三角就不是箭了）")
+		lowest = maxi(lowest, p.y)
+	check(lowest == 0, "箭尖仍是最低那一颗（加厚往上叠，不往下长）")
 	check(bd.turn_arrow_lift(0.0) == 0 and bd.turn_arrow_lift(0.49) == 0 and bd.turn_arrow_lift(0.5) == bd.TURN_ARROW_BOB
 		and bd.turn_arrow_lift(0.99) == bd.TURN_ARROW_BOB and bd.turn_arrow_lift(1.0) == 0 and bd.TURN_ARROW_BOB == 2,
 		"拍子：0~0.5 s 低位、0.5~1 s 抬 2 px、1 s 再落 —— 画板 steps(2) 的节奏")
@@ -17892,7 +17887,7 @@ func t_turn_mark() -> void:
 	check(arrow != null and arrow.visible and arrow.color == CWStyle.CANCER
 		and arrow.z_index == bd.tile_z(c, bd.Z_CELL) + 2
 		and arrow.position == Vector2(roundf(foot.x), roundf(foot.y) - 37.0)
-		and arrow.pixels.size() == 7 * bd.TURN_ARROW_LAYERS and bd.get_node_or_null("TurnShadow") == null,
+		and arrow.pixels.size() == 7 * bd.TURN_ARROW_THICK and bd.get_node_or_null("TurnShadow") == null,
 		"箭在 Z_CELL+2；位置四舍五入到整数像素（箭尖 %s）；脚下没有影子节点" % str(arrow.position))
 	bd.set_turn_mark(c, foot, -37.0, CWStyle.CANCER, 0.6)
 	check(arrow.position.y == roundf(foot.y) - 37.0 - 2.0, "0.6 s：第二拍，箭抬 2 px")
