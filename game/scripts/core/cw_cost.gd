@@ -318,10 +318,7 @@ func commit(ctx: Dictionary) -> Dictionary:
 		return {}
 	var actor: Dictionary = ctx["actor"]
 	actor["energy"] -= int(q["final"])
-	for c in q["consume_on_commit"]:
-		_consume(actor, c)
-	for name in q["usage_marks"]:
-		game.first_this_turn(actor, name)
+	burn_allowances(actor, q)
 	for s in q["breakdown"]:
 		if s["before"] != s["after"] or s["note"] != "":
 			game.log_msg("　【%s】%s" % [s["name"], _describe(s)])
@@ -560,6 +557,18 @@ static func _take(m: Dictionary, consume: Array, marks: Array) -> void:
 				marks.append(m["name"])
 		Store.MOD, Store.EVENT_FREE:
 			consume.append({ "name": m["name"], "store": m["store"] })
+
+
+## 把 quote() 说的**额度**真花掉：限次修饰（mods / 世界事件的免费首移）与闸门（fx_turn）。
+## 不碰能量、不写日志 —— commit 扣完钱调它，**规划器也调它**：
+## `CWActions.quote_path` 要逐步预演，不然每一步都以为自己是「第一次」，
+## 装着【组织驻留】时整条路线的价钱全显示 0.0（issue #35）。
+## 规划器负责事后把这三样原样放回（见那边的 `_spend_snapshot` / `_restore_spend`）。
+func burn_allowances(actor: Dictionary, q: Dictionary) -> void:
+	for c in q["consume_on_commit"]:
+		_consume(actor, c)
+	for name in q["usage_marks"]:
+		game.first_this_turn(actor, name)
 
 
 func _consume(actor: Dictionary, c: Dictionary) -> void:

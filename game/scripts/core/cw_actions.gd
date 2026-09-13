@@ -132,6 +132,7 @@ func immune_move_options(cell: Dictionary) -> Array:
 ##   · gained 全程从核心拿到的能量合计（`total` 仍是纯花费，两者不相抵）
 func quote_path(cell: Dictionary, path: Array) -> Dictionary:
 	var saved_pos: Vector2i = cell["pos"]
+	var spent := _spend_snapshot(cell)   ## 额度预演前的样子（issue #35），算完原样放回
 	var saved: Array = []          ## [[坐标, 动之前的组织字段]]，逆序放回
 	var steps: Array = []
 	var budget: int = cell["energy"]
@@ -140,6 +141,7 @@ func quote_path(cell: Dictionary, path: Array) -> Dictionary:
 	var stop := -1
 	for i in path.size():
 		var to: Vector2i = path[i]
+		var q := {}
 		var mid := pass_through_mid(cell, to)
 		var occupied: bool = not game.cells_at(to).is_empty()
 		var legal: bool = _is_move_legal_now(cell, to) and not occupied
@@ -154,7 +156,10 @@ func quote_path(cell: Dictionary, path: Array) -> Dictionary:
 			if blocked == "":
 				blocked = "走不到这一格"
 		else:
-			cost = _move_cost_mod(cell, to, _move_base_cost(cell, to))
+			## **整份报价**留着：走得成的话下面要按它把额度预演掉（issue #35）
+			q = game.cost.quote(CWCost.context(cell, CWCost.Action.MOVE,
+				_move_base_cost(cell, to), to))
+			cost = int(q["final"])
 			## 判据走 CWCost.affordable，**别在这儿自己写比较** —— 付完至少要留 0.1，
 			## 而这里比的是「走到这一步时的余额」而不是细胞此刻的能量，所以用静态版。
 			if not CWCost.affordable(budget, cost):
@@ -170,6 +175,10 @@ func quote_path(cell: Dictionary, path: Array) -> Dictionary:
 			break
 		budget -= cost
 		total += cost
+		## 这一步花掉的**额度**也要预演（issue #35）：【组织驻留】那类「前 N 次免费」、
+		## 限次修饰、世界事件的免费首移。不预演的话第二步照样算自己是第一次，
+		## 整条路线的价钱全是 0.0。事后由 _restore_spend 原样放回
+		game.cost.burn_allowances(cell, q)
 		## 走过去：位置动，脚下组织按【定殖】/【净化】翻面（enter_tile 里那两条，同样的条件）
 		var t: Dictionary = game.tile(to)
 		saved.append([to, _price_fields(t)])
@@ -189,12 +198,40 @@ func quote_path(cell: Dictionary, path: Array) -> Dictionary:
 		cell["pos"] = to
 	## 原样放回（逆序：同一格可能被走过两次）
 	cell["pos"] = saved_pos
+	_restore_spend(cell, spent)
 	for k in range(saved.size() - 1, -1, -1):
 		var t2: Dictionary = game.tile(saved[k][0])
 		for key: String in saved[k][1]:
 			t2[key] = saved[k][1][key]
 	return { "steps": steps, "total": total, "gained": gained,
 		"ok": stop < 0, "left": budget, "stop": stop }
+
+
+## 规划器预演「额度」时会动的三样东西，先存一份（issue #35）：
+##   · `fx_turn`  「本行动回合前 N 次」的闸门（【组织驻留】就住这儿）
+##   · `mods`     限次修饰条目（用尽会被 CWCost 删掉，所以要深拷）
+##   · 世界事件【迁移激活】的免费首移：记在事件数据里、按细胞 id
+## 纯查询的契约在这儿最容易破 —— 光是把路拖过去看一眼就把玩家的免费额度烧了。
+func _spend_snapshot(cell: Dictionary) -> Dictionary:
+	var free_used := false
+	for e in game.events["active"]:
+		if e["name"] == "迁移激活":
+			free_used = e["data"].has(cell["id"])
+	return {
+		"fx_turn": (cell["fx_turn"] as Dictionary).duplicate(true),
+		"mods": (cell["mods"] as Array).duplicate(true),
+		"free_used": free_used,
+	}
+
+
+func _restore_spend(cell: Dictionary, snap: Dictionary) -> void:
+	cell["fx_turn"] = snap["fx_turn"]
+	cell["mods"] = snap["mods"]
+	if bool(snap["free_used"]):
+		return
+	for e in game.events["active"]:
+		if e["name"] == "迁移激活":
+			e["data"].erase(cell["id"])
 
 
 ## 规划器预演时会动、算完要原样放回的组织字段。

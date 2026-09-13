@@ -42,6 +42,10 @@ var _active := false
 ##
 ## 比的是**贴地的椭圆**：等距棋盘上纵向被压扁了（同 ground_ring 的 SQUASH），
 ## 不换算的话上下那两圈会比左右晚半拍才铺上。
+func active() -> bool:
+	return _active
+
+
 func pending(p: Vector2) -> bool:
 	if not _active:
 		return false

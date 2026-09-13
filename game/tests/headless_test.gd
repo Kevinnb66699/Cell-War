@@ -121,7 +121,7 @@ func _run_all() -> void:
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_board_small, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
-		t_card_name_fit, t_view_blend, t_guide_quiet, t_guide_no_win, t_attack_fx, t_issue31_fx, t_announce, t_action_bar_width,
+		t_card_name_fit, t_view_blend, t_guide_quiet, t_guide_no_win, t_attack_fx, t_issue31_fx, t_plan_allowance, t_announce, t_action_bar_width,
 		t_buttons_dim, t_enter_not_skipped, t_main_menu, t_guide_data,
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
@@ -9075,6 +9075,60 @@ func t_hand() -> void:
 ## 这一条盯的是「两端都对、中间不对」——最难查的那类动画错。
 ## 直接插相机的 position 和 zoom，起点终点都严丝合缝，唯独途中取景会游走；
 ## 而这只有真的盯着动画看才觉得「不好看」，说不清哪儿不对（团队试玩报的就是这个）。
+## issue #35：规划路径要**逐步预演额度**。装着【组织驻留】（本行动回合前 2 次向健康组织迁移免费）时，
+## 原来每一步都各自问一次价、每一步都以为自己是「第一次」，于是整条路线的价钱全是 0.0。
+## 顺带 issue #34：破裂时只有**这次新铺**的黏液跟着液浪出现，之前就在地上的照画。
+func t_plan_allowance() -> void:
+	print("[规划路径 · 额度预演（issue #35）与黏液新旧（#34）]")
+	var g := bare_game()
+	var c := put_immune(g, Vector2i.ZERO)
+	c["equipped"].append("组织驻留")
+	c["equip_seq"]["组织驻留"] = 1
+	## 三步都走健康组织，路上不碰特殊组织（核心 / 骨髓 / 血管的坐标见 CWData）
+	var path: Array = [Vector2i(1, 0), Vector2i(1, -1), Vector2i(1, -2)]
+	var plan: Dictionary = g.actions.quote_path(c, path)
+	var steps: Array = plan["steps"]
+	var free_uses: int = CWCost.GATE_USES.get("组织驻留", 1)
+	check(steps.size() == 3 and int(steps[0]["cost"]) == 0 and int(steps[1]["cost"]) == 0
+		and int(steps[2]["cost"]) > 0,
+		"前 %d 步吃掉免费额度、第 %d 步照价 %s（原来整条都是 0.0）" % [
+			free_uses, free_uses + 1, CWData.fmt(int(steps[2]["cost"]))])
+	check(int(plan["total"]) == int(steps[2]["cost"]),
+		"总价 = 只有超出额度的那几步（%s）" % CWData.fmt(int(plan["total"])))
+	## **纯查询的契约**：光看一眼不能把额度烧掉
+	check(not c["fx_turn"].has("组织驻留") and c["pos"] == Vector2i.ZERO,
+		"算完原样放回：闸门没被烧、细胞没挪窝")
+	## 真走一步之后再规划：额度只剩一次，所以第二步起就要钱了
+	await g.actions.execute(c, { "act": "move", "to": Vector2i(1, 0),
+		"cost": g.actions._move_cost_mod(c, Vector2i(1, 0), g.actions._move_base_cost(c, Vector2i(1, 0))) })
+	check(int(c["fx_turn"].get("组织驻留", 0)) == 1, "真走一步：闸门记账 1 次")
+	var plan2: Dictionary = g.actions.quote_path(c, [Vector2i(1, -1), Vector2i(1, -2)])
+	check(int((plan2["steps"][0] as Dictionary)["cost"]) == 0
+		and int((plan2["steps"][1] as Dictionary)["cost"]) > 0,
+		"再规划：只剩一次免费额度，规划器跟着少算一次")
+	g.dispose()
+	## issue #34：破裂时的黏液新旧判定（纯函数）
+	var before := { Vector2i(5, 0): true }
+	check(CWMatch.mucus_shown_now(Vector2i(5, 0), before, true)
+		and not CWMatch.mucus_shown_now(Vector2i(6, 0), before, true)
+		and CWMatch.mucus_shown_now(Vector2i(6, 0), before, false)
+		and CWMatch.mucus_shown_now(Vector2i(6, 0), {}, false),
+		"破裂之前就在地上的照画；这次新铺的等液浪走到才画")
+	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(msrc.contains("_mucus_before = _mucus_shown.duplicate()")
+		and msrc.contains("mucus_shown_now(c, _mucus_before"),
+		"开演那一帧拍下「已经在地上的」，之后每帧按它分新旧")
+	var mf := CWMucusFx.new()
+	root.add_child(mf)
+	check(not mf.active(), "没在演 → active 假")
+	mf.play(Vector2(0, 0))
+	check(mf.active(), "开演 → active 真（CWMatch 靠它抓「刚开演」那一帧）")
+	mf.sync(CWMucusFx.TOTAL)
+	check(not mf.active(), "演完 → active 假")
+	root.remove_child(mf)
+	mf.free()
+
+
 ## issue #31（Kevin 2026-09-13）的四条演出改动，逐条钉住「改成了什么」。
 func t_issue31_fx() -> void:
 	print("[issue #31 · 四条演出]")

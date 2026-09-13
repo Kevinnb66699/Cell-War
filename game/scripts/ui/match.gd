@@ -307,6 +307,9 @@ var _chemo_track_fx: CWChemoFx
 var _mark_aura_fx: CWMarkAuraFx  ## 树突【I-标记】光环范围的常驻粒子（同上，也挂棋盘层）
 var _hunt_fx: CWHuntFx         ## 免疫猎杀捕获准星
 var _mucus_fx: CWMucusFx       ## 印戒【黏液破裂】的引爆
+var _mucus_shown := {}         ## 上一帧真画出来的黏液格（issue #34：破裂时用来分新旧）
+var _mucus_before := {}        ## 这次破裂开演之前就在地上的那些：它们不跟着液浪重铺
+var _mucus_bursting := false   ## 上一帧破裂在不在演（只在「刚开演」那一帧拍快照）
 var _beam_fx: CWBeamFx         ## T【Excalibur】的双螺旋光束
 var _chain_fx: CWChainFx       ## 巨噬【连续吞噬】的每一口
 var _skill_fx: CWSkillFx       ## 一次性技能演出的合集（issue #15）
@@ -1302,6 +1305,14 @@ func _sync_tiles() -> void:
 	var marks := {}
 	var mucus: Array[Vector2i] = []
 	var necro: Array[Vector2i] = []
+	## 破裂开演的**那一帧**把「已经在地上的」记下来：液浪只管这次新铺的那一圈（issue #34）。
+	## 记的是上一帧真画出来的那批 —— 引擎这一帧已经把新格标成黏液了，现读就分不出新旧
+	var bursting: bool = _mucus_fx != null and _mucus_fx.active()
+	if bursting and not _mucus_bursting:
+		_mucus_before = _mucus_shown.duplicate()
+	elif not bursting and _mucus_bursting:
+		_mucus_before.clear()
+	_mucus_bursting = bursting
 	for c: Vector2i in game.tiles:
 		var t: Dictionary = game.tiles[c]
 		## 癌蔓延过场（侵蚀 / 增生 / 定殖共用）：引擎早就把这一格翻成癌了，但玩家还没看见「癌是从哪边漫过来的」。
@@ -1325,9 +1336,10 @@ func _sync_tiles() -> void:
 		board.set_store(c, CWData.store_progress(t), int(t["special"]), tissue)
 		## 黏液侵染：**覆膜是一层贴图，不走色标**（见 CWBoard.set_mucus）——
 		## 选稿那句「保留底层组织识别」用色标做不到，色标会把整格染成一个颜色
-		## 黏液破裂正在往外推时，液浪没到的格先不画（issue #31：由里往外铺，不是一炸就整片贴上）
-		if bool(t.get("mucus", false)) \
-				and not (_mucus_fx != null and _mucus_fx.pending(board.tile_center(c))):
+		## 黏液破裂正在往外推时，液浪没到的**新**格先不画（issue #31 由里往外铺；
+		## issue #34：破裂之前就在地上的整张图照画 —— 原来一炸全图黏液都消失，等演完才回来）
+		if bool(t.get("mucus", false)) and mucus_shown_now(c, _mucus_before,
+				_mucus_fx != null and _mucus_fx.pending(board.tile_center(c))):
 			mucus.append(c)
 		## 坏死：整格灰褐纹理（issue #15），此前根本没画
 		if int(t.get("necrosis", 0)) > 0:
@@ -1344,7 +1356,16 @@ func _sync_tiles() -> void:
 		marks.merge(bridge.marks, true)
 	board.set_marks(marks)
 	board.set_mucus(mucus)
+	_mucus_shown.clear()
+	for c: Vector2i in mucus:
+		_mucus_shown[c] = true
 	board.set_necrosis(necro)
+
+
+## 这一格的黏液这一帧画不画（issue #34）：破裂之前就在地上的照画，
+## 这次新铺的才跟着液浪由里往外出现（`pending` = 液浪还没推到这儿）。**纯函数**
+static func mucus_shown_now(c: Vector2i, before: Dictionary, pending: bool) -> bool:
+	return before.has(c) or not pending
 
 
 ## 回合脚标挂在谁头上、什么色：没人在动（结算演出中）、动的那席还没细胞（落子）、细胞已死（复活中）→ 空。
