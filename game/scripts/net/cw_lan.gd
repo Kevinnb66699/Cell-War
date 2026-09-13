@@ -27,6 +27,11 @@ var _senders: Array = []              ## 房主那几只：[{ udp, directed }]�
 var _dest := BROADCAST
 var _beacon := PackedByteArray()
 var _last_sent := -INTERVAL_MS
+## 广播包的原料（`set_live` 要按新的局数重打一份）
+var _port := 0
+var _nick := ""
+var _ver := 0
+var _live := 0
 var found := {}               ## "ip:port" -> { ip, port, nick, ver, seen }
 
 
@@ -49,8 +54,11 @@ static func directed_of(ip: String) -> String:
 	return "%s.%s.%s.255" % [b[0], b[1], b[2]] if b.size() == 4 else ""
 
 
-static func make_beacon(port: int, nick: String, ver: int) -> PackedByteArray:
-	return var_to_bytes({ "t": MAGIC, "port": port, "nick": nick, "ver": ver })
+## `live` = 这台机器上**正在打、还能进观众**的局数（2026-09-13 观战开回来）。
+## 广播里带上它，连接页的「附近」就能直接标出「有得看」，不必先连上去才知道。
+## 老版本的包没有这个键 → 读出来是 0 = 「没有在打的」，正好是加它之前的样子。
+static func make_beacon(port: int, nick: String, ver: int, live: int = 0) -> PackedByteArray:
+	return var_to_bytes({ "t": MAGIC, "port": port, "nick": nick, "ver": ver, "live": live })
 
 
 ## 收到的一包 → 条目；不是我们的、形状不对 → 空字典。**纯函数**。
@@ -63,8 +71,9 @@ static func parse_beacon(bytes: PackedByteArray, ip: String, now: int) -> Dictio
 	var port: Variant = v.get("port", 0)
 	if not (port is int) or int(port) < 1024 or int(port) > 65535:
 		return {}
+	var live: Variant = v.get("live", 0)
 	return { "ip": ip, "port": int(port), "nick": CWNet.clean_nick(v.get("nick", "")),
-		"ver": int(v.get("ver", 0)), "seen": now }
+		"ver": int(v.get("ver", 0)), "live": int(live) if live is int else 0, "seen": now }
 
 
 ## TTL 之内没再听到的条目摘掉。**纯函数**（返回新字典）。
@@ -79,6 +88,10 @@ static func prune(entries: Dictionary, now: int) -> Dictionary:
 ## 房主：每块网卡各起一只发送口（见文件头）。dest 让测试能指回环 —— 那时一只不 bind 的就够。
 func start_host(port: int, nick: String, ver: int = CWNet.NET_VERSION, dest: String = BROADCAST) -> Error:
 	stop()
+	_port = port
+	_nick = nick
+	_ver = ver
+	_live = 0
 	_beacon = make_beacon(port, nick, ver)
 	_last_sent = -INTERVAL_MS
 	_dest = dest
@@ -101,6 +114,15 @@ func start_host(port: int, nick: String, ver: int = CWNet.NET_VERSION, dest: Str
 		u.set_broadcast_enabled(true)
 		_senders.append({ "udp": u, "directed": "" })
 	return OK
+
+
+## 开着服的这台机器此刻有几局能看（`CWOnlinePanel._process` 每帧喂）。
+## 变了才重打包 —— 包是一秒发一次的定长内容，没变就别每帧 `var_to_bytes` 一遍。
+func set_live(n: int) -> void:
+	if n == _live or _beacon.is_empty():
+		return
+	_live = n
+	_beacon = make_beacon(_port, _nick, _ver, n)
 
 
 func poll_host(now: int) -> void:

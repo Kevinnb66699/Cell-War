@@ -29,6 +29,9 @@ var timer_secs := 60            ## 每次决策的秒数，0 = 不限
 ## **只存在房间这一份**：开局时喂给 `game.tune`，之后随快照下发给客户端 ——
 ## 客户端的影子对局据此判断该不该等事件，不必自己收一份设置。
 var world_events := true
+## 观众能不能看到所有人的手牌（Kevin 2026-09-13 定的上帝视角档）。房主建房时拨，整局有效。
+## 默认 **false = 背面**，和这个开关加进来之前的行为一致；老客户端建的房也落在这一档。
+var watch_hands := false
 var player_count := 4
 var seed_override := 0          ## 非 0 则每局用这个种子（测试用）
 var seats: Array = []           ## 下标 = pid，元素见 empty_seat()
@@ -71,13 +74,14 @@ static func ai_seat(tier: String) -> Dictionary:
 
 
 func configure(p_server: CWNetServer, p_code: String, players: int, timer: int,
-		p_public: bool, p_world_events: bool = true) -> void:
+		p_public: bool, p_world_events: bool = true, p_watch_hands: bool = false) -> void:
 	server = p_server
 	code = p_code
 	player_count = players
 	timer_secs = timer
 	public = p_public
 	world_events = p_world_events
+	watch_hands = p_watch_hands
 	seats = []
 	for i in players:
 		seats.append(empty_seat())
@@ -617,7 +621,7 @@ func push_state(turn_pid: int) -> void:
 	for cid in members.keys():
 		var pid := pid_of_client(cid)
 		if pid < 0 and watcher_view.is_empty():
-			watcher_view = CWNet.view_for(game, -1)
+			watcher_view = CWNet.view_for_watcher(game, watch_hands)
 		push_state_to(cid, turn_pid, h, watcher_view if pid < 0 else {})
 
 
@@ -627,7 +631,8 @@ func push_state_to(cid: int, turn_pid: int, h: String = "", ready_view: Dictiona
 		return
 	var pid := pid_of_client(cid)
 	var from: int = _log_cursor.get(cid, 0)
-	var lines := CWNet.logs_for(game, pid, from)
+	## 观众在「全见」那一档连秘密行也照实给 —— 手牌都露着了，日志再遮就自相矛盾
+	var lines := CWNet.logs_for(game, pid, from, pid < 0 and watch_hands)
 	_log_cursor[cid] = game.logs.size()
 	var view: Dictionary = ready_view if not ready_view.is_empty() else CWNet.view_for(game, pid)
 	server.send(cid, { "t": "state", "view": view, "logs": lines,
@@ -651,7 +656,7 @@ func view_for(cid: int) -> Dictionary:
 	for c in members:
 		names.append(members[c])
 	return { "t": "room", "code": code, "public": public, "timer": timer_secs, "players": player_count,
-		"world_events": world_events,
+		"world_events": world_events, "watch_hands": watch_hands,
 		"state": "playing" if state == State.PLAYING else "waiting",
 		"host": members.get(host, ""), "you_host": cid == host, "you_seat": my_pid,
 		"token": seats[my_pid]["token"] if my_pid >= 0 else "",
@@ -674,5 +679,5 @@ func summary() -> Dictionary:
 			humans += 1
 	return { "code": code, "players": player_count, "seated": seated, "humans": humans,
 		"timer": timer_secs, "world_events": world_events, "host": members.get(host, ""),
-		"watchers": watchers(), "watch_max": MAX_WATCHERS,
+		"watchers": watchers(), "watch_max": MAX_WATCHERS, "watch_hands": watch_hands,
 		"state": "playing" if state == State.PLAYING else "waiting" }

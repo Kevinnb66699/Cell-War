@@ -114,7 +114,10 @@ extends RefCounted
 ## v18（2026-09-13）：issue #33 —— 树突【I-趋化源】按新 PRD 重做：2.0 → **3.0** 能量、
 ##   「持续 2 世界回合」→「持续 **1 完整回合**」（建立者下个行动回合前消失）、消失后本人冷却 1 世界回合。
 ##   细胞字典多了 `chemo_cd` 字段（快照形状变了），时长口径也换了时钟，老客户端跟着算会分叉。
-const NET_VERSION := 18
+## v19（2026-09-13）：观战开回来 —— 房间多一个「观众视角」开关（`watch_hands`，房主建房时拨）。
+##   开着时观众收到的快照带真手牌、日志也不换替身；`create_room` / `room` / `lobby` 三处报文各多一个字段。
+##   局面推进没变，但报文形状变了：老客户端读不到这个字段，会把房间当成「观众看背面」那一档。
+const NET_VERSION := 19
 
 ## 一条聊天最多多少字。定这个数不是怕刷屏（那有 RATE_PER_SEC 管），
 ## 是**排版**：聊天行和大厅房间行共用同一条定宽，超了就是省略号，
@@ -236,6 +239,27 @@ static func error_text(code: String) -> String:
 	return ERRORS.get(code, code)
 
 
+## 观众（没坐下的人）看到的对局。`open_hands` = 房主建房时开了「观众全见」
+## （Kevin 2026-09-13 选的上帝视角档）：手牌照实给，日志也不再换替身（见 logs_for）。
+## 没开就是老规矩 —— 所有人的手牌都是背面。
+##
+## **rng 和待决选项无论开不开都要剥掉**：前者让人算得出下一张牌，后者是「某人正在选什么」——
+## 观众看的是盘面，不该提前看到还没落下的那一手。
+static func view_for_watcher(game: CWGame, open_hands: bool) -> Dictionary:
+	var v := game.snapshot()
+	v["rng"] = 0
+	if not open_hands:
+		for c in v["cells"]:
+			var hidden: Array = []
+			for i in c["hand"].size():
+				hidden.append(HIDDEN_CARD)
+			c["hand"] = hidden
+	var p: Dictionary = v["pending"]
+	if not p.is_empty():
+		v["pending"] = { "kind": p["kind"], "pid": p["pid"], "prompt": p.get("prompt", ""), "options": [] }
+	return v
+
+
 ## 某个席位看到的对局：rng 去掉、他人手牌占位、他人的待决选项去掉。pid=-1 = 没坐下的人。
 static func view_for(game: CWGame, pid: int) -> Dictionary:
 	var v := game.snapshot()
@@ -252,12 +276,14 @@ static func view_for(game: CWGame, pid: int) -> Dictionary:
 	return v
 
 
-## 从第 from 行起的对局日志，秘密行（别人抽到什么牌）换成公开替身
-static func logs_for(game: CWGame, pid: int, from: int) -> PackedStringArray:
+## 从第 from 行起的对局日志，秘密行（别人抽到什么牌）换成公开替身。
+## `open` = 全见（房主开了观众上帝视角的那档观众）：秘密行也照实给 ——
+## 手牌都看得见了，日志还说「抽了一张牌」只会自相矛盾。
+static func logs_for(game: CWGame, pid: int, from: int, open := false) -> PackedStringArray:
 	var out: PackedStringArray = []
 	for i in range(from, game.logs.size()):
 		var who: int = game.log_secret[i] if i < game.log_secret.size() else -1
-		if who < 0 or who == pid:
+		if open or who < 0 or who == pid:
 			out.append(game.logs[i])
 		else:
 			out.append(game.log_public[i])

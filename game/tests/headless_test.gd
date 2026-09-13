@@ -126,7 +126,7 @@ func _run_all() -> void:
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
-		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_turn_mark, t_online_glow, t_match_online,
+		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_turn_mark, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -16275,6 +16275,50 @@ func t_net_watch() -> void:
 	check(peeked == 0, "所有人的手牌都是背面（一张都不许露，%d 张露了）" % peeked)
 	check(int(view["rng"]) == 0, "rng 照旧去掉（观众也不能算下一张牌）")
 
+	## ---- 上帝视角档：房主开了「观众全见」，观众收到真手牌、日志也不换替身 ----
+	## 纯函数先核两档，再核真的推下去的那一份（护栏要钉的是「房间把开关传对了」）
+	var g: CWGame = r.game
+	## 第 1 世界回合还没人抽过牌，塞一张再比 —— 不然「全见档全给」比的是 0 张，等于没比
+	g.cells[0]["hand"] = ["急性炎症反应"]
+	var shut: Dictionary = CWNet.view_for_watcher(g, false)
+	var open_v: Dictionary = CWNet.view_for_watcher(g, true)
+	var shut_cards := 0
+	var open_cards := 0
+	for cell: Dictionary in shut["cells"]:
+		for card in cell["hand"]:
+			if String(card) != CWNet.HIDDEN_CARD:
+				shut_cards += 1
+	for cell: Dictionary in open_v["cells"]:
+		for card in cell["hand"]:
+			if String(card) != CWNet.HIDDEN_CARD:
+				open_cards += 1
+	var real_cards := 0
+	for cell: Dictionary in g.cells:
+		real_cards += (cell["hand"] as Array).size()
+	check(shut_cards == 0 and open_cards == real_cards and real_cards > 0,
+		"两档：背面档一张不露，全见档 %d 张全给" % open_cards)
+	check(int(open_v["rng"]) == 0 and (open_v["pending"] as Dictionary).get("options", [1]).is_empty(),
+		"全见档也照样剥掉 rng 与待决选项（看盘面，不看还没落下的那一手）")
+	## 日志：秘密行（谁抽到什么牌）在全见档照实给
+	g.log_msg("【测试】秘密行", 0, "【测试】有人抽了一张牌")   ## 秘密行：三个数组由 log_msg 一起维护
+	var shut_lines := CWNet.logs_for(g, -1, g.logs.size() - 1)
+	var open_lines := CWNet.logs_for(g, -1, g.logs.size() - 1, true)
+	check(String(shut_lines[0]) != String(open_lines[0]) and String(open_lines[0]) == "【测试】秘密行",
+		"日志：背面档换替身、全见档照实（%s ／ %s）" % [shut_lines[0], open_lines[0]])
+	## 房间把开关传下去：开了之后观众那一份就带真手牌
+	r.watch_hands = true
+	r.push_state(0)
+	ok = await _net_pump(srv, [a, b, c], func() -> bool:
+		for cell: Dictionary in _net_last(c, "state")["view"]["cells"]:
+			for card in cell["hand"]:
+				if String(card) != CWNet.HIDDEN_CARD:
+					return true
+		return false)
+	check(ok, "房主开了全见 → 观众这一份带真手牌（房间把开关传对了）")
+	check(bool(r.summary().get("watch_hands", false)) and bool(r.view_for(0).get("watch_hands", false)),
+		"大厅行与等待室视图都带着这个开关（进不进去看得到）")
+	r.watch_hands = false
+
 	## ---- 观众满了要拒 ----
 	## 塞满员表：没坐席位的 cid 就算观众（pid_of_client 返回 -1）
 	for i in CWRoom.MAX_WATCHERS:
@@ -17454,6 +17498,65 @@ func t_match_online() -> void:
 
 
 ## 局域网开服（Kevin 2026-09-12）：本进程里起服务器、自己经回环连上、端口被占要报错、离开就停
+## 观战开回来（2026-09-13）：建房页多一行「观众视角」、局域网「附近」标出有几局能看。
+func t_watch_entry() -> void:
+	print("[观战入口]")
+	check(CWMatch.WATCH_ON, "大厅「进行中 · 可观战」那一栏开着")
+	## ① 建房页：五行，最后一行是观众视角；两档文案、拨值、传给 create_room
+	var p := CWOnlinePanel.new()
+	root.add_child(p)
+	check(CWOnlinePanel.N_CREATE_ROWS == 5 and CWOnlinePanel.CREATE_ROWS.size() == 5
+		and String(CWOnlinePanel.CREATE_ROWS[4]) == "观众视角", "建房页五行，末行「观众视角」")
+	## 排得下：五行按 CREATE_ROW_H 摆完，最后一行的底不能压到「建房」按钮
+	var last_bottom: float = CWOnlinePanel.ROW_Y0 + 4.0 * CWOnlinePanel.CREATE_ROW_H + CWStyle.SIZE_BODY
+	check(last_bottom < CWOnlinePanel.BTN_Y,
+		"五行排得下：末行底 %d < 建房按钮顶 %d" % [int(last_bottom), int(CWOnlinePanel.BTN_Y)])
+	check(not bool(p._create["watch_hands"]), "默认背面 —— 露手牌得房主自己拨")
+	var shut_text: String = p._create_value_text(4)
+	p._cycle_create(4, 1)
+	var open_text: String = p._create_value_text(4)
+	check(bool(p._create["watch_hands"]) and shut_text != open_text
+		and open_text.contains("全见") and shut_text.contains("背面"),
+		"拨一下换档：%s → %s" % [shut_text, open_text])
+	p._cycle_create(4, 1)
+	check(not bool(p._create["watch_hands"]), "再拨回来")
+	var osrc := FileAccess.get_file_as_string("res://scripts/ui/online_panel.gd")
+	check(osrc.contains('_create["world_events"], _create["watch_hands"])'),
+		"建房时把这一档发给服务器（漏了就永远是背面）")
+	root.remove_child(p)
+	p.free()
+	## ② 局域网「附近」：广播带「几局能看」，行里标出来；版本不符不标
+	var CWLan := preload("res://scripts/net/cw_lan.gd")   ## 没有 class_name（要走热更），现取
+	var beacon := CWLan.make_beacon(8611, "甲", CWNet.NET_VERSION, 2)
+	var got := CWLan.parse_beacon(beacon, "192.168.1.5", 0)
+	check(int(got.get("live", -1)) == 2, "广播里带得动局数（%d）" % int(got.get("live", -1)))
+	var old_pkt := CWLan.make_beacon(8611, "甲", CWNet.NET_VERSION)
+	check(int(CWLan.parse_beacon(old_pkt, "192.168.1.5", 0).get("live", -1)) == 0,
+		"没带这个键的包读出 0 —— 老版本照常发现，只是标不出来")
+	check(CWOnlinePanel.found_text(got).contains("2 局可观战"), "附近那一行标出可观战：%s" % CWOnlinePanel.found_text(got))
+	var quiet := CWLan.parse_beacon(CWLan.make_beacon(8611, "甲", CWNet.NET_VERSION, 0), "192.168.1.5", 0)
+	check(not CWOnlinePanel.found_text(quiet).contains("可观战"), "没在打的不标")
+	var bad := CWLan.parse_beacon(CWLan.make_beacon(8611, "甲", CWNet.NET_VERSION - 1, 3), "192.168.1.5", 0)
+	check(CWOnlinePanel.found_text(bad).contains("版本不符") and not CWOnlinePanel.found_text(bad).contains("可观战"),
+		"版本不符只说版本 —— 连都连不上，说可观战是骗人白点一次")
+	## ③ 数「几局能看」：正在打且观众没满的才算
+	var srv := _net_server()
+	check(srv != null, "起一台本机服务器")
+	if srv == null:
+		return
+	check(CWOnlinePanel.watchable_of(srv) == 0, "一间房都没有：0")
+	var r1 := CWRoom.new()
+	r1.configure(srv, "AAAA", 2, 0, true)
+	srv.rooms["AAAA"] = r1
+	check(CWOnlinePanel.watchable_of(srv) == 0, "还在等待室的房不算（那是能坐进去的，不是观战）")
+	r1.state = CWRoom.State.PLAYING
+	check(CWOnlinePanel.watchable_of(srv) == 1, "开打了才算")
+	for i in CWRoom.MAX_WATCHERS:
+		r1.members[900 + i] = "路人%d" % i
+	check(CWOnlinePanel.watchable_of(srv) == 0, "观众满了不算 —— 标出来等于骗人白连一趟")
+	srv.stop()
+
+
 func t_lan_host() -> void:
 	print("[局域网开服]")
 	## ① 纯函数：端口校验、局域网地址筛选

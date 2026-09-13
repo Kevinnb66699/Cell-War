@@ -255,7 +255,7 @@ const REPLAY_ON := false
 
 ## ③ 观战。大厅里「进行中 · 可观战」那一组不再列出（`_lobby_live` 收成空）。
 ##    协议的 watch / 服务器的观众席都还在，只是界面上没有入口。
-const WATCH_ON := false
+const WATCH_ON := true
 ## ────────────────────────────────────────────────────────────────
 
 var _chat: CWChatBox         ## 房内聊天（只有联机局有：本地局没人可聊）

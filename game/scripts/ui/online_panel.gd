@@ -54,8 +54,11 @@ const SEAT_H := 30.0
 const RETRY_MS := 3000
 const ROW_LABEL := Color("9fb6bd")
 const TIMER_TEXT := { 0: "不限", 30: "30 秒", 60: "60 秒", 90: "90 秒" }
-const CREATE_ROWS := ["人数", "每步计时", "可见性", "世界事件"]
-const N_CREATE_ROWS := 4
+const CREATE_ROWS := ["人数", "每步计时", "可见性", "世界事件", "观众视角"]
+const N_CREATE_ROWS := 5
+## 建房页**自己**的行距：连接页 / 局域网页那几行还按 ROW_H 42 摆，这页要塞五行 ——
+## 251 起五行 × 34 到 413，离建房按钮（BTN_Y 438）还剩一行的空。改这个数记得看图。
+const CREATE_ROW_H := 34.0
 const LAN_PORT_MIN := 1024      ## 1023 以下是系统端口，Windows / macOS 都要管理员才绑得上
 const LAN_PORT_MAX := 65535
 const CWLan := preload("res://scripts/net/cw_lan.gd")   ## 局域网自动发现（没有 class_name：要走热更）
@@ -86,8 +89,11 @@ var _status: Label
 var _title: Label
 var _sub: Label
 ## 建房页的取值与焦点（与配置面板同一套键盘模型：上下选行、左右拨值）
-## 世界事件建房默认**关**（Kevin 2026-09-12）：拨到「开」才触发
-var _create := { "players": 4, "timer": 60, "public": true, "world_events": false }
+## 世界事件建房默认**关**（Kevin 2026-09-12）：拨到「开」才触发。
+## 观众视角默认**背面**：不是保守，是「别让房主在不知情的情况下把自己的手牌公开出去」——
+## 要露手牌得自己拨一下（Kevin 2026-09-13 定这一档可选）
+var _create := { "players": 4, "timer": 60, "public": true, "world_events": false,
+	"watch_hands": false }
 var _create_sel := 0
 var _create_names: Array[Label] = []
 var _create_values: Array[Label] = []
@@ -187,6 +193,10 @@ func leave_online() -> void:
 func _process(_delta: float) -> void:
 	var now := Time.get_ticks_msec()
 	if _beacon != null:
+		## 广播里带上「这儿有几局能看」（观战 2026-09-13）：算的是**还进得去观众**的那些，
+		## 满员的房标出来等于骗人白连一趟
+		if lan != null:
+			_beacon.set_live(watchable_of(lan))
 		_beacon.poll_host(now)
 	if _scan != null and _scan.poll_listen(now):
 		_repaint_found()
@@ -394,16 +404,30 @@ func _start_scan() -> void:
 	_repaint_found()
 
 
+## 这台服务器上有几局**正在打、观众还没满**。**纯函数**（只读服务器的房间表），护栏直接核。
+static func watchable_of(server: CWNetServer) -> int:
+	var n := 0
+	for r: CWRoom in server.rooms.values():
+		if r.state == CWRoom.State.PLAYING and r.watchers() < CWRoom.MAX_WATCHERS:
+			n += 1
+	return n
+
+
 func _stop_scan() -> void:
 	if _scan != null:
 		_scan.stop()
 		_scan = null
 
 
-## 「附近」一行的文案：昵称 · 地址:端口，协议号不对的标出来（连上去也会被拒，先说清楚）
+## 「附近」一行的文案：昵称 · 地址:端口，协议号不对的标出来（连上去也会被拒，先说清楚）。
+## 那台机器上有正在打的局就标出来（2026-09-13 观战开回来）—— 进去之后在大厅「进行中 · 可观战」那栏点它。
+## 版本不符时**不标**：连都连不上，说「可观战」只会让人白点一次。
 static func found_text(e: Dictionary) -> String:
 	var who: String = e["nick"] if e["nick"] != "" else "房主"
-	return "%s · %s:%d%s" % [who, e["ip"], e["port"], "（版本不符）" if int(e["ver"]) != CWNet.NET_VERSION else ""]
+	var bad: bool = int(e["ver"]) != CWNet.NET_VERSION
+	var live: int = int(e.get("live", 0))
+	var tail := "（版本不符）" if bad else ("  %d 局可观战" % live if live > 0 else "")
+	return "%s · %s:%d%s" % [who, e["ip"], e["port"], tail]
 
 
 func _found_count() -> int:
@@ -473,7 +497,7 @@ func _create_room() -> void:
 	if client == null:
 		return
 	client.create_room(_create["players"], _create["timer"], _create["public"], 0,
-		_create["world_events"])
+		_create["world_events"], _create["watch_hands"])
 	_set_status("建房中…")
 
 
@@ -525,6 +549,8 @@ func _cycle_create(row: int, dir: int) -> void:
 			_create["public"] = not _create["public"]
 		3:
 			_create["world_events"] = not _create["world_events"]
+		4:
+			_create["watch_hands"] = not _create["watch_hands"]
 		_:
 			return
 	_repaint_create()
@@ -544,10 +570,9 @@ func _on_message(m: Dictionary) -> void:
 			_set_status("维护中：暂不能建新房" if m.get("maintenance", false) else "")
 		"lobby":
 			_lobby_rooms = m.get("rooms", [])
-			## 观战临时下架（`CWMatch.WATCH_ON`，见 docs/临时下架清单.md）：
-			## **收在这一处就够** —— `live` 空了，`_compose_lobby` 连
-			## 「进行中 · 可观战」那条小标题都不会摆，也没有行可选。
-			## 服务器照常在 lobby 报文里带 live，协议一个字没改
+			## 观战（`CWMatch.WATCH_ON`，2026-09-13 开回来）：`live` 是正在打、可以观战的房。
+			## 开关留着 —— 哪天再要收，改那一个常量就够：`live` 空了，`_compose_lobby`
+			## 连「进行中 · 可观战」那条小标题都不会摆，也没有行可选
 			_lobby_live = m.get("live", []) if CWMatch.WATCH_ON else []
 			_compose_lobby()          ## 先合成，_first_room_row 才有得挑
 			_lobby_sel = _first_room_row()
@@ -775,14 +800,14 @@ func _build_create(root: Control) -> void:
 		g.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		_create_glow.add_child(g)
 	for i in N_CREATE_ROWS:
-		var y := ROW_Y0 + i * ROW_H
+		var y := ROW_Y0 + i * CREATE_ROW_H
 		var nm := CWStyle.label(CREATE_ROWS[i], CWStyle.SIZE_BODY, ROW_LABEL)
 		nm.position = Vector2(SLOT_X, y)
 		root.add_child(nm)
 		_create_names.append(nm)
 		var hit := Control.new()
 		hit.position = Vector2(SLOT_X - 30, y - 8)
-		hit.size = Vector2(420, ROW_H - 4)
+		hit.size = Vector2(420, CREATE_ROW_H - 4)
 		hit.mouse_filter = Control.MOUSE_FILTER_PASS
 		hit.mouse_entered.connect(func() -> void:
 			_create_sel = i
@@ -998,8 +1023,10 @@ func _repaint_lobby() -> void:
 		## 房间码 / 人数 / 计时这些要拿来做决定的字段永远看得见（2026-09-03 排版体检）
 		if str(r.get("state", "waiting")) == "playing":
 			## 进行中的房：坐不进去，写的是**观众满没满**——那才是这一行要拿来做的决定
-			l.text = "%s  %d 人局  观众 %d/%d  %s 的房间" % [r["code"], r["players"],
-				int(r.get("watchers", 0)), int(r.get("watch_max", 0)), r["host"]]
+			## 全见的房要标出来：观众进去**看得到所有人手牌**，这是决定进不进的信息之一
+			l.text = "%s  %d 人局  观众 %d/%d%s  %s 的房间" % [r["code"], r["players"],
+				int(r.get("watchers", 0)), int(r.get("watch_max", 0)),
+				"  全见" if bool(r.get("watch_hands", false)) else "", r["host"]]
 		else:
 			l.text = "%s  %d 人局 %d/%d  %s  %s 的房间" % [r["code"], r["players"],
 				r["seated"], r["players"], TIMER_TEXT.get(r["timer"], "%d 秒" % r["timer"]), r["host"]]
@@ -1022,6 +1049,10 @@ func _create_value_text(i: int) -> String:
 			return "公开（进大厅列表）" if _create["public"] else "私密（凭房间码）"
 		3:
 			return "开" if _create["world_events"] else "关（整局不触发）"
+		4:
+			## 观众看不看得到手牌（Kevin 2026-09-13）。写清楚代价：全见 = 连你自己的手牌也露给观众
+			## 值要短到 VALUE_X(250)~ARROW_R_X(500) 这 240px 里 —— 长了会盖住右边那枚拨值箭头
+			return "全见（含所有人手牌）" if _create["watch_hands"] else "背面（看不到手牌）"
 	return ""
 
 
@@ -1042,10 +1073,10 @@ func _repaint_create() -> void:
 	## 焦点行标题的辉光跟焦点走（在按钮上时收起——按钮有自己的高亮语言）
 	_create_glow.visible = _create_sel < N_CREATE_ROWS
 	if _create_sel < N_CREATE_ROWS:
-		_create_glow.position = Vector2(SLOT_X, ROW_Y0 + _create_sel * ROW_H)
+		_create_glow.position = Vector2(SLOT_X, ROW_Y0 + _create_sel * CREATE_ROW_H)
 		for layer in _create_glow.get_children():
 			(layer as Label).text = CREATE_ROWS[_create_sel]
-		_create_marker.position = Vector2(SLOT_X - 18, ROW_Y0 + _create_sel * ROW_H + 13)
+		_create_marker.position = Vector2(SLOT_X - 18, ROW_Y0 + _create_sel * CREATE_ROW_H + 13)
 	else:
 		_create_marker.position = Vector2(SLOT_X - 18, BTN_Y + BTN_H / 2.0)
 	_btn_focus(_create_btn, _create_sel == N_CREATE_ROWS)

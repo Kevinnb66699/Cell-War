@@ -66,7 +66,17 @@ func _process(_d: float) -> bool:
 		_panel._set_status("端口 8611 开不起来（Already in use），多半已被占用，换一个")
 		return false
 	## 切页有 PAGE_FADE 淡入，等它走完再截，不然截到一张半透明的
-	if _frames == WARMUP + 5 + int(ceil(CWOnlinePanel.PAGE_FADE * 60.0)) + 4:
+	var settled := WARMUP + 5 + int(ceil(CWOnlinePanel.PAGE_FADE * 60.0)) + 4
+	if _frames == settled:
 		root.get_texture().get_image().save_png(_out + "_lan.png")
+		## 建房页：2026-09-13 观战开回来之后它有**五行**，最后一行是「观众视角」——
+		## 行距比别的页窄（CREATE_ROW_H），排得下排不下只能看图
+		_panel._show_page(CWOnlinePanel.Page.CREATE)
+		_panel._create["watch_hands"] = true
+		_panel._create_sel = 4     ## 焦点摆在新那一行：看辉光、箭头、标记都对不对得上
+		_panel._repaint_create()
+		return false
+	if _frames == settled + int(ceil(CWOnlinePanel.PAGE_FADE * 60.0)) + 4:
+		root.get_texture().get_image().save_png(_out + "_create.png")
 		return true
 	return false
