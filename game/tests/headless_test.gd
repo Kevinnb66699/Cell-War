@@ -9182,6 +9182,13 @@ func t_pause_and_teardown() -> void:
 	check(CWPauseMenu.confirm_hint("menu", false, true) == "",
 		"回放的确认页**一句小字都不写**（没进度会丢，也没人代打）")
 	check(CWPauseMenu.confirm_hint("menu", true, false) == "离开后本局由 AI 代打", "联机那句照旧")
+	## 观战：没有席位，走了谁也不用替 —— 那句「AI 代打」对观众是假的（Kevin 2026-09-13）
+	check(CWPauseMenu.confirm_hint("menu", true, false, true) == "你是观众，离开不影响这一局",
+		"观战换一句：%s" % CWPauseMenu.confirm_hint("menu", true, false, true))
+	check(CWPauseMenu.confirm_hint("menu", true, true, true) == "", "回放优先级最高，仍是一句都不说")
+	var msrc2 := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(msrc2.contains("pause_menu.watching = human_players.is_empty()"),
+		"开局时按「有没有席位」置观战档（漏了置位就永远显示 AI 代打）")
 	check(CWPauseMenu.confirm_hint("quit", true, false) == CWPauseMenu.CONFIRM_HINT,
 		"联机局的「退出游戏」用的还是通用那句")
 	var has_save := false

@@ -675,6 +675,8 @@ func start_online(p_client: CWNetClient) -> void:
 	_wire_bridge(false)
 	if pause_menu != null:
 		pause_menu.online = true
+		## 没抢到席位 = 观众：那句「离开后本局由 AI 代打」对他是假的（同 human_players 的口径）
+		pause_menu.watching = human_players.is_empty()
 	if settle != null:
 		settle.online = true
 	if net_hud != null:
@@ -730,6 +732,7 @@ func _prepare_ui() -> void:
 		## 「保存并退出」会凭空消失、「返回主菜单」还写着「离开房间」
 		pause_menu.online = false
 		pause_menu.replay = false
+		pause_menu.watching = false
 		pause_menu.can_save = can_save_now
 		## 对局内知识之书开着时 Esc 先关书、不弹暂停（非教程局 _codex 恒为 null = 没开书）
 		pause_menu.codex_open = func() -> bool:
@@ -1108,6 +1111,7 @@ func teardown() -> void:
 			net_hud.hide_ping()
 		if pause_menu != null:
 			pause_menu.online = false
+			pause_menu.watching = false
 		if settle != null:
 			settle.online = false
 	if active_game != null and active_game.card_played.is_connected(_on_card_played):

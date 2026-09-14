@@ -111,6 +111,9 @@ var online := false
 ## 写着「离开房间？离开后本局由 AI 代打」—— 没有房间、没有席位、没人替谁打
 ## （Kevin 2026-09-10 逮到）。形制上它只和联机共享一条「没得存档」。
 var replay := false
+## 观战：**联机但没有席位**。同一句「本局由 AI 代打」对观众也是假的 —— 他本来就没在打，
+## 走了谁也不用替（Kevin 2026-09-13 截图）。和 replay 同一类：形制上仍是联机局，只是那句话得换
+var watching := false
 
 ## 「反馈 bug」要带走的对局快照，由 CWMatch 注入（返回 Dictionary）；无效 = 没有对局可抓，只发截图和说明
 var feedback_snapshot := Callable()
@@ -245,7 +248,7 @@ func _show_page(confirm_id: String) -> void:
 		if item["id"] == confirm_id:
 			_title.text = item["confirm"]
 			break
-	_hint.text = confirm_hint(confirm_id, online, replay)
+	_hint.text = confirm_hint(confirm_id, online, replay, watching)
 	_rebuild(CONFIRM_ITEMS)
 	_selected = 1                 ## 确认页默认停在「取消」上，别让回车顺手就确认了
 	_repaint()
@@ -254,11 +257,14 @@ func _show_page(confirm_id: String) -> void:
 ## 确认页那行小字。**纯函数**，好直接测。
 ## 回放那一档是空的：不是对局，没有进度会丢，也没人替你打 —— 现成的两句都是假话，
 ## 那就一句都不说（副标题为空时整块会自己收高，见 _rebuild 里的 head）。
-static func confirm_hint(confirm_id: String, p_online: bool, p_replay: bool) -> String:
+## 观战那一档换一句：观众没有席位，「本局由 AI 代打」同样是假的（Kevin 2026-09-13）——
+## 而这一句又不能省，玩家会怕自己一走把这局搅了，得明说「不影响」。
+static func confirm_hint(confirm_id: String, p_online: bool, p_replay: bool,
+		p_watching := false) -> String:
 	if p_replay:
 		return ""
 	if p_online and confirm_id == "menu":
-		return "离开后本局由 AI 代打"
+		return "你是观众，离开不影响这一局" if p_watching else "离开后本局由 AI 代打"
 	return CONFIRM_HINT
 
 
