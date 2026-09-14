@@ -2359,7 +2359,8 @@ func t_phase_order() -> void:
 	var body := src.substr(src.find("func e_phase"))
 	body = body.substr(0, body.find("# ---- S 阶段"))
 	## 增生与侵蚀 2026-09-09 起是**嵌套调用**（见下面那条），所以这一格搜的是整个调用式
-	var seq: Array[String] = ["_pressure()", "_erosion(_proliferate())", "_anaerobic()",
+	## 2026-09-14（issue #40）起【无氧呼吸】在最前 —— PRD 的第 1 步就是它
+	var seq: Array[String] = ["_anaerobic()", "_pressure()", "_erosion(_proliferate())",
 		"_solidify()", "_decay()", "_tick_necrosis()", "_clear_newborn()"]
 	var last := -1
 	var ordered := true
@@ -2369,6 +2370,29 @@ func t_phase_order() -> void:
 			ordered = false
 		last = at
 	check(ordered, "E 阶段各步都在、且顺序和 PRD 一致")
+	## **行为判据**：真跑一次 E 阶段，日志里【无氧呼吸】必须排在【微环境压迫】前面。
+	## 上面那条查的是「谁写在前」，这条查的是「谁先发生」——
+	## 把 _anaerobic() 挪进某个分支里，源码顺序还对、实际顺序就反了，只有这条拦得住。
+	## （issue #40：PRD 第 1 步就是无氧呼吸，引擎一直停在「压迫在前、无氧第 4」的旧顺序）
+	var go := _fx_game(2)
+	for c: Vector2i in go.tiles.keys():
+		CWTissue.to_cancer(go.tiles[c], false)     ## 满盘癌组织：无氧一定有产出
+	var stand := Vector2i.ZERO
+	go.tiles[stand]["tissue"] = CWData.Tissue.HEALTHY   ## 免疫站的那一格留健康，六邻全癌 → 一定挨压迫
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, stand, CWData.ImmuneType.BASIC, -1, 500)
+	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(3, 0), -1,
+		CWData.CancerType.MELANOMA, 100)
+	go.cells.append(imm)
+	go.cells.append(can)
+	var n0: int = go.logs.size()
+	await go.world.e_phase()
+	var text := "
+".join(go.logs.slice(n0))
+	var at_air: int = text.find("【无氧呼吸】")
+	var at_press: int = text.find("微环境压迫")
+	check(at_air >= 0 and at_press >= 0 and at_air < at_press,
+		"真跑一遍：日志里【无氧呼吸】(%d) 排在【微环境压迫】(%d) 之前" % [at_air, at_press])
+	go.dispose()
 	## 最容易搞反的一对：增生会改变「完全包围」的判定结果，必须先增生后侵蚀。
 	## 2026-09-09 起这一对写成 `_erosion(_proliferate())` —— 参数先求值，增生仍然在前，
 	## 而且增生新造的格子作为「这一轮不算来源」的名单传进侵蚀（PRD 的「注」）。
@@ -15542,11 +15566,15 @@ func t_batch2_rules() -> void:
 	g._end_turn(1, ca2)
 	check(ca2["energy"] == 0, "默认：回合末不进账")
 	await g.world.e_phase()
-	## E 阶段第 2~3 步的【增生】【侵蚀】可能先把块铺大，第 4 步按铺大后的块算 —— 拿结算后的块大小对
-	## （盘上只有这一块，增生 / 侵蚀出来的格都贴着它）
+	## **进账按「E 阶段开始那一刻」的块算**（issue #40，2026-09-14）：无氧呼吸是 PRD 的第 1 步，
+	## 排在【增生】【侵蚀】**之前** —— 这一轮新铺出来的格子要到下个世界回合才算进供能。
+	## 改之前无氧排第 4，按铺大后的块算，癌方每回合白多拿一截；这一条就是那次改动的行为判据。
 	var n_after: int = g.count_tissue(CWData.Tissue.CANCER) + g.count_tissue(CWData.Tissue.SOLID)
-	check(ca2["energy"] > 0 and ca2["energy"] == _share(_pool_of(n_after, 0), 1),
-		"默认：E 阶段一次算，进账 %.1f 十分（实得 %s）" % [_pool_of(n_after, 0), CWData.fmt(ca2["energy"])])
+	check(ca2["energy"] == expect,
+		"默认：E 阶段一次算，进账按结算前的 7 格块（%s），不含本轮新铺的 %d 格"
+			% [CWData.fmt(ca2["energy"]), n_after - 7])
+	check(n_after > 7 and ca2["energy"] < _share(_pool_of(n_after, 0), 1),
+		"本轮确实铺大了（7 → %d 格），而进账没跟着涨 —— 顺序改对了" % n_after)
 	g.tune.anaerobic_on_turn_end = true
 	ca2["energy"] = 0
 	var expect_turn: int = g.world.anaerobic_gain_for(ca2)
