@@ -29,8 +29,6 @@ const PAD_H := 8
 const BTN_H := 52
 ## 放不下时按钮标题最多缩到这个字号（正文 20）。再小就不是缩字号能救的了，该改文案
 const MIN_TITLE_SIZE := 14
-const SKILL_ICON_ATLAS := preload("res://assets/art/ui/skill_icons.svg")
-const SKILL_ICON_SIZE := 16
 ## 快捷键数字标在**费用行前面**。实测四个技能（T细胞，最挤的情况）共 331 / 361，
 ## 只有「迁移」会因为加前缀而变宽（它的标题最短、费用最长），加完 349，仍然放得下。
 ## 标在标题上不行：那样每个按钮都变宽，四个加起来就出界了。
@@ -237,9 +235,6 @@ func _make_button(entry: Dictionary, index: int) -> PanelContainer:
 		var line := HBoxContainer.new()
 		line.add_theme_constant_override("separation", 4)
 		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var icon := _skill_icon(entry.get("act", ""))
-		if icon != null:
-			line.add_child(icon)
 		if _keys:
 			line.add_child(_key_badge(index + 1))
 		if cost != "":
@@ -263,27 +258,6 @@ func _make_button(entry: Dictionary, index: int) -> PanelContainer:
 ## 快捷键数字那一小块：样式统一走 CWStyle.keycap（「对局日志 L」也是它）
 func _key_badge(n: int) -> Control:
 	return CWStyle.keycap(str(n))
-
-
-## 16×16 整数像素技能图标。图集顺序与技能键保持一致；目标选择按钮没有 act 时不显示。
-func _skill_icon(act: String) -> TextureRect:
-	var order := ["move", "draw", "differentiate", "antibody", "toxin", "lyse", "chemo",
-		"mutate", "homing", "mucus", "jump", "ossify", "end"]
-	var index := order.find(act)
-	if index < 0:
-		return null
-	var atlas := AtlasTexture.new()
-	atlas.atlas = SKILL_ICON_ATLAS
-	atlas.region = Rect2(index * SKILL_ICON_SIZE, 0, SKILL_ICON_SIZE, SKILL_ICON_SIZE)
-	var icon := TextureRect.new()
-	icon.texture = atlas
-	icon.custom_minimum_size = Vector2(SKILL_ICON_SIZE, SKILL_ICON_SIZE)
-	icon.size = icon.custom_minimum_size
-	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return icon
 
 
 ## 按当前的 _hot 和 _disabled 把所有按钮重画一遍。
@@ -340,9 +314,6 @@ func _paint(p: PanelContainer, hot: bool) -> void:
 			if c is Label:
 				(c as Label).add_theme_color_override("font_color",
 					CWStyle.TEXT_OFF_DIM if off else CWStyle.TEXT_DIM)
-			elif c is TextureRect:
-				(c as TextureRect).modulate = Color(0.42, 0.52, 0.56) if off \
-					else (Color(1.18, 1.18, 1.18) if hot else Color.WHITE)
 
 
 ## 数字键 1..9 = 从左到右的第几个按钮。
