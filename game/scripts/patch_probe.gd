@@ -56,6 +56,11 @@ func _initialize() -> void:
 	## 两条都要：只核字节的话，新增资源漏带 `.import` 也能过（产物在、没人找得到它）
 	var bad := 0
 	if assets_list != "":
+		if not FileAccess.file_exists(assets_list):
+			## 打包器**每次都写**这个文件（没有资源就是空的），所以读不到只有一种解释：流水线坏了
+			printerr("[失败] 读不到资源核对清单 ", assets_list, " —— 打包那一步没写出来")
+			quit(6)
+			return
 		for line in _lines(assets_list):
 			var f := line.split("|")
 			if f.size() != 3:
@@ -89,8 +94,7 @@ func _initialize() -> void:
 func _lines(path: String) -> PackedStringArray:
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
-		printerr("[失败] 读不到资源核对清单 ", path)
-		return PackedStringArray()
+		return PackedStringArray()      ## 存在性上面已经查过，这里只是兜底
 	## 用 char(10) 而不是写转义：这个文件几次落盘都走 heredoc，而 heredoc 会吃掉反斜杠
 	return f.get_as_text().strip_edges().split(char(10), false)
 

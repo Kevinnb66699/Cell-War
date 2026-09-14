@@ -97,18 +97,20 @@ func _initialize() -> void:
 		return
 	pairs = expanded["pairs"]
 	## 探针要拿的核对清单：一行「源路径|产物路径|产物SHA」。
-	## 没有它，资源那一半就回到了「每步报成功、画面没变」的老路 —— 2026-09-10 的教训
-	if not expanded["assets"].is_empty():
-		var list_path: String = out + ".assets"
-		var f := FileAccess.open(list_path, FileAccess.WRITE)
-		if f == null:
-			printerr("✘ 写不出资源核对清单 ", list_path)
-			quit(4)
-			return
-		for line: String in expanded["assets"]:
-			f.store_line(line)
-		f.close()
-		print("  资源核对清单 → ", list_path, "（%d 项）" % expanded["assets"].size())
+	## 没有它，资源那一半就回到了「每步报成功、画面没变」的老路 —— 2026-09-10 的教训。
+	## **没有资源也要写**（写个空文件）：这样「清单不在」就只有一种解释 —— 流水线坏了，
+	## 探针可以理直气壮地把它当失败。第一版只在有资源时写，于是纯代码补丁每次都让探针
+	## 打印一行「[失败] 读不到资源核对清单」却照样放行 —— 假失败比没有检查更糟
+	var list_path: String = out + ".assets"
+	var f := FileAccess.open(list_path, FileAccess.WRITE)
+	if f == null:
+		printerr("✘ 写不出资源核对清单 ", list_path)
+		quit(4)
+		return
+	for line: String in expanded["assets"]:
+		f.store_line(line)
+	f.close()
+	print("  资源核对清单 → %s（%d 项）" % [list_path, expanded["assets"].size()])
 
 	var packer := PCKPacker.new()
 	var err := packer.pck_start(out)

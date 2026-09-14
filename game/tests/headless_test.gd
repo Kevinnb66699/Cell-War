@@ -9709,6 +9709,14 @@ func t_patch_assets() -> void:
 	var probe := FileAccess.get_file_as_string("res://scripts/patch_probe.gd")
 	check(probe.contains("资源没换") and probe.contains("quit(6)"),
 		"探针有「资源没换」这一档，且用独立退出码（6）—— 靠它拦住上传")
+	## 清单**每次都写**（没有资源就是空文件）—— 于是「读不到」只有一种解释：流水线坏了。
+	## 第一版只在有资源时写，纯代码补丁每次都让探针打印一行「[失败] 读不到资源核对清单」
+	## 却照样放行 —— **假失败比没有检查更糟**（2026-09-14 回滚那个补丁时撞见）
+	var psrc := FileAccess.get_file_as_string("res://tests/build_patch.gd")
+	check(not psrc.contains('if not expanded["assets"].is_empty():'),
+		"打包器不再「有资源才写清单」")
+	check(probe.contains("读不到资源核对清单") and probe.contains("FileAccess.file_exists(assets_list)"),
+		"探针把「清单读不到」当成真失败，而不是打印一行再放行")
 
 
 ## 界面音效（Kevin 2026-09-13：「游戏外的按钮点击加上这个音效」）。
