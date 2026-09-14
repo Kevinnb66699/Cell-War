@@ -1474,12 +1474,12 @@ func t_skill_fx() -> void:
 	## ③ 坏死纹理：一格一张 Sprite、贴图 33×29、收得掉；黏液喷射十二向；巨噬扑咬会弹回并自己收场
 	var bd := make_board()
 	bd.set_necrosis([Vector2i.ZERO, Vector2i(1, 0)])
-	## 坏死膜纯色整格（HXR-I #27，2026-09-12）：尺寸 = 组织贴图、剪影 = 组织贴图的透明度、颜色只有一种
+	## 坏死膜整格换灰（HXR-I #27，2026-09-12），但**只有明暗、没有第二个色相**：
+	## 每个像素都是 NECRO_INK 的等比缩放（2026-09-14 修形状那次定的口径，逐像素核对在 t_issue31_fx）
 	var film: Image = bd._necrosis_film().get_image()
 	var tissue: Image = bd.TISSUE_TEX[CWData.Special.NONE][0].get_image()
 	var same_shape := film.get_size() == tissue.get_size()
-	## 只有两种颜色：填充 + 一圈轮廓（issue #31 加的边；逐像素核对在 t_issue31_fx）
-	var two_ink := true
+	var one_hue := true
 	var opaque := 0
 	for y in film.get_height():
 		for x in film.get_width():
@@ -1488,11 +1488,14 @@ func t_skill_fx() -> void:
 				same_shape = false
 			if f.a > 0.0:
 				opaque += 1
-				if not f.is_equal_approx(Color(bd.NECRO_INK, f.a)) \
-						and not f.is_equal_approx(Color(bd.NECRO_EDGE, f.a)):
-					two_ink = false
-	check(bd._necro_nodes.size() == 2 and same_shape and two_ink and opaque > 500,
-		"坏死：两格两张、膜和组织贴图同形（%d 个不透明像素）、纯色填充 + 一圈轮廓" % opaque)
+				## 按 8 位整数比：贴图是 RGBA8，写进去的浮点当场被量化，读回来最多差 1/255。
+				## k 由**已量化**的 g 反推，误差还会放大一点，所以容差给 2
+				var k: float = f.g / bd.NECRO_INK.g
+				if absi(f.r8 - roundi(bd.NECRO_INK.r * 255.0 * k)) > 2 \
+						or absi(f.b8 - roundi(bd.NECRO_INK.b * 255.0 * k)) > 2:
+					one_hue = false
+	check(bd._necro_nodes.size() == 2 and same_shape and one_hue and opaque > 500,
+		"坏死：两格两张、膜和组织贴图同形（%d 个不透明像素）、同一个灰的等比明暗" % opaque)
 	bd.set_necrosis([])
 	check(bd._necro_nodes.is_empty(), "坏死消了贴图就收")
 	bd.free()
@@ -9382,11 +9385,16 @@ func t_issue31_fx() -> void:
 	mf.free()
 	var src_m := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
 	check(src_m.contains("_mucus_fx.pending(board.tile_center(c))"), "_sync_tiles 每帧问一次液浪到没到")
-	## ③ 坏死格：纯色大色块**加一圈轮廓**（整片同色时读不出边界）
+	## ③ 坏死格：整格换灰，但**保住地块自己的明暗关系**。
+	## 2026-09-12～09-14 那版照剪影涂一块平色，把下三分之一那两片**侧面**也涂平了 ——
+	## 侧面正是格子之间的缝与立体感，涂平之后格子底下多出一片同色尖角、缝消失，
+	## Kevin 2026-09-14 报「坏死的效果改变了原地图格子的形状」。
+	## 逐像素钉死现在的口径：film = NECRO_INK × (该像素明度 ÷ 顶面明度)。
 	var bd := make_board()
 	var film: Image = bd._necrosis_film().get_image()
 	var shape: Image = bd.TISSUE_TEX[CWData.Special.NONE][0].get_image()
-	var edge_n := 0
+	var top: float = bd._luma(shape.get_pixel(shape.get_width() / 2, shape.get_height() / 2))
+	var side_n := 0
 	var body_n := 0
 	var film_ok := true
 	for y in shape.get_height():
@@ -9397,23 +9405,19 @@ func t_issue31_fx() -> void:
 				if got.a > 0.0:
 					film_ok = false
 				continue
-			var on_edge := false
-			for d: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-				var nx: int = x + d.x
-				var ny: int = y + d.y
-				if nx < 0 or ny < 0 or nx >= shape.get_width() or ny >= shape.get_height() \
-						or shape.get_pixel(nx, ny).a <= 0.0:
-					on_edge = true
-					break
-			var want: Color = bd.NECRO_EDGE if on_edge else bd.NECRO_INK
-			if not is_equal_approx(got.r, want.r) or not is_equal_approx(got.g, want.g) or not is_equal_approx(got.a, a):
+			var k: float = bd._luma(shape.get_pixel(x, y)) / top
+			## 同上，按 8 位整数比；k 这里由**未量化**的组织贴图算出，只剩一次量化，容差 1
+			if absi(got.r8 - roundi(bd.NECRO_INK.r * 255.0 * k)) > 1 \
+					or absi(got.g8 - roundi(bd.NECRO_INK.g * 255.0 * k)) > 1 \
+					or absi(got.a8 - roundi(a * 255.0)) > 1:
 				film_ok = false
-			if on_edge:
-				edge_n += 1
+			if k < 0.99:
+				side_n += 1      ## 比顶面暗 = 那两片侧面
 			else:
 				body_n += 1
-	check(film_ok and edge_n > 40 and body_n > edge_n and bd.NECRO_EDGE.v < bd.NECRO_INK.v,
-		"坏死膜：%d 颗轮廓（深色）+ %d 颗纯色填充，形状照组织贴图的剪影" % [edge_n, body_n])
+	## **这一条才是防回归的那条**：侧面必须还在、且必须比顶面暗，否则格子又会长出尖角
+	check(film_ok and side_n > 200 and body_n > side_n,
+		"坏死膜：%d 颗侧面（比顶面暗）+ %d 颗顶面，明暗关系与组织贴图逐像素一致" % [side_n, body_n])
 	bd.free()
 	## ④ 细胞膜修复：简约像素盾 —— 左右严格对称、下半收尖、只按整数倍收束
 	var rows: Array = CWSkillFx.shield_rows()

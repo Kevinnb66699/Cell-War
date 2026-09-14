@@ -767,12 +767,21 @@ func set_necrosis(cells: Array) -> void:
 		_necro_nodes[c] = s
 
 
-## 坏死膜：**纯色大色块 + 一圈轮廓**（HXR-I #27 定的纯色；Kevin 2026-09-13 issue #31 补的轮廓 ——
-## 整片同色时几格连在一起读不出边界，描一圈深色边，一眼看得出是几格）。
-## 用健康组织贴图的透明度当剪影 —— 贴图换了尺寸这里也跟着对。
-## 轮廓 = 四邻里有一边是透明的那些像素（贴图自己的外沿），所以边总是贴着格子的形状走。
+## 坏死膜：整格换成灰，但**保住地块自己的明暗关系**（HXR-I #27 要的「纯色整格」）。
+##
+## ⚠ **不能照剪影涂一块平色** —— 2026-09-12 到 09-14 就是那么涂的，Kevin 报
+## 「坏死的效果改变了原地图格子的形状」。原因在贴图的下三分之一：那不是格子的一部分花纹，
+## 是这块六棱柱的**两片侧面**（深 #0c1417 / 中 #20332d），**格子之间的缝和立体感全靠它们**。
+## 连侧面一起涂平之后，格子底下多出一整片同色的尖角、缝消失，看着就是地图的格子变了形状。
+##
+## 所以逐像素按**自身明度 ÷ 顶面明度**上色：顶面拿满 NECRO_INK，两片侧面自动压到原来的比例
+## （0.69 / 0.28），轮廓、缝、立体感与旁边的健康格逐像素一致。美术重画地块贴图这里自动跟上。
+##
+## 侧面回来之后**不再描边**：issue #31 那圈轮廓是给平色版救场的（整片同色时几格连一起读不出边界），
+## 现在相邻的坏死格照旧靠背景缝（横向）与暗侧面（斜向）分开，和普通格同一套，
+## 再描一圈反而是普通格没有的东西。
 const NECRO_INK := Color("686761")
-const NECRO_EDGE := Color("3f3e3a")
+
 
 func _necrosis_film() -> ImageTexture:
 	if _necro_tex != null:
@@ -781,21 +790,21 @@ func _necrosis_film() -> ImageTexture:
 	var w := src.get_width()
 	var h := src.get_height()
 	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	## 顶面的明度当基准。取正中那个像素 —— 顶面是这张图最大的一片，正中必落在它上面
+	var top := _luma(src.get_pixel(w / 2, h / 2))
 	for y in h:
 		for x in w:
-			var a := src.get_pixel(x, y).a
-			if a <= 0.0:
+			var p := src.get_pixel(x, y)
+			if p.a <= 0.0:
 				continue
-			var edge := false
-			for d: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-				var nx := x + d.x
-				var ny := y + d.y
-				if nx < 0 or ny < 0 or nx >= w or ny >= h or src.get_pixel(nx, ny).a <= 0.0:
-					edge = true
-					break
-			img.set_pixel(x, y, Color(NECRO_EDGE if edge else NECRO_INK, a))
+			var k: float = _luma(p) / top if top > 0.0 else 1.0
+			img.set_pixel(x, y, Color(NECRO_INK.r * k, NECRO_INK.g * k, NECRO_INK.b * k, p.a))
 	_necro_tex = ImageTexture.create_from_image(img)
 	return _necro_tex
+
+
+static func _luma(c: Color) -> float:
+	return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b
 
 
 func _mucus_film() -> ImageTexture:
