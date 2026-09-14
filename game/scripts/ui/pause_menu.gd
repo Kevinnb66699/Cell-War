@@ -257,14 +257,18 @@ func _show_page(confirm_id: String) -> void:
 ## 确认页那行小字。**纯函数**，好直接测。
 ## 回放那一档是空的：不是对局，没有进度会丢，也没人替你打 —— 现成的两句都是假话，
 ## 那就一句都不说（副标题为空时整块会自己收高，见 _rebuild 里的 head）。
-## 观战那一档换一句：观众没有席位，「本局由 AI 代打」同样是假的（Kevin 2026-09-13）——
-## 而这一句又不能省，玩家会怕自己一走把这局搅了，得明说「不影响」。
+## 观战那一档**两页都要换**（Kevin 2026-09-13 两张截图）：观众没有席位，
+## 「离开后本局由 AI 代打」和「当前对局不会保存」对他都是假的 —— 他没在打，也没有进度可丢。
+## 这一句又不能省：玩家会怕自己一走把这局搅了，得明说「不影响」，只是动词跟着页面走
+## （离开房间 / 退出游戏）。
 static func confirm_hint(confirm_id: String, p_online: bool, p_replay: bool,
 		p_watching := false) -> String:
 	if p_replay:
 		return ""
+	if p_online and p_watching:
+		return "你是观众，%s不影响这一局" % ("离开" if confirm_id == "menu" else "退出")
 	if p_online and confirm_id == "menu":
-		return "你是观众，离开不影响这一局" if p_watching else "离开后本局由 AI 代打"
+		return "离开后本局由 AI 代打"
 	return CONFIRM_HINT
 
 

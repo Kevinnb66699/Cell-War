@@ -1,12 +1,12 @@
 extends SceneTree
-## 退出确认页的四档对照 —— 给人看的工具，不是测试。
+## 退出确认页的六档对照 —— 给人看的工具，不是测试。
 ##
 ## **为什么非得出图**：这里改的是**字**，而字的毛病只有看得见。
 ## Kevin 2026-09-10 报的正是「回放里退出写着『离开后本局由 AI 代打』」——
 ## 一句在本地 / 联机都对、只在回放里是假话的小字。
 ##
-## 2026-09-13 又加一档：**观战**。观众没有席位，「离开后本局由 AI 代打」对他同样是假的
-## （Kevin 截图），换成「你是观众，离开不影响这一局」。
+## 2026-09-13 又加一种身份：**观战**。观众没有席位，「离开后本局由 AI 代打」与
+## 「当前对局不会保存」对他都是假的（Kevin 两张截图）—— 两页都换成「你是观众，×× 不影响这一局」。
 ##
 ## 顺带钉住一处排版：回放那档**一句小字都不写**，而副标题为空时
 ## `CWPauseMenu._rebuild` 会把整块收高 20px（head 少一行）。摆一起就看得出来。
@@ -14,12 +14,15 @@ extends SceneTree
 ## 跑（**不能加 --headless**，要真渲染）：
 ##   godot --path game --script res://tests/preview/preview_pause_confirm.gd -- <输出.png>
 const WARMUP := 16
-const PANEL_Y := 110.0
+const PANEL_Y := 100.0
+## 六档 = 三种身份 × 两页（返回主菜单 / 退出游戏），回放那档只有一页
 const CASES := [
-	{ "online": false, "replay": false, "watch": false, "cap": "本地对局" },
-	{ "online": true, "replay": false, "watch": false, "cap": "联机局 · 有席位" },
-	{ "online": true, "replay": false, "watch": true, "cap": "联机局 · 观战（这次改的）" },
-	{ "online": false, "replay": true, "watch": false, "cap": "回放（2026-09-10 改的）" },
+	{ "online": false, "replay": false, "watch": false, "page": "menu", "cap": "本地 · 返回主菜单" },
+	{ "online": false, "replay": false, "watch": false, "page": "quit", "cap": "本地 · 退出游戏" },
+	{ "online": false, "replay": true, "watch": false, "page": "menu", "cap": "回放（09-10 改的）" },
+	{ "online": true, "replay": false, "watch": false, "page": "menu", "cap": "联机有席位 · 离开房间" },
+	{ "online": true, "replay": false, "watch": true, "page": "menu", "cap": "观战 · 离开房间（改）" },
+	{ "online": true, "replay": false, "watch": true, "page": "quit", "cap": "观战 · 退出游戏（改）" },
 ]
 
 var _out := "user://pause_confirm.png"
@@ -52,14 +55,14 @@ func _initialize() -> void:
 		layer.add_child(cap)
 
 
-## 四档摆成 2×2（原来三档一排；观战那档 2026-09-13 加进来就排不下了）
+## 六档摆成 3×2（原来三档一排；观战两页 2026-09-13 加进来就排不下了）
 func _x(i: int) -> float:
-	return 24.0 + float(i % 2) * 476.0
+	return 24.0 + float(i % 3) * 312.0
 
 
 func _y(i: int) -> float:
 	@warning_ignore("integer_division")
-	return PANEL_Y + float(i / 2) * 250.0
+	return PANEL_Y + float(i / 3) * 250.0
 
 
 func _process(_d: float) -> bool:
@@ -70,7 +73,7 @@ func _process(_d: float) -> bool:
 		for pm: CWPauseMenu in _menus:
 			pm.visible = true
 			pm.get_child(0).visible = false   ## 压暗层：三块叠起来会黑成一片
-			pm._show_page("menu")
+			pm._show_page(String(CASES[_menus.find(pm)]["page"]))
 		return false
 	## 位置每帧摆：`_rebuild` 会把面板钉回屏幕正中，而这儿要三块并排
 	for i in _menus.size():
@@ -78,5 +81,5 @@ func _process(_d: float) -> bool:
 	if _frames < WARMUP:
 		return false
 	root.get_texture().get_image().save_png(_out)
-	print("已保存 ", _out, "（四档退出确认页）")
+	print("已保存 ", _out, "（六档退出确认页）")
 	return true
