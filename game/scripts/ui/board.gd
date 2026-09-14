@@ -13,6 +13,10 @@ const VESSELC = preload("res://assets/art/vessel_cancer.png")
 ## shader 按进度从底顶点顺时针把「满」露出来、其余露「底」，**按贴图纹素截取**。
 ## 颜色全在贴图里，代码不再给色。病变那两对在 zip 里名字写反了（癌化骨髓给的是绿、核心给的是紫），
 ## 2026-09-11 Kevin 让整对（底 + 满）对调过来，现在四对都和各自健康那对同色系；要改直接换文件。下标 0 = 健康、1 = 病变（含固化，和 set_tissue 同一口径）。
+##
+## 「满」圈**健康版和病变版同色**（核心都是 #3f9d5f、骨髓都是 #b07fe0）—— 癌化从来不改它。
+## 「底」圈则是 `lerp(所在地块的顶面底色, 满圈色, 0.30)`，所以地块底色一换它必须跟着换；
+## 2026-09-14 癌变特殊组织统一到普通癌组织那块红之后，那两张由 `tools/gen_special_cancer.py` 重推。
 const STORE_SHADER = preload("res://assets/shaders/store_progress.gdshader")
 const STORE_TRACK := {
 	CWData.Special.CORE: [preload("res://assets/art/ui/store/core_track_normal.png"),
@@ -28,6 +32,11 @@ const STORE_LIT := {
 }
 const ENERGYH = preload("res://assets/art/energy_normal.png")
 const MARROWH = preload("res://assets/art/marrow_normal.png")
+## 癌变版的**底色一律是普通癌组织那块红**（#b04a5a，与 tissue_cancer 同一套三档面色），
+## 图标（闪电 / 骨头 / 血管菱形）保持健康版的颜色原样不动 —— Kevin 2026-09-14：
+## 「代谢核心被癌化后，地块颜色和普通癌组织不一样，请修复」。此前核心自带 #c16271、骨髓自带 #a03984，
+## 同样是癌组织却一眼看着不是一回事。由 `tools/gen_special_cancer.py` 从健康版推出来，
+## **美术重画健康版之后要重跑它**（再跑 gen_marrow_pending.py 和 gen_solid_tissue.py）。
 const ENERGYC = preload("res://assets/art/energy_cancer.png")
 const MARROWC = preload("res://assets/art/marrow_cancer.png")
 ## 骨髓的「空仓」两张：图标那个框照旧，里面的骨头**淡下去**（保留 35% 的图标色）。
