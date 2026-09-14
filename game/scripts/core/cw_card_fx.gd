@@ -234,6 +234,13 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 					if _empty_cancerous_in_range(t["pos"], r2).is_empty():
 						continue
 					opts.append(_opt(card, "→%s 附近" % game.cell_name(t), { "cid": t["id"] }))
+			"癌症转移":
+				## 「两环内**任意**格子」—— 不挑地形（健康 / 癌 / 固化都行，同小细胞肺癌【转移】
+				## 的落点约束）。唯一的限制是**没有细胞占着**：一格只能站一个，
+				## 自己所在的中心格也因此自动被排除（同 _empty_*_in_range 那两条注释）。
+				for c in _tiles_in_range(cell["pos"], CWData.METASTASIS_CARD_RANGE):
+					if game.cells_at(c).is_empty():
+						opts.append(_opt(card, "→%s" % str(c), { "to": c }))
 			"克隆增殖":
 				## 2026-09-10 Kevin 把它从【事件】改成【即时技能】。
 				## 目标是**随机**的，所以不给玩家选格子；但相邻一个可转的健康格都没有时
@@ -382,6 +389,8 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 			await _recruit(cell, game.cells[data["cid"]])
 		"肿瘤增援":
 			await _tumor_reinforce(cell, game.cells[data["cid"]])
+		"癌症转移":
+			await _metastasis(cell, data["to"])
 		"克隆增殖":
 			_clonal_growth(cell)
 		_:
@@ -504,6 +513,21 @@ func _clonal_growth_targets(cell: Dictionary) -> Array[Vector2i]:
 ## 【克隆增殖】相邻、未被免疫占据的健康组织，随机最多 1/2/3 格（按分期）→ 癌组织。
 ## 格数今天来回改过两趟：早上 Kevin 抬到 2/3/4，晚上云端 PRD 又写回 **1/2/3**。
 ## 「由【事件】改为【即时技能】」那半保留（云端也是即时技能）。
+## 【癌症转移】（2026-09-14 新增，issue #42）：自己传送到两环内任意空格。
+##
+## 「正常触发【定殖】」= 落点交给 `enter_tile` 处理，一步不特殊化 ——
+## 定殖、特殊组织收取、踩黏液这些全在那儿算。所以这里除了记一行日志什么都不做。
+##
+## 和癌方另外两张传送牌的分工：【肿瘤细胞募集】动别人、【肿瘤增援】把自己送到**队友**身边
+## （两张的落点都是随机空癌性组织）；这张**落点由玩家自己挑、也不要求是癌性组织**，
+## 是唯一一张能主动往健康地里扎的 —— 配合定殖就是「跳过去，顺手把那格染了」。
+##
+## 传送的溶解演出不用在这里接：界面每帧按位置差自行检出远距离位移（见 match.gd `_play_teleports`）。
+func _metastasis(cell: Dictionary, to: Vector2i) -> void:
+	game.log_msg("　%s 转移至 %s" % [game.cell_name(cell), str(to)])
+	await game.actions.enter_tile(cell, to)
+
+
 func _clonal_growth(cell: Dictionary) -> void:
 	var cands := _clonal_growth_targets(cell)
 	var picked := _pick_random(cands, [1, 2, 3][_phase()])

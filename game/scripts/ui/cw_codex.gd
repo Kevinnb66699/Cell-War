@@ -218,6 +218,11 @@ static func chapters() -> Array:
 			anaerobic.append("块内癌组织个数的 %.2f 次方 × %s，再加全图每格固化 %s" % [
 				tune.anaerobic_block_exp / 100.0, CWData.fmt(tune.anaerobic_block_coef),
 				CWData.fmt(tune.anaerobic_solid_bonus)] + split)
+		## 人数系数 k（PRD 2026-09-14，issue #43）：乘在整条分式上，排在下限之前
+		var ks: Array[String] = []
+		for i in CWData.ANAEROBIC_CELLS_K.size():
+			ks.append("%d 个 %d%%" % [i + 1, CWData.ANAEROBIC_CELLS_K[i]])
+		anaerobic.append("再乘人数系数：块内活着 " + "、".join(ks) + "。")
 		if tune.anaerobic_floor > 0:
 			anaerobic.append("每个癌细胞至少拿 %s（下限）。" % CWData.fmt(tune.anaerobic_floor))
 		anaerobic.append("铺地的边际收益很平，固化则是全场一起吃 —— 攒固化比摊大饼划算。")

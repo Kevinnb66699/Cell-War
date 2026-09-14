@@ -125,6 +125,16 @@ const ANAEROBIC_FLOOR := 20
 const ANAEROBIC_BLOCK_COEF := 28         # 十分能量：PRD 值 ×2.8（表里没有的人数退回它）
 const ANAEROBIC_BLOCK_COEF_BY_PLAYERS := { 2: 28, 4: 20, 6: 28 }
 const ANAEROBIC_SOLID_BONUS := 10        # 十分能量：**全图**每格固化癌组织 +1.0
+## 【E-无氧呼吸】的**人数系数 k**（百分数）。PRD 2026-09-14（issue #43）给整条分式外面乘了一个 k：
+## `max{2, k × (块内癌组织数^0.3 × 系数 + 全图固化数) ÷ 块内癌细胞数}`，
+## 连通块内存活 1 / 2 / 3 个癌细胞时 k = 80% / 100% / 120%。**兜底 2.0 排在 k 之后**（先乘 k 再兜底）。
+##
+## 净效果是**罚独占、奖抱团**：一个细胞独享一块每回合拿 0.8×池（旧式 1.0×），
+## 三个挤一块每人拿 0.4×池（旧式 0.333×）—— 挤在一起的总损失从 −67% 收窄到 −60%。
+##
+## 按下标取，**4 个及以上退回最后一档**：正式局里到不了 —— 块内癌细胞数 ≤ 全场癌细胞数 = 癌方席位数，
+## 六人局 3 个、四人局 2 个。这一条纯属防呆（教程 fixture 能摆出任意局面）。
+const ANAEROBIC_CELLS_K := [80, 100, 120]
 const ANAEROBIC_CAP := 0                 # 0 = 不封（团队 2026-09-04 定案）
 
 ## 【E-能量上限】每个世界回合结算末，所有存活细胞的能量削到这个数（Kevin 2026-08-31 定）。
@@ -210,6 +220,11 @@ static func anaerobic_block_coef(n_players: int) -> int:
 ## 按人数取无氧指数（PRD 2026-09-12 + issue #29：四人 0.3 / 六人 0.3）。表里没有的人数退回缺省。
 static func anaerobic_block_exp(n_players: int) -> int:
 	return ANAEROBIC_BLOCK_EXP_BY_PLAYERS.get(n_players, ANAEROBIC_BLOCK_EXP)
+
+
+## 连通块里有 n_cells 个癌细胞时的人数系数（百分数）；见 ANAEROBIC_CELLS_K
+static func anaerobic_cells_k(n_cells: int) -> int:
+	return ANAEROBIC_CELLS_K[clampi(n_cells - 1, 0, ANAEROBIC_CELLS_K.size() - 1)]
 ## I/II/III/X 记忆门槛。**这一张是 6 人局的**，也是没列人数时的缺省 —— 四人档见下面的分档表。
 ## 沿革：团队 09-04 6→10、16→20；Kevin 09-07 定「30 及以上都归 X」；09-10 issue #13 把 X 抬到 60；
 ## **2026-09-11 Kevin 按玩法 PRD 改表**：六人 I 0~9 / II 10~29 / III 30~69 / X ≥70。
@@ -288,6 +303,11 @@ const OSTEO_BARRIER_PERCENT := 40        # 受到的能量损失 ×40%，向下�
 # 小细胞肺癌
 ## ⚠ 偏离 PRD（PRD 是 0.3）：随占地单价同比例抬，见 CANCER_MOVE_HEALTHY
 const SCLC_MOVE_HEALTHY := 7             # 【极简胞浆】移动至健康组织永久 0.7
+## 卡【癌症转移】的射程：两环内（PRD 2026-09-14，issue #42）。
+## 与下面小细胞肺癌【转移】的 METASTASIS_RANGE 同名不同物 —— 那是「朝一个方向跃进 5 格」，
+## 这是「两环内任选一格」，别把两个数并成一个。
+const METASTASIS_CARD_RANGE := 2
+
 const METASTASIS_COST := 10              # 【转移】1.0 能量
 const METASTASIS_RANGE := 5              # 向某方向跃进 5 格
 const WARBURG_PERCENT := 110             # 【瓦伯格超速糖酵解】无氧呼吸 110%，向上取整到十分位

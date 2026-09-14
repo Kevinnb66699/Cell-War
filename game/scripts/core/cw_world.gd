@@ -758,8 +758,13 @@ func _anaerobic_pool(block: Array) -> float:
 
 ## 池子按块内癌细胞数均分。**四舍五入只在这里做一次**（池子是浮点，见 _anaerobic_pool）：
 ## 先取整再除会取整两次，和 PRD 的「四舍五入到十分位」对不上。
+## **人数系数 k 乘在整个分式上**（PRD 2026-09-14，issue #43）：块内 1/2/3 个癌细胞 → 80%/100%/120%。
+## 放在这里而不是 `_anaerobic_pool`，因为池子不知道块里有几个细胞 —— 而 E 阶段结算和
+## 卡【糖酵解爆发】**都从这道口子出去**，写这一份两边就都对。
+## 兜底 2.0（`anaerobic_floor`）排在 k **之后**：PRD 写的是 `max{2, k × …}`。
 func _split_share(pool: float, count: int) -> int:
-	var gain: int = int(round(pool / float(count))) if game.tune.anaerobic_split else int(round(pool))
+	var scaled := pool * CWData.anaerobic_cells_k(count) / 100.0
+	var gain: int = int(round(scaled / float(count))) if game.tune.anaerobic_split else int(round(scaled))
 	return game.tune.clamp_income(gain, game.tune.anaerobic_floor, game.tune.anaerobic_cap)
 
 

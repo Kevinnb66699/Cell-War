@@ -669,7 +669,8 @@ func t_anaerobic_round() -> void:
 	g.world._anaerobic()
 	check(g.cells[0]["energy"] == 13, "小细胞肺癌 1.1 → 1.3（110% 向上取整）")
 	check(g.cells[1]["energy"] == 11, "同块的其他癌细胞不受影响")
-	## 除不尽时四舍五入（定案 #43）：2.2 / 4 = 0.55 → 0.6（向下取整会给 0.5）
+	## 除不尽时四舍五入（定案 #43）：2.2 × 1.2 / 4 = 0.66 → 0.7（向下取整会给 0.6）。
+	## 1.2 是人数系数 k 的表外回退（issue #43）—— 4 个癌细胞正式局到不了，这里是合成局面
 	g.cells[0]["ctype"] = CWData.CancerType.MELANOMA
 	for i in [2, 3]:
 		var extra := CWSetup.make_cell(i, i, CWData.Faction.CANCER, coords[i], -1,
@@ -679,7 +680,7 @@ func t_anaerobic_round() -> void:
 	for cell in g.cells:
 		cell["energy"] = 0
 	g.world._anaerobic()
-	check(g.cells[0]["energy"] == 6, "池 2.2 / 4 细胞 = 0.55 → 四舍五入 0.6")
+	check(g.cells[0]["energy"] == 7, "池 2.2 ×1.2 / 4 细胞 = 0.66 → 四舍五入 0.7")
 	g.dispose()
 
 
@@ -2148,8 +2149,18 @@ func t_anaerobic_sqrt() -> void:
 		g6.tiles[keys6[k]]["tissue"] = CWData.Tissue.CANCER
 	check(is_equal_approx(g6.world._anaerobic_pool(blk6), _pool_of(10, 0, 6)) and _pool_of(10, 0, 6) > _pool_of(10, 0, 4) * 1.3,
 		"六人局 10 格块：10^0.3 × 2.8 = %.1f（四人局 10^0.3 × 2.0 = %.1f）" % [_pool_of(10, 0, 6), _pool_of(10, 0, 4)])
-	check(g6.world._split_share(5.0, 4) == CWData.ANAEROBIC_FLOOR and g6.world._split_share(100.0, 4) == 25,
-		"挤 4 个细胞的小块：每人兜底 2.0；够分的照旧均分")
+	## 人数系数 k（PRD 2026-09-14，issue #43）：块内 1/2/3 个癌细胞 → 80%/100%/120%，
+	## **乘在整条分式上、排在兜底之前**（`max{2, k × 池 ÷ 人数}`）
+	check(CWData.anaerobic_cells_k(1) == 80 and CWData.anaerobic_cells_k(2) == 100
+		and CWData.anaerobic_cells_k(3) == 120,
+		"k：块内 1/2/3 个癌细胞 → 80%/100%/120%")
+	check(CWData.anaerobic_cells_k(4) == 120 and CWData.anaerobic_cells_k(0) == 80,
+		"表外的人数退回两端（正式局到不了：块内癌细胞数 ≤ 癌方席位数 ≤ 3）")
+	check(g6.world._split_share(100.0, 1) == 80 and g6.world._split_share(100.0, 2) == 50
+		and g6.world._split_share(100.0, 3) == 40,
+		"100 十分能量的池：独占拿 8.0（旧式 10.0）、两人各 5.0、三人各 4.0（旧式 3.3）")
+	check(g6.world._split_share(5.0, 3) == CWData.ANAEROBIC_FLOOR,
+		"兜底排在 k 之后：5 × 1.2 ÷ 3 = 2.0 以下，仍兜到 %s" % CWData.fmt(CWData.ANAEROBIC_FLOOR))
 	g6.dispose()
 
 	## 取一块普通癌组织，逐格核对指数项（全图没有固化时第二项为 0）
@@ -12267,7 +12278,7 @@ func t_hand_limit() -> void:
 # ---- 卡池：身份表 + 抽卡合法性（效果尚未实现）----
 func t_card_pool() -> void:
 	print("[卡池]")
-	check(CWCardData.CARDS.size() == 67, "67 张唯一卡（%d）" % CWCardData.CARDS.size())
+	check(CWCardData.CARDS.size() == 68, "68 张唯一卡（%d）" % CWCardData.CARDS.size())
 	## 四个免疫池 + 癌症三期的张数，逐个对照 PRD
 	var want := [11, 14, 17, 22]
 	for lv in 4:
@@ -12275,7 +12286,7 @@ func t_card_pool() -> void:
 		check(n == want[lv], "免疫 %s 级池 %d 张" % [CWData.LEVEL_NAMES[lv], n])
 	for r in [1, 10, 20]:
 		var n: int = CWCardData.pool_of(CWData.Faction.CANCER, 0, r).size()
-		check(n == 18, "癌症池第 %d 回合 %d 张（不分等级）" % [r, n])
+		check(n == 19, "癌症池第 %d 回合 %d 张（不分等级）" % [r, n])
 	check(CWCardData.cancer_phase(5) == 0 and CWCardData.cancer_phase(6) == 1 \
 		and CWCardData.cancer_phase(10) == 1 and CWCardData.cancer_phase(11) == 2,
 		"癌症卡分期切在第 6 / 11 回合（PRD：1—5 / 6—10 / 11—15）")
@@ -12288,7 +12299,7 @@ func t_card_pool() -> void:
 		var e: String = CWCardData.CARDS[n].get("effect", "")
 		if e.length() < 6:
 			missing.append(n)
-	check(missing.is_empty(), "67 张卡都带效果原文（缺：%s）" % str(missing))
+	check(missing.is_empty(), "68 张卡都带效果原文（缺：%s）" % str(missing))
 	## 【代谢耦联】是唯一同时进两个卡池的卡，PRD 给了它按阵营镜像的两套措辞
 	var mc_i := CWCardData.effect_of("代谢耦联", CWData.Faction.IMMUNE)
 	var mc_c := CWCardData.effect_of("代谢耦联", CWData.Faction.CANCER)
@@ -12922,6 +12933,41 @@ func t_card_instants() -> void:
 		"肿瘤增援：**自己**落到所选队友 3 环内的空癌性组织（%s → %s）"
 		% [str(was), str(far["pos"])])
 	check(rec["pos"] != far["pos"], "落点不许和目标重叠（要的是「无细胞占据」的格）")
+
+	## ---- 【癌症转移】（issue #42，2026-09-14 新增）----
+	## 「选择两环内任意格子传送，正常触发【定殖】」。两处要验：
+	## ① 选项集合 = 两环内**所有**没细胞占着的格（不挑地形 —— 健康 / 癌 / 固化都行）；
+	## ② 落到健康格上要真把它染成癌组织（定殖由 enter_tile 管，这里验的是「确实走了那条路」）
+	var mv := CWSetup.make_cell(9, 5, CWData.Faction.CANCER, Vector2i(0, 0), -1,
+		CWData.CancerType.OSTEO)
+	g.cells.append(mv)
+	for c in CWData.all_coords():
+		if g.tiles.has(c) and CWData.hex_dist(c, mv["pos"]) <= 3:
+			g.tiles[c]["tissue"] = CWData.Tissue.HEALTHY
+	mv["hand"] = ["癌症转移"]
+	var mv_opts: Array = []
+	g.card_fx.hand_options(mv, mv_opts)
+	var tos: Array = []
+	for o: Dictionary in mv_opts:
+		if String(o["data"].get("card", "")) == "癌症转移":
+			tos.append(o["data"]["to"])
+	var want_tos: Array = []
+	for c in CWData.all_coords():
+		if g.tiles.has(c) and CWData.hex_dist(c, mv["pos"]) <= 2 and g.cells_at(c).is_empty():
+			want_tos.append(c)
+	check(tos.size() == want_tos.size() and not tos.has(mv["pos"]),
+		"选项 = 两环内每个空格各一条（%d 条），自己脚下那格不在里面" % tos.size())
+	var far_out := 0
+	for t: Vector2i in tos:
+		if CWData.hex_dist(t, mv["pos"]) > 2:
+			far_out += 1
+	check(far_out == 0, "没有一条越出两环")
+	var dest: Vector2i = want_tos[want_tos.size() - 1]
+	check(g.tiles[dest]["tissue"] == CWData.Tissue.HEALTHY, "落点先摆成健康组织")
+	await g.card_fx.play(mv, { "act": "play", "card": "癌症转移", "to": dest })
+	check(mv["pos"] == dest and g.tiles[dest]["tissue"] == CWData.Tissue.CANCER
+		and mv["hand"].is_empty(),
+		"癌症转移：落到 %s 并【定殖】，卡结算后弃置" % str(dest))
 
 	lac["hand"] = ["乳酸酸化"]
 	g.actions._do_discard(lac, "乳酸酸化")
@@ -15677,9 +15723,13 @@ static func _pool_of(plain: int, solid_all: int, n_players := 2) -> float:
 	return term * float(CWData.anaerobic_block_coef(n_players)) + solid_part
 
 
-## 池子按 k 个癌细胞均分，四舍五入到十分位，再兜底 2.0（口径同 CWWorld._split_share；PRD 2026-09-12 的 max{2, …}）
-static func _share(pool: float, k: int) -> int:
-	return maxi(int(round(pool / float(k))), CWData.ANAEROBIC_FLOOR)
+## 池子先乘人数系数（PRD 2026-09-14，issue #43：1/2/3 个癌细胞 → 80%/100%/120%）、
+## 再按 n 个癌细胞均分、四舍五入到十分位，最后兜底 2.0。
+## 口径同 CWWorld._split_share —— **这里是它的镜像，不是第二份实现**：
+## 参数名从 k 改成 n，因为 k 现在专指人数系数，两个 k 摆一起必读错。
+static func _share(pool: float, n: int) -> int:
+	return maxi(int(round(pool * CWData.anaerobic_cells_k(n) / 100.0 / float(n))),
+		CWData.ANAEROBIC_FLOOR)
 
 
 ## 选项里有没有指向某一格的目标（卡牌选项把目标放在 data["to"]）
