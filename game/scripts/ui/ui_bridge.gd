@@ -232,6 +232,7 @@ func _ask_action(req: Dictionary) -> int:
 			var live: bool = groups.has(act)
 			buttons.append({
 				"title": _move_title(cell) if act == "move" else ACT_TITLE.get(act, act),
+				"act": act,
 				## **「移动 / 迁移」不带价签**（Kevin 2026-09-08）：它的价随目的地变，
 				## 原来把所有档位列成「0.2 / 0.3 / 0.5 / 0.7 / 1.2」——五档之后这一枚按钮
 				## 宽到把最后一个技能挤出屏幕，而那串数字玩家还对不上是哪一格。
@@ -246,7 +247,7 @@ func _ask_action(req: Dictionary) -> int:
 			values.append(act if live else "")
 		## 没有右侧竖条时（纯行动栏形态），「结束回合」退回按钮栏占一格
 		if panel == null and end_value != null:
-			buttons.append({ "title": ACT_TITLE["end"], "cost": "" })
+			buttons.append({ "title": ACT_TITLE["end"], "act": "end", "cost": "" })
 			values.append(end_value)
 			end_value = null
 		var got: Variant = await _prompt("", "", buttons, values, {}, end_value, -1, true)
