@@ -34,12 +34,14 @@ MAC="dist/mac/CellWar.zip"
 
 die() { echo "✘ $1" >&2; exit 1; }
 
-# ---- ⓪ 卡面文案能从 PRD 生成出来 ----
+# ---- ⓪ 卡面数据与 PRD 一致 ----
 # 2026-09-09 三次撞上同一件事：PRD 里同一张卡按池子重复出现，团队改一处漏两处，
 # `gen_card_data.py` 的一致性断言当场红 —— 而它**只在有人跑的时候才报错**，
 # 于是卡面文案停更了两天没人发现。现在把它挂进发版守卫：生成不出来就不许发。
 if command -v python >/dev/null 2>&1 && [ -f tools/gen_card_data.py ]; then
-	python tools/gen_card_data.py >/dev/null 2>&1 		|| die "卡面文案生成失败：PRD 里大概有同名卡文案不一致，先跑 python tools/gen_card_data.py 看报错"
+	# 2026-09-14（issue #41）由「生成得出来」改成 `--check` 逐字比对：
+	# 生成得出来**不等于**仓库里那份是最新的 —— PRD 改了没重跑，照样一路绿灯发出去。
+	python tools/gen_card_data.py --check 		|| die "卡面数据和 PRD 对不上（上面写了差在哪一行）：跑 python tools/gen_card_data.py 重新生成并提交"
 fi
 
 # ---- ① 工作树干净（.png.import 那类导出脏数据不算）----
