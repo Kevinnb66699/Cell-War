@@ -121,7 +121,14 @@ func _tissue_production() -> void:
 				await game.actions.collect_special(here[0], c)
 
 
-## 血管传送：强制；两端互换；若会导致敌对同格则整体取消（说明 #13）
+## 血管传送：强制；两端都有细胞就**交换位置**。
+##
+## 卡面（PRD 2026-09-13 覆盖版）：「S阶段将位于血管的细胞传送至另一侧血管，两边均有细胞则交换位置」。
+## **原先还有一条「若互换会导致敌对同格则整体取消」**（说明 #13，2026-09-11 的电子化裁定）——
+## 这回卡面把话说死了：两边都有就换，不分阵营。那一条随之作废。
+##
+## 实现是**先送 a 再送 b**（换位没法真同时）：中间那一瞬两只细胞同在 b，
+## 落地效果（定殖 / 净化 / 收取）各按自己那一步结算；先后由血管坐标定死，同种子可复现。
 func _vessel_teleport() -> void:
 	var a: Vector2i = CWData.VESSELS[0]
 	var b: Vector2i = CWData.VESSELS[1]
@@ -135,10 +142,8 @@ func _vessel_teleport() -> void:
 		if game.tile(c)["necrosis"] > 0:
 			game.log_msg("【血管】%s 坏死，本回合不传送" % str(c))
 			return
-	if not ca.is_empty() and not cb.is_empty() \
-			and ca[0]["faction"] != cb[0]["faction"]:
-		game.log_msg("【血管】两端阵营敌对，传送取消")
-		return
+	if not ca.is_empty() and not cb.is_empty():
+		game.log_msg("【血管】两端都有细胞，交换位置")
 	for cell in ca:
 		game.log_msg("【血管】%s 传送至 %s" % [game.cell_name(cell), str(b)])
 		await game.actions.enter_tile(cell, b)

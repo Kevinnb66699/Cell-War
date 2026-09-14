@@ -104,7 +104,7 @@ func _run_all() -> void:
 		t_ev_attack_flow, t_ev_costs, t_ev_supply,
 		t_solidify_threshold, t_ev_chaos, t_ev_chaos_simul, t_ev_memory,
 		t_ev_proliferate, t_ev_double, t_ev_double_instant, t_ev_lifecycle,
-		t_breath_sheets, t_solidify_and_decay, t_vessel_no_solid, t_erosion, t_macro_purify_heal,
+		t_breath_sheets, t_solidify_and_decay, t_vessel_no_solid, t_vessel_swap, t_erosion, t_macro_purify_heal,
 		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path, t_plan_core_gain,
 		t_plan_payment_floor,
@@ -743,6 +743,38 @@ func t_solidify_and_decay() -> void:
 	g.world._solidify()
 	check(g.tiles[nb]["solid"] == CWData.SOLIDIFY_STEP, "保护只管「新生」那一格，旧组织照常累计")
 	g.tune.newborn_protect = false
+	g.dispose()
+
+
+## 血管传送：**两边都有细胞就交换位置**（PRD 2026-09-13 覆盖版）。
+## 这一条推翻了说明 #13 里「若互换会导致敌对同格则整体取消」那半句 ——
+## 所以护栏专门盯**敌对**那一档：两个人都得动，谁都不许留在原地。
+func t_vessel_swap() -> void:
+	print("[血管传送·两端交换]")
+	var a: Vector2i = CWData.VESSELS[0]
+	var b: Vector2i = CWData.VESSELS[1]
+	## ① 敌对：照换不误（原来这一档是整体取消）
+	var g := _fx_game(2)
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, a, CWData.ImmuneType.BASIC, -1)
+	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, b, -1, CWData.CancerType.MELANOMA)
+	g.cells.append(imm)
+	g.cells.append(can)
+	var n0: int = g.logs.size()
+	await g.world._vessel_teleport()
+	check(imm["pos"] == b and can["pos"] == a,
+		"两端敌对：交换位置（免疫 %s、癌症 %s）" % [str(imm["pos"]), str(can["pos"])])
+	check("
+".join(g.logs.slice(n0)).contains("交换位置"), "日志说清这是一次交换")
+	## ② 同阵营：一样换（老行为，别改坏）。**换一只真免疫细胞**，别把癌细胞的阵营改了 ——
+	## 那样 itype 还是 -1，日志一调 cell_name 就当场炸（第一版就这么翻的车）
+	g.cells[1] = CWSetup.make_cell(1, 1, CWData.Faction.IMMUNE, a, CWData.ImmuneType.BASIC, -1)
+	var mate: Dictionary = g.cells[1]
+	await g.world._vessel_teleport()
+	check(imm["pos"] == a and mate["pos"] == b, "同阵营两端：照换")
+	## ③ 只有一端有人：送过去，另一端空着
+	g.cells.remove_at(1)
+	await g.world._vessel_teleport()
+	check(imm["pos"] == b and g.cells_at(a).is_empty(), "只有一端有人：送到另一端")
 	g.dispose()
 
 
