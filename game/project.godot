@@ -9,6 +9,7 @@
 config_version=5
 
 [application]
+config/icon="res://assets/icon/icon_256.png"
 
 config/name="Cell War"
 config/description="《Cell War》免疫细胞 vs 癌细胞 桌游电子化"
