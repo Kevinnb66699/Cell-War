@@ -205,11 +205,28 @@ static func _expand_assets(pairs: Array) -> Dictionary:
 		if not FileAccess.file_exists(made_disk):
 			errors.append("%s：导入产物不存在（%s）—— 先跑 --import" % [res, made])
 			continue
+		## **改了图却忘了重新导入**（2026-09-14 S5 演练里发现的洞）：产物还是旧的，
+		## 而我们自己算的哈希也照着旧产物来 —— 探针那一关「产物字节换了没有」比的是
+		## 「包里 vs 清单」，两边都旧，一路绿灯，发出去画面纹丝不动。
+		## 判据用改动时刻：产物比源文件旧 = 这一版没导过。
+		if _stale_artifact(disk, made_disk):
+			errors.append("%s：源文件比导入产物新 —— 改完没重新导入，先跑一次 godot --headless --path game --import" % res)
+			continue
 		## 产物 + .import 都要进包：**新增**资源在基线里没有 `.import`，光有产物没人知道去哪读
 		out_pairs.append([made, made_disk])
 		out_pairs.append([res + ".import", imp_disk])
 		assets.append("%s|%s|%s" % [res, made, _sha256_of(made_disk)])
 	return { "pairs": out_pairs, "assets": assets, "errors": errors }
+
+
+## 产物是不是「上一版」的：源文件比它新就是。**纯函数**（喂两个磁盘路径），护栏直接核。
+## 早一秒算新：文件系统的时间戳只到秒，同一秒内改完就导的情况按「没过期」放行
+static func _stale_artifact(src_disk: String, made_disk: String) -> bool:
+	var src_t := FileAccess.get_modified_time(src_disk)
+	var made_t := FileAccess.get_modified_time(made_disk)
+	if src_t == 0 or made_t == 0:
+		return false          ## 读不到时间就别拦（拦错的代价是热更整个用不了）
+	return src_t > made_t
 
 
 ## `.import` 里 `[remap]` 那段的 `path=`（导入产物在 res:// 下的去处）；读不到给空串

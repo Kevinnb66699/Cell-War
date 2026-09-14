@@ -9654,7 +9654,29 @@ func t_patch_assets() -> void:
 	var bad2: Array = PACKER._reject([[no_imp, ProjectSettings.globalize_path(no_imp)]], {})
 	check(ok_bad.is_empty() and bad2.size() == 1,
 		"导入过的放行、没导入过的拦下（%s）" % str(bad2))
-	## ⑥ 流水线真的把清单交给探针了（漏了这一步，资源那半就等于没验）
+	## ⑥ **改了图却忘了重新导入**（2026-09-14 S5 演练里发现的洞）：产物还是旧的，
+	## 而清单里的哈希也照着旧产物算 —— 两边都旧，探针那关一路绿灯，发出去画面纹丝不动。
+	## 判据是改动时刻：源文件比产物新 = 这一版没导过
+	var dir := "user://_t_stale"
+	DirAccess.make_dir_recursive_absolute(dir)
+	var older := dir + "/made.bin"
+	var newer := dir + "/src.png"
+	var f1 := FileAccess.open(older, FileAccess.WRITE)
+	f1.store_string("旧产物")
+	f1.close()
+	OS.delay_msec(1100)          ## 时间戳只到秒，得真等过一秒才分得开
+	var f2 := FileAccess.open(newer, FileAccess.WRITE)
+	f2.store_string("新源文件")
+	f2.close()
+	var d1 := ProjectSettings.globalize_path(newer)
+	var d2 := ProjectSettings.globalize_path(older)
+	check(PACKER._stale_artifact(d1, d2), "源文件比产物新 → 判为「没重新导入」")
+	check(not PACKER._stale_artifact(d2, d1), "反过来不算（产物比源新是正常的）")
+	check(not PACKER._stale_artifact(d1, "user://_t_stale/不存在"),
+		"读不到时间就别拦（拦错的代价是热更整个用不了）")
+	DirAccess.remove_absolute(older)
+	DirAccess.remove_absolute(newer)
+	## ⑦ 流水线真的把清单交给探针了（漏了这一步，资源那半就等于没验）
 	var sh := FileAccess.get_file_as_string("res://../tools/build_patch.sh")
 	if sh == "":
 		sh = FileAccess.get_file_as_string(ProjectSettings.globalize_path("res://../tools/build_patch.sh"))
