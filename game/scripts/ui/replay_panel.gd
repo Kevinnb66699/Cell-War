@@ -27,6 +27,9 @@
 class_name CWReplayPanel
 extends Control
 
+## 界面音效（游戏外按钮的点击）。**preload 不给 class_name**：新类走不了热更，见那个文件的头注
+const SFX := preload("res://scripts/ui/cw_sfx.gd")
+
 signal cancelled                       ## Esc / 返回主菜单：菜单把自己淡回来
 signal picked(data: Dictionary)        ## 选了一份要看的
 
@@ -458,6 +461,7 @@ func _clicky(text: String, at: Vector2, on_click: Callable) -> Label:
 			return
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			get_viewport().set_input_as_handled()
+			SFX.click()
 			on_click.call())
 	add_child(label)
 	return label

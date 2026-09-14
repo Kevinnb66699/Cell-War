@@ -14,6 +14,9 @@
 class_name CWPauseMenu
 extends Control
 
+## 界面音效（游戏外按钮的点击）。**preload 不给 class_name**：新类走不了热更，见那个文件的头注
+const SFX := preload("res://scripts/ui/cw_sfx.gd")
+
 ## action 取值见 ITEMS 的 id
 signal chose(action: String)
 
@@ -308,6 +311,7 @@ func _enabled(item: Dictionary) -> bool:
 func _activate(i: int) -> void:
 	if not _enabled(_list[i]):
 		return
+	SFX.click()
 	var id: String = _list[i]["id"]
 	if _confirming != "":
 		if id != "yes":

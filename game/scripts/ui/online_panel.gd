@@ -19,6 +19,9 @@
 class_name CWOnlinePanel
 extends Control
 
+## 界面音效（游戏外按钮的点击）。**preload 不给 class_name**：新类走不了热更，见那个文件的头注
+const SFX := preload("res://scripts/ui/cw_sfx.gd")
+
 signal cancelled                             ## 第一页 Esc：主菜单把自己淡回来
 signal match_started(client: CWNetClient)    ## 房间开局且第一份状态已排进 stream：main.gd 推镜头进棋盘
 signal match_lost(reason: String)            ## 对局中房间没了 / 令牌失效：main.gd 收摊回主菜单
@@ -1268,6 +1271,7 @@ func _clicky(root: Control, text: String, at: Vector2, on_click: Callable, size:
 	label.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			get_viewport().set_input_as_handled()
+			SFX.click()
 			on_click.call())
 	if hover:
 		label.mouse_entered.connect(func() -> void: CWStyle.link_hot(label, true))
@@ -1302,6 +1306,7 @@ func _solid_button(root: Control, text: String, at: Vector2, w: float, on_click:
 	p.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			get_viewport().set_input_as_handled()
+			SFX.click()
 			on_click.call())
 	root.add_child(p)
 	var t := CWStyle.label(text, CWStyle.SIZE_BODY, Color("0d1620"))

@@ -129,7 +129,7 @@ func _run_all() -> void:
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
-		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_guide_watch, t_turn_mark, t_online_glow, t_match_online,
+		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_guide_watch, t_ui_sfx, t_turn_mark, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -9611,6 +9611,65 @@ func t_teardown_board() -> void:
 	m.teardown()
 	check(true, "拆两次不崩")
 	main_scene.queue_free()
+
+
+## 界面音效（Kevin 2026-09-13：「游戏外的按钮点击加上这个音效」）。
+## 判据分两半：**响得起来**（池子、复用、没有场景树时不崩）与**该响的地方都接了线**——
+## 后者只能扫源码：少接一处不会报错，只会有一个按钮默默无声，谁也不会当场发现。
+func t_ui_sfx() -> void:
+	print("[界面音效·游戏外按钮]")
+	var SFX := preload("res://scripts/ui/cw_sfx.gd")
+	check(SFX.CLICK != null and SFX.CLICK is AudioStream, "点击音素材加载得到（%s）"
+		% SFX.CLICK.resource_path)
+	check(SFX.POOL >= 2 and SFX.VOLUME_DB <= 0.0, "池子 %d 个、音量压过（%.1f dB）"
+		% [SFX.POOL, SFX.VOLUME_DB])
+	SFX.click()
+	var made: AudioStreamPlayer = null
+	for c in root.get_children():
+		if c is AudioStreamPlayer and String(c.name).begins_with("CWSfx"):
+			made = c
+	check(made != null and made.stream == SFX.CLICK, "响一声：挂到 root 上、流是那段点击音")
+	## 连点：池子不会无限长
+	for i in 12:
+		SFX.click()
+	var n := 0
+	for c in root.get_children():
+		if c is AudioStreamPlayer and String(c.name).begins_with("CWSfx"):
+			n += 1
+	check(n <= SFX.POOL, "连点 13 下，播放器最多 %d 个（现 %d）" % [SFX.POOL, n])
+	for c in root.get_children():
+		if c is AudioStreamPlayer and String(c.name).begins_with("CWSfx"):
+			root.remove_child(c)
+			c.free()
+	## **不能拿 root 的子节点数去比**：别的测试（暂停菜单 / 主菜单那几个 _activate）
+	## 早就响过，池子里本来就有几个 —— 第一版这么写，清完反而比 before 还少
+	var left := 0
+	for c in root.get_children():
+		if c is AudioStreamPlayer and String(c.name).begins_with("CWSfx"):
+			left += 1
+	check(left == 0, "测试自己收干净（别把播放器留给后面的测试）")
+	## **该响的地方都接了线**：一处一行，漏一处就红
+	var wired := {
+		"scripts/ui/cw_style.gd": "共用底座（开局配置 / 设置页 / 投降票）",
+		"scripts/ui/main_menu.gd": "主菜单条目与确认页",
+		"scripts/ui/pause_menu.gd": "Esc 菜单（含确认页、反馈页）",
+		"scripts/ui/settle_screen.gd": "结算屏",
+		"scripts/ui/online_panel.gd": "联机各页（链接 + 实心按钮）",
+		"scripts/ui/cw_codex.gd": "知识之书",
+		"scripts/ui/replay_panel.gd": "回放列表",
+	}
+	var silent: Array = []
+	for path: String in wired:
+		var src := FileAccess.get_file_as_string("res://" + path)
+		if not src.contains("SFX.click()") or not src.contains('preload("res://scripts/ui/cw_sfx.gd")'):
+			silent.append("%s（%s）" % [path.get_file(), wired[path]])
+	check(silent.is_empty(), "%d 处游戏外按钮都接了点击音（没接的：%s）" % [wired.size(), str(silent)])
+	## 棋盘上的操作**不响**：那是对局的节奏，另说（也免得每走一格都咔一声）
+	var loud: Array = []
+	for path: String in ["scripts/ui/action_bar.gd", "scripts/ui/hand.gd", "scripts/ui/board.gd"]:
+		if FileAccess.get_file_as_string("res://" + path).contains("SFX.click()"):
+			loud.append(path.get_file())
+	check(loud.is_empty(), "对局里的操作没跟着响（响了的：%s）" % str(loud))
 
 
 ## 教程步骤的**完成判据**（`guide_watch.gd`，2026-09-13 从两支写死的 match 摊成一张表）。

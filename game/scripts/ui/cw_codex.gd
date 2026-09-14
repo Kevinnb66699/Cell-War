@@ -21,6 +21,9 @@
 class_name CWCodex
 extends Control
 
+## 界面音效（游戏外按钮的点击）。**preload 不给 class_name**：新类走不了热更，见那个文件的头注
+const SFX := preload("res://scripts/ui/cw_sfx.gd")
+
 const W := 580
 const H := 470
 const PAD := 20
@@ -636,6 +639,7 @@ func _rebuild_results() -> void:
 		row.gui_input.connect(func(e: InputEvent) -> void:
 			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 				get_viewport().set_input_as_handled()
+				SFX.click()
 				_goto(hit))
 		row.mouse_entered.connect(func() -> void: head.add_theme_color_override("font_color", CWStyle.TEXT_HI))
 		row.mouse_exited.connect(func() -> void: head.add_theme_color_override("font_color", CWStyle.IMMUNE))
@@ -793,6 +797,7 @@ func _clicky(text: String, at: Vector2, on_click: Callable, parent: Node = null)
 	label.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			get_viewport().set_input_as_handled()
+			SFX.click()
 			on_click.call())
 	(parent if parent != null else self).add_child(label)
 	return label

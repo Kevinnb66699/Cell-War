@@ -8,6 +8,9 @@
 class_name CWStyle
 extends RefCounted
 
+## 界面音效（游戏外按钮的点击）。**preload 不给 class_name**：新类走不了热更，见那个文件的头注
+const SFX := preload("res://scripts/ui/cw_sfx.gd")
+
 # ---- 配色 ----
 const GROUND := Color("141f2e")      ## 画布底
 const PANEL := Color("0f1822")       ## 面板底
@@ -47,6 +50,7 @@ static func label(text: String, size: int, color: Color) -> Label:
 ## 调用者仍自行决定位置、悬停反馈和焦点；这里只收口两个页面完全相同的输入底座。
 static func clickable_label(parent: Control, text: String, at: Vector2,
 		on_click: Callable) -> Label:
+	## 点击音就挂在这条共用底座上 —— 用它的几处（开局配置、设置页、投降票）一并有声
 	var clickable := label(text, SIZE_BODY, TEXT_HI)
 	clickable.position = at
 	clickable.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -56,6 +60,7 @@ static func clickable_label(parent: Control, text: String, at: Vector2,
 			var viewport := clickable.get_viewport()
 			if viewport != null:
 				viewport.set_input_as_handled()
+			SFX.click()
 			on_click.call())
 	parent.add_child(clickable)
 	return clickable

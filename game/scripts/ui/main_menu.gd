@@ -38,6 +38,9 @@ signal tutorial_requested(cancer_type: int)
 ## 而「开始对局」的推进过场就是在这两组参数之间插值 —— 摆在一起才看得出关系。
 
 
+## 界面音效（游戏外按钮的点击）。**preload 不给 class_name**：新类走不了热更，见那个文件的头注
+const SFX := preload("res://scripts/ui/cw_sfx.gd")
+
 ## ── 装饰细胞 ──────────────────────────────────────────────────
 ## 菜单机位里看得见的几格上站着免疫细胞样本。轴坐标取自原型的 DECOR。
 const DECOR := {
@@ -482,6 +485,7 @@ func _close_confirm() -> void:
 
 
 func _pick_confirm(i: int) -> void:
+	SFX.click()
 	if _confirm_on_pick.is_valid():
 		_confirm_on_pick.call(i)
 	else:
@@ -602,6 +606,7 @@ func _step_selection(dir: int) -> void:
 func _activate(i: int) -> void:
 	if i < 0 or not _item_enabled(i):
 		return
+	SFX.click()
 	match ITEMS[i]["node"]:
 		"Start":
 			_open_config()

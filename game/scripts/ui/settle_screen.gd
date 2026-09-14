@@ -14,6 +14,9 @@
 class_name CWSettleScreen
 extends Control
 
+## 界面音效（游戏外按钮的点击）。**preload 不给 class_name**：新类走不了热更，见那个文件的头注
+const SFX := preload("res://scripts/ui/cw_sfx.gd")
+
 ## "restart" = 再来一局（同人数、新种子）；"menu" = 返回主菜单；
 ## "replay" = 看这局回放（结算屏右下角那个文字链接，2026-09-09）。
 ## 联机局（online）里右边那颗按钮是「回到等待室」，仍发 "restart"，由 main.gd 按模式分流。
@@ -281,6 +284,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _activate(i: int) -> void:
 	if _playing:
 		return
+	SFX.click()
 	chose.emit("menu" if i == 0 else "restart")
 
 
