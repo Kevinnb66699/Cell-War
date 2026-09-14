@@ -116,7 +116,7 @@ if [ ! -f "$PROBE_DIR/wt/game/scripts/patch_probe.gd" ]; then
    先发一版完整客户端把探针带出去，再照那个 tag 打补丁。"
 fi
 "$GODOT" --headless --path "$PROBE_DIR/wt/game" --export-pack "Windows Desktop" 	"$PROBE_DIR/base.pck" >/dev/null 2>&1 || die "照 $BASE 导包失败"
-"$GODOT" --headless --main-pack "$PROBE_DIR/base.pck" 	--script res://scripts/patch_probe.gd -- "$PWD/$OUT" "$BUILD" 	|| die "**补丁装上去不生效**（上面写了哪一条不对）。包没上传，线上没有任何变化。"
+"$GODOT" --headless --main-pack "$PROBE_DIR/base.pck" 	--script res://scripts/patch_probe.gd -- "$PWD/$OUT" "$BUILD" "$PWD/$OUT.assets" 	|| die "**补丁装上去不生效**（上面写了哪一条不对）。包没上传，线上没有任何变化。"
 
 # min_base 取当前的基线号：补丁是照着 HEAD 打的，就只保证能装在这一档基线上。
 # 比它老的客户端会被 boot.gd 拦下来，提示去下完整包，而不是硬套一个可能用不了的补丁。

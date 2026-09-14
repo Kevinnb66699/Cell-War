@@ -14,7 +14,14 @@ extends SceneTree
 ## 从那次发版 tag 的 git 树里扒出来）。不给就退回「拿本机项目的类表对照」——
 ## 那是个**会漏**的判据，见 _class_known 的注释。
 ##
-## ⚠ **能打进补丁的只有资源，改不动这些**（要改就得全量发版）：
+## **美术资源也能打进补丁**（2026-09-14 验过才开的口子）：喂进来的是源文件
+## （`assets/art/x.png`），打进包的是**导入产物** —— 包里真正被读的是
+## `.godot/imported/x.png-<md5(源路径)>.ctex`，`res://…png` 靠同名的 `.import` 重定向过去。
+## 所以 `_expand_assets()` 把每个源文件换成「产物 + `.import`」两条，源文件本身不进包（没人读它）。
+## 实测三档都通（S0/S1/S2，见开发日志 2026-09-14）：换已有资源、新增资源、
+## 补丁里的脚本 `preload` 新资源（解析期）；同一个补丁包 Windows / macOS 通用。
+##
+## ⚠ **仍然改不动这些**（要改就得全量发版）：
 ##   · 新增 `class_name`（全局类表在导出时烘死，补丁里的新类名解析不了）
 ##   · `project.godot` 的设置（引擎启动时就读完了）
 ##   · Godot 版本 / 导出模板
@@ -79,6 +86,30 @@ func _initialize() -> void:
 		quit(3)
 		return
 
+	## 美术资源：源文件换成「导入产物 + .import」。**必须在 _reject 之后** ——
+	## 拒绝的判据说的是「你喂进来的东西」，展开之后再拒会答非所问
+	var expanded := _expand_assets(pairs)
+	if not expanded["errors"].is_empty():
+		printerr("✘ 美术资源打不进补丁：")
+		for b in expanded["errors"]:
+			printerr("   ", b)
+		quit(3)
+		return
+	pairs = expanded["pairs"]
+	## 探针要拿的核对清单：一行「源路径|产物路径|产物SHA」。
+	## 没有它，资源那一半就回到了「每步报成功、画面没变」的老路 —— 2026-09-10 的教训
+	if not expanded["assets"].is_empty():
+		var list_path: String = out + ".assets"
+		var f := FileAccess.open(list_path, FileAccess.WRITE)
+		if f == null:
+			printerr("✘ 写不出资源核对清单 ", list_path)
+			quit(4)
+			return
+		for line: String in expanded["assets"]:
+			f.store_line(line)
+		f.close()
+		print("  资源核对清单 → ", list_path, "（%d 项）" % expanded["assets"].size())
+
 	var packer := PCKPacker.new()
 	var err := packer.pck_start(out)
 	if err != OK:
@@ -120,13 +151,12 @@ static func _reject(pairs: Array, base: Dictionary) -> Array:
 		if res.ends_with("project.godot") or res.ends_with(".import"):
 			bad.append("%s：项目设置 / 导入配置在引擎启动时就读完了，补丁盖不住" % res)
 			continue
-		## **要经过导入的资源换不动**（2026-09-10 issue #10 那批美术上撞到的）：
-		## 导出包里存的是 `.godot/imported/xxx.png-<md5>.ctex`，`res://…png` 靠 `.import`
-		## 重定向过去 —— 补丁塞一张 `.png` 进去，引擎照样走重定向读老的 `.ctex`，
-		## 和 `.gd` / `.gdc` 那个坑是同一类：**每一步都报成功，而画面一点没变**。
+		## 要过导入的资源：**源文件本身确实白塞**（包里被读的是 `.godot/imported/…`），
+		## 但 `_expand_assets()` 会把它换成导入产物再打包（2026-09-14 验过）。
+		## 这里只挡一种情形：**还没导入过** —— 那时产物根本不存在，打了也是空的。
 		if _needs_import(res):
-			bad.append("%s：贴图/音频这类要过导入的资源，包里存的是导入产物（.ctex 等），"
-				% res + "补丁里的原始文件不会被读到 —— 换美术只能全量发版")
+			if not FileAccess.file_exists(disk + ".import"):
+				bad.append("%s：没有 .import，说明这份资源还没导入过 —— 先跑一次 godot --headless --path game --import" % res)
 			continue
 		## 启动器自身**读在挂载之前**，所以补丁里的新版永远不会生效 ——
 		## 打进去只会造成「更新了」的假象。这两个文件只能全量发版。
@@ -151,6 +181,59 @@ static func _reject(pairs: Array, base: Dictionary) -> Array:
 
 ## 这个路径是不是「要过导入」的资源。**宁可多列几种也别漏** ——
 ## 漏掉的后果是发出去一个换不动东西的哑弹补丁，而且全程报成功。
+## 把「源资源」换成「导入产物 + .import」。返回 { pairs, assets, errors }：
+## `assets` 是给探针的核对清单（源路径|产物路径|产物SHA-256）。
+##
+## **产物路径不自己算**：读 `.import` 里的 `path=` —— 那是引擎自己写的去处，
+## 比我们照 md5 规则推更靠得住（导入器换了写法也跟着变）。
+static func _expand_assets(pairs: Array) -> Dictionary:
+	var out_pairs: Array = []
+	var assets: Array = []
+	var errors: Array = []
+	for p in pairs:
+		var res: String = p[0]
+		var disk: String = p[1]
+		if not _needs_import(res):
+			out_pairs.append(p)
+			continue
+		var imp_disk: String = disk + ".import"
+		var made: String = _remap_of(imp_disk)
+		if made == "":
+			errors.append("%s：`.import` 里读不到 path= —— 先重新导入一次" % res)
+			continue
+		var made_disk := ProjectSettings.globalize_path(made)
+		if not FileAccess.file_exists(made_disk):
+			errors.append("%s：导入产物不存在（%s）—— 先跑 --import" % [res, made])
+			continue
+		## 产物 + .import 都要进包：**新增**资源在基线里没有 `.import`，光有产物没人知道去哪读
+		out_pairs.append([made, made_disk])
+		out_pairs.append([res + ".import", imp_disk])
+		assets.append("%s|%s|%s" % [res, made, _sha256_of(made_disk)])
+	return { "pairs": out_pairs, "assets": assets, "errors": errors }
+
+
+## `.import` 里 `[remap]` 那段的 `path=`（导入产物在 res:// 下的去处）；读不到给空串
+static func _remap_of(imp_disk: String) -> String:
+	var f := FileAccess.open(imp_disk, FileAccess.READ)
+	if f == null:
+		return ""
+	while not f.eof_reached():
+		var line := f.get_line().strip_edges()
+		if line.begins_with("path="):
+			return line.substr(5).strip_edges().trim_prefix('"').trim_suffix('"')
+	return ""
+
+
+static func _sha256_of(disk: String) -> String:
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_SHA256)
+	var f := FileAccess.open(disk, FileAccess.READ)
+	if f == null:
+		return ""
+	ctx.update(f.get_buffer(f.get_length()))
+	return ctx.finish().hex_encode()
+
+
 static func _needs_import(res: String) -> bool:
 	for ext in [".png", ".jpg", ".jpeg", ".webp", ".svg", ".ttf", ".otf",
 			".ogg", ".wav", ".mp3", ".glb", ".gltf", ".obj"]:

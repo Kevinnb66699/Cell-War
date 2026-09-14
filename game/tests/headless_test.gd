@@ -129,7 +129,7 @@ func _run_all() -> void:
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
-		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_guide_watch, t_ui_sfx, t_turn_mark, t_online_glow, t_match_online,
+		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_guide_watch, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -5941,16 +5941,18 @@ func t_hot_patch() -> void:
 	var chain := [["res://scripts/ui/chain_fx.gd", ProjectSettings.globalize_path(
 		"res://scripts/ui/chain_fx.gd")]]
 	check(not Packer._reject(chain, older).is_empty(), "基线没有的 class_name 声明也拦")
-	## ③b 要过导入的资源（贴图等）也永远拦：导出包里存的是 `.ctex`，
-	## `res://…png` 靠 `.import` 重定向过去 —— 补丁塞原始 png 进去引擎根本不读，
-	## 和 `.gd` / `.gdc` 那个坑同类：每一步报成功，画面一点没变（2026-09-10 issue #10）
+	## ③b 要过导入的资源：**2026-09-14 起放行**（实测 S1/S2 通过，见 t_patch_assets 与开发日志）。
+	## 口径从「一律拦」改成「导入过的放行、没导入过的拦」：打包器会把源文件换成导入产物，
+	## 而产物只有导入过才存在。塞原始 png 仍然是白塞 —— 只是现在没人会那么塞了
 	for asset in ["res://assets/art/solidify/tissue_cancer_20_0.png",
 			"res://assets/fonts/fusion_pixel_10px.ttf"]:
 		var art_bad: Array = Packer._reject([[asset,
 			ProjectSettings.globalize_path(asset)]], full)
-		check(art_bad.size() == 1 and String(art_bad[0]).contains("全量发版"),
-			"%s：要过导入的资源拦下来（%s）" % [asset.get_file(),
-				"已拦" if art_bad.size() == 1 else "漏了"])
+		check(art_bad.is_empty(), "%s：导入过的资源放行（%s）"
+			% [asset.get_file(), "放行" if art_bad.is_empty() else str(art_bad)])
+	var raw_asset := "res://assets/art/_没导入过.png"
+	check(Packer._reject([[raw_asset, ProjectSettings.globalize_path(raw_asset)]], full).size() == 1,
+		"没导入过的资源仍然拦下（产物根本不存在，打了也是空的）")
 
 	## ④ 启动器与基线常量永远拦（它们读在挂载之前）
 	for f in ["res://scripts/boot.gd", "res://scripts/patch_state.gd"]:
@@ -9611,6 +9613,56 @@ func t_teardown_board() -> void:
 	m.teardown()
 	check(true, "拆两次不崩")
 	main_scene.queue_free()
+
+
+## 美术资源进热更（2026-09-14 S1/S2 实测通过之后开的口子）。
+## **喂进去的是源文件、打进包的是导入产物** —— 包里真正被读的是
+## `.godot/imported/x.png-<md5>.ctex`，源文件塞进去一点用没有（S0 当场量过：像素纹丝不动）。
+## 这里只验打包器这一半（纯逻辑）；「装上去真的换了」那一半由 `scripts/patch_probe.gd`
+## 在**真导出的包**上验，跑在 `tools/build_patch.sh` 里 —— 无头测试碰不到导出包，别在这儿假装验过。
+func t_patch_assets() -> void:
+	print("[热更·美术资源打包]")
+	var PACKER := preload("res://tests/build_patch.gd")
+	var src := "res://assets/art/vessel_cancer.png"
+	var disk := ProjectSettings.globalize_path(src)
+	## ① `.import` 里的 path= 就是产物的去处（**不自己按 md5 推**：导入器换写法时它跟着变）
+	var made: String = PACKER._remap_of(disk + ".import")
+	check(made.begins_with("res://.godot/imported/") and made.ends_with(".ctex"),
+		"从 .import 读出产物路径：%s" % made)
+	## ② 展开：源文件换成「产物 + .import」，源文件本身不进包
+	var got: Dictionary = PACKER._expand_assets([[src, disk]])
+	check(got["errors"].is_empty(), "正常资源不该报错（%s）" % str(got["errors"]))
+	var packed: Array = []
+	for p in got["pairs"]:
+		packed.append(String(p[0]))
+	check(packed.has(made) and packed.has(src + ".import") and not packed.has(src),
+		"打进包的是产物 + .import，源文件不进（%s）" % str(packed))
+	## ③ 给探针的核对清单：源路径|产物路径|产物 SHA-256
+	check(got["assets"].size() == 1, "一份资源一行清单")
+	var cols: PackedStringArray = String(got["assets"][0]).split("|")
+	check(cols.size() == 3 and cols[0] == src and cols[1] == made
+		and cols[2].length() == 64 and cols[2].is_valid_hex_number(),
+		"清单三列齐、SHA 是 64 位十六进制（%s）" % String(got["assets"][0]))
+	## ④ 没导入过的资源要当场拦下 —— 那时产物根本不存在，打了也是空的
+	var miss: Dictionary = PACKER._expand_assets([["res://assets/art/_不存在的.png",
+		ProjectSettings.globalize_path("res://assets/art/_不存在的.png")]])
+	check(miss["pairs"].is_empty() and miss["errors"].size() == 1,
+		"没 .import 的资源：不打包、报一条（%s）" % str(miss["errors"]))
+	## ⑤ `_reject` 那一侧的口径跟着改了：导入过的资源放行，没导入过的拦下
+	var ok_bad: Array = PACKER._reject([[src, disk]], {})
+	var no_imp := "res://assets/art/_没导入.png"
+	var bad2: Array = PACKER._reject([[no_imp, ProjectSettings.globalize_path(no_imp)]], {})
+	check(ok_bad.is_empty() and bad2.size() == 1,
+		"导入过的放行、没导入过的拦下（%s）" % str(bad2))
+	## ⑥ 流水线真的把清单交给探针了（漏了这一步，资源那半就等于没验）
+	var sh := FileAccess.get_file_as_string("res://../tools/build_patch.sh")
+	if sh == "":
+		sh = FileAccess.get_file_as_string(ProjectSettings.globalize_path("res://../tools/build_patch.sh"))
+	check(sh.contains("patch_probe.gd") and sh.contains("$OUT.assets"),
+		"build_patch.sh 把资源清单传给了探针")
+	var probe := FileAccess.get_file_as_string("res://scripts/patch_probe.gd")
+	check(probe.contains("资源没换") and probe.contains("quit(6)"),
+		"探针有「资源没换」这一档，且用独立退出码（6）—— 靠它拦住上传")
 
 
 ## 界面音效（Kevin 2026-09-13：「游戏外的按钮点击加上这个音效」）。
