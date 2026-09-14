@@ -9,6 +9,10 @@ extends SceneTree
 ## 跑（可以加 --headless）：
 ##   godot --headless --path game --script res://tests/dump_guide.gd -- <输出.md>
 ## 不给路径就打到标准输出。
+##
+## **导出的稿子按天存档**：`docs/教程剧本_<YYYY-MM-DD>.md`（2026-09-14 起的规矩）——
+## 文案是队友在改的东西，留下每一版才对得起「改完再导一份」这句话；
+## 不要覆盖同一个文件名，那样改了什么就再也看不出来了。
 
 var _out := ""
 
