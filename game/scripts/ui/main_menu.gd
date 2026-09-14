@@ -73,7 +73,12 @@ const ITEMS := [
 	## 一个接着打、一个重看，放一起读得顺（Kevin 2026-09-09 定）
 	{"node": "Replay", "enabled": true},
 	{"node": "Codex", "enabled": true},
-	{"node": "Guide", "enabled": true},
+	## ⛔ **「新手引导」2026-09-14 起暂时停用** —— Kevin：「把新手指引功能暂时禁用」。
+	## （背景：队友正在重写教程剧本，2026-09-13 起。停用多久、为什么，他没说，别在这里替他补。）
+	## 灰掉而不是删掉：走菜单自带的那条路（`.mi.dim` 画灰 + 不吃鼠标 + 键盘跳过 + `_activate` 直接返回），
+	## **开回来就是把这里改回 true** —— 引导本身（CWGuide / CWGuideBridge / guide_levels / 进度存档）一行没动，
+	## `t_tutorial_pick` 也照旧盯着「挑对手癌种」那套逻辑（它绕开菜单直接调 `_open_tutorial`）。
+	{"node": "Guide", "enabled": false},
 	{"node": "Settings", "enabled": true},
 	{"node": "Quit", "enabled": true},
 ]

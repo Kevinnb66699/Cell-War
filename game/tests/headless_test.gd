@@ -12624,12 +12624,18 @@ func t_tutorial_pick() -> void:
 	for i in menu.ITEMS.size():
 		if menu.ITEMS[i]["node"] == "Guide":
 			guide_i = i
+	## 2026-09-14 起「新手引导」在主菜单灰掉（Kevin 让暂时禁用）：点不动、键盘也跳过。
+	## **开回来就是把 ITEMS 里那个 enabled 改回 true**，所以下面那套「挑对手癌种」的逻辑
+	## 一行没改、也不该跟着失去覆盖 —— 用例改成绕开菜单直接调 `_open_tutorial()`。
 	menu.guide_done_check = func() -> bool: return false
 	menu._activate(guide_i)
+	check(not menu._item_enabled(guide_i) and got.is_empty(),
+		"「新手引导」已停用：菜单项是灰的，点下去什么都不发生")
+	menu._open_tutorial()
 	check(got == [CWData.CancerType.OSTEO] and (menu._confirm == null or not menu._confirm.visible),
 		"没看完引导：直接开教程、对手钉死骨肉瘤、不弹选种")
 	menu.guide_done_check = func() -> bool: return true
-	menu._activate(guide_i)
+	menu._open_tutorial()
 	await process_frame
 	check(got.size() == 1 and menu._confirm != null and menu._confirm.visible, "引导全看完：先弹对手癌种选择，不直接开")
 	check(menu._confirm_title.text == menu.TUTORIAL_PICK_TITLE
@@ -12646,7 +12652,7 @@ func t_tutorial_pick() -> void:
 	menu._confirm_input(accept)
 	check(got.size() == 2 and got[1] == CWData.CancerType.SCLC and not menu._confirm.visible,
 		"往下一项回车：选中的癌种随信号发出、覆盖层收起")
-	menu._activate(guide_i)
+	menu._open_tutorial()
 	var esc := InputEventAction.new()
 	esc.action = "ui_cancel"
 	esc.pressed = true
