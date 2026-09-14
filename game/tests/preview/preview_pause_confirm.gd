@@ -15,10 +15,11 @@ extends SceneTree
 ##   godot --path game --script res://tests/preview/preview_pause_confirm.gd -- <输出.png>
 const WARMUP := 16
 const PANEL_Y := 100.0
-## 六档 = 三种身份 × 两页（返回主菜单 / 退出游戏），回放那档只有一页
+## 六档 = 六句**不一样的**小字。本地两页同句，只摆一格当参照；
+## 联机有席位与观战各两页（2026-09-13 先后改的就是这四句）；回放一句都不说
 const CASES := [
 	{ "online": false, "replay": false, "watch": false, "page": "menu", "cap": "本地 · 返回主菜单" },
-	{ "online": false, "replay": false, "watch": false, "page": "quit", "cap": "本地 · 退出游戏" },
+	{ "online": true, "replay": false, "watch": false, "page": "quit", "cap": "联机有席位 · 退出游戏（改）" },
 	{ "online": false, "replay": true, "watch": false, "page": "menu", "cap": "回放（09-10 改的）" },
 	{ "online": true, "replay": false, "watch": false, "page": "menu", "cap": "联机有席位 · 离开房间" },
 	{ "online": true, "replay": false, "watch": true, "page": "menu", "cap": "观战 · 离开房间（改）" },

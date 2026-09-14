@@ -267,8 +267,11 @@ static func confirm_hint(confirm_id: String, p_online: bool, p_replay: bool,
 		return ""
 	if p_online and p_watching:
 		return "你是观众，%s不影响这一局" % ("离开" if confirm_id == "menu" else "退出")
-	if p_online and confirm_id == "menu":
-		return "离开后本局由 AI 代打"
+	## 有席位的人：**两页都是同一件事** —— 人走了，那一席交给 AI 代打（Kevin 2026-09-13）。
+	## 「当前对局不会保存」是本地局的说法，联机局的进度在服务器上，本来就不存本地存档，
+	## 拿它当联机退出的代价说明是答非所问。
+	if p_online and (confirm_id == "menu" or confirm_id == "quit"):
+		return "%s后本局由 AI 代打" % ("离开" if confirm_id == "menu" else "退出")
 	return CONFIRM_HINT
 
 

@@ -9188,15 +9188,17 @@ func t_pause_and_teardown() -> void:
 	## 退出游戏那页同理：观众没有进度可丢，「当前对局不会保存」也是假的（第二张截图）
 	check(CWPauseMenu.confirm_hint("quit", true, false, true) == "你是观众，退出不影响这一局",
 		"观战·退出游戏换一句：%s" % CWPauseMenu.confirm_hint("quit", true, false, true))
-	check(CWPauseMenu.confirm_hint("quit", true, false) == CWPauseMenu.CONFIRM_HINT
-		and CWPauseMenu.confirm_hint("quit", false, false) == CWPauseMenu.CONFIRM_HINT,
-		"有席位 / 本地：退出游戏仍是「当前对局不会保存」")
+	## 有席位的人两页都是「交给 AI 代打」：联机局的进度在服务器上，
+	## 「当前对局不会保存」是本地局的说法，拿来当联机退出的代价是答非所问（Kevin 2026-09-13）
+	check(CWPauseMenu.confirm_hint("quit", true, false) == "退出后本局由 AI 代打",
+		"联机有席位·退出游戏：%s" % CWPauseMenu.confirm_hint("quit", true, false))
+	check(CWPauseMenu.confirm_hint("quit", false, false) == CWPauseMenu.CONFIRM_HINT
+		and CWPauseMenu.confirm_hint("menu", false, false) == CWPauseMenu.CONFIRM_HINT,
+		"本地局两页照旧「当前对局不会保存」")
 	check(CWPauseMenu.confirm_hint("menu", true, true, true) == "", "回放优先级最高，仍是一句都不说")
 	var msrc2 := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
 	check(msrc2.contains("pause_menu.watching = human_players.is_empty()"),
 		"开局时按「有没有席位」置观战档（漏了置位就永远显示 AI 代打）")
-	check(CWPauseMenu.confirm_hint("quit", true, false) == CWPauseMenu.CONFIRM_HINT,
-		"联机局的「退出游戏」用的还是通用那句")
 	var has_save := false
 	for it in pm.items():
 		if it["id"] == "save_quit":
