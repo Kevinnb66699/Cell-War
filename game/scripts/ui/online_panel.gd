@@ -717,8 +717,11 @@ func _build_connect(root: Control) -> void:
 	_addr.text_submitted.connect(func(_t: String) -> void: _connect())
 	## 「默认」：填过局域网房主的地址之后一键回公网服务器（Kevin 2026-09-12 局域网联机顺带）。
 	## 和大厅页输入框旁的「加入」同一套：正文字号、行基线、悬停白光（_clicky 自带，Kevin 特意叮嘱过要有）
+	## **走 CWSettings.default_server() 而不是自己拼** —— 网页版的默认地址是
+	## wss://（见那个函数），原来这里硬写桌面那套，网页上点「默认」等于填一个
+	## 必然被浏览器拦掉的 ws://
 	_clicky(root, "默认", Vector2(ARROW_R_X + 10, ROW_Y0 + ROW_H), func() -> void:
-		_addr.text = "%s:%d" % [CWNet.DEFAULT_HOST, CWNet.DEFAULT_PORT])
+		_addr.text = CWSettings.default_server())
 	## 第三行：局域网开服的入口（Kevin 2026-09-12）—— 端口与本机地址在下一页填
 	_row_label(root, "局域网", 2)
 	_clicky(root, "在本机开服", Vector2(VALUE_X, ROW_Y0 + ROW_H * 2), func() -> void: _show_page(Page.LAN))

@@ -21,7 +21,7 @@ static var nick := ""
 ## 所以它只能走 wss://，由 nginx 反代到本机的 8611（见 `docs/网页导出.md`）。
 ## 桌面版继续直连 ws://IP:8611：少一层 TLS 和反代，而且**不受证书死活影响** ——
 ## 这台机器上的证书历史上过期过好几次，没必要让桌面联机也跟着一起挂。
-static var server := CWNet.WEB_HOST if OS.has_feature("web") 	else "%s:%d" % [CWNet.DEFAULT_HOST, CWNet.DEFAULT_PORT]
+static var server := default_server()
 static var lan_port := CWNet.DEFAULT_PORT   ## 局域网开服上一次用的端口（Kevin 2026-09-12）
 static var _loaded := false
 
@@ -38,7 +38,30 @@ static func load_prefs() -> void:
 	teleport_anim = bool(cfg.get_value("play", "teleport_anim", teleport_anim))
 	nick = str(cfg.get_value("online", "nick", nick))
 	server = str(cfg.get_value("online", "server", server))
+	## **网页版上，存下来的非 wss 地址一律作废。**
+	## 浏览器会把 HTTPS 页面发起的 ws:// 当混合内容直接拦掉 —— 留着它，玩家看到的是
+	## 「连不上服务器」，而真正的原因在浏览器的存储里，谁也查不到。
+	## 这不是防呆：网页版上线当天就撞上了 —— 先前开过页面的浏览器存的是 ws://IP:8611，
+	## 新包的默认值根本轮不到生效。
+	if OS.has_feature("web") and not server.begins_with("wss://"):
+		server = default_server()
 	lan_port = int(cfg.get_value("online", "lan_port", lan_port))
+
+
+## 这个平台**默认**连哪台服务器。
+##
+## 网页版和桌面版不是同一个地址：网页版跑在 https:// 下，而 **HTTPS 页面连 ws:// 会被
+## 浏览器当混合内容直接拦掉** —— 所以它只能走 wss://，由 nginx 反代到本机的 8611
+## （见 `docs/网页导出.md`）。桌面版继续直连 ws://IP:8611：少一层 TLS 和反代，
+## 而且**不受证书死活影响** —— 这台机器上的证书历史上过期过好几次，
+## 没必要让桌面联机也跟着一起挂。
+##
+## 抽成函数是因为**有三个地方要用同一个答案**：这里的默认值、读盘时的作废判定、
+## 面板上那个「默认」按钮。各写一份必漂。
+static func default_server() -> String:
+	if OS.has_feature("web"):
+		return CWNet.WEB_HOST
+	return "%s:%d" % [CWNet.DEFAULT_HOST, CWNet.DEFAULT_PORT]
 
 
 static func save_prefs() -> void:
