@@ -90,7 +90,7 @@ Godot 的 **.NET 版没有 Web 导出**（4.x 全系至今如此）。我们今�
 
 ⚠ **「UI 保留」不等于零成本**，量过：UI 层 53 个文件 19192 行，对内核有约 **740 个耦合点** ——
 271 次直接读 `game.*`（`tiles`/`cells`/`round_no`/`tune`/`logs`），472 次 `CWData.*`。
-后者里约 59% 是词汇表（`fmt` 92 / `Faction` 84 / `Tissue` 30 / `Special` 29 / `CancerType` 23 /
+**（2026-09-15 重新分类，下面这组比例偏了，见本段末的更正）** 后者里约 59% 是词汇表（`fmt` 92 / `Faction` 84 / `Tissue` 30 / `Special` 29 / `CancerType` 23 /
 `ImmuneType` 21），可以原样留在 GDScript 侧；**剩下 41% 是规则数值**
 （`ANAEROBIC_CELLS_K`、`AEROBIC_LEVEL_BASE_BY_PLAYERS`、`ANTIBODY_DAMAGE`、`TOXIN_COST`、
 `LEVEL_MIN_MEMORY_BY_PLAYERS`、`HAND_MAX`…），UI 拿它们来**显示**右栏预计收入、技能费用、
@@ -100,6 +100,16 @@ Godot 的 **.NET 版没有 Web 导出**（4.x 全系至今如此）。我们今�
 而 `ANAEROBIC_CELLS_K` 在 C# 里**压根不存在**。于是 UI 显示「×120%」、内核按没有 k 算，
 **不报错，玩家只觉得数字对不上**。这就是「两套实现要落两遍」的具体形状，
 也是为什么对拍必须先行。
+
+> 🔴 **更正（2026-09-15）**：上面那句「剩下 41% 是规则数值」**偏高**。按符号逐个归类重量：
+> 472 处里**词汇表/几何/格式化约 74%（350 处）**、**规则数值约 26%（122 处）**。
+> 光前六个词汇表符号就占 279 处（`fmt` 92 / `Faction` 84 / `Tissue` 30 / `Special` 29 /
+> `CancerType` 23 / `ImmuneType` 21）。
+>
+> 更要紧的是那 122 处的**分布**：`cw_codex.gd` 54 处 + `guide_data.gd` 10 处 +
+> `rules_page.gd` 9 处 = **73 处（60%）全在「规则说明书」类页面**，不是对局 HUD。
+> ⇒ 决策 9「UI 一个规则数值都不留」的真正分界线在这里：
+> **知识之书要不要也由内核渲染？** 要，C# 就得背中文文案与排版。这条得 Kevin 定。
 
 ---
 
