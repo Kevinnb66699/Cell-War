@@ -96,6 +96,10 @@ func _eval_sync(snap: Dictionary, options: Array, cfg: Dictionary) -> Dictionary
 
 
 func _threaded_eval(snap: Dictionary, options: Array, cfg: Dictionary) -> Dictionary:
+	## 没有线程就别起线程 —— 理由与 CWMonteCarloBridge 那份逐字相同（网页版无线程构建上
+	## 那个轮询循环会永远等下去，且不报错）。两个桥各写一次，因为它们各有一份 _threaded_eval。
+	if not OS.has_feature("threads"):
+		return await _eval_sync(snap, options, cfg)
 	var tree: SceneTree = Engine.get_main_loop() as SceneTree
 	if tree == null:
 		push_warning("CWMCTSBridge._threaded_eval: 拿不到 SceneTree，退回同步路径")

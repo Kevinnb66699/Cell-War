@@ -4053,6 +4053,17 @@ func t_heur_lifecare() -> void:
 # ---- AI·扁平蒙特卡洛：零污染、确定性、拿得下白送的击杀、整局能跑 ----
 func t_ai_mc() -> void:
 	print("[AI·扁平蒙特卡洛]")
+	## ⓪ 没有线程时必须退回同步路径（2026-09-14，网页版）。
+	## **只能按源码核**：桌面跑测试时 `OS.has_feature("threads")` 恒为真，判据永远不进；
+	## 而真出事的构建（`web_nothreads_*`）跑不了这套无头测试。
+	## 不加这道判据的后果是：轮询 holder 的那个 while 永远等下去 —— AI 再也不出手、
+	## 还不报任何错。这种故障没人查得动，所以宁可用源码断言钉死。
+	for path in ["res://scripts/ai/monte_carlo_bridge.gd", "res://scripts/ai/mcts_bridge.gd"]:
+		var src := FileAccess.get_file_as_string(path)
+		var at_guard: int = src.find('if not OS.has_feature("threads")')
+		var at_start: int = src.find("t.start(")
+		check(at_guard > 0 and at_start > at_guard,
+			"%s：起线程之前先认一次「这个构建有没有线程」" % path.get_file())
 	## ① 主线零污染 + 同局面同答案
 	var g := make_game(2, 33)
 	var ip := _immune_pid(g)

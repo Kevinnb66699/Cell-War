@@ -102,6 +102,14 @@ func _eval_sync(snap: Dictionary, options: Array, cfg: Dictionary) -> Dictionary
 
 ## 副线程路径：提交一个静态入口（绝不捕获主桥实例），主线程只在释放点让帧。
 func _threaded_eval(snap: Dictionary, options: Array, cfg: Dictionary) -> Dictionary:
+	## **没有线程就别起线程**（2026-09-14，网页版）：`web_nothreads_*` 模板编出来的包
+	## 不带线程支持。而下面那段是「起线程 → 每帧轮询 holder → wait_to_finish」——
+	## 万一 `Thread.start()` 在这种构建上不同步执行那个 callable，holder 永远填不上，
+	## 这个 while 就**永远等下去**：表现是 AI 再也不出手，而且**不报任何错**，最难查的那一类。
+	## 与其赌引擎的回退行为，不如自己认一次：`threads` 这个 feature 标签只在带线程的构建上有。
+	## 代价是强 AI 思考时标签页会卡住 —— 那是单线程的必然，不是这里能解决的。
+	if not OS.has_feature("threads"):
+		return await _eval_sync(snap, options, cfg)
 	## 主线程要用主循环的 process_frame 让帧（桥不是 Node、game 是 RefCounted）。
 	## 真对局与无头 SceneTree 脚本都是 SceneTree；拿不到就退回同步路径，绝不忙等。
 	var tree: SceneTree = Engine.get_main_loop() as SceneTree
