@@ -75,7 +75,37 @@ Godot 的 **.NET 版没有 Web 导出**（4.x 全系至今如此）。我们今�
 
 
 
+## 拍板（2026-09-15）
+
+**Kevin 定了：走路线 A —— C# 内核放到进程外，客户端保持标准版 Godot + 纯 GDScript。**
+
+确认过的口径：「把新仓库的内核迁移过来、UI 什么的都用原来的」——方向一致。
+但那句话**区分不了同进程与进程外**（队友的 `godot-client` 也是 GDScript UI），
+所以特意问了一次，答案是**进程外**。于是：
+
+* 网页版活着、`.pck` 热更活着、UI 与外围功能全留
+* 单机要在本机起一个 C# sidecar 进程；网页版的单机另议（见路 A 那条的 ❌）
+* 本地 sidecar 自己怎么热更 → `docs/路线A_内核热更方案.md`（结论：`CellWar.Core.dll`
+  压进现有 .pck 补丁包，走同一个 build、同一份签名、同一次 quarantine）
+
+⚠ **「UI 保留」不等于零成本**，量过：UI 层 53 个文件 19192 行，对内核有约 **740 个耦合点** ——
+271 次直接读 `game.*`（`tiles`/`cells`/`round_no`/`tune`/`logs`），472 次 `CWData.*`。
+后者里约 59% 是词汇表（`fmt` 92 / `Faction` 84 / `Tissue` 30 / `Special` 29 / `CancerType` 23 /
+`ImmuneType` 21），可以原样留在 GDScript 侧；**剩下 41% 是规则数值**
+（`ANAEROBIC_CELLS_K`、`AEROBIC_LEVEL_BASE_BY_PLAYERS`、`ANTIBODY_DAMAGE`、`TOXIN_COST`、
+`LEVEL_MIN_MEMORY_BY_PLAYERS`、`HAND_MAX`…），UI 拿它们来**显示**右栏预计收入、技能费用、
+等级门槛、卡面数字。
+
+换内核之后这些会变成**两份**：今天它们必然一致（同一个 `CWData`），换成 C# 之后一边一份 ——
+而 `ANAEROBIC_CELLS_K` 在 C# 里**压根不存在**。于是 UI 显示「×120%」、内核按没有 k 算，
+**不报错，玩家只觉得数字对不上**。这就是「两套实现要落两遍」的具体形状，
+也是为什么对拍必须先行。
+
+---
+
 ## 四、四条路
+
+
 
 
 
