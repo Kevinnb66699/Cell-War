@@ -296,6 +296,73 @@ static func core_failed() -> void: quarantine(CORE_STRIKES)
 
 ---
 
+## 八点四、队友的反馈把方案砍掉了一大块（2026-09-15）
+
+重构项目的队友给了四条建议。**第一条是对的，而且它一句话把整个 ALC 问题取消了。**
+
+### ① 「原版也没有热更，只是增量更新，不是热更新」—— 成立
+
+核过了，精确版本是：
+
+* **启动那条路**：`boot.gd` 在 `_ready()` 里下载 + `load_resource_pack`（:295），
+  **然后**才 `change_scene_to_file(MAIN_SCENE)`（:113）—— **当次就生效，玩家不用重启**。
+* **游戏内手动检查**：`settings_page.gd:28-37` 写着「补丁要重启才生效」，有重启倒计时。
+
+两条路的共同点才是要害：**永远有一个进程边界可用**。我们从来没有、也不需要
+「进程运行中把代码换掉」的能力。本文前面一直用「热更」这个词，
+**准确的说法是「增量更新」**。
+
+⇒ **于是 §3 里那套 `AssemblyLoadContext` + `LoadFromAssemblyPath` 整个不需要了。**
+sidecar 是独立进程，换内核 = 下次 spawn 换个目录。
+
+### 实测：换目录就行，零 ALC 代码
+
+```
+verA/  Host.exe + RuleLib.dll(V1)      →  V1-BASELINE
+verB/  Host.exe + RuleLib.dll(V2)      →  V2-PATCHED      ← 两个完整目录只差一个 dll
+dotnet exec verA/Host.dll              →  V1-BASELINE
+dotnet exec verB/Host.dll              →  V2-PATCHED
+```
+
+`dotnet` 按 **app dll 所在目录**探测依赖，所以「换内核」就是「spawn 时指向另一个目录」。
+不用 `LoadFromAssemblyPath`、不用自定义 ALC、不和 TPA 打架，
+而且**天然避开文件锁** —— 永远不覆盖正在使用的 DLL，只是写一个新目录、下次指过去。
+
+⇒ §8.5 实测 2 里那套「`<Private>false</Private>` + 启动自检核 `Assembly.Location`」
+**不再是承重机制**。`Location` 自检可以留着当廉价的完整性检查，但它守的东西已经没有了。
+
+### ② 「启动器 + 主进程」—— sidecar 用不上，但对**更新宿主本身**有用
+
+sidecar 不需要单独的启动器：**Godot 客户端本身就是启动器**（它 `OS.create_process` 起 sidecar），
+所以「趁 sidecar 没在跑的时候换目录」天然成立。
+
+这条真正的用处在别处：本方案第 2 层说「宿主 + .NET 运行时只随全量发版」。
+有了独立启动器，那两样也能做增量更新（启动器在主进程起来之前换文件）。
+代价是多一个进程和一套自己的更新逻辑。**先不做**，等宿主接口真的开始频繁变再说。
+
+### ③ 「独立 AssemblyLoadContext」—— 诊断对，但有更简单的答案
+
+如果坚持进程内加载，自定义 ALC（+ `AssemblyDependencyResolver`）确实是正解，
+我实测失败的那套用的是 `AssemblyLoadContext.**Default**`，它受 TPA 约束。
+但既然有进程边界（①），就没有「坚持进程内加载」的理由。**更简单的赢。**
+
+### ④ HybridCLR / AOT —— 方向相反，别走
+
+HybridCLR 是 **Unity il2cpp** 的解药：Unity 打 AOT 包之后不能再加载新 IL，
+它加一层解释器把这个能力补回来。
+
+**我们没有那个病。** sidecar 是 .NET 8 的独立进程、JIT，本来就能直接加载程序集 ——
+上面 verA/verB 那个实验就是证明。
+
+而且 **AOT 在我们这儿是主动有害的**：一旦开 `PublishAot` / `PublishSingleFile`，
+`CellWar.Core` 就被熔进一个不可分割的产物，增量更新的载荷从 **112 KB 变成几十 MB**，
+整条路线的经济性归零（本方案 §2 第 2 层已经把这条列为三条「不能走的捷径」之一）。
+
+⇒ 所以不是「考虑上 AOT + HybridCLR」，而是**别开 AOT，就不需要 HybridCLR**。
+这条要写进 §10 的硬纪律（已经在第 1 条里了，这里补上「为什么不需要 HybridCLR」的理由）。
+
+---
+
 ## 八点五、2026-09-15 实测补录（装上 .NET 10 SDK 之后）
 
 Kevin 装了 **.NET SDK 10.0.401**（运行时 10.0.12 + 原有 8.0.15 并存）。§9 里前两条
