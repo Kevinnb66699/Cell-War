@@ -135,6 +135,10 @@ const NET_VERSION := 24
 ## 看不全的字发出去也没意义。
 const CHAT_MAX := 60
 const DEFAULT_HOST := "124.221.78.13"
+## 网页版的默认地址（2026-09-14）。**必须是 wss://**：网页版跑在 https:// 下，
+## 而 HTTPS 页面连 ws:// 会被浏览器当混合内容直接拦掉，没有第二条路。
+## `/ws` 由 nginx 反代到本机 127.0.0.1:8611（配置在 sites-available/cellwar.conf）。
+const WEB_HOST := "wss://cellwar.jiling.chat/ws"
 const DEFAULT_PORT := 8611
 ## 单条报文（压缩后）上限；超过即断开
 const MAX_PACKET := 65536

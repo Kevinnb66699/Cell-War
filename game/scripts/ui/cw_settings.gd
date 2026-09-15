@@ -16,7 +16,12 @@ static var dice_anim := true      ## false = 掷骰不演动画，结算说明�
 static var teleport_anim := true  ## false = 传送不演溶解、细胞直接瞬移（AI 互搏观战局紊乱频繁时的降噪开关，动画规格_传送 §三.4）
 ## 联机面板上一次填的昵称与服务器地址（host:port）。默认地址是团队那台服务器，内网自测时改掉
 static var nick := ""
-static var server := "%s:%d" % [CWNet.DEFAULT_HOST, CWNet.DEFAULT_PORT]
+## 默认连哪台服务器。**网页版和桌面版不是同一个地址**（2026-09-14）：
+## 网页版跑在 https:// 下，而 **HTTPS 页面连 ws:// 会被浏览器当混合内容直接拦掉** ——
+## 所以它只能走 wss://，由 nginx 反代到本机的 8611（见 `docs/网页导出.md`）。
+## 桌面版继续直连 ws://IP:8611：少一层 TLS 和反代，而且**不受证书死活影响** ——
+## 这台机器上的证书历史上过期过好几次，没必要让桌面联机也跟着一起挂。
+static var server := CWNet.WEB_HOST if OS.has_feature("web") 	else "%s:%d" % [CWNet.DEFAULT_HOST, CWNet.DEFAULT_PORT]
 static var lan_port := CWNet.DEFAULT_PORT   ## 局域网开服上一次用的端口（Kevin 2026-09-12）
 static var _loaded := false
 
