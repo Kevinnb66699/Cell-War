@@ -13,3 +13,4 @@ Desktop.ini
 # 我们自己的那份改动在 tools/android/，换机器跑一次脚本就还原。
 /game/android/
 
+/.codegraph/
