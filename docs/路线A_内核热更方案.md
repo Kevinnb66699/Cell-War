@@ -296,6 +296,84 @@ static func core_failed() -> void: quarantine(CORE_STRIKES)
 
 ---
 
+## 八点五、2026-09-15 实测补录（装上 .NET 10 SDK 之后）
+
+Kevin 装了 **.NET SDK 10.0.401**（运行时 10.0.12 + 原有 8.0.15 并存）。§9 里前两条
+「还需要实测」当天就测了，**第 2 条的结论推翻了 §3 的机制**。
+
+### 实测 1：`CellWar.Core.dll` 的真实体积 —— 估算落在上限，结论不变
+
+```
+dotnet build src/CellWar.Core/CellWar.Core.csproj -c Release   → 0 警告 0 错误
+裸 IL     300,032 字节
+gzip -9   112,667 字节（2.7×）
+```
+
+对照 `dist/patch/` 的 61 个已发补丁：最小 5,508 / **中位 489,248** / 最大 1,026,376。
+压缩后的 DLL 只占中位补丁的 **23%**。§2 第 1 层那个「110 KB 量级」的估算成立，
+`NET_TIMEOUT` 不必改。§9 第 1 条建议的「> 1.5 MB 就 die」这道闸仍然要加 —— 现在有了真实基数，
+闸值可以定成 **300 KB**（裸）/ **150 KB**（压缩后），留一倍余量。
+
+### 实测 2：⛔ `LoadFromAssemblyPath` **顶不掉**探测路径 —— §3 的机制按原样写会静默失效
+
+搭了最小实验（`scratchpad/alctest/`）：宿主 `ProjectReference` 一个 `RuleLib`（= 探测路径那份，
+内容 `V1-BASELINE`），外部路径上放另一份同名、内容 `V2-PATCHED` 的，然后
+`AssemblyLoadContext.Default.LoadFromAssemblyPath(外部路径)`。
+
+两种顺序**都失败**：
+
+```
+实验 A（先 LoadFromAssemblyPath、再用类型 —— 即 §3 那条 NoInlining 纪律要求的顺序）
+  LoadFromAssemblyPath 返回：V1-BASELINE
+  之后按类型直接调用：    V1-BASELINE
+  已加载的 RuleLib 份数：1
+    来自 <宿主目录>\RuleLib.dll          ← 外部那份根本没进来
+
+实验 B（先用类型、再 LoadFromAssemblyPath）：同样全是 V1-BASELINE
+```
+
+原因：`AssemblyLoadContext.Default` 先查 **TPA（Trusted Platform Assemblies）**，
+宿主的 `deps.json` 把 `RuleLib.dll` 列了进去（实测 `Host.deps.json` 里有 `RuleLib/1.0.0` 与
+`RuleLib.dll`），路径加载被它顶掉。
+
+**⚠ §3 里那条「`Main` 方法体里不许出现任何 `CellWar.Core` 类型 + `[MethodImpl(NoInlining)]`」
+的纪律与这个失败无关，救不了它。** 实验 A 正是按那条纪律写的，照样拿到基线那份。
+
+**解法（实测有效）：宿主目录里不能有 `CellWar.Core.dll`。** 把基线那份挪走之后：
+
+```
+  LoadFromAssemblyPath 返回：V2-PATCHED
+  之后按类型直接调用：    V2-PATCHED      ← 编译期引用也解析到了外部那份
+    来自 <外部路径>/RuleLib.dll
+```
+
+于是 §3「必须新建」里那条 ⚠ 要从「宿主目录里绝不能有第二份」**升格为硬机制**：
+
+1. 宿主**仍然**编译期引用 Core（要有类型可用），但必须
+   `<ProjectReference ... ><Private>false</Private></ProjectReference>`
+   或 `ExcludeAssets="runtime"`，**保证输出目录里没有那个 dll**。
+2. **不能靠「文件恰好不在」**：实测表明 TPA 是按文件实际存在构建的（`deps.json` 里还列着它
+   也照样工作），但哪天构建顺手把它拷进去，热更就**静默停止生效** —— 一个字节都不会换，
+   而每一步都报成功。这与 2026-09-02→09-10 那八天是同一类 bug。
+3. 所以 sidecar **启动自检必须核 `Assembly.Location`**：加载回来的 Core 的 `Location`
+   不等于外部那个路径就 `Environment.Exit(65)`，由 `core_bridge.gd` 接住走 §5 第 ① 档。
+   这条比「宿主目录里别放」更根本 —— 前者是纪律，后者是机制。
+4. 备选（更稳、但更复杂）：改用**自定义 `AssemblyLoadContext` + `AssemblyDependencyResolver`**
+   的标准插件模式，不受 TPA 约束。本轮没测，若第 1 条在实践中反复出问题再上。
+
+### 实测 3：队友的核心测试在本机 **141/141 全过**
+
+```
+dotnet test tests/CellWar.Core.Tests/CellWar.Core.Tests.csproj
+Passed!  - Failed: 0, Passed: 141, Skipped: 0, Total: 141, Duration: 477 ms
+```
+
+交接文档写的是 135/135，现在是 141 —— 他之后又加了。编译 0 警告 0 错误。
+**注意这不削弱 §6.3**：141 条测的是它自己的行为契约，而 §6.3 说的是它的规则与 GDScript 不一致。
+两边都"绿"，只是绿在不同的标准上 —— 这正是必须对拍的理由。
+
+---
+
 ## 九、还需要实测才能定的事
 
 | # | 事项 | 为什么现在定不了 | 定不下来的后果 |
