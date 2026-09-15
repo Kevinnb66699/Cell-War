@@ -255,7 +255,8 @@ func advance() -> void:
 			"revive_cancer":
 				if not _ask_each("revive", func(pid: int) -> Array:
 					return world.revive_options_cancer(pid)):
-					world.aerobic()
+					world.aerobic()   ## PRD S 阶段第 5 步
+					world.overload()  ## 第 6 步【过载】（2026-09-15 新增，必须排在有氧之后）
 					cap_energy()      ## S 阶段这一次结算完，溢出的不留
 					_goto("turn")
 			"turn":

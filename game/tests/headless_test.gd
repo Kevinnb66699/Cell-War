@@ -110,7 +110,7 @@ func _run_all() -> void:
 		t_plan_payment_floor,
 		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_eval_features, t_feed_log, t_proliferate_tiers, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
 		t_immune_win, t_surrender, t_cancer_revive_blocked, t_cancer_revive_ring, t_cancer_s_win, t_immune_respawn,
-		t_pressure, t_tumor_stages, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx,
+		t_pressure, t_tumor_stages, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx, t_overload,
 		t_hotseat, t_tutorial, t_tutorial_auto_advance, t_stroma_targets, t_batch2_rules,
 		t_tutorial_mechanism_trials,
 		t_immune_level_rules, t_tissue_transitions, t_one_cell_per_tile, t_phase_order,
@@ -2125,6 +2125,96 @@ func t_jump_cap() -> void:
 ## 旧式线性求和，「占得越多 → 越有钱 → 占得越快」没有刹车；开方之后前期几乎不变、后期腰斩。
 ## 这里只验算式本身（连通块的组装另有测试盯着）：默认值、系数对不对、后期真被压住、
 ## 单调不减、以及关掉能退回线性式。
+## 【S-过载】（PRD 2026-09-15 新增，S 阶段第 6 步）：
+##   能量损失 = max{0, ((x − 10) ÷ 2) ^ 1.18}
+##
+## 期望值全部是**离线用 Python 按 PRD 原式独立算出来**再写死在这里的，
+## **不在测试里重算一遍算式** —— 那样靶就打在测试自己身上，公式写错也永远全绿。
+func t_overload() -> void:
+	print("[S-过载]")
+	var g := bare_game()
+	check(g.tune.overload_threshold == CWData.OVERLOAD_THRESHOLD
+		and g.tune.overload_div == CWData.OVERLOAD_DIV
+		and g.tune.overload_exp == CWData.OVERLOAD_EXP
+		and CWData.OVERLOAD_THRESHOLD == 100 and CWData.OVERLOAD_DIV == 2
+		and CWData.OVERLOAD_EXP == 118,
+		"默认 = PRD 原文：门槛 10.0、除以 2、指数 1.18")
+
+	var canc := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1,
+		CWData.CancerType.MELANOMA)
+	var imm := CWSetup.make_cell(1, 0, CWData.Faction.IMMUNE, Vector2i(4, 0),
+		CWData.ImmuneType.T_CELL, -1)
+	g.cells.append_array([canc, imm])
+
+	## ---- 曲线上的点（离线算的） ----
+	for pair in [[100, 0], [101, 0], [102, 1], [105, 2], [110, 4], [120, 10],
+			[150, 29], [200, 67], [300, 151], [500, 343]]:
+		canc["energy"] = pair[0]
+		check(g.world.overload_loss(canc) == pair[1],
+			"%s 能量 → 损失 %s" % [CWData.fmt(pair[0]), CWData.fmt(pair[1])])
+
+	## ---- 门槛：PRD 写 10，但舍入之后**实际门槛是 10.2** ----
+	canc["energy"] = 100
+	var at_100 := g.world.overload_loss(canc)
+	canc["energy"] = 101
+	var at_101 := g.world.overload_loss(canc)
+	canc["energy"] = 102
+	check(at_100 == 0 and at_101 == 0 and g.world.overload_loss(canc) == 1,
+		"实际门槛 10.2 —— 10.1 的损失四舍五入后仍是 0（PRD 只写了 10）")
+
+	## ---- 净留在 42.2 处见顶，再往上囤反而留得更少 ----
+	## 这是这条规则的真正形状：它不是「削平到某个数」，而是**惩罚囤积本身**
+	canc["energy"] = 422
+	var peak: int = 422 - g.world.overload_loss(canc)
+	canc["energy"] = 1000
+	var beyond: int = 1000 - g.world.overload_loss(canc)
+	check(peak == 157 and beyond == 107 and beyond < peak,
+		"净留极大在 42.2（留 15.7）；囤到 100.0 只留 %s" % CWData.fmt(beyond))
+
+	## ---- 钳位：1488 起损失反超能量，不钳就会扣成负数 ----
+	for e in [1488, 2000, 5000]:
+		canc["energy"] = e
+		check(g.world.overload_loss(canc) == e,
+			"%s 能量：损失被钳到能量本身（离线算出的裸值已经超过它）" % CWData.fmt(e))
+
+	## ---- 免疫细胞不受这条规则影响（PRD 把它挂在【癌细胞】名下） ----
+	imm["energy"] = 500
+	canc["energy"] = 200
+	g.world._overload()
+	check(imm["energy"] == 500, "免疫细胞不吃过载")
+	check(canc["energy"] == 133, "癌细胞 20.0 → 扣 6.7 → 余 13.3")
+
+	## ---- 扣到 0 不致死（同【代谢消耗】口径：是代谢开销，不是伤害事件） ----
+	canc["energy"] = 3000
+	g.world._overload()
+	check(canc["energy"] == 0 and canc["alive"], "扣光也只到 0，且不死")
+
+	## ---- 旋钮关掉 ----
+	g.tune.overload_div = 0
+	canc["energy"] = 500
+	check(g.world.overload_loss(canc) == 0, "overload_div = 0：整条规则关闭")
+	g.world._overload()
+	check(canc["energy"] == 500, "关闭时结算一分不扣")
+	g.dispose()
+
+	## ---- S 阶段真的接上了：第 6 步在【有氧呼吸】之后 ----
+	var g2 := make_game(2, 11)
+	g2.setup.build_board()
+	var c2 := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1,
+		CWData.CancerType.MELANOMA)
+	var i2 := CWSetup.make_cell(1, 0, CWData.Faction.IMMUNE, Vector2i(4, 0),
+		CWData.ImmuneType.T_CELL, -1)
+	g2.cells.append_array([c2, i2])
+	c2["energy"] = 200
+	i2["energy"] = 200
+	var i2_before: int = i2["energy"]
+	g2.world.aerobic()
+	g2.world.overload()
+	check(c2["energy"] == 133, "S 阶段第 6 步确实扣了癌细胞（20.0 → 13.3）")
+	check(i2["energy"] > i2_before, "免疫在第 5 步先进了账，过载不碰它")
+	g2.dispose()
+
+
 func t_anaerobic_sqrt() -> void:
 	print("[无氧公式]")
 	var g := bare_game()
@@ -11718,9 +11808,19 @@ func t_replay() -> void:
 	check(pl.at() == 1, "走了一步（%d）" % pl.at())
 
 	## 快进到中途，记下那一刻的样子
+	##
+	## ⚠ `seek(n)` 的契约是「推进到**不早于** n」，不是「正好落在 n」：
+	## 一次**顶层**行动可能消费**多个**作答 —— 打出的卡在结算中途还会再问一次，
+	## 那一问同样进下标串。于是游标会从 109 直接跳到 111。
+	## 2026-09-15 实测这一局（seed 4242）有 7 处这样的跳步：
+	## 109→111、122→124、170→172、188→190、193→195、200→202、217→219。
+	## 原来这里写的是 `at() == mid`，纯属运气 —— `mid = total / 2` 一旦落进某个缝里就红，
+	## 而那与回放对不对毫无关系（同一局放到底的哈希是一致的）。
+	## 所以判据改成：**落点不早于 mid**，且**快退要落回同一处**（后者反而比原来更强）。
 	var mid: int = pl.total / 2
 	await pl.seek(mid)
-	check(pl.at() == mid, "快进到第 %d 步" % mid)
+	var landed: int = pl.at()
+	check(landed >= mid, "快进到第 %d 步（落在第 %d 步）" % [mid, landed])
 	var mid_hash := pl.game.state_hash()
 	var mid_round: int = pl.game.round_no
 
@@ -11731,7 +11831,7 @@ func t_replay() -> void:
 
 	## **快退**回中途：必须和刚才那一刻一模一样
 	await pl.seek(mid)
-	check(pl.at() == mid, "退回第 %d 步" % mid)
+	check(pl.at() == landed, "退回第 %d 步，落回同一处（第 %d 步）" % [mid, landed])
 	check(pl.game.state_hash() == mid_hash,
 		"退回来之后逐字段一致（%s vs %s）"
 		% [pl.game.state_hash().substr(0, 8), mid_hash.substr(0, 8)])

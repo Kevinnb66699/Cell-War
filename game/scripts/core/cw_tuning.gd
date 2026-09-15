@@ -27,6 +27,7 @@ const RULE_FIELDS := [
 	"proliferate_per_adjacent", "proliferate_per_solid", "erosion_tiles",
 	"metastasis_cost", "metastasis_max_per_round",
 	"newborn_protect",
+	"overload_threshold", "overload_div", "overload_exp",
 ]
 
 
@@ -146,6 +147,13 @@ var aerobic_cap := 0
 ## 和上面四个「收入低保/封顶」不是一回事：那四个管**这一回合进多少**，
 ## 这个管**账上最多留多少**。囤积是靠这个封的（口径 #92）。
 var energy_cap := CWData.ENERGY_CAP_PER_ROUND
+
+## 【S-过载】三个旋钮，默认 = PRD 原文（见 CWData.OVERLOAD_*）。
+## 和 energy_cap / cancer_upkeep_pct 都管「囤积」，但这条是 PRD 写明的，那两个是候选。
+## **`overload_div = 0` 关闭整条规则** —— 扫描要有「过载关 + 另两个开」的对照档。
+var overload_threshold := CWData.OVERLOAD_THRESHOLD
+var overload_div := CWData.OVERLOAD_DIV
+var overload_exp := CWData.OVERLOAD_EXP
 
 ## 【平衡候选③】癌细胞每个世界回合按**当前能量的百分比**自动损能（能量越多损失越多），
 ## 扣在 E 阶段【无氧呼吸】**之后**。整数百分比，**0 = 关闭**（默认）。

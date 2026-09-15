@@ -38,6 +38,11 @@ func aerobic() -> void:
 	_aerobic()
 
 
+## S 阶段第 6 步【过载】（PRD 2026-09-15 新增）。排在【有氧呼吸】之后、其他 S 类之前。
+func overload() -> void:
+	_overload()
+
+
 ## 严格按 PRD「E 阶段」的九步走。校正过两次：
 ## · 2026-08-31 第 7~9 步的先后（口径 #86）—— 此前 `world_fx.round_end()`（紊乱返回 + 事件到期）
 ##   整体排在 `_clear_newborn()` 之后，于是紊乱返回时【定殖】造出的癌组织会多背一个世界回合的「新生」。
@@ -438,6 +443,36 @@ func necrosis_cut(cell: Dictionary, gain: int) -> int:
 	return CWData.round_tenth(gain * game.tune.necrosis_aerobic_pct, 100)
 
 
+## 【S-过载】某个癌细胞此刻会被扣掉多少（十分能量）。**纯查询，不改任何状态** ——
+## 和 `aerobic_income` / `anaerobic_gain_for` 同一个位置：结算走 `_overload`，两边共用这一份算式。
+##
+## PRD：`能量损失 = max{0, ((x − 10) ÷ 2) ^ 1.18}`，x 是显示单位的能量。
+##
+## **用 `pow()` 是照抄现成先例**，不是新引入浮点：`_anaerobic_pool` 的指数项
+## （本文件 `pow(float(plain), exp_pct / 100.0)`）早就这么算了，
+## 而且 `_split_share` 同样是「浮点算完、`int(round(…))` 落到十分位」。
+## 这条规则照这个形状写，才不会在同一个内核里出现两套数值口径。
+##
+## 取整：**四舍五入到十分位**（PRD 通用规则 1）。注意不能走 `CWData.round_tenth` ——
+## 那个收的是两个整数，这里的底已经是浮点了。
+##
+## 三处钳位，各有各的理由：
+##   ① `x ≤ 门槛` 直接 0 —— 底数为负时实数域没有 1.18 次幂，`max{0, …}` 工程上必须钳在**底数**上；
+##   ② 损失**不超过当前能量** —— 曲线在 14.88 能量处损失反超能量本身（实测），不钳会扣成负数；
+##   ③ `overload_div ≤ 0` 关闭整条规则（扫描的对照档，顺带兜住除零）。
+func overload_loss(cell: Dictionary) -> int:
+	var div: int = game.tune.overload_div
+	if div <= 0:
+		return 0
+	var over: int = cell["energy"] - game.tune.overload_threshold
+	if over <= 0:
+		return 0
+	## 换算成显示单位再套 PRD 的式子，最后乘 10 回到十分能量
+	var base := float(over) / 10.0 / float(div)
+	var loss := int(round(pow(base, game.tune.overload_exp / 100.0) * 10.0))
+	return mini(loss, cell["energy"])
+
+
 func _aerobic() -> void:
 	var immune: Array = game.living_cells(CWData.Faction.IMMUNE)
 	if immune.is_empty():
@@ -472,6 +507,27 @@ func _aerobic() -> void:
 	var why := "抗原记忆 %s 级" % CWData.LEVEL_NAMES[game.immune_level] \
 		if game.tune.aerobic_level_base != 0 else "健康 %d - 坏死 %d" % [hn.x, hn.y]
 	game.log_msg("【有氧呼吸】所有免疫细胞 +%s 能量（%s）" % [CWData.fmt(gain), why])
+
+
+## 【S-过载】：能量过多的癌细胞损失一部分（PRD 2026-09-15，S 阶段第 6 步）。
+## 每个细胞扣多少只看它自己的能量（`overload_loss`），所以**遍历顺序不影响结果** ——
+## 不需要像范围伤害那样先算后扣。
+##
+## 三条口径照抄【代谢消耗】`_cancer_upkeep`，理由同源（PRD 对这三点都没写，是外推）：
+##   ① **不算伤害事件** —— 不走 CWDamage 管线，【缺氧适应】【囊性护甲】【耗竭抵抗】一概挡不住。
+##      它是「代谢开销」不是「谁打了谁」，进管线会让一堆减伤牌凭空多出一层用途；
+##   ② **扣不死细胞** —— `overload_loss` 已经把损失钳在当前能量以内，最多扣到 0；
+##      但和【代谢消耗】不同，这里的 0 是**钳出来的**不是数学性质，所以钳位那一行不能删；
+##   ③ 只扣**存活**的癌细胞。第 4 步刚复活的也在内 —— PRD 第 6 步写的是「结算【过载】」，
+##      没有排除当回合复活的细胞，而复活后的能量同样是能量。
+func _overload() -> void:
+	for cell in game.living_cells(CWData.Faction.CANCER):
+		var lost := overload_loss(cell)
+		if lost <= 0:
+			continue
+		cell["energy"] -= lost
+		game.log_msg("【过载】%s 能量过多，损失 %s（余 %s）" % [
+			game.cell_name(cell), CWData.fmt(lost), CWData.fmt(cell["energy"])])
 
 
 ## 均分：n ≤ ref 每人全额；n > ref 把 ref 份总额均分，四舍五入到十分位（(2p+n)/(2n) 的整数写法，同 _split_share）。
