@@ -76,7 +76,7 @@ var effector_round := -1
 var feed_log: Array = []
 var feed_seq := 0
 var cancer_win_streak := 0  # 癌方加权占地连续达标的回合末次数（见 tune.cancer_win_hold_rounds）；进快照与哈希
-var rng: Object = RandomNumberGenerator.new()
+var rng := RandomNumberGenerator.new()
 var bridges := {}          # player_id -> CWBridge
 var logs: PackedStringArray = []
 ## 与 logs 平行的两列（联机视角用）：这一行只对哪个席位可见（-1 = 公开），以及给其他席位看的公开替身。
@@ -704,7 +704,7 @@ func roll_d3() -> int:
 ## 广播给**所有**桥，而不是只给 pid 那一个 —— AI 掷的骰，旁观的人类也得看见。
 ## 同一个桥对象注册给多个玩家时（热座共用一个 UI）按对象去重，只演一次。
 func roll_shown(sides: int, reason: String, pid: int, at: Vector2i) -> int:
-	var v: int = rng.randi_range(1, sides)
+	var v := rng.randi_range(1, sides)
 	var shown: Array = []
 	for b in bridges.values():
 		if b == null or shown.has(b):

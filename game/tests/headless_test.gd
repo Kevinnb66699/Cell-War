@@ -4125,7 +4125,7 @@ func t_ai_mc() -> void:
 		var rq4: Dictionary = sc[2]
 		while true:
 			var st: int = g4.rng.state
-			var v: int = g4.rng.randi_range(1, 6)
+			var v := g4.rng.randi_range(1, 6)
 			if g4.actions.base_verdict(v) == "fail":
 				g4.rng.state = st
 				break
@@ -11647,7 +11647,7 @@ func t_snapshot() -> void:
 	g.restore(snap)
 	check(g.state_hash() == h0, "restore() 之后局面逐位还原")
 	## 随机数发生器也得还原 —— 否则同一步走两遍会掷出不同的骰子
-	var a: int = g.rng.randi()
+	var a := g.rng.randi()
 	g.restore(snap)
 	check(g.rng.randi() == a, "rng 状态也在快照里")
 	g.dispose()
@@ -12019,7 +12019,7 @@ func t_state_codec() -> void:
 	g.cells[0]["play_n"] += 99
 	check(g.state_hash() == h0, "日志、phase 与 play_n 不改变 state_hash")
 	g.restore(base)
-	var r: int = g.rng.randi()
+	var r := g.rng.randi()
 	g.restore(base)
 	check(g.rng.randi() == r and g.flow == base["flow"], "restore 同时还原 RNG 与流程游标")
 
@@ -16595,7 +16595,7 @@ func _t_cost_required() -> void:
 	put_skill(cell, "组织巡航")
 	g.add_mod(cell, "炎症趋化", 1, "turn")
 	var h0 := g.state_hash()
-	var rng0: int = g.rng.state
+	var rng0 := g.rng.state
 	var logs0: int = g.logs.size()
 	for i in 50:
 		g.actions._move_cost_mod(cell, canc, 10)
