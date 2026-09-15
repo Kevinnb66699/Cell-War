@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  安卓的网络安全配置。**唯一的作用**：给热更那台服务器开一个明文 HTTP 的例外。
+
+  为什么需要它：安卓 9（API 28）起默认禁止明文 HTTP，而热更的 manifest / 补丁包和反馈口
+  都在 http://124.221.78.13/cellwar/。不开例外的话安卓端一个补丁都收不到，**而且不报错**。
+
+  为什么不上 HTTPS（Kevin 2026-09-14 拍板）：热更的信任本来就不靠 TLS 靠签名 ——
+  manifest 带 RSA 签名（公钥烧在包里）、补丁包挂载前必校验 SHA-256、只装比本地新的、
+  地址过写死的白名单。于是明文在这里泄不了密、换不了包、降不了级。
+  而服务器在国内、域名在国外：国内服务器用域名在 80/443 提供服务要 ICP 备案，
+  境外注册的域名基本备不了 —— 那条路是死的。
+
+  **base-config 那一句不是摆设**：除了下面点名的这一台，其余主机一律仍被安卓拦着。
+  比导出预设那种全局开关（整个 app 对所有主机裸奔）干净得多 ——
+  Godot 4.5 根本没有那个开关，这也正是非走 Gradle 自定义构建不可的原因。
+
+  服务器换地址时**这里和 boot.gd 的 SELF_HOST 要一起改**，漏一个就是静默收不到补丁。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">124.221.78.13</domain>
+    </domain-config>
+</network-security-config>
