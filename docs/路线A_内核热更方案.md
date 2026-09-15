@@ -361,6 +361,40 @@ gzip -9   112,667 字节（2.7×）
 4. 备选（更稳、但更复杂）：改用**自定义 `AssemblyLoadContext` + `AssemblyDependencyResolver`**
    的标准插件模式，不受 TPA 约束。本轮没测，若第 1 条在实践中反复出问题再上。
 
+### 实测 4：对拍的三个死结（这一条不属于热更，但同一天测出来，记在一起）
+
+跑了一个询问普查（脚本没进仓库，留在 scratchpad）：
+
+```
+players=2 seed=4242 → asks=303  rounds=15
+players=4 seed=4242 → asks=155  rounds=6
+players=6 seed=4242 → asks=907  rounds=15      ← 最大
+平均选项数：setup_place 63~64、action 10~19（占询问总数 90%+）、
+            chemo_target 127（全盘每格）、free_move 6~7、revive 3~11
+```
+
+**死结一：选项下标不通用。** `action` 占 90%+，选项集合是「这个细胞此刻所有合法动作」，
+C# 规则不全 ⇒ 选项数必然不同 ⇒ `CWReplay` 的下标串在两边指向不同动作。实锤，不是推测。
+
+**死结二：RNG 算法不同，且不可调和。**
+我们是 Godot 的 `RandomNumberGenerator`（**PCG32**，实测 seed=4242 → state=748695878776107324，
+randi_range(0,9) x8 = [8,8,0,9,4,9,7,3]，state 可完整克隆）；
+C# 是 `IDeterministicRng.cs:62` 的 **`Xoshiro256StarStar`**。
+**同种子必然产生完全不同的序列** —— 只要规则里有掷骰（攻击判定、突变、增生、侵蚀选格、
+洗牌、开局癌组织按种子生成），状态就分叉，对齐输入也救不了。
+好消息：C# 侧 `IDeterministicRng` 本来就是接口，实现一个「念预生成数组」的很容易；
+难点在我们这边——`CWGame.rng` 是 Godot 内置类，不是接口。
+
+**浮点反而不是问题**（两条都实测）：
+`pow` 逐位一致（pow(97,0.3)：GDScript `3.944859320862161` / C# `3.9448593208621605`）；
+取整口径队友**已经对齐**——`Settlement.cs:83` 用的是
+`Math.Round(v, MidpointRounding.AwayFromZero)`，与 GDScript 的 `round()` 同口径。
+（我原本怀疑这里有偏离：C# 的 `Math.Round` 默认是银行家舍入，`Math.Round(2.5)=2`
+而 GDScript `round(2.5)=3`。查下来他显式写了 `AwayFromZero`，没踩这个坑。）
+
+⇒ 于是 §9 第 4 条「自检夹具的浮点确定性」风险**下降但不清零**：同机同架构下 `pow` 一致，
+跨架构（玩家机器 / ARM Mac）仍未验。
+
 ### 实测 3：队友的核心测试在本机 **141/141 全过**
 
 ```
