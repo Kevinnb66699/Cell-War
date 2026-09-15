@@ -117,6 +117,38 @@ echo "commit     $SHORT"
 echo "win        $(du -h "$WIN" | cut -f1)"
 echo "mac        $(du -h "$MAC" | cut -f1)"
 
+# ---- 挂账提醒：全量发版是还它的**唯一**时机 ----
+#
+# 2026-09-15：网页版上有一个**发版侧的猴补丁**（tools/web/same_origin_shim.js），
+# 用来把游戏里写死的 http://124.221.78.13/cellwar/ 改写成同源路径 —— 否则 https 页面上
+# 那些请求会被当混合内容拦掉，整页被标成「不安全」。
+#
+# 之所以当时没根治，是因为根治要改 boot.gd 的 SELF_HOST，而**改 boot.gd 必须全量发版**
+# （启动器在挂载补丁之前就被读了，热更不了；而且一改，补丁打包器就整个拒绝出包，
+# 直到下一次全量发版为止）。
+#
+# **你现在正在做的就是全量发版。** 所以这里提醒 —— 不在这儿提，就没有别的地方会提了：
+# 文档是被动的，只有这个脚本是「真要发版时一定会跑」的那一个。
+#
+# 提醒随 shim 文件自动消失：改完删掉它，这段就不再打印。
+if [ -f "tools/web/same_origin_shim.js" ]; then
+	cat >&2 <<'NOTE'
+
+⚠ 挂账未还：网页版还挂着一个发版侧猴补丁（tools/web/same_origin_shim.js）
+   它赌 Godot 的 web 版 HTTPRequest 走 fetch/XHR。引擎换实现就会**静默失效** ——
+   页面变回「不安全」，而且不报任何错。
+
+   **全量发版是还这笔账的唯一时机**，就是现在：
+     1. boot.gd：SELF_HOST 改成 https://cellwar.jiling.chat/cellwar/
+        （顺手 `if OS.has_feature("web")` 跳过查更新 —— 网页版根本不需要热更）
+     2. nginx：cellwar 那块的 /cellwar/latest.json(.sig) 那两条 404 可以撤了
+     3. 删掉 tools/web/same_origin_shim.js 与 deploy_web.sh 里注入它的那一段
+     4. 重新 tools/deploy_web.sh
+   细节见 docs/网页导出.md 的「①」。不做也能发，但这笔账会一直挂着。
+
+NOTE
+fi
+
 if [ "$DRY" = "1" ]; then
 	echo "✔ 五项检查通过（DRY=1，没真发）"
 	exit 0
