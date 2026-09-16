@@ -1051,6 +1051,106 @@ public class RegressionGuardTests
         Assert.True(CellRules.TurnGateOpen(begun.Cells[id], "RAS持续激活"), "回合开始该清掉 FxTurn");
     }
 
+    /// <summary>
+    /// 【免疫记忆库】：每世界回合自身第一次【净化】后免费抽 1 张。
+    /// 净化两次只该抽一次 —— 变异检验里「闸门不烧」这一处此前**没有任何测试盯着**。
+    ///
+    /// 判据不看手牌张数：抽到事件牌会**当场结算而不进手牌**，那样判会跟着 rng 种子飘。
+    /// 改成跟**没装这个技能**的对照组比「这一步抽了多少次 rng」——
+    /// 抽卡必然要摇 rng，与抽到什么无关。
+    /// </summary>
+    [Fact]
+    public void 免疫记忆库每世界回合只触发一次()
+    {
+        var home = new HexPosition(0, 0, 0);
+        var first = new HexPosition(1, 0, -1);
+        var second = new HexPosition(2, 0, -2);
+
+        var (bareStep1, bareStep2) = PurifyTwiceDrawCounts(PurifyLine(home, first, second, "组织驻留"), first, second);
+        var (bankStep1, bankStep2) = PurifyTwiceDrawCounts(PurifyLine(home, first, second, "免疫记忆库"), first, second);
+
+        Assert.True(bankStep1 > bareStep1,
+            $"第一次净化该多抽一次牌：装了 {bankStep1} 次、没装 {bareStep1} 次");
+        Assert.Equal(bareStep2, bankStep2);   // 第二次净化：闸门已关，与没装时一模一样
+    }
+
+    /// <summary>连走两步净化，分别数每一步摇了多少次 rng。</summary>
+    private static (int Step1, int Step2) PurifyTwiceDrawCounts(WorldState world, HexPosition first, HexPosition second)
+    {
+        var engine = new BasicRulesEngine();
+        var id = new EntityId(1);
+        var draws = 0;
+
+        var spy = new CountingRng(new Xoshiro256StarStar(11), () => draws++);
+        var afterFirst = engine.ExecuteDecision(world, new MoveDecision(0, id, first), spy).NewState;
+        var step1 = draws;
+
+        draws = 0;
+        engine.ExecuteDecision(afterFirst, new MoveDecision(0, id, second), spy);
+        return (step1, draws);
+    }
+
+    /// <summary>
+    /// 【RAS持续激活】：每**行动回合**第一次通过【移动】触发【定殖】后恢复能量。
+    /// 同一回合走第二步不该再回血；过一个回合开始之后才重新可以。
+    /// </summary>
+    [Fact]
+    public void RAS持续激活每行动回合只回一次血()
+    {
+        var home = new HexPosition(0, 0, 0);
+        var first = new HexPosition(1, 0, -1);
+        var second = new HexPosition(2, 0, -2);
+
+        var world = ColonizeLine(home, first, second, "RAS持续激活");
+        var engine = new BasicRulesEngine();
+        var id = new EntityId(1);
+
+        var start = world.Cells[id].Energy;
+        var afterFirst = engine.ExecuteDecision(world, new MoveDecision(0, id, first), new Xoshiro256StarStar(13)).NewState;
+        var afterSecond = engine.ExecuteDecision(afterFirst, new MoveDecision(0, id, second), new Xoshiro256StarStar(13)).NewState;
+
+        var firstDelta = afterFirst.Cells[id].Energy - start;                       // −费用 + 回血
+        var secondDelta = afterSecond.Cells[id].Energy - afterFirst.Cells[id].Energy; // −费用（不该回血）
+        Assert.True(secondDelta < firstDelta,
+            $"闸门没生效：第一步 {firstDelta}、第二步 {secondDelta}（两步都回了血）");
+    }
+
+    /// <summary>一条直线上两格健康组织，癌细胞装了指定永久技能（走上去即【定殖】）。</summary>
+    private static WorldState ColonizeLine(HexPosition home, HexPosition a, HexPosition b, string skill)
+    {
+        Tissue Tile(HexPosition p, TissueState st, EntityId? occ) =>
+            new() { Position = p, Type = TissueType.Normal, State = st, SolidificationCount = 0, OccupyingCell = occ, Charge = 0 };
+
+        return new WorldState
+        {
+            Board = new Board
+            {
+                Radius = 6,
+                Tissues = new Dictionary<HexPosition, Tissue>
+                {
+                    [home] = Tile(home, TissueState.Cancer, new EntityId(1)),
+                    [a] = Tile(a, TissueState.Healthy, null),
+                    [b] = Tile(b, TissueState.Healthy, null),
+                }
+            },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = new()
+                {
+                    Id = new EntityId(1), OwnerSeat = 0, Faction = Faction.Cancer, Type = CellType.Melanoma,
+                    Position = home, Energy = 500, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [skill],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0, AntigenMemory = 0,
+                    ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Melanoma },
+            },
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+    }
+
     // ---- 夹具 ----
 
     /// <summary>让每个席位手里都有点牌，否则「看不看得见手牌」这件事没法验。</summary>
