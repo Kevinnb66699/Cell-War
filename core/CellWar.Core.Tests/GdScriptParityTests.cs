@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using CellWar.Core;
 
 namespace CellWar.Core.Tests;
@@ -30,6 +30,9 @@ public class GdScriptParityTests
     [InlineData("EXCALIBUR_RAY_DMG", 20)]      // Excalibur 主射线 2.0
     [InlineData("EXCALIBUR_SPLASH_DMG", 10)]   // Excalibur 侧向 1.0
     [InlineData("CHEMO_COST", 30)]             // 【趋化源】3.0
+    [InlineData("CHEMO_SELF_PCT", 50)]         // 建立者朝自己的源走 ×50%
+    [InlineData("CHEMO_IMMUNE_PCT", 70)]       // 其余免疫朝源走 ×70%
+    [InlineData("CHEMO_CANCER_PCT", 120)]      // 癌方远离源 ×120%（09-09 由 140 降下来）
     [InlineData("MUCUS_MIN_ENERGY", 20)]       // 【黏液破裂】门槛 2.0
     [InlineData("SOLIDIFY_STEP", 10)]          // 固化计数每回合 +1.0
     [InlineData("MACRO_HEAL_PURIFY", 2)]       // 巨噬【I-吞噬】迁移净化回 0.2
@@ -254,6 +257,121 @@ public class GdScriptParityTests
     }
 
     // ---- 夹具 ----
+
+    // ---- 【I-趋化源】进修饰管线（2026-09-15）----
+    //
+    // 它此前是**烤进基础费用**的：在整条管线之前就乘掉。
+    // GD 侧它是管线里的 MULT/DIV 条目，排在固定加费/减费**之后**（cw_cost.gd:97-111）。
+    // 另外 GD 的百分比走 `_pct` → `round_tenth` **四舍五入**，C# 原来是整数截断。
+    // 两处都会差一个十分位，而且都是「看起来很对」的那种差。
+
+    /// <summary>费用侧的百分比是**四舍五入**（PRD 通用规则 1），不是截断。</summary>
+    [Fact]
+    public void 趋化源的百分比按四舍五入而不是截断()
+    {
+        // 健康格基础迁移费 0.5；其余免疫朝源走 ×70% → 0.35 → **0.4**（截断会给 0.3）
+        var world = ChemoWorld(owner: false, onCancer: false, skill: null);
+        var cost = RulePolicies.QuoteMove(world, world.Cells[new EntityId(1)], ChemoStep);
+
+        var expected = Settlement.RoundDiv(5 * GdConst("CHEMO_IMMUNE_PCT"), 100);
+        Assert.Equal(expected, cost);
+        Assert.Equal(4, cost);
+    }
+
+    /// <summary>
+    /// 趋化源排在**固定减费之后**。
+    /// 装【LFA-1黏附】（走上癌组织 −0.4、下限 0.2）的免疫朝源走上癌组织：
+    ///   对：1.0 → max(0.2, 1.0−0.4)=0.6 → ×70% → 0.42 → **0.4**
+    ///   错（烤进基础费用）：1.0 → ×70% = 0.7 → max(0.2, 0.7−0.4) = **0.3**
+    /// </summary>
+    [Fact]
+    public void 趋化源排在固定减费之后而不是之前()
+    {
+        var world = ChemoWorld(owner: false, onCancer: true, skill: "LFA-1黏附");
+        var cost = RulePolicies.QuoteMove(world, world.Cells[new EntityId(1)], ChemoStep);
+
+        Assert.Equal(4, cost);
+    }
+
+    /// <summary>三档百分比各自对得上 GD 的常量，且「自身」认的是建立者席位。</summary>
+    [Theory]
+    [InlineData(true, "CHEMO_SELF_PCT")]     // 建立趋化源的那个席位
+    [InlineData(false, "CHEMO_IMMUNE_PCT")]  // 其余免疫
+    public void 免疫朝趋化源走的减免分自身与其余两档(bool owner, string constant)
+    {
+        var world = ChemoWorld(owner: owner, onCancer: false, skill: null);
+        var cost = RulePolicies.QuoteMove(world, world.Cells[new EntityId(1)], ChemoStep);
+
+        Assert.Equal(Settlement.RoundDiv(5 * GdConst(constant), 100), cost);
+    }
+
+    /// <summary>癌细胞**远离**趋化源要加价；朝它走则什么都不加。</summary>
+    [Fact]
+    public void 癌细胞远离趋化源加价而朝它走不加()
+    {
+        var away = ChemoWorld(owner: false, onCancer: false, skill: null, cancer: true);
+        var awayCost = RulePolicies.QuoteMove(away, away.Cells[new EntityId(1)], ChemoAwayStep);
+        Assert.Equal(Settlement.RoundDiv(12 * GdConst("CHEMO_CANCER_PCT"), 100), awayCost);
+
+        var toward = ChemoWorld(owner: false, onCancer: false, skill: null, cancer: true);
+        Assert.Equal(12, RulePolicies.QuoteMove(toward, toward.Cells[new EntityId(1)], ChemoStep));
+    }
+
+    // 细胞站在 (0,0)；趋化源在 (3,0,-3)。朝它走 = (1,0,-1)，背它走 = (-1,0,1)。
+    private static readonly HexPosition ChemoAt = new(3, 0, -3);
+    private static readonly HexPosition ChemoStep = new(1, 0, -1);
+    private static readonly HexPosition ChemoAwayStep = new(-1, 0, 1);
+
+    /// <summary>场上有一个趋化源，细胞站在它的直线上，两侧各留一格可走。</summary>
+    private static WorldState ChemoWorld(bool owner, bool onCancer, string? skill, bool cancer = false)
+    {
+        var home = new HexPosition(0, 0, 0);
+        var stepState = onCancer ? TissueState.Cancer : TissueState.Healthy;
+        // 癌细胞走「癌组织」只要 0.2，会把百分比差异压没 —— 癌方一律走健康格（基础 1.2）
+        var homeState = cancer ? TissueState.Cancer : TissueState.Healthy;
+
+        return new WorldState
+        {
+            Board = new Board
+            {
+                Radius = 6,
+                Tissues = new Dictionary<HexPosition, Tissue>
+                {
+                    [home] = Tile(home, homeState, new EntityId(1)),
+                    [ChemoStep] = Tile(ChemoStep, cancer ? TissueState.Healthy : stepState, null),
+                    [ChemoAwayStep] = Tile(ChemoAwayStep, cancer ? TissueState.Healthy : stepState, null),
+                    [ChemoAt] = Tile(ChemoAt, TissueState.Healthy, null),
+                }
+            },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = new()
+                {
+                    Id = new EntityId(1), OwnerSeat = 0,
+                    Faction = cancer ? Faction.Cancer : Faction.Immune,
+                    Type = cancer ? CellType.Osteosarcoma : CellType.ImmuneBasic,
+                    Position = home, Energy = 500, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = skill is null ? [] : [skill],
+                    Modifiers = skill == "LFA-1黏附"
+                        ? [new ActiveModifier("LFA-1黏附", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 0, 4, 2, 1, ModifierDuration.Turn, ModifierRequirement.MoveToCancerous)]
+                        : [],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = cancer ? Faction.Cancer : Faction.Immune, IsAlive = true,
+                    DrawCount = 0, AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I,
+                    CancerType = cancer ? CellType.Osteosarcoma : null },
+            },
+            // ChemoOwner 是**建立者的席位**（GD 判 chemo["by"] == actor["pid"]），
+            // 不是「是不是树突」—— owner:false 时给一个别的席位号。
+            Turn = new TurnState
+            {
+                WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0,
+                ChemoAt = ChemoAt, ChemoRounds = 3, ChemoOwner = owner ? 0 : 1,
+            }
+        };
+    }
 
     private static WorldState MoveCostWorld(ImmuneLevel level)
     {

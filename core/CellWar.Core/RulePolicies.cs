@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 
 namespace CellWar.Core;
 
@@ -55,7 +55,10 @@ internal static class RulePolicies
     {
         var cancerous = Cancerous(s.Board.Tissues[destination]);
         var modifiers = c.Modifiers.Where(m => m.Target == ModifierTarget.Move && RequirementMet(m.Requirement, cancerous))
-            .Select(m => m.ToValueModifier());
+            .Select(m => m.ToValueModifier()).ToList();
+        // 【I-趋化源】是**场上实体**，不住在任何人的 mods / equipped 里，单独发一条
+        // （GD 侧 cw_cost.gd:347-350 也是 `_collect()` 里单独 emit）。
+        if (ChemoModifier(s, c, destination) is { } chemo) modifiers.Add(chemo);
         return Settlement.ApplyValue(RawMoveCost(s, c, destination), modifiers);
     }
 
@@ -89,14 +92,41 @@ internal static class RulePolicies
                 : s.Players[c.OwnerSeat].ImmuneLevel switch { ImmuneLevel.I => 10, ImmuneLevel.II => 8, _ => 8 };   // III/X 不再另有减免（Kevin 2026-09-15 按 PRD 裁定：只有 II 级那句 0.8）
         }
         if (c.Faction == Faction.Immune && target.Mucus) cost += 2;  // 免疫迁入「黏液侵染」格 +0.2
-        if (s.Turn.ChemoRounds > 0 && s.Turn.ChemoAt is { } chemo)
-        {
-            var before = c.Position.DistanceTo(chemo);
-            var after = destination.DistanceTo(chemo);
-            if (c.Faction == Faction.Immune && after < before) cost = cost * (c.OwnerSeat == s.Turn.ChemoOwner ? 50 : 70) / 100;
-            else if (c.Faction == Faction.Cancer && after > before) cost = cost * 120 / 100;
-        }
         return cost;
+    }
+
+    /// <summary>
+    /// 树突【I-趋化源】的百分比费用修饰，没命中就返回 null。
+    ///
+    /// 2026-09-15 从 `RawMoveCost` 里搬出来。搬之前它是**烤进基础费用**的，
+    /// 也就是在整条修饰管线**之前**乘掉；GD 侧它是管线里的 MULT/DIV 条目，
+    /// 排在固定加费（黏液侵染）与固定减费（LFA-1黏附 / 组织浸润 / 组织巡航·减）**之后**。
+    /// 这个位置差会直接改数：
+    ///   免疫 I 级、装【LFA-1黏附】、朝趋化源走上癌组织（基础 1.0）
+    ///     GD : 1.0 → 减费 max(0.2, 1.0−0.4)=0.6 → ×70% → 0.4
+    ///     C#旧: 1.0 → ×70% = 0.7 → 减费 max(0.2, 0.7−0.4)=0.3
+    ///
+    /// 三档百分比与 GD 的 `CWData.CHEMO_*_PCT` 同源：自身 50 / 其余免疫 70 / 癌方 120。
+    /// 「自身」认的是**建立者的席位**（GD 判 `chemo["by"] == actor["pid"]`），不是「是不是树突」。
+    ///
+    /// 两条方向互斥（一条只认免疫、一条只认癌方），所以一次最多命中一条 ——
+    /// 这也是把 GD 的 DIV（免疫减免）与 MULT（癌方加价）在这里都落到 Multiply 的前提：
+    /// C# 的 `ValueModifier` 没有 GD 那套 `pct` / `value` 双语义，
+    /// 而 Multiply 恰好就是「×Value%」。两条不互斥了就必须重新看阶段。
+    ///
+    /// **仍缺**：GD 还有 `chemo_track`（【免疫猎杀】附着的追踪趋化源，走同一套修饰），
+    /// C# 里根本没有这个状态 —— 另一张工单。
+    /// </summary>
+    public static ValueModifier? ChemoModifier(WorldState s, Cell c, HexPosition destination)
+    {
+        if (s.Turn.ChemoRounds <= 0 || s.Turn.ChemoAt is not { } chemo) return null;
+        var before = c.Position.DistanceTo(chemo);
+        var after = destination.DistanceTo(chemo);
+        int pct;
+        if (c.Faction == Faction.Immune && after < before) pct = c.OwnerSeat == s.Turn.ChemoOwner ? 50 : 70;
+        else if (c.Faction == Faction.Cancer && after > before) pct = 120;
+        else return null;
+        return new ValueModifier(ModifierStage.Multiply, SourceLayer.Skill, 0, pct, Name: "趋化源");
     }
 
     /// <summary>

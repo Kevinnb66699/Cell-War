@@ -66,8 +66,16 @@ public static class Settlement
         foreach (var m in Ordered(list, ModifierStage.Add)) value += m.Value;
         foreach (var m in Ordered(list, ModifierStage.Subtract))
             value = m.Floor is { } floor ? Math.Max(floor, value - m.Value) : value - m.Value;
-        foreach (var m in Ordered(list, ModifierStage.Multiply)) value = value * m.Value / 100;
-        foreach (var m in Ordered(list, ModifierStage.Divide)) value = value * 100 / m.Value;
+        // **费用侧的百分比四舍五入，伤害侧向下取整** —— 这不是笔误，是 GD 侧两条明写的口径：
+        //   · 费用：`CWCost._pct` 走 `round_tenth`（PRD 2026-09-08 通用规则 1）
+        //   · 伤害：`cw_damage.gd:220` 明写「四个倍率合成一次整数除法…天然向下取整」，
+        //     【TGF-β释放】−20%、【刚性屏障】×40% 同样是**卡面写明**向下取整
+        // 所以 `ApplyEnergyLoss` 那两行照旧截断，别顺手统一（cw_data.gd:905-908 专门警告过）。
+        //
+        // 2026-09-15 改：此前这里也是截断，与 GD 差一个十分位 ——
+        // 例：健康格 0.5 的迁移费，免疫朝趋化源走 ×70% → GD 0.4、C# 0.3。
+        foreach (var m in Ordered(list, ModifierStage.Multiply)) value = RoundDiv(value * m.Value, 100);
+        foreach (var m in Ordered(list, ModifierStage.Divide)) value = RoundDiv(value * 100, m.Value);
         if (Ordered(list, ModifierStage.Free).Any()) value = 0;
         foreach (var m in Ordered(list, ModifierStage.Surcharge)) value += m.Value;
         return value;
@@ -88,6 +96,16 @@ public static class Settlement
             loss = m.Floor is { } floor ? Math.Max(floor, loss - m.Value) : loss - m.Value;
         return Math.Max(0, loss);
     }
+
+    /// <summary>
+    /// 整数四舍五入除法，逐位对齐 GDScript 的 `CWData.round_tenth(num, den)`。
+    ///
+    /// ⚠ 照抄的包括它的**前提**：`num >= 0 且 den > 0`。
+    /// 负数上 C# 与 GDScript 的整数除法都向零截断，`(num + den/2) / den` 会把
+    /// −2.4 取成 −1 而不是 −2 —— 两边一样错，所以对拍不会报差异，但仍是个地雷。
+    /// 今天所有调用点（费用、有氧收入、压迫）都非负，原样照抄是为了**不引入新的分歧**。
+    /// </summary>
+    public static int RoundDiv(int num, int den) => den <= 0 ? num : (num + den / 2) / den;
 
     /// <summary>把一个「十分位」的浮点结果四舍五入成整数十分位（PRD 通用规则 1）。</summary>
     public static int RoundTenth(double valueInTenths) => (int)Math.Round(valueInTenths, MidpointRounding.AwayFromZero);
