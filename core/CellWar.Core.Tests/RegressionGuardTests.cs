@@ -104,6 +104,30 @@ public class RegressionGuardTests
     // 下面这条用**反射**断言：调用任何一个 With*，除了它该改的那个字段之外，
     // 其余每一个属性都必须原样保留。新加字段自动纳入，不用记得回来改测试。
 
+    /// <summary>
+    /// 泛型判据：调用 `apply` 之后，除了 `changes` 那一个属性，其余每一个都必须原样保留。
+    /// 新加字段自动纳入 —— 这正是这条护栏的意义：不靠人记得回来改测试。
+    /// </summary>
+    private static void AssertOnlyChanges<T>(T original, string name, string changes, Func<T, T> apply)
+    {
+        var after = apply(original);
+        foreach (var p in typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance).Where(p => p.CanRead))
+        {
+            if (p.Name == changes) continue;
+            Assert.Equal(
+                $"{name} 保留 {p.Name} = {p.GetValue(original)}",
+                $"{name} 保留 {p.Name} = {p.GetValue(after)}");
+        }
+    }
+
+    /// <summary>`Clone()` 是另一份手写清单，同样要钉：少抄一个字段就是一个静默 bug。</summary>
+    private static void AssertClonePreservesAll<T>(T original, Func<T, T> clone)
+    {
+        var copy = clone(original);
+        foreach (var p in typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance).Where(p => p.CanRead))
+            Assert.Equal($"{p.Name}={p.GetValue(original)}", $"{p.Name}={p.GetValue(copy)}");
+    }
+
     [Fact]
     public void 每个With方法只改它该改的那个字段()
     {
@@ -198,6 +222,106 @@ public class RegressionGuardTests
                     $"{name} 保留 {p.Name} = {p.GetValue(full)}",
                     $"{name} 保留 {p.Name} = {p.GetValue(after)}");
             }
+        }
+    }
+
+    // ---- 二点五、TurnState / Cell / WorldState 也是同一类病 ----
+    //
+    // 2026-09-15 晚清点：`TurnState` **19 个字段被手抄了 7 份**
+    // （Copy + WithPendingDiscard + WithPendingMutation + ClearPendingMutation +
+    //  WithCytokineNetwork + WithChemo + Clone），`Cell` 26 字段两份（Copy + Clone），
+    // `WorldState` 5 处四字段初始化器。今天这些**都还是全的** ——
+    // 但 `WithOccupyingCell` 当初也是「全的」，直到有人加了两个字段。
+    //
+    // 所以不等它出事，先把不变量钉上。下面用的是泛型判据，新加字段自动纳入。
+
+    [Fact]
+    public void TurnState的每个With方法只改它该改的那个字段()
+    {
+        var full = FullyPopulatedTurn();
+
+        AssertOnlyChanges(full, "WithPendingDiscard", nameof(TurnState.PendingDiscardSeat), t => t.WithPendingDiscard(3));
+        AssertOnlyChanges(full, "WithPendingDiscard(null)", nameof(TurnState.PendingDiscardSeat), t => t.WithPendingDiscard(null));
+        AssertOnlyChanges(full, "WithCytokineNetwork", nameof(TurnState.CytokineNetworkSeat), t => t.WithCytokineNetwork(5));
+
+        // 这两个各改四个字段，泛型判据一次只放行一个 —— 所以逐字段各验一遍
+        foreach (var name in new[]
+                 {
+                     nameof(TurnState.PendingMutationSeat), nameof(TurnState.PendingMutationCell),
+                     nameof(TurnState.PendingMutationA), nameof(TurnState.PendingMutationB),
+                 })
+        {
+            AssertOnlyChangesAmong(full, "WithPendingMutation", MutationFields,
+                t => t.WithPendingMutation(4, new EntityId(7), 1, 2));
+            AssertOnlyChangesAmong(full, "ClearPendingMutation", MutationFields, t => t.ClearPendingMutation());
+            _ = name;   // 字段名只用于可读性，判据在 MutationFields 里
+        }
+
+        AssertOnlyChangesAmong(full, "WithChemo", ChemoFields,
+            t => t.WithChemo(new HexPosition(1, 1, -2), 9, 2));
+    }
+
+    [Fact]
+    public void TurnState的Clone保留每一个字段()
+        => AssertClonePreservesAll(FullyPopulatedTurn(), t => t.Clone());
+
+    [Fact]
+    public void Cell的Clone保留每一个字段()
+        => AssertClonePreservesAll(FullyPopulatedCell(), c => c.Clone());
+
+    /// <summary>
+    /// `Cell.Copy` 是**一份**清单（不像 TurnState 抄了七份），风险是某个参数没接上线。
+    /// 这里挑参数名与属性名**不同**的那几个来验 —— 那正是最容易漏接的。
+    /// </summary>
+    [Theory]
+    [InlineData("alive", nameof(Cell.IsAlive))]
+    [InlineData("attacks", nameof(Cell.AttacksThisTurn))]
+    [InlineData("draws", nameof(Cell.DrawsThisTurn))]
+    [InlineData("toxin", nameof(Cell.ToxinThisRound))]
+    [InlineData("mutateUsed", nameof(Cell.MutateUsedThisRound))]
+    [InlineData("antibody", nameof(Cell.AntibodyThisRound))]
+    [InlineData("metastasis", nameof(Cell.MetastasisUsedThisRound))]
+    [InlineData("jump", nameof(Cell.JumpUsedThisRound))]
+    [InlineData("armor", nameof(Cell.ArmorUsedThisRound))]
+    public void Cell的Copy参数确实接到了对应字段(string param, string property)
+    {
+        var full = FullyPopulatedCell();
+        Func<Cell, Cell> apply = param switch
+        {
+            "alive" => c => c.Copy(alive: false),
+            "attacks" => c => c.Copy(attacks: 9),
+            "draws" => c => c.Copy(draws: 9),
+            "toxin" => c => c.Copy(toxin: 9),
+            "mutateUsed" => c => c.Copy(mutateUsed: false),
+            "antibody" => c => c.Copy(antibody: 9),
+            "metastasis" => c => c.Copy(metastasis: false),
+            "jump" => c => c.Copy(jump: 9),
+            _ => c => c.Copy(armor: false),
+        };
+        AssertOnlyChanges(full, $"Copy({param}:)", property, apply);
+    }
+
+    private static readonly string[] MutationFields =
+    [
+        nameof(TurnState.PendingMutationSeat), nameof(TurnState.PendingMutationCell),
+        nameof(TurnState.PendingMutationA), nameof(TurnState.PendingMutationB),
+    ];
+
+    private static readonly string[] ChemoFields =
+    [
+        nameof(TurnState.ChemoAt), nameof(TurnState.ChemoRounds), nameof(TurnState.ChemoOwner),
+    ];
+
+    /// <summary>同 AssertOnlyChanges，但允许一次改动一组字段。</summary>
+    private static void AssertOnlyChangesAmong<T>(T original, string name, IReadOnlyCollection<string> changes, Func<T, T> apply)
+    {
+        var after = apply(original);
+        foreach (var p in typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance).Where(p => p.CanRead))
+        {
+            if (changes.Contains(p.Name)) continue;
+            Assert.Equal(
+                $"{name} 保留 {p.Name} = {p.GetValue(original)}",
+                $"{name} 保留 {p.Name} = {p.GetValue(after)}");
         }
     }
 
@@ -825,6 +949,65 @@ public class RegressionGuardTests
         public RngState GetState() => inner.GetState();
         public void SetState(RngState state) => inner.SetState(state);
     }
+
+    /// <summary>每个字段都填成非默认值 —— 否则被清零也看不出来。</summary>
+    private static TurnState FullyPopulatedTurn() => new()
+    {
+        WorldRound = 7,
+        Phase = Phase.PlayerAction,
+        ActivePlayerSeat = 2,
+        StartStep = 3,
+        Winner = Faction.Cancer,
+        CancerAlarmRound = 5,
+        PendingDiscardSeat = 1,
+        TgfStacks = 2,
+        PausedDecayRound = 6,
+        PendingMutationSeat = 0,
+        PendingMutationCell = new EntityId(4),
+        PendingMutationA = 3,
+        PendingMutationB = 5,
+        CytokineNetworkSeat = 1,
+        EffectorRound = 4,
+        CancerEffectsDisabledUntil = 8,
+        ChemoAt = new HexPosition(2, -1, -1),
+        ChemoRounds = 2,
+        ChemoOwner = 0,
+    };
+
+    /// <summary>同上：每个字段都非默认。</summary>
+    private static Cell FullyPopulatedCell() => new()
+    {
+        Id = new EntityId(3),
+        OwnerSeat = 1,
+        Faction = Faction.Immune,
+        Type = CellType.Macrophage,
+        Position = new HexPosition(1, -1, 0),
+        Energy = 77,
+        IsAlive = true,
+        StatusEffects = Array.Empty<StatusEffect>(),
+        AttacksThisTurn = 2,
+        DeathRound = 4,
+        CampRound = 3,
+        CampPosition = new HexPosition(0, 1, -1),
+        DrawsThisTurn = 1,
+        ToxinThisRound = 2,
+        MutateUsedThisRound = true,
+        AntibodyThisRound = 1,
+        MetastasisUsedThisRound = true,
+        JumpUsedThisRound = 1,
+        ArmorUsedThisRound = true,
+        Differentiated = true,
+        EffectorUsed = true,
+        Marked = true,
+        MarkLeft = 2,
+        MarkRound = 6,
+        RespawnRound = 5,
+        HandMax = 4,
+        Hand = ["组织巡航"],
+        Equipped = ["耗竭抵抗"],
+        PlayCounter = 3,
+        Modifiers = [new ActiveModifier("组织巡航", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 1, 2, 2, 1, ModifierDuration.Turn)],
+    };
 
     private static Cell MakeCell(IReadOnlyList<string> equipped) => new()
     {
