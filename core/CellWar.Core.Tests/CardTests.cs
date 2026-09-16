@@ -119,6 +119,49 @@ public class CardTests
         Assert.False(engine.ValidateDecision(world, new DiscardDecision(0, id, "缺氧适应")).IsValid);
     }
 
+    /// <summary>手里没有的牌弃不掉 —— 选项表不会给，但校验是**独立**的一道，网络那头送什么都得挡住。</summary>
+    [Fact]
+    public void 弃不掉手里没有的牌()
+    {
+        var engine = new BasicRulesEngine();
+        var world = World(CellType.Melanoma, Faction.Cancer, hand: ["缺氧适应"]);
+        var id = world.Cells.Keys.Single();
+
+        Assert.False(engine.ValidateDecision(world, new DiscardDecision(0, id, "癌症转移")).IsValid);
+        Assert.False(engine.ValidateDecision(world.WithTurn(world.Turn.WithPendingDiscard(0)),
+            new DiscardDecision(0, id, "癌症转移")).IsValid);
+    }
+
+    /// <summary>
+    /// 某一席的手牌超限挂起时，**别的席位不许插队弃牌** —— 那一问是问他一个人的。
+    /// 得有两个席各带一个细胞才验得出来：只有一个细胞时，别席会先被「这不是你的细胞」挡掉，
+    /// 挂起那道闸有没有在干活根本看不出来。
+    /// </summary>
+    [Fact]
+    public void 别人手牌超限挂起时自己不能插队弃牌()
+    {
+        var engine = new BasicRulesEngine();
+        var world = World(CellType.ImmuneBasic, Faction.Immune, hand: ["a"], pendingDiscard: 0);
+        var other = new HexPosition(1, 0, -1);
+        var otherId = new EntityId(2);
+        world = world.WithBoard(new Board
+        {
+            Radius = world.Board.Radius,
+            Tissues = world.Board.Tissues.SetItem(other, new Tissue
+            {
+                Position = other, Type = TissueType.Normal, State = TissueState.Healthy,
+                SolidificationCount = 0, OccupyingCell = otherId, Charge = 0
+            })
+        });
+        world = world.Copy(cells: world.Cells.SetItem(otherId, new Cell
+        {
+            Id = otherId, OwnerSeat = 1, Faction = Faction.Cancer, Type = CellType.SignetRing,
+            Position = other, Energy = 30, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(), Hand = ["缺氧适应"]
+        }));
+
+        Assert.False(engine.ValidateDecision(world, new DiscardDecision(1, otherId, "缺氧适应")).IsValid);
+    }
+
     [Fact]
     public void MutateCostsHalfOncePerWorldRound()
     {
