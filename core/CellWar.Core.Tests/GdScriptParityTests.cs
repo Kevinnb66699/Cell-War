@@ -317,6 +317,96 @@ public class GdScriptParityTests
         Assert.Equal(12, RulePolicies.QuoteMove(toward, toward.Cells[new EntityId(1)], ChemoStep));
     }
 
+    /// <summary>趋化源到期（ChemoRounds 归零）之后不该再影响任何费用。</summary>
+    [Fact]
+    public void 趋化源到期之后不再影响费用()
+    {
+        var live = ChemoWorld(owner: false, onCancer: false, skill: null);
+        var expired = live.WithTurn(live.Turn.Copy(chemoRounds: 0));
+
+        Assert.Equal(4, RulePolicies.QuoteMove(live, live.Cells[new EntityId(1)], ChemoStep));
+        Assert.Equal(5, RulePolicies.QuoteMove(expired, expired.Cells[new EntityId(1)], ChemoStep));
+    }
+
+    // ---- 伤害侧的取整与费用侧**故意不一样** ----
+    //
+    // `cw_data.gd:905-908` 明写：卡面写明向下取整的照旧向下 ——
+    // 【TGF-β释放】−20%、骨肉瘤【刚性屏障】×40%、【抗体】减半、抗原记忆，这四处都是。
+    // 所以费用侧四舍五入、伤害侧截断，两条判据得各钉各的，不然「统一一下」是很自然的改法。
+
+    /// <summary>伤害侧的百分比是**向下取整**，不许跟费用侧一样四舍五入。</summary>
+    [Fact]
+    public void 伤害侧的百分比向下取整而不是四舍五入()
+    {
+        // 【刚性屏障】×40%：0.9 的损失 → 0.36 → 截断 **0.3**（四舍五入会给 0.4）
+        var barrier = new ValueModifier(ModifierStage.Multiply, SourceLayer.Passive, 0, GdConst("OSTEO_BARRIER_PERCENT"));
+        Assert.Equal(3, Settlement.ApplyEnergyLoss(9, [barrier]));
+
+        // 同一个数在**费用**侧要四舍五入 —— 两条口径确实不同，不是笔误
+        Assert.Equal(4, Settlement.ApplyValue(9, [barrier]));
+    }
+
+    /// <summary>
+    /// **多条倍率合成一次整数除法**，不许逐条各截断一次。
+    ///
+    /// GD 为此写了一整段警告（cw_damage.gd:218-223）：「分开除会各自向下取整一次，
+    /// 『×2 再 ÷2 再 ×40%』就会比『一次算』少掉一两个十分位」。
+    /// 实锤：被【标记】的骨肉瘤立于固化癌组织受 0.7 伤害 —— 合成算 0.5，逐条算 0.4。
+    /// </summary>
+    [Fact]
+    public void 多条倍率合成一次除法而不是逐条截断()
+    {
+        var barrier = new ValueModifier(ModifierStage.Multiply, SourceLayer.Passive, 0, GdConst("OSTEO_BARRIER_PERCENT"), Name: "刚性屏障");
+        var mark = new ValueModifier(ModifierStage.Multiply, SourceLayer.Skill, 0, 200, Name: "标记");
+
+        // 7 × 2 × 40% = 5.6 十分位 → 向下取整 5；逐条算会先把 7×40% 截成 2，再 ×2 得 4
+        Assert.Equal(5, Settlement.ApplyEnergyLoss(7, [barrier, mark]));
+
+        // 换个顺序也必须一样 —— 合成一次除法之后，倍率之间的先后就不再改变结果
+        Assert.Equal(5, Settlement.ApplyEnergyLoss(7, [mark, barrier]));
+    }
+
+    /// <summary>
+    /// 端到端走一遍伤害管线：被【标记】的骨肉瘤立于固化癌组织受 0.7 —— 该扣 0.5。
+    /// 上面那条只钉算式，这条钉「两条修饰真的都进了管线、层级与数值也对」。
+    /// </summary>
+    [Fact]
+    public void 标记加刚性屏障的骨肉瘤受伤走完整管线()
+    {
+        var at = new HexPosition(0, 0, 0);
+        var id = new EntityId(1);
+        var world = new WorldState
+        {
+            Board = new Board
+            {
+                Radius = 6,
+                Tissues = new Dictionary<HexPosition, Tissue>
+                {
+                    [at] = new() { Position = at, Type = TissueType.Normal, State = TissueState.SolidifiedCancer,
+                        SolidificationCount = 30, OccupyingCell = id, Charge = 0 },
+                }
+            },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [id] = new()
+                {
+                    Id = id, OwnerSeat = 0, Faction = Faction.Cancer, Type = CellType.Osteosarcoma,
+                    Position = at, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [], Marked = true, MarkLeft = 1, MarkRound = 1,
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Osteosarcoma },
+            },
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+
+        var after = CellRules.Damage(world, id, 7);
+        Assert.Equal(300 - 5, after.Cells[id].Energy);   // 逐条截断会扣 4
+    }
+
     // 细胞站在 (0,0)；趋化源在 (3,0,-3)。朝它走 = (1,0,-1)，背它走 = (-1,0,1)。
     private static readonly HexPosition ChemoAt = new(3, 0, -3);
     private static readonly HexPosition ChemoStep = new(1, 0, -1);

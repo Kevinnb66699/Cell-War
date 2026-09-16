@@ -90,8 +90,26 @@ public static class Settlement
         var list = mods as IReadOnlyCollection<ValueModifier> ?? mods.ToArray();
         var loss = baseLoss;
         foreach (var m in Ordered(list, ModifierStage.Add)) loss += m.Value;
-        foreach (var m in Ordered(list, ModifierStage.Multiply)) loss = loss * m.Value / 100;
-        foreach (var m in Ordered(list, ModifierStage.Divide)) loss = loss * 100 / m.Value;
+
+        // **所有倍率合成一次整数除法**，逐位对齐 GDScript 的 cw_damage.gd:218-223。
+        //
+        // 这里原来是逐条乘除、**每条各截断一次**。GD 那边为此写了一整段警告：
+        // 「分开除会各自向下取整一次，『×2 再 ÷2 再 ×40%』就会比『一次算』少掉一两个十分位。
+        //   PRD 只要求最后向下取整到十分位，而十分能量的整数除法天然就是这个取整。」
+        //
+        // 实锤（2026-09-15 变异检验顺出来的）：被【标记】的骨肉瘤立于固化癌组织受 0.7 伤害
+        //   GD : 7 × 2 × 40% 合成一次 → 56000 / 10000 = 5  → **0.5**
+        //   C#旧: 先 ×40% → 7×40/100 = 2，再 ×200% → 4     → **0.4**
+        // 少掉的那 0.1 正是中间那次截断。
+        //
+        // 截断（而不是四舍五入）在这里是**对的**：【刚性屏障】×40%、【TGF-β释放】−20%、
+        // 【抗体】减半都是**卡面写明**向下取整（cw_data.gd:905-908 专门警告别顺手改）。
+        // 费用侧的 `ApplyValue` 才是四舍五入，两边不一样是故意的。
+        long num = loss, den = 1;
+        foreach (var m in Ordered(list, ModifierStage.Multiply)) { num *= m.Value; den *= 100; }
+        foreach (var m in Ordered(list, ModifierStage.Divide)) { num *= 100; den *= m.Value; }
+        loss = den == 0 ? 0 : (int)(num / den);
+
         foreach (var m in Ordered(list, ModifierStage.Subtract))
             loss = m.Floor is { } floor ? Math.Max(floor, loss - m.Value) : loss - m.Value;
         return Math.Max(0, loss);
