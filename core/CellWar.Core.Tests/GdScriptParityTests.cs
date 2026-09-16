@@ -742,20 +742,85 @@ public class GdScriptParityTests
         Assert.Equal(tweaked, RulePolicies.QuoteMove(tunedWorld, tunedWorld.Cells[new EntityId(1)], step));
     }
 
-    /// <summary>黏液附加费的旋钮归零 = 关掉这条规则（GD 侧也是 `> 0` 才发那条修饰）。</summary>
-    [Fact]
-    public void 黏液附加费旋钮归零就关掉这条规则()
+    /// <summary>
+    /// 黏液附加费真的读旋钮：拧成别的数要跟着变，归零 = 关掉这条规则。
+    ///
+    /// ⚠ 第一版只验了「归零 → 10」—— 那条**抓不到「引擎里写死 2」**：
+    /// 写死之后旋钮归零照样走不到那一行（当时还有一句 `> 0` 的闸）。变异检验当场戳穿。
+    /// 所以必须有一个**非零的别的数**。
+    /// </summary>
+    [Theory]
+    [InlineData(2, 12)]    // 默认
+    [InlineData(7, 17)]    // 拧大 —— 写死 2 的话这条红
+    [InlineData(0, 10)]    // 归零 = 关掉
+    public void 黏液附加费读的是旋钮(int surcharge, int expected)
     {
         var world = MucusWorld();
         var step = new HexPosition(1, 0, -1);
-        Assert.Equal(12, RulePolicies.QuoteMove(world, world.Cells[new EntityId(1)], step));
-
-        var off = new WorldState
+        var tuned = new WorldState
         {
             Board = world.Board, Cells = world.Cells, Turn = world.Turn, Players = world.Players,
-            Tuning = world.Tuning with { MucusMoveSurcharge = 0 },
+            Tuning = world.Tuning with { MucusMoveSurcharge = surcharge },
         };
-        Assert.Equal(10, RulePolicies.QuoteMove(off, off.Cells[new EntityId(1)], step));
+        Assert.Equal(expected, RulePolicies.QuoteMove(tuned, tuned.Cells[new EntityId(1)], step));
+    }
+
+    /// <summary>
+    /// 两个「转移」接的不是同一个数：【转移】走旋钮，【早期血行转移】走常量。
+    /// 拧动旋钮时后者**不许**跟着动 —— 它俩今天同为 1.0，最容易被顺手合并。
+    /// </summary>
+    [Fact]
+    public void 早期血行转移不读转移的旋钮()
+    {
+        var world = HomingWorld();
+        var engine = new BasicRulesEngine();
+        var homing = new TypeSkillDecision(0, new EntityId(1), "早期血行转移", new HexPosition(3, 0, -3));
+
+        var baseline = engine.ExecuteDecision(world, homing, new Xoshiro256StarStar(5)).NewState;
+        var tuned = new WorldState
+        {
+            Board = world.Board, Cells = world.Cells, Turn = world.Turn, Players = world.Players,
+            Tuning = world.Tuning with { MetastasisCost = 99 },
+        };
+        var afterTuned = engine.ExecuteDecision(tuned, homing, new Xoshiro256StarStar(5)).NewState;
+
+        Assert.Equal(baseline.Cells[new EntityId(1)].Energy, afterTuned.Cells[new EntityId(1)].Energy);
+        Assert.Equal(world.Cells[new EntityId(1)].Energy - GdConst("MELANOMA_HOMING_COST"),
+            baseline.Cells[new EntityId(1)].Energy);
+    }
+
+    /// <summary>黑色素瘤站在血管格上，远处留一格空的健康组织当落点。</summary>
+    private static WorldState HomingWorld()
+    {
+        var at = new HexPosition(0, 0, 0);
+        var dest = new HexPosition(3, 0, -3);
+        var tiles = new Dictionary<HexPosition, Tissue>
+        {
+            [at] = new() { Position = at, Type = TissueType.BloodVessel, State = TissueState.Cancer,
+                SolidificationCount = 0, OccupyingCell = new EntityId(1), Charge = 0 },
+            [dest] = Tile(dest, TissueState.Healthy, null),
+        };
+        foreach (var n in dest.GetNeighbors()) tiles.TryAdd(n, Tile(n, TissueState.Healthy, null));
+
+        return new WorldState
+        {
+            Board = new Board { Radius = 6, Tissues = tiles },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = new()
+                {
+                    Id = new EntityId(1), OwnerSeat = 0, Faction = Faction.Cancer, Type = CellType.Melanoma,
+                    Position = at, Energy = 500, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Melanoma },
+            },
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
     }
 
     // 细胞站在 (0,0)；趋化源在 (3,0,-3)。朝它走 = (1,0,-1)，背它走 = (-1,0,1)。

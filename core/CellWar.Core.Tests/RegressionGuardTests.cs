@@ -1151,6 +1151,26 @@ public class RegressionGuardTests
         };
     }
 
+    /// <summary>
+    /// `WorldState.DeepClone` 也是一份手写清单。`Tuning` 是它最新的成员，
+    /// 而**默认值的字段被丢掉看不出来** —— 所以这里拧成非默认值再克隆。
+    /// （2026-09-15 变异检验：删掉 `Tuning = Tuning,` 那一行，250 条全绿。）
+    /// </summary>
+    [Fact]
+    public void 世界的DeepClone带着旋钮一起走()
+    {
+        var world = AttackWorld(new HexPosition(0, 0, 0), new HexPosition(1, 0, -1));
+        var tuned = new WorldState
+        {
+            Board = world.Board, Cells = world.Cells, Turn = world.Turn, Players = world.Players,
+            Tuning = world.Tuning with { CancerMoveHealthy = 42, MucusMoveSurcharge = 7 },
+        };
+
+        var clone = tuned.DeepClone();
+        Assert.Equal(42, clone.Tuning.CancerMoveHealthy);
+        Assert.Equal(7, clone.Tuning.MucusMoveSurcharge);
+    }
+
     // ---- 十三、效果判断不许绕过【中和抗体】的闸 ----
     //
     // PRD:627 让【中和抗体】压住「种类特殊效果 / 永久卡牌效果」。

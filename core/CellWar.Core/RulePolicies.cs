@@ -61,7 +61,10 @@ internal static class RulePolicies
         if (ChemoModifier(s, c, destination) is { } chemo) modifiers.Add(chemo);
         // 印戒「黏液侵染」：免疫**踏进**黏液格迁移费 +0.2（PRD:523）。
         // 和趋化源一样是**格子上的状态**，不住在任何人的 mods 里，单独发一条。
-        if (c.Faction == Faction.Immune && s.Tuning.MucusMoveSurcharge > 0 && s.Board.Tissues[destination].Mucus)
+        // GD 那边还判了一句 `mucus_move_surcharge > 0` 才发这条修饰（它要让旋钮关掉时
+        // 悬浮详情里也不出现这一行）。C# 没有那个展示面，而 `Add 0` 本身就是恒等操作 ——
+        // **没有任何测试能区分加不加这句**，也就是死条件，不留。
+        if (c.Faction == Faction.Immune && s.Board.Tissues[destination].Mucus)
             modifiers.Add(new ValueModifier(ModifierStage.Add, SourceLayer.Skill, 0, s.Tuning.MucusMoveSurcharge, Name: "黏液侵染"));
         return Settlement.ApplyValue(RawMoveCost(s, c, destination), modifiers);
     }
