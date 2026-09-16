@@ -106,6 +106,24 @@ public sealed record RuleTuning
     /// <summary>「新生」的当回合固化保护（GD `newborn_protect`，Kevin 2026-09-04 拍板取消，默认关）。</summary>
     public bool NewbornProtect { get; init; }
 
+    // ---- S 阶段第 6 步【过载】（PRD 2026-09-15 新增）----
+    //
+    //   能量损失 = min{上限, max{0, ((x − 门槛) ÷ 分母)^指数}}
+    //
+    // 门槛与上限是**十分能量**，指数是百分数。
+
+    /// <summary>低于这个能量不扣（GD `OVERLOAD_THRESHOLD`，十分能量）。</summary>
+    public int OverloadThreshold { get; init; } = 100;
+
+    /// <summary>分母：(x − 门槛) ÷ 它；**≤0 = 关闭整条规则**（GD `OVERLOAD_DIV`，顺带兜住除零）。</summary>
+    public int OverloadDiv { get; init; } = 2;
+
+    /// <summary>指数，百分数（GD `OVERLOAD_EXP`，1.18）。</summary>
+    public int OverloadExp { get; init; } = 118;
+
+    /// <summary>单次损失上限，十分能量；0 = 不封顶（GD `OVERLOAD_CAP`，Kevin 2026-09-15 晚加）。</summary>
+    public int OverloadCap { get; init; } = 150;
+
     /// <summary>按免疫等级取一档（等级枚举 I=1…X=4，数组是 0 基）。</summary>
     public static int ByLevel(IReadOnlyList<int> table, ImmuneLevel level) => table[(int)level - 1];
 

@@ -1137,6 +1137,170 @@ public class GdScriptParityTests
         Assert.Equal(pairs, RuleTuning.Default.ErosionTiles);
     }
 
+    // ---- 【S-过载】（PRD 2026-09-15 新增，S 阶段第 6 步）----
+    //
+    //   能量损失 = min{15, max{0, ((x − 10) ÷ 2)^1.18}}
+    //
+    // 它是 09-15 当天在 GDScript 上线的规则（v26），C# 内核里此前一行都没有。
+
+    [Theory]
+    [InlineData("OVERLOAD_THRESHOLD")]
+    [InlineData("OVERLOAD_DIV")]
+    [InlineData("OVERLOAD_EXP")]
+    [InlineData("OVERLOAD_CAP")]
+    public void 过载旋钮的默认值等于GDScript常量(string constant)
+    {
+        var tune = RuleTuning.Default;
+        var actual = constant switch
+        {
+            "OVERLOAD_THRESHOLD" => tune.OverloadThreshold,
+            "OVERLOAD_DIV" => tune.OverloadDiv,
+            "OVERLOAD_EXP" => tune.OverloadExp,
+            _ => tune.OverloadCap,
+        };
+        Assert.True(actual == GdConst(constant), $"{constant}：GDScript {GdConst(constant)}，C# {actual}");
+    }
+
+    /// <summary>
+    /// 逐点核对公式本身。期望值**由 GDScript 的常量现算**，不写字面量 ——
+    /// 写死的话改了旋钮这条测试反而会钉住旧值（09-15 早上踩过三次的形状）。
+    /// </summary>
+    [Theory]
+    [InlineData(100)]   // 正好在门槛上：不扣
+    [InlineData(99)]    // 门槛以下：不扣
+    [InlineData(101)]   // 刚过门槛
+    [InlineData(150)]   // 15.0 → ((15−10)/2)^1.18 = 2.5^1.18
+    [InlineData(300)]   // 30.0 → 已越过上限交叉点
+    [InlineData(600)]   // 60.0 → 远在上限之上
+    public void 过载损失逐点对上PRD的式子(int energy)
+    {
+        var threshold = GdConst("OVERLOAD_THRESHOLD");
+        var div = GdConst("OVERLOAD_DIV");
+        var exp = GdConst("OVERLOAD_EXP");
+        var cap = GdConst("OVERLOAD_CAP");
+
+        var over = energy - threshold;
+        var expected = 0;
+        if (over > 0)
+        {
+            expected = (int)Math.Round(Math.Pow(over / 10.0 / div, exp / 100.0) * 10.0, MidpointRounding.AwayFromZero);
+            if (cap > 0) expected = Math.Min(cap, expected);
+            expected = Math.Min(expected, energy);
+        }
+
+        var world = OverloadWorld(energy);
+        Assert.Equal(expected, RulePolicies.OverloadLoss(world, world.Cells[new EntityId(1)]));
+    }
+
+    /// <summary>上限真的封住了：越过交叉点之后损失恒定。</summary>
+    [Fact]
+    public void 过载损失封顶之后恒定()
+    {
+        var cap = GdConst("OVERLOAD_CAP");
+        foreach (var energy in new[] { 300, 400, 900 })
+        {
+            var world = OverloadWorld(energy);
+            Assert.Equal(cap, RulePolicies.OverloadLoss(world, world.Cells[new EntityId(1)]));
+        }
+
+        // 关掉上限，同样的能量就该超过它 —— 否则这条只是在验「公式恰好小于 15」
+        var uncapped = OverloadWorld(900);
+        uncapped = uncapped.WithTuning(uncapped.Tuning with { OverloadCap = 0 });
+        Assert.True(RulePolicies.OverloadLoss(uncapped, uncapped.Cells[new EntityId(1)]) > cap,
+            "关掉上限之后损失没超过它，说明这条测试其实没验到封顶");
+    }
+
+    /// <summary>`OverloadDiv ≤ 0` 关闭整条规则（扫描的对照档，顺带兜住除零）。</summary>
+    [Fact]
+    public void 过载分母归零就关掉整条规则()
+    {
+        var world = OverloadWorld(600);
+        Assert.True(RulePolicies.OverloadLoss(world, world.Cells[new EntityId(1)]) > 0);
+
+        var off = world.WithTuning(world.Tuning with { OverloadDiv = 0 });
+        Assert.Equal(0, RulePolicies.OverloadLoss(off, off.Cells[new EntityId(1)]));
+    }
+
+    /// <summary>
+    /// 损失**不超过当前能量**。默认值下打不到（上限 15.0 恒小于触发线 10.0 以上的能量），
+    /// 所以把上限关掉、门槛压低来逼出这条 —— 它守的是契约，不是活路径。
+    /// </summary>
+    [Fact]
+    public void 过载损失不超过当前能量()
+    {
+        var world = OverloadWorld(120)
+            .WithTuning(RuleTuning.Default with { OverloadCap = 0, OverloadThreshold = 0, OverloadDiv = 1 });
+        // 12.0 能量、门槛 0、分母 1 ⇒ 12^1.18 ≈ 18.6 > 12.0
+        Assert.Equal(120, RulePolicies.OverloadLoss(world, world.Cells[new EntityId(1)]));
+    }
+
+    /// <summary>
+    /// S 阶段真的走这一步，而且**排在【有氧呼吸】之后**。
+    /// 只扣癌细胞；免疫细胞不受影响（它那一步是有氧进账）。
+    /// </summary>
+    [Fact]
+    public void S阶段第六步结算过载且只扣癌细胞()
+    {
+        var world = OverloadWorld(600, withImmune: true);
+        var cancer = new EntityId(1);
+        var immune = new EntityId(2);
+        var expected = RulePolicies.OverloadLoss(world, world.Cells[cancer]);
+        Assert.True(expected > 0, "夹具本身要能触发过载");
+
+        var immuneBefore = world.Cells[immune].Energy;
+        var after = new BasicRulesEngine()
+            .AdvancePhase(world.WithTurn(world.Turn.Copy(phase: Phase.S, startStep: 99)), new Xoshiro256StarStar(3))
+            .NewState;
+
+        Assert.Equal(600 - expected, after.Cells[cancer].Energy);
+        Assert.True(after.Cells[immune].Energy >= immuneBefore, "免疫细胞不该被【过载】扣");
+    }
+
+    /// <summary>一个癌细胞（可选再加一个免疫），能量可设。</summary>
+    private static WorldState OverloadWorld(int energy, bool withImmune = false)
+    {
+        var at = new HexPosition(0, 0, 0);
+        var near = new HexPosition(1, 0, -1);
+        var tiles = new Dictionary<HexPosition, Tissue>
+        {
+            [at] = Tile(at, TissueState.Cancer, new EntityId(1)),
+            [near] = Tile(near, TissueState.Healthy, withImmune ? new EntityId(2) : null),
+        };
+        var cells = new Dictionary<EntityId, Cell>
+        {
+            [new EntityId(1)] = new()
+            {
+                Id = new EntityId(1), OwnerSeat = 0, Faction = Faction.Cancer, Type = CellType.Osteosarcoma,
+                Position = at, Energy = energy, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                Hand = [], Equipped = [],
+            },
+        };
+        var seats = new Dictionary<int, Player>
+        {
+            [0] = new() { Seat = 0, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0,
+                AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Osteosarcoma },
+        };
+        if (withImmune)
+        {
+            cells[new EntityId(2)] = new()
+            {
+                Id = new EntityId(2), OwnerSeat = 1, Faction = Faction.Immune, Type = CellType.ImmuneBasic,
+                Position = near, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                Hand = [], Equipped = [],
+            };
+            seats[1] = new() { Seat = 1, Faction = Faction.Immune, IsAlive = true, DrawCount = 0,
+                AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I };
+        }
+
+        return new WorldState
+        {
+            Board = new Board { Radius = 6, Tissues = tiles },
+            Cells = cells,
+            Players = seats,
+            Turn = new TurnState { WorldRound = 3, Phase = Phase.S, ActivePlayerSeat = 0 }
+        };
+    }
+
     // ---- EV-0：世界事件 / 全局修饰容器 ----
 
     /// <summary>15 个世界事件的名字表与 GD 的 `CWWorldFx.EVENTS` 逐条一致。</summary>

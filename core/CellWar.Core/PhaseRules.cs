@@ -118,6 +118,14 @@ internal static class PhaseRules
         // 【TGF-β释放】结算完**同名整批消耗**（对齐 GD 的 CWWorld._aerobic）。
         // 减免本身已经算在 AerobicShare 里了，这里只负责摘条目。
         if (WorldEffects.Stacks(s, "TGF-β释放") > 0) s = s.RemoveEffects("TGF-β释放");
+        // S 阶段第 6 步【过载】（PRD 2026-09-15）：**必须排在【有氧呼吸】之后**。
+        // 只扣**存活**的癌细胞；第 4 步刚复活的也在内 ——
+        // PRD 第 6 步写的是「结算【过载】」，没有排除当回合复活的细胞，而复活后的能量同样是能量。
+        foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer).ToArray())
+        {
+            var lost = OverloadLoss(s, s.Cells[c.Id]);
+            if (lost > 0) s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy - lost));
+        }
         var first = s.Players.Keys.OrderBy(x => x).Where(x => AliveSeat(s, x)).Cast<int?>().FirstOrDefault();
         s = s.WithTurn(s.Turn.Copy(phase: first == null ? Phase.E : Phase.PlayerAction, seat: first ?? 0, startStep: 2));
         return first == null ? s : BeginTurn(s, first.Value);

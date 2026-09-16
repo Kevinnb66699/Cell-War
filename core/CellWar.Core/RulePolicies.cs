@@ -357,6 +357,30 @@ internal static class RulePolicies
         return income;
     }
 
+    /// <summary>
+    /// 【S-过载】这个细胞这一次损失多少（十分能量）。PRD 2026-09-15 新增，S 阶段**第 6 步**，
+    /// 排在【有氧呼吸】之后。逐位对齐 GDScript 的 `CWWorld.overload_loss()`。
+    ///
+    /// 公式 `min{15, max{0, ((x − 10) ÷ 2)^1.18}}`，四条实现口径照抄 GD 的注释：
+    ///   ① `x ≤ 门槛` 直接 0 —— 底数为负时实数域没有 1.18 次幂，`max{0, …}` 工程上必须钳在**底数**上；
+    ///   ② 上限 `OverloadCap`（29.8 能量起损失到顶 15.0，之后恒定）；
+    ///   ③ 损失**不超过当前能量** —— 有了 ② 之后默认值下打不到（「扣不死细胞」成了数学性质），
+    ///      但**不能删**：上限是旋钮，扫描时抬高或关掉它，交叉点就回来了；
+    ///   ④ `OverloadDiv ≤ 0` 关闭整条规则（扫描的对照档，顺带兜住除零）。
+    /// </summary>
+    public static int OverloadLoss(WorldState s, Cell c)
+    {
+        var tune = s.Tuning;
+        if (tune.OverloadDiv <= 0) return 0;
+        var over = c.Energy - tune.OverloadThreshold;
+        if (over <= 0) return 0;
+        // 换算成显示单位再套 PRD 的式子，最后乘 10 回到十分能量
+        var b = over / 10.0 / tune.OverloadDiv;
+        var loss = (int)Math.Round(Math.Pow(b, tune.OverloadExp / 100.0) * 10.0, MidpointRounding.AwayFromZero);
+        if (tune.OverloadCap > 0) loss = Math.Min(tune.OverloadCap, loss);
+        return Math.Min(loss, c.Energy);
+    }
+
     public static int AerobicShare(WorldState s, Cell c)
     {
         var income = s.Players[c.OwnerSeat].ImmuneLevel switch
