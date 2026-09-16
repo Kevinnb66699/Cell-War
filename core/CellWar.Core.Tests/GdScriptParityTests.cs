@@ -1077,6 +1077,51 @@ public class GdScriptParityTests
         Assert.DoesNotContain((0, 3), spy.Ranges);   // 旧写法的形状，不许回来
     }
 
+    /// <summary>
+    /// 增生的两个旋钮**真的接上了线**：关掉一格不转，拧到必中全转。
+    ///
+    /// 只验默认值抓不到「引擎里照旧写死 30/35/40」—— 默认值和字面量一模一样，
+    /// 变异检验当场戳穿（TU-2 那批也栽在同一处）。
+    /// </summary>
+    [Fact]
+    public void 增生读的是旋钮()
+    {
+        var world = PocketWorld();
+        var before = world.Board.Tissues.Values.Count(t => t.State != TissueState.Healthy);
+
+        // 基数与固化加成都归零：一格都不该转
+        var off = world.WithTuning(world.Tuning with
+            { ProliferatePerAdjacent = [0, 0, 0], ProliferatePerSolid = [0, 0, 0] });
+        BoardRules.Proliferate(off, new Xoshiro256StarStar(77), out var afterOff);
+        Assert.Equal(before, afterOff.Board.Tissues.Values.Count(t => t.State != TissueState.Healthy));
+
+        // 基数拧到 1000‰：每格只要有 1 个相邻癌性组织就必中
+        var on = world.WithTuning(world.Tuning with { ProliferatePerAdjacent = [1000, 1000, 1000] });
+        BoardRules.Proliferate(on, new Xoshiro256StarStar(77), out var afterOn);
+        Assert.True(afterOn.Board.Tissues.Values.Count(t => t.State != TissueState.Healthy) > before,
+            "基数拧到必中都没转，说明引擎根本没读这个旋钮");
+    }
+
+    /// <summary>固化加成那一档也接上了线：基数归零、只靠固化加成也能转。</summary>
+    [Fact]
+    public void 增生的固化加成读的是旋钮()
+    {
+        var world = PocketWorld();
+        // 把一格癌组织换成固化癌组织，给「每格固化 +N‰」一个来源
+        var ring = new HexPosition(0, 0, 0).GetNeighbors().ToArray();
+        var solidAt = ring[3];
+        world = world.WithBoard(world.Board.UpdateTissue(solidAt,
+            world.Board.Tissues[solidAt].WithState(TissueState.SolidifiedCancer)));
+        var before = world.Board.Tissues.Values.Count(t => t.State != TissueState.Healthy);
+
+        var on = world.WithTuning(world.Tuning with
+            { ProliferatePerAdjacent = [0, 0, 0], ProliferatePerSolid = [1000, 1000, 1000] });
+        BoardRules.Proliferate(on, new Xoshiro256StarStar(77), out var after);
+
+        Assert.True(after.Board.Tissues.Values.Count(t => t.State != TissueState.Healthy) > before,
+            "固化加成拧到必中都没转，说明引擎根本没读这个旋钮");
+    }
+
     /// <summary>【E-侵蚀】的格数默认值等于 GD 的 `EROSION_TILES_BY_STAGE`。</summary>
     [Fact]
     public void 侵蚀格数的三档默认值等于GDScript()
