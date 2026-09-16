@@ -1350,16 +1350,25 @@ public class GdScriptParityTests
         Assert.Equal(plain.Cells[new EntityId(2)].Energy, taxed.Cells[new EntityId(2)].Energy);
     }
 
-    /// <summary>【代谢消耗】杀不死细胞 —— 按比例扣永远到不了 0，低能量时整除直接得 0。</summary>
+    /// <summary>
+    /// 【代谢消耗】**向下取整**，所以扣不足 0.1 时一分不扣 —— 这正是「杀不死细胞」的来由。
+    ///
+    /// ⚠ 判据要挑在整除边界上，而且要算上**它排在无氧之后**：
+    /// 第一版拿「0.4 能量 × 20%」当例子，可无氧先进账把能量抬到 2.6，
+    /// 边界就不在那儿了 —— 改成向上取整照样绿（变异检验实测）。
+    /// 这里用 1%：进账后 2.6 能量 × 1% = 0.026，向下取整 0、向上取整 0.1，两者分得开。
+    /// </summary>
     [Fact]
-    public void 代谢消耗杀不死细胞()
+    public void 代谢消耗向下取整所以扣不足一分就不扣()
     {
-        var world = OverloadWorld(4)   // 0.4 能量 × 20% = 0.08 → 整除得 0
-            .WithTuning(RuleTuning.Default with { CancerUpkeepPercent = 20, OverloadDiv = 0 });
+        var world = OverloadWorld(4).WithTuning(RuleTuning.Default with { OverloadDiv = 0 });
+        var taxed = world.WithTuning(world.Tuning with { CancerUpkeepPercent = 1 });
 
-        var after = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(1));
+        var plain = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(1));
+        var after = BoardRules.EvolveEndOfRound(taxed, new Xoshiro256StarStar(1));
+
+        Assert.Equal(plain.Cells[new EntityId(1)].Energy, after.Cells[new EntityId(1)].Energy);
         Assert.True(after.Cells[new EntityId(1)].IsAlive);
-        Assert.True(after.Cells[new EntityId(1)].Energy > 0);
     }
 
     // ---- 树突【E-组织黏连】（PRD:579，E 阶段第 7 步）----
