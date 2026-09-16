@@ -62,7 +62,13 @@ public sealed class TurnState
     public int EffectorRound { get; init; }  // 免疫方本世界回合已发动【效应应答】的世界回合（0=未发动）
     public HexPosition? ChemoAt { get; init; }  // 树突【趋化源】位置
     public int ChemoRounds { get; init; }  // 【趋化源】剩余世界回合
-    public int ChemoOwner { get; init; } = -1;  // 建立【趋化源】的席位
+    public int ChemoOwner { get; init; } = -1;  // 建立【趋化源】的**席位**（自身 50% 减免认这个）
+    /// <summary>
+    /// 建立【趋化源】的那只**细胞**（对齐 GD 的 `chemo["cid"]`）。
+    /// 与 `ChemoOwner` 并存不是冗余：减免认席位（PRD 写的是「自身」），
+    /// 而**冷却记在细胞上** —— PRD 写的是「技能冷却」，换个树突去立是另一个细胞的技能。
+    /// </summary>
+    public EntityId? ChemoCreator { get; init; }
 
     public TurnState Clone() => new()
     {
@@ -81,7 +87,8 @@ public sealed class TurnState
         EffectorRound = EffectorRound,
         ChemoAt = ChemoAt,
         ChemoRounds = ChemoRounds,
-        ChemoOwner = ChemoOwner
+        ChemoOwner = ChemoOwner,
+        ChemoCreator = ChemoCreator
     };
 }
 
@@ -302,6 +309,13 @@ public sealed class Cell
             .CreateRange(StringComparer.Ordinal, value);
     }
     /// <summary>
+    /// 树突【I-趋化源】的技能冷却，还剩几个世界回合（GD `cell["chemo_cd"]`）。
+    /// **从效果结束那一刻算起**（PRD「趋化源消失后，技能冷却 1 世界回合才能再次使用」），
+    /// E 阶段第 8 步每回合 −1。记在细胞上而不是全局：换个树突去立是另一个细胞的技能。
+    /// </summary>
+    public int ChemoCooldown { get; init; }
+
+    /// <summary>
     /// 【中和抗体】：该细胞的**种类特殊效果与永久卡牌效果**失效到第几个世界回合末为止（0 = 没被压）。
     ///
     /// 对齐 GD 的 `cell["neutral_until"]`（cw_actions.gd:1613 写、cw_game.gd:580 读）。
@@ -382,6 +396,7 @@ public sealed class Cell
         PlayCounter = PlayCounter,
         EquipSeq = EquipSeq,
         NeutralUntil = NeutralUntil,
+        ChemoCooldown = ChemoCooldown,
         FxTurn = FxTurn,
         FxRound = FxRound,
         Modifiers = Modifiers

@@ -99,8 +99,10 @@ internal static class BoardRules
         // 8 「本世界回合」时长的**细胞身上**那些修饰，改在下一个 S 阶段的 ResetRoundFlags 里清
         //   （E 步 8 到下一个 S 之间没有别的结算，等价）
         s = TickNecrosis(s);                           // 8  「坏死」倒计时
-        // 8 树突【I-趋化源】技能冷却 / 【免疫猎杀】追踪源倒计时 —— C# 没有 chemo_cd / chemo_track
-        s = TickChemo(s);                              // 8  趋化源本身的存续回合
+        // 8 【I-趋化源】**源本身**不在这里过期 —— 它走的是另一套时钟（「持续 n **完整回合**」，
+        //   PhaseRules.TickFullTurn，每个席位开打前各走一格）。GD 那边专门警告过「两套时钟别混」。
+        s = TickChemoCooldown(s);                      // 8  趋化源的**技能冷却**（这条才是世界回合制）
+        // 8 【免疫猎杀】的追踪趋化源倒计时 —— C# 还没有 chemo_track
         s = ExpireMarks(s);                            // 8  树突【I-标记】到期
         s = ClearNewborn(s);                           // 9  移除「新生」
         s = CapEnergy(s);                              // 9.5 能量上限（PRD 之外，口径 #92）
@@ -405,12 +407,15 @@ internal static class BoardRules
         return s;
     }
 
-    /// <summary>8 树突【I-趋化源】的存续回合。</summary>
-    private static WorldState TickChemo(WorldState s)
+    /// <summary>【趋化源】消散后的技能冷却回合数（GD `CHEMO_COOLDOWN_ROUNDS`）。</summary>
+    internal const int ChemoCooldownRounds = 1;
+
+    /// <summary>8 树突【I-趋化源】的技能冷却：每个世界回合末 −1，归零即可再次建立。</summary>
+    private static WorldState TickChemoCooldown(WorldState s)
     {
-        if (s.Turn.ChemoRounds <= 0) return s;
-        var rounds = s.Turn.ChemoRounds - 1;
-        return s.WithTurn(s.Turn.WithChemo(rounds > 0 ? s.Turn.ChemoAt : null, rounds, rounds > 0 ? s.Turn.ChemoOwner : -1));
+        foreach (var c in Cells(s).Where(c => c.ChemoCooldown > 0).ToArray())
+            s = s.UpdateCell(c.Id, s.Cells[c.Id].Copy(chemoCooldown: s.Cells[c.Id].ChemoCooldown - 1));
+        return s;
     }
 
     /// <summary>

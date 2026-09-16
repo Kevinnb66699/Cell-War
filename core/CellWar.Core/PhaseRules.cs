@@ -35,6 +35,9 @@ internal static class PhaseRules
         else if (s.Turn.Phase == Phase.PlayerAction)
         {
             var next = s.Players.Keys.OrderBy(x => x).Where(x => x > s.Turn.ActivePlayerSeat && AliveSeat(s, x)).Cast<int?>().FirstOrDefault();
+            // 完整回合时钟：走到下一个开打的席位之前，沿途每个席位各走一格（死的也计入）
+            s = TickFullTurnsThrough(s, s.Turn.ActivePlayerSeat,
+                next ?? s.Players.Keys.DefaultIfEmpty(s.Turn.ActivePlayerSeat).Max());
             s = s.WithTurn(s.Turn.Copy(phase: next == null ? Phase.E : Phase.PlayerAction, seat: next ?? s.Turn.ActivePlayerSeat));
             if (next is { } seat) s = BeginTurn(s, seat);
         }
@@ -50,6 +53,40 @@ internal static class PhaseRules
             .Select(c => (IGameEvent)new EnergyChangedEvent(before.Turn.WorldRound, before.Turn.Phase, c.Id,
                 before.Cells[c.Id].Energy, c.Energy, "Phase settlement")).ToArray();
         return new(s, facts, true);
+    }
+
+    /// <summary>
+    /// 「持续 n **完整回合**」的时钟（PRD 游戏流程 4：「当前玩家结束回合后，下 n 次该玩家行动回合前效果消失」）。
+    /// **每个席位开打之前各走一格**，而且 4.1 明写「死亡的那一回合自动跳过但仍然计入」。
+    ///
+    /// ⚠ 与世界回合制的那一套（坏死、技能冷却、世界事件）**是两套时钟，别混** ——
+    /// GD 在 `CWWorld.tick_full_turn` 上专门写了这句警告。
+    /// 2026-09-16 之前 C# 把【I-趋化源】的存续塞在 E 阶段第 8 步，整条时钟都是错的。
+    ///
+    /// 眼下只有【I-趋化源】走这套；源消散那一刻给**建立它的细胞**记上技能冷却。
+    /// **先取 creator 再清** —— 清完就没地方问是谁立的了。
+    /// </summary>
+    private static WorldState TickFullTurn(WorldState s, int seat)
+    {
+        if (s.Turn.ChemoRounds <= 0 || s.Turn.ChemoOwner != seat) return s;
+        var rounds = s.Turn.ChemoRounds - 1;
+        var creator = s.Turn.ChemoCreator;
+        s = s.WithTurn(s.Turn.WithChemo(rounds > 0 ? s.Turn.ChemoAt : null, rounds,
+            rounds > 0 ? s.Turn.ChemoOwner : -1, rounds > 0 ? creator : null));
+        if (rounds <= 0 && creator is { } id && s.Cells.ContainsKey(id))
+            s = s.UpdateCell(id, s.Cells[id].Copy(chemoCooldown: BoardRules.ChemoCooldownRounds));
+        return s;
+    }
+
+    /// <summary>
+    /// 从 `from`（不含）走到 `to`（含）之间**每一个**席位各走一格完整回合时钟 ——
+    /// 中间被跳过的死亡席位也要计入（PRD 4.1）。
+    /// </summary>
+    private static WorldState TickFullTurnsThrough(WorldState s, int from, int to)
+    {
+        foreach (var seat in s.Players.Keys.OrderBy(x => x).Where(x => x > from && x <= to))
+            s = TickFullTurn(s, seat);
+        return s;
     }
 
     /// <summary>进入某玩家的行动回合：重置攻击/抽卡次数与「本行动回合」修饰，并按已装备永久技能续上本回合修饰。</summary>
@@ -127,6 +164,8 @@ internal static class PhaseRules
             if (lost > 0) s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy - lost));
         }
         var first = s.Players.Keys.OrderBy(x => x).Where(x => AliveSeat(s, x)).Cast<int?>().FirstOrDefault();
+        // 本世界回合的第一个席位开打之前：0 号起沿途每个席位各走一格完整回合时钟
+        s = TickFullTurnsThrough(s, -1, first ?? s.Players.Keys.DefaultIfEmpty(0).Max());
         s = s.WithTurn(s.Turn.Copy(phase: first == null ? Phase.E : Phase.PlayerAction, seat: first ?? 0, startStep: 2));
         return first == null ? s : BeginTurn(s, first.Value);
     }

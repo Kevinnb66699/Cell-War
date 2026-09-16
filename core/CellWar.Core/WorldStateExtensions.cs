@@ -97,7 +97,8 @@ public static class WorldStateExtensions
         IReadOnlyList<string>? hand = null, IReadOnlyList<string>? equipped = null, CellType? type = null, int? playCounter = null, IReadOnlyList<ActiveModifier>? modifiers = null,
         int? antibody = null, bool? metastasis = null, int? jump = null, bool? armor = null,
         IReadOnlyDictionary<string, int>? equipSeq = null,
-        IReadOnlyDictionary<string, int>? fxTurn = null, IReadOnlyList<string>? fxRound = null, int? neutralUntil = null)
+        IReadOnlyDictionary<string, int>? fxTurn = null, IReadOnlyList<string>? fxRound = null, int? neutralUntil = null,
+        int? chemoCooldown = null)
         => new() { Id = c.Id, OwnerSeat = c.OwnerSeat, Faction = c.Faction, Type = type ?? c.Type, Position = position ?? c.Position, Energy = energy ?? c.Energy,
             IsAlive = alive ?? c.IsAlive, StatusEffects = c.StatusEffects, AttacksThisTurn = attacks ?? c.AttacksThisTurn, DeathRound = deathRound ?? c.DeathRound,
             CampRound = campRound ?? c.CampRound, CampPosition = campPosition ?? c.CampPosition,
@@ -109,7 +110,8 @@ public static class WorldStateExtensions
             HandMax = c.HandMax, Hand = hand ?? c.Hand, Equipped = equipped ?? c.Equipped,
             PlayCounter = playCounter ?? c.PlayCounter, EquipSeq = equipSeq ?? c.EquipSeq,
             FxTurn = fxTurn ?? c.FxTurn, FxRound = fxRound ?? c.FxRound,
-            NeutralUntil = neutralUntil ?? c.NeutralUntil, Modifiers = modifiers ?? c.Modifiers };
+            NeutralUntil = neutralUntil ?? c.NeutralUntil, ChemoCooldown = chemoCooldown ?? c.ChemoCooldown,
+            Modifiers = modifiers ?? c.Modifiers };
     public static Cell WithEnergy(this Cell c, int energy) => c.Copy(energy: energy);
     public static Cell WithPosition(this Cell c, HexPosition pos) => c.Copy(position: pos);
     public static Cell WithIsAlive(this Cell c, bool alive) => c.Copy(alive: alive);
@@ -142,8 +144,8 @@ public static class WorldStateExtensions
     /// </summary>
     public static TurnState Copy(this TurnState t, Phase? phase = null, int? seat = null, int? round = null, int? startStep = null, Faction? winner = null, int? alarm = null, int? pendingDiscard = null,
         int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? cytokineSeat = null, int? effectorRound = null,
-        HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null,
-        bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false)
+        HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
+        bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false)
         => new() { WorldRound = round ?? t.WorldRound, Phase = phase ?? t.Phase, ActivePlayerSeat = seat ?? t.ActivePlayerSeat,
             StartStep = startStep ?? t.StartStep, Winner = winner ?? t.Winner, CancerAlarmRound = alarm ?? t.CancerAlarmRound,
             PendingDiscardSeat = setPendingDiscard ? pendingDiscard : pendingDiscard ?? t.PendingDiscardSeat,
@@ -153,7 +155,8 @@ public static class WorldStateExtensions
             CytokineNetworkSeat = cytokineSeat ?? t.CytokineNetworkSeat,
             EffectorRound = effectorRound ?? t.EffectorRound,
             ChemoAt = setChemoAt ? chemoAt : chemoAt ?? t.ChemoAt,
-            ChemoRounds = chemoRounds ?? t.ChemoRounds, ChemoOwner = chemoOwner ?? t.ChemoOwner };
+            ChemoRounds = chemoRounds ?? t.ChemoRounds, ChemoOwner = chemoOwner ?? t.ChemoOwner,
+            ChemoCreator = setChemoCreator ? chemoCreator : chemoCreator ?? t.ChemoCreator };
     public static TurnState WithPhase(this TurnState t, Phase p) => t.Copy(phase: p);
     public static TurnState WithActivePlayer(this TurnState t, int seat) => t.Copy(seat: seat);
     public static TurnState WithWorldRound(this TurnState t, int round) => t.Copy(round: round);
@@ -165,8 +168,8 @@ public static class WorldStateExtensions
         => t.Copy(pendingMutationSeat: null, pendingMutationCell: null, pendingMutationA: 0, pendingMutationB: 0, setPendingMutation: true);
     public static TurnState WithCytokineNetwork(this TurnState t, int seat)
         => t.Copy(cytokineSeat: seat);
-    public static TurnState WithChemo(this TurnState t, HexPosition? at, int rounds, int owner)
-        => t.Copy(chemoAt: at, chemoRounds: rounds, chemoOwner: owner, setChemoAt: true);
+    public static TurnState WithChemo(this TurnState t, HexPosition? at, int rounds, int owner, EntityId? creator = null)
+        => t.Copy(chemoAt: at, chemoRounds: rounds, chemoOwner: owner, setChemoAt: true, chemoCreator: creator, setChemoCreator: true);
     public static WorldState UpdateTissueState(this WorldState s, HexPosition pos, TissueState type) => s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithState(type)));
     public static WorldState UpdateTissueOccupant(this WorldState s, HexPosition pos, EntityId? id) => s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithOccupyingCell(id)));
     public static WorldState UpdateTissueSolidification(this WorldState s, HexPosition pos, int count) => s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithSolidificationCount(count)));

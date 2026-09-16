@@ -63,6 +63,9 @@ internal static class SkillRules
             case "趋化源":
                 if (cell.Type != CellType.Dendritic) return new(false, "只有树突状细胞可以建立【趋化源】");
                 if (s.Turn.ChemoRounds > 0) return new(false, "场上已有趋化源");
+                // 冷却记在**这只细胞**身上（PRD「趋化源消失后，技能冷却 1 世界回合才能再次使用」）——
+                // 换个树突去立是另一个细胞的技能，所以不是全局锁
+                if (cell.ChemoCooldown > 0) return new(false, $"【趋化源】冷却中，还剩 {cell.ChemoCooldown} 个世界回合");
                 if (d.Target is not { } chemo || !s.Board.Tissues.ContainsKey(chemo)) return new(false, "必须选择棋盘内任意格");
                 return Settlement.CanPay(cell.Energy, 30) ? new(true) : new(false, "能量不足");   // 【趋化源】3.0（PRD:561）；原来判 20 与实扣不一致
             default:
@@ -224,7 +227,7 @@ internal static class SkillRules
                 // 不但不扣费，还凭空涨 10 倍，冷却允许时可反复刷。
                 // 费用 3.0 见 PRD:561，对齐 GDScript 的 CWData.CHEMO_COST := 30。
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 30));
-                s = s.WithTurn(s.Turn.WithChemo(d.Target!.Value, 2, cell.OwnerSeat));
+                s = s.WithTurn(s.Turn.WithChemo(d.Target!.Value, 2, cell.OwnerSeat, cell.Id));
                 break;
             case "Excalibur":
             {

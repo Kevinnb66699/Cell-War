@@ -1306,6 +1306,130 @@ public class GdScriptParityTests
         };
     }
 
+    // ---- 树突【I-趋化源】的技能冷却（issue #33）----
+    //
+    // PRD「趋化源消失后，技能冷却 1 世界回合才能再次使用」。
+    // 冷却**从效果结束那一刻算起**，记在**建立它的那只细胞**身上 ——
+    // 换个树突去立是另一个细胞的技能，所以不是全局锁。C# 此前完全没有这套。
+
+    [Fact]
+    public void 趋化源冷却回合数等于GDScript常量()
+        => Assert.Equal(BoardRules.ChemoCooldownRounds, GdConst("CHEMO_COOLDOWN_ROUNDS"));
+
+    /// <summary>
+    /// 源走的是「持续 n **完整回合**」的时钟：**建立者的每个行动回合开打之前**各走一格，
+    /// 而不是 E 阶段第 8 步（那是世界回合制，两套时钟别混 —— GD 专门警告过）。
+    ///
+    /// 消散那一刻给建立者记上技能冷却；冷却本身才是世界回合制，E 阶段第 8 步 −1。
+    /// </summary>
+    [Fact]
+    public void 趋化源按完整回合过期并给建立者记冷却()
+    {
+        var engine = new BasicRulesEngine();
+        var id = new EntityId(1);
+        var decision = new TypeSkillDecision(0, id, "趋化源", new HexPosition(2, 0, -2));
+
+        var s = engine.ExecuteDecision(ChemoClockWorld(), decision, new Xoshiro256StarStar(1)).NewState;
+        Assert.Equal(2, s.Turn.ChemoRounds);
+        Assert.Equal(0, s.Cells[id].ChemoCooldown);
+
+        // **E 阶段本身不该动它** —— 这一条正是那两套时钟的分水岭
+        Assert.Equal(2, BoardRules.EvolveEndOfRound(s, new Xoshiro256StarStar(2)).Turn.ChemoRounds);
+
+        // 推回合：每转回这个席位开打之前走一格
+        var rng = new Xoshiro256StarStar(2);
+        var seen = new List<int>();
+        for (var i = 0; i < 12 && s.Turn.ChemoRounds > 0; i++)
+        {
+            s = engine.AdvancePhase(s, rng).NewState;
+            // 只记**建立者自己**开打的那一格：GD 的 `tick_full_turn(pid)` 每个席位都调，
+            // 但只在 `chemo["by"] == pid` 时才减 —— 数的是建立者的行动回合，不是所有人的
+            if (s.Turn.Phase == Phase.PlayerAction && s.Turn.ActivePlayerSeat == 0) seen.Add(s.Turn.ChemoRounds);
+        }
+
+        Assert.Equal(0, s.Turn.ChemoRounds);
+        Assert.Null(s.Turn.ChemoAt);
+        Assert.Equal([1, 0], seen);   // 两次开打，各走一格
+        Assert.Equal(BoardRules.ChemoCooldownRounds, s.Cells[id].ChemoCooldown);
+        Assert.False(engine.ValidateDecision(s, decision).IsValid, "冷却期内不该再立得起来");
+
+        // 冷却是世界回合制：这个世界回合末 −1 之后就能再立
+        var thawed = BoardRules.EvolveEndOfRound(s, new Xoshiro256StarStar(2));
+        Assert.Equal(0, thawed.Cells[id].ChemoCooldown);
+        Assert.True(engine.ValidateDecision(thawed, decision).IsValid, "冷却走完就该能再立");
+    }
+
+    /// <summary>冷却记在**细胞**上不是全局：另一只树突不受影响。</summary>
+    [Fact]
+    public void 趋化源冷却只锁建立它的那只细胞()
+    {
+        var cooling = new EntityId(1);
+        var other = new EntityId(9);
+        var at = new HexPosition(-2, 0, 2);
+
+        var world = DendriticWorld(energy: 300);
+        world = world.WithBoard(world.Board.UpdateTissue(at,
+            new Tissue { Position = at, Type = TissueType.Normal, State = TissueState.Healthy,
+                SolidificationCount = 0, OccupyingCell = other, Charge = 0 }));
+        world = world.AddCell(new Cell
+        {
+            Id = other, OwnerSeat = 0, Faction = Faction.Immune, Type = CellType.Dendritic,
+            Position = at, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+            Hand = [], Equipped = [], Differentiated = true,
+        });
+        world = world.UpdateCell(cooling, world.Cells[cooling].Copy(chemoCooldown: 1));
+
+        var engine = new BasicRulesEngine();
+        var target = new HexPosition(2, 0, -2);
+        Assert.False(engine.ValidateDecision(world, new TypeSkillDecision(0, cooling, "趋化源", target)).IsValid);
+        Assert.True(engine.ValidateDecision(world, new TypeSkillDecision(0, other, "趋化源", target)).IsValid,
+            "另一只树突不该被别人的冷却锁住");
+    }
+
+    /// <summary>
+    /// 树突 + 一个癌细胞的盘面 —— **两边都在**，否则第一个 E 阶段就判胜负、回合再也推不动
+    /// （`DendriticWorld` 里没有癌细胞，拿它推回合会空转）。
+    /// </summary>
+    private static WorldState ChemoClockWorld()
+    {
+        var at = new HexPosition(0, 0, 0);
+        var far = new HexPosition(2, 0, -2);
+        var cancerAt = new HexPosition(4, 0, -4);
+
+        return new WorldState
+        {
+            Board = new Board
+            {
+                Radius = 6,
+                Tissues = new Dictionary<HexPosition, Tissue>
+                {
+                    [at] = Tile(at, TissueState.Healthy, new EntityId(1)),
+                    [far] = Tile(far, TissueState.Cancer, null),
+                    [cancerAt] = Tile(cancerAt, TissueState.Cancer, new EntityId(2)),
+                }
+            },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = Immune(new EntityId(1), 0, at)
+                    .Copy(type: CellType.Dendritic, energy: 300, differentiated: true),
+                [new EntityId(2)] = new()
+                {
+                    Id = new EntityId(2), OwnerSeat = 1, Faction = Faction.Cancer, Type = CellType.Osteosarcoma,
+                    Position = cancerAt, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Immune, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.III },
+                [1] = new() { Seat = 1, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Osteosarcoma },
+            },
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+    }
+
     // ---- E 阶段的两个旋钮档：【代谢消耗】与【E-能量上限】----
     //
     // 两个**默认都关**（GD 侧同样），是给 balance_scan 拨的对照档。
