@@ -462,9 +462,17 @@ internal static class CardRules
             : AddToHand(s, cell, def.Name);
     }
 
+    /// <summary>
+    /// 弃置有**两路**，共用这一条谓词：
+    /// 手牌超限挂起时的**强制**弃置（GD `cw_cards.gd:70 discard_to_limit`），
+    /// 与行动栏里的**自愿**弃置（GD `cw_actions.gd:_discard_options`，不花钱、不计行动）。
+    ///
+    /// 挂起时只认那一席；没挂起就是自愿那路，阶段与轮次由 `DecisionRouter` 的前置守着
+    /// （云端 PRD 2026-09-10 把「随时可弃」改成「只能在自己的行动回合弃」）。
+    /// </summary>
     public static bool ValidateDiscard(WorldState s, DiscardDecision d)
     {
-        if (s.Turn.PendingDiscardSeat != d.PlayerSeat) return false;
+        if (s.Turn.PendingDiscardSeat is { } pending && pending != d.PlayerSeat) return false;
         if (!s.Cells.TryGetValue(d.CellId, out var cell) || !cell.IsAlive || cell.OwnerSeat != d.PlayerSeat) return false;
         return cell.Hand.Contains(d.Card);
     }

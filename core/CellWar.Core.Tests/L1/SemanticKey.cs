@@ -80,9 +80,11 @@ public static class SemanticKey
         PlayCardDecision pc => Key("action", ("act", "play"), ("card", pc.Card),
             ("to", Pos(pc.Target)), ("cid", Seat(pc.TargetCell))),
 
-        // C# 的弃置只有**强制**那一路（`Turn.PendingDiscardSeat` 挂起时才给选项），
-        // 对应 GD 的 `discard_to_limit`；行动栏里那条自愿弃置 C# 还没有，见 KnownGaps。
-        DiscardDecision dc => Tagged("pick", "手牌上限", ("card", dc.Card)),
+        // 弃置有**两路**，键也是两个：手牌超限挂起时是 GD 的 `discard_to_limit`（`k=pick`），
+        // 没挂起就是行动栏里那条自愿弃置（`k=action|act=discard`）。
+        DiscardDecision dc => s.Turn.PendingDiscardSeat is null
+            ? Key("action", ("act", "discard"), ("card", dc.Card))
+            : Tagged("pick", "手牌上限", ("card", dc.Card)),
 
         // 【基因组不稳定】：GD 的 data 是**骰面值** `r`，C# 存的是「选第几个」。
         ChooseMutationDecision cm => Tagged("pick", "基因组不稳定",

@@ -60,8 +60,10 @@ public class SemanticKeyTests
         Assert.Equal("k=revive|to=0,0",
             SemanticKey.Of(s, new ReviveDecision(1, cancer.Id, new HexPosition(0, 0, 0), new HexPosition(1, 0, -1))));
 
-        // 强制弃置走 GD 的 `discard_to_limit`（kind=pick、tag=手牌上限），不是行动栏那条自愿弃置
-        Assert.Equal("k=pick|g=手牌上限|card=缺氧适应", SemanticKey.Of(s, new DiscardDecision(1, cancer.Id, "缺氧适应")));
+        // 弃置两路两个键：没挂起是行动栏那条自愿弃置，挂起了才是 GD 的 `discard_to_limit`
+        Assert.Equal("k=action|act=discard|card=缺氧适应", SemanticKey.Of(s, new DiscardDecision(1, cancer.Id, "缺氧适应")));
+        Assert.Equal("k=pick|g=手牌上限|card=缺氧适应",
+            SemanticKey.Of(s.WithTurn(s.Turn.WithPendingDiscard(1)), new DiscardDecision(1, cancer.Id, "缺氧适应")));
 
         // 【连续吞噬】的连锁带 tag
         Assert.Equal("k=free_move|g=连续吞噬|to=1,0", SemanticKey.Of(s, new ChainMoveDecision(0, immune.Id, new HexPosition(1, 0, -1))));
@@ -135,19 +137,24 @@ public class SemanticKeyTests
     [Fact]
     public void 走完一局的选项表都能拍成语义键()
     {
-        var trace = KeyWalk.Walk(MatchSetup.Create(4, 20260916), 400, 7);
+        // **多种子并起来**看覆盖：单种子的覆盖率是运气 —— 选项表一变（比如这次补了自愿弃置），
+        // LCG 挑到的路就整条改道，上一版覆盖到的形状可能这一版一次都没碰到。
+        // 判据要盯的是「这些形状还生得出来」，不是「这一条路正好踩过」。
+        var traces = new[] { 7ul, 11ul, 23ul, 42ul, 97ul, 131ul, 404ul, 777ul }
+            .Select(seed => KeyWalk.Walk(MatchSetup.Create(4, 20260916), 400, seed)).ToArray();
 
-        Assert.All(trace.Seen, k => Assert.StartsWith("k=", k));
-        var shapes = trace.Seen.Select(Shape).ToHashSet(StringComparer.Ordinal);
+        Assert.All(traces.SelectMany(t => t.Seen), k => Assert.StartsWith("k=", k));
+        var shapes = traces.SelectMany(t => t.Seen).Select(Shape).ToHashSet(StringComparer.Ordinal);
         Assert.Subset(shapes, new HashSet<string>(StringComparer.Ordinal)
         {
-            "k=setup_place", "k=immune_revive",
+            "k=setup_place", "k=immune_revive", "k=revive", "k=pick",
             "k=action|act=move", "k=action|act=draw", "k=action|act=mutate", "k=action|act=play",
-            "k=action|act=differentiate", "k=action|act=antibody", "k=action|act=ossify",
-            "k=action|act=jump", "k=action|act=end", "k=action|act=pass",
-            "k=action+chemo_target|act=chemo",
+            "k=action|act=differentiate", "k=action|act=toxin", "k=action|act=ossify",
+            "k=action|act=jump", "k=action|act=discard", "k=action|act=end", "k=action|act=pass",
         });
-        Assert.True(trace.Picked.Count > 300, $"只挑了 {trace.Picked.Count} 次，覆盖率没意义了");
+        // 看**总数**不看每条：有的种子会真把局打完（分出胜负就停），那条自然短，不是退化
+        var picks = traces.Sum(t => t.Picked.Count);
+        Assert.True(picks > 2000, $"八个种子一共只挑了 {picks} 次，覆盖率没意义了");
     }
 
     /// <summary>键 → 形状（丢掉具体坐标/卡名，只留 kind 与 act），用来看覆盖到哪几类。</summary>

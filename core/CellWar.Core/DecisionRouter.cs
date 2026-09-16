@@ -40,6 +40,9 @@ internal static class DecisionRouter
         if (decision.PlayerSeat != state.Turn.ActivePlayerSeat) return new(false, "不是该玩家的回合");
         if (!PhaseRules.AliveSeat(state, decision.PlayerSeat)) return new(false, "玩家已死亡或不存在");
         if (decision is EndTurnDecision or PassDecision) return new(true);
+        // 行动栏里的**自愿**弃置：不花钱、不计行动，只能在自己的行动回合弃（上面三条前置已经守住）
+        if (decision is DiscardDecision toss)
+            return CardRules.ValidateDiscard(state, toss) ? new(true) : new(false, "手里没有这张牌");
         if (decision is not MoveDecision move) return new(false, "Unsupported decision.");
         return CellRules.ValidateMove(state, move);
     }
@@ -120,6 +123,10 @@ internal static class DecisionRouter
             if (Validate(s, mutate).IsValid) result.Add(mutate);
             foreach (var card in c.Hand)
             {
+                // 自愿弃置：**每张手牌都给**，所以摆在打出之前 —— 摆在后面会被
+                // 【癌症转移】那条 `continue` 跳过，那张牌就成了唯一弃不掉的牌
+                var toss = new DiscardDecision(seat, c.Id, card);
+                if (Validate(s, toss).IsValid) result.Add(toss);
                 // 【癌症转移】是 68 张里**唯一需要选格**的卡牌：PRD:1465「选择两环内任意格子传送」。
                 // 其余卡要么无目标、要么目标能从状态里唯一推出来，所以这里只为它逐格展开。
                 if (card == "癌症转移")

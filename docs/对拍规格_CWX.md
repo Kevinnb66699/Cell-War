@@ -91,7 +91,7 @@ Vector2i → "q,r"；bool → 1/0
 | `DrawDecision` / `MutateDecision` | `act=draw` / `act=mutate` |
 | `DifferentiateDecision` | `act=differentiate\|type=0..4`（GD `ImmuneType` 与 C# `CellType` 前五项同序，直接取整数） |
 | `PlayCardDecision` | `act=play\|card=`，格子目标 `\|to=`，**细胞目标 `\|cid=`**（改：原表没写细胞目标，写了也容易误用 `to_cid` —— `to_cid` 只属于【代谢耦联】的转出/转入二问） |
-| `DiscardDecision` | **改**：`k=pick\|g=手牌上限\|card=`。C# 的弃置只有强制那一路（`Turn.PendingDiscardSeat` 挂起才给选项），对应 GD `cw_cards.gd:70 discard_to_limit`；原表写的 `act=discard` 是行动栏里那条**自愿**弃置，**C# 还没有**（见待实现队列） |
+| `DiscardDecision` | **改**：`k=pick\|g=手牌上限\|card=`。C# 的弃置只有强制那一路（`Turn.PendingDiscardSeat` 挂起才给选项），对应 GD `cw_cards.gd:70 discard_to_limit`；原表写的 `act=discard` 是行动栏里那条**自愿**弃置 —— C# 原本整条缺失，2026-09-16 补上，所以这一格现在是**两个键**：挂起时 `k=pick\|g=手牌上限`，没挂起时 `k=action\|act=discard` |
 | `ReviveDecision` | **改**：按阵营分两个 kind —— 免疫 `k=immune_revive\|to=`、癌方 `k=revive\|to=`。原表漏了这一条。癌方那问 GD 的 data 带 `anchor`，按规矩 1 剔除，所以同一落点的多个依托在 C# 侧压成同一个键 |
 | `ChainMoveDecision` / `StopChainDecision` | `k=free_move\|g=连续吞噬\|to=` / `\|stop=1`（2026-09-16 新增） |
 | `ChooseMutationDecision` | `k=pick\|g=基因组不稳定\|r=`，**`r` 是骰面值不是下标** —— C# 存的是「选第几个」，GD 那边根本没有 0/1 这个数 |

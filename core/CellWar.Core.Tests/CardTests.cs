@@ -84,6 +84,41 @@ public class CardTests
         Assert.Null(after.Turn.PendingDiscardSeat);
     }
 
+    /// <summary>
+    /// 行动栏里的**自愿**弃置（GD `cw_actions.gd:_discard_options`）：不花钱、不计行动，
+    /// 每张手牌都给得出来。C# 此前只有手牌超限那条**强制**路，这一整条动作是缺的。
+    ///
+    /// 【癌症转移】单拎出来验，是因为选项枚举里只有它带 `continue`（唯一要选格的卡）——
+    /// 弃置摆错位置，它就成了全场唯一弃不掉的牌。
+    /// </summary>
+    [Fact]
+    public void 自愿弃置在行动回合对每张手牌都给得出来()
+    {
+        var engine = new BasicRulesEngine();
+        var world = World(CellType.Melanoma, Faction.Cancer, energy: 30, hand: ["癌症转移", "缺氧适应"]);
+        var id = world.Cells.Keys.Single();
+
+        var tosses = engine.GetAvailableDecisions(world, 0).OfType<DiscardDecision>().Select(d => d.Card).ToArray();
+        Assert.Equal(["癌症转移", "缺氧适应"], tosses.Order());
+
+        var after = engine.ExecuteDecision(world, new DiscardDecision(0, id, "癌症转移"), new Xoshiro256StarStar(1));
+        Assert.True(after.Success);
+        Assert.Equal(["缺氧适应"], after.NewState.Cells[id].Hand);
+        Assert.Equal(30, after.NewState.Cells[id].Energy);   // 弃置不花钱
+    }
+
+    /// <summary>别人的回合弃不了（云端 PRD 2026-09-10 把「随时」改成「行动回合」）。</summary>
+    [Fact]
+    public void 不是自己的行动回合弃不了牌()
+    {
+        var engine = new BasicRulesEngine();
+        var world = World(CellType.Melanoma, Faction.Cancer, hand: ["缺氧适应"]);
+        var id = world.Cells.Keys.Single();
+        world = world.WithTurn(world.Turn.Copy(seat: 1));
+
+        Assert.False(engine.ValidateDecision(world, new DiscardDecision(0, id, "缺氧适应")).IsValid);
+    }
+
     [Fact]
     public void MutateCostsHalfOncePerWorldRound()
     {
