@@ -1,4 +1,4 @@
-namespace CellWar.Core;
+﻿namespace CellWar.Core;
 
 /// <summary>
 /// 细胞域状态变更：能量损失/死亡、座位存活、抗原记忆、运行期修饰、标记、传送、能量收取。
@@ -186,8 +186,46 @@ internal static class CellRules
     {
         foreach (var c in RulePolicies.Cells(s))
             s = s.UpdateCell(c.Id, c.Copy(toxin: 0, mutateUsed: false, antibody: 0, metastasis: false, jump: 0, armor: false,
+                fxRound: [],
                 modifiers: c.Modifiers.Where(m => m.Duration != ModifierDuration.Round).ToList()));
         return s;
+    }
+
+    // ==== 永久技能的「第一次」闸门 ====
+    //
+    // 对齐 GDScript 的 `CWGame.first_this_turn` / `first_this_round`（cw_game.gd:596-612）。
+    // 那边是「查+记账」一把做完并返回「这一次是不是第一次」；C# 状态不可变，
+    // 所以拆成**只读的问**与**写状态的烧**两半 —— 报价、预演这类只读场合只调前者，
+    // 免得把闸门白白烧掉（GD 那边专门为此写了警告注释）。
+
+    /// <summary>
+    /// 「每行动回合前 N 次」的额度，不写 = 1 次（GD 侧 CWCost.GATE_USES）。
+    ///
+    /// GD 那张表今天只有一行【组织驻留】= 2，而 C# 的【组织驻留】还没走闸门 ——
+    /// 它是一条 `Uses: 2` 的 Free Move 修饰，**行为一致、只是额度记在 `mods` 里**。
+    /// 搬它要连 GD 的 `Store.GATE`（修饰在表里、额度在 fx_turn 里）一起搬，是下一张工单；
+    /// 在那之前这里不预先写死一个没人读的数。
+    /// </summary>
+    private static int GateUses(string key) => 1;
+
+    /// <summary>这个「每行动回合」闸门还开着吗（只读，不记账）。</summary>
+    public static bool TurnGateOpen(Cell c, string key) => c.FxTurn.GetValueOrDefault(key) < GateUses(key);
+
+    /// <summary>这个「每世界回合」闸门还开着吗（只读，不记账）。</summary>
+    public static bool RoundGateOpen(Cell c, string key) => !c.FxRound.Contains(key);
+
+    /// <summary>烧掉一次「每行动回合」额度。</summary>
+    public static WorldState BurnTurnGate(WorldState s, EntityId id, string key)
+    {
+        var c = s.Cells[id];
+        return s.UpdateCell(id, c.Copy(fxTurn: new Dictionary<string, int>(c.FxTurn) { [key] = c.FxTurn.GetValueOrDefault(key) + 1 }));
+    }
+
+    /// <summary>关上一个「每世界回合」闸门。</summary>
+    public static WorldState BurnRoundGate(WorldState s, EntityId id, string key)
+    {
+        var c = s.Cells[id];
+        return s.UpdateCell(id, c.Copy(fxRound: [.. c.FxRound, key]));
     }
 
     /// <summary>移动合法性的域内校验（不包含阶段/回合/存活等公共前提，由编排层先行检查）。</summary>
@@ -314,31 +352,15 @@ internal static class CellRules
                 // 【免疫记忆库】等净化跨域反应：发出已提交事实，由 FactRouter 按目录稳定顺序分派
                 s = FactRouter.Emit(s, new PurifyResolvedFact(s.Turn.WorldRound, cell.Id), rng);
                 // 【模式识别增强】：每世界回合第一次【净化】后恢复 0.5 能量
-                //
-                // ⚠ 这四处（本条、下面的【效应记忆形成】、【RAS持续激活】、
-                // FactRouter.cs 的【免疫记忆库】）都是拿一条 **Value=0 的假 Move 修饰当闸门**
-                // ——「挂着 = 本回合已经触发过」。
-                //
-                // 2026-09-15 修：它们原来写 `Uses = 1`，而移动结算会
-                // `ConsumeModifiers(cell, ModifierTarget.Move)` 把**所有** Target==Move 的
-                // 条目消耗一次 —— 于是闸门会被**下一次移动**吃掉，当场失效。
-                // 实锤：装了本技能的细胞净化一次拿 0.5，再走一步，同一世界回合还能再拿一次。
-                //
-                // 改成 `ActiveModifier.Unlimited`（-1）：`ConsumeModifiers` 明确跳过 `Uses < 0`
-                // （那行注释本来就写着「Uses=-1 不受影响」），而 `ResetRoundFlags` 仍按
-                // `Duration == Round` 在世界回合开头清掉它。闸门语义这才成立。
-                //
-                // （更干净的做法是给闸门一个专用的 ModifierTarget，不用 Move 这个语义无关的靶子；
-                //   但那要动枚举与所有消费点，留到 mods 那一族整体对齐时一起做。）
-                if (s.Cells[cell.Id].Equipped.Contains("模式识别增强") && !HasModifier(s.Cells[cell.Id], "模式识别增强"))
+                if (s.Cells[cell.Id].Equipped.Contains("模式识别增强") && RoundGateOpen(s.Cells[cell.Id], "模式识别增强"))
                 {
-                    s = AddModifier(s, s.Cells[cell.Id], new("模式识别增强", ModifierTarget.Move, ModifierStage.Add, SourceLayer.Passive, 0, 0, null, ActiveModifier.Unlimited, ModifierDuration.Round));
+                    s = BurnRoundGate(s, cell.Id, "模式识别增强");
                     s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
                 }
                 // 【效应记忆形成】：每世界回合第一次【净化】后免疫方 +1 抗原记忆、自身恢复 0.5
-                if (s.Cells[cell.Id].Equipped.Contains("效应记忆形成") && !HasModifier(s.Cells[cell.Id], "效应记忆形成"))
+                if (s.Cells[cell.Id].Equipped.Contains("效应记忆形成") && RoundGateOpen(s.Cells[cell.Id], "效应记忆形成"))
                 {
-                    s = AddModifier(s, s.Cells[cell.Id], new("效应记忆形成", ModifierTarget.Move, ModifierStage.Add, SourceLayer.Passive, 0, 0, null, ActiveModifier.Unlimited, ModifierDuration.Round));
+                    s = BurnRoundGate(s, cell.Id, "效应记忆形成");
                     s = AddMemory(s, 1);
                     s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
                 }
@@ -350,11 +372,11 @@ internal static class CellRules
             s = s.WithBoard(s.Board.UpdateTissue(move.TargetPosition, s.Board.Tissues[move.TargetPosition].WithNewborn(true)));
             events.Add(new TissueStateChangedEvent(s.Turn.WorldRound, s.Turn.Phase, move.TargetPosition, tissue.State, TissueState.Cancer));
             // 【RAS持续激活】：每行动回合第一次通过【移动】触发【定殖】后恢复
-            if (s.Cells[cell.Id].Equipped.Contains("RAS持续激活") && !HasModifier(s.Cells[cell.Id], "RAS持续激活"))
+            if (s.Cells[cell.Id].Equipped.Contains("RAS持续激活") && TurnGateOpen(s.Cells[cell.Id], "RAS持续激活"))
             {
                 var heal = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 3, 1 => 5, _ => 7 };
                 s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
-                s = AddModifier(s, s.Cells[cell.Id], new("RAS持续激活", ModifierTarget.Move, ModifierStage.Add, SourceLayer.Passive, 0, 0, null, ActiveModifier.Unlimited, ModifierDuration.Turn));
+                s = BurnTurnGate(s, cell.Id, "RAS持续激活");
             }
         }
         s = CollectEnergy(s, cell.Id);

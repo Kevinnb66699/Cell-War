@@ -1,4 +1,4 @@
-namespace CellWar.Core;
+﻿namespace CellWar.Core;
 
 public static class WorldStateExtensions
 {
@@ -56,7 +56,8 @@ public static class WorldStateExtensions
         int? draws = null, int? toxin = null, bool? mutateUsed = null, bool? differentiated = null, bool? effectorUsed = null, bool? marked = null, int? markLeft = null, int? markRound = null, int? respawnRound = null,
         IReadOnlyList<string>? hand = null, IReadOnlyList<string>? equipped = null, CellType? type = null, int? playCounter = null, IReadOnlyList<ActiveModifier>? modifiers = null,
         int? antibody = null, bool? metastasis = null, int? jump = null, bool? armor = null,
-        IReadOnlyDictionary<string, int>? equipSeq = null)
+        IReadOnlyDictionary<string, int>? equipSeq = null,
+        IReadOnlyDictionary<string, int>? fxTurn = null, IReadOnlyList<string>? fxRound = null)
         => new() { Id = c.Id, OwnerSeat = c.OwnerSeat, Faction = c.Faction, Type = type ?? c.Type, Position = position ?? c.Position, Energy = energy ?? c.Energy,
             IsAlive = alive ?? c.IsAlive, StatusEffects = c.StatusEffects, AttacksThisTurn = attacks ?? c.AttacksThisTurn, DeathRound = deathRound ?? c.DeathRound,
             CampRound = campRound ?? c.CampRound, CampPosition = campPosition ?? c.CampPosition,
@@ -66,7 +67,8 @@ public static class WorldStateExtensions
             Differentiated = differentiated ?? c.Differentiated, EffectorUsed = effectorUsed ?? c.EffectorUsed, Marked = marked ?? c.Marked,
             MarkLeft = markLeft ?? c.MarkLeft, MarkRound = markRound ?? c.MarkRound, RespawnRound = respawnRound ?? c.RespawnRound,
             HandMax = c.HandMax, Hand = hand ?? c.Hand, Equipped = equipped ?? c.Equipped,
-            PlayCounter = playCounter ?? c.PlayCounter, EquipSeq = equipSeq ?? c.EquipSeq, Modifiers = modifiers ?? c.Modifiers };
+            PlayCounter = playCounter ?? c.PlayCounter, EquipSeq = equipSeq ?? c.EquipSeq,
+            FxTurn = fxTurn ?? c.FxTurn, FxRound = fxRound ?? c.FxRound, Modifiers = modifiers ?? c.Modifiers };
     public static Cell WithEnergy(this Cell c, int energy) => c.Copy(energy: energy);
     public static Cell WithPosition(this Cell c, HexPosition pos) => c.Copy(position: pos);
     public static Cell WithIsAlive(this Cell c, bool alive) => c.Copy(alive: alive);

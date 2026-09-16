@@ -1,4 +1,4 @@
-namespace CellWar.Core;
+﻿namespace CellWar.Core;
 
 /// <summary>
 /// 世界状态：包含棋盘、细胞、回合等所有游戏状态
@@ -293,6 +293,39 @@ public sealed class Cell
         init => equipSeq = System.Collections.Immutable.ImmutableSortedDictionary
             .CreateRange(StringComparer.Ordinal, value);
     }
+    // 永久技能的「每行动回合前 N 次」闸门（GD 侧 cell["fx_turn"]，begin_turn 清）。
+    // 存**用了几次**而不是布尔：多数闸门只问「是不是第一次」，
+    // 但【组织驻留】那类「前两次免费」要数得出来。
+    //
+    // 为什么它必须有自己的家：这四个闸门此前是拿**一条 Value=0 的假 Move 修饰**当标记
+    // （「挂着 = 本回合触发过」）。GD 侧它们在 `fx_turn` / `fx_round` 里、**不在 `mods` 里**，
+    // 而对拍规格 §2.2 要求 `mods` 逐条导九元组比对 —— 假修饰会在一个**被比对的字段**上
+    // 报出一串假差异。这不是洁癖，是 L1 对拍跑不起来。
+    private System.Collections.Immutable.ImmutableSortedDictionary<string, int> fxTurn =
+        System.Collections.Immutable.ImmutableSortedDictionary<string, int>.Empty.WithComparers(StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, int> FxTurn
+    {
+        get => fxTurn;
+        init => fxTurn = System.Collections.Immutable.ImmutableSortedDictionary
+            .CreateRange(StringComparer.Ordinal, value);
+    }
+
+    /// <summary>
+    /// 永久技能的「每世界回合第一次」闸门（GD 侧 cell["fx_round"]，S 阶段清）。
+    ///
+    /// 语义是**集合**，底层也是 `ImmutableSortedSet`（去重 + 定序）；
+    /// 对外露成 `IReadOnlyList` 只为了能被 System.Text.Json 读回来
+    /// —— STJ 反序列化不进 `IReadOnlySet<>`（抽象只读集合，它建不出来）。
+    /// 写进去重复的名字无妨：init 那一步会去重。
+    /// </summary>
+    private System.Collections.Immutable.ImmutableSortedSet<string> fxRound =
+        System.Collections.Immutable.ImmutableSortedSet<string>.Empty.WithComparer(StringComparer.Ordinal);
+    public IReadOnlyList<string> FxRound
+    {
+        get => fxRound;
+        init => fxRound = System.Collections.Immutable.ImmutableSortedSet.CreateRange(StringComparer.Ordinal, value);
+    }
+
     private System.Collections.Immutable.ImmutableArray<ActiveModifier> modifiers = System.Collections.Immutable.ImmutableArray<ActiveModifier>.Empty;
     public IReadOnlyList<ActiveModifier> Modifiers { get => modifiers; init => modifiers = System.Collections.Immutable.ImmutableArray.CreateRange(value); }
 
@@ -328,6 +361,8 @@ public sealed class Cell
         Equipped = Equipped,
         PlayCounter = PlayCounter,
         EquipSeq = EquipSeq,
+        FxTurn = FxTurn,
+        FxRound = FxRound,
         Modifiers = Modifiers
     };
 }

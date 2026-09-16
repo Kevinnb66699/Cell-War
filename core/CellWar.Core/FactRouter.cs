@@ -27,9 +27,9 @@ internal static class FactRouter
     {
         var resolved = (PurifyResolvedFact)fact;
         var cell = s.Cells[resolved.CellId];
-        if (cell.Equipped.Contains("免疫记忆库") && !CellRules.HasModifier(cell, "免疫记忆库"))
+        if (cell.Equipped.Contains("免疫记忆库") && CellRules.RoundGateOpen(cell, "免疫记忆库"))
         {
-            s = CellRules.AddModifier(s, cell, new("免疫记忆库", ModifierTarget.Move, ModifierStage.Add, SourceLayer.Passive, 0, 0, null, ActiveModifier.Unlimited, ModifierDuration.Round));
+            s = CellRules.BurnRoundGate(s, resolved.CellId, "免疫记忆库");
             s = CardRules.DrawOne(s, s.Cells[resolved.CellId], rng);
         }
         return s;

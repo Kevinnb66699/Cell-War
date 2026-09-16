@@ -713,11 +713,13 @@ public class RegressionGuardTests
 
     /// <summary>
     /// 四处「每世界回合第一次…」的技能（【模式识别增强】【效应记忆形成】【免疫记忆库】
-    /// 与每行动回合的【RAS持续激活】）都是拿一条 Value=0 的**假 Move 修饰**当闸门。
+    /// 与每行动回合的【RAS持续激活】）曾经是拿一条 Value=0 的**假 Move 修饰**当闸门。
     /// 它们原来写 `Uses = 1`，而移动结算会把**所有** Target==Move 的条目消耗一次 ——
     /// 于是闸门被**下一次移动**吃掉，当场失效。
     ///
     /// 这条复现的就是那个实锤：净化一次拿 0.5，再走一步，同一世界回合**不该**再拿一次。
+    /// （2026-09-15 闸门搬进 `FxRound` / `FxTurn` 之后，这条判据原样保留 ——
+    ///   它问的是**行为**，换了实现照样该绿。）
     /// </summary>
     [Fact]
     public void 每世界回合第一次的闸门不会被下一次移动吃掉()
@@ -741,8 +743,12 @@ public class RegressionGuardTests
         var secondDelta = afterSecond.Cells[id].Energy - gainedOnce;   // = -第二步费用（没有 +0.5）
         Assert.True(secondDelta < firstDelta,
             $"闸门被第二次移动吃掉了：第一次 {firstDelta}、第二次 {secondDelta}（两次都拿到了 +0.5）");
-        Assert.True(CellRules.HasModifier(afterSecond.Cells[id], "模式识别增强"),
-            "闸门在第二次移动之后应当还挂着");
+        Assert.False(CellRules.RoundGateOpen(afterSecond.Cells[id], "模式识别增强"),
+            "闸门在第二次移动之后应当还关着");
+
+        // 闸门不许再借住在 `mods` 里：GD 侧它在 `fx_round`，而对拍规格 §2.2 要求
+        // `mods` 逐条导九元组比对 —— 一条假修饰就是一串假差异。
+        Assert.DoesNotContain(afterSecond.Cells[id].Modifiers, m => m.Card == "模式识别增强");
     }
 
     /// <summary>一条直线上两格癌组织，免疫细胞装了指定永久技能。</summary>
@@ -999,6 +1005,52 @@ public class RegressionGuardTests
         Assert.Equal(Settlement.ApplyEnergyLoss(10, [x, y]), Settlement.ApplyEnergyLoss(10, [y, x]));
     }
 
+    // ---- 十二、闸门有自己的家，且在正确的时刻清 ----
+    //
+    // 这四个闸门（【模式识别增强】【效应记忆形成】【免疫记忆库】【RAS持续激活】）
+    // 此前借住在 `mods` 里当假修饰。GD 侧它们在 `fx_round` / `fx_turn`，**不在 `mods`**，
+    // 而对拍规格 §2.2 要求 `mods` 逐条导九元组比对 ——
+    // 借住会在一个**被比对的字段**上报出一串假差异。
+
+    /// <summary>「每世界回合」闸门在 S 阶段重置时打开（GD 侧 _reset_round_flags）。</summary>
+    [Fact]
+    public void 每世界回合的闸门在回合重置时重新打开()
+    {
+        var world = EquipWorld("模式识别增强");
+        var id = new EntityId(1);
+
+        var closed = CellRules.BurnRoundGate(world, id, "模式识别增强");
+        Assert.False(CellRules.RoundGateOpen(closed.Cells[id], "模式识别增强"));
+
+        var reset = CellRules.ResetRoundFlags(closed);
+        Assert.True(CellRules.RoundGateOpen(reset.Cells[id], "模式识别增强"),
+            "世界回合重置之后闸门该重新打开");
+    }
+
+    /// <summary>
+    /// 「每行动回合」闸门在 `BeginTurn` 清 —— 而不是在世界回合重置时清。
+    /// 两个清点搞混就是「每回合一次」悄悄变成「每世界回合一次」，一整局都看不出来。
+    /// </summary>
+    [Fact]
+    public void 每行动回合的闸门在回合开始时清而世界回合重置不碰它()
+    {
+        var world = EquipWorld("RAS持续激活");
+        var id = new EntityId(1);
+
+        var closed = CellRules.BurnTurnGate(world, id, "RAS持续激活");
+        Assert.False(CellRules.TurnGateOpen(closed.Cells[id], "RAS持续激活"));
+
+        // 世界回合重置**不**碰行动回合闸门
+        Assert.False(CellRules.TurnGateOpen(CellRules.ResetRoundFlags(closed).Cells[id], "RAS持续激活"),
+            "ResetRoundFlags 不该清 FxTurn —— 那是 BeginTurn 的活");
+
+        // 走一次回合开始才清
+        var begun = new BasicRulesEngine()
+            .AdvancePhase(closed.WithTurn(closed.Turn.Copy(phase: Phase.S, startStep: 99)), new Xoshiro256StarStar(5))
+            .NewState;
+        Assert.True(CellRules.TurnGateOpen(begun.Cells[id], "RAS持续激活"), "回合开始该清掉 FxTurn");
+    }
+
     // ---- 夹具 ----
 
     /// <summary>让每个席位手里都有点牌，否则「看不看得见手牌」这件事没法验。</summary>
@@ -1156,6 +1208,8 @@ public class RegressionGuardTests
         Hand = ["组织巡航"],
         Equipped = ["耗竭抵抗"],
         EquipSeq = new Dictionary<string, int> { ["耗竭抵抗"] = 3 },
+        FxTurn = new Dictionary<string, int> { ["RAS持续激活"] = 1 },
+        FxRound = ["模式识别增强"],
         PlayCounter = 3,
         Modifiers = [new ActiveModifier("组织巡航", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 1, 2, 2, 1, ModifierDuration.Turn)],
     };
