@@ -344,6 +344,71 @@ public class RegressionGuardTests
         Assert.Equal(0, spy.DoubleDraws);
     }
 
+    // ---- 六、注入的随机源必须真的被用 ----
+
+    /// <summary>
+    /// `Runtime` 原来每个事件都现场 `new Xoshiro256StarStar(1)` —— **状态流过去了，算法写死了**。
+    /// 构造函数收下的那个 `IDeterministicRng` 只在初始化时被 `GetState()` 用过一次，
+    /// 于是「注入随机源」在执行层完全无效。
+    ///
+    /// 这一条断言的是「注入的那个实例**确实参与了每一次抽取**」，
+    /// 而不是「构造函数收下了它」—— 后者旧代码也满足。
+    /// </summary>
+    [Fact]
+    public void 注入的随机源在事件执行层真的生效()
+    {
+        var draws = 0;
+        var store = new InMemoryStateStore();
+        var prototype = new CountingRng(new Xoshiro256StarStar(123), () => draws++);
+
+        using var runtime = new Runtime(store, store.Allocate(new(DemoScenario.Create())),
+            new IRuleHandler[] { new InlineHandler("roll", c => c.Rng.NextInt(6)) }, prototype);
+
+        runtime.Schedule(1, "roll", null);
+        runtime.Schedule(2, "roll", null);
+        runtime.Run();
+
+        Assert.True(draws >= 2, $"注入的 rng 应当参与每一次抽取，实际只记到 {draws} 次");
+    }
+
+    /// <summary>`Fork()` 出来的 Runtime（AI 推演正是从这里分叉）也必须带着注入的实现走。</summary>
+    [Fact]
+    public void 分支出来的Runtime也带着注入的随机源()
+    {
+        var draws = 0;
+        var store = new InMemoryStateStore();
+        var prototype = new CountingRng(new Xoshiro256StarStar(123), () => draws++);
+
+        using var runtime = new Runtime(store, store.Allocate(new(DemoScenario.Create())),
+            new IRuleHandler[] { new InlineHandler("roll", c => c.Rng.NextInt(6)) }, prototype);
+        var branch = runtime.Fork();
+
+        var before = draws;
+        branch.Schedule(1, "roll", null);
+        branch.Run();
+
+        Assert.True(draws > before, "Fork 出来的 Runtime 退回了写死的 xoshiro —— AI 推演里注入会当场失效");
+    }
+
+    private sealed class InlineHandler(string type, Action<IEventContext> action) : IRuleHandler
+    {
+        public string EventType => type;
+        public void Handle(IEventContext context) => action(context);
+    }
+
+    /// <summary>只数抽取次数，不改任何取值。</summary>
+    private sealed class CountingRng(IDeterministicRng inner, Action onDraw) : IDeterministicRng
+    {
+        public double NextDouble() { onDraw(); return inner.NextDouble(); }
+        public int NextInt(int max) { onDraw(); return inner.NextInt(max); }
+        public int NextIntRange(int min, int max) { onDraw(); return inner.NextIntRange(min, max); }
+        public T Choose<T>(IReadOnlyList<T> items) { onDraw(); return inner.Choose(items); }
+        public IReadOnlyList<T> Shuffle<T>(IReadOnlyList<T> items) { onDraw(); return inner.Shuffle(items); }
+        public IDeterministicRng Fork() => new CountingRng(inner.Fork(), onDraw);
+        public RngState GetState() => inner.GetState();
+        public void SetState(RngState state) => inner.SetState(state);
+    }
+
     // ---- 夹具 ----
 
     /// <summary>让每个席位手里都有点牌，否则「看不看得见手牌」这件事没法验。</summary>

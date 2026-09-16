@@ -8,6 +8,8 @@ public sealed class Runtime : IRuntime, IDisposable
     private readonly IStateStore store;
     private readonly StoreKey key;
     private readonly IReadOnlyDictionary<string, IRuleHandler> handlers;
+    /// <summary>注入的随机源原型：每个事件靠它 Fork 出同一个实现，状态另由 Simulation.Rng 带。</summary>
+    private readonly IDeterministicRng rngPrototype;
     private readonly object gate = new();
     private bool paused;
     private bool disposed;
@@ -33,6 +35,9 @@ public sealed class Runtime : IRuntime, IDisposable
         this.store = store;
         key = worldKey;
         this.handlers = handlers.ToDictionary(h => h.EventType);
+        // 留住注入的那个实例当**原型**：每个事件靠它 Fork 出同一个实现（见 ExecuteOne）。
+        // 不留的话，「注入随机源」就只在构造那一瞬间有效，之后全是写死的 xoshiro。
+        rngPrototype = rng;
         using var lease = Read();
         if (lease.Snapshot.Simulation.Rng == null)
         {
@@ -74,7 +79,17 @@ public sealed class Runtime : IRuntime, IDisposable
                 if (!handlers.TryGetValue(item.EventType, out var handler))
                     throw new InvalidOperationException($"No handler for {item.EventType}.");
                 tx.MutableImage.Simulation = next;
-                var rng = new Xoshiro256StarStar(1);
+                // 2026-09-15 修：这里原来是 `new Xoshiro256StarStar(1)` —— **状态流过去了，算法写死了**。
+                // 构造函数收下的那个 IDeterministicRng 只在初始化时被 GetState() 用过一次，
+                // 之后每个事件都用写死的 xoshiro 跑，于是「注入随机源」这件事在执行层**完全无效**。
+                //
+                // 改成拿注入的那个实例当**原型**：Fork() 复制出同一个实现，再 SetState 定位。
+                // 默认路径逐位不变（Xoshiro.Fork() 仍是 Xoshiro），而注入别的实现时它终于真的生效。
+                //
+                // 为什么要紧：① 权威内核必须能控制随机源；② 对拍 L1 要塞一个「录/放带子」的 rng；
+                // ③ AI 推演不能用真实 rng 状态，否则 AI 提前看到自己要掷的骰子
+                //    —— GDScript 侧 2026-09-01 修过同一个 bug（monte_carlo_bridge 的 _playout_seed）。
+                var rng = rngPrototype.Fork();
                 rng.SetState(before.Rng!.Value);
                 var context = new EventContext(item, rng, tx);
                 handler.Handle(context);
@@ -161,7 +176,9 @@ public sealed class Runtime : IRuntime, IDisposable
         lock (gate)
         {
             using var lease = Read();
-            return new Runtime(store, store.Fork(lease), handlers.Values, new Xoshiro256StarStar(1)) { paused = paused };
+            // 同上：分支出来的 Runtime 也要带着原型走，否则 Fork 一次就退回写死的 xoshiro。
+            // AI 的推演正是从这里分叉出去的 —— 这条不改，注入的随机源在推演里当场失效。
+            return new Runtime(store, store.Fork(lease), handlers.Values, rngPrototype.Fork()) { paused = paused };
         }
     }
     public Checkpoint Checkpoint() { lock (gate) { using var lease = Read(); return CheckpointCodec.Encode(lease.Snapshot, lease.Revision); } }
