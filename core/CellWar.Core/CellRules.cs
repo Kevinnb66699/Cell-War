@@ -62,6 +62,10 @@ internal static class CellRules
         s = s.UpdateCell(id, c.Copy(energy: energy, alive: energy > 0, deathRound: energy == 0 ? s.Turn.WorldRound : c.DeathRound));
         if (energy == 0)
         {
+            // 【免疫猎杀】：「癌细胞死亡后趋化源留在死亡格」——把位置冻下来、断开跟随。
+            // 位置平时不存在状态里（活着现读细胞的 Position），只有这一刻要冻。
+            if (s.Turn.TrackCell == id)
+                s = s.WithTurn(s.Turn.WithTrack(null, c.Position, s.Turn.TrackRounds));
             s = s.UpdateTissueOccupant(c.Position, null);
             s = SetSeatAlive(s, c.OwnerSeat, s.Cells.Values.Any(x => x.OwnerSeat == c.OwnerSeat && x.IsAlive));
         }

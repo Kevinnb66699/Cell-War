@@ -134,14 +134,50 @@ internal static class RulePolicies
     /// </summary>
     public static ValueModifier? ChemoModifier(WorldState s, Cell c, HexPosition destination)
     {
-        if (s.Turn.ChemoRounds <= 0 || s.Turn.ChemoAt is not { } chemo) return null;
-        var before = c.Position.DistanceTo(chemo);
-        var after = destination.DistanceTo(chemo);
+        var delta = ChemoDelta(s, c, destination);
+        var trackDelta = TrackDelta(s, c, destination);
+        // 两个源**取 OR**：朝任意一个走就算「朝向」，背离任意一个就算「远离」
+        // （GD 的 `_cond_ok` 里 `chemo_toward` = `_chemo_delta < 0 or _track_delta < 0`）
+        var toward = delta < 0 || trackDelta < 0;
+        var away = delta > 0 || trackDelta > 0;
+
         int pct;
-        if (c.Faction == Faction.Immune && after < before) pct = c.OwnerSeat == s.Turn.ChemoOwner ? 50 : 70;
-        else if (c.Faction == Faction.Cancer && after > before) pct = 120;
+        if (c.Faction == Faction.Immune && toward) pct = c.OwnerSeat == s.Turn.ChemoOwner ? 50 : 70;
+        else if (c.Faction == Faction.Cancer && away) pct = 120;
         else return null;
         return new ValueModifier(ModifierStage.Multiply, SourceLayer.Skill, 0, pct, Name: "趋化源");
+    }
+
+    /// <summary>走这一步之后，离【I-趋化源】是远了还是近了（负 = 更近）。场上没有就 0。</summary>
+    private static int ChemoDelta(WorldState s, Cell c, HexPosition destination)
+    {
+        if (s.Turn.ChemoRounds <= 0 || s.Turn.ChemoAt is not { } at) return 0;
+        return destination.DistanceTo(at) - c.Position.DistanceTo(at);
+    }
+
+    /// <summary>
+    /// 走这一步之后，离【追踪趋化源】（【免疫猎杀】附着的那个）是远了还是近了。
+    ///
+    /// **特例：被追的那个癌细胞自己「移动视为远离趋化源」**（PRD 明文）——
+    /// 源跟着它走，不特判的话它怎么挪 delta 都是 0，加价永远打不到它身上。
+    /// </summary>
+    private static int TrackDelta(WorldState s, Cell c, HexPosition destination)
+    {
+        if (s.Turn.TrackRounds <= 0) return 0;
+        if (s.Turn.TrackCell == c.Id) return 1;
+        if (TrackAt(s) is not { } at) return 0;
+        return destination.DistanceTo(at) - c.Position.DistanceTo(at);
+    }
+
+    /// <summary>
+    /// 【追踪趋化源】此刻在哪：被追的细胞活着就是它现在站的格，死了就是冻在死亡格上的那个。
+    /// 对齐 GD 的 `CWGame.chemo_track_at()`。
+    /// </summary>
+    public static HexPosition? TrackAt(WorldState s)
+    {
+        if (s.Turn.TrackRounds <= 0) return null;
+        if (s.Turn.TrackCell is { } id && s.Cells.TryGetValue(id, out var c) && c.IsAlive) return c.Position;
+        return s.Turn.TrackFrozenAt;
     }
 
     /// <summary>

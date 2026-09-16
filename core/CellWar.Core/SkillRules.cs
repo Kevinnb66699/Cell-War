@@ -73,6 +73,9 @@ internal static class SkillRules
         }
     }
 
+    /// <summary>【免疫猎杀】附着的【追踪趋化源】持续几个世界回合（GD `HUNT_CHEMO_ROUNDS`）。</summary>
+    internal const int HuntChemoRounds = 2;
+
     /// <summary>
     /// 【早期血行转移】的费用（GD `CWData.MELANOMA_HOMING_COST`）。
     /// **它是常量不是旋钮** —— 与【转移】不同，GD 那边 `_cell_skill_base("homing")` 直接读常量，
@@ -191,7 +194,11 @@ internal static class SkillRules
             {
                 s = ConsumeEffector(s, cell);
                 if (d.TargetCell is { } hunt && s.Cells.TryGetValue(hunt, out var hunted) && hunted.IsAlive && hunted.Faction == Faction.Cancer)
+                {
                     s = ApplyMark(s, hunt, s.Cells[cell.Id]);
+                    // 「同时在其上附着跟随的【追踪趋化源】」（PRD:583）
+                    s = s.WithTurn(s.Turn.WithTrack(hunt, null, HuntChemoRounds));
+                }
                 break;
             }
             case "中和抗体":

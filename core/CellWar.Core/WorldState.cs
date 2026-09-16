@@ -70,6 +70,19 @@ public sealed class TurnState
     /// </summary>
     public EntityId? ChemoCreator { get; init; }
 
+    /// <summary>
+    /// 【免疫猎杀】附着在某个癌细胞身上的【追踪趋化源】（对齐 GD 的 `chemo_track`）。
+    ///
+    /// **位置不存在这里** —— 被追的细胞活着时现读它的 `Position`（<see cref="RulePolicies.TrackAt"/>），
+    /// 死了才把 <see cref="TrackFrozenAt"/> 冻在死亡格上、把 `TrackCell` 置空
+    /// （PRD「癌细胞死亡后趋化源留在死亡格」）。
+    /// 否则每一条改位置的路（迁移/转移/紊乱/传送）都得记得同步一次。
+    /// </summary>
+    public EntityId? TrackCell { get; init; }
+    public HexPosition? TrackFrozenAt { get; init; }
+    /// <summary>追踪趋化源还剩几个世界回合（E 阶段第 8 步 −1；0 = 场上没有）。</summary>
+    public int TrackRounds { get; init; }
+
     public TurnState Clone() => new()
     {
         WorldRound = WorldRound,
@@ -88,7 +101,10 @@ public sealed class TurnState
         ChemoAt = ChemoAt,
         ChemoRounds = ChemoRounds,
         ChemoOwner = ChemoOwner,
-        ChemoCreator = ChemoCreator
+        ChemoCreator = ChemoCreator,
+        TrackCell = TrackCell,
+        TrackFrozenAt = TrackFrozenAt,
+        TrackRounds = TrackRounds
     };
 }
 

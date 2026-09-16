@@ -1306,6 +1306,134 @@ public class GdScriptParityTests
         };
     }
 
+    // ---- 【免疫猎杀】的【追踪趋化源】（PRD:583）----
+    //
+    // 「选定全局任意一个癌细胞使其获得【标记】，同时在其上附着**跟随的**【追踪趋化源】」。
+    // 它与普通趋化源共用同一套费用修饰（方向判据取 OR）。C# 此前完全没有这个状态。
+
+    [Fact]
+    public void 追踪趋化源的持续回合等于GDScript常量()
+        => Assert.Equal(SkillRules.HuntChemoRounds, GdConst("HUNT_CHEMO_ROUNDS"));
+
+    /// <summary>
+    /// **跟随**：位置不存在状态里，活着时现读被追细胞的位置 ——
+    /// 它一挪，别人朝它走的折扣也跟着挪。
+    /// </summary>
+    [Fact]
+    public void 追踪趋化源跟着被追的细胞走()
+    {
+        var hunted = new EntityId(2);
+        var world = TrackWorld();
+        Assert.Equal(world.Cells[hunted].Position, RulePolicies.TrackAt(world));
+
+        var moved = new HexPosition(5, 0, -5);
+        world = world.UpdateCell(hunted, world.Cells[hunted].Copy(position: moved));
+        Assert.Equal(moved, RulePolicies.TrackAt(world));
+    }
+
+    /// <summary>「癌细胞死亡后趋化源留在死亡格」：冻住位置、断开跟随。</summary>
+    [Fact]
+    public void 被追的癌细胞死后趋化源留在死亡格()
+    {
+        var hunted = new EntityId(2);
+        var world = TrackWorld();
+        var deathAt = world.Cells[hunted].Position;
+
+        var after = CellRules.Damage(world, hunted, 9999);
+        Assert.False(after.Cells[hunted].IsAlive);
+        Assert.Null(after.Turn.TrackCell);
+        Assert.Equal(deathAt, RulePolicies.TrackAt(after));
+    }
+
+    /// <summary>
+    /// 免疫朝**追踪源**走同样吃减免 —— 两个源的方向判据取 OR，
+    /// 场上没有普通趋化源时也该生效。
+    /// </summary>
+    [Fact]
+    public void 免疫朝追踪趋化源走也吃减免()
+    {
+        var world = TrackWorld();
+        var immune = new EntityId(1);
+        var toward = new HexPosition(1, 0, -1);    // 朝被追的细胞(4,0,-4) 走
+        var away = new HexPosition(-1, 0, 1);
+
+        // 基础迁移费 0.5（健康格）；朝追踪源走 ×70% → 0.4
+        Assert.Equal(4, RulePolicies.QuoteMove(world, world.Cells[immune], toward));
+        Assert.Equal(5, RulePolicies.QuoteMove(world, world.Cells[immune], away));
+    }
+
+    /// <summary>
+    /// **被追的那个癌细胞自己「移动视为远离」**（PRD 明文）——
+    /// 源跟着它走，不特判的话它怎么挪距离差都是 0，加价永远打不到它头上。
+    /// </summary>
+    [Fact]
+    public void 被追的癌细胞自己动一律算远离()
+    {
+        var world = TrackWorld();
+        var hunted = new EntityId(2);
+        var step = new HexPosition(3, 0, -3);      // 往回走，离「自己」更近？——不存在这回事
+
+        // 癌细胞走癌组织基础 0.2；被判「远离」→ ×120% → 0.24 → 四舍五入 0.2
+        // 所以这里比的是**有没有命中修饰**，直接问修饰本身更干脆
+        var mod = RulePolicies.ChemoModifier(world, world.Cells[hunted], step);
+        Assert.NotNull(mod);
+        Assert.Equal(120, mod!.Value);
+    }
+
+    /// <summary>倒计时走完就消散。</summary>
+    [Fact]
+    public void 追踪趋化源到期消散()
+    {
+        var s = TrackWorld();
+        for (var i = 0; i < SkillRules.HuntChemoRounds; i++)
+            s = BoardRules.EvolveEndOfRound(s, new Xoshiro256StarStar(3));
+
+        Assert.Equal(0, s.Turn.TrackRounds);
+        Assert.Null(RulePolicies.TrackAt(s));
+    }
+
+    /// <summary>一个免疫站 (0,0)，一个被追的癌细胞站 (4,0,-4)；场上**没有**普通趋化源。</summary>
+    private static WorldState TrackWorld()
+    {
+        var at = new HexPosition(0, 0, 0);
+        var huntedAt = new HexPosition(4, 0, -4);
+        var tiles = new Dictionary<HexPosition, Tissue>
+        {
+            [at] = Tile(at, TissueState.Healthy, new EntityId(1)),
+            [huntedAt] = Tile(huntedAt, TissueState.Cancer, new EntityId(2)),
+        };
+        foreach (var n in at.GetNeighbors()) tiles.TryAdd(n, Tile(n, TissueState.Healthy, null));
+        foreach (var n in huntedAt.GetNeighbors()) tiles.TryAdd(n, Tile(n, TissueState.Cancer, null));
+        tiles[new HexPosition(5, 0, -5)] = Tile(new HexPosition(5, 0, -5), TissueState.Cancer, null);
+
+        return new WorldState
+        {
+            Board = new Board { Radius = 9, Tissues = tiles },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = Immune(new EntityId(1), 0, at),
+                [new EntityId(2)] = new()
+                {
+                    Id = new EntityId(2), OwnerSeat = 1, Faction = Faction.Cancer, Type = CellType.Osteosarcoma,
+                    Position = huntedAt, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Immune, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I },
+                [1] = new() { Seat = 1, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Osteosarcoma },
+            },
+            Turn = new TurnState
+            {
+                WorldRound = 3, Phase = Phase.PlayerAction, ActivePlayerSeat = 0,
+                TrackCell = new EntityId(2), TrackRounds = SkillRules.HuntChemoRounds,
+            }
+        };
+    }
+
     // ---- 树突【I-趋化源】的技能冷却（issue #33）----
     //
     // PRD「趋化源消失后，技能冷却 1 世界回合才能再次使用」。

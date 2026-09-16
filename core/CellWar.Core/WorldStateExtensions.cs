@@ -145,7 +145,9 @@ public static class WorldStateExtensions
     public static TurnState Copy(this TurnState t, Phase? phase = null, int? seat = null, int? round = null, int? startStep = null, Faction? winner = null, int? alarm = null, int? pendingDiscard = null,
         int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? cytokineSeat = null, int? effectorRound = null,
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
-        bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false)
+        EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null,
+        bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false,
+        bool setTrackCell = false, bool setTrackFrozenAt = false)
         => new() { WorldRound = round ?? t.WorldRound, Phase = phase ?? t.Phase, ActivePlayerSeat = seat ?? t.ActivePlayerSeat,
             StartStep = startStep ?? t.StartStep, Winner = winner ?? t.Winner, CancerAlarmRound = alarm ?? t.CancerAlarmRound,
             PendingDiscardSeat = setPendingDiscard ? pendingDiscard : pendingDiscard ?? t.PendingDiscardSeat,
@@ -156,7 +158,15 @@ public static class WorldStateExtensions
             EffectorRound = effectorRound ?? t.EffectorRound,
             ChemoAt = setChemoAt ? chemoAt : chemoAt ?? t.ChemoAt,
             ChemoRounds = chemoRounds ?? t.ChemoRounds, ChemoOwner = chemoOwner ?? t.ChemoOwner,
-            ChemoCreator = setChemoCreator ? chemoCreator : chemoCreator ?? t.ChemoCreator };
+            ChemoCreator = setChemoCreator ? chemoCreator : chemoCreator ?? t.ChemoCreator,
+            TrackCell = setTrackCell ? trackCell : trackCell ?? t.TrackCell,
+            TrackFrozenAt = setTrackFrozenAt ? trackFrozenAt : trackFrozenAt ?? t.TrackFrozenAt,
+            TrackRounds = trackRounds ?? t.TrackRounds };
+
+    /// <summary>挂上【追踪趋化源】：跟着 `cell` 走，`rounds` 个世界回合。</summary>
+    public static TurnState WithTrack(this TurnState t, EntityId? cell, HexPosition? frozenAt, int rounds)
+        => t.Copy(trackCell: cell, trackFrozenAt: frozenAt, trackRounds: rounds,
+            setTrackCell: true, setTrackFrozenAt: true);
     public static TurnState WithPhase(this TurnState t, Phase p) => t.Copy(phase: p);
     public static TurnState WithActivePlayer(this TurnState t, int seat) => t.Copy(seat: seat);
     public static TurnState WithWorldRound(this TurnState t, int round) => t.Copy(round: round);
