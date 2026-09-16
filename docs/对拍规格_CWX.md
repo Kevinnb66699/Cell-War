@@ -1,4 +1,4 @@
-<!-- 本文由 2026-09-15 的一次 12 agent 并行核查产出，全部事实为本机实测并标了 文件:行。 -->
+﻿<!-- 本文由 2026-09-15 的一次 12 agent 并行核查产出，全部事实为本机实测并标了 文件:行。 -->
 
 > **状态：方案，未拍板。** 这是路线 A 阶段 0（对拍）的规格，还没有开工授权。
 > 它要花我们约 6.5 人天、队友约 3.5 人天，且要求队友改 C# 侧的 RNG 抽法口径 ——
@@ -175,7 +175,7 @@ Vector2i → "q,r"；bool → 1/0
 | `tune`（59 旋钮） | ✓ | ✓ |
 | `chemo_track`（免疫猎杀追踪源） | ✓ | ✓ |
 | `differentiated`（分化种类全阵营去重） | ✓ | ✓ |
-| `equip_seq` + `fx_turn` / `fx_round` | ✓ | ✓ |
+| ~~`equip_seq` + `fx_turn` / `fx_round`~~ **2026-09-15 起 C# 有了，这一行作废** | — | — |
 | `chemo_cd`（I-趋化源冷却） | ✓ | ✓ |
 | `chain_bonus`（连续吞噬累计加成） | ✓ | ✓ |
 | **`TgfStacks`** ← GD `events["active"]` 的 TGF-β stacks | ✓ | **必须注入** |
@@ -183,6 +183,18 @@ Vector2i → "q,r"；bool → 1/0
 | **`SolidLockRound`** ← GD `events["active"]` 的【TNF-α局部炎症】 | ✓ | **必须注入** |
 | **`CancerAlarmRound`** ← 由 GD `cancer_win_streak` 折算 | ✓ | **必须注入** |
 | **`CancerEffectsDisabledUntil`** ← 由 GD 每胞 `neutral_until` 折算 | ✓ | **必须注入** |
+
+**`equip_seq` / `fx_turn` / `fx_round` 这一行 2026-09-15 收回**：C# 侧已经建好
+`Cell.EquipSeq`、`Cell.FxTurn`、`Cell.FxRound`，形状照 GD 抄（计数字典 / 名字集合，
+清点分别在 `BeginTurn` 与 `ResetRoundFlags`）。**它们现在可比也可注入。**
+
+更要紧的是顺带修掉的一个假差异源：那四个「每回合第一次…」的闸门此前是
+**借住在 C# `mods` 里的 `Value=0` 假修饰**，而 GD 侧它们在 `fx_*` 里、`mods` 里什么都没有。
+§2.2 要求 `mods` 逐条导九元组比对 —— 不搬走的话，这四条会在一个**被比对的字段**上
+凭空报出四行假差异。
+
+（仍未对齐：【组织驻留】的额度 GD 记在 `fx_turn`、C# 记在一条 `Uses:2` 的 Free Move 修饰里。
+行为一致，但 `mods` 逐条比对时 C# 会多这一条。搬它要连 GD 的 `Store.GATE` 一起搬。）
 
 后五项不注入的话不是漏报，**是错报**：C# 会在一个「TGF 层数为 0、衰减没暂停」的伪造世界上算数。
 
