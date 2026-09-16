@@ -169,22 +169,10 @@ internal static class BoardRules
     /// </summary>
     private static WorldState Pressure(WorldState s)
     {
-        var stage = Stage(s);
+        // 算式住在 `RulePolicies.PressureLoss`（纯查询，L0 靶场与 AI 也读它）——
+        // 这里只负责「对谁扣、扣下去」
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune))
-        {
-            var pressure = s.Board.GetAdjacentPositions(c.Position).Sum(p => s.Board.Tissues[p].State switch
-                { TissueState.Healthy => -1, TissueState.Cancer => 1, _ => 2 });
-            var loss = Settlement.RoundTenth(Math.Max(0, pressure) * 10.0 / 4);
-            if (stage == 2) loss = loss * 3 / 2;
-            else if (stage == 3) loss = loss * 2;
-            // 【耗竭抵抗】后半句（PRD:1277 第二段）：「结算【微环境压迫】时，自身受到的能量损失**额外 -0.5**，最低为 0」。
-            // 前半句（每世界回合首次损失 -1.0）挂在 PhaseRules 的 EnergyLoss 修饰上；
-            // 这一句**只在压迫这一条路上**生效，而 CellRules.Damage 不知道「谁造成的」——
-            // 所以在调用点减，这是唯一不用给整条伤害管线加来源参数的位置。
-            // 对齐 GDScript 的 cw_damage.gd:271-272（`if ev["ability"] == "微环境压迫"`）。
-            if (RulePolicies.HasSkill(s, c, "耗竭抵抗")) loss = Math.Max(0, loss - 5);
-            s = Damage(s, c.Id, loss);
-        }
+            s = Damage(s, c.Id, RulePolicies.PressureLoss(s, s.Cells[c.Id]));
         return s;
     }
 
@@ -195,27 +183,21 @@ internal static class BoardRules
     /// </summary>
     internal static IReadOnlyCollection<HexPosition> Proliferate(WorldState s, IDeterministicRng rng, out WorldState next)
     {
-        var stage = Stage(s);
+        // **整批同时结算**：算概率一律拿**增生之前**那份盘面
+        // （GD 明写「先转的格不该成为后转格的来源」）。算式住在 `RulePolicies.ProliferateChance`。
         var beforeGrowth = s;
-        var cancerBlocks = Blocks(s, true);
         var fresh = new List<HexPosition>();
-        foreach (var t in Tiles(beforeGrowth).Where(t => !Cancerous(t) && s.GetCellAt(t.Position)?.Faction != Faction.Immune && !Watched(s, t.Position)))
+        foreach (var t in Tiles(beforeGrowth))
         {
-            var adjacent = t.Position.GetNeighbors().Where(p => beforeGrowth.Board.Tissues.TryGetValue(p, out var n) && Cancerous(n)).ToArray();
-            if (adjacent.Length == 0) continue;
-            var solid = cancerBlocks.Where(b => adjacent.Any(b.Contains)).Sum(b => b.Count(p => beforeGrowth.Board.Tissues[p].State == TissueState.SolidifiedCancer));
-            // **整数千分位掷点**，对齐 GDScript 侧 cw_world.gd:709-722 的
-            // `n_adj * (rate + per_solid * solids)` 再 `randi_range(1, 1000) <= chance`。
-            //
-            // 为什么必须是整数：这是双内核对拍的硬阻塞。随机数带子记的是整数区间抽取，
-            // 浮点抽取在带子上**没有任何对应物** —— 实测不改的话 2 人局跑 40 步就撞
-            // 64 条 RNG_NO_COUNTERPART，而 E 阶段 100% 走这一行、每回合约 27 次。
-            //
-            // 比较方向也对齐：`randi_range(1,1000)` 出 1..1000、判 `<= chance`；
-            // 这里 `NextIntRange(1, 1001)`（半开）同样出 1..1000，同样判 `<=`。
-            var permille = RuleTuning.ByStage(s.Tuning.ProliferatePerAdjacent, stage)
-                + solid * RuleTuning.ByStage(s.Tuning.ProliferatePerSolid, stage);
-            if (rng.NextIntRange(1, 1001) <= adjacent.Length * permille)
+            var chance = ProliferateChance(beforeGrowth, t.Position);
+            // 概率为 0 就**不掷骰**（GD 同）—— 被【免疫监视】盯着的格子随之少消耗一次 rng，
+            // 而随机数带子逐笔对齐，少掷一次就是一条差异
+            if (chance <= 0) continue;
+            // **整数千分位掷点**，对齐 GDScript 的 `randi_range(1, 1000) <= chance`。
+            // 为什么必须是整数：随机数带子记的是整数区间抽取，浮点在带子上**没有任何对应物** ——
+            // 实测不改的话 2 人局跑 40 步就撞 64 条 RNG_NO_COUNTERPART，而 E 阶段每回合走约 27 次。
+            // `NextIntRange(1, 1001)`（半开）同样出 1..1000，同样判 `<=`。
+            if (rng.NextIntRange(1, 1001) <= chance)
             {
                 s = s.UpdateTissueState(t.Position, TissueState.Cancer);
                 s = s.WithBoard(s.Board.UpdateTissue(t.Position, s.Board.Tissues[t.Position].WithNewborn(true)));

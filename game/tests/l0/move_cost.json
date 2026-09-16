@@ -1,0 +1,175 @@
+[
+  {
+    "id": "move_cost/immune_to_healthy/level_I",
+    "probe": "move_cost",
+    "source": "CWData.IMMUNE_MOVE_HEALTHY = [5,5,5,5]（四档都是 0.5）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "tiles": [
+        { "at": "0,0", "state": "healthy", "cell": 0 },
+        { "at": "1,-1", "state": "healthy" }
+      ],
+      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,-1" },
+    "expect": 5
+  },
+  {
+    "id": "move_cost/immune_to_cancerous/level_I",
+    "probe": "move_cost",
+    "source": "CWData.IMMUNE_MOVE_CANCEROUS = [10,8,8,8]；PRD 只写了 II 级 0.8，III/X 沿用（Kevin 2026-09-15 裁定）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "tiles": [
+        { "at": "0,0", "state": "healthy", "cell": 0 },
+        { "at": "1,-1", "state": "cancer" }
+      ],
+      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,-1" },
+    "expect": 10
+  },
+  {
+    "id": "move_cost/immune_to_cancerous/level_II",
+    "probe": "move_cost",
+    "source": "同上，II 级 0.8",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "II" }],
+      "tiles": [
+        { "at": "0,0", "state": "healthy", "cell": 0 },
+        { "at": "1,-1", "state": "cancer" }
+      ],
+      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,-1" },
+    "expect": 8
+  },
+  {
+    "id": "move_cost/immune_to_cancerous/level_X",
+    "probe": "move_cost",
+    "source": "同上，X 级仍是 0.8（不再另有减免）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "X" }],
+      "tiles": [
+        { "at": "0,0", "state": "healthy", "cell": 0 },
+        { "at": "1,-1", "state": "cancer" }
+      ],
+      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,-1" },
+    "expect": 8
+  },
+  {
+    "id": "move_cost/cancer_to_cancerous",
+    "probe": "move_cost",
+    "source": "CWData.CANCER_MOVE_CANCEROUS = 2（0.2）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [
+        { "at": "0,0", "state": "cancer", "cell": 0 },
+        { "at": "1,-1", "state": "cancer" }
+      ],
+      "cells": [{ "seat": 0, "type": "Osteosarcoma", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,-1" },
+    "expect": 2
+  },
+  {
+    "id": "move_cost/cancer_to_healthy",
+    "probe": "move_cost",
+    "source": "CWData.CANCER_MOVE_HEALTHY = 12（占地单价 1.2；⚠ 偏离 PRD 的 0.2，是同比例抬价）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [
+        { "at": "0,0", "state": "cancer", "cell": 0 },
+        { "at": "1,-1", "state": "healthy" }
+      ],
+      "cells": [{ "seat": 0, "type": "Osteosarcoma", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,-1" },
+    "expect": 12
+  },
+  {
+    "id": "move_cost/sclc_minimal_cytoplasm",
+    "probe": "move_cost",
+    "source": "小细胞肺癌【极简胞浆】：CWData.SCLC_MOVE_HEALTHY = 7（0.7）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [
+        { "at": "0,0", "state": "cancer", "cell": 0 },
+        { "at": "1,-1", "state": "healthy" }
+      ],
+      "cells": [{ "seat": 0, "type": "SmallCellLung", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,-1" },
+    "expect": 7
+  },
+  {
+    "id": "move_cost/melanoma_pseudopod/three_neighbours",
+    "probe": "move_cost",
+    "source": "黑色素瘤【伪足穿透】：邻接 ≥3 格癌性组织时基础费 = 0.5 − 0.1×(邻接数 − 3)（门槛 2026-09-06 由 2 改 3）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [
+        { "at": "0,0", "state": "cancer", "cell": 0 },
+        { "at": "1,-1", "state": "healthy" },
+        { "at": "2,-2", "state": "cancer" },
+        { "at": "1,-2", "state": "cancer" },
+        { "at": "0,-1", "state": "healthy" },
+        { "at": "2,-1", "state": "healthy" }
+      ],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,-1" },
+    "expect": 5
+  },
+  {
+    "id": "move_cost/melanoma_pseudopod/below_threshold",
+    "probe": "move_cost",
+    "source": "同上：邻接只有 2 格癌性组织，达不到门槛 → 退回占地单价 1.2",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [
+        { "at": "0,0", "state": "cancer", "cell": 0 },
+        { "at": "1,-1", "state": "healthy" },
+        { "at": "2,-2", "state": "cancer" },
+        { "at": "1,-2", "state": "healthy" },
+        { "at": "0,-1", "state": "healthy" },
+        { "at": "2,-1", "state": "healthy" }
+      ],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,-1" },
+    "expect": 12
+  },
+  {
+    "id": "move_cost/mucus_surcharge",
+    "probe": "move_cost",
+    "source": "PRD:523「免疫细胞迁移进入『黏液侵染』格时，迁移耗能 +0.2」（CWData.MUCUS_MOVE_SURCHARGE = 2）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "tiles": [
+        { "at": "0,0", "state": "healthy", "cell": 0 },
+        { "at": "1,-1", "state": "cancer", "mucus": true }
+      ],
+      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,-1" },
+    "expect": 12
+  },
+  {
+    "id": "move_cost/mucus_only_immune",
+    "probe": "move_cost",
+    "source": "同上：PRD 只写「免疫细胞迁移进入」，癌细胞踏黏液格不加价",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [
+        { "at": "0,0", "state": "cancer", "cell": 0 },
+        { "at": "1,-1", "state": "cancer", "mucus": true }
+      ],
+      "cells": [{ "seat": 0, "type": "Osteosarcoma", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,-1" },
+    "expect": 2
+  }
+]

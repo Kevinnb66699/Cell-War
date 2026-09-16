@@ -417,6 +417,53 @@ internal static class RulePolicies
         return Math.Min(loss, c.Energy);
     }
 
+    /// <summary>
+    /// 【E-微环境压迫】这个免疫细胞这一次损失多少（十分能量），**纯查询**。
+    ///
+    /// 抽成纯函数有三个读者：E 阶段结算、L0 对拍靶场、以及将来的 AI 评估
+    /// （对拍规格 P2 点名的四条纯查询之一）。抽之前它埋在 `BoardRules.Pressure` 的循环里，
+    /// 那三个读者只能各自复制一份算式 —— 那正是「同一条规则三个实现」的起点。
+    /// </summary>
+    public static int PressureLoss(WorldState s, Cell c)
+    {
+        var pressure = s.Board.GetAdjacentPositions(c.Position).Sum(p => s.Board.Tissues[p].State switch
+            { TissueState.Healthy => -1, TissueState.Cancer => 1, _ => 2 });
+        var loss = Settlement.RoundTenth(Math.Max(0, pressure) * 10.0 / 4);
+        var stage = Stage(s);
+        if (stage == 2) loss = loss * 3 / 2;
+        else if (stage == 3) loss = loss * 2;
+        // 【耗竭抵抗】后半句（PRD:1277 第二段）：「结算【微环境压迫】时，自身受到的能量损失**额外 -0.5**，最低为 0」。
+        // 前半句（每世界回合首次损失 -1.0）挂在 PhaseRules 的 EnergyLoss 修饰上；
+        // 这一句**只在压迫这一条路上**生效，而 CellRules.Damage 不知道「谁造成的」——
+        // 所以在这里减，这是唯一不用给整条伤害管线加来源参数的位置。
+        // 对齐 GDScript 的 cw_damage.gd:271-272（`if ev["ability"] == "微环境压迫"`）。
+        return HasSkill(s, c, "耗竭抵抗") ? Math.Max(0, loss - 5) : loss;
+    }
+
+    /// <summary>
+    /// 【E-增生】这一格这一次转化的概率（**千分率**），**纯查询**。
+    ///
+    /// 千分率而不是浮点：对拍的随机数带子记的是整数区间抽取
+    /// （`randi_range(1,1000) <= chance`），浮点在带子上没有对应物。
+    /// 已经是癌性 / 被免疫占着 / 被盯着的格子返回 0。
+    /// </summary>
+    public static int ProliferateChance(WorldState s, HexPosition at)
+    {
+        if (!s.Board.Tissues.TryGetValue(at, out var t) || Cancerous(t)) return 0;
+        if (s.GetCellAt(at)?.Faction == Faction.Immune || Watched(s, at)) return 0;
+
+        var adjacent = at.GetNeighbors().Where(p => s.Board.Tissues.TryGetValue(p, out var n) && Cancerous(n)).ToArray();
+        if (adjacent.Length == 0) return 0;
+
+        var stage = Stage(s);
+        var blocks = Blocks(s, true);
+        var solid = blocks.Where(b => adjacent.Any(b.Contains))
+            .Sum(b => b.Count(p => s.Board.Tissues[p].State == TissueState.SolidifiedCancer));
+        var permille = RuleTuning.ByStage(s.Tuning.ProliferatePerAdjacent, stage)
+            + solid * RuleTuning.ByStage(s.Tuning.ProliferatePerSolid, stage);
+        return adjacent.Length * permille;
+    }
+
     public static int AerobicShare(WorldState s, Cell c)
     {
         var income = s.Players[c.OwnerSeat].ImmuneLevel switch
