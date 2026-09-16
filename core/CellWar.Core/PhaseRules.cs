@@ -78,19 +78,19 @@ internal static class PhaseRules
     /// </summary>
     private static WorldState GrantTurnModifiers(WorldState s, Cell c)
     {
-        if (c.Equipped.Contains("组织驻留"))
+        if (HasSkill(s, c, "组织驻留"))
             s = GrantSkillModifier(s, c, new("组织驻留", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Passive, 0, 0, null, 2, ModifierDuration.Turn, ModifierRequirement.MoveToHealthy));
-        if (c.Equipped.Contains("LFA-1黏附"))
+        if (HasSkill(s, c, "LFA-1黏附"))
             s = GrantSkillModifier(s, c, new("LFA-1黏附", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 0, 4, 2, 1, ModifierDuration.Turn, ModifierRequirement.MoveToCancerous));
-        if (c.Equipped.Contains("组织巡航"))
+        if (HasSkill(s, c, "组织巡航"))
         {
             s = GrantSkillModifier(s, c, new("组织巡航", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Passive, 0, 0, null, 1, ModifierDuration.Turn));
             // 第二条刻意也用「组织巡航」取戳：两条是同一件装备发出来的，先后必须一致
             s = GrantSkillModifier(s, c, new("组织巡航·减", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 0, 2, 2, ActiveModifier.Unlimited, ModifierDuration.Turn), stampFrom: "组织巡航");
         }
-        if (c.Equipped.Contains("耗竭抵抗"))
+        if (HasSkill(s, c, "耗竭抵抗"))
             s = GrantSkillModifier(s, c, new("耗竭抵抗", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Passive, 0, 10, 0, 1, ModifierDuration.Round));
-        if (c.Equipped.Contains("细胞毒性增强"))
+        if (HasSkill(s, c, "细胞毒性增强"))
             s = GrantSkillModifier(s, c, new("细胞毒性增强", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Passive, 0, 10, null, 1, ModifierDuration.Turn));
         return s;
     }
@@ -154,7 +154,7 @@ internal static class PhaseRules
         s = s.UpdateTissueOccupant(revival.TargetPosition, dead.Id);
         s = SetSeatAlive(s, dead.OwnerSeat, true);
         // 【癌症干性】：复活能量提高（分期），本世界回合前两次向癌性组织移动免费
-        if (dead.Faction == Faction.Cancer && dead.Equipped.Contains("癌症干性"))
+        if (dead.Faction == Faction.Cancer && HasSkill(s, dead, "癌症干性"))
         {
             var stem = CancerPhase(s.Turn.WorldRound) switch { 0 => 30, 1 => 40, _ => 50 };
             s = s.UpdateCell(dead.Id, s.Cells[dead.Id].Copy(energy: stem));

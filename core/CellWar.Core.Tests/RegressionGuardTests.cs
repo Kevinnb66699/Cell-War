@@ -56,7 +56,7 @@ public class RegressionGuardTests
     {
         var plain = MakeCell(equipped: Array.Empty<string>());
         var reachable = Enumerable.Range(1, 6)
-            .Select(roll => RulePolicies.AttackOutcome(roll, plain))
+            .Select(roll => RulePolicies.AttackOutcome(AttackWorld(new(0,0,0), new(1,0,-1)), roll, plain))
             .ToHashSet();
 
         Assert.Contains("crit", reachable);
@@ -70,7 +70,7 @@ public class RegressionGuardTests
     {
         var synapse = MakeCell(equipped: new[] { "免疫突触成熟" });
         var reachable = Enumerable.Range(1, 6)
-            .Select(roll => RulePolicies.AttackOutcome(roll, synapse))
+            .Select(roll => RulePolicies.AttackOutcome(AttackWorld(new(0,0,0), new(1,0,-1)), roll, synapse))
             .ToHashSet();
 
         Assert.Contains("crit", reachable);
@@ -87,7 +87,7 @@ public class RegressionGuardTests
     {
         var plain = MakeCell(equipped: Array.Empty<string>());
         var counts = Enumerable.Range(1, 6)
-            .GroupBy(roll => RulePolicies.AttackOutcome(roll, plain))
+            .GroupBy(roll => RulePolicies.AttackOutcome(AttackWorld(new(0,0,0), new(1,0,-1)), roll, plain))
             .ToDictionary(g => g.Key, g => g.Count());
 
         Assert.Equal(2, counts["fail"]);      // 1, 2      → 1/3
@@ -1270,7 +1270,6 @@ public class RegressionGuardTests
         PendingMutationB = 5,
         CytokineNetworkSeat = 1,
         EffectorRound = 4,
-        CancerEffectsDisabledUntil = 8,
         ChemoAt = new HexPosition(2, -1, -1),
         ChemoRounds = 2,
         ChemoOwner = 0,

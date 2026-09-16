@@ -1,4 +1,4 @@
-namespace CellWar.Core;
+﻿namespace CellWar.Core;
 
 /// <summary>一条规则反应：给定已提交事实，返回反应后的世界。反应必须同步、无重入、稳定顺序。</summary>
 internal delegate WorldState FactReaction(WorldState s, object fact, IDeterministicRng rng);
@@ -27,7 +27,7 @@ internal static class FactRouter
     {
         var resolved = (PurifyResolvedFact)fact;
         var cell = s.Cells[resolved.CellId];
-        if (cell.Equipped.Contains("免疫记忆库") && CellRules.RoundGateOpen(cell, "免疫记忆库"))
+        if (RulePolicies.HasSkill(s, cell, "免疫记忆库") && CellRules.RoundGateOpen(cell, "免疫记忆库"))
         {
             s = CellRules.BurnRoundGate(s, resolved.CellId, "免疫记忆库");
             s = CardRules.DrawOne(s, s.Cells[resolved.CellId], rng);

@@ -1,4 +1,4 @@
-using static CellWar.Core.CellRules;
+﻿using static CellWar.Core.CellRules;
 using static CellWar.Core.RulePolicies;
 
 namespace CellWar.Core;
@@ -91,7 +91,7 @@ internal static class BoardRules
             // 这一句**只在压迫这一条路上**生效，而 CellRules.Damage 不知道「谁造成的」——
             // 所以在调用点减，这是唯一不用给整条伤害管线加来源参数的位置。
             // 对齐 GDScript 的 cw_damage.gd:271-272（`if ev["ability"] == "微环境压迫"`）。
-            if (c.Equipped.Contains("耗竭抵抗")) loss = Math.Max(0, loss - 5);
+            if (RulePolicies.HasSkill(s, c, "耗竭抵抗")) loss = Math.Max(0, loss - 5);
             s = Damage(s, c.Id, loss);
         }
         var beforeGrowth = s;

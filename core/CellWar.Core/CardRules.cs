@@ -1,4 +1,4 @@
-using static CellWar.Core.CellRules;
+﻿using static CellWar.Core.CellRules;
 using static CellWar.Core.RulePolicies;
 
 namespace CellWar.Core;
@@ -562,7 +562,7 @@ internal static class CardRules
         var networkOwner = s.Turn.CytokineNetworkSeat;
         s = Resolve(s, caller, d.Card, rng, d.Target, d.TargetCell);
         // 【细胞因子网络】：本回合下一名其他免疫细胞发动即时技能后恢复 0.5
-        if (isInstant && caller.Equipped.Contains("细胞因子网络"))
+        if (isInstant && RulePolicies.HasSkill(s, caller, "细胞因子网络"))
             s = s.WithTurn(s.Turn.WithCytokineNetwork(caller.OwnerSeat));
         else if (isInstant && networkOwner >= 0 && networkOwner != caller.OwnerSeat)
         {

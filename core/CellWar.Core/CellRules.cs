@@ -11,7 +11,7 @@ internal static class CellRules
     {
         var c = s.Cells[id];
         var modifiers = c.Modifiers.Where(m => m.Target == ModifierTarget.EnergyLoss).Select(m => m.ToValueModifier()).ToList();
-        if (c.Type == CellType.Osteosarcoma && s.Board.Tissues[c.Position].State == TissueState.SolidifiedCancer)
+        if (c.Type == CellType.Osteosarcoma && RulePolicies.TypeAbilityOn(s, c) && s.Board.Tissues[c.Position].State == TissueState.SolidifiedCancer)
             modifiers.Add(new ValueModifier(ModifierStage.Multiply, SourceLayer.Passive, 0, 40));  // 【刚性屏障】×40%
 
         // 树突【I-标记】：被标记的癌细胞下一次受到能量损失时 ×2，随后移除标记（PRD:573）。
@@ -45,7 +45,7 @@ internal static class CellRules
         }
         c = s.Cells[id];
         // 印戒【囊性护甲】：每世界回合第一次能量损失 -0.5，不限来源
-        if (c.Type == CellType.SignetRing && !c.ArmorUsedThisRound)
+        if (c.Type == CellType.SignetRing && RulePolicies.TypeAbilityOn(s, c) && !c.ArmorUsedThisRound)
         {
             amount = Math.Max(0, amount - 5);
             s = s.UpdateCell(id, s.Cells[id].Copy(armor: true));
@@ -138,7 +138,7 @@ internal static class CellRules
     {
         var target = s.Cells[targetId];
         if (target.MarkRound == s.Turn.WorldRound) return s;
-        var charges = by.Faction == Faction.Immune && by.Type == CellType.Dendritic && by.Equipped.Contains("抗原呈递强化") ? 2 : 1;
+        var charges = by.Faction == Faction.Immune && by.Type == CellType.Dendritic && RulePolicies.HasSkill(s, by, "抗原呈递强化") ? 2 : 1;
         return s.UpdateCell(targetId, target.Copy(marked: true, markRound: s.Turn.WorldRound, markLeft: Math.Max(target.MarkLeft, charges)));
     }
 
@@ -269,11 +269,11 @@ internal static class CellRules
             var hasAffinity = attackMods.Any(m => m.Card == "高亲和力克隆");
             var hasCascade = attackMods.Any(m => m.Card == "补体级联");
             s = ConsumeModifiers(s, cell.Id, ModifierTarget.Attack);
-            var outcome = hasAffinity ? "crit" : RulePolicies.AttackOutcome(roll, attackerCell);
+            var outcome = hasAffinity ? "crit" : RulePolicies.AttackOutcome(s, roll, attackerCell);
             if (outcome == "fail" && hasOpsonin)
             {
                 roll = rng.NextIntRange(1, 7);   // 【补体调理】的重掷，同样是 1..6
-                outcome = RulePolicies.AttackOutcome(roll, s.Cells[cell.Id]);
+                outcome = RulePolicies.AttackOutcome(s, roll, s.Cells[cell.Id]);
             }
             if (HasModifier(s.Cells[target.Id], "PD-L1表达"))
             {
@@ -285,7 +285,7 @@ internal static class CellRules
             if (outcome != "fail")
             {
                 extra = attackExtra;
-                if (s.Cells[cell.Id].Equipped.Contains("抗体亲和力成熟") && RulePolicies.AdjacentHealthy(s, move.TargetPosition)) extra += 5;
+                if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "抗体亲和力成熟") && RulePolicies.AdjacentHealthy(s, move.TargetPosition)) extra += 5;
             }
             attacker = s.Cells[cell.Id].Copy(attacks: cell.AttacksThisTurn + 1);
             s = s.UpdateCell(cell.Id, attacker);
@@ -297,7 +297,7 @@ internal static class CellRules
                 s = AddMemory(s, actual / 10);
                 // 【吞噬体成熟】：攻击成功后目标余量不超过阈值则直接死亡
                 var threshold = s.Cells[cell.Id].Type == CellType.Macrophage ? 15 : 5;
-                if (s.Cells[cell.Id].Equipped.Contains("吞噬体成熟") && s.Cells[target.Id].IsAlive && s.Cells[target.Id].Energy <= threshold)
+                if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "吞噬体成熟") && s.Cells[target.Id].IsAlive && s.Cells[target.Id].Energy <= threshold)
                 {
                     s = Damage(s, target.Id, s.Cells[target.Id].Energy);
                     if (s.Cells[cell.Id].Type == CellType.Macrophage)
@@ -352,13 +352,13 @@ internal static class CellRules
                 // 【免疫记忆库】等净化跨域反应：发出已提交事实，由 FactRouter 按目录稳定顺序分派
                 s = FactRouter.Emit(s, new PurifyResolvedFact(s.Turn.WorldRound, cell.Id), rng);
                 // 【模式识别增强】：每世界回合第一次【净化】后恢复 0.5 能量
-                if (s.Cells[cell.Id].Equipped.Contains("模式识别增强") && RoundGateOpen(s.Cells[cell.Id], "模式识别增强"))
+                if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "模式识别增强") && RoundGateOpen(s.Cells[cell.Id], "模式识别增强"))
                 {
                     s = BurnRoundGate(s, cell.Id, "模式识别增强");
                     s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
                 }
                 // 【效应记忆形成】：每世界回合第一次【净化】后免疫方 +1 抗原记忆、自身恢复 0.5
-                if (s.Cells[cell.Id].Equipped.Contains("效应记忆形成") && RoundGateOpen(s.Cells[cell.Id], "效应记忆形成"))
+                if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "效应记忆形成") && RoundGateOpen(s.Cells[cell.Id], "效应记忆形成"))
                 {
                     s = BurnRoundGate(s, cell.Id, "效应记忆形成");
                     s = AddMemory(s, 1);
@@ -372,7 +372,7 @@ internal static class CellRules
             s = s.WithBoard(s.Board.UpdateTissue(move.TargetPosition, s.Board.Tissues[move.TargetPosition].WithNewborn(true)));
             events.Add(new TissueStateChangedEvent(s.Turn.WorldRound, s.Turn.Phase, move.TargetPosition, tissue.State, TissueState.Cancer));
             // 【RAS持续激活】：每行动回合第一次通过【移动】触发【定殖】后恢复
-            if (s.Cells[cell.Id].Equipped.Contains("RAS持续激活") && TurnGateOpen(s.Cells[cell.Id], "RAS持续激活"))
+            if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "RAS持续激活") && TurnGateOpen(s.Cells[cell.Id], "RAS持续激活"))
             {
                 var heal = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 3, 1 => 5, _ => 7 };
                 s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));

@@ -407,6 +407,137 @@ public class GdScriptParityTests
         Assert.Equal(300 - 5, after.Cells[id].Energy);   // 逐条截断会扣 4
     }
 
+    // ---- 【中和抗体】：只压**与健康组织相邻**的癌细胞，压住的是种类能力 + 永久技能 ----
+    //
+    // PRD:627「所有与健康组织相邻的癌细胞的**种类特殊效果**/**永久卡牌效果**失效，持续 2 世界回合」。
+    //
+    // C# 此前两头都错：用一个全局标记一压压全场（太宽），
+    // 而那个标记只被查了两处（太窄）——【刚性屏障】【囊性护甲】【瓦伯格】与全部永久技能都没压住。
+
+    /// <summary>靶子是**施放那一刻与健康组织相邻**的癌细胞，深处那个不算。</summary>
+    [Fact]
+    public void 中和抗体只压住与健康组织相邻的癌细胞()
+    {
+        var world = NeutralizeBoard();
+        var after = new BasicRulesEngine()
+            .ExecuteDecision(world, new TypeSkillDecision(0, BCell, "中和抗体"), new Xoshiro256StarStar(3)).NewState;
+
+        Assert.True(RulePolicies.Neutralized(after, after.Cells[EdgeCancer]), "贴着健康组织的那个该被压住");
+        Assert.False(RulePolicies.Neutralized(after, after.Cells[DeepCancer]), "癌组织深处那个不该被压住");
+        Assert.False(RulePolicies.Neutralized(after, after.Cells[BCell]), "免疫细胞不该被自己的技能压住");
+    }
+
+    /// <summary>压住的是**种类特殊效果**：骨肉瘤【刚性屏障】的 ×40% 不再生效。</summary>
+    [Fact]
+    public void 中和抗体压住癌种被动()
+    {
+        var world = NeutralizeBoard();
+        var barrierOn = CellRules.Damage(world, EdgeCancer, 10);
+        var after = new BasicRulesEngine()
+            .ExecuteDecision(world, new TypeSkillDecision(0, BCell, "中和抗体"), new Xoshiro256StarStar(3)).NewState;
+        var barrierOff = CellRules.Damage(after, EdgeCancer, 10);
+
+        var before = world.Cells[EdgeCancer].Energy;
+        Assert.Equal(before - 10 * GdConst("OSTEO_BARRIER_PERCENT") / 100, barrierOn.Cells[EdgeCancer].Energy);  // ×40% → 0.4
+        Assert.Equal(before - 10, barrierOff.Cells[EdgeCancer].Energy);  // 屏障失效 → 全额 1.0
+    }
+
+    /// <summary>压住的也包括**永久卡牌效果**：【癌症干性】的死亡延迟不再生效。</summary>
+    [Fact]
+    public void 中和抗体压住癌方永久技能()
+    {
+        var world = NeutralizeBoard();
+        var stem = world.Cells[EdgeCancer];
+        world = world.UpdateCell(EdgeCancer, stem.Copy(equipped: ["癌症干性"]));
+
+        Assert.True(RulePolicies.HasSkill(world, world.Cells[EdgeCancer], "癌症干性"));
+
+        var after = new BasicRulesEngine()
+            .ExecuteDecision(world, new TypeSkillDecision(0, BCell, "中和抗体"), new Xoshiro256StarStar(3)).NewState;
+        Assert.False(RulePolicies.HasSkill(after, after.Cells[EdgeCancer], "癌症干性"),
+            "被压住时 HasSkill 就该说「没有」—— 装备列表里还在，但效果不生效");
+    }
+
+    /// <summary>「持续 2 世界回合」= 到**下一**回合末为止（通用规则 3）。</summary>
+    [Fact]
+    public void 中和抗体持续到下一个世界回合末()
+    {
+        var world = NeutralizeBoard();
+        var after = new BasicRulesEngine()
+            .ExecuteDecision(world, new TypeSkillDecision(0, BCell, "中和抗体"), new Xoshiro256StarStar(3)).NewState;
+        var castRound = after.Turn.WorldRound;
+
+        Assert.True(RulePolicies.Neutralized(after, after.Cells[EdgeCancer]));                                   // 本回合
+        Assert.True(RulePolicies.Neutralized(Round(after, castRound + 1), after.Cells[EdgeCancer]));             // 下一回合
+        Assert.False(RulePolicies.Neutralized(Round(after, castRound + 2), after.Cells[EdgeCancer]));            // 再下一回合就过期
+    }
+
+    private static WorldState Round(WorldState s, int round) => s.WithTurn(s.Turn.Copy(round: round));
+
+    private static readonly EntityId BCell = new(1);
+    private static readonly EntityId EdgeCancer = new(2);
+    private static readonly EntityId DeepCancer = new(3);
+
+    /// <summary>
+    /// 一个够得着【效应应答】的 B 细胞，加两个癌细胞：
+    /// 一个骨肉瘤贴着健康组织（还立在固化癌组织上，好验【刚性屏障】），
+    /// 一个埋在癌组织深处、四邻全是癌组织。
+    /// </summary>
+    private static WorldState NeutralizeBoard()
+    {
+        var bPos = new HexPosition(0, 0, 0);
+        var edge = new HexPosition(2, 0, -2);      // 它的邻居里有健康格
+        var deep = new HexPosition(-3, 0, 3);      // 四周全铺成癌组织
+
+        var tiles = new Dictionary<HexPosition, Tissue>
+        {
+            [bPos] = Tile(bPos, TissueState.Healthy, BCell),
+            [edge] = new() { Position = edge, Type = TissueType.Normal, State = TissueState.SolidifiedCancer,
+                SolidificationCount = 30, OccupyingCell = EdgeCancer, Charge = 0 },
+            [deep] = Tile(deep, TissueState.Cancer, DeepCancer),
+        };
+        // edge 旁边留一格健康的；deep 四周全部铺癌组织
+        tiles[new HexPosition(3, 0, -3)] = Tile(new HexPosition(3, 0, -3), TissueState.Healthy, null);
+        foreach (var n in deep.GetNeighbors())
+            tiles[n] = Tile(n, TissueState.Cancer, null);
+
+        return new WorldState
+        {
+            Board = new Board { Radius = 6, Tissues = tiles },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [BCell] = new()
+                {
+                    Id = BCell, OwnerSeat = 0, Faction = Faction.Immune, Type = CellType.BCell,
+                    Position = bPos, Energy = 500, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [], Differentiated = true,
+                },
+                [EdgeCancer] = new()
+                {
+                    Id = EdgeCancer, OwnerSeat = 1, Faction = Faction.Cancer, Type = CellType.Osteosarcoma,
+                    Position = edge, Energy = 500, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [],
+                },
+                [DeepCancer] = new()
+                {
+                    Id = DeepCancer, OwnerSeat = 2, Faction = Faction.Cancer, Type = CellType.Osteosarcoma,
+                    Position = deep, Energy = 500, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Immune, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 30, ImmuneLevel = ImmuneLevel.X },
+                [1] = new() { Seat = 1, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Osteosarcoma },
+                [2] = new() { Seat = 2, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Osteosarcoma },
+            },
+            Turn = new TurnState { WorldRound = 3, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+    }
+
     // 细胞站在 (0,0)；趋化源在 (3,0,-3)。朝它走 = (1,0,-1)，背它走 = (-1,0,1)。
     private static readonly HexPosition ChemoAt = new(3, 0, -3);
     private static readonly HexPosition ChemoStep = new(1, 0, -1);

@@ -73,13 +73,13 @@ internal static class RulePolicies
     public static int RawMoveCost(WorldState s, Cell c, HexPosition destination)
     {
         var target = s.Board.Tissues[destination];
-        var disabled = s.Turn.CancerEffectsDisabledUntil >= s.Turn.WorldRound;  // 【中和抗体】
+        var typeOn = TypeAbilityOn(s, c);   // 【中和抗体】压住癌种被动
         int cost;
         if (c.Faction == Faction.Cancer)
         {
             if (Cancerous(target)) cost = 2;                       // 0.2
-            else if (!disabled && c.Type == CellType.SmallCellLung) cost = 7;   // 【极简胞浆】0.7
-            else if (!disabled && c.Type == CellType.Melanoma)
+            else if (typeOn && c.Type == CellType.SmallCellLung) cost = 7;   // 【极简胞浆】0.7
+            else if (typeOn && c.Type == CellType.Melanoma)
             {
                 var adjacent = destination.GetNeighbors().Count(n => s.Board.Tissues.TryGetValue(n, out var t) && Cancerous(t));
                 cost = adjacent >= 3 ? Math.Max(0, 5 - 1 * (adjacent - 3)) : 12;  // 【伪足穿透】
@@ -253,7 +253,7 @@ internal static class RulePolicies
 
     /// <summary>树突【I-标记】光环：2 环内有免疫细胞装备【免疫监视】时压制增生/侵蚀。</summary>
     public static bool Watched(WorldState s, HexPosition pos)
-        => Cells(s).Any(c => c.IsAlive && c.Faction == Faction.Immune && c.Equipped.Contains("免疫监视") && c.Position.DistanceTo(pos) <= 3);
+        => Cells(s).Any(c => c.IsAlive && c.Faction == Faction.Immune && HasSkill(s, c, "免疫监视") && c.Position.DistanceTo(pos) <= 3);
 
     public static List<HashSet<HexPosition>> Blocks(WorldState s, bool cancerous)
     {
@@ -272,6 +272,36 @@ internal static class RulePolicies
         }
         return result;
     }
+
+    // ==== 【中和抗体】闸门 ====
+    //
+    // PRD:627「所有与健康组织相邻的癌细胞的**种类特殊效果**/**永久卡牌效果**失效，持续 2 世界回合」。
+    //
+    // GD 把这两件事收在 `type_ability_on()` 与 `has_skill()` 两个闸后面，
+    // 并在注释里明写「**别在各处自己写 ctype 判断**」（cw_game.gd:583-592）。
+    // C# 此前正是「各处自己写」：`Equipped.Contains(...)` 25 处、`c.Type == CellType.X` 若干，
+    // 而那个全局标记只被查了**两处**（【极简胞浆】【伪足穿透】）——
+    // 也就是说【中和抗体】几乎什么都没压住：【刚性屏障】【囊性护甲】【瓦伯格超速糖酵解】
+    // 与**全部永久技能**都照常生效。
+
+    /// <summary>这个细胞此刻被【中和抗体】压着吗。</summary>
+    public static bool Neutralized(WorldState s, Cell c) => s.Turn.WorldRound <= c.NeutralUntil;
+
+    /// <summary>
+    /// 这个细胞的**种类特殊效果**此刻生效吗。
+    /// 四个癌种的主动技能与被动（伪足穿透 / 极简胞浆 / 刚性屏障 / 囊性护甲 / 瓦伯格）
+    /// 都过这一道 —— 别在各处自己写 `c.Type == ...` 判断。
+    /// </summary>
+    public static bool TypeAbilityOn(WorldState s, Cell c) => !Neutralized(s, c);
+
+    /// <summary>
+    /// 这个细胞装着并且**此刻生效**的永久技能吗。
+    /// 效果判断一律走这里，别直接 `Equipped.Contains(...)` ——
+    /// 那样【中和抗体】压不住它。（「已装备过、别重复抽/重复装」那类**不是效果判断**，
+    /// 照旧直接查 `Equipped`。）
+    /// </summary>
+    public static bool HasSkill(WorldState s, Cell c, string skill)
+        => !Neutralized(s, c) && c.Equipped.Contains(skill);
 
     public static bool AdjacentHealthy(WorldState s, HexPosition pos)
         => pos.GetNeighbors().Any(n => s.Board.Tissues.TryGetValue(n, out var t) && t.State == TissueState.Healthy);
@@ -297,9 +327,8 @@ internal static class RulePolicies
         var coefPermille = s.Players.Count switch { 4 => 200, _ => 280 };   // 十分能量 ×100：2.0 / 2.8
         var expPermille = 30;                                              // 百分数：三档都是 0.30
         var income = Round(Math.Max(2.0, (Math.Pow(ordinary, expPermille / 100.0) * (coefPermille / 100.0) + solid) / Math.Max(1, living)));
-        var disabled = s.Turn.CancerEffectsDisabledUntil >= s.Turn.WorldRound;  // 【中和抗体】
-        if (!disabled && c.Type == CellType.SmallCellLung) income = (int)Math.Ceiling(income * 1.1);  // 【瓦伯格超速糖酵解】110% 向上取整到十分位
-        if (!disabled && c.Equipped.Contains("GLUT1高表达")) income += CancerPhase(s.Turn.WorldRound) switch { 0 => 5, 1 => 8, _ => 10 };
+        if (TypeAbilityOn(s, c) && c.Type == CellType.SmallCellLung) income = (int)Math.Ceiling(income * 1.1);  // 【瓦伯格超速糖酵解】110% 向上取整到十分位
+        if (HasSkill(s, c, "GLUT1高表达")) income += CancerPhase(s.Turn.WorldRound) switch { 0 => 5, 1 => 8, _ => 10 };
         return income;
     }
 
@@ -307,8 +336,8 @@ internal static class RulePolicies
     {
         var income = s.Players[c.OwnerSeat].ImmuneLevel switch
             { ImmuneLevel.I => 20, ImmuneLevel.II => 30, ImmuneLevel.III => 45, _ => 50 };
-        if (c.Equipped.Contains("代谢适应")) income += 5;        // 每次结算有氧额外 +0.5
-        if (c.Equipped.Contains("自分泌生存信号")) income += 8;  // 每次结算有氧额外 +0.8
+        if (HasSkill(s, c, "代谢适应")) income += 5;        // 每次结算有氧额外 +0.5
+        if (HasSkill(s, c, "自分泌生存信号")) income += 8;  // 每次结算有氧额外 +0.8
         for (var i = 0; i < s.Turn.TgfStacks; i++) income = income * 80 / 100;  // 【TGF-β释放】每层 -20% 向下取整
         if (s.Board.Tissues[c.Position].NecrosisRounds > 0) income = Settlement.RoundTenth(income * 0.5);
         return income;
@@ -370,8 +399,13 @@ internal static class RulePolicies
         return tenths;
     }
 
-    public static string AttackOutcome(int roll, Cell attacker)
-        => attacker.Equipped.Contains("免疫突触成熟")
+    /// <summary>
+    /// 攻击判词。收 `WorldState` 只为了把【免疫突触成熟】也走 `HasSkill` ——
+    /// 今天它压不到（【中和抗体】只落在癌细胞上，而这是免疫技能），
+    /// 但「效果判断一律过闸」这条规矩不留例外，例外正是这类 bug 的住处。
+    /// </summary>
+    public static string AttackOutcome(WorldState s, int roll, Cell attacker)
+        => HasSkill(s, attacker, "免疫突触成熟")
             ? roll >= 5 ? "crit" : roll == 1 ? "fail" : "success"
             : roll == 6 ? "crit" : roll <= 2 ? "fail" : "success";
 }

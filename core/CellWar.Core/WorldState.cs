@@ -48,7 +48,6 @@ public sealed class TurnState
     public int PendingMutationB { get; init; }
     public int CytokineNetworkSeat { get; init; } = -1;  // 【细胞因子网络】：已武装的席位（-1=未武装）
     public int EffectorRound { get; init; }  // 免疫方本世界回合已发动【效应应答】的世界回合（0=未发动）
-    public int CancerEffectsDisabledUntil { get; init; }  // 【中和抗体】：癌细胞种类/永久技能效果失效至此世界回合（0=无）
     public HexPosition? ChemoAt { get; init; }  // 树突【趋化源】位置
     public int ChemoRounds { get; init; }  // 【趋化源】剩余世界回合
     public int ChemoOwner { get; init; } = -1;  // 建立【趋化源】的席位
@@ -70,7 +69,6 @@ public sealed class TurnState
         PendingMutationB = PendingMutationB,
         CytokineNetworkSeat = CytokineNetworkSeat,
         EffectorRound = EffectorRound,
-        CancerEffectsDisabledUntil = CancerEffectsDisabledUntil,
         ChemoAt = ChemoAt,
         ChemoRounds = ChemoRounds,
         ChemoOwner = ChemoOwner
@@ -293,6 +291,18 @@ public sealed class Cell
         init => equipSeq = System.Collections.Immutable.ImmutableSortedDictionary
             .CreateRange(StringComparer.Ordinal, value);
     }
+    /// <summary>
+    /// 【中和抗体】：该细胞的**种类特殊效果与永久卡牌效果**失效到第几个世界回合末为止（0 = 没被压）。
+    ///
+    /// 对齐 GD 的 `cell["neutral_until"]`（cw_actions.gd:1613 写、cw_game.gd:580 读）。
+    /// 记「到第几回合末为止」而不是倒计时 —— 中途存档读档、快照回滚都不会走样。
+    ///
+    /// **为什么从 TurnState 上的全局标记改成每胞**：PRD:627 写的是
+    /// 「**所有与健康组织相邻的**癌细胞…失效」——是施放那一刻的一批细胞，不是全场。
+    /// C# 原来用 `Turn.CancerEffectsDisabledUntil` 一压压全场，连躲在癌组织深处的也压。
+    /// </summary>
+    public int NeutralUntil { get; init; }
+
     // 永久技能的「每行动回合前 N 次」闸门（GD 侧 cell["fx_turn"]，begin_turn 清）。
     // 存**用了几次**而不是布尔：多数闸门只问「是不是第一次」，
     // 但【组织驻留】那类「前两次免费」要数得出来。
@@ -361,6 +371,7 @@ public sealed class Cell
         Equipped = Equipped,
         PlayCounter = PlayCounter,
         EquipSeq = EquipSeq,
+        NeutralUntil = NeutralUntil,
         FxTurn = FxTurn,
         FxRound = FxRound,
         Modifiers = Modifiers

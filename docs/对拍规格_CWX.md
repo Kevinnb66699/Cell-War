@@ -182,7 +182,7 @@ Vector2i → "q,r"；bool → 1/0
 | **`PausedDecayRound`** ← GD `events["active"]` 的【基质稳定】 | ✓ | **必须注入** |
 | **`SolidLockRound`** ← GD `events["active"]` 的【TNF-α局部炎症】 | ✓ | **必须注入** |
 | **`CancerAlarmRound`** ← 由 GD `cancer_win_streak` 折算 | ✓ | **必须注入** |
-| **`CancerEffectsDisabledUntil`** ← 由 GD 每胞 `neutral_until` 折算 | ✓ | **必须注入** |
+| ~~**`CancerEffectsDisabledUntil`** ← 由 GD 每胞 `neutral_until` 折算~~ **2026-09-15 起 C# 改成每胞 `Cell.NeutralUntil`，同名同形，不再需要折算** | — | 照字段直接注入 |
 
 **`equip_seq` / `fx_turn` / `fx_round` 这一行 2026-09-15 收回**：C# 侧已经建好
 `Cell.EquipSeq`、`Cell.FxTurn`、`Cell.FxRound`，形状照 GD 抄（计数字典 / 名字集合，

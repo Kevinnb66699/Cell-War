@@ -1,4 +1,4 @@
-using static CellWar.Core.CellRules;
+﻿using static CellWar.Core.CellRules;
 using static CellWar.Core.RulePolicies;
 
 namespace CellWar.Core;
@@ -22,7 +22,7 @@ internal static class SkillRules
                 if (cell.Type != CellType.BCell) return new(false, "只有 B 细胞可以发动【抗体】");
                 // 【抗体亲和力成熟】把费用降 0.5；**判据必须和实扣是同一个数**
                 // —— 判与扣对不上正是【趋化源】那条 bug 的形状。
-                return Settlement.CanPay(cell.Energy, cell.Equipped.Contains("抗体亲和力成熟") ? 5 : 10)
+                return Settlement.CanPay(cell.Energy, RulePolicies.HasSkill(s, cell, "抗体亲和力成熟") ? 5 : 10)
                     ? new(true) : new(false, "能量不足");
             case "细胞毒素":
                 if (cell.Type != CellType.TCell) return new(false, "只有 T 细胞可以发动【细胞毒素】");
@@ -100,7 +100,7 @@ internal static class SkillRules
                 //   · 抗体**费用降低 0.5**（`cw_actions.gd:1230-1235`；卡面 09-07 由「降低为 0.5」
                 //     改成「降低 0.5」—— 基础费 1.0 时两种读法同值，但基础费一变，减量才是卡面说的那件事）
                 //   · 抗体的**初始伤害改为 2.0**（`cw_data.gd:501`，09-07 卡面 1.5 → 2）
-                var matured = cell.Equipped.Contains("抗体亲和力成熟");
+                var matured = RulePolicies.HasSkill(s, cell, "抗体亲和力成熟");
                 var cost = Math.Max(0, 10 - (matured ? 5 : 0));
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - cost, antibody: cell.AntibodyThisRound + 1));
                 var damage = AntibodyDamage(cell.AntibodyThisRound, matured);
@@ -179,9 +179,24 @@ internal static class SkillRules
                 break;
             }
             case "中和抗体":
+            {
+                // PRD:627「**所有与健康组织相邻的**癌细胞的种类特殊效果 / 永久卡牌效果失效，持续 2 世界回合」。
+                //
+                // 2026-09-15 修：这里原来写一个全局标记 `Turn.CancerEffectsDisabledUntil`，
+                // 一压压全场 —— 连躲在癌组织深处、PRD 明文不该被压到的也压。
+                // 改成照 GD（cw_actions.gd:1607-1613）逐个写到细胞上，靶子在**施放那一刻**定死。
+                //
+                // 「持续 2 世界回合」= 到**下一**回合末（通用规则 3：第「当前 + 2 − 1」回合 E 阶段结束），
+                // 所以记的是 `WorldRound + 1`，判据是 `WorldRound <= NeutralUntil`。
+                // 记「到第几回合末」而不是倒计时：存档读档、快照回滚都不会走样。
                 s = ConsumeEffector(s, cell);
-                s = s.WithTurn(s.Turn.Copy(cancerDisabledUntil: s.Turn.WorldRound + 1));  // 持续 2 世界回合
+                var until = s.Turn.WorldRound + 1;
+                foreach (var t in RulePolicies.Cells(s)
+                    .Where(x => x.IsAlive && x.Faction == Faction.Cancer && RulePolicies.AdjacentHealthy(s, x.Position))
+                    .ToArray())
+                    s = s.UpdateCell(t.Id, s.Cells[t.Id].Copy(neutralUntil: until));
                 break;
+            }
             case "连续吞噬":
             {
                 s = ConsumeEffector(s, cell);

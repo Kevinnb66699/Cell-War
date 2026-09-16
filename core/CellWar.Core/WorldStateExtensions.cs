@@ -57,7 +57,7 @@ public static class WorldStateExtensions
         IReadOnlyList<string>? hand = null, IReadOnlyList<string>? equipped = null, CellType? type = null, int? playCounter = null, IReadOnlyList<ActiveModifier>? modifiers = null,
         int? antibody = null, bool? metastasis = null, int? jump = null, bool? armor = null,
         IReadOnlyDictionary<string, int>? equipSeq = null,
-        IReadOnlyDictionary<string, int>? fxTurn = null, IReadOnlyList<string>? fxRound = null)
+        IReadOnlyDictionary<string, int>? fxTurn = null, IReadOnlyList<string>? fxRound = null, int? neutralUntil = null)
         => new() { Id = c.Id, OwnerSeat = c.OwnerSeat, Faction = c.Faction, Type = type ?? c.Type, Position = position ?? c.Position, Energy = energy ?? c.Energy,
             IsAlive = alive ?? c.IsAlive, StatusEffects = c.StatusEffects, AttacksThisTurn = attacks ?? c.AttacksThisTurn, DeathRound = deathRound ?? c.DeathRound,
             CampRound = campRound ?? c.CampRound, CampPosition = campPosition ?? c.CampPosition,
@@ -68,7 +68,8 @@ public static class WorldStateExtensions
             MarkLeft = markLeft ?? c.MarkLeft, MarkRound = markRound ?? c.MarkRound, RespawnRound = respawnRound ?? c.RespawnRound,
             HandMax = c.HandMax, Hand = hand ?? c.Hand, Equipped = equipped ?? c.Equipped,
             PlayCounter = playCounter ?? c.PlayCounter, EquipSeq = equipSeq ?? c.EquipSeq,
-            FxTurn = fxTurn ?? c.FxTurn, FxRound = fxRound ?? c.FxRound, Modifiers = modifiers ?? c.Modifiers };
+            FxTurn = fxTurn ?? c.FxTurn, FxRound = fxRound ?? c.FxRound,
+            NeutralUntil = neutralUntil ?? c.NeutralUntil, Modifiers = modifiers ?? c.Modifiers };
     public static Cell WithEnergy(this Cell c, int energy) => c.Copy(energy: energy);
     public static Cell WithPosition(this Cell c, HexPosition pos) => c.Copy(position: pos);
     public static Cell WithIsAlive(this Cell c, bool alive) => c.Copy(alive: alive);
@@ -100,7 +101,7 @@ public static class WorldStateExtensions
     /// 只加真正用到的三个 —— 将来要清 `Winner` 时再加第四个，别现在替未来立规矩。
     /// </summary>
     public static TurnState Copy(this TurnState t, Phase? phase = null, int? seat = null, int? round = null, int? startStep = null, Faction? winner = null, int? alarm = null, int? pendingDiscard = null, int? tgf = null, int? pausedDecay = null,
-        int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? cytokineSeat = null, int? effectorRound = null, int? cancerDisabledUntil = null,
+        int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? cytokineSeat = null, int? effectorRound = null,
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null,
         bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false)
         => new() { WorldRound = round ?? t.WorldRound, Phase = phase ?? t.Phase, ActivePlayerSeat = seat ?? t.ActivePlayerSeat,
@@ -111,7 +112,7 @@ public static class WorldStateExtensions
             PendingMutationCell = setPendingMutation ? pendingMutationCell : pendingMutationCell ?? t.PendingMutationCell,
             PendingMutationA = pendingMutationA ?? t.PendingMutationA, PendingMutationB = pendingMutationB ?? t.PendingMutationB,
             CytokineNetworkSeat = cytokineSeat ?? t.CytokineNetworkSeat,
-            EffectorRound = effectorRound ?? t.EffectorRound, CancerEffectsDisabledUntil = cancerDisabledUntil ?? t.CancerEffectsDisabledUntil,
+            EffectorRound = effectorRound ?? t.EffectorRound,
             ChemoAt = setChemoAt ? chemoAt : chemoAt ?? t.ChemoAt,
             ChemoRounds = chemoRounds ?? t.ChemoRounds, ChemoOwner = chemoOwner ?? t.ChemoOwner };
     public static TurnState WithPhase(this TurnState t, Phase p) => t.Copy(phase: p);
