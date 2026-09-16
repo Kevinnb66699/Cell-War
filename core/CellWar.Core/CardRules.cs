@@ -75,7 +75,7 @@ internal static class CardRules
             var targets = cell.Position.GetNeighbors()
                 .Where(n => s.Board.Tissues.TryGetValue(n, out var t) && t.State == TissueState.Cancer && t.OccupyingCell == null && !t.Mucus)
                 .ToArray();
-            foreach (var pick in rng.Shuffle(targets).Take(4))
+            foreach (var pick in rng.PickRandom(targets, 4))
             {
                 s = s.UpdateTissueState(pick, TissueState.Healthy);
                 if (cell.Type == CellType.Macrophage)
@@ -101,7 +101,7 @@ internal static class CardRules
         {
             var candidates = Tiles(s).Where(t => t.State == TissueState.Cancer && t.OccupyingCell == null &&
                 t.Position.GetNeighbors().Any(n => s.Board.Tissues.TryGetValue(n, out var x) && x.State == TissueState.Healthy)).ToArray();
-            foreach (var pick in rng.Shuffle(candidates).Take(5))
+            foreach (var pick in rng.PickRandom(candidates, 5))
                 s = s.UpdateTissueState(pick.Position, TissueState.Healthy);
             return s;
         },
@@ -291,7 +291,7 @@ internal static class CardRules
             var ordinary = Tiles(s).Where(t => t.State == TissueState.Cancer && t.OccupyingCell == null &&
                     (t.Position.DistanceTo(cell.Position) <= 2 || t.Position.GetNeighbors().Any(n => solidified.Contains(n))))
                 .Select(t => t.Position).ToArray();
-            foreach (var pick in rng.Shuffle(ordinary).Take(2))
+            foreach (var pick in rng.PickRandom(ordinary, 2))
                 s = s.UpdateTissueState(pick, TissueState.Healthy);
             return s;
         },
@@ -326,7 +326,7 @@ internal static class CardRules
             var targets = cell.Position.GetNeighbors()
                 .Where(n => s.Board.Tissues.TryGetValue(n, out var t) && t.State == TissueState.Healthy && t.OccupyingCell == null)
                 .ToArray();
-            foreach (var pick in rng.Shuffle(targets).Take(count))
+            foreach (var pick in rng.PickRandom(targets, count))
                 s = s.UpdateTissueState(pick, TissueState.Cancer);
             return s;
         },

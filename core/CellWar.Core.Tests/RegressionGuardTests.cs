@@ -1151,6 +1151,67 @@ public class RegressionGuardTests
         Assert.Equal(2, WorldEffects.Stacks(clone, "TGF-β释放"));   // 事件容器也要跟着走
     }
 
+    // ---- 十五、「挑 n 个」不许写成「洗牌再取 n」 ----
+    //
+    // GD 的 `CWGame.pick_random(arr, n)` 是**逐个 pop**：抽 n 次，区间随池子缩小。
+    // C# 原来写的是 `Shuffle(...).Take(n)` —— Fisher-Yates，抽 **m−1** 次。
+    // **抽取的次数与区间都不一样**，而双内核对拍的随机数带子是逐笔比对的：
+    // 次数对不上，那一步之后整段作废。这是对拍规格点名的「RNG 口径改造」之一。
+    //
+    // 单看结果两者都是「随机挑 n 个」，测不出区别 —— 所以这两条判据都落在**抽取形状**上。
+
+    [Fact]
+    public void 挑n个抽n次而不是洗整副牌()
+    {
+        var pool = Enumerable.Range(0, 8).ToArray();
+        var spy = new RecordingRng(new Xoshiro256StarStar(20260916));
+
+        spy.PickRandom(pool, 3);
+
+        // 三次抽取，区间逐次缩小 —— 与 GD 的 randi_range(0, size−1) 一一对应
+        Assert.Equal([(0, 8), (0, 7), (0, 6)], spy.Ranges);
+    }
+
+    /// <summary>池子比要的少：抽到空为止，不多抽（GD 的 `while … and not pool.is_empty()`）。</summary>
+    [Fact]
+    public void 池子不够时挑到空为止()
+    {
+        var spy = new RecordingRng(new Xoshiro256StarStar(1));
+        var picked = spy.PickRandom(new[] { 7, 8 }, 5);
+
+        Assert.Equal(2, picked.Count);
+        Assert.Equal([(0, 2), (0, 1)], spy.Ranges);
+    }
+
+    /// <summary>
+    /// **规则里不许再出现 `Shuffle(...).Take(n)`** —— 那是「挑 n 个」的错写法。
+    ///
+    /// 为这十处各写一条行为测试既写不完、也挡不住第十一处；扫源码挡的是**这一类**。
+    /// （真要洗整副牌的地方照常用 `Shuffle`，它只是不能接 `.Take`。）
+    /// </summary>
+    [Fact]
+    public void 规则里不许用洗牌再取n来挑n个()
+    {
+        var offenders = new List<string>();
+        foreach (var path in Directory.EnumerateFiles(CoreSourceDir(), "*.cs"))
+        {
+            var lines = File.ReadAllLines(path);
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var line = lines[i];
+                // 注释里提到这个写法不算 —— `PickRandom` 的文档注释就专门讲它和洗牌的区别
+                if (line.TrimStart().StartsWith("//") || line.TrimStart().StartsWith("///")) continue;
+                if (System.Text.RegularExpressions.Regex.IsMatch(line, @"Shuffle\s*\([^)]*\)\s*\.\s*Take\s*\("))
+                    offenders.Add($"{Path.GetFileName(path)}:{i + 1}  {line.Trim()}");
+            }
+        }
+
+        Assert.True(offenders.Count == 0,
+            "这些地方拿「洗牌再取 n」当「挑 n 个」用了 —— 改成 rng.PickRandom(池子, n)；" +
+            "抽取次数与区间都和 GD 的 pick_random 对不上，对拍带子会当场分叉：" +
+            Environment.NewLine + "  " + string.Join(Environment.NewLine + "  ", offenders));
+    }
+
     // ---- 十四、WorldState 的 With*/Update* 不许悄悄丢字段 ----
     //
     // Tissue / Cell / TurnState 的字段清单 2026-09-15 早上就收口了，**唯独漏了 `WorldState` 自己** ——

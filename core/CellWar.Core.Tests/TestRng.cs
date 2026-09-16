@@ -1,4 +1,4 @@
-using CellWar.Core;
+﻿using CellWar.Core;
 
 namespace CellWar.Core.Tests;
 
@@ -21,6 +21,14 @@ internal sealed class RecordingRng(IDeterministicRng inner) : IDeterministicRng
     public int NextInt(int max) { Ranges.Add((0, max)); return inner.NextInt(max); }
     public int NextIntRange(int min, int max) { Ranges.Add((min, max)); return inner.NextIntRange(min, max); }
     public T Choose<T>(IReadOnlyList<T> items) { Ranges.Add((0, items.Count)); return inner.Choose(items); }
+    public IReadOnlyList<T> PickRandom<T>(IReadOnlyList<T> items, int count)
+    {
+        // 逐笔记账：`PickRandom` 是**每挑一个抽一次**，区间随池子缩小 ——
+        // 这正是它与 `Shuffle(...).Take(n)` 的区别，探针要看得见
+        for (var i = 0; i < count && i < items.Count; i++) Ranges.Add((0, items.Count - i));
+        return inner.PickRandom(items, count);
+    }
+
     public IReadOnlyList<T> Shuffle<T>(IReadOnlyList<T> items) => inner.Shuffle(items);
     public IDeterministicRng Fork() => new RecordingRng(inner.Fork());
     public RngState GetState() => inner.GetState();
@@ -34,6 +42,11 @@ internal sealed class CountingRng(IDeterministicRng inner, Action onDraw) : IDet
     public int NextInt(int max) { onDraw(); return inner.NextInt(max); }
     public int NextIntRange(int min, int max) { onDraw(); return inner.NextIntRange(min, max); }
     public T Choose<T>(IReadOnlyList<T> items) { onDraw(); return inner.Choose(items); }
+    public IReadOnlyList<T> PickRandom<T>(IReadOnlyList<T> items, int count)
+    {
+        for (var i = 0; i < count && i < items.Count; i++) onDraw();
+        return inner.PickRandom(items, count);
+    }
     public IReadOnlyList<T> Shuffle<T>(IReadOnlyList<T> items) { onDraw(); return inner.Shuffle(items); }
     public IDeterministicRng Fork() => new CountingRng(inner.Fork(), onDraw);
     public RngState GetState() => inner.GetState();

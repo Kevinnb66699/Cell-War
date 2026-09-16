@@ -380,7 +380,7 @@ internal static class CellRules
                     var cascade = target.Position.GetNeighbors()
                         .Where(n => s.Board.Tissues.TryGetValue(n, out var x) && x.State == TissueState.Cancer && x.OccupyingCell == null)
                         .ToArray();
-                    foreach (var pick in rng.Shuffle(cascade).Take(2))
+                    foreach (var pick in rng.PickRandom(cascade, 2))
                         s = s.UpdateTissueState(pick, TissueState.Healthy);
                 }
                 // 【I-吞噬】：攻击成功造成能量损失后恢复受击方损失的 1/2（向上取整到十分位）

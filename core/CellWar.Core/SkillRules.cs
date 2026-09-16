@@ -124,7 +124,7 @@ internal static class SkillRules
                 {
                     var tiles = Tiles(s).Where(t => t.State == TissueState.Cancer && t.OccupyingCell == null && AdjacentHealthy(s, t.Position)).ToArray();
                     var max = rng.NextInt(3) < 2 ? 2 : 3;
-                    foreach (var pick in rng.Shuffle(tiles).Take(max)) s = s.UpdateTissueState(pick.Position, TissueState.Healthy);
+                    foreach (var pick in rng.PickRandom(tiles, max)) s = s.UpdateTissueState(pick.Position, TissueState.Healthy);
                 }
                 break;
             }
@@ -160,7 +160,7 @@ internal static class SkillRules
                 // **没有「无细胞占据」这个条件**，是 C# 自己加的（GD 侧 cw_actions.gd:1458-1461 也只筛健康）。
                 // 站在健康格上的免疫细胞脚下照样会被转成癌组织。
                 var healthy = ring.Where(t => t.State == TissueState.Healthy).ToArray();
-                foreach (var pick in rng.Shuffle(healthy).Take(10)) s = s.UpdateTissueState(pick.Position, TissueState.Cancer);
+                foreach (var pick in rng.PickRandom(healthy, 10)) s = s.UpdateTissueState(pick.Position, TissueState.Cancer);
                 foreach (var immune in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Immune && x.Position.DistanceTo(position) <= 2).ToArray())
                     s = Damage(s, immune.Id, 20);
                 break;
@@ -178,7 +178,7 @@ internal static class SkillRules
                 var dest = d.Target!.Value;
                 s = Teleport(s, cell.Id, dest);
                 var spread = dest.GetNeighbors().Where(n => s.Board.Tissues.TryGetValue(n, out var nt) && nt.State == TissueState.Healthy).ToArray();
-                foreach (var pick in rng.Shuffle(spread).Take(3)) s = s.UpdateTissueState(pick, TissueState.Cancer);
+                foreach (var pick in rng.PickRandom(spread, 3)) s = s.UpdateTissueState(pick, TissueState.Cancer);
                 break;
             }
             case "转移":

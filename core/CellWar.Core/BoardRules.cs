@@ -227,7 +227,7 @@ internal static class BoardRules
             // 而对拍的随机数带子记的就是区间。这正是早上那个「骰面 0..5 vs 1..6」的形状。
             var tiles = RuleTuning.ByStage(s.Tuning.ErosionTiles, stage);
             var count = rng.NextIntRange(1, 4) <= 2 ? tiles.Common : tiles.Rare;
-            foreach (var p in rng.Shuffle(candidates).Take(count))
+            foreach (var p in rng.PickRandom(candidates, count))
             {
                 s = s.UpdateTissueState(p, TissueState.Cancer);
                 s = s.WithBoard(s.Board.UpdateTissue(p, s.Board.Tissues[p].WithNewborn(true)));
@@ -309,7 +309,7 @@ internal static class BoardRules
             var targets = t.Position.GetNeighbors()
                 .Where(n => s.Board.Tissues.TryGetValue(n, out var x) && x.State == TissueState.Cancer).ToArray();
             if (targets.Length == 0) continue;
-            foreach (var n in rng.Shuffle(targets).Take(limit)) s = RaiseSolid(s, n, 10);
+            foreach (var n in rng.PickRandom(targets, limit)) s = RaiseSolid(s, n, 10);
         }
         return s;
     }

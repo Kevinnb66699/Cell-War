@@ -1,4 +1,4 @@
-namespace CellWar.Core;
+﻿namespace CellWar.Core;
 
 /// <summary>
 /// 确定性随机数生成器：作为可分支、可回溯的状态。
@@ -30,6 +30,18 @@ public interface IDeterministicRng
     /// 随机洗牌（返回新列表，不修改原列表）。
     /// </summary>
     IReadOnlyList<T> Shuffle<T>(IReadOnlyList<T> items);
+
+    /// <summary>
+    /// 从 `items` 里随机挑 `count` 个（不放回），**逐位对齐 GDScript 的 `CWGame.pick_random`**：
+    /// 每次 `randi_range(0, 剩余−1)` 抽一个、从池子里拿掉，池子空了就提前结束。
+    ///
+    /// ⚠ **不能用 `Shuffle(...).Take(n)` 代替。** 两者抽取的**次数与区间都不一样**：
+    ///   · `pick_random(m 选 n)`：抽 **n** 次，区间 [0,m−1]、[0,m−2]…[0,m−n]
+    ///   · Fisher-Yates 洗完再取：抽 **m−1** 次，区间 [0,m−1]、[0,m−2]…[0,1]
+    /// 而双内核对拍的随机数带子是**逐笔**比对的 —— 次数对不上，那一步之后整段作废。
+    /// 这是对拍规格点名的「RNG 口径改造」之一。
+    /// </summary>
+    IReadOnlyList<T> PickRandom<T>(IReadOnlyList<T> items, int count);
 
     /// <summary>
     /// 创建当前状态的结构共享副本（用于分支）。
@@ -142,6 +154,19 @@ public sealed class Xoshiro256StarStar : IDeterministicRng
     {
         if (items.Count == 0) throw new ArgumentException("Cannot choose from empty list");
         return items[NextInt(items.Count)];
+    }
+
+    public IReadOnlyList<T> PickRandom<T>(IReadOnlyList<T> items, int count)
+    {
+        var pool = items.ToList();
+        var picked = new List<T>();
+        while (picked.Count < count && pool.Count > 0)
+        {
+            var i = NextIntRange(0, pool.Count);   // 半开 [0, size) ≡ GD 的 randi_range(0, size−1)
+            picked.Add(pool[i]);
+            pool.RemoveAt(i);
+        }
+        return picked;
     }
 
     public IReadOnlyList<T> Shuffle<T>(IReadOnlyList<T> items)
