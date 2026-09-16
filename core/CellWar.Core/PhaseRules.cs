@@ -125,8 +125,8 @@ internal static class PhaseRules
             // 第二条刻意也用「组织巡航」取戳：两条是同一件装备发出来的，先后必须一致
             s = GrantSkillModifier(s, c, new("组织巡航·减", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 0, 2, 2, ActiveModifier.Unlimited, ModifierDuration.Turn), stampFrom: "组织巡航");
         }
-        if (HasSkill(s, c, "耗竭抵抗"))
-            s = GrantSkillModifier(s, c, new("耗竭抵抗", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Passive, 0, 10, 0, 1, ModifierDuration.Round));
+        // 【耗竭抵抗】不在这里发修饰了（2026-09-16）：它两句合成一个 cut、住在伤害管线的减免层里，
+        // 逐位对齐 GD 的 `cw_damage.gd:266-274`。见 `CellRules.Damage`。
         if (HasSkill(s, c, "细胞毒性增强"))
             s = GrantSkillModifier(s, c, new("细胞毒性增强", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Passive, 0, 10, null, 1, ModifierDuration.Turn));
         return s;

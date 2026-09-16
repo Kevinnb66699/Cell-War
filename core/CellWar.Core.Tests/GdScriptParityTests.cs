@@ -154,26 +154,72 @@ public class GdScriptParityTests
         Assert.Equal(300 - (full - cut), after.Cells[new EntityId(1)].Energy);
     }
 
+    // ---- 【耗竭抵抗】（PRD:1277）----
+    //
+    // 「每世界回合自身第一次受到能量损失时，该次能量损失 −1；
+    //   结算【微环境压迫】时，自身受到的能量损失额外 −0.5，最低为 0」
+    //
+    // **两句合成一个 cut 一次减掉**，住在伤害管线的减免层里 —— 逐位照 GD 的
+    // `cw_damage.gd:266-274`（Kevin 2026-09-16 裁定「按照 GD 的实现方式来」）。
+    // C# 此前把第一句做成回合开始挂的修饰、第二句在压迫的调用点减：**算出来的数一样**
+    // （都是「减法 + 下限 0」，拆不拆不影响），但形状与 GD 对不上。
+
+    /// <summary>非压迫来源：只减第一句。</summary>
+    [Fact]
+    public void 耗竭抵抗对非压迫伤害只减首次那一句()
+    {
+        var world = PressureWorld(exhaustion: true);
+        var id = new EntityId(1);
+        var before = world.Cells[id].Energy;
+
+        var after = CellRules.Damage(world, id, 30);
+        Assert.Equal(before - (30 - GdConst("EXHAUST_FIRST_CUT")), after.Cells[id].Energy);
+    }
+
+    /// <summary>压迫来源：两句**一起**减（1.0 + 0.5 = 1.5），不是分两次。</summary>
+    [Fact]
+    public void 耗竭抵抗对压迫伤害两句合成一次减()
+    {
+        var world = PressureWorld(exhaustion: true);
+        var id = new EntityId(1);
+        var before = world.Cells[id].Energy;
+        var cut = GdConst("EXHAUST_FIRST_CUT") + GdConst("EXHAUST_PRESSURE_CUT");
+
+        var after = CellRules.Damage(world, id, 30, "微环境压迫");
+        Assert.Equal(before - (30 - cut), after.Cells[id].Energy);
+    }
+
     /// <summary>
-    /// 【耗竭抵抗】是**两段**（PRD:1277）：每世界回合首次损失 -1.0 **＋ 微环境压迫额外 -0.5**。
-    /// C# 此前只实现了第一段。
+    /// 「每世界回合第一次」那一句**每回合只有一次**：同一回合第二次受伤只剩压迫那半句。
+    /// 而且是 **ON_BENEFIT** —— 这一组没把伤害压低就不消耗（GD `_reduce` 的 `after == dmg → continue`）。
     /// </summary>
     [Fact]
-    public void 耗竭抵抗在微环境压迫上额外减半点()
+    public void 耗竭抵抗的首次减免每世界回合只烧一次()
     {
-        var withSkill = PressureWorld(exhaustion: true);
-        var without = PressureWorld(exhaustion: false);
-        var engine = new BasicRulesEngine();
-        var rng = new Xoshiro256StarStar(9);
+        var world = PressureWorld(exhaustion: true);
+        var id = new EntityId(1);
 
-        var lossWith = 300 - engine.AdvancePhase(withSkill, rng).NewState.Cells[new EntityId(1)].Energy;
-        var lossWithout = 300 - engine.AdvancePhase(without, new Xoshiro256StarStar(9)).NewState.Cells[new EntityId(1)].Energy;
+        var once = CellRules.Damage(world, id, 30);
+        var twice = CellRules.Damage(once, id, 30);
 
-        // 这条**只验第二段**：夹具直接从 E 阶段跑，而第一段（每世界回合首次损失 -1.0）
-        // 是回合开始时由 PhaseRules.GrantTurnModifiers 挂上去的 EnergyLoss 修饰，这里没走到。
-        // 想两段一起验就得连回合流程一起跑，那属于整局层面的测试，不该塞进这条。
-        Assert.True(lossWithout > 0, "夹具本身要真的产生压迫损失，否则这条什么都证明不了");
-        Assert.Equal(lossWithout - GdConst("EXHAUST_PRESSURE_CUT"), lossWith);
+        // 第二次：首次那一句已经烧过 → 一分不减
+        Assert.Equal(once.Cells[id].Energy - 30, twice.Cells[id].Energy);
+
+        // 但压迫那半句照常
+        var pressured = CellRules.Damage(once, id, 30, "微环境压迫");
+        Assert.Equal(once.Cells[id].Energy - (30 - GdConst("EXHAUST_PRESSURE_CUT")), pressured.Cells[id].Energy);
+    }
+
+    /// <summary>没减到就不烧：0 伤害不该把「本世界回合首次」的额度白白吃掉。</summary>
+    [Fact]
+    public void 耗竭抵抗没减到就不消耗额度()
+    {
+        var world = PressureWorld(exhaustion: true);
+        var id = new EntityId(1);
+
+        var zero = CellRules.Damage(world, id, 0);
+        var after = CellRules.Damage(zero, id, 30);
+        Assert.Equal(zero.Cells[id].Energy - (30 - GdConst("EXHAUST_FIRST_CUT")), after.Cells[id].Energy);
     }
 
     /// <summary>免疫→癌性迁移费按等级分档：PRD 只写了 II 级 0.8，III/X 沿用（Kevin 2026-09-15 裁定）。</summary>

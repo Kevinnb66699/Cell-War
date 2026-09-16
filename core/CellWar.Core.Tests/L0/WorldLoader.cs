@@ -14,11 +14,26 @@ public static class WorldLoader
 {
     public static WorldState Load(L0World spec)
     {
+        // **先铺满整块棋盘，再拿用例列的格子覆盖上去。**
+        //
+        // 不能只铺列到的那几格：GD 那边 `neighbors()` 按 `board_radius` 返回坐标、**不看 tiles 里有没有**，
+        // 只铺几格的话取邻居就崩（第一次跑 GD runner 就是这么炸的，而且它带着错误跑完、
+        // 结果还碰巧对上，印出一片假 ok）。铺满也更贴近真实对局 —— 棋盘本来就是满的。
         var tiles = new Dictionary<HexPosition, Tissue>();
+        foreach (var at in AllCoords(spec.Radius))
+            tiles[at] = new Tissue
+            {
+                Position = at, Type = TissueType.Normal, State = TissueState.Healthy,
+                SolidificationCount = 0, OccupyingCell = null, Charge = 0,
+            };
+
+        var named = new HashSet<HexPosition>();
         foreach (var t in spec.Tiles)
         {
             var at = Pos(t.At);
-            if (!tiles.TryAdd(at, new Tissue
+            if (!tiles.ContainsKey(at)) throw new InvalidOperationException($"这一格在半径 {spec.Radius} 的棋盘外：{t.At}");
+            if (!named.Add(at)) throw new InvalidOperationException($"同一格写了两次：{t.At}");
+            tiles[at] = new Tissue
                 {
                     Position = at,
                     Type = TileType(t.Type),
@@ -30,8 +45,7 @@ public static class WorldLoader
                     NecrosisRounds = t.Necrosis,
                     OssifyAtRound = t.OssifyAt,
                     SolidLockRound = t.SolidLock,
-                }))
-                throw new InvalidOperationException($"同一格铺了两次：{t.At}");
+                };
         }
 
         var cells = new Dictionary<EntityId, Cell>();
@@ -91,6 +105,14 @@ public static class WorldLoader
             Turn = new TurnState { WorldRound = spec.Round, Phase = PhaseOf(spec.Phase), ActivePlayerSeat = spec.Seat },
         };
         return spec.Tuning.Count == 0 ? world : world.WithTuning(Tune(world.Tuning, spec.Tuning));
+    }
+
+    /// <summary>半径内的所有格（与 GD 的 `CWData.all_coords` 同一套：|q|、|r|、|s| 都 ≤ radius）。</summary>
+    private static IEnumerable<HexPosition> AllCoords(int radius)
+    {
+        for (var q = -radius; q <= radius; q++)
+            for (var r = Math.Max(-radius, -q - radius); r <= Math.Min(radius, -q + radius); r++)
+                yield return new HexPosition(q, r, -q - r);
     }
 
     /// <summary>坐标 `"q,r"` → 立方坐标（s 由 q、r 定死）。</summary>

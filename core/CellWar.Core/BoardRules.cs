@@ -169,10 +169,10 @@ internal static class BoardRules
     /// </summary>
     private static WorldState Pressure(WorldState s)
     {
-        // 算式住在 `RulePolicies.PressureLoss`（纯查询，L0 靶场与 AI 也读它）——
-        // 这里只负责「对谁扣、扣下去」
+        // 算式住在 `RulePolicies.PressureAt`（纯查询，L0 靶场与 AI 也读它）——
+        // 这里只负责「对谁扣、扣下去」。**来源报给管线**：【耗竭抵抗】的第二句要看它。
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune))
-            s = Damage(s, c.Id, RulePolicies.PressureLoss(s, s.Cells[c.Id]));
+            s = Damage(s, c.Id, RulePolicies.PressureAt(s, s.Cells[c.Id].Position), "微环境压迫");
         return s;
     }
 

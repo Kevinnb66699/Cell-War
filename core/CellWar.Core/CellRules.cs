@@ -7,7 +7,12 @@
 /// </summary>
 internal static class CellRules
 {
-    public static WorldState Damage(WorldState s, EntityId id, int amount)
+    /// <param name="ability">
+    /// 这一下是**谁造成的**（对齐 GD 伤害事件的 `ability` 字段）。
+    /// 眼下只有【耗竭抵抗】的第二句要看它（「结算【微环境压迫】时额外 −0.5」）——
+    /// GD 那边判的就是 `ev["ability"] == "微环境压迫"`。
+    /// </param>
+    public static WorldState Damage(WorldState s, EntityId id, int amount, string ability = "")
     {
         var c = s.Cells[id];
         var modifiers = c.Modifiers.Where(m => m.Target == ModifierTarget.EnergyLoss).Select(m => m.ToValueModifier()).ToList();
@@ -37,6 +42,30 @@ internal static class CellRules
 
         amount = Settlement.ApplyEnergyLoss(amount, modifiers);
         s = ConsumeModifiers(s, id, ModifierTarget.EnergyLoss);
+
+        // 【耗竭抵抗】（PRD:1277）：**两句合成一个 cut 一次减掉**，逐位对齐 GD 的
+        // `cw_damage.gd:266-274`（Kevin 2026-09-16 裁定「按照 GD 的实现方式来」）。
+        //   ① 每世界回合自身第一次受到能量损失：该次 −1.0
+        //   ② 结算【微环境压迫】时：额外 −0.5
+        // 第①句此前在 C# 里是回合开始挂的一条 `EnergyLoss` 修饰、第②句在压迫的调用点减 ——
+        // 算出来的数一样（都是「减法 + 下限 0」，拆不拆不影响），但**形状和 GD 对不上**：
+        // 管线里倍率排在减法之前，而那 −0.5 当时在管线之外先减了。
+        //
+        // **ON_BENEFIT**：这一组没把伤害压低就不消耗（GD `_reduce` 的 `after == dmg → continue`）——
+        // 所以「本世界回合首次」那个闸要等真减到了才烧。
+        if (RulePolicies.HasSkill(s, c, "耗竭抵抗"))
+        {
+            var firstThisRound = RoundGateOpen(c, "耗竭抵抗");
+            var cut = (firstThisRound ? ExhaustFirstCut : 0)
+                + (ability == "微环境压迫" ? ExhaustPressureCut : 0);
+            var after = Math.Max(0, amount - cut);
+            if (after != amount)
+            {
+                amount = after;
+                if (firstThisRound) s = BurnRoundGate(s, id, "耗竭抵抗");
+                c = s.Cells[id];
+            }
+        }
         if (markApplies)
         {
             var marked = s.Cells[id];
@@ -127,6 +156,10 @@ internal static class CellRules
         }
         return s.UpdateCell(id, c.Copy(modifiers: kept));
     }
+
+    /// <summary>【耗竭抵抗】两句的减免值（GD `EXHAUST_FIRST_CUT` / `EXHAUST_PRESSURE_CUT`）。</summary>
+    internal const int ExhaustFirstCut = 10;
+    internal const int ExhaustPressureCut = 5;
 
     /// <summary>【连续吞噬】最多连几次 / 每连一格下一次攻击的加成（GD `CHAIN_PHAGO_MAX` / `CHAIN_PHAGO_BONUS`）。</summary>
     internal const int ChainPhagoMax = 5;

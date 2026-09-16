@@ -424,28 +424,33 @@ internal static class RulePolicies
     /// （对拍规格 P2 点名的四条纯查询之一）。抽之前它埋在 `BoardRules.Pressure` 的循环里，
     /// 那三个读者只能各自复制一份算式 —— 那正是「同一条规则三个实现」的起点。
     /// </summary>
-    public static int PressureLoss(WorldState s, Cell c)
+    public static int PressureAt(WorldState s, HexPosition at)
     {
-        var pressure = s.Board.GetAdjacentPositions(c.Position).Sum(p => s.Board.Tissues[p].State switch
-            { TissueState.Healthy => -1, TissueState.Cancer => 1, _ => 2 });
-        var loss = Settlement.RoundTenth(Math.Max(0, pressure) * 10.0 / 4);
-        var stage = Stage(s);
-        if (stage == 2) loss = loss * 3 / 2;
-        else if (stage == 3) loss = loss * 2;
-        // 【耗竭抵抗】后半句（PRD:1277 第二段）：「结算【微环境压迫】时，自身受到的能量损失**额外 -0.5**，最低为 0」。
-        // 前半句（每世界回合首次损失 -1.0）挂在 PhaseRules 的 EnergyLoss 修饰上；
-        // 这一句**只在压迫这一条路上**生效，而 CellRules.Damage 不知道「谁造成的」——
-        // 所以在这里减，这是唯一不用给整条伤害管线加来源参数的位置。
-        // 对齐 GDScript 的 cw_damage.gd:271-272（`if ev["ability"] == "微环境压迫"`）。
-        return HasSkill(s, c, "耗竭抵抗") ? Math.Max(0, loss - 5) : loss;
+        // 只读 `State` 一个字段：坏死是叠在健康组织上的计数，坏死格照算健康
+        // （所以**不能**图省事改用 Cancerous —— 那会把健康组织的抵消项整个丢掉）。
+        var raw = s.Board.GetAdjacentPositions(at).Sum(p => s.Board.Tissues[p].State switch
+            { TissueState.Healthy => PressureHealthyWeight, TissueState.Cancer => PressureCancerWeight, _ => PressureSolidWeight });
+        // **分期倍率并进乘数，整条只取整一次**（GD `pressure_at` 明写这句）。
+        //
+        // 2026-09-16 修：C# 原来是「先 round_tenth(raw×10/4)，再 ×3/2 或 ×2」—— **取整了两次**。
+        // 实锤：raw=3 的 II 期，GD (3×15+2)/4 = 1.1，C# round(7.5)=8 再 ×3/2 = 1.2。
+        // 与今早伤害侧那个「多条倍率要合成一次除法」是同一个形状。
+        return Settlement.RoundDiv(Math.Max(0, raw) * PressureMultiplierByStage[Stage(s) - 1], PressureDivisor);
     }
+
+    /// <summary>压迫的三个权重与分期倍率（GD `CWData.PRESSURE_*`，常量不是旋钮）。</summary>
+    public const int PressureCancerWeight = 1;
+    public const int PressureSolidWeight = 2;
+    public const int PressureHealthyWeight = -1;
+    public const int PressureDivisor = 4;
+    public static readonly IReadOnlyList<int> PressureMultiplierByStage = [10, 15, 20];
 
     /// <summary>
     /// 【E-增生】这一格这一次转化的概率（**千分率**），**纯查询**。
     ///
     /// 千分率而不是浮点：对拍的随机数带子记的是整数区间抽取
     /// （`randi_range(1,1000) <= chance`），浮点在带子上没有对应物。
-    /// 已经是癌性 / 被免疫占着 / 被盯着的格子返回 0。
+    /// 已经是癌性 / 被免疫占着 / 被【免疫监视】盯着的格子返回 0 —— 那几种 GD 也**不掷骰**。
     /// </summary>
     public static int ProliferateChance(WorldState s, HexPosition at)
     {

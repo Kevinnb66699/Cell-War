@@ -27,7 +27,10 @@ public static class Probes
         ["aerobic_share"] = (s, a) => RulePolicies.AerobicShare(s, a.Cell(s)),
 
         // ---- E 阶段 ----
-        ["pressure_loss"] = (s, a) => RulePolicies.PressureLoss(s, a.Cell(s)),
+        // 对的是 GD 的 `pressure_at`（**原始值**，不含【耗竭抵抗】的 −0.5）——
+        // 那 −0.5 两边住的地方不同（GD 在伤害管线、C# 在调用点），
+        // 拿含它的值对会把**分工差异**误报成**规则差异**
+        ["pressure_at"] = (s, a) => RulePolicies.PressureAt(s, a.Pos("at")),
         ["proliferate_chance"] = (s, a) => RulePolicies.ProliferateChance(s, a.Pos("at")),
         ["solidify_threshold"] = (s, _) => BoardRules.SolidifyThreshold(s),
 
@@ -44,7 +47,10 @@ public static class Probes
             "crit" => 2,
             var other => throw new InvalidOperationException($"不认识的攻击判词：{other}"),
         },
-        ["antibody_damage"] = (_, a) => RulePolicies.AntibodyDamage(a.Int("used"), a.Int("matured") != 0),
+        // 【抗体】的伤害暂不进探针表：GD 的 `antibody_damage(cell)` 收的是**细胞**
+        // （自己从细胞身上读用过几次、装没装【抗体亲和力成熟】），C# 的是 `(used, matured)` 两个标量。
+        // 签名不一样就没法「两边跑同一份参数」——要么先把其中一边的边界挪齐，要么它不该进 L0。
+        // 硬凑一个转换层是最坏的选择：那等于在靶场里再写一遍规则。
     };
 
     public static IReadOnlyCollection<string> Names => Table.Keys;
