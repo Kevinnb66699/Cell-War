@@ -69,73 +69,61 @@ public static class WorldStateExtensions
     public static Cell WithEnergy(this Cell c, int energy) => c.Copy(energy: energy);
     public static Cell WithPosition(this Cell c, HexPosition pos) => c.Copy(position: pos);
     public static Cell WithIsAlive(this Cell c, bool alive) => c.Copy(alive: alive);
-    public static Player WithIsAlive(this Player p, bool alive) => new() { Seat = p.Seat, Faction = p.Faction, IsAlive = alive, DrawCount = p.DrawCount, AntigenMemory = p.AntigenMemory, ImmuneLevel = p.ImmuneLevel, CancerType = p.CancerType };
-    public static Player WithAntigenMemory(this Player p, int memory) => new() { Seat = p.Seat, Faction = p.Faction, IsAlive = p.IsAlive, DrawCount = p.DrawCount, AntigenMemory = memory, ImmuneLevel = p.ImmuneLevel, CancerType = p.CancerType };
-    public static Player WithImmuneLevel(this Player p, ImmuneLevel level) => new() { Seat = p.Seat, Faction = p.Faction, IsAlive = p.IsAlive, DrawCount = p.DrawCount, AntigenMemory = p.AntigenMemory, ImmuneLevel = level, CancerType = p.CancerType };
-    public static Player WithDrawCount(this Player p, int count) => new() { Seat = p.Seat, Faction = p.Faction, IsAlive = p.IsAlive, DrawCount = count, AntigenMemory = p.AntigenMemory, ImmuneLevel = p.ImmuneLevel, CancerType = p.CancerType };
-    public static Player WithCancerType(this Player p, CellType type) => new() { Seat = p.Seat, Faction = p.Faction, IsAlive = p.IsAlive, DrawCount = p.DrawCount, AntigenMemory = p.AntigenMemory, ImmuneLevel = p.ImmuneLevel, CancerType = type };
+    /// <summary>Player 的**唯一**一份字段清单（2026-09-15 收口：此前 5 个 With* 各手写了一份 7 字段）。</summary>
+    private static Player CopyPlayer(this Player p, bool? alive = null, int? memory = null,
+        ImmuneLevel? level = null, int? drawCount = null, CellType? cancerType = null)
+        => new()
+        {
+            Seat = p.Seat, Faction = p.Faction,
+            IsAlive = alive ?? p.IsAlive, DrawCount = drawCount ?? p.DrawCount,
+            AntigenMemory = memory ?? p.AntigenMemory, ImmuneLevel = level ?? p.ImmuneLevel,
+            CancerType = cancerType ?? p.CancerType
+        };
+    public static Player WithIsAlive(this Player p, bool alive) => p.CopyPlayer(alive: alive);
+    public static Player WithAntigenMemory(this Player p, int memory) => p.CopyPlayer(memory: memory);
+    public static Player WithImmuneLevel(this Player p, ImmuneLevel level) => p.CopyPlayer(level: level);
+    public static Player WithDrawCount(this Player p, int count) => p.CopyPlayer(drawCount: count);
+    public static Player WithCancerType(this Player p, CellType type) => p.CopyPlayer(cancerType: type);
+    /// <summary>
+    /// TurnState 的**唯一**一份字段清单。所有 With* 都从这里出去。
+    ///
+    /// 2026-09-15 收口：此前 `WithPendingDiscard` / `WithPendingMutation` / `ClearPendingMutation` /
+    /// `WithCytokineNetwork` / `WithChemo` 各自手写了一份 19 字段的初始化器 —— 连同这里的 `Copy`
+    /// 与 `TurnState.Clone()` 共 **7 份**。七份今天都还是全的，但 `Tissue.WithOccupyingCell`
+    /// 当初也是「全的」，直到有人加了两个字段，它就静默清零了 `SolidLockRound` 与 `ToxinRound`。
+    ///
+    /// 那 5 份之所以存在，是因为 `?? t.X` **表达不了「改成 null」**。
+    /// 解法照 `CopyTissue` 的 `setOccupying` 先例：给会被清空的那三处各加一个开关。
+    /// 只加真正用到的三个 —— 将来要清 `Winner` 时再加第四个，别现在替未来立规矩。
+    /// </summary>
     public static TurnState Copy(this TurnState t, Phase? phase = null, int? seat = null, int? round = null, int? startStep = null, Faction? winner = null, int? alarm = null, int? pendingDiscard = null, int? tgf = null, int? pausedDecay = null,
         int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? cytokineSeat = null, int? effectorRound = null, int? cancerDisabledUntil = null,
-        HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null)
+        HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null,
+        bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false)
         => new() { WorldRound = round ?? t.WorldRound, Phase = phase ?? t.Phase, ActivePlayerSeat = seat ?? t.ActivePlayerSeat,
             StartStep = startStep ?? t.StartStep, Winner = winner ?? t.Winner, CancerAlarmRound = alarm ?? t.CancerAlarmRound,
-            PendingDiscardSeat = pendingDiscard ?? t.PendingDiscardSeat, TgfStacks = tgf ?? t.TgfStacks, PausedDecayRound = pausedDecay ?? t.PausedDecayRound,
-            PendingMutationSeat = pendingMutationSeat ?? t.PendingMutationSeat, PendingMutationCell = pendingMutationCell ?? t.PendingMutationCell,
+            PendingDiscardSeat = setPendingDiscard ? pendingDiscard : pendingDiscard ?? t.PendingDiscardSeat,
+            TgfStacks = tgf ?? t.TgfStacks, PausedDecayRound = pausedDecay ?? t.PausedDecayRound,
+            PendingMutationSeat = setPendingMutation ? pendingMutationSeat : pendingMutationSeat ?? t.PendingMutationSeat,
+            PendingMutationCell = setPendingMutation ? pendingMutationCell : pendingMutationCell ?? t.PendingMutationCell,
             PendingMutationA = pendingMutationA ?? t.PendingMutationA, PendingMutationB = pendingMutationB ?? t.PendingMutationB,
             CytokineNetworkSeat = cytokineSeat ?? t.CytokineNetworkSeat,
             EffectorRound = effectorRound ?? t.EffectorRound, CancerEffectsDisabledUntil = cancerDisabledUntil ?? t.CancerEffectsDisabledUntil,
-            ChemoAt = chemoAt ?? t.ChemoAt, ChemoRounds = chemoRounds ?? t.ChemoRounds, ChemoOwner = chemoOwner ?? t.ChemoOwner };
+            ChemoAt = setChemoAt ? chemoAt : chemoAt ?? t.ChemoAt,
+            ChemoRounds = chemoRounds ?? t.ChemoRounds, ChemoOwner = chemoOwner ?? t.ChemoOwner };
     public static TurnState WithPhase(this TurnState t, Phase p) => t.Copy(phase: p);
     public static TurnState WithActivePlayer(this TurnState t, int seat) => t.Copy(seat: seat);
     public static TurnState WithWorldRound(this TurnState t, int round) => t.Copy(round: round);
-    public static TurnState WithPendingDiscard(this TurnState t, int? seat) => new()
-    {
-        WorldRound = t.WorldRound, Phase = t.Phase, ActivePlayerSeat = t.ActivePlayerSeat,
-        StartStep = t.StartStep, Winner = t.Winner, CancerAlarmRound = t.CancerAlarmRound, PendingDiscardSeat = seat,
-        TgfStacks = t.TgfStacks, PausedDecayRound = t.PausedDecayRound,
-        PendingMutationSeat = t.PendingMutationSeat, PendingMutationCell = t.PendingMutationCell,
-        PendingMutationA = t.PendingMutationA, PendingMutationB = t.PendingMutationB, CytokineNetworkSeat = t.CytokineNetworkSeat,
-        EffectorRound = t.EffectorRound, CancerEffectsDisabledUntil = t.CancerEffectsDisabledUntil,
-        ChemoAt = t.ChemoAt, ChemoRounds = t.ChemoRounds, ChemoOwner = t.ChemoOwner
-    };
-    public static TurnState WithPendingMutation(this TurnState t, int seat, EntityId cell, int a, int b) => new()
-    {
-        WorldRound = t.WorldRound, Phase = t.Phase, ActivePlayerSeat = t.ActivePlayerSeat, StartStep = t.StartStep,
-        Winner = t.Winner, CancerAlarmRound = t.CancerAlarmRound, PendingDiscardSeat = t.PendingDiscardSeat,
-        TgfStacks = t.TgfStacks, PausedDecayRound = t.PausedDecayRound,
-        PendingMutationSeat = seat, PendingMutationCell = cell, PendingMutationA = a, PendingMutationB = b,
-        CytokineNetworkSeat = t.CytokineNetworkSeat, EffectorRound = t.EffectorRound, CancerEffectsDisabledUntil = t.CancerEffectsDisabledUntil,
-        ChemoAt = t.ChemoAt, ChemoRounds = t.ChemoRounds, ChemoOwner = t.ChemoOwner
-    };
-    public static TurnState ClearPendingMutation(this TurnState t) => new()
-    {
-        WorldRound = t.WorldRound, Phase = t.Phase, ActivePlayerSeat = t.ActivePlayerSeat, StartStep = t.StartStep,
-        Winner = t.Winner, CancerAlarmRound = t.CancerAlarmRound, PendingDiscardSeat = t.PendingDiscardSeat,
-        TgfStacks = t.TgfStacks, PausedDecayRound = t.PausedDecayRound,
-        PendingMutationSeat = null, PendingMutationCell = null, PendingMutationA = 0, PendingMutationB = 0,
-        CytokineNetworkSeat = t.CytokineNetworkSeat, EffectorRound = t.EffectorRound, CancerEffectsDisabledUntil = t.CancerEffectsDisabledUntil,
-        ChemoAt = t.ChemoAt, ChemoRounds = t.ChemoRounds, ChemoOwner = t.ChemoOwner
-    };
-    public static TurnState WithCytokineNetwork(this TurnState t, int seat) => new()
-    {
-        WorldRound = t.WorldRound, Phase = t.Phase, ActivePlayerSeat = t.ActivePlayerSeat, StartStep = t.StartStep,
-        Winner = t.Winner, CancerAlarmRound = t.CancerAlarmRound, PendingDiscardSeat = t.PendingDiscardSeat,
-        TgfStacks = t.TgfStacks, PausedDecayRound = t.PausedDecayRound,
-        PendingMutationSeat = t.PendingMutationSeat, PendingMutationCell = t.PendingMutationCell,
-        PendingMutationA = t.PendingMutationA, PendingMutationB = t.PendingMutationB, CytokineNetworkSeat = seat,
-        EffectorRound = t.EffectorRound, CancerEffectsDisabledUntil = t.CancerEffectsDisabledUntil,
-        ChemoAt = t.ChemoAt, ChemoRounds = t.ChemoRounds, ChemoOwner = t.ChemoOwner
-    };
-    public static TurnState WithChemo(this TurnState t, HexPosition? at, int rounds, int owner) => new()
-    {
-        WorldRound = t.WorldRound, Phase = t.Phase, ActivePlayerSeat = t.ActivePlayerSeat, StartStep = t.StartStep,
-        Winner = t.Winner, CancerAlarmRound = t.CancerAlarmRound, PendingDiscardSeat = t.PendingDiscardSeat,
-        TgfStacks = t.TgfStacks, PausedDecayRound = t.PausedDecayRound,
-        PendingMutationSeat = t.PendingMutationSeat, PendingMutationCell = t.PendingMutationCell,
-        PendingMutationA = t.PendingMutationA, PendingMutationB = t.PendingMutationB, CytokineNetworkSeat = t.CytokineNetworkSeat,
-        EffectorRound = t.EffectorRound, CancerEffectsDisabledUntil = t.CancerEffectsDisabledUntil,
-        ChemoAt = at, ChemoRounds = rounds, ChemoOwner = owner
-    };
+    public static TurnState WithPendingDiscard(this TurnState t, int? seat)
+        => t.Copy(pendingDiscard: seat, setPendingDiscard: true);
+    public static TurnState WithPendingMutation(this TurnState t, int seat, EntityId cell, int a, int b)
+        => t.Copy(pendingMutationSeat: seat, pendingMutationCell: cell, pendingMutationA: a, pendingMutationB: b, setPendingMutation: true);
+    public static TurnState ClearPendingMutation(this TurnState t)
+        => t.Copy(pendingMutationSeat: null, pendingMutationCell: null, pendingMutationA: 0, pendingMutationB: 0, setPendingMutation: true);
+    public static TurnState WithCytokineNetwork(this TurnState t, int seat)
+        => t.Copy(cytokineSeat: seat);
+    public static TurnState WithChemo(this TurnState t, HexPosition? at, int rounds, int owner)
+        => t.Copy(chemoAt: at, chemoRounds: rounds, chemoOwner: owner, setChemoAt: true);
     public static WorldState UpdateTissueState(this WorldState s, HexPosition pos, TissueState type) => s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithState(type)));
     public static WorldState UpdateTissueOccupant(this WorldState s, HexPosition pos, EntityId? id) => s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithOccupyingCell(id)));
     public static WorldState UpdateTissueSolidification(this WorldState s, HexPosition pos, int count) => s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithSolidificationCount(count)));
