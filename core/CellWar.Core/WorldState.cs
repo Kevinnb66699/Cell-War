@@ -10,6 +10,12 @@ public sealed class WorldState
     public required PagedMap<EntityId, Cell> Cells { get; init; }
     public required TurnState Turn { get; init; }
     public required PagedMap<int, Player> Players { get; init; }
+
+    /// <summary>
+    /// 规则旋钮（对齐 GD 的 `game.tune`）。**跟着世界走**，不是全局单例 ——
+    /// 快照 / 回滚 / 分叉自然带着当时那套旋钮，不会串味。不填就是 PRD 原文。
+    /// </summary>
+    public RuleTuning Tuning { get; init; } = RuleTuning.Default;
     
     /// <summary>
     /// 深复制世界状态（用于测试对拍，生产环境使用结构共享）
@@ -22,6 +28,7 @@ public sealed class WorldState
             Cells = new Dictionary<EntityId, Cell>(Cells.Select(kv => 
                 new KeyValuePair<EntityId, Cell>(kv.Key, kv.Value.Clone()))),
             Turn = Turn.Clone(),
+            Tuning = Tuning,
             Players = new Dictionary<int, Player>(Players.Select(kv =>
                 new KeyValuePair<int, Player>(kv.Key, kv.Value.Clone())))
         };

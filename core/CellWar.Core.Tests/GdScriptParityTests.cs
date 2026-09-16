@@ -667,6 +667,97 @@ public class GdScriptParityTests
         };
     }
 
+    // ---- TU-2：移动费用旋钮 ----
+    //
+    // GD 的 67 个旋钮挂在 `game.tune` 上，默认值一律指向 `CWData` 的同名常量。
+    // C# 这边新建 `RuleTuning`，先搬「移动费用」这一片。
+    // 两条判据缺一不可：**默认值对得上 GD**，而且**旋钮真的接上了线**
+    // （只验默认值的话，把旋钮拧一下引擎毫无反应也照样绿 —— 那就白搬了）。
+
+    [Theory]
+    [InlineData("CANCER_MOVE_CANCEROUS")]
+    [InlineData("CANCER_MOVE_HEALTHY")]
+    [InlineData("SCLC_MOVE_HEALTHY")]
+    [InlineData("PSEUDOPOD_COST")]
+    [InlineData("MUCUS_MOVE_SURCHARGE")]
+    [InlineData("METASTASIS_COST")]
+    public void 移动费用旋钮的默认值等于GDScript常量(string constant)
+    {
+        var tune = RuleTuning.Default;
+        var actual = constant switch
+        {
+            "CANCER_MOVE_CANCEROUS" => tune.CancerMoveCancerous,
+            "CANCER_MOVE_HEALTHY" => tune.CancerMoveHealthy,
+            "SCLC_MOVE_HEALTHY" => tune.SclcMoveHealthy,
+            "PSEUDOPOD_COST" => tune.PseudopodCost,
+            "MUCUS_MOVE_SURCHARGE" => tune.MucusMoveSurcharge,
+            _ => tune.MetastasisCost,
+        };
+        Assert.True(actual == GdConst(constant),
+            $"{constant}：GDScript {GdConst(constant)}，C# 旋钮默认值 {actual}");
+    }
+
+    [Theory]
+    [InlineData("IMMUNE_MOVE_HEALTHY")]
+    [InlineData("IMMUNE_MOVE_CANCEROUS")]
+    public void 免疫移动费用的四档默认值等于GDScript数组(string constant)
+    {
+        var gd = GdIntArray(constant);
+        var mine = constant == "IMMUNE_MOVE_HEALTHY"
+            ? RuleTuning.Default.ImmuneMoveHealthy
+            : RuleTuning.Default.ImmuneMoveCancerous;
+        Assert.Equal(gd, mine);
+    }
+
+    /// <summary>【伪足穿透】的门槛与折扣在 GD 侧是**常量不是旋钮**，但值也得对上。</summary>
+    [Fact]
+    public void 伪足穿透的门槛与折扣等于GDScript常量()
+    {
+        Assert.Equal(GdConst("PSEUDOPOD_MIN_ADJ"), RulePolicies.PseudopodMinAdjacent);
+        Assert.Equal(GdConst("PSEUDOPOD_DISCOUNT"), RulePolicies.PseudopodDiscount);
+    }
+
+    /// <summary>
+    /// 旋钮真的接上了线：拧一下，报价要跟着动。
+    /// 只验默认值的话，引擎里照旧写死字面量也照样绿 —— 那就白搬了。
+    /// </summary>
+    [Theory]
+    [InlineData(false, 5, 77)]    // 免疫 I 级走健康格
+    [InlineData(true, 10, 99)]    // 免疫 I 级走癌性格
+    public void 拧动免疫移动旋钮报价要跟着变(bool cancerous, int expectedDefault, int tweaked)
+    {
+        var world = MoveCostWorld(ImmuneLevel.I);
+        var step = new HexPosition(1, 0, -1);
+        if (!cancerous) world = world.UpdateTissueState(step, TissueState.Healthy);
+
+        Assert.Equal(expectedDefault, RulePolicies.QuoteMove(world, world.Cells[new EntityId(1)], step));
+
+        var knob = cancerous
+            ? world.Tuning with { ImmuneMoveCancerous = [tweaked, tweaked, tweaked, tweaked] }
+            : world.Tuning with { ImmuneMoveHealthy = [tweaked, tweaked, tweaked, tweaked] };
+        var tunedWorld = new WorldState
+        {
+            Board = world.Board, Cells = world.Cells, Turn = world.Turn, Players = world.Players, Tuning = knob,
+        };
+        Assert.Equal(tweaked, RulePolicies.QuoteMove(tunedWorld, tunedWorld.Cells[new EntityId(1)], step));
+    }
+
+    /// <summary>黏液附加费的旋钮归零 = 关掉这条规则（GD 侧也是 `> 0` 才发那条修饰）。</summary>
+    [Fact]
+    public void 黏液附加费旋钮归零就关掉这条规则()
+    {
+        var world = MucusWorld();
+        var step = new HexPosition(1, 0, -1);
+        Assert.Equal(12, RulePolicies.QuoteMove(world, world.Cells[new EntityId(1)], step));
+
+        var off = new WorldState
+        {
+            Board = world.Board, Cells = world.Cells, Turn = world.Turn, Players = world.Players,
+            Tuning = world.Tuning with { MucusMoveSurcharge = 0 },
+        };
+        Assert.Equal(10, RulePolicies.QuoteMove(off, off.Cells[new EntityId(1)], step));
+    }
+
     // 细胞站在 (0,0)；趋化源在 (3,0,-3)。朝它走 = (1,0,-1)，背它走 = (-1,0,1)。
     private static readonly HexPosition ChemoAt = new(3, 0, -3);
     private static readonly HexPosition ChemoStep = new(1, 0, -1);

@@ -46,12 +46,12 @@ internal static class SkillRules
                 if (!s.Board.Tissues.TryGetValue(cell.Position, out var vessel) || vessel.Type != TissueType.BloodVessel) return new(false, "自身必须处于血管格");
                 if (d.Target is not { } homing || !s.Board.Tissues.TryGetValue(homing, out var ht) || ht.State != TissueState.Healthy || ht.OccupyingCell != null)
                     return new(false, "必须选择无细胞占据的健康组织");
-                return Settlement.CanPay(cell.Energy, 10) ? new(true) : new(false, "能量不足");
+                return Settlement.CanPay(cell.Energy, MelanomaHomingCost) ? new(true) : new(false, "能量不足");
             case "转移":
                 if (cell.Type != CellType.SmallCellLung) return new(false, "只有小细胞肺癌可以发动【转移】");
                 if (d.Target is not { } jump || !s.Board.Tissues.TryGetValue(jump, out var jt) || jt.OccupyingCell != null || jump.DistanceTo(cell.Position) != 5)
                     return new(false, "终点必须是地图内 5 格外的无细胞格");
-                return Settlement.CanPay(cell.Energy, 10) ? new(true) : new(false, "能量不足");
+                return Settlement.CanPay(cell.Energy, s.Tuning.MetastasisCost) ? new(true) : new(false, "能量不足");
             case "免疫猎杀":
                 return ValidateEffector(s, cell, CellType.Dendritic);
             case "连续吞噬":
@@ -69,6 +69,13 @@ internal static class SkillRules
                 return new(false, "未知的种类技能");
         }
     }
+
+    /// <summary>
+    /// 【早期血行转移】的费用（GD `CWData.MELANOMA_HOMING_COST`）。
+    /// **它是常量不是旋钮** —— 与【转移】不同，GD 那边 `_cell_skill_base("homing")` 直接读常量，
+    /// 只有 `"jump"` 走 `game.tune.metastasis_cost`。两者今天同为 1.0，别顺手合并成一个。
+    /// </summary>
+    private const int MelanomaHomingCost = 10;
 
     private static ValidationResult ValidateEffector(WorldState s, Cell cell, CellType required)
     {
@@ -161,7 +168,7 @@ internal static class SkillRules
             }
             case "早期血行转移":
             {
-                s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 10, metastasis: true));
+                s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - MelanomaHomingCost, metastasis: true));
                 var dest = d.Target!.Value;
                 s = Teleport(s, cell.Id, dest);
                 var spread = dest.GetNeighbors().Where(n => s.Board.Tissues.TryGetValue(n, out var nt) && nt.State == TissueState.Healthy).ToArray();
@@ -170,7 +177,10 @@ internal static class SkillRules
             }
             case "转移":
             {
-                s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 10, jump: cell.JumpUsedThisRound + 1));
+                // GD 侧这笔钱走 SKILL_MOVE 的费用管线（`_do_jump` → `CWCost.Action.SKILL_MOVE`），
+                // 【基质阻隔】那类世界事件会让它翻倍。C# 还没有事件容器，先按基准价直扣 ——
+                // 事件容器落地时这里要改成走管线（EV-0/EV-1 那张工单）。
+                s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - s.Tuning.MetastasisCost, jump: cell.JumpUsedThisRound + 1));
                 s = Teleport(s, cell.Id, d.Target!.Value);
                 break;
             }

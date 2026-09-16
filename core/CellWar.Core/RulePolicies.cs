@@ -61,8 +61,8 @@ internal static class RulePolicies
         if (ChemoModifier(s, c, destination) is { } chemo) modifiers.Add(chemo);
         // 印戒「黏液侵染」：免疫**踏进**黏液格迁移费 +0.2（PRD:523）。
         // 和趋化源一样是**格子上的状态**，不住在任何人的 mods 里，单独发一条。
-        if (c.Faction == Faction.Immune && s.Board.Tissues[destination].Mucus)
-            modifiers.Add(new ValueModifier(ModifierStage.Add, SourceLayer.Skill, 0, MucusMoveSurcharge, Name: "黏液侵染"));
+        if (c.Faction == Faction.Immune && s.Tuning.MucusMoveSurcharge > 0 && s.Board.Tissues[destination].Mucus)
+            modifiers.Add(new ValueModifier(ModifierStage.Add, SourceLayer.Skill, 0, s.Tuning.MucusMoveSurcharge, Name: "黏液侵染"));
         return Settlement.ApplyValue(RawMoveCost(s, c, destination), modifiers);
     }
 
@@ -78,28 +78,34 @@ internal static class RulePolicies
     {
         var target = s.Board.Tissues[destination];
         var typeOn = TypeAbilityOn(s, c);   // 【中和抗体】压住癌种被动
+        var tune = s.Tuning;
         int cost;
         if (c.Faction == Faction.Cancer)
         {
-            if (Cancerous(target)) cost = 2;                       // 0.2
-            else if (typeOn && c.Type == CellType.SmallCellLung) cost = 7;   // 【极简胞浆】0.7
+            if (Cancerous(target)) cost = tune.CancerMoveCancerous;
+            else if (typeOn && c.Type == CellType.SmallCellLung) cost = tune.SclcMoveHealthy;   // 【极简胞浆】
             else if (typeOn && c.Type == CellType.Melanoma)
             {
                 var adjacent = destination.GetNeighbors().Count(n => s.Board.Tissues.TryGetValue(n, out var t) && Cancerous(t));
-                cost = adjacent >= 3 ? Math.Max(0, 5 - 1 * (adjacent - 3)) : 12;  // 【伪足穿透】
+                // 【伪足穿透】门槛与折扣**不是旋钮**（GD 侧也是 CWData 常量直接用，不过 tune）
+                cost = adjacent >= PseudopodMinAdjacent
+                    ? Math.Max(0, tune.PseudopodCost - PseudopodDiscount * (adjacent - PseudopodMinAdjacent))
+                    : tune.CancerMoveHealthy;
             }
-            else cost = 12;                                        // 1.2
+            else cost = tune.CancerMoveHealthy;
         }
         else
         {
-            cost = !Cancerous(target) ? 5
-                : s.Players[c.OwnerSeat].ImmuneLevel switch { ImmuneLevel.I => 10, ImmuneLevel.II => 8, _ => 8 };   // III/X 不再另有减免（Kevin 2026-09-15 按 PRD 裁定：只有 II 级那句 0.8）
+            var level = s.Players[c.OwnerSeat].ImmuneLevel;
+            // III/X 不再另有减免（Kevin 2026-09-15 按 PRD 裁定：只有 II 级那句 0.8）—— 现在由表说了算
+            cost = RuleTuning.ByLevel(Cancerous(target) ? tune.ImmuneMoveCancerous : tune.ImmuneMoveHealthy, level);
         }
         return cost;
     }
 
-    /// <summary>免疫踏进「黏液侵染」格的迁移附加费（GD 旋钮 `mucus_move_surcharge`，默认 CWData.MUCUS_MOVE_SURCHARGE）。</summary>
-    public const int MucusMoveSurcharge = 2;
+    /// <summary>【伪足穿透】的邻接门槛与每多一格的折扣（GD `PSEUDOPOD_MIN_ADJ` / `PSEUDOPOD_DISCOUNT`，常量不是旋钮）。</summary>
+    public const int PseudopodMinAdjacent = 3;
+    public const int PseudopodDiscount = 1;
 
     /// <summary>
     /// 树突【I-趋化源】的百分比费用修饰，没命中就返回 null。
