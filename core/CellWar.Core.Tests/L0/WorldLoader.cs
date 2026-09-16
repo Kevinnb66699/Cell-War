@@ -171,25 +171,30 @@ public static class WorldLoader
         return tune;
     }
 
+    /// <summary>
+    /// 旋钮按**GD 的名字**（snake_case）认 —— 用例说的是权威那边的话，
+    /// 不是 C# 的属性名。GD runner 那头直接 `g.tune.set(key, value)` 就用得上同一个键。
+    /// 没接上线的旋钮**当场炸**，别绕过去。
+    /// </summary>
     private static RuleTuning WithKnob(RuleTuning tune, string name, int value) => name switch
     {
-        nameof(RuleTuning.CancerMoveCancerous) => tune with { CancerMoveCancerous = value },
-        nameof(RuleTuning.CancerMoveHealthy) => tune with { CancerMoveHealthy = value },
-        nameof(RuleTuning.SclcMoveHealthy) => tune with { SclcMoveHealthy = value },
-        nameof(RuleTuning.PseudopodCost) => tune with { PseudopodCost = value },
-        nameof(RuleTuning.MucusMoveSurcharge) => tune with { MucusMoveSurcharge = value },
-        nameof(RuleTuning.MetastasisCost) => tune with { MetastasisCost = value },
-        nameof(RuleTuning.AnaerobicSolidBonus) => tune with { AnaerobicSolidBonus = value },
-        nameof(RuleTuning.AnaerobicFloor) => tune with { AnaerobicFloor = value },
-        nameof(RuleTuning.AnaerobicCap) => tune with { AnaerobicCap = value },
-        nameof(RuleTuning.AnaerobicSplit) => tune with { AnaerobicSplit = value != 0 },
-        nameof(RuleTuning.NewbornProtect) => tune with { NewbornProtect = value != 0 },
-        nameof(RuleTuning.CancerUpkeepPercent) => tune with { CancerUpkeepPercent = value },
-        nameof(RuleTuning.EnergyCap) => tune with { EnergyCap = value },
-        nameof(RuleTuning.OverloadThreshold) => tune with { OverloadThreshold = value },
-        nameof(RuleTuning.OverloadDiv) => tune with { OverloadDiv = value },
-        nameof(RuleTuning.OverloadExp) => tune with { OverloadExp = value },
-        nameof(RuleTuning.OverloadCap) => tune with { OverloadCap = value },
+        "cancer_move_cancerous" => tune with { CancerMoveCancerous = value },
+        "cancer_move_healthy" => tune with { CancerMoveHealthy = value },
+        "sclc_move_healthy" => tune with { SclcMoveHealthy = value },
+        "pseudopod_cost" => tune with { PseudopodCost = value },
+        "mucus_move_surcharge" => tune with { MucusMoveSurcharge = value },
+        "metastasis_cost" => tune with { MetastasisCost = value },
+        "anaerobic_solid_bonus" => tune with { AnaerobicSolidBonus = value },
+        "anaerobic_floor" => tune with { AnaerobicFloor = value },
+        "anaerobic_cap" => tune with { AnaerobicCap = value },
+        "anaerobic_split" => tune with { AnaerobicSplit = value != 0 },
+        "newborn_protect" => tune with { NewbornProtect = value != 0 },
+        "cancer_upkeep_pct" => tune with { CancerUpkeepPercent = value },
+        "energy_cap" => tune with { EnergyCap = value },
+        "overload_threshold" => tune with { OverloadThreshold = value },
+        "overload_div" => tune with { OverloadDiv = value },
+        "overload_exp" => tune with { OverloadExp = value },
+        "overload_cap" => tune with { OverloadCap = value },
         _ => throw new InvalidOperationException($"旋钮 {name} 还没接进 L0 loader —— 加一行，别绕过去"),
     };
 }

@@ -1,0 +1,123 @@
+[
+  {
+    "id": "overload/at_threshold",
+    "probe": "overload_loss",
+    "source": "PRD 2026-09-15：损失 = min{15, max{0, ((x−10)÷2)^1.18}}；10.0 及以下不扣",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [{ "at": "0,0", "state": "cancer", "cell": 0 }],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0", "energy": 100 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 0
+  },
+  {
+    "id": "overload/real_threshold_is_10_2",
+    "probe": "overload_loss",
+    "source": "同上：10.1 的损失四舍五入后仍是 0 —— **实际门槛是 10.2**（PRD 只写了 10）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [{ "at": "0,0", "state": "cancer", "cell": 0 }],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0", "energy": 101 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 0
+  },
+  {
+    "id": "overload/first_nonzero",
+    "probe": "overload_loss",
+    "source": "同上：10.2 起才真的扣 —— 0.1^1.18 = 0.066 → ×10 = 0.66 → 四舍五入 1",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [{ "at": "0,0", "state": "cancer", "cell": 0 }],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0", "energy": 102 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 1
+  },
+  {
+    "id": "overload/curve_11_0",
+    "probe": "overload_loss",
+    "source": "曲线上的点：((11−10)/2)^1.18 = 0.5^1.18 = 0.4415 → 4",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [{ "at": "0,0", "state": "cancer", "cell": 0 }],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0", "energy": 110 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 4
+  },
+  {
+    "id": "overload/curve_12_0",
+    "probe": "overload_loss",
+    "source": "((12−10)/2)^1.18 = 1.0^1.18 = 1.0 → 10",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [{ "at": "0,0", "state": "cancer", "cell": 0 }],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0", "energy": 120 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 10
+  },
+  {
+    "id": "overload/curve_15_0",
+    "probe": "overload_loss",
+    "source": "2.5^1.18 = 2.948 → 29（小数位 .48，离取整边界够远）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [{ "at": "0,0", "state": "cancer", "cell": 0 }],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0", "energy": 150 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 29
+  },
+  {
+    "id": "overload/curve_20_0",
+    "probe": "overload_loss",
+    "source": "5.0^1.18 = 6.724 → 67",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [{ "at": "0,0", "state": "cancer", "cell": 0 }],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0", "energy": 200 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 67
+  },
+  {
+    "id": "overload/cap_at_29_8",
+    "probe": "overload_loss",
+    "source": "上限 min{15, …}（Kevin 2026-09-15 晚加）：29.8 能量起损失到顶 15.0",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [{ "at": "0,0", "state": "cancer", "cell": 0 }],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0", "energy": 298 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 150
+  },
+  {
+    "id": "overload/cap_holds_far_above",
+    "probe": "overload_loss",
+    "source": "同上：再往上也恒定 15.0（净留 = x − 15，单调递增）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [{ "at": "0,0", "state": "cancer", "cell": 0 }],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0", "energy": 500 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 150
+  },
+  {
+    "id": "overload/div_zero_turns_it_off",
+    "probe": "overload_loss",
+    "source": "旋钮 overload_div ≤ 0 = 关闭整条规则（扫描的对照档，顺带兜除零）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer" }],
+      "tiles": [{ "at": "0,0", "state": "cancer", "cell": 0 }],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0", "energy": 500 }],
+      "tuning": { "overload_div": 0 }
+    },
+    "args": { "cell": "0" },
+    "expect": 0
+  }
+]
