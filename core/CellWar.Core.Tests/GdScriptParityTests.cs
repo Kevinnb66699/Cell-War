@@ -713,8 +713,8 @@ public class GdScriptParityTests
     [Fact]
     public void 伪足穿透的门槛与折扣等于GDScript常量()
     {
-        Assert.Equal(GdConst("PSEUDOPOD_MIN_ADJ"), RulePolicies.PseudopodMinAdjacent);
-        Assert.Equal(GdConst("PSEUDOPOD_DISCOUNT"), RulePolicies.PseudopodDiscount);
+        Assert.Equal(RulePolicies.PseudopodMinAdjacent, GdConst("PSEUDOPOD_MIN_ADJ"));
+        Assert.Equal(RulePolicies.PseudopodDiscount, GdConst("PSEUDOPOD_DISCOUNT"));
     }
 
     /// <summary>
@@ -838,6 +838,193 @@ public class GdScriptParityTests
             Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
         };
     }
+
+    // ---- E 阶段步序（对齐 GD 的 CWWorld.e_phase()）----
+
+    /// <summary>
+    /// 【无氧呼吸】是**第 1 步**，算的是**增生/侵蚀之前**那份盘面。
+    /// 排在它们之后的话，本回合新转的格子会一起进池 —— 癌方每个世界回合都多收一点。
+    /// </summary>
+    [Fact]
+    public void 无氧呼吸算的是增生之前那份盘面()
+    {
+        var world = PocketWorld();
+        var id = new EntityId(1);
+        var before = world.Cells[id].Energy;
+        var cancerBefore = world.Board.Tissues.Values.Count(t => t.State != TissueState.Healthy);
+
+        var expectedBeforeGrowth = RulePolicies.AnaerobicShare(world, world.Cells[id]);
+        var after = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(20260915));
+
+        // ① 这一回合盘面确实长大了，否则这条什么都证明不了
+        var cancerAfter = after.Board.Tissues.Values.Count(t => t.State != TissueState.Healthy);
+        Assert.True(cancerAfter > cancerBefore, $"夹具没长大（{cancerBefore} → {cancerAfter}），判据是空的");
+
+        // ② 长大之后那份盘面会给出**不同**的数 —— 不然两种步序结果相同，判据还是空的
+        var expectedAfterGrowth = RulePolicies.AnaerobicShare(after, after.Cells[id]);
+        Assert.True(expectedAfterGrowth != expectedBeforeGrowth,
+            $"两种步序算出来一样（都是 {expectedBeforeGrowth}），换个夹具");
+
+        // ③ 实收的是「长大之前」那个数
+        Assert.Equal(expectedBeforeGrowth, after.Cells[id].Energy - before);
+    }
+
+    /// <summary>
+    /// 【根深蒂固】加的计数走 `RaiseSolid`：够门槛**当场**转固化，而不是等下一回合。
+    /// </summary>
+    [Fact]
+    public void 根深蒂固推过门槛当场转固化()
+    {
+        // II 期（第 6 世界回合起）门槛 2.0；把目标格摆在 1.5，+1.0 就该转
+        var world = RootedWorld(solidCount: 15, round: 6);
+        var target = new HexPosition(1, 0, -1);
+
+        var after = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(4));
+        Assert.Equal(TissueState.SolidifiedCancer, after.Board.Tissues[target].State);
+    }
+
+    /// <summary>【TNF-α局部炎症】冻住的格，【根深蒂固】也加不上计数。</summary>
+    [Fact]
+    public void 根深蒂固加不了被TNF冻住的格()
+    {
+        var world = RootedWorld(solidCount: 15, round: 6, frozen: true);
+        var target = new HexPosition(1, 0, -1);
+
+        var after = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(4));
+        Assert.Equal(TissueState.Cancer, after.Board.Tissues[target].State);
+
+        // 15 −5：【根深蒂固】一点没加上，随后**第 6 步衰减**照常扣了 0.5
+        // （目标格上没有癌细胞停留）。这一条顺带钉住了「衰减排在根深蒂固之后」——
+        // 反过来的话衰减先扣成 1.0、再被加成 2.0，当场转固化。
+        Assert.Equal(10, after.Board.Tissues[target].SolidificationCount);
+    }
+
+    /// <summary>【基质硬化】也走同一个口子：够门槛当场转固化，冻住的格加不上。</summary>
+    [Theory]
+    [InlineData(false, TissueState.SolidifiedCancer)]
+    [InlineData(true, TissueState.Cancer)]
+    public void 基质硬化走加固化计数的同一个口子(bool frozen, TissueState expected)
+    {
+        var world = StromaWorld(solidCount: 20, frozen: frozen);   // I 期门槛 3.0，+1.0 到 3.0
+        var target = new HexPosition(1, 0, -1);
+
+        var after = CardRules.Resolve(world, world.Cells[new EntityId(1)], "基质硬化",
+            new Xoshiro256StarStar(1), target, null);
+
+        Assert.Equal(expected, after.Board.Tissues[target].State);
+    }
+
+    /// <summary>
+    /// 树突【I-标记】到期：标记后第二次世界回合结算移除（PRD 2026-09-12）。
+    /// C# 此前**根本没有这一步** —— 标记是 ×2 倍伤，挂着不掉是实打实的强化。
+    /// </summary>
+    [Fact]
+    public void 标记在下一个世界回合结算时到期()
+    {
+        var world = MarkedCancerWorld(markRound: 3, worldRound: 3);
+        var id = new EntityId(1);
+
+        // 施加的那一回合结算不掉
+        var sameRound = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(2));
+        Assert.True(sameRound.Cells[id].Marked, "施加的那个回合末还不该掉");
+
+        // 下一个世界回合结算就掉
+        var nextRound = BoardRules.EvolveEndOfRound(
+            MarkedCancerWorld(markRound: 3, worldRound: 4), new Xoshiro256StarStar(2));
+        Assert.False(nextRound.Cells[id].Marked);
+        Assert.Equal(0, nextRound.Cells[id].MarkLeft);
+    }
+
+    // ---- E 阶段步序用的夹具 ----
+
+    /// <summary>
+    /// 一圈癌组织（6 格）围着**中心一格健康组织**，外面再铺两圈健康。
+    ///
+    /// 中心那格是个**封闭**的健康连通块（六邻全在棋盘内），所以【侵蚀】这一步**必定**
+    /// 把它转成癌组织 —— 癌性块从 6 格长到 7 格。
+    /// 不靠增生掷点是故意的：增生 3% 一格，靠运气的夹具会让判据时灵时不灵。
+    /// </summary>
+    private static WorldState PocketWorld()
+    {
+        var center = new HexPosition(0, 0, 0);
+        var ring = center.GetNeighbors().ToArray();
+        var tiles = new Dictionary<HexPosition, Tissue> { [center] = Tile(center, TissueState.Healthy, null) };
+        foreach (var n in ring) tiles[n] = Tile(n, TissueState.Cancer, null);
+        foreach (var n in ring)
+            foreach (var m in n.GetNeighbors())
+                tiles.TryAdd(m, Tile(m, TissueState.Healthy, null));
+        foreach (var n in ring)
+            foreach (var m in n.GetNeighbors())
+                foreach (var k in m.GetNeighbors())
+                    tiles.TryAdd(k, Tile(k, TissueState.Healthy, null));
+
+        var home = ring[0];
+        tiles[home] = Tile(home, TissueState.Cancer, new EntityId(1));
+        return CancerBoard(tiles, home, CellType.Osteosarcoma, worldRound: 1);
+    }
+
+    /// <summary>一格固化癌组织，旁边一格癌组织带着给定的计数（可选被 TNF-α 冻住）。</summary>
+    private static WorldState RootedWorld(int solidCount, int round, bool frozen = false)
+    {
+        var solid = new HexPosition(0, 0, 0);
+        var target = new HexPosition(1, 0, -1);
+        var tiles = new Dictionary<HexPosition, Tissue>
+        {
+            [solid] = new() { Position = solid, Type = TissueType.Normal, State = TissueState.SolidifiedCancer,
+                SolidificationCount = 30, OccupyingCell = new EntityId(1), Charge = 0 },
+            [target] = new() { Position = target, Type = TissueType.Normal, State = TissueState.Cancer,
+                SolidificationCount = solidCount, OccupyingCell = null, Charge = 0,
+                SolidLockRound = frozen ? round : 0 },
+        };
+        return CancerBoard(tiles, solid, CellType.Osteosarcoma, worldRound: round);
+    }
+
+    /// <summary>手里拿着【基质硬化】的癌细胞，旁边一格癌组织带着给定的计数。</summary>
+    private static WorldState StromaWorld(int solidCount, bool frozen)
+    {
+        var at = new HexPosition(0, 0, 0);
+        var target = new HexPosition(1, 0, -1);
+        var tiles = new Dictionary<HexPosition, Tissue>
+        {
+            [at] = Tile(at, TissueState.Cancer, new EntityId(1)),
+            [target] = new() { Position = target, Type = TissueType.Normal, State = TissueState.Cancer,
+                SolidificationCount = solidCount, OccupyingCell = null, Charge = 0,
+                SolidLockRound = frozen ? 1 : 0 },
+        };
+        return CancerBoard(tiles, at, CellType.Osteosarcoma, worldRound: 1, hand: ["基质硬化"]);
+    }
+
+    /// <summary>一个被【标记】的癌细胞。</summary>
+    private static WorldState MarkedCancerWorld(int markRound, int worldRound)
+    {
+        var at = new HexPosition(0, 0, 0);
+        var tiles = new Dictionary<HexPosition, Tissue> { [at] = Tile(at, TissueState.Cancer, new EntityId(1)) };
+        var world = CancerBoard(tiles, at, CellType.Osteosarcoma, worldRound);
+        var c = world.Cells[new EntityId(1)];
+        return world.UpdateCell(c.Id, c.Copy(marked: true, markLeft: 1, markRound: markRound));
+    }
+
+    /// <summary>一个癌方独占的盘面（免疫一个都没有，E 阶段里压迫那一步就不会干扰）。</summary>
+    private static WorldState CancerBoard(Dictionary<HexPosition, Tissue> tiles, HexPosition at,
+        CellType type, int worldRound, IReadOnlyList<string>? hand = null) => new()
+    {
+        Board = new Board { Radius = 6, Tissues = tiles },
+        Cells = new Dictionary<EntityId, Cell>
+        {
+            [new EntityId(1)] = new()
+            {
+                Id = new EntityId(1), OwnerSeat = 0, Faction = Faction.Cancer, Type = type,
+                Position = at, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                Hand = hand ?? [], Equipped = [],
+            },
+        },
+        Players = new Dictionary<int, Player>
+        {
+            [0] = new() { Seat = 0, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0,
+                AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = type },
+        },
+        Turn = new TurnState { WorldRound = worldRound, Phase = Phase.E, ActivePlayerSeat = 0 }
+    };
 
     // 细胞站在 (0,0)；趋化源在 (3,0,-3)。朝它走 = (1,0,-1)，背它走 = (-1,0,1)。
     private static readonly HexPosition ChemoAt = new(3, 0, -3);

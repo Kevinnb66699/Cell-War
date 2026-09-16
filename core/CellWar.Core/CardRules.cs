@@ -199,7 +199,11 @@ internal static class CardRules
             if (target is { } pos && pos.DistanceTo(cell.Position) <= 1 && s.Board.Tissues.TryGetValue(pos, out var t) && t.State == TissueState.Cancer)
             {
                 var add = CancerPhase(s.Turn.WorldRound) switch { 0 => 10, 1 => 15, _ => 20 };
-                s = s.UpdateTissueSolidification(pos, t.SolidificationCount + add);
+                // 走 `BoardRules.RaiseSolid` 而不是自己改字段 —— GD 侧 `_stroma_harden` 也是调 `raise_solid`。
+                // 直接改字段会绕过三道判据：TNF-α 冻结、血管不可固化、**加够门槛当场转固化**。
+                // 2026-09-15 之前这里靠 E 阶段那个大循环每回合重判所有癌组织兜着，
+                // E 阶段拆成具名步之后那张网没了 —— 不改的话推过门槛也永远不转。
+                s = BoardRules.RaiseSolid(s, pos, add);
             }
             return s;
         },
