@@ -173,11 +173,11 @@ Vector2i → "q,r"；bool → 1/0
 |---|---|---|
 | `events{pool,active,double_next}`（15 个世界事件 + 卡牌全局修饰容器） | 部分 | 部分 |
 | `tune`（59 旋钮） | ✓ | ✓ |
-| `chemo_track`（免疫猎杀追踪源） | ✓ | ✓ |
+| ~~`chemo_track`~~ **2026-09-16 起 C# 有了（`Turn.TrackCell/TrackFrozenAt/TrackRounds`）** | — | 照字段注入 |
 | `differentiated`（分化种类全阵营去重） | ✓ | ✓ |
 | ~~`equip_seq` + `fx_turn` / `fx_round`~~ **2026-09-15 起 C# 有了，这一行作废** | — | — |
-| `chemo_cd`（I-趋化源冷却） | ✓ | ✓ |
-| `chain_bonus`（连续吞噬累计加成） | ✓ | ✓ |
+| ~~`chemo_cd`~~ **2026-09-16 起 C# 有了（`Cell.ChemoCooldown`）；顺带把源的时钟改回「完整回合」制** | — | 照字段注入 |
+| ~~`chain_bonus`~~ **2026-09-16 起 C# 有了（`Cell.ChainLeft` / `ChainBonus` + 挂起式连锁）** | — | 照字段注入 |
 | ~~**`TgfStacks`**~~ **2026-09-16 起 C# 也住 `Effects` 容器，同名同形** | — | 照条目直接注入 |
 | ~~**`PausedDecayRound`**~~ **2026-09-16 起 C# 也住 `Effects` 容器，同名同形** | — | 照条目直接注入 |
 | **`SolidLockRound`** ← GD `events["active"]` 的【TNF-α局部炎症】 | ✓ | **必须注入** |
