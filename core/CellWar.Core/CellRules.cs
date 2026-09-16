@@ -314,15 +314,31 @@ internal static class CellRules
                 // 【免疫记忆库】等净化跨域反应：发出已提交事实，由 FactRouter 按目录稳定顺序分派
                 s = FactRouter.Emit(s, new PurifyResolvedFact(s.Turn.WorldRound, cell.Id), rng);
                 // 【模式识别增强】：每世界回合第一次【净化】后恢复 0.5 能量
+                //
+                // ⚠ 这四处（本条、下面的【效应记忆形成】、【RAS持续激活】、
+                // FactRouter.cs 的【免疫记忆库】）都是拿一条 **Value=0 的假 Move 修饰当闸门**
+                // ——「挂着 = 本回合已经触发过」。
+                //
+                // 2026-09-15 修：它们原来写 `Uses = 1`，而移动结算会
+                // `ConsumeModifiers(cell, ModifierTarget.Move)` 把**所有** Target==Move 的
+                // 条目消耗一次 —— 于是闸门会被**下一次移动**吃掉，当场失效。
+                // 实锤：装了本技能的细胞净化一次拿 0.5，再走一步，同一世界回合还能再拿一次。
+                //
+                // 改成 `ActiveModifier.Unlimited`（-1）：`ConsumeModifiers` 明确跳过 `Uses < 0`
+                // （那行注释本来就写着「Uses=-1 不受影响」），而 `ResetRoundFlags` 仍按
+                // `Duration == Round` 在世界回合开头清掉它。闸门语义这才成立。
+                //
+                // （更干净的做法是给闸门一个专用的 ModifierTarget，不用 Move 这个语义无关的靶子；
+                //   但那要动枚举与所有消费点，留到 mods 那一族整体对齐时一起做。）
                 if (s.Cells[cell.Id].Equipped.Contains("模式识别增强") && !HasModifier(s.Cells[cell.Id], "模式识别增强"))
                 {
-                    s = AddModifier(s, s.Cells[cell.Id], new("模式识别增强", ModifierTarget.Move, ModifierStage.Add, SourceLayer.Passive, 0, 0, null, 1, ModifierDuration.Round));
+                    s = AddModifier(s, s.Cells[cell.Id], new("模式识别增强", ModifierTarget.Move, ModifierStage.Add, SourceLayer.Passive, 0, 0, null, ActiveModifier.Unlimited, ModifierDuration.Round));
                     s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
                 }
                 // 【效应记忆形成】：每世界回合第一次【净化】后免疫方 +1 抗原记忆、自身恢复 0.5
                 if (s.Cells[cell.Id].Equipped.Contains("效应记忆形成") && !HasModifier(s.Cells[cell.Id], "效应记忆形成"))
                 {
-                    s = AddModifier(s, s.Cells[cell.Id], new("效应记忆形成", ModifierTarget.Move, ModifierStage.Add, SourceLayer.Passive, 0, 0, null, 1, ModifierDuration.Round));
+                    s = AddModifier(s, s.Cells[cell.Id], new("效应记忆形成", ModifierTarget.Move, ModifierStage.Add, SourceLayer.Passive, 0, 0, null, ActiveModifier.Unlimited, ModifierDuration.Round));
                     s = AddMemory(s, 1);
                     s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
                 }
@@ -338,7 +354,7 @@ internal static class CellRules
             {
                 var heal = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 3, 1 => 5, _ => 7 };
                 s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
-                s = AddModifier(s, s.Cells[cell.Id], new("RAS持续激活", ModifierTarget.Move, ModifierStage.Add, SourceLayer.Passive, 0, 0, null, 1, ModifierDuration.Turn));
+                s = AddModifier(s, s.Cells[cell.Id], new("RAS持续激活", ModifierTarget.Move, ModifierStage.Add, SourceLayer.Passive, 0, 0, null, ActiveModifier.Unlimited, ModifierDuration.Turn));
             }
         }
         s = CollectEnergy(s, cell.Id);

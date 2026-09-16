@@ -29,7 +29,7 @@ internal static class FactRouter
         var cell = s.Cells[resolved.CellId];
         if (cell.Equipped.Contains("免疫记忆库") && !CellRules.HasModifier(cell, "免疫记忆库"))
         {
-            s = CellRules.AddModifier(s, cell, new("免疫记忆库", ModifierTarget.Move, ModifierStage.Add, SourceLayer.Passive, 0, 0, null, 1, ModifierDuration.Round));
+            s = CellRules.AddModifier(s, cell, new("免疫记忆库", ModifierTarget.Move, ModifierStage.Add, SourceLayer.Passive, 0, 0, null, ActiveModifier.Unlimited, ModifierDuration.Round));
             s = CardRules.DrawOne(s, s.Cells[resolved.CellId], rng);
         }
         return s;

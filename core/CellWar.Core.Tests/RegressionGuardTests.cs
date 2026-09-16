@@ -565,6 +565,77 @@ public class RegressionGuardTests
         return world.UpdateCell(target.Id, target.Copy(marked: markLeft > 0, markLeft: markLeft, markRound: 1));
     }
 
+    // ---- 九、「每回合第一次」的闸门不许被移动吃掉 ----
+
+    /// <summary>
+    /// 四处「每世界回合第一次…」的技能（【模式识别增强】【效应记忆形成】【免疫记忆库】
+    /// 与每行动回合的【RAS持续激活】）都是拿一条 Value=0 的**假 Move 修饰**当闸门。
+    /// 它们原来写 `Uses = 1`，而移动结算会把**所有** Target==Move 的条目消耗一次 ——
+    /// 于是闸门被**下一次移动**吃掉，当场失效。
+    ///
+    /// 这条复现的就是那个实锤：净化一次拿 0.5，再走一步，同一世界回合**不该**再拿一次。
+    /// </summary>
+    [Fact]
+    public void 每世界回合第一次的闸门不会被下一次移动吃掉()
+    {
+        // 一条直线：免疫站 (0,0)，右边两格都是癌组织
+        var home = new HexPosition(0, 0, 0);
+        var first = new HexPosition(1, 0, -1);
+        var second = new HexPosition(2, 0, -2);
+
+        var world = PurifyLine(home, first, second, "模式识别增强");
+        var engine = new BasicRulesEngine();
+        var id = new EntityId(1);
+
+        var start = world.Cells[id].Energy;
+        var afterFirst = engine.ExecuteDecision(world, new MoveDecision(0, id, first), new Xoshiro256StarStar(7)).NewState;
+        var gainedOnce = afterFirst.Cells[id].Energy;
+        var afterSecond = engine.ExecuteDecision(afterFirst, new MoveDecision(0, id, second), new Xoshiro256StarStar(7)).NewState;
+
+        // 第一次净化该拿到 +0.5；第二次**同一世界回合内**不该再拿
+        var firstDelta = gainedOnce - start;          // = -第一步费用 + 0.5
+        var secondDelta = afterSecond.Cells[id].Energy - gainedOnce;   // = -第二步费用（没有 +0.5）
+        Assert.True(secondDelta < firstDelta,
+            $"闸门被第二次移动吃掉了：第一次 {firstDelta}、第二次 {secondDelta}（两次都拿到了 +0.5）");
+        Assert.True(CellRules.HasModifier(afterSecond.Cells[id], "模式识别增强"),
+            "闸门在第二次移动之后应当还挂着");
+    }
+
+    /// <summary>一条直线上两格癌组织，免疫细胞装了指定永久技能。</summary>
+    private static WorldState PurifyLine(HexPosition home, HexPosition a, HexPosition b, string skill)
+    {
+        Tissue Tile(HexPosition p, TissueState st, EntityId? occ) =>
+            new() { Position = p, Type = TissueType.Normal, State = st, SolidificationCount = 0, OccupyingCell = occ, Charge = 0 };
+
+        return new WorldState
+        {
+            Board = new Board
+            {
+                Radius = 6,
+                Tissues = new Dictionary<HexPosition, Tissue>
+                {
+                    [home] = Tile(home, TissueState.Healthy, new EntityId(1)),
+                    [a] = Tile(a, TissueState.Cancer, null),
+                    [b] = Tile(b, TissueState.Cancer, null),
+                }
+            },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = new()
+                {
+                    Id = new EntityId(1), OwnerSeat = 0, Faction = Faction.Immune, Type = CellType.ImmuneBasic,
+                    Position = home, Energy = 500, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [skill],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Immune, IsAlive = true, DrawCount = 0, AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I },
+            },
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+    }
+
     // ---- 夹具 ----
 
     /// <summary>让每个席位手里都有点牌，否则「看不看得见手牌」这件事没法验。</summary>
