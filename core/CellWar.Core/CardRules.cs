@@ -288,6 +288,16 @@ internal static class CardRules
                 s = s.UpdateTissueState(pick, TissueState.Healthy);
             return s;
         },
+        // 【癌症转移】（PRD:1465）：「选择两环内任意格子传送，正常触发【定殖】」。
+        // 「任意格子」不挑地形（健康 / 癌 / 固化都行）；唯一限制是**没有细胞占着** ——
+        // 一格只能站一个，所以自己所在的中心格也自动被排除。
+        // 「正常触发【定殖】」= 走 CellRules.Teleport：癌细胞落到健康组织上会把它转成
+        // 新生癌组织，与 GDScript 侧 enter_tile 同口径。
+        // 合法落点的枚举在 DecisionRouter（这张卡是 68 张里唯一需要选格的卡牌）。
+        ["癌症转移"] = (s, cell, rng, target, targetCell) =>
+            target is { } dest && MetastasisTargets(s, cell).Contains(dest)
+                ? CellRules.Teleport(s, cell.Id, dest)
+                : s,
         ["放疗"] = (s, cell, rng, target, targetCell) =>
         {
             var start = target ?? cell.Position;
@@ -552,4 +562,14 @@ internal static class CardRules
         }
         return new(s, Array.Empty<IGameEvent>(), true);
     }
+
+    /// <summary>【癌症转移】的合法落点：两环内、盘上、**没有细胞占着**的任意格（不挑地形）。</summary>
+    internal const int MetastasisRange = 2;
+
+    internal static IReadOnlyList<HexPosition> MetastasisTargets(WorldState s, Cell cell)
+        => RulePolicies.Tiles(s)
+            .Where(t => t.Position.DistanceTo(cell.Position) <= MetastasisRange && t.OccupyingCell == null)
+            .Select(t => t.Position)
+            .OrderBy(p => p.Q).ThenBy(p => p.R)
+            .ToArray();
 }

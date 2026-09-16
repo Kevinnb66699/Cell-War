@@ -636,6 +636,95 @@ public class RegressionGuardTests
         };
     }
 
+    // ---- 十、【癌症转移】（PRD:1465，此前 C# 侧整张缺失） ----
+
+    [Fact]
+    public void 癌症转移落到健康组织会触发定殖()
+    {
+        var home = new HexPosition(0, 0, 0);
+        var far = new HexPosition(2, 0, -2);          // 两环内
+        var world = MetastasisBoard(home, far);
+        var cancer = world.Cells[new EntityId(1)];
+
+        var after = CardRules.Resolve(world, cancer, "癌症转移", new Xoshiro256StarStar(1), far, null);
+
+        Assert.Equal(far, after.Cells[new EntityId(1)].Position);
+        Assert.Equal(TissueState.Cancer, after.Board.Tissues[far].State);
+        Assert.True(after.Board.Tissues[far].Newborn, "【定殖】造出来的应当是**新生**癌组织");
+        Assert.Null(after.Board.Tissues[home].OccupyingCell);
+        Assert.Equal(new EntityId(1), after.Board.Tissues[far].OccupyingCell);
+    }
+
+    /// <summary>「两环内」是硬边界：三环外的格子不在合法落点里，直接喂进去也不生效。</summary>
+    [Fact]
+    public void 癌症转移够不到三环外()
+    {
+        var home = new HexPosition(0, 0, 0);
+        var tooFar = new HexPosition(3, 0, -3);
+        var world = MetastasisBoard(home, tooFar);
+        var cancer = world.Cells[new EntityId(1)];
+
+        Assert.DoesNotContain(tooFar, CardRules.MetastasisTargets(world, cancer));
+
+        var after = CardRules.Resolve(world, cancer, "癌症转移", new Xoshiro256StarStar(1), tooFar, null);
+        Assert.Equal(home, after.Cells[new EntityId(1)].Position);
+    }
+
+    /// <summary>有细胞占着的格子不是合法落点 —— 一格只能站一个。自己脚下那格也因此自动排除。</summary>
+    [Fact]
+    public void 癌症转移不能落到有细胞的格子()
+    {
+        var home = new HexPosition(0, 0, 0);
+        var taken = new HexPosition(1, 0, -1);
+        var world = MetastasisBoard(home, taken);
+        var blocker = new Cell
+        {
+            Id = new EntityId(9), OwnerSeat = 0, Faction = Faction.Immune, Type = CellType.ImmuneBasic,
+            Position = taken, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+            Hand = [], Equipped = [],
+        };
+        world = world.AddCell(blocker);
+        world = world.WithBoard(world.Board.UpdateTissue(taken, world.Board.Tissues[taken].WithOccupyingCell(blocker.Id)));
+
+        var targets = CardRules.MetastasisTargets(world, world.Cells[new EntityId(1)]);
+        Assert.DoesNotContain(taken, targets);
+        Assert.DoesNotContain(home, targets);   // 自己脚下
+    }
+
+    /// <summary>一个癌细胞在 home，外加一格目标；棋盘铺到三环，够验「够不到」。</summary>
+    private static WorldState MetastasisBoard(HexPosition home, HexPosition extra)
+    {
+        var tiles = new Dictionary<HexPosition, Tissue>();
+        for (var q = -3; q <= 3; q++)
+            for (var r = -3; r <= 3; r++)
+            {
+                var p = new HexPosition(q, r, -q - r);
+                if (p.DistanceTo(new HexPosition(0, 0, 0)) > 3) continue;
+                tiles[p] = new() { Position = p, Type = TissueType.Normal, State = TissueState.Healthy, SolidificationCount = 0, OccupyingCell = null, Charge = 0 };
+            }
+        tiles[home] = tiles[home].WithOccupyingCell(new EntityId(1));
+        _ = extra;   // 目标格就是普通健康格，不需要额外处理
+
+        return new WorldState
+        {
+            Board = new Board { Radius = 3, Tissues = tiles },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = new()
+                {
+                    Id = new EntityId(1), OwnerSeat = 1, Faction = Faction.Cancer, Type = CellType.Melanoma,
+                    Position = home, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = ["癌症转移"], Equipped = [],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [1] = new() { Seat = 1, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0, AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Melanoma },
+            },
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 1 }
+        };
+    }
+
     // ---- 夹具 ----
 
     /// <summary>让每个席位手里都有点牌，否则「看不看得见手牌」这件事没法验。</summary>

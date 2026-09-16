@@ -112,6 +112,9 @@ public static class CardCatalog
         // （GDScript 侧 cw_card_data.gd:128 早就是 [2,3,4] —— issue #41 改过，C# 没跟。）
         new("糖酵解爆发", CardCategory.Event, CardPool.Cancer, [2, 3, 4]),
         new("克隆增殖", CardCategory.Instant, CardPool.Cancer, [5, 4, 3]),
+        // 2026-09-15 补：PRD:1465 的【癌症转移】此前 C# 侧整张缺失（68 张里唯一一张）。
+        // GDScript 侧 2026-09-14 随 issue #42 上线（cw_card_data.gd:124，权重同为 3/2/2）。
+        new("癌症转移", CardCategory.Instant, CardPool.Cancer, [3, 2, 2]),
         new("基因组不稳定", CardCategory.Event, CardPool.Cancer, [3, 3, 3]),
         new("肿瘤血管生成", CardCategory.Event, CardPool.Cancer, [3, 3, 2]),
         new("基质稳定", CardCategory.Event, CardPool.Cancer, [1, 3, 2]),
@@ -154,7 +157,7 @@ public static class CardImplementation
         "乳酸酸化", "基质硬化", "交叉呈递", "抗体依赖细胞毒作用", "IFN-γ高峰", "免疫风暴", "免疫增援",
         "肿瘤细胞募集", "肿瘤增援", "代谢耦联", "基质重塑", "放疗", "高亲和力克隆", "补体调理", "补体级联",
         "PD-L1表达", "BCL-2抗凋亡", "免疫记忆库", "免疫监视", "RAS持续激活", "癌症干性", "抗原呈递强化",
-        "模式识别增强", "效应记忆形成", "克隆增殖", "炎症风暴",
+        "模式识别增强", "效应记忆形成", "克隆增殖", "炎症风暴", "癌症转移",
         "趋化募集", "效应细胞浸润", "炎症性趋化", "基因组不稳定", "细胞因子网络",
         "I型干扰素", "代谢适应", "TNF-α局部炎症", "自分泌生存信号", "GLUT1高表达"
     ];

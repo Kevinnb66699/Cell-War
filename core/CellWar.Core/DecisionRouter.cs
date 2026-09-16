@@ -99,6 +99,17 @@ internal static class DecisionRouter
             if (Validate(s, mutate).IsValid) result.Add(mutate);
             foreach (var card in c.Hand)
             {
+                // 【癌症转移】是 68 张里**唯一需要选格**的卡牌：PRD:1465「选择两环内任意格子传送」。
+                // 其余卡要么无目标、要么目标能从状态里唯一推出来，所以这里只为它逐格展开。
+                if (card == "癌症转移")
+                {
+                    foreach (var dest in CardRules.MetastasisTargets(s, c))
+                    {
+                        var jump = new PlayCardDecision(seat, c.Id, card, dest);
+                        if (Validate(s, jump).IsValid) result.Add(jump);
+                    }
+                    continue;
+                }
                 var play = new PlayCardDecision(seat, c.Id, card);
                 if (Validate(s, play).IsValid) result.Add(play);
             }
