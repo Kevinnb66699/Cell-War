@@ -498,6 +498,11 @@ public class GdScriptParityTests
         };
         // edge 旁边留一格健康的；deep 四周全部铺癌组织
         tiles[new HexPosition(3, 0, -3)] = Tile(new HexPosition(3, 0, -3), TissueState.Healthy, null);
+        // B 细胞四周也要有健康格 —— 否则「免疫细胞不该被压住」那条会**蒙对**：
+        // 靶子筛选去掉阵营判据时它照样不在名单里（棋盘上根本没铺它的邻居）。
+        // 2026-09-15 变异检验抓到的假绿灯。
+        foreach (var n in bPos.GetNeighbors())
+            tiles.TryAdd(n, Tile(n, TissueState.Healthy, null));
         foreach (var n in deep.GetNeighbors())
             tiles[n] = Tile(n, TissueState.Cancer, null);
 

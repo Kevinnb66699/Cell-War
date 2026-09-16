@@ -1151,6 +1151,58 @@ public class RegressionGuardTests
         };
     }
 
+    // ---- 十三、效果判断不许绕过【中和抗体】的闸 ----
+    //
+    // PRD:627 让【中和抗体】压住「种类特殊效果 / 永久卡牌效果」。
+    // GD 把这件事收在 `has_skill()` 一个口子里，注释明写「**别在各处自己写 ctype 判断**」；
+    // C# 此前正是各处自己写 —— 25 处 `Equipped.Contains(...)`，一处都没过闸。
+    //
+    // 为这 25 处各写一条行为测试既写不完也挡不住第 26 处。
+    // 所以这里直接扫源码：**`Equipped.Contains(` 只许出现在下面这张白名单上**。
+    // 新加一处效果判断忘了走 `HasSkill`，这条当场红，并把文件与行号指给你。
+
+    [Fact]
+    public void 效果判断不许直接查Equipped而要走HasSkill()
+    {
+        // (文件, 那一行必须包含的片段, 为什么它不是效果判断)
+        var allowed = new (string File, string Fragment, string Why)[]
+        {
+            ("RulePolicies.cs", "=> !Neutralized(s, c) && c.Equipped.Contains(skill);", "闸门本体"),
+            ("CardRules.cs", "!cell.Hand.Contains(d.Name) && !cell.Equipped.Contains(d.Name)", "抽卡去重：已装备过就不再抽，与效果生不生效无关"),
+            ("CardRules.cs", "cell.Equipped.Contains(d.Card)) return new(false, \"同名永久技能已装备\")", "装备合法性：同名不能装两次，与效果生不生效无关"),
+        };
+
+        var offenders = new List<string>();
+        foreach (var path in Directory.EnumerateFiles(CoreSourceDir(), "*.cs"))
+        {
+            var name = Path.GetFileName(path);
+            var lines = File.ReadAllLines(path);
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var line = lines[i];
+                if (!line.Contains("Equipped.Contains(")) continue;
+                if (line.TrimStart().StartsWith("//") || line.TrimStart().StartsWith("///")) continue;   // 注释里提到不算
+                if (allowed.Any(a => a.File == name && line.Contains(a.Fragment))) continue;
+                offenders.Add($"{name}:{i + 1}  {line.Trim()}");
+            }
+        }
+
+        Assert.True(offenders.Count == 0,
+            "这些地方直接查了 Equipped 而没过【中和抗体】的闸 —— 改成 RulePolicies.HasSkill(s, cell, 技能名)；" +
+            "确实不是效果判断（比如「已装备过就别再抽」）就把它加进本测试的白名单，并写清为什么：" +
+            Environment.NewLine + "  " + string.Join(Environment.NewLine + "  ", offenders));
+    }
+
+    /// <summary>从测试程序集往上找到 core/CellWar.Core 的源码目录。</summary>
+    private static string CoreSourceDir()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !Directory.Exists(Path.Combine(dir.FullName, "CellWar.Core")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        return Path.Combine(dir!.FullName, "CellWar.Core");
+    }
+
     // ---- 夹具 ----
 
     /// <summary>让每个席位手里都有点牌，否则「看不看得见手牌」这件事没法验。</summary>
@@ -1307,6 +1359,7 @@ public class RegressionGuardTests
         Hand = ["组织巡航"],
         Equipped = ["耗竭抵抗"],
         EquipSeq = new Dictionary<string, int> { ["耗竭抵抗"] = 3 },
+        NeutralUntil = 9,
         FxTurn = new Dictionary<string, int> { ["RAS持续激活"] = 1 },
         FxRound = ["模式识别增强"],
         PlayCounter = 3,
