@@ -145,7 +145,11 @@ git rev-parse -q --verify "refs/tags/$TAG" >/dev/null && die "tag $TAG 本地已
 git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1 && die "tag $TAG 远端已存在"
 
 SHORT="$(git rev-parse --short HEAD)"
-NOTES="$(printf '客户端包，对应提交 %s。\n\n- Windows：CellWar.exe\n- macOS：CellWar.zip（已签名）\n\n服务器同版由 tools/deploy_server.sh 发布。' "$SHORT")"
+# ⚠ mac 那行别再写「已签名」：仓库里一行 codesign / notarytool 都没有，
+# 导出预设的 identity 与 team_id 都是空（game/export_presets.cfg:86-88），
+# 跑的是 Godot 内建的**临时签名（ad-hoc）** —— 有签名，但不是 Developer ID、没有公证。
+# 玩家照样会被 Gatekeeper 拦。写「已签名」会让人以为双击就能开，那是骗人。
+NOTES="$(printf '客户端包，对应提交 %s。\n\n- Windows：CellWar.exe（首次可能被 SmartScreen 拦，选「更多信息 → 仍要运行」）\n- macOS：CellWar.zip —— **右键 → 打开 → 再点「打开」**（只有临时签名、未公证，直接双击会被 Gatekeeper 拦）\n\n服务器同版由 tools/deploy_server.sh 发布。' "$SHORT")"
 
 echo "tag        $TAG"
 echo "commit     $SHORT"
