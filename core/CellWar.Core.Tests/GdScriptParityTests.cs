@@ -43,6 +43,88 @@ public class GdScriptParityTests
             "两边都要查：是 GDScript 改了规则（那 C# 要跟），还是这条期望写错了（那改期望，别改 GDScript）。");
     }
 
+    // ---- ⚠ 上面那条只验了「GDScript 没变」，**没有验 C# 跟上了没有** ----
+    //
+    // 这是我 2026-09-15 当天第二次犯同一个错：早上写的骰面值域测试测到了 rng 助手、
+    // 不是调用点；这里又只读了 cw_data.gd、没碰 C# 的行为。
+    // 变异检验当场戳穿：把【趋化源】改回那个「不扣费还涨 10 倍」的漏洞版，**184 条全绿**。
+    //
+    // 所以下面每一条都**真的执行一次规则**，拿 C# 算出来的数和 GDScript 常量比。
+
+    /// <summary>
+    /// 【趋化源】扣 3.0。**这一条是那个无限能量漏洞的直接判据** ——
+    /// 旧代码 `Round(cell.Energy - 2)` 会把 3.0 变成 28.0，所以除了「扣对」还要断言「能量确实变少了」。
+    /// </summary>
+    [Fact]
+    public void 趋化源真的扣掉三点能量而不是凭空涨()
+    {
+        var world = DendriticWorld(energy: 300);
+        var before = world.Cells[new EntityId(1)].Energy;
+
+        var after = new BasicRulesEngine().ExecuteDecision(world,
+            new TypeSkillDecision(0, new EntityId(1), "趋化源", new HexPosition(2, 0, -2)),
+            new Xoshiro256StarStar(1)).NewState;
+        var now = after.Cells[new EntityId(1)].Energy;
+
+        Assert.True(now < before, $"能量不减反增：{before} → {now}（这正是那个无限能量漏洞的形状）");
+        Assert.Equal(before - GdConst("CHEMO_COST"), now);
+    }
+
+    /// <summary>能量刚好不够时不许发动 —— 判据必须和实扣是同一个数（原来判 20、扣 30，对不上）。</summary>
+    [Fact]
+    public void 趋化源的合法性判据与实扣是同一个数()
+    {
+        var cost = GdConst("CHEMO_COST");
+        var engine = new BasicRulesEngine();
+        var decision = new TypeSkillDecision(0, new EntityId(1), "趋化源", new HexPosition(2, 0, -2));
+
+        // CanPay 的语义是「付完还要剩下」，所以正好等于费用时不许发动
+        Assert.False(engine.ValidateDecision(DendriticWorld(cost), decision).IsValid);
+        Assert.True(engine.ValidateDecision(DendriticWorld(cost + 1), decision).IsValid);
+    }
+
+    /// <summary>【细胞毒素】对 1 环内每个癌细胞造成 1.0（原来写 1 = 0.1）。</summary>
+    [Fact]
+    public void 细胞毒素造成一点能量损失()
+    {
+        var world = TCellVersusCancer();
+        var before = world.Cells[new EntityId(2)].Energy;
+
+        var after = new BasicRulesEngine().ExecuteDecision(world,
+            new TypeSkillDecision(0, new EntityId(1), "细胞毒素"),
+            new Xoshiro256StarStar(1)).NewState;
+
+        Assert.Equal(before - GdConst("ATTACK_DMG_SUCCESS"), after.Cells[new EntityId(2)].Energy);
+    }
+
+    /// <summary>
+    /// 减伤类修饰挂上去的值必须是十分位的 1.0，不是 0.1。
+    /// 直接读挂在细胞身上的 ActiveModifier，比「打一拳看少扣多少」更直接、也更难被别的规则干扰。
+    /// </summary>
+    [Theory]
+    [InlineData("缺氧适应", "HYPOXIA_CUT")]
+    [InlineData("I型干扰素", "IFN1_CUT")]
+    public void 减伤卡挂上去的值是十分位(string card, string gdConst)
+    {
+        var world = ImmuneWithHand(card);
+        var after = CardRules.Resolve(world, world.Cells[new EntityId(1)], card, new Xoshiro256StarStar(1), null, null);
+
+        var mod = after.Cells[new EntityId(1)].Modifiers.SingleOrDefault(m => m.Card == card);
+        Assert.NotNull(mod);
+        Assert.Equal(GdConst(gdConst), mod!.Value);
+    }
+
+    /// <summary>【高亲和力克隆】额外 1.0 —— 同上，读修饰的值。</summary>
+    [Fact]
+    public void 高亲和力克隆的额外伤害是十分位()
+    {
+        var world = ImmuneWithHand("高亲和力克隆");
+        var after = CardRules.Resolve(world, world.Cells[new EntityId(1)], "高亲和力克隆", new Xoshiro256StarStar(1), null, null);
+
+        var mod = after.Cells[new EntityId(1)].Modifiers.Single(m => m.Card == "高亲和力克隆");
+        Assert.Equal(GdConst("AFFINITY_EXTRA"), mod.Value);
+    }
+
     /// <summary>免疫→癌性迁移费按等级分档：PRD 只写了 II 级 0.8，III/X 沿用（Kevin 2026-09-15 裁定）。</summary>
     [Fact]
     public void 免疫迁移到癌性组织的四档与GDScript一致()
@@ -177,6 +259,74 @@ public class GdScriptParityTests
             Players = seats,
             Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 1 }
         };
+    }
+
+    /// <summary>一只树突站在健康组织上，旁边一格癌组织可当趋化源落点。</summary>
+    private static WorldState DendriticWorld(int energy)
+    {
+        var at = new HexPosition(0, 0, 0);
+        var far = new HexPosition(2, 0, -2);
+        var cell = Immune(new EntityId(1), 0, at).Copy(type: CellType.Dendritic, energy: energy, differentiated: true);
+        return new WorldState
+        {
+            Board = new Board
+            {
+                Radius = 6,
+                Tissues = new Dictionary<HexPosition, Tissue>
+                {
+                    [at] = Tile(at, TissueState.Healthy, new EntityId(1)),
+                    [far] = Tile(far, TissueState.Cancer, null),
+                }
+            },
+            Cells = new Dictionary<EntityId, Cell> { [new EntityId(1)] = cell },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Immune, IsAlive = true, DrawCount = 0, AntigenMemory = 0, ImmuneLevel = ImmuneLevel.III },
+            },
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+    }
+
+    /// <summary>一只 T 细胞紧邻一只癌细胞（癌细胞脚下是癌组织，够【细胞毒素】生效）。</summary>
+    private static WorldState TCellVersusCancer()
+    {
+        var at = new HexPosition(0, 0, 0);
+        var foe = new HexPosition(1, 0, -1);
+        return new WorldState
+        {
+            Board = new Board
+            {
+                Radius = 6,
+                Tissues = new Dictionary<HexPosition, Tissue>
+                {
+                    [at] = Tile(at, TissueState.Healthy, new EntityId(1)),
+                    [foe] = Tile(foe, TissueState.Cancer, new EntityId(2)),
+                }
+            },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = Immune(new EntityId(1), 0, at).Copy(type: CellType.TCell, differentiated: true),
+                [new EntityId(2)] = new()
+                {
+                    Id = new EntityId(2), OwnerSeat = 1, Faction = Faction.Cancer, Type = CellType.Melanoma,
+                    Position = foe, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Immune, IsAlive = true, DrawCount = 0, AntigenMemory = 0, ImmuneLevel = ImmuneLevel.III },
+                [1] = new() { Seat = 1, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0, AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Melanoma },
+            },
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+    }
+
+    private static WorldState ImmuneWithHand(string card)
+    {
+        var world = MoveCostWorld(ImmuneLevel.III);
+        var cell = world.Cells[new EntityId(1)];
+        return world.UpdateCell(cell.Id, cell.Copy(hand: new[] { card }));
     }
 
     private static Tissue Tile(HexPosition p, TissueState st, EntityId? occ) =>
