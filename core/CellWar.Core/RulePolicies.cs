@@ -86,7 +86,7 @@ internal static class RulePolicies
         else
         {
             cost = !Cancerous(target) ? 5
-                : s.Players[c.OwnerSeat].ImmuneLevel switch { ImmuneLevel.I => 10, ImmuneLevel.II => 8, _ => 7 };
+                : s.Players[c.OwnerSeat].ImmuneLevel switch { ImmuneLevel.I => 10, ImmuneLevel.II => 8, _ => 8 };   // III/X 不再另有减免（Kevin 2026-09-15 按 PRD 裁定：只有 II 级那句 0.8）
         }
         if (c.Faction == Faction.Immune && target.Mucus) cost += 2;  // 免疫迁入「黏液侵染」格 +0.2
         if (s.Turn.ChemoRounds > 0 && s.Turn.ChemoAt is { } chemo)
@@ -256,8 +256,17 @@ internal static class RulePolicies
         var living = s.Cells.Values.Count(x => x.IsAlive && x.Faction == Faction.Cancer && block.Contains(x.Position));
         var ordinary = block.Count(p => s.Board.Tissues[p].State == TissueState.Cancer);
         var solid = Tiles(s).Count(t => t.State == TissueState.SolidifiedCancer);
-        var six = s.Players.Count == 6;
-        var income = Round(Math.Max(2.0, (Math.Pow(ordinary, six ? 0.35 : 0.3) * (six ? 2.8 : 2.0) + solid) / Math.Max(1, living)));
+        // 2026-09-15 按 GDScript 对齐（Kevin 裁定）。原来写死 `six ? 0.35 : 0.3` 与 `six ? 2.8 : 2.0`，
+        // 两处都和权威实现对不上：
+        //   · **指数**：六人 0.35 只活了一个白天 —— issue #29 当晚就改回 0.3，
+        //     GDScript 的 ANAEROBIC_BLOCK_EXP_BY_PLAYERS 是 {2:30, 4:30, 6:30}，**三档全是 0.30**；
+        //   · **系数**：GDScript 的 ANAEROBIC_BLOCK_COEF_BY_PLAYERS 是 {2:28, 4:20, 6:28} ——
+        //     **2 人局是 2.8 不是 2.0**，而这里的 `six ? … : 2.0` 把 2 人局也当成了 2.0。
+        // 这两条会让双内核对拍在 E 阶段直接分叉（无氧每回合都走）。
+        // 表里没有的人数退回缺省（balance_scan 会扫 5 人 / 7 人这类非正式人数，不能崩）。
+        var coefPermille = s.Players.Count switch { 4 => 200, _ => 280 };   // 十分能量 ×100：2.0 / 2.8
+        var expPermille = 30;                                              // 百分数：三档都是 0.30
+        var income = Round(Math.Max(2.0, (Math.Pow(ordinary, expPermille / 100.0) * (coefPermille / 100.0) + solid) / Math.Max(1, living)));
         var disabled = s.Turn.CancerEffectsDisabledUntil >= s.Turn.WorldRound;  // 【中和抗体】
         if (!disabled && c.Type == CellType.SmallCellLung) income = (int)Math.Ceiling(income * 1.1);  // 【瓦伯格超速糖酵解】110% 向上取整到十分位
         if (!disabled && c.Equipped.Contains("GLUT1高表达")) income += CancerPhase(s.Turn.WorldRound) switch { 0 => 5, 1 => 8, _ => 10 };

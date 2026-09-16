@@ -32,7 +32,7 @@ internal static class SkillRules
                 return Settlement.CanPay(cell.Energy, 10) ? new(true) : new(false, "能量不足");
             case "黏液破裂":
                 if (cell.Type != CellType.SignetRing) return new(false, "只有印戒细胞癌可以发动【黏液破裂】");
-                return cell.Energy >= 2 ? new(true) : new(false, "至少需要 2 能量");
+                return cell.Energy >= 20 ? new(true) : new(false, "至少需要 2 能量");   // 十分位；PRD:519「至少2点」，对齐 CWData.MUCUS_MIN_ENERGY := 20
             case "骨样硬化":
                 if (cell.Type != CellType.Osteosarcoma) return new(false, "只有骨肉瘤可以发动【骨样硬化】");
                 if (!s.Board.Tissues.TryGetValue(cell.Position, out var own) || own.State != TissueState.Cancer) return new(false, "脚下不是癌组织");
@@ -61,7 +61,7 @@ internal static class SkillRules
                 if (cell.Type != CellType.Dendritic) return new(false, "只有树突状细胞可以建立【趋化源】");
                 if (s.Turn.ChemoRounds > 0) return new(false, "场上已有趋化源");
                 if (d.Target is not { } chemo || !s.Board.Tissues.ContainsKey(chemo)) return new(false, "必须选择棋盘内任意格");
-                return Settlement.CanPay(cell.Energy, 20) ? new(true) : new(false, "能量不足");
+                return Settlement.CanPay(cell.Energy, 30) ? new(true) : new(false, "能量不足");   // 【趋化源】3.0（PRD:561）；原来判 20 与实扣不一致
             default:
                 return new(false, "未知的种类技能");
         }
@@ -116,7 +116,7 @@ internal static class SkillRules
                     s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2).WithToxinRound(s.Turn.WorldRound)));
                 }
                 foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && x.Position.DistanceTo(cell.Position) <= 1).ToArray())
-                    s = Damage(s, target.Id, 1);
+                    s = Damage(s, target.Id, 10);   // 细胞毒素：1.0 能量（原 1 = 0.1）
                 break;
             }
             case "裂解":
@@ -179,7 +179,13 @@ internal static class SkillRules
                 break;
             }
             case "趋化源":
-                s = s.UpdateCell(cell.Id, cell.Copy(energy: Round(cell.Energy - 2)));
+                // 2026-09-15 修：这里原来是 `Round(cell.Energy - 2)`，**不是少个 0，是反的**。
+                // `RulePolicies.Round(double energyUnits) => RoundTenth(energyUnits * 10)` 收的是
+                // **能量单位**，而 `cell.Energy` 已经是十分位 ——
+                // 能量 3.0(=30) 发动一次之后变成 Round(28) = **280 = 28.0**：
+                // 不但不扣费，还凭空涨 10 倍，冷却允许时可反复刷。
+                // 费用 3.0 见 PRD:561，对齐 GDScript 的 CWData.CHEMO_COST := 30。
+                s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 30));
                 s = s.WithTurn(s.Turn.WithChemo(d.Target!.Value, 2, cell.OwnerSeat));
                 break;
             case "Excalibur":
@@ -213,9 +219,9 @@ internal static class SkillRules
                         s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2)));
                     }
                     foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && ray.Contains(x.Position)).ToArray())
-                        s = Damage(s, target.Id, 2);
+                        s = Damage(s, target.Id, 20);   // Excalibur 主射线：2.0 能量（原 2 = 0.2）
                     foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && splash.Contains(x.Position)).ToArray())
-                        s = Damage(s, target.Id, 1);
+                        s = Damage(s, target.Id, 10);   // Excalibur 侧向波及：1.0 能量（原 1 = 0.1）
                 }
                 break;
             }

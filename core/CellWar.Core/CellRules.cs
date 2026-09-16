@@ -308,7 +308,7 @@ internal static class CellRules
                 // 【I-吞噬】：巨噬细胞通过【迁移】触发净化后恢复，回量不超过本次实付 -0.1
                 if (s.Cells[cell.Id].Type == CellType.Macrophage)
                 {
-                    var heal = Math.Max(0, Math.Min(3, cost - 1));
+                    var heal = Math.Max(0, Math.Min(2, cost - 1));   // 【I-吞噬】回 0.2（PRD:597，09-12 覆盖版 0.3→0.2）；上限「实付 −0.1」照旧
                     if (heal > 0) s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
                 }
                 // 【免疫记忆库】等净化跨域反应：发出已提交事实，由 FactRouter 按目录稳定顺序分派

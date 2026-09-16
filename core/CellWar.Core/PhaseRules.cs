@@ -76,9 +76,9 @@ internal static class PhaseRules
             s = AddModifier(s, s.Cells[c.Id], new("组织巡航·减", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 0, 2, 2, ActiveModifier.Unlimited, ModifierDuration.Turn));
         }
         if (c.Equipped.Contains("耗竭抵抗"))
-            s = AddModifier(s, s.Cells[c.Id], new("耗竭抵抗", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Passive, 0, 1, 0, 1, ModifierDuration.Round));
+            s = AddModifier(s, s.Cells[c.Id], new("耗竭抵抗", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Passive, 0, 10, 0, 1, ModifierDuration.Round));   // 耗竭抵抗：挡下 1.0（原 1 = 0.1）
         if (c.Equipped.Contains("细胞毒性增强"))
-            s = AddModifier(s, s.Cells[c.Id], new("细胞毒性增强", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Passive, 0, 1, null, 1, ModifierDuration.Turn));
+            s = AddModifier(s, s.Cells[c.Id], new("细胞毒性增强", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Passive, 0, 10, null, 1, ModifierDuration.Turn));   // 细胞毒性增强：额外 1.0（原 1 = 0.1）
         return s;
     }
 

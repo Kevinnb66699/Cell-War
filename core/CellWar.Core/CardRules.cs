@@ -108,9 +108,9 @@ internal static class CardRules
         ["IFN-γ释放"] = (s, cell, rng, target, targetCell) =>
         {
             foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(cell.Position) <= 2).ToArray())
-                s = Damage(s, c.Id, 1);
+                s = Damage(s, c.Id, 10);   // 1.0 能量（十分位）
             foreach (var t in Tiles(s).Where(t => t.State == TissueState.Cancer && t.Position.DistanceTo(cell.Position) <= 2).ToArray())
-                s = s.UpdateTissueSolidification(t.Position, Math.Max(0, t.SolidificationCount - 1));
+                s = s.UpdateTissueSolidification(t.Position, Math.Max(0, t.SolidificationCount - 10));   // 固化计数 -1.0
             return s;
         },
         ["糖酵解爆发"] = (s, cell, rng, target, targetCell) =>
@@ -122,7 +122,7 @@ internal static class CardRules
         ["TGF-β释放"] = (s, cell, rng, target, targetCell) => s.WithTurn(s.Turn.Copy(tgf: s.Turn.TgfStacks + 1)),
         ["缺氧适应"] = (s, cell, rng, target, targetCell) =>
         {
-            s = AddModifier(s, s.Cells[cell.Id], new("缺氧适应", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Card, 0, 1, 0, 1, ModifierDuration.Game));
+            s = AddModifier(s, s.Cells[cell.Id], new("缺氧适应", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Card, 0, 10, 0, 1, ModifierDuration.Game));   // 缺氧适应：挡下 1.0（原 1 = 0.1）
             return s;
         },
         ["DNA损伤修复"] = (s, cell, rng, target, targetCell) =>
@@ -160,7 +160,7 @@ internal static class CardRules
         },
         ["高亲和力克隆"] = (s, cell, rng, target, targetCell) =>
         {
-            s = AddModifier(s, s.Cells[cell.Id], new("高亲和力克隆", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Card, 0, 1, null, 1, ModifierDuration.Turn));
+            s = AddModifier(s, s.Cells[cell.Id], new("高亲和力克隆", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Card, 0, 10, null, 1, ModifierDuration.Turn));   // 高亲和力克隆：额外 1.0（原 1 = 0.1）
             return s;
         },
         ["补体调理"] = (s, cell, rng, target, targetCell) =>
@@ -222,9 +222,9 @@ internal static class CardRules
             if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.Faction == Faction.Immune)
             {
                 foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(t.Position) <= 2).ToArray())
-                    s = Damage(s, c.Id, 1);
+                    s = Damage(s, c.Id, 10);   // IFN-γ高峰：1.0 能量（原 1 = 0.1）
                 foreach (var tile in Tiles(s).Where(x => x.State == TissueState.Cancer && x.Position.DistanceTo(t.Position) <= 2).ToArray())
-                    s = s.UpdateTissueSolidification(tile.Position, Math.Max(0, tile.SolidificationCount - 1));
+                    s = s.UpdateTissueSolidification(tile.Position, Math.Max(0, tile.SolidificationCount - 10));
             }
             return s;
         },
@@ -233,7 +233,7 @@ internal static class CardRules
             if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.Faction == Faction.Immune)
             {
                 foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(t.Position) <= 2).ToArray())
-                    s = Damage(s, c.Id, 1);
+                    s = Damage(s, c.Id, 10);   // 免疫风暴：1.0 能量（原 1 = 0.1）
                 foreach (var tile in Tiles(s).Where(x => x.State == TissueState.Cancer && x.OccupyingCell == null && x.Position.DistanceTo(t.Position) <= 2).ToArray())
                     s = s.UpdateTissueState(tile.Position, TissueState.Healthy);
             }
@@ -360,16 +360,16 @@ internal static class CardRules
         ["I型干扰素"] = (s, cell, rng, target, targetCell) =>
         {
             foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune).ToArray())
-                s = AddModifier(s, s.Cells[c.Id], new("I型干扰素", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Card, 0, 1, 0, 1, ModifierDuration.Round));
+                s = AddModifier(s, s.Cells[c.Id], new("I型干扰素", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Card, 0, 10, 0, 1, ModifierDuration.Round));   // I型干扰素：挡下 1.0（原 1 = 0.1）
             return s;
         },
         ["TNF-α局部炎症"] = (s, cell, rng, target, targetCell) =>
         {
             foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(cell.Position) <= 1).ToArray())
-                s = Damage(s, c.Id, 1);
+                s = Damage(s, c.Id, 10);   // TNF-α局部炎症：1.0 能量（原 1 = 0.1）
             foreach (var tile in Tiles(s).Where(t => t.State == TissueState.Cancer && t.Position.DistanceTo(cell.Position) <= 1).ToArray())
             {
-                s = s.UpdateTissueSolidification(tile.Position, Math.Max(0, tile.SolidificationCount - 1));
+                s = s.UpdateTissueSolidification(tile.Position, Math.Max(0, tile.SolidificationCount - 10));
                 s = s.WithBoard(s.Board.UpdateTissue(tile.Position, s.Board.Tissues[tile.Position].WithSolidLockRound(s.Turn.WorldRound)));
             }
             return s;

@@ -8,7 +8,12 @@ public class RuleContractTests
     [InlineData(Faction.Cancer, TissueState.SolidifiedCancer, ImmuneLevel.I, 2)]
     [InlineData(Faction.Immune, TissueState.Healthy, ImmuneLevel.I, 5)]
     [InlineData(Faction.Immune, TissueState.Cancer, ImmuneLevel.I, 10)]
-    [InlineData(Faction.Immune, TissueState.SolidifiedCancer, ImmuneLevel.III, 7)]
+    // ⚠ 2026-09-15 更正：这一行原来写 7 —— 那是**当时代码里的值**，不是 PRD 的值。
+    // 函数名叫 MatchPrd，断言的却是实现，于是它非但没抓到偏离，反而把偏离钉住了。
+    // PRD:359 只写了 II 级「到癌性组织的【迁移】耗能降为 0.8」，**III/X 没有再降的条文**；
+    // GDScript 的 IMMUNE_MOVE_CANCEROUS 是 [10, 8, 8, 8]。Kevin 2026-09-15 裁定按 PRD 走 0.8。
+    // （这是本轮第三次遇到同一形状：前两次是【糖酵解爆发】权重、值域测试测到了 rng 助手。）
+    [InlineData(Faction.Immune, TissueState.SolidifiedCancer, ImmuneLevel.III, 8)]
     public void MigrationCostsAndStrictPaymentMatchPrd(Faction faction, TissueState terrain, ImmuneLevel level, int expected)
     {
         var s = DemoScenario.Create();
