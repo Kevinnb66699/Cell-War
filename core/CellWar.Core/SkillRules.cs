@@ -20,7 +20,10 @@ internal static class SkillRules
         {
             case "抗体":
                 if (cell.Type != CellType.BCell) return new(false, "只有 B 细胞可以发动【抗体】");
-                return Settlement.CanPay(cell.Energy, 10) ? new(true) : new(false, "能量不足");
+                // 【抗体亲和力成熟】把费用降 0.5；**判据必须和实扣是同一个数**
+                // —— 判与扣对不上正是【趋化源】那条 bug 的形状。
+                return Settlement.CanPay(cell.Energy, cell.Equipped.Contains("抗体亲和力成熟") ? 5 : 10)
+                    ? new(true) : new(false, "能量不足");
             case "细胞毒素":
                 if (cell.Type != CellType.TCell) return new(false, "只有 T 细胞可以发动【细胞毒素】");
                 if (cell.ToxinThisRound >= 3) return new(false, "每个世界回合最多发动 3 次");
@@ -92,8 +95,15 @@ internal static class SkillRules
         {
             case "抗体":
             {
-                s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 10, antibody: cell.AntibodyThisRound + 1));
-                var damage = AntibodyDamage(cell.AntibodyThisRound);
+                // 【抗体亲和力成熟】2026-09-15 补齐：此前 C# 只实现了三条中的一条
+                // （攻击邻健康癌细胞 +0.5，在 CellRules）。另外两条按 PRD:1325 与 GDScript 补上：
+                //   · 抗体**费用降低 0.5**（`cw_actions.gd:1230-1235`；卡面 09-07 由「降低为 0.5」
+                //     改成「降低 0.5」—— 基础费 1.0 时两种读法同值，但基础费一变，减量才是卡面说的那件事）
+                //   · 抗体的**初始伤害改为 2.0**（`cw_data.gd:501`，09-07 卡面 1.5 → 2）
+                var matured = cell.Equipped.Contains("抗体亲和力成熟");
+                var cost = Math.Max(0, 10 - (matured ? 5 : 0));
+                s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - cost, antibody: cell.AntibodyThisRound + 1));
+                var damage = AntibodyDamage(cell.AntibodyThisRound, matured);
                 var targets = Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && AdjacentHealthy(s, x.Position)).ToArray();
                 if (targets.Length > 0 && damage > 0)
                     foreach (var target in targets) s = Damage(s, target.Id, damage);

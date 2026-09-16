@@ -125,6 +125,54 @@ public class GdScriptParityTests
         Assert.Equal(GdConst("AFFINITY_EXTRA"), mod.Value);
     }
 
+    /// <summary>
+    /// 【抗体亲和力成熟】三条都要在（PRD:1325）。此前 C# 只实现了「攻击邻健康癌细胞 +0.5」那一条。
+    /// 这里验另外两条：费用降 0.5、抗体初始伤害改 2.0。
+    /// </summary>
+    [Fact]
+    public void 抗体亲和力成熟把费用降半点并把伤害抬到两点()
+    {
+        var plain = RulePolicies.AntibodyDamage(0, matured: false);
+        var matured = RulePolicies.AntibodyDamage(0, matured: true);
+        Assert.Equal(GdConst("ANTIBODY_DAMAGE"), plain);
+        Assert.Equal(GdConst("MATURED_ANTIBODY_DMG"), matured);
+
+        // 费用：装了之后实扣要少 MATURED_ANTIBODY_CUT，而且**合法性判据要跟着降**
+        // （判与扣对不上正是【趋化源】那条 bug 的形状）
+        var cut = GdConst("MATURED_ANTIBODY_CUT");
+        var full = GdConst("ANTIBODY_COST");
+        var world = BCellWorld(energy: full, matured: true);
+        var decision = new TypeSkillDecision(0, new EntityId(1), "抗体");
+        Assert.True(new BasicRulesEngine().ValidateDecision(world, decision).IsValid,
+            $"装了【抗体亲和力成熟】之后费用应降到 {full - cut}，{full} 能量该发得动");
+
+        var rich = BCellWorld(energy: 300, matured: true);
+        var after = new BasicRulesEngine().ExecuteDecision(rich, decision, new Xoshiro256StarStar(1)).NewState;
+        Assert.Equal(300 - (full - cut), after.Cells[new EntityId(1)].Energy);
+    }
+
+    /// <summary>
+    /// 【耗竭抵抗】是**两段**（PRD:1277）：每世界回合首次损失 -1.0 **＋ 微环境压迫额外 -0.5**。
+    /// C# 此前只实现了第一段。
+    /// </summary>
+    [Fact]
+    public void 耗竭抵抗在微环境压迫上额外减半点()
+    {
+        var withSkill = PressureWorld(exhaustion: true);
+        var without = PressureWorld(exhaustion: false);
+        var engine = new BasicRulesEngine();
+        var rng = new Xoshiro256StarStar(9);
+
+        var lossWith = 300 - engine.AdvancePhase(withSkill, rng).NewState.Cells[new EntityId(1)].Energy;
+        var lossWithout = 300 - engine.AdvancePhase(without, new Xoshiro256StarStar(9)).NewState.Cells[new EntityId(1)].Energy;
+
+        // 这条**只验第二段**：夹具直接从 E 阶段跑，而第一段（每世界回合首次损失 -1.0）
+        // 是回合开始时由 PhaseRules.GrantTurnModifiers 挂上去的 EnergyLoss 修饰，这里没走到。
+        // 想两段一起验就得连回合流程一起跑，那属于整局层面的测试，不该塞进这条。
+        Assert.True(lossWithout > 0, "夹具本身要真的产生压迫损失，否则这条什么都证明不了");
+        Assert.Equal(lossWithout - GdConst("EXHAUST_PRESSURE_CUT"), lossWith);
+    }
+
     /// <summary>免疫→癌性迁移费按等级分档：PRD 只写了 II 级 0.8，III/X 沿用（Kevin 2026-09-15 裁定）。</summary>
     [Fact]
     public void 免疫迁移到癌性组织的四档与GDScript一致()
@@ -319,6 +367,39 @@ public class GdScriptParityTests
                 [1] = new() { Seat = 1, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0, AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Melanoma },
             },
             Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+    }
+
+    /// <summary>一只 B 细胞，旁边一格癌组织上站着癌细胞（够【抗体】找到目标）。</summary>
+    private static WorldState BCellWorld(int energy, bool matured)
+    {
+        var world = TCellVersusCancer();
+        var cell = world.Cells[new EntityId(1)];
+        return world.UpdateCell(cell.Id, cell.Copy(
+            type: CellType.BCell, energy: energy,
+            equipped: matured ? new[] { "抗体亲和力成熟" } : Array.Empty<string>()));
+    }
+
+    /// <summary>一只免疫细胞被癌组织围着 ⇒ E 阶段必然吃到【微环境压迫】。</summary>
+    private static WorldState PressureWorld(bool exhaustion)
+    {
+        var at = new HexPosition(0, 0, 0);
+        var tiles = new Dictionary<HexPosition, Tissue> { [at] = Tile(at, TissueState.Healthy, new EntityId(1)) };
+        foreach (var n in at.GetNeighbors()) tiles[n] = Tile(n, TissueState.Cancer, null);
+
+        return new WorldState
+        {
+            Board = new Board { Radius = 6, Tissues = tiles },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = Immune(new EntityId(1), 0, at).Copy(
+                    equipped: exhaustion ? new[] { "耗竭抵抗" } : Array.Empty<string>()),
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Immune, IsAlive = true, DrawCount = 0, AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I },
+            },
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.E, ActivePlayerSeat = 0 }
         };
     }
 

@@ -328,7 +328,17 @@ internal static class RulePolicies
         return null;
     }
 
-    public static int AntibodyDamage(int used) { var tenths = 15; for (var i = 0; i < used; i++) tenths /= 2; return tenths; }
+    /// <summary>
+    /// 【抗体】的伤害：基数每在本世界回合用过一次就折半（整数除法，所以会衰减到 0 而不是留个尾巴）。
+    /// `matured` = B 细胞装了【抗体亲和力成熟】：基数由 1.5 改为 **2.0**（PRD:1325；
+    /// 卡面 2026-09-07 从 1.5 改成 2，对齐 GDScript 的 MATURED_ANTIBODY_DMG := 20）。
+    /// </summary>
+    public static int AntibodyDamage(int used, bool matured = false)
+    {
+        var tenths = matured ? 20 : 15;
+        for (var i = 0; i < used; i++) tenths /= 2;
+        return tenths;
+    }
 
     public static string AttackOutcome(int roll, Cell attacker)
         => attacker.Equipped.Contains("免疫突触成熟")

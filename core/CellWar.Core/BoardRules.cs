@@ -85,6 +85,13 @@ internal static class BoardRules
             var loss = Settlement.RoundTenth(Math.Max(0, pressure) * 10.0 / 4);
             if (stage == 2) loss = loss * 3 / 2;
             else if (stage == 3) loss = loss * 2;
+            // 【耗竭抵抗】后半句（PRD:1277 第二段，2026-09-15 补）：
+            // 「结算【微环境压迫】时，自身受到的能量损失**额外 -0.5**，最低为 0」。
+            // 前半句（每世界回合首次损失 -1.0）挂在 PhaseRules 的 EnergyLoss 修饰上；
+            // 这一句**只在压迫这一条路上**生效，而 CellRules.Damage 不知道「谁造成的」——
+            // 所以在调用点减，这是唯一不用给整条伤害管线加来源参数的位置。
+            // 对齐 GDScript 的 cw_damage.gd:271-272（`if ev["ability"] == "微环境压迫"`）。
+            if (c.Equipped.Contains("耗竭抵抗")) loss = Math.Max(0, loss - 5);
             s = Damage(s, c.Id, loss);
         }
         var beforeGrowth = s;
