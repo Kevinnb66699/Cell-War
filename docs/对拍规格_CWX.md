@@ -568,7 +568,13 @@ cd "D:/Projects/SpringSense/2026-2027/Cell War/Cell-War"
 * `tools/prd_crosscheck.py` 有解析盲区：不认 `const X: Array[int] = […]`（`=` 而非 `:=`）这一形，10 条锚点是死的——补上后 `PRESSURE_MUL_BY_STAGE` 会立刻报红（PRD 那句多了个 `}`）；`static func`（`is_world_event_round` / `level_min_memory` / `anaerobic_cells_k`）也没纳入扫描。
 * **「MAP 锚点可一行不改地也指向 C#」不成立**：脚本的 `DATA` 写死 `cw_data.gd` 且按 GDScript 语法解析，指向 C# 要重写解析层。
 * **别新建表**：扩 `cellwar-next/docs/requirements/PRD对齐矩阵.md`（已有 77 行、五档图例、章程声明）。另起一份会立刻变成第三份分叉文本。
-* **`equip_seq` 那条工单要反向或删除**：PRD:157 明写「与打出的先后无关」，该改的是 GD 不是 C#。
+* ~~**`equip_seq` 那条工单要反向或删除**：PRD:157 明写「与打出的先后无关」，该改的是 GD 不是 C#。~~
+  🔴 **这条撤销（2026-09-15 晚）—— 我读错了 PRD，而且方向正好读反。**
+  PRD:157 那句是「**阶段**由效果的**类别**决定，与打出的先后无关」，说的是**归哪个阶段**，
+  不是同阶段内部怎么排。而 PRD:182-184 紧接着写明：
+  > 同一阶段内有多个效果时，先按**来源层级**（细胞自带被动 → 卡牌 → 技能 → 世界事件），
+  > **同层级再按「打出/装备的先后顺序」。**
+  ⇒ **`equip_seq` 是 PRD 明文要求的，GD 是对的，缺的是 C#。** 照原工单改会把唯一正确的一侧改坏。
 
 ### 6.5 其余限制（没被推翻，但必须公开）
 

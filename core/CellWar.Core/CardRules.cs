@@ -543,9 +543,19 @@ internal static class CardRules
         s = s.UpdateCell(cell.Id, cell);
         if (definition.Category == CardCategory.Permanent)
         {
-            var equipped = s.Cells[cell.Id].Equipped.ToList();
+            // 装备这一刻要**盖戳**（2026-09-15 补）：PRD:182-184「同一阶段内…同层级再按
+            // 打出/装备的先后顺序」。永久技能与即时卡混在同一条「打出先后」队列里结算，
+            // 所以用的是同一把尺（PlayCounter），对齐 GDScript 的 cw_card_fx.gd:275-276。
+            // 此前 C# 只往 Equipped 里塞个名字、**没有任何时刻记录**，两张同阶段的永久技能排不出先后。
+            var owner = s.Cells[cell.Id];
+            var equipped = owner.Equipped.ToList();
             equipped.Add(d.Card);
-            s = s.UpdateCell(cell.Id, s.Cells[cell.Id].Copy(equipped: equipped));
+            var stamp = owner.PlayCounter + 1;
+            s = s.UpdateCell(cell.Id, owner.Copy(
+                equipped: equipped,
+                playCounter: stamp,
+                equipSeq: owner.EquipSeq.Append(new KeyValuePair<string, int>(d.Card, stamp))
+                    .ToDictionary(kv => kv.Key, kv => kv.Value)));
         }
         var caller = s.Cells[cell.Id];
         var isInstant = definition.Category == CardCategory.Instant;

@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using CellWar.Core;
 
 namespace CellWar.Core.Tests;
@@ -115,17 +115,37 @@ public class RegressionGuardTests
         {
             if (p.Name == changes) continue;
             Assert.Equal(
-                $"{name} 保留 {p.Name} = {p.GetValue(original)}",
-                $"{name} 保留 {p.Name} = {p.GetValue(after)}");
+                $"{name} 保留 {p.Name} = {Render(p.GetValue(original))}",
+                $"{name} 保留 {p.Name} = {Render(p.GetValue(after))}");
         }
     }
+
+    /// <summary>
+    /// 把属性值渲染成**可比**的字符串。
+    ///
+    /// 直接插值会给假绿灯：集合的 `ToString()` 只吐类型名
+    /// （`System.Collections.Generic.List\`1[System.String]`），
+    /// 于是 `Hand` / `Equipped` / `Modifiers` / `EquipSeq` 这几个字段
+    /// **无论被换成什么、甚至被清空，反射护栏都看不出来** ——
+    /// 而它们恰恰是最常在手写初始化器里漏掉的那一类。
+    /// 2026-09-15 加 `Cell.EquipSeq` 时发现的洞。
+    /// </summary>
+    private static string Render(object? value) => value switch
+    {
+        null => "<null>",
+        string str => str,
+        System.Collections.IDictionary dict => "{" + string.Join(", ",
+            dict.Keys.Cast<object>().Select(k => $"{Render(k)}: {Render(dict[k])}").OrderBy(x => x, StringComparer.Ordinal)) + "}",
+        System.Collections.IEnumerable seq => "[" + string.Join(", ", seq.Cast<object>().Select(Render)) + "]",
+        _ => value.ToString() ?? "",
+    };
 
     /// <summary>`Clone()` 是另一份手写清单，同样要钉：少抄一个字段就是一个静默 bug。</summary>
     private static void AssertClonePreservesAll<T>(T original, Func<T, T> clone)
     {
         var copy = clone(original);
         foreach (var p in typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance).Where(p => p.CanRead))
-            Assert.Equal($"{p.Name}={p.GetValue(original)}", $"{p.Name}={p.GetValue(copy)}");
+            Assert.Equal($"{p.Name}={Render(p.GetValue(original))}", $"{p.Name}={Render(p.GetValue(copy))}");
     }
 
     [Fact]
@@ -849,6 +869,96 @@ public class RegressionGuardTests
         };
     }
 
+    // ---- 十一、装备顺序戳 equip_seq ----
+    //
+    // PRD:182-184：「同一阶段内有多个效果时，先按**来源层级**，
+    // **同层级再按打出/装备的先后顺序**。」
+    // 即时卡的先后记在 ActiveModifier.Sequence 里；永久技能此前靠 `Equipped.Contains(名字)`
+    // 现查现用、**没有任何时刻记录**，于是两张同阶段的永久技能排不出先后。
+    //
+    // （PRD:157 那句「与打出的先后无关」说的是**归哪个阶段**，我此前读反过一次。）
+
+    [Fact]
+    public void 装备永久技能会盖上当时的打出序号()
+    {
+        var world = EquipWorld("组织巡航");
+        var before = world.Cells[new EntityId(1)].PlayCounter;
+
+        var after = CardRules.PlayCard(world,
+            new PlayCardDecision(0, new EntityId(1), "组织巡航"), new Xoshiro256StarStar(1)).NewState;
+        var cell = after.Cells[new EntityId(1)];
+
+        Assert.Contains("组织巡航", cell.Equipped);
+        Assert.True(cell.EquipSeq.TryGetValue("组织巡航", out var seq), "装备之后应当有戳");
+        Assert.Equal(before + 1, seq);
+        Assert.Equal(before + 1, cell.PlayCounter);
+    }
+
+    /// <summary>
+    /// **回合开始发修饰不许推进那把尺。**
+    /// 原来 `GrantTurnModifiers` 走 `AddModifier`，而后者会 bump `PlayCounter` ——
+    /// 于是每个回合、每件装备都把「打出先后」往前推一格，**尺子本身失真**。
+    /// </summary>
+    [Fact]
+    public void 回合开始发技能修饰不会推进打出序号()
+    {
+        var world = EquipWorld("组织巡航");
+        world = CardRules.PlayCard(world,
+            new PlayCardDecision(0, new EntityId(1), "组织巡航"), new Xoshiro256StarStar(1)).NewState;
+
+        var stamped = world.Cells[new EntityId(1)];
+        var counterAfterEquip = stamped.PlayCounter;
+        var seqAtEquip = stamped.EquipSeq["组织巡航"];
+
+        // 连跑三个回合的「回合开始发修饰」
+        var engine = new BasicRulesEngine();
+        var turned = world;
+        for (var i = 0; i < 3; i++)
+            turned = engine.AdvancePhase(turned.WithTurn(turned.Turn.Copy(phase: Phase.S, startStep: 99)), new Xoshiro256StarStar(3)).NewState;
+
+        var later = turned.Cells[new EntityId(1)];
+        Assert.Equal(counterAfterEquip, later.PlayCounter);
+        Assert.Equal(seqAtEquip, later.EquipSeq["组织巡航"]);
+    }
+
+    /// <summary>
+    /// 同阶段同层级的两条修饰，按**装备先后**结算 —— 换个装备顺序，结果要跟着换。
+    /// 这一条才是 equip_seq 存在的理由：光有字段不算，要能改变结算结果。
+    /// </summary>
+    [Fact]
+    public void 同层级的修饰按装备先后排序()
+    {
+        var a = new ValueModifier(ModifierStage.Subtract, SourceLayer.Passive, 1, 3, Floor: 2, Name: "先装的");
+        var b = new ValueModifier(ModifierStage.Subtract, SourceLayer.Passive, 2, 9, Floor: 0, Name: "后装的");
+
+        // 「最低 Y」是**该效果自己**扣减后不低于 Y（PRD:171），所以先后不同结果不同：
+        //   先 a 后 b：10 → max(2, 10-3)=7 → max(0, 7-9)=0
+        //   先 b 后 a：10 → max(0, 10-9)=1 → max(2, 1-3)=2
+        Assert.Equal(0, Settlement.ApplyEnergyLoss(10, [a, b]));
+        Assert.Equal(0, Settlement.ApplyEnergyLoss(10, [b, a]));   // 顺序由 Sequence 决定，不看传入顺序
+
+        var swapped = new[]
+        {
+            a with { Sequence = 2 },
+            b with { Sequence = 1 },
+        };
+        Assert.Equal(2, Settlement.ApplyEnergyLoss(10, swapped));
+    }
+
+    /// <summary>
+    /// 平局时按**名字**排，不许退化成插入顺序。
+    /// LINQ 的 OrderBy 是稳定排序 —— 少了这一级，「谁先结算」就悄悄绑在代码行序上，
+    /// 改一下 if 链的位置结果就变，而且没有任何测试会红。
+    /// </summary>
+    [Fact]
+    public void 同层级同序号时按名字排而不是按传入顺序()
+    {
+        var x = new ValueModifier(ModifierStage.Subtract, SourceLayer.Passive, 0, 3, Floor: 2, Name: "A");
+        var y = new ValueModifier(ModifierStage.Subtract, SourceLayer.Passive, 0, 9, Floor: 0, Name: "B");
+
+        Assert.Equal(Settlement.ApplyEnergyLoss(10, [x, y]), Settlement.ApplyEnergyLoss(10, [y, x]));
+    }
+
     // ---- 夹具 ----
 
     /// <summary>让每个席位手里都有点牌，否则「看不看得见手牌」这件事没法验。</summary>
@@ -1005,9 +1115,41 @@ public class RegressionGuardTests
         HandMax = 4,
         Hand = ["组织巡航"],
         Equipped = ["耗竭抵抗"],
+        EquipSeq = new Dictionary<string, int> { ["耗竭抵抗"] = 3 },
         PlayCounter = 3,
         Modifiers = [new ActiveModifier("组织巡航", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 1, 2, 2, 1, ModifierDuration.Turn)],
     };
+
+    /// <summary>一个 III 级免疫细胞，手里拿着指定的那张牌，随时可以打出去装备上。</summary>
+    private static WorldState EquipWorld(string card)
+    {
+        var at = new HexPosition(0, 0, 0);
+        return new WorldState
+        {
+            Board = new Board
+            {
+                Radius = 6,
+                Tissues = new Dictionary<HexPosition, Tissue>
+                {
+                    [at] = new() { Position = at, Type = TissueType.Normal, State = TissueState.Healthy, SolidificationCount = 0, OccupyingCell = new EntityId(1), Charge = 0 },
+                }
+            },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = new()
+                {
+                    Id = new EntityId(1), OwnerSeat = 0, Faction = Faction.Immune, Type = CellType.ImmuneBasic,
+                    Position = at, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [card], Equipped = [],
+                }
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Immune, IsAlive = true, DrawCount = 0, AntigenMemory = 0, ImmuneLevel = ImmuneLevel.III },
+            },
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+    }
 
     private static Cell MakeCell(IReadOnlyList<string> equipped) => new()
     {

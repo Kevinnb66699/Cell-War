@@ -43,5 +43,5 @@ public sealed record ActiveModifier(
 
     public bool Expired => Uses == 0;
     public ActiveModifier Consume() => this with { Uses = Uses - 1 };
-    public ValueModifier ToValueModifier() => new(Stage, Layer, Sequence, Value, Floor);
+    public ValueModifier ToValueModifier() => new(Stage, Layer, Sequence, Value, Floor, Card);
 }

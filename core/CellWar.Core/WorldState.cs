@@ -272,6 +272,27 @@ public sealed class Cell
     private System.Collections.Immutable.ImmutableArray<string> equipped = System.Collections.Immutable.ImmutableArray<string>.Empty;
     public IReadOnlyList<string> Equipped { get => equipped; init => equipped = System.Collections.Immutable.ImmutableArray.CreateRange(value); }
     public int PlayCounter { get; init; }  // 每细胞打出/装备卡的单调序号（用于修饰结算先后）
+    // 永久技能装备时盖的戳：技能名 → 装备那一刻的 PlayCounter。
+    //
+    // 为什么需要它（2026-09-15 补）：PRD:182-184 明写「同一阶段内有多个效果时，
+    // 先按**来源层级**，**同层级再按打出/装备的先后顺序**」。
+    // 即时卡的先后记在 ActiveModifier.Sequence 里，而永久技能此前是靠
+    // `Equipped.Contains("名字")` 现查现用、**没有任何时刻记录** ——
+    // 于是两张同阶段的永久技能排不出先后。
+    //
+    // （PRD:157 那句「与打出的先后无关」说的是**归哪个阶段**，不是同阶段内部怎么排。
+    //   我此前在对拍规格里把它读反过一次，已撤销。）
+    //
+    // 用 ImmutableSortedDictionary 而不是普通 Dictionary：JSON 输出顺序才稳定，
+    // 对拍那条「Save().Json 逐字节相同」的自证才有意义。
+    private System.Collections.Immutable.ImmutableSortedDictionary<string, int> equipSeq =
+        System.Collections.Immutable.ImmutableSortedDictionary<string, int>.Empty.WithComparers(StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, int> EquipSeq
+    {
+        get => equipSeq;
+        init => equipSeq = System.Collections.Immutable.ImmutableSortedDictionary
+            .CreateRange(StringComparer.Ordinal, value);
+    }
     private System.Collections.Immutable.ImmutableArray<ActiveModifier> modifiers = System.Collections.Immutable.ImmutableArray<ActiveModifier>.Empty;
     public IReadOnlyList<ActiveModifier> Modifiers { get => modifiers; init => modifiers = System.Collections.Immutable.ImmutableArray.CreateRange(value); }
 
@@ -306,6 +327,7 @@ public sealed class Cell
         Hand = Hand,
         Equipped = Equipped,
         PlayCounter = PlayCounter,
+        EquipSeq = EquipSeq,
         Modifiers = Modifiers
     };
 }

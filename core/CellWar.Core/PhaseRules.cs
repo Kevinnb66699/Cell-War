@@ -64,22 +64,44 @@ internal static class PhaseRules
         return s;
     }
 
+    /// <summary>
+    /// 回合开始时给装备的永久技能发修饰。
+    ///
+    /// 2026-09-15 两处改动：
+    /// ① **不再走 `AddModifier`** —— 那个会 bump `PlayCounter`（`CellRules.cs` 的 AddModifier），
+    ///    于是每个回合、每件装备都把「打出先后」那把尺往前推一格，尺子本身就失真了。
+    /// ② `Sequence` 改成从 `EquipSeq` 取**装备那一刻**的戳，而不是 0 或当前计数 ——
+    ///    PRD:182-184 要的是「同层级按装备的先后」，那个先后只有装备时刻才知道。
+    ///
+    /// 【组织巡航】发两条修饰，**共用同一个戳**（GD 侧是一个模板名发两条、applied_seq 相同）。
+    /// </summary>
     private static WorldState GrantTurnModifiers(WorldState s, Cell c)
     {
         if (c.Equipped.Contains("组织驻留"))
-            s = AddModifier(s, s.Cells[c.Id], new("组织驻留", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Passive, 0, 0, null, 2, ModifierDuration.Turn, ModifierRequirement.MoveToHealthy));
+            s = GrantSkillModifier(s, c, new("组织驻留", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Passive, 0, 0, null, 2, ModifierDuration.Turn, ModifierRequirement.MoveToHealthy));
         if (c.Equipped.Contains("LFA-1黏附"))
-            s = AddModifier(s, s.Cells[c.Id], new("LFA-1黏附", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 0, 4, 2, 1, ModifierDuration.Turn, ModifierRequirement.MoveToCancerous));
+            s = GrantSkillModifier(s, c, new("LFA-1黏附", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 0, 4, 2, 1, ModifierDuration.Turn, ModifierRequirement.MoveToCancerous));
         if (c.Equipped.Contains("组织巡航"))
         {
-            s = AddModifier(s, s.Cells[c.Id], new("组织巡航", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Passive, 0, 0, null, 1, ModifierDuration.Turn));
-            s = AddModifier(s, s.Cells[c.Id], new("组织巡航·减", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 0, 2, 2, ActiveModifier.Unlimited, ModifierDuration.Turn));
+            s = GrantSkillModifier(s, c, new("组织巡航", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Passive, 0, 0, null, 1, ModifierDuration.Turn));
+            // 第二条刻意也用「组织巡航」取戳：两条是同一件装备发出来的，先后必须一致
+            s = GrantSkillModifier(s, c, new("组织巡航·减", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 0, 2, 2, ActiveModifier.Unlimited, ModifierDuration.Turn), stampFrom: "组织巡航");
         }
         if (c.Equipped.Contains("耗竭抵抗"))
-            s = AddModifier(s, s.Cells[c.Id], new("耗竭抵抗", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Passive, 0, 10, 0, 1, ModifierDuration.Round));   // 耗竭抵抗：挡下 1.0（原 1 = 0.1）
+            s = GrantSkillModifier(s, c, new("耗竭抵抗", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Passive, 0, 10, 0, 1, ModifierDuration.Round));
         if (c.Equipped.Contains("细胞毒性增强"))
-            s = AddModifier(s, s.Cells[c.Id], new("细胞毒性增强", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Passive, 0, 10, null, 1, ModifierDuration.Turn));   // 细胞毒性增强：额外 1.0（原 1 = 0.1）
+            s = GrantSkillModifier(s, c, new("细胞毒性增强", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Passive, 0, 10, null, 1, ModifierDuration.Turn));
         return s;
+    }
+
+    /// <summary>挂一条永久技能的修饰：戳取自装备时刻，**不推进** PlayCounter。</summary>
+    private static WorldState GrantSkillModifier(WorldState s, Cell c, ActiveModifier modifier, string? stampFrom = null)
+    {
+        var current = s.Cells[c.Id];
+        var seq = current.EquipSeq.TryGetValue(stampFrom ?? modifier.Card, out var v) ? v : 0;
+        var list = current.Modifiers.ToList();
+        list.Add(modifier with { Sequence = seq });
+        return s.UpdateCell(c.Id, current.Copy(modifiers: list));
     }
 
     /// <summary>S.3-S.5：处理复活输入，否则结算存活免疫细胞有氧呼吸并进入行动阶段。</summary>

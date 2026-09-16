@@ -35,7 +35,8 @@ public sealed record ValueModifier(
     SourceLayer Layer,
     int Sequence,
     int Value,
-    int? Floor = null);
+    int? Floor = null,
+    string Name = "");
 
 /// <summary>
 /// 结算管线（PRD §135-199）。纯整数（十分能量）运算，供技能与卡牌共用。
@@ -43,7 +44,16 @@ public sealed record ValueModifier(
 public static class Settlement
 {
     private static IEnumerable<ValueModifier> Ordered(IEnumerable<ValueModifier> mods, ModifierStage stage)
-        => mods.Where(m => m.Stage == stage).OrderBy(m => m.Layer).ThenBy(m => m.Sequence);
+        // 排序对齐 GDScript 的 cw_cost.gd:520-530：阶段 → priority → 来源层级 → 打出/装备先后 → **名字**。
+        // priority 今天不排：GD 侧全部模板的 priority 都是 0（实测无一非零），是个休眠字段 ——
+        // 真用上了再加，别现在替未来立规矩。
+        //
+        // **名字那一级 2026-09-15 补，它不是装饰**：LINQ 的 OrderBy 是稳定排序，
+        // 平局时会退化成**插入顺序** —— 也就是 PhaseRules 那条 if 链的书写顺序。
+        // 那等于把「谁先结算」这件事悄悄绑在代码行序上，改一下 if 的位置结果就变，
+        // 而且没有任何测试会红。
+        => mods.Where(m => m.Stage == stage)
+            .OrderBy(m => m.Layer).ThenBy(m => m.Sequence).ThenBy(m => m.Name, StringComparer.Ordinal);
 
     /// <summary>
     /// 数值修正顺序：基准 → 替换 → 固定加 → 固定减 → 倍增 → 倍减 → 免费 → 附加费。
