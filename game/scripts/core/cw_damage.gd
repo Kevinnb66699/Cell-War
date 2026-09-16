@@ -182,7 +182,17 @@ func _calculate(ev: Dictionary, plan: Dictionary) -> int:
 	var mult := 1
 	var div := 1
 	## ③ 倍增 —— 树突【标记】。ON_BENEFIT：只有确实抬高了伤害才消耗（设计 §6.2）
-	if target["marked"] and ev["base_amount"] + ev["bonus_amount"] > 0:
+	##
+	## **只认免疫来源**（Kevin 2026-09-15 拍板，照 PRD:573 原文
+	## 「下一次受到**免疫细胞造成的**能量损失时，该次能量损失×2」）。
+	## 此前这里不判来源 —— 那是一处「没踩响的雷」而不是现行差异：
+	## 打到癌细胞的伤害**全部**走 `immune_hit*`（都带 Tag.IMMUNE），
+	## `cancer_hit*` 的目标全是免疫细胞（含世界事件【增殖抑制】），
+	## 而【黏液破裂】自毁走 `kill()`、【突变】自扣与【代谢消耗】直接改 energy、不进管线。
+	## 所以补上这个判据**不改变今天任何行为**，也就不用升 NET_VERSION；
+	## 它挡的是以后新加一条「癌方打癌细胞」的效果时的静默走样。
+	if target["marked"] and Tag.IMMUNE in ev["tags"] \
+			and ev["base_amount"] + ev["bonus_amount"] > 0:
 		mult *= 2
 		plan["consume"].append({ "kind": "mark" })
 	## ④ 倍减 —— **树突【各司其职】的「伤害减半」2026-09-04 随新 PRD 撤掉**。
