@@ -360,8 +360,10 @@ internal static class CardRules
         },
         ["基因组不稳定"] = (s, cell, rng, target, targetCell) =>
         {
-            var a = rng.NextInt(3);
-            var b = rng.NextInt(3);
+            // 掷 **d3（1..3）**，逐位对齐 GD 的 `roll_shown(3, "突变", …)` = `randi_range(1, 3)`。
+            // 原来写的是 `NextInt(3)`（0..2）—— 结果映射一样、**抽取区间差一**，对拍带子会分叉。
+            var a = rng.NextIntRange(1, 4);
+            var b = rng.NextIntRange(1, 4);
             return s.WithTurn(s.Turn.WithPendingMutation(cell.OwnerSeat, cell.Id, a, b));
         },
         ["I型干扰素"] = (s, cell, rng, target, targetCell) =>
@@ -493,11 +495,14 @@ internal static class CardRules
 
     public static RulesResult Mutate(WorldState s, MutateDecision d, IDeterministicRng rng)
     {
-        s = ApplyMutationOutcome(s, d.CellId, rng.NextInt(3), rng, charge: true);
+        s = ApplyMutationOutcome(s, d.CellId, rng.NextIntRange(1, 4), rng, charge: true);
         return new(s, Array.Empty<IGameEvent>(), true);
     }
 
-    /// <summary>结算一次【突变】结果：0 无事 / 1 抽卡并削 1 记忆 / 2 再扣 0.8 能量并削 2 记忆。</summary>
+    /// <summary>
+    /// 结算一次【突变】结果，**点数是 d3 的 1/2/3**（与 GD 的 `apply_mutation` 同一套）：
+    /// 1 无事 / 2 抽卡并削 1 记忆 / 3 再扣 0.8 能量并削 2 记忆。
+    /// </summary>
     private static WorldState ApplyMutationOutcome(WorldState s, EntityId cellId, int roll, IDeterministicRng rng, bool charge)
     {
         if (charge)
@@ -505,12 +510,12 @@ internal static class CardRules
             var current = s.Cells[cellId];
             s = s.UpdateCell(cellId, current.Copy(energy: current.Energy - MutateCost, mutateUsed: true));
         }
-        if (roll == 1)
+        if (roll == 2)
         {
             s = DrawOne(s, s.Cells[cellId], rng);
             s = ReduceMemory(s, 1);
         }
-        else if (roll == 2)
+        else if (roll == 3)
         {
             s = Damage(s, cellId, 8);
             s = ReduceMemory(s, 2);

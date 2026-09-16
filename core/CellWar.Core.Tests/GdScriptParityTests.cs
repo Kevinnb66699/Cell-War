@@ -160,6 +160,87 @@ public class GdScriptParityTests
     // 区间对不上那一步就分叉。09-15 早上那个「骰面 0..5 vs 1..6」是同一个形状，
     // 09-16 又在【E-侵蚀】【抗体】【Excalibur】三处各抓到一次。
 
+    /// <summary>【突变】掷的是 d3（1..3），不是 `NextInt(3)`（0..2）。</summary>
+    [Fact]
+    public void 突变掷的是一到三的d3()
+    {
+        var world = MutateWorld();
+        var spy = new RecordingRng(new Xoshiro256StarStar(6));
+        new BasicRulesEngine().ExecuteDecision(world, new MutateDecision(0, new EntityId(1)), spy);
+
+        Assert.Contains((1, 4), spy.Ranges);
+        Assert.DoesNotContain((0, 3), spy.Ranges);   // 旧写法的形状，不许回来
+    }
+
+    /// <summary>
+    /// 三个点数各自对应哪一种结果（与 GD 的 `apply_mutation` 的 `match r: 1/2/3` 同一套）：
+    /// **1 无事 / 2 抽卡并削 1 记忆 / 3 再扣 0.8 能量并削 2 记忆**。
+    ///
+    /// 把区间从 0..2 挪到 1..3 时这一层映射也得跟着挪 —— 挪错了突变会静默做错事，
+    /// 而当时 372 条测试一条都没红。
+    /// </summary>
+    [Theory]
+    [InlineData(1, false, 0)]    // 无事
+    [InlineData(2, true, 1)]     // 抽卡 + 记忆 −1
+    [InlineData(3, false, 2)]    // 扣能量 + 记忆 −2
+    public void 突变的三个点数各自对应哪一种结果(int roll, bool draws, int memoryCut)
+    {
+        var id = new EntityId(1);
+        var world = MutateWorld();
+        world = world.WithTurn(world.Turn.WithPendingMutation(0, id, roll, roll));
+
+        var before = world.Cells[id].Energy;
+        var memoryBefore = world.Players[1].AntigenMemory;   // 抗原记忆是**免疫方**的
+        var after = CardRules.ChooseMutation(world, new ChooseMutationDecision(0, id, 0), new Xoshiro256StarStar(3)).NewState;
+
+        Assert.Equal(memoryBefore - memoryCut, after.Players[1].AntigenMemory);
+        if (roll == 3) Assert.True(after.Cells[id].Energy < before, "3 该再扣能量");
+        else Assert.Equal(before, after.Cells[id].Energy);
+        // 抽卡那一档：手牌或事件结算总有痕迹 —— 这里只验「摇了 rng」，抽到什么不是这条的事
+        Assert.True(draws || after.Cells[id].Hand.Count == world.Cells[id].Hand.Count);
+    }
+
+    /// <summary>
+    /// 一个能发动【突变】的**癌细胞**，外加一个免疫席位（削记忆那两档要有记忆可削）。
+    /// —— 第一版摆的是免疫细胞，`ValidateMutate` 一句「只有癌细胞可以【突变】」挡掉，
+    /// 决策根本没执行、rng 一次都没摇，测试报的是「Ranges 是空的」。
+    /// </summary>
+    private static WorldState MutateWorld()
+    {
+        var at = new HexPosition(0, 0, 0);
+        var far = new HexPosition(4, 0, -4);
+        return new WorldState
+        {
+            Board = new Board
+            {
+                Radius = 6,
+                Tissues = new Dictionary<HexPosition, Tissue>
+                {
+                    [at] = Tile(at, TissueState.Cancer, new EntityId(1)),
+                    [far] = Tile(far, TissueState.Healthy, new EntityId(2)),
+                },
+            },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = new()
+                {
+                    Id = new EntityId(1), OwnerSeat = 0, Faction = Faction.Cancer, Type = CellType.Osteosarcoma,
+                    Position = at, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [],
+                },
+                [new EntityId(2)] = Immune(new EntityId(2), 1, far),
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Osteosarcoma },
+                [1] = new() { Seat = 1, Faction = Faction.Immune, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 20, ImmuneLevel = ImmuneLevel.III },
+            },
+            Turn = new TurnState { WorldRound = 3, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+    }
+
     /// <summary>T【Excalibur】侧向波及：掷 1..100 判 `<= 60`，不是 `NextInt(100) < 60`。</summary>
     [Fact]
     public void Excalibur侧向波及掷的是一到一百()
