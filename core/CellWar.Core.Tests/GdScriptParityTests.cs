@@ -787,6 +787,22 @@ public class GdScriptParityTests
         Assert.Equal(baseline.Cells[new EntityId(1)].Energy, afterTuned.Cells[new EntityId(1)].Energy);
         Assert.Equal(world.Cells[new EntityId(1)].Energy - GdConst("MELANOMA_HOMING_COST"),
             baseline.Cells[new EntityId(1)].Energy);
+
+        // **合法性判据也不许读那个旋钮。**
+        // 只看「扣了多少钱」抓不到误接：判据那一行改错了，钱照旧扣对，测试照样绿
+        // （2026-09-15 变异检验实测）。所以要挑一个**只有判据会分歧**的能量：
+        // 够付常量费、不够付被拧大的旋钮费。
+        var poor = new WorldState
+        {
+            Board = world.Board, Turn = world.Turn, Players = world.Players,
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = world.Cells[new EntityId(1)].Copy(energy: GdConst("MELANOMA_HOMING_COST") + 1),
+            },
+            Tuning = world.Tuning with { MetastasisCost = 99 },
+        };
+        Assert.True(engine.ValidateDecision(poor, homing).IsValid,
+            "判据该看常量 MELANOMA_HOMING_COST，不该跟着 MetastasisCost 走");
     }
 
     /// <summary>黑色素瘤站在血管格上，远处留一格空的健康组织当落点。</summary>
