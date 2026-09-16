@@ -40,9 +40,17 @@ public sealed class MatchObservationProvider : IObservationProvider
         }).ToImmutableArray() : ImmutableArray<VisibleOption>.Empty;
         var players = s.Players.Values.OrderBy(p => p.Seat).Select(p =>
         {
+            // 2026-09-15 修：这里原来**无条件**导出每个细胞的 Hand —— authorizedSeat 只门控了
+            // 上面的 options。于是每个人都能看见所有人的牌，而且不报错、不崩。
+            // 本类的文档注释写着「other seat's legal input is exposed 不会发生」，
+            // 手牌显然属于同一类东西，这是没做到自己声明的事。
+            //
+            // 裁剪语义照抄 GDScript 侧的 CWNet.view_for：**换成占位符、保留张数** ——
+            // 「他有几张牌」是公开信息，「是哪几张」不是。
+            var mine = authorizedSeat is { } seat && p.Seat == seat;
             var cells = s.Cells.Values.Where(c => c.OwnerSeat == p.Seat).OrderBy(c => c.Id.Value)
                 .Select(c => new CellObservation(c.Id, c.OwnerSeat, c.Faction, c.Type, c.Position, c.Energy / 10.0, c.IsAlive,
-                    c.Hand.ToImmutableArray(), c.Equipped.ToImmutableArray(), c.AttacksThisTurn, c.Differentiated,
+                    mine ? c.Hand.ToImmutableArray() : MaskHand(c.Hand), c.Equipped.ToImmutableArray(), c.AttacksThisTurn, c.Differentiated,
                     c.Marked, c.MarkLeft, c.CampRound)).ToImmutableArray();
             return new PlayerObservation(p.Seat, p.Faction, p.IsAlive, cells.Where(c => c.IsAlive).Sum(c => c.Energy),
                 cells, p.DrawCount, p.AntigenMemory, (int)p.ImmuneLevel,
@@ -57,17 +65,31 @@ public sealed class MatchObservationProvider : IObservationProvider
             visible ? pending!.RequestId : null, options, messages, reason);
     }
 
+    /// <summary>别人的手牌：只留张数，不留是哪几张。与 GDScript 侧 CWNet.HIDDEN_CARD 同一个占位符。</summary>
+    public const string HiddenCard = "？";
+
+    private static ImmutableArray<string> MaskHand(IReadOnlyList<string> hand)
+        => Enumerable.Repeat(HiddenCard, hand.Count).ToImmutableArray();
+
+    /// <summary>
+    /// 「预计收入」——**必须走 RulePolicies，不许在这里自己算一遍**。
+    ///
+    /// 2026-09-15 修：这里原来免疫那一半把基数 20/30/45/50 与两张装备的 +5/+8 写成了字面量，
+    /// 而癌症那一半走的是 RulePolicies.AnaerobicShare —— **同一个函数里两种做法**。
+    /// 而且那份手抄的还**抄漏了两条**：【TGF-β释放】每层 -20%、站在坏死格上减半，
+    /// 二者都在 RulePolicies.AerobicShare 里。所以它不只是重复，是**重复且算错**。
+    ///
+    /// 这正是拍板记录决策 9（「UI 一个规则数值都不留」）要消灭的病，
+    /// 只是它从 GDScript 的 UI 搬进了 C# 的观测层 —— 而它恰好就是 Kevin 点名的那条「预计收入」。
+    /// </summary>
     private static double IncomeFor(WorldState s, int seat)
     {
         if (!s.Players.TryGetValue(seat, out var p)) return 0;
-        var cells = s.Cells.Values.Where(c => c.OwnerSeat == seat && c.IsAlive);
-        if (!cells.Any()) return 0;
-        if (p.Faction == Faction.Immune)
-        {
-            var baseIncome = p.ImmuneLevel switch { ImmuneLevel.I => 20, ImmuneLevel.II => 30, ImmuneLevel.III => 45, _ => 50 };
-            return cells.Sum(c => (c.Equipped.Contains("代谢适应") ? 5 : 0) + (c.Equipped.Contains("自分泌生存信号") ? 8 : 0) + baseIncome) / 10.0;
-        }
-        return cells.Sum(c => RulePolicies.AnaerobicShare(s, c)) / 10.0;
+        var cells = s.Cells.Values.Where(c => c.OwnerSeat == seat && c.IsAlive).ToArray();
+        if (cells.Length == 0) return 0;
+        return cells.Sum(c => p.Faction == Faction.Immune
+            ? RulePolicies.AerobicShare(s, c)
+            : RulePolicies.AnaerobicShare(s, c)) / 10.0;
     }
 }
 

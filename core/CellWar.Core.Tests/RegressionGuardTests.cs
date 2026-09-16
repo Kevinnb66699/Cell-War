@@ -201,7 +201,134 @@ public class RegressionGuardTests
         }
     }
 
+    // ---- 三、观测不许泄漏别人的手牌 ----
+    //
+    // MatchObservationProvider 的文档注释写着「No scheduler, RNG or other seat's legal input
+    // is exposed」，但 Hand 此前是**无条件**导出的 —— authorizedSeat 只门控了 options。
+    // 而且现有 141 个测试里没有一条覆盖过这件事：修之前它们照样全绿。
+
+    [Fact]
+    public void 观测只让你看见自己的手牌()
+    {
+        using var session = new MatchSession(DemoScenario.Create());
+        DrawSomeCards(session);
+
+        var view = session.Observe(0);
+        var mine = view.Cells.Where(c => c.OwnerSeat == 0).ToArray();
+        var theirs = view.Cells.Where(c => c.OwnerSeat != 0).ToArray();
+
+        Assert.NotEmpty(mine);
+        Assert.NotEmpty(theirs);
+        Assert.All(mine, c => Assert.DoesNotContain(MatchObservationProvider.HiddenCard, c.Hand));
+        Assert.All(theirs, c => Assert.All(c.Hand, card => Assert.Equal(MatchObservationProvider.HiddenCard, card)));
+    }
+
+    /// <summary>「他有几张牌」是公开信息，「是哪几张」不是 —— 所以张数必须原样保留。</summary>
+    [Fact]
+    public void 别人的手牌张数照样看得见()
+    {
+        using var session = new MatchSession(DemoScenario.Create());
+        DrawSomeCards(session);
+
+        var truth = session.Observe(null);          // 张数这一项对谁都一样
+        var asSeat0 = session.Observe(0);
+
+        foreach (var c in truth.Cells)
+        {
+            var seen = asSeat0.Cells.Single(x => x.Id == c.Id);
+            Assert.Equal(c.Hand.Length, seen.Hand.Length);
+        }
+        foreach (var p in truth.Players)
+            Assert.Equal(p.HandCount, asSeat0.Players.Single(x => x.Seat == p.Seat).HandCount);
+    }
+
+    /// <summary>没有指定席位 = 最受限的视角，谁的牌都不给。上帝视角要另开显式入口，不能靠 null 兜底。</summary>
+    [Fact]
+    public void 不指定席位时谁的手牌都看不见()
+    {
+        using var session = new MatchSession(DemoScenario.Create());
+        DrawSomeCards(session);
+
+        var view = session.Observe(null);
+        Assert.All(view.Cells, c => Assert.All(c.Hand, card => Assert.Equal(MatchObservationProvider.HiddenCard, card)));
+    }
+
+    // ---- 四、预计收入必须走 RulePolicies，不许观测层自己算一遍 ----
+
+    /// <summary>
+    /// 旧 IncomeFor 把免疫基数 20/30/45/50 与两张装备的 +5/+8 写成了字面量，
+    /// **而且抄漏了 TGF-β 每层 -20% 与坏死减半**。这条用「让 TGF 生效、看收入有没有跟着降」
+    /// 来钉住它 —— 手抄那份对 TGF 毫无反应。
+    /// </summary>
+    [Fact]
+    public void 预计收入跟着TGFβ走()
+    {
+        var from = new HexPosition(0, 0, 0);
+        var to = new HexPosition(1, 0, -1);
+
+        var plain = AttackWorld(from, to);
+        var tgf = plain.WithTurn(new TurnState
+        {
+            WorldRound = plain.Turn.WorldRound,
+            Phase = plain.Turn.Phase,
+            ActivePlayerSeat = plain.Turn.ActivePlayerSeat,
+            TgfStacks = 1,
+        });
+
+        var provider = new MatchObservationProvider(new BasicRulesEngine());
+        var before = IncomeOfSeat0(provider, plain);
+        var after = IncomeOfSeat0(provider, tgf);
+
+        Assert.True(before > 0, "夹具本身要有正收入，否则这条测试什么都证明不了");
+        Assert.True(after < before, $"TGF-β 一层应让有氧收入下降（每层 ×80% 向下取整）：{before} → {after}");
+    }
+
+    /// <summary>
+    /// 站在坏死格上有氧减半 —— 旧 IncomeFor 抄漏的第二条。
+    /// 与 TGF 那条一起，两个独立方向都证明「收入不是那份手抄的」。
+    /// </summary>
+    [Fact]
+    public void 预计收入跟着坏死走()
+    {
+        var from = new HexPosition(0, 0, 0);
+        var to = new HexPosition(1, 0, -1);
+
+        var plain = AttackWorld(from, to);
+        var rotten = plain.WithBoard(plain.Board.UpdateTissue(from, plain.Board.Tissues[from].WithNecrosis(2)));
+
+        var provider = new MatchObservationProvider(new BasicRulesEngine());
+        var before = IncomeOfSeat0(provider, plain);
+        var after = IncomeOfSeat0(provider, rotten);
+
+        Assert.True(before > 0);
+        Assert.True(after < before, $"站在坏死格上有氧应减半：{before} → {after}");
+    }
+
     // ---- 夹具 ----
+
+    /// <summary>让每个席位手里都有点牌，否则「看不看得见手牌」这件事没法验。</summary>
+    private static void DrawSomeCards(MatchSession session)
+    {
+        for (var i = 0; i < 24; i++)
+        {
+            var view = session.Observe(null);
+            if (view.Winner != null) return;
+            var seat = view.ActiveSeat;
+            var mine = session.Observe(seat);
+            if (mine.RequestId is not { } req) return;
+            var draw = mine.Options.FirstOrDefault(o => o.Kind == "Draw")
+                       ?? mine.Options.FirstOrDefault(o => o.Kind == "EndTurn");
+            if (draw == null) return;
+            session.Submit(seat, new(req, mine.Revision, draw.Id));
+        }
+    }
+
+    /// <summary>直接问观测层：0 号席（免疫）的「预计收入」是多少。</summary>
+    private static double IncomeOfSeat0(MatchObservationProvider provider, WorldState world)
+    {
+        using var session = new MatchSession(world);
+        return session.Observe(0).Players.Single(p => p.Seat == 0).Income;
+    }
 
     /// <summary>
     /// **每一个字段都填成非默认值**——这是上面两条反射断言能成立的前提：
