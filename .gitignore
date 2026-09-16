@@ -14,3 +14,7 @@ Desktop.ini
 /game/android/
 
 /.codegraph/
+
+# C# 内核（core/）的构建产物 —— 和 dist/ 同理，换台机器重跑就有
+/core/**/bin/
+/core/**/obj/

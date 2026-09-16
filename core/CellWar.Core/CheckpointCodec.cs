@@ -1,0 +1,158 @@
+using System.Collections.Immutable;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace CellWar.Core;
+
+internal static class PayloadCodec
+{
+    internal static readonly Type[] Types =
+    {
+        typeof(string), typeof(int), typeof(long), typeof(double), typeof(bool), typeof(decimal),
+        typeof(MoveDecision), typeof(EndTurnDecision), typeof(PassDecision), typeof(ReviveDecision), typeof(PlaceDecision), typeof(DifferentiateDecision),
+        typeof(DrawDecision), typeof(DiscardDecision), typeof(MutateDecision), typeof(PlayCardDecision), typeof(ChooseMutationDecision), typeof(TypeSkillDecision)
+    };
+    public static void Validate(object? value)
+    {
+        if (value != null && !Types.Contains(value.GetType()))
+            throw new ArgumentException($"Unsupported mutable or unregistered payload: {value.GetType().Name}");
+    }
+    internal sealed class Converter : JsonConverter<object>
+    {
+        public override object? Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+        {
+            using var document = JsonDocument.ParseValue(ref reader);
+            var root = document.RootElement;
+            if (root.ValueKind == JsonValueKind.Null) return null;
+            var name = root.GetProperty("type").GetString();
+            var target = Types.SingleOrDefault(t => t.Name == name) ?? throw new JsonException("Unknown payload type.");
+            return root.GetProperty("value").Deserialize(target, options);
+        }
+        public override void Write(Utf8JsonWriter writer, object value, JsonSerializerOptions options)
+        {
+            Validate(value);
+            writer.WriteStartObject();
+            writer.WriteString("type", value.GetType().Name);
+            writer.WritePropertyName("value");
+            JsonSerializer.Serialize(writer, value, value.GetType(), options);
+            writer.WriteEndObject();
+        }
+    }
+}
+
+internal static class CheckpointCodec
+{
+    private sealed record InputData(long RequestId, int Seat, object[] Options);
+    private sealed record FutureData(EventOrder Order, ScheduledEvent Event);
+    private sealed record ImageData(int Schema, string Ruleset, long Revision, WorldState State,
+        long Tick, int NextSequence, long NextRequest, RngState? Rng, FutureData[] Future,
+        ScheduledEvent[] Immediate, InputData? Input, string[] Outbox, bool Terminated);
+    private static readonly JsonSerializerOptions Options = CreateOptions();
+    private static JsonSerializerOptions CreateOptions()
+    {
+        var options = new JsonSerializerOptions();
+        options.Converters.Add(new MapConverterFactory());
+        options.Converters.Add(new PayloadCodec.Converter());
+        return options;
+    }
+    public static Checkpoint Encode(WorldImage image, Revision revision)
+    {
+        var s = image.Simulation;
+        return new(JsonSerializer.Serialize(new ImageData(1, "core-slice-1", revision.Value, image.State,
+            s.Tick, s.NextSequence, s.NextRequest, s.Rng,
+            s.Future.Select(p => new FutureData(p.Key, p.Value)).ToArray(), s.Immediate.ToArray(),
+            s.Input is null ? null : new(s.Input.RequestId, s.Input.PlayerSeat, s.Input.Options.Cast<object>().ToArray()),
+            s.Outbox.ToArray(), s.Terminated), Options));
+    }
+    public static (WorldImage, Revision) Decode(Checkpoint checkpoint)
+    {
+        var data = JsonSerializer.Deserialize<ImageData>(checkpoint.Json, Options) ?? throw new JsonException("Empty checkpoint.");
+        if (data.Schema != 1 || data.Ruleset != "core-slice-1" || data.Revision < 0 || data.Tick < 0 || data.NextSequence < 0 || data.NextRequest < 1)
+            throw new JsonException("Unsupported checkpoint schema, ruleset or counters.");
+        if (data.State?.Board?.Tissues == null || data.State.Cells == null || data.State.Players == null || data.State.Turn == null ||
+            data.Future == null || data.Immediate == null || data.Outbox == null)
+            throw new JsonException("Incomplete checkpoint.");
+        if (data.State.Board.Radius < 0 || data.State.Turn.WorldRound < 1 || !Enum.IsDefined(data.State.Turn.Phase))
+            throw new JsonException("Invalid world calendar or board.");
+        foreach (var pair in data.State.Cells)
+        {
+            var c = pair.Value;
+            if (c == null || c.Id != pair.Key || !c.Position.IsValid || !double.IsFinite(c.Energy) || c.Energy < 0 ||
+                !Enum.IsDefined(c.Type) || !data.State.Players.ContainsKey(c.OwnerSeat)) throw new JsonException("Invalid cell state.");
+        }
+        foreach (var pair in data.State.Board.Tissues)
+        {
+            var t = pair.Value;
+            if (t == null || t.Position != pair.Key || !t.Position.IsValid || !double.IsFinite(t.SolidificationCount) ||
+                t.SolidificationCount < 0 || t.Charge is { } charge && (!double.IsFinite(charge) || charge < 0))
+                throw new JsonException("Invalid tissue state.");
+        }
+        foreach (var pair in data.State.Players)
+            if (pair.Value == null || pair.Key != pair.Value.Seat) throw new JsonException("Invalid player state.");
+        if (data.Rng is { } rng) new Xoshiro256StarStar(1).SetState(rng);
+        var future = ImmutableSortedDictionary<EventOrder, ScheduledEvent>.Empty;
+        var sequences = new HashSet<int>();
+        foreach (var entry in data.Future)
+        {
+            ValidateEvent(entry.Event);
+            if (entry.Order.Tick != entry.Event.Tick || entry.Order.Sequence != entry.Event.SequenceId)
+                throw new JsonException("Invalid event ordering key.");
+            future = future.Add(entry.Order, entry.Event);
+        }
+        foreach (var entry in data.Immediate) ValidateEvent(entry);
+        if (data.Immediate.Any(e => e.Tick != data.Tick)) throw new JsonException("Immediate events must belong to the current time.");
+        void ValidateEvent(ScheduledEvent entry)
+        {
+            if (entry.Tick < data.Tick || entry.SequenceId < 0 || entry.SequenceId >= data.NextSequence ||
+                !sequences.Add(entry.SequenceId) || string.IsNullOrWhiteSpace(entry.EventType))
+                throw new JsonException("Invalid scheduled event.");
+            PayloadCodec.Validate(entry.Payload);
+        }
+        PendingInput? input = null;
+        if (data.Input is { } pending)
+        {
+            if (pending.RequestId < 1 || pending.RequestId >= data.NextRequest || pending.Options == null ||
+                pending.Options.Length == 0 || pending.Options.Any(o => o is not IDecision d || d.PlayerSeat != pending.Seat))
+                throw new JsonException("Invalid pending input.");
+            input = new(pending.RequestId, pending.Seat, pending.Options.Cast<IDecision>().ToImmutableArray());
+        }
+        return (new WorldImage(data.State)
+        {
+            Simulation = new SimulationState
+            {
+                Tick = data.Tick, NextSequence = data.NextSequence, NextRequest = data.NextRequest,
+                Rng = data.Rng, Future = future, Immediate = ImmutableStack.CreateRange(data.Immediate.Reverse()),
+                Input = input, Outbox = data.Outbox.ToImmutableList(), Terminated = data.Terminated
+            }
+        }, new(data.Revision));
+    }
+
+    private sealed class MapConverterFactory : JsonConverterFactory
+    {
+        public override bool CanConvert(Type type) => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(PagedMap<,>);
+        public override JsonConverter CreateConverter(Type type, JsonSerializerOptions options)
+            => (JsonConverter)Activator.CreateInstance(typeof(MapConverter<,>).MakeGenericType(type.GetGenericArguments()))!;
+    }
+    private sealed class MapConverter<K, V> : JsonConverter<PagedMap<K, V>> where K : notnull
+    {
+        public override PagedMap<K, V> Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+        {
+            var pairs = JsonSerializer.Deserialize<KeyValuePair<K, V>[]>(ref reader, options) ?? throw new JsonException("Null map.");
+            var builder = PagedMap<K, V>.Empty.ToBuilder();
+            foreach (var pair in pairs)
+            {
+                if (builder.TryGetValue(pair.Key, out _)) throw new JsonException("Duplicate map key.");
+                builder[pair.Key] = pair.Value;
+            }
+            return builder;
+        }
+        public override void Write(Utf8JsonWriter writer, PagedMap<K, V> value, JsonSerializerOptions options)
+            => JsonSerializer.Serialize(writer, value.OrderBy(p => p.Key switch
+            {
+                EntityId id => id.Value.ToString("D20"),
+                int id => id.ToString("D10"),
+                HexPosition pos => $"{pos.Q + 32768:D5}:{pos.R + 32768:D5}",
+                _ => p.Key.ToString()
+            }, StringComparer.Ordinal).ToArray(), options);
+    }
+}
