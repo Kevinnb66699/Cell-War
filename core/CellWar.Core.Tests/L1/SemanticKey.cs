@@ -29,8 +29,14 @@ namespace CellWar.Core.Tests.L1;
 /// </summary>
 public static class SemanticKey
 {
-    /// <summary>字段的**固定顺序**。两边都照这个顺序拼，字符串才比得起来。</summary>
-    private static readonly string[] FieldOrder =
+    /// <summary>
+    /// 字段的**固定顺序**。两边都照这个顺序拼，字符串才比得起来。
+    ///
+    /// 今天没有哪个键同时带 `cid` 和 `dir`，所以这张表的次序**在现有用例上改了也不红** ——
+    /// 正因如此它要被单独钉一条（`字段顺序照 GD 的 13 个 data 键`）：
+    /// 它是和 GD 的线上约定，不是某条键的副产物。
+    /// </summary>
+    public static readonly IReadOnlyList<string> FieldOrder =
         ["act", "card", "type", "to", "cid", "dir", "r", "pay", "get", "from", "to_cid", "stop", "skip"];
 
     /// <summary>

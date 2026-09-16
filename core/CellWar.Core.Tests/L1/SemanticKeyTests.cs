@@ -69,6 +69,21 @@ public class SemanticKeyTests
     }
 
     /// <summary>
+    /// 字段顺序是**和 GD 的线上约定**，取自 GD `data` 的 13 个键（对拍规格 §死结一）。
+    ///
+    /// 单独钉一条，是因为它在现有用例上**改了也不红**：今天没有哪个键同时带两个可换位的字段
+    /// （`cid` 与 `dir` 从不同时出现）。等哪天有了，错位会是一条对不上的字符串，
+    /// 而不是一条读得懂的差异 —— 那时再回头找就晚了。
+    /// </summary>
+    [Fact]
+    public void 字段顺序照GD的13个data键()
+    {
+        Assert.Equal(
+            new[] { "act", "card", "type", "to", "cid", "dir", "r", "pay", "get", "from", "to_cid", "stop", "skip" },
+            SemanticKey.FieldOrder);
+    }
+
+    /// <summary>
     /// 【基因组不稳定】：GD 的 data 是**骰面值**，C# 存的是「选第几个」——
     /// 照 `Choice` 直接写进键，两边永远对不上（GD 那边根本没有 0/1 这个数）。
     /// </summary>
