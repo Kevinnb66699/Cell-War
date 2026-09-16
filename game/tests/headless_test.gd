@@ -2136,9 +2136,10 @@ func t_overload() -> void:
 	check(g.tune.overload_threshold == CWData.OVERLOAD_THRESHOLD
 		and g.tune.overload_div == CWData.OVERLOAD_DIV
 		and g.tune.overload_exp == CWData.OVERLOAD_EXP
+		and g.tune.overload_cap == CWData.OVERLOAD_CAP
 		and CWData.OVERLOAD_THRESHOLD == 100 and CWData.OVERLOAD_DIV == 2
-		and CWData.OVERLOAD_EXP == 118,
-		"默认 = PRD 原文：门槛 10.0、除以 2、指数 1.18")
+		and CWData.OVERLOAD_EXP == 118 and CWData.OVERLOAD_CAP == 150,
+		"默认 = PRD 原文：门槛 10.0、除以 2、指数 1.18、上限 15.0")
 
 	var canc := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1,
 		CWData.CancerType.MELANOMA)
@@ -2148,7 +2149,7 @@ func t_overload() -> void:
 
 	## ---- 曲线上的点（离线算的） ----
 	for pair in [[100, 0], [101, 0], [102, 1], [105, 2], [110, 4], [120, 10],
-			[150, 29], [200, 67], [300, 151], [500, 343]]:
+			[150, 29], [200, 67], [250, 108], [300, 150], [500, 150]]:
 		canc["energy"] = pair[0]
 		check(g.world.overload_loss(canc) == pair[1],
 			"%s 能量 → 损失 %s" % [CWData.fmt(pair[0]), CWData.fmt(pair[1])])
@@ -2162,20 +2163,38 @@ func t_overload() -> void:
 	check(at_100 == 0 and at_101 == 0 and g.world.overload_loss(canc) == 1,
 		"实际门槛 10.2 —— 10.1 的损失四舍五入后仍是 0（PRD 只写了 10）")
 
-	## ---- 净留在 42.2 处见顶，再往上囤反而留得更少 ----
-	## 这是这条规则的真正形状：它不是「削平到某个数」，而是**惩罚囤积本身**
-	canc["energy"] = 422
-	var peak: int = 422 - g.world.overload_loss(canc)
-	canc["energy"] = 1000
-	var beyond: int = 1000 - g.world.overload_loss(canc)
-	check(peak == 157 and beyond == 107 and beyond < peak,
-		"净留极大在 42.2（留 15.7）；囤到 100.0 只留 %s" % CWData.fmt(beyond))
+	## ---- 上限 15.0（PRD 的 min{15, …}，Kevin 2026-09-15 晚加）----
+	## **它把这条规则的性质换掉了**：第一版没有上限时，净留在 42.2 处见顶（15.7）、
+	## 再往上囤留得更少 —— 那是「惩罚囤积本身」。加上限之后变成
+	## 「超过 29.8 就是一笔 15.0 的固定税」，净留 = x − 15，**单调递增**。
+	canc["energy"] = 298
+	check(g.world.overload_loss(canc) == CWData.OVERLOAD_CAP,
+		"29.8 能量：损失到顶 %s" % CWData.fmt(CWData.OVERLOAD_CAP))
+	canc["energy"] = 297
+	check(g.world.overload_loss(canc) < CWData.OVERLOAD_CAP, "29.7 还没到顶")
 
-	## ---- 钳位：1488 起损失反超能量，不钳就会扣成负数 ----
+	## 净留单调不减 —— 这条是上面那句「性质换掉了」的判据，不是装饰。
+	## 累积成一个布尔再报，不然 157 次循环会刷屏。
+	var prev_net := -1
+	var monotone := true
+	var first_drop := -1
+	for e in range(100, 1200, 7):
+		canc["energy"] = e
+		var net: int = e - g.world.overload_loss(canc)
+		if net < prev_net:
+			monotone = false
+			if first_drop < 0:
+				first_drop = e
+		prev_net = net
+	check(monotone, "净留全程单调不减（上限那一版的直接后果；回落点 %s）"
+		% ("无" if first_drop < 0 else CWData.fmt(first_drop)))
+
+	## ---- 损失永远追不上能量 ⇒ 扣不死细胞是**数学性质**，不是防呆 ----
+	## （无上限那一版在 148.4 处会追平、148.8 起反超，所以当时必须钳。）
 	for e in [1488, 2000, 5000]:
 		canc["energy"] = e
-		check(g.world.overload_loss(canc) == e,
-			"%s 能量：损失被钳到能量本身（离线算出的裸值已经超过它）" % CWData.fmt(e))
+		check(g.world.overload_loss(canc) == CWData.OVERLOAD_CAP and CWData.OVERLOAD_CAP < e,
+			"%s 能量：损失仍是上限 %s，追不上能量" % [CWData.fmt(e), CWData.fmt(CWData.OVERLOAD_CAP)])
 
 	## ---- 免疫细胞不受这条规则影响（PRD 把它挂在【癌细胞】名下） ----
 	imm["energy"] = 500
@@ -2184,10 +2203,21 @@ func t_overload() -> void:
 	check(imm["energy"] == 500, "免疫细胞不吃过载")
 	check(canc["energy"] == 133, "癌细胞 20.0 → 扣 6.7 → 余 13.3")
 
-	## ---- 扣到 0 不致死（同【代谢消耗】口径：是代谢开销，不是伤害事件） ----
+	## ---- 扣不死细胞（同【代谢消耗】口径：是代谢开销，不是伤害事件） ----
+	## 有了上限之后这是**数学性质**而不是防呆：损失恒 ≤ 15.0，而 15.0 以下压根不到门槛。
+	## 第一版（无上限）在 148.4 处会追平能量，那时靠的是 `mini(loss, energy)` 那句钳位。
 	canc["energy"] = 3000
 	g.world._overload()
-	check(canc["energy"] == 0 and canc["alive"], "扣光也只到 0，且不死")
+	check(canc["energy"] == 3000 - CWData.OVERLOAD_CAP and canc["alive"],
+		"300.0 能量只扣上限 %s，余 %s 且活着"
+		% [CWData.fmt(CWData.OVERLOAD_CAP), CWData.fmt(3000 - CWData.OVERLOAD_CAP)])
+
+	## ---- 上限关掉 = 退回第一版那条凸曲线（扫描的对照档）----
+	g.tune.overload_cap = 0
+	canc["energy"] = 500
+	check(g.world.overload_loss(canc) == 343,
+		"overload_cap = 0：不封顶，50.0 能量扣回 34.3（第一版的值）")
+	g.tune.overload_cap = CWData.OVERLOAD_CAP
 
 	## ---- 旋钮关掉 ----
 	g.tune.overload_div = 0

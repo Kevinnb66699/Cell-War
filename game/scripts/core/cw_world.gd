@@ -446,7 +446,7 @@ func necrosis_cut(cell: Dictionary, gain: int) -> int:
 ## 【S-过载】某个癌细胞此刻会被扣掉多少（十分能量）。**纯查询，不改任何状态** ——
 ## 和 `aerobic_income` / `anaerobic_gain_for` 同一个位置：结算走 `_overload`，两边共用这一份算式。
 ##
-## PRD：`能量损失 = max{0, ((x − 10) ÷ 2) ^ 1.18}`，x 是显示单位的能量。
+## PRD：`能量损失 = min{15, max{0, ((x − 10) ÷ 2) ^ 1.18}}`，x 是显示单位的能量。
 ##
 ## **用 `pow()` 是照抄现成先例**，不是新引入浮点：`_anaerobic_pool` 的指数项
 ## （本文件 `pow(float(plain), exp_pct / 100.0)`）早就这么算了，
@@ -456,11 +456,14 @@ func necrosis_cut(cell: Dictionary, gain: int) -> int:
 ## 取整：**四舍五入到十分位**（PRD 通用规则 1）。注意不能走 `CWData.round_tenth` ——
 ## 那个收的是两个整数，这里的底已经是浮点了。
 ##
-## 三处钳位，各有各的理由：
+## 四处钳位，各有各的理由：
 ##   ① `x ≤ 门槛` 直接 0 —— 底数为负时实数域没有 1.18 次幂，`max{0, …}` 工程上必须钳在**底数**上；
-##   ② 损失**不超过当前能量** —— 实测 **148.4** 能量处损失追平能量、**148.8** 起严格反超，
-##      不钳就会扣成负数（正式局到不了这个量级，但钳位不是防呆：曲线本身就会穿过去）；
-##   ③ `overload_div ≤ 0` 关闭整条规则（扫描的对照档，顺带兜住除零）。
+##   ② **上限 `overload_cap`**（PRD 的 `min{15, …}`，2026-09-15 晚 Kevin 加）——
+##      29.8 能量起损失到顶 15.0，之后恒定；
+##   ③ 损失**不超过当前能量** —— 有了 ② 之后这一句在默认值下**打不到**
+##      （实扫 0 例，「扣不死细胞」成了数学性质，与【代谢消耗】同源），
+##      但**不能删**：`overload_cap` 是旋钮，扫描时抬高或关掉它，交叉点就回来了；
+##   ④ `overload_div ≤ 0` 关闭整条规则（扫描的对照档，顺带兜住除零）。
 func overload_loss(cell: Dictionary) -> int:
 	var div: int = game.tune.overload_div
 	if div <= 0:
@@ -471,6 +474,9 @@ func overload_loss(cell: Dictionary) -> int:
 	## 换算成显示单位再套 PRD 的式子，最后乘 10 回到十分能量
 	var base := float(over) / 10.0 / float(div)
 	var loss := int(round(pow(base, game.tune.overload_exp / 100.0) * 10.0))
+	var cap: int = game.tune.overload_cap
+	if cap > 0:
+		loss = mini(loss, cap)
 	return mini(loss, cell["energy"])
 
 

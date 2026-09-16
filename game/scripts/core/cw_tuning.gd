@@ -27,7 +27,7 @@ const RULE_FIELDS := [
 	"proliferate_per_adjacent", "proliferate_per_solid", "erosion_tiles",
 	"metastasis_cost", "metastasis_max_per_round",
 	"newborn_protect",
-	"overload_threshold", "overload_div", "overload_exp",
+	"overload_threshold", "overload_div", "overload_exp", "overload_cap",
 ]
 
 
@@ -154,6 +154,9 @@ var energy_cap := CWData.ENERGY_CAP_PER_ROUND
 var overload_threshold := CWData.OVERLOAD_THRESHOLD
 var overload_div := CWData.OVERLOAD_DIV
 var overload_exp := CWData.OVERLOAD_EXP
+## 单次损失上限（PRD 的 min{15, …}，Kevin 2026-09-15 晚加）；**0 = 不封顶**，
+## 那就退回第一版那条「越囤扣越狠、42.2 处净留见顶」的凸曲线 —— 扫描要有这一档对照。
+var overload_cap := CWData.OVERLOAD_CAP
 
 ## 【平衡候选③】癌细胞每个世界回合按**当前能量的百分比**自动损能（能量越多损失越多），
 ## 扣在 E 阶段【无氧呼吸】**之后**。整数百分比，**0 = 关闭**（默认）。

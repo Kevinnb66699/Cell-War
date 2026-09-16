@@ -82,6 +82,8 @@ MAP = {
     "OVERLOAD_THRESHOLD":     "{x-10}",
     "OVERLOAD_DIV":           "{x-10}{2}",
     "OVERLOAD_EXP":           "^{1.18}",
+    ## 上限 2026-09-15 晚由 Kevin 加进 PRD：`min{15, max{0, …}}`。
+    "OVERLOAD_CAP":           "能量损失=min{15,",
     ## 卡【癌症转移】的射程（2026-09-14，issue #42）。「两环」写在卡面那一句里
     "METASTASIS_CARD_RANGE":  "选择两环内任意格子传送，正常触发【定殖】",
     # ---- 免疫行动 ----
