@@ -94,8 +94,22 @@ internal static class BoardRules
             var adjacent = t.Position.GetNeighbors().Where(p => beforeGrowth.Board.Tissues.TryGetValue(p, out var n) && Cancerous(n)).ToArray();
             if (adjacent.Length == 0) continue;
             var solid = cancerBlocks.Where(b => adjacent.Any(b.Contains)).Sum(b => b.Count(p => beforeGrowth.Board.Tissues[p].State == TissueState.SolidifiedCancer));
-            var rate = (stage == 1 ? 0.03 : stage == 2 ? 0.035 : 0.04) + solid * (stage == 1 ? 0.005 : 0.01);
-            if (rng.NextDouble() < adjacent.Length * rate)
+            // 2026-09-15 改：原来是 `rng.NextDouble() < adjacent.Length * rate`（rate 是 double）。
+            //
+            // 改成**整数千分位掷点**，对齐 GDScript 侧 cw_world.gd:709-722 的
+            // `n_adj * (rate + per_solid * solids)` 再 `randi_range(1, 1000) <= chance`。
+            // 两边的数本来就一样（30/35/40‰ 与 5/10/10‰ ↔ 0.03/0.035/0.04 与 0.005/0.01/0.01），
+            // 差的只是表示法。
+            //
+            // **为什么必须改**：这是双内核对拍的硬阻塞。我们的随机数带子记的是整数区间抽取，
+            // 浮点抽取在带子上**没有任何对应物** —— 实测不改的话 2 人局跑 40 步就撞
+            // 64 条 RNG_NO_COUNTERPART，而 E 阶段 100% 走这一行、每回合约 27 次，
+            // 于是任何跨 E 阶段的对拍结果整段作废。（docs/对拍规格_CWX.md）
+            //
+            // 比较方向也对齐：`randi_range(1,1000)` 出 1..1000、判 `<= chance`；
+            // 这里 `NextIntRange(1, 1001)`（半开）同样出 1..1000，同样判 `<=`。
+            var permille = (stage == 1 ? 30 : stage == 2 ? 35 : 40) + solid * (stage == 1 ? 5 : 10);
+            if (rng.NextIntRange(1, 1001) <= adjacent.Length * permille)
             {
                 s = s.UpdateTissueState(t.Position, TissueState.Cancer);
                 s = s.WithBoard(s.Board.UpdateTissue(t.Position, s.Board.Tissues[t.Position].WithNewborn(true)));

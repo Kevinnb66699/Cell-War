@@ -304,6 +304,46 @@ public class RegressionGuardTests
         Assert.True(after < before, $"站在坏死格上有氧应减半：{before} → {after}");
     }
 
+    // ---- 五、规则路径上不许有浮点抽取 ----
+
+    /// <summary>
+    /// **这是双内核对拍的硬前提**，不是风格偏好。
+    ///
+    /// 我们的随机数带子记的是「整数区间抽取」—— 一方录、一方念。
+    /// 浮点抽取（`NextDouble`）在带子上**没有任何对应物**：实测不改的话，
+    /// 2 人局跑 40 步就撞 64 条 `RNG_NO_COUNTERPART`，而 E 阶段 100% 走增生那一行、
+    /// 每回合约 27 次 —— 于是任何跨 E 阶段的对拍结果整段作废。
+    ///
+    /// 所以这里断言的是**一个次数**：规则跑完，浮点抽取必须是 0 次。
+    /// 将来谁再往规则里写一个 `NextDouble`，这条当场红。
+    /// </summary>
+    [Fact]
+    public void 规则推进一整局都不做浮点抽取()
+    {
+        var spy = new RecordingRng(new Xoshiro256StarStar(4242));
+        var engine = new BasicRulesEngine();
+        var world = MatchSetup.Create(4, 4242);
+
+        // 一路推进阶段：S / 玩家行动 / E 全都走一遍，重点是把 E 阶段的增生跑到。
+        for (var i = 0; i < 400 && world.Turn.Winner == null; i++)
+        {
+            var options = engine.GetAvailableDecisions(world, world.Turn.ActivePlayerSeat);
+            if (options.Count > 0)
+            {
+                // 挑 EndTurn（没有就取第一项）：目的是把回合推完、进 E 阶段，不是打得好
+                var pick = options.FirstOrDefault(d => d.DecisionType == "EndTurn") ?? options[0];
+                world = engine.ExecuteDecision(world, pick, spy).NewState;
+            }
+            else
+            {
+                world = engine.AdvancePhase(world, spy).NewState;
+            }
+        }
+
+        Assert.True(spy.Ranges.Count > 0, "夹具本身要真的抽过随机数，否则这条测试什么都证明不了");
+        Assert.Equal(0, spy.DoubleDraws);
+    }
+
     // ---- 夹具 ----
 
     /// <summary>让每个席位手里都有点牌，否则「看不看得见手牌」这件事没法验。</summary>
