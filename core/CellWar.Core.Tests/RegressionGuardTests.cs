@@ -495,6 +495,76 @@ public class RegressionGuardTests
         };
     }
 
+    // ---- 八、树突【标记】必须在伤害管线里真的生效 ----
+    //
+    // 此前 Marked / MarkLeft / MarkRound 三个字段建好了、ApplyMark 也在跑，
+    // 但伤害管线里**根本没有这一步** —— MarkLeft 只流进了观测。
+    // 于是树突整条标记链（含【交叉呈递】【抗原呈递强化】【免疫猎杀】）零收益，
+    // 而 141 个测试一条都不会红。
+
+    [Fact]
+    public void 被标记的细胞受到的伤害翻倍并消耗标记()
+    {
+        var world = MarkedTarget(markLeft: 1);
+        var before = world.Cells[new EntityId(2)].Energy;
+
+        var after = CellRules.Damage(world, new EntityId(2), 10);
+        var cell = after.Cells[new EntityId(2)];
+
+        Assert.Equal(before - 20, cell.Energy);   // 1.0 → ×2 → 2.0
+        Assert.False(cell.Marked);
+        Assert.Equal(0, cell.MarkLeft);
+    }
+
+    /// <summary>树突【抗原呈递强化】给 2 层：耗掉一层之后还留着。</summary>
+    [Fact]
+    public void 两层标记耗掉一层之后还在()
+    {
+        var world = MarkedTarget(markLeft: 2);
+
+        var after = CellRules.Damage(world, new EntityId(2), 10);
+        var cell = after.Cells[new EntityId(2)];
+
+        Assert.True(cell.Marked);
+        Assert.Equal(1, cell.MarkLeft);
+    }
+
+    /// <summary>
+    /// ON_BENEFIT：一次 0 伤害不许把标记白白吃掉（GDScript 侧 cw_damage.gd:185 的
+    /// `base + bonus > 0` 就是这个意思）。
+    /// </summary>
+    [Fact]
+    public void 零伤害不消耗标记()
+    {
+        var world = MarkedTarget(markLeft: 1);
+
+        var after = CellRules.Damage(world, new EntityId(2), 0);
+        var cell = after.Cells[new EntityId(2)];
+
+        Assert.True(cell.Marked);
+        Assert.Equal(1, cell.MarkLeft);
+    }
+
+    /// <summary>没被标记的细胞照常扣，不受这条影响。</summary>
+    [Fact]
+    public void 没被标记就不翻倍()
+    {
+        var world = MarkedTarget(markLeft: 0);
+        var before = world.Cells[new EntityId(2)].Energy;
+
+        var after = CellRules.Damage(world, new EntityId(2), 10);
+
+        Assert.Equal(before - 10, after.Cells[new EntityId(2)].Energy);
+    }
+
+    /// <summary>一只免疫 + 一只（可选被标记的）癌细胞。</summary>
+    private static WorldState MarkedTarget(int markLeft)
+    {
+        var world = AttackWorld(new HexPosition(0, 0, 0), new HexPosition(1, 0, -1));
+        var target = world.Cells[new EntityId(2)];
+        return world.UpdateCell(target.Id, target.Copy(marked: markLeft > 0, markLeft: markLeft, markRound: 1));
+    }
+
     // ---- 夹具 ----
 
     /// <summary>让每个席位手里都有点牌，否则「看不看得见手牌」这件事没法验。</summary>

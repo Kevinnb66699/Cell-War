@@ -13,8 +13,36 @@ internal static class CellRules
         var modifiers = c.Modifiers.Where(m => m.Target == ModifierTarget.EnergyLoss).Select(m => m.ToValueModifier()).ToList();
         if (c.Type == CellType.Osteosarcoma && s.Board.Tissues[c.Position].State == TissueState.SolidifiedCancer)
             modifiers.Add(new ValueModifier(ModifierStage.Multiply, SourceLayer.Passive, 0, 40));  // 【刚性屏障】×40%
+
+        // 树突【I-标记】：被标记的癌细胞下一次受到能量损失时 ×2，随后移除标记（PRD:573）。
+        //
+        // 2026-09-15 补：此前 Marked / MarkLeft / MarkRound 三个字段建好了、ApplyMark 也在跑，
+        // 但**伤害管线里根本没有这一步** —— MarkLeft 只流进了观测。
+        // 于是树突整条标记链（含【交叉呈递】【抗原呈递强化】【免疫猎杀】）在 C# 里是零收益。
+        //
+        // 口径照抄 GDScript 侧 cw_damage.gd:184-187：
+        //   · 是**倍增**层（与【刚性屏障】同层，都走 Multiply；×2 写成 200）
+        //   · **ON_BENEFIT**：只有确实有伤害可翻倍时才消耗（`amount > 0`）——
+        //     不然一次 0 伤害就把标记白白吃掉
+        //   · MarkLeft 可能 >1（树突【抗原呈递强化】给 2 层），耗尽才清 Marked
+        //
+        // ⚠ **一处 PRD 与 GDScript 的偏离，先照 GDScript、没有自作主张**：
+        // PRD:573 写的是「下一次受到**免疫细胞造成的**能量损失」，而 GDScript 侧
+        // 只判 `marked` 与伤害为正、**不看来源**。两边内核要先一致，
+        // 「该不该只认免疫来源」是给 Kevin 的一条待裁项（实践中癌细胞受到的伤害
+        // 几乎都来自免疫方，所以今天两种读法大概率同结果，但不等于没差别）。
+        var markApplies = c.Marked && amount > 0;
+        if (markApplies)
+            modifiers.Add(new ValueModifier(ModifierStage.Multiply, SourceLayer.Skill, 0, 200));
+
         amount = Settlement.ApplyEnergyLoss(amount, modifiers);
         s = ConsumeModifiers(s, id, ModifierTarget.EnergyLoss);
+        if (markApplies)
+        {
+            var marked = s.Cells[id];
+            var left = marked.MarkLeft - 1;
+            s = s.UpdateCell(id, marked.Copy(markLeft: left, marked: left > 0));
+        }
         c = s.Cells[id];
         // 印戒【囊性护甲】：每世界回合第一次能量损失 -0.5，不限来源
         if (c.Type == CellType.SignetRing && !c.ArmorUsedThisRound)
