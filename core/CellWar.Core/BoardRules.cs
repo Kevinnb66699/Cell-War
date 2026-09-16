@@ -172,7 +172,8 @@ internal static class BoardRules
             //
             // 比较方向也对齐：`randi_range(1,1000)` 出 1..1000、判 `<= chance`；
             // 这里 `NextIntRange(1, 1001)`（半开）同样出 1..1000，同样判 `<=`。
-            var permille = (stage == 1 ? 30 : stage == 2 ? 35 : 40) + solid * (stage == 1 ? 5 : 10);
+            var permille = RuleTuning.ByStage(s.Tuning.ProliferatePerAdjacent, stage)
+                + solid * RuleTuning.ByStage(s.Tuning.ProliferatePerSolid, stage);
             if (rng.NextIntRange(1, 1001) <= adjacent.Length * permille)
             {
                 s = s.UpdateTissueState(t.Position, TissueState.Cancer);
@@ -197,7 +198,12 @@ internal static class BoardRules
             var candidates = block.OrderBy(p => p.Q).ThenBy(p => p.R).Where(p => s.GetCellAt(p)?.Faction != Faction.Immune && !Watched(s, p) &&
                 p.GetNeighbors().Any(n => s.Board.Tissues.TryGetValue(n, out var t) && Cancerous(t) && !fresh.Contains(n))).ToArray();
             if (candidates.Length == 0) continue;
-            var count = rng.NextInt(3) < 2 ? (stage == 3 ? 3 : 2) : (stage == 3 ? 5 : 3);
+            // 2/3 概率取常见值、1/3 取少见值。**掷的是 d3（1..3）判 `<= 2`**，
+            // 逐位对齐 GD 的 `roll_d3()` = `randi_range(1, 3)`。
+            // 这里原来写 `NextInt(3) < 2`（0..2）—— 概率一样，但**抽取区间不一样**，
+            // 而对拍的随机数带子记的就是区间。这正是早上那个「骰面 0..5 vs 1..6」的形状。
+            var tiles = RuleTuning.ByStage(s.Tuning.ErosionTiles, stage);
+            var count = rng.NextIntRange(1, 4) <= 2 ? tiles.Common : tiles.Rare;
             foreach (var p in rng.Shuffle(candidates).Take(count))
             {
                 s = s.UpdateTissueState(p, TissueState.Cancer);
@@ -256,7 +262,10 @@ internal static class BoardRules
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer))
         {
             if (!counted.Add(c.Position)) continue;
-            if (s.Board.Tissues[c.Position].State != TissueState.Cancer) continue;
+            var tile = s.Board.Tissues[c.Position];
+            if (tile.State != TissueState.Cancer) continue;
+            // 「新生」保护是旋钮（Kevin 2026-09-04 拍板取消，默认关）：关掉后当回合新铺的格子当回合就累计
+            if (s.Tuning.NewbornProtect && tile.Newborn) continue;
             s = RaiseSolid(s, c.Position, 10);
         }
         return s;

@@ -540,19 +540,6 @@ public class RegressionGuardTests
         public void Handle(IEventContext context) => action(context);
     }
 
-    /// <summary>只数抽取次数，不改任何取值。</summary>
-    private sealed class CountingRng(IDeterministicRng inner, Action onDraw) : IDeterministicRng
-    {
-        public double NextDouble() { onDraw(); return inner.NextDouble(); }
-        public int NextInt(int max) { onDraw(); return inner.NextInt(max); }
-        public int NextIntRange(int min, int max) { onDraw(); return inner.NextIntRange(min, max); }
-        public T Choose<T>(IReadOnlyList<T> items) { onDraw(); return inner.Choose(items); }
-        public IReadOnlyList<T> Shuffle<T>(IReadOnlyList<T> items) { onDraw(); return inner.Shuffle(items); }
-        public IDeterministicRng Fork() => new CountingRng(inner.Fork(), onDraw);
-        public RngState GetState() => inner.GetState();
-        public void SetState(RngState state) => inner.SetState(state);
-    }
-
     // ---- 七、分化去重是「全阵营」不是「每席位」 ----
 
     /// <summary>
@@ -1339,25 +1326,6 @@ public class RegressionGuardTests
         },
         Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
     };
-
-    /// <summary>
-    /// 记录型 rng：**不改变任何取值**，只把每一笔抽取**请求的区间**记下来。
-    /// 值域断言靠它才能落在调用点上，而不是落在 RNG 助手上。
-    /// </summary>
-    private sealed class RecordingRng(IDeterministicRng inner) : IDeterministicRng
-    {
-        public List<(int Min, int Max)> Ranges { get; } = [];
-        public int DoubleDraws { get; private set; }
-
-        public double NextDouble() { DoubleDraws++; return inner.NextDouble(); }
-        public int NextInt(int max) { Ranges.Add((0, max)); return inner.NextInt(max); }
-        public int NextIntRange(int min, int max) { Ranges.Add((min, max)); return inner.NextIntRange(min, max); }
-        public T Choose<T>(IReadOnlyList<T> items) { Ranges.Add((0, items.Count)); return inner.Choose(items); }
-        public IReadOnlyList<T> Shuffle<T>(IReadOnlyList<T> items) => inner.Shuffle(items);
-        public IDeterministicRng Fork() => new RecordingRng(inner.Fork());
-        public RngState GetState() => inner.GetState();
-        public void SetState(RngState state) => inner.SetState(state);
-    }
 
     /// <summary>每个字段都填成非默认值 —— 否则被清零也看不出来。</summary>
     private static TurnState FullyPopulatedTurn() => new()

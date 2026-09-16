@@ -207,14 +207,48 @@ public class GdScriptParityTests
     {
         var coef = GdIntDict("ANAEROBIC_BLOCK_COEF_BY_PLAYERS")[players];
         var exp = GdIntDict("ANAEROBIC_BLOCK_EXP_BY_PLAYERS")[players];
+        var k = GdIntArray("ANAEROBIC_CELLS_K")[0];        // 块内 1 个癌细胞
+        var floor = GdConst("ANAEROBIC_FLOOR");
 
-        // 单格连通块、块内一个癌细胞、全图零固化 ⇒ 池 = 1^(exp/100) × coef/10 = coef/10，
-        // 再被 max{2.0, …} 兜底。取 coef=2.0/2.8 都大于 2.0，所以兜底不介入。
+        // 单格连通块、块内**一个**癌细胞、全图零固化：
+        //   池 = 1^(exp/100) × coef = coef  →  × k%  →  ÷1  →  再被 max{floor, …} 兜底
+        //
+        // ⚠ 这条 2026-09-15 改过一次：原来断言 `share == coef`，
+        // 那是**人数系数 k 出现之前**的式子（PRD 2026-09-14 / issue #43 给整条分式外面乘了 k）。
+        // C# 补上 k 之后它当场变红 —— 红得对：它钉住的是旧公式。
+        var expected = Math.Max(floor, (int)Math.Round(coef * k / 100.0, MidpointRounding.AwayFromZero));
+
         var world = AnaerobicWorld(players);
         var share = RulePolicies.AnaerobicShare(world, world.Cells[new EntityId(1)]);
 
-        Assert.True(share == coef,
-            $"{players} 人局单格块的无氧份额：GDScript 系数 {coef}（指数 {exp}），C# 算出 {share}");
+        Assert.True(share == expected,
+            $"{players} 人局单格块的无氧份额：GDScript 系数 {coef}、指数 {exp}、独占系数 {k}% ⇒ {expected}，C# 算出 {share}");
+    }
+
+    /// <summary>
+    /// **人数系数 k**：块内 1/2/3 个癌细胞 → 80%/100%/120%（PRD 2026-09-14 / issue #43）。
+    /// 净效果是「罚独占、奖抱团」—— C# 此前完全没有这个系数，独占的癌细胞每回合多拿 20%。
+    /// </summary>
+    [Fact]
+    public void 无氧的人数系数按块内癌细胞数分档()
+    {
+        var gd = GdIntArray("ANAEROBIC_CELLS_K");
+        Assert.Equal(gd, RuleTuning.Default.AnaerobicCellsK);
+
+        // 同一块癌组织上摆 1 / 2 / 3 个癌细胞，比**整块拿到的总量**（份额 × 人数）。
+        // 比总量而不是比份额：份额本身还要除以人数，两个变量搅在一起看不出 k。
+        var totals = new List<double>();
+        for (var cells = 1; cells <= 3; cells++)
+        {
+            var world = AnaerobicBlockWorld(cells);
+            var share = RulePolicies.AnaerobicShare(world, world.Cells[new EntityId(1)]);
+            totals.Add(share * (double)cells);
+        }
+
+        // 兜底可能把小的那档顶上来，所以只断言**单调不减**，再单独验中/高两档的比值
+        Assert.True(totals[1] <= totals[2], $"3 个细胞的总量不该少于 2 个：{totals[1]} vs {totals[2]}");
+        Assert.True(totals[0] <= totals[1], $"2 个细胞的总量不该少于 1 个：{totals[0]} vs {totals[1]}");
+        Assert.True(totals[2] > totals[1], $"k 没生效：2 个 {totals[1]}、3 个 {totals[2]}（120% 该比 100% 多）");
     }
 
     // ---- 读 GDScript 常量表 ----
@@ -972,6 +1006,92 @@ public class GdScriptParityTests
             BoardRules.Erosion(world, new Xoshiro256StarStar(3), ring).Board.Tissues[center].State);
     }
 
+    // ---- TU-4：E 阶段旋钮 ----
+
+    [Theory]
+    [InlineData("PROLIFERATE_BASE_BY_STAGE")]
+    [InlineData("PROLIFERATE_SOLID_BY_STAGE")]
+    public void 增生旋钮的默认值等于GDScript数组(string constant)
+    {
+        var mine = constant == "PROLIFERATE_BASE_BY_STAGE"
+            ? RuleTuning.Default.ProliferatePerAdjacent
+            : RuleTuning.Default.ProliferatePerSolid;
+        Assert.Equal(GdIntArray(constant), mine);
+    }
+
+    [Theory]
+    [InlineData("ANAEROBIC_SOLID_BONUS")]
+    [InlineData("ANAEROBIC_FLOOR")]
+    [InlineData("ANAEROBIC_CAP")]
+    [InlineData("ANAEROBIC_BLOCK_EXP")]
+    [InlineData("ANAEROBIC_BLOCK_COEF")]
+    public void 无氧旋钮的默认值等于GDScript常量(string constant)
+    {
+        var tune = RuleTuning.Default;
+        var actual = constant switch
+        {
+            "ANAEROBIC_SOLID_BONUS" => tune.AnaerobicSolidBonus,
+            "ANAEROBIC_FLOOR" => tune.AnaerobicFloor,
+            "ANAEROBIC_CAP" => tune.AnaerobicCap,
+            "ANAEROBIC_BLOCK_EXP" => tune.AnaerobicBlockExp,
+            _ => tune.AnaerobicBlockCoef,
+        };
+        Assert.True(actual == GdConst(constant), $"{constant}：GDScript {GdConst(constant)}，C# {actual}");
+    }
+
+    [Theory]
+    [InlineData("ANAEROBIC_BLOCK_COEF_BY_PLAYERS")]
+    [InlineData("ANAEROBIC_BLOCK_EXP_BY_PLAYERS")]
+    public void 无氧分档表等于GDScript字典(string constant)
+    {
+        var gd = GdIntDict(constant);
+        var mine = constant.Contains("COEF")
+            ? RuleTuning.Default.AnaerobicBlockCoefByPlayers
+            : RuleTuning.Default.AnaerobicBlockExpByPlayers;
+        Assert.Equal(gd.OrderBy(kv => kv.Key), mine.OrderBy(kv => kv.Key));
+    }
+
+    /// <summary>
+    /// 【E-侵蚀】的转化格数：2/3 概率取常见值、1/3 取少见值，掷的是 **d3（1..3）**。
+    ///
+    /// 值域比概率更要紧：对拍的随机数带子记的是**抽取区间**，
+    /// `NextInt(3)`（0..2）在带子上和 GD 的 `randi_range(1,3)` 对不上。
+    /// 这和早上那个「骰面 0..5 vs 1..6」是同一个形状。
+    /// </summary>
+    [Fact]
+    public void 侵蚀掷的是一到三的d3()
+    {
+        var center = new HexPosition(0, 0, 0);
+        var ring = center.GetNeighbors().ToArray();
+        var tiles = new Dictionary<HexPosition, Tissue> { [center] = Tile(center, TissueState.Healthy, null) };
+        foreach (var n in ring) tiles[n] = Tile(n, TissueState.Cancer, null);
+        foreach (var n in ring)
+            foreach (var m in n.GetNeighbors())
+                tiles.TryAdd(m, Tile(m, TissueState.Healthy, null));
+        var world = CancerBoard(tiles, ring[0], CellType.Osteosarcoma, worldRound: 1);
+
+        var spy = new RecordingRng(new Xoshiro256StarStar(11));
+        BoardRules.Erosion(world, spy, []);
+
+        Assert.Contains((1, 4), spy.Ranges);
+        Assert.DoesNotContain((0, 3), spy.Ranges);   // 旧写法的形状，不许回来
+    }
+
+    /// <summary>【E-侵蚀】的格数默认值等于 GD 的 `EROSION_TILES_BY_STAGE`。</summary>
+    [Fact]
+    public void 侵蚀格数的三档默认值等于GDScript()
+    {
+        // GD 是 Array[Vector2i]：[Vector2i(2, 3), Vector2i(2, 3), Vector2i(3, 5)]
+        // 别拿行尾锚点收尾：cw_data.gd 是 CRLF，$ 卡在回车前面匹配不到 ]（踩过两次的坑）
+        var gd = Regex.Match(DataGd.Value,
+            @"^const EROSION_TILES_BY_STAGE[^\r\n]*", RegexOptions.Multiline);
+        Assert.True(gd.Success, "cw_data.gd 里找不到 EROSION_TILES_BY_STAGE");
+        var pairs = Regex.Matches(gd.Value, @"Vector2i\(\s*(\d+)\s*,\s*(\d+)\s*\)")
+            .Select(m => (int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value))).ToArray();
+
+        Assert.Equal(pairs, RuleTuning.Default.ErosionTiles);
+    }
+
     // ---- E 阶段步序用的夹具 ----
 
     /// <summary>
@@ -1168,6 +1288,44 @@ public class GdScriptParityTests
                     Hand = [], Equipped = [],
                 },
             },
+            Players = seats,
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 1 }
+        };
+    }
+
+    /// <summary>一块 4 格的癌组织，上面摆 1~3 个癌细胞（四人局）。</summary>
+    private static WorldState AnaerobicBlockWorld(int cancerCells)
+    {
+        var spots = new[]
+        {
+            new HexPosition(0, 0, 0), new HexPosition(1, 0, -1),
+            new HexPosition(2, 0, -2), new HexPosition(3, 0, -3),
+        };
+        var tiles = new Dictionary<HexPosition, Tissue>();
+        var cells = new Dictionary<EntityId, Cell>();
+        for (var i = 0; i < spots.Length; i++)
+        {
+            var occupant = i < cancerCells ? new EntityId((ulong)(i + 1)) : (EntityId?)null;
+            tiles[spots[i]] = Tile(spots[i], TissueState.Cancer, occupant);
+            if (occupant is not { } id) continue;
+            cells[id] = new()
+            {
+                Id = id, OwnerSeat = 1, Faction = Faction.Cancer, Type = CellType.Melanoma,
+                Position = spots[i], Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                Hand = [], Equipped = [],
+            };
+        }
+
+        var seats = new Dictionary<int, Player>();
+        for (var i = 0; i < 4; i++)
+            seats[i] = i == 1
+                ? new() { Seat = 1, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0, AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Melanoma }
+                : new() { Seat = i, Faction = Faction.Immune, IsAlive = true, DrawCount = 0, AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I };
+
+        return new WorldState
+        {
+            Board = new Board { Radius = 6, Tissues = tiles },
+            Cells = cells,
             Players = seats,
             Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 1 }
         };

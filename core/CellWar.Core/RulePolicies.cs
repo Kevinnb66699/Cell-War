@@ -328,20 +328,30 @@ internal static class RulePolicies
     {
         var block = Blocks(s, true).FirstOrDefault(b => b.Contains(c.Position));
         if (block == null) return 0;
+        var tune = s.Tuning;
         var living = s.Cells.Values.Count(x => x.IsAlive && x.Faction == Faction.Cancer && block.Contains(x.Position));
         var ordinary = block.Count(p => s.Board.Tissues[p].State == TissueState.Cancer);
         var solid = Tiles(s).Count(t => t.State == TissueState.SolidifiedCancer);
-        // 2026-09-15 按 GDScript 对齐（Kevin 裁定）。原来写死 `six ? 0.35 : 0.3` 与 `six ? 2.8 : 2.0`，
-        // 两处都和权威实现对不上：
-        //   · **指数**：六人 0.35 只活了一个白天 —— issue #29 当晚就改回 0.3，
-        //     GDScript 的 ANAEROBIC_BLOCK_EXP_BY_PLAYERS 是 {2:30, 4:30, 6:30}，**三档全是 0.30**；
-        //   · **系数**：GDScript 的 ANAEROBIC_BLOCK_COEF_BY_PLAYERS 是 {2:28, 4:20, 6:28} ——
-        //     **2 人局是 2.8 不是 2.0**，而这里的 `six ? … : 2.0` 把 2 人局也当成了 2.0。
-        // 这两条会让双内核对拍在 E 阶段直接分叉（无氧每回合都走）。
-        // 表里没有的人数退回缺省（balance_scan 会扫 5 人 / 7 人这类非正式人数，不能崩）。
-        var coefPermille = s.Players.Count switch { 4 => 200, _ => 280 };   // 十分能量 ×100：2.0 / 2.8
-        var expPermille = 30;                                              // 百分数：三档都是 0.30
-        var income = Round(Math.Max(2.0, (Math.Pow(ordinary, expPermille / 100.0) * (coefPermille / 100.0) + solid) / Math.Max(1, living)));
+
+        // 逐步对齐 GDScript 的 `CWWorld._anaerobic_pool()` + `_split_share()`（cw_world.gd:797-833）。
+        // 单位一律是**十分能量**，和那边一样。
+        //
+        // 指数与系数按人数分档，表里没有的人数退回缺省（balance_scan 会扫 5 人 / 7 人这类非正式人数，不能崩）。
+        var coef = tune.AnaerobicBlockCoefByPlayers.TryGetValue(s.Players.Count, out var cf) ? cf : tune.AnaerobicBlockCoef;
+        var exp = tune.AnaerobicBlockExpByPlayers.TryGetValue(s.Players.Count, out var ex) ? ex : tune.AnaerobicBlockExp;
+        var pool = (ordinary > 0 ? Math.Pow(ordinary, exp / 100.0) : 0.0) * coef + solid * tune.AnaerobicSolidBonus;
+
+        // **人数系数 k**（PRD 2026-09-14 / issue #43）：块内 1/2/3 个癌细胞 → 80%/100%/120%，
+        // 乘在**整条分式外面**；兜底 2.0 排在它**之后**（PRD 写的是 `max{2, k × …}`）。
+        // 2026-09-15 补：C# 此前**完全没有这个系数** —— 独占一块的癌细胞每回合多拿 20%。
+        var k = tune.AnaerobicCellsK[Math.Clamp(living - 1, 0, tune.AnaerobicCellsK.Count - 1)];
+        var scaled = pool * k / 100.0;
+
+        // 四舍五入**只在这里做一次**：池子是浮点，先取整再除会取整两次（GD 那边专门写了这句注释）
+        var income = (int)Math.Round(tune.AnaerobicSplit ? scaled / Math.Max(1, living) : scaled,
+            MidpointRounding.AwayFromZero);
+        if (tune.AnaerobicFloor > 0) income = Math.Max(tune.AnaerobicFloor, income);
+        if (tune.AnaerobicCap > 0) income = Math.Min(tune.AnaerobicCap, income);
         if (TypeAbilityOn(s, c) && c.Type == CellType.SmallCellLung) income = (int)Math.Ceiling(income * 1.1);  // 【瓦伯格超速糖酵解】110% 向上取整到十分位
         if (HasSkill(s, c, "GLUT1高表达")) income += CancerPhase(s.Turn.WorldRound) switch { 0 => 5, 1 => 8, _ => 10 };
         return income;

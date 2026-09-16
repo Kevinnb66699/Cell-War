@@ -54,9 +54,64 @@ public sealed record RuleTuning
     /// </summary>
     public IReadOnlyList<int> SolidifyThreshold { get; init; } = [30, 20, 20];
 
+    /// <summary>【E-增生】每个相邻癌性组织的基数，千分率，按分期三档（GD `PROLIFERATE_BASE_BY_STAGE`）。</summary>
+    public IReadOnlyList<int> ProliferatePerAdjacent { get; init; } = [30, 35, 40];
+
+    /// <summary>【E-增生】块内每格固化癌组织的加成，千分率，按分期三档（GD `PROLIFERATE_SOLID_BY_STAGE`）。</summary>
+    public IReadOnlyList<int> ProliferatePerSolid { get; init; } = [5, 10, 10];
+
+    /// <summary>
+    /// 【E-侵蚀】每个封闭健康块转几格，按分期三档的 (常见值, 少见值)。
+    /// 掷 d3：≤2 取前者（2/3 概率），否则取后者（GD `EROSION_TILES_BY_STAGE`）。
+    /// </summary>
+    public IReadOnlyList<(int Common, int Rare)> ErosionTiles { get; init; } = [(2, 3), (2, 3), (3, 5)];
+
+    // ---- E 阶段：无氧呼吸 ----
+    //
+    // 单位一律照 GD：**十分能量**。公式（PRD 2026-09-14 issue #43）：
+    //   max{floor, k × (块内普通癌组织数^指数 × 系数 + **全图**固化数 × 每格加成) ÷ 块内癌细胞数}
+
+    /// <summary>指数项系数，十分能量，按人数分档（GD `ANAEROBIC_BLOCK_COEF_BY_PLAYERS`）。表里没有的人数退回缺省。</summary>
+    public IReadOnlyDictionary<int, int> AnaerobicBlockCoefByPlayers { get; init; }
+        = new Dictionary<int, int> { [2] = 28, [4] = 20, [6] = 28 };
+
+    /// <summary>指数项系数的缺省值（GD `ANAEROBIC_BLOCK_COEF`）。</summary>
+    public int AnaerobicBlockCoef { get; init; } = 28;
+
+    /// <summary>连通块癌组织个数的指数，百分数，按人数分档（GD `ANAEROBIC_BLOCK_EXP_BY_PLAYERS`）。</summary>
+    public IReadOnlyDictionary<int, int> AnaerobicBlockExpByPlayers { get; init; }
+        = new Dictionary<int, int> { [2] = 30, [4] = 30, [6] = 30 };
+
+    /// <summary>指数缺省值（GD `ANAEROBIC_BLOCK_EXP`）。</summary>
+    public int AnaerobicBlockExp { get; init; } = 30;
+
+    /// <summary>**全图**每格固化癌组织给的加成，十分能量（GD `ANAEROBIC_SOLID_BONUS`）。</summary>
+    public int AnaerobicSolidBonus { get; init; } = 10;
+
+    /// <summary>
+    /// 块内存活 1/2/3 个癌细胞时整条分式外面乘的**人数系数**，百分数（GD `ANAEROBIC_CELLS_K`）。
+    /// PRD 2026-09-14（issue #43）加的，净效果是**罚独占、奖抱团**。**兜底排在它之后**。
+    /// </summary>
+    public IReadOnlyList<int> AnaerobicCellsK { get; init; } = [80, 100, 120];
+
+    /// <summary>池子是否按块内癌细胞数均分（GD `anaerobic_split`，默认开）。</summary>
+    public bool AnaerobicSplit { get; init; } = true;
+
+    /// <summary>每个癌细胞每次至少拿多少，十分能量；≤0 = 不兜底（GD `ANAEROBIC_FLOOR`）。</summary>
+    public int AnaerobicFloor { get; init; } = 20;
+
+    /// <summary>无氧收入上限，十分能量；≤0 = 不封顶（GD `ANAEROBIC_CAP`，团队 2026-09-04 定案不封）。</summary>
+    public int AnaerobicCap { get; init; }
+
+    /// <summary>「新生」的当回合固化保护（GD `newborn_protect`，Kevin 2026-09-04 拍板取消，默认关）。</summary>
+    public bool NewbornProtect { get; init; }
+
     /// <summary>按免疫等级取一档（等级枚举 I=1…X=4，数组是 0 基）。</summary>
     public static int ByLevel(IReadOnlyList<int> table, ImmuneLevel level) => table[(int)level - 1];
 
     /// <summary>按肿瘤分期取一档（C# 的 `Stage()` 出 1/2/3，GD 的 `tumor_stage()` 出 0/1/2，数组是 0 基）。</summary>
     public static int ByStage(IReadOnlyList<int> table, int stage) => table[Math.Clamp(stage, 1, table.Count) - 1];
+
+    /// <summary>按肿瘤分期取一档（元组表，如【E-侵蚀】的转化格数）。</summary>
+    public static T ByStage<T>(IReadOnlyList<T> table, int stage) => table[Math.Clamp(stage, 1, table.Count) - 1];
 }
