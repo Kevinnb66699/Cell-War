@@ -106,6 +106,19 @@ public sealed record RuleTuning
     /// <summary>「新生」的当回合固化保护（GD `newborn_protect`，Kevin 2026-09-04 拍板取消，默认关）。</summary>
     public bool NewbornProtect { get; init; }
 
+    /// <summary>
+    /// 【代谢消耗】：每个癌细胞在 E 阶段按**当前能量的百分比**自动损能；≤0 = 关闭
+    /// （GD `cancer_upkeep_pct`，PRD 之外的平衡候选③，默认关）。
+    /// </summary>
+    public int CancerUpkeepPercent { get; init; }
+
+    /// <summary>
+    /// 【E-能量上限】每个世界回合结算末，所有存活细胞的能量削到这个数；0 = 不启用
+    /// （GD `energy_cap` / `ENERGY_CAP_PER_ROUND`，默认 0）。
+    /// 管的是**存量不是流量** —— 与无氧/有氧那几个「这一回合进多少」的低保/封顶不是一回事。
+    /// </summary>
+    public int EnergyCap { get; init; }
+
     // ---- S 阶段第 6 步【过载】（PRD 2026-09-15 新增）----
     //
     //   能量损失 = min{上限, max{0, ((x − 门槛) ÷ 分母)^指数}}

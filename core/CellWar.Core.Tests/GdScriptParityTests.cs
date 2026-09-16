@@ -1306,6 +1306,62 @@ public class GdScriptParityTests
         };
     }
 
+    // ---- E 阶段的两个旋钮档：【代谢消耗】与【E-能量上限】----
+    //
+    // 两个**默认都关**（GD 侧同样），是给 balance_scan 拨的对照档。
+    // 但它们是 E 阶段步序的一部分，不实现的话那两步在 C# 里就是两行注释。
+
+    [Fact]
+    public void 能量上限与代谢消耗默认都关着()
+    {
+        Assert.Equal(GdConst("ENERGY_CAP_PER_ROUND"), RuleTuning.Default.EnergyCap);
+        Assert.Equal(0, RuleTuning.Default.CancerUpkeepPercent);
+    }
+
+    /// <summary>【E-能量上限】拧开之后，**两个阵营**的存活细胞都削到那个数。</summary>
+    [Fact]
+    public void 能量上限拧开后两个阵营都削()
+    {
+        var world = OverloadWorld(600, withImmune: true)
+            .WithTuning(RuleTuning.Default with { EnergyCap = 200, OverloadDiv = 0 });   // 关掉过载免得干扰
+
+        var after = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(1));
+        Assert.Equal(200, after.Cells[new EntityId(1)].Energy);
+        Assert.Equal(200, after.Cells[new EntityId(2)].Energy);
+    }
+
+    /// <summary>
+    /// 【代谢消耗】按**当前能量的百分比**扣、向下取整，而且**只扣癌方**。
+    /// 它排在【无氧呼吸】之后 —— 税的是「存款 + 这回合刚进的账」。
+    /// </summary>
+    [Fact]
+    public void 代谢消耗按比例扣且只扣癌方()
+    {
+        var world = OverloadWorld(600, withImmune: true)
+            .WithTuning(RuleTuning.Default with { CancerUpkeepPercent = 10, OverloadDiv = 0 });
+
+        var plain = BoardRules.EvolveEndOfRound(
+            world.WithTuning(world.Tuning with { CancerUpkeepPercent = 0 }), new Xoshiro256StarStar(1));
+        var taxed = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(1));
+
+        // 癌细胞：先无氧进账，再按**那时**的能量扣 10%
+        Assert.True(taxed.Cells[new EntityId(1)].Energy < plain.Cells[new EntityId(1)].Energy);
+        // 免疫细胞：一分不扣
+        Assert.Equal(plain.Cells[new EntityId(2)].Energy, taxed.Cells[new EntityId(2)].Energy);
+    }
+
+    /// <summary>【代谢消耗】杀不死细胞 —— 按比例扣永远到不了 0，低能量时整除直接得 0。</summary>
+    [Fact]
+    public void 代谢消耗杀不死细胞()
+    {
+        var world = OverloadWorld(4)   // 0.4 能量 × 20% = 0.08 → 整除得 0
+            .WithTuning(RuleTuning.Default with { CancerUpkeepPercent = 20, OverloadDiv = 0 });
+
+        var after = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(1));
+        Assert.True(after.Cells[new EntityId(1)].IsAlive);
+        Assert.True(after.Cells[new EntityId(1)].Energy > 0);
+    }
+
     // ---- 树突【E-组织黏连】（PRD:579，E 阶段第 7 步）----
     //
     // 「被标记的癌细胞会将标记传染给 2 环内的所有癌细胞，**本阶段造成的感染不会再次感染**」

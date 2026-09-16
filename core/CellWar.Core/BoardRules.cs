@@ -84,7 +84,7 @@ internal static class BoardRules
     public static WorldState EvolveEndOfRound(WorldState s, IDeterministicRng rng)
     {
         s = Anaerobic(s);                              // 1  【无氧呼吸】
-        // 1.5 【代谢消耗】—— C# 未实现。GD 侧是 PRD 之外的平衡候选③（旋钮 cancer_upkeep_pct，默认关）。
+        s = CancerUpkeep(s);                           // 1.5 【代谢消耗】（PRD 之外的平衡候选③）
         s = Pressure(s);                               // 2  【微环境压迫】
         var fresh = Proliferate(s, rng, out s);        // 3  【增生】
         s = Erosion(s, rng, fresh);                    // 4  【侵蚀】
@@ -103,7 +103,7 @@ internal static class BoardRules
         s = TickChemo(s);                              // 8  趋化源本身的存续回合
         s = ExpireMarks(s);                            // 8  树突【I-标记】到期
         s = ClearNewborn(s);                           // 9  移除「新生」
-        // 9.5 能量上限 —— C# 未实现（旋钮 energy_cap，PRD 之外）
+        s = CapEnergy(s);                              // 9.5 能量上限（PRD 之外，口径 #92）
         return s;                                      // 10 胜负检查由 PhaseRules 编排
     }
 
@@ -122,6 +122,43 @@ internal static class BoardRules
             if (!blocks.Any(b => b.Contains(c.Position))) continue;
             s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy + AnaerobicShare(s, c)));
         }
+        return s;
+    }
+
+    /// <summary>
+    /// 1.5 【代谢消耗】（平衡候选③，PRD 之外，默认关）：每个癌细胞按**当前能量的百分比**自动损能。
+    ///
+    /// 团队 2026-09-01 定的三条口径，每条都有代价，别顺手改（照抄 GD 的注释）：
+    ///   ① 扣在【无氧呼吸】**之后** —— 所以税的是「存款 + 这回合刚进的账」，不只是存款；
+    ///   ② **不算伤害事件** —— 不走伤害管线，【缺氧适应】【囊性护甲】【耗竭抵抗】一概挡不住，
+    ///      BCL-2 也不介入。它是「代谢开销」不是「谁打了谁」，进管线会让一堆减伤牌凭空多出一层用途；
+    ///   ③ 向下取整（整数除法）。
+    ///
+    /// ⚠ **它杀不死细胞**，这是数学性质不是防呆：按比例扣永远到不了 0，
+    /// 而且能量低到 `energy × pct < 100` 时整除直接得 0。正因为杀不死人，这里不需要死亡检查。
+    /// </summary>
+    private static WorldState CancerUpkeep(WorldState s)
+    {
+        var pct = s.Tuning.CancerUpkeepPercent;
+        if (pct <= 0) return s;
+        foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer).ToArray())
+        {
+            var lost = s.Cells[c.Id].Energy * pct / 100;
+            if (lost > 0) s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy - lost));
+        }
+        return s;
+    }
+
+    /// <summary>
+    /// 9.5 【E-能量上限】：所有**存活**细胞（两个阵营都算）的能量削到上限；0 = 不启用。
+    /// 管的是**存量不是流量** —— 囤积是靠这个封的（口径 #92）。
+    /// </summary>
+    private static WorldState CapEnergy(WorldState s)
+    {
+        var cap = s.Tuning.EnergyCap;
+        if (cap <= 0) return s;
+        foreach (var c in Cells(s).Where(c => c.IsAlive && c.Energy > cap).ToArray())
+            s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(cap));
         return s;
     }
 
