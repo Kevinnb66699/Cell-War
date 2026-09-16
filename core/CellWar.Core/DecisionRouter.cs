@@ -134,10 +134,21 @@ internal static class DecisionRouter
                 var play = new PlayCardDecision(seat, c.Id, card);
                 if (Validate(s, play).IsValid) result.Add(play);
             }
-            foreach (var skill in new[] { "抗体", "细胞毒素", "骨样硬化", "早期血行转移", "黏液破裂" })
+            foreach (var skill in new[] { "抗体", "细胞毒素", "骨样硬化", "黏液破裂" })
             {
                 var decision = new TypeSkillDecision(seat, c.Id, skill);
                 if (Validate(s, decision).IsValid) result.Add(decision);
+            }
+            // 【早期血行转移】要选落点（GD `_homing_targets()` = 全场无细胞的健康组织），
+            // 曾经和上面那四个无目标技能摆在一起 —— `Target` 恒为 null，`Validate` 条条驳回，
+            // 于是这个技能**在选项表里根本不存在**。逐格摊开，合法性照旧交给 Validate。
+            if (c.Type == CellType.Melanoma)
+            {
+                foreach (var t in Tiles(s))
+                {
+                    var homing = new TypeSkillDecision(seat, c.Id, "早期血行转移", t.Position);
+                    if (Validate(s, homing).IsValid) result.Add(homing);
+                }
             }
             if (c.Type == CellType.TCell)
             {

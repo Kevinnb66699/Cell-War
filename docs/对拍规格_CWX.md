@@ -76,7 +76,10 @@ Vector2i → "q,r"；bool → 1/0
 2. **cid 用席位不用 id**。GD 的 `cells` 下标从 0 起，C# `EntityId` 0 是 Invalid、从 1 起；正式局 `cells.append` 只出现在 `cw_setup.gd:209`（一席一胞），所以 seat 是稳定主键。C# 侧 `EntityId = seat + 1`。
 3. **合并键**：GD 两问 ↔ C# 一决策的三处走组键，比对边界落在**组的末尾**：
    `k=action+chemo_target|act=chemo|to=q,r`（趋化源）、`k=action+effector_target|act=effector|cid=N`（免疫猎杀）、`k=action+effector_target|act=effector|dir=D|to=q,r`（Excalibur）。
-   **`free_move`（连续吞噬、炎症性趋化）暂不进组表，列为 `KNOWN_GAP`**——GD 是一步一问的走位，C# 侧看不出对应形状，这块的分组表要等 C# 补完再设计。
+   ~~**`free_move`（连续吞噬、炎症性趋化）暂不进组表，列为 `KNOWN_GAP`**~~ —— **2026-09-16 一半已合上**：
+   C# 补了 `ChainMoveDecision` / `StopChainDecision`，形状与 GD 的一步一问对得上，键是 `k=free_move|g=连续吞噬|to=q,r` 与 `|stop=1`。
+   **另一半仍是 `KNOWN_GAP`**：【炎症性趋化】GD 是打出卡时选第一步、再逐步追问（`kind: free_move`, `tag: 炎症性趋化`），
+   C# 做成了「本回合 3 次迁移改价 0.2」的修饰（`CardRules.cs:356`）—— 不是选项形状不同，是**决策点数量**不同，这条要么改 C#、要么记成永久偏离。
 
 **映射表（已逐条核对 `DecisionRouter.Available`）**：
 
@@ -86,13 +89,21 @@ Vector2i → "q,r"；bool → 1/0
 | `EndTurnDecision` | `k=action\|act=end` |
 | `MoveDecision` | `k=action\|act=move\|to=`（**攻击折在这里，两边一致**） |
 | `DrawDecision` / `MutateDecision` | `act=draw` / `act=mutate` |
-| `DifferentiateDecision` | `act=differentiate\|type=0..4` |
-| `PlayCardDecision` / `DiscardDecision` | `act=play\|card=` / `act=discard\|card=` |
-| `TypeSkillDecision` | 按 Skill 串：抗体→`antibody`、细胞毒素→`toxin`、骨样硬化→`ossify`、黏液破裂→`mucus`、裂解→`lyse\|to=`、转移→`jump\|to=` |
+| `DifferentiateDecision` | `act=differentiate\|type=0..4`（GD `ImmuneType` 与 C# `CellType` 前五项同序，直接取整数） |
+| `PlayCardDecision` | `act=play\|card=`，格子目标 `\|to=`，**细胞目标 `\|cid=`**（改：原表没写细胞目标，写了也容易误用 `to_cid` —— `to_cid` 只属于【代谢耦联】的转出/转入二问） |
+| `DiscardDecision` | **改**：`k=pick\|g=手牌上限\|card=`。C# 的弃置只有强制那一路（`Turn.PendingDiscardSeat` 挂起才给选项），对应 GD `cw_cards.gd:70 discard_to_limit`；原表写的 `act=discard` 是行动栏里那条**自愿**弃置，**C# 还没有**（见待实现队列） |
+| `ReviveDecision` | **改**：按阵营分两个 kind —— 免疫 `k=immune_revive\|to=`、癌方 `k=revive\|to=`。原表漏了这一条。癌方那问 GD 的 data 带 `anchor`，按规矩 1 剔除，所以同一落点的多个依托在 C# 侧压成同一个键 |
+| `ChainMoveDecision` / `StopChainDecision` | `k=free_move\|g=连续吞噬\|to=` / `\|stop=1`（2026-09-16 新增） |
+| `ChooseMutationDecision` | `k=pick\|g=基因组不稳定\|r=`，**`r` 是骰面值不是下标** —— C# 存的是「选第几个」，GD 那边根本没有 0/1 这个数 |
+| `TypeSkillDecision` | 按 Skill 串：抗体→`antibody`、细胞毒素→`toxin`、骨样硬化→`ossify`、黏液破裂→`mucus`、裂解→`lyse\|to=`、转移→`jump\|to=`、**早期血行转移→`homing\|to=`**；【效应应答】四种分化共用 GD 的一个入口 `act=effector`（B【中和抗体】、巨噬【连续吞噬】问完就结；树突【免疫猎杀】、T【Excalibur】走组键） |
 | `PassDecision` | **无对应物** → 每个 action 询问固定一条 `OPTION_EXTRA` |
 | `AttackDecision` / `DivideDecision` | **死代码**（`IRulesEngine.cs:93/191` 无 Validate/Execute/Available），不映射 |
 
 **必须更正第一轮的一条错误结论**：攻击在**两边都折在 move 里**（`cw_actions.gd:_do_move` 第 786 行起判目标格有无敌细胞）。照旧结论把 `move`/`attack` 拆成两个键，每一步都会误报。映射表其余条目请队友复核一遍，同类错误可能还有。
+
+**2026-09-16 复核结果**（实现在 `core/CellWar.Core.Tests/L1/SemanticKey.cs`，判据在 `SemanticKeyTests.cs`）：表上标「改」的四行就是复核查出来的同类错误，已就地改正。另外查出**一个 C# bug 并已修**：`DecisionRouter.Available` 把【早期血行转移】和四个无目标技能摆在一起枚举，`Target` 恒为 `null`、`Validate` 条条驳回 —— 这个技能**在选项表里根本不存在**（GD `_homing_targets()` 是逐格摊开的）。
+
+还有一条**`dir` 的坑**：Excalibur 的方向下标是 GD `CWData.DIRS`（`cw_data.gd:870`）那张表的下标，而 C# `HexPosition.GetNeighbors()` 是另一套次序。照自己的枚举序写下标，六个方向全错位，而且错得很安静 —— 键的形状对、字段齐全，只是指着别的方向。`SemanticKey.GdDirs` 把 GD 那张表原样抄了一份，六个方向各钉一条用例。
 
 **丢掉了什么（写进限制栏）**：选项的**顺序**与下标稳定性不再被验证（`DecisionRouter.cs:82` 的 `Tiles(s)` 走 `PagedMap` 迭代序而非排序序）。C# 真当权威内核时，这会以「客户端点了第 3 项、服务器执行了第 5 项」的形式复活——那要靠「按语义提交」的线上协议解决，不是靠对拍。**这条要单独立一条阶段 1 待办。**
 
