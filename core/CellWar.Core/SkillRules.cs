@@ -222,8 +222,11 @@ internal static class SkillRules
             }
             case "连续吞噬":
             {
+                // 发的是**连锁额度**而不是 5 次免费移动 —— PRD:605「第一次【净化】后，
+                // 可立即免费向相邻**癌组织**迁移；若再次净化则重复触发，最多 5 次」。
+                // 它是「净化之后当场接着走」的连锁，不是「本回合随便花的 5 次免费移动」。
                 s = ConsumeEffector(s, cell);
-                s = AddModifier(s, s.Cells[cell.Id], new("连续吞噬", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Skill, 0, 0, null, 5, ModifierDuration.Turn, ModifierRequirement.MoveToCancerous));
+                s = s.UpdateCell(cell.Id, s.Cells[cell.Id].Copy(chainLeft: CellRules.ChainPhagoMax));
                 break;
             }
             case "趋化源":

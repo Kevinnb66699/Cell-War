@@ -95,7 +95,7 @@ internal static class PhaseRules
         foreach (var c in Cells(s).Where(c => c.OwnerSeat == seat).ToArray())
         {
             s = s.UpdateCell(c.Id, s.Cells[c.Id].Copy(attacks: 0, draws: 0,
-                fxTurn: new Dictionary<string, int>(),
+                fxTurn: new Dictionary<string, int>(), chainLeft: 0,   // 连锁额度是「本行动回合」的
                 modifiers: s.Cells[c.Id].Modifiers.Where(m => m.Duration != ModifierDuration.Turn).ToList()));
             s = GrantTurnModifiers(s, s.Cells[c.Id]);
         }

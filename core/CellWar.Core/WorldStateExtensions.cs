@@ -98,7 +98,7 @@ public static class WorldStateExtensions
         int? antibody = null, bool? metastasis = null, int? jump = null, bool? armor = null,
         IReadOnlyDictionary<string, int>? equipSeq = null,
         IReadOnlyDictionary<string, int>? fxTurn = null, IReadOnlyList<string>? fxRound = null, int? neutralUntil = null,
-        int? chemoCooldown = null)
+        int? chemoCooldown = null, int? chainLeft = null, int? chainBonus = null)
         => new() { Id = c.Id, OwnerSeat = c.OwnerSeat, Faction = c.Faction, Type = type ?? c.Type, Position = position ?? c.Position, Energy = energy ?? c.Energy,
             IsAlive = alive ?? c.IsAlive, StatusEffects = c.StatusEffects, AttacksThisTurn = attacks ?? c.AttacksThisTurn, DeathRound = deathRound ?? c.DeathRound,
             CampRound = campRound ?? c.CampRound, CampPosition = campPosition ?? c.CampPosition,
@@ -111,6 +111,7 @@ public static class WorldStateExtensions
             PlayCounter = playCounter ?? c.PlayCounter, EquipSeq = equipSeq ?? c.EquipSeq,
             FxTurn = fxTurn ?? c.FxTurn, FxRound = fxRound ?? c.FxRound,
             NeutralUntil = neutralUntil ?? c.NeutralUntil, ChemoCooldown = chemoCooldown ?? c.ChemoCooldown,
+            ChainLeft = chainLeft ?? c.ChainLeft, ChainBonus = chainBonus ?? c.ChainBonus,
             Modifiers = modifiers ?? c.Modifiers };
     public static Cell WithEnergy(this Cell c, int energy) => c.Copy(energy: energy);
     public static Cell WithPosition(this Cell c, HexPosition pos) => c.Copy(position: pos);
@@ -145,9 +146,9 @@ public static class WorldStateExtensions
     public static TurnState Copy(this TurnState t, Phase? phase = null, int? seat = null, int? round = null, int? startStep = null, Faction? winner = null, int? alarm = null, int? pendingDiscard = null,
         int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? cytokineSeat = null, int? effectorRound = null,
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
-        EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null,
+        EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null, EntityId? pendingChain = null,
         bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false,
-        bool setTrackCell = false, bool setTrackFrozenAt = false)
+        bool setTrackCell = false, bool setTrackFrozenAt = false, bool setPendingChain = false)
         => new() { WorldRound = round ?? t.WorldRound, Phase = phase ?? t.Phase, ActivePlayerSeat = seat ?? t.ActivePlayerSeat,
             StartStep = startStep ?? t.StartStep, Winner = winner ?? t.Winner, CancerAlarmRound = alarm ?? t.CancerAlarmRound,
             PendingDiscardSeat = setPendingDiscard ? pendingDiscard : pendingDiscard ?? t.PendingDiscardSeat,
@@ -161,7 +162,12 @@ public static class WorldStateExtensions
             ChemoCreator = setChemoCreator ? chemoCreator : chemoCreator ?? t.ChemoCreator,
             TrackCell = setTrackCell ? trackCell : trackCell ?? t.TrackCell,
             TrackFrozenAt = setTrackFrozenAt ? trackFrozenAt : trackFrozenAt ?? t.TrackFrozenAt,
-            TrackRounds = trackRounds ?? t.TrackRounds };
+            TrackRounds = trackRounds ?? t.TrackRounds,
+            PendingChainCell = setPendingChain ? pendingChain : pendingChain ?? t.PendingChainCell };
+
+    /// <summary>挂起 / 结束【连续吞噬】的连锁选择。</summary>
+    public static TurnState WithPendingChain(this TurnState t, EntityId? cell)
+        => t.Copy(pendingChain: cell, setPendingChain: true);
 
     /// <summary>挂上【追踪趋化源】：跟着 `cell` 走，`rounds` 个世界回合。</summary>
     public static TurnState WithTrack(this TurnState t, EntityId? cell, HexPosition? frozenAt, int rounds)

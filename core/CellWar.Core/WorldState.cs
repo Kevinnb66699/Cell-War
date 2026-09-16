@@ -83,6 +83,13 @@ public sealed class TurnState
     /// <summary>追踪趋化源还剩几个世界回合（E 阶段第 8 步 −1；0 = 场上没有）。</summary>
     public int TrackRounds { get; init; }
 
+    /// <summary>
+    /// 【连续吞噬】正在等这只巨噬选下一跳（null = 没在连锁中）。
+    /// GD 那边是个 `await` 循环 + `chain_running` 再入闸；C# 的决策模型没有协程，
+    /// 每一跳是一个独立决策，所以用挂起态代替 —— 也就不需要那道再入闸。
+    /// </summary>
+    public EntityId? PendingChainCell { get; init; }
+
     public TurnState Clone() => new()
     {
         WorldRound = WorldRound,
@@ -104,7 +111,8 @@ public sealed class TurnState
         ChemoCreator = ChemoCreator,
         TrackCell = TrackCell,
         TrackFrozenAt = TrackFrozenAt,
-        TrackRounds = TrackRounds
+        TrackRounds = TrackRounds,
+        PendingChainCell = PendingChainCell
     };
 }
 
@@ -325,6 +333,18 @@ public sealed class Cell
             .CreateRange(StringComparer.Ordinal, value);
     }
     /// <summary>
+    /// 巨噬【效应应答·连续吞噬】还能连几次（GD `cell["chain_left"]`）。
+    /// 额度是「**本行动回合**」的，`BeginTurn` 清零。
+    /// </summary>
+    public int ChainLeft { get; init; }
+
+    /// <summary>
+    /// 【连续吞噬】连续净化攒下的攻击加成，十分能量（GD `cell["chain_bonus"]`）。
+    /// **用掉即清，不按回合过期** —— 「下一次攻击」就是下一次，隔多久都算。
+    /// </summary>
+    public int ChainBonus { get; init; }
+
+    /// <summary>
     /// 树突【I-趋化源】的技能冷却，还剩几个世界回合（GD `cell["chemo_cd"]`）。
     /// **从效果结束那一刻算起**（PRD「趋化源消失后，技能冷却 1 世界回合才能再次使用」），
     /// E 阶段第 8 步每回合 −1。记在细胞上而不是全局：换个树突去立是另一个细胞的技能。
@@ -413,6 +433,8 @@ public sealed class Cell
         EquipSeq = EquipSeq,
         NeutralUntil = NeutralUntil,
         ChemoCooldown = ChemoCooldown,
+        ChainLeft = ChainLeft,
+        ChainBonus = ChainBonus,
         FxTurn = FxTurn,
         FxRound = FxRound,
         Modifiers = Modifiers

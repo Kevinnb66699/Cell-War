@@ -1,4 +1,4 @@
-namespace CellWar.Core;
+﻿namespace CellWar.Core;
 
 /// <summary>
 /// 规则引擎接口
@@ -157,6 +157,20 @@ public sealed record PlayCardDecision(
 ) : IDecision
 {
     public string DecisionType => "PlayCard";
+}
+
+/// <summary>
+/// 巨噬【连续吞噬】的一跳：免费迁移到相邻的癌组织（不进费用管线，所以是真免费）。
+/// </summary>
+public sealed record ChainMoveDecision(int PlayerSeat, EntityId CellId, HexPosition Target) : IDecision
+{
+    public string DecisionType => "ChainMove";
+}
+
+/// <summary>巨噬【连续吞噬】：不再连了。</summary>
+public sealed record StopChainDecision(int PlayerSeat, EntityId CellId) : IDecision
+{
+    public string DecisionType => "StopChain";
 }
 
 /// <summary>

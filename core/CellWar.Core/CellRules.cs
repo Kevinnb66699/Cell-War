@@ -128,6 +128,29 @@ internal static class CellRules
         return s.UpdateCell(id, c.Copy(modifiers: kept));
     }
 
+    /// <summary>【连续吞噬】最多连几次 / 每连一格下一次攻击的加成（GD `CHAIN_PHAGO_MAX` / `CHAIN_PHAGO_BONUS`）。</summary>
+    internal const int ChainPhagoMax = 5;
+    internal const int ChainPhagoBonus = 5;
+
+    /// <summary>【连续吞噬】这一跳能落在哪：相邻的**癌组织**、且没有细胞占着。</summary>
+    public static IReadOnlyList<HexPosition> ChainTargets(WorldState s, Cell c)
+        => c.Position.GetNeighbors()
+            .Where(n => s.Board.Tissues.TryGetValue(n, out var t)
+                && t.State == TissueState.Cancer && s.GetCellAt(n) == null)
+            .OrderBy(n => n.Q).ThenBy(n => n.R).ToArray();
+
+    /// <summary>
+    /// 【连续吞噬】走一跳：**免费**迁移（不进费用管线），随后照常触发净化 ——
+    /// 于是能不能再连由那一步自己决定（`Move` 里净化之后会重新挂起）。
+    /// </summary>
+    public static RulesResult ChainMove(WorldState s, ChainMoveDecision d, IDeterministicRng rng)
+    {
+        var c = s.Cells[d.CellId];
+        s = s.UpdateCell(d.CellId, c.Copy(chainLeft: c.ChainLeft - 1, chainBonus: c.ChainBonus + ChainPhagoBonus));
+        s = s.WithTurn(s.Turn.WithPendingChain(null));   // 先摘挂起；这一跳的净化会视情况重新挂上
+        return Move(s, new MoveDecision(d.PlayerSeat, d.CellId, d.Target), rng, free: true);
+    }
+
     /// <summary>树突【I-标记】光环：任意时刻处于树突 2 环内的癌细胞自动获得标记。</summary>
     public static WorldState UpdateMarks(WorldState s)
     {
@@ -250,15 +273,19 @@ internal static class CellRules
     /// 移动/攻击/净化/定殖结算（PRD J 组）。净化触发的跨域反应（如【免疫记忆库】免费抽卡）
     /// 通过发出 <see cref="PurifyResolvedFact"/> 交给 <see cref="FactRouter"/> 分派，保持 CellRules 不反向依赖卡域。
     /// </summary>
-    public static RulesResult Move(WorldState s, MoveDecision move, IDeterministicRng rng)
+    /// <param name="free">
+    /// 真免费：**不进费用管线**、也不消耗任何限次修饰（巨噬【连续吞噬】的连锁跳用它）。
+    /// 实付 0 顺带让【I-吞噬】那条「回量不超过实付 −0.1」自然算出 0，不用另写分支。
+    /// </param>
+    public static RulesResult Move(WorldState s, MoveDecision move, IDeterministicRng rng, bool free = false)
     {
         var cell = s.Cells[move.CellId];
-        var cost = RulePolicies.QuoteMove(s, cell, move.TargetPosition)!.Value;
+        var cost = free ? 0 : RulePolicies.QuoteMove(s, cell, move.TargetPosition)!.Value;
         var target = s.GetCellAt(move.TargetPosition);
         var events = new List<IGameEvent>();
         var attacker = cell.Copy(energy: cell.Energy - cost);
         s = s.UpdateCell(cell.Id, attacker);
-        s = ConsumeModifiers(s, cell.Id, ModifierTarget.Move, move.TargetPosition);
+        if (!free) s = ConsumeModifiers(s, cell.Id, ModifierTarget.Move, move.TargetPosition);
         if (target != null)
         {
             // 六面骰，**1..6**。原来写的是 NextInt(6)，那产出 0..5 —— 而 AttackOutcome 判
@@ -289,6 +316,13 @@ internal static class CellRules
             if (outcome != "fail")
             {
                 extra = attackExtra;
+                // 【连续吞噬】连续净化攒的加成：**用掉即清**，不按回合过期
+                var chain = s.Cells[cell.Id].ChainBonus;
+                if (chain > 0)
+                {
+                    extra += chain;
+                    s = s.UpdateCell(cell.Id, s.Cells[cell.Id].Copy(chainBonus: 0));
+                }
                 if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "抗体亲和力成熟") && RulePolicies.AdjacentHealthy(s, move.TargetPosition)) extra += 5;
             }
             attacker = s.Cells[cell.Id].Copy(attacks: cell.AttacksThisTurn + 1);
@@ -355,6 +389,12 @@ internal static class CellRules
                 }
                 // 【免疫记忆库】等净化跨域反应：发出已提交事实，由 FactRouter 按目录稳定顺序分派
                 s = FactRouter.Emit(s, new PurifyResolvedFact(s.Turn.WorldRound, cell.Id), rng);
+                // 巨噬【连续吞噬】：净化之后**当场**接着走（PRD:605）。
+                // GD 那边是个 await 循环 + `chain_running` 再入闸；这里每一跳是一个独立决策，
+                // 所以挂起等玩家选就行，不需要那道闸。
+                if (s.Cells[cell.Id].Type == CellType.Macrophage && s.Cells[cell.Id].ChainLeft > 0
+                        && ChainTargets(s, s.Cells[cell.Id]).Count > 0)
+                    s = s.WithTurn(s.Turn.WithPendingChain(cell.Id));
                 // 【模式识别增强】：每世界回合第一次【净化】后恢复 0.5 能量
                 if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "模式识别增强") && RoundGateOpen(s.Cells[cell.Id], "模式识别增强"))
                 {

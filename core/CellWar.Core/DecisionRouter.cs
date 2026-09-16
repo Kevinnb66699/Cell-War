@@ -1,4 +1,4 @@
-using static CellWar.Core.CellRules;
+﻿using static CellWar.Core.CellRules;
 using static CellWar.Core.RulePolicies;
 
 namespace CellWar.Core;
@@ -19,6 +19,15 @@ internal static class DecisionRouter
             return decision is ChooseMutationDecision choose && choose.PlayerSeat == mutationSeat && choose.Choice is 0 or 1
                 ? new(true)
                 : new(false, "等待突变结算选择");
+        // 【连续吞噬】的连锁：挂起期间只接这只巨噬的「再走一跳」或「不连了」
+        if (state.Turn.PendingChainCell is { } chainCell)
+        {
+            if (decision is StopChainDecision stop && stop.CellId == chainCell) return new(true);
+            return decision is ChainMoveDecision hop && hop.CellId == chainCell
+                    && CellRules.ChainTargets(state, state.Cells[chainCell]).Contains(hop.Target)
+                ? new(true)
+                : new(false, "等待【连续吞噬】选择下一跳");
+        }
         if (decision is PlaceDecision placement) return PlacementRules.ValidatePlacement(state, placement);
         if (decision is ReviveDecision revival)
             return new(PhaseRules.GetRevivalOptions(state).Contains(revival), "Invalid revival option.");
@@ -43,6 +52,9 @@ internal static class DecisionRouter
         if (decision is DifferentiateDecision differentiation) return PlacementRules.Differentiate(state, differentiation);
         if (decision is DiscardDecision discard) return CardRules.Discard(state, discard);
         if (decision is ChooseMutationDecision choose) return CardRules.ChooseMutation(state, choose, rng);
+        if (decision is ChainMoveDecision hop) return CellRules.ChainMove(state, hop, rng);
+        if (decision is StopChainDecision)
+            return new(state.WithTurn(state.Turn.WithPendingChain(null)), Array.Empty<IGameEvent>(), true);
         if (decision is DrawDecision draw) return CardRules.Draw(state, draw, rng);
         if (decision is MutateDecision mutate) return CardRules.Mutate(state, mutate, rng);
         if (decision is PlayCardDecision play) return CardRules.PlayCard(state, play, rng);
@@ -76,6 +88,15 @@ internal static class DecisionRouter
             if (mutationSeat != seat) return Array.Empty<IDecision>();
             var mutationCell = s.Turn.PendingMutationCell!.Value;
             return new IDecision[] { new ChooseMutationDecision(seat, mutationCell, 0), new ChooseMutationDecision(seat, mutationCell, 1) };
+        }
+        if (s.Turn.PendingChainCell is { } chainCell)
+        {
+            var macro = s.Cells[chainCell];
+            if (macro.OwnerSeat != seat) return Array.Empty<IDecision>();
+            var hops = CellRules.ChainTargets(s, macro)
+                .Select(t => (IDecision)new ChainMoveDecision(seat, chainCell, t)).ToList();
+            hops.Add(new StopChainDecision(seat, chainCell));   // 「结束连续吞噬」永远给得出来
+            return hops;
         }
         if (s.Turn.Phase != Phase.PlayerAction || seat != s.Turn.ActivePlayerSeat || !PhaseRules.AliveSeat(s, seat)) return Array.Empty<IDecision>();
         var result = new List<IDecision> { new PassDecision(seat), new EndTurnDecision(seat) };

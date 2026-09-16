@@ -1306,6 +1306,168 @@ public class GdScriptParityTests
         };
     }
 
+    // ---- 巨噬【效应应答·连续吞噬】（PRD:603-607）----
+    //
+    // 「发动后，本行动回合巨噬细胞第一次【净化】后，可立即免费向相邻**癌组织**迁移；
+    //   若再次净化则重复触发，最多触发 5 次」
+    //
+    // C# 此前拿一条「本回合 5 次免费移动」的修饰顶着 —— 那是**本回合随便花**，
+    // 而 PRD 要的是「净化之后当场接着走」的连锁。
+
+    [Theory]
+    [InlineData("CHAIN_PHAGO_MAX")]
+    [InlineData("CHAIN_PHAGO_BONUS")]
+    public void 连续吞噬的常量等于GDScript(string constant)
+    {
+        var actual = constant == "CHAIN_PHAGO_MAX" ? CellRules.ChainPhagoMax : CellRules.ChainPhagoBonus;
+        Assert.True(actual == GdConst(constant), $"{constant}：GDScript {GdConst(constant)}，C# {actual}");
+    }
+
+    /// <summary>
+    /// 一条完整的连锁：净化 → 挂起等选 → 免费跳一格（又净化）→ 再挂起 → 选「不连了」。
+    /// 每跳攒 0.5 的攻击加成；跳本身**不花钱**。
+    /// </summary>
+    [Fact]
+    public void 连续吞噬净化后挂起并可免费连跳()
+    {
+        var engine = new BasicRulesEngine();
+        var id = new EntityId(1);
+        var world = ChainWorld();
+        var before = world.Cells[id].Energy;
+
+        // 第一步是**正常收费**的迁移，净化之后挂起
+        var first = new HexPosition(1, 0, -1);
+        var s = engine.ExecuteDecision(world, new MoveDecision(0, id, first), new Xoshiro256StarStar(1)).NewState;
+        Assert.Equal(id, s.Turn.PendingChainCell);
+        Assert.Equal(CellRules.ChainPhagoMax, s.Cells[id].ChainLeft);
+
+        // 挂起期间只给「跳」与「不连了」
+        var options = engine.GetAvailableDecisions(s, 0);
+        Assert.Contains(options, o => o is ChainMoveDecision);
+        Assert.Contains(options, o => o is StopChainDecision);
+        Assert.DoesNotContain(options, o => o is EndTurnDecision);
+
+        // 跳一格：不花钱、额度 −1、加成 +0.5
+        var hop = options.OfType<ChainMoveDecision>().First();
+        var energyBeforeHop = s.Cells[id].Energy;
+        s = engine.ExecuteDecision(s, hop, new Xoshiro256StarStar(1)).NewState;
+
+        Assert.Equal(energyBeforeHop, s.Cells[id].Energy);                       // 真免费
+        Assert.Equal(CellRules.ChainPhagoMax - 1, s.Cells[id].ChainLeft);
+        Assert.Equal(GdConst("CHAIN_PHAGO_BONUS"), s.Cells[id].ChainBonus);
+        Assert.Equal(TissueState.Healthy, s.Board.Tissues[hop.Target].State);    // 跳过去照样净化
+
+        // 「不连了」把挂起摘掉
+        s = engine.ExecuteDecision(s, new StopChainDecision(0, id), new Xoshiro256StarStar(1)).NewState;
+        Assert.Null(s.Turn.PendingChainCell);
+        Assert.True(s.Cells[id].Energy > before - 10, "两步只该花第一步那一次钱");
+    }
+
+    /// <summary>没发动过【连续吞噬】的巨噬，净化之后不该挂起。</summary>
+    [Fact]
+    public void 没发动连续吞噬时净化不挂起()
+    {
+        var world = ChainWorld(chainLeft: 0);
+        var s = new BasicRulesEngine()
+            .ExecuteDecision(world, new MoveDecision(0, new EntityId(1), new HexPosition(1, 0, -1)), new Xoshiro256StarStar(1)).NewState;
+
+        Assert.Null(s.Turn.PendingChainCell);
+    }
+
+    /// <summary>额度是「**本行动回合**」的：回合开始清零。</summary>
+    [Fact]
+    public void 连锁额度在回合开始清零()
+    {
+        var world = ChainWorld();
+        Assert.Equal(CellRules.ChainPhagoMax, world.Cells[new EntityId(1)].ChainLeft);
+
+        var begun = new BasicRulesEngine()
+            .AdvancePhase(world.WithTurn(world.Turn.Copy(phase: Phase.S, startStep: 99)), new Xoshiro256StarStar(2))
+            .NewState;
+        Assert.Equal(0, begun.Cells[new EntityId(1)].ChainLeft);
+    }
+
+    /// <summary>攒下的加成在**下一次攻击**上一次性吃掉，然后清零（不按回合过期）。</summary>
+    [Fact]
+    public void 连续吞噬的加成在下一次攻击吃掉()
+    {
+        var from = new HexPosition(0, 0, 0);
+        var to = new HexPosition(1, 0, -1);
+        var id = new EntityId(1);
+        var victim = new EntityId(2);
+
+        var plain = AttackBoard(from, to, chainBonus: 0);
+        var boosted = AttackBoard(from, to, chainBonus: 20);
+        var engine = new BasicRulesEngine();
+
+        var a = engine.ExecuteDecision(plain, new MoveDecision(0, id, to), new Xoshiro256StarStar(20260915)).NewState;
+        var b = engine.ExecuteDecision(boosted, new MoveDecision(0, id, to), new Xoshiro256StarStar(20260915)).NewState;
+
+        Assert.True(b.Cells[victim].Energy < a.Cells[victim].Energy, "加成没打出去");
+        Assert.Equal(0, b.Cells[id].ChainBonus);   // 用掉即清
+    }
+
+    /// <summary>巨噬站 (0,0)，右边一串癌组织可以一路净化过去。</summary>
+    private static WorldState ChainWorld(int chainLeft = CellRules.ChainPhagoMax)
+    {
+        var at = new HexPosition(0, 0, 0);
+        var tiles = new Dictionary<HexPosition, Tissue> { [at] = Tile(at, TissueState.Healthy, new EntityId(1)) };
+        for (var i = 1; i <= 4; i++)
+        {
+            var p = new HexPosition(i, 0, -i);
+            tiles[p] = Tile(p, TissueState.Cancer, null);
+        }
+
+        return new WorldState
+        {
+            Board = new Board { Radius = 6, Tissues = tiles },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = Immune(new EntityId(1), 0, at)
+                    .Copy(type: CellType.Macrophage, differentiated: true, chainLeft: chainLeft),
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Immune, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.X },
+            },
+            Turn = new TurnState { WorldRound = 3, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+    }
+
+    /// <summary>一个免疫紧邻一个癌细胞，免疫身上带着指定的连锁加成。</summary>
+    private static WorldState AttackBoard(HexPosition from, HexPosition to, int chainBonus)
+    {
+        var tiles = new Dictionary<HexPosition, Tissue>
+        {
+            [from] = Tile(from, TissueState.Healthy, new EntityId(1)),
+            [to] = Tile(to, TissueState.Cancer, new EntityId(2)),
+        };
+        return new WorldState
+        {
+            Board = new Board { Radius = 6, Tissues = tiles },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = Immune(new EntityId(1), 0, from)
+                    .Copy(type: CellType.Macrophage, chainBonus: chainBonus),
+                [new EntityId(2)] = new()
+                {
+                    Id = new EntityId(2), OwnerSeat = 1, Faction = Faction.Cancer, Type = CellType.Osteosarcoma,
+                    Position = to, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Immune, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I },
+                [1] = new() { Seat = 1, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Osteosarcoma },
+            },
+            Turn = new TurnState { WorldRound = 3, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+    }
+
     // ---- 【免疫猎杀】的【追踪趋化源】（PRD:583）----
     //
     // 「选定全局任意一个癌细胞使其获得【标记】，同时在其上附着**跟随的**【追踪趋化源】」。
