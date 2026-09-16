@@ -191,7 +191,11 @@ internal static class CellRules
         s = ConsumeModifiers(s, cell.Id, ModifierTarget.Move, move.TargetPosition);
         if (target != null)
         {
-            var roll = rng.NextInt(6);
+            // 六面骰，**1..6**。原来写的是 NextInt(6)，那产出 0..5 —— 而 AttackOutcome 判
+            // `roll == 6` 为暴击，于是暴击永远掷不出来（实测 60000 次 crit 0%，应为 16.7%）。
+            // 用 NextIntRange(1, 7)（半开）而不是 NextInt(6) + 1：把「1..6」写进代码里，
+            // 下一个人不用去推。PRD 只给概率不给面数，骰面值域由 Kevin 2026-09-15 裁定为 6 面。
+            var roll = rng.NextIntRange(1, 7);
             var attackerCell = s.Cells[cell.Id];
             var attackMods = attackerCell.Modifiers.Where(m => m.Target == ModifierTarget.Attack).ToList();
             var attackExtra = attackMods.Sum(m => m.Value);
@@ -202,7 +206,7 @@ internal static class CellRules
             var outcome = hasAffinity ? "crit" : RulePolicies.AttackOutcome(roll, attackerCell);
             if (outcome == "fail" && hasOpsonin)
             {
-                roll = rng.NextInt(6);
+                roll = rng.NextIntRange(1, 7);   // 【补体调理】的重掷，同样是 1..6
                 outcome = RulePolicies.AttackOutcome(roll, s.Cells[cell.Id]);
             }
             if (HasModifier(s.Cells[target.Id], "PD-L1表达"))

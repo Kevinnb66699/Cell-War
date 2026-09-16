@@ -15,7 +15,15 @@ public static class WorldStateExtensions
     public static Board UpdateTissue(this Board b, HexPosition pos, Tissue tissue) => new() { Radius = b.Radius, Tissues = b.Tissues.SetItem(pos, tissue) };
     public static Tissue WithState(this Tissue t, TissueState state) => t.CopyTissue(state: state, solid: state == TissueState.Healthy ? 0 : t.SolidificationCount, ossify: state == TissueState.Cancer ? t.OssifyAtRound : 0, newborn: state == TissueState.Cancer ? t.Newborn : false);
     public static Tissue WithType(this Tissue t, TissueType type) => t.CopyTissue(type: type);
-    public static Tissue WithOccupyingCell(this Tissue t, EntityId? id) => new() { Position = t.Position, Type = t.Type, State = t.State, SolidificationCount = t.SolidificationCount, OccupyingCell = id, Charge = t.Charge, ProductionCounter = t.ProductionCounter, NecrosisRounds = t.NecrosisRounds, Mucus = t.Mucus, Newborn = t.Newborn, OssifyAtRound = t.OssifyAtRound };
+    // 2026-09-15 修：这里原来自己手写了一份初始化器，**漏掉 SolidLockRound 与 ToxinRound**。
+    // 实测一格 Toxin=7 SolidLock=3，放进一个细胞之后变成 0/0 ——
+    // 而「格上有细胞」恰恰是这两个字段唯一起作用的场合（TNF-α 冻结固化、细胞毒素的格记录）。
+    //
+    // 病根不是漏了两个字段，是**同一份字段清单被手写了三遍**（Clone / CopyTissue / 这里）。
+    // 所以改法是让它也走 CopyTissue，字段清单从此只有一份。
+    // `setOccupying` 那个开关是必须的：EntityId? 分不出「不改」和「改成 null」。
+    public static Tissue WithOccupyingCell(this Tissue t, EntityId? id)
+        => t.CopyTissue(setOccupying: true, occupying: id);
     public static Tissue WithSolidificationCount(this Tissue t, int count) => t.CopyTissue(solid: count);
     public static Tissue WithCharge(this Tissue t, int? charge) => t.CopyTissue(charge: charge);
     public static Tissue WithProductionCounter(this Tissue t, int prod) => t.CopyTissue(prod: prod);
@@ -26,12 +34,19 @@ public static class WorldStateExtensions
     public static Tissue WithSolidLockRound(this Tissue t, int round) => t.CopyTissue(solidLock: round);
     public static Tissue WithToxinRound(this Tissue t, int round) => t.CopyTissue(toxinRound: round);
 
+    /// <summary>
+    /// Tissue 的**唯一**一份字段清单。所有 With* 都从这里出去 ——
+    /// 新加字段只要往这里加一行，就不会有某个 With* 悄悄把它清零。
+    /// （2026-09-15 之前 WithOccupyingCell 自己手写了一份，漏了两个字段、静默清零。）
+    /// </summary>
     private static Tissue CopyTissue(this Tissue t, TissueState? state = null, TissueType? type = null, int? solid = null, int? charge = null,
-        int? prod = null, int? necrosis = null, bool? mucus = null, bool? newborn = null, int? ossify = null, int? solidLock = null, int? toxinRound = null)
+        int? prod = null, int? necrosis = null, bool? mucus = null, bool? newborn = null, int? ossify = null, int? solidLock = null, int? toxinRound = null,
+        bool setOccupying = false, EntityId? occupying = null)
         => new()
         {
             Position = t.Position, Type = type ?? t.Type, State = state ?? t.State,
-            SolidificationCount = solid ?? t.SolidificationCount, OccupyingCell = t.OccupyingCell,
+            SolidificationCount = solid ?? t.SolidificationCount,
+            OccupyingCell = setOccupying ? occupying : t.OccupyingCell,
             Charge = charge ?? t.Charge, ProductionCounter = prod ?? t.ProductionCounter,
             NecrosisRounds = necrosis ?? t.NecrosisRounds, Mucus = mucus ?? t.Mucus,
             Newborn = newborn ?? t.Newborn, OssifyAtRound = ossify ?? t.OssifyAtRound,
