@@ -93,7 +93,8 @@ internal static class BoardRules
         s = Rooted(s, rng);                            // 5  【根深蒂固】
         s = Ossify(s);                                 // 5  骨肉瘤【骨样硬化】标记到期
         s = Decay(s);                                  // 6  固化计数衰减
-        // 7 树突【E-组织黏连】/【紊乱】返回原位 —— C# 未实现
+        s = MarkAdhesion(s);                           // 7  树突【E-组织黏连】
+        // 7 【紊乱】返回原位 —— C# 未实现（世界事件，EV-1）
         s = TickDurations(s);                          // 8  世界事件 / 全局修饰倒计时
         // 8 「本世界回合」时长的**细胞身上**那些修饰，改在下一个 S 阶段的 ResetRoundFlags 里清
         //   （E 步 8 到下一个 S 之间没有别的结算，等价）
@@ -321,6 +322,35 @@ internal static class BoardRules
         }
         return s;
     }
+
+    /// <summary>
+    /// 7 树突【E-组织黏连】（PRD:579）：被标记的癌细胞把标记传染给 2 环内的所有癌细胞，
+    /// **本阶段造成的感染不会再次感染**。
+    ///
+    /// 「不会再次感染」靠**先把传染源快照下来**做到（GD `_mark_adhesion` 同法）——
+    /// 边传边加进源集合的话，一次 E 阶段就能顺着一串癌细胞蔓延到天边。
+    ///
+    /// 场上没有树突就整步不发生：标记是树突的机制，`ApplyMark` 还要拿它判
+    /// 【抗原呈递强化】给 1 层还是 2 层。取**第一只**树突，与 GD 同。
+    /// </summary>
+    private static WorldState MarkAdhesion(WorldState s)
+    {
+        var dendritic = Cells(s).FirstOrDefault(c => c.IsAlive && c.Faction == Faction.Immune && c.Type == CellType.Dendritic);
+        if (dendritic == null) return s;
+
+        // **先快照**：本阶段新染上的不能再当源
+        var carriers = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Marked)
+            .Select(c => c.Position).ToArray();
+        if (carriers.Length == 0) return s;
+
+        foreach (var target in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && !c.Marked).ToArray())
+            if (carriers.Any(src => target.Position.DistanceTo(src) <= AdhesionRange))
+                s = ApplyMark(s, target.Id, dendritic);
+        return s;
+    }
+
+    /// <summary>【E-组织黏连】的传染范围（GD `ADHESION_RANGE`，PRD「2 环内」）。</summary>
+    internal const int AdhesionRange = 2;
 
     /// <summary>
     /// 8 世界事件与卡牌全局修饰的倒计时：每条 `Left` −1，归零移除。

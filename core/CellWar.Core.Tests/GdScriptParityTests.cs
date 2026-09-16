@@ -1306,6 +1306,103 @@ public class GdScriptParityTests
         };
     }
 
+    // ---- 树突【E-组织黏连】（PRD:579，E 阶段第 7 步）----
+    //
+    // 「被标记的癌细胞会将标记传染给 2 环内的所有癌细胞，**本阶段造成的感染不会再次感染**」
+    // C# 此前完全没有这一步。
+
+    /// <summary>传染范围与 GD 的 `ADHESION_RANGE` 一致。</summary>
+    [Fact]
+    public void 组织黏连的传染范围等于GDScript常量()
+        => Assert.Equal(BoardRules.AdhesionRange, GdConst("ADHESION_RANGE"));
+
+    /// <summary>
+    /// 2 环内传染、2 环外不传染；而且**本阶段新染上的不能再当传染源** ——
+    /// 否则一次 E 阶段就能顺着一串癌细胞蔓延到天边。
+    ///
+    /// 摆一条链：源(0,0) —2格— A(2,0) —2格— B(4,0)。
+    /// 只有源带标记，那么这一阶段只有 A 该被染上，B 不该（它离源 4 格）。
+    /// </summary>
+    [Fact]
+    public void 组织黏连只传两环且本阶段新染的不再当源()
+    {
+        var world = AdhesionWorld();
+        var after = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(5));
+
+        Assert.True(after.Cells[new EntityId(2)].Marked, "2 环内的该被传染");
+        Assert.False(after.Cells[new EntityId(3)].Marked, "4 格外的这一阶段不该被传染（新染的不能再当源）");
+    }
+
+    /// <summary>场上没有树突就整步不发生 —— 标记是树突的机制。</summary>
+    [Fact]
+    public void 场上没有树突时组织黏连不发生()
+    {
+        var world = AdhesionWorld(withDendritic: false);
+        var after = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(5));
+
+        Assert.False(after.Cells[new EntityId(2)].Marked);
+    }
+
+    /// <summary>
+    /// 一条癌细胞链：源(0,0) —2格— A(2,0) —2格— B(4,0)，只有源带标记。
+    /// 树突摆在远处（8 格外），免得它自己的 2 环光环把三个都标了。
+    /// </summary>
+    private static WorldState AdhesionWorld(bool withDendritic = true)
+    {
+        var src = new HexPosition(0, 0, 0);
+        var a = new HexPosition(2, 0, -2);
+        var b = new HexPosition(4, 0, -4);
+        var far = new HexPosition(-8, 0, 8);
+
+        var tiles = new Dictionary<HexPosition, Tissue>
+        {
+            [src] = Tile(src, TissueState.Cancer, new EntityId(1)),
+            [a] = Tile(a, TissueState.Cancer, new EntityId(2)),
+            [b] = Tile(b, TissueState.Cancer, new EntityId(3)),
+        };
+        var cells = new Dictionary<EntityId, Cell>
+        {
+            [new EntityId(1)] = Cancer(new EntityId(1), src, marked: true),
+            [new EntityId(2)] = Cancer(new EntityId(2), a, marked: false),
+            [new EntityId(3)] = Cancer(new EntityId(3), b, marked: false),
+        };
+        var seats = new Dictionary<int, Player>
+        {
+            [0] = new() { Seat = 0, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0,
+                AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Osteosarcoma },
+        };
+        if (withDendritic)
+        {
+            tiles[far] = Tile(far, TissueState.Healthy, new EntityId(4));
+            cells[new EntityId(4)] = new()
+            {
+                Id = new EntityId(4), OwnerSeat = 1, Faction = Faction.Immune, Type = CellType.Dendritic,
+                Position = far, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                Hand = [], Equipped = [],
+            };
+            seats[1] = new() { Seat = 1, Faction = Faction.Immune, IsAlive = true, DrawCount = 0,
+                AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I };
+        }
+
+        return new WorldState
+        {
+            Board = new Board { Radius = 9, Tissues = tiles },
+            Cells = cells,
+            Players = seats,
+            // 标记记在**上一个**世界回合：第 8 步的到期判据是 `本回合 >= 施加回合 + 1`，
+            // 记本回合的话源自己会在同一次 E 阶段里被摘掉，读不出传染有没有发生
+            Turn = new TurnState { WorldRound = 5, Phase = Phase.E, ActivePlayerSeat = 0 }
+        };
+    }
+
+    private static Cell Cancer(EntityId id, HexPosition at, bool marked) => new()
+    {
+        Id = id, OwnerSeat = 0, Faction = Faction.Cancer, Type = CellType.Osteosarcoma,
+        Position = at, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+        Hand = [], Equipped = [],
+        Marked = marked, MarkLeft = marked ? 1 : 0, MarkRound = marked ? 5 : -1,
+    };
+
     // ---- EV-0：世界事件 / 全局修饰容器 ----
 
     /// <summary>15 个世界事件的名字表与 GD 的 `CWWorldFx.EVENTS` 逐条一致。</summary>
