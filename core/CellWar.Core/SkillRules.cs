@@ -73,6 +73,16 @@ internal static class SkillRules
         }
     }
 
+    /// <summary>
+    /// 【抗体】无目标时转化几格：按免疫等级（I/II/III/X）分档的 [2/3 概率的数, 1/3 概率的数]
+    /// （GD `ANTIBODY_NO_TARGET_X`）。前两行是**兜底**（I/II 级根本没有 B 细胞，放不出【抗体】）。
+    /// </summary>
+    internal static readonly IReadOnlyList<IReadOnlyList<int>> AntibodyNoTargetX =
+        [[2, 3], [2, 3], [3, 5], [4, 6]];
+
+    /// <summary>T【Excalibur】主射线相邻的癌组织进入波及范围的概率（GD `EXCALIBUR_SPLASH_PCT`）。</summary>
+    internal const int ExcaliburSplashPercent = 60;
+
     /// <summary>【免疫猎杀】附着的【追踪趋化源】持续几个世界回合（GD `HUNT_CHEMO_ROUNDS`）。</summary>
     internal const int HuntChemoRounds = 2;
 
@@ -123,7 +133,14 @@ internal static class SkillRules
                 else
                 {
                     var tiles = Tiles(s).Where(t => t.State == TissueState.Cancer && t.OccupyingCell == null && AdjacentHealthy(s, t.Position)).ToArray();
-                    var max = rng.NextInt(3) < 2 ? 2 : 3;
+                    // 无目标时改为转化癌组织：掷 **d3**，2/3 概率取前一个数、1/3 概率取后一个数，
+                    // 而那两个数**按免疫等级分档**（PRD 2026-09-13 云端版 / issue #37：III 级 3/5、X 级 4/6）。
+                    //
+                    // 2026-09-16 修：C# 此前写死 2/3 —— 那是**改版前**的值，III/X 级都少转了。
+                    // 掷法也不对：`NextInt(3)`（0..2）与 GD 的 `roll_shown(3, …)` = `randi_range(1,3)`
+                    // 概率一样但**抽取区间不一样**，对拍带子逐笔比对时那一步就分叉。
+                    var tier = AntibodyNoTargetX[Math.Clamp((int)s.Players[cell.OwnerSeat].ImmuneLevel - 1, 0, AntibodyNoTargetX.Count - 1)];
+                    var max = rng.NextIntRange(1, 4) <= 2 ? tier[0] : tier[1];
                     foreach (var pick in rng.PickRandom(tiles, max)) s = s.UpdateTissueState(pick.Position, TissueState.Healthy);
                 }
                 break;
@@ -264,7 +281,10 @@ internal static class SkillRules
                             s = s.UpdateTissueState(pos, TissueState.Healthy);
                             s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2)));
                         }
-                    foreach (var pos in splash.Where(p => s.Board.Tissues[p].State == TissueState.Cancer && rng.NextInt(100) < 60))
+                    // 掷 1..100 判 `<= 60`，逐位对齐 GD 的 `randi_range(1, 100) <= EXCALIBUR_SPLASH_PCT`。
+                    // 原来写的是 `NextInt(100) < 60`（0..99）—— 概率一样、抽取区间不一样。
+                    foreach (var pos in splash.Where(p => s.Board.Tissues[p].State == TissueState.Cancer
+                        && rng.NextIntRange(1, 101) <= ExcaliburSplashPercent))
                     {
                         s = s.UpdateTissueState(pos, TissueState.Healthy);
                         s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2)));

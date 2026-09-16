@@ -154,6 +154,78 @@ public class GdScriptParityTests
         Assert.Equal(300 - (full - cut), after.Cells[new EntityId(1)].Energy);
     }
 
+    // ---- 掷骰的**值域**，不是概率 ----
+    //
+    // 概率一样但抽取区间不一样，单跑一边测不出来；而双内核对拍的随机数带子是**逐笔**比对的，
+    // 区间对不上那一步就分叉。09-15 早上那个「骰面 0..5 vs 1..6」是同一个形状，
+    // 09-16 又在【E-侵蚀】【抗体】【Excalibur】三处各抓到一次。
+
+    /// <summary>T【Excalibur】侧向波及：掷 1..100 判 `<= 60`，不是 `NextInt(100) < 60`。</summary>
+    [Fact]
+    public void Excalibur侧向波及掷的是一到一百()
+    {
+        Assert.Equal(SkillRules.ExcaliburSplashPercent, GdConst("EXCALIBUR_SPLASH_PCT"));
+
+        var world = ExcaliburWorld();
+        var spy = new RecordingRng(new Xoshiro256StarStar(4));
+        new BasicRulesEngine().ExecuteDecision(world,
+            new TypeSkillDecision(0, new EntityId(1), "Excalibur", new HexPosition(1, 0, -1)), spy);
+
+        Assert.Contains((1, 101), spy.Ranges);
+        Assert.DoesNotContain((0, 100), spy.Ranges);   // 旧写法的形状，不许回来
+    }
+
+    /// <summary>
+    /// 【抗体】无目标时转化几格：**按免疫等级分档**（PRD 2026-09-13 / issue #37）。
+    /// C# 此前写死 2/3 —— 那是改版前的值，III/X 级都少转了。
+    /// </summary>
+    [Fact]
+    public void 抗体无目标时的转化格数按免疫等级分档()
+    {
+        var gd = Regex.Match(DataGd.Value, @"^const ANTIBODY_NO_TARGET_X[^
+]*", RegexOptions.Multiline);
+        Assert.True(gd.Success, "cw_data.gd 里找不到 ANTIBODY_NO_TARGET_X");
+        var tiers = Regex.Matches(gd.Value, @"\[\s*(\d+)\s*,\s*(\d+)\s*\]")
+            .Select(m => (int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value))).ToArray();
+
+        Assert.Equal(tiers.Length, SkillRules.AntibodyNoTargetX.Count);
+        for (var i = 0; i < tiers.Length; i++)
+            Assert.Equal([tiers[i].Item1, tiers[i].Item2], SkillRules.AntibodyNoTargetX[i]);
+
+        // 顺带钉住「改版后的值」本身：III 级 3/5、X 级 4/6
+        Assert.Equal([3, 5], SkillRules.AntibodyNoTargetX[2]);
+        Assert.Equal([4, 6], SkillRules.AntibodyNoTargetX[3]);
+    }
+
+    /// <summary>一个 T 细胞，右边一串癌组织给 Excalibur 的主射线与侧向。</summary>
+    private static WorldState ExcaliburWorld()
+    {
+        var at = new HexPosition(0, 0, 0);
+        var tiles = new Dictionary<HexPosition, Tissue> { [at] = Tile(at, TissueState.Healthy, new EntityId(1)) };
+        for (var i = 1; i <= 5; i++)
+        {
+            var p = new HexPosition(i, 0, -i);
+            tiles[p] = Tile(p, TissueState.Cancer, null);
+            foreach (var n in p.GetNeighbors()) tiles.TryAdd(n, Tile(n, TissueState.Cancer, null));
+        }
+
+        return new WorldState
+        {
+            Board = new Board { Radius = 9, Tissues = tiles },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = Immune(new EntityId(1), 0, at)
+                    .Copy(type: CellType.TCell, differentiated: true),
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Immune, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 30, ImmuneLevel = ImmuneLevel.X },
+            },
+            Turn = new TurnState { WorldRound = 3, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+    }
+
     // ---- 【耗竭抵抗】（PRD:1277）----
     //
     // 「每世界回合自身第一次受到能量损失时，该次能量损失 −1；
