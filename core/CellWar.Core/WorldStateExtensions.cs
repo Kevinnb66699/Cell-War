@@ -10,15 +10,36 @@ public static class WorldStateExtensions
     /// Tissue / Cell / TurnState 的清单早就收口了，唯独漏了 `WorldState` 自己。
     /// </summary>
     public static WorldState Copy(this WorldState s, Board? board = null, PagedMap<EntityId, Cell>? cells = null,
-        TurnState? turn = null, PagedMap<int, Player>? players = null, RuleTuning? tuning = null)
+        TurnState? turn = null, PagedMap<int, Player>? players = null, RuleTuning? tuning = null,
+        IReadOnlyList<ActiveEffect>? effects = null)
         => new()
         {
             Board = board ?? s.Board,
             Cells = cells ?? s.Cells,
             Turn = turn ?? s.Turn,
             Players = players ?? s.Players,
+            Effects = effects ?? s.Effects,
             Tuning = tuning ?? s.Tuning,
         };
+
+    /// <summary>
+    /// 往全局修饰容器里挂一条（卡牌的全局修饰用；世界事件将来走自己的 trigger）。
+    /// `left` 按**世界回合**倒计时，E 阶段末 −1、归零移除 —— 与世界事件同一套时钟。
+    /// 对齐 GD 的 `CWGame.install_event()`。
+    ///
+    /// **同名可以挂多条**（打两张【TGF-β释放】就是两条），强度靠 `WorldEffects.Stacks` 求和。
+    /// </summary>
+    public static WorldState InstallEffect(this WorldState s, string name, int left, int stacks = 1,
+        IReadOnlyDictionary<string, int>? data = null)
+    {
+        var entry = new ActiveEffect(name, left, stacks);
+        if (data != null) entry = entry with { Data = data };
+        return s.Copy(effects: [.. s.Effects, entry]);
+    }
+
+    /// <summary>把同名的条目**整批**摘掉（【TGF-β释放】结算后就是这样一次清空）。</summary>
+    public static WorldState RemoveEffects(this WorldState s, string name)
+        => s.Copy(effects: s.Effects.Where(e => e.Name != name).ToList());
 
     public static WorldState WithBoard(this WorldState s, Board board) => s.Copy(board: board);
     public static WorldState WithTurn(this WorldState s, TurnState turn) => s.Copy(turn: turn);
@@ -119,14 +140,13 @@ public static class WorldStateExtensions
     /// 解法照 `CopyTissue` 的 `setOccupying` 先例：给会被清空的那三处各加一个开关。
     /// 只加真正用到的三个 —— 将来要清 `Winner` 时再加第四个，别现在替未来立规矩。
     /// </summary>
-    public static TurnState Copy(this TurnState t, Phase? phase = null, int? seat = null, int? round = null, int? startStep = null, Faction? winner = null, int? alarm = null, int? pendingDiscard = null, int? tgf = null, int? pausedDecay = null,
+    public static TurnState Copy(this TurnState t, Phase? phase = null, int? seat = null, int? round = null, int? startStep = null, Faction? winner = null, int? alarm = null, int? pendingDiscard = null,
         int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? cytokineSeat = null, int? effectorRound = null,
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null,
         bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false)
         => new() { WorldRound = round ?? t.WorldRound, Phase = phase ?? t.Phase, ActivePlayerSeat = seat ?? t.ActivePlayerSeat,
             StartStep = startStep ?? t.StartStep, Winner = winner ?? t.Winner, CancerAlarmRound = alarm ?? t.CancerAlarmRound,
             PendingDiscardSeat = setPendingDiscard ? pendingDiscard : pendingDiscard ?? t.PendingDiscardSeat,
-            TgfStacks = tgf ?? t.TgfStacks, PausedDecayRound = pausedDecay ?? t.PausedDecayRound,
             PendingMutationSeat = setPendingMutation ? pendingMutationSeat : pendingMutationSeat ?? t.PendingMutationSeat,
             PendingMutationCell = setPendingMutation ? pendingMutationCell : pendingMutationCell ?? t.PendingMutationCell,
             PendingMutationA = pendingMutationA ?? t.PendingMutationA, PendingMutationB = pendingMutationB ?? t.PendingMutationB,

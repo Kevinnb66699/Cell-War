@@ -171,15 +171,15 @@ Vector2i → "q,r"；bool → 1/0
 
 | 项 | 不比 | **不注入** |
 |---|---|---|
-| `events{pool,active,double_next}`（15 个世界事件 + 卡牌全局修饰容器） | ✓ | ✓ |
+| `events{pool,active,double_next}`（15 个世界事件 + 卡牌全局修饰容器） | 部分 | 部分 |
 | `tune`（59 旋钮） | ✓ | ✓ |
 | `chemo_track`（免疫猎杀追踪源） | ✓ | ✓ |
 | `differentiated`（分化种类全阵营去重） | ✓ | ✓ |
 | ~~`equip_seq` + `fx_turn` / `fx_round`~~ **2026-09-15 起 C# 有了，这一行作废** | — | — |
 | `chemo_cd`（I-趋化源冷却） | ✓ | ✓ |
 | `chain_bonus`（连续吞噬累计加成） | ✓ | ✓ |
-| **`TgfStacks`** ← GD `events["active"]` 的 TGF-β stacks | ✓ | **必须注入** |
-| **`PausedDecayRound`** ← GD `events["active"]` 的【基质稳定】 | ✓ | **必须注入** |
+| ~~**`TgfStacks`**~~ **2026-09-16 起 C# 也住 `Effects` 容器，同名同形** | — | 照条目直接注入 |
+| ~~**`PausedDecayRound`**~~ **2026-09-16 起 C# 也住 `Effects` 容器，同名同形** | — | 照条目直接注入 |
 | **`SolidLockRound`** ← GD `events["active"]` 的【TNF-α局部炎症】 | ✓ | **必须注入** |
 | **`CancerAlarmRound`** ← 由 GD `cancer_win_streak` 折算 | ✓ | **必须注入** |
 | ~~**`CancerEffectsDisabledUntil`** ← 由 GD 每胞 `neutral_until` 折算~~ **2026-09-15 起 C# 改成每胞 `Cell.NeutralUntil`，同名同形，不再需要折算** | — | 照字段直接注入 |
@@ -195,6 +195,18 @@ Vector2i → "q,r"；bool → 1/0
 
 （仍未对齐：【组织驻留】的额度 GD 记在 `fx_turn`、C# 记在一条 `Uses:2` 的 Free Move 修饰里。
 行为一致，但 `mods` 逐条比对时 C# 会多这一条。搬它要连 GD 的 `Store.GATE` 一起搬。）
+
+**事件容器 2026-09-16 立起来了（EV-0）**：C# 侧 `WorldState.Effects` + `WorldEffects` 读写口，
+形状照 GD 的 `events["active"]`（`{Name, Left, Stacks, Doubled, Data}`，E 阶段第 8 步倒计时）。
+
+**已经搬进去的**：【TGF-β释放】（left=2，结算后同名整批消耗）、【基质稳定】（left=1）——
+它们此前各用一个 `TurnState` 上的标量顶着，与 GD 对不上；现在两边同名同形，上表两行作废。
+
+**还没搬**：15 个世界事件的**内容**（名字表与触发回合 3/6/10/14 已对齐，效果还没实现）、
+`pool`（同局不重复的抽取）、`double_next`（【双重触发】的三档加倍）。
+**【TNF-α局部炎症】也还没搬**：GD 把冻结的**格子**记在事件条目的 `data` 里，
+C# 是每格一个 `Tissue.SolidLockRound` 回合戳 —— 行为等价（left=1 随回合末解冻 ≡ 戳 == 当前回合），
+但形状不同，`mods` 那种逐条比对碰不到它，暂时不动。
 
 后五项不注入的话不是漏报，**是错报**：C# 会在一个「TGF 层数为 0、衰减没暂停」的伪造世界上算数。
 

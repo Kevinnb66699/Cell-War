@@ -115,7 +115,9 @@ internal static class PhaseRules
             var income = AerobicShare(s, c);
             s = s.UpdateCell(c.Id, c.WithEnergy(c.Energy + income));
         }
-        if (s.Turn.TgfStacks > 0) s = s.WithTurn(s.Turn.Copy(tgf: 0));
+        // 【TGF-β释放】结算完**同名整批消耗**（对齐 GD 的 CWWorld._aerobic）。
+        // 减免本身已经算在 AerobicShare 里了，这里只负责摘条目。
+        if (WorldEffects.Stacks(s, "TGF-β释放") > 0) s = s.RemoveEffects("TGF-β释放");
         var first = s.Players.Keys.OrderBy(x => x).Where(x => AliveSeat(s, x)).Cast<int?>().FirstOrDefault();
         s = s.WithTurn(s.Turn.Copy(phase: first == null ? Phase.E : Phase.PlayerAction, seat: first ?? 0, startStep: 2));
         return first == null ? s : BeginTurn(s, first.Value);

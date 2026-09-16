@@ -411,13 +411,7 @@ public class RegressionGuardTests
         var to = new HexPosition(1, 0, -1);
 
         var plain = AttackWorld(from, to);
-        var tgf = plain.WithTurn(new TurnState
-        {
-            WorldRound = plain.Turn.WorldRound,
-            Phase = plain.Turn.Phase,
-            ActivePlayerSeat = plain.Turn.ActivePlayerSeat,
-            TgfStacks = 1,
-        });
+        var tgf = plain.InstallEffect("TGF-β释放", left: 2);
 
         var provider = new MatchObservationProvider(new BasicRulesEngine());
         var before = IncomeOfSeat0(provider, plain);
@@ -1166,13 +1160,16 @@ public class RegressionGuardTests
     public void 世界的每个With方法只改它该改的那个字段()
     {
         var full = AttackWorld(new HexPosition(0, 0, 0), new HexPosition(1, 0, -1))
-            .WithTuning(RuleTuning.Default with { CancerMoveHealthy = 42 });
+            .WithTuning(RuleTuning.Default with { CancerMoveHealthy = 42 })
+            .InstallEffect("TGF-β释放", left: 2);   // 字段是默认值（空表）的话，被清空也看不出来
 
         var cases = new (string Name, string Changes, Func<WorldState, WorldState> Apply)[]
         {
             ("WithBoard", nameof(WorldState.Board), w => w.WithBoard(w.Board.Clone())),
             ("WithTurn", nameof(WorldState.Turn), w => w.WithTurn(w.Turn.Copy(round: 9))),
             ("WithTuning", nameof(WorldState.Tuning), w => w.WithTuning(RuleTuning.Default)),
+            ("InstallEffect", nameof(WorldState.Effects), w => w.InstallEffect("基质稳定", 1)),
+            ("RemoveEffects", nameof(WorldState.Effects), w => w.RemoveEffects("TGF-β释放")),
             ("UpdateCell", nameof(WorldState.Cells), w => w.UpdateCell(new EntityId(1), w.Cells[new EntityId(1)].Copy(energy: 99))),
             ("RemoveCell", nameof(WorldState.Cells), w => w.RemoveCell(new EntityId(2))),
             ("UpdatePlayer", nameof(WorldState.Players), w => w.UpdatePlayer(0, w.Players[0].WithAntigenMemory(7))),
@@ -1337,8 +1334,6 @@ public class RegressionGuardTests
         Winner = Faction.Cancer,
         CancerAlarmRound = 5,
         PendingDiscardSeat = 1,
-        TgfStacks = 2,
-        PausedDecayRound = 6,
         PendingMutationSeat = 0,
         PendingMutationCell = new EntityId(4),
         PendingMutationA = 3,

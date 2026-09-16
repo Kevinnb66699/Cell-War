@@ -363,7 +363,9 @@ internal static class RulePolicies
             { ImmuneLevel.I => 20, ImmuneLevel.II => 30, ImmuneLevel.III => 45, _ => 50 };
         if (HasSkill(s, c, "代谢适应")) income += 5;        // 每次结算有氧额外 +0.5
         if (HasSkill(s, c, "自分泌生存信号")) income += 8;  // 每次结算有氧额外 +0.8
-        for (var i = 0; i < s.Turn.TgfStacks; i++) income = income * 80 / 100;  // 【TGF-β释放】每层 -20% 向下取整
+        // 【TGF-β释放】逐份 ×80%（向下取整，定案 #63）。强度是**同名条目求和** ——
+        // 打两张就是两条各 1 层。**只算不结算**：消耗在 PhaseRules 的有氧那一步。
+        for (var i = 0; i < WorldEffects.Stacks(s, "TGF-β释放"); i++) income = income * 80 / 100;
         if (s.Board.Tissues[c.Position].NecrosisRounds > 0) income = Settlement.RoundTenth(income * 0.5);
         return income;
     }

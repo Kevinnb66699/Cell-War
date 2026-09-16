@@ -118,8 +118,11 @@ internal static class CardRules
             s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + AnaerobicShare(s, cell)));
             return s;
         },
-        ["基质稳定"] = (s, cell, rng, target, targetCell) => s.WithTurn(s.Turn.Copy(pausedDecay: s.Turn.WorldRound)),
-        ["TGF-β释放"] = (s, cell, rng, target, targetCell) => s.WithTurn(s.Turn.Copy(tgf: s.Turn.TgfStacks + 1)),
+        // left=1：E 阶段衰减在回合末之前结算，挂到回合末正好盖住本回合那一次
+        ["基质稳定"] = (s, cell, rng, target, targetCell) => s.InstallEffect("基质稳定", left: 1),
+        // left=2：下一次有氧在**下个**世界回合的 S 阶段，要活过本回合末；
+        // 结算时同名整批消耗（RulePolicies 那侧），多打几张就多几条，逐份 −20%（定案 #63）
+        ["TGF-β释放"] = (s, cell, rng, target, targetCell) => s.InstallEffect("TGF-β释放", left: 2),
         ["缺氧适应"] = (s, cell, rng, target, targetCell) =>
         {
             s = AddModifier(s, s.Cells[cell.Id], new("缺氧适应", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Card, 0, 10, 0, 1, ModifierDuration.Game));   // 缺氧适应：挡下 1.0（原 1 = 0.1）

@@ -94,8 +94,9 @@ internal static class BoardRules
         s = Ossify(s);                                 // 5  骨肉瘤【骨样硬化】标记到期
         s = Decay(s);                                  // 6  固化计数衰减
         // 7 树突【E-组织黏连】/【紊乱】返回原位 —— C# 未实现
-        // 8 世界事件倒计时 + 「本世界回合」修饰过期 —— C# 没有事件容器；
-        //   Round 时长的修饰改在下一个 S 阶段的 ResetRoundFlags 里清（其间没有别的结算，等价）
+        s = TickDurations(s);                          // 8  世界事件 / 全局修饰倒计时
+        // 8 「本世界回合」时长的**细胞身上**那些修饰，改在下一个 S 阶段的 ResetRoundFlags 里清
+        //   （E 步 8 到下一个 S 之间没有别的结算，等价）
         s = TickNecrosis(s);                           // 8  「坏死」倒计时
         // 8 树突【I-趋化源】技能冷却 / 【免疫猎杀】追踪源倒计时 —— C# 没有 chemo_cd / chemo_track
         s = TickChemo(s);                              // 8  趋化源本身的存续回合
@@ -307,11 +308,11 @@ internal static class BoardRules
 
     /// <summary>
     /// 6 固化计数衰减：**没有癌细胞停留**的癌组织每回合 −0.5。
-    /// 【基质稳定】那一回合整步跳过（GD 是直接 return，C# 这边判 PausedDecayRound）。
+    /// 【基质稳定】在场那一回合整步跳过（GD 也是直接 return）。
     /// </summary>
     private static WorldState Decay(WorldState s)
     {
-        if (s.Turn.PausedDecayRound == s.Turn.WorldRound) return s;
+        if (WorldEffects.Active(s, "基质稳定")) return s;
         foreach (var t in Tiles(s).Where(t => t.State == TissueState.Cancer && t.SolidificationCount > 0))
         {
             var occupant = s.GetCellAt(t.Position);
@@ -320,6 +321,14 @@ internal static class BoardRules
         }
         return s;
     }
+
+    /// <summary>
+    /// 8 世界事件与卡牌全局修饰的倒计时：每条 `Left` −1，归零移除。
+    /// 对齐 GD 的 `CWWorldFx.tick_durations()`。
+    /// </summary>
+    private static WorldState TickDurations(WorldState s)
+        => s.Effects.Count == 0 ? s
+            : s.Copy(effects: s.Effects.Select(e => e.Tick()).Where(e => !e.Expired).ToList());
 
     /// <summary>8 「坏死」倒计时。</summary>
     private static WorldState TickNecrosis(WorldState s)

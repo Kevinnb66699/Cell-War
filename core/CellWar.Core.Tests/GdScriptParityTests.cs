@@ -1137,6 +1137,104 @@ public class GdScriptParityTests
         Assert.Equal(pairs, RuleTuning.Default.ErosionTiles);
     }
 
+    // ---- EV-0：世界事件 / 全局修饰容器 ----
+
+    /// <summary>15 个世界事件的名字表与 GD 的 `CWWorldFx.EVENTS` 逐条一致。</summary>
+    [Fact]
+    public void 世界事件名字表与GDScript一致()
+    {
+        var gd = Regex.Match(WorldFxGd.Value, @"^const EVENTS: Array = \[(.+?)\]", RegexOptions.Multiline | RegexOptions.Singleline);
+        Assert.True(gd.Success, "cw_world_fx.gd 里找不到 const EVENTS");
+        var names = Regex.Matches(gd.Groups[1].Value, "\"([^\"]+)\"").Select(m => m.Groups[1].Value).ToArray();
+
+        Assert.Equal(names, WorldEffects.WorldEventNames);
+    }
+
+    /// <summary>触发回合与 GD 的 `is_world_event_round` 一致：3 / 6 / 10 / 14。</summary>
+    [Fact]
+    public void 世界事件的触发回合与GDScript一致()
+    {
+        var gd = Regex.Match(DataGd.Value, @"return r in \[([\d,\s]+)\]");
+        Assert.True(gd.Success, "cw_data.gd 里找不到 is_world_event_round 的回合表");
+        var rounds = gd.Groups[1].Value.Split(',').Select(x => int.Parse(x.Trim())).ToHashSet();
+
+        for (var r = 1; r <= 20; r++)
+            Assert.True(WorldEffects.IsWorldEventRound(r) == rounds.Contains(r), $"第 {r} 回合：GDScript {rounds.Contains(r)}，C# {WorldEffects.IsWorldEventRound(r)}");
+    }
+
+    /// <summary>
+    /// 强度是**同名条目求和**，不是取第一条。
+    /// 打两张【TGF-β释放】就是两条各 1 层，逐份 −20%（定案 #63）。
+    /// </summary>
+    [Fact]
+    public void 同名条目的强度是求和不是取第一条()
+    {
+        var world = AnaerobicWorld(4)
+            .InstallEffect("TGF-β释放", left: 2)
+            .InstallEffect("TGF-β释放", left: 2);
+
+        Assert.Equal(2, WorldEffects.Stacks(world, "TGF-β释放"));
+        Assert.Equal(0, WorldEffects.Stacks(world, "基质稳定"));
+        Assert.True(WorldEffects.Active(world, "TGF-β释放"));
+        Assert.False(WorldEffects.Active(world, "基质稳定"));
+    }
+
+    /// <summary>E 阶段第 8 步倒计时：`Left` 每回合 −1，归零移除。</summary>
+    [Fact]
+    public void 全局修饰在E阶段末倒计时并到期移除()
+    {
+        // left=1（【基质稳定】）本回合末就该走；left=2（【TGF-β释放】）要活过本回合末
+        var world = LoneCancerBoard()
+            .InstallEffect("基质稳定", left: 1)
+            .InstallEffect("TGF-β释放", left: 2);
+
+        var after = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(6));
+        Assert.False(WorldEffects.Active(after, "基质稳定"), "left=1 的条目本回合末该移除");
+        Assert.True(WorldEffects.Active(after, "TGF-β释放"), "left=2 的条目要活过本回合末");
+
+        var afterTwo = BoardRules.EvolveEndOfRound(after, new Xoshiro256StarStar(6));
+        Assert.False(WorldEffects.Active(afterTwo, "TGF-β释放"), "再过一个回合就该到期");
+    }
+
+    /// <summary>
+    /// 【基质稳定】现在住在容器里：在场那一回合固化计数不衰减。
+    /// left=1 —— E 阶段衰减在回合末**之前**结算，正好盖住本回合那一次。
+    /// </summary>
+    [Fact]
+    public void 基质稳定在场时固化计数不衰减()
+    {
+        var target = new HexPosition(1, 0, -1);
+        var plain = RootedWorld(solidCount: 15, round: 6);   // 目标格上没有癌细胞 → 正常该 −0.5
+
+        // 门槛拧高，免得【根深蒂固】把它推成固化、盖过衰减这条判据
+        plain = plain.WithTuning(plain.Tuning with { SolidifyThreshold = [99, 99, 99] });
+        var decayed = BoardRules.EvolveEndOfRound(plain, new Xoshiro256StarStar(4));
+        var held = BoardRules.EvolveEndOfRound(plain.InstallEffect("基质稳定", left: 1), new Xoshiro256StarStar(4));
+
+        Assert.True(held.Board.Tissues[target].SolidificationCount > decayed.Board.Tissues[target].SolidificationCount,
+            $"【基质稳定】没挡住衰减：没挂 {decayed.Board.Tissues[target].SolidificationCount}、挂了 {held.Board.Tissues[target].SolidificationCount}");
+    }
+
+    /// <summary>一格癌组织、一个癌细胞 —— 给容器的倒计时测试当最小盘面。</summary>
+    private static WorldState LoneCancerBoard()
+    {
+        var at = new HexPosition(0, 0, 0);
+        return CancerBoard(new Dictionary<HexPosition, Tissue> { [at] = Tile(at, TissueState.Cancer, new EntityId(1)) },
+            at, CellType.Osteosarcoma, worldRound: 1);
+    }
+
+    private static readonly Lazy<string> WorldFxGd = new(() =>
+    {
+        var dir = AppContext.BaseDirectory;
+        for (var i = 0; i < 12 && dir != null; i++)
+        {
+            var candidate = Path.Combine(dir, "game", "scripts", "core", "cw_world_fx.gd");
+            if (File.Exists(candidate)) return File.ReadAllText(candidate);
+            dir = Path.GetDirectoryName(dir);
+        }
+        throw new FileNotFoundException("找不到 game/scripts/core/cw_world_fx.gd —— 这一组测试拿它当真相源");
+    });
+
     // ---- E 阶段步序用的夹具 ----
 
     /// <summary>

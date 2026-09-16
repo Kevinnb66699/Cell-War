@@ -12,6 +12,12 @@ public sealed class WorldState
     public required PagedMap<int, Player> Players { get; init; }
 
     /// <summary>
+    /// 世界事件与卡牌全局修饰的容器（对齐 GD 的 `game.events["active"]`）。
+    /// 读它一律走 <see cref="WorldEffects"/> 的 `Stacks` / `Active`，别自己翻这张表。
+    /// </summary>
+    public IReadOnlyList<ActiveEffect> Effects { get; init; } = [];
+
+    /// <summary>
     /// 规则旋钮（对齐 GD 的 `game.tune`）。**跟着世界走**，不是全局单例 ——
     /// 快照 / 回滚 / 分叉自然带着当时那套旋钮，不会串味。不填就是 PRD 原文。
     /// </summary>
@@ -28,6 +34,7 @@ public sealed class WorldState
             Cells = new Dictionary<EntityId, Cell>(Cells.Select(kv => 
                 new KeyValuePair<EntityId, Cell>(kv.Key, kv.Value.Clone()))),
             Turn = Turn.Clone(),
+            Effects = Effects,
             Tuning = Tuning,
             Players = new Dictionary<int, Player>(Players.Select(kv =>
                 new KeyValuePair<int, Player>(kv.Key, kv.Value.Clone())))
@@ -47,8 +54,6 @@ public sealed class TurnState
     public Faction? Winner { get; init; }
     public int CancerAlarmRound { get; init; }
     public int? PendingDiscardSeat { get; init; }  // 手牌超过上限时，强制该席位弃置（PRD §657）
-    public int TgfStacks { get; init; }  // 【TGF-β释放】：下一次有氧结算的 -20% 层数
-    public int PausedDecayRound { get; init; }  // 【基质稳定】：该世界回合固化计数不衰减（0=无）
     public int? PendingMutationSeat { get; init; }  // 【基因组不稳定】：等待该席位从两次突变判定中选一
     public EntityId? PendingMutationCell { get; init; }
     public int PendingMutationA { get; init; }
@@ -68,8 +73,6 @@ public sealed class TurnState
         Winner = Winner,
         CancerAlarmRound = CancerAlarmRound,
         PendingDiscardSeat = PendingDiscardSeat,
-        TgfStacks = TgfStacks,
-        PausedDecayRound = PausedDecayRound,
         PendingMutationSeat = PendingMutationSeat,
         PendingMutationCell = PendingMutationCell,
         PendingMutationA = PendingMutationA,
