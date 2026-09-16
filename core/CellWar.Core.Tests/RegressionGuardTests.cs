@@ -922,8 +922,48 @@ public class RegressionGuardTests
     }
 
     /// <summary>
+    /// **这一条才是 equip_seq 存在的理由**，前两条都只测到了半截：
+    /// 一条验「装备时写了戳」，一条验「发修饰时没动那把尺」，
+    /// 但**没有人验发出去的修饰真的带着那个戳** ——
+    /// 把 `GrantSkillModifier` 里的 `Sequence` 改回常数 0，208 条全绿（变异检验实测）。
+    ///
+    /// 【LFA-1黏附】与【组织巡航】都发 Passive 层的 Move 修饰，同层级，
+    /// 于是先后**只能**由装备顺序决定：换个装备次序，两个 Sequence 的大小关系必须跟着翻。
+    /// </summary>
+    [Theory]
+    [InlineData("LFA-1黏附", "组织巡航")]
+    [InlineData("组织巡航", "LFA-1黏附")]
+    public void 回合开始发的修饰带着装备那一刻的戳(string first, string second)
+    {
+        var mods = BeginTurnModifiers(EquipTwo(first, second));
+
+        // 一件装备可能发不止一条修饰（组织巡航发两条），取它们共同的那个戳。
+        var firstSeq = StampOf(mods, first);
+        var secondSeq = StampOf(mods, second);
+
+        Assert.True(firstSeq > 0, $"{first} 的戳应当是装备时的打出序号，不是 0（拿到 {firstSeq}）");
+        Assert.True(firstSeq < secondSeq, $"先装的 {first}({firstSeq}) 必须排在后装的 {second}({secondSeq}) 前面");
+    }
+
+    /// <summary>
+    /// 【组织巡航】一件装备发**两条**修饰（免费一次 + 之后每次减 0.2），
+    /// 它俩是同一件装备发出来的，先后必须一致 —— 否则同一件技能的两半会被排到别人两边去。
+    /// （对齐 GD 侧：同一个模板名发两条、applied_seq 相同。）
+    /// </summary>
+    [Fact]
+    public void 组织巡航的两条修饰共用同一个戳()
+    {
+        var mods = BeginTurnModifiers(EquipTwo("LFA-1黏附", "组织巡航"));
+
+        var free = mods.Single(m => m.Card == "组织巡航");
+        var discount = mods.Single(m => m.Card == "组织巡航·减");
+
+        Assert.Equal(free.Sequence, discount.Sequence);
+        Assert.True(free.Sequence > 0, "两条都该带装备时的戳，不是 0");
+    }
+
+    /// <summary>
     /// 同阶段同层级的两条修饰，按**装备先后**结算 —— 换个装备顺序，结果要跟着换。
-    /// 这一条才是 equip_seq 存在的理由：光有字段不算，要能改变结算结果。
     /// </summary>
     [Fact]
     public void 同层级的修饰按装备先后排序()
@@ -1119,6 +1159,34 @@ public class RegressionGuardTests
         PlayCounter = 3,
         Modifiers = [new ActiveModifier("组织巡航", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 1, 2, 2, 1, ModifierDuration.Turn)],
     };
+
+    /// <summary>按给定次序依次装备两件永久技能，两个戳因此必然不同。</summary>
+    private static WorldState EquipTwo(string first, string second)
+    {
+        var world = EquipWorld(first);
+        world = CardRules.PlayCard(world,
+            new PlayCardDecision(0, new EntityId(1), first), new Xoshiro256StarStar(1)).NewState;
+
+        var cell = world.Cells[new EntityId(1)];
+        world = world.UpdateCell(cell.Id, cell.Copy(hand: [second]));
+        return CardRules.PlayCard(world,
+            new PlayCardDecision(0, new EntityId(1), second), new Xoshiro256StarStar(2)).NewState;
+    }
+
+    /// <summary>跑一次「回合开始发修饰」，把发出来的修饰取回来。</summary>
+    private static IReadOnlyList<ActiveModifier> BeginTurnModifiers(WorldState world)
+    {
+        // startStep 已过生产/传送，AdvancePhase 会直接走 ContinueStart → BeginTurn。
+        var begun = new BasicRulesEngine()
+            .AdvancePhase(world.WithTurn(world.Turn.Copy(phase: Phase.S, startStep: 99)), new Xoshiro256StarStar(7))
+            .NewState;
+        return begun.Cells[new EntityId(1)].Modifiers;
+    }
+
+    /// <summary>一件装备发出来的所有修饰共同的那个戳；不共同就当场炸（Single 会抛）。</summary>
+    private static int StampOf(IEnumerable<ActiveModifier> mods, string skill)
+        => mods.Where(m => m.Card == skill || m.Card.StartsWith(skill + "·", StringComparison.Ordinal))
+            .Select(m => m.Sequence).Distinct().Single();
 
     /// <summary>一个 III 级免疫细胞，手里拿着指定的那张牌，随时可以打出去装备上。</summary>
     private static WorldState EquipWorld(string card)
