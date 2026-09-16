@@ -1160,15 +1160,50 @@ public class RegressionGuardTests
     public void 世界的DeepClone带着旋钮一起走()
     {
         var world = AttackWorld(new HexPosition(0, 0, 0), new HexPosition(1, 0, -1));
-        var tuned = new WorldState
-        {
-            Board = world.Board, Cells = world.Cells, Turn = world.Turn, Players = world.Players,
-            Tuning = world.Tuning with { CancerMoveHealthy = 42, MucusMoveSurcharge = 7 },
-        };
+        var tuned = world.WithTuning(world.Tuning with { CancerMoveHealthy = 42, MucusMoveSurcharge = 7 });
 
         var clone = tuned.DeepClone();
         Assert.Equal(42, clone.Tuning.CancerMoveHealthy);
         Assert.Equal(7, clone.Tuning.MucusMoveSurcharge);
+    }
+
+    // ---- 十四、WorldState 的 With*/Update* 不许悄悄丢字段 ----
+    //
+    // Tissue / Cell / TurnState 的字段清单 2026-09-15 早上就收口了，**唯独漏了 `WorldState` 自己** ——
+    // 那边还散着五份手写初始化器。当天下午加 `Tuning` 时五份一份都没跟上，
+    // 于是**第一次改棋盘旋钮就回默认值**：固化门槛那条测试当场撞上，靠临时探针才查出来。
+    //
+    // 现在五份都走 `Copy`，这条护栏用反射钉住「除了该改的那个，其余都原样保留」。
+
+    [Fact]
+    public void 世界的每个With方法只改它该改的那个字段()
+    {
+        var full = AttackWorld(new HexPosition(0, 0, 0), new HexPosition(1, 0, -1))
+            .WithTuning(RuleTuning.Default with { CancerMoveHealthy = 42 });
+
+        var cases = new (string Name, string Changes, Func<WorldState, WorldState> Apply)[]
+        {
+            ("WithBoard", nameof(WorldState.Board), w => w.WithBoard(w.Board.Clone())),
+            ("WithTurn", nameof(WorldState.Turn), w => w.WithTurn(w.Turn.Copy(round: 9))),
+            ("WithTuning", nameof(WorldState.Tuning), w => w.WithTuning(RuleTuning.Default)),
+            ("UpdateCell", nameof(WorldState.Cells), w => w.UpdateCell(new EntityId(1), w.Cells[new EntityId(1)].Copy(energy: 99))),
+            ("RemoveCell", nameof(WorldState.Cells), w => w.RemoveCell(new EntityId(2))),
+            ("UpdatePlayer", nameof(WorldState.Players), w => w.UpdatePlayer(0, w.Players[0].WithAntigenMemory(7))),
+        };
+
+        var props = typeof(WorldState).GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.CanRead).ToArray();
+        foreach (var (name, changes, apply) in cases)
+        {
+            var after = apply(full);
+            foreach (var p in props)
+            {
+                if (p.Name == changes) continue;
+                // 引用相等就够了：这几个 With* 只该换掉一个引用、别的原样传过去
+                Assert.True(ReferenceEquals(p.GetValue(full), p.GetValue(after)),
+                    $"{name} 换掉了 {p.Name} —— 它只该改 {changes}");
+            }
+        }
     }
 
     // ---- 十三、效果判断不许绕过【中和抗体】的闸 ----

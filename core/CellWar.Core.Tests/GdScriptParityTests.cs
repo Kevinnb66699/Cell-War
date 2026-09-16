@@ -735,10 +735,7 @@ public class GdScriptParityTests
         var knob = cancerous
             ? world.Tuning with { ImmuneMoveCancerous = [tweaked, tweaked, tweaked, tweaked] }
             : world.Tuning with { ImmuneMoveHealthy = [tweaked, tweaked, tweaked, tweaked] };
-        var tunedWorld = new WorldState
-        {
-            Board = world.Board, Cells = world.Cells, Turn = world.Turn, Players = world.Players, Tuning = knob,
-        };
+        var tunedWorld = world.WithTuning(knob);
         Assert.Equal(tweaked, RulePolicies.QuoteMove(tunedWorld, tunedWorld.Cells[new EntityId(1)], step));
     }
 
@@ -757,11 +754,7 @@ public class GdScriptParityTests
     {
         var world = MucusWorld();
         var step = new HexPosition(1, 0, -1);
-        var tuned = new WorldState
-        {
-            Board = world.Board, Cells = world.Cells, Turn = world.Turn, Players = world.Players,
-            Tuning = world.Tuning with { MucusMoveSurcharge = surcharge },
-        };
+        var tuned = world.WithTuning(world.Tuning with { MucusMoveSurcharge = surcharge });
         Assert.Equal(expected, RulePolicies.QuoteMove(tuned, tuned.Cells[new EntityId(1)], step));
     }
 
@@ -792,15 +785,9 @@ public class GdScriptParityTests
         // 只看「扣了多少钱」抓不到误接：判据那一行改错了，钱照旧扣对，测试照样绿
         // （2026-09-15 变异检验实测）。所以要挑一个**只有判据会分歧**的能量：
         // 够付常量费、不够付被拧大的旋钮费。
-        var poor = new WorldState
-        {
-            Board = world.Board, Turn = world.Turn, Players = world.Players,
-            Cells = new Dictionary<EntityId, Cell>
-            {
-                [new EntityId(1)] = world.Cells[new EntityId(1)].Copy(energy: GdConst("MELANOMA_HOMING_COST") + 1),
-            },
-            Tuning = world.Tuning with { MetastasisCost = 99 },
-        };
+        var poor = world
+            .UpdateCell(new EntityId(1), world.Cells[new EntityId(1)].Copy(energy: GdConst("MELANOMA_HOMING_COST") + 1))
+            .WithTuning(world.Tuning with { MetastasisCost = 99 });
         Assert.True(engine.ValidateDecision(poor, homing).IsValid,
             "判据该看常量 MELANOMA_HOMING_COST，不该跟着 MetastasisCost 走");
     }
@@ -933,6 +920,56 @@ public class GdScriptParityTests
             MarkedCancerWorld(markRound: 3, worldRound: 4), new Xoshiro256StarStar(2));
         Assert.False(nextRound.Cells[id].Marked);
         Assert.Equal(0, nextRound.Cells[id].MarkLeft);
+    }
+
+    /// <summary>固化门槛三档等于 GD 的 `SOLIDIFY_THRESHOLD_BY_STAGE`（II 期就降到 2.0）。</summary>
+    [Fact]
+    public void 固化门槛三档等于GDScript数组()
+    {
+        Assert.Equal(GdIntArray("SOLIDIFY_THRESHOLD_BY_STAGE"), RuleTuning.Default.SolidifyThreshold);
+    }
+
+    /// <summary>门槛旋钮真的接上了线：拧高一点，同样的计数就不该转固化。</summary>
+    [Fact]
+    public void 拧高固化门槛就不再转固化()
+    {
+        var world = RootedWorld(solidCount: 15, round: 6);   // II 期门槛 2.0，+1.0 到 2.0 该转
+        var target = new HexPosition(1, 0, -1);
+        Assert.Equal(TissueState.SolidifiedCancer,
+            BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(4)).Board.Tissues[target].State);
+
+        var raised = world.WithTuning(world.Tuning with { SolidifyThreshold = [30, 30, 30] });
+        Assert.Equal(TissueState.Cancer,
+            BoardRules.EvolveEndOfRound(raised, new Xoshiro256StarStar(4)).Board.Tissues[target].State);
+    }
+
+    /// <summary>
+    /// 【E-侵蚀】不许拿**本轮【增生】刚造出来的格子**当来源（PRD 的「注」，Kevin 2026-09-09 定的读法）。
+    ///
+    /// 直接测这一步而不是走整个 E 阶段：让增生必中要堆二三十格固化癌组织，
+    /// 那样的夹具既难读又难说清到底在验什么。这一条验的就是 `fresh` 这个参数有没有被用上。
+    /// </summary>
+    [Fact]
+    public void 侵蚀不拿本轮新增生的格当来源()
+    {
+        // 中心一格健康（封闭块），六邻全是癌组织
+        var center = new HexPosition(0, 0, 0);
+        var ring = center.GetNeighbors().ToArray();
+        var tiles = new Dictionary<HexPosition, Tissue> { [center] = Tile(center, TissueState.Healthy, null) };
+        foreach (var n in ring) tiles[n] = Tile(n, TissueState.Cancer, null);
+        foreach (var n in ring)
+            foreach (var m in n.GetNeighbors())
+                tiles.TryAdd(m, Tile(m, TissueState.Healthy, null));
+        var world = CancerBoard(tiles, ring[0], CellType.Osteosarcoma, worldRound: 1);
+        world = world.WithBoard(world.Board.UpdateTissue(ring[0], world.Board.Tissues[ring[0]].WithOccupyingCell(new EntityId(1))));
+
+        // 没有 fresh：中心那格该被侵蚀吃掉
+        Assert.Equal(TissueState.Cancer,
+            BoardRules.Erosion(world, new Xoshiro256StarStar(3), []).Board.Tissues[center].State);
+
+        // 六邻全算「本轮刚增生出来的」：中心那格就没有合法来源，侵蚀不该动它
+        Assert.Equal(TissueState.Healthy,
+            BoardRules.Erosion(world, new Xoshiro256StarStar(3), ring).Board.Tissues[center].State);
     }
 
     // ---- E 阶段步序用的夹具 ----

@@ -2,16 +2,35 @@
 
 public static class WorldStateExtensions
 {
-    public static WorldState WithBoard(this WorldState s, Board board) => new() { Board = board, Cells = s.Cells, Turn = s.Turn, Players = s.Players };
-    public static WorldState WithTurn(this WorldState s, TurnState turn) => new() { Board = s.Board, Cells = s.Cells, Turn = turn, Players = s.Players };
-    public static WorldState UpdateCell(this WorldState s, EntityId id, Cell cell) => new() { Board = s.Board, Cells = s.Cells.SetItem(id, cell), Turn = s.Turn, Players = s.Players };
+    /// <summary>
+    /// **世界状态的唯一一份字段清单。** 下面所有 `With*` / `Update*` 都走它。
+    ///
+    /// 2026-09-15：这里原来是**五份手写的初始化器**，加 `Tuning` 时五份一份都没跟上 ——
+    /// 于是第一次改棋盘，旋钮就悄悄回默认值（门槛旋钮的测试当场撞上，靠探针才查出来）。
+    /// Tissue / Cell / TurnState 的清单早就收口了，唯独漏了 `WorldState` 自己。
+    /// </summary>
+    public static WorldState Copy(this WorldState s, Board? board = null, PagedMap<EntityId, Cell>? cells = null,
+        TurnState? turn = null, PagedMap<int, Player>? players = null, RuleTuning? tuning = null)
+        => new()
+        {
+            Board = board ?? s.Board,
+            Cells = cells ?? s.Cells,
+            Turn = turn ?? s.Turn,
+            Players = players ?? s.Players,
+            Tuning = tuning ?? s.Tuning,
+        };
+
+    public static WorldState WithBoard(this WorldState s, Board board) => s.Copy(board: board);
+    public static WorldState WithTurn(this WorldState s, TurnState turn) => s.Copy(turn: turn);
+    public static WorldState WithTuning(this WorldState s, RuleTuning tuning) => s.Copy(tuning: tuning);
+    public static WorldState UpdateCell(this WorldState s, EntityId id, Cell cell) => s.Copy(cells: s.Cells.SetItem(id, cell));
     public static WorldState AddCell(this WorldState s, Cell cell) => s.UpdateCell(cell.Id, cell);
     public static WorldState RemoveCell(this WorldState s, EntityId id)
     {
         var cells = s.Cells.ToBuilder(); cells.Remove(id);
-        return new() { Board = s.Board, Cells = cells, Turn = s.Turn, Players = s.Players };
+        return s.Copy(cells: cells);
     }
-    public static WorldState UpdatePlayer(this WorldState s, int seat, Player player) => new() { Board = s.Board, Cells = s.Cells, Turn = s.Turn, Players = s.Players.SetItem(seat, player) };
+    public static WorldState UpdatePlayer(this WorldState s, int seat, Player player) => s.Copy(players: s.Players.SetItem(seat, player));
     public static Board UpdateTissue(this Board b, HexPosition pos, Tissue tissue) => new() { Radius = b.Radius, Tissues = b.Tissues.SetItem(pos, tissue) };
     public static Tissue WithState(this Tissue t, TissueState state) => t.CopyTissue(state: state, solid: state == TissueState.Healthy ? 0 : t.SolidificationCount, ossify: state == TissueState.Cancer ? t.OssifyAtRound : 0, newborn: state == TissueState.Cancer ? t.Newborn : false);
     public static Tissue WithType(this Tissue t, TissueType type) => t.CopyTissue(type: type);

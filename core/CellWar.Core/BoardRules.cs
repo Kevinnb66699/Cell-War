@@ -152,7 +152,7 @@ internal static class BoardRules
     /// 返回**本轮新造出来的格子**交给【侵蚀】—— PRD 的「注」要求侵蚀不拿它们当来源
     /// （Kevin 2026-09-09 定的读法）。
     /// </summary>
-    private static IReadOnlyCollection<HexPosition> Proliferate(WorldState s, IDeterministicRng rng, out WorldState next)
+    internal static IReadOnlyCollection<HexPosition> Proliferate(WorldState s, IDeterministicRng rng, out WorldState next)
     {
         var stage = Stage(s);
         var beforeGrowth = s;
@@ -188,7 +188,7 @@ internal static class BoardRules
     /// 4 【E-侵蚀】：每个**封闭的**健康连通块里随机若干格转癌。
     /// `fresh` 是本轮【增生】刚造出来的格子，不得当作侵蚀的来源（PRD 的「注」）。
     /// </summary>
-    private static WorldState Erosion(WorldState s, IDeterministicRng rng, IReadOnlyCollection<HexPosition> fresh)
+    internal static WorldState Erosion(WorldState s, IDeterministicRng rng, IReadOnlyCollection<HexPosition> fresh)
     {
         var stage = Stage(s);
         foreach (var block in Blocks(s, false))
@@ -246,8 +246,8 @@ internal static class BoardRules
         return count >= SolidifyThreshold(s) ? s.UpdateTissueState(pos, TissueState.SolidifiedCancer) : s;
     }
 
-    /// <summary>固化门槛：环境恶化 I 期 3.0，II/III 期 2.0。</summary>
-    internal static int SolidifyThreshold(WorldState s) => Stage(s) == 1 ? 30 : 20;
+    /// <summary>固化门槛：走旋钮（默认 I 期 3.0，II/III 期 2.0）。</summary>
+    internal static int SolidifyThreshold(WorldState s) => RuleTuning.ByStage(s.Tuning.SolidifyThreshold, Stage(s));
 
     /// <summary>5 【E-固化】：有癌细胞停留的癌组织按格加计数（说明 #22；同一格只算一次）。</summary>
     private static WorldState Solidify(WorldState s)

@@ -1,4 +1,4 @@
-namespace CellWar.Core;
+﻿namespace CellWar.Core;
 
 /// <summary>
 /// 规则旋钮：**默认值 = PRD**，改它就能不动引擎扫平衡。
@@ -46,6 +46,17 @@ public sealed record RuleTuning
     /// <summary>小细胞肺癌【转移】的费用（GD `METASTASIS_COST`）。</summary>
     public int MetastasisCost { get; init; } = 10;
 
+    // ---- E 阶段 ----
+
+    /// <summary>
+    /// 【E-固化】的计数门槛，按肿瘤分期三档（GD `SOLIDIFY_THRESHOLD_BY_STAGE`）。
+    /// II 期就降到 2.0 是 PRD 2026-09-12 把它从 III 期提前来的。
+    /// </summary>
+    public IReadOnlyList<int> SolidifyThreshold { get; init; } = [30, 20, 20];
+
     /// <summary>按免疫等级取一档（等级枚举 I=1…X=4，数组是 0 基）。</summary>
     public static int ByLevel(IReadOnlyList<int> table, ImmuneLevel level) => table[(int)level - 1];
+
+    /// <summary>按肿瘤分期取一档（C# 的 `Stage()` 出 1/2/3，GD 的 `tumor_stage()` 出 0/1/2，数组是 0 基）。</summary>
+    public static int ByStage(IReadOnlyList<int> table, int stage) => table[Math.Clamp(stage, 1, table.Count) - 1];
 }
