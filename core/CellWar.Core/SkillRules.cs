@@ -143,7 +143,10 @@ internal static class SkillRules
                 var ring = Tiles(s).Where(t => t.Position.DistanceTo(position) <= 2).ToArray();
                 foreach (var tile in ring)
                     s = s.WithBoard(s.Board.UpdateTissue(tile.Position, s.Board.Tissues[tile.Position].WithMucus(true)));
-                var healthy = ring.Where(t => t.State == TissueState.Healthy && t.OccupyingCell == null).ToArray();
+                // PRD:519「系统从中随机选择最多 10 格**健康组织**立即转化为癌组织」——
+                // **没有「无细胞占据」这个条件**，是 C# 自己加的（GD 侧 cw_actions.gd:1458-1461 也只筛健康）。
+                // 站在健康格上的免疫细胞脚下照样会被转成癌组织。
+                var healthy = ring.Where(t => t.State == TissueState.Healthy).ToArray();
                 foreach (var pick in rng.Shuffle(healthy).Take(10)) s = s.UpdateTissueState(pick.Position, TissueState.Cancer);
                 foreach (var immune in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Immune && x.Position.DistanceTo(position) <= 2).ToArray())
                     s = Damage(s, immune.Id, 20);

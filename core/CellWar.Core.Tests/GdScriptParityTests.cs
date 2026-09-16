@@ -543,6 +543,130 @@ public class GdScriptParityTests
         };
     }
 
+    // ---- 「黏液侵染」的 +0.2 也得进管线 ----
+    //
+    // 它此前和趋化源一样是**烤进基础费用**的。GD 是管线里的 FLAT_ADD 条目
+    // （cw_cost.gd:351-360，注释明写「走 FLAT_ADD（④ 固定加费），免费豁免照 PRD 管线能免掉它」）。
+    // 位置差在有 **REPLACE**（③ 基础值替换）在场时直接改数 —— 而 REPLACE 今天就有两张卡：
+    // 【炎症趋化】（走上癌组织费用改为 0.5）与【上皮—间质转化】（走上健康组织改为 0.2）。
+
+    /// <summary>
+    /// 【炎症趋化】把费用**替换**成 0.5 之后，黏液的 +0.2 仍要照加 —— 0.7，不是 0.5。
+    /// 烤进基础费用的话会被 REPLACE 连着一起抹掉。
+    /// </summary>
+    [Fact]
+    public void 黏液加价排在基础值替换之后()
+    {
+        var world = MucusWorld();
+        var id = new EntityId(1);
+        var step = new HexPosition(1, 0, -1);
+
+        // 没有 REPLACE 时：癌组织基础 1.0 + 黏液 0.2 = 1.2
+        Assert.Equal(12, RulePolicies.QuoteMove(world, world.Cells[id], step));
+
+        // 挂上【炎症趋化】（REPLACE 0.5，限走上癌组织）
+        var withReplace = world.UpdateCell(id, world.Cells[id].Copy(modifiers:
+        [
+            new ActiveModifier("炎症趋化", ModifierTarget.Move, ModifierStage.Replace, SourceLayer.Card,
+                0, 5, null, 1, ModifierDuration.Turn, ModifierRequirement.MoveToCancerous)
+        ]));
+        Assert.Equal(7, RulePolicies.QuoteMove(withReplace, withReplace.Cells[id], step));
+    }
+
+    /// <summary>癌细胞踏黏液格不加价 —— PRD:523 只写「免疫细胞迁移进入」。</summary>
+    [Fact]
+    public void 黏液加价只对免疫细胞()
+    {
+        var world = MucusWorld(cancer: true);
+        var step = new HexPosition(1, 0, -1);
+        // 癌细胞走癌组织基础 0.2，没有附加费
+        Assert.Equal(2, RulePolicies.QuoteMove(world, world.Cells[new EntityId(1)], step));
+    }
+
+    /// <summary>免疫细胞站着的健康格照样会被【黏液破裂】转成癌组织（PRD:519 没有「无细胞占据」这个条件）。</summary>
+    [Fact]
+    public void 黏液破裂转化健康组织时不看有没有细胞站着()
+    {
+        var burst = new HexPosition(0, 0, 0);
+        var occupied = new HexPosition(1, 0, -1);   // 免疫站在这格健康组织上
+        var signet = new EntityId(1);
+        var immune = new EntityId(2);
+
+        var tiles = new Dictionary<HexPosition, Tissue>
+        {
+            [burst] = Tile(burst, TissueState.Cancer, signet),
+            [occupied] = Tile(occupied, TissueState.Healthy, immune),
+        };
+        var world = new WorldState
+        {
+            Board = new Board { Radius = 6, Tissues = tiles },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [signet] = new()
+                {
+                    Id = signet, OwnerSeat = 0, Faction = Faction.Cancer, Type = CellType.SignetRing,
+                    Position = burst, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [],
+                },
+                [immune] = new()
+                {
+                    Id = immune, OwnerSeat = 1, Faction = Faction.Immune, Type = CellType.ImmuneBasic,
+                    Position = occupied, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.SignetRing },
+                [1] = new() { Seat = 1, Faction = Faction.Immune, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I },
+            },
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+
+        var after = new BasicRulesEngine()
+            .ExecuteDecision(world, new TypeSkillDecision(0, signet, "黏液破裂"), new Xoshiro256StarStar(9)).NewState;
+
+        Assert.Equal(TissueState.Cancer, after.Board.Tissues[occupied].State);
+        Assert.True(after.Board.Tissues[occupied].Mucus, "2 环内所有组织都进入黏液侵染");
+    }
+
+    /// <summary>一格癌组织沾着黏液，细胞站在旁边。</summary>
+    private static WorldState MucusWorld(bool cancer = false)
+    {
+        var home = new HexPosition(0, 0, 0);
+        var step = new HexPosition(1, 0, -1);
+        var tiles = new Dictionary<HexPosition, Tissue>
+        {
+            [home] = Tile(home, cancer ? TissueState.Cancer : TissueState.Healthy, new EntityId(1)),
+            [step] = new() { Position = step, Type = TissueType.Normal, State = TissueState.Cancer,
+                SolidificationCount = 0, OccupyingCell = null, Charge = 0, Mucus = true },
+        };
+        return new WorldState
+        {
+            Board = new Board { Radius = 6, Tissues = tiles },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = new()
+                {
+                    Id = new EntityId(1), OwnerSeat = 0,
+                    Faction = cancer ? Faction.Cancer : Faction.Immune,
+                    Type = cancer ? CellType.Osteosarcoma : CellType.ImmuneBasic,
+                    Position = home, Energy = 500, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = cancer ? Faction.Cancer : Faction.Immune, IsAlive = true,
+                    DrawCount = 0, AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I,
+                    CancerType = cancer ? CellType.Osteosarcoma : null },
+            },
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
+        };
+    }
+
     // 细胞站在 (0,0)；趋化源在 (3,0,-3)。朝它走 = (1,0,-1)，背它走 = (-1,0,1)。
     private static readonly HexPosition ChemoAt = new(3, 0, -3);
     private static readonly HexPosition ChemoStep = new(1, 0, -1);

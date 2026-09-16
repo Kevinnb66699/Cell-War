@@ -59,6 +59,10 @@ internal static class RulePolicies
         // 【I-趋化源】是**场上实体**，不住在任何人的 mods / equipped 里，单独发一条
         // （GD 侧 cw_cost.gd:347-350 也是 `_collect()` 里单独 emit）。
         if (ChemoModifier(s, c, destination) is { } chemo) modifiers.Add(chemo);
+        // 印戒「黏液侵染」：免疫**踏进**黏液格迁移费 +0.2（PRD:523）。
+        // 和趋化源一样是**格子上的状态**，不住在任何人的 mods 里，单独发一条。
+        if (c.Faction == Faction.Immune && s.Board.Tissues[destination].Mucus)
+            modifiers.Add(new ValueModifier(ModifierStage.Add, SourceLayer.Skill, 0, MucusMoveSurcharge, Name: "黏液侵染"));
         return Settlement.ApplyValue(RawMoveCost(s, c, destination), modifiers);
     }
 
@@ -91,9 +95,11 @@ internal static class RulePolicies
             cost = !Cancerous(target) ? 5
                 : s.Players[c.OwnerSeat].ImmuneLevel switch { ImmuneLevel.I => 10, ImmuneLevel.II => 8, _ => 8 };   // III/X 不再另有减免（Kevin 2026-09-15 按 PRD 裁定：只有 II 级那句 0.8）
         }
-        if (c.Faction == Faction.Immune && target.Mucus) cost += 2;  // 免疫迁入「黏液侵染」格 +0.2
         return cost;
     }
+
+    /// <summary>免疫踏进「黏液侵染」格的迁移附加费（GD 旋钮 `mucus_move_surcharge`，默认 CWData.MUCUS_MOVE_SURCHARGE）。</summary>
+    public const int MucusMoveSurcharge = 2;
 
     /// <summary>
     /// 树突【I-趋化源】的百分比费用修饰，没命中就返回 null。
