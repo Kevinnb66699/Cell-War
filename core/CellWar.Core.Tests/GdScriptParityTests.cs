@@ -1215,6 +1215,100 @@ public class GdScriptParityTests
             $"【基质稳定】没挡住衰减：没挂 {decayed.Board.Tissues[target].SolidificationCount}、挂了 {held.Board.Tissues[target].SolidificationCount}");
     }
 
+    /// <summary>
+    /// 【基质稳定】只盖**本**回合：打出后这一回合衰减停摆，下一回合恢复。
+    /// 上面那条是手工挂条目，这条走真卡 —— 卡挂成 left=2 的话下一回合还会停摆。
+    /// </summary>
+    [Fact]
+    public void 基质稳定只盖本回合()
+    {
+        var target = new HexPosition(1, 0, -1);
+        var world = RootedWorld(solidCount: 15, round: 6)
+            .WithTuning(RuleTuning.Default with { SolidifyThreshold = [99, 99, 99] });
+
+        var played = CardRules.Resolve(world, world.Cells[new EntityId(1)], "基质稳定",
+            new Xoshiro256StarStar(1), null, null);
+
+        // 跟**没打这张卡**的对照组比差值，而不是钉绝对数 ——
+        // 这格上【根深蒂固】每回合也在 +1.0，钉绝对数既难读又一改别处就碎。
+        int Count(WorldState w) => w.Board.Tissues[target].SolidificationCount;
+        WorldState Next(WorldState w) => BoardRules.EvolveEndOfRound(w, new Xoshiro256StarStar(4));
+
+        var plain1 = Next(world);
+        var held1 = Next(played);
+        Assert.Equal(5, Count(held1) - Count(plain1));      // 本回合挡下一次 −0.5 的衰减
+
+        var plain2 = Next(plain1);
+        var held2 = Next(held1);
+        Assert.Equal(5, Count(held2) - Count(plain2));      // 差值**不再扩大** = 下一回合已经失效
+    }
+
+    /// <summary>
+    /// 【TGF-β释放】要**活过本回合末**（下一次有氧在下个世界回合的 S 阶段），
+    /// 并在那次有氧结算后**整批消耗**。
+    ///
+    /// 挂成 left=1 的话它在 E 阶段末就没了，减免根本轮不上；
+    /// 不消耗的话下一回合还会再减一次。这两条都是手工挂条目测不出来的。
+    /// </summary>
+    [Fact]
+    public void TGFβ活过回合末且有氧结算后整批消耗()
+    {
+        var world = TgfWorld();
+        var id = new EntityId(1);
+
+        var played = CardRules.Resolve(world, world.Cells[id], "TGF-β释放", new Xoshiro256StarStar(1), null, null);
+        var afterE = BoardRules.EvolveEndOfRound(played, new Xoshiro256StarStar(2));
+        Assert.True(WorldEffects.Active(afterE, "TGF-β释放"), "left=2 才能活到下一个 S 阶段");
+
+        // 下一个世界回合的 S 阶段：有氧减免该生效，结算后条目该没了
+        var plainGain = Aerobic(BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(2)), id);
+        var tgfGain = Aerobic(afterE, id);
+
+        Assert.True(plainGain > 0, "夹具本身要有正收入，否则这条什么都证明不了");
+        Assert.True(tgfGain < plainGain, $"TGF-β 没减到：没挂 {plainGain}、挂了 {tgfGain}");
+    }
+
+    /// <summary>跑一次 S 阶段的有氧，返回细胞这一次进账多少；顺带断言条目被消耗掉了。</summary>
+    private static int Aerobic(WorldState s, EntityId id)
+    {
+        var before = s.Cells[id].Energy;
+        var hadTgf = WorldEffects.Active(s, "TGF-β释放");
+        var after = new BasicRulesEngine()
+            .AdvancePhase(s.WithTurn(s.Turn.Copy(phase: Phase.S, startStep: 99)), new Xoshiro256StarStar(8))
+            .NewState;
+        if (hadTgf)
+            Assert.False(WorldEffects.Active(after, "TGF-β释放"), "有氧结算之后同名条目该整批消耗");
+        return after.Cells[id].Energy - before;
+    }
+
+    /// <summary>一个免疫细胞站在健康组织上，周围铺一圈健康组织给有氧供能。</summary>
+    private static WorldState TgfWorld()
+    {
+        var at = new HexPosition(0, 0, 0);
+        var tiles = new Dictionary<HexPosition, Tissue> { [at] = Tile(at, TissueState.Healthy, new EntityId(1)) };
+        foreach (var n in at.GetNeighbors()) tiles[n] = Tile(n, TissueState.Healthy, null);
+
+        return new WorldState
+        {
+            Board = new Board { Radius = 6, Tissues = tiles },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = new()
+                {
+                    Id = new EntityId(1), OwnerSeat = 0, Faction = Faction.Immune, Type = CellType.ImmuneBasic,
+                    Position = at, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Immune, IsAlive = true, DrawCount = 0,
+                    AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I },
+            },
+            Turn = new TurnState { WorldRound = 3, Phase = Phase.E, ActivePlayerSeat = 0 }
+        };
+    }
+
     /// <summary>一格癌组织、一个癌细胞 —— 给容器的倒计时测试当最小盘面。</summary>
     private static WorldState LoneCancerBoard()
     {

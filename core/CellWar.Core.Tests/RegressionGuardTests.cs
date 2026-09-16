@@ -1141,11 +1141,14 @@ public class RegressionGuardTests
     public void 世界的DeepClone带着旋钮一起走()
     {
         var world = AttackWorld(new HexPosition(0, 0, 0), new HexPosition(1, 0, -1));
-        var tuned = world.WithTuning(world.Tuning with { CancerMoveHealthy = 42, MucusMoveSurcharge = 7 });
+        var tuned = world.WithTuning(world.Tuning with { CancerMoveHealthy = 42, MucusMoveSurcharge = 7 })
+            .InstallEffect("TGF-β释放", left: 2)
+            .InstallEffect("TGF-β释放", left: 2);
 
         var clone = tuned.DeepClone();
         Assert.Equal(42, clone.Tuning.CancerMoveHealthy);
         Assert.Equal(7, clone.Tuning.MucusMoveSurcharge);
+        Assert.Equal(2, WorldEffects.Stacks(clone, "TGF-β释放"));   // 事件容器也要跟着走
     }
 
     // ---- 十四、WorldState 的 With*/Update* 不许悄悄丢字段 ----
