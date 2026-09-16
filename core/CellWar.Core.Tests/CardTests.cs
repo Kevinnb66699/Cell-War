@@ -139,10 +139,17 @@ public class CardTests
         Assert.Equal(22, CardCatalog.Pool(CardPool.ImmuneX).Count());
         Assert.Equal(18, CardCatalog.Pool(CardPool.Cancer).Count());
         // 癌症卡按肿瘤分期三档权重
+        //
+        // ⚠ 2026-09-15 更正：这三条原来断言的是 3 / 4 / 6 —— 那是**当时代码里的值**，
+        // 不是 PRD 的值。函数名叫 MatchesPrdPools，断言的却是实现，
+        // 于是它非但没抓到偏离，反而把偏离**钉住**了。
+        // PRD:1377【糖酵解爆发】权重写的是 2 / 3 / 4（GDScript 侧 cw_card_data.gd:128
+        // 早就是 [2,3,4]，issue #41 改过，C# 没跟）。
+        // **改这三个数之前先去翻 PRD，别按代码改。**
         var glycolysis = CardCatalog.ByCardName("糖酵解爆发").Single();
-        Assert.Equal(3, glycolysis.Weight(0));
-        Assert.Equal(4, glycolysis.Weight(1));
-        Assert.Equal(6, glycolysis.Weight(2));
+        Assert.Equal(2, glycolysis.Weight(0));
+        Assert.Equal(3, glycolysis.Weight(1));
+        Assert.Equal(4, glycolysis.Weight(2));
     }
 
     // 事件卡抽取即结算、即时卡打出即结算：已实现的这两类卡都必须在 CardRules 注册表里有独立效果，

@@ -409,6 +409,92 @@ public class RegressionGuardTests
         public void SetState(RngState state) => inner.SetState(state);
     }
 
+    // ---- 七、分化去重是「全阵营」不是「每席位」 ----
+
+    /// <summary>
+    /// 旧判据是 `x.OwnerSeat == d.PlayerSeat && x.IsAlive && x.Type == d.Type` ——
+    /// **等于完全没有去重**：每个席位只有一只细胞，而那只此刻还是分化前的种类，条件恒为假。
+    ///
+    /// PRD:469「每个细胞每局游戏仅能分化一次，**每种细胞仅能有一个**」——范围是全阵营。
+    /// 这条专测旧代码漏掉的那个情形：**另一个席位**分化成同一种。
+    /// </summary>
+    [Fact]
+    public void 同一种免疫细胞全阵营只能有一个()
+    {
+        var world = TwoImmuneSeats(firstAlreadyBCell: true);
+        var second = new DifferentiateDecision(1, new EntityId(2), CellType.BCell);
+
+        var verdict = PlacementRules.ValidateDifferentiate(world, second);
+
+        Assert.False(verdict.IsValid, "另一个席位不该还能分化成 B 细胞");
+    }
+
+    /// <summary>反面：别人占了 B 细胞，我分化成 T 细胞照样可以 —— 去重不能矫枉过正。</summary>
+    [Fact]
+    public void 别人占了一种不影响我分化成另一种()
+    {
+        var world = TwoImmuneSeats(firstAlreadyBCell: true);
+        var second = new DifferentiateDecision(1, new EntityId(2), CellType.TCell);
+
+        Assert.True(PlacementRules.ValidateDifferentiate(world, second).IsValid);
+    }
+
+    /// <summary>
+    /// 死亡**不释放**种类 —— 与 GDScript 侧一致（`game.differentiated` 只 append 不 remove）。
+    /// 这一条同时钉住「判据不看 IsAlive」这个细节，免得有人「顺手」加回存活过滤。
+    /// </summary>
+    [Fact]
+    public void 分化过的细胞死了也不释放那个种类()
+    {
+        var world = TwoImmuneSeats(firstAlreadyBCell: true);
+        var dead = world.Cells[new EntityId(1)];
+        world = world.UpdateCell(dead.Id, dead.Copy(alive: false, energy: 0));
+
+        var second = new DifferentiateDecision(1, new EntityId(2), CellType.BCell);
+        Assert.False(PlacementRules.ValidateDifferentiate(world, second).IsValid);
+    }
+
+    /// <summary>两个免疫席位，各一只细胞；第一只可选已经分化成 B 细胞。III 级才解锁分化。</summary>
+    private static WorldState TwoImmuneSeats(bool firstAlreadyBCell)
+    {
+        var a = new HexPosition(0, 0, 0);
+        var b = new HexPosition(2, 0, -2);
+        return new WorldState
+        {
+            Board = new Board
+            {
+                Radius = 6,
+                Tissues = new Dictionary<HexPosition, Tissue>
+                {
+                    [a] = new() { Position = a, Type = TissueType.Normal, State = TissueState.Healthy, SolidificationCount = 0, OccupyingCell = new EntityId(1), Charge = 0 },
+                    [b] = new() { Position = b, Type = TissueType.Normal, State = TissueState.Healthy, SolidificationCount = 0, OccupyingCell = new EntityId(2), Charge = 0 },
+                }
+            },
+            Cells = new Dictionary<EntityId, Cell>
+            {
+                [new EntityId(1)] = new()
+                {
+                    Id = new EntityId(1), OwnerSeat = 0, Faction = Faction.Immune,
+                    Type = firstAlreadyBCell ? CellType.BCell : CellType.ImmuneBasic,
+                    Position = a, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [], Differentiated = firstAlreadyBCell,
+                },
+                [new EntityId(2)] = new()
+                {
+                    Id = new EntityId(2), OwnerSeat = 1, Faction = Faction.Immune, Type = CellType.ImmuneBasic,
+                    Position = b, Energy = 300, IsAlive = true, StatusEffects = Array.Empty<StatusEffect>(),
+                    Hand = [], Equipped = [],
+                },
+            },
+            Players = new Dictionary<int, Player>
+            {
+                [0] = new() { Seat = 0, Faction = Faction.Immune, IsAlive = true, DrawCount = 0, AntigenMemory = 30, ImmuneLevel = ImmuneLevel.III },
+                [1] = new() { Seat = 1, Faction = Faction.Immune, IsAlive = true, DrawCount = 0, AntigenMemory = 30, ImmuneLevel = ImmuneLevel.III },
+            },
+            Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 1 }
+        };
+    }
+
     // ---- 夹具 ----
 
     /// <summary>让每个席位手里都有点牌，否则「看不看得见手牌」这件事没法验。</summary>

@@ -36,7 +36,19 @@ internal static class PlacementRules
         if (cell.Differentiated) return new(false, "该细胞每局只能分化一次");
         if (player.ImmuneLevel < ImmuneLevel.III) return new(false, "免疫等级未达 III 级");
         if (!ImmuneTypes.Contains(d.Type)) return new(false, "无效的免疫细胞种类");
-        if (Cells(s).Any(x => x.OwnerSeat == d.PlayerSeat && x.IsAlive && x.Type == d.Type))
+        // 2026-09-15 修：这条原来写的是 `x.OwnerSeat == d.PlayerSeat && x.IsAlive && x.Type == d.Type`
+        // —— **等于完全没有去重**。每个席位只有一只细胞，而那只细胞此刻还是分化前的种类，
+        // 所以这个条件恒为假。
+        //
+        // PRD:469 写的是「每个细胞每局游戏仅能分化一次，**每种细胞仅能有一个**」——
+        // 「一个」的范围是**全阵营**，不是每席位。GDScript 侧用一个全局数组
+        // `game.differentiated` 记（cw_game.gd:42 注释原文「每种全阵营限一个」）。
+        //
+        // 这里不新开状态字段：C# 的细胞死了**不出集合**（RemoveCell 全仓零调用点，
+        // 死亡只是 IsAlive=false），所以「谁分化过」本来就留在 Cells 里。
+        // 因此判据 = 全集合里有没有一只**分化过的、同种类的**细胞 ——
+        // 不看席位、不看存活，与 GDScript 的「死亡不释放种类」也对上。
+        if (Cells(s).Any(x => x.Differentiated && x.Type == d.Type))
             return new(false, "该免疫细胞种类本局已存在");
         return new(true);
     }

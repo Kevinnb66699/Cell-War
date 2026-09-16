@@ -108,7 +108,9 @@ public static class CardCatalog
         new("细胞毒性增强", CardCategory.Permanent, CardPool.ImmuneX, [2]),
 
         // ── 癌症卡池（权重 = 肿瘤 I / II / III 期）──
-        new("糖酵解爆发", CardCategory.Event, CardPool.Cancer, [3, 4, 6]),
+        // 权重 2026-09-15 校正：PRD:1377 写的是 2 / 3 / 4，这里原来是 [3, 4, 6]。
+        // （GDScript 侧 cw_card_data.gd:128 早就是 [2,3,4] —— issue #41 改过，C# 没跟。）
+        new("糖酵解爆发", CardCategory.Event, CardPool.Cancer, [2, 3, 4]),
         new("克隆增殖", CardCategory.Instant, CardPool.Cancer, [5, 4, 3]),
         new("基因组不稳定", CardCategory.Event, CardPool.Cancer, [3, 3, 3]),
         new("肿瘤血管生成", CardCategory.Event, CardPool.Cancer, [3, 3, 2]),
