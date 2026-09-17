@@ -135,8 +135,7 @@ internal static class PhaseRules
         }
         // 【耗竭抵抗】不在这里发修饰了（2026-09-16）：它两句合成一个 cut、住在伤害管线的减免层里，
         // 逐位对齐 GD 的 `cw_damage.gd:266-274`。见 `CellRules.Damage`。
-        if (HasSkill(s, c, "细胞毒性增强"))
-            s = GrantSkillModifier(s, c, new("细胞毒性增强", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Passive, 0, 10, null, 1, ModifierDuration.Turn));
+        // 【细胞毒性增强】不再是回合修饰：GD 在攻击成功那一刻现读技能、走 fx_turn 闸门 / T 细胞直击（CellRules.Move 攻击分支，2026-09-17 深夜）
         return s;
     }
 

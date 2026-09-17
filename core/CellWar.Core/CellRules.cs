@@ -36,6 +36,12 @@ internal static class CellRules
     /// 【缺氧适应】挡它、【耗竭抵抗】结算它时额外 −0.5 —— GD 两处判的都是 `ev["ability"] == "微环境压迫"`。
     /// </param>
     public static WorldState Damage(WorldState s, EntityId id, int amount, LossSource source, string ability = "")
+        => Damage(s, id, amount, source, ability, 0, out _);
+
+    /// <param name="direct">同批的第二笔「直击」（GD 攻击里 Tag.DIRECT + UNPREVENTABLE + NO_LIFESTEAL 的那条事件：T 细胞【细胞毒性增强】的 1.0）：
+    /// 走倍率层（【标记】各自 ×2 并各扣一层、【刚性屏障】照吃），**跳过第 ⑤ 层固定减免、一个盾都不消耗**，与主笔合计判【BCL-2抗凋亡】、合计落地。0 = 没有。</param>
+    /// <param name="dealt">这一批目标**实际失去**的能量（GD `actual` 之和：min(calculated, 结算前能量)；被 BCL-2 整批免掉就是 0）。抗原记忆、【吞噬体成熟】的「造成了伤害」都读它。</param>
+    public static WorldState Damage(WorldState s, EntityId id, int amount, LossSource source, string ability, int direct, out int dealt)
     {
         var c = s.Cells[id];
         // ③④ 倍率层。**所有倍率合成一次整数除法**（Settlement.ApplyEnergyLoss，逐位对齐 cw_damage.gd:218-223）
@@ -45,16 +51,19 @@ internal static class CellRules
 
         // 树突【I-标记】：被标记的癌细胞下一次受到**免疫细胞造成的**能量损失时 ×2，随后移除一层标记（PRD:573）。
         // **只认免疫来源**（Kevin 2026-09-15 拍板；GD cw_damage.gd:194 判 `Tag.IMMUNE in tags`）。
-        // 此前 C# 不看来源 —— 那时【突变】自扣还走这条管线，被标记的癌细胞会把自己的损失翻倍。
         // ON_BENEFIT：只有确实有伤害可翻倍时才消耗（`amount > 0`）；MarkLeft 可能 >1（【抗原呈递强化】给 2 层），耗尽才清 Marked。
-        var markApplies = c.Marked && amount > 0 && source is LossSource.ImmuneAttack or LossSource.ImmuneEffect;
-        if (markApplies)
-            multipliers.Add(new ValueModifier(ModifierStage.Multiply, SourceLayer.Skill, 0, 200));
-        amount = Settlement.ApplyEnergyLoss(amount, multipliers);
-        if (markApplies)
+        // 同批两笔（主笔 + 直击）GD 是**先算后扣**（`_submit_batch`：逐条 _plan 再逐条 _apply）：两笔读到的都是批前的 marked，各自 ×2、各扣一层。
+        var immune = source is LossSource.ImmuneAttack or LossSource.ImmuneEffect;
+        var markApplies = c.Marked && amount > 0 && immune;
+        var markDirect = c.Marked && direct > 0 && immune;
+        var withMark = multipliers.Append(new ValueModifier(ModifierStage.Multiply, SourceLayer.Skill, 0, 200)).ToList();
+        amount = Settlement.ApplyEnergyLoss(amount, markApplies ? withMark : multipliers);
+        var directCalc = direct > 0 ? Settlement.ApplyEnergyLoss(direct, markDirect ? withMark : multipliers) : 0;
+        foreach (var _ in Enumerable.Range(0, (markApplies ? 1 : 0) + (markDirect ? 1 : 0)))
         {
-            var left = c.MarkLeft - 1;
-            s = s.UpdateCell(id, c.Copy(markLeft: left, marked: left > 0));
+            var marked = s.Cells[id];
+            var left = marked.MarkLeft - 1;   // GD `_consume` "mark"：mark_left -= 1，≤ 0 就摘（可以扣成负数，L1 视图逐位比）
+            s = s.UpdateCell(id, marked.Copy(markLeft: left, marked: left > 0));
         }
 
         // ⑤ 固定减免 —— 逐位对齐 GD `_reduce` / `_shield_groups`（cw_damage.gd:232-291）：
@@ -63,6 +72,7 @@ internal static class CellRules
         //   · 每组 ON_BENEFIT：这一组没把伤害压低就不消耗；已经挡光了就停，后面的盾留着；
         //   · 各盾只认自己的来源（<see cref="ShieldApplies"/>）—— 此前 C# 对目标身上全部 EnergyLoss 修饰一律套用、一律消耗，
         //     2p 第 52 步【突变】的自损把只挡免疫方的【DNA损伤修复】吃掉了（2026-09-17）。
+        //   · 直击那一笔 UNPREVENTABLE：整层跳过（GD cw_damage.gd `_calculate` 末尾的 `return maxi(dmg, 0)`），不减也不消耗
         foreach (var g in ShieldGroups(s, s.Cells[id], source, ability))
         {
             if (amount <= 0) break;
@@ -77,14 +87,18 @@ internal static class CellRules
             };
         }
         c = s.Cells[id];
-        // 【BCL-2抗凋亡】：即将受到致命能量损失时免疫该次损失，能量改为 0.5/0.8/1
-        if (amount >= c.Energy && HasModifier(c, "BCL-2抗凋亡"))
+        var total = amount + directCalc;
+        // 【BCL-2抗凋亡】：即将受到致命能量损失时免疫该次损失，能量改为 0.5/0.8/1。GD `_bcl2_pass` 按**整批合计**判（`energy - total <= 0` 且 total > 0），
+        // 免掉的是整批（两笔都清零，`actual` 归 0 → 记忆、斩杀、吸血一律落空）
+        if (total > 0 && total >= c.Energy && HasModifier(c, "BCL-2抗凋亡"))
         {
             var survive = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 5, 1 => 8, _ => 10 };
             s = s.UpdateCell(id, c.Copy(energy: survive));
+            dealt = 0;
             return RemoveModifiers(s, id, "BCL-2抗凋亡");
         }
-        var energy = Math.Max(0, c.Energy - amount);
+        dealt = Math.Min(total, Math.Max(c.Energy, 0));
+        var energy = Math.Max(0, c.Energy - total);
         return energy == 0 ? Kill(s, id) : s.UpdateCell(id, c.Copy(energy: energy));
     }
 
@@ -235,6 +249,9 @@ internal static class CellRules
         }
         return s.UpdateCell(id, c.Copy(modifiers: kept));
     }
+
+    /// <summary>【细胞毒性增强】攻击成功的额外 1.0（GD `CWData.CYTOTOX_EXTRA`）。</summary>
+    internal const int CytotoxExtra = 10;
 
     /// <summary>【耗竭抵抗】两句的减免值（GD `EXHAUST_FIRST_CUT` / `EXHAUST_PRESSURE_CUT`）。</summary>
     internal const int ExhaustFirstCut = 10;
@@ -651,6 +668,7 @@ internal static class CellRules
             }
             var damage = outcome == "fail" ? 0 : outcome == "crit" ? 20 : 10;
             var extra = 0;
+            var cytotoxDirect = 0;
             if (outcome != "fail")
             {
                 extra = attackExtra;
@@ -662,18 +680,33 @@ internal static class CellRules
                     s = s.UpdateCell(cell.Id, s.Cells[cell.Id].Copy(chainBonus: 0));
                 }
                 if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "抗体亲和力成熟") && RulePolicies.AdjacentHealthy(s, move.TargetPosition)) extra += 5;
+                // 【细胞毒性增强】（GD cw_actions.gd:878-883，攻击当刻现读、过【中和抗体】）：T 细胞每次攻击成功都追加一笔 1.0 的**直击**（同批第二笔，
+                // Tag.DIRECT + UNPREVENTABLE + NO_LIFESTEAL：走倍率、跳过第 ⑤ 层减免、不给巨噬吸血、不动闸门）；非 T 每行动回合**首次攻击成功** +1.0 进主笔的固定加成，
+                // 闸门 `first_this_turn` 只在成功分支烧（攻击无效一次，加成还留着给本回合下一次）。
+                // 此前 C# 是 BeginTurn 发一条 Uses=1 的攻击修饰：判定前就被消耗、T 细胞一回合只吃一次、还在 L1 视图的 mods 里凭空多一条（2026-09-17 深夜）
+                if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "细胞毒性增强"))
+                {
+                    if (s.Cells[cell.Id].Type == CellType.TCell) cytotoxDirect = CytotoxExtra;
+                    else
+                    {
+                        var firstCytotox = TurnGateOpen(s.Cells[cell.Id], "细胞毒性增强");
+                        s = BurnTurnGate(s, cell.Id, "细胞毒性增强");
+                        if (firstCytotox) extra += CytotoxExtra;
+                    }
+                }
             }
-            attacker = s.Cells[cell.Id].Copy(attacks: cell.AttacksThisTurn + 1);
+            attacker = s.Cells[cell.Id].Copy(attacks: s.Cells[cell.Id].AttacksThisTurn + 1);
             s = s.UpdateCell(cell.Id, attacker);
             if (damage == 0) s = Damage(s, cell.Id, 5, LossSource.World);
             else
             {
                 var actual = Math.Min(target.Energy, damage);
-                s = Damage(s, target.Id, damage + extra, LossSource.ImmuneAttack);
+                s = Damage(s, target.Id, damage + extra, LossSource.ImmuneAttack, "攻击", cytotoxDirect, out var dealt);
                 s = AddMemory(s, actual / 10);
                 // 【吞噬体成熟】：攻击成功后目标余量不超过阈值则直接死亡
                 var threshold = s.Cells[cell.Id].Type == CellType.Macrophage ? 15 : 5;
-                if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "吞噬体成熟") && s.Cells[target.Id].IsAlive && s.Cells[target.Id].Energy <= threshold)
+                // GD `_queue_execution`：这一批对它**确实造成了伤害**（actual 合计 > 0）才入队 —— 被【BCL-2抗凋亡】整批免掉的不算
+                if (dealt > 0 && RulePolicies.HasSkill(s, s.Cells[cell.Id], "吞噬体成熟") && s.Cells[target.Id].IsAlive && s.Cells[target.Id].Energy <= threshold)
                 {
                     // GD `lethal(target, "吞噬体成熟")`：处决**不进伤害管线**（护盾减不了、【BCL-2抗凋亡】救不回，口径 #68），直接 kill + update_marks
                     s = UpdateMarks(Kill(s, target.Id));
