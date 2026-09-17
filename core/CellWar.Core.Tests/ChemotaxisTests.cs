@@ -118,6 +118,26 @@ public class ChemotaxisTests
         Assert.False(Engine.ValidateDecision(after, new ChemotaxisStepDecision(0, Walker, far)).IsValid);
     }
 
+    /// <summary>
+    /// 挂起的那一问是问**这只细胞的主人**的。GD 的 `ask(pid)` 只送到那一个桥，别的席位根本答不到；
+    /// C# 的决策带着 PlayerSeat 从网络进来，只查 CellId 不查主人，对手就能替你「停在这里」。
+    /// 对抗复核的 agent 在一份树副本上跑出来的（C1），连锁那一对同一个洞，一起钉。
+    /// </summary>
+    [Fact]
+    public void 挂起期间别的席位递进来的走或停一律驳回()
+    {
+        var after = Play(World(), North);
+        Assert.False(Engine.ValidateDecision(after, new StopChemotaxisDecision(1, Walker)).IsValid);
+        Assert.False(Engine.ValidateDecision(after, new ChemotaxisStepDecision(1, Walker, Origin)).IsValid);
+        Assert.True(Engine.ValidateDecision(after, new StopChemotaxisDecision(0, Walker)).IsValid);
+
+        var chain = World(type: CellType.Macrophage).UpdateTissueState(North, TissueState.Cancer);
+        chain = chain.UpdateCell(Walker, chain.Cells[Walker].Copy(chainLeft: 3)).WithTurn(chain.Turn.WithPendingChain(Walker));
+        Assert.False(Engine.ValidateDecision(chain, new StopChainDecision(1, Walker)).IsValid);
+        Assert.False(Engine.ValidateDecision(chain, new ChainMoveDecision(1, Walker, North)).IsValid);
+        Assert.True(Engine.ValidateDecision(chain, new StopChainDecision(0, Walker)).IsValid);
+    }
+
     // ── 提交复验：候选给得出来、走不成、步数照减 ──────────────
     // GD 的树突【各司其职】与攻击上限只在 `_is_move_legal_now` 里查、候选生成里**没有**，
     // `commit` 返回空字典 = 整步静默作废（不移动、不扣能量、无日志），外层循环照常推进到下一步。

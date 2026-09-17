@@ -22,8 +22,11 @@ internal static class DecisionRouter
         // 【连续吞噬】的连锁：挂起期间只接这只巨噬的「再走一跳」或「不连了」
         if (state.Turn.PendingChainCell is { } chainCell)
         {
-            if (decision is StopChainDecision stop && stop.CellId == chainCell) return new(true);
-            return decision is ChainMoveDecision hop && hop.CellId == chainCell
+            // 这一问是问**这只细胞的主人**的：GD 的 ask(pid) 只会送到那一个桥，别的席位根本答不到；
+            // C# 的决策带着 PlayerSeat 从网络进来，不查主人就等于让对手替你「不连了」
+            var chainOwner = state.Cells[chainCell].OwnerSeat;
+            if (decision is StopChainDecision stop && stop.CellId == chainCell && stop.PlayerSeat == chainOwner) return new(true);
+            return decision is ChainMoveDecision hop && hop.CellId == chainCell && hop.PlayerSeat == chainOwner
                     && CellRules.ChainTargets(state, state.Cells[chainCell]).Contains(hop.Target)
                 ? new(true)
                 : new(false, "等待【连续吞噬】选择下一跳");
@@ -32,8 +35,9 @@ internal static class DecisionRouter
         // 排在【连续吞噬】**之后** —— GD 那边连锁问答嵌在 `_do_move` 内部，整条排干了才轮到这里问。
         if (state.Turn.PendingChemotaxisCell is { } chemotaxisCell)
         {
-            if (decision is StopChemotaxisDecision stopWalk && stopWalk.CellId == chemotaxisCell) return new(true);
-            return decision is ChemotaxisStepDecision step && step.CellId == chemotaxisCell
+            var walkOwner = state.Cells[chemotaxisCell].OwnerSeat;   // 同上：只有主人能答
+            if (decision is StopChemotaxisDecision stopWalk && stopWalk.CellId == chemotaxisCell && stopWalk.PlayerSeat == walkOwner) return new(true);
+            return decision is ChemotaxisStepDecision step && step.CellId == chemotaxisCell && step.PlayerSeat == walkOwner
                     && CellRules.ChemotaxisSteps(state, state.Cells[chemotaxisCell]).Contains(step.Target)
                 ? new(true)
                 : new(false, "等待【炎症性趋化】选择下一步");
