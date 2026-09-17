@@ -76,6 +76,12 @@ public class CoupleTests
         // 1.6 能量：1.0 与 1.5 付完都还留正数，2.0 不行
         Assert.Equal(new[] { (10, 12), (15, 20) }, opts.OfType<CoupleTierDecision>().Select(t => (t.Pay, t.Get)).ToArray());
         Assert.False(Engine.ValidateDecision(pending, new CoupleTierDecision(0, Me, 20, 25)).IsValid);
+
+        // **正好等于档位**的那一档不给：付完是 0，GD `payer["energy"] > pay`（变异检验抓出来的边界）
+        var exact = Do(Play(World(myEnergy: 15)), new CoupleDirectionDecision(0, Me, Me, Ally));
+        Assert.Equal(new[] { (10, 12) }, Engine.GetAvailableDecisions(exact, 0).OfType<CoupleTierDecision>().Select(t => (t.Pay, t.Get)).ToArray());
+        // 正好 1.0 连最低档都付不起 → 队友那侧也付不起时这张卡根本不出现
+        Assert.DoesNotContain(Engine.GetAvailableDecisions(World(10, 10), 0).OfType<PlayCardDecision>(), p => p.Card == Card);
     }
 
     [Fact]
