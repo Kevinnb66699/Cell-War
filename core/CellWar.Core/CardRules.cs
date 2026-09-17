@@ -324,7 +324,9 @@ internal static class CardRules
             // 掷 **d3（1..3）**，逐位对齐 GD 的 `roll_shown(3, "突变", …)` = `randi_range(1, 3)`。
             // 原来写的是 `NextInt(3)`（0..2）—— 结果映射一样、**抽取区间差一**，对拍带子会分叉。
             var a = rng.NextIntRange(1, 4);
+            Stage.Emit(new DiceRolled(s.Turn.WorldRound, s.Turn.Phase, "突变", a, 3, cell.OwnerSeat, cell.Position));   // GD cw_card_fx.gd:773
             var b = rng.NextIntRange(1, 4);
+            Stage.Emit(new DiceRolled(s.Turn.WorldRound, s.Turn.Phase, "突变", b, 3, cell.OwnerSeat, cell.Position));   // GD cw_card_fx.gd:774
             // GD `_genome_instability`（cw_card_fx.gd:771-788）：两次判定**相同就不问**、直接结算（批扫 60 条轨迹撞了 9 条，2026-09-18）
             if (a == b) return ApplyMutationOutcome(s, cell.Id, a, rng, charge: false);
             return s.WithTurn(s.Turn.WithPendingMutation(cell.OwnerSeat, cell.Id, a, b));
@@ -493,7 +495,9 @@ internal static class CardRules
 
     public static RulesResult Mutate(WorldState s, MutateDecision d, IDeterministicRng rng)
     {
-        s = ApplyMutationOutcome(s, d.CellId, rng.NextIntRange(1, 4), rng, charge: true);
+        var roll = rng.NextIntRange(1, 4);
+        Stage.Emit(new DiceRolled(s.Turn.WorldRound, s.Turn.Phase, "突变", roll, 3, d.PlayerSeat, s.Cells[d.CellId].Position));   // GD roll_shown(3, "突变")
+        s = ApplyMutationOutcome(s, d.CellId, roll, rng, charge: true);
         return new(s, Array.Empty<IGameEvent>(), true);
     }
 
@@ -508,6 +512,9 @@ internal static class CardRules
             var current = s.Cells[cellId];
             s = s.UpdateCell(cellId, current.Copy(energy: current.Energy - MutateCost, mutateUsed: true));
         }
+        var at = s.Cells[cellId].Position;
+        Stage.Emit(Stage.Fx(s, "mutate", ("at", at)));   // GD apply_mutation（cw_actions.gd:1380）
+        Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, roll switch { 1 => "突变：无事发生", 2 => "突变：抽一张 · 记忆 -1", _ => "突变：能量 -0.8 · 记忆 -2" }, at));   // GD cw_actions.gd:1384/1387/1396
         if (roll == 2)
         {
             s = DrawOne(s, s.Cells[cellId], rng, "突变");

@@ -135,8 +135,17 @@ internal static class BoardRules
             if (!blocks.Any(b => b.Contains(c.Position))) continue;
             s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy + AnaerobicShare(s, c)));
         }
+        // 演出（GD cw_world.gd:767-768）：按块、块内按格序，每只癌细胞一条「铜橙输能」，sources = 同块里离它最近的 12 格（`nearest_in`）
+        foreach (var block in GdBlocks(s, Cancerous))
+            foreach (var pos in block)
+                if (s.GetCellAt(pos) is { IsAlive: true, Faction: Faction.Cancer })
+                    Stage.Emit(Stage.Fx(s, "anaerobic", ("at", pos), ("sources", NearestIn(block, pos, 12))));
         return s;
     }
+
+    /// <summary>GD `CWWorld.nearest_in(block, at, n)`：块里除自己之外离 at 最近的 n 格，同距按 r 再按 q（Vector2i 的 y 再 x）。</summary>
+    internal static HexPosition[] NearestIn(IReadOnlyList<HexPosition> block, HexPosition at, int n)
+        => block.Where(p => p != at).OrderBy(p => p.DistanceTo(at)).ThenBy(p => p.R).ThenBy(p => p.Q).Take(n).ToArray();
 
     /// <summary>
     /// 1.5 【代谢消耗】（平衡候选③，PRD 之外，默认关）：每个癌细胞按**当前能量的百分比**自动损能。
@@ -405,8 +414,12 @@ internal static class BoardRules
         if (carriers.Length == 0) return s;
 
         foreach (var target in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && !c.Marked).ToArray())
-            if (carriers.Any(src => target.Position.DistanceTo(src) <= AdhesionRange))
-                s = ApplyMark(s, target.Id, dendritic);
+        {
+            var src = Array.FindIndex(carriers, p => target.Position.DistanceTo(p) <= AdhesionRange);   // GD：按携带者序取第一个够得着的
+            if (src < 0) continue;
+            s = ApplyMark(s, target.Id, dendritic);
+            if (s.Cells[target.Id].Marked) Stage.Emit(Stage.Fx(s, "adhesion", ("from", carriers[src]), ("to", target.Position)));   // GD cw_world.gd:976
+        }
         return s;
     }
 

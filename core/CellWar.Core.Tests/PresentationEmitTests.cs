@@ -128,4 +128,56 @@ public class PresentationEmitTests
         Assert.Equal(0, Stage.DirToward(o, P(2, 0)));        // 远处同向
         Assert.Equal(-1, Stage.DirToward(o, o));
     }
+
+    [Fact]
+    public void 突变_先掷d3再演粒子再报判词()
+    {
+        var s = World(1);
+        var r = Engine.ExecuteDecision(s, new MutateDecision(1, Cancer1), Rng(2));
+        Assert.True(r.Success, r.ErrorMessage);
+        var staged = Staged(r).ToList();
+        var dice = Assert.Single(staged.OfType<DiceRolled>());
+        Assert.Equal(("突变", 3, 1), (dice.Reason, dice.Sides, dice.Seat));
+        var fx = Assert.Single(staged.OfType<SkillFx>(), f => f.Kind == "mutate");
+        var verdict = Assert.Single(staged.OfType<ResultAnnounced>());
+        Assert.StartsWith("突变：", verdict.Text);
+        Assert.True(staged.IndexOf(dice) < staged.IndexOf(fx) && staged.IndexOf(fx) < staged.IndexOf(verdict));
+    }
+
+    [Fact]
+    public void 抗体_无目标且无可转化癌组织_不掷骰直接落空()
+    {
+        var s = World();
+        s = s.UpdateCell(Immune0, s.Cells[Immune0].Copy(type: CellType.BCell, differentiated: true));
+        foreach (var c in s.Cells.Values.Where(c => c.Faction == Faction.Cancer).ToArray())
+            s = s.UpdateCell(c.Id, c.Copy(alive: false, energy: 0)).UpdateTissueOccupant(c.Position, null);
+        foreach (var t in s.Board.Tissues.Values.Where(t => t.State != TissueState.Healthy).ToArray())
+            s = s.WithBoard(s.Board.UpdateTissue(t.Position, t.WithState(TissueState.Healthy).WithSolidificationCount(0)));
+        var rng = Rng();
+        var r = Engine.ExecuteDecision(s, new TypeSkillDecision(0, Immune0, "抗体", null), rng);
+        Assert.True(r.Success, r.ErrorMessage);
+        Assert.DoesNotContain(rng.Ranges, range => range == (1, 4));
+        Assert.Empty(Staged(r).OfType<DiceRolled>());
+    }
+
+    [Fact]
+    public void S阶段有氧_每只免疫一条呼吸演出()
+    {
+        var s = DemoScenario.Create().WithTurn(DemoScenario.Create().Turn.Copy(phase: Phase.S, startStep: 0));
+        var r = Engine.AdvancePhase(s, Rng());
+        Assert.True(r.Success, r.ErrorMessage);
+        var respire = Staged(r).OfType<SkillFx>().Where(f => f.Kind == "respire").ToList();
+        Assert.Equal(s.Cells.Values.Count(c => c.IsAlive && c.Faction == Faction.Immune), respire.Count);
+    }
+
+    [Fact]
+    public void E阶段无氧_每只癌细胞一条输能演出_带最近的来源格()
+    {
+        var s = DemoScenario.Create().WithTurn(DemoScenario.Create().Turn.Copy(phase: Phase.E));
+        var r = Engine.AdvancePhase(s, Rng());
+        Assert.True(r.Success, r.ErrorMessage);
+        var anaerobic = Staged(r).OfType<SkillFx>().Where(f => f.Kind == "anaerobic").ToList();
+        Assert.Equal(s.Cells.Values.Count(c => c.IsAlive && c.Faction == Faction.Cancer), anaerobic.Count);
+        Assert.All(anaerobic, f => Assert.DoesNotContain((HexPosition)f.Data["at"], (HexPosition[])f.Data["sources"]));
+    }
 }

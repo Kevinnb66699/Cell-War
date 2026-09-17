@@ -163,11 +163,16 @@ internal static class SkillRules
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - cost, antibody: cell.AntibodyThisRound + 1));
                 var damage = AntibodyDamage(cell.AntibodyThisRound, matured);
                 var targets = Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && AdjacentHealthy(s, x.Position)).ToArray();
-                if (targets.Length > 0 && damage > 0)
+                // GD cw_actions.gd:1250-1259：有目标就打（伤害减到 0 也照走这一支、不去转化组织）；此前 C# 多了 `damage > 0` 才打，用满次数后会改去转化
+                if (targets.Length > 0)
+                {
+                    Stage.Emit(Stage.Fx(s, "antibody", ("from", cell.Position), ("targets", targets.Select(x => x.Position).ToArray())));
                     foreach (var target in targets) s = Damage(s, target.Id, damage, LossSource.ImmuneEffect);
+                }
                 else
                 {
                     var tiles = Tiles(s).Where(t => t.State == TissueState.Cancer && t.OccupyingCell == null && AdjacentHealthy(s, t.Position)).ToArray();
+                    if (tiles.Length == 0) break;   // GD cw_actions.gd:1270-1272：无可转化癌组织直接落空，**不掷骰**（此前 C# 照掷，多一发 rng）
                     // 无目标时改为转化癌组织：掷 **d3**，2/3 概率取前一个数、1/3 概率取后一个数，
                     // 而那两个数**按免疫等级分档**（PRD 2026-09-13 云端版 / issue #37：III 级 3/5、X 级 4/6）。
                     //
@@ -175,8 +180,11 @@ internal static class SkillRules
                     // 掷法也不对：`NextInt(3)`（0..2）与 GD 的 `roll_shown(3, …)` = `randi_range(1,3)`
                     // 概率一样但**抽取区间不一样**，对拍带子逐笔比对时那一步就分叉。
                     var tier = AntibodyNoTargetX[Math.Clamp((int)s.Players[cell.OwnerSeat].ImmuneLevel - 1, 0, AntibodyNoTargetX.Count - 1)];
-                    var max = rng.NextIntRange(1, 4) <= 2 ? tier[0] : tier[1];
-                    foreach (var pick in rng.PickRandom(tiles, max)) s = s.UpdateTissueState(pick.Position, TissueState.Healthy);
+                    var roll = rng.NextIntRange(1, 4);
+                    Stage.Emit(new DiceRolled(s.Turn.WorldRound, s.Turn.Phase, "抗体", roll, 3, cell.OwnerSeat, cell.Position));   // GD roll_shown(3, "抗体")
+                    var max = roll <= 2 ? tier[0] : tier[1];
+                    Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, $"抗体：转化 {max} 格", cell.Position));   // GD cw_actions.gd:1278
+                    foreach (var pick in rng.PickRandom(tiles, max)) s = CardRules.ToHealthy(s, pick.Position);   // GD `to_healthy`
                 }
                 break;
             }
@@ -185,6 +193,7 @@ internal static class SkillRules
                 // GD `_do_toxin`（cw_actions.gd:1309-1322）：付费、toxin_used +1、**脚下那一格**记 toxin_round（此前 C# 把它当目标格去重章、盖在每个目标上 —— L1 逐格比 toxin_round）
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 10, toxin: cell.ToxinThisRound + 1));
                 s = s.WithBoard(s.Board.UpdateTissue(cell.Position, s.Board.Tissues[cell.Position].WithToxinRound(s.Turn.WorldRound)));
+                Stage.Emit(Stage.Fx(s, "toxin", ("from", cell.Position), ("tiles", new[] { cell.Position }.Concat(RulePolicies.GdNeighbors(s, cell.Position)).ToArray())));   // GD cw_actions.gd:1324：1 环七格
                 foreach (var pos in ToxinTargets(s, cell))
                 {
                     // GD `CWTissue.to_necrotic(tile, NECROSIS_TOXIN)`：坏死时长取 max(原, 2)，代谢核心 / 骨髓的库存与产出进度一起清
@@ -197,7 +206,8 @@ internal static class SkillRules
             case "裂解":
             {
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 10));
-                s = s.UpdateTissueState(d.Target!.Value, TissueState.Healthy);
+                Stage.Emit(Stage.Fx(s, "lyse", ("from", cell.Position), ("to", d.Target!.Value)));   // GD cw_actions.gd:1342
+                s = CardRules.ToHealthy(s, d.Target!.Value);   // GD `CWTissue.to_healthy`
                 break;
             }
             case "黏液破裂":
@@ -237,9 +247,17 @@ internal static class SkillRules
             {
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - MelanomaHomingCost, metastasis: true));
                 var dest = d.Target!.Value;
+                var from = cell.Position;
                 s = EnterTile(s, cell.Id, dest, rng);   // GD `_homing` 走 enter_tile（落地即【定殖】+ 特殊组织收取）
                 var spread = RulePolicies.GdNeighbors(s, dest).Where(n => s.Board.Tissues[n].State == TissueState.Healthy).ToArray();   // GD `game.neighbors` DIRS 序：pick_n 抽的是下标（批扫 4p_1002 / 2p_1017）
-                foreach (var pick in rng.PickRandom(spread, 3)) s = CardRules.ToCancer(s, pick, newborn: true);   // GD `to_cancer(t, true)`：新生、清坏死
+                var picked = rng.PickRandom(spread, 3).ToArray();
+                foreach (var pick in picked)
+                {
+                    s = CardRules.ToCancer(s, pick, newborn: true);   // GD `to_cancer(t, true)`：新生、清坏死
+                    var dir = Stage.DirToward(pick, dest);   // GD cw_actions.gd:1435：癌从落点那一侧漫入
+                    if (dir >= 0) Stage.Emit(new TissueConverted(s.Turn.WorldRound, s.Turn.Phase, pick, dir, "早期血行转移"));
+                }
+                Stage.Emit(Stage.Fx(s, "homing", ("from", from), ("to", dest), ("spread", picked)));   // GD cw_actions.gd:1437
                 break;
             }
             case "转移":
@@ -259,6 +277,7 @@ internal static class SkillRules
                     s = ApplyMark(s, hunt, s.Cells[cell.Id]);
                     // 「同时在其上附着跟随的【追踪趋化源】」（PRD:583）
                     s = s.WithTurn(s.Turn.WithTrack(hunt, null, HuntChemoRounds));
+                    Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "免疫猎杀", hunted.Position, true));   // GD cw_actions.gd:1582
                 }
                 break;
             }
@@ -279,6 +298,7 @@ internal static class SkillRules
                     .Where(x => x.IsAlive && x.Faction == Faction.Cancer && RulePolicies.AdjacentHealthy(s, x.Position))
                     .ToArray())
                     s = s.UpdateCell(t.Id, s.Cells[t.Id].Copy(neutralUntil: until));
+                Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "中和抗体", cell.Position, true));   // GD cw_actions.gd:1616
                 break;
             }
             case "连续吞噬":
@@ -299,6 +319,7 @@ internal static class SkillRules
                 // 费用 3.0 见 PRD:561，对齐 GDScript 的 CWData.CHEMO_COST := 30。
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 30));
                 s = s.WithTurn(s.Turn.WithChemo(d.Target!.Value, 2, cell.OwnerSeat, cell.Id));
+                Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "趋化源", d.Target!.Value, true));   // GD cw_actions.gd:1164
                 break;
             case "Excalibur":
             {

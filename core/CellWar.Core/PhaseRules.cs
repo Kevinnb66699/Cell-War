@@ -189,6 +189,7 @@ internal static class PhaseRules
         {
             var income = AerobicShare(s, c);
             s = s.UpdateCell(c.Id, c.WithEnergy(c.Energy + income));
+            Stage.Emit(Stage.Fx(s, "respire", ("at", c.Position)));   // GD cw_world.gd:507：每只免疫收完就演
         }
         // 【TGF-β释放】结算完**同名整批消耗**（对齐 GD 的 CWWorld._aerobic）。
         // 减免本身已经算在 AerobicShare 里了，这里只负责摘条目。
@@ -273,7 +274,9 @@ internal static class PhaseRules
         }
         // 落地算「进入」（GD `revive_immune` / `revive_cancer` 都 `enter_tile`）：骨髓有卡就抽一张 —— 那是带子上的一发，
         // 此前 C# 复活只放占位，L1 6p 第 83 步免疫在存着一张卡的骨髓上复活，GD 念了一条、C# 没念（2026-09-17）
-        s = CellRules.ArriveAndLand(s, dead.Id, revival.TargetPosition, rng);   // 完整的 enter_tile：落点是健康格就【定殖】、是癌组织就【净化】（GD revive_* 同）
+        s = CellRules.ArriveAndLand(s, dead.Id, revival.TargetPosition, rng);
+        Stage.Emit(Stage.Fx(s, dead.Faction == Faction.Immune ? "revive_immune" : "revive_cancer", ("at", revival.TargetPosition)));   // GD cw_world.gd:297/367：落地之后演
+        // 完整的 enter_tile：落点是健康格就【定殖】、是癌组织就【净化】（GD revive_* 同）
         // 落地追出问答（骨髓抽到连走卡 / 撑爆手牌 / 二选一）：GD 在 revive_* 的 await 里问完才回到 S 流程；这里停住，DecisionRouter 的出口再 ContinueStart
         return new(StartPending(s) ? s : ContinueStart(s), Array.Empty<IGameEvent>(), true);
     }

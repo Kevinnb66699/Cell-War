@@ -57,6 +57,8 @@ internal static class PlacementRules
     {
         var cell = s.Cells[d.CellId];
         s = s.UpdateCell(cell.Id, cell.Copy(type: d.Type, differentiated: true));
+        s = CellRules.UpdateMarks(s);   // GD cw_actions.gd:1181：分化出树突 → 立即标记 2 环内的癌细胞（此前 C# 要等下一次 update_marks）
+        Stage.Emit(Stage.Fx(s, "differentiate", ("at", cell.Position)));   // GD cw_actions.gd:1182
         return new(s, Array.Empty<IGameEvent>(), true);
     }
 

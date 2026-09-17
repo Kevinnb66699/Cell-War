@@ -99,6 +99,7 @@ internal static class CellRules
             var survive = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 5, 1 => 8, _ => 10 };
             s = s.UpdateCell(id, c.Copy(energy: survive));
             dealt = 0; mainDealt = 0;
+            Stage.Emit(Stage.Fx(s, "card_survive", ("at", c.Position)));   // GD cw_damage.gd:485：散开再回拢（免死不是复活，人还在原格）
             return RemoveModifiers(s, id, "BCL-2抗凋亡");
         }
         dealt = Math.Min(total, Math.Max(c.Energy, 0));
@@ -413,6 +414,7 @@ internal static class CellRules
         var c = s.Cells[d.CellId];
         s = s.UpdateCell(d.CellId, c.Copy(chainLeft: c.ChainLeft - 1, chainBonus: c.ChainBonus + ChainPhagoBonus));
         s = s.WithTurn(s.Turn.WithPendingChain(null));   // 先摘挂起；这一跳的净化会视情况重新挂上
+        Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "连续吞噬", d.Target));   // GD cw_actions.gd:1708：扑之前报（挪完起点就取不到了）
         return Move(s, new MoveDecision(d.PlayerSeat, d.CellId, d.Target), rng, free: true);
     }
 
@@ -835,6 +837,7 @@ internal static class CellRules
             if (outcome != "fail")
             {
                 extra = attackExtra;
+                if (attackMods.Any(m => m.Card == "穿孔素-颗粒酶")) Stage.Emit(Stage.Fx(s, "card_granule", ("from", cell.Position), ("to", target.Position)));   // GD cw_actions.gd:873：颗粒注入
                 s = SpendModifiers(s, cell.Id, "穿孔素-颗粒酶");
                 s = SpendModifiers(s, cell.Id, "补体级联");
                 // 【连续吞噬】连续净化攒的加成：**用掉即清**，不按回合过期
@@ -888,8 +891,9 @@ internal static class CellRules
                     var cascade = RulePolicies.GdNeighbors(s, target.Position)
                         .Where(n => s.Board.Tissues[n].State == TissueState.Cancer && s.Board.Tissues[n].OccupyingCell == null)
                         .ToArray();
-                    foreach (var pick in rng.PickRandom(cascade, 2))
-                        s = CardRules.ToHealthy(s, pick);
+                    var picks = rng.PickRandom(cascade, 2).ToArray();
+                    if (picks.Length > 0) Stage.Emit(Stage.Fx(s, "card_cascade", ("from", s.Cells[cell.Id].Position), ("to", target.Position), ("tiles", picks)));   // GD cw_actions.gd:990：命中连锁
+                    foreach (var pick in picks) s = CardRules.ToHealthy(s, pick);
                 }
                 // 【I-吞噬】：攻击成功造成能量损失后恢复受击方损失的 1/2（向上取整到十分位）
                 if (s.Cells[cell.Id].Type == CellType.Macrophage)
@@ -914,6 +918,16 @@ internal static class CellRules
                 EmitImmuneAttackFx(s, cell, target, move.TargetPosition, attackHit);   // 返回原格 / 攻击者死了：GD 在 enter_tile 的 else 之后照样演
                 return new(s, events, true);
             }
+        }
+        // 癌种被动的移动演出（GD cw_actions.gd:760-772，enter_tile 之前）：黑色素瘤走折后价 = 邻格的伪足在拉；小细胞肺癌进健康格 = 细线疾行
+        if (cell.Faction == Faction.Cancer && s.Board.Tissues[move.TargetPosition].State == TissueState.Healthy && RulePolicies.TypeAbilityOn(s, s.Cells[cell.Id]))
+        {
+            var around = RulePolicies.GdNeighbors(s, move.TargetPosition).ToArray();
+            if (cell.Type == CellType.Melanoma && around.Count(n => RulePolicies.Cancerous(s.Board.Tissues[n])) >= RulePolicies.PseudopodMinAdjacent)
+                Stage.Emit(Stage.Fx(s, "pseudopod", ("from", cell.Position), ("to", move.TargetPosition),
+                    ("roots", around.Where(n => n != cell.Position && RulePolicies.Cancerous(s.Board.Tissues[n])).ToArray()), ("cid", cell.Id)));
+            else if (cell.Type == CellType.SmallCellLung)
+                Stage.Emit(Stage.Fx(s, "minimal", ("from", cell.Position), ("to", move.TargetPosition)));
         }
         s = s.UpdateTissueOccupant(cell.Position, null).UpdateTissueOccupant(move.TargetPosition, cell.Id);
         s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithPosition(move.TargetPosition));
