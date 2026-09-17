@@ -130,7 +130,7 @@ func _run_all() -> void:
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_guide_watch, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
-		t_semkey_single_source,
+		t_semkey_single_source, t_kernel_inproc,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -18930,3 +18930,137 @@ func t_semkey_single_source() -> void:
 		== CWSemKey.key({ "kind": "pick", "tag": "手牌上限" }, { "card": "细胞膜修复" }), "xcheck_bridge 只做委托")
 	var src := FileAccess.get_file_as_string("res://tests/xcheck_bridge.gd")
 	check(not src.contains("parts.append(\"k=\""), "xcheck_bridge 里没有自己的拼键代码（不许出现第二份定义）")
+
+
+## 口径二 · 批 0 步 9：内核句柄 InProc —— 只用 open / pull / answer / ack 跑完一局，与直接 run_game 逐位相同；
+## 演出条目逐类计数 = 直接挂计数桥；seq 单调；观众裁剪；barrier 有消费者时挡住、ack / abort 放行；Sidecar stub 不可用分支；方法面一致
+func t_kernel_inproc() -> void:
+	print("[内核句柄·InProc]")
+	## 对照：同一个桥对象注册给所有席位（与句柄那边的形状一样），顺带数每类演出
+	var direct := make_game(4, 31)
+	var probe = load("res://tests/kernel_probe_bridge.gd").new()
+	probe.game = direct
+	for pid in direct.order:
+		direct.bridges[pid] = probe
+	var w0: int = await direct.run_game()
+	var h0 := direct.state_hash()
+	var r0 := direct.round_no
+	var logs0 := direct.logs.size()
+
+	## 1) 句柄 + decider（同一个启发式桥给全部席位）跑完同一局
+	var k := CWKernelInProc.new()
+	check(k.open({ "factions": CWData.FACTION_ORDER[4], "seed": 31, "decider": CWHeuristicBridge.new() }), "open 成功")
+	var spins := 0
+	while k.state() != CWKernel.State.ENDED and spins < 100000:
+		spins += 1
+		await process_frame
+	check(k.state() == CWKernel.State.ENDED, "有 decider 时自己跑到终局")
+	check(k.winner == w0 and k.game.round_no == r0 and k.state_hash() == h0,
+		"只经句柄跑完的一局与直接 run_game 逐位相同（winner %d / round %d / %s）" % [k.winner, k.game.round_no, h0.substr(0, 8)])
+	var entries: Array = k.pull(CWKernel.VIEWER_OMNISCIENT, 0, 1000000)
+	var kinds := {}
+	for e in entries:
+		kinds[e["t"]] = int(kinds.get(e["t"], 0)) + 1
+	var same := true
+	for kind in ["roll", "result", "card_played", "event_drawn", "card_drawn", "erosion", "beam", "fx", "notice", "world_event"]:
+		if int(kinds.get(kind, 0)) != int(probe.counts.get(kind, 0)):
+			same = false
+			print("  演出计数不一致：%s 句柄 %d / 探针 %d" % [kind, int(kinds.get(kind, 0)), int(probe.counts.get(kind, 0))])
+	check(same, "十类演出条目逐类计数 = 直接挂一个计数桥的结果（roll %d / fx %d / erosion %d）" % [
+		int(kinds.get("roll", 0)), int(kinds.get("fx", 0)), int(kinds.get("erosion", 0))])
+	check(not kinds.has("ask") and int(kinds.get("game_over", 0)) == 1 and int(kinds.get("log", 0)) >= logs0,
+		"有 decider 时没有 ask 条目；game_over 恰一条；log 条目不少于日志行数（%d / %d）" % [int(kinds.get("log", 0)), logs0])
+	var seqs_ok := int(entries[0]["seq"]) == 1
+	for i in range(1, entries.size()):
+		if int(entries[i]["seq"]) != int(entries[i - 1]["seq"]) + 1:
+			seqs_ok = false
+	check(seqs_ok, "seq 从 1 起、严格 +1、不重编号（共 %d 条）" % entries.size())
+	check(not k.can_save(), "终局后不能存档")
+	k.close()
+	direct.dispose()
+
+	## 2) 没有 decider：只用 pull / answer 驱动，作答用同一套启发式（交替按语义键 / 按下标答），结果仍逐位相同
+	var k2 := CWKernelInProc.new()
+	check(k2.open({ "factions": CWData.FACTION_ORDER[4], "seed": 31 }), "open（无 decider）")
+	var helper := CWHeuristicBridge.new()
+	helper.game = k2.game
+	var since := 0
+	var asks := 0
+	var saw_can_save := false
+	var bad_answers := 0
+	spins = 0
+	while k2.state() != CWKernel.State.ENDED and spins < 200000:
+		spins += 1
+		var batch: Array = k2.pull(CWKernel.VIEWER_OMNISCIENT, since, 64)
+		if batch.is_empty():
+			await process_frame
+			continue
+		for e in batch:
+			since = int(e["seq"])
+			if e["t"] != "ask":
+				continue
+			asks += 1
+			var req: Dictionary = e["req"]
+			if String(req.get("kind", "")) in ["action", "setup_place", "revive", "immune_revive"]:
+				saw_can_save = saw_can_save or k2.can_save()
+			var idx: int = await helper.ask(req)
+			var choice := {}
+			if asks % 2 == 0:
+				choice["key"] = CWSemKey.key(req, req["options"][idx]["data"])
+			else:
+				choice["index"] = idx
+			if not k2.answer(int(e["ask_id"]), choice):
+				bad_answers += 1
+	check(k2.state() == CWKernel.State.ENDED and bad_answers == 0, "无 decider 的一局只靠 pull / answer 跑到终局（%d 问，%d 次拒答）" % [asks, bad_answers])
+	check(k2.winner == w0 and k2.state_hash() == h0, "pull / answer 驱动的一局与直接 run_game 逐位相同")
+	check(saw_can_save, "顶层询问挂着时可以存档")
+	## 3) 观众裁剪：ask 条目没有选项、但有 kind / prompt；条目数不变
+	var watcher: Array = k2.pull(CWKernel.VIEWER_WATCHER, 0, 1000000)
+	var cropped := true
+	for e in watcher:
+		if e["t"] == "ask" and (not e["req"]["options"].is_empty() or not e["req"].has("kind")):
+			cropped = false
+	check(cropped and watcher.size() == k2.pull(CWKernel.VIEWER_OMNISCIENT, 0, 1000000).size(), "观众档：ask 只留 kind / tag / seat / prompt，条目数不变")
+	k2.close()
+
+	## 4) barrier：有消费者时 roll 挡住引擎、ack 放行；abort 也放行
+	var k3 := CWKernelInProc.new()
+	check(k3.open({ "factions": CWData.FACTION_ORDER[2], "seed": 1, "consumer": true, "step_drive": true }), "open（step_drive + consumer）")
+	var flags := { "done": 0 }
+	_probe_roll(k3, flags)
+	await process_frame
+	check(flags["done"] == 0, "有消费者时 roll 条目挡住引擎")
+	var roll_seq := int(k3.pull(CWKernel.VIEWER_OMNISCIENT, 0, 10)[-1]["seq"])
+	k3.ack(roll_seq)
+	await process_frame
+	check(flags["done"] == 1, "ack 之后放行")
+	_probe_roll(k3, flags)
+	await process_frame
+	k3.abort()
+	await process_frame
+	check(flags["done"] == 2, "abort 释放悬着的 barrier")
+	k3.close()
+
+	## 5) Sidecar stub：不可用是一等状态，每个方法都有定义良好的返回
+	var sc := CWKernelSidecar.new()
+	check(not sc.open({}) and sc.state() == CWKernel.State.UNAVAILABLE and int(sc.last_error()["fault"]) == CWKernel.Fault.SPAWN_FAILED,
+		"Sidecar stub：open 失败 → UNAVAILABLE + SPAWN_FAILED")
+	check(sc.pull(0, 0).is_empty() and not sc.answer(1, {}) and not sc.can_save() and sc.save().is_empty() and sc.observe(0) == null and sc.state_hash() == "",
+		"不可用态下各方法不抛不崩")
+	## 6) 方法面：基类 24 个方法、三实现都继承到（反射）
+	var wanted := ["open", "close", "abort", "state", "last_error", "version", "caps", "observe", "logs_for", "pull", "ack", "answer", "abort_ask",
+		"can_save", "save", "restore", "replay_tape", "pending", "step", "log_msg", "surrender", "state_hash", "query", "fork_for_rollout"]
+	for impl in [CWKernel.new(), CWKernelInProc.new(), CWKernelSidecar.new()]:
+		var have := {}
+		for m in impl.get_method_list():
+			have[m["name"]] = true
+		var missing := []
+		for n in wanted:
+			if not have.has(n):
+				missing.append(n)
+		check(missing.is_empty(), "%s 有全部 %d 个方法" % [impl.get_class() if impl.get_script() == null else impl.get_script().get_global_name(), wanted.size()])
+
+
+func _probe_roll(k: CWKernelInProc, flags: Dictionary) -> void:
+	await k.bridge.show_roll("攻击", 3, 6, 0, Vector2i.ZERO)
+	flags["done"] = int(flags["done"]) + 1
