@@ -157,6 +157,14 @@ C# 此前单槽整组覆写、外层剩余步数与卡名一起丢。现在 `Tur
 T 细胞每次成功都追加一笔 1.0 的**直击**（同批第二笔）—— `CellRules.Damage` 加了 `direct` 与 `dealt` 出参：直击走倍率层（【标记】两笔各自 ×2、各扣一层；【刚性屏障】照吃）、**跳过第 ⑤ 层减免且一个盾都不消耗**、与主笔合计判【BCL-2】（免掉整批，`dealt` = 0）、合计落地。
 【吞噬体成熟】改看 `dealt > 0`（GD `_queue_execution` 的 `total > 0`）。**口径 #67 的文档与 GD 代码不一致**（规则电子化说明 :91 写「不吃标记翻倍」，GD `cw_damage.gd` 对带 Tag.IMMUNE 的直击照 ×2）—— 按「GD 是权威」照代码做，文档待 Kevin 裁。
 夹具里这张卡 0 次（ImmuneX 池），`CytotoxicTests` 6 条钉。
+⑧ **抗原记忆与巨噬吸血的基数**：GD 按这一批的 **actual**（过完倍率与护盾、含直击、不超过目标余量；`dealt >= 10` 才 gain_memory；吸血只认主笔 `ceil(actual/2)`），C# 此前按裸值 `min(目标能量, 基础伤害)` / `min(目标能量, 基础+加成)`。
+改成读 `Damage` 的 `dealt` / `mainDealt` 出参。三条夹具照旧整条一致（夹具里没有标记 / 护盾撞上攻击的局面）。
+⑨ **世界事件（裁定延后，不进 C# 对拍）**：GD `cw_tuning.gd` `world_events_on := false` 默认关（PRD 2026-09-10 起「暂时停止维护」），`cw_world_fx.trigger()` 的 guard 拦在 pop 之前 —— 默认档零 RNG、零挂载；
+三条夹具跨过全部触发回合（2p 跑到第 14 世界回合）`events` 一律只有卡牌挂的全局修饰。C# 只有名字表（`WorldEffects.WorldEventNames`）。裁定的是「不进 C# 对拍」，**不是 GD 可以删**（GD 回归网仍实测这 15 个事件）。
+关着也在的差异记着：`world_events_on` 不在 TUNE_KEYS（C# 无法表达这个旋钮）；TNF-α 的容器形状（GD `install_event` 进 `events.active`、C# 用 `Tissue.SolidLockRound`，一旦带子打到这张卡 `$.g.events` 整片红，既有裁定「暂时不动」）；
+【信号放大】的 `_amp` 在 C# 三处卡牌（乳酸酸化 / 代谢耦联 / TNF-α）都不放大；`event_stacks` GD 取首条、C# 求和（今天只有【TGF-β释放】会同名多条，GD 读它走 `_tgf_stacks` 求和，恒等）。
+**批评镜头点名、本批没做的**：`vessel-transport`；`revive-landing`；`counter-dmg-knob`（攻击失败的反弹 C# 写死 0.5、不读 `counter_dmg_on_fail`）；`residency-shape`（【组织驻留】GD 在 fx_turn、C# 是一条 Uses:2 的 Free 修饰，`mods` 逐条比对时 C# 多一条）；
+`aerobic-board-base`（`aerobic_level_base=0` 的盘面式基数 C# 未实现，对照档才会撞）；2 人局记忆门槛（GD 缺省档 10/30/70、C# 10/20/50，UNDEFINED 待 Kevin）；选项顺序 / 下标稳定性不再被验证（阶段 1 待办）。
 （6p 第 187 步那 0.1 已合上：有氧收入的顺序 —— GD 先对等级份额打【TGF-β释放】折再加【代谢适应】【自分泌生存信号】的额外获得，C# 此前先加后折；6p 整条 200 步一致。）
 
 **丢掉了什么（写进限制栏）**：选项的**顺序**与下标稳定性不再被验证（`DecisionRouter.cs:82` 的 `Tiles(s)` 走 `PagedMap` 迭代序而非排序序）。C# 真当权威内核时，这会以「客户端点了第 3 项、服务器执行了第 5 项」的形式复活——那要靠「按语义提交」的线上协议解决，不是靠对拍。**这条要单独立一条阶段 1 待办。**

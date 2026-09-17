@@ -36,12 +36,16 @@ internal static class CellRules
     /// 【缺氧适应】挡它、【耗竭抵抗】结算它时额外 −0.5 —— GD 两处判的都是 `ev["ability"] == "微环境压迫"`。
     /// </param>
     public static WorldState Damage(WorldState s, EntityId id, int amount, LossSource source, string ability = "")
-        => Damage(s, id, amount, source, ability, 0, out _);
+        => Damage(s, id, amount, source, ability, 0, out _, out _);
+
+    public static WorldState Damage(WorldState s, EntityId id, int amount, LossSource source, string ability, int direct, out int dealt)
+        => Damage(s, id, amount, source, ability, direct, out dealt, out _);
 
     /// <param name="direct">同批的第二笔「直击」（GD 攻击里 Tag.DIRECT + UNPREVENTABLE + NO_LIFESTEAL 的那条事件：T 细胞【细胞毒性增强】的 1.0）：
     /// 走倍率层（【标记】各自 ×2 并各扣一层、【刚性屏障】照吃），**跳过第 ⑤ 层固定减免、一个盾都不消耗**，与主笔合计判【BCL-2抗凋亡】、合计落地。0 = 没有。</param>
     /// <param name="dealt">这一批目标**实际失去**的能量（GD `actual` 之和：min(calculated, 结算前能量)；被 BCL-2 整批免掉就是 0）。抗原记忆、【吞噬体成熟】的「造成了伤害」都读它。</param>
-    public static WorldState Damage(WorldState s, EntityId id, int amount, LossSource source, string ability, int direct, out int dealt)
+    /// <param name="mainDealt">主笔单独的实际失去（GD 逐事件的 `actual`：巨噬【吞噬】吸血只认主笔 —— 直击带 NO_LIFESTEAL）。</param>
+    public static WorldState Damage(WorldState s, EntityId id, int amount, LossSource source, string ability, int direct, out int dealt, out int mainDealt)
     {
         var c = s.Cells[id];
         // ③④ 倍率层。**所有倍率合成一次整数除法**（Settlement.ApplyEnergyLoss，逐位对齐 cw_damage.gd:218-223）
@@ -94,10 +98,11 @@ internal static class CellRules
         {
             var survive = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 5, 1 => 8, _ => 10 };
             s = s.UpdateCell(id, c.Copy(energy: survive));
-            dealt = 0;
+            dealt = 0; mainDealt = 0;
             return RemoveModifiers(s, id, "BCL-2抗凋亡");
         }
         dealt = Math.Min(total, Math.Max(c.Energy, 0));
+        mainDealt = Math.Min(amount, Math.Max(c.Energy, 0));   // GD `_apply` 逐条：主笔先落地，actual = min(calculated, 落地前能量)
         var energy = Math.Max(0, c.Energy - total);
         return energy == 0 ? Kill(s, id) : s.UpdateCell(id, c.Copy(energy: energy));
     }
@@ -700,9 +705,10 @@ internal static class CellRules
             if (damage == 0) s = Damage(s, cell.Id, 5, LossSource.World);
             else
             {
-                var actual = Math.Min(target.Energy, damage);
-                s = Damage(s, target.Id, damage + extra, LossSource.ImmuneAttack, "攻击", cytotoxDirect, out var dealt);
-                s = AddMemory(s, actual / 10);
+                s = Damage(s, target.Id, damage + extra, LossSource.ImmuneAttack, "攻击", cytotoxDirect, out var dealt, out var mainDealt);
+                // PRD【迁移】「累积与造成伤害的绝对值向下取整的抗原记忆」：GD cw_actions.gd:913-917 按这一批的 **actual 之和**（过完倍率与护盾、含直击、不超过目标余量），
+                // `dealt >= 10` 才 gain_memory。此前 C# 用 min(目标能量, 裸基础伤害)：不含固定加成、不含【标记】×2、不扣护盾减免（2026-09-17 深夜）
+                if (dealt >= 10) s = AddMemory(s, dealt / 10);
                 // 【吞噬体成熟】：攻击成功后目标余量不超过阈值则直接死亡
                 var threshold = s.Cells[cell.Id].Type == CellType.Macrophage ? 15 : 5;
                 // GD `_queue_execution`：这一批对它**确实造成了伤害**（actual 合计 > 0）才入队 —— 被【BCL-2抗凋亡】整批免掉的不算
@@ -725,8 +731,8 @@ internal static class CellRules
                 // 【I-吞噬】：攻击成功造成能量损失后恢复受击方损失的 1/2（向上取整到十分位）
                 if (s.Cells[cell.Id].Type == CellType.Macrophage)
                 {
-                    var loss = Math.Min(target.Energy, damage + extra);
-                    var heal = (loss + 1) / 2;
+                    // GD cw_damage.gd:568 `ceil(actual / 2.0)`：按主笔**实际失去**（过完倍率与护盾），直击那笔 NO_LIFESTEAL 不算。此前 C# 用未过管线的理论值
+                    var heal = (mainDealt + 1) / 2;
                     if (heal > 0) s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
                 }
             }

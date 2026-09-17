@@ -135,4 +135,37 @@ public class CytotoxicTests
         Assert.Equal(8, dealtLow);                                 // 实际失去 = min(合计, 结算前能量)
         Assert.False(killed.Cells[Cancer1].IsAlive);
     }
+
+    // ---------- 抗原记忆 / 巨噬吸血的基数：GD 读这一批的 actual（过完倍率与护盾），C# 此前读裸值 ----------
+
+    [Fact]
+    public void 抗原记忆按实际失去算_标记翻倍给两点_被盾挡光不给()
+    {
+        var s = World();
+        s = s.UpdateCell(Immune0, s.Cells[Immune0].Copy(equipped: []));
+        var marked = s.UpdateCell(Cancer1, s.Cells[Cancer1].Copy(marked: true, markLeft: 1));
+        var doubled = AttackUntilLoss(marked, 20, out _);           // 成功 1.0 × 2
+        Assert.Equal(2, doubled.Players[0].AntigenMemory);          // 此前只按裸值 1.0 给 1 点
+
+        var shielded = CellRules.AddModifier(s, s.Cells[Cancer1], new ActiveModifier("细胞膜修复", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Card, 0, 15, 0, 1, ModifierDuration.Game));
+        var blocked = AttackUntilLoss(shielded, 0, out _);          // 1.0 被 1.5 挡光（盾消耗掉），可能是无效也可能是成功被挡 —— 两种都不该给记忆
+        Assert.Equal(0, blocked.Players[0].AntigenMemory);
+    }
+
+    [Fact]
+    public void 巨噬吸血按主笔实际失去算_被盾挡光就不回()
+    {
+        var s = World(CellType.Macrophage);
+        s = s.UpdateCell(Immune0, s.Cells[Immune0].Copy(equipped: []));
+        s = CellRules.AddModifier(s, s.Cells[Cancer1], new ActiveModifier("细胞膜修复", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Card, 0, 15, 0, 1, ModifierDuration.Game));
+        var cost = RulePolicies.QuoteMove(s, s.Cells[Immune0], P(-3, 0), null)!.Value;
+        for (var seed = 1; seed <= 200; seed++)
+        {
+            var after = Attack(s, seed);
+            if (CellRules.HasModifier(after.Cells[Cancer1], "细胞膜修复") || after.Cells[Cancer1].Energy != 60) continue;   // 无效（盾还在）或大成功（2.0 − 1.5 还剩 0.5）：换颗种子
+            Assert.Equal(s.Cells[Immune0].Energy - cost, after.Cells[Immune0].Energy);   // 此前按理论值 1.0 回 0.5
+            return;
+        }
+        Assert.Fail("200 颗种子全是攻击无效");
+    }
 }
