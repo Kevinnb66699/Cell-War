@@ -16,6 +16,13 @@ public sealed record SimulationState
     public ImmutableStack<ScheduledEvent> Immediate { get; init; } = ImmutableStack<ScheduledEvent>.Empty;
     public PendingInput? Input { get; init; }
     public ImmutableList<string> Outbox { get; init; } = ImmutableList<string>.Empty;
+    /// <summary>结构化演出条目（见 <see cref="IPresentationEvent"/>）：Seq 单调、永不重编号；超过 <see cref="PresentationCap"/> 丢最旧、抬 <see cref="PresentationDroppedBefore"/>。
+    /// 条目本身不进 Checkpoint（表现层不进快照，同 GD cw_state_codec.gd:1-4）。</summary>
+    public ImmutableList<StagedEvent> Presentation { get; init; } = ImmutableList<StagedEvent>.Empty;
+    public long NextPresentationSeq { get; init; } = 1;
+    /// <summary>水位线：Seq 小于它的条目已被丢弃。客户端拿到的 since_seq 比它小就知道自己漏了一段。</summary>
+    public long PresentationDroppedBefore { get; init; }
+    public const int PresentationCap = 256;
     public bool Terminated { get; init; }
     public bool QueueEmpty => Future.Count == 0 && Immediate.IsEmpty;
 
@@ -29,6 +36,19 @@ public sealed record SimulationState
         return tick == Tick
             ? next with { Immediate = Immediate.Push(item) }
             : next with { Future = Future.Add(new(tick, order, sequence), item) };
+    }
+
+    /// <summary>排一条演出条目。推演静音在 <c>Runtime</c> 那一层挡（它不是状态：进状态会让 Fork 多一次提交、Revision 对不上）。</summary>
+    public SimulationState Emit(IPresentationEvent ev)
+    {
+        var list = Presentation.Add(new StagedEvent(NextPresentationSeq, ev));
+        var dropped = PresentationDroppedBefore;
+        if (list.Count > PresentationCap)
+        {
+            dropped = list[0].Seq + 1;
+            list = list.RemoveAt(0);
+        }
+        return this with { Presentation = list, NextPresentationSeq = checked(NextPresentationSeq + 1), PresentationDroppedBefore = dropped };
     }
 
     public ScheduledEvent Peek() => Immediate.IsEmpty ? Future.First().Value : Immediate.Peek();

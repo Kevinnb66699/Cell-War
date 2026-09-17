@@ -15,6 +15,8 @@ public sealed class Runtime : IRuntime, IDisposable
     private bool disposed;
     private bool executing;
     public Exception? Fault { get; private set; }
+    /// <summary>演出静音：Fork 出来的推演为 true，<see cref="IEventContext.Emit"/> 在这里被短路。</summary>
+    public bool PresentationMuted { get; init; }
     public Checkpoint? FailureCheckpoint { get; private set; }
     public long CurrentTick { get { using var lease = Read(); return lease.Snapshot.Simulation.Tick; } }
     public bool IsActive
@@ -91,7 +93,7 @@ public sealed class Runtime : IRuntime, IDisposable
                 //    —— GDScript 侧 2026-09-01 修过同一个 bug（monte_carlo_bridge 的 _playout_seed）。
                 var rng = rngPrototype.Fork();
                 rng.SetState(before.Rng!.Value);
-                var context = new EventContext(item, rng, tx);
+                var context = new EventContext(item, rng, tx, PresentationMuted);
                 handler.Handle(context);
                 tx.MutableImage.Simulation = tx.MutableImage.Simulation with { Rng = rng.GetState() };
                 Commit(tx);
@@ -178,7 +180,8 @@ public sealed class Runtime : IRuntime, IDisposable
             using var lease = Read();
             // 同上：分支出来的 Runtime 也要带着原型走，否则 Fork 一次就退回写死的 xoshiro。
             // AI 的推演正是从这里分叉出去的 —— 这条不改，注入的随机源在推演里当场失效。
-            return new Runtime(store, store.Fork(lease), handlers.Values, rngPrototype.Fork()) { paused = paused };
+            // 推演不演出（GD `sim_quiet`）：AI 分叉出去的世界不该往演出队列里塞东西。静音是 Runtime 的属性、不进状态 —— 进状态就要多提交一次，分支的 Revision 会和主线对不上
+            return new Runtime(store, store.Fork(lease), handlers.Values, rngPrototype.Fork()) { paused = paused, PresentationMuted = true };
         }
     }
     public Checkpoint Checkpoint() { lock (gate) { using var lease = Read(); return CheckpointCodec.Encode(lease.Snapshot, lease.Revision); } }
@@ -208,11 +211,12 @@ public sealed class Runtime : IRuntime, IDisposable
 internal sealed class EventContext : IEventContext
 {
     private readonly WorldTransaction transaction;
+    private readonly bool muted;
     public long CurrentTick => transaction.MutableImage.Simulation.Tick;
     public ScheduledEvent CurrentEvent { get; }
     public IDeterministicRng Rng { get; }
-    public EventContext(ScheduledEvent item, IDeterministicRng rng, WorldTransaction transaction)
-        => (CurrentEvent, Rng, this.transaction) = (item, rng, transaction);
+    public EventContext(ScheduledEvent item, IDeterministicRng rng, WorldTransaction transaction, bool presentationMuted = false)
+        => (CurrentEvent, Rng, this.transaction, muted) = (item, rng, transaction, presentationMuted);
     public WorldState GetWorldState() => transaction.MutableImage.State;
     public void SetWorldState(WorldState state) => transaction.MutableImage.State = state;
     public void Schedule(long tick, string type, object? payload = null)
@@ -239,5 +243,10 @@ internal sealed class EventContext : IEventContext
         var output = s.Outbox.Add(message);
         if (output.Count > 128) output = output.RemoveAt(0);
         transaction.MutableImage.Simulation = s with { Outbox = output };
+    }
+    public void Emit(IPresentationEvent ev)
+    {
+        if (muted) return;
+        transaction.MutableImage.Simulation = transaction.MutableImage.Simulation.Emit(ev);
     }
 }

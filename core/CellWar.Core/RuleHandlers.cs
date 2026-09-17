@@ -13,7 +13,7 @@ public sealed class PlayerDecisionHandler : IRuleHandler
         if (!result.Success) throw new InvalidOperationException(result.ErrorMessage);
         context.SetWorldState(result.NewState);
         context.Log($"Accepted {decision.DecisionType} for seat {decision.PlayerSeat}");
-        foreach (var ev in result.Events) context.Log(RuleFlow.Describe(ev));
+        RuleFlow.Publish(context, result.Events);
         RuleFlow.Continue(context, rules);
     }
 }
@@ -28,6 +28,8 @@ public sealed class AdvancePhaseHandler : IRuleHandler
         var result = rules.AdvancePhase(context.GetWorldState(), context.Rng);
         if (!result.Success) throw new InvalidOperationException(result.ErrorMessage);
         context.SetWorldState(result.NewState);
+        // 阶段结算的演出（骰点 / 侵蚀方向 / 增生…）此前整个被丢掉；日志行仍不写 —— Outbox 的内容与既有观测保持不变，文案账在批 2/3
+        foreach (var ev in result.Events) if (ev is IPresentationEvent p) context.Emit(p);
         RuleFlow.Continue(context, rules);
     }
 }
@@ -40,6 +42,16 @@ public sealed class TurnStartHandler : IRuleHandler
 
 internal static class RuleFlow
 {
+    /// <summary>结算事件分两路：演出事件进结构化通道，其余照旧转成日志行。</summary>
+    public static void Publish(IEventContext context, IEnumerable<IGameEvent> events)
+    {
+        foreach (var ev in events)
+        {
+            if (ev is IPresentationEvent p) context.Emit(p);
+            else context.Log(Describe(ev));
+        }
+    }
+
     public static void Continue(IEventContext context, IRulesEngine rules)
     {
         var state = context.GetWorldState();

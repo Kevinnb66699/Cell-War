@@ -47,6 +47,8 @@ public interface IEventContext
     /// 记录日志（用于调试和回放验证）
     /// </summary>
     void Log(string message);
+    /// <summary>排一条结构化演出（骰点 / 光束 / 方向…），与 <see cref="Log"/> 并行的第二条出口；事务失败一起回滚。</summary>
+    void Emit(IPresentationEvent ev);
     void AwaitInput(int playerSeat, IReadOnlyList<IDecision> options);
 }
 
