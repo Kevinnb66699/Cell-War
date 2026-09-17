@@ -94,6 +94,11 @@ public static class SemanticKey
         ChainMoveDecision ch => Tagged("free_move", "连续吞噬", ("to", Pos(ch.Target))),
         StopChainDecision => Tagged("free_move", "连续吞噬", ("stop", "1")),
 
+        // 【炎症性趋化】的第 2/3 步：GD 同样是 `kind: "free_move"`，tag 换成卡名。
+        // 第 1 步不在这里 —— 它是 `k=action|act=play|card=炎症性趋化|to=…`。
+        ChemotaxisStepDecision cx => Tagged("free_move", "炎症性趋化", ("to", Pos(cx.Target))),
+        StopChemotaxisDecision => Tagged("free_move", "炎症性趋化", ("stop", "1")),
+
         TypeSkillDecision ts => TypeSkill(s, ts),
 
         _ => throw new InvalidOperationException(

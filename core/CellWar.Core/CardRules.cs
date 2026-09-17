@@ -353,10 +353,22 @@ internal static class CardRules
             s = AddModifier(s, s.Cells[cell.Id], new("效应细胞浸润", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Card, 0, 0, null, 2, ModifierDuration.Turn));
             return s;
         },
+        // 【炎症性趋化】：连走最多 3 步，每步起价 0.2。
+        //
+        // 不是「本回合 3 次迁移改价 0.2」的修饰（2026-09-16 前 C# 是那么写的）：
+        // 一是 GD 的 0.2 是这三步**自己的起价**（`ctx.base_cost`），而 `Phase.REPLACE`
+        // 排在它之后、会盖掉它 —— 做成 Replace 修饰覆盖方向正好反了；
+        // 二是修饰会让本回合别的普通【迁移】也变 0.2；
+        // 三是决策点数量不对：GD 是 1 个打出选项（第 1 步的落点烤在里面）+ 最多 2 次追问。
+        //
+        // 第 1 步**无条件执行**，不给「停在这里」；第 2/3 步走挂起态（见 DecisionRouter）。
         ["炎症性趋化"] = (s, cell, rng, target, targetCell) =>
         {
-            s = AddModifier(s, s.Cells[cell.Id], new("炎症性趋化", ModifierTarget.Move, ModifierStage.Replace, SourceLayer.Card, 0, 2, null, 3, ModifierDuration.Turn));
-            return s;
+            if (target is not { } first) return s;
+            s = s.WithTurn(s.Turn.WithPendingChemotaxis(cell.Id, CellRules.ChemotaxisMaxSteps));
+            // 这里丢掉了这一步的事件（攻击/净化）—— 卡牌效果表的签名只吐 WorldState，
+            // 整张表都是这样（如【炎症风暴】改地形也不发事件），不为一张卡单开一条通路。
+            return CellRules.ChemotaxisMove(s, cell.Id, first, rng).NewState;
         },
         ["基因组不稳定"] = (s, cell, rng, target, targetCell) =>
         {
@@ -550,6 +562,10 @@ internal static class CardRules
         var definitions = CardCatalog.ByCardName(d.Card).Where(x => x.Category != CardCategory.Event).ToArray();
         if (definitions.Length == 0 || definitions.All(x => !CardImplementation.IsImplemented(x))) return new(false, "该卡效果尚未实现");
         if (definitions.Any(x => x.Category == CardCategory.Permanent) && cell.Equipped.Contains(d.Card)) return new(false, "同名永久技能已装备");
+        // 【炎症性趋化】的第 1 步落点烤在打出选项里，必须是一个合法的趋化落点 ——
+        // 不在这里校验，`Available` 之外的调用方（AI / 对拍）就能递进来一个非法落点
+        if (d.Card == "炎症性趋化" && (d.Target is not { } first || !CellRules.ChemotaxisSteps(s, cell).Contains(first)))
+            return new(false, "【炎症性趋化】必须指定一个合法的第一步");
         return new(true);
     }
 

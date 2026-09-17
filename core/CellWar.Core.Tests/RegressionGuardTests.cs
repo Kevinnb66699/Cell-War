@@ -279,6 +279,11 @@ public class RegressionGuardTests
 
         AssertOnlyChangesAmong(full, "WithChemo", ChemoFields,
             t => t.WithChemo(new HexPosition(1, 1, -2), 9, 2));
+
+        AssertOnlyChangesAmong(full, "WithPendingChemotaxis", ChemotaxisFields,
+            t => t.WithPendingChemotaxis(new EntityId(9), 1));
+        AssertOnlyChangesAmong(full, "WithPendingChemotaxis(null)", ChemotaxisFields,
+            t => t.WithPendingChemotaxis(null, 0));
     }
 
     [Fact]
@@ -330,6 +335,12 @@ public class RegressionGuardTests
     private static readonly string[] ChemoFields =
     [
         nameof(TurnState.ChemoAt), nameof(TurnState.ChemoRounds), nameof(TurnState.ChemoOwner),
+    ];
+
+    /// <summary>【炎症性趋化】的挂起态：谁在走 + 还剩几步，两个字段一起改。</summary>
+    private static readonly string[] ChemotaxisFields =
+    [
+        nameof(TurnState.PendingChemotaxisCell), nameof(TurnState.ChemotaxisStepsLeft),
     ];
 
     /// <summary>同 AssertOnlyChanges，但允许一次改动一组字段。</summary>
@@ -1407,6 +1418,8 @@ public class RegressionGuardTests
         ChemoAt = new HexPosition(2, -1, -1),
         ChemoRounds = 2,
         ChemoOwner = 0,
+        PendingChemotaxisCell = new EntityId(6),
+        ChemotaxisStepsLeft = 2,
     };
 
     /// <summary>同上：每个字段都非默认。</summary>

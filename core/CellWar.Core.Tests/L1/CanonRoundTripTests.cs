@@ -90,7 +90,8 @@ public class CanonRoundTripTests
             .WithChemo(new HexPosition(2, -2, 0), 2, 0, id)
             .WithTrack(other, null, 2)
             .WithPendingMutation(1, other, 2, 3)
-            .WithPendingChain(id));
+            .WithPendingChain(id)
+            .WithPendingChemotaxis(other, 2));
     }
 
 }

@@ -28,6 +28,16 @@ internal static class DecisionRouter
                 ? new(true)
                 : new(false, "等待【连续吞噬】选择下一跳");
         }
+        // 【炎症性趋化】的第 2/3 步：挂起期间只接这只细胞的「再走一步」或「停在这里」。
+        // 排在【连续吞噬】**之后** —— GD 那边连锁问答嵌在 `_do_move` 内部，整条排干了才轮到这里问。
+        if (state.Turn.PendingChemotaxisCell is { } chemotaxisCell)
+        {
+            if (decision is StopChemotaxisDecision stopWalk && stopWalk.CellId == chemotaxisCell) return new(true);
+            return decision is ChemotaxisStepDecision step && step.CellId == chemotaxisCell
+                    && CellRules.ChemotaxisSteps(state, state.Cells[chemotaxisCell]).Contains(step.Target)
+                ? new(true)
+                : new(false, "等待【炎症性趋化】选择下一步");
+        }
         if (decision is PlaceDecision placement) return PlacementRules.ValidatePlacement(state, placement);
         if (decision is ReviveDecision revival)
             return new(PhaseRules.GetRevivalOptions(state).Contains(revival), "Invalid revival option.");
@@ -49,6 +59,17 @@ internal static class DecisionRouter
 
     public static RulesResult Execute(WorldState state, IDecision decision, IDeterministicRng rng)
     {
+        var result = Dispatch(state, decision, rng);
+        // 【炎症性趋化】的三条退出（细胞死了 / 没有可走的下一步 / 步数走满）在 GD 里是
+        // 下一轮循环开头判的，且一定排在连锁之后。这里统一收口，Available 才不会
+        // 停在「只剩一个『停在这里』」上 —— GD 没有那个决策点。
+        return result.Success && result.NewState.Turn.PendingChemotaxisCell is not null
+            ? result with { NewState = CellRules.NormalizeChemotaxis(result.NewState) }
+            : result;
+    }
+
+    private static RulesResult Dispatch(WorldState state, IDecision decision, IDeterministicRng rng)
+    {
         var valid = Validate(state, decision);
         if (!valid.IsValid) return new(state, Array.Empty<IGameEvent>(), false, valid.ErrorMessage);
         if (decision is PlaceDecision placement) return PlacementRules.PlaceCell(state, placement);
@@ -58,6 +79,9 @@ internal static class DecisionRouter
         if (decision is ChainMoveDecision hop) return CellRules.ChainMove(state, hop, rng);
         if (decision is StopChainDecision)
             return new(state.WithTurn(state.Turn.WithPendingChain(null)), Array.Empty<IGameEvent>(), true);
+        if (decision is ChemotaxisStepDecision step) return CellRules.ChemotaxisMove(state, step.CellId, step.Target, rng);
+        if (decision is StopChemotaxisDecision)
+            return new(state.WithTurn(state.Turn.WithPendingChemotaxis(null, 0)), Array.Empty<IGameEvent>(), true);
         if (decision is DrawDecision draw) return CardRules.Draw(state, draw, rng);
         if (decision is MutateDecision mutate) return CardRules.Mutate(state, mutate, rng);
         if (decision is PlayCardDecision play) return CardRules.PlayCard(state, play, rng);
@@ -101,6 +125,16 @@ internal static class DecisionRouter
             hops.Add(new StopChainDecision(seat, chainCell));   // 「结束连续吞噬」永远给得出来
             return hops;
         }
+        if (s.Turn.PendingChemotaxisCell is { } chemotaxisCell)
+        {
+            var walker = s.Cells[chemotaxisCell];
+            if (walker.OwnerSeat != seat) return Array.Empty<IDecision>();
+            // 「停在这里」排在最前：GD `game.ask` 的约定是「可以不做」的那条放下标 0（中止对局时固定答 0）。
+            // 候选为空这种情况到不了这里 —— NormalizeChemotaxis 已经把挂起摘掉了。
+            var steps = new List<IDecision> { new StopChemotaxisDecision(seat, chemotaxisCell) };
+            steps.AddRange(CellRules.ChemotaxisSteps(s, walker).Select(t => (IDecision)new ChemotaxisStepDecision(seat, chemotaxisCell, t)));
+            return steps;
+        }
         if (s.Turn.Phase != Phase.PlayerAction || seat != s.Turn.ActivePlayerSeat || !PhaseRules.AliveSeat(s, seat)) return Array.Empty<IDecision>();
         var result = new List<IDecision> { new PassDecision(seat), new EndTurnDecision(seat) };
         foreach (var c in Cells(s).Where(c => c.OwnerSeat == seat && c.IsAlive))
@@ -127,14 +161,26 @@ internal static class DecisionRouter
                 // 【癌症转移】那条 `continue` 跳过，那张牌就成了唯一弃不掉的牌
                 var toss = new DiscardDecision(seat, c.Id, card);
                 if (Validate(s, toss).IsValid) result.Add(toss);
-                // 【癌症转移】是 68 张里**唯一需要选格**的卡牌：PRD:1465「选择两环内任意格子传送」。
-                // 其余卡要么无目标、要么目标能从状态里唯一推出来，所以这里只为它逐格展开。
+                // 需要选格的卡有两张：【癌症转移】（PRD:1465「选择两环内任意格子传送」）
+                // 与【炎症性趋化】（第 1 步的落点烤在打出选项里）。其余卡要么无目标、
+                // 要么目标能从状态里唯一推出来，所以只为这两张逐格展开。
                 if (card == "癌症转移")
                 {
                     foreach (var dest in CardRules.MetastasisTargets(s, c))
                     {
                         var jump = new PlayCardDecision(seat, c.Id, card, dest);
                         if (Validate(s, jump).IsValid) result.Add(jump);
+                    }
+                    continue;
+                }
+                // 一个合法第一步都没有时**这条选项不出现**（GD cw_card_fx.gd:167-169 的
+                // 循环一次都不 append）—— 落空的卡不该出现在行动栏里。
+                if (card == "炎症性趋化")
+                {
+                    foreach (var first in CellRules.ChemotaxisSteps(s, c))
+                    {
+                        var walk = new PlayCardDecision(seat, c.Id, card, first);
+                        if (Validate(s, walk).IsValid) result.Add(walk);
                     }
                     continue;
                 }

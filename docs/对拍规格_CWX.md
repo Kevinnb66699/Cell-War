@@ -78,8 +78,9 @@ Vector2i → "q,r"；bool → 1/0
    `k=action+chemo_target|act=chemo|to=q,r`（趋化源）、`k=action+effector_target|act=effector|cid=N`（免疫猎杀）、`k=action+effector_target|act=effector|dir=D|to=q,r`（Excalibur）。
    ~~**`free_move`（连续吞噬、炎症性趋化）暂不进组表，列为 `KNOWN_GAP`**~~ —— **2026-09-16 一半已合上**：
    C# 补了 `ChainMoveDecision` / `StopChainDecision`，形状与 GD 的一步一问对得上，键是 `k=free_move|g=连续吞噬|to=q,r` 与 `|stop=1`。
-   **另一半仍是 `KNOWN_GAP`**：【炎症性趋化】GD 是打出卡时选第一步、再逐步追问（`kind: free_move`, `tag: 炎症性趋化`），
-   C# 做成了「本回合 3 次迁移改价 0.2」的修饰（`CardRules.cs:356`）—— 不是选项形状不同，是**决策点数量**不同，这条要么改 C#、要么记成永久偏离。
+   **另一半 2026-09-16 晚也合上了**（Kevin 拍板「改 C# 跟上 GD」）：【炎症性趋化】改成 GD 的形状 ——
+   打出选项烤第 1 步的落点（`k=action|act=play|card=炎症性趋化|to=`），第 2/3 步各一问
+   `k=free_move|g=炎症性趋化|to=` / `|stop=1`。**`free_move` 整条不再是 KNOWN_GAP。**
 
 **映射表（已逐条核对 `DecisionRouter.Available`）**：
 
@@ -94,6 +95,7 @@ Vector2i → "q,r"；bool → 1/0
 | `DiscardDecision` | **改**：`k=pick\|g=手牌上限\|card=`。C# 的弃置只有强制那一路（`Turn.PendingDiscardSeat` 挂起才给选项），对应 GD `cw_cards.gd:70 discard_to_limit`；原表写的 `act=discard` 是行动栏里那条**自愿**弃置 —— C# 原本整条缺失，2026-09-16 补上，所以这一格现在是**两个键**：挂起时 `k=pick\|g=手牌上限`，没挂起时 `k=action\|act=discard` |
 | `ReviveDecision` | **改**：按阵营分两个 kind —— 免疫 `k=immune_revive\|to=`、癌方 `k=revive\|to=`。原表漏了这一条。癌方那问 GD 的 data 带 `anchor`，按规矩 1 剔除，所以同一落点的多个依托在 C# 侧压成同一个键 |
 | `ChainMoveDecision` / `StopChainDecision` | `k=free_move\|g=连续吞噬\|to=` / `\|stop=1`（2026-09-16 新增） |
+| `ChemotaxisStepDecision` / `StopChemotaxisDecision` | `k=free_move\|g=炎症性趋化\|to=` / `\|stop=1`（2026-09-16 新增）。第 1 步不在这里 —— 它是 `act=play\|card=炎症性趋化\|to=` |
 | `ChooseMutationDecision` | `k=pick\|g=基因组不稳定\|r=`，**`r` 是骰面值不是下标** —— C# 存的是「选第几个」，GD 那边根本没有 0/1 这个数 |
 | `TypeSkillDecision` | 按 Skill 串：抗体→`antibody`、细胞毒素→`toxin`、骨样硬化→`ossify`、黏液破裂→`mucus`、裂解→`lyse\|to=`、转移→`jump\|to=`、**早期血行转移→`homing\|to=`**；【效应应答】四种分化共用 GD 的一个入口 `act=effector`（B【中和抗体】、巨噬【连续吞噬】问完就结；树突【免疫猎杀】、T【Excalibur】走组键） |
 | `PassDecision` | **无对应物** → 每个 action 询问固定一条 `OPTION_EXTRA` |

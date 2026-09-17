@@ -90,6 +90,19 @@ public sealed class TurnState
     /// </summary>
     public EntityId? PendingChainCell { get; init; }
 
+    /// <summary>
+    /// 【炎症性趋化】正在等这只细胞选下一步（null = 没在走）。
+    /// 不能和 <see cref="PendingChainCell"/> 共用一个字段：巨噬打这张卡、某一步净化又连上
+    /// 【连续吞噬】时，两个挂起态**同时存在**，而且连锁要先排干。
+    /// </summary>
+    public EntityId? PendingChemotaxisCell { get; init; }
+
+    /// <summary>
+    /// 【炎症性趋化】还剩几步可走（GD 那个 `for step_no in [2, 3]` 的剩余轮数）。
+    /// 静默作废的那一步也照减 —— GD 的 commit 失败不退步数。
+    /// </summary>
+    public int ChemotaxisStepsLeft { get; init; }
+
     public TurnState Clone() => new()
     {
         WorldRound = WorldRound,
@@ -112,7 +125,9 @@ public sealed class TurnState
         TrackCell = TrackCell,
         TrackFrozenAt = TrackFrozenAt,
         TrackRounds = TrackRounds,
-        PendingChainCell = PendingChainCell
+        PendingChainCell = PendingChainCell,
+        PendingChemotaxisCell = PendingChemotaxisCell,
+        ChemotaxisStepsLeft = ChemotaxisStepsLeft
     };
 }
 

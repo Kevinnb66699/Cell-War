@@ -174,6 +174,21 @@ public sealed record StopChainDecision(int PlayerSeat, EntityId CellId) : IDecis
 }
 
 /// <summary>
+/// 【炎症性趋化】的第 2/3 步：起价 0.2 的一次**正常**迁移（照跑费用管线，不是免费）。
+/// 第 1 步不在这里 —— 它的落点烤在打出这张卡的选项里。
+/// </summary>
+public sealed record ChemotaxisStepDecision(int PlayerSeat, EntityId CellId, HexPosition Target) : IDecision
+{
+    public string DecisionType => "ChemotaxisStep";
+}
+
+/// <summary>【炎症性趋化】：停在这里。</summary>
+public sealed record StopChemotaxisDecision(int PlayerSeat, EntityId CellId) : IDecision
+{
+    public string DecisionType => "StopChemotaxis";
+}
+
+/// <summary>
 /// 【基因组不稳定】：从本次突变的两次判定中选择一个结果结算。
 /// </summary>
 public sealed record ChooseMutationDecision(

@@ -50,7 +50,8 @@ public static class CanonCodec
             PosOrNull(s.Turn.ChemoAt), s.Turn.ChemoRounds, s.Turn.ChemoOwner,
             s.Turn.ChemoCreator is { } cc ? Seat(cc) : null,
             s.Turn.TrackCell is { } tc ? Seat(tc) : null, PosOrNull(s.Turn.TrackFrozenAt), s.Turn.TrackRounds,
-            s.Turn.PendingChainCell is { } pc ? Seat(pc) : null)
+            s.Turn.PendingChainCell is { } pc ? Seat(pc) : null,
+            s.Turn.PendingChemotaxisCell is { } px ? Seat(px) : null, s.Turn.ChemotaxisStepsLeft)
         {
             Players = s.Players.Values.OrderBy(p => p.Seat).Select(p => new CanonPlayer(
                 p.Seat, (int)p.Faction, p.IsAlive, p.DrawCount, p.AntigenMemory, (int)p.ImmuneLevel,
@@ -166,6 +167,8 @@ public static class CanonCodec
                 TrackFrozenAt = PosOrNull(c.G.TrackFrozenAt),
                 TrackRounds = c.G.TrackRounds,
                 PendingChainCell = c.G.PendingChainCell is { } pc ? Id(pc) : null,
+                PendingChemotaxisCell = c.G.PendingChemotaxisCell is { } px ? Id(px) : null,
+                ChemotaxisStepsLeft = c.G.ChemotaxisStepsLeft,
             },
         };
     }

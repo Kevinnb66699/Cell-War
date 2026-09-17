@@ -36,6 +36,13 @@ public sealed class MatchObservationProvider : IObservationProvider
             DiscardDecision x => new VisibleOption(index, d.DecisionType, x.CellId, null, null, null, x.Card),
             ChooseMutationDecision m => new VisibleOption(index, d.DecisionType, m.CellId, null, null, null),
             TypeSkillDecision t => new VisibleOption(index, d.DecisionType, t.CellId, t.Target, null, null, null, t.Skill),
+            // 两组挂起态的追问：候选**只靠目标格区分**，落进默认分支就是 N 条一模一样的选项，客户端画不出「走到哪」。
+            // 连锁跳是真免费；趋化每步是 0.2 起价过完管线的报价（与 MoveDecision 那条同样按十分能量折成小数）。
+            ChainMoveDecision h => new VisibleOption(index, d.DecisionType, h.CellId, h.Target, 0.0),
+            StopChainDecision h => new VisibleOption(index, d.DecisionType, h.CellId, null, null),
+            ChemotaxisStepDecision c => new VisibleOption(index, d.DecisionType, c.CellId, c.Target,
+                RulePolicies.BaseMoveCost(s, s.Cells[c.CellId], c.Target, CellRules.ChemotaxisStepCost) / 10.0),
+            StopChemotaxisDecision c => new VisibleOption(index, d.DecisionType, c.CellId, null, null),
             _ => new VisibleOption(index, d.DecisionType, null, null, null)
         }).ToImmutableArray() : ImmutableArray<VisibleOption>.Empty;
         var players = s.Players.Values.OrderBy(p => p.Seat).Select(p =>

@@ -72,7 +72,8 @@ public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Mem
     int? PendingMutationPid, int? PendingMutationCell, int PendingMutationA, int PendingMutationB,
     int CytokineSeat, int EffectorRound,
     string ChemoAt, int ChemoRounds, int ChemoOwner, int? ChemoCreator,
-    int? TrackCell, string TrackFrozenAt, int TrackRounds, int? PendingChainCell)
+    int? TrackCell, string TrackFrozenAt, int TrackRounds, int? PendingChainCell,
+    int? PendingChemotaxisCell, int ChemotaxisStepsLeft)
 {
     /// <summary>每个席位的阵营与存活（GD 的 `players` + `order`）。</summary>
     public List<CanonPlayer> Players { get; init; } = [];

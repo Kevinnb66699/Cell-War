@@ -173,6 +173,83 @@ internal static class CellRules
             .OrderBy(n => n.Q).ThenBy(n => n.R).ToArray();
 
     /// <summary>
+    /// 【炎症性趋化】每步的起价 0.2 与最多 3 步。
+    /// 是**常量不是旋钮** —— GD 侧写在 `CWData.CHEMOTAX_STEP_COST` 里、不过 tune，
+    /// 照 `SkillRules.MelanomaHomingCost` 那条先例办。
+    /// </summary>
+    internal const int ChemotaxisStepCost = 2;
+    internal const int ChemotaxisMaxSteps = 3;
+
+    /// <summary>
+    /// 【炎症性趋化】这一步能落在哪：相邻的健康/普通癌组织（固化不行）、没有**存活**免疫细胞占着
+    /// （癌细胞占着的格是合法落点 —— 走进去就是攻击，卡面明写「正常触发…攻击」）、
+    /// 且付得起 0.2 过完整条管线之后的价（`can_pay`：付完至少留 0.1）。
+    ///
+    /// 刻意**不复用** <see cref="RulePolicies.QuoteMove"/>：那里还带着树突【各司其职】、
+    /// 同阵营占位、借道前进三条 GD 选项层没有的判断，一用就多给/少给落点。
+    /// 树突与攻击上限这两条 GD 只在提交复验里查（见 <see cref="CommitLegal"/>），
+    /// 于是「选项给得出来、走不成、步数照减」是 GD 的实际行为，这里照抄。
+    ///
+    /// 枚举序是 `GetNeighbors()` 的，与 GD `game.neighbors` 的方向序**不同、集合相同**；
+    /// 对拍比的是语义键的集合，所以无碍 —— 但别误以为下标能直接对上。
+    /// </summary>
+    public static IReadOnlyList<HexPosition> ChemotaxisSteps(WorldState s, Cell c)
+        => c.Position.GetNeighbors()
+            .Where(n => s.Board.Tissues.TryGetValue(n, out var t)
+                && t.State != TissueState.SolidifiedCancer
+                && s.GetCellAt(n) is not { IsAlive: true, Faction: Faction.Immune }
+                && c.Energy > RulePolicies.BaseMoveCost(s, c, n, ChemotaxisStepCost))
+            .ToArray();
+
+    /// <summary>
+    /// GD 提交复验 `_is_move_legal_now` 里、而候选生成里**没有**的那两条：
+    /// 树突【I-各司其职】不得向癌细胞占据的格移动、本回合攻击次数上限。
+    /// 不满足时 GD 的 `commit` 返回空字典 —— 整步静默作废（不移动、不扣能量、无日志），
+    /// 但外层循环照常推进到下一步，所以这里只报「走不走得成」，不负责终止整套。
+    /// </summary>
+    private static bool CommitLegal(WorldState s, Cell cell, HexPosition to)
+    {
+        if (s.GetCellAt(to) is not { } occupant) return true;   // 空格永远走得进
+        if (cell.Faction != Faction.Immune) return false;       // 癌方：一格一细胞
+        if (occupant.Faction != Faction.Cancer) return false;   // 免疫踩免疫：不是攻击，也走不进
+        // 树突【I-各司其职】：不能通过【迁移】攻击癌细胞（cw_actions.gd:406-408）。
+        // 少了这一行不是「多打一下」—— `QuoteMove` 对树突 + 有占位返回 null，`Move` 里 `!.Value` 当场抛。
+        if (cell.Type == CellType.Dendritic) return false;
+        // 攻击次数上限（cw_actions.gd:415-418）：用完只是这一格进不去，别的迁移照常。
+        // GD 走 `tune.attack_max_per_turn`（0 = 不限），C# 今天是常量 —— 与 ValidateMove 同一份。
+        if (cell.AttacksThisTurn >= AttacksPerTurnMax) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// 【炎症性趋化】走一步：起价换成 0.2，其余**照常走完整条费用管线**（扣能量、消耗限次修饰），
+    /// 与【连续吞噬】的 `free: true` 正好相反。走成走不成，剩余步数都减一。
+    /// </summary>
+    public static RulesResult ChemotaxisMove(WorldState s, EntityId cellId, HexPosition to, IDeterministicRng rng)
+    {
+        var cell = s.Cells[cellId];
+        var left = s.Turn.ChemotaxisStepsLeft - 1;
+        s = s.WithTurn(s.Turn.WithPendingChemotaxis(cellId, left));
+        if (!CommitLegal(s, cell, to)) return new(s, Array.Empty<IGameEvent>(), true);
+        return Move(s, new MoveDecision(cell.OwnerSeat, cellId, to), rng, rawCostOverride: ChemotaxisStepCost);
+    }
+
+    /// <summary>
+    /// 把【炎症性趋化】的挂起态归一化：GD 的三条退出（细胞死了 / 没有可走的下一步 / 步数走满）
+    /// 是在下一轮循环**开头**判的，而那时【连续吞噬】的连锁早已在 `_do_move` 内部排干。
+    /// C# 没有那个循环，所以每次推进之后统一判一次 —— 不这么做，
+    /// `Available` 就会返回「只剩一个『停在这里』」这种 GD 里不存在的决策点。
+    /// </summary>
+    internal static WorldState NormalizeChemotaxis(WorldState s)
+    {
+        if (s.Turn.PendingChemotaxisCell is not { } id) return s;
+        if (s.Turn.PendingChainCell is not null) return s;   // 连锁先排干，它在 GD 里嵌在这一步内部
+        var c = s.Cells[id];
+        if (s.Turn.ChemotaxisStepsLeft > 0 && c.IsAlive && ChemotaxisSteps(s, c).Count > 0) return s;
+        return s.WithTurn(s.Turn.WithPendingChemotaxis(null, 0));
+    }
+
+    /// <summary>
     /// 【连续吞噬】走一跳：**免费**迁移（不进费用管线），随后照常触发净化 ——
     /// 于是能不能再连由那一步自己决定（`Move` 里净化之后会重新挂起）。
     /// </summary>
@@ -288,6 +365,9 @@ internal static class CellRules
         return s.UpdateCell(id, c.Copy(fxRound: [.. c.FxRound, key]));
     }
 
+    /// <summary>每回合攻击次数上限。选项生成与提交复验共用同一份，写两处必然漂移。</summary>
+    internal const int AttacksPerTurnMax = 3;
+
     /// <summary>移动合法性的域内校验（不包含阶段/回合/存活等公共前提，由编排层先行检查）。</summary>
     public static ValidationResult ValidateMove(WorldState s, MoveDecision move)
     {
@@ -298,7 +378,7 @@ internal static class CellRules
         var cost = RulePolicies.QuoteMove(s, cell, move.TargetPosition);
         if (cost == null) return new(false, "目标位置不可达或被占据");
         if (cell.Energy <= cost) return new(false, "能量不足，非自毁费用必须保留正能量");
-        if (target.OccupyingCell.HasValue && cell.AttacksThisTurn >= 3) return new(false, "攻击次数已达上限");
+        if (target.OccupyingCell.HasValue && cell.AttacksThisTurn >= AttacksPerTurnMax) return new(false, "攻击次数已达上限");
         return new(true);
     }
 
@@ -310,10 +390,14 @@ internal static class CellRules
     /// 真免费：**不进费用管线**、也不消耗任何限次修饰（巨噬【连续吞噬】的连锁跳用它）。
     /// 实付 0 顺带让【I-吞噬】那条「回量不超过实付 −0.1」自然算出 0，不用另写分支。
     /// </param>
-    public static RulesResult Move(WorldState s, MoveDecision move, IDeterministicRng rng, bool free = false)
+    /// <param name="rawCostOverride">
+    /// 卡面自带的起价（【炎症性趋化】每步 0.2）。与 <paramref name="free"/> 语义相反：
+    /// 这只是**换一个起价**，管线照跑、限次修饰照消耗、能量照扣。
+    /// </param>
+    public static RulesResult Move(WorldState s, MoveDecision move, IDeterministicRng rng, bool free = false, int? rawCostOverride = null)
     {
         var cell = s.Cells[move.CellId];
-        var cost = free ? 0 : RulePolicies.QuoteMove(s, cell, move.TargetPosition)!.Value;
+        var cost = free ? 0 : RulePolicies.QuoteMove(s, cell, move.TargetPosition, rawCostOverride)!.Value;
         var target = s.GetCellAt(move.TargetPosition);
         var events = new List<IGameEvent>();
         var attacker = cell.Copy(energy: cell.Energy - cost);

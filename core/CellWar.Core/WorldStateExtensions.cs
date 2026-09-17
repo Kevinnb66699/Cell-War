@@ -147,8 +147,9 @@ public static class WorldStateExtensions
         int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? cytokineSeat = null, int? effectorRound = null,
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
         EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null, EntityId? pendingChain = null,
+        EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null,
         bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false,
-        bool setTrackCell = false, bool setTrackFrozenAt = false, bool setPendingChain = false)
+        bool setTrackCell = false, bool setTrackFrozenAt = false, bool setPendingChain = false, bool setPendingChemotaxis = false)
         => new() { WorldRound = round ?? t.WorldRound, Phase = phase ?? t.Phase, ActivePlayerSeat = seat ?? t.ActivePlayerSeat,
             StartStep = startStep ?? t.StartStep, Winner = winner ?? t.Winner, CancerAlarmRound = alarm ?? t.CancerAlarmRound,
             PendingDiscardSeat = setPendingDiscard ? pendingDiscard : pendingDiscard ?? t.PendingDiscardSeat,
@@ -163,11 +164,17 @@ public static class WorldStateExtensions
             TrackCell = setTrackCell ? trackCell : trackCell ?? t.TrackCell,
             TrackFrozenAt = setTrackFrozenAt ? trackFrozenAt : trackFrozenAt ?? t.TrackFrozenAt,
             TrackRounds = trackRounds ?? t.TrackRounds,
-            PendingChainCell = setPendingChain ? pendingChain : pendingChain ?? t.PendingChainCell };
+            PendingChainCell = setPendingChain ? pendingChain : pendingChain ?? t.PendingChainCell,
+            PendingChemotaxisCell = setPendingChemotaxis ? pendingChemotaxis : pendingChemotaxis ?? t.PendingChemotaxisCell,
+            ChemotaxisStepsLeft = chemotaxisStepsLeft ?? t.ChemotaxisStepsLeft };
 
     /// <summary>挂起 / 结束【连续吞噬】的连锁选择。</summary>
     public static TurnState WithPendingChain(this TurnState t, EntityId? cell)
         => t.Copy(pendingChain: cell, setPendingChain: true);
+
+    /// <summary>挂起 / 结束【炎症性趋化】的连走，同时记下还剩几步。</summary>
+    public static TurnState WithPendingChemotaxis(this TurnState t, EntityId? cell, int stepsLeft)
+        => t.Copy(pendingChemotaxis: cell, chemotaxisStepsLeft: stepsLeft, setPendingChemotaxis: true);
 
     /// <summary>挂上【追踪趋化源】：跟着 `cell` 走，`rounds` 个世界回合。</summary>
     public static TurnState WithTrack(this TurnState t, EntityId? cell, HexPosition? frozenAt, int rounds)

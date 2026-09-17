@@ -51,7 +51,12 @@ internal static class RulePolicies
         _ => -1
     };
 
-    public static int BaseMoveCost(WorldState s, Cell c, HexPosition destination)
+    /// <param name="rawCostOverride">
+    /// 卡面自带的起价（【炎症性趋化】每步 0.2）。null = 按细胞与地形现算。
+    /// 它顶掉的只是 <see cref="RawMoveCost"/> 的结果，修饰管线整条照跑 —— 包括 Replace 阶段，
+    /// 所以【炎症趋化】那类「费用改为 X」仍会盖掉它（GD 侧 0.2 进的是 `ctx.base_cost`，REPLACE 排在其后）。
+    /// </param>
+    public static int BaseMoveCost(WorldState s, Cell c, HexPosition destination, int? rawCostOverride = null)
     {
         var cancerous = Cancerous(s.Board.Tissues[destination]);
         var modifiers = c.Modifiers.Where(m => m.Target == ModifierTarget.Move && RequirementMet(m.Requirement, cancerous))
@@ -66,7 +71,7 @@ internal static class RulePolicies
         // **没有任何测试能区分加不加这句**，也就是死条件，不留。
         if (c.Faction == Faction.Immune && s.Board.Tissues[destination].Mucus)
             modifiers.Add(new ValueModifier(ModifierStage.Add, SourceLayer.Skill, 0, s.Tuning.MucusMoveSurcharge, Name: "黏液侵染"));
-        return Settlement.ApplyValue(RawMoveCost(s, c, destination), modifiers);
+        return Settlement.ApplyValue(rawCostOverride ?? RawMoveCost(s, c, destination), modifiers);
     }
 
     public static bool RequirementMet(ModifierRequirement requirement, bool cancerous) => requirement switch
@@ -232,13 +237,17 @@ internal static class RulePolicies
         return new(steps.ToImmutableArray(), total, gained, stop < 0, budget, stop);
     }
 
-    public static int? QuoteMove(WorldState s, Cell cell, HexPosition destination)
+    /// <param name="rawCostOverride">
+    /// 卡面自带的起价，见 <see cref="BaseMoveCost"/>。只在「与 cell 相邻」那条分支上生效 ——
+    /// 借道前进是一条多格路径，每格各自计价，卡面那个「每步的起价」在那里没有意义。
+    /// </param>
+    public static int? QuoteMove(WorldState s, Cell cell, HexPosition destination, int? rawCostOverride = null)
     {
         if (!s.Board.Tissues.ContainsKey(destination) || destination == cell.Position) return null;
         var occupant = s.GetCellAt(destination);
         if (cell.Type == CellType.Dendritic && occupant != null) return null;  // 【各司其职】：树突不能向癌细胞移动
         if (occupant != null && (occupant.Faction == cell.Faction || cell.Faction != Faction.Immune || !occupant.IsAlive)) return null;
-        if (cell.Position.DistanceTo(destination) == 1) return BaseMoveCost(s, cell, destination);
+        if (cell.Position.DistanceTo(destination) == 1) return BaseMoveCost(s, cell, destination, rawCostOverride);
         if (occupant != null) return null; // Passing through allies cannot launch an attack.
         if (PassThroughMap(s, cell).TryGetValue(destination, out var cost)) return cost;
         return null;
