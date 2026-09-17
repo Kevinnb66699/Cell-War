@@ -16,7 +16,8 @@ internal static class PayloadCodec
         // 巨噬的连锁追问挂起时存一次档就炸。现在有一条反射护栏（PayloadCodecGuardTests）盯着这张表。
         typeof(ChainMoveDecision), typeof(StopChainDecision), typeof(SkipReviveDecision),
         typeof(CoupleDirectionDecision), typeof(CoupleTierDecision), typeof(CancelCoupleDecision),
-        typeof(ChemotaxisStepDecision), typeof(StopChemotaxisDecision)
+        typeof(ChemotaxisStepDecision), typeof(StopChemotaxisDecision),
+        typeof(RemodelPickDecision), typeof(StopRemodelDecision)
     };
     public static void Validate(object? value)
     {

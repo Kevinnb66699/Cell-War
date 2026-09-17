@@ -57,6 +57,15 @@ internal static class DecisionRouter
                 ? new(true)
                 : new(false, "等待【代谢耦联】选择转移方向");
         }
+        // 【基质重塑】的追问（再拆一格 → 转健康 ×2）：只接主人；每段都可「停」（停不是取消，卡照常离手）
+        if (state.Turn.PendingRemodelCell is { } remodelCell)
+        {
+            if (decision.PlayerSeat != state.Cells[remodelCell].OwnerSeat) return new(false, "等待【基质重塑】的选择");
+            if (decision is StopRemodelDecision stopRemodel && stopRemodel.CellId == remodelCell) return new(true);
+            return decision is RemodelPickDecision pick && pick.CellId == remodelCell && CardRules.RemodelOptions(state).Contains(pick.Target)
+                ? new(true)
+                : new(false, "等待【基质重塑】选格");
+        }
         if (decision is PlaceDecision placement) return PlacementRules.ValidatePlacement(state, placement);
         if (decision is ReviveDecision or SkipReviveDecision)
             return new(PhaseRules.GetRevivalOptions(state).Contains(decision), "Invalid revival option.");
@@ -84,10 +93,11 @@ internal static class DecisionRouter
         // 下一轮循环开头判的，且一定排在连锁之后。这里统一收口，Available 才不会
         // 停在「只剩一个『停在这里』」上 —— GD 没有那个决策点。
         var s = result.NewState.Turn.PendingChemotaxisCell is null ? result.NewState : CellRules.NormalizeChemotaxis(result.NewState);
+        if (s.Turn.PendingRemodelCell is not null) s = CardRules.NormalizeRemodel(s);   // GD 的「候选为空就不问」两道闸，跑到稳定
         // 中途的挂起摘干净的这一刻 = 那张卡「结算完」：GD 是整段 await 回来才离手、才走细胞因子链。
         // 卡是哪张由 PendingCard 记着（打出时挂上），不用猜；打出当步就结束的（没有下一步 / 走死）同样走到这里。
         if (s.Turn.PendingCard is { } card && s.Turn.PendingCardCell is { } owner
-                && s.Turn.PendingChemotaxisCell is null && s.Turn.PendingCoupleCell is null && s.Turn.PendingDiscardSeat is null)
+                && s.Turn.PendingChemotaxisCell is null && s.Turn.PendingCoupleCell is null && s.Turn.PendingRemodelCell is null && s.Turn.PendingDiscardSeat is null)
             s = CardRules.FinishInstant(s, owner, card);
         return result with { NewState = s };
     }
@@ -117,6 +127,8 @@ internal static class DecisionRouter
         if (decision is CancelCoupleDecision)
             // 取消：无效果、卡不弃置 —— 连 PendingCard 一起摘，Execute 出口就不会给这张卡收尾
             return new(state.WithTurn(state.Turn.WithPendingCouple(null, null, null).WithPendingCard(null, null)), Array.Empty<IGameEvent>(), true);
+        if (decision is RemodelPickDecision remodelPick) return new(CardRules.RemodelPick(state, remodelPick.Target), Array.Empty<IGameEvent>(), true);
+        if (decision is StopRemodelDecision) return new(CardRules.RemodelStop(state), Array.Empty<IGameEvent>(), true);
         if (decision is DrawDecision draw) return CardRules.Draw(state, draw, rng);
         if (decision is MutateDecision mutate) return CardRules.Mutate(state, mutate, rng);
         if (decision is PlayCardDecision play) return CardRules.PlayCard(state, play, rng);
@@ -181,6 +193,13 @@ internal static class DecisionRouter
             else
                 opts.AddRange(CardRules.CoupleDirections(s, coupleCell, coupleAlly).Select(d => (IDecision)new CoupleDirectionDecision(seat, coupleCell, d.Payer, d.Getter)));
             return opts;
+        }
+        if (s.Turn.PendingRemodelCell is { } remodelCell)
+        {
+            if (s.Cells[remodelCell].OwnerSeat != seat) return Array.Empty<IDecision>();
+            var opts = new List<IDecision> { new StopRemodelDecision(seat, remodelCell) };   // GD 下标 0：「只拆这一格」/「到此为止」
+            opts.AddRange(CardRules.RemodelOptions(s).Select(p => (IDecision)new RemodelPickDecision(seat, remodelCell, p)));
+            return opts;   // 候选为空到不了这里：NormalizeRemodel 已经滑段 / 摘掉
         }
         if (s.Turn.Phase != Phase.PlayerAction || seat != s.Turn.ActivePlayerSeat || !PhaseRules.AliveSeat(s, seat)) return Array.Empty<IDecision>();
         var result = new List<IDecision> { new PassDecision(seat), new EndTurnDecision(seat) };

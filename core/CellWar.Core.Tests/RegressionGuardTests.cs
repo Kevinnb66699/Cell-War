@@ -292,6 +292,8 @@ public class RegressionGuardTests
         AssertOnlyChanges(full, "WithCancerReviveFrom", nameof(TurnState.CancerReviveFrom), t => t.WithCancerReviveFrom(3));
         AssertOnlyChangesAmong(full, "WithPendingCouple", CoupleFields, t => t.WithPendingCouple(new EntityId(7), new EntityId(8), new EntityId(7)));
         AssertOnlyChangesAmong(full, "WithPendingCouple(null)", CoupleFields, t => t.WithPendingCouple(null, null, null));
+        AssertOnlyChangesAmong(full, "WithPendingRemodel", RemodelFields, t => t.WithPendingRemodel(new EntityId(7), new HexPosition(2, 0, -2), null, 2));
+        AssertOnlyChangesAmong(full, "WithPendingRemodel(null)", RemodelFields, t => t.WithPendingRemodel(null, null, null, 0));
     }
 
     [Fact]
@@ -349,6 +351,11 @@ public class RegressionGuardTests
     private static readonly string[] CoupleFields =
     [
         nameof(TurnState.PendingCoupleCell), nameof(TurnState.PendingCoupleAlly), nameof(TurnState.PendingCouplePayer),
+    ];
+
+    private static readonly string[] RemodelFields =
+    [
+        nameof(TurnState.PendingRemodelCell), nameof(TurnState.PendingRemodelFirst), nameof(TurnState.PendingRemodelSecond), nameof(TurnState.PendingRemodelStep),
     ];
 
     /// <summary>结算到一半的那张卡：卡名 + 主人，两个字段一起改。</summary>
@@ -1454,6 +1461,10 @@ public class RegressionGuardTests
         PendingCoupleCell = new EntityId(6),
         PendingCoupleAlly = new EntityId(7),
         PendingCouplePayer = new EntityId(6),
+        PendingRemodelCell = new EntityId(6),
+        PendingRemodelFirst = new HexPosition(1, 0, -1),
+        PendingRemodelSecond = new HexPosition(0, 2, -2),
+        PendingRemodelStep = 1,
     };
 
     /// <summary>同上：每个字段都非默认。</summary>

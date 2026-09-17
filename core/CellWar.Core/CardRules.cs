@@ -243,19 +243,16 @@ internal static class CardRules
             if (CoupleDirections(s, cell.Id, ally).Count == 0) return s;   // 落空
             return s.WithTurn(s.Turn.WithPendingCouple(cell.Id, ally, null));
         },
+        // 【基质重塑】= GD `_remodel`（cw_card_fx.gd:934-969，**三问零随机**）：先拆选定的第 1 格（crack_to_cancer），再挂起追问 ——
+        // 「还可再拆 1 格」（候选 = 重算后的 2 环内固化，为空就不问）、「选择要转健康的癌组织」×2（候选 = 拆过的格自身 + 相邻格里无细胞占据的普通癌组织，
+        // DIRS 序、跨格去重，为空就不问也不再问）。每一段都可「停」，停不是取消：卡照常离手。
+        // 此前 C# 一次性同步跑完：强制拆第 2 格（(Q,R) 最小的那格）、从「距施法者 ≤2 或挨着任一固化格」里**随机**转两格（两发随机、候选域是 GD 的超集），
+        // 拆与转都只改 State / solid，不清 newborn / necrosis / ossify（2026-09-17 深夜）。
         ["基质重塑"] = (s, cell, rng, target, targetCell) =>
         {
-            var solidified = Tiles(s).Where(t => t.State == TissueState.SolidifiedCancer && t.Position.DistanceTo(cell.Position) <= 2)
-                .Select(t => t.Position).ToList();
-            if (target is { } chosen && solidified.Remove(chosen)) solidified.Insert(0, chosen);
-            foreach (var pick in solidified.Take(2))
-                s = s.UpdateTissueState(pick, TissueState.Cancer).UpdateTissueSolidification(pick, 0);
-            var ordinary = Tiles(s).Where(t => t.State == TissueState.Cancer && t.OccupyingCell == null &&
-                    (t.Position.DistanceTo(cell.Position) <= 2 || t.Position.GetNeighbors().Any(n => solidified.Contains(n))))
-                .Select(t => t.Position).ToArray();
-            foreach (var pick in rng.PickRandom(ordinary, 2))
-                s = s.UpdateTissueState(pick, TissueState.Healthy);
-            return s;
+            if (target is not { } first || !RemodelTargets(s, cell).Contains(first)) return s;   // 防御：Validate 已按 TileTargeted 拦下非法 / 缺失目标
+            s = CrackToCancer(s, first);
+            return s.WithTurn(s.Turn.WithPendingRemodel(cell.Id, first, null, 0));
         },
         // 【癌症转移】（PRD:1465）：「选择两环内任意格子传送，正常触发【定殖】」。
         // 「任意格子」不挑地形（健康 / 癌 / 固化都行）；唯一限制是**没有细胞占着** ——
@@ -587,7 +584,7 @@ internal static class CardRules
         // 不然第 2/3 步那两问上两边手牌差一张，手牌到上限时还少一个强制弃置决策点（L1 对拍会在那儿分叉）。
         // 结算里骨髓抽卡撑爆手牌的强制弃置也一样：GD 在结算内部 await 问完才 erase + 走链（cw_cards.gd:63 → cw_card_fx.gd:408-411），
         // 所以刚打出的这张还在手里、也在可弃选项里
-        if (s.Turn.PendingChemotaxisCell == cell.Id || s.Turn.PendingCoupleCell == cell.Id || s.Turn.PendingDiscardSeat is not null)
+        if (s.Turn.PendingChemotaxisCell == cell.Id || s.Turn.PendingCoupleCell == cell.Id || s.Turn.PendingRemodelCell == cell.Id || s.Turn.PendingDiscardSeat is not null)
             return new(s.WithTurn(s.Turn.WithPendingCard(d.Card, cell.Id)), Array.Empty<IGameEvent>(), true);
         return new(FinishInstant(s, cell.Id, d.Card), Array.Empty<IGameEvent>(), true);
     }
@@ -738,6 +735,61 @@ internal static class CardRules
     /// <summary>【基质重塑】第一格：2 环内（含脚下）的固化癌组织。</summary>
     internal static IReadOnlyList<HexPosition> RemodelTargets(WorldState s, Cell cell)
         => Tiles(s).Where(t => t.State == TissueState.SolidifiedCancer && t.Position.DistanceTo(cell.Position) <= 2).Select(t => t.Position).ToList();
+
+    /// <summary>GD `_remodel_heal_cands`（cw_card_fx.gd:974-986）：按 [第 1 格, 第 2 格] 顺序，每格展开「自身 + DIRS 序相邻格」，跨格去重（**先记 seen 再判谓词**），
+    /// 留下无细胞占据的普通癌组织。施法者的位置不参与 —— 此前 C# 的候选域「距施法者 ≤2 或挨着任一固化格」是它的严格超集。</summary>
+    internal static IReadOnlyList<HexPosition> RemodelHealCands(WorldState s, HexPosition first, HexPosition? second)
+    {
+        var seen = new HashSet<HexPosition>();
+        var cands = new List<HexPosition>();
+        foreach (var b in second is { } sec ? new[] { first, sec } : new[] { first })
+            foreach (var c in new[] { b }.Concat(GdNeighbors(s, b)))
+            {
+                if (!seen.Add(c)) continue;
+                if (s.Board.Tissues[c].State == TissueState.Cancer && s.Board.Tissues[c].OccupyingCell == null) cands.Add(c);
+            }
+        return cands;
+    }
+
+    /// <summary>【基质重塑】当前这一问的候选：Step 0 = 重算后的 2 环内固化（GD 939，第 1 格已不是固化，自动出局）；Step 1/2 = <see cref="RemodelHealCands"/>。</summary>
+    internal static IReadOnlyList<HexPosition> RemodelOptions(WorldState s)
+        => s.Turn.PendingRemodelStep == 0
+            ? RemodelTargets(s, s.Cells[s.Turn.PendingRemodelCell!.Value])
+            : RemodelHealCands(s, s.Turn.PendingRemodelFirst!.Value, s.Turn.PendingRemodelSecond);
+
+    /// <summary>【基质重塑】答一格：Step 0 再拆（crack_to_cancer）→ 进第 1 次转健康；Step 1/2 转健康（to_healthy）→ 下一问。零随机。</summary>
+    internal static WorldState RemodelPick(WorldState s, HexPosition target)
+    {
+        var t = s.Turn;
+        if (t.PendingRemodelStep == 0)
+            return CrackToCancer(s, target).WithTurn(t.WithPendingRemodel(t.PendingRemodelCell, t.PendingRemodelFirst, target, 1));
+        return ToHealthy(s, target).WithTurn(t.WithPendingRemodel(t.PendingRemodelCell, t.PendingRemodelFirst, t.PendingRemodelSecond, t.PendingRemodelStep + 1));
+    }
+
+    /// <summary>【基质重塑】的「停」：Step 0「只拆这一格」→ 直接进转健康那一段；Step 1/2「到此为止」→ 摘挂起。都不是取消。</summary>
+    internal static WorldState RemodelStop(WorldState s)
+    {
+        var t = s.Turn;
+        return t.PendingRemodelStep == 0
+            ? s.WithTurn(t.WithPendingRemodel(t.PendingRemodelCell, t.PendingRemodelFirst, null, 1))
+            : s.WithTurn(t.WithPendingRemodel(null, null, null, 0));
+    }
+
+    /// <summary>GD `_remodel` 的两道「候选为空就不问」闸（941 与 955-956，互相独立、可以连着命中）+ 「两格都转完」：出口归一化，**跑到稳定**。
+    /// 单趟判断会把状态停在「Available 为空」的死点上。</summary>
+    internal static WorldState NormalizeRemodel(WorldState s)
+    {
+        while (s.Turn.PendingRemodelCell is not null)
+        {
+            var t = s.Turn;
+            var options = t.PendingRemodelStep >= 3 ? Array.Empty<HexPosition>() : RemodelOptions(s);
+            if (options.Count > 0) return s;
+            s = s.WithTurn(t.PendingRemodelStep == 0
+                ? t.WithPendingRemodel(t.PendingRemodelCell, t.PendingRemodelFirst, null, 1)
+                : t.WithPendingRemodel(null, null, null, 0));
+        }
+        return s;
+    }
 
     /// <summary>【放疗】：全盘任意癌性组织（含固化）作起点，不限范围。</summary>
     internal static IReadOnlyList<HexPosition> RadiotherapyTargets(WorldState s)

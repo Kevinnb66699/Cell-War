@@ -106,6 +106,10 @@ public static class SemanticKey
         CoupleTierDecision ct => Tagged("pick", "代谢耦联", ("pay", ct.Pay.ToString()), ("get", ct.Get.ToString())),
         CancelCoupleDecision => Tagged("pick", "代谢耦联", ("stop", "1")),
 
+        // 【基质重塑】的三次追问（GD kind pick_tile / tag 基质重塑）：再拆 / 转健康都是 {to}，停是 {stop} —— 三问同形，重放器靠 asks 里的位置区分
+        RemodelPickDecision rp => Tagged("pick_tile", "基质重塑", ("to", Pos(rp.Target))),
+        StopRemodelDecision => Tagged("pick_tile", "基质重塑", ("stop", "1")),
+
         TypeSkillDecision ts => TypeSkill(s, ts),
 
         _ => throw new InvalidOperationException(

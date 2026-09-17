@@ -45,7 +45,7 @@ internal static class PhaseRules
             // 挂起态跨不出这一回合：GD 的连锁 / 趋化是 play() 里的一段 await，语法上就出不了这次打牌。
             // 正常路径到不了这里（挂起时「结束回合」被 Validate 驳回），这是防御 —— 谁绕开 Execute 直接推阶段，
             // 也不能让原主人在别人的回合里把剩下的几步走完。
-            s = s.WithTurn(s.Turn.WithPendingChain(null).WithPendingChemotaxis(null, 0).WithPendingCouple(null, null, null).WithPendingCard(null, null));
+            s = s.WithTurn(s.Turn.WithPendingChain(null).WithPendingChemotaxis(null, 0).WithPendingCouple(null, null, null).WithPendingCard(null, null).WithPendingRemodel(null, null, null, 0));
             s = s.WithTurn(s.Turn.Copy(phase: next == null ? Phase.E : Phase.PlayerAction, seat: next ?? s.Turn.ActivePlayerSeat));
             if (next is { } seat) s = BeginTurn(s, seat);
         }

@@ -144,6 +144,14 @@ public sealed class TurnState
 
     public EntityId? PendingCouplePayer { get; init; }
 
+    /// <summary>【基质重塑】结算到一半（GD `_remodel` 里的三次 await，cw_card_fx.gd:934-969，零随机）：打出的细胞、已拆的第 1 / 第 2 格、
+    /// 当前在问哪一段（0 = 「还可再拆 1 格」，1 / 2 = 「选择要转健康的癌组织」第 1 / 2 格）。
+    /// 这四个值**足以从零重算两段候选**（存档恢复后 Runtime 会重跑 Available / Validate）。每段都可「停」，停不是取消：卡照常离手。</summary>
+    public EntityId? PendingRemodelCell { get; init; }
+    public HexPosition? PendingRemodelFirst { get; init; }
+    public HexPosition? PendingRemodelSecond { get; init; }
+    public int PendingRemodelStep { get; init; }
+
     public TurnState Clone() => new()
     {
         WorldRound = WorldRound,
@@ -177,7 +185,11 @@ public sealed class TurnState
         CancerReviveFrom = CancerReviveFrom,
         PendingCoupleCell = PendingCoupleCell,
         PendingCoupleAlly = PendingCoupleAlly,
-        PendingCouplePayer = PendingCouplePayer
+        PendingCouplePayer = PendingCouplePayer,
+        PendingRemodelCell = PendingRemodelCell,
+        PendingRemodelFirst = PendingRemodelFirst,
+        PendingRemodelSecond = PendingRemodelSecond,
+        PendingRemodelStep = PendingRemodelStep
     };
 }
 

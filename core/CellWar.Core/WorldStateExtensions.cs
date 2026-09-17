@@ -150,9 +150,10 @@ public static class WorldStateExtensions
         EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null, string? pendingWalkCard = null, IReadOnlyList<WalkFrame>? walkOuter = null,
         int? cardResolveDepth = null, string? pendingCard = null, EntityId? pendingCardCell = null, int? cancerReviveFrom = null,
         EntityId? pendingCoupleCell = null, EntityId? pendingCoupleAlly = null, EntityId? pendingCouplePayer = null,
+        EntityId? pendingRemodelCell = null, HexPosition? pendingRemodelFirst = null, HexPosition? pendingRemodelSecond = null, int? pendingRemodelStep = null,
         bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false,
         bool setTrackCell = false, bool setTrackFrozenAt = false, bool setPendingChain = false, bool setPendingChemotaxis = false,
-        bool setPendingCard = false, bool setPendingCouple = false, bool setPendingWalkCard = false)
+        bool setPendingCard = false, bool setPendingCouple = false, bool setPendingWalkCard = false, bool setPendingRemodel = false)
         => new() { WorldRound = round ?? t.WorldRound, Phase = phase ?? t.Phase, ActivePlayerSeat = seat ?? t.ActivePlayerSeat,
             StartStep = startStep ?? t.StartStep, Winner = winner ?? t.Winner, CancerAlarmRound = alarm ?? t.CancerAlarmRound,
             PendingDiscardSeat = setPendingDiscard ? pendingDiscard : pendingDiscard ?? t.PendingDiscardSeat,
@@ -178,7 +179,11 @@ public static class WorldStateExtensions
             CancerReviveFrom = cancerReviveFrom ?? t.CancerReviveFrom,
             PendingCoupleCell = setPendingCouple ? pendingCoupleCell : pendingCoupleCell ?? t.PendingCoupleCell,
             PendingCoupleAlly = setPendingCouple ? pendingCoupleAlly : pendingCoupleAlly ?? t.PendingCoupleAlly,
-            PendingCouplePayer = setPendingCouple ? pendingCouplePayer : pendingCouplePayer ?? t.PendingCouplePayer };
+            PendingCouplePayer = setPendingCouple ? pendingCouplePayer : pendingCouplePayer ?? t.PendingCouplePayer,
+            PendingRemodelCell = setPendingRemodel ? pendingRemodelCell : pendingRemodelCell ?? t.PendingRemodelCell,
+            PendingRemodelFirst = setPendingRemodel ? pendingRemodelFirst : pendingRemodelFirst ?? t.PendingRemodelFirst,
+            PendingRemodelSecond = setPendingRemodel ? pendingRemodelSecond : pendingRemodelSecond ?? t.PendingRemodelSecond,
+            PendingRemodelStep = pendingRemodelStep ?? t.PendingRemodelStep };
 
     /// <summary>挂起 / 结束【连续吞噬】的连锁选择。</summary>
     public static TurnState WithPendingChain(this TurnState t, EntityId? cell)
@@ -187,6 +192,10 @@ public static class WorldStateExtensions
     /// <summary>挂起 / 推进 / 结束【代谢耦联】的两问（三个字段一起改；payer 为 null = 还在问方向）。</summary>
     public static TurnState WithPendingCouple(this TurnState t, EntityId? cell, EntityId? ally, EntityId? payer)
         => t.Copy(pendingCoupleCell: cell, pendingCoupleAlly: ally, pendingCouplePayer: payer, setPendingCouple: true);
+
+    /// <summary>挂上 / 推进 / 摘掉【基质重塑】的追问（四个字段一起写；摘掉 = cell 传 null、step 传 0）。</summary>
+    public static TurnState WithPendingRemodel(this TurnState t, EntityId? cell, HexPosition? first, HexPosition? second, int step)
+        => t.Copy(pendingRemodelCell: cell, pendingRemodelFirst: first, pendingRemodelSecond: second, pendingRemodelStep: step, setPendingRemodel: true);
 
     /// <summary>癌方复活问到哪一席了（放弃 / 复活 / 没落点都往前推一格）。</summary>
     public static TurnState WithCancerReviveFrom(this TurnState t, int seat) => t.Copy(cancerReviveFrom: seat);

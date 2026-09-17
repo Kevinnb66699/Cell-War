@@ -116,7 +116,7 @@ Vector2i → "q,r"；bool → 1/0
 【黏液破裂】自毁走 Damage 被自己的【囊性护甲】减掉 0.5「自杀未遂」（改走 `Kill`，也是死亡的唯一入口、顺带清 mods）；【侵蚀】逐块各掷 d3（改成全盘一份候选、一次 d3、一次 pick_n，块序 / 块内序照 GD 的栈式深搜 `GdBlocks`）；
 「本回合」修饰在下一次 BeginTurn 才清（改成结束回合那一刻清）；压迫为 0 也进 Damage 把一次性护盾吃掉（改成 GD 的 `loss <= 0: continue`）；【RAS持续激活】闸门只烧一次（GD `first_this_turn` 每次计数）；
 `UpdateMarks` 过滤「本回合标过」（GD 过滤「已带标记」）。传送落地统一走 `CellRules.EnterTile`（Teleport + 黏液清除 + 代谢核心 / 骨髓二选一 + 标记刷新），骨髓抽卡那一发带子此前 C# 全局没有。
-**还是 KNOWN_GAP 的**：【基质重塑】选定第一格之后的两段追问（再拆一格 / 转健康 ×2，GD 三问零随机；C# 现在只有第一格由玩家选、后面仍按 PickRandom）；
+**还是 KNOWN_GAP 的**：~~【基质重塑】选定第一格之后的两段追问~~（09-17 深夜已合上，见第三批 ⑥）；
 ~~能量损失的限次修饰消耗不是 ON_BENEFIT~~（09-17 晚已合上，见下）；【细胞毒性增强】GD 走 fx_turn 闸门、C# 是回合修饰；
 【信号放大】【细胞应激】等世界事件。（【交叉呈递】绕开 apply_mark：**Kevin 09-17 裁定是疏漏**，两边改走 apply_mark、选项层滤掉本回合给过标记的目标，协议 v28，三条夹具重录。）
 
@@ -150,6 +150,9 @@ C# 此前单槽整组覆写、外层剩余步数与卡名一起丢。现在 `Tur
 强制弃置挂起加 `PendingDiscardCell`（GD `discard_to_limit(cell)` 只问超限的那一只、问到它降到上限为止），`Available` / `Validate` 只认那一只；弃置挂着时连走不摘、即时卡不离手（GD 在结算内部 await 问完才 erase + 走链，刚打出的那张也在可弃之列）。
 离手只摘第一张同名；永久卡打出即装备、不进结算也不碰 `card_resolve_depth`；阶段推进的防御性清场也清 `PendingCard`。
 **登记的 KNOWN_GAP**：`stress-fee`（【细胞应激】打牌费 0.5/层 C# `PlayCard` 完全没有，随世界事件整块挂着）。
+⑥ **【基质重塑】三问**：结算改成「拆第 1 格 → 挂起」，`TurnState.PendingRemodel{Cell,First,Second,Step}` + `RemodelPickDecision` / `StopRemodelDecision`（GD 三问的 data 只有 `{to}` / `{stop}` 两种形，合成两条决策）；
+候选照 GD：Step 0 = 重算后的 2 环内固化，Step 1/2 = 拆过的格自身 + DIRS 序相邻格里无细胞占据的普通癌组织（跨格去重，施法者位置不参与）；`NormalizeRemodel` 跑到稳定（两道「为空不问」闸可连着命中）；停不是取消，卡照常离手。零随机（此前两发 PickRandom）。
+新键 `k=pick_tile|g=基质重塑|to=q,r` / `k=pick_tile|g=基质重塑|stop=1`（三问同形，重放器靠 `asks` 里的位置区分）。视图形状不变、夹具不重录 —— 三条夹具里这张卡 0 次（ImmuneX 池），正确性只靠 `RemodelTests` 9 条钉。
 （6p 第 187 步那 0.1 已合上：有氧收入的顺序 —— GD 先对等级份额打【TGF-β释放】折再加【代谢适应】【自分泌生存信号】的额外获得，C# 此前先加后折；6p 整条 200 步一致。）
 
 **丢掉了什么（写进限制栏）**：选项的**顺序**与下标稳定性不再被验证（`DecisionRouter.cs:82` 的 `Tiles(s)` 走 `PagedMap` 迭代序而非排序序）。C# 真当权威内核时，这会以「客户端点了第 3 项、服务器执行了第 5 项」的形式复活——那要靠「按语义提交」的线上协议解决，不是靠对拍。**这条要单独立一条阶段 1 待办。**

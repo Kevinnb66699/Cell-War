@@ -79,6 +79,11 @@ public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Mem
 {
     /// <summary>每个席位的阵营与存活（GD 的 `players` + `order`）。</summary>
     public List<CanonPlayer> Players { get; init; } = [];
+    /// <summary>【基质重塑】的追问（GD 视图里不存在，一律空；C# 存档要带）。</summary>
+    public int? PendingRemodelCell { get; init; }
+    public string PendingRemodelFirst { get; init; } = "";
+    public string PendingRemodelSecond { get; init; } = "";
+    public int PendingRemodelStep { get; init; }
     /// <summary>强制弃置挂在哪只细胞上（GD 视图里不存在，一律空；C# 存档要带）。</summary>
     public int? PendingDiscardCell { get; init; }
     /// <summary>嵌套连走被压在下面的外层帧（GD 视图里不存在，一律空；C# 存档要带）。</summary>

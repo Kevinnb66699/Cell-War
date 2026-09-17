@@ -44,6 +44,9 @@ public sealed class MatchObservationProvider : IObservationProvider
             ChemotaxisStepDecision c => new VisibleOption(index, d.DecisionType, c.CellId, c.Target,
                 RulePolicies.BaseMoveCost(s, s.Cells[c.CellId], c.Target, CellRules.ChemotaxisStepCost) / 10.0),
             StopChemotaxisDecision c => new VisibleOption(index, d.DecisionType, c.CellId, null, null),
+            // 【基质重塑】的三问：再拆 / 转健康都只靠目标格区分
+            RemodelPickDecision rp => new VisibleOption(index, d.DecisionType, rp.CellId, rp.Target, null),
+            StopRemodelDecision sr => new VisibleOption(index, d.DecisionType, sr.CellId, null, null),
             // 【代谢耦联】两问：方向按付方细胞区分，档位按转出量区分（十分能量折成小数）
             CoupleDirectionDecision cd => new VisibleOption(index, d.DecisionType, cd.Payer, null, null, null, "代谢耦联"),
             CoupleTierDecision ct => new VisibleOption(index, d.DecisionType, ct.CellId, null, ct.Pay / 10.0, null, "代谢耦联"),

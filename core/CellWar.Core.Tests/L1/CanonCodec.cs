@@ -58,6 +58,9 @@ public static class CanonCodec
             s.Turn.PendingCouplePayer is { } cp3 ? Seat(cp3) : null)
         {
             PendingDiscardCell = s.Turn.PendingDiscardCell is { } pdc ? Seat(pdc) : null,
+            PendingRemodelCell = s.Turn.PendingRemodelCell is { } prc ? Seat(prc) : null,
+            PendingRemodelFirst = PosOrNull(s.Turn.PendingRemodelFirst), PendingRemodelSecond = PosOrNull(s.Turn.PendingRemodelSecond),
+            PendingRemodelStep = s.Turn.PendingRemodelStep,
             WalkOuter = s.Turn.WalkOuter.Select(f => new CanonWalkFrame(Seat(f.Cell), f.StepsLeft, f.Card)).ToList(),
             Players = s.Players.Values.OrderBy(p => p.Seat).Select(p => new CanonPlayer(
                 p.Seat, (int)p.Faction, p.IsAlive, p.DrawCount, p.AntigenMemory, (int)p.ImmuneLevel,
@@ -184,6 +187,10 @@ public static class CanonCodec
                 PendingCoupleCell = c.G.PendingCoupleCell is { } cp1 ? Id(cp1) : null,
                 PendingCoupleAlly = c.G.PendingCoupleAlly is { } cp2 ? Id(cp2) : null,
                 PendingCouplePayer = c.G.PendingCouplePayer is { } cp3 ? Id(cp3) : null,
+                PendingRemodelCell = c.G.PendingRemodelCell is { } prc ? Id(prc) : null,
+                PendingRemodelFirst = PosOrNull(c.G.PendingRemodelFirst),
+                PendingRemodelSecond = PosOrNull(c.G.PendingRemodelSecond),
+                PendingRemodelStep = c.G.PendingRemodelStep,
             },
         };
     }

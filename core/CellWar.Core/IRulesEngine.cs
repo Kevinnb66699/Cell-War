@@ -212,6 +212,18 @@ public sealed record CancelCoupleDecision(int PlayerSeat, EntityId CellId) : IDe
     public string DecisionType => "CancelCouple";
 }
 
+/// <summary>【基质重塑】的追问里选一格：Step 0 = 「再拆这一格」，Step 1/2 = 「转化这一格」。GD 三问的 data 都是 `{to}`，键形只有一种，所以合成一条决策。</summary>
+public sealed record RemodelPickDecision(int PlayerSeat, EntityId CellId, HexPosition Target) : IDecision
+{
+    public string DecisionType => "RemodelPick";
+}
+
+/// <summary>【基质重塑】的「只拆这一格」/「到此为止」（GD data `{stop: true}`，下标 0）。**不是取消**：第 1 格已经拆了，卡照常离手 —— 别照抄 <see cref="CancelCoupleDecision"/>。</summary>
+public sealed record StopRemodelDecision(int PlayerSeat, EntityId CellId) : IDecision
+{
+    public string DecisionType => "StopRemodel";
+}
+
 /// <summary>
 /// 【基因组不稳定】：从本次突变的两次判定中选择一个结果结算。
 /// </summary>

@@ -96,7 +96,8 @@ public class CanonRoundTripTests
             .WithPendingCard("炎症性趋化", other)
             .WithCardResolveDepth(1)
             .WithCancerReviveFrom(2)
-            .WithPendingCouple(id, other, id));
+            .WithPendingCouple(id, other, id)
+            .WithPendingRemodel(id, new HexPosition(1, 0, -1), new HexPosition(0, 2, -2), 1));
     }
 
 }
