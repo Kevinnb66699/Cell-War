@@ -240,7 +240,7 @@ var _replay_bar: CWReplayBar ## 播放控制条（回放局才建）
 ##    关着时对局里 `_chat` 恒为 null（下面每一处都按 null 兜底）、迷你条那页「聊天」不出现，
 ##    等待室 `CWOnlinePanel._build_room` 整块不建。开关留着，要收再改回 false。
 ##    开回来前修掉的三条（Kevin 2026-09-10 实战报的，都在对局里那份）：
-##      · 从迷你条点开之后关不掉 → 空串回车 = 收起（`CWChatBox._submit`）；
+##      · 从迷你条点开之后关不掉 → Esc 收起（Kevin 09-17 定的；`CWChatBox._input` 抢在暂停菜单前判定）；
 ##      · 点框外空白处收起（`CWChatBox._unhandled_input`，同 `CWLogPanel`）；
 ##      · 打字打到 L 弹出对局日志 → 单键快捷键统一先问 `CWChatBox.typing`
 ##        （L 开日志、空格结束回合、数字键选行动、方向键翻图鉴）。
@@ -258,6 +258,7 @@ const WATCH_ON := true
 
 var _chat: CWChatBox         ## 房内聊天（只有联机局有：本地局没人可聊）
 var _chat_seen := 0          ## 已经搬到框里的第几条（同 _feed_seq 的路子）
+var _chat_client: CWNetClient   ## 框里的消息来自哪个连接：换了连接就清框、游标归零（同一房间再来一局则接着用）
 var _ask_serial := 0     ## 每收到一次询问递增：作答时核对，服务器代打后重问的旧答案不发
 
 @onready var board: Node2D = get_node(board_path)
@@ -566,14 +567,11 @@ func start_replay(p: CWReplay.Player) -> void:
 	_replay_loop(_loop_id)
 
 
-## 开聊天页。**两页互斥** —— 它们共用左上角同一块地（CWLogPanel.RECT），
-## 同时开着就是两层叠在一起，谁也看不清
+## 迷你条上点「聊天」= 开合。两页互斥（共用左上角同一块地）的「收日志」动作挂在 `_chat.opened` 上，
+## 回车唤出那条路（CWChatBox._input）也经过它
 func _toggle_chat() -> void:
-	if _chat == null:
-		return
-	if not _chat.is_open() and _log_panel != null and _log_panel.visible:
-		_log_panel.toggle()
-	_chat.toggle()
+	if _chat != null:
+		_chat.toggle()
 
 
 ## 把客户端收到的聊天搬进框里。只补没见过的那几条（同 _sync_feed 的游标办法）——
@@ -645,6 +643,11 @@ func _replay_loop(id: int) -> void:
 func start_online(p_client: CWNetClient) -> void:
 	_prepare_ui()
 	online = true
+	if p_client != _chat_client:
+		_chat_client = p_client
+		_chat_seen = 0
+		if _chat != null:
+			_chat.clear()
 	_client = p_client
 	## 大厅里收到过的 error（房主点开始被「还有人没准备」挡回那类）到了对局里不该再弹一遍：
 	## 序号先对齐，只认开局之后新来的（issue #26，HXR-I 截到开局布置时飘着「还有人没准备」）
@@ -787,10 +790,18 @@ func _wire_bridge(level: int) -> void:
 		_chat.said.connect(func(text: String, team: bool) -> void:
 			if _client != null:
 				_client.say(text, team))
-		## 和对局日志共用左上角那块：迷你条上多一页「聊天」，两页互斥
+		## 和对局日志共用左上角那块：展开聊天就收日志（迷你条点开、回车唤出两条路都经过 opened）
+		_chat.opened.connect(func() -> void:
+			if _log_panel != null and _log_panel.visible:
+				_log_panel.toggle())
+		## 结算屏上回车归它自己的按钮，别再唤出聊天（开着的照样能 Esc 收、能从迷你条点开）
+		finished.connect(func(_winner: int) -> void: _chat.active = false)
 		if _log_hint != null:
 			_log_hint.set_chat(_chat)
 			_log_hint.chat_pressed.connect(_toggle_chat)
+	## 框一局建一次、跨局复用：联机局重新接回车，本地局（没人可聊）不接
+	if _chat != null:
+		_chat.active = online
 	bridge.game = game
 	bridge.board = board
 	bridge.dice = _dice
@@ -1174,6 +1185,9 @@ func teardown() -> void:
 		_log_panel.hide_now()
 	if _log_hint != null:
 		_log_hint.visible = false
+	if _chat != null:
+		_chat.active = false
+		_chat.close()
 	if _guide != null and is_instance_valid(_guide):
 		_guide.queue_free()   ## 引导面板一局一份，拆局就销毁（下一局教程 _attach_guide 重建）
 	_guide = null
@@ -1221,16 +1235,8 @@ func _exit_tree() -> void:
 ## 覆盖层统一由宿主路由（主菜单那份也是 CWMainMenu 路由的）。书没开就不管，
 ## 暂停菜单 / 行动栏各管各的，不和 L / 空格抢。
 func _unhandled_input(event: InputEvent) -> void:
-	## 聊天：回车唤出 / Esc 收起。**排在暂停菜单前面** ——
-	## 框开着时 Esc 该先收框，而不是弹出暂停菜单
-	if _chat != null:
-		if CWChatBox.is_enter(event) and not _chat.is_open():
-			get_viewport().set_input_as_handled()
-			_toggle_chat()
-			return
-		if _chat.handle_key(event):
-			get_viewport().set_input_as_handled()
-			return
+	## 聊天的键盘（回车唤出 / Esc 收起 / Tab 换频道）**不在这儿**：这一层按树逆序派发，
+	## 暂停菜单排在 CWMatch 前头，Esc 到不了；CWChatBox 自己在 `_input` 里接，理由见那边
 	## 回放的播放控制。**接在这一层**：回放局没有行动栏、没有手牌手势，
 	## 方向键与空格本来就没人要，正好拿来当播放键
 	if replay != null and (_codex == null or not _codex.visible):

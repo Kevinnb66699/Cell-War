@@ -17265,22 +17265,22 @@ func t_chat_box() -> void:
 	var cb2 := CWChatBox.new()
 	root.add_child(cb2)
 	await process_frame
-	check(not cb2.handle_key(tab), "框关着时不接 Tab（那时它归焦点导航）")
+	cb2._input(tab)
+	check(not cb2._team and not cb2.is_open(), "框关着时不接 Tab（那时它归焦点导航）")
 	cb2.open()
 	check(cb2._scope.text == "全体", "开着默认发全体")
-	check(cb2.handle_key(tab) and cb2._team and cb2._scope.text == "己方", "Tab 换到己方")
-	check(cb2.handle_key(tab) and not cb2._team and cb2._scope.text == "全体", "再按一下换回全体")
-	## 真正生效的是**输入框自己那一层**：框开着时焦点就在它上面，
-	## Godot 的焦点导航排在 `_unhandled_input` 前面，不在这层截就轮不到上面那条
-	cb2._input.gui_input.emit(tab)
-	check(cb2._team, "焦点在输入框上时，Tab 由输入框那层截住并换频道")
+	cb2._input(tab)
+	check(cb2._team and cb2._scope.text == "己方", "Tab 换到己方")
+	cb2._input(tab)
+	check(not cb2._team and cb2._scope.text == "全体", "再按一下换回全体")
+	## 截在 `_input` 这一层：焦点导航（ui_focus_next 就绑在 Tab 上）排在它后面，焦点在不在输入框上都轮不到导航
 	cb2.queue_free()
 	## 标题栏顺带当快捷键表 —— 这两下不标出来就只有翻代码才知道。
 	## 右边贴着「全体 / 己方」（x = 宽 − 76），写长了就压上去
 	var title_w: float = CWStyle.FONT.get_string_size(CWChatBox.TITLE,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
-	check(CWChatBox.TITLE.contains("Tab") and CWChatBox.TITLE.contains("Enter"),
-		"标题栏把 Enter 和 Tab 都标出来了")
+	check(CWChatBox.TITLE.contains("Tab") and CWChatBox.TITLE.contains("Esc"),
+		"标题栏把 Esc 和 Tab 都标出来了")
 	check(CWChatBox.PAD + title_w < CWChatBox.RECT.size.x - 76.0,
 		"标题那行（到 x %d）压不到「全体 / 己方」（x %d）"
 		% [int(CWChatBox.PAD + title_w), int(CWChatBox.RECT.size.x - 76.0)])
@@ -17351,8 +17351,11 @@ func t_chat_box() -> void:
 	cb3._submit("  在吗  ")
 	check(got == ["在吗"] and cb3.is_open(), "有话就发（去首尾空白），框还开着")
 	cb3._submit("   ")
-	check(got.size() == 1 and not cb3.is_open(), "① 空串回车 = 收起（标题写着的「Enter 收起」终于是真的）")
-	cb3.open()
+	check(got.size() == 1 and cb3.is_open(), "空串回车什么都不做（收起是 Esc 的活，Kevin 09-17）")
+	cb3._input(press_action("ui_cancel"))
+	check(not cb3.is_open(), "① Esc 收起")
+	cb3._input(enter)
+	check(cb3.is_open(), "关着时回车唤出")
 	var outside := InputEventMouseButton.new()
 	outside.button_index = MOUSE_BUTTON_LEFT
 	outside.pressed = true
@@ -17366,7 +17369,7 @@ func t_chat_box() -> void:
 	cb3._unhandled_input(right)
 	check(cb3.is_open(), "右键不算")
 	## ③ 「玩家正在打字」的闸：判**焦点**，不判框开没开
-	check(cb3._input.has_focus() and CWChatBox.typing(root.get_viewport()),
+	check(cb3._line.has_focus() and CWChatBox.typing(root.get_viewport()),
 		"框开着 = 焦点在输入框上 = 正在打字")
 	var lp3 := CWLogPanel.new()
 	root.add_child(lp3)
@@ -17399,7 +17402,46 @@ func t_chat_box() -> void:
 	bar3._unhandled_key_input(one)
 	mp3._unhandled_key_input(press_action("ui_accept"))
 	check(lp3.visible and chosen3 == [0] and ended3[0] == 1, "没在打字时 L / 数字 / 空格照常")
-	for n3 in [cb3, lp3, bar3, mp3]:
+
+	## ---- 2026-09-17：输入行的位置与样式（Kevin 截图：输入框压在面板底边上）----
+	check(cb3._line.size.y <= CWChatBox.INPUT_H + 0.5
+		and cb3._line.position.y + cb3._line.size.y <= CWChatBox.RECT.size.y - CWChatBox.PAD + 0.5,
+		"输入行 %d 高、底边 %d ≤ 面板内缘 %d（默认主题会把它撑到 31 并压上底边）"
+		% [int(cb3._line.size.y), int(cb3._line.position.y + cb3._line.size.y),
+			int(CWChatBox.RECT.size.y - CWChatBox.PAD)])
+	check(cb3._line.size.y >= CWChatBox.INPUT_H - 0.5 and cb3._line.position.x == CWChatBox.PAD
+		and CWChatBox.RECT.size.x - (cb3._line.position.x + cb3._line.size.x) == CWChatBox.PAD,
+		"输入行不比 INPUT_H 矮，左右各留 PAD")
+	var fb3 := cb3._line.get_theme_stylebox("focus") as StyleBoxFlat
+	check(fb3 != null and fb3.border_color == Color(CWStyle.LINE, 1.0),
+		"聚焦样式是仓库自己的描边框（同等待室 _edit），不是 Godot 默认那圈粗灰")
+
+	## ---- Esc 先收框、再轮到暂停菜单（Kevin 09-17 叮嘱的顺序）：走**真正的派发**，不是直接调回调 ----
+	## 暂停菜单是 `_unhandled_input`（树逆序，排在 CWMatch 前头）；框的键盘在 `_input`，在一切 unhandled 之前
+	var pm3 := CWPauseMenu.new()
+	root.add_child(pm3)
+	pm3.active = true
+	cb3.open()
+	var esc3 := InputEventKey.new()
+	esc3.keycode = KEY_ESCAPE
+	esc3.pressed = true
+	root.get_viewport().push_input(esc3)
+	check(not cb3.is_open() and not pm3.visible, "框开着按 Esc：框收了、暂停菜单没弹")
+	var ended3b: int = ended3[0]
+	root.get_viewport().push_input(enter)
+	check(cb3.is_open() and ended3[0] == ended3b,
+		"框关着按回车：框开了、右栏「结束回合」没被这一下触发（ui_accept 也绑着回车）")
+	root.get_viewport().push_input(esc3)
+	check(not cb3.is_open(), "再按 Esc 收起")
+	root.get_viewport().push_input(esc3)
+	check(pm3.visible, "框关着时 Esc 才归暂停菜单")
+	pm3.close()
+	if pm3.is_inside_tree():
+		pm3.get_tree().paused = false
+	cb3.active = false
+	root.get_viewport().push_input(enter)
+	check(not cb3.is_open(), "对局结束（active 关掉）后回车不再唤出：结算屏上回车归它自己的按钮")
+	for n3 in [cb3, lp3, bar3, mp3, pm3]:
 		root.remove_child(n3)
 		n3.free()
 
@@ -18254,6 +18296,15 @@ func t_online_panel() -> void:
 	if CWMatch.CHAT_ON:
 		check(p._chat_scope != null and p._chat_rows.size() == CWOnlinePanel.CHAT_ROWS,
 			"聊天开着：等待室那块聊天板照常建")
+		## Tab 换频道（Kevin 2026-09-17：等待室也要）—— 截在输入框自己那一层，同对局里 09-10 的理由
+		var tab_w := InputEventKey.new()
+		tab_w.keycode = KEY_TAB
+		tab_w.pressed = true
+		p._chat_input.gui_input.emit(tab_w)
+		check(p._chat_team and p._chat_scope.text == "己方", "等待室：输入框里按 Tab 换到己方")
+		p._chat_input.gui_input.emit(tab_w)
+		check(not p._chat_team and p._chat_scope.text == "全体", "等待室：再按一下换回全体")
+		check(p._chat_head.text.contains("Tab"), "等待室聊天的标题把 Tab 标出来了")
 	else:
 		check(p._chat_scope == null and p._chat_rows.is_empty() and p._chat_input == null,
 			"聊天下架：等待室那块整个不建（板、行、输入框都没有）")

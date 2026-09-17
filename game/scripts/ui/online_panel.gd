@@ -51,6 +51,7 @@ const CHAT_Y := 214.0
 const CHAT_W := 340.0
 const CHAT_ROWS := 7
 const CHAT_ROW_H := 18.0
+const CHAT_HEAD := "聊天　Tab 换频道"   ## 标题顺带当快捷键表（同对局里那份 CWChatBox.TITLE）
 
 const SEAT_Y0 := 214.0       ## 等待室席位第一行
 const SEAT_H := 30.0
@@ -121,6 +122,7 @@ var _lobby_view_rows: Array = []
 var _chat_rows: Array[Label] = []
 var _chat_input: LineEdit
 var _chat_scope: Label
+var _chat_head: Label
 var _chat_team := false      ## 这一句发给谁：false 全体 / true 己方
 var _lobby_labels: Array[Label] = []
 var _lobby_sel := -1
@@ -891,13 +893,11 @@ func _build_chat(root: Control) -> void:
 	plate.size = Vector2(CHAT_W + 32, CHAT_ROWS * CHAT_ROW_H + 40 + 46)
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(plate)
-	var head := CWStyle.label("聊天", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	head.position = Vector2(CHAT_X, CHAT_Y - 18)
-	root.add_child(head)
-	## 发给谁：点一下换。同对局里那套 —— 用颜色说话，不写「[全体]」前缀
-	_chat_scope = _clicky(root, "", Vector2(CHAT_X + CHAT_W - 60, CHAT_Y - 18), func() -> void:
-		_chat_team = not _chat_team
-		_repaint_chat(), CWStyle.SIZE_LABEL)
+	_chat_head = CWStyle.label(CHAT_HEAD, CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	_chat_head.position = Vector2(CHAT_X, CHAT_Y - 18)
+	root.add_child(_chat_head)
+	## 发给谁：点一下换，或者按 Tab（Kevin 2026-09-17：等待室也要）。同对局里那套 —— 用颜色说话，不写「[全体]」前缀
+	_chat_scope = _clicky(root, "", Vector2(CHAT_X + CHAT_W - 60, CHAT_Y - 18), _toggle_chat_scope, CWStyle.SIZE_LABEL)
 	for i in CHAT_ROWS:
 		var l := CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
 		l.position = Vector2(CHAT_X, CHAT_Y + i * CHAT_ROW_H)
@@ -912,6 +912,18 @@ func _build_chat(root: Control) -> void:
 		if client != null:
 			client.say(t, _chat_team)
 		_chat_input.text = "")
+	## Tab **必须在输入框自己这一层截**：焦点导航（`ui_focus_next`）就绑在 Tab 上、排在 `_unhandled_input` 前面，
+	## 不 accept 的话这一下被拿去切焦点，输入框还丢焦点（对局里那份 09-10 踩过）
+	_chat_input.gui_input.connect(func(e: InputEvent) -> void:
+		if CWChatBox.is_tab(e):
+			_chat_input.accept_event()
+			_toggle_chat_scope())
+
+
+## 全体 ⇄ 己方。标签点一下、按 Tab，两条路同一个出口
+func _toggle_chat_scope() -> void:
+	_chat_team = not _chat_team
+	_repaint_chat()
 
 
 ## 把客户端收到的聊天铺到板上。**每次收到就重铺**，不做增量 ——

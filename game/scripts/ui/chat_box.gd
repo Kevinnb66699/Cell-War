@@ -32,6 +32,7 @@ class_name CWChatBox
 extends Control
 
 signal said(text: String, team: bool)
+signal opened                            ## 刚展开（对局那边据此收掉同一块地上的日志面板）
 
 ## 和对局日志共用同一块地（见文件头）。改这儿要连着改 CWLogPanel.RECT
 const RECT := Rect2(16, 16, 340, 460)
@@ -39,17 +40,21 @@ const ROW_H := 18.0
 const MAX_ROWS := 20                     ## 框里最多显示几条（460 高装得下）
 const PAD := 10.0
 ## 标题栏左边那行。右边贴着「全体 / 己方」那块（x = 宽 − 76），别把它写长到压上去
-const TITLE := "聊天　Enter 收起　Tab 换频道"
+const TITLE := "聊天　Esc 收起　Tab 换频道"
+## 输入行高：10px 点阵字的行框 14（ascent 11 / descent 3）+ 上下内边距 2×2，留 4 px 余量
+const INPUT_H := 22.0
 
 var _lines: Array = []                   ## 收到的消息，新的在后
 var _open := false
+## 回车唤出只在对局进行中接（结算屏上回车归它自己的按钮、本地局没人可聊）；开着时的 Esc / Tab 不受它管
+var active := true
 var _unread := 0
 var _team := false                       ## 这一句发给谁：false 全体 / true 己方
 var _panel: Panel
 var _bar: Panel
 var _rows: Array[Label] = []
 var _scope: Label
-var _input: LineEdit
+var _line: LineEdit
 
 
 func _ready() -> void:
@@ -71,15 +76,16 @@ func open() -> void:
 	_unread = 0
 	move_to_front()      ## 展开即置顶，同 CWLogPanel.toggle 的理由
 	_panel.visible = true
-	_input.text = ""
-	_input.grab_focus()
+	_line.text = ""
+	_line.grab_focus()
 	_repaint()
+	opened.emit()
 
 
 func close() -> void:
 	_open = false
 	_panel.visible = false
-	_input.release_focus()
+	_line.release_focus()
 	_repaint()
 
 
@@ -97,6 +103,13 @@ func push(line: Dictionary) -> void:
 	_repaint()
 
 
+## 换了连接就从头来：新 client 的 chat_log 是空的，旧游标会让新消息永远搬不进来（CWMatch.start_online 调）
+func clear() -> void:
+	_lines.clear()
+	_unread = 0
+	_repaint()
+
+
 ## 最近几条（迷你条那边拿去显示）
 func tail(n: int) -> Array:
 	return _lines.slice(maxi(_lines.size() - n, 0))
@@ -106,7 +119,7 @@ func unread() -> int:
 	return _unread
 
 
-## 对局那边把按键转进来（Enter 唤出 / Esc 收起）。返回是否吃掉了这一下。
+## 键盘全在下面 `_input` 一处（Enter 唤出 / Esc 收起 / Tab 换频道）。
 ##
 ## **只认真正的回车键，不能用 `ui_accept`** —— Godot 里那个动作同时绑着回车**和空格**，
 ## 而空格是「结束回合」的快捷键（设计稿标的）。用 ui_accept 的话，
@@ -131,19 +144,27 @@ func toggle_scope() -> void:
 	_repaint()
 
 
-func handle_key(event: InputEvent) -> bool:
-	if is_enter(event) and not _open:
-		open()
-		return true
-	if _open and event.is_action_pressed("ui_cancel"):
+## 键盘：**Enter 唤出、Esc 收起、Tab 换频道**（收起原是回车，Kevin 2026-09-17 改成 Esc）。
+##
+## 走 `_input` 而不是 `_unhandled_input`，是为了**先于暂停菜单判定**（Kevin 特意叮嘱的顺序）：
+## Godot 派发 `_unhandled_input` 按场景树**逆序**，暂停菜单是 Match.tscn 里 UI 下的节点、排在 CWMatch 前头，
+## 它收到 Esc 就 toggle 并标记已处理，框根本轮不到。回车同理：`ui_accept` 绑着回车，
+## 右栏「结束回合」的 `_unhandled_key_input` 会先把它吃掉。`_input` 在 GUI 与所有 unhandled 之前，谁也抢不走；
+## 暂停菜单开着时整棵树是暂停的，这里不会被调到，Esc 照常归菜单。
+## 只在三种情形出手：关着时的回车、开着时的 Esc 与 Tab；输入框里的回车（发送）照旧归它自己。
+## Tab 截在这一层还省掉了输入框上那一道 accept：焦点导航（`ui_focus_next`）也排在 `_input` 后面。
+func _input(event: InputEvent) -> void:
+	if not _open:
+		if active and is_enter(event):
+			get_viewport().set_input_as_handled()
+			open()
+		return
+	if event.is_action_pressed("ui_cancel"):
+		get_viewport().set_input_as_handled()
 		close()
-		return true
-	## 兜底：框开着但焦点不在输入框上（点了别处）时，Tab 走的是这一条。
-	## 正常情况焦点在输入框上，那一下在 `_input` 自己那层就截住了（见 _build）
-	if _open and is_tab(event):
+	elif is_tab(event):
+		get_viewport().set_input_as_handled()
 		toggle_scope()
-		return true
-	return false
 
 
 ## 点框外空白处收起（Kevin 2026-09-10 报的第二条；`CWLogPanel` 早就是这么做的）。
@@ -214,32 +235,34 @@ func _build() -> void:
 		_panel.add_child(l)
 		_rows.append(l)
 
-	_input = LineEdit.new()
-	_input.position = Vector2(PAD, RECT.size.y - 30)
-	_input.size = Vector2(RECT.size.x - PAD * 2, 22)
-	_input.max_length = CWNet.CHAT_MAX
-	_input.placeholder_text = "说点什么…"
-	_input.add_theme_font_override("font", CWStyle.FONT)
-	_input.add_theme_font_size_override("font_size", CWStyle.SIZE_LABEL)
-	_input.text_submitted.connect(_submit)
-	## Tab **必须在输入框自己这一层截**：框开着时焦点就在它上面，
-	## 而 Godot 的焦点导航（`ui_focus_next`）排在 `_unhandled_input` 前面 ——
-	## 不 accept 的话这一下会被拿去切焦点，`handle_key` 那条根本轮不到，
-	## 而且输入框还会丢焦点（下一个字就打不进去了）
-	_input.gui_input.connect(func(e: InputEvent) -> void:
-		if is_tab(e):
-			_input.accept_event()
-			toggle_scope())
-	_panel.add_child(_input)
+	## 输入行贴着面板底边留 PAD。原来写的 y = 460−30、高 22 又没配样式：Godot 默认主题把 LineEdit
+	## 撑到 31 高、外加一圈粗灰的圆角聚焦描边，整条压在面板底边上（Kevin 2026-09-17 截图报的「位置有问题」）。
+	## 样式同等待室那份（CWOnlinePanel._edit）：仓库自己的 2px 描边框，内边距定死，最小高度算得出来
+	_line = LineEdit.new()
+	_line.max_length = CWNet.CHAT_MAX
+	_line.placeholder_text = "说点什么…"
+	_line.context_menu_enabled = false
+	_line.add_theme_font_override("font", CWStyle.FONT)
+	_line.add_theme_font_size_override("font_size", CWStyle.SIZE_LABEL)
+	_line.add_theme_color_override("font_color", CWStyle.TEXT_HI)
+	_line.add_theme_color_override("font_placeholder_color", CWStyle.TEXT_OFF)
+	_line.add_theme_color_override("caret_color", CWStyle.IMMUNE)
+	## 内边距随字号折半（等待室 20px 字配 8，这里 10px 字配 6），样式族同 CWOnlinePanel._edit
+	_line.add_theme_stylebox_override("normal", CWStyle.box(0.45, CWStyle.BTN_BG, 2, 6))
+	_line.add_theme_stylebox_override("focus", CWStyle.box(1.0, CWStyle.BTN_BG, 2, 6))
+	_line.text_submitted.connect(_submit)
+	_panel.add_child(_line)
+	## 尺寸要在**进树之后**定。探针实测（2026-09-17）：override 排在 size 前面也不够 —— 主题缓存要到进树那一刻才刷新，
+	## 进树前 set_size 一律被默认主题的最小高度 31 撑住，之后换了样式也不会缩回去（Control 的 size 只会被最小尺寸顶大）
+	_line.position = Vector2(PAD, RECT.size.y - PAD - INPUT_H)
+	_line.size = Vector2(RECT.size.x - PAD * 2, INPUT_H)
 
-## 回车：有话就发，**空串 = 收起**（标题栏写着的「Enter 收起」就是这一下）。
-## 2026-09-16 之前空串是「什么都不做」—— 于是从迷你条点开之后关不掉：展开的框正好盖住
-## 迷你条自己那个「聊天」页，回车又被输入框吃掉了（Kevin 2026-09-10 实战报的第一条）
+## 回车：有话就发，空串什么都不做 —— 收起是 Esc 的活（Kevin 2026-09-17）。
+## 09-16 曾让空串回车收起，治的是「从迷你条点开之后关不掉」；改成 Esc 之后那条靠 `_input` 里的 Esc 与点框外收起
 func _submit(text: String) -> void:
 	var msg := text.strip_edges()
-	_input.text = ""
+	_line.text = ""
 	if msg.is_empty():
-		close()
 		return
 	said.emit(msg, _team)
 
