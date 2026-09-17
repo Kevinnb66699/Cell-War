@@ -126,6 +126,16 @@ public sealed class TurnState
     /// </summary>
     public int CancerReviveFrom { get; init; }
 
+    /// <summary>
+    /// 【代谢耦联】结算到一半：打出这张卡的细胞、选定的队友、以及方向选定之后的付方（null = 还在问方向）。
+    /// GD 里是 `_couple` 内的两次 await；C# 分两个决策点，两问都可「取消」。
+    /// </summary>
+    public EntityId? PendingCoupleCell { get; init; }
+
+    public EntityId? PendingCoupleAlly { get; init; }
+
+    public EntityId? PendingCouplePayer { get; init; }
+
     public TurnState Clone() => new()
     {
         WorldRound = WorldRound,
@@ -154,7 +164,10 @@ public sealed class TurnState
         CardResolveDepth = CardResolveDepth,
         PendingCard = PendingCard,
         PendingCardCell = PendingCardCell,
-        CancerReviveFrom = CancerReviveFrom
+        CancerReviveFrom = CancerReviveFrom,
+        PendingCoupleCell = PendingCoupleCell,
+        PendingCoupleAlly = PendingCoupleAlly,
+        PendingCouplePayer = PendingCouplePayer
     };
 }
 

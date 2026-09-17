@@ -166,7 +166,7 @@ public static class L1View
                 null, null, null, 0, 0, -1, I(g, "effector_round"),
                 S(g, "chemo_at"), I(g, "chemo_left"), S(g, "chemo_at") == "" ? 0 : I(g, "chemo_by"), null,
                 I(g, "track_cid") is var tc && tc >= 0 ? tc : null, S(g, "track_at"), I(g, "track_left"),
-                null, null, 0, 0, "", null, 0)
+                null, null, 0, 0, "", null, 0, null, null, null)
             { Players = players },
             Events = events,
             Tune = v.GetProperty("tune").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetInt32()),

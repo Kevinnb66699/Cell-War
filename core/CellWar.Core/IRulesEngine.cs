@@ -194,6 +194,24 @@ public sealed record StopChemotaxisDecision(int PlayerSeat, EntityId CellId) : I
     public string DecisionType => "StopChemotaxis";
 }
 
+/// <summary>【代谢耦联】第一问：转移方向 —— 谁付（Payer）给谁（Getter）。GD data `{from, to_cid}`。</summary>
+public sealed record CoupleDirectionDecision(int PlayerSeat, EntityId CellId, EntityId Payer, EntityId Getter) : IDecision
+{
+    public string DecisionType => "CoupleDirection";
+}
+
+/// <summary>【代谢耦联】第二问：档位 —— 转出 Pay、接收方得 Get（十分能量）。GD data `{pay, get}`。</summary>
+public sealed record CoupleTierDecision(int PlayerSeat, EntityId CellId, int Pay, int Get) : IDecision
+{
+    public string DecisionType => "CoupleTier";
+}
+
+/// <summary>【代谢耦联】两问里的「取消」（Kevin 2026-09-16）：无效果、**卡不弃置**。GD data `{stop: true}`，下标 0。</summary>
+public sealed record CancelCoupleDecision(int PlayerSeat, EntityId CellId) : IDecision
+{
+    public string DecisionType => "CancelCouple";
+}
+
 /// <summary>
 /// 【基因组不稳定】：从本次突变的两次判定中选择一个结果结算。
 /// </summary>

@@ -267,19 +267,16 @@ internal static class CardRules
                 s = Teleport(s, cell.Id, dest);
             return s;
         },
+        // 【代谢耦联】（Kevin 2026-09-16 拍板跟 GD 的形状 + 一个「取消」）：打出时已选队友（TargetCell），
+        // 随后两问 —— 方向（送给 / 索取，各自只在那一侧付得起最低档时才出现）、档位（1.0→1.2 / 1.5→2.0 / 2.0→2.5）——
+        // 走挂起态；两问的下标 0 都是「取消」：无效果、**卡不弃置**。双方都付不出最低一档 = 落空（卡照常弃置）。
+        // 此前 C# 是按肿瘤分期定档、只能自己付、还把付款截到手头能量 —— 三处都不是 GD 的规则。
+        // GD 的两侧数额还过【信号放大】（`_amp`）；C# 没有那张卡，这里不放大。
         ["代谢耦联"] = (s, cell, rng, target, targetCell) =>
         {
-            if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.OwnerSeat != cell.OwnerSeat
-                && t.Faction == cell.Faction)
-            {
-                var phase = CancerPhase(s.Turn.WorldRound);
-                var send = new[] { 10, 15, 20 }[phase];
-                var receive = new[] { 12, 20, 25 }[phase];
-                send = Math.Min(send, s.Cells[cell.Id].Energy);
-                s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy - send));
-                s = s.UpdateCell(tid, s.Cells[tid].WithEnergy(s.Cells[tid].Energy + receive));
-            }
-            return s;
+            if (targetCell is not { } ally || !CoupleAllies(s, cell).Contains(ally)) return s;
+            if (CoupleDirections(s, cell.Id, ally).Count == 0) return s;   // 落空
+            return s.WithTurn(s.Turn.WithPendingCouple(cell.Id, ally, null));
         },
         ["基质重塑"] = (s, cell, rng, target, targetCell) =>
         {
@@ -575,6 +572,9 @@ internal static class CardRules
         // 不在这里校验，`Available` 之外的调用方（AI / 对拍）就能递进来一个非法落点
         if (d.Card == "炎症性趋化" && (d.Target is not { } first || !CellRules.ChemotaxisSteps(s, cell).Contains(first)))
             return new(false, "【炎症性趋化】必须指定一个合法的第一步");
+        // 【代谢耦联】：打出时就选定队友（GD 一个队友一条选项），随后的方向 / 档位走挂起态
+        if (d.Card == "代谢耦联" && (d.TargetCell is not { } ally || !CoupleAllies(s, cell).Contains(ally)))
+            return new(false, "【代谢耦联】必须指定一个付得起的队友");
         return new(true);
     }
 
@@ -612,7 +612,7 @@ internal static class CardRules
         // 即时卡**结算完**才离手、才走细胞因子链（GD `_resolve_played` 的尾巴，cw_card_fx.gd:399-402）。
         // 【炎症性趋化】的结算跨两个挂起决策点：挂起还在就先不收尾，等 DecisionRouter 在挂起被摘掉那一刻补上 ——
         // 不然第 2/3 步那两问上两边手牌差一张，手牌到上限时还少一个强制弃置决策点（L1 对拍会在那儿分叉）。
-        if (s.Turn.PendingChemotaxisCell == cell.Id)
+        if (s.Turn.PendingChemotaxisCell == cell.Id || s.Turn.PendingCoupleCell == cell.Id)
             return new(s.WithTurn(s.Turn.WithPendingCard(d.Card, cell.Id)), Array.Empty<IGameEvent>(), true);
         return new(FinishInstant(s, cell.Id, d.Card), Array.Empty<IGameEvent>(), true);
     }
@@ -639,6 +639,37 @@ internal static class CardRules
             s = s.WithTurn(s.Turn.WithCytokineNetwork(-1));
         }
         return s;
+    }
+
+    /// <summary>【代谢耦联】payer 付得起哪几档（GD `_couple_tiers`）：转 1.0/1.5/2.0，接收方得 1.2/2.0/2.5；付完要留正能量。</summary>
+    internal static IReadOnlyList<(int Pay, int Get)> CoupleTiers(WorldState s, EntityId payer)
+    {
+        var energy = s.Cells[payer].Energy;
+        return new[] { (Pay: 10, Get: 12), (Pay: 15, Get: 20), (Pay: 20, Get: 25) }.Where(t => energy > t.Pay).ToList();
+    }
+
+    /// <summary>能选的队友：同阵营、别的席位、活着，且**至少一侧**付得起最低一档（GD `hand_options` 那条）。</summary>
+    internal static IReadOnlyList<EntityId> CoupleAllies(WorldState s, Cell cell)
+        => Cells(s).Where(t => t.IsAlive && t.Faction == cell.Faction && t.OwnerSeat != cell.OwnerSeat
+                && (CoupleTiers(s, cell.Id).Count > 0 || CoupleTiers(s, t.Id).Count > 0))
+            .OrderBy(t => t.Id.Value).Select(t => t.Id).ToList();
+
+    /// <summary>方向：送给（自己付）/ 索取（队友付），各自只在那一侧付得起时才出现（GD `_couple` 的 dirs）。</summary>
+    internal static IReadOnlyList<(EntityId Payer, EntityId Getter)> CoupleDirections(WorldState s, EntityId cell, EntityId ally)
+    {
+        var dirs = new List<(EntityId Payer, EntityId Getter)>();
+        if (CoupleTiers(s, cell).Count > 0) dirs.Add((cell, ally));
+        if (CoupleTiers(s, ally).Count > 0) dirs.Add((ally, cell));
+        return dirs;
+    }
+
+    /// <summary>档位选定：payer 付、getter 得，挂起摘掉（这张卡的收尾由 Execute 出口补）。付不出 = 落空。</summary>
+    public static WorldState CoupleTransfer(WorldState s, EntityId payer, EntityId getter, int pay, int get)
+    {
+        s = s.WithTurn(s.Turn.WithPendingCouple(null, null, null));
+        if (!Settlement.CanPay(s.Cells[payer].Energy, pay)) return s;
+        s = s.UpdateCell(payer, s.Cells[payer].WithEnergy(s.Cells[payer].Energy - pay));
+        return s.UpdateCell(getter, s.Cells[getter].WithEnergy(s.Cells[getter].Energy + get));
     }
 
     /// <summary>【癌症转移】的合法落点：两环内、盘上、**没有细胞占着**的任意格（不挑地形）。</summary>

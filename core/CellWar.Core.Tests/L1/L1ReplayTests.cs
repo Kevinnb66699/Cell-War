@@ -17,7 +17,7 @@ namespace CellWar.Core.Tests.L1;
 public class L1ReplayTests
 {
     /// <summary>水位线：分叉之前至少一致这么多步。往上拧，别往下放。</summary>
-    public const int Ratchet = 28;   // 2026-09-16：抽卡顺序对齐后到 28；第 29 步分叉在【代谢耦联】的形状（见开发日志 / 对拍规格 KNOWN_GAP）
+    public const int Ratchet = 32;   // 2026-09-16：【代谢耦联】跟上 GD 后到 32；第 33 步分叉在「需要选格的卡逐格摊开」（【基质硬化】），见对拍规格 KNOWN_GAP
 
     [Fact]
     public void 按GD轨迹重放_分叉之前的步数不低于水位线()

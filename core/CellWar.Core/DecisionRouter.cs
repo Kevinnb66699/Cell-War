@@ -42,6 +42,21 @@ internal static class DecisionRouter
                 ? new(true)
                 : new(false, "等待【炎症性趋化】选择下一步");
         }
+        // 【代谢耦联】的两次追问（方向 → 档位）：只接主人；两问都能「取消」
+        if (state.Turn.PendingCoupleCell is { } coupleCell && state.Turn.PendingCoupleAlly is { } coupleAlly)
+        {
+            if (decision.PlayerSeat != state.Cells[coupleCell].OwnerSeat) return new(false, "等待【代谢耦联】的选择");
+            if (decision is CancelCoupleDecision cancel && cancel.CellId == coupleCell) return new(true);
+            if (state.Turn.PendingCouplePayer is { } payer)
+                return decision is CoupleTierDecision tier && tier.CellId == coupleCell
+                        && CardRules.CoupleTiers(state, payer).Contains((tier.Pay, tier.Get))
+                    ? new(true)
+                    : new(false, "等待【代谢耦联】选择档位");
+            return decision is CoupleDirectionDecision dir && dir.CellId == coupleCell
+                    && CardRules.CoupleDirections(state, coupleCell, coupleAlly).Contains((dir.Payer, dir.Getter))
+                ? new(true)
+                : new(false, "等待【代谢耦联】选择转移方向");
+        }
         if (decision is PlaceDecision placement) return PlacementRules.ValidatePlacement(state, placement);
         if (decision is ReviveDecision or SkipReviveDecision)
             return new(PhaseRules.GetRevivalOptions(state).Contains(decision), "Invalid revival option.");
@@ -71,7 +86,8 @@ internal static class DecisionRouter
         var s = result.NewState.Turn.PendingChemotaxisCell is null ? result.NewState : CellRules.NormalizeChemotaxis(result.NewState);
         // 中途的挂起摘干净的这一刻 = 那张卡「结算完」：GD 是整段 await 回来才离手、才走细胞因子链。
         // 卡是哪张由 PendingCard 记着（打出时挂上），不用猜；打出当步就结束的（没有下一步 / 走死）同样走到这里。
-        if (s.Turn.PendingCard is { } card && s.Turn.PendingCardCell is { } owner && s.Turn.PendingChemotaxisCell is null)
+        if (s.Turn.PendingCard is { } card && s.Turn.PendingCardCell is { } owner
+                && s.Turn.PendingChemotaxisCell is null && s.Turn.PendingCoupleCell is null)
             s = CardRules.FinishInstant(s, owner, card);
         return result with { NewState = s };
     }
@@ -90,6 +106,17 @@ internal static class DecisionRouter
         if (decision is ChemotaxisStepDecision step) return CellRules.ChemotaxisMove(state, step.CellId, step.Target, rng);
         if (decision is StopChemotaxisDecision)
             return new(state.WithTurn(state.Turn.WithPendingChemotaxis(null, 0)), Array.Empty<IGameEvent>(), true);
+        if (decision is CoupleDirectionDecision dir)
+            return new(state.WithTurn(state.Turn.WithPendingCouple(dir.CellId, state.Turn.PendingCoupleAlly, dir.Payer)), Array.Empty<IGameEvent>(), true);
+        if (decision is CoupleTierDecision tier)
+        {
+            var payer = state.Turn.PendingCouplePayer!.Value;
+            var getter = payer == tier.CellId ? state.Turn.PendingCoupleAlly!.Value : tier.CellId;
+            return new(CardRules.CoupleTransfer(state, payer, getter, tier.Pay, tier.Get), Array.Empty<IGameEvent>(), true);
+        }
+        if (decision is CancelCoupleDecision)
+            // 取消：无效果、卡不弃置 —— 连 PendingCard 一起摘，Execute 出口就不会给这张卡收尾
+            return new(state.WithTurn(state.Turn.WithPendingCouple(null, null, null).WithPendingCard(null, null)), Array.Empty<IGameEvent>(), true);
         if (decision is DrawDecision draw) return CardRules.Draw(state, draw, rng);
         if (decision is MutateDecision mutate) return CardRules.Mutate(state, mutate, rng);
         if (decision is PlayCardDecision play) return CardRules.PlayCard(state, play, rng);
@@ -144,6 +171,16 @@ internal static class DecisionRouter
             steps.AddRange(CellRules.ChemotaxisSteps(s, walker).Select(t => (IDecision)new ChemotaxisStepDecision(seat, chemotaxisCell, t)));
             return steps;
         }
+        if (s.Turn.PendingCoupleCell is { } coupleCell && s.Turn.PendingCoupleAlly is { } coupleAlly)
+        {
+            if (s.Cells[coupleCell].OwnerSeat != seat) return Array.Empty<IDecision>();
+            var opts = new List<IDecision> { new CancelCoupleDecision(seat, coupleCell) };   // GD 下标 0：「取消」
+            if (s.Turn.PendingCouplePayer is { } payer)
+                opts.AddRange(CardRules.CoupleTiers(s, payer).Select(t => (IDecision)new CoupleTierDecision(seat, coupleCell, t.Pay, t.Get)));
+            else
+                opts.AddRange(CardRules.CoupleDirections(s, coupleCell, coupleAlly).Select(d => (IDecision)new CoupleDirectionDecision(seat, coupleCell, d.Payer, d.Getter)));
+            return opts;
+        }
         if (s.Turn.Phase != Phase.PlayerAction || seat != s.Turn.ActivePlayerSeat || !PhaseRules.AliveSeat(s, seat)) return Array.Empty<IDecision>();
         var result = new List<IDecision> { new PassDecision(seat), new EndTurnDecision(seat) };
         foreach (var c in Cells(s).Where(c => c.OwnerSeat == seat && c.IsAlive))
@@ -190,6 +227,16 @@ internal static class DecisionRouter
                     {
                         var walk = new PlayCardDecision(seat, c.Id, card, first);
                         if (Validate(s, walk).IsValid) result.Add(walk);
+                    }
+                    continue;
+                }
+                // 【代谢耦联】：一个队友一条选项（GD cw_card_fx.gd:170-176）；一侧都付不起最低档的队友不出现
+                if (card == "代谢耦联")
+                {
+                    foreach (var ally in CardRules.CoupleAllies(s, c))
+                    {
+                        var couple = new PlayCardDecision(seat, c.Id, card, null, ally);
+                        if (Validate(s, couple).IsValid) result.Add(couple);
                     }
                     continue;
                 }

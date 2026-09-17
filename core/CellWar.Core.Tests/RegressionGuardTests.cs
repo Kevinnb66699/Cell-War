@@ -289,6 +289,8 @@ public class RegressionGuardTests
         AssertOnlyChangesAmong(full, "WithPendingCard", PendingCardFields, t => t.WithPendingCard("缺氧适应", new EntityId(9)));
         AssertOnlyChangesAmong(full, "WithPendingCard(null)", PendingCardFields, t => t.WithPendingCard(null, null));
         AssertOnlyChanges(full, "WithCancerReviveFrom", nameof(TurnState.CancerReviveFrom), t => t.WithCancerReviveFrom(3));
+        AssertOnlyChangesAmong(full, "WithPendingCouple", CoupleFields, t => t.WithPendingCouple(new EntityId(7), new EntityId(8), new EntityId(7)));
+        AssertOnlyChangesAmong(full, "WithPendingCouple(null)", CoupleFields, t => t.WithPendingCouple(null, null, null));
     }
 
     [Fact]
@@ -340,6 +342,12 @@ public class RegressionGuardTests
     private static readonly string[] ChemoFields =
     [
         nameof(TurnState.ChemoAt), nameof(TurnState.ChemoRounds), nameof(TurnState.ChemoOwner),
+    ];
+
+    /// <summary>【代谢耦联】的挂起态：打牌的细胞、队友、付方，三个字段一起改。</summary>
+    private static readonly string[] CoupleFields =
+    [
+        nameof(TurnState.PendingCoupleCell), nameof(TurnState.PendingCoupleAlly), nameof(TurnState.PendingCouplePayer),
     ];
 
     /// <summary>结算到一半的那张卡：卡名 + 主人，两个字段一起改。</summary>
@@ -1435,6 +1443,9 @@ public class RegressionGuardTests
         PendingCard = "炎症性趋化",
         PendingCardCell = new EntityId(6),
         CancerReviveFrom = 2,
+        PendingCoupleCell = new EntityId(6),
+        PendingCoupleAlly = new EntityId(7),
+        PendingCouplePayer = new EntityId(6),
     };
 
     /// <summary>同上：每个字段都非默认。</summary>

@@ -77,7 +77,7 @@ public static class SemanticKey
         DifferentiateDecision df => Key("action", ("act", "differentiate"), ("type", ((int)df.Type).ToString())),
 
         // 卡牌的细胞目标在 GD 里是 `cid`（`cw_card_fx.gd:150` 起）；`to_cid` 只属于
-        // 【代谢耦联】的「转出/转入」二问，C# 没有那一问，别顺手挪用。
+        // 【代谢耦联】的「转出/转入」那一问（见下面 CoupleDirectionDecision），别顺手挪用。
         PlayCardDecision pc => Key("action", ("act", "play"), ("card", pc.Card),
             ("to", Pos(pc.Target)), ("cid", Seat(pc.TargetCell))),
 
@@ -99,6 +99,11 @@ public static class SemanticKey
         // 第 1 步不在这里 —— 它是 `k=action|act=play|card=炎症性趋化|to=…`。
         ChemotaxisStepDecision cx => Tagged("free_move", "炎症性趋化", ("to", Pos(cx.Target))),
         StopChemotaxisDecision => Tagged("free_move", "炎症性趋化", ("stop", "1")),
+
+        // 【代谢耦联】的两次追问（GD kind pick / tag 代谢耦联）：方向 {from, to_cid}、档位 {pay, get}、取消 {stop}
+        CoupleDirectionDecision cd => Tagged("pick", "代谢耦联", ("from", Seat(cd.Payer)), ("to_cid", Seat(cd.Getter))),
+        CoupleTierDecision ct => Tagged("pick", "代谢耦联", ("pay", ct.Pay.ToString()), ("get", ct.Get.ToString())),
+        CancelCoupleDecision => Tagged("pick", "代谢耦联", ("stop", "1")),
 
         TypeSkillDecision ts => TypeSkill(s, ts),
 
