@@ -209,6 +209,7 @@ public static class L1View
         ["cancer_move_cancerous"] = (long)t.CancerMoveCancerous, ["cancer_move_healthy"] = (long)t.CancerMoveHealthy,
         ["sclc_move_healthy"] = (long)t.SclcMoveHealthy, ["pseudopod_cost"] = (long)t.PseudopodCost,
         ["mucus_move_surcharge"] = (long)t.MucusMoveSurcharge, ["metastasis_cost"] = (long)t.MetastasisCost,
+        ["attack_max_per_turn"] = (long)t.AttackMaxPerTurn,
         ["anaerobic_solid_bonus"] = (long)t.AnaerobicSolidBonus, ["anaerobic_floor"] = (long)t.AnaerobicFloor,
         ["anaerobic_cap"] = (long)t.AnaerobicCap, ["anaerobic_split"] = t.AnaerobicSplit ? 1L : 0L,
         ["newborn_protect"] = t.NewbornProtect ? 1L : 0L, ["cancer_upkeep_pct"] = (long)t.CancerUpkeepPercent,

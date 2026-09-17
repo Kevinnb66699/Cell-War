@@ -914,6 +914,7 @@ public class GdScriptParityTests
     [InlineData("PSEUDOPOD_COST")]
     [InlineData("MUCUS_MOVE_SURCHARGE")]
     [InlineData("METASTASIS_COST")]
+    [InlineData("ATTACK_MAX_PER_TURN")]
     public void 移动费用旋钮的默认值等于GDScript常量(string constant)
     {
         var tune = RuleTuning.Default;
@@ -924,6 +925,7 @@ public class GdScriptParityTests
             "SCLC_MOVE_HEALTHY" => tune.SclcMoveHealthy,
             "PSEUDOPOD_COST" => tune.PseudopodCost,
             "MUCUS_MOVE_SURCHARGE" => tune.MucusMoveSurcharge,
+            "ATTACK_MAX_PER_TURN" => tune.AttackMaxPerTurn,   // 2026-09-16 Kevin 拍板：攻击上限跟 GD 走旋钮
             _ => tune.MetastasisCost,
         };
         Assert.True(actual == GdConst(constant),

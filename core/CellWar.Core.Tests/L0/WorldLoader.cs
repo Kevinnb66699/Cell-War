@@ -184,6 +184,7 @@ public static class WorldLoader
         "pseudopod_cost" => tune with { PseudopodCost = value },
         "mucus_move_surcharge" => tune with { MucusMoveSurcharge = value },
         "metastasis_cost" => tune with { MetastasisCost = value },
+        "attack_max_per_turn" => tune with { AttackMaxPerTurn = value },
         "anaerobic_solid_bonus" => tune with { AnaerobicSolidBonus = value },
         "anaerobic_floor" => tune with { AnaerobicFloor = value },
         "anaerobic_cap" => tune with { AnaerobicCap = value },

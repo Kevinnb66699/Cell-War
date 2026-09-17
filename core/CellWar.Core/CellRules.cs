@@ -215,9 +215,8 @@ internal static class CellRules
         // 树突【I-各司其职】：不能通过【迁移】攻击癌细胞（cw_actions.gd:406-408）。
         // 少了这一行不是「多打一下」—— `QuoteMove` 对树突 + 有占位返回 null，`Move` 里 `!.Value` 当场抛。
         if (cell.Type == CellType.Dendritic) return false;
-        // 攻击次数上限（cw_actions.gd:415-418）：用完只是这一格进不去，别的迁移照常。
-        // GD 走 `tune.attack_max_per_turn`（0 = 不限），C# 今天是常量 —— 与 ValidateMove 同一份。
-        if (cell.AttacksThisTurn >= AttacksPerTurnMax) return false;
+        // 攻击次数上限（cw_actions.gd:415-418）：用完只是这一格进不去，别的迁移照常。与 ValidateMove 同一份判据。
+        if (AttackCapReached(s, cell)) return false;
         return true;
     }
 
@@ -365,8 +364,12 @@ internal static class CellRules
         return s.UpdateCell(id, c.Copy(fxRound: [.. c.FxRound, key]));
     }
 
-    /// <summary>每回合攻击次数上限。选项生成与提交复验共用同一份，写两处必然漂移。</summary>
-    internal const int AttacksPerTurnMax = 3;
+    /// <summary>
+    /// 每行动回合攻击次数是否用完。走旋钮 `AttackMaxPerTurn`（GD `tune.attack_max_per_turn`），**0 = 不限**。
+    /// 选项生成与提交复验共用同一份（GD 口径 #81），写两处必然漂移。
+    /// </summary>
+    internal static bool AttackCapReached(WorldState s, Cell cell)
+        => s.Tuning.AttackMaxPerTurn > 0 && cell.AttacksThisTurn >= s.Tuning.AttackMaxPerTurn;
 
     /// <summary>移动合法性的域内校验（不包含阶段/回合/存活等公共前提，由编排层先行检查）。</summary>
     public static ValidationResult ValidateMove(WorldState s, MoveDecision move)
@@ -378,7 +381,7 @@ internal static class CellRules
         var cost = RulePolicies.QuoteMove(s, cell, move.TargetPosition);
         if (cost == null) return new(false, "目标位置不可达或被占据");
         if (cell.Energy <= cost) return new(false, "能量不足，非自毁费用必须保留正能量");
-        if (target.OccupyingCell.HasValue && cell.AttacksThisTurn >= AttacksPerTurnMax) return new(false, "攻击次数已达上限");
+        if (target.OccupyingCell.HasValue && AttackCapReached(s, cell)) return new(false, "攻击次数已达上限");
         return new(true);
     }
 

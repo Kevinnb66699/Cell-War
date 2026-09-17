@@ -248,6 +248,29 @@ public class ChemotaxisTests
     }
 
     /// <summary>
+    /// 攻击上限走旋钮 `AttackMaxPerTurn`（GD `tune.attack_max_per_turn`，**0 = 不限**；Kevin 2026-09-16 拍板跟 GD）。
+    /// 普通迁移的 ValidateMove 与趋化的提交复验 CommitLegal 共用同一份判据，两条都验。
+    /// </summary>
+    [Fact]
+    public void 攻击上限走旋钮_零表示不限()
+    {
+        var enemy = new EntityId(2);
+        var world = Place(World(), enemy, Faction.Cancer, CellType.Melanoma, North);
+
+        var capped = world.WithTuning(world.Tuning with { AttackMaxPerTurn = 1 })
+            .UpdateCell(Walker, world.Cells[Walker].Copy(attacks: 1));
+        Assert.False(Engine.ValidateDecision(capped, new MoveDecision(0, Walker, North)).IsValid);
+        var walked = Play(capped, North);   // 候选照 GD 不过滤，提交时作废：不位移、步数照减
+        Assert.Equal(Origin, walked.Cells[Walker].Position);
+        Assert.Equal(2, walked.Turn.ChemotaxisStepsLeft);
+
+        var unlimited = world.WithTuning(world.Tuning with { AttackMaxPerTurn = 0 })
+            .UpdateCell(Walker, world.Cells[Walker].Copy(attacks: 99));
+        Assert.True(Engine.ValidateDecision(unlimited, new MoveDecision(0, Walker, North)).IsValid);
+        Assert.Equal(100, Play(unlimited, North).Cells[Walker].AttacksThisTurn);   // 第 100 次攻击照打
+    }
+
+    /// <summary>
     /// **已知取舍，钉住免得停在「不知道是取舍还是漏掉」**：卡牌效果表的签名只吐 WorldState（整张表都这样），
     /// 第 1 步的移动/攻击/净化事件到不了日志；第 2/3 步走 DecisionRouter，事件原样上浮。
     /// 要让三步一致得改效果表签名，属另一张单。

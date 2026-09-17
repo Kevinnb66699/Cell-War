@@ -46,6 +46,11 @@ public sealed record RuleTuning
     /// <summary>小细胞肺癌【转移】的费用（GD `METASTASIS_COST`）。</summary>
     public int MetastasisCost { get; init; } = 10;
 
+    // ---- 行动 ----
+
+    /// <summary>每行动回合攻击次数上限（GD `attack_max_per_turn`，默认 `CWData.ATTACK_MAX_PER_TURN` = 3）；**0 = 不限**。</summary>
+    public int AttackMaxPerTurn { get; init; } = 3;
+
     // ---- E 阶段 ----
 
     /// <summary>
