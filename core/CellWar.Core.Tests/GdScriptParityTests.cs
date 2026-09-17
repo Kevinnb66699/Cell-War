@@ -325,7 +325,7 @@ public class GdScriptParityTests
         var id = new EntityId(1);
         var before = world.Cells[id].Energy;
 
-        var after = CellRules.Damage(world, id, 30);
+        var after = CellRules.Damage(world, id, 30, LossSource.World);
         Assert.Equal(before - (30 - GdConst("EXHAUST_FIRST_CUT")), after.Cells[id].Energy);
     }
 
@@ -338,7 +338,7 @@ public class GdScriptParityTests
         var before = world.Cells[id].Energy;
         var cut = GdConst("EXHAUST_FIRST_CUT") + GdConst("EXHAUST_PRESSURE_CUT");
 
-        var after = CellRules.Damage(world, id, 30, "微环境压迫");
+        var after = CellRules.Damage(world, id, 30, LossSource.World, "微环境压迫");
         Assert.Equal(before - (30 - cut), after.Cells[id].Energy);
     }
 
@@ -352,14 +352,14 @@ public class GdScriptParityTests
         var world = PressureWorld(exhaustion: true);
         var id = new EntityId(1);
 
-        var once = CellRules.Damage(world, id, 30);
-        var twice = CellRules.Damage(once, id, 30);
+        var once = CellRules.Damage(world, id, 30, LossSource.World);
+        var twice = CellRules.Damage(once, id, 30, LossSource.World);
 
         // 第二次：首次那一句已经烧过 → 一分不减
         Assert.Equal(once.Cells[id].Energy - 30, twice.Cells[id].Energy);
 
         // 但压迫那半句照常
-        var pressured = CellRules.Damage(once, id, 30, "微环境压迫");
+        var pressured = CellRules.Damage(once, id, 30, LossSource.World, "微环境压迫");
         Assert.Equal(once.Cells[id].Energy - (30 - GdConst("EXHAUST_PRESSURE_CUT")), pressured.Cells[id].Energy);
     }
 
@@ -370,8 +370,8 @@ public class GdScriptParityTests
         var world = PressureWorld(exhaustion: true);
         var id = new EntityId(1);
 
-        var zero = CellRules.Damage(world, id, 0);
-        var after = CellRules.Damage(zero, id, 30);
+        var zero = CellRules.Damage(world, id, 0, LossSource.World);
+        var after = CellRules.Damage(zero, id, 30, LossSource.World);
         Assert.Equal(zero.Cells[id].Energy - (30 - GdConst("EXHAUST_FIRST_CUT")), after.Cells[id].Energy);
     }
 
@@ -636,7 +636,7 @@ public class GdScriptParityTests
             Turn = new TurnState { WorldRound = 1, Phase = Phase.PlayerAction, ActivePlayerSeat = 0 }
         };
 
-        var after = CellRules.Damage(world, id, 7);
+        var after = CellRules.Damage(world, id, 7, LossSource.ImmuneAttack);
         Assert.Equal(300 - 5, after.Cells[id].Energy);   // 逐条截断会扣 4
     }
 
@@ -665,10 +665,10 @@ public class GdScriptParityTests
     public void 中和抗体压住癌种被动()
     {
         var world = NeutralizeBoard();
-        var barrierOn = CellRules.Damage(world, EdgeCancer, 10);
+        var barrierOn = CellRules.Damage(world, EdgeCancer, 10, LossSource.ImmuneAttack);
         var after = new BasicRulesEngine()
             .ExecuteDecision(world, new TypeSkillDecision(0, BCell, "中和抗体"), new Xoshiro256StarStar(3)).NewState;
-        var barrierOff = CellRules.Damage(after, EdgeCancer, 10);
+        var barrierOff = CellRules.Damage(after, EdgeCancer, 10, LossSource.ImmuneAttack);
 
         var before = world.Cells[EdgeCancer].Energy;
         Assert.Equal(before - 10 * GdConst("OSTEO_BARRIER_PERCENT") / 100, barrierOn.Cells[EdgeCancer].Energy);  // ×40% → 0.4
@@ -1704,7 +1704,7 @@ public class GdScriptParityTests
         var world = TrackWorld();
         var deathAt = world.Cells[hunted].Position;
 
-        var after = CellRules.Damage(world, hunted, 9999);
+        var after = CellRules.Damage(world, hunted, 9999, LossSource.ImmuneAttack);
         Assert.False(after.Cells[hunted].IsAlive);
         Assert.Null(after.Turn.TrackCell);
         Assert.Equal(deathAt, RulePolicies.TrackAt(after));

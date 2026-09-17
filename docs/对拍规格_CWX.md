@@ -125,8 +125,9 @@ Vector2i → "q,r"；bool → 1/0
 挂起态加 `PendingWalkCard` 与【炎症性趋化】共用一套决策；小细胞【转移】只朝六个方向直线跃进 5 格（C# 曾给整个 5 环）+ `metastasis_max_per_round` 旋钮；
 S 阶段骨髓产出时站在上面的细胞要抽卡（`collect_special`，带子一发）、复活落地也走 `enter_tile`（骨髓有卡就抽）；免疫死亡记 `respawn_round`（`immune_respawn_delay` 旋钮）；
 无目标卡的「有效果才出」闸（局部吞噬 / 溶酶体强化 / 克隆增殖 / TNF-α）；【骨样硬化】已标过 / 血管不出选项。
-**还开着的**：① 减免层不分来源 —— GD `_shield_applies`：【缺氧适应】只挡癌方技能 / 压迫，【DNA损伤修复】只挡免疫方的事件 / 技能（普通攻击不挡），
-C# `Damage` 对目标身上全部 EnergyLoss 修饰一律套用且一律消耗（2p 第 52 步：【突变】的自损把【DNA损伤修复】吃掉了）。
+**同晚合上的**：① 减免层按来源认账 —— C# `Damage` 加了 `LossSource`（World / ImmuneAttack / ImmuneEffect / CancerSkill，GD 四个薄壳 `immune_hit` / `cancer_hit` 的投影），
+护盾照 GD `_shield_applies` 认来源、照 `_reduce` 逐组 ON_BENEFIT（同名合并、按打出先后、挡光即停）；【突变】第 3 点与【吞噬体成熟】的处决照 GD 不进管线（2p 第 52 步）。
+② 【根深蒂固】候选按 GD DIRS 序（2p 第 85 步）。至此三条夹具整条一致：4p 200 / 2p 173（终局）/ 6p 200。
 （6p 第 187 步那 0.1 已合上：有氧收入的顺序 —— GD 先对等级份额打【TGF-β释放】折再加【代谢适应】【自分泌生存信号】的额外获得，C# 此前先加后折；6p 整条 200 步一致。）
 
 **丢掉了什么（写进限制栏）**：选项的**顺序**与下标稳定性不再被验证（`DecisionRouter.cs:82` 的 `Tiles(s)` 走 `PagedMap` 迭代序而非排序序）。C# 真当权威内核时，这会以「客户端点了第 3 项、服务器执行了第 5 项」的形式复活——那要靠「按语义提交」的线上协议解决，不是靠对拍。**这条要单独立一条阶段 1 待办。**

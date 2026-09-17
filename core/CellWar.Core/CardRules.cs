@@ -111,6 +111,7 @@ internal static class CardRules
         },
         ["DNA损伤修复"] = (s, cell, rng, target, targetCell) =>
         {
+            // 减免值在**结算当刻**按分期重算（定案 #64，CellRules.ShieldValue）；这里存的 cut 只是打出时的记录
             var cut = CancerPhase(s.Turn.WorldRound) switch { 0 => 10, 1 => 15, _ => 20 };
             s = AddModifier(s, s.Cells[cell.Id], new("DNA损伤修复", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Card, 0, cut, 0, 1, ModifierDuration.Game));
             return s;
@@ -172,7 +173,7 @@ internal static class CardRules
             if (targetCell is not { } tid || !LacticAcidTargets(s, cell).Contains(tid)) return s;
             var loss = CancerPhase(s.Turn.WorldRound) switch { 0 => 8, 1 => 15, _ => 20 };
             if (AdjacentCancerous(s, s.Cells[tid].Position, 3)) loss += 5;
-            return Damage(s, tid, loss);
+            return Damage(s, tid, loss, LossSource.CancerSkill);
         },
         ["基质硬化"] = (s, cell, rng, target, targetCell) =>
         {
@@ -194,7 +195,7 @@ internal static class CardRules
         ["交叉呈递"] = (s, cell, rng, target, targetCell) =>
             targetCell is { } tid && CrossPresentTargets(s, cell).Contains(tid) ? s.UpdateCell(tid, s.Cells[tid].Copy(marked: true)) : s,
         ["抗体依赖细胞毒作用"] = (s, cell, rng, target, targetCell) =>
-            targetCell is { } tid && AdccTargets(s, cell).Contains(tid) ? Damage(s, tid, cell.Type == CellType.BCell ? 15 : 10) : s,
+            targetCell is { } tid && AdccTargets(s, cell).Contains(tid) ? Damage(s, tid, cell.Type == CellType.BCell ? 15 : 10, LossSource.ImmuneEffect) : s,
         // 【IFN-γ高峰】：技能卡，圆心 = 所选免疫细胞（可以是自己、不限距离），选项层用 IfnHasEffect 把「打了什么都不发生」的目标挡掉
         ["IFN-γ高峰"] = (s, cell, rng, target, targetCell) =>
             targetCell is { } tid && IfnPeakTargets(s, cell).Contains(tid) ? IfnBurst(s, s.Cells[tid].Position) : s,
@@ -203,7 +204,7 @@ internal static class CardRules
             if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.Faction == Faction.Immune)
             {
                 foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(t.Position) <= 2).ToArray())
-                    s = Damage(s, c.Id, 10);   // 免疫风暴：1.0 能量（原 1 = 0.1）
+                    s = Damage(s, c.Id, 10, LossSource.ImmuneEffect);   // 免疫风暴：1.0 能量（原 1 = 0.1）
                 foreach (var tile in Tiles(s).Where(x => x.State == TissueState.Cancer && x.OccupyingCell == null && x.Position.DistanceTo(t.Position) <= 2).ToArray())
                     s = s.UpdateTissueState(tile.Position, TissueState.Healthy);
             }
@@ -292,7 +293,7 @@ internal static class CardRules
                     .ToArray();
                 foreach (var pick in tiles) s = s.UpdateTissueState(pick, TissueState.Healthy);
                 foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(t.Position) <= 1).ToArray())
-                    s = Damage(s, c.Id, 5);
+                    s = Damage(s, c.Id, 5, LossSource.ImmuneEffect);
             }
             return s;
         },
@@ -337,7 +338,7 @@ internal static class CardRules
         ["TNF-α局部炎症"] = (s, cell, rng, target, targetCell) =>
         {
             foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(cell.Position) <= 1).ToArray())
-                s = Damage(s, c.Id, 10);   // TNF-α局部炎症：1.0 能量（原 1 = 0.1）
+                s = Damage(s, c.Id, 10, LossSource.ImmuneEffect);   // TNF-α局部炎症：1.0 能量（原 1 = 0.1）
             foreach (var tile in Tiles(s).Where(t => t.State == TissueState.Cancer && t.Position.DistanceTo(cell.Position) <= 1).ToArray())
             {
                 s = s.UpdateTissueSolidification(tile.Position, Math.Max(0, tile.SolidificationCount - 10));
@@ -496,8 +497,13 @@ internal static class CardRules
         }
         else if (roll == 3)
         {
-            s = Damage(s, cellId, 8);
+            // GD `apply_mutation` 直接 `energy -= MUTATE_EXTRA_LOSS`、**不进伤害管线**（cw_actions.gd:1392）：
+            // 护盾、【标记】、【囊性护甲】【BCL-2抗凋亡】都不看它，扣到 0 以下就 kill。
+            // 此前 C# 走 Damage：2p 第 52 步【突变】的自损把只挡免疫方的【DNA损伤修复】吃掉了（2026-09-17）
+            var mutated = s.Cells[cellId];
+            s = s.UpdateCell(cellId, mutated.Copy(energy: mutated.Energy - 8));   // MUTATE_EXTRA_LOSS = 0.8
             s = ReduceMemory(s, 2);
+            if (s.Cells[cellId].Energy <= 0) s = Kill(s, cellId);
         }
         return s;
     }
@@ -767,7 +773,7 @@ internal static class CardRules
     private static WorldState IfnBurst(WorldState s, HexPosition center)
     {
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(center) <= 2).ToArray())
-            s = Damage(s, c.Id, 10);   // 1.0 能量（十分位）
+            s = Damage(s, c.Id, 10, LossSource.ImmuneEffect);   // 1.0 能量（十分位）
         foreach (var t in Tiles(s).Where(t => t.State == TissueState.Cancer && t.Position.DistanceTo(center) <= 2).ToArray())
             s = s.UpdateTissueSolidification(t.Position, Math.Max(0, t.SolidificationCount - 10));   // 固化计数 -1.0
         return s;

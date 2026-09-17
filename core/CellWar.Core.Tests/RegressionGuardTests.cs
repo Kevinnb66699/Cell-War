@@ -663,7 +663,7 @@ public class RegressionGuardTests
         var world = MarkedTarget(markLeft: 1);
         var before = world.Cells[new EntityId(2)].Energy;
 
-        var after = CellRules.Damage(world, new EntityId(2), 10);
+        var after = CellRules.Damage(world, new EntityId(2), 10, LossSource.ImmuneAttack);
         var cell = after.Cells[new EntityId(2)];
 
         Assert.Equal(before - 20, cell.Energy);   // 1.0 → ×2 → 2.0
@@ -677,7 +677,7 @@ public class RegressionGuardTests
     {
         var world = MarkedTarget(markLeft: 2);
 
-        var after = CellRules.Damage(world, new EntityId(2), 10);
+        var after = CellRules.Damage(world, new EntityId(2), 10, LossSource.ImmuneAttack);
         var cell = after.Cells[new EntityId(2)];
 
         Assert.True(cell.Marked);
@@ -693,7 +693,7 @@ public class RegressionGuardTests
     {
         var world = MarkedTarget(markLeft: 1);
 
-        var after = CellRules.Damage(world, new EntityId(2), 0);
+        var after = CellRules.Damage(world, new EntityId(2), 0, LossSource.ImmuneAttack);
         var cell = after.Cells[new EntityId(2)];
 
         Assert.True(cell.Marked);
@@ -707,7 +707,7 @@ public class RegressionGuardTests
         var world = MarkedTarget(markLeft: 0);
         var before = world.Cells[new EntityId(2)].Energy;
 
-        var after = CellRules.Damage(world, new EntityId(2), 10);
+        var after = CellRules.Damage(world, new EntityId(2), 10, LossSource.ImmuneAttack);
 
         Assert.Equal(before - 10, after.Cells[new EntityId(2)].Energy);
     }

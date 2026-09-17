@@ -156,7 +156,7 @@ internal static class SkillRules
                 var damage = AntibodyDamage(cell.AntibodyThisRound, matured);
                 var targets = Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && AdjacentHealthy(s, x.Position)).ToArray();
                 if (targets.Length > 0 && damage > 0)
-                    foreach (var target in targets) s = Damage(s, target.Id, damage);
+                    foreach (var target in targets) s = Damage(s, target.Id, damage, LossSource.ImmuneEffect);
                 else
                 {
                     var tiles = Tiles(s).Where(t => t.State == TissueState.Cancer && t.OccupyingCell == null && AdjacentHealthy(s, t.Position)).ToArray();
@@ -183,7 +183,7 @@ internal static class SkillRules
                     s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2).WithToxinRound(s.Turn.WorldRound)));
                 }
                 foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && x.Position.DistanceTo(cell.Position) <= 1).ToArray())
-                    s = Damage(s, target.Id, 10);   // 细胞毒素：1.0 能量（原 1 = 0.1）
+                    s = Damage(s, target.Id, 10, LossSource.ImmuneEffect);   // 细胞毒素：1.0 能量（原 1 = 0.1）
                 break;
             }
             case "裂解":
@@ -207,7 +207,7 @@ internal static class SkillRules
                 var healthy = ring.Where(t => t.State == TissueState.Healthy).ToArray();
                 foreach (var pick in rng.PickRandom(healthy, 10)) s = CardRules.ToCancer(s, pick.Position, newborn: true);
                 foreach (var immune in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Immune && x.Position.DistanceTo(position) <= 2).ToArray())
-                    s = Damage(s, immune.Id, 20);
+                    s = Damage(s, immune.Id, 20, LossSource.CancerSkill);
                 s = Kill(s, cell.Id);
                 s = UpdateMarks(s);
                 break;
@@ -320,9 +320,9 @@ internal static class SkillRules
                         s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2)));
                     }
                     foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && ray.Contains(x.Position)).ToArray())
-                        s = Damage(s, target.Id, 20);   // Excalibur 主射线：2.0 能量（原 2 = 0.2）
+                        s = Damage(s, target.Id, 20, LossSource.CancerSkill);   // Excalibur 主射线：2.0 能量（原 2 = 0.2）
                     foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && splash.Contains(x.Position)).ToArray())
-                        s = Damage(s, target.Id, 10);   // Excalibur 侧向波及：1.0 能量（原 1 = 0.1）
+                        s = Damage(s, target.Id, 10, LossSource.CancerSkill);   // Excalibur 侧向波及：1.0 能量（原 1 = 0.1）
                 }
                 break;
             }

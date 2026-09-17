@@ -1,85 +1,82 @@
 ﻿namespace CellWar.Core;
 
 /// <summary>
+/// 一次能量损失**谁造成的** —— GD 伤害事件 `tags` / `source_kind` 的最小投影（cw_damage.gd `Tag` / `Kind`，cw_game.gd 四个薄壳）。
+/// 护盾按它认账（<see cref="CellRules.ShieldApplies"/>）、树突【标记】只认免疫来源。
+/// </summary>
+public enum LossSource
+{
+    /// <summary>中立 / 世界来源：GD `cancer_hit(skill=false)` = Kind.WORLD + Tag.CANCER —— 攻击失败的反弹、【微环境压迫】、世界事件【增殖抑制】。</summary>
+    World,
+    /// <summary>免疫细胞的普通攻击：GD `immune_hit(attack=true)` = Tag.IMMUNE + Tag.ATTACK。</summary>
+    ImmuneAttack,
+    /// <summary>免疫方的卡牌 / 技能（非攻击）：GD `immune_hit(attack=false)` / `immune_hit_area` = Tag.IMMUNE —— 免疫卡、【抗体】【细胞毒素】。</summary>
+    ImmuneEffect,
+    /// <summary>癌细胞技能与癌方即时卡：GD `cancer_hit(skill=true)` = Kind.CELL_SKILL + Tag.CANCER —— 【黏液破裂】Excalibur【乳酸酸化】。</summary>
+    CancerSkill,
+}
+
+/// <summary>
 /// 细胞域状态变更：能量损失/死亡、座位存活、抗原记忆、运行期修饰、标记、传送、能量收取。
 /// 对应离散事件架构三层设计的 CellRules 所有权域。所有规则域与卡牌共用这些原子变更，
 /// 避免各自复制“扣血/死亡/记忆”逻辑；本类不负责决策合法性（由各域 Validate 负责）。
 /// </summary>
 internal static class CellRules
 {
+    /// <summary>
+    /// 能量损失的唯一入口（GD `CWDamage` 五步管线的 C# 投影，cw_damage.gd:180-291）：
+    /// ③④ 倍率（【刚性屏障】×40% 不限来源、树突【标记】×2 只认免疫来源）合成一次整数除法 →
+    /// ⑤ 固定减免按**组**结算（<see cref="ShieldGroups"/>：同名合并、按打出先后、每组 ON_BENEFIT、挡光即停、各盾只认自己的来源）→
+    /// 【BCL-2抗凋亡】免死 → 扣能量 / 死亡。
+    /// GD 里**不进管线**的损失（【突变】第 3 点、【过载】【代谢消耗】、【吞噬体成熟】的处决）在 C# 也不许走这里。
+    /// </summary>
+    /// <param name="source">这一下**谁造成的**（GD 伤害事件 Tag/Kind 的投影，见 <see cref="LossSource"/>）：护盾按来源认账。</param>
     /// <param name="ability">
-    /// 这一下是**谁造成的**（对齐 GD 伤害事件的 `ability` 字段）。
-    /// 眼下只有【耗竭抵抗】的第二句要看它（「结算【微环境压迫】时额外 −0.5」）——
-    /// GD 那边判的就是 `ev["ability"] == "微环境压迫"`。
+    /// 这一下是**哪条效果**（GD 伤害事件的 `ability` 字段）。只有【微环境压迫】要报名：
+    /// 【缺氧适应】挡它、【耗竭抵抗】结算它时额外 −0.5 —— GD 两处判的都是 `ev["ability"] == "微环境压迫"`。
     /// </param>
-    public static WorldState Damage(WorldState s, EntityId id, int amount, string ability = "")
+    public static WorldState Damage(WorldState s, EntityId id, int amount, LossSource source, string ability = "")
     {
         var c = s.Cells[id];
-        var modifiers = c.Modifiers.Where(m => m.Target == ModifierTarget.EnergyLoss).Select(m => m.ToValueModifier()).ToList();
+        // ③④ 倍率层。**所有倍率合成一次整数除法**（Settlement.ApplyEnergyLoss，逐位对齐 cw_damage.gd:218-223）
+        var multipliers = new List<ValueModifier>();
         if (c.Type == CellType.Osteosarcoma && RulePolicies.TypeAbilityOn(s, c) && s.Board.Tissues[c.Position].State == TissueState.SolidifiedCancer)
-            modifiers.Add(new ValueModifier(ModifierStage.Multiply, SourceLayer.Passive, 0, 40));  // 【刚性屏障】×40%
+            multipliers.Add(new ValueModifier(ModifierStage.Multiply, SourceLayer.Passive, 0, 40));  // 【刚性屏障】×40%，不限来源
 
-        // 树突【I-标记】：被标记的癌细胞下一次受到能量损失时 ×2，随后移除标记（PRD:573）。
-        //
-        // 2026-09-15 补：此前 Marked / MarkLeft / MarkRound 三个字段建好了、ApplyMark 也在跑，
-        // 但**伤害管线里根本没有这一步** —— MarkLeft 只流进了观测。
-        // 于是树突整条标记链（含【交叉呈递】【抗原呈递强化】【免疫猎杀】）在 C# 里是零收益。
-        //
-        // 口径照抄 GDScript 侧 cw_damage.gd:184-187：
-        //   · 是**倍增**层（与【刚性屏障】同层，都走 Multiply；×2 写成 200）
-        //   · **ON_BENEFIT**：只有确实有伤害可翻倍时才消耗（`amount > 0`）——
-        //     不然一次 0 伤害就把标记白白吃掉
-        //   · MarkLeft 可能 >1（树突【抗原呈递强化】给 2 层），耗尽才清 Marked
-        //
-        // ⚠ **一处 PRD 与 GDScript 的偏离，先照 GDScript、没有自作主张**：
-        // PRD:573 写的是「下一次受到**免疫细胞造成的**能量损失」，而 GDScript 侧
-        // 只判 `marked` 与伤害为正、**不看来源**。两边内核要先一致，
-        // 「该不该只认免疫来源」是给 Kevin 的一条待裁项（实践中癌细胞受到的伤害
-        // 几乎都来自免疫方，所以今天两种读法大概率同结果，但不等于没差别）。
-        var markApplies = c.Marked && amount > 0;
+        // 树突【I-标记】：被标记的癌细胞下一次受到**免疫细胞造成的**能量损失时 ×2，随后移除一层标记（PRD:573）。
+        // **只认免疫来源**（Kevin 2026-09-15 拍板；GD cw_damage.gd:194 判 `Tag.IMMUNE in tags`）。
+        // 此前 C# 不看来源 —— 那时【突变】自扣还走这条管线，被标记的癌细胞会把自己的损失翻倍。
+        // ON_BENEFIT：只有确实有伤害可翻倍时才消耗（`amount > 0`）；MarkLeft 可能 >1（【抗原呈递强化】给 2 层），耗尽才清 Marked。
+        var markApplies = c.Marked && amount > 0 && source is LossSource.ImmuneAttack or LossSource.ImmuneEffect;
         if (markApplies)
-            modifiers.Add(new ValueModifier(ModifierStage.Multiply, SourceLayer.Skill, 0, 200));
-
-        amount = Settlement.ApplyEnergyLoss(amount, modifiers);
-        s = ConsumeModifiers(s, id, ModifierTarget.EnergyLoss);
-
-        // 【耗竭抵抗】（PRD:1277）：**两句合成一个 cut 一次减掉**，逐位对齐 GD 的
-        // `cw_damage.gd:266-274`（Kevin 2026-09-16 裁定「按照 GD 的实现方式来」）。
-        //   ① 每世界回合自身第一次受到能量损失：该次 −1.0
-        //   ② 结算【微环境压迫】时：额外 −0.5
-        // 第①句此前在 C# 里是回合开始挂的一条 `EnergyLoss` 修饰、第②句在压迫的调用点减 ——
-        // 算出来的数一样（都是「减法 + 下限 0」，拆不拆不影响），但**形状和 GD 对不上**：
-        // 管线里倍率排在减法之前，而那 −0.5 当时在管线之外先减了。
-        //
-        // **ON_BENEFIT**：这一组没把伤害压低就不消耗（GD `_reduce` 的 `after == dmg → continue`）——
-        // 所以「本世界回合首次」那个闸要等真减到了才烧。
-        if (RulePolicies.HasSkill(s, c, "耗竭抵抗"))
+            multipliers.Add(new ValueModifier(ModifierStage.Multiply, SourceLayer.Skill, 0, 200));
+        amount = Settlement.ApplyEnergyLoss(amount, multipliers);
+        if (markApplies)
         {
-            var firstThisRound = RoundGateOpen(c, "耗竭抵抗");
-            var cut = (firstThisRound ? ExhaustFirstCut : 0)
-                + (ability == "微环境压迫" ? ExhaustPressureCut : 0);
-            var after = Math.Max(0, amount - cut);
-            if (after != amount)
-            {
-                amount = after;
-                if (firstThisRound) s = BurnRoundGate(s, id, "耗竭抵抗");
-                c = s.Cells[id];
-            }
+            var left = c.MarkLeft - 1;
+            s = s.UpdateCell(id, c.Copy(markLeft: left, marked: left > 0));
         }
-        if (markApplies)
+
+        // ⑤ 固定减免 —— 逐位对齐 GD `_reduce` / `_shield_groups`（cw_damage.gd:232-291）：
+        //   · 护盾按**组**：同名条目合并成一组，减免 = 单值 × 条数（定案 #57：两张「下一次 −1.5」= 这一次减 3.0）；
+        //   · 组间按打出先后（【囊性护甲】最先、【耗竭抵抗】最后）；
+        //   · 每组 ON_BENEFIT：这一组没把伤害压低就不消耗；已经挡光了就停，后面的盾留着；
+        //   · 各盾只认自己的来源（<see cref="ShieldApplies"/>）—— 此前 C# 对目标身上全部 EnergyLoss 修饰一律套用、一律消耗，
+        //     2p 第 52 步【突变】的自损把只挡免疫方的【DNA损伤修复】吃掉了（2026-09-17）。
+        foreach (var g in ShieldGroups(s, s.Cells[id], source, ability))
         {
-            var marked = s.Cells[id];
-            var left = marked.MarkLeft - 1;
-            s = s.UpdateCell(id, marked.Copy(markLeft: left, marked: left > 0));
+            if (amount <= 0) break;
+            var after = Math.Max(0, amount - g.Cut);
+            if (after == amount) continue;
+            amount = after;
+            s = g.Kind switch
+            {
+                ShieldKind.Armor => s.UpdateCell(id, s.Cells[id].Copy(armor: true)),
+                ShieldKind.Modifier => SpendModifiers(s, id, g.Name),
+                _ => BurnRoundGate(s, id, "耗竭抵抗"),
+            };
         }
         c = s.Cells[id];
-        // 印戒【囊性护甲】：每世界回合第一次能量损失 -0.5，不限来源
-        if (c.Type == CellType.SignetRing && RulePolicies.TypeAbilityOn(s, c) && !c.ArmorUsedThisRound)
-        {
-            amount = Math.Max(0, amount - 5);
-            s = s.UpdateCell(id, s.Cells[id].Copy(armor: true));
-            c = s.Cells[id];
-        }
         // 【BCL-2抗凋亡】：即将受到致命能量损失时免疫该次损失，能量改为 0.5/0.8/1
         if (amount >= c.Energy && HasModifier(c, "BCL-2抗凋亡"))
         {
@@ -89,6 +86,71 @@ internal static class CellRules
         }
         var energy = Math.Max(0, c.Energy - amount);
         return energy == 0 ? Kill(s, id) : s.UpdateCell(id, c.Copy(energy: energy));
+    }
+
+    /// <summary>护盾组的三种消耗方式：【囊性护甲】烧本回合护甲、四张护盾卡扣同名修饰、【耗竭抵抗】烧「本世界回合首次」闸。</summary>
+    internal enum ShieldKind { Armor, Modifier, Exhaust }
+    internal readonly record struct ShieldGroup(string Name, int Cut, int Seq, ShieldKind Kind);
+
+    /// <summary>GD `MEMBRANE_CUT` / `IFN1_CUT` / `HYPOXIA_CUT` / `ARMOR_REDUCTION`（cw_data.gd）。</summary>
+    internal const int MembraneCut = 15, Ifn1Cut = 10, HypoxiaCut = 10, ArmorReduction = 5;
+    /// <summary>GD `_shield_groups` 只认这四张（顺序也是它的）。</summary>
+    private static readonly string[] ShieldCards = { "细胞膜修复", "I型干扰素", "缺氧适应", "DNA损伤修复" };
+
+    /// <summary>GD `_shield_groups`：这次事件上受击方有哪些减免可用，按「打出先后」排（同名合并成一组，减免 = 单值 × 条数）。</summary>
+    internal static IReadOnlyList<ShieldGroup> ShieldGroups(WorldState s, Cell c, LossSource source, string ability)
+    {
+        var groups = new List<ShieldGroup>();
+        // 印戒【囊性护甲】：每世界回合第一次能量损失 −0.5，不限来源（口径 #76）
+        if (c.Type == CellType.SignetRing && RulePolicies.TypeAbilityOn(s, c) && !c.ArmorUsedThisRound)
+            groups.Add(new("囊性护甲", ArmorReduction, -1, ShieldKind.Armor));
+        foreach (var name in ShieldCards)
+        {
+            if (!ShieldApplies(name, source, ability)) continue;
+            var entries = c.Modifiers.Where(m => m.Card == name).ToList();
+            if (entries.Count == 0) continue;
+            groups.Add(new(name, ShieldValue(s, name) * entries.Count, entries[0].Sequence, ShieldKind.Modifier));
+        }
+        // 【耗竭抵抗】（PRD:1277）是永久技能，没有「打出先后」，排在最后。**两句合成一个 cut 一次减掉**（Kevin 2026-09-16 裁定跟 GD）：
+        //   ① 每世界回合自身第一次受到能量损失：该次 −1.0；② 结算【微环境压迫】时：额外 −0.5
+        if (RulePolicies.HasSkill(s, c, "耗竭抵抗"))
+        {
+            var cut = (RoundGateOpen(c, "耗竭抵抗") ? ExhaustFirstCut : 0) + (ability == "微环境压迫" ? ExhaustPressureCut : 0);
+            if (cut > 0) groups.Add(new("耗竭抵抗", cut, int.MaxValue, ShieldKind.Exhaust));
+        }
+        return groups.OrderBy(g => g.Seq).ToList();   // OrderBy 是稳定排序；序号本就互不相同
+    }
+
+    /// <summary>GD `_shield_applies`：各护盾认哪些来源（设计 §6.5，按标签语义识别，不靠布尔分叉）。</summary>
+    internal static bool ShieldApplies(string name, LossSource source, string ability) => name switch
+    {
+        "细胞膜修复" or "I型干扰素" => true,                                        // 任何来源的能量损失
+        "缺氧适应" => ability == "微环境压迫" || source == LossSource.CancerSkill,   // 癌细胞技能（含癌方即时卡）**或**【微环境压迫】（口径 #62/#72）
+        "DNA损伤修复" => source == LossSource.ImmuneEffect,                          // 只挡免疫方的【事件】/【技能】，普通攻击是 PD-L1 的领地（口径 #62）
+        _ => false,
+    };
+
+    /// <summary>GD `_shield_value` 的单张值。【DNA损伤修复】按**结算当刻**的分期取 1.0/1.5/2.0（定案 #64），不是打出时存的那份。</summary>
+    private static int ShieldValue(WorldState s, string name) => name switch
+    {
+        "细胞膜修复" => MembraneCut,
+        "I型干扰素" => Ifn1Cut,
+        "缺氧适应" => HypoxiaCut,
+        _ => RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 10, 1 => 15, _ => 20 },
+    };
+
+    /// <summary>GD `spend_mods`：同名条目各扣一次，耗尽的移除（定案 #57 同名一起扣）。Uses=-1 不受影响。</summary>
+    internal static WorldState SpendModifiers(WorldState s, EntityId id, string card)
+    {
+        var c = s.Cells[id];
+        var kept = new List<ActiveModifier>();
+        foreach (var m in c.Modifiers)
+        {
+            if (m.Card != card || m.Uses < 0) { kept.Add(m); continue; }
+            var used = m.Consume();
+            if (!used.Expired) kept.Add(used);
+        }
+        return s.UpdateCell(id, c.Copy(modifiers: kept));
     }
 
     /// <summary>GD `game.kill`（cw_game.gd）—— 死亡的唯一入口：能量清零、alive=false、**自身修饰随之消散**（`mods = []`，复活是新生），
@@ -155,7 +217,7 @@ internal static class CellRules
     /// **移动那一路是 ON_BENEFIT**（GD cw_cost.gd:238，Kevin 2026-09-16 拍板跟 GD）：只消耗这一步**真改了价**的那些 ——
     /// 「费用改为 X」改成了原价、免费豁免时费用已经是 0、同一竞争组里没被选中的第二条免费，都不扣。
     /// 按 (卡名, 打出序号) 认条目：GD 是按名字扣最早那条，序号本就是打出先后。
-    /// 攻击 / 伤害那两路照旧（GD 那边是 `spend_mods` 同名全消耗，另一套口径）。
+    /// 攻击那一路照旧；**伤害那一路 2026-09-17 起不走这里** —— 护盾在 `Damage` 里逐组 ON_BENEFIT（`ShieldGroups` / `SpendModifiers`）。
     /// </summary>
     public static WorldState ConsumeModifiers(WorldState s, EntityId id, ModifierTarget target, HexPosition? destination = null, int? rawCostOverride = null)
     {
@@ -531,17 +593,18 @@ internal static class CellRules
             }
             attacker = s.Cells[cell.Id].Copy(attacks: cell.AttacksThisTurn + 1);
             s = s.UpdateCell(cell.Id, attacker);
-            if (damage == 0) s = Damage(s, cell.Id, 5);
+            if (damage == 0) s = Damage(s, cell.Id, 5, LossSource.World);
             else
             {
                 var actual = Math.Min(target.Energy, damage);
-                s = Damage(s, target.Id, damage + extra);
+                s = Damage(s, target.Id, damage + extra, LossSource.ImmuneAttack);
                 s = AddMemory(s, actual / 10);
                 // 【吞噬体成熟】：攻击成功后目标余量不超过阈值则直接死亡
                 var threshold = s.Cells[cell.Id].Type == CellType.Macrophage ? 15 : 5;
                 if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "吞噬体成熟") && s.Cells[target.Id].IsAlive && s.Cells[target.Id].Energy <= threshold)
                 {
-                    s = Damage(s, target.Id, s.Cells[target.Id].Energy);
+                    // GD `lethal(target, "吞噬体成熟")`：处决**不进伤害管线**（护盾减不了、【BCL-2抗凋亡】救不回，口径 #68），直接 kill + update_marks
+                    s = UpdateMarks(Kill(s, target.Id));
                     if (s.Cells[cell.Id].Type == CellType.Macrophage)
                         s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
                 }

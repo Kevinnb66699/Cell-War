@@ -21,8 +21,8 @@ public class L1ReplayTests
 {
     /// <summary>4p seed 4242 的水位线（2026-09-17：200 步整条一致）。往上拧，别往下放。</summary>
     public const int Ratchet = 200;
-    /// <summary>2p seed 2222（终局 173 步）。</summary>
-    public const int Ratchet2p = 51;
+    /// <summary>2p seed 2222（终局 173 步，2026-09-17 晚整条一致）。</summary>
+    public const int Ratchet2p = 173;
     /// <summary>6p seed 6666（200 步，2026-09-17 晚整条一致）。</summary>
     public const int Ratchet6p = 200;
 

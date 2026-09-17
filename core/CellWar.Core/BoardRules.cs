@@ -181,7 +181,7 @@ internal static class BoardRules
             // 压不到就**不进管线**（GD `_pressure` 的 `if loss <= 0: continue`）：一次 0 伤害的 Damage 也会把
             // 【细胞膜修复】那类一次性护盾白白吃掉（L1 第 131 步：席位 0 四周全是健康组织，GD 的盾还在、C# 的没了）
             if (loss <= 0) continue;
-            s = Damage(s, c.Id, loss, "微环境压迫");
+            s = Damage(s, c.Id, loss, LossSource.World, "微环境压迫");
         }
         return s;
     }
@@ -321,8 +321,8 @@ internal static class BoardRules
         foreach (var t in Tiles(s).Where(t => t.State == TissueState.SolidifiedCancer)
                      .OrderBy(t => t.Position.Q).ThenBy(t => t.Position.R).ToArray())
         {
-            var targets = t.Position.GetNeighbors()
-                .Where(n => s.Board.Tissues.TryGetValue(n, out var x) && x.State == TissueState.Cancer).ToArray();
+            // 候选按 GD DIRS 序（`game.neighbors`）：pick_random 抽的是下标，序不同就抽到不同的格（2p 第 85 步，2026-09-17）
+            var targets = GdNeighbors(s, t.Position).Where(n => s.Board.Tissues[n].State == TissueState.Cancer).ToArray();
             if (targets.Length == 0) continue;
             foreach (var n in rng.PickRandom(targets, limit)) s = RaiseSolid(s, n, 10);
         }
