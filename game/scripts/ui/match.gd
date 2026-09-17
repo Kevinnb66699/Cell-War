@@ -570,7 +570,7 @@ func start_replay(p: CWReplay.Player) -> void:
 ## 迷你条上点「聊天」= 开合。两页互斥（共用左上角同一块地）的「收日志」动作挂在 `_chat.opened` 上，
 ## 回车唤出那条路（CWChatBox._input）也经过它
 func _toggle_chat() -> void:
-	if _chat != null:
+	if _chat != null and online:
 		_chat.toggle()
 
 
@@ -797,11 +797,14 @@ func _wire_bridge(level: int) -> void:
 		## 结算屏上回车归它自己的按钮，别再唤出聊天（开着的照样能 Esc 收、能从迷你条点开）
 		finished.connect(func(_winner: int) -> void: _chat.active = false)
 		if _log_hint != null:
-			_log_hint.set_chat(_chat)
 			_log_hint.chat_pressed.connect(_toggle_chat)
-	## 框一局建一次、跨局复用：联机局重新接回车，本地局（没人可聊）不接
+	## 框一局建一次、跨局复用：联机局重新接回车，本地局（没人可聊）不接。
+	## 迷你条那页「聊天」也**每局按本局装 / 卸**（复核 09-17 抓到：联机局之后的单机局左上角还挂着
+	## 「聊天 [Enter]」，点开是只死框 —— Enter 关着、发的字因为 _client 为 null 静默丢掉，焦点还把空格 / 数字 / L 全闸住）
 	if _chat != null:
 		_chat.active = online
+		if _log_hint != null:
+			_log_hint.set_chat(_chat if online else null)
 		## 「己方」标签的颜色跟我自己的阵营走（癌症席是橙）；没抢到席位的观众没有己方
 		var mine: int = _client.my_seat if online and _client != null else -1
 		_chat.team_faction = int(game.players[mine]["faction"]) if mine >= 0 and mine < game.players.size() else -1
@@ -1191,6 +1194,8 @@ func teardown() -> void:
 	if _chat != null:
 		_chat.active = false
 		_chat.close()
+	if _log_hint != null:
+		_log_hint.set_chat(null)   ## 下一局是联机局时 _wire_bridge 再装回去
 	if _guide != null and is_instance_valid(_guide):
 		_guide.queue_free()   ## 引导面板一局一份，拆局就销毁（下一局教程 _attach_guide 重建）
 	_guide = null

@@ -891,7 +891,7 @@ func _build_chat(root: Control) -> void:
 	box.set_corner_radius_all(6)
 	plate.add_theme_stylebox_override("panel", box)
 	plate.position = Vector2(CHAT_X - 16, CHAT_Y - 40)
-	## 竖向：标题 40 + 消息行 + 8 + 输入框 + 12。输入框 09-17 从 34 高的正文字号换成局内那只（22 高、标签字号），板子跟着收
+	## 竖向：标题 40 + 消息行 + 8 + 输入框 + 12。输入框 09-17 从正文字号那档（写 34、实为 36）换成局内那只（22 高、标签字号），板子跟着收
 	plate.size = Vector2(CHAT_W + 32, CHAT_ROWS * CHAT_ROW_H + 40 + 8 + CHAT_INPUT_H + 12)
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(plate)
@@ -1265,7 +1265,7 @@ func _row_label(root: Control, text: String, row: int) -> Label:
 
 
 ## 输入框：点阵字 20px、和按钮同一套描边；焦点时描边全亮
-## small = 局内聊天框那种小输入框（标签字号 10、22 高、内边距 6）；默认是表单那种（正文字号 20、34 高）
+## small = 局内聊天框那种小输入框（标签字号 10、22 高、内边距 6）；默认是表单那种（正文字号 20、36 高）
 func _edit(root: Control, at: Vector2, w: float, placeholder: String, max_len: int, small := false) -> LineEdit:
 	var e := LineEdit.new()
 	e.placeholder_text = placeholder

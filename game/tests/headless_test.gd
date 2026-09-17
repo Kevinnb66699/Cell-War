@@ -1347,6 +1347,8 @@ func t_feedback() -> void:
 		await process_frame
 	check(pm.visible and pm._feedback_page == "edit" and pm._input.visible and pm._title.text == "反馈 bug",
 		"抓完图回到菜单、进了反馈页、输入框露面（页 = %s）" % pm._feedback_page)
+	check(pm._input.size.y == CWPauseMenu.INPUT_H,
+		"反馈输入框 %d 高 = 常量（size 在进树后设、常量写真值 36；以前写 34 画出来 36）" % int(pm._input.size.y))
 	check((pm._feedback_snapshot as Dictionary).has("tiles"), "快照抓到了")
 	pm._input.text = "第二回合免疫走不动"
 	pm._activate(0)                          ## 「提交」
@@ -17325,7 +17327,8 @@ func t_chat_box() -> void:
 	check(CWLogHint.SIZE.y + CWLogPanel.RECT.position.y <= 75.0,
 		"迷你条底边 %d 不压棋盘顶行（75）" % int(CWLogHint.SIZE.y + CWLogPanel.RECT.position.y))
 	check(CWLogPanel.RECT.position.x >= CWFeed.RECT.position.x,
-		"这块地与出牌列同一条左缘（左侧那一列对齐）")
+		"这块地不越过出牌列的左缘（出牌列 x %d，面板 x %d，差的 8 px 是出牌列露在外面的边）"
+		% [int(CWFeed.RECT.position.x), int(CWLogPanel.RECT.position.x)])
 	## 「聊天」旁边挂 Enter 键帽（Kevin 2026-09-17）：没聊天框时跟标签一起藏；有了就贴标签右缘；未读数把标签撑宽时跟着挪；别撞上右边的 L
 	var hint3 := CWLogHint.new()
 	root.add_child(hint3)
@@ -17356,6 +17359,16 @@ func t_chat_box() -> void:
 	click3.pressed = true
 	hint3._chat_key.gui_input.emit(click3)
 	check(pressed3[0] == 1, "点键帽等于点「聊天」（不能漏到整条迷你条去开日志）")
+	## gui_input.emit 绕过了命中测试：真正让键帽吃到那一下的是 mouse_filter（keycap 默认 IGNORE），得直接量
+	check(hint3._chat_key.mouse_filter == Control.MOUSE_FILTER_STOP and hint3._chat_tab.mouse_filter == Control.MOUSE_FILTER_STOP,
+		"键帽与「聊天」标签自己吃左键（不改 STOP 就漏到迷你条去开日志）")
+	## Enter 关掉（结算屏 / 本地局）：键帽收起、标签留着；卸掉框（联机局之后的单机局）：两者都收
+	box3.active = false
+	hint3._process(0.0)
+	check(hint3._chat_tab.visible and not hint3._chat_key.visible, "Enter 关掉：键帽收起、「聊天」标签留着（结算屏上还能点开框）")
+	hint3.set_chat(null)
+	hint3._process(0.0)
+	check(not hint3._chat_tab.visible and not hint3._chat_key.visible, "本局没有聊天（联机局之后的单机局）：标签和键帽都收")
 	for n3 in [box3, hint3]:
 		root.remove_child(n3)
 		n3.free()

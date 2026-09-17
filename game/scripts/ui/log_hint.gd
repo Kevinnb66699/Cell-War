@@ -51,7 +51,8 @@ var _built_key := -3
 var _last_total := -1
 var _chat: CWChatBox      ## 聊天框（联机局才有）；null = 这一局没有聊天
 var _chat_tab: Label
-var _chat_key: Control    ## 「Enter」键帽：贴在「聊天」右边（Kevin 2026-09-17 要的快捷键提示），随未读数变宽而挪
+var _chat_key: Control    ## 「Enter」键帽：贴在「聊天」右边（Kevin 2026-09-17 要的快捷键提示），随未读数变宽而挪；
+                          ## 只在框接回车（`active`）时露面 —— 结算屏上 Enter 已关，键帽再挂着就是骗人；标签留着还能点开框说 gg
 var _chat_hold := 0.0     ## 还剩多久切回日志页
 var _chat_seen := 0       ## 已经因为「有新消息」闪过的条数
 
@@ -132,7 +133,7 @@ func set_compact(on: bool) -> void:
 		l.visible = not on
 	if _chat_tab != null:
 		_chat_tab.visible = not on and _chat != null
-		_chat_key.visible = _chat_tab.visible
+		_chat_key.visible = _chat_tab.visible and _chat.active
 
 
 ## 键帽贴着「聊天」标签的右缘走：标签带未读数（「聊天 3」）时会变宽
@@ -201,7 +202,7 @@ func _process(delta: float) -> void:
 	if _chat_tab == null:
 		return
 	_chat_tab.visible = _chat != null and not _compact
-	_chat_key.visible = _chat_tab.visible
+	_chat_key.visible = _chat_tab.visible and _chat.active
 	if _chat != null:
 		_refresh_chat(delta)
 

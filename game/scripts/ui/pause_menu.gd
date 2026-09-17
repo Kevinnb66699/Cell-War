@@ -82,7 +82,8 @@ const FEEDBACK_HINT := {
 	"done": "已提交，谢谢！",
 	"failed": "发送失败，请稍后再试",
 }
-const INPUT_H := 34            ## 反馈页那格说明输入框的高度（同联机面板的 _edit）
+const INPUT_H := 36            ## 反馈页那格说明输入框的高度：实测最小高 36（20px 字 + 上下内边距），同 CWOnlinePanel._edit 表单档；
+                               ## 以前写 34，进树后照样被顶成 36，排版按 34 算就少了 2 px
 
 ## 主菜单那套辉光：四层白描边由外到内叠出来，越外越淡（尺寸与 alpha 照搬 MainMenu.tscn）。
 ## 为什么不用引擎的辉光后期：开 hdr_2d 会把整张画布的颜色都改掉。
@@ -456,7 +457,6 @@ func _build_chrome() -> void:
 	_input.add_theme_color_override("caret_color", CWStyle.IMMUNE)
 	_input.add_theme_stylebox_override("normal", CWStyle.box(0.45, CWStyle.BTN_BG, 2, 8))
 	_input.add_theme_stylebox_override("focus", CWStyle.box(1.0, CWStyle.BTN_BG, 2, 8))
-	_input.size = Vector2(W - PAD * 2, INPUT_H)
 	_input.text_submitted.connect(func(_t: String) -> void:
 		if _feedback_page == "edit" or _feedback_page == "failed":
 			_send_feedback())
@@ -465,6 +465,8 @@ func _build_chrome() -> void:
 			_input.accept_event()
 			_show_page(""))
 	_panel.add_child(_input)
+	## 尺寸在**进树之后**设（同 CWChatBox 那条，2026-09-17）：进树前会被默认主题的最小高 31 钳住，之后不缩回
+	_input.size = Vector2(W - PAD * 2, INPUT_H)
 
 	## 辉光整套只备一份、跟着选中项走 —— 同时只可能有一项被选中，不必每项各备一份
 	_glow = Control.new()
