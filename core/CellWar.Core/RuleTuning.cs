@@ -50,6 +50,8 @@ public sealed record RuleTuning
     public int ImmuneRespawnDelay { get; init; } = 1;
     /// <summary>小细胞肺癌【转移】每世界回合最多几次（GD `cw_tuning.gd metastasis_max_per_round`，0 = 不限）。</summary>
     public int MetastasisMaxPerRound { get; init; } = 2;
+    /// <summary>巨噬【I-吞噬】每次由【迁移】触发的净化回多少（GD `cw_tuning.gd macro_heal_purify` = `CWData.MACRO_HEAL_PURIFY` = 0.2；0 = 不回能，平衡扫描的 `mheal=`）。</summary>
+    public int MacroHealPurify { get; init; } = 2;
 
     // ---- 行动 ----
 

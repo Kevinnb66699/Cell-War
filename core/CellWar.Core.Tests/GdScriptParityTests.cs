@@ -36,6 +36,7 @@ public class GdScriptParityTests
     [InlineData("MUCUS_MIN_ENERGY", 20)]       // 【黏液破裂】门槛 2.0
     [InlineData("SOLIDIFY_STEP", 10)]          // 固化计数每回合 +1.0
     [InlineData("MACRO_HEAL_PURIFY", 2)]       // 巨噬【I-吞噬】迁移净化回 0.2
+    [InlineData("MACRO_MOVE_NET_MIN", 1)]      // 一次付费迁移净支出至少 0.1（回能封顶 = 实付 − 它）
     [InlineData("ATTACK_DMG_SUCCESS", 10)]     // 攻击成功 1.0
     [InlineData("ATTACK_DMG_CRIT", 20)]        // 大成功 2.0
     public void GDScript常量就是我们期望的那个数(string name, int expected)

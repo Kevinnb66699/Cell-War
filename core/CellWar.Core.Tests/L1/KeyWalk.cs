@@ -25,7 +25,8 @@ public static class KeyWalk
     /// 推着世界往前走 <paramref name="steps"/> 步：有人能动就按键挑一个执行，
     /// 没人能动就推一格阶段。返回挑过的键（带子）与见过的全部键（覆盖率）。
     /// </summary>
-    public static Trace Walk(WorldState s, int steps, ulong seed)
+    /// <param name="onStep">每推进一步（执行一个决策或推一格阶段）之后调一次 —— 全盘不变量护栏挂在这里。</param>
+    public static Trace Walk(WorldState s, int steps, ulong seed, Action<WorldState>? onStep = null)
     {
         var engine = new BasicRulesEngine();
         var rng = new Xoshiro256StarStar(seed);
@@ -37,7 +38,7 @@ public static class KeyWalk
         for (; done < steps && s.Turn.Phase != Phase.Finished; done++)
         {
             var (seat, options) = NextAsked(s);
-            if (options.Count == 0) { s = engine.AdvancePhase(s, rng).NewState; continue; }
+            if (options.Count == 0) { s = engine.AdvancePhase(s, rng).NewState; onStep?.Invoke(s); continue; }
 
             var byKey = new SortedDictionary<string, IDecision>(StringComparer.Ordinal);
             foreach (var d in options) byKey.TryAdd(SemanticKey.Of(s, d), d);
@@ -52,6 +53,7 @@ public static class KeyWalk
             // 卡在这里比静默跳过强：跳过的话带子会悄悄比 GD 短一截。
             Assert.True(result.Success, $"选项表给出的 {key} 执行失败了：{result.ErrorMessage}");
             s = result.NewState;
+            onStep?.Invoke(s);
         }
         return new Trace(s, picked, seen, done);
     }

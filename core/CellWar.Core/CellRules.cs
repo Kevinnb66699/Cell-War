@@ -389,24 +389,87 @@ internal static class CellRules
         return s.UpdateCell(targetId, target.Copy(marked: true, markRound: s.Turn.WorldRound, markLeft: Math.Max(target.MarkLeft, charges)));
     }
 
-    public static WorldState Teleport(WorldState s, EntityId id, HexPosition dest)
+    /// <summary>`enter_tile` 的前半截（GD cw_actions.gd:1001-1026）：占位交接、落脚，然后 <see cref="Arrive"/>（定殖 / 蹲守 / 净化）。
+    /// 传送 / 跃进 / 免费连走在 GD 里都不传 paid（= -1，不是花钱走进来的：巨噬不回能）。只有 <see cref="EnterTile"/> 调它。</summary>
+    private static WorldState Teleport(WorldState s, EntityId id, HexPosition dest, IDeterministicRng rng)
     {
         var c = s.Cells[id];
         s = s.UpdateTissueOccupant(c.Position, null).UpdateTissueOccupant(dest, id);
         s = s.UpdateCell(id, c.Copy(position: dest, campRound: -1));
+        return Arrive(s, id, dest, paid: -1, rng);
+    }
+
+    /// <summary>GD `enter_tile` 的三条分支（cw_actions.gd:1009-1026）：癌进健康 → 【定殖】（`to_cancer(t, true)`：solid / necrosis / ossify 一起清、newborn=true）；
+    /// 免疫进骨样硬化标记格 → 登记蹲守、不净化；免疫进癌组织 → <see cref="PurifyHere"/>。Move 与 Teleport 共用这一份 ——
+    /// 此前两条路各写一遍裸 `UpdateTissueState`：定殖不清坏死，传送落到标记格也当场净化、还没有净化连锁（2026-09-17 晚）。</summary>
+    private static WorldState Arrive(WorldState s, EntityId id, HexPosition dest, int paid, IDeterministicRng rng)
+    {
+        var c = s.Cells[id];
         var tile = s.Board.Tissues[dest];
         if (c.Faction == Faction.Cancer && tile.State == TissueState.Healthy)
+            return CardRules.ToCancer(s, dest, newborn: true);
+        if (c.Faction == Faction.Immune && tile.State == TissueState.Cancer)
         {
-            s = s.UpdateTissueState(dest, TissueState.Cancer);
-            s = s.WithBoard(s.Board.UpdateTissue(dest, s.Board.Tissues[dest].WithNewborn(true)));
-        }
-        else if (c.Faction == Faction.Immune && tile.State == TissueState.Cancer)
-        {
-            s = s.UpdateTissueState(dest, TissueState.Healthy);
-            // 同 Move 那条路：卡牌引发的净化不给抗原记忆（GD purify_here → purify_gives_memory）
-            if (RulePolicies.PurifyGivesMemory(s)) s = AddMemory(s, 1);
+            // 骨肉瘤【骨样硬化】标记过的格：进来不能立刻净化，得停留到世界回合结束（下一回合由 BoardRules.ResolveCamping 兑现）
+            if (tile.OssifyAtRound > 0)
+                return s.UpdateCell(id, c.Copy(campRound: s.Turn.WorldRound, campPosition: dest));
+            return PurifyHere(s, id, dest, paid, rng);
         }
         return s;
+    }
+
+    /// <summary>GD `purify_here`（cw_actions.gd:1037-1082）—— 【I-净化】本体，enter_tile 的正常进入与 `_resolve_camping` 的蹲守净化共用这一份：
+    /// 转健康（`to_healthy`）→ 记忆（卡牌连锁出来的不给）→ 巨噬【I-吞噬】按实付回能 →
+    /// `_on_purify` 的三张永久技能（模式识别增强 → 效应记忆形成 → 免疫记忆库抽卡，**就是这个顺序**：此前 C# 先抽卡再加记忆，
+    /// 而记忆会抬等级、等级决定卡池，抽到的牌会不同）→ 巨噬【连续吞噬】挂起。</summary>
+    /// <param name="paid">这一步的**实付**（GD `enter_tile` 的 paid）：-1 = 不是花钱走进来的（传送 / 复活 / 血管 / 卡牌位移 / 蹲守 / 连锁跳），
+    /// 0 = 付费迁移被免费豁免盖成 0（【组织巡航】首移），&gt;0 = 真付了。</param>
+    /// <param name="chain">要不要挂【连续吞噬】。E 阶段的蹲守净化没有决策点可挂，传 false（GD 会当场追问 —— KNOWN_GAP，极少见）。</param>
+    internal static WorldState PurifyHere(WorldState s, EntityId id, HexPosition pos, int paid, IDeterministicRng rng, bool chain = true)
+    {
+        s = CardRules.ToHealthy(s, pos);
+        // 卡牌引发的净化不积累抗原记忆（GD purify_gives_memory / card_resolve_depth；Kevin 2026-09-16 拍板跟 GD）
+        if (RulePolicies.PurifyGivesMemory(s)) s = AddMemory(s, 1);
+        if (s.Cells[id].Type == CellType.Macrophage)
+        {
+            var heal = MacroPurifyHeal(s, paid);
+            if (heal > 0) s = s.UpdateCell(id, s.Cells[id].WithEnergy(s.Cells[id].Energy + heal));
+        }
+        // _on_purify（cw_actions.gd:1349-1360）
+        // 【模式识别增强】：每世界回合第一次【净化】后恢复 0.5 能量
+        if (RulePolicies.HasSkill(s, s.Cells[id], "模式识别增强") && RoundGateOpen(s.Cells[id], "模式识别增强"))
+        {
+            s = BurnRoundGate(s, id, "模式识别增强");
+            s = s.UpdateCell(id, s.Cells[id].WithEnergy(s.Cells[id].Energy + 5));
+        }
+        // 【效应记忆形成】：每世界回合第一次【净化】后免疫方 +1 抗原记忆、自身恢复 0.5
+        if (RulePolicies.HasSkill(s, s.Cells[id], "效应记忆形成") && RoundGateOpen(s.Cells[id], "效应记忆形成"))
+        {
+            s = BurnRoundGate(s, id, "效应记忆形成");
+            s = AddMemory(s, 1);
+            s = s.UpdateCell(id, s.Cells[id].WithEnergy(s.Cells[id].Energy + 5));
+        }
+        // 【免疫记忆库】等净化跨域反应：发出已提交事实，由 FactRouter 按目录稳定顺序分派（抽卡 —— 排在两张加记忆的技能之后）
+        s = FactRouter.Emit(s, new PurifyResolvedFact(s.Turn.WorldRound, id), rng);
+        // 巨噬【连续吞噬】：净化之后**当场**接着走（PRD:605）。GD 是 await 循环 + `chain_running` 再入闸；
+        // 这里每一跳是一个独立决策，所以挂起等玩家选就行，不需要那道闸。
+        if (chain && s.Cells[id].Type == CellType.Macrophage && s.Cells[id].ChainLeft > 0 && ChainTargets(s, s.Cells[id]).Count > 0)
+            s = s.WithTurn(s.Turn.WithPendingChain(id));
+        return s;
+    }
+
+    /// <summary>GD `CWData.MACRO_MOVE_NET_MIN`：一次付费迁移净支出至少 0.1（巨噬回能封顶 = 实付 − 它）。</summary>
+    internal const int MacroMoveNetMin = 1;
+
+    /// <summary>巨噬【I-吞噬】净化回能，逐行照抄 GD cw_actions.gd:1063-1067：不是花钱走进来的（paid &lt; 0）不回；
+    /// 付费迁移封顶「实付 − 0.1」（治的是「靠移动赚钱」）；**付费迁移被免费豁免盖成 0（paid == 0，【组织巡航】首移）回满** ——
+    /// GD 注释明写这两个边界曾经反过，C# 此前的 `Math.Min(full, cost - 1)` 正是那个反的旧形状。回多少走旋钮 `macro_heal_purify`。</summary>
+    internal static int MacroPurifyHeal(WorldState s, int paid)
+    {
+        var heal = s.Tuning.MacroHealPurify;
+        if (paid < 0) return 0;
+        if (paid > 0) heal = Math.Min(heal, Math.Max(paid - MacroMoveNetMin, 0));
+        return heal;
     }
 
     /// <summary>GD `cw_actions.enter_tile`（1001-1032）—— 「进入一格」的唯一入口：占位交接与【定殖】/ 净化（<see cref="Teleport"/>）
@@ -414,7 +477,7 @@ internal static class CellRules
     /// 三张传送卡（【免疫增援】【肿瘤细胞募集】【肿瘤增援】）、【癌症转移】与两条跃进技能都走它（2026-09-17）；
     /// 此前只有 Teleport，落到有卡的骨髓格上 GD 抽一张（带子多一发）、C# 什么也不抽。</summary>
     public static WorldState EnterTile(WorldState s, EntityId id, HexPosition dest, IDeterministicRng rng)
-        => Land(Teleport(s, id, dest), id, rng);
+        => Land(Teleport(s, id, dest, rng), id, rng);
 
     /// <summary>`enter_tile` 的后半截（脚已经放到格上之后）：免疫踩黏液即清 → `collect_special` → 刷新标记。
     /// 复活也走这一截（GD `revive_*` 同样 `enter_tile`）—— 但复活不能走 Teleport：死亡格早就交出了占位，别人可能已经站上去。</summary>
@@ -537,7 +600,8 @@ internal static class CellRules
     /// </summary>
     /// <param name="free">
     /// 真免费：**不进费用管线**、也不消耗任何限次修饰（巨噬【连续吞噬】的连锁跳用它）。
-    /// 实付 0 顺带让【I-吞噬】那条「回量不超过实付 −0.1」自然算出 0，不用另写分支。
+    /// 它对应 GD `enter_tile` 不传 paid（-1）：巨噬**不**回能 —— 不是靠「实付 0 算出 0」；
+    /// 付费迁移被【组织巡航】盖成 0 的那种 paid == 0，GD 反而回满（见 <see cref="MacroPurifyHeal"/>）。
     /// </param>
     /// <param name="rawCostOverride">
     /// 卡面自带的起价（【炎症性趋化】每步 0.2）。与 <paramref name="free"/> 语义相反：
@@ -631,73 +695,31 @@ internal static class CellRules
         s = s.UpdateTissueOccupant(cell.Position, null).UpdateTissueOccupant(move.TargetPosition, cell.Id);
         s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithPosition(move.TargetPosition).Copy(campRound: -1));
         var tissue = s.Board.Tissues[move.TargetPosition];
-        if (cell.Faction == Faction.Immune && tissue.Mucus)
-        {
-            s = s.WithBoard(s.Board.UpdateTissue(move.TargetPosition, tissue.WithMucus(false)));
-            tissue = s.Board.Tissues[move.TargetPosition];
-        }
-        if (cell.Faction == Faction.Immune && tissue.State == TissueState.Cancer)
-        {
-            if (tissue.OssifyAtRound > 0)
-            {
-                // 骨样硬化标记格：进入不能立即净化，须停留到世界回合结束
-                s = s.UpdateCell(cell.Id, s.Cells[cell.Id].Copy(campRound: s.Turn.WorldRound, campPosition: move.TargetPosition));
-            }
-            else
-            {
-                s = s.UpdateTissueState(move.TargetPosition, TissueState.Healthy);
-                // 卡牌引发的净化不积累抗原记忆（GD purify_here:1043 / card_resolve_depth；Kevin 2026-09-16 拍板跟 GD）
-                if (RulePolicies.PurifyGivesMemory(s)) s = AddMemory(s, 1);
-                events.Add(new TissueStateChangedEvent(s.Turn.WorldRound, s.Turn.Phase, move.TargetPosition, tissue.State, TissueState.Healthy));
-                // 【I-吞噬】：巨噬细胞通过【迁移】触发净化后恢复，回量不超过本次实付 -0.1
-                if (s.Cells[cell.Id].Type == CellType.Macrophage)
-                {
-                    var heal = Math.Max(0, Math.Min(2, cost - 1));   // 【I-吞噬】回 0.2（PRD:597，09-12 覆盖版 0.3→0.2）；上限「实付 −0.1」照旧
-                    if (heal > 0) s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
-                }
-                // 【免疫记忆库】等净化跨域反应：发出已提交事实，由 FactRouter 按目录稳定顺序分派
-                s = FactRouter.Emit(s, new PurifyResolvedFact(s.Turn.WorldRound, cell.Id), rng);
-                // 巨噬【连续吞噬】：净化之后**当场**接着走（PRD:605）。
-                // GD 那边是个 await 循环 + `chain_running` 再入闸；这里每一跳是一个独立决策，
-                // 所以挂起等玩家选就行，不需要那道闸。
-                if (s.Cells[cell.Id].Type == CellType.Macrophage && s.Cells[cell.Id].ChainLeft > 0
-                        && ChainTargets(s, s.Cells[cell.Id]).Count > 0)
-                    s = s.WithTurn(s.Turn.WithPendingChain(cell.Id));
-                // 【模式识别增强】：每世界回合第一次【净化】后恢复 0.5 能量
-                if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "模式识别增强") && RoundGateOpen(s.Cells[cell.Id], "模式识别增强"))
-                {
-                    s = BurnRoundGate(s, cell.Id, "模式识别增强");
-                    s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
-                }
-                // 【效应记忆形成】：每世界回合第一次【净化】后免疫方 +1 抗原记忆、自身恢复 0.5
-                if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "效应记忆形成") && RoundGateOpen(s.Cells[cell.Id], "效应记忆形成"))
-                {
-                    s = BurnRoundGate(s, cell.Id, "效应记忆形成");
-                    s = AddMemory(s, 1);
-                    s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
-                }
-            }
-        }
-        else if (cell.Faction == Faction.Cancer && tissue.State == TissueState.Healthy)
-        {
-            s = s.UpdateTissueState(move.TargetPosition, TissueState.Cancer);
-            s = s.WithBoard(s.Board.UpdateTissue(move.TargetPosition, s.Board.Tissues[move.TargetPosition].WithNewborn(true)));
-            events.Add(new TissueStateChangedEvent(s.Turn.WorldRound, s.Turn.Phase, move.TargetPosition, tissue.State, TissueState.Cancer));
-            // 【RAS持续激活】：每行动回合第一次通过【移动】触发【定殖】后恢复
-            // GD `first_this_turn`（cw_game.gd）**每次都记一笔**、只在第一次返回 true：fx_turn 存的是「用了几次」，
-            // 所以第二次定殖不回血、计数照样 +1（L1 第 184 步：GD 记 2、C# 记 1）。计数进 state_hash，得逐位同
-            if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "RAS持续激活"))
-            {
-                var first = TurnGateOpen(s.Cells[cell.Id], "RAS持续激活");
-                s = BurnTurnGate(s, cell.Id, "RAS持续激活");
-                if (first)
-                {
-                    var heal = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 3, 1 => 5, _ => 7 };
-                    s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
-                }
-            }
-        }
+        // GD `enter_tile(cell, to, q.final)`：定殖 / 蹲守 / 净化 → 黏液 → collect_special → update_marks；RAS 在它整个跑完之后（cw_actions.gd:773-782）。
+        // paid：连锁跳（free）在 GD 里不传 → -1；付费迁移传实付，被免费豁免盖成 0 的照传 0（巨噬回能三态看它，见 MacroPurifyHeal）
+        s = Arrive(s, cell.Id, move.TargetPosition, free ? -1 : cost, rng);
+        var landed = s.Board.Tissues[move.TargetPosition];
+        if (landed.State != tissue.State)
+            events.Add(new TissueStateChangedEvent(s.Turn.WorldRound, s.Turn.Phase, move.TargetPosition, tissue.State, landed.State));
+        // 免疫踩黏液即清 —— GD 排在定殖 / 净化**之后**（cw_actions.gd:1028-1029），此前 C# 排在之前
+        if (cell.Faction == Faction.Immune && landed.Mucus)
+            s = s.WithBoard(s.Board.UpdateTissue(move.TargetPosition, landed.WithMucus(false)));
         s = CollectSpecial(s, cell.Id, rng);   // 代谢核心收能量 / 骨髓抽卡（GD enter_tile → collect_special，2026-09-17 补上骨髓那一支）
+        s = UpdateMarks(s);
+        // 【RAS持续激活】：每行动回合第一次通过【移动】触发【定殖】后恢复。GD 钩在 `_do_move` 里 enter_tile **之后**（cw_actions.gd:776-782），
+        // 即 collect_special（骨髓可能抽一张并当场结算）与 update_marks 之后 —— 此前 C# 排在 CollectSpecial 之前（2026-09-17 晚对齐）。
+        // GD `first_this_turn`（cw_game.gd）**每次都记一笔**、只在第一次返回 true：fx_turn 存的是「用了几次」，
+        // 所以第二次定殖不回血、计数照样 +1（L1 第 184 步：GD 记 2、C# 记 1）。计数进 state_hash，得逐位同
+        if (cell.Faction == Faction.Cancer && tissue.State == TissueState.Healthy && RulePolicies.HasSkill(s, s.Cells[cell.Id], "RAS持续激活"))
+        {
+            var first = TurnGateOpen(s.Cells[cell.Id], "RAS持续激活");
+            s = BurnTurnGate(s, cell.Id, "RAS持续激活");
+            if (first)
+            {
+                var heal = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 3, 1 => 5, _ => 7 };
+                s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
+            }
+        }
         events.Add(new CellMovedEvent(s.Turn.WorldRound, s.Turn.Phase, cell.Id, cell.Position, move.TargetPosition, cost));
         return new(UpdateMarks(s), events, true);
     }

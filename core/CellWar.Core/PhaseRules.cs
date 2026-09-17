@@ -227,7 +227,7 @@ internal static class PhaseRules
     {
         var dead = s.Cells[revival.CellId];
         if (revival.SourcePosition is { } source)
-            s = s.UpdateTissueState(source, TissueState.Cancer).UpdateTissueSolidification(source, 0);
+            s = CardRules.CrackToCancer(s, source);   // GD `crack_to_cancer`：固化格拆回普通癌组织（to_cancer(false)，五项一起清）
         s = s.UpdateCell(dead.Id, dead.Copy(alive: true, energy: dead.Faction == Faction.Immune ? 10 : 20, position: revival.TargetPosition, attacks: 0, respawnRound: -1));   // GD 复活后 respawn_round = -1
         s = s.UpdateTissueOccupant(revival.TargetPosition, dead.Id);
         s = SetSeatAlive(s, dead.OwnerSeat, true);

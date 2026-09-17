@@ -63,13 +63,12 @@ internal static class BoardRules
         foreach (var c in new[] { a, b }.OfType<Cell>())
         {
             var position = s.Cells[c.Id].Position;
+            // 翻面走唯一入口（GD 这条路是完整的 enter_tile）。血管传送整条与 GD 的其余差异 —— 坏死闸、已作废的「敌对同格则取消」、
+            // 先送 a 再送 b 的顺序、只收能量不抽卡、无标记刷新 —— 记在对拍规格 KNOWN_GAP「vessel-transport」，这里不动
             if (c.Faction == Faction.Cancer && s.Board.Tissues[position].State == TissueState.Healthy)
-            {
-                s = s.UpdateTissueState(position, TissueState.Cancer);
-                s = s.WithBoard(s.Board.UpdateTissue(position, s.Board.Tissues[position].WithNewborn(true)));
-            }
+                s = CardRules.ToCancer(s, position, newborn: true);
             else if (c.Faction == Faction.Immune && s.Board.Tissues[position].State == TissueState.Cancer)
-                s = s.UpdateTissueState(position, TissueState.Healthy);
+                s = CardRules.ToHealthy(s, position);
             s = CollectEnergy(s, c.Id);
         }
         return s;
@@ -92,7 +91,7 @@ internal static class BoardRules
         s = Pressure(s);                               // 2  【微环境压迫】
         var fresh = Proliferate(s, rng, out s);        // 3  【增生】
         s = Erosion(s, rng, fresh);                    // 4  【侵蚀】
-        s = ResolveCamping(s);                         // 4.9 骨样硬化标记格上的蹲守净化
+        s = ResolveCamping(s, rng);                    // 4.9 骨样硬化标记格上的蹲守净化
         s = Solidify(s);                               // 5  【固化】
         s = Rooted(s, rng);                            // 5  【根深蒂固】
         s = Ossify(s);                                 // 5  骨肉瘤【骨样硬化】标记到期
@@ -209,8 +208,7 @@ internal static class BoardRules
             // `NextIntRange(1, 1001)`（半开）同样出 1..1000，同样判 `<=`。
             if (rng.NextIntRange(1, 1001) <= chance)
             {
-                s = s.UpdateTissueState(t.Position, TissueState.Cancer);
-                s = s.WithBoard(s.Board.UpdateTissue(t.Position, s.Board.Tissues[t.Position].WithNewborn(true)));
+                s = CardRules.ToCancer(s, t.Position, newborn: true);   // GD `CWTissue.to_cancer(tile, true)`，与【侵蚀】同一入口
                 fresh.Add(t.Position);
             }
         }
@@ -255,7 +253,7 @@ internal static class BoardRules
     /// 4.9 骨样硬化标记格上的蹲守净化：免疫踏进标记格不能立刻净化，得在那儿站到世界回合结束。
     /// 挪过窝、或格子已固化/被别人净化，标记作废。**排在【固化】之前**（GD 同序）。
     /// </summary>
-    private static WorldState ResolveCamping(WorldState s)
+    private static WorldState ResolveCamping(WorldState s, IDeterministicRng rng)
     {
         foreach (var loopCell in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune && c.CampRound >= 0).ToArray())
         {
@@ -264,8 +262,9 @@ internal static class BoardRules
             s = s.UpdateCell(loopCell.Id, cell);
             if (at is not { } atPos || cell.Position != atPos) continue;
             if (s.Board.Tissues[atPos].State != TissueState.Cancer) continue;
-            s = s.UpdateTissueState(atPos, TissueState.Healthy);
-            s = AddMemory(s, 1);
+            // GD `_resolve_camping` → `purify_here(cell, at, -1)`：整条净化口径（转健康、记忆闸、巨噬不回能、_on_purify 三张技能）。
+            // 此前 C# 是裸翻面 + 无条件记忆。【连续吞噬】GD 会在 E 阶段当场追问，C# 的连锁是挂起决策、E 阶段没有决策点 —— 不挂（KNOWN_GAP）
+            s = CellRules.PurifyHere(s, loopCell.Id, atPos, -1, rng, chain: false);
         }
         return s;
     }

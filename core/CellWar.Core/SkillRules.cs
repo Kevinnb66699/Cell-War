@@ -179,8 +179,10 @@ internal static class SkillRules
                 foreach (var pos in ring)
                 {
                     if (!s.Board.Tissues.TryGetValue(pos, out var tile) || tile.State != TissueState.Cancer || tile.ToxinRound == s.Turn.WorldRound) continue;
-                    s = s.UpdateTissueState(pos, TissueState.Healthy);
-                    s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2).WithToxinRound(s.Turn.WorldRound)));
+                    // GD `CWTissue.to_necrotic(tile, NECROSIS_TOXIN)`：坏死时长取 max(原, 2)，代谢核心 / 骨髓的库存与产出进度一起清
+                    // （此前 C# 固定写 2、库存不清 —— 2026-09-17 晚复核发现）
+                    s = CardRules.Necrotize(s, pos, 2);
+                    s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithToxinRound(s.Turn.WorldRound)));
                 }
                 foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && x.Position.DistanceTo(cell.Position) <= 1).ToArray())
                     s = Damage(s, target.Id, 10, LossSource.ImmuneEffect);   // 细胞毒素：1.0 能量（原 1 = 0.1）
@@ -225,7 +227,7 @@ internal static class SkillRules
                 var dest = d.Target!.Value;
                 s = EnterTile(s, cell.Id, dest, rng);   // GD `_homing` 走 enter_tile（落地即【定殖】+ 特殊组织收取）
                 var spread = dest.GetNeighbors().Where(n => s.Board.Tissues.TryGetValue(n, out var nt) && nt.State == TissueState.Healthy).ToArray();
-                foreach (var pick in rng.PickRandom(spread, 3)) s = s.UpdateTissueState(pick, TissueState.Cancer);
+                foreach (var pick in rng.PickRandom(spread, 3)) s = CardRules.ToCancer(s, pick, newborn: true);   // GD `to_cancer(t, true)`：新生、清坏死
                 break;
             }
             case "转移":

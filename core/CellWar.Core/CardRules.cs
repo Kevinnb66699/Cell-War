@@ -788,12 +788,19 @@ internal static class CardRules
     /// <summary>GD `CWTissue.crack_to_cancer`：固化格拆回普通癌组织（= to_cancer 且不算新生）。</summary>
     internal static WorldState CrackToCancer(WorldState s, HexPosition pos) => ToCancer(s, pos, newborn: false);
 
+    /// <summary>GD `CWTissue.to_healthy`（cw_tissue.gd:10-15）：转健康 —— solid / newborn / necrosis / ossify 四项全清，库存不动。
+    /// 与 <see cref="ToCancer"/> 一起是 C# 侧组织翻面的**唯一入口**：`WithState` 只按目标状态选择性清字段、从不碰 necrosis，
+    /// 此前 Move / Teleport 两条定殖路和净化路都是裸 `UpdateTissueState`，定殖不清坏死（GD `is_valid`：癌组织身上永远没有坏死），
+    /// 2p 夹具里没坏死源才一直没撞上（2026-09-17 晚）。</summary>
+    internal static WorldState ToHealthy(WorldState s, HexPosition pos)
+        => s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithState(TissueState.Healthy).WithSolidificationCount(0).WithNewborn(false).WithNecrosis(0).WithOssifyAt(0)));
+
     private const int RadioRegionSize = 10;   // CWData.RADIO_REGION（2026-09-09 由 15 改 10）
     private const int NecrosisRadio = 2;      // CWData.NECROSIS_RADIO
 
     /// <summary>GD `CWTissue.to_necrotic`：先 to_healthy（solid / newborn / ossify 清零），坏死时长取 max(原, rounds)，
     /// 再把代谢核心 / 骨髓的库存与产出进度一起清掉（Kevin 2026-09-13 issue #31）。区域里的健康格也照走这一遭。</summary>
-    private static WorldState Necrotize(WorldState s, HexPosition pos, int rounds)
+    internal static WorldState Necrotize(WorldState s, HexPosition pos, int rounds)
     {
         var t = s.Board.Tissues[pos];
         var dead = t.WithState(TissueState.Healthy).WithNecrosis(Math.Max(t.NecrosisRounds, rounds)).WithProductionCounter(0);

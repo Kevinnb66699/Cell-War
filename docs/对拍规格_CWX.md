@@ -117,7 +117,7 @@ Vector2i → "q,r"；bool → 1/0
 「本回合」修饰在下一次 BeginTurn 才清（改成结束回合那一刻清）；压迫为 0 也进 Damage 把一次性护盾吃掉（改成 GD 的 `loss <= 0: continue`）；【RAS持续激活】闸门只烧一次（GD `first_this_turn` 每次计数）；
 `UpdateMarks` 过滤「本回合标过」（GD 过滤「已带标记」）。传送落地统一走 `CellRules.EnterTile`（Teleport + 黏液清除 + 代谢核心 / 骨髓二选一 + 标记刷新），骨髓抽卡那一发带子此前 C# 全局没有。
 **还是 KNOWN_GAP 的**：【基质重塑】选定第一格之后的两段追问（再拆一格 / 转健康 ×2，GD 三问零随机；C# 现在只有第一格由玩家选、后面仍按 PickRandom）；
-能量损失的限次修饰消耗不是 ON_BENEFIT（`ConsumeModifiers` 对 EnergyLoss 一律扣，GD `_shield_groups` 只扣真减了伤的）；【细胞毒性增强】GD 走 fx_turn 闸门、C# 是回合修饰；
+~~能量损失的限次修饰消耗不是 ON_BENEFIT~~（09-17 晚已合上，见下）；【细胞毒性增强】GD 走 fx_turn 闸门、C# 是回合修饰；
 【信号放大】【细胞应激】等世界事件。（【交叉呈递】绕开 apply_mark：**Kevin 09-17 裁定是疏漏**，两边改走 apply_mark、选项层滤掉本回合给过标记的目标，协议 v28，三条夹具重录。）
 
 **2026-09-17 晚 · 2p / 6p 夹具**（Kevin 要的）：`trace_2p_2222.jsonl`（173 步终局）、`trace_6p_6666.jsonl`（200 步），各自的水位线 51 / 186。
@@ -128,6 +128,17 @@ S 阶段骨髓产出时站在上面的细胞要抽卡（`collect_special`，带�
 **同晚合上的**：① 减免层按来源认账 —— C# `Damage` 加了 `LossSource`（World / ImmuneAttack / ImmuneEffect / CancerSkill，GD 四个薄壳 `immune_hit` / `cancer_hit` 的投影），
 护盾照 GD `_shield_applies` 认来源、照 `_reduce` 逐组 ON_BENEFIT（同名合并、按打出先后、挡光即停）；【突变】第 3 点与【吞噬体成熟】的处决照 GD 不进管线（2p 第 52 步）。
 ② 【根深蒂固】候选按 GD DIRS 序（2p 第 85 步）。至此三条夹具整条一致：4p 200 / 2p 173（终局）/ 6p 200。
+
+**2026-09-17 深夜 · 第三批（七路规格 + 七路反驳 + 批评镜头的工作流开出来的清单，按它给的顺序做）**：
+① **组织翻面单一入口**：GD `CWTissue.to_cancer / to_healthy` 是整体赋值（solid / newborn / necrosis / ossify 一起清），C# `WithState` 只按目标状态选择性清、**从不碰 necrosis**；
+Move / Teleport 两条定殖路、净化路、血管、增生、血行转移扩散、复活依托格此前都是裸 `UpdateTissueState` → 造出 GD `is_valid` 明令不存在的「癌组织 + 坏死」（三条夹具里没有坏死源才没撞上）。
+现在全部走 `CardRules.ToCancer / ToHealthy / CrackToCancer / Necrotize`，`TissueFlipTests` 里一条全盘不变量护栏（KeyWalk 随机走子 4 种子 × 600 步）拦住以后绕开入口的新路径。
+② **巨噬【I-吞噬】回能三态**（GD `enter_tile` 的 paid）：-1 不回（传送 / 复活 / 血管 / 卡牌位移 / 蹲守 / 连锁跳）、**0 回满**（付费迁移被【组织巡航】盖成 0）、>0 封顶实付 −0.1；C# 此前 `Math.Min(2, cost−1)` 把 0 压成 0。`RuleTuning.MacroHealPurify` 旋钮接上（TUNE_KEYS 21 键，三条夹具重录、只有 tune 块变）。
+③ **`CellRules.PurifyHere` = GD `purify_here`**：Move / Teleport / 蹲守净化三处共用；`_on_purify` 顺序 模式识别增强 → 效应记忆形成 → 免疫记忆库抽卡（C# 此前先抽再加记忆，记忆抬等级、等级换卡池）；
+传送落到骨样硬化标记格改为登记蹲守；RAS 挪到 collect_special / update_marks 之后（GD `_do_move` 的位置）；黏液清除挪到定殖 / 净化之后。三条夹具照旧整条一致。
+**登记的 KNOWN_GAP（各自独立）**：`vessel-transport`（血管传送：坏死闸、已作废的「敌对同格则取消」、先送 a 再送 b、只收能量不抽卡、无标记刷新）；
+`revive-landing`（复活落点只走 Land，不触发定殖 / 净化 —— 今天靠落点地形兜住）；`camp-clear-condition`（GD 只在免疫且落点不是蹲守格时清 camp_round，C# 无条件清，等【紊乱】落地一起做）；
+`camping-chain`（蹲守净化后的【连续吞噬】GD 在 E 阶段当场追问，C# 不挂）。
 （6p 第 187 步那 0.1 已合上：有氧收入的顺序 —— GD 先对等级份额打【TGF-β释放】折再加【代谢适应】【自分泌生存信号】的额外获得，C# 此前先加后折；6p 整条 200 步一致。）
 
 **丢掉了什么（写进限制栏）**：选项的**顺序**与下标稳定性不再被验证（`DecisionRouter.cs:82` 的 `Tiles(s)` 走 `PagedMap` 迭代序而非排序序）。C# 真当权威内核时，这会以「客户端点了第 3 项、服务器执行了第 5 项」的形式复活——那要靠「按语义提交」的线上协议解决，不是靠对拍。**这条要单独立一条阶段 1 待办。**
