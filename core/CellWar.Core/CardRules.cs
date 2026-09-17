@@ -301,9 +301,9 @@ internal static class CardRules
         // 此前 C# 做成两条「免费移动」修饰，等玩家用「移动」行动去花 —— 选项形状和 GD 完全不同（L1 2p 第 6 步就分叉在这）。
         // 挂起后由 Execute 出口的 NormalizeChemotaxis 收口：没有候选就当场摘掉（GD「没有可进入的相邻格，提前结束」不问）
         ["趋化募集"] = (s, cell, rng, target, targetCell) =>
-            s.WithTurn(s.Turn.WithPendingChemotaxis(cell.Id, CellRules.FreeWalkMaxSteps, "趋化募集")),
+            s.WithTurn(s.Turn.PushWalk(cell.Id, CellRules.FreeWalkMaxSteps, "趋化募集")),   // 压栈：在别的连走当中抽到就是内层
         ["效应细胞浸润"] = (s, cell, rng, target, targetCell) =>
-            s.WithTurn(s.Turn.WithPendingChemotaxis(cell.Id, CellRules.FreeWalkMaxSteps, "效应细胞浸润")),
+            s.WithTurn(s.Turn.PushWalk(cell.Id, CellRules.FreeWalkMaxSteps, "效应细胞浸润")),
         // 【炎症性趋化】：连走最多 3 步，每步起价 0.2。
         //
         // 不是「本回合 3 次迁移改价 0.2」的修饰（2026-09-16 前 C# 是那么写的）：
@@ -316,7 +316,7 @@ internal static class CardRules
         ["炎症性趋化"] = (s, cell, rng, target, targetCell) =>
         {
             if (target is not { } first) return s;
-            s = s.WithTurn(s.Turn.WithPendingChemotaxis(cell.Id, CellRules.ChemotaxisMaxSteps, "炎症性趋化"));
+            s = s.WithTurn(s.Turn.PushWalk(cell.Id, CellRules.ChemotaxisMaxSteps, "炎症性趋化"));
             // 这里丢掉了这一步的事件（攻击/净化）—— 卡牌效果表的签名只吐 WorldState，
             // 整张表都是这样（如【炎症风暴】改地形也不发事件），不为一张卡单开一条通路。
             return CellRules.ChemotaxisMove(s, cell.Id, first, rng).NewState;

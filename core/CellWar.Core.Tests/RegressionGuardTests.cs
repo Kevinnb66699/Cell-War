@@ -284,6 +284,8 @@ public class RegressionGuardTests
             t => t.WithPendingChemotaxis(new EntityId(9), 1));
         AssertOnlyChangesAmong(full, "WithPendingChemotaxis(null)", ChemotaxisFields,
             t => t.WithPendingChemotaxis(null, 0));
+        AssertOnlyChangesAmong(full, "PushWalk", ChemotaxisFields, t => t.PushWalk(new EntityId(9), 2, "趋化募集"));
+        AssertOnlyChangesAmong(full, "PopWalk", ChemotaxisFields, t => t.PopWalk());
 
         AssertOnlyChanges(full, "WithCardResolveDepth", nameof(TurnState.CardResolveDepth), t => t.WithCardResolveDepth(3));
         AssertOnlyChangesAmong(full, "WithPendingCard", PendingCardFields, t => t.WithPendingCard("缺氧适应", new EntityId(9)));
@@ -359,7 +361,7 @@ public class RegressionGuardTests
     /// <summary>【炎症性趋化】的挂起态：谁在走 + 还剩几步，两个字段一起改。</summary>
     private static readonly string[] ChemotaxisFields =
     [
-        nameof(TurnState.PendingChemotaxisCell), nameof(TurnState.ChemotaxisStepsLeft), nameof(TurnState.PendingWalkCard),
+        nameof(TurnState.PendingChemotaxisCell), nameof(TurnState.ChemotaxisStepsLeft), nameof(TurnState.PendingWalkCard), nameof(TurnState.WalkOuter),
     ];
 
     /// <summary>同 AssertOnlyChanges，但允许一次改动一组字段。</summary>
@@ -1440,6 +1442,7 @@ public class RegressionGuardTests
         PendingChemotaxisCell = new EntityId(6),
         ChemotaxisStepsLeft = 2,
         PendingWalkCard = "趋化募集",
+        WalkOuter = new[] { new WalkFrame(new EntityId(5), 1, "炎症性趋化") },
         CardResolveDepth = 1,
         PendingCard = "炎症性趋化",
         PendingCardCell = new EntityId(6),

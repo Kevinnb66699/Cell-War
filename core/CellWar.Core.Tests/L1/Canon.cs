@@ -79,7 +79,12 @@ public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Mem
 {
     /// <summary>每个席位的阵营与存活（GD 的 `players` + `order`）。</summary>
     public List<CanonPlayer> Players { get; init; } = [];
+    /// <summary>嵌套连走被压在下面的外层帧（GD 视图里不存在，一律空；C# 存档要带）。</summary>
+    public List<CanonWalkFrame> WalkOuter { get; init; } = [];
 }
+
+/// <summary>一段被压在下面的连走（`TurnState.WalkFrame`）。</summary>
+public sealed record CanonWalkFrame(int Cell, int StepsLeft, string Card);
 
 public sealed record CanonPlayer(int Seat, int Faction, bool Alive, int DrawCount, int Memory, int Level, int? CType);
 

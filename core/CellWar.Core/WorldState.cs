@@ -106,6 +106,10 @@ public sealed class TurnState
     /// 【效应细胞浸润】（免费，健康或普通癌组织，2 步）。候选规则、走法、语义键的 tag 都按它分；null = 没在走。
     /// 后两张是抽到即结算的事件卡（GD `_free_walk`），2026-09-17 之前 C# 把它们做成两条免费移动修饰，没有逐步追问。</summary>
     public string? PendingWalkCard { get; init; }
+    /// <summary>嵌套连走时被压在下面的**外层**帧（栈底 → 栈顶−1；栈顶就是上面三个字段）。
+    /// GD 的连走是协程栈（cw_card_fx.gd `_free_walk`）：连走的一步踩到存卡的骨髓、抽到【趋化募集】这种抽到即走的卡，
+    /// 内层先走完，外层再从新位置把剩下的步问完；「停在这里」只退一层。此前 C# 是单槽，内层把外层整组覆写、外层剩余步数丢掉（2026-09-17 深夜）。</summary>
+    public IReadOnlyList<WalkFrame> WalkOuter { get; init; } = Array.Empty<WalkFrame>();
 
     /// <summary>
     /// GD 的 `card_resolve_depth`：正在结算一张卡（打出的即时卡 / 抽到的事件卡）时 > 0。
@@ -166,6 +170,7 @@ public sealed class TurnState
         PendingChemotaxisCell = PendingChemotaxisCell,
         ChemotaxisStepsLeft = ChemotaxisStepsLeft,
         PendingWalkCard = PendingWalkCard,
+        WalkOuter = WalkOuter,
         CardResolveDepth = CardResolveDepth,
         PendingCard = PendingCard,
         PendingCardCell = PendingCardCell,
@@ -528,3 +533,6 @@ public sealed class StatusEffect
         Parameters = new Dictionary<string, object>(Parameters)
     };
 }
+
+/// <summary>一段被压在下面的连走：谁在走、还剩几步、走的是哪张卡（与 <see cref="TurnState.PendingChemotaxisCell"/> 三个字段同形）。</summary>
+public readonly record struct WalkFrame(EntityId Cell, int StepsLeft, string Card);

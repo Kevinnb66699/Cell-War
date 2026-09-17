@@ -92,6 +92,7 @@ public class CanonRoundTripTests
             .WithPendingMutation(1, other, 2, 3)
             .WithPendingChain(id)
             .WithPendingChemotaxis(other, 2, "炎症性趋化")
+            .PushWalk(id, 1, "趋化募集")   // 外层帧非空：Canon 漏搬 WalkOuter 这里会红
             .WithPendingCard("炎症性趋化", other)
             .WithCardResolveDepth(1)
             .WithCancerReviveFrom(2)

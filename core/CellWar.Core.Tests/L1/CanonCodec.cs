@@ -57,6 +57,7 @@ public static class CanonCodec
             s.Turn.PendingCoupleCell is { } cp1 ? Seat(cp1) : null, s.Turn.PendingCoupleAlly is { } cp2 ? Seat(cp2) : null,
             s.Turn.PendingCouplePayer is { } cp3 ? Seat(cp3) : null)
         {
+            WalkOuter = s.Turn.WalkOuter.Select(f => new CanonWalkFrame(Seat(f.Cell), f.StepsLeft, f.Card)).ToList(),
             Players = s.Players.Values.OrderBy(p => p.Seat).Select(p => new CanonPlayer(
                 p.Seat, (int)p.Faction, p.IsAlive, p.DrawCount, p.AntigenMemory, (int)p.ImmuneLevel,
                 p.CancerType is { } ct ? (int)ct : null)).ToList(),
@@ -174,6 +175,7 @@ public static class CanonCodec
                 PendingChemotaxisCell = c.G.PendingChemotaxisCell is { } px ? Id(px) : null,
                 ChemotaxisStepsLeft = c.G.ChemotaxisStepsLeft,
                 PendingWalkCard = c.G.PendingWalkCard == "" ? null : c.G.PendingWalkCard,
+                WalkOuter = c.G.WalkOuter.Select(f => new WalkFrame(Id(f.Cell), f.StepsLeft, f.Card)).ToArray(),
                 CardResolveDepth = c.G.CardResolveDepth,
                 PendingCard = c.G.PendingCard == "" ? null : c.G.PendingCard,
                 PendingCardCell = c.G.PendingCardCell is { } pcc ? Id(pcc) : null,

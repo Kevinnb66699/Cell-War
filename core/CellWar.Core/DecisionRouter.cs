@@ -104,8 +104,8 @@ internal static class DecisionRouter
         if (decision is StopChainDecision)
             return new(state.WithTurn(state.Turn.WithPendingChain(null)), Array.Empty<IGameEvent>(), true);
         if (decision is ChemotaxisStepDecision step) return CellRules.WalkMove(state, step.CellId, step.Target, rng);
-        if (decision is StopChemotaxisDecision)
-            return new(state.WithTurn(state.Turn.WithPendingChemotaxis(null, 0)), Array.Empty<IGameEvent>(), true);
+        if (decision is StopChemotaxisDecision)   // GD `_free_walk` 的 `return` 只退一层：外层还有步就接着问（出口的 NormalizeChemotaxis 会再判外层）
+            return new(state.WithTurn(state.Turn.PopWalk()), Array.Empty<IGameEvent>(), true);
         if (decision is CoupleDirectionDecision dir)
             return new(state.WithTurn(state.Turn.WithPendingCouple(dir.CellId, state.Turn.PendingCoupleAlly, dir.Payer)), Array.Empty<IGameEvent>(), true);
         if (decision is CoupleTierDecision tier)

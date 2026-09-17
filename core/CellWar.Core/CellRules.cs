@@ -350,11 +350,15 @@ internal static class CellRules
     /// </summary>
     internal static WorldState NormalizeChemotaxis(WorldState s)
     {
-        if (s.Turn.PendingChemotaxisCell is not { } id) return s;
-        if (s.Turn.PendingChainCell is not null) return s;   // 连锁先排干，它在 GD 里嵌在这一步内部
-        var c = s.Cells[id];
-        if (s.Turn.ChemotaxisStepsLeft > 0 && c.IsAlive && WalkSteps(s, c).Count > 0) return s;
-        return s.WithTurn(s.Turn.WithPendingChemotaxis(null, 0));
+        // 嵌套连走是栈：栈顶这段走完 / 停了 / 没路了就弹掉，露出外层那段，从新位置按**外层的卡名**重算候选；一层都不剩才真正摘干净
+        while (s.Turn.PendingChemotaxisCell is { } id)
+        {
+            if (s.Turn.PendingChainCell is not null) return s;   // 连锁先排干，它在 GD 里嵌在这一步内部
+            var c = s.Cells[id];
+            if (s.Turn.ChemotaxisStepsLeft > 0 && c.IsAlive && WalkSteps(s, c).Count > 0) return s;
+            s = s.WithTurn(s.Turn.PopWalk());
+        }
+        return s;
     }
 
     /// <summary>

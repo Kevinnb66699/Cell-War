@@ -147,7 +147,7 @@ public static class WorldStateExtensions
         int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? cytokineSeat = null, int? effectorRound = null,
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
         EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null, EntityId? pendingChain = null,
-        EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null, string? pendingWalkCard = null,
+        EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null, string? pendingWalkCard = null, IReadOnlyList<WalkFrame>? walkOuter = null,
         int? cardResolveDepth = null, string? pendingCard = null, EntityId? pendingCardCell = null, int? cancerReviveFrom = null,
         EntityId? pendingCoupleCell = null, EntityId? pendingCoupleAlly = null, EntityId? pendingCouplePayer = null,
         bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false,
@@ -171,6 +171,7 @@ public static class WorldStateExtensions
             PendingChemotaxisCell = setPendingChemotaxis ? pendingChemotaxis : pendingChemotaxis ?? t.PendingChemotaxisCell,
             ChemotaxisStepsLeft = chemotaxisStepsLeft ?? t.ChemotaxisStepsLeft,
             PendingWalkCard = setPendingWalkCard ? pendingWalkCard : pendingWalkCard ?? t.PendingWalkCard,
+            WalkOuter = walkOuter ?? t.WalkOuter,
             CardResolveDepth = cardResolveDepth ?? t.CardResolveDepth,
             PendingCard = setPendingCard ? pendingCard : pendingCard ?? t.PendingCard,
             PendingCardCell = setPendingCard ? pendingCardCell : pendingCardCell ?? t.PendingCardCell,
@@ -201,7 +202,28 @@ public static class WorldStateExtensions
     /// <summary>挂上 / 摘掉一段连走：`card` 是走的是哪张卡（见 <see cref="TurnState.PendingWalkCard"/>）；摘掉时三个一起清。</summary>
     public static TurnState WithPendingChemotaxis(this TurnState t, EntityId? cell, int stepsLeft, string? card = null)
         => t.Copy(pendingChemotaxis: cell, chemotaxisStepsLeft: stepsLeft, pendingWalkCard: cell is null ? null : card,
+            walkOuter: cell is null ? Array.Empty<WalkFrame>() : null,   // 摘掉 = 整条栈一起清（阶段推进的防御性清场用）；改栈顶 = 外层不动
             setPendingChemotaxis: true, setPendingWalkCard: true);
+
+    /// <summary>压一段连走进栈（GD：抽到即结算的事件卡在外层连走的一步里开内层 `_free_walk`）：
+    /// 已有的栈顶压到 <see cref="TurnState.WalkOuter"/> 末尾，新的一段成为栈顶。没有在走的就是普通挂起。</summary>
+    public static TurnState PushWalk(this TurnState t, EntityId cell, int stepsLeft, string card)
+    {
+        var outer = t.PendingChemotaxisCell is { } top
+            ? t.WalkOuter.Append(new WalkFrame(top, t.ChemotaxisStepsLeft, t.PendingWalkCard ?? "炎症性趋化")).ToArray()
+            : t.WalkOuter;
+        return t.Copy(pendingChemotaxis: cell, chemotaxisStepsLeft: stepsLeft, pendingWalkCard: card, walkOuter: outer,
+            setPendingChemotaxis: true, setPendingWalkCard: true);
+    }
+
+    /// <summary>弹掉栈顶那段连走（走完 / 停了 / 没路了，GD `_free_walk` 的 `return` 只退一层）：下面还有外层就让它露出来，一层都不剩就整组清空。</summary>
+    public static TurnState PopWalk(this TurnState t)
+    {
+        if (t.WalkOuter.Count == 0) return t.WithPendingChemotaxis(null, 0);
+        var frame = t.WalkOuter[^1];
+        return t.Copy(pendingChemotaxis: frame.Cell, chemotaxisStepsLeft: frame.StepsLeft, pendingWalkCard: frame.Card,
+            walkOuter: t.WalkOuter.Take(t.WalkOuter.Count - 1).ToArray(), setPendingChemotaxis: true, setPendingWalkCard: true);
+    }
 
     /// <summary>挂上【追踪趋化源】：跟着 `cell` 走，`rounds` 个世界回合。</summary>
     public static TurnState WithTrack(this TurnState t, EntityId? cell, HexPosition? frozenAt, int rounds)
