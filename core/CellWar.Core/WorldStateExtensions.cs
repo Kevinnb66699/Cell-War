@@ -147,7 +147,7 @@ public static class WorldStateExtensions
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
         EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null, EntityId? pendingChain = null, int? pendingChainWalkDepth = null,
         EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null, string? pendingWalkCard = null, IReadOnlyList<WalkFrame>? walkOuter = null, IReadOnlyList<HexPosition>? pendingMarrow = null, int? pendingMarrowWalkDepth = null,
-        int? cardResolveDepth = null, string? pendingCard = null, EntityId? pendingCardCell = null, int? cancerReviveFrom = null,
+        int? cardResolveDepth = null, string? pendingCard = null, EntityId? pendingCardCell = null, int? cancerReviveFrom = null, int? immuneReviveFrom = null,
         EntityId? pendingCoupleCell = null, EntityId? pendingCoupleAlly = null, EntityId? pendingCouplePayer = null,
         EntityId? pendingRemodelCell = null, HexPosition? pendingRemodelFirst = null, HexPosition? pendingRemodelSecond = null, int? pendingRemodelStep = null,
         EntityId? pendingLandCell = null, HexPosition? pendingLandAt = null, int? pendingLandWalkDepth = null, int? pendingLandStep = null,
@@ -177,7 +177,7 @@ public static class WorldStateExtensions
             CardResolveDepth = cardResolveDepth ?? t.CardResolveDepth,
             PendingCard = setPendingCard ? pendingCard : pendingCard ?? t.PendingCard,
             PendingCardCell = setPendingCard ? pendingCardCell : pendingCardCell ?? t.PendingCardCell,
-            CancerReviveFrom = cancerReviveFrom ?? t.CancerReviveFrom,
+            CancerReviveFrom = cancerReviveFrom ?? t.CancerReviveFrom, ImmuneReviveFrom = immuneReviveFrom ?? t.ImmuneReviveFrom,
             PendingCoupleCell = setPendingCouple ? pendingCoupleCell : pendingCoupleCell ?? t.PendingCoupleCell,
             PendingCoupleAlly = setPendingCouple ? pendingCoupleAlly : pendingCoupleAlly ?? t.PendingCoupleAlly,
             PendingCouplePayer = setPendingCouple ? pendingCouplePayer : pendingCouplePayer ?? t.PendingCouplePayer,
@@ -208,6 +208,7 @@ public static class WorldStateExtensions
 
     /// <summary>癌方复活问到哪一席了（放弃 / 复活 / 没落点都往前推一格）。</summary>
     public static TurnState WithCancerReviveFrom(this TurnState t, int seat) => t.Copy(cancerReviveFrom: seat);
+    public static TurnState WithImmuneReviveFrom(this TurnState t, int seat) => t.Copy(immuneReviveFrom: seat);
 
     /// <summary>进 / 出一张卡的结算（GD `card_resolve_depth += 1 / -= 1`）。</summary>
     public static TurnState WithCardResolveDepth(this TurnState t, int depth) => t.Copy(cardResolveDepth: depth);

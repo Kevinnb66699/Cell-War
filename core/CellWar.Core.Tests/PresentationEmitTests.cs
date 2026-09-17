@@ -276,4 +276,54 @@ public class PresentationEmitTests
         }
         Assert.True(seenHit && seenMiss, "60 颗种子里要同时见过掷中与没掷中");
     }
+
+    /// <summary>S 阶段的复活问答：从产出那一步推进到复活（Produce → Transport → ContinueStart）。</summary>
+    private static RulesResult StartRound(WorldState s, int seed = 5)
+        => Engine.AdvancePhase(s.WithTurn(s.Turn.Copy(phase: Phase.S, startStep: 0, cancerReviveFrom: 0, immuneReviveFrom: 0)), Rng(seed));
+
+    [Fact]
+    public void 复活失败_癌方没有固化癌组织时报一句_游标推进不回头问()
+    {
+        var s = DemoScenario.Create();
+        s = s.UpdateCell(Cancer1, s.Cells[Cancer1].Copy(alive: false, energy: 0, deathRound: 1)).UpdateTissueOccupant(s.Cells[Cancer1].Position, null);
+        var r = StartRound(s);
+        Assert.True(r.Success, r.ErrorMessage);
+        var said = Staged(r).OfType<ResultAnnounced>().Select(a => a.Text).ToList();
+        Assert.Contains("癌症A 无法复活：没有固化癌组织", said);
+        Assert.Equal(2, r.NewState.Turn.CancerReviveFrom);                        // 这一轮轮不回来
+        Assert.Equal(Phase.PlayerAction, r.NewState.Turn.Phase);                   // 没人可问，直接开打
+    }
+
+    [Fact]
+    public void 复活失败_免疫骨髓全被癌化时报在第一格被挡的骨髓上()
+    {
+        var s = DemoScenario.Create();
+        s = s.UpdateCell(Immune0, s.Cells[Immune0].Copy(alive: false, energy: 0, deathRound: 1, respawnRound: s.Turn.WorldRound + 1)).UpdateTissueOccupant(s.Cells[Immune0].Position, null);
+        foreach (var m in MatchSetup.Marrows) s = Tissue(s, m, t => t.WithType(TissueType.BoneMarrow).WithState(TissueState.Cancer));
+        var r = StartRound(s.WithTurn(s.Turn.Copy(round: s.Turn.WorldRound + 1)));
+        Assert.True(r.Success, r.ErrorMessage);
+        var notice = Assert.Single(Staged(r).OfType<ResultAnnounced>(), a => a.Text.Contains("无法复活"));
+        Assert.Equal("免疫A(免疫细胞) 无法复活：骨髓不可用", notice.Text);
+        Assert.Equal(MatchSetup.Marrows[0], notice.At);
+        Assert.True(notice.Linger);
+        Assert.Equal(1, r.NewState.Turn.ImmuneReviveFrom);
+    }
+
+    [Fact]
+    public void 复活_有落点的席位照问_问过就推进免疫游标()
+    {
+        var s = DemoScenario.Create();
+        s = s.UpdateCell(Immune0, s.Cells[Immune0].Copy(alive: false, energy: 0, deathRound: 1, respawnRound: s.Turn.WorldRound + 1)).UpdateTissueOccupant(s.Cells[Immune0].Position, null);
+        foreach (var m in MatchSetup.Marrows) s = Tissue(s, m, t => t.WithType(TissueType.BoneMarrow).WithState(TissueState.Healthy).WithCharge(0));
+        var r = StartRound(s.WithTurn(s.Turn.Copy(round: s.Turn.WorldRound + 1)));
+        Assert.True(r.Success, r.ErrorMessage);
+        Assert.Equal(Phase.S, r.NewState.Turn.Phase);
+        var options = Engine.GetAvailableDecisions(r.NewState, 0);
+        Assert.Equal(MatchSetup.Marrows.Length, options.OfType<ReviveDecision>().Count());   // 六个骨髓按 MARROWS 序
+        Assert.DoesNotContain(Staged(r).OfType<ResultAnnounced>(), a => a.Text.Contains("无法复活"));
+        var revived = Engine.ExecuteDecision(r.NewState, options.OfType<ReviveDecision>().First(), Rng());
+        Assert.True(revived.Success, revived.ErrorMessage);
+        Assert.Equal(1, revived.NewState.Turn.ImmuneReviveFrom);
+        Assert.True(revived.NewState.Cells[Immune0].IsAlive);
+    }
 }

@@ -62,7 +62,7 @@ public static class CanonCodec
             PendingRemodelFirst = PosOrNull(s.Turn.PendingRemodelFirst), PendingRemodelSecond = PosOrNull(s.Turn.PendingRemodelSecond),
             PendingRemodelStep = s.Turn.PendingRemodelStep,
             PendingLandCell = s.Turn.PendingLandCell is { } plc ? Seat(plc) : null,
-            PendingLandAt = PosOrNull(s.Turn.PendingLandAt), PendingLandWalkDepth = s.Turn.PendingLandWalkDepth, PendingLandStep = s.Turn.PendingLandStep,
+            PendingLandAt = PosOrNull(s.Turn.PendingLandAt), PendingLandWalkDepth = s.Turn.PendingLandWalkDepth, PendingLandStep = s.Turn.PendingLandStep, ImmuneReviveFrom = s.Turn.ImmuneReviveFrom,
             EndStep = s.Turn.EndStep, PendingChainWalkDepth = s.Turn.PendingChainWalkDepth,
             WalkOuter = s.Turn.WalkOuter.Select(f => new CanonWalkFrame(Seat(f.Cell), f.StepsLeft, f.Card)).ToList(),
             PendingMarrow = s.Turn.PendingMarrow.Select(Pos).ToList(), PendingMarrowWalkDepth = s.Turn.PendingMarrowWalkDepth,
@@ -200,6 +200,7 @@ public static class CanonCodec
                 PendingLandAt = PosOrNull(c.G.PendingLandAt),
                 PendingLandWalkDepth = c.G.PendingLandWalkDepth,
                 PendingLandStep = c.G.PendingLandStep,
+                ImmuneReviveFrom = c.G.ImmuneReviveFrom,
                 EndStep = c.G.EndStep, PendingChainWalkDepth = c.G.PendingChainWalkDepth,
             },
         };

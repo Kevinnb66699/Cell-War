@@ -141,6 +141,8 @@ public sealed class TurnState
     /// 没有它，「放弃」之后 `GetRevivalOptions` 会立刻再问同一个细胞。
     /// </summary>
     public int CancerReviveFrom { get; init; }
+    /// <summary>免疫方复活问答的游标（GD `_ask_each` 的 flow["i"] 在 revive_immune 阶段的那一份）：席位小于它的这一轮已经问过 / 已经报过「骨髓不可用」，不再问。</summary>
+    public int ImmuneReviveFrom { get; init; }
 
     /// <summary>
     /// 【代谢耦联】结算到一半：打出这张卡的细胞、选定的队友、以及方向选定之后的付方（null = 还在问方向）。
@@ -204,6 +206,7 @@ public sealed class TurnState
         PendingCard = PendingCard,
         PendingCardCell = PendingCardCell,
         CancerReviveFrom = CancerReviveFrom,
+        ImmuneReviveFrom = ImmuneReviveFrom,
         PendingCoupleCell = PendingCoupleCell,
         PendingCoupleAlly = PendingCoupleAlly,
         PendingCouplePayer = PendingCouplePayer,

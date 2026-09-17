@@ -78,6 +78,16 @@ internal static class Stage
     public static void Announce(WorldState s, string text, HexPosition at, bool linger = false)
         => Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, text, at, linger));
 
+    /// <summary>GD `CWGame.cell_name(c)`：席位名 + 「(种类名)」，种类名照 CWData.IMMUNE_TYPE_NAMES / CANCER_TYPE_NAMES。</summary>
+    public static string CellName(WorldState s, Cell c) => $"{SeatName(s, c.OwnerSeat)}({TypeName(c.Type)})";
+
+    public static string TypeName(CellType type) => type switch
+    {
+        CellType.ImmuneBasic => "免疫细胞", CellType.BCell => "B细胞", CellType.TCell => "T细胞", CellType.Macrophage => "巨噬细胞", CellType.Dendritic => "树突状细胞",
+        CellType.Melanoma => "恶性黑色素瘤", CellType.SignetRing => "印戒细胞癌", CellType.Osteosarcoma => "骨肉瘤", CellType.SmallCellLung => "小细胞肺癌",
+        _ => type.ToString(),
+    };
+
     /// <summary>GD `CWGame.init`（cw_game.gd:140-152）的默认席位名：阵营词 + 同阵营内的序号字母（免疫A / 癌症B…）。宿主可另注入名字，这里只是内核文案的底。</summary>
     public static string SeatName(WorldState s, int seat)
     {

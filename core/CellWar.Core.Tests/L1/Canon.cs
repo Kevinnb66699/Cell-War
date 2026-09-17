@@ -89,6 +89,7 @@ public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Mem
     public string PendingLandAt { get; init; } = "";
     public int PendingLandWalkDepth { get; init; }
     public int PendingLandStep { get; init; }
+    public int ImmuneReviveFrom { get; init; }
     public int EndStep { get; init; }
     public int PendingChainWalkDepth { get; init; }
     /// <summary>强制弃置挂在哪只细胞上（GD 视图里不存在，一律空；C# 存档要带）。</summary>

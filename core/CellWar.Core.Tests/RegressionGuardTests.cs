@@ -289,6 +289,7 @@ public class RegressionGuardTests
         AssertOnlyChangesAmong(full, "WithPendingCard", PendingCardFields, t => t.WithPendingCard("缺氧适应", new EntityId(9)));
         AssertOnlyChangesAmong(full, "WithPendingCard(null)", PendingCardFields, t => t.WithPendingCard(null, null));
         AssertOnlyChanges(full, "WithCancerReviveFrom", nameof(TurnState.CancerReviveFrom), t => t.WithCancerReviveFrom(3));
+        AssertOnlyChanges(full, "WithImmuneReviveFrom", nameof(TurnState.ImmuneReviveFrom), t => t.WithImmuneReviveFrom(3));
         AssertOnlyChangesAmong(full, "WithPendingCouple", CoupleFields, t => t.WithPendingCouple(new EntityId(7), new EntityId(8), new EntityId(7)));
         AssertOnlyChangesAmong(full, "WithPendingCouple(null)", CoupleFields, t => t.WithPendingCouple(null, null, null));
         AssertOnlyChangesAmong(full, "WithPendingRemodel", RemodelFields, t => t.WithPendingRemodel(new EntityId(7), new HexPosition(2, 0, -2), null, 2));
@@ -1468,6 +1469,7 @@ public class RegressionGuardTests
         PendingCard = "炎症性趋化",
         PendingCardCell = new EntityId(6),
         CancerReviveFrom = 2,
+        ImmuneReviveFrom = 1,
         PendingCoupleCell = new EntityId(6),
         PendingCoupleAlly = new EntityId(7),
         PendingCouplePayer = new EntityId(6),

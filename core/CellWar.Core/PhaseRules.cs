@@ -169,7 +169,7 @@ internal static class PhaseRules
         var (winner, alarm) = OutcomeRules.Evaluate(s);
         s = s.WithTurn(s.Turn.Copy(phase: winner == null ? Phase.E : Phase.Finished, winner: winner, alarm: alarm, endStep: 0));
         if (s.Turn.Phase != Phase.Finished)
-            s = s.WithTurn(s.Turn.Copy(phase: Phase.S, round: s.Turn.WorldRound + 1, seat: s.Players.Keys.OrderBy(x => x).FirstOrDefault(), startStep: 0, cancerReviveFrom: 0));
+            s = s.WithTurn(s.Turn.Copy(phase: Phase.S, round: s.Turn.WorldRound + 1, seat: s.Players.Keys.OrderBy(x => x).FirstOrDefault(), startStep: 0, cancerReviveFrom: 0, immuneReviveFrom: 0));
         return s;
     }
 
@@ -183,6 +183,7 @@ internal static class PhaseRules
     /// <summary>S.3-S.5：处理复活输入，否则结算存活免疫细胞有氧呼吸并进入行动阶段。</summary>
     public static WorldState ContinueStart(WorldState s)
     {
+        s = PassOverUnrevivable(s);   // GD `_ask_each`：没有落点的席位当场推进游标（轮不回来），死了却复活不了的报一句为什么
         var revival = GetRevivalOptions(s);
         if (revival.Count > 0) return s.WithTurn(s.Turn.Copy(seat: revival[0].PlayerSeat));
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune))
@@ -225,18 +226,14 @@ internal static class PhaseRules
             {
                 // GD `revive_options_immune`：`respawn_round < 0` 或 `round_no < respawn_round` 就不问。
                 // 只写了 DeathRound 的老夹具（C# 自己造的死细胞）按「死后隔一回合」的旧口径兜底
-                var ready = c.RespawnRound >= 0 ? s.Turn.WorldRound >= c.RespawnRound : c.DeathRound != null && s.Turn.WorldRound > c.DeathRound + 1;
-                if (!ready) continue;
-                options.AddRange(Tiles(s).Where(t => t.Type == TissueType.BoneMarrow && t.State == TissueState.Healthy && t.OccupyingCell == null)
-                    .Select(t => (IDecision)new ReviveDecision(c.OwnerSeat, c.Id, t.Position)));
+                if (c.OwnerSeat < s.Turn.ImmuneReviveFrom) continue;   // 这一轮问过 / 报过了（GD flow["i"] 单向推进）
+                if (!ImmuneReviveReady(s, c)) continue;
+                options.AddRange(ImmuneReviveSpots(s).Select(m => (IDecision)new ReviveDecision(c.OwnerSeat, c.Id, m)));
             }
             else
             {
                 if (c.OwnerSeat < s.Turn.CancerReviveFrom) continue;
-                var spots = new Dictionary<HexPosition, HexPosition>();   // 落点 → 依托（坐标最小的那个固化格）
-                foreach (var source in Tiles(s).Where(t => t.State == TissueState.SolidifiedCancer && s.GetCellAt(t.Position)?.Faction != Faction.Immune))
-                    foreach (var t in Tiles(s).Where(t => Cancerous(t) && t.OccupyingCell == null && t.Position.DistanceTo(source.Position) <= 1))
-                        if (!spots.TryGetValue(t.Position, out var anchor) || Less(source.Position, anchor)) spots[t.Position] = source.Position;
+                var spots = CancerReviveSpots(s);   // 落点 → 依托（坐标最小的那个固化格）
                 if (spots.Count == 0) continue;
                 options.Add(new SkipReviveDecision(c.OwnerSeat, c.Id));
                 options.AddRange(spots.Keys.OrderBy(p => p.Q).ThenBy(p => p.R).Select(p => (IDecision)new ReviveDecision(c.OwnerSeat, c.Id, p, spots[p])));
@@ -244,6 +241,71 @@ internal static class PhaseRules
             if (options.Count > 0) return options;
         }
         return Array.Empty<IDecision>();
+    }
+
+    /// <summary>GD `revive_options_immune`：`respawn_round < 0` 或 `round_no < respawn_round` 就不问。只写了 DeathRound 的老夹具按「死后隔一回合」的旧口径兜底。</summary>
+    private static bool ImmuneReviveReady(WorldState s, Cell c)
+        => c.RespawnRound >= 0 ? s.Turn.WorldRound >= c.RespawnRound : c.DeathRound != null && s.Turn.WorldRound > c.DeathRound + 1;
+
+    /// <summary>盘上的骨髓格，按 GD `CWData.MARROWS` 的序（老夹具 / 测试自己铺在别处的骨髓排在后面，按坐标）。</summary>
+    private static IReadOnlyList<HexPosition> MarrowTiles(WorldState s)
+        => Tiles(s).Where(t => t.Type == TissueType.BoneMarrow).Select(t => t.Position)
+            .OrderBy(p => { var i = Array.IndexOf(MatchSetup.Marrows, p); return i < 0 ? int.MaxValue : i; }).ThenBy(p => p.Q).ThenBy(p => p.R).ToList();
+
+    /// <summary>免疫复活的落点：健康且无人站着的骨髓（GD `revive_options_immune`，按 MARROWS 序）。</summary>
+    private static IReadOnlyList<HexPosition> ImmuneReviveSpots(WorldState s)
+        => MarrowTiles(s).Where(m => s.Board.Tissues[m].State == TissueState.Healthy && s.Board.Tissues[m].OccupyingCell == null).ToList();
+
+    /// <summary>
+    /// GD `advance` 的 revive_immune → revive_cancer 两段 `_ask_each`：按席位序逐个问，**没有落点的席位当场推进游标、这一轮轮不回来**
+    /// （别的席位复活碎掉的固化格再造出落点也不回头问）；死了却复活不了的报一句为什么（cw_world.gd `_report_no_revive` / `_report_no_revive_immune`，口径 #93：
+    /// 免疫站在固化癌组织上把复活位堵死是有意的战术，但被堵住这件事必须说出来）。停在第一个真有落点要问的席位之前。
+    /// 此前 C# 没有落点就 continue、游标不动：同一 S 阶段里别人的复活造出落点后会回头再问（GD 不会），且一声不吭。
+    /// </summary>
+    private static WorldState PassOverUnrevivable(WorldState s)
+    {
+        if (s.Turn.Phase != Phase.S || s.Turn.StartStep != 1) return s;
+        foreach (var c in Cells(s).Where(c => !c.IsAlive && c.Faction == Faction.Immune).OrderBy(c => c.OwnerSeat))
+        {
+            if (c.OwnerSeat < s.Turn.ImmuneReviveFrom) continue;
+            if (ImmuneReviveReady(s, c))
+            {
+                if (ImmuneReviveSpots(s).Count > 0) return s;   // 这一席要问，停在这里
+                // GD `_report_no_revive_immune`：提示挂在第一格被挡的骨髓上 —— 先被癌化的，没有就有人站着的
+                var cancerous = MarrowTiles(s).Where(m => s.Board.Tissues[m].State != TissueState.Healthy).ToList();
+                var taken = MarrowTiles(s).Where(m => s.Board.Tissues[m].State == TissueState.Healthy && s.Board.Tissues[m].OccupyingCell != null).ToList();
+                var at = cancerous.Count > 0 ? cancerous[0] : taken.Count > 0 ? taken[0] : c.Position;
+                Stage.Announce(s, $"{Stage.CellName(s, c)} 无法复活：骨髓不可用", at, true);
+            }
+            s = s.WithTurn(s.Turn.WithImmuneReviveFrom(c.OwnerSeat + 1));
+        }
+        foreach (var c in Cells(s).Where(c => !c.IsAlive && c.Faction == Faction.Cancer).OrderBy(c => c.OwnerSeat))
+        {
+            if (c.OwnerSeat < s.Turn.CancerReviveFrom) continue;
+            if (CancerReviveSpots(s).Count > 0) return s;   // 这一席要问，停在这里
+            // GD `_report_no_revive`：场上根本没有固化癌组织 vs 有但一格都开不出落点（被免疫占着 / 1 环内没空的癌性组织），提示挂在被堵的那一格上
+            var solids = Tiles(s).Where(t => t.State == TissueState.SolidifiedCancer).Select(t => t.Position).OrderBy(p => p.Q).ThenBy(p => p.R).ToList();
+            if (solids.Count == 0)
+                Stage.Announce(s, $"{Stage.SeatName(s, c.OwnerSeat)} 无法复活：没有固化癌组织", c.Position, true);
+            else
+            {
+                var byImmune = solids.Where(p => s.GetCellAt(p) is { IsAlive: true } occ && occ.Faction != Faction.Cancer).ToList();
+                var usable = solids.Where(p => !byImmune.Contains(p)).ToList();
+                Stage.Announce(s, $"{Stage.SeatName(s, c.OwnerSeat)} 无法复活：固化癌组织都用不上", byImmune.Count > 0 ? byImmune[0] : usable[0], true);
+            }
+            s = s.WithTurn(s.Turn.WithCancerReviveFrom(c.OwnerSeat + 1));
+        }
+        return s;
+    }
+
+    /// <summary>癌方复活的落点 → 依托（GD `revive_options_cancer`：固化格 1 环内无人站着的癌性组织，依托取坐标最小的那个固化格）。</summary>
+    private static Dictionary<HexPosition, HexPosition> CancerReviveSpots(WorldState s)
+    {
+        var spots = new Dictionary<HexPosition, HexPosition>();
+        foreach (var source in Tiles(s).Where(t => t.State == TissueState.SolidifiedCancer && s.GetCellAt(t.Position)?.Faction != Faction.Immune))
+            foreach (var t in Tiles(s).Where(t => Cancerous(t) && t.OccupyingCell == null && t.Position.DistanceTo(source.Position) <= 1))
+                if (!spots.TryGetValue(t.Position, out var anchor) || Less(source.Position, anchor)) spots[t.Position] = source.Position;
+        return spots;
     }
 
     /// <summary>GD `Vector2i` 的 `<`：先比 x（q）再比 y（r）。依托「取坐标最小」用的就是这把尺。</summary>
@@ -265,6 +327,7 @@ internal static class PhaseRules
         s = SetSeatAlive(s, dead.OwnerSeat, true);
         // 癌方这一席问过了（GD `flow["i"] += 1`）：别的癌席复活碎掉的固化格再造出落点，也轮不回来
         if (dead.Faction == Faction.Cancer) s = s.WithTurn(s.Turn.WithCancerReviveFrom(dead.OwnerSeat + 1));
+        else s = s.WithTurn(s.Turn.WithImmuneReviveFrom(dead.OwnerSeat + 1));
         // 【癌症干性】：复活能量提高（分期），本世界回合前两次向癌性组织移动免费
         if (dead.Faction == Faction.Cancer && HasSkill(s, dead, "癌症干性"))
         {
