@@ -1,0 +1,73 @@
+using System.Collections.Immutable;
+
+namespace CellWar.Core;
+
+/// <summary>
+/// 规则代码往演出通道投递的口子（口径二 · 批 0 步 6）。
+///
+/// 规则函数大多只返回 <see cref="WorldState"/>、没有事件列表；改签名等于把整个内核重排一遍（Kevin 09-18 口径：保留架构）。
+/// 所以用一个**按线程的作用域**：<see cref="BasicRulesEngine"/> 的 ExecuteDecision / AdvancePhase 进来时 <see cref="Open"/> 一个，
+/// 规则代码里 <see cref="Emit"/> 往当前作用域投递，退出时攒下的条目并进 <see cref="RulesResult.Events"/>（排在规则事件之后，彼此保持发生顺序）。
+/// 没有作用域（测试直接调纯函数、L1 重放的 KeyWalk）就丢弃 —— 演出不是规则的一部分，丢了不影响任何结算、不进 canon、不进 state_hash。
+/// 嵌套（推演里再开一层）各自成栈，互不串。
+/// </summary>
+internal static class Stage
+{
+    [ThreadStatic] private static List<IPresentationEvent>? current;
+
+    public static void Emit(IPresentationEvent ev) => current?.Add(ev);
+
+    public static Scope Open() => new();
+
+    /// <summary>把作用域里攒下的演出并进结算结果；失败的结算什么都不带（事务本来就不提交）。</summary>
+    public static RulesResult Merge(RulesResult result, Scope scope)
+    {
+        var staged = scope.Drain();
+        if (!result.Success || staged.Count == 0) return result;
+        return result with { Events = [.. result.Events, .. staged] };
+    }
+
+    public sealed class Scope : IDisposable
+    {
+        private readonly List<IPresentationEvent>? outer;
+        private readonly List<IPresentationEvent> mine = new();
+        public Scope() { outer = current; current = mine; }
+        public IReadOnlyList<IPresentationEvent> Drain() => mine;
+        public void Dispose() => current = outer;
+    }
+
+    /// <summary>`show_fx(kind, data)` 的便捷构造：data 只装 int / bool / 坐标 / 坐标数组（cw_game.gd:819-821）。</summary>
+    public static SkillFx Fx(WorldState s, string kind, params (string Key, object Value)[] data)
+        => new(s.Turn.WorldRound, s.Turn.Phase, kind, data.ToImmutableDictionary(d => d.Key, d => d.Value, StringComparer.Ordinal));
+
+    /// <summary>
+    /// GD `CWData.dir_toward(dest, from)`（cw_data.gd:945-960）：癌从 <paramref name="from"/> 那一侧漫入 <paramref name="dest"/>，
+    /// 返回 `DIRS` 下标。相邻就是那一侧；跃进 / 传送取最接近来路的一侧（六方向里点积最大的）；原地不动 -1（不演）。
+    /// </summary>
+    public static int DirToward(HexPosition dest, HexPosition from)
+    {
+        var dq = from.Q - dest.Q;
+        var dr = from.R - dest.R;
+        if (dq == 0 && dr == 0) return -1;
+        var vx = dq + dr * 0.5;
+        var vy = dr * 0.8660254;
+        var best = -1;
+        var bestDot = double.NegativeInfinity;
+        for (var i = 0; i < SemanticKey.GdDirs.Count; i++)
+        {
+            var (q, r) = SemanticKey.GdDirs[i];
+            if (q == dq && r == dr) return i;
+            var dot = vx * (q + r * 0.5) + vy * (r * 0.8660254);
+            if (dot > bestDot) { bestDot = dot; best = i; }
+        }
+        return best;
+    }
+
+    /// <summary>GD `CWGame.init`（cw_game.gd:140-152）的默认席位名：阵营词 + 同阵营内的序号字母（免疫A / 癌症B…）。宿主可另注入名字，这里只是内核文案的底。</summary>
+    public static string SeatName(WorldState s, int seat)
+    {
+        if (!s.Players.TryGetValue(seat, out var p)) return $"席位{seat}";
+        var index = s.Players.Values.Count(x => x.Faction == p.Faction && x.Seat < seat);
+        return (p.Faction == Faction.Immune ? "免疫" : "癌症") + (char)('A' + index);
+    }
+}

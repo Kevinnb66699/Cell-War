@@ -68,8 +68,8 @@ internal static class BoardRules
         if (s.Board.Tissues[a].NecrosisRounds > 0 || s.Board.Tissues[b].NecrosisRounds > 0) return s;
         // C# 的占位是格上的字段（GD 靠扫细胞坐标）：先把两端占位整体换好，再按 GD 的先后各落地一次
         s = s.UpdateTissueOccupant(a, cb?.Id).UpdateTissueOccupant(b, ca?.Id);
-        if (ca is not null) s = CellRules.ArriveAndLand(s.UpdateCell(ca.Id, s.Cells[ca.Id].WithPosition(b)), ca.Id, b, rng);
-        if (cb is not null) s = CellRules.ArriveAndLand(s.UpdateCell(cb.Id, s.Cells[cb.Id].WithPosition(a)), cb.Id, a, rng);
+        if (ca is not null) s = CellRules.ArriveAndLand(s.UpdateCell(ca.Id, s.Cells[ca.Id].WithPosition(b)), ca.Id, b, rng, a);
+        if (cb is not null) s = CellRules.ArriveAndLand(s.UpdateCell(cb.Id, s.Cells[cb.Id].WithPosition(a)), cb.Id, a, rng, b);
         return s;
     }
     /// <summary>
@@ -252,9 +252,27 @@ internal static class BoardRules
         // （抽取区间才是带子记的东西，`NextInt(3) < 2` 概率一样、区间不一样）。格数按肿瘤分期查表。
         var tiles = RuleTuning.ByStage(s.Tuning.ErosionTiles, Stage(s));
         var count = rng.NextIntRange(1, 4) <= 2 ? tiles.Common : tiles.Rare;
-        foreach (var p in rng.PickRandom(eligible, count))
-            s = CardRules.ToCancer(s, p, newborn: true);   // GD `CWTissue.to_cancer(tile, true)`
+        var picked = rng.PickRandom(eligible, count).ToArray();
+        // 过场方向要在**转化之前**全部算完（GD cw_world.gd:632-636）：同一批里两格相邻时，先转的那格会变成后转那格的「来源」
+        var dirs = picked.Select(pos => ErosionDir(s, pos)).ToArray();
+        for (var i = 0; i < picked.Length; i++)
+        {
+            s = CardRules.ToCancer(s, picked[i], newborn: true);   // GD `CWTissue.to_cancer(tile, true)`
+            if (dirs[i] >= 0) Stage.Emit(new TissueConverted(s.Turn.WorldRound, s.Turn.Phase, picked[i], dirs[i], "侵蚀"));
+        }
         return s;
+    }
+
+    /// <summary>GD `_erosion_dir`：按 DIRS 序找第一个在盘上的癌性邻格，返回那一侧的下标；没有 -1。</summary>
+    private static int ErosionDir(WorldState s, HexPosition at)
+    {
+        for (var i = 0; i < SemanticKey.GdDirs.Count; i++)
+        {
+            var (q, r) = SemanticKey.GdDirs[i];
+            var n = new HexPosition(at.Q + q, at.R + r, -(at.Q + q) - (at.R + r));
+            if (s.Board.Tissues.TryGetValue(n, out var tile) && Cancerous(tile)) return i;
+        }
+        return -1;
     }
 
     /// <summary>

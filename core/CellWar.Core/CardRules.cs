@@ -426,15 +426,23 @@ internal static class CardRules
         var cell = s.Cells[d.CellId];
         var cost = cell.Faction == Faction.Cancer ? CancerDrawCost : ImmuneDrawCost;
         s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - cost, draws: cell.DrawsThisTurn + 1));
-        s = DrawOne(s, s.Cells[cell.Id], rng);
+        s = DrawOne(s, s.Cells[cell.Id], rng, "基因表达");
         return new(s, Array.Empty<IGameEvent>(), true);
     }
 
-    public static WorldState DrawOne(WorldState s, Cell cell, IDeterministicRng rng)
+    /// <param name="source">抽卡来源（GD `draw(cell, source)`：「骨髓」「基因表达」「免疫记忆库」「突变」…），只进演出，不进规则。</param>
+    public static WorldState DrawOne(WorldState s, Cell cell, IDeterministicRng rng, string source = "")
     {
         var def = PickWeighted(s, EligibleCards(s, cell), rng);
-        if (def == null) return s;
+        if (def == null)
+        {
+            Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "抽卡落空", cell.Position, true));   // GD cw_cards.gd:25
+            return s;
+        }
+        // 头顶的抽卡演出：每一次抽到都发、不带牌名（GD cw_cards.gd:30）；事件卡也算，只是接着就当场结算掉了
+        Stage.Emit(new CardDrawn(s.Turn.WorldRound, s.Turn.Phase, cell.OwnerSeat, cell.Id, cell.Position, source));
         if (def.Category != CardCategory.Event) return AddToHand(s, cell, def.Name);
+        Stage.Emit(new EventCardDrawn(s.Turn.WorldRound, s.Turn.Phase, cell.OwnerSeat, cell.Id, cell.Position, cell.Faction, def.Name));   // GD cw_cards.gd:48：结算之前发
         // 抽到的事件卡立即结算，GD `draw()` 同样用 card_resolve_depth 包住（里头可能再抽一张，会套娃）
         s = s.WithTurn(s.Turn.WithCardResolveDepth(s.Turn.CardResolveDepth + 1));
         s = Resolve(s, s.Cells[cell.Id], def.Name, rng);
@@ -502,7 +510,7 @@ internal static class CardRules
         }
         if (roll == 2)
         {
-            s = DrawOne(s, s.Cells[cellId], rng);
+            s = DrawOne(s, s.Cells[cellId], rng, "突变");
             s = ReduceMemory(s, 1);
         }
         else if (roll == 3)
@@ -559,6 +567,8 @@ internal static class CardRules
     public static RulesResult PlayCard(WorldState s, PlayCardDecision d, IDeterministicRng rng)
     {
         var cell = s.Cells[d.CellId];
+        // GD cw_card_fx.gd:270 broadcast_card_played：给别人的弹窗 / 出牌列 —— 文案用席位名（「癌症A 打出【糖酵解爆发】」）
+        Stage.Emit(new CardPlayed(s.Turn.WorldRound, s.Turn.Phase, cell.OwnerSeat, $"{Stage.SeatName(s, cell.OwnerSeat)} 打出【{d.Card}】", cell.Id, cell.Position, cell.Faction, d.Card));
         var definition = CardCatalog.ByCardName(d.Card).First(x => x.Category != CardCategory.Event);
         if (definition.Category == CardCategory.Permanent)
         {

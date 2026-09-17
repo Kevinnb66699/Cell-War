@@ -310,7 +310,7 @@ public class ChemotaxisTests
     {
         var first = Engine.ExecuteDecision(World(), new PlayCardDecision(0, Walker, Card, North), Rng());
         Assert.True(first.Success);
-        Assert.Empty(first.Events);
+        Assert.Empty(first.Events.Where(e => e is not IPresentationEvent));   // 演出条目（出牌通报等）走 Stage 作用域上浮，与这里说的规则事件无关
 
         var second = Engine.ExecuteDecision(first.NewState, new ChemotaxisStepDecision(0, Walker, Origin), Rng());
         Assert.True(second.Success);

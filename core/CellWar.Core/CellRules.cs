@@ -443,21 +443,22 @@ internal static class CellRules
         var c = s.Cells[id];
         s = s.UpdateTissueOccupant(c.Position, null).UpdateTissueOccupant(dest, id);
         s = s.UpdateCell(id, c.Copy(position: dest));
-        return Arrive(s, id, dest, paid: -1, rng);
+        return Arrive(s, id, dest, paid: -1, rng, c.Position);
     }
 
     /// <summary>脚已经放到格上（位置与占位由调用方写好）之后的整条 `enter_tile`：定殖 / 蹲守 / 净化 → 黏液 → collect_special → 标记。
     /// 复活落地（GD `revive_*`）与血管传送（GD `_vessel_teleport`）用它 —— 它们不能走 Teleport 的占位交接。</summary>
-    internal static WorldState ArriveAndLand(WorldState s, EntityId id, HexPosition dest, IDeterministicRng rng)
+    internal static WorldState ArriveAndLand(WorldState s, EntityId id, HexPosition dest, IDeterministicRng rng, HexPosition? from = null)
     {
         var depth = WalkDepth(s);
-        return LandOrDefer(Arrive(s, id, dest, paid: -1, rng), id, dest, depth, rng);
+        return LandOrDefer(Arrive(s, id, dest, paid: -1, rng, from), id, dest, depth, rng);
     }
 
     /// <summary>GD `enter_tile` 的三条分支（cw_actions.gd:1009-1026）：癌进健康 → 【定殖】（`to_cancer(t, true)`：solid / necrosis / ossify 一起清、newborn=true）；
     /// 免疫进骨样硬化标记格 → 登记蹲守、不净化；免疫进癌组织 → <see cref="PurifyHere"/>。Move 与 Teleport 共用这一份 ——
     /// 此前两条路各写一遍裸 `UpdateTissueState`：定殖不清坏死，传送落到标记格也当场净化、还没有净化连锁（2026-09-17 晚）。</summary>
-    private static WorldState Arrive(WorldState s, EntityId id, HexPosition dest, int paid, IDeterministicRng rng)
+    /// <param name="from">来路（GD enter_tile 的 `from = cell["pos"]`）：【定殖】过场要说癌从哪一侧来；复活那种原地落地没有来路，不演。</param>
+    private static WorldState Arrive(WorldState s, EntityId id, HexPosition dest, int paid, IDeterministicRng rng, HexPosition? from = null)
     {
         var c = s.Cells[id];
         // GD enter_tile 1006-1008：挪了窝，上一格的「蹲守」就作废 —— 只清免疫、只在落点不是蹲守格时清（此前 C# 在 Move / Teleport 里无条件清）
@@ -468,7 +469,12 @@ internal static class CellRules
         }
         var tile = s.Board.Tissues[dest];
         if (c.Faction == Faction.Cancer && tile.State == TissueState.Healthy)
+        {
+            // GD enter_tile:1016：过场方向 = 这一步的前进方向（来路那一侧）；原地不动没有方向，不演
+            if (from is { } origin && Stage.DirToward(dest, origin) is var dir && dir >= 0)
+                Stage.Emit(new TissueConverted(s.Turn.WorldRound, s.Turn.Phase, dest, dir, "定殖"));
             return CardRules.ToCancer(s, dest, newborn: true);
+        }
         if (c.Faction == Faction.Immune && tile.State == TissueState.Cancer)
         {
             // 骨肉瘤【骨样硬化】标记过的格：进来不能立刻净化，得停留到世界回合结束（下一回合由 BoardRules.ResolveCamping 兑现）
@@ -623,7 +629,7 @@ internal static class CellRules
         if (t.Type == TissueType.BoneMarrow && t.Charge > 0)
         {
             s = s.WithBoard(s.Board.UpdateTissue(t.Position, t.WithCharge(0)));
-            return CardRules.DrawOne(s, s.Cells[id], rng);
+            return CardRules.DrawOne(s, s.Cells[id], rng, "骨髓");
         }
         return s;
     }
@@ -785,13 +791,15 @@ internal static class CellRules
         var attacker = cell.Copy(energy: cell.Energy - cost);
         s = s.UpdateCell(cell.Id, attacker);
         if (!free) s = ConsumeModifiers(s, cell.Id, ModifierTarget.Move, move.TargetPosition, rawCostOverride);
+        var attackHit = false;
         if (target != null)
         {
+            if (cell.Type == CellType.Macrophage) Stage.Emit(Stage.Fx(s, "chomp", ("from", cell.Position), ("to", move.TargetPosition), ("cid", cell.Id)));   // GD cw_actions.gd:795：巨噬扑咬先演
+            var rerolled = false;
             // 六面骰，**1..6**。原来写的是 NextInt(6)，那产出 0..5 —— 而 AttackOutcome 判
             // `roll == 6` 为暴击，于是暴击永远掷不出来（实测 60000 次 crit 0%，应为 16.7%）。
             // 用 NextIntRange(1, 7)（半开）而不是 NextInt(6) + 1：把「1..6」写进代码里，
             // 下一个人不用去推。PRD 只给概率不给面数，骰面值域由 Kevin 2026-09-15 裁定为 6 面。
-            var roll = rng.NextIntRange(1, 7);
             var attackerCell = s.Cells[cell.Id];
             var attackMods = attackerCell.Modifiers.Where(m => m.Target == ModifierTarget.Attack).ToList();
             var attackExtra = attackMods.Sum(m => m.Value);
@@ -802,10 +810,15 @@ internal static class CellRules
             var cascadeCount = attackMods.Count(m => m.Card == "补体级联");
             s = SpendModifiers(s, cell.Id, "补体调理");
             s = SpendModifiers(s, cell.Id, "高亲和力克隆");
+            // 【高亲和力克隆】不进行随机判定、直接大成功（GD cw_actions.gd:826-829 **不掷骰**）—— 此前 C# 无条件先掷再判，多消耗一发 rng（步 6 接演出时发现，2026-09-18）
+            var roll = hasAffinity ? 0 : rng.NextIntRange(1, 7);
+            if (!hasAffinity) Stage.Emit(new DiceRolled(s.Turn.WorldRound, s.Turn.Phase, "攻击", roll, 6, cell.OwnerSeat, move.TargetPosition));   // GD roll_shown(6, "攻击", pid, to)
             var outcome = hasAffinity ? "crit" : RulePolicies.AttackOutcome(s, roll, attackerCell);
             if (outcome == "fail" && hasOpsonin)
             {
                 roll = rng.NextIntRange(1, 7);   // 【补体调理】的重掷，同样是 1..6
+                rerolled = true;
+                Stage.Emit(new DiceRolled(s.Turn.WorldRound, s.Turn.Phase, "攻击", roll, 6, cell.OwnerSeat, move.TargetPosition));
                 outcome = RulePolicies.AttackOutcome(s, roll, s.Cells[cell.Id]);
             }
             if (HasModifier(s.Cells[target.Id], "PD-L1表达"))
@@ -814,6 +827,9 @@ internal static class CellRules
                 s = SpendOneModifier(s, target.Id, "PD-L1表达");   // GD `spend_one_mod`：一次攻击只吃**最早打出的一层**（团队 2026-09-01 裁定，刻意不走定案 #57）；此前 C# 全摘
             }
             var damage = outcome == "fail" ? 0 : outcome == "crit" ? 20 : 10;
+            attackHit = outcome != "fail";
+            Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, outcome == "fail" ? "攻击无效" : outcome == "crit" ? "攻击大成功" : "攻击成功", move.TargetPosition));   // GD cw_actions.gd:850/864
+            var dealtTotal = 0;
             var extra = 0;
             var cytotoxDirect = 0;
             if (outcome != "fail")
@@ -851,6 +867,7 @@ internal static class CellRules
             else
             {
                 s = Damage(s, target.Id, damage + extra, LossSource.ImmuneAttack, "攻击", cytotoxDirect, out var dealt, out var mainDealt);
+                dealtTotal = dealt;
                 // PRD【迁移】「累积与造成伤害的绝对值向下取整的抗原记忆」：GD cw_actions.gd:913-917 按这一批的 **actual 之和**（过完倍率与护盾、含直击、不超过目标余量），
                 // `dealt >= 10` 才 gain_memory。此前 C# 用 min(目标能量, 裸基础伤害)：不含固定加成、不含【标记】×2、不扣护盾减免（2026-09-17 深夜）
                 if (dealt >= 10) s = AddMemory(s, dealt / 10);
@@ -889,8 +906,14 @@ internal static class CellRules
                 s = BurnRoundGate(s, cell.Id, "抗原呈递强化");
                 if (s.Cells[target.Id].IsAlive) s = ApplyMark(s, target.Id, s.Cells[cell.Id]);
             }
+            Stage.Emit(new AttackResolved(s.Turn.WorldRound, s.Turn.Phase, cell.Id, target.Id, roll, rerolled, outcome, dealtTotal, attackHit && dealtTotal == 0, !s.Cells[target.Id].IsAlive));
             events.Add(new CellAttackedEvent(s.Turn.WorldRound, s.Turn.Phase, cell.Id, target.Id, damage, !s.Cells[target.Id].IsAlive));
-            if (s.Cells[target.Id].IsAlive || !s.Cells[cell.Id].IsAlive) return new(UpdateMarks(s), events, true);
+            if (s.Cells[target.Id].IsAlive || !s.Cells[cell.Id].IsAlive)
+            {
+                s = UpdateMarks(s);
+                EmitImmuneAttackFx(s, cell, target, move.TargetPosition, attackHit);   // 返回原格 / 攻击者死了：GD 在 enter_tile 的 else 之后照样演
+                return new(s, events, true);
+            }
         }
         s = s.UpdateTissueOccupant(cell.Position, null).UpdateTissueOccupant(move.TargetPosition, cell.Id);
         s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithPosition(move.TargetPosition));
@@ -898,7 +921,7 @@ internal static class CellRules
         // GD `enter_tile(cell, to, q.final)`：定殖 / 蹲守 / 净化 → 黏液 → collect_special → update_marks；RAS 在它整个跑完之后（cw_actions.gd:773-782）。
         // paid：连锁跳（free）在 GD 里不传 → -1；付费迁移传实付，被免费豁免盖成 0 的照传 0（巨噬回能三态看它，见 MacroPurifyHeal）
         var walkDepth = WalkDepth(s);
-        s = Arrive(s, cell.Id, move.TargetPosition, free ? -1 : cost, rng);
+        s = Arrive(s, cell.Id, move.TargetPosition, free ? -1 : cost, rng, cell.Position);
         var landed = s.Board.Tissues[move.TargetPosition];
         if (landed.State != tissue.State)
             events.Add(new TissueStateChangedEvent(s.Turn.WorldRound, s.Turn.Phase, move.TargetPosition, tissue.State, landed.State));
@@ -919,6 +942,19 @@ internal static class CellRules
             }
         }
         events.Add(new CellMovedEvent(s.Turn.WorldRound, s.Turn.Phase, cell.Id, cell.Position, move.TargetPosition, cost));
-        return new(UpdateMarks(s), events, true);
+        s = UpdateMarks(s);
+        if (target != null) EmitImmuneAttackFx(s, cell, target, move.TargetPosition, attackHit);   // 击杀进格之后才演（GD cw_actions.gd:940-949）
+        return new(s, events, true);
+    }
+
+    /// <summary>GD cw_actions.gd:944-949：非巨噬的免疫攻击，整段结算（含进格）之后演本体冲撞。<paramref name="attackerBefore"/> / <paramref name="targetBefore"/> 是攻击前的快照（起点、种类）。</summary>
+    private static void EmitImmuneAttackFx(WorldState s, Cell attackerBefore, Cell targetBefore, HexPosition to, bool hit)
+    {
+        if (attackerBefore.Type == CellType.Macrophage) return;
+        var attacker = s.Cells[attackerBefore.Id];
+        var target = s.Cells[targetBefore.Id];
+        Stage.Emit(Stage.Fx(s, "immune_attack", ("from", attackerBefore.Position), ("to", to), ("cid", attackerBefore.Id), ("target_id", targetBefore.Id),
+            ("itype", (int)attackerBefore.Type), ("ctype", (int)targetBefore.Type), ("target_alive", target.IsAlive), ("attacker_alive", attacker.IsAlive),
+            ("entered", attacker.IsAlive && attacker.Position == to), ("hit", hit)));
     }
 }

@@ -30,7 +30,7 @@ internal static class FactRouter
         if (RulePolicies.HasSkill(s, cell, "免疫记忆库") && CellRules.RoundGateOpen(cell, "免疫记忆库"))
         {
             s = CellRules.BurnRoundGate(s, resolved.CellId, "免疫记忆库");
-            s = CardRules.DrawOne(s, s.Cells[resolved.CellId], rng);
+            s = CardRules.DrawOne(s, s.Cells[resolved.CellId], rng, "免疫记忆库");
         }
         return s;
     }

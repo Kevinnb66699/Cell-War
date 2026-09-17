@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 ﻿using static CellWar.Core.CellRules;
 using static CellWar.Core.RulePolicies;
 
@@ -212,7 +213,13 @@ internal static class SkillRules
                 // **没有「无细胞占据」这个条件**，是 C# 自己加的（GD 侧 cw_actions.gd:1458-1461 也只筛健康）。
                 // 站在健康格上的免疫细胞脚下照样会被转成癌组织。
                 var healthy = ring.Where(t => t.State == TissueState.Healthy).ToArray();
-                foreach (var pick in rng.PickRandom(healthy, 10)) s = CardRules.ToCancer(s, pick.Position, newborn: true);
+                foreach (var pick in rng.PickRandom(healthy, 10))
+                {
+                    s = CardRules.ToCancer(s, pick.Position, newborn: true);
+                    var dir = Stage.DirToward(pick.Position, position);   // GD cw_actions.gd:1466：癌从引爆者那一侧漫入；脚下那格取不出方向就不演
+                    if (dir >= 0) Stage.Emit(new TissueConverted(s.Turn.WorldRound, s.Turn.Phase, pick.Position, dir, "黏液破裂"));
+                }
+                Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "黏液破裂", position, true));   // GD cw_actions.gd:1469
                 foreach (var immune in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Immune && x.Position.DistanceTo(position) <= 2).ToArray())
                     s = Damage(s, immune.Id, 20, LossSource.CancerSkill);
                 s = Kill(s, cell.Id);
@@ -312,16 +319,19 @@ internal static class SkillRules
                     foreach (var pos in ray)
                         foreach (var neighbor in pos.GetNeighbors())
                             if (s.Board.Tissues.ContainsKey(neighbor) && !ray.Contains(neighbor)) splash.Add(neighbor);
+                    // 掷 1..100 判 `<= 60`，逐位对齐 GD 的 `randi_range(1, 100) <= EXCALIBUR_SPLASH_PCT`。
+                    // 原来写的是 `NextInt(100) < 60`（0..99）—— 概率一样、抽取区间不一样。
+                    // 先定波及名单再扫（GD cw_actions.gd:1639-1657：光束先演、伤害随后落）；名单只看波及格自己的状态，与主射线的转化无关
+                    var hit = splash.Where(p => s.Board.Tissues[p].State == TissueState.Cancer
+                        && rng.NextIntRange(1, 101) <= ExcaliburSplashPercent).ToList();
+                    if (ray.Count > 0) Stage.Emit(new BeamFired(s.Turn.WorldRound, s.Turn.Phase, start, ray[^1], hit.ToImmutableArray()));   // GD beam_fx：射线为空（贴边）不发
                     foreach (var pos in ray)
                         if (s.Board.Tissues[pos].State == TissueState.Cancer)
                         {
                             s = s.UpdateTissueState(pos, TissueState.Healthy);
                             s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2)));
                         }
-                    // 掷 1..100 判 `<= 60`，逐位对齐 GD 的 `randi_range(1, 100) <= EXCALIBUR_SPLASH_PCT`。
-                    // 原来写的是 `NextInt(100) < 60`（0..99）—— 概率一样、抽取区间不一样。
-                    foreach (var pos in splash.Where(p => s.Board.Tissues[p].State == TissueState.Cancer
-                        && rng.NextIntRange(1, 101) <= ExcaliburSplashPercent))
+                    foreach (var pos in hit)
                     {
                         s = s.UpdateTissueState(pos, TissueState.Healthy);
                         s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2)));
@@ -330,6 +340,7 @@ internal static class SkillRules
                         s = Damage(s, target.Id, 20, LossSource.CancerSkill);   // Excalibur 主射线：2.0 能量（原 2 = 0.2）
                     foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && splash.Contains(x.Position)).ToArray())
                         s = Damage(s, target.Id, 10, LossSource.CancerSkill);   // Excalibur 侧向波及：1.0 能量（原 1 = 0.1）
+                    Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "Excalibur", start, true));   // GD cw_actions.gd:1657
                 }
                 break;
             }

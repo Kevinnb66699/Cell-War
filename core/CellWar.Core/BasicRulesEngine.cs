@@ -20,9 +20,18 @@ public sealed class BasicRulesEngine : IRulesEngine
 
     public int? QuoteMove(WorldState s, Cell cell, HexPosition destination) => RulePolicies.QuoteMove(s, cell, destination);
 
-    public RulesResult ExecuteDecision(WorldState state, IDecision decision, IDeterministicRng rng) => DecisionRouter.Execute(state, decision, rng);
+    /// <summary>结算期间开一个演出作用域（<see cref="Stage"/>）：规则代码投递的演出条目并进返回的 Events，规则函数签名不动。</summary>
+    public RulesResult ExecuteDecision(WorldState state, IDecision decision, IDeterministicRng rng)
+    {
+        using var stage = Stage.Open();
+        return Stage.Merge(DecisionRouter.Execute(state, decision, rng), stage);
+    }
 
-    public RulesResult AdvancePhase(WorldState s, IDeterministicRng rng) => PhaseRules.AdvancePhase(s, rng);
+    public RulesResult AdvancePhase(WorldState s, IDeterministicRng rng)
+    {
+        using var stage = Stage.Open();
+        return Stage.Merge(PhaseRules.AdvancePhase(s, rng), stage);
+    }
 
     public IReadOnlyList<IDecision> GetAvailableDecisions(WorldState s, int seat) => DecisionRouter.Available(s, seat);
 }
