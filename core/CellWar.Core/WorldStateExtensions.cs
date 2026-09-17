@@ -148,8 +148,10 @@ public static class WorldStateExtensions
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
         EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null, EntityId? pendingChain = null,
         EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null,
+        int? cardResolveDepth = null, string? pendingCard = null, EntityId? pendingCardCell = null,
         bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false,
-        bool setTrackCell = false, bool setTrackFrozenAt = false, bool setPendingChain = false, bool setPendingChemotaxis = false)
+        bool setTrackCell = false, bool setTrackFrozenAt = false, bool setPendingChain = false, bool setPendingChemotaxis = false,
+        bool setPendingCard = false)
         => new() { WorldRound = round ?? t.WorldRound, Phase = phase ?? t.Phase, ActivePlayerSeat = seat ?? t.ActivePlayerSeat,
             StartStep = startStep ?? t.StartStep, Winner = winner ?? t.Winner, CancerAlarmRound = alarm ?? t.CancerAlarmRound,
             PendingDiscardSeat = setPendingDiscard ? pendingDiscard : pendingDiscard ?? t.PendingDiscardSeat,
@@ -166,11 +168,21 @@ public static class WorldStateExtensions
             TrackRounds = trackRounds ?? t.TrackRounds,
             PendingChainCell = setPendingChain ? pendingChain : pendingChain ?? t.PendingChainCell,
             PendingChemotaxisCell = setPendingChemotaxis ? pendingChemotaxis : pendingChemotaxis ?? t.PendingChemotaxisCell,
-            ChemotaxisStepsLeft = chemotaxisStepsLeft ?? t.ChemotaxisStepsLeft };
+            ChemotaxisStepsLeft = chemotaxisStepsLeft ?? t.ChemotaxisStepsLeft,
+            CardResolveDepth = cardResolveDepth ?? t.CardResolveDepth,
+            PendingCard = setPendingCard ? pendingCard : pendingCard ?? t.PendingCard,
+            PendingCardCell = setPendingCard ? pendingCardCell : pendingCardCell ?? t.PendingCardCell };
 
     /// <summary>挂起 / 结束【连续吞噬】的连锁选择。</summary>
     public static TurnState WithPendingChain(this TurnState t, EntityId? cell)
         => t.Copy(pendingChain: cell, setPendingChain: true);
+
+    /// <summary>进 / 出一张卡的结算（GD `card_resolve_depth += 1 / -= 1`）。</summary>
+    public static TurnState WithCardResolveDepth(this TurnState t, int depth) => t.Copy(cardResolveDepth: depth);
+
+    /// <summary>记下 / 清掉「结算到一半等中途选择」的那张即时卡（两个字段一起改）。</summary>
+    public static TurnState WithPendingCard(this TurnState t, string? card, EntityId? cell)
+        => t.Copy(pendingCard: card, pendingCardCell: cell, setPendingCard: true);
 
     /// <summary>挂起 / 结束【炎症性趋化】的连走，同时记下还剩几步。</summary>
     public static TurnState WithPendingChemotaxis(this TurnState t, EntityId? cell, int stepsLeft)

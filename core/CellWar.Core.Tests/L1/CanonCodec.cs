@@ -51,7 +51,8 @@ public static class CanonCodec
             s.Turn.ChemoCreator is { } cc ? Seat(cc) : null,
             s.Turn.TrackCell is { } tc ? Seat(tc) : null, PosOrNull(s.Turn.TrackFrozenAt), s.Turn.TrackRounds,
             s.Turn.PendingChainCell is { } pc ? Seat(pc) : null,
-            s.Turn.PendingChemotaxisCell is { } px ? Seat(px) : null, s.Turn.ChemotaxisStepsLeft)
+            s.Turn.PendingChemotaxisCell is { } px ? Seat(px) : null, s.Turn.ChemotaxisStepsLeft,
+            s.Turn.CardResolveDepth, s.Turn.PendingCard ?? "", s.Turn.PendingCardCell is { } pcc ? Seat(pcc) : null)
         {
             Players = s.Players.Values.OrderBy(p => p.Seat).Select(p => new CanonPlayer(
                 p.Seat, (int)p.Faction, p.IsAlive, p.DrawCount, p.AntigenMemory, (int)p.ImmuneLevel,
@@ -169,6 +170,9 @@ public static class CanonCodec
                 PendingChainCell = c.G.PendingChainCell is { } pc ? Id(pc) : null,
                 PendingChemotaxisCell = c.G.PendingChemotaxisCell is { } px ? Id(px) : null,
                 ChemotaxisStepsLeft = c.G.ChemotaxisStepsLeft,
+                CardResolveDepth = c.G.CardResolveDepth,
+                PendingCard = c.G.PendingCard == "" ? null : c.G.PendingCard,
+                PendingCardCell = c.G.PendingCardCell is { } pcc ? Id(pcc) : null,
             },
         };
     }

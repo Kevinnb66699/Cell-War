@@ -147,8 +147,12 @@ public class ChemotaxisTests
     [Fact]
     public void 停下走满或走死之后牌才离手()
     {
-        var stopped = Engine.ExecuteDecision(Play(World(), North), new StopChemotaxisDecision(0, Walker), Rng()).NewState;
+        var pending = Play(World(), North);
+        Assert.Equal(Card, pending.Turn.PendingCard);            // 结算到一半的那张卡记在 Turn 上
+        Assert.Equal(Walker, pending.Turn.PendingCardCell);
+        var stopped = Engine.ExecuteDecision(pending, new StopChemotaxisDecision(0, Walker), Rng()).NewState;
         Assert.DoesNotContain(Card, stopped.Cells[Walker].Hand);
+        Assert.Null(stopped.Turn.PendingCard);                    // 收尾的同时摘掉
 
         var walked = Step(Step(Play(World(), North), Origin), South);
         Assert.Null(walked.Turn.PendingChemotaxisCell);
@@ -191,6 +195,32 @@ public class ChemotaxisTests
         Assert.Null(tossed.Turn.PendingDiscardSeat);
         Assert.Contains(Card, tossed.Cells[Walker].Hand);          // 这张还没「结算完」，仍在手上
         Assert.NotEmpty(Engine.GetAvailableDecisions(tossed, 0).OfType<ChemotaxisStepDecision>());
+    }
+
+    /// <summary>
+    /// 卡牌引发的净化不积累抗原记忆（GD `purify_here` 看 `card_resolve_depth`；Kevin 2026-09-16 拍板跟 GD）。
+    /// 第 1 步在 `Resolve` 里（同步那段，看 `CardResolveDepth`），第 2 步在挂起之后（看 `PendingCard`）—— 两段各验一次；
+    /// 对照：普通【迁移】净化照给 +1。
+    /// </summary>
+    [Fact]
+    public void 卡牌引发的净化不给抗原记忆_普通迁移照给()
+    {
+        var second = new HexPosition(1, -2, 1);   // North 的邻格
+        var world = World().UpdateTissueState(North, TissueState.Cancer).UpdateTissueState(second, TissueState.Cancer);
+        Assert.Equal(0, world.Players[0].AntigenMemory);
+
+        var step1 = Play(world, North);
+        Assert.Equal(TissueState.Healthy, step1.Board.Tissues[North].State);   // 净化发生了
+        Assert.Equal(0, step1.Players[0].AntigenMemory);                       // 但不给记忆
+
+        var step2 = Step(step1, second);
+        Assert.Equal(TissueState.Healthy, step2.Board.Tissues[second].State);
+        Assert.Equal(0, step2.Players[0].AntigenMemory);
+        Assert.Equal(0, step2.Turn.CardResolveDepth);                          // 决策点上深度永远归零
+
+        var plain = Engine.ExecuteDecision(World().UpdateTissueState(North, TissueState.Cancer),
+            new MoveDecision(0, Walker, North), Rng()).NewState;
+        Assert.Equal(1, plain.Players[0].AntigenMemory);
     }
 
     [Fact]

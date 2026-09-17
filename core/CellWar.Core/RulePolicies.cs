@@ -360,6 +360,13 @@ internal static class RulePolicies
     /// 那样【中和抗体】压不住它。（「已装备过、别重复抽/重复装」那类**不是效果判断**，
     /// 照旧直接查 `Equipped`。）
     /// </summary>
+    /// <summary>
+    /// 净化给不给抗原记忆（GD `purify_gives_memory`）：正在结算一张卡就不给 ——
+    /// 同步的那段看 `CardResolveDepth`，跨决策点的那段（趋化第 2/3 步）看 `PendingCard`。
+    /// **只挡净化给的那一份**：【抗原摄取】那类卡的正业就是送记忆，照给；技能给的（【效应记忆形成】）也照给。
+    /// </summary>
+    public static bool PurifyGivesMemory(WorldState s) => s.Turn.CardResolveDepth <= 0 && s.Turn.PendingCard is null;
+
     public static bool HasSkill(WorldState s, Cell c, string skill)
         => !Neutralized(s, c) && c.Equipped.Contains(skill);
 

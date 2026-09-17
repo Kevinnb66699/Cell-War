@@ -476,9 +476,11 @@ internal static class CardRules
     {
         var def = PickWeighted(s, EligibleCards(s, cell), rng);
         if (def == null) return s;
-        return def.Category == CardCategory.Event
-            ? Resolve(s, s.Cells[cell.Id], def.Name, rng)
-            : AddToHand(s, cell, def.Name);
+        if (def.Category != CardCategory.Event) return AddToHand(s, cell, def.Name);
+        // 抽到的事件卡立即结算，GD `draw()` 同样用 card_resolve_depth 包住（里头可能再抽一张，会套娃）
+        s = s.WithTurn(s.Turn.WithCardResolveDepth(s.Turn.CardResolveDepth + 1));
+        s = Resolve(s, s.Cells[cell.Id], def.Name, rng);
+        return s.WithTurn(s.Turn.WithCardResolveDepth(s.Turn.CardResolveDepth - 1));
     }
 
     /// <summary>
@@ -602,12 +604,16 @@ internal static class CardRules
                     .ToDictionary(kv => kv.Key, kv => kv.Value)));
         }
         var caller = s.Cells[cell.Id];
+        // GD `play()` 用 card_resolve_depth 把整段结算包起来：卡牌引发的净化不给记忆
+        s = s.WithTurn(s.Turn.WithCardResolveDepth(s.Turn.CardResolveDepth + 1));
         s = Resolve(s, caller, d.Card, rng, d.Target, d.TargetCell);
+        s = s.WithTurn(s.Turn.WithCardResolveDepth(s.Turn.CardResolveDepth - 1));
         if (definition.Category != CardCategory.Instant) return new(s, Array.Empty<IGameEvent>(), true);
         // 即时卡**结算完**才离手、才走细胞因子链（GD `_resolve_played` 的尾巴，cw_card_fx.gd:399-402）。
         // 【炎症性趋化】的结算跨两个挂起决策点：挂起还在就先不收尾，等 DecisionRouter 在挂起被摘掉那一刻补上 ——
         // 不然第 2/3 步那两问上两边手牌差一张，手牌到上限时还少一个强制弃置决策点（L1 对拍会在那儿分叉）。
-        if (s.Turn.PendingChemotaxisCell == cell.Id) return new(s, Array.Empty<IGameEvent>(), true);
+        if (s.Turn.PendingChemotaxisCell == cell.Id)
+            return new(s.WithTurn(s.Turn.WithPendingCard(d.Card, cell.Id)), Array.Empty<IGameEvent>(), true);
         return new(FinishInstant(s, cell.Id, d.Card), Array.Empty<IGameEvent>(), true);
     }
 
@@ -617,6 +623,7 @@ internal static class CardRules
     /// </summary>
     public static WorldState FinishInstant(WorldState s, EntityId cellId, string card)
     {
+        s = s.WithTurn(s.Turn.WithPendingCard(null, null));
         var cell = s.Cells[cellId];
         if (cell.Hand.Contains(card))
             s = s.UpdateCell(cellId, cell.Copy(hand: cell.Hand.Where(x => x != card).ToList()));

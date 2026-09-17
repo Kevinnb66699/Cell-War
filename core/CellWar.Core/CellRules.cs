@@ -499,7 +499,8 @@ internal static class CellRules
             else
             {
                 s = s.UpdateTissueState(move.TargetPosition, TissueState.Healthy);
-                s = AddMemory(s, 1);
+                // 卡牌引发的净化不积累抗原记忆（GD purify_here:1043 / card_resolve_depth；Kevin 2026-09-16 拍板跟 GD）
+                if (RulePolicies.PurifyGivesMemory(s)) s = AddMemory(s, 1);
                 events.Add(new TissueStateChangedEvent(s.Turn.WorldRound, s.Turn.Phase, move.TargetPosition, tissue.State, TissueState.Healthy));
                 // 【I-吞噬】：巨噬细胞通过【迁移】触发净化后恢复，回量不超过本次实付 -0.1
                 if (s.Cells[cell.Id].Type == CellType.Macrophage)

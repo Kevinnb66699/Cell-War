@@ -284,6 +284,10 @@ public class RegressionGuardTests
             t => t.WithPendingChemotaxis(new EntityId(9), 1));
         AssertOnlyChangesAmong(full, "WithPendingChemotaxis(null)", ChemotaxisFields,
             t => t.WithPendingChemotaxis(null, 0));
+
+        AssertOnlyChanges(full, "WithCardResolveDepth", nameof(TurnState.CardResolveDepth), t => t.WithCardResolveDepth(3));
+        AssertOnlyChangesAmong(full, "WithPendingCard", PendingCardFields, t => t.WithPendingCard("缺氧适应", new EntityId(9)));
+        AssertOnlyChangesAmong(full, "WithPendingCard(null)", PendingCardFields, t => t.WithPendingCard(null, null));
     }
 
     [Fact]
@@ -335,6 +339,12 @@ public class RegressionGuardTests
     private static readonly string[] ChemoFields =
     [
         nameof(TurnState.ChemoAt), nameof(TurnState.ChemoRounds), nameof(TurnState.ChemoOwner),
+    ];
+
+    /// <summary>结算到一半的那张卡：卡名 + 主人，两个字段一起改。</summary>
+    private static readonly string[] PendingCardFields =
+    [
+        nameof(TurnState.PendingCard), nameof(TurnState.PendingCardCell),
     ];
 
     /// <summary>【炎症性趋化】的挂起态：谁在走 + 还剩几步，两个字段一起改。</summary>
@@ -1420,6 +1430,9 @@ public class RegressionGuardTests
         ChemoOwner = 0,
         PendingChemotaxisCell = new EntityId(6),
         ChemotaxisStepsLeft = 2,
+        CardResolveDepth = 1,
+        PendingCard = "炎症性趋化",
+        PendingCardCell = new EntityId(6),
     };
 
     /// <summary>同上：每个字段都非默认。</summary>

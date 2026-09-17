@@ -103,6 +103,22 @@ public sealed class TurnState
     /// </summary>
     public int ChemotaxisStepsLeft { get; init; }
 
+    /// <summary>
+    /// GD 的 `card_resolve_depth`：正在结算一张卡（打出的即时卡 / 抽到的事件卡）时 > 0。
+    /// 只挡**净化给的那一份抗原记忆**（Kevin 2026-09-07：卡牌引发的净化不积累记忆；卡本身送记忆的、技能给的照给）。
+    /// 结算是同步的，所以在每个决策点上它都是 0 —— 跨决策点的那段由 <see cref="PendingCard"/> 接着挡。
+    /// </summary>
+    public int CardResolveDepth { get; init; }
+
+    /// <summary>
+    /// 结算到一半、等玩家在中途做选择的那张即时卡（今天只有【炎症性趋化】；null = 没有）。
+    /// GD 里这段是 `play()` 内的一串 await：卡还在手上、`card_resolve_depth` 还开着；
+    /// 中途的挂起摘干净那一刻，`DecisionRouter.Execute` 才给这张卡收尾（离手 + 细胞因子链）。
+    /// </summary>
+    public string? PendingCard { get; init; }
+
+    public EntityId? PendingCardCell { get; init; }
+
     public TurnState Clone() => new()
     {
         WorldRound = WorldRound,
@@ -127,7 +143,10 @@ public sealed class TurnState
         TrackRounds = TrackRounds,
         PendingChainCell = PendingChainCell,
         PendingChemotaxisCell = PendingChemotaxisCell,
-        ChemotaxisStepsLeft = ChemotaxisStepsLeft
+        ChemotaxisStepsLeft = ChemotaxisStepsLeft,
+        CardResolveDepth = CardResolveDepth,
+        PendingCard = PendingCard,
+        PendingCardCell = PendingCardCell
     };
 }
 
