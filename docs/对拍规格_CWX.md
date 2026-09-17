@@ -40,7 +40,8 @@
 * L0 **碰不到**流程编排、修饰器叠加顺序、组合效应；L1 能。所以 L0 全绿不是出口条件，只是必要条件。
 * L2 现在做是负收益：C# 第 0 步就分叉（初盘生成算法两套），自由跑的对拍只会报「第 0 步不一样」然后全盘作废。
 
-**阶段 0 出口条件写成**：`L0: MISMATCH=0 且 NOTIMPL=0 且 COVERAGE 无「未写用例」格` ＋ `L1: 核心子系统（移动/收入/攻击/E 阶段）BLOCKING=0`。**不是「dotnet test 绿」，也不是「清单清零」**——清单里的 `KNOWN_GAP` 与 `UNDEFINED` 是拿去排期的，不是拿去清零的。
+**阶段 0 出口条件写成**：`L0: MISMATCH=0 且 NOTIMPL=0 且 COVERAGE 无「未写用例」格` ＋ `L1: 核心子系统（移动/收入/攻击/E 阶段）BLOCKING=0`。
+> **2026-09-18 Kevin 认：口径一按 L1 证据宣告完成**（三条夹具整条一致 + 20 种子 × 3 人数 = 60 条批扫整条一致 + C# 601 单测）；L0 扩表（今天 5 张表 23 用例，M1 的 40~60 张没做）**并入口径二的测试迁移**（迁移计划 §二「做一次算两笔」）。**不是「dotnet test 绿」，也不是「清单清零」**——清单里的 `KNOWN_GAP` 与 `UNDEFINED` 是拿去排期的，不是拿去清零的。
 
 ---
 
@@ -144,7 +145,7 @@ C# 此前单槽整组覆写、外层剩余步数与卡名一起丢。现在 `Tur
 现有三条夹具没有嵌套（`free_move` 只在 2p 出现 4 问、落点都不是骨髓），带子不动。
 **登记的 KNOWN_GAP**：~~`chain-vs-walk-order`~~（09-18 已合上，见第四批 ⑨）（净化内部抽到的连走 GD 先于同一次净化产生的【连续吞噬】，C# 连锁分支排在前 —— 与「连走步内产生的连锁先问」方向相反，得按调用深度排）；
 ~~`s-phase-walk-timing`~~（09-18 已合上，见第四批）（S 阶段产出 / 骨髓抽到的连走 GD 在血管传送**之前**当场问完，C# 要等到 PlayerAction 才浮现，`Validate` 答得进而 `Available` 给不出）；
-`marrow-mobilization-collect`（【骨髓动员】补卡后 GD 对站在骨髓上的细胞当场再 `collect_special`，C# 没有；且 GD 那一行**缺 await**，同步桥下是嵌套、界面 / 联机桥下是脱手 —— 以哪座桥为准要 Kevin 裁）。
+~~`marrow-mobilization-collect`~~（09-18 已合上：GD 补 await、协议 v29，C# `PendingMarrow`）（【骨髓动员】补卡后 GD 对站在骨髓上的细胞当场再 `collect_special`，C# 没有；且 GD 那一行**缺 await**，同步桥下是嵌套、界面 / 联机桥下是脱手 —— 以哪座桥为准要 Kevin 裁）。
 ⑤ **【细胞因子网络】+ 强制弃置管线**（09-16 复核的四条全部合上）：上膛改成挂在装备者身上的 `mods` 条目「细胞因子网络·待发」（uses=1、round 到期、占一个打出序号，进 L1 视图的 `mods`），
 `FinishInstant` = GD `_cytokine_chain`：阵营闸 → 按 id 序领别人的赏（+0.5 给**打出者**）→ 再给自己上膛（装备、未中和、还没上膛）；删掉了全局席位槽 `CytokineNetworkSeat`（Canon 一并删）。
 强制弃置挂起加 `PendingDiscardCell`（GD `discard_to_limit(cell)` 只问超限的那一只、问到它降到上限为止），`Available` / `Validate` 只认那一只；弃置挂着时连走不摘、即时卡不离手（GD 在结算内部 await 问完才 erase + 走链，刚打出的那张也在可弃之列）。
@@ -173,7 +174,7 @@ T 细胞每次成功都追加一笔 1.0 的**直击**（同批第二笔）——
 三张移动技能改闸门、血行转移 / 根深蒂固 `GdNeighbors`、交叉呈递 `apply_mark`、口径 #67 按 GD 代码、2 人局不维护）全部合上。
 ⑨ **`chain-vs-walk-order`**：`TurnState.PendingChainWalkDepth` 记下挂起连锁时的走位栈深，栈更深时连锁让路（`CellRules.ChainDeferred`：净化抽到的连走先走完），连走步内踩出的连锁栈深相等、照旧先问；走位弹掉后无下一跳直接摘（`NormalizeChain`）。
 ⑩ **`camping-chain`**：`TurnState.EndStep` 游标，`EvolveEndOfRound` 拆 A（1 → 4.9）/ B（5 → 9.5），A 之后有挂起停在 EndStep 1，DecisionRouter 出口答完 `FinishEndOfRound`。Canon 加 `EndStep` / `PendingChainWalkDepth` 两键（GD 视图无对应物，夹具不重录）。
-C# 598 绿；三条夹具 + 批扫 60/60 整条一致。**还挂着的**：`marrow-mobilization-collect`（待 Kevin 裁桥）、`tnf-events-container`（TNF-α 在 GD 是 `events.active` 条目、C# 是 `Tissue.SolidLockRound`，这张卡一打 `$.g.events` 视图就差 —— 待 Kevin 裁）、`aerobic-board-base`（非默认旋钮）、`stress-fee` / 世界事件（已裁延后）。
+C# 598 绿；三条夹具 + 批扫 60/60 整条一致。**还挂着的**：~~`marrow-mobilization-collect`~~、~~`tnf-events-container`~~（两条 09-18 Kevin 裁定后当天合上：GD 补 await → 协议 v29 + C# `PendingMarrow` 游标；TNF-α 冻结名单进事件容器、`Tissue.SolidLockRound` 删除；夹具与批扫按 v29 重录，601 绿、60/60）、`aerobic-board-base`（非默认旋钮）、`stress-fee` / 世界事件（已裁延后）。
 Kevin 09-18 补口径：**尽量保留 C# 架构，只保证规则对齐**。
 
 **丢掉了什么（写进限制栏）**：选项的**顺序**与下标稳定性不再被验证（`DecisionRouter.cs:82` 的 `Tiles(s)` 走 `PagedMap` 迭代序而非排序序）。C# 真当权威内核时，这会以「客户端点了第 3 项、服务器执行了第 5 项」的形式复活——那要靠「按语义提交」的线上协议解决，不是靠对拍。**这条要单独立一条阶段 1 待办。**
