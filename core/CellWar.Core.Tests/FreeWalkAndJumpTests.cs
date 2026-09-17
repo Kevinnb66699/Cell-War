@@ -48,8 +48,8 @@ public class FreeWalkAndJumpTests
         Assert.DoesNotContain(P(-3, 0), targets);
         Assert.False(Engine.ValidateDecision(s, new ChemotaxisStepDecision(0, Immune0, P(-3, 0))).IsValid);
         Assert.Empty(Engine.GetAvailableDecisions(s, 2));       // 别的席位没有事
-        Assert.Equal("k=free_move|g=趋化募集|stop=1", L1.SemanticKey.Of(s, opts[0]));
-        Assert.Equal("k=free_move|g=趋化募集|to=-5,1", L1.SemanticKey.Of(s, new ChemotaxisStepDecision(0, Immune0, P(-5, 1))));
+        Assert.Equal("k=free_move|g=趋化募集|stop=1", SemanticKey.Of(s, opts[0]));
+        Assert.Equal("k=free_move|g=趋化募集|to=-5,1", SemanticKey.Of(s, new ChemotaxisStepDecision(0, Immune0, P(-5, 1))));
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public class FreeWalkAndJumpTests
         var first = Engine.GetAvailableDecisions(s, 0).OfType<PlayCardDecision>().First(p => p.Card == "炎症性趋化");
         var walking = Do(s, first);
         Assert.Equal("炎症性趋化", walking.Turn.PendingWalkCard);
-        Assert.Equal("k=free_move|g=炎症性趋化|stop=1", L1.SemanticKey.Of(walking, new StopChemotaxisDecision(0, Immune0)));
+        Assert.Equal("k=free_move|g=炎症性趋化|stop=1", SemanticKey.Of(walking, new StopChemotaxisDecision(0, Immune0)));
     }
 
     // ---------- 小细胞【转移】 ----------

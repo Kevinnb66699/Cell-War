@@ -1,9 +1,10 @@
-using CellWar.Core;
-
-namespace CellWar.Core.Tests.L1;
+namespace CellWar.Core;
 
 /// <summary>
 /// 把一个决策压成**语义键** —— 两边各在自己的选项表里按这个字符串查回下标。
+///
+/// 2026-09-18 从测试程序集搬进 CellWar.Core（口径二批 0 步 2）：观测协议 v1 的作答口径「键为准、下标兜底」要在生产代码里查它，
+/// 演出通道的方向下标要用 <see cref="GdDirs"/>。文法与 <see cref="FieldOrder"/> 逐字不变；GD 侧那一份在 game/scripts/kernel/cw_semkey.gd（xcheck_bridge.gd 委托它），**不许出现第四份**。
 ///
 /// 为什么不用下标运输：C# 的 `DecisionRouter.Available` 走 `PagedMap` 的迭代序，
 /// GD 的选项表是另一套顺序。拿下标对，第一步就错位。
@@ -43,8 +44,16 @@ public static class SemanticKey
     /// GD `CWData.DIRS` 的**顺序**（`cw_data.gd:870`）。Excalibur 的 `dir` 是这张表的下标，
     /// 而 C# `HexPosition.GetNeighbors()` 是另一套次序 —— 照自己的枚举序写下标，六个方向全错位。
     /// </summary>
-    private static readonly (int Q, int R)[] GdDirs =
+    public static readonly IReadOnlyList<(int Q, int R)> GdDirs =
         [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)];
+
+    /// <summary>落点相对起点是 GD `DIRS` 的第几个方向；不是六邻之一就是 -1（GD 侧 dir &lt; 0 不发演出）。</summary>
+    public static int DirIndex(HexPosition from, HexPosition to)
+    {
+        var delta = (to.Q - from.Q, to.R - from.R);
+        for (var i = 0; i < GdDirs.Count; i++) if (GdDirs[i] == delta) return i;
+        return -1;
+    }
 
     /// <summary>
     /// 这些决策类型**故意不映射**：`IRulesEngine.cs` 里有定义但没有 Validate / Execute / Available，
@@ -167,8 +176,7 @@ public static class SemanticKey
     private static string? Dir(HexPosition from, HexPosition? to)
     {
         if (to is not { } t) return null;
-        var delta = (t.Q - from.Q, t.R - from.R);
-        var i = Array.IndexOf(GdDirs, delta);
+        var i = DirIndex(from, t);
         return i < 0 ? null : i.ToString();
     }
 }

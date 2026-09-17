@@ -66,12 +66,12 @@ public class WalkStackTests
 
         var nested = CardRules.Resolve(walking, walking.Cells[Immune0], "效应细胞浸润", Rng());   // 内层：免费、可进癌组织
         Assert.Equal((Immune0, 2, "效应细胞浸润"), Top(nested));
-        Assert.Equal("k=free_move|g=效应细胞浸润|stop=1", L1.SemanticKey.Of(nested, new StopChemotaxisDecision(0, Immune0)));
+        Assert.Equal("k=free_move|g=效应细胞浸润|stop=1", SemanticKey.Of(nested, new StopChemotaxisDecision(0, Immune0)));
 
         var stopped = Do(nested, new StopChemotaxisDecision(0, Immune0));
         Assert.Equal((Immune0, CellRules.ChemotaxisMaxSteps - 1, "炎症性趋化"), Top(stopped));   // 只退一层：外层原样
         Assert.Empty(stopped.Turn.WalkOuter);
-        Assert.Equal("k=free_move|g=炎症性趋化|stop=1", L1.SemanticKey.Of(stopped, new StopChemotaxisDecision(0, Immune0)));
+        Assert.Equal("k=free_move|g=炎症性趋化|stop=1", SemanticKey.Of(stopped, new StopChemotaxisDecision(0, Immune0)));
         Assert.Equal("炎症性趋化", stopped.Turn.PendingCard);                                   // 打出的卡还没离手：外层没走完
 
         var stoppedAgain = Do(stopped, new StopChemotaxisDecision(0, Immune0));

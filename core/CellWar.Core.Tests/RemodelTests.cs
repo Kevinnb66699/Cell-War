@@ -78,8 +78,8 @@ public class RemodelTests
         // (-3,0) 自身 → 邻格 (-2,0)（其余邻格都健康）；(-2,0) 自身已见过 → 邻格 (-1,0) 有黑色素瘤站着不算、(-1,-1)、(-2,1)
         Assert.Equal(new[] { P(-3, 0), P(-2, 0), P(-1, -1), P(-2, 1) }, Picks(s));
         Assert.DoesNotContain(P(-4, 2), Picks(s));          // 旧候选域「距施法者 ≤2」会多给它
-        Assert.Equal("k=pick_tile|g=基质重塑|to=-3,0", L1.SemanticKey.Of(s, new RemodelPickDecision(0, Immune0, P(-3, 0))));
-        Assert.Equal("k=pick_tile|g=基质重塑|stop=1", L1.SemanticKey.Of(s, new StopRemodelDecision(0, Immune0)));
+        Assert.Equal("k=pick_tile|g=基质重塑|to=-3,0", SemanticKey.Of(s, new RemodelPickDecision(0, Immune0, P(-3, 0))));
+        Assert.Equal("k=pick_tile|g=基质重塑|stop=1", SemanticKey.Of(s, new StopRemodelDecision(0, Immune0)));
         Assert.Empty(rng.Ranges);
     }
 

@@ -315,7 +315,7 @@ public class TargetedCardTests
     public void 语义键带上目标_格用to_细胞用席位()
     {
         var s = World(0, "基质降解");
-        Assert.Equal("k=action|act=play|card=基质降解|to=-3,0", L1.SemanticKey.Of(s, new PlayCardDecision(0, Immune0, "基质降解", P(-3, 0))));
-        Assert.Equal("k=action|act=play|card=免疫增援|cid=2", L1.SemanticKey.Of(s, new PlayCardDecision(0, Immune0, "免疫增援", null, Immune2)));
+        Assert.Equal("k=action|act=play|card=基质降解|to=-3,0", SemanticKey.Of(s, new PlayCardDecision(0, Immune0, "基质降解", P(-3, 0))));
+        Assert.Equal("k=action|act=play|card=免疫增援|cid=2", SemanticKey.Of(s, new PlayCardDecision(0, Immune0, "免疫增援", null, Immune2)));
     }
 }
