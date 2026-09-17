@@ -112,10 +112,10 @@
 
 ### 必须新建
 
-- **`src/CellWar.Sidecar/`**（250~400 行）：`AssemblyLoadContext.Default.LoadFromAssemblyPath(绝对路径)` 加载外部 Core → loopback HTTP/WS → seat token 授权 → 串行化 `ISession`。形状照 `src/CellWar.Server/Program.cs`(24 行) + `Services/GameSessionManager.cs`(~60 行)，但那两个写死 `new MatchSession(DemoScenario.Create())`，不走 `MatchSession.Start(playerCount, seed)`，没暴露 `Save`/`Restore`/`Advance`，更没暴露 `PlanNextDests`/`QuotePath`（而 `godot-client/scripts/Main.cs:291,318` 正在用后两个）——等于重写。
+- **`core/CellWar.Sidecar/`**（250~400 行）：`AssemblyLoadContext.Default.LoadFromAssemblyPath(绝对路径)` 加载外部 Core → loopback HTTP/WS → seat token 授权 → 串行化 `ISession`。形状照 `core/CellWar.Server/Program.cs`(24 行) + `Services/GameSessionManager.cs`(~60 行)，但那两个写死 `new MatchSession(DemoScenario.Create())`，不走 `MatchSession.Start(playerCount, seed)`，没暴露 `Save`/`Restore`/`Advance`，更没暴露 `PlanNextDests`/`QuotePath`（而 `godot-client/scripts/Main.cs:291,318` 正在用后两个）——等于重写。
   ⚠ **宿主目录里绝不能有第二份 `CellWar.Core.dll`**，否则默认探测可能优先拿它，热更的那份永远不生效。这条要由探针证伪，不能靠自觉。
   ⚠ `Main` 方法体里不许出现任何 `CellWar.Core` 类型（JIT 按方法首次调用解析类型），真正的入口标 `[MethodImpl(MethodImplOptions.NoInlining)]`。这是 `boot.gd:12-17`"挂载必须早于首次 load"在 C# 里的同一条纪律，护栏照抄 `headless_test.gd:6041-6050` 扫源码。
-- **`src/CellWar.Core/RulesVersion.cs`**（生成文件）：`Build`（由 `build_patch.sh` 写入，与 manifest 同源）、`HostAbi`（手写，接口一变 +1）、`NetVersion`（从 `cw_net.gd:131` 抄，`--check` 闸住）、`CheckpointSchema`、`RulesEpoch`。把在 `CheckpointCodec.cs:61,70` 和 `Server/Program.cs:10` **手抄了两遍**的 `"core-slice-1"` 收编成常量。生成器加 `--check` 挂到 `publish_release.sh:76-80` 旁边。
+- **`core/CellWar.Core/RulesVersion.cs`**（生成文件）：`Build`（由 `build_patch.sh` 写入，与 manifest 同源）、`HostAbi`（手写，接口一变 +1）、`NetVersion`（从 `cw_net.gd:131` 抄，`--check` 闸住）、`CheckpointSchema`、`RulesEpoch`。把在 `CheckpointCodec.cs:61,70` 和 `Server/Program.cs:10` **手抄了两遍**的 `"core-slice-1"` 收编成常量。生成器加 `--check` 挂到 `publish_release.sh:76-80` 旁边。
 - **`game/scripts/core_bridge.gd`**（可热更）：`OS.create_process` + 端口文件（避端口冲突）+ token + 握手 + 8 秒超时 + `core_failed()` + 主菜单降级置灰 + 孤儿进程清理。⚠ `OS.execute`/`OS.create_process` 在 `game/` 里 **grep 零命中**，这是全新表面，所有坑都是新的：孤儿进程、端口占用、`--parent-pid` watchdog、玩家用任务管理器强杀。
 - **探针第 7 档**（最贵、最不能省）：用 `$BASE` 那个 tag 的**宿主二进制**加载补丁里那份 DLL，`GET /version` 读回 `RulesVersion.Build`，不等于本次 `$BUILD` 就 die。等价物精髓照抄 `patch_probe.gd` 文件头两条：判据落在基线里已存在的东西上；挂载前一个 `load()` 都不许有。
 - **确定性自检夹具**：固定种子 `MatchSession.Start(4, 12345)` → `Advance(2048)` → `Save()` → `CheckpointCodec.Encode` → SHA-256。⚠ 见 §9 浮点确定性那条。
@@ -272,7 +272,7 @@ static func core_failed() -> void: quarantine(CORE_STRIKES)
 - ✅ 验证：`dotnet publish -r win-x64 --self-contained` 真的产出一个目录；对拍脚本在 N 局上输出 diff 清单；Core.dll 的**真实字节数**（今天全是估算）。
 
 **阶段 1 · 宿主可跑，不进客户端**（2~3 天）
-- `src/CellWar.Sidecar/`：ALC 外部加载 + loopback + token + `/version` + `/selftest` + `Start/Save/Restore/Advance/PlanNextDests/QuotePath` 全暴露 + 退出码 64/65/66。
+- `core/CellWar.Sidecar/`：ALC 外部加载 + loopback + token + `/version` + `/selftest` + `Start/Save/Restore/Advance/PlanNextDests/QuotePath` 全暴露 + 退出码 64/65/66。
 - `RulesVersion.cs` 生成器 + `--check`，收编 `"core-slice-1"`。
 - ✅ 验证：命令行起宿主打完一整局；`--selftest` 退出码正确；**把宿主目录里的 Core 删掉、只留外部路径那份，确认仍能跑**（证明 `LoadFromAssemblyPath` 真的顶掉了探测路径）。
 
@@ -371,7 +371,7 @@ Kevin 装了 **.NET SDK 10.0.401**（运行时 10.0.12 + 原有 8.0.15 并存）
 ### 实测 1：`CellWar.Core.dll` 的真实体积 —— 估算落在上限，结论不变
 
 ```
-dotnet build src/CellWar.Core/CellWar.Core.csproj -c Release   → 0 警告 0 错误
+dotnet build core/CellWar.Core/CellWar.Core.csproj -c Release   → 0 警告 0 错误
 裸 IL     300,032 字节
 gzip -9   112,667 字节（2.7×）
 ```
@@ -495,7 +495,7 @@ Passed!  - Failed: 0, Passed: 141, Skipped: 0, Total: 141, Duration: 477 ms
 1. **`CellWar.Core` 永远是零 `PackageReference` 的纯 BCL 单程序集**，且 `CellWar.Sidecar` **永不** `PublishTrimmed` / `PublishSingleFile` / `PublishAot`。三者任一开启就把 Core 烧进不可分割的产物，热更载荷从 110 KB 变成几十 MB，整条路线的经济性归零。由 `publish_release.sh` 第⑥闸守。
 2. **宿主↔规则接口一动就是全量发版**，由 `HostAbi` 锁住，没有第三条路。宿主要是能跟着热更，载荷就从 110 KB IL 变成 20~70 MB 自包含二进制，"补丁包 Windows/macOS 通用"这条现有性质也一起丢掉。
 3. **不做进程内 ALC 卸载式热替换**，理由见 §2 第 1 层。
-4. **碰了 `src/CellWar.Core/**` 或 `game/scripts/core/cw_*.gd` 的补丁，必须同时升 `NET_VERSION` 并重新部署服务器**（`build_patch.sh:30-31` 那条纪律的扩展）。做成闸，别靠人记得。
+4. **碰了 `core/CellWar.Core/**` 或 `game/scripts/core/cw_*.gd` 的补丁，必须同时升 `NET_VERSION` 并重新部署服务器**（`build_patch.sh:30-31` 那条纪律的扩展）。做成闸，别靠人记得。
 
 ---
 
