@@ -1,4 +1,6 @@
-﻿namespace CellWar.Core.Tests;
+﻿using System.Text.RegularExpressions;
+
+namespace CellWar.Core.Tests;
 
 public class CardTests
 {
@@ -160,6 +162,38 @@ public class CardTests
         }));
 
         Assert.False(engine.ValidateDecision(world, new DiscardDecision(1, otherId, "缺氧适应")).IsValid);
+    }
+
+    /// <summary>
+    /// 抽卡候选的**顺序**必须是 GD 卡表（`cw_card_data.gd`，生成器 `sorted(cards)` 的码点序）的文件序：
+    /// 抽卡是「掷 1..total、按顺序累减」，顺序不同同一个骰子落到的就是另一张牌。
+    /// L1 对拍第 10 步就是这么分叉的（GD 抽到【代谢适应】进手，C# 同一个骰抽到一张事件卡当场结算）。
+    /// 这里直接读 GD 卡表当真相源，不拿 C# 自己的排序当判据 —— 那是同义反复。
+    /// </summary>
+    [Fact]
+    public void 抽卡候选的顺序是GD卡表的文件序()
+    {
+        var gdPath = Path.Combine(RepoRoot(), "game", "scripts", "core", "cw_card_data.gd");
+        var gdImmuneI = File.ReadLines(gdPath)
+            .Select(l => Regex.Match(l, "^\\s*\"([^\"]+)\": \\{ \"kind\": Kind\\.\\w+, \"immune\": \\[(\\d+),"))
+            .Where(m => m.Success && int.Parse(m.Groups[2].Value) > 0)
+            .Select(m => m.Groups[1].Value)
+            .ToList();
+        Assert.True(gdImmuneI.Count > 10, "GD 卡表没读出来（正则没对上文件格式？）");
+
+        var world = World(CellType.ImmuneBasic, Faction.Immune);
+        var cs = CardRules.EligibleCards(world, world.Cells.Values.Single()).Select(d => d.Name).ToList();
+
+        // C# 只抽已实现的卡，所以按 C# 有的那些比**顺序**；名字集合的差异是另一条判据的事
+        Assert.Equal(gdImmuneI.Where(cs.Contains).ToList(), cs);
+    }
+
+    private static string RepoRoot()
+    {
+        var d = AppContext.BaseDirectory;
+        while (d != null && !(Directory.Exists(Path.Combine(d, "game")) && Directory.Exists(Path.Combine(d, "core"))))
+            d = Path.GetDirectoryName(d);
+        return d ?? throw new InvalidOperationException("从测试目录往上找不到仓库根");
     }
 
     [Fact]

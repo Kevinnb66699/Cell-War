@@ -421,10 +421,17 @@ internal static class CardRules
         };
 
     /// <summary>抽卡合法性（PRD §193-199）：等级卡池、移除手中同名技能与已装备同名永久技能。</summary>
-    private static List<CardDefinition> EligibleCards(WorldState s, Cell cell)
+    /// <summary>
+    /// 候选**必须按卡名码点序**：GD 的卡池是 `gen_card_data.py` 里 `sorted(cards)` 生成的 CARDS 表的文件序，
+    /// 抽卡是「掷一个 1..total 的数、按这个顺序累减」—— 顺序不同，同一个骰子落到的就是另一张牌。
+    /// L1 对拍第 10 步就是这么分叉的：GD 抽到【代谢适应】进手，C# 同一个骰抽到一张事件卡当场结算。
+    /// 卡名全是 BMP 字符，C# 的 Ordinal（UTF-16 码元）与 Python 的码点序一致。
+    /// </summary>
+    internal static List<CardDefinition> EligibleCards(WorldState s, Cell cell)   // internal：对拍测试要拿它和 GD 卡表比顺序
         => CardCatalog.Pool(PoolFor(s, cell))
             .Where(CardImplementation.IsImplemented)
             .Where(d => !cell.Hand.Contains(d.Name) && !cell.Equipped.Contains(d.Name))
+            .OrderBy(d => d.Name, StringComparer.Ordinal)
             .ToList();
 
     private static CardDefinition? PickWeighted(WorldState s, List<CardDefinition> eligible, IDeterministicRng rng)

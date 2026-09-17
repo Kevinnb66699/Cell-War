@@ -144,10 +144,13 @@ static func view(g: CWGame) -> Dictionary:
 		return a["name"] < b["name"] or (a["name"] == b["name"] and a["left"] < b["left"]))
 	var plist: Array = []
 	for pid: int in g.order:
-		## 开局落子之前 cells 还是空的（header 的 pre 就取在这时候）：没落子 = 还没活
+		## `alive` 对的是 C# 的 Player.IsAlive =「这一席还在局里」。开局落子之前 cells 还是空的
+		## （header 的 pre 就取在这时候）：没落子 = 还在局里、还没死，所以是 true
 		var placed: bool = pid < g.cells.size()
+		## ctype 记在席位上而不是细胞上：落子之前细胞还不存在，C# 那边落子时要靠它定癌种
 		plist.append({ "pid": pid, "faction": int(g.player(pid)["faction"]),
-			"alive": (bool(g.cell_of(pid)["alive"]) if placed else false) })
+			"alive": (bool(g.cell_of(pid)["alive"]) if placed else true),
+			"ctype": int(g.player(pid).get("cancer_type", -1)) })
 	var tune := {}
 	for k in TUNE_KEYS:
 		var v: Variant = g.tune.get(k)
@@ -156,7 +159,9 @@ static func view(g: CWGame) -> Dictionary:
 		"board": { "radius": int(g.board_radius), "tiles": tiles },
 		"cells": cells,
 		"g": {
-			"round_no": int(g.round_no), "phase": phase_of(g), "current_pid": int(g.current_pid),
+			"round_no": int(g.round_no), "phase": phase_of(g),
+			## current_pid 换回合不清零（上一回合最后一席一直挂着）；只在玩家回合里两边才是同一个意思
+			"current_pid": (int(g.current_pid) if phase_of(g) == "turn" else -1),
 			"memory": int(g.memory), "immune_level": int(g.immune_level),
 			"winner": int(g.winner), "effector_round": int(g.effector_round),
 			"chemo_at": (pos(chemo["at"]) if chemo.has("at") else ""),
