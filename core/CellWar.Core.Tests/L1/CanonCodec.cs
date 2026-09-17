@@ -17,7 +17,7 @@ public static class CanonCodec
             s.Board.Tissues.Values.OrderBy(t => t.Position.Q).ThenBy(t => t.Position.R).Select(t => new CanonTile(
                 Pos(t.Position), (int)t.State, (int)t.Type, t.SolidificationCount,
                 t.OccupyingCell is { } id ? Seat(id) : -1,
-                t.NecrosisRounds, t.Mucus, t.Newborn, t.OssifyAtRound, t.SolidLockRound, t.ToxinRound,
+                t.NecrosisRounds, t.Mucus, t.Newborn, t.OssifyAtRound, t.ToxinRound,
                 t.Charge ?? 0, t.ProductionCounter)).ToList()),
 
         Cells = s.Cells.Values.OrderBy(c => c.Id.Value).Select(c => new CanonCell(
@@ -65,6 +65,7 @@ public static class CanonCodec
             PendingLandAt = PosOrNull(s.Turn.PendingLandAt), PendingLandWalkDepth = s.Turn.PendingLandWalkDepth,
             EndStep = s.Turn.EndStep, PendingChainWalkDepth = s.Turn.PendingChainWalkDepth,
             WalkOuter = s.Turn.WalkOuter.Select(f => new CanonWalkFrame(Seat(f.Cell), f.StepsLeft, f.Card)).ToList(),
+            PendingMarrow = s.Turn.PendingMarrow.Select(Pos).ToList(),
             Players = s.Players.Values.OrderBy(p => p.Seat).Select(p => new CanonPlayer(
                 p.Seat, (int)p.Faction, p.IsAlive, p.DrawCount, p.AntigenMemory, (int)p.ImmuneLevel,
                 p.CancerType is { } ct ? (int)ct : null)).ToList(),
@@ -91,7 +92,6 @@ public static class CanonCodec
             Mucus = t.Mucus,
             Newborn = t.Newborn,
             OssifyAtRound = t.OssifyAt,
-            SolidLockRound = t.SolidLock,
             ToxinRound = t.ToxinRound,
         });
 
@@ -183,6 +183,7 @@ public static class CanonCodec
                 ChemotaxisStepsLeft = c.G.ChemotaxisStepsLeft,
                 PendingWalkCard = c.G.PendingWalkCard == "" ? null : c.G.PendingWalkCard,
                 WalkOuter = c.G.WalkOuter.Select(f => new WalkFrame(Id(f.Cell), f.StepsLeft, f.Card)).ToArray(),
+                PendingMarrow = c.G.PendingMarrow.Select(Pos).ToArray(),
                 CardResolveDepth = c.G.CardResolveDepth,
                 PendingCard = c.G.PendingCard == "" ? null : c.G.PendingCard,
                 PendingCardCell = c.G.PendingCardCell is { } pcc ? Id(pcc) : null,

@@ -167,7 +167,6 @@ public class RegressionGuardTests
             ("WithMucus", nameof(Tissue.Mucus), t => t.WithMucus(false)),
             ("WithNewborn", nameof(Tissue.Newborn), t => t.WithNewborn(false)),
             ("WithOssifyAt", nameof(Tissue.OssifyAtRound), t => t.WithOssifyAt(9)),
-            ("WithSolidLockRound", nameof(Tissue.SolidLockRound), t => t.WithSolidLockRound(4)),
             ("WithToxinRound", nameof(Tissue.ToxinRound), t => t.WithToxinRound(6)),
             ("WithType", nameof(Tissue.Type), t => t.WithType(TissueType.BoneMarrow)),
         };
@@ -1400,7 +1399,6 @@ public class RegressionGuardTests
         Mucus = true,
         Newborn = true,
         OssifyAtRound = 8,
-        SolidLockRound = 3,
         ToxinRound = 7,
     };
 
@@ -1464,6 +1462,7 @@ public class RegressionGuardTests
         PendingChainWalkDepth = 1,
         PendingWalkCard = "趋化募集",
         WalkOuter = new[] { new WalkFrame(new EntityId(5), 1, "炎症性趋化") },
+        PendingMarrow = new[] { new HexPosition(3, -3, 0) },
         CardResolveDepth = 1,
         PendingCard = "炎症性趋化",
         PendingCardCell = new EntityId(6),

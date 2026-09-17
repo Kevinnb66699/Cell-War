@@ -57,7 +57,8 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 			game.log_msg("　【抗原呈递增强】免疫方 +3 抗原记忆（%d）" % game.memory)
 			_evt(card, "+3 抗原记忆", cell["pos"])
 		"骨髓动员":
-			_marrow_mobilization(cell)
+			## 2026-09-18 补 await：此前同步桥下是嵌套、界面 / 联机桥下脱手（站在骨髓上的细胞的抽卡追问会与外层同时在飞）
+			await _marrow_mobilization(cell)
 		"克隆扩增":
 			for c in game.living_cells(CWData.Faction.IMMUNE):
 				c["energy"] += _amp(10)

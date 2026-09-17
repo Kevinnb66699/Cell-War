@@ -289,7 +289,7 @@ internal static class BoardRules
     internal static WorldState RaiseSolid(WorldState s, HexPosition pos, int amount)
     {
         var t = s.Board.Tissues[pos];
-        if (t.SolidLockRound == s.Turn.WorldRound) return s;   // 【TNF-α局部炎症】
+        if (WorldEffects.SolidFrozen(s, pos)) return s;      // 【TNF-α局部炎症】：冻结名单在事件容器里
         if (t.Type == TissueType.BloodVessel) return s;        // 血管不可固化
         var count = t.SolidificationCount + amount;
         s = s.UpdateTissueSolidification(pos, count);

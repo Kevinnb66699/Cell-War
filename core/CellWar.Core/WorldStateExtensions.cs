@@ -71,7 +71,6 @@ public static class WorldStateExtensions
     public static Tissue WithMucus(this Tissue t, bool mucus) => t.CopyTissue(mucus: mucus);
     public static Tissue WithNewborn(this Tissue t, bool newborn) => t.CopyTissue(newborn: newborn);
     public static Tissue WithOssifyAt(this Tissue t, int round) => t.CopyTissue(ossify: round);
-    public static Tissue WithSolidLockRound(this Tissue t, int round) => t.CopyTissue(solidLock: round);
     public static Tissue WithToxinRound(this Tissue t, int round) => t.CopyTissue(toxinRound: round);
 
     /// <summary>
@@ -80,7 +79,7 @@ public static class WorldStateExtensions
     /// （2026-09-15 之前 WithOccupyingCell 自己手写了一份，漏了两个字段、静默清零。）
     /// </summary>
     private static Tissue CopyTissue(this Tissue t, TissueState? state = null, TissueType? type = null, int? solid = null, int? charge = null,
-        int? prod = null, int? necrosis = null, bool? mucus = null, bool? newborn = null, int? ossify = null, int? solidLock = null, int? toxinRound = null,
+        int? prod = null, int? necrosis = null, bool? mucus = null, bool? newborn = null, int? ossify = null, int? toxinRound = null,
         bool setOccupying = false, EntityId? occupying = null)
         => new()
         {
@@ -90,7 +89,7 @@ public static class WorldStateExtensions
             Charge = charge ?? t.Charge, ProductionCounter = prod ?? t.ProductionCounter,
             NecrosisRounds = necrosis ?? t.NecrosisRounds, Mucus = mucus ?? t.Mucus,
             Newborn = newborn ?? t.Newborn, OssifyAtRound = ossify ?? t.OssifyAtRound,
-            SolidLockRound = solidLock ?? t.SolidLockRound, ToxinRound = toxinRound ?? t.ToxinRound
+            ToxinRound = toxinRound ?? t.ToxinRound
         };
     public static Cell Copy(this Cell c, int? energy = null, HexPosition? position = null, bool? alive = null, int? attacks = null, int? deathRound = null, int? campRound = null, HexPosition? campPosition = null,
         int? draws = null, int? toxin = null, bool? mutateUsed = null, bool? differentiated = null, bool? effectorUsed = null, bool? marked = null, int? markLeft = null, int? markRound = null, int? respawnRound = null,
@@ -147,7 +146,7 @@ public static class WorldStateExtensions
         int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? effectorRound = null,
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
         EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null, EntityId? pendingChain = null, int? pendingChainWalkDepth = null,
-        EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null, string? pendingWalkCard = null, IReadOnlyList<WalkFrame>? walkOuter = null,
+        EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null, string? pendingWalkCard = null, IReadOnlyList<WalkFrame>? walkOuter = null, IReadOnlyList<HexPosition>? pendingMarrow = null,
         int? cardResolveDepth = null, string? pendingCard = null, EntityId? pendingCardCell = null, int? cancerReviveFrom = null,
         EntityId? pendingCoupleCell = null, EntityId? pendingCoupleAlly = null, EntityId? pendingCouplePayer = null,
         EntityId? pendingRemodelCell = null, HexPosition? pendingRemodelFirst = null, HexPosition? pendingRemodelSecond = null, int? pendingRemodelStep = null,
@@ -174,7 +173,7 @@ public static class WorldStateExtensions
             PendingChemotaxisCell = setPendingChemotaxis ? pendingChemotaxis : pendingChemotaxis ?? t.PendingChemotaxisCell,
             ChemotaxisStepsLeft = chemotaxisStepsLeft ?? t.ChemotaxisStepsLeft,
             PendingWalkCard = setPendingWalkCard ? pendingWalkCard : pendingWalkCard ?? t.PendingWalkCard,
-            WalkOuter = walkOuter ?? t.WalkOuter,
+            WalkOuter = walkOuter ?? t.WalkOuter, PendingMarrow = pendingMarrow ?? t.PendingMarrow,
             CardResolveDepth = cardResolveDepth ?? t.CardResolveDepth,
             PendingCard = setPendingCard ? pendingCard : pendingCard ?? t.PendingCard,
             PendingCardCell = setPendingCard ? pendingCardCell : pendingCardCell ?? t.PendingCardCell,
@@ -193,6 +192,7 @@ public static class WorldStateExtensions
     /// <summary>挂起 / 结束【连续吞噬】的连锁选择。</summary>
     public static TurnState WithPendingChain(this TurnState t, EntityId? cell, int walkDepth = 0)
         => t.Copy(pendingChain: cell, setPendingChain: true, pendingChainWalkDepth: walkDepth);
+    public static TurnState WithPendingMarrow(this TurnState t, IReadOnlyList<HexPosition> due) => t.Copy(pendingMarrow: due);
 
     /// <summary>挂起 / 推进 / 结束【代谢耦联】的两问（三个字段一起改；payer 为 null = 还在问方向）。</summary>
     public static TurnState WithPendingCouple(this TurnState t, EntityId? cell, EntityId? ally, EntityId? payer)

@@ -14,7 +14,8 @@ public static class MatchSetup
     // 特殊组织坐标（轴坐标，中央 (0,0)）。布局为 3 重旋转对称，中央格非特殊组织。
     private static readonly HexPosition[] Cores =
         [new(0, -3, 3), new(3, 0, -3), new(-3, 3, 0)];
-    private static readonly HexPosition[] Marrows =
+    /// <summary>六个骨髓，顺序 = GD `CWData.MARROWS`（【骨髓动员】按这个序逐个收）。</summary>
+    internal static readonly HexPosition[] Marrows =
         [new(3, -3, 0), new(0, 3, -3), new(-3, 0, 3), new(6, -3, -3), new(-3, 6, -3), new(-3, -3, 6)];
     private static readonly HexPosition[] Vessels =
         [new(6, 0, -6), new(-6, 0, 6)];

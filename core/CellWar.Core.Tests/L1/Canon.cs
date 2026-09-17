@@ -37,7 +37,7 @@ public sealed record CanonBoard(int Radius, List<CanonTile> Tiles);
 /// <param name="Special">0 无 / 1 核心 / 2 骨髓 / 3 血管（GD `CWData.Special`）</param>
 /// <param name="Cell">占据它的细胞**席位**；−1 = 空</param>
 public sealed record CanonTile(string At, int Tissue, int Special, int Solid, int Cell,
-    int Necrosis, bool Mucus, bool Newborn, int OssifyAt, int SolidLock, int ToxinRound, int Store, int Prod);
+    int Necrosis, bool Mucus, bool Newborn, int OssifyAt, int ToxinRound, int Store, int Prod);
 
 /// <param name="Pid">席位（= GD 的 `pid`）</param>
 /// <param name="IType">免疫种类；癌细胞 −1（GD `ImmuneType`）</param>
@@ -94,6 +94,7 @@ public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Mem
     public int? PendingDiscardCell { get; init; }
     /// <summary>嵌套连走被压在下面的外层帧（GD 视图里不存在，一律空；C# 存档要带）。</summary>
     public List<CanonWalkFrame> WalkOuter { get; init; } = [];
+    public List<string> PendingMarrow { get; init; } = [];
 }
 
 /// <summary>一段被压在下面的连走（`TurnState.WalkFrame`）。</summary>

@@ -114,6 +114,8 @@ public sealed class TurnState
     /// GD 的连走是协程栈（cw_card_fx.gd `_free_walk`）：连走的一步踩到存卡的骨髓、抽到【趋化募集】这种抽到即走的卡，
     /// 内层先走完，外层再从新位置把剩下的步问完；「停在这里」只退一层。此前 C# 是单槽，内层把外层整组覆写、外层剩余步数丢掉（2026-09-17 深夜）。</summary>
     public IReadOnlyList<WalkFrame> WalkOuter { get; init; } = Array.Empty<WalkFrame>();
+    /// <summary>【骨髓动员】还没收的骨髓（GD `_marrow_mobilization` 的 await 循环：一次抽卡追出问答就停下，答完接着收剩下的）。</summary>
+    public IReadOnlyList<HexPosition> PendingMarrow { get; init; } = Array.Empty<HexPosition>();
 
     /// <summary>
     /// GD 的 `card_resolve_depth`：正在结算一张卡（打出的即时卡 / 抽到的事件卡）时 > 0。
@@ -192,6 +194,7 @@ public sealed class TurnState
         ChemotaxisStepsLeft = ChemotaxisStepsLeft,
         PendingWalkCard = PendingWalkCard,
         WalkOuter = WalkOuter,
+        PendingMarrow = PendingMarrow,
         CardResolveDepth = CardResolveDepth,
         PendingCard = PendingCard,
         PendingCardCell = PendingCardCell,
@@ -300,7 +303,6 @@ public sealed class Tissue
     public bool Mucus { get; init; }  // 「黏液侵染」：免疫细胞进入即消失，迁入耗能 +0.2
     public bool Newborn { get; init; }  // 本世界回合新转化的癌组织
     public int OssifyAtRound { get; init; }  // 骨肉瘤【骨样硬化】标记：到第几世界回合的 E 阶段转固化（0=无）
-    public int SolidLockRound { get; init; }  // 【TNF-α局部炎症】：该世界回合内不得增加固化计数（0=无）
     public int ToxinRound { get; init; }  // 上一次在该格发动【细胞毒素】的世界回合（0=从未）
 
     public Tissue Clone() => new()
@@ -316,7 +318,6 @@ public sealed class Tissue
         Mucus = Mucus,
         Newborn = Newborn,
         OssifyAtRound = OssifyAtRound,
-        SolidLockRound = SolidLockRound,
         ToxinRound = ToxinRound
     };
 }

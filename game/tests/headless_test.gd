@@ -12951,6 +12951,13 @@ func t_card_events() -> void:
 	g.tiles[m]["cards"] = 0
 	await g.card_fx.resolve_event(imm, "骨髓动员")
 	check(imm["energy"] == 20 and g.tiles[m]["cards"] == 1, "骨髓动员：全体 +0.5 且空仓骨髓立即产卡")
+	## 站在空仓骨髓上的细胞当场收走那张卡（2026-09-18 补上漏掉的 await 之后才成立）
+	var m2: Vector2i = CWData.MARROWS[1]
+	g.tiles[m2]["tissue"] = CWData.Tissue.HEALTHY
+	g.tiles[m2]["cards"] = 0
+	imm2["pos"] = m2
+	await g.card_fx.resolve_event(imm, "骨髓动员")
+	check(g.tiles[m2]["cards"] == 0 and g.tiles[m]["cards"] == 1, "骨髓动员：站在空仓骨髓上的细胞当场收走那张卡，没人站的骨髓留着")
 	var foe := CWSetup.make_cell(2, 2, CWData.Faction.CANCER, Vector2i(2, 0), -1, CWData.CancerType.MELANOMA)
 	foe["energy"] = 30
 	g.cells.append(foe)

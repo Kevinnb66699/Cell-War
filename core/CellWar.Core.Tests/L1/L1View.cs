@@ -122,7 +122,7 @@ public static class L1View
 
         var tiles = v.GetProperty("board").GetProperty("tiles").EnumerateArray().Select(t => new CanonTile(
             S(t, "at"), I(t, "tissue"), I(t, "special"), I(t, "solid"), I(t, "cell"),
-            I(t, "necrosis"), B(t, "mucus"), B(t, "newborn"), I(t, "ossify_at"), 0, I(t, "toxin_round"),
+            I(t, "necrosis"), B(t, "mucus"), B(t, "newborn"), I(t, "ossify_at"), I(t, "toxin_round"),
             I(t, "store"), I(t, "prod"))).ToList();
 
         var cells = v.GetProperty("cells").EnumerateArray().Select(c =>

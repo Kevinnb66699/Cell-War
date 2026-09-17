@@ -52,7 +52,7 @@ internal static class PhaseRules
             // 挂起态跨不出这一回合：GD 的连锁 / 趋化是 play() 里的一段 await，语法上就出不了这次打牌。
             // 正常路径到不了这里（挂起时「结束回合」被 Validate 驳回），这是防御 —— 谁绕开 Execute 直接推阶段，
             // 也不能让原主人在别人的回合里把剩下的几步走完。
-            s = s.WithTurn(s.Turn.WithPendingChain(null).WithPendingChemotaxis(null, 0).WithPendingCouple(null, null, null).WithPendingCard(null, null).WithPendingRemodel(null, null, null, 0).WithPendingLand(null, null, 0));
+            s = s.WithTurn(s.Turn.WithPendingChain(null).WithPendingChemotaxis(null, 0).WithPendingCouple(null, null, null).WithPendingCard(null, null).WithPendingRemodel(null, null, null, 0).WithPendingLand(null, null, 0).WithPendingMarrow(Array.Empty<HexPosition>()));
             s = s.WithTurn(s.Turn.Copy(phase: next == null ? Phase.E : Phase.PlayerAction, seat: next ?? s.Turn.ActivePlayerSeat));
             if (next is { } seat) s = BeginTurn(s, seat);
         }
@@ -151,10 +151,13 @@ internal static class PhaseRules
         return s.UpdateCell(c.Id, current.Copy(modifiers: list));
     }
 
-    /// <summary>S 阶段产出之后还有没有要问玩家的（连走 / 强制弃置 / 【基因组不稳定】二选一）：有就停在 StartStep 3。</summary>
-    public static bool StartPending(WorldState s)
+    /// <summary>有要问玩家的挂起（连走 / 强制弃置 / 【基因组不稳定】二选一 / 连锁 / 推迟的落地）。</summary>
+    public static bool AskPending(WorldState s)
         => s.Turn.PendingChemotaxisCell is not null || s.Turn.PendingDiscardSeat is not null || s.Turn.PendingMutationSeat is not null
            || s.Turn.PendingChainCell is not null || s.Turn.PendingLandCell is not null;
+
+    /// <summary>S 阶段产出之后还有没有没做完的（要问的挂起，或【骨髓动员】还没收完的骨髓）：有就停在 StartStep 3。</summary>
+    public static bool StartPending(WorldState s) => AskPending(s) || s.Turn.PendingMarrow.Count > 0;
 
     /// <summary>E 阶段 4.9 蹲守净化追出的问答（连锁 / 连走 / 强制弃置 / 二选一 / 推迟的落地）还没问完：停在 EndStep 1。</summary>
     public static bool EndPending(WorldState s) => StartPending(s);

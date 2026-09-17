@@ -70,7 +70,7 @@ public sealed record L0Player(int Seat, string Faction, string Level = "I", int 
 /// <param name="Solid">固化计数（十分位）</param>
 /// <param name="Cell">占据它的细胞**席位**号；−1 = 空。用席位不用 id —— 见对拍规格「cid 用席位不用 id」</param>
 public sealed record L0Tile(string At, string State = "healthy", string Type = "normal",
-    int Solid = 0, int Cell = -1, bool Mucus = false, int Necrosis = 0, int OssifyAt = 0, int SolidLock = 0);
+    int Solid = 0, int Cell = -1, bool Mucus = false, int Necrosis = 0, int OssifyAt = 0);
 
 /// <param name="Seat">席位号；细胞 id = 席位 + 1（对拍规格的约定）</param>
 /// <param name="Type">ImmuneBasic / BCell / TCell / Macrophage / Dendritic / Melanoma / SignetRing / Osteosarcoma / SmallCellLung</param>

@@ -75,9 +75,16 @@ internal static class CardRules
         {
             foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune).ToArray())
                 s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy + 5));
-            foreach (var t in Tiles(s).Where(t => t.Type == TissueType.BoneMarrow && t.State == TissueState.Healthy && (t.Charge ?? 0) < BoneMarrowStoreMax).ToArray())
-                s = s.WithBoard(s.Board.UpdateTissue(t.Position, t.WithCharge(BoneMarrowStoreMax)));
-            return s;
+            // GD `_marrow_mobilization`：按 CWData.MARROWS 的顺序，空仓的健康骨髓存 1 张，站在上面的细胞**当场**收（抽卡）。
+            // GD 那一行此前漏了 await（同步桥下嵌套、界面桥下脱手）—— Kevin 2026-09-18 裁：GD 补 await（协议 v29）、C# 照嵌套语义做。
+            var due = new List<HexPosition>();
+            foreach (var m in MatchSetup.Marrows)
+            {
+                if (!s.Board.Tissues.TryGetValue(m, out var t) || t.Type != TissueType.BoneMarrow || t.State != TissueState.Healthy || (t.Charge ?? 0) >= BoneMarrowStoreMax) continue;
+                s = s.WithBoard(s.Board.UpdateTissue(m, t.WithCharge(BoneMarrowStoreMax)));
+                due.Add(m);
+            }
+            return CellRules.CollectMarrows(s, due, rng);
         },
         ["全身免疫动员"] = (s, cell, rng, target, targetCell) =>
         {
@@ -336,14 +343,21 @@ internal static class CardRules
         },
         ["TNF-α局部炎症"] = (s, cell, rng, target, targetCell) =>
         {
-            foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(cell.Position) <= 1).ToArray())
-                s = Damage(s, c.Id, 10, LossSource.ImmuneEffect);   // TNF-α局部炎症：1.0 能量（原 1 = 0.1）
-            foreach (var tile in Tiles(s).Where(t => t.State == TissueState.Cancer && t.Position.DistanceTo(cell.Position) <= 1).ToArray())
+            // GD `_tnf`：面积 = 脚下 + 相邻（DIRS 序）。先按面积序扣普通癌组织的固化计数并记进冻结名单，再打面积内的癌细胞，
+            // 最后 install_event("TNF-α局部炎症", 1, frozen) —— 冻结名单是事件容器里的一条（left=1，E 阶段第 8 步解冻）。
+            var area = new[] { cell.Position }.Concat(GdNeighbors(s, cell.Position)).ToArray();
+            var frozen = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            foreach (var p in area)
             {
-                s = s.UpdateTissueSolidification(tile.Position, Math.Max(0, tile.SolidificationCount - 10));
-                s = s.WithBoard(s.Board.UpdateTissue(tile.Position, s.Board.Tissues[tile.Position].WithSolidLockRound(s.Turn.WorldRound)));
+                var tile = s.Board.Tissues[p];
+                if (tile.State != TissueState.Cancer) continue;
+                s = s.UpdateTissueSolidification(p, Math.Max(0, tile.SolidificationCount - 10));
+                frozen[WorldEffects.TileKey(p)] = 1;
             }
-            return s;
+            foreach (var p in area)
+                if (s.GetCellAt(p) is { IsAlive: true, Faction: Faction.Cancer } victim)
+                    s = Damage(s, victim.Id, 10, LossSource.ImmuneEffect);   // TNF-α局部炎症：1.0 能量（原 1 = 0.1）
+            return s.InstallEffect("TNF-α局部炎症", 1, 1, frozen);
         }
     };
 
@@ -586,7 +600,7 @@ internal static class CardRules
         // 不然第 2/3 步那两问上两边手牌差一张，手牌到上限时还少一个强制弃置决策点（L1 对拍会在那儿分叉）。
         // 结算里骨髓抽卡撑爆手牌的强制弃置也一样：GD 在结算内部 await 问完才 erase + 走链（cw_cards.gd:63 → cw_card_fx.gd:408-411），
         // 所以刚打出的这张还在手里、也在可弃选项里
-        if (s.Turn.PendingChemotaxisCell == cell.Id || s.Turn.PendingCoupleCell == cell.Id || s.Turn.PendingRemodelCell == cell.Id || s.Turn.PendingDiscardSeat is not null || s.Turn.PendingLandCell is not null)
+        if (s.Turn.PendingChemotaxisCell == cell.Id || s.Turn.PendingCoupleCell == cell.Id || s.Turn.PendingRemodelCell == cell.Id || s.Turn.PendingDiscardSeat is not null || s.Turn.PendingLandCell is not null || s.Turn.PendingMarrow.Count > 0)
             return new(s.WithTurn(s.Turn.WithPendingCard(d.Card, cell.Id)), Array.Empty<IGameEvent>(), true);
         return new(FinishInstant(s, cell.Id, d.Card), Array.Empty<IGameEvent>(), true);
     }
@@ -730,7 +744,7 @@ internal static class CardRules
         => new[] { cell.Position }.Concat(GdNeighbors(s, cell.Position))
             .Where(p => s.Board.Tissues[p] is { State: TissueState.Cancer } t
                         && !(s.Tuning.NewbornProtect && t.Newborn)
-                        && t.SolidLockRound != s.Turn.WorldRound
+                        && !WorldEffects.SolidFrozen(s, p)
                         && t.Type != TissueType.BloodVessel)
             .ToList();
 

@@ -622,6 +622,31 @@ internal static class CellRules
         return s;
     }
 
+    /// <summary>
+    /// GD `_marrow_mobilization` 的 await 循环：按骨髓序，站在刚存了卡的骨髓上的细胞**当场**收（抽卡）。
+    /// 一次抽卡追出了问答（弃置 / 二选一 / 连走 / 连锁 / 推迟的落地）就停下，剩下的骨髓挂到 <see cref="TurnState.PendingMarrow"/>，
+    /// DecisionRouter 出口答完再 <see cref="ResumeMarrow"/>。嵌套（抽到的又是【骨髓动员】）时内层先收：内层挂起的排在前面。
+    /// </summary>
+    internal static WorldState CollectMarrows(WorldState s, IReadOnlyList<HexPosition> due, IDeterministicRng rng)
+    {
+        var i = 0;
+        for (; i < due.Count; i++)
+        {
+            if (PhaseRules.AskPending(s)) break;
+            if (s.GetCellAt(due[i]) is { IsAlive: true } standing) s = CollectSpecialAt(s, standing.Id, due[i], rng);
+        }
+        var rest = due.Skip(i).ToArray();
+        if (rest.Length == 0) return s;
+        return s.WithTurn(s.Turn.WithPendingMarrow([.. s.Turn.PendingMarrow, .. rest]));
+    }
+
+    /// <summary>挂起的问答答完了：接着收 <see cref="TurnState.PendingMarrow"/> 里剩下的骨髓。</summary>
+    internal static WorldState ResumeMarrow(WorldState s, IDeterministicRng rng)
+    {
+        var due = s.Turn.PendingMarrow;
+        return CollectMarrows(s.WithTurn(s.Turn.WithPendingMarrow(Array.Empty<HexPosition>())), due, rng);
+    }
+
     public static WorldState CollectEnergy(WorldState s, EntityId id)
     {
         var c = s.Cells[id];

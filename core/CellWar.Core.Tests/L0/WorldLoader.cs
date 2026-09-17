@@ -44,7 +44,6 @@ public static class WorldLoader
                     Mucus = t.Mucus,
                     NecrosisRounds = t.Necrosis,
                     OssifyAtRound = t.OssifyAt,
-                    SolidLockRound = t.SolidLock,
                 };
         }
 

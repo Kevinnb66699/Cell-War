@@ -110,7 +110,7 @@ public class TargetedCardTests
     {
         var s = World(1, "基质硬化");   // 黑色素瘤站 (-1,0,1)，中央 15 格是癌组织
         var frozen = P(0, 0);
-        s = s.WithBoard(s.Board.UpdateTissue(frozen, s.Board.Tissues[frozen].WithSolidLockRound(s.Turn.WorldRound)));   // TNF-α 冻结
+        s = s.InstallEffect("TNF-α局部炎症", 1, 1, new Dictionary<string, int> { [WorldEffects.TileKey(frozen)] = 1 });   // TNF-α 冻结（事件容器里的名单）
         var vessel = P(-2, 0);
         s = s.WithBoard(s.Board.UpdateTissue(vessel, s.Board.Tissues[vessel].WithType(TissueType.BloodVessel)));   // (-2,0) 本来就是癌组织
 

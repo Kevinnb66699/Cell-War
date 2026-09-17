@@ -2324,10 +2324,10 @@ public class GdScriptParityTests
             [solid] = new() { Position = solid, Type = TissueType.Normal, State = TissueState.SolidifiedCancer,
                 SolidificationCount = 30, OccupyingCell = new EntityId(1), Charge = 0 },
             [target] = new() { Position = target, Type = TissueType.Normal, State = TissueState.Cancer,
-                SolidificationCount = solidCount, OccupyingCell = null, Charge = 0,
-                SolidLockRound = frozen ? round : 0 },
+                SolidificationCount = solidCount, OccupyingCell = null, Charge = 0 },
         };
-        return CancerBoard(tiles, solid, CellType.Osteosarcoma, worldRound: round);
+        var world = CancerBoard(tiles, solid, CellType.Osteosarcoma, worldRound: round);
+        return frozen ? world.InstallEffect("TNF-α局部炎症", 1, 1, new Dictionary<string, int> { [WorldEffects.TileKey(target)] = 1 }) : world;
     }
 
     /// <summary>手里拿着【基质硬化】的癌细胞，旁边一格癌组织带着给定的计数。</summary>
@@ -2339,10 +2339,10 @@ public class GdScriptParityTests
         {
             [at] = Tile(at, TissueState.Cancer, new EntityId(1)),
             [target] = new() { Position = target, Type = TissueType.Normal, State = TissueState.Cancer,
-                SolidificationCount = solidCount, OccupyingCell = null, Charge = 0,
-                SolidLockRound = frozen ? 1 : 0 },
+                SolidificationCount = solidCount, OccupyingCell = null, Charge = 0 },
         };
-        return CancerBoard(tiles, at, CellType.Osteosarcoma, worldRound: 1, hand: ["基质硬化"]);
+        var world = CancerBoard(tiles, at, CellType.Osteosarcoma, worldRound: 1, hand: ["基质硬化"]);
+        return frozen ? world.InstallEffect("TNF-α局部炎症", 1, 1, new Dictionary<string, int> { [WorldEffects.TileKey(target)] = 1 }) : world;
     }
 
     /// <summary>一个被【标记】的癌细胞。</summary>

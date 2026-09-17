@@ -99,6 +99,7 @@ internal static class DecisionRouter
             var before = s;
             if (s.Turn.PendingChemotaxisCell is not null) s = CellRules.NormalizeChemotaxis(s);
             s = CellRules.NormalizeChain(s);                                               // 走位弹掉露出的连锁若已无下一跳，当场摘掉
+            if (s.Turn.PendingMarrow.Count > 0 && !PhaseRules.AskPending(s)) s = CellRules.ResumeMarrow(s, rng);   // 【骨髓动员】抽卡追出的问答答完了：接着收剩下的骨髓
             if (s.Turn.PendingRemodelCell is not null) s = CardRules.NormalizeRemodel(s);   // GD 的「候选为空就不问」两道闸
             if (CellRules.LandReady(s)) s = CellRules.ResumeLand(s, rng);                  // GD enter_tile 的 await 回来了：收特殊组织、刷标记
             if (ReferenceEquals(s, before)) break;
@@ -115,7 +116,7 @@ internal static class DecisionRouter
         // 卡是哪张由 PendingCard 记着（打出时挂上），不用猜；打出当步就结束的（没有下一步 / 走死）同样走到这里。
         if (s.Turn.PendingCard is { } card && s.Turn.PendingCardCell is { } owner
                 && s.Turn.PendingChemotaxisCell is null && s.Turn.PendingCoupleCell is null && s.Turn.PendingRemodelCell is null && s.Turn.PendingDiscardSeat is null
-                && s.Turn.PendingLandCell is null)
+                && s.Turn.PendingLandCell is null && s.Turn.PendingMarrow.Count == 0)
             s = CardRules.FinishInstant(s, owner, card);
         return result with { NewState = s };
     }

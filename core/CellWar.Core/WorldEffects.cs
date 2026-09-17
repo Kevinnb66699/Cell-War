@@ -85,4 +85,18 @@ public static class WorldEffects
 
     /// <summary>这个效果此刻在不在场。</summary>
     public static bool Active(WorldState s, string name) => s.Effects.Any(e => e.Name == name);
+
+    /// <summary>【TNF-α局部炎症】冻结名单的键：格坐标 "q,r"（GD `install_event(..., frozen)` 的 data 以 Vector2i 为键）。</summary>
+    public static string TileKey(HexPosition p) => $"{p.Q},{p.R}";
+
+    /// <summary>
+    /// GD `CWGame.solid_frozen(pos)`：被【TNF-α局部炎症】冻住的格本世界回合不得增加固化计数。
+    /// 冻结名单挂在事件容器里（条目 left=1，E 阶段第 8 步随 tick_durations 解冻）—— 此前 C# 用格上的 `SolidLockRound` 顶着，
+    /// 规则结果一样但 L1 视图的 `$.g.events` 会少一条（Kevin 2026-09-18 裁：搬进容器）。
+    /// </summary>
+    public static bool SolidFrozen(WorldState s, HexPosition pos)
+    {
+        var key = TileKey(pos);
+        return s.Effects.Any(e => e.Name == "TNF-α局部炎症" && e.Data.ContainsKey(key));
+    }
 }
