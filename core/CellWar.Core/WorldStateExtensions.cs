@@ -143,8 +143,8 @@ public static class WorldStateExtensions
     /// 解法照 `CopyTissue` 的 `setOccupying` 先例：给会被清空的那三处各加一个开关。
     /// 只加真正用到的三个 —— 将来要清 `Winner` 时再加第四个，别现在替未来立规矩。
     /// </summary>
-    public static TurnState Copy(this TurnState t, Phase? phase = null, int? seat = null, int? round = null, int? startStep = null, Faction? winner = null, int? alarm = null, int? pendingDiscard = null,
-        int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? cytokineSeat = null, int? effectorRound = null,
+    public static TurnState Copy(this TurnState t, Phase? phase = null, int? seat = null, int? round = null, int? startStep = null, Faction? winner = null, int? alarm = null, int? pendingDiscard = null, EntityId? pendingDiscardCell = null,
+        int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? effectorRound = null,
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
         EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null, EntityId? pendingChain = null,
         EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null, string? pendingWalkCard = null, IReadOnlyList<WalkFrame>? walkOuter = null,
@@ -156,10 +156,10 @@ public static class WorldStateExtensions
         => new() { WorldRound = round ?? t.WorldRound, Phase = phase ?? t.Phase, ActivePlayerSeat = seat ?? t.ActivePlayerSeat,
             StartStep = startStep ?? t.StartStep, Winner = winner ?? t.Winner, CancerAlarmRound = alarm ?? t.CancerAlarmRound,
             PendingDiscardSeat = setPendingDiscard ? pendingDiscard : pendingDiscard ?? t.PendingDiscardSeat,
+            PendingDiscardCell = setPendingDiscard ? pendingDiscardCell : pendingDiscardCell ?? t.PendingDiscardCell,
             PendingMutationSeat = setPendingMutation ? pendingMutationSeat : pendingMutationSeat ?? t.PendingMutationSeat,
             PendingMutationCell = setPendingMutation ? pendingMutationCell : pendingMutationCell ?? t.PendingMutationCell,
             PendingMutationA = pendingMutationA ?? t.PendingMutationA, PendingMutationB = pendingMutationB ?? t.PendingMutationB,
-            CytokineNetworkSeat = cytokineSeat ?? t.CytokineNetworkSeat,
             EffectorRound = effectorRound ?? t.EffectorRound,
             ChemoAt = setChemoAt ? chemoAt : chemoAt ?? t.ChemoAt,
             ChemoRounds = chemoRounds ?? t.ChemoRounds, ChemoOwner = chemoOwner ?? t.ChemoOwner,
@@ -232,14 +232,12 @@ public static class WorldStateExtensions
     public static TurnState WithPhase(this TurnState t, Phase p) => t.Copy(phase: p);
     public static TurnState WithActivePlayer(this TurnState t, int seat) => t.Copy(seat: seat);
     public static TurnState WithWorldRound(this TurnState t, int round) => t.Copy(round: round);
-    public static TurnState WithPendingDiscard(this TurnState t, int? seat)
-        => t.Copy(pendingDiscard: seat, setPendingDiscard: true);
+    public static TurnState WithPendingDiscard(this TurnState t, int? seat, EntityId? cell = null)
+        => t.Copy(pendingDiscard: seat, pendingDiscardCell: cell, setPendingDiscard: true);
     public static TurnState WithPendingMutation(this TurnState t, int seat, EntityId cell, int a, int b)
         => t.Copy(pendingMutationSeat: seat, pendingMutationCell: cell, pendingMutationA: a, pendingMutationB: b, setPendingMutation: true);
     public static TurnState ClearPendingMutation(this TurnState t)
         => t.Copy(pendingMutationSeat: null, pendingMutationCell: null, pendingMutationA: 0, pendingMutationB: 0, setPendingMutation: true);
-    public static TurnState WithCytokineNetwork(this TurnState t, int seat)
-        => t.Copy(cytokineSeat: seat);
     public static TurnState WithChemo(this TurnState t, HexPosition? at, int rounds, int owner, EntityId? creator = null)
         => t.Copy(chemoAt: at, chemoRounds: rounds, chemoOwner: owner, setChemoAt: true, chemoCreator: creator, setChemoCreator: true);
     public static WorldState UpdateTissueState(this WorldState s, HexPosition pos, TissueState type) => s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithState(type)));

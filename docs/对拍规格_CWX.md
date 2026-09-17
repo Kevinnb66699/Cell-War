@@ -145,6 +145,11 @@ C# 此前单槽整组覆写、外层剩余步数与卡名一起丢。现在 `Tur
 **登记的 KNOWN_GAP**：`chain-vs-walk-order`（净化内部抽到的连走 GD 先于同一次净化产生的【连续吞噬】，C# 连锁分支排在前 —— 与「连走步内产生的连锁先问」方向相反，得按调用深度排）；
 `s-phase-walk-timing`（S 阶段产出 / 骨髓抽到的连走 GD 在血管传送**之前**当场问完，C# 要等到 PlayerAction 才浮现，`Validate` 答得进而 `Available` 给不出）；
 `marrow-mobilization-collect`（【骨髓动员】补卡后 GD 对站在骨髓上的细胞当场再 `collect_special`，C# 没有；且 GD 那一行**缺 await**，同步桥下是嵌套、界面 / 联机桥下是脱手 —— 以哪座桥为准要 Kevin 裁）。
+⑤ **【细胞因子网络】+ 强制弃置管线**（09-16 复核的四条全部合上）：上膛改成挂在装备者身上的 `mods` 条目「细胞因子网络·待发」（uses=1、round 到期、占一个打出序号，进 L1 视图的 `mods`），
+`FinishInstant` = GD `_cytokine_chain`：阵营闸 → 按 id 序领别人的赏（+0.5 给**打出者**）→ 再给自己上膛（装备、未中和、还没上膛）；删掉了全局席位槽 `CytokineNetworkSeat`（Canon 一并删）。
+强制弃置挂起加 `PendingDiscardCell`（GD `discard_to_limit(cell)` 只问超限的那一只、问到它降到上限为止），`Available` / `Validate` 只认那一只；弃置挂着时连走不摘、即时卡不离手（GD 在结算内部 await 问完才 erase + 走链，刚打出的那张也在可弃之列）。
+离手只摘第一张同名；永久卡打出即装备、不进结算也不碰 `card_resolve_depth`；阶段推进的防御性清场也清 `PendingCard`。
+**登记的 KNOWN_GAP**：`stress-fee`（【细胞应激】打牌费 0.5/层 C# `PlayCard` 完全没有，随世界事件整块挂着）。
 （6p 第 187 步那 0.1 已合上：有氧收入的顺序 —— GD 先对等级份额打【TGF-β释放】折再加【代谢适应】【自分泌生存信号】的额外获得，C# 此前先加后折；6p 整条 200 步一致。）
 
 **丢掉了什么（写进限制栏）**：选项的**顺序**与下标稳定性不再被验证（`DecisionRouter.cs:82` 的 `Tiles(s)` 走 `PagedMap` 迭代序而非排序序）。C# 真当权威内核时，这会以「客户端点了第 3 项、服务器执行了第 5 项」的形式复活——那要靠「按语义提交」的线上协议解决，不是靠对拍。**这条要单独立一条阶段 1 待办。**

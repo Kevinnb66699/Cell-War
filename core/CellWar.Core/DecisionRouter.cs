@@ -87,7 +87,7 @@ internal static class DecisionRouter
         // 中途的挂起摘干净的这一刻 = 那张卡「结算完」：GD 是整段 await 回来才离手、才走细胞因子链。
         // 卡是哪张由 PendingCard 记着（打出时挂上），不用猜；打出当步就结束的（没有下一步 / 走死）同样走到这里。
         if (s.Turn.PendingCard is { } card && s.Turn.PendingCardCell is { } owner
-                && s.Turn.PendingChemotaxisCell is null && s.Turn.PendingCoupleCell is null)
+                && s.Turn.PendingChemotaxisCell is null && s.Turn.PendingCoupleCell is null && s.Turn.PendingDiscardSeat is null)
             s = CardRules.FinishInstant(s, owner, card);
         return result with { NewState = s };
     }
@@ -143,7 +143,8 @@ internal static class DecisionRouter
         if (s.Turn.PendingDiscardSeat is { } pending)
         {
             if (pending != seat) return Array.Empty<IDecision>();
-            return Cells(s).Where(c => c.OwnerSeat == seat && c.IsAlive)
+            // GD `discard_to_limit(cell)` 只摊超限的那一只细胞的手牌；席位级枚举在一席多胞时会给出 GD 没有的选项
+            return Cells(s).Where(c => c.OwnerSeat == seat && c.IsAlive && (s.Turn.PendingDiscardCell is not { } pc || c.Id == pc))
                 .SelectMany(c => c.Hand.Select(card => (IDecision)new DiscardDecision(seat, c.Id, card))).ToArray();
         }
         if (s.Turn.PendingMutationSeat is { } mutationSeat)

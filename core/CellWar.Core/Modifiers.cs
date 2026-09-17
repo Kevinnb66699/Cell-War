@@ -13,7 +13,9 @@ public enum ModifierTarget
 {
     Move,
     EnergyLoss,
-    Attack
+    Attack,
+    /// <summary>不进任何费用 / 攻击 / 伤害管线的标记条目（GD 里同样只是 `mods` 里一条按名字找的记录，如「细胞因子网络·待发」）。只能追加在末尾：Canon 存的是 (int)。</summary>
+    Flag
 }
 
 /// <summary>修饰生效的目标条件（无 → 无条件）。</summary>

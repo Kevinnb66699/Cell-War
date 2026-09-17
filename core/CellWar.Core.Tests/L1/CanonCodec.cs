@@ -46,7 +46,7 @@ public static class CanonCodec
             s.Turn.PendingDiscardSeat,
             s.Turn.PendingMutationSeat, s.Turn.PendingMutationCell is { } pm ? Seat(pm) : null,
             s.Turn.PendingMutationA, s.Turn.PendingMutationB,
-            s.Turn.CytokineNetworkSeat, s.Turn.EffectorRound,
+            s.Turn.EffectorRound,
             PosOrNull(s.Turn.ChemoAt), s.Turn.ChemoRounds, s.Turn.ChemoOwner,
             s.Turn.ChemoCreator is { } cc ? Seat(cc) : null,
             s.Turn.TrackCell is { } tc ? Seat(tc) : null, PosOrNull(s.Turn.TrackFrozenAt), s.Turn.TrackRounds,
@@ -57,6 +57,7 @@ public static class CanonCodec
             s.Turn.PendingCoupleCell is { } cp1 ? Seat(cp1) : null, s.Turn.PendingCoupleAlly is { } cp2 ? Seat(cp2) : null,
             s.Turn.PendingCouplePayer is { } cp3 ? Seat(cp3) : null)
         {
+            PendingDiscardCell = s.Turn.PendingDiscardCell is { } pdc ? Seat(pdc) : null,
             WalkOuter = s.Turn.WalkOuter.Select(f => new CanonWalkFrame(Seat(f.Cell), f.StepsLeft, f.Card)).ToList(),
             Players = s.Players.Values.OrderBy(p => p.Seat).Select(p => new CanonPlayer(
                 p.Seat, (int)p.Faction, p.IsAlive, p.DrawCount, p.AntigenMemory, (int)p.ImmuneLevel,
@@ -158,11 +159,11 @@ public static class CanonCodec
                 Winner = c.G.Winner is { } w ? (Faction)w : null,
                 CancerAlarmRound = c.G.CancerAlarmRound,
                 PendingDiscardSeat = c.G.PendingDiscardPid,
+                PendingDiscardCell = c.G.PendingDiscardCell is { } pdc ? Id(pdc) : null,
                 PendingMutationSeat = c.G.PendingMutationPid,
                 PendingMutationCell = c.G.PendingMutationCell is { } pm ? Id(pm) : null,
                 PendingMutationA = c.G.PendingMutationA,
                 PendingMutationB = c.G.PendingMutationB,
-                CytokineNetworkSeat = c.G.CytokineSeat,
                 EffectorRound = c.G.EffectorRound,
                 ChemoAt = PosOrNull(c.G.ChemoAt),
                 ChemoRounds = c.G.ChemoRounds,

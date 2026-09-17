@@ -85,8 +85,8 @@ public class CanonRoundTripTests
              .WithTuning(s.Tuning with { EnergyCap = 200, CancerUpkeepPercent = 5 });
 
         return s.WithTurn(s.Turn.Copy(
-                startStep: 2, alarm: 4, pendingDiscard: 1,
-                cytokineSeat: 2, effectorRound: 3)
+                startStep: 2, alarm: 4, pendingDiscard: 1, pendingDiscardCell: other,
+                effectorRound: 3)
             .WithChemo(new HexPosition(2, -2, 0), 2, 0, id)
             .WithTrack(other, null, 2)
             .WithPendingMutation(1, other, 2, 3)

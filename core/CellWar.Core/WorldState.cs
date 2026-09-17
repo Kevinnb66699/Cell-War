@@ -54,11 +54,11 @@ public sealed class TurnState
     public Faction? Winner { get; init; }
     public int CancerAlarmRound { get; init; }
     public int? PendingDiscardSeat { get; init; }  // 手牌超过上限时，强制该席位弃置（PRD §657）
+    public EntityId? PendingDiscardCell { get; init; }  // 超限的是哪只细胞：GD `discard_to_limit(cell)` 只问那一只、问到它降到上限为止
     public int? PendingMutationSeat { get; init; }  // 【基因组不稳定】：等待该席位从两次突变判定中选一
     public EntityId? PendingMutationCell { get; init; }
     public int PendingMutationA { get; init; }
     public int PendingMutationB { get; init; }
-    public int CytokineNetworkSeat { get; init; } = -1;  // 【细胞因子网络】：已武装的席位（-1=未武装）
     public int EffectorRound { get; init; }  // 免疫方本世界回合已发动【效应应答】的世界回合（0=未发动）
     public HexPosition? ChemoAt { get; init; }  // 树突【趋化源】位置
     public int ChemoRounds { get; init; }  // 【趋化源】剩余世界回合
@@ -153,11 +153,11 @@ public sealed class TurnState
         Winner = Winner,
         CancerAlarmRound = CancerAlarmRound,
         PendingDiscardSeat = PendingDiscardSeat,
+        PendingDiscardCell = PendingDiscardCell,
         PendingMutationSeat = PendingMutationSeat,
         PendingMutationCell = PendingMutationCell,
         PendingMutationA = PendingMutationA,
         PendingMutationB = PendingMutationB,
-        CytokineNetworkSeat = CytokineNetworkSeat,
         EffectorRound = EffectorRound,
         ChemoAt = ChemoAt,
         ChemoRounds = ChemoRounds,

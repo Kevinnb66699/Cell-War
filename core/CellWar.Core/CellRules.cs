@@ -353,6 +353,9 @@ internal static class CellRules
         // 嵌套连走是栈：栈顶这段走完 / 停了 / 没路了就弹掉，露出外层那段，从新位置按**外层的卡名**重算候选；一层都不剩才真正摘干净
         while (s.Turn.PendingChemotaxisCell is { } id)
         {
+            // 手牌撑爆的强制弃置在 GD 是这一步内部 `draw()` 里 await 问完的（cw_cards.gd:63），先于下一轮循环开头的退出判断，
+            // 也先于打出的即时卡离手 —— 弃置挂着就什么都别摘
+            if (s.Turn.PendingDiscardSeat is not null) return s;
             if (s.Turn.PendingChainCell is not null) return s;   // 连锁先排干，它在 GD 里嵌在这一步内部
             var c = s.Cells[id];
             if (s.Turn.ChemotaxisStepsLeft > 0 && c.IsAlive && WalkSteps(s, c).Count > 0) return s;
@@ -527,7 +530,8 @@ internal static class CellRules
         var hand = cell.Hand.ToList();
         hand.Add(name);
         s = s.UpdateCell(cell.Id, cell.Copy(hand: hand));
-        return hand.Count > cell.HandMax ? s.WithTurn(s.Turn.WithPendingDiscard(cell.OwnerSeat)) : s;
+        // GD `discard_to_limit(cell)`：只问超限的那一只、问到它降到上限为止 —— 所以挂起要记细胞，不只记席位
+        return hand.Count > cell.HandMax ? s.WithTurn(s.Turn.WithPendingDiscard(cell.OwnerSeat, cell.Id)) : s;
     }
 
     /// <summary>世界回合 S 阶段开头：重置「每世界回合」额度与修饰（旧实现 _reset_round_flags）。</summary>

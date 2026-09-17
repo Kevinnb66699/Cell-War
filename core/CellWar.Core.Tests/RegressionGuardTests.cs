@@ -260,9 +260,8 @@ public class RegressionGuardTests
     {
         var full = FullyPopulatedTurn();
 
-        AssertOnlyChanges(full, "WithPendingDiscard", nameof(TurnState.PendingDiscardSeat), t => t.WithPendingDiscard(3));
-        AssertOnlyChanges(full, "WithPendingDiscard(null)", nameof(TurnState.PendingDiscardSeat), t => t.WithPendingDiscard(null));
-        AssertOnlyChanges(full, "WithCytokineNetwork", nameof(TurnState.CytokineNetworkSeat), t => t.WithCytokineNetwork(5));
+        AssertOnlyChangesAmong(full, "WithPendingDiscard", DiscardFields, t => t.WithPendingDiscard(3, new EntityId(9)));
+        AssertOnlyChangesAmong(full, "WithPendingDiscard(null)", DiscardFields, t => t.WithPendingDiscard(null));
 
         // 这两个各改四个字段，泛型判据一次只放行一个 —— 所以逐字段各验一遍
         foreach (var name in new[]
@@ -359,6 +358,11 @@ public class RegressionGuardTests
     ];
 
     /// <summary>【炎症性趋化】的挂起态：谁在走 + 还剩几步，两个字段一起改。</summary>
+    private static readonly string[] DiscardFields =
+    [
+        nameof(TurnState.PendingDiscardSeat), nameof(TurnState.PendingDiscardCell),
+    ];
+
     private static readonly string[] ChemotaxisFields =
     [
         nameof(TurnState.PendingChemotaxisCell), nameof(TurnState.ChemotaxisStepsLeft), nameof(TurnState.PendingWalkCard), nameof(TurnState.WalkOuter),
@@ -1430,11 +1434,11 @@ public class RegressionGuardTests
         Winner = Faction.Cancer,
         CancerAlarmRound = 5,
         PendingDiscardSeat = 1,
+        PendingDiscardCell = new EntityId(4),
         PendingMutationSeat = 0,
         PendingMutationCell = new EntityId(4),
         PendingMutationA = 3,
         PendingMutationB = 5,
-        CytokineNetworkSeat = 1,
         EffectorRound = 4,
         ChemoAt = new HexPosition(2, -1, -1),
         ChemoRounds = 2,

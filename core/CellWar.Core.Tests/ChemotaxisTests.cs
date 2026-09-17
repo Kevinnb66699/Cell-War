@@ -228,10 +228,10 @@ public class ChemotaxisTests
     {
         var world = World().UpdateCell(Walker, World().Cells[Walker].Copy(equipped: ["细胞因子网络"]));
         var pending = Play(world, North);
-        Assert.Equal(-1, pending.Turn.CytokineNetworkSeat);        // 第 2/3 步之前还没算「发动完」
+        Assert.False(CellRules.HasModifier(pending.Cells[Walker], CardRules.CytokinePrimed));   // 第 2/3 步之前还没算「发动完」
 
         var done = Engine.ExecuteDecision(pending, new StopChemotaxisDecision(0, Walker), Rng()).NewState;
-        Assert.Equal(0, done.Turn.CytokineNetworkSeat);
+        Assert.True(CellRules.HasModifier(done.Cells[Walker], CardRules.CytokinePrimed));   // 上膛是挂在装备者身上的条目
     }
 
     /// <summary>

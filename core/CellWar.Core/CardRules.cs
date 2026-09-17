@@ -445,6 +445,7 @@ internal static class CardRules
     public static bool ValidateDiscard(WorldState s, DiscardDecision d)
     {
         if (s.Turn.PendingDiscardSeat is { } pending && pending != d.PlayerSeat) return false;
+        if (s.Turn.PendingDiscardCell is { } pendingCell && pendingCell != d.CellId) return false;   // GD 只问超限的那一只
         if (!s.Cells.TryGetValue(d.CellId, out var cell) || !cell.IsAlive || cell.OwnerSeat != d.PlayerSeat) return false;
         return cell.Hand.Contains(d.Card);
     }
@@ -456,7 +457,9 @@ internal static class CardRules
         hand.Remove(d.Card);
         cell = cell.Copy(hand: hand);
         s = s.UpdateCell(cell.Id, cell);
-        if (hand.Count <= cell.HandMax) s = s.WithTurn(s.Turn.WithPendingDiscard(null));
+        // 摘挂起看的是**挂起的那只**降到上限没有（Validate 已把别只细胞的弃置拦在外面）
+        if (hand.Count <= cell.HandMax && (s.Turn.PendingDiscardCell is not { } pendingCell || pendingCell == cell.Id))
+            s = s.WithTurn(s.Turn.WithPendingDiscard(null));
         return new(s, Array.Empty<IGameEvent>(), true);
     }
 
@@ -570,6 +573,8 @@ internal static class CardRules
                 playCounter: stamp,
                 equipSeq: owner.EquipSeq.Append(new KeyValuePair<string, int>(d.Card, stamp))
                     .ToDictionary(kv => kv.Key, kv => kv.Value)));
+            // GD 在这条分支里就 `return`（cw_card_fx.gd:280）：永久卡不进结算、不碰 card_resolve_depth、不走细胞因子链
+            return new(s, Array.Empty<IGameEvent>(), true);
         }
         var caller = s.Cells[cell.Id];
         // GD `play()` 用 card_resolve_depth 把整段结算包起来：卡牌引发的净化不给记忆
@@ -580,7 +585,9 @@ internal static class CardRules
         // 即时卡**结算完**才离手、才走细胞因子链（GD `_resolve_played` 的尾巴，cw_card_fx.gd:399-402）。
         // 【炎症性趋化】的结算跨两个挂起决策点：挂起还在就先不收尾，等 DecisionRouter 在挂起被摘掉那一刻补上 ——
         // 不然第 2/3 步那两问上两边手牌差一张，手牌到上限时还少一个强制弃置决策点（L1 对拍会在那儿分叉）。
-        if (s.Turn.PendingChemotaxisCell == cell.Id || s.Turn.PendingCoupleCell == cell.Id)
+        // 结算里骨髓抽卡撑爆手牌的强制弃置也一样：GD 在结算内部 await 问完才 erase + 走链（cw_cards.gd:63 → cw_card_fx.gd:408-411），
+        // 所以刚打出的这张还在手里、也在可弃选项里
+        if (s.Turn.PendingChemotaxisCell == cell.Id || s.Turn.PendingCoupleCell == cell.Id || s.Turn.PendingDiscardSeat is not null)
             return new(s.WithTurn(s.Turn.WithPendingCard(d.Card, cell.Id)), Array.Empty<IGameEvent>(), true);
         return new(FinishInstant(s, cell.Id, d.Card), Array.Empty<IGameEvent>(), true);
     }
@@ -594,20 +601,34 @@ internal static class CardRules
         s = s.WithTurn(s.Turn.WithPendingCard(null, null));
         var cell = s.Cells[cellId];
         if (cell.Hand.Contains(card))
-            s = s.UpdateCell(cellId, cell.Copy(hand: cell.Hand.Where(x => x != card).ToList()));
-        var caller = s.Cells[cellId];
-        var networkOwner = s.Turn.CytokineNetworkSeat;
-        // 【细胞因子网络】：本回合下一名其他免疫细胞发动即时技能后恢复 0.5
-        if (RulePolicies.HasSkill(s, caller, "细胞因子网络"))
-            return s.WithTurn(s.Turn.WithCytokineNetwork(caller.OwnerSeat));
-        if (networkOwner >= 0 && networkOwner != caller.OwnerSeat)
         {
-            var beneficiary = s.Cells.Values.FirstOrDefault(x => x.IsAlive && x.Faction == Faction.Immune && x.OwnerSeat == networkOwner);
-            if (beneficiary != null) s = s.UpdateCell(beneficiary.Id, s.Cells[beneficiary.Id].WithEnergy(s.Cells[beneficiary.Id].Energy + 5));
-            s = s.WithTurn(s.Turn.WithCytokineNetwork(-1));
+            var hand = cell.Hand.ToList();
+            hand.Remove(card);   // GD `hand.erase(card)`：只摘第一张同名（此前 Where(x != card) 把同名全摘了）
+            s = s.UpdateCell(cellId, cell.Copy(hand: hand));
         }
+        // 【细胞因子网络】= GD `_cytokine_chain`（cw_card_fx.gd:1063-1073），只有免疫细胞打的即时卡走链（410 的阵营闸）：
+        //   ① 先领别人的赏 —— 按 id 序遍历活着的**其他**免疫细胞，谁身上有「细胞因子网络·待发」就花掉（同名一起扣），**打出者** +0.5；
+        //   ② 再给自己上膛 —— 装备了（被【中和抗体】压住不算）且身上还没有待发条目，才挂一条 uses=1、本世界回合到期的条目（占一个打出序号）。
+        //   已上膛的条目不因装备者被中和而失效（GD 触发侧只调 spend_mods），装备者死了就哑（mods 随死亡消散）。
+        // 此前 C# 是一个全局席位槽（2026-09-16 复核四条之二）：没有阵营闸、装备者一有技能就先上膛并 return（永远领不到赏）、
+        // +5 给的是网络主人席位的第一只活细胞、永不过期、同席位另一只细胞打牌不触发、全场只能有一张上膛。
+        if (s.Cells[cellId].Faction != Faction.Immune) return s;
+        foreach (var other in s.Cells.Values.Where(c => c.IsAlive && c.Faction == Faction.Immune && c.Id != cellId).OrderBy(c => c.Id.Value).ToArray())
+        {
+            if (!CellRules.HasModifier(s.Cells[other.Id], CytokinePrimed)) continue;
+            s = CellRules.SpendModifiers(s, other.Id, CytokinePrimed);
+            s = s.UpdateCell(cellId, s.Cells[cellId].WithEnergy(s.Cells[cellId].Energy + SkillHeal));
+        }
+        var caller = s.Cells[cellId];
+        if (RulePolicies.HasSkill(s, caller, "细胞因子网络") && !CellRules.HasModifier(caller, CytokinePrimed))
+            s = CellRules.AddModifier(s, caller, new ActiveModifier(CytokinePrimed, ModifierTarget.Flag, ModifierStage.Add, SourceLayer.Skill, 0, 0, null, 1, ModifierDuration.Round));
         return s;
     }
+
+    /// <summary>【细胞因子网络】的「上膛」条目名（GD `add_mod(cell, "细胞因子网络·待发", 1, "round")`）；进 L1 视图的 `mods`。</summary>
+    internal const string CytokinePrimed = "细胞因子网络·待发";
+    /// <summary>GD `CWData.SKILL_HEAL`：永久技能的那种「恢复 0.5」。</summary>
+    private const int SkillHeal = 5;
 
     /// <summary>【代谢耦联】payer 付得起哪几档（GD `_couple_tiers`）：转 1.0/1.5/2.0，接收方得 1.2/2.0/2.5；付完要留正能量。</summary>
     internal static IReadOnlyList<(int Pay, int Get)> CoupleTiers(WorldState s, EntityId payer)

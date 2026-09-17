@@ -116,7 +116,7 @@ public class CoupleTests
         Assert.Contains(Card, atDirection.Cells[Me].Hand);
         Assert.Null(atDirection.Turn.PendingCoupleCell);
         Assert.Null(atDirection.Turn.PendingCard);
-        Assert.Equal(-1, atDirection.Turn.CytokineNetworkSeat);   // 没算「发动完」，网络不上膛
+        Assert.False(CellRules.HasModifier(atDirection.Cells[Me], CardRules.CytokinePrimed));   // 没算「发动完」，网络不上膛
         Assert.NotEmpty(Engine.GetAvailableDecisions(atDirection, 0).OfType<MoveDecision>());   // 回到行动栏
 
         var atTier = Do(Do(Play(World()), new CoupleDirectionDecision(0, Me, Me, Ally)), new CancelCoupleDecision(0, Me));

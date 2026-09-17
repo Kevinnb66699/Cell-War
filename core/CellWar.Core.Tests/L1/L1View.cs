@@ -163,7 +163,7 @@ public static class L1View
             G = new CanonGlobal(I(g, "round_no"), phaseInt, currentPid >= 0 ? currentPid : activeSeat,
                 I(g, "memory"), I(g, "immune_level") + 1, startStep,
                 I(g, "winner") is var w && w >= 0 ? w : null, CancerAlarmDefault,
-                null, null, null, 0, 0, -1, I(g, "effector_round"),
+                null, null, null, 0, 0, I(g, "effector_round"),
                 S(g, "chemo_at"), I(g, "chemo_left"), S(g, "chemo_at") == "" ? 0 : I(g, "chemo_by"), null,
                 I(g, "track_cid") is var tc && tc >= 0 ? tc : null, S(g, "track_at"), I(g, "track_left"),
                 null, null, 0, "", 0, "", null, 0, null, null, null)   // 挂起态在 GD 视图里不存在（嵌在 await 里），一律空

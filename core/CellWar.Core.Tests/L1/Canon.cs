@@ -70,7 +70,7 @@ public sealed record CanonMod(string Name, int Target, int Stage, int Layer, int
 public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Memory, int ImmuneLevel,
     int StartStep, int? Winner, int CancerAlarmRound, int? PendingDiscardPid,
     int? PendingMutationPid, int? PendingMutationCell, int PendingMutationA, int PendingMutationB,
-    int CytokineSeat, int EffectorRound,
+    int EffectorRound,
     string ChemoAt, int ChemoRounds, int ChemoOwner, int? ChemoCreator,
     int? TrackCell, string TrackFrozenAt, int TrackRounds, int? PendingChainCell,
     int? PendingChemotaxisCell, int ChemotaxisStepsLeft, string PendingWalkCard,
@@ -79,6 +79,8 @@ public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Mem
 {
     /// <summary>每个席位的阵营与存活（GD 的 `players` + `order`）。</summary>
     public List<CanonPlayer> Players { get; init; } = [];
+    /// <summary>强制弃置挂在哪只细胞上（GD 视图里不存在，一律空；C# 存档要带）。</summary>
+    public int? PendingDiscardCell { get; init; }
     /// <summary>嵌套连走被压在下面的外层帧（GD 视图里不存在，一律空；C# 存档要带）。</summary>
     public List<CanonWalkFrame> WalkOuter { get; init; } = [];
 }
