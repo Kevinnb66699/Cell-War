@@ -255,6 +255,31 @@ public class ChemotaxisTests
         Assert.Equal(Walker, CellRules.NormalizeChemotaxis(world).Turn.PendingChemotaxisCell);
     }
 
+    /// <summary>
+    /// 连锁没排干时，**哪怕此刻一个候选都没有**，归一化也不许摘掉趋化的挂起。
+    ///
+    /// 上一条测试里候选本来就非空，所以「让着连锁」那行删了也绿（变异检验抓出来的）。
+    /// 它不是等价变异：GD 是连锁在 `_do_move` 内部跑完**之后**才回到 `_chemotaxis` 重算候选 ——
+    /// 连锁里的净化会让能量回来（【模式识别增强】【效应记忆形成】各 +0.5），
+    /// 刚才付不起 0.2 的细胞排干连锁后就付得起了，GD 会照常问第 2 步。提前摘掉就少了一个决策点。
+    /// 这里直接钉次序本身：连锁在 → 不动；连锁排干、仍付不起 → 才摘。
+    /// </summary>
+    [Fact]
+    public void 连锁没排干时哪怕没有候选也不摘趋化_排干后才按候选判()
+    {
+        var world = World(type: CellType.Macrophage, energy: 2);   // 付不起 0.2（要留 0.1）
+        world = world.UpdateTissueState(North, TissueState.Cancer);
+        world = world.UpdateCell(Walker, world.Cells[Walker].Copy(chainLeft: 3));
+        world = world.WithTurn(world.Turn.WithPendingChain(Walker).WithPendingChemotaxis(Walker, 1));
+        Assert.Empty(CellRules.ChemotaxisSteps(world, world.Cells[Walker]));
+
+        Assert.Equal(Walker, CellRules.NormalizeChemotaxis(world).Turn.PendingChemotaxisCell);
+
+        var drained = Engine.ExecuteDecision(world, new StopChainDecision(0, Walker), Rng()).NewState;
+        Assert.Null(drained.Turn.PendingChainCell);
+        Assert.Null(drained.Turn.PendingChemotaxisCell);   // 排干了、还是付不起 → 这时才结束
+    }
+
     // ── 费用：0.2 是**起价**，管线整条照跑 ───────────────────
 
     [Fact]
