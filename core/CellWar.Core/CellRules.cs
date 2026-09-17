@@ -797,6 +797,9 @@ internal static class CellRules
         if (target != null)
         {
             if (cell.Type == CellType.Macrophage) Stage.Emit(Stage.Fx(s, "chomp", ("from", cell.Position), ("to", move.TargetPosition), ("cid", cell.Id)));   // GD cw_actions.gd:795：巨噬扑咬先演
+            // GD cw_actions.gd:801-807：计数在**发动**时加（口径 #70），用掉最后一次就报一声「攻击次数已用尽」（口径 #93），否则攻击选项无声消失
+            if (s.Tuning.AttackMaxPerTurn > 0 && cell.AttacksThisTurn + 1 >= s.Tuning.AttackMaxPerTurn)
+                Stage.Announce(s, $"攻击次数已用尽（{cell.AttacksThisTurn + 1}/{s.Tuning.AttackMaxPerTurn}）", move.TargetPosition, true);
             var rerolled = false;
             // 六面骰，**1..6**。原来写的是 NextInt(6)，那产出 0..5 —— 而 AttackOutcome 判
             // `roll == 6` 为暴击，于是暴击永远掷不出来（实测 60000 次 crit 0%，应为 16.7%）。

@@ -180,4 +180,100 @@ public class PresentationEmitTests
         Assert.Equal(s.Cells.Values.Count(c => c.IsAlive && c.Faction == Faction.Cancer), anaerobic.Count);
         Assert.All(anaerobic, f => Assert.DoesNotContain((HexPosition)f.Data["at"], (HexPosition[])f.Data["sources"]));
     }
+
+    [Fact]
+    public void 方向_正对角来路照GD的单精度打平取在前的下标()
+    {
+        Assert.Equal(2, Stage.DirToward(P(0, 0), P(-1, -1)));   // float32 下 DIRS[2] 与 DIRS[3] 点积打平，GD 取 2；double 会取 3
+        Assert.Equal(0, Stage.DirToward(P(0, 0), P(1, 1)));
+        Assert.Equal(2, Stage.DirToward(P(0, 0), P(-3, -3)));
+    }
+
+    [Fact]
+    public void 攻击_用掉最后一次时报攻击次数已用尽()
+    {
+        var s = MoveTo(World(), Cancer1, P(-3, 0));
+        s = s.UpdateCell(Immune0, s.Cells[Immune0].Copy(attacks: s.Tuning.AttackMaxPerTurn - 1));
+        var r = Engine.ExecuteDecision(s, new MoveDecision(0, Immune0, P(-3, 0)), Rng(3));
+        Assert.True(r.Success, r.ErrorMessage);
+        var notices = Staged(r).OfType<ResultAnnounced>().Select(a => a.Text).ToList();
+        Assert.Contains($"攻击次数已用尽（{s.Tuning.AttackMaxPerTurn}/{s.Tuning.AttackMaxPerTurn}）", notices);
+        Assert.True(notices.IndexOf(notices.First(x => x.StartsWith("攻击次数"))) < notices.IndexOf(notices.First(x => x.StartsWith("攻击") && !x.StartsWith("攻击次数"))), "用尽那句在判词之前");
+    }
+
+    [Fact]
+    public void 克隆增殖_每转一格发一条过场_方向从发动者那一侧来()
+    {
+        var s = World(1);
+        s = s.UpdateCell(Cancer1, s.Cells[Cancer1].Copy(hand: ["克隆增殖"]));
+        s = Tissue(s, P(-2, 0), t => t.WithState(TissueState.Healthy).WithSolidificationCount(0));   // 中央 15 格全是癌组织：腾两格健康的当候选
+        s = Tissue(s, P(-2, 1), t => t.WithState(TissueState.Healthy).WithSolidificationCount(0));
+        var r = Engine.ExecuteDecision(s, new PlayCardDecision(1, Cancer1, "克隆增殖", null), Rng());
+        Assert.True(r.Success, r.ErrorMessage);
+        var fx = Assert.Single(Staged(r).OfType<SkillFx>(), f => f.Kind == "card_clone");
+        var tiles = (HexPosition[])fx.Data["tiles"];
+        var converted = Staged(r).OfType<TissueConverted>().ToList();
+        Assert.Equal(tiles.Length, converted.Count);
+        Assert.All(converted, t => Assert.Equal(Stage.DirToward(t.At, s.Cells[Cancer1].Position), t.Dir));
+    }
+
+    [Fact]
+    public void E阶段_增生与侵蚀翻掉的每一格都有过场()
+    {
+        for (var seed = 1; seed <= 30; seed++)
+        {
+            var s = DemoScenario.Create().WithTurn(DemoScenario.Create().Turn.Copy(phase: Phase.E));
+            var r = Engine.AdvancePhase(s, Rng(seed));
+            Assert.True(r.Success, r.ErrorMessage);
+            var flipped = r.NewState.Board.Tissues.Values.Count(t => t.State != TissueState.Healthy && s.Board.Tissues[t.Position].State == TissueState.Healthy);
+            var shown = Staged(r).OfType<TissueConverted>().Count(t => t.Cause is "增生" or "侵蚀");
+            Assert.Equal(flipped, shown);
+            if (Staged(r).OfType<TissueConverted>().Any(t => t.Cause == "增生")) return;
+        }
+        Assert.Fail("30 颗种子没有一次增生");
+    }
+
+    [Fact]
+    public void E阶段无氧_同一块里按细胞序演()
+    {
+        var s = DemoScenario.Create().WithTurn(DemoScenario.Create().Turn.Copy(phase: Phase.E));
+        var r = Engine.AdvancePhase(s, Rng());
+        var order = Staged(r).OfType<SkillFx>().Where(f => f.Kind == "anaerobic").Select(f => (HexPosition)f.Data["at"]).ToList();
+        Assert.Equal(new[] { s.Cells[Cancer1].Position, s.Cells[new EntityId(4)].Position }, order);   // 两只癌细胞同在中央块：席位 1 先于席位 3
+    }
+
+    [Fact]
+    public void Excalibur_侧向只打掷中的格_候选按DIRS序配骰()
+    {
+        // T 细胞在 (-4,0) 朝 +q 射：主射线 (-3,0)…；两侧 (-3,-1) 与 (-4,1)… 放癌组织 + 癌细胞，掷中的那格才挨打
+        var s = World();
+        s = s.UpdateCell(Immune0, s.Cells[Immune0].Copy(type: CellType.TCell, differentiated: true, effectorUsed: false));
+        s = s.UpdatePlayer(0, s.Players[0].WithImmuneLevel(ImmuneLevel.X).WithAntigenMemory(40));   // 效应应答：X 级 + 记忆 ≥ 20
+        foreach (var t in s.Board.Tissues.Values.Where(t => t.State != TissueState.Healthy).ToArray())
+            s = Tissue(s, t.Position, x => x.WithState(TissueState.Healthy).WithSolidificationCount(0));
+        var a = P(-3, -1);
+        var b = P(-4, 1);
+        s = Tissue(s, a, t => t.WithState(TissueState.Cancer));
+        s = Tissue(s, b, t => t.WithState(TissueState.Cancer));
+        s = MoveTo(s, Cancer1, a);
+        s = MoveTo(s, new EntityId(4), b);
+        var seenHit = false;
+        var seenMiss = false;
+        for (var seed = 1; seed <= 60 && !(seenHit && seenMiss); seed++)
+        {
+            var r = Engine.ExecuteDecision(s, new TypeSkillDecision(0, Immune0, "Excalibur", P(-3, 0)), Rng(seed));
+            Assert.True(r.Success, r.ErrorMessage);
+            var beam = Assert.Single(Staged(r).OfType<BeamFired>());
+            foreach (var (tile, id) in new[] { (a, Cancer1), (b, new EntityId(4)) })
+            {
+                var hit = beam.Splash.Contains(tile);
+                var damaged = r.NewState.Cells[id].Energy < s.Cells[id].Energy;
+                Assert.Equal(hit, damaged);
+                Assert.Equal(hit, r.NewState.Board.Tissues[tile].State == TissueState.Healthy);
+                seenHit |= hit;
+                seenMiss |= !hit;
+            }
+        }
+        Assert.True(seenHit && seenMiss, "60 颗种子里要同时见过掷中与没掷中");
+    }
 }

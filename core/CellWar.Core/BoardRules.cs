@@ -135,11 +135,14 @@ internal static class BoardRules
             if (!blocks.Any(b => b.Contains(c.Position))) continue;
             s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy + AnaerobicShare(s, c)));
         }
-        // 演出（GD cw_world.gd:767-768）：按块、块内按格序，每只癌细胞一条「铜橙输能」，sources = 同块里离它最近的 12 格（`nearest_in`）
+        // 演出（GD cw_world.gd:749-768）：按块，块内按**细胞序**（GD `here` 是 living_cells 过滤出来的，即席位序；此前 C# 按块内格序，先亮错一只 —— 复核 2026-09-18），
+        // 每只癌细胞一条「铜橙输能」，sources = 同块里离它最近的 12 格（`nearest_in`）
         foreach (var block in GdBlocks(s, Cancerous))
-            foreach (var pos in block)
-                if (s.GetCellAt(pos) is { IsAlive: true, Faction: Faction.Cancer })
-                    Stage.Emit(Stage.Fx(s, "anaerobic", ("at", pos), ("sources", NearestIn(block, pos, 12))));
+        {
+            var members = new HashSet<HexPosition>(block);
+            foreach (var here in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && members.Contains(x.Position)))
+                Stage.Emit(Stage.Fx(s, "anaerobic", ("at", here.Position), ("sources", NearestIn(block, here.Position, 12))));
+        }
         return s;
     }
 
@@ -225,7 +228,10 @@ internal static class BoardRules
             // `NextIntRange(1, 1001)`（半开）同样出 1..1000，同样判 `<=`。
             if (rng.NextIntRange(1, 1001) <= chance)
             {
+                // 过场方向在**转化之前**的盘面上算（GD cw_world.gd:683-689 先把整批 from[c] 算完再逐格 to_cancer + erosion_fx）—— beforeGrowth 正是那份盘面
+                var dir = ErosionDir(beforeGrowth, t.Position);
                 s = CardRules.ToCancer(s, t.Position, newborn: true);   // GD `CWTissue.to_cancer(tile, true)`，与【侵蚀】同一入口
+                if (dir >= 0) Stage.Emit(new TissueConverted(s.Turn.WorldRound, s.Turn.Phase, t.Position, dir, "增生"));
                 fresh.Add(t.Position);
             }
         }

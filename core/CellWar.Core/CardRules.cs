@@ -115,7 +115,8 @@ internal static class CardRules
         },
         ["全身性免疫清除"] = (s, cell, rng, target, targetCell) =>
         {
-            var candidates = Tiles(s).Where(t => t.State == TissueState.Cancer && t.OccupyingCell == null &&
+            // GD cw_card_fx.gd:497-502：只排**癌细胞**站着的格（免疫蹲守在癌组织上的照算）—— 此前 C# 用 OccupyingCell == null 多排了它们，候选表长度不同、pick_n 抽的下标就对不上
+            var candidates = Tiles(s).Where(t => t.State == TissueState.Cancer && s.GetCellAt(t.Position) is not { IsAlive: true, Faction: Faction.Cancer } &&
                 t.Position.GetNeighbors().Any(n => s.Board.Tissues.TryGetValue(n, out var x) && x.State == TissueState.Healthy)).ToArray();
             var cleared = rng.PickRandom(candidates, 5).ToArray();
             foreach (var pick in cleared) s = ToHealthy(s, pick.Position);   // GD `to_healthy`
@@ -260,7 +261,7 @@ internal static class CardRules
                 Stage.Emit(Stage.Fx(s, "card_storm", ("at", t.Position), ("tiles", Tiles(s).Where(x => x.Position.DistanceTo(t.Position) <= 2).Select(x => x.Position).ToArray())));   // GD cw_card_fx.gd:711
                 foreach (var c in victims)
                     s = Damage(s, c.Id, 10, LossSource.ImmuneEffect);   // 免疫风暴：1.0 能量（原 1 = 0.1）
-                var purged = Tiles(s).Where(x => x.State == TissueState.Cancer && x.OccupyingCell == null && x.Position.DistanceTo(t.Position) <= 2).ToArray();
+                var purged = Tiles(s).Where(x => x.State == TissueState.Cancer && s.GetCellAt(x.Position) is not { IsAlive: true, Faction: Faction.Cancer } && x.Position.DistanceTo(t.Position) <= 2).ToArray();   // GD storm_immune_tiles：无**癌细胞**占据（免疫站着的照转）
                 foreach (var tile in purged) s = ToHealthy(s, tile.Position);   // GD `to_healthy`
                 Stage.Evt(s, "免疫风暴", $"{victims.Length} 敌 -1.0 · {purged.Length} 格转健康", t.Position);   // GD cw_card_fx.gd:720
             }
@@ -342,7 +343,11 @@ internal static class CardRules
             var picked = rng.PickRandom(ClonalGrowthTargets(s, cell), count).ToArray();
             Stage.Emit(Stage.Fx(s, "card_clone", ("at", cell.Position), ("tiles", picked)));   // GD cw_card_fx.gd:545：先报演出再翻格
             foreach (var pick in picked)
+            {
                 s = ToCancer(s, pick, newborn: true);
+                var dir = Stage.DirToward(pick, cell.Position);   // GD cw_card_fx.gd:548：癌从发动者那一侧漫入（相邻，恒 >= 0）
+                if (dir >= 0) Stage.Emit(new TissueConverted(s.Turn.WorldRound, s.Turn.Phase, pick, dir, "克隆增殖"));
+            }
             Stage.Evt(s, "克隆增殖", $"{picked.Length} 格转癌组织", cell.Position);   // GD cw_card_fx.gd:550
             return s;
         },

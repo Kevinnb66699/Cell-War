@@ -89,6 +89,20 @@ internal static class SkillRules
     internal static readonly IReadOnlyList<IReadOnlyList<int>> AntibodyNoTargetX =
         [[2, 3], [2, 3], [3, 5], [4, 6]];
 
+    /// <summary>GD `_excalibur_sweep(cells_at, dmg)`：扫一串格子 —— 癌组织转健康 + 坏死（固化癌组织不转），再打上面的癌细胞。</summary>
+    private static WorldState ExcaliburSweep(WorldState s, IReadOnlyList<HexPosition> tiles, int damage)
+    {
+        foreach (var pos in tiles)
+            if (s.Board.Tissues[pos].State == TissueState.Cancer)
+            {
+                s = CardRules.ToHealthy(s, pos);   // GD `to_healthy` 再 `necrosis = NECROSIS_TOXIN`
+                s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2)));
+            }
+        foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && tiles.Contains(x.Position)).ToArray())
+            s = Damage(s, target.Id, damage, LossSource.CancerSkill);   // 主射线 2.0 / 侧向 1.0（原 2 / 1 = 0.2 / 0.1）
+        return s;
+    }
+
     /// <summary>T【Excalibur】主射线相邻的癌组织进入波及范围的概率（GD `EXCALIBUR_SPLASH_PCT`）。</summary>
     internal const int ExcaliburSplashPercent = 60;
 
@@ -171,7 +185,8 @@ internal static class SkillRules
                 }
                 else
                 {
-                    var tiles = Tiles(s).Where(t => t.State == TissueState.Cancer && t.OccupyingCell == null && AdjacentHealthy(s, t.Position)).ToArray();
+                    // GD cw_actions.gd:1263-1269：只排**癌细胞**站着的（说明 #20），免疫细胞站着的癌组织（骨样硬化蹲守格）照算 —— 此前 C# 用 OccupyingCell == null 多排了它们，候选表长度不同、pick_n 抽的下标就对不上
+                    var tiles = Tiles(s).Where(t => t.State == TissueState.Cancer && s.GetCellAt(t.Position) is not { IsAlive: true, Faction: Faction.Cancer } && AdjacentHealthy(s, t.Position)).ToArray();
                     if (tiles.Length == 0) break;   // GD cw_actions.gd:1270-1272：无可转化癌组织直接落空，**不掷骰**（此前 C# 照掷，多一发 rng）
                     // 无目标时改为转化癌组织：掷 **d3**，2/3 概率取前一个数、1/3 概率取后一个数，
                     // 而那两个数**按免疫等级分档**（PRD 2026-09-13 云端版 / issue #37：III 级 3/5、X 级 4/6）。
@@ -336,31 +351,24 @@ internal static class SkillRules
                         if (!s.Board.Tissues.ContainsKey(cursor)) break;
                         ray.Add(cursor);
                     }
-                    var splash = new HashSet<HexPosition>();
-                    foreach (var pos in ray)
-                        foreach (var neighbor in pos.GetNeighbors())
-                            if (s.Board.Tissues.ContainsKey(neighbor) && !ray.Contains(neighbor)) splash.Add(neighbor);
+                    // 侧向波及：主射线相邻的癌组织各掷一次 60%（GD cw_actions.gd:1643-1651）。**候选序必须是 DIRS 序**（GdNeighbors）：
+                    // 掷骰的发数与格子的配对靠这个序，此前用 HexPosition.GetNeighbors() 的另一套次序，同一条带子的第 i 发落到另一格（复核 2026-09-18）。
                     // 掷 1..100 判 `<= 60`，逐位对齐 GD 的 `randi_range(1, 100) <= EXCALIBUR_SPLASH_PCT`。
-                    // 原来写的是 `NextInt(100) < 60`（0..99）—— 概率一样、抽取区间不一样。
-                    // 先定波及名单再扫（GD cw_actions.gd:1639-1657：光束先演、伤害随后落）；名单只看波及格自己的状态，与主射线的转化无关
-                    var hit = splash.Where(p => s.Board.Tissues[p].State == TissueState.Cancer
-                        && rng.NextIntRange(1, 101) <= ExcaliburSplashPercent).ToList();
-                    if (ray.Count > 0) Stage.Emit(new BeamFired(s.Turn.WorldRound, s.Turn.Phase, start, ray[^1], hit.ToImmutableArray()));   // GD beam_fx：射线为空（贴边）不发
+                    var seen = new HashSet<HexPosition>(ray);
+                    var hit = new List<HexPosition>();
                     foreach (var pos in ray)
-                        if (s.Board.Tissues[pos].State == TissueState.Cancer)
+                        foreach (var neighbor in RulePolicies.GdNeighbors(s, pos))
                         {
-                            s = s.UpdateTissueState(pos, TissueState.Healthy);
-                            s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2)));
+                            if (seen.Contains(neighbor) || s.Board.Tissues[neighbor].State != TissueState.Cancer) continue;
+                            seen.Add(neighbor);
+                            if (rng.NextIntRange(1, 101) <= ExcaliburSplashPercent) hit.Add(neighbor);
                         }
-                    foreach (var pos in hit)
-                    {
-                        s = s.UpdateTissueState(pos, TissueState.Healthy);
-                        s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2)));
-                    }
-                    foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && ray.Contains(x.Position)).ToArray())
-                        s = Damage(s, target.Id, 20, LossSource.CancerSkill);   // Excalibur 主射线：2.0 能量（原 2 = 0.2）
-                    foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && splash.Contains(x.Position)).ToArray())
-                        s = Damage(s, target.Id, 10, LossSource.CancerSkill);   // Excalibur 侧向波及：1.0 能量（原 1 = 0.1）
+                    // 光束先演、伤害随后落（GD cw_actions.gd:1654）；射线为空（贴边）不发
+                    if (ray.Count > 0) Stage.Emit(new BeamFired(s.Turn.WorldRound, s.Turn.Phase, start, ray[^1], hit.ToImmutableArray()));
+                    // GD `_excalibur_sweep(ray, 2.0)` 再 `_excalibur_sweep(splash, 1.0)`：每段先翻组织（癌组织 → 健康 + 坏死）再打站着的癌细胞；
+                    // 侧向那段**只打掷中的格**（此前 C# 打的是全部候选格，连没掷中的、非癌组织格上的癌细胞都挨一下）
+                    s = ExcaliburSweep(s, ray, 20);
+                    s = ExcaliburSweep(s, hit, 10);
                     Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "Excalibur", start, true));   // GD cw_actions.gd:1657
                 }
                 break;

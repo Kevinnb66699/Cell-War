@@ -177,7 +177,7 @@ T 细胞每次成功都追加一笔 1.0 的**直击**（同批第二笔）——
 C# 598 绿；三条夹具 + 批扫 60/60 整条一致。**还挂着的**：~~`marrow-mobilization-collect`~~、~~`tnf-events-container`~~（两条 09-18 Kevin 裁定后当天合上：GD 补 await → 协议 v29 + C# `PendingMarrow` 游标；TNF-α 冻结名单进事件容器、`Tissue.SolidLockRound` 删除；夹具与批扫按 v29 重录，601 绿、60/60）、`aerobic-board-base`（非默认旋钮）、`stress-fee` / 世界事件（已裁延后）。
 Kevin 09-18 补口径：**尽量保留 C# 架构，只保证规则对齐**。
 **09-18 复核补丁**（对 a2fa59a 的只读复核 7 条全部合上）：骨髓动员逐格现判（`PendingMarrow` = 还没判的骨髓 + `PendingMarrowWalkDepth` 基线）、落地后半截分两步（`PendingLandStep`）、出口 `ResumeMarrow` 最先、PlayCard 连走闸不认细胞、`Produce` 现读格子。604 绿、60/60。
-**09-18 步 6 顺带合上**：`affinity-roll`（【高亲和力克隆】GD 不掷骰，C# 此前多掷一发 —— 夹具里那张卡 0 次）；`antibody-empty-roll`（无可转化癌组织时 GD 不掷骰）；`antibody-zero-damage`（有目标就打、不看伤害是否为 0）；`differentiate-marks`（分化后立即刷标记）。
+**09-18 步 6 顺带合上**：`affinity-roll`（【高亲和力克隆】GD 不掷骰，C# 此前多掷一发 —— 夹具里那张卡 0 次）；`antibody-empty-roll`（无可转化癌组织时 GD 不掷骰）；`antibody-zero-damage`（有目标就打、不看伤害是否为 0）；`differentiate-marks`（分化后立即刷标记）；`excalibur-splash-order` / `excalibur-splash-damage`（波及候选 DIRS 序、只打掷中的格）；`camp-tile-candidates`（抗体 / 全身性免疫清除 / 免疫风暴的候选不排免疫蹲守的癌组织）；`dir-toward-float32`（过场方向单精度打平）。
 **新登记 KNOWN_GAP**：`produce-loop-ask-order`（S 阶段产出循环里某格收取追出的问答，GD await 完才产下一格，C# 整圈跑完才停 StartStep 3 —— 后面格子的产出 / 收取排在那一问之前；老病，批扫没撞上，同 `StartStep` 游标思路可修）。
 
 **丢掉了什么（写进限制栏）**：选项的**顺序**与下标稳定性不再被验证（`DecisionRouter.cs:82` 的 `Tiles(s)` 走 `PagedMap` 迭代序而非排序序）。C# 真当权威内核时，这会以「客户端点了第 3 项、服务器执行了第 5 项」的形式复活——那要靠「按语义提交」的线上协议解决，不是靠对拍。**这条要单独立一条阶段 1 待办。**

@@ -49,15 +49,19 @@ internal static class Stage
         var dq = from.Q - dest.Q;
         var dr = from.R - dest.R;
         if (dq == 0 && dr == 0) return -1;
-        var vx = dq + dr * 0.5;
-        var vy = dr * 0.8660254;
+        // **单精度**：Godot 的 Vector2 是 float32，正对角来路（d = (-k,-k)）上 DIRS[2] 与 DIRS[3] 的点积在 float32 下恰好打平（0.8660254f² 舍成 0.75f），
+        // `>` 严格于是取在前的下标 2；用 double 算会取 3 —— 复核 2026-09-18 实测。所以这里逐字照 GD 用 float。
+        var vx = (float)(dq + dr * 0.5);
+        var vy = (float)(dr * 0.8660254);
         var best = -1;
-        var bestDot = double.NegativeInfinity;
+        var bestDot = float.NegativeInfinity;
         for (var i = 0; i < SemanticKey.GdDirs.Count; i++)
         {
             var (q, r) = SemanticKey.GdDirs[i];
             if (q == dq && r == dr) return i;
-            var dot = vx * (q + r * 0.5) + vy * (r * 0.8660254);
+            var ux = (float)(q + r * 0.5);
+            var uy = (float)(r * 0.8660254);
+            var dot = vx * ux + vy * uy;
             if (dot > bestDot) { bestDot = dot; best = i; }
         }
         return best;
