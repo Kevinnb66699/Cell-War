@@ -18,3 +18,6 @@ Desktop.ini
 # C# 内核（core/）的构建产物 —— 和 dist/ 同理，换台机器重跑就有
 /core/**/bin/
 /core/**/obj/
+
+# Claude Code 工作流 agent 的隔离 worktree 落在这里；不进仓库，也别让它绊倒发版脚本的「工作树干净」闸
+.claude/worktrees/

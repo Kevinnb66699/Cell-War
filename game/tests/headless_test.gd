@@ -114,7 +114,7 @@ func _run_all() -> void:
 		t_hotseat, t_tutorial, t_tutorial_auto_advance, t_stroma_targets, t_batch2_rules,
 		t_tutorial_mechanism_trials,
 		t_immune_level_rules, t_tissue_transitions, t_one_cell_per_tile, t_phase_order,
-		t_event_rounds, t_draw_limit, t_snapshot, t_state_codec, t_replay, t_replay_panel, t_tutorial_chapter_swap,
+		t_event_rounds, t_draw_limit, t_snapshot, t_state_codec, t_xcheck, t_replay, t_replay_panel, t_tutorial_chapter_swap,
 		t_rollout_isolation, t_step_atomic, t_full_game_2p, t_full_game_4p,
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
@@ -4245,7 +4245,7 @@ func t_ai_mc() -> void:
 		var rq4: Dictionary = sc[2]
 		while true:
 			var st: int = g4.rng.state
-			var v := g4.rng.randi_range(1, 6)
+			var v: int = g4.rng.randi_range(1, 6)
 			if g4.actions.base_verdict(v) == "fail":
 				g4.rng.state = st
 				break
@@ -11767,7 +11767,7 @@ func t_snapshot() -> void:
 	g.restore(snap)
 	check(g.state_hash() == h0, "restore() 之后局面逐位还原")
 	## 随机数发生器也得还原 —— 否则同一步走两遍会掷出不同的骰子
-	var a := g.rng.randi()
+	var a: int = g.rng.randi()
 	g.restore(snap)
 	check(g.rng.randi() == a, "rng 状态也在快照里")
 	g.dispose()
@@ -12110,6 +12110,45 @@ func t_tutorial_chapter_swap() -> void:
 	main_scene.free()
 
 
+## 对拍规格 §4 D 的两条护栏（2026-09-16）：
+## ① `CWGame.rng` 可被鸭子对象替换 —— 靠 cw_game.gd 那行 `var rng: Object`。
+##    改回静态类型不报错、只让整套对拍静默失效（带子永远是空的），所以这里真装一个替身进去掷一次。
+## ② `xcheck_bridge.key()` 的语义键映射钉死：与 C# 侧 SemanticKeyTests 用同一组样例，两边各钉一份。
+func t_xcheck() -> void:
+	var g := make_game(4, 3)
+	var tape: Object = load("res://tests/xcheck_tape.gd").new()
+	tape.seed = 3
+	g.rng = tape
+	check(g.rng == tape, "对拍注入点：CWGame.rng 可被鸭子对象替换（别把 `var rng: Object` 改回静态类型）")
+	var before: int = tape.tape.size()
+	var v: int = await g.roll_shown(6, "对拍", 0, Vector2i.ZERO)
+	check(tape.tape.size() == before + 1 and tape.tape[-1][0] == 1 and tape.tape[-1][1] == 6 and tape.tape[-1][2] == v,
+		"引擎掷骰走的是替身：带子上多了一条 [1,6,v]")
+	check(tape.randi_range(3, 3) == 3 and tape.tape.size() == before + 1, "randi_range(n,n) 零消耗、不上带（C# 侧同口径）")
+	## 语义键：k=<kind>[|g=<tag>]|field=v，字段固定顺序，Vector2i→q,r，bool→1/0，cost/anchor 不进键
+	var XB := load("res://tests/xcheck_bridge.gd")
+	check(XB.key({ "kind": "setup_place" }, { "to": Vector2i(-6, 0) }) == "k=setup_place|to=-6,0", "键：setup_place")
+	check(XB.key({ "kind": "action" }, { "act": "move", "to": Vector2i(-2, 0), "cost": 5 }) == "k=action|act=move|to=-2,0", "键：cost 不进键")
+	check(XB.key({ "kind": "action" }, { "act": "play", "card": "癌症转移", "to": Vector2i(-3, 3) }) == "k=action|act=play|card=癌症转移|to=-3,3", "键：打牌带落点")
+	check(XB.key({ "kind": "revive" }, { "to": Vector2i(0, 0), "anchor": Vector2i(1, 0) }) == "k=revive|to=0,0", "键：anchor 不进键")
+	check(XB.key({ "kind": "revive" }, { "skip": true }) == "k=revive|skip=1", "键：bool → 1")
+	check(XB.key({ "kind": "free_move", "tag": "炎症性趋化" }, { "stop": true }) == "k=free_move|g=炎症性趋化|stop=1", "键：tag 走 g=")
+	check(XB.key({ "kind": "pick", "tag": "基因组不稳定" }, { "r": 2 }) == "k=pick|g=基因组不稳定|r=2", "键：pick 带骰面值")
+	check(XB.key({ "kind": "effector_target" }, { "dir": 3, "to": Vector2i(1, 1) }) == "k=effector_target|to=1,1|dir=3", "键：字段按固定顺序（to 在 dir 前）")
+	## 桥挑选项：去重 + 排序 + LCG；同键多条取第一条（癌方复活剔掉 anchor 之后就会同键）
+	var b: CWBridge = XB.new()
+	b.game = g
+	b.seed_policy(7)
+	var req := { "kind": "revive", "pid": 1, "options": [
+		{ "label": "a", "data": { "to": Vector2i(0, 0), "anchor": Vector2i(1, 0) } },
+		{ "label": "b", "data": { "to": Vector2i(0, 0), "anchor": Vector2i(0, 1) } },
+		{ "label": "c", "data": { "skip": true } } ] }
+	var idx: int = b.ask(req)
+	check(b.log.size() == 1 and b.log[0]["n"] == 2, "桥：同键去重后只剩 2 个候选（C# 侧 SortedDictionary 同口径）")
+	check(idx != 1, "桥：同键多条取第一条，永远答不到第二条依托")
+	g.dispose()
+
+
 func t_state_codec() -> void:
 	print("[状态编码]")
 	var g := make_game(2, 103)
@@ -12149,7 +12188,7 @@ func t_state_codec() -> void:
 	g.cells[0]["play_n"] += 99
 	check(g.state_hash() == h0, "日志、phase 与 play_n 不改变 state_hash")
 	g.restore(base)
-	var r := g.rng.randi()
+	var r: int = g.rng.randi()
 	g.restore(base)
 	check(g.rng.randi() == r and g.flow == base["flow"], "restore 同时还原 RNG 与流程游标")
 
@@ -16725,7 +16764,7 @@ func _t_cost_required() -> void:
 	put_skill(cell, "组织巡航")
 	g.add_mod(cell, "炎症趋化", 1, "turn")
 	var h0 := g.state_hash()
-	var rng0 := g.rng.state
+	var rng0: int = g.rng.state
 	var logs0: int = g.logs.size()
 	for i in 50:
 		g.actions._move_cost_mod(cell, canc, 10)

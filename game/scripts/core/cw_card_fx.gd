@@ -972,7 +972,7 @@ func _radiotherapy(start: Vector2i) -> void:
 	var in_region := { start: true }
 	var frontier: Array[Vector2i] = game.neighbors(start)
 	while region.size() < CWData.RADIO_REGION and not frontier.is_empty():
-		var i := game.rng.randi_range(0, frontier.size() - 1)
+		var i: int = game.rng.randi_range(0, frontier.size() - 1)
 		var c: Vector2i = frontier[i]
 		frontier.remove_at(i)
 		if in_region.has(c):
@@ -1153,7 +1153,7 @@ func _pick_random(cands: Array, n: int) -> Array:
 	var pool := cands.duplicate()
 	var out: Array = []
 	while out.size() < n and not pool.is_empty():
-		var i := game.rng.randi_range(0, pool.size() - 1)
+		var i: int = game.rng.randi_range(0, pool.size() - 1)
 		out.append(pool[i])
 		pool.remove_at(i)
 	return out

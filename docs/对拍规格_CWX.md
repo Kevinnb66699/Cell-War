@@ -145,7 +145,7 @@ Vector2i → "q,r"；bool → 1/0
 2. **只比跨度，不比基数**。`NextInt(max)` → 折算 `[0,max-1]`，`randi_range(1,n)` → `[1,n]`。跨度同、基数不同 = 纯口径，按偏移平移并记一条 `RNG_BASE`（实测 2p/4p/6p 各 5/7/3 条，全良性）；**跨度不同才报 `RNG_SPAN`，那是「候选集大小不一样」的免费断言**，在结算之前就报警。
 3. 带子用完 C# 还要 = `RNG_OVERRUN`；一步走完带子有剩 = `RNG_UNUSED`。
 
-**我们这边的注入点已经是开的**：`cw_game.gd:79` 现在是 `var rng: Object = RandomNumberGenerator.new()`（0239b48 带进来的），鸭子对象只需 `seed` / `state` / `randi_range(int,int)->int` 三个成员，`randi()` 只有 `headless_test.gd` 用。带补丁跑 `bash tools/run_tests.sh` → **3479 项检查全过**。
+**注入点（2026-09-16 更正）**：0239b48 那次是随「只改文档」的提交**误扫**进来的，c6e3754 已撤回；本日**有意**重开为 `var rng: Object = RandomNumberGenerator.new()`（鸭子对象只需 `seed` / `state` / `randi_range(int,int)->int`），并按 §4 D 补了护栏 `t_xcheck`。`bash tools/run_tests.sh` → **3519 项检查全过**。
 
 > ⚠ **这条注入靠的是弱类型**。哪天有人「顺手恢复静态类型」，对拍会**静默失效**（脚本照跑，带子永远是空的）。必须加一条护栏测试钉死可替换性——见第 4 节 D 项。
 
@@ -487,8 +487,8 @@ cp xcheck/tune_default.json "../cellwar-next/tests/CellWar.Core.Tests/xcheck/"
 
 ### D. `game/tests/` 里的两条护栏测试（必须有）
 
-1. **rng 可替换性**：断言 `CWGame.rng` 可被鸭子对象替换（防止有人把 `var rng: Object` 改回静态类型，那会让整套对拍**静默失效**）。
-2. **语义键映射钉死**：`xcheck_bridge.key()` 对 15 个 data 键的映射表写成文档并加单测。
+1. ✅ **rng 可替换性**（2026-09-16 `t_xcheck`）：真装 `xcheck_tape.gd` 的替身进去掷一次骰，断言带子上多一条；改回静态类型当场 SCRIPT ERROR。
+2. ✅ **语义键映射钉死**（同一条测试）：8 个样例与 C# `SemanticKeyTests` 同组；另钉桥的「去重 → 排序 → LCG、同键取第一条」。
 
 ### E. `xcheck/COVERAGE.md`
 
