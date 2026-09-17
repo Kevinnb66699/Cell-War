@@ -130,7 +130,7 @@ func _run_all() -> void:
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_guide_watch, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
-		t_semkey_single_source, t_kernel_inproc,
+		t_semkey_single_source, t_kernel_inproc, t_play_queue,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -19064,3 +19064,62 @@ func t_kernel_inproc() -> void:
 func _probe_roll(k: CWKernelInProc, flags: Dictionary) -> void:
 	await k.bridge.show_roll("攻击", 3, 6, 0, Vector2i.ZERO)
 	flags["done"] = int(flags["done"]) + 1
+
+
+## 口径二 · 批 0 步 11：播放队列 + Remote 只读适配器
+func t_play_queue() -> void:
+	print("[播放队列·Remote 适配]")
+	## 1) 队列驱动一整局：有消费者 → roll 挡住引擎 → 队列播完 ack → 引擎继续；播完的条目逐类计数 = 队列拉到的条目数
+	var direct := make_game(4, 31)
+	var w0: int = await direct.run_game()
+	var h0 := direct.state_hash()
+	direct.dispose()
+	var k := CWKernelInProc.new()
+	check(k.open({ "factions": CWData.FACTION_ORDER[4], "seed": 31, "decider": CWHeuristicBridge.new(), "consumer": true }), "open（consumer=true）")
+	var probe = load("res://tests/kernel_probe_bridge.gd").new()
+	var q := CWPlayQueue.new()
+	q.kernel = k
+	q.consumer = probe
+	var seen := { "log": 0, "over": 0 }
+	q.on_log = func(_e: Dictionary) -> void: seen["log"] += 1
+	q.on_game_over = func(_e: Dictionary) -> void: seen["over"] += 1
+	await q.pump()
+	check(k.state() == CWKernel.State.ENDED and seen["over"] == 1, "队列一路播到 game_over（%d 条）" % q.played)
+	check(k.winner == w0 and k.state_hash() == h0, "被队列的 ack 节拍驱动的一局与直接 run_game 逐位相同")
+	var total := k.pull(CWKernel.VIEWER_OMNISCIENT, 0, 1000000).size()
+	var shown := 0
+	for kind in probe.counts:
+		shown += int(probe.counts[kind])
+	check(q.played == total and shown + seen["log"] + 1 == total, "每条条目恰播一次：演出 %d + 日志 %d + 终局 1 = %d" % [shown, seen["log"], total])
+	check(int(probe.counts.get("roll", 0)) > 0, "掷骰真的经过了 barrier（roll %d 次）" % int(probe.counts.get("roll", 0)))
+	k.close()
+
+	## 2) Remote 只读适配：报文 → 条目，形状对得上；answer 按键翻成下标再发线上
+	var fake = load("res://tests/fake_net_client.gd").new()
+	var req := { "kind": "action", "pid": 1, "prompt": "癌症A：请选择", "options": [
+		{ "label": "结束回合", "data": { "act": "end" } },
+		{ "label": "迁移到 (-2,0)", "data": { "act": "move", "to": Vector2i(-2, 0), "cost": 12 } }] }
+	fake.stream = [
+		{ "t": "room", "code": "ABCD" },
+		{ "t": "state", "game": 1, "view": { "players": [] }, "turn": 1 },
+		{ "t": "ask", "ask_id": 7, "req": req, "left_ms": 30000 },
+		{ "t": "roll", "reason": "攻击", "value": 6, "sides": 6, "pid": 1, "at": Vector2i(0, 0) },
+		{ "t": "result", "text": "攻击大成功", "at": Vector2i(0, 0), "linger": false },
+		{ "t": "fx", "kind": "immune_attack", "data": { "from": Vector2i(0, 0), "to": Vector2i(1, 0) } },
+		{ "t": "game_over", "winner": 0, "reason": "免疫胜利", "kind": "immune", "round": 9, "replay": {} },
+	]
+	var r := CWKernelRemote.new()
+	check(r.open({ "client": fake }), "Remote open")
+	check(r.drain() == 7 and fake.stream.is_empty(), "drain 把报文全翻走")
+	var es: Array = r.pull(1, 0, 100)
+	var kinds := []
+	for e in es:
+		kinds.append(e["t"])
+	check(kinds == ["sync", "ask", "roll", "result", "fx", "game_over"], "room 不进条目；state → sync；其余照类（%s）" % str(kinds))
+	check(int(es[0]["seq"]) == 1 and int(es[-1]["seq"]) == 6 and bool(es[2]["barrier"]) and not bool(es[3]["barrier"]), "seq 1..6，只有 roll 带 barrier")
+	check(es[1]["ask_id"] == 7 and es[1]["left_ms"] == 30000 and es[0]["envelope"]["turn"] == 1, "ask / sync 字段照报文")
+	check(r.answer(7, { "key": "k=action|act=move|to=-2,0" }) and fake.answered == [[7, 1]], "answer 按语义键翻成下标 1 发线上")
+	check(not r.answer(7, { "index": 0 }), "同一问不能答两次")
+	check(r.state() == CWKernel.State.ENDED and not r.can_save() and r.save().is_empty(), "game_over 后 ENDED；联机不存档")
+	r.close()
+	check(fake.disposed, "close → 客户端 dispose")
