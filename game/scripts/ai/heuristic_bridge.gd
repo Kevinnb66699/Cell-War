@@ -720,12 +720,21 @@ func _pick_tile_take(options: Array) -> int:
 ## 【代谢耦联】的两连问共用一个 arm，靠选项数据区分：
 ## 方向问句带 from —— 选转出方能量高的一侧（富济贫，转移本身还净赚）；
 ## 数额问句带 pay —— 直接拉满（净赚随档位涨，付不起的档位引擎已剔除）
+## 2026-09-16 起两问的下标 0 都是「取消」（`{stop: true}`）—— AI 永远不选它；
+## 靠「有没有 from」认方向问句时要跳过它，数额问句拉满 = 最后一条（取消在最前，不影响）
 func _pick_couple(options: Array) -> int:
-	if options[0]["data"].has("from"):
-		var best := 0
+	var is_direction := false
+	for o in options:
+		if o["data"].has("from"):
+			is_direction = true
+	if is_direction:
+		var best := -1
 		var best_e := -1
 		for i in options.size():
-			var payer: Dictionary = game.cells[options[i]["data"]["from"]]
+			var d: Dictionary = options[i]["data"]
+			if not d.has("from"):
+				continue
+			var payer: Dictionary = game.cells[d["from"]]
 			if payer["energy"] > best_e:
 				best_e = payer["energy"]
 				best = i

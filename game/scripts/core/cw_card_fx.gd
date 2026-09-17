@@ -310,7 +310,10 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 		"炎症性趋化":
 			await _chemotaxis(cell, data)
 		"代谢耦联":
-			await _couple(cell, game.cells[data["cid"]])
+			## 追问里按了「取消」：无效果、**卡不弃置**（return 走的是 _: 那条「未弃置」的同一条路）
+			if not await _couple(cell, game.cells[data["cid"]]):
+				game.log_msg("　【代谢耦联】已取消，卡未弃置")
+				return
 		"基质重塑":
 			await _remodel(cell, data["to"])
 		"放疗":
@@ -855,7 +858,10 @@ func _couple_tiers(payer: Dictionary) -> Array:
 
 ## 【代谢耦联】结算：先问方向（谁付给谁），再问数额。**哪怕只有一种也问** ——
 ## 转出能量不可撤销，替玩家按掉那一下省不了什么（issue #14，2026-09-10）。
-func _couple(cell: Dictionary, ally: Dictionary) -> void:
+## 返回 true = 结算完（含「落空」）；false = 玩家在追问里按了「取消」—— 卡**不弃置**（Kevin 2026-09-16）。
+## 两问的下标 0 都是「取消」：`game.ask` 的约定是「可以不做」的询问把停止/放弃放在 0，中止对局时固定答 0 也就等于取消。
+## 「取消」不进 dirs / tiers 本身 —— 空不空的判断（落空）只看真选项。
+func _couple(cell: Dictionary, ally: Dictionary) -> bool:
 	var dirs: Array = []
 	if not _couple_tiers(cell).is_empty():
 		## 方向按钮只写玩家名（「癌症B」），不带细胞种类那一长串 —— 理由同数额档：一行要放得下
@@ -871,30 +877,41 @@ func _couple(cell: Dictionary, ally: Dictionary) -> void:
 		## 和下面「付不出…落空」是同一种处理，早返回，别让 dirs[di] 越界。
 		## （2026-08-31 并行跑蒙特卡洛网格时崩出来的，无头测试当时覆盖不到这个局面）
 		game.log_msg("　【代谢耦联】双方都付不出最低一档，落空")
-		return
+		return true
 	## **只有一个方向也要问**（issue #14）：转出能量是不可撤销的一步，
 	## 玩家该看见「往哪个方向、转多少」再点头，而不是替他按掉
-	if not dirs.is_empty():
-		di = await game.ask(cell["pid"], { "kind": "pick", "tag": "代谢耦联",
-			"prompt": "【代谢耦联】选择转移方向", "options": dirs })
-	var payer: Dictionary = game.cells[dirs[di]["data"]["from"]]
-	var getter: Dictionary = game.cells[dirs[di]["data"]["to_cid"]]
+	var dir_opts: Array = [{ "label": "取消", "data": { "stop": true } }]
+	dir_opts.append_array(dirs)
+	di = await game.ask(cell["pid"], { "kind": "pick", "tag": "代谢耦联",
+		"prompt": "【代谢耦联】选择转移方向", "options": dir_opts })
+	var chosen_dir: Dictionary = dir_opts[di]["data"]
+	if chosen_dir.get("stop", false):
+		game.log_msg("　【代谢耦联】取消")
+		return false
+	var payer: Dictionary = game.cells[chosen_dir["from"]]
+	var getter: Dictionary = game.cells[chosen_dir["to_cid"]]
 	var tiers := _couple_tiers(payer)
 	var ti := 0
 	## 同上：只够转一档时也把那一档摆出来问一次（HXR-I 举的正是这个例子）
-	if not tiers.is_empty():
-		ti = await game.ask(cell["pid"], { "kind": "pick", "tag": "代谢耦联",
-			"prompt": "【代谢耦联】转出 → 接收方得", "options": tiers })
-	var pay: int = tiers[ti]["data"]["pay"]
-	var get: int = tiers[ti]["data"]["get"]
+	var tier_opts: Array = [{ "label": "取消", "data": { "stop": true } }]
+	tier_opts.append_array(tiers)
+	ti = await game.ask(cell["pid"], { "kind": "pick", "tag": "代谢耦联",
+		"prompt": "【代谢耦联】转出 → 接收方得", "options": tier_opts })
+	var chosen_tier: Dictionary = tier_opts[ti]["data"]
+	if chosen_tier.get("stop", false):
+		game.log_msg("　【代谢耦联】取消")
+		return false
+	var pay: int = chosen_tier["pay"]
+	var get: int = chosen_tier["get"]
 	if not game.pay(payer, pay):
 		game.log_msg("　【代谢耦联】%s 付不出 %s，落空" % [game.cell_name(payer), CWData.fmt(pay)])
-		return
+		return true
 	getter["energy"] += get
 	game.log_msg("　【代谢耦联】%s 转出 %s，%s 获得 %s（现 %s）" % [
 		game.cell_name(payer), CWData.fmt(pay),
 		game.cell_name(getter), CWData.fmt(get), CWData.fmt(getter["energy"])])
 	game.fx("card_transfer", { "from": payer["pos"], "to": getter["pos"] })   ## issue #28：青流 ×3，收方回拢
+	return true
 
 
 func _solid_in_range(center: Vector2i, r: int) -> Array[Vector2i]:

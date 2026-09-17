@@ -12134,6 +12134,8 @@ func t_xcheck() -> void:
 	check(XB.key({ "kind": "revive" }, { "skip": true }) == "k=revive|skip=1", "键：bool → 1")
 	check(XB.key({ "kind": "free_move", "tag": "炎症性趋化" }, { "stop": true }) == "k=free_move|g=炎症性趋化|stop=1", "键：tag 走 g=")
 	check(XB.key({ "kind": "pick", "tag": "基因组不稳定" }, { "r": 2 }) == "k=pick|g=基因组不稳定|r=2", "键：pick 带骰面值")
+	check(XB.key({ "kind": "pick", "tag": "代谢耦联" }, { "stop": true }) == "k=pick|g=代谢耦联|stop=1", "键：代谢耦联的取消")
+	check(XB.key({ "kind": "pick", "tag": "代谢耦联" }, { "from": 0, "to_cid": 2 }) == "k=pick|g=代谢耦联|from=0|to_cid=2", "键：代谢耦联的方向")
 	check(XB.key({ "kind": "effector_target" }, { "dir": 3, "to": Vector2i(1, 1) }) == "k=effector_target|to=1,1|dir=3", "键：字段按固定顺序（to 在 dir 前）")
 	## 桥挑选项：去重 + 排序 + LCG；同键多条取第一条（癌方复活剔掉 anchor 之后就会同键）
 	var b: CWBridge = XB.new()
@@ -13385,13 +13387,34 @@ func t_card_choices() -> void:
 	var kopts: Array = []
 	g.card_fx.hand_options(cp1, kopts)
 	check(kopts.size() == 1 and kopts[0]["data"]["cid"] == 1, "代谢耦联：一个队友一个选项")
-	b.answers = [0, 1]   ## 先答唯一的那个方向，再从三档里挑 1.5 → 2.0
+	b.answers = [1, 2]   ## 下标 0 是「取消」：先答唯一的那个方向（1），再从三档里挑 1.5 → 2.0（2）
 	await g.card_fx.play(cp1, kopts[0]["data"])
 	check(b.asked.size() == 2, "方向唯一（对方付不起）时**也问一次方向**，再问数额")
-	check(b.asked[0]["options"].size() == 1,
-		"那一问里就摆着唯一的那个方向 —— 玩家看得见自己在同意什么")
+	check(b.asked[0]["options"].size() == 2 and b.asked[0]["options"][0]["data"].get("stop", false),
+		"那一问里就摆着「取消」+ 唯一的那个方向 —— 玩家看得见自己在同意什么，也随时能不做")
 	check(cp1["energy"] == 15 and cp2["energy"] == 28, "转出 1.5、接收方得 2.0")
+	check(not ("代谢耦联" in cp1["hand"]), "结算完才弃置")
 	g.dispose()
+
+	## ⑧-取消（Kevin 2026-09-16）：追问里按「取消」= 无效果、**卡不弃置**，两问各验一次
+	for stage_answers in [[0], [1, 0]]:
+		pack = _choice_game()
+		g = pack[0]
+		b = pack[1]
+		var cq1 := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1)
+		cq1["energy"] = 30
+		cq1["hand"] = ["代谢耦联"]
+		g.cells.append(cq1)
+		var cq2 := CWSetup.make_cell(1, 1, CWData.Faction.IMMUNE, Vector2i(0, 3), CWData.ImmuneType.BASIC, -1)
+		cq2["energy"] = 30
+		g.cells.append(cq2)
+		var qopts: Array = []
+		g.card_fx.hand_options(cq1, qopts)
+		b.answers = stage_answers
+		await g.card_fx.play(cq1, qopts[0]["data"])
+		check(cq1["energy"] == 30 and cq2["energy"] == 30, "取消（第 %d 问）：能量一分不动" % stage_answers.size())
+		check("代谢耦联" in cq1["hand"], "取消（第 %d 问）：卡还在手上" % stage_answers.size())
+		g.dispose()
 
 	## ⑧-补 代谢耦联：选项生成之后、结算之前双方都变得付不起 → 落空，不许越界
 	## 真实触发路径：选项按**扣费前**能量算，而这张卡自己要花 0.2~0.3。
