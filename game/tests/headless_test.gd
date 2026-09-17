@@ -130,6 +130,7 @@ func _run_all() -> void:
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_guide_watch, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
+		t_semkey_single_source,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -18913,3 +18914,19 @@ func t_turn_mark() -> void:
 		and not src.contains("set_turn_ring") and not src.contains("clear_turn_ring"),
 		"每帧在 _sync_cells 接线 + 换手中不叠；跑马灯那套接口不再被引用")
 	check(src.count("board.clear_turn_mark()") >= 3, "拆局、淡出、没轮到谁都清脚标（%d 处）" % src.count("board.clear_turn_mark()"))
+
+
+## 口径二 · 批 0 步 7：语义键的 GD 侧唯一定义处上提到 scripts/kernel/cw_semkey.gd，xcheck_bridge.gd 只做委托
+func t_semkey_single_source() -> void:
+	print("[语义键·唯一定义处]")
+	check(CWSemKey.KEY_FIELDS == ["act", "card", "type", "to", "cid", "dir", "r", "pay", "get", "from", "to_cid", "stop", "skip"],
+		"KEY_FIELDS 照对拍规格的 13 个 data 键、固定顺序（C# 侧有护栏读这个文件比）")
+	check(CWSemKey.key({ "kind": "action" }, { "act": "move", "to": Vector2i(-2, 0), "cost": 12 }) == "k=action|act=move|to=-2,0",
+		"cost 不进键；Vector2i 拼成 q,r")
+	check(CWSemKey.key({ "kind": "free_move", "tag": "连续吞噬" }, { "stop": true }) == "k=free_move|g=连续吞噬|stop=1",
+		"tag 进 g=；bool 拼 1/0")
+	var bridge = load("res://tests/xcheck_bridge.gd").new()
+	check(bridge.key({ "kind": "pick", "tag": "手牌上限" }, { "card": "细胞膜修复" })
+		== CWSemKey.key({ "kind": "pick", "tag": "手牌上限" }, { "card": "细胞膜修复" }), "xcheck_bridge 只做委托")
+	var src := FileAccess.get_file_as_string("res://tests/xcheck_bridge.gd")
+	check(not src.contains("parts.append(\"k=\""), "xcheck_bridge 里没有自己的拼键代码（不许出现第二份定义）")

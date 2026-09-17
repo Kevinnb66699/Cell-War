@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.RegularExpressions;
 using CellWar.Core;
 
 namespace CellWar.Core.Tests.L1;
@@ -207,6 +208,19 @@ public class SemanticKeyTests
             .Distinct(StringComparer.Ordinal)
             .OrderBy(k => k, StringComparer.Ordinal)
             .ToArray();
+
+    /// <summary>GD 侧的唯一定义处 game/scripts/kernel/cw_semkey.gd：KEY_FIELDS 必须与 C# 的 FieldOrder 逐字相同（批 0 步 7）。</summary>
+    [Fact]
+    public void GD侧的KEY_FIELDS与CSharp的FieldOrder逐字相同()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "game", "scripts", "kernel", "cw_semkey.gd");
+        Assert.True(File.Exists(path), $"找不到 {path}");
+        var src = File.ReadAllText(path);
+        var m = Regex.Match(src, @"KEY_FIELDS\s*:=\s*\[(.*?)\]", RegexOptions.Singleline);
+        Assert.True(m.Success, "cw_semkey.gd 里找不到 KEY_FIELDS");
+        var gd = m.Groups[1].Value.Split(',').Select(x => x.Trim().Trim('"')).Where(x => x.Length > 0).ToArray();
+        Assert.Equal(SemanticKey.FieldOrder, gd);
+    }
 
     /// <summary>
     /// 四席的 DemoScenario：0/2 免疫、1 黑色素瘤、3 印戒。

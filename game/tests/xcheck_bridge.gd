@@ -11,11 +11,8 @@
 ## 单独成文件是因为**测试脚本里的内部类不能 extends 全局类**（fx_recorder.gd 同因）。
 extends CWBridge
 
-## 语义键用到的 data 字段，**固定顺序**（对拍规格 §死结一；C# 侧 SemanticKey.FieldOrder 同一份）。
-## **刻意排除 cost 与 anchor**：cost 是引擎算出来的报价、anchor 是引擎按坐标最小值挑的依托，
-## 都不是玩家意图 —— 放进键里，「C# 算费不同」就会伪装成「动作不同」，而那恰恰要单独报一条差异。
-const KEY_FIELDS := ["act", "card", "type", "to", "cid", "dir", "r",
-	"pay", "get", "from", "to_cid", "stop", "skip"]
+## 语义键的 GD 侧唯一定义处上提到了 `scripts/kernel/cw_semkey.gd`（口径二 · 批 0 步 7，2026-09-18）：这里只做委托，**不许出现第二份**。
+const KEY_FIELDS := CWSemKey.KEY_FIELDS
 
 var lcg := 12345
 var log: Array = []      ## 每一问一条 {kind, pid, tag, n, pick, idx, opts}，顶层与中途的都在
@@ -23,25 +20,12 @@ var mark := 0            ## 上一次 take() 的位置
 
 
 static func fmt(v: Variant) -> String:
-	if v is Vector2i:
-		return "%d,%d" % [v.x, v.y]
-	if v is bool:
-		return "1" if v else "0"
-	return str(v)
+	return CWSemKey.fmt(v)
 
 
-## 一条动作的跨内核语义键：`k=<kind>[|g=<tag>]|<field>=<v>|...`
-## 这里是 GD 侧的**唯一定义处**（对拍规格 §4 D.2 要求写成文档并加单测）。
+## 一条动作的跨内核语义键（定义见 CWSemKey）
 static func key(req: Dictionary, data: Dictionary) -> String:
-	var parts := PackedStringArray()
-	parts.append("k=" + str(req.get("kind", "")))
-	var tag: String = str(req.get("tag", ""))
-	if tag != "":
-		parts.append("g=" + tag)
-	for f in KEY_FIELDS:
-		if data.has(f):
-			parts.append(f + "=" + fmt(data[f]))
-	return "|".join(parts)
+	return CWSemKey.key(req, data)
 
 
 func seed_policy(seed_value: int) -> void:
