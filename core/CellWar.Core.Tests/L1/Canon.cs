@@ -84,6 +84,12 @@ public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Mem
     public string PendingRemodelFirst { get; init; } = "";
     public string PendingRemodelSecond { get; init; } = "";
     public int PendingRemodelStep { get; init; }
+    /// <summary>推迟的落地后半截（GD 视图里不存在；C# 存档要带）。</summary>
+    public int? PendingLandCell { get; init; }
+    public string PendingLandAt { get; init; } = "";
+    public int PendingLandWalkDepth { get; init; }
+    public int EndStep { get; init; }
+    public int PendingChainWalkDepth { get; init; }
     /// <summary>强制弃置挂在哪只细胞上（GD 视图里不存在，一律空；C# 存档要带）。</summary>
     public int? PendingDiscardCell { get; init; }
     /// <summary>嵌套连走被压在下面的外层帧（GD 视图里不存在，一律空；C# 存档要带）。</summary>

@@ -113,7 +113,8 @@ public class TissueFlipTests
         Assert.Equal(3, t.NecrosisRounds);                              // maxi(before, NECROSIS_TOXIN)
         Assert.Equal(0, t.Charge);
         Assert.Equal(0, t.ProductionCounter);
-        Assert.Equal(r.NewState.Turn.WorldRound, t.ToxinRound);
+        Assert.Equal(0, t.ToxinRound);                                             // toxin_round 只落在施法者脚下那一格（GD _do_toxin）
+        Assert.Equal(r.NewState.Turn.WorldRound, r.NewState.Board.Tissues[P(-4, 0)].ToxinRound);
     }
 
     [Theory]

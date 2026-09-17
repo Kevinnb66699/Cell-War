@@ -76,6 +76,7 @@ internal static class RulePolicies
         var cancerous = Cancerous(s.Board.Tissues[destination]);
         var modifiers = c.Modifiers.Where(m => m.Target == ModifierTarget.Move && RequirementMet(m.Requirement, cancerous))
             .Select(m => m.ToValueModifier()).ToList();
+        modifiers.AddRange(SkillMoveModifiers(s, c, destination));
         // 【I-趋化源】是**场上实体**，不住在任何人的 mods / equipped 里，单独发一条
         // （GD 侧 cw_cost.gd:347-350 也是 `_collect()` 里单独 emit）。
         if (ChemoModifier(s, c, destination) is { } chemo) modifiers.Add(chemo);
@@ -88,6 +89,32 @@ internal static class RulePolicies
             modifiers.Add(new ValueModifier(ModifierStage.Add, SourceLayer.Skill, 0, s.Tuning.MucusMoveSurcharge, Name: "黏液侵染"));
         return modifiers;
     }
+
+    /// <summary>永久技能的迁移费修饰（GD cw_cost.gd `_collect`：从 `equipped` 逐条 `_emit`，模板见 TEMPLATES；被【中和抗体】压住一条都不发；
+    /// 身上已有同名 mods 条目的跳过）。它们**不是 mods 条目**：额度记在 `fx_turn` 闸门里（Store.GATE，GD `GATE_USES`：【组织驻留】2 次、其余 1 次），
+    /// 打出先后 = `equip_seq`。此前 C# 在 BeginTurn 把它们发成 Turn 修饰：判定前就被消耗、回合中途装备的要等下一回合才生效、
+    /// L1 视图的 `mods` 凭空多几条、`fx_turn` 少一个键（批扫 60 条轨迹撞了十几条，2026-09-18）。</summary>
+    internal static IEnumerable<ValueModifier> SkillMoveModifiers(WorldState s, Cell c, HexPosition destination)
+    {
+        var cancerous = Cancerous(s.Board.Tissues[destination]);
+        bool Emits(string skill) => HasSkill(s, c, skill) && c.Modifiers.All(m => m.Card != skill);
+        int Seq(string skill) => c.EquipSeq.GetValueOrDefault(skill);
+        // 【组织驻留】：向健康组织的前两次迁移免费（cond to_healthy + gate_open，GATE_USES 2）
+        if (Emits("组织驻留") && !cancerous && CellRules.TurnGateOpen(c, "组织驻留"))
+            yield return new ValueModifier(ModifierStage.Free, SourceLayer.Passive, Seq("组织驻留"), 0, null, "组织驻留");
+        // 【LFA-1黏附】：每行动回合首次走上癌性组织 −0.4、下限 0.2（cond to_cancerous + gate_open）
+        if (Emits("LFA-1黏附") && cancerous && CellRules.TurnGateOpen(c, "LFA-1黏附"))
+            yield return new ValueModifier(ModifierStage.Subtract, SourceLayer.Passive, Seq("LFA-1黏附"), 4, 2, "LFA-1黏附");
+        // 【组织巡航】：每行动回合一次任意迁移免费（gate_open）；额度用掉后本回合后续迁移 −0.2、下限 0.2（gate_closed）—— 两条共用装备的戳
+        if (Emits("组织巡航"))
+            yield return CellRules.TurnGateOpen(c, "组织巡航")
+                ? new ValueModifier(ModifierStage.Free, SourceLayer.Passive, Seq("组织巡航"), 0, null, "组织巡航")
+                : new ValueModifier(ModifierStage.Subtract, SourceLayer.Passive, Seq("组织巡航"), 2, 2, "组织巡航");
+    }
+
+    /// <summary>这条修饰是不是闸门额度（GD Store.GATE）：用上了就烧 `fx_turn`，而不是扣 mods。【组织巡航】只有免费那一条是闸门，减 0.2 那条是 Store.NONE。</summary>
+    internal static bool IsGateMoveModifier(ValueModifier m)
+        => m.Name is "组织驻留" or "LFA-1黏附" || (m.Name == "组织巡航" && m.Stage == ModifierStage.Free);
 
     public static bool RequirementMet(ModifierRequirement requirement, bool cancerous) => requirement switch
     {
@@ -420,7 +447,9 @@ internal static class RulePolicies
             MidpointRounding.AwayFromZero);
         if (tune.AnaerobicFloor > 0) income = Math.Max(tune.AnaerobicFloor, income);
         if (tune.AnaerobicCap > 0) income = Math.Min(tune.AnaerobicCap, income);
-        if (TypeAbilityOn(s, c) && c.Type == CellType.SmallCellLung) income = (int)Math.Ceiling(income * 1.1);  // 【瓦伯格超速糖酵解】110% 向上取整到十分位
+        // 【瓦伯格超速糖酵解】110% 向上取整到十分位 —— GD `int(ceil(gain * WARBURG_PERCENT / 100.0))`：先乘 110 再除，50 → 55.0 恰好；
+        // 此前 C# `income * 1.1` 是浮点 55.00000000000001，ceil 成 56（批扫 4p_1006 / 4p_1009 各多 0.1，2026-09-18）
+        if (TypeAbilityOn(s, c) && c.Type == CellType.SmallCellLung) income = (int)Math.Ceiling(income * 110 / 100.0);
         if (HasSkill(s, c, "GLUT1高表达")) income += CancerPhase(s.Turn.WorldRound) switch { 0 => 5, 1 => 8, _ => 10 };
         return income;
     }

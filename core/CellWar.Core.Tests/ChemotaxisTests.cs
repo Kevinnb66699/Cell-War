@@ -400,7 +400,7 @@ public class ChemotaxisTests
         var world = World(type: CellType.Macrophage);
         world = world.UpdateTissueState(North, TissueState.Cancer);
         world = world.UpdateCell(Walker, world.Cells[Walker].Copy(chainLeft: 3));
-        world = world.WithTurn(world.Turn.WithPendingChain(Walker).WithPendingChemotaxis(Walker, 2));
+        world = world.WithTurn(world.Turn.WithPendingChain(Walker, 1).WithPendingChemotaxis(Walker, 2));
 
         var options = Engine.GetAvailableDecisions(world, 0);
 
@@ -425,7 +425,7 @@ public class ChemotaxisTests
         var world = World(type: CellType.Macrophage, energy: 2);   // 付不起 0.2（要留 0.1）
         world = world.UpdateTissueState(North, TissueState.Cancer);
         world = world.UpdateCell(Walker, world.Cells[Walker].Copy(chainLeft: 3));
-        world = world.WithTurn(world.Turn.WithPendingChain(Walker).WithPendingChemotaxis(Walker, 1));
+        world = world.WithTurn(world.Turn.WithPendingChain(Walker, 1).WithPendingChemotaxis(Walker, 1));
         Assert.Empty(CellRules.ChemotaxisSteps(world, world.Cells[Walker]));
 
         Assert.Equal(Walker, CellRules.NormalizeChemotaxis(world).Turn.PendingChemotaxisCell);

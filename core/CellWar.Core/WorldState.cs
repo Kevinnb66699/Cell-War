@@ -51,6 +51,7 @@ public sealed class TurnState
     public required Phase Phase { get; init; }      // 当前阶段
     public required int ActivePlayerSeat { get; init; }  // 当前行动玩家座位（0-based）
     public int StartStep { get; init; }
+    public int EndStep { get; init; }   // E 阶段游标：0 = 没开始；1 = 蹲守净化（4.9）做完、等它追出的问答问完再做后半
     public Faction? Winner { get; init; }
     public int CancerAlarmRound { get; init; }
     public int? PendingDiscardSeat { get; init; }  // 手牌超过上限时，强制该席位弃置（PRD §657）
@@ -89,6 +90,9 @@ public sealed class TurnState
     /// 每一跳是一个独立决策，所以用挂起态代替 —— 也就不需要那道再入闸。
     /// </summary>
     public EntityId? PendingChainCell { get; init; }
+    /// <summary>挂起连锁时的走位栈深。净化抽到【趋化募集】之类会再压一层 —— 那条走位在 GD 里嵌在 draw() 内部、先走完才回到连锁循环，
+    /// 所以栈比这个数深的时候连锁先让路（<see cref="CellRules.ChainDeferred"/>）。</summary>
+    public int PendingChainWalkDepth { get; init; }
 
     /// <summary>
     /// 【炎症性趋化】正在等这只细胞选下一步（null = 没在走）。
@@ -152,12 +156,20 @@ public sealed class TurnState
     public HexPosition? PendingRemodelSecond { get; init; }
     public int PendingRemodelStep { get; init; }
 
+    /// <summary>`enter_tile` 的后半截（黏液清除 → collect_special → update_marks）被推迟了：GD 的 `enter_tile` 是一条 await 链，定殖 / 净化里追出来的问答
+    /// （净化抽到的连走、撑爆手牌的弃置、【连续吞噬】的连锁、抽到【基因组不稳定】的二选一）**先问完**，才回来收 `dest` 那一格的特殊组织并刷新标记 ——
+    /// 连锁把细胞挪走了也仍在 `dest` 收取（cw_actions.gd:1031 显式传 dest）。记「谁、哪一格、推迟时连走栈有多深」，出口等这些问答都摘干净再补做。</summary>
+    public EntityId? PendingLandCell { get; init; }
+    public HexPosition? PendingLandAt { get; init; }
+    public int PendingLandWalkDepth { get; init; }
+
     public TurnState Clone() => new()
     {
         WorldRound = WorldRound,
         Phase = Phase,
         ActivePlayerSeat = ActivePlayerSeat,
         StartStep = StartStep,
+        EndStep = EndStep,
         Winner = Winner,
         CancerAlarmRound = CancerAlarmRound,
         PendingDiscardSeat = PendingDiscardSeat,
@@ -175,6 +187,7 @@ public sealed class TurnState
         TrackFrozenAt = TrackFrozenAt,
         TrackRounds = TrackRounds,
         PendingChainCell = PendingChainCell,
+        PendingChainWalkDepth = PendingChainWalkDepth,
         PendingChemotaxisCell = PendingChemotaxisCell,
         ChemotaxisStepsLeft = ChemotaxisStepsLeft,
         PendingWalkCard = PendingWalkCard,
@@ -189,7 +202,10 @@ public sealed class TurnState
         PendingRemodelCell = PendingRemodelCell,
         PendingRemodelFirst = PendingRemodelFirst,
         PendingRemodelSecond = PendingRemodelSecond,
-        PendingRemodelStep = PendingRemodelStep
+        PendingRemodelStep = PendingRemodelStep,
+        PendingLandCell = PendingLandCell,
+        PendingLandAt = PendingLandAt,
+        PendingLandWalkDepth = PendingLandWalkDepth
     };
 }
 

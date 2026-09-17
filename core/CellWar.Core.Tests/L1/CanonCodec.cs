@@ -61,6 +61,9 @@ public static class CanonCodec
             PendingRemodelCell = s.Turn.PendingRemodelCell is { } prc ? Seat(prc) : null,
             PendingRemodelFirst = PosOrNull(s.Turn.PendingRemodelFirst), PendingRemodelSecond = PosOrNull(s.Turn.PendingRemodelSecond),
             PendingRemodelStep = s.Turn.PendingRemodelStep,
+            PendingLandCell = s.Turn.PendingLandCell is { } plc ? Seat(plc) : null,
+            PendingLandAt = PosOrNull(s.Turn.PendingLandAt), PendingLandWalkDepth = s.Turn.PendingLandWalkDepth,
+            EndStep = s.Turn.EndStep, PendingChainWalkDepth = s.Turn.PendingChainWalkDepth,
             WalkOuter = s.Turn.WalkOuter.Select(f => new CanonWalkFrame(Seat(f.Cell), f.StepsLeft, f.Card)).ToList(),
             Players = s.Players.Values.OrderBy(p => p.Seat).Select(p => new CanonPlayer(
                 p.Seat, (int)p.Faction, p.IsAlive, p.DrawCount, p.AntigenMemory, (int)p.ImmuneLevel,
@@ -191,6 +194,10 @@ public static class CanonCodec
                 PendingRemodelFirst = PosOrNull(c.G.PendingRemodelFirst),
                 PendingRemodelSecond = PosOrNull(c.G.PendingRemodelSecond),
                 PendingRemodelStep = c.G.PendingRemodelStep,
+                PendingLandCell = c.G.PendingLandCell is { } plc ? Id(plc) : null,
+                PendingLandAt = PosOrNull(c.G.PendingLandAt),
+                PendingLandWalkDepth = c.G.PendingLandWalkDepth,
+                EndStep = c.G.EndStep, PendingChainWalkDepth = c.G.PendingChainWalkDepth,
             },
         };
     }
@@ -207,6 +214,7 @@ public static class CanonCodec
         ["metastasis_max_per_round"] = t.MetastasisMaxPerRound,
         ["immune_respawn_delay"] = t.ImmuneRespawnDelay,
         ["macro_heal_purify"] = t.MacroHealPurify,
+        ["counter_dmg_on_fail"] = t.CounterDamageOnFail,
         ["attack_max_per_turn"] = t.AttackMaxPerTurn,
         ["anaerobic_solid_bonus"] = t.AnaerobicSolidBonus,
         ["anaerobic_floor"] = t.AnaerobicFloor,
@@ -232,6 +240,7 @@ public static class CanonCodec
         MetastasisMaxPerRound = k["metastasis_max_per_round"],
         ImmuneRespawnDelay = k["immune_respawn_delay"],
         MacroHealPurify = k["macro_heal_purify"],
+        CounterDamageOnFail = k["counter_dmg_on_fail"],
         AttackMaxPerTurn = k["attack_max_per_turn"],
         AnaerobicSolidBonus = k["anaerobic_solid_bonus"],
         AnaerobicFloor = k["anaerobic_floor"],

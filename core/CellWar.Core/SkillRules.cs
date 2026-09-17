@@ -27,6 +27,9 @@ internal static class SkillRules
             case "细胞毒素":
                 if (cell.Type != CellType.TCell) return new(false, "只有 T 细胞可以发动【细胞毒素】");
                 if (cell.ToxinThisRound >= 3) return new(false, "每个世界回合最多发动 3 次");
+                // GD `_can_toxin` / `_toxin_targets`（cw_actions.gd:1294-1306）：**脚下那一格**本世界回合发动过就不能再发（站着不动刷不出来）；1 环内没有普通癌组织就不出选项
+                if (s.Board.Tissues[cell.Position].ToxinRound == s.Turn.WorldRound) return new(false, "这一格本世界回合已发动过【细胞毒素】");
+                if (ToxinTargets(s, cell).Count == 0) return new(false, "1 环内没有可转化的癌组织");
                 return Settlement.CanPay(cell.Energy, 10) ? new(true) : new(false, "能量不足");
             case "裂解":
                 if (cell.Type != CellType.TCell) return new(false, "只有 T 细胞可以发动【裂解】");
@@ -90,6 +93,10 @@ internal static class SkillRules
 
     /// <summary>【免疫猎杀】附着的【追踪趋化源】持续几个世界回合（GD `HUNT_CHEMO_ROUNDS`）。</summary>
     internal const int HuntChemoRounds = 2;
+
+    /// <summary>GD `_toxin_targets`：脚下 + 六邻（`CWData.ring(pos, 1)`，Q↑R↑ 排序）里的**普通**癌组织。</summary>
+    internal static IReadOnlyList<HexPosition> ToxinTargets(WorldState s, Cell cell)
+        => Tiles(s).Where(t => t.Position.DistanceTo(cell.Position) <= 1 && t.State == TissueState.Cancer).Select(t => t.Position).ToList();
 
     /// <summary>
     /// 【早期血行转移】的费用（GD `CWData.MELANOMA_HOMING_COST`）。
@@ -174,15 +181,13 @@ internal static class SkillRules
             }
             case "细胞毒素":
             {
+                // GD `_do_toxin`（cw_actions.gd:1309-1322）：付费、toxin_used +1、**脚下那一格**记 toxin_round（此前 C# 把它当目标格去重章、盖在每个目标上 —— L1 逐格比 toxin_round）
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 10, toxin: cell.ToxinThisRound + 1));
-                var ring = cell.Position.GetNeighbors().Append(cell.Position).ToArray();
-                foreach (var pos in ring)
+                s = s.WithBoard(s.Board.UpdateTissue(cell.Position, s.Board.Tissues[cell.Position].WithToxinRound(s.Turn.WorldRound)));
+                foreach (var pos in ToxinTargets(s, cell))
                 {
-                    if (!s.Board.Tissues.TryGetValue(pos, out var tile) || tile.State != TissueState.Cancer || tile.ToxinRound == s.Turn.WorldRound) continue;
                     // GD `CWTissue.to_necrotic(tile, NECROSIS_TOXIN)`：坏死时长取 max(原, 2)，代谢核心 / 骨髓的库存与产出进度一起清
-                    // （此前 C# 固定写 2、库存不清 —— 2026-09-17 晚复核发现）
                     s = CardRules.Necrotize(s, pos, 2);
-                    s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithToxinRound(s.Turn.WorldRound)));
                 }
                 foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && x.Position.DistanceTo(cell.Position) <= 1).ToArray())
                     s = Damage(s, target.Id, 10, LossSource.ImmuneEffect);   // 细胞毒素：1.0 能量（原 1 = 0.1）
@@ -226,7 +231,7 @@ internal static class SkillRules
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - MelanomaHomingCost, metastasis: true));
                 var dest = d.Target!.Value;
                 s = EnterTile(s, cell.Id, dest, rng);   // GD `_homing` 走 enter_tile（落地即【定殖】+ 特殊组织收取）
-                var spread = dest.GetNeighbors().Where(n => s.Board.Tissues.TryGetValue(n, out var nt) && nt.State == TissueState.Healthy).ToArray();
+                var spread = RulePolicies.GdNeighbors(s, dest).Where(n => s.Board.Tissues[n].State == TissueState.Healthy).ToArray();   // GD `game.neighbors` DIRS 序：pick_n 抽的是下标（批扫 4p_1002 / 2p_1017）
                 foreach (var pick in rng.PickRandom(spread, 3)) s = CardRules.ToCancer(s, pick, newborn: true);   // GD `to_cancer(t, true)`：新生、清坏死
                 break;
             }

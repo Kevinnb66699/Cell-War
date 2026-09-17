@@ -187,6 +187,7 @@ public static class WorldLoader
         "metastasis_max_per_round" => tune with { MetastasisMaxPerRound = value },
         "immune_respawn_delay" => tune with { ImmuneRespawnDelay = value },
         "macro_heal_purify" => tune with { MacroHealPurify = value },
+        "counter_dmg_on_fail" => tune with { CounterDamageOnFail = value },
         "attack_max_per_turn" => tune with { AttackMaxPerTurn = value },
         "anaerobic_solid_bonus" => tune with { AnaerobicSolidBonus = value },
         "anaerobic_floor" => tune with { AnaerobicFloor = value },

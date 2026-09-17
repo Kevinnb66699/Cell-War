@@ -52,6 +52,8 @@ public sealed record RuleTuning
     public int MetastasisMaxPerRound { get; init; } = 2;
     /// <summary>巨噬【I-吞噬】每次由【迁移】触发的净化回多少（GD `cw_tuning.gd macro_heal_purify` = `CWData.MACRO_HEAL_PURIFY` = 0.2；0 = 不回能，平衡扫描的 `mheal=`）。</summary>
     public int MacroHealPurify { get; init; } = 2;
+    /// <summary>攻击无效时攻击者被反弹的损失（GD `cw_tuning.gd counter_dmg_on_fail` = `CWData.COUNTER_DMG_ON_FAIL` = 0.5；0 = 不反弹）。</summary>
+    public int CounterDamageOnFail { get; init; } = 5;
 
     // ---- 行动 ----
 

@@ -100,7 +100,7 @@ public class CytokineNetworkTests
     public void 待发条目本世界回合到期_跨回合不再触发()
     {
         var s = Finish(Equip(World(), A), A);
-        var next = CellRules.ResetRoundFlags(s);
+        var next = CellRules.ExpireRoundModifiers(s);   // GD tick_durations（E 阶段第 8 步）清 round 修饰
         Assert.False(IsPrimed(next, A));
         Assert.Equal(30, Energy(Finish(next, B), B));   // 此前席位槽永不过期
     }

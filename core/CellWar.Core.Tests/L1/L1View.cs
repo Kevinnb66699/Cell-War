@@ -203,12 +203,12 @@ public static class L1View
         Phase.Setup => "setup", Phase.S => "s", Phase.PlayerAction => "turn", Phase.E => "e", _ => "finished",
     };
 
-    /// <summary>与 GD 侧 `TUNE_KEYS` 同一份 21 个键（`CanonCodec.TuneToCanon` 的那张表）。</summary>
+    /// <summary>与 GD 侧 `TUNE_KEYS` 同一份 22 个键（`CanonCodec.TuneToCanon` 的那张表）。</summary>
     private static Dictionary<string, object?> Tune(RuleTuning t) => new()
     {
         ["cancer_move_cancerous"] = (long)t.CancerMoveCancerous, ["cancer_move_healthy"] = (long)t.CancerMoveHealthy,
         ["sclc_move_healthy"] = (long)t.SclcMoveHealthy, ["pseudopod_cost"] = (long)t.PseudopodCost,
-        ["mucus_move_surcharge"] = (long)t.MucusMoveSurcharge, ["metastasis_cost"] = (long)t.MetastasisCost, ["metastasis_max_per_round"] = (long)t.MetastasisMaxPerRound, ["immune_respawn_delay"] = (long)t.ImmuneRespawnDelay, ["macro_heal_purify"] = (long)t.MacroHealPurify,
+        ["mucus_move_surcharge"] = (long)t.MucusMoveSurcharge, ["metastasis_cost"] = (long)t.MetastasisCost, ["metastasis_max_per_round"] = (long)t.MetastasisMaxPerRound, ["immune_respawn_delay"] = (long)t.ImmuneRespawnDelay, ["macro_heal_purify"] = (long)t.MacroHealPurify, ["counter_dmg_on_fail"] = (long)t.CounterDamageOnFail,
         ["attack_max_per_turn"] = (long)t.AttackMaxPerTurn,
         ["anaerobic_solid_bonus"] = (long)t.AnaerobicSolidBonus, ["anaerobic_floor"] = (long)t.AnaerobicFloor,
         ["anaerobic_cap"] = (long)t.AnaerobicCap, ["anaerobic_split"] = t.AnaerobicSplit ? 1L : 0L,

@@ -10,8 +10,9 @@ namespace CellWar.Core;
 /// </summary>
 internal static class BoardRules
 {
-    /// <summary>S.1/S.2：特殊组织生产（含产出即收取）与血管传送。</summary>
-    public static WorldState ProduceAndTransport(WorldState s, IDeterministicRng rng)
+    /// <summary>S.1：特殊组织生产（含产出即收取）。血管传送是下一步 <see cref="Transport"/> —— 中间可能要问玩家
+    /// （踩着存卡骨髓抽到连走卡 / 撑爆手牌 / 抽到【基因组不稳定】），GD `round_start` 是 await 问完才传送。</summary>
+    public static WorldState Produce(WorldState s, IDeterministicRng rng)
     {
         s = ResetRoundFlags(s);
         foreach (var t in Tiles(s))
@@ -47,30 +48,27 @@ internal static class BoardRules
             if (charge > 0 && s.GetCellAt(t.Position) is { IsAlive: true } occupant)
                 s = CollectSpecial(s, occupant.Id, rng);
         }
-        return Transport(s);
+        return s;
     }
 
-    public static WorldState Transport(WorldState s)
+    /// <summary>S.2 血管传送 = GD `_vessel_teleport`（cw_world.gd:133-165）：两端都空就没事；**哪一端坏死整条作废**；两边都有就交换
+    /// （不分阵营 —— 旧的「敌对同格则取消」已作废）；先送 a 端（GD VESSELS[0] = (6,0)）的细胞到 b、再送 b 端的到 a，
+    /// 每次落地都是完整的 `enter_tile`（定殖 / 蹲守 / 净化 → 黏液 → collect_special → 标记）。
+    /// 此前 C# 自写了一遍：留着作废条款、无坏死闸、一次性换位、只收能量不抽卡、无标记刷新（2026-09-18）。【营养输送】那一挂随世界事件整块不做。</summary>
+    public static WorldState Transport(WorldState s, IDeterministicRng rng)
     {
-        var vessels = Tiles(s).Where(t => t.Type == TissueType.BloodVessel).ToArray();
+        var vessels = Tiles(s).Where(t => t.Type == TissueType.BloodVessel).OrderByDescending(t => t.Position.Q).ToArray();
         if (vessels.Length != 2) return s;
-        var a = s.GetCellAt(vessels[0].Position);
-        var b = s.GetCellAt(vessels[1].Position);
-        if (a != null && b != null && a.Faction != b.Faction) return s;
-        s = s.UpdateTissueOccupant(vessels[0].Position, b?.Id).UpdateTissueOccupant(vessels[1].Position, a?.Id);
-        if (a != null) s = s.UpdateCell(a.Id, a.WithPosition(vessels[1].Position));
-        if (b != null) s = s.UpdateCell(b.Id, b.WithPosition(vessels[0].Position));
-        foreach (var c in new[] { a, b }.OfType<Cell>())
-        {
-            var position = s.Cells[c.Id].Position;
-            // 翻面走唯一入口（GD 这条路是完整的 enter_tile）。血管传送整条与 GD 的其余差异 —— 坏死闸、已作废的「敌对同格则取消」、
-            // 先送 a 再送 b 的顺序、只收能量不抽卡、无标记刷新 —— 记在对拍规格 KNOWN_GAP「vessel-transport」，这里不动
-            if (c.Faction == Faction.Cancer && s.Board.Tissues[position].State == TissueState.Healthy)
-                s = CardRules.ToCancer(s, position, newborn: true);
-            else if (c.Faction == Faction.Immune && s.Board.Tissues[position].State == TissueState.Cancer)
-                s = CardRules.ToHealthy(s, position);
-            s = CollectEnergy(s, c.Id);
-        }
+        var a = vessels[0].Position;
+        var b = vessels[1].Position;
+        var ca = s.GetCellAt(a);
+        var cb = s.GetCellAt(b);
+        if (ca is null && cb is null) return s;
+        if (s.Board.Tissues[a].NecrosisRounds > 0 || s.Board.Tissues[b].NecrosisRounds > 0) return s;
+        // C# 的占位是格上的字段（GD 靠扫细胞坐标）：先把两端占位整体换好，再按 GD 的先后各落地一次
+        s = s.UpdateTissueOccupant(a, cb?.Id).UpdateTissueOccupant(b, ca?.Id);
+        if (ca is not null) s = CellRules.ArriveAndLand(s.UpdateCell(ca.Id, s.Cells[ca.Id].WithPosition(b)), ca.Id, b, rng);
+        if (cb is not null) s = CellRules.ArriveAndLand(s.UpdateCell(cb.Id, s.Cells[cb.Id].WithPosition(a)), cb.Id, a, rng);
         return s;
     }
     /// <summary>
@@ -84,7 +82,10 @@ internal static class BoardRules
     ///
     /// 不改变 Turn.Phase，也不决定胜负（由 <see cref="OutcomeRules.Evaluate"/> 负责）。
     /// </summary>
-    public static WorldState EvolveEndOfRound(WorldState s, IDeterministicRng rng)
+    public static WorldState EvolveEndOfRound(WorldState s, IDeterministicRng rng) => EvolveEndOfRoundB(EvolveEndOfRoundA(s, rng), rng);
+
+    /// <summary>E 阶段前半（1 → 4.9）：到蹲守净化为止 —— 它可能追出要问玩家的（【连续吞噬】、记忆库抽卡带出的走位…），后半要等问完。</summary>
+    public static WorldState EvolveEndOfRoundA(WorldState s, IDeterministicRng rng)
     {
         s = Anaerobic(s);                              // 1  【无氧呼吸】
         s = CancerUpkeep(s);                           // 1.5 【代谢消耗】（PRD 之外的平衡候选③）
@@ -92,6 +93,12 @@ internal static class BoardRules
         var fresh = Proliferate(s, rng, out s);        // 3  【增生】
         s = Erosion(s, rng, fresh);                    // 4  【侵蚀】
         s = ResolveCamping(s, rng);                    // 4.9 骨样硬化标记格上的蹲守净化
+        return s;
+    }
+
+    /// <summary>E 阶段后半（5 → 9.5）。</summary>
+    public static WorldState EvolveEndOfRoundB(WorldState s, IDeterministicRng rng)
+    {
         s = Solidify(s);                               // 5  【固化】
         s = Rooted(s, rng);                            // 5  【根深蒂固】
         s = Ossify(s);                                 // 5  骨肉瘤【骨样硬化】标记到期
@@ -263,8 +270,8 @@ internal static class BoardRules
             if (at is not { } atPos || cell.Position != atPos) continue;
             if (s.Board.Tissues[atPos].State != TissueState.Cancer) continue;
             // GD `_resolve_camping` → `purify_here(cell, at, -1)`：整条净化口径（转健康、记忆闸、巨噬不回能、_on_purify 三张技能）。
-            // 此前 C# 是裸翻面 + 无条件记忆。【连续吞噬】GD 会在 E 阶段当场追问，C# 的连锁是挂起决策、E 阶段没有决策点 —— 不挂（KNOWN_GAP）
-            s = CellRules.PurifyHere(s, loopCell.Id, atPos, -1, rng, chain: false);
+            // 此前 C# 是裸翻面 + 无条件记忆。【连续吞噬】GD 会在 E 阶段当场追问 —— 这里照样挂起，PhaseRules 停在 EndStep 1 等答完（2026-09-18）
+            s = CellRules.PurifyHere(s, loopCell.Id, atPos, -1, rng);
         }
         return s;
     }
@@ -392,8 +399,10 @@ internal static class BoardRules
     /// 对齐 GD 的 `CWWorldFx.tick_durations()`。
     /// </summary>
     private static WorldState TickDurations(WorldState s)
-        => s.Effects.Count == 0 ? s
-            : s.Copy(effects: s.Effects.Select(e => e.Tick()).Where(e => !e.Expired).ToList());
+    {
+        if (s.Effects.Count > 0) s = s.Copy(effects: s.Effects.Select(e => e.Tick()).Where(e => !e.Expired).ToList());
+        return CellRules.ExpireRoundModifiers(s);   // GD tick_durations 末尾 `clear_mods(cell, "round")`
+    }
 
     /// <summary>8 「坏死」倒计时。</summary>
     private static WorldState TickNecrosis(WorldState s)

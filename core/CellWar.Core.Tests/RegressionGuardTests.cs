@@ -294,6 +294,8 @@ public class RegressionGuardTests
         AssertOnlyChangesAmong(full, "WithPendingCouple(null)", CoupleFields, t => t.WithPendingCouple(null, null, null));
         AssertOnlyChangesAmong(full, "WithPendingRemodel", RemodelFields, t => t.WithPendingRemodel(new EntityId(7), new HexPosition(2, 0, -2), null, 2));
         AssertOnlyChangesAmong(full, "WithPendingRemodel(null)", RemodelFields, t => t.WithPendingRemodel(null, null, null, 0));
+        AssertOnlyChangesAmong(full, "WithPendingLand", LandFields, t => t.WithPendingLand(new EntityId(7), new HexPosition(2, 0, -2), 1));
+        AssertOnlyChangesAmong(full, "WithPendingLand(null)", LandFields, t => t.WithPendingLand(null, null, 0));
     }
 
     [Fact]
@@ -356,6 +358,11 @@ public class RegressionGuardTests
     private static readonly string[] RemodelFields =
     [
         nameof(TurnState.PendingRemodelCell), nameof(TurnState.PendingRemodelFirst), nameof(TurnState.PendingRemodelSecond), nameof(TurnState.PendingRemodelStep),
+    ];
+
+    private static readonly string[] LandFields =
+    [
+        nameof(TurnState.PendingLandCell), nameof(TurnState.PendingLandAt), nameof(TurnState.PendingLandWalkDepth),
     ];
 
     /// <summary>结算到一半的那张卡：卡名 + 主人，两个字段一起改。</summary>
@@ -954,20 +961,18 @@ public class RegressionGuardTests
     /// <summary>
     /// **这一条才是 equip_seq 存在的理由**，前两条都只测到了半截：
     /// 一条验「装备时写了戳」，一条验「发修饰时没动那把尺」，
-    /// 但**没有人验发出去的修饰真的带着那个戳** ——
-    /// 把 `GrantSkillModifier` 里的 `Sequence` 改回常数 0，208 条全绿（变异检验实测）。
+    /// 但**没有人验报价里的修饰真的带着那个戳**。
     ///
-    /// 【LFA-1黏附】与【组织巡航】都发 Passive 层的 Move 修饰，同层级，
-    /// 于是先后**只能**由装备顺序决定：换个装备次序，两个 Sequence 的大小关系必须跟着翻。
+    /// 2026-09-18 起永久技能的迁移费不再是 BeginTurn 发的修饰，而是报价时从 `equipped` 现读的模板（GD `_collect`），
+    /// 戳仍取 `equip_seq`：【LFA-1黏附】与【组织巡航】同层级，先后**只能**由装备顺序决定 —— 换个装备次序，两个 Sequence 的大小关系必须跟着翻。
     /// </summary>
     [Theory]
     [InlineData("LFA-1黏附", "组织巡航")]
     [InlineData("组织巡航", "LFA-1黏附")]
-    public void 回合开始发的修饰带着装备那一刻的戳(string first, string second)
+    public void 报价里的技能修饰带着装备那一刻的戳(string first, string second)
     {
-        var mods = BeginTurnModifiers(EquipTwo(first, second));
+        var mods = SkillMods(EquipTwo(first, second));
 
-        // 一件装备可能发不止一条修饰（组织巡航发两条），取它们共同的那个戳。
         var firstSeq = StampOf(mods, first);
         var secondSeq = StampOf(mods, second);
 
@@ -976,20 +981,23 @@ public class RegressionGuardTests
     }
 
     /// <summary>
-    /// 【组织巡航】一件装备发**两条**修饰（免费一次 + 之后每次减 0.2），
-    /// 它俩是同一件装备发出来的，先后必须一致 —— 否则同一件技能的两半会被排到别人两边去。
-    /// （对齐 GD 侧：同一个模板名发两条、applied_seq 相同。）
+    /// 【组织巡航】一件装备两条模板（闸门开着：免费一次；闸门烧了：之后每次减 0.2），
+    /// 它俩是同一件装备发出来的，戳必须一致 —— 否则同一件技能的两半会被排到别人两边去。
+    /// （对齐 GD 侧：同一个模板名两条、applied_seq 相同。）
     /// </summary>
     [Fact]
-    public void 组织巡航的两条修饰共用同一个戳()
+    public void 组织巡航的两条模板共用同一个戳()
     {
-        var mods = BeginTurnModifiers(EquipTwo("LFA-1黏附", "组织巡航"));
+        var world = EquipTwo("LFA-1黏附", "组织巡航");
+        var free = SkillMods(world).Single(m => m.Name == "组织巡航");
+        Assert.Equal(ModifierStage.Free, free.Stage);
 
-        var free = mods.Single(m => m.Card == "组织巡航");
-        var discount = mods.Single(m => m.Card == "组织巡航·减");
-
+        var burnt = CellRules.BurnTurnGate(world, new EntityId(1), "组织巡航");
+        var discount = SkillMods(burnt).Single(m => m.Name == "组织巡航");
+        Assert.Equal(ModifierStage.Subtract, discount.Stage);
         Assert.Equal(free.Sequence, discount.Sequence);
         Assert.True(free.Sequence > 0, "两条都该带装备时的戳，不是 0");
+        Assert.DoesNotContain(world.Cells[new EntityId(1)].Modifiers, m => m.Card is "组织巡航" or "LFA-1黏附");   // 不进 mods
     }
 
     /// <summary>
@@ -1438,6 +1446,7 @@ public class RegressionGuardTests
         Phase = Phase.PlayerAction,
         ActivePlayerSeat = 2,
         StartStep = 3,
+        EndStep = 1,
         Winner = Faction.Cancer,
         CancerAlarmRound = 5,
         PendingDiscardSeat = 1,
@@ -1452,6 +1461,7 @@ public class RegressionGuardTests
         ChemoOwner = 0,
         PendingChemotaxisCell = new EntityId(6),
         ChemotaxisStepsLeft = 2,
+        PendingChainWalkDepth = 1,
         PendingWalkCard = "趋化募集",
         WalkOuter = new[] { new WalkFrame(new EntityId(5), 1, "炎症性趋化") },
         CardResolveDepth = 1,
@@ -1465,6 +1475,9 @@ public class RegressionGuardTests
         PendingRemodelFirst = new HexPosition(1, 0, -1),
         PendingRemodelSecond = new HexPosition(0, 2, -2),
         PendingRemodelStep = 1,
+        PendingLandCell = new EntityId(6),
+        PendingLandAt = new HexPosition(2, -1, -1),
+        PendingLandWalkDepth = 1,
     };
 
     /// <summary>同上：每个字段都非默认。</summary>
@@ -1519,20 +1532,17 @@ public class RegressionGuardTests
             new PlayCardDecision(0, new EntityId(1), second), new Xoshiro256StarStar(2)).NewState;
     }
 
-    /// <summary>跑一次「回合开始发修饰」，把发出来的修饰取回来。</summary>
-    private static IReadOnlyList<ActiveModifier> BeginTurnModifiers(WorldState world)
+    /// <summary>朝一格癌组织报价时，永久技能从 `equipped` 现读出来的修饰（GD `_collect` 的 Store.GATE / NONE 那一路）。</summary>
+    private static IReadOnlyList<ValueModifier> SkillMods(WorldState world)
     {
-        // startStep 已过生产/传送，AdvancePhase 会直接走 ContinueStart → BeginTurn。
-        var begun = new BasicRulesEngine()
-            .AdvancePhase(world.WithTurn(world.Turn.Copy(phase: Phase.S, startStep: 99)), new Xoshiro256StarStar(7))
-            .NewState;
-        return begun.Cells[new EntityId(1)].Modifiers;
+        var to = new HexPosition(1, 0, -1);
+        var withCancer = world.WithBoard(world.Board.UpdateTissue(to, new Tissue { Position = to, Type = TissueType.Normal, State = TissueState.Cancer, SolidificationCount = 0, OccupyingCell = null, Charge = 0 }));
+        return RulePolicies.SkillMoveModifiers(withCancer, withCancer.Cells[new EntityId(1)], to).ToList();
     }
 
     /// <summary>一件装备发出来的所有修饰共同的那个戳；不共同就当场炸（Single 会抛）。</summary>
-    private static int StampOf(IEnumerable<ActiveModifier> mods, string skill)
-        => mods.Where(m => m.Card == skill || m.Card.StartsWith(skill + "·", StringComparison.Ordinal))
-            .Select(m => m.Sequence).Distinct().Single();
+    private static int StampOf(IEnumerable<ValueModifier> mods, string skill)
+        => mods.Where(m => m.Name == skill).Select(m => m.Sequence).Distinct().Single();
 
     /// <summary>一个 III 级免疫细胞，手里拿着指定的那张牌，随时可以打出去装备上。</summary>
     private static WorldState EquipWorld(string card)

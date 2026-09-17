@@ -158,6 +158,17 @@ internal static class CellRules
         _ => RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 10, 1 => 15, _ => 20 },
     };
 
+    /// <summary>GD `spend_one_mod`：同名里只扣**最早打出**（seq 最小）的那一条，耗尽才移除（【PD-L1表达】多层时一次攻击只吃一层）。</summary>
+    internal static WorldState SpendOneModifier(WorldState s, EntityId id, string card)
+    {
+        var c = s.Cells[id];
+        var pick = c.Modifiers.Where(m => m.Card == card).OrderBy(m => m.Sequence).FirstOrDefault();
+        if (pick is null) return s;
+        var used = pick.Consume();
+        var kept = c.Modifiers.Select(m => ReferenceEquals(m, pick) ? used : m).Where(m => !m.Expired).ToList();
+        return s.UpdateCell(id, c.Copy(modifiers: kept));
+    }
+
     /// <summary>GD `spend_mods`：同名条目各扣一次，耗尽的移除（定案 #57 同名一起扣）。Uses=-1 不受影响。</summary>
     internal static WorldState SpendModifiers(WorldState s, EntityId id, string card)
     {
@@ -243,7 +254,14 @@ internal static class CellRules
         var c = s.Cells[id];
         HashSet<(string, int)>? applied = null;
         if (target == ModifierTarget.Move && destination is { } dest)
-            applied = RulePolicies.AppliedMoveModifiers(s, c, dest, rawCostOverride).Select(m => (m.Name, m.Sequence)).ToHashSet();
+        {
+            var appliedMods = RulePolicies.AppliedMoveModifiers(s, c, dest, rawCostOverride);
+            applied = appliedMods.Select(m => (m.Name, m.Sequence)).ToHashSet();
+            // 永久技能的闸门额度（GD Store.GATE → `usage_marks` → `first_this_turn`）：不是 mods 条目，烧的是 fx_turn（同一次报价一个名字只烧一次）
+            foreach (var name in appliedMods.Where(RulePolicies.IsGateMoveModifier).Select(m => m.Name).Distinct().ToArray())
+                s = BurnTurnGate(s, id, name);
+            c = s.Cells[id];
+        }
         var kept = new List<ActiveModifier>();
         foreach (var m in c.Modifiers)
         {
@@ -378,7 +396,7 @@ internal static class CellRules
             // 手牌撑爆的强制弃置在 GD 是这一步内部 `draw()` 里 await 问完的（cw_cards.gd:63），先于下一轮循环开头的退出判断，
             // 也先于打出的即时卡离手 —— 弃置挂着就什么都别摘
             if (s.Turn.PendingDiscardSeat is not null) return s;
-            if (s.Turn.PendingChainCell is not null) return s;   // 连锁先排干，它在 GD 里嵌在这一步内部
+            if (s.Turn.PendingChainCell is not null && !ChainDeferred(s)) return s;   // 连锁先排干，它在 GD 里嵌在这一步内部（压在这条走位底下的除外）
             var c = s.Cells[id];
             if (s.Turn.ChemotaxisStepsLeft > 0 && c.IsAlive && WalkSteps(s, c).Count > 0) return s;
             s = s.WithTurn(s.Turn.PopWalk());
@@ -424,8 +442,16 @@ internal static class CellRules
     {
         var c = s.Cells[id];
         s = s.UpdateTissueOccupant(c.Position, null).UpdateTissueOccupant(dest, id);
-        s = s.UpdateCell(id, c.Copy(position: dest, campRound: -1));
+        s = s.UpdateCell(id, c.Copy(position: dest));
         return Arrive(s, id, dest, paid: -1, rng);
+    }
+
+    /// <summary>脚已经放到格上（位置与占位由调用方写好）之后的整条 `enter_tile`：定殖 / 蹲守 / 净化 → 黏液 → collect_special → 标记。
+    /// 复活落地（GD `revive_*`）与血管传送（GD `_vessel_teleport`）用它 —— 它们不能走 Teleport 的占位交接。</summary>
+    internal static WorldState ArriveAndLand(WorldState s, EntityId id, HexPosition dest, IDeterministicRng rng)
+    {
+        var depth = WalkDepth(s);
+        return LandOrDefer(Arrive(s, id, dest, paid: -1, rng), id, dest, depth, rng);
     }
 
     /// <summary>GD `enter_tile` 的三条分支（cw_actions.gd:1009-1026）：癌进健康 → 【定殖】（`to_cancer(t, true)`：solid / necrosis / ossify 一起清、newborn=true）；
@@ -434,6 +460,12 @@ internal static class CellRules
     private static WorldState Arrive(WorldState s, EntityId id, HexPosition dest, int paid, IDeterministicRng rng)
     {
         var c = s.Cells[id];
+        // GD enter_tile 1006-1008：挪了窝，上一格的「蹲守」就作废 —— 只清免疫、只在落点不是蹲守格时清（此前 C# 在 Move / Teleport 里无条件清）
+        if (c.Faction == Faction.Immune && c.CampRound >= 0 && c.CampPosition != dest)
+        {
+            s = s.UpdateCell(id, c.Copy(campRound: -1));
+            c = s.Cells[id];
+        }
         var tile = s.Board.Tissues[dest];
         if (c.Faction == Faction.Cancer && tile.State == TissueState.Healthy)
             return CardRules.ToCancer(s, dest, newborn: true);
@@ -479,11 +511,12 @@ internal static class CellRules
             s = s.UpdateCell(id, s.Cells[id].WithEnergy(s.Cells[id].Energy + 5));
         }
         // 【免疫记忆库】等净化跨域反应：发出已提交事实，由 FactRouter 按目录稳定顺序分派（抽卡 —— 排在两张加记忆的技能之后）
+        var walkDepthBefore = WalkDepth(s);   // 记忆库抽到连走卡会压一层：那条走位在 GD 里嵌在 draw() 内部、排在连锁之前
         s = FactRouter.Emit(s, new PurifyResolvedFact(s.Turn.WorldRound, id), rng);
         // 巨噬【连续吞噬】：净化之后**当场**接着走（PRD:605）。GD 是 await 循环 + `chain_running` 再入闸；
         // 这里每一跳是一个独立决策，所以挂起等玩家选就行，不需要那道闸。
         if (chain && s.Cells[id].Type == CellType.Macrophage && s.Cells[id].ChainLeft > 0 && ChainTargets(s, s.Cells[id]).Count > 0)
-            s = s.WithTurn(s.Turn.WithPendingChain(id));
+            s = s.WithTurn(s.Turn.WithPendingChain(id, walkDepthBefore));
         return s;
     }
 
@@ -506,27 +539,81 @@ internal static class CellRules
     /// 三张传送卡（【免疫增援】【肿瘤细胞募集】【肿瘤增援】）、【癌症转移】与两条跃进技能都走它（2026-09-17）；
     /// 此前只有 Teleport，落到有卡的骨髓格上 GD 抽一张（带子多一发）、C# 什么也不抽。</summary>
     public static WorldState EnterTile(WorldState s, EntityId id, HexPosition dest, IDeterministicRng rng)
-        => Land(Teleport(s, id, dest, rng), id, rng);
+    {
+        var depth = WalkDepth(s);
+        return LandOrDefer(Teleport(s, id, dest, rng), id, dest, depth, rng);
+    }
 
     /// <summary>`enter_tile` 的后半截（脚已经放到格上之后）：免疫踩黏液即清 → `collect_special` → 刷新标记。
     /// 复活也走这一截（GD `revive_*` 同样 `enter_tile`）—— 但复活不能走 Teleport：死亡格早就交出了占位，别人可能已经站上去。</summary>
-    public static WorldState Land(WorldState s, EntityId id, IDeterministicRng rng)
+    public static WorldState Land(WorldState s, EntityId id, IDeterministicRng rng) => LandTail(s, id, s.Cells[id].Position, rng);
+
+    /// <summary>`enter_tile` 的后半截，在 <paramref name="at"/> 那一格做：免疫踩黏液即清 → `collect_special(cell, dest)` → `update_marks`。
+    /// 连锁把细胞挪走了也仍在 dest 收取（GD cw_actions.gd:1031 显式传 dest）。</summary>
+    internal static WorldState LandTail(WorldState s, EntityId id, HexPosition at, IDeterministicRng rng)
     {
         var c = s.Cells[id];
-        var t = s.Board.Tissues[c.Position];
+        var t = s.Board.Tissues[at];
         if (c.Faction == Faction.Immune && t.Mucus)
-            s = s.WithBoard(s.Board.UpdateTissue(c.Position, t.WithMucus(false)));
-        s = CollectSpecial(s, id, rng);
+            s = s.WithBoard(s.Board.UpdateTissue(at, t.WithMucus(false)));
+        s = CollectSpecialAt(s, id, at, rng);
         return UpdateMarks(s);
+    }
+
+    /// <summary>连走栈有多深（0 = 没在走）：判断「这次落地追出来的连走」走完了没有。</summary>
+    internal static int WalkDepth(WorldState s) => s.Turn.PendingChemotaxisCell is null ? 0 : 1 + s.Turn.WalkOuter.Count;
+
+    /// <summary>连锁挂起之后又压上了一层走位（净化抽到【趋化募集】/【效应细胞浸润】）：GD 那条走位嵌在 draw() 里，先走完才回到连锁循环问下一跳。</summary>
+    internal static bool ChainDeferred(WorldState s) => s.Turn.PendingChainCell is not null && WalkDepth(s) > s.Turn.PendingChainWalkDepth;
+
+    /// <summary>走位弹掉之后连锁露出来，但已经没有下一跳（或跳数用完 / 细胞死了）：GD 的 while 循环当场退出，没有「不连了」那一问。</summary>
+    internal static WorldState NormalizeChain(WorldState s)
+    {
+        if (s.Turn.PendingChainCell is not { } id || ChainDeferred(s)) return s;
+        var c = s.Cells[id];
+        return c.IsAlive && c.ChainLeft > 0 && ChainTargets(s, c).Count > 0 ? s : s.WithTurn(s.Turn.WithPendingChain(null));
+    }
+
+    /// <summary>定殖 / 净化追出来的问答还没问完（GD 那是 `enter_tile` 里一段 await）：弃置 / 连锁 / 二选一，或者连走栈比落地前更深。</summary>
+    internal static bool LandBlocked(WorldState s, int walkDepthBefore)
+        => s.Turn.PendingDiscardSeat is not null || s.Turn.PendingChainCell is not null || s.Turn.PendingMutationSeat is not null || WalkDepth(s) > walkDepthBefore;
+
+    /// <summary>落地：定殖 / 净化没追出问答就当场做完后半截；追出来了就推迟（记 PendingLand），等 DecisionRouter 的出口把问答摘干净再补做。
+    /// 此前 C# 一律当场做完：净化抽到的卡撑爆手牌时骨髓那张也一起抽进手（第一次弃置比 GD 多摊一张）、连锁问在骨髓抽卡之后（抽牌的等级与带子位次都不同）。</summary>
+    internal static WorldState LandOrDefer(WorldState s, EntityId id, HexPosition at, int walkDepthBefore, IDeterministicRng rng)
+        => LandBlocked(s, walkDepthBefore)
+            ? s.WithTurn(s.Turn.WithPendingLand(id, at, walkDepthBefore))
+            : LandTail(s, id, at, rng);
+
+    /// <summary>出口：推迟的后半截能补做了吗（弃置 / 连锁 / 二选一都摘干净、连走栈回到落地前的深度）。</summary>
+    internal static bool LandReady(WorldState s)
+        => s.Turn.PendingLandCell is not null && !LandBlocked(s, s.Turn.PendingLandWalkDepth);
+
+    internal static WorldState ResumeLand(WorldState s, IDeterministicRng rng)
+    {
+        var id = s.Turn.PendingLandCell!.Value;
+        var at = s.Turn.PendingLandAt!.Value;
+        var depth = s.Turn.PendingLandWalkDepth;
+        s = s.WithTurn(s.Turn.WithPendingLand(null, null, 0));
+        if (!s.Cells[id].IsAlive) return s;   // 连锁途中死了：GD 的 collect_special 也不会给死细胞发卡（cells_at 只数活的）
+        s = LandTail(s, id, at, rng);
+        return LandBlocked(s, depth) ? s.WithTurn(s.Turn.WithPendingLand(id, at, depth)) : s;   // 骨髓那一抽又追出问答：标记已刷过，只是让出口再等一轮
     }
 
     /// <summary>GD `collect_special`（cw_actions.gd:1096-1107）：代谢核心有存储就收能量并清库存，
     /// **否则**（if / elif，不是两件都做）骨髓有卡就清库存并抽一张 —— 那一抽是带子上的一发，**不判阵营**。</summary>
-    public static WorldState CollectSpecial(WorldState s, EntityId id, IDeterministicRng rng)
+    public static WorldState CollectSpecial(WorldState s, EntityId id, IDeterministicRng rng) => CollectSpecialAt(s, id, s.Cells[id].Position, rng);
+
+    /// <summary>在指定的格上收取（GD `collect_special(cell, dest)` 的 dest 不一定是细胞此刻站的格：连锁跳走之后仍回来收落地那一格）。</summary>
+    public static WorldState CollectSpecialAt(WorldState s, EntityId id, HexPosition at, IDeterministicRng rng)
     {
-        var c = s.Cells[id];
-        var t = s.Board.Tissues[c.Position];
-        if (t.Type == TissueType.MetabolicCore && t.Charge > 0) return CollectEnergy(s, id);
+        var t = s.Board.Tissues[at];
+        if (t.Type == TissueType.MetabolicCore && t.Charge > 0)
+        {
+            var c = s.Cells[id];
+            s = s.UpdateCell(id, c.WithEnergy(c.Energy + t.Charge.Value));
+            return s.WithBoard(s.Board.UpdateTissue(t.Position, t.WithCharge(0)));
+        }
         if (t.Type == TissueType.BoneMarrow && t.Charge > 0)
         {
             s = s.WithBoard(s.Board.UpdateTissue(t.Position, t.WithCharge(0)));
@@ -561,8 +648,16 @@ internal static class CellRules
     {
         foreach (var c in RulePolicies.Cells(s))
             s = s.UpdateCell(c.Id, c.Copy(toxin: 0, mutateUsed: false, antibody: 0, metastasis: false, jump: 0, armor: false,
-                fxRound: [],
-                modifiers: c.Modifiers.Where(m => m.Duration != ModifierDuration.Round).ToList()));
+                fxRound: []));   // GD `_reset_round_flags` 不碰 mods：「本世界回合」修饰在 E 阶段第 8 步清（ExpireRoundModifiers）
+        return s;
+    }
+
+    /// <summary>GD `CWWorldFx.tick_durations` 末尾 `clear_mods(cell, "round")`：「本世界回合」修饰在 **E 阶段第 8 步**过期 ——
+    /// 此前 C# 放在下一个 S 阶段的 ResetRoundFlags，终局那一回合没有下一个 S，批扫 2p_1006 / 2p_1011 的终局视图里 C# 多一条【I型干扰素】（2026-09-18）。</summary>
+    public static WorldState ExpireRoundModifiers(WorldState s)
+    {
+        foreach (var c in RulePolicies.Cells(s).Where(c => c.Modifiers.Any(m => m.Duration == ModifierDuration.Round)))
+            s = s.UpdateCell(c.Id, c.Copy(modifiers: c.Modifiers.Where(m => m.Duration != ModifierDuration.Round).ToList()));
         return s;
     }
 
@@ -581,7 +676,8 @@ internal static class CellRules
     /// 搬它要连 GD 的 `Store.GATE`（修饰在表里、额度在 fx_turn 里）一起搬，是下一张工单；
     /// 在那之前这里不预先写死一个没人读的数。
     /// </summary>
-    private static int GateUses(string key) => 1;
+    /// <summary>GD `CWCost.GATE_USES`：【组织驻留】前两次向健康组织的迁移免费，其余闸门都是「每行动回合首次」。</summary>
+    private static int GateUses(string key) => key == "组织驻留" ? 2 : 1;
 
     /// <summary>这个「每行动回合」闸门还开着吗（只读，不记账）。</summary>
     public static bool TurnGateOpen(Cell c, string key) => c.FxTurn.GetValueOrDefault(key) < GateUses(key);
@@ -658,8 +754,11 @@ internal static class CellRules
             var attackExtra = attackMods.Sum(m => m.Value);
             var hasOpsonin = attackMods.Any(m => m.Card == "补体调理");
             var hasAffinity = attackMods.Any(m => m.Card == "高亲和力克隆");
-            var hasCascade = attackMods.Any(m => m.Card == "补体级联");
-            s = ConsumeModifiers(s, cell.Id, ModifierTarget.Attack);
+            // GD cw_actions.gd:815-816：【补体调理】【高亲和力克隆】**判定前**无条件扣（「无论结果如何，这次攻击就把它们消耗掉」）；
+            // 【穿孔素-颗粒酶】【补体级联】在**成功分支**里才扣（868 / 921）—— 攻击无效一次，它们还留着给下一次。此前 C# 判定前一律扣光
+            var cascadeCount = attackMods.Count(m => m.Card == "补体级联");
+            s = SpendModifiers(s, cell.Id, "补体调理");
+            s = SpendModifiers(s, cell.Id, "高亲和力克隆");
             var outcome = hasAffinity ? "crit" : RulePolicies.AttackOutcome(s, roll, attackerCell);
             if (outcome == "fail" && hasOpsonin)
             {
@@ -669,7 +768,7 @@ internal static class CellRules
             if (HasModifier(s.Cells[target.Id], "PD-L1表达"))
             {
                 outcome = outcome == "crit" ? "success" : "fail";  // 大成功→成功、成功/无效→无效
-                s = RemoveModifiers(s, target.Id, "PD-L1表达");
+                s = SpendOneModifier(s, target.Id, "PD-L1表达");   // GD `spend_one_mod`：一次攻击只吃**最早打出的一层**（团队 2026-09-01 裁定，刻意不走定案 #57）；此前 C# 全摘
             }
             var damage = outcome == "fail" ? 0 : outcome == "crit" ? 20 : 10;
             var extra = 0;
@@ -677,6 +776,8 @@ internal static class CellRules
             if (outcome != "fail")
             {
                 extra = attackExtra;
+                s = SpendModifiers(s, cell.Id, "穿孔素-颗粒酶");
+                s = SpendModifiers(s, cell.Id, "补体级联");
                 // 【连续吞噬】连续净化攒的加成：**用掉即清**，不按回合过期
                 var chain = s.Cells[cell.Id].ChainBonus;
                 if (chain > 0)
@@ -702,7 +803,8 @@ internal static class CellRules
             }
             attacker = s.Cells[cell.Id].Copy(attacks: s.Cells[cell.Id].AttacksThisTurn + 1);
             s = s.UpdateCell(cell.Id, attacker);
-            if (damage == 0) s = Damage(s, cell.Id, 5, LossSource.World);
+            // 攻击无效的反弹：GD cw_actions.gd:857-858 `if tune.counter_dmg_on_fail > 0: cancer_hit(cell, counter_dmg_on_fail, "反弹")`（Kind.WORLD：【缺氧适应】挡不住，口径 #62）。此前 C# 写死 0.5、不读旋钮
+            if (damage == 0 && s.Tuning.CounterDamageOnFail > 0) s = Damage(s, cell.Id, s.Tuning.CounterDamageOnFail, LossSource.World, "反弹");
             else
             {
                 s = Damage(s, target.Id, damage + extra, LossSource.ImmuneAttack, "攻击", cytotoxDirect, out var dealt, out var mainDealt);
@@ -719,14 +821,15 @@ internal static class CellRules
                     if (s.Cells[cell.Id].Type == CellType.Macrophage)
                         s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
                 }
-                // 【补体级联】：攻击成功后转化目标相邻最多 2 格无细胞占据的普通癌组织
-                if (hasCascade)
+                // 【补体级联】：攻击成功后转化目标相邻最多 2 格无细胞占据的普通癌组织 —— GD `for i in spend_mods(cell, "补体级联"): _cascade(cell, target)`：
+                // 打了几张就跑几遍，候选按 DIRS 序（pick_n 抽的是下标），每遍现算候选、转健康走 to_healthy
+                for (var i = 0; i < cascadeCount; i++)
                 {
-                    var cascade = target.Position.GetNeighbors()
-                        .Where(n => s.Board.Tissues.TryGetValue(n, out var x) && x.State == TissueState.Cancer && x.OccupyingCell == null)
+                    var cascade = RulePolicies.GdNeighbors(s, target.Position)
+                        .Where(n => s.Board.Tissues[n].State == TissueState.Cancer && s.Board.Tissues[n].OccupyingCell == null)
                         .ToArray();
                     foreach (var pick in rng.PickRandom(cascade, 2))
-                        s = s.UpdateTissueState(pick, TissueState.Healthy);
+                        s = CardRules.ToHealthy(s, pick);
                 }
                 // 【I-吞噬】：攻击成功造成能量损失后恢复受击方损失的 1/2（向上取整到十分位）
                 if (s.Cells[cell.Id].Type == CellType.Macrophage)
@@ -736,23 +839,28 @@ internal static class CellRules
                     if (heal > 0) s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
                 }
             }
+            // 【抗原呈递强化】（GD cw_actions.gd:928-935）：每世界回合第一次攻击**未被标记**的癌细胞后施加【标记】。「攻击…后」按攻击发动读（口径 #70）：
+            // 判定无效也算攻过、打死了额度也烧；目标还活着才 apply_mark。此前 C# 攻击路径整条没有它（复核 2026-09-18）
+            if (s.Cells[cell.Id].IsAlive && RulePolicies.HasSkill(s, s.Cells[cell.Id], "抗原呈递强化") && !target.Marked && RoundGateOpen(s.Cells[cell.Id], "抗原呈递强化"))
+            {
+                s = BurnRoundGate(s, cell.Id, "抗原呈递强化");
+                if (s.Cells[target.Id].IsAlive) s = ApplyMark(s, target.Id, s.Cells[cell.Id]);
+            }
             events.Add(new CellAttackedEvent(s.Turn.WorldRound, s.Turn.Phase, cell.Id, target.Id, damage, !s.Cells[target.Id].IsAlive));
             if (s.Cells[target.Id].IsAlive || !s.Cells[cell.Id].IsAlive) return new(UpdateMarks(s), events, true);
         }
         s = s.UpdateTissueOccupant(cell.Position, null).UpdateTissueOccupant(move.TargetPosition, cell.Id);
-        s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithPosition(move.TargetPosition).Copy(campRound: -1));
+        s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithPosition(move.TargetPosition));
         var tissue = s.Board.Tissues[move.TargetPosition];
         // GD `enter_tile(cell, to, q.final)`：定殖 / 蹲守 / 净化 → 黏液 → collect_special → update_marks；RAS 在它整个跑完之后（cw_actions.gd:773-782）。
         // paid：连锁跳（free）在 GD 里不传 → -1；付费迁移传实付，被免费豁免盖成 0 的照传 0（巨噬回能三态看它，见 MacroPurifyHeal）
+        var walkDepth = WalkDepth(s);
         s = Arrive(s, cell.Id, move.TargetPosition, free ? -1 : cost, rng);
         var landed = s.Board.Tissues[move.TargetPosition];
         if (landed.State != tissue.State)
             events.Add(new TissueStateChangedEvent(s.Turn.WorldRound, s.Turn.Phase, move.TargetPosition, tissue.State, landed.State));
-        // 免疫踩黏液即清 —— GD 排在定殖 / 净化**之后**（cw_actions.gd:1028-1029），此前 C# 排在之前
-        if (cell.Faction == Faction.Immune && landed.Mucus)
-            s = s.WithBoard(s.Board.UpdateTissue(move.TargetPosition, landed.WithMucus(false)));
-        s = CollectSpecial(s, cell.Id, rng);   // 代谢核心收能量 / 骨髓抽卡（GD enter_tile → collect_special，2026-09-17 补上骨髓那一支）
-        s = UpdateMarks(s);
+        // 后半截（黏液 → collect_special → update_marks）：定殖 / 净化追出问答就推迟到问完再做（GD 是 await 链）
+        s = LandOrDefer(s, cell.Id, move.TargetPosition, walkDepth, rng);
         // 【RAS持续激活】：每行动回合第一次通过【移动】触发【定殖】后恢复。GD 钩在 `_do_move` 里 enter_tile **之后**（cw_actions.gd:776-782），
         // 即 collect_special（骨髓可能抽一张并当场结算）与 update_marks 之后 —— 此前 C# 排在 CollectSpecial 之前（2026-09-17 晚对齐）。
         // GD `first_this_turn`（cw_game.gd）**每次都记一笔**、只在第一次返回 true：fx_turn 存的是「用了几次」，

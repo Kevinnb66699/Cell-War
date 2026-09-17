@@ -27,10 +27,17 @@ internal static class PhaseRules
         {
             if (s.Turn.StartStep == 0)
             {
-                s = BoardRules.ProduceAndTransport(s, rng);
-                s = s.WithTurn(s.Turn.Copy(startStep: 1));
+                // GD round_start：产出时踩着存卡骨髓抽到连走卡 / 撑爆手牌 / 抽到【基因组不稳定】 → **当场问完**才做血管传送。
+                // 挂起了就停在 StartStep 3，等 DecisionRouter 的出口把挂起摘干净再 ResumeStart（批扫 6p_1007 第 157 步，2026-09-18）
+                s = BoardRules.Produce(s, rng);
+                s = s.WithTurn(s.Turn.Copy(startStep: 3));   // 别把产出时挂上的追问（连走 / 弃置 / 二选一）用旧的 Turn 盖掉
+                if (!StartPending(s)) s = ResumeStart(s, rng);
             }
-            s = ContinueStart(s);
+            else if (s.Turn.StartStep == 3)
+            {
+                if (!StartPending(s)) s = ResumeStart(s, rng);
+            }
+            else s = ContinueStart(s);
         }
         else if (s.Turn.Phase == Phase.PlayerAction)
         {
@@ -45,17 +52,20 @@ internal static class PhaseRules
             // 挂起态跨不出这一回合：GD 的连锁 / 趋化是 play() 里的一段 await，语法上就出不了这次打牌。
             // 正常路径到不了这里（挂起时「结束回合」被 Validate 驳回），这是防御 —— 谁绕开 Execute 直接推阶段，
             // 也不能让原主人在别人的回合里把剩下的几步走完。
-            s = s.WithTurn(s.Turn.WithPendingChain(null).WithPendingChemotaxis(null, 0).WithPendingCouple(null, null, null).WithPendingCard(null, null).WithPendingRemodel(null, null, null, 0));
+            s = s.WithTurn(s.Turn.WithPendingChain(null).WithPendingChemotaxis(null, 0).WithPendingCouple(null, null, null).WithPendingCard(null, null).WithPendingRemodel(null, null, null, 0).WithPendingLand(null, null, 0));
             s = s.WithTurn(s.Turn.Copy(phase: next == null ? Phase.E : Phase.PlayerAction, seat: next ?? s.Turn.ActivePlayerSeat));
             if (next is { } seat) s = BeginTurn(s, seat);
         }
         else
         {
-            s = BoardRules.EvolveEndOfRound(s, rng);
-            var (winner, alarm) = OutcomeRules.Evaluate(s);
-            s = s.WithTurn(s.Turn.Copy(phase: winner == null ? Phase.E : Phase.Finished, winner: winner, alarm: alarm));
-            if (s.Turn.Phase != Phase.Finished)
-                s = s.WithTurn(s.Turn.Copy(phase: Phase.S, round: s.Turn.WorldRound + 1, seat: s.Players.Keys.OrderBy(x => x).FirstOrDefault(), startStep: 0, cancerReviveFrom: 0));
+            if (s.Turn.EndStep == 0)
+            {
+                // GD `_resolve_camping`（4.9）是 await：蹲守巨噬的【连续吞噬】、记忆库抽卡带出的走位 / 弃置 / 二选一都在 E 阶段当场问完才做【固化】。
+                // 挂起了就停在 EndStep 1，等 DecisionRouter 的出口把挂起摘干净再 FinishEndOfRound（此前 C# 的 E 阶段没有决策点，蹲守巨噬不连锁 —— 2026-09-18 对齐）
+                s = BoardRules.EvolveEndOfRoundA(s, rng);
+                s = s.WithTurn(s.Turn.Copy(endStep: 1));
+            }
+            if (!EndPending(s)) s = FinishEndOfRound(s, rng);
         }
         var facts = Cells(s).Where(c => before.Cells.TryGetValue(c.Id, out var previous) && previous.Energy != c.Energy)
             .Select(c => (IGameEvent)new EnergyChangedEvent(before.Turn.WorldRound, before.Turn.Phase, c.Id,
@@ -123,16 +133,8 @@ internal static class PhaseRules
     /// </summary>
     private static WorldState GrantTurnModifiers(WorldState s, Cell c)
     {
-        if (HasSkill(s, c, "组织驻留"))
-            s = GrantSkillModifier(s, c, new("组织驻留", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Passive, 0, 0, null, 2, ModifierDuration.Turn, ModifierRequirement.MoveToHealthy));
-        if (HasSkill(s, c, "LFA-1黏附"))
-            s = GrantSkillModifier(s, c, new("LFA-1黏附", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 0, 4, 2, 1, ModifierDuration.Turn, ModifierRequirement.MoveToCancerous));
-        if (HasSkill(s, c, "组织巡航"))
-        {
-            s = GrantSkillModifier(s, c, new("组织巡航", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Passive, 0, 0, null, 1, ModifierDuration.Turn));
-            // 第二条刻意也用「组织巡航」取戳：两条是同一件装备发出来的，先后必须一致
-            s = GrantSkillModifier(s, c, new("组织巡航·减", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Passive, 0, 2, 2, ActiveModifier.Unlimited, ModifierDuration.Turn), stampFrom: "组织巡航");
-        }
+        // 【组织驻留】【LFA-1黏附】【组织巡航】2026-09-18 起不再发修饰：GD 里它们是报价时从 `equipped` 现读的模板 + `fx_turn` 闸门（Store.GATE），
+        // 见 RulePolicies.SkillMoveModifiers —— 发成修饰会让 L1 视图的 `mods` 多条目、`fx_turn` 少键，还让回合中途装备的要等下一回合
         // 【耗竭抵抗】不在这里发修饰了（2026-09-16）：它两句合成一个 cut、住在伤害管线的减免层里，
         // 逐位对齐 GD 的 `cw_damage.gd:266-274`。见 `CellRules.Damage`。
         // 【细胞毒性增强】不再是回合修饰：GD 在攻击成功那一刻现读技能、走 fx_turn 闸门 / T 细胞直击（CellRules.Move 攻击分支，2026-09-17 深夜）
@@ -147,6 +149,32 @@ internal static class PhaseRules
         var list = current.Modifiers.ToList();
         list.Add(modifier with { Sequence = seq });
         return s.UpdateCell(c.Id, current.Copy(modifiers: list));
+    }
+
+    /// <summary>S 阶段产出之后还有没有要问玩家的（连走 / 强制弃置 / 【基因组不稳定】二选一）：有就停在 StartStep 3。</summary>
+    public static bool StartPending(WorldState s)
+        => s.Turn.PendingChemotaxisCell is not null || s.Turn.PendingDiscardSeat is not null || s.Turn.PendingMutationSeat is not null
+           || s.Turn.PendingChainCell is not null || s.Turn.PendingLandCell is not null;
+
+    /// <summary>E 阶段 4.9 蹲守净化追出的问答（连锁 / 连走 / 强制弃置 / 二选一 / 推迟的落地）还没问完：停在 EndStep 1。</summary>
+    public static bool EndPending(WorldState s) => StartPending(s);
+
+    /// <summary>E 阶段后半：5 → 9.5 结算、判胜负、翻到下一世界回合的 S 阶段。</summary>
+    public static WorldState FinishEndOfRound(WorldState s, IDeterministicRng rng)
+    {
+        s = BoardRules.EvolveEndOfRoundB(s, rng);
+        var (winner, alarm) = OutcomeRules.Evaluate(s);
+        s = s.WithTurn(s.Turn.Copy(phase: winner == null ? Phase.E : Phase.Finished, winner: winner, alarm: alarm, endStep: 0));
+        if (s.Turn.Phase != Phase.Finished)
+            s = s.WithTurn(s.Turn.Copy(phase: Phase.S, round: s.Turn.WorldRound + 1, seat: s.Players.Keys.OrderBy(x => x).FirstOrDefault(), startStep: 0, cancerReviveFrom: 0));
+        return s;
+    }
+
+    /// <summary>S.2 血管传送 → 复活 / 有氧 / 过载 / 开打（产出那一步的追问全答完之后从这里接着走）。</summary>
+    public static WorldState ResumeStart(WorldState s, IDeterministicRng rng)
+    {
+        s = BoardRules.Transport(s, rng);
+        return ContinueStart(s.WithTurn(s.Turn.Copy(startStep: 1)));
     }
 
     /// <summary>S.3-S.5：处理复活输入，否则结算存活免疫细胞有氧呼吸并进入行动阶段。</summary>
@@ -227,7 +255,8 @@ internal static class PhaseRules
         var dead = s.Cells[revival.CellId];
         if (revival.SourcePosition is { } source)
             s = CardRules.CrackToCancer(s, source);   // GD `crack_to_cancer`：固化格拆回普通癌组织（to_cancer(false)，五项一起清）
-        s = s.UpdateCell(dead.Id, dead.Copy(alive: true, energy: dead.Faction == Faction.Immune ? 10 : 20, position: revival.TargetPosition, attacks: 0, respawnRound: -1));   // GD 复活后 respawn_round = -1
+        // GD `revive_*` 只写 alive / energy / respawn_round：**不清 attacks_used**（它在 begin_turn 清；批扫 4p_1009 第 93 步就是这一格）
+        s = s.UpdateCell(dead.Id, dead.Copy(alive: true, energy: dead.Faction == Faction.Immune ? 10 : 20, position: revival.TargetPosition, respawnRound: -1));   // GD 复活后 respawn_round = -1
         s = s.UpdateTissueOccupant(revival.TargetPosition, dead.Id);
         s = SetSeatAlive(s, dead.OwnerSeat, true);
         // 癌方这一席问过了（GD `flow["i"] += 1`）：别的癌席复活碎掉的固化格再造出落点，也轮不回来
@@ -241,7 +270,8 @@ internal static class PhaseRules
         }
         // 落地算「进入」（GD `revive_immune` / `revive_cancer` 都 `enter_tile`）：骨髓有卡就抽一张 —— 那是带子上的一发，
         // 此前 C# 复活只放占位，L1 6p 第 83 步免疫在存着一张卡的骨髓上复活，GD 念了一条、C# 没念（2026-09-17）
-        s = CellRules.Land(s, dead.Id, rng);
-        return new(ContinueStart(s), Array.Empty<IGameEvent>(), true);
+        s = CellRules.ArriveAndLand(s, dead.Id, revival.TargetPosition, rng);   // 完整的 enter_tile：落点是健康格就【定殖】、是癌组织就【净化】（GD revive_* 同）
+        // 落地追出问答（骨髓抽到连走卡 / 撑爆手牌 / 二选一）：GD 在 revive_* 的 await 里问完才回到 S 流程；这里停住，DecisionRouter 的出口再 ContinueStart
+        return new(StartPending(s) ? s : ContinueStart(s), Array.Empty<IGameEvent>(), true);
     }
 }

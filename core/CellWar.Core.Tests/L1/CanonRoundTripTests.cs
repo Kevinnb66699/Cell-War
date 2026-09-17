@@ -97,7 +97,8 @@ public class CanonRoundTripTests
             .WithCardResolveDepth(1)
             .WithCancerReviveFrom(2)
             .WithPendingCouple(id, other, id)
-            .WithPendingRemodel(id, new HexPosition(1, 0, -1), new HexPosition(0, 2, -2), 1));
+            .WithPendingRemodel(id, new HexPosition(1, 0, -1), new HexPosition(0, 2, -2), 1)
+            .WithPendingLand(other, new HexPosition(2, -1, -1), 1));
     }
 
 }

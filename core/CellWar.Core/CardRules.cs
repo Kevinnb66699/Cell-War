@@ -324,6 +324,8 @@ internal static class CardRules
             // 原来写的是 `NextInt(3)`（0..2）—— 结果映射一样、**抽取区间差一**，对拍带子会分叉。
             var a = rng.NextIntRange(1, 4);
             var b = rng.NextIntRange(1, 4);
+            // GD `_genome_instability`（cw_card_fx.gd:771-788）：两次判定**相同就不问**、直接结算（批扫 60 条轨迹撞了 9 条，2026-09-18）
+            if (a == b) return ApplyMutationOutcome(s, cell.Id, a, rng, charge: false);
             return s.WithTurn(s.Turn.WithPendingMutation(cell.OwnerSeat, cell.Id, a, b));
         },
         ["I型干扰素"] = (s, cell, rng, target, targetCell) =>
@@ -584,7 +586,7 @@ internal static class CardRules
         // 不然第 2/3 步那两问上两边手牌差一张，手牌到上限时还少一个强制弃置决策点（L1 对拍会在那儿分叉）。
         // 结算里骨髓抽卡撑爆手牌的强制弃置也一样：GD 在结算内部 await 问完才 erase + 走链（cw_cards.gd:63 → cw_card_fx.gd:408-411），
         // 所以刚打出的这张还在手里、也在可弃选项里
-        if (s.Turn.PendingChemotaxisCell == cell.Id || s.Turn.PendingCoupleCell == cell.Id || s.Turn.PendingRemodelCell == cell.Id || s.Turn.PendingDiscardSeat is not null)
+        if (s.Turn.PendingChemotaxisCell == cell.Id || s.Turn.PendingCoupleCell == cell.Id || s.Turn.PendingRemodelCell == cell.Id || s.Turn.PendingDiscardSeat is not null || s.Turn.PendingLandCell is not null)
             return new(s.WithTurn(s.Turn.WithPendingCard(d.Card, cell.Id)), Array.Empty<IGameEvent>(), true);
         return new(FinishInstant(s, cell.Id, d.Card), Array.Empty<IGameEvent>(), true);
     }

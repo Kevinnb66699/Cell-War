@@ -20,7 +20,7 @@ internal static class DecisionRouter
                 ? new(true)
                 : new(false, "等待突变结算选择");
         // 【连续吞噬】的连锁：挂起期间只接这只巨噬的「再走一跳」或「不连了」
-        if (state.Turn.PendingChainCell is { } chainCell)
+        if (state.Turn.PendingChainCell is { } chainCell && !CellRules.ChainDeferred(state))
         {
             // 这一问是问**这只细胞的主人**的：GD 的 ask(pid) 只会送到那一个桥，别的席位根本答不到；
             // C# 的决策带着 PlayerSeat 从网络进来，不查主人就等于让对手替你「不连了」
@@ -92,12 +92,30 @@ internal static class DecisionRouter
         // 【炎症性趋化】的三条退出（细胞死了 / 没有可走的下一步 / 步数走满）在 GD 里是
         // 下一轮循环开头判的，且一定排在连锁之后。这里统一收口，Available 才不会
         // 停在「只剩一个『停在这里』」上 —— GD 没有那个决策点。
-        var s = result.NewState.Turn.PendingChemotaxisCell is null ? result.NewState : CellRules.NormalizeChemotaxis(result.NewState);
-        if (s.Turn.PendingRemodelCell is not null) s = CardRules.NormalizeRemodel(s);   // GD 的「候选为空就不问」两道闸，跑到稳定
+        var s = result.NewState;
+        // 收口跑到稳定：连走弹栈 → 基质重塑滑段 → 推迟的落地后半截（它自己又可能追出新的问答，再来一轮）
+        for (var guard = 0; guard < 8; guard++)
+        {
+            var before = s;
+            if (s.Turn.PendingChemotaxisCell is not null) s = CellRules.NormalizeChemotaxis(s);
+            s = CellRules.NormalizeChain(s);                                               // 走位弹掉露出的连锁若已无下一跳，当场摘掉
+            if (s.Turn.PendingRemodelCell is not null) s = CardRules.NormalizeRemodel(s);   // GD 的「候选为空就不问」两道闸
+            if (CellRules.LandReady(s)) s = CellRules.ResumeLand(s, rng);                  // GD enter_tile 的 await 回来了：收特殊组织、刷标记
+            if (ReferenceEquals(s, before)) break;
+        }
+        // S 阶段的追问答完了：产出那一步 → 接着血管传送、复活、有氧、开打；复活落地那一步 → 接着问下一席复活或开打（GD round_start / revive_* 的 await 回来了）
+        if (s.Turn.Phase == Phase.S && !PhaseRules.StartPending(s))
+        {
+            if (s.Turn.StartStep == 3) s = PhaseRules.ResumeStart(s, rng);
+            else if (s.Turn.StartStep == 1 && PhaseRules.GetRevivalOptions(s).Count == 0) s = PhaseRules.ContinueStart(s);
+        }
+        // E 阶段蹲守净化追出的问答答完了：接着做 5 → 9.5、判胜负、翻到下一回合的 S（GD `_resolve_camping` 的 await 回来了）
+        if (s.Turn.Phase == Phase.E && s.Turn.EndStep == 1 && !PhaseRules.EndPending(s)) s = PhaseRules.FinishEndOfRound(s, rng);
         // 中途的挂起摘干净的这一刻 = 那张卡「结算完」：GD 是整段 await 回来才离手、才走细胞因子链。
         // 卡是哪张由 PendingCard 记着（打出时挂上），不用猜；打出当步就结束的（没有下一步 / 走死）同样走到这里。
         if (s.Turn.PendingCard is { } card && s.Turn.PendingCardCell is { } owner
-                && s.Turn.PendingChemotaxisCell is null && s.Turn.PendingCoupleCell is null && s.Turn.PendingRemodelCell is null && s.Turn.PendingDiscardSeat is null)
+                && s.Turn.PendingChemotaxisCell is null && s.Turn.PendingCoupleCell is null && s.Turn.PendingRemodelCell is null && s.Turn.PendingDiscardSeat is null
+                && s.Turn.PendingLandCell is null)
             s = CardRules.FinishInstant(s, owner, card);
         return result with { NewState = s };
     }
@@ -151,7 +169,6 @@ internal static class DecisionRouter
             return Tiles(s).Where(t => t.State == want && t.OccupyingCell == null)
                 .Select(t => (IDecision)new PlaceDecision(seat, t.Position)).ToArray();
         }
-        if (s.Turn.Phase == Phase.S) return PhaseRules.GetRevivalOptions(s).Where(d => d.PlayerSeat == seat).ToArray();
         if (s.Turn.PendingDiscardSeat is { } pending)
         {
             if (pending != seat) return Array.Empty<IDecision>();
@@ -165,7 +182,7 @@ internal static class DecisionRouter
             var mutationCell = s.Turn.PendingMutationCell!.Value;
             return new IDecision[] { new ChooseMutationDecision(seat, mutationCell, 0), new ChooseMutationDecision(seat, mutationCell, 1) };
         }
-        if (s.Turn.PendingChainCell is { } chainCell)
+        if (s.Turn.PendingChainCell is { } chainCell && !CellRules.ChainDeferred(s))
         {
             var macro = s.Cells[chainCell];
             if (macro.OwnerSeat != seat) return Array.Empty<IDecision>();
@@ -201,6 +218,8 @@ internal static class DecisionRouter
             opts.AddRange(CardRules.RemodelOptions(s).Select(p => (IDecision)new RemodelPickDecision(seat, remodelCell, p)));
             return opts;   // 候选为空到不了这里：NormalizeRemodel 已经滑段 / 摘掉
         }
+        // S 阶段的复活问答排在各种挂起之后：产出时踩骨髓抽出来的连走 / 弃置 / 二选一 GD 都是当场问完（round_start 的 await 链）
+        if (s.Turn.Phase == Phase.S) return PhaseRules.GetRevivalOptions(s).Where(d => d.PlayerSeat == seat).ToArray();
         if (s.Turn.Phase != Phase.PlayerAction || seat != s.Turn.ActivePlayerSeat || !PhaseRules.AliveSeat(s, seat)) return Array.Empty<IDecision>();
         var result = new List<IDecision> { new PassDecision(seat), new EndTurnDecision(seat) };
         foreach (var c in Cells(s).Where(c => c.OwnerSeat == seat && c.IsAlive))
