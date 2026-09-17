@@ -154,7 +154,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
-	## 设计稿把空格标成「结束回合」的快捷键
+	## 设计稿把空格标成「结束回合」的快捷键。
+	## 聊天框里打字时让路（拼音选字就是按空格）—— 判据同 L 键，见 CWChatBox.typing
+	if CWChatBox.typing(get_viewport()):
+		return
 	if _end != null and _end.visible and event.is_action_pressed("ui_accept"):
 		get_viewport().set_input_as_handled()
 		end_turn_pressed.emit()

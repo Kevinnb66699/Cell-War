@@ -236,17 +236,15 @@ var _replay_bar: CWReplayBar ## 播放控制条（回放局才建）
 ## 每一处触点、每一条待修、怎么验，都写在 **`docs/临时下架清单.md`**；
 ## 动这三行要连着改那份文档。
 ##
-## ① 聊天，**对局里和等待室两处一起收**（等待室那份 2026-09-10 晚追加）。
-##    对局里：`_chat` 恒为 null（下面每一处早就按 null 兜底），迷你条那页「聊天」
-##    跟着不出现。等待室：`CWOnlinePanel._build_room` 整块不建。
-##    开回来之前要修三条（Kevin 实战报的，都是对局里那份）：
-##      · 从迷你条点开之后关不掉 —— 展开的框（340×460）正好盖住迷你条自己那个
-##        「聊天」页，而标题写着的「Enter 收起」在框开着时被输入框吃掉了
-##        （空串提交 = 什么都不做）；
-##      · 该能点框外空白处收起（`CWLogPanel` 早就是这么做的，这份漏了）；
-##      · **打字打到 L 就弹出对局日志** —— `CWLogPanel._unhandled_input` 的单键
-##        快捷键没有「玩家正在打字」这道闸。空格 / 方向键多半同病，要一并按焦点判。
-const CHAT_ON := false
+## ① 聊天 —— **2026-09-16 开回来了**（Kevin：三条拍板落地之后先把聊天启用）。
+##    关着时对局里 `_chat` 恒为 null（下面每一处都按 null 兜底）、迷你条那页「聊天」不出现，
+##    等待室 `CWOnlinePanel._build_room` 整块不建。开关留着，要收再改回 false。
+##    开回来前修掉的三条（Kevin 2026-09-10 实战报的，都在对局里那份）：
+##      · 从迷你条点开之后关不掉 → 空串回车 = 收起（`CWChatBox._submit`）；
+##      · 点框外空白处收起（`CWChatBox._unhandled_input`，同 `CWLogPanel`）；
+##      · 打字打到 L 弹出对局日志 → 单键快捷键统一先问 `CWChatBox.typing`
+##        （L 开日志、空格结束回合、数字键选行动、方向键翻图鉴）。
+const CHAT_ON := true
 
 ## ② 看回放。两个入口一起收：主菜单「对局回放」灰掉、结算屏「看这局回放」不建。
 ##    **录制不停** —— `start()` 里的 `record_replay` 照常，服务器的回放柜也照常存，
@@ -782,7 +780,7 @@ func _wire_bridge(level: int) -> void:
 	bridge.attack_animation = _play_attack_animation
 	bridge.cell_half_height = cell_half_height   ## 演出对准胞体中心要知道贴图多高（issue #26）
 	## 聊天框只在联机局建：本地局没人可聊，教程局更不该多一个能抢回车的东西。
-	## **CHAT_ON 现在是关的**（Kevin 2026-09-10 拍板先停）—— 三条待修见常量那儿。
+	## 只有联机局有聊天；`CHAT_ON` 是总开关（2026-09-10 关、09-16 开回来，见常量那儿）
 	if CHAT_ON and online and _chat == null and ui != null:
 		_chat = CWChatBox.new()
 		ui.add_child(_chat)
@@ -1241,6 +1239,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 	if _codex == null or not is_instance_valid(_codex) or not _codex.visible:
 		return
+	if CWChatBox.typing(get_viewport()):
+		return   ## 聊天框里打字时方向键是在挪光标，不翻图鉴（判据见 CWChatBox.typing）
 	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("ui_left") \
 			or event.is_action_pressed("ui_right") or event.is_action_pressed("ui_up") \
 			or event.is_action_pressed("ui_down"):

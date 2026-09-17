@@ -17230,8 +17230,8 @@ func t_net_chat() -> void:
 
 ## 从服务器取回放（v7 新增的两条 C→S 报文）
 ## 聊天框的纯函数（形制见 CWChatBox 文件头）。
-## ⚠ **界面上这个功能 2026-09-10 起是关的**（`CWMatch.CHAT_ON = false`，三条待修写在那儿）——
-## 类本身完好，这些断言照跑，好让它开回来的那天不用从头验一遍。
+## 界面上 2026-09-10 → 09-16 关过一阵（`CWMatch.CHAT_ON`），这些断言那段时间照跑；
+## 开回来那天只补了末尾「三条待修」那一段，没从头验。
 func t_chat_box() -> void:
 	print("[聊天框]")
 	## **回车不能用 ui_accept**：Godot 里那个动作同时绑着回车**和空格**，
@@ -17340,6 +17340,68 @@ func t_chat_box() -> void:
 	check(CWFeed.RECT.end.y > 300.0 and CWHand.REST_TOP - CWHand.LIFT < 480.0,
 		"左下角被出牌列（到 y %d）与抬起的手牌（从 y %d 起）夹住"
 		% [int(CWFeed.RECT.end.y), int(CWHand.REST_TOP - CWHand.LIFT)])
+
+	## ---- 2026-09-16 开回来：Kevin 2026-09-10 实战报的三条，各一道护栏 ----
+	var cb3 := CWChatBox.new()
+	root.add_child(cb3)
+	await process_frame
+	var got: Array = []
+	cb3.said.connect(func(t: String, _team: bool) -> void: got.append(t))
+	cb3.open()
+	cb3._submit("  在吗  ")
+	check(got == ["在吗"] and cb3.is_open(), "有话就发（去首尾空白），框还开着")
+	cb3._submit("   ")
+	check(got.size() == 1 and not cb3.is_open(), "① 空串回车 = 收起（标题写着的「Enter 收起」终于是真的）")
+	cb3.open()
+	var outside := InputEventMouseButton.new()
+	outside.button_index = MOUSE_BUTTON_LEFT
+	outside.pressed = true
+	outside.position = Vector2(600, 300)
+	cb3._unhandled_input(outside)
+	check(not cb3.is_open(), "② 点框外空白处收起（同对局日志；点在框上的到不了 _unhandled_input）")
+	cb3.open()
+	var right := InputEventMouseButton.new()
+	right.button_index = MOUSE_BUTTON_RIGHT
+	right.pressed = true
+	cb3._unhandled_input(right)
+	check(cb3.is_open(), "右键不算")
+	## ③ 「玩家正在打字」的闸：判**焦点**，不判框开没开
+	check(cb3._input.has_focus() and CWChatBox.typing(root.get_viewport()),
+		"框开着 = 焦点在输入框上 = 正在打字")
+	var lp3 := CWLogPanel.new()
+	root.add_child(lp3)
+	lp3.active = true
+	var l3 := InputEventKey.new()
+	l3.keycode = KEY_L
+	l3.pressed = true
+	lp3._unhandled_input(l3)
+	check(not lp3.visible, "③ 打字打到 L 不再弹出对局日志")
+	var bar3 := CWActionBar.new()
+	root.add_child(bar3)
+	bar3.show_bar("", "", [{ "title": "迁移" }, { "title": "结束回合" }])
+	var chosen3: Array = []
+	bar3.chosen.connect(func(i: int) -> void: chosen3.append(i))
+	var one := InputEventKey.new()
+	one.keycode = KEY_1
+	one.pressed = true
+	bar3._unhandled_key_input(one)
+	check(chosen3.is_empty(), "③ 打字时数字键不选行动（拼音选字就是按数字）")
+	var mp3 := CWMatchPanel.new()
+	root.add_child(mp3)
+	mp3.show_end_turn(true)
+	var ended3 := [0]
+	mp3.end_turn_pressed.connect(func() -> void: ended3[0] += 1)
+	mp3._unhandled_key_input(press_action("ui_accept"))
+	check(ended3[0] == 0, "③ 打字时空格不结束回合（拼音选字就是按空格）")
+	cb3.close()
+	check(not CWChatBox.typing(root.get_viewport()), "收起后焦点放开，不算打字")
+	lp3._unhandled_input(l3)
+	bar3._unhandled_key_input(one)
+	mp3._unhandled_key_input(press_action("ui_accept"))
+	check(lp3.visible and chosen3 == [0] and ended3[0] == 1, "没在打字时 L / 数字 / 空格照常")
+	for n3 in [cb3, lp3, bar3, mp3]:
+		root.remove_child(n3)
+		n3.free()
 
 
 func t_net_replay_download() -> void:
@@ -18185,8 +18247,8 @@ func t_online_panel() -> void:
 	check(p._ready_text.text == "取消准备" and p._start_btn.visible and p._stand_link.visible, "已准备的房主：按钮是「取消准备」，「开局」可见")
 	check(p._status.text.contains("空席"), "有空席时状态行提示（%s）" % p._status.text)
 	check(p._members_label.text.contains("丙") and not p._members_label.text.contains("甲"), "未入座的人单列")
-	## ---- 等待室聊天临时下架（CWMatch.CHAT_ON，见 docs/临时下架清单.md）----
-	## 整块不建；两个调用点（收到 chat 报文、切到等待室页）靠 `_chat_scope == null`
+	## ---- 等待室聊天跟着 CWMatch.CHAT_ON 走（2026-09-10 关、09-16 开回来）----
+	## 关着时整块不建；两个调用点（收到 chat 报文、切到等待室页）靠 `_chat_scope == null`
 	## 安静地什么都不做 —— 上面那句 `_show_page(ROOM)` 已经走过一次 `_repaint_chat()` 了，
 	## 没崩就说明兜底是通的
 	if CWMatch.CHAT_ON:

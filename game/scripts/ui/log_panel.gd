@@ -122,6 +122,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventKey and event.pressed and not event.echo \
 			and event.keycode == KEY_L:
+		if CWChatBox.typing(get_viewport()):
+			return   ## 玩家在聊天框里打字：那个 L 是字，不是快捷键（Kevin 2026-09-10）
 		get_viewport().set_input_as_handled()
 		toggle()
 		return

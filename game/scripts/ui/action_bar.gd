@@ -321,6 +321,8 @@ func _paint(p: PanelContainer, hot: bool) -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not _keys or not visible:
 		return
+	if CWChatBox.typing(get_viewport()):
+		return   ## 聊天框里打字（拼音选字就是按数字）：让路，判据见 CWChatBox.typing
 	if not (event is InputEventKey) or not event.pressed or event.is_echo():
 		return
 	var code: int = (event as InputEventKey).keycode

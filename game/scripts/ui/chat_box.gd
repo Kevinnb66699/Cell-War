@@ -146,6 +146,32 @@ func handle_key(event: InputEvent) -> bool:
 	return false
 
 
+## 点框外空白处收起（Kevin 2026-09-10 报的第二条；`CWLogPanel` 早就是这么做的）。
+## **吃掉这一下**：框压着棋盘左上角，点它外面就是「我想关掉它」，不该顺手把细胞走过去。
+## 点在框上的到不了这儿：面板是 MOUSE_FILTER_STOP，输入框、频道标签各自截住自己那一下
+func _unhandled_input(event: InputEvent) -> void:
+	if not _open:
+		return
+	var mb := event as InputEventMouseButton
+	if mb == null or not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
+		return
+	get_viewport().set_input_as_handled()
+	close()
+
+
+## 「玩家正在打字」：焦点落在文本框上。对局里的单键快捷键（`CWLogPanel` 的 L、
+## `CWMatchPanel` 的空格、`CWActionBar` 的数字键、图鉴的方向键）先问这一条再动 ——
+## 不然聊天打到 L 就弹出日志（Kevin 2026-09-10 报的第三条）。
+## **判焦点、不判「框开没开」**：框开着但焦点被点走了，那时按 L 就该是开日志；
+## 反过来输入法组字时按键多半到不了输入框的 accept，只有焦点这一条靠得住 ——
+## 拼音选字的数字 / 空格正是误触的重灾区。
+static func typing(viewport: Viewport) -> bool:
+	if viewport == null:
+		return false
+	var owner := viewport.gui_get_focus_owner()
+	return owner is LineEdit or owner is TextEdit
+
+
 # ============ 构建 ============
 
 func _build() -> void:
@@ -206,10 +232,14 @@ func _build() -> void:
 			toggle_scope())
 	_panel.add_child(_input)
 
+## 回车：有话就发，**空串 = 收起**（标题栏写着的「Enter 收起」就是这一下）。
+## 2026-09-16 之前空串是「什么都不做」—— 于是从迷你条点开之后关不掉：展开的框正好盖住
+## 迷你条自己那个「聊天」页，回车又被输入框吃掉了（Kevin 2026-09-10 实战报的第一条）
 func _submit(text: String) -> void:
 	var msg := text.strip_edges()
 	_input.text = ""
 	if msg.is_empty():
+		close()
 		return
 	said.emit(msg, _team)
 
