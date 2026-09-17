@@ -50,6 +50,8 @@ var _open := false
 var active := true
 var _unread := 0
 var _team := false                       ## 这一句发给谁：false 全体 / true 己方
+## 「己方」标签用**本地玩家自己**的阵营色（Kevin 2026-09-17：癌症方的己方要黄）；-1 = 观众，没有己方
+var team_faction := -1
 var _panel: Panel
 var _bar: Panel
 var _rows: Array[Label] = []
@@ -269,14 +271,19 @@ func _submit(text: String) -> void:
 
 # ============ 呈现 ============
 
+## 阵营色：免疫青 / 癌方橙；观众自成一档，中性偏暗。消息行与「己方」标签共用这一份
+static func faction_color(faction: int) -> Color:
+	match faction:
+		CWData.Faction.IMMUNE: return CWStyle.IMMUNE
+		CWData.Faction.CANCER: return CWStyle.CANCER
+	return CWStyle.TEXT_DIM
+
+
 ## 一条消息该用什么颜色。**全体 = 中性，己方 = 阵营色** —— 不写「[己方]」那种前缀
 static func line_color(line: Dictionary) -> Color:
 	if String(line.get("scope", "all")) != "team":
 		return CWStyle.TEXT_HI
-	match int(line.get("faction", -1)):
-		CWData.Faction.IMMUNE: return CWStyle.IMMUNE
-		CWData.Faction.CANCER: return CWStyle.CANCER
-	return CWStyle.TEXT_DIM        ## 观众自成一档：中性偏暗
+	return faction_color(int(line.get("faction", -1)))
 
 
 ## 一行长什么样。**纯函数**，好直接测
@@ -290,7 +297,7 @@ static func line_text(line: Dictionary) -> String:
 func _repaint() -> void:
 	_scope.text = "己方" if _team else "全体"
 	_scope.add_theme_color_override("font_color",
-		CWStyle.IMMUNE if _team else CWStyle.TEXT_HI)
+		faction_color(team_faction) if _team else CWStyle.TEXT_HI)
 	for i in MAX_ROWS:
 		var idx: int = _lines.size() - MAX_ROWS + i
 		var l: Label = _rows[i]

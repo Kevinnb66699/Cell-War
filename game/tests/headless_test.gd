@@ -17275,6 +17275,18 @@ func t_chat_box() -> void:
 	check(cb2._team and cb2._scope.text == "己方", "Tab 换到己方")
 	cb2._input(tab)
 	check(not cb2._team and cb2._scope.text == "全体", "再按一下换回全体")
+	## 「己方」的颜色跟**自己**的阵营走（Kevin 2026-09-17：癌症方的己方要黄）
+	cb2.team_faction = CWData.Faction.CANCER
+	cb2._input(tab)
+	check(cb2._team and cb2._scope.get_theme_color("font_color") == CWStyle.CANCER, "坐癌症席：「己方」是癌方橙")
+	cb2.team_faction = CWData.Faction.IMMUNE
+	cb2._repaint()
+	check(cb2._scope.get_theme_color("font_color") == CWStyle.IMMUNE, "坐免疫席：「己方」是免疫青")
+	cb2.team_faction = -1
+	cb2._repaint()
+	check(cb2._scope.get_theme_color("font_color") == CWStyle.TEXT_DIM, "观众没有己方：中性偏暗")
+	cb2._input(tab)
+	check(not cb2._team and cb2._scope.get_theme_color("font_color") == CWStyle.TEXT_HI, "换回全体就是中性色")
 	## 截在 `_input` 这一层：焦点导航（ui_focus_next 就绑在 Tab 上）排在它后面，焦点在不在输入框上都轮不到导航
 	cb2.queue_free()
 	## 标题栏顺带当快捷键表 —— 这两下不标出来就只有翻代码才知道。
@@ -18340,6 +18352,23 @@ func t_online_panel() -> void:
 		p._chat_input.gui_input.emit(tab_w)
 		check(not p._chat_team and p._chat_scope.text == "全体", "等待室：再按一下换回全体")
 		check(p._chat_head.text.contains("Tab"), "等待室聊天的标题把 Tab 标出来了")
+		## 「己方」颜色跟我坐的阵营走（Kevin 2026-09-17）；换席位由 _repaint_room 带着重刷
+		var room_keep: Dictionary = p.client.room
+		var seat_keep: int = p.client.my_seat
+		p.client.room = { "seats": [{ "faction": CWData.Faction.IMMUNE }, { "faction": CWData.Faction.CANCER }] }
+		p.client.my_seat = 1
+		p._chat_team = true
+		p._repaint_chat()
+		check(p._chat_scope.get_theme_color("font_color") == CWStyle.CANCER, "等待室：坐癌症席，「己方」是癌方橙")
+		p.client.my_seat = 0
+		p._repaint_chat()
+		check(p._chat_scope.get_theme_color("font_color") == CWStyle.IMMUNE, "等待室：坐免疫席，「己方」是免疫青")
+		p.client.my_seat = -1
+		p._repaint_chat()
+		check(p._chat_scope.get_theme_color("font_color") == CWStyle.TEXT_DIM, "等待室：没入座的观众没有己方")
+		p._chat_team = false
+		p.client.room = room_keep
+		p.client.my_seat = seat_keep
 		## 输入框换成局内那种（Kevin 2026-09-17）：标签字号、22 高；昵称那些表单框不动
 		check(p._chat_input.size.y == CWChatBox.INPUT_H
 			and p._chat_input.get_theme_font_size("font_size") == CWStyle.SIZE_LABEL,

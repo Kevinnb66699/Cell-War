@@ -935,7 +935,7 @@ func _repaint_chat() -> void:
 		return
 	_chat_scope.text = "己方" if _chat_team else "全体"
 	_chat_scope.add_theme_color_override("font_color",
-		CWStyle.IMMUNE if _chat_team else CWStyle.TEXT_HI)
+		CWChatBox.faction_color(_my_faction()) if _chat_team else CWStyle.TEXT_HI)
 	var log: Array = client.chat_log if client != null else []
 	for i in CHAT_ROWS:
 		var idx: int = log.size() - CHAT_ROWS + i
@@ -1119,9 +1119,18 @@ func _repaint_create() -> void:
 
 
 ## 等待室整页按最新的 room 视图重画（席位行每次重建：行数、按钮集合都随视图变）
+## 我坐在哪个阵营：「己方」标签的颜色跟它走（Kevin 2026-09-17：癌症方要黄）；没入座 = 观众 = -1
+func _my_faction() -> int:
+	if client == null or client.my_seat < 0 or client.room.is_empty():
+		return -1
+	var seats: Array = client.room.get("seats", [])
+	return int(seats[client.my_seat]["faction"]) if client.my_seat < seats.size() else -1
+
+
 func _repaint_room() -> void:
 	if client == null or client.room.is_empty():
 		return
+	_repaint_chat()   ## 换了席位「己方」要跟着换色；关着时它自己判空返回
 	var v: Dictionary = client.room
 	_title.text = "房间 %s" % v["code"]
 	_sub.text = "%s · 每步 %s · %d 人局 · 房主 %s%s" % ["公开" if v["public"] else "私密",

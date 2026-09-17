@@ -802,6 +802,9 @@ func _wire_bridge(level: int) -> void:
 	## 框一局建一次、跨局复用：联机局重新接回车，本地局（没人可聊）不接
 	if _chat != null:
 		_chat.active = online
+		## 「己方」标签的颜色跟我自己的阵营走（癌症席是橙）；没抢到席位的观众没有己方
+		var mine: int = _client.my_seat if online and _client != null else -1
+		_chat.team_faction = int(game.players[mine]["faction"]) if mine >= 0 and mine < game.players.size() else -1
 	bridge.game = game
 	bridge.board = board
 	bridge.dice = _dice
