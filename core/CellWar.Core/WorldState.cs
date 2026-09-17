@@ -119,6 +119,13 @@ public sealed class TurnState
 
     public EntityId? PendingCardCell { get; init; }
 
+    /// <summary>
+    /// 本世界回合 S 阶段癌方复活问到哪一席了（GD `_ask_each` 的 `flow["i"]`）：席位小于它的这一轮不再问 ——
+    /// 放弃了的、已经复活的、轮到时没落点的，都算问过。换回合归零。
+    /// 没有它，「放弃」之后 `GetRevivalOptions` 会立刻再问同一个细胞。
+    /// </summary>
+    public int CancerReviveFrom { get; init; }
+
     public TurnState Clone() => new()
     {
         WorldRound = WorldRound,
@@ -146,7 +153,8 @@ public sealed class TurnState
         ChemotaxisStepsLeft = ChemotaxisStepsLeft,
         CardResolveDepth = CardResolveDepth,
         PendingCard = PendingCard,
-        PendingCardCell = PendingCardCell
+        PendingCardCell = PendingCardCell,
+        CancerReviveFrom = CancerReviveFrom
     };
 }
 

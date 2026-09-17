@@ -28,6 +28,7 @@ public sealed class MatchObservationProvider : IObservationProvider
         {
             MoveDecision m => new VisibleOption(index, d.DecisionType, m.CellId, m.TargetPosition, rules.QuoteMove(s, s.Cells[m.CellId], m.TargetPosition) is { } q ? q / 10.0 : null),
             ReviveDecision r => new VisibleOption(index, d.DecisionType, r.CellId, r.TargetPosition, null),
+            SkipReviveDecision r => new VisibleOption(index, d.DecisionType, r.CellId, null, null),
             PlaceDecision p => new VisibleOption(index, d.DecisionType, null, p.TargetPosition, null),
             DifferentiateDecision f => new VisibleOption(index, d.DecisionType, f.CellId, null, null, f.Type),
             DrawDecision w => new VisibleOption(index, d.DecisionType, w.CellId, null, null, null),

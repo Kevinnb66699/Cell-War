@@ -93,7 +93,8 @@ public class CanonRoundTripTests
             .WithPendingChain(id)
             .WithPendingChemotaxis(other, 2)
             .WithPendingCard("炎症性趋化", other)
-            .WithCardResolveDepth(1));
+            .WithCardResolveDepth(1)
+            .WithCancerReviveFrom(2));
     }
 
 }

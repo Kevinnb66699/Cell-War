@@ -67,6 +67,7 @@ public static class SemanticKey
         // 癌方那问 GD 的 data 带 `anchor`，按规矩 1 剔除 —— 所以同一格的多个依托会压成同一个键。
         ReviveDecision r => Key(s.Cells[r.CellId].Faction == Faction.Immune ? "immune_revive" : "revive",
             ("to", Pos(r.TargetPosition))),
+        SkipReviveDecision => Key("revive", ("skip", "1")),   // GD 下标 0 的「放弃本回合复活」
 
         EndTurnDecision => Key("action", ("act", "end")),
         PassDecision => Key("action", ("act", "pass")),

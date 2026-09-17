@@ -34,8 +34,8 @@ public static class L1Replay
     /// <summary>C# 侧固定多出来的：每个 action 问答一条 `pass`（GD 没有这个动作）。</summary>
     private static readonly HashSet<string> CsKnownExtra = new(StringComparer.Ordinal) { SemanticKey.PassKey };
 
-    /// <summary>GD 侧固定多出来的：癌方复活的「放弃本回合复活」（C# 的复活问答没有跳过项 —— 待补的形状差异）。</summary>
-    private static readonly HashSet<string> GdKnownExtra = new(StringComparer.Ordinal) { "k=revive|skip=1" };
+    /// <summary>GD 侧固定多出来的选项。2026-09-16 起为空 —— 「放弃本回合复活」已补进 C#；留着这个口子给下一条形状差异。</summary>
+    private static readonly HashSet<string> GdKnownExtra = new(StringComparer.Ordinal);
 
     public static ReplayReport Run(string tracePath, int maxSteps = int.MaxValue)
     {

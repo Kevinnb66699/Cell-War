@@ -52,7 +52,8 @@ public static class CanonCodec
             s.Turn.TrackCell is { } tc ? Seat(tc) : null, PosOrNull(s.Turn.TrackFrozenAt), s.Turn.TrackRounds,
             s.Turn.PendingChainCell is { } pc ? Seat(pc) : null,
             s.Turn.PendingChemotaxisCell is { } px ? Seat(px) : null, s.Turn.ChemotaxisStepsLeft,
-            s.Turn.CardResolveDepth, s.Turn.PendingCard ?? "", s.Turn.PendingCardCell is { } pcc ? Seat(pcc) : null)
+            s.Turn.CardResolveDepth, s.Turn.PendingCard ?? "", s.Turn.PendingCardCell is { } pcc ? Seat(pcc) : null,
+            s.Turn.CancerReviveFrom)
         {
             Players = s.Players.Values.OrderBy(p => p.Seat).Select(p => new CanonPlayer(
                 p.Seat, (int)p.Faction, p.IsAlive, p.DrawCount, p.AntigenMemory, (int)p.ImmuneLevel,
@@ -173,6 +174,7 @@ public static class CanonCodec
                 CardResolveDepth = c.G.CardResolveDepth,
                 PendingCard = c.G.PendingCard == "" ? null : c.G.PendingCard,
                 PendingCardCell = c.G.PendingCardCell is { } pcc ? Id(pcc) : null,
+                CancerReviveFrom = c.G.CancerReviveFrom,
             },
         };
     }

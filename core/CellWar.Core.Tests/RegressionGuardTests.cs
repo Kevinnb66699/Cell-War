@@ -288,6 +288,7 @@ public class RegressionGuardTests
         AssertOnlyChanges(full, "WithCardResolveDepth", nameof(TurnState.CardResolveDepth), t => t.WithCardResolveDepth(3));
         AssertOnlyChangesAmong(full, "WithPendingCard", PendingCardFields, t => t.WithPendingCard("缺氧适应", new EntityId(9)));
         AssertOnlyChangesAmong(full, "WithPendingCard(null)", PendingCardFields, t => t.WithPendingCard(null, null));
+        AssertOnlyChanges(full, "WithCancerReviveFrom", nameof(TurnState.CancerReviveFrom), t => t.WithCancerReviveFrom(3));
     }
 
     [Fact]
@@ -1433,6 +1434,7 @@ public class RegressionGuardTests
         CardResolveDepth = 1,
         PendingCard = "炎症性趋化",
         PendingCardCell = new EntityId(6),
+        CancerReviveFrom = 2,
     };
 
     /// <summary>同上：每个字段都非默认。</summary>

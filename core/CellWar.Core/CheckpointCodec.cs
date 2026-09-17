@@ -14,7 +14,7 @@ internal static class PayloadCodec
         // 挂起态的选项也会进 `Runtime` 的待答选项表（Runtime.cs:230 逐条 Validate），漏登记
         // 不会编译报错，是运行时的 `Unknown payload type.`。【连续吞噬】那一对就这么漏了一阵 ——
         // 巨噬的连锁追问挂起时存一次档就炸。现在有一条反射护栏（PayloadCodecGuardTests）盯着这张表。
-        typeof(ChainMoveDecision), typeof(StopChainDecision),
+        typeof(ChainMoveDecision), typeof(StopChainDecision), typeof(SkipReviveDecision),
         typeof(ChemotaxisStepDecision), typeof(StopChemotaxisDecision)
     };
     public static void Validate(object? value)

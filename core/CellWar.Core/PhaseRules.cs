@@ -51,7 +51,7 @@ internal static class PhaseRules
             var (winner, alarm) = OutcomeRules.Evaluate(s);
             s = s.WithTurn(s.Turn.Copy(phase: winner == null ? Phase.E : Phase.Finished, winner: winner, alarm: alarm));
             if (s.Turn.Phase != Phase.Finished)
-                s = s.WithTurn(s.Turn.Copy(phase: Phase.S, round: s.Turn.WorldRound + 1, seat: s.Players.Keys.OrderBy(x => x).FirstOrDefault(), startStep: 0));
+                s = s.WithTurn(s.Turn.Copy(phase: Phase.S, round: s.Turn.WorldRound + 1, seat: s.Players.Keys.OrderBy(x => x).FirstOrDefault(), startStep: 0, cancerReviveFrom: 0));
         }
         var facts = Cells(s).Where(c => before.Cells.TryGetValue(c.Id, out var previous) && previous.Energy != c.Energy)
             .Select(c => (IGameEvent)new EnergyChangedEvent(before.Turn.WorldRound, before.Turn.Phase, c.Id,
@@ -174,28 +174,46 @@ internal static class PhaseRules
         return first == null ? s : BeginTurn(s, first.Value);
     }
 
-    public static IReadOnlyList<ReviveDecision> GetRevivalOptions(WorldState s)
+    /// <summary>
+    /// 这一刻该问谁复活、有哪些选项。免疫先（GD `revive_immune` 阶段在前）、再癌方；每方按席位。
+    /// 癌方（GD `revive_options_cancer`）：下标 0 是「放弃本回合复活」；每个落点**只出一条**，依托取坐标最小的固化格
+    /// （同一落点可能落在好几个固化格的 1 环里，GD 不为「碎哪一格」多加一问，取最小值也让结果不依赖遍历顺序）；
+    /// 席位小于 <see cref="TurnState.CancerReviveFrom"/> 的这一轮已经问过，不再问。
+    /// </summary>
+    public static IReadOnlyList<IDecision> GetRevivalOptions(WorldState s)
     {
-        if (s.Turn.Phase != Phase.S || s.Turn.StartStep != 1) return Array.Empty<ReviveDecision>();
+        if (s.Turn.Phase != Phase.S || s.Turn.StartStep != 1) return Array.Empty<IDecision>();
         foreach (var c in Cells(s).Where(c => !c.IsAlive).OrderBy(c => c.Faction == Faction.Immune ? 0 : 1).ThenBy(c => c.OwnerSeat))
         {
-            var options = new List<ReviveDecision>();
+            var options = new List<IDecision>();
             if (c.Faction == Faction.Immune)
             {
                 if (c.DeathRound == null || s.Turn.WorldRound <= c.DeathRound + 1) continue;
                 options.AddRange(Tiles(s).Where(t => t.Type == TissueType.BoneMarrow && t.State == TissueState.Healthy && t.OccupyingCell == null)
-                    .Select(t => new ReviveDecision(c.OwnerSeat, c.Id, t.Position)));
+                    .Select(t => (IDecision)new ReviveDecision(c.OwnerSeat, c.Id, t.Position)));
             }
             else
             {
+                if (c.OwnerSeat < s.Turn.CancerReviveFrom) continue;
+                var spots = new Dictionary<HexPosition, HexPosition>();   // 落点 → 依托（坐标最小的那个固化格）
                 foreach (var source in Tiles(s).Where(t => t.State == TissueState.SolidifiedCancer && s.GetCellAt(t.Position)?.Faction != Faction.Immune))
-                    options.AddRange(Tiles(s).Where(t => Cancerous(t) && t.OccupyingCell == null && t.Position.DistanceTo(source.Position) <= 1)
-                        .Select(t => new ReviveDecision(c.OwnerSeat, c.Id, t.Position, source.Position)));
+                    foreach (var t in Tiles(s).Where(t => Cancerous(t) && t.OccupyingCell == null && t.Position.DistanceTo(source.Position) <= 1))
+                        if (!spots.TryGetValue(t.Position, out var anchor) || Less(source.Position, anchor)) spots[t.Position] = source.Position;
+                if (spots.Count == 0) continue;
+                options.Add(new SkipReviveDecision(c.OwnerSeat, c.Id));
+                options.AddRange(spots.Keys.OrderBy(p => p.Q).ThenBy(p => p.R).Select(p => (IDecision)new ReviveDecision(c.OwnerSeat, c.Id, p, spots[p])));
             }
             if (options.Count > 0) return options;
         }
-        return Array.Empty<ReviveDecision>();
+        return Array.Empty<IDecision>();
     }
+
+    /// <summary>GD `Vector2i` 的 `<`：先比 x（q）再比 y（r）。依托「取坐标最小」用的就是这把尺。</summary>
+    private static bool Less(HexPosition a, HexPosition b) => a.Q < b.Q || (a.Q == b.Q && a.R < b.R);
+
+    /// <summary>癌方放弃本回合复活：细胞照旧死着，光标推到下一席，S 阶段继续。</summary>
+    public static RulesResult SkipRevive(WorldState s, SkipReviveDecision skip)
+        => new(ContinueStart(s.WithTurn(s.Turn.WithCancerReviveFrom(skip.PlayerSeat + 1))), Array.Empty<IGameEvent>(), true);
 
     /// <summary>S.3/S.4 复活结算：落位/能量/占用与癌症干性被动，随后继续 S 阶段。</summary>
     public static RulesResult Revive(WorldState s, ReviveDecision revival)
@@ -206,6 +224,8 @@ internal static class PhaseRules
         s = s.UpdateCell(dead.Id, dead.Copy(alive: true, energy: dead.Faction == Faction.Immune ? 10 : 20, position: revival.TargetPosition, attacks: 0));
         s = s.UpdateTissueOccupant(revival.TargetPosition, dead.Id);
         s = SetSeatAlive(s, dead.OwnerSeat, true);
+        // 癌方这一席问过了（GD `flow["i"] += 1`）：别的癌席复活碎掉的固化格再造出落点，也轮不回来
+        if (dead.Faction == Faction.Cancer) s = s.WithTurn(s.Turn.WithCancerReviveFrom(dead.OwnerSeat + 1));
         // 【癌症干性】：复活能量提高（分期），本世界回合前两次向癌性组织移动免费
         if (dead.Faction == Faction.Cancer && HasSkill(s, dead, "癌症干性"))
         {

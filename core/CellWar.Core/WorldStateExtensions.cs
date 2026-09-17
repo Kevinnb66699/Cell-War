@@ -148,7 +148,7 @@ public static class WorldStateExtensions
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
         EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null, EntityId? pendingChain = null,
         EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null,
-        int? cardResolveDepth = null, string? pendingCard = null, EntityId? pendingCardCell = null,
+        int? cardResolveDepth = null, string? pendingCard = null, EntityId? pendingCardCell = null, int? cancerReviveFrom = null,
         bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false,
         bool setTrackCell = false, bool setTrackFrozenAt = false, bool setPendingChain = false, bool setPendingChemotaxis = false,
         bool setPendingCard = false)
@@ -171,11 +171,15 @@ public static class WorldStateExtensions
             ChemotaxisStepsLeft = chemotaxisStepsLeft ?? t.ChemotaxisStepsLeft,
             CardResolveDepth = cardResolveDepth ?? t.CardResolveDepth,
             PendingCard = setPendingCard ? pendingCard : pendingCard ?? t.PendingCard,
-            PendingCardCell = setPendingCard ? pendingCardCell : pendingCardCell ?? t.PendingCardCell };
+            PendingCardCell = setPendingCard ? pendingCardCell : pendingCardCell ?? t.PendingCardCell,
+            CancerReviveFrom = cancerReviveFrom ?? t.CancerReviveFrom };
 
     /// <summary>挂起 / 结束【连续吞噬】的连锁选择。</summary>
     public static TurnState WithPendingChain(this TurnState t, EntityId? cell)
         => t.Copy(pendingChain: cell, setPendingChain: true);
+
+    /// <summary>癌方复活问到哪一席了（放弃 / 复活 / 没落点都往前推一格）。</summary>
+    public static TurnState WithCancerReviveFrom(this TurnState t, int seat) => t.Copy(cancerReviveFrom: seat);
 
     /// <summary>进 / 出一张卡的结算（GD `card_resolve_depth += 1 / -= 1`）。</summary>
     public static TurnState WithCardResolveDepth(this TurnState t, int depth) => t.Copy(cardResolveDepth: depth);

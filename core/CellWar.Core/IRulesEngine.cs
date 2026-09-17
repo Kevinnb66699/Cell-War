@@ -64,6 +64,12 @@ public sealed record ReviveDecision(int PlayerSeat, EntityId CellId, HexPosition
     public string DecisionType => "Revive";
 }
 
+/// <summary>癌方「放弃本回合复活」（GD 复活问答下标 0 的 `{skip: true}`）。免疫复活没有这一项。</summary>
+public sealed record SkipReviveDecision(int PlayerSeat, EntityId CellId) : IDecision
+{
+    public string DecisionType => "SkipRevive";
+}
+
 /// <summary>
 /// 开局选址：在 Setup 阶段把初始细胞放到目标格。
 /// </summary>

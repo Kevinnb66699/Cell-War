@@ -43,8 +43,8 @@ internal static class DecisionRouter
                 : new(false, "等待【炎症性趋化】选择下一步");
         }
         if (decision is PlaceDecision placement) return PlacementRules.ValidatePlacement(state, placement);
-        if (decision is ReviveDecision revival)
-            return new(PhaseRules.GetRevivalOptions(state).Contains(revival), "Invalid revival option.");
+        if (decision is ReviveDecision or SkipReviveDecision)
+            return new(PhaseRules.GetRevivalOptions(state).Contains(decision), "Invalid revival option.");
         if (decision is DifferentiateDecision differentiation) return PlacementRules.ValidateDifferentiate(state, differentiation);
         if (decision is DrawDecision draw) return CardRules.ValidateDraw(state, draw);
         if (decision is MutateDecision mutate) return CardRules.ValidateMutate(state, mutate);
@@ -97,6 +97,7 @@ internal static class DecisionRouter
         if (decision is EndTurnDecision) return PhaseRules.AdvancePhase(state, rng);
         if (decision is PassDecision) return new(state, Array.Empty<IGameEvent>(), true);
         if (decision is ReviveDecision revival) return PhaseRules.Revive(state, revival);
+        if (decision is SkipReviveDecision skip) return PhaseRules.SkipRevive(state, skip);
         return CellRules.Move(state, (MoveDecision)decision, rng);
     }
 
@@ -111,7 +112,7 @@ internal static class DecisionRouter
             return Tiles(s).Where(t => t.State == want && t.OccupyingCell == null)
                 .Select(t => (IDecision)new PlaceDecision(seat, t.Position)).ToArray();
         }
-        if (s.Turn.Phase == Phase.S) return PhaseRules.GetRevivalOptions(s).Where(d => d.PlayerSeat == seat).Cast<IDecision>().ToArray();
+        if (s.Turn.Phase == Phase.S) return PhaseRules.GetRevivalOptions(s).Where(d => d.PlayerSeat == seat).ToArray();
         if (s.Turn.PendingDiscardSeat is { } pending)
         {
             if (pending != seat) return Array.Empty<IDecision>();
