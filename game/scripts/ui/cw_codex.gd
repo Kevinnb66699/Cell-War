@@ -708,8 +708,6 @@ func _build() -> void:
 
 	## 搜索框（Kevin 2026-09-06）占了原来副标题的位置；副标题那句挪进页脚
 	_search = LineEdit.new()
-	_search.position = Vector2(W - PAD - SEARCH_W, PAD + 2)
-	_search.size = Vector2(SEARCH_W, 22)
 	_search.placeholder_text = "搜索图鉴… 回车跳到第一条"
 	_search.max_length = 24
 	_search.context_menu_enabled = false
@@ -728,6 +726,10 @@ func _build() -> void:
 			_search.accept_event()
 			_dismiss_search())
 	panel.add_child(_search)
+	## 尺寸在**进树之后**设（同 CWChatBox 那条，2026-09-17）：进树前主题缓存还是默认主题，
+	## set_size 会被默认的最小高 31 钳住、之后不缩回 —— 这只框此前就真的是 31 高，比设计多探下 9 px
+	_search.position = Vector2(W - PAD - SEARCH_W, PAD + 2)
+	_search.size = Vector2(SEARCH_W, 22)
 
 	## 章标题行与页码（点阵字没有箭头，用 ASCII < > 做翻页按钮，同配置面板语汇）
 	_title = CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.IMMUNE)

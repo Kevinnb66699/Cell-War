@@ -1256,8 +1256,6 @@ func _row_label(root: Control, text: String, row: int) -> Label:
 ## 输入框：点阵字 20px、和按钮同一套描边；焦点时描边全亮
 func _edit(root: Control, at: Vector2, w: float, placeholder: String, max_len: int) -> LineEdit:
 	var e := LineEdit.new()
-	e.position = at
-	e.size = Vector2(w, 34)
 	e.placeholder_text = placeholder
 	e.max_length = max_len
 	e.context_menu_enabled = false
@@ -1269,6 +1267,10 @@ func _edit(root: Control, at: Vector2, w: float, placeholder: String, max_len: i
 	e.add_theme_stylebox_override("normal", CWStyle.box(0.45, CWStyle.BTN_BG, 2, 8))
 	e.add_theme_stylebox_override("focus", CWStyle.box(1.0, CWStyle.BTN_BG, 2, 8))
 	root.add_child(e)
+	## 尺寸在**进树之后**设（同 CWChatBox 那条，2026-09-17）：进树前会被默认主题的最小高 31 钳住。
+	## 这里的 34 > 31 所以此前从没露馅，几何零变化 —— 但别靠这个巧合
+	e.position = at
+	e.size = Vector2(w, 34)
 	return e
 
 

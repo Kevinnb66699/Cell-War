@@ -11332,6 +11332,8 @@ func t_codex() -> void:
 	var book := CWCodex.new()
 	root.add_child(book)
 	await process_frame
+	check(book._search.size.y == 22.0,
+		"搜索框 22 高（size 要在进树后设；此前被默认主题钳到 31，多探下 9 px）：实为 %d" % int(book._search.size.y))
 	book.open()
 	book._search.text = "血管"
 	book._on_query("血管")
