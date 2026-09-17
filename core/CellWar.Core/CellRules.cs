@@ -88,17 +88,21 @@ internal static class CellRules
             return RemoveModifiers(s, id, "BCL-2抗凋亡");
         }
         var energy = Math.Max(0, c.Energy - amount);
-        s = s.UpdateCell(id, c.Copy(energy: energy, alive: energy > 0, deathRound: energy == 0 ? s.Turn.WorldRound : c.DeathRound));
-        if (energy == 0)
-        {
-            // 【免疫猎杀】：「癌细胞死亡后趋化源留在死亡格」——把位置冻下来、断开跟随。
-            // 位置平时不存在状态里（活着现读细胞的 Position），只有这一刻要冻。
-            if (s.Turn.TrackCell == id)
-                s = s.WithTurn(s.Turn.WithTrack(null, c.Position, s.Turn.TrackRounds));
-            s = s.UpdateTissueOccupant(c.Position, null);
-            s = SetSeatAlive(s, c.OwnerSeat, s.Cells.Values.Any(x => x.OwnerSeat == c.OwnerSeat && x.IsAlive));
-        }
-        return s;
+        return energy == 0 ? Kill(s, id) : s.UpdateCell(id, c.Copy(energy: energy));
+    }
+
+    /// <summary>GD `game.kill`（cw_game.gd）—— 死亡的唯一入口：能量清零、alive=false、**自身修饰随之消散**（`mods = []`，复活是新生），
+    /// 占位交接、席位存活标记，【免疫猎杀】的趋化源冻在死亡格（位置平时不存在状态里，只有这一刻要冻）。
+    /// 伤害管线打死的与自毁型技能（【黏液破裂】）都走这一条 —— 自毁**不能**走 Damage：【囊性护甲】【BCL-2抗凋亡】那些减免
+    /// 会让它「自杀未遂」，印戒剩 0.5 能量活着继续占着回合（L1 第 56 步就停在这儿，2026-09-17）。</summary>
+    public static WorldState Kill(WorldState s, EntityId id)
+    {
+        var c = s.Cells[id];
+        s = s.UpdateCell(id, c.Copy(energy: 0, alive: false, deathRound: s.Turn.WorldRound, modifiers: Array.Empty<ActiveModifier>()));
+        if (s.Turn.TrackCell == id)
+            s = s.WithTurn(s.Turn.WithTrack(null, c.Position, s.Turn.TrackRounds));
+        s = s.UpdateTissueOccupant(c.Position, null);
+        return SetSeatAlive(s, c.OwnerSeat, s.Cells.Values.Any(x => x.OwnerSeat == c.OwnerSeat && x.IsAlive));
     }
 
     public static WorldState SetSeatAlive(WorldState s, int seat, bool alive)
@@ -274,7 +278,9 @@ internal static class CellRules
     public static WorldState UpdateMarks(WorldState s)
     {
         foreach (var dendritic in RulePolicies.Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune && c.Type == CellType.Dendritic).ToArray())
-            foreach (var cancer in RulePolicies.Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.MarkRound != s.Turn.WorldRound && c.Position.DistanceTo(dendritic.Position) <= 2).ToArray())
+            // GD `update_marks`（cw_game.gd:1081-1089）跳过的是**已带标记**的（`if c["marked"]: continue`），不是「本回合标过」的：
+            // 上一回合标上、还没被消耗的标记不该被树突光环刷新寿命与次数（2026-09-17 随【交叉呈递】一起对齐）
+            foreach (var cancer in RulePolicies.Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && !c.Marked && c.Position.DistanceTo(dendritic.Position) <= 2).ToArray())
                 s = ApplyMark(s, cancer.Id, dendritic);
         return s;
     }
@@ -302,7 +308,38 @@ internal static class CellRules
         else if (c.Faction == Faction.Immune && tile.State == TissueState.Cancer)
         {
             s = s.UpdateTissueState(dest, TissueState.Healthy);
-            s = AddMemory(s, 1);
+            // 同 Move 那条路：卡牌引发的净化不给抗原记忆（GD purify_here → purify_gives_memory）
+            if (RulePolicies.PurifyGivesMemory(s)) s = AddMemory(s, 1);
+        }
+        return s;
+    }
+
+    /// <summary>GD `cw_actions.enter_tile`（1001-1032）—— 「进入一格」的唯一入口：占位交接与【定殖】/ 净化（<see cref="Teleport"/>）
+    /// → 免疫踩黏液即清 → `collect_special`（代谢核心收能量 **或** 骨髓抽卡）→ 刷新树突【标记】。
+    /// 三张传送卡（【免疫增援】【肿瘤细胞募集】【肿瘤增援】）、【癌症转移】与两条跃进技能都走它（2026-09-17）；
+    /// 此前只有 Teleport，落到有卡的骨髓格上 GD 抽一张（带子多一发）、C# 什么也不抽。</summary>
+    public static WorldState EnterTile(WorldState s, EntityId id, HexPosition dest, IDeterministicRng rng)
+    {
+        s = Teleport(s, id, dest);
+        var c = s.Cells[id];
+        var t = s.Board.Tissues[dest];
+        if (c.Faction == Faction.Immune && t.Mucus)
+            s = s.WithBoard(s.Board.UpdateTissue(dest, t.WithMucus(false)));
+        s = CollectSpecial(s, id, rng);
+        return UpdateMarks(s);
+    }
+
+    /// <summary>GD `collect_special`（cw_actions.gd:1096-1107）：代谢核心有存储就收能量并清库存，
+    /// **否则**（if / elif，不是两件都做）骨髓有卡就清库存并抽一张 —— 那一抽是带子上的一发，**不判阵营**。</summary>
+    public static WorldState CollectSpecial(WorldState s, EntityId id, IDeterministicRng rng)
+    {
+        var c = s.Cells[id];
+        var t = s.Board.Tissues[c.Position];
+        if (t.Type == TissueType.MetabolicCore && t.Charge > 0) return CollectEnergy(s, id);
+        if (t.Type == TissueType.BoneMarrow && t.Charge > 0)
+        {
+            s = s.WithBoard(s.Board.UpdateTissue(t.Position, t.WithCharge(0)));
+            return CardRules.DrawOne(s, s.Cells[id], rng);
         }
         return s;
     }
@@ -547,14 +584,20 @@ internal static class CellRules
             s = s.WithBoard(s.Board.UpdateTissue(move.TargetPosition, s.Board.Tissues[move.TargetPosition].WithNewborn(true)));
             events.Add(new TissueStateChangedEvent(s.Turn.WorldRound, s.Turn.Phase, move.TargetPosition, tissue.State, TissueState.Cancer));
             // 【RAS持续激活】：每行动回合第一次通过【移动】触发【定殖】后恢复
-            if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "RAS持续激活") && TurnGateOpen(s.Cells[cell.Id], "RAS持续激活"))
+            // GD `first_this_turn`（cw_game.gd）**每次都记一笔**、只在第一次返回 true：fx_turn 存的是「用了几次」，
+            // 所以第二次定殖不回血、计数照样 +1（L1 第 184 步：GD 记 2、C# 记 1）。计数进 state_hash，得逐位同
+            if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "RAS持续激活"))
             {
-                var heal = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 3, 1 => 5, _ => 7 };
-                s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
+                var first = TurnGateOpen(s.Cells[cell.Id], "RAS持续激活");
                 s = BurnTurnGate(s, cell.Id, "RAS持续激活");
+                if (first)
+                {
+                    var heal = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 3, 1 => 5, _ => 7 };
+                    s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
+                }
             }
         }
-        s = CollectEnergy(s, cell.Id);
+        s = CollectSpecial(s, cell.Id, rng);   // 代谢核心收能量 / 骨髓抽卡（GD enter_tile → collect_special，2026-09-17 补上骨髓那一支）
         events.Add(new CellMovedEvent(s.Turn.WorldRound, s.Turn.Phase, cell.Id, cell.Position, move.TargetPosition, cost));
         return new(UpdateMarks(s), events, true);
     }

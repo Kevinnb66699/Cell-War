@@ -59,17 +59,9 @@ internal static class CardRules
             }
             return s;
         },
+        // 【基质降解】：格子由玩家选（GD hand_options 一格一条），**零随机** —— 此前 C# 自己随机挑，带子上多一发
         ["基质降解"] = (s, cell, rng, target, targetCell) =>
-        {
-            var targets = cell.Position.GetNeighbors()
-                .Where(n => s.Board.Tissues.TryGetValue(n, out var t) && t.State == TissueState.SolidifiedCancer).ToArray();
-            if (targets.Length > 0)
-            {
-                var pick = targets[rng.NextInt(targets.Length)];
-                s = s.UpdateTissueState(pick, TissueState.Cancer).UpdateTissueSolidification(pick, 0);
-            }
-            return s;
-        },
+            target is { } pos && DegradeTargets(s, cell).Contains(pos) ? CrackToCancer(s, pos) : s,
         ["溶酶体强化"] = (s, cell, rng, target, targetCell) =>
         {
             var targets = cell.Position.GetNeighbors()
@@ -105,14 +97,7 @@ internal static class CardRules
                 s = s.UpdateTissueState(pick.Position, TissueState.Healthy);
             return s;
         },
-        ["IFN-γ释放"] = (s, cell, rng, target, targetCell) =>
-        {
-            foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(cell.Position) <= 2).ToArray())
-                s = Damage(s, c.Id, 10);   // 1.0 能量（十分位）
-            foreach (var t in Tiles(s).Where(t => t.State == TissueState.Cancer && t.Position.DistanceTo(cell.Position) <= 2).ToArray())
-                s = s.UpdateTissueSolidification(t.Position, Math.Max(0, t.SolidificationCount - 10));   // 固化计数 -1.0
-            return s;
-        },
+        ["IFN-γ释放"] = (s, cell, rng, target, targetCell) => IfnBurst(s, cell.Position),   // 事件卡：圆心 = 自己
         ["糖酵解爆发"] = (s, cell, rng, target, targetCell) =>
         {
             s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + AnaerobicShare(s, cell)));
@@ -188,18 +173,15 @@ internal static class CardRules
         },
         ["乳酸酸化"] = (s, cell, rng, target, targetCell) =>
         {
-            if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.Faction == Faction.Immune
-                && t.Position.DistanceTo(cell.Position) <= 1)
-            {
-                var loss = CancerPhase(s.Turn.WorldRound) switch { 0 => 8, 1 => 15, _ => 20 };
-                if (AdjacentCancerous(s, t.Position, 3)) loss += 5;
-                s = Damage(s, tid, loss);
-            }
-            return s;
+            if (targetCell is not { } tid || !LacticAcidTargets(s, cell).Contains(tid)) return s;
+            var loss = CancerPhase(s.Turn.WorldRound) switch { 0 => 8, 1 => 15, _ => 20 };
+            if (AdjacentCancerous(s, s.Cells[tid].Position, 3)) loss += 5;
+            return Damage(s, tid, loss);
         },
         ["基质硬化"] = (s, cell, rng, target, targetCell) =>
         {
-            if (target is { } pos && pos.DistanceTo(cell.Position) <= 1 && s.Board.Tissues.TryGetValue(pos, out var t) && t.State == TissueState.Cancer)
+            // 三道闸（新生保护 / TNF-α 冻结 / 血管）在选项层就拦（HardenTargets），这里只认候选表里的格
+            if (target is { } pos && HardenTargets(s, cell).Contains(pos))
             {
                 var add = CancerPhase(s.Turn.WorldRound) switch { 0 => 10, 1 => 15, _ => 20 };
                 // 走 `BoardRules.RaiseSolid` 而不是自己改字段 —— GD 侧 `_stroma_harden` 也是调 `raise_solid`。
@@ -210,31 +192,16 @@ internal static class CardRules
             }
             return s;
         },
+        // 【交叉呈递】：射程树突 4 / 其余 2，已标记的不出选项。GD cw_card_fx.gd:301 是裸写 `target["marked"] = true`，
+        // **不经 apply_mark**：不写 mark_round、不写 mark_left（寿命按旧 mark_round 算、只翻一次、同回合唯一那道闸对本卡不生效）。
+        // 别「顺手修正」成 ApplyMark，两边内核先一致 —— GD 侧是否该走 apply_mark 记在对拍规格的待裁项里。
         ["交叉呈递"] = (s, cell, rng, target, targetCell) =>
-        {
-            if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.Faction == Faction.Cancer
-                && t.Position.DistanceTo(cell.Position) <= 2)
-                s = ApplyMark(s, tid, s.Cells[cell.Id]);
-            return s;
-        },
+            targetCell is { } tid && CrossPresentTargets(s, cell).Contains(tid) ? s.UpdateCell(tid, s.Cells[tid].Copy(marked: true)) : s,
         ["抗体依赖细胞毒作用"] = (s, cell, rng, target, targetCell) =>
-        {
-            if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.Faction == Faction.Cancer
-                && t.Position.DistanceTo(cell.Position) <= 2 && AdjacentHealthy(s, t.Position))
-                s = Damage(s, tid, cell.Type == CellType.BCell ? 15 : 10);
-            return s;
-        },
+            targetCell is { } tid && AdccTargets(s, cell).Contains(tid) ? Damage(s, tid, cell.Type == CellType.BCell ? 15 : 10) : s,
+        // 【IFN-γ高峰】：技能卡，圆心 = 所选免疫细胞（可以是自己、不限距离），选项层用 IfnHasEffect 把「打了什么都不发生」的目标挡掉
         ["IFN-γ高峰"] = (s, cell, rng, target, targetCell) =>
-        {
-            if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.Faction == Faction.Immune)
-            {
-                foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(t.Position) <= 2).ToArray())
-                    s = Damage(s, c.Id, 10);   // IFN-γ高峰：1.0 能量（原 1 = 0.1）
-                foreach (var tile in Tiles(s).Where(x => x.State == TissueState.Cancer && x.Position.DistanceTo(t.Position) <= 2).ToArray())
-                    s = s.UpdateTissueSolidification(tile.Position, Math.Max(0, tile.SolidificationCount - 10));
-            }
-            return s;
-        },
+            targetCell is { } tid && IfnPeakTargets(s, cell).Contains(tid) ? IfnBurst(s, s.Cells[tid].Position) : s,
         ["免疫风暴"] = (s, cell, rng, target, targetCell) =>
         {
             if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.Faction == Faction.Immune)
@@ -246,26 +213,27 @@ internal static class CardRules
             }
             return s;
         },
+        // 【免疫增援】：队友只认**别的席位**（GD `t.pid != cell.pid`），落点在结算时刻重算 —— 与选项层同一个函数、同一个顺序，
+        // 抽一发 NextInt(|候选|)（候选恰好 1 格时带子零消耗）；落地走 EnterTile（骨髓有卡会再抽一张）
         ["免疫增援"] = (s, cell, rng, target, targetCell) =>
         {
-            if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.Faction == Faction.Immune
-                && RandomHealthyWithin(s, t.Position, 2, rng) is { } dest)
-                s = Teleport(s, cell.Id, dest);
-            return s;
+            if (targetCell is not { } tid || !ReinforceAllies(s, cell).Contains(tid)) return s;
+            var cands = EmptyHealthyWithin(s, s.Cells[tid].Position, 2);
+            return CellRules.EnterTile(s, cell.Id, cands[rng.NextInt(cands.Count)], rng);
         },
+        // 【肿瘤细胞募集】：把**别人**拉到自己身边 —— 落点以**施法者**为心（GD `_recruit`），目标只认别的席位
         ["肿瘤细胞募集"] = (s, cell, rng, target, targetCell) =>
         {
-            if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.Faction == Faction.Cancer
-                && RandomCancerousWithin(s, cell.Position, CancerPhase(s.Turn.WorldRound) switch { 0 => 3, 1 => 2, _ => 2 }, rng) is { } dest)
-                s = Teleport(s, tid, dest);
-            return s;
+            if (targetCell is not { } tid || !RecruitTargets(s, cell).Contains(tid)) return s;
+            var dests = CancerousLandings(s, cell.Position, TumorTeleportRings(s));
+            return CellRules.EnterTile(s, tid, dests[rng.NextInt(dests.Count)], rng);
         },
+        // 【肿瘤增援】：把**自己**送过去 —— 落点以**目标**为心（GD `_tumor_reinforce`），选项层逐目标判有没有落点
         ["肿瘤增援"] = (s, cell, rng, target, targetCell) =>
         {
-            if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.Faction == Faction.Cancer
-                && RandomCancerousWithin(s, t.Position, CancerPhase(s.Turn.WorldRound) switch { 0 => 3, 1 => 2, _ => 2 }, rng) is { } dest)
-                s = Teleport(s, cell.Id, dest);
-            return s;
+            if (targetCell is not { } tid || !TumorReinforceTargets(s, cell).Contains(tid)) return s;
+            var dests = CancerousLandings(s, s.Cells[tid].Position, TumorTeleportRings(s));
+            return CellRules.EnterTile(s, cell.Id, dests[rng.NextInt(dests.Count)], rng);
         },
         // 【代谢耦联】（Kevin 2026-09-16 拍板跟 GD 的形状 + 一个「取消」）：打出时已选队友（TargetCell），
         // 随后两问 —— 方向（送给 / 索取，各自只在那一侧付得起最低档时才出现）、档位（1.0→1.2 / 1.5→2.0 / 2.0→2.5）——
@@ -300,21 +268,15 @@ internal static class CardRules
         // 合法落点的枚举在 DecisionRouter（这张卡是 68 张里唯一需要选格的卡牌）。
         ["癌症转移"] = (s, cell, rng, target, targetCell) =>
             target is { } dest && MetastasisTargets(s, cell).Contains(dest)
-                ? CellRules.Teleport(s, cell.Id, dest)
+                ? CellRules.EnterTile(s, cell.Id, dest, rng)   // GD 1709 行 `enter_tile`：定殖 + 特殊组织收取 + 标记刷新
                 : s,
+        // 【放疗】：起点由玩家在全盘癌性组织里选（GD 一格一条）；区域按 GD 的多重集 frontier 一轮一发地长（RadioRegion）；
+        // 翻格段零随机，整格走 to_necrotic（含清库存）
         ["放疗"] = (s, cell, rng, target, targetCell) =>
         {
-            var start = target ?? cell.Position;
-            if (s.Board.Tissues.TryGetValue(start, out var st) && Cancerous(st))
-            {
-                var region = ConnectedRegion(s, start, 10, rng);
-                foreach (var pos in region)
-                {
-                    if (s.Board.Tissues[pos].State != TissueState.Healthy)
-                        s = s.UpdateTissueState(pos, TissueState.Healthy);
-                    s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2)));
-                }
-            }
+            if (target is not { } start || !RadiotherapyTargets(s).Contains(start)) return s;
+            foreach (var pos in RadioRegion(s, start, RadioRegionSize, rng))
+                s = Necrotize(s, pos, NecrosisRadio);
             return s;
         },
         ["克隆增殖"] = (s, cell, rng, target, targetCell) =>
@@ -575,6 +537,12 @@ internal static class CardRules
         // 【代谢耦联】：打出时就选定队友（GD 一个队友一条选项），随后的方向 / 档位走挂起态
         if (d.Card == "代谢耦联" && (d.TargetCell is not { } ally || !CoupleAllies(s, cell).Contains(ally)))
             return new(false, "【代谢耦联】必须指定一个付得起的队友");
+        // 带目标的卡（2026-09-17，GD hand_options 逐条对照）：目标必须在各自的候选表里，没给目标 = 非法。
+        // 不在这里校验，Available 之外的调用方（AI / 对拍）就能递进来一个非法目标、让结算里静默吞掉
+        if (TileTargeted.TryGetValue(d.Card, out var tilesOf) && (d.Target is not { } to || !tilesOf(s, cell).Contains(to)))
+            return new(false, $"【{d.Card}】必须指定一个合法的目标格");
+        if (CellTargeted.TryGetValue(d.Card, out var cellsOf) && (d.TargetCell is not { } tc || !cellsOf(s, cell).Contains(tc)))
+            return new(false, $"【{d.Card}】必须指定一个合法的目标细胞");
         return new(true);
     }
 
@@ -674,6 +642,134 @@ internal static class CardRules
 
     /// <summary>【癌症转移】的合法落点：两环内、盘上、**没有细胞占着**的任意格（不挑地形）。</summary>
     internal const int MetastasisRange = 2;
+
+    // ======== 带目标的卡：候选目标的枚举（GD cw_card_fx.gd `hand_options` 逐条对照，2026-09-17）========
+    // 一律「一个目标一条选项、没有候选就不出这张牌」（GD 没有「落空」那条路）；
+    // 选项层（DecisionRouter.Available）、Validate、结算三处共用同一份表，判据只写一遍。
+
+    /// <summary>需要选格的卡 → 候选表（`to=`）。</summary>
+    internal static readonly IReadOnlyDictionary<string, Func<WorldState, Cell, IReadOnlyList<HexPosition>>> TileTargeted =
+        new Dictionary<string, Func<WorldState, Cell, IReadOnlyList<HexPosition>>>(StringComparer.Ordinal)
+        {
+            ["基质降解"] = DegradeTargets,
+            ["基质硬化"] = HardenTargets,
+            ["基质重塑"] = RemodelTargets,
+            ["放疗"] = (s, _) => RadiotherapyTargets(s),
+            ["癌症转移"] = MetastasisTargets,
+        };
+
+    /// <summary>需要选细胞的卡 → 候选表（`cid=`，语义键里换算成席位）。</summary>
+    internal static readonly IReadOnlyDictionary<string, Func<WorldState, Cell, IReadOnlyList<EntityId>>> CellTargeted =
+        new Dictionary<string, Func<WorldState, Cell, IReadOnlyList<EntityId>>>(StringComparer.Ordinal)
+        {
+            ["交叉呈递"] = CrossPresentTargets,
+            ["抗体依赖细胞毒作用"] = AdccTargets,
+            ["IFN-γ高峰"] = IfnPeakTargets,
+            ["免疫增援"] = ReinforceAllies,
+            ["乳酸酸化"] = LacticAcidTargets,
+            ["肿瘤细胞募集"] = RecruitTargets,
+            ["肿瘤增援"] = TumorReinforceTargets,
+            ["代谢耦联"] = CoupleAllies,
+        };
+
+    /// <summary>【基质降解】：相邻（GD DIRS 序）的固化癌组织，不看占据。</summary>
+    internal static IReadOnlyList<HexPosition> DegradeTargets(WorldState s, Cell cell)
+        => GdNeighbors(s, cell.Position).Where(n => s.Board.Tissues[n].State == TissueState.SolidifiedCancer).ToList();
+
+    /// <summary>【基质硬化】：脚下 + 相邻的**普通**癌组织，且能加固化计数 —— 新生保护（旋钮）、TNF-α 冻结、血管三道闸
+    /// 都在**选项层**拦（GD 注释点名：只在结算处拦就是「卡吃掉、什么也没发生」）。</summary>
+    internal static IReadOnlyList<HexPosition> HardenTargets(WorldState s, Cell cell)
+        => new[] { cell.Position }.Concat(GdNeighbors(s, cell.Position))
+            .Where(p => s.Board.Tissues[p] is { State: TissueState.Cancer } t
+                        && !(s.Tuning.NewbornProtect && t.Newborn)
+                        && t.SolidLockRound != s.Turn.WorldRound
+                        && t.Type != TissueType.BloodVessel)
+            .ToList();
+
+    /// <summary>【基质重塑】第一格：2 环内（含脚下）的固化癌组织。</summary>
+    internal static IReadOnlyList<HexPosition> RemodelTargets(WorldState s, Cell cell)
+        => Tiles(s).Where(t => t.State == TissueState.SolidifiedCancer && t.Position.DistanceTo(cell.Position) <= 2).Select(t => t.Position).ToList();
+
+    /// <summary>【放疗】：全盘任意癌性组织（含固化）作起点，不限范围。</summary>
+    internal static IReadOnlyList<HexPosition> RadiotherapyTargets(WorldState s)
+        => Tiles(s).Where(Cancerous).Select(t => t.Position).ToList();
+
+    /// <summary>【交叉呈递】：N 环内、活着、**还没带标记**的癌细胞；N = 树突 4 / 其余 2。</summary>
+    internal static IReadOnlyList<EntityId> CrossPresentTargets(WorldState s, Cell cell)
+    {
+        var rings = cell.Type == CellType.Dendritic ? 4 : 2;
+        return Cells(s).Where(t => t.IsAlive && t.Faction == Faction.Cancer && !t.Marked && t.Position.DistanceTo(cell.Position) <= rings)
+                       .Select(t => t.Id).ToList();
+    }
+
+    /// <summary>【抗体依赖细胞毒作用】：2 环内、与健康组织相邻的癌细胞。射程恒为 2，B 细胞只改伤害。</summary>
+    internal static IReadOnlyList<EntityId> AdccTargets(WorldState s, Cell cell)
+        => Cells(s).Where(t => t.IsAlive && t.Faction == Faction.Cancer && t.Position.DistanceTo(cell.Position) <= 2 && AdjacentHealthy(s, t.Position))
+                   .Select(t => t.Id).ToList();
+
+    /// <summary>【IFN-γ高峰】：全场任意存活免疫细胞（**含自己**、不限距离），且其 2 环内这一下不会完全落空。</summary>
+    internal static IReadOnlyList<EntityId> IfnPeakTargets(WorldState s, Cell cell)
+        => Cells(s).Where(t => t.IsAlive && t.Faction == Faction.Immune && IfnHasEffect(s, t.Position)).Select(t => t.Id).ToList();
+
+    /// <summary>GD `_ifn_has_effect`：2 环内有存活癌细胞，或有 solid&gt;0 的**普通**癌组织（固化格不算，它的计数不再降）。</summary>
+    internal static bool IfnHasEffect(WorldState s, HexPosition center)
+        => Cells(s).Any(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(center) <= 2)
+        || Tiles(s).Any(t => t.State == TissueState.Cancer && t.SolidificationCount > 0 && t.Position.DistanceTo(center) <= 2);
+
+    /// <summary>【免疫增援】：**别的席位**的存活免疫细胞，且其 2 环内有无细胞占据的健康组织（以对方为心逐个判）。</summary>
+    internal static IReadOnlyList<EntityId> ReinforceAllies(WorldState s, Cell cell)
+        => Cells(s).Where(t => t.IsAlive && t.Faction == Faction.Immune && t.OwnerSeat != cell.OwnerSeat && EmptyHealthyWithin(s, t.Position, 2).Count > 0)
+                   .Select(t => t.Id).ToList();
+
+    /// <summary>【乳酸酸化】：自身**相邻一格**上的存活免疫细胞（GD 用 neighbors，不含中心格）。</summary>
+    internal static IReadOnlyList<EntityId> LacticAcidTargets(WorldState s, Cell cell)
+        => Cells(s).Where(t => t.IsAlive && t.Faction == Faction.Immune && t.Position.DistanceTo(cell.Position) == 1).Select(t => t.Id).ToList();
+
+    /// <summary>【肿瘤细胞募集】/【肿瘤增援】的落点半径：GD `[3, 2, 2][_phase()]`。</summary>
+    internal static int TumorTeleportRings(WorldState s) => CancerPhase(s.Turn.WorldRound) == 0 ? 3 : 2;
+
+    /// <summary>【肿瘤细胞募集】：先以**施法者**为心判一次有没有落点（一次全局闸），有才列出所有别席位的活癌细胞（不限距离）。</summary>
+    internal static IReadOnlyList<EntityId> RecruitTargets(WorldState s, Cell cell)
+        => CancerousLandings(s, cell.Position, TumorTeleportRings(s)).Count == 0
+            ? Array.Empty<EntityId>()
+            : Cells(s).Where(t => t.IsAlive && t.Faction == Faction.Cancer && t.OwnerSeat != cell.OwnerSeat).Select(t => t.Id).ToList();
+
+    /// <summary>【肿瘤增援】：别席位的活癌细胞，且**以该目标为心** N 环内有落点（逐目标判）—— 与【肿瘤细胞募集】互为镜像，别合并。</summary>
+    internal static IReadOnlyList<EntityId> TumorReinforceTargets(WorldState s, Cell cell)
+        => Cells(s).Where(t => t.IsAlive && t.Faction == Faction.Cancer && t.OwnerSeat != cell.OwnerSeat
+                            && CancerousLandings(s, t.Position, TumorTeleportRings(s)).Count > 0)
+                   .Select(t => t.Id).ToList();
+
+    /// <summary>GD `_ifn_burst`：事件卡【IFN-γ释放】（圆心 = 自己）与技能卡【IFN-γ高峰】（圆心 = 所选免疫细胞）共用同一份。
+    /// 先伤害后降固化，顺序别反；固化只降**普通**癌组织。零随机。</summary>
+    private static WorldState IfnBurst(WorldState s, HexPosition center)
+    {
+        foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(center) <= 2).ToArray())
+            s = Damage(s, c.Id, 10);   // 1.0 能量（十分位）
+        foreach (var t in Tiles(s).Where(t => t.State == TissueState.Cancer && t.Position.DistanceTo(center) <= 2).ToArray())
+            s = s.UpdateTissueSolidification(t.Position, Math.Max(0, t.SolidificationCount - 10));   // 固化计数 -1.0
+        return s;
+    }
+
+    /// <summary>GD `CWTissue.to_cancer(tile, newborn)`：转成普通癌组织 —— solid / necrosis / ossify 一起清，newborn 按参数，库存不动。</summary>
+    internal static WorldState ToCancer(WorldState s, HexPosition pos, bool newborn)
+        => s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithState(TissueState.Cancer).WithSolidificationCount(0).WithNewborn(newborn).WithNecrosis(0).WithOssifyAt(0)));
+
+    /// <summary>GD `CWTissue.crack_to_cancer`：固化格拆回普通癌组织（= to_cancer 且不算新生）。</summary>
+    internal static WorldState CrackToCancer(WorldState s, HexPosition pos) => ToCancer(s, pos, newborn: false);
+
+    private const int RadioRegionSize = 10;   // CWData.RADIO_REGION（2026-09-09 由 15 改 10）
+    private const int NecrosisRadio = 2;      // CWData.NECROSIS_RADIO
+
+    /// <summary>GD `CWTissue.to_necrotic`：先 to_healthy（solid / newborn / ossify 清零），坏死时长取 max(原, rounds)，
+    /// 再把代谢核心 / 骨髓的库存与产出进度一起清掉（Kevin 2026-09-13 issue #31）。区域里的健康格也照走这一遭。</summary>
+    private static WorldState Necrotize(WorldState s, HexPosition pos, int rounds)
+    {
+        var t = s.Board.Tissues[pos];
+        var dead = t.WithState(TissueState.Healthy).WithNecrosis(Math.Max(t.NecrosisRounds, rounds)).WithProductionCounter(0);
+        if (t.Charge is not null) dead = dead.WithCharge(0);
+        return s.WithBoard(s.Board.UpdateTissue(pos, dead));
+    }
 
     internal static IReadOnlyList<HexPosition> MetastasisTargets(WorldState s, Cell cell)
         => RulePolicies.Tiles(s)

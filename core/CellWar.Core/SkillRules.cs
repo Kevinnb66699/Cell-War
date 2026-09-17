@@ -167,9 +167,10 @@ internal static class SkillRules
             }
             case "黏液破裂":
             {
+                // 顺序照 GD `_do_mucus`（cw_actions.gd:1442-1476）：整片覆黏液 → 随机 ≤10 格健康组织转癌（**新生**）→ 范围内免疫各 -2.0
+                // → **kill 自己** → 刷新标记。自毁走 Kill 而不是 Damage：印戒自己的【囊性护甲】会把那一下减掉 0.5，
+                // 剩 0.5 能量「自杀未遂」、继续占着回合，GD 那边已经进 E 阶段了（L1 第 56 步，2026-09-17）
                 var position = cell.Position;
-                var pool = s.Cells[cell.Id].Energy;
-                s = Damage(s, cell.Id, pool);  // 消耗全部能量并死亡
                 var ring = Tiles(s).Where(t => t.Position.DistanceTo(position) <= 2).ToArray();
                 foreach (var tile in ring)
                     s = s.WithBoard(s.Board.UpdateTissue(tile.Position, s.Board.Tissues[tile.Position].WithMucus(true)));
@@ -177,9 +178,11 @@ internal static class SkillRules
                 // **没有「无细胞占据」这个条件**，是 C# 自己加的（GD 侧 cw_actions.gd:1458-1461 也只筛健康）。
                 // 站在健康格上的免疫细胞脚下照样会被转成癌组织。
                 var healthy = ring.Where(t => t.State == TissueState.Healthy).ToArray();
-                foreach (var pick in rng.PickRandom(healthy, 10)) s = s.UpdateTissueState(pick.Position, TissueState.Cancer);
+                foreach (var pick in rng.PickRandom(healthy, 10)) s = CardRules.ToCancer(s, pick.Position, newborn: true);
                 foreach (var immune in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Immune && x.Position.DistanceTo(position) <= 2).ToArray())
                     s = Damage(s, immune.Id, 20);
+                s = Kill(s, cell.Id);
+                s = UpdateMarks(s);
                 break;
             }
             case "骨样硬化":
@@ -193,7 +196,7 @@ internal static class SkillRules
             {
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - MelanomaHomingCost, metastasis: true));
                 var dest = d.Target!.Value;
-                s = Teleport(s, cell.Id, dest);
+                s = EnterTile(s, cell.Id, dest, rng);   // GD `_homing` 走 enter_tile（落地即【定殖】+ 特殊组织收取）
                 var spread = dest.GetNeighbors().Where(n => s.Board.Tissues.TryGetValue(n, out var nt) && nt.State == TissueState.Healthy).ToArray();
                 foreach (var pick in rng.PickRandom(spread, 3)) s = s.UpdateTissueState(pick, TissueState.Cancer);
                 break;
@@ -204,7 +207,7 @@ internal static class SkillRules
                 // 【基质阻隔】那类世界事件会让它翻倍。C# 还没有事件容器，先按基准价直扣 ——
                 // 事件容器落地时这里要改成走管线（EV-0/EV-1 那张工单）。
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - s.Tuning.MetastasisCost, jump: cell.JumpUsedThisRound + 1));
-                s = Teleport(s, cell.Id, d.Target!.Value);
+                s = EnterTile(s, cell.Id, d.Target!.Value, rng);   // GD `_jump` 走 enter_tile
                 break;
             }
             case "免疫猎杀":

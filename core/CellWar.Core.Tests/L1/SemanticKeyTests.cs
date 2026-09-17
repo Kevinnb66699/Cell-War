@@ -140,18 +140,28 @@ public class SemanticKeyTests
         // **多种子并起来**看覆盖：单种子的覆盖率是运气 —— 选项表一变（比如这次补了自愿弃置），
         // LCG 挑到的路就整条改道，上一版覆盖到的形状可能这一版一次都没碰到。
         // 判据要盯的是「这些形状还生得出来」，不是「这一条路正好踩过」。
-        var traces = new[] { 7ul, 11ul, 23ul, 42ul, 97ul, 131ul, 404ul, 777ul }
-            .Select(seed => KeyWalk.Walk(MatchSetup.Create(4, 20260916), 400, seed)).ToArray();
+        // 2026-09-17 带目标的卡逐个摊开之后，八个种子里分化 / 细胞毒素一次都没走到 —— 再加八个种子、每条多走一截
+        var traces = new[] { 7ul, 11ul, 23ul, 42ul, 97ul, 131ul, 404ul, 777ul, 5ul, 13ul, 29ul, 61ul, 89ul, 151ul, 211ul, 313ul,
+                             3ul, 17ul, 37ul, 53ul, 71ul, 107ul, 173ul, 257ul }
+            .Select(seed => KeyWalk.Walk(MatchSetup.Create(4, 20260916), 800, seed)).ToArray();
 
         Assert.All(traces.SelectMany(t => t.Seen), k => Assert.StartsWith("k=", k));
         var shapes = traces.SelectMany(t => t.Seen).Select(Shape).ToHashSet(StringComparer.Ordinal);
-        Assert.Subset(shapes, new HashSet<string>(StringComparer.Ordinal)
+        var must = new HashSet<string>(StringComparer.Ordinal)
         {
             "k=setup_place", "k=immune_revive", "k=revive", "k=pick",
             "k=action|act=move", "k=action|act=draw", "k=action|act=mutate", "k=action|act=play",
             "k=action|act=differentiate", "k=action|act=toxin", "k=action|act=ossify",
             "k=action|act=jump", "k=action|act=discard", "k=action|act=end", "k=action|act=pass",
-        });
+        };
+        Assert.True(must.IsSubsetOf(shapes), "这几种形状必须出现过，少了：" + string.Join(", ", must.Except(shapes)));
+        // 走子器走到的每一种形状都得是 SemanticKey 认得的（多出来的登记在这里，别让它静默过关）
+        var known = new HashSet<string>(must, StringComparer.Ordinal)
+        {
+            "k=free_move", "k=action|act=lyse", "k=action|act=homing", "k=action|act=mucus", "k=action|act=antibody",
+            "k=action+chemo_target|act=chemo", "k=action+effector_target|act=effector",
+        };
+        Assert.True(shapes.IsSubsetOf(known), "走子器走出了没登记的形状：" + string.Join(", ", shapes.Except(known)));
         // 看**总数**不看每条：有的种子会真把局打完（分出胜负就停），那条自然短，不是退化
         var picks = traces.Sum(t => t.Picked.Count);
         Assert.True(picks > 2000, $"八个种子一共只挑了 {picks} 次，覆盖率没意义了");

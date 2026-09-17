@@ -107,7 +107,13 @@ public static class L1Replay
                     // GD 的 step() 末尾 advance() 到下一个决策点；C# 没人能动就推阶段 —— E 阶段的抽取也在这一步的带子上
                     while (s.Turn.Phase != Phase.Finished && !AnyoneCanAct(engine, s))
                         s = engine.AdvancePhase(s, rng).NewState;
-                    if (rng.Unused > 0) { code = "RNG_UNUSED"; detail = $"这一步的带子还剩 {rng.Unused} 条没念（C# 少掷了）"; }
+                    if (rng.Unused > 0)
+                    {
+                        // 把「停在哪」也打出来：少掷往往不是算式差，而是 C# 停在了 GD 不停的决策点上（例如主人死了还等它结束回合）
+                        var movers = string.Join(",", s.Players.Keys.Where(seat => engine.GetAvailableDecisions(s, seat).Count > 0));
+                        code = "RNG_UNUSED";
+                        detail = $"这一步的带子还剩 {rng.Unused} 条没念（C# 少掷了；停在阶段 {s.Turn.Phase}、轮到 {s.Turn.ActivePlayerSeat}、能动的席位 [{movers}]）";
+                    }
                 }
             }
             catch (TapeException e) { code = e.Code; detail = e.Message; }

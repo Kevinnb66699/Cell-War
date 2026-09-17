@@ -34,6 +34,10 @@ internal static class PhaseRules
         }
         else if (s.Turn.Phase == Phase.PlayerAction)
         {
+            // 「效果持续至本回合结束」的修饰在**结束回合这一刻**过期（GD `CWTurn.end_turn` → `clear_mods(cell, "turn")`，只清本人的）。
+            // 此前 C# 放在下一次 BeginTurn 才清 —— E 阶段与别人的回合里它还挂着，L1 第 107 步席位 2 的【补体调理】就是这么多出来的（2026-09-17）
+            foreach (var c in Cells(s).Where(c => c.OwnerSeat == s.Turn.ActivePlayerSeat).ToArray())
+                s = s.UpdateCell(c.Id, s.Cells[c.Id].Copy(modifiers: s.Cells[c.Id].Modifiers.Where(m => m.Duration != ModifierDuration.Turn).ToList()));
             var next = s.Players.Keys.OrderBy(x => x).Where(x => x > s.Turn.ActivePlayerSeat && AliveSeat(s, x)).Cast<int?>().FirstOrDefault();
             // 完整回合时钟：走到下一个开打的席位之前，沿途每个席位各走一格（死的也计入）
             s = TickFullTurnsThrough(s, s.Turn.ActivePlayerSeat,

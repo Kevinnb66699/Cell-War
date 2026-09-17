@@ -172,7 +172,13 @@ internal static class BoardRules
         // 算式住在 `RulePolicies.PressureAt`（纯查询，L0 靶场与 AI 也读它）——
         // 这里只负责「对谁扣、扣下去」。**来源报给管线**：【耗竭抵抗】的第二句要看它。
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune))
-            s = Damage(s, c.Id, RulePolicies.PressureAt(s, s.Cells[c.Id].Position), "微环境压迫");
+        {
+            var loss = RulePolicies.PressureAt(s, s.Cells[c.Id].Position);
+            // 压不到就**不进管线**（GD `_pressure` 的 `if loss <= 0: continue`）：一次 0 伤害的 Damage 也会把
+            // 【细胞膜修复】那类一次性护盾白白吃掉（L1 第 131 步：席位 0 四周全是健康组织，GD 的盾还在、C# 的没了）
+            if (loss <= 0) continue;
+            s = Damage(s, c.Id, loss, "微环境压迫");
+        }
         return s;
     }
 
@@ -214,25 +220,30 @@ internal static class BoardRules
     /// </summary>
     internal static WorldState Erosion(WorldState s, IDeterministicRng rng, IReadOnlyCollection<HexPosition> fresh)
     {
-        var stage = Stage(s);
-        foreach (var block in Blocks(s, false))
+        // 形状照 GD `_erosion`（cw_world.gd）：**全盘一份**候选表（各封闭健康块按 GD 的块序 / 块内序拼起来）、
+        // **一次** d3 定格数、**一次** pick_n。此前 C# 是逐块各掷一次 d3 各挑一次 —— 两个封闭块就多一个 d3，
+        // L1 第 56 步的带子上 GD 是 [1,3] 后接 [0,1]（候选只有 2 格），C# 要第二个 [1,3]（2026-09-17）。
+        // 候选顺序必须逐格同 GD：pick_n 抽的是下标。
+        var eligible = new List<HexPosition>();
+        foreach (var block in GdBlocks(s, t => !Cancerous(t)))
         {
-            if (block.Any(p => p.GetNeighbors().Any(n => !s.Board.Tissues.ContainsKey(n)))) continue;
-            var candidates = block.OrderBy(p => p.Q).ThenBy(p => p.R).Where(p => s.GetCellAt(p)?.Faction != Faction.Immune && !Watched(s, p) &&
-                p.GetNeighbors().Any(n => s.Board.Tissues.TryGetValue(n, out var t) && Cancerous(t) && !fresh.Contains(n))).ToArray();
-            if (candidates.Length == 0) continue;
-            // 2/3 概率取常见值、1/3 取少见值。**掷的是 d3（1..3）判 `<= 2`**，
-            // 逐位对齐 GD 的 `roll_d3()` = `randi_range(1, 3)`。
-            // 这里原来写 `NextInt(3) < 2`（0..2）—— 概率一样，但**抽取区间不一样**，
-            // 而对拍的随机数带子记的就是区间。这正是早上那个「骰面 0..5 vs 1..6」的形状。
-            var tiles = RuleTuning.ByStage(s.Tuning.ErosionTiles, stage);
-            var count = rng.NextIntRange(1, 4) <= 2 ? tiles.Common : tiles.Rare;
-            foreach (var p in rng.PickRandom(candidates, count))
+            if (block.Any(p => p.GetNeighbors().Any(n => !s.Board.Tissues.ContainsKey(n)))) continue;   // 与棋盘外缘连接 → 未被完全包围
+            foreach (var p in block)
             {
-                s = s.UpdateTissueState(p, TissueState.Cancer);
-                s = s.WithBoard(s.Board.UpdateTissue(p, s.Board.Tissues[p].WithNewborn(true)));
+                if (s.GetCellAt(p)?.Faction == Faction.Immune) continue;   // 免疫细胞所在格无法被侵蚀
+                if (Watched(s, p)) continue;                                // 【免疫监视】守护范围内不能被侵蚀
+                // 本回合增生刚造的格子不算「来源」——它要到下一世界回合才参与侵蚀结算
+                if (p.GetNeighbors().Any(n => s.Board.Tissues.TryGetValue(n, out var t) && Cancerous(t) && !fresh.Contains(n)))
+                    eligible.Add(p);
             }
         }
+        if (eligible.Count == 0) return s;
+        // 2/3 概率取常见值、1/3 取少见值。**掷的是 d3（1..3）判 `<= 2`**，逐位对齐 GD 的 `roll_d3()` = `randi_range(1, 3)`
+        // （抽取区间才是带子记的东西，`NextInt(3) < 2` 概率一样、区间不一样）。格数按肿瘤分期查表。
+        var tiles = RuleTuning.ByStage(s.Tuning.ErosionTiles, Stage(s));
+        var count = rng.NextIntRange(1, 4) <= 2 ? tiles.Common : tiles.Rare;
+        foreach (var p in rng.PickRandom(eligible, count))
+            s = CardRules.ToCancer(s, p, newborn: true);   // GD `CWTissue.to_cancer(tile, true)`
         return s;
     }
 

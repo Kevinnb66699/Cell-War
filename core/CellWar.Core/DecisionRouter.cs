@@ -207,36 +207,33 @@ internal static class DecisionRouter
                 // 【癌症转移】那条 `continue` 跳过，那张牌就成了唯一弃不掉的牌
                 var toss = new DiscardDecision(seat, c.Id, card);
                 if (Validate(s, toss).IsValid) result.Add(toss);
-                // 需要选格的卡有两张：【癌症转移】（PRD:1465「选择两环内任意格子传送」）
-                // 与【炎症性趋化】（第 1 步的落点烤在打出选项里）。其余卡要么无目标、
-                // 要么目标能从状态里唯一推出来，所以只为这两张逐格展开。
-                if (card == "癌症转移")
+                // 带目标的卡逐个摊开（GD hand_options：一个目标一条；没有候选就不出这张牌，落空的卡不该出现在行动栏里）。
+                // 候选表在 CardRules.TileTargeted / CellTargeted —— 选项层、Validate、结算三处共用同一份（2026-09-17 从 3 张扩到 13 张）
+                if (CardRules.TileTargeted.TryGetValue(card, out var tilesOf))
                 {
-                    foreach (var dest in CardRules.MetastasisTargets(s, c))
+                    foreach (var dest in tilesOf(s, c))
                     {
-                        var jump = new PlayCardDecision(seat, c.Id, card, dest);
-                        if (Validate(s, jump).IsValid) result.Add(jump);
+                        var targeted = new PlayCardDecision(seat, c.Id, card, dest);
+                        if (Validate(s, targeted).IsValid) result.Add(targeted);
                     }
                     continue;
                 }
-                // 一个合法第一步都没有时**这条选项不出现**（GD cw_card_fx.gd:167-169 的
-                // 循环一次都不 append）—— 落空的卡不该出现在行动栏里。
+                if (CardRules.CellTargeted.TryGetValue(card, out var cellsOf))
+                {
+                    foreach (var tid in cellsOf(s, c))
+                    {
+                        var targeted = new PlayCardDecision(seat, c.Id, card, null, tid);
+                        if (Validate(s, targeted).IsValid) result.Add(targeted);
+                    }
+                    continue;
+                }
+                // 【炎症性趋化】：第 1 步的落点烤在打出选项里；一个合法第一步都没有时不出（GD cw_card_fx.gd:167-169）
                 if (card == "炎症性趋化")
                 {
                     foreach (var first in CellRules.ChemotaxisSteps(s, c))
                     {
                         var walk = new PlayCardDecision(seat, c.Id, card, first);
                         if (Validate(s, walk).IsValid) result.Add(walk);
-                    }
-                    continue;
-                }
-                // 【代谢耦联】：一个队友一条选项（GD cw_card_fx.gd:170-176）；一侧都付不起最低档的队友不出现
-                if (card == "代谢耦联")
-                {
-                    foreach (var ally in CardRules.CoupleAllies(s, c))
-                    {
-                        var couple = new PlayCardDecision(seat, c.Id, card, null, ally);
-                        if (Validate(s, couple).IsValid) result.Add(couple);
                     }
                     continue;
                 }

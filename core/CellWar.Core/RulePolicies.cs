@@ -513,32 +513,76 @@ internal static class RulePolicies
         return income;
     }
 
-    public static HexPosition? RandomHealthyWithin(WorldState s, HexPosition center, int rings, IDeterministicRng rng)
+    /// <summary>GD `CWData.DIRS` 序的六邻（(1,0)(1,-1)(0,-1)(-1,0)(-1,1)(0,1)），裁掉板外格。
+    /// 凡是「按下标抽格」或「逐格出选项」的地方都走它 —— <see cref="HexPosition.GetNeighbors"/> 是另一个顺序，
+    /// 同一个带子值会指到不同的格（【放疗】的扩区就靠这一条对带子）。</summary>
+    public static IEnumerable<HexPosition> GdNeighbors(WorldState s, HexPosition p)
     {
-        var options = Tiles(s).Where(t => t.State == TissueState.Healthy && t.OccupyingCell == null && t.Position.DistanceTo(center) <= rings).ToArray();
-        return options.Length == 0 ? null : options[rng.NextInt(options.Length)].Position;
+        foreach (var (dq, dr) in GdDirs)
+        {
+            var n = new HexPosition(p.Q + dq, p.R + dr, -(p.Q + dq) - (p.R + dr));
+            if (s.Board.Tissues.ContainsKey(n)) yield return n;
+        }
+    }
+    private static readonly (int Dq, int Dr)[] GdDirs = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)];
+
+    /// <summary>GD `blocks_of(pred)`（cw_game.gd）的**逐格同序**版：按 `game.tiles.keys()`（Q↑R↑）起点、
+    /// 栈式深搜（`queue.pop_back()`）、邻格按 DIRS 序入栈。块与块内的顺序都和 GD 一样 ——
+    /// 【侵蚀】的候选表是按这个顺序拼起来再 pick_n 的，顺序差一位带子就指错格。
+    /// 只在需要**顺序**的地方用它；只要集合的地方 <see cref="Blocks"/> 更便宜。</summary>
+    public static List<List<HexPosition>> GdBlocks(WorldState s, Func<Tissue, bool> pred)
+    {
+        var seen = new HashSet<HexPosition>();
+        var result = new List<List<HexPosition>>();
+        foreach (var t in Tiles(s))
+        {
+            if (seen.Contains(t.Position) || !pred(t)) continue;
+            var block = new List<HexPosition>();
+            var stack = new List<HexPosition> { t.Position };
+            seen.Add(t.Position);
+            while (stack.Count > 0)
+            {
+                var cur = stack[^1];
+                stack.RemoveAt(stack.Count - 1);
+                block.Add(cur);
+                foreach (var n in GdNeighbors(s, cur))
+                    if (!seen.Contains(n) && pred(s.Board.Tissues[n])) { seen.Add(n); stack.Add(n); }
+            }
+            result.Add(block);
+        }
+        return result;
     }
 
-    public static HexPosition? RandomCancerousWithin(WorldState s, HexPosition center, int rings, IDeterministicRng rng)
-    {
-        var options = Tiles(s).Where(t => Cancerous(t) && t.OccupyingCell == null && t.Position.DistanceTo(center) <= rings).ToArray();
-        return options.Length == 0 ? null : options[rng.NextInt(options.Length)].Position;
-    }
+    /// <summary>GD `_empty_healthy_in_range`（cw_card_fx.gd）：center 的 rings 环内、无细胞占据的健康组织，**含中心格**；
+    /// 顺序 = <see cref="Tiles"/> 的 (Q,R) 升序 = GD `game.tiles.keys()` 的插入序 —— 按下标抽落点的带子就靠这一条对上。
+    /// 选项层与结算层共用这一份列表（GD 的 `hand_options` 与 `_reinforce` 调的是同一个函数）。</summary>
+    public static IReadOnlyList<HexPosition> EmptyHealthyWithin(WorldState s, HexPosition center, int rings)
+        => Tiles(s).Where(t => t.State == TissueState.Healthy && t.OccupyingCell == null && t.Position.DistanceTo(center) <= rings)
+                   .Select(t => t.Position).ToList();
 
-    /// <summary>含起点的随机连通区域（放疗用），最多 count 格。</summary>
-    public static List<HexPosition> ConnectedRegion(WorldState s, HexPosition start, int count, IDeterministicRng rng)
+    /// <summary>GD `_empty_cancerous_in_range`：rings 环内、无细胞占据的癌性组织（**含固化**），含中心格，顺序同上。</summary>
+    public static IReadOnlyList<HexPosition> CancerousLandings(WorldState s, HexPosition center, int rings)
+        => Tiles(s).Where(t => Cancerous(t) && t.OccupyingCell == null && t.Position.DistanceTo(center) <= rings)
+                   .Select(t => t.Position).ToList();
+
+    /// <summary>【放疗】的随机连通区域，逐行照 GD `_radiotherapy`（cw_card_fx.gd:987-1004）：
+    /// frontier 是**允许重复入队的多重集**，每轮只掷一发 `NextInt(frontier.Count)`（Count==1 时带子零消耗），
+    /// 弹到已在区域里的格照样消耗这一发但区域不长；直到 <paramref name="count"/> 格或 frontier 空。
+    /// 此前的 ConnectedRegion 是「选生长点 + 选方向」两发一格的另一套形状，带子对不上，2026-09-17 整个换掉。</summary>
+    public static List<HexPosition> RadioRegion(WorldState s, HexPosition start, int count, IDeterministicRng rng)
     {
         var region = new List<HexPosition> { start };
-        var frontier = new List<HexPosition> { start };
+        var inRegion = new HashSet<HexPosition> { start };
+        var frontier = new List<HexPosition>(GdNeighbors(s, start));
         while (region.Count < count && frontier.Count > 0)
         {
-            var index = rng.NextInt(frontier.Count);
-            var current = frontier[index];
-            var neighbors = current.GetNeighbors().Where(n => s.Board.Tissues.ContainsKey(n) && !region.Contains(n)).ToArray();
-            if (neighbors.Length == 0) { frontier.RemoveAt(index); continue; }
-            var next = neighbors[rng.NextInt(neighbors.Length)];
-            region.Add(next);
-            frontier.Add(next);
+            var i = rng.NextInt(frontier.Count);
+            var c = frontier[i];
+            frontier.RemoveAt(i);
+            if (!inRegion.Add(c)) continue;
+            region.Add(c);
+            foreach (var n in GdNeighbors(s, c))
+                if (!inRegion.Contains(n)) frontier.Add(n);
         }
         return region;
     }
