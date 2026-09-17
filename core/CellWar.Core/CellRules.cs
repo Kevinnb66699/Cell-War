@@ -142,15 +142,25 @@ internal static class CellRules
         return s.UpdateCell(id, c.Copy(modifiers: c.Modifiers.Where(m => m.Card != card).ToList()));
     }
 
-    /// <summary>消耗一次目标数值的修饰（次数-1，耗尽即移除）；Uses=-1 不受影响。</summary>
-    public static WorldState ConsumeModifiers(WorldState s, EntityId id, ModifierTarget target, HexPosition? destination = null)
+    /// <summary>
+    /// 消耗一次目标数值的修饰（次数-1，耗尽即移除）；Uses=-1 不受影响。
+    ///
+    /// **移动那一路是 ON_BENEFIT**（GD cw_cost.gd:238，Kevin 2026-09-16 拍板跟 GD）：只消耗这一步**真改了价**的那些 ——
+    /// 「费用改为 X」改成了原价、免费豁免时费用已经是 0、同一竞争组里没被选中的第二条免费，都不扣。
+    /// 按 (卡名, 打出序号) 认条目：GD 是按名字扣最早那条，序号本就是打出先后。
+    /// 攻击 / 伤害那两路照旧（GD 那边是 `spend_mods` 同名全消耗，另一套口径）。
+    /// </summary>
+    public static WorldState ConsumeModifiers(WorldState s, EntityId id, ModifierTarget target, HexPosition? destination = null, int? rawCostOverride = null)
     {
         var c = s.Cells[id];
-        var cancerous = destination is { } dest && RulePolicies.Cancerous(s.Board.Tissues[dest]);
+        HashSet<(string, int)>? applied = null;
+        if (target == ModifierTarget.Move && destination is { } dest)
+            applied = RulePolicies.AppliedMoveModifiers(s, c, dest, rawCostOverride).Select(m => (m.Name, m.Sequence)).ToHashSet();
         var kept = new List<ActiveModifier>();
         foreach (var m in c.Modifiers)
         {
-            if (m.Target != target || m.Uses < 0 || (destination is { } && !RulePolicies.RequirementMet(m.Requirement, cancerous))) { kept.Add(m); continue; }
+            var touched = m.Target == target && m.Uses >= 0 && (applied == null || applied.Contains((m.Card, m.Sequence)));
+            if (!touched) { kept.Add(m); continue; }
             var used = m.Consume();
             if (!used.Expired) kept.Add(used);
         }
@@ -405,7 +415,7 @@ internal static class CellRules
         var events = new List<IGameEvent>();
         var attacker = cell.Copy(energy: cell.Energy - cost);
         s = s.UpdateCell(cell.Id, attacker);
-        if (!free) s = ConsumeModifiers(s, cell.Id, ModifierTarget.Move, move.TargetPosition);
+        if (!free) s = ConsumeModifiers(s, cell.Id, ModifierTarget.Move, move.TargetPosition, rawCostOverride);
         if (target != null)
         {
             // 六面骰，**1..6**。原来写的是 NextInt(6)，那产出 0..5 —— 而 AttackOutcome 判

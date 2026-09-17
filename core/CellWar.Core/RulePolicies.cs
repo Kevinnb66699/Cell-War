@@ -57,6 +57,21 @@ internal static class RulePolicies
     /// 所以【炎症趋化】那类「费用改为 X」仍会盖掉它（GD 侧 0.2 进的是 `ctx.base_cost`，REPLACE 排在其后）。
     /// </param>
     public static int BaseMoveCost(WorldState s, Cell c, HexPosition destination, int? rawCostOverride = null)
+        => Settlement.ApplyValue(rawCostOverride ?? RawMoveCost(s, c, destination), MoveModifiers(s, c, destination));
+
+    /// <summary>
+    /// 这一步移动**真改了价**的修饰（GD `quote().applied`）—— 提交时只消耗这些（ON_BENEFIT）。
+    /// 与 <see cref="BaseMoveCost"/> 走同一份修饰列表、同一条管线，报价与消耗才不会各算各的。
+    /// </summary>
+    public static IReadOnlyCollection<ValueModifier> AppliedMoveModifiers(WorldState s, Cell c, HexPosition destination, int? rawCostOverride = null)
+    {
+        var applied = new List<ValueModifier>();
+        Settlement.ApplyValue(rawCostOverride ?? RawMoveCost(s, c, destination), MoveModifiers(s, c, destination), applied);
+        return applied;
+    }
+
+    /// <summary>移动费用管线吃的全部修饰：细胞身上适用的 + 场上的（趋化源 / 黏液侵染）。</summary>
+    private static List<ValueModifier> MoveModifiers(WorldState s, Cell c, HexPosition destination)
     {
         var cancerous = Cancerous(s.Board.Tissues[destination]);
         var modifiers = c.Modifiers.Where(m => m.Target == ModifierTarget.Move && RequirementMet(m.Requirement, cancerous))
@@ -71,7 +86,7 @@ internal static class RulePolicies
         // **没有任何测试能区分加不加这句**，也就是死条件，不留。
         if (c.Faction == Faction.Immune && s.Board.Tissues[destination].Mucus)
             modifiers.Add(new ValueModifier(ModifierStage.Add, SourceLayer.Skill, 0, s.Tuning.MucusMoveSurcharge, Name: "黏液侵染"));
-        return Settlement.ApplyValue(rawCostOverride ?? RawMoveCost(s, c, destination), modifiers);
+        return modifiers;
     }
 
     public static bool RequirementMet(ModifierRequirement requirement, bool cancerous) => requirement switch

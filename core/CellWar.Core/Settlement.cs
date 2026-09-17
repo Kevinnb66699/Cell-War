@@ -58,14 +58,21 @@ public static class Settlement
     /// <summary>
     /// 数值修正顺序：基准 → 替换 → 固定加 → 固定减 → 倍增 → 倍减 → 免费 → 附加费。
     /// </summary>
-    public static int ApplyValue(int baseValue, IEnumerable<ValueModifier> mods)
+    public static int ApplyValue(int baseValue, IEnumerable<ValueModifier> mods) => ApplyValue(baseValue, mods, null);
+
+    /// <param name="applied">
+    /// 给谁**真改了价**记账（GD `quote()` 的 `applied`）：限次修饰只在这时候才消耗（ON_BENEFIT，cw_cost.gd:238），
+    /// 免费豁免同一竞争组只选第一条、且费用已经是 0 时谁也不消耗（cw_cost.gd:243-256）。null = 不记。
+    /// </param>
+    public static int ApplyValue(int baseValue, IEnumerable<ValueModifier> mods, ICollection<ValueModifier>? applied)
     {
         var list = mods as IReadOnlyCollection<ValueModifier> ?? mods.ToArray();
         var value = baseValue;
-        foreach (var m in Ordered(list, ModifierStage.Replace)) value = m.Value;
-        foreach (var m in Ordered(list, ModifierStage.Add)) value += m.Value;
+        void Step(ValueModifier m, int next) { if (next != value && applied != null) applied.Add(m); value = next; }
+        foreach (var m in Ordered(list, ModifierStage.Replace)) Step(m, m.Value);
+        foreach (var m in Ordered(list, ModifierStage.Add)) Step(m, value + m.Value);
         foreach (var m in Ordered(list, ModifierStage.Subtract))
-            value = m.Floor is { } floor ? Math.Max(floor, value - m.Value) : value - m.Value;
+            Step(m, m.Floor is { } floor ? Math.Max(floor, value - m.Value) : value - m.Value);
         // **费用侧的百分比四舍五入，伤害侧向下取整** —— 这不是笔误，是 GD 侧两条明写的口径：
         //   · 费用：`CWCost._pct` 走 `round_tenth`（PRD 2026-09-08 通用规则 1）
         //   · 伤害：`cw_damage.gd:220` 明写「四个倍率合成一次整数除法…天然向下取整」，
@@ -74,10 +81,13 @@ public static class Settlement
         //
         // 2026-09-15 改：此前这里也是截断，与 GD 差一个十分位 ——
         // 例：健康格 0.5 的迁移费，免疫朝趋化源走 ×70% → GD 0.4、C# 0.3。
-        foreach (var m in Ordered(list, ModifierStage.Multiply)) value = RoundDiv(value * m.Value, 100);
-        foreach (var m in Ordered(list, ModifierStage.Divide)) value = RoundDiv(value * 100, m.Value);
-        if (Ordered(list, ModifierStage.Free).Any()) value = 0;
-        foreach (var m in Ordered(list, ModifierStage.Surcharge)) value += m.Value;
+        foreach (var m in Ordered(list, ModifierStage.Multiply)) Step(m, RoundDiv(value * m.Value, 100));
+        foreach (var m in Ordered(list, ModifierStage.Divide)) Step(m, RoundDiv(value * 100, m.Value));
+        // 免费豁免：同一竞争组里**只选第一条**（GD `_free_order`：来源层级 → 打出先后 → 名字，priority 全为 0 不排），
+        // 已经是 0 就没有可豁免的东西 —— 谁也不消耗
+        var free = Ordered(list, ModifierStage.Free).FirstOrDefault();
+        if (free != null) { if (value > 0 && applied != null) applied.Add(free); value = 0; }
+        foreach (var m in Ordered(list, ModifierStage.Surcharge)) { applied?.Add(m); value += m.Value; }   // 附加费一律算「用上了」
         return value;
     }
 

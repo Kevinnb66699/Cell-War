@@ -467,6 +467,57 @@ public class ChemotaxisTests
         Assert.Equal(before - 5, after.Cells[Walker].Energy);
     }
 
+    // ── ON_BENEFIT：限次修饰只在真改了价时才消耗（GD cw_cost.gd:238 / :243-256；Kevin 2026-09-16 拍板跟 GD）──
+    // 这三条钉的是移动那一路的消耗口径，趋化只是顺手的载体（它就是一次迁移）。
+
+    [Fact]
+    public void 费用改为原价的修饰不消耗_改了价的才消耗()
+    {
+        // 免疫 I 级进健康组织起价 0.5：「费用改为 0.5」等于没改，扣了就是白扣一次额度
+        var same = WithMod(World(), new ActiveModifier("同价", ModifierTarget.Move, ModifierStage.Replace, SourceLayer.Card, 0, 5, null, 1, ModifierDuration.Turn));
+        var moved = Engine.ExecuteDecision(same, new MoveDecision(0, Walker, North), Rng()).NewState;
+        Assert.Contains(moved.Cells[Walker].Modifiers, m => m.Card == "同价");
+
+        var cheaper = WithMod(World(), new ActiveModifier("改价", ModifierTarget.Move, ModifierStage.Replace, SourceLayer.Card, 0, 3, null, 1, ModifierDuration.Turn));
+        var moved2 = Engine.ExecuteDecision(cheaper, new MoveDecision(0, Walker, North), Rng()).NewState;
+        Assert.DoesNotContain(moved2.Cells[Walker].Modifiers, m => m.Card == "改价");
+        Assert.Equal(30 - 3, moved2.Cells[Walker].Energy);
+    }
+
+    [Fact]
+    public void 免费豁免同一竞争组只消耗第一条_先按来源层级再按打出先后()
+    {
+        // 两条免费同层：打出先后靠序号 —— 序号小的那条被选中、消耗；另一条「适用但没被选中」，原样留着
+        var world = WithMod(WithMod(World(),
+            new ActiveModifier("免费甲", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Card, 2, 0, null, 1, ModifierDuration.Turn)),
+            new ActiveModifier("免费乙", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Card, 1, 0, null, 1, ModifierDuration.Turn));
+        var moved = Engine.ExecuteDecision(world, new MoveDecision(0, Walker, North), Rng()).NewState;
+        Assert.Equal(30, moved.Cells[Walker].Energy);                                   // 确实免了
+        Assert.DoesNotContain(moved.Cells[Walker].Modifiers, m => m.Card == "免费乙");   // 序号 1 先
+        Assert.Contains(moved.Cells[Walker].Modifiers, m => m.Card == "免费甲");
+
+        // 来源层级排在序号前面：角色被动 → 卡牌 → 技能 → 世界事件（GD _free_order）
+        var layered = WithMod(WithMod(World(),
+            new ActiveModifier("技能免", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Skill, 1, 0, null, 1, ModifierDuration.Turn)),
+            new ActiveModifier("卡牌免", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Card, 2, 0, null, 1, ModifierDuration.Turn));
+        var moved2 = Engine.ExecuteDecision(layered, new MoveDecision(0, Walker, North), Rng()).NewState;
+        Assert.DoesNotContain(moved2.Cells[Walker].Modifiers, m => m.Card == "卡牌免");
+        Assert.Contains(moved2.Cells[Walker].Modifiers, m => m.Card == "技能免");
+    }
+
+    [Fact]
+    public void 费用已经是零时免费豁免不消耗()
+    {
+        // 减法先把 0.5 减到 0（这条改了价、要扣），轮到免费时已经没有可豁免的东西 —— 谁也不消耗
+        var world = WithMod(WithMod(World(),
+            new ActiveModifier("减到零", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Card, 1, 5, 0, 1, ModifierDuration.Turn)),
+            new ActiveModifier("免费", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Card, 2, 0, null, 1, ModifierDuration.Turn));
+        var moved = Engine.ExecuteDecision(world, new MoveDecision(0, Walker, North), Rng()).NewState;
+        Assert.Equal(30, moved.Cells[Walker].Energy);
+        Assert.DoesNotContain(moved.Cells[Walker].Modifiers, m => m.Card == "减到零");
+        Assert.Contains(moved.Cells[Walker].Modifiers, m => m.Card == "免费");
+    }
+
     [Fact]
     public void 这张卡不给细胞挂任何改价修饰_本回合别的迁移照原价()
     {
