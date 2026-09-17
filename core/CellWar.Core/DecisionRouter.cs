@@ -64,12 +64,18 @@ internal static class DecisionRouter
     public static RulesResult Execute(WorldState state, IDecision decision, IDeterministicRng rng)
     {
         var result = Dispatch(state, decision, rng);
+        if (!result.Success) return result;
         // 【炎症性趋化】的三条退出（细胞死了 / 没有可走的下一步 / 步数走满）在 GD 里是
         // 下一轮循环开头判的，且一定排在连锁之后。这里统一收口，Available 才不会
         // 停在「只剩一个『停在这里』」上 —— GD 没有那个决策点。
-        return result.Success && result.NewState.Turn.PendingChemotaxisCell is not null
-            ? result with { NewState = CellRules.NormalizeChemotaxis(result.NewState) }
-            : result;
+        var before = state.Turn.PendingChemotaxisCell;
+        var mid = result.NewState.Turn.PendingChemotaxisCell;
+        var s = mid is null ? result.NewState : CellRules.NormalizeChemotaxis(result.NewState);
+        // 挂起被摘掉的这一刻 = 这张卡「结算完」：GD 是整段趋化 await 回来才离手、才走细胞因子链。
+        // `before ?? mid`：打出当步就结束（没有下一步 / 走死）时 before 还是空，只有 mid 记得它挂起过。
+        if ((before ?? mid) is { } walker && s.Turn.PendingChemotaxisCell is null)
+            s = CardRules.FinishInstant(s, walker, "炎症性趋化");
+        return result with { NewState = s };
     }
 
     private static RulesResult Dispatch(WorldState state, IDecision decision, IDeterministicRng rng)

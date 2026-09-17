@@ -90,7 +90,8 @@ public class ChemotaxisTests
         Assert.Equal(North, after.Cells[Walker].Position);
         Assert.Equal(Walker, after.Turn.PendingChemotaxisCell);
         Assert.Equal(2, after.Turn.ChemotaxisStepsLeft);   // GD 的 `for step_no in [2, 3]`
-        Assert.DoesNotContain(Card, after.Cells[Walker].Hand);
+        // 牌**还在手上**：GD 是整段趋化 await 回来才 erase（cw_card_fx.gd:399），第 2/3 步那两问上两边手牌得一样
+        Assert.Contains(Card, after.Cells[Walker].Hand);
     }
 
     [Fact]
@@ -136,6 +137,87 @@ public class ChemotaxisTests
         Assert.False(Engine.ValidateDecision(chain, new StopChainDecision(1, Walker)).IsValid);
         Assert.False(Engine.ValidateDecision(chain, new ChainMoveDecision(1, Walker, North)).IsValid);
         Assert.True(Engine.ValidateDecision(chain, new StopChainDecision(0, Walker)).IsValid);
+    }
+
+    // ── 「结算完」的时机：离手与细胞因子链在整段走完之后 ─────────
+    // GD `_resolve_played`：match 里 `await _chemotaxis(...)` 整段回来才 `cell["hand"].erase(card)`、才 `_cytokine_chain`
+    // （cw_card_fx.gd:311 / :399-402）。C# 此前是打出那一刻就离手 —— 改成挂起态之后这一步差第一次变得可观测：
+    // 第 2/3 步两边手牌差一张，手牌到上限时还少一个强制弃置决策点（对拍复核 2026-09-16 证实）。
+
+    [Fact]
+    public void 停下走满或走死之后牌才离手()
+    {
+        var stopped = Engine.ExecuteDecision(Play(World(), North), new StopChemotaxisDecision(0, Walker), Rng()).NewState;
+        Assert.DoesNotContain(Card, stopped.Cells[Walker].Hand);
+
+        var walked = Step(Step(Play(World(), North), Origin), South);
+        Assert.Null(walked.Turn.PendingChemotaxisCell);
+        Assert.DoesNotContain(Card, walked.Cells[Walker].Hand);
+
+        var dead = Engine.ExecuteDecision(Place(World(energy: 6), new EntityId(2), Faction.Cancer, CellType.Melanoma, North),
+            new PlayCardDecision(0, Walker, Card, North), new AlwaysFailRng(Rng())).NewState;
+        Assert.False(dead.Cells[Walker].IsAlive);
+        Assert.DoesNotContain(Card, dead.Cells[Walker].Hand);   // GD 对死细胞照样 erase
+    }
+
+    /// <summary>
+    /// 复核给的最小复现：装备【免疫记忆库】、手牌正好 8 张（含这张）、第 1 步走进癌组织触发【净化】→ 免费抽 1 张。
+    /// GD 手里仍是 8 张 → 抽到 9 张 > 上限 → **先弹「手牌上限」追问**，弃完才问第 2 步；
+    /// 此前 C# 手里只有 7 张 → 8 张不超限 → 直接问第 2 步 —— 决策点数量差一。
+    /// </summary>
+    [Fact]
+    public void 手牌满时第一步的净化抽卡先弹强制弃置_弃完再问下一步()
+    {
+        // 其余 7 张用癌方的牌名：免疫抽不到它们，卡池不会被手牌「排空」
+        var world = World().UpdateTissueState(North, TissueState.Cancer);
+        world = world.UpdateCell(Walker, world.Cells[Walker].Copy(
+            equipped: ["免疫记忆库"],
+            hand: [Card, "缺氧适应", "GLUT1高表达", "RAS持续激活", "癌症干性", "PD-L1表达", "DNA损伤修复", "BCL-2抗凋亡"]));
+        Assert.Equal(8, world.Cells[Walker].HandMax);
+        // 抽到事件卡是当场结算、不进手（两边一样），那样就弹不出弃置 —— 把骰子钉在候选表里第一张**非事件**卡上
+        var eligible = CardRules.EligibleCards(world, world.Cells[Walker]);
+        var roll = 0;
+        foreach (var d in eligible) { if (d.Category != CardCategory.Event) break; roll += d.Weight(0); }
+        Assert.True(roll < eligible.Sum(d => d.Weight(0)), "卡池里没有非事件卡，这条夹具搭不起来");
+
+        var after = Engine.ExecuteDecision(world, new PlayCardDecision(0, Walker, Card, North), new RollRng(roll)).NewState;
+
+        Assert.Equal(9, after.Cells[Walker].Hand.Count);           // 抽到了，还没弃
+        Assert.Equal(0, after.Turn.PendingDiscardSeat);            // 先问弃置
+        Assert.Equal(Walker, after.Turn.PendingChemotaxisCell);    // 趋化的挂起还在，等弃完
+        Assert.All(Engine.GetAvailableDecisions(after, 0), o => Assert.IsType<DiscardDecision>(o));
+
+        var tossed = Engine.ExecuteDecision(after, new DiscardDecision(0, Walker, "缺氧适应"), Rng()).NewState;
+        Assert.Null(tossed.Turn.PendingDiscardSeat);
+        Assert.Contains(Card, tossed.Cells[Walker].Hand);          // 这张还没「结算完」，仍在手上
+        Assert.NotEmpty(Engine.GetAvailableDecisions(tossed, 0).OfType<ChemotaxisStepDecision>());
+    }
+
+    [Fact]
+    public void 细胞因子网络在整段走完之后才上膛()
+    {
+        var world = World().UpdateCell(Walker, World().Cells[Walker].Copy(equipped: ["细胞因子网络"]));
+        var pending = Play(world, North);
+        Assert.Equal(-1, pending.Turn.CytokineNetworkSeat);        // 第 2/3 步之前还没算「发动完」
+
+        var done = Engine.ExecuteDecision(pending, new StopChemotaxisDecision(0, Walker), Rng()).NewState;
+        Assert.Equal(0, done.Turn.CytokineNetworkSeat);
+    }
+
+    /// <summary>
+    /// 挂起态跨不出这一回合（GD 是 play() 里的一段 await，语法上出不了这次打牌）。
+    /// 正常路径到不了：挂起时「结束回合」被驳回。这是防御 —— 谁绕开 Execute 直接推阶段，
+    /// 也不能让原主人在别人的回合里把剩下的几步走完（对抗复核 E1/E2）。
+    /// </summary>
+    [Fact]
+    public void 推阶段把两个挂起态一并清掉()
+    {
+        var walk = Engine.AdvancePhase(Play(World(), North), Rng()).NewState;
+        Assert.Null(walk.Turn.PendingChemotaxisCell);
+        Assert.Equal(0, walk.Turn.ChemotaxisStepsLeft);
+
+        var chain = World(type: CellType.Macrophage).WithTurn(World().Turn.WithPendingChain(Walker));
+        Assert.Null(Engine.AdvancePhase(chain, Rng()).NewState.Turn.PendingChainCell);
     }
 
     // ── 提交复验：候选给得出来、走不成、步数照减 ──────────────
@@ -422,6 +504,20 @@ public class ChemotaxisTests
         Assert.False(Engine.ValidateDecision(world, new PlayCardDecision(0, Walker, Card)).IsValid);
         Assert.False(Engine.ValidateDecision(world, new PlayCardDecision(0, Walker, Card, solid)).IsValid);
         Assert.True(Engine.ValidateDecision(world, new PlayCardDecision(0, Walker, Card, North)).IsValid);
+    }
+
+    /// <summary>每次 `NextInt` 都给同一个数（钳在值域内）：用来把抽卡钉在候选表的某一张上。</summary>
+    private sealed class RollRng(int roll) : IDeterministicRng
+    {
+        public double NextDouble() => 0;
+        public int NextInt(int max) => Math.Min(roll, max - 1);
+        public int NextIntRange(int min, int max) => min + Math.Min(roll, max - min - 1);
+        public T Choose<T>(IReadOnlyList<T> items) => items[NextInt(items.Count)];
+        public IReadOnlyList<T> PickRandom<T>(IReadOnlyList<T> items, int count) => items.Take(count).ToList();
+        public IReadOnlyList<T> Shuffle<T>(IReadOnlyList<T> items) => items;
+        public IDeterministicRng Fork() => this;
+        public RngState GetState() => new(1, 0);
+        public void SetState(RngState state) { }
     }
 
     /// <summary>把 d6 钉死成 1（`AttackOutcome` 里 roll ≤ 2 即无效），别的抽取照常委托。</summary>

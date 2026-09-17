@@ -580,12 +580,13 @@ internal static class CardRules
     {
         var cell = s.Cells[d.CellId];
         var definition = CardCatalog.ByCardName(d.Card).First(x => x.Category != CardCategory.Event);
-        var hand = cell.Hand.ToList();
-        hand.Remove(d.Card);
-        cell = cell.Copy(hand: hand);
-        s = s.UpdateCell(cell.Id, cell);
         if (definition.Category == CardCategory.Permanent)
         {
+            // 永久技能：GD 在自己那条分支里打出即装备、即离手（cw_card_fx.gd:270 附近）
+            var hand = cell.Hand.ToList();
+            hand.Remove(d.Card);
+            cell = cell.Copy(hand: hand);
+            s = s.UpdateCell(cell.Id, cell);
             // 装备这一刻要**盖戳**（2026-09-15 补）：PRD:182-184「同一阶段内…同层级再按
             // 打出/装备的先后顺序」。永久技能与即时卡混在同一条「打出先后」队列里结算，
             // 所以用的是同一把尺（PlayCounter），对齐 GDScript 的 cw_card_fx.gd:275-276。
@@ -601,19 +602,36 @@ internal static class CardRules
                     .ToDictionary(kv => kv.Key, kv => kv.Value)));
         }
         var caller = s.Cells[cell.Id];
-        var isInstant = definition.Category == CardCategory.Instant;
-        var networkOwner = s.Turn.CytokineNetworkSeat;
         s = Resolve(s, caller, d.Card, rng, d.Target, d.TargetCell);
+        if (definition.Category != CardCategory.Instant) return new(s, Array.Empty<IGameEvent>(), true);
+        // 即时卡**结算完**才离手、才走细胞因子链（GD `_resolve_played` 的尾巴，cw_card_fx.gd:399-402）。
+        // 【炎症性趋化】的结算跨两个挂起决策点：挂起还在就先不收尾，等 DecisionRouter 在挂起被摘掉那一刻补上 ——
+        // 不然第 2/3 步那两问上两边手牌差一张，手牌到上限时还少一个强制弃置决策点（L1 对拍会在那儿分叉）。
+        if (s.Turn.PendingChemotaxisCell == cell.Id) return new(s, Array.Empty<IGameEvent>(), true);
+        return new(FinishInstant(s, cell.Id, d.Card), Array.Empty<IGameEvent>(), true);
+    }
+
+    /// <summary>
+    /// 即时卡的收尾：离手 + 【细胞因子网络】。与 GD 同序：先 `erase`，再 `_cytokine_chain`。
+    /// 离手用「还在就摘」—— 结算中途的强制弃置可能已经把这张牌弃掉了（GD 的 `erase` 同样是空操作）。
+    /// </summary>
+    public static WorldState FinishInstant(WorldState s, EntityId cellId, string card)
+    {
+        var cell = s.Cells[cellId];
+        if (cell.Hand.Contains(card))
+            s = s.UpdateCell(cellId, cell.Copy(hand: cell.Hand.Where(x => x != card).ToList()));
+        var caller = s.Cells[cellId];
+        var networkOwner = s.Turn.CytokineNetworkSeat;
         // 【细胞因子网络】：本回合下一名其他免疫细胞发动即时技能后恢复 0.5
-        if (isInstant && RulePolicies.HasSkill(s, caller, "细胞因子网络"))
-            s = s.WithTurn(s.Turn.WithCytokineNetwork(caller.OwnerSeat));
-        else if (isInstant && networkOwner >= 0 && networkOwner != caller.OwnerSeat)
+        if (RulePolicies.HasSkill(s, caller, "细胞因子网络"))
+            return s.WithTurn(s.Turn.WithCytokineNetwork(caller.OwnerSeat));
+        if (networkOwner >= 0 && networkOwner != caller.OwnerSeat)
         {
             var beneficiary = s.Cells.Values.FirstOrDefault(x => x.IsAlive && x.Faction == Faction.Immune && x.OwnerSeat == networkOwner);
             if (beneficiary != null) s = s.UpdateCell(beneficiary.Id, s.Cells[beneficiary.Id].WithEnergy(s.Cells[beneficiary.Id].Energy + 5));
             s = s.WithTurn(s.Turn.WithCytokineNetwork(-1));
         }
-        return new(s, Array.Empty<IGameEvent>(), true);
+        return s;
     }
 
     /// <summary>【癌症转移】的合法落点：两环内、盘上、**没有细胞占着**的任意格（不挑地形）。</summary>
