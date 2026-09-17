@@ -149,9 +149,11 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 					if _adjacent_healthy(t["pos"]):
 						opts.append(_opt(card, "→%s" % game.cell_name(t), { "cid": t["id"] }))
 			"交叉呈递":
+				## 结算走 apply_mark（Kevin 2026-09-17 裁定）：它对「本回合已经给过标记」的目标直接 return，
+				## 所以同回合被伤害吃掉标记的癌细胞这里也不出选项 —— 不然是「花了卡什么都没发生」
 				var r := 4 if cell["itype"] == CWData.ImmuneType.DENDRITIC else 2
 				for t in _cancer_cells_in_range(cell["pos"], r):
-					if not t["marked"]:
+					if not t["marked"] and int(t.get("mark_round", -1)) != game.round_no:
 						opts.append(_opt(card, "→%s" % game.cell_name(t), { "cid": t["id"] }))
 			"溶酶体强化":
 				if not _adjacent_plain_cancer_empty(cell["pos"]).is_empty():
@@ -298,7 +300,11 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 			game.immune_hit(game.cells[data["cid"]], _amp(base), cell, false)
 		"交叉呈递":
 			var target: Dictionary = game.cells[data["cid"]]
-			target["marked"] = true
+			## 2026-09-17 前是裸写 `target["marked"] = true`：不记施加回合（寿命按上一次的算，标过的目标当回合末就掉）、
+			## 不记层数（树突【抗原呈递强化】的 2 层给不到）、绕开「同一回合只给一次」。
+			## apply_mark 的注释本来就写着「树突光环、抗原呈递强化、卡牌三条路都得守同一条规矩」—— 这条路此前没守。
+			## Kevin 裁定方案 A：走 apply_mark，协议 v28。
+			game.apply_mark(target, cell)
 			game.fx("card_mark", { "from": cell["pos"], "to": target["pos"] })   ## issue #28：头顶到头顶的粉流 + 菱形头标
 			game.log_msg("　%s 获得【标记】" % game.cell_name(target))
 		"溶酶体强化":

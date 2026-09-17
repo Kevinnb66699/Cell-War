@@ -13043,6 +13043,32 @@ func t_card_instants() -> void:
 	b["hand"] = ["交叉呈递"]
 	await g.card_fx.play(b, { "act": "play", "card": "交叉呈递", "cid": 2 })
 	check(foe["marked"], "交叉呈递：目标获得【标记】")
+	## 2026-09-17 Kevin 裁定方案 A：走 apply_mark（此前裸写 marked，不记施加回合与层数、绕开同回合唯一闸）
+	check(int(foe["mark_round"]) == g.round_no and int(foe["mark_left"]) == 1,
+		"交叉呈递：走 apply_mark —— 记施加回合、普通免疫细胞 1 层")
+	## 同回合被伤害吃掉标记的目标：apply_mark 会直接 return，选项层就不出（免空打）；下一回合又出
+	foe["marked"] = false
+	foe["mark_left"] = 0
+	b["hand"] = ["交叉呈递"]
+	var xp_pick := func(o: Dictionary) -> bool:
+		return str(o["data"].get("card", "")) == "交叉呈递" and int(o["data"].get("cid", -1)) == 2
+	var xp_opts: Array = []
+	g.card_fx.hand_options(b, xp_opts)
+	check(xp_opts.filter(xp_pick).is_empty(), "交叉呈递：本回合已给过标记的目标不出选项")
+	g.round_no += 1
+	xp_opts = []
+	g.card_fx.hand_options(b, xp_opts)
+	check(not xp_opts.filter(xp_pick).is_empty(), "交叉呈递：下一回合又能给")
+	g.round_no -= 1
+	## 树突带【抗原呈递强化】：2 层（apply_mark 的口径，卡牌这条路从此也守）
+	foe["mark_round"] = -1
+	b["itype"] = CWData.ImmuneType.DENDRITIC
+	b["equipped"] = ["抗原呈递强化"]
+	b["hand"] = ["交叉呈递"]
+	await g.card_fx.play(b, { "act": "play", "card": "交叉呈递", "cid": 2 })
+	check(foe["marked"] and int(foe["mark_left"]) == 2, "交叉呈递：树突带【抗原呈递强化】给 2 层")
+	b["itype"] = CWData.ImmuneType.B_CELL
+	b["equipped"] = []
 	var lac := CWSetup.make_cell(3, 3, CWData.Faction.CANCER, Vector2i(3, 0), -1, CWData.CancerType.SIGNET)
 	g.cells.append(lac)
 	var vic := CWSetup.make_cell(4, 4, CWData.Faction.IMMUNE, Vector2i(3, 1), CWData.ImmuneType.BASIC, -1)

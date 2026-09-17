@@ -118,7 +118,7 @@ Vector2i → "q,r"；bool → 1/0
 `UpdateMarks` 过滤「本回合标过」（GD 过滤「已带标记」）。传送落地统一走 `CellRules.EnterTile`（Teleport + 黏液清除 + 代谢核心 / 骨髓二选一 + 标记刷新），骨髓抽卡那一发带子此前 C# 全局没有。
 **还是 KNOWN_GAP 的**：【基质重塑】选定第一格之后的两段追问（再拆一格 / 转健康 ×2，GD 三问零随机；C# 现在只有第一格由玩家选、后面仍按 PickRandom）；
 能量损失的限次修饰消耗不是 ON_BENEFIT（`ConsumeModifiers` 对 EnergyLoss 一律扣，GD `_shield_groups` 只扣真减了伤的）；【细胞毒性增强】GD 走 fx_turn 闸门、C# 是回合修饰；
-【信号放大】【细胞应激】等世界事件；【交叉呈递】绕开 apply_mark 是 GD 的疏漏还是口径（待 Kevin 裁）。
+【信号放大】【细胞应激】等世界事件。（【交叉呈递】绕开 apply_mark：**Kevin 09-17 裁定是疏漏**，两边改走 apply_mark、选项层滤掉本回合给过标记的目标，协议 v28，三条夹具重录。）
 
 **2026-09-17 晚 · 2p / 6p 夹具**（Kevin 要的）：`trace_2p_2222.jsonl`（173 步终局）、`trace_6p_6666.jsonl`（200 步），各自的水位线 51 / 186。
 录出来即撞的、已合上的：【趋化募集】【效应细胞浸润】是抽到即走的免费连走（GD `_free_walk` 逐步追问；C# 此前是两条免费移动修饰），

@@ -189,11 +189,11 @@ internal static class CardRules
             }
             return s;
         },
-        // 【交叉呈递】：射程树突 4 / 其余 2，已标记的不出选项。GD cw_card_fx.gd:301 是裸写 `target["marked"] = true`，
-        // **不经 apply_mark**：不写 mark_round、不写 mark_left（寿命按旧 mark_round 算、只翻一次、同回合唯一那道闸对本卡不生效）。
-        // 别「顺手修正」成 ApplyMark，两边内核先一致 —— GD 侧是否该走 apply_mark 记在对拍规格的待裁项里。
+        // 【交叉呈递】：射程树突 4 / 其余 2，已标记的、本回合给过标记的不出选项；结算走 ApplyMark（GD `apply_mark`，
+        // Kevin 2026-09-17 裁定方案 A、协议 v28）：记施加回合（寿命从本回合起算）、记层数（树突带【抗原呈递强化】给 2 层）、同回合只给一次。
+        // 此前两边都是裸写 marked 一个字段，寿命按上一次的施加回合算、只翻一次。
         ["交叉呈递"] = (s, cell, rng, target, targetCell) =>
-            targetCell is { } tid && CrossPresentTargets(s, cell).Contains(tid) ? s.UpdateCell(tid, s.Cells[tid].Copy(marked: true)) : s,
+            targetCell is { } tid && CrossPresentTargets(s, cell).Contains(tid) ? ApplyMark(s, tid, cell) : s,
         ["抗体依赖细胞毒作用"] = (s, cell, rng, target, targetCell) =>
             targetCell is { } tid && AdccTargets(s, cell).Contains(tid) ? Damage(s, tid, cell.Type == CellType.BCell ? 15 : 10, LossSource.ImmuneEffect) : s,
         // 【IFN-γ高峰】：技能卡，圆心 = 所选免疫细胞（可以是自己、不限距离），选项层用 IfnHasEffect 把「打了什么都不发生」的目标挡掉
@@ -722,11 +722,13 @@ internal static class CardRules
     internal static IReadOnlyList<HexPosition> RadiotherapyTargets(WorldState s)
         => Tiles(s).Where(Cancerous).Select(t => t.Position).ToList();
 
-    /// <summary>【交叉呈递】：N 环内、活着、**还没带标记**的癌细胞；N = 树突 4 / 其余 2。</summary>
+    /// <summary>【交叉呈递】：N 环内、活着、**还没带标记**、且**本回合没给过标记**的癌细胞（ApplyMark 对后者直接 return，出了选项就是空打）；
+    /// N = 树突 4 / 其余 2。</summary>
     internal static IReadOnlyList<EntityId> CrossPresentTargets(WorldState s, Cell cell)
     {
         var rings = cell.Type == CellType.Dendritic ? 4 : 2;
-        return Cells(s).Where(t => t.IsAlive && t.Faction == Faction.Cancer && !t.Marked && t.Position.DistanceTo(cell.Position) <= rings)
+        return Cells(s).Where(t => t.IsAlive && t.Faction == Faction.Cancer && !t.Marked && t.MarkRound != s.Turn.WorldRound
+                                   && t.Position.DistanceTo(cell.Position) <= rings)
                        .Select(t => t.Id).ToList();
     }
 

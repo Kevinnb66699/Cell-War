@@ -164,7 +164,7 @@ public class TargetedCardTests
     // ---------- 细胞目标 ----------
 
     [Fact]
-    public void 交叉呈递_射程树突4其余2_已标记的不出_结算裸写marked不经ApplyMark()
+    public void 交叉呈递_射程树突4其余2_已标记的不出_结算走ApplyMark()
     {
         var s = World(0, "交叉呈递");
         s = MoveTo(s, Cancer1, P(-2, 0));   // 距离 2
@@ -177,10 +177,22 @@ public class TargetedCardTests
         var (done, rng) = Do(s, new PlayCardDecision(0, Immune0, "交叉呈递", null, Cancer1));
         var marked = done.Cells[Cancer1];
         Assert.True(marked.Marked);
-        Assert.Equal(s.Cells[Cancer1].MarkRound, marked.MarkRound);   // 不写 mark_round
-        Assert.Equal(s.Cells[Cancer1].MarkLeft, marked.MarkLeft);     // 不写 mark_left
+        Assert.Equal(done.Turn.WorldRound, marked.MarkRound);   // 记施加回合：寿命从本回合起算
+        Assert.Equal(1, marked.MarkLeft);                        // 普通免疫细胞给 1 层
         Assert.Empty(rng.Ranges);
         Assert.Empty(Plays(done.UpdateCell(Immune0, done.Cells[Immune0].Copy(hand: ["交叉呈递"])), 0, "交叉呈递"));   // 已标记 → 不出
+
+        // 树突带【抗原呈递强化】：2 层
+        var enhanced = dendritic.UpdateCell(Immune0, dendritic.Cells[Immune0].Copy(equipped: ["抗原呈递强化"]));
+        var (twice, _) = Do(enhanced, new PlayCardDecision(0, Immune0, "交叉呈递", null, Cancer1));
+        Assert.Equal(2, twice.Cells[Cancer1].MarkLeft);
+
+        // 同回合被伤害吃掉标记的目标：ApplyMark 会直接 return，所以选项层就不出（空打拦在选项层）
+        var eaten = done.UpdateCell(Cancer1, done.Cells[Cancer1].Copy(marked: false, markLeft: 0))
+                        .UpdateCell(Immune0, done.Cells[Immune0].Copy(hand: ["交叉呈递"]));
+        Assert.Empty(Plays(eaten, 0, "交叉呈递"));
+        var nextRound = eaten.WithTurn(eaten.Turn.Copy(round: eaten.Turn.WorldRound + 1));
+        Assert.Equal(new[] { Cancer1 }, Plays(nextRound, 0, "交叉呈递").Select(p => p.TargetCell!.Value));
     }
 
     [Fact]
