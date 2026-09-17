@@ -23,8 +23,8 @@ public class L1ReplayTests
     public const int Ratchet = 200;
     /// <summary>2p seed 2222（终局 173 步）。</summary>
     public const int Ratchet2p = 51;
-    /// <summary>6p seed 6666（200 步）。</summary>
-    public const int Ratchet6p = 186;
+    /// <summary>6p seed 6666（200 步，2026-09-17 晚整条一致）。</summary>
+    public const int Ratchet6p = 200;
 
     [Theory]
     [InlineData("trace_4p_4242.jsonl", Ratchet)]

@@ -503,14 +503,16 @@ internal static class RulePolicies
 
     public static int AerobicShare(WorldState s, Cell c)
     {
-        var income = s.Players[c.OwnerSeat].ImmuneLevel switch
+        // GD `aerobic_income` = necrosis_cut(aerobic_share() + _aerobic_bonus)：每份按等级查表（AEROBIC_BY_LEVEL）
+        // → 【TGF-β释放】逐份 ×80% 向下取整（定案 #63，强度是同名条目求和；只算不结算，消耗在 PhaseRules 的有氧那一步）
+        // → **之外**再加【代谢适应】【自分泌生存信号】的额外获得（不吃 TGF-β，口径 #69）→ 站在坏死格整份打 5 折四舍五入。
+        // 此前 C# 先加了额外获得再打 TGF 折：6p 第 187 步 GD 16 + 5 = 21、C# (20 + 5) × 0.8 = 20（2026-09-17）
+        var share = s.Players[c.OwnerSeat].ImmuneLevel switch
             { ImmuneLevel.I => 20, ImmuneLevel.II => 30, ImmuneLevel.III => 45, _ => 50 };
-        if (HasSkill(s, c, "代谢适应")) income += 5;        // 每次结算有氧额外 +0.5
-        if (HasSkill(s, c, "自分泌生存信号")) income += 8;  // 每次结算有氧额外 +0.8
-        // 【TGF-β释放】逐份 ×80%（向下取整，定案 #63）。强度是**同名条目求和** ——
-        // 打两张就是两条各 1 层。**只算不结算**：消耗在 PhaseRules 的有氧那一步。
-        for (var i = 0; i < WorldEffects.Stacks(s, "TGF-β释放"); i++) income = income * 80 / 100;
-        if (s.Board.Tissues[c.Position].NecrosisRounds > 0) income = Settlement.RoundTenth(income * 0.5);
+        for (var i = 0; i < WorldEffects.Stacks(s, "TGF-β释放"); i++) share = share * 8 / 10;
+        var bonus = (HasSkill(s, c, "代谢适应") ? 5 : 0) + (HasSkill(s, c, "自分泌生存信号") ? 8 : 0);   // AEROBIC_ADAPT / AEROBIC_AUTOCRINE
+        var income = share + bonus;
+        if (s.Board.Tissues[c.Position].NecrosisRounds > 0) income = Settlement.RoundTenth(income * 0.5);   // NECROSIS_AEROBIC_PCT = 50
         return income;
     }
 
