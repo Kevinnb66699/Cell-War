@@ -38,7 +38,8 @@ public static class L1Replay
     private static readonly HashSet<string> GdKnownExtra = new(StringComparer.Ordinal);
 
     /// <param name="inspect">探针：每一步比完之后（无论 PASS 与否）拿到 (n, C# 状态)，查分叉用；日常重放不传。</param>
-    public static ReplayReport Run(string tracePath, int maxSteps = int.MaxValue, Action<int, WorldState>? inspect = null)
+    /// <param name="onResult">每一次引擎结算（决策 / 推阶段）的结果都交给它：演出覆盖护栏用来收 Events，日常重放不传。</param>
+    public static ReplayReport Run(string tracePath, int maxSteps = int.MaxValue, Action<int, WorldState>? inspect = null, Action<RulesResult>? onResult = null)
     {
         var lines = File.ReadLines(tracePath).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement).ToList();
         var header = lines[0];
@@ -79,7 +80,7 @@ public static class L1Replay
                     // GD 一步里的第 2、3 问可能已经跨过了阶段推进（结束回合 → E → 下一回合 S 产出时踩骨髓抽到连走卡）：
                     // 没人能动就先推，推到有人该答为止 —— 这一步的带子上本就录着 E 阶段那些抽取
                     while (s.Turn.Phase != Phase.Finished && !AnyoneCanAct(engine, s))
-                        s = engine.AdvancePhase(s, rng).NewState;
+                        { var adv = engine.AdvancePhase(s, rng); onResult?.Invoke(adv); s = adv.NewState; }
                     var options = engine.GetAvailableDecisions(s, pid);
                     if (options.Count == 0)
                     {
@@ -104,6 +105,7 @@ public static class L1Replay
                     if (chosen == null) { code = "PICK_MISSING"; detail = $"GD 选了 {pick}，C# 的选项表里没有"; break; }
 
                     var result = engine.ExecuteDecision(s, chosen, rng);
+                    onResult?.Invoke(result);
                     if (!result.Success) { code = "EXEC_FAIL"; detail = $"{pick}：{result.ErrorMessage}"; break; }
                     s = result.NewState;
                 }
@@ -111,7 +113,7 @@ public static class L1Replay
                 {
                     // GD 的 step() 末尾 advance() 到下一个决策点；C# 没人能动就推阶段 —— E 阶段的抽取也在这一步的带子上
                     while (s.Turn.Phase != Phase.Finished && !AnyoneCanAct(engine, s))
-                        s = engine.AdvancePhase(s, rng).NewState;
+                        { var adv = engine.AdvancePhase(s, rng); onResult?.Invoke(adv); s = adv.NewState; }
                     if (rng.Unused > 0)
                     {
                         // 把「停在哪」也打出来：少掷往往不是算式差，而是 C# 停在了 GD 不停的决策点上（例如主人死了还等它结束回合）

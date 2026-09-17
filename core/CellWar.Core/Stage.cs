@@ -63,6 +63,17 @@ internal static class Stage
         return best;
     }
 
+    /// <summary>GD `CWData.fmt(e)`：十分位整数 → "x.y"（负数也照 GD：`%d.%d % [e / 10, abs(e) % 10]`）。</summary>
+    public static string Fmt(int tenths) => $"{tenths / 10}.{Math.Abs(tenths) % 10}";
+
+    /// <summary>GD `CWCardFx._evt(card, text, at)`：事件卡的一句话通报（试玩后定：必须带上造成了什么效果），停得久些（linger）。</summary>
+    public static void Evt(WorldState s, string card, string text, HexPosition at)
+        => Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, $"事件【{card}】{text}", at, true));
+
+    /// <summary>GD `CWGame.announce(text, at, linger)`。</summary>
+    public static void Announce(WorldState s, string text, HexPosition at, bool linger = false)
+        => Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, text, at, linger));
+
     /// <summary>GD `CWGame.init`（cw_game.gd:140-152）的默认席位名：阵营词 + 同阵营内的序号字母（免疫A / 癌症B…）。宿主可另注入名字，这里只是内核文案的底。</summary>
     public static string SeatName(WorldState s, int seat)
     {
