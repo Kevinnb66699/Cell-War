@@ -98,7 +98,10 @@ internal static class CellRules
     public static WorldState Kill(WorldState s, EntityId id)
     {
         var c = s.Cells[id];
-        s = s.UpdateCell(id, c.Copy(energy: 0, alive: false, deathRound: s.Turn.WorldRound, modifiers: Array.Empty<ActiveModifier>()));
+        // 免疫细胞记下「哪一回合起可以复活」（GD kill：`respawn_round = round_no + 1 + delay`，delay < 0 = 不再复活）；
+        // 它进 state_hash 与 L1 视图（6p 第 45 步就是差在这一格）。癌细胞的复活看固化癌组织，不用这个字段
+        var respawn = c.Faction == Faction.Immune && s.Tuning.ImmuneRespawnDelay >= 0 ? s.Turn.WorldRound + 1 + s.Tuning.ImmuneRespawnDelay : -1;
+        s = s.UpdateCell(id, c.Copy(energy: 0, alive: false, deathRound: s.Turn.WorldRound, respawnRound: respawn, modifiers: Array.Empty<ActiveModifier>()));
         if (s.Turn.TrackCell == id)
             s = s.WithTurn(s.Turn.WithTrack(null, c.Position, s.Turn.TrackRounds));
         s = s.UpdateTissueOccupant(c.Position, null);
@@ -242,9 +245,39 @@ internal static class CellRules
     {
         var cell = s.Cells[cellId];
         var left = s.Turn.ChemotaxisStepsLeft - 1;
-        s = s.WithTurn(s.Turn.WithPendingChemotaxis(cellId, left));
+        s = s.WithTurn(s.Turn.WithPendingChemotaxis(cellId, left, s.Turn.PendingWalkCard));
         if (!CommitLegal(s, cell, to)) return new(s, Array.Empty<IGameEvent>(), true);
         return Move(s, new MoveDecision(cell.OwnerSeat, cellId, to), rng, rawCostOverride: ChemotaxisStepCost);
+    }
+
+    /// <summary>【趋化募集】/【效应细胞浸润】每次走几步（GD `_free_walk(cell, 2, …)`）。</summary>
+    public const int FreeWalkMaxSteps = 2;
+
+    /// <summary>这两张事件卡是不是免费连走（GD `_free_walk`：不进费用管线、直接 enter_tile）；其余是【炎症性趋化】那条付费连走。</summary>
+    public static bool IsFreeWalk(string? card) => card is "趋化募集" or "效应细胞浸润";
+
+    /// <summary>GD `_free_walk` 每一步的候选：相邻（DIRS 序）、**无任何存活细胞**占据、健康组织；【效应细胞浸润】还可进**普通**癌组织（固化不行）。</summary>
+    public static IReadOnlyList<HexPosition> FreeWalkSteps(WorldState s, Cell c, bool intoCancer)
+        => RulePolicies.GdNeighbors(s, c.Position)
+            .Where(n => s.GetCellAt(n) is not { IsAlive: true }
+                && (s.Board.Tissues[n].State == TissueState.Healthy || (intoCancer && s.Board.Tissues[n].State == TissueState.Cancer)))
+            .ToList();
+
+    /// <summary>当前这段连走（看 <see cref="TurnState.PendingWalkCard"/>）下一步能落哪：三张卡各自的规则。</summary>
+    public static IReadOnlyList<HexPosition> WalkSteps(WorldState s, Cell c) => s.Turn.PendingWalkCard switch
+    {
+        "趋化募集" => FreeWalkSteps(s, c, intoCancer: false),
+        "效应细胞浸润" => FreeWalkSteps(s, c, intoCancer: true),
+        _ => ChemotaxisSteps(s, c),
+    };
+
+    /// <summary>走一步：免费连走直接 `EnterTile`（GD `_free_walk` → `enter_tile`，不扣能量、不碰移动修饰）；【炎症性趋化】走付费那条。</summary>
+    public static RulesResult WalkMove(WorldState s, EntityId cellId, HexPosition to, IDeterministicRng rng)
+    {
+        if (!IsFreeWalk(s.Turn.PendingWalkCard)) return ChemotaxisMove(s, cellId, to, rng);
+        var left = s.Turn.ChemotaxisStepsLeft - 1;
+        s = s.WithTurn(s.Turn.WithPendingChemotaxis(cellId, left, s.Turn.PendingWalkCard));
+        return new(EnterTile(s, cellId, to, rng), Array.Empty<IGameEvent>(), true);
     }
 
     /// <summary>
@@ -258,7 +291,7 @@ internal static class CellRules
         if (s.Turn.PendingChemotaxisCell is not { } id) return s;
         if (s.Turn.PendingChainCell is not null) return s;   // 连锁先排干，它在 GD 里嵌在这一步内部
         var c = s.Cells[id];
-        if (s.Turn.ChemotaxisStepsLeft > 0 && c.IsAlive && ChemotaxisSteps(s, c).Count > 0) return s;
+        if (s.Turn.ChemotaxisStepsLeft > 0 && c.IsAlive && WalkSteps(s, c).Count > 0) return s;
         return s.WithTurn(s.Turn.WithPendingChemotaxis(null, 0));
     }
 
@@ -319,12 +352,16 @@ internal static class CellRules
     /// 三张传送卡（【免疫增援】【肿瘤细胞募集】【肿瘤增援】）、【癌症转移】与两条跃进技能都走它（2026-09-17）；
     /// 此前只有 Teleport，落到有卡的骨髓格上 GD 抽一张（带子多一发）、C# 什么也不抽。</summary>
     public static WorldState EnterTile(WorldState s, EntityId id, HexPosition dest, IDeterministicRng rng)
+        => Land(Teleport(s, id, dest), id, rng);
+
+    /// <summary>`enter_tile` 的后半截（脚已经放到格上之后）：免疫踩黏液即清 → `collect_special` → 刷新标记。
+    /// 复活也走这一截（GD `revive_*` 同样 `enter_tile`）—— 但复活不能走 Teleport：死亡格早就交出了占位，别人可能已经站上去。</summary>
+    public static WorldState Land(WorldState s, EntityId id, IDeterministicRng rng)
     {
-        s = Teleport(s, id, dest);
         var c = s.Cells[id];
-        var t = s.Board.Tissues[dest];
+        var t = s.Board.Tissues[c.Position];
         if (c.Faction == Faction.Immune && t.Mucus)
-            s = s.WithBoard(s.Board.UpdateTissue(dest, t.WithMucus(false)));
+            s = s.WithBoard(s.Board.UpdateTissue(c.Position, t.WithMucus(false)));
         s = CollectSpecial(s, id, rng);
         return UpdateMarks(s);
     }

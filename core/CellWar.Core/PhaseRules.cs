@@ -27,7 +27,7 @@ internal static class PhaseRules
         {
             if (s.Turn.StartStep == 0)
             {
-                s = BoardRules.ProduceAndTransport(s);
+                s = BoardRules.ProduceAndTransport(s, rng);
                 s = s.WithTurn(s.Turn.Copy(startStep: 1));
             }
             s = ContinueStart(s);
@@ -192,7 +192,10 @@ internal static class PhaseRules
             var options = new List<IDecision>();
             if (c.Faction == Faction.Immune)
             {
-                if (c.DeathRound == null || s.Turn.WorldRound <= c.DeathRound + 1) continue;
+                // GD `revive_options_immune`：`respawn_round < 0` 或 `round_no < respawn_round` 就不问。
+                // 只写了 DeathRound 的老夹具（C# 自己造的死细胞）按「死后隔一回合」的旧口径兜底
+                var ready = c.RespawnRound >= 0 ? s.Turn.WorldRound >= c.RespawnRound : c.DeathRound != null && s.Turn.WorldRound > c.DeathRound + 1;
+                if (!ready) continue;
                 options.AddRange(Tiles(s).Where(t => t.Type == TissueType.BoneMarrow && t.State == TissueState.Healthy && t.OccupyingCell == null)
                     .Select(t => (IDecision)new ReviveDecision(c.OwnerSeat, c.Id, t.Position)));
             }
@@ -220,12 +223,12 @@ internal static class PhaseRules
         => new(ContinueStart(s.WithTurn(s.Turn.WithCancerReviveFrom(skip.PlayerSeat + 1))), Array.Empty<IGameEvent>(), true);
 
     /// <summary>S.3/S.4 复活结算：落位/能量/占用与癌症干性被动，随后继续 S 阶段。</summary>
-    public static RulesResult Revive(WorldState s, ReviveDecision revival)
+    public static RulesResult Revive(WorldState s, ReviveDecision revival, IDeterministicRng rng)
     {
         var dead = s.Cells[revival.CellId];
         if (revival.SourcePosition is { } source)
             s = s.UpdateTissueState(source, TissueState.Cancer).UpdateTissueSolidification(source, 0);
-        s = s.UpdateCell(dead.Id, dead.Copy(alive: true, energy: dead.Faction == Faction.Immune ? 10 : 20, position: revival.TargetPosition, attacks: 0));
+        s = s.UpdateCell(dead.Id, dead.Copy(alive: true, energy: dead.Faction == Faction.Immune ? 10 : 20, position: revival.TargetPosition, attacks: 0, respawnRound: -1));   // GD 复活后 respawn_round = -1
         s = s.UpdateTissueOccupant(revival.TargetPosition, dead.Id);
         s = SetSeatAlive(s, dead.OwnerSeat, true);
         // 癌方这一席问过了（GD `flow["i"] += 1`）：别的癌席复活碎掉的固化格再造出落点，也轮不回来
@@ -237,6 +240,9 @@ internal static class PhaseRules
             s = s.UpdateCell(dead.Id, s.Cells[dead.Id].Copy(energy: stem));
             s = AddModifier(s, s.Cells[dead.Id], new("癌症干性", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Card, 0, 0, null, 2, ModifierDuration.Round, ModifierRequirement.MoveToCancerous));
         }
+        // 落地算「进入」（GD `revive_immune` / `revive_cancer` 都 `enter_tile`）：骨髓有卡就抽一张 —— 那是带子上的一发，
+        // 此前 C# 复活只放占位，L1 6p 第 83 步免疫在存着一张卡的骨髓上复活，GD 念了一条、C# 没念（2026-09-17）
+        s = CellRules.Land(s, dead.Id, rng);
         return new(ContinueStart(s), Array.Empty<IGameEvent>(), true);
     }
 }

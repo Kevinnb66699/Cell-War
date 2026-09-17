@@ -24,7 +24,7 @@ const PROTO := 2
 ## 与 C# `CanonCodec.TuneToCanon` 同一份键（18 个）；两边各自从自己的旋钮对象读
 const TUNE_KEYS := [
 	"cancer_move_cancerous", "cancer_move_healthy", "sclc_move_healthy", "pseudopod_cost",
-	"mucus_move_surcharge", "metastasis_cost", "attack_max_per_turn", "anaerobic_solid_bonus", "anaerobic_floor",
+	"mucus_move_surcharge", "metastasis_cost", "metastasis_max_per_round", "immune_respawn_delay", "attack_max_per_turn", "anaerobic_solid_bonus", "anaerobic_floor",
 	"anaerobic_cap", "anaerobic_split", "newborn_protect", "cancer_upkeep_pct", "energy_cap",
 	"overload_threshold", "overload_div", "overload_exp", "overload_cap",
 ]

@@ -47,26 +47,22 @@ internal static class CardRules
                 s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy + amount));
             return s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
         },
+        // 【局部吞噬】：相邻无细胞的普通癌组织里随机 1 格转健康、+1 记忆（卡面明写才给，不过 purify_gives_memory）。
+        // 候选按 GD DIRS 序（randi_range 抽的是下标）；GD 不看黏液，此前 C# 多了一条 `!t.Mucus`
         ["局部吞噬"] = (s, cell, rng, target, targetCell) =>
         {
-            var targets = cell.Position.GetNeighbors()
-                .Where(n => s.Board.Tissues.TryGetValue(n, out var t) && t.State == TissueState.Cancer && t.OccupyingCell == null && !t.Mucus)
-                .ToArray();
-            if (targets.Length > 0)
-            {
-                s = s.UpdateTissueState(targets[rng.NextInt(targets.Length)], TissueState.Healthy);
-                s = AddMemory(s, 1);
-            }
-            return s;
+            var cands = PhagocytosisTargets(s, cell);
+            if (cands.Count == 0) return s;   // 选项层已经拦了（Playable），这里是兜底
+            s = s.UpdateTissueState(cands[rng.NextInt(cands.Count)], TissueState.Healthy);
+            return AddMemory(s, 1);
         },
         // 【基质降解】：格子由玩家选（GD hand_options 一格一条），**零随机** —— 此前 C# 自己随机挑，带子上多一发
         ["基质降解"] = (s, cell, rng, target, targetCell) =>
             target is { } pos && DegradeTargets(s, cell).Contains(pos) ? CrackToCancer(s, pos) : s,
+        // 【溶酶体强化】：相邻无细胞的普通癌组织随机最多 4 格转健康（pick_n，候选按 GD DIRS 序）；巨噬每格 +0.3
         ["溶酶体强化"] = (s, cell, rng, target, targetCell) =>
         {
-            var targets = cell.Position.GetNeighbors()
-                .Where(n => s.Board.Tissues.TryGetValue(n, out var t) && t.State == TissueState.Cancer && t.OccupyingCell == null && !t.Mucus)
-                .ToArray();
+            var targets = AdjacentPlainCancerEmpty(s, cell.Position);
             foreach (var pick in rng.PickRandom(targets, 4))
             {
                 s = s.UpdateTissueState(pick, TissueState.Healthy);
@@ -279,14 +275,12 @@ internal static class CardRules
                 s = Necrotize(s, pos, NecrosisRadio);
             return s;
         },
+        // 【克隆增殖】：相邻、**没有免疫细胞**占着的健康组织（癌细胞站着的照样算），随机 1/2/3 格（分期）转**新生**癌组织（GD `to_cancer(t, true)`）
         ["克隆增殖"] = (s, cell, rng, target, targetCell) =>
         {
             var count = CancerPhase(s.Turn.WorldRound) + 1;
-            var targets = cell.Position.GetNeighbors()
-                .Where(n => s.Board.Tissues.TryGetValue(n, out var t) && t.State == TissueState.Healthy && t.OccupyingCell == null)
-                .ToArray();
-            foreach (var pick in rng.PickRandom(targets, count))
-                s = s.UpdateTissueState(pick, TissueState.Cancer);
+            foreach (var pick in rng.PickRandom(ClonalGrowthTargets(s, cell), count))
+                s = ToCancer(s, pick, newborn: true);
             return s;
         },
         ["炎症风暴"] = (s, cell, rng, target, targetCell) =>
@@ -302,16 +296,13 @@ internal static class CardRules
             }
             return s;
         },
+        // 【趋化募集】/【效应细胞浸润】：抽到即走的免费连走，GD `_free_walk` 每步问一次「走哪 / 停」（`kind: free_move`, tag = 卡名）。
+        // 此前 C# 做成两条「免费移动」修饰，等玩家用「移动」行动去花 —— 选项形状和 GD 完全不同（L1 2p 第 6 步就分叉在这）。
+        // 挂起后由 Execute 出口的 NormalizeChemotaxis 收口：没有候选就当场摘掉（GD「没有可进入的相邻格，提前结束」不问）
         ["趋化募集"] = (s, cell, rng, target, targetCell) =>
-        {
-            s = AddModifier(s, s.Cells[cell.Id], new("趋化募集", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Card, 0, 0, null, 2, ModifierDuration.Turn, ModifierRequirement.MoveToHealthy));
-            return s;
-        },
+            s.WithTurn(s.Turn.WithPendingChemotaxis(cell.Id, CellRules.FreeWalkMaxSteps, "趋化募集")),
         ["效应细胞浸润"] = (s, cell, rng, target, targetCell) =>
-        {
-            s = AddModifier(s, s.Cells[cell.Id], new("效应细胞浸润", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Card, 0, 0, null, 2, ModifierDuration.Turn));
-            return s;
-        },
+            s.WithTurn(s.Turn.WithPendingChemotaxis(cell.Id, CellRules.FreeWalkMaxSteps, "效应细胞浸润")),
         // 【炎症性趋化】：连走最多 3 步，每步起价 0.2。
         //
         // 不是「本回合 3 次迁移改价 0.2」的修饰（2026-09-16 前 C# 是那么写的）：
@@ -324,7 +315,7 @@ internal static class CardRules
         ["炎症性趋化"] = (s, cell, rng, target, targetCell) =>
         {
             if (target is not { } first) return s;
-            s = s.WithTurn(s.Turn.WithPendingChemotaxis(cell.Id, CellRules.ChemotaxisMaxSteps));
+            s = s.WithTurn(s.Turn.WithPendingChemotaxis(cell.Id, CellRules.ChemotaxisMaxSteps, "炎症性趋化"));
             // 这里丢掉了这一步的事件（攻击/净化）—— 卡牌效果表的签名只吐 WorldState，
             // 整张表都是这样（如【炎症风暴】改地形也不发事件），不为一张卡单开一条通路。
             return CellRules.ChemotaxisMove(s, cell.Id, first, rng).NewState;
@@ -537,6 +528,9 @@ internal static class CardRules
         // 【代谢耦联】：打出时就选定队友（GD 一个队友一条选项），随后的方向 / 档位走挂起态
         if (d.Card == "代谢耦联" && (d.TargetCell is not { } ally || !CoupleAllies(s, cell).Contains(ally)))
             return new(false, "【代谢耦联】必须指定一个付得起的队友");
+        // 无目标但「打了什么都不发生」的卡在选项层就拦（GD hand_options 那几条闸：局部吞噬 / 溶酶体强化 / 克隆增殖 / TNF-α）
+        if (Playable.TryGetValue(d.Card, out var playable) && !playable(s, cell))
+            return new(false, $"【{d.Card}】此刻没有可作用的目标");
         // 带目标的卡（2026-09-17，GD hand_options 逐条对照）：目标必须在各自的候选表里，没给目标 = 非法。
         // 不在这里校验，Available 之外的调用方（AI / 对拍）就能递进来一个非法目标、让结算里静默吞掉
         if (TileTargeted.TryGetValue(d.Card, out var tilesOf) && (d.Target is not { } to || !tilesOf(s, cell).Contains(to)))
@@ -671,6 +665,34 @@ internal static class CardRules
             ["肿瘤增援"] = TumorReinforceTargets,
             ["代谢耦联"] = CoupleAllies,
         };
+
+    /// <summary>无目标卡的「有效果才出选项」闸（GD hand_options：候选为空 / 没效果就一条都不 append，落空的卡不该出现在行动栏里）。</summary>
+    internal static readonly IReadOnlyDictionary<string, Func<WorldState, Cell, bool>> Playable =
+        new Dictionary<string, Func<WorldState, Cell, bool>>(StringComparer.Ordinal)
+        {
+            ["局部吞噬"] = (s, c) => PhagocytosisTargets(s, c).Count > 0,
+            ["溶酶体强化"] = (s, c) => AdjacentPlainCancerEmpty(s, c.Position).Count > 0,
+            ["克隆增殖"] = (s, c) => ClonalGrowthTargets(s, c).Count > 0,
+            ["TNF-α局部炎症"] = (s, c) => TnfHasEffect(s, c),
+        };
+
+    /// <summary>GD `_adjacent_plain_cancer_empty`：相邻（DIRS 序）、无细胞占据的**普通**癌组织。【溶酶体强化】【局部吞噬】共用。</summary>
+    internal static IReadOnlyList<HexPosition> AdjacentPlainCancerEmpty(WorldState s, HexPosition pos)
+        => GdNeighbors(s, pos).Where(n => s.Board.Tissues[n] is { State: TissueState.Cancer, OccupyingCell: null }).ToList();
+
+    /// <summary>GD `_phagocytosis_targets`：与 `_adjacent_plain_cancer_empty` 同一条规则（不看黏液）。</summary>
+    internal static IReadOnlyList<HexPosition> PhagocytosisTargets(WorldState s, Cell cell) => AdjacentPlainCancerEmpty(s, cell.Position);
+
+    /// <summary>GD `_clonal_growth_targets`：相邻健康组织，且**没有免疫细胞**站着（癌细胞站着的照样算）。</summary>
+    internal static IReadOnlyList<HexPosition> ClonalGrowthTargets(WorldState s, Cell cell)
+        => GdNeighbors(s, cell.Position)
+            .Where(n => s.Board.Tissues[n].State == TissueState.Healthy && s.GetCellAt(n) is not { IsAlive: true, Faction: Faction.Immune })
+            .ToList();
+
+    /// <summary>GD `_tnf_has_effect`：自身格 + 相邻格里有普通癌组织或活着的癌细胞。</summary>
+    internal static bool TnfHasEffect(WorldState s, Cell cell)
+        => new[] { cell.Position }.Concat(GdNeighbors(s, cell.Position))
+            .Any(p => s.Board.Tissues[p].State == TissueState.Cancer || s.GetCellAt(p) is { IsAlive: true, Faction: Faction.Cancer });
 
     /// <summary>【基质降解】：相邻（GD DIRS 序）的固化癌组织，不看占据。</summary>
     internal static IReadOnlyList<HexPosition> DegradeTargets(WorldState s, Cell cell)

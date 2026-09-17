@@ -39,6 +39,10 @@ internal static class SkillRules
             case "骨样硬化":
                 if (cell.Type != CellType.Osteosarcoma) return new(false, "只有骨肉瘤可以发动【骨样硬化】");
                 if (!s.Board.Tissues.TryGetValue(cell.Position, out var own) || own.State != TissueState.Cancer) return new(false, "脚下不是癌组织");
+                // GD `_can_ossify` 还有两条：已经标过（ossify_at != 0）不能再标、血管永不可固化（标都不让标，Kevin 2026-09-06）——
+                // 缺了它们 C# 会多出一条 GD 没有的选项（L1 2p 第 47 步）
+                if (own.OssifyAtRound != 0) return new(false, "脚下的癌组织已经标记过【骨样硬化】");
+                if (own.Type == TissueType.BloodVessel) return new(false, "血管不可固化");
                 return Settlement.CanPay(cell.Energy, 20) ? new(true) : new(false, "能量不足");
             case "早期血行转移":
                 if (cell.Type != CellType.Melanoma) return new(false, "只有恶性黑色素瘤可以发动【早期血行转移】");
@@ -49,8 +53,9 @@ internal static class SkillRules
                 return Settlement.CanPay(cell.Energy, MelanomaHomingCost) ? new(true) : new(false, "能量不足");
             case "转移":
                 if (cell.Type != CellType.SmallCellLung) return new(false, "只有小细胞肺癌可以发动【转移】");
-                if (d.Target is not { } jump || !s.Board.Tissues.TryGetValue(jump, out var jt) || jt.OccupyingCell != null || jump.DistanceTo(cell.Position) != 5)
-                    return new(false, "终点必须是地图内 5 格外的无细胞格");
+                if (!JumpQuotaLeft(s, cell)) return new(false, "本世界回合【转移】次数已用完");
+                if (d.Target is not { } jump || !JumpTargets(s, cell).Contains(jump))
+                    return new(false, "终点必须是沿某个方向直线跃进 5 格、地图内、无细胞占据的格");
                 return Settlement.CanPay(cell.Energy, s.Tuning.MetastasisCost) ? new(true) : new(false, "能量不足");
             case "免疫猎杀":
                 return ValidateEffector(s, cell, CellType.Dendritic);
@@ -92,6 +97,28 @@ internal static class SkillRules
     /// 只有 `"jump"` 走 `game.tune.metastasis_cost`。两者今天同为 1.0，别顺手合并成一个。
     /// </summary>
     private const int MelanomaHomingCost = 10;
+
+    /// <summary>【转移】落点：GD `_jump_targets` —— **朝六个方向各直线跃进 5 格**（`pos + d * METASTASIS_RANGE`），落在板内且无细胞占据。
+    /// 此前 C# 给的是「所有距离 == 5 的空格」（5 环有 30 格），选项表比 GD 多出一圈（L1 6p 第 39 步，2026-09-17）。</summary>
+    internal static IReadOnlyList<HexPosition> JumpTargets(WorldState s, Cell cell)
+    {
+        var targets = new List<HexPosition>();
+        foreach (var (dq, dr) in JumpDirs)
+        {
+            var q = cell.Position.Q + dq * MetastasisRange;
+            var r = cell.Position.R + dr * MetastasisRange;
+            var p = new HexPosition(q, r, -q - r);
+            if (s.Board.Tissues.TryGetValue(p, out var t) && t.OccupyingCell == null) targets.Add(p);
+        }
+        return targets;
+    }
+
+    private const int MetastasisRange = 5;   // CWData.METASTASIS_RANGE
+    private static readonly (int Dq, int Dr)[] JumpDirs = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)];   // CWData.DIRS
+
+    /// <summary>GD `_jump_quota_left`：旋钮 `metastasis_max_per_round`，0 = 不限。</summary>
+    internal static bool JumpQuotaLeft(WorldState s, Cell cell)
+        => s.Tuning.MetastasisMaxPerRound <= 0 || cell.JumpUsedThisRound < s.Tuning.MetastasisMaxPerRound;
 
     private static ValidationResult ValidateEffector(WorldState s, Cell cell, CellType required)
     {

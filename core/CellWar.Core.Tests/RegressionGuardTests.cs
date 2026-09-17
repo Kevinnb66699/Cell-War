@@ -359,7 +359,7 @@ public class RegressionGuardTests
     /// <summary>【炎症性趋化】的挂起态：谁在走 + 还剩几步，两个字段一起改。</summary>
     private static readonly string[] ChemotaxisFields =
     [
-        nameof(TurnState.PendingChemotaxisCell), nameof(TurnState.ChemotaxisStepsLeft),
+        nameof(TurnState.PendingChemotaxisCell), nameof(TurnState.ChemotaxisStepsLeft), nameof(TurnState.PendingWalkCard),
     ];
 
     /// <summary>同 AssertOnlyChanges，但允许一次改动一组字段。</summary>
@@ -1439,6 +1439,7 @@ public class RegressionGuardTests
         ChemoOwner = 0,
         PendingChemotaxisCell = new EntityId(6),
         ChemotaxisStepsLeft = 2,
+        PendingWalkCard = "趋化募集",
         CardResolveDepth = 1,
         PendingCard = "炎症性趋化",
         PendingCardCell = new EntityId(6),

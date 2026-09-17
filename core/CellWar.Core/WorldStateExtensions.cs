@@ -147,12 +147,12 @@ public static class WorldStateExtensions
         int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? cytokineSeat = null, int? effectorRound = null,
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
         EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null, EntityId? pendingChain = null,
-        EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null,
+        EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null, string? pendingWalkCard = null,
         int? cardResolveDepth = null, string? pendingCard = null, EntityId? pendingCardCell = null, int? cancerReviveFrom = null,
         EntityId? pendingCoupleCell = null, EntityId? pendingCoupleAlly = null, EntityId? pendingCouplePayer = null,
         bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false,
         bool setTrackCell = false, bool setTrackFrozenAt = false, bool setPendingChain = false, bool setPendingChemotaxis = false,
-        bool setPendingCard = false, bool setPendingCouple = false)
+        bool setPendingCard = false, bool setPendingCouple = false, bool setPendingWalkCard = false)
         => new() { WorldRound = round ?? t.WorldRound, Phase = phase ?? t.Phase, ActivePlayerSeat = seat ?? t.ActivePlayerSeat,
             StartStep = startStep ?? t.StartStep, Winner = winner ?? t.Winner, CancerAlarmRound = alarm ?? t.CancerAlarmRound,
             PendingDiscardSeat = setPendingDiscard ? pendingDiscard : pendingDiscard ?? t.PendingDiscardSeat,
@@ -170,6 +170,7 @@ public static class WorldStateExtensions
             PendingChainCell = setPendingChain ? pendingChain : pendingChain ?? t.PendingChainCell,
             PendingChemotaxisCell = setPendingChemotaxis ? pendingChemotaxis : pendingChemotaxis ?? t.PendingChemotaxisCell,
             ChemotaxisStepsLeft = chemotaxisStepsLeft ?? t.ChemotaxisStepsLeft,
+            PendingWalkCard = setPendingWalkCard ? pendingWalkCard : pendingWalkCard ?? t.PendingWalkCard,
             CardResolveDepth = cardResolveDepth ?? t.CardResolveDepth,
             PendingCard = setPendingCard ? pendingCard : pendingCard ?? t.PendingCard,
             PendingCardCell = setPendingCard ? pendingCardCell : pendingCardCell ?? t.PendingCardCell,
@@ -197,8 +198,10 @@ public static class WorldStateExtensions
         => t.Copy(pendingCard: card, pendingCardCell: cell, setPendingCard: true);
 
     /// <summary>挂起 / 结束【炎症性趋化】的连走，同时记下还剩几步。</summary>
-    public static TurnState WithPendingChemotaxis(this TurnState t, EntityId? cell, int stepsLeft)
-        => t.Copy(pendingChemotaxis: cell, chemotaxisStepsLeft: stepsLeft, setPendingChemotaxis: true);
+    /// <summary>挂上 / 摘掉一段连走：`card` 是走的是哪张卡（见 <see cref="TurnState.PendingWalkCard"/>）；摘掉时三个一起清。</summary>
+    public static TurnState WithPendingChemotaxis(this TurnState t, EntityId? cell, int stepsLeft, string? card = null)
+        => t.Copy(pendingChemotaxis: cell, chemotaxisStepsLeft: stepsLeft, pendingWalkCard: cell is null ? null : card,
+            setPendingChemotaxis: true, setPendingWalkCard: true);
 
     /// <summary>挂上【追踪趋化源】：跟着 `cell` 走，`rounds` 个世界回合。</summary>
     public static TurnState WithTrack(this TurnState t, EntityId? cell, HexPosition? frozenAt, int rounds)

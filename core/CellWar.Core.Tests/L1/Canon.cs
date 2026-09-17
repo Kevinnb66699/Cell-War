@@ -73,7 +73,7 @@ public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Mem
     int CytokineSeat, int EffectorRound,
     string ChemoAt, int ChemoRounds, int ChemoOwner, int? ChemoCreator,
     int? TrackCell, string TrackFrozenAt, int TrackRounds, int? PendingChainCell,
-    int? PendingChemotaxisCell, int ChemotaxisStepsLeft,
+    int? PendingChemotaxisCell, int ChemotaxisStepsLeft, string PendingWalkCard,
     int CardResolveDepth, string PendingCard, int? PendingCardCell, int CancerReviveFrom,
     int? PendingCoupleCell, int? PendingCoupleAlly, int? PendingCouplePayer)
 {

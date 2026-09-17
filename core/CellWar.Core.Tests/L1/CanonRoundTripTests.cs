@@ -91,7 +91,7 @@ public class CanonRoundTripTests
             .WithTrack(other, null, 2)
             .WithPendingMutation(1, other, 2, 3)
             .WithPendingChain(id)
-            .WithPendingChemotaxis(other, 2)
+            .WithPendingChemotaxis(other, 2, "炎症性趋化")
             .WithPendingCard("炎症性趋化", other)
             .WithCardResolveDepth(1)
             .WithCancerReviveFrom(2)

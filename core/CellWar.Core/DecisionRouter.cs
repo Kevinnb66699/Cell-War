@@ -38,9 +38,9 @@ internal static class DecisionRouter
             var walkOwner = state.Cells[chemotaxisCell].OwnerSeat;   // 同上：只有主人能答
             if (decision is StopChemotaxisDecision stopWalk && stopWalk.CellId == chemotaxisCell && stopWalk.PlayerSeat == walkOwner) return new(true);
             return decision is ChemotaxisStepDecision step && step.CellId == chemotaxisCell && step.PlayerSeat == walkOwner
-                    && CellRules.ChemotaxisSteps(state, state.Cells[chemotaxisCell]).Contains(step.Target)
+                    && CellRules.WalkSteps(state, state.Cells[chemotaxisCell]).Contains(step.Target)
                 ? new(true)
-                : new(false, "等待【炎症性趋化】选择下一步");
+                : new(false, $"等待【{state.Turn.PendingWalkCard ?? "炎症性趋化"}】选择下一步");
         }
         // 【代谢耦联】的两次追问（方向 → 档位）：只接主人；两问都能「取消」
         if (state.Turn.PendingCoupleCell is { } coupleCell && state.Turn.PendingCoupleAlly is { } coupleAlly)
@@ -103,7 +103,7 @@ internal static class DecisionRouter
         if (decision is ChainMoveDecision hop) return CellRules.ChainMove(state, hop, rng);
         if (decision is StopChainDecision)
             return new(state.WithTurn(state.Turn.WithPendingChain(null)), Array.Empty<IGameEvent>(), true);
-        if (decision is ChemotaxisStepDecision step) return CellRules.ChemotaxisMove(state, step.CellId, step.Target, rng);
+        if (decision is ChemotaxisStepDecision step) return CellRules.WalkMove(state, step.CellId, step.Target, rng);
         if (decision is StopChemotaxisDecision)
             return new(state.WithTurn(state.Turn.WithPendingChemotaxis(null, 0)), Array.Empty<IGameEvent>(), true);
         if (decision is CoupleDirectionDecision dir)
@@ -123,7 +123,7 @@ internal static class DecisionRouter
         if (decision is TypeSkillDecision typeSkill) return SkillRules.Execute(state, typeSkill, rng);
         if (decision is EndTurnDecision) return PhaseRules.AdvancePhase(state, rng);
         if (decision is PassDecision) return new(state, Array.Empty<IGameEvent>(), true);
-        if (decision is ReviveDecision revival) return PhaseRules.Revive(state, revival);
+        if (decision is ReviveDecision revival) return PhaseRules.Revive(state, revival, rng);
         if (decision is SkipReviveDecision skip) return PhaseRules.SkipRevive(state, skip);
         return CellRules.Move(state, (MoveDecision)decision, rng);
     }
@@ -168,7 +168,7 @@ internal static class DecisionRouter
             // 「停在这里」排在最前：GD `game.ask` 的约定是「可以不做」的那条放下标 0（中止对局时固定答 0）。
             // 候选为空这种情况到不了这里 —— NormalizeChemotaxis 已经把挂起摘掉了。
             var steps = new List<IDecision> { new StopChemotaxisDecision(seat, chemotaxisCell) };
-            steps.AddRange(CellRules.ChemotaxisSteps(s, walker).Select(t => (IDecision)new ChemotaxisStepDecision(seat, chemotaxisCell, t)));
+            steps.AddRange(CellRules.WalkSteps(s, walker).Select(t => (IDecision)new ChemotaxisStepDecision(seat, chemotaxisCell, t)));
             return steps;
         }
         if (s.Turn.PendingCoupleCell is { } coupleCell && s.Turn.PendingCoupleAlly is { } coupleAlly)
@@ -266,9 +266,9 @@ internal static class DecisionRouter
             }
             if (c.Type == CellType.SmallCellLung)
             {
-                foreach (var t in Tiles(s).Where(t => t.OccupyingCell == null && t.Position.DistanceTo(c.Position) == 5))
+                foreach (var p in SkillRules.JumpTargets(s, c))   // 六个方向的直线落点（GD _jump_targets），不是整个 5 环
                 {
-                    var jump = new TypeSkillDecision(seat, c.Id, "转移", t.Position);
+                    var jump = new TypeSkillDecision(seat, c.Id, "转移", p);
                     if (Validate(s, jump).IsValid) result.Add(jump);
                 }
             }

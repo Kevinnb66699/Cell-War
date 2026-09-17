@@ -380,7 +380,8 @@ internal static class RulePolicies
     /// 同步的那段看 `CardResolveDepth`，跨决策点的那段（趋化第 2/3 步）看 `PendingCard`。
     /// **只挡净化给的那一份**：【抗原摄取】那类卡的正业就是送记忆，照给；技能给的（【效应记忆形成】）也照给。
     /// </summary>
-    public static bool PurifyGivesMemory(WorldState s) => s.Turn.CardResolveDepth <= 0 && s.Turn.PendingCard is null;
+    public static bool PurifyGivesMemory(WorldState s)
+        => s.Turn.CardResolveDepth <= 0 && s.Turn.PendingCard is null && s.Turn.PendingWalkCard is null;   // 事件卡的连走（GD 嵌在 draw() 的深度里）同样不给
 
     public static bool HasSkill(WorldState s, Cell c, string skill)
         => !Neutralized(s, c) && c.Equipped.Contains(skill);

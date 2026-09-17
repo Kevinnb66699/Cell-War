@@ -102,6 +102,10 @@ public sealed class TurnState
     /// 静默作废的那一步也照减 —— GD 的 commit 失败不退步数。
     /// </summary>
     public int ChemotaxisStepsLeft { get; init; }
+    /// <summary>这段免费连走是哪张卡在走：【炎症性趋化】（付 0.2 一步，最多 3 步）/【趋化募集】（免费，只进健康，2 步）/
+    /// 【效应细胞浸润】（免费，健康或普通癌组织，2 步）。候选规则、走法、语义键的 tag 都按它分；null = 没在走。
+    /// 后两张是抽到即结算的事件卡（GD `_free_walk`），2026-09-17 之前 C# 把它们做成两条免费移动修饰，没有逐步追问。</summary>
+    public string? PendingWalkCard { get; init; }
 
     /// <summary>
     /// GD 的 `card_resolve_depth`：正在结算一张卡（打出的即时卡 / 抽到的事件卡）时 > 0。
@@ -161,6 +165,7 @@ public sealed class TurnState
         PendingChainCell = PendingChainCell,
         PendingChemotaxisCell = PendingChemotaxisCell,
         ChemotaxisStepsLeft = ChemotaxisStepsLeft,
+        PendingWalkCard = PendingWalkCard,
         CardResolveDepth = CardResolveDepth,
         PendingCard = PendingCard,
         PendingCardCell = PendingCardCell,

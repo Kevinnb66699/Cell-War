@@ -97,8 +97,9 @@ public static class SemanticKey
 
         // 【炎症性趋化】的第 2/3 步：GD 同样是 `kind: "free_move"`，tag 换成卡名。
         // 第 1 步不在这里 —— 它是 `k=action|act=play|card=炎症性趋化|to=…`。
-        ChemotaxisStepDecision cx => Tagged("free_move", "炎症性趋化", ("to", Pos(cx.Target))),
-        StopChemotaxisDecision => Tagged("free_move", "炎症性趋化", ("stop", "1")),
+        // 2026-09-17 起三张卡共用这两条决策：tag 从挂起态里读（【趋化募集】【效应细胞浸润】是抽到即走的事件卡）
+        ChemotaxisStepDecision cx => Tagged("free_move", s.Turn.PendingWalkCard ?? "炎症性趋化", ("to", Pos(cx.Target))),
+        StopChemotaxisDecision => Tagged("free_move", s.Turn.PendingWalkCard ?? "炎症性趋化", ("stop", "1")),
 
         // 【代谢耦联】的两次追问（GD kind pick / tag 代谢耦联）：方向 {from, to_cid}、档位 {pay, get}、取消 {stop}
         CoupleDirectionDecision cd => Tagged("pick", "代谢耦联", ("from", Seat(cd.Payer)), ("to_cid", Seat(cd.Getter))),

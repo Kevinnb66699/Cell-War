@@ -11,11 +11,12 @@ namespace CellWar.Core;
 internal static class BoardRules
 {
     /// <summary>S.1/S.2：特殊组织生产（含产出即收取）与血管传送。</summary>
-    public static WorldState ProduceAndTransport(WorldState s)
+    public static WorldState ProduceAndTransport(WorldState s, IDeterministicRng rng)
     {
         s = ResetRoundFlags(s);
         foreach (var t in Tiles(s))
         {
+            if (t.NecrosisRounds > 0) continue;   // 坏死期间不产也不攒（GD _tissue_production，Kevin 2026-09-13 issue #31）
             var current = t.Charge ?? 0;
             var prod = t.ProductionCounter;
             var nextProd = prod;
@@ -35,13 +36,16 @@ internal static class BoardRules
                     if (nextProd >= (t.State == TissueState.Healthy ? 3 : 2)) { nextProd = 0; gain = 1; }
                     break;
             }
-            if (nextProd == prod && gain == 0) continue;
+            if (t.Type != TissueType.MetabolicCore && t.Type != TissueType.BoneMarrow) continue;
             var cap = t.Type == TissueType.MetabolicCore ? MetabolicCoreStoreMax : BoneMarrowStoreMax;
             var charge = Math.Min(cap, current + gain);
-            s = s.WithBoard(s.Board.UpdateTissue(t.Position, t.WithProductionCounter(nextProd).WithCharge(charge)));
-            // 产出瞬间站在其上的细胞立即收取（旧实现 collect_special）
+            if (nextProd != prod || gain != 0)
+                s = s.WithBoard(s.Board.UpdateTissue(t.Position, t.WithProductionCounter(nextProd).WithCharge(charge)));
+            // 有存货且有细胞站着就当场收取（GD `if store > 0 or cards > 0: collect_special(here[0])`，不看这回合有没有新产出）：
+            // 代谢核心收能量 **或** 骨髓抽卡 —— 骨髓那一抽是带子上的一发，此前 C# 只收能量，
+            // 2p / 6p 轨迹一录出来就各在第一次骨髓产出时少念一条（2026-09-17）
             if (charge > 0 && s.GetCellAt(t.Position) is { IsAlive: true } occupant)
-                s = CollectEnergy(s, occupant.Id);
+                s = CollectSpecial(s, occupant.Id, rng);
         }
         return Transport(s);
     }
