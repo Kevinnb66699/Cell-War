@@ -17314,6 +17314,39 @@ func t_chat_box() -> void:
 		"迷你条底边 %d 不压棋盘顶行（75）" % int(CWLogHint.SIZE.y + CWLogPanel.RECT.position.y))
 	check(CWLogPanel.RECT.position.x >= CWFeed.RECT.position.x,
 		"这块地与出牌列同一条左缘（左侧那一列对齐）")
+	## 「聊天」旁边挂 Enter 键帽（Kevin 2026-09-17）：没聊天框时跟标签一起藏；有了就贴标签右缘；未读数把标签撑宽时跟着挪；别撞上右边的 L
+	var hint3 := CWLogHint.new()
+	root.add_child(hint3)
+	await process_frame
+	hint3._process(0.0)
+	check(not hint3._chat_key.visible and not hint3._chat_tab.visible, "单机局：聊天标签和 Enter 键帽都不露面")
+	var box3 := CWChatBox.new()
+	root.add_child(box3)
+	hint3.set_chat(box3)
+	hint3._process(0.0)
+	check(hint3._chat_key.visible and hint3._chat_tab.visible, "联机局：Enter 键帽随聊天标签一起出现")
+	var right_of_tab: float = hint3._chat_tab.position.x + hint3._chat_tab.get_minimum_size().x
+	check(hint3._chat_key.position.x >= right_of_tab and hint3._chat_key.position.x <= right_of_tab + 6.0,
+		"键帽贴在「聊天」右缘（x %d，标签右缘 %d）" % [int(hint3._chat_key.position.x), int(right_of_tab)])
+	check(hint3._chat_key.position.x + hint3._chat_key.size.x < hint3._key.position.x - 8.0,
+		"键帽离右边的 L 键帽还有富余")
+	var key_x0: float = hint3._chat_key.position.x
+	for i in 12:
+		box3.push({ "nick": "甲", "seat": 0, "text": "x" })
+	hint3._process(0.0)
+	check(hint3._chat_tab.text == "聊天 12" and hint3._chat_key.position.x > key_x0,
+		"未读数把标签撑宽，键帽跟着往右挪（%d → %d）" % [int(key_x0), int(hint3._chat_key.position.x)])
+	check(hint3._chat_key.position.x + hint3._chat_key.size.x < hint3._key.position.x - 8.0, "撑宽之后仍不撞 L")
+	var pressed3 := [0]
+	hint3.chat_pressed.connect(func() -> void: pressed3[0] += 1)
+	var click3 := InputEventMouseButton.new()
+	click3.button_index = MOUSE_BUTTON_LEFT
+	click3.pressed = true
+	hint3._chat_key.gui_input.emit(click3)
+	check(pressed3[0] == 1, "点键帽等于点「聊天」（不能漏到整条迷你条去开日志）")
+	for n3 in [box3, hint3]:
+		root.remove_child(n3)
+		n3.free()
 	## **展开即置顶**（Kevin 2026-09-09）。这块地压着出牌列、也压着抬起后的手牌
 	## （手牌顶边 428 < 面板底边 476），不置顶就会被它们盖掉半截。
 	## 而暂停菜单必须**更**顶：它是模态的，聊天开着时按 Esc 弹出菜单，
@@ -18307,6 +18340,12 @@ func t_online_panel() -> void:
 		p._chat_input.gui_input.emit(tab_w)
 		check(not p._chat_team and p._chat_scope.text == "全体", "等待室：再按一下换回全体")
 		check(p._chat_head.text.contains("Tab"), "等待室聊天的标题把 Tab 标出来了")
+		## 输入框换成局内那种（Kevin 2026-09-17）：标签字号、22 高；昵称那些表单框不动
+		check(p._chat_input.size.y == CWChatBox.INPUT_H
+			and p._chat_input.get_theme_font_size("font_size") == CWStyle.SIZE_LABEL,
+			"等待室聊天输入框同局内那只：%d 高、%dpx 字" % [int(p._chat_input.size.y), p._chat_input.get_theme_font_size("font_size")])
+		check(p._nick.size.y == 36.0 and p._nick.get_theme_font_size("font_size") == CWStyle.SIZE_BODY,
+			"昵称那种表单框不受影响（正文字号、36 高 = 20px 字行框 32 + 内边距 4；以前写 34 也被顶到 36）")
 	else:
 		check(p._chat_scope == null and p._chat_rows.is_empty() and p._chat_input == null,
 			"聊天下架：等待室那块整个不建（板、行、输入框都没有）")

@@ -51,6 +51,7 @@ var _built_key := -3
 var _last_total := -1
 var _chat: CWChatBox      ## 聊天框（联机局才有）；null = 这一局没有聊天
 var _chat_tab: Label
+var _chat_key: Control    ## 「Enter」键帽：贴在「聊天」右边（Kevin 2026-09-17 要的快捷键提示），随未读数变宽而挪
 var _chat_hold := 0.0     ## 还剩多久切回日志页
 var _chat_seen := 0       ## 已经因为「有新消息」闪过的条数
 
@@ -94,6 +95,18 @@ func _ready() -> void:
 			get_viewport().set_input_as_handled()
 			chat_pressed.emit())
 	add_child(_chat_tab)
+	## 键帽同「对局日志 L」那只（CWStyle.keycap）。**点它也算点「聊天」**：键帽默认不吃鼠标，
+	## 点上去会漏到整条迷你条的 pressed（= 开日志），所以这里自己截住转给 chat_pressed
+	_chat_key = CWStyle.keycap("Enter")
+	_chat_key.mouse_filter = Control.MOUSE_FILTER_STOP
+	_chat_key.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_chat_key.visible = false
+	_chat_key.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			get_viewport().set_input_as_handled()
+			chat_pressed.emit())
+	add_child(_chat_key)
+	_place_chat_key()
 	## 日志尾巴：定长的行池，每帧只改 text / 颜色（同 CWLogPanel）
 	for i in ROWS:
 		var l := CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT)
@@ -119,6 +132,13 @@ func set_compact(on: bool) -> void:
 		l.visible = not on
 	if _chat_tab != null:
 		_chat_tab.visible = not on and _chat != null
+		_chat_key.visible = _chat_tab.visible
+
+
+## 键帽贴着「聊天」标签的右缘走：标签带未读数（「聊天 3」）时会变宽
+func _place_chat_key() -> void:
+	_chat_key.position = Vector2(_chat_tab.position.x + _chat_tab.get_minimum_size().x + 4.0,
+		5.0 + 6.0 - _chat_key.size.y / 2.0)
 
 
 func compact() -> bool:
@@ -138,6 +158,7 @@ func _refresh_chat(delta: float) -> void:
 	elif _chat_hold > 0.0:
 		_chat_hold -= delta
 	_chat_tab.text = "聊天" if total <= 0 or _chat.is_open() else "聊天 %d" % total
+	_place_chat_key()
 	_chat_tab.add_theme_color_override("font_color",
 		Color.WHITE if on_chat_tab() else
 		(CWStyle.TEXT_HI if total > 0 and not _chat.is_open() else CWStyle.TEXT_DIM))
@@ -180,6 +201,7 @@ func _process(delta: float) -> void:
 	if _chat_tab == null:
 		return
 	_chat_tab.visible = _chat != null and not _compact
+	_chat_key.visible = _chat_tab.visible
 	if _chat != null:
 		_refresh_chat(delta)
 

@@ -52,6 +52,7 @@ const CHAT_W := 340.0
 const CHAT_ROWS := 7
 const CHAT_ROW_H := 18.0
 const CHAT_HEAD := "聊天　Tab 换频道"   ## 标题顺带当快捷键表（同对局里那份 CWChatBox.TITLE）
+const CHAT_INPUT_H := CWChatBox.INPUT_H   ## 输入框同局内那只（Kevin 2026-09-17：换成局内那种效果）
 
 const SEAT_Y0 := 214.0       ## 等待室席位第一行
 const SEAT_H := 30.0
@@ -890,7 +891,8 @@ func _build_chat(root: Control) -> void:
 	box.set_corner_radius_all(6)
 	plate.add_theme_stylebox_override("panel", box)
 	plate.position = Vector2(CHAT_X - 16, CHAT_Y - 40)
-	plate.size = Vector2(CHAT_W + 32, CHAT_ROWS * CHAT_ROW_H + 40 + 46)
+	## 竖向：标题 40 + 消息行 + 8 + 输入框 + 12。输入框 09-17 从 34 高的正文字号换成局内那只（22 高、标签字号），板子跟着收
+	plate.size = Vector2(CHAT_W + 32, CHAT_ROWS * CHAT_ROW_H + 40 + 8 + CHAT_INPUT_H + 12)
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(plate)
 	_chat_head = CWStyle.label(CHAT_HEAD, CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
@@ -907,7 +909,7 @@ func _build_chat(root: Control) -> void:
 		root.add_child(l)
 		_chat_rows.append(l)
 	_chat_input = _edit(root, Vector2(CHAT_X, CHAT_Y + CHAT_ROWS * CHAT_ROW_H + 8),
-		CHAT_W, "说点什么…", CWNet.CHAT_MAX)
+		CHAT_W, "说点什么…", CWNet.CHAT_MAX, true)
 	_chat_input.text_submitted.connect(func(t: String) -> void:
 		if client != null:
 			client.say(t, _chat_team)
@@ -1254,23 +1256,26 @@ func _row_label(root: Control, text: String, row: int) -> Label:
 
 
 ## 输入框：点阵字 20px、和按钮同一套描边；焦点时描边全亮
-func _edit(root: Control, at: Vector2, w: float, placeholder: String, max_len: int) -> LineEdit:
+## small = 局内聊天框那种小输入框（标签字号 10、22 高、内边距 6）；默认是表单那种（正文字号 20、34 高）
+func _edit(root: Control, at: Vector2, w: float, placeholder: String, max_len: int, small := false) -> LineEdit:
 	var e := LineEdit.new()
 	e.placeholder_text = placeholder
 	e.max_length = max_len
 	e.context_menu_enabled = false
 	e.add_theme_font_override("font", CWStyle.FONT)
-	e.add_theme_font_size_override("font_size", CWStyle.SIZE_BODY)
+	e.add_theme_font_size_override("font_size", CWStyle.SIZE_LABEL if small else CWStyle.SIZE_BODY)
 	e.add_theme_color_override("font_color", CWStyle.TEXT_HI)
 	e.add_theme_color_override("font_placeholder_color", CWStyle.TEXT_OFF)
 	e.add_theme_color_override("caret_color", CWStyle.IMMUNE)
-	e.add_theme_stylebox_override("normal", CWStyle.box(0.45, CWStyle.BTN_BG, 2, 8))
-	e.add_theme_stylebox_override("focus", CWStyle.box(1.0, CWStyle.BTN_BG, 2, 8))
+	var pad_h := 6 if small else 8   ## 内边距随字号折半，同 CWChatBox
+	e.add_theme_stylebox_override("normal", CWStyle.box(0.45, CWStyle.BTN_BG, 2, pad_h))
+	e.add_theme_stylebox_override("focus", CWStyle.box(1.0, CWStyle.BTN_BG, 2, pad_h))
 	root.add_child(e)
-	## 尺寸在**进树之后**设（同 CWChatBox 那条，2026-09-17）：进树前会被默认主题的最小高 31 钳住。
-	## 这里的 34 > 31 所以此前从没露馅，几何零变化 —— 但别靠这个巧合
+	## 尺寸在**进树之后**设（同 CWChatBox 那条，2026-09-17）：进树前会被默认主题的最小高 31 钳住，
+	## 22 那档当场就会被撑成 31。表单那档写 36 = 20px 字的行框 32 + 上下内边距 2×2 —— 以前写的 34
+	## 进树后照样被真实最小高顶成 36（探针量过），从来就是 36，写成真值免得再骗一次
 	e.position = at
-	e.size = Vector2(w, 34)
+	e.size = Vector2(w, CHAT_INPUT_H if small else 36.0)
 	return e
 
 
