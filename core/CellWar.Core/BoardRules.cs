@@ -15,8 +15,9 @@ internal static class BoardRules
     public static WorldState Produce(WorldState s, IDeterministicRng rng)
     {
         s = ResetRoundFlags(s);
-        foreach (var t in Tiles(s))
+        foreach (var pos in Tiles(s).Select(x => x.Position).ToArray())
         {
+            var t = s.Board.Tissues[pos];   // 现读（GD cw_world.gd:105 拿的是活引用）：上一格收取时的结算可能已经改了这一格（【骨髓动员】存卡、【全身性免疫清除】翻面），拿进循环时的快照写回会把它盖掉
             if (t.NecrosisRounds > 0) continue;   // 坏死期间不产也不攒（GD _tissue_production，Kevin 2026-09-13 issue #31）
             var current = t.Charge ?? 0;
             var prod = t.ProductionCounter;

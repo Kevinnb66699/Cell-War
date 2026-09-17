@@ -361,7 +361,7 @@ public class RegressionGuardTests
 
     private static readonly string[] LandFields =
     [
-        nameof(TurnState.PendingLandCell), nameof(TurnState.PendingLandAt), nameof(TurnState.PendingLandWalkDepth),
+        nameof(TurnState.PendingLandCell), nameof(TurnState.PendingLandAt), nameof(TurnState.PendingLandWalkDepth), nameof(TurnState.PendingLandStep),
     ];
 
     /// <summary>结算到一半的那张卡：卡名 + 主人，两个字段一起改。</summary>
@@ -1463,6 +1463,7 @@ public class RegressionGuardTests
         PendingWalkCard = "趋化募集",
         WalkOuter = new[] { new WalkFrame(new EntityId(5), 1, "炎症性趋化") },
         PendingMarrow = new[] { new HexPosition(3, -3, 0) },
+        PendingMarrowWalkDepth = 1,
         CardResolveDepth = 1,
         PendingCard = "炎症性趋化",
         PendingCardCell = new EntityId(6),
@@ -1477,6 +1478,7 @@ public class RegressionGuardTests
         PendingLandCell = new EntityId(6),
         PendingLandAt = new HexPosition(2, -1, -1),
         PendingLandWalkDepth = 1,
+        PendingLandStep = 1,
     };
 
     /// <summary>同上：每个字段都非默认。</summary>

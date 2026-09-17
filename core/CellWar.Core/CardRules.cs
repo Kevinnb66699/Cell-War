@@ -75,16 +75,10 @@ internal static class CardRules
         {
             foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune).ToArray())
                 s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy + 5));
-            // GD `_marrow_mobilization`：按 CWData.MARROWS 的顺序，空仓的健康骨髓存 1 张，站在上面的细胞**当场**收（抽卡）。
+            // GD `_marrow_mobilization`：按 CWData.MARROWS 的顺序逐格「判健康空仓 → 存 1 张 → 站着的细胞当场收（抽卡）」，判据现读。
             // GD 那一行此前漏了 await（同步桥下嵌套、界面桥下脱手）—— Kevin 2026-09-18 裁：GD 补 await（协议 v29）、C# 照嵌套语义做。
-            var due = new List<HexPosition>();
-            foreach (var m in MatchSetup.Marrows)
-            {
-                if (!s.Board.Tissues.TryGetValue(m, out var t) || t.Type != TissueType.BoneMarrow || t.State != TissueState.Healthy || (t.Charge ?? 0) >= BoneMarrowStoreMax) continue;
-                s = s.WithBoard(s.Board.UpdateTissue(m, t.WithCharge(BoneMarrowStoreMax)));
-                due.Add(m);
-            }
-            return CellRules.CollectMarrows(s, due, rng);
+            // 不能先把六格存满再收（复核 2026-09-18）：套娃时内层会看到外层预存的格而一张不发、收取途中翻面的骨髓会被漏掉。
+            return CellRules.CollectMarrows(s, MatchSetup.Marrows, rng);
         },
         ["全身免疫动员"] = (s, cell, rng, target, targetCell) =>
         {
@@ -600,7 +594,8 @@ internal static class CardRules
         // 不然第 2/3 步那两问上两边手牌差一张，手牌到上限时还少一个强制弃置决策点（L1 对拍会在那儿分叉）。
         // 结算里骨髓抽卡撑爆手牌的强制弃置也一样：GD 在结算内部 await 问完才 erase + 走链（cw_cards.gd:63 → cw_card_fx.gd:408-411），
         // 所以刚打出的这张还在手里、也在可弃选项里
-        if (s.Turn.PendingChemotaxisCell == cell.Id || s.Turn.PendingCoupleCell == cell.Id || s.Turn.PendingRemodelCell == cell.Id || s.Turn.PendingDiscardSeat is not null || s.Turn.PendingLandCell is not null || s.Turn.PendingMarrow.Count > 0)
+        // 连走闸不认细胞：打牌时不可能有别人的连走挂着，结算后挂着的一定是这张卡追出来的 —— 含【骨髓动员】给站在骨髓上的**别的**细胞发到的连走卡
+        if (s.Turn.PendingChemotaxisCell is not null || s.Turn.PendingCoupleCell == cell.Id || s.Turn.PendingRemodelCell == cell.Id || s.Turn.PendingDiscardSeat is not null || s.Turn.PendingLandCell is not null || s.Turn.PendingMarrow.Count > 0)
             return new(s.WithTurn(s.Turn.WithPendingCard(d.Card, cell.Id)), Array.Empty<IGameEvent>(), true);
         return new(FinishInstant(s, cell.Id, d.Card), Array.Empty<IGameEvent>(), true);
     }

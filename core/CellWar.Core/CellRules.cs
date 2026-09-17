@@ -546,17 +546,21 @@ internal static class CellRules
 
     /// <summary>`enter_tile` 的后半截（脚已经放到格上之后）：免疫踩黏液即清 → `collect_special` → 刷新标记。
     /// 复活也走这一截（GD `revive_*` 同样 `enter_tile`）—— 但复活不能走 Teleport：死亡格早就交出了占位，别人可能已经站上去。</summary>
-    public static WorldState Land(WorldState s, EntityId id, IDeterministicRng rng) => LandTail(s, id, s.Cells[id].Position, rng);
+    public static WorldState Land(WorldState s, EntityId id, IDeterministicRng rng) => LandTail(s, id, s.Cells[id].Position, WalkDepth(s), rng);
 
     /// <summary>`enter_tile` 的后半截，在 <paramref name="at"/> 那一格做：免疫踩黏液即清 → `collect_special(cell, dest)` → `update_marks`。
     /// 连锁把细胞挪走了也仍在 dest 收取（GD cw_actions.gd:1031 显式传 dest）。</summary>
-    internal static WorldState LandTail(WorldState s, EntityId id, HexPosition at, IDeterministicRng rng)
+    internal static WorldState LandTail(WorldState s, EntityId id, HexPosition at, int walkDepthBefore, IDeterministicRng rng)
     {
         var c = s.Cells[id];
         var t = s.Board.Tissues[at];
         if (c.Faction == Faction.Immune && t.Mucus)
             s = s.WithBoard(s.Board.UpdateTissue(at, t.WithMucus(false)));
         s = CollectSpecialAt(s, id, at, rng);
+        // 骨髓那一抽追出了问答、或抽到【骨髓动员】的收取循环挂起了：GD 的 `await collect_special` 还没回来，update_marks 要等它 —— 记成第 1 步，
+        // 出口补做时只刷标记、**不重收**（GD 的 enter_tile 尾巴只跑一次；重收会把【骨髓动员】刚给脚下格存的那张提前抽走）
+        if (LandBlocked(s, walkDepthBefore) || (s.Turn.PendingMarrow.Count > 0 && s.Turn.PendingMarrowWalkDepth >= walkDepthBefore))
+            return s.WithTurn(s.Turn.WithPendingLand(id, at, walkDepthBefore, step: 1));
         return UpdateMarks(s);
     }
 
@@ -583,21 +587,23 @@ internal static class CellRules
     internal static WorldState LandOrDefer(WorldState s, EntityId id, HexPosition at, int walkDepthBefore, IDeterministicRng rng)
         => LandBlocked(s, walkDepthBefore)
             ? s.WithTurn(s.Turn.WithPendingLand(id, at, walkDepthBefore))
-            : LandTail(s, id, at, rng);
+            : LandTail(s, id, at, walkDepthBefore, rng);
 
     /// <summary>出口：推迟的后半截能补做了吗（弃置 / 连锁 / 二选一都摘干净、连走栈回到落地前的深度）。</summary>
     internal static bool LandReady(WorldState s)
-        => s.Turn.PendingLandCell is not null && !LandBlocked(s, s.Turn.PendingLandWalkDepth);
+        => s.Turn.PendingLandCell is not null && !LandBlocked(s, s.Turn.PendingLandWalkDepth)
+           && !(s.Turn.PendingMarrow.Count > 0 && s.Turn.PendingMarrowWalkDepth >= s.Turn.PendingLandWalkDepth);   // 这次落地追出的骨髓循环嵌在 collect_special 里，先收完
 
     internal static WorldState ResumeLand(WorldState s, IDeterministicRng rng)
     {
         var id = s.Turn.PendingLandCell!.Value;
         var at = s.Turn.PendingLandAt!.Value;
         var depth = s.Turn.PendingLandWalkDepth;
+        var step = s.Turn.PendingLandStep;
         s = s.WithTurn(s.Turn.WithPendingLand(null, null, 0));
+        if (step == 1) return UpdateMarks(s);   // collect_special 早做过了，只欠 update_marks
         if (!s.Cells[id].IsAlive) return s;   // 连锁途中死了：GD 的 collect_special 也不会给死细胞发卡（cells_at 只数活的）
-        s = LandTail(s, id, at, rng);
-        return LandBlocked(s, depth) ? s.WithTurn(s.Turn.WithPendingLand(id, at, depth)) : s;   // 骨髓那一抽又追出问答：标记已刷过，只是让出口再等一轮
+        return LandTail(s, id, at, depth, rng);
     }
 
     /// <summary>GD `collect_special`（cw_actions.gd:1096-1107）：代谢核心有存储就收能量并清库存，
@@ -623,28 +629,40 @@ internal static class CellRules
     }
 
     /// <summary>
-    /// GD `_marrow_mobilization` 的 await 循环：按骨髓序，站在刚存了卡的骨髓上的细胞**当场**收（抽卡）。
-    /// 一次抽卡追出了问答（弃置 / 二选一 / 连走 / 连锁 / 推迟的落地）就停下，剩下的骨髓挂到 <see cref="TurnState.PendingMarrow"/>，
-    /// DecisionRouter 出口答完再 <see cref="ResumeMarrow"/>。嵌套（抽到的又是【骨髓动员】）时内层先收：内层挂起的排在前面。
+    /// GD `_marrow_mobilization` 的 await 循环（GD 侧 2026-09-18 补上了漏掉的 await，协议 v29）：按 CWData.MARROWS 的序逐格
+    /// 「判健康空仓 → 存 1 张 → 站着的细胞当场收（抽卡）」，**判据在走到那一格时现读**（上一格的抽卡可能改了盘面：套娃的【骨髓动员】、
+    /// 【全身性免疫清除】翻面）。一次抽卡追出了问答（弃置 / 二选一 / 连锁，或抽到连走卡把栈压深）就停在**下一格之前**，
+    /// 还没判的骨髓挂到 <see cref="TurnState.PendingMarrow"/>，DecisionRouter 出口答完再 <see cref="ResumeMarrow"/> 从那一格接着现判。
+    /// 进循环时已经挂着的外层连走不算打断（骨髓循环嵌在那一步的 collect_special 里），所以只看栈有没有**比进来时更深**。
+    /// 套娃（抽到的又是【骨髓动员】）时内层先收：内层挂起的排在前面。
     /// </summary>
-    internal static WorldState CollectMarrows(WorldState s, IReadOnlyList<HexPosition> due, IDeterministicRng rng)
+    internal static WorldState CollectMarrows(WorldState s, IReadOnlyList<HexPosition> marrows, IDeterministicRng rng)
     {
+        var depthBefore = WalkDepth(s);
         var i = 0;
-        for (; i < due.Count; i++)
+        for (; i < marrows.Count; i++)
         {
-            if (PhaseRules.AskPending(s)) break;
-            if (s.GetCellAt(due[i]) is { IsAlive: true } standing) s = CollectSpecialAt(s, standing.Id, due[i], rng);
+            if (LandBlocked(s, depthBefore)) break;   // 上一格的抽卡追出了问答：这一格还没判，留给续收
+            var m = marrows[i];
+            if (!s.Board.Tissues.TryGetValue(m, out var t) || t.Type != TissueType.BoneMarrow || t.State != TissueState.Healthy || (t.Charge ?? 0) > 0) continue;
+            s = s.WithBoard(s.Board.UpdateTissue(m, t.WithCharge(RulePolicies.BoneMarrowStoreMax)));
+            if (s.GetCellAt(m) is { IsAlive: true } standing) s = CollectSpecialAt(s, standing.Id, m, rng);
         }
-        var rest = due.Skip(i).ToArray();
-        if (rest.Length == 0) return s;
-        return s.WithTurn(s.Turn.WithPendingMarrow([.. s.Turn.PendingMarrow, .. rest]));
+        if (i >= marrows.Count) return s;
+        var rest = marrows.Skip(i).ToArray();
+        var depth = s.Turn.PendingMarrow.Count > 0 ? s.Turn.PendingMarrowWalkDepth : depthBefore;
+        return s.WithTurn(s.Turn.WithPendingMarrow([.. s.Turn.PendingMarrow, .. rest], depth));
     }
 
-    /// <summary>挂起的问答答完了：接着收 <see cref="TurnState.PendingMarrow"/> 里剩下的骨髓。</summary>
+    /// <summary>出口：挂起的骨髓循环能接着收了吗（弃置 / 连锁 / 二选一都摘干净、连走栈回到挂起时的深度）。</summary>
+    internal static bool MarrowReady(WorldState s)
+        => s.Turn.PendingMarrow.Count > 0 && !LandBlocked(s, s.Turn.PendingMarrowWalkDepth);
+
+    /// <summary>挂起的问答答完了：从还没判的那一格接着现判、存、收。</summary>
     internal static WorldState ResumeMarrow(WorldState s, IDeterministicRng rng)
     {
-        var due = s.Turn.PendingMarrow;
-        return CollectMarrows(s.WithTurn(s.Turn.WithPendingMarrow(Array.Empty<HexPosition>())), due, rng);
+        var rest = s.Turn.PendingMarrow;
+        return CollectMarrows(s.WithTurn(s.Turn.WithPendingMarrow(Array.Empty<HexPosition>(), 0)), rest, rng);
     }
 
     public static WorldState CollectEnergy(WorldState s, EntityId id)

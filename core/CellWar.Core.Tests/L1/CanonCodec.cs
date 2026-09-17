@@ -62,10 +62,10 @@ public static class CanonCodec
             PendingRemodelFirst = PosOrNull(s.Turn.PendingRemodelFirst), PendingRemodelSecond = PosOrNull(s.Turn.PendingRemodelSecond),
             PendingRemodelStep = s.Turn.PendingRemodelStep,
             PendingLandCell = s.Turn.PendingLandCell is { } plc ? Seat(plc) : null,
-            PendingLandAt = PosOrNull(s.Turn.PendingLandAt), PendingLandWalkDepth = s.Turn.PendingLandWalkDepth,
+            PendingLandAt = PosOrNull(s.Turn.PendingLandAt), PendingLandWalkDepth = s.Turn.PendingLandWalkDepth, PendingLandStep = s.Turn.PendingLandStep,
             EndStep = s.Turn.EndStep, PendingChainWalkDepth = s.Turn.PendingChainWalkDepth,
             WalkOuter = s.Turn.WalkOuter.Select(f => new CanonWalkFrame(Seat(f.Cell), f.StepsLeft, f.Card)).ToList(),
-            PendingMarrow = s.Turn.PendingMarrow.Select(Pos).ToList(),
+            PendingMarrow = s.Turn.PendingMarrow.Select(Pos).ToList(), PendingMarrowWalkDepth = s.Turn.PendingMarrowWalkDepth,
             Players = s.Players.Values.OrderBy(p => p.Seat).Select(p => new CanonPlayer(
                 p.Seat, (int)p.Faction, p.IsAlive, p.DrawCount, p.AntigenMemory, (int)p.ImmuneLevel,
                 p.CancerType is { } ct ? (int)ct : null)).ToList(),
@@ -184,6 +184,7 @@ public static class CanonCodec
                 PendingWalkCard = c.G.PendingWalkCard == "" ? null : c.G.PendingWalkCard,
                 WalkOuter = c.G.WalkOuter.Select(f => new WalkFrame(Id(f.Cell), f.StepsLeft, f.Card)).ToArray(),
                 PendingMarrow = c.G.PendingMarrow.Select(Pos).ToArray(),
+                PendingMarrowWalkDepth = c.G.PendingMarrowWalkDepth,
                 CardResolveDepth = c.G.CardResolveDepth,
                 PendingCard = c.G.PendingCard == "" ? null : c.G.PendingCard,
                 PendingCardCell = c.G.PendingCardCell is { } pcc ? Id(pcc) : null,
@@ -198,6 +199,7 @@ public static class CanonCodec
                 PendingLandCell = c.G.PendingLandCell is { } plc ? Id(plc) : null,
                 PendingLandAt = PosOrNull(c.G.PendingLandAt),
                 PendingLandWalkDepth = c.G.PendingLandWalkDepth,
+                PendingLandStep = c.G.PendingLandStep,
                 EndStep = c.G.EndStep, PendingChainWalkDepth = c.G.PendingChainWalkDepth,
             },
         };

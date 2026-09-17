@@ -62,8 +62,8 @@ public class MarrowAndTnfTests
             var t = CardRules.Resolve(s, s.Cells[Immune0], "骨髓动员", Rng(seed));
             if (t.Turn.PendingDiscardSeat is null) continue;                       // 抽到即结算的事件卡没撑爆：换颗种子
             Assert.Equal(0, t.Turn.PendingDiscardSeat);
-            Assert.Equal(MatchSetup.Marrows.Skip(1), t.Turn.PendingMarrow);        // 剩下五个骨髓（含没人站的）等弃置问完再按序过一遍
-            Assert.Equal(1, t.Board.Tissues[MarrowB].Charge);
+            Assert.Equal(MatchSetup.Marrows.Skip(1), t.Turn.PendingMarrow);        // 剩下五个骨髓**还没判**，等弃置问完再逐格现判
+            Assert.Equal(0, t.Board.Tissues[MarrowB].Charge);                      // 还没走到它：不能预存（GD 停在第一圈的 await 里）
             Assert.Empty(t.Cells[Immune2].Hand);
             Assert.DoesNotContain(new DiscardDecision(0, Immune0, "细胞膜修复"), Engine.GetAvailableDecisions(t, 2));   // 问的是席位 0
 
@@ -71,7 +71,60 @@ public class MarrowAndTnfTests
             Assert.True(r.Success, r.ErrorMessage);
             var u = r.NewState;
             Assert.Empty(u.Turn.PendingMarrow);
-            Assert.Equal(0, u.Board.Tissues[MarrowB].Charge);                      // 弃完接着收第二个骨髓
+            Assert.Equal(0, u.Board.Tissues[MarrowB].Charge);                      // 弃完接着判、存、收第二个骨髓（站着的席位 2 抽走了）
+            return;
+        }
+        Assert.Fail("60 颗种子没有一次撑爆手牌");
+    }
+
+    [Fact]
+    public void 骨髓动员_进循环时外层连走挂着不算打断_照样逐格收()
+    {
+        var s = MoveTo(World(), Immune0, MarrowA);
+        s = s.WithTurn(s.Turn.PushWalk(Immune0, 2, "趋化募集"));   // 连走的一步踩到存卡骨髓抽到【骨髓动员】：骨髓循环嵌在这一步里
+        for (var seed = 1; seed <= 60; seed++)
+        {
+            var t = CardRules.Resolve(s, s.Cells[Immune0], "骨髓动员", Rng(seed));
+            Assert.Equal(0, t.Board.Tissues[MarrowA].Charge);                      // 脚下那张当场收走，没被外层连走挡住
+            Assert.Equal(1, t.Board.Tissues[MarrowB].Charge);
+            if (t.Cells[Immune0].Hand.Count == s.Cells[Immune0].Hand.Count + 1) { Assert.Empty(t.Turn.PendingMarrow); return; }
+        }
+        Assert.Fail("60 颗种子抽到的全是抽到即结算的事件卡");
+    }
+
+    [Fact]
+    public void 骨髓动员_续收按当下判据_已存着卡或已癌化的骨髓跳过()
+    {
+        var s = MoveTo(World(), Immune2, MarrowB);
+        s = Tissue(s, MarrowB, t => t.WithCharge(1));                                  // 已存着卡：GD `cards > 0 → continue`
+        var marrowC = MatchSetup.Marrows[2];
+        s = Tissue(s, marrowC, t => t.WithState(TissueState.Cancer));                  // 已癌化：GD `tissue != HEALTHY → continue`
+        s = s.WithTurn(s.Turn.WithPendingMarrow([MarrowB, marrowC], 0));
+        var u = CellRules.ResumeMarrow(s, Rng());
+        Assert.Empty(u.Turn.PendingMarrow);
+        Assert.Equal(1, u.Board.Tissues[MarrowB].Charge);
+        Assert.Empty(u.Cells[Immune2].Hand);                                          // 站着也不发：那张不是这次存的
+        Assert.Equal(0, u.Board.Tissues[marrowC].Charge);
+    }
+
+    [Fact]
+    public void 落地抽卡撑爆手牌_标记刷新等答完_答完不重收()
+    {
+        var s = MoveTo(World(), Immune0, MarrowA);
+        s = Tissue(s, MarrowA, t => t.WithCharge(1));
+        s = s.UpdateCell(Immune0, s.Cells[Immune0].Copy(hand: Enumerable.Repeat("细胞膜修复", 8).ToList()));
+        for (var seed = 1; seed <= 60; seed++)
+        {
+            var t = CellRules.ArriveAndLand(s, Immune0, MarrowA, Rng(seed));
+            if (t.Turn.PendingDiscardSeat is null) continue;                       // 抽到即结算的事件卡没撑爆：换颗种子
+            Assert.Equal(0, t.Board.Tissues[MarrowA].Charge);                      // collect_special 做过了
+            Assert.Equal(Immune0, t.Turn.PendingLandCell);
+            Assert.Equal(1, t.Turn.PendingLandStep);                               // 只欠 update_marks
+            var r = Engine.ExecuteDecision(t, new DiscardDecision(0, Immune0, "细胞膜修复"), Rng(1));
+            Assert.True(r.Success, r.ErrorMessage);
+            Assert.Null(r.NewState.Turn.PendingLandCell);
+            Assert.Null(r.NewState.Turn.PendingDiscardSeat);
+            Assert.Equal(8, r.NewState.Cells[Immune0].Hand.Count);                 // 没有第二次抽卡
             return;
         }
         Assert.Fail("60 颗种子没有一次撑爆手牌");

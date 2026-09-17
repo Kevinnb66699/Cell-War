@@ -88,6 +88,7 @@ public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Mem
     public int? PendingLandCell { get; init; }
     public string PendingLandAt { get; init; } = "";
     public int PendingLandWalkDepth { get; init; }
+    public int PendingLandStep { get; init; }
     public int EndStep { get; init; }
     public int PendingChainWalkDepth { get; init; }
     /// <summary>强制弃置挂在哪只细胞上（GD 视图里不存在，一律空；C# 存档要带）。</summary>
@@ -95,6 +96,7 @@ public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Mem
     /// <summary>嵌套连走被压在下面的外层帧（GD 视图里不存在，一律空；C# 存档要带）。</summary>
     public List<CanonWalkFrame> WalkOuter { get; init; } = [];
     public List<string> PendingMarrow { get; init; } = [];
+    public int PendingMarrowWalkDepth { get; init; }
 }
 
 /// <summary>一段被压在下面的连走（`TurnState.WalkFrame`）。</summary>

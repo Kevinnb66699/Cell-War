@@ -146,11 +146,11 @@ public static class WorldStateExtensions
         int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? effectorRound = null,
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
         EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null, EntityId? pendingChain = null, int? pendingChainWalkDepth = null,
-        EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null, string? pendingWalkCard = null, IReadOnlyList<WalkFrame>? walkOuter = null, IReadOnlyList<HexPosition>? pendingMarrow = null,
+        EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null, string? pendingWalkCard = null, IReadOnlyList<WalkFrame>? walkOuter = null, IReadOnlyList<HexPosition>? pendingMarrow = null, int? pendingMarrowWalkDepth = null,
         int? cardResolveDepth = null, string? pendingCard = null, EntityId? pendingCardCell = null, int? cancerReviveFrom = null,
         EntityId? pendingCoupleCell = null, EntityId? pendingCoupleAlly = null, EntityId? pendingCouplePayer = null,
         EntityId? pendingRemodelCell = null, HexPosition? pendingRemodelFirst = null, HexPosition? pendingRemodelSecond = null, int? pendingRemodelStep = null,
-        EntityId? pendingLandCell = null, HexPosition? pendingLandAt = null, int? pendingLandWalkDepth = null,
+        EntityId? pendingLandCell = null, HexPosition? pendingLandAt = null, int? pendingLandWalkDepth = null, int? pendingLandStep = null,
         bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false,
         bool setTrackCell = false, bool setTrackFrozenAt = false, bool setPendingChain = false, bool setPendingChemotaxis = false,
         bool setPendingCard = false, bool setPendingCouple = false, bool setPendingWalkCard = false, bool setPendingRemodel = false, bool setPendingLand = false)
@@ -173,7 +173,7 @@ public static class WorldStateExtensions
             PendingChemotaxisCell = setPendingChemotaxis ? pendingChemotaxis : pendingChemotaxis ?? t.PendingChemotaxisCell,
             ChemotaxisStepsLeft = chemotaxisStepsLeft ?? t.ChemotaxisStepsLeft,
             PendingWalkCard = setPendingWalkCard ? pendingWalkCard : pendingWalkCard ?? t.PendingWalkCard,
-            WalkOuter = walkOuter ?? t.WalkOuter, PendingMarrow = pendingMarrow ?? t.PendingMarrow,
+            WalkOuter = walkOuter ?? t.WalkOuter, PendingMarrow = pendingMarrow ?? t.PendingMarrow, PendingMarrowWalkDepth = pendingMarrowWalkDepth ?? t.PendingMarrowWalkDepth,
             CardResolveDepth = cardResolveDepth ?? t.CardResolveDepth,
             PendingCard = setPendingCard ? pendingCard : pendingCard ?? t.PendingCard,
             PendingCardCell = setPendingCard ? pendingCardCell : pendingCardCell ?? t.PendingCardCell,
@@ -187,20 +187,20 @@ public static class WorldStateExtensions
             PendingRemodelStep = pendingRemodelStep ?? t.PendingRemodelStep,
             PendingLandCell = setPendingLand ? pendingLandCell : pendingLandCell ?? t.PendingLandCell,
             PendingLandAt = setPendingLand ? pendingLandAt : pendingLandAt ?? t.PendingLandAt,
-            PendingLandWalkDepth = pendingLandWalkDepth ?? t.PendingLandWalkDepth };
+            PendingLandWalkDepth = pendingLandWalkDepth ?? t.PendingLandWalkDepth, PendingLandStep = pendingLandStep ?? t.PendingLandStep };
 
     /// <summary>挂起 / 结束【连续吞噬】的连锁选择。</summary>
     public static TurnState WithPendingChain(this TurnState t, EntityId? cell, int walkDepth = 0)
         => t.Copy(pendingChain: cell, setPendingChain: true, pendingChainWalkDepth: walkDepth);
-    public static TurnState WithPendingMarrow(this TurnState t, IReadOnlyList<HexPosition> due) => t.Copy(pendingMarrow: due);
+    public static TurnState WithPendingMarrow(this TurnState t, IReadOnlyList<HexPosition> rest, int walkDepth) => t.Copy(pendingMarrow: rest, pendingMarrowWalkDepth: walkDepth);
 
     /// <summary>挂起 / 推进 / 结束【代谢耦联】的两问（三个字段一起改；payer 为 null = 还在问方向）。</summary>
     public static TurnState WithPendingCouple(this TurnState t, EntityId? cell, EntityId? ally, EntityId? payer)
         => t.Copy(pendingCoupleCell: cell, pendingCoupleAlly: ally, pendingCouplePayer: payer, setPendingCouple: true);
 
     /// <summary>推迟 / 补做 `enter_tile` 的后半截（三个字段一起写；摘掉 = cell 传 null、depth 传 0）。</summary>
-    public static TurnState WithPendingLand(this TurnState t, EntityId? cell, HexPosition? at, int walkDepth)
-        => t.Copy(pendingLandCell: cell, pendingLandAt: at, pendingLandWalkDepth: walkDepth, setPendingLand: true);
+    public static TurnState WithPendingLand(this TurnState t, EntityId? cell, HexPosition? at, int walkDepth, int step = 0)
+        => t.Copy(pendingLandCell: cell, pendingLandAt: at, pendingLandWalkDepth: walkDepth, pendingLandStep: step, setPendingLand: true);
 
     /// <summary>挂上 / 推进 / 摘掉【基质重塑】的追问（四个字段一起写；摘掉 = cell 传 null、step 传 0）。</summary>
     public static TurnState WithPendingRemodel(this TurnState t, EntityId? cell, HexPosition? first, HexPosition? second, int step)

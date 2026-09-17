@@ -97,9 +97,9 @@ internal static class DecisionRouter
         for (var guard = 0; guard < 8; guard++)
         {
             var before = s;
+            if (CellRules.MarrowReady(s)) s = CellRules.ResumeMarrow(s, rng);                // 【骨髓动员】的收取循环嵌在最里层：它追出的问答答完就先接着收
             if (s.Turn.PendingChemotaxisCell is not null) s = CellRules.NormalizeChemotaxis(s);
             s = CellRules.NormalizeChain(s);                                               // 走位弹掉露出的连锁若已无下一跳，当场摘掉
-            if (s.Turn.PendingMarrow.Count > 0 && !PhaseRules.AskPending(s)) s = CellRules.ResumeMarrow(s, rng);   // 【骨髓动员】抽卡追出的问答答完了：接着收剩下的骨髓
             if (s.Turn.PendingRemodelCell is not null) s = CardRules.NormalizeRemodel(s);   // GD 的「候选为空就不问」两道闸
             if (CellRules.LandReady(s)) s = CellRules.ResumeLand(s, rng);                  // GD enter_tile 的 await 回来了：收特殊组织、刷标记
             if (ReferenceEquals(s, before)) break;

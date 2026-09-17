@@ -116,6 +116,8 @@ public sealed class TurnState
     public IReadOnlyList<WalkFrame> WalkOuter { get; init; } = Array.Empty<WalkFrame>();
     /// <summary>【骨髓动员】还没收的骨髓（GD `_marrow_mobilization` 的 await 循环：一次抽卡追出问答就停下，答完接着收剩下的）。</summary>
     public IReadOnlyList<HexPosition> PendingMarrow { get; init; } = Array.Empty<HexPosition>();
+    /// <summary>挂起骨髓循环时的连走栈深：栈比它深（抽到的连走卡还在走）就还不能续收。</summary>
+    public int PendingMarrowWalkDepth { get; init; }
 
     /// <summary>
     /// GD 的 `card_resolve_depth`：正在结算一张卡（打出的即时卡 / 抽到的事件卡）时 > 0。
@@ -164,6 +166,8 @@ public sealed class TurnState
     public EntityId? PendingLandCell { get; init; }
     public HexPosition? PendingLandAt { get; init; }
     public int PendingLandWalkDepth { get; init; }
+    /// <summary>推迟的落地做到哪一步：0 = 整个后半截都没做；1 = collect_special 做过了（它追出的问答 / 骨髓循环还挂着），只欠 update_marks。</summary>
+    public int PendingLandStep { get; init; }
 
     public TurnState Clone() => new()
     {
@@ -195,6 +199,7 @@ public sealed class TurnState
         PendingWalkCard = PendingWalkCard,
         WalkOuter = WalkOuter,
         PendingMarrow = PendingMarrow,
+        PendingMarrowWalkDepth = PendingMarrowWalkDepth,
         CardResolveDepth = CardResolveDepth,
         PendingCard = PendingCard,
         PendingCardCell = PendingCardCell,
@@ -208,7 +213,8 @@ public sealed class TurnState
         PendingRemodelStep = PendingRemodelStep,
         PendingLandCell = PendingLandCell,
         PendingLandAt = PendingLandAt,
-        PendingLandWalkDepth = PendingLandWalkDepth
+        PendingLandWalkDepth = PendingLandWalkDepth,
+        PendingLandStep = PendingLandStep
     };
 }
 
