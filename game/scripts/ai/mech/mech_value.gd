@@ -63,8 +63,8 @@ static func attack_ev() -> Dictionary:
 
 ## 块池（浮点十分位）。coef/exp < 0 时按人数取（四人 2.0 / 六人 2.8）。
 ## `overrides`：反事实用的 tissue 覆盖（coord → Tissue），如「假设 to 已转癌」。
-## 当前只覆盖 plain（CANCER 计数）；全图固化数的反事实覆盖留给净化/固化场景。
-static func block_pool(g: CWGame, block: Array, overrides: Dictionary = {}) -> float:
+## `solid_override`：全图固化数的反事实修正（如净化掉一块固化 → −1）；-1 = 用引擎当前值。
+static func block_pool(g: CWGame, block: Array, overrides: Dictionary = {}, solid_override: int = -1) -> float:
 	var coef: int = g.tune.anaerobic_block_coef
 	if coef < 0:
 		coef = CWData.anaerobic_block_coef(g.order.size())
@@ -78,8 +78,8 @@ static func block_pool(g: CWGame, block: Array, overrides: Dictionary = {}) -> f
 			if tissue == CWData.Tissue.CANCER:
 				plain += 1
 		var exp_term := pow(float(plain), exp_pct / 100.0) if plain > 0 else 0.0
-		return exp_term * float(coef) \
-			+ float(g.count_tissue(CWData.Tissue.SOLID) * g.tune.anaerobic_solid_bonus)
+		var solid: int = g.count_tissue(CWData.Tissue.SOLID) if solid_override < 0 else solid_override
+		return exp_term * float(coef) + float(solid * g.tune.anaerobic_solid_bonus)
 	## 退回线性式（coef == 0 对照档）
 	var pool := 0.0
 	for c in block:
@@ -102,9 +102,9 @@ static func block_cell_count(g: CWGame, block: Array) -> int:
 
 
 ## 块池均分给块内每个癌细胞的份额（十分位整数，含 k 系数 / 兜底 / 封顶）。
-static func block_share(g: CWGame, block: Array, count: int, overrides: Dictionary = {}) -> int:
+static func block_share(g: CWGame, block: Array, count: int, overrides: Dictionary = {}, solid_override: int = -1) -> int:
 	var n := maxi(count, 1)
-	var pool := block_pool(g, block, overrides)
+	var pool := block_pool(g, block, overrides, solid_override)
 	var scaled := pool * CWData.anaerobic_cells_k(n) / 100.0
 	var gain: int = int(round(scaled / float(n))) if g.tune.anaerobic_split else int(round(scaled))
 	return g.tune.clamp_income(gain, g.tune.anaerobic_floor, g.tune.anaerobic_cap)
@@ -152,7 +152,7 @@ static func _blocks_of_layout(g: CWGame, cancer_tiles: Dictionary) -> Array:
 
 
 ## 给定布局下某癌细胞的份额（十分位，含瓦伯格/GLUT1）。
-static func cell_income_layout(g: CWGame, cancer_tiles: Dictionary, cells: Array, cell: Dictionary, overrides: Dictionary = {}) -> int:
+static func cell_income_layout(g: CWGame, cancer_tiles: Dictionary, cells: Array, cell: Dictionary, overrides: Dictionary = {}, solid_override: int = -1) -> int:
 	for block in _blocks_of_layout(g, cancer_tiles):
 		if not block.has(cell["pos"]):
 			continue
@@ -160,7 +160,7 @@ static func cell_income_layout(g: CWGame, cancer_tiles: Dictionary, cells: Array
 		for other in cells:
 			if block.has(other["pos"]):
 				count += 1
-		var gain := block_share(g, block, maxi(count, 1), overrides)
+		var gain := block_share(g, block, maxi(count, 1), overrides, solid_override)
 		if cell["ctype"] == CWData.CancerType.SCLC and g.type_ability_on(cell):
 			gain = int(ceil(gain * CWData.WARBURG_PERCENT / 100.0))
 		return gain + _glut_bonus(g, cell)
@@ -174,11 +174,27 @@ static func total_supply(g: CWGame) -> int:
 
 
 ## 给定布局下的癌方总无氧供给。
-static func total_supply_layout(g: CWGame, cancer_tiles: Dictionary, cells: Array, overrides: Dictionary = {}) -> int:
+static func total_supply_layout(g: CWGame, cancer_tiles: Dictionary, cells: Array, overrides: Dictionary = {}, solid_override: int = -1) -> int:
 	var total := 0
 	for cell in cells:
-		total += cell_income_layout(g, cancer_tiles, cells, cell, overrides)
+		total += cell_income_layout(g, cancer_tiles, cells, cell, overrides, solid_override)
 	return total
+
+
+## 免疫【净化】的反事实断供（十分位整数）：假设 to 被净化成健康组织，
+## 重算癌方总供给，返回增量（通常为负 = 免疫断供）。to 须为癌性组织。
+## 净化掉固化癌组织（T 细胞裂解）时同时修正全图固化数。
+static func purify_supply_gain(g: CWGame, to: Vector2i) -> int:
+	var tissue: int = int(g.tiles[to]["tissue"])
+	if tissue != CWData.Tissue.CANCER and tissue != CWData.Tissue.SOLID:
+		return 0
+	var tiles2 := _current_cancer_tiles(g)
+	tiles2.erase(to)
+	var solid_override := -1
+	if tissue == CWData.Tissue.SOLID:
+		solid_override = g.count_tissue(CWData.Tissue.SOLID) - 1
+	return total_supply_layout(g, tiles2,
+		g.living_cells(CWData.Faction.CANCER), {}, solid_override) - total_supply(g)
 
 
 ## 小细胞肺癌【转移】跳块的反事实收益（十分位整数）：

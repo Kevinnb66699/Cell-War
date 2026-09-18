@@ -37,6 +37,7 @@ func _run() -> void:
 	t_mech_anaerobic()
 	t_mech_sclc_jump()
 	t_mech_attack_chain()
+	t_mech_purify_supply()
 	print("\n%d 项检查，%d 失败" % [checks, fails])
 	quit(1 if fails > 0 else 0)
 
@@ -219,6 +220,73 @@ func t_mech_attack_chain() -> void:
 	check(absf(mean - 25.0 / 3.0) < 0.5,
 		"真实攻击均值 %f ≈ 25/3（4000 次）" % mean)
 	g.dispose()
+
+
+## —— 免疫【净化】断供反事实 ——
+## 免疫方主循环：踩癌格→转健康→癌方连通块缩/裂→断供。
+## 解析用 `purify_supply_gain` 预测净化后的癌方总供给变化，
+## 引擎实测：快照 → 真执行 move 选项 → 读跳后总供给 → 回滚。逐位对拍。
+func t_mech_purify_supply() -> void:
+	print("[机制·免疫净化断供]")
+	var checked := 0
+	var bad := 0
+	for si in 6:
+		var g := make_game(4, 44001 + si)
+		g.sim_quiet = true
+		for _step_i in 400:
+			var req: Dictionary = await g.pending()
+			if req.is_empty():
+				break
+			var pid: int = req["pid"]
+			if req["kind"] == "action" \
+					and g.player(pid)["faction"] == CWData.Faction.IMMUNE:
+				for oi in req["options"].size():
+					var opt: Dictionary = req["options"][oi]
+					if opt["data"].get("act", "") != "move":
+						continue
+					var to: Vector2i = opt["data"]["to"]
+					## 只验「迁入无细胞普通癌格 = 纯净化」：
+					## 迁入有细胞癌格是攻击；固化癌组织（SOLID）免疫普通 move 不净化（T 裂解才转）；
+					## 【骨样硬化】标记格免疫须停留一回合才净化（不立即净化）
+					if g.tiles[to]["tissue"] != CWData.Tissue.CANCER \
+							or not g.cells_at(to).is_empty() \
+							or int(g.tiles[to].get("ossify_at", 0)) > 0:
+						continue
+					checked += 1
+					var predicted_after: int = MechValue.total_supply(g) \
+						+ MechValue.purify_supply_gain(g, to)
+					var snap: Dictionary = g.snapshot()
+					var round_before: int = g.round_no
+					await g.step(oi)
+					## 守卫：免疫必须真的到达 to（move 可能因能量/合法性失败没执行）
+					var arrived := false
+					for c in g.living_cells(CWData.Faction.IMMUNE):
+						if int(c["pid"]) == pid and c["pos"] == to:
+							arrived = true
+					if not arrived:
+						g.restore(snap)
+						continue
+					## 守卫：若 move 是全局最后一次行动，step 会一路推进到 E 阶段结算
+					## （增生/侵蚀改癌布局），total_supply 就不是「纯净化后」了 —— 跳过这类 case
+					if g.round_no != round_before \
+							or String(g.flow.get("stage", "")) != "turn":
+						g.restore(snap)
+						continue
+					var actual_after: int = MechValue.total_supply(g)
+					var step_tissue: int = g.tiles[to]["tissue"]
+					var step_im_ok: bool = g.living_cells(CWData.Faction.IMMUNE).size() > 0
+					g.restore(snap)
+					if predicted_after != actual_after:
+						bad += 1
+						check(false, "净化 %s 解析 %d != 实测 %d（预测前=%d, step 后 to tissue=%d）" % [
+							str(to), predicted_after, actual_after,
+							predicted_after - MechValue.purify_supply_gain(g, to), step_tissue])
+			var idx: int = await g.ask(req["pid"], req)
+			await g.step(idx)
+		g.dispose()
+	check(checked >= 1, "至少采样到一次净化（共 %d 次）" % checked)
+	check(bad == 0, "净化断供反事实与引擎实测逐位一致（%d 次，%d 偏差）" % [
+		checked, bad])
 
 
 ## —— 测试助手：rig_rng 钉骰 ——
