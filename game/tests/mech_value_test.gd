@@ -39,6 +39,7 @@ func _run() -> void:
 	t_mech_attack_chain()
 	t_mech_purify_supply()
 	t_mech_solidify()
+	t_mech_colonize_supply()
 	print("\n%d 项检查，%d 失败" % [checks, fails])
 	quit(1 if fails > 0 else 0)
 
@@ -343,6 +344,95 @@ func t_mech_solidify() -> void:
 	check(MechValue.rounds_to_solidify(5, th) == 3, "rounds_to_solidify(5,30)=3")
 	check(MechValue.rounds_to_solidify(25, th) == 1, "rounds_to_solidify(25,30)=1")
 	g.dispose()
+
+
+## —— 癌组织「能量杠杆」边际：定殖供给收益 ——
+## 癌组织是双重杠杆：能量维度（块^0.3 递减）在这条测试验证；
+## 扩张成本维度（癌格越多越便宜）在移动费用侧，留待下一条。
+## 1) 纯杠杆形状 `tile_supply_marginal`：只转一格（细胞不动），手工转癌后
+##    用引擎 anaerobic_gain_for 求和算供给差，与解析逐位对拍。
+## 2) 定殖完整动作 `colonize_supply_gain`（含细胞移动）：真实对局采样
+##    癌方 move 到健康格（普通定殖），快照→真执行→回滚，与引擎逐位对拍。
+func t_mech_colonize_supply() -> void:
+	print("[机制·癌方定殖能量边际]")
+	## 1. 纯杠杆形状（合成局面）
+	var g := bare_game()
+	var ca := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, Vector2i(0, 0),
+		-1, CWData.CancerType.SCLC, 500)
+	g.cells.append(ca)
+	for c in [Vector2i(0, 0), Vector2i(1, 0), Vector2i(1, 1)]:
+		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	var to := Vector2i(0, 1)  ## 与块相邻的健康格
+	check(g.tiles[to]["tissue"] == CWData.Tissue.HEALTHY, "to 初始为健康格")
+	g.tiles[to]["tissue"] = CWData.Tissue.CANCER
+	var after := 0
+	for c in g.living_cells(CWData.Faction.CANCER):
+		after += g.world.anaerobic_gain_for(c)
+	g.tiles[to]["tissue"] = CWData.Tissue.HEALTHY
+	var before := 0
+	for c in g.living_cells(CWData.Faction.CANCER):
+		before += g.world.anaerobic_gain_for(c)
+	var want: int = after - before
+	check(MechValue.tile_supply_marginal(g, to) == want,
+		"纯边际：转一格供给变化 %d == 引擎 %d" % [
+			MechValue.tile_supply_marginal(g, to), want])
+	g.dispose()
+
+	## 2. 定殖完整动作（真实对局采样）
+	var checked := 0
+	var bad := 0
+	for si in 6:
+		var g2 := make_game(4, 45001 + si)
+		g2.sim_quiet = true
+		for _step_i in 400:
+			var req: Dictionary = await g2.pending()
+			if req.is_empty():
+				break
+			var pid: int = req["pid"]
+			if req["kind"] == "action" \
+					and g2.player(pid)["faction"] == CWData.Faction.CANCER:
+				for oi in req["options"].size():
+					var opt: Dictionary = req["options"][oi]
+					if opt["data"].get("act", "") != "move":
+						continue
+					var to2: Vector2i = opt["data"]["to"]
+					## 只验普通健康格定殖：跳过已是癌格、特殊格（抽卡/收款干扰）
+					if g2.is_cancerous(to2) \
+							or g2.tile(to2)["special"] != CWData.Special.NONE:
+						continue
+					var src: Dictionary = {}
+					for c in g2.living_cells(CWData.Faction.CANCER):
+						if int(c["pid"]) == pid:
+							src = c
+					if src.is_empty():
+						continue
+					checked += 1
+					var predicted_after: int = MechValue.total_supply(g2) \
+						+ MechValue.colonize_supply_gain(g2, src, to2)
+					var snap: Dictionary = g2.snapshot()
+					var round_before: int = g2.round_no
+					await g2.step(oi)
+					## 守卫：细胞真的到了 to（move 成功）且没推进到 E 阶段
+					var arrived := false
+					for c in g2.living_cells(CWData.Faction.CANCER):
+						if int(c["pid"]) == pid and c["pos"] == to2:
+							arrived = true
+					if not arrived or g2.round_no != round_before \
+							or String(g2.flow.get("stage", "")) != "turn":
+						g2.restore(snap)
+						continue
+					var actual_after: int = MechValue.total_supply(g2)
+					g2.restore(snap)
+					if predicted_after != actual_after:
+						bad += 1
+						check(false, "定殖 %s 解析 %d != 实测 %d" % [
+							str(to2), predicted_after, actual_after])
+			var idx: int = await g2.ask(req["pid"], req)
+			await g2.step(idx)
+		g2.dispose()
+	check(checked >= 1, "至少采样到一次定殖（共 %d 次）" % checked)
+	check(bad == 0, "定殖能量边际与引擎实测逐位一致（%d 次，%d 偏差）" % [
+		checked, bad])
 
 
 ## —— 测试助手：rig_rng 钉骰 ——

@@ -200,7 +200,31 @@ static func purify_supply_gain(g: CWGame, to: Vector2i) -> int:
 ## 小细胞肺癌【转移】跳块的反事实收益（十分位整数）：
 ## 假设 cell 跃迁到 to（to 为健康则定殖转癌），重算癌方总供给，返回增量。
 ## 可为负（跳去断供 / 并入小块的收益小于让原块分食的损失）。
+## ⚠ 跳块 = 「迁 5 格的定殖」，逻辑与 `colonize_supply_gain` 完全相同，这里只是别名。
 static func sclc_jump_supply_gain(g: CWGame, cell: Dictionary, to: Vector2i) -> int:
+	return colonize_supply_gain(g, cell, to)
+
+
+## —— 癌组织「能量杠杆」边际 ——
+## 癌组织是双重杠杆：能量维度（块^0.3 递减收益）在这里；
+## 扩张成本维度（癌格越多后续移动越便宜）在移动费用侧（下一条）。
+
+## 纯杠杆形状：只把 to 转癌（细胞不动），癌方总供给变化 = 这块地的能量边际。
+## 与谁去踩无关 —— 是布局本身给「再占一格」的边际供给（递减曲线 ^0.3 的离散化）。
+static func tile_supply_marginal(g: CWGame, to: Vector2i) -> int:
+	if g.is_cancerous(to):
+		return 0
+	var tiles2 := _current_cancer_tiles(g)
+	tiles2[to] = true
+	var overrides := { to: CWData.Tissue.CANCER }
+	return total_supply_layout(g, tiles2,
+		g.living_cells(CWData.Faction.CANCER), overrides) - total_supply(g)
+
+
+## 癌方【定殖】完整动作的反事实能量边际：cell 迁移到 to（健康则转癌），
+## 含细胞移动改变块内细胞数（k 系数/均分）的影响。
+## 普通迁移、小细胞跳块共用这一份。
+static func colonize_supply_gain(g: CWGame, cell: Dictionary, to: Vector2i) -> int:
 	var tiles2 := _current_cancer_tiles(g)
 	var overrides := {}
 	if g.tile(to)["tissue"] == CWData.Tissue.HEALTHY:
