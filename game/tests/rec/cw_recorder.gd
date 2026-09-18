@@ -19,7 +19,7 @@
 ## 不带 class_name（同 xcheck_* 的规矩），用 preload 取。
 extends RefCounted
 
-const Loader := preload("res://tests/cw_case_loader.gd")
+const Loader := preload("res://scripts/kernel/cw_world_loader.gd")
 const Diff := preload("res://tests/cw_case_diff.gd")
 const Gate := preload("res://tests/l0_contract_gate.gd")
 const Tape := preload("res://tests/xcheck_tape.gd")

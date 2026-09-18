@@ -20,8 +20,8 @@
 extends SceneTree
 
 const CASE_DIR := "res://tests/l0"
-## 装盘面的活在 cw_case_loader.gd（键表也在那儿）：l0_pre_dump.gd 也用它 —— 闸二 2b 比的就是「同一个 loader 装出来的世界」
-const Loader := preload("res://tests/cw_case_loader.gd")
+## 装盘面的活在 scripts/kernel/cw_world_loader.gd（键表也在那儿；2026-09-19 从 tests/cw_case_loader.gd 上提）：l0_pre_dump.gd 也用它 —— 闸二 2b 比的就是「同一个 loader 装出来的世界」
+const Loader := preload("res://scripts/kernel/cw_world_loader.gd")
 ## 三类 expect 的判定在 cw_case_diff.gd（全局豁免表也在那儿，只许有那一份）
 const Diff := preload("res://tests/cw_case_diff.gd")
 ## 三条启动断言的 GD 半边；两侧都读同一份 contract_ops.json，相等经表传递（§0.6.4 第 4 条）
@@ -57,39 +57,9 @@ var unloadable := 0
 var selfcheck := false
 
 
-## 带子替身（A-7 / 规格 A-1 的 `rolls`）。**不用 tests/xcheck_tape.gd**：那只在带子放完时直接下标越界，
-## 而 GD 运行时错误不中断执行 —— 崩在带子上会印出一片假 ok。这里少掷一次、多掷一次都当场记账。
-class RollTape extends RefCounted:
-	var inner := RandomNumberGenerator.new()
-	var tape: Array = []
-	var at := 0
-	var overrun := 0
-	var bad_range := 0
-
-	var seed: int:
-		set(v): inner.seed = v
-		get: return inner.seed
-
-	var state: int:
-		set(v): inner.state = v
-		get: return inner.state
-
-	## 退化区间在 Godot 里消耗 0 个随机数（xcheck_tape.gd 头注的实测），带子上也不留痕 —— 两侧必须同口径
-	func randi_range(from: int, to: int) -> int:
-		if from == to:
-			return from
-		if at >= tape.size():
-			overrun += 1
-			return inner.randi_range(from, to)
-		var e: Array = tape[at]
-		at += 1
-		if int(e[0]) != from or int(e[1]) != to:
-			bad_range += 1
-		inner.randi_range(from, to)   ## 照样推进内部状态：有人会偷看 rng.state
-		return int(e[2])
-
-	func randi() -> int:
-		return inner.randi()
+## 带子替身住在 scripts/kernel/cw_roll_tape.gd（2026-09-19 从这里的内部类上提，教程 S0）；
+## 「少掷一次、多掷一次都当场记账」的口径没变。
+const RollTape := preload("res://scripts/kernel/cw_roll_tape.gd")
 
 
 ## 走 `_initialize()` 而不是 `_init()`：`SceneTree` 的 `_init()` 在主循环起来**之前**跑，

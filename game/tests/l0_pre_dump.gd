@@ -1,6 +1,6 @@
 ## l0_pre_dump.gd —— 闸二 2b「装载自证」的 GD 半边（测试迁移规格 A-5 / C-1 步 5）
 ##
-## 把 res://tests/l0/*.json 的每条用例用 cw_case_loader.gd 装成 CWGame，再用 CWObsCodec 编成全知 envelope，
+## 把 res://tests/l0/*.json 的每条用例用 scripts/kernel/cw_world_loader.gd 装成 CWGame，再用 CWObsCodec 编成全知 envelope，
 ## 一行一条 `{ "id", "env" }` 写到 out=。C# 侧 L0/PreParityTests.cs 用自己的 WorldLoader + ObservationV1Codec 产另一份，逐字段 diff ——
 ## 非零就是「两侧装出来的不是同一个世界」，探针再对也是假绿灯。
 ##
@@ -8,13 +8,13 @@
 ##   gzip -9 -c D:/path/l0_pre.jsonl > game/tests/l0/pre_envelopes.jsonl.gz      （用例一动就重录）
 extends SceneTree
 
-const Loader := preload("res://tests/cw_case_loader.gd")
+const Loader := preload("res://scripts/kernel/cw_world_loader.gd")
 const CASE_DIR := "res://tests/l0"
 
 var out_path := "user://l0_pre.jsonl"
 
 
-## 递归扫用例文件：跳过 cw_case_loader.gd:NON_CASE_FILES 里的数据夹具
+## 递归扫用例文件：跳过 cw_world_loader.gd:NON_CASE_FILES 里的数据夹具
 func _scan(dir_path: String, files: Array) -> void:
 	var dir := DirAccess.open(dir_path)
 	if dir == null:

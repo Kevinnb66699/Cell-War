@@ -16,7 +16,7 @@ namespace CellWar.Core.Tests.L0;
 /// 40~70 人天，而且其中 38% 在容器齐备之前根本写不出来。数据化之后，
 /// 「再搬一条」= 往 JSON 里加一行。
 ///
-/// **13 键一张表**（§0.6.2 第 1 条）：属性集合 ≡ `game/tests/cw_case_loader.gd:CASE_KEYS`，
+/// **13 键一张表**（§0.6.2 第 1 条）：属性集合 ≡ `game/scripts/kernel/cw_world_loader.gd:CASE_KEYS`，
 /// 由 <see cref="KeyTableTests"/> 逐字钉住。
 /// </summary>
 public sealed record L0Case
@@ -89,7 +89,7 @@ public sealed record L0Prd(string Sha, int Line, string Text);
 /// 盘面装载规格 `cwxworld/2`（规格 A-2 / §0.6.1）。**刻意只认列出来的键**：多打一个字、少填一个字段都要当场报错，
 /// 不许「认识的就读、不认识的就忽略」—— 那样写错的用例会变成静默绿灯。
 ///
-/// 键表在仓库里只许有两份、且逐键相同：这里与 GD 的 `game/tests/cw_case_loader.gd`（<see cref="KeyTableTests"/> 钉住）。
+/// 键表在仓库里只许有两份、且逐键相同：这里与 GD 的 `game/scripts/kernel/cw_world_loader.gd`（<see cref="KeyTableTests"/> 钉住）。
 ///
 /// **顶层 15 键**。不收的五样（写了硬错，§0.6.1 第 1 条）：
 /// `win_reason`（文案，由 `win_kind` 现算）、`feed_seq`（演出流水号，不是规则量）、

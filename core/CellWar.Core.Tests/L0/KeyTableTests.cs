@@ -7,7 +7,7 @@ namespace CellWar.Core.Tests.L0;
 
 /// <summary>
 /// `cwxworld/2` / `cwxcase/2` 的键表护栏（§0.6.1 开头：**仓库里只许有这两份**键表 ——
-/// `L0/CaseModel.cs` 与 `game/tests/cw_case_loader.gd`）。
+/// `L0/CaseModel.cs` 与 `game/scripts/kernel/cw_world_loader.gd`（2026-09-19 前叫 `game/tests/cw_case_loader.gd`））。
 ///
 /// 做法照 `L1/SemanticKeyTests.GD侧的KEY_FIELDS与CSharp的FieldOrder逐字相同`：正则读 GD 的 `const XXX_KEYS := [...]`，
 /// 与这边记录的属性名（经 <see cref="JsonNamingPolicy.SnakeCaseLower"/> 转换后）**逐字比集合**，顺序不比。
@@ -34,14 +34,14 @@ public class KeyTableTests
 
     [Theory]
     [MemberData(nameof(KeyTables))]
-    public void 键表与GD的cw_case_loader逐字相同(string constName, string typeName)
+    public void 键表与GD的cw_world_loader逐字相同(string constName, string typeName)
     {
         var gd = GdConst(constName);
         var cs = JsonNames(typeName);
         var onlyGd = gd.Except(cs, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         var onlyCs = cs.Except(gd, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         Assert.True(onlyGd.Length == 0 && onlyCs.Length == 0,
-            $"`cw_case_loader.gd:{constName}`（{gd.Count} 个）与 `L0/CaseModel.cs:{typeName}`（{cs.Count} 个）对不上："
+            $"`cw_world_loader.gd:{constName}`（{gd.Count} 个）与 `L0/CaseModel.cs:{typeName}`（{cs.Count} 个）对不上："
             + (onlyGd.Length > 0 ? $"\n  只有 GD 有：{string.Join(" / ", onlyGd)}" : "")
             + (onlyCs.Length > 0 ? $"\n  只有 C# 有：{string.Join(" / ", onlyCs)}" : ""));
     }
@@ -105,13 +105,14 @@ public class KeyTableTests
 
     private static Dictionary<string, object?> Tree(JsonElement e) => (Dictionary<string, object?>)L1View.Plain(e)!;
 
-    /// <summary>正则读 `game/tests/cw_case_loader.gd` 里的 `const XXX_KEYS := ["a", "b", …]`（每个元素都是字符串字面量）。</summary>
+    /// <summary>正则读 `game/scripts/kernel/cw_world_loader.gd` 里的 `const XXX_KEYS := ["a", "b", …]`（每个元素都是字符串字面量）。</summary>
     private static IReadOnlyCollection<string> GdConst(string name)
     {
-        var path = Path.Combine(L0RunnerTests.GameTestsDir(), "cw_case_loader.gd");
+        // 2026-09-19 教程 S0：GD 装载器从 game/tests/cw_case_loader.gd 上提到 game/scripts/kernel/cw_world_loader.gd（旧名只剩薄委托、不含键表）
+        var path = Path.Combine(Path.GetDirectoryName(L0RunnerTests.GameTestsDir())!, "scripts", "kernel", "cw_world_loader.gd");
         Assert.True(File.Exists(path), $"找不到 {path}");
         var m = Regex.Match(File.ReadAllText(path), $@"const\s+{name}\s*:=\s*\[(.*?)\]", RegexOptions.Singleline);
-        Assert.True(m.Success, $"cw_case_loader.gd 里找不到 {name}");
+        Assert.True(m.Success, $"cw_world_loader.gd 里找不到 {name}");
         return m.Groups[1].Value.Split(',').Select(x => x.Trim().Trim('"')).Where(x => x.Length > 0).ToArray();
     }
 

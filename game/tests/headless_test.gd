@@ -157,7 +157,7 @@ func _run_all() -> void:
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial,
 		t_entry_smoke_replay, t_entry_smoke_online,
-		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides, t_kernel_attach_engine,
+		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides, t_kernel_attach_engine, t_kernel_loader_moved,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
 		t_rec_depth, t_rec_shape, t_rec_contract_only, t_rec_transparent,
 		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
@@ -19131,7 +19131,7 @@ func t_turn_mark() -> void:
 
 
 # ---- 口径二 C-1 步 8 / 9：L0 靶场的两件机件（规格 §0.6.1 / §0.6.2）----
-const CASE_LOADER := preload("res://tests/cw_case_loader.gd")
+const CASE_LOADER := preload("res://scripts/kernel/cw_world_loader.gd")
 const CASE_DIFF := preload("res://tests/cw_case_diff.gd")
 
 
@@ -20527,6 +20527,52 @@ func t_kernel_attach_engine() -> void:
 	k.close()
 	check(b2.game == null and tree2.game == null, "close：经 attach_engine(null) 一并摘掉，不留悬空引擎")
 
+
+func t_kernel_loader_moved() -> void:
+	print("[教程 S0·装载器与带子上提]")
+	## 新家在、带子在；旧名只剩薄委托且不含第三份键表（§0.6.1：仓库里只许 cw_world_loader.gd 与 L0/CaseModel.cs 两份）
+	check(ResourceLoader.exists("res://scripts/kernel/cw_world_loader.gd") and ResourceLoader.exists("res://scripts/kernel/cw_roll_tape.gd"),
+		"装载器与带子住在 scripts/kernel/（导出预设 exclude tests/*，产品代码只能从这里 preload）")
+	var old_src := FileAccess.get_file_as_string("res://tests/cw_case_loader.gd")
+	check(old_src.contains("extends \"res://scripts/kernel/cw_world_loader.gd\"") and not old_src.contains("_KEYS :="),
+		"tests/cw_case_loader.gd 是薄委托：extends 正本、不含任何 const *_KEYS（第三份键表当场红）")
+	var loader = preload("res://scripts/kernel/cw_world_loader.gd").new()
+	var g = loader.load_world({ "players": [{ "seat": 0, "faction": "immune" }] })
+	check(g != null and loader.errors.is_empty(), "正本装得出最小骨架")
+	if g != null:
+		g.dispose()
+	var tape = preload("res://scripts/kernel/cw_roll_tape.gd").new()
+	tape.tape = [[1, 6, 4]]
+	check(tape.randi_range(1, 6) == 4 and tape.randi_range(1, 6) != -1 and tape.overrun == 1 and tape.randi_range(3, 3) == 3,
+		"带子替身：按带子给数、放完记 overrun、退化区间不消耗")
+	## 产品代码里不许 preload tests/ 下的东西（导出包里没有）
+	var hits: Array[String] = []
+	_scan_preload_tests("res://scripts", hits)
+	check(hits.is_empty(), "scripts/** 里 preload(\"res://tests/ 零命中（%s）" % ", ".join(hits))
+
+
+func _scan_preload_tests(dir: String, hits: Array[String]) -> void:
+	var d := DirAccess.open(dir)
+	if d == null:
+		return
+	d.list_dir_begin()
+	var name := d.get_next()
+	while name != "":
+		var path := dir.path_join(name)
+		if d.current_is_dir():
+			if not name.begins_with("."):
+				_scan_preload_tests(path, hits)
+		elif name.ends_with(".gd"):
+			var src := FileAccess.get_file_as_string(path)
+			for line in src.split("\n"):
+				var t := line.strip_edges()
+				if t.begins_with("#"):
+					continue
+				if t.contains("preload(\"res://tests/") or t.contains("load(\"res://tests/"):
+					hits.append(path)
+					break
+		name = d.get_next()
+	d.list_dir_end()
 
 func t_entry_smoke_local() -> void:
 	print("[入口冒烟·本地 / 读档]")

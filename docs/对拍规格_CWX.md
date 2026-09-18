@@ -312,7 +312,7 @@ C# 是每格一个 `Tissue.SolidLockRound` 回合戳 —— 行为等价（left=
 > 照它写用例会当场红在未知键上（两侧都是硬错）。今天真实的形状如下。
 
 **用例落在 `game/tests/l0/*.json`（45 条迁移用例 + 8 条压力用例），两侧读同一份**：C# 走 `L0/L0RunnerTests.cs`，GD 走 `l0_runner.gd:_run_file`。
-**装盘面的唯一出处**是 `game/tests/cw_case_loader.gd:load_world`（GD）与 `L0/WorldLoader.cs:Load`（C#）；两份键表各有一条测试钉住相等。
+**装盘面的唯一出处**是 `game/scripts/kernel/cw_world_loader.gd:load_world`（2026-09-19 前 `game/tests/cw_case_loader.gd`）（GD）与 `L0/WorldLoader.cs:Load`（C#）；两份键表各有一条测试钉住相等。
 
 用例 **13 键**（`cw_case_loader.gd:CASE_KEYS` ↔ `L0/CaseModel.cs:L0Case`）：
 `schema` / `id` / `probe` / `op` / `covers` / `status` / `prd` / `source` / `harvested_from` / `world` / `rolls` / `args` / `expect`。
@@ -569,7 +569,7 @@ anaerobic/glut1_phase2         MISMATCH  gd=32  cs=38     ← 24:30 各 +8
 > （本文件头自己写着「工作树里不留任何对拍代码」）。**不要去找它、也不要复活它。**
 >
 > 它的职责今天分给了三个真实存在的东西：
-> * 装盘面 → `game/tests/cw_case_loader.gd:load_world`（GD）/ `core/CellWar.Core.Tests/L0/WorldLoader.cs:Load`（C#）；
+> * 装盘面 → `game/scripts/kernel/cw_world_loader.gd:load_world`（2026-09-19 前 `game/tests/cw_case_loader.gd`）（GD）/ `core/CellWar.Core.Tests/L0/WorldLoader.cs:Load`（C#）；
 > * 跑探针 / 跑步 → `l0_runner.gd` 的分派表 + `L0/Probes.cs`（12 项）与 `L0/Steps.cs`（25 项）；
 > * 产用例 → 今天是**手写**的 `game/tests/l0/*.json`，收割器 `game/tests/harvest.gd` 是测试迁移规格 C-1 步 13 的活。
 >
