@@ -5,7 +5,7 @@
 ## 批 0 只在无头测试里跑（不接线，规格 §0.1）；批 1 接线时 CWUIBridge 从 bridges 里退出来、变成 decider，
 ## 它的 show_* 改由播放队列（CWPlayQueue）调用。
 ##
-## 观测（observe → CWMirror）是步 8 的事，这里先返回 null。
+## 观测：observe(viewer) 现编一份 envelope（CWObsCodec）装进 CWMirror；中途询问期间用正在等的那一问（_open_ask）当 ask。
 class_name CWKernelInProc
 extends CWKernel
 
@@ -24,6 +24,8 @@ var _ask_serial := 0
 var _open_ask := {}                 ## 正在等 answer() 的那一问：{ask_id, req, index}
 var _barrier_seq := 0               ## > 0 = 有一条 roll 在等 ack
 var _step_drive := false
+var _open_hands := false           ## 房主开的「观众全见」（cw_room.gd watch_hands）
+var _obs_rev := 0                 ## 每次 observe +1，只用于排序与去重
 var _running := false
 
 signal _answered(ask_id: int)
@@ -43,6 +45,7 @@ func open(cfg: Dictionary) -> bool:
 	game.record_replay = bool(cfg.get("record_replay", false))
 	has_consumer = bool(cfg.get("consumer", false))
 	_step_drive = bool(cfg.get("step_drive", false))
+	_open_hands = bool(cfg.get("open_hands", false))
 	deciders = {}
 	if cfg.has("decider") and cfg["decider"] != null:
 		for pid in game.order:
@@ -93,6 +96,22 @@ func caps() -> Dictionary:
 
 
 # ---- 观测 ----
+## 按席位裁剪过的镜像（规格 A-3.3）。ask 取正在等 answer() 的那一问；没有就是顶层 pending（decider 驱动时中途询问不经这里）。
+## 用 game._pending 而不是 game.pending()：后者会推进流程。
+func observe(viewer: int) -> RefCounted:
+	if game == null:
+		return null
+	_obs_rev += 1
+	var req: Dictionary = _open_ask["req"] if not _open_ask.is_empty() else game._pending
+	var m := CWMirror.new()
+	var err := m.sync_from(game, { "viewer": viewer, "open_hands": _open_hands, "ask": req,
+		"ask_id": int(_open_ask.get("ask_id", 0)), "rev": _obs_rev, "obs_seq": _next_seq - 1 })
+	if err != "":
+		push_error("observe：%s" % err)
+		return null
+	return m
+
+
 func logs_for(viewer: int, from: int) -> PackedStringArray:
 	var out := PackedStringArray()
 	if game == null:

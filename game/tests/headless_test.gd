@@ -70,8 +70,13 @@ func _weight(t: Callable) -> float:
 
 
 ## `--` 之后的参数：--shard=i/n、--timing
+var _only: Array = []   ## --only=t_a,t_b：只跑这几条（调新测试用；分片照常）
+
+
 func _parse_args() -> void:
 	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--only="):
+			_only = Array(a.substr(7).split(","))
 		if a.begins_with("--shard="):
 			var parts := a.substr(8).split("/")
 			if parts.size() == 2 and int(parts[1]) > 0:
@@ -131,10 +136,13 @@ func _run_all() -> void:
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_guide_watch, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
 		t_semkey_single_source, t_kernel_inproc, t_play_queue,
+		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
 	]
 	var owner := _assign(tests)
 	var mine := 0
 	for i in tests.size():
+		if not _only.is_empty() and not (tests[i].get_method() in _only):
+			continue
 		if owner[i] != _shard:
 			continue
 		mine += 1
@@ -19123,3 +19131,265 @@ func t_play_queue() -> void:
 	check(r.state() == CWKernel.State.ENDED and not r.can_save() and r.save().is_empty(), "game_over 后 ENDED；联机不存档")
 	r.close()
 	check(fake.disposed, "close → 客户端 dispose")
+
+
+# ---- 口径二 · 批 0 步 8：观测协议 v1 的 GD 生产者（CWObsCodec）与镜像（CWMirror）----
+## 把一局推到「开局落子完毕、第一个行动询问挂着」；返回 (game, req)
+func _obs_fixture(n_players: int, seed_value: int) -> Array:
+	var g := make_game(n_players, seed_value)
+	await run_setup(g)
+	var req: Dictionary = await g.pending()
+	return [g, req]
+
+
+func t_obs_codec() -> void:
+	print("[观测协议·GD 生产者 → JSON → 镜像]")
+	var fx: Array = await _obs_fixture(4, 91)
+	var g: CWGame = fx[0]
+	var req: Dictionary = fx[1]
+	check(not req.is_empty() and str(req["kind"]) == "action", "夹具：顶层 action 询问挂着")
+	var e := CWObsCodec.encode(g, { "viewer": CWObsProto.VIEWER_OMNISCIENT, "ask_id": 7, "rev": 3 })
+	var text := JSON.stringify(e)
+	var back = JSON.parse_string(text)
+	check(back is Dictionary, "envelope 能过 JSON")
+	var m := CWMirror.new()
+	var err := m.load_from(back)
+	check(err == "", "JSON 往返后镜像装得进（%s）" % err)
+	if err != "":
+		g.dispose()
+		return
+	check(m.round_no == g.round_no and m.phase == "turn" and m.current_pid == g.current_pid and m.asking_pid == g.asking_pid,
+		"顶层量逐个相同（round %d / phase %s / current %d）" % [m.round_no, m.phase, m.current_pid])
+	check(m.cells.size() == g.cells.size() and m.tiles.size() == g.tiles.size(), "cells / tiles 数量相同")
+	var dense := true
+	for i in m.cells.size():
+		if int(m.cells[i]["id"]) != i or m.cells[i]["pos"] != g.cells[i]["pos"] or int(m.cells[i]["energy"]) != int(g.cells[i]["energy"]):
+			dense = false
+	check(dense, "cells 稠密、下标即 id、pos 是 Vector2i、能量相同")
+	check(m.tiles.keys()[0] is Vector2i and m.tile(Vector2i(0, 0))["tissue"] == g.tile(Vector2i(0, 0))["tissue"], "tiles 是 Dictionary[Vector2i]")
+	check(int(m.cell_of(0)["pid"]) == 0 and int(m.player(1)["id"]) == 1
+		and m.living_cells(CWData.Faction.IMMUNE).size() == g.living_cells(CWData.Faction.IMMUNE).size(), "cell_of / player / living_cells 与 CWGame 同义")
+	check(m.solidify_threshold() == g.solidify_threshold() and m.tumor_stage() == g.tumor_stage()
+		and m.count_tissue(CWData.Tissue.CANCER) == g.count_tissue(CWData.Tissue.CANCER) and m.count_necrosis() == g.count_necrosis(),
+		"派生量转手：固化门槛 / 分期 / 计数")
+	var c0: Dictionary = m.cell_of(0)
+	check(m.income_of(c0) == g.world.aerobic_income(g.cell_of(0)) and m.pressure_at(c0["pos"]) == g.world.pressure_at(g.cell_of(0)["pos"]),
+		"income / pressure 与引擎同值")
+	check(not m.action_kinds_of(c0).is_empty() and str(m.action_kinds_of(c0)[0]) == "move", "tier B：action_kinds 顺序即按钮顺序")
+	var a: Dictionary = m.ask
+	check(int(a["ask_id"]) == 7 and int(a["rev"]) == 3 and str(a["kind"]) == "action" and int(a["seat"]) == 0
+		and bool(a["mine"]) and int(a["stop_index"]) == -1, "ask：ask_id / rev / kind / seat / mine / stop_index")
+	check(a["options"].size() == req["options"].size(), "options 数量 = 引擎选项表")
+	var keys_ok := true
+	var to_ok := true
+	for o in a["options"]:
+		var i := int(o["index"])
+		if str(o["key"]) != CWSemKey.key(req, req["options"][i]["data"]):
+			keys_ok = false
+		if o["data"].has("to") and not (o["data"]["to"] is Vector2i):
+			to_ok = false
+	check(keys_ok, "每条 option 的 key = CWSemKey.key（同源）")
+	check(to_ok, "镜像里 data.to 又是 Vector2i（UI 读法不变）")
+	var move_opt := {}
+	for o in a["options"]:
+		if str(o["data"].get("act", "")) == "move":
+			move_opt = o
+			break
+	check(not move_opt.is_empty() and move_opt["cost"] != null and int(move_opt["cost"]) == int(move_opt["data"]["cost"]), "迁移选项带 cost（= data.cost）")
+	check(text.find("\"rng\"") < 0, "零 rng")
+	check(int(back["p"]) == 1 and back["produced_tiers"].size() == 2, "p = 1、GD 恒交 A + B")
+	g.dispose()
+
+
+func t_obs_hard_error() -> void:
+	print("[观测协议·未知键 / 缺键 / 小数 = 硬错]")
+	var fx: Array = await _obs_fixture(2, 92)
+	var g: CWGame = fx[0]
+	var e := CWObsCodec.encode(g)
+	check(CWMirror.new().load_from(e) == "", "原样装得进")
+	var bad: Dictionary = e.duplicate(true)
+	bad["state"]["g"]["zzz"] = 1
+	check(CWMirror.new().load_from(bad).find("zzz") >= 0, "协议外的键 = 硬错（报出键名）")
+	bad = e.duplicate(true)
+	bad["state"]["cells"][0].erase("chain_left")
+	check(CWMirror.new().load_from(bad).find("chain_left") >= 0, "状态键缺了 = 硬错")
+	bad = e.duplicate(true)
+	bad["state"]["g"]["d"].erase("count_healthy")
+	var m := CWMirror.new()
+	check(m.load_from(bad) == "" and m.count_tissue(CWData.Tissue.HEALTHY) == g.count_tissue(CWData.Tissue.HEALTHY), "tier B 缺席合法，查询按状态兜底")
+	bad = e.duplicate(true)
+	bad["state"]["g"]["memory"] = 1.5
+	check(CWMirror.new().load_from(bad).find("小数") >= 0, "出现小数 = 硬错")
+	bad = e.duplicate(true)
+	bad["p"] = 2
+	check(CWMirror.new().load_from(bad).find("协议版本") >= 0, "p 不对 = 拒收")
+	g.dispose()
+
+
+func t_obs_crop() -> void:
+	print("[观测协议·三档裁剪 = cw_net.gd view_for]")
+	var fx: Array = await _obs_fixture(4, 93)
+	var g: CWGame = fx[0]
+	for cell in g.cells:
+		cell["hand"] = ["卡%d-1" % int(cell["pid"]), "卡%d-2" % int(cell["pid"])]
+	var seat := int(g._pending["pid"])
+	for pid in g.order:
+		var e := CWObsCodec.encode(g, { "viewer": pid })
+		var v := CWNet.view_for(g, pid)
+		var same := true
+		for i in g.cells.size():
+			if Array(e["state"]["cells"][i]["hand"]) != Array(v["cells"][i]["hand"]):
+				same = false
+		check(same, "席位 %d：手牌裁剪与 view_for 逐张相同" % pid)
+		var a: Dictionary = e["ask"]
+		var ok: bool = (bool(a["mine"]) and not a["options"].is_empty()) if pid == seat \
+			else (not bool(a["mine"]) and a["options"].is_empty() and str(a["kind"]) == "action")
+		check(ok, "席位 %d：ask 只给主人选项，别人留 kind / seat / prompt" % pid)
+	var w := CWObsCodec.encode(g, { "viewer": CWObsProto.VIEWER_WATCHER })
+	var wv := CWNet.view_for_watcher(g, false)
+	var all_hidden := true
+	for i in g.cells.size():
+		if Array(w["state"]["cells"][i]["hand"]) != Array(wv["cells"][i]["hand"]):
+			all_hidden = false
+	check(all_hidden and w["ask"]["options"].is_empty() and not bool(w["open_hands"]), "观众：全占位、options 恒空")
+	var wo := CWObsCodec.encode(g, { "viewer": CWObsProto.VIEWER_WATCHER, "open_hands": true })
+	check(bool(wo["open_hands"]) and Array(wo["state"]["cells"][0]["hand"]) == Array(g.cells[0]["hand"]) and wo["ask"]["options"].is_empty(),
+		"观众开手牌：照实、options 仍空")
+	var full := CWObsCodec.encode(g, { "viewer": CWObsProto.VIEWER_OMNISCIENT })
+	check(Array(full["state"]["cells"][1]["hand"]) == Array(g.cells[1]["hand"]) and not full["ask"]["options"].is_empty(), "全知：明文、全给")
+	g.dispose()
+
+
+func t_mirror_survives_restore() -> void:
+	print("[镜像·restore 之后重同步不悬空]")
+	var fx: Array = await _obs_fixture(4, 94)
+	var g: CWGame = fx[0]
+	var snap := g.snapshot()
+	var before := CWMirror.new()
+	check(before.sync_from(g) == "", "第一次同步")
+	for i in 6:
+		var req: Dictionary = await g.pending()
+		if req.is_empty():
+			break
+		await g.step(req["options"].size() - 1)
+	var moved := false
+	for i in g.cells.size():
+		if g.cells[i]["pos"] != before.cells[i]["pos"] or int(g.cells[i]["energy"]) != int(before.cells[i]["energy"]):
+			moved = true
+	check(moved, "走了几步之后引擎状态确实变了")
+	g.restore(snap)   ## tiles / cells / players / events 全换成新对象
+	var after := CWMirror.new()
+	check(after.sync_from(g) == "", "restore 之后再同步")
+	var same := after.round_no == g.round_no and after.cells.size() == g.cells.size()
+	for i in g.cells.size():
+		if after.cells[i]["pos"] != g.cells[i]["pos"] or int(after.cells[i]["energy"]) != int(g.cells[i]["energy"]):
+			same = false
+	for c in g.tiles:
+		if int(after.tile(c)["tissue"]) != int(g.tile(c)["tissue"]) or int(after.tile(c)["solid"]) != int(g.tile(c)["solid"]):
+			same = false
+	check(same, "重同步后与 game 逐字段相同（不是别名：换过对象也照样对）")
+	var kept := true
+	for i in g.cells.size():
+		if before.cells[i]["pos"] != after.cells[i]["pos"]:
+			kept = false
+	check(kept, "旧镜像是拷贝不是引用：restore 回来后两份一致")
+	g.dispose()
+
+
+func t_mirror_field_table() -> void:
+	print("[镜像·字段表护栏：快照键都有落点、C# 记录与 GD 键表同源]")
+	var fx: Array = await _obs_fixture(2, 95)
+	var g: CWGame = fx[0]
+	var e := CWObsCodec.encode(g)
+	var snap := CWStateCodec.snapshot(g)
+	var missing: Array = []
+	for k in snap.keys():
+		if k in CWObsProto.SNAPSHOT_EXEMPT:
+			continue
+		if not CWObsProto.SNAPSHOT_TO_ENVELOPE.has(k):
+			missing.append(str(k))
+			continue
+		var path: String = CWObsProto.SNAPSHOT_TO_ENVELOPE[k]
+		if CWObsProto.dig(e, path) == null and not (k in ["chemo", "chemo_track"]):   ## 这两个没有时就是 null
+			missing.append("%s→%s" % [k, path])
+	check(missing.is_empty(), "快照的每个键（豁免 flow / pending / rng）都在 envelope 里有落点 %s" % str(missing))
+	var extra_ok := true
+	for path in CWObsProto.EXTRA_IN_ENVELOPE:
+		if CWObsProto.dig(e, path) == null:
+			extra_ok = false
+	check(extra_ok, "协议比快照多出的字段都在（asking_pid / chain_cell / aborted / is_over / d）")
+	## C# 记录（属性名经 snake_case 就是协议键名）与 GD 键表逐键相同 —— 两边改一边忘另一边，这里红
+	var cs_path := ProjectSettings.globalize_path("res://") + "../core/CellWar.Core/Observation/ObservationV1.cs"
+	var cs := FileAccess.get_file_as_string(cs_path)
+	check(cs != "", "读到 C# ObservationV1.cs")
+	for pair in [["ObsCell", CWObsProto.CELL], ["ObsTile", CWObsProto.TILE], ["ObsGlobal", CWObsProto.G], ["ObsOption", CWObsProto.OPTION], ["ObsAsk", CWObsProto.ASK], ["ObsTune", CWObsProto.TUNE]]:
+		var names := _cs_record_fields(cs, pair[0])
+		check(names == Array(pair[1]), "%s 的字段 = GD 键表（%d 个）%s" % [pair[0], names.size(), "" if names == Array(pair[1]) else str(names)])
+	g.dispose()
+
+
+## 从 C# 源码里抠出 `record Name(...)` 的参数名并转 snake_case
+static func _cs_record_fields(cs: String, name: String) -> Array:
+	var start := cs.find("record %s(" % name)
+	if start < 0:
+		return []
+	start += ("record %s(" % name).length()
+	var end := cs.find(");", start)
+	var body := cs.substr(start, end - start)
+	var generic := RegEx.new()
+	generic.compile("<[^>]*>")
+	body = generic.sub(body, "", true)
+	var attr := RegEx.new()
+	attr.compile("\\[[^\\]]*\\]")
+	body = attr.sub(body, "", true)
+	var out: Array = []
+	for param in body.split(","):
+		var words := param.strip_edges().split(" ", false)
+		if words.is_empty():
+			continue
+		out.append(_snake(String(words[words.size() - 1])))
+	return out
+
+
+static func _snake(s: String) -> String:
+	var out := ""
+	for i in s.length():
+		var ch := s[i]
+		if ch == ch.to_upper() and ch != ch.to_lower() and i > 0:
+			out += "_"
+		out += ch.to_lower()
+	return out
+
+
+func t_kernel_observe() -> void:
+	print("[内核句柄·observe → CWMirror]")
+	var k := CWKernelInProc.new()
+	check(k.open({ "factions": CWData.FACTION_ORDER[4], "seed": 96 }), "open（无 decider）")
+	var since := 0
+	var got_ask := {}
+	var spins := 0
+	while got_ask.is_empty() and spins < 2000:
+		spins += 1
+		for e in k.pull(CWKernel.VIEWER_OMNISCIENT, since, 64):
+			since = int(e["seq"])
+			if e["t"] == "ask":
+				got_ask = e
+		if got_ask.is_empty():
+			await process_frame
+	check(not got_ask.is_empty(), "拿到第一问")
+	var m = k.observe(CWKernel.VIEWER_OMNISCIENT)
+	check(m != null and m is CWMirror, "observe 返回 CWMirror")
+	if m == null:
+		k.close()
+		return
+	check(m.round_no == k.game.round_no and not m.ask.is_empty() and int(m.ask["ask_id"]) == int(got_ask["ask_id"])
+		and str(m.ask["kind"]) == str(got_ask["req"]["kind"]) and not m.ask["options"].is_empty(),
+		"镜像的 ask 就是句柄正在等的那一问（ask_id %d，%s）" % [int(m.ask["ask_id"]), str(m.ask["kind"])])
+	var seat := int(got_ask["req"]["pid"])
+	var mo = k.observe((seat + 1) % 4)
+	check(mo != null and not bool(mo.ask["mine"]) and mo.ask["options"].is_empty() and mo.viewer == (seat + 1) % 4, "别的席位看：ask 没有选项")
+	var mw = k.observe(CWKernel.VIEWER_WATCHER)
+	check(mw != null and mw.ask["options"].is_empty() and mw.viewer == CWKernel.VIEWER_WATCHER, "观众看：ask 没有选项")
+	check(k.answer(int(got_ask["ask_id"]), { "index": 0 }), "作答")
+	k.close()
+	check(k.observe(CWKernel.VIEWER_OMNISCIENT) == null, "关闭后 observe 返回 null")
