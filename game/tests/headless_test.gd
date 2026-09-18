@@ -10038,6 +10038,8 @@ func t_ui_sfx() -> void:
 		"scripts/ui/online_panel.gd": "联机各页（链接 + 实心按钮）",
 		"scripts/ui/cw_codex.gd": "知识之书",
 		"scripts/ui/replay_panel.gd": "回放列表",
+		## 「进入棋盘」不是 clickable_label，自己接的 gui_input + 回车都走 _confirm —— 2026-09-19 Kevin 报没声，这一行就是防复发
+		"scripts/ui/config_panel.gd": "开局配置的「进入棋盘」",
 	}
 	var silent: Array = []
 	for path: String in wired:

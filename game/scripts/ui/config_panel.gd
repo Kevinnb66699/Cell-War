@@ -30,6 +30,7 @@ signal confirmed(cfg: Dictionary)
 ## Esc 退回：主菜单收到后把自己淡回来
 signal cancelled
 
+const SFX := preload("res://scripts/ui/cw_sfx.gd")   ## 游戏外按钮的那一声（cw_sfx.gd 刻意没有 class_name，按路径 preload）
 const SLOT_X := 120.0        ## 槽位左缘（眉题/标题/标签/按钮共用，原型 12.5cqw）
 const VALUE_X := 250.0       ## 值那一列（原型 26cqw）
 ## 右拨值箭头**固定横坐标**，在最长值文案（4 人（2 免疫 · 2 癌症））右侧——
@@ -365,6 +366,7 @@ func _roll_seed() -> int:
 
 
 func _confirm() -> void:
+	SFX.click()   ## 「进入棋盘」也是游戏外按钮：鼠标点、回车确认都从这里过，响一声（Kevin 2026-09-19 报：没有确认音效）
 	visible = false
 	confirmed.emit(config())
 
