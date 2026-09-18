@@ -10,11 +10,20 @@ namespace CellWar.Core;
 /// </summary>
 internal static class BoardRules
 {
+    // E 阶段 / S 阶段的具名步一律 internal static（测试迁移规格 A-6 / E-4，Kevin 2026-09-19「不算动骨架」）：
+    // CellWar.Core.csproj 已有 InternalsVisibleTo(CellWar.Core.Tests)，靶场按「文件:函数」逐步重放；不开新公开 API。
     /// <summary>S.1：特殊组织生产（含产出即收取）。血管传送是下一步 <see cref="Transport"/> —— 中间可能要问玩家
     /// （踩着存卡骨髓抽到连走卡 / 撑爆手牌 / 抽到【基因组不稳定】），GD `round_start` 是 await 问完才传送。</summary>
     public static WorldState Produce(WorldState s, IDeterministicRng rng)
     {
         s = ResetRoundFlags(s);
+        return TissueProduction(s, rng);
+    }
+
+    /// <summary>S.1 的生产本体，**不含**开头的 <c>ResetRoundFlags</c>：测试迁移规格 A-3 的 `tissue_production` 契约步 = GD `cw_world.gd:_tissue_production`
+    /// （那边的标志位重置是单列的 `_reset_round_flags`，录它的差分重放 C# 时不能多出一轮重置）。拆函数、零行为改动（E-4，Kevin 2026-09-19）。</summary>
+    internal static WorldState TissueProduction(WorldState s, IDeterministicRng rng)
+    {
         foreach (var pos in Tiles(s).Select(x => x.Position).ToArray())
         {
             var t = s.Board.Tissues[pos];   // 现读（GD cw_world.gd:105 拿的是活引用）：上一格收取时的结算可能已经改了这一格（【骨髓动员】存卡、【全身性免疫清除】翻面），拿进循环时的快照写回会把它盖掉
@@ -127,7 +136,7 @@ internal static class BoardRules
     /// C# 原来排在增生+侵蚀之后、还重算了一遍连通块 —— 于是每个世界回合都按
     /// **长大之后**的盘面发钱，癌方稳定多收。E 阶段每回合都走，这条差异是累积的。
     /// </summary>
-    private static WorldState Anaerobic(WorldState s)
+    internal static WorldState Anaerobic(WorldState s)
     {
         var blocks = Blocks(s, true);
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer))
@@ -162,7 +171,7 @@ internal static class BoardRules
     /// ⚠ **它杀不死细胞**，这是数学性质不是防呆：按比例扣永远到不了 0，
     /// 而且能量低到 `energy × pct < 100` 时整除直接得 0。正因为杀不死人，这里不需要死亡检查。
     /// </summary>
-    private static WorldState CancerUpkeep(WorldState s)
+    internal static WorldState CancerUpkeep(WorldState s)
     {
         var pct = s.Tuning.CancerUpkeepPercent;
         if (pct <= 0) return s;
@@ -178,7 +187,7 @@ internal static class BoardRules
     /// 9.5 【E-能量上限】：所有**存活**细胞（两个阵营都算）的能量削到上限；0 = 不启用。
     /// 管的是**存量不是流量** —— 囤积是靠这个封的（口径 #92）。
     /// </summary>
-    private static WorldState CapEnergy(WorldState s)
+    internal static WorldState CapEnergy(WorldState s)
     {
         var cap = s.Tuning.EnergyCap;
         if (cap <= 0) return s;
@@ -190,7 +199,7 @@ internal static class BoardRules
     /// <summary>
     /// 2 【E-微环境压迫】：损失 = max(0, 1/4 ×(相邻癌组织 + 相邻固化癌组织×2 − 相邻健康组织))，按分期加成。
     /// </summary>
-    private static WorldState Pressure(WorldState s)
+    internal static WorldState Pressure(WorldState s)
     {
         // 算式住在 `RulePolicies.PressureAt`（纯查询，L0 靶场与 AI 也读它）——
         // 这里只负责「对谁扣、扣下去」。**来源报给管线**：【耗竭抵抗】的第二句要看它。
@@ -279,7 +288,7 @@ internal static class BoardRules
     }
 
     /// <summary>GD `_erosion_dir`：按 DIRS 序找第一个在盘上的癌性邻格，返回那一侧的下标；没有 -1。</summary>
-    private static int ErosionDir(WorldState s, HexPosition at)
+    internal static int ErosionDir(WorldState s, HexPosition at)
     {
         for (var i = 0; i < SemanticKey.GdDirs.Count; i++)
         {
@@ -294,7 +303,7 @@ internal static class BoardRules
     /// 4.9 骨样硬化标记格上的蹲守净化：免疫踏进标记格不能立刻净化，得在那儿站到世界回合结束。
     /// 挪过窝、或格子已固化/被别人净化，标记作废。**排在【固化】之前**（GD 同序）。
     /// </summary>
-    private static WorldState ResolveCamping(WorldState s, IDeterministicRng rng)
+    internal static WorldState ResolveCamping(WorldState s, IDeterministicRng rng)
     {
         foreach (var loopCell in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune && c.CampRound >= 0).ToArray())
         {
@@ -334,7 +343,7 @@ internal static class BoardRules
     internal static int SolidifyThreshold(WorldState s) => RuleTuning.ByStage(s.Tuning.SolidifyThreshold, Stage(s));
 
     /// <summary>5 【E-固化】：有癌细胞停留的癌组织按格加计数（说明 #22；同一格只算一次）。</summary>
-    private static WorldState Solidify(WorldState s)
+    internal static WorldState Solidify(WorldState s)
     {
         var counted = new HashSet<HexPosition>();
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer))
@@ -353,7 +362,7 @@ internal static class BoardRules
     /// 5 【根深蒂固】（环境恶化 II/III 期）：每格固化癌组织随机使相邻最多 1/3 格癌组织计数 +1.0。
     /// 走 <see cref="RaiseSolid"/> —— 门槛、TNF-α 冻结、血管三道判据一道都不能少。
     /// </summary>
-    private static WorldState Rooted(WorldState s, IDeterministicRng rng)
+    internal static WorldState Rooted(WorldState s, IDeterministicRng rng)
     {
         var stage = Stage(s);
         if (stage < 2) return s;
@@ -370,7 +379,7 @@ internal static class BoardRules
     }
 
     /// <summary>5 骨肉瘤【骨样硬化】标记到期：到期那一回合的 E 阶段转固化癌组织。</summary>
-    private static WorldState Ossify(WorldState s)
+    internal static WorldState Ossify(WorldState s)
     {
         foreach (var t in Tiles(s).Where(t => t.OssifyAtRound > 0).ToArray())
         {
@@ -387,7 +396,7 @@ internal static class BoardRules
     /// 6 固化计数衰减：**没有癌细胞停留**的癌组织每回合 −0.5。
     /// 【基质稳定】在场那一回合整步跳过（GD 也是直接 return）。
     /// </summary>
-    private static WorldState Decay(WorldState s)
+    internal static WorldState Decay(WorldState s)
     {
         if (WorldEffects.Active(s, "基质稳定")) return s;
         foreach (var t in Tiles(s).Where(t => t.State == TissueState.Cancer && t.SolidificationCount > 0))
@@ -409,7 +418,7 @@ internal static class BoardRules
     /// 场上没有树突就整步不发生：标记是树突的机制，`ApplyMark` 还要拿它判
     /// 【抗原呈递强化】给 1 层还是 2 层。取**第一只**树突，与 GD 同。
     /// </summary>
-    private static WorldState MarkAdhesion(WorldState s)
+    internal static WorldState MarkAdhesion(WorldState s)
     {
         var dendritic = Cells(s).FirstOrDefault(c => c.IsAlive && c.Faction == Faction.Immune && c.Type == CellType.Dendritic);
         if (dendritic == null) return s;
@@ -436,14 +445,14 @@ internal static class BoardRules
     /// 8 世界事件与卡牌全局修饰的倒计时：每条 `Left` −1，归零移除。
     /// 对齐 GD 的 `CWWorldFx.tick_durations()`。
     /// </summary>
-    private static WorldState TickDurations(WorldState s)
+    internal static WorldState TickDurations(WorldState s)
     {
         if (s.Effects.Count > 0) s = s.Copy(effects: s.Effects.Select(e => e.Tick()).Where(e => !e.Expired).ToList());
         return CellRules.ExpireRoundModifiers(s);   // GD tick_durations 末尾 `clear_mods(cell, "round")`
     }
 
     /// <summary>8 「坏死」倒计时。</summary>
-    private static WorldState TickNecrosis(WorldState s)
+    internal static WorldState TickNecrosis(WorldState s)
     {
         foreach (var t in Tiles(s).Where(t => t.NecrosisRounds > 0))
             s = s.WithBoard(s.Board.UpdateTissue(t.Position, s.Board.Tissues[t.Position].WithNecrosis(t.NecrosisRounds - 1)));
@@ -454,7 +463,7 @@ internal static class BoardRules
     internal const int ChemoCooldownRounds = 1;
 
     /// <summary>8 【免疫猎杀】附着的【追踪趋化源】倒计时：每个世界回合末 −1，归零即消散。</summary>
-    private static WorldState TickChemoTrack(WorldState s)
+    internal static WorldState TickChemoTrack(WorldState s)
     {
         if (s.Turn.TrackRounds <= 0) return s;
         var left = s.Turn.TrackRounds - 1;
@@ -464,7 +473,7 @@ internal static class BoardRules
     }
 
     /// <summary>8 树突【I-趋化源】的技能冷却：每个世界回合末 −1，归零即可再次建立。</summary>
-    private static WorldState TickChemoCooldown(WorldState s)
+    internal static WorldState TickChemoCooldown(WorldState s)
     {
         foreach (var c in Cells(s).Where(c => c.ChemoCooldown > 0).ToArray())
             s = s.UpdateCell(c.Id, s.Cells[c.Id].Copy(chemoCooldown: s.Cells[c.Id].ChemoCooldown - 1));
@@ -478,7 +487,7 @@ internal static class BoardRules
     /// 只能靠「被一次伤害消费掉」摘除。而标记是 ×2 倍伤，挂着不掉是实打实的强化。
     /// 口径照 GDScript 的 `_expire_marks()`（cw_world.gd:1201-1211）：`round_no >= mark_round + 1` 即移除。
     /// </summary>
-    private static WorldState ExpireMarks(WorldState s)
+    internal static WorldState ExpireMarks(WorldState s)
     {
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Marked).ToArray())
         {
@@ -490,7 +499,7 @@ internal static class BoardRules
     }
 
     /// <summary>9 移除「新生」标记。</summary>
-    private static WorldState ClearNewborn(WorldState s)
+    internal static WorldState ClearNewborn(WorldState s)
     {
         foreach (var t in Tiles(s).Where(t => t.Newborn))
             s = s.WithBoard(s.Board.UpdateTissue(t.Position, s.Board.Tissues[t.Position].WithNewborn(false)));

@@ -186,28 +186,39 @@ internal static class PhaseRules
         s = PassOverUnrevivable(s);   // GD `_ask_each`：没有落点的席位当场推进游标（轮不回来），死了却复活不了的报一句为什么
         var revival = GetRevivalOptions(s);
         if (revival.Count > 0) return s.WithTurn(s.Turn.Copy(seat: revival[0].PlayerSeat));
+        s = Aerobic(s);
+        s = Overload(s);   // S 阶段第 6 步【过载】：**必须排在【有氧呼吸】之后**
+        var first = s.Players.Keys.OrderBy(x => x).Where(x => AliveSeat(s, x)).Cast<int?>().FirstOrDefault();
+        // 本世界回合的第一个席位开打之前：0 号起沿途每个席位各走一格完整回合时钟
+        s = TickFullTurnsThrough(s, -1, first ?? s.Players.Keys.DefaultIfEmpty(0).Max());
+        s = s.WithTurn(s.Turn.Copy(phase: first == null ? Phase.E : Phase.PlayerAction, seat: first ?? 0, startStep: 2));
+        return first == null ? s : BeginTurn(s, first.Value);
+    }
+
+    /// <summary>S.5 有氧呼吸 = GD `CWWorld._aerobic`：每只存活免疫收 <see cref="AerobicShare"/> 并演 respire；结算完【TGF-β释放】**同名整批消耗**
+    /// （减免本身已算在 AerobicShare 里，这里只负责摘条目）。测试迁移规格 A-3 的 `aerobic` 契约步 —— 从 ContinueStart 拆出的具名入口，零行为改动（E-4，Kevin 2026-09-19）。</summary>
+    internal static WorldState Aerobic(WorldState s)
+    {
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune))
         {
             var income = AerobicShare(s, c);
             s = s.UpdateCell(c.Id, c.WithEnergy(c.Energy + income));
             Stage.Emit(Stage.Fx(s, "respire", ("at", c.Position)));   // GD cw_world.gd:507：每只免疫收完就演
         }
-        // 【TGF-β释放】结算完**同名整批消耗**（对齐 GD 的 CWWorld._aerobic）。
-        // 减免本身已经算在 AerobicShare 里了，这里只负责摘条目。
         if (WorldEffects.Stacks(s, "TGF-β释放") > 0) s = s.RemoveEffects("TGF-β释放");
-        // S 阶段第 6 步【过载】（PRD 2026-09-15）：**必须排在【有氧呼吸】之后**。
-        // 只扣**存活**的癌细胞；第 4 步刚复活的也在内 ——
-        // PRD 第 6 步写的是「结算【过载】」，没有排除当回合复活的细胞，而复活后的能量同样是能量。
+        return s;
+    }
+
+    /// <summary>S.6 过载（PRD 2026-09-15）：只扣**存活**的癌细胞，第 4 步刚复活的也在内 ——
+    /// PRD 第 6 步写的是「结算【过载】」，没有排除当回合复活的细胞，而复活后的能量同样是能量。`overload` 契约步（同上拆出，零行为改动）。</summary>
+    internal static WorldState Overload(WorldState s)
+    {
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer).ToArray())
         {
             var lost = OverloadLoss(s, s.Cells[c.Id]);
             if (lost > 0) s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy - lost));
         }
-        var first = s.Players.Keys.OrderBy(x => x).Where(x => AliveSeat(s, x)).Cast<int?>().FirstOrDefault();
-        // 本世界回合的第一个席位开打之前：0 号起沿途每个席位各走一格完整回合时钟
-        s = TickFullTurnsThrough(s, -1, first ?? s.Players.Keys.DefaultIfEmpty(0).Max());
-        s = s.WithTurn(s.Turn.Copy(phase: first == null ? Phase.E : Phase.PlayerAction, seat: first ?? 0, startStep: 2));
-        return first == null ? s : BeginTurn(s, first.Value);
+        return s;
     }
 
     /// <summary>
