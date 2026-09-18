@@ -2,6 +2,7 @@
   {
     "schema": "cwxcase/2",
     "id": "pressure/all_healthy_neighbours",
+    "covers": ["t_pressure::二癌四健康 → 被健康组织抵消，不掉能量", "t_pressure::三癌三健康 → 正好抵平，仍不掉（新式的分界线）"],
     "probe": "pressure_at",
     "source": "PRD 2026-09-08：损失 = max(0, 1/4 ×(相邻癌组织 + 相邻固化癌组织×2 − 相邻健康组织))。六邻全健康 → raw = −6 → 钳到 0",
     "world": {
@@ -15,6 +16,7 @@
   {
     "schema": "cwxcase/2",
     "id": "pressure/six_cancer_stage_I",
+    "covers": ["t_tumor_stages::I 期：1/4 × 6 = 1.5"],
     "probe": "pressure_at",
     "source": "六邻全癌组织 → raw = 6；I 期倍率 ×1.0：round_tenth(6×10, 4) = (60+2)/4 = 15",
     "world": {
@@ -37,6 +39,7 @@
   {
     "schema": "cwxcase/2",
     "id": "pressure/six_cancer_stage_II",
+    "covers": ["t_tumor_stages::II 期 ×1.5：2.25 → 2.3（整条只取整一次）"],
     "probe": "pressure_at",
     "source": "同上，II 期（世界回合 6~10）倍率 ×1.5：(6×15+2)/4 = 23。**倍率并进乘数，整条只取整一次**",
     "world": {
@@ -59,6 +62,7 @@
   {
     "schema": "cwxcase/2",
     "id": "pressure/six_cancer_stage_III",
+    "covers": ["t_tumor_stages::III 期 ×2：3.0"],
     "probe": "pressure_at",
     "source": "同上，III 期（11+）倍率 ×2：(6×20+2)/4 = 30",
     "world": {
@@ -81,6 +85,7 @@
   {
     "schema": "cwxcase/2",
     "id": "pressure/solid_counts_double",
+    "covers": ["t_pressure::三癌三固化 → 1/4 ×（3 + 3×2）= 2.3（四舍五入到十分位）"],
     "probe": "pressure_at",
     "source": "固化癌组织权重 +2：3 癌 + 3 固化 → raw = 3 + 6 = 9；I 期 (90+2)/4 = 23",
     "world": {
@@ -103,6 +108,7 @@
   {
     "schema": "cwxcase/2",
     "id": "pressure/healthy_offsets",
+    "covers": ["t_pressure::四癌两健康 → 1/4 ×（4 − 2）= 0.5"],
     "probe": "pressure_at",
     "source": "健康组织权重 −1：5 癌 + 1 健康 → raw = 5 − 1 = 4；I 期 (40+2)/4 = 10",
     "world": {
@@ -125,6 +131,7 @@
   {
     "schema": "cwxcase/2",
     "id": "pressure/necrosis_still_counts_as_healthy",
+    "covers": ["t_necrosis::坏死叠在健康组织上（不是第四种 tissue）"],
     "probe": "pressure_at",
     "source": "坏死是叠在健康组织上的计数，Kevin 2026-09-08 确认**坏死格照算健康**（所以不能改用 is_cancerous）",
     "world": {

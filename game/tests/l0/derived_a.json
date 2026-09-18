@@ -2,6 +2,7 @@
   {
     "schema": "cwxcase/2",
     "id": "aerobic_share/basic_level_I/four_seats_full_healthy",
+    "covers": ["t_immune_level_rules::四档就是 2.0 / 3.0 / 4.5 / 5.0（issue #13）"],
     "probe": "aerobic_share",
     "source": "cw_world.gd aerobic_income(cell) = necrosis_cut(cell, aerobic_share() + _aerobic_bonus(cell))；四席、全健康盘、I 级基础免疫细胞。expect 由 GD runner 实跑得出，C# 必须同值",
     "world": {
@@ -30,6 +31,7 @@
   {
     "schema": "cwxcase/2",
     "id": "proliferate_chance/healthy_one_adjacent_cancer/stage_I",
+    "covers": ["t_proliferate_tiers::默认按分期：3", "t_proliferate_tiers::I 期：3"],
     "probe": "proliferate_chance",
     "source": "CWData.PROLIFERATE_BASE_BY_STAGE[0] = 30‰（每个相邻癌性组织）；一个相邻癌格、无固化 → 30",
     "world": {

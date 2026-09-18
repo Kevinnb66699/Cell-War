@@ -2,6 +2,7 @@
   {
     "schema": "cwxcase/2",
     "id": "anaerobic/block_10/one_cell/two_players",
+    "covers": ["t_anaerobic_sqrt::Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2.8 + 全图固化数 × 1.0", "t_anaerobic_sqrt::六人局 10 格块：10^0.3 × 2.8 =", "t_anaerobic_sqrt::k：块内 1/2/3 个癌细胞 → 80", "t_anaerobic_sqrt::100 十分能量的池：独占拿 8.0（旧式 10.0）、两人各 5.0、三人各 4.0（旧式 3.3）"],
     "probe": "anaerobic_share",
     "source": "PRD 2026-09-14（issue #43）：max{2, k × (块内癌组织数^0.3 × 系数 + 全图固化数) ÷ 块内癌细胞数}。2 人局系数 2.8、指数 0.30、k(1)=80% ⇒ 10^0.3×28×0.8 = 44.69 → 4.5",
     "world": {
@@ -29,6 +30,7 @@
   {
     "schema": "cwxcase/2",
     "id": "anaerobic/block_10/two_cells/k_is_100",
+    "covers": ["t_anaerobic_sqrt::Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2.8 + 全图固化数 × 1.0", "t_anaerobic_sqrt::六人局 10 格块：10^0.3 × 2.8 =", "t_anaerobic_sqrt::k：块内 1/2/3 个癌细胞 → 80", "t_anaerobic_sqrt::100 十分能量的池：独占拿 8.0（旧式 10.0）、两人各 5.0、三人各 4.0（旧式 3.3）"],
     "probe": "anaerobic_share",
     "source": "同一块，块内 2 个癌细胞 ⇒ k(2)=100%；3 人局不在分档表里 → 退回缺省系数 2.8。10^0.3×28×1.0÷2 = 27.93 → 2.8",
     "world": {
@@ -60,6 +62,7 @@
   {
     "schema": "cwxcase/2",
     "id": "anaerobic/floor_kicks_in",
+    "covers": ["t_anaerobic_sqrt::默认 = 常量：系数", "t_anaerobic_sqrt::k：块内 1/2/3 个癌细胞 → 80", "t_anaerobic_sqrt::兜底排在 k 之后：5 × 1.2 ÷ 3 = 2.0 以下，仍兜到"],
     "probe": "anaerobic_share",
     "source": "四人局系数 2.0、k(3)=120%：10^0.3×20×1.2÷3 = 15.96 → 被兜底 anaerobic_floor = 2.0 顶上来",
     "world": {
@@ -93,6 +96,7 @@
   {
     "schema": "cwxcase/2",
     "id": "anaerobic/solid_is_counted_board_wide",
+    "covers": ["t_anaerobic_sqrt::Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2.8 + 全图固化数 × 1.0", "t_anaerobic_sqrt::另一块只有 1 格，也吃到全图那 1 格固化的 +1.0"],
     "probe": "anaerobic_share",
     "source": "固化是**全图**线性加进分子（每格 +1.0），不是本块 —— 这一格固化离主块很远也照算。(10^0.3×28 + 10)×0.8 = 52.69 → 5.3",
     "world": {

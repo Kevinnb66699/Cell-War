@@ -2,6 +2,7 @@
   {
     "schema": "cwxcase/2",
     "id": "overload/at_threshold",
+    "covers": ["t_overload::默认 = PRD 原文：门槛 10.0、除以 2、指数 1.18、上限 15.0", "t_overload::实际门槛 10.2 —— 10.1 的损失四舍五入后仍是 0（PRD 只写了 10）"],
     "probe": "overload_loss",
     "source": "PRD 2026-09-15：损失 = min{15, max{0, ((x−10)÷2)^1.18}}；10.0 及以下不扣",
     "world": {
@@ -15,6 +16,7 @@
   {
     "schema": "cwxcase/2",
     "id": "overload/real_threshold_is_10_2",
+    "covers": ["t_overload::实际门槛 10.2 —— 10.1 的损失四舍五入后仍是 0（PRD 只写了 10）"],
     "probe": "overload_loss",
     "source": "同上：10.1 的损失四舍五入后仍是 0 —— **实际门槛是 10.2**（PRD 只写了 10）",
     "world": {
@@ -28,6 +30,7 @@
   {
     "schema": "cwxcase/2",
     "id": "overload/first_nonzero",
+    "covers": ["t_overload::实际门槛 10.2 —— 10.1 的损失四舍五入后仍是 0（PRD 只写了 10）"],
     "probe": "overload_loss",
     "source": "同上：10.2 起才真的扣 —— 0.1^1.18 = 0.066 → ×10 = 0.66 → 四舍五入 1",
     "world": {
@@ -93,6 +96,7 @@
   {
     "schema": "cwxcase/2",
     "id": "overload/cap_at_29_8",
+    "covers": ["t_overload::29.8 能量：损失到顶", "t_overload::默认 = PRD 原文：门槛 10.0、除以 2、指数 1.18、上限 15.0"],
     "probe": "overload_loss",
     "source": "上限 min{15, …}（Kevin 2026-09-15 晚加）：29.8 能量起损失到顶 15.0",
     "world": {
@@ -106,6 +110,7 @@
   {
     "schema": "cwxcase/2",
     "id": "overload/cap_holds_far_above",
+    "covers": ["t_overload::300.0 能量只扣上限"],
     "probe": "overload_loss",
     "source": "同上：再往上也恒定 15.0（净留 = x − 15，单调递增）",
     "world": {
@@ -119,6 +124,7 @@
   {
     "schema": "cwxcase/2",
     "id": "overload/div_zero_turns_it_off",
+    "covers": ["t_overload::overload_div = 0：整条规则关闭"],
     "probe": "overload_loss",
     "source": "旋钮 overload_div ≤ 0 = 关闭整条规则（扫描的对照档，顺带兜除零）",
     "world": {

@@ -18,6 +18,7 @@
   {
     "schema": "cwxcase/2",
     "id": "move_cost/immune_to_cancerous/level_I",
+    "covers": ["t_macro_purify_heal::默认与 PRD 一致：迁移到癌性组织 1.0 / 0.8 / 0.8 / 0.8（PRD 2026-09-12 删了 III 级的 0.7）"],
     "probe": "move_cost",
     "source": "CWData.IMMUNE_MOVE_CANCEROUS = [10,8,8,8]；PRD 只写了 II 级 0.8，III/X 沿用（Kevin 2026-09-15 裁定）",
     "world": {
@@ -34,6 +35,7 @@
   {
     "schema": "cwxcase/2",
     "id": "move_cost/immune_to_cancerous/level_II",
+    "covers": ["t_macro_purify_heal::默认与 PRD 一致：迁移到癌性组织 1.0 / 0.8 / 0.8 / 0.8（PRD 2026-09-12 删了 III 级的 0.7）"],
     "probe": "move_cost",
     "source": "同上，II 级 0.8",
     "world": {
@@ -50,6 +52,7 @@
   {
     "schema": "cwxcase/2",
     "id": "move_cost/immune_to_cancerous/level_X",
+    "covers": ["t_macro_purify_heal::默认与 PRD 一致：迁移到癌性组织 1.0 / 0.8 / 0.8 / 0.8（PRD 2026-09-12 删了 III 级的 0.7）"],
     "probe": "move_cost",
     "source": "同上，X 级仍是 0.8（不再另有减免）",
     "world": {
@@ -114,6 +117,7 @@
   {
     "schema": "cwxcase/2",
     "id": "move_cost/melanoma_pseudopod/three_neighbours",
+    "covers": ["t_card_mods::邻接 3 格 → 黑色素瘤基准价走【伪足穿透】"],
     "probe": "move_cost",
     "source": "黑色素瘤【伪足穿透】：邻接 ≥3 格癌性组织时基础费 = 0.5 − 0.1×(邻接数 − 3)（门槛 2026-09-06 由 2 改 3）",
     "world": {
@@ -134,6 +138,7 @@
   {
     "schema": "cwxcase/2",
     "id": "move_cost/melanoma_pseudopod/below_threshold",
+    "covers": ["t_card_mods::只邻接 2 格癌性组织 → 不触发【伪足穿透】，照付健康格全价"],
     "probe": "move_cost",
     "source": "同上：邻接只有 2 格癌性组织，达不到门槛 → 退回占地单价 1.2",
     "world": {
@@ -154,6 +159,7 @@
   {
     "schema": "cwxcase/2",
     "id": "move_cost/mucus_surcharge",
+    "covers": ["t_batch2_rules::免疫踏进黏液格：迁移", "t_macro_purify_heal::默认与 PRD 一致：迁移到癌性组织 1.0 / 0.8 / 0.8 / 0.8（PRD 2026-09-12 删了 III 级的 0.7）"],
     "probe": "move_cost",
     "source": "PRD:523「免疫细胞迁移进入『黏液侵染』格时，迁移耗能 +0.2」（CWData.MUCUS_MOVE_SURCHARGE = 2）",
     "world": {
@@ -170,6 +176,7 @@
   {
     "schema": "cwxcase/2",
     "id": "move_cost/mucus_only_immune",
+    "covers": ["t_batch2_rules::癌细胞进黏液格：不加费（只罚免疫）"],
     "probe": "move_cost",
     "source": "同上：PRD 只写「免疫细胞迁移进入」，癌细胞踏黏液格不加价",
     "world": {

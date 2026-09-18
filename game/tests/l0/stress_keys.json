@@ -2,6 +2,7 @@
   {
     "schema": "cwxcase/2",
     "id": "stress/events/tgf_beta_one_stack_cuts_aerobic",
+    "covers": ["t_card_mods::TGF-β 两份叠加："],
     "probe": "aerobic_share",
     "source": "cw_world.gd:aerobic_share 末尾 `for i in _tgf_stacks(): gain = gain * 8 / 10`（逐份 ×80% 向下取整，定案 #63）；_tgf_stacks 读 game.events[\"active\"] 里名为【TGF-β释放】的条目的 stacks 求和。盘面与 derived_a 的 aerobic_share/basic_level_I 逐格相同（那条今天 = 20：_aerobic_base 走 tune.aerobic_by_level[0] = 2.0，clamp_income 的 floor/cap 都是 0 不夹，aerobic_split 默认 false 不均分），挂一层 TGF-β 后 20 × 8 / 10 = 16。**八条里唯一一条新键会改数的**，其余七条钉的是「新键装得进、往返不掉、且确实不改这个探针的数」。只写 events.active：pool / double_next 走默认（§0.6.1 第 5 条）",
     "world": {
@@ -33,6 +34,7 @@
   {
     "schema": "cwxcase/2",
     "id": "stress/newborn/tile_flag_roundtrips_and_is_inert_here",
+    "covers": ["t_proliferate_tiers::I 期：3"],
     "probe": "proliferate_chance",
     "source": "cw_setup.gd:make_tile 的 `newborn`（本世界回合新转化的癌组织，不可固化；cw_world.gd:_clear_newborn 每回合末清）。cw_world.gd:_proliferate_chance 只数 `is_cancerous(n)` 与块内固化数，一眼都不看 newborn ⇒ 一个相邻癌格、无固化 → 1 × (30 + 5 × 0) = 30，与 derived_a 的 proliferate_chance/healthy_one_adjacent_cancer/stage_I 同值。newborn 真正改行为的是 cw_world.gd:_solidify（批 3 的 delta 用例）",
     "world": {
@@ -53,6 +55,7 @@
   {
     "schema": "cwxcase/2",
     "id": "stress/store/core_tile_store_roundtrips",
+    "covers": ["t_immune_level_rules::四档就是 2.0 / 3.0 / 4.5 / 5.0（issue #13）"],
     "probe": "aerobic_share",
     "source": "cw_setup.gd:make_tile 的 `store`（代谢核心存了多少十分能量，上限 CWData.CORE_STORE_MAX = 20）。坐标 0,-3 在 CWData.CORES 上，显式写 type=core。cw_world.gd:aerobic_share 经 _aerobic_base 走 tune.aerobic_by_level 按免疫等级查表（I = 2.0），与任何格子的存量无关 ⇒ 仍是 20。核心存量真正兑现在 cw_world.gd 的 S 阶段产出（批 3）。3,-3 / -3,0 / 0,3 在 CWData.MARROWS 上，与 derived_a 迁移后一样显式写 type=normal（§0.6.1 第 3 条：省略 type = 棋盘本来的特殊组织）",
     "world": {
@@ -82,6 +85,7 @@
   {
     "schema": "cwxcase/2",
     "id": "stress/cards/marrow_tile_cards_roundtrips",
+    "covers": ["t_tumor_stages::I 期门槛 3.0"],
     "probe": "solidify_threshold",
     "source": "cw_setup.gd:make_tile 的 `cards`（骨髓存了几张牌，上限 CWData.MARROW_STORE_MAX = 1）。坐标 3,-3 在 CWData.MARROWS 上，显式写 type=marrow。cw_game.gd:solidify_threshold 只读 tune.solidify_threshold[tumor_stage()]，tumor_stage 走 cw_card_data.gd:cancer_phase（回合 1 ≤ 5 → I 期）⇒ CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0] = 30，与骨髓存量无关",
     "world": {
@@ -99,6 +103,7 @@
   {
     "schema": "cwxcase/2",
     "id": "stress/prod/vessel_tile_prod_roundtrips",
+    "covers": ["t_pressure::二癌四健康 → 被健康组织抵消，不掉能量", "t_pressure::三癌三健康 → 正好抵平，仍不掉（新式的分界线）"],
     "probe": "pressure_at",
     "source": "cw_setup.gd:make_tile 的 `prod`（特殊组织的产出周期计数器）。坐标 6,0 在 CWData.VESSELS 上（半径 6 的外缘，loader 默认 radius = 6 装得下），显式写 type=vessel。cw_world.gd:pressure_at 只读六邻格的 `tissue` 一个字段：六邻全健康 → raw = 6 × CWData.PRESSURE_HEALTHY_W = −6 → maxi(raw, 0) = 0 ⇒ 0，与产出计数器无关（同 pressure/all_healthy_neighbours）。6,0 不是 0,0 的邻格，摆在那儿只为把 prod 这个键装进世界",
     "world": {
@@ -115,6 +120,7 @@
   {
     "schema": "cwxcase/2",
     "id": "stress/toxin_round/tile_key_roundtrips",
+    "covers": ["t_macro_purify_heal::默认与 PRD 一致：迁移到癌性组织 1.0 / 0.8 / 0.8 / 0.8（PRD 2026-09-12 删了 III 级的 0.7）"],
     "probe": "move_cost",
     "source": "cw_setup.gd:make_tile 的 `toxin_round`（上一次在这格发动【细胞毒素】是第几个世界回合，issue #10「每世界回合同一格仅一次」）。它只被 T 细胞毒素的闸门读，迁移报价读不到：cw_actions.gd:_one_step_base 对免疫细胞只查 tune.immune_move_cancerous[game.immune_level]（CWData.IMMUNE_MOVE_CANCEROUS[0] = 10），_move_cost_mod 的 CWCost 管线上没有任何修饰 ⇒ 仍是 10（同 move_cost/immune_to_cancerous/level_I）",
     "world": {
@@ -132,6 +138,7 @@
   {
     "schema": "cwxcase/2",
     "id": "stress/global/win_fields_and_counters_roundtrip",
+    "covers": ["t_tumor_stages::II 期门槛 2.0（PRD 2026-09-12 把 2.0 提前到 II 期）"],
     "probe": "solidify_threshold",
     "source": "cwxworld/2 的 world 顶层四个全局量（§0.6.1 第 1 条）：winner / win_kind / effector_round / cancer_alarm.streak —— cw_obs_proto.gd:G 里有、而今天 loader 一个都装不进（effector_round 就是这么漏掉的）。**只写这四个**：win_reason 是文案（C# 由 win_kind 现算）、feed_seq 是演出流水号、chain_cell 派生自 cells[].chain_running、cancer_alarm.hold_rounds 是旋钮 cancer_win_hold_rounds 的转写，四者都不收；differentiated 由 cells 现算。期望值与它们无关：cw_game.gd:solidify_threshold 只读 tune.solidify_threshold[tumor_stage()]，回合 6 经 cw_card_data.gd:cancer_phase 落在 II 期 ⇒ CWData.SOLIDIFY_THRESHOLD_BY_STAGE[1] = 20",
     "world": {
@@ -151,6 +158,7 @@
   {
     "schema": "cwxcase/2",
     "id": "stress/marked/three_fields_are_explicit",
+    "covers": ["t_ev_attack_mods::基础判定：1~2 失败 / 3~5 成功 / 6 大成功"],
     "probe": "attack_outcome",
     "source": "§0.6.1 第 4 条：写了 `marked` 就必须三键都写，两侧 loader 一个都不补。三键的出处是 cw_setup.gd:make_cell（marked / mark_left 0 / mark_round −1），唯一的写入口是 cw_game.gd:apply_mark（mark_round = round_no 拦「同回合只给一次」，mark_left = maxi(旧值, 普通树突 1 / 带【抗原呈递强化】2）；读取点两处：cw_world.gd:_expire_marks 用 mark_round 判「被标记后第二次 E 阶段摘掉」、cw_damage.gd 的伤害管线用 mark_left 计次翻倍。这里写的正是普通树突在第 1 世界回合施加的那一组（marked / 1 / 1）—— round_no 1 < born + 1，_expire_marks 不会提前摘。期望值与标记无关：探针取的是**攻击方**（席位 0）；cw_actions.gd:base_verdict 对没有【免疫突触成熟】的攻击者判 6 = crit / ≤2 = fail / 其余 success，掷 3 → success，attack_outcome 再套的两条世界事件（抗原引导 / 免疫伪装）都没挂 ⇒ 编码 1",
     "world": {
