@@ -77,4 +77,8 @@ if [ "$SHARDS" -gt 1 ]; then
 		echo "✘ ${SHARDS} 片里有红（合计 ${TOTAL} 项检查）"
 	fi
 fi
+# L0 契约靶场两侧同跑（测试迁移规格闸一 + 闸二 2b）：与无头套件一起算总账
+if ! bash "$(dirname "$0")/run_l0.sh"; then
+	CODE=1
+fi
 exit $CODE
