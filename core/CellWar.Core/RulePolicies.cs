@@ -3,7 +3,7 @@
 namespace CellWar.Core;
 
 /// <summary>规划路径的一步：目标格、这一步的费用（十分位）、是否合法/付得起、阻挡原因、踩核心获得的能量。</summary>
-public sealed record PathStep(HexPosition To, int Cost, bool Legal, bool Afford, string Reason, int Gain);
+public sealed record PathStep(HexPosition To, int Cost, bool Legal, bool Afford, string Reason, int Gain, HexPosition? Mid = null);   // Mid = 借道的第一跳（GD quote_path 的 mid），走得到的相邻格为 null
 
 /// <summary>整条规划路径的报价：逐步模拟【定殖】/【净化】与代谢核心收入，纯查询不消耗任何额度。</summary>
 public sealed record PathQuote(ImmutableArray<PathStep> Steps, int Total, int Gained, bool Ok, int Left, int Stop);
@@ -265,7 +265,7 @@ internal static class RulePolicies
             var legal = reason == "";
             var afford = legal;
             var gain = 0;
-            steps.Add(new PathStep(to, cost, legal, afford, reason, gain));
+            steps.Add(new PathStep(to, cost, legal, afford, reason, gain, PassThroughMid(world, current, to)));   // GD quote_path：mid 在判合法之前就取
             if (!afford) { stop = i; break; }
             budget -= cost;
             total += cost;
@@ -311,40 +311,54 @@ internal static class RulePolicies
     /// 本来就与自己相邻的格不进这张表（普通迁移更便宜）。
     /// </summary>
     public static Dictionary<HexPosition, int> PassThroughMap(WorldState s, Cell cell)
+        => PassThroughRoutes(s, cell).ToDictionary(kv => kv.Key, kv => kv.Value.Cost);
+
+    /// <summary>
+    /// 借道落点 → (总价, 第一跳)。与 GD `cw_actions.gd pass_through_map` 同形（那边的值是 `[费用, 第一跳]`）。
+    /// 邻居按 <see cref="GdNeighbors"/>（DIRS 序）走：费用取最小与次序无关，**第一跳在同价时取先到的**，次序不同就会挑到另一条同价路 —— 观测协议 `quote_path.mid` 要和 GD 逐字相同。
+    /// </summary>
+    public static Dictionary<HexPosition, (int Cost, HexPosition First)> PassThroughRoutes(WorldState s, Cell cell)
     {
-        var outMap = new Dictionary<HexPosition, int>();
-        var reached = new Dictionary<HexPosition, int>();
+        var outMap = new Dictionary<HexPosition, (int Cost, HexPosition First)>();
+        var reached = new Dictionary<HexPosition, (int Cost, HexPosition First)>();
         var queue = new Queue<HexPosition>();
-        foreach (var n in cell.Position.GetNeighbors())
+        foreach (var n in GdNeighbors(s, cell.Position))
         {
             if (!AllyTile(s, cell, n)) continue;
-            reached[n] = BaseMoveCost(s, cell, n);
+            reached[n] = (BaseMoveCost(s, cell, n), n);
             queue.Enqueue(n);
         }
         while (queue.Count > 0)
         {
             var cur = queue.Dequeue();
-            var acc = reached[cur];
-            foreach (var m in cur.GetNeighbors())
+            var (acc, first) = reached[cur];
+            foreach (var m in GdNeighbors(s, cur))
             {
                 if (m == cell.Position || !s.Board.Tissues.ContainsKey(m)) continue;
                 var total = acc + BaseMoveCost(s, cell, m);
                 if (AllyTile(s, cell, m))
                 {
-                    if (!reached.TryGetValue(m, out var previous) || total < previous)
+                    if (!reached.TryGetValue(m, out var previous) || total < previous.Cost)
                     {
-                        reached[m] = total;
+                        reached[m] = (total, first);
                         queue.Enqueue(m);
                     }
                 }
                 else if (s.GetCellAt(m) == null)
                 {
-                    if (!outMap.TryGetValue(m, out var prev) || total < prev) outMap[m] = total;
+                    if (!outMap.TryGetValue(m, out var prev) || total < prev.Cost) outMap[m] = (total, first);
                 }
             }
         }
-        foreach (var n in cell.Position.GetNeighbors()) outMap.Remove(n);
+        foreach (var n in GdNeighbors(s, cell.Position)) outMap.Remove(n);
         return outMap;
+    }
+
+    /// <summary>GD `pass_through_mid`：借道到 <paramref name="to"/> 的第一跳；不在板上 / 原地 / 本来就相邻（那是普通迁移）/ 借不到 = null。</summary>
+    public static HexPosition? PassThroughMid(WorldState s, Cell cell, HexPosition to)
+    {
+        if (!s.Board.Tissues.ContainsKey(to) || to == cell.Position || GdNeighbors(s, cell.Position).Contains(to)) return null;
+        return PassThroughRoutes(s, cell).TryGetValue(to, out var route) ? route.First : null;
     }
 
     /// <summary>借道前进的可落点：所有穿过友军可达的空格。</summary>

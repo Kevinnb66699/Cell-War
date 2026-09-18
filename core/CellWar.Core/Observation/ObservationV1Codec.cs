@@ -251,9 +251,9 @@ public static class ObservationV1Codec
     private static int Income(WorldState s, Cell c)
         => !c.IsAlive ? 0 : c.Faction == Faction.Immune ? RulePolicies.AerobicShare(s, c) : RulePolicies.AnaerobicShare(s, c);
 
-    /// <summary>`quote_path` 的返回形状（§5.3）：`blocked` ↔ C# `Reason`；`mid` C# 批 0 恒 null（记账）。</summary>
+    /// <summary>`quote_path` 的返回形状（§5.3）：`blocked` ↔ C# `Reason`；`mid` = 借道第一跳（`RulePolicies.PassThroughMid`）。</summary>
     public static ObsPathQuote PathQuote(PathQuote q)
-        => new(q.Steps.Select(st => new ObsPathStep(Pos(st.To), st.Cost, null, st.Legal, st.Afford, st.Reason, st.Gain)).ToArray(), q.Total, q.Gained, q.Ok, q.Left, q.Stop);
+        => new(q.Steps.Select(st => new ObsPathStep(Pos(st.To), st.Cost, st.Mid is { } m ? Pos(m) : null, st.Legal, st.Afford, st.Reason, st.Gain)).ToArray(), q.Total, q.Gained, q.Ok, q.Left, q.Stop);
 
     // ---------------- 编码工具（附录 A） ----------------
 

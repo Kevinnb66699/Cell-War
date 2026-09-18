@@ -100,7 +100,7 @@ public sealed record ObsAsk(long AskId, long Rev, string Kind, string? Tag, int 
 
 public sealed record ObsLogs(long From, string[] Lines);
 
-/// <summary>`kernel.query("quote_path")` 的返回（§5.3）。`mid` = 【伪足穿透】借道的中转格：C# 批 0 恒 null（`PassThroughMap` 只给落点与总价、不记中转格，记账）。</summary>
+/// <summary>`kernel.query("quote_path")` 的返回（§5.3）。`mid` = 借道的第一跳（`RulePolicies.PassThroughMid`，与 GD `pass_through_mid` 同口径）；走得到的相邻格为 null。</summary>
 public sealed record ObsPathStep(ObsPos To, int Cost, ObsPos? Mid, bool Legal, bool Afford, string Blocked, int Gain);
 
 public sealed record ObsPathQuote(ObsPathStep[] Steps, int Total, int Gained, bool Ok, int Left, int Stop);

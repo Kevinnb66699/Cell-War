@@ -110,6 +110,27 @@ public class SessionV1Tests
     }
 
     [Fact]
+    public void quote_path_借道第一跳_与GD的pass_through_mid同口径()
+    {
+        // 免疫 A 旁边摆一只友军 B，B 再往外一格空着：A 借道 B 到那一格，mid = B 所在格（第一跳）；相邻格与走不到的格 mid = null
+        var s = DemoScenario.Create();
+        var immune = s.Cells.Values.Where(c => c.Faction == Faction.Immune).OrderBy(c => c.Id.Value).ToArray();
+        var a = immune[0]; var b = immune[1];
+        var n = RulePolicies.GdNeighbors(s, a.Position).First(p => s.GetCellAt(p) == null && s.Board.Tissues[p].State == TissueState.Healthy);
+        s = s.UpdateTissueOccupant(b.Position, null).UpdateCell(b.Id, b.WithPosition(n)).UpdateTissueOccupant(n, b.Id);
+        var t = RulePolicies.GdNeighbors(s, n).First(p => s.GetCellAt(p) == null && p.DistanceTo(a.Position) == 2);
+        Assert.Equal(n, RulePolicies.PassThroughMid(s, s.Cells[a.Id], t));
+        Assert.Null(RulePolicies.PassThroughMid(s, s.Cells[a.Id], n));   // 相邻格：普通迁移，不算借道
+        Assert.Equal(RulePolicies.PassThroughMap(s, s.Cells[a.Id]), RulePolicies.PassThroughRoutes(s, s.Cells[a.Id]).ToDictionary(kv => kv.Key, kv => kv.Value.Cost));   // 费用那张表没变
+        var quote = RulePolicies.QuotePath(s, s.Cells[a.Id], [t]);
+        Assert.Equal(n, quote.Steps[0].Mid);
+        using var session = new MatchSession(s);
+        var args = JsonSerializer.SerializeToElement(new { cid = (int)a.Id.Value - 1, from = ObservationV1Codec.Pos(a.Position), path = new[] { ObservationV1Codec.Pos(t) } }, ObservationV1Codec.Json);
+        var mid = session.QueryV1(a.OwnerSeat, "quote_path", args)!.Value.GetProperty("steps")[0].GetProperty("mid");
+        Assert.Equal((n.Q, n.R), (mid.GetProperty("q").GetInt32(), mid.GetProperty("r").GetInt32()));
+    }
+
+    [Fact]
     public void version_三字段分开_save含rng与明文手牌而观测任何档都没有()
     {
         var world = DemoScenario.Create();
