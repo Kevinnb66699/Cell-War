@@ -138,8 +138,18 @@ internal static class Subset
         return bad;
     }
 
-    /// <summary>把值印成一行（报告与「相等吗」都用它 —— 两侧比的是同一套字面量）。</summary>
-    public static string Text(object? v) => v is null ? "null" : JsonSerializer.Serialize(v, Show);
+    /// <summary>把值印成一行（报告与「相等吗」都用它 —— 两侧比的是同一套字面量）。
+    /// 字典先按键名（Ordinal）排序再印：没语义键的数组整条当叶子比，叶子里若有对象，键序不该算差异
+    ///（GD `cw_case_diff.gd:compare` 是结构比、键序无关；此前这里按 JSON 原序印，手写 `changed` 得照 C# 的键序抄 —— 批 1 F13）。</summary>
+    public static string Text(object? v) => v is null ? "null" : JsonSerializer.Serialize(Canon(v), Show);
+
+    /// <summary>键名 Ordinal 升序的等价结构（递归进数组）；标量原样。</summary>
+    private static object? Canon(object? v) => v switch
+    {
+        Dictionary<string, object?> d => d.Keys.Order(StringComparer.Ordinal).ToDictionary(k => k, k => Canon(d[k])),
+        List<object?> l => l.Select(Canon).ToList(),
+        _ => v,
+    };
 
     // ---------------- 递归 ----------------
 

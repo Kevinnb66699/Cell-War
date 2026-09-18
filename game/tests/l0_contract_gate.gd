@@ -6,7 +6,7 @@
 ##
 ##   ① 双射：分派表的名字集合 ≡ 表里 `status ∈ {OK, KNOWN_GAP, UNDEFINED}` 的 `op` 集合
 ##      （`NOTIMPL` / `OUT_OF_SCOPE` 不进分派；`cases: "deferred"` 的进分派但放空壳）。
-##   ② 用例面：`required` 行 ≥1 条用例且每档 `boundaries` 正则 ≥1 条命中；`none` 行零用例；
+##   ② 用例面：`required` 行 ≥1 条用例且每档 `boundaries` 正则 ≥1 条命中；`deferred` 行零用例（§0.6.4 第 5 条）；`none` 行零用例；
 ##      用例引的 `probe` / `op` 都在表里且族对得上。
 ##   ③ 表本身：`kind` 只许 probe / step（**T 族不进契约面**）、`op` 名不重复、
 ##      `status` 五档之一、`cases` 三值之一。
@@ -158,6 +158,10 @@ static func _check_cases(table: Array, by_op: Dictionary, errors: PackedStringAr
 							hit += 1
 					if hit == 0:
 						errors.append("契约门②：required 的 %s 档「%s」（%s）零条用例命中" % [op, tag, pattern])
+			"deferred":
+				## 规格 §0.6.4 第 5 条：deferred = 零用例。悄悄带用例的 deferred 行以前抓不到（批 1 F15）
+				if not mine.is_empty():
+					errors.append("契约门②：deferred 的 %s 偷偷带了 %d 条用例（要么转 required 并写 boundaries，要么用例不进仓库）：%s" % [op, mine.size(), ", ".join(mine)])
 			"none":
 				if not mine.is_empty():
 					errors.append("契约门②：挂档 %s（cases: none）却有 %d 条用例：%s" % [op, mine.size(), ", ".join(mine)])

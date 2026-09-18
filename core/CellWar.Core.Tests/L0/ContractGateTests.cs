@@ -12,7 +12,7 @@ namespace CellWar.Core.Tests.L0;
 /// 谁也不解析对方的源码。子集规则与 GD 门逐字相同：
 ///
 ///   ① 双射：`Probes.Names ∪ Steps.Names` ≡ 表里 `status ∈ {OK, KNOWN_GAP, UNDEFINED}` 的 `op` 集合；
-///   ② 用例面：`required` 行 ≥1 条用例且每档 `boundaries` 正则 ≥1 条命中；`none` 行零用例；
+///   ② 用例面：`required` 行 ≥1 条用例且每档 `boundaries` 正则 ≥1 条命中；`deferred` 行零用例（§0.6.4 第 5 条）；`none` 行零用例；
 ///      用例引的 `probe` / `op` 都在表里且族对得上；
 ///   ③ 表本身：`kind` 只许 probe / step（T 族不进契约面）、`op` 名不重复、`status` 五档之一、`cases` 三值之一。
 ///
@@ -76,6 +76,10 @@ public class ContractGateTests
                         if (!mine.Any(id => Regex.IsMatch(id, pattern)))
                             errors.Add($"required 的 {name} 档「{Text(b, "tag")}」（{pattern}）零条用例命中");
                     }
+                    break;
+                case "deferred":
+                    // 规格 §0.6.4 第 5 条：deferred = 零用例。悄悄带用例的 deferred 行以前抓不到（批 1 F15）
+                    if (mine.Count > 0) errors.Add($"deferred 的 {name} 偷偷带了 {mine.Count} 条用例（要么转 required 并写 boundaries，要么用例不进仓库）：{string.Join(" / ", mine)}");
                     break;
                 case "none":
                     if (mine.Count > 0) errors.Add($"挂档 {name}（cases: none）却有 {mine.Count} 条用例：{string.Join(" / ", mine)}");
