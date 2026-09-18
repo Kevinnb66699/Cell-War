@@ -11,7 +11,7 @@ namespace CellWar.Core.Tests.L0;
 /// `status ∈ {OK, KNOWN_GAP, UNDEFINED}` 的行逐名相同（<see cref="ContractGateTests"/> 盯着），
 /// 而那张表才是唯一的 op 白名单：表外的名字代理不覆写、runner 不分派、用例不许引用。
 ///
-/// **26 项 = 25 真 + `damage_hit` 空壳**。不进表的四条：
+/// **26 项全是真转调**（批 4 把 `damage_hit` 换成 <see cref="CellRules.Damage"/>）。不进表的四条：
 /// `chaos_return`（NOTIMPL，C# 未实现，`BoardRules.EvolveEndOfRoundB` 里是一行 EV-1 注释）、
 /// `check_immune_win` / `check_cancer_win`（OUT_OF_SCOPE，实体在 `OutcomeRules.Evaluate`，
 /// 且与规格 §0.2「整局 / 状态机驱动的那一档不进 L0」冲突），
@@ -69,12 +69,46 @@ internal static class Steps
         // 所以 args 只能是**席位 + 语义键**，两侧各自从自己的选项表里按键找回那一条
         // （GD `build_options` + `CWSemKey.key`，这边 `GetAvailableDecisions` + `SemanticKey.Of`）。
         // 语义键的规矩 1 已经把 `cost` 剔出键外 —— 所以「C# 算费不同」不会伪装成「动作不同」，
-        // 它会原样落在 delta 的 energy 上。批 1 只用 `act=move` 且落点为**空格**的那一支（不掷骰）。
+        // 它会原样落在 delta 的 energy 上。批 1 只用 `act=move` 且落点为**空格**的那一支（不掷骰）；
+        // 批 4 追加攻击（**同一个键形** `act=move`，落点上有活癌细胞才成为攻击，掷骰走带子）与 `act=antibody`。
         ["execute"] = Execute,
-        // 空壳：两端签名未核 —— GD `immune_hit(target, base, attacker, attack, add)` / `cancer_hit(target, base, reason, skill)`
-        // ↔ C# `CellRules.Damage(s, id, amount, LossSource, ability)`，批 4 的 C-2 步 1 再核（§0.6.4 第 2 条）
-        ["damage_hit"] = (_, _, _) => throw new NotImplementedException("本批未开工：两端签名未核（规格 §0.6.4）"),
+        // 伤害管线的单点入口（批 4 换真）。两端签名已按 C-2 步 1 逐参数核过，args 四个键由硬约定定死：
+        // `target`（**席位**，名字跟 GD 的形参 —— GD 边界权威）/ `base`（十分能量）/
+        // `source`（四个字面词 → LossSource）/ `ability`（GD 伤害事件的 ability 字段）。
+        // **不收 `attacker`**：这边的 `Damage` 没有这个形参 —— 吸血（巨噬【吞噬】）与斩杀（【吞噬体成熟】）
+        // 住在 `CellRules.Move` 的攻击流程里，GD 那边住在 `CWDamage` 的伤后触发队列里，
+        // 所以 GD 侧探针一律传 `{}`（两条触发都不发生），要验它们走 `execute` 的攻击分支。
+        // **不收 `add`**（GD 在 `_calculate` 第一步就加进 base，用例折进 `base`）、
+        // **不收 `direct`**（GD 那边是同批第二条事件，两侧形状不同 —— 那一刀也走 `execute`）。
+        ["damage_hit"] = (s, a, _) => CellRules.Damage(
+            s, a.Cell(s, "target").Id, a.Int("base"), Source(a.Str("source"), a.Str("ability")), a.Str("ability")),
     };
+
+    /// <summary>
+    /// `damage_hit` 的 `source` 四个字面词 → <see cref="LossSource"/>。
+    ///
+    /// 顺带把 `ability` 那条硬约定钉住：GD `immune_hit` 的 ability 是**硬编码**的
+    /// （`attack=true` 恒「攻击」、`attack=false` 恒「技能」），用例写别的词两侧的 ability 就不是同一个值了
+    /// （【缺氧适应】挡「微环境压迫」、【耗竭抵抗】结算它时额外 −0.5，两处判的都是这个字段）——
+    /// 当场抛，不让它悄悄绿。GD 侧 `l0_runner.gd:_step` 的 `damage_hit` 分支是同两句话。
+    /// </summary>
+    private static LossSource Source(string source, string ability)
+    {
+        switch (source)
+        {
+            case "immune_attack" when ability != "攻击":
+            case "immune_effect" when ability != "技能":
+                throw new InvalidOperationException(
+                    $"damage_hit：source={source} 的 ability 是 GD immune_hit 写死的（immune_attack → 攻击 / immune_effect → 技能），拿到「{ability}」");
+            case "immune_attack": return LossSource.ImmuneAttack;
+            case "immune_effect": return LossSource.ImmuneEffect;
+            case "cancer_skill": return LossSource.CancerSkill;
+            case "world": return LossSource.World;
+            default:
+                throw new InvalidOperationException(
+                    $"damage_hit 的 source 只认四个字面词（immune_attack / immune_effect / cancer_skill / world），拿到「{source}」");
+        }
+    }
 
     /// <summary>见 <c>execute</c> 表项上的注释：按**席位 + 语义键**找回那一条决策，然后照常执行。</summary>
     private static WorldState Execute(WorldState s, Args a, TapeRng rng)
@@ -135,7 +169,11 @@ internal static class Steps
 
         internal HexPosition Pos(string key) => bag.Pos(key);
 
-        internal Cell Cell(WorldState s) => bag.Cell(s);
+        /// <summary>
+        /// 席位参数的**键名**跟 GD 的形参走（GD 边界权威）：多数步写 `cell`，`damage_hit` 写 `target`。
+        /// 与 <see cref="Probes.Args.Cell"/> 同形 —— 这一层只转发，别在这儿另立一套缺省。
+        /// </summary>
+        internal Cell Cell(WorldState s, string key = "cell") => bag.Cell(s, key);
 
         internal void AssertAllUsed() => bag.AssertAllUsed();
 

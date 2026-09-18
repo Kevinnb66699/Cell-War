@@ -1,0 +1,55 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "enter_tile/purify/macro_not_via_move_no_heal",
+    "op": "enter_tile",
+    "covers": [
+      "t_macro_purify_heal::paid=-1（传送 / 复活 / 血管 / 卡牌位移 / 蹲守净化）：不是【迁移】触发的，一分不回"
+    ],
+    "source": "headless_test.gd:t_macro_purify_heal L2064 `await net.call(-1, []) == 0`。`enter_tile` 这个契约步的 args **不带 paid**（C# `EnterTile` 收不到它，写了会被 AssertAllUsed 当场打红），缺省就是 −1 = 不是花钱走进来的那一态 —— 正好是这一条要的。巨噬踏进癌组织照常【净化】（抗原记忆 +1），但一分回能都没有：差分里没有 $.cells[0].energy 这一条。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 200
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "dest": "1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].pos.q": 1,
+        "$.g.memory": 1
+      }
+    }
+  }
+]

@@ -1,0 +1,1161 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_attack/mark_and_armor",
+    "op": "damage_hit",
+    "covers": [
+      "t_hit_order::1.0 ×2(标记) −0.5(囊性护甲) = 1.5",
+      "t_hit_order::目标余 3.5",
+      "t_hit_order::标记已消耗"
+    ],
+    "source": "headless_test.gd:t_hit_order L438/L439/L442 `dmg == 15` / `target[\"energy\"] == 35` / `not target[\"marked\"]`。GD 原式 `g.immune_hit(target, 10, attacker)` —— attacker 只服务巨噬吸血那一条（另走 execute 的攻击分支），damage_hit 不收攻击者、探针一律传 {}。五步管线：1.0 ×2(标记) −0.5(囊性护甲) = 1.5，5.0 → 3.5。盘面不放树突（硬约定 F1：GD 的 submit 尾巴恒调 update_marks，C# 的 Damage 没有这一步）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "SignetRing",
+          "at": "0,0",
+          "energy": 50,
+          "marked": true,
+          "mark_left": 1,
+          "mark_round": 0,
+          "armor_used": false
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "10",
+      "source": "immune_attack",
+      "ability": "攻击"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].armor_used": true,
+        "$.cells[0].energy": 35,
+        "$.cells[0].mark_left": 0,
+        "$.cells[0].marked": false
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_attack/armor_second_hit_full",
+    "op": "damage_hit",
+    "covers": [
+      "t_hit_order::囊性护甲每世界回合仅一次，第二击不减免"
+    ],
+    "source": "headless_test.gd:t_hit_order L444 `dmg2 == 10`。**独立盘面**（别指望一条用例打两下）：armor_used 直接写 true，这一击就该吃满 1.0。印戒癌细胞（【囊性护甲】每世界回合首次损失 −0.5，不限来源）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "SignetRing",
+          "at": "0,0",
+          "energy": 50,
+          "armor_used": true
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "10",
+      "source": "immune_attack",
+      "ability": "攻击"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 40
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/world/armor_blocks_any_source",
+    "op": "damage_hit",
+    "covers": [
+      "_t_ruling_b_armor::B：非 immune_hit 来路的 0.5 也被【囊性护甲】挡下（旧版挡不住）",
+      "_t_ruling_b_armor::B：这一轮的护甲额度已用掉"
+    ],
+    "source": "headless_test.gd:_t_ruling_b_armor L16349/L16351 `g.cancer_hit(sig, 5, \"世界事件\") == 0` / `sig[\"armor_used\"]`。口径 #76：护甲不限来源 —— 0.5 被整个挡下（差分里没有 energy 这一条），额度当场烧掉。印戒癌细胞（【囊性护甲】每世界回合首次损失 −0.5，不限来源）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "SignetRing",
+          "at": "0,0",
+          "energy": 100,
+          "armor_used": false
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "5",
+      "source": "world",
+      "ability": "世界事件"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].armor_used": true
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_effect/armor_quota_shared",
+    "op": "damage_hit",
+    "covers": [
+      "_t_ruling_b_armor::B：同一世界回合内不再减免，两条管线共用同一个额度"
+    ],
+    "source": "headless_test.gd:_t_ruling_b_armor L16352 `g.immune_hit(sig, 10, atk, false) == 10`。上一条（world 来路）已经把 armor_used 烧掉，这一条从 armor_used = true 起手：immune 这条管线照样没有减免 —— 两条管线共用同一个额度。印戒癌细胞（【囊性护甲】每世界回合首次损失 −0.5，不限来源）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "SignetRing",
+          "at": "0,0",
+          "energy": 100,
+          "armor_used": true
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "10",
+      "source": "immune_effect",
+      "ability": "技能"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 90
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_effect/armor_new_round_restored",
+    "op": "damage_hit",
+    "covers": [
+      "_t_ruling_b_armor::B：新世界回合护甲恢复"
+    ],
+    "source": "headless_test.gd:_t_ruling_b_armor L16355 `g.immune_hit(sig, 10, atk, false) == 5`（`g.round_no += 1` 且 armor_used 复位之后）。round 显式写 2 是为了忠实于「新世界回合」这半句 —— 额度本身由 armor_used 表达。印戒癌细胞（【囊性护甲】每世界回合首次损失 −0.5，不限来源）",
+    "world": {
+      "round": 2,
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "SignetRing",
+          "at": "0,0",
+          "energy": 100,
+          "armor_used": false
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "10",
+      "source": "immune_effect",
+      "ability": "技能"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].armor_used": true,
+        "$.cells[0].energy": 95
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_effect/barrier_osteo_on_solid",
+    "op": "damage_hit",
+    "covers": [
+      "t_one_cell_per_tile::固化上的骨肉瘤：2.0 伤害只吃到 0.8"
+    ],
+    "source": "headless_test.gd:t_one_cell_per_tile L2524 `mate[\"energy\"] == 92`（`g.immune_hit(mate, 20, imm, false)`）。【刚性屏障】不限来源、只看「骨肉瘤 + 脚下是固化癌组织」：2.0 × 40% = 0.8。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Osteosarcoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "solid"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Osteosarcoma",
+          "at": "0,0",
+          "energy": 100
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "20",
+      "source": "immune_effect",
+      "ability": "技能"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 92
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_effect/barrier_off_solid_full",
+    "op": "damage_hit",
+    "covers": [
+      "t_one_cell_per_tile::不在固化上则照常吃满 2.0"
+    ],
+    "source": "headless_test.gd:t_one_cell_per_tile L2528 `mate[\"energy\"] == 80`（同一只骨肉瘤，脚下换成普通癌组织）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Osteosarcoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Osteosarcoma",
+          "at": "0,0",
+          "energy": 100
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "20",
+      "source": "immune_effect",
+      "ability": "技能"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 80
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_effect/barrier_rounds_down",
+    "op": "damage_hit",
+    "covers": [
+      "t_one_cell_per_tile::0.5 伤害 ×40"
+    ],
+    "source": "headless_test.gd:t_one_cell_per_tile L2533 `mate[\"energy\"] == 98`（check 名经 `%` 截断 = 「0.5 伤害 ×40」）。0.5 × 40% = 0.2，不是 0.25 —— 十分能量的整数除法天然向下取整到十分位。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Osteosarcoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "solid"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Osteosarcoma",
+          "at": "0,0",
+          "energy": 100
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "5",
+      "source": "immune_effect",
+      "ability": "技能"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 98
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/world/exhaust_pressure_absorbed",
+    "op": "damage_hit",
+    "covers": [
+      "t_card_perms::压迫 0.5 被「首次 −1.0 + 压迫 −0.5」整个吃掉"
+    ],
+    "source": "headless_test.gd:t_card_perms L13886 `ex[\"energy\"] == 100`（原文由 `g.world._pressure()` 驱动，压迫的伤害口子就是 cancer_hit(cell, 5, \"微环境压迫\") 这一投影）。【耗竭抵抗】是永久技能（equipped），闸门记在 fx_round 里：首次 −1.0 + 压迫额外 −0.5，0.5 全被吃掉。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "耗竭抵抗"
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "5",
+      "source": "world",
+      "ability": "微环境压迫"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].fx_round": [
+          "耗竭抵抗"
+        ]
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/world/exhaust_gate_burned_full",
+    "op": "damage_hit",
+    "covers": [
+      "t_card_perms::首次闸门已烧，第二次损失全额"
+    ],
+    "source": "headless_test.gd:t_card_perms L13888 `ex[\"energy\"] == 80`（`g.cancer_hit(ex, 20, \"测试\")`）。fx_round 里已经有【耗竭抵抗】= 本世界回合的首次额度烧过了，且 ability 不是【微环境压迫】⇒ 一分不减。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "耗竭抵抗"
+          ],
+          "fx_round": [
+            "耗竭抵抗"
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "20",
+      "source": "world",
+      "ability": "测试"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 80
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_effect/mark_left_two_first_hit",
+    "op": "damage_hit",
+    "covers": [
+      "t_card_perms::翻倍两次后标记才移除"
+    ],
+    "source": "headless_test.gd:t_card_perms L13914 `d1 == 20 and d2 == 20 and d3 == 10`。连打三下 ⇒ 三条独立用例，这一条是 mark_left = 2 的第一下：×2 之后 mark_left 掉到 1、marked 还在。盘面不放树突（硬约定 F1：GD 的 submit 尾巴恒调 update_marks，C# 的 Damage 没有这一步）；mark_round 写成当前 round 是第二道保险（apply_mark 同回合不补第二个标记）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "energy": 500,
+          "marked": true,
+          "mark_left": 2,
+          "mark_round": 1
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "10",
+      "source": "immune_effect",
+      "ability": "技能"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 480,
+        "$.cells[0].mark_left": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_effect/mark_left_one_last_hit",
+    "op": "damage_hit",
+    "covers": [
+      "t_card_perms::翻倍两次后标记才移除"
+    ],
+    "source": "headless_test.gd:t_card_perms L13914 的第二下：mark_left = 1 ⇒ 照样 ×2，用完之后 marked 翻 false。第三下（d3 == 10，没有标记的普通一下）由别的用例的差分里「没有 ×2」顺带钉住。盘面不放树突（硬约定 F1：GD 的 submit 尾巴恒调 update_marks，C# 的 Damage 没有这一步）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "energy": 500,
+          "marked": true,
+          "mark_left": 1,
+          "mark_round": 1
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "10",
+      "source": "immune_effect",
+      "ability": "技能"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 480,
+        "$.cells[0].mark_left": 0,
+        "$.cells[0].marked": false
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/world/shield_on_benefit_keeps_idle_one",
+    "op": "damage_hit",
+    "covers": [
+      "_t_dmg_shield_on_benefit::0.5 的压迫被完全挡下",
+      "_t_dmg_shield_on_benefit::起了作用的那面盾照常消耗",
+      "_t_dmg_shield_on_benefit::ON_BENEFIT：没起作用的盾留着（旧版会一起烧掉）"
+    ],
+    "source": "headless_test.gd:_t_dmg_shield_on_benefit L16512/L16513/L16514。【细胞膜修复】−1.5 一张就把 0.5 挡光，【I型干扰素】这一组没起作用 ⇒ 不消耗。mods 按 (seq, 名) 升序写；until 只校验不覆盖（膜修复 \"\"、干扰素 \"round\"）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "细胞膜修复",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            },
+            {
+              "name": "I型干扰素",
+              "uses": 1,
+              "until": "round",
+              "seq": 2
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "5",
+      "source": "world",
+      "ability": "微环境压迫"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].mods[细胞膜修复].name": null,
+        "$.cells[0].mods[细胞膜修复].seq": null,
+        "$.cells[0].mods[细胞膜修复].until": null,
+        "$.cells[0].mods[细胞膜修复].uses": null
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/world/shield_two_kinds_both_spent",
+    "op": "damage_hit",
+    "covers": [
+      "t_card_mods::两面盾同时生效：3.0 − 1.5 − 1.0 = 0.5",
+      "t_card_mods::同一次损失把两面盾都消耗掉"
+    ],
+    "source": "headless_test.gd:t_card_mods L14268/L14269 `s1[\"energy\"] == 100 - (30 - 15 - 10)`。两组不同名的盾按打出先后逐组结算，各自 ON_BENEFIT 都起了作用 ⇒ 两条都消耗。GD 原盘面里【I型干扰素】先发（事件）、【细胞膜修复】后打 ⇒ seq 1 / 2。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "I型干扰素",
+              "uses": 1,
+              "until": "round",
+              "seq": 1
+            },
+            {
+              "name": "细胞膜修复",
+              "uses": 1,
+              "until": "",
+              "seq": 2
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "30",
+      "source": "world",
+      "ability": "测试"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 95,
+        "$.cells[0].mods[I型干扰素].name": null,
+        "$.cells[0].mods[I型干扰素].seq": null,
+        "$.cells[0].mods[I型干扰素].until": null,
+        "$.cells[0].mods[I型干扰素].uses": null,
+        "$.cells[0].mods[细胞膜修复].name": null,
+        "$.cells[0].mods[细胞膜修复].seq": null,
+        "$.cells[0].mods[细胞膜修复].until": null,
+        "$.cells[0].mods[细胞膜修复].uses": null
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/world/shield_gone_second_loss_full",
+    "op": "damage_hit",
+    "covers": [
+      "t_card_mods::第二次损失不再减免"
+    ],
+    "source": "headless_test.gd:t_card_mods L14272 `s1[\"energy\"] == 100 - 5 - 10`（上一条把两面盾都吃掉之后的第二下）。**独立盘面**：身上一条 mods 都没有，1.0 原样扣完 —— 「不再减免」由 delta 的整集合比钉住（差分里没有任何 mods 条目）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 95
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "10",
+      "source": "world",
+      "ability": "测试"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 85
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/cancer_skill/shield_hypoxia_on_skill",
+    "op": "damage_hit",
+    "covers": [
+      "t_card_mods::癌细胞技能的损失 -1.0",
+      "t_card_mods::护盾一次性消耗"
+    ],
+    "source": "headless_test.gd:t_card_mods L14289/L14290 `hyp[\"energy\"] == 90 - 5`（`g.cancer_hit(hyp, 15, \"乳酸酸化\", true)`）。口径 #62/#72：【缺氧适应】认「癌细胞技能（含癌方即时卡）」这一支，1.5 − 1.0 = 0.5，盾一次性消耗。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 90,
+          "mods": [
+            {
+              "name": "缺氧适应",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "15",
+      "source": "cancer_skill",
+      "ability": "乳酸酸化"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 85,
+        "$.cells[0].mods[缺氧适应].name": null,
+        "$.cells[0].mods[缺氧适应].seq": null,
+        "$.cells[0].mods[缺氧适应].until": null,
+        "$.cells[0].mods[缺氧适应].uses": null
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/world/shield_hypoxia_not_for_world",
+    "op": "damage_hit",
+    "covers": [
+      "t_card_mods::世界事件的损失既不是技能也不是压迫，不减免",
+      "t_card_mods::不合条件的损失也不会白白吃掉盾"
+    ],
+    "source": "headless_test.gd:t_card_mods L14286/L14287 `hyp[\"energy\"] == 90`（`g.cancer_hit(hyp, 10, \"增殖抑制\")`）。ShieldApplies 的来源判据反面：世界事件既不是癌细胞技能也不是【微环境压迫】⇒ 不减免、也不白吃盾（差分里没有 mods 那几条）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "缺氧适应",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "10",
+      "source": "world",
+      "ability": "增殖抑制"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 90
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/world/shield_hypoxia_on_pressure",
+    "op": "damage_hit",
+    "covers": [
+      "t_card_mods::压迫 0.5 被 -1.0 完全吸收（钳在 0）",
+      "t_card_mods::压迫吃掉了这面盾"
+    ],
+    "source": "headless_test.gd:t_card_mods L14309/L14310（原文由 `g.world._pressure()` 驱动，压迫的伤害口子就是这一投影）。【缺氧适应】认【微环境压迫】那一支：0.5 被 −1.0 完全吸收、钳在 0，盾照样消耗（它确实起了作用）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "缺氧适应",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "5",
+      "source": "world",
+      "ability": "微环境压迫"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].mods[缺氧适应].name": null,
+        "$.cells[0].mods[缺氧适应].seq": null,
+        "$.cells[0].mods[缺氧适应].until": null,
+        "$.cells[0].mods[缺氧适应].uses": null
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_effect/shield_dna_blocks_skill",
+    "op": "damage_hit",
+    "covers": [
+      "t_card_mods::技能伤害被减免 1.0（前期档）→ 0",
+      "t_card_mods::挡过一次即消耗",
+      "_t_damage_required::§9.9 对应来源的护盾认得出卡牌伤害"
+    ],
+    "source": "headless_test.gd:t_card_mods L14331/L14332 + _t_damage_required L17193 `g4.immune_hit(t4, 10, den, false) == 0`。【DNA损伤修复】按结算当刻的分期取值（定案 #64：round 1 = 前期 −1.0）⇒ round 必须显式写。1.0 被扣光，盾消耗（差分里没有 energy 这一条）。",
+    "world": {
+      "round": 1,
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "energy": 90,
+          "mods": [
+            {
+              "name": "DNA损伤修复",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "10",
+      "source": "immune_effect",
+      "ability": "技能"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].mods[DNA损伤修复].name": null,
+        "$.cells[0].mods[DNA损伤修复].seq": null,
+        "$.cells[0].mods[DNA损伤修复].until": null,
+        "$.cells[0].mods[DNA损伤修复].uses": null
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_attack/shield_dna_skips_plain_attack",
+    "op": "damage_hit",
+    "covers": [
+      "t_card_mods::普通攻击不被 DNA损伤修复 减免",
+      "t_card_mods::普通攻击也不消耗它"
+    ],
+    "source": "headless_test.gd:t_card_mods L14328/L14329 `dna[\"energy\"] == 100 - g.tune.attack_dmg_success`（原文走一次真攻击，这里取它在伤害管线上的投影：source = immune_attack ⇒ 带 Tag.ATTACK）。口径 #62：普攻是【PD-L1表达】的领地，DNA 修复既不减也不消耗（差分里没有 mods 那几条）。",
+    "world": {
+      "round": 1,
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "DNA损伤修复",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "10",
+      "source": "immune_attack",
+      "ability": "攻击"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 90
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_effect/bcl2_saves_from_lethal",
+    "op": "damage_hit",
+    "covers": [
+      "t_card_perms::免死：能量改为 0.5，本牌弃置",
+      "t_card_perms::致命那一刀被免疫，能量改为",
+      "t_batch_death_and_triggers::①带 BCL-2 的在批量宣死之前被替代救回",
+      "t_batch_death_and_triggers::①BCL-2 触发后本牌弃置"
+    ],
+    "source": "headless_test.gd:t_card_perms L14008/L14034 + t_batch_death_and_triggers L16941/L16943。云端 PRD 2026-09-10：「即将受到致命能量损失 ⇒ 免疫此次能量损失」，能量改为分期值（round 1 = 0.5），本牌弃置。⚠ t_batch_death_and_triggers 的那两条原文是**整批**里的一员，这里拆成逐个 damage_hit —— 「整批合计判 BCL-2」那半句的主语是 CWDamage 的内部记账，整条留 GD（空档 damage-batch-semantics）。",
+    "world": {
+      "round": 1,
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "energy": 15,
+          "mods": [
+            {
+              "name": "BCL-2抗凋亡",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "20",
+      "source": "immune_effect",
+      "ability": "技能"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 5,
+        "$.cells[0].mods[BCL-2抗凋亡].name": null,
+        "$.cells[0].mods[BCL-2抗凋亡].seq": null,
+        "$.cells[0].mods[BCL-2抗凋亡].until": null,
+        "$.cells[0].mods[BCL-2抗凋亡].uses": null
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_effect/lethal_without_bcl2_dies",
+    "op": "damage_hit",
+    "covers": [
+      "t_card_perms::没有第二张 BCL-2 就真死了",
+      "t_batch_death_and_triggers::①没有免死的当场死亡"
+    ],
+    "source": "headless_test.gd:t_card_perms L14043 `not bc[\"alive\"]` + t_batch_death_and_triggers L16940 `not a[\"alive\"]`。与上一条**互为对照**：同一份盘面拿掉【BCL-2抗凋亡】⇒ 致命那一刀照常生效。死亡时 GD kill() 清空 mods、交出占位，C# Kill 同 —— 差分里那几条照实写。",
+    "world": {
+      "round": 1,
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "energy": 15
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "20",
+      "source": "immune_effect",
+      "ability": "技能"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.cells[0].alive": false,
+        "$.cells[0].energy": 0
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_attack/actual_capped_by_energy",
+    "op": "damage_hit",
+    "covers": [
+      "_t_dmg_actual_not_theoretical::immune_hit 返回实际损失 0.5，不是理论的 4.0"
+    ],
+    "source": "headless_test.gd:_t_dmg_actual_not_theoretical L16497 `g.immune_hit(t, 20, mac, true) == 5`。理论 2.0 ×2(标记) = 4.0，目标只有 0.5 可失去 ⇒ actual 封在 0.5。返回值不进 expect，delta 钉 energy → 0 + alive false + 占位交出。⚠ 原文另半句「巨噬按实际损失回 0.3」的主语是攻击者，damage_hit 不收攻击者 ⇒ 那一条走 execute 的攻击分支。盘面不放树突（硬约定 F1：GD 的 submit 尾巴恒调 update_marks，C# 的 Damage 没有这一步）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "SmallCellLung",
+          "at": "0,0",
+          "energy": 5,
+          "marked": true,
+          "mark_left": 1,
+          "mark_round": 0
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "20",
+      "source": "immune_attack",
+      "ability": "攻击"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.cells[0].alive": false,
+        "$.cells[0].energy": 0,
+        "$.cells[0].mark_left": 0,
+        "$.cells[0].marked": false
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_effect/zero_event_steals_nothing",
+    "op": "damage_hit",
+    "covers": [
+      "_t_damage_required::§9.3 0 点事件不能骗掉【标记】",
+      "_t_damage_required::§9.3 0 点事件不能骗掉【囊性护甲】"
+    ],
+    "source": "headless_test.gd:_t_damage_required L17149/L17150 `sig[\"marked\"]` / `not sig[\"armor_used\"]`。base = 0 ⇒ 管线第③步的 ×2 判据要求 base + add > 0，减免层也没有可压低的量 ⇒ 什么都不消耗。**期望差分是空集**：整集合比在这里就是这条断言本身。盘面不放树突（硬约定 F1：GD 的 submit 尾巴恒调 update_marks，C# 的 Damage 没有这一步）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "SignetRing",
+          "at": "0,0",
+          "energy": 100,
+          "marked": true,
+          "mark_left": 1,
+          "mark_round": 0,
+          "armor_used": false
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "0",
+      "source": "immune_effect",
+      "ability": "技能"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {}
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "damage_hit/immune_effect/card_damage_plain",
+    "op": "damage_hit",
+    "covers": [
+      "_t_damage_required::§9.9 卡牌伤害不吃树突/巨噬那两条"
+    ],
+    "source": "headless_test.gd:_t_damage_required L17182 `g4.immune_hit(t4, 10, mac4, false) == 10`。「不吃树突 / 巨噬那两条」在 damage_hit 上天然成立（这条路根本不收攻击者）—— 1.0 原样落地。另两条（L17183 巨噬不吸卡牌伤害的血 / L17189 树突只减普攻）的主语是攻击者，结构上搬不动，留 GD。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "energy": 100
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "target": "0",
+      "base": "10",
+      "source": "immune_effect",
+      "ability": "技能"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 90
+      }
+    }
+  }
+]

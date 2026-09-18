@@ -1,0 +1,105 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/antibody/first_shot_hits_adjacent_healthy",
+    "op": "execute",
+    "covers": [
+      "t_antibody_halve::第"
+    ],
+    "source": "headless_test.gd:t_antibody_halve L2401 `g.cells[1][\"energy\"] == before - want[k]`（第 1 发实扣 1.5）。⚠ 这 10 条 check 名经 `%` 截断后全叫「第」，covers 只能写一条。【抗体】命中**所有与健康组织邻接的**活癌细胞（这里只有一只），attack=false ⇒ 是「技能」不是普通攻击。tier A 的 $.cells[0].d.antibody_damage 会跟着 antibody_used 变，照实写进 changed。盘面不放树突（硬约定 F1）：GD 的 submit 尾巴恒调 update_marks、C# 那条路不补，放了树突两侧当场分叉。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "BCell",
+          "at": "0,0",
+          "energy": 500
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "2,0",
+          "energy": 500
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=antibody"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].antibody_used": 1,
+        "$.cells[0].d.antibody_damage": 7,
+        "$.cells[0].energy": 490,
+        "$.cells[1].energy": 485
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/antibody/count_reaches_three",
+    "op": "execute",
+    "covers": [
+      "t_antibody_cap::计数跟着走（3）"
+    ],
+    "source": "headless_test.gd:t_antibody_cap L2472 `b[\"antibody_used\"] == 3`（原文连打 3 发）。这里把前两发写进初值（antibody_used = 2），只跑第三发 —— 用例之间不接力。这一发按**本次之前**的次数算伤害（第 3 发 = 0.3），打完计数推到 3。旋钮 antibody_max_per_round 默认 0 = 不限。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "BCell",
+          "at": "0,0",
+          "energy": 500,
+          "antibody_used": 2
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "2,0",
+          "energy": 500
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=antibody"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].antibody_used": 3,
+        "$.cells[0].d.antibody_damage": 1,
+        "$.cells[0].energy": 490,
+        "$.cells[1].energy": 497
+      }
+    }
+  }
+]

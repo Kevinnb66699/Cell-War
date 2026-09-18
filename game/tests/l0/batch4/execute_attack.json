@@ -1,0 +1,1814 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/outcome_fail/roll_1_no_memory",
+    "op": "execute",
+    "covers": [
+      "t_prd_online_0907::攻击失败不给记忆（按实际伤害算，不是尝试值）"
+    ],
+    "source": "headless_test.gd:t_prd_online_0907 L5523 `g.memory == m0`（`_rig_next(g, 6, [1])` ⇒ 判定失败）。整集合比顺带钉死「不给记忆」：差分里没有 $.g.memory 这一条。失败还要走口径 #84 的反弹自损（旋钮 counter_dmg_on_fail 默认 0.5，走 cancer_hit）—— 那一笔落在攻击者的 energy 上。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 200
+        },
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "1,0",
+          "energy": 500
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        1
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].d.overload_loss": 55,
+        "$.cells[0].energy": 185
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/outcome_success/roll_3_one_memory",
+    "op": "execute",
+    "covers": [
+      "t_prd_online_0907::攻击成功造成 1.0 → +1 抗原记忆（"
+    ],
+    "source": "headless_test.gd:t_prd_online_0907 L5515（check 名经 `%` 截断 = 「攻击成功造成 1.0 → +1 抗原记忆（」）。PRD 2026-09-07：【攻击】按**实际**造成的伤害之和向下取整累计抗原记忆（dealt / 10）。目标血厚打不死 ⇒ 攻击者返回原格，没有占位交接。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 200
+        },
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "1,0",
+          "energy": 500
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].d.overload_loss": 59,
+        "$.cells[0].energy": 190,
+        "$.cells[1].energy": 490,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/outcome_crit/roll_6_two_memory",
+    "op": "execute",
+    "covers": [
+      "t_prd_online_0907::大成功 2.0 → +2"
+    ],
+    "source": "headless_test.gd:t_prd_online_0907 L5519（`_rig_next(g, 6, [6])`）。大成功走 attack_dmg_crit = 2.0 ⇒ +2 记忆。⚠ attack_dmg_crit 是 **C 档旋钮**（GD 读旋钮、C# 写死 20）—— 用例可以走大成功，但一个字都不许拧它。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 200
+        },
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "1,0",
+          "energy": 500
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        6
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].d.overload_loss": 59,
+        "$.cells[0].energy": 190,
+        "$.cells[1].energy": 480,
+        "$.g.memory": 2
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/outcome_success/presentation_marks_target",
+    "op": "execute",
+    "covers": [
+      "t_card_perms::普通细胞攻击后施加标记（1 次翻倍）"
+    ],
+    "source": "headless_test.gd:t_card_perms L13902 `pf[\"marked\"] and pf[\"mark_left\"] == 1`。【抗原呈递强化】是永久技能（equipped）：每世界回合第一次攻击**未被标记**的癌细胞之后施加【标记】，额度记在 fx_round 里。普通免疫细胞施加的标记只有 1 次翻倍。盘面不放树突（硬约定 F1）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "抗原呈递强化"
+          ]
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "1,0",
+          "energy": 500
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].energy": 95,
+        "$.cells[0].fx_round": [
+          "抗原呈递强化"
+        ],
+        "$.cells[1].energy": 490,
+        "$.cells[1].mark_left": 1,
+        "$.cells[1].mark_round": 1,
+        "$.cells[1].marked": true,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/outcome_success/matured_plus_half",
+    "op": "execute",
+    "covers": [
+      "t_card_perms::攻击邻健康的癌细胞 +0.5"
+    ],
+    "source": "headless_test.gd:t_card_perms L13935 `bt[\"energy\"] == bt0 - g.tune.attack_dmg_success - CWData.MATURED_ATTACK_EXTRA`。【抗体亲和力成熟】攻击「与健康组织相邻」的癌细胞每次 +0.5（卡面 2026-09-07 删掉了「每个行动回合第一次」）。GD 在判定前算 matured、C# 在成功分支加，结果等价。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "BCell",
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "抗体亲和力成熟"
+          ]
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "1,0",
+          "energy": 500
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].energy": 95,
+        "$.cells[1].energy": 485,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/outcome_success/matured_second_attack_same_turn",
+    "op": "execute",
+    "covers": [
+      "t_card_perms::同一行动回合第二次攻击照样 +0.5（2026-09-07 取消「首次」闸门）"
+    ],
+    "source": "headless_test.gd:t_card_perms L13940。同一份盘面把 attacks_used 预置成 1 = 本行动回合已经打过一次；闸门取消之后第二次照样 +0.5（差分里没有任何 fx_turn 条目 —— 因为根本没有闸门了）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "BCell",
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "抗体亲和力成熟"
+          ],
+          "attacks_used": 1
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "1,0",
+          "energy": 500
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 2,
+        "$.cells[0].energy": 95,
+        "$.cells[1].energy": 485,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/counter/pdl1_success_downgraded_to_fail",
+    "op": "execute",
+    "covers": [
+      "t_card_mods::PD-L1：成功压成失败，攻击者被反弹"
+    ],
+    "source": "headless_test.gd:t_card_mods L14356 `pd[\"energy\"] == pd_e and pk[\"pos\"] == Vector2i(0, 0)`。【PD-L1表达】把「成功」压成「失败」⇒ 目标一点没掉、攻击者被反弹回原格并吃口径 #84 的反弹自损（旋钮 counter_dmg_on_fail，A 档）。整集合比顺带钉住「攻击者没挪窝」：差分里没有 pos / 占位那几条。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "1,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "PD-L1表达",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        4
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].energy": 90,
+        "$.cells[1].mods[PD-L1表达].name": null,
+        "$.cells[1].mods[PD-L1表达].seq": null,
+        "$.cells[1].mods[PD-L1表达].until": null,
+        "$.cells[1].mods[PD-L1表达].uses": null
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/pdl1/crit_downgraded_to_success",
+    "op": "execute",
+    "covers": [
+      "t_card_mods::PD-L1：大成功压成普通成功（伤害按成功档）",
+      "t_card_mods::受一次攻击即消耗"
+    ],
+    "source": "headless_test.gd:t_card_mods L14347/L14349（`_rig_next(g, 6, [6])` ⇒ 骰面 6 本该大成功）。【PD-L1表达】压的是**判定**不是骰面：6 → 成功 ⇒ 伤害按 attack_dmg_success 档，卡当场消耗。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "1,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "PD-L1表达",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        6
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].energy": 95,
+        "$.cells[1].energy": 90,
+        "$.cells[1].mods[PD-L1表达].name": null,
+        "$.cells[1].mods[PD-L1表达].seq": null,
+        "$.cells[1].mods[PD-L1表达].until": null,
+        "$.cells[1].mods[PD-L1表达].uses": null,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/pdl1/fail_still_spends_layer",
+    "op": "execute",
+    "covers": [
+      "t_card_mods::判定已是失败也照样消耗最后一层"
+    ],
+    "source": "headless_test.gd:t_card_mods L14382 `g.mods_of(pd, \"PD-L1表达\").is_empty()`（`_rig_next(g, 6, [1])`）。判定本来就是失败时**照样消耗** —— 团队明确要的，所以不加减伤那套 ON_BENEFIT。⚠ 原文那一段还有「两层同时在场只吃较早一层」（L14374/L14375/L14376）：delta 的路径文法 `$.cells[i].mods[名]` 表达不了同名两条（runner 当场报歧义）⇒ 那三条留 GD，空档名 mods-same-name-path。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "1,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "PD-L1表达",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        1
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].energy": 90,
+        "$.cells[1].mods[PD-L1表达].name": null,
+        "$.cells[1].mods[PD-L1表达].seq": null,
+        "$.cells[1].mods[PD-L1表达].until": null,
+        "$.cells[1].mods[PD-L1表达].uses": null
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/lifesteal/macro_half_rounded_up",
+    "op": "execute",
+    "covers": [
+      "t_hit_order::巨噬吞噬 1.5÷2 = 0.75 → 0.8"
+    ],
+    "source": "headless_test.gd:t_hit_order L441 `attacker[\"energy\"] == before_atk + 8`。巨噬【吞噬】= 受击方**实际**损失 ÷ 2、向上取整到十分位（PRD 2026-09-12）。盘面沿用 L438 那一组：印戒 + 标记 ⇒ 1.0 ×2 −0.5 = 1.5，吸血 0.8。吸血住在 GD 的伤后触发队列 / C# 的 Move 里，damage_hit 两侧都没有它 ⇒ 只能走 execute。盘面不放树突（硬约定 F1）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 100
+        },
+        {
+          "seat": 1,
+          "type": "SignetRing",
+          "at": "1,0",
+          "energy": 50,
+          "marked": true,
+          "mark_left": 1,
+          "mark_round": 0,
+          "armor_used": false
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].d.overload_loss": 1,
+        "$.cells[0].energy": 103,
+        "$.cells[1].armor_used": true,
+        "$.cells[1].energy": 35,
+        "$.cells[1].mark_left": 0,
+        "$.cells[1].marked": false,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/lifesteal/macro_reads_actual_not_theoretical",
+    "op": "execute",
+    "covers": [
+      "_t_dmg_actual_not_theoretical::巨噬【吞噬】按实际损失回 0.5÷2 = 0.25 → 0.3（向上取整到十分位，PRD 2026-09-12；旧版按理论伤害回 2.0）"
+    ],
+    "source": "headless_test.gd:_t_dmg_actual_not_theoretical L16498 `mac[\"energy\"] - before == 3`。理论 1.0 ×2(标记) = 2.0，目标只剩 0.5 ⇒ actual 封在 0.5，吸血按 actual 回 0.3（旧版按理论回 1.0）。目标当场死亡 ⇒ 巨噬进格（落点是健康组织，不触发【净化】）。盘面不放树突（硬约定 F1）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 100
+        },
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "1,0",
+          "energy": 5,
+          "marked": true,
+          "mark_left": 1,
+          "mark_round": 0
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@1,0.cell": 0,
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].energy": 98,
+        "$.cells[0].pos.q": 1,
+        "$.cells[1].alive": false,
+        "$.cells[1].energy": 0,
+        "$.cells[1].mark_left": 0,
+        "$.cells[1].marked": false
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/memory/bcl2_blocks_memory",
+    "op": "execute",
+    "covers": [
+      "t_card_perms::**被免疫掉就不给抗原记忆**（实为",
+      "t_card_perms::致命那一刀被免疫，能量改为"
+    ],
+    "source": "headless_test.gd:t_card_perms L14039/L14034（两条 check 名都经 `%` 截断）。致命那一刀被【BCL-2抗凋亡】整个免掉 ⇒ actual = 0 ⇒ 攻击不给记忆，目标也没死 ⇒ 攻击者不进格、那一格的癌组织也没被【净化】—— 记忆的另一条来路一并断掉。整集合比钉死：差分里没有 $.g.memory。",
+    "world": {
+      "round": 1,
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "TCell",
+          "at": "0,0",
+          "energy": 200
+        },
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "1,0",
+          "energy": 5,
+          "mods": [
+            {
+              "name": "BCL-2抗凋亡",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].d.overload_loss": 59,
+        "$.cells[0].energy": 190,
+        "$.cells[1].mods[BCL-2抗凋亡].name": null,
+        "$.cells[1].mods[BCL-2抗凋亡].seq": null,
+        "$.cells[1].mods[BCL-2抗凋亡].until": null,
+        "$.cells[1].mods[BCL-2抗凋亡].uses": null
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/memory/control_without_bcl2_gains",
+    "op": "execute",
+    "covers": [
+      "t_card_perms::对照：同一刀没有 BCL-2 时记忆照常累计（"
+    ],
+    "source": "headless_test.gd:t_card_perms L14040（check 名经 `%` 截断）。与上一条**同一份盘面、只拿掉那张卡**：目标当场死亡 ⇒ 攻击者进格、【净化】那一格癌组织 ⇒ 抗原记忆 +1（这一份记忆来自净化，不是 dealt）。两条互为对照，缺了下面这条上面那条恒成立。",
+    "world": {
+      "round": 1,
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "TCell",
+          "at": "0,0",
+          "energy": 200
+        },
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "1,0",
+          "energy": 5
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].d.overload_loss": 59,
+        "$.cells[0].energy": 190,
+        "$.cells[0].pos.q": 1,
+        "$.cells[1].alive": false,
+        "$.cells[1].d.income": 0,
+        "$.cells[1].energy": 0,
+        "$.g.memory": 1,
+        "$.g.players": [
+          {
+            "cancer_type": -1,
+            "cell_id": 0,
+            "d": {
+              "income": 20
+            },
+            "faction": 0,
+            "id": 0
+          },
+          {
+            "cancer_type": 3,
+            "cell_id": 1,
+            "d": {
+              "income": 0
+            },
+            "faction": 1,
+            "id": 1
+          }
+        ]
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/opsonin_reroll/fail_then_success_plus_half",
+    "op": "execute",
+    "covers": [
+      "t_card_mods::补体调理：首掷失败自动重掷成功，额外 +0.5",
+      "t_card_mods::骑在下一次攻击上，无论结果都消耗"
+    ],
+    "source": "headless_test.gd:t_card_mods L14407/L14409（`_rig_next(g, 6, [1, 5])`）。带子两发 [1,6,1] 再 [1,6,5]：首掷失败 ⇒【补体调理】重掷一次、以第二次为准，成功后额外 +0.5。⚠ 一张就够：GD 是 `while rerolls > 0` 逐张重掷、C# 是 `if` 只重掷一次 —— 同一攻击者身上放两张两侧掷骰次数就不同、带子当场错位（硬约定 F4，空档 opsonin-multi-reroll）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "补体调理",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            }
+          ]
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "1,0",
+          "energy": 500
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        1
+      ],
+      [
+        1,
+        6,
+        5
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].energy": 95,
+        "$.cells[0].mods[补体调理].name": null,
+        "$.cells[0].mods[补体调理].seq": null,
+        "$.cells[0].mods[补体调理].until": null,
+        "$.cells[0].mods[补体调理].uses": null,
+        "$.cells[1].energy": 485,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/affinity_no_roll/direct_crit_plus_one",
+    "op": "execute",
+    "covers": [
+      "t_card_mods::高亲和力克隆：完全不消耗随机数（不掷骰）",
+      "t_card_mods::直接大成功并额外 +1.0",
+      "t_card_mods::用后消耗"
+    ],
+    "source": "headless_test.gd:t_card_mods L14398/L14399/L14401 `g.rng.state == rng_before` 等三条。**rolls: [] 就是「完全不消耗随机数」这条断言的载体**（两侧 runner 都断言这一步不掷骰）：有【高亲和力克隆】直接判大成功，管骰面概率的世界事件因此不介入。伤害 = attack_dmg_crit + 1.0。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "高亲和力克隆",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            }
+          ]
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "1,0",
+          "energy": 500
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].energy": 95,
+        "$.cells[0].mods[高亲和力克隆].name": null,
+        "$.cells[0].mods[高亲和力克隆].seq": null,
+        "$.cells[0].mods[高亲和力克隆].until": null,
+        "$.cells[0].mods[高亲和力克隆].uses": null,
+        "$.cells[1].energy": 470,
+        "$.g.memory": 3
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/perforin/t_cell_plus_two_with_cascade",
+    "op": "execute",
+    "covers": [
+      "t_card_mods::穿孔素：T 细胞攻击成功额外 +2.0",
+      "t_card_mods::补体级联：目标相邻 2 格癌组织转健康",
+      "t_card_mods::两张都在成功后消耗"
+    ],
+    "source": "headless_test.gd:t_card_mods L14428/L14430/L14433。【穿孔素-颗粒酶】T 细胞档 +2.0；【补体级联】成功后把目标相邻**最多 2 格**无细胞占据的普通癌组织转健康。带子第二发是 pick_random 的第一抽 [0, 候选数−1] = [0,1]；第二抽的区间退化成 [0,0]，Godot 在退化区间上消耗 0 个随机数，带子上也不留痕（两侧同口径）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "2,0",
+          "state": "cancer"
+        },
+        {
+          "at": "2,-1",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "TCell",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "穿孔素-颗粒酶",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            },
+            {
+              "name": "补体级联",
+              "uses": 1,
+              "until": "turn",
+              "seq": 2
+            }
+          ]
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "1,0",
+          "energy": 500
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        4
+      ],
+      [
+        0,
+        1,
+        0
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.d.proliferate_chance": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.tissue": 0,
+        "$.board.tiles@2,-2.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.tissue": 0,
+        "$.board.tiles@2,1.d.proliferate_chance": 0,
+        "$.board.tiles@3,-1.d.proliferate_chance": 0,
+        "$.board.tiles@3,-2.d.proliferate_chance": 0,
+        "$.board.tiles@3,0.d.proliferate_chance": 0,
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].energy": 95,
+        "$.cells[0].mods[穿孔素-颗粒酶].name": null,
+        "$.cells[0].mods[穿孔素-颗粒酶].seq": null,
+        "$.cells[0].mods[穿孔素-颗粒酶].until": null,
+        "$.cells[0].mods[穿孔素-颗粒酶].uses": null,
+        "$.cells[0].mods[补体级联].name": null,
+        "$.cells[0].mods[补体级联].seq": null,
+        "$.cells[0].mods[补体级联].until": null,
+        "$.cells[0].mods[补体级联].uses": null,
+        "$.cells[1].energy": 470,
+        "$.g.memory": 3
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/cascade/fires_even_when_damage_fully_blocked",
+    "op": "execute",
+    "covers": [
+      "_t_damage_required::§9.2 伤害被完全减免，目标一点没掉",
+      "_t_damage_required::§9.2 「攻击成功后」的【补体级联】照常触发",
+      "_t_damage_required::§9.2 「造成伤害后」的斩杀不触发（本次 actual 为 0）",
+      "_t_damage_required::§9.2 「造成伤害后」的吸血不触发（只扣了迁移费）"
+    ],
+    "source": "headless_test.gd:_t_damage_required L17126/L17127/L17129/L17130（攻击设计 §九.2）。设计 §三末的两条铁律在同一份盘面上分开：「攻击成功后」看**判定**（级联照常触发），「造成伤害后」看 actual > 0（斩杀与吸血都不触发）。目标身上一张【细胞膜修复】−1.5 把 1.0 全挡掉 ⇒ 攻击者只掉迁移费。候选只有 (2,0) 一格 ⇒ pick_random 的第一抽区间退化成 [0,0]，不消耗随机数、带子上只有攻击那一发。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "2,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 200,
+          "equipped": [
+            "吞噬体成熟"
+          ],
+          "mods": [
+            {
+              "name": "补体级联",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            }
+          ]
+        },
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "1,0",
+          "energy": 5,
+          "mods": [
+            {
+              "name": "细胞膜修复",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@1,0.d.proliferate_chance": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 30,
+        "$.board.tiles@2,-1.d.proliferate_chance": 30,
+        "$.board.tiles@2,0.tissue": 0,
+        "$.board.tiles@2,1.d.proliferate_chance": 0,
+        "$.board.tiles@3,-1.d.proliferate_chance": 0,
+        "$.board.tiles@3,0.d.proliferate_chance": 0,
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].d.overload_loss": 59,
+        "$.cells[0].energy": 190,
+        "$.cells[0].mods[补体级联].name": null,
+        "$.cells[0].mods[补体级联].seq": null,
+        "$.cells[0].mods[补体级联].until": null,
+        "$.cells[0].mods[补体级联].uses": null,
+        "$.cells[1].d.income": 25,
+        "$.cells[1].mods[细胞膜修复].name": null,
+        "$.cells[1].mods[细胞膜修复].seq": null,
+        "$.cells[1].mods[细胞膜修复].until": null,
+        "$.cells[1].mods[细胞膜修复].uses": null,
+        "$.g.players": [
+          {
+            "cancer_type": -1,
+            "cell_id": 0,
+            "d": {
+              "income": 20
+            },
+            "faction": 0,
+            "id": 0
+          },
+          {
+            "cancer_type": 3,
+            "cell_id": 1,
+            "d": {
+              "income": 25
+            },
+            "faction": 1,
+            "id": 1
+          }
+        ]
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/execution/phago_kills_low_target",
+    "op": "execute",
+    "covers": [
+      "t_card_perms::吞噬体成熟：目标剩 1.2 ≤ 1.5，直接死亡",
+      "t_card_perms::巨噬吸血 0.5（1.0 ÷ 2，取整到十分位）+ 吞噬体回 0.5",
+      "t_batch_death_and_triggers::③吞噬体成熟：余量过低，斩杀成立"
+    ],
+    "source": "headless_test.gd:t_card_perms L13960/L13961 + t_batch_death_and_triggers L16982。目标 2.2 挨完 1.0 剩 1.2 ≤ 巨噬阈值 1.5 ⇒【吞噬体成熟】伤害后斩杀成立；同一条 delta 同时钉住吸血 0.5 与吞噬体回能 0.5（两条触发的先后由设计 §5.7 的类别顺序定，「谁排在谁前面」是日志断言，留 GD）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "吞噬体成熟"
+          ]
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "1,0",
+          "energy": 22
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@1,0.cell": 0,
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].d.overload_loss": 2,
+        "$.cells[0].energy": 105,
+        "$.cells[0].pos.q": 1,
+        "$.cells[1].alive": false,
+        "$.cells[1].energy": 0,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/execution/zero_damage_no_execution",
+    "op": "execute",
+    "covers": [
+      "_t_dmg_execute_needs_real_damage::本次零伤害 → 不触发【吞噬体成熟】的斩杀（残血目标本该必死）",
+      "t_batch_death_and_triggers::④没造成实际伤害就不斩杀，哪怕余量早已低于阈值"
+    ],
+    "source": "headless_test.gd:_t_dmg_execute_needs_real_damage L16548 + t_batch_death_and_triggers L17006。原文两处都是直接 submit 一条 0 伤害事件（靶场造不出来），这里取**活路径**：目标身上一张【细胞膜修复】把 1.0 全挡掉 ⇒ actual = 0 ⇒ 斩杀那道闸拦住。目标只剩 0.5、远低于阈值 —— 所以「还活着」这条差分（准确说是**没有**这条差分）才有分量。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 200,
+          "equipped": [
+            "吞噬体成熟"
+          ]
+        },
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "1,0",
+          "energy": 5,
+          "mods": [
+            {
+              "name": "细胞膜修复",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].d.overload_loss": 59,
+        "$.cells[0].energy": 190,
+        "$.cells[1].mods[细胞膜修复].name": null,
+        "$.cells[1].mods[细胞膜修复].seq": null,
+        "$.cells[1].mods[细胞膜修复].until": null,
+        "$.cells[1].mods[细胞膜修复].uses": null
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/cap/counts_on_launch",
+    "op": "execute",
+    "covers": [
+      "t_attack_cap::攻击发动即计数（不看判定结果，口径 #70）"
+    ],
+    "source": "headless_test.gd:t_attack_cap L16750 `imm[\"attacks_used\"] == 1`（`g.tune.attack_max_per_turn = 1`）。口径 #70：**发动**即计数，不看判定结果 —— 所以这一条刻意钉成失败那一档（带子 [1,6,1]）。旋钮 attack_max_per_turn 是 A 档。「用完之后选项消失」的主语是选项生成，批 1 的 move_legal 已覆盖谓词。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 200
+        },
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "1,0",
+          "energy": 200
+        }
+      ],
+      "tuning": {
+        "attack_max_per_turn": 1
+      }
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        1
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].d.overload_loss": 59,
+        "$.cells[0].energy": 190
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/kill_enters/presentation_quota_burns_on_kill",
+    "op": "execute",
+    "covers": [
+      "_t_ruling_c_presentation::C：目标被一击打死",
+      "_t_ruling_c_presentation::C：按口径 #70，打死目标也算攻过，本世界回合额度用掉"
+    ],
+    "source": "headless_test.gd:_t_ruling_c_presentation L16379/L16380（`g.tune.attack_dmg_success = 200` 保证一击必杀）。定案 C：【抗原呈递强化】的额度在**攻击发动**那一刻就烧（fx_round 记账），把目标当场打死也照样算攻过 —— 差分里有 fx_round 这一条、却没有目标的 marked（人都死了，标记施加不上）。击杀之后攻击者进格并【净化】那一格癌组织。旋钮 attack_dmg_success 是 A 档。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 200,
+          "equipped": [
+            "抗原呈递强化"
+          ],
+          "play_n": 1,
+          "equip_seq": {
+            "抗原呈递强化": 1
+          }
+        },
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "1,0",
+          "energy": 5
+        }
+      ],
+      "tuning": {
+        "attack_dmg_success": 200
+      }
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].d.overload_loss": 63,
+        "$.cells[0].energy": 195,
+        "$.cells[0].fx_round": [
+          "抗原呈递强化"
+        ],
+        "$.cells[0].pos.q": 1,
+        "$.cells[1].alive": false,
+        "$.cells[1].d.income": 0,
+        "$.cells[1].energy": 0,
+        "$.g.memory": 1,
+        "$.g.players": [
+          {
+            "cancer_type": -1,
+            "cell_id": 0,
+            "d": {
+              "income": 20
+            },
+            "faction": 0,
+            "id": 0
+          },
+          {
+            "cancer_type": 3,
+            "cell_id": 1,
+            "d": {
+              "income": 0
+            },
+            "faction": 1,
+            "id": 1
+          }
+        ]
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/direct/cytotox_extra_skips_armor",
+    "op": "execute",
+    "covers": [
+      "t_card_perms::主伤害吃囊性护甲减免，额外的 1.0 直接扣（无视减伤）"
+    ],
+    "source": "headless_test.gd:t_card_perms L13976 `cv[\"energy\"] == 500 - (g.tune.attack_dmg_success - CWData.ARMOR_REDUCTION) - CWData.CYTOTOX_EXTRA`。T 细胞【细胞毒性增强】那一刀在 GD 是**同批第二条事件**（带 UNPREVENTABLE + NO_LIFESTEAL），在 C# 是 Damage 的 direct 形参 —— 两侧都由生产代码自己构造，靶场一条事件都不造。主伤害吃【囊性护甲】−0.5，直击那 1.0 跳过第⑤层减免。",
+    "world": {
+      "round": 1,
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "TCell",
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "细胞毒性增强"
+          ]
+        },
+        {
+          "seat": 1,
+          "type": "SignetRing",
+          "at": "1,0",
+          "energy": 500,
+          "armor_used": false
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].energy": 95,
+        "$.cells[1].armor_used": true,
+        "$.cells[1].energy": 485,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/direct/bcl2_sees_full_batch",
+    "op": "execute",
+    "covers": [
+      "_t_dmg_unpreventable_still_dies::UNPREVENTABLE 的次级伤害仍然走死亡替代：BCL-2 被触发并弃置",
+      "_t_damage_required::§9.5 无视减伤与主伤害同批，BCL-2 看到完整伤害后统一免死"
+    ],
+    "source": "headless_test.gd:_t_dmg_unpreventable_still_dies L16567 + _t_damage_required L17166。设计 §6.4：「无视减伤」只跳过数值减免，**不**跳过日志、BCL-2 与死亡检查；而 BCL-2 是**按整批合计**判的（主伤害 + 直击同批）—— 逐条判的话第一下用掉卡、第二下照样把它打死。差分钉住：目标还活着、能量改成分期值 0.5、那张卡整条消失。",
+    "world": {
+      "round": 1,
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "TCell",
+          "at": "0,0",
+          "energy": 200,
+          "equipped": [
+            "细胞毒性增强"
+          ]
+        },
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "1,0",
+          "energy": 5,
+          "mods": [
+            {
+              "name": "BCL-2抗凋亡",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].d.overload_loss": 59,
+        "$.cells[0].energy": 190,
+        "$.cells[1].mods[BCL-2抗凋亡].name": null,
+        "$.cells[1].mods[BCL-2抗凋亡].seq": null,
+        "$.cells[1].mods[BCL-2抗凋亡].until": null,
+        "$.cells[1].mods[BCL-2抗凋亡].uses": null
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/attack/direct/cytotox_kills_in_one_batch",
+    "op": "execute",
+    "covers": [
+      "t_batch_death_and_triggers::②目标死亡"
+    ],
+    "source": "headless_test.gd:t_batch_death_and_triggers L16964 `not t2[\"alive\"]`（原文手工 submit 两条同批事件）。这里走活路径：T 细胞【细胞毒性增强】的主笔 + 直击由生产代码自己编成同一批，残血目标没有【BCL-2抗凋亡】 ⇒ 当场死亡、交出占位，攻击者进格并【净化】那一格。➔ 另半句 L16965（kills == 1）的主语是 DamageResult 的 killed 计数（CWDamage 内部记账，不进 envelope），留 GD。",
+    "world": {
+      "round": 1,
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "TCell",
+          "at": "0,0",
+          "energy": 200,
+          "equipped": [
+            "细胞毒性增强"
+          ]
+        },
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "1,0",
+          "energy": 5
+        }
+      ]
+    },
+    "rolls": [
+      [
+        1,
+        6,
+        3
+      ]
+    ],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].attacks_used": 1,
+        "$.cells[0].d.overload_loss": 59,
+        "$.cells[0].energy": 190,
+        "$.cells[0].pos.q": 1,
+        "$.cells[1].alive": false,
+        "$.cells[1].d.income": 0,
+        "$.cells[1].energy": 0,
+        "$.g.memory": 1,
+        "$.g.players": [
+          {
+            "cancer_type": -1,
+            "cell_id": 0,
+            "d": {
+              "income": 20
+            },
+            "faction": 0,
+            "id": 0
+          },
+          {
+            "cancer_type": 3,
+            "cell_id": 1,
+            "d": {
+              "income": 0
+            },
+            "faction": 1,
+            "id": 1
+          }
+        ]
+      }
+    }
+  }
+]

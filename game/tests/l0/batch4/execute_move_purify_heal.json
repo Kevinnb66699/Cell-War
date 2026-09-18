@@ -1,0 +1,475 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/purify_heal/paid_07_via_mucus_surcharge",
+    "op": "execute",
+    "covers": [
+      "t_macro_purify_heal::实付 0.7：回满 0.2，净花 0.5"
+    ],
+    "source": "t_macro_purify_heal 的 8 条 `net.call(paid, skills)` 原文直接调 `enter_tile(m, to, paid)` 把实付喂进去；C# 的 `EnterTile(s, id, dest, rng)` 收不到 paid（写死 −1）⇒ 按 S1 的路 ②：改写成 `execute|act=move`，实付由**两侧各自的报价**产生（C# `Move` 走 `Arrive(..., free ? -1 : cost, ...)`，与 GD `_do_move` 的 `enter_tile(cell, to, int(q[\"final\"]))` 逐行对应）。净花 = 迁移费 − 回能，落在 delta 的 energy 上。 实付 0.7 = 【炎症趋化】改价 0.5（REPLACE ③）+ 印戒【黏液侵染】的 0.2（FLAT_ADD ④，数值走旋钮 mucus_move_surcharge，A 档）。回能封顶 min(0.2, max(0.7 − 0.1, 0)) = 0.2，净花 0.5。黏液被免疫细胞接触后立即消失（PRD 印戒细胞癌） ⇒ 差分里多一条 tiles@1,0.mucus。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer",
+          "mucus": true
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 200,
+          "mods": [
+            {
+              "name": "炎症趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.mucus": false,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].d.overload_loss": 63,
+        "$.cells[0].energy": 195,
+        "$.cells[0].mods[炎症趋化].name": null,
+        "$.cells[0].mods[炎症趋化].seq": null,
+        "$.cells[0].mods[炎症趋化].until": null,
+        "$.cells[0].mods[炎症趋化].uses": null,
+        "$.cells[0].pos.q": 1,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/purify_heal/paid_05_via_inflammatory",
+    "op": "execute",
+    "covers": [
+      "t_macro_purify_heal::实付 0.5：回满 0.2，净花 0.3"
+    ],
+    "source": "t_macro_purify_heal 的 8 条 `net.call(paid, skills)` 原文直接调 `enter_tile(m, to, paid)` 把实付喂进去；C# 的 `EnterTile(s, id, dest, rng)` 收不到 paid（写死 −1）⇒ 按 S1 的路 ②：改写成 `execute|act=move`，实付由**两侧各自的报价**产生（C# `Move` 走 `Arrive(..., free ? -1 : cost, ...)`，与 GD `_do_move` 的 `enter_tile(cell, to, int(q[\"final\"]))` 逐行对应）。净花 = 迁移费 − 回能，落在 delta 的 energy 上。 实付 0.5 由【炎症趋化】（费用**改为** 0.5，REPLACE 层）产生；回满 macro_heal_purify = 0.2，净花 0.3。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 200,
+          "mods": [
+            {
+              "name": "炎症趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].d.overload_loss": 64,
+        "$.cells[0].energy": 197,
+        "$.cells[0].mods[炎症趋化].name": null,
+        "$.cells[0].mods[炎症趋化].seq": null,
+        "$.cells[0].mods[炎症趋化].until": null,
+        "$.cells[0].mods[炎症趋化].uses": null,
+        "$.cells[0].pos.q": 1,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/purify_heal/paid_04_via_lfa1",
+    "op": "execute",
+    "covers": [
+      "t_macro_purify_heal::实付 0.4：回满 0.2，净花 0.2"
+    ],
+    "source": "t_macro_purify_heal 的 8 条 `net.call(paid, skills)` 原文直接调 `enter_tile(m, to, paid)` 把实付喂进去；C# 的 `EnterTile(s, id, dest, rng)` 收不到 paid（写死 −1）⇒ 按 S1 的路 ②：改写成 `execute|act=move`，实付由**两侧各自的报价**产生（C# `Move` 走 `Arrive(..., free ? -1 : cost, ...)`，与 GD `_do_move` 的 `enter_tile(cell, to, int(q[\"final\"]))` 逐行对应）。净花 = 迁移费 − 回能，落在 delta 的 energy 上。 实付 0.4 = II 级基准价 0.8 −【LFA-1黏附】0.4（永久技能，闸门记 fx_turn，两侧都从 equipped 现读）。免疫等级用 players[].level 拨（旋钮 immune_move_cancerous 是 C 档，数组下标语法未定，不许拧）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "II"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 200,
+          "equipped": [
+            "LFA-1黏附"
+          ],
+          "play_n": 1,
+          "equip_seq": {
+            "LFA-1黏附": 1
+          }
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].d.overload_loss": 65,
+        "$.cells[0].energy": 198,
+        "$.cells[0].fx_turn": null,
+        "$.cells[0].fx_turn.LFA-1黏附": 1,
+        "$.cells[0].pos.q": 1,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/purify_heal/paid_03_via_cxcr3",
+    "op": "execute",
+    "covers": [
+      "t_macro_purify_heal::实付 0.3：回满 0.2，净花 0.1（正好卡在下限）"
+    ],
+    "source": "t_macro_purify_heal 的 8 条 `net.call(paid, skills)` 原文直接调 `enter_tile(m, to, paid)` 把实付喂进去；C# 的 `EnterTile(s, id, dest, rng)` 收不到 paid（写死 −1）⇒ 按 S1 的路 ②：改写成 `execute|act=move`，实付由**两侧各自的报价**产生（C# `Move` 走 `Arrive(..., free ? -1 : cost, ...)`，与 GD `_do_move` 的 `enter_tile(cell, to, int(q[\"final\"]))` 逐行对应）。净花 = 迁移费 − 回能，落在 delta 的 energy 上。 实付 0.3 = II 级基准价 0.8 −【CXCR3趋化】0.5（FLAT_CUT，自带局部下限 0.2）。回能封顶 min(0.2, max(0.3 − 0.1, 0)) = 0.2，净花正好卡在下限 0.1。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "II"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 200,
+          "mods": [
+            {
+              "name": "CXCR3趋化",
+              "uses": 2,
+              "until": "turn",
+              "seq": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].d.overload_loss": 66,
+        "$.cells[0].energy": 199,
+        "$.cells[0].mods[CXCR3趋化].uses": 1,
+        "$.cells[0].pos.q": 1,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/purify_heal/paid_02_floor",
+    "op": "execute",
+    "covers": [
+      "t_macro_purify_heal::实付 0.2（减免地板）：回能压到 0.1，净花 0.1 —— 不再是 0"
+    ],
+    "source": "t_macro_purify_heal 的 8 条 `net.call(paid, skills)` 原文直接调 `enter_tile(m, to, paid)` 把实付喂进去；C# 的 `EnterTile(s, id, dest, rng)` 收不到 paid（写死 −1）⇒ 按 S1 的路 ②：改写成 `execute|act=move`，实付由**两侧各自的报价**产生（C# `Move` 走 `Arrive(..., free ? -1 : cost, ...)`，与 GD `_do_move` 的 `enter_tile(cell, to, int(q[\"final\"]))` 逐行对应）。净花 = 迁移费 − 回能，落在 delta 的 energy 上。 实付 0.2 = 迁移减免的共同地板：【炎症趋化】改价 0.5 再被【CXCR3趋化】−0.5 踩到自己的下限 0.2。回能被封到 max(0.2 − 0.1, 0) = 0.1 —— 这正是「一次迁移的净支出至少 0.1」那条封顶的边界档。mods 按 (seq, 名) 升序写。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 200,
+          "mods": [
+            {
+              "name": "炎症趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            },
+            {
+              "name": "CXCR3趋化",
+              "uses": 2,
+              "until": "turn",
+              "seq": 2
+            }
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].d.overload_loss": 66,
+        "$.cells[0].energy": 199,
+        "$.cells[0].mods[CXCR3趋化].uses": 1,
+        "$.cells[0].mods[炎症趋化].name": null,
+        "$.cells[0].mods[炎症趋化].seq": null,
+        "$.cells[0].mods[炎症趋化].until": null,
+        "$.cells[0].mods[炎症趋化].uses": null,
+        "$.cells[0].pos.q": 1,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/purify_heal/paid_00_free_move_full_heal",
+    "op": "execute",
+    "covers": [
+      "t_macro_purify_heal::免费迁移：回满 0.2，净赚（PRD 单列的一条）"
+    ],
+    "source": "t_macro_purify_heal 的 8 条 `net.call(paid, skills)` 原文直接调 `enter_tile(m, to, paid)` 把实付喂进去；C# 的 `EnterTile(s, id, dest, rng)` 收不到 paid（写死 −1）⇒ 按 S1 的路 ②：改写成 `execute|act=move`，实付由**两侧各自的报价**产生（C# `Move` 走 `Arrive(..., free ? -1 : cost, ...)`，与 GD `_do_move` 的 `enter_tile(cell, to, int(q[\"final\"]))` 逐行对应）。净花 = 迁移费 − 回能，落在 delta 的 energy 上。 实付 0 = 【组织巡航】本行动回合的免费额度（FREE 层，闸门记 fx_turn）。**paid == 0 与 paid < 0 是两个不同分支**（两个边界 2026-09-08 反过来了）：免费迁移回满、净赚 0.2。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 200,
+          "equipped": [
+            "组织巡航"
+          ],
+          "play_n": 1,
+          "equip_seq": {
+            "组织巡航": 1
+          }
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].d.overload_loss": 68,
+        "$.cells[0].energy": 202,
+        "$.cells[0].fx_turn": null,
+        "$.cells[0].fx_turn.组织巡航": 1,
+        "$.cells[0].pos.q": 1,
+        "$.g.memory": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/purify_heal/knob_zero_no_heal",
+    "op": "execute",
+    "covers": [
+      "t_macro_purify_heal::旋钮 0：实付 0.7 也一点不回",
+      "t_macro_purify_heal::→ 净化本身照常发生"
+    ],
+    "source": "t_macro_purify_heal 的 8 条 `net.call(paid, skills)` 原文直接调 `enter_tile(m, to, paid)` 把实付喂进去；C# 的 `EnterTile(s, id, dest, rng)` 收不到 paid（写死 −1）⇒ 按 S1 的路 ②：改写成 `execute|act=move`，实付由**两侧各自的报价**产生（C# `Move` 走 `Arrive(..., free ? -1 : cost, ...)`，与 GD `_do_move` 的 `enter_tile(cell, to, int(q[\"final\"]))` 逐行对应）。净花 = 迁移费 − 回能，落在 delta 的 energy 上。 旋钮 macro_heal_purify = 0（A 档，2026-09-02 后期引擎对比表的杠杆①）：一分不回，但【净化】本身照常发生（差分里那一格照样翻健康）。⚠ 原文的实付是 0.7（enter_tile 直接喂）—— 走路 ② 造不出 0.7（要【组织浸润】，而它在 C# 侧是 mods 条目、不在 E-2 路由表里），这里用【炎症趋化】的 0.5 顶上：旋钮 0 这条断言与实付多少无关。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Macrophage",
+          "at": "0,0",
+          "energy": 200,
+          "mods": [
+            {
+              "name": "炎症趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            }
+          ]
+        }
+      ],
+      "tuning": {
+        "macro_heal_purify": 0
+      }
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].d.overload_loss": 63,
+        "$.cells[0].energy": 195,
+        "$.cells[0].mods[炎症趋化].name": null,
+        "$.cells[0].mods[炎症趋化].seq": null,
+        "$.cells[0].mods[炎症趋化].until": null,
+        "$.cells[0].mods[炎症趋化].uses": null,
+        "$.cells[0].pos.q": 1,
+        "$.g.memory": 1
+      }
+    }
+  }
+]

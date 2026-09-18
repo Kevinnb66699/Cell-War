@@ -1,0 +1,96 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "antibody_damage/used_0",
+    "probe": "antibody_damage",
+    "covers": ["t_antibody_halve::第"],
+    "source": "headless_test.gd:t_antibody_halve L2394 `g.actions.antibody_damage(b) == want[k]`，want = [15, 7, 3, 1, 0]。⚠ 这 10 条 check 的名字经 `%` 截断后全叫「第」（「第 %d 发伤害 %s」/「第 %d 发实扣 %s」），covers 只能写一条 —— 不许编第二个名字刷分子。五条用例各自把 antibody_used 摆好初值，不接力",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [{ "seat": 0, "type": "BCell", "at": "0,0", "energy": 500, "antibody_used": 0 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 15
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "antibody_damage/used_1",
+    "probe": "antibody_damage",
+    "covers": ["t_antibody_halve::第"],
+    "source": "headless_test.gd:t_antibody_halve L2394 的第 2 发：1.5 → 0.7（十分能量的整数除法向下取整）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [{ "seat": 0, "type": "BCell", "at": "0,0", "energy": 500, "antibody_used": 1 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 7
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "antibody_damage/used_2",
+    "probe": "antibody_damage",
+    "covers": ["t_antibody_halve::第"],
+    "source": "headless_test.gd:t_antibody_halve L2394 的第 3 发：0.7 → 0.3",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [{ "seat": 0, "type": "BCell", "at": "0,0", "energy": 500, "antibody_used": 2 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 3
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "antibody_damage/used_3",
+    "probe": "antibody_damage",
+    "covers": ["t_antibody_halve::第"],
+    "source": "headless_test.gd:t_antibody_halve L2394 的第 4 发：0.3 → 0.1",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [{ "seat": 0, "type": "BCell", "at": "0,0", "energy": 500, "antibody_used": 3 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "antibody_damage/used_4_zero",
+    "probe": "antibody_damage",
+    "covers": ["t_antibody_halve::第"],
+    "source": "headless_test.gd:t_antibody_halve L2394 的第 5 发：0.1 → 0，自然衰减到 0 而不是永远留个尾巴",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [{ "seat": 0, "type": "BCell", "at": "0,0", "energy": 500, "antibody_used": 4 }]
+    },
+    "args": { "cell": "0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "antibody_damage/matured_first_shot",
+    "probe": "antibody_damage",
+    "covers": ["t_card_perms::抗体初始伤害 2.0"],
+    "source": "headless_test.gd:t_card_perms L13930 `bm[\"energy\"] == 100 - bm_fee and bt[\"energy\"] == 500 - CWData.MATURED_ANTIBODY_DMG`（卡面 2026-09-07：1.5 → 2.0）。断言的另一半（费用降低 0.5）是 antibody_cost，不是这个探针的主语 —— 那一条留 GD。【抗体亲和力成熟】是永久技能，写 equipped 不写 mods",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        { "seat": 0, "type": "BCell", "at": "0,0", "energy": 500, "antibody_used": 0, "equipped": ["抗体亲和力成熟"] }
+      ]
+    },
+    "args": { "cell": "0" },
+    "expect": 20
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "antibody_damage/knob_off_stays_full",
+    "probe": "antibody_damage",
+    "covers": ["t_antibody_halve::旋钮关掉 = 老行为，放几次都打满"],
+    "source": "headless_test.gd:t_antibody_halve L2417 `g.actions.antibody_damage(b) == 15`（`g.tune.antibody_halve = false` 之后连放 3 发）。`antibody_halve` 是 A 档旋钮（contract_tune.json），两侧都装得进；bool 写 0/1",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [{ "seat": 0, "type": "BCell", "at": "0,0", "energy": 500, "antibody_used": 3 }],
+      "tuning": { "antibody_halve": 0 }
+    },
+    "args": { "cell": "0" },
+    "expect": 15
+  }
+]

@@ -28,7 +28,7 @@ const Diff := preload("res://tests/cw_case_diff.gd")
 const Gate := preload("res://tests/l0_contract_gate.gd")
 const OPS_PATH := "res://tests/contract_ops.json"
 
-## P 族分派表（§0.6.4 第 5 条）：14 真 + 2 空壳。集合 ≡ contract_ops.json 里
+## P 族分派表（§0.6.4 第 5 条）：15 真 + 2 空壳。集合 ≡ contract_ops.json 里
 ## `kind:"probe"` 且 status ∈ {OK, KNOWN_GAP, UNDEFINED} 的行；启动时由契约门双射校验。
 ## 空壳 = 本批未开工（NOTIMPL / OUT_OF_SCOPE 的行不进这张表）。
 const PROBE_NAMES: Array[String] = [
@@ -36,8 +36,9 @@ const PROBE_NAMES: Array[String] = [
 	"proliferate_chance", "solidify_threshold", "overload_loss", "attack_outcome",
 	"move_raw_cost", "pass_through_cost", "quote_path", "const",
 	"move_legal", "anaerobic_pool", "split_share", "settle_loss",   ## §0.6.7 四条：Kevin 09-19 接受、C# 入口已开，探针面随各批定
+	"antibody_damage",   ## 批 4（E-6 规矩 1）：GD 收细胞，C# 侧新开同形的具名重载，两侧探针都只转调一句
 ]
-## S 族分派表：25 真 + 空壳 `damage_hit`（住在 CWGame 上，四个代理够不着，批 4 手写用例）。
+## S 族分派表：26 真（批 4 把 `damage_hit` 换成真转调；它住在 CWGame 上、四个代理够不着 ⇒ rec: manual，用例手写）。
 ## `execute` 是决策类 op（批 1 进表，§0.6.4 第 1 条按 GD 入口名）：两侧签名不同，args 走**席位 + 语义键**。
 const STEP_NAMES: Array[String] = [
 	"anaerobic", "cancer_upkeep", "pressure", "proliferate", "erosion", "resolve_camping",
@@ -378,6 +379,12 @@ func _probe(g: CWGame, name: String, args: Dictionary) -> Variant:
 			return g.world.overload_loss(_cell(g, args))
 		"attack_outcome":
 			return _outcome_code(g, int(args.get("roll", 0)), _cell(g, args))
+		"antibody_damage":
+			## 【抗体】这一次打多少（十分能量）。GD 这边收细胞、自己从细胞上读用过几次与
+			## 【抗体亲和力成熟】；C# 那边按 E-6 规矩 1「GD 边界权威、C# 挪」新开了同形的具名重载
+			## `RulePolicies.AntibodyDamage(s, c)` —— 两侧探针都只转调一句，
+			## 「哪两个量喂进这条公式」的绑定留在各自的生产代码里，不搬进靶场（纪律 3）
+			return g.actions.antibody_damage(_cell(g, args))
 		"const":
 			## 一个探针管一整张常量表（规格 §B 批 0：**不要一个常量一个探针**）。表在 _build_consts()
 			return _const_value(g, args)
@@ -575,10 +582,40 @@ func _step(g: CWGame, op: String, args: Dictionary) -> bool:
 		"enter_tile": await g.actions.enter_tile(_cell(g, args), _pos(str(args.get("dest", ""))), int(args.get("paid", -1)))
 		"execute":
 			return await _execute(g, args)
-		## 空壳（§0.6.4 第 2 条）：住在 CWGame 上、两端签名未核，批 4 手写用例
+		## 伤害管线的单点入口（批 4 换真，两端签名已按 C-2 步 1 逐参数核过）。
+		## args 四个键由硬约定定死：`target`（席位）/ `base`（十分能量）/ `source`（四个字面词）/ `ability`。
+		## **不收 `attacker`**：C# 的 `CellRules.Damage` 没有这个形参，这边一律传 `{}` ——
+		## 空字典让 `_queue_triggers` 的 `src.get("id", -1)` / `src.get("itype", -1)` 落空、
+		## `_queue_execution` 的 `src.has("equipped")` 为假，吸血与斩杀都不触发，与 C# 逐条一致；
+		## 要验吸血 / 斩杀 / 抗原记忆走 `execute` 的攻击分支。
+		## **不收 `add`**（GD 在 `_calculate` 第一步就把它加进 base，用例折进 `base`）、
+		## **不收 `direct`**（GD 那边是同批第二条事件，靶场造它等于重写攻击流程）。
 		"damage_hit":
-			_fail("契约步 damage_hit：本批未开工")
-			return false
+			var hit_target: Dictionary = _cell(g, args, "target")
+			if hit_target.is_empty():
+				return false
+			var hit_base := int(args.get("base", 0))
+			var hit_ability := str(args.get("ability", ""))
+			match str(args.get("source", "")):
+				"immune_attack":
+					## `immune_hit` 的 ability 是**硬编码**的（attack=true 恒「攻击」）——
+					## 用例写别的词，两侧的 ability 就不是同一个值了（【缺氧适应】【耗竭抵抗】都判它）
+					if hit_ability != "攻击":
+						_fail("damage_hit：source=immune_attack 的 ability 只能是「攻击」（GD immune_hit 写死），拿到「%s」" % hit_ability)
+						return false
+					g.immune_hit(hit_target, hit_base, {}, true)
+				"immune_effect":
+					if hit_ability != "技能":
+						_fail("damage_hit：source=immune_effect 的 ability 只能是「技能」（GD immune_hit 写死），拿到「%s」" % hit_ability)
+						return false
+					g.immune_hit(hit_target, hit_base, {}, false)
+				"cancer_skill":
+					g.cancer_hit(hit_target, hit_base, hit_ability, true)
+				"world":
+					g.cancer_hit(hit_target, hit_base, hit_ability, false)
+				var other:
+					_fail("damage_hit 的 source 只认四个字面词（immune_attack / immune_effect / cancer_skill / world），拿到「%s」" % str(other))
+					return false
 		_:
 			_fail("不认识的契约步：%s" % op)
 			return false
@@ -593,6 +630,9 @@ func _step(g: CWGame, op: String, args: Dictionary) -> bool:
 ## （这边 `build_options` + `CWSemKey.key`，C# 那边 `GetAvailableDecisions` + `SemanticKey.Of`）。
 ## 语义键的规矩 1 已经把 `cost` 剔出键外 —— 所以「C# 算费不同」不会伪装成「动作不同」，
 ## 它会原样落在 delta 的 energy 上。
+##
+## 批 4 起这条路上也走攻击：**攻击与移动是同一个键形**（`act=move`，落点上有活癌细胞才成为攻击，
+## 见 `immune_move_options` —— 只有 label 不同，data 不变），掷骰念的是上面装好的那条带子。
 func _execute(g: CWGame, args: Dictionary) -> bool:
 	var cell: Dictionary = _cell(g, args, "seat")
 	if cell.is_empty():

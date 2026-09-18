@@ -269,6 +269,24 @@
     ]
   },
   {
+    "op": "antibody_damage", "kind": "probe", "family": "P",
+    "prd": "J-抗体 · 这一次打多少（基数每在本世界回合用过一次就折半）",
+    "gd": "cw_actions.gd:antibody_damage", "gd_module": "CWActions",
+    "cs": "RulePolicies.AntibodyDamage(tune, used, matured)",
+    "args": ["cell"], "rng": false,
+    "status": "OK", "cases": "required",
+    "note": "批 4 新开。两侧边界原来不同形：GD 收**细胞**（自己读 `cell[\"antibody_used\"]` 与 `game.has_skill(cell, 抗体亲和力成熟)`、从 `game.tune` 读 `antibody_halve`），C# 原来只有 `AntibodyDamage(RuleTuning, int used, bool matured)` 三个标量。按 E-6 规矩 1「GD 的边界是权威，要挪就 C# 挪」，生产代码里开了同形的具名重载 `RulePolicies.AntibodyDamage(s, c)`（拆函数、零行为改动：内部就是 `Observation/ObservationV1Codec.cs:71` 本来就在写的那三个实参），落地走 E-6 **退路 B**：C# 探针从 cell 上取 used / matured 再转调三标量重载（绑定暂留靶场）；路 A = 新开 `RulePolicies.AntibodyDamage(WorldState, Cell)` 零行为改动的具名入口，待 Kevin 拍，两条路 7 条期望值相同。⚠ `matured` 必须过 `RulePolicies.HasSkill`（它带【中和抗体】那道闸），不许写 `c.Equipped.Contains`。expect 是裸整数（scalar，十分能量）：used 0→15、1→7、2→3、3→1、4→0（整数除法，衰减到 0 而不是留尾巴），装【抗体亲和力成熟】基数 20；旋钮 `antibody_halve`（A 档）关掉 = 每次都打满 15",
+    "boundaries": [
+      { "tag": "used:0", "cases": "^antibody_damage/used_0$" },
+      { "tag": "used:1", "cases": "^antibody_damage/used_1$" },
+      { "tag": "used:2", "cases": "^antibody_damage/used_2$" },
+      { "tag": "used:3", "cases": "^antibody_damage/used_3$" },
+      { "tag": "used:4_zero", "cases": "^antibody_damage/used_4_zero$" },
+      { "tag": "matured", "cases": "^antibody_damage/matured" },
+      { "tag": "knob_off", "cases": "^antibody_damage/knob_off" }
+    ]
+  },
+  {
     "op": "settle_loss",
     "kind": "probe",
     "family": "P",
@@ -710,7 +728,7 @@
     "cs": "CellRules.EnterTile",
     "args": ["cell", "dest", "paid"], "rng": true,
     "status": "OK", "cases": "required",
-    "note": "裸名自调 6 处 + 跨模块调用 11 处 —— 录制代理不做深度计数就会录出嵌套三四条（规格 A-4 规矩 2 / D R3）。⚠ **GD 多一个 `paid`**（巨噬【局部吞噬】按实付回能），C# `EnterTile(s, id, dest, rng)` 没有：args 保留 `paid`、`Steps.cs` 不消费，批 1 只写 `paid` 缺省（−1）的用例 —— 写了 `paid` 的用例会被 `AssertAllUsed` 当场打红（`t_macro_purify_heal` 整段留批 4/5）。⚠ 批 1 之前 GD runner 的 `_step` 读的是 `to` 而不是 `dest`（`cases: deferred` 零用例，一直没人踩到），随本批改齐。撤掉 `free` 档：「免费连走」是【趋化募集】/【效应细胞浸润】那条（GD `_free_walk` ↔ C# `CellRules.IsFreeWalk`），要卡牌与挂起态 ⇒ 批 5b 再补回来",
+    "note": "裸名自调 6 处 + 跨模块调用 11 处 —— 录制代理不做深度计数就会录出嵌套三四条（规格 A-4 规矩 2 / D R3）。⚠ **GD 多一个 `paid`**（巨噬【局部吞噬】按实付回能），C# `EnterTile(s, id, dest, rng)` 没有：args 保留 `paid`、`Steps.cs` 不消费，批 1 只写 `paid` 缺省（−1）的用例 —— 写了 `paid` 的用例会被 `AssertAllUsed` 当场打红（`t_macro_purify_heal` 整段留批 4/5）。⚠ 批 1 之前 GD runner 的 `_step` 读的是 `to` 而不是 `dest`（`cases: deferred` 零用例，一直没人踩到），随本批改齐。撤掉 `free` 档：「免费连走」是【趋化募集】/【效应细胞浸润】那条（GD `_free_walk` ↔ C# `CellRules.IsFreeWalk`），要卡牌与挂起态 ⇒ 批 5b 再补回来。批 4：`paid` 的三态由 `execute/move/purify_heal/` 七条覆盖（S1 路 ②：C# `Move` 把自己的报价当 paid 传下去，与 GD `_do_move` 同），只剩「实付 0.1」留空档 macro-heal-paid-0.1（迁移减免的共同地板是 0.2）",
     "boundaries": [
       { "tag": "healthy", "cases": "^enter_tile/healthy/" },
       { "tag": "purify", "cases": "^enter_tile/purify/" },
@@ -719,15 +737,32 @@
   },
   {
     "op": "execute", "kind": "step", "family": "S",
-    "prd": "J-迁移 · 一次行动的执行（批 1 只用 act=move 且落点为空格的那一支）",
+    "prd": "J-迁移 · 一次行动的执行（批 1：act=move 且落点为空格；批 4 追加攻击分支、抗体分支、按实付净化回能的移动）",
     "gd": "cw_actions.gd:execute", "gd_module": "CWActions",
     "cs": "IRulesEngine.GetAvailableDecisions + ExecuteDecision", "cs_note": "L1Replay.Run 那条路：GetAvailableDecisions → SemanticKey.Of 配对 → ExecuteDecision",
     "args": ["seat", "key"], "rng": true,
     "status": "OK", "cases": "required", "rec": "manual",
-    "note": "决策类 op，名字用 GD 入口名（§0.6.4 第 1 条）。⚠ **两侧不是同一个签名**：GD `execute(cell, data)` 收一个自带 `cost` 的 data 字典（调用方先报价），C# 收一个已经生成好的 IDecision、费用由它自己 QuoteMove —— 所以 args 只能是**席位 + 语义键**，两侧各自从自己的选项表里按键找回那一条（GD `build_options` + `CWSemKey.key({kind:action}, data)`，C# `GetAvailableDecisions(s, seat)` + `SemanticKey.Of`）。语义键的规矩 1 已经把 `cost` 剔出键外，所以「C# 算费不同」不会伪装成「动作不同」，它会原样落在 delta 的 energy 上。移动的键形 = `k=action|act=move|to=q,r`。批 1 只做空落点的单步移动（不掷骰）；攻击那一支要 rolls / Tape 化 ⇒ 批 4。**rec: manual**：录制代理的覆写集合 = 表里 `kind:step ∧ status∈分派档 ∧ rec≠manual` 的 `gd` 字段（`l0_contract_gate.gd:recorder_overrides`，今天 24 条、`t_rec_contract_only` 逐名钉住）—— execute 是行动的总入口，进覆写集合会把每一次行动都录成一条嵌套差分，且四个代理的那张表要同批改；批 1 的 execute 用例由 P2 手写",
+    "note": "决策类 op，名字用 GD 入口名（§0.6.4 第 1 条）。⚠ **两侧不是同一个签名**：GD `execute(cell, data)` 收一个自带 `cost` 的 data 字典（调用方先报价），C# 收一个已经生成好的 IDecision、费用由它自己 QuoteMove —— 所以 args 只能是**席位 + 语义键**，两侧各自从自己的选项表里按键找回那一条（GD `build_options` + `CWSemKey.key({kind:action}, data)`，C# `GetAvailableDecisions(s, seat)` + `SemanticKey.Of`）。语义键的规矩 1 已经把 `cost` 剔出键外，所以「C# 算费不同」不会伪装成「动作不同」，它会原样落在 delta 的 energy 上。移动的键形 = `k=action|act=move|to=q,r`。批 1 只做空落点的单步移动（不掷骰）；攻击那一支要 rolls / Tape 化 ⇒ 批 4。**rec: manual**：录制代理的覆写集合 = 表里 `kind:step ∧ status∈分派档 ∧ rec≠manual` 的 `gd` 字段（`l0_contract_gate.gd:recorder_overrides`，今天 24 条、`t_rec_contract_only` 逐名钉住）—— execute 是行动的总入口，进覆写集合会把每一次行动都录成一条嵌套差分，且四个代理的那张表要同批改；批 1 的 execute 用例由 P2 手写。★ 批 4 追加三档用法，**args 一个字不改**（仍是席位 + 语义键）。⚠ 攻击与移动**是同一个键形**：落点上有活癌细胞才成为攻击，键仍是 `k=action|act=move|to=q,r`（`cw_actions.gd:immune_move_options` 只把 label 改成「攻击→」，data 不变）；抗体是 `k=action|act=antibody`。掷骰次序（两侧逐条核过，rolls 照它写）：①【补体调理】【高亲和力克隆】判定前无条件消耗、不掷骰 → ② 有【高亲和力克隆】⇒ **不掷骰**直接 crit → ③ 否则一发 `[1, 6, r]`（GD `roll_shown(6, 攻击)` = 一次 randi_range(1,6)；C# `NextIntRange(1, 7)`）→ ④ 判词 fail 且有【补体调理】⇒ 再一发 `[1, 6, r]`（**只许一张**：GD 是 while 逐张重掷、C# 是 if 只重掷一次，两张就错位 —— 空档 opsonin-multi-reroll）→ ⑤【PD-L1表达】压级、不掷骰 → ⑥ 成功分支的【补体级联】⇒ `pick_random(候选, 2)`：第一发 `[0, n-1]`、第二发 `[0, n-2]`（候选 = 目标相邻的普通癌组织且无细胞占据，按 DIRS 序）→ ⑦ 击杀后进格 ⇒ enter_tile → collect_special，落在有卡的骨髓格上还会再抽一发（用例避开骨髓格）。盘面禁忌：events.active 里不许写【抗原引导】/【免疫伪装】/【抗原变异】/【代谢加速】—— C# 的 `RulePolicies.AttackOutcome` 完全不读世界事件、攻击路径也没有【抗原变异】的抽牌（空档 attack-outcome-world-events）。`paid` 那一档（巨噬【局部吞噬】按实付回能）走 `execute/move/purify_heal/`：C# `EnterTile` 收不到 paid，但 `CellRules.Move` 走的正是 `Arrive(…, free ? -1 : cost, …)`，与 GD `_do_move` 的 `enter_tile(cell, to, int(q[\"final\"]))` 逐行对应 —— 实付 0.1 那一条两侧都造不出来（迁移减免的共同地板是 0.2），登记空档 macro-heal-paid-0.1",
     "boundaries": [
       { "tag": "move/free", "cases": "^execute/move/free/" },
-      { "tag": "move/gate_order", "cases": "^execute/move/gate_order/" }
+      { "tag": "move/gate_order", "cases": "^execute/move/gate_order/" },
+      { "tag": "attack/fail", "cases": "^execute/attack/outcome_fail/" },
+      { "tag": "attack/success", "cases": "^execute/attack/outcome_success/" },
+      { "tag": "attack/crit", "cases": "^execute/attack/outcome_crit/" },
+      { "tag": "attack/counter", "cases": "^execute/attack/counter/" },
+      { "tag": "attack/lifesteal", "cases": "^execute/attack/lifesteal/" },
+      { "tag": "attack/memory", "cases": "^execute/attack/memory/" },
+      { "tag": "attack/pdl1", "cases": "^execute/attack/pdl1/" },
+      { "tag": "attack/opsonin_reroll", "cases": "^execute/attack/opsonin_reroll/" },
+      { "tag": "attack/affinity_no_roll", "cases": "^execute/attack/affinity_no_roll/" },
+      { "tag": "attack/perforin", "cases": "^execute/attack/perforin/" },
+      { "tag": "attack/cascade", "cases": "^execute/attack/cascade/" },
+      { "tag": "attack/execution", "cases": "^execute/attack/execution/" },
+      { "tag": "attack/cap", "cases": "^execute/attack/cap/" },
+      { "tag": "attack/kill_enters", "cases": "^execute/attack/kill_enters/" },
+      { "tag": "attack/direct", "cases": "^execute/attack/direct/" },
+      { "tag": "antibody", "cases": "^execute/antibody/" },
+      { "tag": "move/purify_heal", "cases": "^execute/move/purify_heal/" }
     ]
   },
   {
@@ -735,14 +770,23 @@
     "prd": "通用结算规则 · 一次能量损失落到细胞上",
     "gd": "cw_game.gd:immune_hit + cw_game.gd:cancer_hit", "gd_module": "CWGame",
     "cs": "CellRules.Damage",
-    "args": ["target", "base", "attacker", "reason"], "rng": false,
-    "status": "KNOWN_GAP", "cases": "deferred", "rec": "manual",
-    "note": "两端签名未核：GD immune_hit(target, base, attacker, attack, add) / cancer_hit(target, base, reason, skill) ↔ C# CellRules.Damage(s, id, amount, LossSource, ability)，批 4 的 C-2 步 1 再核（规格 §0.6.4 第 2 条）。住在 CWGame 上、四个录制代理够不着 ⇒ rec: manual，批 4 手写用例。真开工时 delta 要同时钉目标 energy、攻击者 energy（巨噬吞噬）、marked 是否消耗、armor_used",
+    "args": ["target", "base", "source", "ability"], "rng": false,
+    "status": "OK", "cases": "required", "rec": "manual",
+    "note": "批 4 换真，两端签名按 C-2 步 1 **逐参数**核过：GD `immune_hit(target, base, attacker, attack, add)` / `cancer_hit(target, base, reason, skill)` ↔ C# `CellRules.Damage(s, id, amount, LossSource, ability)`。args 四个键：`target` = **席位**（名字跟 GD 的形参 —— GD 边界权威；C# 侧 `Steps.Args.Cell(s, key)` 随本批加了 key 形参，原来写死 \"cell\"）；`base` = 十分能量，GD 的 `add` 折进来（`_calculate` 第一步就是 base + add）；`source` = 四个字面词 immune_attack / immune_effect / cancer_skill / world，GD 侧分派到 `immune_hit(…, {}, true/false)` / `cancer_hit(…, ability, true/false)`、C# 侧映到 LossSource 四档；`ability` = 伤害事件的 ability 字段，必填。⚠ **不收 `attacker`**：C# 的 Damage 没有这个形参（吸血与斩杀住在 `CellRules.Move` 的攻击流程里，GD 那边住在 CWDamage 的伤后触发队列里），GD 侧探针一律传 `{}` —— 空字典让 `_queue_triggers` / `_queue_execution` 两条触发都不发生，与 C# 语义逐条一致；吸血 / 斩杀 / 抗原记忆一律走 execute 的攻击分支。⚠ **不收 `direct`**：GD 是同批第二条事件、C# 是一个形参，两侧形状不同 —— T 细胞【细胞毒性增强】那一刀也走 execute。⚠ `immune` 两档的 `ability` 是 GD **硬编码**的（attack=true 恒「攻击」、attack=false 恒「技能」），两侧探针各有一句断言把别的写法当场打红（写歪了【缺氧适应】【耗竭抵抗】会在别处炸）。**rec: manual**：住在 CWGame 上、四个录制代理够不着，用例手写。盘面禁忌（硬约定 F1）：盘面上不许有「与任一活癌细胞 hex_dist ≤ 2」的树突 —— GD `cw_damage.gd:_submit_batch` 尾巴恒调 `game.update_marks()`、C# 的 Damage 没有这一步（空档 damage-tail-update-marks）。delta 至少钉目标 energy / alive / marked / mark_left / armor_used / mods[卡名].uses 与 tier A 的 d.income、d.overload_loss；死亡交出占位时还要钉 board.tiles@q,r.cell（两侧 kill 都清空 mods，那几条整条记 null）",
     "boundaries": [
-      { "tag": "immune_hit", "cases": "^damage_hit/immune" },
-      { "tag": "cancer_hit", "cases": "^damage_hit/cancer" },
-      { "tag": "shield", "cases": "^damage_hit/shield" },
-      { "tag": "lethal", "cases": "^damage_hit/lethal" }
+      { "tag": "source:immune_attack", "cases": "^damage_hit/immune_attack/" },
+      { "tag": "source:immune_effect", "cases": "^damage_hit/immune_effect/" },
+      { "tag": "source:cancer_skill", "cases": "^damage_hit/cancer_skill/" },
+      { "tag": "source:world", "cases": "^damage_hit/world/" },
+      { "tag": "mark_x2", "cases": "^damage_hit/[a-z_]+/mark_" },
+      { "tag": "shield_on_benefit", "cases": "^damage_hit/[a-z_]+/shield_" },
+      { "tag": "armor", "cases": "^damage_hit/[a-z_]+/armor_" },
+      { "tag": "osteo_barrier", "cases": "^damage_hit/[a-z_]+/barrier_" },
+      { "tag": "exhaust", "cases": "^damage_hit/[a-z_]+/exhaust_" },
+      { "tag": "bcl2", "cases": "^damage_hit/[a-z_]+/bcl2_" },
+      { "tag": "lethal", "cases": "^damage_hit/[a-z_]+/lethal_" },
+      { "tag": "zero_damage", "cases": "^damage_hit/[a-z_]+/zero_" },
+      { "tag": "actual_capped", "cases": "^damage_hit/[a-z_]+/actual_" }
     ]
   }
 ]

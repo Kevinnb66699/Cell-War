@@ -19,10 +19,11 @@ namespace CellWar.Core.Tests.L0;
 /// 3. **一律不写转换层** —— 硬凑等于在靶场里再写一遍规则。
 ///
 /// 分派集合由 `game/tests/contract_ops.json` 定死（§0.6.4 第 4 条）：
-/// 表里 `status ∈ {OK, KNOWN_GAP, UNDEFINED}` 的 P 族行 ≡ <see cref="Names"/>，**16 条**。
+/// 表里 `status ∈ {OK, KNOWN_GAP, UNDEFINED}` 的 P 族行 ≡ <see cref="Names"/>，**17 条**。
 /// 其中 2 条是**空壳**（`deferred`：本批未开工，调用即抛）——
 /// 批 0 填上了 `const`（<see cref="ConstTable"/>）与 `settle_loss`，
-/// 批 1 填上了 `move_raw_cost` / `pass_through_cost` / `quote_path` / `move_legal`。
+/// 批 1 填上了 `move_raw_cost` / `pass_through_cost` / `quote_path` / `move_legal`，
+/// 批 4 新开了 `antibody_damage`。
 /// </summary>
 public static class Probes
 {
@@ -83,9 +84,18 @@ public static class Probes
         // PRD「能量损失计算顺序」①基础 ②固定加 ③倍增 ④倍减 ⑤固定减、兜 0；GD 侧 CWGame.settle_loss 同一套五参
         ["settle_loss"] = (_, a) => Settlement.SettleLoss(a.Int("base"), a.Int("add"), a.Int("mult"), a.Int("div"), a.Int("cut")),
 
-        // 【抗体】的伤害暂不进探针表：GD 的 `antibody_damage(cell)` 收的是**细胞**
-        // （自己从细胞身上读用过几次、装没装【抗体亲和力成熟】），C# 的是 `(used, matured)` 两个标量。
-        // 按上面 E-6 的规矩 1，要么 C# 挪齐边界，要么它登记 OUT_OF_SCOPE 不进 L0。
+        // ---- 批 4：【抗体】的伤害（十分能量）----
+        // 两侧边界不同形：GD `antibody_damage(cell)` 收**细胞**（自己从细胞上读用过几次、装没装【抗体亲和力成熟】，
+        // 从 `game.tune` 读 `antibody_halve`），C# 只有 `AntibodyDamage(RuleTuning, int used, bool matured)` 三个标量。
+        // E-6 规矩 1「GD 边界权威、C# 挪」的正路 = 生产代码开同形的具名重载 `AntibodyDamage(WorldState, Cell)`（拆函数、零行为改动，
+        // 内部就是 `Observation/ObservationV1Codec.cs:71` 本来就在写的那三个实参）—— 那要动 core 的 public 面，
+        // 2026-09-19 批 4 落地时先走**退路 B**：绑定暂留靶场（契约表 cs 与 COVERAGE 都登记着），路 A 待 Kevin 拍；两条路 7 条期望值相同。
+        // ⚠ `matured` **只许**调 RulePolicies.HasSkill（它带【中和抗体】那道闸），写 c.Equipped.Contains 就是把规则抄进靶场、还会漏掉那道闸。
+        ["antibody_damage"] = (s, a) =>
+        {
+            var c = a.Cell(s);
+            return RulePolicies.AntibodyDamage(s.Tuning, c.AntibodyThisRound, RulePolicies.HasSkill(s, c, "抗体亲和力成熟"));
+        },
     };
 
     /// <summary>
