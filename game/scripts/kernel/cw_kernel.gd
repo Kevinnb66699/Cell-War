@@ -35,12 +35,20 @@ var _fault_msg := ""
 
 
 # ---- 生命周期 ----
-## cfg = { factions, seed, cancer_types?, world_events_on?, world_state?, record_replay?, deciders? / decider?, consumer?, step_drive? }
+## cfg = { factions, seed, cancer_types?, world_events_on?, world_state?, record_replay?, deciders? / decider?, consumer?, step_drive?,
+##         rules?（tune.restore_rules_state，排在 init 之后 world_state 之前）, autorun?（默认 true；false = 等 run()）,
+##         adopt?（收养一个现成 CWGame：跳过 new+init、close() 不 dispose；没有 consumer 时不装 CWKernelBridge、不连 log_line）,
+##         observe_viewer?（设了就在每次问人之前、终局之前各推一条 sync，批 1 规格 A-1.5）, open_hands? }
 func open(_cfg: Dictionary) -> bool:
 	return false
 
 
 func close() -> void:
+	pass
+
+
+## autorun=false 的局从这里起跑（cw_room.gd 要保持「建局 → _name_seats() → _run()」的次序）
+func run() -> void:
 	pass
 
 
@@ -68,8 +76,13 @@ func caps() -> Dictionary:
 
 # ---- 观测 ----
 ## 按席位裁剪过的镜像（CWMirror，步 8 落地后改返回类型）；不可用 / 还没开局返回 null
-func observe(_viewer: int) -> RefCounted:
+func observe(_viewer: int, _logs_from := 0) -> RefCounted:
 	return null
+
+
+## 原始 envelope（不经镜像校验 / 装载）：服务器逐 viewer 各编一份时省一次往返；logs_from 透给编码器
+func observe_envelope(_viewer: int, _logs_from := 0) -> Dictionary:
+	return {}
 
 
 func logs_for(_viewer: int, _from: int) -> PackedStringArray:
@@ -83,6 +96,21 @@ func pull(_viewer: int, _since_seq: int, _limit := 64) -> Array:
 
 ## 播完一条 barrier 条目后回执
 func ack(_seq: int) -> void:
+	pass
+
+
+## 最后一条已发出的 seq（0 = 还没有条目）
+func entry_seq() -> int:
+	return 0
+
+
+## 丢掉 seq > 给定值的条目（回放快退后重推，免得同一段演出重复入队）；seq 永不重编号
+func discard_after(_seq: int) -> void:
+	pass
+
+
+## 丢掉 seq <= 给定值的条目（播放队列播完一批调一次）
+func discard_before(_seq: int) -> void:
 	pass
 
 
@@ -123,6 +151,16 @@ func pending() -> Dictionary:
 
 
 func step(_idx: int) -> void:
+	pass
+
+
+## 往前一步（pending → ask → step 三步收进内核，回放驱动只剩这一个游标）。放完 / 到终局返回 false
+func step_once() -> bool:
+	return false
+
+
+## 中途换 decider（回放 Player.attach）：所有席位都换成 b
+func set_decider(_b: Object) -> void:
 	pass
 
 

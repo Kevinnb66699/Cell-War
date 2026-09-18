@@ -212,29 +212,29 @@ func on_chat_tab() -> bool:
 	return _chat != null and _chat_hold > 0.0
 
 
-func refresh(game: CWGame, panel: CWLogPanel) -> void:
-	if game == null or panel == null or _compact:
+func refresh(store: CWLogStore, panel: CWLogPanel) -> void:
+	if store == null or panel == null or _compact:
 		return          ## 收起时没有尾巴可铺，连折行都省了
 	if on_chat_tab():
 		return          ## 聊天页占着这两行，日志那边先不折（省下每帧的折行）
 	var key: int = panel.viewer if panel.filter else -2
-	if game.logs.size() < _built or key != _built_key:
+	if store.logs.size() < _built or key != _built_key:
 		_cache.clear()
 		_cache_src.clear()
 		_built = 0
 		_built_key = key
 	## 末条可能被就地改写（连续的【定殖】/【净化】合并，Kevin 2026-09-07），每帧重折它
-	var stable: int = maxi(game.logs.size() - 1, 0)
+	var stable: int = maxi(store.logs.size() - 1, 0)
 	while _built < stable:
-		for seg in CWLogPanel.wrap_line(panel.line_text(game, _built), row_width()):
+		for seg in CWLogPanel.wrap_line(panel.line_text(store, _built), row_width()):
 			_cache.append(seg)
 			_cache_src.append(_built)
 		_built += 1
 	while _cache_src.size() > 0 and _cache_src[_cache_src.size() - 1] >= stable:
 		_cache.remove_at(_cache.size() - 1)
 		_cache_src.remove_at(_cache_src.size() - 1)
-	if game.logs.size() > stable:
-		for seg in CWLogPanel.wrap_line(panel.line_text(game, stable), row_width()):
+	if store.logs.size() > stable:
+		for seg in CWLogPanel.wrap_line(panel.line_text(store, stable), row_width()):
 			_cache.append(seg)
 			_cache_src.append(stable)
 	var total := _cache.size()
@@ -245,7 +245,7 @@ func refresh(game: CWGame, panel: CWLogPanel) -> void:
 			_rows[i].text = ""
 			continue
 		_rows[i].text = _cache[idx]
-		var c: Color = CWLogPanel.line_color(game.logs[_cache_src[idx]])
+		var c: Color = CWLogPanel.line_color(store.logs[_cache_src[idx]])
 		## 越旧越淡：最后一行全亮
 		var age: int = ROWS - 1 - i
 		_rows[i].add_theme_color_override("font_color", Color(c, 1.0 - 0.35 * age))

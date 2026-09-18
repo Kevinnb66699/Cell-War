@@ -136,6 +136,7 @@ func _run_all() -> void:
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_guide_watch, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
 		t_semkey_single_source, t_kernel_inproc, t_play_queue,
+		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
 		t_observe_budget, t_tier_b_absent,
 	]
@@ -3028,24 +3029,25 @@ func t_hotseat() -> void:
 	var lp := CWLogPanel.new()
 	root.add_child(lp)
 	await process_frame
+	var gs := CWLogStore.of(g)   ## 批 1 步 5：面板只吃 CWLogStore
 	lp.filter = true
 	lp.viewer = 1
-	check(lp.line_text(g, 0) == "免疫A 抽了一张牌" and lp.line_text(g, 1) == "公开一行", "视角 = 癌症A：免疫A 的牌名换成公开替身，公开行照常")
+	check(lp.line_text(gs, 0) == "免疫A 抽了一张牌" and lp.line_text(gs, 1) == "公开一行", "视角 = 癌症A：免疫A 的牌名换成公开替身，公开行照常")
 	lp.viewer = 0
-	check(lp.line_text(g, 0) == "免疫A 抽到【X】", "视角 = 免疫A：自己的牌名照常")
+	check(lp.line_text(gs, 0) == "免疫A 抽到【X】", "视角 = 免疫A：自己的牌名照常")
 	lp.viewer = -1
-	check(lp.line_text(g, 0) == "免疫A 抽了一张牌", "换手期间（无人视角）：秘密行全换")
+	check(lp.line_text(gs, 0) == "免疫A 抽了一张牌", "换手期间（无人视角）：秘密行全换")
 	lp.filter = false
-	check(lp.line_text(g, 0) == "免疫A 抽到【X】", "filter 关（无真人的观战局）：原文照出")
+	check(lp.line_text(gs, 0) == "免疫A 抽到【X】", "filter 关（无真人的观战局）：原文照出")
 	## 视角一变，折好的行要重折
 	lp.visible = true
 	lp.filter = true
 	lp.viewer = 1
-	lp.refresh(g)
+	lp.refresh(CWLogStore.of(g))
 	var joined := "".join(lp._rows)
 	check("抽了一张牌" in joined and not ("【X】" in joined), "面板行按视角折出")
 	lp.viewer = 0
-	lp.refresh(g)
+	lp.refresh(CWLogStore.of(g))
 	check("【X】" in "".join(lp._rows), "视角切换后整卷重折")
 	g.dispose()
 	root.remove_child(lp)
@@ -3860,6 +3862,15 @@ func t_plan_path() -> void:
 	var before := g.state_hash()
 	var q: Dictionary = g.actions.quote_path(can, path)
 	check(g.state_hash() == before, "报价是纯查询：算完状态哈希不变")
+	## 批 1 步 3：句柄 query 与 g.actions.* 同源（收养同一个 CWGame、不起跑）
+	var kq := CWKernelInProc.new()
+	kq.open({ "adopt": g, "autorun": false })
+	check(kq.query("quote_path", { "cid": int(can["id"]), "path": path }) == q
+		and kq.query("plan_next_dests", { "cid": int(can["id"]), "from": can["pos"] }) == g.actions.plan_next_dests(can, can["pos"])
+		and kq.query("move_block_reason", { "cid": int(can["id"]), "to": path[0] }) == g.actions.move_block_reason(can, path[0])
+		and kq.query("nope", { "cid": 0 }) == null and kq.query("quote_path", { "path": path }) == null,
+		"kernel.query 四条之三 = g.actions 同源；未知 kind / 缺 cid 返回 null")
+	kq.close()
 	check(can["pos"] == path[0] - (path[0] - can["pos"]), "细胞位置没被挪走")
 	check(q["ok"] and q["steps"].size() == 4, "四步全通（%s）" % str(q.get("ok", false)))
 	check(q["total"] > 0 and q["left"] == can["energy"] - q["total"] + int(q["gained"]),
@@ -5652,29 +5663,49 @@ func t_log_panel() -> void:
 	check(cap.size == Vector2(11, 14) \
 		and is_equal_approx(cl.position.y + CWStyle.FONT.get_ascent(CWStyle.SIZE_LABEL) - 10.0, 2.0),
 		"键帽定尺寸、字形带对中（行框居中不可信）")
-	p.refresh(g)
+	p.refresh(CWLogStore.of(g))   ## 批 1 步 5：面板只吃 CWLogStore（夹具从活对局抄一份，断言一条不改）
 	var last: String = g.logs[g.logs.size() - 1]
 	check(p._lines[p._visible_n - 1].text == last, "默认跟到最新一行")
 	p._scroll(5)
-	p.refresh(g)
+	p.refresh(CWLogStore.of(g))
 	check(p._lines[p._visible_n - 1].text != last, "上翻后不再贴底")
 	p._scroll(-999)
-	p.refresh(g)
+	p.refresh(CWLogStore.of(g))
 	check(p._lines[p._visible_n - 1].text == last, "滚回底部继续跟随")
 	p._scroll(99999)
-	p.refresh(g)
+	p.refresh(CWLogStore.of(g))
 	check(p._lines[0].text == g.logs[0], "翻到顶被钳在第一行")
 	## 折行后的显示行数 ≥ 日志条数，且续行的颜色跟源日志走（不能因为缩进就变灰）
 	g.log_msg("★ " + "很长的一条升级日志".repeat(6))
 	p._scroll(-999)          ## 上一段把窗口翻到顶了，先滚回底部才看得到这条
-	p.refresh(g)
+	p.refresh(CWLogStore.of(g))
 	check(p._rows.size() > g.logs.size(), "有长行时显示行数多于日志条数")
 	var tail_color: Color = p._lines[p._visible_n - 1].get_theme_color("font_color")
 	check(tail_color == CWStyle.IMMUNE, "续行沿用源日志的颜色（★ 仍是免疫色）")
 	p._scroll(-999)
-	p.refresh(g)
+	p.refresh(CWLogStore.of(g))
 	p._unhandled_input(lkey)
 	check(not p.visible, "再按 L 收起")
+	## 批 1 步 5：CWLogStore 自己的契约 —— apply 按 index 覆写（log_run 就地改写末条）、越界补齐、reset_from 无秘密档、热座换手替身
+	var st := CWLogStore.new()
+	st.apply({ "index": 0, "text": "A 抽到【X】", "secret_pid": 0, "public_text": "A 抽了一张牌" })
+	st.apply({ "index": 1, "text": "【定殖】(1, 0)", "secret_pid": -1, "public_text": "【定殖】(1, 0)" })
+	st.apply({ "index": 1, "text": "【定殖】(1, 0)、(2, 0)", "secret_pid": -1, "public_text": "【定殖】(1, 0)、(2, 0)" })
+	st.apply({ "index": 4, "text": "跳号", "secret_pid": -1 })
+	check(st.logs.size() == 5 and st.logs[1] == "【定殖】(1, 0)、(2, 0)" and st.logs[2] == "" and st.log_secret[4] == -1 and st.log_public[4] == "跳号",
+		"apply：同 index 覆写末条、越界补齐空行、public 缺省 = text")
+	p.filter = true
+	p.viewer = 1
+	check(p.line_text(st, 0) == "A 抽了一张牌", "热座换手后 A 的秘密行在 B 视角下是 public_text")
+	p.viewer = 0
+	check(p.line_text(st, 0) == "A 抽到【X】", "换回 A 的视角又是原文")
+	var st2 := CWLogStore.new()
+	st2.reset_from(3, ["三", "四"])
+	check(st2.logs.size() == 5 and st2.logs[3] == "三" and st2.log_secret[3] == -1 and st2.log_public[4] == "四", "reset_from：从 from 起整段灌、无秘密档")
+	st2.clear()
+	check(st2.logs.is_empty() and st2.log_secret.is_empty(), "clear 清空三条数组")
+	var of_g := CWLogStore.of(g)
+	check(of_g.logs == g.logs and of_g.log_secret == g.log_secret and of_g.log_public == g.log_public, "of(game) 抄的三条数组与引擎相同")
 	p._scroll(5)
 	p.toggle()
 	check(p.visible and p._offset == 0, "开合走 toggle：重新贴底跟随最新行")
@@ -5698,20 +5729,20 @@ func t_log_panel() -> void:
 	lg.log_msg("▶ 癌症A 的回合（能量 6.0）")
 	lg.log_msg("　【定殖】(5, -4) 转为癌组织")
 	lg.log_msg("　癌症A 结束回合（能量 0.5）")
-	chip.refresh(lg, lp)
+	chip.refresh(CWLogStore.of(lg), lp)
 	check(chip._rows[0].text == "　【定殖】(5, -4) 转为癌组织" and chip._rows[1].text == "　癌症A 结束回合（能量 0.5）",
 		"迷你日志显示日志尾巴的最后两行（%s | %s）" % [chip._rows[0].text, chip._rows[1].text])
 	check(chip._rows[1].get_theme_color("font_color").a > chip._rows[0].get_theme_color("font_color").a,
 		"越旧越淡，最后一行全亮")
 	lg.log_msg("这一句故意写得很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长")
-	chip.refresh(lg, lp)
+	chip.refresh(CWLogStore.of(lg), lp)
 	check(chip._rows[0].text.length() > 0 and chip._rows[1].text.begins_with("  "),
 		"超宽的一条按面板同款折行，尾巴两行是同一条的两段（续行带缩进）")
 	## 视角过滤同面板那份：别人的秘密行换公开替身
 	lg.log_msg("免疫B 抽到【永久】LFA-1黏附", 1, "免疫B 抽到一张【永久】")
 	lp.filter = true
 	lp.viewer = 0
-	chip.refresh(lg, lp)
+	chip.refresh(CWLogStore.of(lg), lp)
 	check(chip._rows[1].text == "免疫B 抽到一张【永久】", "迷你日志按面板视角换替身（%s）" % chip._rows[1].text)
 	lp.queue_free()
 	lg.dispose()
@@ -9446,6 +9477,10 @@ func t_plan_allowance() -> void:
 	var path: Array = [Vector2i(1, 0), Vector2i(1, -1), Vector2i(1, -2)]
 	var plan: Dictionary = g.actions.quote_path(c, path)
 	var steps: Array = plan["steps"]
+	var kq := CWKernelInProc.new()   ## 批 1 步 3：query 同源
+	kq.open({ "adopt": g, "autorun": false })
+	check(kq.query("quote_path", { "cid": int(c["id"]), "path": path }) == plan, "kernel.query(quote_path) = g.actions.quote_path（组织驻留的免费步同价）")
+	kq.close()
 	var free_uses: int = CWCost.GATE_USES.get("组织驻留", 1)
 	check(steps.size() == 3 and int(steps[0]["cost"]) == 0 and int(steps[1]["cost"]) == 0
 		and int(steps[2]["cost"]) > 0,
@@ -12592,6 +12627,16 @@ func t_buttons_dim() -> void:
 	## 按钮集合只看种类和等级，不看能量 —— 这正是「宽度不会跳」的依据
 	imm["itype"] = CWData.ImmuneType.T_CELL
 	var rich: Array[String] = g.actions.action_kinds(imm)
+	## 批 1 步 3：cost_effects_for 的批量形态（p=2）= 逐个问的结果
+	var kq := CWKernelInProc.new()
+	kq.open({ "adopt": g, "autorun": false })
+	var batch: Dictionary = kq.query("cost_effects_for", { "cid": int(imm["id"]), "acts": rich })
+	var same_fx := batch.size() == rich.size()
+	for act in rich:
+		if batch.get(act) != g.actions.cost_effects_for(imm, act) or kq.query("cost_effects_for", { "cid": int(imm["id"]), "act": act }) != g.actions.cost_effects_for(imm, act):
+			same_fx = false
+	check(same_fx, "kernel.query(cost_effects_for) 单个与批量都 = g.actions.cost_effects_for")
+	kq.close()
 	imm["energy"] = 1
 	var poor: Array[String] = g.actions.action_kinds(imm)
 	check(rich == poor, "能量掉光了按钮集合也不变（%s）" % str(rich))
@@ -19073,7 +19118,8 @@ func t_kernel_inproc() -> void:
 		"不可用态下各方法不抛不崩")
 	## 6) 方法面：基类 24 个方法、三实现都继承到（反射）
 	var wanted := ["open", "close", "abort", "state", "last_error", "version", "caps", "observe", "logs_for", "pull", "ack", "answer", "abort_ask",
-		"can_save", "save", "restore", "replay_tape", "pending", "step", "log_msg", "surrender", "state_hash", "query", "fork_for_rollout"]
+		"can_save", "save", "restore", "replay_tape", "pending", "step", "log_msg", "surrender", "state_hash", "query", "fork_for_rollout",
+		"run", "step_once", "set_decider", "entry_seq", "discard_after", "discard_before", "observe_envelope"]   ## 后 7 个是批 1 步 3 加的
 	for impl in [CWKernel.new(), CWKernelInProc.new(), CWKernelSidecar.new()]:
 		var have := {}
 		for m in impl.get_method_list():
@@ -19084,10 +19130,282 @@ func t_kernel_inproc() -> void:
 				missing.append(n)
 		check(missing.is_empty(), "%s 有全部 %d 个方法" % [impl.get_class() if impl.get_script() == null else impl.get_script().get_global_name(), wanted.size()])
 
+	## 7) 批 1 步 3（规格 C-1 步 3 的六条）
+	## (a) decider 路上 observe() 带得出正在问的那一问：decider 一直不答，趁它等着看镜像；问人之前恰有一条 sync
+	var k7 := CWKernelInProc.new()
+	var slow = load("res://tests/kernel_slow_decider.gd").new()
+	check(k7.open({ "factions": CWData.FACTION_ORDER[2], "seed": 5, "decider": slow, "observe_viewer": CWKernel.VIEWER_OMNISCIENT }), "open（挂起式 decider + observe_viewer）")
+	spins = 0
+	while slow.waiting.is_empty() and spins < 2000:
+		spins += 1
+		await process_frame
+	var m7 = k7.observe(CWKernel.VIEWER_OMNISCIENT)
+	check(not slow.waiting.is_empty() and m7 != null and not m7.ask.is_empty() and str(m7.ask["kind"]) == str(slow.waiting["kind"])
+		and int(m7.ask["seat"]) == int(slow.waiting["pid"]) and not m7.ask["options"].is_empty(),
+		"decider 路上 observe() 的 ask = decider 正在答的那一问（%s）" % str(slow.waiting.get("kind", "")))
+	var e7: Array = k7.pull(CWKernel.VIEWER_OMNISCIENT, 0, 1000000)
+	var syncs7 := 0
+	for e in e7:
+		if e["t"] == "sync":
+			syncs7 += 1
+	check(syncs7 == slow.asked and not e7.is_empty() and e7[-1]["t"] == "sync" and int(e7[-1]["envelope"]["ask"]["ask_id"]) == int(m7.ask["ask_id"]),
+		"observe_viewer 打开：问人之前各一条 sync，且带的就是这一问（%d 问 / %d 条）" % [slow.asked, syncs7])
+	check(not kinds.has("ask") and not k7.answer(int(m7.ask["ask_id"]), { "index": 0 }), "decider 路没有 ask 条目、answer() 不接这一问")
+	## (b) kernel.abort() 唤醒卡在 decider 里的那一问
+	k7.abort()
+	spins = 0
+	while k7.state() != CWKernel.State.ENDED and spins < 200:
+		spins += 1
+		await process_frame
+	check(slow.aborted and slow.waiting.is_empty() and k7.state() == CWKernel.State.ENDED, "abort() 叫醒 decider 的那一问（decider.abort 被调、对局收束）")
+	k7.close()
+	## (c) open_hands=true 时 logs_for 给观众原文；(e) observe(v, 100) / observe_envelope 只带第 100 行起
+	var k9 := CWKernelInProc.new()
+	check(k9.open({ "factions": CWData.FACTION_ORDER[2], "seed": 3, "decider": CWHeuristicBridge.new(), "open_hands": true }), "open（open_hands）")
+	spins = 0
+	while k9.state() != CWKernel.State.ENDED and spins < 100000:
+		spins += 1
+		await process_frame
+	var si := -1
+	for i in k9.game.log_secret.size():
+		if int(k9.game.log_secret[i]) >= 0:
+			si = i
+			break
+	check(si >= 0, "夹具：整局里有秘密行（第 %d 行）" % si)
+	if si >= 0:
+		check(k9.logs_for(CWKernel.VIEWER_WATCHER, si)[0] == k9.game.logs[si], "open_hands=true：观众 logs_for 给原文")
+		k9.open_hands = false
+		check(k9.logs_for(CWKernel.VIEWER_WATCHER, si)[0] == String(k9.game.log_public[si]), "open_hands 公开可写：关掉后观众又拿替身")
+	var env9: Dictionary = k9.observe_envelope(CWKernel.VIEWER_OMNISCIENT, 100)
+	check(k9.game.logs.size() > 100 and int(env9["logs"]["from"]) == 100 and env9["logs"]["lines"].size() == k9.game.logs.size() - 100
+		and k9.observe(CWKernel.VIEWER_OMNISCIENT, 100) != null,
+		"observe_envelope(v, 100) / observe(v, 100) 只带第 100 行起（共 %d 行）" % k9.game.logs.size())
+	k9.close()
+	## (d) barrier_on=false：roll 不等 ack、barrier_hits 不动、条目照进
+	var k10 := CWKernelInProc.new()
+	check(k10.open({ "factions": CWData.FACTION_ORDER[2], "seed": 1, "consumer": true, "step_drive": true }), "open（consumer，barrier_on 关）")
+	k10.barrier_on = false
+	var n10 := k10.pull(CWKernel.VIEWER_OMNISCIENT, 0, 1000000).size()
+	var flags10 := { "done": 0 }
+	_probe_roll(k10, flags10)
+	await process_frame
+	check(flags10["done"] == 1 and k10.barrier_hits == 0 and k10.pull(CWKernel.VIEWER_OMNISCIENT, 0, 1000000).size() == n10 + 1,
+		"barrier_on=false：不等、hits 0、roll 条目照进")
+	k10.close()
+	## (f) adopt 模式：不装 CWKernelBridge、close() 不 dispose；有消费者的收养（教程）照常装桥并经 run() 起跑
+	var ga := make_game(2, 9)
+	var ka := CWKernelInProc.new()
+	check(ka.open({ "adopt": ga, "autorun": false, "consumer": false }), "open（adopt，无消费者）")
+	check(ka.game == ga and ga.bridges[ga.order[0]] is CWHeuristicBridge and ka.bridge == null and ka.state() == CWKernel.State.READY
+		and not ga.log_line.is_connected(ka._on_log_line),
+		"adopt + 无消费者：原桥原地不动、不装 CWKernelBridge、不连 log_line")
+	ka.close()
+	check(ka.game == null, "adopt 的 close() 放手")
+	check(ga.world != null and ga.setup != null and ga.actions != null, "adopt 的 close() 不 dispose（模块还在）")
+	check(ga.bridges[ga.order[0]].game == ga, "adopt 的 close() 不清原桥的 game")
+	var kb := CWKernelInProc.new()
+	check(kb.open({ "adopt": ga, "autorun": false, "consumer": true, "decider": CWHeuristicBridge.new() }) and kb.state() == CWKernel.State.READY
+		and kb.pull(CWKernel.VIEWER_OMNISCIENT, 0, 10).is_empty(),
+		"adopt + 有消费者 + autorun=false：装桥、不起跑")
+	kb.run()
+	spins = 0
+	while kb.state() != CWKernel.State.ENDED and spins < 100000:
+		spins += 1
+		await process_frame
+	check(kb.state() == CWKernel.State.ENDED and not kb.pull(CWKernel.VIEWER_OMNISCIENT, 0, 10).is_empty(), "run() 起跑到终局、条目照产")
+	kb.close()
+	ga.dispose()
+
 
 func _probe_roll(k: CWKernelInProc, flags: Dictionary) -> void:
 	await k.bridge.show_roll("攻击", 3, 6, 0, Vector2i.ZERO)
 	flags["done"] = int(flags["done"]) + 1
+
+
+## 批 1 步 3：barrier 的释放与计数（护栏④「abort 永远排在 stop 之前」的内核半）
+func t_barrier_release() -> void:
+	print("[内核句柄·barrier 释放与计数]")
+	var flags := { "done": 0 }
+	## 窗口①：消费者循环没在跑（拆局）→ abort() 立即放行，不出超时行（超时行会让 run_tests 判红，自带断言）
+	var k := CWKernelInProc.new()
+	check(k.open({ "factions": CWData.FACTION_ORDER[2], "seed": 1, "consumer": true, "step_drive": true }), "open（consumer + step_drive）")
+	_probe_roll(k, flags)
+	await process_frame
+	check(flags["done"] == 0 and k.barrier_hits == 1, "roll 等 ack，barrier_hits = 1")
+	k.abort()
+	await process_frame
+	check(flags["done"] == 1 and k._barrier_seq == 0, "abort() 放行、barrier 归零")
+	k.close()
+	## 窗口②：ack 正常放行
+	var k2 := CWKernelInProc.new()
+	k2.open({ "factions": CWData.FACTION_ORDER[2], "seed": 1, "consumer": true, "step_drive": true })
+	_probe_roll(k2, flags)
+	await process_frame
+	var seq := int(k2.pull(CWKernel.VIEWER_OMNISCIENT, 0, 10)[-1]["seq"])
+	k2.ack(seq)
+	await process_frame
+	check(flags["done"] == 2 and k2.barrier_hits == 1 and k2._barrier_seq == 0, "ack 放行、计数 1")
+	## 窗口③：快退丢弃越过在飞的 roll → barrier 也放行
+	_probe_roll(k2, flags)
+	await process_frame
+	k2.discard_after(seq)
+	await process_frame
+	check(flags["done"] == 3 and k2.barrier_hits == 2 and k2.entry_seq() > seq, "discard_after 越过在飞的 roll 就放行；seq 不回拨")
+	k2.close()
+
+
+## 批 1 步 3：观测节拍 —— 每个 ask 之前一条 sync、game_over 之前一条 sync，各有且只有一条（A-1.5 / E-4 (a)）
+## 「一次 pull(64) 含两条 sync 时传送差分仍认出两次移动」那半等步 6 的 _play_teleports 接上镜像后补
+func t_observe_cadence() -> void:
+	print("[观测节拍·问人之前一份、终局之前一份]")
+	var k := CWKernelInProc.new()
+	check(k.open({ "factions": CWData.FACTION_ORDER[2], "seed": 12, "observe_viewer": CWKernel.VIEWER_OMNISCIENT }), "open（无 decider + observe_viewer）")
+	var helper := CWHeuristicBridge.new()
+	helper.game = k.game
+	var since := 0
+	var spins := 0
+	while k.state() != CWKernel.State.ENDED and spins < 200000:
+		spins += 1
+		var batch: Array = k.pull(CWKernel.VIEWER_OMNISCIENT, since, 64)
+		if batch.is_empty():
+			await process_frame
+			continue
+		for e in batch:
+			since = int(e["seq"])
+			if e["t"] == "ask":
+				k.answer(int(e["ask_id"]), { "index": await helper.ask(e["req"]) })
+	check(k.state() == CWKernel.State.ENDED, "跑到终局")
+	var entries: Array = k.pull(CWKernel.VIEWER_OMNISCIENT, 0, 1000000)
+	var asks := 0
+	var syncs := 0
+	var paired := true
+	var p_ok := true
+	for i in entries.size():
+		var e: Dictionary = entries[i]
+		if e["t"] == "ask":
+			asks += 1
+			## 紧挨在前面的那条必须是 sync，且带的就是这一问
+			if i == 0 or entries[i - 1]["t"] != "sync" or int(entries[i - 1]["envelope"]["ask"]["ask_id"]) != int(e["ask_id"]):
+				paired = false
+		elif e["t"] == "sync":
+			syncs += 1
+			if int(e["envelope"]["p"]) != CWObsProto.P:
+				p_ok = false
+			## sync 后面紧跟的只能是 ask 或 game_over
+			if i + 1 >= entries.size() or not (entries[i + 1]["t"] in ["ask", "game_over"]):
+				paired = false
+	check(syncs == asks + 1 and paired and p_ok, "sync 条数 = 问数 + 1，每条紧挨着它引出的 ask / game_over（%d 问 / %d 条 sync）" % [asks, syncs])
+	check(entries[-1]["t"] == "game_over" and entries[-2]["t"] == "sync" and int(entries[-2]["envelope"]["state"]["g"]["round_no"]) == k.game.round_no,
+		"终局之前那份 sync 是终局盘面")
+	k.close()
+	## 没设 observe_viewer：一条 sync 都没有（默认 = 批 0 行为）
+	var k0 := CWKernelInProc.new()
+	k0.open({ "factions": CWData.FACTION_ORDER[2], "seed": 12, "decider": CWHeuristicBridge.new() })
+	spins = 0
+	while k0.state() != CWKernel.State.ENDED and spins < 100000:
+		spins += 1
+		await process_frame
+	var none := true
+	for e in k0.pull(CWKernel.VIEWER_OMNISCIENT, 0, 1000000):
+		if e["t"] == "sync":
+			none = false
+	check(none, "observe_viewer 没设：不产 sync")
+	k0.close()
+
+
+## 批 1 步 3：作答 —— key 中 / key 不中走 index / 两者都不中拒答且不钳位；服务器把选项打乱后 key 仍选中同一项
+func t_answer_semkey() -> void:
+	print("[作答·语义键优先、下标兜底、不钳位]")
+	var k := CWKernelInProc.new()
+	check(k.open({ "factions": CWData.FACTION_ORDER[4], "seed": 96, "record_replay": true }), "open（无 decider，录下标）")
+	var helper := CWHeuristicBridge.new()
+	helper.game = k.game
+	var since := 0
+	var got := {}
+	var spins := 0
+	while got.is_empty() and spins < 2000:
+		spins += 1
+		for e in k.pull(CWKernel.VIEWER_OMNISCIENT, since, 64):
+			since = int(e["seq"])
+			if e["t"] == "ask":
+				got = e
+		if got.is_empty():
+			await process_frame
+	var req: Dictionary = got["req"]
+	var opts: Array = req["options"]
+	var ask_id := int(got["ask_id"])
+	var pick := mini(1, opts.size() - 1)
+	check(not k.answer(ask_id, { "index": opts.size() + 5 }) and not k.answer(ask_id, { "index": -3 }), "下标越界：拒答、不钳位")
+	check(not k.answer(ask_id, { "key": "k=nope" }), "key 不中且没有下标：拒答")
+	check(not k._open_ask.is_empty() and int(k._open_ask["index"]) == -1, "拒答不动那一问")
+	check(k.answer(ask_id, { "key": "k=nope", "index": pick }) and int(k.game.replay[-1]) == pick, "key 不中走 index（选中第 %d 项）" % pick)
+	## 下一问：按 key 答；服务器把选项打乱后（key 与顺序无关）仍选中同一项
+	var got2 := {}
+	spins = 0
+	while got2.is_empty() and spins < 2000:
+		spins += 1
+		for e in k.pull(CWKernel.VIEWER_OMNISCIENT, since, 64):
+			since = int(e["seq"])
+			if e["t"] == "ask":
+				got2 = e
+		if got2.is_empty():
+			await process_frame
+	var req2: Dictionary = got2["req"]
+	var opts2: Array = req2["options"]
+	var pick2 := opts2.size() - 1
+	var shuffled: Array = opts2.duplicate()
+	shuffled.reverse()
+	var key2 := CWSemKey.key(req2, shuffled[0]["data"])   ## 打乱后排第一的就是原来的末项
+	check(key2 == CWSemKey.key(req2, opts2[pick2]["data"]), "key 与选项顺序无关")
+	check(k.answer(int(got2["ask_id"]), { "key": key2, "index": 0 }) and int(k.game.replay[-1]) == pick2, "key 中优先于 index：打乱后仍选中同一项（第 %d 项）" % pick2)
+	check(not k.answer(int(got2["ask_id"]), { "index": 0 }), "答过的一问不再接")
+	k.close()
+
+
+## 批 1 步 3：单步驱动 —— 跑 N 步 → save → 再跑 M 步 → restore → 重推同样 M 步，state_hash 逐位相同；seq 不重编号
+func t_kernel_step_drive_rewind() -> void:
+	print("[单步驱动·save / restore 快退重推]")
+	var k := CWKernelInProc.new()
+	check(k.open({ "factions": CWData.FACTION_ORDER[4], "seed": 11, "step_drive": true, "decider": CWHeuristicBridge.new(), "record_replay": true }),
+		"open（step_drive；中途询问交 decider）")
+	var helper := CWHeuristicBridge.new()
+	helper.game = k.game
+	for i in 12:
+		var req: Dictionary = await k.pending()
+		if req.is_empty():
+			break
+		await k.step(await helper.ask(req))
+	var blob: Dictionary = k.save()
+	var seq0 := k.entry_seq()
+	var h0 := k.state_hash()
+	check(k.can_save() and not blob.is_empty(), "N 步后可存（seq %d）" % seq0)
+	var picks: Array = []
+	for i in 10:
+		var req: Dictionary = await k.pending()
+		if req.is_empty():
+			break
+		var idx: int = await helper.ask(req)
+		picks.append(idx)
+		await k.step(idx)
+	var h1 := k.state_hash()
+	var seq1 := k.entry_seq()
+	check(h1 != h0 and seq1 > seq0, "再跑 M 步：盘面与条目都往前走了（%d 条）" % (seq1 - seq0))
+	check(k.restore(blob), "restore 放行（step_drive 且没在跑）")
+	k.discard_after(seq0)
+	check(k.state_hash() == h0 and k.entry_seq() == seq1 and k.pull(CWKernel.VIEWER_OMNISCIENT, 0, 1000000)[-1]["seq"] == seq0,
+		"restore + discard_after：盘面回到存点、条目丢到存点、_next_seq 不回拨")
+	for idx in picks:
+		var req: Dictionary = await k.pending()
+		check(not req.is_empty(), "重推时还有一问")
+		await k.step(idx)
+	check(k.state_hash() == h1, "快退重推后 state_hash 逐位相同")
+	var seqs: Array = []
+	for e in k.pull(CWKernel.VIEWER_OMNISCIENT, seq0, 1000000):
+		seqs.append(int(e["seq"]))
+	check(not seqs.is_empty() and seqs[0] > seq1, "重推产的条目 seq 接着 %d 之后编（首条 %d）" % [seq1, seqs[0] if not seqs.is_empty() else -1])
+	## step_once：三步收进内核
+	check(await k.step_once(), "step_once 往前一步")
+	k.close()
 
 
 ## 口径二 · 批 0 步 11：播放队列 + Remote 只读适配器

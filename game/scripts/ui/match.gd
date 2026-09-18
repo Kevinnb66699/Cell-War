@@ -259,6 +259,7 @@ const WATCH_ON := true
 var _chat: CWChatBox         ## 房内聊天（只有联机局有：本地局没人可聊）
 var _chat_seen := 0          ## 已经搬到框里的第几条（同 _feed_seq 的路子）
 var _chat_client: CWNetClient   ## 框里的消息来自哪个连接：换了连接就清框、游标归零（同一房间再来一局则接着用）
+var log_store: CWLogStore = CWLogStore.new()   ## 对局日志的 UI 侧存储（批 1 步 5，规格 A-7）：日志面板 / 迷你日志只读它
 var _ask_serial := 0     ## 每收到一次询问递增：作答时核对，服务器代打后重问的旧答案不发
 
 @onready var board: Node2D = get_node(board_path)
@@ -1264,6 +1265,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if game == null or game.tiles.is_empty() or _fading:
 		return
+	log_store = CWLogStore.of(game)   ## 批 1 步 5 的过渡：每帧从活对局抄一份，行为不变；步 8 换成队列的 log 条目 apply()
 	_sync_feed()   ## 出牌列跟着对局状态走（方案甲）：只补没见过的那几条，便宜
 	_sync_chat()
 	if _replay_bar != null and replay != null:
@@ -1318,10 +1320,10 @@ func _process(delta: float) -> void:
 			_log_panel.viewer = (bridge as CWUIBridge).current_human
 		else:
 			_log_panel.viewer = human_players[0] if not human_players.is_empty() else -1
-		_log_panel.refresh(game)
+		_log_panel.refresh(log_store)
 	if _log_hint != null and _log_panel != null:
 		_log_hint.visible = not _log_panel.visible   ## 面板开着就让位（同一个角）
-		_log_hint.refresh(game, _log_panel)          ## 迷你日志：日志尾巴两行，视角跟面板同一份（方案 A，Kevin 2026-09-06）
+		_log_hint.refresh(log_store, _log_panel)          ## 迷你日志：日志尾巴两行，视角跟面板同一份（方案 A，Kevin 2026-09-06）
 	## 状态推进：带 watch 的步骤由真实局面翻页（不代做）；讲解型步骤不受影响
 	if _guide != null and is_instance_valid(_guide) and _guide.active:
 		_guide.check_progress()

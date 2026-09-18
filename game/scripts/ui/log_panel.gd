@@ -162,10 +162,10 @@ func _scroll(delta_lines: int) -> void:
 
 
 ## 每帧由 CWMatch 调。窗口起点是纯函数（first_line），测试直接核对。
-func refresh(game: CWGame) -> void:
-	if not visible or game == null:
+func refresh(store: CWLogStore) -> void:
+	if not visible or store == null:
 		return
-	_rebuild_rows(game)
+	_rebuild_rows(store)
 	var total := _rows.size()
 	_offset = clampi(_offset, 0, maxi(total - _visible_n, 0))
 	var first := first_line(total, _visible_n, _offset)
@@ -178,7 +178,7 @@ func refresh(game: CWGame) -> void:
 		## 着色看**源日志**的行首，不看折行后的续行（续行以缩进开头，
 		## 直接喂给 line_color 会被当成「细节行」而变灰）
 		_lines[i].add_theme_color_override("font_color",
-			line_color(game.logs[_row_src[idx]]))
+			line_color(store.logs[_row_src[idx]]))
 	## 滑块：高度按可见比例、位置按窗口在整卷里的位置
 	var frac := 1.0 if total <= _visible_n else float(_visible_n) / total
 	var h := maxf(_track.size.y * frac, 12.0)
@@ -191,18 +191,18 @@ func refresh(game: CWGame) -> void:
 
 ## 把新增的日志折成显示行。**最后一条可能被就地改写**（连续的【定殖】/【净化】合并成一条，
 ## Kevin 2026-09-07），所以它每帧重折；它前面的照旧只折一次。变短了（重开一局、快照回滚）整卷重折。
-func _rebuild_rows(game: CWGame) -> void:
+func _rebuild_rows(store: CWLogStore) -> void:
 	var key := viewer if filter else -2
-	if game.logs.size() < _built or key != _built_key:
+	if store.logs.size() < _built or key != _built_key:
 		_rows.clear()
 		_row_src.clear()
 		_built = 0
 		_built_key = key
 	var w: float = _lines[0].size.x if not _lines.is_empty() \
 		else RECT.size.x - PAD * 2 - 10
-	var stable: int = maxi(game.logs.size() - 1, 0)
+	var stable: int = maxi(store.logs.size() - 1, 0)
 	while _built < stable:
-		for seg in wrap_line(line_text(game, _built), w):
+		for seg in wrap_line(line_text(store, _built), w):
 			_rows.append(seg)
 			_row_src.append(_built)
 		_built += 1
@@ -210,20 +210,21 @@ func _rebuild_rows(game: CWGame) -> void:
 	while not _row_src.is_empty() and _row_src[_row_src.size() - 1] >= stable:
 		_rows.remove_at(_rows.size() - 1)
 		_row_src.remove_at(_row_src.size() - 1)
-	if game.logs.size() > stable:
-		for seg in wrap_line(line_text(game, stable), w):
+	if store.logs.size() > stable:
+		for seg in wrap_line(line_text(store, stable), w):
 			_rows.append(seg)
 			_row_src.append(stable)
 
 
-## 第 i 条日志在当前视角下显示成什么。**纯函数**（只读 game 与本节点两个开关），测试直接核对。
-func line_text(game: CWGame, i: int) -> String:
-	if not filter or i >= game.log_secret.size():
-		return game.logs[i]
-	var who: int = game.log_secret[i]
+## 第 i 条日志在当前视角下显示成什么。**纯函数**（只读 store 与本节点两个开关），测试直接核对。
+## 形参是 CWLogStore 而不是 CWGame（批 1 步 5，规格 A-7）：三条数组同名，函数体没变
+func line_text(store: CWLogStore, i: int) -> String:
+	if not filter or i >= store.log_secret.size():
+		return store.logs[i]
+	var who: int = store.log_secret[i]
 	if who < 0 or who == viewer:
-		return game.logs[i]
-	return game.log_public[i]
+		return store.logs[i]
+	return store.log_public[i]
 
 
 ## 把一条日志按像素宽折成若干段。**纯函数，测试直接核对。**
