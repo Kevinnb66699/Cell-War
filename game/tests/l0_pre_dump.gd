@@ -14,6 +14,26 @@ const CASE_DIR := "res://tests/l0"
 var out_path := "user://l0_pre.jsonl"
 
 
+## 递归扫用例文件：跳过 cw_case_loader.gd:NON_CASE_FILES 里的数据夹具
+func _scan(dir_path: String, files: Array) -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+	var names: Array = []
+	for name in dir.get_files():
+		if name.ends_with(".json") and not (name in Loader.NON_CASE_FILES):
+			names.append(name)
+	names.sort()
+	for name in names:
+		files.append("%s/%s" % [dir_path, name])
+	var subs: Array = []
+	for sub in dir.get_directories():
+		subs.append(sub)
+	subs.sort()
+	for sub in subs:
+		_scan("%s/%s" % [dir_path, sub], files)
+
+
 func _initialize() -> void:
 	for a in OS.get_cmdline_user_args():
 		var kv: PackedStringArray = a.split("=")
@@ -25,10 +45,7 @@ func _initialize() -> void:
 		quit(1)
 		return
 	var files: Array = []
-	var dir := DirAccess.open(CASE_DIR)
-	for name in dir.get_files():
-		if name.ends_with(".json"):
-			files.append("%s/%s" % [CASE_DIR, name])
+	_scan(CASE_DIR, files)   ## 递归：批次目录 l0/batch{n}/ 也要录（与 l0_runner.gd:_scan_cases、契约门同口径）
 	files.sort()
 	var n := 0
 	var bad := 0

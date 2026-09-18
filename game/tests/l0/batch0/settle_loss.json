@@ -1,0 +1,102 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "settle_loss/mult_before_cut",
+    "probe": "settle_loss",
+    "covers": [
+      "t_hit_order::1.0 ×2 −0.5 = 1.5（倍增在减免之前）"
+    ],
+    "source": "headless_test.gd:t_hit_order —— L423：1.0 ×2 −0.5 = 1.5。**顺序闸** —— 先减免再倍增会得到 (10−5)×2 = 10，是错的；cw_game.gd:868 `static func settle_loss(base, add, mult, div, cut)` —— 五步管线基础 → 固定增加 → 倍增 → 倍减 → 固定减免 ↔ C# Settlement.SettleLoss（Settlement.cs:145，§0.6.7 09-19 已开的五标量入口）。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "base": "10",
+      "add": "0",
+      "mult": "2",
+      "div": "1",
+      "cut": "5"
+    },
+    "expect": 15
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "settle_loss/mult_then_div",
+    "probe": "settle_loss",
+    "covers": [
+      "t_hit_order::×2 再 ÷2 = 原值"
+    ],
+    "source": "headless_test.gd:t_hit_order —— L424：×2 再 ÷2 回到原值，倍增与倍减不互相吃掉；cw_game.gd:868 `static func settle_loss(base, add, mult, div, cut)` —— 五步管线基础 → 固定增加 → 倍增 → 倍减 → 固定减免 ↔ C# Settlement.SettleLoss（Settlement.cs:145，§0.6.7 09-19 已开的五标量入口）。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "base": "10",
+      "add": "0",
+      "mult": "2",
+      "div": "2",
+      "cut": "0"
+    },
+    "expect": 10
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "settle_loss/div_floor",
+    "probe": "settle_loss",
+    "covers": [
+      "t_hit_order::÷2 向下取整到十分位"
+    ],
+    "source": "headless_test.gd:t_hit_order —— L425：÷2 向下取整到十分位（整数除法，不四舍五入）；cw_game.gd:868 `static func settle_loss(base, add, mult, div, cut)` —— 五步管线基础 → 固定增加 → 倍增 → 倍减 → 固定减免 ↔ C# Settlement.SettleLoss（Settlement.cs:145，§0.6.7 09-19 已开的五标量入口）。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "base": "10",
+      "add": "0",
+      "mult": "1",
+      "div": "2",
+      "cut": "0"
+    },
+    "expect": 5
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "settle_loss/cut_floor_zero",
+    "probe": "settle_loss",
+    "covers": [
+      "t_hit_order::减免不会减成负数"
+    ],
+    "source": "headless_test.gd:t_hit_order —— L426：固定减免大于余额时钳到 0，不会减成负数；cw_game.gd:868 `static func settle_loss(base, add, mult, div, cut)` —— 五步管线基础 → 固定增加 → 倍增 → 倍减 → 固定减免 ↔ C# Settlement.SettleLoss（Settlement.cs:145，§0.6.7 09-19 已开的五标量入口）。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "base": "5",
+      "add": "0",
+      "mult": "1",
+      "div": "1",
+      "cut": "10"
+    },
+    "expect": 0
+  }
+]

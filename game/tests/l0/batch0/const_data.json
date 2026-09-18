@@ -1,0 +1,671 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/board_radius",
+    "probe": "const",
+    "covers": [
+      "t_board::血管两端是棋盘对角（相距"
+    ],
+    "source": "headless_test.gd:t_board L297 `CWData.hex_dist(VESSELS[0], VESSELS[1]) == CWData.BOARD_RADIUS * 2`；cw_data.gd:16 `const BOARD_RADIUS := 6`（半径 6 蜂窝 = 1 + 3×6×7 = 127 格）↔ C# MatchSetup.BoardRadius = 6。单位：格，两侧同为裸整数",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.BOARD_RADIUS"
+    },
+    "expect": 6
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/aerobic_by_level",
+    "probe": "const",
+    "covers": [
+      "t_immune_level_rules::四档就是 2.0 / 3.0 / 4.5 / 5.0（issue #13）",
+      "t_immune_level_rules::**不等差** —— 这正是它写不成 base + step × 等级、只能查表的原因"
+    ],
+    "source": "headless_test.gd:t_immune_level_rules L1891（整表）+ L1893（不等差 —— 整表取值即覆盖）；PRD issue #13 2026-09-10 改查表 2.0 / 3.0 / 4.5 / 5.0；cw_data.gd:231 ↔ C# RuleTuning.AerobicByLevel（旋钮缺省值 [20,30,45,50]）。单位：十分能量，两侧同为整数表，无换算",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.AEROBIC_BY_LEVEL"
+    },
+    "expect": {
+      "kind": "tree",
+      "value": [
+        20,
+        30,
+        45,
+        50
+      ]
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/macro_move_net_min",
+    "probe": "const",
+    "covers": [
+      "t_macro_purify_heal::净支出下限 0.1"
+    ],
+    "source": "headless_test.gd:t_macro_purify_heal L2028；一次迁移的净支出至少 0.1（队友 2026-09-01「巨噬可以无穷动」的封口）；cw_data.gd:393 `MACRO_MOVE_NET_MIN := 1` ↔ C# CellRules.MacroMoveNetMin（internal const）。单位：十分能量（1 = 0.1）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.MACRO_MOVE_NET_MIN"
+    },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/anaerobic_block_exp",
+    "probe": "const",
+    "covers": [
+      "t_anaerobic_sqrt::Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2.8 + 全图固化数 × 1.0"
+    ],
+    "source": "headless_test.gd:t_anaerobic_sqrt L2310；PRD Kevin 2026-09-07 无氧公式的指数 0.30；cw_data.gd:106 ↔ C# RuleTuning.AnaerobicBlockExp = 30。单位：百分数（30 = 0.30），两侧同",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.ANAEROBIC_BLOCK_EXP"
+    },
+    "expect": 30
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/anaerobic_block_coef",
+    "probe": "const",
+    "covers": [
+      "t_anaerobic_sqrt::Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2.8 + 全图固化数 × 1.0"
+    ],
+    "source": "headless_test.gd:t_anaerobic_sqrt L2310；PRD 系数 2.8；cw_data.gd:125 ↔ C# RuleTuning.AnaerobicBlockCoef = 28。单位：十分能量（28 = 2.8）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.ANAEROBIC_BLOCK_COEF"
+    },
+    "expect": 28
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/anaerobic_solid_bonus",
+    "probe": "const",
+    "covers": [
+      "t_anaerobic_sqrt::Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2.8 + 全图固化数 × 1.0"
+    ],
+    "source": "headless_test.gd:t_anaerobic_sqrt L2310；PRD 全图每格固化癌组织 +1.0；cw_data.gd:127 ↔ C# RuleTuning.AnaerobicSolidBonus = 10。单位：十分能量（10 = 1.0）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.ANAEROBIC_SOLID_BONUS"
+    },
+    "expect": 10
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/proliferate_base_by_stage",
+    "probe": "const",
+    "covers": [
+      "t_proliferate_tiers::默认按分期：3",
+      "t_ev_proliferate::每相邻癌性组织 3"
+    ],
+    "source": "headless_test.gd:t_proliferate_tiers L5236（整表）+ t_ev_proliferate L14822（只钉 [0] == 30，整表取值即覆盖）；PRD 2026-09-11 环境恶化 3% / 3.5% / 4%；cw_data.gd:431 ↔ C# RuleTuning.ProliferatePerAdjacent（旋钮缺省值，名字与 GD 不同）。单位：千分率",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.PROLIFERATE_BASE_BY_STAGE"
+    },
+    "expect": {
+      "kind": "tree",
+      "value": [
+        30,
+        35,
+        40
+      ]
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/proliferate_solid_by_stage",
+    "probe": "const",
+    "covers": [
+      "t_proliferate_tiers::默认按分期：3"
+    ],
+    "source": "headless_test.gd:t_proliferate_tiers L5236；PRD 2026-09-11 每固化 0.5% / 1% / 1%；cw_data.gd:435 ↔ C# RuleTuning.ProliferatePerSolid（旋钮缺省值）。单位：千分率",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.PROLIFERATE_SOLID_BY_STAGE"
+    },
+    "expect": {
+      "kind": "tree",
+      "value": [
+        5,
+        10,
+        10
+      ]
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/pseudopod_cost",
+    "probe": "const",
+    "covers": [
+      "t_card_mods::伪足穿透("
+    ],
+    "source": "headless_test.gd:t_card_mods L14225 `PSEUDOPOD_COST > EMT_MOVE_COST`（EMT_MOVE_COST 在 C# 侧无具名常量，那半条留 GD）；cw_data.gd:311 ↔ C# RuleTuning.PseudopodCost = 5。单位：十分能量（5 = 0.5）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.PSEUDOPOD_COST"
+    },
+    "expect": 5
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/necrosis_aerobic_pct",
+    "probe": "const",
+    "covers": [
+      "t_batch2_rules::现行是五折（线上版 PRD：坏死格有氧减半）"
+    ],
+    "source": "headless_test.gd:t_batch2_rules L16034；线上版 PRD 坏死格有氧减半（Kevin 2026-09-07 最终定减半）；cw_data.gd:236 ↔ C# RuleTuning.NecrosisAerobicPct = 50。单位：百分数",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.NECROSIS_AEROBIC_PCT"
+    },
+    "expect": 50
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/attack_max_per_turn",
+    "probe": "const",
+    "covers": [
+      "t_attack_cap::默认每行动回合最多攻击 3 次"
+    ],
+    "source": "headless_test.gd:t_attack_cap L16729（这条单钉**默认值**，同函数后面那条「常量 == 旋钮缺省」按批 0 口径不迁）；口径 #88 Kevin 2026-08-31 定案 3；cw_data.gd:376 ↔ C# RuleTuning.AttackMaxPerTurn = 3。单位：次",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.ATTACK_MAX_PER_TURN"
+    },
+    "expect": 3
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/hunt_chemo_rounds",
+    "probe": "const",
+    "covers": [
+      "t_effector_responses::PRD：追踪源持续 **2** 个世界回合（issue #13）"
+    ],
+    "source": "headless_test.gd:t_effector_responses L5130；PRD issue #13 追踪趋化源持续 2 个世界回合；cw_data.gd:646 ↔ C# SkillRules.HuntChemoRounds（internal const = 2）。单位：世界回合",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.HUNT_CHEMO_ROUNDS"
+    },
+    "expect": 2
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/hex_dist/6_0/n6_0",
+    "probe": "const",
+    "covers": [
+      "t_board::血管两端是棋盘对角（相距"
+    ],
+    "source": "headless_test.gd:t_board L297 —— 血管两端 (6,0) / (-6,0) 相距 BOARD_RADIUS × 2 = 12；cw_data.gd:934 `hex_dist(a, b)`（轴坐标六边距）↔ C# HexPosition.DistanceTo（**实例方法** a.DistanceTo(b)，签名不同、表项转调即可）。单位：格",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.hex_dist",
+      "a": "6,0",
+      "b": "-6,0"
+    },
+    "expect": 12
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/hex_dist/n3_0/4_0",
+    "probe": "const",
+    "covers": [
+      "t_proliferate_tiers::两处互不相邻，各成一个连通块"
+    ],
+    "source": "headless_test.gd:t_proliferate_tiers L5252 夹具自检 —— na = (-4,0)+DIRS[0] = (-3,0)、nb = (3,0)+DIRS[0] = (4,0)，两处 > 1 格即各成一块；cw_data.gd:934 `hex_dist(a, b)`（轴坐标六边距）↔ C# HexPosition.DistanceTo（**实例方法** a.DistanceTo(b)，签名不同、表项转调即可）。单位：格",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.hex_dist",
+      "a": "-3,0",
+      "b": "4,0"
+    },
+    "expect": 7
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/hex_dist/n3_0/5_0",
+    "probe": "const",
+    "covers": [
+      "t_proliferate_tiers::两处互不相邻，各成一个连通块"
+    ],
+    "source": "headless_test.gd:t_proliferate_tiers L5252 同一条的后半 —— far = nb+DIRS[0] = (5,0)；cw_data.gd:934 `hex_dist(a, b)`（轴坐标六边距）↔ C# HexPosition.DistanceTo（**实例方法** a.DistanceTo(b)，签名不同、表项转调即可）。单位：格",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.hex_dist",
+      "a": "-3,0",
+      "b": "5,0"
+    },
+    "expect": 8
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/anaerobic_cells_k/1",
+    "probe": "const",
+    "covers": [
+      "t_anaerobic_sqrt::k：块内 1/2/3 个癌细胞 → 80"
+    ],
+    "source": "headless_test.gd:t_anaerobic_sqrt L2325 —— 块内 1 个癌细胞 → 80%；PRD 2026-09-14 issue #43 人数系数 k；cw_data.gd:255 `anaerobic_cells_k(n)` = ANAEROBIC_CELLS_K[clampi(n-1, 0, 2)]（表 [80,100,120]）↔ C# RuleTuning.AnaerobicCellsK（**C# 是裸表、GD 是带 clamp 的函数** —— C# 表项必须自己补同一个 clamp 才等价）。单位：百分数",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.anaerobic_cells_k",
+      "a": "1"
+    },
+    "expect": 80
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/anaerobic_cells_k/2",
+    "probe": "const",
+    "covers": [
+      "t_anaerobic_sqrt::k：块内 1/2/3 个癌细胞 → 80"
+    ],
+    "source": "headless_test.gd:t_anaerobic_sqrt L2325 —— 块内 2 个 → 100%；PRD 2026-09-14 issue #43 人数系数 k；cw_data.gd:255 `anaerobic_cells_k(n)` = ANAEROBIC_CELLS_K[clampi(n-1, 0, 2)]（表 [80,100,120]）↔ C# RuleTuning.AnaerobicCellsK（**C# 是裸表、GD 是带 clamp 的函数** —— C# 表项必须自己补同一个 clamp 才等价）。单位：百分数",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.anaerobic_cells_k",
+      "a": "2"
+    },
+    "expect": 100
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/anaerobic_cells_k/3",
+    "probe": "const",
+    "covers": [
+      "t_anaerobic_sqrt::k：块内 1/2/3 个癌细胞 → 80"
+    ],
+    "source": "headless_test.gd:t_anaerobic_sqrt L2325 —— 块内 3 个 → 120%；PRD 2026-09-14 issue #43 人数系数 k；cw_data.gd:255 `anaerobic_cells_k(n)` = ANAEROBIC_CELLS_K[clampi(n-1, 0, 2)]（表 [80,100,120]）↔ C# RuleTuning.AnaerobicCellsK（**C# 是裸表、GD 是带 clamp 的函数** —— C# 表项必须自己补同一个 clamp 才等价）。单位：百分数",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.anaerobic_cells_k",
+      "a": "3"
+    },
+    "expect": 120
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/antibody_no_target_x/2",
+    "probe": "const",
+    "covers": [
+      "t_antibody_no_target_x::III 级 3/5、X 级 4/6（卡面 2026-09-13）"
+    ],
+    "source": "headless_test.gd:t_antibody_no_target_x L2422 —— III 级 3/5；卡面 PRD 2026-09-13 issue #37 按免疫等级分档；cw_data.gd:360 `antibody_no_target_x(lv)` = ANTIBODY_NO_TARGET_X[clampi(lv, 0, 3)]（表 [[2,3],[2,3],[3,5],[4,6]]）↔ C# SkillRules.AntibodyNoTargetX（internal static readonly 表；**C# 表项要自己补 clamp**）。单位：格数对 [健康转癌, 癌转固化]",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.antibody_no_target_x",
+      "a": "2"
+    },
+    "expect": {
+      "kind": "tree",
+      "value": [
+        3,
+        5
+      ]
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/antibody_no_target_x/3",
+    "probe": "const",
+    "covers": [
+      "t_antibody_no_target_x::III 级 3/5、X 级 4/6（卡面 2026-09-13）"
+    ],
+    "source": "headless_test.gd:t_antibody_no_target_x L2422 —— X 级 4/6；卡面 PRD 2026-09-13 issue #37 按免疫等级分档；cw_data.gd:360 `antibody_no_target_x(lv)` = ANTIBODY_NO_TARGET_X[clampi(lv, 0, 3)]（表 [[2,3],[2,3],[3,5],[4,6]]）↔ C# SkillRules.AntibodyNoTargetX（internal static readonly 表；**C# 表项要自己补 clamp**）。单位：格数对 [健康转癌, 癌转固化]",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.antibody_no_target_x",
+      "a": "3"
+    },
+    "expect": {
+      "kind": "tree",
+      "value": [
+        4,
+        6
+      ]
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/antibody_no_target_x/0",
+    "probe": "const",
+    "covers": [
+      "t_antibody_no_target_x::I / II 只是兜底：分化挂 III 级，那两级压根没有 B 细胞"
+    ],
+    "source": "headless_test.gd:t_antibody_no_target_x L2425 —— I 级兜底 2/3；卡面 PRD 2026-09-13 issue #37 按免疫等级分档；cw_data.gd:360 `antibody_no_target_x(lv)` = ANTIBODY_NO_TARGET_X[clampi(lv, 0, 3)]（表 [[2,3],[2,3],[3,5],[4,6]]）↔ C# SkillRules.AntibodyNoTargetX（internal static readonly 表；**C# 表项要自己补 clamp**）。单位：格数对 [健康转癌, 癌转固化]",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.antibody_no_target_x",
+      "a": "0"
+    },
+    "expect": {
+      "kind": "tree",
+      "value": [
+        2,
+        3
+      ]
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/antibody_no_target_x/1",
+    "probe": "const",
+    "covers": [
+      "t_antibody_no_target_x::I / II 只是兜底：分化挂 III 级，那两级压根没有 B 细胞"
+    ],
+    "source": "headless_test.gd:t_antibody_no_target_x L2425 —— II 级兜底 2/3；卡面 PRD 2026-09-13 issue #37 按免疫等级分档；cw_data.gd:360 `antibody_no_target_x(lv)` = ANTIBODY_NO_TARGET_X[clampi(lv, 0, 3)]（表 [[2,3],[2,3],[3,5],[4,6]]）↔ C# SkillRules.AntibodyNoTargetX（internal static readonly 表；**C# 表项要自己补 clamp**）。单位：格数对 [健康转癌, 癌转固化]",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.antibody_no_target_x",
+      "a": "1"
+    },
+    "expect": {
+      "kind": "tree",
+      "value": [
+        2,
+        3
+      ]
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/is_world_event_round/15",
+    "probe": "const",
+    "covers": [
+      "t_event_rounds::14 之后不再触发（终局那回合不插事件）"
+    ],
+    "source": "headless_test.gd:t_event_rounds L2621；PRD 2026-09-07 随 15 回合制改 —— 事件回合 3/6/10/14，14 之后不再插；cw_data.gd:978 `is_world_event_round(r) -> bool` ↔ C# WorldEffects.IsWorldEventRound。**传输形状：bool 冻成 0/1**（批 0 唯一一条 bool，两张表都写 `1 if x else 0`，不靠 runner 的隐式转换）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.is_world_event_round",
+      "a": "15"
+    },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/dir_toward/0_0/0_n5",
+    "probe": "const",
+    "covers": [
+      "t_spread_fx::跃进 5 格（轴线上）：报跃进来的那一侧"
+    ],
+    "source": "headless_test.gd:t_spread_fx L3474 —— o = (0,0)，from = o + DIRS[2]×5 = (0,-5)：轴线上跃进 5 格仍报 DIRS[2]；cw_data.gd:945 `dir_toward(dest, from)`（相邻取轴向、不相邻取夹角最小、同格 -1）↔ C# Stage.DirToward（Stage 是 internal static class，测试调得到）。单位：DIRS 下标 0~5，-1 = 说不出哪一侧",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.dir_toward",
+      "a": "0,0",
+      "b": "0,-5"
+    },
+    "expect": 2
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/dir_toward/0_0/3_n1",
+    "probe": "const",
+    "covers": [
+      "t_spread_fx::不在轴线上的远格 (3,-1)：取夹角最小的 E 侧"
+    ],
+    "source": "headless_test.gd:t_spread_fx L3475 —— 不在轴线上的远格 (3,-1)：夹角最小的是 E 侧 DIRS[0]；cw_data.gd:945 `dir_toward(dest, from)`（相邻取轴向、不相邻取夹角最小、同格 -1）↔ C# Stage.DirToward（Stage 是 internal static class，测试调得到）。单位：DIRS 下标 0~5，-1 = 说不出哪一侧",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.dir_toward",
+      "a": "0,0",
+      "b": "3,-1"
+    },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/dir_toward/0_0/n2_3",
+    "probe": "const",
+    "covers": [
+      "t_spread_fx::远格 (-2,3)：取夹角最小的 SW 侧"
+    ],
+    "source": "headless_test.gd:t_spread_fx L3476 —— 远格 (-2,3)：夹角最小的是 SW 侧 DIRS[4]；cw_data.gd:945 `dir_toward(dest, from)`（相邻取轴向、不相邻取夹角最小、同格 -1）↔ C# Stage.DirToward（Stage 是 internal static class，测试调得到）。单位：DIRS 下标 0~5，-1 = 说不出哪一侧",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.dir_toward",
+      "a": "0,0",
+      "b": "-2,3"
+    },
+    "expect": 4
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/dir_toward/0_0/0_0",
+    "probe": "const",
+    "covers": [
+      "t_spread_fx::同一格：说不出哪一侧，-1（不演）"
+    ],
+    "source": "headless_test.gd:t_spread_fx L3477 —— 同一格：说不出哪一侧，-1（不演）；cw_data.gd:945 `dir_toward(dest, from)`（相邻取轴向、不相邻取夹角最小、同格 -1）↔ C# Stage.DirToward（Stage 是 internal static class，测试调得到）。单位：DIRS 下标 0~5，-1 = 说不出哪一侧",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.dir_toward",
+      "a": "0,0",
+      "b": "0,0"
+    },
+    "expect": -1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/neighbors/0_0",
+    "probe": "const",
+    "covers": [
+      "t_pass_through_ally::正后方第二格与自己不相邻"
+    ],
+    "source": "headless_test.gd:t_pass_through_ally L16841 —— 借道前进的前提：正后方第二格 (2,0) 不在 neighbors((0,0)) 里（整表取值即覆盖）；cw_data.gd:891 `neighbors(c, radius := BOARD_RADIUS)`，**按 DIRS 顺序、滤掉棋盘外** ↔ C# RulePolicies.GdNeighbors（签名不同：C# 要 WorldState 才知道边界；Position.GetNeighbors 不滤棋盘外，**不能拿它顶**）。传输形状：Array[Vector2i] → \"q,r\" 字符串数组，顺序即 DIRS 顺序，两侧不排序",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.neighbors",
+      "a": "0,0"
+    },
+    "expect": {
+      "kind": "tree",
+      "value": [
+        "1,0",
+        "1,-1",
+        "0,-1",
+        "-1,0",
+        "-1,1",
+        "0,1"
+      ]
+    }
+  }
+]

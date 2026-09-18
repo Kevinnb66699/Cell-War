@@ -1,0 +1,90 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "const/card/fn/cancer_phase/5",
+    "probe": "const",
+    "covers": [
+      "t_card_pool::癌症卡分期切在第 6 / 11 回合（PRD：1—5 / 6—10 / 11—15）"
+    ],
+    "source": "headless_test.gd:t_card_pool L12654 —— 第 5 回合仍是 I 期（边界内）；PRD 癌症卡分期 1—5 / 6—10 / 11—15；cw_card_data.gd:182 `cancer_phase(round_no)`（≤5 → 0，≤10 → 1，否则 2）↔ C# RulePolicies.CancerPhase（RulePolicies.cs:35）。单位：分期下标 0/1/2",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWCardData.cancer_phase",
+      "a": "5"
+    },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/card/fn/cancer_phase/6",
+    "probe": "const",
+    "covers": [
+      "t_card_pool::癌症卡分期切在第 6 / 11 回合（PRD：1—5 / 6—10 / 11—15）"
+    ],
+    "source": "headless_test.gd:t_card_pool L12654 —— 第 6 回合切 II 期（下边界）；PRD 癌症卡分期 1—5 / 6—10 / 11—15；cw_card_data.gd:182 `cancer_phase(round_no)`（≤5 → 0，≤10 → 1，否则 2）↔ C# RulePolicies.CancerPhase（RulePolicies.cs:35）。单位：分期下标 0/1/2",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWCardData.cancer_phase",
+      "a": "6"
+    },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/card/fn/cancer_phase/10",
+    "probe": "const",
+    "covers": [
+      "t_card_pool::癌症卡分期切在第 6 / 11 回合（PRD：1—5 / 6—10 / 11—15）"
+    ],
+    "source": "headless_test.gd:t_card_pool L12654 —— 第 10 回合仍是 II 期（上边界）；PRD 癌症卡分期 1—5 / 6—10 / 11—15；cw_card_data.gd:182 `cancer_phase(round_no)`（≤5 → 0，≤10 → 1，否则 2）↔ C# RulePolicies.CancerPhase（RulePolicies.cs:35）。单位：分期下标 0/1/2",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWCardData.cancer_phase",
+      "a": "10"
+    },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/card/fn/cancer_phase/11",
+    "probe": "const",
+    "covers": [
+      "t_card_pool::癌症卡分期切在第 6 / 11 回合（PRD：1—5 / 6—10 / 11—15）"
+    ],
+    "source": "headless_test.gd:t_card_pool L12654 —— 第 11 回合切 III 期（下边界）；PRD 癌症卡分期 1—5 / 6—10 / 11—15；cw_card_data.gd:182 `cancer_phase(round_no)`（≤5 → 0，≤10 → 1，否则 2）↔ C# RulePolicies.CancerPhase（RulePolicies.cs:35）。单位：分期下标 0/1/2",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWCardData.cancer_phase",
+      "a": "11"
+    },
+    "expect": 2
+  }
+]

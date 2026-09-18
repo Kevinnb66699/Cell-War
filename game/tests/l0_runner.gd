@@ -28,7 +28,7 @@ const Diff := preload("res://tests/cw_case_diff.gd")
 const Gate := preload("res://tests/l0_contract_gate.gd")
 const OPS_PATH := "res://tests/contract_ops.json"
 
-## P 族分派表（§0.6.4 第 5 条）：8 真 + 4 空壳。集合 ≡ contract_ops.json 里
+## P 族分派表（§0.6.4 第 5 条）：10 真 + 6 空壳。集合 ≡ contract_ops.json 里
 ## `kind:"probe"` 且 status ∈ {OK, KNOWN_GAP, UNDEFINED} 的行；启动时由契约门双射校验。
 ## 空壳 = 本批未开工（NOTIMPL / OUT_OF_SCOPE 的行不进这张表）。
 const PROBE_NAMES: Array[String] = [
@@ -377,13 +377,113 @@ func _probe(g: CWGame, name: String, args: Dictionary) -> Variant:
 			return g.world.overload_loss(_cell(g, args))
 		"attack_outcome":
 			return _outcome_code(g, int(args.get("roll", 0)), _cell(g, args))
-		## 八个空壳（§0.6.4 第 5 条 + §0.6.7 四条）：表里是 deferred，分派表里留位子，调用即报本批未开工
-		"move_raw_cost", "pass_through_cost", "quote_path", "const", \
-		"move_legal", "anaerobic_pool", "split_share", "settle_loss":
+		"const":
+			## 一个探针管一整张常量表（规格 §B 批 0：**不要一个常量一个探针**）。表在 _build_consts()
+			return _const_value(g, args)
+		"settle_loss":
+			## 纯静态五进一出；C# 侧 Settlement.SettleLoss 是 §0.6.7 开的同一个入口，两边都只转调、不重写算式
+			return CWGame.settle_loss(_arg_int(args, "base"), _arg_int(args, "add"), \
+				_arg_int(args, "mult"), _arg_int(args, "div"), _arg_int(args, "cut"))
+		## 六个空壳（§0.6.4 第 5 条 + §0.6.7 四条）：表里是 deferred，分派表里留位子，调用即报本批未开工
+		"move_raw_cost", "pass_through_cost", "quote_path", \
+		"move_legal", "anaerobic_pool", "split_share":
 			_fail("探针 %s：本批未开工" % name)
 			return null
 	_fail("不认识的探针：%s" % name)
 	return null
+
+
+# ---- 常量表（探针 const）----
+## **一个探针管一整张表**（规格 §B 批 0：「不要一个常量一个探针」）：`args.name` 是 GD 全名。
+## 表项只**转调 / 取值，一行算式都不写**（纪律 3）—— 写了就从「两边算出同一个数」
+## 变成「两边各抄了一份同样的算式」，那种绿灯不作数。
+##
+## 键集合与 C# 侧 `core/CellWar.Core.Tests/L0/Probes.cs:ConstTable` **逐字相同**（人工核，没有机器闸）。
+## 其中 21 个符号 C# 那边没有对应物（或只有 private）：C# 表项抛 NotSupportedException，
+## 对应断言**留在 GD 的老 check() 里、用例不进仓库**（清单见 contract_ops.json 的 `const` 行 note）。
+##
+## **传输形状**（两侧表项逐字同一套，C# 侧 Probes.cs 上有同一段注释）：
+##   * int    → `scalar`，裸整数原样；
+##   * bool   → `scalar`，写 1 / 0（本表里只有 is_world_event_round）；
+##   * float  → 按**千分位**冻成整数 `round(x * 1000)` —— 批 0 一个都没有，口径先立着；
+##   * Array / Dictionary → `tree`：Vector2i 写 "q,r"、枚举写整数值。
+##     GD 这边由 runner 的 _to_json() 收口（它已经做 Vector2i → "q,r" 与 float 取整），
+##     C# 那边由表项自己调 WorldLoader.At —— 两侧出来的字符串逐字相同。
+##
+## `args` 文法：`{"name": <GD 全名>}`；静态函数的位置参数写 "a" / "b" / "c"，一律字符串，
+## 表项自己解析（整数 / 坐标 "q,r" / 枚举名）。
+var _consts: Dictionary = _build_consts()
+
+
+## 表项签名 `func(g: CWGame, a: Dictionary) -> Variant`，与 C# 的 `(WorldState s, Args a)` 一一对应。
+func _build_consts() -> Dictionary:
+	return {
+		## ---- CWData · 常量（int → scalar）----
+		"CWData.BOARD_RADIUS": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.BOARD_RADIUS,
+		"CWData.TOTAL_TILES": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.TOTAL_TILES,
+		"CWData.ANAEROBIC_BLOCK_EXP": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.ANAEROBIC_BLOCK_EXP,
+		"CWData.ANAEROBIC_BLOCK_COEF": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.ANAEROBIC_BLOCK_COEF,
+		"CWData.ANAEROBIC_SOLID_BONUS": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.ANAEROBIC_SOLID_BONUS,
+		"CWData.NECROSIS_AEROBIC_PCT": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.NECROSIS_AEROBIC_PCT,
+		"CWData.DIFFERENTIATE_MIN_LEVEL": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.DIFFERENTIATE_MIN_LEVEL,
+		"CWData.HAND_MAX": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.HAND_MAX,
+		"CWData.PSEUDOPOD_COST": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.PSEUDOPOD_COST,
+		"CWData.EMT_MOVE_COST": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.EMT_MOVE_COST,
+		"CWData.MUTATE_EXTRA_LOSS": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.MUTATE_EXTRA_LOSS,
+		"CWData.MUTATE_MEMORY_CUT": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.MUTATE_MEMORY_CUT,
+		"CWData.ATTACK_MAX_PER_TURN": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.ATTACK_MAX_PER_TURN,
+		"CWData.MACRO_MOVE_NET_MIN": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.MACRO_MOVE_NET_MIN,
+		"CWData.CHEMO_IMMUNE_PCT": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.CHEMO_IMMUNE_PCT,
+		"CWData.CHEMO_SELF_PCT": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.CHEMO_SELF_PCT,
+		"CWData.MARK_RANGE": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.MARK_RANGE,
+		"CWData.HUNT_CHEMO_ROUNDS": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.HUNT_CHEMO_ROUNDS,
+		## ---- CWData · 常量表（Array / Dictionary → tree）----
+		"CWData.LEVEL_MIN_MEMORY": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.LEVEL_MIN_MEMORY,
+		"CWData.AEROBIC_BY_LEVEL": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.AEROBIC_BY_LEVEL,
+		"CWData.PROLIFERATE_BASE_BY_STAGE": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.PROLIFERATE_BASE_BY_STAGE,
+		"CWData.PROLIFERATE_SOLID_BY_STAGE": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.PROLIFERATE_SOLID_BY_STAGE,
+		"CWData.VESSELS": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.VESSELS,   ## Vector2i 表 —— _to_json() 把它冻成 ["6,0", "-6,0"]
+		"CWData.EFFECTOR_NAMES": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.EFFECTOR_NAMES,   ## 键是 ImmuneType 枚举 —— _to_json() 冻成 "0"…"4"
+		"CWData.IMMUNE_TYPE_TEXT": func(_g: CWGame, _a: Dictionary) -> Variant: return CWData.IMMUNE_TYPE_TEXT,
+		## ---- CWData · 静态函数（位置参数 a / b / c，一律字符串，表项自己解析）----
+		"CWData.init_cancer_tiles": func(_g: CWGame, a: Dictionary) -> Variant: return CWData.init_cancer_tiles(_arg_int(a, "a")),
+		"CWData.aerobic_level_base": func(_g: CWGame, a: Dictionary) -> Variant: return CWData.aerobic_level_base(_arg_int(a, "a")),
+		"CWData.anaerobic_cells_k": func(_g: CWGame, a: Dictionary) -> Variant: return CWData.anaerobic_cells_k(_arg_int(a, "a")),
+		"CWData.level_min_memory": func(_g: CWGame, a: Dictionary) -> Variant: return CWData.level_min_memory(_arg_int(a, "a")),
+		"CWData.antibody_no_target_x": func(_g: CWGame, a: Dictionary) -> Variant: return CWData.antibody_no_target_x(_arg_int(a, "a")),
+		"CWData.skill_text": func(_g: CWGame, a: Dictionary) -> Variant: return CWData.skill_text(str(a.get("a", "")), _arg_int(a, "b"), int(a.get("c", -1))),   ## c = itype，缺省 -1（同 GD 的默认实参）
+		"CWData.all_coords": func(g: CWGame, _a: Dictionary) -> Variant: return CWData.all_coords(g.board_radius),
+		"CWData.ring": func(_g: CWGame, a: Dictionary) -> Variant: return CWData.ring(_arg_pos(a, "a"), _arg_int(a, "b")),
+		"CWData.neighbors": func(g: CWGame, a: Dictionary) -> Variant: return CWData.neighbors(_arg_pos(a, "a"), g.board_radius),   ## 半径走盘面的 board_radius —— C# 侧 GdNeighbors 是按 s.Board 裁的，不传就会在非 6 半径的盘面上分叉
+		"CWData.hex_dist": func(_g: CWGame, a: Dictionary) -> Variant: return CWData.hex_dist(_arg_pos(a, "a"), _arg_pos(a, "b")),
+		"CWData.dir_toward": func(_g: CWGame, a: Dictionary) -> Variant: return CWData.dir_toward(_arg_pos(a, "a"), _arg_pos(a, "b")),   ## a = dest，b = from（同 GD 的形参序）
+		"CWData.is_world_event_round": func(_g: CWGame, a: Dictionary) -> Variant: return 1 if CWData.is_world_event_round(_arg_int(a, "a")) else 0,   ## bool → scalar 的 1 / 0：两侧表项各自冻，不靠 runner 的隐式转换
+		## ---- CWCardData ----
+		"CWCardData.CARDS": func(_g: CWGame, _a: Dictionary) -> Variant: return CWCardData.CARDS,
+		"CWCardData.cancer_phase": func(_g: CWGame, a: Dictionary) -> Variant: return CWCardData.cancer_phase(_arg_int(a, "a")),
+		"CWCardData.effect_of": func(_g: CWGame, a: Dictionary) -> Variant: return CWCardData.effect_of(str(a.get("a", "")), _arg_int(a, "b")),
+	}
+
+
+## 按名字取一个静态符号的值。名字不在表里 = 硬错：**不许**默默返回 null 让它当 0 比过去。
+func _const_value(g: CWGame, args: Dictionary) -> Variant:
+	var key := str(args.get("name", ""))
+	if not _consts.has(key):
+		_fail("常量表里没有「%s」—— 两侧表的键集合必须逐字相同（l0_runner.gd:_build_consts ↔ Probes.cs:ConstTable）" % key)
+		return null
+	return (_consts[key] as Callable).call(g, args)
+
+
+## 位置参数缺了当场记账 —— C# 侧 `Probes.Args.Take` 是同一个规矩（写错键名的用例不许悄悄绿）。
+func _arg_int(args: Dictionary, key: String) -> int:
+	if not args.has(key):
+		_fail("探针参数缺 %s（拿到的是 %s）" % [key, str(args)])
+		return 0
+	return int(args[key])
+
+
+func _arg_pos(args: Dictionary, key: String) -> Vector2i:
+	return _pos(str(args.get(key, "")))
 
 
 # ---- 契约步表（S 族）：名字与 tests/rec/ 的代理、C# 侧 L0/Steps.cs、contract_ops.json 逐名相同 ----

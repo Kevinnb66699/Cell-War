@@ -39,7 +39,7 @@ public class L0RunnerTests
         var data = new TheoryData<string, string>();
         foreach (var file in CaseFiles())
             foreach (var c in Read(file))
-                data.Add(Path.GetFileName(file), c.Id);
+                data.Add(Path.GetRelativePath(CaseDir(), file), c.Id);
         return data;
     }
 
