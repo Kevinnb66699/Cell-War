@@ -40,62 +40,67 @@ public class K2_FlowKnobTests
     [Fact]
     public void 占地胜利hold为1时第一次达标就判胜()
     {
-        var world = Weighted(90, alarmRound: 0).WithTuning(Base with { CancerWinHoldRounds = 1 });
+        var world = Weighted(90, streak: 0).WithTuning(Base with { CancerWinHoldRounds = 1 });
 
-        var (winner, _, kind) = OutcomeRules.Evaluate(world);
+        var (winner, streak, kind) = OutcomeRules.Evaluate(world);
 
         Assert.Equal(Faction.Cancer, winner);
+        Assert.Equal(1, streak);
         Assert.Equal("cancer_weighted", kind);
     }
 
     /// <summary>
-    /// hold = 2（默认）：第一次达标只拉警报，连续第二个世界回合末仍达标才判胜。
-    /// C# 的「连续」= `CancerAlarmRound == WorldRound - 1`（GD 那边是计数器 `cancer_win_streak`，
-    /// 语义不同已登记为 known_divergences #3，协议 §八）。
+    /// hold = 2（默认）：第一次达标只拉警报（计数 1），连续第二个世界回合末仍达标（计数 2）才判胜。
+    /// 计数器 `CancerWinStreak` 与 GD `cancer_win_streak` 同义（2026-09-19 起）。
     /// source: headless_test.gd `t_cancer_win_hold`「hold=2：第一次达标不判胜，计数 1」+「连续第二个回合末仍达标 → 判胜」。
     /// </summary>
     [Fact]
     public void 占地胜利hold为2时第一次达标只报警第二次才判胜()
     {
-        var first = Weighted(90, alarmRound: 0);                       // 上一回合没报过警
-        var (w1, alarm1, kind1) = OutcomeRules.Evaluate(first);
+        var first = Weighted(90, streak: 0);
+        var (w1, s1, kind1) = OutcomeRules.Evaluate(first);
         Assert.Null(w1);
-        Assert.Equal(first.Turn.WorldRound, alarm1);                   // 达标 → 记下这一回合的警报
+        Assert.Equal(1, s1);
         Assert.Equal("", kind1);
 
-        var second = Weighted(90, alarmRound: first.Turn.WorldRound - 1);   // 上一回合已报警
-        var (w2, _, kind2) = OutcomeRules.Evaluate(second);
+        var second = Weighted(90, streak: 1);
+        var (w2, s2, kind2) = OutcomeRules.Evaluate(second);
         Assert.Equal(Faction.Cancer, w2);
+        Assert.Equal(2, s2);
         Assert.Equal("cancer_weighted", kind2);
     }
 
     /// <summary>
-    /// hold = 2：中途掉到线下，警报回合归零（下一次达标要重新从头数）。
-    /// source: headless_test.gd `t_cancer_win_hold`「回落到线下：计数归零」。
+    /// hold = 2：中途掉到线下，计数归零；再次达标要从 1 重新数。
+    /// source: headless_test.gd `t_cancer_win_hold`「回落到线下：计数归零」+「再次达标要从 1 重新数，不能沿用旧计数」。
     /// </summary>
     [Fact]
-    public void 占地胜利hold为2时回落到线下警报归零()
+    public void 占地胜利hold为2时回落到线下计数归零再达标从1数()
     {
-        var world = Weighted(89, alarmRound: 1);   // 89 < 90
+        var (w1, s1, _) = OutcomeRules.Evaluate(Weighted(89, streak: 1));   // 89 < 90
+        Assert.Null(w1);
+        Assert.Equal(0, s1);
 
-        var (winner, alarm, _) = OutcomeRules.Evaluate(world);
-
-        Assert.Null(winner);
-        Assert.Equal(0, alarm);
+        var (w2, s2, _) = OutcomeRules.Evaluate(Weighted(90, streak: 0));
+        Assert.Null(w2);
+        Assert.Equal(1, s2);
     }
 
     /// <summary>
-    /// hold ≥ 3 在 C# 上**当场硬错**，不许静默按 2 算（口径二 E-3「不许假旋钮」）。
-    /// C# 只存「上一次达标是第几个世界回合」（`TurnState.CancerAlarmRound`），数不出 3 连；
-    /// GD 那边是真计数器。要支持得给 TurnState 加计数器 = 动骨架，Kevin 2026-09-18 口径要先报。
+    /// hold = 3：真计数器数得出三连 —— 2026-09-19 之前 C# 只存「上一次达标的回合号」，这里只能抛错；Kevin 拍板改计数器。
     /// </summary>
     [Fact]
-    public void 占地胜利hold三连及以上C井还没有当场硬错()
+    public void 占地胜利hold为3时要连续三个回合末达标()
     {
-        var world = Weighted(90, alarmRound: 0).WithTuning(Base with { CancerWinHoldRounds = 3 });
+        var tune = Base with { CancerWinHoldRounds = 3 };
+        var (w2, s2, _) = OutcomeRules.Evaluate(Weighted(90, streak: 1).WithTuning(tune));
+        Assert.Null(w2);
+        Assert.Equal(2, s2);
 
-        var ex = Assert.Throws<NotSupportedException>(() => OutcomeRules.Evaluate(world));
-        Assert.Contains("cancer_win_hold_rounds", ex.Message);
+        var (w3, s3, kind3) = OutcomeRules.Evaluate(Weighted(90, streak: 2).WithTuning(tune));
+        Assert.Equal(Faction.Cancer, w3);
+        Assert.Equal(3, s3);
+        Assert.Equal("cancer_weighted", kind3);
     }
 
     // ================= ③ anaerobic_on_turn_end =================
@@ -202,8 +207,8 @@ public class K2_FlowKnobTests
 
     // ================= 夹具 =================
 
-    /// <summary>加权占地 = `score` 的盘面（全是普通癌组织，1 格 1 分），`alarmRound` = 上一次达标记在第几回合。</summary>
-    private static WorldState Weighted(int score, int alarmRound)
+    /// <summary>加权占地 = `score` 的盘面（全是普通癌组织，1 格 1 分），`streak` = 进入这一回合末之前的连续达标计数。</summary>
+    private static WorldState Weighted(int score, int streak)
     {
         var tiles = new Dictionary<HexPosition, Tissue>();
         for (var i = 0; i < score; i++)
@@ -219,7 +224,7 @@ public class K2_FlowKnobTests
             {
                 [1] = new() { Seat = 1, Faction = Faction.Cancer, IsAlive = true, DrawCount = 0, AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I, CancerType = CellType.Melanoma },
             },
-            Turn = new TurnState { WorldRound = 4, Phase = Phase.E, ActivePlayerSeat = 1, CancerAlarmRound = alarmRound },
+            Turn = new TurnState { WorldRound = 4, Phase = Phase.E, ActivePlayerSeat = 1, CancerWinStreak = streak },
         };
     }
 

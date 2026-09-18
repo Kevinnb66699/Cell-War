@@ -68,7 +68,7 @@ public sealed record CanonMod(string Name, int Target, int Stage, int Layer, int
     int Value, int? Floor, int Uses, int Until, int Requirement);
 
 public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Memory, int ImmuneLevel,
-    int StartStep, int? Winner, int CancerAlarmRound, int? PendingDiscardPid,
+    int StartStep, int? Winner, int CancerWinStreak, int? PendingDiscardPid,
     int? PendingMutationPid, int? PendingMutationCell, int PendingMutationA, int PendingMutationB,
     int EffectorRound,
     string ChemoAt, int ChemoRounds, int ChemoOwner, int? ChemoCreator,

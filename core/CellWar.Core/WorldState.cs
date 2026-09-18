@@ -54,9 +54,13 @@ public sealed class TurnState
     public int EndStep { get; init; }   // E 阶段游标：0 = 没开始；1 = 蹲守净化（4.9）做完、等它追出的问答问完再做后半
     public Faction? Winner { get; init; }
     /// <summary>怎么赢的（观测协议 `g.win_kind`，GD `win_kind`）：immune_clear / cancer_weighted / limit_cancer / limit_immune；没分胜负 = ""。
-    /// 存下来而不是事后重算：胜负一判 `CancerAlarmRound` 就被改写，从终局状态反推不出「是加权赢的还是回合到了」。</summary>
+    /// 存下来而不是事后重算：胜负一判 `CancerWinStreak` 就没人再动，从终局状态反推不出「是加权赢的还是回合到了」。</summary>
     public string WinKind { get; init; } = "";
-    public int CancerAlarmRound { get; init; }
+    /// <summary>【E-癌症胜利】加权占地**连续达标的回合末次数**（GD `cancer_win_streak`，观测协议 `g.cancer_alarm.streak`）：
+    /// 每个世界回合末 `OutcomeRules.Evaluate` 达标 +1、回落归零，≥ `RuleTuning.CancerWinHoldRounds` 判胜。
+    /// 2026-09-19 之前这里存的是「上一次达标的回合号」（`CancerAlarmRound`），数不出三连，与 GD 的语义也对不上（协议 §八 曾登记为 #3）；
+    /// Kevin 拍板改成真计数器，那条差异随之收敛。</summary>
+    public int CancerWinStreak { get; init; }
     public int? PendingDiscardSeat { get; init; }  // 手牌超过上限时，强制该席位弃置（PRD §657）
     public EntityId? PendingDiscardCell { get; init; }  // 超限的是哪只细胞：GD `discard_to_limit(cell)` 只问那一只、问到它降到上限为止
     public int? PendingMutationSeat { get; init; }  // 【基因组不稳定】：等待该席位从两次突变判定中选一
@@ -183,7 +187,7 @@ public sealed class TurnState
         EndStep = EndStep,
         Winner = Winner,
         WinKind = WinKind,
-        CancerAlarmRound = CancerAlarmRound,
+        CancerWinStreak = CancerWinStreak,
         PendingDiscardSeat = PendingDiscardSeat,
         PendingDiscardCell = PendingDiscardCell,
         PendingMutationSeat = PendingMutationSeat,

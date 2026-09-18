@@ -1448,7 +1448,7 @@ public class RegressionGuardTests
         EndStep = 1,
         Winner = Faction.Cancer,
         WinKind = "cancer_weighted",
-        CancerAlarmRound = 5,
+        CancerWinStreak = 5,
         PendingDiscardSeat = 1,
         PendingDiscardCell = new EntityId(4),
         PendingMutationSeat = 0,

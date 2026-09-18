@@ -174,8 +174,8 @@ internal static class PhaseRules
     public static WorldState FinishEndOfRound(WorldState s, IDeterministicRng rng)
     {
         s = BoardRules.EvolveEndOfRoundB(s, rng);
-        var (winner, alarm, kind) = OutcomeRules.Evaluate(s);
-        s = s.WithTurn(s.Turn.Copy(phase: winner == null ? Phase.E : Phase.Finished, winner: winner, winKind: kind, alarm: alarm, endStep: 0));
+        var (winner, streak, kind) = OutcomeRules.Evaluate(s);
+        s = s.WithTurn(s.Turn.Copy(phase: winner == null ? Phase.E : Phase.Finished, winner: winner, winKind: kind, streak: streak, endStep: 0));
         if (s.Turn.Phase != Phase.Finished)
             s = s.WithTurn(s.Turn.Copy(phase: Phase.S, round: s.Turn.WorldRound + 1, seat: s.Players.Keys.OrderBy(x => x).FirstOrDefault(), startStep: 0, cancerReviveFrom: 0, immuneReviveFrom: 0));
         return s;

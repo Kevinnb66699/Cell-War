@@ -23,7 +23,7 @@ public static class ObservationV1Codec
     // ---- C# 今天没有旋钮、引擎里是字面量的那几个 tune 键（GD 默认值逐个核对过：cw_data.gd:41,46）----
     // `world_events_on` / `cancer_win_hold_rounds` / `osteo_ossify_cost` 2026-09-19 起有旋钮了（K2），改从 `s.Tuning` 现读；
     // 默认值与原来的字面量逐个相同（false / 2 / 20），编码结果不变。
-    private const int CancerWinWeighted = 90;      // OutcomeRules：score >= 90
+    private const int CancerWinWeighted = OutcomeRules.CancerWinWeighted;   // 同一个数，别抄第二份
     private const int LimitRound = 15;             // OutcomeRules：WorldRound >= 15
 
     /// <summary>协议 JSON 的唯一一套选项：snake_case 键名、中文不转义、**未知键硬错**。字典键不套命名策略（技能名 / 事件数据键原样）。</summary>
@@ -82,7 +82,7 @@ public static class ObservationV1Codec
             s.Turn.EffectorRound <= 0 ? -1 : s.Turn.EffectorRound,   // 「从没发动过」GD 记 -1、C# 记 0：协议统一 -1
             cells.Where(c => c.Faction == Faction.Immune && c.Type != CellType.ImmuneBasic).Select(c => (int)c.Type).Distinct().OrderBy(x => x).ToArray(),
             s.Turn.Winner is { } w ? (int)w : -1, WinReason(s), s.Turn.WinKind,
-            new ObsCancerAlarm(s.Turn.CancerAlarmRound, s.Tuning.CancerWinHoldRounds),
+            new ObsCancerAlarm(s.Turn.CancerWinStreak, s.Tuning.CancerWinHoldRounds),
             s.Turn.ChemoAt is { } ca ? new ObsChemo(Pos(ca), s.Turn.ChemoRounds, s.Turn.ChemoOwner, s.Turn.ChemoCreator is { } cc ? Id(cc) : -1) : null,
             Track(s),
             new ObsEvents(WorldEffects.WorldEventNames.ToArray(),   // 世界事件整块未迁：pool 恒全表、double_next 恒 false（夹具 world_events_on = false）

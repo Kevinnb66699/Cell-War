@@ -44,9 +44,9 @@ public class OutcomeRulesTests
     [Fact]
     public void CancerScoreAtNinetyOnConsecutiveRound_IsCancerWin()
     {
-        // 90 格癌组织 → 分数 90；上一世界回合即已报警（WorldRound-1）
+        // 90 格癌组织 → 分数 90；上一世界回合末已达标一次（计数 1），这一回合末仍达标 → 计数 2 = hold → 判胜
         var tiles = Enumerable.Range(0, 90).Select(i => Tile(new HexPosition(i, -i, 0), TissueState.Cancer)).ToArray();
-        var world = Build(new TurnState { WorldRound = 2, Phase = Phase.E, ActivePlayerSeat = 0, CancerAlarmRound = 1 }, tiles);
+        var world = Build(new TurnState { WorldRound = 2, Phase = Phase.E, ActivePlayerSeat = 0, CancerWinStreak = 1 }, tiles);
 
         var (winner, alarm, _) = OutcomeRules.Evaluate(world);
         Assert.Equal(Faction.Cancer, winner);

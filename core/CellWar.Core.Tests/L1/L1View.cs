@@ -11,7 +11,7 @@ namespace CellWar.Core.Tests.L1;
 /// 所以这里**只在这一处和 GD 的 view() 里各写一份**，改一边就得改另一边。
 ///
 /// 有意不进视图的（与 GD 侧文件头同一份口径）：`mods` 只带 {name, uses, until, seq}；
-/// 挂起态（弃置 / 二选一 / 连锁 / 趋化）GD 没有字段、以问答的 kind 出现；`CancerAlarmRound` 与 GD `cancer_win_streak` 语义不同。
+/// 挂起态（弃置 / 二选一 / 连锁 / 趋化）GD 没有字段、以问答的 kind 出现；`CancerWinStreak` 与 GD `cancer_win_streak` 2026-09-19 起同义，但两份视图都不导它（记账 F#8，协议 envelope 里比）。
 /// </summary>
 public static class L1View
 {
@@ -176,7 +176,7 @@ public static class L1View
 
     /// <summary>PRD 手牌上限 8；视图里没有这个字段（GD 是常量）。</summary>
     private const int HandMax = 8;
-    /// <summary>C# `TurnState.CancerAlarmRound` 的默认值（视图不导它）。</summary>
+    /// <summary>C# `TurnState.CancerWinStreak` 的默认值（视图不导它）。</summary>
     private const int CancerAlarmDefault = 0;
 
     // ---------------- 工具 ----------------

@@ -1,7 +1,7 @@
 namespace CellWar.Core.Tests.L1;
 
 /// <summary>
-/// 跨生产者 envelope 对拍的**同一套裁剪**（docs/观测协议_v1.md §八 六条例外 + 比法三条），两处共用：
+/// 跨生产者 envelope 对拍的**同一套裁剪**（docs/观测协议_v1.md §八 五条例外 + 比法三条；原 #3 `cancer_alarm.streak` 2026-09-19 收敛，进对拍），两处共用：
 /// `EnvelopeParityTests`（三条 L1 夹具逐步）与 `L0/PreParityTests`（L0 用例装载自证，闸二 2b）。
 /// 把不比的东西删掉 / 抹平，剩下的逐字段 `DeepDiff`。输入是 `L1View.Plain` 出来的字典 / 列表 / 标量树，**原地改**。
 /// </summary>
@@ -30,7 +30,6 @@ internal static class EnvelopeNormalize
             foreach (var k in CellBSet) ((Dictionary<string, object?>)c["d"]!).Remove(k);     // #4
         }
         var g = (Dictionary<string, object?>)state["g"]!;
-        ((Dictionary<string, object?>)g["cancer_alarm"]!).Remove("streak");   // #3
         foreach (var k in GlobalBSet) ((Dictionary<string, object?>)g["d"]!).Remove(k);
         ((Dictionary<string, object?>)g["d"]!)["phase_text"] = "";   // #6 文案
         g["win_reason"] = "";
