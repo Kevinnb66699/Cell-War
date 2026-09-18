@@ -224,6 +224,9 @@ public static class Probes
         ["CWData.hex_dist"] = (_, a) => a.Pos("a").DistanceTo(a.Pos("b")),   // GD 是两参静态函数，C# 是实例方法：转调，不算无对应物
         ["CWData.dir_toward"] = (_, a) => Stage.DirToward(a.Pos("a"), a.Pos("b")),   // a = dest，b = from（同 GD 的形参序）
         ["CWData.is_world_event_round"] = (_, a) => WorldEffects.IsWorldEventRound(a.Int("a")) ? 1 : 0,   // bool → scalar 的 1 / 0：两侧表项各自冻，不靠 runner 的隐式转换
+        // ---- CWWorldFx · 世界事件容器（批 5b）----
+        ["CWWorldFx.EVENTS"] = (_, _) => WorldEffects.WorldEventNames,
+        ["CWWorldFx.is_world_event"] = (_, a) => WorldEffects.IsWorldEvent(a.Str("a")) ? 1 : 0,   // bool → scalar 的 1 / 0；GD 收条目字典、C# 收名字，按 E-6 规矩 3 用名字收口
         // ---- CWCardData ----
         ["CWCardData.CARDS"] = NoCs("CWCardData.CARDS", "C# 是 CardDefinition 记录表（Cards.All），GD 是「文案 + 双阵营权重」字典 —— 等值比不可能成立"),
         ["CWCardData.cancer_phase"] = (_, a) => RulePolicies.CancerPhase(a.Int("a")),

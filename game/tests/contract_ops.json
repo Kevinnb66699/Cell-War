@@ -43,6 +43,7 @@
     "cs": "RulePolicies.QuoteMove",
     "args": ["cell", "to"], "rng": false,
     "status": "OK", "cases": "required",
+    "note": "批 5b S1 核：世界事件的费用侧 C# **一条都没有** —— `RulePolicies.MoveModifiers` 只读 `c.Modifiers` + `SkillMoveModifiers` + 趋化源 + 黏液，从不碰 `s.Effects`；GD `cw_cost.gd:TEMPLATES` 有三条（基质阻隔 MOVE MULT 2 / SKILL_MOVE MULT 2、免疫伪装 MOVE FLAT_ADD 2、迁移激活 MOVE FREE spec 0 + Store.EVENT_FREE），cond 一律 `cancer` / `immune`。四档（`event:stroma_block_cancer` / `event:stroma_block_immune_unchanged` / `event:camouflage_plus` / `event:free_move`）**本批不开** —— 开了就是四条必红的用例；空档 `world-event-cost-modifiers` 细目记 COVERAGE.md，第二段与 A6 一起开。",
     "boundaries": [
       { "tag": "immune:healthy", "cases": "^move_cost/immune_to_healthy/" },
       { "tag": "immune:cancerous", "cases": "^move_cost/immune_to_cancerous/" },
@@ -265,7 +266,7 @@
     "cs": "RulePolicies.AttackOutcome",
     "args": ["cell", "roll"], "rng": false,
     "status": "OK", "cases": "required",
-    "note": "判词编码成 0/1/2，两侧同一套",
+    "note": "判词编码成 0/1/2，两侧同一套 批 5b S1 核：C# `RulePolicies.AttackOutcome` 等价于 GD 的 **`base_verdict`**，不是 `attack_outcome` —— GD 那一层在 `base_verdict` 之后再套两句事件修正（fail + 【抗原引导】→ success、crit + 【免疫伪装】→ success）。两档（`event:antigen_guide` / `event:camouflage`）**本批不开**；空档 `attack-outcome-world-events`（批 4 登记）细目见此。第二段按口径一补充口径合：签名不变、加两行。",
     "boundaries": [
       { "tag": "plain:fail", "cases": "^attack/plain/roll_[12]_fail$" },
       { "tag": "plain:success", "cases": "^attack/plain/roll_[35]_success$" },
@@ -345,7 +346,7 @@
     "rng": false,
     "status": "OK",
     "cases": "required",
-    "note": "批 0 落地：两侧常量表已建 —— GD `l0_runner.gd:_build_consts`（GD 全名 → Callable）、C# `Probes.cs:ConstTable`（同一串键 → lambda），键集合逐字相同，本批 **40 个符号** （= 批 0 摘到的静态断言真正引用到的那些；规格估的 155 是整个 CWData/CWCardData/CWTissue/CWGame 的静态符号总量，表按批长、用不到的不预先塞，理由：没有用例的表项谁也验不了，还得逐个人工核两端边界）。**不要一个常量一个探针**。args 文法 `{\"name\": <GD 全名>, \"a\"/\"b\"/\"c\": <字符串>}`；传输形状 int→scalar、bool→scalar 写 1/0、float→千分位冻成整数、Array/Dictionary→tree（Vector2i 写 \"q,r\"、枚举写整数值），两侧表项逐字同一套。用例 id：`const/<来源>/<符号小写>[/<变体>]`，来源 ∈ data（cw_data.gd）/ card（cw_card_data.gd）。**C# 无对应物清单（21 个：进表但抛 NotSupportedException，用例不进仓库、留 GD 老 check()，空档记 xcheck/COVERAGE.md）**：CWData.TOTAL_TILES（RulePolicies.cs:638 只在注释里提到）；CWData.DIFFERENTIATE_MIN_LEVEL（PlacementRules.cs:37 直接比 ImmuneLevel.III 枚举）；CWData.HAND_MAX（只有 Cell.HandMax 的 record 字段缺省（WorldState.cs:431），Cell 有 required 成员、取不到静态值）；CWData.EMT_MOVE_COST（CardRules.cs:170 行内字面量 2）；CWData.MUTATE_EXTRA_LOSS（CardRules.cs:645 行内 8）；CWData.MUTATE_MEMORY_CUT（grep 全 core 无具名常量）；CWData.CHEMO_IMMUNE_PCT（grep 全 core 无具名常量）；CWData.CHEMO_SELF_PCT（grep 全 core 无具名常量）；CWData.MARK_RANGE（grep MarkRange / MarkRadius 都没有）；CWData.LEVEL_MIN_MEMORY（免疫等级门槛表 C# 整张没有）；CWData.level_min_memory（同上，按人数分档表也没有）；CWData.EFFECTOR_NAMES（文案表，C# 没搬）；CWData.IMMUNE_TYPE_TEXT（细胞详情文案，C# 没搬）；CWData.skill_text（技能文案，C# 没搬）；CWData.init_cancer_tiles（MatchSetup.cs:74 私有方法里的 `playerCount >= 6 ? 24 : 15`）；CWData.aerobic_level_base（C# 只有标量 AerobicLevelBase，没有按人数分档表（RulePolicies.cs:637 / RuleTuning.cs:107 明写未迁））；CWData.ring（SkillRules.cs:247 用 DistanceTo <= n 内联）；CWCardData.CARDS（C# 是 CardDefinition 记录表（Cards.All），GD 是「文案 + 双阵营权重」字典，等值比不成立）；CWCardData.effect_of（Cards.cs 不带 effect 文案）；CWData.VESSELS（MatchSetup.Vessels 是 private（MatchSetup.cs:20））；CWData.all_coords（MatchSetup.AllCoords 是 private（MatchSetup.cs:95））。另有两条**半迁**：CWData.anaerobic_cells_k 与 CWData.antibody_no_target_x —— C# 只有裸表（RuleTuning.AnaerobicCellsK / SkillRules.AntibodyNoTargetX），GD 的 `clampi` 住在静态函数里，靶场不许补 clamp（纪律 3 / E-6 规矩 3），所以**表内取值那几条进仓库、越界钳住那 4 条留 GD**（anaerobic_cells_k(0) / (4)、antibody_no_target_x(-1) / (9)）；要收进来得先按 §0.6.7 的先例在 C# 开具名入口。CWTissue / CWGame 两档批 0 一条静态断言都没有（CWTissue 七个静态函数全收 tile 字典，按「cond 不出现 tile 实例」的筛法整类出局；CWGame 只有 settle_loss，它自己是另一条 op），所以这两档从 boundaries 里撤掉 —— 留着就是 required 行零命中、启动即红。",
+    "note": "批 0 落地：两侧常量表已建 —— GD `l0_runner.gd:_build_consts`（GD 全名 → Callable）、C# `Probes.cs:ConstTable`（同一串键 → lambda），键集合逐字相同，本批 **40 个符号** （= 批 0 摘到的静态断言真正引用到的那些；规格估的 155 是整个 CWData/CWCardData/CWTissue/CWGame 的静态符号总量，表按批长、用不到的不预先塞，理由：没有用例的表项谁也验不了，还得逐个人工核两端边界）。**不要一个常量一个探针**。args 文法 `{\"name\": <GD 全名>, \"a\"/\"b\"/\"c\": <字符串>}`；传输形状 int→scalar、bool→scalar 写 1/0、float→千分位冻成整数、Array/Dictionary→tree（Vector2i 写 \"q,r\"、枚举写整数值），两侧表项逐字同一套。用例 id：`const/<来源>/<符号小写>[/<变体>]`，来源 ∈ data（cw_data.gd）/ card（cw_card_data.gd）。**C# 无对应物清单（21 个：进表但抛 NotSupportedException，用例不进仓库、留 GD 老 check()，空档记 xcheck/COVERAGE.md）**：CWData.TOTAL_TILES（RulePolicies.cs:638 只在注释里提到）；CWData.DIFFERENTIATE_MIN_LEVEL（PlacementRules.cs:37 直接比 ImmuneLevel.III 枚举）；CWData.HAND_MAX（只有 Cell.HandMax 的 record 字段缺省（WorldState.cs:431），Cell 有 required 成员、取不到静态值）；CWData.EMT_MOVE_COST（CardRules.cs:170 行内字面量 2）；CWData.MUTATE_EXTRA_LOSS（CardRules.cs:645 行内 8）；CWData.MUTATE_MEMORY_CUT（grep 全 core 无具名常量）；CWData.CHEMO_IMMUNE_PCT（grep 全 core 无具名常量）；CWData.CHEMO_SELF_PCT（grep 全 core 无具名常量）；CWData.MARK_RANGE（grep MarkRange / MarkRadius 都没有）；CWData.LEVEL_MIN_MEMORY（免疫等级门槛表 C# 整张没有）；CWData.level_min_memory（同上，按人数分档表也没有）；CWData.EFFECTOR_NAMES（文案表，C# 没搬）；CWData.IMMUNE_TYPE_TEXT（细胞详情文案，C# 没搬）；CWData.skill_text（技能文案，C# 没搬）；CWData.init_cancer_tiles（MatchSetup.cs:74 私有方法里的 `playerCount >= 6 ? 24 : 15`）；CWData.aerobic_level_base（C# 只有标量 AerobicLevelBase，没有按人数分档表（RulePolicies.cs:637 / RuleTuning.cs:107 明写未迁））；CWData.ring（SkillRules.cs:247 用 DistanceTo <= n 内联）；CWCardData.CARDS（C# 是 CardDefinition 记录表（Cards.All），GD 是「文案 + 双阵营权重」字典，等值比不成立）；CWCardData.effect_of（Cards.cs 不带 effect 文案）；CWData.VESSELS（MatchSetup.Vessels 是 private（MatchSetup.cs:20））；CWData.all_coords（MatchSetup.AllCoords 是 private（MatchSetup.cs:95））。另有两条**半迁**：CWData.anaerobic_cells_k 与 CWData.antibody_no_target_x —— C# 只有裸表（RuleTuning.AnaerobicCellsK / SkillRules.AntibodyNoTargetX），GD 的 `clampi` 住在静态函数里，靶场不许补 clamp（纪律 3 / E-6 规矩 3），所以**表内取值那几条进仓库、越界钳住那 4 条留 GD**（anaerobic_cells_k(0) / (4)、antibody_no_target_x(-1) / (9)）；要收进来得先按 §0.6.7 的先例在 C# 开具名入口。CWTissue / CWGame 两档批 0 一条静态断言都没有（CWTissue 七个静态函数全收 tile 字典，按「cond 不出现 tile 实例」的筛法整类出局；CWGame 只有 settle_loss，它自己是另一条 op），所以这两档从 boundaries 里撤掉 —— 留着就是 required 行零命中、启动即红。 **批 5b 追加两个表项**（来源第三档 `fx` = cw_world_fx.gd，id 文法同 `const/<来源>/…`）：`CWWorldFx.EVENTS`（15 名事件表 → tree，钉两侧名表逐字相同 —— 今天没有任何东西钉它，而容器的每一条用例都依赖它）、`CWWorldFx.is_world_event`（bool → scalar 1/0；GD 收条目字典、C# 收名字，按 E-6 规矩 3 在表项里用**名字**收口，不写转换层）。两侧今天都有对应物，真转调、真绿。",
     "boundaries": [
       {
         "tag": "cw_data",
@@ -358,6 +359,10 @@
       {
         "tag": "静态函数",
         "cases": "^const/[a-z_]+/fn/"
+      },
+      {
+        "tag": "cw_world_fx",
+        "cases": "^const/fx/"
       }
     ]
   },
@@ -513,7 +518,7 @@
     "cs": "BoardRules.Decay",
     "args": [], "rng": false,
     "status": "OK", "cases": "required",
-    "note": "【基质稳定】在场那一回合整步跳过，两侧都是开头一句 return（GD `event_stacks` ↔ C# `WorldEffects.Active`）。事件两档（抑制 / 到期恢复）撞 KG-7：`t_card_mods` ⑩段把那只癌细胞摆在 (5,5)（半径 6 的棋盘外），GD 容得下、C# WorldLoader 不收 —— 记 COVERAGE.md 空档",
+    "note": "【基质稳定】在场那一回合整步跳过，两侧都是开头一句 return（GD `event_stacks` ↔ C# `WorldEffects.Active`）。事件两档（抑制 / 到期恢复）撞 KG-7：`t_card_mods` ⑩段把那只癌细胞摆在 (5,5)（半径 6 的棋盘外），GD 容得下、C# WorldLoader 不收 —— 记 COVERAGE.md 空档 批 5b S1 核：【基质稳定】那一档两侧同（GD `event_stacks > 0` ↔ C# `WorldEffects.Active`），**挡路的只有 KG-7**（`t_card_mods` ⑩段把癌细胞摆在半径 6 的棋盘外），不是事件容器。归 Kevin 那条问（改测试盘面 or 统一盘外口径）。",
     "boundaries": [
       { "tag": "minus_0.5", "cases": "^decay/t_solidify_and_decay/006$" },
       { "tag": "floor_zero", "cases": "^decay/t_solidify_and_decay/007$" },
@@ -541,12 +546,14 @@
     "cs": "BoardRules.TickDurations",
     "args": [], "rng": false,
     "status": "OK", "cases": "required",
-    "note": "GD 这一步住在 CWWorldFx 上 —— 录制代理必须有第四个类 cw_rec_worldfx.gd（规格 A-4）。修饰过期那三档（`t_card_mods` 的 mod 过期 / 跨回合仍在 / 回合末解冻）撞 `cells[].mods` —— E-2 前奏落地后装得进，**批 5a 已收**（`mods_expire` / `mods_keep` 两档）；带 `data` 的那条（TNF-α局部炎症）撞 B6（data 被 dump 成 GDScript 的 Vector2i str()、值还是 bool，而 C# `L0Effect.Data` 是 Dictionary<string,int> ⇒ 整文件 JsonException）—— 都记 COVERAGE.md 空档",
+    "note": "GD 这一步住在 CWWorldFx 上 —— 录制代理必须有第四个类 cw_rec_worldfx.gd（规格 A-4）。修饰过期那三档（`t_card_mods` 的 mod 过期 / 跨回合仍在 / 回合末解冻）撞 `cells[].mods` —— E-2 前奏落地后装得进，**批 5a 已收**（`mods_expire` / `mods_keep` 两档）；带 `data` 的那条（TNF-α局部炎症）撞 B6（data 被 dump 成 GDScript 的 Vector2i str()、值还是 bool，而 C# `L0Effect.Data` 是 Dictionary<string,int> ⇒ 整文件 JsonException）—— 都记 COVERAGE.md 空档 批 5b：`stacks` / `doubled` 跨 tick 保持那两档已开（`t_ev_double_instant`）。带 `data` 的那条（TNF-α局部炎症）**仍撞 B6**，整条归第二段第 1 个提交（loader/dumper 的 data 编解码）。",
     "boundaries": [
       { "tag": "event:one_round_expires", "cases": "^tick_durations/t_ev_lifecycle/000$" },
       { "tag": "event:all_expire", "cases": "^tick_durations/t_ev_lifecycle/001$" },
       { "tag": "mods_expire", "cases": "^tick_durations/mods_expire/" },
-      { "tag": "mods_keep", "cases": "^tick_durations/mods_keep/" }
+      { "tag": "mods_keep", "cases": "^tick_durations/mods_keep/" },
+      { "tag": "event:stacks_and_doubled_preserved", "cases": "^tick_durations/t_ev_double_instant/000$" },
+      { "tag": "event:doubled_one_round_expires", "cases": "^tick_durations/t_ev_double_instant/001$" }
     ]
   },
   {
@@ -637,7 +644,7 @@
     "cs": "",
     "args": [], "rng": false,
     "status": "NOTIMPL", "cases": "none",
-    "note": "C# 未实现（BoardRules.EvolveEndOfRoundB 里是一行注释「7【紊乱】返回原位 —— C# 未实现（世界事件，EV-1）」）。写进表里只为了下一轮没人再去找它的 cs；**不产用例**",
+    "note": "C# 未实现（BoardRules.EvolveEndOfRoundB 里是一行注释「7【紊乱】返回原位 —— C# 未实现（世界事件，EV-1）」）。写进表里只为了下一轮没人再去找它的 cs；**不产用例** 批 5b S1 复核：**本批仍 NOTIMPL·none，一字不动**。GD 入口名是 `round_effects`（`chaos_return` 是它今天唯一的内容），改不改名随第二段实现一起裁（S1 设计草案 §6 第 4 条）。它与【紊乱】绑死：不做紊乱就等于不做它。",
     "boundaries": []
   },
   {
@@ -673,6 +680,26 @@
       { "tag": "fx_round", "cases": "^reset_round_flags/fx_round" },
       { "tag": "metastasis_used", "cases": "^reset_round_flags/metastasis_used" }
     ]
+  },
+  {
+    "op": "trigger", "kind": "step", "family": "S",
+    "prd": "世界事件 · 触发回合抽取并结算（定案 #42 等权、同局不重复）",
+    "gd": "cw_world_fx.gd:trigger", "gd_module": "CWWorldFx",
+    "cs": "",
+    "args": [], "rng": true,
+    "status": "NOTIMPL", "cases": "none",
+    "note": "C# 未实现：抽取 / `pool` / `double_next` / 三档加倍整块没有（`WorldEffects.cs:51` 自注「只有容器与接口，不含 15 个世界事件的内容」；`ObservationV1Codec.cs:90` 的 pool 恒全表、double_next 恒 false；`L0/WorldLoader.cs:157-160` 写了就 UNLOADABLE）。rng 口径：`pool.pop_at(rng.randi_range(0, n-1))` 恰好一笔，`n == 1` 时 `from == to` ⇒ 带子零消耗。写进表只为下一轮没人再找它的 cs；**本批不产用例**、不进分派表。第二段转 OK·required（挂进 `BoardRules.Produce`：`ResetRoundFlags` 之后、`TissueProduction` 之前）。",
+    "boundaries": []
+  },
+  {
+    "op": "on_round_start", "kind": "step", "family": "S",
+    "prd": "世界事件 · 每个世界回合开头的簿记重置与「本回合类加倍」的重演",
+    "gd": "cw_world_fx.gd:on_round_start", "gd_module": "CWWorldFx",
+    "cs": "",
+    "args": [], "rng": true,
+    "status": "NOTIMPL", "cases": "none",
+    "note": "C# 未实现：S 阶段没有这一步（`BoardRules.Produce` = `ResetRoundFlags` + `TissueProduction`，中间什么都没有）。GD 里它做两件事：清【迁移激活】的 `data`（每回合首移重置）、把被【双重触发】加倍的「本回合」类事件再 `_resolve` 一遍。rng：重演路径会走到 `_resolve`（【增殖抑制】弃牌 / 【紊乱】传送）⇒ 标 true。**本批不产用例**、不进分派表；第二段与 `trigger` 同批转 OK·required。",
+    "boundaries": []
   },
   {
     "op": "tissue_production", "kind": "step", "family": "S",
@@ -738,7 +765,7 @@
     "cs": "CellRules.EnterTile",
     "args": ["cell", "dest", "paid"], "rng": true,
     "status": "OK", "cases": "required",
-    "note": "裸名自调 6 处 + 跨模块调用 11 处 —— 录制代理不做深度计数就会录出嵌套三四条（规格 A-4 规矩 2 / D R3）。⚠ **GD 多一个 `paid`**（巨噬【局部吞噬】按实付回能），C# `EnterTile(s, id, dest, rng)` 没有：args 保留 `paid`、`Steps.cs` 不消费，批 1 只写 `paid` 缺省（−1）的用例 —— 写了 `paid` 的用例会被 `AssertAllUsed` 当场打红（`t_macro_purify_heal` 整段留批 4/5）。⚠ 批 1 之前 GD runner 的 `_step` 读的是 `to` 而不是 `dest`（`cases: deferred` 零用例，一直没人踩到），随本批改齐。撤掉 `free` 档：「免费连走」是【趋化募集】/【效应细胞浸润】那条（GD `_free_walk` ↔ C# `CellRules.IsFreeWalk`），要卡牌与挂起态 ⇒ 批 5b 再补回来。批 4：`paid` 的三态由 `execute/move/purify_heal/` 七条覆盖（S1 路 ②：C# `Move` 把自己的报价当 paid 传下去，与 GD `_do_move` 同），只剩「实付 0.1」留空档 macro-heal-paid-0.1（迁移减免的共同地板是 0.2）",
+    "note": "裸名自调 6 处 + 跨模块调用 11 处 —— 录制代理不做深度计数就会录出嵌套三四条（规格 A-4 规矩 2 / D R3）。⚠ **GD 多一个 `paid`**（巨噬【局部吞噬】按实付回能），C# `EnterTile(s, id, dest, rng)` 没有：args 保留 `paid`、`Steps.cs` 不消费，批 1 只写 `paid` 缺省（−1）的用例 —— 写了 `paid` 的用例会被 `AssertAllUsed` 当场打红（`t_macro_purify_heal` 整段留批 4/5）。⚠ 批 1 之前 GD runner 的 `_step` 读的是 `to` 而不是 `dest`（`cases: deferred` 零用例，一直没人踩到），随本批改齐。撤掉 `free` 档：「免费连走」是【趋化募集】/【效应细胞浸润】那条（GD `_free_walk` ↔ C# `CellRules.IsFreeWalk`），要卡牌与挂起态 ⇒ 批 5b 再补回来。批 4：`paid` 的三态由 `execute/move/purify_heal/` 七条覆盖（S1 路 ②：C# `Move` 把自己的报价当 paid 传下去，与 GD `_do_move` 同），只剩「实付 0.1」留空档 macro-heal-paid-0.1（迁移减免的共同地板是 0.2） 批 5b S1 核：`free` 档（批 1 F10 判给 5b）是【趋化募集】/【效应细胞浸润】的**免费连走**，属 5b 的**卡牌半边**，与世界事件无关 —— 世界事件这半边不开它。",
     "boundaries": [
       { "tag": "healthy", "cases": "^enter_tile/healthy/" },
       { "tag": "purify", "cases": "^enter_tile/purify/" },

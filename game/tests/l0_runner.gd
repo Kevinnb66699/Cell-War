@@ -490,6 +490,9 @@ func _build_consts() -> Dictionary:
 		"CWData.hex_dist": func(_g: CWGame, a: Dictionary) -> Variant: return CWData.hex_dist(_arg_pos(a, "a"), _arg_pos(a, "b")),
 		"CWData.dir_toward": func(_g: CWGame, a: Dictionary) -> Variant: return CWData.dir_toward(_arg_pos(a, "a"), _arg_pos(a, "b")),   ## a = dest，b = from（同 GD 的形参序）
 		"CWData.is_world_event_round": func(_g: CWGame, a: Dictionary) -> Variant: return 1 if CWData.is_world_event_round(_arg_int(a, "a")) else 0,   ## bool → scalar 的 1 / 0：两侧表项各自冻，不靠 runner 的隐式转换
+		## ---- CWWorldFx · 世界事件容器（批 5b）----
+		"CWWorldFx.EVENTS": func(_g: CWGame, _a: Dictionary) -> Variant: return CWWorldFx.EVENTS,
+		"CWWorldFx.is_world_event": func(g: CWGame, a: Dictionary) -> Variant: return 1 if g.world_fx.is_world_event({ "name": str(a.get("a", "")) }) else 0,   ## bool → scalar 的 1 / 0；GD 收条目字典、C# 收名字，按 E-6 规矩 3 用名字收口
 		## ---- CWCardData ----
 		"CWCardData.CARDS": func(_g: CWGame, _a: Dictionary) -> Variant: return CWCardData.CARDS,
 		"CWCardData.cancer_phase": func(_g: CWGame, a: Dictionary) -> Variant: return CWCardData.cancer_phase(_arg_int(a, "a")),

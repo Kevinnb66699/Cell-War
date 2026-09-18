@@ -1,0 +1,84 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "const/fx/events",
+    "probe": "const",
+    "covers": [],
+    "source": "cw_world_fx.gd:EVENTS（15 名，按 PRD「世界事件」节出场序） ↔ core/CellWar.Core/WorldEffects.cs:WorldEventNames。钉的是两侧名表**逐字相同**：容器的每一条用例（is_world_event / pool / 抽取）都坐在这张表上，而今天没有任何东西钉它。传输形状：字符串有序表 → tree。本条不回指 GD 旧断言（covers 留空）—— GD 那边没人钉过它。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWWorldFx.EVENTS"
+    },
+    "expect": {
+      "kind": "tree",
+      "value": [
+        "营养输送",
+        "异常增殖",
+        "代谢加速",
+        "紊乱",
+        "抗原引导",
+        "免疫伪装",
+        "抗原变异",
+        "抗原暴露",
+        "增殖抑制",
+        "营养缺乏",
+        "双重触发",
+        "细胞应激",
+        "基质阻隔",
+        "迁移激活",
+        "信号放大"
+      ]
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/fx/fn/is_world_event/world",
+    "probe": "const",
+    "covers": [
+      "_t_no_fake_double_trigger::世界事件仍认得出来"
+    ],
+    "source": "headless_test.gd:_t_no_fake_double_trigger 「世界事件仍认得出来」（原文 `g.world_fx.is_world_event({\"name\": \"基质阻隔\"})`）；cw_world_fx.gd:is_world_event（收**条目字典**） ↔ WorldEffects.IsWorldEvent（收**名字**）。两侧签名不同，按 E-6 规矩 3 在表项里用「名字」收口，**不写转换层**。传输形状：bool → scalar 的 1 / 0（同 const/data/fn/is_world_event_round）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWWorldFx.is_world_event",
+      "a": "基质阻隔"
+    },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/fx/fn/is_world_event/card",
+    "probe": "const",
+    "covers": [
+      "_t_no_fake_double_trigger::卡牌挂的条目不算世界事件"
+    ],
+    "source": "headless_test.gd:_t_no_fake_double_trigger 「卡牌挂的条目不算世界事件」（原文 `not g.world_fx.is_world_event({\"name\": \"TGF-β释放\"})`）。【TGF-β释放】是卡牌挂进同一个容器的全局修饰，不在 EVENTS 表里。少了这一问，on_round_start 会对它喊一句根本没发生过的「双重触发」（2026-08-30 审查问题 3）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWWorldFx.is_world_event",
+      "a": "TGF-β释放"
+    },
+    "expect": 0
+  }
+]

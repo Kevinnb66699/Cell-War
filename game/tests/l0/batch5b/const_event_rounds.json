@@ -1,0 +1,112 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/is_world_event_round/3",
+    "probe": "const",
+    "covers": [
+      "t_event_rounds::触发回合正是 PRD 那四个（"
+    ],
+    "source": "headless_test.gd:t_event_rounds `hit == [3, 6, 10, 14]`（整表比较，一条用例代表不了它 ⇒ 五条共用同一个 covers）；PRD 2026-09-07 随 15 回合制改为 3 / 6 / 10 / 14。cw_data.gd:is_world_event_round ↔ WorldEffects.IsWorldEventRound。传输形状：bool → scalar 的 1 / 0。 第 3 世界回合：触发。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.is_world_event_round",
+      "a": "3"
+    },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/is_world_event_round/6",
+    "probe": "const",
+    "covers": [
+      "t_event_rounds::触发回合正是 PRD 那四个（"
+    ],
+    "source": "headless_test.gd:t_event_rounds `hit == [3, 6, 10, 14]`（整表比较，一条用例代表不了它 ⇒ 五条共用同一个 covers）；PRD 2026-09-07 随 15 回合制改为 3 / 6 / 10 / 14。cw_data.gd:is_world_event_round ↔ WorldEffects.IsWorldEventRound。传输形状：bool → scalar 的 1 / 0。 第 6 世界回合：触发。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.is_world_event_round",
+      "a": "6"
+    },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/is_world_event_round/10",
+    "probe": "const",
+    "covers": [
+      "t_event_rounds::触发回合正是 PRD 那四个（"
+    ],
+    "source": "headless_test.gd:t_event_rounds `hit == [3, 6, 10, 14]`（整表比较，一条用例代表不了它 ⇒ 五条共用同一个 covers）；PRD 2026-09-07 随 15 回合制改为 3 / 6 / 10 / 14。cw_data.gd:is_world_event_round ↔ WorldEffects.IsWorldEventRound。传输形状：bool → scalar 的 1 / 0。 第 10 世界回合：触发。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.is_world_event_round",
+      "a": "10"
+    },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/is_world_event_round/14",
+    "probe": "const",
+    "covers": [
+      "t_event_rounds::触发回合正是 PRD 那四个（"
+    ],
+    "source": "headless_test.gd:t_event_rounds `hit == [3, 6, 10, 14]`（整表比较，一条用例代表不了它 ⇒ 五条共用同一个 covers）；PRD 2026-09-07 随 15 回合制改为 3 / 6 / 10 / 14。cw_data.gd:is_world_event_round ↔ WorldEffects.IsWorldEventRound。传输形状：bool → scalar 的 1 / 0。 第 14 世界回合：触发（表尾）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.is_world_event_round",
+      "a": "14"
+    },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "const/data/fn/is_world_event_round/1",
+    "probe": "const",
+    "covers": [
+      "t_event_rounds::触发回合正是 PRD 那四个（"
+    ],
+    "source": "headless_test.gd:t_event_rounds `hit == [3, 6, 10, 14]`（整表比较，一条用例代表不了它 ⇒ 五条共用同一个 covers）；PRD 2026-09-07 随 15 回合制改为 3 / 6 / 10 / 14。cw_data.gd:is_world_event_round ↔ WorldEffects.IsWorldEventRound。传输形状：bool → scalar 的 1 / 0。 第 1 世界回合：**不**触发——表里只有那四个，这一条钉的是「不在表里就是假」那一半（既有的 .../15 钉的是 14 之后，这一条钉的是 3 之前）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "name": "CWData.is_world_event_round",
+      "a": "1"
+    },
+    "expect": 0
+  }
+]
