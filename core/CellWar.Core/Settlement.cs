@@ -131,6 +131,27 @@ public static class Settlement
     }
 
     /// <summary>
+    /// GD `CWGame.settle_loss(base, add, mult, div, cut)`（cw_game.gd:868-870）的具名入口（规格 §0.6.7）：
+    /// `(base + add) × mult ÷ div`，再 `max{结果 − cut, 0}`。
+    ///
+    /// **不另写一遍算式，转调 <see cref="ApplyEnergyLoss"/>**：那条管线的五步
+    /// （固定加 → 倍增 → 倍减 → 固定减 → 兜 0）就是 PRD「能量损失计算顺序」，与 GD 这一行同源。
+    /// 倍率按本文件的百分数约定编码（`×mult` 记 `mult × 100`、`÷div` 记 `div × 100`），于是管线里
+    /// `num ÷ den = loss × (mult×100) × 100 ÷ (100 × (div×100))`，约掉就是 `loss × mult ÷ div` ——
+    /// **整数除法只发生一次**，与 GD 的 `(base + add) * mult / div` 逐位相同（两边都向零截断）。
+    ///
+    /// `div == 0` 时管线返回 0（GD 那边会当场报除零），这是 C# 多出来的一道兜底，合法入参上走不到。
+    /// </summary>
+    public static int SettleLoss(int baseLoss, int add, int mult, int div, int cut) =>
+        ApplyEnergyLoss(baseLoss,
+        [
+            new ValueModifier(ModifierStage.Add, SourceLayer.Passive, 0, add),
+            new ValueModifier(ModifierStage.Multiply, SourceLayer.Passive, 0, mult * 100),
+            new ValueModifier(ModifierStage.Divide, SourceLayer.Passive, 0, div * 100),
+            new ValueModifier(ModifierStage.Subtract, SourceLayer.Passive, 0, cut),
+        ]);
+
+    /// <summary>
     /// 整数四舍五入除法，逐位对齐 GDScript 的 `CWData.round_tenth(num, den)`。
     ///
     /// ⚠ 照抄的包括它的**前提**：`num >= 0 且 den > 0`。

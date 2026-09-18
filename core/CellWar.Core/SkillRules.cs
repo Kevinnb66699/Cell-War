@@ -1,5 +1,5 @@
 using System.Collections.Immutable;
-﻿using static CellWar.Core.CellRules;
+using static CellWar.Core.CellRules;
 using static CellWar.Core.RulePolicies;
 
 namespace CellWar.Core;
@@ -21,6 +21,8 @@ internal static class SkillRules
         {
             case "抗体":
                 if (cell.Type != CellType.BCell) return new(false, "只有 B 细胞可以发动【抗体】");
+                // GD `build_options`（cw_actions.gd:43-44）：种类判完先过额度闸（`_antibody_quota_left`）、再判付不付得起 —— 顺序照搬
+                if (!AntibodyQuotaLeft(s, cell)) return new(false, "本世界回合【抗体】次数已用完");
                 // 【抗体亲和力成熟】把费用降 0.5；**判据必须和实扣是同一个数**
                 // —— 判与扣对不上正是【趋化源】那条 bug 的形状。
                 return Settlement.CanPay(cell.Energy, RulePolicies.HasSkill(s, cell, "抗体亲和力成熟") ? 5 : 10)
@@ -47,7 +49,7 @@ internal static class SkillRules
                 // 缺了它们 C# 会多出一条 GD 没有的选项（L1 2p 第 47 步）
                 if (own.OssifyAtRound != 0) return new(false, "脚下的癌组织已经标记过【骨样硬化】");
                 if (own.Type == TissueType.BloodVessel) return new(false, "血管不可固化");
-                return Settlement.CanPay(cell.Energy, 20) ? new(true) : new(false, "能量不足");
+                return Settlement.CanPay(cell.Energy, s.Tuning.OsteoOssifyCost) ? new(true) : new(false, "能量不足");   // GD build_options:504 `game.can_pay(cell, game.tune.osteo_ossify_cost)`
             case "早期血行转移":
                 if (cell.Type != CellType.Melanoma) return new(false, "只有恶性黑色素瘤可以发动【早期血行转移】");
                 if (cell.MetastasisUsedThisRound) return new(false, "每世界回合限发动 1 次");
@@ -149,6 +151,10 @@ internal static class SkillRules
     internal static bool JumpQuotaLeft(WorldState s, Cell cell)
         => s.Tuning.MetastasisMaxPerRound <= 0 || cell.JumpUsedThisRound < s.Tuning.MetastasisMaxPerRound;
 
+    /// <summary>GD `_antibody_quota_left`（cw_actions.gd:1188）：旋钮 `antibody_max_per_round`，0 = 不限（现行 PRD，2026-09-01 删掉了「每世界回合最多 2 次」）。</summary>
+    internal static bool AntibodyQuotaLeft(WorldState s, Cell cell)
+        => s.Tuning.AntibodyMaxPerRound <= 0 || cell.AntibodyThisRound < s.Tuning.AntibodyMaxPerRound;
+
     private static ValidationResult ValidateEffector(WorldState s, Cell cell, CellType required)
     {
         if (cell.Type != required) return new(false, "该【效应应答】不属于此细胞种类");
@@ -182,7 +188,7 @@ internal static class SkillRules
                 var matured = RulePolicies.HasSkill(s, cell, "抗体亲和力成熟");
                 var cost = Math.Max(0, 10 - (matured ? 5 : 0));
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - cost, antibody: cell.AntibodyThisRound + 1));
-                var damage = AntibodyDamage(cell.AntibodyThisRound, matured);
+                var damage = AntibodyDamage(s.Tuning, cell.AntibodyThisRound, matured);
                 var targets = Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && AdjacentHealthy(s, x.Position)).ToArray();
                 // GD cw_actions.gd:1250-1259：有目标就打（伤害减到 0 也照走这一支、不去转化组织）；此前 C# 多了 `damage > 0` 才打，用满次数后会改去转化
                 if (targets.Length > 0)
@@ -260,7 +266,7 @@ internal static class SkillRules
             }
             case "骨样硬化":
             {
-                s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 20));
+                s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - s.Tuning.OsteoOssifyCost));   // GD `_do_ossify`（cw_actions.gd:1493）：cost.commit(… CELL_SKILL, game.tune.osteo_ossify_cost …)
                 var at = cell.Position;
                 s = s.WithBoard(s.Board.UpdateTissue(at, s.Board.Tissues[at].WithOssifyAt(s.Turn.WorldRound + 2)));
                 break;

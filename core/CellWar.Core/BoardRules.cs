@@ -97,7 +97,11 @@ internal static class BoardRules
     /// <summary>E 阶段前半（1 → 4.9）：到蹲守净化为止 —— 它可能追出要问玩家的（【连续吞噬】、记忆库抽卡带出的走位…），后半要等问完。</summary>
     public static WorldState EvolveEndOfRoundA(WorldState s, IDeterministicRng rng)
     {
-        s = Anaerobic(s);                              // 1  【无氧呼吸】
+        // 【无氧呼吸】的**时机**跟着旋钮走（GD `cw_world.gd:e_phase()` 第一行 `if not game.tune.anaerobic_on_turn_end:`）：
+        // 默认 false = E 阶段统一结算（Kevin 2026-09-06 改回）；拨 true（扫描的 `eturn=1`）时这一步整个不做，
+        // 改在每个癌细胞自己的行动回合末算（`PhaseRules.AdvancePhase` 的 PlayerAction 分支）。
+        // 演出也跟着一起停 —— GD 的 `fx("anaerobic")` 就写在 `_anaerobic()` 里面，这边同样在 `Anaerobic()` 里面。
+        if (!s.Tuning.AnaerobicOnTurnEnd) s = Anaerobic(s);   // 1  【无氧呼吸】
         s = CancerUpkeep(s);                           // 1.5 【代谢消耗】（PRD 之外的平衡候选③）
         s = Pressure(s);                               // 2  【微环境压迫】
         var fresh = Proliferate(s, rng, out s);        // 3  【增生】

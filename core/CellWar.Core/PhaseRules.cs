@@ -41,6 +41,14 @@ internal static class PhaseRules
         }
         else if (s.Turn.Phase == Phase.PlayerAction)
         {
+            // 【E-无氧呼吸】`anaerobic_on_turn_end`（扫描的 `eturn=1`）：改在**这个癌细胞自己的行动回合末**结算，
+            // E 阶段那一步同时停掉（`BoardRules.EvolveEndOfRoundA`）。默认 false，这一段整块不跑 —— 零行为改动。
+            // 位置对齐 GD `cw_game.gd:_end_turn`：`world.settle_anaerobic_turn(cell)` 排在 `turn.end_turn()`
+            //（= 下面那圈清「本回合」修饰）**之前**，让结束回合那一刻的能量是进账后的数。
+            // 口径照 GD `CWWorld.settle_anaerobic_turn`：走同一个 `AnaerobicShare`（含瓦伯格与 GLUT1），gain ≤ 0 时什么都不做（加 0 等价）。
+            if (s.Tuning.AnaerobicOnTurnEnd)
+                foreach (var ac in Cells(s).Where(c => c.OwnerSeat == s.Turn.ActivePlayerSeat && c.IsAlive && c.Faction == Faction.Cancer).ToArray())
+                    s = s.UpdateCell(ac.Id, s.Cells[ac.Id].WithEnergy(s.Cells[ac.Id].Energy + AnaerobicShare(s, ac)));
             // 「效果持续至本回合结束」的修饰在**结束回合这一刻**过期（GD `CWTurn.end_turn` → `clear_mods(cell, "turn")`，只清本人的）。
             // 此前 C# 放在下一次 BeginTurn 才清 —— E 阶段与别人的回合里它还挂着，L1 第 107 步席位 2 的【补体调理】就是这么多出来的（2026-09-17）
             foreach (var c in Cells(s).Where(c => c.OwnerSeat == s.Turn.ActivePlayerSeat).ToArray())

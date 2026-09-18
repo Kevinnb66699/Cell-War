@@ -60,6 +60,18 @@ public sealed record RuleTuning
     /// <summary>每行动回合攻击次数上限（GD `attack_max_per_turn`，默认 `CWData.ATTACK_MAX_PER_TURN` = 3）；**0 = 不限**。</summary>
     public int AttackMaxPerTurn { get; init; } = 3;
 
+    /// <summary>攻击**成功**的伤害基数，十分能量（GD `attack_dmg_success` = `CWData.ATTACK_DMG_SUCCESS` = 1.0）。K3 接进伤害管线。</summary>
+    public int AttackDmgSuccess { get; init; } = 10;
+
+    /// <summary>【抗体】同一世界回合内每多放一次伤害减半（GD `antibody_halve`，团队 2026-09-04 定案保留，默认开；`abhalf=0` 跑「每次打满」对照档）。K3 接。</summary>
+    public bool AntibodyHalve { get; init; } = true;
+
+    /// <summary>B 细胞【抗体】每世界回合最多几次（GD `antibody_max_per_round` = `CWData.ANTIBODY_MAX_PER_ROUND` = 0）；**0 = 不限**（现行 PRD）。K3 接。</summary>
+    public int AntibodyMaxPerRound { get; init; }
+
+    /// <summary>骨肉瘤【骨样硬化】的费用，十分能量（GD `osteo_ossify_cost` = `CWData.OSTEO_OSSIFY_COST` = 2.0）。K3 接费用点，K2 接观测编码器。</summary>
+    public int OsteoOssifyCost { get; init; } = 20;
+
     // ---- E 阶段 ----
 
     /// <summary>
@@ -79,6 +91,38 @@ public sealed record RuleTuning
     /// 掷 d3：≤2 取前者（2/3 概率），否则取后者（GD `EROSION_TILES_BY_STAGE`）。
     /// </summary>
     public IReadOnlyList<(int Common, int Rare)> ErosionTiles { get; init; } = [(2, 3), (2, 3), (3, 5)];
+
+    // ---- S 阶段：有氧呼吸 ----
+    //
+    // 单位照 GD：**十分能量**。现行公式 = 按抗原记忆等级查 AerobicByLevel 那张表，与盘面无关
+    // （GD `CWWorld._aerobic_base` / `_split_aerobic` / `necrosis_cut`，cw_world.gd:557 / 542 / 440）。
+
+    /// <summary>【S-有氧呼吸】按免疫等级查表，十分能量，下标 = GD 的 `immune_level`（0 起 = I/II/III/X）
+    /// （GD `aerobic_by_level` = `CWData.AEROBIC_BY_LEVEL` = 2.0 / 3.0 / 4.5 / 5.0，issue #13）。
+    /// **非空时它说了算**，下面那条线性式退成对照档；置空（`abylv=0`）即回到线性 / 盘面式。</summary>
+    public IReadOnlyList<int> AerobicByLevel { get; init; } = [20, 30, 45, 50];
+
+    /// <summary>线性档的基数，十分能量（GD `aerobic_level_base` = `CWData.AEROBIC_LEVEL_BASE` = 2.0）。
+    /// 只在 <see cref="AerobicByLevel"/> 置空时生效：`base + step × 等级`。
+    /// GD 的 `-1`（按人数分档 `AEROBIC_LEVEL_BASE_BY_PLAYERS`）与 `0`（退回盘面式）两档 **C# 未迁**，
+    /// `RulePolicies.AerobicBase` 会抛 —— 静默取默认就等于给扫描一个不是 GD 结果的数（口径二 E-3）。</summary>
+    public int AerobicLevelBase { get; init; } = 20;
+
+    /// <summary>线性档每级的增量，十分能量（GD `aerobic_level_step` = `CWData.AEROBIC_LEVEL_STEP` = 1.5）。
+    /// **不在 12 个旋钮的表里**，是 <see cref="AerobicLevelBase"/> 的必要配件 —— 少了它那条线性式没法逐字对 GD。</summary>
+    public int AerobicLevelStep { get; init; } = 15;
+
+    /// <summary>有氧是否再按**存活免疫细胞数**均分（GD `aerobic_split`，2026-09-05 方案 f 定为**不**均分；`asplit=1` 扫回均分档）。</summary>
+    public bool AerobicSplit { get; init; }
+
+    /// <summary>均分按几个免疫细胞的量标定（GD `aerobic_split_ref` = `CWData.AEROBIC_SPLIT_REF` = 2）：
+    /// n ≤ ref 每人全额，n > ref 把 ref 份均分；**0 = 纯「基数 ÷ 人数」**（数据上已排除的甲读法）。</summary>
+    public int AerobicSplitRef { get; init; } = 2;
+
+    /// <summary>站在坏死格上的免疫细胞这一回合的有氧拿几成，**百分数**
+    /// （GD `necrosis_aerobic_pct` = `CWData.NECROSIS_AEROBIC_PCT` = 50 = 减半，线上版 PRD）；
+    /// 0 = 一份不给（09-05~09-07 的旧行为，`necro=0` 扫回），100 = 坏死对有氧没有影响。</summary>
+    public int NecrosisAerobicPct { get; init; } = 50;
 
     // ---- E 阶段：无氧呼吸 ----
     //
@@ -110,6 +154,10 @@ public sealed record RuleTuning
 
     /// <summary>池子是否按块内癌细胞数均分（GD `anaerobic_split`，默认开）。</summary>
     public bool AnaerobicSplit { get; init; } = true;
+
+    /// <summary>【E-无氧呼吸】改在**各癌细胞自己的行动回合末**各算各的（GD `anaerobic_on_turn_end`，`eturn=1` 对照档）；
+    /// 默认 false = Kevin 2026-09-06 改回的「世界回合 E 阶段统一结算」。K2 接时机。</summary>
+    public bool AnaerobicOnTurnEnd { get; init; }
 
     /// <summary>每个癌细胞每次至少拿多少，十分能量；≤0 = 不兜底（GD `ANAEROBIC_FLOOR`）。</summary>
     public int AnaerobicFloor { get; init; } = 20;
@@ -150,6 +198,17 @@ public sealed record RuleTuning
 
     /// <summary>单次损失上限，十分能量；0 = 不封顶（GD `OVERLOAD_CAP`，Kevin 2026-09-15 晚加）。</summary>
     public int OverloadCap { get; init; } = 150;
+
+    // ---- 全局开关与胜负 ----
+
+    /// <summary>世界事件总开关（GD `world_events_on`，Kevin 2026-09-08 要的；**2026-09-10 起默认关** ——
+    /// 云端 PRD 给整节加了「暂时停止维护」的标题）。关掉后 GD `CWWorldFx.trigger()` 直接返回：不抽、不挂、不通报。K2 接。</summary>
+    public bool WorldEventsOn { get; init; }
+
+    /// <summary>癌方占地胜利要**连续几个世界回合末**都达标才判定
+    /// （GD `cancer_win_hold_rounds` = `CWData.CANCER_WIN_HOLD_ROUNDS` = 2，团队 2026-09-01 定案 B：首次达标只拉警报）；
+    /// 1 = 达标即胜的旧规则。K2 接 `OutcomeRules.Evaluate`。</summary>
+    public int CancerWinHoldRounds { get; init; } = 2;
 
     /// <summary>按免疫等级取一档（等级枚举 I=1…X=4，数组是 0 基）。</summary>
     public static int ByLevel(IReadOnlyList<int> table, ImmuneLevel level) => table[(int)level - 1];

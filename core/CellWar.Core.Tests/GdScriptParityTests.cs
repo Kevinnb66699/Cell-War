@@ -136,8 +136,8 @@ public class GdScriptParityTests
     [Fact]
     public void 抗体亲和力成熟把费用降半点并把伤害抬到两点()
     {
-        var plain = RulePolicies.AntibodyDamage(0, matured: false);
-        var matured = RulePolicies.AntibodyDamage(0, matured: true);
+        var plain = RulePolicies.AntibodyDamage(RuleTuning.Default, 0, matured: false);
+        var matured = RulePolicies.AntibodyDamage(RuleTuning.Default, 0, matured: true);
         Assert.Equal(GdConst("ANTIBODY_DAMAGE"), plain);
         Assert.Equal(GdConst("MATURED_ANTIBODY_DMG"), matured);
 

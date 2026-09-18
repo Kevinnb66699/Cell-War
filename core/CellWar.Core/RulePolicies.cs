@@ -448,32 +448,68 @@ internal static class RulePolicies
         if (block == null) return 0;
         var tune = s.Tuning;
         var living = s.Cells.Values.Count(x => x.IsAlive && x.Faction == Faction.Cancer && block.Contains(x.Position));
-        var ordinary = block.Count(p => s.Board.Tissues[p].State == TissueState.Cancer);
-        var solid = Tiles(s).Count(t => t.State == TissueState.SolidifiedCancer);
 
         // 逐步对齐 GDScript 的 `CWWorld._anaerobic_pool()` + `_split_share()`（cw_world.gd:797-833）。
         // 单位一律是**十分能量**，和那边一样。
         //
-        // 指数与系数按人数分档，表里没有的人数退回缺省（balance_scan 会扫 5 人 / 7 人这类非正式人数，不能崩）。
-        var coef = tune.AnaerobicBlockCoefByPlayers.TryGetValue(s.Players.Count, out var cf) ? cf : tune.AnaerobicBlockCoef;
-        var exp = tune.AnaerobicBlockExpByPlayers.TryGetValue(s.Players.Count, out var ex) ? ex : tune.AnaerobicBlockExp;
-        var pool = (ordinary > 0 ? Math.Pow(ordinary, exp / 100.0) : 0.0) * coef + solid * tune.AnaerobicSolidBonus;
-
-        // **人数系数 k**（PRD 2026-09-14 / issue #43）：块内 1/2/3 个癌细胞 → 80%/100%/120%，
-        // 乘在**整条分式外面**；兜底 2.0 排在它**之后**（PRD 写的是 `max{2, k × …}`）。
-        // 2026-09-15 补：C# 此前**完全没有这个系数** —— 独占一块的癌细胞每回合多拿 20%。
-        var k = tune.AnaerobicCellsK[Math.Clamp(living - 1, 0, tune.AnaerobicCellsK.Count - 1)];
-        var scaled = pool * k / 100.0;
-
-        // 四舍五入**只在这里做一次**：池子是浮点，先取整再除会取整两次（GD 那边专门写了这句注释）
-        var income = (int)Math.Round(tune.AnaerobicSplit ? scaled / Math.Max(1, living) : scaled,
-            MidpointRounding.AwayFromZero);
-        if (tune.AnaerobicFloor > 0) income = Math.Max(tune.AnaerobicFloor, income);
-        if (tune.AnaerobicCap > 0) income = Math.Min(tune.AnaerobicCap, income);
+        // 2026-09-19（规格 §0.6.7「四个具名入口」）：这两段**原样**抽成 <see cref="AnaerobicPool"/> 与
+        // <see cref="SplitShare"/> —— 一个算符都没动，只是把 GD 本来就分开的两个函数名补上，
+        // 好让靶场 / AI 评估单取其中一段（此前只能整条 `AnaerobicShare` 一起取）。
+        var income = SplitShare(tune, AnaerobicPool(s, block), living);
         // 【瓦伯格超速糖酵解】110% 向上取整到十分位 —— GD `int(ceil(gain * WARBURG_PERCENT / 100.0))`：先乘 110 再除，50 → 55.0 恰好；
         // 此前 C# `income * 1.1` 是浮点 55.00000000000001，ceil 成 56（批扫 4p_1006 / 4p_1009 各多 0.1，2026-09-18）
         if (TypeAbilityOn(s, c) && c.Type == CellType.SmallCellLung) income = (int)Math.Ceiling(income * 110 / 100.0);
         if (HasSkill(s, c, "GLUT1高表达")) income += CancerPhase(s.Turn.WorldRound) switch { 0 => 5, 1 => 8, _ => 10 };
+        return income;
+    }
+
+    /// <summary>
+    /// 【E-无氧呼吸】一个癌性连通块这一次供多少能，**十分能量的浮点数**（规格 §0.6.7 的具名入口之一）。
+    /// 逐字对 GD `cw_world.gd:_anaerobic_pool(block)`（797-819）。
+    ///
+    /// ⚠ **不在这里取整**：GD 那边明写「四舍五入只做一次，在 `_split_share` 里除完再做」。
+    /// 先把池子冻成十分整数会取整两次 —— 块内 2 个癌细胞、池子 30.6 时
+    /// GD 得 `round(15.3) = 15`，先冻则是 `round(31/2) = 16`。所以返回 `double`。
+    ///
+    /// 签名对照：GD `_anaerobic_pool(block: Array) -> float`，`game.tiles` / `game.count_tissue` /
+    /// `game.order.size()` / `game.tune` 全是环境量；C# 把那个 `game` 显式成第一个参数 `s`。
+    ///
+    /// 登记一处 C# 今天没有的分支：GD 在 `coef <= 0` 时退回 09-04 之前的**线性求和**
+    /// （每格癌组织 `anaerobic_per_cancer`、每格固化 `anaerobic_per_solid`），供对照档用；
+    /// C# 从来没实现过它，这一步**照旧不实现**（要改就是行为改动）。默认值下 `coef > 0`，走不到。
+    /// </summary>
+    internal static double AnaerobicPool(WorldState s, IReadOnlyCollection<HexPosition> block)
+    {
+        var tune = s.Tuning;
+        var ordinary = block.Count(p => s.Board.Tissues[p].State == TissueState.Cancer);
+        var solid = Tiles(s).Count(t => t.State == TissueState.SolidifiedCancer);
+
+        // 指数与系数按人数分档，表里没有的人数退回缺省（balance_scan 会扫 5 人 / 7 人这类非正式人数，不能崩）。
+        var coef = tune.AnaerobicBlockCoefByPlayers.TryGetValue(s.Players.Count, out var cf) ? cf : tune.AnaerobicBlockCoef;
+        var exp = tune.AnaerobicBlockExpByPlayers.TryGetValue(s.Players.Count, out var ex) ? ex : tune.AnaerobicBlockExp;
+        return (ordinary > 0 ? Math.Pow(ordinary, exp / 100.0) : 0.0) * coef + solid * tune.AnaerobicSolidBonus;
+    }
+
+    /// <summary>
+    /// 【E-无氧呼吸】把池子分到一个癌细胞头上（规格 §0.6.7 的具名入口之一），十分能量。
+    /// 逐字对 GD `cw_world.gd:_split_share(pool, count)`（828-831）：人数系数 k → 均分 → 四舍五入 → 兜底 → 封顶。
+    ///
+    /// 签名对照：GD `_split_share(pool: float, count: int) -> int`，`game.tune` 是环境量；
+    /// 这一段除 `tune` 外不读世界的任何别的东西，所以 C# 只把 `tune` 显式成第一个参数。
+    /// </summary>
+    internal static int SplitShare(RuleTuning tune, double pool, int count)
+    {
+        // **人数系数 k**（PRD 2026-09-14 / issue #43）：块内 1/2/3 个癌细胞 → 80%/100%/120%，
+        // 乘在**整条分式外面**；兜底 2.0 排在它**之后**（PRD 写的是 `max{2, k × …}`）。
+        // 2026-09-15 补：C# 此前**完全没有这个系数** —— 独占一块的癌细胞每回合多拿 20%。
+        var k = tune.AnaerobicCellsK[Math.Clamp(count - 1, 0, tune.AnaerobicCellsK.Count - 1)];
+        var scaled = pool * k / 100.0;
+
+        // 四舍五入**只在这里做一次**：池子是浮点，先取整再除会取整两次（GD 那边专门写了这句注释）
+        var income = (int)Math.Round(tune.AnaerobicSplit ? scaled / Math.Max(1, count) : scaled,
+            MidpointRounding.AwayFromZero);
+        if (tune.AnaerobicFloor > 0) income = Math.Max(tune.AnaerobicFloor, income);
+        if (tune.AnaerobicCap > 0) income = Math.Min(tune.AnaerobicCap, income);
         return income;
     }
 
@@ -562,18 +598,57 @@ internal static class RulePolicies
 
     public static int AerobicShare(WorldState s, Cell c)
     {
-        // GD `aerobic_income` = necrosis_cut(aerobic_share() + _aerobic_bonus)：每份按等级查表（AEROBIC_BY_LEVEL）
+        // GD `aerobic_income` = necrosis_cut(aerobic_share() + _aerobic_bonus)：每份走 AerobicBase（旋钮 aerobic_by_level / aerobic_level_base）
+        // → aerobic_split 开时按**存活免疫细胞数**均分（GD `_split_aerobic`，旋钮 aerobic_split_ref）
         // → 【TGF-β释放】逐份 ×80% 向下取整（定案 #63，强度是同名条目求和；只算不结算，消耗在 PhaseRules 的有氧那一步）
         // → **之外**再加【代谢适应】【自分泌生存信号】的额外获得（不吃 TGF-β，口径 #69）→ 站在坏死格整份打 5 折四舍五入。
         // 此前 C# 先加了额外获得再打 TGF 折：6p 第 187 步 GD 16 + 5 = 21、C# (20 + 5) × 0.8 = 20（2026-09-17）
-        var share = s.Players[c.OwnerSeat].ImmuneLevel switch
-            { ImmuneLevel.I => 20, ImmuneLevel.II => 30, ImmuneLevel.III => 45, _ => 50 };
+        var share = AerobicBase(s, c);
+        // GD `aerobic_share` 的 clamp_income(aerobic_floor, aerobic_cap) 夹在**基准**上、排在均分之前：
+        // 那两个旋钮默认都是 0 = 恒等，C# 未迁（批 5b）——默认值下逐位相同。
+        if (s.Tuning.AerobicSplit) share = SplitAerobic(s.Tuning, share, Cells(s).Count(x => x.IsAlive && x.Faction == Faction.Immune));
         for (var i = 0; i < WorldEffects.Stacks(s, "TGF-β释放"); i++) share = share * 8 / 10;
         var bonus = (HasSkill(s, c, "代谢适应") ? 5 : 0) + (HasSkill(s, c, "自分泌生存信号") ? 8 : 0);   // AEROBIC_ADAPT / AEROBIC_AUTOCRINE
         var income = share + bonus;
-        if (s.Board.Tissues[c.Position].NecrosisRounds > 0) income = Settlement.RoundTenth(income * 0.5);   // NECROSIS_AEROBIC_PCT = 50
+        if (s.Board.Tissues[c.Position].NecrosisRounds > 0) income = NecrosisCut(s.Tuning, income);   // 旋钮 necrosis_aerobic_pct（默认 50 = 减半）
         return income;
     }
+
+    /// <summary>
+    /// 一份【有氧呼吸】的基准 = GD `CWWorld._aerobic_base`（cw_world.gd:557）。
+    /// **表档最优先**：`aerobic_by_level` 非空时按抗原记忆等级查表（GD 是 `clampi(immune_level, 0, size-1)`；
+    /// C# 的 `ImmuneLevel` 枚举 1 起，减一正好是 GD 那个 0 起的下标）；置空则退到线性档 `base + step × 等级`。
+    ///
+    /// GD 还有两条对照档 **C# 未迁**（批 5b）：`aerobic_level_base &lt; 0` 要 `CWData.AEROBIC_LEVEL_BASE_BY_PLAYERS`
+    /// 那张按人数的表，`== 0` 要退回盘面式 `(健康 − 坏死) × aerobic_mult_at(round) ÷ TOTAL_TILES`。
+    /// 两条都**抛**而不是静默取默认 —— 静默的话平衡扫描会拿到一个不是 GD 结果的数（口径二 E-3）。
+    /// </summary>
+    internal static int AerobicBase(WorldState s, Cell c)
+    {
+        var t = s.Tuning;
+        var level = (int)s.Players[c.OwnerSeat].ImmuneLevel - 1;   // GD `game.immune_level` 是 0 起
+        if (t.AerobicByLevel.Count > 0) return t.AerobicByLevel[Math.Clamp(level, 0, t.AerobicByLevel.Count - 1)];
+        if (t.AerobicLevelBase > 0) return t.AerobicLevelBase + t.AerobicLevelStep * level;
+        throw new NotSupportedException(
+            $"aerobic_level_base = {t.AerobicLevelBase}：GD 的「按人数分档（< 0）」与「盘面式（= 0）」两条对照档 C# 未迁（留给批 5b）。");
+    }
+
+    /// <summary>【有氧呼吸】按存活免疫细胞数均分 = GD `CWWorld._split_aerobic`（cw_world.gd:542）：
+    /// `ref` 份总额均分、四舍五入到十分位（`(2p·ref + n) / (2n)` 的整数写法）；
+    /// `ref ≤ 0` 退化成纯「÷ n」，`n ≤ ref` 每人全额。**纯函数**，测试直接核对。</summary>
+    internal static int SplitAerobic(RuleTuning t, int perCell, int n)
+    {
+        var refN = t.AerobicSplitRef;
+        if (n <= 0) return perCell;
+        if (refN <= 0) return (2 * perCell + n) / (2 * n);
+        if (n <= refN) return perCell;
+        return (2 * perCell * refN + n) / (2 * n);
+    }
+
+    /// <summary>站在坏死格上那一份打折 = GD `CWWorld.necrosis_cut`（cw_world.gd:440）：
+    /// `CWData.round_tenth(gain × pct, 100)` = `(gain × pct + 50) / 100` 的整数四舍五入（PRD 通用规则 1）。
+    /// pct = 50 时与此前写死的 `Settlement.RoundTenth(income × 0.5)` 对每个非负 income 逐位相同。</summary>
+    internal static int NecrosisCut(RuleTuning t, int gain) => (gain * t.NecrosisAerobicPct + 50) / 100;
 
     /// <summary>GD `CWData.DIRS` 序的六邻（(1,0)(1,-1)(0,-1)(-1,0)(-1,1)(0,1)），裁掉板外格。
     /// 凡是「按下标抽格」或「逐格出选项」的地方都走它 —— <see cref="HexPosition.GetNeighbors"/> 是另一个顺序，
@@ -668,10 +743,10 @@ internal static class RulePolicies
     /// `matured` = B 细胞装了【抗体亲和力成熟】：基数由 1.5 改为 **2.0**（PRD:1325；
     /// 卡面 2026-09-07 从 1.5 改成 2，对齐 GDScript 的 MATURED_ANTIBODY_DMG := 20）。
     /// </summary>
-    public static int AntibodyDamage(int used, bool matured = false)
+    public static int AntibodyDamage(RuleTuning tune, int used, bool matured = false)
     {
         var tenths = matured ? 20 : 15;
-        for (var i = 0; i < used; i++) tenths /= 2;
+        if (tune.AntibodyHalve) for (var i = 0; i < used; i++) tenths /= 2;   // GD cw_actions.gd:1223 `if not game.tune.antibody_halve: return dmg`：旋钮关掉 = 2026-09-01~09-04 那版「每次都打满」的老行为，用来做对照局
         return tenths;
     }
 

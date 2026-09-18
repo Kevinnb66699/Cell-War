@@ -20,11 +20,11 @@ public static class ObservationV1Codec
     public const int ViewerWatcher = -1;      // GD CWKernel.VIEWER_WATCHER
     public const int ViewerOmniscient = -2;   // GD CWKernel.VIEWER_OMNISCIENT，禁止过网
 
-    // ---- C# 今天没有旋钮、引擎里是字面量的那几个 tune 键（GD 默认值逐个核对过：cw_data.gd:41,42,46,47,305）----
+    // ---- C# 今天没有旋钮、引擎里是字面量的那几个 tune 键（GD 默认值逐个核对过：cw_data.gd:41,46）----
+    // `world_events_on` / `cancer_win_hold_rounds` / `osteo_ossify_cost` 2026-09-19 起有旋钮了（K2），改从 `s.Tuning` 现读；
+    // 默认值与原来的字面量逐个相同（false / 2 / 20），编码结果不变。
     private const int CancerWinWeighted = 90;      // OutcomeRules：score >= 90
-    private const int CancerWinHoldRounds = 2;     // OutcomeRules：上一回合已报警 + 本回合仍达标
     private const int LimitRound = 15;             // OutcomeRules：WorldRound >= 15
-    private const int OsteoOssifyCost = 20;        // SkillRules【骨样硬化】CanPay(…, 20)
 
     /// <summary>协议 JSON 的唯一一套选项：snake_case 键名、中文不转义、**未知键硬错**。字典键不套命名策略（技能名 / 事件数据键原样）。</summary>
     public static readonly JsonSerializerOptions Json = new()
@@ -68,7 +68,7 @@ public static class ObservationV1Codec
             c.ChainLeft, c.ChainBonus, c.NeutralUntil <= 0 ? -1 : c.NeutralUntil,   // 「从没被中和过」GD 记 -1、C# 记 0：协议统一 -1
             s.Turn.PendingChainCell == c.Id,
             new ObsCellD(Income(s, c),
-                c.IsAlive && c.Type == CellType.BCell ? RulePolicies.AntibodyDamage(c.AntibodyThisRound, RulePolicies.HasSkill(s, c, "抗体亲和力成熟")) : 0,
+                c.IsAlive && c.Type == CellType.BCell ? RulePolicies.AntibodyDamage(s.Tuning, c.AntibodyThisRound, RulePolicies.HasSkill(s, c, "抗体亲和力成熟")) : 0,
                 c.IsAlive ? RulePolicies.OverloadLoss(s, c) : 0,
                 null, null, null, null, null, null, null, null, null, null, null))).ToArray();
 
@@ -82,7 +82,7 @@ public static class ObservationV1Codec
             s.Turn.EffectorRound <= 0 ? -1 : s.Turn.EffectorRound,   // 「从没发动过」GD 记 -1、C# 记 0：协议统一 -1
             cells.Where(c => c.Faction == Faction.Immune && c.Type != CellType.ImmuneBasic).Select(c => (int)c.Type).Distinct().OrderBy(x => x).ToArray(),
             s.Turn.Winner is { } w ? (int)w : -1, WinReason(s), s.Turn.WinKind,
-            new ObsCancerAlarm(s.Turn.CancerAlarmRound, CancerWinHoldRounds),
+            new ObsCancerAlarm(s.Turn.CancerAlarmRound, s.Tuning.CancerWinHoldRounds),
             s.Turn.ChemoAt is { } ca ? new ObsChemo(Pos(ca), s.Turn.ChemoRounds, s.Turn.ChemoOwner, s.Turn.ChemoCreator is { } cc ? Id(cc) : -1) : null,
             Track(s),
             new ObsEvents(WorldEffects.WorldEventNames.ToArray(),   // 世界事件整块未迁：pool 恒全表、double_next 恒 false（夹具 world_events_on = false）
@@ -96,8 +96,8 @@ public static class ObservationV1Codec
                 cells.Where(c => c.OwnerSeat == p.Seat).Select(c => Id(c.Id)).DefaultIfEmpty(-1).First(),
                 p.CancerType is { } ct ? GdEnum.Ctype(ct) : -1,
                 new ObsPlayerD(cells.Where(c => c.OwnerSeat == p.Seat).Sum(c => Income(s, c))))).ToArray(),
-            new ObsTune(false, CancerWinWeighted, CancerWinHoldRounds, LimitRound, s.Board.Tissues.Count / 2,
-                s.Tuning.MucusMoveSurcharge, s.Tuning.MetastasisCost, OsteoOssifyCost, s.Tuning.SolidifyThreshold.ToArray()),
+            new ObsTune(s.Tuning.WorldEventsOn, CancerWinWeighted, s.Tuning.CancerWinHoldRounds, LimitRound, s.Board.Tissues.Count / 2,
+                s.Tuning.MucusMoveSurcharge, s.Tuning.MetastasisCost, s.Tuning.OsteoOssifyCost, s.Tuning.SolidifyThreshold.ToArray()),
             new ObsGlobalD(BoardRules.SolidifyThreshold(s), RulePolicies.Stage(s), RulePolicies.CancerPhase(s.Turn.WorldRound), PhaseText(s.Turn.Phase),
                 WorldEffects.IsWorldEventRound(s.Turn.WorldRound), null, null, null, null, null, null, null, null));
 
@@ -160,7 +160,7 @@ public static class ObservationV1Codec
             "抗体" => RulePolicies.HasSkill(s, s.Cells[t.CellId], "抗体亲和力成熟") ? 5 : 10,
             "细胞毒素" or "裂解" => 10,
             "趋化源" => 30,
-            "骨样硬化" => OsteoOssifyCost,
+            "骨样硬化" => s.Tuning.OsteoOssifyCost,
             "早期血行转移" => SkillRules.MelanomaHomingCost,
             "转移" => s.Tuning.MetastasisCost,
             _ => null,

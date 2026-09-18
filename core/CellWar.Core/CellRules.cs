@@ -341,6 +341,39 @@ internal static class CellRules
     }
 
     /// <summary>
+    /// 「这个细胞此刻走不走得到那一格」的具名谓词（规格 §0.6.7 的具名入口之一），
+    /// 逐条对 GD `cw_actions.gd:_is_move_legal_now(cell, to)`（392-419）的每一个分支：
+    ///
+    /// <list type="number">
+    /// <item>存活 + 在棋盘上（GD `cell["alive"]` / `game.is_on_board`；C# 的「在棋盘上」就是这一格有组织，
+    ///       与 <see cref="RulePolicies.QuoteMove"/> 同一道闸）；</item>
+    /// <item>不与自己相邻 ⇒ 只能是**借道前进**：借不到（GD `pass_through_mid(cell, to) == Vector2i.MAX`）不合法；
+    ///       借得到则落点必须**完全空着** —— 不能停在人身上，也不允许穿过去发起攻击。
+    ///       `to` 正是自己脚下那格也落在这一支：GD 的 `pass_through_mid` 与
+    ///       <see cref="RulePolicies.PassThroughMid"/> 对原地都给「借不到」，两边同为不合法；</item>
+    /// <item>相邻那五条（癌方一格一细胞 / 免疫踩免疫 / 免疫走空格 / 树突【I-各司其职】/
+    ///       每行动回合攻击次数上限）就是 <see cref="CommitLegal"/> 一字不差的那一份 —— 共用它，不抄第二遍。</item>
+    /// </list>
+    ///
+    /// **纯查询，不改任何现有调用路径**：<see cref="ValidateMove"/> 与【炎症性趋化】的提交复验
+    /// 今天各走各的（`QuoteMove` + <see cref="AttackCapReached"/> / <see cref="CommitLegal"/>），这一步一行没动。
+    ///
+    /// 一处口径差登记在这里：GD `cells_at()` 只数**存活**细胞，C# 的占位是 `Tissue.OccupyingCell`、
+    /// 而 <see cref="Kill"/> 当场就把占位清掉 —— 正常状态下两边同义。真出现「死细胞还占着格」的坏状态时，
+    /// 借道那一支按存活判（同 GD），相邻那一支跟 <see cref="CommitLegal"/> 的既有行为走，不在这一步改。
+    /// </summary>
+    internal static bool MoveLegal(WorldState s, Cell cell, HexPosition to)
+    {
+        if (!cell.IsAlive || !s.Board.Tissues.ContainsKey(to)) return false;
+        if (!RulePolicies.GdNeighbors(s, cell.Position).Contains(to))
+            // 后半句照抄 GD 的那一句：两边的借道表（`pass_through_map` / <see cref="RulePolicies.PassThroughRoutes"/>）
+            // **本来就只收空落点**，所以它今天一次也不会真的拦下什么。留着是为了与 GD 逐句对得上 ——
+            // 那张表的口径要是哪天松了，这一句就是最后一道闸。
+            return RulePolicies.PassThroughMid(s, cell, to) is not null && s.GetCellAt(to) is not { IsAlive: true };
+        return CommitLegal(s, cell, to);
+    }
+
+    /// <summary>
     /// 【炎症性趋化】走一步：起价换成 0.2，其余**照常走完整条费用管线**（扣能量、消耗限次修饰），
     /// 与【连续吞噬】的 `free: true` 正好相反。走成走不成，剩余步数都减一。
     /// </summary>
@@ -831,7 +864,7 @@ internal static class CellRules
                 outcome = outcome == "crit" ? "success" : "fail";  // 大成功→成功、成功/无效→无效
                 s = SpendOneModifier(s, target.Id, "PD-L1表达");   // GD `spend_one_mod`：一次攻击只吃**最早打出的一层**（团队 2026-09-01 裁定，刻意不走定案 #57）；此前 C# 全摘
             }
-            var damage = outcome == "fail" ? 0 : outcome == "crit" ? 20 : 10;
+            var damage = outcome == "fail" ? 0 : outcome == "crit" ? 20 : s.Tuning.AttackDmgSuccess;   // GD cw_actions.gd:863 `tune.attack_dmg_crit if crit else tune.attack_dmg_success`：成功那一档改读旋钮；大成功那一档（GD 旋钮 attack_dmg_crit）不在这 12 个里，仍是字面量 20
             attackHit = outcome != "fail";
             Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, outcome == "fail" ? "攻击无效" : outcome == "crit" ? "攻击大成功" : "攻击成功", move.TargetPosition));   // GD cw_actions.gd:850/864
             var dealtTotal = 0;

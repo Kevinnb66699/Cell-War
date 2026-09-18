@@ -20,8 +20,18 @@ internal static class OutcomeRules
         var revivalSource = Tiles(s).Any(t => t.State == TissueState.SolidifiedCancer && s.GetCellAt(t.Position)?.Faction != Faction.Immune &&
             Tiles(s).Any(p => Cancerous(p) && p.OccupyingCell == null && p.Position.DistanceTo(t.Position) <= 1));
         var immuneWin = s.Cells.Count > 0 && !Cells(s).Any(c => c.IsAlive && c.Faction == Faction.Cancer) && !revivalSource;
-        Faction? winner = immuneWin ? Faction.Immune : score >= 90 && s.Turn.CancerAlarmRound > 0 &&
-            s.Turn.CancerAlarmRound == s.Turn.WorldRound - 1 ? Faction.Cancer : null;
+        // 【E-癌症胜利】要**连续 hold 个世界回合末**都达标才判胜（GD `cw_game.gd:check_cancer_win` 读 `tune.cancer_win_hold_rounds`：
+        // 默认 2 = 团队 2026-09-01 定案 B「首次达标只拉警报」；1 = 定案前的旧规则「达标即胜」）。旋钮化之前这里写死 2。
+        //
+        // ⚠ hold ≥ 3 **当场硬错，不静默按 2 算**（口径二 E-3）：C# 只存「上一次达标是第几个世界回合」
+        // （`TurnState.CancerAlarmRound`），数不出 3 连 —— GD 那边是一个真计数器 `cancer_win_streak`
+        // （两侧语义不同已登记为 known_divergences #3，协议 §八）。要支持得给 TurnState 加计数器 = 动骨架
+        // （Kevin 2026-09-18：要动骨架先报），另开一步。
+        var hold = s.Tuning.CancerWinHoldRounds;
+        if (hold > 2)
+            throw new NotSupportedException($"cancer_win_hold_rounds = {hold}：C# 只存上一次达标的回合号，数不出 3 连及以上（见 OutcomeRules.Evaluate 注释）");
+        Faction? winner = immuneWin ? Faction.Immune : score >= 90 && (hold <= 1 || s.Turn.CancerAlarmRound > 0 &&
+            s.Turn.CancerAlarmRound == s.Turn.WorldRound - 1) ? Faction.Cancer : null;
         // GD 的四个词（cw_game.gd:1110,1132 / cw_world.gd:1226,1231），进 TurnState.WinKind 供观测协议 g.win_kind
         var kind = winner switch { Faction.Immune => "immune_clear", Faction.Cancer => "cancer_weighted", _ => "" };
         if (winner == null && s.Turn.WorldRound >= 15)
