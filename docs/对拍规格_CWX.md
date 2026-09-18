@@ -43,6 +43,8 @@
 **阶段 0 出口条件写成**：`L0: MISMATCH=0 且 NOTIMPL=0 且 COVERAGE 无「未写用例」格` ＋ `L1: 核心子系统（移动/收入/攻击/E 阶段）BLOCKING=0`。
 > **2026-09-18 Kevin 认：口径一按 L1 证据宣告完成**（三条夹具整条一致 + 20 种子 × 3 人数 = 60 条批扫整条一致 + C# 601 单测）；L0 扩表（今天 5 张表 23 用例，M1 的 40~60 张没做）**并入口径二的测试迁移**（迁移计划 §二「做一次算两笔」）。**不是「dotnet test 绿」，也不是「清单清零」**——清单里的 `KNOWN_GAP` 与 `UNDEFINED` 是拿去排期的，不是拿去清零的。
 
+> **2026-09-18 晚 · 第三层「跨生产者 envelope 对拍」已加**（口径二批 0 步 10，Kevin 拍 E-6）：L1 比的是规则状态与决策键，它比的是**观测协议 v1 的产出** —— 同一条 L1 夹具的每一步，GD 生产者（`cw_obs_codec.gd`，由 `xcheck_export.gd … env_out=` 顺带导出到 `game/tests/l1/env_*.jsonl.gz`）与 C# 生产者（`ObservationV1Codec`）各产一份全知 envelope，`core/CellWar.Core.Tests/L1/EnvelopeParityTests.cs` 剥掉元数据后逐字段 diff；例外只有 `docs/观测协议_v1.md` §八 那张表（只许减不许加）。首跑三夹具 573 步 0 差异，路上合上两处 C# 派生量口径（`proliferate_chance` 的闸、骨髓 `store_fraction`）。**规则一动就要重录 env 夹具**（与三条轨迹一起；轨迹本体字节不变是录制工具没碰 rng 的证据）。
+
 ---
 
 ## 1. 三个死结的确定解法
