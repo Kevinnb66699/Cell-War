@@ -43,6 +43,9 @@ var _started_ms := 0   ## 本次过场起步的时刻
 
 
 func _ready() -> void:
+	## 批 1 步 9 / E-3：旧版存档与回放启动时静默清掉（版本 / 规则指纹不符的一律读不出，留着只会让「继续对局」永远灰着）
+	CWSave.purge_stale()
+	CWReplay.purge_stale()
 	CWSettings.load_prefs()   ## 偏好尽早读：AI 节奏/掷骰动画在开局装配时就要用
 	menu.start_requested.connect(_begin)
 	menu.continue_requested.connect(_continue)

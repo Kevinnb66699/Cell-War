@@ -6517,6 +6517,11 @@ func t_save_load() -> void:
 	bad.store_string("not a save")
 	bad.close()
 	check(CWSave.exists() and not CWSave.can_continue(), "损坏档存在但不可继续")
+	check(CWSave.purge_stale() and not CWSave.exists(), "启动清盘：读不出的档静默删掉（E-3）")
+	bad = FileAccess.open(CWSave.PATH, FileAccess.WRITE)
+	bad.store_string(var_to_str({ "version": CWSave.VERSION - 1, "players": 2, "human": [0], "smart": false, "ai_level": 0, "snap": { "x": 1 } }))
+	bad.close()
+	check(not CWSave.can_continue() and CWSave.purge_stale() and not CWSave.exists(), "旧版本号的档同样读不出、清掉")
 	## 结构截断同样必须拒绝，避免点击后 restore() 才爆。
 	bad = FileAccess.open(CWSave.PATH, FileAccess.WRITE)
 	bad.store_string(var_to_str({ "version": CWSave.VERSION, "players": 2,

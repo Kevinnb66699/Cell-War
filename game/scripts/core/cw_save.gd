@@ -15,7 +15,7 @@ class_name CWSave
 extends RefCounted
 
 const PATH := "user://save.cw"
-const VERSION := 1
+const VERSION := 2   ## 批 1 步 9（2026-09-19）：blob 从 GD 快照换成内核 blob（批 3 换 C# Checkpoint 同号内再换），旧档一律读不出、启动时静默清掉（E-3）
 
 
 static func exists() -> bool:
@@ -110,6 +110,14 @@ static func _valid_gd_snapshot(snap: Variant) -> bool:
 	if not (snap["winner"] is int and snap["current_pid"] is int and snap["rng"] is int):
 		return false
 	return true
+
+
+## 启动时清掉读不出来的旧档（版本不符 / 结构坏）—— E-3（Kevin 2026-09-19）：直接清盘、不加提示。返回有没有清
+static func purge_stale() -> bool:
+	if exists() and read().is_empty():
+		clear()
+		return true
+	return false
 
 
 static func clear() -> void:
