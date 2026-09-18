@@ -40,6 +40,7 @@ func _run() -> void:
 	t_mech_purify_supply()
 	t_mech_solidify()
 	t_mech_colonize_supply()
+	t_mech_infra_savings()
 	print("\n%d 项检查，%d 失败" % [checks, fails])
 	quit(1 if fails > 0 else 0)
 
@@ -433,6 +434,102 @@ func t_mech_colonize_supply() -> void:
 	check(checked >= 1, "至少采样到一次定殖（共 %d 次）" % checked)
 	check(bad == 0, "定殖能量边际与引擎实测逐位一致（%d 次，%d 偏差）" % [
 		checked, bad])
+
+
+## —— 癌组织「扩张成本」杠杆（基础设施，递增曲线）——
+## 与能量侧（块^0.3 递减）方向相反：癌格越多，周围健康格进入越便宜
+## （癌格=便宜落点 0.2 vs 1.2；黑素瘤伪足：目标健康格邻接癌性组织 ≥3 → 0.5−0.1×(adj−3)）。
+## 1) 合成：黑素瘤伪足门槛跨过 —— to 邻接 2 癌格，定殖后健康邻居 n 邻接变 3 → 打折。
+## 2) 真实对局采样：癌方 move 进健康格，`colonize_infra_savings` 与引擎手工转癌后的成本差对拍。
+func t_mech_infra_savings() -> void:
+	print("[机制·癌组织扩张成本杠杆]")
+	## 1. 合成：伪足门槛跨过
+	var g := bare_game()
+	var mel := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, Vector2i(0, 0),
+		-1, CWData.CancerType.MELANOMA, 500)
+	g.cells.append(mel)
+	## to=(0,1)：邻接 (0,0),(1,0) 两癌格 → 进 to 无伪足（12）
+	## n=(1,1)：邻接 (1,0),(2,0) 两癌格，定殖 to 后 +1=3 → 伪足（5）
+	for c in [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0)]:
+		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	var to := Vector2i(0, 1)
+	check(g.tiles[to]["tissue"] == CWData.Tissue.HEALTHY, "to 初始为健康格")
+	check(g.actions._cancer_move_cost(mel, to) == CWData.CANCER_MOVE_HEALTHY,
+		"定殖前进 to = 1.2（adj=2 无伪足）")
+	var n1 := Vector2i(1, 1)
+	check(g.actions._cancer_move_cost(mel, n1) == CWData.CANCER_MOVE_HEALTHY,
+		"定殖前进 n = 1.2（adj=2 无伪足）")
+	## 引擎手工转癌算 want
+	var before_to: int = g.actions._cancer_move_cost(mel, to)
+	var before_n: int = g.actions._cancer_move_cost(mel, n1)
+	g.tiles[to]["tissue"] = CWData.Tissue.CANCER
+	var after_to: int = g.actions._cancer_move_cost(mel, to)
+	var after_n: int = g.actions._cancer_move_cost(mel, n1)
+	g.tiles[to]["tissue"] = CWData.Tissue.HEALTHY
+	var want: int = (before_to - after_to) + (before_n - after_n)
+	check(MechValue.tile_entry_cost(g, mel, to) == before_to,
+		"tile_entry_cost(to) 包装引擎（%d）" % before_to)
+	check(MechValue.colonize_infra_savings(g, mel, to) == want,
+		"基础设施收益：定殖 to 解析 %d == 引擎 %d（进 to −%d、邻居 n 伪足 −%d）" % [
+			MechValue.colonize_infra_savings(g, mel, to), want,
+			before_to - after_to, before_n - after_n])
+	g.dispose()
+
+	## 2. 真实对局采样：任意癌种 move 进健康格
+	var checked := 0
+	var bad := 0
+	for si in 6:
+		var g2 := make_game(4, 46001 + si)
+		g2.sim_quiet = true
+		for _step_i in 400:
+			var req: Dictionary = await g2.pending()
+			if req.is_empty():
+				break
+			var pid: int = req["pid"]
+			if req["kind"] == "action" \
+					and g2.player(pid)["faction"] == CWData.Faction.CANCER:
+				for oi in req["options"].size():
+					var opt: Dictionary = req["options"][oi]
+					if opt["data"].get("act", "") != "move":
+						continue
+					var to2: Vector2i = opt["data"]["to"]
+					if g2.is_cancerous(to2) \
+							or g2.tile(to2)["special"] != CWData.Special.NONE:
+						continue
+					var src: Dictionary = {}
+					for c in g2.living_cells(CWData.Faction.CANCER):
+						if int(c["pid"]) == pid:
+							src = c
+					if src.is_empty():
+						continue
+					checked += 1
+					var got: int = MechValue.colonize_infra_savings(g2, src, to2)
+					## 引擎手工转癌对拍（只读交易）
+					var t: Dictionary = g2.tiles[to2]
+					var saved: int = t["tissue"]
+					var before_total: int = MechValue.tile_entry_cost(g2, src, to2)
+					var before_nbs := 0
+					var after_nbs := 0
+					var nbs: Array = g2.neighbors(to2)
+					for n in nbs:
+						if g2.tiles[n]["tissue"] == CWData.Tissue.HEALTHY:
+							before_nbs += MechValue.tile_entry_cost(g2, src, n)
+					t["tissue"] = CWData.Tissue.CANCER
+					var after_total: int = MechValue.tile_entry_cost(g2, src, to2)
+					for n in nbs:
+						if g2.tiles[n]["tissue"] == CWData.Tissue.HEALTHY:
+							after_nbs += MechValue.tile_entry_cost(g2, src, n)
+					t["tissue"] = saved
+					var want2: int = (before_total - after_total) + (before_nbs - after_nbs)
+					if got != want2:
+						bad += 1
+						check(false, "基础设施 %s 解析 %d != 引擎 %d" % [
+							str(to2), got, want2])
+			var idx: int = await g2.ask(req["pid"], req)
+			await g2.step(idx)
+		g2.dispose()
+	check(checked >= 1, "至少采样到一次定殖（共 %d 次）" % checked)
+	check(bad == 0, "基础设施收益与引擎逐位一致（%d 次，%d 偏差）" % [checked, bad])
 
 
 ## —— 测试助手：rig_rng 钉骰 ——

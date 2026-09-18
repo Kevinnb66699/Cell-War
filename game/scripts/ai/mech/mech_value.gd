@@ -239,6 +239,42 @@ static func colonize_supply_gain(g: CWGame, cell: Dictionary, to: Vector2i) -> i
 	return total_supply_layout(g, tiles2, cells2, overrides) - total_supply(g)
 
 
+## —— 癌组织「扩张成本」杠杆（基础设施，递增曲线）——
+## 与能量侧（块^0.3 递减）方向相反：癌格越多，周围健康格进入越便宜 ——
+## 癌格=便宜落点（0.2 vs 1.2）；黑素瘤【伪足穿透】按目标健康格相邻癌性组织数打折
+## （≥3 时 0.5−0.1×(adj−3)，钻得越深越便宜）。两条相反边际曲线的交点即癌方自然扩张规模。
+
+## 布局层面的进入成本（位置无关）：只读目标格组织 + 邻接数 + cell 类型。
+## **包装引擎 `_cancer_move_cost`**（公式权威在引擎，这里不复制第二份）。
+## 不含卡牌/黏液修饰（那是 CWCost 层）；黏液加费在成本层的修饰里。
+static func tile_entry_cost(g: CWGame, cell: Dictionary, dest: Vector2i) -> int:
+	return int(g.actions._cancer_move_cost(cell, dest))
+
+
+## 定殖 to 的反事实基础设施收益：to 转癌后，癌方「进入 to 及其健康邻居」的成本面改善。
+##   = (进 to 成本差) + Σ_{健康邻居 n} max(0, 进 n 成本差)   （伪足打折在 n 侧体现）
+## 实现：只读交易 —— 临时把 to 设癌、用引擎查询重算成本面、立即恢复原状。
+static func colonize_infra_savings(g: CWGame, cell: Dictionary, to: Vector2i) -> int:
+	if g.is_cancerous(to):
+		return 0
+	var t: Dictionary = g.tiles[to]
+	var saved_tissue: int = t["tissue"]
+	var before_to: int = tile_entry_cost(g, cell, to)
+	var before_nbs := 0
+	var after_nbs := 0
+	var nbs: Array = g.neighbors(to)
+	for n in nbs:
+		if g.tiles[n]["tissue"] == CWData.Tissue.HEALTHY:
+			before_nbs += tile_entry_cost(g, cell, n)
+	t["tissue"] = CWData.Tissue.CANCER
+	var after_to: int = tile_entry_cost(g, cell, to)
+	for n in nbs:
+		if g.tiles[n]["tissue"] == CWData.Tissue.HEALTHY:
+			after_nbs += tile_entry_cost(g, cell, n)
+	t["tissue"] = saved_tissue
+	return (before_to - after_to) + (before_nbs - after_nbs)
+
+
 static func _glut_bonus(g: CWGame, cell: Dictionary) -> int:
 	if g.has_skill(cell, "GLUT1高表达"):
 		return CWData.GLUT1_BONUS[CWCardData.cancer_phase(g.round_no)]
