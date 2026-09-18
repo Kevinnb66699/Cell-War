@@ -25,7 +25,6 @@ public static class ObservationV1Codec
     private const int CancerWinHoldRounds = 2;     // OutcomeRules：上一回合已报警 + 本回合仍达标
     private const int LimitRound = 15;             // OutcomeRules：WorldRound >= 15
     private const int OsteoOssifyCost = 20;        // SkillRules【骨样硬化】CanPay(…, 20)
-    private const int CancerTypeBase = (int)CellType.Melanoma;   // C# 把癌种排在免疫种类之后；GD CancerType 从 0 起
 
     /// <summary>协议 JSON 的唯一一套选项：snake_case 键名、中文不转义、**未知键硬错**。字典键不套命名策略（技能名 / 事件数据键原样）。</summary>
     public static readonly JsonSerializerOptions Json = new()
@@ -60,7 +59,7 @@ public static class ObservationV1Codec
                 RulePolicies.ProliferateChance(s, t.Position), null, null, null))).ToArray();
 
         var obsCells = cells.Select(c => new ObsCell(
-            Id(c.Id), c.OwnerSeat, (int)c.Faction, Pos(c.Position), Itype(c.Type), Ctype(c.Type), c.Energy, c.IsAlive,
+            Id(c.Id), c.OwnerSeat, (int)c.Faction, Pos(c.Position), GdEnum.Itype(c.Type), GdEnum.Ctype(c.Type), c.Energy, c.IsAlive,
             c.Marked, c.MarkLeft, c.MarkRound, c.EffectorUsed, c.Hand.ToArray(), c.Equipped.ToArray(),
             c.Modifiers.Select(m => new ObsMod(m.Card, m.Uses, Until(m.Duration), m.Sequence)).ToArray(), c.PlayCounter,
             new Dictionary<string, int>(c.EquipSeq), new Dictionary<string, int>(c.FxTurn), c.FxRound.ToArray(), c.Differentiated, c.ChemoCooldown,
@@ -95,7 +94,7 @@ public static class ObservationV1Codec
             s.Players.Keys.OrderBy(x => x).ToArray(),
             s.Players.Values.OrderBy(p => p.Seat).Select(p => new ObsPlayer(p.Seat, "", (int)p.Faction,
                 cells.Where(c => c.OwnerSeat == p.Seat).Select(c => Id(c.Id)).DefaultIfEmpty(-1).First(),
-                p.CancerType is { } ct ? (int)ct - CancerTypeBase : -1,
+                p.CancerType is { } ct ? GdEnum.Ctype(ct) : -1,
                 new ObsPlayerD(cells.Where(c => c.OwnerSeat == p.Seat).Sum(c => Income(s, c))))).ToArray(),
             new ObsTune(false, CancerWinWeighted, CancerWinHoldRounds, LimitRound, s.Board.Tissues.Count / 2,
                 s.Tuning.MucusMoveSurcharge, s.Tuning.MetastasisCost, OsteoOssifyCost, s.Tuning.SolidifyThreshold.ToArray()),
@@ -250,13 +249,15 @@ public static class ObservationV1Codec
     private static int Income(WorldState s, Cell c)
         => !c.IsAlive ? 0 : c.Faction == Faction.Immune ? RulePolicies.AerobicShare(s, c) : RulePolicies.AnaerobicShare(s, c);
 
+    /// <summary>`quote_path` 的返回形状（§5.3）：`blocked` ↔ C# `Reason`；`mid` C# 批 0 恒 null（记账）。</summary>
+    public static ObsPathQuote PathQuote(PathQuote q)
+        => new(q.Steps.Select(st => new ObsPathStep(Pos(st.To), st.Cost, null, st.Legal, st.Afford, st.Reason, st.Gain)).ToArray(), q.Total, q.Gained, q.Ok, q.Left, q.Stop);
+
     // ---------------- 编码工具（附录 A） ----------------
 
     public static int Id(EntityId id) => (int)id.Value - 1;
     public static ObsPos Pos(HexPosition p) => new(p.Q, p.R);
     private static string P(HexPosition p) => $"({p.Q}, {p.R})";   // GD str(Vector2i)
-    private static int Itype(CellType t) => t < CellType.Melanoma ? (int)t : -1;
-    private static int Ctype(CellType t) => t >= CellType.Melanoma ? (int)t - CancerTypeBase : -1;
     private static int Permille(double fraction) => fraction < 0 ? 0 : (int)Math.Round(fraction * 1000, MidpointRounding.AwayFromZero);
     private static string Until(ModifierDuration d) => d switch { ModifierDuration.Turn => "turn", ModifierDuration.Round => "round", _ => "" };
     private static string PhaseWord(Phase p) => p switch

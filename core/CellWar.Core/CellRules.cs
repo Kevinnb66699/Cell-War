@@ -971,7 +971,7 @@ internal static class CellRules
         var attacker = s.Cells[attackerBefore.Id];
         var target = s.Cells[targetBefore.Id];
         Stage.Emit(Stage.Fx(s, "immune_attack", ("from", attackerBefore.Position), ("to", to), ("cid", attackerBefore.Id), ("target_id", targetBefore.Id),
-            ("itype", (int)attackerBefore.Type), ("ctype", (int)targetBefore.Type), ("target_alive", target.IsAlive), ("attacker_alive", attacker.IsAlive),
+            ("itype", GdEnum.Itype(attackerBefore.Type)), ("ctype", GdEnum.Ctype(targetBefore.Type)),   // GD 值（观测协议附录 A），别塞 C# 枚举 ("target_alive", target.IsAlive), ("attacker_alive", attacker.IsAlive),
             ("entered", attacker.IsAlive && attacker.Position == to), ("hit", hit)));
     }
 }

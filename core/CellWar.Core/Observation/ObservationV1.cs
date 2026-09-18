@@ -99,3 +99,11 @@ public sealed record ObsOption(int Index, string Key, string Label, Dictionary<s
 public sealed record ObsAsk(long AskId, long Rev, string Kind, string? Tag, int Seat, string Prompt, bool Mine, int StopIndex, ObsOption[] Options);
 
 public sealed record ObsLogs(long From, string[] Lines);
+
+/// <summary>`kernel.query("quote_path")` 的返回（§5.3）。`mid` = 【伪足穿透】借道的中转格：C# 批 0 恒 null（`PassThroughMap` 只给落点与总价、不记中转格，记账）。</summary>
+public sealed record ObsPathStep(ObsPos To, int Cost, ObsPos? Mid, bool Legal, bool Afford, string Blocked, int Gain);
+
+public sealed record ObsPathQuote(ObsPathStep[] Steps, int Total, int Gained, bool Ok, int Left, int Stop);
+
+/// <summary>`kernel.version()`：三个字段必须分开（迁移计划 §三 硬不变量③）—— `host_abi` 是握手闸，其余只上报。</summary>
+public sealed record ObsVersion(int HostAbi, string RulesBuild, string Digest);

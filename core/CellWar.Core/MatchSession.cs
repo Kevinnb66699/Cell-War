@@ -228,6 +228,59 @@ public sealed class MatchSession : ISession
             }
         }
     }
+    /// <summary>观测协议附录 B：seq > <paramref name="sinceSeq"/> 的演出条目。C# 的条目没有可裁的（card_drawn 不带牌名，日志另走 logs），
+    /// <paramref name="viewer"/> 只为与 GD `pull(viewer, since, limit)` 同形。</summary>
+    public Observation.PresentationPage PullPresentation(int viewer, long sinceSeq, int limit = 64)
+    {
+        lock (gate)
+        {
+            using var lease = runtime.Read();
+            var sim = lease.Snapshot.Simulation;
+            var entries = sim.Presentation.Where(e => e.Seq > sinceSeq).Take(Math.Max(0, limit)).Select(Observation.PresentationCodec.Encode).ToArray();
+            return new(entries, sim.PresentationDroppedBefore, sim.NextPresentationSeq);
+        }
+    }
+
+    /// <summary>作答：**语义键为准、下标兜底**（Kevin 拍 E-2；回放只有下标）。键在当前选项表里找不到才看下标；两者都对不上 = 拒答，不钳位。</summary>
+    public ValidationResult SubmitByKey(int seat, long askId, string? key, int index)
+    {
+        InputAnswer answer;
+        lock (gate)
+        {
+            using var lease = runtime.Read();
+            var input = lease.Snapshot.Simulation.Input;
+            if (input is null || input.RequestId != askId) return new(false, "No such request.");
+            if (input.PlayerSeat != seat) return new(false, "Seat does not own this request.");
+            var s = lease.Snapshot.State;
+            var idx = -1;
+            if (!string.IsNullOrEmpty(key))
+                for (var i = 0; i < input.Options.Length && idx < 0; i++)
+                    if (SemanticKey.Of(s, input.Options[i]) == key) idx = i;
+            if (idx < 0 && index >= 0 && index < input.Options.Length) idx = index;
+            if (idx < 0) return new(false, "Neither key nor index matches an option.");
+            answer = new(askId, lease.Revision, idx);
+        }
+        return Submit(seat, answer);
+    }
+
+    /// <summary>观测协议 §5.3 查询式（不进每帧观测）：`plan_next_dests` / `quote_path` 走已有的两个方法；tier B 那两条（`cost_effects_for` / `move_block_reason`）与未知 kind 返回 null。</summary>
+    public System.Text.Json.JsonElement? QueryV1(int seat, string kind, System.Text.Json.JsonElement args)
+    {
+        static HexPosition At(System.Text.Json.JsonElement e) { var q = e.GetProperty("q").GetInt32(); var r = e.GetProperty("r").GetInt32(); return new(q, r, -q - r); }
+        static EntityId Cell(System.Text.Json.JsonElement e) => new((ulong)(e.GetProperty("cid").GetInt32() + 1));
+        object? result = kind switch
+        {
+            "plan_next_dests" => PlanNextDests(seat, Cell(args), At(args.GetProperty("from"))).Select(Observation.ObservationV1Codec.Pos).ToArray(),
+            "quote_path" => Observation.ObservationV1Codec.PathQuote(QuotePath(seat, Cell(args), args.GetProperty("path").EnumerateArray().Select(At).ToArray())),
+            _ => null,
+        };
+        return result is null ? null : System.Text.Json.JsonSerializer.SerializeToElement(result, Observation.ObservationV1Codec.Json);
+    }
+
+    /// <summary>三个字段分开（迁移计划 §三 硬不变量③）。`digest` 批 0 先与 `rules_build` 同值，sidecar 那一批定稿。</summary>
+    public Observation.ObsVersion Version() => new(Observation.ObservationV1Codec.HostAbi, Observation.ObservationV1Codec.RulesBuild, Observation.ObservationV1Codec.RulesBuild);
+
+    /// <summary>★ 含 rng 与全部明文手牌：**宿主专用、绝不过网、绝不裁剪**（观测协议 §七）。客户端能拿到的只有 <see cref="ObserveV1"/> 裁过的 envelope。</summary>
     public Checkpoint Save() { lock (gate) return runtime.Checkpoint(); }
     public MatchSession Fork()
     {
