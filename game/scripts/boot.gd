@@ -84,6 +84,12 @@ var _t0 := 0               ## 启动时刻，用来算「等了多久」（按�
 
 
 func _ready() -> void:
+	## **编辑器运行时跳过整个热更**：本地开发应该跑磁盘上的代码，
+	## 不被服务器上的补丁覆盖（线上旧补丁会把新档位/新代码盖回旧版，F5 一跑就中招）。
+	## 只影响 `OS.has_feature("editor")` 的运行；导出客户端行为零变化。
+	if OS.has_feature("editor"):
+		get_tree().change_scene_to_file(MAIN_SCENE)
+		return
 	_t0 = Time.get_ticks_msec()
 	_build_note()
 	## **一进来就写字**。上一版这一段是全空白的：`_note` 建出来是空的，
