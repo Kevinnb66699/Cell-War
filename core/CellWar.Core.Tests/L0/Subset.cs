@@ -42,9 +42,16 @@ internal static class Subset
     /// 世界 → plain envelope（照 `L0/PreParityTests.cs` 今天的做法，别另起一套）：
     /// <see cref="WorldLoader.Load"/> 装出来的世界 → <see cref="ObservationV1Codec.Encode"/> 的全知 envelope。
     /// </summary>
-    public static Dictionary<string, object?> Encode(WorldState s)
+    public static Dictionary<string, object?> Encode(WorldState s) => Encode(s, null);
+
+    /// <summary>带 <see cref="SimulationState"/> 的那一版：契约步跑完后把 Stage 里发出的条目按 Runtime 同一条路
+    /// （<see cref="SimulationState.Emit"/>）过一遍，`CardPlayed` / `EventCardDrawn` / `WorldEventDrawn` 才会像 GD `note_feed`
+    /// 那样落进 `g.feed_log` / `feed_seq`（观测协议 §八：feed_log 进对拍）。不带 sim 就是装载那一刻的空流水（批 5a card-play-feed-log）。</summary>
+    public static Dictionary<string, object?> Encode(WorldState s, SimulationState? sim)
     {
-        var json = ObservationV1Codec.Serialize(ObservationV1Codec.Encode(new WorldImage(s), new Revision(0)));
+        var image = new WorldImage(s);
+        if (sim is not null) image.Simulation = sim;
+        var json = ObservationV1Codec.Serialize(ObservationV1Codec.Encode(image, new Revision(0)));
         return (Dictionary<string, object?>)L1View.Plain(JsonDocument.Parse(json).RootElement)!;
     }
 

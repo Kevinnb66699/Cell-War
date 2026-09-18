@@ -122,9 +122,11 @@ internal static class Steps
                 $"席位 {seat} 的选项表里没有语义键「{want}」。已有："
                 + string.Join(" / ", options.Select(d => SemanticKey.Of(s, d)).Order(StringComparer.Ordinal)));
         var result = engine.ExecuteDecision(s, chosen, rng);
-        return result.Success
-            ? result.NewState
-            : throw new InvalidOperationException($"{want} 执行失败：{result.ErrorMessage}");
+        if (!result.Success) throw new InvalidOperationException($"{want} 执行失败：{result.ErrorMessage}");
+        // ExecuteDecision 自己开了一个 Stage 作用域、把演出条目收进 result.Events；这里再发回当前作用域，
+        // L0RunnerTests 才收得到 CardPlayed 那类条目、按 Runtime 同一条路记进 g.feed_log（card-play-feed-log，2026-09-19）
+        foreach (var ev in result.Events) if (ev is IPresentationEvent pe) Stage.Emit(pe);
+        return result.NewState;
     }
 
     internal static IReadOnlyCollection<string> Names => Table.Keys;

@@ -77,9 +77,19 @@ public class L0RunnerTests
             Assert.True(grammar.Count == 0, $"{c.Id}：{string.Join("；", grammar)}{where}");
             var pre = Subset.Normalize(Subset.Encode(world));
             var rng = new TapeRng(c.Rolls);
-            var after = Steps.Run(c.Op!, world, c.Args, rng);
+            WorldState after;
+            IReadOnlyList<IPresentationEvent> staged;
+            // 契约步在一个 Stage 作用域里跑：发出的演出条目按 Runtime 同一条路过一遍 SimulationState.Emit，
+            // 出牌 / 抽事件 / 世界事件才会像 GD note_feed 那样落进 g.feed_log（card-play-feed-log，2026-09-19）
+            using (var scope = new Stage.Scope())
+            {
+                after = Steps.Run(c.Op!, world, c.Args, rng);
+                staged = scope.Drain();
+            }
             Assert.True(rng.Unused == 0, $"{c.Id}：带子有剩 {rng.Unused} 段 —— rolls 写多了，或这一步没掷那么多次{where}");
-            var post = Subset.Normalize(Subset.Encode(after));
+            var sim = new SimulationState();
+            foreach (var ev in staged) sim = sim.Emit(ev);
+            var post = Subset.Normalize(Subset.Encode(after, sim));
             var got = Subset.ApplyIgnore(Subset.Diff(pre, post), c.Expect.Ignore);
             // 一条手写的 changed 路径命中零个字段 = 硬错（A-1）：写歪的路径不能靠整集合比顺带报成「多一条」
             var known = Subset.Paths(pre);

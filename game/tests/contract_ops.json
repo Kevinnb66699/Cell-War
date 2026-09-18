@@ -776,7 +776,8 @@
       { "tag": "move/spend", "cases": "^execute/move/spend/" },
       { "tag": "move/keep", "cases": "^execute/move/keep/" },
       { "tag": "move/exhaust", "cases": "^execute/move/exhaust/" },
-      { "tag": "move/ras", "cases": "^execute/move/ras/" }
+      { "tag": "move/ras", "cases": "^execute/move/ras/" },
+      { "tag": "play/card", "cases": "^execute/play/" }
     ]
   },
   {

@@ -1,0 +1,63 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/play/inflammatory_chemotaxis_from_hand",
+    "op": "execute",
+    "covers": [],
+    "source": "批 5a 空档 card-play-feed-log 的执行机构（2026-09-19）：打出一张【炎症趋化】—— 手牌少一张、能量扣卡价、mods 挂一条四元组、play_n +1、g.feed_log / feed_seq 记一条 play。此前 C# 靶场把契约步跑在 Stage 作用域外、feed 条目丢掉，GD 多两条差分 ⇒ 盖不住；现在 L0RunnerTests 按 Runtime 同一条路（SimulationState.Emit）记流水。L0 净增（打牌流程的老 check 在 t_card_mods ①b 那类多步断言里）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "III"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "hand": [
+            "炎症趋化"
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=play|card=炎症趋化"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].hand": [],
+        "$.cells[0].mods[炎症趋化].name": "炎症趋化",
+        "$.cells[0].mods[炎症趋化].seq": 1,
+        "$.cells[0].mods[炎症趋化].until": "turn",
+        "$.cells[0].mods[炎症趋化].uses": 1,
+        "$.cells[0].play_n": 1,
+        "$.g.feed_log": [
+          {
+            "card": "炎症趋化",
+            "faction": 0,
+            "kind": "play",
+            "left": 0,
+            "pid": 0,
+            "seq": 1
+          }
+        ],
+        "$.g.feed_seq": 1
+      },
+      "ignore": []
+    }
+  }
+]
