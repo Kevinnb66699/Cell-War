@@ -110,9 +110,10 @@ func _begin_tutorial(cancer_type: int) -> void:
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
 	menu.dismiss(T_DECOR, DECOR_DRIFT)
-	## 教程小棋盘：推镜头之前就把半径外的格淡掉，镜头到位时看到的已经是那几格
-	##（Kevin 2026-09-11：原来是推完才换格网，画面「猛地缩小」）。淡的时长取推进的一半，走到一半棋盘就定了
-	match_node.board.set_active_radius(CWMatch.tutorial_board_radius(), T_ENTER * 0.5)
+	## 教程小棋盘：推镜头之前就把活跃格外的格淡掉，镜头到位时看到的已经是那几格
+	##（Kevin 2026-09-11：原来是推完才换格网，画面「猛地缩小」）。淡的时长取推进的一半，走到一半棋盘就定了。
+	## 口径是**格集合**不是半径（新手引导 §1.3）：世界半径全程 6，关内长地图靠 reveal 加坐标
+	match_node.board.set_active_tiles(CWMatch.tutorial_active_tiles(), T_ENTER * 0.5)
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_tween.tween_method(_look, 0.0, 1.0, T_ENTER)
 	await _tween.finished

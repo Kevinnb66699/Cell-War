@@ -1,10 +1,12 @@
 extends SceneTree
 ## 把现行教程剧本**原样导出成 Markdown** —— 给人读的工具，不是测试。
 ##
-## 为什么要有：剧本散在 `CWGuideData` 的 16 个 `_stage_*()` 里，正文还带着从
-## `CWTuning` / `CWData` 现算的数字（费用、伤害、门槛…）。想通读一遍、或者要和团队
-## 逐句对文案，翻源码既费劲又容易漏掉「这句里的数其实是算出来的」。
-## 这里直接问引擎要，导出来的就是**玩家真会看到的那几行字**。
+## 为什么要有：正文里的数字是从 `CWTuning` / `CWData` 现算的（`{{tune.*}}` 占位，费用、伤害、门槛…）。
+## 想通读一遍、或者要和团队逐句对文案，翻数据既费劲又容易漏掉「这句里的数其实是算出来的」。
+## 这里直接问门面要，导出来的就是**玩家真会看到的那几行字**。
+##
+## 新手引导 S3 起剧本正本是 `game/data/tutorial/*.json`（`CWGuideData` 退成读它的门面），
+## 逐关的标签也跟着换：老导演那三项（棋盘半径 / 视角 / 实验区）没有了，改成数据里的活跃格数与席位。
 ##
 ## 跑（可以加 --headless）：
 ##   godot --headless --path game --script res://tests/dump_guide.gd -- <输出.md>
@@ -29,7 +31,7 @@ func _initialize() -> void:
 	md.append("")
 	md.append("- 共 %d 关；`渐进 UI` 档位：0 只看棋盘 · 1 目标高亮 · 2 规则/资源提示 · 3 预测与解释"
 		% CWGuideData.CHAPTER_COUNT)
-	md.append("- 每步的字段：**正文**（最多两行）`高亮`（提亮层目标）`动作`（可由「继续」代做）`完成`（真实状态判据）")
+	md.append("- 每步的字段：**正文**（可空，最多六行）`高亮`（提亮层目标）`动作`（可由「继续」代做）`完成`（真实状态判据）")
 	md.append("")
 	var titles := CWGuideData.chapter_titles()
 	var subs := CWGuideData.chapter_subtitles()
@@ -43,10 +45,9 @@ func _initialize() -> void:
 		md.append("")
 		md.append("> %s" % subs[i])
 		md.append("")
-		md.append("`棋盘半径 %d` `视角 %s` `实验区 %d` `渐进 UI %d` `知识之书第 %d 章` `%d 步`"
-			% [CWGuideLevels.radius(i),
-				"癌症方" if CWGuideLevels.player_faction(i) == CWData.Faction.CANCER else "免疫方",
-				CWGuideLevels.zones(i), CWGuideData.ui_stage(i),
+		md.append("`活跃格 %d` `席位 %d（人类坐第 %d 席）` `渐进 UI %d` `知识之书第 %d 章` `%d 步`"
+			% [CWGuideData.active_tiles(i).size(), CWGuideData.seats(i),
+				CWGuideData.human_seat(i) + 1, CWGuideData.ui_stage(i),
 				int(CWGuideData.CODEX_PAGE[i]) + 1, steps.size()])
 		md.append("")
 		for k in steps.size():

@@ -178,7 +178,7 @@ func _roundtrip(wid: String, spec: Dictionary) -> void:
 ## 判据 ④ 活跃格 ⊆ 半径；⑤ 活跃格里压到 11 个特殊格的都显式写了 type（纪律 2）
 func _check_active(level: Dictionary, radius: int) -> void:
 	for s in level.get("active_tiles", []):
-		var at := _at(str(s))
+		var at := parse_at(str(s))
 		if not CWData.is_on_board(at, radius):
 			_bad("活跃格 %s 在半径 %d 的棋盘外" % [str(s), radius])
 			continue
@@ -192,7 +192,7 @@ func _check_active(level: Dictionary, radius: int) -> void:
 static func _has_explicit_type(spec: Dictionary, at: Vector2i) -> bool:
 	for t in spec.get("tiles", []):
 		var d: Dictionary = t
-		if _at(str(d.get("at", ""))) == at:
+		if parse_at(str(d.get("at", ""))) == at:
 			return d.has("type")
 	return false
 
@@ -210,7 +210,7 @@ func _check_steps(level: Dictionary, radius: int) -> void:
 				_bad("steps[%d].%s 写的「%s」不在 CWGuideWatch.KEYS 里（表：%s）"
 					% [i, field, str(step[field]), ", ".join(PackedStringArray(WATCH.KEYS.keys()))])
 		for s in step.get("reveal", []):
-			if not CWData.is_on_board(_at(str(s)), radius):
+			if not CWData.is_on_board(parse_at(str(s)), radius):
 				_bad("steps[%d] 的 reveal 的格不在盘上：%s（预置 + 遮罩揭示，不是凭空造格）" % [i, str(s)])
 
 
@@ -236,7 +236,8 @@ func _check_text(level: Dictionary) -> void:
 
 # ---- 小工具 ----
 
-static func _at(text: String) -> Vector2i:
+## 坐标解析只有这一处：数据里一律写 "q,r"。S3 起舞台（cw_tutorial_stage.coords_of）与数据门面也走它，所以是公开的
+static func parse_at(text: String) -> Vector2i:
 	var parts := text.split(",")
 	if parts.size() != 2:
 		return Vector2i(9999, 9999)

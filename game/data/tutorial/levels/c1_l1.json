@@ -40,7 +40,7 @@
             "下面继续巡逻吧！",
             "使用【迁移】，向前行动一格"],
       "unlock": ["tissue_healthy", "move"],
-      "flag": "move", "hex": ["0,-1"], "player": true,
+      "flag": "move", "act": "move", "hex": ["0,-1"], "player": true,
       "allow": ["k=action|act=move|to=0,-1"],
       "watch": "moved"
     }
