@@ -28,7 +28,10 @@ func ask(req: Dictionary) -> int:
 	return await super.ask(req)
 
 
-## 癌方视角：地盘（胜利进度）+ 供给（每回合收入）+ 能量银行差。权重先全 1。
+## 癌方视角：地盘（胜利进度）+ 供给 + 能量银行差。
+## ⚠ 实验记录（2026-09-20）：曾试「供给 × 剩余回合折现 + 能量差降权」→ 移动率 6.7%→33% 但
+##    对普通免胜率反而 27.5%→15%（60 局实锤）。癌方弱不是「移动不够」；折现导致过度扩张、
+##    能量被掏空送免收割，方向错误，已回退。真正缺的是固化/生存/免疫威胁的评估（下一步）。
 static func _cancer_score(m: Dictionary) -> float:
 	return float(m["win_progress"]) + float(m["cancer_supply"]) \
 		+ float(m["cancer_energy"]) - float(m["immune_energy"])
