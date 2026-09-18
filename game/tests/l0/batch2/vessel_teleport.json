@@ -1,0 +1,211 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "vessel_teleport/no_rider",
+    "op": "vessel_teleport",
+    "covers": [],
+    "source": "cw_world.gd:_vessel_teleport 的第一道早退 ↔ BoardRules.Transport 的 `if (ca is null && cb is null) return s`。**零常数结构**：两端血管都没人 ⇒ 整步不动任何字段（delta 为空集合）。棋盘中央还站着一只免疫细胞，用来证明「不是整局空转」。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        }
+      ]
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {},
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "vessel_teleport/one_rider/to_far_end",
+    "op": "vessel_teleport",
+    "covers": [
+      "t_vessel_swap::只有一端有人：送到另一端"
+    ],
+    "source": "cw_world.gd:_vessel_teleport 的 `for cell in ca` ↔ BoardRules.Transport 的第一次 ArriveAndLand。**零常数结构**：只有 a 端 (6,0) 有人 ⇒ 强制送到另一端 (-6,0)，另一端空着不换回来。两端都是健康血管，免疫落地不触发定殖 / 净化 / 收取 ⇒ delta 里只有位置与占位。changed 由 GD runner 录出。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "6,0"
+        }
+      ]
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-6,0.cell": 0,
+        "$.board.tiles@6,0.cell": -1,
+        "$.cells[0].pos.q": -6
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "vessel_teleport/one_rider/necrosis_expired_resumes",
+    "op": "vessel_teleport",
+    "covers": [
+      "t_necrosis::坏死一过，血管照常把人送到另一端"
+    ],
+    "source": "cw_world.gd:_vessel_teleport 的坏死闸 ↔ BoardRules.Transport 的 `NecrosisRounds > 0` 判据。**零常数结构**：两端血管的坏死倒计时都已经归 0（tiles 上显式写 `necrosis: 0`）⇒ 闸不拦、照常传送；这一条走的是 `for cell in cb` 那一半（人站 b 端 (-6,0)，送到 a 端 (6,0)），与 to_far_end 成对钉住两个方向。changed 由 GD runner 录出。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "6,0",
+          "necrosis": 0
+        },
+        {
+          "at": "-6,0",
+          "necrosis": 0
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "-6,0"
+        }
+      ]
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-6,0.cell": -1,
+        "$.board.tiles@6,0.cell": 0,
+        "$.cells[0].pos.q": 6
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "vessel_teleport/swap/enemies",
+    "op": "vessel_teleport",
+    "covers": [
+      "t_vessel_swap::两端敌对：交换位置（免疫"
+    ],
+    "source": "cw_world.gd:_vessel_teleport 的「两端都有细胞就交换位置，不分阵营」（PRD 2026-09-13 覆盖版）↔ BoardRules.Transport 的两次 ArriveAndLand。**零常数结构**：两端血管**都是癌性组织**（血管可以被定殖，只是不能固化）⇒ 换位前后盘面对称，癌细胞所在连通块的普通癌格数与全图固化数都不变 ⇒ 无氧预计收入逐位不变、进不了 delta；为稳妥再把 anaerobic_floor 与 anaerobic_cap **同时钉成 33**（`max(33, x)` 之后再 `min(33, ·)` 恒等于 33，与 `anaerobic_split` 也无关），任何数值口径下癌方 income 都是常量。免疫落到癌性血管上走正常【净化】那一支（记忆 0 → 1，没跨过 10，硬约定 T5）。先送 a 端再送 b 端 —— 这条顺序由血管坐标定死。changed 由 GD runner 录出。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "6,0",
+          "state": "cancer"
+        },
+        {
+          "at": "-6,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "6,0"
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "-6,0"
+        }
+      ],
+      "tuning": {
+        "anaerobic_floor": 33,
+        "anaerobic_cap": 33
+      }
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-5,-1.d.proliferate_chance": 0,
+        "$.board.tiles@-5,0.d.proliferate_chance": 0,
+        "$.board.tiles@-6,0.cell": 0,
+        "$.board.tiles@-6,0.tissue": 0,
+        "$.board.tiles@-6,1.d.proliferate_chance": 0,
+        "$.board.tiles@6,0.cell": 1,
+        "$.cells[0].pos.q": -6,
+        "$.cells[1].pos.q": 6,
+        "$.g.memory": 1
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "vessel_teleport/swap/allies",
+    "op": "vessel_teleport",
+    "covers": [
+      "t_vessel_swap::同阵营两端：照换"
+    ],
+    "source": "cw_world.gd:_vessel_teleport 的同一条「两端都有就换」↔ BoardRules.Transport。**零常数结构**：两只**同阵营**免疫细胞各站一端、两端都是健康血管 ⇒ 换位、不触发任何落地结算，delta 里只有两个位置与两格占位。与 swap/enemies 成对钉住「不分阵营」。changed 由 GD runner 录出。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        },
+        {
+          "seat": 1,
+          "faction": "immune"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "6,0"
+        },
+        {
+          "seat": 1,
+          "type": "ImmuneBasic",
+          "at": "-6,0"
+        }
+      ]
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-6,0.cell": 0,
+        "$.board.tiles@6,0.cell": 1,
+        "$.cells[0].pos.q": -6,
+        "$.cells[1].pos.q": 6
+      },
+      "ignore": []
+    }
+  }
+]

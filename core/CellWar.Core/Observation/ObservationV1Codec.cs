@@ -72,13 +72,13 @@ public static class ObservationV1Codec
                 c.IsAlive ? RulePolicies.OverloadLoss(s, c) : 0,
                 null, null, null, null, null, null, null, null, null, null, null))).ToArray();
 
-        var immune = s.Players.Values.Where(p => p.Faction == Faction.Immune).OrderBy(p => p.Seat).FirstOrDefault();
         var phase = PhaseWord(s.Turn.Phase);
         var g = new ObsGlobal(
             s.Turn.WorldRound, phase,
             phase == "turn" ? s.Turn.ActivePlayerSeat : -1,   // GD 换阶段不清零，协议按 L1 视图口径：非玩家回合恒 -1
             sim.Input?.PlayerSeat ?? -1,
-            immune?.AntigenMemory ?? 0, (int)(immune?.ImmuneLevel ?? ImmuneLevel.I) - 1,
+            // E-5：阵营级读法收口成两个具名查询（`WorldStateExtensions`），口径就是这两句本来的样子 —— 零行为改动
+            s.FactionMemory(Faction.Immune), (int)s.FactionImmuneLevel(Faction.Immune) - 1,
             s.Turn.EffectorRound <= 0 ? -1 : s.Turn.EffectorRound,   // 「从没发动过」GD 记 -1、C# 记 0：协议统一 -1
             // 「已被分化占用的免疫种类」由 cells 现算：**`differentiated` 旗标为真**且不是 BASIC 的那些种类（GD `cw_case_loader.gd:_differentiated_of` 同口径）；
             // 真局里分化过的细胞旗标必真，两种算法同义；手摆的盘面只有旗标说了算（批 3 KG-8：一只 differentiated=false 的树突两侧算出 0 / 1 种）

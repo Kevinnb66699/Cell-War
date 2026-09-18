@@ -17,6 +17,11 @@
 ## ⚠ 这是**测试设施**，不改任何游戏行为。规则一行都不在这里写 ——
 ## 探针一律转调 `CWGame` / `CWWorld` / `CWActions` 上已有的入口，
 ## 这里多写一行算式，「两边算出同一个数」就变成了「两边各抄了一份同样的算式」。
+##
+## **浮点的传输编码（R4，两侧同一套）**：`scalar` 的单位一律是**十分能量 / 千分率的整数**。
+## 返回 float 的探针要在**表项里**按**千分位**冻成整数 `round(x * 1000)`（批 0 的 const 表立的口径，
+## 批 2 的 `anaerobic_pool` 是第一个真用户）。runner 不做隐式转换 ——
+## `_case_scalar` 见到 float 当场红，`cw_case_diff.gd` 见到浮点叶子也当场红。
 extends SceneTree
 
 const CASE_DIR := "res://tests/l0"
@@ -241,6 +246,11 @@ func _case_scalar(g: CWGame, id: String, op: String, c: Dictionary, exp: Variant
 	var actual: Variant = _probe(g, op, c.get("args", {}))
 	if actual == null:
 		return   ## _probe 已经报过错了
+	## R4 硬闸：C# 的 `Convert.ToInt64(double)` 是**银行家舍入**、这边的 `int(float)` 是**截断** ——
+	## 同一个 48.93 一边 49 一边 48，两侧会在没人看的地方分叉。要冻就在**探针表项**里按千分位冻
+	if typeof(actual) == TYPE_FLOAT:
+		_fail("%s（探针 %s）：探针返回浮点：scalar 的单位一律是十分能量 / 千分率的整数，float 要在探针表项里冻成整数（R4）" % [id, op])
+		return
 	if int(actual) == want:
 		print("  ok  %s" % id)
 	else:
@@ -382,10 +392,14 @@ func _probe(g: CWGame, name: String, args: Dictionary) -> Variant:
 		"move_legal":
 			## bool → scalar 的 1 / 0：两侧表项各自冻，不靠 runner 的隐式转换（同 CWData.is_world_event_round）
 			return 1 if g.actions._is_move_legal_now(_cell(g, args), _pos(str(args.get("to", "")))) else 0
-		## 两个空壳（§0.6.7 四条里批 2 的那两条）：表里是 deferred，分派表里留位子，调用即报本批未开工
-		"anaerobic_pool", "split_share":
-			_fail("探针 %s：本批未开工" % name)
-			return null
+		## §0.6.7 四条里批 2 的那两条：批 2 第一段由空壳转真（op 名集合不动 ⇒ 双射不变）
+		"anaerobic_pool":
+			## 返回 float（十分能量）。**千分位冻成整数**，与批 0 的 const 表同一套传输编码（R4）；
+			## 算式一行不写 —— 池子本身由 cw_world.gd:_anaerobic_pool 算
+			return int(round(g.world._anaerobic_pool(_positions(str(args.get("block", "")))) * 1000.0))
+		"split_share":
+			## pool 走十进制字符串（L0Case.Args 是 <string,string>），count 走整数；返回值本来就是 int
+			return g.world._split_share(float(str(args.get("pool", "0"))), _arg_int(args, "count"))
 	_fail("不认识的探针：%s" % name)
 	return null
 
@@ -437,7 +451,7 @@ func _quote_path_tree(g: CWGame, args: Dictionary) -> Variant:
 ## **传输形状**（两侧表项逐字同一套，C# 侧 Probes.cs 上有同一段注释）：
 ##   * int    → `scalar`，裸整数原样；
 ##   * bool   → `scalar`，写 1 / 0（本表里只有 is_world_event_round）；
-##   * float  → 按**千分位**冻成整数 `round(x * 1000)` —— 批 0 一个都没有，口径先立着；
+##   * float  → 按**千分位**冻成整数 `round(x * 1000)` —— 批 0 一个都没有，批 2 的探针 `anaerobic_pool` 是第一个真用户；
 ##   * Array / Dictionary → `tree`：Vector2i 写 "q,r"、枚举写整数值。
 ##     GD 这边由 runner 的 _to_json() 收口（它已经做 Vector2i → "q,r" 与 float 取整），
 ##     C# 那边由表项自己调 WorldLoader.At —— 两侧出来的字符串逐字相同。

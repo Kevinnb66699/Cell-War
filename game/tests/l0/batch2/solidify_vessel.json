@@ -1,0 +1,92 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "solidify/vessel/not_accumulated",
+    "op": "solidify",
+    "covers": [
+      "t_vessel_no_solid::血管：蹲满回合也不累计、不固化"
+    ],
+    "source": "cw_game.gd:raise_solid 的 `if not CWTissue.solidifiable(t): return`（Kevin 2026-09-06）↔ BoardRules.RaiseSolid 的 `if (t.Type == TissueType.BloodVessel) return s`。**零常数结构**：癌细胞蹲在**癌性的血管格**上，【E-固化】这一步既不给它加计数也不让它固化 ⇒ delta 为空集合。癌细胞单独占一个席位，不撞 B9（一格一细胞、一席一细胞）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "6,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "6,0"
+        }
+      ]
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {},
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "solidify/vessel/control_plain_tile_solidifies",
+    "op": "solidify",
+    "covers": [
+      "t_vessel_no_solid::对照：旁边的普通癌组织照常固化"
+    ],
+    "source": "同一条 `raise_solid` 的**对照**：普通癌组织照常累计、够门槛当场转固化（cw_game.gd:raise_solid ↔ BoardRules.RaiseSolid）。计数从 2.0 起、这一步 +1.0 正好够 I 期门槛 3.0 ⇒ 当场转固化；期望里出现的只有固化计数与固化进度两个量，它们由既有的 `solidify_threshold` 探针与 solidify 的 `threshold:reached` 档钉着，本来就是这一族自己的口径。**对 E-3 的冻结面而言是零常数结构**：两条会把有氧 / 无氧常数漏进 delta 的路都被堵死了 —— ① 无氧预计收入由 `anaerobic_floor` 与 `anaerobic_cap` **同时钉成 33**（`max(33, x)` 之后再 `min(33, ·)` 恒等于 33），「普通癌格变固化格」引起的池子变化一滴都漏不进来；② 邻格的 `d.proliferate_chance` 由 `proliferate_per_solid[1]` **钉成 0** ⇒ 千分率与固化格数无关、前后同值，也不进 delta。changed 由 GD runner 录出。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer",
+          "solid": 20
+        }
+      ],
+      "cells": [
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "0,0"
+        }
+      ],
+      "tuning": {
+        "anaerobic_floor": 33,
+        "anaerobic_cap": 33,
+        "proliferate_per_solid[1]": 0
+      }
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.d.solid_fraction": 1000,
+        "$.board.tiles@0,0.solid": 30,
+        "$.board.tiles@0,0.tissue": 2
+      },
+      "ignore": []
+    }
+  }
+]

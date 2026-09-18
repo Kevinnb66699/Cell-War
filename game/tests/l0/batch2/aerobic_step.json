@@ -1,0 +1,176 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_step/level_I",
+    "op": "aerobic",
+    "covers": [],
+    "source": "cw_world.gd:_aerobic ↔ PhaseRules.Aerobic。**旋钮钉死：期望 = tuning 里的 aerobic_by_level[1]，不受数值口径影响** —— 一只 I 级免疫细胞收一份，能量 30.0 涨到 30.0 加钉死值。钉的是「每只存活免疫各收一份、收的就是基准表那一档」。changed 由副本 scratchpad/p2b2 上的 GD runner 真跑录出。（细胞 `energy: 300` 显式写出：期望 341 = 300 + 钉死的 41，不烘默认初始能量）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300
+        }
+      ],
+      "tuning": {
+        "aerobic_by_level[1]": 41
+      }
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 341
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_step/level_III",
+    "op": "aerobic",
+    "covers": [],
+    "source": "cw_world.gd:_aerobic → _aerobic_base ↔ PhaseRules.Aerobic → AerobicBase。**旋钮钉死：期望 = tuning 里的 aerobic_by_level[3]** —— 同一只细胞、把免疫等级抬到 III，收的改成表的第 3 档。与 level_I 成对钉住「查表用的是等级下标」。changed 由 GD runner 录出。（细胞 `energy: 300` 显式写出：期望 341 = 300 + 钉死的 41，不烘默认初始能量）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "III"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300
+        }
+      ],
+      "tuning": {
+        "aerobic_by_level[3]": 41
+      }
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 341
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_step/necrosis_cut",
+    "op": "aerobic",
+    "covers": [],
+    "source": "cw_world.gd:_aerobic → necrosis_cut ↔ PhaseRules.Aerobic → NecrosisCut。**旋钮钉死：期望 = tuning 里的 aerobic_by_level[1]（不站坏死格那只）与 necrosis_aerobic_pct = 0（站坏死格那只，0 × 任何基准 = 0）**。两只免疫各收一份（aerobic_split 缺省关），站坏死格的席位 0 整份归零、旁边的席位 1 照收 —— 钉的是「打折只打站在坏死格的那一只、且是整份一起打」。changed 由 GD runner 录出。（细胞 `energy: 300` 显式写出：期望 341 = 300 + 钉死的 41，不烘默认初始能量）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        },
+        {
+          "seat": 1,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "necrosis": 2
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300
+        },
+        {
+          "seat": 1,
+          "type": "ImmuneBasic",
+          "at": "1,0",
+          "energy": 300
+        }
+      ],
+      "tuning": {
+        "aerobic_by_level[1]": 41,
+        "necrosis_aerobic_pct": 0
+      }
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[1].energy": 341
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_step/tgf_consumed",
+    "op": "aerobic",
+    "covers": [
+      "t_card_mods::结算一次即整体消耗"
+    ],
+    "source": "cw_world.gd:_aerobic 末尾的「同名条目整批剔除」 ↔ PhaseRules.Aerobic 的 `RemoveEffects(\"TGF-β释放\")`。**零常数结构**：唯一那只免疫站在坏死格上、necrosis_aerobic_pct 钉 0 ⇒ 这一步进账恒 0（0 × 任何基准 = 0），能量与预计收入两侧都一动不动 ⇒ delta 里**只剩**【TGF-β释放】整条被摘掉这一件事 —— 有氧基数与 TGF 的 ×80% 一个都进不了期望。钉的是「结算一次即整体消耗」。events.active 只写一条、data 写 {}（硬约定 T4）。changed 由 GD runner 录出。（细胞 `energy: 300` 显式写出：期望 341 = 300 + 钉死的 41，不烘默认初始能量）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "necrosis": 2
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300
+        }
+      ],
+      "events": {
+        "active": [
+          {
+            "name": "TGF-β释放",
+            "left": 2,
+            "stacks": 1,
+            "doubled": "",
+            "data": {}
+          }
+        ]
+      },
+      "tuning": {
+        "necrosis_aerobic_pct": 0
+      }
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.g.events.active[TGF-β释放].d.is_world_event": null,
+        "$.g.events.active[TGF-β释放].data": null,
+        "$.g.events.active[TGF-β释放].doubled": null,
+        "$.g.events.active[TGF-β释放].left": null,
+        "$.g.events.active[TGF-β释放].name": null,
+        "$.g.events.active[TGF-β释放].stacks": null
+      },
+      "ignore": []
+    }
+  }
+]

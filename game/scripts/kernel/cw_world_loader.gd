@@ -448,54 +448,85 @@ func _load_tuning(g: CWGame, spec: Dictionary) -> bool:
 		fail("读不到 %s —— 旋钮契约表是两侧共用的唯一一份，没有它不许装旋钮" % TUNE_PATH)
 		return false
 	var def := CWTuning.new()
-	for key in spec:
-		var name := str(key)
-		var idx := -1
-		if name.ends_with("]"):
-			var lb := name.find("[")
-			if lb < 0:
-				fail("旋钮下标写错了：%s（形如 proliferate_per_adjacent[1]，1 基）" % name)
+	## **两趟**（B5）：`name[]`（把分档表截到这个长度）一律先于 `name[i]`（改某一档）——
+	## JSON 对象的键序不可靠，靠插入序就是给自己埋雷。C# `L0/WorldLoader.cs:Tune` 同
+	for len_pass in [true, false]:
+		for key in spec:
+			if str(key).ends_with("[]") != len_pass:
+				continue
+			if not _load_knob(g, table, def, str(key), spec[key]):
 				return false
-			idx = int(name.substr(lb + 1, name.length() - lb - 2))
-			name = name.substr(0, lb)
-		if not table.has(name):
-			fail("未知旋钮：%s（不在 %s 里）" % [name, TUNE_PATH])
+	return true
+
+
+## 一个旋钮的处置（四档白名单 + 三种写法：裸名 / `name[i]` / `name[]`）。
+## 从 `_load_tuning` 里原样搬出来的 —— 搬的理由是那边要跑两趟，不是这里要改判据。
+func _load_knob(g: CWGame, table: Dictionary, def: CWTuning, key: String, value: Variant) -> bool:
+	var name := key
+	var idx := -1
+	var is_len := false
+	if name.ends_with("]"):
+		var lb := name.find("[")
+		if lb < 0:
+			fail("旋钮下标写错了：%s（形如 proliferate_per_adjacent[1]，1 基；`name[]` = 表长）" % name)
 			return false
-		var tier := str((table[name] as Dictionary).get("tier", ""))
-		if tier == "B":
-			fail("旋钮 %s：**C# 无对应物（E-3）** —— 这不是 loader 的活，是内核的活" % name)
-			return false
-		if tier == "C":
-			fail("旋钮 %s 不在白名单（contract_tune.json C 档：登记在案、不接）" % name)
-			return false
-		if tier != "A" and tier != "A'":
-			fail("旋钮 %s 的 tier「%s」不认识（只认 A / A' / B / C）" % [name, tier])
-			return false
-		if not name in g.tune:
-			fail("CWTuning 上没有这个旋钮：%s" % name)
-			return false
-		if idx >= 0:
-			var arr: Array = g.tune.get(name)
-			if idx < 1 or idx > arr.size():
-				fail("旋钮下标越界：%s[%d]（1..%d，1 基）" % [name, idx, arr.size()])
-				return false
-			if not _is_num(arr[idx - 1]):
-				fail("旋钮 %s 的档位不是整数（%s）—— cwxtune/1 只表达 int / bool / 分档整数表" % [name, type_string(typeof(arr[idx - 1]))])
-				return false
-			arr[idx - 1] = int(spec[key])
-			continue
-		## 值一律是 int（C# 那边是 Dictionary<string,int>），bool 写 1/0；按属性本来的类型落地
-		var cur: Variant = def.get(name)
-		if cur is bool:
-			g.tune.set(name, int(spec[key]) != 0)
-		elif cur is Array:
-			fail("旋钮 %s 是分档表，要写下标：%s[i]（1 基）" % [name, name])
-			return false
-		elif not _is_num(cur):
-			fail("旋钮 %s 不是整数旋钮（%s）—— cwxtune/1 只表达 int / bool / 分档整数表" % [name, type_string(typeof(cur))])
-			return false
+		var idx_text := name.substr(lb + 1, name.length() - lb - 2)
+		name = name.substr(0, lb)
+		if idx_text == "":
+			is_len = true   ## B5：`name[]` = 把这张分档表截到这个长度
 		else:
-			g.tune.set(name, int(spec[key]))
+			idx = int(idx_text)
+	if not table.has(name):
+		fail("未知旋钮：%s（不在 %s 里）" % [name, TUNE_PATH])
+		return false
+	var tier := str((table[name] as Dictionary).get("tier", ""))
+	if tier == "B":
+		fail("旋钮 %s：**C# 无对应物（E-3）** —— 这不是 loader 的活，是内核的活" % name)
+		return false
+	if tier == "C":
+		fail("旋钮 %s 不在白名单（contract_tune.json C 档：登记在案、不接）" % name)
+		return false
+	if tier != "A" and tier != "A'":
+		fail("旋钮 %s 的 tier「%s」不认识（只认 A / A' / B / C）" % [name, tier])
+		return false
+	if not name in g.tune:
+		fail("CWTuning 上没有这个旋钮：%s" % name)
+		return false
+	if is_len:
+		## B5-2 本批**只许缩短（含清空）**：加长要先定新槽位的初值，本批不定 ⇒ UNLOADABLE（不是 fail）。
+		## 两趟保证这一步之前没人动过长度，所以这里的当前长度就是缺省长度
+		if not (g.tune.get(name) is Array):
+			fail("旋钮 %s 不是分档表，写不得 %s[]" % [name, name])
+			return false
+		var tbl: Array = g.tune.get(name)
+		var want := int(value)
+		if want < 0 or want > tbl.size():
+			unloadable("旋钮 %s[] 要 %d 档，缺省只有 %d 档 —— 本批只许缩短（含清空），加长得先定新槽位的初值" % [name, want, tbl.size()])
+			return false
+		g.tune.set(name, tbl.slice(0, want))
+		return true
+	if idx >= 0:
+		var arr: Array = g.tune.get(name)
+		if idx < 1 or idx > arr.size():
+			fail("旋钮下标越界：%s[%d]（1..%d，1 基）" % [name, idx, arr.size()])
+			return false
+		if not _is_num(arr[idx - 1]):
+			fail("旋钮 %s 的档位不是整数（%s）—— cwxtune/1 只表达 int / bool / 分档整数表" % [name, type_string(typeof(arr[idx - 1]))])
+			return false
+		arr[idx - 1] = int(value)
+		return true
+	## 值一律是 int（C# 那边是 Dictionary<string,int>），bool 写 1/0；按属性本来的类型落地
+	var cur: Variant = def.get(name)
+	if cur is bool:
+		g.tune.set(name, int(value) != 0)
+	elif cur is Array:
+		fail("旋钮 %s 是分档表，要写下标：%s[i]（1 基）或 %s[]（表长）" % [name, name, name])
+		return false
+	elif not _is_num(cur):
+		fail("旋钮 %s 不是整数旋钮（%s）—— cwxtune/1 只表达 int / bool / 分档整数表" % [name, type_string(typeof(cur))])
+		return false
+	else:
+		g.tune.set(name, int(value))
 	return true
 
 
@@ -691,11 +722,15 @@ func _dump_tuning(g: CWGame) -> Dictionary:
 		if v is Array:
 			var cur: Array = v
 			var dv: Array = d
-			for i in cur.size():
+			## B5-3：长度不同（含被清空）先写 `name[]`。以前空表连循环体都不进 ——
+			## 「分档表被清空」在 dump 里一个键都不出现，往返回来表又满了（COVERAGE 的 B5）
+			if cur.size() != dv.size():
+				out["%s[]" % name] = cur.size()
+			for i in mini(cur.size(), dv.size()):
 				## 非整数的分档表（erosion_tiles 是 Array[Vector2i]）cwxtune/1 表达不了，装载期也进不来
 				if not _is_num(cur[i]):
 					break
-				if i < dv.size() and int(cur[i]) != int(dv[i]):
+				if int(cur[i]) != int(dv[i]):
 					out["%s[%d]" % [name, i + 1]] = int(cur[i])
 			continue
 		if v == d:
@@ -844,10 +879,16 @@ func _minify_tuning(spec: Dictionary) -> Dictionary:
 			if lb < 0:
 				continue
 			var base := name.substr(0, lb)
-			var idx := int(name.substr(lb + 1, name.length() - lb - 2))
+			var idx_text := name.substr(lb + 1, name.length() - lb - 2)
 			if not base in def:
 				continue
 			var d: Array = def.get(base)
+			## B5-4：`name[]` 只在与**缺省长度**不同时出现（与 dump 同一条规则，独立实现）
+			if idx_text == "":
+				if iv != d.size():
+					out[name] = iv
+				continue
+			var idx := int(idx_text)
 			if idx >= 1 and idx <= d.size() and _is_num(d[idx - 1]) and int(d[idx - 1]) == iv:
 				continue
 			out[name] = iv

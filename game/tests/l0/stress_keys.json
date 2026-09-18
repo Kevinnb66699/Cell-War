@@ -197,5 +197,29 @@
     },
     "args": { "cell": "0", "to": "1,-1" },
     "expect": 5
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "stress/tuning/aerobic_by_level_truncated_roundtrips",
+    "covers": [],
+    "probe": "proliferate_chance",
+    "source": "B5 的验收（`name[]` = 把分档表截到这个长度，本批只许缩短含清空）。盘面与期望 30 照抄同文件的 stress/newborn/tile_flag_roundtrips_and_is_inert_here：cw_world.gd:_proliferate_chance 一个相邻癌格、无固化 → 1 × (30 + 5 × 0) = 30。**探针是故意挑的**：proliferate_chance 一个有氧旋钮都不读，所以这条钉的是「新键装得进、往返不掉、且确实不改这个探针的数」，闸二 2a（dump(load(spec)) ≡ minify(spec)）当场覆盖清空这条语法。出处：cw_world_loader.gd:_load_knob / _dump_tuning / _minify_tuning ↔ L0/WorldLoader.cs:Truncate / DumpTuning.T / Minify。零常数结构：期望值不依赖任何有氧 / 无氧公式常数（E-3）",
+    "world": {
+      "round": 1,
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
+      ],
+      "tiles": [
+        { "at": "0,0", "state": "healthy" },
+        { "at": "1,-1", "state": "cancer", "newborn": true }
+      ],
+      "cells": [
+        { "seat": 1, "type": "Osteosarcoma", "at": "1,-1" }
+      ],
+      "tuning": { "aerobic_by_level[]": 0 }
+    },
+    "args": { "at": "0,0" },
+    "expect": 30
   }
 ]

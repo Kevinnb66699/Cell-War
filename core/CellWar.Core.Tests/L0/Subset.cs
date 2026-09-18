@@ -93,8 +93,23 @@ internal static class Subset
         foreach (var path in outp.Keys)
             if (Banned(path))
                 throw new InvalidOperationException($"差分命中 {path} —— 本批禁选 {BannedPrefix} 及其子路径（§0.6.2），只许 $.ask.kind / $.ask.tag / $.ask.seat");
+        // R4 硬闸：envelope 里今天不该出现浮点。出现了就是编码器漏了一个冻结点 ——
+        // 两侧的取整不是同一套（这边银行家舍入 / GD 截断），静默比过去就是在没人看的地方分叉
+        foreach (var (path, v) in outp)
+            if (HasFloat(v))
+                throw new InvalidOperationException($"差分 {path} 的值里有浮点 —— delta 的单位一律是十分能量 / 千分率的整数，float 要在编码器里冻成整数（R4）");
         return outp;
     }
+
+    /// <summary>这片叶子（含整条当叶子比的数组 / 字典）里有没有浮点。R4 的硬闸用它 ——
+    /// GD 侧 `cw_case_diff.gd:_has_float` 是同一条，两侧逐字同一套判据。</summary>
+    private static bool HasFloat(object? v) => v switch
+    {
+        double or float or decimal => true,
+        IDictionary<string, object?> map => map.Values.Any(HasFloat),
+        IEnumerable<object?> list => list.Any(HasFloat),
+        _ => false,
+    };
 
     /// <summary>`$` 根 → {叶子路径: 值}（GD `cw_case_diff.gd:flatten` 的逐字版；语义键重复 = 硬错）。</summary>
     public static Dictionary<string, object?> Flatten(Dictionary<string, object?> root)

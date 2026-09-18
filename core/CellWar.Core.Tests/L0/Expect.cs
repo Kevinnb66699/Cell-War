@@ -59,6 +59,10 @@ public sealed record L0Expect
         switch (e.Kind)
         {
             case ExpectKind.Scalar:
+                // R4 硬闸：这边的 `Convert.ToInt64(double)` 是**银行家舍入**、GD 的 `int(float)` 是**截断** ——
+                // 同一个 48.93 一边 49 一边 48，两侧会在没人看的地方分叉。要冻就在**探针表项**里按千分位冻
+                if (actual is double or float or decimal)
+                    throw new InvalidOperationException("探针返回浮点：scalar 的单位一律是十分能量 / 千分率的整数，float 要在探针表项里冻成整数（R4）");
                 var got = Convert.ToInt64(actual);
                 return got == e.Scalar ? null : $"期望 {e.Scalar}，C# 算出 {got}";
             case ExpectKind.Tree:

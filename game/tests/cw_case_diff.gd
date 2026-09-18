@@ -116,6 +116,10 @@ static func diff(pre: Dictionary, post: Dictionary) -> Dictionary:
 		var path := str(p)
 		if path == ASK_OPTIONS or path.begins_with(ASK_OPTIONS + "."):
 			errors.append("差分命中 %s —— 本批禁选 ask.options 及其子路径（§0.6.2：C# 折叠、GD 不折叠），只许 $.ask.kind / $.ask.tag / $.ask.seat" % path)
+		## R4 硬闸：envelope 里今天不该出现浮点。出现了就是编码器漏了一个冻结点 ——
+		## 两侧的取整不是同一套（C# 银行家舍入 / GD 截断），静默比过去就是在没人看的地方分叉
+		if _has_float(out[p]):
+			errors.append("差分 %s 的值里有浮点 —— delta 的单位一律是十分能量 / 千分率的整数，float 要在编码器里冻成整数（R4）" % path)
 	if not errors.is_empty():
 		return {}
 	return out
@@ -299,6 +303,23 @@ static func _same(x: Variant, y: Variant) -> bool:
 
 static func _is_num(v: Variant) -> bool:
 	return typeof(v) == TYPE_INT or typeof(v) == TYPE_FLOAT
+
+
+## 这片叶子（含整条当叶子比的数组 / 字典）里有没有浮点。R4 的硬闸用它 ——
+## C# 侧 `L0/Subset.cs:HasFloat` 是同一条，两侧逐字同一套判据。
+static func _has_float(v: Variant) -> bool:
+	if typeof(v) == TYPE_FLOAT:
+		return true
+	if v is Array:
+		for x in (v as Array):
+			if _has_float(x):
+				return true
+		return false
+	if v is Dictionary:
+		for k in (v as Dictionary):
+			if _has_float((v as Dictionary)[k]):
+				return true
+	return false
 
 
 ## 语义键的字面写法：席位 / 事件名 / 卡名。数字一律按整数写 —— Godot 的 JSON 把 `1` 解成 1.0，

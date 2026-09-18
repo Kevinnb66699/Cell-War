@@ -1,0 +1,111 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "enter_tile/purify/memory/first_purify",
+    "op": "enter_tile",
+    "covers": [
+      "t_draw_purify_memory::自己净化：+1 抗原记忆"
+    ],
+    "source": "cw_actions.gd:purify_here 的 `if game.purify_gives_memory(): game.gain_memory(1)` ↔ CellRules.PurifyHere 的 `if (RulePolicies.PurifyGivesMemory(s)) s = AddMemory(s, 1)`。**零常数结构**：免疫自己走进癌性组织 ⇒ 净化本身 +1 抗原记忆（0 → 1，没跨过 10 —— 2 人局的等级门槛表两侧不同，硬约定 T5）。既有 purify 档只钉了组织翻面，这一档钉的是 `$.g.memory`；C# envelope 上这个量今天由 ObservationV1Codec 取第一免疫席（E-5 的阵营级读法就是给那一句起名字）。changed 由 GD runner 录出。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        }
+      ]
+    },
+    "args": {
+      "cell": "0",
+      "dest": "1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].pos.q": 1,
+        "$.g.memory": 1
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "enter_tile/purify/memory/second_purify_same_round",
+    "op": "enter_tile",
+    "covers": [
+      "t_card_perms::同世界回合第二次净化：技能不再触发，只有净化本身 +1 记忆"
+    ],
+    "source": "cw_actions.gd:_on_purify 的 `game.first_this_round(cell, \"效应记忆形成\")` 闸门 ↔ CellRules.PurifyHere 的 `RoundGateOpen(...)`。**零常数结构**：细胞装着【效应记忆形成】，但本世界回合的闸门已经烧掉（`fx_round` 里已有这个名字）⇒ 第二次净化技能不再触发，只有净化本身 +1 记忆（1 → 2，没跨过 10）。与 first_purify 成对钉住「这 +1 是净化给的，不是技能给的」。changed 由 GD runner 录出。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "memory": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "equipped": [
+            "效应记忆形成"
+          ],
+          "fx_round": [
+            "效应记忆形成"
+          ]
+        }
+      ]
+    },
+    "args": {
+      "cell": "0",
+      "dest": "1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].pos.q": 1,
+        "$.g.memory": 2
+      },
+      "ignore": []
+    }
+  }
+]

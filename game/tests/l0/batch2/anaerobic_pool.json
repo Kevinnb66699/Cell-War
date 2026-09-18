@@ -1,0 +1,84 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "anaerobic_pool/empty_block",
+    "probe": "anaerobic_pool",
+    "covers": [
+      "t_anaerobic_sqrt::空块不炸"
+    ],
+    "source": "cw_world.gd:_anaerobic_pool ↔ RulePolicies.AnaerobicPool。① 算式：`exp_term * float(coef) + float(solid * game.tune.anaerobic_solid_bonus)`；② 出处：cw_world.gd:_anaerobic_pool；③ 冻结前精确值 0.000000（半整数距离 |frac(0×1000) − 0.5| = 0.5 ≥ 0.05）；④ **零常数结构**：空块 ⇒ plain = 0 ⇒ 指数项恒 0.0；全图 0 格固化 ⇒ 固化项恒 0 —— 系数 / 指数 / 固化加成三个常数一个都进不了期望，数值口径重定这条也不会动。传输编码：千分位冻结 round(x × 1000)（R4）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ]
+    },
+    "args": {
+      "block": ""
+    },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "anaerobic_pool/coef_pinned/one_ordinary_tile",
+    "probe": "anaerobic_pool",
+    "covers": [],
+    "source": "cw_world.gd:_anaerobic_pool ↔ RulePolicies.AnaerobicPool。① 算式：`pow(float(plain), exp_pct / 100.0) * float(coef) + float(solid * bonus)`；② 出处：cw_world.gd:_anaerobic_pool；③ 冻结前精确值 37.000000（1 的任何次幂恒 1.0；半整数距离 0.5 ≥ 0.05）；④ **旋钮钉死：期望 = tuning 里的 anaerobic_block_coef，不受数值口径影响**。块里恰好 1 格普通癌 ⇒ 底数 1 ⇒ **与指数无关**；全图 0 格固化 ⇒ 固化项 0。钉住的是「指数项 × 系数 + 固化项」这个形状与「coef > 0 走幂式分支」。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        }
+      ],
+      "tuning": {
+        "anaerobic_block_coef": 37
+      }
+    },
+    "args": {
+      "block": "0,0"
+    },
+    "expect": 37000
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "anaerobic_pool/solid_pinned/board_wide_two_solids",
+    "probe": "anaerobic_pool",
+    "covers": [],
+    "source": "cw_world.gd:_anaerobic_pool ↔ RulePolicies.AnaerobicPool。① 算式同上；② 出处：cw_world.gd:_anaerobic_pool；③ 冻结前精确值 26.000000（半整数距离 0.5 ≥ 0.05）；④ **旋钮钉死：期望 = tuning 里的 anaerobic_solid_bonus × 2，不受数值口径影响**。块 = 一格**固化**癌组织 ⇒ 块内普通癌 0 格 ⇒ 指数项恒 0.0（系数 37 乘上去仍是 0，与指数、与系数都无关）；全图 2 格固化 ⇒ 26 = 2 × 13。顺带钉住「固化按**全图**计数、不进指数项的底数」这条 2026-09-07 的口径。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "solid"
+        },
+        {
+          "at": "1,0",
+          "state": "solid"
+        }
+      ],
+      "tuning": {
+        "anaerobic_block_coef": 37,
+        "anaerobic_solid_bonus": 13
+      }
+    },
+    "args": {
+      "block": "0,0"
+    },
+    "expect": 26000
+  }
+]

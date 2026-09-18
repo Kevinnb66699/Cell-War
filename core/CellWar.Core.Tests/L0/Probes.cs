@@ -1,3 +1,4 @@
+using System.Globalization;
 using CellWar.Core;
 
 namespace CellWar.Core.Tests.L0;
@@ -23,7 +24,12 @@ namespace CellWar.Core.Tests.L0;
 /// 其中 2 条是**空壳**（`deferred`：本批未开工，调用即抛）——
 /// 批 0 填上了 `const`（<see cref="ConstTable"/>）与 `settle_loss`，
 /// 批 1 填上了 `move_raw_cost` / `pass_through_cost` / `quote_path` / `move_legal`，
-/// 批 4 新开了 `antibody_damage`。
+/// 批 4 新开了 `antibody_damage`，批 2 把最后两个（`anaerobic_pool` / `split_share`）填上。
+///
+/// **浮点的传输编码（R4，两侧同一套）**：<c>scalar</c> 的单位一律是**十分能量 / 千分率的整数**。
+/// 返回 <c>double</c> 的探针要在**表项里**按**千分位**冻成整数 <c>round(x * 1000)</c>
+/// （批 0 的 const 表立的口径，批 2 的 <c>anaerobic_pool</c> 是第一个真用户）。
+/// <see cref="L0Expect.Judge"/> 不做隐式转换 —— 见到浮点当场抛。
 /// </summary>
 public static class Probes
 {
@@ -72,11 +78,10 @@ public static class Probes
         // bool → scalar 的 1 / 0：两侧表项各自冻，不靠 runner 的隐式转换（同 CWData.is_world_event_round）
         ["move_legal"] = (s, a) => CellRules.MoveLegal(s, a.Cell(s), a.Pos("to")) ? 1 : 0,
 
-        // ---- 空壳（§0.6.4 第 5 条：进分派表、零用例；调用即抛）----
-        // 空壳也必须在表里：双射断言比的是**分派表的键集合**，缺一个两侧就对不上。
-        // §0.6.7 四条里还没开工的两条：Kevin 2026-09-19 接受，C# 入口已开（AnaerobicPool / SplitShare）；探针面随批 2 定
-        ["anaerobic_pool"] = Deferred("anaerobic_pool"),
-        ["split_share"] = Deferred("split_share"),
+        // ---- 批 2：§0.6.7 四条里的最后两条（空壳转真）----
+        // 返回 double（十分能量）。**千分位冻成整数**，与批 0 的 const 表同一套传输编码（R4）；算式一行不写
+        ["anaerobic_pool"] = (s, a) => (int)Math.Round(RulePolicies.AnaerobicPool(s, a.Positions("block")) * 1000.0, MidpointRounding.AwayFromZero),
+        ["split_share"] = (s, a) => RulePolicies.SplitShare(s.Tuning, double.Parse(a.Str("pool"), CultureInfo.InvariantCulture), a.Int("count")),
 
         // ---- 批 0：常量表 + 纯静态五进一出 ----
         // 一个探针管一整张常量表（§B 批 0：**不要一个常量一个探针**），表在 ConstTable
@@ -158,9 +163,6 @@ public static class Probes
         };
     }
 
-    private static Probe Deferred(string name)
-        => (_, _) => throw new NotImplementedException($"本批未开工：探针 {name} 在 contract_ops.json 里是 deferred（空壳）");
-
     /// <summary>
     /// 常量表（探针 <c>const</c>）：**GD 全名 → 一个取值**。一个探针管一整张表
     /// （规格 §B 批 0：「不要一个常量一个探针」），键与 GD 侧 `game/tests/l0_runner.gd:_build_consts`
@@ -172,7 +174,7 @@ public static class Probes
     /// **传输形状**（两侧表项逐字同一套，GD 侧 l0_runner.gd 上有同一段注释）：
     /// * int → <c>scalar</c>，裸整数原样；
     /// * bool → <c>scalar</c>，写 1 / 0（本表里只有 <c>is_world_event_round</c>）；
-    /// * float → 按**千分位**冻成整数 <c>round(x * 1000)</c> —— 批 0 一个都没有，口径先立着；
+    /// * float → 按**千分位**冻成整数 <c>round(x * 1000)</c> —— 批 0 一个都没有，批 2 的探针 <c>anaerobic_pool</c> 是第一个真用户；
     /// * 表 / 字典 → <c>tree</c>：坐标写 <c>"q,r"</c>（这边调 <see cref="WorldLoader.At"/>，
     ///   GD 那边由 runner 的 <c>_to_json()</c> 收口，出来的字符串逐字相同）、枚举写整数值。
     ///

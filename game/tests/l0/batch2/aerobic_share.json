@@ -1,0 +1,111 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_share/level_III_pinned",
+    "probe": "aerobic_share",
+    "covers": [],
+    "source": "cw_world.gd:aerobic_income → _aerobic_base ↔ RulePolicies.AerobicShare → AerobicBase。**旋钮钉死：期望 = tuning 里的 aerobic_by_level[3]，不受数值口径影响**（GD `by_level[clampi(immune_level, 0, size - 1)]`、C# `AerobicByLevel[(int)ImmuneLevel - 1]`）。钉的是「按等级查表、1 基第 3 档 = III 级」这条下标口径 —— 四档真值归第二段。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "III"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        }
+      ],
+      "tuning": {
+        "aerobic_by_level[3]": 41
+      }
+    },
+    "args": {
+      "cell": "0"
+    },
+    "expect": 41
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_share/necrosis_zero",
+    "probe": "aerobic_share",
+    "covers": [
+      "t_batch2_rules::necro=0：扫回「一份不给」（09-05~09-07 的行为）"
+    ],
+    "source": "cw_world.gd:necrosis_cut ↔ RulePolicies.NecrosisCut。**旋钮钉死：期望 = tuning 里的 necrosis_aerobic_pct 乘上基准 = 0，与基准值无关**（0 × 任何基准 = 0；两侧的四舍五入写法 `round_tenth(gain × pct, 100)` 与 `(gain × pct + 50) / 100` 在 pct = 0 时都恰好得 0）。钉的是「站在坏死格上按 pct 打折、整份一起打」这条分支 —— 真 pct 归第二段。covers 回指 09-05~09-07「一份不给」那条行为。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "necrosis": 2
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        }
+      ],
+      "tuning": {
+        "necrosis_aerobic_pct": 0
+      }
+    },
+    "args": {
+      "cell": "0"
+    },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_share/split_le_ref",
+    "probe": "aerobic_share",
+    "covers": [
+      "t_batch2_rules::≤"
+    ],
+    "source": "cw_world.gd:_split_aerobic ↔ RulePolicies.SplitAerobic。**旋钮钉死：期望 = tuning 里的 aerobic_by_level[1]，不受数值口径影响**：开 aerobic_split、**ref 钉 3**（缺省是 2 —— 特意挑一个非缺省值，好让它在两侧 dump 里都现身）、场上两只存活免疫 ⇒ `n <= ref` 走「每人全额」那一支，均分公式一次都不跑。钉的是「n ≤ ref 每人全额」这条分档判据（`split_gt_ref` 的 (2p·ref + n) / (2n) 归第二段）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        },
+        {
+          "seat": 1,
+          "faction": "immune"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        },
+        {
+          "seat": 1,
+          "type": "ImmuneBasic",
+          "at": "1,0"
+        }
+      ],
+      "tuning": {
+        "aerobic_split": 1,
+        "aerobic_split_ref": 3,
+        "aerobic_by_level[1]": 41
+      }
+    },
+    "args": {
+      "cell": "0"
+    },
+    "expect": 41
+  }
+]

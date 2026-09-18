@@ -275,4 +275,20 @@ public static class WorldStateExtensions
     public static Cell? GetCellAt(this WorldState s, HexPosition pos) => s.Board.Tissues.TryGetValue(pos, out var tissue) && tissue.OccupyingCell is { } id ? s.GetCell(id) : null;
     public static IEnumerable<Cell> GetAliveCells(this WorldState s, Faction? faction = null) => s.Cells.Values.Where(c => c.IsAlive && (faction == null || c.Faction == faction));
     public static IEnumerable<HexPosition> GetAdjacentPositions(this Board b, HexPosition p) => p.GetNeighbors().Where(b.Tissues.ContainsKey);
+
+    /// <summary>
+    /// **阵营级读法**（E-5，Kevin 2026-09-19 接受）：抗原记忆在 GD 是阵营共享的全局量
+    /// （`cw_game.gd:memory`），在这边是 per-Player 存（`Player.AntigenMemory`，Kevin 拍板**存法不动**）。
+    /// 写侧本来就逐席同值（`CellRules.AddMemory` / `ReduceMemory` 都是 `foreach 全体免疫席`），
+    /// 这两个查询只是**给读侧那一句起个名字** —— 口径照抄 `Observation/ObservationV1Codec.cs`
+    /// 今天就在写的 `.Where(阵营).OrderBy(Seat).FirstOrDefault()`，零行为改动。
+    ///
+    /// 多免疫席不同值这个场景 L0 装不进来（两侧装载器都判 UNLOADABLE），真局也到不了。
+    /// </summary>
+    public static int FactionMemory(this WorldState s, Faction f)
+        => s.Players.Values.Where(p => p.Faction == f).OrderBy(p => p.Seat).FirstOrDefault()?.AntigenMemory ?? 0;
+
+    /// <summary>阵营级的免疫等级（同上）。没有该阵营的席位时给 <see cref="ImmuneLevel.I"/>，不抛。</summary>
+    public static ImmuneLevel FactionImmuneLevel(this WorldState s, Faction f)
+        => s.Players.Values.Where(p => p.Faction == f).OrderBy(p => p.Seat).FirstOrDefault()?.ImmuneLevel ?? ImmuneLevel.I;
 }

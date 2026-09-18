@@ -1,20 +1,54 @@
 {
   "schema": "cwxdiff/1",
-  "note": "两侧 diff / tree 比法等价性的唯一夹具（规格 §0.6.2）。GD 跑 headless_test.gd:t_case_diff，C# 跑 L0/L0RunnerTests.cs。pre / post 是**已 normalize 的 `$` 根**（board / cells / g / ask 四件套），手写小树，不必是真 envelope。diff 条目：changed = apply_ignore(diff(pre, post), ignore) 的**整集合**；ignore 缺省 []；error=true 表示期望 diff 返回 {} 且报错非空。compare 条目：paths = compare(a, b) 的升序路径列表。",
+  "note": "两侧 diff / tree 比法等价性的唯一夹具（规格 §0.6.2）。GD 跑 headless_test.gd:t_case_diff，C# 跑 L0/L0RunnerTests.cs。pre / post 是**已 normalize 的 `$` 根**（board / cells / g / ask 四件套），手写小树，不必是真 envelope。diff 条目：changed = apply_ignore(diff(pre, post), ignore) 的**整集合**；ignore 缺省 []；error=true 表示期望 diff 返回 {} 且报错非空。compare 条目：paths = compare(a, b) 的升序路径列表。（2026-09-19 批 2：第 11 条钉 R4 浮点硬闸；夹具数字只许整数字面量，见该条 note）",
   "diff": [
     {
       "name": "tile/nested_value_changed",
       "note": "嵌套：tiles 按 @q,r 取键，tile.d 再往下一层",
       "pre": {
-        "board": { "radius": 6, "tiles": [{ "at": { "q": 0, "r": 0 }, "tissue": 0, "solid": 0, "d": { "pressure": 0 } }] },
+        "board": {
+          "radius": 6,
+          "tiles": [
+            {
+              "at": {
+                "q": 0,
+                "r": 0
+              },
+              "tissue": 0,
+              "solid": 0,
+              "d": {
+                "pressure": 0
+              }
+            }
+          ]
+        },
         "cells": [],
-        "g": { "round_no": 1 },
+        "g": {
+          "round_no": 1
+        },
         "ask": null
       },
       "post": {
-        "board": { "radius": 6, "tiles": [{ "at": { "q": 0, "r": 0 }, "tissue": 1, "solid": 0, "d": { "pressure": 2 } }] },
+        "board": {
+          "radius": 6,
+          "tiles": [
+            {
+              "at": {
+                "q": 0,
+                "r": 0
+              },
+              "tissue": 1,
+              "solid": 0,
+              "d": {
+                "pressure": 2
+              }
+            }
+          ]
+        },
         "cells": [],
-        "g": { "round_no": 1 },
+        "g": {
+          "round_no": 1
+        },
         "ask": null
       },
       "changed": {
@@ -26,15 +60,43 @@
       "name": "tile/key_added_and_key_removed",
       "note": "新增键（newborn）与删除键（mucus 整条消失 = null）",
       "pre": {
-        "board": { "radius": 6, "tiles": [{ "at": { "q": 1, "r": -1 }, "tissue": 0, "mucus": true }] },
+        "board": {
+          "radius": 6,
+          "tiles": [
+            {
+              "at": {
+                "q": 1,
+                "r": -1
+              },
+              "tissue": 0,
+              "mucus": true
+            }
+          ]
+        },
         "cells": [],
-        "g": { "round_no": 1 },
+        "g": {
+          "round_no": 1
+        },
         "ask": null
       },
       "post": {
-        "board": { "radius": 6, "tiles": [{ "at": { "q": 1, "r": -1 }, "tissue": 0, "newborn": true }] },
+        "board": {
+          "radius": 6,
+          "tiles": [
+            {
+              "at": {
+                "q": 1,
+                "r": -1
+              },
+              "tissue": 0,
+              "newborn": true
+            }
+          ]
+        },
         "cells": [],
-        "g": { "round_no": 1 },
+        "g": {
+          "round_no": 1
+        },
         "ask": null
       },
       "changed": {
@@ -46,15 +108,47 @@
       "name": "cells/keyed_by_seat_and_new_cell",
       "note": "cells 按席位取键；新细胞进来 = 它的每个叶子都是新增键",
       "pre": {
-        "board": { "radius": 6, "tiles": [] },
-        "cells": [{ "pid": 0, "energy": 300 }, { "pid": 1, "energy": 250 }],
-        "g": { "round_no": 2 },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
+        "cells": [
+          {
+            "pid": 0,
+            "energy": 300
+          },
+          {
+            "pid": 1,
+            "energy": 250
+          }
+        ],
+        "g": {
+          "round_no": 2
+        },
         "ask": null
       },
       "post": {
-        "board": { "radius": 6, "tiles": [] },
-        "cells": [{ "pid": 0, "energy": 300 }, { "pid": 1, "energy": 200 }, { "pid": 2, "energy": 300 }],
-        "g": { "round_no": 2 },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
+        "cells": [
+          {
+            "pid": 0,
+            "energy": 300
+          },
+          {
+            "pid": 1,
+            "energy": 200
+          },
+          {
+            "pid": 2,
+            "energy": 300
+          }
+        ],
+        "g": {
+          "round_no": 2
+        },
         "ask": null
       },
       "changed": {
@@ -67,15 +161,52 @@
       "name": "cells/mods_keyed_by_card_name",
       "note": "修饰条目按卡名取键；用完的条目整条消失",
       "pre": {
-        "board": { "radius": 6, "tiles": [] },
-        "cells": [{ "pid": 0, "mods": [{ "name": "高亲和力克隆", "uses": 2, "until": "turn" }, { "name": "细胞膜修复", "uses": 1, "until": "round" }] }],
-        "g": { "round_no": 2 },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
+        "cells": [
+          {
+            "pid": 0,
+            "mods": [
+              {
+                "name": "高亲和力克隆",
+                "uses": 2,
+                "until": "turn"
+              },
+              {
+                "name": "细胞膜修复",
+                "uses": 1,
+                "until": "round"
+              }
+            ]
+          }
+        ],
+        "g": {
+          "round_no": 2
+        },
         "ask": null
       },
       "post": {
-        "board": { "radius": 6, "tiles": [] },
-        "cells": [{ "pid": 0, "mods": [{ "name": "高亲和力克隆", "uses": 1, "until": "turn" }] }],
-        "g": { "round_no": 2 },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
+        "cells": [
+          {
+            "pid": 0,
+            "mods": [
+              {
+                "name": "高亲和力克隆",
+                "uses": 1,
+                "until": "turn"
+              }
+            ]
+          }
+        ],
+        "g": {
+          "round_no": 2
+        },
         "ask": null
       },
       "changed": {
@@ -89,20 +220,57 @@
       "name": "events/active_keyed_by_event_name",
       "note": "g.events.active 按事件名取键；pool 没有语义键，整条当叶子（这里没变，不进差分）",
       "pre": {
-        "board": { "radius": 6, "tiles": [] },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
         "cells": [],
         "g": {
           "round_no": 3,
-          "events": { "pool": ["营养输送", "代谢加速"], "active": [{ "name": "代谢加速", "left": 2, "stacks": 1 }, { "name": "紊乱", "left": 1, "stacks": 1 }], "double_next": false }
+          "events": {
+            "pool": [
+              "营养输送",
+              "代谢加速"
+            ],
+            "active": [
+              {
+                "name": "代谢加速",
+                "left": 2,
+                "stacks": 1
+              },
+              {
+                "name": "紊乱",
+                "left": 1,
+                "stacks": 1
+              }
+            ],
+            "double_next": false
+          }
         },
         "ask": null
       },
       "post": {
-        "board": { "radius": 6, "tiles": [] },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
         "cells": [],
         "g": {
           "round_no": 4,
-          "events": { "pool": ["营养输送", "代谢加速"], "active": [{ "name": "代谢加速", "left": 1, "stacks": 2 }], "double_next": true }
+          "events": {
+            "pool": [
+              "营养输送",
+              "代谢加速"
+            ],
+            "active": [
+              {
+                "name": "代谢加速",
+                "left": 1,
+                "stacks": 2
+              }
+            ],
+            "double_next": true
+          }
         },
         "ask": null
       },
@@ -120,27 +288,80 @@
       "name": "g/leaf_array_and_nested_dict",
       "note": "g.players / g.order 没有语义键 —— 整条数组当一个叶子比；g.d 照常往下走",
       "pre": {
-        "board": { "radius": 6, "tiles": [] },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
         "cells": [],
         "g": {
-          "players": [{ "id": 0, "faction": 0 }, { "id": 1, "faction": 1 }],
-          "order": [0, 1],
-          "d": { "solid_threshold": 40, "tumor_stage": 1 }
+          "players": [
+            {
+              "id": 0,
+              "faction": 0
+            },
+            {
+              "id": 1,
+              "faction": 1
+            }
+          ],
+          "order": [
+            0,
+            1
+          ],
+          "d": {
+            "solid_threshold": 40,
+            "tumor_stage": 1
+          }
         },
         "ask": null
       },
       "post": {
-        "board": { "radius": 6, "tiles": [] },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
         "cells": [],
         "g": {
-          "players": [{ "id": 0, "faction": 0 }, { "id": 1, "faction": 1 }, { "id": 2, "faction": 1 }],
-          "order": [0, 1],
-          "d": { "solid_threshold": 30, "tumor_stage": 2 }
+          "players": [
+            {
+              "id": 0,
+              "faction": 0
+            },
+            {
+              "id": 1,
+              "faction": 1
+            },
+            {
+              "id": 2,
+              "faction": 1
+            }
+          ],
+          "order": [
+            0,
+            1
+          ],
+          "d": {
+            "solid_threshold": 30,
+            "tumor_stage": 2
+          }
         },
         "ask": null
       },
       "changed": {
-        "$.g.players": [{ "id": 0, "faction": 0 }, { "id": 1, "faction": 1 }, { "id": 2, "faction": 1 }],
+        "$.g.players": [
+          {
+            "id": 0,
+            "faction": 0
+          },
+          {
+            "id": 1,
+            "faction": 1
+          },
+          {
+            "id": 2,
+            "faction": 1
+          }
+        ],
         "$.g.d.solid_threshold": 30,
         "$.g.d.tumor_stage": 2
       }
@@ -149,16 +370,42 @@
       "name": "ask/kind_tag_seat_changed",
       "note": "ask 只许选 kind / tag / seat 三条；options 两边都是空表，不进差分也就不报错",
       "pre": {
-        "board": { "radius": 6, "tiles": [] },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
         "cells": [],
-        "g": { "round_no": 5 },
-        "ask": { "kind": "action", "tag": null, "seat": 0, "mine": true, "prompt": "", "stop_key": null, "options": [] }
+        "g": {
+          "round_no": 5
+        },
+        "ask": {
+          "kind": "action",
+          "tag": null,
+          "seat": 0,
+          "mine": true,
+          "prompt": "",
+          "stop_key": null,
+          "options": []
+        }
       },
       "post": {
-        "board": { "radius": 6, "tiles": [] },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
         "cells": [],
-        "g": { "round_no": 5 },
-        "ask": { "kind": "pick", "tag": "手牌上限", "seat": 1, "mine": true, "prompt": "", "stop_key": null, "options": [] }
+        "g": {
+          "round_no": 5
+        },
+        "ask": {
+          "kind": "pick",
+          "tag": "手牌上限",
+          "seat": 1,
+          "mine": true,
+          "prompt": "",
+          "stop_key": null,
+          "options": []
+        }
       },
       "changed": {
         "$.ask.kind": "pick",
@@ -170,18 +417,64 @@
       "name": "ignore/wildcard_on_second_last_segment",
       "note": "通配 * 只许在倒数第二段；豁免掉两只细胞的 energy，只剩那一格的 solid",
       "pre": {
-        "board": { "radius": 6, "tiles": [{ "at": { "q": 0, "r": 0 }, "solid": 0 }] },
-        "cells": [{ "pid": 0, "energy": 300 }, { "pid": 1, "energy": 300 }],
-        "g": { "round_no": 6 },
+        "board": {
+          "radius": 6,
+          "tiles": [
+            {
+              "at": {
+                "q": 0,
+                "r": 0
+              },
+              "solid": 0
+            }
+          ]
+        },
+        "cells": [
+          {
+            "pid": 0,
+            "energy": 300
+          },
+          {
+            "pid": 1,
+            "energy": 300
+          }
+        ],
+        "g": {
+          "round_no": 6
+        },
         "ask": null
       },
       "post": {
-        "board": { "radius": 6, "tiles": [{ "at": { "q": 0, "r": 0 }, "solid": 10 }] },
-        "cells": [{ "pid": 0, "energy": 280 }, { "pid": 1, "energy": 260 }],
-        "g": { "round_no": 6 },
+        "board": {
+          "radius": 6,
+          "tiles": [
+            {
+              "at": {
+                "q": 0,
+                "r": 0
+              },
+              "solid": 10
+            }
+          ]
+        },
+        "cells": [
+          {
+            "pid": 0,
+            "energy": 280
+          },
+          {
+            "pid": 1,
+            "energy": 260
+          }
+        ],
+        "g": {
+          "round_no": 6
+        },
         "ask": null
       },
-      "ignore": ["$.cells[*].energy"],
+      "ignore": [
+        "$.cells[*].energy"
+      ],
       "changed": {
         "$.board.tiles@0,0.solid": 10
       }
@@ -191,15 +484,43 @@
       "note": "同席多细胞 ⇒ cells[<席位>] 歧义 = 硬错（本批不定第二级键）",
       "error": true,
       "pre": {
-        "board": { "radius": 6, "tiles": [] },
-        "cells": [{ "pid": 1, "energy": 300 }, { "pid": 1, "energy": 200 }],
-        "g": { "round_no": 1 },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
+        "cells": [
+          {
+            "pid": 1,
+            "energy": 300
+          },
+          {
+            "pid": 1,
+            "energy": 200
+          }
+        ],
+        "g": {
+          "round_no": 1
+        },
         "ask": null
       },
       "post": {
-        "board": { "radius": 6, "tiles": [] },
-        "cells": [{ "pid": 1, "energy": 300 }, { "pid": 1, "energy": 100 }],
-        "g": { "round_no": 1 },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
+        "cells": [
+          {
+            "pid": 1,
+            "energy": 300
+          },
+          {
+            "pid": 1,
+            "energy": 100
+          }
+        ],
+        "g": {
+          "round_no": 1
+        },
         "ask": null
       },
       "changed": {}
@@ -209,16 +530,72 @@
       "note": "差分命中 $.ask.options 及子路径 = 硬错（C# 折叠、GD 不折叠，比的不是同一棵树）",
       "error": true,
       "pre": {
-        "board": { "radius": 6, "tiles": [] },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
         "cells": [],
-        "g": { "round_no": 7 },
-        "ask": { "kind": "action", "tag": null, "seat": 0, "options": [{ "key": "k=action|act=move|to=1,0" }] }
+        "g": {
+          "round_no": 7
+        },
+        "ask": {
+          "kind": "action",
+          "tag": null,
+          "seat": 0,
+          "options": [
+            {
+              "key": "k=action|act=move|to=1,0"
+            }
+          ]
+        }
       },
       "post": {
-        "board": { "radius": 6, "tiles": [] },
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
         "cells": [],
-        "g": { "round_no": 7 },
-        "ask": { "kind": "action", "tag": null, "seat": 0, "options": [{ "key": "k=action|act=move|to=0,1" }] }
+        "g": {
+          "round_no": 7
+        },
+        "ask": {
+          "kind": "action",
+          "tag": null,
+          "seat": 0,
+          "options": [
+            {
+              "key": "k=action|act=move|to=0,1"
+            }
+          ]
+        }
+      },
+      "changed": {}
+    },
+    {
+      "name": "g/float_leaf_is_an_error",
+      "note": "R4 硬闸（批 2）：差分的值里出现浮点 = 硬错（两侧的取整不是同一套：C# 银行家舍入 / GD 截断）。夹具里只许写整数字面量 —— GD 侧 JSON 数字一律 float，t_case_diff 读完先按 L1View.Plain 的等价物把整数值归一成 int；10.5 这种真浮点两侧都要开火",
+      "error": true,
+      "pre": {
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
+        "cells": [],
+        "g": {
+          "round_no": 7,
+          "pool": 10
+        }
+      },
+      "post": {
+        "board": {
+          "radius": 6,
+          "tiles": []
+        },
+        "cells": [],
+        "g": {
+          "round_no": 7,
+          "pool": 10.5
+        }
       },
       "changed": {}
     }
@@ -226,28 +603,87 @@
   "compare": [
     {
       "name": "tree/equal",
-      "a": { "cost": 12, "steps": [1, 2] },
-      "b": { "cost": 12, "steps": [1, 2] },
+      "a": {
+        "cost": 12,
+        "steps": [
+          1,
+          2
+        ]
+      },
+      "b": {
+        "cost": 12,
+        "steps": [
+          1,
+          2
+        ]
+      },
       "paths": []
     },
     {
       "name": "tree/nested_scalar",
-      "a": { "quote": { "cost": 12, "note": "" } },
-      "b": { "quote": { "cost": 14, "note": "" } },
-      "paths": ["$[quote][cost]"]
+      "a": {
+        "quote": {
+          "cost": 12,
+          "note": ""
+        }
+      },
+      "b": {
+        "quote": {
+          "cost": 14,
+          "note": ""
+        }
+      },
+      "paths": [
+        "$[quote][cost]"
+      ]
     },
     {
       "name": "tree/array_by_index",
       "note": "tree 比法按序号下标 —— 报得出「第 3 步的 cost 错了」",
-      "a": { "steps": [{ "cost": 1 }, { "cost": 2 }, { "cost": 3 }] },
-      "b": { "steps": [{ "cost": 1 }, { "cost": 2 }, { "cost": 9 }] },
-      "paths": ["$[steps][2][cost]"]
+      "a": {
+        "steps": [
+          {
+            "cost": 1
+          },
+          {
+            "cost": 2
+          },
+          {
+            "cost": 3
+          }
+        ]
+      },
+      "b": {
+        "steps": [
+          {
+            "cost": 1
+          },
+          {
+            "cost": 2
+          },
+          {
+            "cost": 9
+          }
+        ]
+      },
+      "paths": [
+        "$[steps][2][cost]"
+      ]
     },
     {
       "name": "tree/missing_and_extra",
-      "a": { "a": 1, "b": 2 },
-      "b": { "b": 2, "c": 3 },
-      "paths": ["$[a]", "$[c]"]
+      "a": {
+        "a": 1,
+        "b": 2
+      },
+      "b": {
+        "b": 2,
+        "c": 3
+      },
+      "paths": [
+        "$[a]",
+        "$[c]"
+      ]
     }
   ]
 }

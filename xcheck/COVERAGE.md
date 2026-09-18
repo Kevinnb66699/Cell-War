@@ -13,7 +13,7 @@
 | `core_sites` | **1110** | `FUNC_SUBSYSTEM` 判成 `core` 的那一档 = **分母** |
 | `core_funcs` | 98 | |
 | `core_addressable` | 1090 | core 里能被 `covers` 指到的不同名字（20 个站点断言名为空或同函数内重名 ⇒ 覆盖率天花板 98.2%） |
-| `covered_sites` | **315** | **分子**：批 5b 第一段落地 310 → 315（+5：10 条用例 5 个不重复 covers，全在 core 分母、此前无人认领）。批 5a 落地 279 → 307（+28：29 条用例 28 个不重复 covers）。批 4 落地 188 → 279（+91：66 条用例 92 个不重复 covers，91 个是新名字、全在 core 分母内）。批 3 收口 176 → 188。：`covers` ∩ 真实 check 名。批 3 落地 133 → 176（**+43**）：batch3 的 45 条用例给出 47 个不重复 `covers`，其中 4 个既有用例已指过 ⇒ 净增 43。（P2 报的 49 个里，`tick_necrosis` 那两条按评委 conflicts #5 撤掉不认领 ⇒ 47） |
+| `covered_sites` | **330** | **分子**：批 2 第一段落地 315 → 330（+15：26 条用例 15 个不重复 covers，全在 core 分母、此前无人认领）。批 5b 第一段落地 310 → 315（+5：10 条用例 5 个不重复 covers，全在 core 分母、此前无人认领）。批 5a 落地 279 → 307（+28：29 条用例 28 个不重复 covers）。批 4 落地 188 → 279（+91：66 条用例 92 个不重复 covers，91 个是新名字、全在 core 分母内）。批 3 收口 176 → 188。：`covers` ∩ 真实 check 名。批 3 落地 133 → 176（**+43**）：batch3 的 45 条用例给出 47 个不重复 `covers`，其中 4 个既有用例已指过 ⇒ 净增 43。（P2 报的 49 个里，`tick_necrosis` 那两条按评委 conflicts #5 撤掉不认领 ⇒ 47） |
 | `unclassified_sites` | 0 | 落不进任何一条分类规则的站点，**不许当 0 用，要回去加规则** |
 
 子系统分布（迁移计划 §二点五 去向表的今日实测）：
@@ -35,7 +35,7 @@
 |---|---|---|---|---|---|
 | `move_cost` | OK | required | 44 | `_move_cost_mod`+`_move_base_cost` ↔ `QuoteMove` | 16 档全满（批 1 加 `pass_through` / `skill_gate` / `chemo:*` 四向 —— 组织驻留前两次免费 / 第三次原价 / 巡航首移免费 / 趋化源四向正负号）。**批 5a +16**：mods / mods_gate / mods_order / mods_floor / mods_allowance 五档（修饰条目本身、闸门、语义阶段序、地板、额度） |
 | `anaerobic_share` | OK | required | 4 | `anaerobic_gain_for` ↔ `AnaerobicShare` | 4 档 |
-| `aerobic_share` | OK | required | 1 (+2) | `aerobic_income` ↔ `AerobicShare` | **只覆盖 `level:I`**，其余等级档空 |
+| `aerobic_share` | OK | required | 4 (+2) | `aerobic_income` ↔ `AerobicShare` | 批 0 只有 `level:I`；批 2（09-19）+3 档、全部旋钮钉死（`aerobic_by_level[i]` / `aerobic_split_ref` 写 PRD 不会出现的值），不录 PRD 常数。有氧**盘面式**（`aerobic_level_base <= 0`，C# `AerobicBase` 抛 NotSupported）与 **floor / cap 夹钳**（GD `clamp_income` 在 `AerobicShare` 里未迁）两族 = 空档 aerobic-board-formula-not-migrated / aerobic-floor-cap-not-migrated，归第二段 |
 | `pressure_at` | OK | required | 10 | `pressure_at` ↔ `PressureAt` | 7 档。批 5a +2：`stage_mult` 档（II / III 期系数） |
 | `proliferate_chance` | OK | required | 1 (+1) | `proliferate_chance` ↔ `ProliferateChance` | **只一条**，分档边界空 |
 | `solidify_threshold` | OK | required | 3 (+2) | `CWGame.solidify_threshold` ↔ `BoardRules.SolidifyThreshold` | 3 档 |
@@ -47,8 +47,8 @@
 | `pass_through_cost` | OK | required | 4 | `pass_through_map(cell)[dest][0]` ↔ `RulePolicies.PassThroughMap` | 批 1 落地：one_hop / two_hop / two_types（中间癌组织 0.2 + 落点健康 0.7 各按自己类型算）。「不在借道表里」**不造哨兵**，两侧探针当场报清楚，否定式用 `move_legal` 表达 |
 | `const` | OK | required | 40 | 两侧各一张 42 键表（`l0_runner.gd:_build_consts` ↔ `Probes.cs:ConstTable`，19 真 + 21 抛「无对应物」） | 批 0（09-19）：`batch0/const_data.json` 28 + `const_card.json` 4；三档 cw_data 28 / cw_card_data 4 / 静态函数 20 批 5b（09-19）+2 表项、来源第三档 `fx`（cw_world_fx.gd）：`CWWorldFx.EVENTS`（15 名事件表 → tree，钉两侧名表逐字相同 —— 此前没有任何东西钉它）/ `CWWorldFx.is_world_event`（bool → 1/0；名字收口）；`batch5b/const_fx.json` 3 + `const_event_rounds.json` 5（`is_world_event_round` 3/6/10/14 触发 + 1 不触发） |
 | `move_legal` | OK | required | 18 | `_is_move_legal_now`（六支）↔ `CellRules.MoveLegal` | 批 1 落地：六支全覆盖（empty / attack / attack_cap / dendritic / pass_through / out_of_board）；分支②后半句两侧都是死代码，`pass_through/landing_spot_occupied` 照样钉 |
-| `anaerobic_pool` | OK | deferred | 0 | `_anaerobic_pool` ↔ `RulePolicies.AnaerobicPool` | **空壳**，批 2（入口已从 AnaerobicShare 拆出，返回 double） |
-| `split_share` | OK | deferred | 0 | `_split_share` ↔ `RulePolicies.SplitShare` | **空壳**，批 2 |
+| `anaerobic_pool` | OK | required | 3 | `_anaerobic_pool` ↔ `RulePolicies.AnaerobicPool` | 批 2（09-19）转真：三档零 PRD 常数 —— `empty_block` 0 / `coef_pinned`（`anaerobic_block_coef` 钉 37，底数 1 ⇒ 与指数无关）/ `solid_pinned`（`anaerobic_solid_bonus` 钉 13）；返回 double ⇒ 千分位冻结（R4）。数值档（c / 指数 / k）归第二段；「系数 0 退回线性求和」对照档挡在 Q3（三个 C 档旋钮挪 A′） |
+| `split_share` | OK | required | 2 | `_split_share` ↔ `RulePolicies.SplitShare` | 批 2（09-19）转真：`floor_pinned` 33 / `cap_pinned` 37（旋钮钉死，`anaerobic_split: 1` 显式写出）；`count == 0` 两侧口径未核 = 空档 split-share-count-zero |
 | `settle_loss` | OK | required | 4 | `CWGame.settle_loss` ↔ `Settlement.SettleLoss` | 批 0（09-19）：`batch0/settle_loss.json`，四档各一条（t_hit_order 开头 4 条） |
 
 ### S 族 · E 阶段 18 条（**批 3 已落地 2026-09-19**：required 12 / deferred 6，分派里是真步）
@@ -61,7 +61,7 @@
 | `proliferate` | OK | **required** | 8 | `_proliferate` ↔ `BoardRules.Proliferate` | 批 3：六档。事件两档 = **KG-2**（【增殖抑制】下 GD 不掷骰、C# 还要抽一次）/ **KG-3**（【异常增殖】翻倍 C# 没实现）；`necrosis_cleared_on_flip` = **KG-6**。⚠ `all_six_convert` / `off_round_same` 钉的是「六邻全转」，不是事件（评委 conflicts #6） |
 | `erosion` | OK | **required** | 4 | `_erosion` ↔ `BoardRules.Erosion` | 批 3：四档。`args.fresh` 两侧统一成 `"q,r;q,r"` 串（批 1 机件③ = B3，本批合上）。`necrosis_cleared_on_flip` = **KG-6**；「一次侵蚀转 2 或 3 格」是 60 个种子的集合统计断言，单条用例回指不了 |
 | `resolve_camping` | OK | **required** | 4 | `_resolve_camping` ↔ `BoardRules.ResolveCamping` | 批 3：三档（没蹲满 / 已固化作废 / E 阶段完成净化），靠 **B4** 才收得到。另三条断言落在 **KG-5** 的那条草稿上 |
-| `solidify` | OK | **required** | 6 | `_solidify` ↔ `BoardRules.Solidify` | 批 3：六档。`osteo:same_rounds` 的 check 名以 `%d` 开头、按 xcheck 口径取到空串，`covers` 指不到；血管三档（`t_vessel_no_solid`）撞 **B9** |
+| `solidify` | OK | **required** | 8 | `_solidify` ↔ `BoardRules.Solidify` | 批 3：六档。`osteo:same_rounds` 的 check 名以 `%d` 开头、按 xcheck 口径取到空串，`covers` 指不到；血管三档（`t_vessel_no_solid`）撞 **B9** 批 2 +1 档 `vessel`（2 条：血管不可固化 / 血管以外照常）—— C# `BoardRules.RaiseSolid` 早有 `BloodVessel` 判据，**不是**规则结果差；B9 撞的三档就此收 2 |
 | `rooted` | OK | **required** | 5 | `_rooted` ↔ `BoardRules.Rooted` | 批 3：五档，**靠 B4 才收得到**（六条断言全在 `_blank_board()` 上）。目标走 `pick_random`，两侧 pop-loop 同形，5 条全绿 = 带子对得上 |
 | `ossify` | OK | **required** | 3 | `_ossify` ↔ `BoardRules.Ossify` | 批 3：两档，靠 **B4**。另四条（到期回合免疫站在格上 = **KG-4**，与它同段的 16121 / 16124 / 16125 三条）整段不进仓库 |
 | `decay` | OK | **required** | 3 | `_decay` ↔ `BoardRules.Decay` | 批 3：三档。事件两档（抑制 / 到期恢复）撞 **KG-7**（那只癌细胞摆在盘外 (5,5)） |
@@ -79,11 +79,11 @@
 | op | status | cases | 用例数 | 落点（GD ↔ C#） | 空档 / 备注 |
 |---|---|---|---|---|---|
 | `reset_round_flags` | OK | deferred | 0 | `_reset_round_flags` ↔ `CellRules.ResetRoundFlags` | 批 3 |
-| `tissue_production` | OK | deferred | 0 | `_tissue_production` ↔ `BoardRules.TissueProduction` | 批 2；**不是 `Produce`**（`Produce` 头一行还有 `ResetRoundFlags`） |
-| `vessel_teleport` | OK | deferred | 0 | `_vessel_teleport` ↔ `BoardRules.Transport` | 批 3 |
-| `aerobic` | OK | deferred | 0 | `cw_world.gd:_aerobic` ↔ `PhaseRules.Aerobic` | 批 2；薄壳 `aerobic()` 不是契约步 |
+| `tissue_production` | OK | required | 4 | `_tissue_production` ↔ `BoardRules.TissueProduction` | 批 2；**不是 `Produce`**（`Produce` 头一行还有 `ResetRoundFlags`） 批 2（09-19）转真：四档 —— 核心进度 +1 / 骨髓 `cards:1` 已满（`store_progress` 恒 1.0）/ `occupied` 收用例自写在 tile 上的 store / `necrosis_skip`；期望里没有产出周期或产量常数（弱依赖「任何 period > 1」，Q2 只影响第二段的骨髓抽卡半边）；撤 vessel 档（血管格是空 delta）；【营养缺乏】档 = 空档 tissue-production-nutrient-shortage |
+| `vessel_teleport` | OK | required | 4 | `_vessel_teleport` ↔ `BoardRules.Transport` | 批 2（本行原写「批 3」是笔误）转真：四档（含 `necrosis_blocks` —— GD 只查 necrosis，`solid_blocks` 改字），6 条；会改连通块的那条把 `anaerobic_floor` / `anaerobic_cap` 同钉 33 防无氧常数漏进 delta |
+| `aerobic` | OK | required | 4 | `cw_world.gd:_aerobic` ↔ `PhaseRules.Aerobic` | 批 2；薄壳 `aerobic()` 不是契约步 批 2（09-19）转真：`level_I` / `level_III`（`aerobic_by_level[i]` 钉 41）/ `necrosis_cut`（`necrosis_aerobic_pct` 钉 0）/ `tgf_consumed`（一层【TGF-β释放】被有氧消耗）；细胞 `energy: 300` 显式写出，不烘默认初始能量 |
 | `overload` | OK | deferred | 0 | `cw_world.gd:_overload` ↔ `PhaseRules.Overload` | 批 2；薄壳 `overload()` 不是契约步 |
-| `enter_tile` | OK | required | 4 | `cw_actions.gd:enter_tile(cell, dest, paid := -1)` ↔ `CellRules.EnterTile` | 批 1 落地：healthy / purify / special 三档 delta；`paid` 只写缺省（C# 不消费，写了当场红）；`free` 档撤（要卡牌 + 挂起态 ⇒ 批 5b）；GD runner 原读 `to` 已改 `dest` |
+| `enter_tile` | OK | required | 6 | `cw_actions.gd:enter_tile(cell, dest, paid := -1)` ↔ `CellRules.EnterTile` | 批 1 落地：healthy / purify / special 三档 delta；`paid` 只写缺省（C# 不消费，写了当场红）；`free` 档撤（要卡牌 + 挂起态 ⇒ 批 5b）；GD runner 原读 `to` 已改 `dest` 批 2 +1 档 `purify_memory`（2 条：净化 +1 抗原记忆 —— 批 2 的主语，记忆压在 10 以下绕开门槛表分叉） |
 | `execute` | OK | required | 46 | `cw_actions.gd:execute(cell, data)` ↔ `GetAvailableDecisions → SemanticKey.Of → ExecuteDecision` | 批 1 进表（决策类 op）：args = `seat` + 语义键 `key`，**`rec: "manual"`**（行动总入口不许代理覆写）；批 1 只 `act=move` 落空格；**批 4 加 17 档**：攻击 15 档（判词 / 反击 / 击杀 / 补体调理重掷 / 穿孔素 pick / 攻击上限……，`rolls` 逐条按硬约定的掷骰次序）+ 抗体 + `move/purify_heal`（巨噬【局部吞噬】回能按实付 0.7/0.5/0.4/0.3/0.2/0.0 + 旋钮 0 七态 —— S1 路 ②，不动 core 的 `EnterTile` 签名）。批 5a +7：`move/spend` / `move/keep` / `move/exhaust`（修饰打出后消耗 / ON_BENEFIT 不消耗 / 额度用尽回基准价）+ `move/ras`（【RAS持续激活】首次定殖回能 / 同回合第二次不回，主会话补收） |
 | `damage_hit` | OK | **required** | 25 | `cw_game.gd:immune_hit(target, base, attacker, attack, add)` / `cancer_hit(target, base, reason, skill)` ↔ `CellRules.Damage(s, id, amount, LossSource, ability)` | 批 4 落地：args `[target, base, source, ability]`，`source` 四个字面词 immune_attack / immune_effect / cancer_skill / world，immune 两档的 `ability` 只许「攻击」「技能」（GD 硬编码，两侧探针硬断言）；不收 `attacker`（C# `Damage` 没有：吸血 / 斩杀住在 `Move` 与 GD 伤后触发队列）、`add`（GD 第一步就加进 base）、`direct`（GD 是同批第二条事件 —— 靶场造事件 = 重写攻击流程 ⇒ 走 `execute` 攻击分支）；13 档，仍 `rec: manual` 手写。盘面禁忌 F1：不许有与任一活癌细胞 ≤2 格的树突（damage-tail-update-marks） |
 
@@ -157,11 +157,19 @@
 | ~~B4 · 代理只挂在 `make_game()` 上~~ —— **已合上（批 3 落地）**：`headless_test.gd:bare_game()` 末尾也过一次 `on_game_made`（不设 Callable 时一行都不执行）。全仓 103 处在用，落地前跑过全量 GD 套件 3895 项 | —— | 批 3 S1 B4 |
 | ~~B9 · 同席多细胞 ⇒ 收割器静默产出 `changed` 空的假绿草稿~~ —— **已合上（批 3 落地）**：`cw_recorder.gd:finish()` 差分完查一次 `Diff.errors`，非空按规矩 5 记 UNLOADABLE、不产用例（288 → 275 条草稿，落掉的 13 条全是这一类） | —— | 批 3 P2 new_blockers |
 | **B5 · `_dump_tuning` 表达不了分档表被清空 / 缩短** —— `t_necrosis` 把 `g.tune.aerobic_by_level` 设成 `[]`，dump 里一个键都不出现；连累 `tick_necrosis` 的 `countdown:board` 一档 | **批 2**（收有氧时一定撞）之前定「清空」的写法 | 批 3 S1 B5 |
+| ↳ **已合上（2026-09-19 批 2）**：表长语法 `name[]: <长度>`（只许缩短，加长 UNLOADABLE），两侧 loader 两趟、dump 长度不同先写 `name[]`、minify 按缺省长度削 + 等于缺省的普通旋钮也削（C# `MinifyTuning` 补对称）；压力用例 `stress/tuning/aerobic_by_level_truncated_roundtrips`（`probe: proliferate_chance` + `aerobic_by_level[]: 0` + 期望 30，一个有氧数字都不碰）闸二 2a 钉住；变异：dump 不写 `name[]` → 2a 红、load 不认 `name[]` → 越界红 | —— | 批 2 P1 / 评委 |
 | **B6 · `events.active[].data` / `doubled` 的编码不合 §0.6.1 第 5 条** —— `data` 被 dump 成 GDScript `Vector2i` 的 `str()`（`"(0, 1)"`，不是协议 `"q,r"`）、值还是 bool，而 C# `L0Effect.Data` 是 `Dictionary<string,int>` ⇒ 整文件 `JsonException`；连累 `tick_durations` 的 TNF 那一档 | **批 5b**（世界事件） | 批 3 S1 B6 |
 | ↳ 批 5b 第一段：**整条归第二段第 1 个提交**（要同时改 GD `cw_world_loader.gd` 的 `_load_events` / `_dump_events` 与 C# `L0Effect`，P1 / P2 在两台副本上并行时不能各改一半 —— 批 3 的 NO-GO 就是这么来的）；本批用例的 `data` 一律 `{}`。紊乱的坐标值装不进 `<string,int>`：替代案 `"<id>.q"` / `"<id>.r"` 两个 int 键（§十三 第 3 条） | 第二段第 1 个提交 | 批 5b S1 §2.4 |
 | **B7 · `cap_energy` 在 `headless_test.gd` 里零 check** —— `cap_energy` / `energy_cap` / 能量上限 / 溢出 四个词全空 | 手写一条（不属「一律收割」口径） | 批 3 S1 B7 |
 | **B8 · `t_ossify_cost_and_pin` 在收割器下跑不出结果** —— 同批 21 个函数里只有它没打出 HARVEST 行（该函数以 UI / 价签断言为主，批 3 不依赖） | 收割器碰 UI 函数会挂，记一笔 | 批 3 S1 B8 |
 | **B10 · 规矩 5 只验 dump、不验 load** —— 装不回去的世界照样出草稿（细胞写在不存在的席位 / 盘外格）；连累 `tick_chemo_cd` 整条与 `anaerobic` 的 k 系数档 | `finish()` 里再 `load_world(pre)` 一次（本批未做，登记） | 批 3 P2 new_blockers |
+| ↳ 批 2 复核：仍未做、仍登记；只连累收割批（`harvest.gd` 出草稿那一路），**不**连累 `anaerobic` 的 k 系数档（那档挡在 Q3 的旋钮 tier） | 收割批 | 批 2 S1 |
+| **aerobic-board-formula-not-migrated** —— C# `RulePolicies.AerobicBase` 对 `aerobic_level_base <= 0`（盘面式）抛 NotSupportedException；按人数分档表也没有。等数值口径定死后与「有氧公式」一起做 | 批 2 第二段 | 批 2 S1 |
+| **aerobic-floor-cap-not-migrated** —— GD `clamp_income`（`aerobic_floor` / `aerobic_cap` 夹钳）在 C# `AerobicShare` 里未迁，两个旋钮今天是 C 档；`AerobicShare` 那句注释写的「批 5b」是笔误，应为「批 2 第二段」 | 批 2 第二段 | 批 2 S1 |
+| **split-share-count-zero** —— `_split_share(pool, 0)` 两侧口径未核（除零 / 归零），本批用例 `count ≠ 0`（T12） | 批 2 第二段 | 批 2 S1 |
+| **immune-level-threshold-table** —— 免疫等级门槛表两侧不是同一张：GD `LEVEL_MIN_MEMORY` 按人数分档（缺省 `[0,10,30,70]`，4 人 `[0,10,20,50]`），C# `CellRules.AddMemory` 行内 `Count==6 ? 70/30 : 50/20`（2 人局 `[0,10,20,50]`，≥50 清零）—— 4 / 6 人同、**2 人局分叉**（L0 绝大多数盘面是 2 席）；真规则结果差 vs 新做要 Kevin 拍（§十四 Q1）；本批记忆用例全压在 10 以下 | 待 Kevin | 批 2 S1 / P2 |
+| **tissue-production-nutrient-shortage** —— 【营养缺乏】下的产出档 C# 不读 `s.Effects`（随批 5b 第二段 A3） | 批 5b 第二段 | 批 2 S1 |
+| **r4-tree-float-gate-missing** —— R4 浮点硬闸只装在 scalar 与 delta 两处；tree 一侧 GD `l0_runner.gd:_to_json` 遇 float 静默 `int(round(v))`、C# `L1View.Plain` 拿到 double —— tree 探针今后**不许返回 float**，返回了两侧静默分叉（今天没有返回 tree 的浮点探针，炸不了）；要补是两侧各一句 | 下一个返回 tree 的浮点探针出现时 | 批 2 评委 #11 |
 
 ## 四、旋钮四档（`game/tests/contract_tune.json`，65 行 = `CWTuning` 属性全集）
 
@@ -184,7 +192,7 @@
 | 3 | E 阶段分步 | 128 | 0 |
 | 4 | 攻击 / 伤害管线 | ~106 | 0 |
 | 5a | 费用 / 伤害侧修饰 | ~200 | 0 |
-| 2 | 收入 | 141 | 0 |
+| 2 | 收入 | 141（S1 按单条 check 主语逐条筛得 156：留 GD 79 / 已收 26 / 等数值口径 25 / 本批可落 26） | 15（第一段） |
 | 5b | 需中途询问的卡 + 事件 | ~150 + `t_ev_*` 53 | 5（第一段：`const` 8 + `tick_durations` 2） |
 
 ## 六、明确不搬的

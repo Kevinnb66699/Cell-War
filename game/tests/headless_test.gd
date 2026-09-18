@@ -19243,7 +19243,10 @@ func t_case_diff() -> void:
 	for e: Dictionary in fx.get("diff", []):
 		var name: String = str(e["name"])
 		CASE_DIFF.errors = PackedStringArray()
-		var got: Dictionary = CASE_DIFF.diff(e["pre"], e["post"])
+		## 夹具是 JSON.parse_string 读的：GDScript 的 JSON 数字一律 float，而 C# 那头走 L1View.Plain（整数值 → long）。
+		## R4 的浮点硬闸装上之后（批 2），两侧要在同一份夹具上行为相同，就得先把整数值的 float 归一成 int ——
+		## 这是 Plain 的等价物，只动整数值，真浮点（10.5）原样留着让硬闸开火（第 11 条夹具钉这一边）
+		var got: Dictionary = CASE_DIFF.diff(_diff_plain(e["pre"]), _diff_plain(e["post"]))
 		if bool(e.get("error", false)):
 			check(got.is_empty() and not CASE_DIFF.errors.is_empty(),
 				"%s：期望硬错 → %s" % [name, CASE_DIFF.errors[0] if not CASE_DIFF.errors.is_empty() else "（没报错）"])
@@ -19252,12 +19255,30 @@ func t_case_diff() -> void:
 		if not CASE_DIFF.errors.is_empty():
 			check(false, "%s：不该报错却报了 %s" % [name, str(CASE_DIFF.errors)])
 			continue
-		var msgs := _delta_set_msgs(got, e["changed"])
+		var msgs := _delta_set_msgs(got, _diff_plain(e["changed"]))
 		check(msgs.is_empty(), "%s：差分整集合相等（%d 条）%s" % [name, got.size(), "" if msgs.is_empty() else str(msgs)])
 	for e: Dictionary in fx.get("compare", []):
-		var paths: PackedStringArray = CASE_DIFF.compare(e["a"], e["b"])
+		var paths: PackedStringArray = CASE_DIFF.compare(_diff_plain(e["a"]), _diff_plain(e["b"]))
 		check(Array(paths) == (e["paths"] as Array),
 			"%s：tree 比法的路径列表 = %s（实际 %s）" % [str(e["name"]), str(e["paths"]), str(paths)])
+
+
+## C# `L1View.Plain` 的等价物：整数值的 float → int，递归进 Array / Dictionary；真浮点原样。
+## 只给 t_case_diff 读夹具用 —— runner 那条路的 envelope 是编码器产的，本来就没有 float
+func _diff_plain(v: Variant) -> Variant:
+	if typeof(v) == TYPE_FLOAT:
+		return int(v) if v == floor(v) else v
+	if v is Array:
+		var a: Array = []
+		for x in (v as Array):
+			a.append(_diff_plain(x))
+		return a
+	if v is Dictionary:
+		var d: Dictionary = {}
+		for k in (v as Dictionary):
+			d[k] = _diff_plain((v as Dictionary)[k])
+		return d
+	return v
 
 
 ## 整集合比：多改 / 少改 / 值不同（与 l0_runner.gd:_delta_msgs 同一段逻辑）

@@ -1,0 +1,251 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "tissue_production/core/healthy_period",
+    "op": "tissue_production",
+    "covers": [
+      "t_necrosis::坏死一过，两种格子照常攒"
+    ],
+    "source": "cw_world.gd:_tissue_production 的 CORE 分支 ↔ BoardRules.TissueProduction 的 `case TissueType.MetabolicCore`。**零常数结构**：盘面上只留三格代谢核心（六格骨髓显式改成 normal），三格都健康、进度条都从 0 起 ⇒ 这一步只把进度条各 +1，既不到周期、也没有存量可收 —— 产量 / 周期 / 上限四个常数一个都进不了期望（任何 period > 1 都得同一份 delta）。covers 回指「坏死一过，两种格子照常攒」的核心那一半。changed 由 GD runner 录出。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "3,-3",
+          "type": "normal"
+        },
+        {
+          "at": "0,3",
+          "type": "normal"
+        },
+        {
+          "at": "-3,0",
+          "type": "normal"
+        },
+        {
+          "at": "6,-3",
+          "type": "normal"
+        },
+        {
+          "at": "-3,6",
+          "type": "normal"
+        },
+        {
+          "at": "-3,-3",
+          "type": "normal"
+        }
+      ]
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-3,3.prod": 1,
+        "$.board.tiles@0,-3.prod": 1,
+        "$.board.tiles@3,0.prod": 1
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "tissue_production/marrow/healthy_period",
+    "op": "tissue_production",
+    "covers": [
+      "t_necrosis::坏死一过，两种格子照常攒"
+    ],
+    "source": "cw_world.gd:_tissue_production 的 MARROW 分支 ↔ BoardRules.TissueProduction 的 `case TissueType.BoneMarrow`。**零常数结构**：盘面上只留六格骨髓（三格核心显式改成 normal），六格都健康、进度条都从 0 起 ⇒ 这一步只把进度条各 +1，不到周期、不发卡（也就不抽牌，`rolls` 缺省 [] 同时钉住「这一步没消耗 rng」）。六格都**先写满一张卡**（`cards: 1` = MARROW_STORE_MAX）是有意的：`store_progress` 在满仓时直接返回 1.0，于是派生量 `d.store_fraction` 前后都是 1000、**不把「进度 ÷ 周期」这个商带进 delta** —— 骨髓周期常数（Q2 那一族）因此一个都进不了期望；格上没有细胞，满仓也不会触发当场收取。与核心那条成对钉住「两种格子都照常攒」。changed 由 GD runner 录出。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,-3",
+          "type": "normal"
+        },
+        {
+          "at": "3,0",
+          "type": "normal"
+        },
+        {
+          "at": "-3,3",
+          "type": "normal"
+        },
+        {
+          "at": "3,-3",
+          "cards": 1
+        },
+        {
+          "at": "0,3",
+          "cards": 1
+        },
+        {
+          "at": "-3,0",
+          "cards": 1
+        },
+        {
+          "at": "6,-3",
+          "cards": 1
+        },
+        {
+          "at": "-3,6",
+          "cards": 1
+        },
+        {
+          "at": "-3,-3",
+          "cards": 1
+        }
+      ]
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-3,-3.prod": 1,
+        "$.board.tiles@-3,0.prod": 1,
+        "$.board.tiles@-3,6.prod": 1,
+        "$.board.tiles@0,3.prod": 1,
+        "$.board.tiles@3,-3.prod": 1,
+        "$.board.tiles@6,-3.prod": 1
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "tissue_production/necrosis_skip",
+    "op": "tissue_production",
+    "covers": [
+      "t_necrosis::坏死期间产出这一步整格跳过（进度条也不动）"
+    ],
+    "source": "cw_world.gd:_tissue_production 的 `if t[\"necrosis\"] > 0: continue`（Kevin 2026-09-13 issue #31）↔ BoardRules.TissueProduction 的 `if (t.NecrosisRounds > 0) continue`。**零常数结构**：盘面上只留一格核心加一格骨髓（其余七格特殊组织显式改成 normal），两格都在坏死倒计时里 ⇒ **不产也不攒**，连进度条都不动 —— delta 为空集合。这正是 tick_necrosis 认领不了的那一条（它只管倒计时，产出这一步排在它前面）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "3,0",
+          "type": "normal"
+        },
+        {
+          "at": "-3,3",
+          "type": "normal"
+        },
+        {
+          "at": "0,3",
+          "type": "normal"
+        },
+        {
+          "at": "-3,0",
+          "type": "normal"
+        },
+        {
+          "at": "6,-3",
+          "type": "normal"
+        },
+        {
+          "at": "-3,6",
+          "type": "normal"
+        },
+        {
+          "at": "-3,-3",
+          "type": "normal"
+        },
+        {
+          "at": "0,-3",
+          "necrosis": 2
+        },
+        {
+          "at": "3,-3",
+          "necrosis": 2
+        }
+      ]
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {},
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "tissue_production/occupied",
+    "op": "tissue_production",
+    "covers": [],
+    "source": "cw_world.gd:_tissue_production 末尾的 `if t[\"store\"] > 0 or t[\"cards\"] > 0: collect_special(here[0], c)` ↔ BoardRules.TissueProduction 的 `if (charge > 0 && GetCellAt(...) is { IsAlive: true } occupant) CollectSpecial(...)`。**零常数结构**：盘面上只留一格代谢核心（其余八格特殊组织显式改成 normal），核心已有 1.5 存量、上面站着一只免疫细胞 ⇒ 产出瞬间当场收取，收多少 = **用例自己写在 tiles 上的 store**（`core_gain` 原样返回存量），与产量常数无关；存量清零、进度条照常 +1。只放一格**核心**（收能量、无 rng）—— 骨髓那半要抽牌 ⇒ 有 rng，归第二段（硬约定 T11）。changed 由 GD runner 录出。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "3,0",
+          "type": "normal"
+        },
+        {
+          "at": "-3,3",
+          "type": "normal"
+        },
+        {
+          "at": "3,-3",
+          "type": "normal"
+        },
+        {
+          "at": "0,3",
+          "type": "normal"
+        },
+        {
+          "at": "-3,0",
+          "type": "normal"
+        },
+        {
+          "at": "6,-3",
+          "type": "normal"
+        },
+        {
+          "at": "-3,6",
+          "type": "normal"
+        },
+        {
+          "at": "-3,-3",
+          "type": "normal"
+        },
+        {
+          "at": "0,-3",
+          "store": 15
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,-3"
+        }
+      ]
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,-3.d.store_fraction": 0,
+        "$.board.tiles@0,-3.prod": 1,
+        "$.board.tiles@0,-3.store": 0,
+        "$.cells[0].energy": 315
+      },
+      "ignore": []
+    }
+  }
+]

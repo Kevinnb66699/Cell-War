@@ -1,0 +1,51 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "split_share/floor_pinned",
+    "probe": "split_share",
+    "covers": [],
+    "source": "cw_world.gd:_split_share ↔ RulePolicies.SplitShare。① 算式：`clamp_income(int(round(scaled / float(count))), anaerobic_floor, anaerobic_cap)`；② 出处：cw_world.gd:_split_share；③ pool 字面量 1.0（十分能量；两侧都能精确表示的有限小数）；④ **旋钮钉死：期望 = tuning 里的 anaerobic_floor，不受数值口径影响**。极小池 ⇒ 均分后 round(1.0 × k ÷ 3) 无论 k 取 80 / 100 / 120 都落在 0，一律被兜底抬到 33 —— 钉的是「兜底排在 k 与均分之后」这条顺序，不是任何一个 PRD 数。**期望与 `anaerobic_split` 取值无关**（开：round(1.2 / 3) = 0；关：round(1.2) = 1；两条都被兜到 33），所以这条不写那个旋钮 —— 今天两侧缺省都是 true，而显式写一个等于缺省的旋钮会撞「C# Minify 不削缺省旋钮」那条两侧文法差（见 questions）。（T3：`anaerobic_split: 1` 显式写出，与缺省同值 —— 两侧 minify 都按缺省削掉，往返自检 2a 由 C# `MinifyTuning` 对称实现兜住）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tuning": {
+        "anaerobic_floor": 33,
+        "anaerobic_split": 1
+      }
+    },
+    "args": {
+      "pool": "1.0",
+      "count": "3"
+    },
+    "expect": 33
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "split_share/cap_pinned",
+    "probe": "split_share",
+    "covers": [],
+    "source": "cw_world.gd:_split_share ↔ RulePolicies.SplitShare。① 算式同上；② 出处：cw_world.gd:_split_share；③ pool 字面量 1000.0；④ **旋钮钉死：期望 = tuning 里的 anaerobic_cap，不受数值口径影响**。地板归 0、极大池 ⇒ 无论 k 取哪一档都远超 37，一律被封顶压到 37 —— 钉的是「封顶排在兜底之后、且 cap ≤ 0 时不封顶」这条夹钳形状。**期望与 `anaerobic_split` 取值无关**（count = 1，开与关都是 round(800.0)），所以这条不写那个旋钮（理由同 floor_pinned）。（T3：`anaerobic_split: 1` 显式写出，与缺省同值 —— 两侧 minify 都按缺省削掉，往返自检 2a 由 C# `MinifyTuning` 对称实现兜住）",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tuning": {
+        "anaerobic_floor": 0,
+        "anaerobic_cap": 37,
+        "anaerobic_split": 1
+      }
+    },
+    "args": {
+      "pool": "1000.0",
+      "count": "1"
+    },
+    "expect": 37
+  }
+]

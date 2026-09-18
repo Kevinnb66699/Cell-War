@@ -413,8 +413,10 @@ public static class WorldLoader
             ChemoTrack = w.ChemoTrack,
             CancerAlarm = w.CancerAlarm is { Streak: 0 } ? null : w.CancerAlarm,
             Events = events,
-            Tuning = new Dictionary<string, int>(w.Tuning, StringComparer.Ordinal),
+            Tuning = MinifyTuning(w.Tuning),
         };
+
+        // B5-4：`MinifyTuning` 提到类级（与 DumpTuning 共用同一张行表，见文件末尾）
 
         // 11 个非 at 键全等于默认值 = 这一格什么都没改，整条删掉（`type` 的默认是 special_of(at)）
         bool Named(L0Tile t)
@@ -574,7 +576,12 @@ public static class WorldLoader
     /// </summary>
     private static RuleTuning Tune(RuleTuning tune, Dictionary<string, int> knobs)
     {
-        foreach (var (key, value) in knobs) tune = WithKnob(tune, key, value);
+        // **两趟**（B5）：`name[]`（把分档表截到这个长度）一律先于 `name[i]`（改某一档）——
+        // JSON 对象的键序不可靠，靠插入序就是给自己埋雷。GD `cw_world_loader.gd:_load_tuning` 同
+        foreach (var (key, value) in knobs.Where(kv => kv.Key.EndsWith("[]", StringComparison.Ordinal)))
+            tune = WithKnob(tune, key, value);
+        foreach (var (key, value) in knobs.Where(kv => !kv.Key.EndsWith("[]", StringComparison.Ordinal)))
+            tune = WithKnob(tune, key, value);
         return tune;
     }
 
@@ -586,7 +593,7 @@ public static class WorldLoader
     /// </summary>
     internal static RuleTuning WithKnob(RuleTuning tune, string name, int value)
     {
-        var (key, index) = SplitIndex(name);
+        var (key, index, length) = SplitIndex(name);
         switch (TuneTable.Shared.TierOf(key))
         {
             case "B":
@@ -600,6 +607,16 @@ public static class WorldLoader
                 throw new InvalidOperationException(
                     $"**未知旋钮** {key} —— contract_tune.json 里没有这一行（两侧同读一份，只改一边会让拒绝集合分叉）");
         }
+
+        // B5：`name[]` = 把分档表截到这个长度（白名单 / tier 判定走的是去掉方括号的 `name`，上面已经过了）
+        if (length)
+            return key switch
+            {
+                "proliferate_per_adjacent" => tune with { ProliferatePerAdjacent = Truncate(tune.ProliferatePerAdjacent, key, value) },
+                "proliferate_per_solid" => tune with { ProliferatePerSolid = Truncate(tune.ProliferatePerSolid, key, value) },
+                "aerobic_by_level" => tune with { AerobicByLevel = Truncate(tune.AerobicByLevel, key, value) },
+                _ => throw new InvalidOperationException($"旋钮 {key} 还没接下标语法 —— 语法一次定完、用到的先接（A-2 的 A′ 档）"),
+            };
 
         if (index is { } i)
             return key switch
@@ -660,14 +677,34 @@ public static class WorldLoader
         };
     }
 
-    /// <summary>`proliferate_per_adjacent[1]` → (`proliferate_per_adjacent`, 1)；没下标就是 (name, null)。</summary>
-    private static (string Key, int? Index) SplitIndex(string name)
+    /// <summary>
+    /// `proliferate_per_adjacent[1]` → (`proliferate_per_adjacent`, 1, false)；没下标就是 (name, null, false)。
+    /// **`aerobic_by_level[]` → (…, null, true)**：B5 的表长键，值 = 把这张分档表截到几档。
+    /// </summary>
+    private static (string Key, int? Index, bool Length) SplitIndex(string name)
     {
         var open = name.IndexOf('[');
-        if (open < 0) return (name, null);
-        if (!name.EndsWith(']') || !int.TryParse(name[(open + 1)..^1], out var i))
-            throw new InvalidOperationException($"分档表的下标要写成 `名字[1]`（1 基），拿到的是 {name}");
-        return (name[..open], i);
+        if (open < 0) return (name, null, false);
+        if (!name.EndsWith(']'))
+            throw new InvalidOperationException($"分档表的下标要写成 `名字[1]`（1 基）或 `名字[]`（表长），拿到的是 {name}");
+        var inner = name[(open + 1)..^1];
+        if (inner.Length == 0) return (name[..open], null, true);
+        if (!int.TryParse(inner, out var i))
+            throw new InvalidOperationException($"分档表的下标要写成 `名字[1]`（1 基）或 `名字[]`（表长），拿到的是 {name}");
+        return (name[..open], i, false);
+    }
+
+    /// <summary>
+    /// B5：`name[]` = 把分档表截到这个长度。**本批只许缩短（含清空）** —— 加长要先定新槽位的初值，
+    /// 本批不定 ⇒ <see cref="UnloadableException"/>（不是「用例写错了」）。
+    /// 两趟保证这一步之前没人动过长度，所以这里的 `table.Count` 就是缺省长度。
+    /// </summary>
+    private static IReadOnlyList<int> Truncate(IReadOnlyList<int> table, string key, int len)
+    {
+        if (len < 0) throw new InvalidOperationException($"{key}[] 的表长不能是负数，拿到 {len}");
+        if (len > table.Count)
+            throw new UnloadableException($"旋钮 {key}[] 要 {len} 档，缺省只有 {table.Count} 档 —— 本批只许缩短（含清空），加长得先定新槽位的初值");
+        return table.Take(len).ToArray();
     }
 
     private static IReadOnlyList<int> Replace(IReadOnlyList<int> table, string key, int oneBased, int value)
@@ -684,55 +721,93 @@ public static class WorldLoader
     {
         var d = RuleTuning.Default;
         var outp = new Dictionary<string, int>(StringComparer.Ordinal);
-        void N(string name, int a, int b) { if (a != b) outp[name] = a; }
-        void B(string name, bool a, bool b) { if (a != b) outp[name] = a ? 1 : 0; }
-        void T(string name, IReadOnlyList<int> a, IReadOnlyList<int> b)
+        foreach (var (name, a, b) in Scalars(t, d)) if (a != b) outp[name] = a;
+        foreach (var (name, a, b) in Tables(t, d))
         {
-            for (var i = 0; i < a.Count; i++) if (i >= b.Count || a[i] != b[i]) outp[$"{name}[{i + 1}]"] = a[i];
+            // B5-3：长度不同（含被清空）先写 `name[]`。以前空表连循环体都不进 ——
+            // 「分档表被清空」在 dump 里一个键都不出现，往返回来表又满了（COVERAGE 的 B5）
+            if (a.Count != b.Count) outp[$"{name}[]"] = a.Count;
+            for (var i = 0; i < Math.Min(a.Count, b.Count); i++) if (a[i] != b[i]) outp[$"{name}[{i + 1}]"] = a[i];
         }
-        N("cancer_move_cancerous", t.CancerMoveCancerous, d.CancerMoveCancerous);
-        N("cancer_move_healthy", t.CancerMoveHealthy, d.CancerMoveHealthy);
-        N("sclc_move_healthy", t.SclcMoveHealthy, d.SclcMoveHealthy);
-        N("pseudopod_cost", t.PseudopodCost, d.PseudopodCost);
-        N("mucus_move_surcharge", t.MucusMoveSurcharge, d.MucusMoveSurcharge);
-        N("metastasis_cost", t.MetastasisCost, d.MetastasisCost);
-        N("metastasis_max_per_round", t.MetastasisMaxPerRound, d.MetastasisMaxPerRound);
-        N("immune_respawn_delay", t.ImmuneRespawnDelay, d.ImmuneRespawnDelay);
-        N("macro_heal_purify", t.MacroHealPurify, d.MacroHealPurify);
-        N("counter_dmg_on_fail", t.CounterDamageOnFail, d.CounterDamageOnFail);
-        N("attack_max_per_turn", t.AttackMaxPerTurn, d.AttackMaxPerTurn);
-        N("anaerobic_solid_bonus", t.AnaerobicSolidBonus, d.AnaerobicSolidBonus);
-        N("anaerobic_floor", t.AnaerobicFloor, d.AnaerobicFloor);
-        N("anaerobic_cap", t.AnaerobicCap, d.AnaerobicCap);
-        B("anaerobic_split", t.AnaerobicSplit, d.AnaerobicSplit);
-        B("newborn_protect", t.NewbornProtect, d.NewbornProtect);
-        N("cancer_upkeep_pct", t.CancerUpkeepPercent, d.CancerUpkeepPercent);
-        N("energy_cap", t.EnergyCap, d.EnergyCap);
-        N("overload_threshold", t.OverloadThreshold, d.OverloadThreshold);
-        N("overload_div", t.OverloadDiv, d.OverloadDiv);
-        N("overload_exp", t.OverloadExp, d.OverloadExp);
-        N("overload_cap", t.OverloadCap, d.OverloadCap);
-        N("anaerobic_block_coef", t.AnaerobicBlockCoefOverride, d.AnaerobicBlockCoefOverride);
-        N("anaerobic_block_exp", t.AnaerobicBlockExpOverride, d.AnaerobicBlockExpOverride);
-        N("anaerobic_per_cancer", t.AnaerobicPerCancer, d.AnaerobicPerCancer);
-        N("anaerobic_per_solid", t.AnaerobicPerSolid, d.AnaerobicPerSolid);
-        T("proliferate_per_adjacent", t.ProliferatePerAdjacent, d.ProliferatePerAdjacent);
-        T("proliferate_per_solid", t.ProliferatePerSolid, d.ProliferatePerSolid);
-        // 2026-09-19 进内核的 13 个（与 WithKnob 同表）
-        N("aerobic_level_base", t.AerobicLevelBase, d.AerobicLevelBase);
-        N("aerobic_level_step", t.AerobicLevelStep, d.AerobicLevelStep);
-        B("aerobic_split", t.AerobicSplit, d.AerobicSplit);
-        N("aerobic_split_ref", t.AerobicSplitRef, d.AerobicSplitRef);
-        N("necrosis_aerobic_pct", t.NecrosisAerobicPct, d.NecrosisAerobicPct);
-        B("anaerobic_on_turn_end", t.AnaerobicOnTurnEnd, d.AnaerobicOnTurnEnd);
-        B("world_events_on", t.WorldEventsOn, d.WorldEventsOn);
-        N("cancer_win_hold_rounds", t.CancerWinHoldRounds, d.CancerWinHoldRounds);
-        N("attack_dmg_success", t.AttackDmgSuccess, d.AttackDmgSuccess);
-        B("antibody_halve", t.AntibodyHalve, d.AntibodyHalve);
-        N("antibody_max_per_round", t.AntibodyMaxPerRound, d.AntibodyMaxPerRound);
-        N("osteo_ossify_cost", t.OsteoOssifyCost, d.OsteoOssifyCost);
-        T("aerobic_by_level", t.AerobicByLevel, d.AerobicByLevel);
         return outp;
+    }
+
+    /// <summary>B5-4：minify 与 GD `cw_world_loader.gd:_minify_tuning` 同一条规则、独立实现（不转调 load / dump）：
+    /// 值等于缺省的旋钮一律削掉（bool 按 1/0 比、`name[i]` 比缺省表第 i 项、`name[]` 比缺省长度），表外名字丢掉。
+    /// 少了「等于缺省的普通旋钮也削」这一半，spec 里显式写一个缺省值（例如 `anaerobic_split: 1`）就 GD 2a 绿、C# 2a 红（批 2 评委抓的）。</summary>
+    internal static Dictionary<string, int> MinifyTuning(IReadOnlyDictionary<string, int> spec)
+    {
+        var d = RuleTuning.Default;
+        var scalar = Scalars(d, d).ToDictionary(r => r.Name, r => r.Def, StringComparer.Ordinal);
+        var table = Tables(d, d).ToDictionary(r => r.Name, r => r.Def, StringComparer.Ordinal);
+        var outp = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (key, value) in spec)
+        {
+            var (name, index, length) = SplitIndex(key);
+            if (length || index is not null)
+            {
+                if (!table.TryGetValue(name, out var dt)) continue;
+                if (length) { if (value != dt.Count) outp[key] = value; continue; }
+                var i = index!.Value;
+                if (i >= 1 && i <= dt.Count && dt[i - 1] == value) continue;
+                outp[key] = value;
+                continue;
+            }
+            if (!scalar.TryGetValue(name, out var dv)) continue;
+            if (dv != value) outp[key] = value;
+        }
+        return outp;
+    }
+
+    /// <summary>旋钮行表（DumpTuning / MinifyTuning 共用）：标量与 bool（1/0）。与 WithKnob 同表。</summary>
+    private static IEnumerable<(string Name, int Cur, int Def)> Scalars(RuleTuning t, RuleTuning d)
+    {
+        yield return ("cancer_move_cancerous", t.CancerMoveCancerous, d.CancerMoveCancerous);
+        yield return ("cancer_move_healthy", t.CancerMoveHealthy, d.CancerMoveHealthy);
+        yield return ("sclc_move_healthy", t.SclcMoveHealthy, d.SclcMoveHealthy);
+        yield return ("pseudopod_cost", t.PseudopodCost, d.PseudopodCost);
+        yield return ("mucus_move_surcharge", t.MucusMoveSurcharge, d.MucusMoveSurcharge);
+        yield return ("metastasis_cost", t.MetastasisCost, d.MetastasisCost);
+        yield return ("metastasis_max_per_round", t.MetastasisMaxPerRound, d.MetastasisMaxPerRound);
+        yield return ("immune_respawn_delay", t.ImmuneRespawnDelay, d.ImmuneRespawnDelay);
+        yield return ("macro_heal_purify", t.MacroHealPurify, d.MacroHealPurify);
+        yield return ("counter_dmg_on_fail", t.CounterDamageOnFail, d.CounterDamageOnFail);
+        yield return ("attack_max_per_turn", t.AttackMaxPerTurn, d.AttackMaxPerTurn);
+        yield return ("anaerobic_solid_bonus", t.AnaerobicSolidBonus, d.AnaerobicSolidBonus);
+        yield return ("anaerobic_floor", t.AnaerobicFloor, d.AnaerobicFloor);
+        yield return ("anaerobic_cap", t.AnaerobicCap, d.AnaerobicCap);
+        yield return ("cancer_upkeep_pct", t.CancerUpkeepPercent, d.CancerUpkeepPercent);
+        yield return ("energy_cap", t.EnergyCap, d.EnergyCap);
+        yield return ("overload_threshold", t.OverloadThreshold, d.OverloadThreshold);
+        yield return ("overload_div", t.OverloadDiv, d.OverloadDiv);
+        yield return ("overload_exp", t.OverloadExp, d.OverloadExp);
+        yield return ("overload_cap", t.OverloadCap, d.OverloadCap);
+        yield return ("anaerobic_block_coef", t.AnaerobicBlockCoefOverride, d.AnaerobicBlockCoefOverride);
+        yield return ("anaerobic_block_exp", t.AnaerobicBlockExpOverride, d.AnaerobicBlockExpOverride);
+        yield return ("anaerobic_per_cancer", t.AnaerobicPerCancer, d.AnaerobicPerCancer);
+        yield return ("anaerobic_per_solid", t.AnaerobicPerSolid, d.AnaerobicPerSolid);
+        yield return ("aerobic_level_base", t.AerobicLevelBase, d.AerobicLevelBase);
+        yield return ("aerobic_level_step", t.AerobicLevelStep, d.AerobicLevelStep);
+        yield return ("aerobic_split_ref", t.AerobicSplitRef, d.AerobicSplitRef);
+        yield return ("necrosis_aerobic_pct", t.NecrosisAerobicPct, d.NecrosisAerobicPct);
+        yield return ("cancer_win_hold_rounds", t.CancerWinHoldRounds, d.CancerWinHoldRounds);
+        yield return ("attack_dmg_success", t.AttackDmgSuccess, d.AttackDmgSuccess);
+        yield return ("antibody_max_per_round", t.AntibodyMaxPerRound, d.AntibodyMaxPerRound);
+        yield return ("osteo_ossify_cost", t.OsteoOssifyCost, d.OsteoOssifyCost);
+        yield return ("anaerobic_split", t.AnaerobicSplit ? 1 : 0, d.AnaerobicSplit ? 1 : 0);
+        yield return ("newborn_protect", t.NewbornProtect ? 1 : 0, d.NewbornProtect ? 1 : 0);
+        yield return ("aerobic_split", t.AerobicSplit ? 1 : 0, d.AerobicSplit ? 1 : 0);
+        yield return ("anaerobic_on_turn_end", t.AnaerobicOnTurnEnd ? 1 : 0, d.AnaerobicOnTurnEnd ? 1 : 0);
+        yield return ("world_events_on", t.WorldEventsOn ? 1 : 0, d.WorldEventsOn ? 1 : 0);
+        yield return ("antibody_halve", t.AntibodyHalve ? 1 : 0, d.AntibodyHalve ? 1 : 0);
+    }
+
+    /// <summary>旋钮行表：分档表（下标 1 基）。</summary>
+    private static IEnumerable<(string Name, IReadOnlyList<int> Cur, IReadOnlyList<int> Def)> Tables(RuleTuning t, RuleTuning d)
+    {
+        yield return ("proliferate_per_adjacent", t.ProliferatePerAdjacent, d.ProliferatePerAdjacent);
+        yield return ("proliferate_per_solid", t.ProliferatePerSolid, d.ProliferatePerSolid);
+        yield return ("aerobic_by_level", t.AerobicByLevel, d.AerobicByLevel);
     }
 
     /// <summary>

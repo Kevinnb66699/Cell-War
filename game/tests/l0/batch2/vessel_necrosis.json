@@ -1,0 +1,37 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "vessel_teleport/necrosis_blocks",
+    "op": "vessel_teleport",
+    "covers": [
+      "t_necrosis::另一端血管坏死：不传送，人留在原地"
+    ],
+    "source": "cw_world.gd:_vessel_teleport 的 `for c in [a, b]: if game.tile(c)[\"necrosis\"] > 0: return`（Kevin 2026-09-13 issue #31）↔ BoardRules.Transport 的 `if (Tissues[a].NecrosisRounds > 0 || Tissues[b].NecrosisRounds > 0) return s`。**零常数结构**：人站 a 端、**另一端** b (-6,0) 坏死 ⇒ 传送是两端互换，哪一端坏死都整体作废（只送一半会凭空多出一个同格）—— delta 为空集合，人留在原地。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-6,0",
+          "necrosis": 2
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "6,0"
+        }
+      ]
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {},
+      "ignore": []
+    }
+  }
+]
