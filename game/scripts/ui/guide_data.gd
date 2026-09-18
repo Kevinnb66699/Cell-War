@@ -68,12 +68,14 @@ static func chapter_titles() -> Array[String]:
 	return out
 
 
-## 一句概括。新数据格式没有单独的 `subtitle` 字段（`cw_tutorial_data.LEVEL_KEYS` 里没有它），
-## 章名就是那一句 —— PRD:35 的全屏章节提示读的也是 `chapter_title`
+## 一关的一句概括（常驻壳的目录里那行小字）。S4 起数据有 `subtitle` 字段了；
+## 没写的关回落到章名 —— 老调用方拿到的仍是一句非空的话，不会变成空白行
 static func chapter_subtitles() -> Array[String]:
 	var out: Array[String] = []
 	for lv in levels():
-		out.append(str((lv as Dictionary).get("chapter_title", "")))
+		var d: Dictionary = lv
+		var sub := str(d.get("subtitle", ""))
+		out.append(sub if sub != "" else str(d.get("chapter_title", "")))
 	return out
 
 

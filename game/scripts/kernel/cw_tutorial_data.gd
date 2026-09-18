@@ -26,7 +26,9 @@ const LOADER := preload("res://scripts/kernel/cw_world_loader.gd")
 const WATCH := preload("res://scripts/ui/guide_watch.gd")
 
 ## 一关的顶层键（方案 §1.2 骨架 + 纪律 8 的 `expect_level_tiers`）
-const LEVEL_KEYS := ["schema", "id", "chapter", "chapter_title", "title",
+## `subtitle` 是**关**的一句概括（目录里那行小字，S4 补）——
+## `chapter_title` 是**章**的名字（PRD:35 的全屏提示读它），两者不是一回事，别再互相顶替
+const LEVEL_KEYS := ["schema", "id", "chapter", "chapter_title", "title", "subtitle",
 	"codex_page", "ui_stage", "seats", "human_seat", "expect_level_tiers",
 	"worlds", "active_tiles", "rolls", "steps", "on_done"]
 ## 一步的键（方案 §1.2 表尾 + §1.10）

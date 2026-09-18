@@ -361,6 +361,7 @@ var _handoff: CWHandoff      ## 热座换手遮罩（UI 层，压在暂停菜单
 var _guide: CWGuide          ## 教程局的新手引导面板（每局新建、拆局 queue_free；非教程为 null）
 var _codex: CWCodex          ## 对局内的知识之书（引导面板直达时懒建，拆局只隐藏；非教程为 null）
 var _spotlight: CWGuideSpotlight   ## 教程局的提亮层（引导面板之下，只画不挡；每局新建、拆局销毁；非教程为 null）
+var _shell: CWGuideShell     ## 教程局的常驻壳（章节提示 / 全屏遮挡 / 重置 / 目录；引导面板之上、暂停菜单之下）
 
 
 func _ready() -> void:
@@ -520,14 +521,17 @@ func start(snap: Dictionary = {}) -> void:
 	else:
 		kernel.open(cfg)
 	_start_queue()
+	_apply_guide_step()   ## 关首那一次（`run()` 之前）：不提前装，玩家会先看见一瞬间的全套界面（§1.10 末段）
 	kernel.run()     ## autorun=false 的局从这里起跑；同步跑到第一问才让出
 	_observe_now()   ## 再取一份：开局布置的初始癌组织到第一问才落地，_bloom_order 要的是这一份
+	_rebase_guide_watch()
 
 
 ## 教程局的句柄从舞台来：舞台读那一关的 JSON、装一份 cwxworld/2、把预设骰子（rolls）挂上去，
 ## 再用调用方这份 cfg 加 `adopt` 开局。**这里拿到的只有 CWKernel** —— 对局本身住在舞台里。
 ## 同时按数据把棋盘遮罩换成这一关的活跃格（main.gd 在推镜头之前也设过一次，幂等）。
 func _open_tutorial_stage(cfg: Dictionary) -> CWKernel:
+	CWGuideLayers.reset()   ## 每关从「全开」起步，再由 step0 的 ui_layers 给全量（方案 §1.6）
 	_stage = TUTORIAL_STAGE.new()
 	_stage.cfg = cfg
 	var k: CWKernel = _stage.open_level(CWGuideData.level(_tutorial_ch))
@@ -572,8 +576,10 @@ func _advance_tutorial_chapter(next_ch: int) -> void:
 	kernel = _open_tutorial_stage({ "record_replay": true, "consumer": true,
 		"observe_viewer": CWKernel.VIEWER_OMNISCIENT, "autorun": false, "decider": bridge })
 	_start_queue()
+	_apply_guide_step()   ## 同 start()：关首那一次在 run() 之前
 	kernel.run()
 	_observe_now()
+	_rebase_guide_watch()
 
 
 ## 回放：局面是**本地重建**的（`CWReplay.Player` 已经建好并跑着），
@@ -944,6 +950,9 @@ func _attach_guide() -> void:
 		ui.move_child(_guide, pause_menu.get_index())
 	_guide.setup(self)
 	_guide.visible = true
+	## 剧本翻页时也要换闸（S4）：正牌装闸点是 step_end，但玩家亲手做完那一步时，
+	## 剧本自己会翻页 —— 不当场换闸的话，挂在旧闸上的下一问永远醒不来
+	_guide.on_step_changed = _apply_guide_step
 	## 通报气泡别落在引导浮层上（Kevin 2026-09-12 截图）：把浮层那块屏幕设成气泡的禁区
 	if toast != null:
 		toast.keep_out = CWGuide.ZONE
@@ -962,6 +971,19 @@ func _attach_guide() -> void:
 	_spotlight = CWGuideSpotlight.new()
 	ui.add_child(_spotlight)
 	ui.move_child(_spotlight, _guide.get_index())
+	## 常驻壳（S4 / PRD 通用规则 1/4/5/9）：**排在引导浮层之上、暂停菜单之下** ——
+	## 它的全屏遮挡层要连引导浮层一起盖住（提示期间全部操作禁用），而两个常驻按钮又要盖在遮挡层之上
+	if _shell != null and is_instance_valid(_shell):
+		_shell.queue_free()
+	_shell = CWGuideShell.new()
+	ui.add_child(_shell)
+	if pause_menu != null:
+		ui.move_child(_shell, pause_menu.get_index())
+	_shell.reset_pressed.connect(_reset_tutorial_level)
+	_shell.menu_pressed.connect(func() -> void: _shell.toggle_menu(_tutorial_ch))
+	_shell.goto_pressed.connect(func(idx: int) -> void:
+		if _guide != null and is_instance_valid(_guide):
+			_guide.goto_chapter(idx))
 
 
 ## 引导面板「知识之书」直达：对局内把图鉴翻到当前关卡对应的章节（CWGuideData.CODEX_PAGE）。
@@ -1102,12 +1124,139 @@ func _adopt_mirror(m: CWMirror) -> void:
 ## （cw_kernel_inproc.gd:397/399/405），所以 `step_begin` 标的是「这一问已经答了、这一步开始演」，
 ## 不是「这一问要问了」。`step_begin` 只留给演出分组（快进 / 跳过），一个闸都不装。
 ##
-## S3 只把线接上并记下边界号；`allow` 过滤视图、`ui_layers`、提示与浮现挂在这儿是 S4 的事。
+## S4 起真装闸：`allow` 过滤视图、`ui_layers`、`reveal` 浮现、章节提示都在这儿落地。
 func _on_step(e: Dictionary) -> void:
 	if _loop_id != _queue_loop:
 		return
-	if str(e.get("kind", "")) == "step_end":
-		_step_rev = int(e.get("rev", 0))
+	if str(e.get("kind", "")) != "step_end":
+		return
+	_step_rev = int(e.get("rev", 0))
+	## 换局那一瞬间的脏基线（S3 回传第 8 条）：两关的免疫起点不同格，
+	## 拿上一关的基线去比，`watch: "moved"` 当场成立、把上一关记成已完成。
+	## 行动边界就是「这一局已经换过了」的最早时刻，在这儿重取
+	if _guide != null and is_instance_valid(_guide):
+		_guide.rebase_watch()
+	_apply_guide_step()
+
+
+## 每帧把常驻壳与 UI 层落到控件上（只在教程局走）。
+##
+## **只强制「关」、不强制「开」**（行动栏与手牌抽屉）：它们自己有显隐逻辑
+## （`CWActionBar.show_bar/clear`、`_sync_hand`），每帧强行置 true 会和那套抢。
+## 右栏是常驻件，直接跟着开关走。
+func _sync_guide_shell() -> void:
+	if _shell != null and is_instance_valid(_shell) and bridge is CWGuideBridge:
+		(bridge as CWGuideBridge).set_blocked(_shell.blocking())   ## PRD:51 的第 1 层跟着遮挡层开合
+	if action_bar != null and not CWGuideLayers.on("action_bar"):
+		action_bar.visible = false
+	if hand != null and not CWGuideLayers.on("hand"):
+		hand.visible = false
+	if panel != null:
+		panel.visible = CWGuideLayers.on("sidebar")
+		panel.guide_layers(CWGuideLayers.on("end_turn"), CWGuideLayers.on("round_no"))
+	## 自动重置是个**持续**判断（「走不下去了」不会只在装闸那一帧成立），所以跟 check_progress 一样每帧问
+	_check_reset_when(_current_guide_step())
+
+
+## 把剧本当前这一步「装上去」：章节提示 → 局面 / UI 层 → 浮现 → 决策闸（PRD:39 的执行序）。
+##
+## **两个调用点、同一个函数**（幂等）：
+##   ① `_on_step` 的 `step_end` —— 方案 §1.10 钉死的正牌时机（`step_begin` 标的是「已经答完」）；
+##   ② `CWGuide.on_step_changed` —— 玩家亲手做完、剧本自己翻页那一下。
+## 只留 ① 的话，挂在旧闸上的那一问永远醒不来；只留 ② 的话，关首第一帧还没翻过页、闸装不上。
+## 关首（`open()` 之前）由 `start()` / `_advance_tutorial_chapter` / `_reset_tutorial_level` 各显式调一次 ——
+## 不提前装，玩家会先看见一瞬间的全套界面（方案 §1.10 末段）。
+func _apply_guide_step() -> void:
+	if not tutorial or _guide == null or not is_instance_valid(_guide):
+		return
+	var s: Dictionary = _current_guide_step()
+	if s.is_empty():
+		return
+	## ① 章节提示（PRD:35）：`chapter` 变了才弹，关与关静默切换（PRD:37）
+	if _shell != null and is_instance_valid(_shell):
+		var lv: Dictionary = CWGuideData.level(_guide.chapter())
+		_shell.show_chapter(int(lv.get("chapter", 1)), str(lv.get("chapter_title", "")))
+	## ② UI 层增量覆写（方案 §1.6 / §1.12 的清单）
+	if s.has("ui_layers"):
+		CWGuideLayers.apply(s["ui_layers"] as Dictionary)
+	## ③ 浮现（PRD:45 / 方案 §1.9）：活跃集 ∪ reveal，细胞随格淡入（`_sync_cells` 的 `is_active` 已在）
+	var reveal: Array = s.get("reveal", [])
+	if not reveal.is_empty() and board != null:
+		var want: Array = board.active_tiles()
+		for c in TUTORIAL_STAGE.coords_of(reveal):
+			if not want.has(c):
+				want.append(c)
+		board.set_active_tiles(want)
+	## ④ 决策闸（方案 §1.5）：`allow` 缺省 = 全开、`[]` = 全禁、非空 = 只留命中的选项
+	if bridge is CWGuideBridge:
+		(bridge as CWGuideBridge).set_allow(s.get("allow", null))
+
+
+## 剧本当前这一步（越界 / 非教程 / 没有面板都返回 `{}`）。装闸与自动重置读的是同一份
+func _current_guide_step() -> Dictionary:
+	if not tutorial or _guide == null or not is_instance_valid(_guide):
+		return {}
+	var steps: Array = CWGuideData.steps(_guide.chapter())
+	if steps.is_empty():
+		return {}
+	return steps[clampi(_guide.step_no(), 0, steps.size() - 1)]
+
+
+## `reset_when`：这一步在什么情况下自动把关卡退回关首。
+## **S4 只做能用 `CWGuideWatch` 现有判据表达的那些**（键表见 `guide_watch.gd:27`）——
+## 「能量不足以移动」这类还没有的键留给 S5 扩表，数据侧现在就能写、校验也已经拦着
+## （`cw_tutorial_data._check_steps` 查 `CWGuideWatch.KEYS`）。
+func _check_reset_when(s: Dictionary) -> void:
+	var key: String = str(s.get("reset_when", "")).split(":")[0]
+	if key == "" or _guide == null or not is_instance_valid(_guide):
+		return
+	if _guide.watch_hit(key):
+		if toast != null:
+			## 通用规则 7：自动重置要有提示。`avoid` 给零矩形 = 不避让任何东西，落在默认位置
+			toast.show_at("这一步走不下去了，本关重新来过", Rect2(), CWUIBridge.TEXT_HOLD)
+		_reset_tutorial_level()
+
+
+## 常驻「重置」按钮（PRD:41）与自动重置（PRD:47）共用这一条：
+## 局面退回**关首那份 world**、步游标归零、UI 层回默认再按 step0 重装。
+##
+## 拆装次序不自己写：走舞台的 `reload_world`（`abort → stop → close → dispose` 的短路版，附 C 第 3 条）。
+## 它不换桥 ⇒ 引导面板不用重挂（「换局会新建桥」那个坑只在跨关那条路上）。
+func _reset_tutorial_level() -> void:
+	if not tutorial or _stage == null or kernel == null:
+		return
+	_loop_id += 1
+	var k: CWKernel = _stage.reload_world(_entry_world_id())
+	if k == null:
+		push_error("CWMatch：第 %d 关重置失败（%s）" % [_tutorial_ch + 1, str(_stage.errors)])
+		return
+	kernel = k
+	if board != null:
+		board.set_active_tiles(_stage.active_tiles(), 0.0)   ## 把 reveal 加进来的格也收回去
+	CWGuideLayers.reset()
+	if _guide != null and is_instance_valid(_guide):
+		_guide.reset_to_step0()
+	_start_queue()
+	_apply_guide_step()   ## 关首那一次（`run()` 之前）：不提前装，第一帧会闪一下全套界面
+	kernel.run()
+	_observe_now()
+	_rebase_guide_watch()
+
+
+## 换局 / 重装之后立刻重取一次判据基线（S3 回传第 8 条）。
+## `_on_step` 的 `step_end` 也会取一次，但队列是**异步**消费的 —— 只等它的话，
+## 中间那几帧的 `check_progress` 已经拿着上一关的基线判过了。这里是「新镜像刚落地」的最早时刻
+func _rebase_guide_watch() -> void:
+	if _guide != null and is_instance_valid(_guide):
+		_guide.rebase_watch()
+
+
+## 这一关的「关首那份 world」：剧本第一步声明的 `load`，没写就是 `base`
+func _entry_world_id() -> String:
+	var steps: Array = CWGuideData.steps(_tutorial_ch)
+	if steps.is_empty():
+		return "base"
+	return str((steps[0] as Dictionary).get("load", "base"))
 
 
 ## 终局条目：tape 由它带下来（本地是引擎录的、联机是服务器发的），main.gd 用 replay_tape() 取。
@@ -1314,6 +1463,12 @@ func teardown() -> void:
 	if _spotlight != null and is_instance_valid(_spotlight):
 		_spotlight.queue_free()
 	_spotlight = null
+	if _shell != null and is_instance_valid(_shell):
+		_shell.queue_free()   ## 常驻壳同引导面板：一局一份，拆局就销毁
+	_shell = null
+	CWGuideLayers.reset()   ## UI 层开关是静态的（见那个文件头）：拆局必须复位，否则下一局正式对局跟着教程的层走
+	if panel != null:
+		panel.guide_layers(true, true)   ## 右栏是**同一个节点跨局复用**的：教程把「结束回合」关上了，不撤就带进下一局
 	if _codex != null and is_instance_valid(_codex):
 		_codex.visible = false
 	if settle != null:
@@ -1444,6 +1599,8 @@ func _process(delta: float) -> void:
 	if _log_hint != null and _log_panel != null:
 		_log_hint.visible = not _log_panel.visible   ## 面板开着就让位（同一个角）
 		_log_hint.refresh(log_store, _log_panel)          ## 迷你日志：日志尾巴两行，视角跟面板同一份（方案 A，Kevin 2026-09-06）
+	if tutorial:
+		_sync_guide_shell()
 	## 状态推进：带 watch 的步骤由真实局面翻页（不代做）；讲解型步骤不受影响
 	if _guide != null and is_instance_valid(_guide) and _guide.active:
 		_guide.check_progress()

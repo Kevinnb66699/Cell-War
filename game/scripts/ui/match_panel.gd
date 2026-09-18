@@ -107,6 +107,8 @@ var _tip_pinned := -1      ## 被点住固定的那一行；-1 = 没固定。固
 var _tip_key := ""         ## 上次搭悬浮框用的键，没变不重搭
 ## 联机：房间视图里的席位表（下标 = pid）。AI 席 / 离线席在种类后面加个角标；本地对局留空
 var net_seats: Array = []
+## 教程的 `ui_layers.end_turn`（默认开）。正式局永远是 true
+var _layer_end := true
 
 
 func _ready() -> void:
@@ -242,7 +244,21 @@ func reset() -> void:
 
 func show_end_turn(on: bool) -> void:
 	_chrome()
-	_end.visible = on
+	_end.visible = on and _layer_end
+
+
+## 教程的 UI 层开关（`ui_layers.end_turn` / `round_no`，只有 `CWMatch` 教程局每帧喂）。
+## 「结束回合」是**闸**不是显隐：`show_end_turn(true)` 也得按它再关一道 ——
+## 否则轮到玩家时询问桥会把它重新亮出来，而第一 ~ 五关整关不许结束回合（方案 §2.3）
+func guide_layers(end_turn: bool, round_no: bool) -> void:
+	_layer_end = end_turn
+	_chrome()
+	if not end_turn and _end != null:
+		_end.visible = false
+	if _round != null:
+		_round.visible = round_no
+	if _phase != null:
+		_phase.visible = round_no
 
 
 ## 引导提亮用（CWGuideSpotlight）：某块区域的屏幕矩形。"round" 回合 / 阶段 / 事件块，"row:<pid>" 玩家行，
@@ -322,7 +338,8 @@ func _refresh_row(m: CWMirror, pid: int) -> void:
 			row["type"].text += " · AI"
 		elif seat.get("kind", "") == "human" and not seat.get("online", true):
 			row["type"].text += " · 离线代打"
-	row["energy"].text = CWData.fmt(maxi(cell["energy"], 0))
+	## 教程的「无限能量」换成标志文字（渲染点三处之一，方案 §1.6 / CWGuideLayers）；正式局照常写数字
+	row["energy"].text = CWGuideLayers.energy_text(maxi(cell["energy"], 0))
 	row["energy"].add_theme_color_override("font_color",
 		CWStyle.TEXT_OFF if dead else CWStyle.TEXT_HI)
 	row["income"].text = "" if dead else income_text(m, cell)

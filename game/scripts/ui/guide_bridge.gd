@@ -15,6 +15,9 @@
 class_name CWGuideBridge
 extends CWUIBridge
 
+## **决策闸换了**（`set_allow` / `blocked` 变了都发）。ask() 挂在它上面等闸放开
+signal allow_changed
+
 ## 操作步骤的「提示词」表。guide_data 每关步骤的 act 字段映射到这里；
 ## 关键字沿用在引擎 action 选项的 data["act"] 上，hint 是轮到你时的一句话。
 const STEP_HINTS := {
@@ -38,8 +41,20 @@ const FREE_HINT := "自由行动：净化、抽卡、攻击或结束回合"
 var guide: CWGuide
 ## on_prompt 由 CWMatch 注入，用于把提示转发出去（保持解耦）。
 var on_prompt: Callable = Callable()
-## 此刻正等这位真人作答的那一问（空 = 没在等人）。「继续」代做时据它挑下标
+## 此刻正等这位真人作答的那一问（空 = 没在等人）。
+## **存的是过滤后的 view、不是原始 req**（方案 §1.5 / 附 C 第 8 条）：
+## 「继续」代做的 `_pick()` 算出来的下标会被 `take_offer()` 直接 `p.fire(idx)` 喂给挂在
+## `super.ask(view)` 上的那一问，返回值再由 `ask()` 映射回原表 —— 下标只许映射**一次**。
+## 存原始 req 的话就是映两次：选中别的选项，或数组越界，而且**不崩**，静默错到底。
 var _cur_req := {}
+## 这一步允许的决策（方案 §1.5 的三态）：
+##   `null`  —— 不管，引擎给什么就是什么（自由游玩段）
+##   `[]`    —— 全禁：这一问挂起不作答，直到闸放开（提示 / 对话播放期，PRD:51）
+##   非空    —— 只留命中的选项（**前缀**匹配语义键，`CWSemKey.key` 的键形）
+## 由 `CWMatch._on_step` 在 `step_end` 装（§1.10：`step_begin` 是「已经答完、动作开演」，装闸晚一拍）
+var _allow: Variant = null
+## 常驻壳的章节提示 / 目录开着（PRD:51 的第 1 层）：等同于 `allow = []`，但不覆盖剧本的闸
+var blocked := false
 ## 「继续」能替玩家做的动作：place/end/draw 一旦返回下标就完成一次行动，没有后续回环。
 ## move/attack 是「选完格还会留在选格态」的两段式，自动下标会让地面局一路连走停不下来，
 ## 所以只给提示、让玩家亲手点（2026-09-03 定稿）。
@@ -64,8 +79,80 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 	super.show_result(text, at, linger)
 
 
-## 轮到人类玩家的某一次询问：记下这一问（「继续」代做要用）、把提示喂给面板，然后照常交给界面。
+## 装一道新的决策闸（三态见 `_allow`）。挂在闸上的那一问会被叫醒、重新判一次
+func set_allow(a: Variant) -> void:
+	_allow = a
+	allow_changed.emit()
+
+
+## 常驻壳的遮挡开合：同样要把挂着的那一问叫醒
+func set_blocked(v: bool) -> void:
+	if blocked == v:
+		return
+	blocked = v
+	allow_changed.emit()
+
+
+## 闸此刻关着吗：全禁（`[]`）或常驻壳的提示 / 目录开着
+func gate_closed() -> bool:
+	return blocked or (_allow is Array and (_allow as Array).is_empty())
+
+
+## 语义键命中闸里任何一条前缀（`k=action|act=move` 命中 `k=action|act=move|to=0,-1`）
+static func hits(key: String, allow: Array) -> bool:
+	for a in allow:
+		if key.begins_with(str(a)):
+			return true
+	return false
+
+
+## 中途放弃这一局：基类唤醒卡在 `_prompt` 上的那一问，这里还要唤醒卡在**闸**上的那一问 ——
+## 闸不是 `_pending`，基类够不着它，不发这一下就留一条永远醒不来的协程
+func abort() -> void:
+	super.abort()
+	allow_changed.emit()
+
+
+## 轮到人类玩家的某一次询问。三件事按序：**等这一步的演出播完 → 过闸 → 照常交给界面**。
+##
+## ★ 必须自己先 `_await_playback()`：`_allow` 是队列播到 `step_end` 那一刻才装的
+##   （`CWMatch._on_step`），而 `CWUIBridge` 的那次等在 `super.ask` **内部**
+##   （`ui_bridge.gd:199-205 → :236-240`）—— 不先等就读到上一步的闸（方案附 C 第 7 条）。
 func ask(req: Dictionary) -> int:
+	if not (req["pid"] in human_pids):
+		return await super.ask(req)
+	_aborted = false              ## 新的一问：上一次 abort() 的余波不该把这一问当场打掉（同 super.ask 开头）
+	await _await_playback()
+	while not _aborted and gate_closed():
+		await allow_changed       ## `[]` = 全禁：挂起，行动栏根本不建
+	if _aborted:
+		return 0
+	if _allow == null:
+		return await _ask_ui(req)
+	var keep: Array = []          ## view 下标 → 原表下标
+	for i in (req["options"] as Array).size():
+		if hits(CWSemKey.key(req, req["options"][i]["data"]), _allow as Array):
+			keep.append(i)
+	if keep.is_empty():
+		## 剧本写错（闸非空却一条都没命中）：**打日志 + 挂起**，绝不回落成全开、也绝不替玩家乱答。
+		## 出路是常驻「重置 / 目录」按钮（PRD:41/43，提示期也可点）
+		push_warning("剧本 allow 在这一问里一条都没命中：%s" % str(_allow))
+		while not _aborted:
+			await allow_changed
+			if _allow == null or not (_allow as Array).is_empty():
+				return await ask(req)    ## 闸换了就重来一遍
+		return 0
+	var view := req.duplicate()
+	var opts: Array = []
+	for i in keep:
+		opts.append(req["options"][i])
+	view["options"] = opts
+	return keep[await _ask_ui(view)]     ## ← 下标映射回原表，**只此一处**
+
+
+## 原来的 ask 正体：记下这一问（「继续」代做要用）、把提示喂给面板，然后交给界面。
+## 进来的 `req` 已经是过闸后的 view —— 玩家看见的是 view，提示与代做也该按 view 说
+func _ask_ui(req: Dictionary) -> int:
 	if req["pid"] in human_pids and _guide_key(req) != "":
 		_cur_req = req
 		if guide != null and is_instance_valid(guide):
@@ -129,8 +216,11 @@ func _guide_key(req: Dictionary) -> String:
 	var teach := ""
 	if guide != null and is_instance_valid(guide):
 		teach = CWGuideData.act_of(guide.chapter(), guide.step_no())
-	if teach == "attack" and acts.has("move"):
-		return "attack"
+	## 攻击与净化在引擎里都叫 `move`（迁进有癌细胞的格 = 攻击、迁进癌组织 = 就地净化），
+	## 所以这两个教学动作要单独认一支：不认的话下面那条「acts.has(move) ⇒ 说迁移」会把
+	## 第二关的净化步说成「点底部『迁移』，再点一个相邻的健康组织」（正好教反）
+	if teach in ["attack", "purify"] and acts.has("move"):
+		return teach
 	if teach != "" and STEP_HINTS.has(teach) and acts.has(teach):
 		return teach
 	if acts.has("move"):

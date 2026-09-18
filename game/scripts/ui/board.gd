@@ -706,6 +706,11 @@ func is_active(c: Vector2i) -> bool:
 	return _active_set.has(c)
 
 
+## 此刻的活跃格（新手引导的 `reveal` 要在它之上做并集：活跃集 ∪ reveal，方案 §1.9）
+func active_tiles() -> Array:
+	return _active_set.keys()
+
+
 ## 这一格此刻在画面上吗（淡出补间走完后为假）。测试与拆局核对用。
 func tile_shown(c: Vector2i) -> bool:
 	var key := axial_to_rc(c)
