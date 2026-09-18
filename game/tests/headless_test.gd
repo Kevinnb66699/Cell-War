@@ -137,6 +137,7 @@ func _run_all() -> void:
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_guide_watch, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
 		t_semkey_single_source, t_kernel_inproc, t_play_queue,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
+		t_observe_budget, t_tier_b_absent,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -19409,3 +19410,89 @@ func t_kernel_observe() -> void:
 	check(k.answer(int(got_ask["ask_id"]), { "index": 0 }), "作答")
 	k.close()
 	check(k.observe(CWKernel.VIEWER_OMNISCIENT) == null, "关闭后 observe 返回 null")
+
+
+# ---- 口径二 · 批 1 步 0：两条不依赖切换的计量闸（docs/口径二_批1_原子切规格.md C-1 步 0）----
+## 6 人局推到第 2 回合的玩家回合，量「一次全知 observe（encode + 镜像装载）」与「6 席 + 2 观众各一份裁剪 envelope」的墙钟中位数与字节数。
+## 数字写进 docs/观测协议_v1.md 附录 D；阈值是回归闸（约实测的 3 倍），步 6 的 go/no-go 另按每帧路径复量。
+func t_observe_budget() -> void:
+	print("[批 1 步 0·观测耗时预算]")
+	var g := make_game(6, 97)
+	await run_setup(g)
+	var steps := 0
+	while g.round_no < 2 and steps < 200:   ## 6 人局一个世界回合要几十步
+		var req: Dictionary = await g.pending()
+		if req.is_empty():
+			break
+		await g.step(await g.bridges[int(req["pid"])].ask(req))
+		steps += 1
+	check(g.round_no >= 2, "夹具：6 人局推到第 %d 回合（%d 步）" % [g.round_no, steps])
+	var full_us: Array = []
+	var crop_us: Array = []
+	var bytes := 0
+	var crop_bytes := 0
+	for i in 15:
+		var t0 := Time.get_ticks_usec()
+		var env := CWObsCodec.encode(g, { "viewer": CWObsProto.VIEWER_OMNISCIENT, "ask": g._pending })
+		var m := CWMirror.new()
+		var err := m.load_from(env)
+		full_us.append(Time.get_ticks_usec() - t0)
+		if err != "":
+			check(false, "全知 envelope 装不进镜像：%s" % err)
+			return
+		bytes = JSON.stringify(env).length()
+		var t1 := Time.get_ticks_usec()
+		crop_bytes = 0
+		for viewer in [0, 1, 2, 3, 4, 5, CWObsProto.VIEWER_WATCHER, CWObsProto.VIEWER_WATCHER]:
+			crop_bytes += JSON.stringify(CWObsCodec.encode(g, { "viewer": viewer, "ask": g._pending })).length()
+		crop_us.append(Time.get_ticks_usec() - t1)
+	full_us.sort()
+	crop_us.sort()
+	var full_med: int = full_us[full_us.size() / 2]
+	var crop_med: int = crop_us[crop_us.size() / 2]
+	print("  observe(-2) encode+load 中位 %.2f ms（min %.2f / max %.2f）；envelope %d 字节；6 席 + 2 观众裁剪 8 份中位 %.2f ms、共 %d 字节" % [
+		full_med / 1000.0, full_us[0] / 1000.0, full_us[-1] / 1000.0, bytes, crop_med / 1000.0, crop_bytes])
+	## 2026-09-19 实测（proliferate_chance 提到循环外之后）：全知 8.5 ms / 8 份裁剪 41 ms；阈值取约 3 倍当回归闸
+	check(full_med <= 30000, "一次全知 observe（encode + 镜像装载）中位 ≤ 30 ms（实测 %.2f ms）" % (full_med / 1000.0))
+	check(crop_med <= 120000, "6 席 + 2 观众各一份裁剪 envelope 中位 ≤ 120 ms（实测 %.2f ms）" % (crop_med / 1000.0))
+	check(bytes >= 20000 and bytes <= 120000, "全知 envelope 体积在 20～120 KB 之间（实测 %d 字节；附录 D 的 43～53 KB 档）" % bytes)
+	g.dispose()
+
+
+## tier B 缺席（C# 生产者批 0 只交 tier A、sidecar 换上来的那天就是这个形状）：镜像装得进、有兜底的查询按状态兜底、没兜底的返回空。
+func t_tier_b_absent() -> void:
+	print("[批 1 步 0·tier B 缺席的降级]")
+	var fx: Array = await _obs_fixture(4, 98)
+	var g: CWGame = fx[0]
+	var full: Dictionary = CWObsCodec.encode(g)
+	var only_a: Dictionary = full.duplicate(true)
+	only_a["produced_tiers"] = ["A"]
+	for tl in only_a["state"]["board"]["tiles"]:
+		for k in CWObsProto.TILE_D_B:
+			tl["d"].erase(k)
+	for cl in only_a["state"]["cells"]:
+		for k in CWObsProto.CELL_D_B:
+			cl["d"].erase(k)
+	for k in CWObsProto.G_D_B:
+		only_a["state"]["g"]["d"].erase(k)
+	var ma := CWMirror.new()
+	var err := ma.load_from(only_a)
+	check(err == "", "只有 tier A 的 envelope 装得进（%s）" % err)
+	if err != "":
+		g.dispose()
+		return
+	var mf := CWMirror.new()
+	mf.load_from(full)
+	check(ma.count_tissue(CWData.Tissue.CANCER) == mf.count_tissue(CWData.Tissue.CANCER)
+		and ma.count_tissue(CWData.Tissue.HEALTHY) == g.count_tissue(CWData.Tissue.HEALTHY)
+		and ma.count_necrosis() == g.count_necrosis() and ma.cancer_weighted() == mf.cancer_weighted(),
+		"count_tissue / count_necrosis / cancer_weighted 缺席时按状态兜底，与全量同值")
+	var c0: Dictionary = ma.cell_of(0)
+	check(ma.neutralized(c0) == g.neutralized(g.cell_of(0)) and ma.type_ability_on(c0) == g.type_ability_on(g.cell_of(0)),
+		"neutralized / type_ability_on 缺席时按 neutral_until 兜底")
+	check(ma.action_kinds_of(c0).is_empty() and ma.status_rows_of(c0).is_empty(), "action_kinds_of / status_rows_of 缺席返回空数组、不崩")
+	check(ma.solidify_threshold() == g.solidify_threshold() and ma.tumor_stage() == g.tumor_stage()
+		and ma.pressure_at(c0["pos"]) == g.world.pressure_at(g.cell_of(0)["pos"]) and ma.income_of(c0) == mf.income_of(mf.cell_of(0)),
+		"tier A 的 solidify_threshold / tumor_stage / pressure_at / income_of 照常")
+	check(Array(ma.produced_tiers) == ["A"], "produced_tiers 原样带过来")
+	g.dispose()

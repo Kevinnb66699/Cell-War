@@ -37,6 +37,12 @@ static func _board(game: CWGame) -> Dictionary:
 	var keys: Array = game.tiles.keys()
 	keys.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.x < b.x or (a.x == b.x and a.y < b.y))
 	var threshold := game.solidify_threshold()
+	## 增生千分率按 CWWorld.proliferate_chance 的公开口径算，但块内固化计数（_block_solids 是整盘洪泛）只算一次 ——
+	## 逐格调公开函数会算 127 次，一次 observe 要 18 ms（批 1 步 0 实测）；公式仍在 cw_world.gd，这里只是把它的两个入参提到循环外
+	var stage := game.tumor_stage()
+	var rate: int = game.tune.proliferate_per_adjacent[stage]
+	var per_solid: int = game.tune.proliferate_per_solid[stage]
+	var bs: Array = game.world._block_solids()
 	var tiles: Array = []
 	for c: Vector2i in keys:
 		var t: Dictionary = game.tiles[c]
@@ -51,7 +57,7 @@ static func _board(game: CWGame) -> Dictionary:
 				"pressure": game.world.pressure_at(c),
 				"solid_fraction": _permille(CWData.solid_progress(t, threshold)),
 				"store_fraction": _permille(CWData.store_progress(t)),
-				"proliferate_chance": game.world.proliferate_chance(c),
+				"proliferate_chance": game.world._proliferate_chance(c, rate, per_solid, bs[0], bs[1]),
 				"prod_left": _prod_left(t), "store_max": _store_max(t), "solid_frozen": _solid_frozen(game, c),
 			},
 		})
