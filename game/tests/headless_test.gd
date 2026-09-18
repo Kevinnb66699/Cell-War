@@ -157,7 +157,7 @@ func _run_all() -> void:
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial,
 		t_entry_smoke_replay, t_entry_smoke_online,
-		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash,
+		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -20478,3 +20478,29 @@ func t_entry_smoke_online() -> void:
 	check(r.client == null and not fake.disposed,
 		"联机拆局：kernel 撒手但**不** close()（回等待室还要用这个连接）")
 	g.dispose()
+
+
+## 批 1 步 8 护栏（规格 A-5.2 的静默失效点）：四个演出 override 必须把队列条目转成 CWMatch 的动画回调 ——
+## 删掉任何一个都不报错，只是那一类动画悄悄没了（变异检验 C-2 #10 ②）
+func t_bridge_fx_overrides() -> void:
+	print("[界面桥·四个演出 override 转回调]")
+	var b := CWUIBridge.new()
+	var got := { "played": [], "drawn": [], "event": [], "world": [] }
+	b.fx_card_played = func(cell_id: int, pid: int, pos: Vector2i, faction: int, card: String, _extra: Dictionary) -> void:
+		got["played"].append([cell_id, pid, pos, faction, card])
+	b.fx_card_drawn = func(cell_id: int, pid: int, pos: Vector2i, source: String) -> void:
+		got["drawn"].append([cell_id, pid, pos, source])
+	b.fx_event_drawn = func(cell_id: int, pid: int, pos: Vector2i, faction: int, card: String) -> void:
+		got["event"].append([cell_id, pid, pos, faction, card])
+	b.fx_world_event = func(ev: String, left: int) -> void:
+		got["world"].append([ev, left])
+	b.show_card_played(1, "x", { "cell_id": 3, "pos": Vector2i(1, 0), "faction": CWData.Faction.CANCER, "card": "乳酸酸化" })
+	b.show_card_drawn(0, { "cell_id": 2, "pos": Vector2i(0, 1), "source": "draw" })
+	b.show_event_drawn(1, { "cell_id": 3, "pos": Vector2i(1, 0), "faction": CWData.Faction.CANCER, "card": "基因组不稳定" })
+	b.show_world_event("基质阻隔", { "left": 2 })
+	check(got["played"] == [[3, 1, Vector2i(1, 0), CWData.Faction.CANCER, "乳酸酸化"]], "card_played 条目 → fx_card_played(cell_id, pid, pos, faction, card)")
+	check(got["drawn"] == [[2, 0, Vector2i(0, 1), "draw"]], "card_drawn 条目 → fx_card_drawn(cell_id, pid, pos, source)")
+	check(got["event"] == [[3, 1, Vector2i(1, 0), CWData.Faction.CANCER, "基因组不稳定"]], "event_drawn 条目 → fx_event_drawn")
+	check(got["world"] == [["基质阻隔", 2]], "world_event 条目 → fx_world_event(ev, left)")
+	b.show_card_played(1, "x", {})
+	check(got["played"].size() == 1, "card_played 没有 card 键不调（_net_loop 同款 guard：没有牌名就不是「谁打出了卡」）")
