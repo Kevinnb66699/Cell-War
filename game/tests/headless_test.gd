@@ -6437,13 +6437,18 @@ func t_online_doc() -> void:
 	check(doc.contains("代打") and doc.contains("不是判负"),
 		"文档写明「超时自动代打，不是判负」")
 
+## 批 1 步 7：存档判据在调用方（CWMatch.can_save_now / kernel.can_save），这里照抄那条判据
+func _save_blob_of(g: CWGame) -> Dictionary:
+	return g.snapshot() if g != null and not g._pending.is_empty() and not g.is_over() else {}
+
+
 func t_save_load() -> void:
 	print("[存档读档]")
 	CWSave.clear()
 	check(not CWSave.exists(), "起手无档")
 	check(not CWSave.can_continue(), "起手没有可恢复的档")
 	var g := make_game(2, 88)
-	check(not CWSave.write(g, [0], false), "还没到 pending 边界：拒写")
+	check(not CWSave.write(_save_blob_of(g), 2, [0], 0), "还没到 pending 边界：拒写")
 	await run_setup(g)
 	## 走到第 2 回合的第一个询问再存：每步都选最后一项「结束回合」，谁也不花钱、谁也死不了。
 	## 此前是随机走 30 步 —— 2026-09-05 有氧基数一改（2 人局 2.5→2.0），随机序列跟着变，
@@ -6455,7 +6460,7 @@ func t_save_load() -> void:
 		await g.step(walk["options"].size() - 1)
 	var req: Dictionary = await g.pending()
 	check(not req.is_empty(), "停在一个待决询问上（第 %d 回合）" % g.round_no)
-	check(CWSave.write(g, [0], true), "pending 边界：写档成功")
+	check(CWSave.write(_save_blob_of(g), 2, [0], CWMatch.AI_MC), "pending 边界：写档成功")
 	check(CWSave.exists(), "档落在盘上")
 	check(CWSave.can_continue(), "完整 v1 档可以继续")
 	var h0 := g.state_hash()
@@ -11842,16 +11847,18 @@ func t_replay() -> void:
 	## ---- 放回去 ----
 	var d := CWReplay.of(g)
 	check(CWReplay.valid(d), "取出来的这份是合法回放")
-	var g2 := CWReplay.build(d)
-	check(g2 != null, "按它重建了一局")
-	await g2.run_game()          ## 同样从第一问放起，开局落子也从下标串里来
-	check(g2.state_hash() == want,
-		"放完之后**逐字段一致**（哈希 %s vs %s）" % [g2.state_hash().substr(0, 8), want.substr(0, 8)])
-	check(g2.winner == g.winner and g2.round_no == g.round_no,
-		"同一个赢家、同一个回合数（%d 回合）" % g2.round_no)
+	var k2 := CWReplay.build(d)   ## 批 1 步 7：build 返回单步驱动的句柄
+	check(k2 != null, "按它重建了一局")
+	while await k2.step_once():   ## 同样从第一问放起，开局落子也从下标串里来
+		pass
+	check(k2.state_hash() == want,
+		"放完之后**逐字段一致**（哈希 %s vs %s）" % [k2.state_hash().substr(0, 8), want.substr(0, 8)])
+	check(k2.game.winner == g.winner and k2.game.round_no == g.round_no,
+		"同一个赢家、同一个回合数（%d 回合）" % k2.game.round_no)
+	k2.close()
 
 	## ---- 存盘往返 ----
-	var path := CWReplay.save(g)
+	var path := CWReplay.save(CWReplay.of(g))
 	check(path != "", "存得下（%s）" % path)
 	var back := CWReplay.read(path)
 	check(CWReplay.valid(back) and PackedInt32Array(back["answers"]) == g.replay,
@@ -11872,6 +11879,26 @@ func t_replay() -> void:
 	check(not CWReplay.valid(bad), "下标串类型不对就不认")
 	check(CWReplay.build(bad) == null, "认不出的回放建不出对局")
 	check(CWReplay.read("user://没有这个文件.cwr").is_empty(), "读不存在的文件返回空")
+	## 批 1 步 7：规则指纹 —— 没有 digest 的旧文件、旋钮被改过的都不认；非默认旋钮的合法回放照认（基准是 tape 自己的 rules）
+	bad = back.duplicate()
+	bad.erase("digest")
+	check(not CWReplay.valid(bad), "没有规则指纹的旧回放不认")
+	bad = back.duplicate()
+	bad["rules"] = back["rules"].duplicate()
+	bad["rules"][CWTuning.RULE_FIELDS[0]] = int(bad["rules"][CWTuning.RULE_FIELDS[0]]) + 1
+	check(not CWReplay.valid(bad), "旋钮改过、指纹对不上就不认")
+	var gt := make_game(2, 5)
+	gt.tune.set(CWTuning.RULE_FIELDS[0], int(gt.tune.get(CWTuning.RULE_FIELDS[0])) + 1)
+	check(CWReplay.valid(CWReplay.of(gt)), "非默认旋钮的回放照认（指纹按 tape 自己的规则算）")
+	gt.dispose()
+	## purge_stale：读不出来的文件静默清掉，读得出的留着（E-3：直接清盘、不提示）
+	CWReplay._ensure_dir()
+	var stale_path := "%s/00000000_stale%s" % [CWReplay.DIR, CWReplay.EXT]
+	var sf := FileAccess.open(stale_path, FileAccess.WRITE)
+	sf.store_string(var_to_str(bad))
+	sf.close()
+	var purged := CWReplay.purge_stale()
+	check(purged >= 1 and not FileAccess.file_exists(stale_path) and FileAccess.file_exists(path), "purge_stale 清掉读不出的、留下读得出的（清了 %d 份）" % purged)
 
 	## ---- 播放器：暂停 / 单步 / 快进 / 快退 ----
 	## **引擎只能往前跑**，所以「快退」的真身是「还原关键帧 + 快进剩下几步」。
@@ -11900,27 +11927,27 @@ func t_replay() -> void:
 	await pl.seek(mid)
 	var landed: int = pl.at()
 	check(landed >= mid, "快进到第 %d 步（落在第 %d 步）" % [mid, landed])
-	var mid_hash := pl.game.state_hash()
-	var mid_round: int = pl.game.round_no
+	var mid_hash := pl.kernel.state_hash()
+	var mid_round: int = pl.kernel.game.round_no
 
 	## 快进到底
 	await pl.seek(pl.total)
 	check(pl.done(), "放到底了")
-	check(pl.game.state_hash() == want, "放到底与原局逐字段一致")
+	check(pl.kernel.state_hash() == want, "放到底与原局逐字段一致")
 
 	## **快退**回中途：必须和刚才那一刻一模一样
 	await pl.seek(mid)
 	check(pl.at() == landed, "退回第 %d 步，落回同一处（第 %d 步）" % [mid, landed])
-	check(pl.game.state_hash() == mid_hash,
+	check(pl.kernel.state_hash() == mid_hash,
 		"退回来之后逐字段一致（%s vs %s）"
-		% [pl.game.state_hash().substr(0, 8), mid_hash.substr(0, 8)])
-	check(pl.game.round_no == mid_round, "回合数也对得上（%d）" % mid_round)
+		% [pl.kernel.state_hash().substr(0, 8), mid_hash.substr(0, 8)])
+	check(pl.kernel.game.round_no == mid_round, "回合数也对得上（%d）" % mid_round)
 
 	## 退到最开头再推回去，同样要一致 —— 关键帧 0 那条路
 	await pl.seek(0)
 	check(pl.at() == 0, "退回第 0 步")
 	await pl.seek(mid)
-	check(pl.game.state_hash() == mid_hash, "从头推回中途，还是同一份局面")
+	check(pl.kernel.state_hash() == mid_hash, "从头推回中途，还是同一份局面")
 
 	## 越界钳位：拖过头不该崩
 	await pl.seek(pl.total + 999)
@@ -11932,7 +11959,7 @@ func t_replay() -> void:
 	## 和实时观战正相反：那边 view_for(-1) 把每个人的手牌都换成背面
 	await pl.seek(pl.total)
 	var seen := 0
-	for cell: Dictionary in pl.game.cells:
+	for cell: Dictionary in pl.kernel.game.cells:
 		seen += cell["hand"].size()
 	check(seen >= 0, "回放局的手牌是真牌（本地重建，%d 张在场）" % seen)
 
@@ -11988,7 +12015,7 @@ func t_replay() -> void:
 	quiet.dispose()
 	DirAccess.remove_absolute(path)
 	g.dispose()
-	g2.dispose()
+	pass   ## k2 已在放完那段 close() 过（批 1 步 7）
 
 
 ## 回放面板：两栏来源（本机 / 服务器）、翻页、摘要行不被省略号吃掉

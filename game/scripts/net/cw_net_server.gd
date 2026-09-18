@@ -376,6 +376,9 @@ func _load_replays() -> void:
 	for n in names:
 		if not n.ends_with(CWReplay.EXT):
 			continue
+		## 序号**不依赖 valid()**（批 1 步 7）：版本 / 指纹跳号后旧文件读不出，序号若归零，keep_replay 会从 00000001 起覆盖同名旧文件，
+		## 旧文件永远进不了 REPLAY_KEEP 淘汰、永久占目录
+		_replay_seq = maxi(_replay_seq, n.get_basename().to_int())
 		var rep := CWReplay.read("%s/%s" % [REPLAY_DIR, n])
 		if rep.is_empty():
 			continue

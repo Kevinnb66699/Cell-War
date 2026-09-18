@@ -103,6 +103,16 @@ func surrender_now() -> void:
 func can_save_now() -> bool:
 	return game != null and not online and not game._pending.is_empty() and not game.is_over()
 
+
+## 存档正文（批 1 步 7）：能存就给快照，不能存给空 —— 判据在这儿，CWSave.write 只认 blob 非空。步 8 换成 kernel.save()
+func save_blob() -> Dictionary:
+	return game.snapshot() if can_save_now() else {}
+
+
+## 回放 tape（批 1 步 7）：本地局从活对局取；联机局的 tape 由服务器随终局发下来、不从这里出。步 8 换成 kernel.replay_tape()
+func replay_tape() -> Dictionary:
+	return CWReplay.of(game) if game != null and not online else {}
+
 ## 固化格曾经靠一层压暗（`MARK_SOLID = #0000004d`）认出来，
 ## **2026-09-09 随石化贴图上线删掉** —— 那一层的注释当初就写着「硬化外壳的美术还没有……
 ## 压暗一档是临时手段」。真机对照图（`tests/preview/preview_solidify.gd` 出两张）显示：
@@ -536,7 +546,7 @@ func _advance_tutorial_chapter(next_ch: int) -> void:
 func start_replay(p: CWReplay.Player) -> void:
 	_prepare_ui()
 	replay = p
-	game = p.game
+	game = p.kernel.game               ## 过渡期（批 1 步 7）：播放器持句柄，界面仍读活对局；步 8 换镜像
 	player_count = game.players.size()
 	for sig in [["card_played", _on_card_played], ["event_drawn", _on_event_drawn],
 			["card_drawn", _on_card_drawn], ["world_event", _on_world_event]]:

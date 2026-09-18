@@ -182,7 +182,7 @@ func _on_match_finished(winner: int) -> void:
 	## 本地局的回放自己存（联机局是服务器随终局发下来、客户端那边存的）。
 	## 存不下就算了 —— 一局回放丢了不该挡住结算屏
 	if not match_node.online:
-		CWReplay.save(match_node.game)
+		CWReplay.save(match_node.replay_tape())   ## 批 1 步 7：存的是 tape，不再收 CWGame
 	settle.show_result(match_node.game)
 
 
@@ -246,7 +246,7 @@ func _on_pause_chose(action: String) -> void:
 		"save_quit":
 			## 先落盘再演返场——fade_out 会把对局 aborted，那之后就没得存了。
 			## 写失败（磁盘问题）就留在对局里，别让玩家以为存上了。
-			if CWSave.write(match_node.game, match_node.human_players, match_node.ai_level):
+			if CWSave.write(match_node.save_blob(), match_node.player_count, match_node.human_players, match_node.ai_level):
 				_back_to_menu()
 			else:
 				push_warning("存档写入失败，留在对局中")
@@ -265,7 +265,7 @@ func _on_pause_chose(action: String) -> void:
 func _watch_replay(d: Dictionary) -> void:
 	if _entering:
 		return
-	var p := CWReplay.Player.open(d)
+	var p := CWReplay.Player.open(d, true)   ## consumer=true：界面那条路要等演出（批 1 步 7；步 8 接播放队列）
 	if p == null:
 		return          ## 读得出但建不起来（版本/参数不认）：留在菜单，面板那边已经报过
 	match_node.tutorial = false
