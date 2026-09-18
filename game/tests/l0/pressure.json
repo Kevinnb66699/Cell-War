@@ -1,17 +1,19 @@
 [
   {
+    "schema": "cwxcase/2",
     "id": "pressure/all_healthy_neighbours",
     "probe": "pressure_at",
     "source": "PRD 2026-09-08：损失 = max(0, 1/4 ×(相邻癌组织 + 相邻固化癌组织×2 − 相邻健康组织))。六邻全健康 → raw = −6 → 钳到 0",
     "world": {
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "tiles": [{ "at": "0,0", "state": "healthy", "cell": 0 }],
+      "tiles": [{ "at": "0,0", "state": "healthy" }],
       "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" }]
     },
     "args": { "at": "0,0" },
     "expect": 0
   },
   {
+    "schema": "cwxcase/2",
     "id": "pressure/six_cancer_stage_I",
     "probe": "pressure_at",
     "source": "六邻全癌组织 → raw = 6；I 期倍率 ×1.0：round_tenth(6×10, 4) = (60+2)/4 = 15",
@@ -19,7 +21,7 @@
       "round": 1,
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
       "tiles": [
-        { "at": "0,0", "state": "healthy", "cell": 0 },
+        { "at": "0,0", "state": "healthy" },
         { "at": "1,0", "state": "cancer" },
         { "at": "1,-1", "state": "cancer" },
         { "at": "0,-1", "state": "cancer" },
@@ -33,6 +35,7 @@
     "expect": 15
   },
   {
+    "schema": "cwxcase/2",
     "id": "pressure/six_cancer_stage_II",
     "probe": "pressure_at",
     "source": "同上，II 期（世界回合 6~10）倍率 ×1.5：(6×15+2)/4 = 23。**倍率并进乘数，整条只取整一次**",
@@ -40,7 +43,7 @@
       "round": 6,
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
       "tiles": [
-        { "at": "0,0", "state": "healthy", "cell": 0 },
+        { "at": "0,0", "state": "healthy" },
         { "at": "1,0", "state": "cancer" },
         { "at": "1,-1", "state": "cancer" },
         { "at": "0,-1", "state": "cancer" },
@@ -54,6 +57,7 @@
     "expect": 23
   },
   {
+    "schema": "cwxcase/2",
     "id": "pressure/six_cancer_stage_III",
     "probe": "pressure_at",
     "source": "同上，III 期（11+）倍率 ×2：(6×20+2)/4 = 30",
@@ -61,7 +65,7 @@
       "round": 11,
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
       "tiles": [
-        { "at": "0,0", "state": "healthy", "cell": 0 },
+        { "at": "0,0", "state": "healthy" },
         { "at": "1,0", "state": "cancer" },
         { "at": "1,-1", "state": "cancer" },
         { "at": "0,-1", "state": "cancer" },
@@ -75,6 +79,7 @@
     "expect": 30
   },
   {
+    "schema": "cwxcase/2",
     "id": "pressure/solid_counts_double",
     "probe": "pressure_at",
     "source": "固化癌组织权重 +2：3 癌 + 3 固化 → raw = 3 + 6 = 9；I 期 (90+2)/4 = 23",
@@ -82,7 +87,7 @@
       "round": 1,
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
       "tiles": [
-        { "at": "0,0", "state": "healthy", "cell": 0 },
+        { "at": "0,0", "state": "healthy" },
         { "at": "1,0", "state": "cancer" },
         { "at": "1,-1", "state": "cancer" },
         { "at": "0,-1", "state": "cancer" },
@@ -96,6 +101,7 @@
     "expect": 23
   },
   {
+    "schema": "cwxcase/2",
     "id": "pressure/healthy_offsets",
     "probe": "pressure_at",
     "source": "健康组织权重 −1：5 癌 + 1 健康 → raw = 5 − 1 = 4；I 期 (40+2)/4 = 10",
@@ -103,7 +109,7 @@
       "round": 1,
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
       "tiles": [
-        { "at": "0,0", "state": "healthy", "cell": 0 },
+        { "at": "0,0", "state": "healthy" },
         { "at": "1,0", "state": "cancer" },
         { "at": "1,-1", "state": "cancer" },
         { "at": "0,-1", "state": "cancer" },
@@ -117,6 +123,7 @@
     "expect": 10
   },
   {
+    "schema": "cwxcase/2",
     "id": "pressure/necrosis_still_counts_as_healthy",
     "probe": "pressure_at",
     "source": "坏死是叠在健康组织上的计数，Kevin 2026-09-08 确认**坏死格照算健康**（所以不能改用 is_cancerous）",
@@ -124,7 +131,7 @@
       "round": 1,
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
       "tiles": [
-        { "at": "0,0", "state": "healthy", "cell": 0 },
+        { "at": "0,0", "state": "healthy" },
         { "at": "1,0", "state": "cancer" },
         { "at": "1,-1", "state": "cancer" },
         { "at": "0,-1", "state": "cancer" },

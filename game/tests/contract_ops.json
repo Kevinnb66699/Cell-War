@@ -1,0 +1,610 @@
+[
+  {
+    "op": "move_raw_cost", "kind": "probe", "family": "P",
+    "prd": "J-迁移 · 地形基准价（修饰之前）",
+    "gd": "cw_actions.gd:_one_step_base", "gd_module": "CWActions",
+    "cs": "RulePolicies.RawMoveCost",
+    "args": ["cell", "to"], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "note": "不要映到 C# BaseMoveCost —— 那个已经跑完 MoveModifiers（规格 §0.4(b) 16）",
+    "boundaries": [
+      { "tag": "immune:healthy", "cases": "^move_raw_cost/immune_to_healthy/" },
+      { "tag": "immune:cancerous", "cases": "^move_raw_cost/immune_to_cancerous/" },
+      { "tag": "cancer:healthy", "cases": "^move_raw_cost/cancer_to_healthy" },
+      { "tag": "cancer:cancerous", "cases": "^move_raw_cost/cancer_to_cancerous" },
+      { "tag": "mucus", "cases": "^move_raw_cost/mucus" }
+    ]
+  },
+  {
+    "op": "pass_through_cost", "kind": "probe", "family": "P",
+    "prd": "J-迁移 · 借道前进",
+    "gd": "cw_actions.gd:pass_through_map", "gd_module": "CWActions",
+    "cs": "RulePolicies.PassThroughMap",
+    "args": ["cell", "to"], "rng": false,
+    "status": "KNOWN_GAP", "cases": "deferred",
+    "note": "两端边界不同：C# PassThroughRoutes 逐段用 BaseMoveCost（修饰已跑），GD 逐段用 _one_step_base（修饰之前）。无修饰盘面恒绿。C# 侧要另开一个用 RawMoveCost 累加的借道入口，否则此 op 撤掉（规格 §0.4-bis 6 / B 批 1）",
+    "boundaries": [
+      { "tag": "one_hop", "cases": "^pass_through_cost/one_hop" },
+      { "tag": "two_hop", "cases": "^pass_through_cost/two_hop" },
+      { "tag": "with_modifier", "cases": "^pass_through_cost/with_modifier" }
+    ]
+  },
+  {
+    "op": "move_cost", "kind": "probe", "family": "P",
+    "prd": "J-迁移 · 费用（基准价 + 修饰管线）",
+    "gd": "cw_actions.gd:_move_cost_mod + cw_actions.gd:_move_base_cost", "gd_module": "CWActions",
+    "cs": "RulePolicies.QuoteMove",
+    "args": ["cell", "to"], "rng": false,
+    "status": "OK", "cases": "required",
+    "boundaries": [
+      { "tag": "immune:healthy", "cases": "^move_cost/immune_to_healthy/" },
+      { "tag": "immune:cancerous", "cases": "^move_cost/immune_to_cancerous/" },
+      { "tag": "cancer:cancerous", "cases": "^move_cost/cancer_to_cancerous$" },
+      { "tag": "cancer:healthy", "cases": "^move_cost/cancer_to_healthy$" },
+      { "tag": "level:I", "cases": "^move_cost/immune_to_(healthy|cancerous)/level_I$" },
+      { "tag": "level:II", "cases": "^move_cost/immune_to_cancerous/level_II$" },
+      { "tag": "level:X", "cases": "^move_cost/immune_to_cancerous/level_X$" },
+      { "tag": "type:sclc", "cases": "^move_cost/sclc_minimal_cytoplasm$" },
+      { "tag": "type:melanoma_pseudopod", "cases": "^move_cost/melanoma_pseudopod/" },
+      { "tag": "mucus", "cases": "^move_cost/mucus_" }
+    ]
+  },
+  {
+    "op": "quote_path", "kind": "probe", "family": "P",
+    "prd": "J-迁移 · 多格路径报价",
+    "gd": "cw_actions.gd:quote_path", "gd_module": "CWActions",
+    "cs": "RulePolicies.QuotePath",
+    "args": ["cell", "path"], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "note": "expect 形状是 tree：{ok,stop,total,left,gained,steps:[{to,cost,mid,legal,afford,blocked,gain}]}；mid 在 338742b 刚合上",
+    "boundaries": [
+      { "tag": "all_affordable", "cases": "^quote_path/all_affordable" },
+      { "tag": "stops_on_budget", "cases": "^quote_path/stops_on_budget" },
+      { "tag": "blocked", "cases": "^quote_path/blocked" },
+      { "tag": "pass_through_mid", "cases": "^quote_path/pass_through_mid" }
+    ]
+  },
+  {
+    "op": "move_legal", "kind": "probe", "family": "P",
+    "prd": "J-迁移 · 合法性（与选项生成共用的谓词，口径 #81）",
+    "gd": "cw_actions.gd:_is_move_legal_now", "gd_module": "CWActions",
+    "cs": "",
+    "args": ["cell", "to"], "rng": false,
+    "status": "NOTIMPL", "cases": "deferred",
+    "note": "等 Kevin 拍（规格 §0.6.7 第 2 条）：C# 侧没有 1:1 的落点 —— RulePolicies.QuoteMove != null 覆盖了边界/占位/树突/借道可达但**不查攻击次数上限**；CellRules.CommitLegal 查上限却是 private、且不查棋盘边界与借道可达；CellRules.ValidateMove 又多查能量。拍下来之前不进分派、不产用例",
+    "boundaries": [
+      { "tag": "empty", "cases": "^move_legal/empty" },
+      { "tag": "attack", "cases": "^move_legal/attack" },
+      { "tag": "attack_cap", "cases": "^move_legal/attack_cap" },
+      { "tag": "dendritic", "cases": "^move_legal/dendritic" },
+      { "tag": "pass_through", "cases": "^move_legal/pass_through" }
+    ]
+  },
+  {
+    "op": "aerobic_share", "kind": "probe", "family": "P",
+    "prd": "S-有氧呼吸 · 单细胞进账",
+    "gd": "cw_world.gd:aerobic_income", "gd_module": "CWWorld",
+    "cs": "RulePolicies.AerobicShare",
+    "args": ["cell"], "rng": false,
+    "status": "OK", "cases": "required",
+    "boundaries": [
+      { "tag": "level:I", "cases": "^aerobic_share/basic_level_I/" }
+    ]
+  },
+  {
+    "op": "anaerobic_share", "kind": "probe", "family": "P",
+    "prd": "E-无氧呼吸 · 单细胞进账",
+    "gd": "cw_world.gd:anaerobic_gain_for", "gd_module": "CWWorld",
+    "cs": "RulePolicies.AnaerobicShare",
+    "args": ["cell"], "rng": false,
+    "status": "OK", "cases": "required",
+    "boundaries": [
+      { "tag": "block:10/cells:1", "cases": "^anaerobic/block_10/one_cell/" },
+      { "tag": "block:10/cells:2", "cases": "^anaerobic/block_10/two_cells/" },
+      { "tag": "floor", "cases": "^anaerobic/floor_kicks_in$" },
+      { "tag": "solid", "cases": "^anaerobic/solid_is_counted_board_wide$" }
+    ]
+  },
+  {
+    "op": "anaerobic_pool", "kind": "probe", "family": "P",
+    "prd": "E-无氧呼吸 · 块池子",
+    "gd": "cw_world.gd:_anaerobic_pool", "gd_module": "CWWorld",
+    "cs": "",
+    "args": ["block"], "rng": false,
+    "status": "NOTIMPL", "cases": "deferred",
+    "note": "等 Kevin 拍（规格 §0.6.7 第 1 条）：C# 没有这个具名入口 —— 池子算式内联在 RulePolicies.AnaerobicShare 里，要照 E-4 的先例拆一个 internal 具名入口。GD 返回 float，进 JSON 前按十分位冻成整数（规格 A-3 / D R4）。拍下来之前不进分派、不产用例",
+    "boundaries": [
+      { "tag": "cells:1", "cases": "^anaerobic_pool/cells_1" },
+      { "tag": "cells:3", "cases": "^anaerobic_pool/cells_3" },
+      { "tag": "coef_off", "cases": "^anaerobic_pool/coef_off" }
+    ]
+  },
+  {
+    "op": "split_share", "kind": "probe", "family": "P",
+    "prd": "E-无氧呼吸 · 块内分配",
+    "gd": "cw_world.gd:_split_share", "gd_module": "CWWorld",
+    "cs": "",
+    "args": ["pool", "count"], "rng": false,
+    "status": "NOTIMPL", "cases": "deferred",
+    "note": "等 Kevin 拍（规格 §0.6.7 第 1 条）：同 anaerobic_pool —— C# 侧内联在 AnaerobicShare 里（人数系数 k + 兜底 + 封顶那一段），没有具名入口。拍下来之前不进分派、不产用例",
+    "boundaries": [
+      { "tag": "count:1", "cases": "^split_share/count_1" },
+      { "tag": "count:2", "cases": "^split_share/count_2" },
+      { "tag": "count:3", "cases": "^split_share/count_3" },
+      { "tag": "no_split", "cases": "^split_share/no_split" }
+    ]
+  },
+  {
+    "op": "pressure_at", "kind": "probe", "family": "P",
+    "prd": "E-2 微环境压迫 · 某格的压迫值",
+    "gd": "cw_world.gd:pressure_at", "gd_module": "CWWorld",
+    "cs": "RulePolicies.PressureAt",
+    "args": ["at"], "rng": false,
+    "status": "OK", "cases": "required",
+    "note": "对的是原始值，不含【耗竭抵抗】的 −0.5（两边住的地方不同，见 Probes.cs 注释）",
+    "boundaries": [
+      { "tag": "stage:1", "cases": "^pressure/six_cancer_stage_I$" },
+      { "tag": "stage:2", "cases": "^pressure/six_cancer_stage_II$" },
+      { "tag": "stage:3", "cases": "^pressure/six_cancer_stage_III$" },
+      { "tag": "adjacent:0", "cases": "^pressure/all_healthy_neighbours$" },
+      { "tag": "solid", "cases": "^pressure/solid_counts_double$" },
+      { "tag": "healthy_offset", "cases": "^pressure/healthy_offsets$" },
+      { "tag": "necrosis", "cases": "^pressure/necrosis_still_counts_as_healthy$" }
+    ]
+  },
+  {
+    "op": "proliferate_chance", "kind": "probe", "family": "P",
+    "prd": "E-3 增生 · 某格的转化概率（千分率）",
+    "gd": "cw_world.gd:proliferate_chance", "gd_module": "CWWorld",
+    "cs": "RulePolicies.ProliferateChance",
+    "args": ["at"], "rng": false,
+    "status": "OK", "cases": "required",
+    "boundaries": [
+      { "tag": "stage:1/adjacent:1", "cases": "^proliferate_chance/healthy_one_adjacent_cancer/stage_I$" }
+    ]
+  },
+  {
+    "op": "solidify_threshold", "kind": "probe", "family": "P",
+    "prd": "E-5 固化 · 门槛（按分期分档）",
+    "gd": "cw_game.gd:solidify_threshold", "gd_module": "CWGame",
+    "cs": "BoardRules.SolidifyThreshold",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "required",
+    "boundaries": [
+      { "tag": "stage:1", "cases": "^solidify/threshold_stage_I$" },
+      { "tag": "stage:2", "cases": "^solidify/threshold_stage_II$" },
+      { "tag": "stage:3", "cases": "^solidify/threshold_stage_III$" }
+    ]
+  },
+  {
+    "op": "overload_loss", "kind": "probe", "family": "P",
+    "prd": "S-6 过载 · 单细胞损失",
+    "gd": "cw_world.gd:overload_loss", "gd_module": "CWWorld",
+    "cs": "RulePolicies.OverloadLoss",
+    "args": ["cell"], "rng": false,
+    "status": "OK", "cases": "required",
+    "boundaries": [
+      { "tag": "off", "cases": "^overload/div_zero_turns_it_off$" },
+      { "tag": "below_threshold", "cases": "^overload/(at_threshold|real_threshold_is_10_2)$" },
+      { "tag": "first_nonzero", "cases": "^overload/first_nonzero$" },
+      { "tag": "curve", "cases": "^overload/curve_" },
+      { "tag": "cap", "cases": "^overload/cap_" }
+    ]
+  },
+  {
+    "op": "attack_outcome", "kind": "probe", "family": "P",
+    "prd": "J-攻击 · 判词表（fail / success / crit）",
+    "gd": "cw_actions.gd:attack_outcome", "gd_module": "CWActions",
+    "cs": "RulePolicies.AttackOutcome",
+    "args": ["cell", "roll"], "rng": false,
+    "status": "OK", "cases": "required",
+    "note": "判词编码成 0/1/2，两侧同一套",
+    "boundaries": [
+      { "tag": "plain:fail", "cases": "^attack/plain/roll_[12]_fail$" },
+      { "tag": "plain:success", "cases": "^attack/plain/roll_[35]_success$" },
+      { "tag": "plain:crit", "cases": "^attack/plain/roll_6_crit$" },
+      { "tag": "synapse:fail", "cases": "^attack/synapse/roll_1_fail$" },
+      { "tag": "synapse:success", "cases": "^attack/synapse/roll_2_success$" },
+      { "tag": "synapse:crit", "cases": "^attack/synapse/roll_5_crit$" }
+    ]
+  },
+  {
+    "op": "settle_loss", "kind": "probe", "family": "P",
+    "prd": "通用结算规则 · 能量损失计算顺序（基础 → 加 → 倍增 → 倍减 → 减免）",
+    "gd": "cw_game.gd:settle_loss", "gd_module": "CWGame",
+    "cs": "",
+    "args": ["base", "add", "mult", "div", "cut"], "rng": false,
+    "status": "NOTIMPL", "cases": "deferred",
+    "note": "等 Kevin 拍（规格 §0.6.7 第 3 条）：签名不同 —— GD 是五进一出的静态算式，C# 收的是 IEnumerable<ValueModifier>；照 E-6 第 3 条不许写转换层，要 C# 开一个五标量入口 Settlement.SettleLoss(base, add, mult, div, cut) 转调 ApplyEnergyLoss。批 0 的 t_hit_order 开头 4 条挂在这里。拍下来之前不进分派、不产用例",
+    "boundaries": [
+      { "tag": "add_only", "cases": "^settle_loss/add_only" },
+      { "tag": "mult_then_div", "cases": "^settle_loss/mult_then_div" },
+      { "tag": "cut_floor_zero", "cases": "^settle_loss/cut_floor_zero" }
+    ]
+  },
+  {
+    "op": "const", "kind": "probe", "family": "P",
+    "prd": "（常量表：CWData / CWCardData / CWTissue / CWGame 上的静态符号）",
+    "gd": "", "gd_module": "",
+    "cs": "",
+    "args": ["name"], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "note": "两侧常量表随批 0 建（本批两侧都是空壳，调用即抛「本批未开工」）：GD 侧落在 l0_runner.gd 的一张名字→值表，C# 侧落在 Probes.cs 的同名表，覆盖约 155 个符号（37 个静态函数 + 118 个常量表）。**不要一个常量一个探针**",
+    "boundaries": [
+      { "tag": "cw_data", "cases": "^const/CWData\\." },
+      { "tag": "cw_card_data", "cases": "^const/CWCardData\\." },
+      { "tag": "cw_tissue", "cases": "^const/CWTissue\\." },
+      { "tag": "cw_game", "cases": "^const/CWGame\\." }
+    ]
+  },
+
+  {
+    "op": "anaerobic", "kind": "step", "family": "S",
+    "prd": "E-1 无氧呼吸",
+    "gd": "cw_world.gd:_anaerobic", "gd_module": "CWWorld",
+    "cs": "BoardRules.Anaerobic",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "block:1", "cases": "^anaerobic_step/block_1" },
+      { "tag": "block:3", "cases": "^anaerobic_step/block_3" },
+      { "tag": "eturn_on", "cases": "^anaerobic_step/eturn_on" }
+    ]
+  },
+  {
+    "op": "cancer_upkeep", "kind": "step", "family": "S",
+    "prd": "E-1.5 代谢消耗（PRD 之外，平衡候选③）",
+    "gd": "cw_world.gd:_cancer_upkeep", "gd_module": "CWWorld",
+    "cs": "BoardRules.CancerUpkeep",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "pct:0", "cases": "^cancer_upkeep/pct_0" },
+      { "tag": "pct:on", "cases": "^cancer_upkeep/pct_on" },
+      { "tag": "lethal", "cases": "^cancer_upkeep/lethal" }
+    ]
+  },
+  {
+    "op": "pressure", "kind": "step", "family": "S",
+    "prd": "E-2 微环境压迫",
+    "gd": "cw_world.gd:_pressure", "gd_module": "CWWorld",
+    "cs": "BoardRules.Pressure",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "stage:1", "cases": "^pressure_step/stage_1" },
+      { "tag": "stage:2", "cases": "^pressure_step/stage_2" },
+      { "tag": "stage:3", "cases": "^pressure_step/stage_3" },
+      { "tag": "adjacent:0", "cases": "^pressure_step/adjacent_0" },
+      { "tag": "lethal", "cases": "^pressure_step/lethal" }
+    ]
+  },
+  {
+    "op": "proliferate", "kind": "step", "family": "S",
+    "prd": "E-3 增生",
+    "gd": "cw_world.gd:_proliferate", "gd_module": "CWWorld",
+    "cs": "BoardRules.Proliferate",
+    "args": [], "rng": true,
+    "status": "OK", "cases": "deferred",
+    "note": "C# 把这一轮新造的格子从 out 参数交给 Erosion，GD 是返回值交给 _erosion(fresh) —— 同一件事两种写法",
+    "boundaries": [
+      { "tag": "stage:1", "cases": "^proliferate_step/stage_1" },
+      { "tag": "stage:3", "cases": "^proliferate_step/stage_3" },
+      { "tag": "per_solid", "cases": "^proliferate_step/per_solid" },
+      { "tag": "roll_miss", "cases": "^proliferate_step/roll_miss" }
+    ]
+  },
+  {
+    "op": "erosion", "kind": "step", "family": "S",
+    "prd": "E-4 侵蚀",
+    "gd": "cw_world.gd:_erosion", "gd_module": "CWWorld",
+    "cs": "BoardRules.Erosion",
+    "args": ["fresh"], "rng": true,
+    "status": "OK", "cases": "deferred",
+    "note": "方向辅助 BoardRules.ErosionDir / cw_world.gd:_erosion_dir 已可见，但**不进契约面**（不是 PRD 步，规格 §0.4(b) 15）",
+    "boundaries": [
+      { "tag": "stage:1", "cases": "^erosion/stage_1" },
+      { "tag": "stage:3", "cases": "^erosion/stage_3" },
+      { "tag": "fresh_excluded", "cases": "^erosion/fresh_excluded" },
+      { "tag": "direction", "cases": "^erosion/direction" }
+    ]
+  },
+  {
+    "op": "resolve_camping", "kind": "step", "family": "S",
+    "prd": "E-4.9 骨样硬化标记格上的蹲守净化",
+    "gd": "cw_world.gd:_resolve_camping", "gd_module": "CWWorld",
+    "cs": "BoardRules.ResolveCamping",
+    "args": [], "rng": true,
+    "status": "OK", "cases": "deferred",
+    "note": "GD 侧是协程（含 await），录制代理要 await super（规格 A-4 规矩 3）",
+    "boundaries": [
+      { "tag": "no_camper", "cases": "^resolve_camping/no_camper" },
+      { "tag": "one_camper", "cases": "^resolve_camping/one_camper" },
+      { "tag": "macrophage_heal", "cases": "^resolve_camping/macrophage_heal" }
+    ]
+  },
+  {
+    "op": "solidify", "kind": "step", "family": "S",
+    "prd": "E-5 固化",
+    "gd": "cw_world.gd:_solidify", "gd_module": "CWWorld",
+    "cs": "BoardRules.Solidify",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "below_threshold", "cases": "^solidify_step/below_threshold" },
+      { "tag": "at_threshold", "cases": "^solidify_step/at_threshold" },
+      { "tag": "newborn_protect", "cases": "^solidify_step/newborn_protect" }
+    ]
+  },
+  {
+    "op": "rooted", "kind": "step", "family": "S",
+    "prd": "E-5 根深蒂固（环境恶化 II/III 期）",
+    "gd": "cw_world.gd:_rooted", "gd_module": "CWWorld",
+    "cs": "BoardRules.Rooted",
+    "args": [], "rng": true,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "stage:1_off", "cases": "^rooted/stage_1_off" },
+      { "tag": "stage:2", "cases": "^rooted/stage_2" },
+      { "tag": "stage:3", "cases": "^rooted/stage_3" }
+    ]
+  },
+  {
+    "op": "ossify", "kind": "step", "family": "S",
+    "prd": "E-5 骨肉瘤【骨样硬化】标记到期",
+    "gd": "cw_world.gd:_ossify", "gd_module": "CWWorld",
+    "cs": "BoardRules.Ossify",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "not_due", "cases": "^ossify/not_due" },
+      { "tag": "due", "cases": "^ossify/due" },
+      { "tag": "camper_blocks", "cases": "^ossify/camper_blocks" }
+    ]
+  },
+  {
+    "op": "decay", "kind": "step", "family": "S",
+    "prd": "E-6 固化计数衰减",
+    "gd": "cw_world.gd:_decay", "gd_module": "CWWorld",
+    "cs": "BoardRules.Decay",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "decays", "cases": "^decay/decays" },
+      { "tag": "floor_zero", "cases": "^decay/floor_zero" },
+      { "tag": "paused", "cases": "^decay/paused" }
+    ]
+  },
+  {
+    "op": "mark_adhesion", "kind": "step", "family": "S",
+    "prd": "E-7 树突【E-组织黏连】",
+    "gd": "cw_world.gd:_mark_adhesion", "gd_module": "CWWorld",
+    "cs": "BoardRules.MarkAdhesion",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "no_source", "cases": "^mark_adhesion/no_source" },
+      { "tag": "one_source", "cases": "^mark_adhesion/one_source" },
+      { "tag": "already_marked", "cases": "^mark_adhesion/already_marked" }
+    ]
+  },
+  {
+    "op": "tick_durations", "kind": "step", "family": "S",
+    "prd": "E-8 世界事件倒计时 / 本世界回合修饰过期",
+    "gd": "cw_world_fx.gd:tick_durations", "gd_module": "CWWorldFx",
+    "cs": "BoardRules.TickDurations",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "note": "GD 这一步住在 CWWorldFx 上 —— 录制代理必须有第四个类 cw_rec_worldfx.gd（规格 A-4）",
+    "boundaries": [
+      { "tag": "event_ticks", "cases": "^tick_durations/event_ticks" },
+      { "tag": "event_expires", "cases": "^tick_durations/event_expires" },
+      { "tag": "mod_expires", "cases": "^tick_durations/mod_expires" }
+    ]
+  },
+  {
+    "op": "tick_necrosis", "kind": "step", "family": "S",
+    "prd": "E-8 坏死倒计时",
+    "gd": "cw_world.gd:_tick_necrosis", "gd_module": "CWWorld",
+    "cs": "BoardRules.TickNecrosis",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "ticks", "cases": "^tick_necrosis/ticks" },
+      { "tag": "expires", "cases": "^tick_necrosis/expires" }
+    ]
+  },
+  {
+    "op": "tick_chemo_cd", "kind": "step", "family": "S",
+    "prd": "E-8 树突【I-趋化源】技能冷却",
+    "gd": "cw_world.gd:_tick_chemo_cd", "gd_module": "CWWorld",
+    "cs": "BoardRules.TickChemoCooldown",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "ticks", "cases": "^tick_chemo_cd/ticks" },
+      { "tag": "ready", "cases": "^tick_chemo_cd/ready" }
+    ]
+  },
+  {
+    "op": "tick_chemo_track", "kind": "step", "family": "S",
+    "prd": "E-8 【免疫猎杀】追踪趋化源倒计时",
+    "gd": "cw_world.gd:_tick_chemo_track", "gd_module": "CWWorld",
+    "cs": "BoardRules.TickChemoTrack",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "ticks", "cases": "^tick_chemo_track/ticks" },
+      { "tag": "expires", "cases": "^tick_chemo_track/expires" }
+    ]
+  },
+  {
+    "op": "expire_marks", "kind": "step", "family": "S",
+    "prd": "E-8 树突【I-标记】到期",
+    "gd": "cw_world.gd:_expire_marks", "gd_module": "CWWorld",
+    "cs": "BoardRules.ExpireMarks",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "first_round", "cases": "^expire_marks/first_round" },
+      { "tag": "second_round", "cases": "^expire_marks/second_round" }
+    ]
+  },
+  {
+    "op": "clear_newborn", "kind": "step", "family": "S",
+    "prd": "E-9 移除「新生」",
+    "gd": "cw_world.gd:_clear_newborn", "gd_module": "CWWorld",
+    "cs": "BoardRules.ClearNewborn",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "clears", "cases": "^clear_newborn/clears" },
+      { "tag": "nothing_to_clear", "cases": "^clear_newborn/nothing_to_clear" }
+    ]
+  },
+  {
+    "op": "cap_energy", "kind": "step", "family": "S",
+    "prd": "E-9.5 能量上限（PRD 之外，口径 #92）",
+    "gd": "cw_world.gd:_cap_energy", "gd_module": "CWWorld",
+    "cs": "BoardRules.CapEnergy",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "cap_off", "cases": "^cap_energy/cap_off" },
+      { "tag": "under_cap", "cases": "^cap_energy/under_cap" },
+      { "tag": "over_cap", "cases": "^cap_energy/over_cap" }
+    ]
+  },
+
+  {
+    "op": "chaos_return", "kind": "step", "family": "S",
+    "prd": "E-7 【紊乱】返回原位",
+    "gd": "cw_world_fx.gd:round_effects", "gd_module": "CWWorldFx",
+    "cs": "",
+    "args": [], "rng": false,
+    "status": "NOTIMPL", "cases": "none",
+    "note": "C# 未实现（BoardRules.EvolveEndOfRoundB 里是一行注释「7【紊乱】返回原位 —— C# 未实现（世界事件，EV-1）」）。写进表里只为了下一轮没人再去找它的 cs；**不产用例**",
+    "boundaries": []
+  },
+  {
+    "op": "check_immune_win", "kind": "step", "family": "S",
+    "prd": "E-10 胜负检查 · 免疫",
+    "gd": "cw_game.gd:check_immune_win", "gd_module": "CWGame",
+    "cs": "OutcomeRules.Evaluate",
+    "args": [], "rng": false,
+    "status": "OUT_OF_SCOPE", "cases": "none",
+    "note": "与规格 §0.2「整局 / 状态机驱动的那一档不进 L0 也不进 L1」冲突；C# 侧不在 BoardRules 里（同处注释「10 胜负检查由 PhaseRules 编排」）。**不产用例**",
+    "boundaries": []
+  },
+  {
+    "op": "check_cancer_win", "kind": "step", "family": "S",
+    "prd": "E-10 胜负检查 · 癌方",
+    "gd": "cw_game.gd:check_cancer_win", "gd_module": "CWGame",
+    "cs": "OutcomeRules.Evaluate",
+    "args": [], "rng": false,
+    "status": "OUT_OF_SCOPE", "cases": "none",
+    "note": "同上。**不产用例**",
+    "boundaries": []
+  },
+
+  {
+    "op": "reset_round_flags", "kind": "step", "family": "S",
+    "prd": "S-0 每世界回合标志位重置",
+    "gd": "cw_world.gd:_reset_round_flags", "gd_module": "CWWorld",
+    "cs": "CellRules.ResetRoundFlags",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "attacks_used", "cases": "^reset_round_flags/attacks_used" },
+      { "tag": "fx_round", "cases": "^reset_round_flags/fx_round" },
+      { "tag": "metastasis_used", "cases": "^reset_round_flags/metastasis_used" }
+    ]
+  },
+  {
+    "op": "tissue_production", "kind": "step", "family": "S",
+    "prd": "S-1 特殊组织产出",
+    "gd": "cw_world.gd:_tissue_production", "gd_module": "CWWorld",
+    "cs": "BoardRules.TissueProduction",
+    "args": [], "rng": true,
+    "status": "OK", "cases": "deferred",
+    "note": "**不要映到 BoardRules.Produce** —— 它头一行是 ResetRoundFlags、末尾还 CollectSpecial（规格 §0.4(b) 18）。步 11 已拆出 TissueProduction 这个不含 ResetRoundFlags 的 internal 入口",
+    "boundaries": [
+      { "tag": "core", "cases": "^tissue_production/core" },
+      { "tag": "marrow", "cases": "^tissue_production/marrow" },
+      { "tag": "vessel", "cases": "^tissue_production/vessel" },
+      { "tag": "occupied", "cases": "^tissue_production/occupied" }
+    ]
+  },
+  {
+    "op": "vessel_teleport", "kind": "step", "family": "S",
+    "prd": "S-2 血管传送",
+    "gd": "cw_world.gd:_vessel_teleport", "gd_module": "CWWorld",
+    "cs": "BoardRules.Transport",
+    "args": [], "rng": true,
+    "status": "OK", "cases": "deferred",
+    "boundaries": [
+      { "tag": "no_rider", "cases": "^vessel_teleport/no_rider" },
+      { "tag": "one_rider", "cases": "^vessel_teleport/one_rider" },
+      { "tag": "swap", "cases": "^vessel_teleport/swap" },
+      { "tag": "solid_blocks", "cases": "^vessel_teleport/solid_blocks" }
+    ]
+  },
+  {
+    "op": "aerobic", "kind": "step", "family": "S",
+    "prd": "S-5 有氧呼吸（整步）",
+    "gd": "cw_world.gd:_aerobic", "gd_module": "CWWorld",
+    "cs": "PhaseRules.Aerobic",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "note": "薄壳 aerobic() 不是契约步 —— 它只是 _aerobic() 外面那层壳，契约步钉下划线那层（规格 §0.6.4 第 2 条）。C# 侧步 11 已从 PhaseRules.ContinueStart 里拆出具名 internal 入口（E-4 拍板）",
+    "boundaries": [
+      { "tag": "level:I", "cases": "^aerobic_step/level_I" },
+      { "tag": "level:III", "cases": "^aerobic_step/level_III" },
+      { "tag": "necrosis_cut", "cases": "^aerobic_step/necrosis_cut" }
+    ]
+  },
+  {
+    "op": "overload", "kind": "step", "family": "S",
+    "prd": "S-6 过载（整步）",
+    "gd": "cw_world.gd:_overload", "gd_module": "CWWorld",
+    "cs": "PhaseRules.Overload",
+    "args": [], "rng": false,
+    "status": "OK", "cases": "deferred",
+    "note": "薄壳 overload() 不是契约步 —— 契约步钉下划线那层（规格 §0.6.4 第 2 条）。C# 侧同上，步 11 已拆",
+    "boundaries": [
+      { "tag": "nobody_over", "cases": "^overload_step/nobody_over" },
+      { "tag": "one_over", "cases": "^overload_step/one_over" },
+      { "tag": "capped", "cases": "^overload_step/capped" }
+    ]
+  },
+  {
+    "op": "enter_tile", "kind": "step", "family": "S",
+    "prd": "J-迁移 · 落地结算",
+    "gd": "cw_actions.gd:enter_tile", "gd_module": "CWActions",
+    "cs": "CellRules.EnterTile",
+    "args": ["cell", "dest", "paid"], "rng": true,
+    "status": "OK", "cases": "deferred",
+    "note": "裸名自调 6 处 + 跨模块调用 11 处 —— 录制代理不做深度计数就会录出嵌套三四条（规格 A-4 规矩 2 / D R3）",
+    "boundaries": [
+      { "tag": "healthy", "cases": "^enter_tile/healthy" },
+      { "tag": "purify", "cases": "^enter_tile/purify" },
+      { "tag": "special", "cases": "^enter_tile/special" },
+      { "tag": "free", "cases": "^enter_tile/free" }
+    ]
+  },
+  {
+    "op": "damage_hit", "kind": "step", "family": "S",
+    "prd": "通用结算规则 · 一次能量损失落到细胞上",
+    "gd": "cw_game.gd:immune_hit + cw_game.gd:cancer_hit", "gd_module": "CWGame",
+    "cs": "CellRules.Damage",
+    "args": ["target", "base", "attacker", "reason"], "rng": false,
+    "status": "KNOWN_GAP", "cases": "deferred", "rec": "manual",
+    "note": "两端签名未核：GD immune_hit(target, base, attacker, attack, add) / cancer_hit(target, base, reason, skill) ↔ C# CellRules.Damage(s, id, amount, LossSource, ability)，批 4 的 C-2 步 1 再核（规格 §0.6.4 第 2 条）。住在 CWGame 上、四个录制代理够不着 ⇒ rec: manual，批 4 手写用例。真开工时 delta 要同时钉目标 energy、攻击者 energy（巨噬吞噬）、marked 是否消耗、armor_used",
+    "boundaries": [
+      { "tag": "immune_hit", "cases": "^damage_hit/immune" },
+      { "tag": "cancer_hit", "cases": "^damage_hit/cancer" },
+      { "tag": "shield", "cases": "^damage_hit/shield" },
+      { "tag": "lethal", "cases": "^damage_hit/lethal" }
+    ]
+  }
+]

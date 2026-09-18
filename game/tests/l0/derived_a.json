@@ -1,20 +1,21 @@
 [
   {
+    "schema": "cwxcase/2",
     "id": "aerobic_share/basic_level_I/four_seats_full_healthy",
     "probe": "aerobic_share",
     "source": "cw_world.gd aerobic_income(cell) = necrosis_cut(cell, aerobic_share() + _aerobic_bonus(cell))；四席、全健康盘、I 级基础免疫细胞。expect 由 GD runner 实跑得出，C# 必须同值",
     "world": {
       "players": [
         { "seat": 0, "faction": "immune", "level": "I" },
-        { "seat": 1, "faction": "cancer" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "Melanoma" },
         { "seat": 2, "faction": "immune", "level": "I" },
-        { "seat": 3, "faction": "cancer" }
+        { "seat": 3, "faction": "cancer", "cancer_type": "SignetRing" }
       ],
       "tiles": [
-        { "at": "0,0", "state": "healthy", "cell": 0 },
-        { "at": "3,-3", "state": "cancer", "cell": 1 },
-        { "at": "-3,0", "state": "healthy", "cell": 2 },
-        { "at": "0,3", "state": "cancer", "cell": 3 }
+        { "at": "0,0", "state": "healthy" },
+        { "at": "3,-3", "state": "cancer", "type": "normal" },
+        { "at": "-3,0", "state": "healthy", "type": "normal" },
+        { "at": "0,3", "state": "cancer", "type": "normal" }
       ],
       "cells": [
         { "seat": 0, "type": "ImmuneBasic", "at": "0,0" },
@@ -27,12 +28,13 @@
     "expect": 20
   },
   {
+    "schema": "cwxcase/2",
     "id": "proliferate_chance/healthy_one_adjacent_cancer/stage_I",
     "probe": "proliferate_chance",
     "source": "CWData.PROLIFERATE_BASE_BY_STAGE[0] = 30‰（每个相邻癌性组织）；一个相邻癌格、无固化 → 30",
     "world": {
       "round": 1,
-      "players": [{ "seat": 0, "faction": "immune", "level": "I" }, { "seat": 1, "faction": "cancer" }],
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }, { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }],
       "tiles": [
         { "at": "0,0", "state": "healthy" },
         { "at": "1,-1", "state": "cancer" }

@@ -1,15 +1,16 @@
 [
   {
+    "schema": "cwxcase/2",
     "id": "anaerobic/block_10/one_cell/two_players",
     "probe": "anaerobic_share",
     "source": "PRD 2026-09-14（issue #43）：max{2, k × (块内癌组织数^0.3 × 系数 + 全图固化数) ÷ 块内癌细胞数}。2 人局系数 2.8、指数 0.30、k(1)=80% ⇒ 10^0.3×28×0.8 = 44.69 → 4.5",
     "world": {
       "players": [
         { "seat": 0, "faction": "immune", "level": "I" },
-        { "seat": 1, "faction": "cancer" }
+        { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
       ],
       "tiles": [
-        { "at": "0,0", "state": "cancer", "cell": 1 },
+        { "at": "0,0", "state": "cancer" },
         { "at": "1,0", "state": "cancer" },
         { "at": "1,-1", "state": "cancer" },
         { "at": "0,-1", "state": "cancer" },
@@ -26,18 +27,19 @@
     "expect": 45
   },
   {
+    "schema": "cwxcase/2",
     "id": "anaerobic/block_10/two_cells/k_is_100",
     "probe": "anaerobic_share",
     "source": "同一块，块内 2 个癌细胞 ⇒ k(2)=100%；3 人局不在分档表里 → 退回缺省系数 2.8。10^0.3×28×1.0÷2 = 27.93 → 2.8",
     "world": {
       "players": [
         { "seat": 0, "faction": "immune", "level": "I" },
-        { "seat": 1, "faction": "cancer" },
-        { "seat": 2, "faction": "cancer" }
+        { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" },
+        { "seat": 2, "faction": "cancer", "cancer_type": "Osteosarcoma" }
       ],
       "tiles": [
-        { "at": "0,0", "state": "cancer", "cell": 1 },
-        { "at": "1,0", "state": "cancer", "cell": 2 },
+        { "at": "0,0", "state": "cancer" },
+        { "at": "1,0", "state": "cancer" },
         { "at": "1,-1", "state": "cancer" },
         { "at": "0,-1", "state": "cancer" },
         { "at": "-1,0", "state": "cancer" },
@@ -56,20 +58,21 @@
     "expect": 28
   },
   {
+    "schema": "cwxcase/2",
     "id": "anaerobic/floor_kicks_in",
     "probe": "anaerobic_share",
     "source": "四人局系数 2.0、k(3)=120%：10^0.3×20×1.2÷3 = 15.96 → 被兜底 anaerobic_floor = 2.0 顶上来",
     "world": {
       "players": [
         { "seat": 0, "faction": "immune", "level": "I" },
-        { "seat": 1, "faction": "cancer" },
-        { "seat": 2, "faction": "cancer" },
-        { "seat": 3, "faction": "cancer" }
+        { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" },
+        { "seat": 2, "faction": "cancer", "cancer_type": "Osteosarcoma" },
+        { "seat": 3, "faction": "cancer", "cancer_type": "Osteosarcoma" }
       ],
       "tiles": [
-        { "at": "0,0", "state": "cancer", "cell": 1 },
-        { "at": "1,0", "state": "cancer", "cell": 2 },
-        { "at": "1,-1", "state": "cancer", "cell": 3 },
+        { "at": "0,0", "state": "cancer" },
+        { "at": "1,0", "state": "cancer" },
+        { "at": "1,-1", "state": "cancer" },
         { "at": "0,-1", "state": "cancer" },
         { "at": "-1,0", "state": "cancer" },
         { "at": "-1,1", "state": "cancer" },
@@ -88,16 +91,17 @@
     "expect": 20
   },
   {
+    "schema": "cwxcase/2",
     "id": "anaerobic/solid_is_counted_board_wide",
     "probe": "anaerobic_share",
     "source": "固化是**全图**线性加进分子（每格 +1.0），不是本块 —— 这一格固化离主块很远也照算。(10^0.3×28 + 10)×0.8 = 52.69 → 5.3",
     "world": {
       "players": [
         { "seat": 0, "faction": "immune", "level": "I" },
-        { "seat": 1, "faction": "cancer" }
+        { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
       ],
       "tiles": [
-        { "at": "0,0", "state": "cancer", "cell": 1 },
+        { "at": "0,0", "state": "cancer" },
         { "at": "1,0", "state": "cancer" },
         { "at": "1,-1", "state": "cancer" },
         { "at": "0,-1", "state": "cancer" },

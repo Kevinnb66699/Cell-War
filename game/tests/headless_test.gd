@@ -158,6 +158,8 @@ func _run_all() -> void:
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial,
 		t_entry_smoke_replay, t_entry_smoke_online,
 		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides,
+		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
+		t_case_loader_keys, t_case_diff,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -19114,6 +19116,171 @@ func t_turn_mark() -> void:
 		and not src.contains("set_turn_ring") and not src.contains("clear_turn_ring"),
 		"每帧在 _sync_cells 接线 + 换手中不叠；跑马灯那套接口不再被引用")
 	check(src.count("board.clear_turn_mark()") >= 3, "拆局、淡出、没轮到谁都清脚标（%d 处）" % src.count("board.clear_turn_mark()"))
+
+
+# ---- 口径二 C-1 步 8 / 9：L0 靶场的两件机件（规格 §0.6.1 / §0.6.2）----
+const CASE_LOADER := preload("res://tests/cw_case_loader.gd")
+const CASE_DIFF := preload("res://tests/cw_case_diff.gd")
+
+
+## 步 8：cwxworld/2 / cwxcase/2 的键表与四条硬错。
+## 键表是**两侧共读的契约**（另一份是 L0/CaseModel.cs），这里钉 GD 半边：
+## 表内无重复、旋钮表与 CWTuning 对得上、四类「loader 不许编数据」的写法当场红。
+func t_case_loader_keys() -> void:
+	print("[L0 用例 loader·键表与硬错]")
+	## ① 旋钮契约表的 name 集合 ≡ CWTuning 的属性集合（§0.6.3 的 GD 侧护栏）
+	var tune_names := {}
+	for row in (JSON.parse_string(FileAccess.get_file_as_string(CASE_LOADER.TUNE_PATH)) as Dictionary)["knobs"]:
+		tune_names[str((row as Dictionary)["name"])] = true
+	var props := {}
+	for p in CWTuning.new().get_property_list():
+		if int(p["usage"]) & PROPERTY_USAGE_SCRIPT_VARIABLE:
+			props[str(p["name"])] = true
+	var missing: Array = []
+	for n in props:
+		if not tune_names.has(n):
+			missing.append(n)
+	var extra: Array = []
+	for n in tune_names:
+		if not props.has(n):
+			extra.append(n)
+	check(missing.is_empty() and extra.is_empty(),
+		"contract_tune.json 的 name 集合 ≡ CWTuning 属性集合（%d 个；表缺 %s，表多 %s）" % [props.size(), str(missing), str(extra)])
+
+	## ② 每张键表元素无重复（复制粘贴漏改一个字，只有这条闸看得见）
+	var dup: Array = []
+	for pair in [["CASE_KEYS", CASE_LOADER.CASE_KEYS], ["WORLD_KEYS", CASE_LOADER.WORLD_KEYS],
+			["PLAYER_KEYS", CASE_LOADER.PLAYER_KEYS], ["TILE_KEYS", CASE_LOADER.TILE_KEYS],
+			["CELL_KEYS", CASE_LOADER.CELL_KEYS], ["MOD_KEYS", CASE_LOADER.MOD_KEYS],
+			["EVENTS_KEYS", CASE_LOADER.EVENTS_KEYS], ["EFFECT_KEYS", CASE_LOADER.EFFECT_KEYS],
+			["CHEMO_KEYS", CASE_LOADER.CHEMO_KEYS], ["TRACK_KEYS", CASE_LOADER.TRACK_KEYS],
+			["ALARM_KEYS", CASE_LOADER.ALARM_KEYS]]:
+		var seen := {}
+		for k in pair[1]:
+			if seen.has(k):
+				dup.append("%s 里的 %s" % [str(pair[0]), str(k)])
+			seen[k] = true
+	check(dup.is_empty(), "键表元素无重复（%s）" % str(dup))
+	check(CASE_LOADER.CASE_KEYS.size() == 13 and CASE_LOADER.WORLD_KEYS.size() == 15
+		and CASE_LOADER.TILE_KEYS.size() == 12 and CASE_LOADER.CELL_KEYS.size() == 33
+		and CASE_LOADER.PLAYER_KEYS.size() == 5 and CASE_LOADER.ALARM_KEYS == ["streak"],
+		"条数：case 13 / world 15 / tile 12 / cell 33 / player 5；cancer_alarm 只收 streak")
+
+	## ③ 正常盘面装得出来（下面每条硬错都是从它改一个地方来的）
+	var l = CASE_LOADER.new()
+	var g: CWGame = l.load_world(_case_spec())
+	check(g != null and l.errors.is_empty(), "基准盘面装得出来：%s" % str(l.errors))
+	if g != null:
+		check(g.differentiated == [CWData.ImmuneType.T_CELL],
+			"differentiated 由 cells 现算（不进 spec）：%s" % str(g.differentiated))
+		check(int(g.chemo["by"]) == 1 and int(g.chemo["cid"]) == 1,
+			"chemo.by / cid 写席位，cid 解析成该席唯一活细胞")
+		check(int(g.tiles[Vector2i(0, -3)]["special"]) == CWData.Special.CORE,
+			"省略 type = 棋盘本来的特殊组织（0,-3 还是代谢核心，没被洗成普通格）")
+		g.dispose()
+
+	## ④ loader 不许编数据：五条硬错 + 一条 UNLOADABLE
+	_expect_bad("world 里的未知键（newbron）", _spec_with(func(s): s["newbron"] = 1))
+	_expect_bad("marked 三键只写了两个", _spec_with(func(s): (s["cells"][0] as Dictionary).erase("mark_round")))
+	_expect_bad("癌席缺 cancer_type", _spec_with(func(s): (s["players"][1] as Dictionary).erase("cancer_type")))
+	_expect_bad("cancer_type 写 \"none\"", _spec_with(func(s): (s["players"][1] as Dictionary)["cancer_type"] = "none"))
+	_expect_bad("tile 上写派生键 cell", _spec_with(func(s): (s["tiles"][0] as Dictionary)["cell"] = 0))
+	_expect_unloadable("chemo.by 指到 0 只活细胞的席位",
+		_spec_with(func(s): (s["cells"][1] as Dictionary)["alive"] = false))
+
+
+## 基准盘面：两席、两只细胞、一个趋化源、一个世界事件、两个旋钮
+func _case_spec() -> Dictionary:
+	return {
+		"round": 3, "phase": "PlayerAction", "seat": 1,
+		"players": [
+			{ "seat": 0, "faction": "immune", "level": "II", "memory": 4 },
+			{ "seat": 1, "faction": "cancer", "cancer_type": "Melanoma" },
+		],
+		"tiles": [
+			{ "at": "1,-1", "state": "cancer", "solid": 20 },
+			{ "at": "0,-3" },
+		],
+		"cells": [
+			{ "seat": 0, "type": "TCell", "at": "0,0", "energy": 250, "differentiated": true,
+				"marked": true, "mark_left": 1, "mark_round": 2 },
+			{ "seat": 1, "type": "Melanoma", "at": "1,-1" },
+		],
+		"chemo": { "at": "2,-2", "left": 2, "by": 1, "cid": 1 },
+		"events": { "active": [{ "name": "代谢加速", "left": 2, "stacks": 2 }] },
+		"tuning": { "attack_max_per_turn": 3, "proliferate_per_adjacent[1]": 40 },
+	}
+
+
+func _spec_with(mutate: Callable) -> Dictionary:
+	var s := _case_spec()
+	mutate.call(s)
+	return s
+
+
+func _expect_bad(name: String, spec: Dictionary) -> void:
+	var l = CASE_LOADER.new()
+	var g: CWGame = l.load_world(spec)
+	var first: String = l.errors[0] if not l.errors.is_empty() else ""
+	check(g == null and first != "" and not first.begins_with("UNLOADABLE: "),
+		"硬错：%s → %s" % [name, first if first != "" else "（居然装成了）"])
+	if g != null:
+		g.dispose()
+
+
+func _expect_unloadable(name: String, spec: Dictionary) -> void:
+	var l = CASE_LOADER.new()
+	var g: CWGame = l.load_world(spec)
+	var first: String = l.errors[0] if not l.errors.is_empty() else ""
+	check(g == null and first.begins_with("UNLOADABLE: "),
+		"UNLOADABLE：%s → %s" % [name, first if first != "" else "（居然装成了）"])
+	if g != null:
+		g.dispose()
+
+
+## 步 9：差分与 tree 比法。跑 game/tests/l0_fixtures/diff_fixture.json 的**全部**条目 ——
+## 这一份夹具 C# 侧 L0/L0RunnerTests.cs 也读，两边答案必须逐条相同；
+## 少跑一条就是「两侧各比各的」，闸一当场退化成半条。
+func t_case_diff() -> void:
+	print("[L0 差分·共享夹具]")
+	var raw: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://tests/l0_fixtures/diff_fixture.json"))
+	check(raw is Dictionary and str((raw as Dictionary).get("schema", "")) == "cwxdiff/1", "夹具读得到、schema 是 cwxdiff/1")
+	if not (raw is Dictionary):
+		return
+	var fx: Dictionary = raw
+	check((fx.get("diff", []) as Array).size() >= 8, "diff 组至少 8 条（实际 %d 条）" % (fx.get("diff", []) as Array).size())
+	for e: Dictionary in fx.get("diff", []):
+		var name: String = str(e["name"])
+		CASE_DIFF.errors = PackedStringArray()
+		var got: Dictionary = CASE_DIFF.diff(e["pre"], e["post"])
+		if bool(e.get("error", false)):
+			check(got.is_empty() and not CASE_DIFF.errors.is_empty(),
+				"%s：期望硬错 → %s" % [name, CASE_DIFF.errors[0] if not CASE_DIFF.errors.is_empty() else "（没报错）"])
+			continue
+		got = CASE_DIFF.apply_ignore(got, e.get("ignore", []))
+		if not CASE_DIFF.errors.is_empty():
+			check(false, "%s：不该报错却报了 %s" % [name, str(CASE_DIFF.errors)])
+			continue
+		var msgs := _delta_set_msgs(got, e["changed"])
+		check(msgs.is_empty(), "%s：差分整集合相等（%d 条）%s" % [name, got.size(), "" if msgs.is_empty() else str(msgs)])
+	for e: Dictionary in fx.get("compare", []):
+		var paths: PackedStringArray = CASE_DIFF.compare(e["a"], e["b"])
+		check(Array(paths) == (e["paths"] as Array),
+			"%s：tree 比法的路径列表 = %s（实际 %s）" % [str(e["name"]), str(e["paths"]), str(paths)])
+
+
+## 整集合比：多改 / 少改 / 值不同（与 l0_runner.gd:_delta_msgs 同一段逻辑）
+func _delta_set_msgs(got: Dictionary, want: Dictionary) -> Array:
+	var msgs: Array = []
+	for p in got:
+		if not want.has(p):
+			msgs.append("多改了 %s" % str(p))
+		elif not CASE_DIFF.compare(got[p], want[p]).is_empty():
+			msgs.append("%s 值不同（期望 %s，实际 %s）" % [str(p), JSON.stringify(want[p]), JSON.stringify(got[p])])
+	for p in want:
+		if not got.has(p):
+			msgs.append("少改了 %s" % str(p))
+	return msgs
 
 
 ## 口径二 · 批 0 步 7：语义键的 GD 侧唯一定义处上提到 scripts/kernel/cw_semkey.gd，xcheck_bridge.gd 只做委托

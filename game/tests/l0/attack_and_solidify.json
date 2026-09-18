@@ -1,134 +1,145 @@
 [
   {
+    "schema": "cwxcase/2",
     "id": "attack/plain/roll_1_fail",
     "probe": "attack_outcome",
     "source": "PRD：1/3 无效、1/2 成功、1/6 大成功 ⇒ 六面骰 1~2 无效、3~5 成功、6 大成功。判词编码 0=无效 1=成功 2=大成功",
     "world": {
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "tiles": [{ "at": "0,0", "state": "healthy", "cell": 0 }],
+      "tiles": [{ "at": "0,0", "state": "healthy" }],
       "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" }]
     },
     "args": { "cell": "0", "roll": "1" },
     "expect": 0
   },
   {
+    "schema": "cwxcase/2",
     "id": "attack/plain/roll_2_fail",
     "probe": "attack_outcome",
     "source": "同上",
     "world": {
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "tiles": [{ "at": "0,0", "state": "healthy", "cell": 0 }],
+      "tiles": [{ "at": "0,0", "state": "healthy" }],
       "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" }]
     },
     "args": { "cell": "0", "roll": "2" },
     "expect": 0
   },
   {
+    "schema": "cwxcase/2",
     "id": "attack/plain/roll_3_success",
     "probe": "attack_outcome",
     "source": "同上",
     "world": {
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "tiles": [{ "at": "0,0", "state": "healthy", "cell": 0 }],
+      "tiles": [{ "at": "0,0", "state": "healthy" }],
       "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" }]
     },
     "args": { "cell": "0", "roll": "3" },
     "expect": 1
   },
   {
+    "schema": "cwxcase/2",
     "id": "attack/plain/roll_5_success",
     "probe": "attack_outcome",
     "source": "同上",
     "world": {
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "tiles": [{ "at": "0,0", "state": "healthy", "cell": 0 }],
+      "tiles": [{ "at": "0,0", "state": "healthy" }],
       "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" }]
     },
     "args": { "cell": "0", "roll": "5" },
     "expect": 1
   },
   {
+    "schema": "cwxcase/2",
     "id": "attack/plain/roll_6_crit",
     "probe": "attack_outcome",
     "source": "同上：只有 6 是大成功（这一面曾经永远掷不出来 —— 调用点喂的是 0..5）",
     "world": {
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "tiles": [{ "at": "0,0", "state": "healthy", "cell": 0 }],
+      "tiles": [{ "at": "0,0", "state": "healthy" }],
       "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" }]
     },
     "args": { "cell": "0", "roll": "6" },
     "expect": 2
   },
   {
+    "schema": "cwxcase/2",
     "id": "attack/synapse/roll_1_fail",
     "probe": "attack_outcome",
     "source": "【免疫突触成熟】：失败面收到只剩 1，暴击面扩到 5~6",
     "world": {
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "tiles": [{ "at": "0,0", "state": "healthy", "cell": 0 }],
+      "tiles": [{ "at": "0,0", "state": "healthy" }],
       "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "equipped": ["免疫突触成熟"] }]
     },
     "args": { "cell": "0", "roll": "1" },
     "expect": 0
   },
   {
+    "schema": "cwxcase/2",
     "id": "attack/synapse/roll_2_success",
     "probe": "attack_outcome",
     "source": "同上：2 不再是失败",
     "world": {
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "tiles": [{ "at": "0,0", "state": "healthy", "cell": 0 }],
+      "tiles": [{ "at": "0,0", "state": "healthy" }],
       "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "equipped": ["免疫突触成熟"] }]
     },
     "args": { "cell": "0", "roll": "2" },
     "expect": 1
   },
   {
+    "schema": "cwxcase/2",
     "id": "attack/synapse/roll_5_crit",
     "probe": "attack_outcome",
     "source": "同上：5 也是大成功",
     "world": {
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "tiles": [{ "at": "0,0", "state": "healthy", "cell": 0 }],
+      "tiles": [{ "at": "0,0", "state": "healthy" }],
       "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "equipped": ["免疫突触成熟"] }]
     },
     "args": { "cell": "0", "roll": "5" },
     "expect": 2
   },
   {
+    "schema": "cwxcase/2",
     "id": "solidify/threshold_stage_I",
     "probe": "solidify_threshold",
     "source": "CWData.SOLIDIFY_THRESHOLD_BY_STAGE = [30, 20, 20]（I 期 3.0）",
     "world": {
       "round": 1,
-      "players": [{ "seat": 0, "faction": "cancer" }],
-      "tiles": [{ "at": "0,0", "state": "cancer", "cell": 0 }],
+      "players": [{ "seat": 0, "faction": "cancer", "cancer_type": "Osteosarcoma" }],
+      "tiles": [{ "at": "0,0", "state": "cancer" }],
       "cells": [{ "seat": 0, "type": "Osteosarcoma", "at": "0,0" }]
     },
     "args": {},
     "expect": 30
   },
   {
+    "schema": "cwxcase/2",
     "id": "solidify/threshold_stage_II",
     "probe": "solidify_threshold",
     "source": "同上：II 期就降到 2.0（PRD 2026-09-12 从 III 期提前来的）",
     "world": {
       "round": 6,
-      "players": [{ "seat": 0, "faction": "cancer" }],
-      "tiles": [{ "at": "0,0", "state": "cancer", "cell": 0 }],
+      "players": [{ "seat": 0, "faction": "cancer", "cancer_type": "Osteosarcoma" }],
+      "tiles": [{ "at": "0,0", "state": "cancer" }],
       "cells": [{ "seat": 0, "type": "Osteosarcoma", "at": "0,0" }]
     },
     "args": {},
     "expect": 20
   },
   {
+    "schema": "cwxcase/2",
     "id": "solidify/threshold_stage_III",
     "probe": "solidify_threshold",
     "source": "同上：III 期 2.0",
     "world": {
       "round": 11,
-      "players": [{ "seat": 0, "faction": "cancer" }],
-      "tiles": [{ "at": "0,0", "state": "cancer", "cell": 0 }],
+      "players": [{ "seat": 0, "faction": "cancer", "cancer_type": "Osteosarcoma" }],
+      "tiles": [{ "at": "0,0", "state": "cancer" }],
       "cells": [{ "seat": 0, "type": "Osteosarcoma", "at": "0,0" }]
     },
     "args": {},
