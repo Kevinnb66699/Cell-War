@@ -19158,8 +19158,9 @@ func t_obs_codec() -> void:
 	if err != "":
 		g.dispose()
 		return
-	check(m.round_no == g.round_no and m.phase == "turn" and m.current_pid == g.current_pid and m.asking_pid == g.asking_pid,
-		"顶层量逐个相同（round %d / phase %s / current %d）" % [m.round_no, m.phase, m.current_pid])
+	## asking_pid 按协议口径 = 正在问的那一席（g.asking_pid 要到 ask() 才写，pending 边界上还是上一问的）
+	check(m.round_no == g.round_no and m.phase == "turn" and m.current_pid == g.current_pid and m.asking_pid == int(g._pending["pid"]),
+		"顶层量逐个相同（round %d / phase %s / current %d / asking %d）" % [m.round_no, m.phase, m.current_pid, m.asking_pid])
 	check(m.cells.size() == g.cells.size() and m.tiles.size() == g.tiles.size(), "cells / tiles 数量相同")
 	var dense := true
 	for i in m.cells.size():
