@@ -104,6 +104,8 @@ FUNC_SUBSYSTEM = [
     # `_t_move_cost_wiring` 的 4 条全是 CWUIBridge 的价目表接线（进/退迁移态、逐格抄 cost、动词文案），
     # 零规则量 —— 兜底规则 `^_?t_` 会把它扫进 core，按 §0.6.5 第 6 条逐名点法归 ui（批 1，core 分母 1114 → 1110）
     (r"^_t_move_cost_wiring$", "ui"),
+    # 教程 S1（2026-09-19）：`t_board_active_tiles` 全是棋盘遮罩 / 浮现补间 / hex_at 的 UI 断言，零规则量，逐名归 ui（§0.6.5 第 6 条）
+    (r"^t_board_active_tiles$", "ui"),
     # —— core 规则：剩下的 t_* / _t_* 全归它 ——
     (r"^_?t_", "core"),
 ]
