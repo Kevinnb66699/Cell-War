@@ -41,6 +41,7 @@ func _run() -> void:
 	t_mech_solidify()
 	t_mech_colonize_supply()
 	t_mech_infra_savings()
+	t_mech_intent_eval()
 	print("\n%d 项检查，%d 失败" % [checks, fails])
 	quit(1 if fails > 0 else 0)
 
@@ -530,6 +531,80 @@ func t_mech_infra_savings() -> void:
 		g2.dispose()
 	check(checked >= 1, "至少采样到一次定殖（共 %d 次）" % checked)
 	check(bad == 0, "基础设施收益与引擎逐位一致（%d 次，%d 偏差）" % [checked, bad])
+
+
+## —— 意图评估器骨架 ——
+## 意图 = 行动方的一串「迁移目标」（净化/定殖/攻击都由迁移触发）。
+## `MechIntent.evaluate_path` 在引擎副本上按序执行路径，返回「做完之后的地图和能量」读数，
+## 并复原真局面（评估不改动游戏）。验证：
+## 1) 复原纯度：评估前后 state_hash 不变；
+## 2) 读数与引擎一致：手工执行同一路径后，count_tissue / total_supply / 胜利进度逐一对上；
+## 3) 非法路径：ok=false、执行步数对、真局面仍复原。
+func t_mech_intent_eval() -> void:
+	print("[意图·迁移路径评估]")
+	var g := make_game(4, 47001)
+	g.sim_quiet = true
+	var path: Array = []
+	var pid := -1
+	for _i in 300:
+		var req: Dictionary = await g.pending()
+		if req.is_empty():
+			break
+		var p: int = req["pid"]
+		if req["kind"] == "action" \
+				and g.player(p)["faction"] == CWData.Faction.CANCER:
+			for opt in req["options"]:
+				if opt["data"].get("act", "") == "move" and path.size() < 2:
+					path.append(opt["data"]["to"])
+			pid = p
+			break
+		var idx: int = await g.ask(req["pid"], req)
+		await g.step(idx)
+	check(not path.is_empty() and pid >= 0, "找到癌方 action 边界与路径（%d 步）" % path.size())
+	if path.is_empty():
+		g.dispose()
+		return
+	var hash_before: String = g.state_hash()
+	var intent := MechIntent.new()
+	var m: Dictionary = await intent.evaluate_path(g, pid, path)
+	check(g.state_hash() == hash_before, "评估后真局面复原（state_hash 不变）")
+
+	## 引擎对拍：手工执行同一路径，直接读引擎值
+	var snap: Dictionary = g.snapshot()
+	var steps := 0
+	for to in path:
+		var req: Dictionary = await g.pending()
+		if req.is_empty():
+			break
+		if int(req["pid"]) != pid:
+			break
+		var idx2 := -1
+		for i in req["options"].size():
+			var d: Dictionary = req["options"][i]["data"]
+			if d.get("act", "") == "move" and d.get("to", Vector2i(-999, -999)) == to:
+				idx2 = i
+		if idx2 < 0:
+			break
+		await g.step(idx2)
+		steps += 1
+	var ct: int = g.count_tissue(CWData.Tissue.CANCER)
+	var st: int = g.count_tissue(CWData.Tissue.SOLID)
+	check(m["cancer_tiles"] == ct and m["solid_tiles"] == st,
+		"地图读数与引擎一致（癌 %d 固化 %d）" % [ct, st])
+	check(m["cancer_supply"] == MechValue.total_supply(g),
+		"供给读数与引擎一致（%d）" % m["cancer_supply"])
+	check(m["win_progress"] == ct + 2 * st,
+		"胜利进度读数一致（%d）" % m["win_progress"])
+	check(m["steps_done"] == steps,
+		"执行步数与手工一致（%d/%d）" % [m["steps_done"], steps])
+	g.restore(snap)
+
+	## 非法路径（棋盘外目标）：ok=false、步数 0、真局面复原
+	var m2: Dictionary = await intent.evaluate_path(g, pid, [Vector2i(99, 99)])
+	check(m2["ok"] == false, "非法目标 → ok=false")
+	check(m2["steps_done"] == 0, "非法目标 → 0 步")
+	check(g.state_hash() == hash_before, "非法路径后真局面仍复原")
+	g.dispose()
 
 
 ## —— 测试助手：rig_rng 钉骰 ——
