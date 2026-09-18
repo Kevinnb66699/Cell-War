@@ -35,6 +35,7 @@ func _initialize() -> void:
 func _run() -> void:
 	t_mech_attack_ev()
 	t_mech_anaerobic()
+	t_mech_sclc_jump()
 	print("\n%d 项检查，%d 失败" % [checks, fails])
 	quit(1 if fails > 0 else 0)
 
@@ -111,6 +112,72 @@ func t_mech_anaerobic() -> void:
 		g.dispose()
 	check(total > 50, "采样到 %d 个癌细胞·步 供给" % total)
 	check(bad == 0, "解析供给与引擎逐位一致（%d 采样，%d 偏差）" % [total, bad])
+
+
+## —— 小细胞肺癌【转移】跳块收益反事实（L0/L1）——
+## 用户点名的核心机制：跳走成两个连通块以获得更多总能量供给。
+## 解析模型用 `total_supply + sclc_jump_supply_gain` 预测「跳后总供给」，
+## 引擎实测：快照 → 真实执行 jump 选项 → 读跳后总供给 → 回滚。两者必须逐位一致 ——
+## 这证明「解析组件能算引擎查询算不了的反事实，且与引擎行为相符」。
+## 钉癌种保证局里有 SCLC；只验证落点为普通格（无骨髓/核心等特殊组织的抽卡/收款干扰）。
+func t_mech_sclc_jump() -> void:
+	print("[机制·小细胞跳块收益]")
+	var jump_checked := 0
+	var jump_bad := 0
+	for si in 6:
+		var g := CWGame.new()
+		g.tune.cancer_types = [CWData.CancerType.SCLC, CWData.CancerType.SCLC]
+		g.init(CWData.FACTION_ORDER[4], 42001 + si)
+		g.sim_quiet = true
+		for pid in g.order:
+			var b := CWHeuristicBridge.new()
+			b.game = g
+			g.bridges[pid] = b
+		for _step_i in 400:
+			var req: Dictionary = await g.pending()
+			if req.is_empty():
+				break
+			var pid: int = req["pid"]
+			if req["kind"] == "action" \
+					and g.player(pid)["faction"] == CWData.Faction.CANCER:
+				for oi in req["options"].size():
+					var opt: Dictionary = req["options"][oi]
+					if opt["data"].get("act", "") != "jump":
+						continue
+					var to: Vector2i = opt["data"]["to"]
+					## 只验普通格落点：避免骨髓/核心在 step 里抽卡/收款引入中途询问
+					if g.tile(to)["special"] != CWData.Special.NONE:
+						continue
+					var src: Dictionary = _sclc_of_pid(g, pid, to)
+					if src.is_empty():
+						continue
+					jump_checked += 1
+					var predicted_after: int = MechValue.total_supply(g) \
+						+ MechValue.sclc_jump_supply_gain(g, src, to)
+					var snap: Dictionary = g.snapshot()
+					await g.step(oi)
+					var actual_after: int = MechValue.total_supply(g)
+					g.restore(snap)
+					if predicted_after != actual_after:
+						jump_bad += 1
+						check(false, "跳块至 %s 解析 %d != 实测 %d" % [
+							str(to), predicted_after, actual_after])
+			var idx: int = await g.ask(req["pid"], req)
+			await g.step(idx)
+		g.dispose()
+	check(jump_checked >= 1, "至少采样到一次跳选项（共 %d 次）" % jump_checked)
+	check(jump_bad == 0, "跳块收益反事实与引擎实测逐位一致（%d 次，%d 偏差）" % [
+		jump_checked, jump_bad])
+
+
+## 该席位中与落点 to 相距 5 格（一跳）的存活 SCLC；没有则返回空字典。
+func _sclc_of_pid(g: CWGame, pid: int, to: Vector2i) -> Dictionary:
+	for cell in g.living_cells(CWData.Faction.CANCER):
+		if int(cell["pid"]) == pid \
+				and int(cell["ctype"]) == CWData.CancerType.SCLC \
+				and CWData.hex_dist(cell["pos"], to) == CWData.METASTASIS_RANGE:
+			return cell
+	return {}
 
 
 ## 建一个带启发式桥的对局（不跑流程），用于读引擎常量/判定。

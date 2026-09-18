@@ -62,7 +62,9 @@ static func attack_ev() -> Dictionary:
 ## 组件拆开是为了能算「假如块变了」的反事实（小细胞跳块 / 断供 / 连块）。
 
 ## 块池（浮点十分位）。coef/exp < 0 时按人数取（四人 2.0 / 六人 2.8）。
-static func block_pool(g: CWGame, block: Array) -> float:
+## `overrides`：反事实用的 tissue 覆盖（coord → Tissue），如「假设 to 已转癌」。
+## 当前只覆盖 plain（CANCER 计数）；全图固化数的反事实覆盖留给净化/固化场景。
+static func block_pool(g: CWGame, block: Array, overrides: Dictionary = {}) -> float:
 	var coef: int = g.tune.anaerobic_block_coef
 	if coef < 0:
 		coef = CWData.anaerobic_block_coef(g.order.size())
@@ -72,7 +74,8 @@ static func block_pool(g: CWGame, block: Array) -> float:
 	if coef > 0:
 		var plain := 0
 		for c in block:
-			if g.tiles[c]["tissue"] == CWData.Tissue.CANCER:
+			var tissue: int = int(overrides.get(c, g.tiles[c]["tissue"]))
+			if tissue == CWData.Tissue.CANCER:
 				plain += 1
 		var exp_term := pow(float(plain), exp_pct / 100.0) if plain > 0 else 0.0
 		return exp_term * float(coef) \
@@ -80,9 +83,9 @@ static func block_pool(g: CWGame, block: Array) -> float:
 	## 退回线性式（coef == 0 对照档）
 	var pool := 0.0
 	for c in block:
+		var tissue: int = int(overrides.get(c, g.tiles[c]["tissue"]))
 		pool += g.tune.anaerobic_per_solid \
-			if g.tiles[c]["tissue"] == CWData.Tissue.SOLID \
-			else g.tune.anaerobic_per_cancer
+			if tissue == CWData.Tissue.SOLID else g.tune.anaerobic_per_cancer
 	return pool
 
 
@@ -99,9 +102,9 @@ static func block_cell_count(g: CWGame, block: Array) -> int:
 
 
 ## 块池均分给块内每个癌细胞的份额（十分位整数，含 k 系数 / 兜底 / 封顶）。
-static func block_share(g: CWGame, block: Array, count: int) -> int:
+static func block_share(g: CWGame, block: Array, count: int, overrides: Dictionary = {}) -> int:
 	var n := maxi(count, 1)
-	var pool := block_pool(g, block)
+	var pool := block_pool(g, block, overrides)
 	var scaled := pool * CWData.anaerobic_cells_k(n) / 100.0
 	var gain: int = int(round(scaled / float(n))) if g.tune.anaerobic_split else int(round(scaled))
 	return g.tune.clamp_income(gain, g.tune.anaerobic_floor, g.tune.anaerobic_cap)
@@ -110,21 +113,90 @@ static func block_share(g: CWGame, block: Array, count: int) -> int:
 ## 单个癌细胞的该回合无氧收入（十分位整数），含瓦伯格/GLUT1 加成。
 ## 与 cw_world.anaerobic_gain_for 逐位一致（默认规则下）。
 static func cell_income(g: CWGame, cell: Dictionary) -> int:
-	var cancer_pred := func(c: Vector2i) -> bool:
-		return g.is_cancerous(c)
-	for block in g.blocks_of(cancer_pred):
-		var members := {}
-		for c in block:
-			members[c] = true
-		if not members.has(cell["pos"]):
+	return cell_income_layout(g, _current_cancer_tiles(g),
+		g.living_cells(CWData.Faction.CANCER), cell)
+
+
+## —— 布局版：给定「癌性格集合 + 癌细胞列表」计算供给 ——
+## 引擎的 blocks_of / anaerobic_gain_for 只能算当前局面；这里把块计算参数化为
+## 任意布局，才能做反事实（小细胞跳块 / 断供 / 连块 / 净化）。当前局面只是特例。
+
+## 当前癌性组织格集合（CANCER + SOLID，与 is_cancerous 同口径）。
+static func _current_cancer_tiles(g: CWGame) -> Dictionary:
+	var out := {}
+	for c in g.tiles.keys():
+		if g.is_cancerous(c):
+			out[c] = true
+	return out
+
+
+## 给定癌性格集合的连通块划分（BFS；块集合与遍历顺序无关）。
+static func _blocks_of_layout(g: CWGame, cancer_tiles: Dictionary) -> Array:
+	var seen := {}
+	var out: Array = []
+	for c in cancer_tiles.keys():
+		if seen.has(c):
 			continue
-		var count := block_cell_count(g, block)
-		var gain := block_share(g, block, count)
-		## 小细胞肺癌【瓦伯格超速糖酵解】+110% 向上取整
+		var block: Array[Vector2i] = []
+		var queue: Array[Vector2i] = [c]
+		seen[c] = true
+		while not queue.is_empty():
+			var cur: Vector2i = queue.pop_back()
+			block.append(cur)
+			for n in g.neighbors(cur):
+				if cancer_tiles.has(n) and not seen.has(n):
+					seen[n] = true
+					queue.append(n)
+		out.append(block)
+	return out
+
+
+## 给定布局下某癌细胞的份额（十分位，含瓦伯格/GLUT1）。
+static func cell_income_layout(g: CWGame, cancer_tiles: Dictionary, cells: Array, cell: Dictionary, overrides: Dictionary = {}) -> int:
+	for block in _blocks_of_layout(g, cancer_tiles):
+		if not block.has(cell["pos"]):
+			continue
+		var count := 0
+		for other in cells:
+			if block.has(other["pos"]):
+				count += 1
+		var gain := block_share(g, block, maxi(count, 1), overrides)
 		if cell["ctype"] == CWData.CancerType.SCLC and g.type_ability_on(cell):
 			gain = int(ceil(gain * CWData.WARBURG_PERCENT / 100.0))
 		return gain + _glut_bonus(g, cell)
 	return 0
+
+
+## 当前局面下癌方总无氧供给（全部存活癌细胞的份额之和）。
+static func total_supply(g: CWGame) -> int:
+	return total_supply_layout(g, _current_cancer_tiles(g),
+		g.living_cells(CWData.Faction.CANCER))
+
+
+## 给定布局下的癌方总无氧供给。
+static func total_supply_layout(g: CWGame, cancer_tiles: Dictionary, cells: Array, overrides: Dictionary = {}) -> int:
+	var total := 0
+	for cell in cells:
+		total += cell_income_layout(g, cancer_tiles, cells, cell, overrides)
+	return total
+
+
+## 小细胞肺癌【转移】跳块的反事实收益（十分位整数）：
+## 假设 cell 跃迁到 to（to 为健康则定殖转癌），重算癌方总供给，返回增量。
+## 可为负（跳去断供 / 并入小块的收益小于让原块分食的损失）。
+static func sclc_jump_supply_gain(g: CWGame, cell: Dictionary, to: Vector2i) -> int:
+	var tiles2 := _current_cancer_tiles(g)
+	var overrides := {}
+	if g.tile(to)["tissue"] == CWData.Tissue.HEALTHY:
+		tiles2[to] = true
+		overrides[to] = CWData.Tissue.CANCER
+	var cells2: Array = []
+	for c in g.living_cells(CWData.Faction.CANCER):
+		var dup: Dictionary = c.duplicate()
+		if int(dup["id"]) == int(cell["id"]):
+			dup["pos"] = to
+		cells2.append(dup)
+	return total_supply_layout(g, tiles2, cells2, overrides) - total_supply(g)
 
 
 static func _glut_bonus(g: CWGame, cell: Dictionary) -> int:
