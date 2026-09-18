@@ -128,6 +128,11 @@ internal static class RulePolicies
         // 【LFA-1黏附】：每行动回合首次走上癌性组织 −0.4、下限 0.2（cond to_cancerous + gate_open）
         if (Emits("LFA-1黏附") && cancerous && CellRules.TurnGateOpen(c, "LFA-1黏附"))
             yield return new ValueModifier(ModifierStage.Subtract, SourceLayer.Passive, Seq("LFA-1黏附"), 4, 2, "LFA-1黏附");
+        // 【组织浸润】：向癌性组织的迁移 −0.3、下限 0.2（GD cw_cost.gd:88 TEMPLATES，cond to_cancerous、Store.NONE —— 不是闸门、不烧 fx_turn）。
+        // 此前 C# 只在 CardRules.Registry 里挂了一条 mods 版，而永久卡在 PlayCard 的 Permanent 分支就 return、够不着那条 ⇒ 装了等于没装
+        //（批 5a 实测 GD 7 / C# 10，空档 infiltration-from-equipped，2026-09-19 合上）
+        if (Emits("组织浸润") && cancerous)
+            yield return new ValueModifier(ModifierStage.Subtract, SourceLayer.Passive, Seq("组织浸润"), 3, 2, "组织浸润");
         // 【组织巡航】：每行动回合一次任意迁移免费（gate_open）；额度用掉后本回合后续迁移 −0.2、下限 0.2（gate_closed）—— 两条共用装备的戳
         if (Emits("组织巡航"))
             yield return CellRules.TurnGateOpen(c, "组织巡航")

@@ -64,7 +64,8 @@
       { "tag": "mods_gate", "cases": "^move_cost/mods_gate/" },
       { "tag": "mods_order", "cases": "^move_cost/mods_order/" },
       { "tag": "mods_floor", "cases": "^move_cost/mods_floor/" },
-      { "tag": "mods_allowance", "cases": "^move_cost/mods_allowance/" }
+      { "tag": "mods_allowance", "cases": "^move_cost/mods_allowance/" },
+      { "tag": "skill:infiltration", "cases": "^move_cost/skill_infiltration/" }
     ]
   },
   {

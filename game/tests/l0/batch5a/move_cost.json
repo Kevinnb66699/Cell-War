@@ -792,5 +792,202 @@
       "to": "1,0"
     },
     "expect": 2
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/skill_infiltration/lfa1_plus_infiltration_first_move",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_perms::LFA-1黏附 + 组织浸润：首移 −0.4−0.3"
+    ],
+    "source": "headless_test.gd:t_card_perms ③ L13760；免疫 I 级向癌性组织 1.0：【LFA-1黏附】首移 −0.4 + 【组织浸润】−0.3，下限 0.2 ⇒ 0.3。infiltration-from-equipped（2026-09-19 合上：C# SkillMoveModifiers 加【组织浸润】，此前从 equipped 发不出）。落点取相邻的 (1,0)（原测试用 (1,1) 只跑修饰管线不看相邻，C# QuoteMove 要相邻）。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "LFA-1黏附",
+            "组织浸润"
+          ],
+          "equip_seq": {
+            "LFA-1黏附": 1,
+            "组织浸润": 2
+          }
+        }
+      ]
+    },
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 3
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/skill_infiltration/after_first_move_only_infiltration",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_perms::首移之后 LFA 闸门烧掉，只剩浸润的 −0.3"
+    ],
+    "source": "headless_test.gd:t_card_perms ③ L13766；LFA 闸门已烧（fx_turn LFA-1黏附 = 1）只剩【组织浸润】−0.3 ⇒ 0.7。落点取相邻的 (1,0)（原测试用 (1,1) 只跑修饰管线不看相邻，C# QuoteMove 要相邻）。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "LFA-1黏附",
+            "组织浸润"
+          ],
+          "equip_seq": {
+            "LFA-1黏附": 1,
+            "组织浸润": 2
+          },
+          "fx_turn": {
+            "LFA-1黏附": 1
+          }
+        }
+      ]
+    },
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 7
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/skill_infiltration/cxcr3_card_then_infiltration_skill",
+    "probe": "move_cost",
+    "covers": [
+      "_t_cost_required::§11.10 同阶段的两条修饰，换顺序结果不变（来源分层在前）"
+    ],
+    "source": "headless_test.gd:_t_cost_required §11.10 L17096 第一次循环：卡牌【CXCR3趋化】（−0.5 下限 0.2）先、技能【组织浸润】后。同阶段两条修饰，来源分层在前 ⇒ 与下一条结果相同。落点取相邻的 (1,0)（原测试用 (1,1) 只跑修饰管线不看相邻，C# QuoteMove 要相邻）。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "组织浸润"
+          ],
+          "equip_seq": {
+            "组织浸润": 2
+          },
+          "mods": [
+            {
+              "name": "CXCR3趋化",
+              "uses": 2,
+              "until": "turn",
+              "seq": 1
+            }
+          ],
+          "play_n": 1
+        }
+      ]
+    },
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 2
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/skill_infiltration/infiltration_skill_then_cxcr3_card",
+    "probe": "move_cost",
+    "covers": [
+      "_t_cost_required::§11.10 同阶段的两条修饰，换顺序结果不变（来源分层在前）"
+    ],
+    "source": "headless_test.gd:_t_cost_required §11.10 L17096 第二次循环：技能先装、卡后打（equip_seq 1 / mods seq 2），结果与上一条相同。落点取相邻的 (1,0)（原测试用 (1,1) 只跑修饰管线不看相邻，C# QuoteMove 要相邻）。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "组织浸润"
+          ],
+          "equip_seq": {
+            "组织浸润": 1
+          },
+          "mods": [
+            {
+              "name": "CXCR3趋化",
+              "uses": 2,
+              "until": "turn",
+              "seq": 2
+            }
+          ],
+          "play_n": 2
+        }
+      ]
+    },
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 2
   }
 ]
