@@ -13,7 +13,7 @@
 | `core_sites` | **1110** | `FUNC_SUBSYSTEM` 判成 `core` 的那一档 = **分母** |
 | `core_funcs` | 98 | |
 | `core_addressable` | 1090 | core 里能被 `covers` 指到的不同名字（20 个站点断言名为空或同函数内重名 ⇒ 覆盖率天花板 98.2%） |
-| `covered_sites` | **176** | **分子**：`covers` ∩ 真实 check 名。批 3 落地 133 → 176（**+43**）：batch3 的 45 条用例给出 47 个不重复 `covers`，其中 4 个既有用例已指过 ⇒ 净增 43。（P2 报的 49 个里，`tick_necrosis` 那两条按评委 conflicts #5 撤掉不认领 ⇒ 47） |
+| `covered_sites` | **188** | **分子**：KG 六条合上后放回 10 条（+12）⇒ 176 → 188。：`covers` ∩ 真实 check 名。批 3 落地 133 → 176（**+43**）：batch3 的 45 条用例给出 47 个不重复 `covers`，其中 4 个既有用例已指过 ⇒ 净增 43。（P2 报的 49 个里，`tick_necrosis` 那两条按评委 conflicts #5 撤掉不认领 ⇒ 47） |
 | `unclassified_sites` | 0 | 落不进任何一条分类规则的站点，**不许当 0 用，要回去加规则** |
 
 子系统分布（迁移计划 §二点五 去向表的今日实测）：
@@ -54,22 +54,22 @@
 
 | op | status | cases | 用例数 | 落点（GD ↔ C#） | 空档 / 备注 |
 |---|---|---|---|---|---|
-| `anaerobic` | OK | **required** | 2 | `cw_world.gd:_anaerobic` ↔ `BoardRules.Anaerobic` | 批 3：默认（平方根）档 + 【GLUT1高表达】。线性对照与【瓦伯格】110% 两档 = **KG-1**（C# 侧 `anaerobic_block_coef` / `anaerobic_floor` 两个旋钮没生效），k 系数四细胞档 = **B10**（细胞写在席位 2/3、对局只有 2 席，两侧都装不回去） |
+| `anaerobic` | OK | **required** | 4 | `cw_world.gd:_anaerobic` ↔ `BoardRules.Anaerobic` | 批 3：默认（平方根）档 + 【GLUT1高表达】。线性对照与【瓦伯格】110% 两档 = **KG-1**（C# 侧 `anaerobic_block_coef` / `anaerobic_floor` 两个旋钮没生效），k 系数四细胞档 = **B10**（细胞写在席位 2/3、对局只有 2 席，两侧都装不回去） |
 | `cancer_upkeep` | OK | deferred | **0** | `_cancer_upkeep` ↔ `BoardRules.CancerUpkeep` | 批 3 **收不到（B9）**：唯一来源 `t_balance_candidates` 候选③ 把两只癌细胞放在同一席，`$.cells[<席位>]` 语义键歧义 ⇒ 差分整条作废。四档（关着不扣 / 10.0 扣 20% / 0.4 扣 20% / 免疫不受影响）全空 |
 | `pressure` | OK | **required** | 7 | `_pressure` ↔ `BoardRules.Pressure` | 批 3：五档盘面（抵平 / 二癌四健康 / 四癌两健康 / 固化双倍权重 / 致死）+ 两档减免。护盾三档撞 `cells[].mods` ⇒ 批 5a |
-| `proliferate` | OK | **required** | 6 | `_proliferate` ↔ `BoardRules.Proliferate` | 批 3：六档。事件两档 = **KG-2**（【增殖抑制】下 GD 不掷骰、C# 还要抽一次）/ **KG-3**（【异常增殖】翻倍 C# 没实现）；`necrosis_cleared_on_flip` = **KG-6**。⚠ `all_six_convert` / `off_round_same` 钉的是「六邻全转」，不是事件（评委 conflicts #6） |
+| `proliferate` | OK | **required** | 8 | `_proliferate` ↔ `BoardRules.Proliferate` | 批 3：六档。事件两档 = **KG-2**（【增殖抑制】下 GD 不掷骰、C# 还要抽一次）/ **KG-3**（【异常增殖】翻倍 C# 没实现）；`necrosis_cleared_on_flip` = **KG-6**。⚠ `all_six_convert` / `off_round_same` 钉的是「六邻全转」，不是事件（评委 conflicts #6） |
 | `erosion` | OK | **required** | 4 | `_erosion` ↔ `BoardRules.Erosion` | 批 3：四档。`args.fresh` 两侧统一成 `"q,r;q,r"` 串（批 1 机件③ = B3，本批合上）。`necrosis_cleared_on_flip` = **KG-6**；「一次侵蚀转 2 或 3 格」是 60 个种子的集合统计断言，单条用例回指不了 |
-| `resolve_camping` | OK | **required** | 3 | `_resolve_camping` ↔ `BoardRules.ResolveCamping` | 批 3：三档（没蹲满 / 已固化作废 / E 阶段完成净化），靠 **B4** 才收得到。另三条断言落在 **KG-5** 的那条草稿上 |
+| `resolve_camping` | OK | **required** | 4 | `_resolve_camping` ↔ `BoardRules.ResolveCamping` | 批 3：三档（没蹲满 / 已固化作废 / E 阶段完成净化），靠 **B4** 才收得到。另三条断言落在 **KG-5** 的那条草稿上 |
 | `solidify` | OK | **required** | 6 | `_solidify` ↔ `BoardRules.Solidify` | 批 3：六档。`osteo:same_rounds` 的 check 名以 `%d` 开头、按 xcheck 口径取到空串，`covers` 指不到；血管三档（`t_vessel_no_solid`）撞 **B9** |
 | `rooted` | OK | **required** | 5 | `_rooted` ↔ `BoardRules.Rooted` | 批 3：五档，**靠 B4 才收得到**（六条断言全在 `_blank_board()` 上）。目标走 `pick_random`，两侧 pop-loop 同形，5 条全绿 = 带子对得上 |
-| `ossify` | OK | **required** | 2 | `_ossify` ↔ `BoardRules.Ossify` | 批 3：两档，靠 **B4**。另四条（到期回合免疫站在格上 = **KG-4**，与它同段的 16121 / 16124 / 16125 三条）整段不进仓库 |
+| `ossify` | OK | **required** | 3 | `_ossify` ↔ `BoardRules.Ossify` | 批 3：两档，靠 **B4**。另四条（到期回合免疫站在格上 = **KG-4**，与它同段的 16121 / 16124 / 16125 三条）整段不进仓库 |
 | `decay` | OK | **required** | 3 | `_decay` ↔ `BoardRules.Decay` | 批 3：三档。事件两档（抑制 / 到期恢复）撞 **KG-7**（那只癌细胞摆在盘外 (5,5)） |
 | `mark_adhesion` | OK | deferred | **0** | `_mark_adhesion` ↔ `BoardRules.MarkAdhesion` | 批 3 **收不到（B9）**：`t_effector_responses` 的 near/mid/far 三只癌细胞同属席位 1 |
 | `tick_durations` | OK | **required** | 2 | `cw_world_fx.gd:tick_durations` ↔ `BoardRules.TickDurations` | 批 3：两档；GD 半边住在 `CWWorldFx` 上。修饰过期三档撞 `mods` ⇒ 批 5a，TNF 那条撞 **B6** |
 | `tick_necrosis` | OK | **required** | 4 | `_tick_necrosis` ↔ `BoardRules.TickNecrosis` | 批 3：四档，**只钉倒计时本身、`covers` 留空**（评委 conflicts #5，见下表）。盘面档撞 **B5**（`aerobic_by_level = []` 表达不了） |
 | `tick_chemo_cd` | OK | deferred | **0** | `_tick_chemo_cd` ↔ `BoardRules.TickChemoCooldown` | 批 3 **收不到（B10）**：B4 之后草稿有了，但该局细胞写在席位 2/3、对局只有 2 席 ⇒ 两侧都装不回去 |
-| `tick_chemo_track` | OK | deferred | **0** | `_tick_chemo_track` ↔ `BoardRules.TickChemoTrack` | 批 3 **收不到（KG-8）**：两条草稿两侧 delta 绿、闸二 2b 红。KG-8 裁完当场转 required（+2 条） |
-| `expire_marks` | OK | deferred | **0** | `_expire_marks` ↔ `BoardRules.ExpireMarks` | 批 3 **收不到（KG-8 + B9）**：前两条闸二 2b 红，第三条 loose 与 cc 同席。KG-8 裁完转 required（+2 条） |
+| `tick_chemo_track` | OK | **required** | 2 | `_tick_chemo_track` ↔ `BoardRules.TickChemoTrack` | 批 3 当天 KG-8 合上后放回 2 条（ticks / expires）|
+| `expire_marks` | OK | **required** | 2 | `_expire_marks` ↔ `BoardRules.ExpireMarks` | 批 3 当天 KG-8 合上后放回 2 条（first_round / second_round）；第三条 loose 与 cc 同席（B9）留 GD |
 | `clear_newborn` | OK | **required** | 1 | `_clear_newborn` ↔ `BoardRules.ClearNewborn` | 批 3：一档（`t_ev_chaos` 跑完整个 e_phase 的那一次，原 check 是整相不变量） |
 | `cap_energy` | OK | deferred | **0** | `_cap_energy` ↔ `BoardRules.CapEnergy` | 批 3 **零用例（B7）**：`headless_test.gd` 全文一条 cap_energy 的 check 都没有，不是收割的问题；要 required 只能手写 |
 
@@ -119,14 +119,14 @@
 | **批 0 留 GD 的 26 个 check 名**（无 C# 对应物 21 个符号：`CWData.TOTAL_TILES` / `DIFFERENTIATE_MIN_LEVEL` / `HAND_MAX`（C# 只有 `Cell.HandMax` 的 record 字段缺省）/ `EMT_MOVE_COST` / `MUTATE_EXTRA_LOSS` / `MUTATE_MEMORY_CUT` / `CHEMO_IMMUNE_PCT` / `CHEMO_SELF_PCT` / `MARK_RANGE` / `LEVEL_MIN_MEMORY` / `EFFECTOR_NAMES` / `IMMUNE_TYPE_TEXT` / `init_cancer_tiles` / `aerobic_level_base(n)` / `level_min_memory(n)` / `skill_text` / `ring`、`CWCardData.CARDS`（两侧形状对不上）/ `effect_of`；C# 侧 private 够不着：`CWData.VESSELS`（`MatchSetup.Vessels`）/ `all_coords`（`MatchSetup.AllCoords`））—— 涉及 `t_immune_level_rules`（门槛表 5 条）/ `t_ring_and_toxin`（`ring` 4 条）/ `t_card_pool` 3 / `t_mark_range` 2 / `t_skill_info` 2 / `t_antibody_no_target_x` / `t_batch2_rules` / `t_board` / `t_card_mods` / `t_draw_purify_memory` / `t_effector_responses` / `t_guide_director` / `t_hunt_fx` / `t_mutation_faces` / `t_setup` 各 1 | 各自等对应机制迁 C#（免疫等级门槛表 = E-3 判死的 `differentiate_min_level` 家族；`ring` / `neighbors` 类几何工具随批 3；文案类永远留 GD） | 规格 B 批 0 落地记录 |
 | **批 0 撤回的 5 条**：`const/data/hand_max`（C# 只有 record 字段缺省）、`anaerobic_cells_k` 与 `antibody_no_target_x` 的越界钳住各 2 条（GD `clampi` 住在静态函数里、C# 是裸表，纪律 3 不在靶场补 clamp、也不为测试在 core 开 clamp 壳） | 留 GD | 批 0 评委 |
 
-| **KG-1 · `anaerobic` 两个旋钮 C# 没生效** —— `world.tuning` 写了 `anaerobic_block_coef=0` / `anaerobic_floor=0`（A′/A 档），C# 算出来的是默认档的数（期望 11 得 24、期望 13 得 27）；【瓦伯格】110% 跟着量不到 | C# 侧修；修完 `t_anaerobic_round` 001 / 002 原样放回 | 批 3 P2 实测 |
-| **KG-2 · `proliferate` 在【增殖抑制】下两侧掷骰次数不同** —— GD 一次都不掷（`rolls: []`），C# 还要抽 `[1,1000]`，`TapeException RNG_OVERRUN` | C# 侧修（rng 次序类，批 4 的 Tape 化也会撞） | 批 3 P2 实测 |
-| **KG-3 · 【异常增殖】的翻倍 C# 侧没实现** —— `d.proliferate_chance` 全是 GD 的一半（500 vs 1000、1500 vs 3000），六邻一格没转 | C# 侧修 | 批 3 P2 实测 |
-| **KG-4 · E-硬化「到期回合免疫站在格上不转固化」C# 侧缺** —— GD 不转、标记留着（changed 空），C# 照转不误（多出 `tiles@0,0.tissue=2` + `ossify_at=0`）。云端 PRD 2026-09-10 加的条件。连累 `t_batch2_rules` 16121 / 16124 / 16125 三条（第 4 回合还没到期 / 第 5 回合转固化 / 转化后标记清掉）整段不进仓库 | C# 侧补条件 | 批 3 P2 实测 |
-| **KG-5 · `camp_pos` 的 `{q,r}` 形状两侧对不上** —— C# 报「`changed` 里的 `$.cells[0].camp_pos.q` 在 pre / post 上一个字段都命不中」（GD 侧同一条绿）。envelope 形状差，不是规则差。连累 `resolve_camping` 的「蹲满一回合净化完成 / +1 抗原记忆 / 标记随净化取消」三条 | §0.6.1 补一条字面口径 | 批 3 P2 实测 |
+| ~~KG-1~~ **已合上（2026-09-19 同日，d0dd3ca：旋钮 -1 按人数 / >0 覆盖 / 0 线性对照档，`anaerobic` 加 formula:linear_ref / warburg:sclc 两档）** · `anaerobic` 两个旋钮 C# 没生效** —— `world.tuning` 写了 `anaerobic_block_coef=0` / `anaerobic_floor=0`（A′/A 档），C# 算出来的是默认档的数（期望 11 得 24、期望 13 得 27）；【瓦伯格】110% 跟着量不到 | C# 侧修；修完 `t_anaerobic_round` 001 / 002 原样放回 | 批 3 P2 实测 |
+| ~~KG-2~~ **已合上（2026-09-19 同日，d0dd3ca：【增殖抑制】整步不掷，`proliferate` 加 event:proliferate_suppressed）** · `proliferate` 在【增殖抑制】下两侧掷骰次数不同** —— GD 一次都不掷（`rolls: []`），C# 还要抽 `[1,1000]`，`TapeException RNG_OVERRUN` | C# 侧修（rng 次序类，批 4 的 Tape 化也会撞） | 批 3 P2 实测 |
+| ~~KG-3~~ **已合上（2026-09-19 同日，d0dd3ca：千分率 ×2^层数，加 event:abnormal_double）** · 【异常增殖】的翻倍 C# 侧没实现** —— `d.proliferate_chance` 全是 GD 的一半（500 vs 1000、1500 vs 3000），六邻一格没转 | C# 侧修 | 批 3 P2 实测 |
+| ~~KG-4~~ **已合上（2026-09-19 同日，d0dd3ca：免疫占格不转、标记留着，`ossify` 加 immune_standing_keeps_mark）** · E-硬化「到期回合免疫站在格上不转固化」C# 侧缺** —— GD 不转、标记留着（changed 空），C# 照转不误（多出 `tiles@0,0.tissue=2` + `ossify_at=0`）。云端 PRD 2026-09-10 加的条件。连累 `t_batch2_rules` 16121 / 16124 / 16125 三条（第 4 回合还没到期 / 第 5 回合转固化 / 转化后标记清掉）整段不进仓库 | C# 侧补条件 | 批 3 P2 实测 |
+| ~~KG-5~~ **已合上（2026-09-19 同日，d0dd3ca：C# loader 缺省 camp_pos (0,0)、dump/minify 省掉 "0,0"，`resolve_camping` 加 camp:full_round）** · `camp_pos` 的 `{q,r}` 形状两侧对不上** —— C# 报「`changed` 里的 `$.cells[0].camp_pos.q` 在 pre / post 上一个字段都命不中」（GD 侧同一条绿）。envelope 形状差，不是规则差。连累 `resolve_camping` 的「蹲满一回合净化完成 / +1 抗原记忆 / 标记随净化取消」三条 | §0.6.1 补一条字面口径 | 批 3 P2 实测 |
 | **KG-6 · 骨髓 / 核心格的 `store` / `cards` 落点** —— GD 的整盘 dump 在骨髓格上写了 `store`，C# `WorldLoader` 抛「`store` 是代谢核心那类的存量、`cards` 只有骨髓格有」。连累 `erosion` / `proliferate` 的 `necrosis_cleared_on_flip` 两档 | §0.6.1 补一条字面口径 | 批 3 P2 实测 |
 | **KG-7 · 盘外细胞 (5,5) 的口径** —— `t_card_mods` ⑩段把癌细胞摆在半径 6 的棋盘外，GD 容得下、C# `WorldLoader` 不收。连累 `decay` 的 `event:suppressed` / `event:expired_resumes` 两档 | 要么原测试挪进盘内，要么两侧统一口径 | 批 3 P2 实测 |
-| **KG-8 · `differentiated` 由哪一侧现算（闸二 2b 红，按 C-3 最要紧）** —— GD `cw_case_loader.gd:_differentiated_of` 要 `cell["differentiated"] == true`，C# 按细胞 `type` 现算；一只 `differentiated=false` 的树突细胞 GD 算 0 种、C# 算 1 种（`$[state][g][differentiated]` 条数 0 → 1）。既有 156 条用例里没有这种细胞，以前没露出来 | **等 Kevin / 主会话裁**；裁完 `expire_marks` + `tick_chemo_track` 当场从 deferred 转 required（+4 条用例、+2 行） | 批 3 P2 实测 |
+| ~~KG-8~~ **已合上（2026-09-19 同日，d0dd3ca：C# 编码器 g.differentiated 按旗标现算（与 GD loader 同口径），`expire_marks` / `tick_chemo_track` 转 required）** · `differentiated` 由哪一侧现算（闸二 2b 红，按 C-3 最要紧）** —— GD `cw_case_loader.gd:_differentiated_of` 要 `cell["differentiated"] == true`，C# 按细胞 `type` 现算；一只 `differentiated=false` 的树突细胞 GD 算 0 种、C# 算 1 种（`$[state][g][differentiated]` 条数 0 → 1）。既有 156 条用例里没有这种细胞，以前没露出来 | **等 Kevin / 主会话裁**；裁完 `expire_marks` + `tick_chemo_track` 当场从 deferred 转 required（+4 条用例、+2 行） | 批 3 P2 实测 |
 | **`pressure` 的护盾三条**（首次闸门已烧 / 盾完全吸收 / 压迫吃掉这面盾）—— 三条都要 `cells[].mods` | **批 5a**（setup_ops 的 `mods` 路由已开，重新分诊） | 批 3 评委 missing |
 | **`proliferate` 的固化块计数四条**（两个相邻块各一格固化 5305 / 固化在块深处 5309 / 同一块只算一次 5323 / 守护半径恰为 3 13873）—— 前三条的主语是 `proliferate_chance(t)` 的**数值**、第四条是 `_watched(pos)` 的布尔，都不是 `_proliferate` 这一步的 delta | 归 `proliferate_chance` scalar 探针那一档（批 2 补） | 批 3 评委 missing |
 | **`tick_necrosis` 认领的两条 check**（`t_necrosis::坏死一过，两种格子照常攒` / `坏死一过，血管照常把人送到另一端`）—— 这两句断的是两次 `_tick_necrosis` **之后**由 `_tissue_production()` / `_vessel_teleport()` 产生的结果；批 3 的 4 条用例只钉倒计时本身（necrosis 2→1 / 1→0），按「covers 指不到就不认领」`covers` 留空。全文七处 `_tick_necrosis` 调用点逐条查过，没有任何一条 check 单独断言坏死计数器 | 随 `tissue_production` / `vessel_teleport` 那批迁 | 批 3 评委 conflicts #5 |

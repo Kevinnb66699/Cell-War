@@ -1,0 +1,105 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "expire_marks/t_prd_online_0907/000",
+    "op": "expire_marks",
+    "covers": [
+      "t_prd_online_0907::标记当回合的结算不摘"
+    ],
+    "source": "headless_test.gd:t_prd_online_0907 L5548；施加标记那一回合的 E 阶段结算不摘。KG-8（2026-09-19 合上）：盘面上那只 differentiated=false 的树突，GD 按旗标算 0 种、C# 原来按种类算 1 种（闸二 2b 红），C# 编码器改成按旗标",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 150,
+          "seat": 0,
+          "type": "Dendritic"
+        },
+        {
+          "at": "1,0",
+          "energy": 100,
+          "mark_left": 1,
+          "mark_round": 2,
+          "marked": true,
+          "seat": 1,
+          "type": "SmallCellLung"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "SmallCellLung",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "round": 2
+    },
+    "args": {},
+    "rolls": [],
+    "expect": {
+      "changed": {},
+      "ignore": [],
+      "kind": "delta"
+    },
+    "harvested_from": "headless_test.gd:t_prd_online_0907",
+    "status": "OK"
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "expire_marks/t_prd_online_0907/001",
+    "op": "expire_marks",
+    "covers": [
+      "t_prd_online_0907::第二次世界回合结算：标记到期移除"
+    ],
+    "source": "headless_test.gd:t_prd_online_0907 L5551；第二次世界回合结算标记到期移除（mark_left 归 0）。同 KG-8 盘面",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 150,
+          "seat": 0,
+          "type": "Dendritic"
+        },
+        {
+          "at": "1,0",
+          "energy": 100,
+          "mark_left": 1,
+          "mark_round": 2,
+          "marked": true,
+          "seat": 1,
+          "type": "SmallCellLung"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "SmallCellLung",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "round": 3
+    },
+    "args": {},
+    "rolls": [],
+    "expect": {
+      "changed": {
+        "$.cells[1].mark_left": 0,
+        "$.cells[1].marked": false
+      },
+      "ignore": [],
+      "kind": "delta"
+    },
+    "harvested_from": "headless_test.gd:t_prd_online_0907",
+    "status": "OK"
+  }
+]

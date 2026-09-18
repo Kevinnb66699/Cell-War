@@ -347,7 +347,9 @@
     "note": "批 3 收到两档：默认（平方根）公式与【GLUT1高表达】。线性对照档与【瓦伯格】110%（t_anaerobic_round 001 / 002）是 KG-1 —— world.tuning 写了 anaerobic_block_coef=0 与 anaerobic_floor=0（两个都是 A′/A 档），C# 侧算出来的却是默认档的数，两个旋钮没生效；k 系数四细胞档（003）撞 B10（细胞写在席位 2/3、对局只有 2 席，两侧都装不回去）。三档逐条记 COVERAGE.md 空档",
     "boundaries": [
       { "tag": "formula:sqrt_default", "cases": "^anaerobic/t_anaerobic_round/000$" },
-      { "tag": "skill:glut1", "cases": "^anaerobic/t_card_perms/005$" }
+      { "tag": "skill:glut1", "cases": "^anaerobic/t_card_perms/005$" },
+      { "tag": "formula:linear_ref", "cases": "^anaerobic/t_anaerobic_round/001$" },
+      { "tag": "warburg:sclc", "cases": "^anaerobic/t_anaerobic_round/002$" }
     ]
   },
   {
@@ -396,7 +398,9 @@
       { "tag": "solid_in_block:0_and_1", "cases": "^proliferate/t_proliferate_tiers/000$" },
       { "tag": "solid_in_block:2", "cases": "^proliferate/t_proliferate_tiers/001$" },
       { "tag": "per_solid:0", "cases": "^proliferate/t_proliferate_tiers/002$" },
-      { "tag": "watch:inside_and_outside", "cases": "^proliferate/t_card_perms/009$" }
+      { "tag": "watch:inside_and_outside", "cases": "^proliferate/t_card_perms/009$" },
+      { "tag": "event:proliferate_suppressed", "cases": "^proliferate/t_ev_proliferate/000$" },
+      { "tag": "event:abnormal_double", "cases": "^proliferate/t_ev_proliferate/002$" }
     ]
   },
   {
@@ -425,7 +429,8 @@
     "boundaries": [
       { "tag": "camp:not_enough", "cases": "^resolve_camping/t_batch2_rules/046$" },
       { "tag": "camp:already_solid", "cases": "^resolve_camping/t_batch2_rules/051$" },
-      { "tag": "camp:e_phase_timing", "cases": "^resolve_camping/t_prd_online_0907/" }
+      { "tag": "camp:e_phase_timing", "cases": "^resolve_camping/t_prd_online_0907/" },
+      { "tag": "camp:full_round", "cases": "^resolve_camping/t_batch2_rules/042$" }
     ]
   },
   {
@@ -471,7 +476,8 @@
     "note": "B4 之后才收得到（六条断言全在 `t_batch2_rules` 的 bare_game() 段上）。键本身没问题（`tile.ossify_at` 在 12 键表里）。另四条收不到：到期回合免疫站在格上不转固化那条是 KG-4（云端 PRD 2026-09-10 给 E-硬化加的条件，C# 侧缺）；第 4 回合还没到期 / 第 5 回合转固化 / 转化后标记清掉三条落在同一批草稿上、与 KG-4 同盘面 —— 记 COVERAGE.md 空档",
     "boundaries": [
       { "tag": "already_purified", "cases": "^ossify/t_batch2_rules/043$" },
-      { "tag": "left_then_flip", "cases": "^ossify/t_batch2_rules/050$" }
+      { "tag": "left_then_flip", "cases": "^ossify/t_batch2_rules/050$" },
+      { "tag": "immune_standing_keeps_mark", "cases": "^ossify/t_batch2_rules/048$" }
     ]
   },
   {
@@ -549,11 +555,11 @@
     "gd": "cw_world.gd:_tick_chemo_track", "gd_module": "CWWorld",
     "cs": "BoardRules.TickChemoTrack",
     "args": [], "rng": false,
-    "status": "OK", "cases": "deferred",
+    "status": "OK", "cases": "required",
     "note": "批 3 零用例（KG-8）：两条草稿（chemo_track.left 2→1 与整条消失）两侧 delta 都绿，但闸二 2b（PreParityTests）红 —— $[state][g][differentiated] 条数 0 → 1：GD `cw_case_loader.gd:_differentiated_of` 要 cell[\"differentiated\"]==true，C# 按细胞 type 现算，盘面上那只 differentiated=false 的树突细胞两侧算出来不一样。裁决定哪一侧改之后当场转 required。另：`chemo_track` 的 `cid` 写席位，两侧 loader 都解析成「该席唯一的活细胞」—— 该席 0 只或 ≥2 只活细胞 ⇒ UNLOADABLE（§0.6.1 第 1 条）",
     "boundaries": [
-      { "tag": "ticks", "cases": "^tick_chemo_track/ticks" },
-      { "tag": "expires", "cases": "^tick_chemo_track/expires" }
+      { "tag": "ticks", "cases": "^tick_chemo_track/t_effector_responses/000$" },
+      { "tag": "expires", "cases": "^tick_chemo_track/t_effector_responses/001$" }
     ]
   },
   {
@@ -562,11 +568,11 @@
     "gd": "cw_world.gd:_expire_marks", "gd_module": "CWWorld",
     "cs": "BoardRules.ExpireMarks",
     "args": [], "rng": false,
-    "status": "OK", "cases": "deferred",
+    "status": "OK", "cases": "required",
     "note": "批 3 零用例（KG-8）：B4 之后前两条断言（标记当回合的结算不摘 / 第二次世界回合结算移除）收得到、两侧 delta 也绿，但闸二 2b 红（同 tick_chemo_track 的 $[state][g][differentiated] 条数差）；第三条（没记施加回合的标记按本回合算）撞 B9（loose 与 cc 同属席位 1）。KG-8 裁完前两条原样放回、当场转 required",
     "boundaries": [
-      { "tag": "first_round", "cases": "^expire_marks/first_round" },
-      { "tag": "second_round", "cases": "^expire_marks/second_round" }
+      { "tag": "first_round", "cases": "^expire_marks/t_prd_online_0907/000$" },
+      { "tag": "second_round", "cases": "^expire_marks/t_prd_online_0907/001$" }
     ]
   },
   {

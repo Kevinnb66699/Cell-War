@@ -99,5 +99,55 @@
       },
       "ignore": []
     }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "ossify/t_batch2_rules/048",
+    "op": "ossify",
+    "covers": [
+      "t_batch2_rules::到期回合站上去：本回合不转固化，标记留着"
+    ],
+    "source": "headless_test.gd:t_batch2_rules L16163；【骨样硬化】到期那一刻被免疫细胞占着不转固化、标记留着（云端 PRD 2026-09-10）。KG-4（2026-09-19 合上）：C# 原来照转不误",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "camp_round": 7,
+          "energy": 200,
+          "seat": 0,
+          "type": "ImmuneBasic"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "memory": 1,
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "round": 7,
+      "tiles": [
+        {
+          "at": "0,0",
+          "ossify_at": 7,
+          "state": "cancer"
+        }
+      ]
+    },
+    "args": {},
+    "rolls": [],
+    "expect": {
+      "changed": {},
+      "ignore": [],
+      "kind": "delta"
+    },
+    "harvested_from": "headless_test.gd:t_batch2_rules",
+    "status": "OK"
   }
 ]

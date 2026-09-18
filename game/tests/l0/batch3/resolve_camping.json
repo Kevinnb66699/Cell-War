@@ -195,5 +195,70 @@
       },
       "ignore": []
     }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "resolve_camping/t_batch2_rules/042",
+    "op": "resolve_camping",
+    "covers": [
+      "t_batch2_rules::下一回合 S 阶段：蹲满一回合，净化完成",
+      "t_batch2_rules::净化照常 +1 抗原记忆",
+      "t_batch2_rules::标记随净化取消、蹲守清零"
+    ],
+    "source": "headless_test.gd:t_batch2_rules L16140-16143；蹲满一回合：格子净化、+1 抗原记忆、ossify_at 清零、camp_round 回 -1。KG-5（2026-09-19 合上）：GD dump 把缺省 camp_pos (0,0) 省掉、C# loader 缺省 null ⇒ envelope 一侧 {0,0} 一侧 null；C# 缺省改成 (0,0)",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "camp_round": 3,
+          "energy": 200,
+          "seat": 0,
+          "type": "ImmuneBasic"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "round": 4,
+      "tiles": [
+        {
+          "at": "0,0",
+          "ossify_at": 5,
+          "state": "cancer"
+        }
+      ]
+    },
+    "args": {},
+    "rolls": [],
+    "expect": {
+      "changed": {
+        "$.board.tiles@-1,0.d.proliferate_chance": 0,
+        "$.board.tiles@-1,1.d.proliferate_chance": 0,
+        "$.board.tiles@0,-1.d.proliferate_chance": 0,
+        "$.board.tiles@0,0.ossify_at": 0,
+        "$.board.tiles@0,0.tissue": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.d.proliferate_chance": 0,
+        "$.cells[0].camp_pos": null,
+        "$.cells[0].camp_pos.q": null,
+        "$.cells[0].camp_pos.r": null,
+        "$.cells[0].camp_round": -1,
+        "$.g.memory": 1
+      },
+      "ignore": [],
+      "kind": "delta"
+    },
+    "harvested_from": "headless_test.gd:t_batch2_rules",
+    "status": "OK"
   }
 ]

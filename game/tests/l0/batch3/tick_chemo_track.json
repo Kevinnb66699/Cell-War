@@ -1,0 +1,154 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "tick_chemo_track/t_effector_responses/000",
+    "op": "tick_chemo_track",
+    "covers": [],
+    "source": "headless_test.gd:t_effector_responses L5127-5129 的第一次 _tick_chemo_track：chemo_track.left 2 → 1（该段只在两次之后断言消散，倒计时本身没有单独 check）。同 KG-8 盘面",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "effector_used": true,
+          "energy": 100,
+          "seat": 0,
+          "type": "Dendritic"
+        },
+        {
+          "alive": false,
+          "at": "4,0",
+          "energy": 0,
+          "mark_left": 1,
+          "mark_round": 1,
+          "marked": true,
+          "seat": 1,
+          "type": "SmallCellLung"
+        }
+      ],
+      "chemo_track": {
+        "at": "4,0",
+        "cid": -1,
+        "left": 2
+      },
+      "effector_round": 1,
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "level": "X",
+          "memory": 80,
+          "seat": 0
+        },
+        {
+          "cancer_type": "SmallCellLung",
+          "faction": "cancer",
+          "seat": 1
+        },
+        {
+          "faction": "immune",
+          "level": "X",
+          "memory": 80,
+          "seat": 2
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 3
+        }
+      ],
+      "tuning": {
+        "world_events_on": 1
+      }
+    },
+    "args": {},
+    "rolls": [],
+    "expect": {
+      "changed": {
+        "$.g.chemo_track.left": 1
+      },
+      "ignore": [],
+      "kind": "delta"
+    },
+    "harvested_from": "headless_test.gd:t_effector_responses",
+    "status": "OK"
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "tick_chemo_track/t_effector_responses/001",
+    "op": "tick_chemo_track",
+    "covers": [
+      "t_effector_responses::持续"
+    ],
+    "source": "headless_test.gd:t_effector_responses L5129；持续 HUNT_CHEMO_ROUNDS = 2 个世界回合后追踪源整条消散。同 KG-8 盘面",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "effector_used": true,
+          "energy": 100,
+          "seat": 0,
+          "type": "Dendritic"
+        },
+        {
+          "alive": false,
+          "at": "4,0",
+          "energy": 0,
+          "mark_left": 1,
+          "mark_round": 1,
+          "marked": true,
+          "seat": 1,
+          "type": "SmallCellLung"
+        }
+      ],
+      "chemo_track": {
+        "at": "4,0",
+        "cid": -1,
+        "left": 1
+      },
+      "effector_round": 1,
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "level": "X",
+          "memory": 80,
+          "seat": 0
+        },
+        {
+          "cancer_type": "SmallCellLung",
+          "faction": "cancer",
+          "seat": 1
+        },
+        {
+          "faction": "immune",
+          "level": "X",
+          "memory": 80,
+          "seat": 2
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 3
+        }
+      ],
+      "tuning": {
+        "world_events_on": 1
+      }
+    },
+    "args": {},
+    "rolls": [],
+    "expect": {
+      "changed": {
+        "$.g.chemo_track": null,
+        "$.g.chemo_track.at.q": null,
+        "$.g.chemo_track.at.r": null,
+        "$.g.chemo_track.cid": null,
+        "$.g.chemo_track.left": null
+      },
+      "ignore": [],
+      "kind": "delta"
+    },
+    "harvested_from": "headless_test.gd:t_effector_responses",
+    "status": "OK"
+  }
+]

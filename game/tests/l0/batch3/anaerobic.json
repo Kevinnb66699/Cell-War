@@ -139,5 +139,148 @@
       },
       "ignore": []
     }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "anaerobic/t_anaerobic_round/001",
+    "op": "anaerobic",
+    "covers": [
+      "t_anaerobic_round::线性档：池 2.2 / 2 细胞 = 各 1.1"
+    ],
+    "source": "headless_test.gd:t_anaerobic_round L705；`anaerobic_block_coef = 0` = 09-04 之前的线性对照档（每癌组织 0.4 / 每固化 1.0，均分不兜底）。KG-1（2026-09-19 合上）：C# 先查按人数分档表、旋钮永远够不着，改成 -1 按人数 / >0 覆盖 / 0 线性。单位：十分能量",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 0,
+          "seat": 0,
+          "type": "Melanoma"
+        },
+        {
+          "at": "1,0",
+          "energy": 0,
+          "seat": 1,
+          "type": "Melanoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Melanoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "2,0",
+          "state": "cancer"
+        },
+        {
+          "at": "3,0",
+          "state": "solid"
+        }
+      ],
+      "tuning": {
+        "anaerobic_block_coef": 0,
+        "anaerobic_floor": 0
+      }
+    },
+    "args": {},
+    "rolls": [],
+    "expect": {
+      "changed": {
+        "$.cells[0].energy": 11,
+        "$.cells[1].energy": 11
+      },
+      "ignore": [],
+      "kind": "delta"
+    },
+    "harvested_from": "headless_test.gd:t_anaerobic_round",
+    "status": "OK"
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "anaerobic/t_anaerobic_round/002",
+    "op": "anaerobic",
+    "covers": [
+      "t_anaerobic_round::小细胞肺癌 1.1 → 1.3（110",
+      "t_anaerobic_round::同块的其他癌细胞不受影响"
+    ],
+    "source": "headless_test.gd:t_anaerobic_round L712-713；【瓦伯格超速糖酵解】110% 向上取整到十分位，只加在小细胞肺癌自己头上。同 KG-1 的线性对照档盘面。单位：十分能量",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 0,
+          "seat": 0,
+          "type": "SmallCellLung"
+        },
+        {
+          "at": "1,0",
+          "energy": 0,
+          "seat": 1,
+          "type": "Melanoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Melanoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "2,0",
+          "state": "cancer"
+        },
+        {
+          "at": "3,0",
+          "state": "solid"
+        }
+      ],
+      "tuning": {
+        "anaerobic_block_coef": 0,
+        "anaerobic_floor": 0
+      }
+    },
+    "args": {},
+    "rolls": [],
+    "expect": {
+      "changed": {
+        "$.cells[0].energy": 13,
+        "$.cells[1].energy": 11
+      },
+      "ignore": [],
+      "kind": "delta"
+    },
+    "harvested_from": "headless_test.gd:t_anaerobic_round",
+    "status": "OK"
   }
 ]
