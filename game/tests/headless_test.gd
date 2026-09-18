@@ -20585,8 +20585,12 @@ func _scan_preload_tests(dir: String, hits: Array[String]) -> void:
 ## 无头视口不渲染，所以这里验的全是状态与数据：集合成员、alpha、格网身份、环序。
 func t_board_active_tiles() -> void:
 	print("[活跃格集合与浮现]")
-	var bd := make_board()
+	## 不走 make_board()：它手动调一次 _ready()，进树时引擎还会再调一次 —— 若这条测试排在第一帧之前跑，
+	## 第二次 _ready 会在补间已排上之后才到，_grid() 重铺、整盘重新露出（单独 --only 跑就红）。进树后等一帧让引擎的 _ready 先跑完。
+	var bd: Node2D = load("res://scenes/Board.tscn").instantiate()
+	check(bd.has_method("hex_at"), "Board.tscn 的脚本解析通过")
 	root.add_child(bd)          ## 浮现补间只在树里跑（set_active_tiles 里那道 is_inside_tree 闸）
+	await process_frame
 	var board_script: GDScript = bd.get_script()
 	var children_before := bd.get_child_count()
 	var center_node: Sprite2D = bd.map[bd.axial_to_rc(Vector2i.ZERO)]["instance"]
