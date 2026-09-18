@@ -157,7 +157,7 @@ func _run_all() -> void:
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial,
 		t_entry_smoke_replay, t_entry_smoke_online,
-		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides,
+		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides, t_kernel_attach_engine,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
 		t_rec_depth, t_rec_shape, t_rec_contract_only, t_rec_transparent,
 		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
@@ -20489,6 +20489,43 @@ func t_kernel_parity() -> void:
 
 
 # ---- 五条入口冒烟（规格 A-10 ⑤ ①～⑤ / §0.1 #2）----
+func t_kernel_attach_engine() -> void:
+	print("[内核句柄·attach_engine 转交]")
+	## 树搜索档：CWUIBridge 挂一只 CWMCTSBridge，引擎要经 attach_engine 一并转交（match.gd「只挂不喂」）。
+	## 批 1 落地后 CWKernelInProc 一直是无条件 d.game = game，MCTS 桥的 game 恒 null —— 第一问就撞空。
+	var b := CWUIBridge.new()
+	b.hotseat = false
+	b.human_pids = []
+	b.enabled = false
+	b.use_threading = false
+	b.delay_ms = 0
+	var tree_ai := CWMCTSBridge.new()
+	tree_ai.use_threading = false
+	tree_ai.delay_ms = 0
+	b.mcts = tree_ai
+	var k := CWKernelInProc.new()
+	check(k.open({ "factions": CWData.FACTION_ORDER[4], "seed": 9, "decider": b, "step_drive": true }), "open 成功")
+	check(k.game != null and b.game == k.game, "open：decider 有 attach_engine 就走它（CWUIBridge.game 拿到引擎）")
+	check(tree_ai.game == k.game, "open：挂在旁边的 MCTS 桥同一次拿到引擎（漏了这条，树搜索档第一问 game.snapshot() 撞 null）")
+	var plain = load("res://tests/kernel_slow_decider.gd").new()
+	k.set_decider(plain)
+	check(plain.game == k.game, "set_decider：没有 attach_engine 的纯 decider 退回 d.game = g")
+	var b2 := CWUIBridge.new()
+	b2.hotseat = false
+	b2.human_pids = []
+	b2.enabled = false
+	b2.use_threading = false
+	b2.delay_ms = 0
+	var tree2 := CWMCTSBridge.new()
+	tree2.use_threading = false
+	tree2.delay_ms = 0
+	b2.mcts = tree2
+	k.set_decider(b2)
+	check(b2.game == k.game and tree2.game == k.game, "set_decider：换上的界面桥与它的 MCTS 桥都拿到引擎")
+	k.close()
+	check(b2.game == null and tree2.game == null, "close：经 attach_engine(null) 一并摘掉，不留悬空引擎")
+
+
 func t_entry_smoke_local() -> void:
 	print("[入口冒烟·本地 / 读档]")
 	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()

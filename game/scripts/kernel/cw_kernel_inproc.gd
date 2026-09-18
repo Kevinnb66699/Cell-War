@@ -73,7 +73,7 @@ func open(cfg: Dictionary) -> bool:
 	if cfg.has("deciders"):
 		deciders.merge(cfg["deciders"], true)
 	for d in deciders.values():
-		d.game = game
+		_attach_engine(d, game)
 	## ① 收养且没有消费者（服务器 adopt 模式）：不装 CWKernelBridge、不连 log_line —— 演出仍由原桥（CWNetBridge）同步广播，
 	## 句柄只管 observe / query / save。收养且有消费者（教程）照常装桥：询问与演出都要经队列
 	if not adopted or has_consumer:
@@ -109,7 +109,7 @@ func close() -> void:
 			game.log_line.disconnect(_on_log_line)
 	else:
 		for d in deciders.values():
-			d.game = null
+			_attach_engine(d, null)
 		game.dispose()
 	game = null
 	bridge = null
@@ -315,13 +315,24 @@ func step_once() -> bool:
 	return true
 
 
+## decider 拿真引擎的口子：有 attach_engine 的桥（CWUIBridge，它还要把引擎转交给挂在旁边的 MCTS 桥）走鸭子方法，
+## 纯 AI 桥 / 测试 decider 退回 d.game = g。批 1 步 6+8 把 match.gd 的 bridge.game = game 换成「只挂不喂」时
+## 这里漏了转调：树搜索档 mcts.game 恒 null，第一问 mcts_bridge.gd:_mcts_pick 首行 game.snapshot() 撞空
+##（2026-09-19 批 2 方案调研抓到；t_kernel_attach_engine 钉住 open / set_decider / close 三处）。
+static func _attach_engine(d, g) -> void:
+	if d.has_method("attach_engine"):
+		d.attach_engine(g)
+	else:
+		d.game = g
+
+
 ## ⑤ 中途换桥（回放 Player.attach）：deciders 只在 open 里读一次，这里补上换的口子
 func set_decider(b: Object) -> void:
 	if game == null or b == null:
 		return
 	for pid in game.order:
 		deciders[pid] = b
-	b.game = game
+	_attach_engine(b, game)
 
 
 # ---- 权威侧 ----
