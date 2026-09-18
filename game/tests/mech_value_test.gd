@@ -43,6 +43,7 @@ func _run() -> void:
 	t_mech_infra_savings()
 	t_mech_intent_eval()
 	t_mech_intent_select()
+	t_mech_bridge()
 	print("\n%d 项检查，%d 失败" % [checks, fails])
 	quit(1 if fails > 0 else 0)
 
@@ -656,6 +657,57 @@ func t_mech_intent_select() -> void:
 		"best 是最大癌方供给（%d）" % max_supply)
 	check(g.state_hash() == hash_before, "选择后真局面复原")
 	g.dispose()
+
+
+## —— 意图 AI 桥冒烟与确定性 ——
+## MechBridge：action 用 best_by 选意图（癌/免各按自己的 scorer），其余回落启发式。
+## 验证：癌方意图 AI 整局跑完、双方意图 AI 整局跑完、同种子同配置终局 state_hash 相同。
+func t_mech_bridge() -> void:
+	print("[桥·意图 AI 冒烟与确定性]")
+	## 1. 癌方 MechBridge / 免疫启发式：整局跑完
+	var g := CWGame.new()
+	g.init(CWData.FACTION_ORDER[4], 48001)
+	g.sim_quiet = true
+	for pid in g.order:
+		var b: CWBridge
+		if g.player(pid)["faction"] == CWData.Faction.CANCER:
+			b = MechBridge.new()
+		else:
+			b = CWHeuristicBridge.new()
+		b.game = g
+		g.bridges[pid] = b
+	await g.run_game()
+	check(g.winner >= 0, "癌方意图 AI 整局跑完（winner=%d round=%d）" % [g.winner, g.round_no])
+	g.dispose()
+	## 2. 双方都 MechBridge：整局跑完
+	var g2 := CWGame.new()
+	g2.init(CWData.FACTION_ORDER[4], 48001)
+	g2.sim_quiet = true
+	for pid in g2.order:
+		var b2: CWBridge = MechBridge.new()
+		b2.game = g2
+		g2.bridges[pid] = b2
+	await g2.run_game()
+	check(g2.winner >= 0, "双方意图 AI 整局跑完（winner=%d round=%d）" % [g2.winner, g2.round_no])
+	g2.dispose()
+	## 3. 确定性：同种子同配置 → 终局 state_hash 相同
+	var h1: String = await _run_mech_hash(48002)
+	var h2: String = await _run_mech_hash(48002)
+	check(h1 == h2, "同种子同配置终局 state_hash 相同")
+
+
+func _run_mech_hash(seed_value: int) -> String:
+	var g := CWGame.new()
+	g.init(CWData.FACTION_ORDER[4], seed_value)
+	g.sim_quiet = true
+	for pid in g.order:
+		var b: CWBridge = MechBridge.new()
+		b.game = g
+		g.bridges[pid] = b
+	await g.run_game()
+	var h: String = g.state_hash()
+	g.dispose()
+	return h
 
 
 ## —— 测试助手：rig_rng 钉骰 ——

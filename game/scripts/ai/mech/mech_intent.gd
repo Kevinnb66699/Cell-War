@@ -78,13 +78,15 @@ func _read_metrics(g: CWGame, pid: int) -> Dictionary:
 
 ## —— 意图候选生成与选择（意图级规划闭环）——
 
-## 生成当前行动方的 1 步迁移候选路径（从 pending 的合法 move 目标）。
+## 生成当前行动方的迁移候选路径（从 pending 的合法 move 目标）。
+## **第一项永远是「不动」（空路径）**：评估器必须能说「这个局面下任何迁移都不如站着」，
+## 让桥只在「动了更好」时接管，否则回落启发式（攻击/卡牌/结束回合交给它）。
 ## 返回 Array[Array[Vector2i]]。后续加 2 步 / 技能 / 卡牌意图时在这里扩展。
 func candidates(g: CWGame, pid: int) -> Array:
 	var req: Dictionary = await g.pending()
 	if req.is_empty() or int(req["pid"]) != pid:
 		return []
-	var out: Array = []
+	var out: Array = [[]]   ## 不动基线
 	for opt in req["options"]:
 		if opt["data"].get("act", "") == "move":
 			out.append([opt["data"]["to"]])
