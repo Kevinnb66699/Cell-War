@@ -69,6 +69,12 @@ public class SemanticKeyTests
         // 【连续吞噬】的连锁带 tag
         Assert.Equal("k=free_move|g=连续吞噬|to=1,0", SemanticKey.Of(s, new ChainMoveDecision(0, immune.Id, new HexPosition(1, 0, -1))));
         Assert.Equal("k=free_move|g=连续吞噬|stop=1", SemanticKey.Of(s, new StopChainDecision(0, immune.Id)));
+
+        // 风暴的「选 1 个免疫细胞」：tag 从挂起态里读，`cid` 是席位、`to` 在前。
+        // 真样例取自树突建源夹具第 238 步（trace_4p_chemo_4242）的 GD 选项表。
+        var storm = s.WithTurn(s.Turn.WithPendingPickCell(0, "炎症风暴", immune.Id));
+        Assert.Equal($"k=pick_cell|g=炎症风暴|to={immune.Position.Q},{immune.Position.R}|cid=0",
+            SemanticKey.Of(storm, new PickCellDecision(0, immune.Id, immune.Id)));
     }
 
     /// <summary>

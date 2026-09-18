@@ -252,21 +252,8 @@ internal static class CardRules
         // 【IFN-γ高峰】：技能卡，圆心 = 所选免疫细胞（可以是自己、不限距离），选项层用 IfnHasEffect 把「打了什么都不发生」的目标挡掉
         ["IFN-γ高峰"] = (s, cell, rng, target, targetCell) =>
             targetCell is { } tid && IfnPeakTargets(s, cell).Contains(tid) ? IfnBurst(s, s.Cells[tid].Position, "【IFN-γ高峰】") : s,
-        ["免疫风暴"] = (s, cell, rng, target, targetCell) =>
-        {
-            Stage.Evt(s, "免疫风暴", "选择 1 个免疫细胞", cell.Position);   // GD cw_card_fx.gd:705（GD 在问之前报，C# 的目标已选好）
-            if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.Faction == Faction.Immune)
-            {
-                var victims = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(t.Position) <= 2).ToArray();
-                Stage.Emit(Stage.Fx(s, "card_storm", ("at", t.Position), ("tiles", Tiles(s).Where(x => x.Position.DistanceTo(t.Position) <= 2).Select(x => x.Position).ToArray())));   // GD cw_card_fx.gd:711
-                foreach (var c in victims)
-                    s = Damage(s, c.Id, 10, LossSource.ImmuneEffect);   // 免疫风暴：1.0 能量（原 1 = 0.1）
-                var purged = Tiles(s).Where(x => x.State == TissueState.Cancer && s.GetCellAt(x.Position) is not { IsAlive: true, Faction: Faction.Cancer } && x.Position.DistanceTo(t.Position) <= 2).ToArray();   // GD storm_immune_tiles：无**癌细胞**占据（免疫站着的照转）
-                foreach (var tile in purged) s = ToHealthy(s, tile.Position);   // GD `to_healthy`
-                Stage.Evt(s, "免疫风暴", $"{victims.Length} 敌 -1.0 · {purged.Length} 格转健康", t.Position);   // GD cw_card_fx.gd:720
-            }
-            return s;
-        },
+        // 【免疫风暴】：抽到即发的事件卡，中心由玩家选（见 AskStormCenter / ResolvePicked）
+        ["免疫风暴"] = (s, cell, rng, target, targetCell) => AskStormCenter(s, cell, "免疫风暴"),
         // 【免疫增援】：队友只认**别的席位**（GD `t.pid != cell.pid`），落点在结算时刻重算 —— 与选项层同一个函数、同一个顺序，
         // 抽一发 NextInt(|候选|)（候选恰好 1 格时带子零消耗）；落地走 EnterTile（骨髓有卡会再抽一张）
         ["免疫增援"] = (s, cell, rng, target, targetCell) =>
@@ -351,22 +338,8 @@ internal static class CardRules
             Stage.Evt(s, "克隆增殖", $"{picked.Length} 格转癌组织", cell.Position);   // GD cw_card_fx.gd:550
             return s;
         },
-        ["炎症风暴"] = (s, cell, rng, target, targetCell) =>
-        {
-            Stage.Evt(s, "炎症风暴", "选择 1 个免疫细胞", cell.Position);   // GD cw_card_fx.gd:685
-            if (targetCell is { } tid && s.Cells.TryGetValue(tid, out var t) && t.IsAlive && t.Faction == Faction.Immune)
-            {
-                var tiles = t.Position.GetNeighbors()
-                    .Where(n => s.Board.Tissues.TryGetValue(n, out var x) && x.State == TissueState.Cancer && x.OccupyingCell == null)
-                    .ToArray();
-                foreach (var pick in tiles) s = ToHealthy(s, pick);   // GD `to_healthy`
-                var victims = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(t.Position) <= 1).ToArray();
-                foreach (var c in victims)
-                    s = Damage(s, c.Id, 5, LossSource.ImmuneEffect);
-                Stage.Evt(s, "炎症风暴", $"{tiles.Length} 格转健康 · {victims.Length} 敌 -0.5", t.Position);   // GD cw_card_fx.gd:700
-            }
-            return s;
-        },
+        // 【炎症风暴】：同上，抽到即发 + 选中心
+        ["炎症风暴"] = (s, cell, rng, target, targetCell) => AskStormCenter(s, cell, "炎症风暴"),
         // 【趋化募集】/【效应细胞浸润】：抽到即走的免费连走，GD `_free_walk` 每步问一次「走哪 / 停」（`kind: free_move`, tag = 卡名）。
         // 此前 C# 做成两条「免费移动」修饰，等玩家用「移动」行动去花 —— 选项形状和 GD 完全不同（L1 2p 第 6 步就分叉在这）。
         // 挂起后由 Execute 出口的 NormalizeChemotaxis 收口：没有候选就当场摘掉（GD「没有可进入的相邻格，提前结束」不问）
@@ -446,6 +419,68 @@ internal static class CardRules
 
     /// <summary>已登记效果的卡名集合（供契约测试核对目录覆盖）。</summary>
     internal static IReadOnlyCollection<string> RegisteredNames => Registry.Keys;
+
+    // ── 风暴两张的「选 1 个免疫细胞」（GD `_pick_immune`，cw_card_fx.gd:727）────────────────
+    //
+    // 两张都是**抽到即发**的事件卡：GD 在 `draw()` 里就地 `await game.ask(kind: "pick_cell")`，
+    // 选完以那只免疫细胞为中心结算。C# 没有协程，照【代谢耦联】【基质重塑】那套拆成
+    // 「挂起 → 决策 → 结算」三拍（口径一补充口径：问答形状用最小挂起字段解决）。
+    //
+    // 2026-09-19 之前 C# 把两张写成「要 `targetCell` 才做事」的效果，而抽卡即发那条路
+    // （`DrawOne` → `Resolve`）根本不传目标 —— 效果**静默跳过**，一句询问都没有。
+
+    /// <summary>挂起「选 1 个免疫细胞」。`Stage.Evt` 发在问**之前**，对齐 GD `_evt`（cw_card_fx.gd:685 / :705）。</summary>
+    /// <remarks>
+    /// 候选为空这件事在 GD 里到不了：抽卡者本人就是免疫、必在 `living_cells(IMMUNE)` 里
+    /// （GD `_pick_immune` 的注释明写这一点；真空了 `opts[idx]` 会当场报错）。
+    /// 这里的空判是兜底 —— 不挂起、不问，效果作罢。
+    /// </remarks>
+    internal static WorldState AskStormCenter(WorldState s, Cell cell, string card)
+    {
+        Stage.Evt(s, card, "选择 1 个免疫细胞", cell.Position);
+        if (PickCellCandidates(s).Count == 0) return s;
+        return s.WithTurn(s.Turn.WithPendingPickCell(cell.OwnerSeat, card, cell.Id));
+    }
+
+    /// <summary>候选 = 所有活着的免疫细胞。**顺序不进对拍**（录制器把 opts 按码点排过、envelope 按 key 配对），这里取 id 升序只求确定性。
+    /// 问的是抽卡那一席，但选得到的是**全场**免疫细胞（也包括别人的）。</summary>
+    internal static IReadOnlyList<EntityId> PickCellCandidates(WorldState s)
+        => Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune)
+            .OrderBy(c => c.Id.Value).Select(c => c.Id).ToArray();
+
+    /// <summary>中心选定之后的结算（GD 两个 `_storm` 在 await 之后的那一段，逐字照搬）。
+    /// `chooser` 是抽到卡的那只（GD 的 `cell`）—— 今天两张都没用到它，留着是因为 GD 把它当 attacker 传给 `immune_hit_area`。</summary>
+    internal static WorldState ResolvePicked(WorldState s, string card, EntityId chooser, EntityId target)
+    {
+        if (!s.Cells.TryGetValue(target, out var t) || !t.IsAlive || t.Faction != Faction.Immune) return s;
+        _ = chooser;
+        if (card == "炎症风暴")
+        {
+            // GD storm_inflammation_tiles：**相邻**、普通癌组织、无细胞占据
+            var tiles = t.Position.GetNeighbors()
+                .Where(n => s.Board.Tissues.TryGetValue(n, out var x) && x.State == TissueState.Cancer && x.OccupyingCell == null)
+                .ToArray();
+            foreach (var pick in tiles) s = ToHealthy(s, pick);   // GD `to_healthy`
+            var victims = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(t.Position) <= 1).ToArray();
+            foreach (var c in victims)
+                s = Damage(s, c.Id, 5, LossSource.ImmuneEffect);
+            Stage.Evt(s, "炎症风暴", $"{tiles.Length} 格转健康 · {victims.Length} 敌 -0.5", t.Position);   // GD cw_card_fx.gd:700
+            return s;
+        }
+        if (card == "免疫风暴")
+        {
+            var victims = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(t.Position) <= 2).ToArray();
+            Stage.Emit(Stage.Fx(s, "card_storm", ("at", t.Position), ("tiles", Tiles(s).Where(x => x.Position.DistanceTo(t.Position) <= 2).Select(x => x.Position).ToArray())));   // GD cw_card_fx.gd:711
+            foreach (var c in victims)
+                s = Damage(s, c.Id, 10, LossSource.ImmuneEffect);   // 免疫风暴：1.0 能量（原 1 = 0.1）
+            // 净化在伤害**之后**算（GD 同序）：被打死的癌细胞腾出的格子这一发就转得掉
+            var purged = Tiles(s).Where(x => x.State == TissueState.Cancer && s.GetCellAt(x.Position) is not { IsAlive: true, Faction: Faction.Cancer } && x.Position.DistanceTo(t.Position) <= 2).ToArray();   // GD storm_immune_tiles：无**癌细胞**占据（免疫站着的照转）
+            foreach (var tile in purged) s = ToHealthy(s, tile.Position);   // GD `to_healthy`
+            Stage.Evt(s, "免疫风暴", $"{victims.Length} 敌 -1.0 · {purged.Length} 格转健康", t.Position);   // GD cw_card_fx.gd:720
+            return s;
+        }
+        return s;
+    }
 
     // ── 抽卡 / 手牌 / 突变 / 打牌 ─────────────────────────────────────
 

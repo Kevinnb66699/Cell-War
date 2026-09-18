@@ -102,6 +102,8 @@
 | **§0.6.7 四条入口**：`move_legal` / `anaerobic_pool` / `split_share` / `settle_loss` —— 09-19 Kevin 接受、C# 入口已开、两侧空壳进分派（P 16）；探针面与用例随批 0 / 1 / 2 定 | 各批的 C-2 步 1 | 拍板记录 §九 |
 | **`covers` 的内容** —— 45 条迁移用例逐条回指 `headless_test.gd` 的 `check()` 名，今天分子恒 0 | 步 15 之后**单独一次提交** | §0.6.5 第 6 条 |
 | ~~收割器碰到 stage `init` 的局~~ —— **已合上（2026-09-19 同日）**：`cw_case_loader.gd:STAGE_TO_PHASE` 把 `init` 映成 `Setup`（协议 phase 对 init / setup_place 都编成 setup，envelope 上等价）；`t_rec_*` 四条与 `harvest.gd` 首跑随之通 | —— | 开发日志 2026-09-19 步 13 条 |
+| **`chemo-move-quote`** —— 趋化源在场时 C# 自己的两条算费路径互相矛盾：`RulePolicies.QuoteMove` 的 cost 与 `MoveCostSteps` 的 rows 对不上（`trace_4p_chemo_4242` 第 250 步 `to=1,1`：GD rows [黏液污染 13→15, 趋化源 15→11]、C# [8→10, 10→7]，最终 cost 相同）；复现：把 `EnvelopeParityTests` 的 `4p_chemo_4242` 从 248 临时拧到 279，差异在第 249 / 250 / 272 / 277 / 278 步、全落在 `ask.options` 的 cost / cost_rows | **单独一条修**（批 1 移动费用之前） | 开发日志 2026-09-19 pick_cell 条 |
+| **`area-damage-batch`** —— GD `cw_game.gd:immune_hit_area` 批量提交（同一份批前状态、`damage.next_group()` 一次），C# 逐个 `Damage`；影响所有 `*_hit_area` 口径的卡（炎症风暴 / 免疫风暴 / 放疗 / 全身性免疫清除 / TNF-α）。2026-09-19 起两张风暴卡由死代码转为活路径，差异随之可达 | **批 4**（伤害管线） | 开发日志 2026-09-19 pick_cell 条 |
 
 ## 四、旋钮四档（`game/tests/contract_tune.json`，65 行 = `CWTuning` 属性全集）
 

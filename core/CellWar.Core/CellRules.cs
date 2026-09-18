@@ -619,9 +619,11 @@ internal static class CellRules
         return c.IsAlive && c.ChainLeft > 0 && ChainTargets(s, c).Count > 0 ? s : s.WithTurn(s.Turn.WithPendingChain(null));
     }
 
-    /// <summary>定殖 / 净化追出来的问答还没问完（GD 那是 `enter_tile` 里一段 await）：弃置 / 连锁 / 二选一，或者连走栈比落地前更深。</summary>
+    /// <summary>定殖 / 净化追出来的问答还没问完（GD 那是 `enter_tile` 里一段 await）：弃置 / 连锁 / 二选一 / 风暴选中心，或者连走栈比落地前更深。</summary>
     internal static bool LandBlocked(WorldState s, int walkDepthBefore)
-        => s.Turn.PendingDiscardSeat is not null || s.Turn.PendingChainCell is not null || s.Turn.PendingMutationSeat is not null || WalkDepth(s) > walkDepthBefore;
+        => s.Turn.PendingDiscardSeat is not null || s.Turn.PendingChainCell is not null || s.Turn.PendingMutationSeat is not null
+           || s.Turn.PendingPickCellSeat is not null   // 骨髓 / 记忆库那一抽抽到风暴：GD 先把中心问完才回到 enter_tile 的后半截
+           || WalkDepth(s) > walkDepthBefore;
 
     /// <summary>落地：定殖 / 净化没追出问答就当场做完后半截；追出来了就推迟（记 PendingLand），等 DecisionRouter 的出口把问答摘干净再补做。
     /// 此前 C# 一律当场做完：净化抽到的卡撑爆手牌时骨髓那张也一起抽进手（第一次弃置比 GD 多摊一张）、连锁问在骨髓抽卡之后（抽牌的等级与带子位次都不同）。</summary>

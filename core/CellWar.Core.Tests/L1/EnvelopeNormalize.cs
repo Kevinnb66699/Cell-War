@@ -62,5 +62,9 @@ internal static class EnvelopeNormalize
         return e;
     }
 
-    private static List<object?> Sorted(object? xs) => ((List<object?>)xs!).OrderBy(x => (string)x!, StringComparer.Ordinal).ToList();
+    /// <summary>排序后比（协议 §八 #1）。`hand` / `equipped` / `fx_round` 装的是字符串，`differentiated` 装的是**细胞 id**（数字）——
+    /// 所以按 `ToString()` 排，两侧同一套规则；这里要的是「比集合不比次序」，次序本身不进判据。
+    /// 2026-09-19：原写法 `(string)x` 在**只有 1 个元素**时 LINQ 根本不调 keySelector，于是一直没炸 ——
+    /// 直到树突建源夹具的水位线拧到 249 以上、`differentiated` 出现第 2 个元素（第 274 步）才当场抛 InvalidCastException。</summary>
+    private static List<object?> Sorted(object? xs) => ((List<object?>)xs!).OrderBy(x => x?.ToString(), StringComparer.Ordinal).ToList();
 }

@@ -169,6 +169,15 @@ public sealed class TurnState
     public HexPosition? PendingRemodelSecond { get; init; }
     public int PendingRemodelStep { get; init; }
 
+    /// <summary>【炎症风暴】/【免疫风暴】这类抽到即发的事件卡，先问「选 1 个免疫细胞」当风暴中心
+    /// （GD `_pick_immune`，cw_card_fx.gd:727，`kind: pick_cell` / tag = 卡名）。
+    /// 记三件事：**问谁**（抽到这张卡的那一席）、**问的是哪张卡**（结算体与语义键的 tag 都按它分）、
+    /// **发牌的那只细胞**（GD 把 `cell` 一路传给 `immune_hit_area` 当 attacker，结算时当 `cell` 用）。
+    /// 候选不存进状态：它就是「所有活着的免疫细胞」，存档恢复后 Available / Validate 现算一遍即可。</summary>
+    public int? PendingPickCellSeat { get; init; }
+    public string? PendingPickCellCard { get; init; }
+    public EntityId? PendingPickCellChooser { get; init; }
+
     /// <summary>`enter_tile` 的后半截（黏液清除 → collect_special → update_marks）被推迟了：GD 的 `enter_tile` 是一条 await 链，定殖 / 净化里追出来的问答
     /// （净化抽到的连走、撑爆手牌的弃置、【连续吞噬】的连锁、抽到【基因组不稳定】的二选一）**先问完**，才回来收 `dest` 那一格的特殊组织并刷新标记 ——
     /// 连锁把细胞挪走了也仍在 `dest` 收取（cw_actions.gd:1031 显式传 dest）。记「谁、哪一格、推迟时连走栈有多深」，出口等这些问答都摘干净再补做。</summary>
@@ -222,6 +231,9 @@ public sealed class TurnState
         PendingRemodelFirst = PendingRemodelFirst,
         PendingRemodelSecond = PendingRemodelSecond,
         PendingRemodelStep = PendingRemodelStep,
+        PendingPickCellSeat = PendingPickCellSeat,
+        PendingPickCellCard = PendingPickCellCard,
+        PendingPickCellChooser = PendingPickCellChooser,
         PendingLandCell = PendingLandCell,
         PendingLandAt = PendingLandAt,
         PendingLandWalkDepth = PendingLandWalkDepth,

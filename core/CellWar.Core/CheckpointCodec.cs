@@ -17,7 +17,8 @@ internal static class PayloadCodec
         typeof(ChainMoveDecision), typeof(StopChainDecision), typeof(SkipReviveDecision),
         typeof(CoupleDirectionDecision), typeof(CoupleTierDecision), typeof(CancelCoupleDecision),
         typeof(ChemotaxisStepDecision), typeof(StopChemotaxisDecision),
-        typeof(RemodelPickDecision), typeof(StopRemodelDecision)
+        typeof(RemodelPickDecision), typeof(StopRemodelDecision),
+        typeof(PickCellDecision)
     };
     public static void Validate(object? value)
     {

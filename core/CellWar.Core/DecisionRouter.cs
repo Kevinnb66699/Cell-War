@@ -11,6 +11,14 @@ internal static class DecisionRouter
 {
     public static ValidationResult Validate(WorldState state, IDecision decision)
     {
+        // 风暴两张的「选 1 个免疫细胞」排在**所有**别的挂起之前：GD `_pick_immune` 是 `draw()` 里最深的一段 await，
+        // 抽到它的时候骨髓循环 / 连走 / 连锁都还停在外层等着（`LandBlocked` 那边也认这一条）。
+        if (state.Turn.PendingPickCellSeat is { } pickSeat)
+            return decision is PickCellDecision pick && pick.PlayerSeat == pickSeat
+                    && pick.ChooserCellId == state.Turn.PendingPickCellChooser
+                    && CardRules.PickCellCandidates(state).Contains(pick.TargetCellId)
+                ? new(true)
+                : new(false, $"等待【{state.Turn.PendingPickCellCard}】选择 1 个免疫细胞");
         if (state.Turn.PendingDiscardSeat is { } pendingSeat)
             return decision is DiscardDecision discard && CardRules.ValidateDiscard(state, discard)
                 ? new(true)
@@ -116,7 +124,8 @@ internal static class DecisionRouter
         // 卡是哪张由 PendingCard 记着（打出时挂上），不用猜；打出当步就结束的（没有下一步 / 走死）同样走到这里。
         if (s.Turn.PendingCard is { } card && s.Turn.PendingCardCell is { } owner
                 && s.Turn.PendingChemotaxisCell is null && s.Turn.PendingCoupleCell is null && s.Turn.PendingRemodelCell is null && s.Turn.PendingDiscardSeat is null
-                && s.Turn.PendingLandCell is null && s.Turn.PendingMarrow.Count == 0)
+                && s.Turn.PendingLandCell is null && s.Turn.PendingMarrow.Count == 0
+                && s.Turn.PendingPickCellSeat is null)   // 风暴卡的「选中心」挂着时也不许收尾（今天它必与 PendingLand / PendingChemotaxis 同在，写明免得成隐含依赖）
             s = CardRules.FinishInstant(s, owner, card);
         return result with { NewState = s };
     }
@@ -146,6 +155,16 @@ internal static class DecisionRouter
         if (decision is CancelCoupleDecision)
             // 取消：无效果、卡不弃置 —— 连 PendingCard 一起摘，Execute 出口就不会给这张卡收尾
             return new(state.WithTurn(state.Turn.WithPendingCouple(null, null, null).WithPendingCard(null, null)), Array.Empty<IGameEvent>(), true);
+        if (decision is PickCellDecision pickCell)
+        {
+            var card = state.Turn.PendingPickCellCard!;
+            var s = state.WithTurn(state.Turn.WithPendingPickCell(null, null, null));
+            // GD 那段 await 回来时 `card_resolve_depth` 还开着（整个 `_inflammation_storm` 都嵌在 `draw()` 的深度里）：
+            // 结算这一段照 `DrawOne` 的口径进出一次，别让净化那类「卡牌引发的不给记忆」在这里漏给
+            s = s.WithTurn(s.Turn.WithCardResolveDepth(s.Turn.CardResolveDepth + 1));
+            s = CardRules.ResolvePicked(s, card, pickCell.ChooserCellId, pickCell.TargetCellId);
+            return new(s.WithTurn(s.Turn.WithCardResolveDepth(s.Turn.CardResolveDepth - 1)), Array.Empty<IGameEvent>(), true);
+        }
         if (decision is RemodelPickDecision remodelPick) return new(CardRules.RemodelPick(state, remodelPick.Target), Array.Empty<IGameEvent>(), true);
         if (decision is StopRemodelDecision) return new(CardRules.RemodelStop(state), Array.Empty<IGameEvent>(), true);
         if (decision is DrawDecision draw) return CardRules.Draw(state, draw, rng);
@@ -169,6 +188,14 @@ internal static class DecisionRouter
             var want = p.Faction == Faction.Cancer ? TissueState.Cancer : TissueState.Healthy;
             return Tiles(s).Where(t => t.State == want && t.OccupyingCell == null)
                 .Select(t => (IDecision)new PlaceDecision(seat, t.Position)).ToArray();
+        }
+        // 与 Validate 同序：风暴的选中心排在所有别的挂起之前。没有「放弃」（事件卡抽到即生效）
+        if (s.Turn.PendingPickCellSeat is { } pickSeat)
+        {
+            if (pickSeat != seat) return Array.Empty<IDecision>();
+            var chooser = s.Turn.PendingPickCellChooser!.Value;
+            // 候选为空到不了这里：AskStormCenter 没有候选就不挂起
+            return CardRules.PickCellCandidates(s).Select(id => (IDecision)new PickCellDecision(seat, chooser, id)).ToArray();
         }
         if (s.Turn.PendingDiscardSeat is { } pending)
         {

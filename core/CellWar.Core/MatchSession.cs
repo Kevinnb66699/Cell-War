@@ -44,6 +44,8 @@ public sealed class MatchObservationProvider : IObservationProvider
             ChemotaxisStepDecision c => new VisibleOption(index, d.DecisionType, c.CellId, c.Target,
                 RulePolicies.BaseMoveCost(s, s.Cells[c.CellId], c.Target, CellRules.ChemotaxisStepCost) / 10.0),
             StopChemotaxisDecision c => new VisibleOption(index, d.DecisionType, c.CellId, null, null),
+            // 风暴选中心：候选只靠**被选中的那只细胞**区分（落进默认分支就是 N 条一模一样的选项）
+            PickCellDecision pk => new VisibleOption(index, d.DecisionType, pk.TargetCellId, s.Cells[pk.TargetCellId].Position, null, null, s.Turn.PendingPickCellCard),
             // 【基质重塑】的三问：再拆 / 转健康都只靠目标格区分
             RemodelPickDecision rp => new VisibleOption(index, d.DecisionType, rp.CellId, rp.Target, null),
             StopRemodelDecision sr => new VisibleOption(index, d.DecisionType, sr.CellId, null, null),

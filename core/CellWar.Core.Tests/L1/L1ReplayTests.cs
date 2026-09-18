@@ -31,9 +31,11 @@ public class L1ReplayTests
     /// 分化树突（236）、建源（237，落 0,2）、源消散 + 冷却归零、再建一次（268，落 1,1），源活着的 28 步里免疫 / 癌各走了 8 步；
     /// 279 步收尾。前三条夹具里趋化源动作是 0 次，这条专门补它。
     /// 首跑抓到两处：① C# 建源写死 2 完整回合（GD 1）—— 已修，钉在 `ChemoFullTurns`；② 第 238 步抽到事件卡【炎症风暴】，GD 问 `pick_cell`
-    /// 选一个免疫细胞，C# 没有这个挂起态、效果被静默跳过（KNOWN_GAP，见拍板记录 §九）。水位线先钉在 237，pick_cell 落地后往上拧到 279。
+    /// 选一个免疫细胞、C# 没有这个挂起态（效果静默跳过）。**两处都已合上**（2026-09-19：`PendingPickCell` + `PickCellDecision` + 语义键），
+    /// 水位线从 237 拧到 **279**（整条）。envelope 那边另停在 248：第 249 / 250 / 272 / 277 / 278 五步的**迁移报价**（`cost` / `cost_rows`）与 GD 不同 ——
+    /// 盘面本身逐字一致（这里 279 步全 PASS），差的是趋化源在场时的算费，新登记 KNOWN_GAP `chemo-move-quote`。
     /// </summary>
-    public const int RatchetChemo = 237;
+    public const int RatchetChemo = 279;
 
     [Theory]
     [InlineData("trace_4p_4242.jsonl", Ratchet)]

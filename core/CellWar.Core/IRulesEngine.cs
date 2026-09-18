@@ -225,6 +225,17 @@ public sealed record StopRemodelDecision(int PlayerSeat, EntityId CellId) : IDec
 }
 
 /// <summary>
+/// 【炎症风暴】/【免疫风暴】抽到即发时的「选 1 个免疫细胞」（GD `_pick_immune`，`kind: pick_cell`、tag = 卡名）：
+/// 选中的那只是风暴中心。<see cref="ChooserCellId"/> 是抽到这张卡的那只（GD 传给 `immune_hit_area` 的 attacker），
+/// 从挂起态里读得到，带在决策里是为了让它和别的决策一样**自己说得清自己是哪一问的答案**。
+/// 没有「放弃」：事件卡抽到即生效，GD 那问的 `stop_index` 是 -1。
+/// </summary>
+public sealed record PickCellDecision(int PlayerSeat, EntityId ChooserCellId, EntityId TargetCellId) : IDecision
+{
+    public string DecisionType => "PickCell";
+}
+
+/// <summary>
 /// 【基因组不稳定】：从本次突变的两次判定中选择一个结果结算。
 /// </summary>
 public sealed record ChooseMutationDecision(

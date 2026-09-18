@@ -193,6 +193,8 @@ public static class ObservationV1Codec
             CoupleDirectionDecision cd => $"{Stage.CellName(s, s.Cells[cd.Payer])} → {Stage.CellName(s, s.Cells[cd.Getter])}",
             CoupleTierDecision ct => $"转出 {Stage.Fmt(ct.Pay)} → 接收方得 {Stage.Fmt(ct.Get)}",
             CancelCoupleDecision => "取消",
+            // GD `_pick_immune` 的按钮还带一句预览（「净化 N 格」），文案不进对拍（协议 §八 #6），这里只给名字
+            PickCellDecision pk => $"选择 {Stage.CellName(s, s.Cells[pk.TargetCellId])}",
             RemodelPickDecision rp => $"{P(rp.Target)}",
             StopRemodelDecision => "到此为止",
             TypeSkillDecision t => t.Skill switch

@@ -296,6 +296,8 @@ public class RegressionGuardTests
         AssertOnlyChangesAmong(full, "WithPendingRemodel(null)", RemodelFields, t => t.WithPendingRemodel(null, null, null, 0));
         AssertOnlyChangesAmong(full, "WithPendingLand", LandFields, t => t.WithPendingLand(new EntityId(7), new HexPosition(2, 0, -2), 1));
         AssertOnlyChangesAmong(full, "WithPendingLand(null)", LandFields, t => t.WithPendingLand(null, null, 0));
+        AssertOnlyChangesAmong(full, "WithPendingPickCell", PickCellFields, t => t.WithPendingPickCell(3, "免疫风暴", new EntityId(7)));
+        AssertOnlyChangesAmong(full, "WithPendingPickCell(null)", PickCellFields, t => t.WithPendingPickCell(null, null, null));
     }
 
     [Fact]
@@ -363,6 +365,12 @@ public class RegressionGuardTests
     private static readonly string[] LandFields =
     [
         nameof(TurnState.PendingLandCell), nameof(TurnState.PendingLandAt), nameof(TurnState.PendingLandWalkDepth), nameof(TurnState.PendingLandStep),
+    ];
+
+    /// <summary>风暴选中心的三个字段（问谁 / 哪张卡 / 发牌的那只）。</summary>
+    private static readonly string[] PickCellFields =
+    [
+        nameof(TurnState.PendingPickCellSeat), nameof(TurnState.PendingPickCellCard), nameof(TurnState.PendingPickCellChooser),
     ];
 
     /// <summary>结算到一半的那张卡：卡名 + 主人，两个字段一起改。</summary>
@@ -1478,6 +1486,9 @@ public class RegressionGuardTests
         PendingRemodelFirst = new HexPosition(1, 0, -1),
         PendingRemodelSecond = new HexPosition(0, 2, -2),
         PendingRemodelStep = 1,
+        PendingPickCellSeat = 3,
+        PendingPickCellCard = "炎症风暴",
+        PendingPickCellChooser = new EntityId(6),
         PendingLandCell = new EntityId(6),
         PendingLandAt = new HexPosition(2, -1, -1),
         PendingLandWalkDepth = 1,

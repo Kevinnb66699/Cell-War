@@ -86,6 +86,10 @@ public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Mem
     public string PendingRemodelFirst { get; init; } = "";
     public string PendingRemodelSecond { get; init; } = "";
     public int PendingRemodelStep { get; init; }
+    /// <summary>风暴两张的「选 1 个免疫细胞」（GD 视图里不存在，一律空；C# 存档要带）。</summary>
+    public int? PendingPickCellSeat { get; init; }
+    public string PendingPickCellCard { get; init; } = "";
+    public int? PendingPickCellChooser { get; init; }
     /// <summary>推迟的落地后半截（GD 视图里不存在；C# 存档要带）。</summary>
     public int? PendingLandCell { get; init; }
     public string PendingLandAt { get; init; } = "";

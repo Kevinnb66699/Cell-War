@@ -140,6 +140,11 @@ public static class SemanticKey
         CoupleTierDecision ct => Tagged("pick", "代谢耦联", ("pay", ct.Pay), ("get", ct.Get)),
         CancelCoupleDecision => Tagged("pick", "代谢耦联", ("stop", true)),
 
+        // 【炎症风暴】/【免疫风暴】抽到即发时的「选 1 个免疫细胞」（GD kind pick_cell / tag = 卡名，`_pick_immune` 的
+        // data `{cid, to}`）：`cid` 照规矩 2 写**席位**，`to` 是那只细胞此刻站的格。tag 从挂起态里读。
+        PickCellDecision pk => Tagged("pick_cell", s.Turn.PendingPickCellCard!,
+            ("to", Pos(s.Cells[pk.TargetCellId].Position)), ("cid", Seat(pk.TargetCellId))),
+
         // 【基质重塑】的三次追问（GD kind pick_tile / tag 基质重塑）：再拆 / 转健康都是 {to}，停是 {stop} —— 三问同形，重放器靠 asks 里的位置区分
         RemodelPickDecision rp => Tagged("pick_tile", "基质重塑", ("to", Pos(rp.Target))),
         StopRemodelDecision => Tagged("pick_tile", "基质重塑", ("stop", true)),

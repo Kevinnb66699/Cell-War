@@ -150,10 +150,12 @@ public static class WorldStateExtensions
         int? cardResolveDepth = null, string? pendingCard = null, EntityId? pendingCardCell = null, int? cancerReviveFrom = null, int? immuneReviveFrom = null,
         EntityId? pendingCoupleCell = null, EntityId? pendingCoupleAlly = null, EntityId? pendingCouplePayer = null,
         EntityId? pendingRemodelCell = null, HexPosition? pendingRemodelFirst = null, HexPosition? pendingRemodelSecond = null, int? pendingRemodelStep = null,
+        int? pendingPickCellSeat = null, string? pendingPickCellCard = null, EntityId? pendingPickCellChooser = null,
         EntityId? pendingLandCell = null, HexPosition? pendingLandAt = null, int? pendingLandWalkDepth = null, int? pendingLandStep = null,
         bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false,
         bool setTrackCell = false, bool setTrackFrozenAt = false, bool setPendingChain = false, bool setPendingChemotaxis = false,
-        bool setPendingCard = false, bool setPendingCouple = false, bool setPendingWalkCard = false, bool setPendingRemodel = false, bool setPendingLand = false)
+        bool setPendingCard = false, bool setPendingCouple = false, bool setPendingWalkCard = false, bool setPendingRemodel = false,
+        bool setPendingPickCell = false, bool setPendingLand = false)
         => new() { WorldRound = round ?? t.WorldRound, Phase = phase ?? t.Phase, ActivePlayerSeat = seat ?? t.ActivePlayerSeat,
             StartStep = startStep ?? t.StartStep, EndStep = endStep ?? t.EndStep, Winner = winner ?? t.Winner, WinKind = winKind ?? t.WinKind, CancerWinStreak = streak ?? t.CancerWinStreak,
             PendingDiscardSeat = setPendingDiscard ? pendingDiscard : pendingDiscard ?? t.PendingDiscardSeat,
@@ -185,6 +187,9 @@ public static class WorldStateExtensions
             PendingRemodelFirst = setPendingRemodel ? pendingRemodelFirst : pendingRemodelFirst ?? t.PendingRemodelFirst,
             PendingRemodelSecond = setPendingRemodel ? pendingRemodelSecond : pendingRemodelSecond ?? t.PendingRemodelSecond,
             PendingRemodelStep = pendingRemodelStep ?? t.PendingRemodelStep,
+            PendingPickCellSeat = setPendingPickCell ? pendingPickCellSeat : pendingPickCellSeat ?? t.PendingPickCellSeat,
+            PendingPickCellCard = setPendingPickCell ? pendingPickCellCard : pendingPickCellCard ?? t.PendingPickCellCard,
+            PendingPickCellChooser = setPendingPickCell ? pendingPickCellChooser : pendingPickCellChooser ?? t.PendingPickCellChooser,
             PendingLandCell = setPendingLand ? pendingLandCell : pendingLandCell ?? t.PendingLandCell,
             PendingLandAt = setPendingLand ? pendingLandAt : pendingLandAt ?? t.PendingLandAt,
             PendingLandWalkDepth = pendingLandWalkDepth ?? t.PendingLandWalkDepth, PendingLandStep = pendingLandStep ?? t.PendingLandStep };
@@ -205,6 +210,10 @@ public static class WorldStateExtensions
     /// <summary>挂上 / 推进 / 摘掉【基质重塑】的追问（四个字段一起写；摘掉 = cell 传 null、step 传 0）。</summary>
     public static TurnState WithPendingRemodel(this TurnState t, EntityId? cell, HexPosition? first, HexPosition? second, int step)
         => t.Copy(pendingRemodelCell: cell, pendingRemodelFirst: first, pendingRemodelSecond: second, pendingRemodelStep: step, setPendingRemodel: true);
+
+    /// <summary>挂上 / 摘掉「选 1 个免疫细胞」的追问（三个字段一起写；摘掉 = 三个都传 null）。</summary>
+    public static TurnState WithPendingPickCell(this TurnState t, int? seat, string? card, EntityId? chooser)
+        => t.Copy(pendingPickCellSeat: seat, pendingPickCellCard: card, pendingPickCellChooser: chooser, setPendingPickCell: true);
 
     /// <summary>癌方复活问到哪一席了（放弃 / 复活 / 没落点都往前推一格）。</summary>
     public static TurnState WithCancerReviveFrom(this TurnState t, int seat) => t.Copy(cancerReviveFrom: seat);

@@ -98,6 +98,7 @@ public class CanonRoundTripTests
             .WithCancerReviveFrom(2)
             .WithPendingCouple(id, other, id)
             .WithPendingRemodel(id, new HexPosition(1, 0, -1), new HexPosition(0, 2, -2), 1)
+            .WithPendingPickCell(1, "炎症风暴", id)
             .WithPendingLand(other, new HexPosition(2, -1, -1), 1));
     }
 
