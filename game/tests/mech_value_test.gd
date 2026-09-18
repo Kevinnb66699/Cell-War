@@ -38,6 +38,7 @@ func _run() -> void:
 	t_mech_sclc_jump()
 	t_mech_attack_chain()
 	t_mech_purify_supply()
+	t_mech_solidify()
 	print("\n%d 项检查，%d 失败" % [checks, fails])
 	quit(1 if fails > 0 else 0)
 
@@ -287,6 +288,61 @@ func t_mech_purify_supply() -> void:
 	check(checked >= 1, "至少采样到一次净化（共 %d 次）" % checked)
 	check(bad == 0, "净化断供反事实与引擎实测逐位一致（%d 次，%d 偏差）" % [
 		checked, bad])
+
+
+## —— 癌方【E-固化】单格生灭 ——
+## 确定性过程：有癌细胞停留 → 每世界回合 +1.0（SOLIDIFY_STEP）；无细胞且计数>0 → −0.5。
+## 计数到阈值（I 期 3.0 / II·III 期 2.0）即转固化癌组织，转后不再累计、SOLID 不衰减。
+## 验证：手工构造「A 格有细胞停（solid=5）、B 格无人停（solid=15）」，
+## 逐世界回合调用引擎 _solidify() + _decay()，与解析 solidify_after / decay_after 逐位对拍。
+func t_mech_solidify() -> void:
+	print("[机制·固化生灭]")
+	var g := bare_game()
+	var ca := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, Vector2i(1, 0),
+		-1, CWData.CancerType.SCLC, 500)
+	g.cells.append(ca)
+	var a: Dictionary = g.tiles[Vector2i(1, 0)]
+	var b: Dictionary = g.tiles[Vector2i(0, 1)]
+	a["tissue"] = CWData.Tissue.CANCER
+	a["solid"] = 5
+	b["tissue"] = CWData.Tissue.CANCER
+	b["solid"] = 15
+	var th: int = g.solidify_threshold()
+	check(th == 30, "I 期固化阈值 30（实测 %d）" % th)
+
+	var solid_ok := true
+	var decay_ok := true
+	var solidified_at := -1
+	for r in 5:
+		g.world._solidify()
+		g.world._decay()
+		var want_a: Dictionary = MechValue.solidify_after(5, r + 1, th)
+		if int(a["solid"]) != int(want_a["solid"]):
+			solid_ok = false
+			check(false, "回合 %d：A 格 solid %d != 解析 %d" % [
+				r + 1, int(a["solid"]), int(want_a["solid"])])
+		var a_solidified: bool = int(a["tissue"]) == CWData.Tissue.SOLID
+		if a_solidified != bool(want_a["solidified"]):
+			solid_ok = false
+			check(false, "回合 %d：A 格固化状态 %s != 解析 %s" % [
+				r + 1, a_solidified, want_a["solidified"]])
+		if a_solidified and solidified_at < 0:
+			solidified_at = r + 1
+		var want_b: int = MechValue.decay_after(15, r + 1)
+		if int(b["solid"]) != want_b:
+			decay_ok = false
+			check(false, "回合 %d：B 格 solid %d != 解析 %d" % [
+				r + 1, int(b["solid"]), want_b])
+	check(solid_ok, "A 格逐回合计数/固化与解析一致（5 回合）")
+	check(decay_ok, "B 格逐回合衰减与解析一致（5 回合）")
+	check(solidified_at == 3, "A 格第 3 回合转固化（5+1.0×3=35 ≥ 30，实测第 %d 回合）" % solidified_at)
+	## 固化后不再累计：第 4、5 回合 solid 应保持 35（引擎 _solidify 对 SOLID 直接 continue）
+	check(int(a["solid"]) == 5 + CWData.SOLIDIFY_STEP * 3, "转固化后 solid 不再涨（%d）" % int(a["solid"]))
+	check(int(b["solid"]) == 0, "B 格衰减到 0 不再衰减")
+	## rounds_to_solidify：从 5 开始持续停留要几回合（阈值 30）
+	check(MechValue.rounds_to_solidify(5, th) == 3, "rounds_to_solidify(5,30)=3")
+	check(MechValue.rounds_to_solidify(25, th) == 1, "rounds_to_solidify(25,30)=1")
+	g.dispose()
 
 
 ## —— 测试助手：rig_rng 钉骰 ——
