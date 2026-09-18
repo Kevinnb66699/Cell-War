@@ -47,7 +47,7 @@ if [ "$SC_CODE" -ne 0 ] || echo "$SC_OUT" | grep -qE "SCRIPT ERROR|Parse Error|F
 	CODE=1
 fi
 
-CS_OUT="$(dotnet test core/CellWar.Core.Tests --nologo -v q --filter "FullyQualifiedName~L0RunnerTests|FullyQualifiedName~PreParityTests|FullyQualifiedName~RoundTripTests|FullyQualifiedName~ContractGateTests|FullyQualifiedName~KeyTableTests" 2>&1)"
+CS_OUT="$(dotnet test core/CellWar.Core.Tests --nologo -v q --filter "FullyQualifiedName~L0RunnerTests|FullyQualifiedName~PreParityTests|FullyQualifiedName~RoundTripTests|FullyQualifiedName~ContractGateTests|FullyQualifiedName~KeyTableTests|FullyQualifiedName~SetupOpsTests" 2>&1)"
 CS_CODE=$?
 echo "$CS_OUT" | grep -E "\[FAIL\]|Passed!|Failed!| error " | sed 's/^/L0（C# 侧）：/'
 if [ "$CS_CODE" -ne 0 ]; then

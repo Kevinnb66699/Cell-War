@@ -97,10 +97,10 @@
 
 | 空档 | 等谁 | 出处 |
 |---|---|---|
-| **`mods` 四元组的装载** —— C# 侧非空 `mods` ⇒ `UNLOADABLE`，压力用例 `stress/mods/…` 这次不进仓库 | **批 5a** 的 `setup_ops` 前奏（C-2 步 2「补 loader 缺的键」） | §0.6.1 第 4 条 |
+| ~~`mods` 四元组的装载~~ —— **已合上（2026-09-19）**：E-2 的 `setup_ops` 前奏落地（`L0/WorldLoader.cs` 一张 15 行路由表，只有「哪个名字走哪条生产路径」、没有任何值；表外的名字仍 `UNLOADABLE`）。压力用例 `stress/mods/inflammatory_chemotaxis_replaces_move_cost` 进仓库，新 `L0/SetupOpsTests.cs` 8 项，`RoundTripTests` 三条夹具 175 步「装不回去」清零 | —— | §0.6.1 第 4 条 / E-2 落地记录 |
 | **`events.pool` / `double_next`** —— C# 侧 `pool` ≠ 全表或 `double_next` = true ⇒ `UNLOADABLE`，压力用例 `stress/events/pool_is_overwritten_not_appended` 这次不进仓库 | **批 5b** 迁世界事件时解除 | §0.6.1 第 5 条 |
 | **§0.6.7 四条入口**：`move_legal` / `anaerobic_pool` / `split_share` / `settle_loss` —— 09-19 Kevin 接受、C# 入口已开、两侧空壳进分派（P 16）；探针面与用例随批 0 / 1 / 2 定 | 各批的 C-2 步 1 | 拍板记录 §九 |
-| ~~`covers` 的内容~~ —— **已填（2026-09-19）**：53 条老用例 45 条回指真实 `check()` 名（36 个不同名字，全在 core），`covered_sites` 26 → 57。留空 8 条：`overload/curve_*` 4 条（等价断言在 `t_overload` 的 `for pair` 循环里、check 名是 `%` 拼的空名，按口径指不到）、`move_cost/immune_to_healthy/level_I`（GD 没有任何 check 钉这个数，L0 净增）、`move_cost/cancer_to_*` 与 `sclc_minimal_cytoplasm` 3 条（GD 只有 `== g.tune.xxx` 的同义比较，不算钉数值，按严口径不指） | —— | 开发日志 2026-09-19 covers 条 |
+| ~~`covers` 的内容~~ —— **已填（2026-09-19）**：53 条老用例 45 条回指真实 `check()` 名（36 个不同名字，全在 core），`covered_sites` 26 → 57（E-2 前奏落地那次 `stress/mods/inflammatory_chemotaxis_replaces_move_cost` 再 +1 ⇒ 58）。留空 8 条：`overload/curve_*` 4 条（等价断言在 `t_overload` 的 `for pair` 循环里、check 名是 `%` 拼的空名，按口径指不到）、`move_cost/immune_to_healthy/level_I`（GD 没有任何 check 钉这个数，L0 净增）、`move_cost/cancer_to_*` 与 `sclc_minimal_cytoplasm` 3 条（GD 只有 `== g.tune.xxx` 的同义比较，不算钉数值，按严口径不指） | —— | 开发日志 2026-09-19 covers 条 |
 | ~~收割器碰到 stage `init` 的局~~ —— **已合上（2026-09-19 同日）**：`cw_case_loader.gd:STAGE_TO_PHASE` 把 `init` 映成 `Setup`（协议 phase 对 init / setup_place 都编成 setup，envelope 上等价）；`t_rec_*` 四条与 `harvest.gd` 首跑随之通 | —— | 开发日志 2026-09-19 步 13 条 |
 | ~~`chemo-move-quote`~~ —— **已合上（2026-09-19 同日）**：根因是借道报价 C# 逐段跑修饰再相加、`cost_rows` 又从落点单格起算；改成与 GD 同：`PassThroughRoutes` 累计 RawMoveCost、修饰按落点只跑一遍（`RulePolicies.RawFor`）。`trace_4p_chemo_4242` envelope 从 248 拧到 279 整条一致；`pass_through_cost` 的 KNOWN_GAP 一并转 OK | —— | 开发日志 2026-09-19 借道条 |
 | **`area-damage-batch`** —— GD `cw_game.gd:immune_hit_area` 批量提交（同一份批前状态、`damage.next_group()` 一次），C# 逐个 `Damage`；影响所有 `*_hit_area` 口径的卡（炎症风暴 / 免疫风暴 / 放疗 / 全身性免疫清除 / TNF-α）。2026-09-19 起两张风暴卡由死代码转为活路径，差异随之可达 | **批 4**（伤害管线） | 开发日志 2026-09-19 pick_cell 条 |

@@ -178,5 +178,24 @@
     },
     "args": { "cell": "0", "roll": "3" },
     "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "stress/mods/inflammatory_chemotaxis_replaces_move_cost",
+    "covers": ["t_card_mods::炎症趋化：向癌性组织的迁移费定为 0.5"],
+    "probe": "move_cost",
+    "source": "§0.6.1 第 4 条 / E-2 的 `cell.mods` 四元组。【炎症趋化】是 cw_cost.gd:TEMPLATES 里 Store.MOD 四张之一：action=MOVE / phase=REPLACE（③ 基础值替换，口径 #79）/ value=5 / cond=to_cancerous；打出点是 cw_card_fx.gd 的 `add_mod(cell, card, 1, \"turn\")`，条目 {name, uses:1, until:\"turn\", seq:1}、细胞 play_n 同步成 1。免疫 I 级向癌性组织的 1.0（tune.immune_move_cancer[0] = 10）被替换成 0.5。GD 侧四元组直装，C# 侧按 E-2 走 setup_ops 前奏重放 CardRules 的打出路径 —— loader 里不许写 name → ActiveModifier 工厂",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "tiles": [
+        { "at": "0,0", "state": "healthy" },
+        { "at": "1,-1", "state": "cancer" }
+      ],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "play_n": 1, "mods": [{ "name": "炎症趋化", "uses": 1, "until": "turn", "seq": 1 }] }
+      ]
+    },
+    "args": { "cell": "0", "to": "1,-1" },
+    "expect": 5
   }
 ]

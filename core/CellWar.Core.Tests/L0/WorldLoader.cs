@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CellWar.Core;
+using CellWar.Core.Tests.L1;
 
 namespace CellWar.Core.Tests.L0;
 
@@ -15,8 +16,8 @@ namespace CellWar.Core.Tests.L0;
 /// （底板走 <see cref="MatchSetup.SpecialAt"/>、事件池走 <see cref="WorldEffects.WorldEventNames"/>、
 /// 旋钮走 `game/tests/contract_tune.json`）。
 ///
-/// **装不出来就拒收**（<see cref="UnloadableException"/>）：多免疫席 level/memory 不等、非空 `mods`、
-/// `events.pool` 改写、`double_next`、席位解析不出唯一活细胞 —— 逐条见 §0.6.1。
+/// **装不出来就拒收**（<see cref="UnloadableException"/>）：多免疫席 level/memory 不等、
+/// `events.pool` 改写、`double_next`、席位解析不出唯一活细胞、`mods` 里前奏路由表认不出的名字 —— 逐条见 §0.6.1 / E-2。
 /// </summary>
 public static class WorldLoader
 {
@@ -66,9 +67,7 @@ public static class WorldLoader
             var type = CellKind(c.Type);
             // id = 在 cells 列表里的序号 + 1：与 GD `make_cell(g.cells.size(), …)` 同口径（闸二 2b 靠这个对得上）；席位不再决定 id
             var id = new EntityId((ulong)(cells.Count + 1));
-            if (c.Mods.Count > 0)
-                throw new UnloadableException($"席位 {c.Seat} 的 `mods` 非空 —— C# 的 `ActiveModifier` 要六项，"
-                    + "配不出来就只能在靶场里写第二份规则（纪律 3 不许）。按 E-2 走 `setup_ops` 前奏重放，落在批 5a 的 C-2 步 2");
+            // `mods` 在这一步一律留空：四元组配不出 `ActiveModifier` 的六项，条目由 Load 末尾的 `setup_ops` 前奏转调生产代码现挂（E-2）
             // 【标记】三件套：写了 marked 就必须三个都写，loader 一个都不许自己补（A-2 规矩 3）
             var markWritten = (c.Marked is not null ? 1 : 0) + (c.MarkLeft is not null ? 1 : 0) + (c.MarkRound is not null ? 1 : 0);
             if (markWritten is > 0 and < 3)
@@ -201,8 +200,154 @@ public static class WorldLoader
             if (fx.Doubled.Length > 0)   // `doubled` 不在 InstallEffect 的形参里，挂完补一手
                 world = world.Copy(effects: [.. world.Effects.Take(world.Effects.Count - 1), world.Effects[^1] with { Doubled = fx.Doubled }]);
         }
-        return spec.Tuning.Count == 0 ? world : world.WithTuning(Tune(world.Tuning, spec.Tuning));
+        if (spec.Tuning.Count > 0) world = world.WithTuning(Tune(world.Tuning, spec.Tuning));
+        return SetupOps(spec, world);   // 排在最后：前奏转调的生产代码要看见装完的世界（回合数 / 细胞种类 / 旋钮都算进那六项里）
     }
+
+    // ── `setup_ops` 前奏（E-2，Kevin 2026-09-19 拍板）──────────────────────────────────
+    //
+    // envelope 只带四元组 `{name, uses, until, seq}`，而 C# 的 `ActiveModifier` 有十项 ——
+    // 差的六项（Target / Stage / Layer / Value / Floor / Requirement）**不许在这儿配**
+    // （那是靶场里藏第二份规则，纪律 3 不许），只能让生产代码现挂一遍。
+    //
+    // **不给 `cwxcase/2` 加键**：`cells[].mods` 本身就是唯一的事实来源，GD 侧一个字都不用改，
+    // 两侧装出来的 envelope 才咬得死（闸二 2b）。loader 这边只有一张**路由表** ——
+    // 「哪个名字走哪条生产路径」，表里没有任何值。
+    //
+    // 重放的前提（手牌里有这张卡 / 能量够 / 阶段对）一条都不需要，因为前奏跑在一个**丢掉的世界**上：
+    // `WorldState` 每一次改动都走 `Copy` 返回新对象，改 probe 碰不到 `world`。
+    // 打出路径顺手改的那些（`play_n` / `hand` / `energy` / `equip_seq` / 别的细胞身上的条目）
+    // 全留在 probe 上跟着一起扔 —— 于是没有「装完还要还原」这回事。
+    // 演出事件：`Stage` 没开作用域就丢弃（见 `Stage.cs` 文件头）。rng：给一条空带子，真抽了当场炸。
+
+    private enum Route { Card, Cytokine, Revive }
+
+    /// <summary>条目名 → 走哪条生产路径。**只有路由、没有值**；认不出的名字 ⇒ UNLOADABLE（不许静默跳过）。</summary>
+    private static readonly Dictionary<string, Route> Routes = new(StringComparer.Ordinal)
+    {
+        // E-2 点名的四张（`cw_cost.gd:TEMPLATES` 里 Store.MOD 的四张）+ Flag 类
+        ["炎症趋化"] = Route.Card,
+        ["CXCR3趋化"] = Route.Card,
+        ["上皮—间质转化"] = Route.Card,
+        ["癌症干性"] = Route.Revive,   // 打不出来：它是**复活**那一刻挂上的（`PhaseRules.Revive`）
+        [CardRules.CytokinePrimed] = Route.Cytokine,
+        // 其余会写进 GD `cell["mods"]` 的即时卡（damage / attack 族，A-2 收尾第 15 条）：同一条打出路径，各一行
+        ["细胞膜修复"] = Route.Card,
+        ["缺氧适应"] = Route.Card,
+        ["DNA损伤修复"] = Route.Card,
+        ["BCL-2抗凋亡"] = Route.Card,
+        ["PD-L1表达"] = Route.Card,
+        ["穿孔素-颗粒酶"] = Route.Card,
+        ["高亲和力克隆"] = Route.Card,
+        ["补体调理"] = Route.Card,
+        ["补体级联"] = Route.Card,
+        ["I型干扰素"] = Route.Card,
+    };
+
+    /// <summary>
+    /// 逐条现挂，**挂完一次性写回**。
+    ///
+    /// `Mint` 每次拿的都是**未改过的** `world`，条目之间互不可见（【细胞因子网络·待发】的收尾会把**别人**身上的待发条目花掉、
+    /// 还顺手加能量 —— 在丢掉的探针上做，谁也碰不着）；最后一次性写回只是让「装完的世界」这一步只有一个落笔点。
+    ///
+    /// `uses` / `seq` 按用例写的盖上去（半路消耗过的条目重放不出来，而 GD loader 本来就是逐字装）；
+    /// `until` **只校验不覆盖** —— 它就是 `Duration`，卡牌自己的规则量，对不上说明用例写错了。
+    /// </summary>
+    private static WorldState SetupOps(L0World spec, WorldState world)
+    {
+        var minted = new List<(EntityId Id, List<ActiveModifier> Mods)>();
+        var index = 0;
+        foreach (var c in spec.Cells)
+        {
+            var id = new EntityId((ulong)++index);   // id = 列表序 + 1，与上面 Load 同一把尺
+            if (c.Mods.Count == 0) continue;
+            var list = new List<ActiveModifier>();
+            for (var i = 0; i < c.Mods.Count; i++)
+            {
+                var m = c.Mods[i];
+                // GD 的 envelope 按 `cell["mods"]` 的**列表序**导（`cw_obs_codec.gd:113`），C# 的按 (seq, 名) 排（`L1View`）：
+                // 用例把顺序写拧了，两侧 envelope 就在没人看的地方分叉（闸二 2b）。装载期拦掉
+                if (i > 0 && !Ahead(c.Mods[i - 1], m))
+                    throw new UnloadableException($"席位 {c.Seat} 的 `mods` 没按 (seq, 名) 升序写（「{c.Mods[i - 1].Name}」排在「{m.Name}」之前）"
+                        + " —— GD 按列表序导 envelope、C# 按 (seq, 名) 排，顺序不一致两侧就对不上（闸二 2b）");
+                if (!Routes.TryGetValue(m.Name, out var route))
+                    throw new UnloadableException($"席位 {c.Seat} 的 `mods` 写了「{m.Name}」—— 前奏路由表里没有它。"
+                        + "四元组配不出 `ActiveModifier` 的六项，而 loader 不许写 name → ActiveModifier 工厂（纪律 3）："
+                        + "要么这张卡根本不挂条目，要么路由表该添一行（E-2）");
+                var made = Mint(world, id, m.Name, route)
+                    ?? throw new UnloadableException($"席位 {c.Seat} 的前奏没挂出「{m.Name}」—— 这个盘面上生产代码不会给它"
+                        + "（阵营 / 死活 / 技能没装？）");
+                if (Until(made.Duration) != m.Until)
+                    throw new UnloadableException($"席位 {c.Seat} 的「{m.Name}」写了 until = \"{m.Until}\"，生产代码挂出来的是 \"{Until(made.Duration)}\" ——"
+                        + " `until` 就是 `Duration`，卡牌自己的规则量，用例改不得");
+                list.Add(made with { Uses = m.Uses, Sequence = m.Seq });
+            }
+            minted.Add((id, list));
+        }
+        foreach (var (id, mods) in minted) world = world.UpdateCell(id, world.Cells[id].Copy(modifiers: mods));
+        return world;
+
+        static bool Ahead(L0Mod a, L0Mod b) => a.Seq < b.Seq || (a.Seq == b.Seq && string.CompareOrdinal(a.Name, b.Name) <= 0);
+    }
+
+    /// <summary>在一个**丢掉的世界**上让生产代码现挂一条，把挂出来的那条取回来（挂不出来 = null）。</summary>
+    private static ActiveModifier? Mint(WorldState world, EntityId id, string name, Route route)
+    {
+        // 空带子 = 断言「前奏不消耗 rng」：真抽了 `TapeRng` 当场 RNG_OVERRUN，不会悄悄换个数出来
+        var rng = new TapeRng(Array.Empty<IReadOnlyList<long>>());
+        return route switch
+        {
+            // 打出路径的卡效本体：不碰手牌、不碰能量、不问阶段，只做这张卡做的事。
+            // `Resolve` 对没登记的卡名**原样返回**（CardRules.Registry 没它 = 卡效 C# 还没移植）—— 那不是盘面的问题，先拦成硬错
+            Route.Card => CardRules.IsRegistered(name)
+                ? Last(CardRules.Resolve(world, world.Cells[id], name, rng), id)
+                : throw new UnloadableException($"「{name}」在前奏路由表里走 CardRules，但 CardRules.Registry 没登记它 —— 这张卡的效果 C# 还没移植，不是盘面的问题"),
+            // 免疫细胞打完一张即时卡的**收尾**才上膛（GD `_cytokine_chain`）
+            Route.Cytokine => Last(Primed(world, id), id),
+            // 【癌症干性】按「装 equipped + 触发一次复活」重放（E-2），跑在一次性的小盘上
+            _ => Last(PhaseRules.Revive(Load(StemnessRig), new ReviveDecision(0, StemnessCell, Pos("1,-1"), Pos("0,0")), rng).NewState, StemnessCell),
+        };
+
+        ActiveModifier? Last(WorldState s, EntityId who) => s.Cells[who].Modifiers.LastOrDefault(m => m.Card == name);
+    }
+
+    /// <summary>
+    /// 【细胞因子网络·待发】的产生点在 <see cref="CardRules.FinishInstant"/>（GD `_cytokine_chain`）：
+    /// 免疫细胞打完一张即时卡、装备着【细胞因子网络】、身上还没有待发条目，才挂一条。
+    /// 探针上临时补齐两个前提 —— 技能装着、没被【中和抗体】压住（GD 侧已上膛的条目**不**因中和失效，
+    /// 「被中和 + 挂着待发」是个真盘面）。卡名传空串：收尾拿它去手牌里摘一张同名的，空串谁也摘不着。
+    /// </summary>
+    private static WorldState Primed(WorldState world, EntityId id)
+    {
+        var c = world.Cells[id];
+        var probe = world.UpdateCell(id, c.Copy(
+            equipped: c.Equipped.Contains("细胞因子网络") ? c.Equipped : [.. c.Equipped, "细胞因子网络"],
+            neutralUntil: 0));
+        return CardRules.FinishInstant(probe, id, "");
+    }
+
+    /// <summary>
+    /// 【癌症干性】前奏的一次性盘面：一只装着技能的死癌细胞 + 一格固化癌组织（依托）+ 一格空癌组织（落点）。
+    /// `chain_running` 是**故意**写的 —— 它让 `Revive` 末尾的 `StartPending` 为真、就地返回，不顺着 S 阶段往下跑。
+    /// 两格都显式写 `type: normal`：别让特殊组织底板插一脚（骨髓格落地会追一次抽卡）。
+    /// </summary>
+    private static readonly L0World StemnessRig = new()
+    {
+        Radius = 1,
+        Players = [new L0Player(0, "cancer", CancerType: "Melanoma")],
+        Tiles = [new L0Tile("0,0", "solid", "normal"), new L0Tile("1,-1", "cancer", "normal")],
+        Cells = [new L0Cell { Seat = 0, Type = "Melanoma", At = "0,0", Alive = false, Equipped = ["癌症干性"], ChainRunning = true }],
+    };
+
+    private static readonly EntityId StemnessCell = new(1);
+
+    /// <summary>`ModifierDuration` → 四元组的 `until`（= GD `add_mod` 的第三个参数：turn / round / ""）。</summary>
+    private static string Until(ModifierDuration d) => d switch
+    {
+        ModifierDuration.Turn => "turn",
+        ModifierDuration.Round => "round",
+        _ => "",
+    };
 
     /// <summary>
     /// 世界 → `cwxworld/2`。**没有它「只进世界不进文件」的字段永远漏**（`effector_round` 就是这么漏的），
@@ -302,8 +447,10 @@ public static class WorldLoader
         Energy = c.Energy, Alive = c.IsAlive,
         Marked = c.Marked, MarkLeft = c.MarkLeft, MarkRound = c.MarkRound, EffectorUsed = c.EffectorUsed,
         Hand = c.Hand.ToList(), Equipped = c.Equipped.ToList(),
-        Mods = c.Modifiers.Select(m => new L0Mod(m.Card, m.Uses,
-            m.Duration switch { ModifierDuration.Turn => "turn", ModifierDuration.Round => "round", _ => "" }, m.Sequence)).ToList(),
+        // 与 `L1View` 同一把尺：按 (seq, 名) 排 —— `Load` 要求 `mods` 升序，dump 路径就永远造不出 UNLOADABLE
+        //（`CellRules.AddModifier` 盖单调递增的 `PlayCounter + 1`，今天列表序恰好就是升序；休眠的 `PhaseRules.GrantSkillModifier` 盖 `EquipSeq` 就不是）
+        Mods = c.Modifiers.OrderBy(m => m.Sequence).ThenBy(m => m.Card, StringComparer.Ordinal)
+            .Select(m => new L0Mod(m.Card, m.Uses, Until(m.Duration), m.Sequence)).ToList(),
         PlayN = c.PlayCounter,
         EquipSeq = new Dictionary<string, int>(c.EquipSeq, StringComparer.Ordinal),
         FxTurn = new Dictionary<string, int>(c.FxTurn, StringComparer.Ordinal),

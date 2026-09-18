@@ -2,8 +2,8 @@
   "core_addressable": 1094,
   "core_funcs": 99,
   "core_sites": 1114,
-  "covered_sites": 57,
-  "total_funcs": 255,
-  "total_sites": 3353,
+  "covered_sites": 58,
+  "total_funcs": 256,
+  "total_sites": 3359,
   "unclassified_sites": 0
 }

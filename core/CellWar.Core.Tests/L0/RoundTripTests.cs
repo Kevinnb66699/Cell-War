@@ -67,7 +67,7 @@ public class RoundTripTests
             }
             catch (UnloadableException e)
             {
-                // 装不进的那几步（今天只有非空 `mods`：E-2 的 `setup_ops` 前奏落在批 5a）单列，不当通过
+                // 装不进的那几步单列，不当通过（非空 `mods` 已由 E-2 的 `setup_ops` 前奏接上：三条夹具从「比 111 步 / 175 步装不回去」变成「比 286 步 / 0 步装不回去」）
                 skipped.Add($"第 {n} 步：{e.Message}");
             }
         });

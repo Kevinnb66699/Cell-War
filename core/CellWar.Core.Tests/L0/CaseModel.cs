@@ -221,7 +221,10 @@ public sealed record L0Cell
     public List<string> Hand { get; init; } = [];
     public List<string> Equipped { get; init; } = [];
 
-    /// <summary>修饰条目四元组。**C# 侧非空 = UNLOADABLE**，直到 `setup_ops` 前奏落地（批 5a 的 C-2 步 2，§0.6.1 第 4 条）。</summary>
+    /// <summary>
+    /// 修饰条目四元组。装载走 <see cref="WorldLoader"/> 的 `setup_ops` 前奏（E-2）：缺的六项由生产代码现挂，
+    /// loader 里没有 `name → ActiveModifier` 工厂（纪律 3）。**路由表认不出的名字 / 没按 `(seq, 名)` 升序写 ⇒ UNLOADABLE。**
+    /// </summary>
     public List<L0Mod> Mods { get; init; } = [];
 
     public int PlayN { get; init; }
