@@ -13,7 +13,7 @@
 | `core_sites` | **1110** | `FUNC_SUBSYSTEM` 判成 `core` 的那一档 = **分母** |
 | `core_funcs` | 98 | |
 | `core_addressable` | 1090 | core 里能被 `covers` 指到的不同名字（20 个站点断言名为空或同函数内重名 ⇒ 覆盖率天花板 98.2%） |
-| `covered_sites` | **279** | **分子**：批 4 落地 188 → 279（+91：66 条用例 92 个不重复 covers，91 个是新名字、全在 core 分母内）。批 3 收口 176 → 188。：`covers` ∩ 真实 check 名。批 3 落地 133 → 176（**+43**）：batch3 的 45 条用例给出 47 个不重复 `covers`，其中 4 个既有用例已指过 ⇒ 净增 43。（P2 报的 49 个里，`tick_necrosis` 那两条按评委 conflicts #5 撤掉不认领 ⇒ 47） |
+| `covered_sites` | **307** | **分子**：批 5a 落地 279 → 307（+28：29 条用例 28 个不重复 covers）。批 4 落地 188 → 279（+91：66 条用例 92 个不重复 covers，91 个是新名字、全在 core 分母内）。批 3 收口 176 → 188。：`covers` ∩ 真实 check 名。批 3 落地 133 → 176（**+43**）：batch3 的 45 条用例给出 47 个不重复 `covers`，其中 4 个既有用例已指过 ⇒ 净增 43。（P2 报的 49 个里，`tick_necrosis` 那两条按评委 conflicts #5 撤掉不认领 ⇒ 47） |
 | `unclassified_sites` | 0 | 落不进任何一条分类规则的站点，**不许当 0 用，要回去加规则** |
 
 子系统分布（迁移计划 §二点五 去向表的今日实测）：
@@ -33,10 +33,10 @@
 
 | op | status | cases | 用例数 | 落点（GD ↔ C#） | 空档 / 备注 |
 |---|---|---|---|---|---|
-| `move_cost` | OK | required | 28 | `_move_cost_mod`+`_move_base_cost` ↔ `QuoteMove` | 16 档全满（批 1 加 `pass_through` / `skill_gate` / `chemo:*` 四向 —— 组织驻留前两次免费 / 第三次原价 / 巡航首移免费 / 趋化源四向正负号） |
+| `move_cost` | OK | required | 44 | `_move_cost_mod`+`_move_base_cost` ↔ `QuoteMove` | 16 档全满（批 1 加 `pass_through` / `skill_gate` / `chemo:*` 四向 —— 组织驻留前两次免费 / 第三次原价 / 巡航首移免费 / 趋化源四向正负号）。**批 5a +16**：mods / mods_gate / mods_order / mods_floor / mods_allowance 五档（修饰条目本身、闸门、语义阶段序、地板、额度） |
 | `anaerobic_share` | OK | required | 4 | `anaerobic_gain_for` ↔ `AnaerobicShare` | 4 档 |
 | `aerobic_share` | OK | required | 1 (+2) | `aerobic_income` ↔ `AerobicShare` | **只覆盖 `level:I`**，其余等级档空 |
-| `pressure_at` | OK | required | 7 (+1) | `pressure_at` ↔ `PressureAt` | 7 档 |
+| `pressure_at` | OK | required | 10 | `pressure_at` ↔ `PressureAt` | 7 档。批 5a +2：`stage_mult` 档（II / III 期系数） |
 | `proliferate_chance` | OK | required | 1 (+1) | `proliferate_chance` ↔ `ProliferateChance` | **只一条**，分档边界空 |
 | `solidify_threshold` | OK | required | 3 (+2) | `CWGame.solidify_threshold` ↔ `BoardRules.SolidifyThreshold` | 3 档 |
 | `overload_loss` | OK | required | 10 | `overload_loss` ↔ `OverloadLoss` | 5 档 |
@@ -57,7 +57,7 @@
 |---|---|---|---|---|---|
 | `anaerobic` | OK | **required** | 4 | `cw_world.gd:_anaerobic` ↔ `BoardRules.Anaerobic` | 批 3：默认（平方根）档 + 【GLUT1高表达】。线性对照与【瓦伯格】110% 两档 = **KG-1**（C# 侧 `anaerobic_block_coef` / `anaerobic_floor` 两个旋钮没生效），k 系数四细胞档 = **B10**（细胞写在席位 2/3、对局只有 2 席，两侧都装不回去） |
 | `cancer_upkeep` | OK | deferred | **0** | `_cancer_upkeep` ↔ `BoardRules.CancerUpkeep` | 批 3 **收不到（B9）**：唯一来源 `t_balance_candidates` 候选③ 把两只癌细胞放在同一席，`$.cells[<席位>]` 语义键歧义 ⇒ 差分整条作废。四档（关着不扣 / 10.0 扣 20% / 0.4 扣 20% / 免疫不受影响）全空 |
-| `pressure` | OK | **required** | 7 | `_pressure` ↔ `BoardRules.Pressure` | 批 3：五档盘面（抵平 / 二癌四健康 / 四癌两健康 / 固化双倍权重 / 致死）+ 两档减免。护盾三档撞 `cells[].mods` ⇒ 批 5a |
+| `pressure` | OK | **required** | 9 | `_pressure` ↔ `BoardRules.Pressure` | 批 3：五档盘面（抵平 / 二癌四健康 / 四癌两健康 / 固化双倍权重 / 致死）+ 两档减免。护盾三档撞 `cells[].mods` ⇒ 批 5a。批 5a +2：`shield` 档（护盾条目吃压迫），原「护盾三条撞 mods」空档合上 |
 | `proliferate` | OK | **required** | 8 | `_proliferate` ↔ `BoardRules.Proliferate` | 批 3：六档。事件两档 = **KG-2**（【增殖抑制】下 GD 不掷骰、C# 还要抽一次）/ **KG-3**（【异常增殖】翻倍 C# 没实现）；`necrosis_cleared_on_flip` = **KG-6**。⚠ `all_six_convert` / `off_round_same` 钉的是「六邻全转」，不是事件（评委 conflicts #6） |
 | `erosion` | OK | **required** | 4 | `_erosion` ↔ `BoardRules.Erosion` | 批 3：四档。`args.fresh` 两侧统一成 `"q,r;q,r"` 串（批 1 机件③ = B3，本批合上）。`necrosis_cleared_on_flip` = **KG-6**；「一次侵蚀转 2 或 3 格」是 60 个种子的集合统计断言，单条用例回指不了 |
 | `resolve_camping` | OK | **required** | 4 | `_resolve_camping` ↔ `BoardRules.ResolveCamping` | 批 3：三档（没蹲满 / 已固化作废 / E 阶段完成净化），靠 **B4** 才收得到。另三条断言落在 **KG-5** 的那条草稿上 |
@@ -66,7 +66,7 @@
 | `ossify` | OK | **required** | 3 | `_ossify` ↔ `BoardRules.Ossify` | 批 3：两档，靠 **B4**。另四条（到期回合免疫站在格上 = **KG-4**，与它同段的 16121 / 16124 / 16125 三条）整段不进仓库 |
 | `decay` | OK | **required** | 3 | `_decay` ↔ `BoardRules.Decay` | 批 3：三档。事件两档（抑制 / 到期恢复）撞 **KG-7**（那只癌细胞摆在盘外 (5,5)） |
 | `mark_adhesion` | OK | deferred | **0** | `_mark_adhesion` ↔ `BoardRules.MarkAdhesion` | 批 3 **收不到（B9）**：`t_effector_responses` 的 near/mid/far 三只癌细胞同属席位 1 |
-| `tick_durations` | OK | **required** | 2 | `cw_world_fx.gd:tick_durations` ↔ `BoardRules.TickDurations` | 批 3：两档；GD 半边住在 `CWWorldFx` 上。修饰过期三档撞 `mods` ⇒ 批 5a，TNF 那条撞 **B6** |
+| `tick_durations` | OK | **required** | 4 | `cw_world_fx.gd:tick_durations` ↔ `BoardRules.TickDurations` | 批 3：两档；GD 半边住在 `CWWorldFx` 上。修饰过期三档撞 `mods` ⇒ 批 5a，TNF 那条撞 **B6**。批 5a +2：`mods_expire` / `mods_keep` 两档（round 的清掉、"" 的留着），原「修饰过期三档撞 mods」空档合上 |
 | `tick_necrosis` | OK | **required** | 4 | `_tick_necrosis` ↔ `BoardRules.TickNecrosis` | 批 3：四档，**只钉倒计时本身、`covers` 留空**（评委 conflicts #5，见下表）。盘面档撞 **B5**（`aerobic_by_level = []` 表达不了） |
 | `tick_chemo_cd` | OK | deferred | **0** | `_tick_chemo_cd` ↔ `BoardRules.TickChemoCooldown` | 批 3 **收不到（B10）**：B4 之后草稿有了，但该局细胞写在席位 2/3、对局只有 2 席 ⇒ 两侧都装不回去 |
 | `tick_chemo_track` | OK | **required** | 2 | `_tick_chemo_track` ↔ `BoardRules.TickChemoTrack` | 批 3 当天 KG-8 合上后放回 2 条（ticks / expires）|
@@ -84,7 +84,7 @@
 | `aerobic` | OK | deferred | 0 | `cw_world.gd:_aerobic` ↔ `PhaseRules.Aerobic` | 批 2；薄壳 `aerobic()` 不是契约步 |
 | `overload` | OK | deferred | 0 | `cw_world.gd:_overload` ↔ `PhaseRules.Overload` | 批 2；薄壳 `overload()` 不是契约步 |
 | `enter_tile` | OK | required | 4 | `cw_actions.gd:enter_tile(cell, dest, paid := -1)` ↔ `CellRules.EnterTile` | 批 1 落地：healthy / purify / special 三档 delta；`paid` 只写缺省（C# 不消费，写了当场红）；`free` 档撤（要卡牌 + 挂起态 ⇒ 批 5b）；GD runner 原读 `to` 已改 `dest` |
-| `execute` | OK | required | 39 | `cw_actions.gd:execute(cell, data)` ↔ `GetAvailableDecisions → SemanticKey.Of → ExecuteDecision` | 批 1 进表（决策类 op）：args = `seat` + 语义键 `key`，**`rec: "manual"`**（行动总入口不许代理覆写）；批 1 只 `act=move` 落空格；**批 4 加 17 档**：攻击 15 档（判词 / 反击 / 击杀 / 补体调理重掷 / 穿孔素 pick / 攻击上限……，`rolls` 逐条按硬约定的掷骰次序）+ 抗体 + `move/purify_heal`（巨噬【局部吞噬】回能按实付 0.7/0.5/0.4/0.3/0.2/0.0 + 旋钮 0 七态 —— S1 路 ②，不动 core 的 `EnterTile` 签名） |
+| `execute` | OK | required | 46 | `cw_actions.gd:execute(cell, data)` ↔ `GetAvailableDecisions → SemanticKey.Of → ExecuteDecision` | 批 1 进表（决策类 op）：args = `seat` + 语义键 `key`，**`rec: "manual"`**（行动总入口不许代理覆写）；批 1 只 `act=move` 落空格；**批 4 加 17 档**：攻击 15 档（判词 / 反击 / 击杀 / 补体调理重掷 / 穿孔素 pick / 攻击上限……，`rolls` 逐条按硬约定的掷骰次序）+ 抗体 + `move/purify_heal`（巨噬【局部吞噬】回能按实付 0.7/0.5/0.4/0.3/0.2/0.0 + 旋钮 0 七态 —— S1 路 ②，不动 core 的 `EnterTile` 签名）。批 5a +7：`move/spend` / `move/keep` / `move/exhaust`（修饰打出后消耗 / ON_BENEFIT 不消耗 / 额度用尽回基准价）+ `move/ras`（【RAS持续激活】首次定殖回能 / 同回合第二次不回，主会话补收） |
 | `damage_hit` | OK | **required** | 25 | `cw_game.gd:immune_hit(target, base, attacker, attack, add)` / `cancer_hit(target, base, reason, skill)` ↔ `CellRules.Damage(s, id, amount, LossSource, ability)` | 批 4 落地：args `[target, base, source, ability]`，`source` 四个字面词 immune_attack / immune_effect / cancer_skill / world，immune 两档的 `ability` 只许「攻击」「技能」（GD 硬编码，两侧探针硬断言）；不收 `attacker`（C# `Damage` 没有：吸血 / 斩杀住在 `Move` 与 GD 伤后触发队列）、`add`（GD 第一步就加进 base）、`direct`（GD 是同批第二条事件 —— 靶场造事件 = 重写攻击流程 ⇒ 走 `execute` 攻击分支）；13 档，仍 `rec: manual` 手写。盘面禁忌 F1：不许有与任一活癌细胞 ≤2 格的树突（damage-tail-update-marks） |
 
 ### 挂档 3 条（`cases: none`，不产用例，不进分派）
@@ -110,20 +110,24 @@
 | **F3 · `quote_path` 的 `blocked` 文案三条**（`t_plan_path` 3959 / 3974 / 4078：GD 六种 `move_block_reason` 文案、C# 恒一句）—— 投影只收 0/1 | 留 GD | 批 1 |
 | **跨 op 同源断言 8 条**（「报价 == 真走一遍」「规划器与选项生成同一把尺子」）—— 一条 L0 用例只跑一个 op，结构上搬不动；**不**拆成两条单 op 用例刷分子 | 留 GD | 批 1 S1 F5 |
 | **批 1 留 GD 74 条**：跨 op 同源 8 + 文案 / 日志 ~20（`move_block_reason` 整族）+ 选项生成级 ~10（`build_options` / `immune_move_options`）+ 纯查询契约 ~8（state_hash / 不烧闸门 / 不消耗 rng，P 族探针两侧天然满足）+ 其余（清单 `scratchpad/b1_inventory.json`） | 留 GD | 批 1 S1 |
-| **批 1 清单里判去批 5a 的 28 条**（`_t_ruling_a_rewrite` 5 / `t_card_mods` 16 / `_t_cost_required` 5 / `_t_commit_revalidates` 1 / `t_card_perms` 2）—— 判据是「要 `mods` ⇒ C# UNLOADABLE」，**而 E-2 前奏同日落地后这个前提已不成立**；另【组织浸润】在 C# 里不从 `equipped` 发修饰（打出时 `AddModifier` ⇒ mods），`equipped` 只许写【组织驻留】/【LFA-1黏附】/【组织巡航】。⚠ `_t_ruling_a_rewrite::X 级：改为 0.5 = 没变` 双重阻塞（`immune_move_*` 是 tier C 旋钮，免疫基准价只能靠 `players[].level` 拨） | **批 5a 重新分诊**（现在装得进了） | 批 1 S1 + E-2 落地记录 |
+| ~~批 1 清单里判去批 5a 的 28 条~~ **批 5a 重新分诊（2026-09-19）**：19 收 / 1 批 4 已收 / 3 卡【组织浸润】（infiltration-from-equipped）/ 5 留 GD（X 级要 tier C 旋钮 `immune_move_cancerous[3]`、报价纯查询两条要同 op 连跑两次、end_turn、equip_seq 前提）。「mods 装不进」这个原判据 28 条里一条都不成立了。原文：（`_t_ruling_a_rewrite` 5 / `t_card_mods` 16 / `_t_cost_required` 5 / `_t_commit_revalidates` 1 / `t_card_perms` 2）—— 判据是「要 `mods` ⇒ C# UNLOADABLE」，**而 E-2 前奏同日落地后这个前提已不成立**；另【组织浸润】在 C# 里不从 `equipped` 发修饰（打出时 `AddModifier` ⇒ mods），`equipped` 只许写【组织驻留】/【LFA-1黏附】/【组织巡航】。⚠ `_t_ruling_a_rewrite::X 级：改为 0.5 = 没变` 双重阻塞（`immune_move_*` 是 tier C 旋钮，免疫基准价只能靠 `players[].level` 拨） | **批 5a 重新分诊**（现在装得进了） | 批 1 S1 + E-2 落地记录 |
 | **批 1 清单里判去别批的**：批 3 10 条（`reset_round_flags` / `resolve_camping` / `ossify`；`begin_turn` 后重新免费 2 条）、批 4 4 条（伤害 / 掷骰）、批 4/5 10 条（`enter_tile` 的 `paid` 实付回能）、批 5b 4 条（世界事件；`gain` 口径差：GD `core_gain()` 吃【代谢加速】翻倍、C# 读裸 `tile.Charge`，events 恒默认时恒绿 —— 批 5b 必须回头看） | 各批 | 批 1 S1 |
 | **`enter_tile` 的 `free` 档**（免费连走：【趋化募集】/【效应细胞浸润】要卡牌与挂起态） | 批 5b | 批 1 F10 |
 | **机件三条（批 1 登记）**：~~① F13~~ **已合上（2026-09-19 同日）**：`Subset.Text` 先按键名 Ordinal 排序再印（递归进数组），`SubsetTextTests` 2 项钉住 —— 手写 `changed` 里的对象不再要照 C# 键序抄；~~② F15~~ **已合上（同日）**：两侧契约门② 加 `deferred` 分支 = 零用例（塞一条进 deferred 行两侧当场红）；③ `erosion` 的 `fresh` 参数 GD 读 JSON 数组、C# `Args.Positions` 读分号串（`L0Case.Args` 是 `Dictionary<string,string>`，数组连反序列化都过不去）—— **批 3 开工前先合**（推荐 GD 改读分号串） | 机件，随批 3 前 | 批 1 P1 / P2 |
-| **`SKILL_MOVE` 费用链**（`t_homing_stream` / `t_jump_cap` / `t_ossify_cost_and_pin` 等读 `skill_move_cost`）—— 批 1 七个 op 面上没有它 | 单列一个 op 或归批 5a | 批 1 S1 |
+| **`SKILL_MOVE` 费用链**（`t_homing_stream` / `t_jump_cap` / `t_ossify_cost_and_pin` 等读 `skill_move_cost`）—— 批 1 七个 op 面上没有它。批 5a 裁：**不开 `skill_move_cost` op** —— SKILL_MOVE 模板全表只有【基质阻隔】一条，C# 无事件容器，开了就是零用例空壳 | 批 5b（随事件容器） | 批 1 S1 / 批 5a S1 |
 | **`t_pass_through_ally:16862` 是恒真断言**（`check(not d.has(c) or true, …)`），在 core 分母里白占一格；另 4 条（16866 / 16869 / 16752 / 16769）断言名纯 `%` 拼、`covers` 指不到 | 报 Kevin（老测试，不动） | 批 1 S1 F6 |
 | **`area-damage-batch`** —— GD `cw_game.gd:immune_hit_area` 批量提交（同一份批前状态、`damage.next_group()` 一次），C# 逐个 `Damage`；影响所有 `*_hit_area` 口径的卡（炎症风暴 / 免疫风暴 / 放疗 / 全身性免疫清除 / TNF-α）。2026-09-19 起两张风暴卡由死代码转为活路径，差异随之可达 | **批 4**（伤害管线） | 开发日志 2026-09-19 pick_cell 条 |
 | ↳ **批 4 坐实 `area-damage-batch`（2026-09-19）**：借 `execute|act=antibody` 两目标、含当场死亡、含护盾组 ON_BENEFIT 的盘面，两侧差分逐条相同 —— **「批量 vs 逐个」的顺序本身今天不产生差异**（GD `_plan` 跨目标只读目标自己的字段 + round_no + tune）；唯一可达的差异是 GD 管线尾巴的 `game.update_marks()`（下一行）；伤后触发那条尾巴在 area 上不可达（9 处 `*_hit_area` 无一带 `Tag.ATTACK`）。设计草案甲（推荐）：新开 internal `DamageBatch`（逐个 `Damage` + 末尾一次 `UpdateMarks`），逐个那部分零行为改动；乙 = 调用点各补一句 UpdateMarks；丙 = 把 Damage 拆成五段对齐 GD 七阶段 = 动骨架。**结构性空档**，等真出现「读盘面的减伤」再做 | 批 5+ | 批 4 S1 取证 |
+| **infiltration-from-equipped** —— 【组织浸润】GD 从 `equipped` 现读模板发修饰（`cw_cost.gd:_collect`），C# `SkillMoveModifiers` 只处理【组织驻留】/【LFA-1黏附】/【组织巡航】三件、`CardRules.Registry` 那条在真打出路径上够不着（Permanent 分支在 Resolve 之前 return）：写 equipped 两侧 GD 7 / C# 10 分叉，写 mods 则 E-2 路由表没有它 ⇒ UNLOADABLE。连累批 1 那 28 条里的 3 条。设计草案：`SkillMoveModifiers` 加一件（读 `HasSkill`），与 E-2 路由表同批 | C# 侧合（规则结果差） | 批 5a S1 实测 |
+| **card-play-feed-log** —— `execute|act=play` 两侧键形本来就同、六条差分逐条相同，但 GD 多 `feed_log` / `feed_seq`，C# 的 `ignore` 零命中是硬错 ⇒ 打出一张卡的 delta 用例今天盖不住（`t_card_mods` ①b「换出牌顺序结果相同」/ `_t_ruling_a_rewrite`「改为 X 恒在 −X 之前」因此留 GD） | 靶场：`feed_log` 的豁免口径（观测协议 §八 末行「进对拍」与 ignore 零命中硬错相撞） | 批 5a S1 实测 |
+| **end-turn-not-a-step** —— `execute|act=end` GD 侧差分为空（L0 里不推回合机），C# 真推进（mods 过期 + current_pid −1 + phase e）⇒ 「结束回合」不是一条契约步 | 留 GD | 批 5a S1 实测 |
+| **world-event-cost-modifiers** —— 费用侧世界事件（EMT + 基质阻隔）GD 4 / C# 2，`SkillRules.cs:294` 自注「C# 还没有事件容器」 | 批 5b | 批 5a S1 实测 |
 | **damage-tail-update-marks** —— GD 单体 `immune_hit` / `cancer_hit` 与范围都走 `submit → _submit_batch → update_marks()`，C# `CellRules.Damage` 没有这一步、抗体那条路的调用点也不补：树突在 2 格内时 GD 出 `mark_round 0→1`（标记被消耗后当场补回）、C# 出 `marked=false + mark_left=0`。用例按 F1 避开（不许有 ≤2 格的树突） | C# 侧合（随甲一起） | 批 4 S1 |
 | **attack-outcome-world-events** —— C# `RulePolicies.AttackOutcome` 完全不读【抗原引导】/【免疫伪装】，写了必红 | 批 5b（世界事件） | 批 4 S1 |
-| **opsonin-multi-reroll** —— 同一攻击者两张【补体调理】的重掷次序（F4：用例只放一张） | 批 5a | 批 4 S1 |
+| **opsonin-multi-reroll** —— 同一攻击者两张【补体调理】的重掷次序（F4：用例只放一张）。批 5a 没收：它是同名两条 mods，被 mods-same-name-path 挡住 ⇒ 改挂到那条名下 | 随 mods-same-name-path | 批 4 S1 / 批 5a 评委 |
 | **macro-heal-paid-0.1** —— 巨噬回能封顶「实付 0.1」造不出来（迁移减免的共同地板 0.2；路 ② 造得出 0.7～0.2 与 0.0）；要盖它得走路 ①（`EnterTile` 加 `int paid = -1` 透传，动 core public 签名，报 Kevin） | 待 Kevin | 批 4 S1 / P2 |
 | **damage-batch-semantics** —— `_t_damage_batching` 6 条主语全是 `simultaneous_group` / `DamageResult` 字段 / GD 自己的 state_hash，整函数留 GD | 留 GD | 批 4 S1 |
-| **mods-same-name-path** —— delta 路径文法 `$.cells[i].mods[<名>]` 表达不了同名两条（`cw_case_diff.gd` 当场报歧义），判死 `_t_dmg_shield_on_benefit` 16524/16525 + `t_card_mods` 14374/14375/14376（定案 #57 同名一起扣） | 文法要加第二级键（§0.6.2） | 批 4 P2 |
+| **mods-same-name-path** —— delta 路径文法 `$.cells[i].mods[<名>]` 表达不了同名两条（`cw_case_diff.gd` 当场报歧义），判死 `_t_dmg_shield_on_benefit` 16524/16525 + `t_card_mods` 14374/14375/14376（定案 #57 同名一起扣）。批 5a 坐实：**只卡 delta、不卡 scalar**（两条同名【CXCR3趋化】的 `move_cost` 探针两侧同绿；两条同名护盾的 `damage_hit` delta GD 当场报歧义）；设计草案 = `mods[名#seq]` 第二级键 | 文法要加第二级键（§0.6.2） | 批 4 P2 |
 | **批 4 结构上搬不动的两条**：`t_hit_order:449` 与 `_t_damage_required:17183/17189`（主语是「攻击者是树突 / 巨噬时不减半、不吸血」，`damage_hit` 不收攻击者、树突又被【各司其职】禁止攻击）；`t_batch_death_and_triggers::②同一目标在一批里只被宣死一次`（kills 内部记账）；【组织浸润】在 C# 是 `CardRules` 挂的 mods 条目而 E-2 路由表没有它、`SkillMoveModifiers` 也只处理三件（写 equipped 两侧分叉、写 mods UNLOADABLE）—— 批 5a 顺手补 | 留 GD / 批 5a | 批 4 S1 / P2 |
 | **批 0 留 GD 的 26 个 check 名**（无 C# 对应物 21 个符号：`CWData.TOTAL_TILES` / `DIFFERENTIATE_MIN_LEVEL` / `HAND_MAX`（C# 只有 `Cell.HandMax` 的 record 字段缺省）/ `EMT_MOVE_COST` / `MUTATE_EXTRA_LOSS` / `MUTATE_MEMORY_CUT` / `CHEMO_IMMUNE_PCT` / `CHEMO_SELF_PCT` / `MARK_RANGE` / `LEVEL_MIN_MEMORY` / `EFFECTOR_NAMES` / `IMMUNE_TYPE_TEXT` / `init_cancer_tiles` / `aerobic_level_base(n)` / `level_min_memory(n)` / `skill_text` / `ring`、`CWCardData.CARDS`（两侧形状对不上）/ `effect_of`；C# 侧 private 够不着：`CWData.VESSELS`（`MatchSetup.Vessels`）/ `all_coords`（`MatchSetup.AllCoords`））—— 涉及 `t_immune_level_rules`（门槛表 5 条）/ `t_ring_and_toxin`（`ring` 4 条）/ `t_card_pool` 3 / `t_mark_range` 2 / `t_skill_info` 2 / `t_antibody_no_target_x` / `t_batch2_rules` / `t_board` / `t_card_mods` / `t_draw_purify_memory` / `t_effector_responses` / `t_guide_director` / `t_hunt_fx` / `t_mutation_faces` / `t_setup` 各 1 | 各自等对应机制迁 C#（免疫等级门槛表 = E-3 判死的 `differentiate_min_level` 家族；`ring` / `neighbors` 类几何工具随批 3；文案类永远留 GD） | 规格 B 批 0 落地记录 |
 | **批 0 撤回的 5 条**：`const/data/hand_max`（C# 只有 record 字段缺省）、`anaerobic_cells_k` 与 `antibody_no_target_x` 的越界钳住各 2 条（GD `clampi` 住在静态函数里、C# 是裸表，纪律 3 不在靶场补 clamp、也不为测试在 core 开 clamp 壳） | 留 GD | 批 0 评委 |
@@ -136,7 +140,7 @@
 | **KG-6 · 骨髓 / 核心格的 `store` / `cards` 落点** —— GD 的整盘 dump 在骨髓格上写了 `store`，C# `WorldLoader` 抛「`store` 是代谢核心那类的存量、`cards` 只有骨髓格有」。连累 `erosion` / `proliferate` 的 `necrosis_cleared_on_flip` 两档 | §0.6.1 补一条字面口径 | 批 3 P2 实测 |
 | **KG-7 · 盘外细胞 (5,5) 的口径** —— `t_card_mods` ⑩段把癌细胞摆在半径 6 的棋盘外，GD 容得下、C# `WorldLoader` 不收。连累 `decay` 的 `event:suppressed` / `event:expired_resumes` 两档 | 要么原测试挪进盘内，要么两侧统一口径 | 批 3 P2 实测 |
 | ~~KG-8~~ **已合上（2026-09-19 同日，d0dd3ca：C# 编码器 g.differentiated 按旗标现算（与 GD loader 同口径），`expire_marks` / `tick_chemo_track` 转 required）** · `differentiated` 由哪一侧现算（闸二 2b 红，按 C-3 最要紧）** —— GD `cw_case_loader.gd:_differentiated_of` 要 `cell["differentiated"] == true`，C# 按细胞 `type` 现算；一只 `differentiated=false` 的树突细胞 GD 算 0 种、C# 算 1 种（`$[state][g][differentiated]` 条数 0 → 1）。既有 156 条用例里没有这种细胞，以前没露出来 | **等 Kevin / 主会话裁**；裁完 `expire_marks` + `tick_chemo_track` 当场从 deferred 转 required（+4 条用例、+2 行） | 批 3 P2 实测 |
-| **`pressure` 的护盾三条**（首次闸门已烧 / 盾完全吸收 / 压迫吃掉这面盾）—— 三条都要 `cells[].mods` | **批 5a**（setup_ops 的 `mods` 路由已开，重新分诊） | 批 3 评委 missing |
+| ~~`pressure` 的护盾三条~~ **已收（批 5a，`shield` 档）**：原文（首次闸门已烧 / 盾完全吸收 / 压迫吃掉这面盾）—— 三条都要 `cells[].mods` | **批 5a**（setup_ops 的 `mods` 路由已开，重新分诊） | 批 3 评委 missing |
 | **`proliferate` 的固化块计数四条**（两个相邻块各一格固化 5305 / 固化在块深处 5309 / 同一块只算一次 5323 / 守护半径恰为 3 13873）—— 前三条的主语是 `proliferate_chance(t)` 的**数值**、第四条是 `_watched(pos)` 的布尔，都不是 `_proliferate` 这一步的 delta | 归 `proliferate_chance` scalar 探针那一档（批 2 补） | 批 3 评委 missing |
 | **`tick_necrosis` 认领的两条 check**（`t_necrosis::坏死一过，两种格子照常攒` / `坏死一过，血管照常把人送到另一端`）—— 这两句断的是两次 `_tick_necrosis` **之后**由 `_tissue_production()` / `_vessel_teleport()` 产生的结果；批 3 的 4 条用例只钉倒计时本身（necrosis 2→1 / 1→0），按「covers 指不到就不认领」`covers` 留空。全文七处 `_tick_necrosis` 调用点逐条查过，没有任何一条 check 单独断言坏死计数器 | 随 `tissue_production` / `vessel_teleport` 那批迁 | 批 3 评委 conflicts #5 |
 | ~~机件 ③ `erosion.fresh` 文法~~ —— **已合上（批 3 落地）**：`cw_rec_world.gd` 录 `";".join(...)`、`l0_runner.gd:_positions` 改收 String 再 `split(";")`（空串 = 空表），与 C# `Steps.Args.Positions` 逐字相同 | —— | 批 1 登记的机件三条，至此全清 |

@@ -1,0 +1,796 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods/inflammatory_to_healthy",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_mods::炎症趋化：向健康组织不受影响"
+    ],
+    "source": "t_card_mods ① 第 2 条：【炎症趋化】的 cond 是 to_cancerous —— 向健康组织 (0,1) 一条修饰都不发，原样 immune_move_healthy[0] = 5。条目按四元组直装（E-2 前奏），uses/seq 照打出那一刻。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "mods": [
+            {
+              "name": "炎症趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            }
+          ],
+          "play_n": 1
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "0,1"
+    },
+    "expect": 5
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods/replace_then_cut_floor",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_mods::叠加：0.5 再 −0.5 踩到 CXCR3 的下限 0.2",
+      "_t_ruling_a_rewrite::改为 0.5 → −0.5 → 踩下限 0.2（改为恒在减费之前）"
+    ],
+    "source": "语义阶段：【炎症趋化】REPLACE（阶段③）把 1.0 改成 0.5，【CXCR3趋化】FLAT_CUT（阶段⑤）再 −0.5，落到该减费自己的局部下限 0.2。两条 check（t_card_mods ①「叠加」与 _t_ruling_a_rewrite ②「改为恒在减费之前」）盘面等价，合成一条。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "mods": [
+            {
+              "name": "炎症趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            },
+            {
+              "name": "CXCR3趋化",
+              "uses": 2,
+              "until": "turn",
+              "seq": 2
+            }
+          ],
+          "play_n": 2
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 2
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods/cxcr3_alone_cuts_half",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_mods::只剩 CXCR3 时按 −0.5 计"
+    ],
+    "source": "t_card_mods ① 第 6 条：【炎症趋化】已在上一步被消耗，只剩【CXCR3趋化】（还剩 1 次）——1.0 − 0.5 = 0.5，没踩到下限。seq 仍是 2（打出先后的戳不因消耗而重排）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "mods": [
+            {
+              "name": "CXCR3趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 2
+            }
+          ],
+          "play_n": 2
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 5
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods/emt_to_healthy",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_mods::上皮—间质转化：向健康组织移动费 0.2"
+    ],
+    "source": "t_card_mods ②：癌方【上皮—间质转化】REPLACE 成 0.2（cond to_healthy）。落点 (1,0) 只邻接 1 格癌组织，够不着【伪足穿透】的 3 格门槛 ⇒ 基准价是 cancer_move_healthy = 1.2。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "mods": [
+            {
+              "name": "上皮—间质转化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            }
+          ],
+          "play_n": 1
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 2
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods/emt_spent_back_to_base",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_mods::用完之后回到原价，不再是 0.2"
+    ],
+    "source": "同一个盘面、条目已用尽（前期 1 次）：mods 空 ⇒ 一条修饰都不发，回到基准价 1.2。没有 mods / equipped 就不写 play_n（硬约定通用 5：play_n = max(seq)，这里 max 是 0）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 12
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods/emt_rewrites_pseudopod",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_mods::EMT 把伪足穿透的"
+    ],
+    "source": "t_card_mods ②b：落点 (1,0) 邻接 3 格癌组织 ⇒ 黑色素瘤基准价走【伪足穿透】0.5；EMT 的「改为 0.2」这才真有意义（抬价前是空操作）。细胞自己脚下那格**不**写成癌组织，否则邻接数变 4、基准价再降 0.1（issue #22）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,1",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "mods": [
+            {
+              "name": "上皮—间质转化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            }
+          ],
+          "play_n": 1
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 2
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods_gate/cruise_equipped_then_chemo",
+    "probe": "move_cost",
+    "covers": [
+      "_t_ruling_a_rewrite::语义阶段：免费豁免（阶段⑨）盖过「改为 0.5」（阶段③），"
+    ],
+    "source": "_t_ruling_a_rewrite ①（组织巡航先）：免费豁免在阶段⑨、「改为 0.5」在阶段③ —— 阶段序在前，来源先后只是同阶段的平局规则，所以先装技能后打卡也是 0。equip_seq 与 mods.seq 共用同一把 play_n 尺。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "equipped": [
+            "组织巡航"
+          ],
+          "mods": [
+            {
+              "name": "炎症趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 2
+            }
+          ],
+          "play_n": 2,
+          "equip_seq": {
+            "组织巡航": 1
+          }
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods_gate/chemo_then_cruise_equipped",
+    "probe": "move_cost",
+    "covers": [
+      "_t_ruling_a_rewrite::语义阶段：免费豁免（阶段⑨）盖过「改为 0.5」（阶段③），"
+    ],
+    "source": "_t_ruling_a_rewrite ①（炎症趋化先）：把上一条的 seq 与 equip_seq 互换 —— 仍然 0。这一对就是那条 for 循环的两次执行。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "equipped": [
+            "组织巡航"
+          ],
+          "mods": [
+            {
+              "name": "炎症趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            }
+          ],
+          "play_n": 2,
+          "equip_seq": {
+            "组织巡航": 2
+          }
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods_gate/resident_free_then_cxcr3",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_mods::先免费后减免：仍然免费，不被抬回 0.2"
+    ],
+    "source": "t_card_mods ①c：【组织驻留】先装（向健康组织的首两次免费，阶段⑨），再打【CXCR3趋化】——减免只降不升，0 不会被「−0.5 钳回 0.2」抬回收费。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "equipped": [
+            "组织驻留"
+          ],
+          "mods": [
+            {
+              "name": "CXCR3趋化",
+              "uses": 2,
+              "until": "turn",
+              "seq": 2
+            }
+          ],
+          "play_n": 2,
+          "equip_seq": {
+            "组织驻留": 1
+          }
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "0,1"
+    },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods_order/inflammatory_first",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_mods::语义阶段：无论先打哪张，都是「改为 0.5」再 −0.5 → 下限 0.2（"
+    ],
+    "source": "t_card_mods ①b 的第一次循环（炎症趋化先）：结果 0.2。与 move_cost/mods/replace_then_cut_floor 是同一个盘面 —— 这一档钉的是「换顺序结果相同」，两条一起看才成立。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "mods": [
+            {
+              "name": "炎症趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            },
+            {
+              "name": "CXCR3趋化",
+              "uses": 2,
+              "until": "turn",
+              "seq": 2
+            }
+          ],
+          "play_n": 2
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 2
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods_order/cxcr3_first",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_mods::语义阶段：无论先打哪张，都是「改为 0.5」再 −0.5 → 下限 0.2（"
+    ],
+    "source": "t_card_mods ①b 的第二次循环（CXCR3 先）：两条 mods 的 seq 互换，结果仍是 0.2。mods 按 (seq, 名) 升序写 —— seq 1 的【CXCR3趋化】排在 seq 2 的【炎症趋化】前面。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "mods": [
+            {
+              "name": "CXCR3趋化",
+              "uses": 2,
+              "until": "turn",
+              "seq": 1
+            },
+            {
+              "name": "炎症趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 2
+            }
+          ],
+          "play_n": 2
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 2
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods_floor/two_cxcr3_local_floor",
+    "probe": "move_cost",
+    "covers": [
+      "_t_cost_required::§11.4 只有减费时踩在局部下限 0.2 上"
+    ],
+    "source": "_t_cost_required §11.4 上半：X 级向癌性组织基准 0.8，两条【CXCR3趋化】各 −0.5 ⇒ −0.2，被**该减费自己的**局部下限抬回 0.2。同名两条对 scalar 探针无害（禁忌 F3 只卡 delta）。免疫等级只能靠 players[].level 拨 —— immune_move_cancerous 是 C 档旋钮。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "X"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "mods": [
+            {
+              "name": "CXCR3趋化",
+              "uses": 2,
+              "until": "turn",
+              "seq": 1
+            },
+            {
+              "name": "CXCR3趋化",
+              "uses": 2,
+              "until": "turn",
+              "seq": 2
+            }
+          ],
+          "play_n": 2
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 2
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods_floor/free_pushes_to_zero",
+    "probe": "move_cost",
+    "covers": [
+      "_t_cost_required::§11.4 免费可以把局部下限一路压到 0"
+    ],
+    "source": "_t_cost_required §11.4 下半：同一个盘面再装【组织巡航】—— 免费豁免（阶段⑨）排在减费（阶段⑤）之后，把局部下限 0.2 一路压到 0。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "X"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "equipped": [
+            "组织巡航"
+          ],
+          "mods": [
+            {
+              "name": "CXCR3趋化",
+              "uses": 2,
+              "until": "turn",
+              "seq": 1
+            },
+            {
+              "name": "CXCR3趋化",
+              "uses": 2,
+              "until": "turn",
+              "seq": 2
+            }
+          ],
+          "play_n": 3,
+          "equip_seq": {
+            "组织巡航": 3
+          }
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods_allowance/stemness_first_free",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_perms::本世界回合向癌性组织移动免费"
+    ],
+    "source": "t_card_perms ⑰：【癌症干性】是永久技能，生效与否看**复活那一刻发的限次额度**（mods 里的同名条目，until=round）。cw_cost.gd:_collect 见 mods 里有同名条目就不再从 equipped 收一遍 ⇒ 额度在，向癌性组织免费。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "equipped": [
+            "癌症干性"
+          ],
+          "mods": [
+            {
+              "name": "癌症干性",
+              "uses": 2,
+              "until": "round",
+              "seq": 2
+            }
+          ],
+          "play_n": 2,
+          "equip_seq": {
+            "癌症干性": 1
+          }
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods_allowance/stemness_second_free",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_perms::第二次向癌性组织移动也免费"
+    ],
+    "source": "同上，额度已用掉一次（uses 2 → 1）：第二次仍免费（2026-09-07 卡面统一成「前两次」）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "equipped": [
+            "癌症干性"
+          ],
+          "mods": [
+            {
+              "name": "癌症干性",
+              "uses": 1,
+              "until": "round",
+              "seq": 2
+            }
+          ],
+          "play_n": 2,
+          "equip_seq": {
+            "癌症干性": 1
+          }
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mods_allowance/stemness_exhausted",
+    "probe": "move_cost",
+    "covers": [
+      "t_card_perms::两次额度用完，第三次恢复原价"
+    ],
+    "source": "两次额度用尽：mods 空、技能还装着 —— cond has_allowance 不成立，这条修饰不该再从 equipped 冒出来，回到 cancer_move_cancerous = 0.2。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "equipped": [
+            "癌症干性"
+          ],
+          "play_n": 1,
+          "equip_seq": {
+            "癌症干性": 1
+          }
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "cell": "0",
+      "to": "1,0"
+    },
+    "expect": 2
+  }
+]

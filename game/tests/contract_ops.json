@@ -59,7 +59,12 @@
       { "tag": "chemo:immune_toward", "cases": "^move_cost/chemo/immune_toward$" },
       { "tag": "chemo:immune_away", "cases": "^move_cost/chemo/immune_away$" },
       { "tag": "chemo:cancer_away", "cases": "^move_cost/chemo/cancer_away$" },
-      { "tag": "chemo:cancer_toward", "cases": "^move_cost/chemo/cancer_toward$" }
+      { "tag": "chemo:cancer_toward", "cases": "^move_cost/chemo/cancer_toward$" },
+      { "tag": "mods", "cases": "^move_cost/mods/" },
+      { "tag": "mods_gate", "cases": "^move_cost/mods_gate/" },
+      { "tag": "mods_order", "cases": "^move_cost/mods_order/" },
+      { "tag": "mods_floor", "cases": "^move_cost/mods_floor/" },
+      { "tag": "mods_allowance", "cases": "^move_cost/mods_allowance/" }
     ]
   },
   {
@@ -209,7 +214,8 @@
       { "tag": "adjacent:0", "cases": "^pressure/all_healthy_neighbours$" },
       { "tag": "solid", "cases": "^pressure/solid_counts_double$" },
       { "tag": "healthy_offset", "cases": "^pressure/healthy_offsets$" },
-      { "tag": "necrosis", "cases": "^pressure/necrosis_still_counts_as_healthy$" }
+      { "tag": "necrosis", "cases": "^pressure/necrosis_still_counts_as_healthy$" },
+      { "tag": "stage_mult", "cases": "^pressure_at/stage_mult/" }
     ]
   },
   {
@@ -391,7 +397,7 @@
     "cs": "BoardRules.Pressure",
     "args": [], "rng": false,
     "status": "OK", "cases": "required",
-    "note": "批 3 收到七档：五档盘面（0.5 分界线 / 抵平 / 四癌两健康 / 固化双倍权重 / 致死）加两档减免。护盾三档（首次闸门已烧 / 盾完全吸收 / 压迫吃掉这面盾）撞 `cells[].mods` —— C# 侧非空 mods 仍 UNLOADABLE，等批 5a 的 setup_ops；记 COVERAGE.md 空档。`$.g.players` 这片粗叶子两侧键序不同那条（B11）641fecd 的 F13 已修，本批 45 条 `ignore` 一律为 []",
+    "note": "批 3 收到七档：五档盘面（0.5 分界线 / 抵平 / 四癌两健康 / 固化双倍权重 / 致死）加两档减免。护盾三档（首次闸门已烧 / 盾完全吸收 / 压迫吃掉这面盾）撞 `cells[].mods` —— E-2 前奏落地后装得进，**批 5a 已收**（`shield` 档 2 条）。`$.g.players` 这片粗叶子两侧键序不同那条（B11）641fecd 的 F13 已修，本批 45 条 `ignore` 一律为 []",
     "boundaries": [
       { "tag": "adjacent:2c4h_zero", "cases": "^pressure/t_pressure/000$" },
       { "tag": "adjacent:3c3h_breakeven", "cases": "^pressure/t_pressure/001$" },
@@ -399,7 +405,8 @@
       { "tag": "solid:double_weight", "cases": "^pressure/t_pressure/003$" },
       { "tag": "lethal", "cases": "^pressure/t_pressure/004$" },
       { "tag": "mitigation:first_gate", "cases": "^pressure/t_card_perms/010$" },
-      { "tag": "mitigation:after_shield", "cases": "^pressure/t_card_mods/006$" }
+      { "tag": "mitigation:after_shield", "cases": "^pressure/t_card_mods/006$" },
+      { "tag": "shield", "cases": "^pressure/shield/" }
     ]
   },
   {
@@ -533,10 +540,12 @@
     "cs": "BoardRules.TickDurations",
     "args": [], "rng": false,
     "status": "OK", "cases": "required",
-    "note": "GD 这一步住在 CWWorldFx 上 —— 录制代理必须有第四个类 cw_rec_worldfx.gd（规格 A-4）。修饰过期那三档（`t_card_mods` 的 mod 过期 / 跨回合仍在 / 回合末解冻）撞 `cells[].mods`，C# 侧非空 mods ⇒ UNLOADABLE，等批 5a；带 `data` 的那条（TNF-α局部炎症）撞 B6（data 被 dump 成 GDScript 的 Vector2i str()、值还是 bool，而 C# `L0Effect.Data` 是 Dictionary<string,int> ⇒ 整文件 JsonException）—— 都记 COVERAGE.md 空档",
+    "note": "GD 这一步住在 CWWorldFx 上 —— 录制代理必须有第四个类 cw_rec_worldfx.gd（规格 A-4）。修饰过期那三档（`t_card_mods` 的 mod 过期 / 跨回合仍在 / 回合末解冻）撞 `cells[].mods` —— E-2 前奏落地后装得进，**批 5a 已收**（`mods_expire` / `mods_keep` 两档）；带 `data` 的那条（TNF-α局部炎症）撞 B6（data 被 dump 成 GDScript 的 Vector2i str()、值还是 bool，而 C# `L0Effect.Data` 是 Dictionary<string,int> ⇒ 整文件 JsonException）—— 都记 COVERAGE.md 空档",
     "boundaries": [
       { "tag": "event:one_round_expires", "cases": "^tick_durations/t_ev_lifecycle/000$" },
-      { "tag": "event:all_expire", "cases": "^tick_durations/t_ev_lifecycle/001$" }
+      { "tag": "event:all_expire", "cases": "^tick_durations/t_ev_lifecycle/001$" },
+      { "tag": "mods_expire", "cases": "^tick_durations/mods_expire/" },
+      { "tag": "mods_keep", "cases": "^tick_durations/mods_keep/" }
     ]
   },
   {
@@ -762,7 +771,11 @@
       { "tag": "attack/kill_enters", "cases": "^execute/attack/kill_enters/" },
       { "tag": "attack/direct", "cases": "^execute/attack/direct/" },
       { "tag": "antibody", "cases": "^execute/antibody/" },
-      { "tag": "move/purify_heal", "cases": "^execute/move/purify_heal/" }
+      { "tag": "move/purify_heal", "cases": "^execute/move/purify_heal/" },
+      { "tag": "move/spend", "cases": "^execute/move/spend/" },
+      { "tag": "move/keep", "cases": "^execute/move/keep/" },
+      { "tag": "move/exhaust", "cases": "^execute/move/exhaust/" },
+      { "tag": "move/ras", "cases": "^execute/move/ras/" }
     ]
   },
   {

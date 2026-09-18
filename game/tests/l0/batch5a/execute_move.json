@@ -1,0 +1,486 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/spend/inflammatory_and_cxcr3_onto_cancer",
+    "op": "execute",
+    "covers": [
+      "t_card_mods::按 0.2 付费移动（净化不给能量）",
+      "t_card_mods::炎症趋化：用一次就消耗",
+      "t_card_mods::CXCR3：还剩 1 次"
+    ],
+    "source": "t_card_mods ① 第 3~5 条：实付 0.2（REPLACE 0.5 再 −0.5 踩局部下限）走上癌性组织。免疫踏进癌组织 ⇒ 净化翻面（tissue → 健康、$.g.memory +1、一圈 d.proliferate_chance 归 0），净化**不给能量** ⇒ energy 只扣 0.2。【炎症趋化】uses 1 ⇒ 整条消耗（四元组记 null）；【CXCR3趋化】uses 2 → 1。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "炎症趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            },
+            {
+              "name": "CXCR3趋化",
+              "uses": 2,
+              "until": "turn",
+              "seq": 2
+            }
+          ],
+          "play_n": 2
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].energy": 98,
+        "$.cells[0].mods[CXCR3趋化].uses": 1,
+        "$.cells[0].mods[炎症趋化].name": null,
+        "$.cells[0].mods[炎症趋化].seq": null,
+        "$.cells[0].mods[炎症趋化].until": null,
+        "$.cells[0].mods[炎症趋化].uses": null,
+        "$.cells[0].pos.q": 1,
+        "$.g.memory": 1
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/exhaust/cxcr3_second_use",
+    "op": "execute",
+    "covers": [
+      "t_card_mods::CXCR3：两次用尽"
+    ],
+    "source": "t_card_mods ① 第 7 条：只剩【CXCR3趋化】的最后 1 次（uses 1），实付 1.0 − 0.5 = 0.5；用掉之后条目整条没了（四元组记 null）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "CXCR3趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 2
+            }
+          ],
+          "play_n": 2
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].energy": 95,
+        "$.cells[0].mods[CXCR3趋化].name": null,
+        "$.cells[0].mods[CXCR3趋化].seq": null,
+        "$.cells[0].mods[CXCR3趋化].until": null,
+        "$.cells[0].mods[CXCR3趋化].uses": null,
+        "$.cells[0].pos.q": 1,
+        "$.g.memory": 1
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/spend/emt_first_use",
+    "op": "execute",
+    "covers": [
+      "t_card_mods::前期一次用完就消耗掉"
+    ],
+    "source": "t_card_mods ②：癌方【上皮—间质转化】前期 1 次，实付 0.2 走上健康组织 ⇒ 定殖翻面 + 条目消耗。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "上皮—间质转化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            }
+          ],
+          "play_n": 1
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 30,
+        "$.board.tiles@0,1.d.proliferate_chance": 60,
+        "$.board.tiles@1,-1.d.proliferate_chance": 60,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.newborn": true,
+        "$.board.tiles@1,0.tissue": 1,
+        "$.board.tiles@1,1.d.proliferate_chance": 30,
+        "$.board.tiles@2,-1.d.proliferate_chance": 30,
+        "$.board.tiles@2,0.d.proliferate_chance": 30,
+        "$.cells[0].d.income": 28,
+        "$.cells[0].energy": 98,
+        "$.cells[0].mods[上皮—间质转化].name": null,
+        "$.cells[0].mods[上皮—间质转化].seq": null,
+        "$.cells[0].mods[上皮—间质转化].until": null,
+        "$.cells[0].mods[上皮—间质转化].uses": null,
+        "$.cells[0].pos.q": 1,
+        "$.g.players": [
+          {
+            "cancer_type": 0,
+            "cell_id": 0,
+            "d": {
+              "income": 28
+            },
+            "faction": 1,
+            "id": 0
+          }
+        ]
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/keep/on_benefit_no_change",
+    "op": "execute",
+    "covers": [
+      "_t_ruling_a_rewrite::ON_BENEFIT：没改变费用就不消耗（设计 §七.3）"
+    ],
+    "source": "_t_ruling_a_rewrite ③ 的等价盘面：原文靠拧 X 级基准价（immune_move_cancerous 是 C 档，不许拧），这里换成癌细胞 + A 档旋钮 cancer_move_cancerous = 5 —— 基准价本来就是 0.5，【炎症趋化】的「改为 0.5」一分钱没改 ⇒ ON_BENEFIT 不消耗，条目原样留在盘面上（差分里没有它）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "炎症趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            }
+          ],
+          "play_n": 1
+        }
+      ],
+      "tuning": {
+        "cancer_move_cancerous": 5
+      }
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@1,0.cell": 0,
+        "$.cells[0].energy": 95,
+        "$.cells[0].pos.q": 1
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/keep/wrong_destination",
+    "op": "execute",
+    "covers": [
+      "_t_ruling_a_rewrite::目的地不对 → 不适用 → 不消耗"
+    ],
+    "source": "_t_ruling_a_rewrite ④：【炎症趋化】只管向癌性组织的迁移 —— 走向健康组织时这条修饰压根不适用，更谈不上消耗。实付 = immune_move_healthy[0] = 0.5。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "炎症趋化",
+              "uses": 1,
+              "until": "turn",
+              "seq": 1
+            }
+          ],
+          "play_n": 1
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@1,0.cell": 0,
+        "$.cells[0].energy": 95,
+        "$.cells[0].pos.q": 1
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/ras/first_colonize_bonus",
+    "op": "execute",
+    "covers": [
+      "t_card_perms::首次定殖 +0.3（前期）"
+    ],
+    "source": "headless_test.gd:t_card_perms「首次定殖 +0.3（前期）」；【RAS持续激活】每行动回合第一次通过【移动】触发【定殖】后恢复分期额（I 期 0.3）。GD cw_actions.gd:776-782 钩在 enter_tile 之后（first_this_turn 闸门）↔ C# CellRules.cs:986-989（TurnGateOpen + BurnTurnGate）。批 5a 次优先两条之一：硬约定通用 6 的 equipped 白名单原只四件，主会话落地时加【RAS持续激活】补收。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "RAS持续激活"
+          ]
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 30,
+        "$.board.tiles@0,1.d.proliferate_chance": 60,
+        "$.board.tiles@1,-1.d.proliferate_chance": 60,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.newborn": true,
+        "$.board.tiles@1,0.tissue": 1,
+        "$.board.tiles@1,1.d.proliferate_chance": 30,
+        "$.board.tiles@2,-1.d.proliferate_chance": 30,
+        "$.board.tiles@2,0.d.proliferate_chance": 30,
+        "$.cells[0].d.income": 28,
+        "$.cells[0].energy": 91,
+        "$.cells[0].fx_turn.RAS持续激活": 1,
+        "$.cells[0].pos.q": 1,
+        "$.g.players": [
+          {
+            "cancer_type": 0,
+            "cell_id": 0,
+            "d": {
+              "income": 28
+            },
+            "faction": 1,
+            "id": 0
+          }
+        ],
+        "$.cells[0].fx_turn": null
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/ras/second_colonize_no_bonus",
+    "op": "execute",
+    "covers": [
+      "t_card_perms::同回合第二次定殖不再触发"
+    ],
+    "source": "headless_test.gd:t_card_perms「同回合第二次定殖不再触发」；同一行动回合闸门已烧（fx_turn 写 RAS持续激活 = 1）⇒ 定殖照常、不再回能。盘面直接写 fx_turn 而不真走两步（一条用例一个 op）。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "Melanoma",
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "RAS持续激活"
+          ],
+          "fx_turn": {
+            "RAS持续激活": 1
+          }
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "seat": "0",
+      "key": "k=action|act=move|to=1,0"
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 30,
+        "$.board.tiles@0,1.d.proliferate_chance": 60,
+        "$.board.tiles@1,-1.d.proliferate_chance": 60,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.newborn": true,
+        "$.board.tiles@1,0.tissue": 1,
+        "$.board.tiles@1,1.d.proliferate_chance": 30,
+        "$.board.tiles@2,-1.d.proliferate_chance": 30,
+        "$.board.tiles@2,0.d.proliferate_chance": 30,
+        "$.cells[0].d.income": 28,
+        "$.cells[0].energy": 88,
+        "$.cells[0].fx_turn.RAS持续激活": 2,
+        "$.cells[0].pos.q": 1,
+        "$.g.players": [
+          {
+            "cancer_type": 0,
+            "cell_id": 0,
+            "d": {
+              "income": 28
+            },
+            "faction": 1,
+            "id": 0
+          }
+        ]
+      },
+      "ignore": []
+    }
+  }
+]

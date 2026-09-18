@@ -1,0 +1,109 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "tick_durations/mods_expire/interferon_round_shield",
+    "op": "tick_durations",
+    "covers": [
+      "t_card_mods::干扰素盾随世界回合结束过期（没用上也作废）"
+    ],
+    "source": "t_card_mods ③ 收尾：【I型干扰素】的盾 until = round —— tick_durations 只清 round 这一档，没用上也作废，四元组整条记 null。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "I型干扰素",
+              "uses": 1,
+              "until": "round",
+              "seq": 1
+            }
+          ],
+          "play_n": 1
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].mods[I型干扰素].name": null,
+        "$.cells[0].mods[I型干扰素].seq": null,
+        "$.cells[0].mods[I型干扰素].until": null,
+        "$.cells[0].mods[I型干扰素].uses": null
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "tick_durations/mods_keep/hypoxia_no_clock",
+    "op": "tick_durations",
+    "covers": [
+      "t_card_mods::护盾跨世界回合仍在（卡面写的是「下一次」）"
+    ],
+    "source": "t_card_mods ④b 前半：【缺氧适应】的 until 是空串（挂着等触发，卡面写的是「下一次」）——tick_durations 不碰它，整步差分为空。盘面沿用原文那四格癌邻居（下一条 pressure/shield/ 用的是同一个）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "缺氧适应",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ],
+          "play_n": 1
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {},
+      "ignore": []
+    }
+  }
+]

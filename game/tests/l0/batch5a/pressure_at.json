@@ -1,0 +1,124 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "pressure_at/stage_mult/stage_II",
+    "probe": "pressure_at",
+    "covers": [
+      "t_pressure::II 期 ×1.5：2.25 × 1.5 = 3.375 → 3.4（不是先取整成 2.3 再乘）"
+    ],
+    "source": "t_pressure 尾巴（环境恶化 2026-09-11）：三癌三固化 ⇒ raw = 3 + 3×2 = 9；II 期（世界回合 6~10）倍率 ×1.5，**整条只取整一次**：(9×15 + 2) / 4 = 34，不是先取整成 2.3 再乘。盘面沿用 pressure/solid_counts_double 的几何，只拨 round。",
+    "world": {
+      "round": 6,
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "healthy"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,0",
+          "state": "solid"
+        },
+        {
+          "at": "-1,1",
+          "state": "solid"
+        },
+        {
+          "at": "0,1",
+          "state": "solid"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "at": "0,0"
+    },
+    "expect": 34
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "pressure_at/stage_mult/stage_III",
+    "probe": "pressure_at",
+    "covers": [
+      "t_pressure::III 期 ×2：4.5"
+    ],
+    "source": "同上，III 期（世界回合 11 起）倍率 ×2：(9×20 + 2) / 4 = 45。",
+    "world": {
+      "round": 11,
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "healthy"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,0",
+          "state": "solid"
+        },
+        {
+          "at": "-1,1",
+          "state": "solid"
+        },
+        {
+          "at": "0,1",
+          "state": "solid"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {
+      "at": "0,0"
+    },
+    "expect": 45
+  }
+]

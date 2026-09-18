@@ -1,0 +1,125 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "pressure/shield/hypoxia_absorbs_pressure",
+    "op": "pressure",
+    "covers": [],
+    "source": "COVERAGE 三「pressure 护盾三条」的合档条目。四癌两健康 ⇒ 压迫 0.5，被【缺氧适应】的 −1.0 全吃掉（钳在 0），盾照样消耗（四元组记 null）。**covers 空**：这几条 check 名批 3 / 批 4 已认领过，本档不重复认领（硬约定 pressure 段）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "缺氧适应",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ],
+          "play_n": 1
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].mods[缺氧适应].name": null,
+        "$.cells[0].mods[缺氧适应].seq": null,
+        "$.cells[0].mods[缺氧适应].until": null,
+        "$.cells[0].mods[缺氧适应].uses": null
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "pressure/shield/dna_repair_not_for_pressure",
+    "op": "pressure",
+    "covers": [],
+    "source": "同一盘面换一面盾：【DNA损伤修复】认的是免疫方事件/技能的损失，压迫不在它的谓词里 ——压迫照掉 0.5，盾一点没动（差分里只有 energy）。**covers 空**，理由同上。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100,
+          "mods": [
+            {
+              "name": "DNA损伤修复",
+              "uses": 1,
+              "until": "",
+              "seq": 1
+            }
+          ],
+          "play_n": 1
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 95
+      },
+      "ignore": []
+    }
+  }
+]
