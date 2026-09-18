@@ -268,9 +268,11 @@ internal static class RulePolicies
         for (var i = 0; i < path.Count; i++)
         {
             var to = path[i];
-            var quote = QuoteMove(world, current, to);
-            var cost = quote ?? 0;
             var occupied = world.GetCellAt(to) != null;
+            // GD quote_path：占位那一支**根本不报价**（cost 留 0）—— 规划器只规划移动，撞上谁就停在这儿；
+            // 敌方占位时 QuoteMove 给得出价钱（那是攻击价），不能让它漏进 steps[].cost（批 1 F12，2026-09-19）
+            var quote = occupied ? null : QuoteMove(world, current, to);
+            var cost = quote ?? 0;
             string reason;
             if (occupied) reason = "有细胞占据 —— 攻击请单独点它";
             else if (quote == null) reason = "走不到这一格";
@@ -283,6 +285,12 @@ internal static class RulePolicies
             if (!afford) { stop = i; break; }
             budget -= cost;
             total += cost;
+            // 这一步花掉的**额度**也要预演（GD issue #35 `burn_allowances`）：【组织驻留】那类「前 N 次免费」的闸门、限次修饰。
+            // 不预演的话第二步照样算自己是第一次，整条路线全是 0。在这份丢掉的 world 上烧，与真提交同一条 ConsumeModifiers
+            //（批 1 F2，2026-09-19：装【组织驻留】走三步 GD 0/0/5、C# 原来 0/0/0）
+            world = world.UpdateCell(current.Id, current);
+            world = CellRules.ConsumeModifiers(world, current.Id, ModifierTarget.Move, to);
+            current = world.Cells[current.Id];
             var tile = world.Board.Tissues[to];
             if (tile.Type == TissueType.MetabolicCore && (tile.Charge ?? 0) > 0)
             {

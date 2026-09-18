@@ -75,7 +75,8 @@
       { "tag": "stops_on_budget", "cases": "^quote_path/stops_on_budget/" },
       { "tag": "blocked", "cases": "^quote_path/blocked/" },
       { "tag": "pass_through_mid", "cases": "^quote_path/pass_through_mid/" },
-      { "tag": "core_gain", "cases": "^quote_path/core_gain/" }
+      { "tag": "core_gain", "cases": "^quote_path/core_gain/" },
+      { "tag": "allowance", "cases": "^quote_path/allowance/" }
     ]
   },
   {

@@ -9,19 +9,67 @@
     ],
     "source": "headless_test.gd:t_plan_path L3918 `q[\"ok\"] and q[\"steps\"].size() == 4` + L3919 `q[\"total\"] > 0 and q[\"left\"] == can[\"energy\"] - q[\"total\"] + int(q[\"gained\"])`。原盘面是 make_game(4,5)+run_setup 的随机开局、路由测试自己贪心挑出，这里手搭一条等价的 4 步直线空路（免疫 I 级走健康组织 0.5 一格）。cw_actions.gd:quote_path ↔ C# RulePolicies.QuotePath。单位：十分能量",
     "world": {
-      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 300 }]
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300
+        }
+      ]
     },
-    "args": { "cell": "0", "path": "1,0;2,0;3,0;4,0" },
+    "args": {
+      "cell": "0",
+      "path": "1,0;2,0;3,0;4,0"
+    },
     "expect": {
       "kind": "tree",
       "value": {
-        "ok": 1, "stop": -1, "total": 20, "left": 280, "gained": 0,
+        "ok": 1,
+        "stop": -1,
+        "total": 20,
+        "left": 280,
+        "gained": 0,
         "steps": [
-          { "to": "1,0", "cost": 5, "mid": "", "afford": 1, "blocked": 0, "gain": 0 },
-          { "to": "2,0", "cost": 5, "mid": "", "afford": 1, "blocked": 0, "gain": 0 },
-          { "to": "3,0", "cost": 5, "mid": "", "afford": 1, "blocked": 0, "gain": 0 },
-          { "to": "4,0", "cost": 5, "mid": "", "afford": 1, "blocked": 0, "gain": 0 }
+          {
+            "to": "1,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          },
+          {
+            "to": "2,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          },
+          {
+            "to": "3,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          },
+          {
+            "to": "4,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          }
         ]
       }
     }
@@ -30,25 +78,58 @@
     "schema": "cwxcase/2",
     "id": "quote_path/blocked/occupied_first_step",
     "probe": "quote_path",
-    "covers": ["t_plan_path::第一步就撞上别的细胞 → 停在第 0 步、总价 0"],
+    "covers": [
+      "t_plan_path::第一步就撞上别的细胞 → 停在第 0 步、总价 0"
+    ],
     "source": "headless_test.gd:t_plan_path L3957 `not q2[\"ok\"] and q2[\"stop\"] == 0 and q2[\"total\"] == 0`；规划器只规划**移动**，撞上谁就停在这儿（攻击要玩家自己点）。⚠ 用**友军**占位而不是敌人：敌人占位时 C# 的 `QuoteMove` 仍给得出价钱、GD 的 `cost` 是 0（两侧 cost 分叉，见 notes 的 F12）。blocked 文案「有细胞占据 —— 攻击请单独点它」两侧逐字相同，但键表只收 0/1。",
     "world": {
       "players": [
-        { "seat": 0, "faction": "immune", "level": "I" },
-        { "seat": 1, "faction": "immune", "level": "I" }
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "immune",
+          "level": "I"
+        }
       ],
       "cells": [
-        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 300 },
-        { "seat": 1, "type": "ImmuneBasic", "at": "1,0" }
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300
+        },
+        {
+          "seat": 1,
+          "type": "ImmuneBasic",
+          "at": "1,0"
+        }
       ]
     },
-    "args": { "cell": "0", "path": "1,0" },
+    "args": {
+      "cell": "0",
+      "path": "1,0"
+    },
     "expect": {
       "kind": "tree",
       "value": {
-        "ok": 0, "stop": 0, "total": 0, "left": 300, "gained": 0,
+        "ok": 0,
+        "stop": 0,
+        "total": 0,
+        "left": 300,
+        "gained": 0,
         "steps": [
-          { "to": "1,0", "cost": 0, "mid": "", "afford": 0, "blocked": 1, "gain": 0 }
+          {
+            "to": "1,0",
+            "cost": 0,
+            "mid": "",
+            "afford": 0,
+            "blocked": 1,
+            "gain": 0
+          }
         ]
       }
     }
@@ -57,20 +138,56 @@
     "schema": "cwxcase/2",
     "id": "quote_path/stops_on_budget/only_first_step",
     "probe": "quote_path",
-    "covers": ["t_plan_path::钱只够第一步 → 停在第 1 步、总价 = 第一步的价（"],
+    "covers": [
+      "t_plan_path::钱只够第一步 → 停在第 1 步、总价 = 第一步的价（"
+    ],
     "source": "headless_test.gd:t_plan_path L3972 `not q3[\"ok\"] and q3[\"stop\"] == 1 and q3[\"total\"] == step_cost`；⭐ 付款下限（付完至少留 0.1）落在第 **1** 步而不是第 0 步：账上 1.0 → 付掉 0.5 还剩 0.5，第二步 0.5 付完会归零 ⇒ 判付不起。判据两侧同一把尺（GD CWCost.affordable ↔ C# Settlement.CanPay）。单位：十分能量",
     "world": {
-      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 10 }]
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 10
+        }
+      ]
     },
-    "args": { "cell": "0", "path": "1,0;2,0" },
+    "args": {
+      "cell": "0",
+      "path": "1,0;2,0"
+    },
     "expect": {
       "kind": "tree",
       "value": {
-        "ok": 0, "stop": 1, "total": 5, "left": 5, "gained": 0,
+        "ok": 0,
+        "stop": 1,
+        "total": 5,
+        "left": 5,
+        "gained": 0,
         "steps": [
-          { "to": "1,0", "cost": 5, "mid": "", "afford": 1, "blocked": 0, "gain": 0 },
-          { "to": "2,0", "cost": 5, "mid": "", "afford": 0, "blocked": 1, "gain": 0 }
+          {
+            "to": "1,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          },
+          {
+            "to": "2,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 0,
+            "blocked": 1,
+            "gain": 0
+          }
         ]
       }
     }
@@ -85,16 +202,43 @@
     ],
     "source": "headless_test.gd:t_plan_payment_floor L4077 `not q[\"ok\"]`（账上正好 = 费用 ⇒ 走完会剩 0.0）+ _t_cost_required L17097 §11.11 同一条边界（原文问的是 `CWCost.quote(...)[\"affordable\"]`，探针面没有独立的 affordable op，用单步 quote_path 的 `afford` 表达）。单位：十分能量",
     "world": {
-      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 5 }]
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 5
+        }
+      ]
     },
-    "args": { "cell": "0", "path": "1,0" },
+    "args": {
+      "cell": "0",
+      "path": "1,0"
+    },
     "expect": {
       "kind": "tree",
       "value": {
-        "ok": 0, "stop": 0, "total": 0, "left": 5, "gained": 0,
+        "ok": 0,
+        "stop": 0,
+        "total": 0,
+        "left": 5,
+        "gained": 0,
         "steps": [
-          { "to": "1,0", "cost": 5, "mid": "", "afford": 0, "blocked": 1, "gain": 0 }
+          {
+            "to": "1,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 0,
+            "blocked": 1,
+            "gain": 0
+          }
         ]
       }
     }
@@ -109,16 +253,43 @@
     ],
     "source": "headless_test.gd:t_plan_payment_floor L4089 + _t_cost_required L17100 —— 与上一条成对：账上多 0.1 就走得通。这一对钉的是下限本身，不是某个价钱。单位：十分能量",
     "world": {
-      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 6 }]
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 6
+        }
+      ]
     },
-    "args": { "cell": "0", "path": "1,0" },
+    "args": {
+      "cell": "0",
+      "path": "1,0"
+    },
     "expect": {
       "kind": "tree",
       "value": {
-        "ok": 1, "stop": -1, "total": 5, "left": 1, "gained": 0,
+        "ok": 1,
+        "stop": -1,
+        "total": 5,
+        "left": 1,
+        "gained": 0,
         "steps": [
-          { "to": "1,0", "cost": 5, "mid": "", "afford": 1, "blocked": 0, "gain": 0 }
+          {
+            "to": "1,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          }
         ]
       }
     }
@@ -134,17 +305,50 @@
     ],
     "source": "headless_test.gd:t_plan_core_gain L4000 / L4002 / L4004 —— 一条用例三条断言：gained = 2.0 且 steps[0].gain = 2.0、total 仍是**纯花费**（不与收入相抵）、left = 现有 − 花费 + 核心收入。核心收入 2026-09-08 才补进规划器（Kevin 报「规划路径不会计算代谢核心给的能量」）。GD `core_gain(t)` ↔ C# `tile.Charge`（⚠ GD 那条含【代谢加速】翻倍，本批 events 恒默认、不分叉）。单位：十分能量",
     "world": {
-      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "tiles": [{ "at": "1,0", "type": "core", "store": 20 }],
-      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 100 }]
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "type": "core",
+          "store": 20
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100
+        }
+      ]
     },
-    "args": { "cell": "0", "path": "1,0" },
+    "args": {
+      "cell": "0",
+      "path": "1,0"
+    },
     "expect": {
       "kind": "tree",
       "value": {
-        "ok": 1, "stop": -1, "total": 5, "left": 115, "gained": 20,
+        "ok": 1,
+        "stop": -1,
+        "total": 5,
+        "left": 115,
+        "gained": 20,
         "steps": [
-          { "to": "1,0", "cost": 5, "mid": "", "afford": 1, "blocked": 0, "gain": 20 }
+          {
+            "to": "1,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 20
+          }
         ]
       }
     }
@@ -153,22 +357,71 @@
     "schema": "cwxcase/2",
     "id": "quote_path/core_gain/round_trip_collects_once",
     "probe": "quote_path",
-    "covers": ["t_plan_core_gain::来回踩两趟只收一次（gained ="],
+    "covers": [
+      "t_plan_core_gain::来回踩两趟只收一次（gained ="
+    ],
     "source": "headless_test.gd:t_plan_core_gain L4012 `q2[\"ok\"] and int(q2[\"gained\"]) == 20`；⭐ 核心 → 旁边 → 核心：取走之后本格 store 要清零，否则同一个核心来回踩两趟会被算成收两次钱。GD 靠预演里 `t[\"store\"] = 0`、C# 靠 `tile.WithCharge(0)`。单位：十分能量",
     "world": {
-      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "tiles": [{ "at": "1,0", "type": "core", "store": 20 }],
-      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 300 }]
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "type": "core",
+          "store": 20
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300
+        }
+      ]
     },
-    "args": { "cell": "0", "path": "1,0;1,1;1,0" },
+    "args": {
+      "cell": "0",
+      "path": "1,0;1,1;1,0"
+    },
     "expect": {
       "kind": "tree",
       "value": {
-        "ok": 1, "stop": -1, "total": 15, "left": 305, "gained": 20,
+        "ok": 1,
+        "stop": -1,
+        "total": 15,
+        "left": 305,
+        "gained": 20,
         "steps": [
-          { "to": "1,0", "cost": 5, "mid": "", "afford": 1, "blocked": 0, "gain": 20 },
-          { "to": "1,1", "cost": 5, "mid": "", "afford": 1, "blocked": 0, "gain": 0 },
-          { "to": "1,0", "cost": 5, "mid": "", "afford": 1, "blocked": 0, "gain": 0 }
+          {
+            "to": "1,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 20
+          },
+          {
+            "to": "1,1",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          },
+          {
+            "to": "1,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          }
         ]
       }
     }
@@ -177,21 +430,63 @@
     "schema": "cwxcase/2",
     "id": "quote_path/core_gain/core_funds_the_second_step",
     "probe": "quote_path",
-    "covers": ["t_plan_core_gain::钱只够一步，核心的 2.0 接上了第二步（改之前这里判「钱不够」）"],
+    "covers": [
+      "t_plan_core_gain::钱只够一步，核心的 2.0 接上了第二步（改之前这里判「钱不够」）"
+    ],
     "source": "headless_test.gd:t_plan_core_gain L4023 `q3[\"ok\"]`；⭐ Kevin 报的那个症状：账上只够一步，踩核心拿到的 2.0 接上了第二步。核心收入**在付完这一步之后**进账，所以这一步的 afford 判的是收钱之前的余额。与下一条（对照组）成对。单位：十分能量",
     "world": {
-      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "tiles": [{ "at": "1,0", "type": "core", "store": 20 }],
-      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 6 }]
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "type": "core",
+          "store": 20
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 6
+        }
+      ]
     },
-    "args": { "cell": "0", "path": "1,0;2,0" },
+    "args": {
+      "cell": "0",
+      "path": "1,0;2,0"
+    },
     "expect": {
       "kind": "tree",
       "value": {
-        "ok": 1, "stop": -1, "total": 10, "left": 16, "gained": 20,
+        "ok": 1,
+        "stop": -1,
+        "total": 10,
+        "left": 16,
+        "gained": 20,
         "steps": [
-          { "to": "1,0", "cost": 5, "mid": "", "afford": 1, "blocked": 0, "gain": 20 },
-          { "to": "2,0", "cost": 5, "mid": "", "afford": 1, "blocked": 0, "gain": 0 }
+          {
+            "to": "1,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 20
+          },
+          {
+            "to": "2,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          }
         ]
       }
     }
@@ -200,21 +495,63 @@
     "schema": "cwxcase/2",
     "id": "quote_path/core_gain/core_funds_the_second_step_control",
     "probe": "quote_path",
-    "covers": ["t_plan_core_gain::对照组：核心空了 → 同一条路停在第 2 步"],
+    "covers": [
+      "t_plan_core_gain::对照组：核心空了 → 同一条路停在第 2 步"
+    ],
     "source": "headless_test.gd:t_plan_core_gain L4027 `not q4[\"ok\"] and int(q4[\"stop\"]) == 1`；⭐ 上一条的**对照组**：同一条路、同样的钱，核心空了（store = 0）就停在第 2 步。两条用同一个 id 前缀绑定（R9 的成对条目）。单位：十分能量",
     "world": {
-      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
-      "tiles": [{ "at": "1,0", "type": "core", "store": 0 }],
-      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 6 }]
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,0",
+          "type": "core",
+          "store": 0
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 6
+        }
+      ]
     },
-    "args": { "cell": "0", "path": "1,0;2,0" },
+    "args": {
+      "cell": "0",
+      "path": "1,0;2,0"
+    },
     "expect": {
       "kind": "tree",
       "value": {
-        "ok": 0, "stop": 1, "total": 5, "left": 1, "gained": 0,
+        "ok": 0,
+        "stop": 1,
+        "total": 5,
+        "left": 1,
+        "gained": 0,
         "steps": [
-          { "to": "1,0", "cost": 5, "mid": "", "afford": 1, "blocked": 0, "gain": 0 },
-          { "to": "2,0", "cost": 5, "mid": "", "afford": 0, "blocked": 1, "gain": 0 }
+          {
+            "to": "1,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          },
+          {
+            "to": "2,0",
+            "cost": 5,
+            "mid": "",
+            "afford": 0,
+            "blocked": 1,
+            "gain": 0
+          }
         ]
       }
     }
@@ -223,28 +560,74 @@
     "schema": "cwxcase/2",
     "id": "quote_path/pass_through_mid/first_hop_is_the_adjacent_ally",
     "probe": "quote_path",
-    "covers": ["t_pass_through_chain::第一跳记的是紧挨着我的那个友军"],
+    "covers": [
+      "t_pass_through_chain::第一跳记的是紧挨着我的那个友军"
+    ],
     "source": "headless_test.gd:t_pass_through_chain L3650 `m[Vector2i(3,0)][1] == Vector2i(1,0)`；`pass_through_cost` 探针只出 scalar 费用，第一跳只有 quote_path 的 `step.mid` 覆盖得到（GD 的 `pass_through_map` 值是 [费用, 第一跳] 二元组、C# 拆成 PassThroughRoutes 的 First）。单位：十分能量",
     "world": {
       "players": [
-        { "seat": 0, "faction": "cancer", "cancer_type": "SignetRing" },
-        { "seat": 1, "faction": "cancer", "cancer_type": "SignetRing" },
-        { "seat": 2, "faction": "cancer", "cancer_type": "SignetRing" }
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        },
+        {
+          "seat": 2,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        }
       ],
-      "tiles": [{ "at": "0,0", "state": "cancer" }],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        }
+      ],
       "cells": [
-        { "seat": 0, "type": "SignetRing", "at": "0,0", "energy": 300 },
-        { "seat": 1, "type": "SignetRing", "at": "1,0" },
-        { "seat": 2, "type": "SignetRing", "at": "2,0" }
+        {
+          "seat": 0,
+          "type": "SignetRing",
+          "at": "0,0",
+          "energy": 300
+        },
+        {
+          "seat": 1,
+          "type": "SignetRing",
+          "at": "1,0"
+        },
+        {
+          "seat": 2,
+          "type": "SignetRing",
+          "at": "2,0"
+        }
       ]
     },
-    "args": { "cell": "0", "path": "3,0" },
+    "args": {
+      "cell": "0",
+      "path": "3,0"
+    },
     "expect": {
       "kind": "tree",
       "value": {
-        "ok": 1, "stop": -1, "total": 36, "left": 264, "gained": 0,
+        "ok": 1,
+        "stop": -1,
+        "total": 36,
+        "left": 264,
+        "gained": 0,
         "steps": [
-          { "to": "3,0", "cost": 36, "mid": "1,0", "afford": 1, "blocked": 0, "gain": 0 }
+          {
+            "to": "3,0",
+            "cost": 36,
+            "mid": "1,0",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          }
         ]
       }
     }
@@ -253,25 +636,58 @@
     "schema": "cwxcase/2",
     "id": "quote_path/pass_through_mid/ally_is_the_mid",
     "probe": "quote_path",
-    "covers": ["t_pass_through_ally::中间格就是友军那格"],
+    "covers": [
+      "t_pass_through_ally::中间格就是友军那格"
+    ],
     "source": "headless_test.gd:t_pass_through_ally L16855 `pass_through_mid(me, far) == Vector2i(1,0)`；单跳借道的第一跳就是那个贴身友军。单位：十分能量",
     "world": {
       "players": [
-        { "seat": 0, "faction": "immune", "level": "I" },
-        { "seat": 1, "faction": "immune", "level": "I" }
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "immune",
+          "level": "I"
+        }
       ],
       "cells": [
-        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 300 },
-        { "seat": 1, "type": "ImmuneBasic", "at": "1,0" }
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300
+        },
+        {
+          "seat": 1,
+          "type": "ImmuneBasic",
+          "at": "1,0"
+        }
       ]
     },
-    "args": { "cell": "0", "path": "2,0" },
+    "args": {
+      "cell": "0",
+      "path": "2,0"
+    },
     "expect": {
       "kind": "tree",
       "value": {
-        "ok": 1, "stop": -1, "total": 10, "left": 290, "gained": 0,
+        "ok": 1,
+        "stop": -1,
+        "total": 10,
+        "left": 290,
+        "gained": 0,
         "steps": [
-          { "to": "2,0", "cost": 10, "mid": "1,0", "afford": 1, "blocked": 0, "gain": 0 }
+          {
+            "to": "2,0",
+            "cost": 10,
+            "mid": "1,0",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          }
         ]
       }
     }
@@ -280,25 +696,257 @@
     "schema": "cwxcase/2",
     "id": "quote_path/pass_through_mid/enemy_is_not_a_mid",
     "probe": "quote_path",
-    "covers": ["t_pass_through_ally::敌人不构成「穿过」的中间格"],
+    "covers": [
+      "t_pass_through_ally::敌人不构成「穿过」的中间格"
+    ],
     "source": "headless_test.gd:t_pass_through_ally L16888 `pass_through_mid(me, far) == Vector2i.MAX`；「没有第一跳」两侧的字面值不同源（GD Vector2i.MAX ↔ C# null），键表把它投影成 \"\"（见两侧探针注释）。这一步因此走不到：blocked = 1、cost = 0、stop = 0。",
     "world": {
       "players": [
-        { "seat": 0, "faction": "immune", "level": "I" },
-        { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Osteosarcoma"
+        }
       ],
       "cells": [
-        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 300 },
-        { "seat": 1, "type": "Osteosarcoma", "at": "1,0" }
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300
+        },
+        {
+          "seat": 1,
+          "type": "Osteosarcoma",
+          "at": "1,0"
+        }
       ]
     },
-    "args": { "cell": "0", "path": "2,0" },
+    "args": {
+      "cell": "0",
+      "path": "2,0"
+    },
     "expect": {
       "kind": "tree",
       "value": {
-        "ok": 0, "stop": 0, "total": 0, "left": 300, "gained": 0,
+        "ok": 0,
+        "stop": 0,
+        "total": 0,
+        "left": 300,
+        "gained": 0,
         "steps": [
-          { "to": "2,0", "cost": 0, "mid": "", "afford": 0, "blocked": 1, "gain": 0 }
+          {
+            "to": "2,0",
+            "cost": 0,
+            "mid": "",
+            "afford": 0,
+            "blocked": 1,
+            "gain": 0
+          }
+        ]
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "quote_path/allowance/residency_two_free_then_full_price",
+    "probe": "quote_path",
+    "covers": [
+      "t_plan_allowance::前",
+      "t_plan_allowance::总价 = 只有超出额度的那几步（"
+    ],
+    "source": "headless_test.gd:t_plan_allowance L9576 / L9580：装【组织驻留】走三步健康组织，前 2 步吃掉免费额度（GATE_USES 2）、第 3 步照价 0.5，总价 = 只有超出额度的那几步。GD 每走通一步 burn_allowances（issue #35）再原样放回；C# 2026-09-19 起在丢掉的 world 上走同一条 ConsumeModifiers（批 1 F2 合上前 C# 报 0/0/0）。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300,
+          "equipped": [
+            "组织驻留"
+          ],
+          "equip_seq": {
+            "组织驻留": 1
+          }
+        }
+      ]
+    },
+    "args": {
+      "cell": "0",
+      "path": "1,0;1,-1;1,-2"
+    },
+    "expect": {
+      "kind": "tree",
+      "value": {
+        "ok": 1,
+        "stop": -1,
+        "total": 5,
+        "left": 295,
+        "gained": 0,
+        "steps": [
+          {
+            "to": "1,0",
+            "cost": 0,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          },
+          {
+            "to": "1,-1",
+            "cost": 0,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          },
+          {
+            "to": "1,-2",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          }
+        ]
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "quote_path/allowance/one_use_already_burnt",
+    "probe": "quote_path",
+    "covers": [
+      "t_plan_allowance::再规划：只剩一次免费额度，规划器跟着少算一次"
+    ],
+    "source": "headless_test.gd:t_plan_allowance L9590：真走一步之后再规划（fx_turn 组织驻留 = 1），额度只剩一次，第二步起就要钱。盘面直接写 fx_turn 而不真走那一步（execute 是另一条 op）。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "1,0",
+          "energy": 295,
+          "equipped": [
+            "组织驻留"
+          ],
+          "equip_seq": {
+            "组织驻留": 1
+          },
+          "fx_turn": {
+            "组织驻留": 1
+          }
+        }
+      ]
+    },
+    "args": {
+      "cell": "0",
+      "path": "1,-1;1,-2"
+    },
+    "expect": {
+      "kind": "tree",
+      "value": {
+        "ok": 1,
+        "stop": -1,
+        "total": 5,
+        "left": 290,
+        "gained": 0,
+        "steps": [
+          {
+            "to": "1,-1",
+            "cost": 0,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          },
+          {
+            "to": "1,-2",
+            "cost": 5,
+            "mid": "",
+            "afford": 1,
+            "blocked": 0,
+            "gain": 0
+          }
+        ]
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "quote_path/blocked/enemy_occupied_is_not_quoted",
+    "probe": "quote_path",
+    "covers": [],
+    "source": "批 1 F12（P1 / P2 各自取证）：免疫路过**敌方**占位格，GD 在 occupied 分支根本不报价（cost 0），C# 原来无条件先 QuoteMove、给的是攻击价（5 / 10）。2026-09-19 C# 改成占位不报价。没有老 check 钉这一格的 cost（t_plan_path:3957 用的是同阵营占位），L0 净增。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 100
+        },
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "1,-1",
+          "energy": 100
+        }
+      ]
+    },
+    "args": {
+      "cell": "0",
+      "path": "1,-1"
+    },
+    "expect": {
+      "kind": "tree",
+      "value": {
+        "ok": 0,
+        "stop": 0,
+        "total": 0,
+        "left": 100,
+        "gained": 0,
+        "steps": [
+          {
+            "to": "1,-1",
+            "cost": 0,
+            "mid": "",
+            "afford": 0,
+            "blocked": 1,
+            "gain": 0
+          }
         ]
       }
     }
