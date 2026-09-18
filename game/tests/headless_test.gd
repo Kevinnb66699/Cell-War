@@ -5455,15 +5455,15 @@ func t_prd_online_0907() -> void:
 	g.cells.append(ca)
 	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
 	var m0: int = g.memory
-	_rig_roll(g, 6, [3])                   ## 成功 → 1.0
+	_rig_next(g, 6, [3])                   ## 成功 → 1.0
 	await g.actions._do_move(im, Vector2i(1, 0), 0)
 	check(g.memory == m0 + 1, "攻击成功造成 1.0 → +1 抗原记忆（%d → %d）" % [m0, g.memory])
 	m0 = g.memory
-	_rig_roll(g, 6, [6])                   ## 大成功 → 2.0
+	_rig_next(g, 6, [6])                   ## 大成功 → 2.0
 	await g.actions._do_move(im, Vector2i(1, 0), 0)
 	check(g.memory == m0 + 2, "大成功 2.0 → +2")
 	m0 = g.memory
-	_rig_roll(g, 6, [1])                   ## 失败 → 不造成伤害
+	_rig_next(g, 6, [1])                   ## 失败 → 不造成伤害
 	await g.actions._do_move(im, Vector2i(1, 0), 0)
 	check(g.memory == m0, "攻击失败不给记忆（按实际伤害算，不是尝试值）")
 	g.dispose()
@@ -13368,7 +13368,7 @@ func t_card_choices() -> void:
 	mut["energy"] = 30
 	g.cells.append(mut)
 	g.round_no = 5
-	_rig_roll(g, 3, [1, 2])   ## 两掷不同 → 触发二选一
+	_rig_next(g, 3, [1, 2])   ## 两掷不同 → 触发二选一
 	b.answers = [_pick_by("r", 1)]   ## 挑「无事发生」
 	var h0: int = mut["hand"].size()
 	await g.card_fx.resolve_event(mut, "基因组不稳定")
@@ -13722,7 +13722,7 @@ func t_card_perms() -> void:
 	var pf := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0), -1, CWData.CancerType.MELANOMA)
 	pf["energy"] = 500
 	g.cells.append(pf)
-	_rig_roll(g, 6, [3])
+	_rig_next(g, 6, [3])
 	await g.actions._do_move(pr, Vector2i(1, 0), 0)
 	check(pf["marked"] and pf["mark_left"] == 1, "普通细胞攻击后施加标记（1 次翻倍）")
 	var dd := CWSetup.make_cell(2, 2, CWData.Faction.IMMUNE, Vector2i(5, -5), CWData.ImmuneType.DENDRITIC, -1)
@@ -13755,12 +13755,12 @@ func t_card_perms() -> void:
 	check(bm["energy"] == 100 - bm_fee
 		and bt["energy"] == 500 - CWData.MATURED_ANTIBODY_DMG, "抗体初始伤害 2.0")
 	var bt0: int = bt["energy"]
-	_rig_roll(g, 6, [3])
+	_rig_next(g, 6, [3])
 	await g.actions._do_move(bm, Vector2i(1, 0), 0)
 	check(bt["energy"] == bt0 - g.tune.attack_dmg_success - CWData.MATURED_ATTACK_EXTRA,
 		"攻击邻健康的癌细胞 +0.5")
 	bt0 = bt["energy"]
-	_rig_roll(g, 6, [3])
+	_rig_next(g, 6, [3])
 	await g.actions._do_move(bm, Vector2i(1, 0), 0)
 	check(bt["energy"] == bt0 - g.tune.attack_dmg_success - CWData.MATURED_ATTACK_EXTRA,
 		"同一行动回合第二次攻击照样 +0.5（2026-09-07 取消「首次」闸门）")
@@ -13780,7 +13780,7 @@ func t_card_perms() -> void:
 	## 所以这里要把真实迁移费算进期望值，不能再假设「传 0 就免费」
 	var ph_fee: int = g.actions._move_cost_mod(ph, Vector2i(1, 0),
 		g.actions._move_base_cost(ph, Vector2i(1, 0)))
-	_rig_roll(g, 6, [3])
+	_rig_next(g, 6, [3])
 	await g.actions._do_move(ph, Vector2i(1, 0), 0)
 	check(not pv["alive"], "吞噬体成熟：目标剩 1.2 ≤ 1.5，直接死亡")
 	check(ph["energy"] == ph0 - ph_fee + 5 + CWData.SKILL_HEAL,
@@ -13796,7 +13796,7 @@ func t_card_perms() -> void:
 	var cv := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0), -1, CWData.CancerType.SIGNET)
 	cv["energy"] = 500
 	g.cells.append(cv)
-	_rig_roll(g, 6, [3])
+	_rig_next(g, 6, [3])
 	await g.actions._do_move(ct, Vector2i(1, 0), 0)
 	check(cv["energy"] == 500 - (g.tune.attack_dmg_success - CWData.ARMOR_REDUCTION)
 		- CWData.CYTOTOX_EXTRA,
@@ -13852,7 +13852,7 @@ func t_card_perms() -> void:
 		if shielded:
 			gm.add_mod(prey2, "BCL-2抗凋亡", 1, "")
 		gm.memory = 0
-		_rig_roll(gm, 6, [3])                        ## 钉成命中
+		_rig_next(gm, 6, [3])                        ## 钉成命中
 		await gm.actions._do_move(atk, hit_at, 0)
 		if shielded:
 			mem_with = gm.memory
@@ -13898,6 +13898,21 @@ func t_card_perms() -> void:
 
 
 ## 把 rng 拨到「接下来 sides 面骰会依次掷出 want 序列」的状态上（穷举附近状态，必然找得到）
+const RigRng := preload("res://tests/rig_rng.gd")
+
+
+## 钉接下来的几次掷骰（测试迁移规格 A-7 Tape 化）：把点数排进 rig_rng 的队列，吐完回落到原 rng。
+## 第一次调用时把 g.rng 裹一层；`_rig_roll`（暴力试探）保留但零调用点 —— 纪律：原测试不删。
+func _rig_next(g: CWGame, sides: int, want: Array) -> void:
+	if not (g.rng is RigRng):
+		var r = RigRng.new()
+		r.inner = g.rng
+		g.rng = r
+	for w in want:
+		assert(int(w) >= 1 and int(w) <= sides)
+		g.rng.queue.append(int(w))
+
+
 func _rig_roll(g: CWGame, sides: int, want: Array) -> void:
 	while true:
 		var probe: int = g.rng.state
@@ -14133,7 +14148,7 @@ func t_card_mods() -> void:
 	g.round_no = 1
 	dna["hand"] = ["DNA损伤修复"]
 	await g.card_fx.play(dna, { "act": "play", "card": "DNA损伤修复" })
-	_rig_roll(g, 6, [4])
+	_rig_next(g, 6, [4])
 	await g.actions._do_move(atk, Vector2i(1, 0), 0)
 	check(dna["energy"] == 100 - g.tune.attack_dmg_success, "普通攻击不被 DNA损伤修复 减免")
 	check(g.mods_of(dna, "DNA损伤修复").size() == 1, "普通攻击也不消耗它")
@@ -14152,7 +14167,7 @@ func t_card_mods() -> void:
 	g.cells.append(pd)
 	pd["hand"] = ["PD-L1表达"]
 	await g.card_fx.play(pd, { "act": "play", "card": "PD-L1表达" })
-	_rig_roll(g, 6, [6])
+	_rig_next(g, 6, [6])
 	await g.actions._do_move(pk, Vector2i(1, 0), 0)
 	check(pd["energy"] == 100 - g.tune.attack_dmg_success,
 		"PD-L1：大成功压成普通成功（伤害按成功档）")
@@ -14160,7 +14175,7 @@ func t_card_mods() -> void:
 	pd["hand"] = ["PD-L1表达"]
 	await g.card_fx.play(pd, { "act": "play", "card": "PD-L1表达" })
 	var pd_e: int = pd["energy"]
-	_rig_roll(g, 6, [4])
+	_rig_next(g, 6, [4])
 	pk["pos"] = Vector2i(0, 0)
 	await g.actions._do_move(pk, Vector2i(1, 0), 0)
 	check(pd["energy"] == pd_e and pk["pos"] == Vector2i(0, 0),
@@ -14176,7 +14191,7 @@ func t_card_mods() -> void:
 	var early: int = mini(int(two[0]["seq"]), int(two[1]["seq"]))
 	var late: int = maxi(int(two[0]["seq"]), int(two[1]["seq"]))
 	pd_e = pd["energy"]
-	_rig_roll(g, 6, [4])
+	_rig_next(g, 6, [4])
 	pk["pos"] = Vector2i(0, 0)
 	pk["attacks_used"] = 0        ## 这段一路打了好几次，别撞上每回合 3 次的上限
 	await g.actions._do_move(pk, Vector2i(1, 0), 0)
@@ -14185,7 +14200,7 @@ func t_card_mods() -> void:
 	check(int(rest[0]["seq"]) == late, "消耗的是**较早**打出的那层，晚的留下")
 	check(pd["energy"] == pd_e, "这一次只压一级：成功 → 失败，没伤害")
 	## 判定本来就已经是失败时，**照样消耗**（团队明确要，不加减伤那套 ON_BENEFIT）
-	_rig_roll(g, 6, [1])
+	_rig_next(g, 6, [1])
 	pk["pos"] = Vector2i(0, 0)
 	pk["attacks_used"] = 0
 	await g.actions._do_move(pk, Vector2i(1, 0), 0)
@@ -14212,7 +14227,7 @@ func t_card_mods() -> void:
 	var s0: int = sack["energy"]
 	aff["hand"] = ["补体调理"]
 	await g.card_fx.play(aff, { "act": "play", "card": "补体调理" })
-	_rig_roll(g, 6, [1, 5])
+	_rig_next(g, 6, [1, 5])
 	await g.actions._do_move(aff, Vector2i(1, 0), 0)
 	check(sack["energy"] == s0 - g.tune.attack_dmg_success - CWData.OPSONIN_EXTRA,
 		"补体调理：首掷失败自动重掷成功，额外 +0.5")
@@ -14233,7 +14248,7 @@ func t_card_mods() -> void:
 	await g.card_fx.play(tc, { "act": "play", "card": "穿孔素-颗粒酶" })
 	tc["hand"] = ["补体级联"]
 	await g.card_fx.play(tc, { "act": "play", "card": "补体级联" })
-	_rig_roll(g, 6, [4])
+	_rig_next(g, 6, [4])
 	await g.actions._do_move(tc, Vector2i(1, 0), 0)
 	check(vic2["energy"] == 500 - g.tune.attack_dmg_success - CWData.PERFORIN_EXTRA_T,
 		"穿孔素：T 细胞攻击成功额外 +2.0")
@@ -16777,7 +16792,7 @@ func t_batch_death_and_triggers() -> void:
 		g3.tune.attack_dmg_success + 12)      ## 打完剩 1.2 ≤ 巨噬阈值 1.5
 	g3.cells.append(prey)
 	var n0: int = g3.logs.size()
-	_rig_roll(g3, 6, [3])
+	_rig_next(g3, 6, [3])
 	await g3.actions._do_move(mac, Vector2i(1, 0), 0)
 	check(not prey["alive"], "③吞噬体成熟：余量过低，斩杀成立")
 	var i_exec := -1
@@ -16921,7 +16936,7 @@ func _t_damage_required() -> void:
 	## 必须钉死等号才拦得住「悄悄吸了血」
 	var fee: int = g.actions._move_cost_mod(mac, canc, g.actions._move_base_cost(mac, canc))
 	var e0: int = mac["energy"]
-	_rig_roll(g, 6, [3])
+	_rig_next(g, 6, [3])
 	await g.actions._do_move(mac, canc, 0)
 	check(prey["energy"] == 5, "§9.2 伤害被完全减免，目标一点没掉")
 	check(g.tiles[Vector2i(2, 0)]["tissue"] == CWData.Tissue.HEALTHY,
@@ -16961,7 +16976,7 @@ func _t_damage_required() -> void:
 	var bcl := _put_cancer(g3, canc, 5)                 ## 主伤害就能打死
 	g3.add_mod(bcl, "BCL-2抗凋亡", 1, "")
 	var n0: int = g3.logs.size()
-	_rig_roll(g3, 6, [3])
+	_rig_next(g3, 6, [3])
 	await g3.actions._do_move(tc, canc, 0)
 	check(bcl["alive"] and bcl["energy"] == CWData.BCL2_ENERGY[0],
 		"§9.5 无视减伤与主伤害同批，BCL-2 看到完整伤害后统一免死")
