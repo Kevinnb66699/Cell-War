@@ -1059,6 +1059,11 @@ func _start_queue() -> void:
 	_queue_loop = _loop_id
 	queue = CWPlayQueue.new()
 	queue.kernel = kernel
+	## 桥也在这儿重指句柄：教程局的句柄是**舞台**在 `_wire_bridge` 之后才建的（start / 跨关 / 重置三条路都是），
+	## `_wire_bridge` 那句 `bridge.kernel = kernel` 拿到的是 null（首关）或上一局那个已关掉的句柄（跨关 / 重置）。
+	## 留着旧句柄，`_await_playback` 拿它的 entry_seq 等新队列的 since ⇒ 永远等不到，第二关起一问都到不了界面
+	## （09-19 真机截图：第二关没有行动栏，没有任何警告）。这一行对其余入口是同一个对象重赋一次，无副作用
+	bridge.kernel = kernel
 	queue.viewer = CWKernel.VIEWER_OMNISCIENT   ## Remote 忽略 viewer（服务器已按席位裁过）
 	queue.consumer = bridge
 	bridge.queue = queue   ## _await_playback 靠它等这一问的 sync 播到（没有它每一问都用上一步的镜像画）

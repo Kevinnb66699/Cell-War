@@ -10735,6 +10735,12 @@ func t_tutorial() -> void:
 	m.start()
 	await process_frame
 	await process_frame
+	## S4 常驻壳：章节提示开着时决策闸是关的（PRD:51 第 1 层），第一问会挂在闸上等。
+	## 以前这几条能过，是因为桥手里的句柄是 null ⇒ 不等演出、询问在 start() 里同步冲过了闸（09-19 修掉的那个巧合）。
+	## 照真实流程：点掉提示，再等第一问真的到桥上
+	if m._shell != null:
+		m._shell.close_banner()
+	await _wait_pending(m, 4000)
 	check(m.bridge is CWGuideBridge, "教程局的桥是 CWGuideBridge")
 	check(m._guide != null and is_instance_valid(m._guide) and m._guide.visible and m._guide.active,
 		"开局挂上引导面板并处于激活态")
@@ -11283,6 +11289,12 @@ func t_tutorial_auto_advance() -> void:
 	m.start()
 	await process_frame
 	await process_frame
+	## S4 常驻壳：章节提示开着时决策闸是关的（PRD:51 第 1 层），第一问会挂在闸上等。
+	## 以前这几条能过，是因为桥手里的句柄是 null ⇒ 不等演出、询问在 start() 里同步冲过了闸（09-19 修掉的那个巧合）。
+	## 照真实流程：点掉提示，再等第一问真的到桥上
+	if m._shell != null:
+		m._shell.close_banner()
+	await _wait_pending(m, 4000)
 	## **改判（新手引导 S3）**：原断言指的是老第 1 关的第 2 步（三步迁移里的第一步）与 7 格棋盘 →
 	## 新第一关只有一步（PRD:91-137「向前行动一格」），棋盘是 127 格 + 两格活跃集（方案 §1.3）。
 	## 判据本身不变：**玩家亲手迁移一次，剧本自己翻页，全程不按「继续」**。
@@ -12230,6 +12242,10 @@ func t_tutorial_chapter_swap() -> void:
 	m._advance_tutorial_chapter(1)
 	await process_frame
 	check(m.bridge != old_bridge and m.kernel != old_kernel, "跨章：换了新桥、也换了新句柄（= 新局）")
+	## 09-19 真机截图抓到的：第二关没有行动栏。根因是 `_wire_bridge` 排在舞台建句柄**之前**，桥手里留着
+	## 上一关那个已关掉的句柄，`_await_playback` 拿它的 entry_seq 等新队列的 since ⇒ 第一问永远到不了界面
+	## （没有警告、没有报错，就是静静地不出行动栏）。修在 `_start_queue`：队列与桥一起指向这一局的句柄
+	check(m.bridge.kernel == m.kernel, "跨章：桥的句柄也换成新局的（留着旧句柄 = 第二关起一问都到不了界面；症状见 t_tutorial_shell）")
 	check(m._guide == guide and (m.bridge as CWGuideBridge).guide == guide,
 		"**同一个**引导面板重新挂到新桥上（漏了的话第 2 关起提示全没）")
 	check(m.bridge.get_meta("tutorial_guide", null) == guide,
@@ -21353,6 +21369,14 @@ func t_tutorial_shell() -> void:
 		"换到第二关：免疫按数据站在 (0,-1)")
 	check(not shell.blocking(),
 		"关与关之间不弹提示（PRD:37）—— 两关同属第 1 章，`chapter` 没变")
+	## 09-19 真机截图抓到的：第二关没有行动栏。根因在 `_start_queue`（桥的句柄没跟着换，`_await_playback` 拿旧句柄的
+	## entry_seq 等新队列的 since ⇒ 第一问永远到不了界面，没有警告没有报错）。这里等的是**症状**：行动栏真的出来
+	for _i in 120:
+		if m.action_bar != null and m.action_bar.visible:
+			break
+		await process_frame
+	check(m.bridge.kernel == m.kernel and m.action_bar != null and m.action_bar.visible,
+		"跨关之后第一问真的到了界面：桥的句柄是新局的、行动栏出来了（step0 的 ui_layers 开着 action_bar）")
 
 	# ---- 5 reveal：活跃集 ∪ 这一步的坐标，is_active 立刻真、tile_shown 等补间 ----
 	var hidden := Vector2i(5, -1)
@@ -21379,6 +21403,12 @@ func t_tutorial_shell() -> void:
 	check(m.kernel != before and m._stage.world_id == m._entry_world_id()
 		and m.mirror.cell_of(0)["pos"] == Vector2i(0, -1),
 		"重置装回**关首那份 world**（%s）" % m._stage.world_id)
+	for _i in 120:
+		if m.action_bar != null and m.action_bar.visible:
+			break
+		await process_frame
+	check(m.bridge.kernel == m.kernel and m.action_bar != null and m.action_bar.visible,
+		"重置之后桥的句柄也跟着换、第一问到了界面（同跨关那条：留着旧句柄行动栏永远不出）")
 	check(m._guide.step_no() == 0 and not m.board.is_active(hidden)
 		and m.board.active_tiles().size() == CWGuideData.active_tiles(1).size(),
 		"步游标归零、reveal 加进来的格收回去（活跃集 %d 格）" % m.board.active_tiles().size())
