@@ -343,11 +343,11 @@
     "gd": "cw_world.gd:_anaerobic", "gd_module": "CWWorld",
     "cs": "BoardRules.Anaerobic",
     "args": [], "rng": false,
-    "status": "OK", "cases": "deferred",
+    "status": "OK", "cases": "required",
+    "note": "批 3 收到两档：默认（平方根）公式与【GLUT1高表达】。线性对照档与【瓦伯格】110%（t_anaerobic_round 001 / 002）是 KG-1 —— world.tuning 写了 anaerobic_block_coef=0 与 anaerobic_floor=0（两个都是 A′/A 档），C# 侧算出来的却是默认档的数，两个旋钮没生效；k 系数四细胞档（003）撞 B10（细胞写在席位 2/3、对局只有 2 席，两侧都装不回去）。三档逐条记 COVERAGE.md 空档",
     "boundaries": [
-      { "tag": "block:1", "cases": "^anaerobic_step/block_1" },
-      { "tag": "block:3", "cases": "^anaerobic_step/block_3" },
-      { "tag": "eturn_on", "cases": "^anaerobic_step/eturn_on" }
+      { "tag": "formula:sqrt_default", "cases": "^anaerobic/t_anaerobic_round/000$" },
+      { "tag": "skill:glut1", "cases": "^anaerobic/t_card_perms/005$" }
     ]
   },
   {
@@ -357,6 +357,7 @@
     "cs": "BoardRules.CancerUpkeep",
     "args": [], "rng": false,
     "status": "OK", "cases": "deferred",
+    "note": "批 3 零用例（B9）：唯一来源 `t_balance_candidates` 候选③ 把两只癌细胞放在**同一席**（都是 pid 1），cw_case_diff.gd:diff() 撞「同席多细胞」语义键歧义硬错返回 {} —— 本批新补的 finish() 查 Diff.errors 之后这类草稿改记 UNLOADABLE、不再落假绿。四档（关着不扣 / 10.0 扣 20% / 0.4 扣 20% / 免疫不受影响）等 §0.6.2 的第二级键，或另写一条两席盘面的手工用例；逐条记 COVERAGE.md 空档",
     "boundaries": [
       { "tag": "pct:0", "cases": "^cancer_upkeep/pct_0" },
       { "tag": "pct:on", "cases": "^cancer_upkeep/pct_on" },
@@ -369,13 +370,16 @@
     "gd": "cw_world.gd:_pressure", "gd_module": "CWWorld",
     "cs": "BoardRules.Pressure",
     "args": [], "rng": false,
-    "status": "OK", "cases": "deferred",
+    "status": "OK", "cases": "required",
+    "note": "批 3 收到七档：五档盘面（0.5 分界线 / 抵平 / 四癌两健康 / 固化双倍权重 / 致死）加两档减免。护盾三档（首次闸门已烧 / 盾完全吸收 / 压迫吃掉这面盾）撞 `cells[].mods` —— C# 侧非空 mods 仍 UNLOADABLE，等批 5a 的 setup_ops；记 COVERAGE.md 空档。`$.g.players` 这片粗叶子两侧键序不同那条（B11）641fecd 的 F13 已修，本批 45 条 `ignore` 一律为 []",
     "boundaries": [
-      { "tag": "stage:1", "cases": "^pressure_step/stage_1" },
-      { "tag": "stage:2", "cases": "^pressure_step/stage_2" },
-      { "tag": "stage:3", "cases": "^pressure_step/stage_3" },
-      { "tag": "adjacent:0", "cases": "^pressure_step/adjacent_0" },
-      { "tag": "lethal", "cases": "^pressure_step/lethal" }
+      { "tag": "adjacent:2c4h_zero", "cases": "^pressure/t_pressure/000$" },
+      { "tag": "adjacent:3c3h_breakeven", "cases": "^pressure/t_pressure/001$" },
+      { "tag": "adjacent:4c2h", "cases": "^pressure/t_pressure/002$" },
+      { "tag": "solid:double_weight", "cases": "^pressure/t_pressure/003$" },
+      { "tag": "lethal", "cases": "^pressure/t_pressure/004$" },
+      { "tag": "mitigation:first_gate", "cases": "^pressure/t_card_perms/010$" },
+      { "tag": "mitigation:after_shield", "cases": "^pressure/t_card_mods/006$" }
     ]
   },
   {
@@ -384,13 +388,15 @@
     "gd": "cw_world.gd:_proliferate", "gd_module": "CWWorld",
     "cs": "BoardRules.Proliferate",
     "args": [], "rng": true,
-    "status": "OK", "cases": "deferred",
-    "note": "C# 把这一轮新造的格子从 out 参数交给 Erosion，GD 是返回值交给 _erosion(fresh) —— 同一件事两种写法",
+    "status": "OK", "cases": "required",
+    "note": "C# 把这一轮新造的格子从 out 参数交给 Erosion，GD 是返回值交给 _erosion(fresh) —— 同一件事两种写法。掷骰口径两侧同：GD `randi_range(1, 1000) <= chance` ↔ C# `NextIntRange(1, 1001)`（半开）→ `TapeRng.Draw(1, 1000)`，带子逐笔对得上；概率 0 不掷骰（被【免疫监视】盯住的格子随之少抽一次）两侧也一样。⚠ all_six_convert / off_round_same 两档钉的是「六邻全转」本身，不是世界事件（两条用例的 world 里都没有 events.active，只差一个 round）；真正带事件的两档【增殖抑制】(KG-2：GD 不掷骰、C# 还要抽一次) 与【异常增殖】(KG-3：C# 侧翻倍没实现) 没开，necrosis_cleared_on_flip 撞 KG-6（骨髓格 store/cards C# 不收）—— 三档记 COVERAGE.md 空档",
     "boundaries": [
-      { "tag": "stage:1", "cases": "^proliferate_step/stage_1" },
-      { "tag": "stage:3", "cases": "^proliferate_step/stage_3" },
-      { "tag": "per_solid", "cases": "^proliferate_step/per_solid" },
-      { "tag": "roll_miss", "cases": "^proliferate_step/roll_miss" }
+      { "tag": "all_six_convert", "cases": "^proliferate/t_ev_proliferate/001$" },
+      { "tag": "off_round_same", "cases": "^proliferate/t_ev_proliferate/003$" },
+      { "tag": "solid_in_block:0_and_1", "cases": "^proliferate/t_proliferate_tiers/000$" },
+      { "tag": "solid_in_block:2", "cases": "^proliferate/t_proliferate_tiers/001$" },
+      { "tag": "per_solid:0", "cases": "^proliferate/t_proliferate_tiers/002$" },
+      { "tag": "watch:inside_and_outside", "cases": "^proliferate/t_card_perms/009$" }
     ]
   },
   {
@@ -399,13 +405,13 @@
     "gd": "cw_world.gd:_erosion", "gd_module": "CWWorld",
     "cs": "BoardRules.Erosion",
     "args": ["fresh"], "rng": true,
-    "status": "OK", "cases": "deferred",
-    "note": "方向辅助 BoardRules.ErosionDir / cw_world.gd:_erosion_dir 已可见，但**不进契约面**（不是 PRD 步，规格 §0.4(b) 15）",
+    "status": "OK", "cases": "required",
+    "note": "方向辅助 BoardRules.ErosionDir / cw_world.gd:_erosion_dir 已可见，但**不进契约面**（不是 PRD 步，规格 §0.4(b) 15）。`args.fresh` 两侧一律是**一个串** \"q,r;q,r\"（空串 = 空表 = 生产代码的缺省 `fresh: Array[Vector2i] = []`）—— C# 的 `args` 是 `Dictionary<string, string>`，录成数组的话整份用例文件反序列化当场炸，不是单条红（B3）。necrosis_cleared_on_flip 撞 KG-6、「一次侵蚀转 2 或 3 格」那条是 60 个种子的集合统计断言（单条用例回指不了）—— 记 COVERAGE.md 空档",
     "boundaries": [
-      { "tag": "stage:1", "cases": "^erosion/stage_1" },
-      { "tag": "stage:3", "cases": "^erosion/stage_3" },
-      { "tag": "fresh_excluded", "cases": "^erosion/fresh_excluded" },
-      { "tag": "direction", "cases": "^erosion/direction" }
+      { "tag": "enclosed_block_hit", "cases": "^erosion/t_erosion/000$" },
+      { "tag": "edge_connected_safe", "cases": "^erosion/t_erosion/001$" },
+      { "tag": "fresh:empty_control", "cases": "^erosion/t_phase_order/018$" },
+      { "tag": "fresh:excluded_source", "cases": "^erosion/t_phase_order/019$" }
     ]
   },
   {
@@ -414,12 +420,12 @@
     "gd": "cw_world.gd:_resolve_camping", "gd_module": "CWWorld",
     "cs": "BoardRules.ResolveCamping",
     "args": [], "rng": true,
-    "status": "OK", "cases": "deferred",
-    "note": "GD 侧是协程（含 await），录制代理要 await super（规格 A-4 规矩 3）",
+    "status": "OK", "cases": "required",
+    "note": "GD 侧是协程（含 await），录制代理要 await super（规格 A-4 规矩 3）。B4（bare_game 也过 on_game_made）之后收到三档：没蹲满 / 已固化作废 / E 阶段完成净化。另三条断言（蹲满一回合净化完成 / +1 抗原记忆 / 标记随净化取消）落在同一条草稿 `t_batch2_rules/046` 上，而它撞 KG-5（GD envelope 的 camp_pos 是 {q,r} 对象、C# 侧形状对不上）—— 记 COVERAGE.md 空档，口径定完原样放回",
     "boundaries": [
-      { "tag": "no_camper", "cases": "^resolve_camping/no_camper" },
-      { "tag": "one_camper", "cases": "^resolve_camping/one_camper" },
-      { "tag": "macrophage_heal", "cases": "^resolve_camping/macrophage_heal" }
+      { "tag": "camp:not_enough", "cases": "^resolve_camping/t_batch2_rules/046$" },
+      { "tag": "camp:already_solid", "cases": "^resolve_camping/t_batch2_rules/051$" },
+      { "tag": "camp:e_phase_timing", "cases": "^resolve_camping/t_prd_online_0907/" }
     ]
   },
   {
@@ -428,11 +434,15 @@
     "gd": "cw_world.gd:_solidify", "gd_module": "CWWorld",
     "cs": "BoardRules.Solidify",
     "args": [], "rng": false,
-    "status": "OK", "cases": "deferred",
+    "status": "OK", "cases": "required",
+    "note": "门槛判定 / 血管不计 / TNF 冻结都在 `game.raise_solid`（C# `BoardRules.RaiseSolid`）里，不是这一步自己的分支。两档收不到：`osteo:same_rounds`（草稿 005 对应的 check 名以 %d 开头，按 xcheck 口径取到空串、covers 指不到）与血管三档（`t_vessel_no_solid` 把两只癌细胞放在同一席 ⇒ B9 硬错）—— 逐条记 COVERAGE.md 空档",
     "boundaries": [
-      { "tag": "below_threshold", "cases": "^solidify_step/below_threshold" },
-      { "tag": "at_threshold", "cases": "^solidify_step/at_threshold" },
-      { "tag": "newborn_protect", "cases": "^solidify_step/newborn_protect" }
+      { "tag": "stay:+1.0", "cases": "^solidify/t_solidify_and_decay/000$" },
+      { "tag": "threshold:reached", "cases": "^solidify/t_solidify_and_decay/002$" },
+      { "tag": "osteo:same_step", "cases": "^solidify/t_solidify_and_decay/003$" },
+      { "tag": "newborn_protect:off", "cases": "^solidify/t_solidify_and_decay/009$" },
+      { "tag": "newborn_protect:on", "cases": "^solidify/t_solidify_and_decay/010$" },
+      { "tag": "newborn_protect:on_old_tissue", "cases": "^solidify/t_solidify_and_decay/011$" }
     ]
   },
   {
@@ -441,11 +451,14 @@
     "gd": "cw_world.gd:_rooted", "gd_module": "CWWorld",
     "cs": "BoardRules.Rooted",
     "args": [], "rng": true,
-    "status": "OK", "cases": "deferred",
+    "status": "OK", "cases": "required",
+    "note": "B4（bare_game 末尾也过一次 on_game_made）之后这一步才收得到：六条断言全在 `t_tumor_stages` 的 _blank_board()（底座 bare_game()）上，补之前是零草稿。目标是 pick_random 抽的，两侧 pop-loop 同形（GD `CWGame.pick_random` ↔ C# `TapeRng.PickRandom`，退化区间都零消耗），本批 5 条两侧绿 = 带子对得上",
     "boundaries": [
-      { "tag": "stage:1_off", "cases": "^rooted/stage_1_off" },
-      { "tag": "stage:2", "cases": "^rooted/stage_2" },
-      { "tag": "stage:3", "cases": "^rooted/stage_3" }
+      { "tag": "stage:I_none", "cases": "^rooted/t_tumor_stages/000$" },
+      { "tag": "stage:II_n1", "cases": "^rooted/t_tumor_stages/001$" },
+      { "tag": "stage:III_n3", "cases": "^rooted/t_tumor_stages/002$" },
+      { "tag": "threshold:flip_on_push", "cases": "^rooted/t_tumor_stages/003$" },
+      { "tag": "next_round_becomes_source", "cases": "^rooted/t_tumor_stages/004$" }
     ]
   },
   {
@@ -454,11 +467,11 @@
     "gd": "cw_world.gd:_ossify", "gd_module": "CWWorld",
     "cs": "BoardRules.Ossify",
     "args": [], "rng": false,
-    "status": "OK", "cases": "deferred",
+    "status": "OK", "cases": "required",
+    "note": "B4 之后才收得到（六条断言全在 `t_batch2_rules` 的 bare_game() 段上）。键本身没问题（`tile.ossify_at` 在 12 键表里）。另四条收不到：到期回合免疫站在格上不转固化那条是 KG-4（云端 PRD 2026-09-10 给 E-硬化加的条件，C# 侧缺）；第 4 回合还没到期 / 第 5 回合转固化 / 转化后标记清掉三条落在同一批草稿上、与 KG-4 同盘面 —— 记 COVERAGE.md 空档",
     "boundaries": [
-      { "tag": "not_due", "cases": "^ossify/not_due" },
-      { "tag": "due", "cases": "^ossify/due" },
-      { "tag": "camper_blocks", "cases": "^ossify/camper_blocks" }
+      { "tag": "already_purified", "cases": "^ossify/t_batch2_rules/043$" },
+      { "tag": "left_then_flip", "cases": "^ossify/t_batch2_rules/050$" }
     ]
   },
   {
@@ -467,11 +480,12 @@
     "gd": "cw_world.gd:_decay", "gd_module": "CWWorld",
     "cs": "BoardRules.Decay",
     "args": [], "rng": false,
-    "status": "OK", "cases": "deferred",
+    "status": "OK", "cases": "required",
+    "note": "【基质稳定】在场那一回合整步跳过，两侧都是开头一句 return（GD `event_stacks` ↔ C# `WorldEffects.Active`）。事件两档（抑制 / 到期恢复）撞 KG-7：`t_card_mods` ⑩段把那只癌细胞摆在 (5,5)（半径 6 的棋盘外），GD 容得下、C# WorldLoader 不收 —— 记 COVERAGE.md 空档",
     "boundaries": [
-      { "tag": "decays", "cases": "^decay/decays" },
-      { "tag": "floor_zero", "cases": "^decay/floor_zero" },
-      { "tag": "paused", "cases": "^decay/paused" }
+      { "tag": "minus_0.5", "cases": "^decay/t_solidify_and_decay/006$" },
+      { "tag": "floor_zero", "cases": "^decay/t_solidify_and_decay/007$" },
+      { "tag": "already_zero_noop", "cases": "^decay/t_solidify_and_decay/008$" }
     ]
   },
   {
@@ -481,6 +495,7 @@
     "cs": "BoardRules.MarkAdhesion",
     "args": [], "rng": false,
     "status": "OK", "cases": "deferred",
+    "note": "批 3 零用例（B9）：两条断言（【组织黏连】把标记传染给两格内的癌细胞 / 本阶段造成的感染不连锁）所在的`t_effector_responses` 盘面把 near/mid/far 三只癌细胞放在**同一席**，差分撞语义键歧义硬错 ⇒ 记 UNLOADABLE、不产用例。真要收时注意 `marked` 三键必须写齐（§0.6.1 第 4 条：两侧 loader 都不补默认）",
     "boundaries": [
       { "tag": "no_source", "cases": "^mark_adhesion/no_source" },
       { "tag": "one_source", "cases": "^mark_adhesion/one_source" },
@@ -493,12 +508,11 @@
     "gd": "cw_world_fx.gd:tick_durations", "gd_module": "CWWorldFx",
     "cs": "BoardRules.TickDurations",
     "args": [], "rng": false,
-    "status": "OK", "cases": "deferred",
-    "note": "GD 这一步住在 CWWorldFx 上 —— 录制代理必须有第四个类 cw_rec_worldfx.gd（规格 A-4）",
+    "status": "OK", "cases": "required",
+    "note": "GD 这一步住在 CWWorldFx 上 —— 录制代理必须有第四个类 cw_rec_worldfx.gd（规格 A-4）。修饰过期那三档（`t_card_mods` 的 mod 过期 / 跨回合仍在 / 回合末解冻）撞 `cells[].mods`，C# 侧非空 mods ⇒ UNLOADABLE，等批 5a；带 `data` 的那条（TNF-α局部炎症）撞 B6（data 被 dump 成 GDScript 的 Vector2i str()、值还是 bool，而 C# `L0Effect.Data` 是 Dictionary<string,int> ⇒ 整文件 JsonException）—— 都记 COVERAGE.md 空档",
     "boundaries": [
-      { "tag": "event_ticks", "cases": "^tick_durations/event_ticks" },
-      { "tag": "event_expires", "cases": "^tick_durations/event_expires" },
-      { "tag": "mod_expires", "cases": "^tick_durations/mod_expires" }
+      { "tag": "event:one_round_expires", "cases": "^tick_durations/t_ev_lifecycle/000$" },
+      { "tag": "event:all_expire", "cases": "^tick_durations/t_ev_lifecycle/001$" }
     ]
   },
   {
@@ -507,10 +521,13 @@
     "gd": "cw_world.gd:_tick_necrosis", "gd_module": "CWWorld",
     "cs": "BoardRules.TickNecrosis",
     "args": [], "rng": false,
-    "status": "OK", "cases": "deferred",
+    "status": "OK", "cases": "required",
+    "note": "四条钉的都是倒计时本身（necrosis 2→1 / 1→0，核心+骨髓两格与血管另一端各一对），`covers` 因此留空：t_necrosis 里与它们同段的两条 check 断的是两次 _tick_necrosis **之后**由 `_tissue_production()` / `_vessel_teleport()` 产生的结果，那一半随 tissue_production / vessel_teleport 那批迁（评委 conflicts #5；全文七处 _tick_necrosis 调用点逐条查过，没有任何一条 check 单独断言坏死计数器）。盘面档（countdown:board，草稿 003/004）撞 B5：该段 `g.tune.aerobic_by_level = []`，_dump_tuning 表达不了「分档表被清空」，装回去时表又满了 —— 记 COVERAGE.md 空档",
     "boundaries": [
-      { "tag": "ticks", "cases": "^tick_necrosis/ticks" },
-      { "tag": "expires", "cases": "^tick_necrosis/expires" }
+      { "tag": "countdown:tick_special", "cases": "^tick_necrosis/t_necrosis/007$" },
+      { "tag": "countdown:to_zero_special", "cases": "^tick_necrosis/t_necrosis/008$" },
+      { "tag": "countdown:tick_vessel", "cases": "^tick_necrosis/t_necrosis/011$" },
+      { "tag": "countdown:to_zero_vessel", "cases": "^tick_necrosis/t_necrosis/012$" }
     ]
   },
   {
@@ -520,6 +537,7 @@
     "cs": "BoardRules.TickChemoCooldown",
     "args": [], "rng": false,
     "status": "OK", "cases": "deferred",
+    "note": "批 3 零用例（B10）：唯一一条断言（冷却走完 → 选项回来）在 `t_dendritic_rework` 上，B4 之后草稿收得到（tick_chemo_cd/t_dendritic_rework/000，changed = $.cells[0].chemo_cd 归 0），但该局细胞写在席位 2/3、对局只有 2 席 ⇒ 两侧 load 都装不出（规矩 5 只验 dump、不验 load）。其余 5 条草稿是 e_phase 里的空转、changed 全空，按「covers 指不到就不进仓库」不收",
     "boundaries": [
       { "tag": "ticks", "cases": "^tick_chemo_cd/ticks" },
       { "tag": "ready", "cases": "^tick_chemo_cd/ready" }
@@ -532,6 +550,7 @@
     "cs": "BoardRules.TickChemoTrack",
     "args": [], "rng": false,
     "status": "OK", "cases": "deferred",
+    "note": "批 3 零用例（KG-8）：两条草稿（chemo_track.left 2→1 与整条消失）两侧 delta 都绿，但闸二 2b（PreParityTests）红 —— $[state][g][differentiated] 条数 0 → 1：GD `cw_case_loader.gd:_differentiated_of` 要 cell[\"differentiated\"]==true，C# 按细胞 type 现算，盘面上那只 differentiated=false 的树突细胞两侧算出来不一样。裁决定哪一侧改之后当场转 required。另：`chemo_track` 的 `cid` 写席位，两侧 loader 都解析成「该席唯一的活细胞」—— 该席 0 只或 ≥2 只活细胞 ⇒ UNLOADABLE（§0.6.1 第 1 条）",
     "boundaries": [
       { "tag": "ticks", "cases": "^tick_chemo_track/ticks" },
       { "tag": "expires", "cases": "^tick_chemo_track/expires" }
@@ -544,6 +563,7 @@
     "cs": "BoardRules.ExpireMarks",
     "args": [], "rng": false,
     "status": "OK", "cases": "deferred",
+    "note": "批 3 零用例（KG-8）：B4 之后前两条断言（标记当回合的结算不摘 / 第二次世界回合结算移除）收得到、两侧 delta 也绿，但闸二 2b 红（同 tick_chemo_track 的 $[state][g][differentiated] 条数差）；第三条（没记施加回合的标记按本回合算）撞 B9（loose 与 cc 同属席位 1）。KG-8 裁完前两条原样放回、当场转 required",
     "boundaries": [
       { "tag": "first_round", "cases": "^expire_marks/first_round" },
       { "tag": "second_round", "cases": "^expire_marks/second_round" }
@@ -555,10 +575,10 @@
     "gd": "cw_world.gd:_clear_newborn", "gd_module": "CWWorld",
     "cs": "BoardRules.ClearNewborn",
     "args": [], "rng": false,
-    "status": "OK", "cases": "deferred",
+    "status": "OK", "cases": "required",
+    "note": "唯一来源是 `t_ev_chaos` 跑完整个 e_phase 的那一次（原 check 是整相不变量「E 阶段跑完不留新生标记」，delta 只钉这一步）——【紊乱】那时已经到期，世界里没有带 `data` 的事件，装得回去",
     "boundaries": [
-      { "tag": "clears", "cases": "^clear_newborn/clears" },
-      { "tag": "nothing_to_clear", "cases": "^clear_newborn/nothing_to_clear" }
+      { "tag": "clears_all", "cases": "^clear_newborn/t_ev_chaos/" }
     ]
   },
   {
@@ -568,6 +588,7 @@
     "cs": "BoardRules.CapEnergy",
     "args": [], "rng": false,
     "status": "OK", "cases": "deferred",
+    "note": "批 3 零用例（B7），而且不是收割的问题：`headless_test.gd` 全文一条 cap_energy 的 check 都没有（cap_energy / energy_cap / 能量上限 / 溢出 四个词全空），5 条草稿全是 e_phase 里的空转、changed 全空。旋钮 `energy_cap` 是 A 档、装得进，要 required 只能手写一条（不属本批「一律收割」的口径）—— 记 COVERAGE.md 空档",
     "boundaries": [
       { "tag": "cap_off", "cases": "^cap_energy/cap_off" },
       { "tag": "under_cap", "cases": "^cap_energy/under_cap" },

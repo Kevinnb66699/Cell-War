@@ -1,0 +1,328 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "tick_necrosis/t_necrosis/007",
+    "op": "tick_necrosis",
+    "covers": [],
+    "status": "OK",
+    "source": "cw_world.gd:_tick_necrosis ↔ BoardRules.TickNecrosis；②段第 1 次倒计时（核心 / 骨髓两格）；⚠ covers 空：这一条只钉倒计时本身（necrosis 2→1），而 t_necrosis 里与它同段的那句 check 断的是两次 _tick_necrosis **之后**由 _tissue_production() 产生的结果 —— 那一半随 tissue_production 那批迁（评委 conflicts #5，headless_test.gd 全文没有单独断言坏死计数器的 check）",
+    "harvested_from": "headless_test.gd:t_necrosis",
+    "world": {
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-3,-3",
+          "prod": 1
+        },
+        {
+          "at": "-3,0",
+          "prod": 1
+        },
+        {
+          "at": "-3,3",
+          "prod": 1
+        },
+        {
+          "at": "-3,6",
+          "prod": 1
+        },
+        {
+          "at": "0,-3",
+          "necrosis": 2
+        },
+        {
+          "at": "0,3",
+          "prod": 1
+        },
+        {
+          "at": "1,0",
+          "newborn": true,
+          "state": "cancer"
+        },
+        {
+          "at": "3,-3",
+          "necrosis": 2
+        },
+        {
+          "at": "3,0",
+          "prod": 1
+        },
+        {
+          "at": "6,-3",
+          "prod": 1
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,-3.necrosis": 1,
+        "$.board.tiles@3,-3.necrosis": 1
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "tick_necrosis/t_necrosis/008",
+    "op": "tick_necrosis",
+    "covers": [],
+    "status": "OK",
+    "source": "cw_world.gd:_tick_necrosis ↔ BoardRules.TickNecrosis；②段第 2 次：两格归零，随后 _tissue_production 才重新攒（间接回指）；⚠ covers 空：这一条只钉倒计时本身（necrosis 1→0），而 t_necrosis 里与它同段的那句 check 断的是两次 _tick_necrosis **之后**由 _tissue_production() 产生的结果 —— 那一半随 tissue_production 那批迁（评委 conflicts #5，headless_test.gd 全文没有单独断言坏死计数器的 check）",
+    "harvested_from": "headless_test.gd:t_necrosis",
+    "world": {
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-3,-3",
+          "prod": 1
+        },
+        {
+          "at": "-3,0",
+          "prod": 1
+        },
+        {
+          "at": "-3,3",
+          "prod": 1
+        },
+        {
+          "at": "-3,6",
+          "prod": 1
+        },
+        {
+          "at": "0,-3",
+          "necrosis": 1
+        },
+        {
+          "at": "0,3",
+          "prod": 1
+        },
+        {
+          "at": "1,0",
+          "newborn": true,
+          "state": "cancer"
+        },
+        {
+          "at": "3,-3",
+          "necrosis": 1
+        },
+        {
+          "at": "3,0",
+          "prod": 1
+        },
+        {
+          "at": "6,-3",
+          "prod": 1
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,-3.necrosis": 0,
+        "$.board.tiles@3,-3.necrosis": 0
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "tick_necrosis/t_necrosis/011",
+    "op": "tick_necrosis",
+    "covers": [],
+    "status": "OK",
+    "source": "cw_world.gd:_tick_necrosis ↔ BoardRules.TickNecrosis；③段第 1 次倒计时（血管另一端）；⚠ covers 空：这一条只钉倒计时本身（necrosis 2→1），而 t_necrosis 里与它同段的那句 check 断的是两次 _tick_necrosis **之后**由 _vessel_teleport() 产生的结果 —— 那一半随 vessel_teleport 那批迁（评委 conflicts #5，headless_test.gd 全文没有单独断言坏死计数器的 check）",
+    "harvested_from": "headless_test.gd:t_necrosis",
+    "world": {
+      "cells": [
+        {
+          "at": "6,0",
+          "energy": 30,
+          "seat": 0,
+          "type": "ImmuneBasic"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-6,0",
+          "necrosis": 2
+        },
+        {
+          "at": "-3,-3",
+          "prod": 2
+        },
+        {
+          "at": "-3,0",
+          "prod": 2
+        },
+        {
+          "at": "-3,3",
+          "store": 10
+        },
+        {
+          "at": "-3,6",
+          "prod": 2
+        },
+        {
+          "at": "0,-3",
+          "prod": 1
+        },
+        {
+          "at": "0,3",
+          "prod": 2
+        },
+        {
+          "at": "1,0",
+          "newborn": true,
+          "state": "cancer"
+        },
+        {
+          "at": "3,-3",
+          "prod": 1
+        },
+        {
+          "at": "3,0",
+          "store": 10
+        },
+        {
+          "at": "6,-3",
+          "prod": 2
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-6,0.necrosis": 1
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "tick_necrosis/t_necrosis/012",
+    "op": "tick_necrosis",
+    "covers": [],
+    "status": "OK",
+    "source": "cw_world.gd:_tick_necrosis ↔ BoardRules.TickNecrosis；③段第 2 次：血管归零，随后 _vessel_teleport 才送人（间接回指）；⚠ covers 空：这一条只钉倒计时本身（necrosis 1→0），而 t_necrosis 里与它同段的那句 check 断的是两次 _tick_necrosis **之后**由 _vessel_teleport() 产生的结果 —— 那一半随 vessel_teleport 那批迁（评委 conflicts #5，headless_test.gd 全文没有单独断言坏死计数器的 check）",
+    "harvested_from": "headless_test.gd:t_necrosis",
+    "world": {
+      "cells": [
+        {
+          "at": "6,0",
+          "energy": 30,
+          "seat": 0,
+          "type": "ImmuneBasic"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-6,0",
+          "necrosis": 1
+        },
+        {
+          "at": "-3,-3",
+          "prod": 2
+        },
+        {
+          "at": "-3,0",
+          "prod": 2
+        },
+        {
+          "at": "-3,3",
+          "store": 10
+        },
+        {
+          "at": "-3,6",
+          "prod": 2
+        },
+        {
+          "at": "0,-3",
+          "prod": 1
+        },
+        {
+          "at": "0,3",
+          "prod": 2
+        },
+        {
+          "at": "1,0",
+          "newborn": true,
+          "state": "cancer"
+        },
+        {
+          "at": "3,-3",
+          "prod": 1
+        },
+        {
+          "at": "3,0",
+          "store": 10
+        },
+        {
+          "at": "6,-3",
+          "prod": 2
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-6,0.necrosis": 0
+      },
+      "ignore": []
+    }
+  }
+]

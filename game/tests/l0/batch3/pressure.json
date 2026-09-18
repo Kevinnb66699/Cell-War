@@ -1,0 +1,476 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "pressure/t_card_mods/006",
+    "op": "pressure",
+    "covers": [
+      "t_card_mods::盾没了，下一轮压迫照常掉 0.5"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_pressure ↔ BoardRules.Pressure；④b 段第 2 次 _pressure()：盾已在第 1 次被吃掉（那一条撞 mods，本批不进），这一次照常 −0.5",
+    "harvested_from": "headless_test.gd:t_card_mods",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 100,
+          "play_n": 1,
+          "seat": 0,
+          "type": "ImmuneBasic"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        },
+        {
+          "faction": "immune",
+          "seat": 2
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 3
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "tuning": {
+        "world_events_on": 1
+      }
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 95
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "pressure/t_card_perms/010",
+    "op": "pressure",
+    "covers": [
+      "t_card_perms::压迫 0.5 被「首次 −1.0 + 压迫 −0.5」整个吃掉"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_pressure ↔ BoardRules.Pressure；⑩耗竭抵抗段唯一的 _pressure()：changed 只有 cells[0].fx_round 多出「耗竭抵抗」，energy 一分没掉 = 原 check",
+    "harvested_from": "headless_test.gd:t_card_perms",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 100,
+          "equipped": [
+            "耗竭抵抗"
+          ],
+          "seat": 0,
+          "type": "ImmuneBasic"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        },
+        {
+          "faction": "immune",
+          "seat": 2
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 3
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "tuning": {
+        "world_events_on": 1
+      }
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].fx_round": [
+          "耗竭抵抗"
+        ]
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "pressure/t_pressure/000",
+    "op": "pressure",
+    "covers": [
+      "t_pressure::二癌四健康 → 被健康组织抵消，不掉能量"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_pressure ↔ BoardRules.Pressure；第 1 次 _pressure()：两格癌邻 → 加权和 ≤ 0，整集合比钉「一个字段都没动」",
+    "harvested_from": "headless_test.gd:t_pressure",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 50,
+          "seat": 0,
+          "type": "ImmuneBasic"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {},
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "pressure/t_pressure/001",
+    "op": "pressure",
+    "covers": [
+      "t_pressure::三癌三健康 → 正好抵平，仍不掉（新式的分界线）"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_pressure ↔ BoardRules.Pressure；第 2 次 _pressure()：三癌三健康，分界线上仍不掉",
+    "harvested_from": "headless_test.gd:t_pressure",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 50,
+          "seat": 0,
+          "type": "ImmuneBasic"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {},
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "pressure/t_pressure/002",
+    "op": "pressure",
+    "covers": [
+      "t_pressure::四癌两健康 → 1/4 ×（4 − 2）= 0.5"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_pressure ↔ BoardRules.Pressure；第 3 次 _pressure()：changed 只有 cells[0].energy 50→45",
+    "harvested_from": "headless_test.gd:t_pressure",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 50,
+          "seat": 0,
+          "type": "ImmuneBasic"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "0,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 45
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "pressure/t_pressure/003",
+    "op": "pressure",
+    "covers": [
+      "t_pressure::三癌三固化 → 1/4 ×（3 + 3×2）= 2.3（四舍五入到十分位）"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_pressure ↔ BoardRules.Pressure；第 4 次 _pressure()：固化双倍权重，energy 50→27",
+    "harvested_from": "headless_test.gd:t_pressure",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 50,
+          "seat": 0,
+          "type": "ImmuneBasic"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-1,0",
+          "state": "solid"
+        },
+        {
+          "at": "-1,1",
+          "state": "solid"
+        },
+        {
+          "at": "0,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,1",
+          "state": "solid"
+        },
+        {
+          "at": "1,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 27
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "pressure/t_pressure/004",
+    "op": "pressure",
+    "covers": [
+      "t_pressure::压迫可以致死"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_pressure ↔ BoardRules.Pressure；第 5 次 _pressure()：changed 里 alive=false / tiles@0,0.cell=-1 / respawn_round=3；$.g.players 这片粗叶子原本两侧键序不同（B11），641fecd 的 Subset.Text 排序之后逐字相同，不再需要 ignore",
+    "harvested_from": "headless_test.gd:t_pressure",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 15,
+          "seat": 0,
+          "type": "ImmuneBasic"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-1,0",
+          "state": "solid"
+        },
+        {
+          "at": "-1,1",
+          "state": "solid"
+        },
+        {
+          "at": "0,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,1",
+          "state": "solid"
+        },
+        {
+          "at": "1,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.cells[0].alive": false,
+        "$.cells[0].d.income": 0,
+        "$.cells[0].energy": 0,
+        "$.cells[0].respawn_round": 3,
+        "$.g.players": [
+          {
+            "cancer_type": -1,
+            "cell_id": 0,
+            "d": {
+              "income": 0
+            },
+            "faction": 0,
+            "id": 0
+          },
+          {
+            "cancer_type": 2,
+            "cell_id": -1,
+            "d": {
+              "income": 0
+            },
+            "faction": 1,
+            "id": 1
+          }
+        ]
+      },
+      "ignore": []
+    }
+  }
+]

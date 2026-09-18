@@ -16203,6 +16203,8 @@ func bare_game() -> CWGame:
 	var g := CWGame.new()
 	g.init(CWData.FACTION_ORDER[2], 1)
 	g.setup.build_board()
+	if on_game_made.is_valid():
+		on_game_made.call(g)
 	return g
 
 

@@ -546,6 +546,11 @@ func dump_world(g: CWGame) -> Dictionary:
 	var tn := _dump_tuning(g)
 	if not tn.is_empty():
 		out["tuning"] = tn
+	## 规矩 5（A-4「装不回去就不录」）的执行机构：半路报过错就整份作废。
+	## 录制代理只看返回值空不空（cw_recorder.gd:begin/finish），
+	## 半截 players 一旦当成 world 落进草稿，两侧装的就不是同一个世界。
+	if not errors.is_empty():
+		return {}
 	return out
 
 

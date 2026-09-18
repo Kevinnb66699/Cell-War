@@ -1,0 +1,143 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "anaerobic/t_anaerobic_round/000",
+    "op": "anaerobic",
+    "covers": [
+      "t_anaerobic_round::3 普通癌 + 1 固化 ="
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_anaerobic ↔ BoardRules.Anaerobic；第 1 次 _anaerobic()：默认档，两只癌细胞各 +2.4",
+    "harvested_from": "headless_test.gd:t_anaerobic_round",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 0,
+          "seat": 0,
+          "type": "Melanoma"
+        },
+        {
+          "at": "1,0",
+          "energy": 0,
+          "seat": 1,
+          "type": "Melanoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Melanoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "2,0",
+          "state": "cancer"
+        },
+        {
+          "at": "3,0",
+          "state": "solid"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 24,
+        "$.cells[1].energy": 24
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "anaerobic/t_card_perms/005",
+    "op": "anaerobic",
+    "covers": [
+      "t_card_perms::E 阶段无氧同样加成"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_anaerobic ↔ BoardRules.Anaerobic；⑤段唯一的 _anaerobic()：equipped=[GLUT1高表达]，changed 只有那一只的 energy",
+    "harvested_from": "headless_test.gd:t_card_perms",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 33,
+          "equipped": [
+            "代谢适应",
+            "自分泌生存信号"
+          ],
+          "seat": 0,
+          "type": "ImmuneBasic"
+        },
+        {
+          "at": "5,0",
+          "energy": 0,
+          "equipped": [
+            "GLUT1高表达"
+          ],
+          "seat": 1,
+          "type": "Melanoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Melanoma",
+          "faction": "cancer",
+          "seat": 1
+        },
+        {
+          "faction": "immune",
+          "seat": 2
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 3
+        }
+      ],
+      "round": 8,
+      "tiles": [
+        {
+          "at": "5,0",
+          "state": "cancer"
+        }
+      ],
+      "tuning": {
+        "world_events_on": 1
+      }
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[1].energy": 28
+      },
+      "ignore": []
+    }
+  }
+]
