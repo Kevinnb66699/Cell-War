@@ -21,3 +21,6 @@ Desktop.ini
 
 # Claude Code 工作流 agent 的隔离 worktree 落在这里；不进仓库，也别让它绊倒发版脚本的「工作树干净」闸
 .claude/worktrees/
+
+# python 工具的字节码缓存（tools/xcheck_report.py 等）
+__pycache__/
