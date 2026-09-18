@@ -80,7 +80,9 @@ public static class ObservationV1Codec
             sim.Input?.PlayerSeat ?? -1,
             immune?.AntigenMemory ?? 0, (int)(immune?.ImmuneLevel ?? ImmuneLevel.I) - 1,
             s.Turn.EffectorRound <= 0 ? -1 : s.Turn.EffectorRound,   // 「从没发动过」GD 记 -1、C# 记 0：协议统一 -1
-            cells.Where(c => c.Faction == Faction.Immune && c.Type != CellType.ImmuneBasic).Select(c => (int)c.Type).Distinct().OrderBy(x => x).ToArray(),
+            // 「已被分化占用的免疫种类」由 cells 现算：**`differentiated` 旗标为真**且不是 BASIC 的那些种类（GD `cw_case_loader.gd:_differentiated_of` 同口径）；
+            // 真局里分化过的细胞旗标必真，两种算法同义；手摆的盘面只有旗标说了算（批 3 KG-8：一只 differentiated=false 的树突两侧算出 0 / 1 种）
+            cells.Where(c => c.Faction == Faction.Immune && c.Type != CellType.ImmuneBasic && c.Differentiated).Select(c => (int)c.Type).Distinct().OrderBy(x => x).ToArray(),
             s.Turn.Winner is { } w ? (int)w : -1, WinReason(s), s.Turn.WinKind,
             new ObsCancerAlarm(s.Turn.CancerWinStreak, s.Tuning.CancerWinHoldRounds),
             s.Turn.ChemoAt is { } ca ? new ObsChemo(Pos(ca), s.Turn.ChemoRounds, s.Turn.ChemoOwner, s.Turn.ChemoCreator is { } cc ? Id(cc) : -1) : null,

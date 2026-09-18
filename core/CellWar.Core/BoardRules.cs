@@ -229,9 +229,13 @@ internal static class BoardRules
         // （GD 明写「先转的格不该成为后转格的来源」）。算式住在 `RulePolicies.ProliferateChance`。
         var beforeGrowth = s;
         var fresh = new List<HexPosition>();
+        // 【增殖抑制】在场：整步不做、**一次骰子都不掷**（GD `_proliferate` 开头就 return；此前 C# 照掷再压成 0，带子多消耗一次 —— 批 3 KG-2）
+        if (WorldEffects.Active(s, "增殖抑制")) { next = s; return fresh; }
+        // 【异常增殖】：增生概率翻倍、叠加按层数连乘（GD 把 rate 与 per_solid 一起翻，等价于整条千分率 ×2^层数 —— 批 3 KG-3）
+        var mult = 1 << WorldEffects.Stacks(s, "异常增殖");
         foreach (var t in Tiles(beforeGrowth))
         {
-            var chance = ProliferateChance(beforeGrowth, t.Position);
+            var chance = ProliferateChance(beforeGrowth, t.Position) * mult;
             // 概率为 0 就**不掷骰**（GD 同）—— 被【免疫监视】盯着的格子随之少消耗一次 rng，
             // 而随机数带子逐笔对齐，少掷一次就是一条差异
             if (chance <= 0) continue;
@@ -388,10 +392,15 @@ internal static class BoardRules
         foreach (var t in Tiles(s).Where(t => t.OssifyAtRound > 0).ToArray())
         {
             if (s.Turn.WorldRound < t.OssifyAtRound) continue;
-            if (s.Board.Tissues[t.Position].State == TissueState.Cancer)
-                s = s.UpdateTissueState(t.Position, TissueState.SolidifiedCancer);
-            else
+            if (s.Board.Tissues[t.Position].State != TissueState.Cancer)
+            {
                 s = s.WithBoard(s.Board.UpdateTissue(t.Position, s.Board.Tissues[t.Position].WithOssifyAt(0)));
+                continue;
+            }
+            // **到期那一刻被免疫细胞占着就不转**，标记留着（云端 PRD 2026-09-10：「最后若不被免疫细胞占据，则转为固化癌组织并移除标记」；
+            // GD `_ossify` 同：人一走下个回合照样固化。此前 C# 照转不误 —— 批 3 KG-4）
+            if (s.GetCellAt(t.Position) is { IsAlive: true, Faction: Faction.Immune }) continue;
+            s = s.UpdateTissueState(t.Position, TissueState.SolidifiedCancer);
         }
         return s;
     }

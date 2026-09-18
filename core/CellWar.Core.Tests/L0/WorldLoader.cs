@@ -115,7 +115,8 @@ public static class WorldLoader
                 AttacksThisTurn = c.AttacksUsed,
                 RespawnRound = c.RespawnRound,
                 CampRound = c.CampRound,
-                CampPosition = c.CampPos is null ? null : Pos(c.CampPos),
+                // GD loader 缺省 `camp_pos = "0,0"`（dump 把 (0,0) 省掉了）：蹲守中而没写坐标 ⇒ (0,0)，否则 envelope 一侧 {0,0} 一侧 null（批 3 KG-5）
+                CampPosition = c.CampPos is null ? (c.CampRound >= 0 ? Pos("0,0") : null) : Pos(c.CampPos),
                 ChainLeft = c.ChainLeft,
                 ChainBonus = c.ChainBonus,
                 NeutralUntil = c.NeutralUntil <= 0 ? 0 : c.NeutralUntil,   // 协议 −1 = 从没被压过，C# 内部记 0
@@ -421,8 +422,13 @@ public static class WorldLoader
                 && t.State == "healthy" && t.Solid == 0 && !t.Mucus && t.Necrosis == 0 && t.OssifyAt == 0
                 && !t.Newborn && t.Store == 0 && t.Cards == 0 && t.Prod == 0 && t.ToxinRound == 0);
 
-        L0Cell MinifyCell(L0Cell c) => c.Marked is null or false && c.MarkLeft is null or 0 && c.MarkRound is null or -1
-            ? c with { Marked = null, MarkLeft = null, MarkRound = null } : c;
+        // `camp_pos: "0,0"` 与没写等价（GD minify 同样只在 != "0,0" 时保留；Load 缺省也是 (0,0)）
+        L0Cell MinifyCell(L0Cell c)
+        {
+            if (c.CampPos == "0,0") c = c with { CampPos = null };
+            return c.Marked is null or false && c.MarkLeft is null or 0 && c.MarkRound is null or -1
+                ? c with { Marked = null, MarkLeft = null, MarkRound = null } : c;
+        }
 
         L0Events? MinifyEvents(L0Events e)
         {
@@ -460,7 +466,7 @@ public static class WorldLoader
         AntibodyUsed = c.AntibodyThisRound, MetastasisUsed = c.MetastasisUsedThisRound, JumpUsed = c.JumpUsedThisRound,
         DrawsUsed = c.DrawsThisTurn, AttacksUsed = c.AttacksThisTurn,
         RespawnRound = c.RespawnRound, CampRound = c.CampRound,
-        CampPos = c.CampRound >= 0 && c.CampPosition is { } cp ? At(cp) : null,
+        CampPos = c.CampRound >= 0 && c.CampPosition is { } cp && At(cp) != "0,0" ? At(cp) : null,   // (0,0) 是缺省，与 GD dump 同样省掉
         ChainLeft = c.ChainLeft, ChainBonus = c.ChainBonus,
         NeutralUntil = c.NeutralUntil <= 0 ? -1 : c.NeutralUntil,
         ChainRunning = s.Turn.PendingChainCell == c.Id,
@@ -632,7 +638,10 @@ public static class WorldLoader
             "overload_exp" => tune with { OverloadExp = value },
             "overload_cap" => tune with { OverloadCap = value },
             // ---- A′ 档：有属性、以前没接线的标量 ----
-            "anaerobic_block_coef" => tune with { AnaerobicBlockCoef = value },
+            "anaerobic_block_coef" => tune with { AnaerobicBlockCoefOverride = value },   // 旋钮不是常量：-1 按人数 / >0 覆盖 / 0 线性对照档（KG-1）
+            "anaerobic_block_exp" => tune with { AnaerobicBlockExpOverride = value },
+            "anaerobic_per_cancer" => tune with { AnaerobicPerCancer = value },
+            "anaerobic_per_solid" => tune with { AnaerobicPerSolid = value },
             // ---- 2026-09-19 进内核的 12 个 + 配件（拍板记录 §九：E-3 补 6 + 待定 6 + aerobic_level_step）----
             "aerobic_level_base" => tune with { AerobicLevelBase = value },
             "aerobic_level_step" => tune with { AerobicLevelStep = value },
@@ -703,7 +712,10 @@ public static class WorldLoader
         N("overload_div", t.OverloadDiv, d.OverloadDiv);
         N("overload_exp", t.OverloadExp, d.OverloadExp);
         N("overload_cap", t.OverloadCap, d.OverloadCap);
-        N("anaerobic_block_coef", t.AnaerobicBlockCoef, d.AnaerobicBlockCoef);
+        N("anaerobic_block_coef", t.AnaerobicBlockCoefOverride, d.AnaerobicBlockCoefOverride);
+        N("anaerobic_block_exp", t.AnaerobicBlockExpOverride, d.AnaerobicBlockExpOverride);
+        N("anaerobic_per_cancer", t.AnaerobicPerCancer, d.AnaerobicPerCancer);
+        N("anaerobic_per_solid", t.AnaerobicPerSolid, d.AnaerobicPerSolid);
         T("proliferate_per_adjacent", t.ProliferatePerAdjacent, d.ProliferatePerAdjacent);
         T("proliferate_per_solid", t.ProliferatePerSolid, d.ProliferatePerSolid);
         // 2026-09-19 进内核的 13 个（与 WithKnob 同表）

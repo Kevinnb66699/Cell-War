@@ -133,15 +133,29 @@ public sealed record RuleTuning
     public IReadOnlyDictionary<int, int> AnaerobicBlockCoefByPlayers { get; init; }
         = new Dictionary<int, int> { [2] = 28, [4] = 20, [6] = 28 };
 
-    /// <summary>指数项系数的缺省值（GD `ANAEROBIC_BLOCK_COEF`）。</summary>
+    /// <summary>指数项系数的缺省值（GD `ANAEROBIC_BLOCK_COEF`）：分档表里没有的人数退回它。</summary>
     public int AnaerobicBlockCoef { get; init; } = 28;
+
+    /// <summary>GD `tune.anaerobic_block_coef`（旋钮，不是常量）：**-1 = 按人数取**（<see cref="AnaerobicBlockCoefByPlayers"/>，表里没有的退回 <see cref="AnaerobicBlockCoef"/>）；
+    /// &gt;0 = 所有人数统一成这个值；**0 = 退回 09-04 之前的线性求和**（对照档：每癌组织 <see cref="AnaerobicPerCancer"/>、每固化 <see cref="AnaerobicPerSolid"/>）。
+    /// 此前 C# 先查分档表、这条旋钮永远够不着，`anaerobic_block_coef = 0` 的对照档算出来仍是默认档（批 3 KG-1，2026-09-19）。</summary>
+    public int AnaerobicBlockCoefOverride { get; init; } = -1;
+
+    /// <summary>线性对照档（`AnaerobicBlockCoefOverride == 0`）每格普通癌组织的供能，十分能量（GD `ANAEROBIC_PER_CANCER`）。</summary>
+    public int AnaerobicPerCancer { get; init; } = 4;
+
+    /// <summary>线性对照档每格固化癌组织的供能，十分能量（GD `ANAEROBIC_PER_SOLID`）。</summary>
+    public int AnaerobicPerSolid { get; init; } = 10;
 
     /// <summary>连通块癌组织个数的指数，百分数，按人数分档（GD `ANAEROBIC_BLOCK_EXP_BY_PLAYERS`）。</summary>
     public IReadOnlyDictionary<int, int> AnaerobicBlockExpByPlayers { get; init; }
         = new Dictionary<int, int> { [2] = 30, [4] = 30, [6] = 30 };
 
-    /// <summary>指数缺省值（GD `ANAEROBIC_BLOCK_EXP`）。</summary>
+    /// <summary>指数缺省值（GD `ANAEROBIC_BLOCK_EXP`）：分档表里没有的人数退回它。</summary>
     public int AnaerobicBlockExp { get; init; } = 30;
+
+    /// <summary>GD `tune.anaerobic_block_exp`（旋钮）：**-1 = 按人数取**（<see cref="AnaerobicBlockExpByPlayers"/>，表里没有的退回 <see cref="AnaerobicBlockExp"/>）；&gt;0 = 所有人数统一成这个百分数。</summary>
+    public int AnaerobicBlockExpOverride { get; init; } = -1;
 
     /// <summary>**全图**每格固化癌组织给的加成，十分能量（GD `ANAEROBIC_SOLID_BONUS`）。</summary>
     public int AnaerobicSolidBonus { get; init; } = 10;

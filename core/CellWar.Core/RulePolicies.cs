@@ -507,10 +507,17 @@ internal static class RulePolicies
         var ordinary = block.Count(p => s.Board.Tissues[p].State == TissueState.Cancer);
         var solid = Tiles(s).Count(t => t.State == TissueState.SolidifiedCancer);
 
-        // 指数与系数按人数分档，表里没有的人数退回缺省（balance_scan 会扫 5 人 / 7 人这类非正式人数，不能崩）。
-        var coef = tune.AnaerobicBlockCoefByPlayers.TryGetValue(s.Players.Count, out var cf) ? cf : tune.AnaerobicBlockCoef;
-        var exp = tune.AnaerobicBlockExpByPlayers.TryGetValue(s.Players.Count, out var ex) ? ex : tune.AnaerobicBlockExp;
-        return (ordinary > 0 ? Math.Pow(ordinary, exp / 100.0) : 0.0) * coef + solid * tune.AnaerobicSolidBonus;
+        // 逐字对 GD `cw_world.gd:_anaerobic_pool`：旋钮 -1 = 按人数取（表里没有的人数退回缺省 —— balance_scan 会扫 5 人 / 7 人这类非正式人数，不能崩）；
+        // >0 = 整体覆盖；**0 = 退回 09-04 之前的线性求和**（对照档）。此前 C# 先查分档表，旋钮永远够不着（批 3 KG-1）
+        var coef = tune.AnaerobicBlockCoefOverride;
+        if (coef < 0) coef = tune.AnaerobicBlockCoefByPlayers.TryGetValue(s.Players.Count, out var cf) ? cf : tune.AnaerobicBlockCoef;
+        if (coef > 0)
+        {
+            var exp = tune.AnaerobicBlockExpOverride;
+            if (exp < 0) exp = tune.AnaerobicBlockExpByPlayers.TryGetValue(s.Players.Count, out var ex) ? ex : tune.AnaerobicBlockExp;
+            return (ordinary > 0 ? Math.Pow(ordinary, exp / 100.0) : 0.0) * coef + solid * tune.AnaerobicSolidBonus;
+        }
+        return block.Sum(p => s.Board.Tissues[p].State == TissueState.SolidifiedCancer ? tune.AnaerobicPerSolid : tune.AnaerobicPerCancer);
     }
 
     /// <summary>
