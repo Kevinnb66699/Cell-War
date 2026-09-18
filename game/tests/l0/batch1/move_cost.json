@@ -1,0 +1,275 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/pass_through/chain_of_two_allies",
+    "probe": "move_cost",
+    "covers": ["t_pass_through_chain::报价走同一个口"],
+    "source": "headless_test.gd:t_pass_through_chain L3651 `_move_base_cost(me, Vector2i(3,0)) == step * 3` —— 借道前进的**整价**从 `_move_cost_mod(_move_base_cost(...))` 这一个口出（cw_actions.gd:558 头注「摆在这里而不是各调用方」）↔ C# RulePolicies.QuoteMove 的借道分支（BaseMoveCost）。无修饰盘面上它等于 pass_through_cost。单位：十分能量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "cancer", "cancer_type": "SignetRing" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "SignetRing" },
+        { "seat": 2, "faction": "cancer", "cancer_type": "SignetRing" }
+      ],
+      "tiles": [{ "at": "0,0", "state": "cancer" }],
+      "cells": [
+        { "seat": 0, "type": "SignetRing", "at": "0,0" },
+        { "seat": 1, "type": "SignetRing", "at": "1,0" },
+        { "seat": 2, "type": "SignetRing", "at": "2,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "3,0" },
+    "expect": 36
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/skill_gate/residency_first_free",
+    "probe": "move_cost",
+    "covers": ["t_card_perms::组织驻留：首次向健康组织迁移标价 0"],
+    "source": "headless_test.gd:t_card_perms L13744 `_move_cost_mod(imm, Vector2i(0,1), base_h) == 0`；【组织驻留】= 每行动回合**前两次**向健康组织【迁移】不消耗能量（PRD 2026-09-01 由 1 次改 2 次，cw_cost.gd:53 GATE_USES）。闸门读 `cell[\"fx_turn\"]`，空 ⇒ 第一次免费。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "equipped": ["组织驻留"] }
+      ]
+    },
+    "args": { "cell": "0", "to": "0,1" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/skill_gate/residency_second_free",
+    "probe": "move_cost",
+    "covers": ["t_card_perms::第二次仍是标价 0"],
+    "source": "headless_test.gd:t_card_perms L13747 `_move_cost_mod(imm, Vector2i(0,2), base_h) == 0`；闸门已记 1 次、额度 2 ⇒ 第二次仍是 0。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "equipped": ["组织驻留"], "fx_turn": { "组织驻留": 1 } }
+      ]
+    },
+    "args": { "cell": "0", "to": "0,1" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/skill_gate/residency_third_full_price",
+    "probe": "move_cost",
+    "covers": ["t_card_perms::本回合第三次恢复原价"],
+    "source": "headless_test.gd:t_card_perms L13750 `_move_cost_mod(imm, Vector2i(0,3), base_h) == base_h`；⭐⭐ 规格 §B 点名要钉住的一条：闸门用尽后**恢复原价**（0.5）。`cond: gate_open` 不成立 ⇒ 这条 FREE 修饰根本不出现。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "equipped": ["组织驻留"], "fx_turn": { "组织驻留": 2 } }
+      ]
+    },
+    "args": { "cell": "0", "to": "0,1" },
+    "expect": 5
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/skill_gate/cruise_first_free",
+    "probe": "move_cost",
+    "covers": ["t_card_perms::组织巡航：首移免费"],
+    "source": "headless_test.gd:t_card_perms L13772 `_move_cost_mod(imm, Vector2i(2,1), base_h) == 0`；【组织巡航】= 每行动回合一次、**任意**迁移免费（cw_cost.gd:114 的 Phase.FREE + cond gate_open）。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "equipped": ["组织巡航"] }
+      ]
+    },
+    "args": { "cell": "0", "to": "0,1" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/skill_gate/cruise_then_flat_cut",
+    "probe": "move_cost",
+    "covers": ["t_card_perms::此后每次迁移 −0.2"],
+    "source": "headless_test.gd:t_card_perms L13774 `_move_cost_mod(imm, Vector2i(2,2), base_h) == maxi(base_h - CWData.CRUISE_CUT, CWData.MOVE_CUT_MIN)`；额度用掉之后换成 FLAT_CUT −0.2（cond gate_closed），下限 0.2。0.5 − 0.2 = 0.3。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "equipped": ["组织巡航"], "fx_turn": { "组织巡航": 1 } }
+      ]
+    },
+    "args": { "cell": "0", "to": "0,1" },
+    "expect": 3
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/skill_gate/two_gates_first_move_free",
+    "probe": "move_cost",
+    "covers": ["_t_ruling_d_keep_allowance::首移→健康免费"],
+    "source": "headless_test.gd:_t_ruling_d_keep_allowance L16292 `_move_cost_mod(cell, Vector2i(1,0), base_h) == 0`；两件永久技能都能出免费额度，谁先出由**装备先后**（equip_seq）决定（cw_cost.gd:125 队友答复 c 覆盖了设计 §九 的「范围更窄者优先」）。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        {
+          "seat": 0, "type": "ImmuneBasic", "at": "0,0",
+          "equipped": ["组织驻留", "组织巡航"],
+          "equip_seq": { "组织驻留": 1, "组织巡航": 2 }
+        }
+      ]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/skill_gate/two_gates_second_move_free",
+    "probe": "move_cost",
+    "covers": ["_t_ruling_d_keep_allowance::第二次仍免费"],
+    "source": "headless_test.gd:_t_ruling_d_keep_allowance L16298 `_move_cost_mod(cell, Vector2i(2,0), base_h) == 0`；【组织驻留】额度 2，第二次仍由它出。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        {
+          "seat": 0, "type": "ImmuneBasic", "at": "0,0",
+          "equipped": ["组织驻留", "组织巡航"],
+          "equip_seq": { "组织驻留": 1, "组织巡航": 2 },
+          "fx_turn": { "组织驻留": 1 }
+        }
+      ]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/skill_gate/two_gates_third_move_cruise_free",
+    "probe": "move_cost",
+    "covers": ["_t_ruling_d_keep_allowance::第三次仍免费（轮到巡航）"],
+    "source": "headless_test.gd:_t_ruling_d_keep_allowance L16304 `_move_cost_mod(cell, Vector2i(3,0), base_h) == 0`；⭐ 驻留的两次用尽后**换人出额度**：这一次轮到【组织巡航】，标价仍是 0。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        {
+          "seat": 0, "type": "ImmuneBasic", "at": "0,0",
+          "equipped": ["组织驻留", "组织巡航"],
+          "equip_seq": { "组织驻留": 1, "组织巡航": 2 },
+          "fx_turn": { "组织驻留": 2 }
+        }
+      ]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/skill_gate/two_gates_exhausted_cruise_cut",
+    "probe": "move_cost",
+    "covers": ["_t_ruling_d_keep_allowance::三个额度都用尽后，只剩【组织巡航】的 −0.2"],
+    "source": "headless_test.gd:_t_ruling_d_keep_allowance L16309 `== maxi(base_h - CWData.CRUISE_CUT, CWData.MOVE_CUT_MIN)`；⭐⭐ 闸门的反面：三个免费额度全用尽后只剩 FLAT_CUT −0.2 ⇒ 0.5 − 0.2 = 0.3。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        {
+          "seat": 0, "type": "ImmuneBasic", "at": "0,0",
+          "equipped": ["组织驻留", "组织巡航"],
+          "equip_seq": { "组织驻留": 1, "组织巡航": 2 },
+          "fx_turn": { "组织驻留": 2, "组织巡航": 1 }
+        }
+      ]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 3
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/chemo/immune_toward",
+    "probe": "move_cost",
+    "covers": ["t_dendritic_rework::免疫朝它走："],
+    "source": "headless_test.gd:t_dendritic_rework L3766 `q_toward == int(ceil(plain * CWData.CHEMO_IMMUNE_PCT / 100.0))`；树突【I-趋化源】：非建源方的免疫**朝它走** ⇒ 费用 ×0.7（DIV 阶段，向上取整）。0.5 × 0.7 = 0.35 → 0.4。⚠ 原测试里免疫与癌细胞同站一格，cwxworld/2 不表达同格 ⇒ 拆成免疫 / 癌方两个世界。单位：十分能量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "immune", "level": "I" }
+      ],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0" },
+        { "seat": 1, "type": "Dendritic", "at": "0,3", "differentiated": true }
+      ],
+      "chemo": { "at": "3,0", "left": 1, "by": 1, "cid": 1 }
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 4
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/chemo/immune_away",
+    "probe": "move_cost",
+    "covers": ["t_dendritic_rework::免疫背它走：不打折"],
+    "source": "headless_test.gd:t_dendritic_rework L3768 `_move_cost_mod(imm, away, plain) == plain`；背向趋化源不打折（cond `chemo_toward` 不成立）。单位：十分能量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "immune", "level": "I" }
+      ],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0" },
+        { "seat": 1, "type": "Dendritic", "at": "0,3", "differentiated": true }
+      ],
+      "chemo": { "at": "3,0", "left": 1, "by": 1, "cid": 1 }
+    },
+    "args": { "cell": "0", "to": "-1,0" },
+    "expect": 5
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/chemo/cancer_away",
+    "probe": "move_cost",
+    "covers": ["t_dendritic_rework::癌方背它走："],
+    "source": "headless_test.gd:t_dendritic_rework L3777 `c_away == CWData.round_tenth(cplain * CWData.CHEMO_CANCER_PCT, 100)`；癌细胞**远离**趋化源 ⇒ 费用 ×1.2（MULT 阶段，四舍五入不是向上取整）。占地单价 1.2 × 1.2 = 1.44 → 1.4。⚠ C# ChemoModifier 的 Multiply 阶段排在固定加减之后 —— 这一条正是取整口径 + 阶段位置的钉子。单位：十分能量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "cancer", "cancer_type": "Osteosarcoma" },
+        { "seat": 1, "faction": "immune", "level": "I" }
+      ],
+      "tiles": [{ "at": "0,0", "state": "cancer" }],
+      "cells": [
+        { "seat": 0, "type": "Osteosarcoma", "at": "0,0" },
+        { "seat": 1, "type": "Dendritic", "at": "0,3", "differentiated": true }
+      ],
+      "chemo": { "at": "3,0", "left": 1, "by": 1, "cid": 1 }
+    },
+    "args": { "cell": "0", "to": "-1,0" },
+    "expect": 14
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/chemo/cancer_toward",
+    "probe": "move_cost",
+    "covers": ["t_dendritic_rework::癌方朝它走：不加价"],
+    "source": "headless_test.gd:t_dendritic_rework L3780 `_move_cost_mod(can, toward, cplain) == cplain`；癌方**朝**趋化源走不加价（cond `chemo_away` 不成立）。单位：十分能量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "cancer", "cancer_type": "Osteosarcoma" },
+        { "seat": 1, "faction": "immune", "level": "I" }
+      ],
+      "tiles": [{ "at": "0,0", "state": "cancer" }],
+      "cells": [
+        { "seat": 0, "type": "Osteosarcoma", "at": "0,0" },
+        { "seat": 1, "type": "Dendritic", "at": "0,3", "differentiated": true }
+      ],
+      "chemo": { "at": "3,0", "left": 1, "by": 1, "cid": 1 }
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 12
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_cost/mucus_surcharge_knob_zero",
+    "probe": "move_cost",
+    "covers": ["t_batch2_rules::mucusfee=0：不加费"],
+    "source": "headless_test.gd:t_batch2_rules L16056 `_move_cost_mod(im2, to, base) == plain`；旋钮 `mucus_move_surcharge`（tier A）拨到 0 ⇒ 黏液那条 FLAT_ADD 根本不发（cw_cost.gd:354 `and game.tune.mucus_move_surcharge > 0`）。免疫 I 级进癌性组织 = 1.0。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "tiles": [{ "at": "1,-1", "state": "cancer", "mucus": true }],
+      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" }],
+      "tuning": { "mucus_move_surcharge": 0 }
+    },
+    "args": { "cell": "0", "to": "1,-1" },
+    "expect": 10
+  }
+]

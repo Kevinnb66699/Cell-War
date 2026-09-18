@@ -1,0 +1,118 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "enter_tile/healthy/colonize_clears_necrosis",
+    "op": "enter_tile",
+    "covers": ["t_tissue_transitions::进入格子：定殖清除坏死并标为新生"],
+    "source": "headless_test.gd:t_tissue_transitions L6603 `CWTissue.is_valid(g.tile(colonize)) and g.tile(colonize)[\"newborn\"]`；癌细胞踏进健康组织 ⇒【定殖】：tissue 翻成癌性（1）、清坏死、标新生（cw_actions.gd:enter_tile 的第一支 ↔ C# CellRules 的 to_cancer 支）。`paid` 取缺省 −1（本批只写缺省，批 4/5 再定）。changed 是在 scratchpad 副本上用 GD runner 真跑录出来的整集合差分 —— `d.proliferate_chance` 那几条是邻格派生量跟着翻面变的，不豁免：整集合比要连「派生量也一起对得上」一并钉住",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer", "cancer_type": "SignetRing" }],
+      "tiles": [
+        { "at": "0,0", "state": "cancer" },
+        { "at": "1,0", "state": "healthy", "necrosis": 2 }
+      ],
+      "cells": [{ "seat": 0, "type": "SignetRing", "at": "0,0", "energy": 100 }]
+    },
+    "args": { "cell": "0", "dest": "1,0" },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 30,
+        "$.board.tiles@0,1.d.proliferate_chance": 60,
+        "$.board.tiles@1,-1.d.proliferate_chance": 60,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.necrosis": 0,
+        "$.board.tiles@1,0.newborn": true,
+        "$.board.tiles@1,0.tissue": 1,
+        "$.board.tiles@1,1.d.proliferate_chance": 30,
+        "$.board.tiles@2,-1.d.proliferate_chance": 30,
+        "$.board.tiles@2,0.d.proliferate_chance": 30,
+        "$.cells[0].d.income": 28,
+        "$.cells[0].pos.q": 1,
+        "$.g.players": [{ "id": 0, "faction": 1, "cell_id": 0, "cancer_type": 1, "d": { "income": 28 } }]
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "enter_tile/healthy/leaving_cancels_camping",
+    "op": "enter_tile",
+    "covers": ["t_batch2_rules::挪窝：蹲守作废"],
+    "source": "headless_test.gd:t_batch2_rules L16152 `int(imm[\"camp_round\"]) == -1`；挪了窝上一格的「蹲守」就作废（cw_actions.gd:enter_tile 开头那三行 ↔ C# CellRules.cs:500 同一支）。camp_round 回 −1 之后 camp_pos 整条从 envelope 里消失 ⇒ 差分里既有容器那一条也有叶子那两条，照录不改",
+    "world": {
+      "round": 3,
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 100, "camp_round": 3, "camp_pos": "0,0" }
+      ]
+    },
+    "args": { "cell": "0", "dest": "1,0" },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@1,0.cell": 0,
+        "$.cells[0].camp_pos": null,
+        "$.cells[0].camp_pos.q": null,
+        "$.cells[0].camp_pos.r": null,
+        "$.cells[0].camp_round": -1,
+        "$.cells[0].pos.q": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "enter_tile/purify/ossify_marked_tile_defers",
+    "op": "enter_tile",
+    "covers": [
+      "t_batch2_rules::踏进标记格：没有立刻净化",
+      "t_batch2_rules::登记蹲守"
+    ],
+    "source": "headless_test.gd:t_batch2_rules L16137 `g.tiles[z][\"tissue\"] == CWData.Tissue.CANCER`（踏进标记格没有立刻净化）+ L16138 `camp_round == 3 and camp_pos == z`（登记蹲守）。骨肉瘤【骨样硬化】标记过的癌格进来要停一个世界回合，下一回合 S 阶段由 CWWorld._resolve_camping 兑现（cw_actions.gd:enter_tile 的第二支 ↔ C# CellRules.cs:516）。**整集合比顺带钉死「tissue 没变」**：差分里没有 `tiles@1,0.tissue` 这一条",
+    "world": {
+      "round": 3,
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "tiles": [{ "at": "1,0", "state": "cancer", "ossify_at": 4 }],
+      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 100 }]
+    },
+    "args": { "cell": "0", "dest": "1,0" },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@1,0.cell": 0,
+        "$.cells[0].camp_pos": null,
+        "$.cells[0].camp_pos.q": 1,
+        "$.cells[0].camp_pos.r": 0,
+        "$.cells[0].camp_round": 3,
+        "$.cells[0].pos.q": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "enter_tile/special/collect_core_store",
+    "op": "enter_tile",
+    "covers": ["t_plan_core_gain::真走一遍之后核心才真的被取空"],
+    "source": "headless_test.gd:t_plan_core_gain L4047 `int(g.tile(core)[\"store\"]) == 0`；规划器只是**预演**取空、真走一遍才真的取空（cw_actions.gd:collect_special ↔ C# CellRules.LandTail → CollectSpecialAt）。顺带钉住能量确实进了账（100 → 120）",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "tiles": [{ "at": "1,0", "type": "core", "store": 20 }],
+      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 100 }]
+    },
+    "args": { "cell": "0", "dest": "1,0" },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.d.store_fraction": 0,
+        "$.board.tiles@1,0.store": 0,
+        "$.cells[0].d.overload_loss": 10,
+        "$.cells[0].energy": 120,
+        "$.cells[0].pos.q": 1
+      }
+    }
+  }
+]

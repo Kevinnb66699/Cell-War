@@ -1,0 +1,77 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "move_raw_cost/cancer_to_healthy/pseudopod_below_threshold",
+    "probe": "move_raw_cost",
+    "covers": ["t_card_mods::只邻接 2 格癌性组织 → 不触发【伪足穿透】，照付健康格全价"],
+    "source": "headless_test.gd:t_card_mods L14236 `PSEUDOPOD_MIN_ADJ == 3 and _cancer_move_cost(mel, (1,0)) == CANCER_MOVE_HEALTHY`；GD 原文调私有 `_cancer_move_cost`，观测等价物 = `_one_step_base` 的癌方分支（cw_actions.gd:569）↔ C# RulePolicies.RawMoveCost。落点 (1,0) 的六邻里只有 (0,0) / (2,0) 是癌性 ⇒ 达不到门槛 3，退回占地单价 1.2。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer", "cancer_type": "Melanoma" }],
+      "tiles": [
+        { "at": "0,0", "state": "cancer" },
+        { "at": "2,0", "state": "cancer" }
+      ],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 12
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_raw_cost/cancer_to_healthy/pseudopod_at_threshold",
+    "probe": "move_raw_cost",
+    "covers": ["t_card_mods::邻接 3 格 → 黑色素瘤基准价走【伪足穿透】"],
+    "source": "headless_test.gd:t_card_mods L14240 `base_cost == CWData.PSEUDOPOD_COST`；门槛 2026-09-06 由 2 改 3（cw_data.gd:314 PSEUDOPOD_MIN_ADJ = 3 ↔ C# RulePolicies.PseudopodMinAdjacent）。落点 (1,0) 邻接 (0,0)/(2,0)/(2,-1) 三格癌性 ⇒ 起价 0.5。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer", "cancer_type": "Melanoma" }],
+      "tiles": [
+        { "at": "0,0", "state": "cancer" },
+        { "at": "2,0", "state": "cancer" },
+        { "at": "2,-1", "state": "cancer" }
+      ],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 5
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_raw_cost/cancer_to_healthy/pseudopod_four_neighbours",
+    "probe": "move_raw_cost",
+    "covers": ["t_card_mods::邻接 4 格 → 0.5 − 0.1 = 0.4"],
+    "source": "headless_test.gd:t_card_mods L14248 `_cancer_move_cost(mel, (1,0)) == PSEUDOPOD_COST - PSEUDOPOD_DISCOUNT`；issue #22（2026-09-11）的递减档：起价 = 0.5 − 0.1×(邻接数 − 3)。落点 (1,0) 邻接四格癌性。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer", "cancer_type": "Melanoma" }],
+      "tiles": [
+        { "at": "0,0", "state": "cancer" },
+        { "at": "2,0", "state": "cancer" },
+        { "at": "2,-1", "state": "cancer" },
+        { "at": "1,-1", "state": "cancer" }
+      ],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 4
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_raw_cost/cancer_to_healthy/pseudopod_all_six",
+    "probe": "move_raw_cost",
+    "covers": ["t_card_mods::六面皆癌 → 0.5 − 0.1 × 3 = 0.2"],
+    "source": "headless_test.gd:t_card_mods L14252 `_cancer_move_cost(mel, (1,0)) == 2`；递减到底（六面皆癌 = 0.5 − 0.1×3 = 0.2），与 maxi(..., 0) 的兜底不同档。单位：十分能量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "cancer", "cancer_type": "Melanoma" }],
+      "tiles": [
+        { "at": "0,0", "state": "cancer" },
+        { "at": "2,0", "state": "cancer" },
+        { "at": "2,-1", "state": "cancer" },
+        { "at": "1,-1", "state": "cancer" },
+        { "at": "0,1", "state": "cancer" },
+        { "at": "1,1", "state": "cancer" }
+      ],
+      "cells": [{ "seat": 0, "type": "Melanoma", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 2
+  }
+]

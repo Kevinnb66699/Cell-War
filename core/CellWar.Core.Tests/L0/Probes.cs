@@ -20,8 +20,9 @@ namespace CellWar.Core.Tests.L0;
 ///
 /// 分派集合由 `game/tests/contract_ops.json` 定死（§0.6.4 第 4 条）：
 /// 表里 `status ∈ {OK, KNOWN_GAP, UNDEFINED}` 的 P 族行 ≡ <see cref="Names"/>，**16 条**。
-/// 其中 6 条是**空壳**（`deferred`：本批未开工，调用即抛）——
-/// 批 0 已把 `const`（<see cref="ConstTable"/>）与 `settle_loss` 两条填上。
+/// 其中 2 条是**空壳**（`deferred`：本批未开工，调用即抛）——
+/// 批 0 填上了 `const`（<see cref="ConstTable"/>）与 `settle_loss`，
+/// 批 1 填上了 `move_raw_cost` / `pass_through_cost` / `quote_path` / `move_legal`。
 /// </summary>
 public static class Probes
 {
@@ -62,13 +63,17 @@ public static class Probes
             var other => throw new InvalidOperationException($"不认识的攻击判词：{other}"),
         },
 
+        // 一步的**起价**（修饰之前）。借道前进不走这里 —— 那是 pass_through_cost
+        ["move_raw_cost"] = (s, a) => RulePolicies.RawMoveCost(s, a.Cell(s), a.Pos("to")),
+        ["pass_through_cost"] = PassThroughCost,
+        // 第一条 tree。**tree 没有 ignore**，所以投影成同一张键表的活在两侧探针身上（见 QuotePathTree）
+        ["quote_path"] = QuotePathTree,
+        // bool → scalar 的 1 / 0：两侧表项各自冻，不靠 runner 的隐式转换（同 CWData.is_world_event_round）
+        ["move_legal"] = (s, a) => CellRules.MoveLegal(s, a.Cell(s), a.Pos("to")) ? 1 : 0,
+
         // ---- 空壳（§0.6.4 第 5 条：进分派表、零用例；调用即抛）----
         // 空壳也必须在表里：双射断言比的是**分派表的键集合**，缺一个两侧就对不上。
-        ["move_raw_cost"] = Deferred("move_raw_cost"),
-        ["pass_through_cost"] = Deferred("pass_through_cost"),   // KNOWN_GAP（0.4-bis #6）
-        ["quote_path"] = Deferred("quote_path"),
-        // §0.6.7 四条里还没开工的三条：Kevin 2026-09-19 接受，C# 入口已开（MoveLegal / AnaerobicPool / SplitShare）；探针面随各批定
-        ["move_legal"] = Deferred("move_legal"),
+        // §0.6.7 四条里还没开工的两条：Kevin 2026-09-19 接受，C# 入口已开（AnaerobicPool / SplitShare）；探针面随批 2 定
         ["anaerobic_pool"] = Deferred("anaerobic_pool"),
         ["split_share"] = Deferred("split_share"),
 
@@ -82,6 +87,66 @@ public static class Probes
         // （自己从细胞身上读用过几次、装没装【抗体亲和力成熟】），C# 的是 `(used, matured)` 两个标量。
         // 按上面 E-6 的规矩 1，要么 C# 挪齐边界，要么它登记 OUT_OF_SCOPE 不进 L0。
     };
+
+    /// <summary>
+    /// 借道落点的**整价** = 沿途每格 <see cref="RulePolicies.RawMoveCost"/> 之和（修饰之前，修饰只在落点跑一遍）。
+    /// 两侧都**没有**「不在表里」的返回值（GD 索引出错、这边 KeyNotFound）——
+    /// 不许在这儿编一个哨兵（E-6 规矩 3），写错落点的用例当场报清楚。
+    /// GD 侧 `l0_runner.gd:_probe` 的 `pass_through_cost` 分支是同一句话。
+    /// </summary>
+    private static object PassThroughCost(WorldState s, Args a)
+    {
+        var cell = a.Cell(s);
+        var to = a.Pos("to");
+        return RulePolicies.PassThroughMap(s, cell).TryGetValue(to, out var cost)
+            ? cost
+            : throw new InvalidOperationException(
+                $"借道表里没有 {WorldLoader.At(to)} —— 它不是这只细胞的借道落点（相邻格与走不到的格都不在表里）");
+    }
+
+    /// <summary>
+    /// <c>quote_path</c> 的**投影**（批 1）。tree 没有 ignore，所以「把两侧的返回值投影成同一张键表」
+    /// 这件事落在两侧探针身上（规格 §0.6.2 + 批 1 简报）。**只投影，一行算式都不写**（纪律 3）。
+    ///
+    /// 键表（与 GD 侧 <c>l0_runner.gd:_quote_path_tree</c> **逐字相同**，人工核，没有机器闸）：
+    /// <code>{ ok, stop, total, left, gained, steps: [ { to, cost, mid, afford, blocked, gain } ] }</code>
+    /// <list type="bullet">
+    /// <item><c>ok</c> / <c>afford</c> → 1 / 0；<c>to</c> / <c>mid</c> → <c>"q,r"</c>，
+    ///   <c>mid</c> 不是借道走法时写 <c>""</c>（这边的 null ↔ GD 的 <c>Vector2i.MAX</c>，两侧都投影成空串）；</item>
+    /// <item><c>blocked</c> → **1 / 0**（有没有原因）。文案两侧只有「被占据」那一支逐字相同，
+    ///   其余各拼各的（GD 走 <c>move_block_reason</c> 的六种文案 / 这边恒「走不到这一格」）⇒ 不进键表，
+    ///   指着文案的那三条断言逐条留 GD（<c>xcheck/COVERAGE.md</c> 记空档）；</item>
+    /// <item>**不收 <c>legal</c>**：GD 的 <c>legal</c> 不看余额（付不起时仍是 true），
+    ///   这边的 <c>Legal</c> 恒等于 <c>Afford</c>（<c>Reason</c> 把「付不起」也算进去）—— 两侧不是同一个量，
+    ///   收进来 <c>stops_on_budget</c> 那一档必然假红。要守的那条判据由 <c>afford</c> + <c>stop</c> 表达。</item>
+    /// </list>
+    ///
+    /// ⚠ **已登记的规则差（批 1 不修）**：GD <c>quote_path</c> 每走通一步就 <c>burn_allowances</c>
+    /// 预演费用额度（issue #35），<see cref="RulePolicies.QuotePath"/> 没有这一步 ——
+    /// 带闸门额度（【组织驻留】前两次免费那类）的**多步**路径两侧必然分叉。
+    /// 所以本批的 <c>quote_path</c> 用例一律不带闸门额度，`t_plan_allowance` 三条留空档（COVERAGE.md）。
+    /// </summary>
+    private static object QuotePathTree(WorldState s, Args a)
+    {
+        var quote = RulePolicies.QuotePath(s, a.Cell(s), a.Positions("path").ToArray());
+        return new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            ["ok"] = quote.Ok ? 1 : 0,
+            ["stop"] = quote.Stop,
+            ["total"] = quote.Total,
+            ["left"] = quote.Left,
+            ["gained"] = quote.Gained,
+            ["steps"] = quote.Steps.Select(x => new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["to"] = WorldLoader.At(x.To),
+                ["cost"] = x.Cost,
+                ["mid"] = x.Mid is { } mid ? WorldLoader.At(mid) : "",
+                ["afford"] = x.Afford ? 1 : 0,
+                ["blocked"] = x.Reason.Length == 0 ? 0 : 1,
+                ["gain"] = x.Gain,
+            }).ToList(),
+        };
+    }
 
     private static Probe Deferred(string name)
         => (_, _) => throw new NotImplementedException($"本批未开工：探针 {name} 在 contract_ops.json 里是 deferred（空壳）");

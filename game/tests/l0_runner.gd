@@ -28,7 +28,7 @@ const Diff := preload("res://tests/cw_case_diff.gd")
 const Gate := preload("res://tests/l0_contract_gate.gd")
 const OPS_PATH := "res://tests/contract_ops.json"
 
-## P 族分派表（§0.6.4 第 5 条）：10 真 + 6 空壳。集合 ≡ contract_ops.json 里
+## P 族分派表（§0.6.4 第 5 条）：14 真 + 2 空壳。集合 ≡ contract_ops.json 里
 ## `kind:"probe"` 且 status ∈ {OK, KNOWN_GAP, UNDEFINED} 的行；启动时由契约门双射校验。
 ## 空壳 = 本批未开工（NOTIMPL / OUT_OF_SCOPE 的行不进这张表）。
 const PROBE_NAMES: Array[String] = [
@@ -37,13 +37,14 @@ const PROBE_NAMES: Array[String] = [
 	"move_raw_cost", "pass_through_cost", "quote_path", "const",
 	"move_legal", "anaerobic_pool", "split_share", "settle_loss",   ## §0.6.7 四条：Kevin 09-19 接受、C# 入口已开，探针面随各批定
 ]
-## S 族分派表：24 真 + 空壳 `damage_hit`（住在 CWGame 上，四个代理够不着，批 4 手写用例）
+## S 族分派表：25 真 + 空壳 `damage_hit`（住在 CWGame 上，四个代理够不着，批 4 手写用例）。
+## `execute` 是决策类 op（批 1 进表，§0.6.4 第 1 条按 GD 入口名）：两侧签名不同，args 走**席位 + 语义键**。
 const STEP_NAMES: Array[String] = [
 	"anaerobic", "cancer_upkeep", "pressure", "proliferate", "erosion", "resolve_camping",
 	"solidify", "rooted", "ossify", "decay", "mark_adhesion", "tick_durations",
 	"tick_necrosis", "tick_chemo_cd", "tick_chemo_track", "expire_marks", "clear_newborn",
 	"cap_energy", "reset_round_flags", "tissue_production", "vessel_teleport",
-	"aerobic", "overload", "enter_tile", "damage_hit",
+	"aerobic", "overload", "enter_tile", "execute", "damage_hit",
 ]
 
 var checks := 0
@@ -384,13 +385,67 @@ func _probe(g: CWGame, name: String, args: Dictionary) -> Variant:
 			## 纯静态五进一出；C# 侧 Settlement.SettleLoss 是 §0.6.7 开的同一个入口，两边都只转调、不重写算式
 			return CWGame.settle_loss(_arg_int(args, "base"), _arg_int(args, "add"), \
 				_arg_int(args, "mult"), _arg_int(args, "div"), _arg_int(args, "cut"))
-		## 六个空壳（§0.6.4 第 5 条 + §0.6.7 四条）：表里是 deferred，分派表里留位子，调用即报本批未开工
-		"move_raw_cost", "pass_through_cost", "quote_path", \
-		"move_legal", "anaerobic_pool", "split_share":
+		"move_raw_cost":
+			## 一步的**起价**（修饰之前）。借道前进不走这里 —— 那是 pass_through_cost
+			return g.actions._one_step_base(_cell(g, args), _pos(str(args.get("to", ""))))
+		"pass_through_cost":
+			## 借道落点的**整价** = 沿途每格 _one_step_base 之和（修饰之前，修饰只在落点跑一遍）。
+			## 两侧都**没有**「不在表里」的返回值（GD 索引出错、C# KeyNotFound）——
+			## 不许在这儿编一个哨兵（E-6 规矩 3），写错落点的用例当场报清楚
+			var pt_cell: Dictionary = _cell(g, args)
+			var pt_to: Vector2i = _pos(str(args.get("to", "")))
+			var pt_map: Dictionary = g.actions.pass_through_map(pt_cell)
+			if not pt_map.has(pt_to):
+				_fail("借道表里没有 %s —— 它不是这只细胞的借道落点（相邻格与走不到的格都不在表里）" % str(pt_to))
+				return null
+			return pt_map[pt_to][0]
+		"quote_path":
+			## 第一条 tree。**tree 没有 ignore**，所以投影成同一张键表的活在两侧探针身上（见 _quote_path_tree）
+			return _quote_path_tree(g, args)
+		"move_legal":
+			## bool → scalar 的 1 / 0：两侧表项各自冻，不靠 runner 的隐式转换（同 CWData.is_world_event_round）
+			return 1 if g.actions._is_move_legal_now(_cell(g, args), _pos(str(args.get("to", "")))) else 0
+		## 两个空壳（§0.6.7 四条里批 2 的那两条）：表里是 deferred，分派表里留位子，调用即报本批未开工
+		"anaerobic_pool", "split_share":
 			_fail("探针 %s：本批未开工" % name)
 			return null
 	_fail("不认识的探针：%s" % name)
 	return null
+
+
+## `quote_path` 的**投影**（批 1）。tree 没有 ignore，所以「把两侧的返回值投影成同一张键表」
+## 这件事落在两侧探针身上（规格 §0.6.2 + 批 1 简报）。**只投影，一行算式都不写**（纪律 3）。
+##
+## 键表（与 C# 侧 `Probes.cs:QuotePathTree` **逐字相同**，人工核，没有机器闸）：
+##   { ok, stop, total, left, gained, steps: [ { to, cost, mid, afford, blocked, gain } ] }
+##   · `ok` / `afford` → 1 / 0；`to` / `mid` → "q,r"，
+##     `mid` 不是借道走法时写 ""（GD 的 Vector2i.MAX ↔ C# 的 null，两侧都投影成空串）；
+##   · `blocked` → **1 / 0**（有没有原因）。文案两侧只有「被占据」那一支逐字相同，
+##     其余各拼各的（GD 走 move_block_reason 的六种文案 / C# 恒「走不到这一格」）⇒ 不进键表，
+##     指着文案的那三条断言逐条留 GD（`xcheck/COVERAGE.md` 记空档）；
+##   · **不收 `legal`**：GD 的 `legal` 不看余额（付不起时仍是 true），
+##     C# 的 `legal` 恒等于 `afford`（reason 把「付不起」也算进去）—— 两侧不是同一个量，
+##     收进来 `stops_on_budget` 那一档必然假红。要守的那条判据由 `afford` + `stop` 表达。
+func _quote_path_tree(g: CWGame, args: Dictionary) -> Variant:
+	var q: Dictionary = g.actions.quote_path(_cell(g, args), _pos_list(str(args.get("path", ""))))
+	var steps: Array = []
+	for s in q["steps"]:
+		steps.append({
+			"to": _pos_text(s["to"]),
+			"cost": int(s["cost"]),
+			"mid": _pos_text(s["mid"]),
+			"afford": 1 if s["afford"] else 0,
+			"blocked": 1 if str(s["blocked"]) != "" else 0,
+			"gain": int(s["gain"]),
+		})
+	return {
+		"ok": 1 if q["ok"] else 0,
+		"stop": int(q["stop"]),
+		"total": int(q["total"]),
+		"left": int(q["left"]),
+		"gained": int(q["gained"]),
+		"steps": steps,
+	}
 
 
 # ---- 常量表（探针 const）----
@@ -515,7 +570,11 @@ func _step(g: CWGame, op: String, args: Dictionary) -> bool:
 		"vessel_teleport": await g.world._vessel_teleport()
 		"aerobic": g.world._aerobic()
 		"overload": g.world._overload()
-		"enter_tile": await g.actions.enter_tile(_cell(g, args), _pos(str(args.get("to", ""))), int(args.get("paid", -1)))
+		## ⚠ 参数名是 `dest`（契约表 args 的第二项、C# `a.Pos("dest")`）——
+		##    批 1 之前这里写的是 `to`，因为 `cases: deferred`（零用例）一直没人踩到
+		"enter_tile": await g.actions.enter_tile(_cell(g, args), _pos(str(args.get("dest", ""))), int(args.get("paid", -1)))
+		"execute":
+			return await _execute(g, args)
 		## 空壳（§0.6.4 第 2 条）：住在 CWGame 上、两端签名未核，批 4 手写用例
 		"damage_hit":
 			_fail("契约步 damage_hit：本批未开工")
@@ -524,6 +583,31 @@ func _step(g: CWGame, op: String, args: Dictionary) -> bool:
 			_fail("不认识的契约步：%s" % op)
 			return false
 	return true
+
+
+## 契约步 `execute`（决策类 op，§0.6.4 第 1 条：名字用 GD 入口名）。
+##
+## **两侧不是同一个签名**：GD `execute(cell, data)` 收一个自带 `cost` 的 data 字典
+## （调用方先报价），C# 收一个已经生成好的 IDecision、费用由它自己 QuoteMove。
+## 所以 args 只能是**席位 + 语义键**，两侧各自从自己的选项表里按键找回那一条
+## （这边 `build_options` + `CWSemKey.key`，C# 那边 `GetAvailableDecisions` + `SemanticKey.Of`）。
+## 语义键的规矩 1 已经把 `cost` 剔出键外 —— 所以「C# 算费不同」不会伪装成「动作不同」，
+## 它会原样落在 delta 的 energy 上。
+func _execute(g: CWGame, args: Dictionary) -> bool:
+	var cell: Dictionary = _cell(g, args, "seat")
+	if cell.is_empty():
+		return false
+	var want := str(args.get("key", ""))
+	var keys := PackedStringArray()
+	for o in g.actions.build_options(cell):
+		var k := CWSemKey.key({ "kind": "action" }, o["data"])
+		if k == want:
+			await g.actions.execute(cell, o["data"])
+			return true
+		keys.append(k)
+	keys.sort()
+	_fail("席位 %d 的选项表里没有语义键「%s」。已有：%s" % [int(args.get("seat", -1)), want, " / ".join(keys)])
+	return false
 
 
 ## 攻击判词编码成 0/1/2，与 C# 侧同一套（L0 的 expect 统一是整数）
@@ -538,8 +622,10 @@ func _outcome_code(g: CWGame, roll: int, cell: Dictionary) -> int:
 
 
 # ---- 小工具 ----
-func _cell(g: CWGame, args: Dictionary) -> Dictionary:
-	var seat := int(args.get("cell", 0))
+## `key` = 席位参数的**键名**：P 族与多数 S 族写 `cell`，`execute` 写 `seat`
+## （C# 那边 `GetAvailableDecisions(s, seat)` 收的是席位，不是细胞）。
+func _cell(g: CWGame, args: Dictionary, key: String = "cell") -> Dictionary:
+	var seat := int(args.get(key, 0))
 	for c in g.cells:
 		if int(c["pid"]) == seat:
 			return c
@@ -559,6 +645,21 @@ func _positions(list: Array) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	for s in list:
 		out.append(_pos(str(s)))
+	return out
+
+
+## 坐标 → "q,r"；`Vector2i.MAX`（`pass_through_mid` 的「不是借道走法」哨兵）→ ""。
+## C# 侧 `mid` 是 `HexPosition?`，null 同样投影成 "" —— 两侧出来的字符串逐字相同。
+func _pos_text(v: Vector2i) -> String:
+	return "" if v == Vector2i.MAX else ("%d,%d" % [v.x, v.y])
+
+
+## `"q,r;q,r"` → 坐标表。用例的 `args` 值一律是**字符串**（C# 侧 `Args` 是 Dictionary<string,string>），
+## 文法与 C# 侧 `Probes.Args.Positions` 同一套：分号分隔、空串 = 空表。
+func _pos_list(text: String) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	for part in text.split(";", false):
+		out.append(_pos(part.strip_edges()))
 	return out
 
 

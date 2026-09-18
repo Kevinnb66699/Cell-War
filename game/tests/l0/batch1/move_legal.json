@@ -1,0 +1,361 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/empty/ally_tile_immune",
+    "probe": "move_legal",
+    "covers": ["t_pass_through_ally::友军所在格：仍然不能停留"],
+    "source": "headless_test.gd:t_pass_through_ally L16849 `not d.has(Vector2i(1,0))`；一格一细胞（口径 #98「同阵营不能停留在同一格，但可以穿过去」）。GD `_is_move_legal_now` 分支④（免疫相邻、无癌细胞 ⇒ 要求 cells_at 为空）↔ C# CellRules.CommitLegal 同一支。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "immune", "level": "I" }
+      ],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0" },
+        { "seat": 1, "type": "ImmuneBasic", "at": "1,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/empty/ally_tile_is_not_a_landing_spot",
+    "probe": "move_legal",
+    "covers": ["t_pass_through_chain::友军自己占的格不是落点（不能停在人身上）"],
+    "source": "headless_test.gd:t_pass_through_chain L3644 `m.has(Vector2i(2,0)) == false` —— 原文查的是「不在 pass_through_map 里」。`pass_through_cost` 探针对「不在表里」两侧都没有返回值（GD KeyError / C# KeyNotFound），所以这条否定式改用 `move_legal` 表达：链式借道里 (2,0) 站着友军 ⇒ 既不能停也不是落点。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "cancer", "cancer_type": "SignetRing" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "SignetRing" },
+        { "seat": 2, "faction": "cancer", "cancer_type": "SignetRing" }
+      ],
+      "tiles": [{ "at": "0,0", "state": "cancer" }],
+      "cells": [
+        { "seat": 0, "type": "SignetRing", "at": "0,0" },
+        { "seat": 1, "type": "SignetRing", "at": "1,0" },
+        { "seat": 2, "type": "SignetRing", "at": "2,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "2,0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/pass_through/behind_one_ally",
+    "probe": "move_legal",
+    "covers": ["t_pass_through_ally::友军正后方那格：可以穿过去"],
+    "source": "headless_test.gd:t_pass_through_ally L16850 `d.has(far)`；GD `_is_move_legal_now` 分支②（不相邻 ⇒ 借道：pass_through_mid 非 MAX 且落点空着）↔ C# `RulePolicies.PassThroughMid(...) is not null && s.GetCellAt(to) is not { IsAlive: true }`。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "immune", "level": "I" }
+      ],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0" },
+        { "seat": 1, "type": "ImmuneBasic", "at": "1,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "2,0" },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/pass_through/behind_two_allies",
+    "probe": "move_legal",
+    "covers": ["t_pass_through_chain::合法性谓词也认"],
+    "source": "headless_test.gd:t_pass_through_chain L3653 `_is_move_legal_now(me, Vector2i(3,0))` —— 链式借道的落点，合法性谓词与借道表读同一张（口径 #81：选项生成与提交复验共用一份谓词）。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "cancer", "cancer_type": "SignetRing" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "SignetRing" },
+        { "seat": 2, "faction": "cancer", "cancer_type": "SignetRing" }
+      ],
+      "tiles": [{ "at": "0,0", "state": "cancer" }],
+      "cells": [
+        { "seat": 0, "type": "SignetRing", "at": "0,0" },
+        { "seat": 1, "type": "SignetRing", "at": "1,0" },
+        { "seat": 2, "type": "SignetRing", "at": "2,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "3,0" },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/pass_through/enemy_mid_cancer_side",
+    "probe": "move_legal",
+    "covers": ["t_pass_through_chain::敌军不能借道"],
+    "source": "headless_test.gd:t_pass_through_chain L3665 `g2.actions.pass_through_map(me2).is_empty()` —— 原文查的是「整张借道表为空」，逐格等价物 = 敌军正后方那一格不合法。借道只在**友军**格上扩展（cw_actions.gd:_is_ally_tile ↔ C# PassThroughRoutes 的同一判据）。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "cancer", "cancer_type": "SignetRing" },
+        { "seat": 1, "faction": "immune", "level": "I" }
+      ],
+      "tiles": [{ "at": "0,0", "state": "cancer" }],
+      "cells": [
+        { "seat": 0, "type": "SignetRing", "at": "0,0" },
+        { "seat": 1, "type": "ImmuneBasic", "at": "1,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "2,0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/pass_through/empty_mid",
+    "probe": "move_legal",
+    "covers": ["t_pass_through_ally::中间空着：正后方那格到不了（穿过不是普通远程移动）"],
+    "source": "headless_test.gd:t_pass_through_ally L16882 `not dests.call().has(far)` —— 借道的**必要条件**是中间那格站着友军；空着就只是一格远程移动，不给。0/1 标量",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" }]
+    },
+    "args": { "cell": "0", "to": "2,0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/pass_through/enemy_mid_immune_side",
+    "covers": ["t_pass_through_ally::中间是敌人：不能穿过去"],
+    "probe": "move_legal",
+    "source": "headless_test.gd:t_pass_through_ally L16887 `not dests.call().has(far)`；中间那格是敌人 ⇒ 不是友军格，借道表扩不过去。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
+      ],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0" },
+        { "seat": 1, "type": "Osteosarcoma", "at": "1,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "2,0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/pass_through/landing_spot_occupied",
+    "probe": "move_legal",
+    "covers": ["t_pass_through_ally::落点站着人：不能停，所以也不能穿"],
+    "source": "headless_test.gd:t_pass_through_ally L16895 `not dests.call().has(far)`；⚠ GD 分支② 的后半句（「落点必须完全空着」）在两侧今天都是**死代码** —— 两张借道表本来就只收空落点（cw_actions.gd:pass_through_map 的 `elif game.cells_at(m).is_empty()` ↔ C# PassThroughRoutes 同一句）。这条红了就说明哪张表的口径松了。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "immune", "level": "I" },
+        { "seat": 2, "faction": "cancer", "cancer_type": "Osteosarcoma" }
+      ],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0" },
+        { "seat": 1, "type": "ImmuneBasic", "at": "1,0" },
+        { "seat": 2, "type": "Osteosarcoma", "at": "2,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "2,0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/pass_through/cancer_side_behind_ally",
+    "probe": "move_legal",
+    "covers": ["t_pass_through_ally::癌方也能穿过同伴"],
+    "source": "headless_test.gd:t_pass_through_ally L16914 `opts2.has(far) and opts2[far][\"label\"].begins_with(\"穿过\")` —— 标签是 UI 文案（留 GD），规则等价物 = 癌方借道落点同样合法。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "cancer", "cancer_type": "SmallCellLung" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "SmallCellLung" }
+      ],
+      "tiles": [
+        { "at": "0,0", "state": "cancer" },
+        { "at": "1,0", "state": "cancer" }
+      ],
+      "cells": [
+        { "seat": 0, "type": "SmallCellLung", "at": "0,0" },
+        { "seat": 1, "type": "SmallCellLung", "at": "1,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "2,0" },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/out_of_board/beyond_radius",
+    "probe": "move_legal",
+    "covers": ["t_pass_through_ally::落点出界：不可"],
+    "source": "headless_test.gd:t_pass_through_ally L16901 `not dests.call().has(Vector2i(7,0))`；GD `_is_move_legal_now` 分支①（`game.is_on_board(to)`）↔ C# `s.Board.Tissues.ContainsKey(to)`（「在棋盘上」= 这一格有组织）。半径 6 ⇒ (7,0) 出界。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "immune", "level": "I" }
+      ],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "6,0" },
+        { "seat": 1, "type": "ImmuneBasic", "at": "5,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "7,0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/attack/cap_not_reached",
+    "probe": "move_legal",
+    "covers": ["_t_commit_revalidates::③次数没用完时可以打"],
+    "source": "headless_test.gd:_t_commit_revalidates L16614 `_is_move_legal_now(c3, canc)`；攻击 = 走进敌人那一格，攻击次数没用完时合法。GD 分支⑥ 的正面（`cap > 0 and attacks_used >= cap` 不成立）↔ C# CellRules.AttackCapReached。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "SignetRing" }
+      ],
+      "tiles": [{ "at": "1,0", "state": "cancer" }],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "attacks_used": 0 },
+        { "seat": 1, "type": "SignetRing", "at": "1,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/attack_cap/cap_reached",
+    "probe": "move_legal",
+    "covers": ["_t_commit_revalidates::③攻击次数用尽后不可攻击"],
+    "source": "headless_test.gd:_t_commit_revalidates L16616 `not _is_move_legal_now(c3, canc)`；默认每行动回合最多攻击 3 次（旋钮 attack_max_per_turn，tier A），用尽 ⇒ 这一格进不去。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "SignetRing" }
+      ],
+      "tiles": [{ "at": "1,0", "state": "cancer" }],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "attacks_used": 3 },
+        { "seat": 1, "type": "SignetRing", "at": "1,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/attack/osteosarcoma_on_solidified",
+    "probe": "move_legal",
+    "covers": ["t_one_cell_per_tile::固化上的骨肉瘤现在可以攻击了"],
+    "source": "headless_test.gd:t_one_cell_per_tile L2521 `_is_move_legal_now(imm, b)` —— 2026-09-01 定案 B（【刚性屏障】由「不可攻击」改「减伤」）的行为判据前半：站在固化癌组织上的骨肉瘤照样打得到。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
+      ],
+      "tiles": [{ "at": "1,0", "state": "solid" }],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0" },
+        { "seat": 1, "type": "Osteosarcoma", "at": "1,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/attack_cap/plain_move_still_ok",
+    "probe": "move_legal",
+    "covers": ["t_attack_cap::用完次数：普通迁移不受影响"],
+    "source": "headless_test.gd:t_attack_cap L16756 `has_move.call()`；⭐ attack_cap 的对照组 —— 上限只挡「进敌人那一格」，空地照常走（cw_actions.gd:415-418 的注释原话）。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "SignetRing" }
+      ],
+      "tiles": [{ "at": "1,0", "state": "cancer" }],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "attacks_used": 3 },
+        { "seat": 1, "type": "SignetRing", "at": "1,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "0,1" },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/attack_cap/commit_revalidates_with_knob",
+    "probe": "move_legal",
+    "covers": ["t_attack_cap::用完次数：提交复验同样拒绝（与选项生成共用谓词）"],
+    "source": "headless_test.gd:t_attack_cap L16758 `not _is_move_legal_now(imm, Vector2i(1,0))`；旋钮 attack_max_per_turn 拨到 2、已用 2 ⇒ 提交复验也拒。口径 #81「选项生成与提交复验共用同一份谓词」的本体。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "SignetRing" }
+      ],
+      "tiles": [{ "at": "1,0", "state": "cancer" }],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "attacks_used": 2 },
+        { "seat": 1, "type": "SignetRing", "at": "1,0" }
+      ],
+      "tuning": { "attack_max_per_turn": 2 }
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/attack_cap/zero_means_unlimited",
+    "probe": "move_legal",
+    "covers": ["t_attack_cap::上限 0 = 不限，计数再高也不挡"],
+    "source": "headless_test.gd:t_attack_cap L16765 `has_atk.call()`；旋钮 0 = 不限（`cap > 0 and ...` 的短路），计数 99 也照打。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "SignetRing" }
+      ],
+      "tiles": [{ "at": "1,0", "state": "cancer" }],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "attacks_used": 99 },
+        { "seat": 1, "type": "SignetRing", "at": "1,0" }
+      ],
+      "tuning": { "attack_max_per_turn": 0 }
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/dendritic/cannot_enter_cancer_cell",
+    "probe": "move_legal",
+    "covers": ["t_dendritic_rework::树突：癌细胞占据的格走不进去"],
+    "source": "headless_test.gd:t_dendritic_rework L3721 `not _is_move_legal_now(dc, foe_at)`；【I-各司其职】（2026-09-04 新 PRD）：树突无法通过【迁移】攻击癌细胞、也不能向癌细胞占据的组织移动。GD 分支⑤ ↔ C# CommitLegal 的 `cell.Type == CellType.Dendritic` 一句。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "III" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "SignetRing" }
+      ],
+      "tiles": [{ "at": "1,0", "state": "cancer" }],
+      "cells": [
+        { "seat": 0, "type": "Dendritic", "at": "0,0", "differentiated": true },
+        { "seat": 1, "type": "SignetRing", "at": "1,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 0
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/attack/macrophage_can_enter_same_tile",
+    "probe": "move_legal",
+    "covers": ["t_dendritic_rework::巨噬照旧能攻同一格"],
+    "source": "headless_test.gd:t_dendritic_rework L3731 `_is_move_legal_now(dc, foe_at)`（dc 此处是巨噬）—— dendritic 档的对照组：拦的是**种类**，不是这一格。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "III" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "SignetRing" }
+      ],
+      "tiles": [{ "at": "1,0", "state": "cancer" }],
+      "cells": [
+        { "seat": 0, "type": "Macrophage", "at": "0,0", "differentiated": true },
+        { "seat": 1, "type": "SignetRing", "at": "1,0" }
+      ]
+    },
+    "args": { "cell": "0", "to": "1,0" },
+    "expect": 1
+  }
+]

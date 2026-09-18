@@ -101,6 +101,9 @@ FUNC_SUBSYSTEM = [
     (r"^t_(card_fx_hooks|card_played_signal|event_drawn_signal|income_display|production_row)$", "ui"),
     (r"^t_(entry_smoke_hotseat|entry_smoke_local|entry_smoke_tutorial|hotseat)$", "ui"),
     (r"^t_(mods_tip|skill_move_price_tag|store_ring|tier_highlight|mucus_row)$", "ui"),
+    # `_t_move_cost_wiring` 的 4 条全是 CWUIBridge 的价目表接线（进/退迁移态、逐格抄 cost、动词文案），
+    # 零规则量 —— 兜底规则 `^_?t_` 会把它扫进 core，按 §0.6.5 第 6 条逐名点法归 ui（批 1，core 分母 1114 → 1110）
+    (r"^_t_move_cost_wiring$", "ui"),
     # —— core 规则：剩下的 t_* / _t_* 全归它 ——
     (r"^_?t_", "core"),
 ]

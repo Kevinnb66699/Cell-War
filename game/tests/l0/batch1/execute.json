@@ -1,0 +1,178 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/free/residency_first_move",
+    "op": "execute",
+    "covers": [
+      "t_plan_allowance::真走一步：闸门记账 1 次",
+      "t_card_perms::免费移动没扣钱"
+    ],
+    "source": "headless_test.gd:t_plan_allowance L9588 `int(c[\"fx_turn\"].get(\"组织驻留\", 0)) == 1` + t_card_perms L13746 `imm[\"energy\"] == 100`。GD `cw_actions.gd:execute` 收一个自带 `cost` 的 data 字典，C# 走 `GetAvailableDecisions → SemanticKey.Of 配对 → ExecuteDecision`（C# 自己 QuoteMove）—— 两侧签名不同，args 只能是 `seat` + 语义键（移动的键形 `k=action|act=move|to=q,r`，SemanticKey.cs:108）。**整集合比顺带钉住「免费移动没扣钱」**：差分里没有 `$.cells[0].energy` 这一条。changed 是在 scratchpad 副本上用 GD runner 真跑录出来的",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 100, "equipped": ["组织驻留"] }]
+    },
+    "args": { "seat": "0", "key": "k=action|act=move|to=0,1" },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,1.cell": 0,
+        "$.cells[0].fx_turn": null,
+        "$.cells[0].fx_turn.组织驻留": 1,
+        "$.cells[0].pos.r": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/free/residency_second_move",
+    "op": "execute",
+    "covers": ["t_card_perms::第二次也没扣钱"],
+    "source": "headless_test.gd:t_card_perms L13749 `imm[\"energy\"] == 100`；闸门额度 2，第二次照样不扣钱、只把计数推到 2。差分里仍然没有 `$.cells[0].energy`",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 100, "equipped": ["组织驻留"], "fx_turn": { "组织驻留": 1 } }]
+    },
+    "args": { "seat": "0", "key": "k=action|act=move|to=0,1" },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,1.cell": 0,
+        "$.cells[0].fx_turn.组织驻留": 2,
+        "$.cells[0].pos.r": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/gate_order/first_move_burns_residency",
+    "op": "execute",
+    "covers": [
+      "_t_ruling_d_keep_allowance::先装的【组织驻留】先被豁免",
+      "_t_ruling_d_keep_allowance::一次只消耗一个额度，【组织巡航】保留"
+    ],
+    "source": "headless_test.gd:_t_ruling_d_keep_allowance L16294 `cell[\"fx_turn\"].has(\"组织驻留\")` + L16295 `not cell[\"fx_turn\"].has(\"组织巡航\")`。两件永久技能都出得起免费额度，**先装的先烧**（equip_seq）；一次只消耗一个。第二条断言由整集合比顺带钉死：差分里没有 `$.cells[0].fx_turn.组织巡航`",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        {
+          "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 100,
+          "equipped": ["组织驻留", "组织巡航"],
+          "equip_seq": { "组织驻留": 1, "组织巡航": 2 }
+        }
+      ]
+    },
+    "args": { "seat": "0", "key": "k=action|act=move|to=1,0" },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@1,0.cell": 0,
+        "$.cells[0].fx_turn": null,
+        "$.cells[0].fx_turn.组织驻留": 1,
+        "$.cells[0].pos.q": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/gate_order/second_move_burns_residency_again",
+    "op": "execute",
+    "covers": [
+      "_t_ruling_d_keep_allowance::两次都记在【组织驻留】头上",
+      "_t_ruling_d_keep_allowance::驻留额度没用完，【组织巡航】不动"
+    ],
+    "source": "headless_test.gd:_t_ruling_d_keep_allowance L16300 `cell[\"fx_turn\"][\"组织驻留\"] == 2` + L16301 `not cell[\"fx_turn\"].has(\"组织巡航\")`；驻留额度没用完之前，巡航一动不动",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        {
+          "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 100,
+          "equipped": ["组织驻留", "组织巡航"],
+          "equip_seq": { "组织驻留": 1, "组织巡航": 2 },
+          "fx_turn": { "组织驻留": 1 }
+        }
+      ]
+    },
+    "args": { "seat": "0", "key": "k=action|act=move|to=1,0" },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@1,0.cell": 0,
+        "$.cells[0].fx_turn.组织驻留": 2,
+        "$.cells[0].pos.q": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/gate_order/third_move_burns_cruise",
+    "op": "execute",
+    "covers": ["_t_ruling_d_keep_allowance::这一次才轮到【组织巡航】"],
+    "source": "headless_test.gd:_t_ruling_d_keep_allowance L16306 `cell[\"fx_turn\"].has(\"组织巡航\")`；⭐ 闸门溢出后**换人出额度** —— 驻留两次用尽，第三次才轮到巡航，这一步仍然不扣钱",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "cells": [
+        {
+          "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 100,
+          "equipped": ["组织驻留", "组织巡航"],
+          "equip_seq": { "组织驻留": 1, "组织巡航": 2 },
+          "fx_turn": { "组织驻留": 2 }
+        }
+      ]
+    },
+    "args": { "seat": "0", "key": "k=action|act=move|to=1,0" },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@1,0.cell": 0,
+        "$.cells[0].fx_turn.组织巡航": 1,
+        "$.cells[0].pos.q": 1
+      }
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "execute/move/gate_order/toward_cancerous_burns_cruise",
+    "op": "execute",
+    "covers": [
+      "_t_ruling_d_keep_allowance::向癌性组织：巡航豁免",
+      "_t_ruling_d_keep_allowance::向癌性组织：驻留不适用，额度仍在"
+    ],
+    "source": "headless_test.gd:_t_ruling_d_keep_allowance L16321 `c2[\"fx_turn\"].has(\"组织巡航\")` + L16322 `not c2[\"fx_turn\"].has(\"组织驻留\")`；⭐ 【组织驻留】只认「向健康组织」，向癌性组织时它**不适用**、额度仍在，出额度的是【组织巡航】（cw_cost.gd:127 的 cond `to_healthy`）。这一步顺带跑完【净化】（tissue 翻回健康、抗原记忆 +1、邻格 proliferate_chance 跟着归零）—— 整集合比一并钉住",
+    "world": {
+      "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
+      "tiles": [{ "at": "1,0", "state": "cancer" }],
+      "cells": [
+        {
+          "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 100,
+          "equipped": ["组织驻留", "组织巡航"],
+          "equip_seq": { "组织驻留": 1, "组织巡航": 2 }
+        }
+      ]
+    },
+    "args": { "seat": "0", "key": "k=action|act=move|to=1,0" },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,0.cell": -1,
+        "$.board.tiles@0,0.d.proliferate_chance": 0,
+        "$.board.tiles@0,1.d.proliferate_chance": 0,
+        "$.board.tiles@1,-1.d.proliferate_chance": 0,
+        "$.board.tiles@1,0.cell": 0,
+        "$.board.tiles@1,0.tissue": 0,
+        "$.board.tiles@1,1.d.proliferate_chance": 0,
+        "$.board.tiles@2,-1.d.proliferate_chance": 0,
+        "$.board.tiles@2,0.d.proliferate_chance": 0,
+        "$.cells[0].fx_turn": null,
+        "$.cells[0].fx_turn.组织巡航": 1,
+        "$.cells[0].pos.q": 1,
+        "$.g.memory": 1
+      }
+    }
+  }
+]

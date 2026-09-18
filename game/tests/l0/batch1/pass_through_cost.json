@@ -1,0 +1,189 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "pass_through_cost/one_hop/straight_behind",
+    "probe": "pass_through_cost",
+    "covers": [
+      "t_pass_through_ally::费用 = 两格之和"
+    ],
+    "source": "headless_test.gd:t_pass_through_ally L16854 `d[far][\"data\"][\"cost\"] == one * 2`；穿过贴身友军落在正后方 (2,0)，费用 = 沿途每格各按自己组织类型的**起价**之和（cw_actions.gd:pass_through_map ↔ C# RulePolicies.PassThroughMap，09-19 合口径后两侧都累计 RawMoveCost）。两格都是健康组织、免疫 I 级 ⇒ 0.5 + 0.5。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        },
+        {
+          "seat": 1,
+          "type": "ImmuneBasic",
+          "at": "1,0"
+        }
+      ]
+    },
+    "args": {
+      "cell": "0",
+      "to": "2,0"
+    },
+    "expect": 10
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "pass_through_cost/one_hop/side_behind",
+    "probe": "pass_through_cost",
+    "covers": [
+      "t_pass_through_ally::绕到侧后方：同样是两格之和"
+    ],
+    "source": "headless_test.gd:t_pass_through_ally L16874 `d[side][\"data\"][\"cost\"] == one * 2`；侧后方 (2,-1) 与自己不相邻、与友军 (1,0) 相邻 ⇒ 同样是两格之和。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "I"
+        },
+        {
+          "seat": 1,
+          "faction": "immune",
+          "level": "I"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        },
+        {
+          "seat": 1,
+          "type": "ImmuneBasic",
+          "at": "1,0"
+        }
+      ]
+    },
+    "args": {
+      "cell": "0",
+      "to": "2,-1"
+    },
+    "expect": 10
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "pass_through_cost/two_hop/chain_of_two_allies",
+    "probe": "pass_through_cost",
+    "covers": [
+      "t_pass_through_chain::穿过**两个**友军能落到 (3,0)（链式借道，旧实现做不到）",
+      "t_pass_through_chain::费用 = 三格之和"
+    ],
+    "source": "headless_test.gd:t_pass_through_chain L3645 + L3648 —— 连着两个友军时 (3,0) 进借道表、费用 = 三格之和（新 PRD「消耗为从连通块内无视细胞通过所需能量之和」）。印戒细胞癌走健康组织 = CANCER_MOVE_HEALTHY 1.2，三格 ⇒ 3.6。**这条同时钉住「进得了表」与「价钱对」**：探针只出 scalar，取得到值即证明 (3,0) 在表里。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        },
+        {
+          "seat": 2,
+          "faction": "cancer",
+          "cancer_type": "SignetRing"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "SignetRing",
+          "at": "0,0"
+        },
+        {
+          "seat": 1,
+          "type": "SignetRing",
+          "at": "1,0"
+        },
+        {
+          "seat": 2,
+          "type": "SignetRing",
+          "at": "2,0"
+        }
+      ]
+    },
+    "args": {
+      "cell": "0",
+      "to": "3,0"
+    },
+    "expect": 36
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "pass_through_cost/two_types/cancer_mid_then_healthy_dest",
+    "probe": "pass_through_cost",
+    "covers": [
+      "t_pass_through_ally::癌方费用：中间癌组织 0.2 + 落点健康组织 0.7（极简胞浆），各按自己的类型算"
+    ],
+    "source": "headless_test.gd:t_pass_through_ally L16917 `opts2[far][\"data\"][\"cost\"] == tune.cancer_move_cancerous + tune.sclc_move_healthy`；⭐ 沿途**逐格各走自己的定价链**（中间癌组织 0.2 + 落点健康组织 0.7 由小细胞肺癌【极简胞浆】给），而不是落点价 ×2 —— 这一条是「无修饰盘面恒绿」的反例。单位：十分能量",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "SmallCellLung",
+          "at": "0,0"
+        },
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "1,0"
+        }
+      ]
+    },
+    "args": {
+      "cell": "0",
+      "to": "2,0"
+    },
+    "expect": 9
+  }
+]

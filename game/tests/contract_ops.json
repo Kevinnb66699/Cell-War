@@ -5,14 +5,13 @@
     "gd": "cw_actions.gd:_one_step_base", "gd_module": "CWActions",
     "cs": "RulePolicies.RawMoveCost",
     "args": ["cell", "to"], "rng": false,
-    "status": "OK", "cases": "deferred",
-    "note": "不要映到 C# BaseMoveCost —— 那个已经跑完 MoveModifiers（规格 §0.4(b) 16）",
+    "status": "OK", "cases": "required",
+    "note": "不要映到 C# BaseMoveCost —— 那个已经跑完 MoveModifiers（规格 §0.4(b) 16）。批 1 两侧换真转调（GD `_one_step_base` / C# `RawMoveCost`）。boundaries 换成【伪足穿透】四档：原来的 immune:healthy / immune:cancerous / cancer:cancerous 三档**无货** —— 圈内没有任何断言的主语是「免疫的起价」（都被 `_move_cost_mod` 包着，属 move_cost）；`mucus` 那档口径本来就错，两侧的起价都不看黏液（它是 MoveModifiers / CWCost 里的一条加费修饰，档位在 move_cost 上）。门槛与折扣是常量不是旋钮（PSEUDOPOD_MIN_ADJ=3 / PSEUDOPOD_DISCOUNT=1 ↔ PseudopodMinAdjacent / PseudopodDiscount），只有起价 0.5 那一档是旋钮 pseudopod_cost（tier A）",
     "boundaries": [
-      { "tag": "immune:healthy", "cases": "^move_raw_cost/immune_to_healthy/" },
-      { "tag": "immune:cancerous", "cases": "^move_raw_cost/immune_to_cancerous/" },
-      { "tag": "cancer:healthy", "cases": "^move_raw_cost/cancer_to_healthy" },
-      { "tag": "cancer:cancerous", "cases": "^move_raw_cost/cancer_to_cancerous" },
-      { "tag": "mucus", "cases": "^move_raw_cost/mucus" }
+      { "tag": "pseudopod:below", "cases": "^move_raw_cost/cancer_to_healthy/pseudopod_below_threshold" },
+      { "tag": "pseudopod:threshold", "cases": "^move_raw_cost/cancer_to_healthy/pseudopod_at_threshold" },
+      { "tag": "pseudopod:step_down", "cases": "^move_raw_cost/cancer_to_healthy/pseudopod_four_neighbours" },
+      { "tag": "pseudopod:floor", "cases": "^move_raw_cost/cancer_to_healthy/pseudopod_all_six" }
     ]
   },
   {
@@ -29,21 +28,12 @@
     ],
     "rng": false,
     "status": "OK",
-    "cases": "deferred",
-    "note": "两端边界 2026-09-19 合上（原 0.4-bis #6 KNOWN_GAP）：C# PassThroughRoutes 改为累计 RawMoveCost（= GD _one_step_base），修饰管线只在落点跑一遍（GD _move_cost_mod）；树突建源夹具 279 步 envelope 逐字一致。探针面随批 1 定，先空壳",
+    "cases": "required",
+    "note": "两端边界 2026-09-19 合上（原 0.4-bis #6 KNOWN_GAP）：C# PassThroughRoutes 改为累计 RawMoveCost（= GD _one_step_base），修饰管线只在落点跑一遍（GD _move_cost_mod）；树突建源夹具 279 步 envelope 逐字一致。批 1 两侧换真转调，探针取的是 GD `pass_through_map(cell)[to][0]` / C# `PassThroughMap(s, cell)[to]`。⚠ 两侧都**没有**「不在表里」的返回值（GD 索引出错、C# KeyNotFound）—— 批 1 拍板**不造哨兵**（E-6 规矩 3：不写转换层），两侧探针改为当场报清楚；「这一格不能借道」这类否定式一律用 move_legal 表达。撤掉 with_modifier 档：09-19 合口径之后借道起价是纯 RawMoveCost 之和，修饰只在落点跑一遍，那已经是 move_cost 的事，圈内也没有真 check 指得到它",
     "boundaries": [
-      {
-        "tag": "one_hop",
-        "cases": "^pass_through_cost/one_hop"
-      },
-      {
-        "tag": "two_hop",
-        "cases": "^pass_through_cost/two_hop"
-      },
-      {
-        "tag": "with_modifier",
-        "cases": "^pass_through_cost/with_modifier"
-      }
+      { "tag": "one_hop", "cases": "^pass_through_cost/one_hop" },
+      { "tag": "two_hop", "cases": "^pass_through_cost/two_hop" },
+      { "tag": "two_types", "cases": "^pass_through_cost/two_types" }
     ]
   },
   {
@@ -63,7 +53,13 @@
       { "tag": "level:X", "cases": "^move_cost/immune_to_cancerous/level_X$" },
       { "tag": "type:sclc", "cases": "^move_cost/sclc_minimal_cytoplasm$" },
       { "tag": "type:melanoma_pseudopod", "cases": "^move_cost/melanoma_pseudopod/" },
-      { "tag": "mucus", "cases": "^move_cost/mucus_" }
+      { "tag": "mucus", "cases": "^move_cost/mucus_" },
+      { "tag": "pass_through", "cases": "^move_cost/pass_through/" },
+      { "tag": "skill_gate", "cases": "^move_cost/skill_gate/" },
+      { "tag": "chemo:immune_toward", "cases": "^move_cost/chemo/immune_toward$" },
+      { "tag": "chemo:immune_away", "cases": "^move_cost/chemo/immune_away$" },
+      { "tag": "chemo:cancer_away", "cases": "^move_cost/chemo/cancer_away$" },
+      { "tag": "chemo:cancer_toward", "cases": "^move_cost/chemo/cancer_toward$" }
     ]
   },
   {
@@ -72,13 +68,14 @@
     "gd": "cw_actions.gd:quote_path", "gd_module": "CWActions",
     "cs": "RulePolicies.QuotePath",
     "args": ["cell", "path"], "rng": false,
-    "status": "OK", "cases": "deferred",
-    "note": "expect 形状是 tree：{ok,stop,total,left,gained,steps:[{to,cost,mid,legal,afford,blocked,gain}]}；mid 在 338742b 刚合上",
+    "status": "OK", "cases": "required",
+    "note": "本批第一条 tree。`path` 的值是**字符串** `\"q,r;q,r\"`（用例的 args 一律是字符串），两侧各自解析。**tree 没有 ignore**，所以投影成同一张键表的活落在两侧探针身上（`l0_runner.gd:_quote_path_tree` ↔ `Probes.cs:QuotePathTree`，两段注释逐字相同，只投影不算式）：{ok,stop,total,left,gained,steps:[{to,cost,mid,afford,blocked,gain}]}；ok/afford → 1/0，to/mid → \"q,r\"（mid 不是借道走法写 \"\"：GD 的 Vector2i.MAX ↔ C# 的 null），blocked → 1/0（有没有原因）。**键表不收 `legal`**：GD 的 legal 不看余额（付不起时仍是 true），C# 的 legal 恒等于 afford（reason 把「付不起」也算进去）—— 两侧不是同一个量，收进来 stops_on_budget 那一档必然假红；要守的判据由 afford + stop 表达。⚠ **已登记的规则差（批 1 不修，进空档）**：GD 每走通一步就 `burn_allowances` 预演费用额度（issue #35），C# `RulePolicies.QuotePath` 没有这一步 —— 带闸门额度的**多步**路径两侧必然分叉，所以本批用例一律不带闸门额度，`allowance` 不设档、`t_plan_allowance` 三条（9576/9580/9590）记 COVERAGE.md 空档，等主会话拍「补 C# 的额度预演」还是「长期留 GD」",
     "boundaries": [
-      { "tag": "all_affordable", "cases": "^quote_path/all_affordable" },
-      { "tag": "stops_on_budget", "cases": "^quote_path/stops_on_budget" },
-      { "tag": "blocked", "cases": "^quote_path/blocked" },
-      { "tag": "pass_through_mid", "cases": "^quote_path/pass_through_mid" }
+      { "tag": "all_affordable", "cases": "^quote_path/all_affordable/" },
+      { "tag": "stops_on_budget", "cases": "^quote_path/stops_on_budget/" },
+      { "tag": "blocked", "cases": "^quote_path/blocked/" },
+      { "tag": "pass_through_mid", "cases": "^quote_path/pass_through_mid/" },
+      { "tag": "core_gain", "cases": "^quote_path/core_gain/" }
     ]
   },
   {
@@ -95,29 +92,15 @@
     ],
     "rng": false,
     "status": "OK",
-    "cases": "deferred",
-    "note": "2026-09-19 Kevin 接受 §0.6.7、C# 入口 `CellRules.MoveLegal(s, cell, to)` 已开（逐条对 GD `_is_move_legal_now` 六个分支）；探针面随批 1 的 C-2 步 1 定，先空壳",
+    "cases": "required",
+    "note": "2026-09-19 Kevin 接受 §0.6.7、C# 入口 `CellRules.MoveLegal(s, cell, to)` 已开（逐条对 GD `_is_move_legal_now` 六个分支）；批 1 两侧换真转调，bool → scalar 的 1/0 由两侧表项各自冻、不靠 runner 的隐式转换。六个分支 ↔ C#：①存活+在棋盘上（C# 的「在棋盘上」= 这一格有组织）②不相邻 ⇒ 借道（PassThroughMid 非空 且 落点完全空着；后半句在两侧都是死代码 —— 两张借道表本来就只收空落点，pass_through 档照样要覆盖它，红了说明哪张表口径松了）③癌方相邻一格一细胞 ④免疫相邻无癌细胞 ⑤树突【I-各司其职】⑥攻击次数上限（旋钮 attack_max_per_turn，tier A）—— ③～⑥ 在 C# 侧共用 `CommitLegal` 那一份",
     "boundaries": [
-      {
-        "tag": "empty",
-        "cases": "^move_legal/empty"
-      },
-      {
-        "tag": "attack",
-        "cases": "^move_legal/attack"
-      },
-      {
-        "tag": "attack_cap",
-        "cases": "^move_legal/attack_cap"
-      },
-      {
-        "tag": "dendritic",
-        "cases": "^move_legal/dendritic"
-      },
-      {
-        "tag": "pass_through",
-        "cases": "^move_legal/pass_through"
-      }
+      { "tag": "empty", "cases": "^move_legal/empty/" },
+      { "tag": "attack", "cases": "^move_legal/attack/" },
+      { "tag": "attack_cap", "cases": "^move_legal/attack_cap/" },
+      { "tag": "dendritic", "cases": "^move_legal/dendritic/" },
+      { "tag": "pass_through", "cases": "^move_legal/pass_through/" },
+      { "tag": "out_of_board", "cases": "^move_legal/out_of_board/" }
     ]
   },
   {
@@ -698,13 +681,25 @@
     "gd": "cw_actions.gd:enter_tile", "gd_module": "CWActions",
     "cs": "CellRules.EnterTile",
     "args": ["cell", "dest", "paid"], "rng": true,
-    "status": "OK", "cases": "deferred",
-    "note": "裸名自调 6 处 + 跨模块调用 11 处 —— 录制代理不做深度计数就会录出嵌套三四条（规格 A-4 规矩 2 / D R3）",
+    "status": "OK", "cases": "required",
+    "note": "裸名自调 6 处 + 跨模块调用 11 处 —— 录制代理不做深度计数就会录出嵌套三四条（规格 A-4 规矩 2 / D R3）。⚠ **GD 多一个 `paid`**（巨噬【局部吞噬】按实付回能），C# `EnterTile(s, id, dest, rng)` 没有：args 保留 `paid`、`Steps.cs` 不消费，批 1 只写 `paid` 缺省（−1）的用例 —— 写了 `paid` 的用例会被 `AssertAllUsed` 当场打红（`t_macro_purify_heal` 整段留批 4/5）。⚠ 批 1 之前 GD runner 的 `_step` 读的是 `to` 而不是 `dest`（`cases: deferred` 零用例，一直没人踩到），随本批改齐。撤掉 `free` 档：「免费连走」是【趋化募集】/【效应细胞浸润】那条（GD `_free_walk` ↔ C# `CellRules.IsFreeWalk`），要卡牌与挂起态 ⇒ 批 5b 再补回来",
     "boundaries": [
-      { "tag": "healthy", "cases": "^enter_tile/healthy" },
-      { "tag": "purify", "cases": "^enter_tile/purify" },
-      { "tag": "special", "cases": "^enter_tile/special" },
-      { "tag": "free", "cases": "^enter_tile/free" }
+      { "tag": "healthy", "cases": "^enter_tile/healthy/" },
+      { "tag": "purify", "cases": "^enter_tile/purify/" },
+      { "tag": "special", "cases": "^enter_tile/special/" }
+    ]
+  },
+  {
+    "op": "execute", "kind": "step", "family": "S",
+    "prd": "J-迁移 · 一次行动的执行（批 1 只用 act=move 且落点为空格的那一支）",
+    "gd": "cw_actions.gd:execute", "gd_module": "CWActions",
+    "cs": "IRulesEngine.GetAvailableDecisions + ExecuteDecision", "cs_note": "L1Replay.Run 那条路：GetAvailableDecisions → SemanticKey.Of 配对 → ExecuteDecision",
+    "args": ["seat", "key"], "rng": true,
+    "status": "OK", "cases": "required", "rec": "manual",
+    "note": "决策类 op，名字用 GD 入口名（§0.6.4 第 1 条）。⚠ **两侧不是同一个签名**：GD `execute(cell, data)` 收一个自带 `cost` 的 data 字典（调用方先报价），C# 收一个已经生成好的 IDecision、费用由它自己 QuoteMove —— 所以 args 只能是**席位 + 语义键**，两侧各自从自己的选项表里按键找回那一条（GD `build_options` + `CWSemKey.key({kind:action}, data)`，C# `GetAvailableDecisions(s, seat)` + `SemanticKey.Of`）。语义键的规矩 1 已经把 `cost` 剔出键外，所以「C# 算费不同」不会伪装成「动作不同」，它会原样落在 delta 的 energy 上。移动的键形 = `k=action|act=move|to=q,r`。批 1 只做空落点的单步移动（不掷骰）；攻击那一支要 rolls / Tape 化 ⇒ 批 4。**rec: manual**：录制代理的覆写集合 = 表里 `kind:step ∧ status∈分派档 ∧ rec≠manual` 的 `gd` 字段（`l0_contract_gate.gd:recorder_overrides`，今天 24 条、`t_rec_contract_only` 逐名钉住）—— execute 是行动的总入口，进覆写集合会把每一次行动都录成一条嵌套差分，且四个代理的那张表要同批改；批 1 的 execute 用例由 P2 手写",
+    "boundaries": [
+      { "tag": "move/free", "cases": "^execute/move/free/" },
+      { "tag": "move/gate_order", "cases": "^execute/move/gate_order/" }
     ]
   },
   {
