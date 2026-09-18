@@ -74,3 +74,43 @@ func _read_metrics(g: CWGame, pid: int) -> Dictionary:
 		"immune_energy": imm_energy, "cancer_energy": can_energy,
 		"state_hash": g.state_hash(),
 	}
+
+
+## —— 意图候选生成与选择（意图级规划闭环）——
+
+## 生成当前行动方的 1 步迁移候选路径（从 pending 的合法 move 目标）。
+## 返回 Array[Array[Vector2i]]。后续加 2 步 / 技能 / 卡牌意图时在这里扩展。
+func candidates(g: CWGame, pid: int) -> Array:
+	var req: Dictionary = await g.pending()
+	if req.is_empty() or int(req["pid"]) != pid:
+		return []
+	var out: Array = []
+	for opt in req["options"]:
+		if opt["data"].get("act", "") == "move":
+			out.append([opt["data"]["to"]])
+	return out
+
+
+## 评估全部候选（每个 = { path, metrics }），评估后真局面复原。
+func evaluate_candidates(g: CWGame, pid: int) -> Array:
+	var cands: Array = await candidates(g, pid)
+	var out: Array = []
+	for path in cands:
+		var m: Dictionary = await evaluate_path(g, pid, path)
+		out.append({ "path": path, "metrics": m })
+	return out
+
+
+## 按注入的 scorer（metrics → float）选得分最高的候选。
+## 返回 { path, metrics, score }；空候选集返回空字典。
+func best_by(g: CWGame, pid: int, scorer: Callable) -> Dictionary:
+	var evals: Array = await evaluate_candidates(g, pid)
+	var best: Dictionary = {}
+	var best_score := -INF
+	for e in evals:
+		var s: float = float(scorer.call(e["metrics"]))
+		if s > best_score:
+			best_score = s
+			best = e.duplicate(true)
+	best["score"] = best_score
+	return best

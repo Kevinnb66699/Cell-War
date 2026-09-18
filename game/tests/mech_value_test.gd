@@ -42,6 +42,7 @@ func _run() -> void:
 	t_mech_colonize_supply()
 	t_mech_infra_savings()
 	t_mech_intent_eval()
+	t_mech_intent_select()
 	print("\n%d 项检查，%d 失败" % [checks, fails])
 	quit(1 if fails > 0 else 0)
 
@@ -604,6 +605,56 @@ func t_mech_intent_eval() -> void:
 	check(m2["ok"] == false, "非法目标 → ok=false")
 	check(m2["steps_done"] == 0, "非法目标 → 0 步")
 	check(g.state_hash() == hash_before, "非法路径后真局面仍复原")
+	g.dispose()
+
+
+## —— 意图候选生成与选择（意图级规划闭环）——
+## candidates：从当前 pending 的迁移选项生成 1 步候选路径。
+## evaluate_candidates：全部评估（读数数组，评估后复原）。
+## best_by：按注入的 scorer（metrics → float）选得分最高的候选。
+## 验证：候选可执行、评估数与候选数一致、best 确为最大供给、全程复原。
+func t_mech_intent_select() -> void:
+	print("[意图·候选生成与选择]")
+	var g := make_game(4, 47002)
+	g.sim_quiet = true
+	var pid := -1
+	for _i in 300:
+		var req: Dictionary = await g.pending()
+		if req.is_empty():
+			break
+		var p: int = req["pid"]
+		if req["kind"] == "action" \
+				and g.player(p)["faction"] == CWData.Faction.CANCER:
+			pid = p
+			break
+		var idx: int = await g.ask(req["pid"], req)
+		await g.step(idx)
+	check(pid >= 0, "找到癌方 action 边界")
+	if pid < 0:
+		g.dispose()
+		return
+	var intent := MechIntent.new()
+	var hash_before: String = g.state_hash()
+	var cands: Array = await intent.candidates(g, pid)
+	check(cands.size() >= 1, "生成 >=1 个候选（%d）" % cands.size())
+	var evals: Array = await intent.evaluate_candidates(g, pid)
+	check(evals.size() == cands.size(), "评估数与候选数一致（%d/%d）" % [evals.size(), cands.size()])
+	check(g.state_hash() == hash_before, "评估全部候选后真局面复原")
+	var ok_all := true
+	for e in evals:
+		if not bool(e["metrics"]["ok"]):
+			ok_all = false
+	check(ok_all, "全部候选可执行")
+	## best_by：按癌方供给选
+	var best: Dictionary = await intent.best_by(g, pid,
+		func(m: Dictionary) -> float: return float(m["cancer_supply"]))
+	check(best.has("score"), "best 带 score")
+	var max_supply := -1
+	for e in evals:
+		max_supply = maxi(max_supply, int(e["metrics"]["cancer_supply"]))
+	check(int(best["metrics"]["cancer_supply"]) == max_supply,
+		"best 是最大癌方供给（%d）" % max_supply)
+	check(g.state_hash() == hash_before, "选择后真局面复原")
 	g.dispose()
 
 
