@@ -157,7 +157,7 @@ func _run_all() -> void:
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial,
 		t_entry_smoke_replay, t_entry_smoke_online,
-		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides, t_kernel_attach_engine, t_kernel_loader_moved,
+		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides, t_kernel_attach_engine, t_kernel_loader_moved, t_board_active_tiles,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
 		t_rec_depth, t_rec_shape, t_rec_contract_only, t_rec_transparent,
 		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
@@ -20573,6 +20573,71 @@ func _scan_preload_tests(dir: String, hits: Array[String]) -> void:
 					break
 		name = d.get_next()
 	d.list_dir_end()
+
+
+## 新手引导 S1：活跃格集合与浮现（`docs/新手引导_实现方案.md` §1.9）。
+##
+## 口径从「半径」换成「格集合」——引导要露的是任意形状的几格（第二关右边那只癌细胞
+## 得等到该露的那一步才出现），半径表达不了。`hex_at` 必须跟着扫集合：不同改就点击与显示脱节，
+## 而这种脱节没有报错，只表现成「那一格看着在，点下去没反应」。
+## 无头视口不渲染，所以这里验的全是状态与数据：集合成员、alpha、格网身份、环序。
+func t_board_active_tiles() -> void:
+	print("[活跃格集合与浮现]")
+	var bd := make_board()
+	root.add_child(bd)          ## 浮现补间只在树里跑（set_active_tiles 里那道 is_inside_tree 闸）
+	var board_script: GDScript = bd.get_script()
+	var children_before := bd.get_child_count()
+	var center_node: Sprite2D = bd.map[bd.axial_to_rc(Vector2i.ZERO)]["instance"]
+
+	## 先瞬时收到只剩中央格，下一步才有「新进集合」的格可浮现
+	bd.set_active_tiles([Vector2i.ZERO], 0.0)
+	check(bd.is_active(Vector2i.ZERO) and bd.tile_shown(Vector2i.ZERO)
+		and not bd.is_active(Vector2i(1, 0)) and not bd.tile_shown(Vector2i(1, 0)),
+		"只剩中央格：集合内看得见、集合外看不见")
+
+	var want: Array = [Vector2i.ZERO, Vector2i(1, 0), Vector2i(2, 0), Vector2i(2, -1)]
+	bd.set_active_tiles(want, 0.25)
+	## 即时谓词：补间才刚排上、alpha 还在 0，is_active 就得答「在」——
+	## 细胞贴图的遮罩（match.gd:1622，S3 接）要用它，用 tile_shown 会在浮现的那半秒里闪一下
+	check(bd.is_active(Vector2i(2, 0)) and not bd.tile_shown(Vector2i(2, 0)),
+		"is_active 在补间开始那一帧就为真（此刻 tile_shown 还是假）")
+	check(bd.active_radius == 2, "active_radius = 集合里最大的环号（(2,0) 在第 2 环）")
+	await create_timer(0.25 + bd.ACTIVE_RING_DELAY * 6.0 + 0.3).timeout
+
+	var shown := 0
+	for c in CWData.all_coords():
+		if bd.tile_shown(c):
+			shown += 1
+	check(shown == want.size() and bd.tile_shown(Vector2i(2, -1)) and not bd.tile_shown(Vector2i(0, 1)),
+		"浮现走完：集合里 %d 格全露、集合外一格不露（实到 %d）" % [want.size(), shown])
+	check(bd.hex_at(bd.tile_center(Vector2i(2, 0))) == Vector2i(2, 0)
+		and bd.hex_at(bd.tile_center(Vector2i(0, 1))) == bd.NO_TILE,
+		"hex_at 只认集合：(2,0) 点得到，盘上但不在集合里的 (0,1) 返回 NO_TILE")
+	check(bd.map.size() == 127 and bd.get_child_count() == children_before
+		and bd.map[bd.axial_to_rc(Vector2i.ZERO)]["instance"] == center_node,
+		"格网没被重铺：仍 127 格、子节点数不变、中央格还是同一个节点")
+
+	## 浮现的环序错了，肉眼只看得出「顺序怪」、说不清哪儿怪，所以直接测这支静态函数
+	var ring_src: Array = CWData.all_coords(3)
+	var delays: Dictionary = board_script.ring_delays(ring_src, 0.05)
+	var by_ring := {}
+	for c: Vector2i in ring_src:
+		var r: int = CWData.hex_dist(c, Vector2i.ZERO)
+		by_ring[r] = maxf(float(by_ring.get(r, 0.0)), float(delays[c]))
+	var mono := true
+	for r in range(1, 4):
+		if float(by_ring[r]) <= float(by_ring[r - 1]):
+			mono = false
+	check(mono and is_equal_approx(float(by_ring[0]), 0.0),
+		"ring_delays 由内向外单调递增（0 环 %.2f → 3 环 %.2f）" % [by_ring[0], by_ring[3]])
+
+	## 老签名是薄壳：t_board_small 那一套口径原样成立
+	bd.set_active_radius(1, 0.0)
+	check(bd.active_radius == 1 and bd._active_set.size() == 7,
+		"set_active_radius(1) 转调 set_active_tiles：active_radius 仍是 1、集合 7 格（实到 %d）"
+			% bd._active_set.size())
+	bd.queue_free()
+
 
 func t_entry_smoke_local() -> void:
 	print("[入口冒烟·本地 / 读档]")

@@ -129,7 +129,7 @@ func hex_at(p: Vector2) -> Vector2i:
 	var squash: float = distance_x * sqrt(3.0) / 2.0 / distance_y
 	var best := NO_TILE
 	var best_d: float = distance_x / sqrt(3.0)
-	for c in CWData.all_coords(active_radius):   ## 遮罩掉的格点不到（教程小棋盘）
+	for c: Vector2i in _active_set:   ## 遮罩掉的格点不到（教程小棋盘）：只扫活跃集，集合外一律 NO_TILE
 		var d: Vector2 = p - tile_center(c)
 		var dist := Vector2(d.x, d.y * squash).length()
 		if dist < best_d:
@@ -618,6 +618,9 @@ func _ready():
 	energy_position = CWData.CORES.map(axial_to_rc)
 	marrow_position = CWData.MARROWS.map(axial_to_rc)
 	_grid()
+	## 默认整盘活跃（= active_radius 的默认值 BOARD_RADIUS）。`hex_at` 只扫这个集合，
+	## 所以它必须在格网铺完的同一时刻就装满，不能等哪个调用方来设。
+	set_active_tiles(CWData.all_coords(), 0.0)
 	_mark_material = ShaderMaterial.new()
 	_mark_material.shader = SILHOUETTE
 	_marks = Node2D.new()
@@ -640,19 +643,48 @@ func _ready():
 ## 09-10 的第一版是按半径**重铺**格网：开局相机推完才重铺、画面「猛地缩小」，返场又没换回来，
 ## 菜单就站在 7 格棋盘上、装饰细胞全落到原点（Kevin 当天报的两个现象）。
 ## seconds = 0 立即到位（无头测试 / 拆局兜底）；淡出的格连同挂在它上面的进度环一起淡（modulate 继承）。
+##
+## 真正的口径是**一个格集合**而不是半径：新手引导要露的是任意形状的几格（第二关右边那只癌细胞
+## 要等到该露的那一步才出现），半径表达不了。半径只是集合的一种特例，`set_active_radius` 转调即可。
 const ACTIVE_FADE := 0.45
-var active_radius: int = CWData.BOARD_RADIUS   ## 当前看得见、点得到的最大环号
+## 浮现（PRD:45）每环之间的间隔：新进集合的格按 `ring_delays`（:320）由内向外排队入场。
+## 比高亮剪影的 MARK_RING_DELAY 稀一点 —— 浮现是「地长出来」的演出，太密就看不出环序。
+const ACTIVE_RING_DELAY := 0.06
+var active_radius: int = CWData.BOARD_RADIUS   ## 当前看得见、点得到的最大环号（= 活跃集里最大的环号）
+## 活跃格集合（格坐标 -> true）。`_ready()` 里铺成全 127 格，与 active_radius 的默认值对上。
+var _active_set := {}
 var _active_tws := {}   ## 格坐标 -> 正在跑的淡入淡出补间；换向时先杀掉上一条，别让两条抢同一个 alpha
 
+## 老签名保留：半径 = 「到中心不超过 r」这一种活跃集。拆局兜底（match.gd:1140/1236）与
+## `_adopt_mirror`（match.gd:1062）还在用它，改口径不该逼它们跟着改。
 func set_active_radius(board_radius: int, seconds: float = ACTIVE_FADE) -> void:
-	board_radius = clampi(board_radius, 0, CWData.BOARD_RADIUS)
-	active_radius = board_radius
+	set_active_tiles(CWData.all_coords(clampi(board_radius, 0, CWData.BOARD_RADIUS)), seconds)
+
+
+## 换一批活跃格：新进集合的格错峰浮现，离开集合的格淡出，一直在（或一直不在）的格一动不动。
+## 盘外的坐标直接丢掉 —— 集合里只装真实存在的格，否则 `hex_at` 会拿它去查一个空位置。
+func set_active_tiles(tiles: Array, seconds: float = ACTIVE_FADE) -> void:
+	var want_set := {}
+	var top := 0
+	for c: Vector2i in tiles:
+		if not map.has(axial_to_rc(c)):
+			continue
+		want_set[c] = true
+		top = maxi(top, CWData.hex_dist(c, Vector2i.ZERO))
+	var fresh: Array = []
+	for c: Vector2i in want_set:
+		if not _active_set.has(c):
+			fresh.append(c)
+	var delays := ring_delays(fresh, ACTIVE_RING_DELAY)
+	## 先换集合再排补间：`is_active` 是即时谓词，浮现的那半秒里它就得答「在」。
+	_active_set = want_set
+	active_radius = top
 	for c in CWData.all_coords():
 		var key := axial_to_rc(c)
 		if not map.has(key):
 			continue
 		var tile: Sprite2D = map[key]["instance"]
-		var want: float = 1.0 if CWData.hex_dist(c, Vector2i.ZERO) <= board_radius else 0.0
+		var want: float = 1.0 if want_set.has(c) else 0.0
 		var running: Tween = _active_tws.get(c)
 		if running != null and running.is_valid():
 			running.kill()
@@ -661,8 +693,17 @@ func set_active_radius(board_radius: int, seconds: float = ACTIVE_FADE) -> void:
 			tile.modulate.a = want
 			continue
 		var tw := tile.create_tween()
+		var delay: float = delays.get(c, 0.0)
+		if delay > 0.0:
+			tw.tween_interval(delay)
 		tw.tween_property(tile, "modulate:a", want, seconds)
 		_active_tws[c] = tw
+
+
+## 这一格此刻算不算「露出来了」—— **即时**谓词，读集合、不看补间走到哪儿。
+## 细胞贴图的遮罩要用它（match.gd:1622，S3 接）：用 tile_shown 会在浮现的那半秒里闪一下。
+func is_active(c: Vector2i) -> bool:
+	return _active_set.has(c)
 
 
 ## 这一格此刻在画面上吗（淡出补间走完后为假）。测试与拆局核对用。
