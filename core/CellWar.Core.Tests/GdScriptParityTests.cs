@@ -1818,6 +1818,11 @@ public class GdScriptParityTests
     public void 趋化源冷却回合数等于GDScript常量()
         => Assert.Equal(BoardRules.ChemoCooldownRounds, GdConst("CHEMO_COOLDOWN_ROUNDS"));
 
+    /// <summary>源持续几个完整回合：C# 曾写死 2（旧 PRD 残留），2026-09-19 树突建源夹具第 237 步抓到；从此钉在 GD 常量上。</summary>
+    [Fact]
+    public void 趋化源持续完整回合数等于GDScript常量()
+        => Assert.Equal(SkillRules.ChemoFullTurns, GdConst("CHEMO_FULL_TURNS"));
+
     /// <summary>
     /// 源走的是「持续 n **完整回合**」的时钟：**建立者的每个行动回合开打之前**各走一格，
     /// 而不是 E 阶段第 8 步（那是世界回合制，两套时钟别混 —— GD 专门警告过）。
@@ -1832,11 +1837,11 @@ public class GdScriptParityTests
         var decision = new TypeSkillDecision(0, id, "趋化源", new HexPosition(2, 0, -2));
 
         var s = engine.ExecuteDecision(ChemoClockWorld(), decision, new Xoshiro256StarStar(1)).NewState;
-        Assert.Equal(2, s.Turn.ChemoRounds);
+        Assert.Equal(SkillRules.ChemoFullTurns, s.Turn.ChemoRounds);
         Assert.Equal(0, s.Cells[id].ChemoCooldown);
 
         // **E 阶段本身不该动它** —— 这一条正是那两套时钟的分水岭
-        Assert.Equal(2, BoardRules.EvolveEndOfRound(s, new Xoshiro256StarStar(2)).Turn.ChemoRounds);
+        Assert.Equal(SkillRules.ChemoFullTurns, BoardRules.EvolveEndOfRound(s, new Xoshiro256StarStar(2)).Turn.ChemoRounds);
 
         // 推回合：每转回这个席位开打之前走一格
         var rng = new Xoshiro256StarStar(2);
@@ -1851,7 +1856,8 @@ public class GdScriptParityTests
 
         Assert.Equal(0, s.Turn.ChemoRounds);
         Assert.Null(s.Turn.ChemoAt);
-        Assert.Equal([1, 0], seen);   // 两次开打，各走一格
+        // 建立者每次开打之前各走一格，走到 0 为止：持续 1 完整回合就是下一次开打前消散（PRD「到本人下个回合前」）
+        Assert.Equal(Enumerable.Range(0, SkillRules.ChemoFullTurns).Reverse().ToList(), seen);
         Assert.Equal(BoardRules.ChemoCooldownRounds, s.Cells[id].ChemoCooldown);
         Assert.False(engine.ValidateDecision(s, decision).IsValid, "冷却期内不该再立得起来");
 

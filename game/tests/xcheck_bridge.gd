@@ -9,6 +9,10 @@
 ##   lcg = (lcg * 1103515245 + 12345) & 0x7fffffff ；初值 = seed & 0x7fffffff ；键先去重再排序。
 ##
 ## 单独成文件是因为**测试脚本里的内部类不能 extends 全局类**（fx_recorder.gd 同因）。
+##
+## `policy = "chemo"`（2026-09-19，Kevin 要一条树突建源的夹具）：LCG 之上叠一层**只看语义键与盘面**的
+## 脚本偏好 —— 免疫等级不到 III 就优先攻击（攒记忆）、能分化就分树突、能建源就建、选源址取离全场细胞
+## 最近的一格；其余照 LCG。仍然不碰 rng，所以 C# 教师强制重放照样逐问对得上（它只认 pick，不重算策略）。
 extends CWBridge
 
 ## 语义键的 GD 侧唯一定义处上提到了 `scripts/kernel/cw_semkey.gd`（口径二 · 批 0 步 7，2026-09-18）：这里只做委托，**不许出现第二份**。
@@ -17,6 +21,9 @@ const KEY_FIELDS := CWSemKey.KEY_FIELDS
 var lcg := 12345
 var log: Array = []      ## 每一问一条 {kind, pid, tag, n, pick, idx, opts}，顶层与中途的都在
 var mark := 0            ## 上一次 take() 的位置
+var policy := ""         ## "" = 纯 LCG；"chemo" = 树突建源偏好（见文件头）
+var chemo_built := false ## chemo 策略：已经建过一次源
+var goal_done := false   ## chemo 策略：源已消散且冷却归零（一整个周期录完），exporter 据此收尾
 
 
 static func fmt(v: Variant) -> String:
@@ -45,6 +52,10 @@ func ask(req: Dictionary) -> int:
 	sorted.sort()
 	lcg = (lcg * 1103515245 + 12345) & 0x7fffffff
 	var pick: String = sorted[lcg % sorted.size()]
+	if policy == "chemo":
+		var forced := _chemo_pick(req, sorted)
+		if forced != "":
+			pick = forced
 	var idx := 0
 	for i in keys.size():
 		if keys[i] == pick:
@@ -57,6 +68,54 @@ func ask(req: Dictionary) -> int:
 		"opts": Array(sorted),
 	})
 	return idx
+
+
+## chemo 策略的偏好，从上到下第一条命中的就是答案；都不命中返回 "" 回落 LCG。
+## 等级下标：0 = I、1 = II、2 = III（分化门槛 differentiate_min_level）、3 = X。
+func _chemo_pick(req: Dictionary, sorted: PackedStringArray) -> String:
+	if str(req.get("kind", "")) == "chemo_target":
+		return _nearest_to_cells(req, sorted)
+	if chemo_built and game.chemo.is_empty() and not _any_chemo_cd():
+		goal_done = true
+	for k in sorted:
+		if k.begins_with("k=action|act=chemo"):
+			chemo_built = true
+			return k
+	var dendritic := "k=action|act=differentiate|type=%d" % CWData.ImmuneType.DENDRITIC
+	for k in sorted:
+		if k.begins_with(dendritic):
+			return k
+	if game.immune_level < 2:
+		for k in sorted:
+			if k.begins_with("k=action|act=attack"):
+				return k
+	return ""
+
+
+## 源址：离全场活细胞距离和最小的一格（并列取键小的），让后面的迁移大概率朝它走 / 离它远
+func _nearest_to_cells(req: Dictionary, sorted: PackedStringArray) -> String:
+	var best := ""
+	var best_d := 1 << 30
+	for o in req["options"]:
+		var to: Variant = o["data"].get("to")
+		if not (to is Vector2i):
+			continue
+		var d := 0
+		for c in game.cells:
+			if bool(c["alive"]):
+				d += CWData.hex_dist(to, c["pos"])
+		var k := key(req, o["data"])
+		if d < best_d or (d == best_d and k < best):
+			best_d = d
+			best = k
+	return best if best != "" else sorted[0]
+
+
+func _any_chemo_cd() -> bool:
+	for c in game.cells:
+		if int(c.get("chemo_cd", 0)) > 0:
+			return true
+	return false
 
 
 ## 自上次 take() 以来录到的那些问答（一步里可能不止一问：中途选择都在）

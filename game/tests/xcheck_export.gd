@@ -36,6 +36,8 @@ var max_steps := 0
 ## 观测协议 v1 对拍（批 0 步 10）：每步顺带导一份全知 envelope 到另一个文件（{n, env} 一行一步）。
 ## 不进 trace 本体：那份是 L1 的夹具，字节不能动；env 文件另存、gzip 后进仓库（game/tests/l1/env_*.jsonl.gz）。
 var env_out := ""
+## `policy=chemo`：xcheck_bridge 的树突建源偏好（见那边文件头）；录到源消散 + 冷却归零之后再多录 12 步就收尾。
+var policy := ""
 
 
 func _initialize() -> void:
@@ -54,6 +56,7 @@ func _args() -> void:
 			"out": out_path = kv[1]
 			"steps": max_steps = int(kv[1])
 			"env_out": env_out = kv[1]
+			"policy": policy = kv[1]
 
 
 # ============ 视图 ============
@@ -193,16 +196,17 @@ func _run() -> void:
 	g.rng = tape                      ## 靠 cw_game.gd 那行 `var rng: Object`；有护栏测试盯着
 	g.tune = CWTuning.new()
 	g.init(CWData.FACTION_ORDER[players], seed_value)
-	var bridge: CWBridge = XBridge.new()   ## 一个桥装给所有席位：LCG 是一条，两边才同步
+	var bridge = XBridge.new()   ## 一个桥装给所有席位：LCG 是一条，两边才同步（不标 CWBridge 类型：要读 policy / goal_done）
 	bridge.game = g
 	bridge.seed_policy(seed_value)
+	bridge.policy = policy
 	for pid: int in g.order:
 		g.bridges[pid] = bridge
 
 	var first: Dictionary = await g.pending()
 	f.store_line(JSON.stringify({
 		"t": "header", "proto": PROTO, "players": players, "seed": seed_value,
-		"ruleset": "gd-main", "policy": "lcg-sorted-uniq-key",
+		"ruleset": "gd-main", "policy": "lcg-sorted-uniq-key" + ("" if policy == "" else "+" + policy),
 		"boot_rng": tape.take(),      ## init + setup.begin() 消耗的那一段
 		"pre": view(g),
 	}))
@@ -212,6 +216,7 @@ func _run() -> void:
 		envf = FileAccess.open(env_out, FileAccess.WRITE)
 	var n := 0
 	var kinds := {}
+	var goal_n := 0   ## policy=chemo：源消散 + 冷却归零那一步；再录 12 步收尾
 	while not first.is_empty():
 		var req: Dictionary = first
 		var idx: int = await g.ask(int(req["pid"]), req)   ## 顶层那一问也走桥：它就被录进 log 了
@@ -230,6 +235,10 @@ func _run() -> void:
 		if max_steps > 0 and n >= max_steps:
 			break
 		if g.is_over():
+			break
+		if bridge.goal_done and goal_n == 0:
+			goal_n = n
+		if goal_n > 0 and n >= goal_n + 12:
 			break
 		first = await g.pending()
 

@@ -111,6 +111,11 @@ public static class DeepDiff
     {
         var keysProp = dictInterface.GetProperty("Keys")!;
         var indexer = dictInterface.GetProperty("Item")!;
+        if (!dictInterface.IsInstanceOfType(b))   // 一边是字典、另一边不是：报形状差异，别让反射炸掉整条对拍
+        {
+            diffs.Add($"{path}：{Show(a)} → {Show(b)}");
+            return;
+        }
         var keysA = ((IEnumerable)keysProp.GetValue(a)!).Cast<object>().ToList();
         var keysB = ((IEnumerable)keysProp.GetValue(b)!).Cast<object>().ToHashSet();
 

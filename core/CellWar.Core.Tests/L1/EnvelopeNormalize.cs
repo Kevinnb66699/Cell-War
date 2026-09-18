@@ -51,6 +51,9 @@ internal static class EnvelopeNormalize
                 var collapsed = L1Replay.Collapse(kind, key);
                 if ((bool)o["is_stop"]!) stopKey ??= collapsed;
                 if (collapsed != key) { byKey[collapsed] = "组键"; continue; }   // GD 一问 ↔ C# 按目标展开的一决策：只比存在
+                // GD 那半边：顶层的「发动」项本身就是组键的母项，同样只比存在 —— 否则 GD 侧是一条真选项、C# 侧是 "组键" 字符串，
+                // 两棵树形状不同（2026-09-19 树突建源夹具第 237 步才第一次碰到）
+                if (gdSide && kind == "action" && key is "k=action|act=chemo" or "k=action|act=effector") { byKey[key] = "组键"; continue; }
                 o.Remove("index"); o["label"] = ""; o["blocked"] = null;
                 byKey[collapsed] = o;
             }

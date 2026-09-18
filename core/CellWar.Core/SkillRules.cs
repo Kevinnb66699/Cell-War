@@ -109,6 +109,13 @@ internal static class SkillRules
     /// <summary>【免疫猎杀】附着的【追踪趋化源】持续几个世界回合（GD `HUNT_CHEMO_ROUNDS`）。</summary>
     internal const int HuntChemoRounds = 2;
 
+    /// <summary>
+    /// 树突【I-趋化源】持续几个**完整回合**（GD `CHEMO_FULL_TURNS`；PRD「效果持续 1 完整回合」）。
+    /// 2026-09-19 之前这里写死 2（旧 PRD「2 世界回合」的残留）—— 三条 L1 夹具里从没人建过源，
+    /// 直到专门录的树突建源局 `trace_4p_chemo_4242` 在第 237 步把它揪出来。
+    /// </summary>
+    internal const int ChemoFullTurns = 1;
+
     /// <summary>GD `_toxin_targets`：脚下 + 六邻（`CWData.ring(pos, 1)`，Q↑R↑ 排序）里的**普通**癌组织。</summary>
     internal static IReadOnlyList<HexPosition> ToxinTargets(WorldState s, Cell cell)
         => Tiles(s).Where(t => t.Position.DistanceTo(cell.Position) <= 1 && t.State == TissueState.Cancer).Select(t => t.Position).ToList();
@@ -333,7 +340,7 @@ internal static class SkillRules
                 // 不但不扣费，还凭空涨 10 倍，冷却允许时可反复刷。
                 // 费用 3.0 见 PRD:561，对齐 GDScript 的 CWData.CHEMO_COST := 30。
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 30));
-                s = s.WithTurn(s.Turn.WithChemo(d.Target!.Value, 2, cell.OwnerSeat, cell.Id));
+                s = s.WithTurn(s.Turn.WithChemo(d.Target!.Value, ChemoFullTurns, cell.OwnerSeat, cell.Id));
                 Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "趋化源", d.Target!.Value, true));   // GD cw_actions.gd:1164
                 break;
             case "Excalibur":

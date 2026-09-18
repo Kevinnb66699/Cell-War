@@ -5,7 +5,7 @@ using CellWar.Core.Observation;
 namespace CellWar.Core.Tests.L1;
 
 /// <summary>
-/// 口径二 · 批 0 步 10（Kevin 拍 E-6）：**跨生产者 envelope 对拍** —— 三条 L1 夹具的每一步，GD 生产者（`cw_obs_codec.gd`，
+/// 口径二 · 批 0 步 10（Kevin 拍 E-6）：**跨生产者 envelope 对拍** —— 每条 L1 夹具的每一步，GD 生产者（`cw_obs_codec.gd`，
 /// 由 `xcheck_export.gd env_out=` 顺带导出到 `game/tests/l1/env_*.jsonl.gz`）与 C# 生产者（`ObservationV1Codec`）各产一份
 /// `viewer = -2` 的 envelope，剥掉 envelope 元数据后逐字段 diff，MISMATCH 即红。
 ///
@@ -19,13 +19,13 @@ namespace CellWar.Core.Tests.L1;
 /// </summary>
 public class EnvelopeParityTests
 {
-    private const int MaxSteps = 200;
-
+    /// <summary>每条夹具比到第几步（前三条录到 200 步 / 终局；第四条 `4p_chemo_4242` 是 2026-09-19 用 `policy=chemo` 录的树突建源局，279 步收尾）。</summary>
     [Theory]
-    [InlineData("4p_4242")]
-    [InlineData("2p_2222")]
-    [InlineData("6p_6666")]
-    public void 三条夹具逐步_GD与CSharp的envelope逐字段相同(string fixture)
+    [InlineData("4p_4242", 200)]
+    [InlineData("2p_2222", 200)]
+    [InlineData("6p_6666", 200)]
+    [InlineData("4p_chemo_4242", 237)]   // 第 238 步起是 pick_cell 的 KNOWN_GAP（L1ReplayTests.RatchetChemo 同步拧）
+    public void 每条夹具逐步_GD与CSharp的envelope逐字段相同(string fixture, int maxSteps)
     {
         var root = RepoRoot();
         var tracePath = Path.Combine(root, "game", "tests", "l1", $"trace_{fixture}.jsonl");
@@ -45,7 +45,7 @@ public class EnvelopeParityTests
         var mismatches = new List<(int N, IReadOnlyList<string> Diffs)>();
         var sizes = new List<(int N, int Gd, int Cs, long Round)>();
         var compared = 0;
-        var report = L1Replay.Run(tracePath, MaxSteps,
+        var report = L1Replay.Run(tracePath, maxSteps,
             onResult: r =>
             {
                 foreach (var ev in r.Events)

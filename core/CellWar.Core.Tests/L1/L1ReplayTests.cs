@@ -12,7 +12,8 @@ namespace CellWar.Core.Tests.L1;
 /// <code>
 ///   Godot_v4.5-stable_win64_console.exe --headless --path game --script res://tests/xcheck_export.gd -- \
 ///       players=4 seed=4242 out=&lt;仓库&gt;/game/tests/l1/trace_4p_4242.jsonl steps=200
-///   （2p：players=2 seed=2222 → trace_2p_2222.jsonl；6p：players=6 seed=6666 → trace_6p_6666.jsonl）
+///   （2p：players=2 seed=2222 → trace_2p_2222.jsonl；6p：players=6 seed=6666 → trace_6p_6666.jsonl；
+///    树突建源局：players=4 seed=4242 steps=400 policy=chemo → trace_4p_chemo_4242.jsonl，exporter 在源消散 + 冷却归零后 12 步自动收尾）
 /// </code>
 /// 录完要 grep `SCRIPT ERROR`（GDScript 运行时错误不中断执行），并跑两遍比逐字节相同。
 /// 2p 那条 173 步就分出胜负，录到终局为止。
@@ -25,11 +26,20 @@ public class L1ReplayTests
     public const int Ratchet2p = 173;
     /// <summary>6p seed 6666（200 步，2026-09-17 晚整条一致）。</summary>
     public const int Ratchet6p = 200;
+    /// <summary>
+    /// 4p seed 4242 · `policy=chemo`（2026-09-19，Kevin 要一条树突建源的夹具）：脚本偏好把免疫攒到 III 级（第 235 步）、
+    /// 分化树突（236）、建源（237，落 0,2）、源消散 + 冷却归零、再建一次（268，落 1,1），源活着的 28 步里免疫 / 癌各走了 8 步；
+    /// 279 步收尾。前三条夹具里趋化源动作是 0 次，这条专门补它。
+    /// 首跑抓到两处：① C# 建源写死 2 完整回合（GD 1）—— 已修，钉在 `ChemoFullTurns`；② 第 238 步抽到事件卡【炎症风暴】，GD 问 `pick_cell`
+    /// 选一个免疫细胞，C# 没有这个挂起态、效果被静默跳过（KNOWN_GAP，见拍板记录 §九）。水位线先钉在 237，pick_cell 落地后往上拧到 279。
+    /// </summary>
+    public const int RatchetChemo = 237;
 
     [Theory]
     [InlineData("trace_4p_4242.jsonl", Ratchet)]
     [InlineData("trace_2p_2222.jsonl", Ratchet2p)]
     [InlineData("trace_6p_6666.jsonl", Ratchet6p)]
+    [InlineData("trace_4p_chemo_4242.jsonl", RatchetChemo)]
     public void 按GD轨迹重放_分叉之前的步数不低于水位线(string fixture, int ratchet)
     {
         var path = Path.Combine(RepoRoot(), "game", "tests", "l1", fixture);
