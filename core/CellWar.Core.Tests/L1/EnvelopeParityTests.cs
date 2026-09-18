@@ -21,10 +21,6 @@ public class EnvelopeParityTests
 {
     private const int MaxSteps = 200;
 
-    private static readonly HashSet<string> TileB = new(CWObsTierB.Tile, StringComparer.Ordinal);
-    private static readonly HashSet<string> CellB = new(CWObsTierB.Cell, StringComparer.Ordinal);
-    private static readonly HashSet<string> GlobalB = new(CWObsTierB.Global, StringComparer.Ordinal);
-
     [Theory]
     [InlineData("4p_4242")]
     [InlineData("2p_2222")]
@@ -67,8 +63,8 @@ public class EnvelopeParityTests
                 var image = new WorldImage(s) { Simulation = sim with { Input = input } };
                 var csJson = ObservationV1Codec.Serialize(ObservationV1Codec.Encode(image, new Revision(n)));
                 sizes.Add((n, gdEnv.GetRawText().Length, csJson.Length, s.Turn.WorldRound));
-                var a = Normalize(L1View.Plain(gdEnv), gdSide: true);
-                var b = Normalize(L1View.Plain(JsonDocument.Parse(csJson).RootElement), gdSide: false);
+                var a = EnvelopeNormalize.Normalize(L1View.Plain(gdEnv), gdSide: true);
+                var b = EnvelopeNormalize.Normalize(L1View.Plain(JsonDocument.Parse(csJson).RootElement), gdSide: false);
                 var diffs = DeepDiff.Compare(a, b, "$", 400);
                 compared++;
                 if (diffs.Count > 0) mismatches.Add((n, diffs));
@@ -100,52 +96,6 @@ public class EnvelopeParityTests
             + string.Join(Environment.NewLine, mismatches[0].Diffs.Take(12)) + Environment.NewLine + "（全文见 envelope_parity_*.txt）");
     }
 
-    /// <summary>两侧同一套裁剪：把不比的东西删掉 / 抹平，剩下的逐字段比。</summary>
-    private static Dictionary<string, object?> Normalize(object? tree, bool gdSide)
-    {
-        var e = (Dictionary<string, object?>)tree!;
-        foreach (var k in new[] { "p", "ruleset", "rev", "obs_seq", "viewer", "open_hands", "produced_tiers", "full", "base" }) e.Remove(k);
-        var state = (Dictionary<string, object?>)e["state"]!;
-        foreach (var t in ((List<object?>)((Dictionary<string, object?>)state["board"]!)["tiles"]!).Cast<Dictionary<string, object?>>())
-            foreach (var k in TileB) ((Dictionary<string, object?>)t["d"]!).Remove(k);
-        foreach (var c in ((List<object?>)state["cells"]!).Cast<Dictionary<string, object?>>())
-        {
-            foreach (var k in new[] { "hand", "equipped", "fx_round" }) c[k] = Sorted(c[k]);   // #1
-            foreach (var k in CellB) ((Dictionary<string, object?>)c["d"]!).Remove(k);     // #4
-        }
-        var g = (Dictionary<string, object?>)state["g"]!;
-        ((Dictionary<string, object?>)g["cancer_alarm"]!).Remove("streak");   // #3
-        foreach (var k in GlobalB) ((Dictionary<string, object?>)g["d"]!).Remove(k);
-        ((Dictionary<string, object?>)g["d"]!)["phase_text"] = "";   // #6 文案
-        g["win_reason"] = "";
-        g["differentiated"] = Sorted(g["differentiated"]);
-        foreach (var p in ((List<object?>)g["players"]!).Cast<Dictionary<string, object?>>()) p.Remove("name");   // #5
-        // #6：日志内容不比；行数 GD 每步多行、C# 一事一行，也不比 —— 只留「有没有」
-        e["logs"] = ((Dictionary<string, object?>)e["logs"]!)["lines"] is List<object?> ? "present" : null;
-        if (e["ask"] is Dictionary<string, object?> ask)
-        {
-            ask.Remove("ask_id"); ask.Remove("rev"); ask["prompt"] = "";
-            var kind = (string)ask["kind"]!;
-            var byKey = new Dictionary<string, object?>(StringComparer.Ordinal);
-            string? stopKey = null;
-            foreach (var o in ((List<object?>)ask["options"]!).Cast<Dictionary<string, object?>>())
-            {
-                var key = (string)o["key"]!;
-                if (!gdSide && key == SemanticKey.PassKey) continue;   // C# 固定多出的一条
-                var collapsed = L1Replay.Collapse(kind, key);
-                if ((bool)o["is_stop"]!) stopKey ??= collapsed;
-                if (collapsed != key) { byKey[collapsed] = "组键"; continue; }   // GD 一问 ↔ C# 按目标展开的一决策：只比存在
-                o.Remove("index"); o["label"] = ""; o["blocked"] = null;
-                byKey[collapsed] = o;
-            }
-            ask["options"] = byKey;
-            ask.Remove("stop_index"); ask["stop_key"] = stopKey;   // 两侧选项序不同：比「停止项是哪条」而不是下标
-        }
-        return e;
-    }
-
-    private static List<object?> Sorted(object? xs) => ((List<object?>)xs!).OrderBy(x => (string)x!, StringComparer.Ordinal).ToList();
-
     private static IEnumerable<string> ReadGz(string path)
     {
         using var file = File.OpenRead(path);
@@ -161,13 +111,4 @@ public class EnvelopeParityTests
             d = Path.GetDirectoryName(d);
         return d ?? throw new InvalidOperationException("找不到仓库根");
     }
-}
-
-/// <summary>tier B 键表（与 GD `cw_obs_proto.gd` 的 *_B 同一份；C# 批 0 不产出，对拍时从 GD 侧剥掉）。</summary>
-internal static class CWObsTierB
-{
-    public static readonly string[] Tile = ["prod_left", "store_max", "solid_frozen"];
-    public static readonly string[] Cell = ["action_kinds", "status_rows", "pressure_lethal", "neutralized", "type_ability_on", "antibody_cost",
-        "metastasis_cost_real", "ossify_cost_real", "attack_cap_left", "draw_cap_left"];
-    public static readonly string[] Global = ["count_healthy", "count_cancer", "count_solid", "count_necrosis", "cancer_weighted", "level_thresholds", "memory_next_at"];
 }

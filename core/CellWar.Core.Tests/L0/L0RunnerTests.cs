@@ -17,7 +17,7 @@ namespace CellWar.Core.Tests.L0;
 /// </summary>
 public class L0RunnerTests
 {
-    private static readonly JsonSerializerOptions Json = new()
+    internal static readonly JsonSerializerOptions Json = new()
     {
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,   // 用例键名与 GD 侧一致（ossify_at 这类多词键）
@@ -82,12 +82,15 @@ public class L0RunnerTests
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<List<L0Case>>(json, Json));
     }
 
+    internal static IReadOnlyList<L0Case> ReadAll()
+        => Directory.EnumerateFiles(CaseDir(), "*.json").OrderBy(f => f, StringComparer.Ordinal).SelectMany(Read).ToList();
+
     private static IReadOnlyList<L0Case> Read(string path)
         => JsonSerializer.Deserialize<List<L0Case>>(File.ReadAllText(path), Json)
            ?? throw new InvalidOperationException($"{path} 解不出用例");
 
     /// <summary>从测试程序集往上找 `game/tests/l0`。</summary>
-    private static string CaseDir()
+    internal static string CaseDir()
     {
         var dir = AppContext.BaseDirectory;
         for (var i = 0; i < 12 && dir != null; i++)

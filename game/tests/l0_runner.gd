@@ -19,13 +19,8 @@
 extends SceneTree
 
 const CASE_DIR := "res://tests/l0"
-## 显式键表（测试迁移规格 A-5 闸 2c）：用例里出现表外的键 = 硬错，不再 `spec.get(...)` 静默忽略。
-## 与 C# 侧 L0/CaseModel.cs 的记录逐键相同（那边靠 UnmappedMemberHandling.Disallow）。
-const CASE_KEYS := ["id", "probe", "source", "world", "args", "expect"]
-const WORLD_KEYS := ["radius", "round", "phase", "seat", "players", "tiles", "cells", "tuning"]
-const PLAYER_KEYS := ["seat", "faction", "level", "memory"]
-const TILE_KEYS := ["at", "state", "type", "solid", "cell", "mucus", "necrosis", "ossify_at"]
-const CELL_KEYS := ["seat", "type", "at", "energy", "equipped", "marked", "differentiated"]
+## 装盘面的活在 cw_case_loader.gd（键表也在那儿）：l0_pre_dump.gd 也用它 —— 闸二 2b 比的就是「同一个 loader 装出来的世界」
+const Loader := preload("res://tests/cw_case_loader.gd")
 
 var checks := 0
 var fails := 0
@@ -76,14 +71,18 @@ func _run_file(path: String) -> void:
 func _run_case(c: Dictionary) -> void:
 	checks += 1
 	var id: String = c.get("id", "(无 id)")
-	if not _only_keys(c, CASE_KEYS, "用例 %s" % id):
+	var loader = Loader.new()
+	if not loader.only_keys(c, Loader.CASE_KEYS, "用例 %s" % id):
+		_fail(loader.errors[0])
 		return
 	var probe: String = c.get("probe", "")
 	var expect: int = int(c.get("expect", 0))
 
-	var g := _load_world(c.get("world", {}))
+	var g: CWGame = loader.load_world(c.get("world", {}))
 	if g == null:
-		return   ## _load_world 已经报过错了
+		for e in loader.errors:
+			_fail(e)
+		return
 
 	var actual: Variant = _probe(g, probe, c.get("args", {}))
 	if actual == null:
@@ -97,86 +96,6 @@ func _run_case(c: Dictionary) -> void:
 		var source: String = c.get("source", "")
 		if source != "":
 			print("       出处：%s" % source)
-
-
-# ---- 装盘面 ----
-## **先铺满整块棋盘，再拿用例列的格子覆盖上去** —— 与 C# 侧的 loader 同口径。
-##
-## 第一版反过来做（清空 tiles、只铺列到的几格），结果 `neighbors()` 按 `board_radius`
-## 返回的坐标在 `tiles` 里取不到，`is_cancerous` 当场报 SCRIPT ERROR ——
-## 而 GDScript 的运行时错误**不中断执行**：函数带着错误跑完、返回值还碰巧对上，
-## 印出一片假 ok。铺满也更贴近真实对局：棋盘本来就是满的。
-func _load_world(spec: Dictionary) -> CWGame:
-	if not _only_keys(spec, WORLD_KEYS, "world"):
-		return null
-	for p in spec.get("players", []):
-		if not _only_keys(p, PLAYER_KEYS, "players"):
-			return null
-	for t in spec.get("tiles", []):
-		if not _only_keys(t, TILE_KEYS, "tiles"):
-			return null
-	for c in spec.get("cells", []):
-		if not _only_keys(c, CELL_KEYS, "cells"):
-			return null
-	var players: Array = spec.get("players", [])
-	if players.is_empty():
-		_fail("用例没写 players")
-		return null
-
-	var order: Array = []
-	for p in players:
-		order.append(CWData.Faction.IMMUNE if p.get("faction", "") == "immune" else CWData.Faction.CANCER)
-
-	var g := CWGame.new()
-	g.init(order, 1)
-	g.board_radius = int(spec.get("radius", 6))
-	g.round_no = int(spec.get("round", 1))
-
-	g.setup.build_board(g.board_radius)
-	for t in spec.get("tiles", []):
-		var at := _pos(t.get("at", ""))
-		if not g.tiles.has(at):
-			_fail("这一格在半径 %d 的棋盘外：%s" % [g.board_radius, t.get("at", "")])
-			return null
-		var tile := CWSetup.make_tile(at)
-		tile["tissue"] = _tissue(t.get("state", "healthy"))
-		tile["special"] = _special(t.get("type", "normal"))
-		tile["solid"] = int(t.get("solid", 0))
-		tile["mucus"] = bool(t.get("mucus", false))
-		tile["necrosis"] = int(t.get("necrosis", 0))
-		tile["ossify_at"] = int(t.get("ossify_at", 0))
-		g.tiles[at] = tile
-
-	## ⚠ **两边的形状不一样**：抗原记忆与免疫等级在 GD 这头是**阵营共享的全局量**
-	## （`game.memory` / `game.immune_level`），C# 那头挂在每个 Player 上。
-	## L0 用例里写成「每个玩家一条」是照 C# 的形状；GD 这边取**免疫方那一条**灌进全局。
-	## 一局里只有一个免疫席位时两者等价；多免疫席位的用例要先把这条形状差异拉平再写。
-	for p in players:
-		if p.get("faction", "") != "immune":
-			continue
-		g.memory = int(p.get("memory", 0))
-		g.immune_level = _level(p.get("level", "I"))
-
-	## 席位 → 细胞 id = 席位 + 1 的约定是**C# 那边**的（EntityId 0 是 Invalid）；
-	## GD 这边 id 就是 cells 的下标。用例里的 `cell` 参数一律是**席位**，两边各自换算。
-	for c in spec.get("cells", []):
-		var pid := int(c.get("seat", 0))
-		var kind: String = c.get("type", "ImmuneBasic")
-		var cell := CWSetup.make_cell(g.cells.size(), pid, _faction_of(kind), _pos(c.get("at", "")),
-			_itype(kind), _ctype(kind), int(c.get("energy", 300)))
-		cell["marked"] = bool(c.get("marked", false))
-		cell["differentiated"] = bool(c.get("differentiated", false))
-		for s in c.get("equipped", []):
-			cell["equipped"].append(s)
-		g.cells.append(cell)
-
-	for key in spec.get("tuning", {}):
-		if not key in g.tune:
-			_fail("CWTuning 上没有这个旋钮：%s" % key)
-			return null
-		g.tune.set(key, spec["tuning"][key])
-
-	return g
 
 
 # ---- 探针表：名字与 C# 侧 Probes.cs 一一对应 ----
@@ -236,68 +155,6 @@ func _pos(text: String) -> Vector2i:
 	return Vector2i(int(parts[0].strip_edges()), int(parts[1].strip_edges()))
 
 
-func _tissue(s: String) -> int:
-	match s:
-		"healthy": return CWData.Tissue.HEALTHY
-		"cancer": return CWData.Tissue.CANCER
-		"solid": return CWData.Tissue.SOLID
-	_fail("不认识的组织状态：%s" % s)
-	return CWData.Tissue.HEALTHY
-
-
-func _special(s: String) -> int:
-	match s:
-		"normal": return CWData.Special.NONE
-		"core": return CWData.Special.CORE
-		"marrow": return CWData.Special.MARROW
-		"vessel": return CWData.Special.VESSEL
-	_fail("不认识的组织类型：%s" % s)
-	return CWData.Special.NONE
-
-
-func _level(s: String) -> int:
-	match s:
-		"I": return 0
-		"II": return 1
-		"III": return 2
-		"X": return 3
-	_fail("不认识的免疫等级：%s" % s)
-	return 0
-
-
-func _faction_of(kind: String) -> int:
-	return CWData.Faction.CANCER if kind in ["Melanoma", "SignetRing", "Osteosarcoma", "SmallCellLung"] \
-		else CWData.Faction.IMMUNE
-
-
-func _itype(kind: String) -> int:
-	match kind:
-		"ImmuneBasic": return CWData.ImmuneType.BASIC
-		"BCell": return CWData.ImmuneType.B_CELL
-		"TCell": return CWData.ImmuneType.T_CELL
-		"Macrophage": return CWData.ImmuneType.MACRO
-		"Dendritic": return CWData.ImmuneType.DENDRITIC
-	return -1
-
-
-func _ctype(kind: String) -> int:
-	match kind:
-		"Melanoma": return CWData.CancerType.MELANOMA
-		"SignetRing": return CWData.CancerType.SIGNET
-		"Osteosarcoma": return CWData.CancerType.OSTEO
-		"SmallCellLung": return CWData.CancerType.SCLC
-	return -1
-
-
 func _fail(msg: String) -> void:
 	fails += 1
 	print("  FAIL %s" % msg)
-
-
-## 字典只许含表里的键；否则报出那个键并算失败
-func _only_keys(d: Dictionary, allowed: Array, where: String) -> bool:
-	for k in d.keys():
-		if not (k in allowed):
-			_fail("%s 里有不认识的键「%s」（许可：%s）" % [where, str(k), ", ".join(allowed)])
-			return false
-	return true

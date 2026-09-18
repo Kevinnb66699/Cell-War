@@ -20,6 +20,10 @@ public static class MatchSetup
     private static readonly HexPosition[] Vessels =
         [new(6, 0, -6), new(-6, 0, 6)];
 
+    /// <summary>这一格按坐标表是哪种特殊组织（GD `CWData.special_of`）。L0 loader 铺底板用：底板 = 全健康 + 特殊组织按表，两侧同一张表。</summary>
+    internal static TissueType SpecialAt(HexPosition p)
+        => Cores.Contains(p) ? TissueType.MetabolicCore : Marrows.Contains(p) ? TissueType.BoneMarrow : Vessels.Contains(p) ? TissueType.BloodVessel : TissueType.Normal;
+
     public static WorldState Create(int playerCount, ulong seed)
     {
         var rng = new Xoshiro256StarStar(seed);

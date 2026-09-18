@@ -86,13 +86,7 @@ public static class Probes
         public HexPosition Pos(string key) => WorldLoader.Pos(Take(key));
 
         /// <summary>参数 `cell` 是**席位**号（对拍规格的约定），这里换回细胞。</summary>
-        public Cell Cell(WorldState s)
-        {
-            var id = WorldLoader.Id(Int("cell"));
-            return s.Cells.TryGetValue(id, out var c)
-                ? c
-                : throw new InvalidOperationException($"{probe} 要的细胞（席位 {id.Value - 1}）不在这个盘面上");
-        }
+        public Cell Cell(WorldState s) => WorldLoader.CellOfSeat(s, Int("cell"));
 
         private string Take(string key)
         {

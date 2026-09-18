@@ -23,7 +23,8 @@ public static class WorldLoader
         foreach (var at in AllCoords(spec.Radius))
             tiles[at] = new Tissue
             {
-                Position = at, Type = TissueType.Normal, State = TissueState.Healthy,
+                // 底板 = 全健康 + 特殊组织按坐标表（GD `build_board` 走 `CWData.special_of`）；用例点名的格再覆盖上去（点名而没写 type 的按 GD 口径归 normal）
+                Position = at, Type = MatchSetup.SpecialAt(at), State = TissueState.Healthy,
                 SolidificationCount = 0, OccupyingCell = null, Charge = 0,
             };
 
@@ -39,7 +40,7 @@ public static class WorldLoader
                     Type = TileType(t.Type),
                     State = TileState(t.State),
                     SolidificationCount = t.Solid,
-                    OccupyingCell = t.Cell >= 0 ? Id(t.Cell) : null,
+                    OccupyingCell = null,   // 占位从 cells 段反推（下面），tile.cell 只当校验用
                     Charge = 0,
                     Mucus = t.Mucus,
                     NecrosisRounds = t.Necrosis,
@@ -53,9 +54,14 @@ public static class WorldLoader
             var at = Pos(c.At);
             if (!tiles.ContainsKey(at)) throw new InvalidOperationException($"细胞站在没铺的格上：{c.At}");
             var type = CellKind(c.Type);
-            cells[Id(c.Seat)] = new Cell
+            // id = 在 cells 列表里的序号 + 1：与 GD `make_cell(g.cells.size(), …)` 同口径（闸二 2b 靠这个对得上）；席位不再决定 id
+            var id = new EntityId((ulong)(cells.Count + 1));
+            if (cells.Values.Any(x => x.OwnerSeat == c.Seat)) throw new InvalidOperationException($"席位 {c.Seat} 写了两只细胞");
+            if (tiles[at].OccupyingCell is not null) throw new InvalidOperationException($"两只细胞站在同一格：{c.At}");
+            tiles[at] = tiles[at].WithOccupyingCell(id);
+            cells[id] = new Cell
             {
-                Id = Id(c.Seat),
+                Id = id,
                 OwnerSeat = c.Seat,
                 Faction = type is CellType.Melanoma or CellType.SignetRing or CellType.Osteosarcoma or CellType.SmallCellLung
                     ? Faction.Cancer : Faction.Immune,
@@ -71,6 +77,15 @@ public static class WorldLoader
                 MarkRound = c.Marked ? spec.Round : -1,
                 Differentiated = c.Differentiated,
             };
+        }
+
+        // 用例若在格上写了 cell（席位），必须与 cells 段一致 —— 两侧各自反推、互相校验
+        foreach (var t in spec.Tiles)
+        {
+            if (t.Cell < 0) continue;
+            var occupant = tiles[Pos(t.At)].OccupyingCell is { } oid ? cells[oid] : null;
+            if (occupant is null || occupant.OwnerSeat != t.Cell)
+                throw new InvalidOperationException($"格 {t.At} 写了 cell={t.Cell}，但 cells 段里没有席位 {t.Cell} 的细胞站在那儿");
         }
 
         var players = new Dictionary<int, Player>();
@@ -90,9 +105,8 @@ public static class WorldLoader
                 DrawCount = 0,
                 AntigenMemory = p.Memory,
                 ImmuneLevel = Level(p.Level),
-                CancerType = faction == Faction.Cancer
-                    ? cells.Values.FirstOrDefault(c => c.OwnerSeat == p.Seat)?.Type ?? CellType.Osteosarcoma
-                    : null,
+                // 癌种只从该席的细胞推（GD loader 同口径）；没落子的癌席就是没有 —— 以前静默拿骨肉瘤兜底，闸二 2b 抓出来的
+                CancerType = faction == Faction.Cancer ? cells.Values.FirstOrDefault(c => c.OwnerSeat == p.Seat)?.Type : null,
             };
         }
 
@@ -124,7 +138,9 @@ public static class WorldLoader
     }
 
     /// <summary>席位 → 细胞 id：`EntityId = seat + 1`（对拍规格的约定，C# 的 EntityId 0 是 Invalid）。</summary>
-    public static EntityId Id(int seat) => new((ulong)(seat + 1));
+    /// <summary>按席位找细胞（id 不再等于席位 + 1）。</summary>
+    public static Cell CellOfSeat(WorldState s, int seat)
+        => s.Cells.Values.FirstOrDefault(c => c.OwnerSeat == seat) ?? throw new InvalidOperationException($"要的细胞（席位 {seat}）不在这个盘面上");
 
     private static TissueState TileState(string s) => s switch
     {
