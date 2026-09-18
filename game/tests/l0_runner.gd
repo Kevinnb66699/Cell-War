@@ -19,6 +19,13 @@
 extends SceneTree
 
 const CASE_DIR := "res://tests/l0"
+## 显式键表（测试迁移规格 A-5 闸 2c）：用例里出现表外的键 = 硬错，不再 `spec.get(...)` 静默忽略。
+## 与 C# 侧 L0/CaseModel.cs 的记录逐键相同（那边靠 UnmappedMemberHandling.Disallow）。
+const CASE_KEYS := ["id", "probe", "source", "world", "args", "expect"]
+const WORLD_KEYS := ["radius", "round", "phase", "seat", "players", "tiles", "cells", "tuning"]
+const PLAYER_KEYS := ["seat", "faction", "level", "memory"]
+const TILE_KEYS := ["at", "state", "type", "solid", "cell", "mucus", "necrosis", "ossify_at"]
+const CELL_KEYS := ["seat", "type", "at", "energy", "equipped", "marked", "differentiated"]
 
 var checks := 0
 var fails := 0
@@ -69,6 +76,8 @@ func _run_file(path: String) -> void:
 func _run_case(c: Dictionary) -> void:
 	checks += 1
 	var id: String = c.get("id", "(无 id)")
+	if not _only_keys(c, CASE_KEYS, "用例 %s" % id):
+		return
 	var probe: String = c.get("probe", "")
 	var expect: int = int(c.get("expect", 0))
 
@@ -98,6 +107,17 @@ func _run_case(c: Dictionary) -> void:
 ## 而 GDScript 的运行时错误**不中断执行**：函数带着错误跑完、返回值还碰巧对上，
 ## 印出一片假 ok。铺满也更贴近真实对局：棋盘本来就是满的。
 func _load_world(spec: Dictionary) -> CWGame:
+	if not _only_keys(spec, WORLD_KEYS, "world"):
+		return null
+	for p in spec.get("players", []):
+		if not _only_keys(p, PLAYER_KEYS, "players"):
+			return null
+	for t in spec.get("tiles", []):
+		if not _only_keys(t, TILE_KEYS, "tiles"):
+			return null
+	for c in spec.get("cells", []):
+		if not _only_keys(c, CELL_KEYS, "cells"):
+			return null
 	var players: Array = spec.get("players", [])
 	if players.is_empty():
 		_fail("用例没写 players")
@@ -272,3 +292,12 @@ func _ctype(kind: String) -> int:
 func _fail(msg: String) -> void:
 	fails += 1
 	print("  FAIL %s" % msg)
+
+
+## 字典只许含表里的键；否则报出那个键并算失败
+func _only_keys(d: Dictionary, allowed: Array, where: String) -> bool:
+	for k in d.keys():
+		if not (k in allowed):
+			_fail("%s 里有不认识的键「%s」（许可：%s）" % [where, str(k), ", ".join(allowed)])
+			return false
+	return true

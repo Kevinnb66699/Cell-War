@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using CellWar.Core;
 
 namespace CellWar.Core.Tests.L0;
@@ -19,8 +20,11 @@ public class L0RunnerTests
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,   // 用例键名与 GD 侧一致（ossify_at 这类多词键）
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
+        // 测试迁移规格 A-5 闸 2c：写错键名的用例（"newbron"）不许悄悄绿 —— 以前是静默忽略
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
     public static TheoryData<string, string> Cases()
@@ -64,6 +68,18 @@ public class L0RunnerTests
             .Where(p => !Probes.Names.Contains(p)).Order(StringComparer.Ordinal).ToArray();
         Assert.True(unknown.Length == 0,
             $"用例用了不存在的探针：{string.Join(" / ", unknown)}。已有：{string.Join(" / ", Probes.Names.Order(StringComparer.Ordinal))}");
+
+        // 反向：探针表里每个探针至少一条用例 —— 只查「用例引了不存在的探针」抓不到「探针没人用」，那也是假绿灯（测试迁移规格 C-1 步 1）
+        var used = all.Select(c => c.Probe).ToHashSet(StringComparer.Ordinal);
+        var idle = Probes.Names.Where(p => !used.Contains(p)).Order(StringComparer.Ordinal).ToArray();
+        Assert.True(idle.Length == 0, $"这些探针一条用例都没有：{string.Join(" / ", idle)}");
+    }
+
+    [Fact]
+    public void 写错键名的用例当场红()
+    {
+        var json = "[{\"id\":\"x\",\"probe\":\"solidify_threshold\",\"world\":{\"players\":[{\"seat\":0,\"faction\":\"immune\"}],\"tiles\":[{\"at\":\"0,0\",\"newbron\":true}]},\"expect\":30}]";
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<List<L0Case>>(json, Json));
     }
 
     private static IReadOnlyList<L0Case> Read(string path)
