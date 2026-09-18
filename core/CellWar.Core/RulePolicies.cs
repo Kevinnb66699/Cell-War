@@ -47,7 +47,8 @@ internal static class RulePolicies
     public static double StoreFraction(Tissue t) => t.Type switch
     {
         TissueType.MetabolicCore => Math.Clamp((t.Charge ?? 0) / (double)MetabolicCoreStoreMax, 0, 1),
-        TissueType.BoneMarrow => Math.Clamp(t.Charge ?? 0, 0, 1),
+        // 骨髓：与 GD `CWData.store_progress` 同口径 —— 存满就是 1，没存满按产出周期走进度（健康 3 回合 / 癌性 2 回合，同 BoardRules.Produce 的周期）
+        TissueType.BoneMarrow => (t.Charge ?? 0) >= BoneMarrowStoreMax ? 1 : Math.Clamp(t.ProductionCounter / (double)(t.State == TissueState.Healthy ? 3 : 2), 0, 1),
         _ => -1
     };
 
@@ -525,7 +526,14 @@ internal static class RulePolicies
     {
         if (!s.Board.Tissues.TryGetValue(at, out var t) || Cancerous(t)) return 0;
         if (s.GetCellAt(at)?.Faction == Faction.Immune || Watched(s, at)) return 0;
+        return ProliferateChanceRaw(s, at);
+    }
 
+    /// <summary>不带闸的千分率（观测协议 `tiles[].d.proliferate_chance`）：与 GD 公开查询 `CWWorld.proliferate_chance(c)` 同口径 ——
+    /// GD 那边「健康 / 没被免疫占 / 没被监视」的闸在 E 阶段循环里，公开查询不含它；C# 的闸留在上面的 <see cref="ProliferateChance"/>，规则调用不变。</summary>
+    public static int ProliferateChanceRaw(WorldState s, HexPosition at)
+    {
+        if (!s.Board.Tissues.ContainsKey(at)) return 0;
         var adjacent = at.GetNeighbors().Where(p => s.Board.Tissues.TryGetValue(p, out var n) && Cancerous(n)).ToArray();
         if (adjacent.Length == 0) return 0;
 

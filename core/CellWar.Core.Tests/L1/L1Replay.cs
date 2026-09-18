@@ -143,7 +143,7 @@ public static class L1Replay
         => s.Players.Keys.Any(seat => engine.GetAvailableDecisions(s, seat).Count > 0);
 
     /// <summary>C# 的组键在 GD 的顶层问答里只有「发动」那一半：`k=action+chemo_target|act=chemo|to=…` → `k=action|act=chemo`。</summary>
-    private static string Collapse(string kind, string key)
+    internal static string Collapse(string kind, string key)
     {
         if (kind != "action") return key;
         if (key.StartsWith("k=action+chemo_target|", StringComparison.Ordinal)) return "k=action|act=chemo";

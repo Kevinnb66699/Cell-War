@@ -56,7 +56,7 @@ public static class ObservationV1Codec
             t.Type == TissueType.BoneMarrow ? t.Charge ?? 0 : 0,   // cards：只有骨髓格
             t.OccupyingCell is { } occ ? Id(occ) : -1,
             new ObsTileD(RulePolicies.PressureAt(s, t.Position), Permille(RulePolicies.SolidFraction(s, t)), Permille(RulePolicies.StoreFraction(t)),
-                RulePolicies.ProliferateChance(s, t.Position), null, null, null))).ToArray();
+                RulePolicies.ProliferateChanceRaw(s, t.Position), null, null, null))).ToArray();   // 不带闸：与 GD 公开查询同口径
 
         var obsCells = cells.Select(c => new ObsCell(
             Id(c.Id), c.OwnerSeat, (int)c.Faction, Pos(c.Position), GdEnum.Itype(c.Type), GdEnum.Ctype(c.Type), c.Energy, c.IsAlive,
@@ -121,16 +121,18 @@ public static class ObservationV1Codec
         var options = input.Options.Select((d, i) =>
         {
             var p = parts[i];
-            var cost = Cost(s, d);
+            var price = Price(s, d);
+            var cost = d is MoveDecision ? price : null;   // 协议 cost 只给迁移（GD 只有迁移选项的 data 带 cost）；技能价签走 label 与 d.*_cost
             var data = p.Fields.ToDictionary(f => f.Field, f => JsonSerializer.SerializeToElement(DataValue(f.Value), Json), StringComparer.Ordinal);
-            if (d is MoveDecision && cost is { } moveCost) data["cost"] = JsonSerializer.SerializeToElement(moveCost, Json);   // GD 迁移选项自带 cost
+            if (cost is { } moveCost) data["cost"] = JsonSerializer.SerializeToElement(moveCost, Json);   // GD 迁移选项自带 cost
             var anchor = d is ReviveDecision { SourcePosition: { } sp } r && s.Cells[r.CellId].Faction == Faction.Cancer ? Pos(sp) : null;
+            if (anchor is { } an) data["anchor"] = JsonSerializer.SerializeToElement(an, Json);   // GD 癌方复活的 data 带 anchor（语义键剔除它，data 保留）
             var isStop = p.Fields.Any(f => f.Field is "stop" or "skip");
             var isAttack = d is MoveDecision m && s.GetCellAt(m.TargetPosition) is { } other && other.Faction != s.Cells[m.CellId].Faction;
             var rows = d is MoveDecision mm
                 ? RulePolicies.MoveCostSteps(s, s.Cells[mm.CellId], mm.TargetPosition).Select(st => new ObsCostRow(st.Modifier.Name, st.Before, st.After, "")).ToArray()
                 : [];
-            return new ObsOption(i, p.Key, Label(s, d, cost), data, cost, rows, anchor, isStop, isAttack, null);
+            return new ObsOption(i, p.Key, Label(s, d, price), data, cost, rows, anchor, isStop, isAttack, null);
         }).ToArray();
         var stopIndex = Array.FindIndex(options, o => o.IsStop);
         return new ObsAsk(input.RequestId, revision.Value, kind, lead.Tag, input.PlayerSeat, Prompt(s, kind, lead.Tag, input), true, stopIndex, options);
@@ -144,8 +146,8 @@ public static class ObservationV1Codec
         _ => v,
     };
 
-    /// <summary>选项报价（十分能量）；免费与无价 = null。每一处都走引擎结算时用的同一个数，不另抄。</summary>
-    private static int? Cost(WorldState s, IDecision d) => d switch
+    /// <summary>选项价签（十分能量，给 label 用；协议 `cost` 字段只取迁移那一条）；免费与无价 = null。每一处都走引擎结算时用的同一个数，不另抄。</summary>
+    private static int? Price(WorldState s, IDecision d) => d switch
     {
         MoveDecision m => RulePolicies.QuoteMove(s, s.Cells[m.CellId], m.TargetPosition),
         ChemotaxisStepDecision c => RulePolicies.BaseMoveCost(s, s.Cells[c.CellId], c.Target, CellRules.ChemotaxisStepCost),

@@ -33,6 +33,9 @@ var players := 4
 var seed_value := 4242
 var out_path := "user://xcheck.jsonl"
 var max_steps := 0
+## 观测协议 v1 对拍（批 0 步 10）：每步顺带导一份全知 envelope 到另一个文件（{n, env} 一行一步）。
+## 不进 trace 本体：那份是 L1 的夹具，字节不能动；env 文件另存、gzip 后进仓库（game/tests/l1/env_*.jsonl.gz）。
+var env_out := ""
 
 
 func _initialize() -> void:
@@ -50,6 +53,7 @@ func _args() -> void:
 			"seed": seed_value = int(kv[1])
 			"out": out_path = kv[1]
 			"steps": max_steps = int(kv[1])
+			"env_out": env_out = kv[1]
 
 
 # ============ 视图 ============
@@ -203,6 +207,9 @@ func _run() -> void:
 		"pre": view(g),
 	}))
 
+	var envf: FileAccess = null
+	if env_out != "":
+		envf = FileAccess.open(env_out, FileAccess.WRITE)
 	var n := 0
 	var kinds := {}
 	while not first.is_empty():
@@ -218,6 +225,8 @@ func _run() -> void:
 		if not ask_rng.is_empty():
 			line["ask_rng"] = ask_rng
 		f.store_line(JSON.stringify(line))
+		if envf != null:   ## post 时刻 _pending 已经是下一问（step 末尾 advance 到了决策点）
+			envf.store_line(JSON.stringify({ "n": n, "env": CWObsCodec.encode(g, { "viewer": CWObsProto.VIEWER_OMNISCIENT, "ask": g._pending, "ask_id": n, "rev": n }) }))
 		if max_steps > 0 and n >= max_steps:
 			break
 		if g.is_over():
@@ -230,6 +239,8 @@ func _run() -> void:
 		"kinds": kinds, "state_hash": g.state_hash(),
 	}))
 	f.close()
+	if envf != null:
+		envf.close()
 	print("轨迹写入 %s：%d 步，%d 次抽取，%d 世界回合，胜方 %d" % [
 		out_path, n, tape.tape.size(), g.round_no, g.winner])
 	print("询问分布 ", kinds)

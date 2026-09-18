@@ -22,7 +22,7 @@ static func encode(game: CWGame, ctx: Dictionary = {}) -> Dictionary:
 		"rev": rev, "obs_seq": int(ctx.get("obs_seq", 0)),
 		"viewer": viewer, "open_hands": open_hands,
 		"produced_tiers": CWObsProto.TIERS_GD.duplicate(), "full": true, "base": null,
-		"state": { "board": _board(game), "cells": _cells(game, viewer, open_hands), "g": _global(game) },
+		"state": { "board": _board(game), "cells": _cells(game, viewer, open_hands), "g": _global(game, req) },
 		"ask": _ask(game, req, int(ctx.get("ask_id", 0)), rev, viewer),
 		"logs": _logs(game, viewer, open_hands, int(ctx.get("logs_from", 0))),
 	}
@@ -173,7 +173,7 @@ static func phase_word(game: CWGame) -> String:
 	return str(game.flow["stage"])
 
 
-static func _global(game: CWGame) -> Dictionary:
+static func _global(game: CWGame, req: Dictionary) -> Dictionary:
 	var word := phase_word(game)
 	var diff: Array = game.differentiated.duplicate()
 	diff.sort()
@@ -215,7 +215,8 @@ static func _global(game: CWGame) -> Dictionary:
 	return {
 		"round_no": int(game.round_no), "phase": word,
 		"current_pid": (int(game.current_pid) if word == "turn" else -1),   ## GD 换阶段不清零，协议按 L1 视图口径
-		"asking_pid": int(game.asking_pid),
+		## 正在问的那一席：有问就是问的 pid（game.asking_pid 要到 ask() 才写、在 pending 边界上是上一问的）
+		"asking_pid": (int(req.get("pid", -1)) if not req.is_empty() else int(game.asking_pid)),
 		"memory": int(game.memory), "immune_level": int(game.immune_level), "effector_round": int(game.effector_round),
 		"differentiated": diff,
 		"winner": int(game.winner), "win_reason": str(game.win_reason), "win_kind": str(game.win_kind),
