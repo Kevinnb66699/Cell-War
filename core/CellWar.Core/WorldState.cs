@@ -53,6 +53,9 @@ public sealed class TurnState
     public int StartStep { get; init; }
     public int EndStep { get; init; }   // E 阶段游标：0 = 没开始；1 = 蹲守净化（4.9）做完、等它追出的问答问完再做后半
     public Faction? Winner { get; init; }
+    /// <summary>怎么赢的（观测协议 `g.win_kind`，GD `win_kind`）：immune_clear / cancer_weighted / limit_cancer / limit_immune；没分胜负 = ""。
+    /// 存下来而不是事后重算：胜负一判 `CancerAlarmRound` 就被改写，从终局状态反推不出「是加权赢的还是回合到了」。</summary>
+    public string WinKind { get; init; } = "";
     public int CancerAlarmRound { get; init; }
     public int? PendingDiscardSeat { get; init; }  // 手牌超过上限时，强制该席位弃置（PRD §657）
     public EntityId? PendingDiscardCell { get; init; }  // 超限的是哪只细胞：GD `discard_to_limit(cell)` 只问那一只、问到它降到上限为止
@@ -179,6 +182,7 @@ public sealed class TurnState
         StartStep = StartStep,
         EndStep = EndStep,
         Winner = Winner,
+        WinKind = WinKind,
         CancerAlarmRound = CancerAlarmRound,
         PendingDiscardSeat = PendingDiscardSeat,
         PendingDiscardCell = PendingDiscardCell,

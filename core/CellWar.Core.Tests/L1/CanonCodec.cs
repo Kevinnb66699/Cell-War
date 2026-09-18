@@ -57,6 +57,7 @@ public static class CanonCodec
             s.Turn.PendingCoupleCell is { } cp1 ? Seat(cp1) : null, s.Turn.PendingCoupleAlly is { } cp2 ? Seat(cp2) : null,
             s.Turn.PendingCouplePayer is { } cp3 ? Seat(cp3) : null)
         {
+            WinKind = s.Turn.WinKind,
             PendingDiscardCell = s.Turn.PendingDiscardCell is { } pdc ? Seat(pdc) : null,
             PendingRemodelCell = s.Turn.PendingRemodelCell is { } prc ? Seat(prc) : null,
             PendingRemodelFirst = PosOrNull(s.Turn.PendingRemodelFirst), PendingRemodelSecond = PosOrNull(s.Turn.PendingRemodelSecond),
@@ -163,6 +164,7 @@ public static class CanonCodec
                 ActivePlayerSeat = c.G.CurrentPid,
                 StartStep = c.G.StartStep,
                 Winner = c.G.Winner is { } w ? (Faction)w : null,
+                WinKind = c.G.WinKind,
                 CancerAlarmRound = c.G.CancerAlarmRound,
                 PendingDiscardSeat = c.G.PendingDiscardPid,
                 PendingDiscardCell = c.G.PendingDiscardCell is { } pdc ? Id(pdc) : null,

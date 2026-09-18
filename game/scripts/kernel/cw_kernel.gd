@@ -112,7 +112,7 @@ func restore(_blob: Dictionary) -> bool:
 	return false
 
 
-## CWReplay.of 的那七项（cw_replay.gd:71-85）
+## CWReplay.of 的那十项（cw_replay.gd:71-85：version / players / seed / rules / cancer_types / answers / round / winner / win_reason / at）
 func replay_tape() -> Dictionary:
 	return {}
 

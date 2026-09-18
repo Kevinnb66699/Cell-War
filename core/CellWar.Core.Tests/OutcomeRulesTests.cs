@@ -36,7 +36,7 @@ public class OutcomeRulesTests
         var world = Build(new TurnState { WorldRound = 3, Phase = Phase.E, ActivePlayerSeat = 0 },
             [Tile(pos, TissueState.Healthy)], Immune(pos));
 
-        var (winner, alarm) = OutcomeRules.Evaluate(world);
+        var (winner, alarm, _) = OutcomeRules.Evaluate(world);
         Assert.Equal(Faction.Immune, winner);
         Assert.Equal(0, alarm);
     }
@@ -48,7 +48,7 @@ public class OutcomeRulesTests
         var tiles = Enumerable.Range(0, 90).Select(i => Tile(new HexPosition(i, -i, 0), TissueState.Cancer)).ToArray();
         var world = Build(new TurnState { WorldRound = 2, Phase = Phase.E, ActivePlayerSeat = 0, CancerAlarmRound = 1 }, tiles);
 
-        var (winner, alarm) = OutcomeRules.Evaluate(world);
+        var (winner, alarm, _) = OutcomeRules.Evaluate(world);
         Assert.Equal(Faction.Cancer, winner);
         Assert.Equal(2, alarm);
     }
@@ -59,7 +59,7 @@ public class OutcomeRulesTests
         var world = Build(new TurnState { WorldRound = 15, Phase = Phase.E, ActivePlayerSeat = 0 },
             [Tile(new HexPosition(0, 0, 0), TissueState.Cancer), Tile(new HexPosition(1, 0, -1), TissueState.Healthy)]);
 
-        var (winner, _) = OutcomeRules.Evaluate(world);
+        var (winner, _, _) = OutcomeRules.Evaluate(world);
         Assert.Equal(Faction.Cancer, winner);
     }
 
@@ -72,7 +72,7 @@ public class OutcomeRulesTests
              Tile(new HexPosition(2, 0, -2), TissueState.Healthy),
              Tile(new HexPosition(3, 0, -3), TissueState.Healthy)]);
 
-        var (winner, _) = OutcomeRules.Evaluate(world);
+        var (winner, _, _) = OutcomeRules.Evaluate(world);
         Assert.Equal(Faction.Immune, winner);
     }
 }

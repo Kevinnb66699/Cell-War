@@ -68,7 +68,32 @@ public static class SemanticKey
     /// </summary>
     public const string PassKey = "k=action|act=pass";
 
-    public static string Of(WorldState s, IDecision d) => d switch
+    /// <summary>一条决策拆成「kind / tag / 有序字段」。键字符串与观测协议的 <c>options[].data</c> 都从这里出（`docs/观测协议_v1.md` §六），别各写一份。</summary>
+    public sealed record Parts(string Kind, string? Tag, IReadOnlyList<(string Field, object Value)> Fields)
+    {
+        public string Key
+        {
+            get
+            {
+                var parts = new List<string> { $"k={Kind}" };
+                if (Tag != null) parts.Add($"g={Tag}");
+                parts.AddRange(Fields.Select(f => $"{f.Field}={Text(f.Value)}"));
+                return string.Join("|", parts);
+            }
+        }
+        /// <summary>键文法的值写法：坐标 `q,r`、bool `1/0`、细胞引用用**席位**（规矩 2）。</summary>
+        private static string Text(object v) => v switch
+        {
+            HexPosition p => $"{p.Q},{p.R}",
+            EntityId id => ((int)id.Value - 1).ToString(),
+            bool b => b ? "1" : "0",
+            _ => v.ToString()!,
+        };
+    }
+
+    public static string Of(WorldState s, IDecision d) => Describe(s, d).Key;
+
+    public static Parts Describe(WorldState s, IDecision d) => d switch
     {
         PlaceDecision p => Key("setup_place", ("to", Pos(p.TargetPosition))),
 
@@ -76,14 +101,14 @@ public static class SemanticKey
         // 癌方那问 GD 的 data 带 `anchor`，按规矩 1 剔除 —— 所以同一格的多个依托会压成同一个键。
         ReviveDecision r => Key(s.Cells[r.CellId].Faction == Faction.Immune ? "immune_revive" : "revive",
             ("to", Pos(r.TargetPosition))),
-        SkipReviveDecision => Key("revive", ("skip", "1")),   // GD 下标 0 的「放弃本回合复活」
+        SkipReviveDecision => Key("revive", ("skip", true)),   // GD 下标 0 的「放弃本回合复活」
 
         EndTurnDecision => Key("action", ("act", "end")),
         PassDecision => Key("action", ("act", "pass")),
         MoveDecision m => Key("action", ("act", "move"), ("to", Pos(m.TargetPosition))),
         DrawDecision => Key("action", ("act", "draw")),
         MutateDecision => Key("action", ("act", "mutate")),
-        DifferentiateDecision df => Key("action", ("act", "differentiate"), ("type", ((int)df.Type).ToString())),
+        DifferentiateDecision df => Key("action", ("act", "differentiate"), ("type", (int)df.Type)),
 
         // 卡牌的细胞目标在 GD 里是 `cid`（`cw_card_fx.gd:150` 起）；`to_cid` 只属于
         // 【代谢耦联】的「转出/转入」那一问（见下面 CoupleDirectionDecision），别顺手挪用。
@@ -98,26 +123,26 @@ public static class SemanticKey
 
         // 【基因组不稳定】：GD 的 data 是**骰面值** `r`，C# 存的是「选第几个」。
         ChooseMutationDecision cm => Tagged("pick", "基因组不稳定",
-            ("r", (cm.Choice == 0 ? s.Turn.PendingMutationA : s.Turn.PendingMutationB).ToString())),
+            ("r", cm.Choice == 0 ? s.Turn.PendingMutationA : s.Turn.PendingMutationB)),
 
         // 【连续吞噬】的连锁：GD 是一步一问的走位（`kind: "free_move"`, `"连续吞噬"`）
         ChainMoveDecision ch => Tagged("free_move", "连续吞噬", ("to", Pos(ch.Target))),
-        StopChainDecision => Tagged("free_move", "连续吞噬", ("stop", "1")),
+        StopChainDecision => Tagged("free_move", "连续吞噬", ("stop", true)),
 
         // 【炎症性趋化】的第 2/3 步：GD 同样是 `kind: "free_move"`，tag 换成卡名。
         // 第 1 步不在这里 —— 它是 `k=action|act=play|card=炎症性趋化|to=…`。
         // 2026-09-17 起三张卡共用这两条决策：tag 从挂起态里读（【趋化募集】【效应细胞浸润】是抽到即走的事件卡）
         ChemotaxisStepDecision cx => Tagged("free_move", s.Turn.PendingWalkCard ?? "炎症性趋化", ("to", Pos(cx.Target))),
-        StopChemotaxisDecision => Tagged("free_move", s.Turn.PendingWalkCard ?? "炎症性趋化", ("stop", "1")),
+        StopChemotaxisDecision => Tagged("free_move", s.Turn.PendingWalkCard ?? "炎症性趋化", ("stop", true)),
 
         // 【代谢耦联】的两次追问（GD kind pick / tag 代谢耦联）：方向 {from, to_cid}、档位 {pay, get}、取消 {stop}
         CoupleDirectionDecision cd => Tagged("pick", "代谢耦联", ("from", Seat(cd.Payer)), ("to_cid", Seat(cd.Getter))),
-        CoupleTierDecision ct => Tagged("pick", "代谢耦联", ("pay", ct.Pay.ToString()), ("get", ct.Get.ToString())),
-        CancelCoupleDecision => Tagged("pick", "代谢耦联", ("stop", "1")),
+        CoupleTierDecision ct => Tagged("pick", "代谢耦联", ("pay", ct.Pay), ("get", ct.Get)),
+        CancelCoupleDecision => Tagged("pick", "代谢耦联", ("stop", true)),
 
         // 【基质重塑】的三次追问（GD kind pick_tile / tag 基质重塑）：再拆 / 转健康都是 {to}，停是 {stop} —— 三问同形，重放器靠 asks 里的位置区分
         RemodelPickDecision rp => Tagged("pick_tile", "基质重塑", ("to", Pos(rp.Target))),
-        StopRemodelDecision => Tagged("pick_tile", "基质重塑", ("stop", "1")),
+        StopRemodelDecision => Tagged("pick_tile", "基质重塑", ("stop", true)),
 
         TypeSkillDecision ts => TypeSkill(s, ts),
 
@@ -132,7 +157,7 @@ public static class SemanticKey
     /// B【中和抗体】与巨噬【连续吞噬】问完就结，树突【免疫猎杀】与 T【Excalibur】
     /// 还要再问一次目标 —— 后两个走**组键**，比对边界落在组的末尾。
     /// </summary>
-    private static string TypeSkill(WorldState s, TypeSkillDecision t) => t.Skill switch
+    private static Parts TypeSkill(WorldState s, TypeSkillDecision t) => t.Skill switch
     {
         "抗体" => Key("action", ("act", "antibody")),
         "细胞毒素" => Key("action", ("act", "toxin")),
@@ -152,31 +177,28 @@ public static class SemanticKey
     };
 
     /// <summary>按固定顺序拼；值为 null 的字段**不出现**（GD 那边也不会有那个键）。</summary>
-    private static string Key(string kind, params (string Field, string? Value)[] fields) => Tagged(kind, null, fields);
+    private static Parts Key(string kind, params (string Field, object? Value)[] fields) => Tagged(kind, null, fields);
 
-    private static string Tagged(string kind, string? tag, params (string Field, string? Value)[] fields)
+    private static Parts Tagged(string kind, string? tag, params (string Field, object? Value)[] fields)
     {
         var bag = fields.Where(f => f.Value != null).ToDictionary(f => f.Field, f => f.Value!, StringComparer.Ordinal);
         var unknown = bag.Keys.Where(k => !FieldOrder.Contains(k)).ToArray();
         if (unknown.Length > 0)
             throw new InvalidOperationException($"语义键里出现了文法外的字段：{string.Join(" / ", unknown)}");
 
-        var parts = new List<string> { $"k={kind}" };
-        if (tag != null) parts.Add($"g={tag}");
-        parts.AddRange(FieldOrder.Where(bag.ContainsKey).Select(f => $"{f}={bag[f]}"));
-        return string.Join("|", parts);
+        return new Parts(kind, tag, FieldOrder.Where(bag.ContainsKey).Select(f => (f, bag[f])).ToArray());
     }
 
-    private static string? Pos(HexPosition? p) => p is { } v ? $"{v.Q},{v.R}" : null;
+    private static object? Pos(HexPosition? p) => p;
 
     /// <summary>细胞 id → **席位**（规矩 2：C# 的 `EntityId = seat + 1`）。</summary>
-    private static string? Seat(EntityId? id) => id is { } v ? ((int)v.Value - 1).ToString() : null;
+    private static object? Seat(EntityId? id) => id;
 
     /// <summary>落点 → GD `DIRS` 的下标。不是六邻之一就没有方向可言。</summary>
-    private static string? Dir(HexPosition from, HexPosition? to)
+    private static object? Dir(HexPosition from, HexPosition? to)
     {
         if (to is not { } t) return null;
         var i = DirIndex(from, t);
-        return i < 0 ? null : i.ToString();
+        return i < 0 ? null : i;
     }
 }

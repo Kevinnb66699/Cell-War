@@ -175,6 +175,11 @@ public sealed class MatchSession : ISession
     {
         lock (gate) { using var lease = runtime.Read(); return observation.Observe(lease, authorizedSeat); }
     }
+    /// <summary>观测协议 v1（docs/观测协议_v1.md）：按 viewer 裁剪过的 envelope。viewer >= 0 席位 / -1 观众（openHands = 房主开的「观众全见」）/ -2 全知（**禁止过网**）。</summary>
+    public Observation.ObsEnvelope ObserveV1(int viewer, bool openHands = false, long logsFrom = 0)
+    {
+        lock (gate) { using var lease = runtime.Read(); return Observation.SeatFilter.Crop(Observation.ObservationV1Codec.Encode(lease.Snapshot, lease.Revision, logsFrom), viewer, openHands); }
+    }
     public ValidationResult Submit(int authorizedSeat, InputAnswer answer)
     {
         lock (gate)

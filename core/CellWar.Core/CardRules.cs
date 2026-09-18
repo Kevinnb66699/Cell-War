@@ -450,9 +450,9 @@ internal static class CardRules
     // ── 抽卡 / 手牌 / 突变 / 打牌 ─────────────────────────────────────
 
     private const int DrawMaxPerTurn = 3;
-    private const int ImmuneDrawCost = 5;
-    private const int CancerDrawCost = 10;
-    private const int MutateCost = 5;
+    internal const int ImmuneDrawCost = 5;
+    internal const int CancerDrawCost = 10;
+    internal const int MutateCost = 5;
 
     private static CardPool PoolFor(WorldState s, Cell c) => c.Faction == Faction.Cancer ? CardPool.Cancer :
         s.Players[c.OwnerSeat].ImmuneLevel switch

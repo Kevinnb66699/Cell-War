@@ -142,7 +142,7 @@ public static class WorldStateExtensions
     /// 解法照 `CopyTissue` 的 `setOccupying` 先例：给会被清空的那三处各加一个开关。
     /// 只加真正用到的三个 —— 将来要清 `Winner` 时再加第四个，别现在替未来立规矩。
     /// </summary>
-    public static TurnState Copy(this TurnState t, Phase? phase = null, int? seat = null, int? round = null, int? startStep = null, int? endStep = null, Faction? winner = null, int? alarm = null, int? pendingDiscard = null, EntityId? pendingDiscardCell = null,
+    public static TurnState Copy(this TurnState t, Phase? phase = null, int? seat = null, int? round = null, int? startStep = null, int? endStep = null, Faction? winner = null, string? winKind = null, int? alarm = null, int? pendingDiscard = null, EntityId? pendingDiscardCell = null,
         int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? effectorRound = null,
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
         EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null, EntityId? pendingChain = null, int? pendingChainWalkDepth = null,
@@ -155,7 +155,7 @@ public static class WorldStateExtensions
         bool setTrackCell = false, bool setTrackFrozenAt = false, bool setPendingChain = false, bool setPendingChemotaxis = false,
         bool setPendingCard = false, bool setPendingCouple = false, bool setPendingWalkCard = false, bool setPendingRemodel = false, bool setPendingLand = false)
         => new() { WorldRound = round ?? t.WorldRound, Phase = phase ?? t.Phase, ActivePlayerSeat = seat ?? t.ActivePlayerSeat,
-            StartStep = startStep ?? t.StartStep, EndStep = endStep ?? t.EndStep, Winner = winner ?? t.Winner, CancerAlarmRound = alarm ?? t.CancerAlarmRound,
+            StartStep = startStep ?? t.StartStep, EndStep = endStep ?? t.EndStep, Winner = winner ?? t.Winner, WinKind = winKind ?? t.WinKind, CancerAlarmRound = alarm ?? t.CancerAlarmRound,
             PendingDiscardSeat = setPendingDiscard ? pendingDiscard : pendingDiscard ?? t.PendingDiscardSeat,
             PendingDiscardCell = setPendingDiscard ? pendingDiscardCell : pendingDiscardCell ?? t.PendingDiscardCell,
             PendingMutationSeat = setPendingMutation ? pendingMutationSeat : pendingMutationSeat ?? t.PendingMutationSeat,

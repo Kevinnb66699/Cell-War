@@ -54,7 +54,8 @@ internal static class CheckpointCodec
     private sealed record ImageData(int Schema, string Ruleset, long Revision, WorldState State,
         long Tick, int NextSequence, long NextRequest, RngState? Rng, FutureData[] Future,
         ScheduledEvent[] Immediate, InputData? Input, string[] Outbox, bool Terminated,
-        long NextPresentationSeq);   // Schema 2（2026-09-18，Kevin 拍 E-5）：演出条目本身不进档，只持久化序号，续档后 seq 续得上（水位线是派生的）
+        long NextPresentationSeq,   // Schema 2（2026-09-18，Kevin 拍 E-5）：演出条目本身不进档，只持久化序号，续档后 seq 续得上（水位线是派生的）
+        long FeedSeq, FeedEntry[] FeedLog);   // 出牌流水是状态（观测协议 g.feed_log），与 Outbox 一样进档；Schema 2 尚未发布，直接并入
     private static readonly JsonSerializerOptions Options = CreateOptions();
     private static JsonSerializerOptions CreateOptions()
     {
@@ -70,17 +71,17 @@ internal static class CheckpointCodec
             s.Tick, s.NextSequence, s.NextRequest, s.Rng,
             s.Future.Select(p => new FutureData(p.Key, p.Value)).ToArray(), s.Immediate.ToArray(),
             s.Input is null ? null : new(s.Input.RequestId, s.Input.PlayerSeat, s.Input.Options.Cast<object>().ToArray()),
-            s.Outbox.ToArray(), s.Terminated, s.NextPresentationSeq), Options));
+            s.Outbox.ToArray(), s.Terminated, s.NextPresentationSeq, s.FeedSeq, s.FeedLog.ToArray()), Options));
     }
     public static (WorldImage, Revision) Decode(Checkpoint checkpoint)
     {
         var data = JsonSerializer.Deserialize<ImageData>(checkpoint.Json, Options) ?? throw new JsonException("Empty checkpoint.");
         // Schema 1 没有演出计数器；C# 侧今天没有任何玩家存档（服务器跑的是整份 Godot 工程），所以直接只认 2
         if (data.Schema != 2 || data.Ruleset != "core-slice-1" || data.Revision < 0 || data.Tick < 0 || data.NextSequence < 0 || data.NextRequest < 1
-            || data.NextPresentationSeq < 1)
+            || data.NextPresentationSeq < 1 || data.FeedSeq < 0)
             throw new JsonException("Unsupported checkpoint schema, ruleset or counters.");
         if (data.State?.Board?.Tissues == null || data.State.Cells == null || data.State.Players == null || data.State.Turn == null ||
-            data.Future == null || data.Immediate == null || data.Outbox == null)
+            data.Future == null || data.Immediate == null || data.Outbox == null || data.FeedLog == null)
             throw new JsonException("Incomplete checkpoint.");
         if (data.State.Board.Radius < 0 || data.State.Turn.WorldRound < 1 || !Enum.IsDefined(data.State.Turn.Phase))
             throw new JsonException("Invalid world calendar or board.");
@@ -134,6 +135,7 @@ internal static class CheckpointCodec
                 Rng = data.Rng, Future = future, Immediate = ImmutableStack.CreateRange(data.Immediate.Reverse()),
                 Input = input, Outbox = data.Outbox.ToImmutableList(), Terminated = data.Terminated,
                 NextPresentationSeq = data.NextPresentationSeq,
+                FeedSeq = data.FeedSeq, FeedLog = ImmutableList.CreateRange(data.FeedLog),
             }
         }, new(data.Revision));
     }

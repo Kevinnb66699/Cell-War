@@ -71,6 +71,14 @@ internal static class RulePolicies
     }
 
     /// <summary>移动费用管线吃的全部修饰：细胞身上适用的 + 场上的（趋化源 / 黏液侵染）。</summary>
+    /// <summary>迁移报价的逐段明细（观测协议 `options[].cost_rows`）：与 <see cref="BaseMoveCost"/> 同一条管线，只是把每一段记下来。</summary>
+    public static IReadOnlyList<Settlement.CostStep> MoveCostSteps(WorldState s, Cell c, HexPosition destination, int? rawCostOverride = null)
+    {
+        var steps = new List<Settlement.CostStep>();
+        Settlement.ApplyValue(rawCostOverride ?? RawMoveCost(s, c, destination), MoveModifiers(s, c, destination), null, steps);
+        return steps;
+    }
+
     private static List<ValueModifier> MoveModifiers(WorldState s, Cell c, HexPosition destination)
     {
         var cancerous = Cancerous(s.Board.Tissues[destination]);

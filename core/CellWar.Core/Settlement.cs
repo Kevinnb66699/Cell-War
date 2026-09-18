@@ -60,15 +60,20 @@ public static class Settlement
     /// </summary>
     public static int ApplyValue(int baseValue, IEnumerable<ValueModifier> mods) => ApplyValue(baseValue, mods, null);
 
+    /// <summary>费用管线的一段：哪条修饰把值从 Before 改成了 After（观测协议 `options[].cost_rows`，对应 GD `CWCost.quote().breakdown`）。</summary>
+    public sealed record CostStep(ValueModifier Modifier, int Before, int After);
+
+    public static int ApplyValue(int baseValue, IEnumerable<ValueModifier> mods, ICollection<ValueModifier>? applied) => ApplyValue(baseValue, mods, applied, null);
+
     /// <param name="applied">
     /// 给谁**真改了价**记账（GD `quote()` 的 `applied`）：限次修饰只在这时候才消耗（ON_BENEFIT，cw_cost.gd:238），
     /// 免费豁免同一竞争组只选第一条、且费用已经是 0 时谁也不消耗（cw_cost.gd:243-256）。null = 不记。
     /// </param>
-    public static int ApplyValue(int baseValue, IEnumerable<ValueModifier> mods, ICollection<ValueModifier>? applied)
+    public static int ApplyValue(int baseValue, IEnumerable<ValueModifier> mods, ICollection<ValueModifier>? applied, ICollection<CostStep>? steps)
     {
         var list = mods as IReadOnlyCollection<ValueModifier> ?? mods.ToArray();
         var value = baseValue;
-        void Step(ValueModifier m, int next) { if (next != value && applied != null) applied.Add(m); value = next; }
+        void Step(ValueModifier m, int next) { if (next != value) { applied?.Add(m); steps?.Add(new(m, value, next)); } value = next; }
         foreach (var m in Ordered(list, ModifierStage.Replace)) Step(m, m.Value);
         foreach (var m in Ordered(list, ModifierStage.Add)) Step(m, value + m.Value);
         foreach (var m in Ordered(list, ModifierStage.Subtract))
@@ -86,8 +91,8 @@ public static class Settlement
         // 免费豁免：同一竞争组里**只选第一条**（GD `_free_order`：来源层级 → 打出先后 → 名字，priority 全为 0 不排），
         // 已经是 0 就没有可豁免的东西 —— 谁也不消耗
         var free = Ordered(list, ModifierStage.Free).FirstOrDefault();
-        if (free != null) { if (value > 0 && applied != null) applied.Add(free); value = 0; }
-        foreach (var m in Ordered(list, ModifierStage.Surcharge)) { applied?.Add(m); value += m.Value; }   // 附加费一律算「用上了」
+        if (free != null) { if (value > 0) { applied?.Add(free); steps?.Add(new(free, value, 0)); } value = 0; }
+        foreach (var m in Ordered(list, ModifierStage.Surcharge)) { applied?.Add(m); steps?.Add(new(m, value, value + m.Value)); value += m.Value; }   // 附加费一律算「用上了」
         return value;
     }
 

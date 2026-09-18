@@ -5,6 +5,9 @@ namespace CellWar.Core;
 public sealed record PendingInput(long RequestId, int PlayerSeat, ImmutableArray<IDecision> Options);
 public readonly record struct InputAnswer(long RequestId, Revision ExpectedRevision, int OptionIndex);
 
+/// <summary>出牌流水的一条（GD `CWGame.note_feed`）：`kind` = play（谁打出）/ event（谁抽到事件卡）/ world（世界事件，pid / faction 恒 -1）。</summary>
+public sealed record FeedEntry(long Seq, string Kind, int Pid, int Faction, string Card, int Left);
+
 public sealed record SimulationState
 {
     public long Tick { get; init; }
@@ -24,6 +27,11 @@ public sealed record SimulationState
     /// **派生**而不是存：队列非空 = 最旧那条的 Seq；队列空 = 下一个序号（之前的全没了）。这样续档 / Fork 静音都不用另存一份、不会和主线的 Checkpoint 对不上。</summary>
     public long PresentationDroppedBefore => Presentation.Count == 0 ? NextPresentationSeq : Presentation[0].Seq;
     public const int PresentationCap = 256;
+    /// <summary>左侧出牌列的数据源（观测协议 `g.feed_log` / `g.feed_seq`，GD `cw_game.gd:83-90`）。与 <see cref="Outbox"/> 同层：**进 Checkpoint、不进 canon / state_hash**；
+    /// 广播是一次性的、断线重连要靠它补，所以是状态不是演出。推演静音时**照记**（分支反正会丢，记了才能和主线的存档对得上）。</summary>
+    public ImmutableList<FeedEntry> FeedLog { get; init; } = ImmutableList<FeedEntry>.Empty;
+    public long FeedSeq { get; init; }
+    public const int FeedKeep = 6;   // GD CWData.FEED_KEEP
     public bool Terminated { get; init; }
     public bool QueueEmpty => Future.Count == 0 && Immediate.IsEmpty;
 
@@ -45,7 +53,22 @@ public sealed record SimulationState
     {
         var list = keep ? Presentation.Add(new StagedEvent(NextPresentationSeq, ev)) : Presentation;
         if (list.Count > PresentationCap) list = list.RemoveAt(0);
-        return this with { Presentation = list, NextPresentationSeq = checked(NextPresentationSeq + 1) };
+        var next = this with { Presentation = list, NextPresentationSeq = checked(NextPresentationSeq + 1) };
+        return ev switch   // GD note_feed 的三个调用点（cw_game.gd:757,768,777）
+        {
+            CardPlayed cp => next.Feed("play", cp.Seat, (int)cp.Faction, cp.Card),
+            EventCardDrawn ed => next.Feed("event", ed.Seat, (int)ed.Faction, ed.Card),
+            WorldEventDrawn we => next.Feed("world", -1, -1, we.Name, we.Left),
+            _ => next,
+        };
+    }
+
+    private SimulationState Feed(string kind, int pid, int faction, string card, int left = 0)
+    {
+        var seq = checked(FeedSeq + 1);
+        var log = FeedLog.Add(new FeedEntry(seq, kind, pid, faction, card, left));
+        while (log.Count > FeedKeep) log = log.RemoveAt(0);
+        return this with { FeedLog = log, FeedSeq = seq };
     }
 
     public ScheduledEvent Peek() => Immediate.IsEmpty ? Future.First().Value : Immediate.Peek();

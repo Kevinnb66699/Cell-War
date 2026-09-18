@@ -118,7 +118,7 @@ internal static class SkillRules
     /// **它是常量不是旋钮** —— 与【转移】不同，GD 那边 `_cell_skill_base("homing")` 直接读常量，
     /// 只有 `"jump"` 走 `game.tune.metastasis_cost`。两者今天同为 1.0，别顺手合并成一个。
     /// </summary>
-    private const int MelanomaHomingCost = 10;
+    internal const int MelanomaHomingCost = 10;
 
     /// <summary>【转移】落点：GD `_jump_targets` —— **朝六个方向各直线跃进 5 格**（`pos + d * METASTASIS_RANGE`），落在板内且无细胞占据。
     /// 此前 C# 给的是「所有距离 == 5 的空格」（5 环有 30 格），选项表比 GD 多出一圈（L1 6p 第 39 步，2026-09-17）。</summary>
