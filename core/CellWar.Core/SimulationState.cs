@@ -20,8 +20,9 @@ public sealed record SimulationState
     /// 条目本身不进 Checkpoint（表现层不进快照，同 GD cw_state_codec.gd:1-4）。</summary>
     public ImmutableList<StagedEvent> Presentation { get; init; } = ImmutableList<StagedEvent>.Empty;
     public long NextPresentationSeq { get; init; } = 1;
-    /// <summary>水位线：Seq 小于它的条目已被丢弃。客户端拿到的 since_seq 比它小就知道自己漏了一段。</summary>
-    public long PresentationDroppedBefore { get; init; }
+    /// <summary>水位线：Seq 小于它的条目已不可得（溢出丢掉的、续档前的、推演里没留的）。客户端拿到的 since_seq 比它小就知道自己漏了一段。
+    /// **派生**而不是存：队列非空 = 最旧那条的 Seq；队列空 = 下一个序号（之前的全没了）。这样续档 / Fork 静音都不用另存一份、不会和主线的 Checkpoint 对不上。</summary>
+    public long PresentationDroppedBefore => Presentation.Count == 0 ? NextPresentationSeq : Presentation[0].Seq;
     public const int PresentationCap = 256;
     public bool Terminated { get; init; }
     public bool QueueEmpty => Future.Count == 0 && Immediate.IsEmpty;
@@ -38,17 +39,13 @@ public sealed record SimulationState
             : next with { Future = Future.Add(new(tick, order, sequence), item) };
     }
 
-    /// <summary>排一条演出条目。推演静音在 <c>Runtime</c> 那一层挡（它不是状态：进状态会让 Fork 多一次提交、Revision 对不上）。</summary>
-    public SimulationState Emit(IPresentationEvent ev)
+    /// <summary>排一条演出条目。<paramref name="keep"/> = false 是推演静音（<c>Runtime.PresentationMuted</c>）：**序号照走、条目不留** ——
+    /// 序号进 Checkpoint，分支与主线做同样的结算就得有同样的序号，否则 Fork 出来的存档和主线对不上。</summary>
+    public SimulationState Emit(IPresentationEvent ev, bool keep = true)
     {
-        var list = Presentation.Add(new StagedEvent(NextPresentationSeq, ev));
-        var dropped = PresentationDroppedBefore;
-        if (list.Count > PresentationCap)
-        {
-            dropped = list[0].Seq + 1;
-            list = list.RemoveAt(0);
-        }
-        return this with { Presentation = list, NextPresentationSeq = checked(NextPresentationSeq + 1), PresentationDroppedBefore = dropped };
+        var list = keep ? Presentation.Add(new StagedEvent(NextPresentationSeq, ev)) : Presentation;
+        if (list.Count > PresentationCap) list = list.RemoveAt(0);
+        return this with { Presentation = list, NextPresentationSeq = checked(NextPresentationSeq + 1) };
     }
 
     public ScheduledEvent Peek() => Immediate.IsEmpty ? Future.First().Value : Immediate.Peek();

@@ -244,9 +244,5 @@ internal sealed class EventContext : IEventContext
         if (output.Count > 128) output = output.RemoveAt(0);
         transaction.MutableImage.Simulation = s with { Outbox = output };
     }
-    public void Emit(IPresentationEvent ev)
-    {
-        if (muted) return;
-        transaction.MutableImage.Simulation = transaction.MutableImage.Simulation.Emit(ev);
-    }
+    public void Emit(IPresentationEvent ev) => transaction.MutableImage.Simulation = transaction.MutableImage.Simulation.Emit(ev, keep: !muted);
 }

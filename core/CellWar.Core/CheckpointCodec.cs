@@ -53,7 +53,8 @@ internal static class CheckpointCodec
     private sealed record FutureData(EventOrder Order, ScheduledEvent Event);
     private sealed record ImageData(int Schema, string Ruleset, long Revision, WorldState State,
         long Tick, int NextSequence, long NextRequest, RngState? Rng, FutureData[] Future,
-        ScheduledEvent[] Immediate, InputData? Input, string[] Outbox, bool Terminated);
+        ScheduledEvent[] Immediate, InputData? Input, string[] Outbox, bool Terminated,
+        long NextPresentationSeq);   // Schema 2（2026-09-18，Kevin 拍 E-5）：演出条目本身不进档，只持久化序号，续档后 seq 续得上（水位线是派生的）
     private static readonly JsonSerializerOptions Options = CreateOptions();
     private static JsonSerializerOptions CreateOptions()
     {
@@ -65,16 +66,18 @@ internal static class CheckpointCodec
     public static Checkpoint Encode(WorldImage image, Revision revision)
     {
         var s = image.Simulation;
-        return new(JsonSerializer.Serialize(new ImageData(1, "core-slice-1", revision.Value, image.State,
+        return new(JsonSerializer.Serialize(new ImageData(2, "core-slice-1", revision.Value, image.State,
             s.Tick, s.NextSequence, s.NextRequest, s.Rng,
             s.Future.Select(p => new FutureData(p.Key, p.Value)).ToArray(), s.Immediate.ToArray(),
             s.Input is null ? null : new(s.Input.RequestId, s.Input.PlayerSeat, s.Input.Options.Cast<object>().ToArray()),
-            s.Outbox.ToArray(), s.Terminated), Options));
+            s.Outbox.ToArray(), s.Terminated, s.NextPresentationSeq), Options));
     }
     public static (WorldImage, Revision) Decode(Checkpoint checkpoint)
     {
         var data = JsonSerializer.Deserialize<ImageData>(checkpoint.Json, Options) ?? throw new JsonException("Empty checkpoint.");
-        if (data.Schema != 1 || data.Ruleset != "core-slice-1" || data.Revision < 0 || data.Tick < 0 || data.NextSequence < 0 || data.NextRequest < 1)
+        // Schema 1 没有演出计数器；C# 侧今天没有任何玩家存档（服务器跑的是整份 Godot 工程），所以直接只认 2
+        if (data.Schema != 2 || data.Ruleset != "core-slice-1" || data.Revision < 0 || data.Tick < 0 || data.NextSequence < 0 || data.NextRequest < 1
+            || data.NextPresentationSeq < 1)
             throw new JsonException("Unsupported checkpoint schema, ruleset or counters.");
         if (data.State?.Board?.Tissues == null || data.State.Cells == null || data.State.Players == null || data.State.Turn == null ||
             data.Future == null || data.Immediate == null || data.Outbox == null)
@@ -129,7 +132,8 @@ internal static class CheckpointCodec
             {
                 Tick = data.Tick, NextSequence = data.NextSequence, NextRequest = data.NextRequest,
                 Rng = data.Rng, Future = future, Immediate = ImmutableStack.CreateRange(data.Immediate.Reverse()),
-                Input = input, Outbox = data.Outbox.ToImmutableList(), Terminated = data.Terminated
+                Input = input, Outbox = data.Outbox.ToImmutableList(), Terminated = data.Terminated,
+                NextPresentationSeq = data.NextPresentationSeq,
             }
         }, new(data.Revision));
     }

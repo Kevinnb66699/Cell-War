@@ -64,6 +64,7 @@ public class PresentationTests
         using var mainLease = runtime.Read();
         Assert.True(branch.PresentationMuted);
         Assert.Empty(branchLease.Snapshot.Simulation.Presentation);
+        Assert.Equal(mainLease.Snapshot.Simulation.NextPresentationSeq, branchLease.Snapshot.Simulation.NextPresentationSeq);   // 序号照走：分支的存档要和主线对得上
         Assert.False(runtime.PresentationMuted);
         Assert.Single(mainLease.Snapshot.Simulation.Presentation);
     }
@@ -77,6 +78,25 @@ public class PresentationTests
         var json = runtime.Checkpoint().Json;
         Assert.DoesNotContain("stage-only-text", json);   // JSON 会把中文转义，用 ASCII 才比得出
         Assert.Contains("log-only-text", json);
+    }
+
+    [Fact]
+    public void 存档只持久化两个计数器_续档后序号续得上_条目不带()
+    {
+        using var runtime = Create(new Handler("emit", c => c.Emit(Notice((string)c.CurrentEvent.Payload!))));
+        for (var i = 1; i <= 300; i++) runtime.Schedule(i, "emit", $"n{i}");
+        while (runtime.Run() > 0) { }
+        var json = runtime.Checkpoint().Json;
+        Assert.Contains("\"Schema\":2", json);
+        Assert.Contains("\"NextPresentationSeq\":301", json);
+        Assert.DoesNotContain("PresentationDroppedBefore", json);   // 水位线是派生的，不存
+        var (image, _) = CheckpointCodec.Decode(new(json));
+        Assert.Empty(image.Simulation.Presentation);
+        Assert.Equal(301, image.Simulation.NextPresentationSeq);
+        Assert.Equal(301, image.Simulation.PresentationDroppedBefore);   // 续档前的条目全没了：水位线 = 下一个序号
+        var next = image.Simulation.Emit(Notice("after"));
+        Assert.Equal(301, next.Presentation[^1].Seq);   // 续得上，不重编号
+        Assert.Throws<System.Text.Json.JsonException>(() => CheckpointCodec.Decode(new(json.Replace("\"Schema\":2", "\"Schema\":1"))));
     }
 
     [Fact]
