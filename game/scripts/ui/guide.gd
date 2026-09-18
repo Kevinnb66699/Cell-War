@@ -25,15 +25,30 @@ extends Control
 ## 其余界面仍守「无阴影、无装饰动效」。
 const ZONE := Rect2(88, 16, 600, 200)
 const PAD := 16
-## 纵向节奏（行框排死，改动先重算）：眉行 10px 行框 14、标题 20px 行框 28+2、正文 10px×2
-## 行框 16、行动提示 20px 两行 60、代做尾巴 10px 行框 14、按钮行 20px 行框 28。段间 4~6px。
-## 整簇压得越紧越好——浮层下缘每低一像素，就多压一排棋盘格（2026-09-10 截图定）。
+## **操作放屏幕下方**（Kevin 2026-09-19，看 S3 第一关真机截图拍的）：
+## 说明（眉行 / 标题 / 正文）留在上部 `ZONE`，**行动提示 + 三个按钮整组挪到左下**这一带 `ACT_ZONE`。
+## 原因见 S3 截图：第一关正文五行，行框 16px 一路铺到 y=138，而行动提示原本钉死在 y=92 —— 直接压在正文上。
+## 只把行距拉开治不了本：正文行数是剧本的自由量，说明与操作本来就该分开两处。
+##
+## `ACT_ZONE` 的四条边是**算出来的**，不是随手摆的：
+##   下缘 464 —— 行动栏的目标选择态是 `CWActionBar.PROMPT_RECT`，横跨 x 12..685 / y 466..518，
+##                压上去就和引擎自己的「选择要迁移到的组织」叠字。留 2px。
+##   右缘 520 —— Kevin 指的空位（右下 x 525..685 是技能栏形态的行动栏）。
+##   上缘 356 —— 出牌列 `CWFeed.RECT` 到 y=348 为止。
+##   ⚠ 手牌抽屉抬起时上沿是 y=428（`CWHand`，只在悬停时抬），会和尾巴 / 按钮行叠 ——
+##     第一章 `ui_layers.hand = false`，等开手牌的关（S8）再定这一处的让位。
+const ACT_ZONE := Rect2(8, 356, 512, 108)
+## 上部（说明）的纵向节奏：眉行 10px 行框 14、标题 20px 行框 28+2、正文 10px 每行 16。
+## 正文行数不限 —— 它已经不会撞上任何东西了。
 const ROW_META := 4.0
 const ROW_TITLE := 22.0
 const ROW_BODY := 58.0
-const ROW_HINT := 92.0
-const ROW_TAIL := 150.0
-const ROW_BTN := 164.0
+const BODY_LINE := 16.0
+## 下部（操作）的纵向节奏，**局部坐标**（相对 `ACT_ZONE`）：行动提示 20px 两行 60、
+## 代做尾巴 10px 行框 14、按钮行 20px 行框 28
+const ROW_HINT := 0.0
+const ROW_TAIL := 64.0
+const ROW_BTN := 80.0
 ## 白色柔光慢闪烁：3.2s 一个亮暗周期（比提亮层的 1.2s 脉冲慢一截，读起来是「呼吸」不是「报警」），
 ## 亮暗振幅给在纹理 alpha 之外靠 modulate 调
 const HALO_PERIOD := 3.2
@@ -77,10 +92,16 @@ var _btn: Label
 var _skip: Label
 var _codex_btn: Label
 var _content: Control
+var _act: Control        ## 下部「操作」那一组（行动提示 / 代做尾巴 / 三个按钮），钉在 ACT_ZONE
 var _halo: TextureRect   ## 行动提示底下的白色柔光（慢闪烁的发光体，无可见框）
+var _btn_glow: TextureRect  ## 按钮行底下那一小片柔光
 var _fog: TextureRect    ## 整个浮层底下的白雾渐变：把字从花花的棋盘上托出来
 var _pulse_t := 0.0
 var _chapter_label: Label
+## 剧本翻到新的一步（`_render` 走完）时回调一次。`CWMatch` 接它去装决策闸 / UI 层 / 浮现 ——
+## 闸的正牌时机是 `step_end`（方案 §1.10），但剧本自己翻页时也得当场换闸，
+## 否则挂在旧闸上的那一问永远醒不来
+var on_step_changed := Callable()
 
 
 func setup(match) -> void:
@@ -112,15 +133,6 @@ func _build() -> void:
 	_fog = _soft_rect(_soft_tex(GradientTexture2D.FILL_LINEAR,
 		Color(Color.WHITE, 0.12)), Vector2(-40, -8), ZONE.size + Vector2(80, 32))
 	add_child(_fog)
-	## 按钮行 / 代做尾巴的小片柔光：这一行离棋盘最近、底下常是亮格，白雾带到底部已经衰减，
-	## 再垫一小片把字托出来（同是软渐变，不出现可见边界）
-	var btn_glow := _soft_rect(_soft_tex(GradientTexture2D.FILL_RADIAL,
-		Color(Color.WHITE, 0.16)), Vector2(100, ROW_TAIL - 9), Vector2(400, 60))
-	add_child(btn_glow)
-
-	_halo = _soft_rect(_soft_tex(GradientTexture2D.FILL_RADIAL,
-		Color(Color.WHITE, 0.4)), Vector2(20, ROW_HINT + 30 - 45), Vector2(560, 90))
-	add_child(_halo)
 
 	_chapter_label = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	_chapter_label.position = Vector2(PAD, ROW_META)
@@ -140,27 +152,46 @@ func _build() -> void:
 	_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_content)
 
+	## ---- 下部「操作」那一组（Kevin 2026-09-19：操作放屏幕下方）----
+	## 一个容器装着，位置一次算清：`ACT_ZONE` 是屏幕坐标，容器挂在浮层下面，所以要减掉浮层自己的原点。
+	## `Control` 默认不裁剪子节点，所以容器坐标为负 / 超出父矩形都照常画、也照常收点击（`_fog` 早就是这么干的）
+	_act = Control.new()
+	_act.position = ACT_ZONE.position - ZONE.position
+	_act.size = ACT_ZONE.size
+	_act.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_act)
+
+	## 按钮行 / 代做尾巴的小片柔光：这一行离棋盘最近、底下常是亮格，白雾带到底部已经衰减，
+	## 再垫一小片把字托出来（同是软渐变，不出现可见边界）
+	_btn_glow = _soft_rect(_soft_tex(GradientTexture2D.FILL_RADIAL,
+		Color(Color.WHITE, 0.16)), Vector2(56, ROW_TAIL - 9), Vector2(400, 60))
+	_act.add_child(_btn_glow)
+
+	_halo = _soft_rect(_soft_tex(GradientTexture2D.FILL_RADIAL,
+		Color(Color.WHITE, 0.4)), Vector2(-24, ROW_HINT + 30 - 45), Vector2(560, 90))
+	_act.add_child(_halo)
+
 	_hint = CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
 	_hint.position = Vector2(PAD, ROW_HINT)
-	_hint.size = Vector2(ZONE.size.x - PAD * 2, 60)
+	_hint.size = Vector2(ACT_ZONE.size.x - PAD * 2, 60)
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_hint.clip_text = true
-	add_child(_hint)
+	_act.add_child(_hint)
 
 	_hint_tail = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT)
 	_hint_tail.position = Vector2(PAD, ROW_TAIL)
-	_hint_tail.size = Vector2(ZONE.size.x - PAD * 2, 14)
+	_hint_tail.size = Vector2(ACT_ZONE.size.x - PAD * 2, 14)
 	_hint_tail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	add_child(_hint_tail)
+	_act.add_child(_hint_tail)
 
 	_btn = _primary("继续")
-	add_child(_btn)
+	_act.add_child(_btn)
 	_skip = _clicky("跳过引导", func() -> void: dismiss())
-	add_child(_skip)
+	_act.add_child(_skip)
 	_codex_btn = _clicky("知识之书", func() -> void: _open_codex())
-	add_child(_codex_btn)   ## 三个按钮都只在这里挂一次（接入时发现这一个漏挂了）
+	_act.add_child(_codex_btn)   ## 三个按钮都只在这里挂一次（接入时发现这一个漏挂了）
 	## 按钮行的横向位置在 _render 里按实测宽度居中（按钮字数会变：继续/下一章/完成引导）
 
 
@@ -266,6 +297,37 @@ func _turn_page() -> void:
 	if _chapter != chapter_before and on_chapter_done.is_valid():
 		on_chapter_done.call(_chapter)   ## 跨章 = 换一局（导演装配新局面）
 	_render()
+
+
+## 剧本正文里的 `**着重**` 怎么落到屏幕上。
+##
+## **今天的正文是 `Label`，不是 `RichTextLabel`** —— `CWStyle.label()` 造的就是 `Label`，
+## 而 `Label` 不认 BBCode，于是 S3 真机截图里「发现\*\*癌组织\*\*」的星号被**照字面画了出来**。
+## 处置照「数据不改、渲染时剥」：剧本正本（`game/data/tutorial/*.json`）保留 Markdown 的着重标记
+## —— 它是给写剧本的人看的，也是将来换 `RichTextLabel` 时唯一的信息源 —— 渲染这一层把它剥掉。
+## 换成 `RichTextLabel` 那天，这一个函数改成 `**x**` → `[b]x[/b]` 就够，别处一个字不用动。
+static func plain(text: String) -> String:
+	return text.replace("**", "")
+
+
+## 重置本关（常驻「重置」按钮，PRD:41）：**步游标归零**，章号不动。
+## 局面那一半由 `CWMatch` 走 `CWTutorialStage.reload_world(关首那份 world)`
+func reset_to_step0() -> void:
+	_step = 0
+	auto_next = false
+	_hint_text = ""
+	visible = true
+	active = true
+	_render()
+
+
+## 换局 / 重装之后重新取一次判据基线（S3 回传第 8 条）。
+##
+## 跨关换局那一瞬间两关的免疫起点不是同一格，`watch: "moved"` 拿**上一关**的基线去比当场成立 ——
+## 于是新关的第一步一出生就被判「做到了」，翻过去，还把上一关写进 `guide_progress.cfg`。
+## 装闸的时候（`CWMatch._on_step` 的 `step_end`）顺手重取一次，基线就永远属于当前这一局
+func rebase_watch() -> void:
+	_watch_base = WATCH.snapshot(_mirror(), _human_pid())
 
 
 ## 跳到指定章节（引导目录用）。跳到哪一章顺便把它前面的章节都视为读过了 ——
@@ -395,6 +457,17 @@ func check_progress() -> void:
 		_turn_page()
 
 
+## 某条判据此刻成立吗（拿当前步骤的基线跟现在比）。`reset_when` 用它 —— 同一张判据表、同一个基线，
+## 和 `check_progress` 的区别只是命中之后干什么（那边翻页、这边重置本关）
+func watch_hit(key: String) -> bool:
+	if key == "":
+		return false
+	var now: Dictionary = WATCH.snapshot(_mirror(), _human_pid())
+	if not WATCH.same_turn(_watch_base, now):
+		return false
+	return WATCH.done(key, _watch_base, now)
+
+
 ## 屏幕前这位真人的席位（没有 = -1）。教程局永远只有一席，取第一个就够
 func _human_pid() -> int:
 	if _match == null or not is_instance_valid(_match) or _match.human_players.is_empty():
@@ -420,7 +493,7 @@ func _render() -> void:
 		_chapter + 1, CWGuideData.CHAPTER_COUNT,
 		CWGuideData.chapter_titles()[_chapter], _step + 1, all.size()]
 	if _title != null:
-		_title.text = s["t"]
+		_title.text = plain(s["t"])
 	for l in _body:
 		l.queue_free()
 	_body.clear()
@@ -437,15 +510,19 @@ func _render() -> void:
 			body_lines.append("预测：" + str(assist["e_prediction"]))
 			body_lines.append("规则：" + str(assist["rule_explanation"]))
 	for line in body_lines:
-		var label := CWStyle.label(line, CWStyle.SIZE_LABEL, CWStyle.TEXT)
+		var label := CWStyle.label(plain(str(line)), CWStyle.SIZE_LABEL, CWStyle.TEXT)
 		label.position = Vector2(0, y)
-		label.size = Vector2(_content.size.x, 16)
+		label.size = Vector2(_content.size.x, BODY_LINE)
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		label.clip_text = true
 		label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		_content.add_child(label)
 		_body.append(label)
-		y += 16
+		y += BODY_LINE
+	## 正文块的高度跟着行数长（**它不再顶到任何东西**：操作那一组在屏幕下方，Kevin 09-19），
+	## 白雾也跟着收放 —— 固定 200 高的雾在只有一行正文时会平白洗掉两排棋盘格
+	_content.size.y = maxf(y, BODY_LINE)
+	_fog.size = Vector2(ZONE.size.x + 80, ROW_BODY + _content.size.y + 32)
 	var last_of_chapter: bool = _step >= all.size() - 1
 	var last_of_all: bool = _chapter >= CWGuideData.CHAPTER_COUNT - 1 and last_of_chapter
 	_btn.text = "下一章" if last_of_chapter and not last_of_all else ("完成引导" if last_of_all else "继续")
@@ -455,7 +532,7 @@ func _render() -> void:
 	_codex_btn.size = _codex_btn.get_minimum_size()
 	var gap := 16.0
 	var total: float = _skip.size.x + gap + _codex_btn.size.x + gap + _btn.size.x
-	var x := (ZONE.size.x - total) / 2.0
+	var x := (ACT_ZONE.size.x - total) / 2.0
 	for c: Label in [_skip, _codex_btn, _btn]:
 		c.position = Vector2(x, ROW_BTN)
 		x += c.size.x + gap
@@ -463,6 +540,9 @@ func _render() -> void:
 	_refresh_hint()
 	## 判据的基线在「步骤成为当前」的瞬间取好（渲染即当前）
 	_watch_base = WATCH.snapshot(_mirror(), _human_pid())
+	## 剧本翻到新的一步：装闸 / UI 层 / 浮现（S4，见 on_step_changed 的注释）
+	if on_step_changed.is_valid():
+		on_step_changed.call()
 
 
 ## 引导结束时由 CWMatch 调用：隐藏面板并清掉引用

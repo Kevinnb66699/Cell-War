@@ -165,6 +165,8 @@ func _run_all() -> void:
 		t_case_loader_keys, t_case_diff,
 		## 新手引导 S2：cwtut/1 关卡数据与九条纪律的执行机构
 		t_tutorial_data,
+		## 新手引导 S4：常驻壳 + 决策闸 + ui_layers + reveal
+		t_tutorial_shell,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -10770,18 +10772,29 @@ func t_tutorial() -> void:
 	## 底部三个按钮不能贴在一起（接入时真机截图里「跳过引导知识之书」连成了一句）
 	var skip_r: float = m._guide._skip.position.x + m._guide._skip.size.x
 	var codex_r: float = m._guide._codex_btn.position.x + m._guide._codex_btn.size.x
-	check(m._guide._codex_btn.get_parent() == m._guide and m._guide._codex_btn.position.x - skip_r >= 16.0
+	## **改判（S4 / Kevin 2026-09-19「操作放屏幕下方」）**：原断言「三个按钮挂在 `_guide` 上」→
+	## 「挂在 `_guide._act`（屏幕下方那一组）上」。依据：说明（眉行/标题/正文）留在上部 ZONE，
+	## 行动提示 + 三个按钮整组挪到左下 `CWGuide.ACT_ZONE` —— 父节点跟着换了一层，**间距判据一个字没动**。
+	check(m._guide._codex_btn.get_parent() == m._guide._act and m._guide._codex_btn.position.x - skip_r >= 16.0
 		and m._guide._btn.position.x - codex_r >= 16.0,
-		"「跳过引导」「知识之书」「继续」都挂在面板上且彼此至少隔 16px（%.0f / %.0f）"
+		"「跳过引导」「知识之书」「继续」都挂在操作组上且彼此至少隔 16px（%.0f / %.0f）"
 		% [m._guide._codex_btn.position.x - skip_r, m._guide._btn.position.x - codex_r])
-	## 竖向也不挤（Kevin 09-05 看截图提的；09-10 改沉浸式浮层：眉行 → 标题 → 正文 → 行动提示 → 尾巴 → 按钮）：
-	## 相邻两段不重叠，按钮行底边不出浮层区
+	## **改判（S4 / Kevin 2026-09-19）**：原断言「六段在同一个 `ZONE` 里自上而下不重叠 + 按钮底边不出浮层」→
+	## 「说明三段留在上部、操作三段整组在屏幕下方，两组**在屏幕坐标上不相交**，且操作组不压行动栏」。
+	## 依据：S3 第一关真机截图 —— 正文五行铺到 y=138，而行动提示原本钉死在 y=92，直接压在正文上。
+	## 只拉行距治不了本（正文行数是剧本的自由量），Kevin 拍板把「操作」整组挪到屏幕下方。
+	## 数字来源：`CWActionBar.PROMPT_RECT`（目标选择态，y 466 起、横跨 x 12..685）是操作组的下界。
+	var say_bottom: float = CWGuide.ZONE.position.y + m._guide._content.position.y + m._guide._content.size.y
+	var act_top: float = CWGuide.ACT_ZONE.position.y
+	var act_bottom: float = CWGuide.ACT_ZONE.position.y + m._guide._btn.position.y + m._guide._btn.size.y
 	check(m._guide._content.position.y >= m._guide._title.position.y + 26
-		and m._guide._hint.position.y >= m._guide._content.position.y + m._guide._content.size.y
-		and m._guide._hint_tail.position.y > m._guide._hint.position.y
-		and CWGuide.ZONE.size.y - (m._guide._btn.position.y + m._guide._btn.size.y) >= 4.0,
-		"眉行 / 标题 / 正文 / 行动提示 / 尾巴 / 按钮六段自上而下不重叠（按钮底边到浮层底 %.0f）"
-		% [CWGuide.ZONE.size.y - (m._guide._btn.position.y + m._guide._btn.size.y)])
+		and m._guide._body.size() == 5 and say_bottom > 130.0
+		and act_top > say_bottom + 100.0
+		and m._guide._hint_tail.position.y > m._guide._hint.position.y + m._guide._hint.size.y - 1.0
+		and m._guide._btn.position.y > m._guide._hint_tail.position.y
+		and act_bottom <= CWActionBar.PROMPT_RECT.position.y,
+		"说明（%d 行，底边 y=%.0f）与操作组（顶边 y=%.0f、底边 y=%.0f）不相交，操作组不压行动栏（y=%.0f 起）"
+		% [m._guide._body.size(), say_bottom, act_top, act_bottom, CWActionBar.PROMPT_RECT.position.y])
 	## 沉浸式浮层没有窗口框（Kevin 09-10）：白雾 / 柔光只画不挡，且柔光跟着行动提示同灭同亮
 	check(m._guide._fog.mouse_filter == Control.MOUSE_FILTER_IGNORE
 		and m._guide._halo.mouse_filter == Control.MOUSE_FILTER_IGNORE
@@ -10856,6 +10869,12 @@ func t_tutorial() -> void:
 	check(sp.rects.size() == 1 and sp.rects[0] == m.action_bar.button_rect("迁移"), "move：行动栏「迁移」按钮")
 	sp.sync("attack_limit", m)
 	check(sp.rects.size() == 1 and sp.rects[0] == m.action_bar.bar_rect(), "attack_limit：整条行动栏")
+	## **改判（S4）**：判据形状不变，只是**先把 `ui_layers.end_turn` 拨开**再验。
+	## 依据：新第一关的 `ui_layers` 把「结束回合」整条关着（方案 §2.3：第一 ~ 五关进不了 E 阶段 ⇒ 不判胜负），
+	## 而这一段测的是 **FLAGS → 屏幕矩形的映射**，不是层开关本身（层归 t_tutorial_shell 盯）。
+	CWGuideLayers.apply({ "end_turn": true })
+	m.panel.guide_layers(true, true)
+	m.panel.show_end_turn(true)
 	sp.sync("end", m)
 	check(sp.rects.size() == 1 and m.panel._end.visible and sp.rects[0] == m.panel._end.get_global_rect(), "end：右栏「结束回合」按钮")
 	sp.sync("hand_card", m)
@@ -21131,3 +21150,262 @@ func t_tutorial_data() -> void:
 
 	## 校验只读：打完七发之后正本还是干净的
 	check(d.validate(levels["c1_l2"]).is_empty(), "校验只读 —— 正本没被坏数据蹭到")
+
+
+## 新手引导 S4：常驻壳（章节提示 / 全屏禁用 / 重置 / 目录）+ 决策闸 + `ui_layers` + `reveal`。
+## **全是新增判据**，一条老 check 都不动（`t_tutorial` 的三条改判写在那边的注释里）。
+func t_tutorial_shell() -> void:
+	print("[新手引导 S4·常驻壳与决策闸]")
+
+	# ---- 4 决策闸的三态 + 下标只映射一次（纯单元：不起局、不建界面）----
+	var GATE := load("res://tests/guide_gate_probe.gd")
+	var humans: Array[int] = [0]        ## human_pids 是 Array[int]：untyped 数组赋不进去
+	var req := { "kind": "action", "pid": 0, "prompt": "", "options": [
+		{ "label": "迁移 A", "data": { "act": "move", "to": Vector2i(0, -1) } },
+		{ "label": "迁移 B", "data": { "act": "move", "to": Vector2i(-2, 0) } },
+		{ "label": "结束回合", "data": { "act": "end" } }] }
+	var b_open = GATE.new()
+	b_open.human_pids = humans
+	b_open.pick = 2
+	var got: int = await b_open.ask(req)
+	check(got == 2 and b_open.seen.size() == 1 and (b_open.seen[0] as Array).size() == 3,
+		"三态①　allow 缺省（null）= 全开：三条选项原样交给界面，下标原样回传（实得 %d）" % got)
+	## 非空：只留命中的那一条，**下标映射回原表只此一次**（附 C 第 8 条：映两次不崩、静默错到底）
+	var b_one = GATE.new()
+	b_one.human_pids = humans
+	b_one.set_allow(["k=action|act=move|to=-2,0"])
+	b_one.pick = 0
+	got = await b_one.ask(req)
+	check((b_one.seen[0] as Array).size() == 1
+		and str((b_one.seen[0][0] as Dictionary)["label"]) == "迁移 B" and got == 1,
+		"三态②　allow 非空：view 只剩被点名的那一条；答 view 下标 0 落回**原表**下标 1（实得 %d）" % got)
+	## 前缀匹配（语义键文法 `k=<kind>|<field>=<v>|…`）：一条 `act=move` 把两条迁移都留下、
+	## 把「结束回合」关在门外 —— 这正是 §2.3「不判胜负」能整条绕开 win_checks 的前提
+	var b_pre = GATE.new()
+	b_pre.human_pids = humans
+	b_pre.set_allow(["k=action|act=move"])
+	b_pre.pick = 1
+	got = await b_pre.ask(req)
+	check((b_pre.seen[0] as Array).size() == 2 and got == 1,
+		"前缀匹配：两条迁移都留下、「结束回合」被关在门外（实得原表下标 %d）" % got)
+	## `[]` = 全禁：挂起，**一次也不答**；闸放开才答
+	var b_shut = GATE.new()
+	b_shut.human_pids = humans
+	b_shut.set_allow([])
+	var shut_done: Array = [false, -1]
+	var run_shut := func() -> void:
+		var r: int = await b_shut.ask(req)
+		shut_done[0] = true
+		shut_done[1] = r
+	run_shut.call()
+	check(b_shut.answered == 0 and not bool(shut_done[0]),
+		"三态③　allow = [] 全禁：这一问挂起，answer 调用数 0（行动栏根本不建）")
+	b_shut.set_allow(["k=action|act=end"])
+	check(b_shut.answered == 1 and bool(shut_done[0]) and int(shut_done[1]) == 2,
+		"闸放开：挂着的那一问当场醒过来，落到原表下标 2（实得 %d）" % int(shut_done[1]))
+	## 剧本写错（闸非空却一条都没命中）：warning + 挂起，**绝不回落成全开、也绝不替玩家乱答**
+	var b_miss = GATE.new()
+	b_miss.human_pids = humans
+	b_miss.set_allow(["k=action|act=draw"])
+	var miss_done: Array = [false, -1]
+	var run_miss := func() -> void:
+		var r: int = await b_miss.ask(req)
+		miss_done[0] = true
+		miss_done[1] = r
+	run_miss.call()
+	check(b_miss.answered == 0 and not bool(miss_done[0]),
+		"剧本写错（一条都没命中）：打 warning 并挂起，answer 调用数 0 —— 不回落成全开")
+	b_miss.set_allow(null)
+	check(b_miss.answered == 1 and bool(miss_done[0]) and int(miss_done[1]) == 0,
+		"出路是常驻「重置 / 目录」：闸一换就重来一遍（实得原表下标 %d）" % int(miss_done[1]))
+	## abort 也要能把挂在**闸**上的那一问叫醒（闸不是 _pending，基类够不着它）
+	var b_ab = GATE.new()
+	b_ab.human_pids = humans
+	b_ab.set_allow([])
+	var ab_done: Array = [false]
+	var run_ab := func() -> void:
+		var _r: int = await b_ab.ask(req)
+		ab_done[0] = true
+	run_ab.call()
+	b_ab.abort()
+	check(b_ab.answered == 0 and bool(ab_done[0]),
+		"拆局：abort 把挂在闸上的那一问也叫醒（不发这一下就留一条永远醒不来的协程）")
+
+	# ---- 6 ui_layers 的 energy_display：无限能量换成标志文字（三个渲染点一条路）----
+	CWGuideLayers.reset()
+	check(CWGuideLayers.energy_text(CWGuideLayers.INFINITE_AT) == CWData.fmt(CWGuideLayers.INFINITE_AT)
+		and CWGuideLayers.on("sidebar") and CWGuideLayers.energy_mode() == "plain",
+		"默认（= 正式对局）：能量照常按十分位写，所有层全开")
+	CWGuideLayers.apply({ "energy_display": "infinite", "sidebar": [], "hand": false })
+	check(CWGuideLayers.energy_text(CWGuideLayers.INFINITE_AT) == CWGuideLayers.INFINITE_MARK
+		and CWGuideLayers.energy_text(30) == "3.0"
+		and not CWGuideLayers.on("sidebar") and not CWGuideLayers.on("hand")
+		and CWGuideLayers.on("cost"),
+		"energy_display=infinite：标志值写成「%s」、真实数字照旧；`[]` 与 false 都是「这一层关着」，没写的层不动"
+			% CWGuideLayers.INFINITE_MARK)
+	var energy_points := { "match_panel.gd": 0, "tile_info.gd": 0, "ui_bridge.gd": 0 }
+	for f in energy_points:
+		energy_points[f] = FileAccess.get_file_as_string("res://scripts/ui/%s" % f).count("CWGuideLayers.energy_text(")
+	check(int(energy_points["match_panel.gd"]) == 1 and int(energy_points["tile_info.gd"]) == 1
+		and int(energy_points["ui_bridge.gd"]) == 1,
+		"能量的三个渲染点全走同一条路（%s）—— 漏一处就会出现「右栏写无限、悬停写 9999.0」" % str(energy_points))
+	CWGuideLayers.reset()
+
+	# ---- 7 正文里的 `**着重**` 不许照字面画出来（S3 真机截图）----
+	var raw_has_stars := false
+	for i in CWGuideData.CHAPTER_COUNT:
+		for st in CWGuideData.steps(i):
+			for line in (st.get("b", []) as Array):
+				if str(line).contains("**"):
+					raw_has_stars = true
+	check(raw_has_stars, "前提：剧本正本里确实写着 Markdown 的 `**着重**`（数据不改，渲染时剥）")
+	check(CWGuide.plain("发现**癌组织**，立即执行清除程序！") == "发现癌组织，立即执行清除程序！",
+		"CWGuide.plain 把 `**` 剥掉（换 RichTextLabel 那天只改这一个函数）")
+	var solo := CWGuide.new()
+	root.add_child(solo)
+	solo.setup(null)
+	solo._chapter = 1
+	solo._step = 0
+	solo._render()
+	var stars: Array = []
+	for l in solo._body:
+		if l.text.contains("**"):
+			stars.append(l.text)
+	check(stars.is_empty() and not solo._title.text.contains("**") and solo._body.size() == 2,
+		"渲染出来的标题与正文里一个字面 `**` 都没有（残留：%s）" % str(stars))
+	solo.queue_free()
+
+	# ---- 起一局真教程：常驻壳 / ui_layers / reveal / 重置 / 跨关 ----
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	CWSettings.ai_delay_ms = 0
+	CWGuideProgress.clear()
+	m.tutorial = true
+	m.player_count = 2
+	m.human_players = [0]
+	m.ai_level = CWMatch.AI_NORMAL
+	m.cancer_types = [CWData.CancerType.OSTEO]
+	m.start()
+	await process_frame
+	await process_frame
+
+	# ---- 1 章节提示：`chapter` 变了才弹；弹着时全部操作禁用 ----
+	var shell: CWGuideShell = m._shell
+	check(shell != null and is_instance_valid(shell) and shell.get_parent() == m.ui
+		and shell.get_index() > m._guide.get_index() and shell.get_index() < m.pause_menu.get_index(),
+		"常驻壳在 UI 层、压在引导浮层之上、暂停菜单之下（遮挡层要连浮层一起盖住）")
+	check(shell.blocking() and shell._banner.visible and shell._banner_text.text.begins_with("第 1 章"),
+		"开局弹第 1 章的全屏提示（PRD:35）：%s" % shell._banner_text.text)
+	check(not shell.show_chapter(1, "Cell"),
+		"同一章反复调不再弹 —— 关与关静默切换（PRD:37）就靠这一条")
+	check(shell._blocker.mouse_filter == Control.MOUSE_FILTER_STOP and shell._blocker.visible
+		and shell._blocker.size.x >= CWView.screen_size().x
+		and shell._reset_btn.get_index() > shell._blocker.get_index()
+		and shell._menu_btn.get_index() > shell._blocker.get_index(),
+		"提示期间一块真·全屏 STOP 层盖住棋盘与面板；两个常驻按钮排在它之上（PRD:41/43 提示期也可点）")
+	await process_frame
+	check((m.bridge as CWGuideBridge).blocked and (m.bridge as CWGuideBridge).gate_closed(),
+		"PRD:51 的两层齐了：遮挡层之外，决策闸也关着")
+	shell.close_banner()
+	await process_frame
+	check(not shell.blocking() and not (m.bridge as CWGuideBridge).blocked,
+		"点任意处关掉提示：遮挡撤掉、闸跟着放开")
+
+	# ---- 3 目录：未通关灰显不可点（Q-14 默认）----
+	shell.toggle_menu(0)
+	var enabled := shell.menu_enabled()
+	check(enabled.size() == CWGuideData.CHAPTER_COUNT and enabled[0] and not enabled[1]
+		and shell._menu_rows[1].mouse_filter == Control.MOUSE_FILTER_IGNORE,
+		"目录列出全部 %d 关：正在玩的第 1 关可点、没通关的第 2 关灰显且不响应鼠标" % enabled.size())
+	check(shell._menu_rows[0].text.contains(CWGuideData.chapter_subtitles()[0])
+		and CWGuideData.chapter_subtitles()[0] != CWGuideData.chapter_titles()[0],
+		"目录那行小字读的是关的 `subtitle`（S4 补的键），不是章名：%s" % shell._menu_rows[0].text)
+	shell.toggle_menu(0)
+	check(not shell.blocking(), "目录关上，遮挡也跟着撤")
+
+	# ---- 3' ui_layers 真落到控件上（第一关：只剩棋盘和一个「迁移」）----
+	await process_frame
+	check(not m.panel.visible and not m.hand.visible and not m.panel._end.visible
+		and not m.panel._round.visible,
+		"第一关的 ui_layers：右栏 / 手牌 / 结束回合 / 回合数全收起来")
+	check((m.bridge as CWUIBridge).move_costs.is_empty(),
+		"`cost: false`：每格耗能整张表不填 ⇒ 悬停详情不写「迁移耗能 x」（PRD:107）")
+	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["move"]["hint"],
+		"闸放行之后第一问照常出：提示行还是「迁移」那句（%s）" % m._guide._hint.text)
+
+	# ---- 换到第二关：reveal / 重置 / 跨关不误记 ----
+	m._guide._chapter = 1
+	m._guide._step = 0
+	m._guide._render()
+	m._advance_tutorial_chapter(1)
+	await process_frame
+	await process_frame
+	check(m._tutorial_ch == 1 and m.mirror.cell_of(0)["pos"] == Vector2i(0, -1),
+		"换到第二关：免疫按数据站在 (0,-1)")
+	check(not shell.blocking(),
+		"关与关之间不弹提示（PRD:37）—— 两关同属第 1 章，`chapter` 没变")
+
+	# ---- 5 reveal：活跃集 ∪ 这一步的坐标，is_active 立刻真、tile_shown 等补间 ----
+	var hidden := Vector2i(5, -1)
+	await create_timer(0.6).timeout      ## 先让换关那一下的淡出补间走完，「补间前 / 补间后」才比得干净
+	check(not m.board.is_active(hidden) and not m.board.tile_shown(hidden)
+		and not m._cell_nodes[1].visible,
+		"Step1 期间 (5,-1) 还在遮罩外，那只癌细胞的节点不画（预置 + 遮罩揭示）")
+	m._guide._step = 2                       ## c1_l2 的 Step2 第一步：reveal ["5,-1"]
+	m._guide._render()
+	check(m.board.is_active(hidden) and not m.board.tile_shown(hidden)
+		and m.board.active_tiles().size() == CWGuideData.active_tiles(1).size() + 1,
+		"reveal 之后 is_active 立刻为真（即时谓词），tile_shown 还在补间里；活跃集只多了这一格"
+		+ "（is_active=%s shown=%s 集合 %d vs 数据 %d）" % [m.board.is_active(hidden),
+			m.board.tile_shown(hidden), m.board.active_tiles().size(), CWGuideData.active_tiles(1).size()])
+	await create_timer(0.6).timeout
+	check(m.board.tile_shown(hidden) and m._cell_nodes[1].visible,
+		"浮现补间走完：格子亮了，站在上面的癌细胞随格淡入")
+
+	# ---- 2 重置：回关首那份 world + 步游标归零 + reveal 收回 ----
+	var before: CWKernel = m.kernel
+	m._reset_tutorial_level()
+	await process_frame
+	await process_frame
+	check(m.kernel != before and m._stage.world_id == m._entry_world_id()
+		and m.mirror.cell_of(0)["pos"] == Vector2i(0, -1),
+		"重置装回**关首那份 world**（%s）" % m._stage.world_id)
+	check(m._guide.step_no() == 0 and not m.board.is_active(hidden)
+		and m.board.active_tiles().size() == CWGuideData.active_tiles(1).size(),
+		"步游标归零、reveal 加进来的格收回去（活跃集 %d 格）" % m.board.active_tiles().size())
+	check(not m.panel.visible and CWGuideLayers.energy_mode() == "plain",
+		"UI 层也回到关首那一套（先 reset 再按 step0 的 ui_layers 重装）")
+	## `reset_when`（PRD:17 / 通用规则 7）：本片只接 `CWGuideWatch` 现有键能表达的那些，
+	## 触发走的是**「重置」同一条路** + 一句提示。这里把基线拨脏让 `moved` 当场成立，验那条路真接上了
+	var k_before: CWKernel = m.kernel
+	m._guide._watch_base["pos"] = Vector2i(9, 9)
+	m._check_reset_when({ "reset_when": "moved" })
+	await process_frame
+	check(m.kernel != k_before and m._guide.step_no() == 0
+		and m.mirror.cell_of(0)["pos"] == Vector2i(0, -1),
+		"reset_when 命中：走「重置」同一条路（换了句柄、回关首、步游标归零）")
+
+	# ---- 8 跨关换局那一瞬间不许把上一关记成已完成（S3 回传第 8 条）----
+	## 两关的免疫起点不同格：拿上一关的基线去比，`watch: "moved"` 当场成立 ⇒ 第一关一出生就被判做完。
+	## 修法是 `step_end` 装闸时重取基线（`CWGuide.rebase_watch`），换局 / 重置那几条路上也各取一次。
+	CWGuideProgress.clear()
+	m._guide._chapter = 0
+	m._guide._step = 0
+	m._guide._render()                      ## 基线在这儿取：此刻还是第二关的局面，免疫在 (0,-1)
+	m._advance_tutorial_chapter(0)          ## 换到第一关：免疫在 (-1,-1) —— 位置「变了」
+	await process_frame
+	await process_frame
+	await process_frame
+	check(m._guide.chapter() == 0 and m._guide.step_no() == 0 and not CWGuideProgress.has_done(0),
+		"换局那一瞬间 watch:moved 不再当场成立：还停在第 1 关第 1 步、进度没被写脏")
+
+	m.teardown()
+	await process_frame
+	check(m._shell == null and m.panel._layer_end and CWGuideLayers.on("sidebar"),
+		"拆局：常驻壳销毁、UI 层复位（右栏这个节点是跨局复用的，不撤就带进下一局）")
+	CWSettings.ai_delay_ms = 220
+	CWGuideProgress.clear()
+	root.remove_child(main_scene)
+	main_scene.free()

@@ -141,7 +141,8 @@ static func describe(m: CWMirror, c: Vector2i, move_cost := -1, verb := "") -> A
 			"size": CWStyle.SIZE_BODY,
 			"color": CWStyle.IMMUNE if immune else CWStyle.CANCER, "rule": true })
 		var mark := "　标记 ×%d" % cell["mark_left"] if cell["marked"] else ""
-		rows.append({ "text": "能量 %s%s" % [CWData.fmt(maxi(cell["energy"], 0)), mark],
+		## 教程的「无限能量」换成标志文字（渲染点三处之二，方案 §1.6 / CWGuideLayers）
+		rows.append({ "text": "能量 %s%s" % [CWGuideLayers.energy_text(maxi(cell["energy"], 0)), mark],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.TEXT })
 		for status: Dictionary in m.status_rows_of(cell):
 			rows.append({ "text": "　%s · 【%s】%s" % [status["kind"], status["name"], status["detail"]],
