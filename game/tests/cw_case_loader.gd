@@ -62,7 +62,9 @@ const DEFAULT_ENERGY := 300
 
 ## `Finished` = 终局（winner 非空 ⇔ Finished，两侧 loader 都校验）：GD 的 stage 停在 e_phase、协议 phase 由 is_over 派生；C# 是 Phase.Finished
 const PHASE_TO_STAGE := { "Setup": "setup_place", "S": "round_start", "PlayerAction": "turn", "E": "e_phase", "Finished": "e_phase" }
-const STAGE_TO_PHASE := { "setup_place": "Setup", "round_start": "S", "turn": "PlayerAction", "e_phase": "E" }
+## `init` → `Setup`：老测试用 make_game 造的局停在 init（没跑 run_setup、细胞由测试手放），协议 `phase` 对 init / setup_place 都编成 setup，
+## envelope 上等价 —— 不映的话录制代理 / 收割器对这类局一条都录不到（2026-09-19 首跑 t_pressure 5 条全 UNLOADABLE）
+const STAGE_TO_PHASE := { "init": "Setup", "setup_place": "Setup", "round_start": "S", "turn": "PlayerAction", "e_phase": "E" }
 const WINNER_WORDS := { "": -1, "immune": CWData.Faction.IMMUNE, "cancer": CWData.Faction.CANCER }
 const WIN_KINDS := ["", "immune_clear", "cancer_weighted", "limit_cancer", "limit_immune"]
 const CANCER_KINDS := ["Melanoma", "SignetRing", "Osteosarcoma", "SmallCellLung"]

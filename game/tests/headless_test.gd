@@ -158,6 +158,8 @@ func _run_all() -> void:
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial,
 		t_entry_smoke_replay, t_entry_smoke_online,
 		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides,
+		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
+		t_rec_depth, t_rec_shape, t_rec_contract_only, t_rec_transparent,
 		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
 		t_case_loader_keys, t_case_diff,
 	]
@@ -242,6 +244,12 @@ func run_setup(g: CWGame) -> void:
 	g.stop_at = ""
 
 
+## 录制代理的**唯一换件点**（测试迁移规格 A-4）：harvest.gd 把它设成一个 Callable，
+## 于是每个新对局都在 init() 之后、开跑之前换上四个代理件并重挂 .game。
+## **不设它的时候一行都不执行** —— 套件自己跑起来与以前逐字相同（t_rec_transparent 的前提）。
+var on_game_made := Callable()
+
+
 func make_game(n_players: int, seed_value: int) -> CWGame:
 	var g := CWGame.new()
 	g.init(CWData.FACTION_ORDER[n_players], seed_value)
@@ -249,6 +257,8 @@ func make_game(n_players: int, seed_value: int) -> CWGame:
 		var b := CWHeuristicBridge.new()
 		b.game = g
 		g.bridges[pid] = b
+	if on_game_made.is_valid():
+		on_game_made.call(g)
 	return g
 
 
@@ -20678,3 +20688,126 @@ func t_bridge_fx_overrides() -> void:
 	check(got["world"] == [["基质阻隔", 2]], "world_event 条目 → fx_world_event(ev, left)")
 	b.show_card_played(1, "x", {})
 	check(got["played"].size() == 1, "card_played 没有 card 键不调（_net_loop 同款 guard：没有牌名就不是「谁打出了卡」）")
+
+
+# ---- 口径二 C-1 步 13：录制代理（测试迁移规格 A-4 的四条判据）----
+const REC := preload("res://tests/rec/cw_recorder.gd")
+
+
+## 代理跑的三个盘面，与 t_pressure / t_erosion / t_solidify_and_decay 同族。
+## **不直接复用那三个测试函数**：它们内部有几十条 check()，跑两遍会把断言数翻倍、
+## 失败报告也读不出来是哪一遍红的。这里只要「同一个局面跑两次、哈希逐位相同」。
+func _rec_fixture(which: String) -> CWGame:
+	var g := make_game(2, 1)
+	g.setup.build_board()
+	var imm := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.BASIC, -1)
+	imm["energy"] = 500
+	g.cells.append(imm)
+	var can := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(2, 0),
+		-1, CWData.CancerType.MELANOMA)
+	can["energy"] = 500
+	g.cells.append(can)
+	g.players[0]["cell_id"] = 0
+	g.players[1]["cell_id"] = 1
+	match which:
+		"pressure":
+			var nb := CWData.neighbors(Vector2i.ZERO)
+			for k in 4:
+				g.tiles[nb[k]]["tissue"] = CWData.Tissue.CANCER
+		"erosion":
+			g.round_no = 6
+			g.tiles[Vector2i(2, 0)]["tissue"] = CWData.Tissue.CANCER
+			for c in CWData.neighbors(Vector2i(2, 0)):
+				g.tiles[c]["tissue"] = CWData.Tissue.CANCER
+		"solidify":
+			g.round_no = 6
+			g.tiles[Vector2i(2, 0)]["tissue"] = CWData.Tissue.CANCER
+			for c in CWData.neighbors(Vector2i(2, 0)):
+				g.tiles[c]["tissue"] = CWData.Tissue.CANCER
+				g.tiles[c]["solid"] = 40
+	return g
+
+
+func _rec_ops(rec) -> Array:
+	var out: Array = []
+	for e in rec.entries:
+		out.append(e["op"])
+	return out
+
+
+## 规矩 2：深度计数。GDScript 覆写是虚派发 —— cw_actions.gd 里对 enter_tile 的裸名自调 6 处、
+## 跨模块 .enter_tile( 11 处，覆写后全打到代理上。忘了深度计数，一次血管传送会录出嵌套三条，
+## 每条的 pre/post 还都「对」，跑 C# 时跟着执行三次再在一个无关字段上报差异。
+func t_rec_depth() -> void:
+	print("[录制代理·深度计数]")
+	var g := _rec_fixture("solidify")
+	var rec = REC.new()
+	rec.install(g)
+	var cell: Dictionary = g.cells[0]
+	await g.actions.enter_tile(cell, Vector2i(-1, 0))
+	check(_rec_ops(rec) == ["enter_tile"], "深度 0 的一次 enter_tile 落一条")
+	var before: int = rec.dropped
+	cell["pos"] = CWData.VESSELS[0]
+	await g.world._vessel_teleport()
+	check(_rec_ops(rec) == ["enter_tile", "vessel_teleport"],
+		"血管传送只落它自己那一条，内部调的 enter_tile 不另起一条")
+	check(rec.dropped > before, "被丢弃的嵌套条目有计数（这一次丢了 %d 条）" % (rec.dropped - before))
+	g.dispose()
+
+
+## 条目数对账：深度 0 进来几次，就该落几条 —— 没落的必须是 UNLOADABLE（规矩 5），
+## 不许有第三种去向。「悄悄少一条」正是闸一退化成半条的样子（风险 R1）。
+## ⚠ 与规格 A-4 判据原话（「另挂一个纯计数代理对账」）的差别：那要第五个代理类，而它自己也要过
+## 规矩 1 的反射双射 —— 多一个类就多一份要对齐的覆写集合。这里改用代理自己的账本做恒等式，
+## 少一个类、判的是同一件事（进来的次数没有第三种去向）。
+func t_rec_shape() -> void:
+	print("[录制代理·条目数对账]")
+	var g := _rec_fixture("erosion")
+	var rec = REC.new()
+	rec.install(g)
+	await g.world.e_phase()
+	var per := {}
+	for e in rec.entries:
+		per[e["op"]] = int(per.get(e["op"], 0)) + 1
+	var ok := true
+	for op in rec.calls:
+		var made := int(per.get(op, 0))
+		var bad := int(rec.unloadable.get(op, 0))
+		if int(rec.calls[op]) != made + bad:
+			ok = false
+			print("       %s：进来 %d 次，落了 %d 条，UNLOADABLE %d 条" % [op, int(rec.calls[op]), made, bad])
+	check(ok, "每个 op：深度 0 进来的次数 = 条目数 + UNLOADABLE 数（一条都没有悄悄蒸发）")
+	check(int(rec.calls.get("pressure", 0)) == 1 and int(rec.calls.get("clear_newborn", 0)) == 1,
+		"一次 E 阶段 = 每个 E 族 op 各进来一次")
+	g.dispose()
+
+
+## 规矩 1 的执行机构（§0.3 / 风险 R2）：代理能覆写 60 个私有 _xxx，录下来就等于把 GD 的
+## 内部分解写进跨内核契约。覆写集合必须逐名等于 l0_contract_gate.recorder_overrides()
+## 给的那 24 条 `gd` 字段，多一个少一个都红；表读不到也红（那时它返回一条「读不到 …」）。
+func t_rec_contract_only() -> void:
+	print("[录制代理·只覆写契约面]")
+	var rec = REC.new()
+	var bad: PackedStringArray = rec.contract_mismatch()
+	for b in bad:
+		print("       %s" % b)
+	check(bad.is_empty(), "四个代理的覆写集合 ≡ contract_ops.json 里可录的 24 条 S 族")
+
+
+## 代理零行为改动的**唯一硬证据**：同一个局面跑两遍，CWStateCodec.state_hash 逐位相同。
+## 哈希里含 rng.state —— 代理自己多掷一次骰也会当场红。
+func t_rec_transparent() -> void:
+	print("[录制代理·零行为改动]")
+	for which in ["pressure", "erosion", "solidify"]:
+		var plain := _rec_fixture(which)
+		await plain.world.e_phase()
+		var h1: String = CWStateCodec.state_hash(plain)
+		plain.dispose()
+		var g := _rec_fixture(which)
+		var rec = REC.new()
+		rec.install(g)
+		await g.world.e_phase()
+		check(h1 == CWStateCodec.state_hash(g), "%s：开代理与不开代理的 state_hash 逐位相同" % which)
+		check(rec.entries.size() > 0, "%s：代理真的录到了条目（%d 条）" % [which, rec.entries.size()])
+		g.dispose()

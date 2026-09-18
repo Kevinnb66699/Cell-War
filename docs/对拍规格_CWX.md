@@ -1,6 +1,6 @@
 ﻿<!-- 本文由 2026-09-15 的一次 12 agent 并行核查产出，全部事实为本机实测并标了 文件:行。 -->
 
-> **状态：方案，未拍板。** 这是路线 A 阶段 0（对拍）的规格，还没有开工授权。
+> **状态：已实装（2026-09-19，实现口径见各节首段；正本是 `docs/口径二_测试迁移规格.md`）。** 进仓库的机件：`game/tests/l0_runner.gd` / `cw_case_loader.gd` / `cw_case_diff.gd` / `l0_contract_gate.gd` / `contract_ops.json` / `contract_tune.json` / `l0/*.json`，`core/CellWar.Core.Tests/L0/`（`CaseModel.cs` / `WorldLoader.cs` / `Expect.cs` / `Subset.cs` / `Probes.cs` / `Steps.cs` / `L0RunnerTests.cs` / `RoundTripTests.cs` / `PreParityTests.cs` / `ContractGateTests.cs`），`tools/run_l0.sh` / `tools/xcheck_report.py` / `xcheck/`。**本文凡与代码冲突的一律以代码为准**；下面原稿里「未拍板／还没有开工授权」的那一段只当历史留档。
 > 它要花我们约 6.5 人天、队友约 3.5 人天，且要求队友改 C# 侧的 RNG 抽法口径 ——
 > 那两件事都得 Kevin 与队友先点头。
 >
@@ -306,7 +306,28 @@ C# 是每格一个 `Tissue.SolidLockRound` 回合戳 —— 行为等价（left=
 
 ## 2. 数据格式（真实字段名）
 
-### 2.1 `cwxcase/1` —— L0 用例（稀疏补丁）
+### 2.1 L0 用例 —— **实现口径（`cwxcase/2`）**
+
+> ⚠ 本节下面那段 `cwxcase/1` 的 JSON 是 2026-09-15 的方案稿，**已被实现取代**，留着只当对照。
+> 照它写用例会当场红在未知键上（两侧都是硬错）。今天真实的形状如下。
+
+**用例落在 `game/tests/l0/*.json`（45 条迁移用例 + 8 条压力用例），两侧读同一份**：C# 走 `L0/L0RunnerTests.cs`，GD 走 `l0_runner.gd:_run_file`。
+**装盘面的唯一出处**是 `game/tests/cw_case_loader.gd:load_world`（GD）与 `L0/WorldLoader.cs:Load`（C#）；两份键表各有一条测试钉住相等。
+
+用例 **13 键**（`cw_case_loader.gd:CASE_KEYS` ↔ `L0/CaseModel.cs:L0Case`）：
+`schema` / `id` / `probe` / `op` / `covers` / `status` / `prd` / `source` / `harvested_from` / `world` / `rolls` / `args` / `expect`。
+`schema` 必填且恒 `"cwxcase/2"`；**P 族写 `probe`、S 族写 `op`，二选一**，都写或都不写 = 硬错；`covers` 缺省 `[]`、`status` 缺省 `"OK"`、`rolls` 缺省 `[]`（= 断言「这一步不消耗 rng」）。
+
+`world` 是 `cwxworld/2`：顶层 **15 键** `radius` / `round` / `phase` / `seat` / `winner` / `win_kind` / `effector_round` / `chemo` / `chemo_track` / `cancer_alarm` / `players` / `tiles` / `cells` / `events` / `tuning`；
+tile **12 键**（`at` + `make_tile` 11，**不收 `cell`**）、cell **33 键**、player **5 键**、`mods` 四元组 `{name, uses, until, seq}`。逐条名单在 `docs/口径二_测试迁移规格.md` §0.6.1，**仓库里只许那两份键表**。
+
+**未知键 = 硬错，两侧都真的实现了**：C# 是 `JsonSerializerOptions.UnmappedMemberHandling = Disallow`，GD 是 `cw_case_loader.gd` 的显式白名单。方案稿写的 `CellFields` / `TileFields` **在代码库里不存在** —— 不要去找。
+**装不进 = `UNLOADABLE`**：GD `load_world` 返回 null 且 `errors` 首条以 `UNLOADABLE:` 开头，C# 抛 `UnloadableException`；两个 runner 单列这一档并整体红（仓库用例集里不许有装不进的用例，只有收割器拿它跳条目）。
+
+三条已经踩过的坑，都写进 loader 了（闸二 2b 抓出来的装载差异，见 `L0/PreParityTests.cs`）：
+1. **占位一律从 `cells[].at` 反推**，tile 上不再有 `cell` 键（两边曾经口径相反、而且都绿）。
+2. **细胞 id = 在 `cells` 列表里的序号**，不是席位序。
+3. **`players[].cancer_type` 不许 loader 自己编** —— C# 曾经 `?? CellType.Osteosarcoma` 兜底。
 
 ```json
 {
@@ -343,7 +364,7 @@ C# 是每格一个 `Tissue.SolidLockRound` 回合戳 —— 行为等价（left=
 }
 ```
 
-**词汇一律用 GD 字段名**（`cw_setup.gd:32-48 make_tile` 11 键 / `:51-88 make_cell` 30 键），映射负担压在 C# 侧唯一的 loader 里。
+**词汇一律用 GD 字段名**（实测：`cw_setup.gd:make_tile` **11 键** / `make_cell` **32 键**；`cw_obs_proto.gd:CELL` 去掉 `d` 是 **36 键**，三个数别混）。`cwxworld/2` 的落地口径：tile **12 键** = `at` + make_tile 11、**不收 `cell`**；cell **33 键** = 构造三键 `seat` / `type` / `at` + 30 个可写状态键（CELL 36 减去派生的 `id` / `pid` / `faction` / `pos` / `itype` / `ctype`）。映射负担压在两侧各一份 loader 里。
 
 **规矩**：
 1. **稀疏补丁**：底板 = 半径 6 的 127 格全健康 + 特殊组织按坐标表铺（GD 走 `CWSetup.build_board()`；C# 借 `MatchSetup.Create(n,1)` 的布局再清成 Healthy，**不在 loader 里抄第二份坐标表**——11 个特殊格坐标 `cw_data.gd:500-505` ↔ `MatchSetup.cs:16-22` 已逐个核对一致）。
@@ -352,7 +373,12 @@ C# 是每格一个 `Tissue.SolidLockRound` 回合戳 —— 行为等价（left=
 4. **派生字段末尾重算，不是纯赋值**（核查更正）。schema 标 derived 的两项：C# 的 `Tissue.OccupyingCell`（从 cells 反推并双向自校验）、GD 的 `cell["marked"]`（装载末尾调一次 `cw_game.gd:1072 update_marks()`）。原协议那条「装载后不许有任何引擎后处理」在 derived 字段上站不住——它本意是挡 `update_marks` 改写用例语义，正确解法是把 derived 排除在「写什么就是什么」之外。
 5. **`expect.trace` 只作参考、不参与判定**。
 
-`expect` 两类：标量 `{kind: "tenths"|"permille", value: int}`；向量 `{kind:"path", steps:[{q,r,cost,gain,legal,afford}], total, gained, ok, stop, left}`（两边各自拍平成同一串文本再比）。
+**`expect` 三形（`cwxcase/2`，§0.6.2 第 2 条）**：
+1. **裸整数** = `scalar`（45 条老用例就是这一类，**不许改写成 `{kind:"scalar"}`，两侧也不接受这种写法**）；
+2. `{"kind": "tree", "value": <一棵字面 JSON 树>}` —— 逐字段比（C# `L1/DeepDiff.cs:Compare` / GD `cw_case_diff.gd:compare`）；
+3. `{"kind": "delta", "changed": {路径: 值}, "ignore": [路径]}` —— 两侧各自 `diff(normalize(env_pre), normalize(env_post))` 后与 `changed` **整集合比**（多改一个字段红、少改一个也红）。
+根 `$` = envelope 的 `{board, cells, g, ask}` 四件；路径文法与全局豁免表见 `docs/口径二_测试迁移规格.md` A-1，**本批禁选 `$.ask.options`**，整条消失记 `null`。
+方案稿写的 `kind:"tenths"` / `kind:"path"` **一行代码都没有**。
 
 ### 2.2 `canon` —— L1 规范化状态
 
@@ -421,7 +447,15 @@ C# 是每格一个 `Tissue.SolidLockRound` 回合戳 —— 行为等价（left=
 * **一步的边界 = 「作答 + 自动推进到下一个询问」**（S/E 阶段夹在里面）。被测侧必须自己走到同一边界：`ExecuteDecision` 之后循环 `AdvancePhase` 直到有选项或 Finished，**且用同一条带子**。不加这个循环，比的是两个不同时刻（第一版实测 step2 报 `CELL_E gold=50 mine=30`，其实只是 C# 还没跑 S 阶段）。实测屏障间平均只跑 **1.01** 个调度事件（max 2，120 个屏障里只有 1 次 >1），所以这个循环约 5 行。
 * **`sub[]` ↔ C# pending 是错位的**：GD 的子询问在 C# 侧常是**顶层** pending（`pick`+`r` → `PendingMutation` 引出的 `ChooseMutationDecision`；`pick`+`card` → `PendingDiscard`）。驱动器提交父动作后必须排空 C# 多出来的 pending，用 `sub[]` 按语义喂进去。喂不上 = 一条 `SUBASK_SHAPE`。
 
-### 2.4 结果行
+### 2.4 结果行 —— **判死，不做**
+
+> 裁决（测试迁移规格 F-4）：**结果行 JSON 不做。** 两个 runner 各自的输出已经够用 ——
+> GD 侧 `l0_runner.gd` 印 `ok/FAIL <id>（探针 …）：期望 x，GD 算出 y` 加一行机器读的 `L0-RESULT: PASS|FAIL n`，
+> C# 侧是 xUnit 的断言消息（同样带 id、探针、期望、实算与 `source`）。再加一层 JSON 结果行就是第三份口径。
+> 保留的只有两样：`prd:{sha,line,text}` 三元组（可选字段）与五档 `status`（`OK` / `NOTIMPL` / `KNOWN_GAP` / `UNDEFINED` / `OUT_OF_SCOPE`），
+> 后者今天活在 `game/tests/contract_ops.json` 的 `status` 字段上。
+>
+> 下面这段留作历史留档。
 
 ```json
 {"table":"move_quote","fixture":"macro_on_mucus","key":"cell=1 to=(5,0)",
@@ -432,13 +466,36 @@ C# 是每格一个 `Tissue.SolidLockRound` 回合戳 —— 行为等价（left=
  "reachable":true}
 ```
 
-`table`+`fixture`+`key` 是稳定主键（跨版本可再 diff）。`reachable:false` 标不可达差异（特征化，不是 bug）。`prd` 扩成三元组是核查后的强制项——见第 7 节。
+（历史留档）`table`+`fixture`+`key` 曾被设计成稳定主键。**今天的稳定主键就是用例的 `id`** —— 形如 `anaerobic/block_10/one_cell/two_players`，`op/场景/变体` 三段，两侧报错都带它，`contract_ops.json` 的 `boundaries[].cases` 也是拿正则打在它身上。
 
 ---
 
 ## 3. 差异报告示例（要能定位到规则）
 
-### 3.1 L0 报告
+### 3.1 L0 报告 —— **实现口径**
+
+> 五档报告（下面那段带 `✗ MISMATCH` / `○ UNDEFINED` 的示例）**判死，不做**（F-4）。
+> 今天的实际形态是两条：
+>
+> * **逐条差异**：`tools/run_l0.sh` 同跑两个 runner，任一侧红即整体红。GD 侧一行
+>   `FAIL <id>（探针 <op>）：期望 x，GD 算出 y` 外加用例自带的 `source`；C# 侧同形。
+>   **GD 红 = 用例不忠实于原断言（改用例）；C# 红 = 规则不等价（进对拍差异表，走 `docs/内核替换_拍板记录.md`）。**
+> * **契约面台账**：`game/tests/contract_ops.json` **44 行**（P 16 + S 25 + 3 条挂档），逐 op 带
+>   `kind` / `family` / `status`（五档）/ `cases`（`required` / `deferred` / `none`）/ `gd` / `cs` 落点 / `boundaries`；
+>   旋钮台账是同目录的 `contract_tune.json`（`{"schema":"cwxtune/1","knobs":[{name,tier,gd,cs,in_rule_fields,note} × 65]}`，
+>   `tier` ∈ `A` / `A'` / `B` / `C` = 22 / 3 / 18 / 22，两侧按 tier 分桶、不再各写一张桶表）。
+>   覆盖率台账在 `xcheck/COUNT` 与 `xcheck/COVERAGE.md`。
+>
+> **下面那条「每条规则至少三条用例，跨越它的分段边界」的教训已经机制化了**：
+> 两个 runner 与录制代理启动时各查一遍同一份 `contract_ops.json`（`L0/ContractGateTests.cs` ↔ `game/tests/l0_contract_gate.gd`），
+> ① **双射取子集口径**：分派表键集合 ≡ 表里 `status ∈ {OK, KNOWN_GAP, UNDEFINED}` 的行的 op 集合
+> （`NOTIMPL` / `OUT_OF_SCOPE` 不进分派；`cases:"deferred"` 的行在分派表里放空壳，调用即抛「本批未开工」）；
+> ② `required` 的 op 必须 ≥1 条用例且每个 `boundaries` 档 ≥1 条，`none` 的必须零用例；
+> ③ T 族不出现（`kind` 只许 `probe` / `step`）。
+> 两侧的相等**经这同一份表传递**，谁也不解析对方的源码。
+> 这正是 `block9_three_cells` 在人数系数 k 完全缺失时照样 PASS 那件事的解法 —— 从此不靠人记得。
+>
+> 下面这段留作历史留档。
 
 ```
 契约表核对：39 条一致，5 条分叉，4 条 UNDEFINED
@@ -506,7 +563,24 @@ anaerobic/glut1_phase2         MISMATCH  gd=32  cs=38     ← 24:30 各 +8
 > 所有原型已在 scratchpad 留档，拷回仓库即可重跑。两个仓库工作树当前干净。
 > 留档根：`C:\Users\fanke\AppData\Local\Temp\claude\D--Projects-SpringSense-2026-2027-Cell-War\e332144a-3ed6-48fa-8784-eedcd3006dc7\scratchpad\`
 
-### A. `game/tests/xcheck_gen.gd` —— L0 用例生成器（279 行，已跑通）
+### A. `game/tests/xcheck_gen.gd` —— **不在工作树，也不要复活它**
+
+> 实测：`game/tests/xcheck_gen.gd` **在工作树里不存在**。它只活在本节，是 2026-09-15 的 scratchpad 原型留档
+> （本文件头自己写着「工作树里不留任何对拍代码」）。**不要去找它、也不要复活它。**
+>
+> 它的职责今天分给了三个真实存在的东西：
+> * 装盘面 → `game/tests/cw_case_loader.gd:load_world`（GD）/ `core/CellWar.Core.Tests/L0/WorldLoader.cs:Load`（C#）；
+> * 跑探针 / 跑步 → `l0_runner.gd` 的分派表 + `L0/Probes.cs`（12 项）与 `L0/Steps.cs`（25 项）；
+> * 产用例 → 今天是**手写**的 `game/tests/l0/*.json`，收割器 `game/tests/harvest.gd` 是测试迁移规格 C-1 步 13 的活。
+>
+> 本节下面那个「⭐ 自验 round-trip」的要求**仍然有效**，而且判据定死了：见测试迁移规格 A-5 的闸二四段 ——
+> **2a `dump(load(spec)) ≡ minify(spec)`**（`minify` = 按同一张默认表削掉等于默认值的键的**独立实现**，不转调 load / dump；
+> 两侧各一份、同一张默认表，含 tile `type` = `special_of(at)` 时省略、`energy` 缺省 300），
+> 2b 装载自证（已由 `L0/PreParityTests.cs` + `game/tests/l0_pre_dump.gd` 落地：首跑 45 条全红、四类装载差异，修完 0 差异）、
+> 2c 未知键硬错、2d 世界往返 `normalize(encode(load(dump(g)))) ≡ normalize(encode(g))`。
+> 落点：C# `L0/RoundTripTests.cs`，GD `l0_runner.gd --selfcheck`，两边同判据，都由 `tools/run_l0.sh` 跑。
+>
+> 下面这段留作历史留档。
 
 留档 `scratchpad/xcheck_gen.gd`。`extends SceneTree`，结构：
 
@@ -545,7 +619,20 @@ anaerobic/glut1_phase2         MISMATCH  gd=32  cs=38     ← 24:30 各 +8
 
 **自验（不依赖 C#）**：同一条命令跑两遍，JSONL **逐字节相同**（已验：591,259 字节）。
 
-### C. `tools/xcheck_gen.sh` / `tools/xcheck_report.py`
+### C. `tools/run_l0.sh` / `tools/xcheck_report.py` —— **实现口径**
+
+> `tools/xcheck_gen.sh` **不做**（生成器判死，见 A）。今天真实的两件是：
+>
+> * **`tools/run_l0.sh`（闸一 + 闸二 + 闸三的入口）**：跑 GD runner（`--script res://tests/l0_runner.gd`，
+>   看退出码**并另外 grep `SCRIPT ERROR`** —— GD 运行时错误不中断执行，会印出一片假 ok）、
+>   再跑一次 `l0_runner.gd -- --selfcheck`（闸二 2a/2d）、
+>   跑 `dotnet test --filter L0RunnerTests|PreParityTests|RoundTripTests|ContractGateTests`、
+>   最后跑 `python tools/xcheck_report.py --check`，**任一红整体红**。
+>   `tools/run_tests.sh` 末尾调它；Windows 侧入口是 `run_tests.ps1`（它经 Git Bash 调 `run_l0.sh`），**不另做 `run_l0.ps1`**。
+>   用例比 `game/tests/l0/pre_envelopes.jsonl.gz` 新时会提醒重录（保持警告，不红）。
+> * **`tools/xcheck_report.py`（闸三）**：口径**写死在脚本里**，见下。
+>
+> 下面那段 `xcheck_gen.sh` 与 rsync 到隔壁仓库的命令留作历史留档，**不要执行**（跨仓 rsync 会把用例复制成两份，正是「只有一份」要挡的事）。
 
 ```bash
 # xcheck_gen.sh
@@ -556,7 +643,14 @@ rsync -a --delete xcheck/cases/ "../cellwar-next/tests/CellWar.Core.Tests/xcheck
 cp xcheck/tune_default.json "../cellwar-next/tests/CellWar.Core.Tests/xcheck/"
 ```
 
-`xcheck_report.py`：`results.jsonl` → `DIFF.md`（按子系统分组、五档状态、与上次对比出「新红/已修/回归」、NOTIMPL 单调闸）。
+**`tools/xcheck_report.py` 的实现口径**（测试迁移规格 A-8 / §0.6.5 第 6 条，口径写死在脚本里、不读配置）：
+① 数 `game/tests/headless_test.gd` 的 `check()` 站点 —— *剥行内注释与字符串后按 `(?<![A-Za-z_0-9.])check\s*\(` 计数，排除 `func check` 自身；函数归属按最近的 `^func`；断言名取第二个实参里的第一个字符串字面量，带 `%` 的取 `%` 之前*。**2026-09-19 实测 3330 站点 / 247 个带断言的函数**（计划书的 3023、规格早前写的 3187 都是同一口径在更早的文件上数出来的，差异是文件长了，不是分歧）。
+② 收 `game/tests/l0/**/*.json` 里 `cwxcase/2` 用例的 `covers`，与 ① 的真实站点名求交集当分子；**指不到任何真实断言的 `covers` 直接红**。
+③ 分母 = `FUNC_SUBSYSTEM` 表判成 `core` 的那一档（迁移计划 §二点五 去向表的可执行版本），**实测 1114 站点 / 99 函数**；`unclassified` 单独报，不许当 0。
+**计数单位是 GD 的 check 名，不是 JSON 用例数** —— 按用例数计，「拆条目」就能刷绿这条闸。
+软化条款：`check()` 总数涨了而 `covered_sites` 没涨 ⇒ 警告；涨幅 >20 条还没补 ⇒ 红。
+脚本自身的验收判据：**两次跑逐字节相同**，且站点数与当次 `grep -c 'check(' game/tests/headless_test.gd` **差恰好 2**。
+台账落在 `xcheck/COUNT`（`covered_sites` 单调不减）与 `xcheck/COVERAGE.md`。
 
 **两个已知坑**：① `--script` 模式下 `_initialize` 里抛运行时错误不会退出，SceneTree **永远空转** → 所有导出器必须 `timeout -k 5 180` 兜着跑。② 首次无头启动要导入资源（约 90 秒），之后走缓存 0.5 秒；CI 第一次别当成挂死。
 
@@ -567,7 +661,7 @@ cp xcheck/tune_default.json "../cellwar-next/tests/CellWar.Core.Tests/xcheck/"
 
 ### E. `xcheck/COVERAGE.md`
 
-按 PRD 章节 + 68 张卡 + 9 个种类技能列全表，每格标 `已打靶 / NOTIMPL / UNDEFINED / 未写用例`。**这张表才是「C# 到底差什么」的权威答案**，不是 NOTIMPL 的条数。
+**实现口径**：`xcheck/COVERAGE.md` 按**契约面的 op** 列表（`game/tests/contract_ops.json` 的 **44 行**），每条标五档 `status` 之一（`OK` / `NOTIMPL` / `KNOWN_GAP` / `UNDEFINED` / `OUT_OF_SCOPE`）+ `cases` 三值（`required` / `deferred` / `none`）+ 用例数 + 空档 —— **没有「未分类」这一档**。数字段由 `python tools/xcheck_report.py --write` 刷新，文字段人工维护。**这张表才是「C# 到底差什么」的权威答案**，不是 NOTIMPL 的条数。（按 PRD 章节 + 68 张卡 + 9 个种类技能列全表那一版留作后续可选扩展 —— 今天的分母以脚本为准。）
 
 ### 命令（实测）
 

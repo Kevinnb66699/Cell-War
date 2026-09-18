@@ -35,6 +35,7 @@ const PROBE_NAMES: Array[String] = [
 	"move_cost", "anaerobic_share", "aerobic_share", "pressure_at",
 	"proliferate_chance", "solidify_threshold", "overload_loss", "attack_outcome",
 	"move_raw_cost", "pass_through_cost", "quote_path", "const",
+	"move_legal", "anaerobic_pool", "split_share", "settle_loss",   ## §0.6.7 四条：Kevin 09-19 接受、C# 入口已开，探针面随各批定
 ]
 ## S 族分派表：24 真 + 空壳 `damage_hit`（住在 CWGame 上，四个代理够不着，批 4 手写用例）
 const STEP_NAMES: Array[String] = [
@@ -376,8 +377,9 @@ func _probe(g: CWGame, name: String, args: Dictionary) -> Variant:
 			return g.world.overload_loss(_cell(g, args))
 		"attack_outcome":
 			return _outcome_code(g, int(args.get("roll", 0)), _cell(g, args))
-		## 四个空壳（§0.6.4 第 5 条）：表里是 deferred，分派表里留位子，调用即报本批未开工
-		"move_raw_cost", "pass_through_cost", "quote_path", "const":
+		## 八个空壳（§0.6.4 第 5 条 + §0.6.7 四条）：表里是 deferred，分派表里留位子，调用即报本批未开工
+		"move_raw_cost", "pass_through_cost", "quote_path", "const", \
+		"move_legal", "anaerobic_pool", "split_share", "settle_loss":
 			_fail("探针 %s：本批未开工" % name)
 			return null
 	_fail("不认识的探针：%s" % name)

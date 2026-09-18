@@ -20,7 +20,7 @@ namespace CellWar.Core.Tests.L0;
 ///
 /// 分派集合由 `game/tests/contract_ops.json` 定死（§0.6.4 第 4 条）：
 /// 表里 `status ∈ {OK, KNOWN_GAP, UNDEFINED}` 的 P 族行 ≡ <see cref="Names"/>，**12 条**。
-/// 其中 4 条是**空壳**（`deferred`：本批未开工，调用即抛）。
+/// 其中 8 条是**空壳**（`deferred`：本批未开工，调用即抛；§0.6.7 的四条入口 C# 已开、探针面随各批定）。
 /// </summary>
 public static class Probes
 {
@@ -67,6 +67,11 @@ public static class Probes
         ["pass_through_cost"] = Deferred("pass_through_cost"),   // KNOWN_GAP（0.4-bis #6）
         ["quote_path"] = Deferred("quote_path"),
         ["const"] = Deferred("const"),                           // 两侧常量表随批 0 建
+        // §0.6.7 四条：Kevin 2026-09-19 接受，C# 入口已开（MoveLegal / AnaerobicPool / SplitShare / SettleLoss）；探针面随各批定，先空壳
+        ["move_legal"] = Deferred("move_legal"),
+        ["anaerobic_pool"] = Deferred("anaerobic_pool"),
+        ["split_share"] = Deferred("split_share"),
+        ["settle_loss"] = Deferred("settle_loss"),
 
         // 【抗体】的伤害暂不进探针表：GD 的 `antibody_damage(cell)` 收的是**细胞**
         // （自己从细胞身上读用过几次、装没装【抗体亲和力成熟】），C# 的是 `(used, matured)` 两个标量。

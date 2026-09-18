@@ -65,19 +65,42 @@
     ]
   },
   {
-    "op": "move_legal", "kind": "probe", "family": "P",
+    "op": "move_legal",
+    "kind": "probe",
+    "family": "P",
     "prd": "J-迁移 · 合法性（与选项生成共用的谓词，口径 #81）",
-    "gd": "cw_actions.gd:_is_move_legal_now", "gd_module": "CWActions",
-    "cs": "",
-    "args": ["cell", "to"], "rng": false,
-    "status": "NOTIMPL", "cases": "deferred",
-    "note": "等 Kevin 拍（规格 §0.6.7 第 2 条）：C# 侧没有 1:1 的落点 —— RulePolicies.QuoteMove != null 覆盖了边界/占位/树突/借道可达但**不查攻击次数上限**；CellRules.CommitLegal 查上限却是 private、且不查棋盘边界与借道可达；CellRules.ValidateMove 又多查能量。拍下来之前不进分派、不产用例",
+    "gd": "cw_actions.gd:_is_move_legal_now",
+    "gd_module": "CWActions",
+    "cs": "CellRules.MoveLegal",
+    "args": [
+      "cell",
+      "to"
+    ],
+    "rng": false,
+    "status": "OK",
+    "cases": "deferred",
+    "note": "2026-09-19 Kevin 接受 §0.6.7、C# 入口 `CellRules.MoveLegal(s, cell, to)` 已开（逐条对 GD `_is_move_legal_now` 六个分支）；探针面随批 1 的 C-2 步 1 定，先空壳",
     "boundaries": [
-      { "tag": "empty", "cases": "^move_legal/empty" },
-      { "tag": "attack", "cases": "^move_legal/attack" },
-      { "tag": "attack_cap", "cases": "^move_legal/attack_cap" },
-      { "tag": "dendritic", "cases": "^move_legal/dendritic" },
-      { "tag": "pass_through", "cases": "^move_legal/pass_through" }
+      {
+        "tag": "empty",
+        "cases": "^move_legal/empty"
+      },
+      {
+        "tag": "attack",
+        "cases": "^move_legal/attack"
+      },
+      {
+        "tag": "attack_cap",
+        "cases": "^move_legal/attack_cap"
+      },
+      {
+        "tag": "dendritic",
+        "cases": "^move_legal/dendritic"
+      },
+      {
+        "tag": "pass_through",
+        "cases": "^move_legal/pass_through"
+      }
     ]
   },
   {
@@ -106,32 +129,68 @@
     ]
   },
   {
-    "op": "anaerobic_pool", "kind": "probe", "family": "P",
+    "op": "anaerobic_pool",
+    "kind": "probe",
+    "family": "P",
     "prd": "E-无氧呼吸 · 块池子",
-    "gd": "cw_world.gd:_anaerobic_pool", "gd_module": "CWWorld",
-    "cs": "",
-    "args": ["block"], "rng": false,
-    "status": "NOTIMPL", "cases": "deferred",
-    "note": "等 Kevin 拍（规格 §0.6.7 第 1 条）：C# 没有这个具名入口 —— 池子算式内联在 RulePolicies.AnaerobicShare 里，要照 E-4 的先例拆一个 internal 具名入口。GD 返回 float，进 JSON 前按十分位冻成整数（规格 A-3 / D R4）。拍下来之前不进分派、不产用例",
+    "gd": "cw_world.gd:_anaerobic_pool",
+    "gd_module": "CWWorld",
+    "cs": "RulePolicies.AnaerobicPool",
+    "args": [
+      "block"
+    ],
+    "rng": false,
+    "status": "OK",
+    "cases": "deferred",
+    "note": "2026-09-19 Kevin 接受 §0.6.7、C# 入口 `RulePolicies.AnaerobicPool(s, block)` 已从 AnaerobicShare 拆出（返回 double：GD 只在 _split_share 里四舍五入一次，进 JSON 前按十分位冻成整数）；探针面随批 2 定，先空壳",
     "boundaries": [
-      { "tag": "cells:1", "cases": "^anaerobic_pool/cells_1" },
-      { "tag": "cells:3", "cases": "^anaerobic_pool/cells_3" },
-      { "tag": "coef_off", "cases": "^anaerobic_pool/coef_off" }
+      {
+        "tag": "cells:1",
+        "cases": "^anaerobic_pool/cells_1"
+      },
+      {
+        "tag": "cells:3",
+        "cases": "^anaerobic_pool/cells_3"
+      },
+      {
+        "tag": "coef_off",
+        "cases": "^anaerobic_pool/coef_off"
+      }
     ]
   },
   {
-    "op": "split_share", "kind": "probe", "family": "P",
+    "op": "split_share",
+    "kind": "probe",
+    "family": "P",
     "prd": "E-无氧呼吸 · 块内分配",
-    "gd": "cw_world.gd:_split_share", "gd_module": "CWWorld",
-    "cs": "",
-    "args": ["pool", "count"], "rng": false,
-    "status": "NOTIMPL", "cases": "deferred",
-    "note": "等 Kevin 拍（规格 §0.6.7 第 1 条）：同 anaerobic_pool —— C# 侧内联在 AnaerobicShare 里（人数系数 k + 兜底 + 封顶那一段），没有具名入口。拍下来之前不进分派、不产用例",
+    "gd": "cw_world.gd:_split_share",
+    "gd_module": "CWWorld",
+    "cs": "RulePolicies.SplitShare",
+    "args": [
+      "pool",
+      "count"
+    ],
+    "rng": false,
+    "status": "OK",
+    "cases": "deferred",
+    "note": "2026-09-19 Kevin 接受 §0.6.7、C# 入口 `RulePolicies.SplitShare(tune, pool, count)` 已拆出；探针面随批 2 定，先空壳",
     "boundaries": [
-      { "tag": "count:1", "cases": "^split_share/count_1" },
-      { "tag": "count:2", "cases": "^split_share/count_2" },
-      { "tag": "count:3", "cases": "^split_share/count_3" },
-      { "tag": "no_split", "cases": "^split_share/no_split" }
+      {
+        "tag": "count:1",
+        "cases": "^split_share/count_1"
+      },
+      {
+        "tag": "count:2",
+        "cases": "^split_share/count_2"
+      },
+      {
+        "tag": "count:3",
+        "cases": "^split_share/count_3"
+      },
+      {
+        "tag": "no_split",
+        "cases": "^split_share/no_split"
+      }
     ]
   },
   {
@@ -209,17 +268,37 @@
     ]
   },
   {
-    "op": "settle_loss", "kind": "probe", "family": "P",
+    "op": "settle_loss",
+    "kind": "probe",
+    "family": "P",
     "prd": "通用结算规则 · 能量损失计算顺序（基础 → 加 → 倍增 → 倍减 → 减免）",
-    "gd": "cw_game.gd:settle_loss", "gd_module": "CWGame",
-    "cs": "",
-    "args": ["base", "add", "mult", "div", "cut"], "rng": false,
-    "status": "NOTIMPL", "cases": "deferred",
-    "note": "等 Kevin 拍（规格 §0.6.7 第 3 条）：签名不同 —— GD 是五进一出的静态算式，C# 收的是 IEnumerable<ValueModifier>；照 E-6 第 3 条不许写转换层，要 C# 开一个五标量入口 Settlement.SettleLoss(base, add, mult, div, cut) 转调 ApplyEnergyLoss。批 0 的 t_hit_order 开头 4 条挂在这里。拍下来之前不进分派、不产用例",
+    "gd": "cw_game.gd:settle_loss",
+    "gd_module": "CWGame",
+    "cs": "Settlement.SettleLoss",
+    "args": [
+      "base",
+      "add",
+      "mult",
+      "div",
+      "cut"
+    ],
+    "rng": false,
+    "status": "OK",
+    "cases": "deferred",
+    "note": "2026-09-19 Kevin 接受 §0.6.7、C# 入口 `Settlement.SettleLoss(base, add, mult, div, cut)` 已开（t_hit_order 开头 4 条 check 已搬成 Fact）；探针面随批 0 定，先空壳",
     "boundaries": [
-      { "tag": "add_only", "cases": "^settle_loss/add_only" },
-      { "tag": "mult_then_div", "cases": "^settle_loss/mult_then_div" },
-      { "tag": "cut_floor_zero", "cases": "^settle_loss/cut_floor_zero" }
+      {
+        "tag": "add_only",
+        "cases": "^settle_loss/add_only"
+      },
+      {
+        "tag": "mult_then_div",
+        "cases": "^settle_loss/mult_then_div"
+      },
+      {
+        "tag": "cut_floor_zero",
+        "cases": "^settle_loss/cut_floor_zero"
+      }
     ]
   },
   {
