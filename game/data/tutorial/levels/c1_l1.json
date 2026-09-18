@@ -1,0 +1,50 @@
+{
+  "schema": "cwtut/1",
+  "id": "c1_l1",
+  "chapter": 1, "chapter_title": "Cell", "title": "第一关 免疫",
+  "codex_page": 0, "ui_stage": 0,
+  "seats": 2, "human_seat": 0,
+  "expect_level_tiers": [0, 10, 30, 70],
+
+  "worlds": {
+    "base": {
+      "radius": 6,
+      "round": 1,
+      "phase": "PlayerAction",
+      "seat": 0,
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I", "memory": 0 },
+        { "seat": 1, "faction": "cancer", "cancer_type": "Melanoma" }
+      ],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "-1,-1", "energy": 99990 },
+        { "seat": 1, "type": "Melanoma", "at": "6,-1", "alive": false }
+      ]
+    }
+  },
+
+  "active_tiles": ["-1,-1", "0,-1"],
+
+  "rolls": [],
+
+  "steps": [
+    {
+      "load": "base",
+      "ui_layers": { "action_bar": ["move"], "sidebar": [], "hand": false,
+                     "end_turn": false, "round_no": false,
+                     "move_path": false, "cost": false, "energy_display": "plain" },
+      "t": "欢迎来到Cell_War！",
+      "b": ["你是一个Q弹软萌的免疫细胞——",
+            "作为主人忠诚的卫士，正在工作中…",
+            "眼前的绿色格子是组成身体的基本单元——**健康组织**",
+            "下面继续巡逻吧！",
+            "使用【迁移】，向前行动一格"],
+      "unlock": ["tissue_healthy", "move"],
+      "flag": "move", "hex": ["0,-1"], "player": true,
+      "allow": ["k=action|act=move|to=0,-1"],
+      "watch": "moved"
+    }
+  ],
+
+  "on_done": "c1_l2"
+}
