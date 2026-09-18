@@ -53,10 +53,13 @@ signal finished(winner: int)
 ## 教程当前关（0 起）：start() 按 CWGuideProgress 算出，跨章时由 guide 的
 ## on_chapter_done 回调更新并换一局（见 _advance_tutorial_chapter）。
 var _tutorial_ch := 0
-## 教程那份**收养**的对局（CWGuideDirector 装配）。句柄 adopt 模式的 close() 不 dispose，
-## 谁装配谁收摊 —— 不收的话模块↔对局、桥↔对局两个引用环每跨一章漏一份。
-## 刻意不写类型标注：UI 里不出现引擎类名（结构闸 t_no_engine_in_ui）。
-var _adopted = null
+## 最后一条 step_end 的观测号（queue.on_step，见 _on_step）。S4 的装闸点就挂在这个边界上
+var _step_rev := 0
+## 教程舞台（scripts/kernel/cw_tutorial_stage.gd）：读一关 JSON → 装一份 cwxworld/2 → 交出 CWKernel。
+## **持对局的是它、不是这里** —— UI 侧只有句柄，结构闸 t_no_engine_in_ui 的白名单因此降到一条。
+## 句柄 adopt 模式的 close() 不 dispose，谁装配谁收摊，所以拆局 / 跨关都要显式 _stage.dispose()：
+## 不收的话模块↔对局、桥↔对局两个引用环每换一关漏一份。
+var _stage = null
 
 ## 此刻能不能存档：引擎只在 pending 边界有完整快照（CWSave 的写入条件）。
 ## 暂停菜单拿它决定「保存并退出」亮不亮。联机局不写本地存档（状态在服务器，掉线凭令牌重连）。
@@ -166,6 +169,9 @@ const CELL_FOOT_DY := 6.0
 const STACK_DX := 9.0
 ## 普通攻击的本体冲撞（队友 PR #30）：没有 class_name —— 新类名热更装不上，所以走 preload
 const ATTACK_FX := preload("res://scripts/ui/attack_fx.gd")
+## 教程舞台（新手引导 S3）：读一关 cwtut/1 → 装一份 cwxworld/2 → 交出 CWKernel。
+## 住 scripts/kernel/ 且不带 class_name（引导天天在改，补丁里新增的 class_name 认不出来）
+const TUTORIAL_STAGE := preload("res://scripts/kernel/cw_tutorial_stage.gd")
 ## 回合脚标（Kevin 2026-09-12：白天选 E 跑马灯轮廓，晚上改选 D「头顶指示箭」，画在 CWBoard.set_turn_mark）：
 ## 正在行动的细胞头顶一枚阵营色像素 V 形箭上下跳，旁观者也看得出「现在是谁在动」。第一版呼吸剪影 Kevin 嫌不好看；
 ## 画板里脚下那片阵营色影子上线后他也说不要，撤了。
@@ -462,18 +468,23 @@ func _ready() -> void:
 		start()
 
 
-## 教程开局时棋盘该露几环 = 当前进行到的那一关的半径。main.gd 在推镜头**之前**就按它把半径外的格淡掉，
-## 免得相机推到位之后棋盘才「猛地缩小」（Kevin 2026-09-11）；start() 里再设一次是幂等的。
-static func tutorial_board_radius() -> int:
+## 教程开局时棋盘该露哪几格 = 当前进行到的那一关声明的活跃格集合。
+## **口径从半径换成集合**（方案 §1.3）：世界半径全程 6，小棋盘只是遮罩，关内长地图靠 reveal 加坐标、零重装。
+## main.gd 在推镜头**之前**就按它把集合外的格淡掉，免得相机推到位之后棋盘才「猛地缩小」（Kevin 2026-09-11）；
+## start() 里再设一次是幂等的。
+static func tutorial_active_tiles() -> Array:
 	var ch := clampi(CWGuideProgress.done_count(), 0, CWGuideData.CHAPTER_COUNT - 1)
-	return CWGuideLevels.radius(ch)
+	return CWGuideData.active_tiles(ch)
 
 
 ## snap 非空 = 从存档继续：装配完把快照原样放回去，run_game 会把存档那一刻
 ## 待决的询问重新问出来（恢复点必然是 pending 边界，CWSave 只在那儿写得出档）。
 func start(snap: Dictionary = {}) -> void:
 	_prepare_ui()
-	kernel = CWKernelInProc.new()
+	## 教程局的句柄由**舞台**建（它要先把盘面装出来、把带子挂上，再 open）；其余入口照旧自己建
+	var by_stage := tutorial and snap.is_empty()
+	if not by_stage:
+		kernel = CWKernelInProc.new()
 	## 本地 / 热座 / 教程共用的 cfg（规格 A-1.2）：
 	##   consumer  = 有界面在播演出 ⇒ 掷骰要等消费者 ack（barrier）
 	##   observe_viewer = 每次问人之前、终局之前各推一份 sync（A-1.5 的观测节拍；热座要看多席真手牌 ⇒ 全知）
@@ -485,16 +496,12 @@ func start(snap: Dictionary = {}) -> void:
 		"observe_viewer": CWKernel.VIEWER_OMNISCIENT,
 		"autorun": false,
 	}
-	if tutorial and snap.is_empty():
-		## 教程局（16 关重构切片⑧）：按进度当前关用导演装配——1–15 关 fixture 小棋盘、
-		## 第 16 关正式四人局；人类坐视角阵营的玩家席（第 5 关癌症视角坐 1 号席）。
+	if by_stage:
+		## 教程局（新手引导 S3）：按进度当前关读一份 cwtut/1，交给舞台装成一局。
+		## 席位数与人类席都是**数据里的设计量**（方案 §1.2 纪律 8），不再按「正式局与否 / 视角阵营」现算。
 		_tutorial_ch = clampi(CWGuideProgress.done_count(), 0, CWGuideData.CHAPTER_COUNT - 1)
-		player_count = 4 if CWGuideLevels.formal(_tutorial_ch) else 2
-		human_players = [1 if CWGuideLevels.player_faction(_tutorial_ch) == CWData.Faction.CANCER else 0]
-		## 走 adopt 而不是 world_state：装配器设的 win_checks = false **不在**快照的 25 键里，
-		## 走快照那条路第 1~15 关会当场判胜负（规格 §0.4 #1）
-		_adopted = CWGuideDirector.assemble(_tutorial_ch, 0)
-		cfg["adopt"] = _adopted
+		player_count = CWGuideData.seats(_tutorial_ch)
+		human_players = [CWGuideData.human_seat(_tutorial_ch)]
 	else:
 		cfg["factions"] = CWData.FACTION_ORDER[player_count]
 		cfg["seed"] = match_seed if match_seed != 0 else int(Time.get_unix_time_from_system())
@@ -508,14 +515,31 @@ func start(snap: Dictionary = {}) -> void:
 	cfg["decider"] = bridge
 	if tutorial:
 		_attach_guide()   ## 要在 open()（第一次询问）之前：第一句提示 / 第一次演示就要读章节
-	kernel.open(cfg)
+	if by_stage:
+		kernel = _open_tutorial_stage(cfg)
+	else:
+		kernel.open(cfg)
 	_start_queue()
 	kernel.run()     ## autorun=false 的局从这里起跑；同步跑到第一问才让出
 	_observe_now()   ## 再取一份：开局布置的初始癌组织到第一问才落地，_bloom_order 要的是这一份
 
 
-## 教程跨章 = 换一局（CWGuide.on_chapter_done 回调）：新关局面由导演装配、
-## 人类席位按视角换边；旧局按拆局次序收摊（先 aborted、再唤醒卡住的询问、
+## 教程局的句柄从舞台来：舞台读那一关的 JSON、装一份 cwxworld/2、把预设骰子（rolls）挂上去，
+## 再用调用方这份 cfg 加 `adopt` 开局。**这里拿到的只有 CWKernel** —— 对局本身住在舞台里。
+## 同时按数据把棋盘遮罩换成这一关的活跃格（main.gd 在推镜头之前也设过一次，幂等）。
+func _open_tutorial_stage(cfg: Dictionary) -> CWKernel:
+	_stage = TUTORIAL_STAGE.new()
+	_stage.cfg = cfg
+	var k: CWKernel = _stage.open_level(CWGuideData.level(_tutorial_ch))
+	if k == null:
+		push_error("CWMatch：第 %d 关装不出来（%s）" % [_tutorial_ch + 1, str(_stage.errors)])
+	if board != null:
+		board.set_active_tiles(_stage.active_tiles())
+	return k
+
+
+## 教程跨章 = 换一局（CWGuide.on_chapter_done 回调）：新关盘面由舞台按数据装配、
+## 席位数与人类席也从数据来；旧局按拆局次序收摊（先 aborted、再唤醒卡住的询问、
 ## 最后 dispose），旧运行协程由 _run 的代际号安静退场。
 func _advance_tutorial_chapter(next_ch: int) -> void:
 	if not tutorial or kernel == null:
@@ -528,13 +552,12 @@ func _advance_tutorial_chapter(next_ch: int) -> void:
 	if queue != null:
 		queue.stop()
 	kernel.close()
-	if _adopted != null:
-		_adopted.dispose()   ## adopt 模式的 close() 不 dispose：谁装配谁收摊
-		_adopted = null
+	if _stage != null:
+		_stage.dispose()   ## adopt 模式的 close() 不 dispose：谁装配谁收摊
+		_stage = null
 	_tutorial_ch = clampi(next_ch, 0, CWGuideData.CHAPTER_COUNT - 1)
-	player_count = 4 if CWGuideLevels.formal(_tutorial_ch) else 2
-	human_players = [1 if CWGuideLevels.player_faction(_tutorial_ch) == CWData.Faction.CANCER else 0]
-	_adopted = CWGuideDirector.assemble(_tutorial_ch, 0)
+	player_count = CWGuideData.seats(_tutorial_ch)
+	human_players = [CWGuideData.human_seat(_tutorial_ch)]
 	_wire_bridge(ai_level)
 	## **换局会新建一个桥**（_wire_bridge），所以要把**同一个**引导面板重新挂上去。
 	## 不重挂的话新桥的 guide 是空的 —— CWGuideBridge 每处都判空，于是不崩、
@@ -546,8 +569,7 @@ func _advance_tutorial_chapter(next_ch: int) -> void:
 		_guide.demo_ready = (bridge as CWGuideBridge).can_demo
 	## 每一局都录（同 start()）：跨章换的是新一局，不置位的话
 	## 从第 2 关起就不再录，最后 CWReplay.save 存出个空
-	kernel = CWKernelInProc.new()
-	kernel.open({ "adopt": _adopted, "record_replay": true, "consumer": true,
+	kernel = _open_tutorial_stage({ "record_replay": true, "consumer": true,
 		"observe_viewer": CWKernel.VIEWER_OMNISCIENT, "autorun": false, "decider": bridge })
 	_start_queue()
 	kernel.run()
@@ -1022,6 +1044,12 @@ func _start_queue() -> void:
 	queue.on_log = log_store.apply
 	queue.on_ask = _serve_ask                   ## 只有 Remote 会走：InProc 有 decider ⇒ 不产 ask 条目
 	queue.on_game_over = _on_game_over
+	## 行动边界（新手引导 S3 接上）：step_begin{ask_id, seat} / step_end{rev} 两种条目。
+	## **装闸一律在 step_end** —— 内核的 decider 路是 `_close_step() → decider.ask() → _open_step()`
+	## （cw_kernel_inproc.gd:397/399/405），所以 step_begin 标的是「这一问已经答了、动作开始演」。
+	queue.on_step = _on_step
+	if _stage != null:
+		_stage.queue = queue                    ## 关内重装（reload_world）要按次序停它：abort → stop → close → dispose
 	_observe_now()   ## ★ 第一问之前桥手里就得有一份镜像：_ask_human 一上来就读它
 	queue.pump()
 
@@ -1059,12 +1087,27 @@ func _adopt_mirror(m: CWMirror) -> void:
 	mirror = m
 	if bridge != null:
 		bridge.mirror = m    ## 询问界面读的就是这一份（手牌 / 价签 / 名字 / 阵营）
-	if board.active_radius != m.board_radius:
-		board.set_active_radius(m.board_radius)   ## 半径随 envelope 走：教程跨章自动跟上；每份 sync 都调会一直重启淡出补间，所以只在变了才调
+	## 教程局的活跃格是关卡数据声明的**任意形状**（世界半径恒 6，方案 §1.3）——
+	## 按半径覆盖一次就把整盘露出来了，第二关右边那只癌细胞会提前穿帮。活跃集由舞台那边设（_open_tutorial_stage / reveal）
+	if not tutorial and board.active_radius != m.board_radius:
+		board.set_active_radius(m.board_radius)   ## 半径随 envelope 走：读档 / 联机自动跟上；每份 sync 都调会一直重启淡出补间，所以只在变了才调
 	if _chat != null:
 		## 「己方」标签的颜色跟我自己的阵营走（癌症席是橙）；没抢到席位的观众没有己方
 		var mine: int = _client.my_seat if online and _client != null else -1
 		_chat.team_faction = int(m.player(mine)["faction"]) if mine >= 0 and mine < m.players.size() else -1
+
+
+## 行动边界条目（新手引导 §1.10）。**装闸的唯一正确时机是 step_end**：
+## 内核的 decider 路逐行是 `_close_step()` → `decider.ask()`（玩家在这儿作答）→ `_open_step()`
+## （cw_kernel_inproc.gd:397/399/405），所以 `step_begin` 标的是「这一问已经答了、这一步开始演」，
+## 不是「这一问要问了」。`step_begin` 只留给演出分组（快进 / 跳过），一个闸都不装。
+##
+## S3 只把线接上并记下边界号；`allow` 过滤视图、`ui_layers`、提示与浮现挂在这儿是 S4 的事。
+func _on_step(e: Dictionary) -> void:
+	if _loop_id != _queue_loop:
+		return
+	if str(e.get("kind", "")) == "step_end":
+		_step_rev = int(e.get("rev", 0))
 
 
 ## 终局条目：tape 由它带下来（本地是引擎录的、联机是服务器发的），main.gd 用 replay_tape() 取。
@@ -1211,9 +1254,9 @@ func teardown() -> void:
 	queue = null
 	mirror = null
 	_serving_ask = -1
-	if _adopted != null:
-		_adopted.dispose()   ## 收养的对局句柄不销毁（adopt 模式的 close() 不 dispose）：谁装配谁收摊
-		_adopted = null
+	if _stage != null:
+		_stage.dispose()   ## 收养的对局句柄不销毁（adopt 模式的 close() 不 dispose）：谁装配谁收摊
+		_stage = null
 	_clear_played_card_fx()
 	_clear_revive_fx()
 	bridge = null
@@ -1619,7 +1662,11 @@ func _sync_cells() -> void:
 		var node: Node2D = _cell_nodes[i]
 		## 【连续吞噬】那一口由 CWChainFx 整只代画（选稿画的是张着口的胞体，
 		## 不是在细胞上叠一层），所以这几帧真身要让位
-		node.visible = c["alive"] and not (_chain_fx != null and _chain_fx.chewing_cid == i)
+		## 细胞贴图跟着遮罩走（新手引导 §1.9）：活跃格外的活细胞**不画** ——
+		## 「预置 + 遮罩揭示」能不能成立全押在这一条上（第二关 Step1 不许提前看见右边那只癌细胞）。
+		## 用 is_active（即时谓词）而不是 tile_shown：后者判的是补间后的 alpha，会在浮现的那半秒里闪一下
+		node.visible = c["alive"] and not (_chain_fx != null and _chain_fx.chewing_cid == i) \
+			and board.is_active(c["pos"])
 		var attack_owned: bool = _attack_fx != null and _attack_fx.owns(i)   ## 演出层没有 class_name，返回值是 Variant，得显式标类型
 		if attack_owned:
 			node.visible = false

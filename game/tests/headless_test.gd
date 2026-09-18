@@ -18,8 +18,9 @@ const AI_CASE := preload("res://tests/ai_baseline_case.gd")
 const AI_BASELINE_PATH := "res://tests/baseline/ai_same_hash.json"
 
 ## 护栏③ 白名单（规格 C-3 ③）：文件名 → 行内标记；标记是空串 = 整份豁免
+## **新手引导 S3 起只剩一条**：老教程装配器（guide_director.gd，整份就是 CWGame 工厂）已删，
+## 换成住 scripts/kernel/ 的舞台 cw_tutorial_stage.gd —— 闸只扫 scripts/ui 这一层目录，不必再豁免
 const UI_ENGINE_OK := {
-	"guide_director.gd": "",                 ## 教程装配器整份就是 CWGame 工厂，批 3 随教程内核化一起收
 	"ui_bridge.gd": "KERNEL-ENGINE-OK",      ## attach_engine：UI 桥同时是 AI 桥（拍板 E-2 (a)）
 }
 
@@ -157,7 +158,7 @@ func _run_all() -> void:
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial,
 		t_entry_smoke_replay, t_entry_smoke_online,
-		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides, t_kernel_attach_engine, t_kernel_loader_moved, t_board_active_tiles,
+		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides, t_kernel_attach_engine, t_kernel_loader_moved, t_board_active_tiles, t_tutorial_stage,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
 		t_rec_depth, t_rec_shape, t_rec_contract_only, t_rec_transparent,
 		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
@@ -1816,16 +1817,49 @@ func t_tumor_stages() -> void:
 
 
 ## T-TUTORIAL-MECHANISM-TRIALS：第 12 关三个实验区必须由真实 CWGame 状态触发。
+## 一份最小的 cwxworld/2：两席（免疫 0 / 癌 1）+ 指名的癌组织 + 指名的细胞。
+## 教程的盘面从此一律走装载器（新手引导 §0：两侧同一张键表），测试也跟着走同一条路
+func _trial_world(radius: int, cancer_tiles: Array, cells: Array) -> CWGame:
+	var tiles: Array = []
+	for at in cancer_tiles:
+		tiles.append({ "at": "%d,%d" % [at.x, at.y], "state": "cancer" })
+	var spec := {
+		"radius": radius, "round": 1, "phase": "PlayerAction", "seat": 0,
+		"players": [
+			{ "seat": 0, "faction": "immune", "level": "I", "memory": 0 },
+			{ "seat": 1, "faction": "cancer", "cancer_type": "Melanoma" }],
+		"tiles": tiles, "cells": cells,
+	}
+	var loader = CASE_LOADER.new()
+	var g: CWGame = loader.load_world(spec)
+	if g == null:
+		push_error("试炼盘面装不出来：%s" % str(loader.errors))
+	return g
+
+
+## **改判（新手引导 S3）**：原断言「CWGuideDirector.assemble(11, 0/1/2) 装出来的第 12 关三个实验区」→
+## 新断言「同样三个局面由 cwxworld/2 装载器装出来」。
+## 依据：方案 §2.3 第 1/2 条（导演与老关卡表整份删掉）+ 附 B（`t_tutorial_mechanism_trials` 改判，check 条数不减）。
+## **要守住的是规则那一半**：压迫真扣能量、增生真把健康格转癌、侵蚀真吃掉封闭健康岛 —— 这三条与教程无关，
+## 换个装配器照样成立，所以断言原文一个字不改，只换局面来源。新 PRD 没有「机制试炼」这一关（Q-17 待 Kevin）。
 func t_tutorial_mechanism_trials() -> void:
-	print("[教程机制试炼]")
-	var pressure := CWGuideDirector.assemble(11, 0)
+	print("[E 阶段三件事：压迫 / 增生 / 侵蚀（数据版局面）]")
+	## 12A 压迫：免疫细胞被 5 格癌性组织包围
+	var pressure := _trial_world(4,
+		[Vector2i(1, 0), Vector2i(1, -1), Vector2i(-1, 0), Vector2i(-1, 1), Vector2i(0, 1)],
+		[{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" },
+			{ "seat": 1, "type": "Melanoma", "at": "4,0", "alive": false }])
 	var pressure_cell: Dictionary = pressure.cell_of(0)
 	var pressure_energy: int = pressure_cell["energy"]
 	pressure.world._pressure()
 	check(pressure_cell["energy"] < pressure_energy, "第12A 压迫试炼：引擎实际扣除免疫能量")
 	pressure.dispose()
 
-	var proliferation := CWGuideDirector.assemble(11, 1)
+	## 12B 增生：健康组织 (1,0) 与 3 格癌组织相邻
+	var proliferation := _trial_world(4,
+		[Vector2i(2, 0), Vector2i(2, -1), Vector2i(1, 1)],
+		[{ "seat": 0, "type": "ImmuneBasic", "at": "-1,0" },
+			{ "seat": 1, "type": "Melanoma", "at": "4,0", "alive": false }])
 	proliferation.tune.proliferate_per_adjacent = [1000, 1000, 1000]
 	var before_growth := proliferation.count_tissue(CWData.Tissue.CANCER)
 	proliferation.world._proliferate()
@@ -1833,7 +1867,10 @@ func t_tutorial_mechanism_trials() -> void:
 		"第12B 增生试炼：引擎实际把健康组织转为癌性")
 	proliferation.dispose()
 
-	var erosion := CWGuideDirector.assemble(11, 2)
+	## 12C 侵蚀：健康孤岛 (2,0) 被 6 格癌组织完全封闭
+	var erosion := _trial_world(4, CWData.neighbors(Vector2i(2, 0)),
+		[{ "seat": 0, "type": "ImmuneBasic", "at": "0,0" },
+			{ "seat": 1, "type": "Melanoma", "at": "4,0", "alive": false }])
 	var before_erosion := erosion.count_tissue(CWData.Tissue.CANCER)
 	erosion.world._erosion()
 	check(erosion.count_tissue(CWData.Tissue.CANCER) > before_erosion,
@@ -9788,32 +9825,52 @@ func t_attack_fx() -> void:
 ## 教程局不判胜负（Kevin 2026-09-12 截图：第一章过后直接弹结算屏）。
 ## 根因：1–15 关是教学摆拍 —— 癌方只有一枚死亡占位、场上一块固化都没有，
 ## E 阶段第 10 步的【E-免疫胜利】（癌细胞全灭 + 无可复活的固化癌组织）当场成立。
+## **改判（新手引导 S3）**：原断言「教程局把 `g.win_checks` 关掉 ⇒ E 阶段不判胜负」→
+## 新断言「**第一关起的 `allow` 里不放『结束回合』⇒ 永远进不了 E 阶段 ⇒ 判定压根不跑**」。
+## 依据：方案 §2.3 —— `win_checks` 不在 `cwxworld/2` 的 15 键里、也没有 C# 对应物，
+## 教程不再用它（这是「换 C# sidecar 那天零改动」能成立的前提）。
+## 原来那三条（①②③）证的是「关掉判定 ⇒ 不弹结算」；现在证的是同一件事的新路径：
+## ① 数据里没有一条 `allow` 放行 `act=end`；② E 阶段跑不到；③ 真跑一遍 E 阶段确实会判 —— 所以闸必须在前面。
 func t_guide_no_win() -> void:
-	print("[教程局不判胜负]")
-	## ① 装配出来的教程局就是那个局面：癌方没有活细胞、没有固化格
-	var g := CWGuideDirector.assemble(1, 0)      ## 第 2 关「病灶」：Kevin 截图里弹结算的那一关
+	print("[教程局不判胜负（改判：靠 allow，不靠 win_checks）]")
+	## ① 第一 ~ 五关的 allow 里不放「结束回合」：`allow` 是前缀表，命中 `act=end` 就等于放行结束回合
+	var bad_allow: Array = []
+	for ch in CWGuideData.CHAPTER_COUNT:
+		for st in CWGuideData.steps(ch):
+			for a in (st as Dictionary).get("allow", []):
+				if str(a).contains("act=end"):
+					bad_allow.append("%d:%s" % [ch, str(a)])
+	check(bad_allow.is_empty(),
+		"关卡数据的 allow 里没有一条放行「结束回合」（坏的：%s）—— 进不了 E 阶段，胜负判定压根不跑" % str(bad_allow))
+	## ② `win_checks` 已经从教程这条路上整条消失：产品代码里再没人给它写 false
+	var win_hits: Array = []
+	for f in ["res://scripts/kernel/cw_tutorial_stage.gd", "res://scripts/ui/match.gd"]:
+		var ln := 0
+		for line in FileAccess.get_file_as_string(f).split("
+"):
+			ln += 1
+			if _code_only(line).contains("win_checks"):
+				win_hits.append("%s:%d" % [f.get_file(), ln])
+	check(win_hits.is_empty(),
+		"舞台与 match.gd 的非注释行都不再碰 win_checks（它不在 cwxworld/2 的 15 键里，也没有 C# 对应物）：%s" % str(win_hits))
+	## ③ 同一个局面真跑一遍 E 阶段**确实会判免疫胜利** —— 正是 Kevin 2026-09-12 截图里那一屏。
+	##   所以闸必须挡在「进 E 阶段」之前，这条是闸的判别力证明（原来的 ③ 同一个用途）
+	var lv1: Dictionary = CWGuideData.level(0)
+	var loader = CASE_LOADER.new()
+	var g: CWGame = loader.load_world((lv1["worlds"]["base"] as Dictionary).duplicate(true))
+	check(g != null, "第一关盘面装得出来：%s" % str(loader.errors))
+	if g == null:
+		return
 	var solid := 0
 	for c in g.tiles:
 		if int(g.tiles[c]["tissue"]) == CWData.Tissue.SOLID:
 			solid += 1
-	check(not g.win_checks and g.living_cells(CWData.Faction.CANCER).is_empty() and solid == 0,
-		"第 2 关：癌方只有死亡占位、0 格固化 —— 判定已关（win_checks=%s）" % str(g.win_checks))
-	## ② 跑一次真正的 E 阶段：关着判定就不该出胜负
+	check(g.win_checks and g.living_cells(CWData.Faction.CANCER).is_empty() and solid == 0,
+		"第一关：癌方只有 alive:false 的占位、0 格固化，而判定是**开着**的（win_checks=%s）" % str(g.win_checks))
 	await g.world.e_phase()
-	check(g.winner < 0, "跑完 E 阶段没有胜负（结算屏不会弹）")
-	## ③ 同一局面把判定打开 → 立刻免疫胜利，正是截图里那一屏（证明关掉的就是这条路）
-	var g2 := CWGuideDirector.assemble(1, 0)
-	g2.win_checks = true
-	await g2.world.e_phase()
-	check(g2.winner == CWData.Faction.IMMUNE and g2.win_kind == "immune_clear",
-		"开着判定的话同一局面当场就是「%s」" % g2.win_reason)
-	g2.dispose()
-	## ④ 毕业战（第 16 关）是正式四人局：照常判
-	var grad := CWGuideDirector.assemble(CWGuideLevels.count() - 1)
-	check(grad.win_checks and CWGuideLevels.formal(CWGuideLevels.count() - 1),
-		"毕业战是正式局，胜负照常判")
-	grad.dispose()
-	## ⑤ 正式对局默认开着；开关不进快照、不是旋钮（联机与存档一行不受影响）
+	check(g.winner == CWData.Faction.IMMUNE and g.win_kind == "immune_clear",
+		"真放它跑一次 E 阶段当场就是「%s」—— 所以教程必须靠 allow 把结束回合关在门外" % g.win_reason)
+	## ④ 正式对局默认开着；开关不进快照、不是旋钮（联机与存档一行不受影响）
 	var formal := make_game(4, 1)
 	check(formal.win_checks and not CWTuning.RULE_FIELDS.has("win_checks")
 		and not CWStateCodec.snapshot(formal).has("win_checks"),
@@ -10657,6 +10714,9 @@ func t_tutorial() -> void:
 	await process_frame
 	var m: CWMatch = main_scene.match_node
 	CWSettings.ai_delay_ms = 0
+	## 「没有进度时从第 1 关开始」那一条要先把前提立住：跨关换局时两关的免疫起点不同一格，
+	## `watch: moved` 会当场成立、把第一关记成已完成 —— 同一分片里先跑过教程换局的测试就会脏到这里
+	CWGuideProgress.clear()
 	## 与 main.gd _begin_tutorial() 同一组参数（不走过场，直接开）
 	m.tutorial = true
 	m.player_count = 2
@@ -10670,27 +10730,36 @@ func t_tutorial() -> void:
 	check(m._guide != null and is_instance_valid(m._guide) and m._guide.visible and m._guide.active,
 		"开局挂上引导面板并处于激活态")
 	check((m.bridge as CWGuideBridge).guide == m._guide, "引导桥拿到了面板引用")
-	check(m.mirror.tiles.size() == 7 and m.mirror.board_radius == 1,
-		"教程局用导演装配第 1 关局面：7 格微型棋盘（%d 格 / 半径 %d）"
+	## **改判（新手引导 S3）**：原断言「导演装的 7 格微型棋盘、半径 1」→
+	## 新断言「世界半径全程 6、127 格，小棋盘是**活跃格集合**」。依据：方案 §1.3（半径恒 6 的三条理由）+ §1.9。
+	check(m.mirror.tiles.size() == CWData.TOTAL_TILES and m.mirror.board_radius == CWData.BOARD_RADIUS,
+		"教程局由舞台按数据装第一关：世界仍是 %d 格 / 半径 %d（小棋盘靠遮罩）"
 			% [m.mirror.tiles.size(), m.mirror.board_radius])
-	check(m.mirror.cell_of(0)["alive"] and m.mirror.cell_of(0)["pos"] == Vector2i.ZERO
+	check(m.mirror.cell_of(0)["alive"] and m.mirror.cell_of(0)["pos"] == Vector2i(-1, -1)
 		and not m.mirror.cell_of(1)["alive"],
-		"免疫细胞按 fixture 在 (0,0)、癌方是死亡占位（免疫视角关）")
-	## 小棋盘 = 127 格常驻 + 半径外遮罩（Kevin 2026-09-11）：圈内看得见点得到、圈外淡掉；淡出要走完 ACTIVE_FADE
+		"免疫细胞按数据在 (-1,-1)、癌席是 alive:false 的占位（方案附 D 写法 B）")
+	## 小棋盘 = 127 格常驻 + **活跃格外遮罩**（Kevin 2026-09-11 的口径不变，只是从半径换成集合）
 	await create_timer(0.6).timeout
-	check(m.board.active_radius == 1 and m.board.map.size() == 127
-		and m.board.tile_shown(Vector2i(1, -1)) and not m.board.tile_shown(Vector2i(2, 0))
-		and m.board.hex_at(m.board.tile_center(Vector2i(1, -1))) == Vector2i(1, -1),
-		"7 格小棋盘：格网仍是 127 格，半径外淡掉、点不到；圈内照常")
-	check(CWMatch.tutorial_board_radius() == CWGuideLevels.radius(clampi(CWGuideProgress.done_count(), 0, CWGuideData.CHAPTER_COUNT - 1)),
-		"tutorial_board_radius 读的是当前进行到的那一关")
+	check(m.board.map.size() == 127
+		and m.board.tile_shown(Vector2i(-1, -1)) and m.board.tile_shown(Vector2i(0, -1))
+		and not m.board.tile_shown(Vector2i(1, -1)) and not m.board.tile_shown(Vector2i(2, 0))
+		and m.board.hex_at(m.board.tile_center(Vector2i(0, -1))) == Vector2i(0, -1)
+		and m.board.hex_at(m.board.tile_center(Vector2i(1, -1))) == m.board.NO_TILE,
+		"两格小棋盘：格网仍是 127 格，集合外淡掉、点不到；集合内照常")
+	## **改判**：原断言 `tutorial_board_radius() == CWGuideLevels.radius(当前关)` → 活跃格集合版（§1.3 后果表）
+	check(CWMatch.tutorial_active_tiles()
+			== CWGuideData.active_tiles(clampi(CWGuideProgress.done_count(), 0, CWGuideData.CHAPTER_COUNT - 1)),
+		"tutorial_active_tiles 读的是当前进行到的那一关的活跃格")
 	var main_src := FileAccess.get_file_as_string("res://scripts/ui/main.gd")
-	check(main_src.contains("set_active_radius(CWMatch.tutorial_board_radius()"),
-		"教程开局在推镜头**之前**就按当前关半径遮罩棋盘（不然镜头到位后棋盘才猛地缩小）")
+	check(main_src.contains("set_active_tiles(CWMatch.tutorial_active_tiles()"),
+		"教程开局在推镜头**之前**就按当前关的活跃格遮罩棋盘（不然镜头到位后棋盘才猛地缩小）")
 	var cell_node0: Node2D = m._cell_nodes[0]
-	check(is_equal_approx(cell_node0.position.x, m.board.tile_center(Vector2i.ZERO).x)
-		and is_equal_approx(cell_node0.position.y, m.board.tile_center(Vector2i.ZERO).y + CWMatch.CELL_FOOT_DY),
-		"免疫细胞节点就站在中央格上（%s vs 格 %s）" % [str(cell_node0.position), str(m.board.tile_center(Vector2i.ZERO))])
+	check(is_equal_approx(cell_node0.position.x, m.board.tile_center(Vector2i(-1, -1)).x)
+		and is_equal_approx(cell_node0.position.y, m.board.tile_center(Vector2i(-1, -1)).y + CWMatch.CELL_FOOT_DY),
+		"免疫细胞节点就站在起点格上（%s vs 格 %s）" % [str(cell_node0.position), str(m.board.tile_center(Vector2i(-1, -1)))])
+	## 细胞贴图跟着遮罩走（§1.9 / match.gd:1622）：癌席那只占位站在活跃格外的 (6,-1)，节点不能画出来
+	check(not m._cell_nodes[1].visible,
+		"活跃格外的细胞不画 —— 「预置 + 遮罩揭示」的前提（第二关 Step1 不许提前看见那只癌细胞）")
 	check(m.human_players == [0], "人类坐免疫视角席位")
 	check(m._guide.get_parent() == m.ui and m._guide.get_index() < m.pause_menu.get_index(),
 		"面板在 UI 层、压在暂停菜单下面")
@@ -10733,28 +10802,32 @@ func t_tutorial() -> void:
 	## 第 1 关不再教落子（细胞预置在 (0,0)）：翻到「第一次迁移」——move 是两段式选格、
 	## 刻意不代做（队友 09-03 定），提示是迁移那句、没有尾巴
 	m._guide._chapter = 0
-	m._guide._step = 1
+	m._guide._step = 0
 	m._guide._render()
 	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["move"]["hint"],
-		"翻到「第一次迁移」：提示是迁移那句、没有代做尾巴（%s）" % m._guide._hint.text)
+		"第一关那一步教迁移：提示是迁移那句、没有代做尾巴（%s）" % m._guide._hint.text)
 	check(m.mirror.cells.size() == 2, "开局细胞已按 fixture 在场（免疫 + 癌方占位，%d 枚）" % m.mirror.cells.size())
 	check(m.mirror.round_no == 1 and m.action_bar.visible, "直接进入玩家的第一个行动回合，行动栏已出现")
-	## 结束回合的动作教学在第 4 关：翻到那一步，提示换成结束回合那句 + 代做尾巴（此刻正等行动）
-	m._guide._chapter = 3
+	## **改判（新手引导 S3）**：原断言「第 4 关第 4 步教结束回合 ⇒ 提示换成结束回合那句 + 代做尾巴」→
+	## 新断言「第二关 Step2 教攻击 ⇒ 提示换成攻击那句、**没有**代做尾巴」。
+	## 依据：方案 §2.3（第一 ~ 五关永远不结束回合，剧本里没有 end 步）+ 拍板「attack 是两段式选格，不代做」。
+	m._guide._chapter = 1
 	m._guide._step = 3
 	m._guide._render()
 	## 沉浸式浮层（PR #12，2026-09-10）：代做尾巴不再拼进提示，单独贴在按钮行上方的 _hint_tail
-	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["end"]["hint"]
-		and m._guide._hint_tail.text == CWGuide.OFFER_TAIL % "继续",
-		"第 4 关「结束回合」：提示跟着换成结束回合那句，代做尾巴贴在按钮行上方（%s | %s）"
-		% [m._guide._hint.text, m._guide._hint_tail.text])
+	check(m._guide._hint.text == CWGuideBridge.STEP_HINTS["attack"]["hint"]
+		and not m._guide._hint_tail.visible,
+		"第二关 Step2「发起攻击」：提示跟着换成攻击那句，两段式选格所以没有代做尾巴（%s）"
+		% m._guide._hint.text)
 	m._guide._chapter = 0
-	m._guide._step = 2
+	m._guide._step = 0
 	m._guide._render()
 	## 提亮层：按 flag 找目标（棋盘 / 特殊组织 / 可落子格 / 右栏 / 行动栏按钮 / 结束回合 / 手牌抽屉）。
 	## 第 1 关是纯健康盘：place/attack/purify/special 需要的癌性 / 特殊元素临时点两笔
 	## （只测映射层，本局随后即拆）
+	## **改判**：免疫细胞从 (0,0) 挪到了 (-1,-1)，「脚边可净化的癌组织」要跟着挪 —— 判据本身没变
 	m.mirror.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+	m.mirror.tiles[Vector2i(0, -1)]["tissue"] = CWData.Tissue.CANCER   ## 免疫脚边那一格（purify 要它）
 	m.mirror.tiles[Vector2i(-1, 0)]["special"] = CWData.Special.CORE
 	var ph1 := m.mirror.cell_of(1)
 	ph1["alive"] = true
@@ -10808,10 +10881,10 @@ func t_tutorial() -> void:
 	## 关卡最后一步按钮写「下一章」、全部最后一步写「完成引导」：尾巴要跟着按钮的字走，按钮按实际宽度靠右、右边留 PAD
 	## （Kevin 2026-09-05 截图：「别忘了结束回合 5/5」尾巴还说「继续」，「下一章」贴到边框）
 	m._guide._chapter = 0
-	m._guide._step = CWGuideData.steps(0).size() - 1      ## 「小结」：讲解收尾页
+	m._guide._step = CWGuideData.steps(0).size() - 1      ## 第一关最后一步
 	m._guide._render()
 	check(m._guide._btn.text == "下一章" and not m._guide._hint_tail.visible,
-		"关卡最后一步按钮写「下一章」、讲解收尾没有代做尾巴（%s）" % m._guide._hint.text)
+		"关卡最后一步按钮写「下一章」、两段式动作没有代做尾巴（%s）" % m._guide._hint.text)
 	check(m._guide._btn.size.x >= 60 and m._guide._btn.position.x + m._guide._btn.size.x <= CWGuide.ZONE.size.x - CWGuide.PAD,
 		"「下一章」变宽后按钮行仍收在浮层内，右边留 ≥ %d（右缘 %.0f）" % [CWGuide.PAD, m._guide._btn.position.x + m._guide._btn.size.x])
 	m._guide._chapter = CWGuideData.CHAPTER_COUNT - 1
@@ -10821,16 +10894,16 @@ func t_tutorial() -> void:
 		and m._guide._btn.position.x - (m._guide._codex_btn.position.x + m._guide._codex_btn.size.x) >= 16.0,
 		"「完成引导」四个字同样收在浮层内，且离「知识之书」≥ 16px")
 	check(not m._guide._hint_tail.visible, "收尾页不教动作 → 没有代做尾巴")
-	## 引导面板「知识之书」直达：第 4 关（下标 3）对应 CODEX_PAGE[3]
-	m._guide._chapter = 3
+	## 引导面板「知识之书」直达：第二关（下标 1）对应 CODEX_PAGE[1]（原来指的是第 4 关，那一关没了）
+	m._guide._chapter = 1
 	m._guide.open_codex_at_current()
-	check(m._codex != null and m._codex.visible and m._codex._page == CWGuideData.CODEX_PAGE[3],
+	check(m._codex != null and m._codex.visible and m._codex._page == CWGuideData.CODEX_PAGE[1],
 		"直达：对局内知识之书翻到当前关对应的那一章（第 %d 页）" % (m._codex._page + 1))
 	check(m._codex.get_parent() == m.ui and m._codex.get_index() < m.pause_menu.get_index(),
 		"对局内的书也在 UI 层、暂停菜单下面")
 	check(m.pause_menu.codex_open.call(), "书开着：暂停菜单让位")
 	m._unhandled_input(press_action("ui_right"))
-	check(m._codex._page == CWGuideData.CODEX_PAGE[3] + 1, "书开着时方向键由 CWMatch 路由给书翻页")
+	check(m._codex._page == int(CWGuideData.CODEX_PAGE[1]) + 1, "书开着时方向键由 CWMatch 路由给书翻页")
 	m._unhandled_input(press_action("ui_cancel"))
 	check(not m._codex.visible and m._guide.visible, "Esc 先关书，引导面板还在")
 	check(not m.pause_menu.codex_open.call(), "书关了：判据回到「没开」")
@@ -10853,11 +10926,26 @@ func t_tutorial() -> void:
 	main_scene.free()
 
 
+## **改判（新手引导 S3）**：断言**形状**一条不变（关数、平行表对齐、步的必填字段、取值域、排版预算、旧进度迁移），
+## 换掉的是三处**数据源**与三处**内容口径**：
+##   · 原「CHAPTER_COUNT == 16」→「== index.json 的关数」：剧本正本从 16 个硬编码 `_stage_*()`
+##     换成 `game/data/tutorial/*.json`，关数由数据说了算（方案 §1.1 的去向表）。
+##   · 原「每步都有标题**与正文**、正文 ≤ 2 行」→「每步都有标题；正文可空、≤ 6 行」：
+##     PRD 的第一关开场就是 5 句（PRD:101-135），而 c1_l2 有两步只给一句标题、不给正文。低文本契约是老剧本的口径。
+##   · 原「第 1 关三步迁移」→「第一关第一步 act=move + watch=moved」：新第一关只有一步（PRD:91-137）。
+##   · 原「第 4 关第 4 步教结束回合（全剧本唯一的 end 键）」→「**全剧本零个 end**」：
+##     第一 ~ 五关永远不结束回合（方案 §2.3，`win_checks` 整条消掉的前提）。
+##   · 原三条「剧本文案里的记忆门槛 / 手牌上限 / 攻击上限现读规则」→ 三条「`{{tune.*}}` 占位现取」：
+##     纪律 6 的执行机构从「文案里拼 CWData.fmt(...)」换成了渲染期替换（`CWGuideData.fill`），
+##     要守的还是同一件事 —— **数字不写死在文案里**。
 func t_guide_data() -> void:
-	print("[新手引导剧本]")
+	print("[新手引导剧本（数据门面）]")
 	var tune := CWTuning.new()
-	check(CWGuideData.CHAPTER_COUNT == 16, "引导剧本共 16 关（当前 %d）" % CWGuideData.CHAPTER_COUNT)
-	## 知识之书直达映射：16 项、每项都指到真实存在的章节
+	var d = TUT_DATA.new()
+	var n_rows: int = (d.load_index().get("levels", []) as Array).size()
+	check(CWGuideData.CHAPTER_COUNT == n_rows and n_rows > 0,
+		"关数 = index.json 的关表条数（%d）" % CWGuideData.CHAPTER_COUNT)
+	## 知识之书直达映射：每关一项、每项都指到真实存在的章节
 	var n_codex: int = CWCodex.chapters().size()
 	check(CWGuideData.CODEX_PAGE.size() == CWGuideData.CHAPTER_COUNT,
 		"每关都挂钩知识之书（%d/%d 项）" % [CWGuideData.CODEX_PAGE.size(), CWGuideData.CHAPTER_COUNT])
@@ -10870,20 +10958,22 @@ func t_guide_data() -> void:
 		"每关都有标题")
 	check(CWGuideData.chapter_subtitles().size() == CWGuideData.CHAPTER_COUNT,
 		"每关都有一句概括")
-	## 渐进 UI 档这张**平行表**也要跟关数对齐（逐关局面那张在 t_guide_levels 里查）——
+	## 渐进 UI 档这张**平行表**也要跟关数对齐（逐关盘面那张在 t_guide_director 里查）——
 	## 少一项不会当场崩（`ui_stage()` 会 clamp），只会让最后几关悄悄用错档
 	check(CWGuideData.UI_STAGE.size() == CWGuideData.CHAPTER_COUNT,
 		"渐进 UI 档 %d 项，和关数 %d 对齐" % [CWGuideData.UI_STAGE.size(), CWGuideData.CHAPTER_COUNT])
+	## 正文的行数上限：PRD 的第一关开场 5 句（PRD:101-135）是全案最长的一步，留一行余量
+	const BODY_MAX := 6
 	var sum := 0
 	for i in CWGuideData.CHAPTER_COUNT:
 		var sts: Array = CWGuideData.steps(i)
 		check(not sts.is_empty(), "第 %d 关至少一步" % i)
 		for st in sts:
-			check(st.has("t") and st.has("b") and not (st["b"] as Array).is_empty(),
-				"第 %d 关每步都有标题与正文" % i)
-			check((st["b"] as Array).size() <= 2,
-				"低文本契约：每步正文 ≤ 2 行（%s 有 %d 行）"
-					% [str(st["t"]), (st["b"] as Array).size()])
+			check(str(st.get("t", "")) != "" and st.has("b"),
+				"第 %d 关每步都有标题（正文可以为空：PRD 有只给一句标题的步）" % i)
+			check((st["b"] as Array).size() <= BODY_MAX,
+				"每步正文 ≤ %d 行（%s 有 %d 行）"
+					% [BODY_MAX, str(st["t"]), (st["b"] as Array).size()])
 		sum += sts.size()
 	check(CWGuideData.total_steps() == sum,
 		"total_steps() 与逐关步骤数之和一致（%d）" % sum)
@@ -10903,18 +10993,17 @@ func t_guide_data() -> void:
 	## 判据表是给**正在重写的剧本**备的词汇，表里暂时没人用的键是有意留的
 	check(bad_watch.is_empty(), "watch 键都在判据表里（%d 个可用；坏的：%s）"
 		% [GUIDE_WATCH.KEYS.size(), str(bad_watch)])
-	## 状态推进契约：第 1 关三步迁移全部由真实局面判定完成（t_tutorial_auto_advance 依赖这些位置）
-	for i in 3:
-		check(CWGuideData.act_of(0, i + 1) == "move" and CWGuideData.watch_of(0, i + 1) == "moved",
-			"第 1 关第 %d 步：迁移（act=move + watch=moved）" % (i + 2))
-	## 结束回合的动作教学在第 4 关（玩家亲手结束 → E 阶段），全剧本唯一的 end 键
+	## 状态推进契约：新第一关只有一步 —— 向前迁移一格，由真实局面判定完成（t_tutorial_auto_advance 依赖这个位置）
+	check(CWGuideData.act_of(0, 0) == "move" and CWGuideData.watch_of(0, 0) == "moved",
+		"第一关第 1 步：迁移（act=move + watch=moved）")
+	## 第一 ~ 五关**永远不结束回合**（方案 §2.3）：剧本里一个 end 都不该有，
+	## `allow` 那一侧的同一条断言在 t_guide_no_win 里
 	var n_end := 0
 	for i in CWGuideData.CHAPTER_COUNT:
 		for j in CWGuideData.steps(i).size():
 			if CWGuideData.act_of(i, j) == "end":
 				n_end += 1
-	check(n_end == 1 and CWGuideData.act_of(3, 3) == "end",
-		"第 4 关第 4 步教结束回合（act=end，全剧本唯一）")
+	check(n_end == 0, "剧本里一个「结束回合」步都没有（进不了 E 阶段 ⇒ 不判胜负，实测 %d 个）" % n_end)
 	## 剧本文字现读规则，且每行装得进面板正文栏
 	var text := ""
 	var wide: Array = []
@@ -10926,396 +11015,182 @@ func t_guide_data() -> void:
 				if CWStyle.FONT.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x > budget:
 					wide.append(line)
 	check(wide.is_empty(), "每行都放得进引导面板正文栏 %d（超的：%s）" % [budget, str(wide)])
-	## 门槛按人数分档（Kevin 2026-09-09），引导是静态的、拿不到人数，所以两档都要写出来。
-	check(text.contains("四人 %d / %d" % [CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][1],
-				CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][2]])
-			and text.contains("六人 %d / %d" % [CWData.LEVEL_MIN_MEMORY[1], CWData.LEVEL_MIN_MEMORY[2]])
-			and text.contains("四人 %d / 六人 %d 升 X" % [CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][3], CWData.LEVEL_MIN_MEMORY[3]]),
-		"剧本的记忆门槛现读分档表，且四人 / 六人两档（含 X 级）都写了")
-	check(text.contains("最多持 %d 张" % CWData.HAND_MAX), "手牌上限现读 HAND_MAX")
-	check(text.contains("最多攻击 %d 次" % tune.attack_max_per_turn), "攻击上限现读 attack_max_per_turn")
-	## 旧进度迁移：6 关制「全部完成」= done 6；16 关制下应从第 7 关续读（clamp 现行为）
+	## 纪律 6「数字不写死在文案里」的三条（原来是三条「文案里拼出来的数与规则表一致」）：
+	## ① 交到面板手里的正文没有残留占位 —— 漏替换的话玩家会看见一串 `{{tune.…}}`
+	check(not text.contains("{{") and not text.contains("}}"),
+		"steps() 交出去的正文里没有残留的 {{tune.*}} 占位")
+	## ② 替换是**真现取**，不是空转：喂一条占位进去，出来的就是 CWTuning 此刻的值
+	check(CWGuideData.fill("最多攻击 {{tune.attack_max_per_turn}} 次")
+			== "最多攻击 %d 次" % tune.attack_max_per_turn,
+		"fill() 现读 CWTuning（攻击上限 %d）" % tune.attack_max_per_turn)
+	## ③ 门面只读：steps() 交出去的是深拷贝，调用方改了不会脏到缓存里那一份
+	var borrowed: Array = CWGuideData.steps(0)
+	(borrowed[0] as Dictionary)["t"] = "被改过了"
+	check(str((CWGuideData.steps(0)[0] as Dictionary)["t"]) != "被改过了",
+		"steps() 是深拷贝：调用方改了不影响下一次读（门面只读）")
+	## 旧进度迁移：存量 done 比现在的关数大时按 clamp 续读（6 关制 → 16 关制 → 今天的数据版，同一条行为）
 	CWGuideProgress.clear()
 	CWGuideProgress.set_done(5)   ## 旧版最后一关（下标 5）→ 存量 done = 6
 	var probe := CWGuide.new()
 	probe._read_progress()
-	check(probe.chapter() == 6, "旧进度 done=6 在 16 关制下从第 7 关续读（实际第 %d 关）" % (probe.chapter() + 1))
+	check(probe.chapter() == mini(6, CWGuideData.CHAPTER_COUNT - 1),
+		"存量 done=6 在 %d 关制下 clamp 到最后一关续读（实际第 %d 关）"
+			% [CWGuideData.CHAPTER_COUNT, probe.chapter() + 1])
 	probe.free()
 	CWGuideProgress.clear()
 
 
-## 逐关真实局面导演（16 关重构切片③）：1–15 关用 fixture 在真实 CWGame 上装配开局，
-## 第 16 关走正式规则；教程装配不得污染正式口径。
+## **改判（新手引导 S3）**：断言对象 `CWGuideDirector` / `CWGuideLevels` **整体消失**（方案 §2.3 第 1/2 条），
+## 改判为「**数据版的逐关开局**」—— 同一件事换了装配器：从「16 关硬编码 fixture 直写引擎字段」
+## 换成「每关一份 cwtut/1，舞台经 cwxworld/2 装载器装出来」。
+##
+## 保留原样的两组（与导演无关，一个字不改）：半径接缝那 7 条、正式隔离与 RNG 隔离那 4 条。
+## 逐关那一组改成**按 `index.json` 循环**：数据加一关，断言自动多一关（S5 / S8 / S10 会把关数补回来）。
+## 「攻击固定脚本 1/3/6」改判成带子版（原来靠搜一个可复现的 seed，现在是数据里钉死的 `rolls`，方案 §1.7）。
+##
+## 老 API 那几条（`CWGuideLevels.count/radius/formal/player_faction/zones`、第 3~16 关的逐关 fixture）
+## 断言对象在 PRD 里就不存在了，随类一起消失 —— 逐条记在 docs/开发日志.md 的改判表里。
 func t_guide_director() -> void:
-	print("[教程导演·逐关局面]")
-	## 半径接缝：默认不动正式口径，参数化后各档 = 3r²+3r+1
+	print("[教程舞台·逐关开局（数据版）]")
+	## 半径接缝：默认不动正式口径，参数化后各档 = 3r²+3r+1（原样保留）
 	check(CWData.all_coords().size() == CWData.TOTAL_TILES,
 		"all_coords() 默认仍是正式 %d 格（当前 %d）" % [CWData.TOTAL_TILES, CWData.all_coords().size()])
 	for r in range(1, 7):
 		var want := 3 * r * r + 3 * r + 1
 		check(CWData.all_coords(r).size() == want,
 			"all_coords(%d) 蜂窝 %d 格（当前 %d）" % [r, want, CWData.all_coords(r).size()])
-	## 逐关局面声明：16 关齐、半径按方案表、第 5 关癌症视角
-	check(CWGuideLevels.count() == CWGuideData.CHAPTER_COUNT,
-		"每关都有局面声明（%d/%d）" % [CWGuideLevels.count(), CWGuideData.CHAPTER_COUNT])
-	var want_radius := [1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 6]
-	var bad_radius: Array = []
-	for i in want_radius.size():
-		if CWGuideLevels.radius(i) != want_radius[i]:
-			bad_radius.append("%d:%d≠%d" % [i, CWGuideLevels.radius(i), want_radius[i]])
-	check(bad_radius.is_empty(), "半径按方案递增 7/19/19/19/37×4/61×7/127（坏：%s）" % str(bad_radius))
-	check(CWGuideLevels.player_faction(4) == CWData.Faction.CANCER
-		and CWGuideLevels.player_faction(0) == CWData.Faction.IMMUNE,
-		"第 5 关癌症视角、第 1 关免疫视角")
-	## 第 1 关「苏醒」：7 格全健康 + 一枚免疫细胞 (0,0) 3.0 能量，装配不推进流程
-	var g1 := CWGuideDirector.assemble(0)
-	check(g1 != null, "第 1 关装配出真实 CWGame")
-	if g1 == null:
-		return
-	check(g1.tiles.size() == 7, "第 1 关棋盘 7 格（当前 %d）" % g1.tiles.size())
-	var sick: Array = []
-	for c in g1.tiles:
-		if g1.tiles[c]["tissue"] != CWData.Tissue.HEALTHY:
-			sick.append(c)
-	check(sick.is_empty(), "第 1 关开局全是健康组织（%s）" % str(sick))
-	check(g1.cell_of(0)["alive"] and g1.cell_of(0)["pos"] == Vector2i.ZERO
-		and g1.cell_of(0)["faction"] == CWData.Faction.IMMUNE
-		and g1.cell_of(0)["energy"] == CWData.INIT_ENERGY
-		and not g1.cell_of(1)["alive"],
-		"第 1 关：免疫细胞一枚在 (0,0)、能量 3.0，癌方为死亡占位（%s）" % str(g1.cells))
-	check(g1.round_no == 1 and g1.flow["stage"] == "round_start",
-		"第 1 关装配停在回合开头（%s / 第 %d 回合）" % [str(g1.flow["stage"]), g1.round_no])
-	## 第 3 关「第一次接触」：19 格、(0,0) 免疫 6.0、(1,0) 癌 3.0、目标格癌组织
-	var g3 := CWGuideDirector.assemble(2)
-	check(g3 != null and g3.tiles.size() == 19, "第 3 关棋盘 19 格")
-	if g3 != null:
-		var me := {}
-		var foe := {}
-		for c in g3.cells:
-			if c["faction"] == CWData.Faction.IMMUNE:
-				me = c
-			elif c["faction"] == CWData.Faction.CANCER:
-				foe = c
-		check(not me.is_empty() and me["pos"] == Vector2i.ZERO and me["energy"] == 60,
-			"第 3 关玩家 (0,0) 免疫细胞 6.0 能量（%s）" % str(me))
-		check(not foe.is_empty() and foe["pos"] == Vector2i(1, 0) and foe["energy"] == 30,
-			"第 3 关敌方癌细胞 (1,0) 3.0 能量（%s）" % str(foe))
-		check(g3.tiles[Vector2i(1, 0)]["tissue"] == CWData.Tissue.CANCER,
-			"第 3 关目标格 (1,0) 是癌组织")
-	## 第 4 关「时间开始流动」：19 格、免疫 1.0、远离玩家两格癌组织
-	var g4 := CWGuideDirector.assemble(3)
-	check(g4 != null and g4.tiles.size() == 19, "第 4 关棋盘 19 格")
-	if g4 != null:
-		check(g4.cell_of(0)["energy"] == 10
-			and g4.cell_of(0)["pos"] == Vector2i.ZERO,
-			"第 4 关免疫细胞 (0,0) 能量 1.0")
-		var n_c4 := 0
-		for c in g4.tiles:
-			if g4.tiles[c]["tissue"] == CWData.Tissue.CANCER:
-				n_c4 += 1
-		check(n_c4 == 2, "第 4 关远离玩家的癌组织 2 格（%d）" % n_c4)
-	## 第 5 关「另一种生命」：37 格、癌症视角、中心 7 格癌组织连通块
-	var g5 := CWGuideDirector.assemble(4)
-	check(g5 != null and g5.tiles.size() == 37, "第 5 关棋盘 37 格")
-	if g5 != null:
-		check(not g5.cell_of(0)["alive"] and g5.cell_of(1)["alive"]
-			and g5.cell_of(1)["faction"] == CWData.Faction.CANCER
-			and g5.cell_of(1)["pos"] == Vector2i.ZERO and g5.cell_of(1)["energy"] == 60,
-			"第 5 关玩家是 (0,0) 癌细胞 6.0 能量（免方死亡占位）")
-		var block5: bool = g5.tiles[Vector2i.ZERO]["tissue"] == CWData.Tissue.CANCER
-		for c in CWData.neighbors(Vector2i.ZERO):
-			if g5.tiles[c]["tissue"] != CWData.Tissue.CANCER:
-				block5 = false
-		check(block5, "第 5 关中心 7 格构成癌组织连通块")
-	## 第 6 关「建立据点」：37 格、中心固化计数预设 1、共 4 格癌组织
-	var g6 := CWGuideDirector.assemble(5)
-	check(g6 != null and g6.tiles.size() == 37, "第 6 关棋盘 37 格")
-	if g6 != null:
-		check(g6.tiles[Vector2i.ZERO]["tissue"] == CWData.Tissue.CANCER
-			and g6.tiles[Vector2i.ZERO]["solid"] == 1,
-			"第 6 关中心癌组织固化计数预设 1")
-		var n_c6 := 0
-		for c in g6.tiles:
-			if g6.tiles[c]["tissue"] == CWData.Tissue.CANCER:
-				n_c6 += 1
-		check(n_c6 == 4, "第 6 关共 4 格癌组织（%d）" % n_c6)
-	## 第 7 关「组织里的基础设施」：37 格、核/髓/双管四个特殊组织、核预存 2.0、髓预存 1 张
-	var g7 := CWGuideDirector.assemble(6)
-	check(g7 != null and g7.tiles.size() == 37, "第 7 关棋盘 37 格")
-	if g7 != null:
-		check(g7.tiles[Vector2i(1, 0)]["special"] == CWData.Special.CORE
-			and g7.tiles[Vector2i(1, 0)]["store"] == 20,
-			"第 7 关代谢核心 (1,0) 预存 2.0 能量")
-		check(g7.tiles[Vector2i(-1, 1)]["special"] == CWData.Special.MARROW
-			and g7.tiles[Vector2i(-1, 1)]["cards"] == 1,
-			"第 7 关骨髓 (-1,1) 预存 1 张卡")
-		check(g7.tiles[Vector2i(0, -3)]["special"] == CWData.Special.VESSEL
-			and g7.tiles[Vector2i(0, 3)]["special"] == CWData.Special.VESSEL,
-			"第 7 关血管对 (0,-3)/(0,3)")
-		var n_sp7 := 0
-		for c in g7.tiles:
-			if g7.tiles[c]["special"] != CWData.Special.NONE:
-				n_sp7 += 1
-		check(n_sp7 == 4, "第 7 关特殊组织恰好 4 个、无正式布局残留（%d）" % n_sp7)
-	## 第 8 关「基因表达」：37 格、免疫 4.0、两格癌组织做卡牌测试目标
-	var g8 := CWGuideDirector.assemble(7)
-	check(g8 != null and g8.tiles.size() == 37, "第 8 关棋盘 37 格")
-	if g8 != null:
-		check(g8.cell_of(0)["energy"] == 40,
-			"第 8 关免疫细胞 4.0 能量")
-		var n_c8 := 0
-		for c in g8.tiles:
-			if g8.tiles[c]["tissue"] == CWData.Tissue.CANCER:
-				n_c8 += 1
-		check(n_c8 == 2, "第 8 关癌组织测试目标 2 格（%d）" % n_c8)
-	## 第 9 关「免疫记忆」：61 格、抗原记忆 8/10、两格易净化癌组织
-	var g9 := CWGuideDirector.assemble(8)
-	check(g9 != null and g9.tiles.size() == 61, "第 9 关棋盘 61 格")
-	if g9 != null:
-		check(g9.memory == 8, "第 9 关抗原记忆 8/10（当前 %d）" % g9.memory)
-		var n_c9 := 0
-		for c in g9.tiles:
-			if g9.tiles[c]["tissue"] == CWData.Tissue.CANCER:
-				n_c9 += 1
-		var alive9 := 0
-		for c in g9.cells:
-			if c["alive"]:
-				alive9 += 1
-		check(n_c9 == 2 and alive9 == 1,
-			"第 9 关两格易净化癌组织 + 一枚免疫细胞（%d 活细胞 / %d 格）" % [alive9, n_c9])
-	## 第 10 关「分化」：四个实验区，zones() 报数、每区都是真实 61 格局面
-	check(CWGuideLevels.zones(9) == 4, "第 10 关有四个实验区（%d）" % CWGuideLevels.zones(9))
-	for z in 4:
-		var gz := CWGuideDirector.assemble(9, z)
-		check(gz != null and gz.tiles.size() == 61, "第 10 关实验区 %d 棋盘 61 格" % z)
-	## 10A 树突状细胞区：玩家树突 + 盟友免疫 + 癌细胞同场
-	var g10a := CWGuideDirector.assemble(9, 0)
-	if g10a != null:
-		var nd := 0
-		var na := 0
-		var nc10 := 0
-		for c in g10a.cells:
-			if c["faction"] == CWData.Faction.CANCER:
-				nc10 += 1
-			elif c["itype"] == CWData.ImmuneType.DENDRITIC:
-				nd += 1
-			elif c["itype"] == CWData.ImmuneType.BASIC:
-				na += 1
-		check(nd == 1 and na == 1 and nc10 == 1,
-			"10A：树突 + 盟友免疫 + 癌细胞各一（%d/%d/%d）" % [nd, na, nc10])
-	## 10B 巨噬细胞区：玩家巨噬 + 连续 3 格癌组织待净化
-	var g10b := CWGuideDirector.assemble(9, 1)
-	if g10b != null:
-		check(g10b.cells.size() >= 1 and g10b.cells[0]["itype"] == CWData.ImmuneType.MACRO,
-			"10B：玩家是巨噬细胞")
-		var b_c := 0
-		for c in g10b.tiles:
-			if g10b.tiles[c]["tissue"] == CWData.Tissue.CANCER:
-				b_c += 1
-		check(b_c == 3, "10B：连续 3 格癌组织（%d）" % b_c)
-	## 10C B细胞区：玩家 B 细胞 + 边缘 3 个癌细胞
-	var g10c := CWGuideDirector.assemble(9, 2)
-	if g10c != null:
-		var is_b := false
-		var n_cc := 0
-		for c in g10c.cells:
-			if c["faction"] == CWData.Faction.CANCER:
-				n_cc += 1
-			elif c["itype"] == CWData.ImmuneType.B_CELL:
-				is_b = true
-		check(is_b and n_cc == 3, "10C：B 细胞 + 边缘 3 个癌细胞（%d）" % n_cc)
-	## 10D T细胞区：玩家 T 细胞 + 固化癌组织 + 癌细胞
-	var g10d := CWGuideDirector.assemble(9, 3)
-	if g10d != null:
-		var is_t := false
-		var has_foe := false
-		for c in g10d.cells:
-			if c["faction"] == CWData.Faction.CANCER:
-				has_foe = true
-			elif c["itype"] == CWData.ImmuneType.T_CELL:
-				is_t = true
-		var has_solid := false
-		for c in g10d.tiles:
-			if g10d.tiles[c]["tissue"] == CWData.Tissue.SOLID:
-				has_solid = true
-		check(is_t and has_foe and has_solid, "10D：T 细胞 + 癌细胞 + 固化癌组织")
-	## 第 11 关「癌症并不只有一种」：四个癌细胞实验区，玩家带 CancerType
-	check(CWGuideLevels.zones(10) == 4, "第 11 关四个实验区（%d）" % CWGuideLevels.zones(10))
-	var g11a := CWGuideDirector.assemble(10, 0)
-	if g11a != null:
-		check(g11a.cell_of(1)["alive"] and g11a.cell_of(1)["ctype"] == CWData.CancerType.MELANOMA
-			and g11a.cell_of(1)["pos"] == Vector2i(0, -3)
-			and g11a.tiles[Vector2i(0, -3)]["special"] == CWData.Special.VESSEL,
-			"11A：黑色素瘤玩家站在血管上")
-	var g11b := CWGuideDirector.assemble(10, 1)
-	if g11b != null:
-		var player11b: Dictionary = {}
-		var n_foe11b := 0
-		for c in g11b.cells:
-			if c["faction"] == CWData.Faction.CANCER:
-				player11b = c
-			else:
-				n_foe11b += 1
-		check(not player11b.is_empty() and player11b["ctype"] == CWData.CancerType.SIGNET
-			and player11b["energy"] == 40 and n_foe11b == 1,
-			"11B：印戒玩家 4.0 能量、周围有一枚免疫细胞")
-	var g11c := CWGuideDirector.assemble(10, 2)
-	if g11c != null:
-		check(g11c.cell_of(1)["alive"] and g11c.cell_of(1)["ctype"] == CWData.CancerType.OSTEO
-			and g11c.tiles[g11c.cell_of(1)["pos"]]["tissue"] == CWData.Tissue.CANCER,
-			"11C：骨肉瘤玩家站在普通癌组织上")
-	var g11d := CWGuideDirector.assemble(10, 3)
-	if g11d != null:
-		check(g11d.cell_of(1)["alive"] and g11d.cell_of(1)["ctype"] == CWData.CancerType.SCLC,
-			"11D：小细胞肺癌玩家")
-	## 第 12 关「肿瘤微环境」：压迫 / 增生 / 侵蚀 / 坏死四个教学场景
-	check(CWGuideLevels.zones(11) == 4, "第 12 关四个教学场景（%d）" % CWGuideLevels.zones(11))
-	var g12a := CWGuideDirector.assemble(11, 0)
-	if g12a != null:
-		var adj12a := 0
-		for c in CWData.neighbors(Vector2i.ZERO):
-			if g12a.tiles[c]["tissue"] == CWData.Tissue.CANCER:
-				adj12a += 1
-		check(g12a.cell_of(0)["alive"] and adj12a == 5,
-			"12A：免疫细胞被 5 格癌性组织包围（%d）" % adj12a)
-	var g12b := CWGuideDirector.assemble(11, 1)
-	if g12b != null:
-		var adj12b := 0
-		for c in CWData.neighbors(Vector2i(1, 0)):
-			if g12b.tiles[c]["tissue"] == CWData.Tissue.CANCER:
-				adj12b += 1
-		check(adj12b == 3 and g12b.tiles[Vector2i(1, 0)]["tissue"] == CWData.Tissue.HEALTHY,
-			"12B：健康组织 (1,0) 与 3 格癌组织相邻（%d）" % adj12b)
-	var g12c := CWGuideDirector.assemble(11, 2)
-	if g12c != null:
-		var closed: bool = g12c.tiles[Vector2i(2, 0)]["tissue"] == CWData.Tissue.HEALTHY
-		for c in CWData.neighbors(Vector2i(2, 0)):
-			if g12c.tiles[c]["tissue"] != CWData.Tissue.CANCER:
-				closed = false
-		check(closed, "12C：健康孤岛 (2,0) 被 6 格癌组织完全封闭")
-	var g12n := CWGuideDirector.assemble(11, 3)
-	if g12n != null:
-		check(g12n.tiles[Vector2i.ZERO]["necrosis"] == 2 and g12n.cell_of(0)["alive"],
-			"12 坏死：免疫细胞站在坏死组织上（剩余 2 世界回合）")
-	## 第 13 关「世界并不稳定」：开局停在第 3 世界回合（事件回合）
-	var g13 := CWGuideDirector.assemble(12)
-	if g13 != null:
-		check(g13.round_no == 3 and g13.cell_of(0)["alive"] and not g13.cell_of(1)["alive"],
-			"第 13 关从世界回合 3 开始（当前 %d）" % g13.round_no)
-	## 第 14 关「终末免疫」：抗原记忆 29/30（III 级）、玩家已分化
-	var g14 := CWGuideDirector.assemble(13)
-	var it14 := -2
-	if g14 != null and g14.cell_of(0)["alive"]:
-		it14 = int(g14.cell_of(0)["itype"])
-	if g14 != null:
-		check(g14.memory == 29 and g14.cell_of(0)["alive"]
-			and it14 != CWData.ImmuneType.BASIC,
-			"第 14 关记忆 29/30 且玩家已分化（%d / itype %d）" % [g14.memory, it14])
-	## 第 15 关「怎样真正赢下一局」：三个残局
-	check(CWGuideLevels.zones(14) == 3, "第 15 关三个残局（%d）" % CWGuideLevels.zones(14))
-	var g15a := CWGuideDirector.assemble(14, 0)
-	if g15a != null:
-		var solid15 := 0
-		var foe15 := 0
-		for c in g15a.tiles:
-			if g15a.tiles[c]["tissue"] == CWData.Tissue.SOLID:
-				solid15 += 1
-		for c in g15a.cells:
-			if c["faction"] == CWData.Faction.CANCER:
-				foe15 += 1
-		check(solid15 == 1 and foe15 == 1, "15A：最后一个癌细胞 + 一个固化癌组织")
-	var g15b := CWGuideDirector.assemble(14, 1)
-	if g15b != null:
-		var cw15 := 0
-		var sw15 := 0
-		for c in g15b.tiles:
-			if g15b.tiles[c]["tissue"] == CWData.Tissue.SOLID:
-				sw15 += 1
-			elif g15b.tiles[c]["tissue"] == CWData.Tissue.CANCER:
-				cw15 += 1
-		check(cw15 + 2 * sw15 == 89,
-			"15B：癌症加权进度 89/90（癌 %d + 固化 %d×2）" % [cw15, sw15])
-	var g15c := CWGuideDirector.assemble(14, 2)
-	if g15c != null:
-		check(g15c.round_no == 15, "15C：直接进入第 15 世界回合判定（当前 %d）" % g15c.round_no)
-	## 「可开局」契约（切片⑦）：fixture 关 flow 直接进世界回合（跳过落子、
-	## 避开 setup.begin() 重建棋盘）、主细胞与玩家下标对齐、活细胞不共格
-	for lvl in 15:
-		var zcount := CWGuideLevels.zones(lvl)
-		for z in zcount:
-			var ga := CWGuideDirector.assemble(lvl, z)
-			if ga == null:
-				continue
-			check(ga.flow["stage"] == "round_start",
-				"第 %d 关区 %d：装配后直接进入世界回合（%s）" % [lvl + 1, z, str(ga.flow["stage"])])
-			var align_ok := ga.cells.size() >= ga.order.size()
-			for pid in ga.order:
-				if ga.cells.size() > pid and ga.cell_of(pid)["pid"] != pid:
-					align_ok = false
-			check(align_ok, "第 %d 关区 %d：主细胞与玩家下标对齐" % [lvl + 1, z])
-			var occ7 := {}
-			var dup7 := false
-			for c in ga.cells:
-				if c.get("alive", true) and occ7.has(c["pos"]):
-					dup7 = true
-				occ7[c["pos"]] = true
-			check(not dup7, "第 %d 关区 %d：活细胞不共格" % [lvl + 1, z])
-	## 第 16 关仍走完整正式开局（init → 落子 → 世界回合）
-	var g16f := CWGuideDirector.assemble(15)
-	if g16f != null:
-		check(g16f.flow["stage"] == "init", "第 16 关保留完整正式开局（init）")
-	## L1 真实推进冒烟：S 阶段过后停在免疫玩家的行动询问上；合法作答后细胞迁移、扣能量
-	var gsmoke := CWGuideDirector.assemble(0)
-	if gsmoke != null:
-		await gsmoke.advance()
-		check(not gsmoke._pending.is_empty(), "L1 冒烟：第一次推进停在玩家询问上")
-		if not gsmoke._pending.is_empty():
-			var ask_pid: int = gsmoke._pending["pid"]
-			var from_s: Vector2i = gsmoke.cell_of(ask_pid)["pos"]
-			var opts_s: Array = gsmoke._pending["options"]
-			check(ask_pid == 0 and not opts_s.is_empty(),
-				"L1 冒烟：先问免疫玩家的行动（pid %d / %d 个选项）" % [ask_pid, opts_s.size()])
-			var e0: int = gsmoke.cell_of(ask_pid)["energy"]
-			gsmoke.step(0)
-			check(gsmoke.cell_of(ask_pid)["pos"] != from_s
-				and e0 - gsmoke.cell_of(ask_pid)["energy"] >= 5,
-				"L1 冒烟：迁移成功且扣了至少 0.5 能量（%d → %d）"
-					% [e0, int(gsmoke.cell_of(ask_pid)["energy"])])
-	## 第 16 关「毕业战」：正式规则原样 —— 127 格、3 核 6 髓 2 管、四人行动序
-	var g16 := CWGuideDirector.assemble(15)
-	check(g16 != null, "第 16 关装配出真实 CWGame")
-	if g16 != null:
-		check(g16.tiles.size() == CWData.TOTAL_TILES,
-			"第 16 关是正式 127 格棋盘（当前 %d）" % g16.tiles.size())
-		var n_special := {CWData.Special.CORE: 0, CWData.Special.MARROW: 0, CWData.Special.VESSEL: 0}
-		for c in g16.tiles:
-			var sp = g16.tiles[c]["special"]
-			if n_special.has(sp):
-				n_special[sp] += 1
-		check(n_special[CWData.Special.CORE] == CWData.CORES.size()
-			and n_special[CWData.Special.MARROW] == CWData.MARROWS.size()
-			and n_special[CWData.Special.VESSEL] == CWData.VESSELS.size(),
-			"第 16 关特殊组织按正式布局 3 核/6 髓/2 管（%s）" % str(n_special))
-		check(g16.order.size() == 4, "第 16 关四人局（%d 名玩家）" % g16.order.size())
-	## 正式隔离：教程装配之后，正式 build_board 仍是 127 格
+
+	## ---- 逐关开局：每关一份 cwtut/1，舞台装出来的那一局要和数据逐条对得上 ----
+	for ch in CWGuideData.CHAPTER_COUNT:
+		var lv: Dictionary = CWGuideData.level(ch)
+		var id := str(lv.get("id", "?"))
+		var spec: Dictionary = (lv["worlds"]["base"] as Dictionary)
+		var stage = TUT_STAGE.new()
+		stage.cfg = { "consumer": false, "autorun": false }
+		var k: CWKernel = stage.open_level(lv)
+		check(k != null and k is CWKernelInProc and (k as CWKernelInProc).adopted,
+			"%s：舞台装出一局并收养给句柄（%s）" % [id, str(stage.errors)])
+		if k == null:
+			continue
+		var m := k.observe(CWKernel.VIEWER_OMNISCIENT) as CWMirror
+		check(m != null and m.tiles.size() == CWData.TOTAL_TILES and m.board_radius == CWData.BOARD_RADIUS,
+			"%s：世界半径全程 6、127 格常驻（小棋盘靠遮罩不靠半径，方案 §1.3）—— 实测 %d 格 / 半径 %d"
+				% [id, m.tiles.size(), m.board_radius])
+		check(m.players.size() == CWGuideData.seats(ch)
+			and CWGuideData.human_seat(ch) >= 0 and CWGuideData.human_seat(ch) < m.players.size(),
+			"%s：席位数 %d 是数据里的设计量，人类坐第 %d 席（纪律 8）"
+				% [id, m.players.size(), CWGuideData.human_seat(ch)])
+		## 主细胞与席位下标对齐（老「可开局」契约那一条）
+		var align_ok := true
+		for pid in m.players.size():
+			var c: Dictionary = m.cell_of(pid)
+			if c.is_empty() or int(c.get("pid", -1)) != pid:
+				align_ok = false
+		check(align_ok, "%s：每席恰好一只主细胞、与席位下标对齐" % id)
+		## 活细胞不共格（老「可开局」契约那一条）
+		var occ := {}
+		var dup := false
+		for c in m.cells:
+			if bool(c.get("alive", true)):
+				if occ.has(c["pos"]):
+					dup = true
+				occ[c["pos"]] = true
+		check(not dup, "%s：活细胞不共格" % id)
+		## 流程停在数据声明的那个阶段（第一 ~ 五关都从行动回合中途开局 ⇒ S 阶段一条不跑、零 rng 消耗）
+		check(str(spec.get("phase", "")) == "PlayerAction" and m.round_no == int(spec.get("round", 1)),
+			"%s：从 %s 开局、第 %d 世界回合（S 阶段一条都不跑）"
+				% [id, str(spec.get("phase", "")), m.round_no])
+		## 人类那只在数据声明的起点、能量与数据一致
+		var want_cell: Dictionary = (spec["cells"] as Array)[CWGuideData.human_seat(ch)]
+		var mine: Dictionary = m.cell_of(CWGuideData.human_seat(ch))
+		check(mine["pos"] == TUT_DATA.parse_at(str(want_cell["at"]))
+			and int(mine["energy"]) == int(want_cell.get("energy", CWData.INIT_ENERGY)),
+			"%s：人类那只站在 %s、能量 %d（数据说了算）"
+				% [id, str(want_cell["at"]), int(mine["energy"])])
+		## 癌组织格数与数据里写 state:"cancer" 的条数一致（省略 state = 健康，纪律 2 的另一半在 t_tutorial_data）
+		var want_cancer := 0
+		for t in spec.get("tiles", []):
+			if str((t as Dictionary).get("state", "")) == "cancer":
+				want_cancer += 1
+		check(m.count_tissue(CWData.Tissue.CANCER) == want_cancer,
+			"%s：癌组织 %d 格，与数据逐格对得上" % [id, want_cancer])
+		## 活跃格：条数与数据一致、每一格都在盘上
+		var act: Array = CWGuideData.active_tiles(ch)
+		var off_board: Array = []
+		for c: Vector2i in act:
+			if not m.tiles.has(c):
+				off_board.append(c)
+		check(act.size() == (lv["active_tiles"] as Array).size() and off_board.is_empty(),
+			"%s：活跃格 %d 格全在盘上（盘外的：%s）" % [id, act.size(), str(off_board)])
+		## 带子：数据里的 rolls 原样挂上，一颗都还没消耗
+		var want_rolls: Array = []
+		for e in lv.get("rolls", []):
+			want_rolls.append([int(e[0]), int(e[1]), int(e[2])])
+		check(stage.tape != null and stage.tape.tape == want_rolls
+			and stage.tape.at == 0 and stage.tape.overrun == 0,
+			"%s：预设骰子 %s 挂上了、开局零消耗" % [id, str(want_rolls)])
+		k.close()
+		stage.dispose()
+
+	## ---- 第一关（PRD:91-137）：两格健康、免疫站在起点、全盘没有一格癌 ----
+	var l1: Dictionary = CWGuideData.level(0)
+	var s1 = TUT_STAGE.new()
+	s1.cfg = { "consumer": false, "autorun": false }
+	var k1: CWKernel = s1.open_level(l1)
+	var m1 := k1.observe(CWKernel.VIEWER_OMNISCIENT) as CWMirror
+	check(m1.count_tissue(CWData.Tissue.CANCER) == 0 and m1.count_tissue(CWData.Tissue.SOLID) == 0,
+		"第一关开局全是健康组织（癌 %d / 固化 %d）"
+			% [m1.count_tissue(CWData.Tissue.CANCER), m1.count_tissue(CWData.Tissue.SOLID)])
+	check(m1.cell_of(0)["alive"] and m1.cell_of(0)["pos"] == Vector2i(-1, -1)
+		and int(m1.cell_of(0)["energy"]) == 99990,
+		"第一关：免疫细胞在 (-1,-1)、大能量（迁移不消耗靠数据，不靠旋钮 —— immune_move_* 是 tier C）")
+	check(CWGuideData.active_tiles(0) == [Vector2i(-1, -1), Vector2i(0, -1)],
+		"第一关活跃格就是那两格横向相连的健康组织（PRD:93-95）")
+	k1.close()
+	s1.dispose()
+
+	## ---- 第二关（PRD:141-221）：右侧延伸两格健康两格癌，Step2 那一格与那只癌细胞先在遮罩外 ----
+	var l2: Dictionary = CWGuideData.level(1)
+	var s2 = TUT_STAGE.new()
+	s2.cfg = { "consumer": false, "autorun": false }
+	var k2: CWKernel = s2.open_level(l2)
+	var m2 := k2.observe(CWKernel.VIEWER_OMNISCIENT) as CWMirror
+	check(m2.is_cancerous(Vector2i(3, -1)) and m2.is_cancerous(Vector2i(4, -1))
+		and m2.is_cancerous(Vector2i(5, -1)),
+		"第二关三格癌组织 (3,-1)(4,-1)(5,-1) —— 第三格 Step2 才揭示")
+	var foe2: Dictionary = m2.cell_of(1)
+	check(foe2["alive"] and foe2["pos"] == Vector2i(5, -1) and int(foe2["energy"]) == 10,
+		"第二关癌细胞 1.0 能量站在 (5,-1)（成功一击 1.0 伤害 ⇒ 一击死）")
+	var act2: Array = CWGuideData.active_tiles(1)
+	check(act2.size() == 6 and not act2.has(Vector2i(5, -1)),
+		"第二关关首活跃格 6 格，(5,-1) **不在**里面 —— 预置 + 遮罩揭示，零重装（方案 §1.1）")
+	var r2: Array = l2.get("rolls", [])
+	check(r2.size() == 1 and int(r2[0][0]) == 1 and int(r2[0][1]) == 6 and int(r2[0][2]) == 3,
+		"第二关整关一次攻击、结果钉成功（rolls = %s）" % str(r2))
+	k2.close()
+	s2.dispose()
+
+	## ---- 正式隔离：教程装配之后，正式 build_board 仍是 127 格（原样保留）----
 	var gf := CWGame.new()
 	gf.init(CWData.FACTION_ORDER[4], 20260909)
 	gf.setup.build_board()
 	check(gf.tiles.size() == CWData.TOTAL_TILES,
 		"教程装配不污染正式口径：build_board() 仍是 127 格（当前 %d）" % gf.tiles.size())
-	## T-GUIDE-RNG-ISOLATION：正式局掷骰期间穿插教程装配与掷骰，正式后续结果不得改变。
+	gf.dispose()
+
+	## ---- T-GUIDE-RNG-ISOLATION：正式局掷骰期间穿插教程装配与掷骰，正式后续结果不得改变（原样保留）----
 	var control := CWGame.new()
 	control.init(CWData.FACTION_ORDER[2], 7319)
 	var interleaved := CWGame.new()
 	interleaved.init(CWData.FACTION_ORDER[2], 7319)
 	check(control.roll_d6() == interleaved.roll_d6(), "正式局同种子首骰一致")
-	var seeded_a := CWGuideDirector.assemble(2)
-	var seeded_b := CWGuideDirector.assemble(2)
+	var seeded_a: CWGame = CASE_LOADER.new().load_world((l2["worlds"]["base"] as Dictionary).duplicate(true))
+	var seeded_b: CWGame = CASE_LOADER.new().load_world((l2["worlds"]["base"] as Dictionary).duplicate(true))
 	var repeatable := true
 	for i in 32:
 		if seeded_a.roll_d6() != seeded_b.roll_d6():
 			repeatable = false
-	check(repeatable, "同一教程关实际掷骰序列可复现")
+	check(repeatable, "同一关装两次，实际掷骰序列可复现（装载器的种子恒为 1）")
 	var isolated := true
 	for i in 32:
 		if control.roll_d6() != interleaved.roll_d6():
@@ -11325,12 +11200,12 @@ func t_guide_director() -> void:
 	seeded_b.dispose()
 	control.dispose()
 	interleaved.dispose()
-	## T-GUIDE-ATTACK-SCRIPT：非攻击掷骰不消费教学序列，攻击依次失败、成功、大成功。
-	var scripted := CWGuideDirector.assemble(2)
-	## 固定脚本从独立的 seed 候选中选出，不依赖运行时随机搜索；先用本地 RNG
-	## 找到一个可复现的 1/3/6 骰面序列，再把 seed 写死在教程数据契约里。
-	const ATTACK_SCRIPT_SEED := 560893
-	scripted.rng.seed = ATTACK_SCRIPT_SEED
+
+	## ---- T-GUIDE-ATTACK-SCRIPT 改判：原来靠搜一个能掷出 1/3/6 的 seed，现在结果**写在数据里**（rolls，方案 §1.7）----
+	var scripted: CWGame = CASE_LOADER.new().load_world((l2["worlds"]["base"] as Dictionary).duplicate(true))
+	var t3 = ROLL_TAPE.new()
+	t3.tape = [[1, 6, 1], [1, 6, 3], [1, 6, 6]]
+	scripted.rng = t3
 	var faces: Array[int] = []
 	for i in 3:
 		faces.append(scripted.roll_d6())
@@ -11338,8 +11213,29 @@ func t_guide_director() -> void:
 	for face in faces:
 		outcomes.append(scripted.actions.attack_outcome(face))
 	check(faces == [1, 3, 6] and outcomes == ["fail", "success", "crit"],
-		"第3关攻击固定脚本依次失败、成功、大成功：骰面=%s 判定=%s" % [str(faces), str(outcomes)])
+		"三次攻击依次失败、成功、大成功：骰面=%s 判定=%s" % [str(faces), str(outcomes)])
+	scripted.roll_d6()
+	check(t3.at == 3 and t3.overrun == 1 and t3.bad_range == 0,
+		"带子放完就记账：多掷一次记一笔 overrun（%d），区间没写错（%d）" % [t3.overrun, t3.bad_range])
 	scripted.dispose()
+
+	## ---- L1 真实推进冒烟（原样口径）：S 阶段过后停在免疫玩家的行动询问上；合法作答后细胞迁移、扣能量 ----
+	var gsmoke: CWGame = CASE_LOADER.new().load_world((l1["worlds"]["base"] as Dictionary).duplicate(true))
+	await gsmoke.advance()
+	check(not gsmoke._pending.is_empty(), "L1 冒烟：第一次推进停在玩家询问上")
+	if not gsmoke._pending.is_empty():
+		var ask_pid: int = gsmoke._pending["pid"]
+		var from_s: Vector2i = gsmoke.cell_of(ask_pid)["pos"]
+		var opts_s: Array = gsmoke._pending["options"]
+		check(ask_pid == 0 and not opts_s.is_empty(),
+			"L1 冒烟：先问免疫玩家的行动（pid %d / %d 个选项）" % [ask_pid, opts_s.size()])
+		var e0: int = gsmoke.cell_of(ask_pid)["energy"]
+		gsmoke.step(0)
+		check(gsmoke.cell_of(ask_pid)["pos"] != from_s
+			and e0 - gsmoke.cell_of(ask_pid)["energy"] >= 5,
+			"L1 冒烟：迁移成功且扣了至少 0.5 能量（%d → %d）"
+				% [e0, int(gsmoke.cell_of(ask_pid)["energy"])])
+	gsmoke.dispose()
 
 
 ## 状态推进（16 关重构切片①）：教「迁移」的步骤改由真实局面判定完成——
@@ -11361,14 +11257,16 @@ func t_tutorial_auto_advance() -> void:
 	m.start()
 	await process_frame
 	await process_frame
-	## 第 1 关开局即迁移（细胞已预置在 (0,0)，无落子步）：翻到「第一次迁移」；
-	## 此刻引擎应把人类的行动询问挂在桥上
+	## **改判（新手引导 S3）**：原断言指的是老第 1 关的第 2 步（三步迁移里的第一步）与 7 格棋盘 →
+	## 新第一关只有一步（PRD:91-137「向前行动一格」），棋盘是 127 格 + 两格活跃集（方案 §1.3）。
+	## 判据本身不变：**玩家亲手迁移一次，剧本自己翻页，全程不按「继续」**。
 	m._guide._chapter = 0
-	m._guide._step = 1
+	m._guide._step = 0
 	m._guide._render()
-	check(CWGuideData.act_of(0, 1) == "move", "第 1 关第 2 步教的是迁移")
-	check(m._guide.step_no() == 1, "停在教迁移那一步（%d）" % m._guide.step_no())
-	check(m.mirror.tiles.size() == 7, "导演装配的第 1 关 7 格棋盘（%d）" % m.mirror.tiles.size())
+	check(CWGuideData.act_of(0, 0) == "move", "第一关那一步教的是迁移")
+	check(m._guide.step_no() == 0, "停在教迁移那一步（%d）" % m._guide.step_no())
+	check(m.mirror.tiles.size() == CWData.TOTAL_TILES,
+		"舞台装的第一关仍是 %d 格世界（小棋盘靠活跃格遮罩）" % m.mirror.tiles.size())
 	## 批 1 步 8：询问要先等这一问的 sync 播到（_await_playback）、开局演出按阻塞毫秒算 —— 按时间等，不按帧
 	await _wait_pending(m, 4000)
 	var gb := m.bridge as CWGuideBridge
@@ -11404,13 +11302,17 @@ func t_tutorial_auto_advance() -> void:
 		await process_frame
 	var moved_to: Vector2i = m.mirror.cell_of(0)["pos"]
 	check(moved_to != from, "玩家细胞真的迁移了（%s → %s）" % [str(from), str(moved_to)])
+	## 第一关只有一步 ⇒ 翻页 = **跨关**：面板走到第二关第 1 步，同时 CWMatch 换一局（_advance_tutorial_chapter）
 	var t_pg := Time.get_ticks_msec()
-	while m._guide.step_no() != 2 and Time.get_ticks_msec() - t_pg < 2000:
+	while m._guide.chapter() == 0 and Time.get_ticks_msec() - t_pg < 2000:
 		await process_frame
-	check(m._guide.step_no() == 2, "迁移完成后剧本自动翻页、全程没按「继续」（现在 %d）" % m._guide.step_no())
+	check(m._guide.chapter() == 1 and m._guide.step_no() == 0,
+		"迁移完成后剧本自动翻页、全程没按「继续」（现在第 %d 关第 %d 步）"
+			% [m._guide.chapter() + 1, m._guide.step_no() + 1])
 	m.teardown()
 	await process_frame
 	CWSettings.ai_delay_ms = 220
+	CWGuideProgress.clear()   ## 翻页顺手把第一关记成已完成；别脏到同一分片里后面那些按进度开局的测试
 	root.remove_child(main_scene)
 	main_scene.free()
 
@@ -11555,15 +11457,22 @@ class FakeGuide:
 		hints.append(text)
 
 
+## **改判（新手引导 S3）**：桥本身（STEP_HINTS / AUTO_ACTS / 代做边界 / 提示归类）一个字不改，
+## 改的是**喂给它的剧本**：关数从 16 变成数据里的实数，`act` 键从新数据来，
+## `graduation_assist` 退成 `{}`（新 PRD 没有毕业战，方案 §1.1）。
+## 逐条：`for i in 4` → `for i in CHAPTER_COUNT`；`ui_stage(0)/(6)/(15)` → 按新关数取；
+## `assemble(15)` + 毕业战辅助三句 → 「门面返回 {}，且 `guide.gd` 判空后不贴那三行」；
+## 用 `_chapter = 3 / 7 / 2` 定位「结束回合 / 抽卡 / 攻击」那几步的三段，改成**直接用 FakeGuide 的桩键**
+## （新第一章只教迁移与净化，剧本里没有 end / draw 步；桥的这几条逻辑不该跟着失去覆盖 —— 同 t_tutorial_pick 2026-09-14 那次）。
 func t_guide_bridge() -> void:
 	print("[引导桥]")
 	var data_acts := {}
-	for i in 4:
+	for i in CWGuideData.CHAPTER_COUNT:
 		for st in CWGuideData.steps(i):
 			var a: String = str(st.get("act", ""))
 			if a != "":
 				data_acts[a] = true
-	check(not data_acts.is_empty(), "剧本里有需要玩家动手的动作步骤")
+	check(not data_acts.is_empty(), "剧本里有需要玩家动手的动作步骤（%s）" % str(data_acts.keys()))
 	var missing := []
 	for a in data_acts:
 		if not CWGuideBridge.STEP_HINTS.has(a):
@@ -11591,21 +11500,27 @@ func t_guide_bridge() -> void:
 	correction.record_mistake()
 	check(correction.mistake_count() == 1 and correction.step_no() == correction_step,
 		"教程纠错记录不推进步骤，之后仍可恢复作答")
-	check(CWGuideData.ui_stage(0) == 0 and CWGuideData.ui_stage(6) == 2
-		and CWGuideData.ui_stage(15) == 3,
-		"渐进 UI 按章节解锁：棋盘 → 高亮/资源 → 毕业战预测解释")
+	## 渐进 UI 档：值从每关的 `ui_stage` 来（语义不变，0~3 四档）。第一章两关都还是 0 档
+	## （PRD:93 / 143 的界面清单：只有棋盘与「迁移」那一个按钮）
+	check(CWGuideData.ui_stage(0) == int(CWGuideData.level(0)["ui_stage"])
+		and CWGuideData.ui_stage(CWGuideData.CHAPTER_COUNT - 1)
+			== int(CWGuideData.level(CWGuideData.CHAPTER_COUNT - 1)["ui_stage"]),
+		"渐进 UI 档逐关从数据来（第一关 %d 档）" % CWGuideData.ui_stage(0))
 	var staged := FakeGuide.new()
 	check(staged.ui_stage() == 0, "第一阶段不提前开放辅助层（2026-09-12 提到 1 档当晚被 Kevin 回滚）")
-	staged._chapter = 6
-	check(staged.ui_stage() == 2, "进入第 7 关后开放资源/目标辅助层")
-	var graduation := CWGuideDirector.assemble(15)
+	staged._chapter = CWGuideData.CHAPTER_COUNT - 1
+	check(staged.ui_stage() == CWGuideData.ui_stage(CWGuideData.CHAPTER_COUNT - 1),
+		"面板的 ui_stage() 跟着它停在哪一关走")
+	## 毕业战：**新 PRD 没有这一关**（方案 §1.1）——门面返回 `{}`，`guide.gd` 判空后一行辅助都不贴
+	var graduation: CWGame = CASE_LOADER.new().load_world(
+		(CWGuideData.level(0)["worlds"]["base"] as Dictionary).duplicate(true))
 	var rng_before: int = graduation.rng.state
 	var assist := CWGuideData.graduation_assist(_mirror_of(graduation))
-	check(assist["suggestion"].contains("净化") and assist["e_prediction"].contains("增生")
-		and assist["rule_explanation"].contains("固化"),
-		"毕业战提供建议、E 阶段预测与正式规则解释")
+	var guide_src := FileAccess.get_file_as_string("res://scripts/ui/guide.gd")
+	check(assist.is_empty() and guide_src.contains("if not assist.is_empty():"),
+		"毕业战辅助退成空表，且 _render 判空 —— 不判空的话最后一关每次翻页都在空表上取键")
 	check(graduation.rng.state == rng_before,
-		"毕业战辅助读取局面但不改写正式随机流")
+		"辅助读取局面但不改写随机流")
 	graduation.dispose()
 	## 实跑一次：轮到人类时只喂提示、不再自动演示（Kevin 2026-09-05：落子要么亲手点、要么点「继续」代做）
 	var g := CWGame.new()
@@ -11628,13 +11543,20 @@ func t_guide_bridge() -> void:
 	var got: Array = []
 	## 教迁移时对任何询问都不代做（两段式选格留给玩家）
 	fake._chapter = 0
-	fake._step = 1      ## 「第一次迁移」
+	fake._step = 0      ## 第一关唯一一步「向前行动一格」（act=move）
 	b._cur_req = req
 	b._pending = CWUIBridge.Answer.new()
 	check(not b.can_demo() and not b.take_offer(), "教迁移时「继续」不代做（两段式选格留给玩家）")
-	## 结束回合 / 抽卡：从行动那一问里挑出对应选项的下标
-	fake._chapter = 3
-	fake._step = 3      ## 第 4 关「结束回合」（全剧本唯一的 end 键）
+	## 结束回合 / 抽卡：从行动那一问里挑出对应选项的下标。
+	## **新第一章不教这两件事**（第一 ~ 五关永远不结束回合，方案 §2.3），但桥的这两条逻辑不该跟着失去覆盖
+	## —— 往门面的缓存里临时插一关桩数据（同 2026-09-14 t_tutorial_pick 绕开灰掉的菜单项那次），测完撤掉
+	var stub_ch: int = CWGuideData.levels().size()
+	CWGuideData._cache.append({ "id": "_stub", "chapter": 99, "chapter_title": "桩", "title": "桩",
+		"codex_page": 0, "ui_stage": 0, "seats": 2, "human_seat": 0,
+		"worlds": {}, "active_tiles": [], "rolls": [],
+		"steps": [{ "t": "结束回合", "b": [], "act": "end" }, { "t": "抽卡", "b": [], "act": "draw" }] })
+	fake._chapter = stub_ch
+	fake._step = 0      ## 桩：act=end
 	var act_req := { "kind": "action", "pid": 0, "prompt": "", "options": [
 		{ "label": "迁移", "data": { "act": "move", "to": Vector2i(1, 0) } },
 		{ "label": "抽卡", "data": { "act": "draw" } },
@@ -11649,17 +11571,18 @@ func t_guide_bridge() -> void:
 	b._cur_req = act_req
 	check(b.current_hint() == CWGuideBridge.STEP_HINTS["end"]["hint"], "教结束回合：提示是结束回合那句")
 	fake._chapter = 0
-	fake._step = 0      ## 「苏醒」（展示型，不教动作）
+	fake._step = 99     ## 越界 = 这一步不教动作（展示型）
 	check(b.current_hint() == CWGuideBridge.STEP_HINTS["move"]["hint"], "展示型步骤：退回通用的迁移提示")
-	fake._chapter = 2
-	fake._step = 0      ## 「怎么发起攻击」
+	fake._chapter = 1
+	fake._step = 3      ## 第二关 Step2「试图【迁移】到癌细胞所在组织可以发起攻击」（act=attack）
 	check(b.current_hint() == CWGuideBridge.STEP_HINTS["attack"]["hint"], "教攻击：提示是攻击那句（选项里攻击就是迁移）")
 	b._cur_req = {}
 	check(b.current_hint() == "", "没在等人：没有提示")
-	fake._chapter = 7
-	fake._step = 0      ## 「抽卡入口」
+	fake._chapter = stub_ch
+	fake._step = 1      ## 桩：act=draw
 	b._cur_req = act_req
 	check(b._demo_index() == 1, "教抽卡时「继续」= 答「基因表达」那个下标")
+	CWGuideData._cache.resize(stub_ch)   ## 桩撤掉：缓存是静态量，留着会脏到后面的测试
 	## guide 为空（无头 / 面板还没挂上）不能崩
 	b.guide = null
 	b._cur_req = req
@@ -11686,11 +11609,18 @@ func t_guide_spotlight() -> void:
 		if not CWGuideSpotlight.FLAGS.has(f):
 			missing.append(f)
 	check(missing.is_empty(), "剧本 %d 个提亮键全部登记在 FLAGS 表（缺：%s）" % [used.size(), str(missing)])
-	var dead: Array = []
+	## **改判（新手引导 S3）**：原断言「FLAGS 表里没有剧本不用的键」→「每个键都指到一支真实存在的 sync 分支」。
+	## 依据：剧本正本换成了 `game/data/tutorial/*.json`，第一章只用到 `move` 一个键，
+	## 其余十几个是**给正在重写的剧本备的词汇**（同 2026-09-13 给 `CWGuideWatch.KEYS` 定的那条口径：
+	## 只查「剧本用到的键必须有实现」这一个方向）。要守的还是同一件事 —— **表不许烂掉**：
+	## 每个键的目标种类都得在 `sync()` 里有分支，缺分支的话剧本一用它就静默什么都不画。
+	var sp_src := FileAccess.get_file_as_string("res://scripts/ui/guide_spotlight.gd")
+	var no_branch: Array = []
 	for f in CWGuideSpotlight.FLAGS:
-		if not used.has(f):
-			dead.append(f)
-	check(dead.is_empty(), "FLAGS 表里没有剧本不用的键（多：%s）" % str(dead))
+		var kind: String = str(CWGuideSpotlight.FLAGS[f])
+		if kind != "" and not sp_src.contains("\"%s\":" % kind):
+			no_branch.append("%s→%s" % [f, kind])
+	check(no_branch.is_empty(), "FLAGS 的每个键都指到一支真实存在的 sync 分支（缺分支的：%s）" % str(no_branch))
 	## 六边形描边：宽 = 横向格距 36 × 缩放，高 ≈ 贴图顶面 26.7 × 缩放
 	var pts := CWGuideSpotlight.hex_points(Vector2(100, 100), 2.0)
 	var lo := pts[0]
@@ -12286,6 +12216,7 @@ func t_tutorial_chapter_swap() -> void:
 	## 护栏④：跨章是「abort → stop → close」三步的第一个窗口，顺序排反了这里会多等满 5 秒并打出 barrier timeout
 	_no_barrier_timeout(null, t0, "教程跨章拆局")
 	CWSettings.ai_delay_ms = 220
+	CWGuideProgress.clear()   ## 同上：跨关换局会让 watch:moved 成立并写进度
 	root.remove_child(main_scene)
 	main_scene.free()
 
@@ -19135,6 +19066,10 @@ func t_turn_mark() -> void:
 # ---- 口径二 C-1 步 8 / 9：L0 靶场的两件机件（规格 §0.6.1 / §0.6.2）----
 const CASE_LOADER := preload("res://scripts/kernel/cw_world_loader.gd")
 const CASE_DIFF := preload("res://tests/cw_case_diff.gd")
+## 新手引导 S3：舞台（读一关 → 装一份 cwxworld/2 → 交出 CWKernel）与带子（预设骰子）
+const TUT_STAGE := preload("res://scripts/kernel/cw_tutorial_stage.gd")
+const ROLL_TAPE := preload("res://scripts/kernel/cw_roll_tape.gd")
+const TUT_NPC := preload("res://scripts/kernel/cw_tutorial_npc.gd")
 
 
 ## 步 8：cwxworld/2 / cwxcase/2 的键表与四条硬错。
@@ -20393,11 +20328,19 @@ func t_no_engine_in_ui() -> void:
 			probe_hits += 1
 	check(probe_hits == 3,
 		"闸认得出 CWGame / game. / 串里的 game.，且放过注释里的 game.tiles 与 _game. / mini_game.（探针 %d 行）" % probe_hits)
-	## 白名单只有三条，且标记都还在（文件改名会让闸静默放行一整份）
-	check(UI_ENGINE_OK.size() == 2 and UI_ENGINE_OK.has("guide_director.gd") and UI_ENGINE_OK.has("ui_bridge.gd"),
-		"白名单两条：guide_director（批 3）/ ui_bridge.attach_engine（拍板 E-2 (a)）—— CWLogStore.of 已搬进测试助手，不再豁免")
+	## **改判（新手引导 S3）**：原断言「白名单两条：guide_director + ui_bridge」→
+	## 新断言「白名单一条：只剩 ui_bridge.attach_engine」。
+	## 依据：方案 §2.3 第 4 条 —— guide_director.gd 整份删掉，教程装配搬到 scripts/kernel/cw_tutorial_stage.gd，
+	## match.gd 整份不再出现 CWGame（`open_level()` 的返回类型写 CWKernel，方案 §2.1）。
+	check(UI_ENGINE_OK.size() == 1 and UI_ENGINE_OK.has("ui_bridge.gd"),
+		"白名单只剩一条：ui_bridge.attach_engine（拍板 E-2 (a)）—— 教程装配器已搬去 scripts/kernel/")
 	for name in UI_ENGINE_OK:
 		check(FileAccess.file_exists("res://scripts/ui/%s" % name), "白名单里的 %s 还在（改名了就等于整份放行）" % name)
+	## 老导演真的不在了：豁免条目一撤、文件还留着的话它会被闸抓出来，这条是「删干净了没有」的正面断言
+	check(not FileAccess.file_exists("res://scripts/ui/guide_director.gd")
+		and not FileAccess.file_exists("res://scripts/ui/guide_levels.gd")
+		and FileAccess.file_exists("res://scripts/kernel/cw_tutorial_stage.gd"),
+		"老导演 / 老关卡表整份删掉，舞台住 scripts/kernel/（闸不扫那一层）")
 	var ub := FileAccess.get_file_as_string("res://scripts/ui/ui_bridge.gd")
 	check(ub.contains("KERNEL-ENGINE-OK"), "ui_bridge.gd 的 attach_engine 那行带着 ## KERNEL-ENGINE-OK 标记")
 	## D-5：mirror.tune 是 Dictionary，属性访问编译得过、运行时炸「Invalid get index」
@@ -20645,6 +20588,139 @@ func t_board_active_tiles() -> void:
 	bd.queue_free()
 
 
+## 拆装次序的探针：`stop()` 被调到的那一刻，旧对局到底 abort 了没有。
+## 护栏④（abort 永远排在 stop 之前）唯一**跑得出来**的观察点就是这里 ——
+## 先停队列就没人 ack 那条在飞的 roll，5 秒后内核报 barrier timeout
+class ProbeQueue:
+	extends CWPlayQueue
+	var trace: Array[String] = []
+	var watch: CWGame = null
+	func stop() -> void:
+		trace.append("stop(aborted=%s)" % str(watch != null and watch.aborted))
+		super.stop()
+
+
+## 新手引导 S3 · 舞台：一关数据 → 一份 cwxworld/2 → CWKernel。
+## 四条（方案 ③ S3 的「测试（新）」）：① 只交句柄不泄露引擎；② 重装次序；③ 带子挂在 open 之前；④ 第一关盘面。
+func t_tutorial_stage() -> void:
+	print("[新手引导 S3·教程舞台]")
+	var stage_src := FileAccess.get_file_as_string("res://scripts/kernel/cw_tutorial_stage.gd")
+	var match_src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+
+	## ---- ① open_level 交出来的是 CWKernel，match.gd 整份不出现 CWGame ----
+	var lv1: Dictionary = CWGuideData.level(0)
+	var lv2: Dictionary = CWGuideData.level(1)
+	var stage = TUT_STAGE.new()
+	stage.cfg = { "consumer": false, "autorun": false }
+	var k: CWKernel = stage.open_level(lv1)
+	check(k != null and k is CWKernel and k is CWKernelInProc and (k as CWKernelInProc).adopted,
+		"open_level 返回 CWKernel（收养模式）：%s" % str(stage.errors))
+	check(stage_src.contains("func open_level(lv: Dictionary, wid := \"base\") -> CWKernel"),
+		"open_level 的返回类型写死成 CWKernel —— 换 sidecar 那天 UI 侧一个字都不用改")
+	var engine_hits: Array = []
+	var ln := 0
+	for line in match_src.split("\n"):
+		ln += 1
+		if RegEx.create_from_string("CWGame").search(_code_only(line)) != null:
+			engine_hits.append("match.gd:%d" % ln)
+	check(engine_hits.is_empty(), "match.gd 非注释行里零 CWGame（结构闸的白名单因此降到一条）：%s" % str(engine_hits))
+	k.close()
+	stage.dispose()
+
+	## ---- ② 重装次序 abort → stop → close → dispose（方案 §1.4 / 附 C 第 3 条）----
+	var st2 = TUT_STAGE.new()
+	st2.cfg = { "consumer": true, "autorun": false, "observe_viewer": CWKernel.VIEWER_OMNISCIENT }
+	var k2: CWKernel = st2.open_level(lv2)
+	var old_game: CWGame = st2._game
+	var probe := ProbeQueue.new()
+	probe.kernel = k2
+	probe.watch = old_game
+	st2.queue = probe
+	var k3: CWKernel = st2.reload_world("base")
+	check(probe.trace == ["stop(aborted=true)"],
+		"queue.stop() 被调到的那一刻旧局已经 aborted —— abort 排在 stop 之前（实测 %s）" % str(probe.trace))
+	check(k3 != null and k3 != k2 and st2._game != old_game,
+		"重装换了一份新对局与新句柄（旧的没被复用）")
+	check(old_game.world == null and old_game.bridges.is_empty(),
+		"旧那份真的收摊了（dispose 把模块与桥都清了）—— adopt 模式的 close() 不 dispose，谁装配谁收摊")
+	## 次序在源码里也钉一遍：上面那条只证得了「abort 在 stop 之前」，close / dispose 的先后跑不出来
+	var i_abort := stage_src.find("kernel.abort()")
+	var i_stop := stage_src.find("queue.stop()")
+	var i_close := stage_src.find("kernel.close()")
+	var i_disp := stage_src.find("\tdispose()")
+	check(i_abort > 0 and i_abort < i_stop and i_stop < i_close and i_close < i_disp,
+		"reload_world 的四步按 abort → stop → close → dispose 写死（%d/%d/%d/%d）"
+			% [i_abort, i_stop, i_close, i_disp])
+	k3.close()
+	st2.dispose()
+
+	## ---- ③ 带子在 open() 之前挂上（第一关 rolls 是空的，所以用第二关验）----
+	var st3 = TUT_STAGE.new()
+	st3.cfg = { "consumer": false, "autorun": false }
+	var k4: CWKernel = st3.open_level(lv2)
+	check(st3.tape != null and st3._game.rng == st3.tape
+		and st3.tape.tape == [[1, 6, 3]] and st3.tape.at == 0,
+		"第二关的预设骰子挂在 game.rng 上、开局一颗都没消耗")
+	check(int(st3._game.roll_d6()) == 3 and st3.tape.at == 1 and st3.tape.overrun == 0,
+		"第一颗骰子就是数据里钉的 3（成功）")
+	## 先 open 再挂带子的话，open() 期间掷出去的那几颗就走了真 rng —— 跑不出来，所以钉源码次序
+	var i_rng := stage_src.find("g.rng = t")
+	var i_open := stage_src.find("k.open(c)")
+	check(i_rng > 0 and i_open > 0 and i_rng < i_open,
+		"源码里 g.rng = 带子 排在 kernel.open() 之前（%d < %d）" % [i_rng, i_open])
+	k4.close()
+	st3.dispose()
+
+	## ---- ④ 第一关盘面：装载往返齐、免疫在起点、癌席那只在遮罩外点不到 ----
+	var spec1: Dictionary = (lv1["worlds"]["base"] as Dictionary)
+	var loader = CASE_LOADER.new()
+	var g1: CWGame = loader.load_world(spec1.duplicate(true))
+	check(g1 != null, "第一关盘面装得出来：%s" % str(loader.errors))
+	var msgs: PackedStringArray = CASE_DIFF.compare(loader.dump_world(g1), loader.minify(spec1.duplicate(true)))
+	for m in msgs:
+		print("       %s" % m)
+	check(msgs.is_empty(), "闸二 2a：dump_world(load_world(spec)) ≡ minify(spec)")
+	check(g1.cell_of(0)["alive"] and g1.cell_of(0)["pos"] == Vector2i(-1, -1)
+		and int(g1.cell_of(0)["energy"]) == 99990,
+		"免疫细胞在起点 (-1,-1)、大能量（本关迁移不消耗靠数据，不靠旋钮）")
+	## **S2 改口（附 D 写法 B）**：癌席不是「没有细胞」，而是一只 alive:false 的死细胞，
+	## 占着活跃集**外**的一格 —— cells_at 过滤 alive，所以它既不占格也不进任何合法性判定
+	var foe: Dictionary = g1.cell_of(1)
+	var act1: Array = CWGuideData.active_tiles(0)
+	check(not foe["alive"] and foe["pos"] == Vector2i(6, -1) and not act1.has(foe["pos"])
+		and g1.cells_at(foe["pos"]).is_empty(),
+		"癌席那只是 alive:false 的占位，站在活跃集外的 %s，不占格" % str(foe["pos"]))
+	g1.dispose()
+	## 点不到：hex_at 只扫活跃集（board.gd:132），集合外一律 NO_TILE
+	var bd: Node2D = load("res://scenes/Board.tscn").instantiate()
+	root.add_child(bd)
+	await process_frame              ## 进树后等一帧让引擎的 _ready 先跑完（make_board 手动 _ready 那个坑）
+	bd.set_active_tiles(act1, 0.0)
+	check(not bd.is_active(Vector2i(6, -1))
+		and bd.hex_at(bd.tile_center(Vector2i(6, -1))) == bd.NO_TILE
+		and bd.is_active(Vector2i(-1, -1)),
+		"癌席那一格既不 is_active、hex_at 也点不到；免疫那一格照常")
+	bd.queue_free()
+
+	## ---- NPC 骨架（§1.8，本片不接席位）：三级兜底与「零 game.」的护栏 ----
+	var npc_src := FileAccess.get_file_as_string("res://scripts/kernel/cw_tutorial_npc.gd")
+	check(RegEx.create_from_string("(^|[^_a-zA-Z0-9.])game[.]").search(_code_only(npc_src)) == null,
+		"cw_tutorial_npc.gd 零 `game.` —— 它只看选项表与 CWMirror（纯函数）")
+	var stop_req := { "kind": "choice", "pid": 2, "prompt": "", "options": [
+		{ "label": "做点什么", "data": { "act": "move", "to": Vector2i(1, 0) } },
+		{ "label": "停手", "data": { "stop": true } }] }
+	check(TUT_NPC.fallback(stop_req) == CWSemKey.key(stop_req, stop_req["options"][1]["data"]),
+		"兜底①：选项里有 stop/skip 就选它")
+	var act_req2 := { "kind": "action", "pid": 2, "prompt": "", "options": [
+		{ "label": "迁移", "data": { "act": "move", "to": Vector2i(1, 0) } },
+		{ "label": "结束回合", "data": { "act": "end" } }] }
+	check(TUT_NPC.fallback(act_req2) == CWSemKey.key(act_req2, act_req2["options"][1]["data"]),
+		"兜底②：顶层 action 问没有 stop 选项 ⇒ 选「结束回合」= 什么都不做")
+	check(TUT_NPC.fallback({ "kind": "action", "pid": 2, "prompt": "", "options": [
+		{ "label": "迁移", "data": { "act": "move", "to": Vector2i(1, 0) } }] }) == "",
+		"兜底③：两条都落不到就返回空串，由调用方落基类默认的下标 0")
+
+
 func t_entry_smoke_local() -> void:
 	print("[入口冒烟·本地 / 读档]")
 	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
@@ -20727,10 +20803,23 @@ func t_entry_smoke_tutorial() -> void:
 	m.start()
 	await process_frame
 	var k := m.kernel as CWKernelInProc
-	check(k != null and k.adopted, "教程走 cfg.adopt：收养 CWGuideDirector.assemble 出来的那一局")
-	check(not k.game.win_checks, "win_checks=false 带过来了（它不在 snapshot 的 25 键里，走 world_state 会当场判胜负）")
-	check(m.mirror != null and m.mirror.tiles.size() == 7 and m.mirror.board_radius == 1 and m.board.map.size() == 127 and m.board.active_radius == 1,
-		"教程小棋盘：镜像 7 格、格网 127 格常驻、半径由 envelope 带（_adopt_mirror 里 set_active_radius）")
+	check(k != null and k.adopted, "教程走 cfg.adopt：收养**舞台**（cw_tutorial_stage）装出来的那一局")
+	## **改判（新手引导 S3）**：原断言「win_checks=false 带过来了」→「教程不再碰 win_checks」。
+	## 依据：方案 §2.3 —— 它不在 cwxworld/2 的 15 键里、也没有 C# 对应物；
+	## 不判胜负改由数据保证（allow 里不放结束回合 ⇒ 进不了 E 阶段），同一条在 t_guide_no_win 里正面核。
+	check(k.game.win_checks, "判定照常开着 —— 教程靠 allow 把「结束回合」关在门外，不靠引擎开关")
+	## **改判**：原断言「镜像 7 格 / 半径 1 / active_radius 1」→「127 格 / 半径 6 / 活跃格 = 数据里那两格」（§1.3 后果表）
+	## 活跃集按**这一局真开的那一关**核（进度存在 user:// 里，分片跑到这条时可能已经过了第一关）；
+	## (6,-1) 是第一章两关都没有的一格 —— 第一关癌席那只占位就站在那儿，永远不该露
+	var want_act: Array = CWGuideData.active_tiles(m._tutorial_ch)
+	var act_ok: bool = not want_act.is_empty() and not m.board.is_active(Vector2i(6, -1))
+	for c: Vector2i in want_act:
+		if not m.board.is_active(c):
+			act_ok = false
+	check(m.mirror != null and m.mirror.tiles.size() == CWData.TOTAL_TILES
+			and m.mirror.board_radius == CWData.BOARD_RADIUS and m.board.map.size() == 127 and act_ok,
+		"教程小棋盘：镜像 127 格、格网 127 格常驻、活跃格由第 %d 关的数据声明（不再随 envelope 的半径走）"
+			% (m._tutorial_ch + 1))
 	var guide: CWGuide = m._guide
 	var old_kernel: CWKernel = m.kernel
 	var t0 := Time.get_ticks_msec()
@@ -20749,6 +20838,7 @@ func t_entry_smoke_tutorial() -> void:
 	await process_frame
 	_no_barrier_timeout(null, t1, "教程拆局")
 	CWSettings.ai_delay_ms = 220
+	CWGuideProgress.clear()   ## 跨关时 watch:moved 会成立、把第一关记成已完成；别脏到同一分片里后面的测试
 	main_scene.queue_free()
 
 

@@ -429,9 +429,13 @@ func _render() -> void:
 	if _chapter == CWGuideData.CHAPTER_COUNT - 1 and _match != null \
 			and is_instance_valid(_match) and _match.mirror != null:
 		var assist := CWGuideData.graduation_assist(_match.mirror)
-		body_lines.append("建议：" + str(assist["suggestion"]))
-		body_lines.append("预测：" + str(assist["e_prediction"]))
-		body_lines.append("规则：" + str(assist["rule_explanation"]))
+		## 新 PRD 没有毕业战 ⇒ 门面返回 `{}`（方案 §1.1）。**必须判空**：
+		## 空表上取 `assist["suggestion"]` 是「键不存在」的运行时错误，而 `_chapter == CHAPTER_COUNT - 1`
+		## 现在天天成立（最后一关就是普通一关）—— 最后一关每次翻页都会报一条、正文也贴不出来。
+		if not assist.is_empty():
+			body_lines.append("建议：" + str(assist["suggestion"]))
+			body_lines.append("预测：" + str(assist["e_prediction"]))
+			body_lines.append("规则：" + str(assist["rule_explanation"]))
 	for line in body_lines:
 		var label := CWStyle.label(line, CWStyle.SIZE_LABEL, CWStyle.TEXT)
 		label.position = Vector2(0, y)

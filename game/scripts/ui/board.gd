@@ -546,7 +546,7 @@ func set_store(a: Vector2i, frac: float, special: int, tissue: int = CWData.Tiss
 		if not show:
 			return
 		## 正式盘只给 9 个核心 / 骨髓预建了环；教程 fixture 会把特殊组织摆在任意格
-		##（guide_levels.gd 的 tile_extras），第一次要画时再建（2026-09-11）
+		##（关卡数据 tiles[].solid），第一次要画时再建（2026-09-11）
 		_add_store_ring(t)
 		ring = t.get_node("StoreRing") as Sprite2D
 	ring.visible = show
