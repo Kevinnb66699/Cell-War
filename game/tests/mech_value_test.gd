@@ -36,6 +36,7 @@ func _run() -> void:
 	t_mech_attack_ev()
 	t_mech_anaerobic()
 	t_mech_sclc_jump()
+	t_mech_attack_chain()
 	print("\n%d 项检查，%d 失败" % [checks, fails])
 	quit(1 if fails > 0 else 0)
 
@@ -168,6 +169,78 @@ func t_mech_sclc_jump() -> void:
 	check(jump_checked >= 1, "至少采样到一次跳选项（共 %d 次）" % jump_checked)
 	check(jump_bad == 0, "跳块收益反事实与引擎实测逐位一致（%d 次，%d 偏差）" % [
 		jump_checked, jump_bad])
+
+
+## —— L1：免疫攻击真实结算与解析模型逐面对拍 ——
+## 手工构造「免疫在 (0,0)、癌细胞在 (1,0) 癌格」局面，用 rig_rng 钉住攻击骰的每一面，
+## 真实执行迁移（触发攻击），验证：
+##   · 目标能量损失 == MechValue.attack_face(face).target
+##   · 攻击者能量损失 == 迁移费 10 + 反弹 attack_face(face).self_loss（fail 才有）
+##   · 攻击者弹回原格
+## 再跑 4000 次真实随机攻击，统计均值 ≈ 25/3（大数定律验证期望）。
+func t_mech_attack_chain() -> void:
+	print("[L1·攻击真实结算]")
+	var g := bare_game()
+	var im := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
+		CWData.ImmuneType.BASIC, -1, 500)
+	var ca := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(1, 0),
+		-1, CWData.CancerType.SCLC, 500)
+	g.cells.append(im)
+	g.cells.append(ca)
+	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+
+	## 1. 逐面钉骰验证
+	for face in range(1, 7):
+		im["energy"] = 500
+		ca["energy"] = 500
+		im["pos"] = Vector2i.ZERO
+		im["attacks_used"] = 0
+		var e0: int = im["energy"]
+		var c0: int = ca["energy"]
+		_rig_next(g, 6, [face])
+		await g.actions._do_move(im, Vector2i(1, 0), 0)
+		var f: Dictionary = MechValue.attack_face(face)
+		check(ca["energy"] == c0 - int(f["target"]),
+			"骰面 %d：目标损 %d" % [face, f["target"]])
+		check(im["energy"] == e0 - 10 - int(f["self_loss"]),
+			"骰面 %d：免疫损 %d（迁移10 + 反弹%d）" % [face, 10 + int(f["self_loss"]), f["self_loss"]])
+		check(im["pos"] == Vector2i.ZERO, "骰面 %d：免疫弹回原格" % face)
+
+	## 2. 真实随机 4000 次，均值收敛到 25/3
+	var total := 0
+	for _i in 4000:
+		im["energy"] = 500
+		ca["energy"] = 500
+		im["pos"] = Vector2i.ZERO
+		im["attacks_used"] = 0
+		await g.actions._do_move(im, Vector2i(1, 0), 0)
+		total += 500 - int(ca["energy"])
+	var mean := total / 4000.0
+	check(absf(mean - 25.0 / 3.0) < 0.5,
+		"真实攻击均值 %f ≈ 25/3（4000 次）" % mean)
+	g.dispose()
+
+
+## —— 测试助手：rig_rng 钉骰 ——
+const RIG := preload("res://tests/rig_rng.gd")
+var _rig: Object
+
+func _rig_next(g: CWGame, sides: int, want: Array) -> void:
+	if _rig == null or not (g.rng == _rig):
+		var r := RIG.new()
+		r.inner = g.rng
+		g.rng = r
+		_rig = r
+	for w in want:
+		assert(int(w) >= 1 and int(w) <= sides)
+		g.rng.queue.append(int(w))
+
+
+func bare_game() -> CWGame:
+	var g := CWGame.new()
+	g.init(CWData.FACTION_ORDER[2], 1)
+	g.setup.build_board()
+	return g
 
 
 ## 该席位中与落点 to 相距 5 格（一跳）的存活 SCLC；没有则返回空字典。
