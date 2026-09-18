@@ -1,0 +1,378 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "solidify/t_solidify_and_decay/000",
+    "op": "solidify",
+    "covers": [
+      "t_solidify_and_decay::停留 1 回合 → 计数 1.0",
+      "t_solidify_and_decay::计数 1.0 还没到阈值"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_solidify ↔ BoardRules.Solidify；第 1 次 _solidify()：changed 只有 tiles@1,1.solid=10（没有 tissue）= 两条 check 各钉一半",
+    "harvested_from": "headless_test.gd:t_solidify_and_decay",
+    "world": {
+      "cells": [
+        {
+          "at": "1,1",
+          "energy": 30,
+          "seat": 0,
+          "type": "Melanoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,1",
+          "state": "cancer"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@1,1.d.solid_fraction": 333,
+        "$.board.tiles@1,1.solid": 10
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "solidify/t_solidify_and_decay/002",
+    "op": "solidify",
+    "covers": [
+      "t_solidify_and_decay::计数到"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_solidify ↔ BoardRules.Solidify；补门槛的循环第 2 次（第 3 次 _solidify()）：changed 里 tiles@1,1.solid=30 + tissue=2",
+    "harvested_from": "headless_test.gd:t_solidify_and_decay",
+    "world": {
+      "cells": [
+        {
+          "at": "1,1",
+          "energy": 30,
+          "seat": 0,
+          "type": "Melanoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "1,1",
+          "solid": 20,
+          "state": "cancer"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,1.d.proliferate_chance": 35,
+        "$.board.tiles@0,2.d.proliferate_chance": 35,
+        "$.board.tiles@1,0.d.proliferate_chance": 35,
+        "$.board.tiles@1,1.d.solid_fraction": 1000,
+        "$.board.tiles@1,1.solid": 30,
+        "$.board.tiles@1,1.tissue": 2,
+        "$.board.tiles@1,2.d.proliferate_chance": 35,
+        "$.board.tiles@2,0.d.proliferate_chance": 35,
+        "$.board.tiles@2,1.d.proliferate_chance": 35,
+        "$.cells[0].d.income": 20,
+        "$.g.players": [
+          {
+            "cancer_type": -1,
+            "cell_id": 0,
+            "d": {
+              "income": 20
+            },
+            "faction": 0,
+            "id": 0
+          },
+          {
+            "cancer_type": 2,
+            "cell_id": -1,
+            "d": {
+              "income": 0
+            },
+            "faction": 1,
+            "id": 1
+          }
+        ]
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "solidify/t_solidify_and_decay/003",
+    "op": "solidify",
+    "covers": [
+      "t_solidify_and_decay::骨肉瘤停留 → 计数 +1.0（不再 +1.5）"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_solidify ↔ BoardRules.Solidify；cell.ctype 换成骨肉瘤之后的第 1 次 _solidify()：tiles@-2,1.solid=10（+1.0，不是 +1.5）",
+    "harvested_from": "headless_test.gd:t_solidify_and_decay",
+    "world": {
+      "cells": [
+        {
+          "at": "-2,1",
+          "energy": 30,
+          "seat": 0,
+          "type": "Osteosarcoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-2,1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,1",
+          "solid": 30,
+          "state": "solid"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-2,1.d.solid_fraction": 333,
+        "$.board.tiles@-2,1.solid": 10
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "solidify/t_solidify_and_decay/009",
+    "op": "solidify",
+    "covers": [
+      "t_solidify_and_decay::取消后：当回合新铺的癌组织当回合就累计固化（+"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_solidify ↔ BoardRules.Solidify；newborn 段第 1 次 _solidify()：world 里 tiles@0,1.newborn=true、默认旋钮关 → 照样 +1.0",
+    "harvested_from": "headless_test.gd:t_solidify_and_decay",
+    "world": {
+      "cells": [
+        {
+          "at": "0,1",
+          "energy": 30,
+          "seat": 0,
+          "type": "Melanoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-2,1",
+          "solid": 30,
+          "state": "solid"
+        },
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "0,1",
+          "newborn": true,
+          "state": "cancer"
+        },
+        {
+          "at": "1,1",
+          "solid": 30,
+          "state": "solid"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,1.d.solid_fraction": 333,
+        "$.board.tiles@0,1.solid": 10
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "solidify/t_solidify_and_decay/010",
+    "op": "solidify",
+    "covers": [
+      "t_solidify_and_decay::旋钮拨回 true：按 PRD 当回合不固化（旧行为）"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_solidify ↔ BoardRules.Solidify；同段第 2 次：tuning.newborn_protect=1 → changed 空",
+    "harvested_from": "headless_test.gd:t_solidify_and_decay",
+    "world": {
+      "cells": [
+        {
+          "at": "0,1",
+          "energy": 30,
+          "seat": 0,
+          "type": "Melanoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-2,1",
+          "solid": 30,
+          "state": "solid"
+        },
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "0,1",
+          "newborn": true,
+          "state": "cancer"
+        },
+        {
+          "at": "1,1",
+          "solid": 30,
+          "state": "solid"
+        }
+      ],
+      "tuning": {
+        "newborn_protect": 1
+      }
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {},
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "solidify/t_solidify_and_decay/011",
+    "op": "solidify",
+    "covers": [
+      "t_solidify_and_decay::保护只管「新生」那一格，旧组织照常累计"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_solidify ↔ BoardRules.Solidify；同段第 3 次：旋钮仍是 1、newborn 已 false → 照样 +1.0",
+    "harvested_from": "headless_test.gd:t_solidify_and_decay",
+    "world": {
+      "cells": [
+        {
+          "at": "0,1",
+          "energy": 30,
+          "seat": 0,
+          "type": "Melanoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-2,1",
+          "solid": 30,
+          "state": "solid"
+        },
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "0,1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,1",
+          "solid": 30,
+          "state": "solid"
+        }
+      ],
+      "tuning": {
+        "newborn_protect": 1
+      }
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,1.d.solid_fraction": 333,
+        "$.board.tiles@0,1.solid": 10
+      },
+      "ignore": []
+    }
+  }
+]

@@ -1,0 +1,59 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "clear_newborn/t_ev_chaos/024",
+    "op": "clear_newborn",
+    "covers": [
+      "t_ev_chaos::E 阶段跑完不留「新生」标记（第 7 步排在第 9 步之前）"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_clear_newborn ↔ BoardRules.ClearNewborn；e_phase() 里唯一的 clear_newborn：原 check 是整相不变量，而这条不变量唯一的执行者就是这一步",
+    "harvested_from": "headless_test.gd:t_ev_chaos",
+    "world": {
+      "cells": [
+        {
+          "at": "0,6",
+          "energy": 72,
+          "seat": 1,
+          "type": "Melanoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Melanoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,5",
+          "solid": 10,
+          "state": "cancer"
+        },
+        {
+          "at": "0,6",
+          "newborn": true,
+          "state": "cancer"
+        }
+      ],
+      "tuning": {
+        "world_events_on": 1
+      }
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@0,6.newborn": false
+      },
+      "ignore": []
+    }
+  }
+]

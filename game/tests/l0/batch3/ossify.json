@@ -1,0 +1,103 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "ossify/t_batch2_rules/043",
+    "op": "ossify",
+    "covers": [
+      "t_batch2_rules::到期时已被净化：不再固化"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_ossify ↔ BoardRules.Ossify；⑥段第 1 次 _ossify()（round 5，格子已被净化成健康）：changed 空",
+    "harvested_from": "headless_test.gd:t_batch2_rules",
+    "world": {
+      "cells": [
+        {
+          "at": "0,0",
+          "energy": 200,
+          "seat": 0,
+          "type": "ImmuneBasic"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "memory": 1,
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "round": 5
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {},
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "ossify/t_batch2_rules/050",
+    "op": "ossify",
+    "covers": [
+      "t_batch2_rules::免疫细胞离开，下一次 E 阶段照样固化"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_ossify ↔ BoardRules.Ossify；⑥段第 3 次 _ossify()（人走之后）：changed 里 tiles@0,0.tissue=2 + ossify_at=0",
+    "harvested_from": "headless_test.gd:t_batch2_rules",
+    "world": {
+      "cells": [
+        {
+          "at": "1,0",
+          "energy": 200,
+          "seat": 0,
+          "type": "ImmuneBasic"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "memory": 1,
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "round": 7,
+      "tiles": [
+        {
+          "at": "0,0",
+          "ossify_at": 7,
+          "state": "cancer"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-1,0.d.proliferate_chance": 45,
+        "$.board.tiles@-1,1.d.proliferate_chance": 45,
+        "$.board.tiles@0,-1.d.proliferate_chance": 45,
+        "$.board.tiles@0,0.d.solid_fraction": 1000,
+        "$.board.tiles@0,0.ossify_at": 0,
+        "$.board.tiles@0,0.tissue": 2,
+        "$.board.tiles@0,1.d.proliferate_chance": 45,
+        "$.board.tiles@1,-1.d.proliferate_chance": 45,
+        "$.board.tiles@1,0.d.proliferate_chance": 45
+      },
+      "ignore": []
+    }
+  }
+]

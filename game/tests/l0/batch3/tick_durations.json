@@ -1,0 +1,116 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "tick_durations/t_ev_lifecycle/000",
+    "op": "tick_durations",
+    "covers": [
+      "t_ev_lifecycle::回合末：本回合事件到期，持续事件余 1 回合"
+    ],
+    "status": "OK",
+    "source": "cw_world_fx.gd:tick_durations ↔ BoardRules.TickDurations；第 1 次 tick_durations()：抗原引导 left 2→1、营养缺乏整条消失",
+    "harvested_from": "headless_test.gd:t_ev_lifecycle",
+    "world": {
+      "events": {
+        "active": [
+          {
+            "data": {},
+            "doubled": "",
+            "left": 2,
+            "name": "抗原引导",
+            "stacks": 1
+          },
+          {
+            "data": {},
+            "doubled": "",
+            "left": 1,
+            "name": "营养缺乏",
+            "stacks": 1
+          }
+        ]
+      },
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tuning": {
+        "world_events_on": 1
+      }
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.g.events.active[抗原引导].left": 1,
+        "$.g.events.active[营养缺乏].d.is_world_event": null,
+        "$.g.events.active[营养缺乏].data": null,
+        "$.g.events.active[营养缺乏].doubled": null,
+        "$.g.events.active[营养缺乏].left": null,
+        "$.g.events.active[营养缺乏].name": null,
+        "$.g.events.active[营养缺乏].stacks": null
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "tick_durations/t_ev_lifecycle/001",
+    "op": "tick_durations",
+    "covers": [
+      "t_ev_lifecycle::第二个回合末全部到期"
+    ],
+    "status": "OK",
+    "source": "cw_world_fx.gd:tick_durations ↔ BoardRules.TickDurations；第 2 次：抗原引导也整条消失，active 空",
+    "harvested_from": "headless_test.gd:t_ev_lifecycle",
+    "world": {
+      "events": {
+        "active": [
+          {
+            "data": {},
+            "doubled": "",
+            "left": 1,
+            "name": "抗原引导",
+            "stacks": 1
+          }
+        ]
+      },
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tuning": {
+        "world_events_on": 1
+      }
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.g.events.active[抗原引导].d.is_world_event": null,
+        "$.g.events.active[抗原引导].data": null,
+        "$.g.events.active[抗原引导].doubled": null,
+        "$.g.events.active[抗原引导].left": null,
+        "$.g.events.active[抗原引导].name": null,
+        "$.g.events.active[抗原引导].stacks": null
+      },
+      "ignore": []
+    }
+  }
+]

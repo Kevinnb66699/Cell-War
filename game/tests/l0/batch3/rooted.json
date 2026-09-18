@@ -1,0 +1,339 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "rooted/t_tumor_stages/000",
+    "op": "rooted",
+    "covers": [
+      "t_tumor_stages::I 期没有【根深蒂固】"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_rooted ↔ BoardRules.Rooted；④段第 1 次 _rooted()（round 1）：changed 空 + rolls 空",
+    "harvested_from": "headless_test.gd:t_tumor_stages",
+    "world": {
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,0",
+          "state": "solid"
+        },
+        {
+          "at": "0,1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {},
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "rooted/t_tumor_stages/001",
+    "op": "rooted",
+    "covers": [
+      "t_tumor_stages::II 期：一块固化推了恰好 1 格 +1.0"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_rooted ↔ BoardRules.Rooted；同一局 round 6 的第 2 次：changed 只有一格 solid=10，rolls 1 段（六选一）",
+    "harvested_from": "headless_test.gd:t_tumor_stages",
+    "world": {
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "round": 6,
+      "tiles": [
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,0",
+          "state": "solid"
+        },
+        {
+          "at": "0,1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ]
+    },
+    "rolls": [
+      [
+        0,
+        5,
+        3
+      ]
+    ],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-1,0.d.solid_fraction": 500,
+        "$.board.tiles@-1,0.solid": 10
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "rooted/t_tumor_stages/002",
+    "op": "rooted",
+    "covers": [
+      "t_tumor_stages::III 期：推 3 格，各 +1.0（门槛 2.0，1.0 还没到）"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_rooted ↔ BoardRules.Rooted；g3 round 11 的唯一一次：三格各 +1.0，rolls 3 段",
+    "harvested_from": "headless_test.gd:t_tumor_stages",
+    "world": {
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "round": 11,
+      "tiles": [
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "0,0",
+          "state": "solid"
+        },
+        {
+          "at": "0,1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        }
+      ]
+    },
+    "rolls": [
+      [
+        0,
+        5,
+        3
+      ],
+      [
+        0,
+        4,
+        3
+      ],
+      [
+        0,
+        3,
+        1
+      ]
+    ],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-1,0.d.solid_fraction": 500,
+        "$.board.tiles@-1,0.solid": 10,
+        "$.board.tiles@-1,1.d.solid_fraction": 500,
+        "$.board.tiles@-1,1.solid": 10,
+        "$.board.tiles@1,-1.d.solid_fraction": 500,
+        "$.board.tiles@1,-1.solid": 10
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "rooted/t_tumor_stages/003",
+    "op": "rooted",
+    "covers": [
+      "t_tumor_stages::唯一目标 1.0 + 1.0 = III 期门槛 2.0 → 当场转固化",
+      "t_tumor_stages::本步刚固化的格子不在这一回合当「来源」推别人"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_rooted ↔ BoardRules.Rooted；g4 第 1 次 _rooted()：changed 里 only 那格 solid=20 + tissue=2，而 beyond 一个字段都没有 = 第二条 check",
+    "harvested_from": "headless_test.gd:t_tumor_stages",
+    "world": {
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "round": 11,
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "solid"
+        },
+        {
+          "at": "1,0",
+          "solid": 10,
+          "state": "cancer"
+        },
+        {
+          "at": "2,0",
+          "state": "cancer"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-1,0.d.proliferate_chance": 60,
+        "$.board.tiles@-1,1.d.proliferate_chance": 60,
+        "$.board.tiles@0,-1.d.proliferate_chance": 60,
+        "$.board.tiles@0,0.d.proliferate_chance": 60,
+        "$.board.tiles@0,1.d.proliferate_chance": 120,
+        "$.board.tiles@1,-1.d.proliferate_chance": 120,
+        "$.board.tiles@1,0.d.proliferate_chance": 120,
+        "$.board.tiles@1,0.d.solid_fraction": 1000,
+        "$.board.tiles@1,0.solid": 20,
+        "$.board.tiles@1,0.tissue": 2,
+        "$.board.tiles@1,1.d.proliferate_chance": 120,
+        "$.board.tiles@2,-1.d.proliferate_chance": 120,
+        "$.board.tiles@2,0.d.proliferate_chance": 60,
+        "$.board.tiles@2,1.d.proliferate_chance": 60,
+        "$.board.tiles@3,-1.d.proliferate_chance": 60,
+        "$.board.tiles@3,0.d.proliferate_chance": 60
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "rooted/t_tumor_stages/004",
+    "op": "rooted",
+    "covers": [
+      "t_tumor_stages::下一回合它才作为来源推邻居"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_rooted ↔ BoardRules.Rooted；g4 第 2 次 _rooted()：这次 beyond 拿到 +1.0",
+    "harvested_from": "headless_test.gd:t_tumor_stages",
+    "world": {
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "round": 11,
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "solid"
+        },
+        {
+          "at": "1,0",
+          "solid": 20,
+          "state": "solid"
+        },
+        {
+          "at": "2,0",
+          "state": "cancer"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@2,0.d.solid_fraction": 500,
+        "$.board.tiles@2,0.solid": 10
+      },
+      "ignore": []
+    }
+  }
+]

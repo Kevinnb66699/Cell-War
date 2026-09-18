@@ -55,10 +55,13 @@ func _proliferate() -> Array[Vector2i]:
 
 ## 唯一一个入参不是「全在世界里」的 E 族步：fresh 是增生这一轮造出来的格子。
 ## 录进 args，C# 那边重放时照样给得出来。
+## 形状是**一个串** `"q,r;q,r"`（空串 = 空表），与 C# `Steps.Args.Positions` 逐字相同：
+## `args` 两侧都是「键 → 字符串」，录成数组会让整份用例文件反序列化失败。
 func _erosion(fresh: Array[Vector2i] = []) -> void:
-	var args := { "fresh": [] }
+	var parts := PackedStringArray()
 	for c in fresh:
-		args["fresh"].append("%d,%d" % [c.x, c.y])
+		parts.append("%d,%d" % [c.x, c.y])
+	var args := { "fresh": ";".join(parts) }
 	if not rec.begin("cw_world.gd:_erosion", args):
 		super._erosion(fresh)
 		rec.skip()

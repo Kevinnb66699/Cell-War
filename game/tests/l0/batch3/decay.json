@@ -1,0 +1,178 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "decay/t_solidify_and_decay/006",
+    "op": "decay",
+    "covers": [
+      "t_solidify_and_decay::无人停留 → 计数 −0.5"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_decay ↔ BoardRules.Decay；第 1 次 _decay()：tiles@-1,0.solid 10→5",
+    "harvested_from": "headless_test.gd:t_solidify_and_decay",
+    "world": {
+      "cells": [
+        {
+          "at": "-2,1",
+          "energy": 30,
+          "seat": 0,
+          "type": "Osteosarcoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-2,1",
+          "solid": 30,
+          "state": "solid"
+        },
+        {
+          "at": "-1,0",
+          "solid": 10,
+          "state": "cancer"
+        },
+        {
+          "at": "1,1",
+          "solid": 30,
+          "state": "solid"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-1,0.d.solid_fraction": 167,
+        "$.board.tiles@-1,0.solid": 5
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "decay/t_solidify_and_decay/007",
+    "op": "decay",
+    "covers": [
+      "t_solidify_and_decay::再减一次归零，不会变负"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_decay ↔ BoardRules.Decay；第 2 次：5→0",
+    "harvested_from": "headless_test.gd:t_solidify_and_decay",
+    "world": {
+      "cells": [
+        {
+          "at": "-2,1",
+          "energy": 30,
+          "seat": 0,
+          "type": "Osteosarcoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-2,1",
+          "solid": 30,
+          "state": "solid"
+        },
+        {
+          "at": "-1,0",
+          "solid": 5,
+          "state": "cancer"
+        },
+        {
+          "at": "1,1",
+          "solid": 30,
+          "state": "solid"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@-1,0.d.solid_fraction": 0,
+        "$.board.tiles@-1,0.solid": 0
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "decay/t_solidify_and_decay/008",
+    "op": "decay",
+    "covers": [
+      "t_solidify_and_decay::已经是 0 就不再减"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_decay ↔ BoardRules.Decay；第 3 次：changed 空",
+    "harvested_from": "headless_test.gd:t_solidify_and_decay",
+    "world": {
+      "cells": [
+        {
+          "at": "-2,1",
+          "energy": 30,
+          "seat": 0,
+          "type": "Osteosarcoma"
+        }
+      ],
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-2,1",
+          "solid": 30,
+          "state": "solid"
+        },
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "1,1",
+          "solid": 30,
+          "state": "solid"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {},
+      "ignore": []
+    }
+  }
+]

@@ -551,7 +551,7 @@ func _step(g: CWGame, op: String, args: Dictionary) -> bool:
 		"cancer_upkeep": g.world._cancer_upkeep()
 		"pressure": g.world._pressure()
 		"proliferate": g.world._proliferate()
-		"erosion": await g.world._erosion(_positions(args.get("fresh", [])))
+		"erosion": await g.world._erosion(_positions(str(args.get("fresh", ""))))
 		"resolve_camping": await g.world._resolve_camping()
 		"solidify": g.world._solidify()
 		"rooted": g.world._rooted()
@@ -641,9 +641,13 @@ func _pos(text: String) -> Vector2i:
 	return Vector2i(int(parts[0].strip_edges()), int(parts[1].strip_edges()))
 
 
-func _positions(list: Array) -> Array[Vector2i]:
+## 列表参数一律 `"q,r;q,r"` 一个串（空串 = 空表）—— C# 那头 `L0/CaseModel.cs` 的 `args` 是
+## `Dictionary<string, string>`，写成数组整个用例文件都反序列化不了（不是单条红）。
+func _positions(text: String) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
-	for s in list:
+	if text.strip_edges() == "":
+		return out
+	for s in text.split(";"):
 		out.append(_pos(str(s)))
 	return out
 

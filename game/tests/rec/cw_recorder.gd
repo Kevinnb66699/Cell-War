@@ -81,6 +81,36 @@ func install(g: CWGame) -> void:
 	g.world_fx = wf
 
 
+## 手搭盘面从不跑 setup._assign_cancer_types()，癌席身上没有 cancer_type 键 —— _dump_players 会记一条
+## UNLOADABLE 并返回截断的 players（规矩 5 形同虚设）。**每次 dump 之前现算**：取该席最后一只癌细胞的
+## ctype（loader 互校用的就是 players[].cell_id 指的那一只），一只都没有就写 Osteosarcoma（§0.6.1 第 2 条）。
+## players[].cancer_type 只被 cw_setup.gd 落子时消费，规则读的是 cells[].ctype，所以补它不改规则；
+## 但它**进 state_hash**（CWStateCodec.snapshot 收整份 players）—— 留在世界里就是行为改动，
+## t_rec_transparent「开代理与不开代理逐位相同」当场红。所以：dump 与 envelope 取完之后原样放回。
+## 返回值是这一次改过的 [席位, 原值] 表，交给 _restore_cancer_types()。
+func _fill_cancer_types() -> Array:
+	var saved: Array = []
+	for p in game.players:
+		if int(p["faction"]) == CWData.Faction.IMMUNE:
+			continue
+		var ct := int(CWData.CancerType.OSTEO)
+		for c in game.cells:
+			if int(c["pid"]) == int(p["id"]) and int(c.get("ctype", -1)) >= 0:
+				ct = int(c["ctype"])
+		saved.append([p, p.get("cancer_type", null)])
+		p["cancer_type"] = ct
+	return saved
+
+
+static func _restore_cancer_types(saved: Array) -> void:
+	for pair in saved:
+		var p: Dictionary = pair[0]
+		if pair[1] == null:
+			p.erase("cancer_type")
+		else:
+			p["cancer_type"] = pair[1]
+
+
 ## 返回 true = 这是深度 0 的一次，pre 已经落好；调用方跑完 super 之后必须调 finish()。
 ## 返回 false = 嵌套（规矩 2）或这一步没有 op 名，调用方跑完 super 之后必须调 skip()。
 ## `gd` 形如 "cw_world.gd:_pressure"，与契约表的 `gd` 字段逐字相同。
@@ -96,12 +126,14 @@ func begin(gd: String, args: Dictionary) -> bool:
 			errors.append("代理覆写了 %s，契约表里查不到它的 op —— 这一次不录（规矩 1 的 t_rec_contract_only 会同时红）" % gd)
 		return false
 	calls[op] = int(calls.get(op, 0)) + 1
+	var saved := _fill_cancer_types()
 	var loader = Loader.new()
 	var pre: Dictionary = loader.dump_world(game)
 	_cur = {
 		"op": op, "args": args, "world": pre, "env": Diff.normalize(_envelope()),
 		"bad": ("" if not pre.is_empty() else "pre：" + "; ".join(loader.errors)),
 	}
+	_restore_cancer_types(saved)
 	if tape != null:
 		tape.take()   ## 把游标推到这一步之前，finish() 取到的就只是这一步掷的
 	return true
@@ -116,9 +148,14 @@ func finish() -> void:
 	if _cur.is_empty():
 		return
 	var op: String = _cur["op"]
+	var saved := _fill_cancer_types()
 	var loader = Loader.new()
 	## 只为验「这个 post 世界也装得回去」；草稿里不留 post 的 spec
 	var post: Dictionary = loader.dump_world(game)
+	## envelope 必须在**放回之前**取：草稿的 world 写的是补过的癌种，
+	## 装回去之后两侧算出的 $.g.players 也是补过的 —— 两头得是同一份
+	var post_env: Dictionary = Diff.normalize(_envelope())
+	_restore_cancer_types(saved)
 	var bad: String = str(_cur["bad"])
 	if bad == "" and post.is_empty():
 		bad = "post：" + "; ".join(loader.errors)
@@ -128,7 +165,16 @@ func finish() -> void:
 		errors.append("UNLOADABLE %s：%s" % [op, bad])
 		_cur = {}
 		return
-	var post_env: Dictionary = Diff.normalize(_envelope())
+	var changed: Dictionary = Diff.diff(_cur["env"], post_env)
+	## 差分自己报硬错（同席多细胞的语义键歧义 / 命中 ask.options）时 `diff()` 返回 {} ——
+	## 不查这一条就会落下一条「这一步什么都没改」的**假绿**用例（实测：
+	## t_vessel_no_solid 三条固化 / t_balance_candidates 两条代谢全是这样掉出去的）。
+	## 归进规矩 5 的同一档：记一条 UNLOADABLE，**不产用例**。
+	if not Diff.errors.is_empty():
+		unloadable[op] = int(unloadable.get(op, 0)) + 1
+		errors.append("UNLOADABLE %s：差分 %s" % [op, "; ".join(Diff.errors)])
+		_cur = {}
+		return
 	entries.append({
 		"schema": "cwxcase/2",
 		"id": "",                       ## harvest.gd 编号
@@ -139,7 +185,7 @@ func finish() -> void:
 		"world": _cur["world"],
 		"rolls": (tape.take() if tape != null else []),
 		"args": _cur["args"],
-		"expect": { "kind": "delta", "changed": Diff.diff(_cur["env"], post_env), "ignore": [] },
+		"expect": { "kind": "delta", "changed": changed, "ignore": [] },
 	})
 	_cur = {}
 
