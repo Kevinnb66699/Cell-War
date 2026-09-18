@@ -24,7 +24,7 @@ public class EnvelopeParityTests
     [InlineData("4p_4242", 200)]
     [InlineData("2p_2222", 200)]
     [InlineData("6p_6666", 200)]
-    [InlineData("4p_chemo_4242", 248)]   // pick_cell 落地后 L1 整条 279 步一致（RatchetChemo）；envelope 停在 248：第 249 起是新 KNOWN_GAP `chemo-move-quote`（趋化源在场时的迁移报价 / cost_rows 与 GD 不同，盘面本身逐字一致）
+    [InlineData("4p_chemo_4242", 279)]   // pick_cell + 借道起价合上（chemo-move-quote）后 L1 与 envelope 都整条 279 步一致 `chemo-move-quote`（趋化源在场时的迁移报价 / cost_rows 与 GD 不同，盘面本身逐字一致）
     public void 每条夹具逐步_GD与CSharp的envelope逐字段相同(string fixture, int maxSteps)
     {
         var root = RepoRoot();

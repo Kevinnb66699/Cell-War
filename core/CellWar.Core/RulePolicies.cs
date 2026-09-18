@@ -58,7 +58,21 @@ internal static class RulePolicies
     /// 所以【炎症趋化】那类「费用改为 X」仍会盖掉它（GD 侧 0.2 进的是 `ctx.base_cost`，REPLACE 排在其后）。
     /// </param>
     public static int BaseMoveCost(WorldState s, Cell c, HexPosition destination, int? rawCostOverride = null)
-        => Settlement.ApplyValue(rawCostOverride ?? RawMoveCost(s, c, destination), MoveModifiers(s, c, destination));
+        => Settlement.ApplyValue(RawFor(s, c, destination, rawCostOverride), MoveModifiers(s, c, destination));
+
+    /// <summary>
+    /// 这一步的**起价**（修饰之前）：相邻 = <see cref="RawMoveCost"/>；借道 = 沿途每格 <see cref="RawMoveCost"/> 之和
+    /// （GD `_move_base_cost`：非相邻走 `pass_through_map`，那张表累计的是 `_one_step_base`）。修饰管线随后**只跑一遍**、按落点评估
+    /// （GD `_move_cost_mod(cell, dest, base)`）。2026-09-19 之前 C# 借道是逐段跑修饰再相加（0.4-bis #6 的 KNOWN_GAP），
+    /// 报价碰巧常常相同、`cost_rows` 却从落点单格的起价起算 —— 树突建源夹具第 249 步把它揪出来（`chemo-move-quote`）。
+    /// 借不到的非相邻格退回落点单格起价（QuoteMove 在此之前已判「走不到」）。
+    /// </summary>
+    private static int RawFor(WorldState s, Cell c, HexPosition destination, int? rawCostOverride)
+    {
+        if (rawCostOverride is { } o) return o;
+        if (c.Position.DistanceTo(destination) != 1 && PassThroughRoutes(s, c).TryGetValue(destination, out var route)) return route.Cost;
+        return RawMoveCost(s, c, destination);
+    }
 
     /// <summary>
     /// 这一步移动**真改了价**的修饰（GD `quote().applied`）—— 提交时只消耗这些（ON_BENEFIT）。
@@ -67,7 +81,7 @@ internal static class RulePolicies
     public static IReadOnlyCollection<ValueModifier> AppliedMoveModifiers(WorldState s, Cell c, HexPosition destination, int? rawCostOverride = null)
     {
         var applied = new List<ValueModifier>();
-        Settlement.ApplyValue(rawCostOverride ?? RawMoveCost(s, c, destination), MoveModifiers(s, c, destination), applied);
+        Settlement.ApplyValue(RawFor(s, c, destination, rawCostOverride), MoveModifiers(s, c, destination), applied);
         return applied;
     }
 
@@ -76,7 +90,7 @@ internal static class RulePolicies
     public static IReadOnlyList<Settlement.CostStep> MoveCostSteps(WorldState s, Cell c, HexPosition destination, int? rawCostOverride = null)
     {
         var steps = new List<Settlement.CostStep>();
-        Settlement.ApplyValue(rawCostOverride ?? RawMoveCost(s, c, destination), MoveModifiers(s, c, destination), null, steps);
+        Settlement.ApplyValue(RawFor(s, c, destination, rawCostOverride), MoveModifiers(s, c, destination), null, steps);
         return steps;
     }
 
@@ -300,12 +314,13 @@ internal static class RulePolicies
         if (occupant != null && (occupant.Faction == cell.Faction || cell.Faction != Faction.Immune || !occupant.IsAlive)) return null;
         if (cell.Position.DistanceTo(destination) == 1) return BaseMoveCost(s, cell, destination, rawCostOverride);
         if (occupant != null) return null; // Passing through allies cannot launch an attack.
-        if (PassThroughMap(s, cell).TryGetValue(destination, out var cost)) return cost;
+        // 借道：起价 = 沿途 raw 之和（RawFor），修饰按落点只跑一遍 —— 与相邻迁移走同一条管线（GD `_move_cost_mod`）
+        if (PassThroughRoutes(s, cell).ContainsKey(destination)) return BaseMoveCost(s, cell, destination);
         return null;
     }
 
     /// <summary>
-    /// 借道前进的落点表：{ 落点 → 总费用 }。与旧实现 `CWActions.pass_through_map` 等价 ——
+    /// 借道前进的落点表：{ 落点 → 沿途**起价**之和（修饰之前，GD `pass_through_map`）}。报价要再过一遍修饰管线（<see cref="QuoteMove"/>）——
     /// 从自己出发只在友军占据的格上扩展，任何到达过的友军格相邻的空格都是合法落点，
     /// 费用 = 走到那个友军格的累计 + 落点自己的费用，取最便宜的一条（Dijkstra 小规模版）。
     /// 本来就与自己相邻的格不进这张表（普通迁移更便宜）。
@@ -325,7 +340,7 @@ internal static class RulePolicies
         foreach (var n in GdNeighbors(s, cell.Position))
         {
             if (!AllyTile(s, cell, n)) continue;
-            reached[n] = (BaseMoveCost(s, cell, n), n);
+            reached[n] = (RawMoveCost(s, cell, n), n);   // 累计的是**起价**（GD `_one_step_base`），修饰不在这里跑
             queue.Enqueue(n);
         }
         while (queue.Count > 0)
@@ -335,7 +350,7 @@ internal static class RulePolicies
             foreach (var m in GdNeighbors(s, cur))
             {
                 if (m == cell.Position || !s.Board.Tissues.ContainsKey(m)) continue;
-                var total = acc + BaseMoveCost(s, cell, m);
+                var total = acc + RawMoveCost(s, cell, m);
                 if (AllyTile(s, cell, m))
                 {
                     if (!reached.TryGetValue(m, out var previous) || total < previous.Cost)

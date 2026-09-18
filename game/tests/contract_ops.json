@@ -16,17 +16,34 @@
     ]
   },
   {
-    "op": "pass_through_cost", "kind": "probe", "family": "P",
+    "op": "pass_through_cost",
+    "kind": "probe",
+    "family": "P",
     "prd": "J-迁移 · 借道前进",
-    "gd": "cw_actions.gd:pass_through_map", "gd_module": "CWActions",
+    "gd": "cw_actions.gd:pass_through_map",
+    "gd_module": "CWActions",
     "cs": "RulePolicies.PassThroughMap",
-    "args": ["cell", "to"], "rng": false,
-    "status": "KNOWN_GAP", "cases": "deferred",
-    "note": "两端边界不同：C# PassThroughRoutes 逐段用 BaseMoveCost（修饰已跑），GD 逐段用 _one_step_base（修饰之前）。无修饰盘面恒绿。C# 侧要另开一个用 RawMoveCost 累加的借道入口，否则此 op 撤掉（规格 §0.4-bis 6 / B 批 1）",
+    "args": [
+      "cell",
+      "to"
+    ],
+    "rng": false,
+    "status": "OK",
+    "cases": "deferred",
+    "note": "两端边界 2026-09-19 合上（原 0.4-bis #6 KNOWN_GAP）：C# PassThroughRoutes 改为累计 RawMoveCost（= GD _one_step_base），修饰管线只在落点跑一遍（GD _move_cost_mod）；树突建源夹具 279 步 envelope 逐字一致。探针面随批 1 定，先空壳",
     "boundaries": [
-      { "tag": "one_hop", "cases": "^pass_through_cost/one_hop" },
-      { "tag": "two_hop", "cases": "^pass_through_cost/two_hop" },
-      { "tag": "with_modifier", "cases": "^pass_through_cost/with_modifier" }
+      {
+        "tag": "one_hop",
+        "cases": "^pass_through_cost/one_hop"
+      },
+      {
+        "tag": "two_hop",
+        "cases": "^pass_through_cost/two_hop"
+      },
+      {
+        "tag": "with_modifier",
+        "cases": "^pass_through_cost/with_modifier"
+      }
     ]
   },
   {

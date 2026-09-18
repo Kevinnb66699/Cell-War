@@ -168,7 +168,7 @@ public class SemanticKeyTests
         // 走子器走到的每一种形状都得是 SemanticKey 认得的（多出来的登记在这里，别让它静默过关）
         var known = new HashSet<string>(must, StringComparer.Ordinal)
         {
-            "k=free_move", "k=action|act=toxin", "k=action|act=lyse", "k=action|act=homing", "k=action|act=mucus", "k=action|act=antibody",
+            "k=free_move", "k=pick_cell", "k=action|act=toxin", "k=action|act=lyse", "k=action|act=homing", "k=action|act=mucus", "k=action|act=antibody",
             "k=action+chemo_target|act=chemo", "k=action+effector_target|act=effector",
         };
         Assert.True(shapes.IsSubsetOf(known), "走子器走出了没登记的形状：" + string.Join(", ", shapes.Except(known)));
