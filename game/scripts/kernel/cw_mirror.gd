@@ -189,6 +189,11 @@ func income_of(cell: Dictionary) -> int:
 	return int(cell["d"]["income"])
 
 
+## tier B 缺席返回 false（不画红脉冲：宁可少画不可错画）
+func pressure_lethal(cell: Dictionary) -> bool:
+	return bool(cell.get("d", {}).get("pressure_lethal", false))
+
+
 func action_kinds_of(cell: Dictionary) -> Array:
 	return Array(cell["d"].get("action_kinds", []))
 

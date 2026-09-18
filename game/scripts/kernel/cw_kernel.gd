@@ -9,7 +9,7 @@
 ##              event_drawn{pid,cell_id,pos,faction,card} · card_drawn{pid,cell_id,pos,source} · world_event{ev,left}
 ##              erosion{at,dir} · beam{from,to,splash} · fx{kind,data}
 ##   另 4 种：log{index,text,secret_pid,public_text}（index 与上一条相同 = 就地改写末条，装得下 CWGame.log_run 的语义）
-##            ask{ask_id,req,left_ms} · game_over{winner,reason,kind,round,replay} · sync{envelope}（传输层专用，InProc 永不发）
+##            ask{ask_id,req,left_ms} · game_over{winner,reason,kind,round,replay} · sync{envelope}（传输层必发；InProc 在 cfg.observe_viewer 打开时也发，节拍见批 1 规格 A-1.5）
 ## 每条带 seq（单调、永不重编号）与 barrier（只有 roll 为 true：消费者 ack(seq) 之前内核不让后续条目生效，
 ## 批 0 不反转 await 语义 —— InProc 照旧真等，等价于今天 cw_game.gd:711-718 的 `await b.show_roll`）。
 ##

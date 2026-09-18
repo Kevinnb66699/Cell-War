@@ -14,7 +14,7 @@ namespace CellWar.Core.Observation;
 /// </summary>
 public static class ObservationV1Codec
 {
-    public const int Protocol = 1;
+    public const int Protocol = 2;   // 2026-09-19 批 1 步 1（观测协议 §九）
     public const int HostAbi = 1;
     public const string RulesBuild = "core-slice-1+b0";
     public const int ViewerWatcher = -1;      // GD CWKernel.VIEWER_WATCHER
@@ -56,7 +56,7 @@ public static class ObservationV1Codec
             t.Type == TissueType.BoneMarrow ? t.Charge ?? 0 : 0,   // cards：只有骨髓格
             t.OccupyingCell is { } occ ? Id(occ) : -1,
             new ObsTileD(RulePolicies.PressureAt(s, t.Position), Permille(RulePolicies.SolidFraction(s, t)), Permille(RulePolicies.StoreFraction(t)),
-                RulePolicies.ProliferateChanceRaw(s, t.Position), null, null, null))).ToArray();   // 不带闸：与 GD 公开查询同口径
+                RulePolicies.ProliferateChanceRaw(s, t.Position), null, null, null, null))).ToArray();   // 不带闸：与 GD 公开查询同口径
 
         var obsCells = cells.Select(c => new ObsCell(
             Id(c.Id), c.OwnerSeat, (int)c.Faction, Pos(c.Position), GdEnum.Itype(c.Type), GdEnum.Ctype(c.Type), c.Energy, c.IsAlive,
@@ -70,7 +70,7 @@ public static class ObservationV1Codec
             new ObsCellD(Income(s, c),
                 c.IsAlive && c.Type == CellType.BCell ? RulePolicies.AntibodyDamage(c.AntibodyThisRound, RulePolicies.HasSkill(s, c, "抗体亲和力成熟")) : 0,
                 c.IsAlive ? RulePolicies.OverloadLoss(s, c) : 0,
-                null, null, null, null, null, null, null, null, null, null))).ToArray();
+                null, null, null, null, null, null, null, null, null, null, null))).ToArray();
 
         var immune = s.Players.Values.Where(p => p.Faction == Faction.Immune).OrderBy(p => p.Seat).FirstOrDefault();
         var phase = PhaseWord(s.Turn.Phase);
@@ -99,7 +99,7 @@ public static class ObservationV1Codec
             new ObsTune(false, CancerWinWeighted, CancerWinHoldRounds, LimitRound, s.Board.Tissues.Count / 2,
                 s.Tuning.MucusMoveSurcharge, s.Tuning.MetastasisCost, OsteoOssifyCost, s.Tuning.SolidifyThreshold.ToArray()),
             new ObsGlobalD(BoardRules.SolidifyThreshold(s), RulePolicies.Stage(s), RulePolicies.CancerPhase(s.Turn.WorldRound), PhaseText(s.Turn.Phase),
-                WorldEffects.IsWorldEventRound(s.Turn.WorldRound), null, null, null, null, null, null, null));
+                WorldEffects.IsWorldEventRound(s.Turn.WorldRound), null, null, null, null, null, null, null, null));
 
         return new ObsEnvelope(Protocol, new ObsRuleset(HostAbi, RulesBuild, RulesBuild), revision.Value, sim.NextPresentationSeq - 1,
             ViewerOmniscient, false, ["A"], true, null,

@@ -59,6 +59,7 @@ static func _board(game: CWGame) -> Dictionary:
 				"store_fraction": _permille(CWData.store_progress(t)),
 				"proliferate_chance": game.world._proliferate_chance(c, rate, per_solid, bs[0], bs[1]),
 				"prod_left": _prod_left(t), "store_max": _store_max(t), "solid_frozen": _solid_frozen(game, c),
+				"store_pending": CWData.store_pending(t),   ## p=2：骨髓「进度到头、卡还没结算」只淡图标不动环（match.gd:_sync_tiles）
 			},
 		})
 	return { "radius": game.board_radius, "tiles": tiles }
@@ -157,6 +158,7 @@ static func _cell_d(game: CWGame, cell: Dictionary) -> Dictionary:
 		"antibody_cost": (game.actions.antibody_cost(cell) if is_b else 0),
 		"metastasis_cost_real": (game.actions.skill_move_cost(cell, game.tune.metastasis_cost) if int(cell["ctype"]) == CWData.CancerType.SCLC else 0),
 		"ossify_cost_real": (int(game.tune.osteo_ossify_cost) if int(cell["ctype"]) == CWData.CancerType.OSTEO else 0),   ## ui_bridge.gd 读旋钮不写死
+		"homing_cost_real": (game.actions.skill_move_cost(cell, CWData.MELANOMA_HOMING_COST) if int(cell["ctype"]) == CWData.CancerType.MELANOMA else 0),   ## p=2：【归巢】真报价（ui_bridge.gd _cost_text 同一条）
 		"attack_cap_left": maxi(int(game.tune.attack_max_per_turn) - int(cell["attacks_used"]), 0),
 		"draw_cap_left": maxi(CWData.DRAW_MAX_PER_TURN - int(cell["draws_used"]), 0),
 	}
@@ -248,8 +250,17 @@ static func _global(game: CWGame, req: Dictionary) -> Dictionary:
 			"count_solid": game.count_tissue(CWData.Tissue.SOLID), "count_necrosis": game.count_necrosis(),
 			"cancer_weighted": game.count_tissue(CWData.Tissue.CANCER) + 2 * game.count_tissue(CWData.Tissue.SOLID),   ## cw_game.gd:1118 同式
 			"level_thresholds": thresholds, "memory_next_at": next_at,
+			"next_event_round": next_event_round(game.round_no),   ## p=2：match_panel.gd _next_event_round 的搬迁
 		},
 	}
+
+
+## 从 from 起（含）往后第一个世界事件回合；没有 = 0（与 match_panel.gd:_next_event_round 同口径）
+static func next_event_round(from: int) -> int:
+	for r in range(maxi(from, 1), CWData.LIMIT_ROUND + 1):
+		if CWData.is_world_event_round(r):
+			return r
+	return 0
 
 
 ## 全局条目的 data：键统一成字符串（Vector2i 键 → "q,r"），值 bool → 1/0、Vector2i → {q,r}（C# 那边存的是 int）

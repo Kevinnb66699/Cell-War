@@ -8,10 +8,10 @@ namespace CellWar.Core.Tests.L1;
 internal static class EnvelopeNormalize
 {
     /// <summary>tier B 键表（与 GD `cw_obs_proto.gd` 的 *_B 同一份；C# 批 0 不产出，对拍时从 GD 侧剥掉）。</summary>
-    public static readonly string[] TileB = ["prod_left", "store_max", "solid_frozen"];
+    public static readonly string[] TileB = ["prod_left", "store_max", "solid_frozen", "store_pending"];
     public static readonly string[] CellB = ["action_kinds", "status_rows", "pressure_lethal", "neutralized", "type_ability_on", "antibody_cost",
-        "metastasis_cost_real", "ossify_cost_real", "attack_cap_left", "draw_cap_left"];
-    public static readonly string[] GlobalB = ["count_healthy", "count_cancer", "count_solid", "count_necrosis", "cancer_weighted", "level_thresholds", "memory_next_at"];
+        "metastasis_cost_real", "ossify_cost_real", "attack_cap_left", "draw_cap_left", "homing_cost_real"];
+    public static readonly string[] GlobalB = ["count_healthy", "count_cancer", "count_solid", "count_necrosis", "cancer_weighted", "level_thresholds", "memory_next_at", "next_event_round"];
 
     private static readonly HashSet<string> TileBSet = new(TileB, StringComparer.Ordinal);
     private static readonly HashSet<string> CellBSet = new(CellB, StringComparer.Ordinal);

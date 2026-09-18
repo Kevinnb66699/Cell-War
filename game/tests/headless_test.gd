@@ -19214,7 +19214,11 @@ func t_obs_codec() -> void:
 			break
 	check(not move_opt.is_empty() and move_opt["cost"] != null and int(move_opt["cost"]) == int(move_opt["data"]["cost"]), "迁移选项带 cost（= data.cost）")
 	check(text.find("\"rng\"") < 0, "零 rng")
-	check(int(back["p"]) == 1 and back["produced_tiers"].size() == 2, "p = 1、GD 恒交 A + B")
+	check(int(back["p"]) == CWObsProto.P and back["produced_tiers"].size() == 2, "p = %d、GD 恒交 A + B" % CWObsProto.P)
+	var t0: Dictionary = m.tiles.values()[0]
+	check(t0["d"].has("store_pending") and c0["d"].has("homing_cost_real") and m.g["d"].has("next_event_round")
+		and int(m.g["d"]["next_event_round"]) == CWObsCodec.next_event_round(g.round_no), "p=2 的三个 tier B 键都在（next_event_round 与 match_panel 同口径）")
+	check(m.pressure_lethal(c0) == g.world.pressure_lethal(g.cell_of(0)), "镜像 pressure_lethal 转手 tier B")
 	g.dispose()
 
 
@@ -19238,7 +19242,7 @@ func t_obs_hard_error() -> void:
 	bad["state"]["g"]["memory"] = 1.5
 	check(CWMirror.new().load_from(bad).find("小数") >= 0, "出现小数 = 硬错")
 	bad = e.duplicate(true)
-	bad["p"] = 2
+	bad["p"] = 99
 	check(CWMirror.new().load_from(bad).find("协议版本") >= 0, "p 不对 = 拒收")
 	g.dispose()
 
@@ -19410,6 +19414,19 @@ func t_kernel_observe() -> void:
 	check(k.answer(int(got_ask["ask_id"]), { "index": 0 }), "作答")
 	k.close()
 	check(k.observe(CWKernel.VIEWER_OMNISCIENT) == null, "关闭后 observe 返回 null")
+
+
+# ---- 批 1 步 2：测试助手 —— 把一个活 CWGame 编成镜像（迁 UI 子件的测试时用）----
+func _mirror_of(g: CWGame, viewer: int = CWObsProto.VIEWER_OMNISCIENT) -> CWMirror:
+	var m := CWMirror.new()
+	var err := m.sync_from(g, { "viewer": viewer, "ask": g._pending })
+	if err != "":
+		check(false, "_mirror_of：%s" % err)
+	return m
+
+
+func _mirror_cell_of(g: CWGame, pid: int) -> Dictionary:
+	return _mirror_of(g).cell_of(pid)
 
 
 # ---- 口径二 · 批 1 步 0：两条不依赖切换的计量闸（docs/口径二_批1_原子切规格.md C-1 步 0）----

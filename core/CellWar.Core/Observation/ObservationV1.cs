@@ -28,7 +28,8 @@ public sealed record ObsTile(ObsPos At, int Tissue, int Special, int Solid, int 
 public sealed record ObsTileD(int Pressure, int SolidFraction, int StoreFraction, int ProliferateChance,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ProdLeft,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? StoreMax,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? SolidFrozen);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? SolidFrozen,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? StorePending);   // p=2
 
 public sealed record ObsMod(string Name, int Uses, string Until, int Seq);
 
@@ -51,7 +52,8 @@ public sealed record ObsCellD(int Income, int AntibodyDamage, int OverloadLoss,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? MetastasisCostReal,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? OssifyCostReal,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? AttackCapLeft,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? DrawCapLeft);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? DrawCapLeft,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? HomingCostReal);   // p=2
 
 public sealed record ObsPlayer(int Id, string Name, int Faction, int CellId, int CancerType, ObsPlayerD D);
 
@@ -82,7 +84,8 @@ public sealed record ObsGlobalD(int SolidThreshold, int TumorStage, int CancerPh
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CountNecrosis,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CancerWeighted,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int[]? LevelThresholds,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? MemoryNextAt);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? MemoryNextAt,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? NextEventRound);   // p=2
 
 /// <summary>§四 · 顶层。</summary>
 public sealed record ObsGlobal(int RoundNo, string Phase, int CurrentPid, int AskingPid, int Memory, int ImmuneLevel, int EffectorRound,

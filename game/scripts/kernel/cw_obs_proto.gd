@@ -6,7 +6,7 @@
 class_name CWObsProto
 extends RefCounted
 
-const P := 1
+const P := 2   ## 2026-09-19 批 1 步 1：tier B 加三键 + cost_effects_for 批量形参 + InProc 可推 sync（观测协议 §九）
 const VIEWER_WATCHER := -1
 const VIEWER_OMNISCIENT := -2
 const TIERS_GD := ["A", "B"]
@@ -20,7 +20,7 @@ const POS := ["q", "r"]
 const TILE := ["at", "tissue", "special", "solid", "necrosis", "mucus", "newborn", "ossify_at", "toxin_round", "prod",
 	"store", "cards", "cell", "d"]
 const TILE_D_A := ["pressure", "solid_fraction", "store_fraction", "proliferate_chance"]
-const TILE_D_B := ["prod_left", "store_max", "solid_frozen"]
+const TILE_D_B := ["prod_left", "store_max", "solid_frozen", "store_pending"]
 ## §三 · 36 键（make_cell 32 + 动态 4）
 const CELL := ["id", "pid", "faction", "pos", "itype", "ctype", "energy", "alive", "marked", "mark_left", "mark_round",
 	"effector_used", "hand", "equipped", "mods", "play_n", "equip_seq", "fx_turn", "fx_round", "differentiated", "chemo_cd",
@@ -28,7 +28,7 @@ const CELL := ["id", "pid", "faction", "pos", "itype", "ctype", "energy", "alive
 	"respawn_round", "camp_round", "camp_pos", "chain_left", "chain_bonus", "neutral_until", "chain_running", "d"]
 const CELL_D_A := ["income", "antibody_damage", "overload_loss"]
 const CELL_D_B := ["action_kinds", "status_rows", "pressure_lethal", "neutralized", "type_ability_on", "antibody_cost",
-	"metastasis_cost_real", "ossify_cost_real", "attack_cap_left", "draw_cap_left"]
+	"metastasis_cost_real", "ossify_cost_real", "attack_cap_left", "draw_cap_left", "homing_cost_real"]
 const MOD := ["name", "uses", "until", "seq"]
 const STATUS_ROW := ["kind", "name", "detail"]
 ## §四
@@ -36,7 +36,7 @@ const G := ["round_no", "phase", "current_pid", "asking_pid", "memory", "immune_
 	"winner", "win_reason", "win_kind", "cancer_alarm", "chemo", "chemo_track", "events", "feed_log", "feed_seq", "chain_cell",
 	"aborted", "is_over", "order", "players", "tune", "d"]
 const G_D_A := ["solid_threshold", "tumor_stage", "cancer_phase", "phase_text", "is_world_event_round"]
-const G_D_B := ["count_healthy", "count_cancer", "count_solid", "count_necrosis", "cancer_weighted", "level_thresholds", "memory_next_at"]
+const G_D_B := ["count_healthy", "count_cancer", "count_solid", "count_necrosis", "cancer_weighted", "level_thresholds", "memory_next_at", "next_event_round"]
 const CANCER_ALARM := ["streak", "hold_rounds"]
 const CHEMO := ["at", "left", "by", "cid"]
 const TRACK := ["cid", "at", "left"]

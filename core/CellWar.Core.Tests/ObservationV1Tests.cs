@@ -19,7 +19,7 @@ public class ObservationV1Tests
         var env = session.ObserveV1(ObservationV1Codec.ViewerOmniscient);
         var json = ObservationV1Codec.Serialize(env);
 
-        Assert.Equal(1, env.P);
+        Assert.Equal(2, env.P);   // p=2（批 1 步 1）
         Assert.Equal(["A"], env.ProducedTiers);
         Assert.True(env.Full); Assert.Null(env.Base);
         Assert.DoesNotContain("\"rng\"", json);
