@@ -14,6 +14,7 @@ const SPOTS := [Vector2i(-2, 1), Vector2i(-1, 1), Vector2i(0, 1), Vector2i(1, 1)
 var _out := "user://cell_deco.png"
 var _board: Node2D
 var _game: CWGame
+var _mirror: CWMirror
 var _frames := 0
 
 
@@ -34,6 +35,12 @@ func _initialize() -> void:
 		made["armor_used"] = false
 		_game.cells.append(made)
 		_game.tiles[SPOTS[i]]["tissue"] = CWData.Tissue.CANCER
+	## 批 1 步 6：CWCellDeco 读的是 CWMirror。这只预览摆的是**静态**局面（不跑引擎、不 step），
+	## 所以一份 envelope 装完就够，之后不会再变
+	_mirror = CWMirror.new()
+	var err := _mirror.sync_from(_game)
+	if err != "":
+		push_error("preview_cell_deco：镜像装载失败 —— %s" % err)
 
 
 ## 棋盘的 map 要等它自己 _ready 之后才有：格子贴图 / 细胞 / 装饰都在 WARMUP 那一帧再摆
@@ -56,7 +63,7 @@ func _setup_scene() -> void:
 		for is_front in [false, true]:
 			var deco := CWCellDeco.new()
 			deco.front = bool(is_front)
-			deco.game = _game
+			deco.mirror = _mirror
 			deco.index = i
 			deco.set("half_h", tex.get_height() / 2.0)   ## 同 _sync_cells；旧版装饰没这个属性时 set 静默略过
 			deco.position = _board.tile_center(at)

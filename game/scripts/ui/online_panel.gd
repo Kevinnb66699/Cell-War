@@ -23,7 +23,10 @@ extends Control
 const SFX := preload("res://scripts/ui/cw_sfx.gd")
 
 signal cancelled                             ## 第一页 Esc：主菜单把自己淡回来
-signal match_started(client: CWNetClient)    ## 房间开局且第一份状态已排进 stream：main.gd 推镜头进棋盘
+## 房间开局且第一份 sync 已排进 stream：main.gd 推镜头进棋盘。
+## 批 1 步 8 起交出去的是**句柄**而不是客户端 —— 对局侧只认 CWKernel。
+## 客户端本身仍归本面板管（回等待室 / 回大厅还要用这条连接），所以 CWMatch 拆联机局时只放手、不 close()
+signal match_started(client: CWNetClient)   ## 句柄由 CWMatch.start_online 自建（客户端的生命周期仍归本面板）
 signal match_lost(reason: String)            ## 对局中房间没了 / 令牌失效：main.gd 收摊回主菜单
 
 enum Page { CONNECT, LOBBY, CREATE, ROOM, LAN }
@@ -611,10 +614,11 @@ func _on_message(m: Dictionary) -> void:
 				_awaiting_state = true
 		"chat":
 			_repaint_chat()
-		"state":
+		"sync":
 			if _awaiting_state and client.sequenced:
 				_awaiting_state = false
 				hide_for_match()
+				## sequenced 仍是 true：对局流照旧排队；CWKernelRemote 由 CWMatch.start_online 自建、镜像从 stream 里的 sync 条目装出来
 				match_started.emit(client)
 		"left":
 			if not in_match and page == Page.ROOM:

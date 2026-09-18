@@ -64,11 +64,11 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-## 每帧由 CWMatch 调用：flag 是引导当前步骤的提亮键，m 是对局（读它的 HUD 节点与引擎状态）
+## 每帧由 CWMatch 调用：flag 是引导当前步骤的提亮键，m 是对局（读它的 HUD 节点与那一份观测）
 func sync(flag: String, m) -> void:
 	rects = []
 	hexes = []
-	if flag == "" or m == null or m.game == null or m.camera == null or m.board == null:
+	if flag == "" or m == null or m.mirror == null or m.camera == null or m.board == null:
 		return
 	zoom = m.camera.zoom.x
 	var pid: int = m.human_players[0] if not m.human_players.is_empty() else -1
@@ -78,11 +78,11 @@ func sync(flag: String, m) -> void:
 		"special":
 			## 读**这一局格子上**的 special：正式局 make_tile 就是拿 special_of(c) 填的，
 			## 逐格相同；而教程里导演会先清空再按 fixture 加，只有读 tiles 才对得上
-			for c in m.game.tiles:
-				if int(m.game.tiles[c]["special"]) != CWData.Special.NONE:
+			for c in m.mirror.tiles:
+				if int(m.mirror.tiles[c]["special"]) != CWData.Special.NONE:
 					_hex(m, c)
 		"place":
-			for c in place_tiles(m.game):
+			for c in place_tiles(m.mirror):
 				_hex(m, c)
 		"energy":
 			if m.panel != null and pid >= 0:
@@ -90,16 +90,16 @@ func sync(flag: String, m) -> void:
 		"move":
 			_bar_button(m, CWData.ACT_NAMES["move"])
 		"purify":
-			for c in purify_tiles(m.game, pid):
+			for c in purify_tiles(m.mirror, pid):
 				_hex(m, c)
 		"end":
 			if m.panel != null:
 				_rect(m.panel.rect_of("end"))
 		"enemy":
-			for c in cell_tiles(m.game, CWData.Faction.CANCER):
+			for c in cell_tiles(m.mirror, CWData.Faction.CANCER):
 				_hex(m, c)
 		"own":
-			for c in cell_tiles(m.game, CWData.Faction.IMMUNE):
+			for c in cell_tiles(m.mirror, CWData.Faction.IMMUNE):
 				_hex(m, c)
 		"bar":
 			if m.action_bar != null:
@@ -157,35 +157,35 @@ func _board_rect(m) -> Rect2:
 
 
 ## 可落子且紧邻癌区的健康格 —— 剧本建议「选在紧邻癌区外侧的健康组织上」，提亮的就是这些
-static func place_tiles(game: CWGame) -> Array:
+static func place_tiles(m: CWMirror) -> Array:
 	var out: Array = []
-	for c: Vector2i in game.tiles:
-		if game.tiles[c]["tissue"] != CWData.Tissue.HEALTHY or not game.cells_at(c).is_empty():
+	for c: Vector2i in m.tiles:
+		if m.tiles[c]["tissue"] != CWData.Tissue.HEALTHY or not m.cells_at(c).is_empty():
 			continue
 		for n in CWData.neighbors(c):
-			if game.tiles.has(n) and game.is_cancerous(n):
+			if m.tiles.has(n) and m.is_cancerous(n):
 				out.append(c)
 				break
 	return out
 
 
 ## 玩家细胞旁边可净化的癌组织（固化格不算：那要【裂解】）
-static func purify_tiles(game: CWGame, pid: int) -> Array:
+static func purify_tiles(m: CWMirror, pid: int) -> Array:
 	var out: Array = []
-	if pid < 0 or pid >= game.cells.size():
+	if pid < 0 or pid >= m.cells.size():
 		return out
-	var cell: Dictionary = game.cell_of(pid)
+	var cell: Dictionary = m.cell_of(pid)
 	if not cell["alive"]:
 		return out
 	for n in CWData.neighbors(cell["pos"]):
-		if game.tiles.has(n) and game.tiles[n]["tissue"] == CWData.Tissue.CANCER:
+		if m.tiles.has(n) and m.tiles[n]["tissue"] == CWData.Tissue.CANCER:
 			out.append(n)
 	return out
 
 
-static func cell_tiles(game: CWGame, faction: int) -> Array:
+static func cell_tiles(m: CWMirror, faction: int) -> Array:
 	var out: Array = []
-	for c in game.cells:
+	for c in m.cells:
 		if c["alive"] and c["faction"] == faction:
 			out.append(c["pos"])
 	return out

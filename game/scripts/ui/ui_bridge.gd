@@ -14,6 +14,11 @@
 ## 推演期间引擎的 bridges 会被临时换成同步代打，本桥不会在推演里被问到。
 ##
 ## 演出**无权决定结果**：value 是引擎先用 game.rng 掷好再传进来的（架构约定 #11）。
+##
+## **批 1 步 6+8（2026-09-19）：本桥成了内核的 decider。** 界面这一半再也不读 `CWGame` ——
+## 盘面读 `mirror`（CWMirror，每问一份），规则算 `kernel.query()` 四条（决策 9：UI 不许自己算规则），
+## 演出由 `CWPlayQueue` 按条目顺序喂进下面的 `show_*`。`game` 字段还留着，但**只给基类那几档 AI 推演用**，
+## 由 `attach_engine()` 一处赋值（拍板 E-2 (a)：不拆 AI 继承）。
 class_name CWUIBridge
 extends CWMonteCarloBridge
 
@@ -23,6 +28,20 @@ var bar: CWActionBar
 var info: CWCardInfo   ## 悬停详情框：分化提问里停在种类按钮上时浮细胞种类详情；纯 AI 桥 / 测试里可为 null
 var panel: CWMatchPanel
 var toast: CWToast     ## 骰子旁边那行字
+
+## ---- 批 1 步 6+8：盘面读镜像、规则问句柄 ----
+## 当前这一份观测（条目流里的 sync 落地后就是新的一份），由 CWMatch 每帧赋。
+## **一切「读盘面」都走它**；一切「算规则」都走下面的 kernel（决策 9）。
+var mirror: CWMirror
+## 内核句柄：四条纯查询（plan_next_dests / quote_path / cost_effects_for / move_block_reason）的唯一出口。
+## InProc 同步就有答案；Remote 是 RPC + 按 rev 缓存，**第一次问必然返回 null** ——
+## 所以每一处调用都要有「拿不到就不显示」的那一支，绝不许拿旧值或自己算一个顶上。
+var kernel: CWKernel
+## 条目播放器。只用来做一件事：出询问界面之前先等这一步的演出播完、盘面落地（见 _await_playback）。
+var queue: CWPlayQueue
+## 这一局是不是已经被放弃了。**不能用 mirror.aborted 代替** —— 镜像是「问人之前」那一份快照，
+## 而换手遮罩 / _prompt 一等就是几十秒，拆局发生在那之后，快照上永远写着 false（规格 A-5.4）。
+var _aborted := false
 ## 回放：录下来的下标串。非空 = 这一局是在放回放，`ask()` 按顺序念、谁也不问。
 ## 游标由 `CWReplay.Player` 拨（快退时会被拨回去），所以**别在这儿另存一份进度**。
 var replay_answers: PackedInt32Array = []
@@ -89,6 +108,14 @@ var mcts: CWMCTSBridge = null
 ## 只在「选迁移目标」这一问里活着。规划态下棋盘的点击不再直接作答，
 ## 而是拖出一条路；账由引擎 `CWActions.quote_path()` 算（价钱逐步变，界面算不对，见那边头注）。
 var _plan: Array[Vector2i] = []   ## 依次要落脚的格（不含起点）
+## 规划器有没有句柄可问。联机（E-1 (a)，Kevin 2026-09-19 拍）走 query RPC + 按 rev 缓存：`kernel.query` 第一次问只发 RPC、当场返回 null，
+## 报价 / 可达 / 灰格理由在下一份 `query_result` 到了之后由 `plan_tick()`（CWMatch._process 每帧调）补画 ——
+## 线条立即画、价签回来再填（规格 D-9），提示行在那之前写「报价中…」，不会拖出一条按空报价配色的线。
+var _plan_ok := false
+var _plan_cell := {}              ## 正在规划的那只细胞（plan_tick 补画要用）
+var _plan_pending := false        ## 上一次 query 还没回来（联机）
+var _plan_want: Variant = null    ## 拖到了这一格但可达表还没回来：回来后补接（Vector2i / null）
+var _block_want: Variant = null   ## 点了一个走不通的格、理由还没回来：回来后补弹（Vector2i / null）
 var _planning := false            ## 规划器开着吗
 var _plan_drag := false           ## 正按着左键拖
 var _plan_quote := {}             ## 上一次的报价，给按钮文字和路径配色用
@@ -120,6 +147,7 @@ class Answer:
 ## （2026-08-27 团队试玩报的就是这个）。
 ## 引擎那边由 CWGame.aborted 收摊，两边配合才能安全展开。
 func abort() -> void:
+	_aborted = true
 	_clear_ui()
 	if handoff != null:
 		handoff.hide_now()   ## 遮罩期间拆局：放掉等在 pass_to 上的那次询问
@@ -135,7 +163,18 @@ static func needs_handoff(p_hotseat: bool, p_current_human: int, pid: int) -> bo
 	return p_hotseat and pid != p_current_human
 
 
+## AI 拿真引擎的**唯一**口子（拍板 E-2 (a)：本桥同时是 AI 桥，不拆继承）。
+## `CWKernelInProc.open()` 对每个 decider 试调这个鸭子方法，没有的（纯 AI 桥）才退回 `d.game = g`。
+## 界面那一半**一个字也不读它**；留着只是为了基类的扁平 MC 与挂在旁边的 MCTS 还能推演（批 2 欠账）。
+## 形参**故意不标类型**：标上 `CWGame` 就把引擎类名写回了 `game/scripts/ui/`，结构闸 `t_no_engine_in_ui` 当场红。
+func attach_engine(g) -> void:   ## KERNEL-ENGINE-OK
+	game = g
+	if mcts != null:
+		mcts.game = g
+
+
 func ask(req: Dictionary) -> int:
+	_aborted = false   ## 新的一问：上一次 abort() 的余波不该把这一问当场打掉
 	## **回放**：按顺序念录下来的下标，谁也不问。
 	##
 	## 为什么让界面桥来念、而不是直接用 `CWReplay.Bridge`：掷骰演出、通报、过场
@@ -160,19 +199,22 @@ func ask(req: Dictionary) -> int:
 func _ask_human(req: Dictionary) -> int:
 	while opening and board != null and board.is_inside_tree():
 		await board.get_tree().process_frame
+	await _await_playback()
+	if mirror == null:
+		return 0                           ## 一份观测都还没到（拆局 / 句柄没起来）：引擎那边已在收摊
 	## 热座换手：先把电脑交出去（遮罩），玩家点「开始回合」才出询问界面。
 	## 换手期间 current_human = -1：CWMatch 据此收起手牌抽屉、日志切到无人视角。
 	if handoff != null and needs_handoff(hotseat, current_human, req["pid"]):
 		current_human = -1
 		var pid: int = req["pid"]
 		var at: Vector2i = CWHandoff.INVALID
-		if pid < game.cells.size() and game.cell_of(pid)["alive"]:
-			at = game.cell_of(pid)["pos"]   ## 开局布置阶段还没有细胞：光环不画
-		await handoff.pass_to(pid, game.player(pid)["faction"], game.player(pid)["name"], at)
-		if game == null or game.aborted:
+		if pid < mirror.cells.size() and mirror.cell_of(pid)["alive"]:
+			at = mirror.cell_of(pid)["pos"]   ## 开局布置阶段还没有细胞：光环不画
+		await handoff.pass_to(pid, mirror.player(pid)["faction"], mirror.player(pid)["name"], at)
+		if _aborted:
 			return 0                       ## 遮罩期间拆局了：随便答一个，引擎那边已在收摊
 		current_human = pid
-	_enemy = CWData.Faction.CANCER if game.player(req["pid"])["faction"] \
+	_enemy = CWData.Faction.CANCER if mirror.player(req["pid"])["faction"] \
 		== CWData.Faction.IMMUNE else CWData.Faction.IMMUNE
 	var picked: int
 	if req["kind"] == "action":
@@ -183,6 +225,21 @@ func _ask_human(req: Dictionary) -> int:
 	return picked
 
 
+## 出询问界面之前，先等这一步的演出播完、这一问的那份 sync 落地。
+##
+## **为什么必须有它**：`CWKernelInProc._on_ask` 是「推 step_end + sync → 当场转交 decider」，
+## 而条目是播放队列**异步**消费的。不等的话玩家会看到「行动栏已经属于新的一问、棋盘还停在上一步」——
+## 价签、高亮格、可达格全取自过期的那一份镜像。拍板 2 说的「一步的 sync 在这一步的演出播完之后落地」，
+## 消费侧的另一半就在这儿。
+## 这个循环一定走得完：引擎此刻正卡在本函数上游的 await 里，队列只出不进。
+## 没有队列 / 没有界面（无头测试、纯 AI 局、回放直放）直接返回。
+func _await_playback() -> void:
+	if queue == null or kernel == null or board == null or not board.is_inside_tree():
+		return
+	while queue != null and kernel != null and queue.running and not _aborted and queue.since < kernel.entry_seq():   ## 拆局会在等待中把 queue 置空
+		await board.get_tree().process_frame
+
+
 # ============ 「选行动」：两段式 ============
 # 定稿的行动栏里「迁移」也是一个按钮，点了它才高亮可达格、再点格子确认。
 # 引擎那边每个相邻格是一个独立选项，所以这里要把它们合成一个按钮，
@@ -191,10 +248,11 @@ func _ask_human(req: Dictionary) -> int:
 func _ask_action(req: Dictionary) -> int:
 	var options: Array = req["options"]
 	var pid: int = req["pid"]
-	var cell: Dictionary = game.cell_of(pid)
-	if pid != _sticky_pid or game.round_no != _sticky_round:
+	## **取一次就够**：整段 while 都跑在引擎 `ask()` 的 await 里，引擎挂着，这一份镜像不会再变（规格 §0.4 #13）
+	var cell: Dictionary = mirror.cell_of(pid)
+	if pid != _sticky_pid or mirror.round_no != _sticky_round:
 		_sticky_pid = pid
-		_sticky_round = game.round_no
+		_sticky_round = mirror.round_no
 		_sticky_move = false
 	var moves: Array = []
 	for i in options.size():
@@ -202,7 +260,7 @@ func _ask_action(req: Dictionary) -> int:
 			moves.append(i)
 	if moves.is_empty():
 		_sticky_move = false        ## 能量不够、一格也去不了，自己退回按钮栏
-	while not game.aborted:
+	while not _aborted:
 		## 上一步选的就是迁移 → 直接回到选目标格，不再经过按钮栏
 		if _sticky_move:
 			var again: Variant = await _pick_move(cell, options, moves)
@@ -228,7 +286,13 @@ func _ask_action(req: Dictionary) -> int:
 			groups[a].append(i)
 		var buttons: Array = []
 		var values: Array = []
-		for act in game.actions.action_kinds(cell):
+		## 按钮集合与**顺序**由镜像给（tier B 的 cell.d.action_kinds）；这一档缺席就返回空数组 —— 只剩「结束回合」，不崩
+		var kinds: Array = mirror.action_kinds_of(cell)
+		## 「当前影响」一次批量问完（B-1 ④ 的 acts 形参）：一枚一枚问的话，联机那条就是八个 RPC 往返
+		var effects_of := _cost_effects_batch(cell, kinds)
+		var q := func(_qkind: String, args: Dictionary) -> Variant:
+			return effects_of.get(String(args.get("act", "")), [])
+		for act in kinds:
 			var live: bool = groups.has(act)
 			buttons.append({
 				"title": _move_title(cell) if act == "move" else ACT_TITLE.get(act, act),
@@ -241,7 +305,7 @@ func _ask_action(req: Dictionary) -> int:
 				"disabled": not live,
 				## 悬停这枚按钮时浮出的 PRD 原文（2026-09-04 Kevin 要的「技能栏显示详细作用」）。
 				## **灰掉的按钮也带** —— 想知道「这技能是干嘛的、我为什么用不了」正是那会儿最想问的
-				"info": CWCardInfo.describe_act_for(game, cell, act),
+				"info": CWCardInfo.describe_act_for(q, cell, act),
 			})
 			values.append(act if live else "")
 		## 没有右侧竖条时（纯行动栏形态），「结束回合」退回按钮栏占一格
@@ -331,7 +395,7 @@ func _pick_hand(options: Array, gesture: Array) -> Variant:
 			if d.has("to"):
 				tiles[d["to"]] = i
 			elif d.has("cid"):
-				tiles[game.cells[d["cid"]]["pos"]] = i
+				tiles[mirror.cells[int(d["cid"])]["pos"]] = i
 		if tiles.is_empty():
 			## 无目标卡直接打出。「确认打出」那一拍（定案③）**随单击一起取消了**：
 			## 它防的是单击误触，而现在单击根本不发信号，留着就成了双重收费。
@@ -342,6 +406,16 @@ func _pick_hand(options: Array, gesture: Array) -> Variant:
 	if hand != null:
 		hand.set_selected("")
 	return got
+
+
+## 建行动栏时一次问完所有技能的「当前影响」：{ act: effects[] }。
+## InProc 同步就有；Remote 第一次问只发出 RPC、当场返回 null —— 那一帧详情框写「当前影响：无」，
+## **不写一个凑出来的数**，结果随下一次建栏从缓存补上（规格 A-5.1 / E-1 (a)）。
+func _cost_effects_batch(cell: Dictionary, acts: Array) -> Dictionary:
+	if kernel == null or acts.is_empty():
+		return {}
+	var got: Variant = kernel.query("cost_effects_for", { "cid": int(cell["id"]), "acts": acts })
+	return got if got is Dictionary else {}
 
 
 ## 手牌几问的底条左侧让位宽度 = 手牌区的横向占位（LEFT + SPAN）。
@@ -397,15 +471,16 @@ func _sub_entry(act: String, opt: Dictionary) -> Dictionary:
 	return entry
 
 
-## 子选项的按钮标题。分化给种类名，裂解给「顺带净化 / 暂不」，其余退回**引擎给的 label**
+## 子选项的按钮标题。分化给种类名，其余退回**引擎给的 label**
 ## （从前兜底是 `str(data)`，那条路 #14 之前根本走不到，一走到就是一串 JSON 打在按钮上）。**纯函数**。
+##
+## 2026-09-19 批 1 步 8：裂解那一支读的 `data["purge"]` 删了 —— 全仓只此一行、`game/scripts/core/` 从来
+## 没往选项里写过这个键，真走到就是当场 KeyError。裂解现在和别的技能一样吃 label（批 0 规格 §F#10 已授权）。
 static func _sub_label(act: String, opt: Dictionary) -> String:
 	var data: Dictionary = opt.get("data", {})
 	match act:
 		"differentiate":
 			return CWData.IMMUNE_TYPE_NAMES[data["type"]]
-		"lyse":
-			return "顺带净化" if data["purge"] else "暂不净化"
 	var label := String(opt.get("label", ""))
 	if label != "":
 		return label
@@ -440,11 +515,15 @@ func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
 	## （上一版直接 `ans.fire("plan_on")`，于是一点「规划路径」就退出了迁移态）
 	_planning = false
 	_plan_drag = false
-	while not game.aborted:
+	## 规划器整体由**能力位**开关（规格 A-5.1）：句柄不能同步回答纯查询（联机那条）时整个不进规划态，
+	## 按钮与提示行一起不出现 —— 降级要**看得见**，不能让玩家拖出一条按空报价配色的线
+	_plan_ok = kernel != null   ## 联机也开：同步答不了的那几帧由 plan_tick 补画（E-1 (a)）
+	_plan_cell = cell
+	while not _aborted:
 		var got: Variant = await _prompt("选择要%s到的组织" % verb, _plan_hint(cell, tiles.size()),
 			_move_buttons(cell, verb), _move_values(), tiles, null,
 			_move_buttons(cell, verb).size() - 1,
-			true, 0.0, func(c: Vector2i) -> String: return game.actions.move_block_reason(cell, c), true)
+			true, 0.0, func(c: Vector2i) -> String: return _move_block_reason(cell, c), true)
 		## 选目标态下手牌照样能打 / 弃（Kevin 2026-09-06）：手势走和主按钮栏同一条路（_pick_hand）。
 		## 打出去的卡由引擎结算后重新询问，_sticky_move 还开着，于是自动回到选目标态（迁移是切换式的）；
 		## 从卡的流程退回（"cancel"）则留在选目标态，不算「结束迁移」。规划中的路线作废——盘面可能已经变了
@@ -485,8 +564,25 @@ func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
 
 ## 选目标态的按钮：规划器开关 + （开着时）「按此路径走」+ 结束迁移。
 ## 「结束迁移」永远是最后一个 —— `_prompt` 的 cancel 下标按它算。
+## 点了一格却走不成，为什么。**规则问句柄**，界面不复算（决策 9）。
+## 拿不到（Remote 第一次问只发出 RPC）就返回空串 = 这一下不弹，退回「点不动就是没反应」——
+## 落子 / 复活那几问今天本来就是这样（规格 A-5.1）。
+func _move_block_reason(cell: Dictionary, c: Vector2i) -> String:
+	if kernel == null:
+		return ""
+	var why: Variant = kernel.query("move_block_reason", { "cid": int(cell["id"]), "to": c })
+	if why == null:
+		_block_want = c   ## 联机第一次问只发了 RPC：理由回来之后 plan_tick 补弹这一下，玩家不用点第二次
+		_plan_cell = cell
+		return ""
+	return String(why)
+
+
 func _move_buttons(cell: Dictionary, verb: String) -> Array:
 	var out: Array = []
+	if not _plan_ok:
+		out.append({ "title": "结束%s" % verb, "cost": "右键 / Esc" })
+		return out          ## 句柄答不了报价：规划按钮整条不出（降级可见）
 	if _planning:
 		var total: int = int(_plan_quote.get("total", 0))
 		out.append({ "title": "按此路径走", "cost": "%s 能量 · %d 步" % [
@@ -500,6 +596,8 @@ func _move_buttons(cell: Dictionary, verb: String) -> Array:
 
 
 func _move_values() -> Array:
+	if not _plan_ok:
+		return ["cancel"]
 	return ["plan_go", "plan_off", "cancel"] if _planning else ["plan_on", "cancel"]
 
 
@@ -513,6 +611,8 @@ func _plan_hint(cell: Dictionary, n_reach: int) -> String:
 		return "高亮 %d 格可达 · 可以连着走 · 右键或 Esc 退出" % n_reach
 	if _plan.is_empty():
 		return "从高亮格按下左键、划过想走的路线 · 再点「按此路径走」"
+	if _plan_pending and _plan_quote.is_empty():
+		return "%d 步 · 报价中…" % _plan.size()   ## 联机：RPC 还没回来（回来后 plan_tick 重排这一行）
 	var q: Dictionary = _plan_quote
 	## 途中从【代谢核心】收到的能量单独列一项（2026-09-08）：不写的话玩家会看到
 	## 「合计 2.0 · 走完剩 3.5」这种对不上的账 —— 剩下的不等于「现有 − 合计」。
@@ -534,6 +634,31 @@ func _plan_reset() -> void:
 	_planning = false
 	_plan_drag = false
 	_plan_quote = {}
+	_plan_pending = false
+	_plan_want = null
+	_block_want = null
+
+
+## 联机（E-1 (a)）：`kernel.query` 在 RPC 回来之前返回 null，这里每帧补一次 —— 报价、拖动时的可达表、灰格理由三样。
+## 本地 InProc 同步答得了，pending 永远不会置上，这个函数就是空转。CWMatch._process 每帧调
+func plan_tick() -> void:
+	if kernel == null or _plan_cell.is_empty():
+		return
+	if _planning and _plan_pending:
+		_plan_pending = false
+		if _plan_want != null:
+			var want: Vector2i = _plan_want
+			_plan_want = null
+			_plan_extend(_plan_cell, want)   ## 接不上就再等：它会重新置 pending
+		else:
+			_plan_requote(_plan_cell)
+	if _block_want != null:
+		var c: Vector2i = _block_want
+		var why: Variant = kernel.query("move_block_reason", { "cid": int(_plan_cell["id"]), "to": c })
+		if why != null:
+			_block_want = null
+			if String(why) != "":
+				show_result(String(why), c)
 
 
 ## 拖到某一格：能接就接上，往回划就砍掉后面几步（拖过头了不用重来）
@@ -554,14 +679,25 @@ func _plan_extend(cell: Dictionary, c: Vector2i) -> void:
 		if not _tiles.has(c):
 			return
 	else:
-		if not (c in game.actions.plan_next_dests(cell, _plan[-1])):
+		var dests: Variant = kernel.query("plan_next_dests",
+			{ "cid": int(cell["id"]), "from": _plan[-1] }) if kernel != null else null
+		if dests == null and kernel != null:
+			_plan_want = c        ## 联机：可达表还在路上，回来后 plan_tick 补接这一格
+			_plan_pending = true
+			_plan_cell = cell
+			return
+		if not (dests is Array) or not (c in (dests as Array)):
 			return                ## 接不上（不相邻 / 有人占着）—— 忽略，别打断拖动
 	_plan.append(c)
 	_plan_requote(cell)
 
 
 func _plan_requote(cell: Dictionary) -> void:
-	_plan_quote = game.actions.quote_path(cell, _plan) if not _plan.is_empty() else {}
+	_plan_cell = cell
+	var quote: Variant = kernel.query("quote_path",
+		{ "cid": int(cell["id"]), "path": _plan }) if kernel != null and not _plan.is_empty() else null
+	_plan_quote = quote if quote is Dictionary else {}
+	_plan_pending = quote == null and not _plan.is_empty() and kernel != null   ## 联机：RPC 在飞，plan_tick 下一帧再问
 	if bar != null:
 		bar.show_bar("选择要%s到的组织" % _move_title(cell), _plan_hint(cell, _tiles.size()),
 			_move_buttons(cell, _move_title(cell)), _move_values().size() - 1)
@@ -605,7 +741,7 @@ func _ask_generic(req: Dictionary) -> int:
 			buttons.append({ "title": options[i]["label"], "cost": "" })
 			values.append(i)
 	var hint := "" if tiles.is_empty() else "高亮 %d 格可选" % tiles.size()
-	var mine := self_type_text(game, req)
+	var mine := self_type_text(mirror, req)
 	if mine != "":
 		hint = mine if hint == "" else "%s · %s" % [mine, hint]
 	var got: Variant = await _prompt(req["prompt"], hint, buttons, values, tiles)
@@ -623,7 +759,7 @@ func _ask_generic(req: Dictionary) -> int:
 ## ⚠ 读的是 **player 上的 `cancer_type`**，不是细胞上的 `ctype`：
 ## 落子这一问跑在细胞**出生之前**（`setup.begin()` 发种类 → 问落点 → `setup.place()` 才造细胞），
 ## 那时 `cell_of()` 会当场越界。种类是 `_assign_cancer_types()` 记在玩家身上的。
-static func self_type_text(g: CWGame, req: Dictionary) -> String:
+static func self_type_text(g: CWMirror, req: Dictionary) -> String:
 	if g == null or String(req.get("kind", "")) != "setup_place":
 		return ""
 	var pid := int(req.get("pid", -1))
@@ -679,7 +815,7 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 		## 规划态：棋盘的点击不作答，改成「按下开始拖」
 		if _planning:
 			_plan_drag = true
-			_plan_extend(game.cell_of(_sticky_pid), c)
+			_plan_extend(mirror.cell_of(_sticky_pid), c)
 			return
 		if tiles.has(c):
 			ans.fire(tiles[c])
@@ -696,7 +832,7 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 				show_result(why, c)
 	var on_hover := func(c: Vector2i) -> void:
 		if _planning and _plan_drag and c != board.NO_TILE:
-			_plan_extend(game.cell_of(_sticky_pid), c)
+			_plan_extend(mirror.cell_of(_sticky_pid), c)
 			return          ## _plan_extend 里已经重画过
 		_repaint_marks()
 	var on_release := func() -> void: _plan_drag = false
@@ -733,14 +869,14 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 ## 候选格用免疫青；落着敌人的那一格用癌方橙 —— 那一下是攻击，不是迁移，
 ## 颜色得先说出来。鼠标停着的那格再提亮一档。
 func _repaint_marks() -> void:
-	if game == null:
+	if mirror == null:
 		marks = {}
 		return              ## 对局已经拆了；防的是「信号还没断干净」那一瞬
 	var m := {}
 	for c: Vector2i in _tiles:
 		if board.hovered == c:
 			m[c] = board.MARK_HOVER
-		elif _enemy >= 0 and not game.cells_at(c, _enemy).is_empty():
+		elif _enemy >= 0 and not mirror.cells_at(c, _enemy).is_empty():
 			m[c] = board.MARK_ATTACK
 		else:
 			m[c] = board.MARK_MOVE
@@ -771,6 +907,10 @@ func _move_title(cell: Dictionary) -> String:
 	return "迁移" if cell["faction"] == CWData.Faction.IMMUNE else "移动"
 
 
+## ⚠ **批 2 欠账**（规格 B-5 豁免④）：draw / differentiate / effector / toxin / lyse / mutate / mucus 七种
+## 仍直读 `CWData` 常量 —— 这几种今天没有任何修饰会改价。受修饰的四种（antibody / homing / jump / ossify）
+## 已经改读内核算好的**真报价**：价签与「点不点得动」不同源就会复发 Kevin 2026-09-08 报的
+## 「按钮写着 1.0、我有 6.9、却点不动」。
 func _cost_text(cell: Dictionary, act: String) -> String:
 	match act:
 		"draw":
@@ -785,7 +925,7 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 			return "%d 效应记忆" % CWData.EFFECTOR_COST
 		"antibody":
 			## 【抗体亲和力成熟】把抗体费降到 0.5——价签跟着技能走
-			return CWData.fmt(game.actions.antibody_cost(cell))
+			return _cost_d(cell, "antibody_cost")
 		"toxin":
 			return CWData.fmt(CWData.TOXIN_COST)
 		"lyse":
@@ -796,16 +936,63 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 		## 【基质阻隔】那类世界事件会把它们抬上去，而「能不能用」判的是抬完的数。
 		## 两边不同源的话就会出现「按钮写着 1.0、我有 6.9、却点不动」（Kevin 2026-09-08）。
 		"homing":
-			return CWData.fmt(game.actions.skill_move_cost(cell, CWData.MELANOMA_HOMING_COST))
+			return _cost_d(cell, "homing_cost_real")
 		"jump":
-			return CWData.fmt(game.actions.skill_move_cost(cell, game.tune.metastasis_cost))
+			return _cost_d(cell, "metastasis_cost_real")
 		"ossify":
 			## 2026-09-07 Kevin 报「骨样硬化按钮没有费用」—— 09-05 重做这个技能时漏了这一格。
-			## 同 jump：读旋钮不写死（默认 = PRD 的 2.0）
-			return CWData.fmt(game.tune.osteo_ossify_cost)
+			## 同 jump：读的是内核算好的**真报价**（旋钮 + 世界事件都算进去了），不是旋钮原值
+			return _cost_d(cell, "ossify_cost_real")
 		"mucus":
 			return "耗尽能量"
 	return ""
+
+
+## 价签读**内核算好的真报价**（tier B）。这一档缺席（C# 生产者批 0 只交 tier A）就**不写价签** ——
+## 打一个 0 上去比空着更坏：玩家会照着 0 去点一个点不动的按钮。
+func _cost_d(cell: Dictionary, key: String) -> String:
+	var d: Dictionary = cell.get("d", {})
+	return CWData.fmt(int(d[key])) if d.has(key) else ""
+
+
+# ============ 演出：播放时长 ≠ 阻塞时长（Kevin 2026-09-19）============
+# 拍板 2：客户端按条目顺序播，有时长的演出播完再放下一条。但**队列等的只是下面这张表** ——
+# `show_*` 协程 await 完这一段就返回，动画自己继续演完（小细胞那种波浪形长位移不该把整条队列堵住）。
+# 数值按「看清这一下发生了什么」定，**全部可调**：调小 = 节奏更紧、同格演出更容易叠；调大 = 更像逐步演示。
+# **骰子不在表里**：它是 barrier 条目、引擎在等 ack，必须整只演完（今天的行为，不动）。
+const BLOCK_CARD_MS := 350      ## 头顶飞卡总长约 0.97 s（窜 0.16 + 停 0.30+0.08 + 收 0.36）：到「停」那一拍放手
+const BLOCK_BEAM_MS := 900      ## CWBeamFx.TOTAL 2.2 s；蓄力 0.65 + 推到底 0.55，打到了就放手
+const BLOCK_FX_DEFAULT_MS := 300
+## 按 fx 种类给的阻塞毫秒，缺省走 BLOCK_FX_DEFAULT_MS。括号里是这只演出自己的总长（CWSkillFx.DURATION 等）。
+const BLOCK_FX_MS := {
+	"immune_attack": 450,   ## 0.66：接触 0.22 与收势 0.29 之间放手
+	"chomp": 450,           ## 0.70：咬合完成在 0.61
+	"homing": 500,          ## 2.9 —— 归巢是长位移，全等等不起
+	"card_cascade": 500,    ## 2.8
+	"anaerobic": 500,       ## 2.1
+	"card_teleport": 500,   ## 2.1
+	"card_clone": 500,      ## 2.1
+	"lyse": 500,            ## 2.05
+	"pseudopod": 400,       ## 1.0；后半程是把细胞拉过来，定殖过场自己会等 arrival_in（issue #29）
+}
+## 队列把四类演出喂给这四个回调（CWMatch._wire_bridge 注入）。
+## **今天靠 CWGame 的四个信号驱动，信号在步 8 一起删掉** —— 不接的话头顶飞卡静默失效（规格 A-5.2 / D-3）。
+var fx_card_played: Callable    ## → CWMatch._on_card_played(cell_id, pid, pos, faction, card, {})
+var fx_event_drawn: Callable    ## → CWMatch._on_event_drawn(cell_id, pid, pos, faction, card)
+var fx_card_drawn: Callable     ## → CWMatch._on_card_drawn(cell_id, pid, pos, source)
+var fx_world_event: Callable    ## → CWMatch._on_world_event(ev_name, left)
+
+
+func _block_ms(kind: String) -> int:
+	return int(BLOCK_FX_MS.get(kind, BLOCK_FX_DEFAULT_MS))
+
+
+## 只等「阻塞那一段」。没有场景树（无头测试 / 纯数据桥）立即返回 —— 队列照样顺序播，只是不等。
+func _block(ms: int) -> void:
+	var node: Node = delay_node if delay_node != null else board
+	if ms <= 0 or node == null or not node.is_inside_tree():
+		return
+	await node.get_tree().create_timer(ms / 1000.0).timeout
 
 
 ## 把骰子摆到目标格旁边演一次，同时在它上方标出这次掷的是什么（"攻击"/"突变"/"抗体"）。
@@ -828,14 +1015,14 @@ func show_roll(reason: String, value: int, sides: int, _pid: int, at: Vector2i) 
 
 ## 掷骰的结算说明。文字是引擎给的，这里只负责把它摆到那一格上方。
 ## linger（非骰子的说明）走独立气泡、停 TEXT_HOLD：停得久就不能被下一条顶掉，也不能把骰子那行字挤走。
-## 此刻仍被【中和抗体】压住的癌细胞在哪几格。**判据问引擎**（`game.neutralized`）——
+## 此刻仍被【中和抗体】压住的癌细胞在哪几格。**判据问镜像**（`mirror.neutralized`，值由内核算好）——
 ## 「谁挨着健康组织」是规则，表现层不许照着再判一遍。
 func _sealed_centers() -> Array[Vector2]:
 	var out: Array[Vector2] = []
-	if game == null or board == null:
+	if mirror == null or board == null:
 		return out
-	for c in game.living_cells(CWData.Faction.CANCER):
-		if game.neutralized(c):
+	for c in mirror.living_cells(CWData.Faction.CANCER):
+		if mirror.neutralized(c):
 			out.append(board.tile_center(c["pos"]))
 	return out
 
@@ -844,7 +1031,9 @@ func _sealed_centers() -> Array[Vector2]:
 ## 拿它认人比猜 `cell_of(current_pid)` 稳（分化之后一个玩家不止一只细胞）。
 ## 返回 {} 表示没找到（通报来自影子对局之类）。
 func _chaining_cell() -> Dictionary:
-	for c in game.cells:
+	if mirror == null:
+		return {}
+	for c in mirror.cells:
 		if c.get("chain_running", false) and c["alive"]:
 			return c
 	return {}
@@ -860,7 +1049,7 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 	## 【连续吞噬】：起点是那只巨噬**此刻**站的格（通报在它挪过去之前发），
 	## 层数现读引擎的 chain_left，都不在表现层另记一份
 	if text == CWData.EFFECTOR_NAMES[CWData.ImmuneType.MACRO] \
-			and chain_fx != null and board != null and game != null:
+			and chain_fx != null and board != null and mirror != null:
 		var eater := _chaining_cell()
 		if not eater.is_empty():
 			chain_fx.play(board.tile_center(eater["pos"]), board.tile_center(at),
@@ -868,9 +1057,9 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 				int(eater["id"]))
 	if text == "黏液破裂" and mucus_fx != null and board != null:
 		mucus_fx.play(board.tile_center(at))
-	## 【中和抗体】封住了谁**问引擎**（game.neutralized），不在这儿重算「谁挨着健康组织」
+	## 【中和抗体】封住了谁**问镜像**（mirror.neutralized），不在这儿重算「谁挨着健康组织」
 	if text == CWData.EFFECTOR_NAMES[CWData.ImmuneType.B_CELL] \
-			and seal_fx != null and board != null and game != null:
+			and seal_fx != null and board != null and mirror != null:
 		seal_fx.play(board.tile_center(at), _sealed_centers())
 	if toast == null or board == null or camera == null:
 		return
@@ -884,8 +1073,8 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 	toast.bubble_at(text, _dice_rect(board.tile_center(at)), RESULT_HOLD)
 
 
-## 癌蔓延过场（侵蚀 / 增生 / 定殖共用）：只登记「哪一格、癌从哪一侧来」，具体哪一帧由 CWMatch 每帧问 frame_of()。
-## 这里不 await —— 演出不该卡住结算。
+## Excalibur 的光束过场：把轴坐标换成棋盘像素，交给演出层。
+## 队列会 await 它，但只等 BLOCK_BEAM_MS（蓄力 + 推到底）—— 余下那 1.3 s 的波及与散场自己演完。
 func show_beam(from: Vector2i, to: Vector2i, splash: Array) -> void:
 	if beam_fx == null or board == null:
 		return
@@ -893,6 +1082,7 @@ func show_beam(from: Vector2i, to: Vector2i, splash: Array) -> void:
 	for c in splash:
 		pts.append(board.tile_center(c))
 	beam_fx.play(board.tile_center(from), board.tile_center(to), pts)
+	await _block(BLOCK_BEAM_MS)
 
 
 ## issue #29：伪足穿透正把细胞往这一格拉的话，过场等细胞到了再演（CWSkillFx.arrival_in），
@@ -926,10 +1116,12 @@ func show_fx(kind: String, data: Dictionary) -> void:
 	if kind == "immune_attack":
 		if attack_animation.is_valid():
 			attack_animation.call(data)
+			await _block(_block_ms(kind))   ## 触发即返回的 Callable，阻塞由这里给（拍板 2）
 		return
 	if kind == "chomp":
 		if chain_fx != null:
 			chain_fx.play_bite(board.tile_center(data["from"]), board.tile_center(data["to"]), int(data.get("cid", -1)))
+			await _block(_block_ms(kind))
 		return
 	if skill_fx == null:
 		return
@@ -961,6 +1153,36 @@ func show_fx(kind: String, data: Dictionary) -> void:
 	if kind == "card_clone" and data.get("tiles") is Array:
 		out["tiles_axial"] = data["tiles"]
 	skill_fx.play(kind, out)
+	await _block(_block_ms(kind))
+
+
+## ---- 队列喂进来的四类演出（规格 A-5.2）----
+## 今天这四样由 `CWMatch` 直接连 `CWGame` 的同名信号；步 8 把信号删了、改由播放队列调这里，
+## 桥再转给 `CWMatch` 原来那四个处理函数（**函数体一行不动**）。**不接就是静默失效**：
+## 不报错、不崩，只是头顶再也不飞卡（规格 D-3）。
+## `info` 的键与 `cw_net_bridge.gd` 的报文键逐字相同，所以本地与联机走同一份代码。
+func show_card_played(pid: int, text: String, info := {}) -> void:
+	super.show_card_played(pid, text, info)
+	if not fx_card_played.is_valid() or not info.has("card"):
+		return          ## 今天 `_net_loop` 的同款 guard：没有牌名就不是「谁打出了卡」
+	fx_card_played.call(int(info["cell_id"]), pid, info["pos"], int(info["faction"]), String(info["card"]), {})
+	await _block(BLOCK_CARD_MS)
+
+
+func show_event_drawn(pid: int, info := {}) -> void:
+	if fx_event_drawn.is_valid() and info.has("card"):
+		fx_event_drawn.call(int(info["cell_id"]), pid, info["pos"], int(info["faction"]), String(info["card"]))
+
+
+## 抽到一张卡：倒放的头顶飞卡。**队列不 await 这一条**（归在便宜档），所以这里也不阻塞。
+func show_card_drawn(pid: int, info := {}) -> void:
+	if fx_card_drawn.is_valid() and info.has("pos"):
+		fx_card_drawn.call(int(info["cell_id"]), pid, info["pos"], String(info.get("source", "")))
+
+
+func show_world_event(ev_name: String, info := {}) -> void:
+	if fx_world_event.is_valid():
+		fx_world_event.call(ev_name, int(info.get("left", 1)))
 
 
 ## 全局通报（`show_notice`）2026-09-07 起界面上没有位置了：世界事件本来就写进日志

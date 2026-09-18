@@ -1,0 +1,42 @@
+{
+	"cases": {
+		"heur4": {
+			"hash": "1ae5e4afc8b184935e1d8da240ff68275f4f59f88c466d58886e42e8dd6c5679",
+			"round_no": 12,
+			"steps": 400,
+			"winner": -1
+		},
+		"heur6": {
+			"hash": "809632656a9cc98d919bf154bed56fbee9e88f9656d52dbcba1e0617219b8e5e",
+			"round_no": 11,
+			"steps": 400,
+			"winner": -1
+		},
+		"mc4": {
+			"hash": "fffc028fddb24fe838b6f77991cf56230c3a7c01e22ea6449420284e2b183d0b",
+			"round_no": 10,
+			"steps": 400,
+			"winner": -1
+		},
+		"mc6": {
+			"hash": "1369b16753d3781850ec7eef9f10f20b69621e217c29796fad830a014b1ccedd",
+			"round_no": 7,
+			"steps": 400,
+			"winner": -1
+		},
+		"mcts4": {
+			"hash": "f3e73f11cbb8b336f59fd7f75331f915d234fcc57fad47736bd6db0d00d5931b",
+			"round_no": 15,
+			"steps": 374,
+			"winner": 0
+		},
+		"mcts6": {
+			"hash": "deae298a03f5562f3e00c736c159bc7458b1b9af884d92e25693366589c2a1b4",
+			"round_no": 12,
+			"steps": 400,
+			"winner": -1
+		}
+	},
+	"max_steps": 400,
+	"recorded": "2026-09-18T00:53:48"
+}

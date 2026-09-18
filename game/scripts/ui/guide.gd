@@ -362,11 +362,11 @@ func mistake_count() -> int:
 
 ## 第 16 关只读辅助；不执行动作、不改正式局面。
 func graduation_assist() -> Dictionary:
-	if _match == null or not is_instance_valid(_match) or _match.game == null:
+	if _match == null or not is_instance_valid(_match) or _match.mirror == null:
 		return {}
 	if _chapter != CWGuideData.CHAPTER_COUNT - 1:
 		return {}
-	return CWGuideData.graduation_assist(_match.game)
+	return CWGuideData.graduation_assist(_match.mirror)
 
 
 ## ---- 状态推进：带 watch 的步骤由真实局面判定完成 ----
@@ -387,7 +387,7 @@ func check_progress() -> void:
 	var key: String = CWGuideData.watch_of(_chapter, _step)
 	if key == "":
 		return
-	var now: Dictionary = WATCH.snapshot(_game(), _human_pid())
+	var now: Dictionary = WATCH.snapshot(_mirror(), _human_pid())
 	if not WATCH.same_turn(_watch_base, now):
 		_watch_base = now
 		return
@@ -402,11 +402,11 @@ func _human_pid() -> int:
 	return int(_match.human_players[0])
 
 
-## 当前这一局（没有 = null）
-func _game() -> CWGame:
+## 当前这一局的那一份观测（没有 = null）
+func _mirror() -> CWMirror:
 	if _match == null or not is_instance_valid(_match):
 		return null
-	return _match.game
+	return _match.mirror
 
 
 
@@ -427,8 +427,8 @@ func _render() -> void:
 	var y := 0.0
 	var body_lines: Array = s["b"].duplicate()
 	if _chapter == CWGuideData.CHAPTER_COUNT - 1 and _match != null \
-			and is_instance_valid(_match) and _match.game != null:
-		var assist := CWGuideData.graduation_assist(_match.game)
+			and is_instance_valid(_match) and _match.mirror != null:
+		var assist := CWGuideData.graduation_assist(_match.mirror)
 		body_lines.append("建议：" + str(assist["suggestion"]))
 		body_lines.append("预测：" + str(assist["e_prediction"]))
 		body_lines.append("规则：" + str(assist["rule_explanation"]))
@@ -458,7 +458,7 @@ func _render() -> void:
 	## 引导目录/章节选择放在「完成引导」之后不再重复出现，避免浮层太挤
 	_refresh_hint()
 	## 判据的基线在「步骤成为当前」的瞬间取好（渲染即当前）
-	_watch_base = WATCH.snapshot(_game(), _human_pid())
+	_watch_base = WATCH.snapshot(_mirror(), _human_pid())
 
 
 ## 引导结束时由 CWMatch 调用：隐藏面板并清掉引用

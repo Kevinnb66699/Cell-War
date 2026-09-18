@@ -164,52 +164,58 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 
 ## 每帧调用。第一次会按人数把节点建出来，之后只改文字。
-func refresh(game: CWGame) -> void:
-	if game == null or game.players.is_empty():
+func refresh(m: CWMirror, q: Callable) -> void:
+	if m == null or m.players.is_empty():
 		return
-	if _built != game.players.size():
-		_build(game.players.size())
-	_round.text = "第 %d 回合" % game.round_no
+	if _built != m.players.size():
+		_build(m.players.size())
+	_round.text = "第 %d 回合" % m.round_no
 	## 环境恶化（2026-09-11）：肿瘤分期直接改压迫/增生/侵蚀/固化门槛的数，玩家得看得见现在是第几期。
 	## 世界事件关着时（现在的默认）不再写「已关闭」—— 一句永远不变的话占着位置，分期更有用。
 	## 关掉时别再倒计时一个永远不会来的事件（Kevin 2026-09-08 的开关）
-	var stage_name: String = CWData.STAGE_NAMES[game.tumor_stage()]
-	if not game.tune.world_events_on:
-		_phase.text = "%s · %s" % [game.phase, stage_name]
+	var stage_name: String = CWData.STAGE_NAMES[m.tumor_stage()]
+	## 阶段文字取 d.phase_text（中文串「世界回合 E」）——
+	## m.phase 是协议的机器词 setup/s/turn/e/finished，直接打出来顶栏就变成英文小写（规格 D-6）
+	var phase_text := str(m.g["d"]["phase_text"])
+	if not bool(m.tune["world_events_on"]):
+		_phase.text = "%s · %s" % [phase_text, stage_name]
 	else:
-		var next_ev := _next_event_round(game.round_no)
-		_phase.text = "%s · %s · 世界事件 第 %d 回合" % [game.phase, stage_name, next_ev] if next_ev > 0 \
-			else "%s · %s · 世界事件已放完" % [game.phase, stage_name]
-	_events.text = active_events_text(game)
+		## 「下一次世界事件是第几回合」由内核算（cw_obs_codec.gd:next_event_round，0 = 没有下一次）
+		var next_ev := int(m.g["d"].get("next_event_round", 0))   ## tier B 缺席 = 不倒计时，口播「已放完」
+		_phase.text = "%s · %s · 世界事件 第 %d 回合" % [phase_text, stage_name, next_ev] if next_ev > 0 \
+			else "%s · %s · 世界事件已放完" % [phase_text, stage_name]
+	_events.text = active_events_text(m)
 	_events.visible = _events.text != ""
-	_update_event_tip(game)
+	_update_event_tip(m)
 
-	var w := game.count_tissue(CWData.Tissue.CANCER) \
-		+ 2 * game.count_tissue(CWData.Tissue.SOLID)
-	var goal: int = game.tune.cancer_win_weighted
+	var w := m.cancer_weighted()
+	var goal: int = int(m.tune["cancer_win_weighted"])
 	_weighted.text = str(w)
 	_weighted_max.text = " / %d" % goal
 	## 定案 B（2026-09-01）：首次达标只拉警报。引擎的 cancer_win_streak > 0 就是「警报期」，
 	## 界面只负责把它显示出来（架构约定 #10），不自己数。
-	if game.cancer_win_streak > 0:
-		_weighted_caption.text = "★ 警报 %d/%d" % [game.cancer_win_streak, game.tune.cancer_win_hold_rounds]
+	var alarm: Dictionary = m.g["cancer_alarm"]
+	if int(alarm["streak"]) > 0:
+		_weighted_caption.text = "★ 警报 %d/%d" % [int(alarm["streak"]), int(alarm["hold_rounds"])]
 		_weighted_caption.add_theme_color_override("font_color", CWStyle.CANCER)
 	else:
 		_weighted_caption.text = "癌性加权"
 		_weighted_caption.add_theme_color_override("font_color", CWStyle.TEXT_DIM)
 	_bar_fill.size.x = W * clampf(float(w) / float(goal), 0.0, 1.0)
 
-	for pid in game.players.size():
-		_refresh_row(game, pid)
-	_update_tip(game)
+	for pid in m.players.size():
+		_refresh_row(m, pid)
+	_update_tip(m, q)
 
-	_level.text = CWData.LEVEL_NAMES[game.immune_level]
+	_level.text = CWData.LEVEL_NAMES[m.immune_level]
 	## 门槛**按人数分档**（四人 6/16/30、六人 10/20/30）——
-	## 别读 CWData.LEVEL_MIN_MEMORY 那张常量表，那是六人档兼缺省（同 CWGame.gain_memory）
-	var tiers: Array = CWData.level_min_memory(game.order.size())
-	_memory.text = memory_text(game.memory, game.immune_level, tiers)
+	## 别读 CWData.LEVEL_MIN_MEMORY 那张常量表，那是六人档兼缺省（同 CWGame.gain_memory）——
+	## 内核已按人数算好放进 d.level_thresholds；tier B 缺席时给空表，
+	## memory_text / level_progress 自会退成「只报数、不画条」（t_tier_b_absent 的「空但不崩」）
+	var tiers: Array = Array(m.g["d"].get("level_thresholds", []))
+	_memory.text = memory_text(m.memory, m.immune_level, tiers)
 	_layout_level()      ## 记忆行的宽度变了，数字要重新居中（见 _layout_level）
-	var p := level_progress(game.memory, game.immune_level, tiers)
+	var p := level_progress(m.memory, m.immune_level, tiers)
 	## X 级没有「下一级」，条整个收起来 —— 画一根永远满的条等于骗人
 	_lv_bar_bg.visible = p >= 0.0
 	_lv_bar_fill.visible = p >= 0.0
@@ -268,36 +274,25 @@ func rect_of(what: String) -> Rect2:
 	return Rect2()
 
 
-## 「下一次世界事件是第几回合」。判据仍然只有 CWData 一处，这里只做查找。
-## **必须有上界**：2026-09-07 事件表改成 3/6/10/14 之后，14 回合以后没有下一次了，
-## 原来那个无上界的 while 会在终局回合空转把游戏卡死（当天真踩到，测试跑不完）。
-## 找不到就返回 0，调用方改口播「无」。
-func _next_event_round(from: int) -> int:
-	for r in range(maxi(from, 1), CWData.LIMIT_ROUND + 1):
-		if CWData.is_world_event_round(r):
-			return r
-	return 0
-
-
 ## 底框标「轮到谁」（Kevin 2026-09-12：开局落子、复活阶段也要亮）：行动回合里是 current_pid；
 ## 回合之外（落子 / 复活 / 卡牌追问）是引擎正在问的那一席 asking_pid（本地由 CWGame.ask 记，
 ## 联机由 state 报文的 turn 记）；两者都没有（结算演出中）就谁都不亮。**纯函数**。
-static func acting_pid(game: CWGame) -> int:
-	return game.current_pid if game.current_pid >= 0 else game.asking_pid
+static func acting_pid(m: CWMirror) -> int:
+	return m.current_pid if m.current_pid >= 0 else m.asking_pid
 
 
-func _refresh_row(game: CWGame, pid: int) -> void:
+func _refresh_row(m: CWMirror, pid: int) -> void:
 	var row: Dictionary = _rows[pid]
-	var p: Dictionary = game.player(pid)
+	var p: Dictionary = m.player(pid)
 	var immune: bool = p["faction"] == CWData.Faction.IMMUNE
 	var faction_color: Color = CWStyle.IMMUNE if immune else CWStyle.CANCER
 	row["fac"].color = faction_color
 	row["name"].text = p["name"]
-	var on: bool = acting_pid(game) == pid
+	var on: bool = acting_pid(m) == pid
 
 	## 开局布置阶段是一个一个落子的：玩家已经建好，细胞还没有。
 	## 这一行先只显示名字和阵营色，别去问一个还不存在的细胞 —— 但轮到它落子时底框照亮
-	if pid >= game.cells.size():
+	if pid >= m.cells.size():
 		row["bg"].color = Color(faction_color, 0.10 if on else 0.0)
 		row["name"].add_theme_color_override("font_color", CWStyle.TEXT_HI if on else CWStyle.TEXT_OFF)
 		row["type"].text = "待落子"
@@ -308,7 +303,7 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 		row["icon"].visible = false
 		return
 
-	var cell: Dictionary = game.cell_of(pid)
+	var cell: Dictionary = m.cell_of(pid)
 	var dead: bool = not cell["alive"]
 	row["bg"].color = Color(faction_color, 0.10 if on else 0.0)
 	row["name"].add_theme_color_override("font_color",
@@ -330,7 +325,7 @@ func _refresh_row(game: CWGame, pid: int) -> void:
 	row["energy"].text = CWData.fmt(maxi(cell["energy"], 0))
 	row["energy"].add_theme_color_override("font_color",
 		CWStyle.TEXT_OFF if dead else CWStyle.TEXT_HI)
-	row["income"].text = "" if dead else income_text(game, cell)
+	row["income"].text = "" if dead else income_text(m, cell)
 	## 手牌方块：持有的填阵营色，其余留描边色
 	_set_pips(row, cell["hand"].size(), CWStyle.TEXT_OFF if dead else faction_color)
 	var n_skill: int = cell["equipped"].size()
@@ -554,7 +549,7 @@ func _build_end_button() -> PanelContainer:
 
 ## 悬停事件行时，在面板左侧浮出每个进行中事件的一句话效果（CWWorldFx.BLURB）和剩余回合。
 ## 每帧从 refresh() 进来，键（事件行文字）没变就不重搭；没悬停或没事件就藏起来。
-func _update_event_tip(game: CWGame) -> void:
+func _update_event_tip(m: CWMirror) -> void:
 	if not _event_hover or not _events.visible:
 		if _event_tip != null:
 			_event_tip.visible = false
@@ -568,8 +563,8 @@ func _update_event_tip(game: CWGame) -> void:
 		remove_child(_event_tip)
 		_event_tip.queue_free()
 	var items: Array = []
-	for e in game.events["active"]:
-		if game.world_fx.is_world_event(e):
+	for e in m.events["active"]:
+		if bool(e["d"]["is_world_event"]):   ## 是不是世界事件由内核判（协议 EFFECT_D，tier A），界面不再自己查表
 			items.append(e)
 	var tip_w := EVENT_TIP_W
 	## 效果正文**自己折行**（CWCardInfo.wrap_text），不用 Label 的 autowrap。
@@ -638,13 +633,13 @@ func _update_event_tip(game: CWGame) -> void:
 ## 主动技能那一段直接走 `CWActions.action_kinds()` —— 和行动栏同一份清单，两处对不上是迟早的事。
 ## **即时卡挂上的修饰条目**（本回合 / 本世界回合 / 待触发）两种形态都列在最后（`mod_rows`）——
 ## 之前只有日志里看得到它们（Kevin 2026-09-06：「现在看不到即时的 buff」）。
-static func tip_rows(game: CWGame, pid: int, full: bool) -> Array:
-	if pid < 0 or pid >= game.cells.size():
+static func tip_rows(m: CWMirror, pid: int, full: bool, q: Callable) -> Array:
+	if pid < 0 or pid >= m.cells.size():
 		return []
-	var cell: Dictionary = game.cell_of(pid)
+	var cell: Dictionary = m.cell_of(pid)
 	var immune: bool = cell["faction"] == CWData.Faction.IMMUNE
 	var equipped: Array = cell["equipped"]
-	var phase := CWCardData.cancer_phase(game.round_no)   ## 分档写法高亮当前档（Kevin 2026-09-06）
+	var phase := CWCardData.cancer_phase(m.round_no)   ## 分档写法高亮当前档（Kevin 2026-09-06）
 	var mods: Array = mod_rows(cell, phase)
 	var out: Array = []
 	if not full:
@@ -661,9 +656,9 @@ static func tip_rows(game: CWGame, pid: int, full: bool) -> Array:
 		out.append({ "head": "细胞种类" })
 		out.append({ "text": tinfo["name"], "info": tinfo })
 	var acts: Array = []
-	for act in game.actions.action_kinds(cell):
+	for act in m.action_kinds_of(cell):
 		acts.append({ "text": CWData.act_name(act, cell["faction"]),
-			"info": CWCardInfo.describe_act_for(game, cell, act) })
+			"info": CWCardInfo.describe_act_for(q, cell, act) })
 	if not acts.is_empty():
 		out.append({ "head": "主动技能" })
 		out.append_array(acts)
@@ -733,10 +728,10 @@ static func tip_height(rows: Array, full: bool) -> float:
 	return h + (15.0 if full else 0.0)
 
 
-func _update_tip(game: CWGame) -> void:
+func _update_tip(m: CWMirror, q: Callable) -> void:
 	var full: bool = _tip_pinned >= 0
 	var pid: int = _tip_pinned if full else _tip_pid
-	var rows: Array = tip_rows(game, pid, full)
+	var rows: Array = tip_rows(m, pid, full, q)
 	if rows.is_empty():
 		if _tip != null:
 			_tip.visible = false
@@ -746,7 +741,7 @@ func _update_tip(game: CWGame) -> void:
 	for r in rows:
 		names.append(r.get("head", r.get("text", "")) + str(r.get("info", {}).get("lines", [])))
 	## 分期进键：条目的详情（含分档高亮）是搭框时算好捏在闭包里的，跨期要重搭才会换档
-	var key := "%d|%d|%d|%s" % [pid, int(full), CWCardData.cancer_phase(game.round_no), ",".join(names)]
+	var key := "%d|%d|%d|%s" % [pid, int(full), CWCardData.cancer_phase(m.round_no), ",".join(names)]
 	if key == _tip_key and _tip != null:
 		_tip.visible = true
 		return
@@ -803,9 +798,9 @@ func _update_tip(game: CWGame) -> void:
 ## 能量旁的「预计收入」小字：免疫 = 下一次 S 阶段的【有氧呼吸】（CWWorld.aerobic_income），
 ## 癌症 = 回合末 / E 阶段的【无氧呼吸】份额（CWWorld.anaerobic_gain_for）。两个都是引擎的纯查询，
 ## 界面不抄算式（约定 #11）。纯函数，测试直接核对文案。
-static func income_text(game: CWGame, cell: Dictionary) -> String:
-	var v: int = game.world.aerobic_income(cell) if cell["faction"] == CWData.Faction.IMMUNE \
-		else game.world.anaerobic_gain_for(cell)
+static func income_text(m: CWMirror, cell: Dictionary) -> String:
+	## 有氧 / 无氧那一岔在内核里判（cw_obs_codec.gd:_cell_d 按阵营挑同一对函数），界面连岔路都不抄
+	var v: int = m.income_of(cell)
 	return "+%s" % CWData.fmt(v)
 
 
@@ -836,10 +831,10 @@ const EVENT_BLOCK_GAP := 6.0      ## 两个事件之间留的空
 ## 「不然玩家们不知道有双重触发」）。**三档都要标** —— 原来只有「数值翻倍」那档
 ## 因为 stacks>1 顺带露出个「×2」，另外两档（持续翻倍、连演两回合）在界面上
 ## 和普通事件一模一样，玩家完全看不出为什么这一条格外难缠。
-static func active_events_text(game: CWGame) -> String:
+static func active_events_text(m: CWMirror) -> String:
 	var parts: Array = []
-	for e in game.events["active"]:
-		if not game.world_fx.is_world_event(e):
+	for e in m.events["active"]:
+		if not bool(e["d"]["is_world_event"]):   ## 同 _update_event_tip：判据在内核
 			continue
 		var s := "【%s" % e["name"]
 		if String(e.get("doubled", "")) != "":

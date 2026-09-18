@@ -19,6 +19,7 @@ var _frames := 0
 var _shot := 0
 var _screen: CWSettleScreen
 var _game: CWGame
+var _mirror: CWMirror
 
 
 func _initialize() -> void:
@@ -35,6 +36,11 @@ func _initialize() -> void:
 	var coords := CWData.all_coords()
 	for k in 47:
 		_game.tiles[coords[k]]["tissue"] = CWData.Tissue.CANCER
+	## 批 1 步 6：CWSettleScreen.show_result 吃的是终局那一份观测，不是活对局
+	_mirror = CWMirror.new()
+	var err := _mirror.sync_from(_game)
+	if err != "":
+		push_error("preview_settle_link：镜像装载失败 —— %s" % err)
 	var layer := CanvasLayer.new()
 	root.add_child(layer)
 	var bg := ColorRect.new()
@@ -49,7 +55,7 @@ func _process(_d: float) -> bool:
 	_frames += 1
 	## 摆状态要等第一帧：`_initialize` 跑在场景树立起来之前，`_ready` 还没轮到
 	if _frames == 1:
-		_screen.show_result(_game)
+		_screen.show_result(_mirror)
 		_screen.skip()          ## 五拍演出一步到底，别跟它赛跑
 		return false
 	if _frames < WARMUP:
@@ -66,7 +72,7 @@ func _process(_d: float) -> bool:
 			img.save_png(_out + "_local.png")
 			print("已保存 ", _out, "_local.png（本地局：再来一局）")
 			_screen.online = true
-			_screen.show_result(_game)
+			_screen.show_result(_mirror)
 			_screen.skip()
 		1:
 			img.blit_rect(strip, Rect2i(0, 0, strip.get_width(), strip.get_height()),

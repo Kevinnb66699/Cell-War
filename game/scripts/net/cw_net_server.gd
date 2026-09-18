@@ -67,6 +67,11 @@ func stop() -> void:
 	_started = false
 
 
+## 这个连接是不是机器人客户端（hello 里自报）。真人界面客户端读观测镜像，只有机器人还要老 view（批 1 A-3.4）
+func is_bot(cid: int) -> bool:
+	return clients.has(cid) and bool(clients[cid].get("bot", false))
+
+
 func now_ms() -> int:
 	return Time.get_ticks_msec()
 
@@ -146,7 +151,7 @@ func _on_connected(cid: int) -> void:
 		peer.disconnect_peer(cid)
 		return
 	clients[cid] = { "nick": "", "room": "", "hello": false, "last_seen": now_ms(), "ip": ip,
-		"sec": 0, "count": 0, "kick_at": 0 }
+		"sec": 0, "count": 0, "kick_at": 0, "bot": false }
 
 
 func _on_disconnected(cid: int) -> void:
@@ -236,13 +241,15 @@ func _handle(cid: int, bytes: PackedByteArray) -> void:
 			return
 		c["hello"] = true
 		c["nick"] = CWNet.clean_nick(msg.get("nick", ""))
+		## 机器人客户端（AI 对战 / 无头测试 / 线上验收）：每步额外给它一份老 view，见 CWRoom.push_state_to（批 1 A-3.4）
+		c["bot"] = bool(msg.get("bot", false))
 		send(cid, { "t": "welcome", "client_id": cid, "ver": CWNet.NET_VERSION, "maintenance": drain })
 		say("连接 #%d %s（%s）" % [cid, c["nick"], c["ip"]])
 		var token: Variant = msg.get("token", "")
 		if token is String and token != "":
 			_reconnect(cid, str(msg.get("room", "")), token)
 		return
-	if t != "answer" and t != "ping":
+	if t != "answer" and t != "ping" and t != "query":   ## query 只在本席被问的那段时间发生、服务器正空转（E-1 (a)）；拖一条多步路线每格两问，按 30 条/秒算会被踢线
 		var sec := now_ms() / 1000
 		if c["sec"] != sec:
 			c["sec"] = sec
@@ -286,7 +293,8 @@ func _handle(cid: int, bytes: PackedByteArray) -> void:
 				"set_ai": e = r.set_ai(cid, msg.get("seat"), msg.get("tier", ""))
 				"kick": e = r.kick(cid, msg.get("seat"))
 				"start": e = r.start(cid)
-				"answer": e = r.answer(cid, msg.get("ask_id"), msg.get("index"))
+				"answer": e = r.answer(cid, msg.get("ask_id"), msg.get("key", ""), msg.get("index", -1))
+				"query": e = r.query(cid, msg)
 				"surrender": e = r.surrender(cid, msg.get("agree", true))
 				"chat": e = r.chat(cid, str(msg.get("text", "")), str(msg.get("scope", "all")))
 				_: e = "bad_message"

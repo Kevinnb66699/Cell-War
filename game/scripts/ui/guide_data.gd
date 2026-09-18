@@ -291,12 +291,12 @@ static func watch_of(chapter: int, step: int) -> String:
 
 
 ## 毕业战只读辅助文案：输入真实局面，绝不替引擎结算或改变随机流。
-static func graduation_assist(game: CWGame) -> Dictionary:
-	var cancerous := game.count_tissue(CWData.Tissue.CANCER)
+static func graduation_assist(m: CWMirror) -> Dictionary:
+	var cancerous := m.count_tissue(CWData.Tissue.CANCER)
 	var solid := 0
-	for c in game.tiles:
-		if int(game.tiles[c].get("tissue", -1)) == CWData.Tissue.CANCER \
-				and int(game.tiles[c].get("solid", 0)) > 0:
+	for c in m.tiles:
+		if int(m.tiles[c].get("tissue", -1)) == CWData.Tissue.CANCER \
+				and int(m.tiles[c].get("solid", 0)) > 0:
 			solid += 1
 	return {
 		"suggestion": "先看自己细胞周围的可行动作，再决定净化、攻击或结束回合。",

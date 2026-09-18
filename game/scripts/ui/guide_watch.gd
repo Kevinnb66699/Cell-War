@@ -38,18 +38,18 @@ const KEYS := {
 }
 
 
-## 把此刻的局面拍成一张小快照。**只读**，不碰引擎任何状态。
+## 把此刻的局面拍成一张小快照。**只读**：批 1 起读的是观测镜像（CWMirror），够不着引擎。
 ## `pid` 是屏幕前这位真人的席位；没有席位 / 细胞不在场时位置是 NONE，其余为 0。
-static func snapshot(game: CWGame, pid: int) -> Dictionary:
+static func snapshot(m: CWMirror, pid: int) -> Dictionary:
 	var snap := { "pos": NONE, "hand": 0, "play_n": 0, "diff": false, "attacks": 0,
 		"draws": 0, "memory": 0, "level": 0, "round": 0, "actor": -1 }
-	if game == null:
+	if m == null:
 		return snap
-	snap["memory"] = int(game.memory)
-	snap["level"] = int(game.immune_level)
-	snap["round"] = int(game.round_no)
-	snap["actor"] = int(game.current_pid)
-	for c in game.cells:
+	snap["memory"] = int(m.memory)
+	snap["level"] = int(m.immune_level)
+	snap["round"] = int(m.round_no)
+	snap["actor"] = int(m.current_pid)
+	for c in m.cells:
 		if int(c["pid"]) == pid and bool(c["alive"]):
 			snap["pos"] = Vector2i(c["pos"])
 			snap["hand"] = int((c["hand"] as Array).size())

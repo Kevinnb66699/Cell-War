@@ -16,6 +16,7 @@ var _board: Node2D
 var _fx: CWSkillFx
 var _mucus: CWMucusFx
 var _game: CWGame
+var _mirror: CWMirror
 var _frames := 0
 var _t := 0.0
 var _shot := 0
@@ -53,6 +54,12 @@ func _initialize() -> void:
 		_game.tiles[spots[i]]["tissue"] = CWData.Tissue.SOLID if i == 1 else CWData.Tissue.CANCER
 		if i == 2:
 			c["marked"] = true
+	## 批 1 步 6：CWCellDeco 读的是 CWMirror。局面在这一行之后就不再变（演出只画在 fx 层上），
+	## 所以一份 envelope 装完就够
+	_mirror = CWMirror.new()
+	var err := _mirror.sync_from(_game)
+	if err != "":
+		push_error("preview_skill_fx：镜像装载失败 —— %s" % err)
 	_fx = CWSkillFx.new()
 	_fx.z_index = _board.Z_OVER_BOARD
 	_board.add_child(_fx)
@@ -79,7 +86,7 @@ func _setup_scene() -> void:
 		for is_front in [false, true]:
 			var deco := CWCellDeco.new()
 			deco.front = bool(is_front)
-			deco.game = _game
+			deco.mirror = _mirror
 			deco.index = int(cancers[i]["id"])
 			deco.position = _board.tile_center(spots[i])
 			deco.z_index = sp.z_index + (1 if bool(is_front) else -1)

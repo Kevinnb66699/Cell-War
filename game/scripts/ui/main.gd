@@ -183,7 +183,7 @@ func _on_match_finished(winner: int) -> void:
 	## 存不下就算了 —— 一局回放丢了不该挡住结算屏
 	if not match_node.online:
 		CWReplay.save(match_node.replay_tape())   ## 批 1 步 7：存的是 tape，不再收 CWGame
-	settle.show_result(match_node.game)
+	settle.show_result(match_node.mirror)   ## 批 1 步 8：结算屏吃终局那一份镜像
 
 
 ## 结算屏的「看这局回放」：刚打完那一局就是**最新的一份**（本地局在

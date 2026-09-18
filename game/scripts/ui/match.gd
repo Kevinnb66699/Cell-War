@@ -3,10 +3,13 @@
 ## 职责只有两件：**把引擎组装起来跑**，以及**把引擎的状态画到棋盘上**。
 ## 规则一行都不在这里（规则全在 scripts/core/），界面交互在 CWUIBridge。
 ##
-## 呈现走的是「每帧全量刷新」而不是事件驱动：引擎直接改 game.tiles / game.cells
-## 的字典，没有变更信号，与其到处补信号，不如每帧把 127 格和几个细胞重刷一遍——
+## 呈现走的是「每帧全量刷新」而不是事件驱动：每帧把 127 格和几个细胞照**镜像**重刷一遍——
 ## board.set_tissue() 在贴图没变时会直接返回，所以这么做的代价接近零，
 ## 而好处是**画面永远不可能和状态对不上**（漏发一个信号那种 bug 从根上没有了）。
+##
+## 口径二 · 批 1 起这里**一点引擎都不碰**：状态只从 CWMirror 读（每次问人之前、终局之前各换一份，
+## 规格 A-1.5）、作答只经 CWKernel 句柄、演出只从 CWPlayQueue 按条目顺序播。
+## 规格：docs/口径二_批1_原子切规格.md A-1。
 class_name CWMatch
 extends Node2D
 
@@ -50,31 +53,33 @@ signal finished(winner: int)
 ## 教程当前关（0 起）：start() 按 CWGuideProgress 算出，跨章时由 guide 的
 ## on_chapter_done 回调更新并换一局（见 _advance_tutorial_chapter）。
 var _tutorial_ch := 0
-## 运行代际号：教程跨章换局时 +1，让旧局的 _run 协程安静退场（不再发 finished）。
-var _run_gen := 0
+## 教程那份**收养**的对局（CWGuideDirector 装配）。句柄 adopt 模式的 close() 不 dispose，
+## 谁装配谁收摊 —— 不收的话模块↔对局、桥↔对局两个引用环每跨一章漏一份。
+## 刻意不写类型标注：UI 里不出现引擎类名（结构闸 t_no_engine_in_ui）。
+var _adopted = null
 
 ## 此刻能不能存档：引擎只在 pending 边界有完整快照（CWSave 的写入条件）。
 ## 暂停菜单拿它决定「保存并退出」亮不亮。联机局不写本地存档（状态在服务器，掉线凭令牌重连）。
 ## 错误气泡挂在哪一格：自己的细胞脚下（视线本来就在那儿）；没有细胞就挂棋盘中心。
 func _error_at() -> Vector2i:
-	if game == null or bridge == null:
+	if mirror == null or bridge == null:
 		return Vector2i.ZERO
 	var pid: int = bridge.viewing_pid()
-	if pid < 0 or pid >= game.players.size():
+	if pid < 0 or pid >= mirror.players.size():
 		return Vector2i.ZERO
-	var cell: Dictionary = game.cell_of(pid)
+	var cell: Dictionary = mirror.cell_of(pid)
 	return cell["pos"] if cell.get("alive", false) else Vector2i.ZERO
 
 
 ## 屏幕前这位属于哪个阵营；观战、热座换手中、对局已结束都返回 -1。
 ## 暂停菜单据此决定「投降」亮不亮（`pause_menu.surrender_faction`）。
 func viewing_faction() -> int:
-	if game == null or game.is_over() or bridge == null:
+	if mirror == null or mirror.is_over() or bridge == null:
 		return -1
 	var pid: int = bridge.viewing_pid()
-	if pid < 0 or pid >= game.players.size():
+	if pid < 0 or pid >= mirror.players.size():
 		return -1
-	return int(game.player(pid)["faction"])
+	return int(mirror.player(pid)["faction"])
 
 
 ## 【投降】屏幕前这位代表本方认输。**两条路**：
@@ -95,23 +100,25 @@ func surrender_now() -> void:
 		if _client != null:
 			_client.surrender(true)
 		return
-	game.surrender(faction)
-	if bridge != null:
-		bridge.abort()
+	kernel.surrender(faction)
+	kernel.abort_ask()   ## 顺序不能反：先认定结果，再唤醒卡住的那一问（abort_ask 会叫醒 decider 里的界面桥）
 
 
 func can_save_now() -> bool:
-	return game != null and not online and not game._pending.is_empty() and not game.is_over()
+	return kernel != null and kernel.can_save()   ## InProc 是逐字同判据；Remote 继承基类恒 false ⇒「联机不写本地存档」自动成立
 
 
-## 存档正文（批 1 步 7）：能存就给快照，不能存给空 —— 判据在这儿，CWSave.write 只认 blob 非空。步 8 换成 kernel.save()
+## 存档正文：能存就给宿主快照（含 rng 与明文手牌，绝不过网），不能存给空 —— CWSave.write 只认 blob 非空
 func save_blob() -> Dictionary:
-	return game.snapshot() if can_save_now() else {}
+	return kernel.save() if can_save_now() else {}
 
 
-## 回放 tape（批 1 步 7）：本地局从活对局取；联机局的 tape 由服务器随终局发下来、不从这里出。步 8 换成 kernel.replay_tape()
+## 回放 tape：终局条目自带一份（本地是引擎录的、联机是服务器发的，_on_game_over 收着）；
+## 还没终局就问句柄现取（本地才有，Remote 按契约返回 {}）
 func replay_tape() -> Dictionary:
-	return CWReplay.of(game) if game != null and not online else {}
+	if not _replay_tape.is_empty():
+		return _replay_tape
+	return kernel.replay_tape() if kernel != null and not online else {}
 
 ## 固化格曾经靠一层压暗（`MARK_SOLID = #0000004d`）认出来，
 ## **2026-09-09 随石化贴图上线删掉** —— 那一层的注释当初就写着「硬化外壳的美术还没有……
@@ -219,7 +226,14 @@ const REVIVE_FX_FRAMES := 6
 ## **从卡那套现算，不写第二个 0.xx** —— 以后调出牌节奏，复活自动跟着走（原值 0.48，约为一半）。
 const REVIVE_FX_TIME := CARD_FX_WINDUP + CARD_FX_T0 + CARD_FX_T1 + CARD_FX_T2 + CARD_FX_HOLD
 
-var game: CWGame
+## 口径二 · 批 1（规格 A-1.1）：UI 只从镜像读、只经句柄作答、只从播放队列播演出。
+## 名字从 game 改成 mirror 是**故意**的：让 grep 成为可执行的结构闸（t_no_engine_in_ui），
+## 也免得留下「名叫 game 其实是镜像」的地雷。
+var kernel: CWKernel      ## 句柄：本地 / 热座 / 教程 / 回放是 CWKernelInProc，联机是 CWKernelRemote
+var mirror: CWMirror      ## 当前这一份观测（每次问人之前、终局之前各换一份，A-1.5）
+var queue: CWPlayQueue    ## 条目播放器：演出 / 日志 / 询问 / sync 都从它出来
+var _replay_tape := {}    ## 终局条目带下来的回放 tape（main.gd 存回放用）
+var _queue_loop := 0      ## _start_queue 那一刻的代际号：旧队列的终局回调按它丢弃（替代 _run_gen）
 var bridge: CWUIBridge
 ## 联机模式（docs/联机设计 §七）：game 是客户端的影子对局（只读、由服务器的视角快照 restore），
 ## 桥仍是 CWUIBridge，但询问与演出由 _net_loop 从 client.stream 里按顺序取出来驱动，
@@ -270,7 +284,8 @@ var _chat: CWChatBox         ## 房内聊天（只有联机局有：本地局没
 var _chat_seen := 0          ## 已经搬到框里的第几条（同 _feed_seq 的路子）
 var _chat_client: CWNetClient   ## 框里的消息来自哪个连接：换了连接就清框、游标归零（同一房间再来一局则接着用）
 var log_store: CWLogStore = CWLogStore.new()   ## 对局日志的 UI 侧存储（批 1 步 5，规格 A-7）：日志面板 / 迷你日志只读它
-var _ask_serial := 0     ## 每收到一次询问递增：作答时核对，服务器代打后重问的旧答案不发
+var _serving_ask := -1   ## 正在服务的那一问的 ask_id（条目自带，不用自己编号）：服务器代打后重问的旧答案不发
+var _game_no := -1       ## 联机的换局边界（CWKernelRemote.game_no，envelope 里没有等价物）：变了就清日志缓冲
 
 @onready var board: Node2D = get_node(board_path)
 @onready var camera: Camera2D = get_node(camera_path)
@@ -458,63 +473,69 @@ static func tutorial_board_radius() -> int:
 ## 待决的询问重新问出来（恢复点必然是 pending 边界，CWSave 只在那儿写得出档）。
 func start(snap: Dictionary = {}) -> void:
 	_prepare_ui()
+	kernel = CWKernelInProc.new()
+	## 本地 / 热座 / 教程共用的 cfg（规格 A-1.2）：
+	##   consumer  = 有界面在播演出 ⇒ 掷骰要等消费者 ack（barrier）
+	##   observe_viewer = 每次问人之前、终局之前各推一份 sync（A-1.5 的观测节拍；热座要看多席真手牌 ⇒ 全知）
+	##   autorun=false = 队列与第一份镜像**先就位**，引擎再起跑 —— open() 会一路同步跑到第一问，
+	##                   那一刻询问桥就要读镜像了（见 _start_queue 的 ★）
+	var cfg := {
+		"record_replay": true,        ## 真对局才录（MC 推演不录，见 CWGame.ask）
+		"consumer": true,
+		"observe_viewer": CWKernel.VIEWER_OMNISCIENT,
+		"autorun": false,
+	}
 	if tutorial and snap.is_empty():
 		## 教程局（16 关重构切片⑧）：按进度当前关用导演装配——1–15 关 fixture 小棋盘、
 		## 第 16 关正式四人局；人类坐视角阵营的玩家席（第 5 关癌症视角坐 1 号席）。
 		_tutorial_ch = clampi(CWGuideProgress.done_count(), 0, CWGuideData.CHAPTER_COUNT - 1)
 		player_count = 4 if CWGuideLevels.formal(_tutorial_ch) else 2
 		human_players = [1 if CWGuideLevels.player_faction(_tutorial_ch) == CWData.Faction.CANCER else 0]
-		game = CWGuideDirector.assemble(_tutorial_ch, 0)
+		## 走 adopt 而不是 world_state：装配器设的 win_checks = false **不在**快照的 25 键里，
+		## 走快照那条路第 1~15 关会当场判胜负（规格 §0.4 #1）
+		_adopted = CWGuideDirector.assemble(_tutorial_ch, 0)
+		cfg["adopt"] = _adopted
 	else:
-		game = CWGame.new()
-		game.tune.cancer_types = cancer_types.duplicate()   ## 必须在 init 之前：抽种类在开局第一步
-		game.tune.world_events_on = world_events
-		game.init(CWData.FACTION_ORDER[player_count],
-			match_seed if match_seed != 0 else int(Time.get_unix_time_from_system()))
+		cfg["factions"] = CWData.FACTION_ORDER[player_count]
+		cfg["seed"] = match_seed if match_seed != 0 else int(Time.get_unix_time_from_system())
+		cfg["cancer_types"] = cancer_types.duplicate()   ## 内核把它排在 init 之前：抽种类在开局第一步
+		cfg["world_events_on"] = world_events
 		if not snap.is_empty():
-			game.restore(snap)   ## rng 状态也在快照里，init 用的种子随之作废
-	_bind_game_signals()
+			cfg["world_state"] = snap   ## **只有读档才给**：句柄只判 has()，塞个 {} 会把空快照灌进引擎
 	_wire_bridge(ai_level)
-	## 同一个桥对象注册给所有玩家：人类那几位走界面，其余走 AI，
+	## 同一个桥对象当所有席位的 decider：人类那几位走界面，其余走 AI，
 	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。
-	for pid in game.order:
-		game.bridges[pid] = bridge
-	game.record_replay = true          ## 真对局才录（MC 推演不录，见 CWGame.ask）
+	cfg["decider"] = bridge
 	if tutorial:
-		_attach_guide()   ## 要在 _run()（第一次询问）之前：第一句提示 / 第一次演示就要读章节
-	_run()
-
-
-## 对局信号绑定（start 与教程跨章换局共用）：换的是新 CWGame，四个信号逐一接上；
-## 棋盘按新局的半径遮罩（教程小棋盘：127 格常驻、半径外淡掉；正式局全露）。
-func _bind_game_signals() -> void:
-	board.set_active_radius(game.board_radius)
-	if not game.card_played.is_connected(_on_card_played):
-		game.card_played.connect(_on_card_played)
-	if not game.event_drawn.is_connected(_on_event_drawn):
-		game.event_drawn.connect(_on_event_drawn)
-	if not game.card_drawn.is_connected(_on_card_drawn):
-		game.card_drawn.connect(_on_card_drawn)
-	if not game.world_event.is_connected(_on_world_event):
-		game.world_event.connect(_on_world_event)
+		_attach_guide()   ## 要在 open()（第一次询问）之前：第一句提示 / 第一次演示就要读章节
+	kernel.open(cfg)
+	_start_queue()
+	kernel.run()     ## autorun=false 的局从这里起跑；同步跑到第一问才让出
+	_observe_now()   ## 再取一份：开局布置的初始癌组织到第一问才落地，_bloom_order 要的是这一份
 
 
 ## 教程跨章 = 换一局（CWGuide.on_chapter_done 回调）：新关局面由导演装配、
 ## 人类席位按视角换边；旧局按拆局次序收摊（先 aborted、再唤醒卡住的询问、
 ## 最后 dispose），旧运行协程由 _run 的代际号安静退场。
 func _advance_tutorial_chapter(next_ch: int) -> void:
-	if not tutorial or game == null:
+	if not tutorial or kernel == null:
 		return
-	_run_gen += 1
-	var old := game
+	_loop_id += 1
+	## 拆旧局的次序钉死：**abort 永远排在 stop 之前**（护栏④）—— 只有 abort() 里的
+	## _barrier_seq = 0 能放掉正在等 ack 的那条 roll；先停队列就没人 ack，5 秒后内核报
+	## barrier timeout，tools/run_tests.sh 当场判红。
+	kernel.abort()
+	if queue != null:
+		queue.stop()
+	kernel.close()
+	if _adopted != null:
+		_adopted.dispose()   ## adopt 模式的 close() 不 dispose：谁装配谁收摊
+		_adopted = null
 	_tutorial_ch = clampi(next_ch, 0, CWGuideData.CHAPTER_COUNT - 1)
 	player_count = 4 if CWGuideLevels.formal(_tutorial_ch) else 2
 	human_players = [1 if CWGuideLevels.player_faction(_tutorial_ch) == CWData.Faction.CANCER else 0]
-	game = CWGuideDirector.assemble(_tutorial_ch, 0)
-	_bind_game_signals()
+	_adopted = CWGuideDirector.assemble(_tutorial_ch, 0)
 	_wire_bridge(ai_level)
-	for pid in game.order:
-		game.bridges[pid] = bridge
 	## **换局会新建一个桥**（_wire_bridge），所以要把**同一个**引导面板重新挂上去。
 	## 不重挂的话新桥的 guide 是空的 —— CWGuideBridge 每处都判空，于是不崩、
 	## 但从第 2 关起提示、演示、「继续」代做全部静默失效（合并时查出来的，
@@ -523,14 +544,14 @@ func _advance_tutorial_chapter(next_ch: int) -> void:
 		(bridge as CWGuideBridge).guide = _guide
 		bridge.set_meta("tutorial_guide", _guide)
 		_guide.demo_ready = (bridge as CWGuideBridge).can_demo
-	## 每一局都录（同 start()）：跨章换的是新 CWGame，不置位的话
+	## 每一局都录（同 start()）：跨章换的是新一局，不置位的话
 	## 从第 2 关起就不再录，最后 CWReplay.save 存出个空
-	game.record_replay = true
-	old.aborted = true
-	if bridge != null:
-		bridge.abort()
-	old.dispose()
-	_run()
+	kernel = CWKernelInProc.new()
+	kernel.open({ "adopt": _adopted, "record_replay": true, "consumer": true,
+		"observe_viewer": CWKernel.VIEWER_OMNISCIENT, "autorun": false, "decider": bridge })
+	_start_queue()
+	kernel.run()
+	_observe_now()
 
 
 ## 回放：局面是**本地重建**的（`CWReplay.Player` 已经建好并跑着），
@@ -546,15 +567,13 @@ func _advance_tutorial_chapter(next_ch: int) -> void:
 func start_replay(p: CWReplay.Player) -> void:
 	_prepare_ui()
 	replay = p
-	game = p.kernel.game               ## 过渡期（批 1 步 7）：播放器持句柄，界面仍读活对局；步 8 换镜像
-	player_count = game.players.size()
-	for sig in [["card_played", _on_card_played], ["event_drawn", _on_event_drawn],
-			["card_drawn", _on_card_drawn], ["world_event", _on_world_event]]:
-		if not game.is_connected(sig[0], sig[1]):
-			game.connect(sig[0], sig[1])
+	kernel = p.kernel                  ## 播放器自己持句柄（A-4）：界面只读它的镜像、只播它的条目
 	human_players = []                 ## 回放没有「轮到你了」这回事
 	_wire_bridge(0)
-	p.attach(bridge)                   ## 下标串与进度交接给界面桥
+	p.attach(bridge)                   ## 下标串与进度交接给界面桥（内部走 kernel.set_decider）
+	_start_queue()
+	if mirror != null:
+		player_count = mirror.players.size()
 	## 播放控制条。摆在行动栏那条位置 —— 回放局没有真人席位，行动栏根本不出现
 	if _replay_bar == null and ui != null:
 		_replay_bar = CWReplayBar.new()
@@ -634,6 +653,10 @@ func _replay_loop(id: int) -> void:
 		## 拆局可能正好落在这一帧里（teardown 会把播放器撒手），下面每一处都要碰它
 		if _loop_id != id or replay == null:
 			return
+		if queue != null:
+			## 倍速与拖条走队列的**快进把手**（B-4）：有时长的演出不等，退回「触发即走」。
+			## 不这么做的话，快退重推几十步、每步都可能掷骰，一条条等着播完就成了慢动作
+			queue.hurry = replay_speed > 1.0 or _replay_target >= 0
 		## 拖进度：一帧只做一次，做完清目标。快退是真的重算
 		## （还原关键帧 + 快进），所以连按几下只是慢一点，不会失步
 		if _replay_target >= 0:
@@ -649,8 +672,11 @@ func _replay_loop(id: int) -> void:
 			await replay.step_once()
 
 
-## 联机：影子对局来自客户端，桥只服务我这一席；询问与演出由 _net_loop 驱动。
+## 联机：句柄是 CWKernelRemote（报文流 → 条目 + 镜像），桥只服务我这一席；询问与演出都从播放队列出来。
 ## 调用前 client 已进入顺序播放模式且第一份状态已排在 stream 里（CWOnlinePanel 保证）。
+## **这是协程**：要等第一份 sync 装进镜像才返回（没有「自建空镜像」这条退路，CWMirror 没有 init）。
+const HANDSHAKE_TIMEOUT_MS := 3000   ## 等第一份 sync 的上限；超了报「与服务器状态不同步」
+
 func start_online(p_client: CWNetClient) -> void:
 	_prepare_ui()
 	online = true
@@ -664,22 +690,9 @@ func start_online(p_client: CWNetClient) -> void:
 	## 序号先对齐，只认开局之后新来的（issue #26，HXR-I 截到开局布置时飘着「还有人没准备」）
 	_seen_error = _client.error_seq
 	_loop_id += 1
-	_ask_serial += 1
-	while not _client.stream.is_empty() and _client.stream[0]["t"] == "state":
-		_client.apply_now(_client.stream.pop_front())   ## 先让第一份状态生效，影子对局才存在
-	if _client.shadow == null:
-		_client.shadow = CWGame.new()
-		_client.shadow.init(CWData.FACTION_ORDER[player_count], 0)
-	game = _client.shadow
-	if not game.card_played.is_connected(_on_card_played):
-		game.card_played.connect(_on_card_played)
-	if not game.event_drawn.is_connected(_on_event_drawn):
-		game.event_drawn.connect(_on_event_drawn)
-	if not game.card_drawn.is_connected(_on_card_drawn):
-		game.card_drawn.connect(_on_card_drawn)
-	if not game.world_event.is_connected(_on_world_event):
-		game.world_event.connect(_on_world_event)
-	player_count = game.players.size()
+	var id := _loop_id
+	kernel = CWKernelRemote.new()
+	kernel.open({ "client": _client })
 	var seats: Array[int] = []
 	if _client.my_seat >= 0:
 		seats.append(_client.my_seat)
@@ -695,12 +708,24 @@ func start_online(p_client: CWNetClient) -> void:
 		net_hud.set_link("")
 		net_hud.stop_countdown()
 		net_hud.hide_ping()
-	_net_loop(_loop_id)
+	_start_queue()
+	## 启动握手：stream 头部已排着的 sync 条目由队列播掉，镜像才存在。
+	## online_panel.gd 本来就在第一份状态到了之后才 match_started.emit ⇒ 实际上一圈就出来。
+	var t0 := Time.get_ticks_msec()
+	while mirror == null and _loop_id == id:
+		await get_tree().process_frame
+		if Time.get_ticks_msec() - t0 > HANDSHAKE_TIMEOUT_MS:
+			if bridge != null:
+				bridge.show_result("与服务器状态不同步", _error_at(), true)
+			return
+	if _loop_id != id:
+		return
+	player_count = mirror.players.size()
 
 
 func start_online_with_bloom(p_client: CWNetClient, seconds: float) -> void:
 	_opening = true
-	start_online(p_client)
+	await start_online(p_client)   ## 要等第一份 sync：_play_bloom 读镜像排绽开顺序
 	await _play_bloom(seconds)
 
 
@@ -750,9 +775,15 @@ func _prepare_ui() -> void:
 		pause_menu.codex_open = func() -> bool:
 			return _codex != null and is_instance_valid(_codex) and _codex.visible
 		pause_menu.surrender_faction = viewing_faction
-		## 「反馈 bug」要带走此刻的对局快照（issue #19）；联机 / 回放里 game 是本地镜像，照样抓得到
+		## 「反馈 bug」要带走此刻的对局快照（issue #19）：本地给宿主存档，联机给这一份观测。
+		## feedback.gd:pack 读的是**顶层** round_no / phase 两个键 ⇒ 这两个键必须摆在外层，pack 一个字不改
 		pause_menu.feedback_snapshot = func() -> Dictionary:
-			return game.snapshot() if game != null else {}
+			if online:
+				if mirror == null:
+					return {}
+				return { "kind": "observation", "round_no": mirror.round_no,
+					"phase": String(mirror.g["d"]["phase_text"]), "envelope": mirror.envelope }
+			return kernel.save() if kernel != null else {}
 	if _tile_info != null and not board.tile_hovered.is_connected(_tile_info.on_hover):
 		board.tile_hovered.connect(_tile_info.on_hover)
 	if _card_info != null and hand != null 			and not hand.card_hovered.is_connected(_card_info.on_hover):
@@ -793,6 +824,11 @@ func _wire_bridge(level: int) -> void:
 	bridge.skill_fx = _skill_fx
 	bridge.attack_animation = _play_attack_animation
 	bridge.cell_half_height = cell_half_height   ## 演出对准胞体中心要知道贴图多高（issue #26）
+	## 头顶飞卡：四个引擎信号退役之后，卡的演出改由桥的 show_* override 转发过来（规格 A-5.2）。
+	## **不接就是静默失效** —— 空实现落在 cw_bridge.gd，不报错、不崩。
+	## 出牌列（CWFeed）与世界事件提示不在这条路上：它们由 _sync_feed() 从 mirror.feed_log 投影。
+	bridge.fx_card_played = _on_card_played
+	bridge.fx_card_drawn = _on_card_drawn
 	## 聊天框只在联机局建：本地局没人可聊，教程局更不该多一个能抢回车的东西。
 	## 只有联机局有聊天；`CHAT_ON` 是总开关（2026-09-10 关、09-16 开回来，见常量那儿）
 	if CHAT_ON and online and _chat == null and ui != null:
@@ -816,10 +852,9 @@ func _wire_bridge(level: int) -> void:
 		_chat.active = online
 		if _log_hint != null:
 			_log_hint.set_chat(_chat if online else null)
-		## 「己方」标签的颜色跟我自己的阵营走（癌症席是橙）；没抢到席位的观众没有己方
-		var mine: int = _client.my_seat if online and _client != null else -1
-		_chat.team_faction = int(game.players[mine]["faction"]) if mine >= 0 and mine < game.players.size() else -1
-	bridge.game = game
+		## 「己方」标签的颜色**搬进 _adopt_mirror**：新口径下 _wire_bridge 排在 kernel.open() 之前，
+		## 那一刻还没有任何一份镜像，在这儿取必然是 -1
+	bridge.kernel = kernel       ## 四条纯查询（路径规划 / 逐段报价 / 灰格理由 / 当前影响）的出口
 	bridge.board = board
 	bridge.dice = _dice
 	bridge.bar = action_bar
@@ -846,7 +881,7 @@ func _wire_bridge(level: int) -> void:
 	bridge.mcts = null
 	if level == AI_MCTS and not tutorial:
 		var tree_ai := CWMCTSBridge.new()
-		tree_ai.game = game
+		## **只挂不喂**：引擎由 CWUIBridge.attach_engine 在 kernel.open() 里一并转交给它（A-5.3）
 		tree_ai.iterations = MCTS_ITERATIONS
 		tree_ai.horizon = MCTS_HORIZON
 		tree_ai.max_sim_steps = MCTS_MAX_STEPS
@@ -952,8 +987,8 @@ func _play_bloom(seconds: float) -> void:
 
 func _bloom_order() -> Array:
 	var out: Array = []
-	for c: Vector2i in game.tiles:
-		if game.is_cancerous(c):
+	for c: Vector2i in mirror.tiles:
+		if mirror.is_cancerous(c):
 			out.append(c)
 	var origin: Vector2 = board.tile_center(Vector2i.ZERO)
 	out.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
@@ -965,84 +1000,101 @@ func _bloom_order() -> Array:
 	return out
 
 
-func _run() -> void:
-	var gen := _run_gen
-	var winner: int = await game.run_game()
-	if gen != _run_gen:
-		return    ## 教程跨章换局：旧局协程安静退场，finished 由新局的 _run 发
-	finished.emit(winner)
+## 五条入口共用：建播放队列、把四个回调接上、先取一份镜像，然后让它 fire-and-forget 跑起来。
+##
+## 队列是**唯一**的演出通路（四个引擎信号与 _net_loop 一起退役）：条目按 seq 顺序播，
+## 有时长的演出（fx / card_played / beam / roll）播完再放下一条、便宜的不等；
+## 一步行动的 sync 排在这一步的演出之后 ⇒ **演出播完盘面才落地**。
+## 消费者（CWUIBridge）的 show_* 协程只等「阻塞时长」就返回，动画本身可以继续演下去
+## （Kevin 2026-09-19：小细胞那种波浪形移动别把队列堵住）—— 阻塞多久归桥定，队列不管。
+func _start_queue() -> void:
+	log_store = CWLogStore.new()   ## 一局一卷：日志改由 log 条目（本地）/ sync 的 logs 段（联机）喂，A-7
+	_game_no = -1
+	_replay_tape = {}
+	_serving_ask = -1
+	_queue_loop = _loop_id
+	queue = CWPlayQueue.new()
+	queue.kernel = kernel
+	queue.viewer = CWKernel.VIEWER_OMNISCIENT   ## Remote 忽略 viewer（服务器已按席位裁过）
+	queue.consumer = bridge
+	bridge.queue = queue   ## _await_playback 靠它等这一问的 sync 播到（没有它每一问都用上一步的镜像画）
+	queue.on_sync = _on_sync
+	queue.on_log = log_store.apply
+	queue.on_ask = _serve_ask                   ## 只有 Remote 会走：InProc 有 decider ⇒ 不产 ask 条目
+	queue.on_game_over = _on_game_over
+	_observe_now()   ## ★ 第一问之前桥手里就得有一份镜像：_ask_human 一上来就读它
+	queue.pump()
 
 
-## 联机：按服务器发来的顺序消费对局流。演出（掷骰）要等播完再让下一条生效，
-## 所以 state 不在收到时 restore、而是在这里轮到它时才 apply_now。
-func _net_loop(id: int) -> void:
-	while online and _loop_id == id and _client != null and is_inside_tree():
-		if _client.stream.is_empty():
-			_sync_link()
-			await get_tree().process_frame
-			continue
-		var m: Dictionary = _client.stream.pop_front()
-		match m["t"]:
-			"state":
-				_client.apply_now(m)
-			"roll":
-				if bridge != null:
-					await bridge.show_roll(m["reason"], m["value"], m["sides"], m["pid"], m["at"])
-			"result":
-				if bridge != null:
-					bridge.show_result(m["text"], m["at"], bool(m.get("linger", false)))
-			"notice":
-				if bridge != null:
-					bridge.show_notice(m["text"])
-			"card_played":
-				if bridge != null:
-					bridge.show_card_played(int(m["pid"]), m["text"])
-				## 影子对局不跑 card_fx.play、发不出 card_played 信号：头顶飞卡靠报文里的细胞信息驱动
-				if m.has("card"):
-					_on_card_played(int(m["cell_id"]), int(m["pid"]), m["pos"], int(m["faction"]), m["card"], {})
-			"event_drawn":
-				## 同上：抽到即结算的事件卡，影子对局也发不出信号
-				_on_event_drawn(int(m["cell_id"]), int(m["pid"]), m["pos"], int(m["faction"]), m["card"])
-			"card_drawn":
-				_on_card_drawn(int(m["cell_id"]), int(m["pid"]), m["pos"], String(m.get("source", "")))
-			"world_event":
-				## 影子对局不跑 world_fx，同样发不出信号 —— 靠报文驱动
-				_on_world_event(String(m["ev"]), int(m.get("left", 1)))
-			"erosion":
-				if bridge != null:
-					bridge.show_erosion(m["at"], int(m["dir"]))
-			"beam":
-				if bridge != null:
-					bridge.show_beam(m["from"], m["to"], m.get("splash", []))
-			"fx":
-				if bridge != null:
-					bridge.show_fx(String(m["kind"]), m.get("data", {}))
-			"ask":
-				_serve_ask(m)
-			"game_over":
-				_client.apply_now(m)
-				if online and _loop_id == id:
-					finished.emit(int(m["winner"]))
-				return
-
-
-## 一次询问：交给现有的界面桥，答完把下标发回服务器。不 await 它 —— 玩家在想的时候，
-## 对局流里的其它条目照常处理。服务器代打后重问的旧一问：先 abort 收掉界面，
-## 旧协程醒来发现序号变了就丢弃答案。
-func _serve_ask(m: Dictionary) -> void:
-	if bridge == null:
+## InProc 专用的一次同步观测（约 8.5 ms，只在开局 / 起跑这两下调）。
+## Remote 那条路没有活引擎，镜像只能等 sync 条目（见 _on_sync）。
+func _observe_now() -> void:
+	if not (kernel is CWKernelInProc):
 		return
-	_ask_serial += 1
-	var my := _ask_serial
+	var m := kernel.observe(CWKernel.VIEWER_OMNISCIENT) as CWMirror
+	if m != null:
+		_adopt_mirror(m)
+
+
+## 一份新观测落地。**必须装条目自带的那一份**，不能回头问句柄要「最新的」——
+## 一批 pull 里可能排着两份 sync，逐份装载才认得出两次移动（传送溶解的差分靠 _last_pos 每帧比对）。
+func _on_sync(envelope: Dictionary) -> void:
+	var m := CWMirror.new()
+	var err := m.load_from(envelope)
+	if err != "":
+		push_error("CWMatch：这一份观测装不进镜像（%s）" % err)
+		return
+	_adopt_mirror(m)
+	if kernel is CWKernelRemote:
+		## 联机的日志随 envelope 走（服务器已按席位裁好，secret 一律 -1 ⇒ line_text 自动落回原文）；
+		## 换局边界在报文外壳的 games_played 上 —— envelope 里没有等价物
+		var no: int = (kernel as CWKernelRemote).game_no
+		if no != _game_no:
+			_game_no = no
+			log_store.clear()
+		log_store.reset_from(int(m.logs.get("from", 0)), Array(m.logs.get("lines", [])))
+
+
+func _adopt_mirror(m: CWMirror) -> void:
+	mirror = m
+	if bridge != null:
+		bridge.mirror = m    ## 询问界面读的就是这一份（手牌 / 价签 / 名字 / 阵营）
+	if board.active_radius != m.board_radius:
+		board.set_active_radius(m.board_radius)   ## 半径随 envelope 走：教程跨章自动跟上；每份 sync 都调会一直重启淡出补间，所以只在变了才调
+	if _chat != null:
+		## 「己方」标签的颜色跟我自己的阵营走（癌症席是橙）；没抢到席位的观众没有己方
+		var mine: int = _client.my_seat if online and _client != null else -1
+		_chat.team_faction = int(m.player(mine)["faction"]) if mine >= 0 and mine < m.players.size() else -1
+
+
+## 终局条目：tape 由它带下来（本地是引擎录的、联机是服务器发的），main.gd 用 replay_tape() 取。
+## 代际守卫替代原来的 _run_gen：教程跨章换局 / 已经拆局时，旧队列安静退场。
+func _on_game_over(e: Dictionary) -> void:
+	if _loop_id != _queue_loop:
+		return
+	_replay_tape = e.get("replay", {})
+	finished.emit(int(e["winner"]))
+
+
+## 一次询问（**只有联机路有 ask 条目**：InProc 把询问直接转交 decider）。交给现有的界面桥，
+## 答完把选择交回句柄。不 await 它 —— 玩家在想的时候，对局流里的其它条目照常播。
+## 服务器代打后重问的旧一问：先 abort 收掉界面，旧协程醒来发现 ask_id 变了就丢弃答案。
+func _serve_ask(e: Dictionary) -> void:
+	if bridge == null or kernel == null:
+		return
+	var ask_id := int(e["ask_id"])
+	_serving_ask = ask_id
 	bridge.abort()
 	if net_hud != null:
-		net_hud.start_countdown(int(m.get("left_ms", -1)))
-	var idx: int = await bridge.ask(m["req"])
-	if _ask_serial != my or not online or _client == null or game == null:
+		net_hud.start_countdown(int(e.get("left_ms", -1)))
+	var idx: int = await bridge.ask(e["req"])
+	if _serving_ask != ask_id or kernel == null:
 		return
 	if net_hud != null:
 		net_hud.stop_countdown()
-	_client.answer(int(m["ask_id"]), idx)
+	## 语义键由句柄照下标现算再发（cw_kernel_remote.gd:answer，两端同源 CWSemKey）：
+	## 服务器把选项顺序打乱后仍选中同一项
+	kernel.answer(ask_id, { "index": idx })
 
 
 ## 断线遮罩与席位状态跟着客户端走
@@ -1073,10 +1125,11 @@ func _sync_link() -> void:
 ## 第一件事是把对局叫停：不然淡出途中 AI 还在走棋、组织还在变色，
 ## 一边淡一边动，看起来像出了故障。
 func fade_out(seconds: float) -> void:
-	if game == null or _fading:
+	if kernel == null or _fading:
 		return
-	if not online:
-		game.aborted = true     ## 联机的影子对局没有引擎在跑，也不归本节点收摊
+	## 淡出期间演出**还要继续播**，所以只 abort、不 stop 队列（拆局才停）。
+	## Remote 的 abort() 只清 _asks（影子对局不归本节点收摊），界面那半仍要桥自己收
+	kernel.abort()
 	if bridge != null:
 		bridge.abort()
 	_fading = true
@@ -1123,12 +1176,20 @@ func teardown() -> void:
 	_replay_target = -1
 	if _replay_bar != null:
 		_replay_bar.visible = false
-	var active_game: CWGame = game
+	## 拆局次序钉死（护栏④）：**abort 永远排在 stop 之前** —— 只有 abort() 里的 _barrier_seq = 0
+	## 能放掉正在等 ack 的那条 roll；先停队列就没人 ack，5 秒后内核报 barrier timeout，
+	## tools/run_tests.sh 按那行判红。stop() 自己还会替在飞的 roll 补一次 ack（双保险）。
+	if kernel != null:
+		kernel.abort()
+	if queue != null:
+		queue.stop()
+	if bridge != null:
+		bridge.abort()
 	if online:
-		## 影子对局属于客户端（回到等待室还要用），这里只放手不销毁
-		if bridge != null:
-			bridge.abort()
-		game = null
+		## 连接属于客户端（回到等待室还要用），这里只放手不销毁 ——
+		## CWKernelRemote.close() 会 dispose 客户端，两者语义不同，必须分支
+		if kernel is CWKernelRemote:
+			(kernel as CWKernelRemote).detach()
 		online = false
 		_client = null
 		if net_hud != null:
@@ -1140,24 +1201,21 @@ func teardown() -> void:
 			pause_menu.watching = false
 		if settle != null:
 			settle.online = false
-	if active_game != null and active_game.card_played.is_connected(_on_card_played):
-		active_game.card_played.disconnect(_on_card_played)
-	if active_game != null and active_game.event_drawn.is_connected(_on_event_drawn):
-		active_game.event_drawn.disconnect(_on_event_drawn)
-	if active_game != null and active_game.card_drawn.is_connected(_on_card_drawn):
-		active_game.card_drawn.disconnect(_on_card_drawn)
-	if active_game != null and active_game.world_event.is_connected(_on_world_event):
-		active_game.world_event.disconnect(_on_world_event)
+	elif kernel != null:
+		## 本地：abort → stop 都做过了，最后才 close（内部先 abort 再 dispose，
+		## 反过来的话引擎展开途中会碰到已经置空的模块）
+		kernel.close()
+	if bridge != null:
+		bridge.queue = null
+	kernel = null
+	queue = null
+	mirror = null
+	_serving_ask = -1
+	if _adopted != null:
+		_adopted.dispose()   ## 收养的对局句柄不销毁（adopt 模式的 close() 不 dispose）：谁装配谁收摊
+		_adopted = null
 	_clear_played_card_fx()
 	_clear_revive_fx()
-	if game != null:
-		## 顺序要紧：先让引擎收摊、再唤醒卡住的询问（它会同步一路展开回来），
-		## **最后**才 dispose。反过来的话展开途中会碰到已经置空的模块。
-		game.aborted = true
-		if bridge != null:
-			bridge.abort()
-		game.dispose()
-		game = null
 	bridge = null
 	_opening = false
 	if _handoff != null:
@@ -1273,9 +1331,18 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
-	if game == null or game.tiles.is_empty() or _fading:
+	## 断线遮罩 / ping / 席位 / 投降票面 / error 冒泡：**不属于对局流**（票面说的是「此刻」），
+	## _net_loop 退役后搬到这儿，而且要排在下面那道闸**之前** —— 镜像还没到、正在淡出时，
+	## 这几样照样得走（不然回到 2026-09-09 那条「投降被冷却挡了、点了没反应」）。
+	if online:
+		_sync_link()
+	if kernel is CWKernelInProc:
+		## 掷骰动画关掉时 roll 不再 barrier：一局几百次，每次省一帧（AI 互搏 / 观战 / 回放 4 倍速都吃）
+		(kernel as CWKernelInProc).barrier_on = CWSettings.dice_anim
+	if mirror == null or mirror.tiles.is_empty() or _fading:
 		return
-	log_store = CWLogStore.of(game)   ## 批 1 步 5 的过渡：每帧从活对局抄一份，行为不变；步 8 换成队列的 log 条目 apply()
+	if bridge != null:
+		bridge.plan_tick()   ## 联机规划器：RPC 回来的报价 / 可达 / 灰格理由在这里补画（E-1 (a)）
 	_sync_feed()   ## 出牌列跟着对局状态走（方案甲）：只补没见过的那几条，便宜
 	_sync_chat()
 	if _replay_bar != null and replay != null:
@@ -1308,19 +1375,19 @@ func _process(delta: float) -> void:
 	if panel != null:
 		if online and _client != null:
 			panel.net_seats = _client.room.get("seats", [])
-		panel.refresh(game)
+		panel.refresh(mirror, kernel.query if kernel != null else Callable())   ## q 必填：漏传会静默吃掉「当前影响」
 	if _tile_info != null:
 		## 迁移态的每格耗能由询问桥转手过来（它那边是从引擎算好的选项里抄的）。
 		## 桥可能是纯 AI 桥（无界面跑测试时），所以要判一下有没有这两个字段
 		var costs: Dictionary = bridge.move_costs if bridge is CWUIBridge else {}
 		var verb: String = bridge.move_verb if bridge is CWUIBridge else ""
-		_tile_info.sync(delta, game, board, camera, _opening or _fading, costs, verb)
+		_tile_info.sync(delta, mirror, board, camera, _opening or _fading, costs, verb)
 	if _card_info != null:
 		## 阵营取「抽屉正在显示谁的手牌」，不是 current_pid —— 观战/热座时它们会不一样，
 		## 而详情框说的是**手上这张卡**，得跟着卡的主人走（只影响【代谢耦联】的措辞）
-		var info_faction: int = game.player(_hand_pid)["faction"] if _hand_pid >= 0 			else CWData.Faction.IMMUNE
+		var info_faction: int = mirror.player(_hand_pid)["faction"] if _hand_pid >= 0 			else CWData.Faction.IMMUNE
 		## 分期给分档写法的高亮用（Kevin 2026-09-06）
-		_card_info.sync(delta, info_faction, _opening or _fading, CWCardData.cancer_phase(game.round_no))
+		_card_info.sync(delta, info_faction, _opening or _fading, mirror.tumor_stage())
 	if _log_panel != null:
 		## 日志按「屏幕前这位真人」的视角过滤：别人（含 AI）抽到什么牌换成公开替身（Kevin 2026-09-05：单人局也收）。
 		## 热座下视角 = 当前露牌的真人，换手期间（-1）所有秘密行都是替身；单人局 = 那一席；无真人的观战局不过滤、全看
@@ -1358,8 +1425,8 @@ func _sync_tiles() -> void:
 	elif not bursting and _mucus_bursting:
 		_mucus_before.clear()
 	_mucus_bursting = bursting
-	for c: Vector2i in game.tiles:
-		var t: Dictionary = game.tiles[c]
+	for c: Vector2i in mirror.tiles:
+		var t: Dictionary = mirror.tiles[c]
 		## 癌蔓延过场（侵蚀 / 增生 / 定殖共用）：引擎早就把这一格翻成癌了，但玩家还没看见「癌是从哪边漫过来的」。
 		## 过场这 0.32 秒里改画过场图 —— 不加覆盖层，所以不会和高亮剪影抢 Z_MARK。
 		## 演完 frame_of() 返回 null，下面那行自然把它换成癌组织，不需要收尾代码。
@@ -1374,11 +1441,13 @@ func _sync_tiles() -> void:
 		## 最后那个是固化进度（2026-09-09）：算式在 CWData.solid_progress，界面不自己算。
 		## 绽开期间按健康组织画，所以进度也得跟着按 tissue 走，不能直接读 t。
 		var solid: float = 0.0 if tissue == CWData.Tissue.HEALTHY \
-			else CWData.solid_progress(t, game.solidify_threshold())
+			else float(t["d"]["solid_fraction"]) / 1000.0   ## tier A 千分整数：固化进度由内核算，界面不自己算
 		## 骨髓「进度到头、卡还没结算」（Kevin 2026-09-11）：只淡图标、环不动，判据在 CWData.store_pending
-		board.set_tissue(c, tissue, t["special"], int(t["cards"]) > 0, solid, CWData.store_pending(t))
-		## 积累进度外圈（2026-09-08）：算式在 CWData.store_progress，界面不自己算
-		board.set_store(c, CWData.store_progress(t), int(t["special"]), tissue)
+		## 最后那个是骨髓「进度到头、卡还没结算」（Kevin 2026-09-11）：只淡图标、环不动。
+		## tier B 缺席（换 C# 生产者那天）按 false 走：宁可少画不可错画
+		board.set_tissue(c, tissue, t["special"], int(t["cards"]) > 0, solid, bool(t["d"].get("store_pending", false)))
+		## 积累进度外圈（2026-09-08）：千分整数由内核算好（tier A），界面只除一下
+		board.set_store(c, float(t["d"]["store_fraction"]) / 1000.0, int(t["special"]), tissue)
 		## 黏液侵染：**覆膜是一层贴图，不走色标**（见 CWBoard.set_mucus）——
 		## 选稿那句「保留底层组织识别」用色标做不到，色标会把整格染成一个颜色
 		## 黏液破裂正在往外推时，液浪没到的**新**格先不画（issue #31 由里往外铺；
@@ -1390,7 +1459,7 @@ func _sync_tiles() -> void:
 		if int(t.get("necrosis", 0)) > 0:
 			necro.append(c)
 		if int(t.get("ossify_at", 0)) > 0:
-			marks[c] = ossify_mark(int(t["ossify_at"]), game.round_no)
+			marks[c] = ossify_mark(int(t["ossify_at"]), mirror.round_no)
 	for c: Vector2i in _flash:
 		marks[c] = Color(1, 1, 1, _flash[c] / FLASH_TIME * FLASH_ALPHA)
 	## 热座换手中：该玩家细胞脚下一圈阵营色光环呼吸，告诉 TA 自己在哪（开局还没落子时没有）
@@ -1415,11 +1484,11 @@ static func mucus_shown_now(c: Vector2i, before: Dictionary, pending: bool) -> b
 
 ## 回合脚标挂在谁头上、什么色：没人在动（结算演出中）、动的那席还没细胞（落子）、细胞已死（复活中）→ 空。
 ## 「谁在动」和右栏底框同一个口径（CWMatchPanel.acting_pid）；颜色就是阵营色本色；cid = game.cells 的下标。**纯函数**。
-static func turn_mark_of(game: CWGame) -> Dictionary:
-	var pid := CWMatchPanel.acting_pid(game)
-	if pid < 0 or pid >= game.cells.size():
+static func turn_mark_of(m: CWMirror) -> Dictionary:
+	var pid := CWMatchPanel.acting_pid(m)
+	if pid < 0 or pid >= m.cells.size():
 		return {}
-	var cell: Dictionary = game.cell_of(pid)
+	var cell: Dictionary = m.cell_of(pid)
 	if not cell["alive"]:
 		return {}
 	return { "cid": int(cell["id"]), "pos": cell["pos"],
@@ -1461,10 +1530,10 @@ static func ossify_mark(at_round: int, now: int, ms: int = -1) -> Color:
 func _sync_chemo(delta: float) -> void:
 	if _chemo_fx == null:
 		return
-	if game.chemo.is_empty():
+	if mirror.chemo.is_empty():
 		_chemo_fx.visible = false
 		return
-	var at: Vector2i = game.chemo["at"]
+	var at: Vector2i = mirror.chemo["at"]
 	_chemo_fx.visible = true
 	## 压在细胞下面（Z_MARK 那一层）：漩涡是地面上的东西，不该盖住站在上面的细胞
 	## 末尾那个参数原来是「最后一回合转暖橙」。issue #33 把时长改成 1 完整回合之后没有这一档了 ——
@@ -1482,13 +1551,13 @@ func _sync_chemo(delta: float) -> void:
 func _sync_chemo_track(delta: float) -> void:
 	if _chemo_track_fx == null:
 		return
-	var at := game.chemo_track_at()
-	if game.chemo_track.is_empty() or at == Vector2i.MAX:
+	var at := mirror.chemo_track_at()
+	if mirror.chemo_track.is_empty() or at == Vector2i.MAX:
 		_chemo_track_fx.visible = false
 		return
 	_chemo_track_fx.visible = true
 	_chemo_track_fx.sync(delta, board.tile_center(at), board.tile_z(at, board.Z_MARK),
-		int(game.chemo_track.get("left", 0)) <= 1)
+		int(mirror.chemo_track.get("left", 0)) <= 1)
 
 
 ## 【I-标记】光环范围的常驻粒子（Kevin 2026-09-08）：
@@ -1504,8 +1573,8 @@ func _sync_seal(delta: float) -> void:
 	if _seal_fx == null:
 		return
 	var sealed: Array[Vector2] = []
-	for c in game.living_cells(CWData.Faction.CANCER):
-		if game.neutralized(c):
+	for c in mirror.living_cells(CWData.Faction.CANCER):
+		if mirror.neutralized(c):
 			sealed.append(board.tile_center(c["pos"]))
 	_seal_fx.sync(delta, sealed)
 
@@ -1514,14 +1583,14 @@ func _sync_mark_aura(delta: float) -> void:
 	if _mark_aura_fx == null:
 		return
 	var auras: Array = []
-	for cell in game.living_cells(CWData.Faction.IMMUNE):
+	for cell in mirror.living_cells(CWData.Faction.IMMUNE):
 		if cell["itype"] != CWData.ImmuneType.DENDRITIC:
 			continue
 		var at: Vector2i = cell["pos"]
 		var tiles: Array = []
 		## 遍历**这一局真有的格**，不是正式布局的 127 格 —— 教程小棋盘上
 		## 板外格的 tile_center() 返回 (0,0)，粒子会全飘到棋盘原点去
-		for c in game.tiles:
+		for c in mirror.tiles:
 			var d := CWData.hex_dist(c, at)
 			if d > 0 and d <= CWData.MARK_RANGE:
 				## **z 按格给**：棋盘是按排分层的，整只演出共用一个 z 的话，
@@ -1533,20 +1602,20 @@ func _sync_mark_aura(delta: float) -> void:
 
 
 func _sync_cells() -> void:
-	while _cell_nodes.size() < game.cells.size():
-		_cell_nodes.append(_make_cell_node(game.cells[_cell_nodes.size()]))
+	while _cell_nodes.size() < mirror.cells.size():
+		_cell_nodes.append(_make_cell_node(mirror.cells[_cell_nodes.size()]))
 	## 同格可能站着多个细胞，得先数清楚每格几个才能左右错开
 	var per_tile := {}
-	for c in game.cells:
+	for c in mirror.cells:
 		if c["alive"]:
 			per_tile[c["pos"]] = per_tile.get(c["pos"], 0) + 1
 	var placed := {}
 	var jumps: Array = []   ## 本帧检出的传送：{ i, from, to, ghost_pos, ghost_z }
 	## 回合脚标（方案 D）：谁在动（换手光环在闪时不叠）；轮到的那只在下面的循环里挂，没轮到谁就清
-	var tm := turn_mark_of(game) if (_handoff == null or not _handoff.active) else {}
+	var tm := turn_mark_of(mirror) if (_handoff == null or not _handoff.active) else {}
 	var turn_placed := false
-	for i in game.cells.size():
-		var c: Dictionary = game.cells[i]
+	for i in mirror.cells.size():
+		var c: Dictionary = mirror.cells[i]
 		var node: Node2D = _cell_nodes[i]
 		## 【连续吞噬】那一口由 CWChainFx 整只代画（选稿画的是张着口的胞体，
 		## 不是在细胞上叠一层），所以这几帧真身要让位
@@ -1590,7 +1659,7 @@ func _sync_cells() -> void:
 		for side in 2:
 			var deco: CWCellDeco = _decos[i][side]
 			deco.visible = not attack_owned
-			deco.game = game
+			deco.mirror = mirror
 			deco.position = foot - Vector2(0, CELL_FOOT_DY)
 			deco.z_index = node.z_index + (1 if side == 1 else -1)
 			## 小盾轨道要绕胞体中心转（Kevin 2026-09-12），装饰得知道这只细胞的贴图多高
@@ -1629,13 +1698,13 @@ func _play_teleports(jumps: Array) -> void:
 		var from: Vector2i = j["from"]
 		var to: Vector2i = j["to"]
 		var delay: float = float(delays.get(to, 0.0))
-		if game.tiles[from]["special"] == CWData.Special.VESSEL \
-				and game.tiles[to]["special"] == CWData.Special.VESSEL:
+		if mirror.tiles[from]["special"] == CWData.Special.VESSEL \
+				and mirror.tiles[to]["special"] == CWData.Special.VESSEL:
 			_flash[from] = FLASH_TIME
 			_flash[to] = FLASH_TIME
 			delay = CWTeleportFx.VESSEL_LEAD
 		_teleport_fx.play(_cells_root, _cell_nodes[i] as Sprite2D, i, j["ghost_pos"], int(j["ghost_z"]),
-			CWTeleportFx.edge_for(int(game.cells[i]["faction"])), delay,
+			CWTeleportFx.edge_for(int(mirror.cells[i]["faction"])), delay,
 			func() -> void: _flash[to] = FLASH_TIME)
 
 
@@ -1647,11 +1716,10 @@ func _play_teleports(jumps: Array) -> void:
 ## 那一格上（第一只活着的）细胞贴图的半高 —— 演出要对准胞体中心时用（CWUIBridge.show_fx，issue #26）。
 ## 空格或还没建节点的按 24px 贴图算（免疫普通细胞的尺寸）。
 func cell_half_height(pos: Vector2i) -> float:
-	if game == null:
-		return 12.0
-	for i in mini(game.cells.size(), _cell_nodes.size()):
-		var c: Dictionary = game.cells[i]
-		if c["alive"] and c["pos"] == pos:
+	## 读**画出来的那一层**（节点 + 上一帧位置）而不是镜像：它是**演出回调**，在一帧中途被桥调，
+	## 而镜像是这一步开头那份快照 —— 演出要对准的是画面上的胞体，读节点层反而更对（规格 A-1.3）
+	for i in mini(_was_alive.size(), _cell_nodes.size()):
+		if _was_alive[i] and _last_pos[i] == pos:
 			var tex: Texture2D = (_cell_nodes[i] as Sprite2D).texture
 			if tex != null:
 				return tex.get_height() / 2.0
@@ -1659,7 +1727,7 @@ func cell_half_height(pos: Vector2i) -> float:
 
 
 func _play_attack_animation(data: Dictionary) -> void:
-	if _attack_fx == null or game == null:
+	if _attack_fx == null or mirror == null:
 		return
 	var immune_type := int(data.get("itype", -1))
 	var cancer_type := int(data.get("ctype", -1))
@@ -1692,23 +1760,23 @@ func _sync_hand() -> void:
 				_hand_pid = -1
 				_hand_seen.clear()
 			return
-		if who >= game.cells.size():
+		if who >= mirror.cells.size():
 			return                   ## 开局布置阶段，这个人还没落子
 		if _hand_pid != who:
 			_hand_pid = who
 			hand.visible = true
-			var c0: Dictionary = game.cell_of(who)
+			var c0: Dictionary = mirror.cell_of(who)
 			var cards0: PackedStringArray = PackedStringArray(c0["hand"])
 			_hand_seen[who] = cards0.size()
 			hand.deal_from(cards0.size(), CWView.board_to_screen(camera, board.tile_center(c0["pos"])), cards0)
 			return
-	elif game.current_pid in human_players:
-		_hand_pid = game.current_pid
+	elif mirror.current_pid in human_players:
+		_hand_pid = mirror.current_pid
 	elif _hand_pid < 0:
 		_hand_pid = human_players[0]
-	if _hand_pid >= game.cells.size():
+	if _hand_pid >= mirror.cells.size():
 		return                       ## 开局布置阶段，这个人还没落子
-	var cell: Dictionary = game.cell_of(_hand_pid)
+	var cell: Dictionary = mirror.cell_of(_hand_pid)
 	var cards: PackedStringArray = PackedStringArray(cell["hand"])
 	var n: int = cards.size()
 	var was: int = _hand_seen.get(_hand_pid, -1)
@@ -1723,15 +1791,15 @@ func _sync_hand() -> void:
 
 ## 观众的手牌抽屉：跟着正在行动的那一席。没人在动（结算演出中 / 落子阶段）就收起来。
 func _sync_hand_watch() -> void:
-	var who := CWMatchPanel.acting_pid(game)
-	if who < 0 or who >= game.cells.size():
+	var who := CWMatchPanel.acting_pid(mirror)
+	if who < 0 or who >= mirror.cells.size():
 		if _hand_pid >= 0:
 			hand.clear()
 			hand.visible = false
 			_hand_pid = -1
 			_hand_seen.clear()
 		return
-	var cell: Dictionary = game.cell_of(who)
+	var cell: Dictionary = mirror.cell_of(who)
 	var cards: PackedStringArray = PackedStringArray(cell["hand"])
 	## 换人就整副重铺（不演飞入：那是「他抽到了一张」的语言，换人不是）
 	if _hand_pid != who:
@@ -1762,7 +1830,7 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 	for is_front in [false, true]:
 		var deco := CWCellDeco.new()
 		deco.front = bool(is_front)
-		deco.game = game
+		deco.mirror = mirror
 		deco.index = _cell_nodes.size()
 		deco.visible = false
 		_cells_root.add_child(deco)
@@ -1814,17 +1882,17 @@ func _board_fx_layers() -> Array:
 ## 代价：联机时这一列跟着状态推送走（每次询问推一次），最坏比头顶飞卡晚一次询问。
 ## 用「晚一点但从不丢」换「快一点但偶尔永久缺一条」，这笔账值得。
 func _sync_feed() -> void:
-	if _feed == null or not is_instance_valid(_feed) or game == null:
+	if _feed == null or not is_instance_valid(_feed) or mirror == null:
 		return
 	## 对局一结束就收起（Kevin 2026-09-08 截图：结算屏都出来了，左边那一列还挂着）。
 	## 它在 CWView.LEFT_STRIP 里、结算屏盖不到，所以得自己藏。
 	## 判的是 `game.winner`（而不是「结算屏可见吗」）：这一列归对局层管，
 	## 不该反过来去问另一个面板的显隐状态。
-	_feed.visible = game.winner < 0
-	if game.feed_seq < _feed_seq:
+	_feed.visible = mirror.winner < 0
+	if mirror.feed_seq < _feed_seq:
 		_feed.clear_all()
 		_feed_seq = 0
-	for e in game.feed_log:
+	for e in mirror.feed_log:
 		var seq: int = int(e["seq"])
 		if seq <= _feed_seq:
 			continue
@@ -1841,10 +1909,10 @@ func _feed_note(e: Dictionary) -> void:
 	var pid: int = int(e["pid"])
 	var faction: int = int(e["faction"])
 	var who := ""
-	if pid >= 0 and pid < game.players.size():
-		who = String(game.player(pid)["name"])   ## 联机局里这就是昵称
+	if pid >= 0 and pid < mirror.players.size():
+		who = String(mirror.player(pid)["name"])   ## 联机局里这就是昵称
 	_feed.add_card(card, who, faction,
-		CWCardInfo.describe(card, faction, CWCardData.cancer_phase(game.round_no)),
+		CWCardInfo.describe(card, faction, mirror.tumor_stage()),
 		String(e["kind"]) == "event")
 
 
@@ -1856,19 +1924,8 @@ func _on_card_played(cell_id: int, _pid: int, pos: Vector2i, _faction: int, card
 	_play_card_fx(cell_id, pos)
 
 
-## 抽到即结算的事件卡。**不演头顶飞卡** —— 事件的效果自己会在那一格喊一句，两样叠在同一格上太吵；
-## 右栏「回合数」那一栏的事件卡横排（09-07 方案乙）2026-09-11 按 Kevin 的意思删了，出牌列由 `_sync_feed()` 投影，
-## 于是这里和 `_on_world_event` 一样只是**接住信号 / 报文**。
-func _on_event_drawn(_cell_id: int, _pid: int, _pos: Vector2i, _faction: int, _card_name: String) -> void:
-	pass
-
-
-## 抽到一个世界事件：进棋盘左侧那一列（Kevin 2026-09-07）。**不演头顶飞卡** ——
-## 它不属于任何一个细胞，没有起飞的地方。
-func _on_world_event(_ev_name: String, _left: int) -> void:
-	## 回调留着是为了**接住信号 / 报文**（不接的话联机那条 world_event 报文没人要），
-	## 但列的内容由 `_sync_feed()` 投影 —— 一条数据通路，重连才补得齐。
-	pass
+## 事件卡与世界事件**没有 UI 回调了**（原来那两个空 pass 只是为了「接住信号 / 报文」）：
+## 信号与 _net_loop 一起退役，出牌列由 `_sync_feed()` 从 mirror.feed_log 投影 —— 一条数据通路，重连才补得齐。
 
 
 ## 抽到一张卡：头顶演出（倒放）。**三种来源都演**（基因表达 / 骨髓 / 突变）——
@@ -2028,13 +2085,14 @@ func _add_doom_overlay(s: Sprite2D) -> void:
 
 ## 「这只细胞撑不到下个回合」的预警：外圈红色脉冲。
 ##
-## 判定现读 `CWWorld.pressure_lethal` —— 它走的是真结算那条伤害管线，
-## 界面不自己算（自己算就会漏掉【缺氧适应】那面盾，对着死不了的细胞报警）。
+## 判定读镜像上的 `cell.d.pressure_lethal`（tier B）—— 值由引擎那条**真结算伤害管线**
+## （CWWorld.pressure_lethal）算好，界面不自己算（自己算就会漏掉【缺氧适应】那面盾，
+## 对着死不了的细胞报警）。tier B 缺席时镜像返回 false：宁可少画不可错画。
 func _sync_doom(s: Sprite2D, cell: Dictionary) -> void:
 	var ring := s.get_node_or_null("DoomRing") as Sprite2D
 	if ring == null:
 		return
-	var doomed: bool = game.world.pressure_lethal(cell)
+	var doomed: bool = mirror.pressure_lethal(cell)
 	ring.visible = doomed
 	if doomed:
 		ring.modulate.a = doom_pulse()

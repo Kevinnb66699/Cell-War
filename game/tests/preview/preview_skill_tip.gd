@@ -57,14 +57,20 @@ func _initialize() -> void:
 	g.add_mod(can, "癌症干性", 2, "round")
 	g.add_mod(can, "DNA损伤修复", 1, "")
 
+	## 批 1 步 6：面板吃 CWMirror。这张图只看**悬停**态的技能框（_tip_pid，full=false），
+	## 那一档不问「当前影响」，所以纯查询句柄给个空 Callable
+	var m := CWMirror.new()
+	var merr := m.sync_from(g)
+	if merr != "":
+		push_error("preview_skill_tip：镜像装载失败 —— %s" % merr)
 	## 两块真面板：左边只做背景（框自己手摆），右边连框一起真渲染
 	for i in 2:
 		var p := CWMatchPanel.new()
 		root.add_child(p)
-		p.refresh(g)          ## 先刷一次把玩家行搭出来，框才有行可挂
+		p.refresh(m, Callable())          ## 先刷一次把玩家行搭出来，框才有行可挂
 		if i == 1:
 			p._tip_pid = 1
-			p.refresh(g)
+			p.refresh(m, Callable())
 		_panels.append(p)
 	_before = _mock_before()
 	root.add_child(_before)

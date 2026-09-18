@@ -19,6 +19,7 @@ var deciders := {}                  ## pid → CWBridge：ask 转交它（无头
 var has_consumer := false           ## 有消费者才 barrier（无头测试、AI 互搏都不等）
 var barrier_on := true              ## ⑩ 跟 CWSettings.dice_anim：关着时 roll 不等 ack（省掉那一帧）
 var barrier_hits := 0               ## ⑩ 真正等过 ack 的 roll 计数（t_barrier_release 的断言）
+var barrier_timeouts := 0           ## 超时强制放行的次数：护栏④「abort 永远排在 stop 之前」的测试直接断言它为 0
 var open_hands := false             ## ⑨ 房主开的「观众全见」（cw_room.gd watch_hands）—— 中途能改，所以公开可写
 var observe_viewer: Variant = null  ## ⑥ 观测节拍开关：设了就在每次问人之前、终局之前各推一条 sync（A-1.5）；独立于 has_consumer
 var adopted := false                ## ① 收养模式：game 不归句柄所有（close() 不 dispose）
@@ -100,7 +101,8 @@ func run() -> void:
 func close() -> void:
 	if game == null:
 		return
-	abort()
+	if not adopted:
+		abort()   ## 收养的对局不归句柄：close() 不给它置 aborted（要中止得显式调 abort()，A-1.6 的次序本来就是 abort → stop → close）
 	if adopted:
 		## ① 收养的对局不归句柄：不 dispose、不清 deciders 的 game，只把自己的钩子摘掉
 		if game.log_line.is_connected(_on_log_line):
@@ -367,6 +369,8 @@ func _run() -> void:
 	_running = true
 	winner = await game.run_game()
 	_running = false
+	if game == null:
+		return   ## 跑着的时候被 close() 了（拆局 / 教程跨章）：对局已经不归我们，别再往条目队列里推终局
 	_close_step()   ## ⑥ 终局之前：step_end + sync
 	_push("game_over", { "winner": winner, "reason": game.win_reason, "kind": game.win_kind, "round": game.round_no,
 		"replay": CWReplay.of(game) if game.record_replay else {} })
@@ -413,6 +417,7 @@ func _on_roll(m: Dictionary) -> void:
 	while _barrier_seq == seq:
 		if tree == null or Time.get_ticks_msec() - t0 > barrier_timeout_ms:
 			_barrier_seq = 0
+			barrier_timeouts += 1
 			push_error("CWKernelInProc：roll #%d 等 ack 超时（%d ms），强制放行 —— 消费者循环没在跑？" % [seq, barrier_timeout_ms])
 			printerr("SCRIPT ERROR: CWKernelInProc barrier timeout seq=%d" % seq)   ## tools/run_tests.sh 按这行判红，死锁跑不掉测试
 			break

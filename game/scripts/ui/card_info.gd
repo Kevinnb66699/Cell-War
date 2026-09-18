@@ -181,10 +181,14 @@ static func describe_act(act: String, faction: int, itype := -1) -> Dictionary:
 
 ## 主动技能的实时版本：PRD 原文之后追加当前费用特效。无影响也明确写「无」，
 ## 让每一枚技能按钮都能回答同一个问题。实际数值来自 CWActions.cost_effects_for()。
-static func describe_act_for(game: CWGame, cell: Dictionary, act: String) -> Dictionary:
+static func describe_act_for(q: Callable, cell: Dictionary, act: String) -> Dictionary:
 	var rows := describe_act(act, cell["faction"], int(cell["itype"]))
 	var text := "当前影响：无"
-	var effects: Array = game.actions.cost_effects_for(cell, act)
+	## q = 内核的纯查询句柄（CWKernel.query，观测协议 §5.3）。**null 要按「无」画，不能报错**：
+	## 联机走 RPC（E-1 (a)），第一次问必然还没回来；结果回来之后行文会变，
+	## `_update_tip` 的键跟着变、框自己重搭 —— 价签晚一拍，不会永远空着。
+	var got: Variant = q.call("cost_effects_for", { "cid": int(cell["id"]), "act": act }) if q.is_valid() else null
+	var effects: Array = got if got is Array else []
 	if not effects.is_empty():
 		var parts := PackedStringArray()
 		for effect: Dictionary in effects:

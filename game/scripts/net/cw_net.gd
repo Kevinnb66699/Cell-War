@@ -9,15 +9,24 @@
 ##     客户端拿不到随机数状态与他人手牌，改客户端也算不出下一张牌。
 ##
 ## 报文一览（t = 类型；C→S 客户端发，S→C 服务器发）：
-##   C→S  hello{ver, nick, room?, token?}   握手；带 room+token 即顺手重连
+##   C→S  hello{ver, nick, room?, token?, bot?}   握手；带 room+token 即顺手重连。
+##                                          bot=true 是机器人客户端（AI 对战 / 无头测试 / 线上验收，autoplay 作答）：
+##                                          它读的还是影子对局，服务器据此在 sync 里额外带一份老 view（v30，见 CWRoom.push_state_to）
 ##        ping · list_rooms · create_room{players, timer, public, seed?} · join_room{code}
 ##        leave_room · reconnect{code, token} · sit{seat} · stand · ready{ready}
-##        set_ai{seat, tier} · kick{seat} · start（后三个房主专用）· answer{ask_id, index}
+##        set_ai{seat, tier} · kick{seat} · start（后三个房主专用）· answer{ask_id, key, index}
+##        query{qid, kind, args}            纯查询 RPC（v30）：路径规划 / 逐段报价 / 灰格理由 / 技能「当前影响」四条
+##                                          （观测协议 §5.3）。客户端锁到镜像之后没有影子对局可算，这是唯一出口
 ##        chat{text, scope}                 房内聊天。scope = "all" 全体 / "team" 己方（2026-09-09）
 ##        list_replays · get_replay{id}     服务器留着的最近几局回放（2026-09-09）
 ##   S→C  welcome{client_id, ver, maintenance} · pong · lobby{rooms, maintenance}
 ##        room{...}（等待室全量视图，见 CWRoom.view_for）
-##        state{view, logs, turn, hash, game}（视角快照 + 新增日志行 + 正在决策的席位）
+##        sync{envelope, hash, game}（观测 envelope —— 日志并进 envelope.logs、正在决策的席位并进
+##                                    envelope.state.g.asking_pid；hash 是服务器诊断用、game 是换局边界。
+##                                    bot 客户端另带老字段 view / turn / logs，见 CWRoom.push_state_to）
+##        step_begin{ask_id, seat} · step_end{rev}（一步行动的演出边界，v30）——
+##                                    客户端把一步的演出按序播完、走到 step_end 才让随后的 sync 落地
+##        query_result{qid, value}          query 的应答。**不进对局流**（不是演出），客户端按 envelope.rev 缓存
 ##        ask{ask_id, req, left_ms}（只发给该席位）· roll · result · notice（三种演出）
 ##        chat{nick, seat, faction, scope, text}
 ##                                          房内聊天：seat < 0 = 观众，faction < 0 = 没阵营
@@ -142,7 +151,21 @@ extends RefCounted
 ##     这一条**不改变今天任何行为**（打到癌细胞的伤害全部走 immune_hit*，已逐条查证），
 ##     但它进了同一次发版，写在这里备查。
 ## v27（2026-09-16）：【代谢耦联】的两次追问各加一条「取消」（下标 0，取消不弃置卡）。规则变了，打了补丁和没打的人状态哈希会对不上。
-const NET_VERSION := 29
+## v30（2026-09-19，口径二批 1 步 8）：**报文改版**，规则一个字没改 —— 服务器从「视角快照」改发「观测 envelope」。
+##   · S→C `state{view, logs, turn, hash, game}` → **`sync{envelope, hash, game}`**：日志并进 `envelope.logs`、
+##     正在决策的席位并进 `envelope.state.g.asking_pid`；`hash`（服务器诊断）与 `game`（换局边界，envelope 里
+##     没有等价物）留在报文外壳。`hello` 自报 `bot:true` 的客户端另带老的 `view` / `turn` / `logs`，
+##     批 2 AI 进 C# 之后整块删。
+##   · 新增 S→C **`step_begin{ask_id, seat}` / `step_end{rev}`**：一步行动的演出边界（Kevin 2026-09-19 拍
+##     「演出播放形态 2」）。客户端按条目顺序播完这一步的演出，走到 `step_end` 才让随后的 `sync` 落地 ——
+##     盘面不再先于演出变。引擎 / 服务器照旧不等演出。
+##   · C→S `answer{ask_id, index}` → **`{ask_id, key, index}`**：语义键为准、下标兜底（观测协议 §6.2，
+##     两端各自 `CWSemKey.key(req, data)` 现算，所以 `ask` 报文不用改）。
+##   · 新增 C→S **`query{qid, kind, args}`** / S→C **`query_result{qid, value}`**：路径规划 / 逐段报价 /
+##     灰格理由 / 技能「当前影响」四条纯查询（批 1 E-1 (a)）。
+##   **必须升号**：报文形状全变了，老客户端读不出盘面 —— 不升的话它连得上、然后对着一片空棋盘，
+##   而不是一句「请更新」。这一号同时是 `CWSave.VERSION` / `CWReplay.VERSION` 跳号那一批的一部分。
+const NET_VERSION := 30
 
 ## 一条聊天最多多少字。定这个数不是怕刷屏（那有 RATE_PER_SEC 管），
 ## 是**排版**：聊天行和大厅房间行共用同一条定宽，超了就是省略号，
@@ -176,7 +199,8 @@ const HIDDEN_CARD := "？"             ## 别人手牌的占位
 
 ## 错误码 → 给玩家看的话
 const ERRORS := {
-	"version": "客户端版本与服务器不符，请更新游戏",
+	## 硬不变量④：拒绝老客户端时必须说清楚去哪儿拿新的（照 boot.gd:176 的 too_old 那句）
+	"version": "客户端版本与服务器不符，请到 GitHub Releases 下载新客户端",
 	"bad_message": "报文格式错误",
 	"maintenance": "服务器维护中，暂不能开新局",
 	"no_room": "没有这个房间",

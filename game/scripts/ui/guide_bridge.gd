@@ -153,17 +153,17 @@ func _pick(req: Dictionary, key: String) -> int:
 		for i in opts.size():
 			var to: Vector2i = opts[i]["data"]["to"]
 			for n in CWData.neighbors(to):
-				if game != null and game.tiles.has(n) and game.is_cancerous(n):
+				if mirror != null and mirror.tiles.has(n) and mirror.is_cancerous(n):
 					return i
 		return 0
 	for i in opts.size():
 		var a: String = opts[i]["data"].get("act", "")
 		match key:
 			"move":
-				if a == "move" and game.cells_at(opts[i]["data"]["to"]).is_empty():
+				if a == "move" and mirror.cells_at(opts[i]["data"]["to"]).is_empty():
 					return i
 			"attack":
-				if a == "move" and not game.cells_at(opts[i]["data"]["to"], CWData.Faction.CANCER).is_empty():
+				if a == "move" and not mirror.cells_at(opts[i]["data"]["to"], CWData.Faction.CANCER).is_empty():
 					return i
 			"draw":
 				if a == "draw":

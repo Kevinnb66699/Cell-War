@@ -46,13 +46,3 @@ func clear() -> void:
 	logs = PackedStringArray()
 	log_secret = PackedInt32Array()
 	log_public = PackedStringArray()
-
-
-## 只给测试与步 5 的过渡适配器用：把一个活 CWGame 的三条数组抄一份（步 8 之后走条目流，不再有它）
-static func of(game: CWGame) -> CWLogStore:
-	var s := CWLogStore.new()
-	if game != null:
-		s.logs = game.logs.duplicate()
-		s.log_secret = game.log_secret.duplicate()
-		s.log_public = game.log_public.duplicate()
-	return s

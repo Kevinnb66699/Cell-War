@@ -44,15 +44,15 @@ func hide_now() -> void:
 ## 每帧由 CWMatch 调（它手里有 game/board/camera）。blocked = 开场/返场演出中。
 ## costs / verb：正在选迁移目标时的每格耗能与用词，由 CWUIBridge 转手过来；
 ## 空字典 = 此刻不在迁移态，不显示耗能行。
-func sync(delta: float, game: CWGame, board: Node2D, camera: Camera2D,
+func sync(delta: float, m: CWMirror, board: Node2D, camera: Camera2D,
 		blocked: bool, costs: Dictionary = {}, verb: String = "") -> void:
-	if game == null or blocked or not game.tiles.has(_hover):
+	if m == null or blocked or not m.tiles.has(_hover):
 		visible = false
 		return
 	_wait += delta
 	if _wait < DELAY:
 		return
-	var rows := describe(game, _hover, int(costs.get(_hover, -1)), verb)
+	var rows := describe(m, _hover, int(costs.get(_hover, -1)), verb)
 	var key := "%s|%s" % [str(_hover), str(rows)]
 	if key != _key:
 		_key = key
@@ -74,8 +74,8 @@ func sync(delta: float, game: CWGame, board: Node2D, camera: Camera2D,
 ## 而它是完全确定、算得出的数（`CWWorld.pressure_at`），界面此前一个字不给。
 ## 而且免疫方净化效率最高的位置（六面皆癌）**正好**是压迫最大的位置（2.0）——
 ## 这个张力设计得好，但它必须看得见。
-static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> Array:
-	var t: Dictionary = game.tile(c)
+static func describe(m: CWMirror, c: Vector2i, move_cost := -1, verb := "") -> Array:
+	var t: Dictionary = m.tile(c)
 	var rows: Array = []
 	var tissue: int = t["tissue"]
 	var tissue_color: Color = CWStyle.TEXT if tissue == CWData.Tissue.HEALTHY else CWStyle.CANCER
@@ -87,14 +87,14 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 		rows.append({ "text": "%s耗能 %s" % [verb, CWData.fmt(move_cost)],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
 	## 压迫只落在免疫细胞身上：癌方选目标时（verb =「移动」）这一行不出（2026-09-03 Kevin 截图报的）
-	rows.append_array(pressure_rows(game, c, move_cost, verb != "移动"))
+	rows.append_array(pressure_rows(m, c, move_cost, verb != "移动"))
 	if tissue == CWData.Tissue.CANCER and t["solid"] > 0:
 		## ⚠ 固化计数存的是**十分整数**（`SOLIDIFY_THRESHOLD = 20` 即 2.0）——
 		## PRD 里它不是整数：衰减 -0.5、【骨样硬化】+1.5、【基质硬化】+1/+1.5/+2。
 		## 这里必须走 `CWData.fmt()`，用 %d 直接打会显示成「固化 15 / 30」
 		## （2026-09-01 队友截图报的）
 		rows.append({ "text": "固化 %s / %s" % [CWData.fmt(t["solid"]),
-			CWData.fmt(game.solidify_threshold())],
+			CWData.fmt(m.solidify_threshold())],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.TEXT })
 	if int(t.get("ossify_at", 0)) > 0:
 		rows.append({ "text": "骨样硬化 · 第 %d 回合固化" % int(t["ossify_at"]),
@@ -114,8 +114,8 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 	## 树突【I-趋化源】立在这一格：标出来（Kevin 2026-09-06 要的）。
 	## 时长 issue #33 起是「1 完整回合」—— 没有「还剩几回合」可数了，直接说到什么时候为止；
 	## 折扣 / 加价现读 CWData，不写第二份
-	if not game.chemo.is_empty() and game.chemo["at"] == c:
-		rows.append({ "text": "趋化源 · 到 %s 下个回合前" % game.player(int(game.chemo.get("by", -1)))["name"],
+	if not m.chemo.is_empty() and m.chemo["at"] == c:
+		rows.append({ "text": "趋化源 · 到 %s 下个回合前" % m.player(int(m.chemo.get("by", -1)))["name"],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.IMMUNE })
 		rows.append({ "text": "免疫朝它 -%d%% · 癌方背它 +%d%%" % [
 				100 - CWData.CHEMO_IMMUNE_PCT, CWData.CHEMO_CANCER_PCT - 100],
@@ -128,22 +128,22 @@ static func describe(game: CWGame, c: Vector2i, move_cost := -1, verb := "") -> 
 	if t["mucus"]:
 		rows.append({ "text": "黏液侵染", "size": CWStyle.SIZE_BODY, "color": CWStyle.CANCER })
 		var tail := "免疫接触后消失"
-		if game.tune.mucus_move_surcharge > 0:
-			tail = "免疫踏入 +%s · " % CWData.fmt(game.tune.mucus_move_surcharge) + tail
+		if int(m.tune["mucus_move_surcharge"]) > 0:
+			tail = "免疫踏入 +%s · " % CWData.fmt(int(m.tune["mucus_move_surcharge"])) + tail
 		rows.append({ "text": tail, "size": CWStyle.SIZE_LABEL, "color": CWStyle.TEXT_DIM })
 	if t["necrosis"]:
 		rows.append({ "text": "坏死", "size": CWStyle.SIZE_LABEL, "color": CWStyle.TEXT_DIM })
-	for cell in game.cells_at(c):
+	for cell in m.cells_at(c):
 		var immune: bool = cell["faction"] == CWData.Faction.IMMUNE
 		var tname: String = CWData.IMMUNE_TYPE_NAMES[cell["itype"]] if immune \
 			else CWData.CANCER_TYPE_NAMES[cell["ctype"]]
-		rows.append({ "text": "%s · %s" % [game.player(cell["pid"])["name"], tname],
+		rows.append({ "text": "%s · %s" % [m.player(cell["pid"])["name"], tname],
 			"size": CWStyle.SIZE_BODY,
 			"color": CWStyle.IMMUNE if immune else CWStyle.CANCER, "rule": true })
 		var mark := "　标记 ×%d" % cell["mark_left"] if cell["marked"] else ""
 		rows.append({ "text": "能量 %s%s" % [CWData.fmt(maxi(cell["energy"], 0)), mark],
 			"size": CWStyle.SIZE_BODY, "color": CWStyle.TEXT })
-		for status: Dictionary in game.damage.status_rows(cell):
+		for status: Dictionary in m.status_rows_of(cell):
 			rows.append({ "text": "　%s · 【%s】%s" % [status["kind"], status["name"], status["detail"]],
 				"size": CWStyle.SIZE_LABEL,
 				"color": CWStyle.CANCER if status["kind"] == "易伤" else CWStyle.IMMUNE })
@@ -183,15 +183,15 @@ static func production_row(t: Dictionary) -> Dictionary:
 ##
 ## ⚠ 措辞用「**至少**」不是精确值：癌方在免疫之后行动、会在它周围铺新格，
 ## 所以回合末的真实值只会**大于等于**此刻这个数。写成精确值会骗人。
-static func pressure_rows(game: CWGame, c: Vector2i, move_cost: int, mover_immune := true) -> Array:
+static func pressure_rows(m: CWMirror, c: Vector2i, move_cost: int, mover_immune := true) -> Array:
 	var here_immune := false
-	for cell in game.cells_at(c, CWData.Faction.IMMUNE):
+	for cell in m.cells_at(c, CWData.Faction.IMMUNE):
 		here_immune = true
 	## 只在「正在为这一格做决定」时出：**免疫的**迁移候选，或者上面站着免疫细胞。
 	## 【E-微环境压迫】只扣免疫细胞的能量，癌细胞的移动候选格没有这一刀，写出来是骗人
 	if (move_cost < 0 or not mover_immune) and not here_immune:
 		return []
-	var loss: int = game.world.pressure_at(c)
+	var loss: int = m.pressure_at(c)
 	if loss <= 0:
 		return [{ "text": "回合末压迫 无", "size": CWStyle.SIZE_LABEL,
 			"color": CWStyle.TEXT_DIM }]
