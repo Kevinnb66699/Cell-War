@@ -9380,6 +9380,13 @@ func t_pause_and_teardown() -> void:
 	##
 	## 画的是**照选稿烤的半透明覆膜贴图**（`tools/art-preview` 的「黏液纹理 A」），
 	## 不是色标 —— 选稿那句要求是「保留底层组织识别」，色标会把整格染成一个颜色。
+	## AI 正打着第一回合：播放队列一批积压 ≥ 24 条就快进，当帧把【定殖】/【侵蚀】/【增生】的过场全播出来，
+	## 而 _sync_tiles 对正在演过场（0.32 s）的格子直接 `continue`，那一格的覆膜就不画；印戒【黏液破裂】的液浪
+	## 同理（没推到的新格先不画）。原发灶长在原点周围，过场恰好落在这一圈里 —— 中哪几格看开局种子（按时间取），
+	## 全套偶发「19 格实到 17」（2026-09-19，见开发日志）。这里验的是覆膜本身，先把两只演出收掉；
+	## 从这儿到下面那次 _sync_tiles 之间不 await，队列插不进新的过场，收完就是确定的
+	m._erosion_fx.clear_all()
+	m._mucus_fx.clear()
 	var mucus_at: Array[Vector2i] = []
 	for c: Vector2i in _kg(m).tiles:
 		if CWData.hex_dist(c, Vector2i.ZERO) <= CWData.MUCUS_RADIUS:
