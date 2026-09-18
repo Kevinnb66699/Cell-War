@@ -162,6 +162,8 @@ func _run_all() -> void:
 		t_rec_depth, t_rec_shape, t_rec_contract_only, t_rec_transparent,
 		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
 		t_case_loader_keys, t_case_diff,
+		## 新手引导 S2：cwtut/1 关卡数据与九条纪律的执行机构
+		t_tutorial_data,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -20961,3 +20963,77 @@ func t_rec_transparent() -> void:
 		check(h1 == CWStateCodec.state_hash(g), "%s：开代理与不开代理的 state_hash 逐位相同" % which)
 		check(rec.entries.size() > 0, "%s：代理真的录到了条目（%d 条）" % [which, rec.entries.size()])
 		g.dispose()
+
+
+# ---- 教程 S2：cwtut/1 数据格式与校验（docs/新手引导_实现方案.md §1.2 / ③ 的 S2 段）----
+const TUT_DATA := preload("res://scripts/kernel/cw_tutorial_data.gd")
+
+
+## 这一片**还不接线**（舞台在 S3），所以这条测试就是关卡数据的唯一执行机构：
+## 九条纪律逐条有一份坏数据打上去，打不中就是校验漏了一条。
+func t_tutorial_data() -> void:
+	print("[教程 S2·cwtut/1 数据与校验]")
+	var d = TUT_DATA.new()
+	var index: Dictionary = d.load_index()
+	var rows: Array = index.get("levels", [])
+	check((index.get("_doc", []) as Array).size() >= 9,
+		"index.json 的文件头 _doc 写了九条纪律（%d 行）" % (index.get("_doc", []) as Array).size())
+	check(rows.size() == 2, "关表 = 第一章前两关（第四章不写）：%d 关" % rows.size())
+
+	## ① 每一关都过九条纪律
+	var levels := {}
+	for row in rows:
+		var id := str((row as Dictionary)["id"])
+		var lv: Dictionary = d.load_level(id)
+		levels[id] = lv
+		check(not lv.is_empty() and str(lv.get("id", "")) == id, "%s 按关表那一行的 file 读得出来" % id)
+		var errs: PackedStringArray = d.validate(lv)
+		for e in errs:
+			print("       %s" % e)
+		check(errs.is_empty(), "%s 过九条纪律（%d 条错）" % [id, errs.size()])
+
+	## ② 逐份 world：resolve → load_world → dump_world ≡ minify（闸二 2a 的比法）
+	var n_worlds := 0
+	for id in levels:
+		var ids: Array = (levels[id]["worlds"] as Dictionary).keys()
+		ids.sort()
+		for wid in ids:
+			var spec: Dictionary = d.resolve(levels[id], str(wid))
+			check(not spec.is_empty() and spec.has("players"), "%s.%s resolve 取得出完整 cwxworld/2" % [id, str(wid)])
+			var l = CASE_LOADER.new()
+			var g: CWGame = l.load_world(spec)
+			if g == null:
+				check(false, "%s.%s 装得出来：%s" % [id, str(wid), str(l.errors)])
+				continue
+			var back: Dictionary = l.dump_world(g)
+			g.dispose()
+			var msgs: PackedStringArray = CASE_DIFF.compare(back, l.minify(spec))
+			for m in msgs:
+				print("       %s" % m)
+			check(msgs.is_empty(), "%s.%s 装载往返齐" % [id, str(wid)])
+			n_worlds += 1
+	check(n_worlds == 2, "两关各一份完整 world（本片不做继承）：%d 份" % n_worlds)
+
+	## ③ 七条坏数据，逐条命中它该命中的那一条纪律
+	var src: Dictionary = levels["c1_l2"]
+	for pair in [
+		["不认识的顶层键", func(l: Dictionary) -> void: l["newbron"] = 1],
+		["每席恰好一只", func(l: Dictionary) -> void:
+			(l["worlds"]["base"]["cells"] as Array).append({ "seat": 0, "type": "ImmuneBasic", "at": "2,-2" })],
+		["没有显式写 type", func(l: Dictionary) -> void: (l["active_tiles"] as Array).append("0,-3")],
+		["不在 CWGuideWatch.KEYS", func(l: Dictionary) -> void: l["steps"][0]["watch"] = "tile_healthy:3,-1"],
+		["seats 与 players 条数不符", func(l: Dictionary) -> void: l["seats"] = 3],
+		["reveal 的格不在盘上", func(l: Dictionary) -> void: l["steps"][2]["reveal"] = ["9,9"]],
+		["占位解析不出", func(l: Dictionary) -> void: l["steps"][0]["t"] = "伤害 {{tune.没有的}}"],
+	]:
+		var lv: Dictionary = src.duplicate(true)
+		(pair[1] as Callable).call(lv)
+		var errs: PackedStringArray = d.validate(lv)
+		var hit := false
+		for e in errs:
+			if e.contains(str(pair[0])):
+				hit = true
+		check(hit, "坏数据命中「%s」（校验吐了 %d 条：%s）" % [str(pair[0]), errs.size(), str(errs)])
+
+	## 校验只读：打完七发之后正本还是干净的
+	check(d.validate(levels["c1_l2"]).is_empty(), "校验只读 —— 正本没被坏数据蹭到")
