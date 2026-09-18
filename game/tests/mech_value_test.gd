@@ -33,17 +33,18 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	t_mech_attack_ev()
-	t_mech_anaerobic()
-	t_mech_sclc_jump()
-	t_mech_attack_chain()
-	t_mech_purify_supply()
-	t_mech_solidify()
-	t_mech_colonize_supply()
-	t_mech_infra_savings()
-	t_mech_intent_eval()
-	t_mech_intent_select()
-	t_mech_bridge()
+	await t_mech_attack_ev()
+	await t_mech_anaerobic()
+	await t_mech_sclc_jump()
+	await t_mech_attack_chain()
+	await t_mech_purify_supply()
+	await t_mech_solidify()
+	await t_mech_colonize_supply()
+	await t_mech_infra_savings()
+	await t_mech_intent_eval()
+	await t_mech_intent_select()
+	await t_mech_bridge()
+	await t_entry_smoke_intent()
 	print("\n%d 项检查，%d 失败" % [checks, fails])
 	quit(1 if fails > 0 else 0)
 
@@ -708,6 +709,37 @@ func _run_mech_hash(seed_value: int) -> String:
 	var h: String = g.state_hash()
 	g.dispose()
 	return h
+
+
+## —— 第四档「意图」真实入口冒烟 ——
+## 加载 Main 场景，ai_level = AI_INTENT，走真的人机装配路径（CWUIBridge + ai_bridge 槽），
+## 验证：InProc 句柄建起、ai_bridge 挂的是 MechBridge、局面推进到真人 pending 边界。
+func t_entry_smoke_intent() -> void:
+	print("[入口冒烟·意图档]")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	m.human_players = [0]
+	m.player_count = 4
+	m.match_seed = 5151
+	m.ai_level = CWMatch.AI_INTENT
+	CWSettings.ai_delay_ms = 0
+	m.start()
+	await process_frame
+	check(m.kernel is CWKernelInProc and m.queue != null and m.queue.running,
+		"意图档本地局：InProc 句柄建起来了、播放队列在跑")
+	check(m.bridge != null and m.bridge.ai_bridge is MechBridge,
+		"意图档 ai_bridge 挂的是 MechBridge")
+	var spin := 0
+	while not m.can_save_now() and spin < 900:
+		await process_frame
+		spin += 1
+	check(m.can_save_now(), "跑到真人 pending 边界（等了 %d 帧）" % spin)
+	m.teardown()
+	await process_frame
+	CWSettings.ai_delay_ms = 220
+	main_scene.queue_free()
 
 
 ## —— 测试助手：rig_rng 钉骰 ——

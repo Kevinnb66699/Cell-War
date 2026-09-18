@@ -100,9 +100,9 @@ var _sticky_round := -1  ## 属于哪个世界回合。**换人或换回合都�
                          ## 一个人每个世界回合只行动一次，所以「新回合」就是「这人的下一个回合」，
                          ## 不清掉的话新回合一开始就莫名其妙直接进了选目标格（团队反馈）
 var _pending: Answer   ## 正卡在「等玩家作答」上的那一次询问
-## 第三档「树搜索」的代打桥（CWMCTSBridge）。null = 不是这一档。
-## 它与本类的基类（扁平 MC）**并列**，所以只能挂着用，不能继承。
-var mcts: CWMCTSBridge = null
+## 「树搜索」「意图」两档的代打桥（CWMCTSBridge / MechBridge）。null = 不是这两档。
+## 与本类的基类（扁平 MC）**并列**，所以只能挂着用，不能继承。只认 game + ask。
+var ai_bridge: CWBridge = null
 
 ## ---- 路径规划器（2026-09-04 Kevin 要的）----
 ## 只在「选迁移目标」这一问里活着。规划态下棋盘的点击不再直接作答，
@@ -169,8 +169,8 @@ static func needs_handoff(p_hotseat: bool, p_current_human: int, pid: int) -> bo
 ## 形参**故意不标类型**：标上 `CWGame` 就把引擎类名写回了 `game/scripts/ui/`，结构闸 `t_no_engine_in_ui` 当场红。
 func attach_engine(g) -> void:   ## KERNEL-ENGINE-OK
 	game = g
-	if mcts != null:
-		mcts.game = g
+	if ai_bridge != null:
+		ai_bridge.game = g
 
 
 func ask(req: Dictionary) -> int:
@@ -191,8 +191,8 @@ func ask(req: Dictionary) -> int:
 	## 第三档「树搜索」：转给挂在这儿的 MCTS 桥（CWMatch._wire_bridge 装的）。
 	## 走组合而不是继承 —— 见那边的注释。挂着就整条 AI 路由都归它，
 	## 包括非顶层询问（它自己回落到启发式），免得两只桥各答一半、行为拼不齐。
-	if mcts != null:
-		return await mcts.ask(req)
+	if ai_bridge != null:
+		return await ai_bridge.ask(req)
 	return await super.ask(req)
 
 

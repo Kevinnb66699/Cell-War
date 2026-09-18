@@ -800,11 +800,12 @@ func _prepare_ui() -> void:
 		_log_hint.visible = true
 
 
-## 三档 AI 的名字。**唯一一处**：配置面板的行文、存档的兼容映射、装配都读它。
-const AI_LEVEL_NAMES := ["普通", "较强", "树搜索"]
+## 四档 AI 的名字。**唯一一处**：配置面板的行文、存档的兼容映射、装配都读它。
+const AI_LEVEL_NAMES := ["普通", "较强", "树搜索", "意图"]
 const AI_NORMAL := 0
 const AI_MC := 1        ## 扁平蒙特卡洛（CWUIBridge 的基类本体），也是平衡标尺
 const AI_MCTS := 2      ## UCT 树搜索（队友 2026-09-07 的 CWMCTSBridge）
+const AI_INTENT := 3    ## 意图级规划（MechBridge，2026-09-20）：杠杆库 + 意图评估器，仅实验档
 ## 树搜索档的预算。扁平 MC 的专家档是 192 个模拟 step；树搜索给两倍，
 ## 依据是「它该更强，也该更慢一点，但仍要有可预测的上限」——
 ## ⚠ **这三个数没有对局数据支撑**，只是量纲上的合理取值，等有了 AI 互搏基准再定。
@@ -877,18 +878,23 @@ func _wire_bridge(level: int) -> void:
 	bridge.use_threading = level == AI_MC and thinking
 	## 第三档：挂一只 MCTS 桥当代打。**组合而不是继承** —— CWUIBridge 已经继承了扁平 MC，
 	## 而 CWMCTSBridge 是与扁平 MC 并列的另一棵（队友刻意不继承，为的是不动平衡标尺）。
-	## 共用同一个 game；非顶层询问它自己会回落到启发式，delay 也走基类那条，行为与另两档一致。
-	bridge.mcts = null
-	if level == AI_MCTS and not tutorial:
-		var tree_ai := CWMCTSBridge.new()
-		## **只挂不喂**：引擎由 CWUIBridge.attach_engine 在 kernel.open() 里一并转交给它（A-5.3）
-		tree_ai.iterations = MCTS_ITERATIONS
-		tree_ai.horizon = MCTS_HORIZON
-		tree_ai.max_sim_steps = MCTS_MAX_STEPS
-		tree_ai.use_threading = thinking
-		tree_ai.delay_ms = CWSettings.ai_delay_ms
-		tree_ai.delay_node = self
-		bridge.mcts = tree_ai
+	## 第四档「意图」：挂 MechBridge（意图级规划，杠杆库 + 意图评估器）。
+	## 两者共用同一个 `ai_bridge` 槽（泛化：只认 game + ask），非顶层询问自己回落启发式。
+	bridge.ai_bridge = null
+	if (level == AI_MCTS or level == AI_INTENT) and not tutorial:
+		var alt_ai: CWBridge
+		if level == AI_MCTS:
+			alt_ai = CWMCTSBridge.new()
+			## **只挂不喂**：引擎由 CWUIBridge.attach_engine 在 kernel.open() 里一并转交给它（A-5.3）
+			alt_ai.iterations = MCTS_ITERATIONS
+			alt_ai.horizon = MCTS_HORIZON
+			alt_ai.max_sim_steps = MCTS_MAX_STEPS
+			alt_ai.use_threading = thinking
+		else:
+			alt_ai = MechBridge.new()   ## 意图评估在主线程同步跑（可接受，后续再线程化）
+		alt_ai.delay_ms = CWSettings.ai_delay_ms
+		alt_ai.delay_node = self
+		bridge.ai_bridge = alt_ai
 	bridge.opening = _opening    ## 绽开演完前先不弹询问界面
 	bridge.delay_ms = CWSettings.ai_delay_ms
 	bridge.delay_node = self
