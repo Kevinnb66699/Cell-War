@@ -19422,19 +19422,76 @@ func t_play_queue() -> void:
 	var q := CWPlayQueue.new()
 	q.kernel = k
 	q.consumer = probe
-	var seen := { "log": 0, "over": 0 }
+	var seen := { "log": 0, "over": 0, "step": 0 }
+	var marks: Array = []   ## step_begin / step_end / game_over 的到达顺序（队列播完一批就 discard_before，事后 pull 不到了）
 	q.on_log = func(_e: Dictionary) -> void: seen["log"] += 1
-	q.on_game_over = func(_e: Dictionary) -> void: seen["over"] += 1
+	q.on_game_over = func(_e: Dictionary) -> void:
+		seen["over"] += 1
+		marks.append("game_over")
+	q.on_step = func(e: Dictionary) -> void:
+		seen["step"] += 1
+		marks.append(String(e["t"]))
 	await q.pump()
 	check(k.state() == CWKernel.State.ENDED and seen["over"] == 1, "队列一路播到 game_over（%d 条）" % q.played)
 	check(k.winner == w0 and k.state_hash() == h0, "被队列的 ack 节拍驱动的一局与直接 run_game 逐位相同")
-	var total := k.pull(CWKernel.VIEWER_OMNISCIENT, 0, 1000000).size()
+	var total := k.entry_seq()   ## 条目总数 = 最后一条的 seq（播完的已被 discard_before 丢掉，pull 不到了）
 	var shown := 0
 	for kind in probe.counts:
 		shown += int(probe.counts[kind])
-	check(q.played == total and shown + seen["log"] + 1 == total, "每条条目恰播一次：演出 %d + 日志 %d + 终局 1 = %d" % [shown, seen["log"], total])
+	check(q.played == total and shown + seen["log"] + seen["step"] + 1 == total, "每条条目恰播一次：演出 %d + 日志 %d + 边界 %d + 终局 1 = %d" % [shown, seen["log"], seen["step"], total])
 	check(int(probe.counts.get("roll", 0)) > 0, "掷骰真的经过了 barrier（roll %d 次）" % int(probe.counts.get("roll", 0)))
+	## 批 1 步 4（拍板 2）：行动边界 —— 每问一次 step_end → step_begin 成对（没设 observe_viewer 就没有 sync 夹在中间），终局前再收一次
+	var n_begin := 0
+	var n_end := 0
+	var ordered: bool = marks.size() >= 2 and String(marks[0]) == "step_end" and String(marks[-1]) == "game_over" and String(marks[-2]) == "step_end"
+	for i in marks.size():
+		if marks[i] == "step_begin":
+			n_begin += 1
+			if i == 0 or marks[i - 1] != "step_end":
+				ordered = false
+		elif marks[i] == "step_end":
+			n_end += 1
+			if i > 0 and marks[i - 1] != "step_begin":
+				ordered = false
+	check(n_begin == k._ask_serial and n_end == k._ask_serial + 1 and ordered,
+		"行动边界：step_begin = 问数 %d、step_end = 问数 + 1、end / begin 交替成对、终局前最后一条是 step_end" % k._ask_serial)
+	check(k.pull(CWKernel.VIEWER_OMNISCIENT, 0, 5).is_empty(), "pump 播完一批就 discard_before：终局后条目已清空")
 	k.close()
+
+	## 1b) 拍板 2：有时长的演出播完再放下一条；积压过线就快进（退回今天的触发即走）
+	var slow_stream: Array = [
+		{ "t": "fx", "kind": "immune_attack", "data": {} },
+		{ "t": "result", "text": "一", "at": Vector2i.ZERO, "linger": false },
+		{ "t": "fx", "kind": "chomp", "data": {} },
+		{ "t": "result", "text": "二", "at": Vector2i.ZERO, "linger": false },
+		{ "t": "game_over", "winner": 0, "reason": "", "kind": "", "round": 1, "replay": {} },
+	]
+	var slowb = load("res://tests/slow_fx_bridge.gd").new()
+	var fake0 = load("res://tests/fake_net_client.gd").new()
+	fake0.stream = slow_stream.duplicate(true)
+	var r0 := CWKernelRemote.new()
+	r0.open({ "client": fake0 })
+	var q0 := CWPlayQueue.new()
+	q0.kernel = r0
+	q0.consumer = slowb
+	await q0.pump()
+	check(slowb.order == ["fx:immune_attack", "result:一", "fx:chomp", "result:二"], "顺序播：有时长的 fx 播完才放下一条（%s）" % str(slowb.order))
+	r0.close()
+	var slowc = load("res://tests/slow_fx_bridge.gd").new()
+	var fake1 = load("res://tests/fake_net_client.gd").new()
+	fake1.stream = slow_stream.duplicate(true)
+	var r1 := CWKernelRemote.new()
+	r1.open({ "client": fake1 })
+	var q1 := CWPlayQueue.new()
+	q1.kernel = r1
+	q1.consumer = slowc
+	q1.hurry_backlog = 3   ## 一批 5 条 ≥ 3 → 自动快进
+	await q1.pump()
+	await process_frame
+	await process_frame
+	await process_frame
+	check(slowc.order == ["result:一", "result:二", "fx:immune_attack", "fx:chomp"], "积压快进：不等，fx 触发即走、便宜的先落（%s）" % str(slowc.order))
+	r1.close()
 
 	## 2) Remote 只读适配：报文 → 条目，形状对得上；answer 按键翻成下标再发线上
 	var fake = load("res://tests/fake_net_client.gd").new()
@@ -19461,10 +19518,42 @@ func t_play_queue() -> void:
 	check(int(es[0]["seq"]) == 1 and int(es[-1]["seq"]) == 6 and bool(es[2]["barrier"]) and not bool(es[3]["barrier"]), "seq 1..6，只有 roll 带 barrier")
 	check(es[1]["ask_id"] == 7 and es[1]["left_ms"] == 30000 and es[0]["envelope"]["turn"] == 1, "ask / sync 字段照报文")
 	check(r.answer(7, { "key": "k=action|act=move|to=-2,0" }) and fake.answered == [[7, 1]], "answer 按语义键翻成下标 1 发线上")
+	check(fake.keys == ["k=action|act=move|to=-2,0"], "answer 连语义键一起发（A-9：服务器按 key 反查、下标兜底）")
 	check(not r.answer(7, { "index": 0 }), "同一问不能答两次")
 	check(r.state() == CWKernel.State.ENDED and not r.can_save() and r.save().is_empty(), "game_over 后 ENDED；联机不存档")
 	r.close()
 	check(fake.disposed, "close → 客户端 dispose")
+
+	## 2b) 批 1 步 4：Remote 的 observe（sync 条目进来就装镜像）/ game_no / query RPC + 按 sync 作废的缓存 / detach
+	var g2 := make_game(2, 4)
+	await run_setup(g2)
+	var env2: Dictionary = CWObsCodec.encode(g2, { "viewer": 0, "ask": g2._pending })
+	var fake2 = load("res://tests/fake_net_client.gd").new()
+	fake2.stream = [ { "t": "sync", "envelope": env2, "hash": "h", "game": 3 }, { "t": "step_begin", "ask_id": 1, "seat": 0 } ]
+	var r2 := CWKernelRemote.new()
+	r2.open({ "client": fake2 })
+	check(r2.observe(0) == null and r2.game_no == -1, "sync 到之前 observe 是 null")
+	r2.drain()
+	var m2 = r2.observe(0)
+	var e2: Array = r2.pull(0, 0, 10)
+	check(m2 != null and m2.round_no == g2.round_no and r2.game_no == 3 and r2.last_hash == "h" and not r2.observe_envelope(0).is_empty()
+		and e2.size() == 2 and e2[0]["t"] == "sync" and e2[1]["t"] == "step_begin" and int(e2[1]["ask_id"]) == 1,
+		"sync 条目进来就装镜像；game / hash 留在外壳；step_begin 照类进条目")
+	var cid2 := int(g2.cell_of(0)["id"])
+	var args2 := { "cid": cid2, "from": g2.cell_of(0)["pos"] }
+	check(r2.query("plan_next_dests", args2) == null and fake2.sent.size() == 1 and fake2.sent[0]["t"] == "query" and fake2.sent[0]["kind"] == "plan_next_dests",
+		"query 没缓存：发 RPC、先返回 null")
+	check(r2.query("plan_next_dests", args2) == null and fake2.sent.size() == 1, "同一 (kind, args) 在飞时不重发")
+	fake2.query_results.append({ "t": "query_result", "qid": int(fake2.sent[0]["qid"]), "value": [Vector2i(1, 0)] })
+	r2.drain()
+	check(r2.query("plan_next_dests", args2) == [Vector2i(1, 0)], "query_result 回来后同一键命中缓存")
+	fake2.stream.append({ "t": "sync", "envelope": env2, "hash": "h2", "game": 3 })
+	r2.drain()
+	check(r2.query("plan_next_dests", args2) == null and fake2.sent.size() == 2 and r2.last_hash == "h2", "新 sync 到 → 缓存作废、重新发 RPC")
+	check(not bool(r2.caps()["query_sync"]) and not bool(r2.caps()["save"]), "caps：query_sync=false / save=false")
+	r2.detach()
+	check(r2.client == null and not fake2.disposed and r2.observe(0) == null, "detach：放开镜像与客户端、不 dispose")
+	g2.dispose()
 
 
 # ---- 口径二 · 批 0 步 8：观测协议 v1 的 GD 生产者（CWObsCodec）与镜像（CWMirror）----

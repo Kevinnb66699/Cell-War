@@ -22,6 +22,7 @@ var barrier_hits := 0               ## ⑩ 真正等过 ack 的 roll 计数（t_
 var open_hands := false             ## ⑨ 房主开的「观众全见」（cw_room.gd watch_hands）—— 中途能改，所以公开可写
 var observe_viewer: Variant = null  ## ⑥ 观测节拍开关：设了就在每次问人之前、终局之前各推一条 sync（A-1.5）；独立于 has_consumer
 var adopted := false                ## ① 收养模式：game 不归句柄所有（close() 不 dispose）
+var _step_open := true              ## 拍板 2 的行动边界：开局那段（落子 / 开局演出）也算一步，第一问之前先 step_end 收掉
 var barrier_timeout_ms := BARRIER_TIMEOUT_MS
 var winner := -1
 
@@ -158,12 +159,27 @@ func _obs_ctx(viewer: int, logs_from: int) -> Dictionary:
 		"ask_id": int(_open_ask.get("ask_id", 0)), "rev": _obs_rev, "obs_seq": _next_seq - 1 }
 
 
-## ⑥ 观测节拍：observe_viewer 设了就推一条 sync（每次问人之前、终局之前各一份，A-1.5）
-func _push_sync() -> void:
-	if observe_viewer == null or game == null:
+## ⑥ + 拍板 2：一步收尾 —— step_end{rev} 之后紧跟 sync（observe_viewer 设了才有 sync），都在问人 / 终局之前（A-1.5 的节拍）。
+## 顺序播的客户端走到 step_end 时这一步的演出已播完，紧接着的 sync 落地 = 「演出播完盘面才变」
+func _close_step() -> void:
+	if not _step_open or game == null:
+		return
+	_step_open = false
+	if observe_viewer == null:
+		_push("step_end", { "rev": _obs_rev })
 		return
 	_obs_rev += 1
-	_push("sync", { "envelope": CWObsCodec.encode(game, _obs_ctx(int(observe_viewer), 0)) })
+	var env: Dictionary = CWObsCodec.encode(game, _obs_ctx(int(observe_viewer), 0))
+	_push("step_end", { "rev": _obs_rev })
+	_push("sync", { "envelope": env })
+
+
+## 一问答下即开步：这一步的演出都排在它之后
+func _open_step(ask_id: int, seat: int) -> void:
+	if game == null or game.aborted:
+		return
+	_push("step_begin", { "ask_id": ask_id, "seat": seat })
+	_step_open = true
 
 
 func logs_for(viewer: int, from: int) -> PackedStringArray:
@@ -351,7 +367,7 @@ func _run() -> void:
 	_running = true
 	winner = await game.run_game()
 	_running = false
-	_push_sync()   ## ⑥ 终局之前一份
+	_close_step()   ## ⑥ 终局之前：step_end + sync
 	_push("game_over", { "winner": winner, "reason": game.win_reason, "kind": game.win_kind, "round": game.round_no,
 		"replay": CWReplay.of(game) if game.record_replay else {} })
 	_set_state(State.ENDED)
@@ -364,13 +380,14 @@ func _on_ask(req: Dictionary) -> int:
 	## ⑧ decider 路也写 _open_ask：observe() 才带得出卡牌结算里的中途询问；abort_ask() 才知道要叫醒谁
 	_open_ask = { "ask_id": ask_id, "req": req, "index": -1, "decider": deciders.has(pid) }
 	_set_state(State.AWAITING)
-	_push_sync()   ## ⑥ 问人之前一份（decider 路与 answer() 路都推）
+	_close_step()   ## ⑥ 问人之前：step_end + sync（decider 路与 answer() 路都推）
 	if deciders.has(pid):
 		var picked: int = await deciders[pid].ask(req)   ## 不 push ask 条目：有 decider 时队列里没有 ask
 		if not _open_ask.is_empty() and int(_open_ask["ask_id"]) == ask_id:
 			_open_ask = {}
 		if _state == State.AWAITING:
 			_set_state(State.READY)
+		_open_step(ask_id, pid)
 		return picked
 	_push("ask", { "ask_id": ask_id, "req": req, "left_ms": -1 })
 	while not _open_ask.is_empty() and int(_open_ask["ask_id"]) == ask_id and int(_open_ask["index"]) < 0:
@@ -381,6 +398,7 @@ func _on_ask(req: Dictionary) -> int:
 	_open_ask = {}
 	if _state == State.AWAITING:
 		_set_state(State.READY)
+	_open_step(ask_id, pid)
 	return idx
 
 

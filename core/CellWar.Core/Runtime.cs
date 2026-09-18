@@ -155,6 +155,9 @@ public sealed class Runtime : IRuntime, IDisposable
             using var tx = Begin(lease.Revision);
             tx.MutableImage.Simulation = (tx.MutableImage.Simulation with { Input = null })
                 .Schedule(CurrentTick, "PlayerDecision", input.Options[answer.OptionIndex]);
+            // 行动边界（协议 p=2 附录 B）：答下即开步，这一步的演出都排在它之后
+            var turn = tx.MutableImage.State.Turn;
+            tx.MutableImage.Simulation = tx.MutableImage.Simulation.Emit(new StepBegin(turn.WorldRound, turn.Phase, input.RequestId, input.PlayerSeat), keep: !PresentationMuted);
             Commit(tx);
             return new(true);
         }
@@ -232,6 +235,9 @@ internal sealed class EventContext : IEventContext
         if (s.Input != null || options.Count == 0 || options.Any(o => o.PlayerSeat != playerSeat))
             throw new InvalidOperationException("Invalid input barrier.");
         foreach (var option in options) PayloadCodec.Validate(option);
+        // 行动边界：下一问挂起之前收步，rev = 这次提交后的修订号（与紧随其后的 envelope.rev 同一个数）
+        var turn = transaction.MutableImage.State.Turn;
+        s = s.Emit(new StepEnd(turn.WorldRound, turn.Phase, transaction.BaseRevision.Value + 1), keep: !muted);
         transaction.MutableImage.Simulation = s with
         {
             Input = new(s.NextRequest, playerSeat, options.ToImmutableArray()), NextRequest = checked(s.NextRequest + 1)

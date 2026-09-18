@@ -6,7 +6,7 @@ namespace CellWar.Core.Observation;
 public sealed record PresentationPage(Dictionary<string, JsonElement>[] Entries, long DroppedBefore, long NextSeq);
 
 /// <summary>
-/// 演出条目 → 内核句柄条目（docs/观测协议_v1.md 附录 B）。字段名逐字照 GD `cw_net_bridge.gd` 的报文键；
+/// 演出条目 → 内核句柄条目（docs/观测协议_v1.md 附录 B，16 种：10 种演出 + attack + log 外的 step_begin / step_end 边界）。字段名逐字照 GD `cw_net_bridge.gd` 的报文键；
 /// 每条另带 `t` / `seq` / `barrier`（只有 roll 为 true）。C# 记录上的 WorldRound / Phase 不上线（GD 报文没有）。
 /// 值编码与观测协议同一套：坐标 `{q,r}`、细胞引用 cell id、枚举 GD 值（`immune_attack` 的 itype / ctype 在 emit 点就已经是 GD 值，见 <see cref="GdEnum"/>）。
 /// </summary>
@@ -40,6 +40,10 @@ public static class PresentationCodec
                 d["t"] = "beam"; d["from"] = b.From; d["to"] = b.To; d["splash"] = b.Splash; break;
             case SkillFx f:
                 d["t"] = "fx"; d["kind"] = f.Kind; d["data"] = f.Data; break;
+            case StepBegin sb:
+                d["t"] = "step_begin"; d["ask_id"] = sb.AskId; d["seat"] = sb.Seat; break;
+            case StepEnd se:
+                d["t"] = "step_end"; d["rev"] = se.Rev; break;
             default:
                 throw new InvalidOperationException($"演出记录 {staged.Event.GetType().Name} 还没有条目编码 —— 加一条，别让它静默缺席");
         }

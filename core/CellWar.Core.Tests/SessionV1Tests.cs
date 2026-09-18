@@ -90,7 +90,26 @@ public class SessionV1Tests
         Assert.Equal(page.Entries[0]["seq"].GetInt64(), page.DroppedBefore);
         var since = page.Entries[^1]["seq"].GetInt64();
         Assert.All(session.PullPresentation(-2, since).Entries, e => Assert.True(e["seq"].GetInt64() > since));
-        Assert.All(page.Entries, e => Assert.Contains(e["t"].GetString(), new[] { "roll", "attack", "result", "notice", "card_played", "event_drawn", "card_drawn", "world_event", "erosion", "beam", "fx" }));
+        Assert.All(page.Entries, e => Assert.Contains(e["t"].GetString(), new[] { "roll", "attack", "result", "notice", "card_played", "event_drawn", "card_drawn", "world_event", "erosion", "beam", "fx", "step_begin", "step_end" }));
+    }
+
+    /// <summary>批 1 步 4（Kevin 拍演出播放形态 2）：答下之后第一条是 step_begin{ask_id, seat}，下一问挂起之前最后一条是 step_end{rev}，rev 与随后的 envelope.rev 同一个数。</summary>
+    [Fact]
+    public void pull_行动边界_答下之后step_begin_下一问之前step_end()
+    {
+        using var session = Demo();
+        var ask = session.ObserveV1(-2).Ask!;
+        var before = session.PullPresentation(-2, 0).NextSeq;
+        Assert.True(session.SubmitByKey(ask.Seat, ask.AskId, "k=action|act=end", -1).IsValid);
+        var entries = session.PullPresentation(-2, before - 1).Entries;
+        var kinds = entries.Select(e => e["t"].GetString()).ToArray();
+        Assert.Equal("step_begin", kinds[0]);
+        Assert.Equal(ask.AskId, entries[0]["ask_id"].GetInt64());
+        Assert.Equal(ask.Seat, entries[0]["seat"].GetInt32());
+        Assert.Equal("step_end", kinds[^1]);
+        Assert.Equal(1, kinds.Count(k => k == "step_begin"));
+        Assert.Equal(1, kinds.Count(k => k == "step_end"));
+        Assert.Equal(session.ObserveV1(-2).Rev, entries[^1]["rev"].GetInt64());
     }
 
     [Fact]

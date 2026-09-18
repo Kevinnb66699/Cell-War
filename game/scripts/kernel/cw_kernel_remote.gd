@@ -1,17 +1,27 @@
-## cw_kernel_remote.gd —— 联机路的句柄（口径二 · 批 0 步 11：**只读适配器，不接进 match.gd**）
+## cw_kernel_remote.gd —— 联机路的句柄（口径二 · 批 0 步 11 只读适配器；批 1 步 4 补齐 observe / query / game_no / detach / answer 发 key）
 ##
-## 一一对上今天的代码：句柄本体 = CWNetClient（cw_net_client.gd）· 镜像 = shadow · observe 的装载 = shadow.restore(view)
-## · 条目队列 = stream + STREAM_KINDS（cw_net_client.gd:44-45）· answer(ask_id, index)（:204-207）· 换局边界 m["game"] != _game_no · close = dispose()。
-## 批 0 只做一件事：把 client.stream 里的报文翻成协议条目（只读、旁路），证明形状对得上。
+## 一一对上今天的代码：句柄本体 = CWNetClient（cw_net_client.gd）· 镜像 = shadow → 批 1 换成 CWMirror（sync 条目进来就 load_from）
+## · 条目队列 = stream + STREAM_KINDS（cw_net_client.gd:44-45）· answer(ask_id, index, key) · 换局边界 m["game"] != game_no · close = dispose()。
 ## 对端不可知：只认「一条有序报文流 + 一个 answer 出口」，Godot 房间还是 C# 服务都行 —— 服务器走 (a) 还是 (b) 不阻塞这里。
-## 报文 → 条目：state → sync{envelope}（批 0 先原样装报文，观测协议 v1 落地后换成 envelope）；ask / game_over 照字段；十种演出报文字段本来就同形（cw_net_bridge.gd:34-80）。
+## 报文 → 条目：sync{envelope, hash, game} → sync{envelope}（hash / game 留在句柄字段上；步 8 之前服务器还发 state{view}，那种整份当 envelope 原样装，装不进镜像）；
+## ask / game_over 照字段；十条演出报文 + step_begin / step_end 字段本来就同形（cw_net_bridge.gd:34-80）。
+## query（批 1 E-1 (a)）：C→S query{qid, kind, args} / S→C query_result{qid, value}，按 (rev, kind, args) 缓存；没缓存就发 RPC、先返回 null，
+## UI 按 caps().query_sync=false 降级（不画多步路线、不出灰格理由），下一帧缓存到了再画。每来一份 sync 缓存作废。
 class_name CWKernelRemote
 extends CWKernel
 
-var client                       ## CWNetClient（鸭子类型：要有 stream: Array、answer(ask_id, index)；测试用假客户端）
+var client                       ## CWNetClient（鸭子类型：要有 stream: Array、answer(ask_id, index, key)、send(m)；测试用假客户端）
+var game_no := -1                ## 报文外壳上的 games_played：换局边界（envelope 里没有等价物）
+var last_hash := ""              ## 服务器的 state_hash（诊断用，不进协议）
 var _entries: Array = []
 var _next_seq := 1
 var _asks := {}                  ## ask_id → req（answer 按键翻下标要它）
+var _mirror: CWMirror = null     ## 最近一份 sync 装出来的镜像
+var _last_envelope := {}
+var _qid := 0
+var _cache := {}                 ## 查询键 → value（只保留当前 rev 那一批）
+var _inflight := {}              ## 查询键 → qid（在飞的 RPC，别重发）
+var _qid_key := {}               ## qid → 查询键
 
 
 func open(cfg: Dictionary) -> bool:
@@ -27,7 +37,17 @@ func open(cfg: Dictionary) -> bool:
 func close() -> void:
 	if client != null and client.has_method("dispose"):
 		client.dispose()
+	detach()
+
+
+## 放开镜像与客户端引用、**不** dispose 客户端（联机面板还要用它回大厅）
+func detach() -> void:
 	client = null
+	_mirror = null
+	_last_envelope = {}
+	_cache.clear()
+	_inflight.clear()
+	_qid_key.clear()
 
 
 func abort() -> void:
@@ -39,10 +59,20 @@ func version() -> Dictionary:
 
 
 func caps() -> Dictionary:
-	return { "stream_sync": true, "step_drive": false, "rollout": false, "save": false, "authority": false }
+	return { "stream_sync": true, "step_drive": false, "rollout": false, "save": false, "authority": false, "query_sync": false }
 
 
-## 把客户端已收进 stream 的报文全部翻成条目（顺序不变，报文原样 pop 掉）。调用方在 pull 之前调一次
+# ---- 观测 ----
+## 服务器已按席位裁好，viewer 与 logs_from 在这条路上不生效（日志随 envelope.logs 走）
+func observe(_viewer: int, _logs_from := 0) -> RefCounted:
+	return _mirror
+
+
+func observe_envelope(_viewer: int, _logs_from := 0) -> Dictionary:
+	return _last_envelope
+
+
+## 把客户端已收进 stream 的报文全部翻成条目（顺序不变，报文原样 pop 掉）；query_result 另走一条口子。调用方在 pull 之前调一次
 func drain() -> int:
 	if client == null:
 		return 0
@@ -50,6 +80,9 @@ func drain() -> int:
 	while not client.stream.is_empty():
 		_translate(client.stream.pop_front())
 		n += 1
+	if "query_results" in client:
+		while not client.query_results.is_empty():
+			_on_query_result(client.query_results.pop_front())
 	return n
 
 
@@ -70,6 +103,19 @@ func ack(_seq: int) -> void:
 	pass
 
 
+func entry_seq() -> int:
+	return _next_seq - 1
+
+
+func discard_before(seq: int) -> void:
+	var n := 0
+	while n < _entries.size() and int(_entries[n]["seq"]) <= seq:
+		n += 1
+	if n > 0:
+		_entries = _entries.slice(n)
+
+
+# ---- 决策 ----
 func answer(ask_id: int, choice: Dictionary) -> bool:
 	if client == null or not _asks.has(ask_id):
 		return false
@@ -87,18 +133,60 @@ func answer(ask_id: int, choice: Dictionary) -> bool:
 	if idx < 0 or idx >= opts.size():
 		return false
 	_asks.erase(ask_id)
-	client.answer(ask_id, idx)   ## 线上仍是下标（批 0 不碰报文，批 1 升号时改）
+	## 线上带 key + 下标（A-9：服务器按 key 现算反查、下标兜底；两端同源 CWSemKey）
+	client.answer(ask_id, idx, CWSemKey.key(req, opts[idx]["data"]))
 	if _state == State.AWAITING:
 		_set_state(State.READY)
 	return true
+
+
+# ---- 纯查询（E-1 (a)：RPC + 按 rev 缓存）----
+func query(kind: String, args: Dictionary) -> Variant:
+	if client == null:
+		return null
+	var key := "%s|%s" % [kind, var_to_str(args)]
+	if _cache.has(key):
+		return _cache[key]
+	if not _inflight.has(key) and client.has_method("send"):
+		_qid += 1
+		_inflight[key] = _qid
+		_qid_key[_qid] = key
+		client.send({ "t": "query", "qid": _qid, "kind": kind, "args": args })
+	return null
+
+
+func _on_query_result(m: Dictionary) -> void:
+	var qid := int(m.get("qid", -1))
+	if not _qid_key.has(qid):
+		return   ## 上一份 sync 之前发的问，结果已经过期
+	var key: String = _qid_key[qid]
+	_qid_key.erase(qid)
+	_inflight.erase(key)
+	_cache[key] = m.get("value", null)
 
 
 func _translate(m: Dictionary) -> void:
 	var kind := String(m.get("t", ""))
 	var e: Dictionary
 	match kind:
-		"state":
-			e = { "envelope": m }
+		"state", "sync":
+			if m.has("envelope"):
+				e = { "envelope": m["envelope"] }
+				_last_envelope = m["envelope"]
+				var mm := CWMirror.new()
+				var err := mm.load_from(m["envelope"])
+				if err == "":
+					_mirror = mm
+				else:
+					push_error("CWKernelRemote：sync 里的 envelope 装不进镜像：%s" % err)
+			else:
+				e = { "envelope": m }   ## 步 8 之前的 state{view}：整份当 envelope 原样装（批 0 形状测试），装不进镜像
+			game_no = int(m.get("game", game_no))
+			last_hash = String(m.get("hash", last_hash))
+			## 盘面换了：上一份的查询结果作废（在飞的也作废，回来时对不上 qid 就扔）
+			_cache.clear()
+			_inflight.clear()
+			_qid_key.clear()
 			kind = "sync"
 		"ask":
 			e = { "ask_id": int(m["ask_id"]), "req": m["req"], "left_ms": int(m.get("left_ms", -1)) }
@@ -108,7 +196,10 @@ func _translate(m: Dictionary) -> void:
 			e = { "winner": int(m["winner"]), "reason": String(m.get("reason", "")), "kind": String(m.get("kind", "")),
 				"round": int(m.get("round", 0)), "replay": m.get("replay", {}) }
 			_set_state(State.ENDED)
-		"roll", "result", "notice", "erosion", "beam", "fx", "card_played", "event_drawn", "card_drawn", "world_event":
+		"query_result":
+			_on_query_result(m)
+			return
+		"roll", "result", "notice", "erosion", "beam", "fx", "card_played", "event_drawn", "card_drawn", "world_event", "step_begin", "step_end":
 			e = m.duplicate()
 			e.erase("t")
 		_:

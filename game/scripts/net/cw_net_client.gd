@@ -42,7 +42,8 @@ var pending_ask := {}                    ## 最近收到、尚未作答的询问
 ## 顺序播放模式（界面用）：对局流报文先进 stream，等使用者 apply_now；机器人与测试保持 false
 var sequenced := false
 var stream: Array = []
-const STREAM_KINDS := ["state", "ask", "roll", "result", "notice", "erosion", "beam", "fx", "card_played", "event_drawn", "card_drawn", "world_event", "game_over"]
+const STREAM_KINDS := ["state", "sync", "ask", "roll", "result", "notice", "erosion", "beam", "fx", "card_played", "event_drawn", "card_drawn", "world_event", "game_over", "step_begin", "step_end"]   ## sync / step_* 是批 1 步 8 服务器升 v30 后发的
+var query_results: Array = []            ## S→C query_result（批 1 E-1 (a) 的 RPC 应答）：不进 stream（不是演出），CWKernelRemote.drain 来取
 const INBOX_MAX := 2000                  ## inbox 只给测试和机器人翻，界面跑一整晚也别让它无限长
 ## 握手超时：TCP 握手包丢了、或来源 IP 被云安全组限流时，WebSocketPeer 会无限期停在 CONNECTING、不报任何错
 ## （2026-09-03 线上验收两次撞到：几分钟内第 15 个短连接的握手根本没到服务器，18 秒后又一切正常）。
@@ -201,10 +202,11 @@ func start() -> void:
 	send({ "t": "start" })
 
 
-func answer(ask_id: int, index: int) -> void:
+## key = 语义键（批 1 A-9：服务器按 key 现算反查、下标兜底；v29 服务器只读 index，多一个字段无害）
+func answer(ask_id: int, index: int, key := "") -> void:
 	if not pending_ask.is_empty() and pending_ask["ask_id"] == ask_id:
 		pending_ask = {}
-	send({ "t": "answer", "ask_id": ask_id, "index": index })
+	send({ "t": "answer", "ask_id": ask_id, "index": index, "key": key })
 
 
 ## 投降：没有正在进行的投票就是**发起**，有就是**投票**。
@@ -273,6 +275,8 @@ func _apply(m: Dictionary) -> void:
 			## 从这个时刻起算（见 CWSurrenderVote.deadline_of）。
 			if not surrender_vote.is_empty():
 				surrender_vote["at_ms"] = Time.get_ticks_msec()
+		"query_result":
+			query_results.append(m)
 		"left":
 			_clear_room()
 		"error":

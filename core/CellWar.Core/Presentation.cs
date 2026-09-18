@@ -87,3 +87,16 @@ public sealed record SkillFx(int WorldRound, Phase Phase, string Kind, Immutable
 {
     public string EventType => "fx";
 }
+
+/// <summary>行动边界（观测协议 p=2 附录 B；Kevin 2026-09-19 拍「演出播放形态选 2」）：一问答下之后 <c>step_begin{ask_id, seat}</c>。
+/// 客户端拿它把一步的演出当一个包顺序播完、再落地这一步的 sync；引擎 / 服务器照旧不等演出。GD 侧同口径：<c>cw_kernel_inproc.gd:_open_step</c>。</summary>
+public sealed record StepBegin(int WorldRound, Phase Phase, long AskId, int Seat) : IPresentationEvent
+{
+    public string EventType => "step_begin";
+}
+
+/// <summary>一步收尾 <c>step_end{rev}</c>：下一问挂起之前（<see cref="Runtime.AwaitInput"/>）。<paramref name="Rev"/> = 这一步提交后的修订号，与紧随其后的 envelope.rev 同一个数。</summary>
+public sealed record StepEnd(int WorldRound, Phase Phase, long Rev) : IPresentationEvent
+{
+    public string EventType => "step_end";
+}

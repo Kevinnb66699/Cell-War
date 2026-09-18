@@ -4,12 +4,14 @@
 ## InProc 把 CWGame 的桥回调翻译成入队；Sidecar / Remote 把报文翻译成入队。消费者只认「一条有序条目流 + 一个 answer 出口」，
 ## 不关心对端是本地 CWGame、本地 C# 进程还是服务器 —— 所以服务器走 (a) 还是 (b) 不阻塞这里。
 ##
-## 条目形状（14 种，字段逐字照 cw_net_bridge.gd:34-80 的报文键，一个键都不改）：
+## 条目形状（16 种，字段逐字照 cw_net_bridge.gd:34-80 的报文键，一个键都不改）：
 ##   演出 10 种：roll{reason,value,sides,pid,at} · result{text,at,linger} · notice{text} · card_played{pid,text,cell_id,pos,faction,card}
 ##              event_drawn{pid,cell_id,pos,faction,card} · card_drawn{pid,cell_id,pos,source} · world_event{ev,left}
 ##              erosion{at,dir} · beam{from,to,splash} · fx{kind,data}
 ##   另 4 种：log{index,text,secret_pid,public_text}（index 与上一条相同 = 就地改写末条，装得下 CWGame.log_run 的语义）
 ##            ask{ask_id,req,left_ms} · game_over{winner,reason,kind,round,replay} · sync{envelope}（传输层必发；InProc 在 cfg.observe_viewer 打开时也发，节拍见批 1 规格 A-1.5）
+##   行动边界 2 种（p=2，Kevin 2026-09-19 拍演出播放形态 2）：step_begin{ask_id,seat}（一问答下之后）· step_end{rev}（下一问 / 终局之前，紧接着 sync）——
+##            客户端把一步的演出当一个包顺序播完再落地 sync；引擎 / 服务器照旧不等演出。开局那段（落子 / 开局演出）也算一步，第一问之前先 step_end。
 ## 每条带 seq（单调、永不重编号）与 barrier（只有 roll 为 true：消费者 ack(seq) 之前内核不让后续条目生效，
 ## 批 0 不反转 await 语义 —— InProc 照旧真等，等价于今天 cw_game.gd:711-718 的 `await b.show_roll`）。
 ##
@@ -24,7 +26,7 @@ enum Fault { NONE, SPAWN_FAILED, ABI_MISMATCH, SELFTEST_FAILED, HANDSHAKE_TIMEOU
 const VIEWER_WATCHER := -1      ## 观众：手牌全占位、问答只给 kind / tag / seat / prompt
 const VIEWER_OMNISCIENT := -2   ## 全知：明文、全给 —— **禁止过网**，只给本地宿主 / 热座
 const STREAM_KINDS := ["roll", "result", "notice", "card_played", "event_drawn", "card_drawn", "world_event",
-	"erosion", "beam", "fx", "log", "ask", "game_over", "sync"]
+	"erosion", "beam", "fx", "log", "ask", "game_over", "sync", "step_begin", "step_end"]
 
 signal entry_ready()                          ## 队列里有新条目
 signal state_changed(from: int, to: int)
