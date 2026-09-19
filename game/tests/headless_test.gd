@@ -140,7 +140,7 @@ func _run_all() -> void:
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_board_small, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
-		t_card_name_fit, t_view_blend, t_attack_fx, t_crit_gold, t_issue31_fx, t_issue_fx_0919, t_plan_allowance, t_announce, t_action_bar_width,
+		t_card_name_fit, t_view_blend, t_attack_fx, t_crit_gold, t_issue31_fx, t_issue_fx_0919, t_cascade_purify_order, t_plan_allowance, t_announce, t_action_bar_width,
 		t_buttons_dim, t_enter_not_skipped, t_main_menu,
 		t_codex, t_quit_confirm, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
@@ -24764,3 +24764,31 @@ func _s9b_hook(m: CWMatch, row: Dictionary) -> void:
 		await process_frame
 	check(m._director._hook_depth == 0,
 		"钩子「%s」跑完了（%d 帧）" % [str(row.get("call", "")), spins])
+
+
+## issue #65（HXR-I 2026-09-19）：【补体级联】先净化后出粒子 —— 净化翻格要等冰蓝流到了那一格再翻。
+## 引擎在 fx 之后立刻把格子翻了；队列眼下不等演出（BLOCK_MUL 0），同步一落地格子先白、粒子 2.4 秒后才到。
+## 修法照【克隆增殖】的 arrival_in：桥把那两格的轴坐标交给演出层，_sync_tiles 把「癌 → 健康」押到落地那一刻
+func t_cascade_purify_order() -> void:
+	print("[补体级联：粒子到了再净化]")
+	check(CWMatch.purify_hold(2.0) == 2.0 and CWMatch.purify_hold(0.0) == 0.0 and CWMatch.purify_hold(-1.0) == 0.0,
+		"押后秒数 = 演出层报的到达秒数（-1 / 0 都不押）")
+	var sk := CWSkillFx.new()
+	root.add_child(sk)
+	var a := Vector2i(1, 0)
+	var b := Vector2i(2, 0)
+	sk.play("card_cascade", { "from": Vector2(0, 0), "to": Vector2(36, 0),
+		"tiles": [Vector2(36, 20), Vector2(72, 0)], "tiles_axial": [a, b] })
+	check(is_equal_approx(sk.arrival_in(a), CWSkillFx.CASCADE_HIT_AT - CWSkillFx.CARD_LEAD)
+			and is_equal_approx(sk.arrival_in(b), CWSkillFx.CASCADE_HIT_AT + CWSkillFx.CASCADE_STAGGER - CWSkillFx.CARD_LEAD),
+		"两格各自的落地时刻：第 i 格 %.1f + 0.2i − 提前量" % CWSkillFx.CASCADE_HIT_AT)
+	check(sk.arrival_in(Vector2i(5, 5)) < 0.0, "没被级联打到的格：-1")
+	sk.sync(1.0)
+	check(is_equal_approx(sk.arrival_in(a), CWSkillFx.CASCADE_HIT_AT - CWSkillFx.CARD_LEAD - 1.0), "演了 1 秒，还剩 1 秒到")
+	var src := FileAccess.get_file_as_string("res://scripts/ui/ui_bridge.gd")
+	check(src.contains('kind in ["card_clone", "card_cascade"]'), "桥把级联那两格的轴坐标也交给演出层（tiles_axial）")
+	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(msrc.contains("_purify_hold[c] = hold"), "_sync_tiles 把「癌 → 健康」押到 arrival_in 报的那一刻")
+	sk.clear()
+	root.remove_child(sk)
+	sk.free()

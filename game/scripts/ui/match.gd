@@ -400,6 +400,10 @@ var _last_energy: Array[int] = []
 ## 同传送溶解那条先例：引擎零改动、不加报文，进 / 出 `Tissue.SOLID` 全靠差分。
 ## 空 = 还没见过（开新局 / 拆局后的第一帧），那一帧只记不演
 var _last_tissue := {}
+var _purify_hold := {}          ## 格 -> 还要等几秒才翻成健康（issue #65：净化翻格押到【补体级联】的粒子落地）
+## 「癌 → 健康」要不要押后、押多久：演出层报的到达秒数 > 0 才押，其余（-1 = 没人往这格送东西、0 = 已到）不押。**纯函数**
+static func purify_hold(arrival: float) -> float:
+	return arrival if arrival > 0.0 else 0.0
 var _decos: Array = []         ## 下标同 _cell_nodes：每只细胞 [背面, 正面] 两个 CWCellDeco（囊性护甲 / 刚性屏障 / 头顶标记）
 var _seal_fx: CWSealFx         ## B【中和抗体】的投递与封禁环（后者常驻，见 _sync_seal）
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
@@ -1879,6 +1883,7 @@ func teardown() -> void:
 	_last_pos.clear()
 	_last_energy.clear()
 	_last_tissue.clear()   ## 差分是按格记的：留着的话下一局同一格会凭空演一次固化（同 _flash 当年那条）
+	_purify_hold.clear()
 	_bloom.clear()
 	_flash.clear()
 	board.set_active_radius(CWData.BOARD_RADIUS, 0.0)   ## 兜底：不管从哪条路拆局，棋盘都回到 127 格全露
@@ -2107,6 +2112,13 @@ func _sync_tiles() -> void:
 		if _last_tissue.has(c) and int(_last_tissue[c]) != now_solid and board.is_active(c) \
 				and (now_solid == CWData.Tissue.SOLID or int(_last_tissue[c]) == CWData.Tissue.SOLID):
 			solid_changed.append([c, now_solid == CWData.Tissue.SOLID])
+		## 【补体级联】等冰蓝流到了那一格再翻成健康（issue #65）：引擎在 fx 之后立刻把格子翻了，同步一落地
+		## 格子先白、粒子后到（队列眼下不等演出）。凡是「癌 → 健康」且演出层报「还有几秒送到这一格」的，
+		## 就先照旧画癌组织，到点再翻；别的翻格照旧即时。判据用**上一帧的 _last_tissue**，所以排在赋值之前
+		if _last_tissue.has(c) and int(_last_tissue[c]) == CWData.Tissue.CANCER and now_solid == CWData.Tissue.HEALTHY and _skill_fx != null:
+			var hold: float = purify_hold(_skill_fx.arrival_in(c))
+			if hold > 0.0:
+				_purify_hold[c] = hold
 		_last_tissue[c] = now_solid
 		## 癌蔓延过场（侵蚀 / 增生 / 定殖共用）：引擎早就把这一格翻成癌了，但玩家还没看见「癌是从哪边漫过来的」。
 		## 过场这 0.32 秒里改画过场图 —— 不加覆盖层，所以不会和高亮剪影抢 Z_MARK。
@@ -2118,6 +2130,12 @@ func _sync_tiles() -> void:
 		## 开场绽开期间，还没轮到的那几格先按健康组织画
 		## 伪足穿透的目标格（issue #29）：细胞还在半路、定殖过场在等 → 也先按健康组织画，到格那一刻才变红
 		var tissue: int = CWData.Tissue.HEALTHY if (_bloom.has(c) or _erosion_fx.waiting(c)) else int(t["tissue"])
+		if _purify_hold.has(c):
+			_purify_hold[c] = float(_purify_hold[c]) - get_process_delta_time()
+			if float(_purify_hold[c]) > 0.0 and tissue == CWData.Tissue.HEALTHY:
+				tissue = CWData.Tissue.CANCER   ## 粒子还没到：先照旧画癌组织（issue #65）
+			else:
+				_purify_hold.erase(c)
 		## 骨髓空仓换另一张贴图（Kevin 2026-09-08）；其余组织忽略 stocked。
 		## 最后那个是固化进度（2026-09-09）：算式在 CWData.solid_progress，界面不自己算。
 		## 绽开期间按健康组织画，所以进度也得跟着按 tissue 走，不能直接读 t。
