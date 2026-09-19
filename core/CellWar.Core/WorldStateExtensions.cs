@@ -23,8 +23,8 @@ public static class WorldStateExtensions
         };
 
     /// <summary>
-    /// 往全局修饰容器里挂一条（卡牌的全局修饰用；世界事件将来走自己的 trigger）。
-    /// `left` 按**世界回合**倒计时，E 阶段末 −1、归零移除 —— 与世界事件同一套时钟。
+    /// 往全局修饰容器里挂一条（卡牌的全局修饰用）。
+    /// `left` 按**世界回合**倒计时，E 阶段末 −1、归零移除。
     /// 对齐 GD 的 `CWGame.install_event()`。
     ///
     /// **同名可以挂多条**（打两张【TGF-β释放】就是两条），强度靠 `WorldEffects.Stacks` 求和。

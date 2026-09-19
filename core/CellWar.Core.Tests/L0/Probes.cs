@@ -75,7 +75,7 @@ public static class Probes
         ["pass_through_cost"] = PassThroughCost,
         // 第一条 tree。**tree 没有 ignore**，所以投影成同一张键表的活在两侧探针身上（见 QuotePathTree）
         ["quote_path"] = QuotePathTree,
-        // bool → scalar 的 1 / 0：两侧表项各自冻，不靠 runner 的隐式转换（同 CWData.is_world_event_round）
+        // bool → scalar 的 1 / 0：两侧表项各自冻，不靠 runner 的隐式转换
         ["move_legal"] = (s, a) => CellRules.MoveLegal(s, a.Cell(s), a.Pos("to")) ? 1 : 0,
 
         // ---- 批 2：§0.6.7 四条里的最后两条（空壳转真）----
@@ -173,7 +173,7 @@ public static class Probes
     ///
     /// **传输形状**（两侧表项逐字同一套，GD 侧 l0_runner.gd 上有同一段注释）：
     /// * int → <c>scalar</c>，裸整数原样；
-    /// * bool → <c>scalar</c>，写 1 / 0（本表里只有 <c>is_world_event_round</c>）；
+    /// * bool → <c>scalar</c>，写 1 / 0（<c>const</c> 表里今天一个都没有 —— 唯一那个 <c>is_world_event_round</c> 随世界事件删了；ops 表的 <c>move_legal</c> 还走这套）；
     /// * float → 按**千分位**冻成整数 <c>round(x * 1000)</c> —— 批 0 一个都没有，批 2 的探针 <c>anaerobic_pool</c> 是第一个真用户；
     /// * 表 / 字典 → <c>tree</c>：坐标写 <c>"q,r"</c>（这边调 <see cref="WorldLoader.At"/>，
     ///   GD 那边由 runner 的 <c>_to_json()</c> 收口，出来的字符串逐字相同）、枚举写整数值。
@@ -225,10 +225,6 @@ public static class Probes
         ["CWData.neighbors"] = (s, a) => RulePolicies.GdNeighbors(s, a.Pos("a")).Select(WorldLoader.At).ToList(),   // DIRS 序、裁板外；GD 那边按 board_radius 裁，这边按 s.Board 裁 —— 同一个盘面上等价
         ["CWData.hex_dist"] = (_, a) => a.Pos("a").DistanceTo(a.Pos("b")),   // GD 是两参静态函数，C# 是实例方法：转调，不算无对应物
         ["CWData.dir_toward"] = (_, a) => Stage.DirToward(a.Pos("a"), a.Pos("b")),   // a = dest，b = from（同 GD 的形参序）
-        ["CWData.is_world_event_round"] = (_, a) => WorldEffects.IsWorldEventRound(a.Int("a")) ? 1 : 0,   // bool → scalar 的 1 / 0：两侧表项各自冻，不靠 runner 的隐式转换
-        // ---- CWWorldFx · 世界事件容器（批 5b）----
-        ["CWWorldFx.EVENTS"] = (_, _) => WorldEffects.WorldEventNames,
-        ["CWWorldFx.is_world_event"] = (_, a) => WorldEffects.IsWorldEvent(a.Str("a")) ? 1 : 0,   // bool → scalar 的 1 / 0；GD 收条目字典、C# 收名字，按 E-6 规矩 3 用名字收口
         // ---- CWCardData ----
         ["CWCardData.CARDS"] = NoCs("CWCardData.CARDS", "C# 是 CardDefinition 记录表（Cards.All），GD 是「文案 + 双阵营权重」字典 —— 等值比不可能成立"),
         ["CWCardData.cancer_phase"] = (_, a) => RulePolicies.CancerPhase(a.Int("a")),

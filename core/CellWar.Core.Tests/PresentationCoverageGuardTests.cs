@@ -6,7 +6,7 @@ namespace CellWar.Core.Tests;
 /// <summary>
 /// 口径二 · 批 0 步 6 的验收闸（规格 C-1 步 6）：三条 L1 夹具各重放 200 步，GD 桥的各条演出通道都至少出现过一次；
 /// 骰点在面数之内、过场方向是 DIRS 下标、判词三档之一。顺带把每类条目的次数写到 bin 目录，文档引用。
-/// `beam`（Excalibur）与 `world_event`（世界事件默认关）夹具里没有，不在必到名单里。
+/// `beam`（Excalibur）夹具里没有，不在必到名单里；`world_event` 随世界事件一起删了（Kevin 2026-09-19）。
 /// </summary>
 public class PresentationCoverageGuardTests
 {

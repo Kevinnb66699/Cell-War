@@ -415,8 +415,8 @@ func _cell_of_seat(g: CWGame, seat: int, where: String) -> int:
 	return found
 
 
-## ⚠ cw_game.gd:init() **已经**执行过 `events["pool"] = CWWorldFx.EVENTS.duplicate()`：
-## 这里是**覆盖**不是追加，否则事件池会变成两份（§0.6.1 第 5 条）。
+## ⚠ `events.pool` 自 2026-09-19（世界事件删除）起**缺省就是空表**，这里仍是
+## **覆盖**不是追加（§0.6.1 第 5 条）—— 键是协议保留字段，用例照样能写。
 func _load_events(g: CWGame, spec: Dictionary) -> bool:
 	if not spec.has("events"):
 		return true
@@ -690,7 +690,7 @@ func _dump_cells(g: CWGame) -> Array:
 func _dump_events(g: CWGame) -> Dictionary:
 	var out := {}
 	var pool: Array = _strings(g.events["pool"])
-	if pool != _strings(CWWorldFx.EVENTS):
+	if not pool.is_empty():   ## 空表 = 缺省（世界事件删除后 pool 恒 []）
 		out["pool"] = pool
 	if bool(g.events["double_next"]):
 		out["double_next"] = true
@@ -840,8 +840,9 @@ func minify(spec: Dictionary) -> Dictionary:
 	if spec.has("events"):
 		var ev: Dictionary = spec["events"]
 		var e := {}
-		if ev.has("pool") and _strings(ev["pool"]) != _strings(CWWorldFx.EVENTS):
-			e["pool"] = _strings(ev["pool"])
+		var pl: Array = _strings(ev.get("pool", []))
+		if not pl.is_empty():   ## 空表 = 缺省（与 _dump_events 同口径，否则 §0.6.5 往返自证红）
+			e["pool"] = pl
 		if bool(ev.get("double_next", false)):
 			e["double_next"] = true
 		var active: Array = []

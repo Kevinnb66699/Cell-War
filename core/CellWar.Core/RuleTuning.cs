@@ -230,8 +230,9 @@ public sealed record RuleTuning
 
     // ---- 全局开关与胜负 ----
 
-    /// <summary>世界事件总开关（GD `world_events_on`，Kevin 2026-09-08 要的；**2026-09-10 起默认关** ——
-    /// 云端 PRD 给整节加了「暂时停止维护」的标题）。关掉后 GD `CWWorldFx.trigger()` 直接返回：不抽、不挂、不通报。K2 接。</summary>
+    /// <summary>世界事件总开关（GD `world_events_on`）。**世界事件 2026-09-19 由 Kevin 取消，机制已删空，这个旋钮恒 false**；
+    /// 留着只因为它在 `CWTuning.RULE_FIELDS` 里 —— 删了会改 `rules_state` / `state_hash` ⇒ NET_VERSION 30→31 + 全量发版，
+    /// 字段随批 1 全量发版那次协议升号一起物理删除。</summary>
     public bool WorldEventsOn { get; init; }
 
     /// <summary>癌方占地胜利要**连续几个世界回合末**都达标才判定

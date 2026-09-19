@@ -13,7 +13,7 @@ namespace CellWar.Core.Tests.L0;
 /// 用例照样绿，绿得毫无意义。
 ///
 /// **不许在靶场里重写规则**（§0.5 纪律 3）：这里一条算式都没有，缺省值一律指向生产代码里的同一张表
-/// （底板走 <see cref="MatchSetup.SpecialAt"/>、事件池走 <see cref="WorldEffects.WorldEventNames"/>、
+/// （底板走 <see cref="MatchSetup.SpecialAt"/>、
 /// 旋钮走 `game/tests/contract_tune.json`）。
 ///
 /// **装不出来就拒收**（<see cref="UnloadableException"/>）：多免疫席 level/memory 不等、
@@ -154,10 +154,10 @@ public static class WorldLoader
             throw new UnloadableException("多免疫席的 `memory` / `level` 不等 —— GD 那边它们是阵营级全局量，这个世界装不出来（E-5）");
 
         var events = spec.Events ?? new L0Events();
-        if (events.Pool is { } pool && !pool.SequenceEqual(WorldEffects.WorldEventNames))
-            throw new UnloadableException("`events.pool` 与全表不同 —— 世界事件整块未迁，C# 的 `ObservationV1Codec` 恒产全表（批 5b 解除）");
+        if (events.Pool is { Count: > 0 })
+            throw new UnloadableException("`events.pool` 非空 —— 世界事件已删（Kevin 2026-09-19），两侧的池子恒空表");
         if (events.DoubleNext)
-            throw new UnloadableException("`events.double_next` = true —— C# 侧没有落点，恒 false（批 5b 解除）");
+            throw new UnloadableException("`events.double_next` = true —— 世界事件已删，这是协议保留字段，恒 false");
 
         // 终局：`phase` 写 Finished 当且仅当 `winner` 非空（GD 的协议 phase 由 is_over 派生，C# 是 Phase.Finished —— 两侧同一条校验）
         if ((spec.Phase == "Finished") != (spec.Winner != ""))
@@ -434,7 +434,7 @@ public static class WorldLoader
 
         L0Events? MinifyEvents(L0Events e)
         {
-            var pool = e.Pool is { } p && p.SequenceEqual(WorldEffects.WorldEventNames) ? null : e.Pool;
+            var pool = e.Pool is { Count: 0 } ? null : e.Pool;   // 空表 = 缺省（世界事件已删）
             // 空 `data` 与没写等价（Dump 也写 null）—— 默认表两侧同：GD dump 同样省略空 data
             var active = e.Active is { Count: 0 } ? null : e.Active?.Select(x => x.Data is { Count: 0 } ? x with { Data = null } : x).ToList();
             return pool is null && active is null && !e.DoubleNext ? null : new L0Events(pool, active, e.DoubleNext);

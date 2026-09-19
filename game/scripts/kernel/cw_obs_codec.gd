@@ -197,7 +197,7 @@ static func _global(game: CWGame, req: Dictionary) -> Dictionary:
 	for e: Dictionary in game.events["active"]:
 		active.append({ "name": str(e["name"]), "left": int(e["left"]), "stacks": int(e.get("stacks", 1)),
 			"doubled": str(e.get("doubled", "")), "data": _effect_data(e.get("data", {})),
-			"d": { "is_world_event": game.world_fx.is_world_event(e) } })
+			"d": { "is_world_event": false } })   ## 保留键，恒 false（世界事件 2026-09-19 已删）
 	var feed: Array = []
 	for f: Dictionary in game.feed_log:
 		feed.append({ "seq": int(f["seq"]), "kind": str(f["kind"]), "pid": int(f["pid"]), "faction": int(f["faction"]),
@@ -245,21 +245,19 @@ static func _global(game: CWGame, req: Dictionary) -> Dictionary:
 		},
 		"d": {
 			"solid_threshold": game.solidify_threshold(), "tumor_stage": game.tumor_stage() + 1, "cancer_phase": game.tumor_stage(),
-			"phase_text": str(game.phase), "is_world_event_round": CWData.is_world_event_round(game.round_no),
+			"phase_text": str(game.phase), "is_world_event_round": false,   ## 保留键，恒 false（同上）
 			"count_healthy": game.count_tissue(CWData.Tissue.HEALTHY), "count_cancer": game.count_tissue(CWData.Tissue.CANCER),
 			"count_solid": game.count_tissue(CWData.Tissue.SOLID), "count_necrosis": game.count_necrosis(),
 			"cancer_weighted": game.count_tissue(CWData.Tissue.CANCER) + 2 * game.count_tissue(CWData.Tissue.SOLID),   ## cw_game.gd:1118 同式
 			"level_thresholds": thresholds, "memory_next_at": next_at,
-			"next_event_round": next_event_round(game.round_no),   ## p=2：match_panel.gd _next_event_round 的搬迁
+			"next_event_round": next_event_round(game.round_no),   ## 保留键，恒 0（同上）
 		},
 	}
 
 
-## 从 from 起（含）往后第一个世界事件回合；没有 = 0（与 match_panel.gd:_next_event_round 同口径）
-static func next_event_round(from: int) -> int:
-	for r in range(maxi(from, 1), CWData.LIMIT_ROUND + 1):
-		if CWData.is_world_event_round(r):
-			return r
+## 保留的协议字段（G_D_B）。世界事件 2026-09-19 整块删除之后**恒 0** ——
+## 函数签名与键都留着，随批 1 全量发版那次协议升号一并物理删除。
+static func next_event_round(_from: int) -> int:
 	return 0
 
 

@@ -56,10 +56,6 @@ func show_event_drawn(_pid: int, _info := {}) -> void:
 	pass
 
 
-## 抽到一个世界事件（联机桥发报文；本地表现层直接接 CWGame.world_event 信号）
-func show_world_event(_ev_name: String, _info := {}) -> void:
-	pass
-
 
 ## 某位玩家抽到了一张卡（不说是哪张）。info = { cell_id, pos, source }。
 ## 给头顶的抽卡演出用；联机桥原样转发。
@@ -82,7 +78,7 @@ func show_beam(_from: Vector2i, _to: Vector2i, _splash: Array) -> void:
 	pass
 
 
-## 全局通报：不挂在哪一格上的大事（目前只有「抽到世界事件」）。
+## 全局通报：不挂在哪一格上的大事。
 ## 与 show_result 分开是因为展示方式不同 —— 那个贴着骰子、1 秒多就走；这个要在棋盘上方停够看完一句话的时间。
 func show_notice(_text: String) -> void:
 	pass

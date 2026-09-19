@@ -24,9 +24,6 @@ func show_event_drawn(_pid: int, _info := {}) -> void:
 	_count("event_drawn")
 
 
-func show_world_event(_ev_name: String, _info := {}) -> void:
-	_count("world_event")
-
 
 func show_card_drawn(_pid: int, _info := {}) -> void:
 	_count("card_drawn")

@@ -194,7 +194,7 @@ func finish() -> void:
 ## ⚠ `Script.get_script_method_list()` **连父类的一起返回**，不是只返回自己的那些 ——
 ## 上一轮底稿按「只返回自己的」写，落地当天 t_rec_contract_only 会红出六十多条假差异。
 ## 实测（Godot 4.5，scratchpad 副本）：**覆写的那一个会出现两次**（子类一条、父类一条，
-## 两条 MethodInfo 逐字相同，`flags` / `id` 都分不开）—— cw_rec_worldfx 14 条 / CWWorldFx 13 条、
+## 两条 MethodInfo 逐字相同，`flags` / `id` 都分不开）—— cw_rec_worldfx 比 CWWorldFx 多一条、
 ## `tick_durations` 出现 2 次；一个覆写都没有的 cw_rec_cardfx 是 54 / 54。
 ## 所以判据是**条数**：子类里出现的次数 > 父类里出现的次数 = 这个脚本自己声明的
 ## （覆写是 2 > 1，父类没有的新方法是 1 > 0，同一条判据一起收）。不读源码、不硬编码名字。

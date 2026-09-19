@@ -38,10 +38,9 @@ const VALUE_X := 250.0       ## 值那一列（原型 26cqw）
 const ARROW_R_X := 500.0
 const ROW_Y0 := 251.0        ## 第一行的纵坐标
 const ROW_H := 42.0          ## 行距（和主菜单项一致）
-## 普通对局的按钮纵坐标。**跟着行数走**：2026-09-08 加「世界事件」行之后，
-## 最后一行落到 251 + 4×42 = 419，按钮还留在 438 就会压到它头上。
-## 438 → 480 保住了原来那 61px 的呼吸（419 + 61），按钮底 518 < 540 仍不出屏。
-const BTN_Y := 480.0
+## 普通对局的按钮纵坐标。**跟着行数走**：2026-09-19 删掉「世界事件」行之后
+## 回到四行，最后一行落到 251 + 3×42 = 377，按钮回到 438（377 + 61 的呼吸）。
+const BTN_Y := 438.0
 const BTN_W := 182.0
 const BTN_H := 38.0
 const FADE_IN := 0.32        ## 原型节拍：菜单 0.30s 淡出后，配置 0.32s 淡入
@@ -53,23 +52,20 @@ const ROW_LABEL := Color("9fb6bd")
 ## 颜色就按悬停状态算（悬停白、移开蓝），直到下一次键盘按键夺回焦点权。
 const BTN_LIFT := 3.0
 
-const ROW_NAMES := ["人数", "我的阵营", "AI 强度", "世界事件", "随机种子"]
+const ROW_NAMES := ["人数", "我的阵营", "AI 强度", "随机种子"]
 const ROW_PLAYERS := 0
 const ROW_FACTION := 1
 const ROW_SMART := 2
-## 「世界事件」排在随机种子**之前**：种子是调试项，习惯上留在最后一行
-const ROW_EVENTS := 3
-const ROW_SEED := 4
-const N_ROWS := 5
+const ROW_SEED := 3
+const N_ROWS := 4
 const ROW_MODE_Y := 209.0       ## 放在分隔线前；其余五个基础设置保持原来的 251 起点
 const PLAYER_STEPS := [2, 4, 6]
 const HOTSEAT := -2          ## 「我的阵营」第四档：本地多人（热座），席位在右侧席位表里逐席拨
 const FACTION_STEPS := [CWData.Faction.IMMUNE, CWData.Faction.CANCER, -1, HOTSEAT]
 ## 自定义对局：癌种行（最多 3 行 = 6 人局的三个癌席）。**行距是被屏高逼出来的**——
-## 最挤的一档是 6 人自定义：N_ROWS(5) + 3 癌席 = 8 行。
-## 251 + 8×32 + 18 = 525，按钮底 563 **出屏**（屏高 540）；
-## 收到 28 之后 251 + 8×28 + 18 = 493，按钮底 531 < 540 才放得下。
-## （2026-09-08 加「世界事件」行时由 32 收到 28。再加行就得另想办法了，比如分页。）
+## 最挤的一档曾是 6 人自定义 + 「世界事件」行：N_ROWS(5) + 3 癌席 = 8 行，
+## 251 + 8×32 + 18 = 525，按钮底 563 **出屏**（屏高 540）；收到 28 才放得下。
+## （2026-09-19 删掉「世界事件」行之后少一行，28 原样留着 —— 再加行就得另想办法了，比如分页。）
 const ROW_H_CUSTOM := 28.0
 const BTN_GAP := 18.0
 const CANCER_ROW_MAX := 3
@@ -100,10 +96,6 @@ var _faction: int = CWData.Faction.IMMUNE   ## -1 = 观战
 ## AI 强度：0 普通（纯启发式）/ 1 较强（扁平蒙特卡洛）/ 2 树搜索（UCT，2026-09-07 接入）。
 ## 原来是 bool，第三档进来之后改成下标 —— 名字与含义都在 CWMatch.AI_LEVEL_NAMES 一处。
 var _ai := 0
-var _world_events := false  ## 世界事件总开关（Kevin 2026-09-08）。
-                            ## **2026-09-10 起默认关**：云端 PRD 给整节标了
-                            ## 「暂时停止维护，正常平衡性测试和对局不考虑世界事件」。
-                            ## 拨一下就开，机制一行没删
 var _seed := 0
 ## 对局类型：面板内第一项切换；标准对局 false（癌种行全部收起、按钮在 438）
 var custom := false
@@ -188,12 +180,11 @@ func handle_input(event: InputEvent) -> void:
 
 func config() -> Dictionary:
 	return { "players": _players, "faction": _faction, "ai": _ai, "seed": _seed,
-		"world_events": _world_events,
 		"cancer_types": _ctypes.slice(0, _n_cancer()) if custom else [],
 		"seats": _seats.slice(0, _players) if _faction == HOTSEAT else [] }
 
 
-## 自定义模式下的几何：癌席数 = 人数一半；行数 = 4 + 癌席数；行距 32；按钮贴最后一行下方
+## 自定义模式下的几何：癌席数 = 人数一半；行数 = N_ROWS + 癌席数；行距 28；按钮贴最后一行下方
 func _n_cancer() -> int:
 	@warning_ignore("integer_division")
 	return _players / 2
@@ -338,8 +329,6 @@ func _cycle(row: int, dir: int) -> void:
 			_sync_sheet(false)   ## 拨进 / 拨出「本地多人」：席位表淡入淡出
 		ROW_SMART:
 			_ai = (_ai + dir + CWMatch.AI_LEVEL_NAMES.size()) % CWMatch.AI_LEVEL_NAMES.size()
-		ROW_EVENTS:
-			_world_events = not _world_events
 		ROW_SEED:
 			_seed = _roll_seed()   ## 种子没有「上一个」，拨就是换一个
 		_:
@@ -647,8 +636,6 @@ func _value_text(i: int) -> String:
 			var t: int = _ctypes[int(rk[1])]
 			return "随机" if t < 0 else CWData.CANCER_TYPE_NAMES[t]
 	match i:
-		ROW_EVENTS:
-			return "开" if _world_events else "关（整局不触发）"
 		ROW_PLAYERS:
 			if _faction == HOTSEAT:
 				var humans := 0

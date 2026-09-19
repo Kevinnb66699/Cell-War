@@ -2100,30 +2100,7 @@ public class GdScriptParityTests
         Marked = marked, MarkLeft = marked ? 1 : 0, MarkRound = marked ? 5 : -1,
     };
 
-    // ---- EV-0：世界事件 / 全局修饰容器 ----
-
-    /// <summary>15 个世界事件的名字表与 GD 的 `CWWorldFx.EVENTS` 逐条一致。</summary>
-    [Fact]
-    public void 世界事件名字表与GDScript一致()
-    {
-        var gd = Regex.Match(WorldFxGd.Value, @"^const EVENTS: Array = \[(.+?)\]", RegexOptions.Multiline | RegexOptions.Singleline);
-        Assert.True(gd.Success, "cw_world_fx.gd 里找不到 const EVENTS");
-        var names = Regex.Matches(gd.Groups[1].Value, "\"([^\"]+)\"").Select(m => m.Groups[1].Value).ToArray();
-
-        Assert.Equal(names, WorldEffects.WorldEventNames);
-    }
-
-    /// <summary>触发回合与 GD 的 `is_world_event_round` 一致：3 / 6 / 10 / 14。</summary>
-    [Fact]
-    public void 世界事件的触发回合与GDScript一致()
-    {
-        var gd = Regex.Match(DataGd.Value, @"return r in \[([\d,\s]+)\]");
-        Assert.True(gd.Success, "cw_data.gd 里找不到 is_world_event_round 的回合表");
-        var rounds = gd.Groups[1].Value.Split(',').Select(x => int.Parse(x.Trim())).ToHashSet();
-
-        for (var r = 1; r <= 20; r++)
-            Assert.True(WorldEffects.IsWorldEventRound(r) == rounds.Contains(r), $"第 {r} 回合：GDScript {rounds.Contains(r)}，C# {WorldEffects.IsWorldEventRound(r)}");
-    }
+    // ---- EV-0：全局修饰容器（世界事件 2026-09-19 已删，名表与触发回合两条对拍随之作废）----
 
     /// <summary>
     /// 强度是**同名条目求和**，不是取第一条。
@@ -2279,18 +2256,6 @@ public class GdScriptParityTests
         return CancerBoard(new Dictionary<HexPosition, Tissue> { [at] = Tile(at, TissueState.Cancer, new EntityId(1)) },
             at, CellType.Osteosarcoma, worldRound: 1);
     }
-
-    private static readonly Lazy<string> WorldFxGd = new(() =>
-    {
-        var dir = AppContext.BaseDirectory;
-        for (var i = 0; i < 12 && dir != null; i++)
-        {
-            var candidate = Path.Combine(dir, "game", "scripts", "core", "cw_world_fx.gd");
-            if (File.Exists(candidate)) return File.ReadAllText(candidate);
-            dir = Path.GetDirectoryName(dir);
-        }
-        throw new FileNotFoundException("找不到 game/scripts/core/cw_world_fx.gd —— 这一组测试拿它当真相源");
-    });
 
     // ---- E 阶段步序用的夹具 ----
 

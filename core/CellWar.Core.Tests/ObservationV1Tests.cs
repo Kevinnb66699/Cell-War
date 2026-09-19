@@ -44,7 +44,7 @@ public class ObservationV1Tests
         Assert.Equal("玩家回合", env.State.G.D.PhaseText);
         Assert.Equal([30, 20, 20], env.State.G.Tune.SolidifyThreshold);
         Assert.Equal(63, env.State.G.Tune.LimitCancerous);
-        Assert.Equal(15, env.State.G.Events.Pool.Length);
+        Assert.Empty(env.State.G.Events.Pool);   // pool 恒 []（世界事件已删，Kevin 2026-09-19）
         Assert.Equal("", env.State.G.WinKind); Assert.Equal(-1, env.State.G.Winner); Assert.False(env.State.G.IsOver);
         Assert.Equal(-1, env.State.G.EffectorRound);   // 从没发动过：C# 存 0、协议给 -1
     }

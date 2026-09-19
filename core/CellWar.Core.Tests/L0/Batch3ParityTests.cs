@@ -3,18 +3,18 @@ using CellWar.Core.Tests.L1;
 
 namespace CellWar.Core.Tests.L0;
 
-/// <summary>批 3 规划（2026-09-19）在副本上坐实的两侧差异，逐条钉住（KG-1 / KG-2 / KG-3 / KG-4 / KG-5 / KG-8）。
+/// <summary>批 3 规划（2026-09-19）在副本上坐实的两侧差异，逐条钉住（KG-1 / KG-4 / KG-5 / KG-8；
+/// KG-2【增殖抑制】/ KG-3【异常增殖】随世界事件删除作废，Kevin 2026-09-19）。
 /// 盘面走 <see cref="WorldLoader"/>（cwxworld/2），与 L0 用例同一条装载路。</summary>
 public class Batch3ParityTests
 {
-    private static L0World Cancer(int round, Dictionary<string, int>? tuning = null, L0Events? events = null, params L0Tile[] tiles) => new()
+    private static L0World Cancer(int round, Dictionary<string, int>? tuning = null, params L0Tile[] tiles) => new()
     {
         Round = round,
         Players = [new L0Player(0, "immune"), new L0Player(1, "cancer", CancerType: "Melanoma")],
         Tiles = [.. tiles],
         Cells = [new L0Cell { Seat = 1, Type = "Melanoma", At = "0,0", Energy = 100 }],
         Tuning = tuning ?? [],
-        Events = events,
     };
 
     private static readonly L0Tile[] Block =
@@ -25,7 +25,7 @@ public class Batch3ParityTests
     [Fact]
     public void KG1_旋钮为0退回线性对照档_每癌组织04每固化10()
     {
-        var s = WorldLoader.Load(Cancer(1, new() { ["anaerobic_block_coef"] = 0, ["anaerobic_floor"] = 0 }, null, Block));
+        var s = WorldLoader.Load(Cancer(1, new() { ["anaerobic_block_coef"] = 0, ["anaerobic_floor"] = 0 }, Block));
         var block = Block.Select(t => WorldLoader.Pos(t.At)).ToArray();
         Assert.Equal(3 * 4 + 1 * 10, RulePolicies.AnaerobicPool(s, block));
     }
@@ -33,37 +33,12 @@ public class Batch3ParityTests
     [Fact]
     public void KG1_旋钮为负按人数取表_为正整体覆盖()
     {
-        var byTable = WorldLoader.Load(Cancer(1, null, null, Block));
+        var byTable = WorldLoader.Load(Cancer(1, null, Block));
         var block = Block.Select(t => WorldLoader.Pos(t.At)).ToArray();
         var expected = Math.Pow(3, 0.30) * 28 + 1 * 10;   // 2 人局：表里 coef 28 / exp 30；固化全图 1 格 +1.0
         Assert.Equal(expected, RulePolicies.AnaerobicPool(byTable, block), 9);
-        var overridden = WorldLoader.Load(Cancer(1, new() { ["anaerobic_block_coef"] = 5 }, null, Block));
+        var overridden = WorldLoader.Load(Cancer(1, new() { ["anaerobic_block_coef"] = 5 }, Block));
         Assert.Equal(Math.Pow(3, 0.30) * 5 + 10, RulePolicies.AnaerobicPool(overridden, block), 9);
-    }
-
-    [Fact]
-    public void KG2_增殖抑制在场_整步不掷骰不增生()
-    {
-        var spec = Cancer(3, new() { ["proliferate_per_adjacent[1]"] = 1000, ["proliferate_per_adjacent[2]"] = 1000, ["proliferate_per_adjacent[3]"] = 1000 },
-            new L0Events(Active: [new L0Effect("增殖抑制", 1)]), new L0Tile("0,0", "cancer"));
-        var s = WorldLoader.Load(spec);
-        var rng = new TapeRng(Array.Empty<IReadOnlyList<long>>());   // 空带子：真抽了当场炸
-        var fresh = BoardRules.Proliferate(s, rng, out var next);
-        Assert.Empty(fresh);
-        Assert.Equal(0, next.Board.Tissues.Values.Count(t => t.State == TissueState.Cancer && t.Newborn));
-    }
-
-    [Fact]
-    public void KG3_异常增殖翻倍_单邻500变100必中()
-    {
-        var spec = Cancer(3, new() { ["proliferate_per_adjacent[1]"] = 500, ["proliferate_per_adjacent[2]"] = 500, ["proliferate_per_adjacent[3]"] = 500 },
-            new L0Events(Active: [new L0Effect("异常增殖", 2)]), new L0Tile("0,0", "cancer"));
-        var s = WorldLoader.Load(spec);
-        var neighbours = WorldLoader.Pos("0,0").GetNeighbors().Count(p => s.Board.Tissues.ContainsKey(p));
-        // 每格掷 1..1000，全掷 1000：500 的档一格都不中，翻倍到 1000 才六邻全转
-        var rng = new TapeRng(Enumerable.Range(0, neighbours).Select(_ => (IReadOnlyList<long>)new long[] { 1, 1000, 1000 }).ToArray());
-        var fresh = BoardRules.Proliferate(s, rng, out _);
-        Assert.Equal(neighbours, fresh.Count);
     }
 
     [Fact]

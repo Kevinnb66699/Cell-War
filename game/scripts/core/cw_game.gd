@@ -11,8 +11,6 @@ signal card_played(cell_id: int, pid: int, pos: Vector2i, faction: int, card_nam
 ## 抽到即结算的事件卡（不进手牌、不算「谁打出的」）。与 card_played 分开：
 ## Kevin 2026-09-07「事件卡放在回合数那一栏结算，不要和细胞主动打出的卡放在一起」
 signal event_drawn(cell_id: int, pid: int, pos: Vector2i, faction: int, card_name: String)
-## 抽到一个**世界事件**（不是事件卡）。棋盘左侧那一列据此摆一张牌面。
-signal world_event(ev_name: String, left: int)
 ## 这个细胞**抽到了一张卡**（不说是哪张 —— 牌名只有本人能看）。给头顶的抽卡演出用（Kevin 2026-09-07）。
 ## source = 「基因表达」/「骨髓」/「突变」，表现层要只演某一种时在那边过滤。
 signal card_drawn(cell_id: int, pid: int, pos: Vector2i, source: String)
@@ -40,9 +38,10 @@ func neighbors(c: Vector2i) -> Array[Vector2i]:
 var memory := 0            # 免疫方抗原记忆（阵营共享）
 var immune_level := 0      # 0..3 = I/II/III/X，只升不降
 var differentiated: Array = []   # 已被分化占用的免疫种类（每种全阵营限一个）
-## 世界事件状态（CWWorldFx 管理，结算点用 event_stacks() 查询）。
-## pool = 尚未抽过的事件名（定案 #42 同局不可重复）；active = 生效中的效果条目
-## {name, left, stacks, data}；double_next = 【双重触发】待兑现的标记。整体进快照与哈希。
+## 全局修饰容器（CWWorldFx 管回合时钟，结算点用 event_stacks() 查询）。
+## active = 生效中的条目 {name, left, stacks, data}，卡牌的全局修饰住这里（对照 5.1 #26）。
+## pool / double_next 是**世界事件删除（2026-09-19）后留下的空壳**：pool 恒 []、
+## double_next 恒 false，随批 1 全量发版那次协议升号物理删除。整体进快照与哈希。
 var events := { "pool": [], "active": [], "double_next": false }
 var winner := -1           # -1 未分胜负；否则 CWData.Faction
 # 中途放弃这一局（返回主菜单）。置位后引擎的各个循环会在下一个检查点收摊，
@@ -60,11 +59,11 @@ var win_kind := ""         # immune_clear / cancer_weighted / limit_cancer / lim
 var chemo := {}
 ## 【免疫猎杀】附着在某个癌细胞身上的【追踪趋化源】：{ cid, at, left }。
 ## **位置不存在这里**——活着时现读那个细胞的 pos（`chemo_track_at()`），
-## 死了才把 at 冻在死亡格上、cid 置 -1。否则每一条改 pos 的路（迁移/转移/紊乱/传送）都得记得同步。
+## 死了才把 at 冻在死亡格上、cid 置 -1。否则每一条改 pos 的路（迁移/转移/传送）都得记得同步。
 var chemo_track := {}
 ## 免疫方上一次发动【效应应答】的世界回合（PRD：免疫方每个世界回合最多 1 次）
 var effector_round := -1
-## 左侧出牌列的**数据源**：最近 CWData.FEED_KEEP 条「打出 / 抽到事件卡 / 世界事件」。
+## 左侧出牌列的**数据源**：最近 CWData.FEED_KEEP 条「打出 / 抽到事件卡」。
 ##
 ## 为什么放进对局状态、而不是只靠 broadcast_*：广播是一次性的。客户端断线重连期间
 ## （哪怕只断两秒、玩家毫无察觉）广播过的那几条就**永久错过**了 —— 日志有游标、
@@ -136,7 +135,6 @@ func init(faction_list: Array, seed_value: int) -> void:
 	damage = CWDamage.new()
 	for m in [setup, world, turn, actions, cards, card_fx, world_fx, cost, damage]:
 		m.game = self
-	events["pool"] = CWWorldFx.EVENTS.duplicate()
 	var immune_i := 0
 	var cancer_i := 0
 	for i in faction_list.size():
@@ -485,8 +483,8 @@ func count_tissue(tissue: int) -> int:
 	return n
 
 
-## 名为 name 的世界事件当前叠了几层（0 = 未生效）。所有结算点都走这里；
-## 卡牌的**全局**修饰（基质稳定/TGF-β/TNF 冻结格）也塞进 events["active"]，
+## 名为 name 的全局修饰当前叠了几层（0 = 未生效）。所有结算点都走这里；
+## 卡牌的**全局**修饰（基质稳定/TGF-β/TNF 冻结格）塞进 events["active"]，
 ## 被同一批挂接点认出（对照 5.1 #26 的框架承诺，2026-08-29 兑现）。
 func event_stacks(name: String) -> int:
 	for e in events["active"]:
@@ -495,8 +493,8 @@ func event_stacks(name: String) -> int:
 	return 0
 
 
-## 往修饰器容器里挂一个全局条目（卡牌的全局修饰用；世界事件走 world_fx.trigger）。
-## left 按世界回合倒计时，回合末 -1、归零移除 —— 与世界事件同一套时钟。
+## 往修饰器容器里挂一个全局条目（卡牌的全局修饰用）。
+## left 按世界回合倒计时，回合末 -1、归零移除（CWWorldFx.tick_durations）。
 func install_event(ev_name: String, left: int, data: Dictionary = {}) -> void:
 	events["active"].append({ "name": ev_name, "left": left, "stacks": 1, "data": data })
 
@@ -626,7 +624,7 @@ func solidify_threshold() -> int:
 
 
 ## 固化计数的**增加**一律走这里（【E-固化】与卡【基质硬化】共用）：达到阈值即转固化。
-## 2026-09-07 拆掉了【固化加速】的支路（该世界事件随 PRD 正本删除）。
+## 2026-09-07 拆掉了【固化加速】的支路（随 PRD 正本删除）。
 ## 血管不可固化（Kevin 2026-09-06）：计数也不累计，日志说一句（癌细胞蹲在血管上时别让人以为是 bug）。
 func raise_solid(pos: Vector2i, amount: int) -> void:
 	if solid_frozen(pos):
@@ -741,7 +739,8 @@ func _unique_bridges() -> Array:
 ## 文案用席位名不用细胞名（「癌症A 打出【糖酵解爆发】」）。去重规则同 announce。
 ## info 带 cell_id / pos / faction / card：联机的影子对局不跑 card_fx.play，客户端的头顶飞卡与右栏历史小卡
 ## （队友 2026-09-06 的表现层，本地走 `card_played` 信号）靠这条报文驱动。方法名带 broadcast_ 是为了不和那个信号撞名。
-## 往出牌流水里记一条。kind：play = 谁打出的 / event = 谁抽到的事件卡 / world = 世界事件。
+## 往出牌流水里记一条。kind：play = 谁打出的 / event = 谁抽到的事件卡。
+## （kind="world" 是世界事件删除后留下的保留档，协议键表里还在、但再也不会产生。）
 ## 推演（sim_quiet）不记：那是副本里的假动作，记了既浪费又会污染快照。
 func note_feed(kind: String, pid: int, faction: int, card: String, left := 0) -> void:
 	if sim_quiet:
@@ -760,15 +759,6 @@ func broadcast_card_played(cell: Dictionary, card: String) -> void:
 	for b in _unique_bridges():
 		b.show_card_played(cell["pid"], text, info)
 
-
-## 抽到一个世界事件：广播给各桥（联机据此发报文），本地表现层走 `world_event` 信号。
-## 与 `notice()` 并存而不是复用它：notice 传的是一句拼好的话，而左侧那一列要的是
-## **结构化的事件名 + 剩余回合**（卡面写名字、详情框写效果）。从字符串里再解析出来太脆。
-func broadcast_world_event(ev_name: String, left: int) -> void:
-	note_feed("world", -1, -1, ev_name, left)
-	world_event.emit(ev_name, left)
-	for b in _unique_bridges():
-		b.show_world_event(ev_name, { "left": left })
 
 
 ## 抽到即结算的事件卡：广播给各桥（联机据此发报文），本地表现层走 `event_drawn` 信号。
@@ -872,10 +862,10 @@ static func settle_loss(base: int, add: int, mult: int, div: int, cut: int) -> i
 
 ## 印戒【囊性护甲】：**每世界回合第一次能量损失 -0.5**（团队 2026-08-30 定案 B，口径 #76）。
 ##
-## 卡面原来写「受到的能量损失」，实现也就只挂在 immune_hit 上，于是世界事件
+## 卡面原来写「受到的能量损失」，实现也就只挂在 immune_hit 上，于是中立来源
 ## （当时的【免疫抑制因子】对全体癌细胞的 0.5）那一路完全绕过了护甲 —— 2026-08-30 审查发现。
-## 该事件 2026-09-08 已随 PRD 删除，**眼下没有任何世界事件伤害癌细胞**，
-## 但减免不限来源这条契约照旧 —— 下一个这类事件加进来时不该再踩一次同样的坑。
+## 那条 2026-09-08 已随 PRD 删除，**眼下没有任何中立来源伤害癌细胞**，
+## 但减免不限来源这条契约照旧 —— 下一个这类效果加进来时不该再踩一次同样的坑。
 ## 新卡面**不再限定来源**，所以两条伤害管线都要来这里取减免，别再各写一份。
 ##
 ## 唯一没盖到的是【突变】第 3 面的自扣（cell["energy"] -= …，不走管线）——
@@ -907,10 +897,10 @@ func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: boo
 	return damage.submit([ev])[0]["actual"]
 
 
-## 癌症来源**或世界事件等中立来源**的能量损失（微环境压迫、黏液破裂、癌症卡、
-## 事件的「失去 X 能量」）。同样只是 CWDamage 的薄壳。
+## 癌症来源**或中立来源**的能量损失（微环境压迫、黏液破裂、癌症卡、
+## 事件卡的「失去 X 能量」）。同样只是 CWDamage 的薄壳。
 ## skill=true 表示来源是**癌细胞的技能**（含癌方即时卡）——【缺氧适应】挡这一类
-## 加上【微环境压迫】；世界事件与反弹不算（口径 #62）。
+## 加上【微环境压迫】；中立来源与反弹不算（口径 #62）。
 func cancer_hit(target: Dictionary, base: int, reason: String, skill: bool = false) -> int:
 	var ev := damage.event({}, target, base,
 		CWDamage.Kind.CELL_SKILL if skill else CWDamage.Kind.WORLD,
@@ -987,10 +977,7 @@ func purify_gives_memory() -> bool:
 
 
 func gain_memory(n: int) -> void:
-	var bonus := event_stacks("抗原暴露")   ## 每**次**获得时 +1，不按点数（按 stacks 叠）
-	if bonus > 0:
-		log_msg("　【抗原暴露】抗原记忆额外 +%d" % bonus)
-	memory += n + bonus
+	memory += n
 	var lv := immune_level
 	## 门槛按人数分档（四人 6/16/30、六人 10/20/30，Kevin 2026-09-09）——
 	## **别读 CWData.LEVEL_MIN_MEMORY 那张常量表**，那是六人档兼缺省。

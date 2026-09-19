@@ -41,8 +41,6 @@ signal finished(winner: int)
 ## 自定义对局钉死的癌种：按癌席顺序的 CWData.CancerType（-1 = 随机），空表 = 普通对局全随机。
 ## 只在 start() 开新局时喂给 tune；重开（_restart）沿用，读档 / 联机不经过这里。
 @export var cancer_types: Array = []
-## 世界事件开关（Kevin 2026-09-08）。关掉后整局不触发；联机由房主在建房页拨、随快照下发
-@export var world_events := true
 ## 单独跑本场景时自己开局；挂在 Main 下面时由 main.gd 在过场结束后调 start()
 @export var autostart := false
 ## 教程局（主菜单「新手引导」，main.gd 的 _begin_tutorial 置 true）：桥换成 CWGuideBridge、
@@ -338,7 +336,7 @@ var _fading := false  ## 正在演返场淡出：这期间**必须停掉每帧�
 var _flash := {}      ## 刚翻面的格子 → 白闪剩余时间
 var _tile_info: CWTileInfo   ## 悬停格子详情（_ready 里程序化补进 UI 层）
 var _card_info: CWCardInfo   ## 悬停手牌详情，同样程序化补进；与格子详情同一套打法
-var _feed: CWFeed            ## 棋盘左侧的出牌列（打出的卡 / 抽到的事件卡 / 世界事件）
+var _feed: CWFeed            ## 棋盘左侧的出牌列（打出的卡 / 抽到的事件卡）
 var _feed_seq := 0           ## 已经补到 game.feed_log 的第几条（见 _sync_feed）
 var _chemo_fx: CWChemoFx     ## 树突【I-趋化源】的漩涡核心演出（挂在棋盘层，跟着格子走）
 ## 【免疫猎杀】附在某个癌细胞身上的【追踪趋化源】。**另起一只**，不和上面那只共用 ——
@@ -516,7 +514,6 @@ func start(snap: Dictionary = {}) -> void:
 		cfg["factions"] = CWData.FACTION_ORDER[player_count]
 		cfg["seed"] = match_seed if match_seed != 0 else int(Time.get_unix_time_from_system())
 		cfg["cancer_types"] = cancer_types.duplicate()   ## 内核把它排在 init 之前：抽种类在开局第一步
-		cfg["world_events_on"] = world_events
 		if not snap.is_empty():
 			cfg["world_state"] = snap   ## **只有读档才给**：句柄只判 has()，塞个 {} 会把空快照灌进引擎
 	_wire_bridge(ai_level)
@@ -890,7 +887,7 @@ func _wire_bridge(level: int) -> void:
 	bridge.cell_half_height = cell_half_height   ## 演出对准胞体中心要知道贴图多高（issue #26）
 	## 头顶飞卡：四个引擎信号退役之后，卡的演出改由桥的 show_* override 转发过来（规格 A-5.2）。
 	## **不接就是静默失效** —— 空实现落在 cw_bridge.gd，不报错、不崩。
-	## 出牌列（CWFeed）与世界事件提示不在这条路上：它们由 _sync_feed() 从 mirror.feed_log 投影。
+	## 出牌列（CWFeed）不在这条路上：它由 _sync_feed() 从 mirror.feed_log 投影。
 	bridge.fx_card_played = _on_card_played
 	bridge.fx_card_drawn = _on_card_drawn
 	## 聊天框只在联机局建：本地局没人可聊，教程局更不该多一个能抢回车的东西。
@@ -2203,12 +2200,9 @@ func _sync_feed() -> void:
 		_feed_note(e)
 
 
-## 一条流水 → 一张卡面。世界事件不属于任何一方，走另一个入口（中性色 + 底行「世界事件」）。
+## 一条流水 → 一张卡面。
 func _feed_note(e: Dictionary) -> void:
 	var card: String = String(e["card"])
-	if String(e["kind"]) == "world":
-		_feed.add_world_event(card, int(e["left"]))
-		return
 	var pid: int = int(e["pid"])
 	var faction: int = int(e["faction"])
 	var who := ""
@@ -2227,7 +2221,7 @@ func _on_card_played(cell_id: int, _pid: int, pos: Vector2i, _faction: int, card
 	_play_card_fx(cell_id, pos)
 
 
-## 事件卡与世界事件**没有 UI 回调了**（原来那两个空 pass 只是为了「接住信号 / 报文」）：
+## 事件卡**没有 UI 回调了**（原来那个空 pass 只是为了「接住信号 / 报文」）：
 ## 信号与 _net_loop 一起退役，出牌列由 `_sync_feed()` 从 mirror.feed_log 投影 —— 一条数据通路，重连才补得齐。
 
 

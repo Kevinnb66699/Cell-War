@@ -136,7 +136,7 @@
     "id": "proliferate/t_ev_proliferate/001",
     "op": "proliferate",
     "covers": [
-      "t_ev_proliferate::解除后增生恢复（必中六邻全转）"
+      "t_proliferate_plain::必中时六邻全转"
     ],
     "status": "OK",
     "source": "cw_world.gd:_proliferate ↔ BoardRules.Proliferate；同一局清掉 active 后的第 2 次调用：六邻全转",
@@ -245,7 +245,7 @@
     "id": "proliferate/t_ev_proliferate/003",
     "op": "proliferate",
     "covers": [
-      "t_ev_proliferate::非世界事件回合（第 1 回合）照常增生"
+      "t_proliferate_plain::每个世界回合都结算增生（第 1 回合照常）"
     ],
     "status": "OK",
     "source": "cw_world.gd:_proliferate ↔ BoardRules.Proliferate；g3 的唯一一次调用：round=1（非世界事件回合）照样增生",
@@ -667,181 +667,5 @@
       "changed": {},
       "ignore": []
     }
-  },
-  {
-    "schema": "cwxcase/2",
-    "id": "proliferate/t_ev_proliferate/000",
-    "op": "proliferate",
-    "covers": [
-      "t_ev_proliferate::增殖抑制：本回合组织无法增生"
-    ],
-    "source": "headless_test.gd:t_ev_proliferate L14800；【增殖抑制】在场：整步不做、一次骰子都不掷（rolls 空）。KG-2（2026-09-19 合上）：C# 原来照掷再压成 0，带子多消耗一次",
-    "world": {
-      "events": {
-        "active": [
-          {
-            "data": {},
-            "doubled": "",
-            "left": 1,
-            "name": "增殖抑制",
-            "stacks": 1
-          }
-        ]
-      },
-      "phase": "Setup",
-      "players": [
-        {
-          "faction": "immune",
-          "seat": 0
-        },
-        {
-          "cancer_type": "Osteosarcoma",
-          "faction": "cancer",
-          "seat": 1
-        }
-      ],
-      "round": 3,
-      "tiles": [
-        {
-          "at": "0,0",
-          "state": "cancer"
-        }
-      ],
-      "tuning": {
-        "proliferate_per_adjacent[1]": 1000,
-        "proliferate_per_adjacent[2]": 1000,
-        "proliferate_per_adjacent[3]": 1000,
-        "world_events_on": 1
-      }
-    },
-    "args": {},
-    "rolls": [],
-    "expect": {
-      "changed": {},
-      "ignore": [],
-      "kind": "delta"
-    },
-    "harvested_from": "headless_test.gd:t_ev_proliferate",
-    "status": "OK"
-  },
-  {
-    "schema": "cwxcase/2",
-    "id": "proliferate/t_ev_proliferate/002",
-    "op": "proliferate",
-    "covers": [
-      "t_ev_proliferate::异常增殖：增生概率翻倍（单邻 50"
-    ],
-    "source": "headless_test.gd:t_ev_proliferate L14819；【异常增殖】增生概率翻倍：单邻 500‰ → 1000‰ 必中、六邻全转（rolls 六次全 1000）。KG-3（2026-09-19 合上）：C# 原来没实现翻倍",
-    "world": {
-      "events": {
-        "active": [
-          {
-            "data": {},
-            "doubled": "",
-            "left": 2,
-            "name": "异常增殖",
-            "stacks": 1
-          }
-        ]
-      },
-      "phase": "Setup",
-      "players": [
-        {
-          "faction": "immune",
-          "seat": 0
-        },
-        {
-          "cancer_type": "Osteosarcoma",
-          "faction": "cancer",
-          "seat": 1
-        }
-      ],
-      "round": 3,
-      "tiles": [
-        {
-          "at": "0,0",
-          "state": "cancer"
-        }
-      ],
-      "tuning": {
-        "proliferate_per_adjacent[1]": 500,
-        "proliferate_per_adjacent[2]": 500,
-        "proliferate_per_adjacent[3]": 500,
-        "world_events_on": 1
-      }
-    },
-    "args": {},
-    "rolls": [
-      [
-        1,
-        1000,
-        498
-      ],
-      [
-        1,
-        1000,
-        369
-      ],
-      [
-        1,
-        1000,
-        790
-      ],
-      [
-        1,
-        1000,
-        749
-      ],
-      [
-        1,
-        1000,
-        490
-      ],
-      [
-        1,
-        1000,
-        730
-      ]
-    ],
-    "expect": {
-      "changed": {
-        "$.board.tiles@-1,-1.d.proliferate_chance": 1000,
-        "$.board.tiles@-1,0.d.proliferate_chance": 1500,
-        "$.board.tiles@-1,0.newborn": true,
-        "$.board.tiles@-1,0.tissue": 1,
-        "$.board.tiles@-1,1.d.proliferate_chance": 1500,
-        "$.board.tiles@-1,1.newborn": true,
-        "$.board.tiles@-1,1.tissue": 1,
-        "$.board.tiles@-1,2.d.proliferate_chance": 1000,
-        "$.board.tiles@-2,0.d.proliferate_chance": 500,
-        "$.board.tiles@-2,1.d.proliferate_chance": 1000,
-        "$.board.tiles@-2,2.d.proliferate_chance": 500,
-        "$.board.tiles@0,-1.d.proliferate_chance": 1500,
-        "$.board.tiles@0,-1.newborn": true,
-        "$.board.tiles@0,-1.tissue": 1,
-        "$.board.tiles@0,-2.d.proliferate_chance": 500,
-        "$.board.tiles@0,0.d.pressure": 15,
-        "$.board.tiles@0,0.d.proliferate_chance": 3000,
-        "$.board.tiles@0,1.d.proliferate_chance": 1500,
-        "$.board.tiles@0,1.newborn": true,
-        "$.board.tiles@0,1.tissue": 1,
-        "$.board.tiles@0,2.d.proliferate_chance": 500,
-        "$.board.tiles@1,-1.d.proliferate_chance": 1500,
-        "$.board.tiles@1,-1.newborn": true,
-        "$.board.tiles@1,-1.tissue": 1,
-        "$.board.tiles@1,-2.d.proliferate_chance": 1000,
-        "$.board.tiles@1,0.d.proliferate_chance": 1500,
-        "$.board.tiles@1,0.newborn": true,
-        "$.board.tiles@1,0.tissue": 1,
-        "$.board.tiles@1,1.d.proliferate_chance": 1000,
-        "$.board.tiles@2,-1.d.proliferate_chance": 1000,
-        "$.board.tiles@2,-2.d.proliferate_chance": 500,
-        "$.board.tiles@2,0.d.proliferate_chance": 500
-      },
-      "ignore": [],
-      "kind": "delta"
-    },
-    "harvested_from": "headless_test.gd:t_ev_proliferate",
-    "status": "OK"
   }
 ]

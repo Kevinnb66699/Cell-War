@@ -29,7 +29,10 @@ OUT = "D:/Projects/SpringSense/2026-2027/Cell War/Cell-War/game/scripts/core/cw_
 L = [l.rstrip() for l in io.open(PRD, encoding="utf-8")]
 clean = lambda s: s.replace("\\", "").strip()
 start = next(i for i, l in enumerate(L) if l.startswith("## 免疫卡池"))
-end = next(i for i, l in enumerate(L) if l.startswith("# 世界事件"))
+## 卡池节的结束锚点。世界事件 2026-09-19 从 PRD 整章删除（Kevin：「我们不加入世界事件了」），
+## 但团队手上的 PRD 正本可能还没同步 —— **两种都要跑得通**：有那一章就停在它前面
+## （否则会把事件条目当卡读），没有就一直读到文件末尾（世界事件原本就是最后一章）。
+end = next((i for i, l in enumerate(L) if l.startswith("# 世界事件")), len(L))
 
 POOL_KEY = {"I级卡池": 0, "II级卡池": 1, "III级卡池": 2, "X级卡池": 3}
 KIND = {"事件": "EVENT", "即时技能": "INSTANT", "永久技能": "PERMANENT"}

@@ -6,7 +6,7 @@
 /// </summary>
 public enum LossSource
 {
-    /// <summary>中立 / 世界来源：GD `cancer_hit(skill=false)` = Kind.WORLD + Tag.CANCER —— 攻击失败的反弹、【微环境压迫】、世界事件【增殖抑制】。</summary>
+    /// <summary>中立 / 世界来源：GD `cancer_hit(skill=false)` = Kind.WORLD + Tag.CANCER —— 攻击失败的反弹、【微环境压迫】。</summary>
     World,
     /// <summary>免疫细胞的普通攻击：GD `immune_hit(attack=true)` = Tag.IMMUNE + Tag.ATTACK。</summary>
     ImmuneAttack,
@@ -222,10 +222,7 @@ internal static class CellRules
     ///
     /// 升级那一句 GD 写的是 `while lv &lt; 3 and memory &gt;= tiers[lv+1]`，从当前等级往上一级级走；
     /// 门槛表升序 ⇒ 等价于「满足门槛的最高一级、且不低于当前等级」，就是下面这两行。
-    /// **X 级就地清零**：PRD「抗原记忆升级为【效应记忆】重新从零计数」，只在**这一次升**到 X 时清。
-    ///
-    /// ⚠ GD 那边 `gain_memory` 开头还有一条【抗原暴露】的 `event_stacks` 加成（每次获得 +stacks），
-    /// C# 今天整条没有 —— **不在本批范围**（事件族归批 5b），这里一行不动。</summary>
+    /// **X 级就地清零**：PRD「抗原记忆升级为【效应记忆】重新从零计数」，只在**这一次升**到 X 时清。</summary>
     public static WorldState AddMemory(WorldState s, int amount)
     {
         var tiers = LevelMinMemoryByPlayers.TryGetValue(s.Players.Count, out var byPlayers) ? byPlayers : LevelMinMemory;

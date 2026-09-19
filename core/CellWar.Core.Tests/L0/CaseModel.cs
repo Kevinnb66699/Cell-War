@@ -134,7 +134,7 @@ public sealed record L0World
     /// <summary>癌症胜利警报；不写 = 连胜计数 0。</summary>
     public L0CancerAlarm? CancerAlarm { get; init; }
 
-    /// <summary>世界事件 / 全局修饰容器。⚠ 装载时**覆盖**引擎自己填的池子，不是追加（A-2）。</summary>
+    /// <summary>全局修饰容器。⚠ 装载时**覆盖**引擎自己填的池子，不是追加（A-2）。</summary>
     public L0Events? Events { get; init; }
 
     /// <summary>要拧的旋钮；不填就是 PRD 原文。键名按**GD 的名字**（snake_case），四档白名单在 `game/tests/contract_tune.json`。分档表写下标：`proliferate_per_adjacent[1]`（1 基）。</summary>
@@ -154,9 +154,9 @@ public sealed record L0Track(int Cid, string At, int Left);
 /// <param name="Streak">连续达标的世界回合数</param>
 public sealed record L0CancerAlarm(int Streak);
 
-/// <param name="Pool">事件池。C# 侧是写死的全表（世界事件整块未迁），写了就必须一字不差，否则 UNLOADABLE</param>
+/// <param name="Pool">事件池。世界事件已删（Kevin 2026-09-19），两侧恒空表；写了非空就是 UNLOADABLE</param>
 /// <param name="Active">挂着的条目</param>
-/// <param name="DoubleNext">下一次事件翻倍。C# 侧没有落点，写 true = UNLOADABLE</param>
+/// <param name="DoubleNext">协议保留字段，恒 false（世界事件已删）；写 true = UNLOADABLE</param>
 public sealed record L0Events(List<string>? Pool = null, List<L0Effect>? Active = null, bool DoubleNext = false);
 
 /// <summary>`cw_obs_proto.gd:EFFECT` 去掉 `d`。`stacks: n` 装成**一条** `stacks = n`（§0.6.1 第 5 条）。</summary>

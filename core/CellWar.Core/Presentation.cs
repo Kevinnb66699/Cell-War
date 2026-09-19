@@ -63,12 +63,6 @@ public sealed record CardDrawn(int WorldRound, Phase Phase, int Seat, EntityId C
     public string EventType => "card_drawn";
 }
 
-/// <summary>`show_world_event(ev, {left})`。</summary>
-public sealed record WorldEventDrawn(int WorldRound, Phase Phase, string Name, int Left) : IPresentationEvent
-{
-    public string EventType => "world_event";
-}
-
 /// <summary>`show_erosion(at, dir)`：组织翻面的演出（侵蚀 / 增生 / 定殖共用）。<paramref name="Dir"/> 是 GD `CWData.DIRS` 的下标（<see cref="SemanticKey.DirIndex"/>），-1 = 无方向（GD 侧 dir &lt; 0 不发）。</summary>
 public sealed record TissueConverted(int WorldRound, Phase Phase, HexPosition At, int Dir, string Cause) : IPresentationEvent
 {

@@ -2,11 +2,11 @@
 ##
 ## 阶段顺序**逐条照抄 PRD「世界回合」那一节**，改动前先回去核对，别凭印象调：
 ##
-## S 阶段：世界事件 → 特殊组织产出 → 血管传送 → 免疫【复活】→ 癌细胞【复活】
+## S 阶段：特殊组织产出 → 血管传送 → 免疫【复活】→ 癌细胞【复活】
 ##        → 免疫【有氧呼吸】→ 其他 S 类
 ## E 阶段：【无氧呼吸】→【微环境压迫】→【增生】→【侵蚀】→【固化】→ 固化计数衰减
 ##        → 其他 E 类 → 更新持续状态（「坏死」到期）→ 移除「新生」
-##        → 世界事件到期（紊乱返回、持续效果倒计时）→ **胜利条件检查**
+##        → 全局修饰倒计时/到期 → **胜利条件检查**
 ##
 ## 两个容易踩的点：
 ## ① **增生在侵蚀之前**，但增生这一轮**新造的格子不作侵蚀的来源**
@@ -21,15 +21,12 @@ extends RefCounted
 var game: CWGame
 
 
-## S 阶段的**自动结算部分**（世界事件 → 特殊组织产出 → 血管传送）。
+## S 阶段的**自动结算部分**（特殊组织产出 → 血管传送）。
 ## 两处【复活】要玩家选落点，交给流程状态机；有氧呼吸在复活全部结算完之后调。
 ## 是协程：产出收取和血管落地都可能抽到要中途选择的事件卡（await 链见 cw_card_fx 头注）。
 func round_start() -> void:
 	game.log_msg("━━━━ 第 %d 世界回合 ━━━━" % game.round_no)
 	_reset_round_flags()
-	await game.world_fx.on_round_start()
-	if CWData.is_world_event_round(game.round_no):
-		await game.world_fx.trigger()
 	await _tissue_production()
 	await _vessel_teleport()
 
@@ -44,8 +41,8 @@ func overload() -> void:
 
 
 ## 严格按 PRD「E 阶段」的九步走。校正过两次：
-## · 2026-08-31 第 7~9 步的先后（口径 #86）—— 此前 `world_fx.round_end()`（紊乱返回 + 事件到期）
-##   整体排在 `_clear_newborn()` 之后，于是紊乱返回时【定殖】造出的癌组织会多背一个世界回合的「新生」。
+## · 2026-08-31 第 7~9 步的先后（口径 #86）—— 此前 `world_fx.round_end()`（回合末结算 + 修饰到期）
+##   整体排在 `_clear_newborn()` 之后，于是回合末补结算造出的癌组织会多背一个世界回合的「新生」。
 ## · 2026-09-14 **【无氧呼吸】提到第 1 步**（issue #40）：PRD 早就写成「1. 所有存活的癌细胞结算
 ##   【无氧呼吸】。2. 结算【微环境压迫】…」，引擎却一直停在「压迫在前、无氧第 4」的旧顺序。
 ##   **这不是纸面先后**：压迫要扣癌细胞的能量，先呼吸就意味着扣之前先进账 —— 同一个局面下
@@ -62,9 +59,8 @@ func e_phase() -> void:
 	_rooted()                                ## 5 【根深蒂固】（环境恶化 II/III 期，同属第 5 步：固化格给相邻癌组织加计数）
 	_ossify()                                ## 5 骨肉瘤【骨样硬化】标记到期（同属第 5 步，排在计数固化之后）
 	_decay()                                 ## 6 固化计数衰减
-	_mark_adhesion()                         ## 7 树突【E-组织黏连】（也是 E 类，排在紊乱返回之前）
-	await game.world_fx.round_effects()      ## 7 其他 E 类效果：目前只有【紊乱】返回原位
-	game.world_fx.tick_durations()           ## 8 世界事件倒计时/到期 + 「本世界回合」修饰过期
+	_mark_adhesion()                         ## 7 树突【E-组织黏连】（第 7 步「其他 E 类」目前只剩它）
+	game.world_fx.tick_durations()           ## 8 全局修饰倒计时/到期 + 「本世界回合」修饰过期
 	_tick_necrosis()                         ## 8 「坏死」倒计时（同属第 8 步）
 	_tick_chemo_cd()                         ## 8 树突【I-趋化源】的技能冷却（同属第 8 步；源本身按完整回合过期）
 	_tick_chemo_track()                      ## 8 【免疫猎杀】的追踪趋化源倒计时（同属第 8 步）
@@ -98,9 +94,6 @@ func _reset_round_flags() -> void:
 
 ## 代谢核心/骨髓产出；产出瞬间站在其上的细胞立即收取（说明 #9）
 func _tissue_production() -> void:
-	if game.event_stacks("营养缺乏") > 0:
-		game.log_msg("【营养缺乏】本回合特殊组织不产出")
-		return
 	for c in game.tiles.keys():
 		var t: Dictionary = game.tiles[c]
 		if t["special"] != CWData.Special.CORE and t["special"] != CWData.Special.MARROW:
@@ -156,11 +149,9 @@ func _vessel_teleport() -> void:
 	for cell in ca:
 		game.log_msg("【血管】%s 传送至 %s" % [game.cell_name(cell), str(b)])
 		await game.actions.enter_tile(cell, b)
-		await game.world_fx.on_vessel_pass(cell)
 	for cell in cb:
 		game.log_msg("【血管】%s 传送至 %s" % [game.cell_name(cell), str(a)])
 		await game.actions.enter_tile(cell, a)
-		await game.world_fx.on_vessel_pass(cell)
 
 
 ## 【S-复活】癌症，可自愿放弃（说明 #21）。
@@ -654,15 +645,9 @@ func _erosion_dir(c: Vector2i) -> int:
 ## 返回**本回合新造出来的癌组织**，交给 `_erosion()` 当作「这一轮不算来源」的名单（见那边的注释）。
 func _proliferate() -> Array[Vector2i]:
 	var none: Array[Vector2i] = []
-	if game.event_stacks("增殖抑制") > 0:
-		game.log_msg("【增殖抑制】本回合组织无法增生")
-		return none
 	var stage := game.tumor_stage()
 	var rate: int = game.tune.proliferate_per_adjacent[stage]
 	var per_solid: int = game.tune.proliferate_per_solid[stage]
-	for i in game.event_stacks("异常增殖"):
-		rate *= 2        ## 【异常增殖】增生概率翻倍（叠加时按层数连乘）
-		per_solid *= 2   ## 两项一起翻，否则事件生效期间反而把固化的加成压扁了
 	if rate <= 0 and per_solid <= 0:
 		return none
 	## 先把每格所属的连通块与各块的固化数一次性算出来 —— 每格各跑一遍洪水填充的话，一次增生要跑 127 遍。
@@ -727,8 +712,7 @@ func _proliferate_chance(c: Vector2i, rate: int, per_solid: int, block_of: Dicti
 	return n_adj * (rate + per_solid * solids)
 
 
-## 公开的纯查询（测试核算式、界面将来显示「增生概率」用）：按当前分期与旋钮算某格的千分率，
-## **不含**世界事件的翻倍/抑制 —— 那两条在 _proliferate 里。
+## 公开的纯查询（测试核算式、界面将来显示「增生概率」用）：按当前分期与旋钮算某格的千分率。
 func proliferate_chance(c: Vector2i) -> int:
 	var stage := game.tumor_stage()
 	var bs := _block_solids()

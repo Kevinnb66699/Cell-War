@@ -86,13 +86,6 @@ const CANCER_ICON := {
 
 var _round: Label
 var _phase: Label
-## 进行中的世界事件（名字 + 剩余回合）。此前只有对局日志里能看到，玩家在盘面上根本不知道
-## 【基质阻隔】还在（2026-09-02 Kevin：「有能量为什么走不进癌组织」的根源之一）。
-## 没有事件时整行隐藏；放在回合块底部那 14px 的空档里，不动任何块高（见文件头「一个数都别改」）。
-var _events: Label
-var _event_hover := false      ## 鼠标停在事件行上
-var _event_tip: Control        ## 事件行的悬浮详情（每个事件一句话效果 + 剩余回合）
-var _event_tip_key := ""
 var _weighted: Label
 var _weighted_max: Label
 var _weighted_caption: Label   ## 平时写「癌性加权」，警报期换成「★ 警报 1/2」
@@ -184,22 +177,11 @@ func refresh(m: CWMirror, q: Callable) -> void:
 		_build(m.players.size())
 	_round.text = "第 %d 回合" % m.round_no
 	## 环境恶化（2026-09-11）：肿瘤分期直接改压迫/增生/侵蚀/固化门槛的数，玩家得看得见现在是第几期。
-	## 世界事件关着时（现在的默认）不再写「已关闭」—— 一句永远不变的话占着位置，分期更有用。
-	## 关掉时别再倒计时一个永远不会来的事件（Kevin 2026-09-08 的开关）
 	var stage_name: String = CWData.STAGE_NAMES[m.tumor_stage()]
 	## 阶段文字取 d.phase_text（中文串「世界回合 E」）——
 	## m.phase 是协议的机器词 setup/s/turn/e/finished，直接打出来顶栏就变成英文小写（规格 D-6）
 	var phase_text := str(m.g["d"]["phase_text"])
-	if not bool(m.tune["world_events_on"]):
-		_phase.text = "%s · %s" % [phase_text, stage_name]
-	else:
-		## 「下一次世界事件是第几回合」由内核算（cw_obs_codec.gd:next_event_round，0 = 没有下一次）
-		var next_ev := int(m.g["d"].get("next_event_round", 0))   ## tier B 缺席 = 不倒计时，口播「已放完」
-		_phase.text = "%s · %s · 世界事件 第 %d 回合" % [phase_text, stage_name, next_ev] if next_ev > 0 \
-			else "%s · %s · 世界事件已放完" % [phase_text, stage_name]
-	_events.text = active_events_text(m)
-	_events.visible = _events.text != ""
-	_update_event_tip(m)
+	_phase.text = "%s · %s" % [phase_text, stage_name]
 
 	var w := m.cancer_weighted()
 	var goal: int = int(m.tune["cancer_win_weighted"])
@@ -406,21 +388,9 @@ func _build(n: int) -> void:
 	_tip_pinned = -1
 	_tip_key = ""
 
-	# ① 回合 / 阶段 / 进行中的世界事件
+	# ① 回合 / 阶段
 	_round = _put(CWStyle.label("", CWStyle.SIZE_BIG, CWStyle.TEXT_HI), PAD, PAD, W)
 	_phase = _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM), PAD, PAD + 36, W)
-	_events = _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI), PAD, PAD + 50, W)
-	## **先开裁切再定尺寸**（架构约定：不裁的 Label 最小宽 = 全文宽，会把 size 顶回去、省略号根本不生效）——
-	## 2026-09-07 给事件卡让宽时才发现这条一直没开，同时挂三个世界事件时那行字本来会顶穿右缘
-	_events.clip_text = true
-	_events.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS   ## 同时挂着三个事件才会超宽；细节看悬浮详情
-	_events.visible = false
-	_events.mouse_filter = Control.MOUSE_FILTER_STOP   ## 要接悬停：悬浮框里有每个事件的一句话效果（Kevin 2026-09-02）
-	_events.mouse_default_cursor_shape = Control.CURSOR_HELP
-	_events.mouse_entered.connect(func() -> void: _event_hover = true)
-	_events.mouse_exited.connect(func() -> void: _event_hover = false)
-	_event_tip = null
-	_event_tip_key = ""
 
 	# ② 胜负进度：一行标签 + 一条进度条
 	var y := _score_top()
@@ -592,76 +562,6 @@ func _build_end_button() -> PanelContainer:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			end_turn_pressed.emit())
 	return p
-
-
-# ============ 世界事件悬浮框 ============
-
-## 悬停事件行时，在面板左侧浮出每个进行中事件的一句话效果（CWWorldFx.BLURB）和剩余回合。
-## 每帧从 refresh() 进来，键（事件行文字）没变就不重搭；没悬停或没事件就藏起来。
-func _update_event_tip(m: CWMirror) -> void:
-	if not _event_hover or not _events.visible:
-		if _event_tip != null:
-			_event_tip.visible = false
-		return
-	var key := _events.text
-	if key == _event_tip_key and _event_tip != null:
-		_event_tip.visible = true
-		return
-	_event_tip_key = key
-	if _event_tip != null:
-		remove_child(_event_tip)
-		_event_tip.queue_free()
-	var items: Array = []
-	for e in m.events["active"]:
-		if bool(e["d"]["is_world_event"]):   ## 是不是世界事件由内核判（协议 EFFECT_D，tier A），界面不再自己查表
-			items.append(e)
-	var tip_w := EVENT_TIP_W
-	## 效果正文**自己折行**（CWCardInfo.wrap_text），不用 Label 的 autowrap。
-	## 2026-09-08 Kevin 截图：【抗原变异】那句 270px 宽的话在 256px 的框里没断开、
-	## 单行冲出右边框。同一处还有另半个 bug —— block_h 写死「效果两行」，
-	## 三行的句子会压到下一个事件的名字上。现在两件事一起解决：行数现算、块高跟着走。
-	## 顺带白拿 wrap_text 的两条排版规矩：汉字与数字之间补空格、标点不做行首。
-	var wrapped: Array = []                ## 与 items 一一对应的已折行正文
-	var h: float = 8 * 2 + 15
-	for e in items:
-		var blurb: String = CWWorldFx.BLURB.get(e["name"], "")
-		var dl := doubled_line(String(e.get("doubled", "")))
-		if dl != "":
-			blurb += "\n" + dl
-		var ls := CWCardInfo.wrap_text(blurb, tip_w - 24.0)
-		wrapped.append(ls)
-		h += EVENT_NAME_H + ls.size() * EVENT_LINE_H + EVENT_BLOCK_GAP
-	_event_tip = Control.new()
-	_event_tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_event_tip.size = Vector2(tip_w, h)
-	_event_tip.position = Vector2(-(tip_w + 8.0), clampf(_events.position.y, 8.0, RECT.size.y - h - 8.0))
-	var bg := Panel.new()
-	bg.add_theme_stylebox_override("panel", CWStyle.box(0.45, CWStyle.BTN_BG))
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_event_tip.add_child(bg)
-	var title := CWStyle.label("进行中的世界事件", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	title.position = Vector2(12, 8)
-	_event_tip.add_child(title)
-	var y: float = 8 + 15
-	for i in items.size():
-		var e: Dictionary = items[i]
-		var head := "【%s】%s" % [e["name"], "×%d" % int(e["stacks"]) if int(e["stacks"]) > 1 else ""]
-		var name_label := CWStyle.label(head, CWStyle.SIZE_BODY, CWStyle.TEXT)
-		name_label.position = Vector2(12, y)
-		_event_tip.add_child(name_label)
-		var left_label := CWStyle.label("本回合" if int(e["left"]) <= 1 else "剩 %d 回合" % int(e["left"]),
-			CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-		left_label.position = Vector2(12, y + 4)
-		left_label.size = Vector2(tip_w - 24, 0)
-		left_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		_event_tip.add_child(left_label)
-		var ls: PackedStringArray = wrapped[i]
-		var blurb := CWStyle.label("\n".join(ls), CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
-		blurb.position = Vector2(12, y + EVENT_NAME_H)
-		_event_tip.add_child(blurb)
-		y += EVENT_NAME_H + ls.size() * EVENT_LINE_H + EVENT_BLOCK_GAP
-	add_child(_event_tip)
 
 
 # ============ 被动技能悬浮框 ============
@@ -862,53 +762,6 @@ func _set_pips(row: Dictionary, n: int, accent: Color) -> void:
 		var pip: ColorRect = row["pips"][k]
 		pip.color = accent if k < n else CWStyle.TEXT_OFF_DIM
 		pip.modulate.a = 1.0 if k < n else 0.45
-
-
-## 悬浮详情的排版常量。效果正文的行数现算（见 _build_event_tip），所以块高不是定值。
-## 世界事件悬浮框的排版常量。**别和上面被动技能框的 TIP_W(200) 混用**——两个框宽度不同。
-const EVENT_TIP_W := 280.0        ## 框宽；效果正文按 EVENT_TIP_W - 24 折行
-const EVENT_NAME_H := 24.0        ## 名字行（含右对齐的「剩 N 回合」）占的高度
-const EVENT_LINE_H := 15.0        ## 效果正文每行的行高
-const EVENT_BLOCK_GAP := 6.0      ## 两个事件之间留的空
-
-
-## 进行中的世界事件一行字：「【基质阻隔】本回合·【增殖抑制】剩2回合」。
-## 只列世界事件（`is_world_event`），卡牌挂的全局修饰（TGF-β…）不在这里 —— 那些有卡面可查。
-## `left` 含当前回合：触发当回合的持续事件是「剩2回合」，回合末倒计时后是「剩1回合」。
-## 写法故意不留空格：两个六字事件并排是 22 个字，232px 的行宽刚好放下；加空格就得省略号。
-## 被【双重触发】加倍的事件，在名字后面加一枚「双重」标（Kevin 2026-09-08：
-## 「不然玩家们不知道有双重触发」）。**三档都要标** —— 原来只有「数值翻倍」那档
-## 因为 stacks>1 顺带露出个「×2」，另外两档（持续翻倍、连演两回合）在界面上
-## 和普通事件一模一样，玩家完全看不出为什么这一条格外难缠。
-static func active_events_text(m: CWMirror) -> String:
-	var parts: Array = []
-	for e in m.events["active"]:
-		if not bool(e["d"]["is_world_event"]):   ## 同 _update_event_tip：判据在内核
-			continue
-		var s := "【%s" % e["name"]
-		if String(e.get("doubled", "")) != "":
-			s += "·双重"
-		s += "】"
-		if int(e["stacks"]) > 1:
-			s += "×%d" % int(e["stacks"])
-		s += "本回合" if int(e["left"]) <= 1 else "剩%d回合" % int(e["left"])
-		parts.append(s)
-	return "·".join(PackedStringArray(parts))
-
-
-## 悬浮详情里补的那一句：【双重触发】把这条事件**怎么**加倍了。
-## 三档说的是三件不同的事，不能糊成一句「效果翻倍」——
-## 「数值翻倍」和「多演一个回合」对玩家的应对完全不同。
-static func doubled_line(mode: String) -> String:
-	match mode:
-		"stacks":
-			return "【双重触发】：两份同时生效，数值翻倍"
-		"rounds":
-			return "【双重触发】：持续回合翻倍"
-		"repeat":
-			return "【双重触发】：连续两个回合各完整生效一遍"
-		_:
-			return ""
 
 
 ## 把等级数字居中到「免疫等级」与记忆行之间那道缝里。

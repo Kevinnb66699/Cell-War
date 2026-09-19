@@ -24,7 +24,7 @@ var _box: PanelContainer
 var _label: Label
 var _tween: Tween
 ## 排队显示（全局通报那只实例用）：正在显示时后来的先排着，等这一条淡出再上下一条。
-## 世界事件、复活失败这类通报常在 S / E 阶段扎堆蹦出来，直接 show_at 会互相顶掉，
+## 复活失败这类通报常在 S / E 阶段扎堆蹦出来，直接 show_at 会互相顶掉，
 ## 玩家只看得见最后一条（Kevin 2026-09-06「都显示得太快」）—— 光拉长 hold 治不了顶掉。
 var _queue: Array = []   ## [{ text, avoid, hold, max_w }]
 var _busy := false
@@ -51,7 +51,7 @@ func _ready() -> void:
 ## 在 avoid（骰子在屏幕上的外框）**旁边**显示一行字，不压到它上面。
 ## hold <= 0 表示一直留着，等下一次 show_at() 或 hide_now() ——
 ## 掷骰过程中显示「攻击」用的就是这一档，骰子停稳后再换成结果并给它一个 hold。
-## max_w > 0：超过这个宽度就按字折行（顶带右半只有三百多像素，世界事件那句会超）
+## max_w > 0：超过这个宽度就按字折行（顶带右半只有三百多像素，长句会超）
 func show_at(text: String, avoid: Rect2, hold: float, max_w := 0.0) -> void:
 	_label.text = wrap_body(text, max_w) if max_w > 0.0 else text
 	_box.size = _box.get_combined_minimum_size()

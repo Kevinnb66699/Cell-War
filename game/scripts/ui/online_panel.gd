@@ -66,10 +66,11 @@ const RETRY_MS := 3000
 const LOBBY_POLL_MS := 3000
 const ROW_LABEL := Color("9fb6bd")
 const TIMER_TEXT := { 0: "不限", 30: "30 秒", 60: "60 秒", 90: "90 秒" }
-const CREATE_ROWS := ["人数", "每步计时", "可见性", "世界事件", "观众视角"]
-const N_CREATE_ROWS := 5
-## 建房页**自己**的行距：连接页 / 局域网页那几行还按 ROW_H 42 摆，这页要塞五行 ——
-## 251 起五行 × 34 到 413，离建房按钮（BTN_Y 438）还剩一行的空。改这个数记得看图。
+const CREATE_ROWS := ["人数", "每步计时", "可见性", "观众视角"]
+const N_CREATE_ROWS := 4
+## 建房页**自己**的行距：连接页 / 局域网页那几行还按 ROW_H 42 摆，这页曾要塞五行 ——
+## 251 起五行 × 34 到 413，离建房按钮（BTN_Y 438）还剩一行的空。2026-09-19 删掉
+## 「世界事件」行之后只剩四行，34 原样留着。改这个数记得看图。
 const CREATE_ROW_H := 34.0
 const LAN_PORT_MIN := 1024      ## 1023 以下是系统端口，Windows / macOS 都要管理员才绑得上
 const LAN_PORT_MAX := 65535
@@ -102,11 +103,9 @@ var _status: Label
 var _title: Label
 var _sub: Label
 ## 建房页的取值与焦点（与配置面板同一套键盘模型：上下选行、左右拨值）
-## 世界事件建房默认**关**（Kevin 2026-09-12）：拨到「开」才触发。
 ## 观众视角默认**背面**：不是保守，是「别让房主在不知情的情况下把自己的手牌公开出去」——
 ## 要露手牌得自己拨一下（Kevin 2026-09-13 定这一档可选）
-var _create := { "players": 4, "timer": 60, "public": true, "world_events": false,
-	"watch_hands": false }
+var _create := { "players": 4, "timer": 60, "public": true, "watch_hands": false }
 var _create_sel := 0
 var _create_names: Array[Label] = []
 var _create_values: Array[Label] = []
@@ -515,8 +514,10 @@ func _host_lan() -> void:
 func _create_room() -> void:
 	if client == null:
 		return
+	## world_events 形参是世界事件删除（2026-09-19）后留下的冻结报文字段：传字面 false，
+	## 报文与 NET_VERSION 一字不动（随批 1 全量发版那次协议升号一并物理删除）。
 	client.create_room(_create["players"], _create["timer"], _create["public"], 0,
-		_create["world_events"], _create["watch_hands"])
+		false, _create["watch_hands"])
 	_set_status("建房中…")
 
 
@@ -567,8 +568,6 @@ func _cycle_create(row: int, dir: int) -> void:
 		2:
 			_create["public"] = not _create["public"]
 		3:
-			_create["world_events"] = not _create["world_events"]
-		4:
 			_create["watch_hands"] = not _create["watch_hands"]
 		_:
 			return
@@ -1088,8 +1087,6 @@ func _create_value_text(i: int) -> String:
 		2:
 			return "公开（进大厅列表）" if _create["public"] else "私密（凭房间码）"
 		3:
-			return "开" if _create["world_events"] else "关（整局不触发）"
-		4:
 			## 观众看不看得到手牌（Kevin 2026-09-13）。写清楚代价：全见 = 连你自己的手牌也露给观众
 			## 值要短到 VALUE_X(250)~ARROW_R_X(500) 这 240px 里 —— 长了会盖住右边那枚拨值箭头
 			return "全见（含所有人手牌）" if _create["watch_hands"] else "背面（看不到手牌）"

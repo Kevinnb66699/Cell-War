@@ -64,7 +64,7 @@ internal static class BoardRules
     /// <summary>S.2 血管传送 = GD `_vessel_teleport`（cw_world.gd:133-165）：两端都空就没事；**哪一端坏死整条作废**；两边都有就交换
     /// （不分阵营 —— 旧的「敌对同格则取消」已作废）；先送 a 端（GD VESSELS[0] = (6,0)）的细胞到 b、再送 b 端的到 a，
     /// 每次落地都是完整的 `enter_tile`（定殖 / 蹲守 / 净化 → 黏液 → collect_special → 标记）。
-    /// 此前 C# 自写了一遍：留着作废条款、无坏死闸、一次性换位、只收能量不抽卡、无标记刷新（2026-09-18）。【营养输送】那一挂随世界事件整块不做。</summary>
+    /// 此前 C# 自写了一遍：留着作废条款、无坏死闸、一次性换位、只收能量不抽卡、无标记刷新（2026-09-18）。</summary>
     public static WorldState Transport(WorldState s, IDeterministicRng rng)
     {
         var vessels = Tiles(s).Where(t => t.Type == TissueType.BloodVessel).OrderByDescending(t => t.Position.Q).ToArray();
@@ -118,8 +118,7 @@ internal static class BoardRules
         s = Ossify(s);                                 // 5  骨肉瘤【骨样硬化】标记到期
         s = Decay(s);                                  // 6  固化计数衰减
         s = MarkAdhesion(s);                           // 7  树突【E-组织黏连】
-        // 7 【紊乱】返回原位 —— C# 未实现（世界事件，EV-1）
-        s = TickDurations(s);                          // 8  世界事件 / 全局修饰倒计时
+        s = TickDurations(s);                          // 8  全局修饰倒计时
         // 8 「本世界回合」时长的**细胞身上**那些修饰，改在下一个 S 阶段的 ResetRoundFlags 里清
         //   （E 步 8 到下一个 S 之间没有别的结算，等价）
         s = TickNecrosis(s);                           // 8  「坏死」倒计时
@@ -229,13 +228,9 @@ internal static class BoardRules
         // （GD 明写「先转的格不该成为后转格的来源」）。算式住在 `RulePolicies.ProliferateChance`。
         var beforeGrowth = s;
         var fresh = new List<HexPosition>();
-        // 【增殖抑制】在场：整步不做、**一次骰子都不掷**（GD `_proliferate` 开头就 return；此前 C# 照掷再压成 0，带子多消耗一次 —— 批 3 KG-2）
-        if (WorldEffects.Active(s, "增殖抑制")) { next = s; return fresh; }
-        // 【异常增殖】：增生概率翻倍、叠加按层数连乘（GD 把 rate 与 per_solid 一起翻，等价于整条千分率 ×2^层数 —— 批 3 KG-3）
-        var mult = 1 << WorldEffects.Stacks(s, "异常增殖");
         foreach (var t in Tiles(beforeGrowth))
         {
-            var chance = ProliferateChance(beforeGrowth, t.Position) * mult;
+            var chance = ProliferateChance(beforeGrowth, t.Position);
             // 概率为 0 就**不掷骰**（GD 同）—— 被【免疫监视】盯着的格子随之少消耗一次 rng，
             // 而随机数带子逐笔对齐，少掷一次就是一条差异
             if (chance <= 0) continue;
@@ -455,7 +450,7 @@ internal static class BoardRules
     internal const int AdhesionRange = 2;
 
     /// <summary>
-    /// 8 世界事件与卡牌全局修饰的倒计时：每条 `Left` −1，归零移除。
+    /// 8 卡牌全局修饰的倒计时：每条 `Left` −1，归零移除。
     /// 对齐 GD 的 `CWWorldFx.tick_durations()`。
     /// </summary>
     internal static WorldState TickDurations(WorldState s)

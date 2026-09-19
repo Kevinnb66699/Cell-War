@@ -51,7 +51,6 @@ const FLAGS := {
 	## 写 `flag: "hex"` = 这一步**只**亮那一组；其余 flag 与它并存（见 sync 的注释）
 	"hex": "hex",
 	"immune_defend": "own",          ## 你的免疫细胞脚下
-	"world_event": "world_event",    ## 右栏回合块（事件行在那）+ 左上角「对局日志」入口
 	"graduated": "",
 }
 
@@ -139,11 +138,6 @@ func sync(flag: String, m, script_hexes: Array = []) -> void:
 		"round":
 			if m.panel != null:
 				_rect(m.panel.rect_of("round"))
-		"world_event":
-			if m.panel != null:
-				_rect(m.panel.rect_of("round"))
-			if m._log_hint != null and m._log_hint.visible:
-				_rect(m._log_hint.get_global_rect())
 
 
 func _rect(r: Rect2) -> void:

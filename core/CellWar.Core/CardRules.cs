@@ -282,7 +282,7 @@ internal static class CardRules
         // 随后两问 —— 方向（送给 / 索取，各自只在那一侧付得起最低档时才出现）、档位（1.0→1.2 / 1.5→2.0 / 2.0→2.5）——
         // 走挂起态；两问的下标 0 都是「取消」：无效果、**卡不弃置**。双方都付不出最低一档 = 落空（卡照常弃置）。
         // 此前 C# 是按肿瘤分期定档、只能自己付、还把付款截到手头能量 —— 三处都不是 GD 的规则。
-        // GD 的两侧数额还过【信号放大】（`_amp`）；C# 没有那张卡，这里不放大。
+        // GD 侧那条【信号放大】（`_amp`）随世界事件一起删了（Kevin 2026-09-19），两侧从此同口径：都不放大。
         ["代谢耦联"] = (s, cell, rng, target, targetCell) =>
         {
             if (targetCell is not { } ally || !CoupleAllies(s, cell).Contains(ally)) return s;

@@ -45,7 +45,7 @@ internal static class Subset
     public static Dictionary<string, object?> Encode(WorldState s) => Encode(s, null);
 
     /// <summary>带 <see cref="SimulationState"/> 的那一版：契约步跑完后把 Stage 里发出的条目按 Runtime 同一条路
-    /// （<see cref="SimulationState.Emit"/>）过一遍，`CardPlayed` / `EventCardDrawn` / `WorldEventDrawn` 才会像 GD `note_feed`
+    /// （<see cref="SimulationState.Emit"/>）过一遍，`CardPlayed` / `EventCardDrawn` 才会像 GD `note_feed`
     /// 那样落进 `g.feed_log` / `feed_seq`（观测协议 §八：feed_log 进对拍）。不带 sim 就是装载那一刻的空流水（批 5a card-play-feed-log）。</summary>
     public static Dictionary<string, object?> Encode(WorldState s, SimulationState? sim)
     {

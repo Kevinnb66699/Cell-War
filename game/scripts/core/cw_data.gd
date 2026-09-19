@@ -41,7 +41,7 @@ static func init_cancer_tiles(n_players: int) -> int:
 const CANCER_WIN_WEIGHTED := 90          # 癌+2×固化 ≥ 90 时癌症即胜（PRD 原值 85）
 const CANCER_WIN_HOLD_ROUNDS := 2        # 要**连续**这么多个世界回合末都达标才判胜（团队 2026-09-01 定案 B：首次达标只拉警报）
 ## 终局世界回合数。2026-09-07 Kevin 换 PRD 正本：30 → **15**。
-## 连带：世界事件回合、癌症卡池分期都跟着压缩（见 is_world_event_round / CWCardData.cancer_phase），
+## 连带：癌症卡池分期跟着压缩（见 CWCardData.cancer_phase），
 ## 而**所有平衡标定作废** —— 后期池这下真能出场，癌方滚雪球却只剩一半时间（团队自行重标）。
 const LIMIT_ROUND := 15                  # 终局世界回合数
 const LIMIT_CANCEROUS := 63              # 终局判定线 ⌊1/2×127⌋
@@ -974,10 +974,6 @@ static func special_of(c: Vector2i) -> Special:
 		return Special.VESSEL
 	return Special.NONE
 
-
-static func is_world_event_round(r: int) -> bool:
-	# PRD：第 3、6、10、14 世界回合（2026-09-07 随 15 回合制改；14 而非 15 —— 终局那回合不再插事件）
-	return r in [3, 6, 10, 14]
 
 
 ## 十分能量 → 显示字符串（如 15 → "1.5"）

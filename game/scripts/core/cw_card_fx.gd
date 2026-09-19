@@ -132,9 +132,6 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 ## 中途还有别的决定的卡（代谢耦联的方向数额、基质重塑的后续格、炎症性趋化的后两步）
 ## 只摊**第一个**决定，其余在 play() 里经 game.ask 追问。
 func hand_options(cell: Dictionary, opts: Array) -> void:
-	## 【细胞应激】本回合打牌收费；付不起就一张也打不出（选项直接不出现）
-	if _stress_fee() > 0 and not game.can_pay(cell, _stress_fee()):
-		return
 	for card in cell["hand"]:
 		## 永久技能：无目标，打出即装备（同名限一张由抽卡合法性把关，手上不会有重复）
 		if CWCardData.CARDS[card]["kind"] == CWCardData.Kind.PERMANENT:
@@ -262,11 +259,6 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 	if not card in cell["hand"]:
 		return
 	game.log_msg("%s 打出【%s】" % [game.cell_name(cell), card])
-	var fee := _stress_fee()
-	if fee > 0:
-		if not game.pay(cell, fee):
-			return   ## 选项层已按费用把过关，这里只是兜底
-		game.log_msg("　【细胞应激】支付 %s 能量" % CWData.fmt(fee))
 	game.broadcast_card_played(cell, card)   ## 给别人的弹窗（Kevin 2026-09-06）；付费失败的兜底分支已经 return 掉，不会误报
 	## 永久技能：置于角色面板持续生效（PRD 卡牌规则），效果在各挂接点按 equipped 查询
 	game.card_played.emit(int(cell["id"]), int(cell["pid"]), Vector2i(cell["pos"]), int(cell["faction"]), card, data)
@@ -1091,16 +1083,12 @@ func _opt(card: String, suffix: String, extra: Dictionary = {}) -> Dictionary:
 	return { "label": "打出【%s】%s" % [card, suffix], "data": data }
 
 
-## 【信号放大】：卡牌效果中的能量增减翻倍（定案 W8：即时技能卡翻、事件卡按同口径翻，
-## 永久技能卡与细胞自带技能不翻——本模块只住前两类，能量数值全部过这一层）
+## 卡牌效果中能量增减的**统一放大层**（定案 W8 的口径：即时技能卡与事件卡走这里，
+## 永久技能卡与细胞自带技能不走——本模块只住前两类，能量数值全部过这一层）。
+## 唯一的放大来源【信号放大】随世界事件删除（2026-09-19），这一层保留成契约：
+## 30 处调用点钉着它，将来的「效果翻倍」类卡牌应当住进来。
 func _amp(n: int) -> int:
-	for i in game.event_stacks("信号放大"):
-		n *= 2
 	return n
-
-
-func _stress_fee() -> int:
-	return 5 * game.event_stacks("细胞应激")   ## 【细胞应激】打牌费 0.5/层
 
 
 func _gain(cell: Dictionary, n: int, tag: String = "") -> void:

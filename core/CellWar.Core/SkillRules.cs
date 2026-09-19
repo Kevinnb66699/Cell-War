@@ -290,9 +290,8 @@ internal static class SkillRules
             }
             case "转移":
             {
-                // GD 侧这笔钱走 SKILL_MOVE 的费用管线（`_do_jump` → `CWCost.Action.SKILL_MOVE`），
-                // 【基质阻隔】那类世界事件会让它翻倍。C# 还没有事件容器，先按基准价直扣 ——
-                // 事件容器落地时这里要改成走管线（EV-0/EV-1 那张工单）。
+                // GD 侧这笔钱走 SKILL_MOVE 的费用管线（`_do_jump` → `CWCost.Action.SKILL_MOVE`）。
+                // 原先会让它翻倍的【基质阻隔】随世界事件一起删了（Kevin 2026-09-19），两侧从此同口径：按基准价直扣。
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - s.Tuning.MetastasisCost, jump: cell.JumpUsedThisRound + 1));
                 s = EnterTile(s, cell.Id, d.Target!.Value, rng);   // GD `_jump` 走 enter_tile
                 break;

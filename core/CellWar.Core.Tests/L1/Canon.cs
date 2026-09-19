@@ -111,5 +111,5 @@ public sealed record CanonWalkFrame(int Cell, int StepsLeft, string Card);
 
 public sealed record CanonPlayer(int Seat, int Faction, bool Alive, int DrawCount, int Memory, int Level, int? CType);
 
-/// <summary>世界事件 / 卡牌全局修饰容器里的一条。</summary>
+/// <summary>卡牌全局修饰容器里的一条。</summary>
 public sealed record CanonEffect(string Name, int Left, int Stacks, string Doubled, Dictionary<string, int> Data);

@@ -33,11 +33,6 @@ func show_event_drawn(pid: int, info := {}) -> void:
 	kernel._push("event_drawn", m)
 
 
-func show_world_event(ev_name: String, info := {}) -> void:
-	var m := { "ev": ev_name }
-	m.merge(info)
-	kernel._push("world_event", m)
-
 
 func show_card_drawn(pid: int, info := {}) -> void:
 	var m := { "pid": pid }

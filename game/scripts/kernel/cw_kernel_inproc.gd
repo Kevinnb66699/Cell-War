@@ -57,7 +57,8 @@ func open(cfg: Dictionary) -> bool:
 			game.record_replay = bool(cfg["record_replay"])
 	else:
 		game = CWGame.new()
-		## ⚠ tune.cancer_types / world_events_on 必须在 init 之前（match.gd:459-460、cw_room.gd:366-370 同）
+		## ⚠ tune.cancer_types / world_events_on 必须在 init 之前（match.gd:459-460、cw_room.gd:366-370 同）。
+		## world_events_on 是世界事件删除（2026-09-19）后留下的冻结旋钮，拨了也没有事件。
 		if cfg.has("cancer_types"):
 			game.tune.cancer_types = cfg["cancer_types"]
 		if cfg.has("world_events_on"):

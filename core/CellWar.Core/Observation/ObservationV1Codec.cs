@@ -22,6 +22,7 @@ public static class ObservationV1Codec
 
     // ---- C# 今天没有旋钮、引擎里是字面量的那几个 tune 键（GD 默认值逐个核对过：cw_data.gd:41,46）----
     // `world_events_on` / `cancer_win_hold_rounds` / `osteo_ossify_cost` 2026-09-19 起有旋钮了（K2），改从 `s.Tuning` 现读；
+    // （`world_events_on` 同日起恒 false：世界事件已删，旋钮冻结待批 1 全量发版那次协议升号一并物理删）
     // 默认值与原来的字面量逐个相同（false / 2 / 20），编码结果不变。
     private const int CancerWinWeighted = OutcomeRules.CancerWinWeighted;   // 同一个数，别抄第二份
     private const int LimitRound = 15;             // OutcomeRules：WorldRound >= 15
@@ -87,8 +88,8 @@ public static class ObservationV1Codec
             new ObsCancerAlarm(s.Turn.CancerWinStreak, s.Tuning.CancerWinHoldRounds),
             s.Turn.ChemoAt is { } ca ? new ObsChemo(Pos(ca), s.Turn.ChemoRounds, s.Turn.ChemoOwner, s.Turn.ChemoCreator is { } cc ? Id(cc) : -1) : null,
             Track(s),
-            new ObsEvents(WorldEffects.WorldEventNames.ToArray(),   // 世界事件整块未迁：pool 恒全表、double_next 恒 false（夹具 world_events_on = false）
-                s.Effects.Select(e => new ObsEffect(e.Name, e.Left, e.Stacks, e.Doubled, new Dictionary<string, int>(e.Data), new ObsEffectD(WorldEffects.IsWorldEvent(e.Name)))).ToArray(),
+            new ObsEvents(Array.Empty<string>(),   // 世界事件已删（Kevin 2026-09-19）：pool 恒 []、double_next 恒 false、d.is_world_event 恒 false —— 三个字段随协议升号一并物理删
+                s.Effects.Select(e => new ObsEffect(e.Name, e.Left, e.Stacks, e.Doubled, new Dictionary<string, int>(e.Data), new ObsEffectD(false))).ToArray(),
                 false),
             sim.FeedLog.Select(f => new ObsFeed(f.Seq, f.Kind, f.Pid, f.Faction, f.Card, f.Left)).ToArray(), sim.FeedSeq,
             s.Turn.PendingChainCell is { } pc ? Id(pc) : -1,
@@ -101,7 +102,7 @@ public static class ObservationV1Codec
             new ObsTune(s.Tuning.WorldEventsOn, CancerWinWeighted, s.Tuning.CancerWinHoldRounds, LimitRound, s.Board.Tissues.Count / 2,
                 s.Tuning.MucusMoveSurcharge, s.Tuning.MetastasisCost, s.Tuning.OsteoOssifyCost, s.Tuning.SolidifyThreshold.ToArray()),
             new ObsGlobalD(BoardRules.SolidifyThreshold(s), RulePolicies.Stage(s), RulePolicies.CancerPhase(s.Turn.WorldRound), PhaseText(s.Turn.Phase),
-                WorldEffects.IsWorldEventRound(s.Turn.WorldRound), null, null, null, null, null, null, null, null));
+                false, null, null, null, null, null, null, null, null));   // is_world_event_round 恒 false（世界事件已删）
 
         return new ObsEnvelope(Protocol, new ObsRuleset(HostAbi, RulesBuild, RulesBuild), revision.Value, sim.NextPresentationSeq - 1,
             ViewerOmniscient, false, ["A"], true, null,

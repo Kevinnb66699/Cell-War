@@ -158,9 +158,9 @@
   {
     "schema": "cwxcase/2",
     "id": "stress/marked/three_fields_are_explicit",
-    "covers": ["t_ev_attack_mods::基础判定：1~2 失败 / 3~5 成功 / 6 大成功"],
+    "covers": ["t_attack_verdict_base::基础判定：1~2 失败 / 3~5 成功 / 6 大成功"],
     "probe": "attack_outcome",
-    "source": "§0.6.1 第 4 条：写了 `marked` 就必须三键都写，两侧 loader 一个都不补。三键的出处是 cw_setup.gd:make_cell（marked / mark_left 0 / mark_round −1），唯一的写入口是 cw_game.gd:apply_mark（mark_round = round_no 拦「同回合只给一次」，mark_left = maxi(旧值, 普通树突 1 / 带【抗原呈递强化】2）；读取点两处：cw_world.gd:_expire_marks 用 mark_round 判「被标记后第二次 E 阶段摘掉」、cw_damage.gd 的伤害管线用 mark_left 计次翻倍。这里写的正是普通树突在第 1 世界回合施加的那一组（marked / 1 / 1）—— round_no 1 < born + 1，_expire_marks 不会提前摘。期望值与标记无关：探针取的是**攻击方**（席位 0）；cw_actions.gd:base_verdict 对没有【免疫突触成熟】的攻击者判 6 = crit / ≤2 = fail / 其余 success，掷 3 → success，attack_outcome 再套的两条世界事件（抗原引导 / 免疫伪装）都没挂 ⇒ 编码 1",
+    "source": "§0.6.1 第 4 条：写了 `marked` 就必须三键都写，两侧 loader 一个都不补。三键的出处是 cw_setup.gd:make_cell（marked / mark_left 0 / mark_round −1），唯一的写入口是 cw_game.gd:apply_mark（mark_round = round_no 拦「同回合只给一次」，mark_left = maxi(旧值, 普通树突 1 / 带【抗原呈递强化】2）；读取点两处：cw_world.gd:_expire_marks 用 mark_round 判「被标记后第二次 E 阶段摘掉」、cw_damage.gd 的伤害管线用 mark_left 计次翻倍。这里写的正是普通树突在第 1 世界回合施加的那一组（marked / 1 / 1）—— round_no 1 < born + 1，_expire_marks 不会提前摘。期望值与标记无关：探针取的是**攻击方**（席位 0）；cw_actions.gd:base_verdict 对没有【免疫突触成熟】的攻击者判 6 = crit / ≤2 = fail / 其余 success，掷 3 → success，attack_outcome 的并给层 2026-09-19 起没有任何来源 ⇒ 编码 1",
     "world": {
       "round": 1,
       "players": [

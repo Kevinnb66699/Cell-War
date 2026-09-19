@@ -139,8 +139,7 @@
     "id": "const/data/proliferate_base_by_stage",
     "probe": "const",
     "covers": [
-      "t_proliferate_tiers::默认按分期：3",
-      "t_ev_proliferate::每相邻癌性组织 3"
+      "t_proliferate_tiers::默认按分期：3"
     ],
     "source": "headless_test.gd:t_proliferate_tiers L5236（整表）+ t_ev_proliferate L14822（只钉 [0] == 30，整表取值即覆盖）；PRD 2026-09-11 环境恶化 3% / 3.5% / 4%；cw_data.gd:431 ↔ C# RuleTuning.ProliferatePerAdjacent（旋钮缺省值，名字与 GD 不同）。单位：千分率",
     "world": {
@@ -521,28 +520,6 @@
         3
       ]
     }
-  },
-  {
-    "schema": "cwxcase/2",
-    "id": "const/data/fn/is_world_event_round/15",
-    "probe": "const",
-    "covers": [
-      "t_event_rounds::14 之后不再触发（终局那回合不插事件）"
-    ],
-    "source": "headless_test.gd:t_event_rounds L2621；PRD 2026-09-07 随 15 回合制改 —— 事件回合 3/6/10/14，14 之后不再插；cw_data.gd:978 `is_world_event_round(r) -> bool` ↔ C# WorldEffects.IsWorldEventRound。**传输形状：bool 冻成 0/1**（批 0 唯一一条 bool，两张表都写 `1 if x else 0`，不靠 runner 的隐式转换）",
-    "world": {
-      "players": [
-        {
-          "seat": 0,
-          "faction": "immune"
-        }
-      ]
-    },
-    "args": {
-      "name": "CWData.is_world_event_round",
-      "a": "15"
-    },
-    "expect": 0
   },
   {
     "schema": "cwxcase/2",

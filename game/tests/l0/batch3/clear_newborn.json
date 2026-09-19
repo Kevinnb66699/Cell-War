@@ -4,7 +4,7 @@
     "id": "clear_newborn/t_ev_chaos/024",
     "op": "clear_newborn",
     "covers": [
-      "t_ev_chaos::E 阶段跑完不留「新生」标记（第 7 步排在第 9 步之前）"
+      "t_phase_order::E 阶段跑完不留「新生」标记"
     ],
     "status": "OK",
     "source": "cw_world.gd:_clear_newborn ↔ BoardRules.ClearNewborn；e_phase() 里唯一的 clear_newborn：原 check 是整相不变量，而这条不变量唯一的执行者就是这一步",

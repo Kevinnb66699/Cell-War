@@ -98,9 +98,6 @@ func play_one(e: Dictionary) -> void:
 		"card_drawn":
 			if consumer != null:
 				consumer.show_card_drawn(int(e["pid"]), _info(e, ["cell_id", "pos", "source"]))
-		"world_event":
-			if consumer != null:
-				consumer.show_world_event(String(e["ev"]), { "left": int(e.get("left", 1)) })
 		"erosion":
 			if consumer != null:
 				consumer.show_erosion(e["at"], int(e["dir"]))

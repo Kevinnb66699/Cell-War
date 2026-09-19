@@ -737,10 +737,10 @@
     "id": "damage_hit/world/shield_hypoxia_not_for_world",
     "op": "damage_hit",
     "covers": [
-      "t_card_mods::世界事件的损失既不是技能也不是压迫，不减免",
+      "t_card_mods::中立来源的损失既不是技能也不是压迫，不减免",
       "t_card_mods::不合条件的损失也不会白白吃掉盾"
     ],
-    "source": "headless_test.gd:t_card_mods L14286/L14287 `hyp[\"energy\"] == 90`（`g.cancer_hit(hyp, 10, \"增殖抑制\")`）。ShieldApplies 的来源判据反面：世界事件既不是癌细胞技能也不是【微环境压迫】⇒ 不减免、也不白吃盾（差分里没有 mods 那几条）。",
+    "source": "headless_test.gd:t_card_mods `hyp[\"energy\"] == 90`（`g.cancer_hit(hyp, 10, \"中立来源\")`）。ShieldApplies 的来源判据反面：中立来源既不是癌细胞技能也不是【微环境压迫】⇒ 不减免、也不白吃盾（差分里没有 mods 那几条）。",
     "world": {
       "players": [
         {
@@ -771,7 +771,7 @@
       "target": "0",
       "base": "10",
       "source": "world",
-      "ability": "增殖抑制"
+      "ability": "中立来源"
     },
     "expect": {
       "kind": "delta",

@@ -2,7 +2,7 @@
   {
     "schema": "cwxcase/2",
     "id": "attack/plain/roll_1_fail",
-    "covers": ["t_ev_attack_mods::基础判定：1~2 失败 / 3~5 成功 / 6 大成功"],
+    "covers": ["t_attack_verdict_base::基础判定：1~2 失败 / 3~5 成功 / 6 大成功"],
     "probe": "attack_outcome",
     "source": "PRD：1/3 无效、1/2 成功、1/6 大成功 ⇒ 六面骰 1~2 无效、3~5 成功、6 大成功。判词编码 0=无效 1=成功 2=大成功",
     "world": {
@@ -30,7 +30,7 @@
   {
     "schema": "cwxcase/2",
     "id": "attack/plain/roll_3_success",
-    "covers": ["t_ev_attack_mods::基础判定：1~2 失败 / 3~5 成功 / 6 大成功"],
+    "covers": ["t_attack_verdict_base::基础判定：1~2 失败 / 3~5 成功 / 6 大成功"],
     "probe": "attack_outcome",
     "source": "同上",
     "world": {
@@ -58,7 +58,7 @@
   {
     "schema": "cwxcase/2",
     "id": "attack/plain/roll_6_crit",
-    "covers": ["t_ev_attack_mods::基础判定：1~2 失败 / 3~5 成功 / 6 大成功"],
+    "covers": ["t_attack_verdict_base::基础判定：1~2 失败 / 3~5 成功 / 6 大成功"],
     "probe": "attack_outcome",
     "source": "同上：只有 6 是大成功（这一面曾经永远掷不出来 —— 调用点喂的是 0..5）",
     "world": {

@@ -938,7 +938,7 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 		"mutate":
 			return CWData.fmt(CWData.MUTATE_COST)
 		## 技能移动这两个**必须走真报价**，不能打常量：
-		## 【基质阻隔】那类世界事件会把它们抬上去，而「能不能用」判的是抬完的数。
+		## 卡牌的全局修饰会把它们抬上去，而「能不能用」判的是抬完的数。
 		## 两边不同源的话就会出现「按钮写着 1.0、我有 6.9、却点不动」（Kevin 2026-09-08）。
 		"homing":
 			return _cost_d(cell, "homing_cost_real")
@@ -946,7 +946,7 @@ func _cost_text(cell: Dictionary, act: String) -> String:
 			return _cost_d(cell, "metastasis_cost_real")
 		"ossify":
 			## 2026-09-07 Kevin 报「骨样硬化按钮没有费用」—— 09-05 重做这个技能时漏了这一格。
-			## 同 jump：读的是内核算好的**真报价**（旋钮 + 世界事件都算进去了），不是旋钮原值
+			## 同 jump：读的是内核算好的**真报价**（旋钮 + 全局修饰都算进去了），不是旋钮原值
 			return _cost_d(cell, "ossify_cost_real")
 		"mucus":
 			return "耗尽能量"
@@ -985,7 +985,6 @@ const BLOCK_FX_MS := {
 var fx_card_played: Callable    ## → CWMatch._on_card_played(cell_id, pid, pos, faction, card, {})
 var fx_event_drawn: Callable    ## → CWMatch._on_event_drawn(cell_id, pid, pos, faction, card)
 var fx_card_drawn: Callable     ## → CWMatch._on_card_drawn(cell_id, pid, pos, source)
-var fx_world_event: Callable    ## → CWMatch._on_world_event(ev_name, left)
 
 
 func _block_ms(kind: String) -> int:
@@ -1185,13 +1184,9 @@ func show_card_drawn(pid: int, info := {}) -> void:
 		fx_card_drawn.call(int(info["cell_id"]), pid, info["pos"], String(info.get("source", "")))
 
 
-func show_world_event(ev_name: String, info := {}) -> void:
-	if fx_world_event.is_valid():
-		fx_world_event.call(ev_name, int(info.get("left", 1)))
 
-
-## 全局通报（`show_notice`）2026-09-07 起界面上没有位置了：世界事件本来就写进日志
-## （CWWorldFx 连写两条），抽到的那张事件卡则以卡面进棋盘左侧的出牌列（CWMatch._on_event_drawn）。
+## 全局通报（`show_notice`）2026-09-07 起界面上没有位置了：抽到的那张事件卡
+## 以卡面进棋盘左侧的出牌列（CWMatch._on_event_drawn），其余通报都写进日志。
 ## 基类的空实现留着 —— 联机那条 notice 报文照收不误，只是不再弹任何东西。
 
 

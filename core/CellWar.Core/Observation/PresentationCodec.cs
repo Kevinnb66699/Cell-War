@@ -32,8 +32,6 @@ public static class PresentationCodec
                 d["t"] = "event_drawn"; d["pid"] = e.Seat; d["cell_id"] = e.CellId; d["pos"] = e.Pos; d["faction"] = (int)e.Faction; d["card"] = e.Card; break;
             case CardDrawn c:   // 刻意不带牌名（cw_game.gd:785）
                 d["t"] = "card_drawn"; d["pid"] = c.Seat; d["cell_id"] = c.CellId; d["pos"] = c.Pos; d["source"] = c.Source; break;
-            case WorldEventDrawn w:
-                d["t"] = "world_event"; d["ev"] = w.Name; d["left"] = w.Left; break;
             case TissueConverted t:
                 d["t"] = "erosion"; d["at"] = t.At; d["dir"] = t.Dir; break;
             case BeamFired b:

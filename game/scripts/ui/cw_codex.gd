@@ -392,7 +392,6 @@ static func chapters(unlocked: Variant = null) -> Array:
 	if tune.metastasis_max_per_round > 0:
 		jump_limit = "（每世界回合最多 %d 次）" % tune.metastasis_max_per_round
 	var solid_rounds: int = int(tune.solidify_threshold[0]) / CWData.SOLIDIFY_STEP
-	var ev_rounds := event_rounds_text(tune.limit_round)
 	return _mark_locked([
 		{ "title": "目标与胜负", "entries": [
 			{ "id": "goal/what", "t": "你要做什么", "b": [
@@ -450,7 +449,7 @@ static func chapters(unlocked: Variant = null) -> Array:
 		] },
 		{ "title": "一个世界回合", "entries": [
 			{ "id": "round/s_phase", "t": "S 阶段", "b": [
-				"先按顺序结算世界事件、特殊组织产出、血管传送，",
+				"先按顺序结算特殊组织产出、血管传送，",
 				"再轮到复活（免疫在骨髓、癌方在固化组织），",
 				"最后免疫结算【有氧呼吸】收入。",
 			] },
@@ -466,7 +465,6 @@ static func chapters(unlocked: Variant = null) -> Array:
 				"III 期固化门槛降到 %s。" % CWData.fmt(int(tune.solidify_threshold[2])),
 			] },
 			{ "id": "round/count", "t": "回合计数", "b": [
-				"世界事件只在第 %s 回合触发。" % ev_rounds,
 				"越往后局势越不受控制，别把决战拖到太晚。",
 			] },
 		] },
@@ -618,16 +616,6 @@ static func chapters(unlocked: Variant = null) -> Array:
 				"带目标的卡会高亮可点格子；双击免确认直接打出。",
 			] },
 		] },
-		{ "title": "世界事件", "entries": [
-			{ "id": "events/pool", "t": "十八个事件", "b": [
-				"在第 %s 回合从池中随机抽取，" % ev_rounds,
-				"同局不重复，每回合一个。效果可能持续一两个回合。",
-			] },
-			{ "id": "events/notice", "t": "留意公告", "b": [
-				"事件结算时骰子旁会弹出说明。持续效果会挂在右侧竖条",
-				"与回合流程里，多看对局日志（L 键）。",
-			] },
-		] },
 		{ "title": "界面与快捷键", "entries": [
 			{ "id": "ui/sidebar", "t": "右侧竖条", "b": [
 				"回合数、胜负进度、每位玩家的能量与手牌、免疫等级都在这里。",
@@ -663,8 +651,6 @@ static func chapters(unlocked: Variant = null) -> Array:
 	], unlocked)
 
 
-## 世界事件回合的清单文字（「3、6、10、15、20、25、30」），现算自 CWData.is_world_event_round，
-## 图鉴与引导剧本共用，别在两处各写一份。
 ## 在图鉴里找一个词（大小写不分，子串匹配）：返回 [{ page, chapter, t, line, locked }]，
 ## line 为空 = 命中在条目标题上。一个条目里命中多行各算一条；最多 MAX_HITS 条。纯函数，无头测试直接核对。
 ## `unlocked` 与 `chapters()` 同义（不传 = 一条都不打标）——**面板照旧传**：
@@ -800,13 +786,6 @@ func _put_marked(parent: Control, line: String, at: Vector2) -> void:
 		parent.add_child(l)
 		x += CWStyle.FONT.get_string_size(seg[0], HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
 
-
-static func event_rounds_text(limit: int) -> String:
-	var out: Array[String] = []
-	for r in range(1, limit + 1):
-		if CWData.is_world_event_round(r):
-			out.append(str(r))
-	return "、".join(out)
 
 func _build() -> void:
 	var scrim := ColorRect.new()

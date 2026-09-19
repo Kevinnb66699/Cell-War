@@ -192,19 +192,6 @@ public class K2_FlowKnobTests
         Assert.Equal(1, g.CancerAlarm.HoldRounds);
     }
 
-    /// <summary>
-    /// `is_world_event_round` **不跟** `world_events_on` 走：GD 的 `CWData.is_world_event_round(r)`
-    /// 是一句纯粹的 `r in [3, 6, 10, 14]`，开关只拦在 `CWWorldFx.trigger()` 的第一行。
-    /// 把开关接进这个判据会让 `$.g.d.is_world_event_round` 与 GD 对不上 —— 这条测试就是防那次「顺手接一下」。
-    /// </summary>
-    [Fact]
-    public void 事件回合判据与总开关无关()
-    {
-        Assert.True(WorldEffects.IsWorldEventRound(3));
-        Assert.True(WorldEffects.IsWorldEventRound(14));
-        Assert.False(WorldEffects.IsWorldEventRound(15));
-    }
-
     // ================= 夹具 =================
 
     /// <summary>加权占地 = `score` 的盘面（全是普通癌组织，1 格 1 分），`streak` = 进入这一回合末之前的连续达标计数。</summary>

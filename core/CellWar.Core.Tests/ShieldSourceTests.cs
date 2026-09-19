@@ -45,7 +45,7 @@ public class ShieldSourceTests
     [Theory]
     [InlineData(LossSource.CancerSkill, "", 30 - 10, 0)]
     [InlineData(LossSource.World, "微环境压迫", 30 - 10, 0)]
-    [InlineData(LossSource.World, "", 30 - 20, 1)]              // 世界事件 / 反弹不挡
+    [InlineData(LossSource.World, "", 30 - 20, 1)]              // 中立来源 / 反弹不挡
     [InlineData(LossSource.ImmuneEffect, "", 30 - 20, 1)]
     public void 缺氧适应_只挡癌方技能与微环境压迫(LossSource source, string ability, int energyAfter, int left)
     {

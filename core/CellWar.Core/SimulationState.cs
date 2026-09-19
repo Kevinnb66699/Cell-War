@@ -5,7 +5,8 @@ namespace CellWar.Core;
 public sealed record PendingInput(long RequestId, int PlayerSeat, ImmutableArray<IDecision> Options);
 public readonly record struct InputAnswer(long RequestId, Revision ExpectedRevision, int OptionIndex);
 
-/// <summary>出牌流水的一条（GD `CWGame.note_feed`）：`kind` = play（谁打出）/ event（谁抽到事件卡）/ world（世界事件，pid / faction 恒 -1）。</summary>
+/// <summary>出牌流水的一条（GD `CWGame.note_feed`）：`kind` = play（谁打出）/ event（谁抽到事件卡）。
+/// `world` 档随世界事件一起作废（Kevin 2026-09-19）：字段留着、永不产生。</summary>
 public sealed record FeedEntry(long Seq, string Kind, int Pid, int Faction, string Card, int Left);
 
 public sealed record SimulationState
@@ -54,11 +55,10 @@ public sealed record SimulationState
         var list = keep ? Presentation.Add(new StagedEvent(NextPresentationSeq, ev)) : Presentation;
         if (list.Count > PresentationCap) list = list.RemoveAt(0);
         var next = this with { Presentation = list, NextPresentationSeq = checked(NextPresentationSeq + 1) };
-        return ev switch   // GD note_feed 的三个调用点（cw_game.gd:757,768,777）
+        return ev switch   // GD note_feed 的两个调用点（cw_game.gd:757,768）
         {
             CardPlayed cp => next.Feed("play", cp.Seat, (int)cp.Faction, cp.Card),
             EventCardDrawn ed => next.Feed("event", ed.Seat, (int)ed.Faction, ed.Card),
-            WorldEventDrawn we => next.Feed("world", -1, -1, we.Name, we.Left),
             _ => next,
         };
     }

@@ -91,7 +91,7 @@ FUNC_SUBSYSTEM = [
     # ⚠ 别用 `_fx$` 一刀切。规格 §0.6.5 第 6 条逐名点过：
     #   t_skill_fx / t_erosion_fx / t_prd_online_0907 归 core（规则断言）；
     #   t_effector_fx / t_attack_fx / t_spread_fx / t_teleport_fx / t_dice / t_human_ask / t_card_fx_hooks 归 ui。
-    (r"^t_(attack_fx|card_draw_fx|chemo_blink|doubled_marker|effector_fx)$", "ui"),
+    (r"^t_(attack_fx|card_draw_fx|chemo_blink|effector_fx)$", "ui"),
     (r"^t_(hunt_fx|issue31_fx|spread_fx|teleport_fx|ui_sfx)$", "ui"),
     (r"^t_.*_(panel|bar|box|row|tip|info|view|preview|marker|blink|glow|highlight|width|fit)$", "ui"),
     (r"^t_(action_bar_width|announce|board_view|breath_sheets|buttons_dim|codex)$", "ui"),

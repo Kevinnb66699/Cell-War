@@ -80,7 +80,7 @@ public class L0RunnerTests
             WorldState after;
             IReadOnlyList<IPresentationEvent> staged;
             // 契约步在一个 Stage 作用域里跑：发出的演出条目按 Runtime 同一条路过一遍 SimulationState.Emit，
-            // 出牌 / 抽事件 / 世界事件才会像 GD note_feed 那样落进 g.feed_log（card-play-feed-log，2026-09-19）
+            // 出牌 / 抽事件才会像 GD note_feed 那样落进 g.feed_log（card-play-feed-log，2026-09-19）
             using (var scope = new Stage.Scope())
             {
                 after = Steps.Run(c.Op!, world, c.Args, rng);

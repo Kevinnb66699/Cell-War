@@ -396,7 +396,7 @@ func _probe(g: CWGame, name: String, args: Dictionary) -> Variant:
 			## 第一条 tree。**tree 没有 ignore**，所以投影成同一张键表的活在两侧探针身上（见 _quote_path_tree）
 			return _quote_path_tree(g, args)
 		"move_legal":
-			## bool → scalar 的 1 / 0：两侧表项各自冻，不靠 runner 的隐式转换（同 CWData.is_world_event_round）
+			## bool → scalar 的 1 / 0：两侧表项各自冻，不靠 runner 的隐式转换
 			return 1 if g.actions._is_move_legal_now(_cell(g, args), _pos(str(args.get("to", "")))) else 0
 		## §0.6.7 四条里批 2 的那两条：批 2 第一段由空壳转真（op 名集合不动 ⇒ 双射不变）
 		"anaerobic_pool":
@@ -456,7 +456,7 @@ func _quote_path_tree(g: CWGame, args: Dictionary) -> Variant:
 ##
 ## **传输形状**（两侧表项逐字同一套，C# 侧 Probes.cs 上有同一段注释）：
 ##   * int    → `scalar`，裸整数原样；
-##   * bool   → `scalar`，写 1 / 0（本表里只有 is_world_event_round）；
+##   * bool   → `scalar`，写 1 / 0；
 ##   * float  → 按**千分位**冻成整数 `round(x * 1000)` —— 批 0 一个都没有，批 2 的探针 `anaerobic_pool` 是第一个真用户；
 ##   * Array / Dictionary → `tree`：Vector2i 写 "q,r"、枚举写整数值。
 ##     GD 这边由 runner 的 _to_json() 收口（它已经做 Vector2i → "q,r" 与 float 取整），
@@ -509,10 +509,6 @@ func _build_consts() -> Dictionary:
 		"CWData.neighbors": func(g: CWGame, a: Dictionary) -> Variant: return CWData.neighbors(_arg_pos(a, "a"), g.board_radius),   ## 半径走盘面的 board_radius —— C# 侧 GdNeighbors 是按 s.Board 裁的，不传就会在非 6 半径的盘面上分叉
 		"CWData.hex_dist": func(_g: CWGame, a: Dictionary) -> Variant: return CWData.hex_dist(_arg_pos(a, "a"), _arg_pos(a, "b")),
 		"CWData.dir_toward": func(_g: CWGame, a: Dictionary) -> Variant: return CWData.dir_toward(_arg_pos(a, "a"), _arg_pos(a, "b")),   ## a = dest，b = from（同 GD 的形参序）
-		"CWData.is_world_event_round": func(_g: CWGame, a: Dictionary) -> Variant: return 1 if CWData.is_world_event_round(_arg_int(a, "a")) else 0,   ## bool → scalar 的 1 / 0：两侧表项各自冻，不靠 runner 的隐式转换
-		## ---- CWWorldFx · 世界事件容器（批 5b）----
-		"CWWorldFx.EVENTS": func(_g: CWGame, _a: Dictionary) -> Variant: return CWWorldFx.EVENTS,
-		"CWWorldFx.is_world_event": func(g: CWGame, a: Dictionary) -> Variant: return 1 if g.world_fx.is_world_event({ "name": str(a.get("a", "")) }) else 0,   ## bool → scalar 的 1 / 0；GD 收条目字典、C# 收名字，按 E-6 规矩 3 用名字收口
 		## ---- CWCardData ----
 		"CWCardData.CARDS": func(_g: CWGame, _a: Dictionary) -> Variant: return CWCardData.CARDS,
 		"CWCardData.cancer_phase": func(_g: CWGame, a: Dictionary) -> Variant: return CWCardData.cancer_phase(_arg_int(a, "a")),

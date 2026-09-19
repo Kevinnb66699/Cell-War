@@ -250,7 +250,7 @@ static func describe(card_name: String, faction: int, phase := -1) -> Dictionary
 ## 名字不能叫 `wrap`：那是 @GlobalScope 的内置函数（数值取模回绕），重名会直接编译不过。
 static func wrap_text(text: String, max_w: float) -> PackedStringArray:
 	var out := PackedStringArray()
-	## 顺手规范化（幂等）：这样 describe_type / describe_act / 世界事件那一列等
+	## 顺手规范化（幂等）：这样 describe_type / describe_act 等
 	## 所有走这条路的正文都能拿到同样的排版，不必各自记得调一次
 	for para in space_digits(text).split("\n"):
 		if para == "":

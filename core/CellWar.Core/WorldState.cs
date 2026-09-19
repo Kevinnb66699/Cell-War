@@ -12,7 +12,7 @@ public sealed class WorldState
     public required PagedMap<int, Player> Players { get; init; }
 
     /// <summary>
-    /// 世界事件与卡牌全局修饰的容器（对齐 GD 的 `game.events["active"]`）。
+    /// 卡牌全局修饰的容器（对齐 GD 的 `game.events["active"]`）。
     /// 读它一律走 <see cref="WorldEffects"/> 的 `Stacks` / `Active`，别自己翻这张表。
     /// </summary>
     public IReadOnlyList<ActiveEffect> Effects { get; init; } = [];
@@ -84,7 +84,7 @@ public sealed class TurnState
     /// **位置不存在这里** —— 被追的细胞活着时现读它的 `Position`（<see cref="RulePolicies.TrackAt"/>），
     /// 死了才把 <see cref="TrackFrozenAt"/> 冻在死亡格上、把 `TrackCell` 置空
     /// （PRD「癌细胞死亡后趋化源留在死亡格」）。
-    /// 否则每一条改位置的路（迁移/转移/紊乱/传送）都得记得同步一次。
+    /// 否则每一条改位置的路（迁移/转移/传送）都得记得同步一次。
     /// </summary>
     public EntityId? TrackCell { get; init; }
     public HexPosition? TrackFrozenAt { get; init; }
