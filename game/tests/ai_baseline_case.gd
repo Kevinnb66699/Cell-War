@@ -31,7 +31,7 @@ static func make_bridge(g: CWGame, level: int) -> CWBridge:
 	b.max_sim_steps = 192 if level == 1 else 0
 	b.use_threading = false                ## 线程只影响墙钟不影响结果；关掉免得基线抖
 	b.delay_ms = 0
-	b.mcts = null
+	b.ai_bridge = null
 	if level == 2:
 		var tree_ai := CWMCTSBridge.new()
 		tree_ai.game = g
@@ -40,7 +40,7 @@ static func make_bridge(g: CWGame, level: int) -> CWBridge:
 		tree_ai.max_sim_steps = CWMatch.MCTS_MAX_STEPS
 		tree_ai.use_threading = false
 		tree_ai.delay_ms = 0
-		b.mcts = tree_ai
+		b.ai_bridge = tree_ai
 	b.game = g
 	return b
 
