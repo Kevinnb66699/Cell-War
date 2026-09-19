@@ -55,10 +55,15 @@ static func attack_ev() -> Dictionary:
 ## —— 癌方【E-无氧呼吸】连通块供给 ——
 ##
 ## 核心机制（PRD 2026-09-12 + issue #43）：能量按**连通块**算，不是按总面积。
-##   pool = 块内癌组织数^0.3 × coef + 全图固化数 × solid_bonus     （块池，浮点十分位）
+##   pool = (块内癌组织数^0.3 × coef + 全图固化数 × solid_bonus) × 分期增益   （块池，浮点十分位）
 ##   gain = round(pool × k(块内癌细胞数) / 100 ÷ 块内癌细胞数)      （k = 80/100/120）
 ##   每细胞兜底 anaerobic_floor（2.0）
+## 分期增益 = `CWData.ANAEROBIC_STAGE_MUL_BY_STAGE`（环境恶化，issue #56：II 期 ×1.2、III 期 ×1.5），
+## 位置照抄引擎的 `CWWorld._stage_boost()`：乘在**池子**上，k / 均分 / 四舍五入 / 兜底 2.0 都排在它之后。
 ## 对齐 cw_world._anaerobic_pool / _split_share / anaerobic_gain_for（默认规则下逐位一致）。
+## ⚠ **这份镜像不会自己跟着引擎走**：引擎每改一次无氧口径，这里就要同改一次 —— issue #56 第一版
+## 只改了引擎，从肿瘤 II 期起两边差 20% / 50%，而 `t_mech_anaerobic` 的三局 60 步都跨不到第 6 世界回合，
+## 对拍全绿地放它过去（改判：那条测试现在额外钉 round_no = 6 / 11 两档）。
 ## 组件拆开是为了能算「假如块变了」的反事实（小细胞跳块 / 断供 / 连块）。
 
 ## 块池（浮点十分位）。coef/exp < 0 时按人数取（四人 2.0 / 六人 2.8）。
@@ -79,14 +84,20 @@ static func block_pool(g: CWGame, block: Array, overrides: Dictionary = {}, soli
 				plain += 1
 		var exp_term := pow(float(plain), exp_pct / 100.0) if plain > 0 else 0.0
 		var solid: int = g.count_tissue(CWData.Tissue.SOLID) if solid_override < 0 else solid_override
-		return exp_term * float(coef) + float(solid * g.tune.anaerobic_solid_bonus)
+		return _stage_boost(g, exp_term * float(coef) + float(solid * g.tune.anaerobic_solid_bonus))
 	## 退回线性式（coef == 0 对照档）
 	var pool := 0.0
 	for c in block:
 		var tissue: int = int(overrides.get(c, g.tiles[c]["tissue"]))
 		pool += g.tune.anaerobic_per_solid \
 			if tissue == CWData.Tissue.SOLID else g.tune.anaerobic_per_cancer
-	return pool
+	return _stage_boost(g, pool)
+
+
+## 【E-无氧呼吸】的**环境恶化增益**（issue #56）：II 期 ×1.2、III 期 ×1.5，乘在池子上、不取整。
+## 逐位镜像 `CWWorld._stage_boost()` —— 连 coef == 0 的线性对照档也照吃这一刀，引擎那边也是这么写的。
+static func _stage_boost(g: CWGame, pool: float) -> float:
+	return pool * CWData.ANAEROBIC_STAGE_MUL_BY_STAGE[g.tumor_stage()] / 100.0
 
 
 ## 块内存活的癌细胞数（对齐 anaerobic_gain_for 的口径：living_cells 过滤）。
