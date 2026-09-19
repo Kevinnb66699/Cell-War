@@ -40,7 +40,10 @@ internal static class RulePolicies
         if (t.State == TissueState.Healthy) return 0;
         if (t.State == TissueState.SolidifiedCancer) return 1;
         if (t.Type == TissueType.BloodVessel) return 0;
-        return Math.Clamp((double)t.SolidificationCount / (Stage(s) == 1 ? 30 : 20), 0, 1);
+        // 分母走**门槛表**（GD `cw_obs_codec.gd` 把 `CWGame.solidify_threshold()` 喂给 `CWData.solid_progress`）。
+        // 2026-09-19 issue #56 之前这里写死 `Stage(s) == 1 ? 30 : 20` —— 那时正好等于表值，
+        // III 期降到 1.5 之后当场分叉（L0 rooted/t_tumor_stages/002 与 /004 是抓到它的两条）。
+        return Math.Clamp((double)t.SolidificationCount / Math.Max(BoardRules.SolidifyThreshold(s), 1), 0, 1);
     }
 
     /// <summary>Store fill 0..1 for metabolic core / bone marrow; -1 for other tissues.</summary>
@@ -521,14 +524,20 @@ internal static class RulePolicies
         // >0 = 整体覆盖；**0 = 退回 09-04 之前的线性求和**（对照档）。此前 C# 先查分档表，旋钮永远够不着（批 3 KG-1）
         var coef = tune.AnaerobicBlockCoefOverride;
         if (coef < 0) coef = tune.AnaerobicBlockCoefByPlayers.TryGetValue(s.Players.Count, out var cf) ? cf : tune.AnaerobicBlockCoef;
+        // 【环境恶化】的分期增益（issue #56，2026-09-19）：乘在池子上、**不取整**，逐字对 GD `_stage_boost`。
+        var boost = AnaerobicStageMultiplierByStage[Stage(s) - 1] / 100.0;
         if (coef > 0)
         {
             var exp = tune.AnaerobicBlockExpOverride;
             if (exp < 0) exp = tune.AnaerobicBlockExpByPlayers.TryGetValue(s.Players.Count, out var ex) ? ex : tune.AnaerobicBlockExp;
-            return (ordinary > 0 ? Math.Pow(ordinary, exp / 100.0) : 0.0) * coef + solid * tune.AnaerobicSolidBonus;
+            return ((ordinary > 0 ? Math.Pow(ordinary, exp / 100.0) : 0.0) * coef + solid * tune.AnaerobicSolidBonus) * boost;
         }
-        return block.Sum(p => s.Board.Tissues[p].State == TissueState.SolidifiedCancer ? tune.AnaerobicPerSolid : tune.AnaerobicPerCancer);
+        return block.Sum(p => s.Board.Tissues[p].State == TissueState.SolidifiedCancer ? tune.AnaerobicPerSolid : tune.AnaerobicPerCancer) * boost;
     }
+
+    /// <summary>【E-无氧呼吸】的环境恶化增益，百分数（GD `CWData.ANAEROBIC_STAGE_MUL_BY_STAGE`，下标 = 分期 − 1）：
+    /// II 期 +20% / III 期 +50%（issue #56）。与 <see cref="PressureMultiplierByStage"/> 同一个写法：**常量不是旋钮**。</summary>
+    public static readonly IReadOnlyList<int> AnaerobicStageMultiplierByStage = [100, 120, 150];
 
     /// <summary>
     /// 【E-无氧呼吸】把池子分到一个癌细胞头上（规格 §0.6.7 的具名入口之一），十分能量。

@@ -206,8 +206,8 @@ public static class Probes
         // ---- CWData · 常量表（表 / 字典 → tree）----
         ["CWData.LEVEL_MIN_MEMORY"] = NoCs("CWData.LEVEL_MIN_MEMORY", "免疫等级门槛表 C# 侧整张没有（grep 全 core）"),
         ["CWData.AEROBIC_BY_LEVEL"] = (_, _) => RuleTuning.Default.AerobicByLevel,
-        ["CWData.PROLIFERATE_BASE_BY_STAGE"] = (_, _) => RuleTuning.Default.ProliferatePerAdjacent,   // 名字两边不同，值域同（[30, 35, 40]）
-        ["CWData.PROLIFERATE_SOLID_BY_STAGE"] = (_, _) => RuleTuning.Default.ProliferatePerSolid,   // 同上（[5, 10, 10]）
+        ["CWData.PROLIFERATE_BASE_BY_STAGE"] = (_, _) => RuleTuning.Default.ProliferatePerAdjacent,   // 名字两边不同，值域同（issue #56 起 [30, 40, 50]）
+        ["CWData.PROLIFERATE_SOLID_BY_STAGE"] = (_, _) => RuleTuning.Default.ProliferatePerSolid,   // 同上（issue #56 起 [5, 10, 15]）
         ["CWData.VESSELS"] = NoCs("CWData.VESSELS", "MatchSetup.Vessels 是 private static readonly（MatchSetup.cs:20），测试够不着"),
         ["CWData.EFFECTOR_NAMES"] = NoCs("CWData.EFFECTOR_NAMES", "文案表，C# 没搬（SemanticKey.cs:161 只在注释里提到）"),
         ["CWData.IMMUNE_TYPE_TEXT"] = NoCs("CWData.IMMUNE_TYPE_TEXT", "细胞详情文案，C# 没搬"),

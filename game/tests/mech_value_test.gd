@@ -126,6 +126,41 @@ func t_mech_anaerobic() -> void:
 	check(total > 50, "采样到 %d 个癌细胞·步 供给" % total)
 	check(bad == 0, "解析供给与引擎逐位一致（%d 采样，%d 偏差）" % [total, bad])
 
+	## ---- 肿瘤 II / III 期的分期增益（issue #56 复核补）----
+	## 上面那三局各 60 步**都跨不到第 6 世界回合**，全程停在肿瘤 I 期（增益 ×1.0）——
+	## 镜像漏掉 `_stage_boost` 也照样 0 偏差，第一版就是这么放过去的（引擎改了、AI 侧没跟）。
+	## 所以这里把同一张盘面直接钉到三个分期上再对拍：`tumor_stage()` 只看 `round_no`，
+	## 而下面只调 `anaerobic_gain_for` / `cell_income` 两个纯查询，不推进引擎、不消耗 rng。
+	var g2 := make_game(6, 41011)
+	g2.sim_quiet = true
+	for _step in 40:
+		var req2: Dictionary = await g2.pending()
+		if req2.is_empty():
+			break
+		var idx2: int = await g2.ask(req2["pid"], req2)
+		await g2.step(idx2)
+	var foes: Array = g2.living_cells(CWData.Faction.CANCER)
+	check(not foes.is_empty(), "分期对拍局里还有 %d 只存活癌细胞" % foes.size())
+	var stage_bad := 0
+	var sums: Array[int] = []
+	for r in [1, 6, 11]:
+		g2.round_no = int(r)
+		var s := 0
+		for cell in foes:
+			var want2: int = g2.world.anaerobic_gain_for(cell)
+			var got2: int = MechValue.cell_income(g2, cell)
+			s += want2
+			if got2 != want2:
+				stage_bad += 1
+				check(false, "第 %d 世界回合（肿瘤 %d 期）癌细胞 %d 解析 %d != 引擎 %d"
+					% [int(r), g2.tumor_stage() + 1, cell["id"], got2, want2])
+		sums.append(s)
+	check(stage_bad == 0, "I / II / III 三档解析供给与引擎逐位一致（%d 只 × 3 档）" % foes.size())
+	## 增益真的落到了账上（不是被兜底 2.0 或封顶吃干净）——这条才是「×1.2 / ×1.5 生效了」的正面证据。
+	check(sums[0] < sums[1] and sums[1] < sums[2],
+		"分期增益抬高了总供给：I %d < II %d < III %d" % [sums[0], sums[1], sums[2]])
+	g2.dispose()
+
 
 ## —— 小细胞肺癌【转移】跳块收益反事实（L0/L1）——
 ## 用户点名的核心机制：跳走成两个连通块以获得更多总能量供给。

@@ -1162,11 +1162,20 @@ public class GdScriptParityTests
         Assert.Equal(0, nextRound.Cells[id].MarkLeft);
     }
 
-    /// <summary>固化门槛三档等于 GD 的 `SOLIDIFY_THRESHOLD_BY_STAGE`（II 期就降到 2.0）。</summary>
+    /// <summary>固化门槛三档等于 GD 的 `SOLIDIFY_THRESHOLD_BY_STAGE`（II 期 2.0、III 期 1.5，issue #56）。</summary>
     [Fact]
     public void 固化门槛三档等于GDScript数组()
     {
         Assert.Equal(GdIntArray("SOLIDIFY_THRESHOLD_BY_STAGE"), RuleTuning.Default.SolidifyThreshold);
+    }
+
+    /// <summary>【E-无氧呼吸】的环境恶化增益三档等于 GD 的 `ANAEROBIC_STAGE_MUL_BY_STAGE`
+    /// （issue #56：II 期 +20% / III 期 +50%）。这张表是**常量不是旋钮**，两侧各写一份，
+    /// 所以必须有一条对拍钉住 —— 改了 GD 而忘了 C#，L0 要到跑出分期局面才红，这里当场红。</summary>
+    [Fact]
+    public void 无氧分期增益三档等于GDScript数组()
+    {
+        Assert.Equal(GdIntArray("ANAEROBIC_STAGE_MUL_BY_STAGE"), RulePolicies.AnaerobicStageMultiplierByStage);
     }
 
     /// <summary>门槛旋钮真的接上了线：拧高一点，同样的计数就不该转固化。</summary>

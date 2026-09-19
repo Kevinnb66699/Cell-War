@@ -4,12 +4,12 @@
   "id": "execute/play/radiotherapy/necrotic_region",
   "op": "execute",
   "covers": [
-   "t_card_choices::起点固化癌组织转健康并坏死 5 轮",
+   "t_card_choices::起点固化癌组织转健康并坏死 2 轮",
    "t_card_choices::放疗：坏死区域是一整块连通区域",
    "t_card_choices::放疗：区域内没有残留的癌性组织",
    "t_card_choices::结算后弃置"
   ],
-  "source": "headless_test.gd:t_card_choices【放疗】。以 1,0（固化癌组织）为起点随机长出含它的连通 10 格区域：起点由固化转健康并坏死 5 轮、坏死区域是一整块连通区域（necrosis → 2 的那一批）、区域内没有残留的癌性组织、结算后弃置。带子 11 笔是 _radiotherapy 的 frontier 抽签（值一律取区间下界，在副本上跑到不动点）。",
+  "source": "headless_test.gd:t_card_choices【放疗】。以 1,0（固化癌组织）为起点随机长出含它的连通 10 格区域：起点由固化转健康并坏死 2 轮（CWData.NECROSIS_RADIO；「5 轮」是 2026-09-07 之前的旧值，issue #54 复核时改）、坏死区域是一整块连通区域（necrosis → 2 的那一批）、区域内没有残留的癌性组织、结算后弃置。带子 11 笔是 _radiotherapy 的 frontier 抽签（值一律取区间下界，在副本上跑到不动点）。",
   "world": {
    "players": [
     {

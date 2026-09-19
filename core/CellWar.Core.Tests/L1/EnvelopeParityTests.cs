@@ -19,12 +19,13 @@ namespace CellWar.Core.Tests.L1;
 /// </summary>
 public class EnvelopeParityTests
 {
-    /// <summary>每条夹具比到第几步（前三条录到 200 步 / 终局；第四条 `4p_chemo_4242` 是 2026-09-19 用 `policy=chemo` 录的树突建源局，279 步收尾）。</summary>
+    /// <summary>每条夹具比到第几步（前三条录到 200 步 / 终局；第四条 `4p_chemo_4242` 是 `policy=chemo` 的树突建源局）。
+    /// 2026-09-19 issue #55 / #56 重录后：2p 终局 172 步、树突局 343 步里前 282 步一致（见 L1ReplayTests.RatchetChemo）。</summary>
     [Theory]
     [InlineData("4p_4242", 200)]
     [InlineData("2p_2222", 200)]
     [InlineData("6p_6666", 200)]
-    [InlineData("4p_chemo_4242", 279)]   // pick_cell + 借道起价合上（chemo-move-quote）后 L1 与 envelope 都整条 279 步一致 `chemo-move-quote`（趋化源在场时的迁移报价 / cost_rows 与 GD 不同，盘面本身逐字一致）
+    [InlineData("4p_chemo_4242", 282)]   // pick_cell + 借道起价合上（chemo-move-quote）后 L1 与 envelope 一致到 282 步（#283 是黏附标记的老分叉） `chemo-move-quote`（趋化源在场时的迁移报价 / cost_rows 与 GD 不同，盘面本身逐字一致）
     public void 每条夹具逐步_GD与CSharp的envelope逐字段相同(string fixture, int maxSteps)
     {
         var root = RepoRoot();

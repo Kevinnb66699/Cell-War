@@ -141,7 +141,7 @@
     "covers": [
       "t_proliferate_tiers::默认按分期：3"
     ],
-    "source": "headless_test.gd:t_proliferate_tiers L5236（整表）+ t_ev_proliferate L14822（只钉 [0] == 30，整表取值即覆盖）；PRD 2026-09-11 环境恶化 3% / 3.5% / 4%；cw_data.gd:431 ↔ C# RuleTuning.ProliferatePerAdjacent（旋钮缺省值，名字与 GD 不同）。单位：千分率",
+    "source": "headless_test.gd:t_proliferate_tiers L5236（整表）+ t_ev_proliferate L14822（只钉 [0] == 30，整表取值即覆盖）；PRD 环境恶化 3% / 4% / 5%（issue #56 把 II 期 3.5%→4%、III 期 4%→5%）；cw_data.gd:431 ↔ C# RuleTuning.ProliferatePerAdjacent（旋钮缺省值，名字与 GD 不同）。单位：千分率",
     "world": {
       "players": [
         {
@@ -157,8 +157,8 @@
       "kind": "tree",
       "value": [
         30,
-        35,
-        40
+        40,
+        50
       ]
     }
   },
@@ -169,7 +169,7 @@
     "covers": [
       "t_proliferate_tiers::默认按分期：3"
     ],
-    "source": "headless_test.gd:t_proliferate_tiers L5236；PRD 2026-09-11 每固化 0.5% / 1% / 1%；cw_data.gd:435 ↔ C# RuleTuning.ProliferatePerSolid（旋钮缺省值）。单位：千分率",
+    "source": "headless_test.gd:t_proliferate_tiers L5236；PRD 每固化 0.5% / 1% / 1.5%（issue #56 把 III 期 1%→1.5%）；cw_data.gd:435 ↔ C# RuleTuning.ProliferatePerSolid（旋钮缺省值）。单位：千分率",
     "world": {
       "players": [
         {
@@ -186,7 +186,7 @@
       "value": [
         5,
         10,
-        10
+        15
       ]
     }
   },

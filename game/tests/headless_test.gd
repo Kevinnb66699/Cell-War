@@ -1732,7 +1732,8 @@ func t_skill_fx() -> void:
 
 
 ## 环境恶化（PRD 2026-09-11 云端版）：第 6 回合起肿瘤 II 期、第 11 回合起 III 期 ——
-## 压迫 ×1.5 / ×2、侵蚀 III 期 (3,5)、固化门槛 III 期 2.0、【根深蒂固】II 期 1 格 / III 期 3 格。
+## 压迫 ×1.5 / ×2、侵蚀 III 期 (3,5)、固化门槛 II 期 2.0 / III 期 1.5（issue #56）、
+## 【根深蒂固】II 期 1 格 / III 期 3 格、【无氧呼吸】II 期 +20% / III 期 +50%（issue #56）。
 ## 分期与癌症卡池的分期是同一张表（CWCardData.cancer_phase），只此一处。
 func t_tumor_stages() -> void:
 	print("[环境恶化·肿瘤分期]")
@@ -1757,13 +1758,13 @@ func t_tumor_stages() -> void:
 	check(g.world.pressure_at(pos) == 23, "II 期 ×1.5：2.25 → 2.3（整条只取整一次）")
 	g.round_no = 11
 	check(g.world.pressure_at(pos) == 30, "III 期 ×2：3.0")
-	## ② 固化门槛：III 期 2.0，raise_solid 到 2.0 就转
+	## ② 固化门槛：II 期 2.0、III 期 1.5（issue #56 把 III 期再降一档），raise_solid 到门槛就转
 	g.round_no = 1
 	check(g.solidify_threshold() == 30, "I 期门槛 3.0")
 	g.round_no = 6
 	check(g.solidify_threshold() == 20, "II 期门槛 2.0（PRD 2026-09-12 把 2.0 提前到 II 期）")
 	g.round_no = 11
-	check(g.solidify_threshold() == 20, "III 期门槛 2.0")
+	check(g.solidify_threshold() == 15, "III 期门槛 1.5（issue #56 环境恶化加强）")
 	var c2 := Vector2i.MAX
 	for c in g.tiles.keys():
 		if CWTissue.solidifiable(g.tile(c)) and CWData.hex_dist(c, pos) > 1 and g.cells_at(c).is_empty():
@@ -1771,8 +1772,9 @@ func t_tumor_stages() -> void:
 			break
 	g.tiles[c2]["tissue"] = CWData.Tissue.CANCER
 	g.tiles[c2]["solid"] = 10
-	g.raise_solid(c2, 10)
-	check(g.tiles[c2]["tissue"] == CWData.Tissue.SOLID, "III 期计数到 2.0 就转固化（I 期要 3.0）")
+	g.raise_solid(c2, 5)
+	check(g.tiles[c2]["tissue"] == CWData.Tissue.SOLID,
+		"III 期计数到 1.5 就转固化（旧门槛 2.0 时这一步还不会转）")
 	## ③ 侵蚀格数表：I/II (2,3)、III (3,5)
 	check(g.tune.erosion_tiles[0] == Vector2i(2, 3) and g.tune.erosion_tiles[1] == Vector2i(2, 3)
 		and g.tune.erosion_tiles[2] == Vector2i(3, 5), "侵蚀格数表：I/II 期 (2,3)、III 期 (3,5)")
@@ -1806,7 +1808,7 @@ func t_tumor_stages() -> void:
 		g3.tiles[nb]["tissue"] = CWData.Tissue.CANCER
 	g3.round_no = 11
 	g3.world._rooted()
-	check(sum_solid.call(g3) == 3 * CWData.SOLIDIFY_STEP, "III 期：推 3 格，各 +1.0（门槛 2.0，1.0 还没到）")
+	check(sum_solid.call(g3) == 3 * CWData.SOLIDIFY_STEP, "III 期：推 3 格，各 +1.0（门槛 1.5，1.0 还没到）")
 	g3.dispose()
 	## 推到门槛就当场转固化；本步刚固化的格子这一回合不再当「来源」去推别人
 	var g4 := _blank_board()
@@ -1818,11 +1820,38 @@ func t_tumor_stages() -> void:
 	g4.tiles[beyond]["tissue"] = CWData.Tissue.CANCER
 	g4.round_no = 11
 	g4.world._rooted()
-	check(g4.tiles[only]["tissue"] == CWData.Tissue.SOLID, "唯一目标 1.0 + 1.0 = III 期门槛 2.0 → 当场转固化")
+	check(g4.tiles[only]["tissue"] == CWData.Tissue.SOLID,
+		"唯一目标 1.0 + 1.0 ≥ III 期门槛 1.5 → 当场转固化")
 	check(int(g4.tiles[beyond]["solid"]) == 0, "本步刚固化的格子不在这一回合当「来源」推别人")
 	g4.world._rooted()   ## 现在 s 与 only 都是固化：only 会推 beyond；s 没有癌组织邻居 → 跳过、不报错
 	check(int(g4.tiles[beyond]["solid"]) == CWData.SOLIDIFY_STEP, "下一回合它才作为来源推邻居")
 	g4.dispose()
+
+	## ⑤ 【E-无氧呼吸】的分期增益（issue #56）：II 期 +20%、III 期 +50%。
+	## 增益乘在**池子**上，人数系数 k / 均分 / 四舍五入 / 兜底 2.0 都排在它之后 ——
+	## 所以这里拿 `_pool_of` 的池子先乘增益再进 `_share`，与引擎同一条算式、仍只取整一次。
+	check(CWData.ANAEROBIC_STAGE_MUL_BY_STAGE == [100, 120, 150],
+		"无氧分期增益表：I 期不加、II 期 ×1.2、III 期 ×1.5（issue #56）")
+	var block4 := [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0), Vector2i(3, 0)]
+	var seen := []
+	for pair: Array in [[1, 0], [6, 1], [11, 2]]:
+		var g5 := _blank_board()
+		for c: Vector2i in block4:
+			g5.tiles[c]["tissue"] = CWData.Tissue.CANCER
+		var cc := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, block4[0], -1,
+			CWData.CancerType.MELANOMA)
+		cc["energy"] = 0
+		g5.cells.append(cc)
+		g5.round_no = int(pair[0])
+		g5.world._anaerobic()
+		var mul: int = CWData.ANAEROBIC_STAGE_MUL_BY_STAGE[int(pair[1])]
+		var want5: int = _share(_pool_of(4, 0) * mul / 100.0, 1)
+		check(cc["energy"] == want5, "%s：池子 ×%d%% → %s 能量" % [
+			CWData.STAGE_NAMES[int(pair[1])], mul, CWData.fmt(want5)])
+		seen.append(cc["energy"])
+		g5.dispose()
+	check(seen[0] < seen[1] and seen[1] < seen[2],
+		"三期严格递增（增益没被兜底 2.0 吃掉，这一格局面确实测到了乘数）")
 
 
 # ---- 免疫等级三件套（团队 2026-09-04 定案）：记忆门槛 10/20、有氧按等级、分化降到 II 级 ----
@@ -1835,11 +1864,12 @@ func t_immune_level_rules() -> void:
 	g.setup.build_board()
 	## 2026-09-11 Kevin 按玩法 PRD 改表：四人 I 0~9 / II 10~19 / III 20~49 / X ≥50，
 	## 六人 I 0~9 / II 10~29 / III 30~69 / X ≥70（此前：四人 6/16/50、六人 10/20/60）。
-	check(CWData.LEVEL_MIN_MEMORY == [0, 10, 30, 70], "记忆门槛（六人档兼缺省）= 0 / 10 / 30 / 70")
+	## **2026-09-19 issue #55**：只抬 X 级 —— 四人 50→100、六人 70→120（II / III 两档不动）。
+	check(CWData.LEVEL_MIN_MEMORY == [0, 10, 30, 120], "记忆门槛（六人档兼缺省）= 0 / 10 / 30 / 120")
 	## 按人数分档（Kevin 2026-09-09 起）。四人局只有 2 个免疫、六人局 3 个，同一门槛下四人要多花
 	## 约一半的回合才升得上去 —— 分档是把「升级要几回合」拉回同一档。
-	check(CWData.level_min_memory(4) == [0, 10, 20, 50], "四人局门槛 = 0 / 10 / 20 / 50")
-	check(CWData.level_min_memory(6) == [0, 10, 30, 70], "六人局门槛 = 0 / 10 / 30 / 70")
+	check(CWData.level_min_memory(4) == [0, 10, 20, 100], "四人局门槛 = 0 / 10 / 20 / 100")
+	check(CWData.level_min_memory(6) == [0, 10, 30, 120], "六人局门槛 = 0 / 10 / 30 / 120")
 	check(CWData.level_min_memory(2) == CWData.LEVEL_MIN_MEMORY
 			and CWData.level_min_memory(5) == CWData.LEVEL_MIN_MEMORY,
 		"PRD 没定的人数（含二人局）退回缺省档，不擅自造数")
@@ -1851,8 +1881,8 @@ func t_immune_level_rules() -> void:
 	g4.dispose()
 
 	## 门槛边界（缺省 = 六人档）：9 不升、10 升 II、29 不再升、30 升 III、
-	## **69 仍是 III、70 才升 X**（2026-09-11 玩法 PRD）
-	var want := [[9, 0], [10, 1], [29, 1], [30, 2], [69, 2], [70, 3]]
+	## **119 仍是 III、120 才升 X**（issue #55，2026-09-19 把 X 级从 70 抬到 120）
+	var want := [[9, 0], [10, 1], [29, 1], [30, 2], [119, 2], [120, 3]]
 	for pair in want:
 		var g2 := bare_game()
 		g2.gain_memory(int(pair[0]))
@@ -1882,8 +1912,8 @@ func t_immune_level_rules() -> void:
 
 	## ---- 云端 PRD 2026-09-10 新写明的三条：**引擎本来就做到了** ----
 	## 记在这儿是为了「以后有人照着 PRD 改」时它们先红，而不是被悄悄改掉。
-	check(CWData.LEVEL_MIN_MEMORY[3] == 70 and CWData.level_min_memory(4)[3] == 50,
-		"X 级门槛 四人 50 / 六人 70（2026-09-11 玩法 PRD）")
+	check(CWData.LEVEL_MIN_MEMORY[3] == 120 and CWData.level_min_memory(4)[3] == 100,
+		"X 级门槛 四人 100 / 六人 120（issue #55，2026-09-19 玩法 PRD）")
 	check(g.tune.metastasis_max_per_round == 2,
 		"小细胞【转移】每世界回合至多 2 次（云端 PRD 写明；引擎旋钮早就是 2）")
 	g.memory = 5
@@ -5233,8 +5263,8 @@ func t_effector_responses() -> void:
 ## 于是每条断言要么必转要么必不转，验的是算式本身而不是运气。
 func t_proliferate_tiers() -> void:
 	print("[增生概率 / 侵蚀格数]")
-	check(CWData.PROLIFERATE_BASE_BY_STAGE == [30, 35, 40] and CWData.PROLIFERATE_SOLID_BY_STAGE == [5, 10, 10],
-		"默认按分期：3%+0.5%×固化 / 3.5%+1%× / 4%+1%×（PRD 2026-09-11 环境恶化）")
+	check(CWData.PROLIFERATE_BASE_BY_STAGE == [30, 40, 50] and CWData.PROLIFERATE_SOLID_BY_STAGE == [5, 10, 15],
+		"默认按分期：3%+0.5%×固化 / 4%+1%× / 5%+1.5%×（issue #56 环境恶化加强）")
 
 	## ① 数的是「**邻居所属连通块**里的固化数」，不是「这个邻居自己是不是固化」，
 	## 也不是全图固化数。摆两处互不相邻：a 的邻居那块没固化，b 的邻居那块更远处有一格。
@@ -5321,17 +5351,17 @@ func t_proliferate_tiers() -> void:
 	g5.tiles[n1]["tissue"] = CWData.Tissue.CANCER
 	check(g5.world.proliferate_chance(t4) == 2 * (250 * 1),
 		"同一块只算一次固化：2 × (0 + 250 × 1) = 500，不是 1000")
-	## 默认值按分期：一个相邻癌组织、无固化 → I 期 30‰、II 期 35‰、III 期 40‰
+	## 默认值按分期：一个相邻癌组织、无固化 → I 期 30‰、II 期 40‰、III 期 50‰（issue #56）
 	var g6 := _blank_board()
 	g6.tiles[n1]["tissue"] = CWData.Tissue.CANCER
 	g6.round_no = 1
 	check(g6.world.proliferate_chance(t4) == 30, "I 期：3%")
 	g6.round_no = 6
-	check(g6.world.proliferate_chance(t4) == 35, "II 期（第 6 回合起）：3.5%")
+	check(g6.world.proliferate_chance(t4) == 40, "II 期（第 6 回合起）：4%")
 	g6.round_no = 11
-	check(g6.world.proliferate_chance(t4) == 40, "III 期（第 11 回合起）：4%")
+	check(g6.world.proliferate_chance(t4) == 50, "III 期（第 11 回合起）：5%")
 	g6.tiles[n0]["tissue"] = CWData.Tissue.SOLID   ## 同块再加一格固化：邻居 2、固化 1
-	check(g6.world.proliferate_chance(t4) == 2 * (40 + 10), "III 期每固化 1%：2 × (4% + 1%×1) = 10%")
+	check(g6.world.proliferate_chance(t4) == 2 * (50 + 15), "III 期每固化 1.5%：2 × (5% + 1.5%×1) = 13%")
 	g6.round_no = 1
 	check(g6.world.proliferate_chance(t4) == 2 * (30 + 5), "I 期每固化 0.5%：2 × (3% + 0.5%×1) = 7%")
 	g4.dispose()
@@ -12625,7 +12655,10 @@ func t_card_choices() -> void:
 	check(b.asked.size() == 3 and rm["hand"].is_empty(), "追问三次（再拆一格 + 两次转健康）")
 	g.dispose()
 
-	## ⑩ 放疗：随机连通 15 格，区域内癌性组织清光、整片坏死 5 轮
+	## ⑩ 放疗（issue #54 逐字复核，2026-09-19）：以所选癌性组织为起点长一个**含它的连通 10 格**区域，
+	## 区域内癌性组织转健康、**整片**（含原本就是健康的格子）进「坏死」`CWData.NECROSIS_RADIO` 轮。
+	## 「共 10 格」「彼此连通」「可以包括健康组织」「全部坏死」四条各有一句断言 —— 前两条在这一段，
+	## 「可以包括健康组织」在下面那一小段（癌块只有 3 格，区域非长进健康组织不可）。
 	pack = _choice_game()
 	g = pack[0]
 	b = pack[1]
@@ -12647,7 +12680,7 @@ func t_card_choices() -> void:
 		"放疗：恰好 %d 格进入坏死（PRD 2026-09-09 由 15 改 10）" % CWData.RADIO_REGION)
 	check(g.tiles[Vector2i(3, 0)]["tissue"] == CWData.Tissue.HEALTHY
 		and g.tiles[Vector2i(3, 0)]["necrosis"] == CWData.NECROSIS_RADIO,
-		"起点固化癌组织转健康并坏死 5 轮")
+		"起点固化癌组织转健康并坏死 2 轮")   ## 名字必须是字面量：拼出来的名字闸三的 covers 指不到
 	var necro_pred := func(c: Vector2i) -> bool:
 		return g.tiles[c]["necrosis"] > 0
 	check(g.blocks_of(necro_pred).size() == 1, "放疗：坏死区域是一整块连通区域")
@@ -12657,6 +12690,41 @@ func t_card_choices() -> void:
 			dirty = true
 	check(not dirty, "放疗：区域内没有残留的癌性组织")
 	check(rd["hand"].is_empty(), "结算后弃置")
+	g.dispose()
+
+	## ⑩ 续（issue #54「可以包括健康组织」）：癌块只有 3 格，区域要长到 10 格就**必须**吃进健康组织。
+	## 这一条此前没有断言 —— 上面那段的癌块有 19 格，区域整个落在癌区里，挑不挑 tissue 都看不出来。
+	pack = _choice_game()
+	g = pack[0]
+	b = pack[1]
+	var small := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(-5, 0), CWData.ImmuneType.BASIC, -1)
+	small["energy"] = 30
+	small["hand"] = ["放疗"]
+	g.cells.append(small)
+	var blob3: Array[Vector2i] = [Vector2i(3, 0), Vector2i(4, 0), Vector2i(3, 1)]
+	for c: Vector2i in blob3:
+		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	await g.card_fx.play(small, { "act": "play", "card": "放疗", "to": Vector2i(3, 0) })
+	check(g.count_necrosis() == CWData.RADIO_REGION,
+		"癌块只有 3 格时区域照样长到 %d 格（可以包括健康组织）" % CWData.RADIO_REGION)
+	## 区域是从起点随机长出来的，那 3 格癌组织不一定全被吃进去 ——
+	## 所以下界写成「10 − 癌块大小」：怎么长，区域里都至少有 7 格本来就是健康组织。
+	var was_healthy := 0
+	var still_cancerous := 0
+	for c: Vector2i in g.tiles.keys():
+		if int(g.tiles[c]["necrosis"]) <= 0:
+			continue
+		if not blob3.has(c):
+			was_healthy += 1
+		if g.is_cancerous(c):
+			still_cancerous += 1
+	check(was_healthy >= CWData.RADIO_REGION - blob3.size() and still_cancerous == 0,
+		"区域里至少 %d 格本来就是健康组织：原样留着健康，但照样进「坏死」"
+			% (CWData.RADIO_REGION - blob3.size()))
+	## 这里要**新造**一个谓词：GDScript 的 lambda 按值捕获，上面那个 `necro_pred` 抓的还是前一局的 g
+	var necro_pred2 := func(c: Vector2i) -> bool:
+		return g.tiles[c]["necrosis"] > 0
+	check(g.blocks_of(necro_pred2).size() == 1, "含健康组织的区域也是一整块连通区域")
 	g.dispose()
 
 

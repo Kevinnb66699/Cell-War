@@ -981,8 +981,11 @@ func _remodel_heal_cands(chosen: Array[Vector2i]) -> Array[Vector2i]:
 
 ## 【放疗】以所选癌性组织为起点，随机生长出含它的连通 `CWData.RADIO_REGION` 格区域
 ## （PRD 2026-09-09 由 15 格改为 10 格）：
-## 区域内所有癌性组织（含固化、含有细胞站着的）→ 健康，整片进入「坏死」5 轮。
+## 区域内所有癌性组织（含固化、含有细胞站着的）→ 健康，整片进入「坏死」`CWData.NECROSIS_RADIO` 轮。
 ## 「坏死」沿用毒素那套倒计时（不为免疫供能、可被定殖，定殖时清除——同一口径）。
+## ⚠ 轮数 2026-09-07 就随「坏死」收成通用状态回到 2 轮，这句注释此前还写着旧的「5 轮」（issue #54 复核时改）。
+## **区域可以含健康组织**（issue #54 逐字）：长区域时不挑 tissue，只要连通；
+## 癌性的转健康、健康的原样留着，但整片一律进「坏死」—— 所以这张卡是有代价的。
 func _radiotherapy(start: Vector2i) -> void:
 	var region: Array[Vector2i] = [start]
 	var in_region := { start: true }

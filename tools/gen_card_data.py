@@ -21,10 +21,15 @@ CWTuning，`prd_crosscheck.py` 那套反向核对够不着它们。这是行为�
 以前实现和 PRD 对不上只有读代码的人知道，现在玩家会照着卡面做决策。
 改 `cw_card_fx.gd` 里的数时，请同步改 PRD 并重跑本脚本。
 """
-import re, io, sys
+import os, re, io, sys
 
+## PRD 在仓库外，路径写死（两处工具同一个口径）。
+## **OUT 必须跟着脚本自己走**：2026-09-19 踩过 —— 写死主仓库绝对路径的话，
+## 在 git worktree 里跑 `--check` 校的是主仓库那一份、`gen` 改的也是主仓库那一份，
+## 于是 worktree 里的改动既验不到也落不下，还顺手把别人的工作目录弄脏了。
 PRD = "D:/Projects/SpringSense/2026-2027/Cell War/Cell_War_玩法PRD.md"   ## 2026-09-11 起叫这个名
-OUT = "D:/Projects/SpringSense/2026-2027/Cell War/Cell-War/game/scripts/core/cw_card_data.gd"
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(REPO, "game", "scripts", "core", "cw_card_data.gd")
 
 L = [l.rstrip() for l in io.open(PRD, encoding="utf-8")]
 clean = lambda s: s.replace("\\", "").strip()
@@ -80,13 +85,23 @@ def _flush(pending):
 
     只做两件排版上的事，不碰字：去掉 markdown 的 `**` 粗体标记（点阵字渲染不了），
     列表项的 `- ` 换成 `· `（行首减号在满是数值的卡面上会被读成负号）。
+
+    **整段只有一条列表项时把 `- ` 直接去掉**（2026-09-19 复核）：PRD 里单条效果偶尔也写成
+    markdown 列表项（【放疗】PRD:1245 就是），一律换成 `· ` 的话卡面上就会出现一个
+    **没有同伴的孤立圆点** —— 69 张卡里独此一张行首带点。圆点是给「多条并列」用的
+    （【迁移】【增生】那几张才是它的正常用法）。生成器仍然逐字跟 PRD，改的只是这一条排版。
     """
     if pending is None:
         return
     card, is_cancer, buf = pending
     if not buf:
         return
-    text = font_safe(re.sub(r"^- ", "· ", "\n".join(buf).replace("**", ""), flags=re.M))
+    body = "\n".join(buf).replace("**", "")
+    if len(buf) == 1 and body.startswith("- "):
+        body = body[2:]
+    else:
+        body = re.sub(r"^- ", "· ", body, flags=re.M)
+    text = font_safe(body)
     ## **同一阵营内**效果文应当一字不差（免疫卡会在 I/II/III/X 四个池里重复出现）。
     ## 不一致就是 PRD 自己的问题，得人去看。
     ##
