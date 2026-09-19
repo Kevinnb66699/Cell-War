@@ -50,10 +50,10 @@
   },
   {
     "schema": "cwxcase/2",
-    "id": "anaerobic_pool/solid_pinned/board_wide_two_solids",
+    "id": "anaerobic_pool/solid_pinned/block_local_one_solid",
     "probe": "anaerobic_pool",
     "covers": [],
-    "source": "cw_world.gd:_anaerobic_pool ↔ RulePolicies.AnaerobicPool。① 算式同上；② 出处：cw_world.gd:_anaerobic_pool；③ 冻结前精确值 26.000000（半整数距离 0.5 ≥ 0.05）；④ **旋钮钉死：期望 = tuning 里的 anaerobic_solid_bonus × 2，不受数值口径影响**。块 = 一格**固化**癌组织 ⇒ 块内普通癌 0 格 ⇒ 指数项恒 0.0（系数 37 乘上去仍是 0，与指数、与系数都无关）；全图 2 格固化 ⇒ 26 = 2 × 13。顺带钉住「固化按**全图**计数、不进指数项的底数」这条 2026-09-07 的口径。",
+    "source": "cw_world.gd:_anaerobic_pool。issue #66（2026-09-19）：固化项按**块内**数 —— 探针给的块只有 \"0,0\" 这一格固化，(1,0) 那格固化不在块里不算 ⇒ 13 = 1 × 13（旋钮 anaerobic_solid_bonus 13 钉死，与系数 / 指数无关）。原口径「全图 2 格」= 26。",
     "world": {
       "players": [
         {
@@ -79,7 +79,7 @@
     "args": {
       "block": "0,0"
     },
-    "expect": 26000
+    "expect": 13000
   },
   {
     "schema": "cwxcase/2",

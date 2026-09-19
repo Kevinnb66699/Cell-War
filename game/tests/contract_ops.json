@@ -147,7 +147,7 @@
       { "tag": "block:10/cells:1", "cases": "^anaerobic/block_10/one_cell/" },
       { "tag": "block:10/cells:2", "cases": "^anaerobic/block_10/two_cells/" },
       { "tag": "floor", "cases": "^anaerobic/floor_kicks_in$" },
-      { "tag": "solid", "cases": "^anaerobic/solid_is_counted_board_wide$" },
+      { "tag": "solid", "cases": "^anaerobic/solid_counted_in_block_only$" },
       { "tag": "block:7/solo", "cases": "^anaerobic/block_7/" },
       { "tag": "warburg:sclc", "cases": "^anaerobic/warburg/" },
       { "tag": "skill:glut1", "cases": "^anaerobic/glut1/" }

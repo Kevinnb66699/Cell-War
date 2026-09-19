@@ -7,7 +7,7 @@
       "t_anaerobic_round::3 普通癌 + 1 固化 ="
     ],
     "status": "OK",
-    "source": "cw_world.gd:_anaerobic ↔ BoardRules.Anaerobic；第 1 次 _anaerobic()：默认档，两只癌细胞各 +2.4",
+    "source": "cw_world.gd:_anaerobic ↔ BoardRules.Anaerobic；第 1 次 _anaerobic()：默认档，两只癌细胞各 +2.2（issue #66：固化项 0.5 且按块内）",
     "harvested_from": "headless_test.gd:t_anaerobic_round",
     "world": {
       "cells": [
@@ -60,8 +60,8 @@
     "expect": {
       "kind": "delta",
       "changed": {
-        "$.cells[0].energy": 24,
-        "$.cells[1].energy": 24
+        "$.cells[0].energy": 22,
+        "$.cells[1].energy": 22
       },
       "ignore": []
     }
@@ -132,7 +132,7 @@
     "expect": {
       "kind": "delta",
       "changed": {
-        "$.cells[1].energy": 29
+        "$.cells[1].energy": 28
       },
       "ignore": []
     }

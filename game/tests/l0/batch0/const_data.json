@@ -25,10 +25,10 @@
     "id": "const/data/aerobic_by_level",
     "probe": "const",
     "covers": [
-      "t_immune_level_rules::四档就是 2.0 / 3.0 / 4.5 / 5.0（issue #13）",
+      "t_immune_level_rules::四档就是 2.0 / 3.0 / 5.0 / 7.0（issue #66；#13 时是 4.5 / 5.0）",
       "t_immune_level_rules::**不等差** —— 这正是它写不成 base + step × 等级、只能查表的原因"
     ],
-    "source": "headless_test.gd:t_immune_level_rules L1891（整表）+ L1893（不等差 —— 整表取值即覆盖）；PRD issue #13 2026-09-10 改查表 2.0 / 3.0 / 4.5 / 5.0；cw_data.gd:231 ↔ C# RuleTuning.AerobicByLevel（旋钮缺省值 [20,30,45,50]）。单位：十分能量，两侧同为整数表，无换算",
+    "source": "headless_test.gd:t_immune_level_rules L1891（整表）+ L1893（不等差 —— 整表取值即覆盖）；PRD issue #13 2026-09-10 改查表 2.0 / 3.0 / 5.0 / 7.0（issue #66 2026-09-19）；cw_data.gd:231 ↔ C# RuleTuning.AerobicByLevel（旋钮缺省值 [20,30,50,70]）。单位：十分能量，两侧同为整数表，无换算",
     "world": {
       "players": [
         {
@@ -45,8 +45,8 @@
       "value": [
         20,
         30,
-        45,
-        50
+        50,
+        70
       ]
     }
   },
@@ -76,7 +76,7 @@
     "id": "const/data/anaerobic_block_exp",
     "probe": "const",
     "covers": [
-      "t_anaerobic_sqrt::Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2.8 + 全图固化数 × 1.0"
+      "t_anaerobic_sqrt::公式：块内癌组织数^0.3 × 2.8 + 块内固化数 × 0.5（issue #66 把「全图 × 1.0」改成「块内 × 0.5」）"
     ],
     "source": "headless_test.gd:t_anaerobic_sqrt L2310；PRD Kevin 2026-09-07 无氧公式的指数 0.30；cw_data.gd:106 ↔ C# RuleTuning.AnaerobicBlockExp = 30。单位：百分数（30 = 0.30），两侧同",
     "world": {
@@ -97,7 +97,7 @@
     "id": "const/data/anaerobic_block_coef",
     "probe": "const",
     "covers": [
-      "t_anaerobic_sqrt::Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2.8 + 全图固化数 × 1.0"
+      "t_anaerobic_sqrt::公式：块内癌组织数^0.3 × 2.8 + 块内固化数 × 0.5（issue #66 把「全图 × 1.0」改成「块内 × 0.5」）"
     ],
     "source": "headless_test.gd:t_anaerobic_sqrt L2310；PRD 系数 2.8；cw_data.gd:125 ↔ C# RuleTuning.AnaerobicBlockCoef = 28。单位：十分能量（28 = 2.8）",
     "world": {
@@ -118,9 +118,9 @@
     "id": "const/data/anaerobic_solid_bonus",
     "probe": "const",
     "covers": [
-      "t_anaerobic_sqrt::Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2.8 + 全图固化数 × 1.0"
+      "t_anaerobic_sqrt::公式：块内癌组织数^0.3 × 2.8 + 块内固化数 × 0.5（issue #66 把「全图 × 1.0」改成「块内 × 0.5」）"
     ],
-    "source": "headless_test.gd:t_anaerobic_sqrt L2310；PRD 全图每格固化癌组织 +1.0；cw_data.gd:127 ↔ C# RuleTuning.AnaerobicSolidBonus = 10。单位：十分能量（10 = 1.0）",
+    "source": "headless_test.gd:t_anaerobic_sqrt；PRD「连通块固化癌组织个数 × 0.5」（issue #66 2026-09-19，原全图 ×1.0）；cw_data.gd ANAEROBIC_SOLID_BONUS = 5。单位：十分能量（5 = 0.5）",
     "world": {
       "players": [
         {
@@ -132,7 +132,7 @@
     "args": {
       "name": "CWData.ANAEROBIC_SOLID_BONUS"
     },
-    "expect": 10
+    "expect": 5
   },
   {
     "schema": "cwxcase/2",

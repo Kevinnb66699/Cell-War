@@ -1846,7 +1846,7 @@ func t_tumor_stages() -> void:
 	check(CWStyle.FONT.get_string_size(longest, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x <= CWMatchPanel.W,
 		"右栏阶段行最长写法「%s」放得进 %d px" % [longest, CWMatchPanel.W])
 	g.dispose()
-	## ④ 【根深蒂固】：II 期每块固化随机推 3 格相邻癌组织 +1.0；III 期最多 5 格；I 期没有
+	## ④ 【根深蒂固】：II 期每块固化随机推 1 格相邻癌组织 +1.0；III 期最多 2 格；I 期没有（issue #66 把 #64 的 3 / 5 改回）
 	## （**2026-09-19 issue #64**：II 期 1 → 3 格、III 期 3 → 5 格，PRD:421/439）
 	var g2 := _blank_board()
 	var s := Vector2i(0, 0)
@@ -1864,7 +1864,7 @@ func t_tumor_stages() -> void:
 	check(sum_solid.call(g2) == 0, "I 期没有【根深蒂固】")
 	g2.round_no = 6
 	g2.world._rooted()
-	check(sum_solid.call(g2) == 3 * CWData.SOLIDIFY_STEP, "II 期：一块固化推了恰好 3 格，各 +1.0（issue #64）")
+	check(sum_solid.call(g2) == 1 * CWData.SOLIDIFY_STEP, "II 期：一块固化推了恰好 1 格，各 +1.0（issue #66 把 #64 的 3 改回 1）")
 	g2.dispose()
 	var g3 := _blank_board()
 	g3.tiles[s]["tissue"] = CWData.Tissue.SOLID
@@ -1872,7 +1872,7 @@ func t_tumor_stages() -> void:
 		g3.tiles[nb]["tissue"] = CWData.Tissue.CANCER
 	g3.round_no = 11
 	g3.world._rooted()
-	check(sum_solid.call(g3) == 5 * CWData.SOLIDIFY_STEP, "III 期：推 5 格，各 +1.0（门槛 2.0，1.0 还没到）")
+	check(sum_solid.call(g3) == 2 * CWData.SOLIDIFY_STEP, "III 期：推 2 格，各 +1.0（门槛 2.0，1.0 还没到；issue #66）")
 	g3.dispose()
 	## 推到门槛就当场转固化；本步刚固化的格子这一回合不再当「来源」去推别人
 	var g4 := _blank_board()
@@ -1899,10 +1899,9 @@ func t_tumor_stages() -> void:
 	g5b.tiles[ring[1]]["tissue"] = CWData.Tissue.CANCER
 	g5b.round_no = 6
 	g5b.world._rooted()
-	check(int(g5b.tiles[ring[0]]["solid"]) == CWData.SOLIDIFY_STEP
-		and int(g5b.tiles[ring[1]]["solid"]) == CWData.SOLIDIFY_STEP
-		and sum_solid.call(g5b) == 2 * CWData.SOLIDIFY_STEP,
-		"II 期最多 3 格：只有 2 个癌组织候选就推 2 格，健康格不算目标")
+	check(sum_solid.call(g5b) == CWData.SOLIDIFY_STEP
+		and (int(g5b.tiles[ring[0]]["solid"]) == CWData.SOLIDIFY_STEP) != (int(g5b.tiles[ring[1]]["solid"]) == CWData.SOLIDIFY_STEP),
+		"II 期最多 1 格：两个癌组织候选只推其中一格，健康格不算目标（issue #66）")
 	g5b.dispose()
 	## ④b **每块固化各推各的**（不是全图挑 n 格）：两块互不相邻的固化，II 期各推 3 格 = 共 6 格
 	var g5c := _blank_board()
@@ -1916,16 +1915,16 @@ func t_tumor_stages() -> void:
 	g5c.world._rooted()
 	for c: Vector2i in CWData.neighbors(s) + CWData.neighbors(s2):
 		pushed += 1 if int(g5c.tiles[c]["solid"]) > 0 else 0
-	if pushed != 6:
+	if pushed != 2:
 		print("       实推 %d 格" % pushed)
-	check(pushed == 6, "两块固化各推满 3 格 = 共 6 格（不是全图只挑 3 格）")
+	check(pushed == 2, "两块固化各推 1 格 = 共 2 格（不是全图只挑 1 格；issue #66）")
 	g5c.dispose()
 
 	## ⑤ 【E-无氧呼吸】的分期增益（issue #56；**issue #64** 把 II 期抬到 +30%）：II 期 +30%、III 期 +50%。
 	## 增益乘在**池子**上，人数系数 k / 均分 / 四舍五入 / 兜底 2.0 都排在它之后 ——
 	## 所以这里拿 `_pool_of` 的池子先乘增益再进 `_share`，与引擎同一条算式、仍只取整一次。
-	check(CWData.ANAEROBIC_STAGE_MUL_BY_STAGE == [100, 130, 150],
-		"无氧分期增益表：I 期不加、II 期 ×1.3、III 期 ×1.5（issue #64 把 II 期从 ×1.2 抬上来）")
+	check(CWData.ANAEROBIC_STAGE_MUL_BY_STAGE == [100, 120, 130],
+		"无氧分期增益表：I 期不加、II 期 ×1.2、III 期 ×1.3（issue #66 把 #64 的 ×1.3 / ×1.5 改回）")
 	var block4 := [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0), Vector2i(3, 0)]
 	var seen := []
 	for pair: Array in [[1, 0], [6, 1], [11, 2]]:
@@ -1998,8 +1997,8 @@ func t_immune_level_rules() -> void:
 	## 这四个数**写死**是有意的：改一次这里就该红一次，逼着改的人回头核对 PRD 原文。
 	## 沿革：09-07 平方式 2.0/2.5/4.0/6.5 → 09-09 线性 2.0/3.5/5.0/6.5 →
 	## 09-10（issue #13）**查表** 2.0/3.0/4.5/5.0。这一版**不等差**，所以才从公式改成表。
-	check(CWData.AEROBIC_BY_LEVEL == [20, 30, 45, 50],
-		"四档就是 2.0 / 3.0 / 4.5 / 5.0（issue #13）")
+	check(CWData.AEROBIC_BY_LEVEL == [20, 30, 50, 70],
+		"四档就是 2.0 / 3.0 / 5.0 / 7.0（issue #66；#13 时是 4.5 / 5.0）")
 	check(CWData.AEROBIC_BY_LEVEL[1] - CWData.AEROBIC_BY_LEVEL[0]
 			!= CWData.AEROBIC_BY_LEVEL[2] - CWData.AEROBIC_BY_LEVEL[1],
 		"**不等差** —— 这正是它写不成 base + step × 等级、只能查表的原因")
@@ -2418,8 +2417,8 @@ func t_anaerobic_sqrt() -> void:
 			CWData.fmt(CWData.ANAEROBIC_BLOCK_COEF), CWData.ANAEROBIC_BLOCK_EXP,
 			CWData.fmt(CWData.ANAEROBIC_SOLID_BONUS)])
 	check(CWData.ANAEROBIC_BLOCK_EXP == 30 and CWData.ANAEROBIC_BLOCK_COEF == 28
-		and CWData.ANAEROBIC_SOLID_BONUS == 10,
-		"Kevin 2026-09-07 的公式：块内癌组织数^0.3 × 2.8 + 全图固化数 × 1.0")
+		and CWData.ANAEROBIC_SOLID_BONUS == 5,
+		"公式：块内癌组织数^0.3 × 2.8 + 块内固化数 × 0.5（issue #66 把「全图 × 1.0」改成「块内 × 0.5」）")
 	## PRD 2026-09-12 覆盖版：六人局指数早上 0.35、issue #29 当晚改回 0.3（四人一直 0.3），六人档只剩系数 2.8 比四人高；每个癌细胞兜底 2.0（公式外面的 max{2, …}）
 	var g6 := make_game(6, 3)
 	g6.setup.build_board()
@@ -2465,17 +2464,17 @@ func t_anaerobic_sqrt() -> void:
 		prev = cur
 	check(mono, "1~23 格单调不减")
 
-	## 固化：**不进指数项、按全图线性加**。把块里一格改成固化 —— 指数项少一格，但全图多一格固化
+	## 固化：**不进指数项、按块内线性加**（issue #66）。把块里一格改成固化 —— 指数项少一格，块内多一格固化
 	var before: float = g.world._anaerobic_pool(blk)
 	g.tiles[blk[0]]["tissue"] = CWData.Tissue.SOLID
 	check(is_equal_approx(g.world._anaerobic_pool(blk), _pool_of(23, 1)),
-		"块里一格转固化：指数项按 23 格算，另加全图 1 格固化")
-	check(g.world._anaerobic_pool(blk) > before, "固化比普通癌组织值钱（+1.0 对上 0.3 次方的那点边际）")
-	## 全图固化对**别的块**也算数（这正是新公式的用意）
+		"块里一格转固化：指数项按 23 格算，另加块内 1 格固化")
+	check(g.world._anaerobic_pool(blk) > before, "固化比普通癌组织值钱（+0.5 对上 0.3 次方的那点边际）")
+	## 块外的固化对别的块**不算数**（issue #66：固化项改按连通块）
 	var far: Array = [keys[80]]
 	g.tiles[keys[80]]["tissue"] = CWData.Tissue.CANCER
-	check(is_equal_approx(g.world._anaerobic_pool(far), _pool_of(1, 1)),
-		"另一块只有 1 格，也吃到全图那 1 格固化的 +1.0")
+	check(is_equal_approx(g.world._anaerobic_pool(far), _pool_of(1, 0)),
+		"另一块只有 1 格：块外那格固化不算（issue #66）")
 
 	## 关掉（系数 0）→ 退回 09-04 之前的线性求和
 	g.tune.anaerobic_block_coef = 0
@@ -15046,9 +15045,9 @@ func t_batch2_rules() -> void:
 ## 测试**不许**把结果写死成数字 —— 三个数都是旋钮，改一次不该让十几条断言跟着改。
 ## `n_players` 不能省：系数 2026-09-07 起**按人数分档**（四人 2.0 / 六人 2.8），
 ## 拿默认的 2 人去算四人局的期望值会差 40%（当天就这么红过一次）。
-static func _pool_of(plain: int, solid_all: int, n_players := 2) -> float:
+static func _pool_of(plain: int, solid_in_block: int, n_players := 2) -> float:
 	var term := pow(float(plain), CWData.anaerobic_block_exp(n_players) / 100.0) if plain > 0 else 0.0
-	var solid_part := float(solid_all * CWData.ANAEROBIC_SOLID_BONUS)
+	var solid_part := float(solid_in_block * CWData.ANAEROBIC_SOLID_BONUS)   ## issue #66：按块内固化数
 	return term * float(CWData.anaerobic_block_coef(n_players)) + solid_part
 
 

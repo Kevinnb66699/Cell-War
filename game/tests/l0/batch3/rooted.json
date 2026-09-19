@@ -66,10 +66,10 @@
     "id": "rooted/t_tumor_stages/001",
     "op": "rooted",
     "covers": [
-      "t_tumor_stages::II 期：一块固化推了恰好 3 格，各 +1.0（issue #64）"
+      "t_tumor_stages::II 期：一块固化推了恰好 1 格，各 +1.0（issue #66 把 #64 的 3 改回 1）"
     ],
     "status": "OK",
-    "source": "cw_world.gd:_rooted；同一局 round 6 的第 2 次：changed 三格 solid=10，rolls 3 段（六选一 → 五选一 → 四选一；issue #64 把 II 期从 1 格抬到 3 格）",
+    "source": "cw_world.gd:_rooted；同一局 round 6 的第 2 次：changed 一格 solid=10，rolls 1 段（六选一；issue #66 把 II 期改回 1 格）",
     "harvested_from": "headless_test.gd:t_tumor_stages",
     "world": {
       "phase": "Setup",
@@ -121,16 +121,6 @@
         0,
         5,
         3
-      ],
-      [
-        0,
-        4,
-        3
-      ],
-      [
-        0,
-        3,
-        1
       ]
     ],
     "args": {},
@@ -138,11 +128,7 @@
       "kind": "delta",
       "changed": {
         "$.board.tiles@-1,0.d.solid_fraction": 500,
-        "$.board.tiles@-1,0.solid": 10,
-        "$.board.tiles@-1,1.d.solid_fraction": 500,
-        "$.board.tiles@-1,1.solid": 10,
-        "$.board.tiles@1,-1.d.solid_fraction": 500,
-        "$.board.tiles@1,-1.solid": 10
+        "$.board.tiles@-1,0.solid": 10
       },
       "ignore": []
     }
@@ -152,10 +138,10 @@
     "id": "rooted/t_tumor_stages/002",
     "op": "rooted",
     "covers": [
-      "t_tumor_stages::III 期：推 5 格，各 +1.0（门槛 2.0，1.0 还没到）"
+      "t_tumor_stages::III 期：推 2 格，各 +1.0（门槛 2.0，1.0 还没到；issue #66）"
     ],
     "status": "OK",
-    "source": "cw_world.gd:_rooted；g3 round 11 的唯一一次：五格各 +1.0，rolls 5 段（issue #64 把 III 期从 3 格抬到 5 格）",
+    "source": "cw_world.gd:_rooted；g3 round 11 的唯一一次：两格各 +1.0，rolls 2 段（issue #66 把 III 期改成 2 格）",
     "harvested_from": "headless_test.gd:t_tumor_stages",
     "world": {
       "phase": "Setup",
@@ -212,21 +198,6 @@
         0,
         4,
         3
-      ],
-      [
-        0,
-        3,
-        1
-      ],
-      [
-        0,
-        2,
-        0
-      ],
-      [
-        0,
-        1,
-        1
       ]
     ],
     "args": {},
@@ -236,13 +207,7 @@
         "$.board.tiles@-1,0.d.solid_fraction": 500,
         "$.board.tiles@-1,0.solid": 10,
         "$.board.tiles@-1,1.d.solid_fraction": 500,
-        "$.board.tiles@-1,1.solid": 10,
-        "$.board.tiles@0,1.d.solid_fraction": 500,
-        "$.board.tiles@0,1.solid": 10,
-        "$.board.tiles@1,-1.d.solid_fraction": 500,
-        "$.board.tiles@1,-1.solid": 10,
-        "$.board.tiles@1,0.d.solid_fraction": 500,
-        "$.board.tiles@1,0.solid": 10
+        "$.board.tiles@-1,1.solid": 10
       },
       "ignore": []
     }
@@ -369,10 +334,10 @@
     "id": "rooted/t_tumor_stages/005",
     "op": "rooted",
     "covers": [
-      "t_tumor_stages::II 期最多 3 格：只有 2 个癌组织候选就推 2 格，健康格不算目标"
+      "t_tumor_stages::II 期最多 1 格：两个癌组织候选只推其中一格，健康格不算目标（issue #66）"
     ],
     "status": "OK",
-    "source": "cw_world.gd:_rooted；「最多 n 格」不是「一定 n 格」：II 期上限 3，但六邻里只有 2 格癌组织 ⇒ 只推 2 格（健康组织不进 targets）。rolls 2 段：二选一 + 退化区间零消耗",
+    "source": "cw_world.gd:_rooted；「最多 n 格」不是「一定 n 格」：II 期上限 1，六邻里 2 格癌组织 ⇒ 只推 1 格（健康组织不进 targets）。rolls 1 段：二选一（issue #66）",
     "harvested_from": "headless_test.gd:t_tumor_stages",
     "world": {
       "phase": "Setup",
@@ -414,8 +379,6 @@
     "expect": {
       "kind": "delta",
       "changed": {
-        "$.board.tiles@1,-1.d.solid_fraction": 500,
-        "$.board.tiles@1,-1.solid": 10,
         "$.board.tiles@1,0.d.solid_fraction": 500,
         "$.board.tiles@1,0.solid": 10
       },
@@ -427,10 +390,10 @@
     "id": "rooted/t_tumor_stages/006",
     "op": "rooted",
     "covers": [
-      "t_tumor_stages::两块固化各推满 3 格 = 共 6 格（不是全图只挑 3 格）"
+      "t_tumor_stages::两块固化各推 1 格 = 共 2 格（不是全图只挑 1 格；issue #66）"
     ],
     "status": "OK",
-    "source": "cw_world.gd:_rooted；**每块固化各推各的**：两块互不相邻的固化癌组织，II 期各推 3 格 = 共 6 格（不是全图挑 3 格）。固化格按坐标序遍历，(0,0) 先于 (4,0)，各掷 3 次",
+    "source": "cw_world.gd:_rooted；**每块固化各推各的**：两块互不相邻的固化癌组织，II 期各推 1 格 = 共 2 格（不是全图挑 1 格）。固化格按坐标序遍历，(0,0) 先于 (4,0)，各掷 1 次（issue #66）",
     "harvested_from": "headless_test.gd:t_tumor_stages",
     "world": {
       "phase": "Setup",
@@ -513,28 +476,8 @@
       ],
       [
         0,
-        4,
-        3
-      ],
-      [
-        0,
-        3,
-        1
-      ],
-      [
-        0,
         5,
         2
-      ],
-      [
-        0,
-        4,
-        0
-      ],
-      [
-        0,
-        3,
-        3
       ]
     ],
     "args": {},
@@ -543,16 +486,8 @@
       "changed": {
         "$.board.tiles@-1,0.d.solid_fraction": 500,
         "$.board.tiles@-1,0.solid": 10,
-        "$.board.tiles@-1,1.d.solid_fraction": 500,
-        "$.board.tiles@-1,1.solid": 10,
-        "$.board.tiles@1,-1.d.solid_fraction": 500,
-        "$.board.tiles@1,-1.solid": 10,
         "$.board.tiles@4,-1.d.solid_fraction": 500,
-        "$.board.tiles@4,-1.solid": 10,
-        "$.board.tiles@4,1.d.solid_fraction": 500,
-        "$.board.tiles@4,1.solid": 10,
-        "$.board.tiles@5,0.d.solid_fraction": 500,
-        "$.board.tiles@5,0.solid": 10
+        "$.board.tiles@4,-1.solid": 10
       },
       "ignore": []
     }
