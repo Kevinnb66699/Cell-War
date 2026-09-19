@@ -1,9 +1,21 @@
 extends SceneTree
-## 新手教程 v2 · **各关盘面示意图** —— 给 hxr 圈格子用的工具，不是测试。
+## 新手教程 v2 · **各关盘面示意图 v2** —— 给 hxr 圈格子用的工具，不是测试。
 ##
 ## 出处：最终方案 §8.3 的 ★Q-05「第七关整张地图与 T 细胞站位要具体格子；第二、三关的
 ## 『凸的癌组织连通块』『向前 / 向周围延伸』也要圈定」；Kevin 2026-09-19「按默认走：
 ## 我方出示意图给 hxr 圈」。设计改动先出示意图是既定流程。
+##
+## **v2（Kevin 2026-09-19 三条意见）改了什么**：
+##   ① **全部关卡是同一张不断生长的地图** —— 剧本从第一关起每关都写「地图延伸」，
+##      第七关的「界面变化」只写了侧边栏与按钮、**没写换地图**，所以第七关必须接着
+##      第五关 + 间章的盘面继续。逐关的活跃格集合是**前一关的严格超集**，
+##      已露出的格子一格都不挪位置（v1 里第七关另起一张图，作废）。
+##   ② **第四 / 第五关的地图大幅扩大**（v1 是半径 2 的 19 格；v2 第四关 38 格、
+##      第五关 47 格）。右栏 9 席是**席位**上限，不是格子上限，别拿它限制地图。
+##   ③ **第三关按 09-19 02:12 的 PRD:227 重画**：「地图自免疫细胞向前方横向延伸开来，
+##      延伸部分纵向宽度扩充为 3 格」⇒ 3 格宽的横带 + 几格外一个凸的癌组织连通块。
+##      横带一宽，「用最少能量走过去」才真的变成一道题（直线 4 步踩 2 格癌 = 3.0，
+##      绕 r=0 排 5 步全健康 = 2.5），第三关的能量 6.1 就是照这张图算的。
 ##
 ## 每一关一帧，画的是**方案默认摆法**，不是定案：
 ##   · 格子按类型上真贴图（健康 / 癌组织 / 固化癌组织 / 坏死），不是平底色
@@ -11,7 +23,9 @@ extends SceneTree
 ##   · 细胞上 `assets/art/cells/anim/*_breath.png` 的真贴图，脚底落在格顶面
 ##   · **每个活跃格中央下方叠一个 10 号字的轴坐标「q,r」** —— hxr 直接照着圈
 ##   · 左上角写关名 + 要 hxr 答的问题；底部一条图例列出本帧每只细胞的席位 / 坐标 / 能量
-##   · 青 / 橙剪影 = 几何锚点（围一圈的目标格、击退与转移的落点、复活格、再生格）
+##   · 剪影：**淡青 = 本关新浮现的格**、**橙 = 要 hxr 圈的癌组织 / 固化格**、
+##     **深青 = 几何锚点**（第三关最省路落点、第七关围圈终点 / 击退落点 / 转移落点）
+##   · 最后一帧是**全关卡叠图**：同一张图上按关次上色 + 在格心写关号，一眼看出连续生长
 ##
 ## 镜头照教程小棋盘的口径：**按活跃格集合推近**（`CWMatch.tutorial_active_tiles()` →
 ## `board.set_active_tiles()`，半径全程 6、小棋盘只是遮罩），不重铺格网。
@@ -59,6 +73,21 @@ const BOARD_AVAIL := Vector2(906, 280)
 const LATE := 0.26             ## 搭完场景等这么久再量标签（剪影补间 MARK_FADE = 0.22）
 const GAP := 0.70              ## 每帧总时长
 
+## 叠图那一帧：每一关一个颜色。剪影用 alpha 0.5 的同色，格心的关号用不透明的同色。
+## 「本关新浮现的格」用一层**很淡**的青（0x33 ≈ 0.20），不用 board.MARK_MOVE（0x6E ≈ 0.43）——
+## 第三 / 四关一次新增十几二十格，0.43 的青会把整张图刷成一片，组织颜色当场看不出来
+## （「平底色会骗人」那条教训的同一个坑：示意图的底色必须仍然是真组织色）。
+const MARK_NEW := Color("30d1fa33")
+
+const LV_COLOR := {
+	1: Color("30d1fa"),   ## 第一关 免疫青
+	2: Color("ffb03a"),   ## 第二关 癌方橙
+	3: Color("7ee787"),   ## 第三关 绿
+	4: Color("c792ea"),   ## 第四关 紫
+	5: Color("ff6b6b"),   ## 第五关 红
+	7: Color("f2fbff"),   ## 第七关 白（含第 23 步的边缘再生格）
+}
+
 var _dir := "user://"
 ## Board.tscn 的实例。**不加类型注解**：board.gd 没有 class_name，
 ## 标成 Node2D 就够不着 tile_center / tile_z / MARK_MOVE 这些成员
@@ -95,14 +124,17 @@ func _initialize() -> void:
 	_ui = CanvasLayer.new()
 	root.add_child(_ui)
 
+	_audit()
+
 	var frames: Array = [
 		["01_第一关_免疫", _f1],
 		["02_第二关_癌", _f2],
-		["03_第三关_ATP", _f3],
+		["03_第三关_ATP_三格宽横带", _f3],
 		["04_第四关_抗原记忆", _f4],
 		["05_第五关_分化_Step2", _f5],
 		["06_第七关_初始", _f7a],
 		["07_第七关_第23步_边缘再生", _f7b],
+		["08_全关卡叠图_同一张图的生长", _f8],
 	]
 	var at := 0.05
 	for f in frames:
@@ -154,6 +186,80 @@ func _reset() -> void:
 
 
 # ════════════════════════════════════════════════════════════════
+#  活跃格集合：**逐关严格超集**，v2 的第一条硬约束就写在这七行里
+# ════════════════════════════════════════════════════════════════
+#
+#  坐标系：r = 常数是一条横排、+q 向右。特殊组织的 r 只取 -3 / 0 / 3 / 6，
+#  所以 r = -1 / -2 / -4 / -5 / 1 / 2 六整排一个特殊格都没有。
+#  压到特殊格的活跃格逐格写 "type": "normal" 摊平（全教程共 5 格，见 _audit 打印）。
+
+func _rows(spec: Dictionary) -> Array:
+	var out: Array = []
+	for r in spec:
+		var lo: int = spec[r][0]
+		var hi: int = spec[r][1]
+		for q in range(lo, hi + 1):
+			var c := Vector2i(q, int(r))
+			if CWData.is_on_board(c):
+				out.append(c)
+	return out
+
+
+## 第一关：两个横向连接的健康组织（PRD:95）。走 r=-1 排的最左端 —— 这一排
+## 一个特殊格都没有，而且 q 从 -5 到 6 共 12 格、跨度 11，正好是第七关要的那条直线。
+func _a1() -> Array:
+	return [Vector2i(-5, -1), Vector2i(-4, -1)]
+
+## 第二关：右延两格健康 + 两格癌（PRD:143），Step2 再延一格癌（PRD:187）。
+func _a2() -> Array:
+	return _rows({ -1: [-5, 1] })
+
+## 第三关：自免疫细胞向前方横向延伸，**延伸部分纵向宽度 3 格**（PRD:227）。
+func _a3() -> Array:
+	return _a2() + _rows({ -1: [2, 6], -2: [0, 6], 0: [0, 6] })
+
+## 第四关：自免疫细胞向周围延伸开来（PRD:291）。横带上下各长一排、左边补一格。
+func _a4() -> Array:
+	return _a3() + _rows({ -3: [1, 5], 0: [-1, -1], 1: [-1, 4] })
+
+## 第五关 Step2：癌组织连通块扩大（PRD:361），地图跟着往外长一圈接住它。
+func _a5() -> Array:
+	return _a4() + _rows({ -4: [2, 5], 2: [-1, 3] })
+
+## 第七关初始：只在**外缘**补一个左口袋 —— 把 T 细胞那一头从一格宽的死胡同
+## 撑成 3 格宽，【黏液破裂】的两环转化与最后一幕才有地方演。已露出的格一格不动。
+func _a7() -> Array:
+	return _a5() + _rows({ -2: [-4, -1], 0: [-5, -2] })
+
+## 第七关第 23 步：右缘再补三格，放「地图边缘再次生成」的 T / B（PRD:499）。
+func _a7b() -> Array:
+	return _a7() + _rows({ -3: [6, 6], -4: [6, 6], -5: [6, 6] })
+
+
+## 开跑前把几何账算一遍打到控制台：格数、超集关系、特殊格、第七关距离。
+## 图是给人看的，这一段是给改图的人看的 —— 动一格坐标，这里立刻报出来。
+func _audit() -> void:
+	var sets: Array = [["第一关", _a1()], ["第二关", _a2()], ["第三关", _a3()],
+		["第四关", _a4()], ["第五关", _a5()], ["第七关初始", _a7()], ["第七关第23步", _a7b()]]
+	var prev: Array = []
+	for s in sets:
+		var name: String = s[0]
+		var cur: Array = s[1]
+		var miss := _minus(prev, cur)
+		var specials: Array = []
+		for c: Vector2i in cur:
+			if CWData.special_of(c) != CWData.Special.NONE:
+				specials.append(c)
+		print("[盘面] %s：%d 格（新增 %d）；超集缺口 %d；压到特殊格 %d"
+			% [name, cur.size(), cur.size() - prev.size(), miss.size(), specials.size()])
+		prev = cur
+	var t := Vector2i(-5, -1)
+	print("[几何] 围圈终点(4,-1)→T%s 距离 %d；击退落点(6,-1)→T 距离 %d；转移两跳 (1,-1)/(-4,-1)，落点→T 距离 %d"
+		% [t, CWData.hex_dist(Vector2i(4, -1), t), CWData.hex_dist(Vector2i(6, -1), t),
+			CWData.hex_dist(Vector2i(-4, -1), t)])
+
+
+# ════════════════════════════════════════════════════════════════
 #  坐标小工具
 # ════════════════════════════════════════════════════════════════
 
@@ -162,15 +268,6 @@ func _row(r: int, q0: int, q1: int) -> Array:
 	for q in range(q0, q1 + 1):
 		var c := Vector2i(q, r)
 		if CWData.is_on_board(c):
-			out.append(c)
-	return out
-
-
-## 以 center 为心、半径 rad 的整块（第四 / 五关的「向周围延伸」）
-func _disc(center: Vector2i, rad: int) -> Array:
-	var out: Array = []
-	for c in CWData.all_coords():
-		if CWData.hex_dist(c, center) <= rad:
 			out.append(c)
 	return out
 
@@ -192,6 +289,13 @@ func _minus(a: Array, b: Array) -> Array:
 	return out
 
 
+## 一批格上同一个剪影色；已经有色的不覆盖（优先级由调用顺序定：深青 > 橙 > 淡青）
+func _paint(marks: Dictionary, tiles: Array, col: Color) -> void:
+	for c: Vector2i in tiles:
+		if not marks.has(c):
+			marks[c] = col
+
+
 # ════════════════════════════════════════════════════════════════
 #  一帧 = 铺组织 + 摆细胞 + 对机位 + 打坐标 + 写问题 + 列图例
 # ════════════════════════════════════════════════════════════════
@@ -201,13 +305,15 @@ func _minus(a: Array, b: Array) -> Array:
 ##   active[]                          活跃格（露出来的那几格）
 ##   ghost[]                           **活跃格之外**的预置格（第七关的再生席位），只进机位不铺组织
 ##   cancer[] solid[] necro[]          格子类型；其余活跃格一律健康
-##   marks{}                           几何锚点剪影
+##   marks{}                           剪影：coord -> Color
+##   numbers{}                         覆盖坐标标签：coord -> [文字, 颜色]（叠图那一帧用）
 ##   cells[]                           { kind, at, seat, name, e, ghost }
 func _build(cfg: Dictionary) -> void:
 	var active: Array = cfg.get("active", [])
 	var cancer: Array = cfg.get("cancer", [])
 	var solid: Array = cfg.get("solid", [])
 	var ghost: Array = cfg.get("ghost", [])
+	var numbers: Dictionary = cfg.get("numbers", {})
 
 	_board.set_active_tiles(active, 0.0)
 	for c: Vector2i in _minus(_minus(active, cancer), solid):
@@ -229,7 +335,10 @@ func _build(cfg: Dictionary) -> void:
 		_cell(e)
 		occ[e["at"]] = CWStyle.IMMUNE if IMMUNE_KINDS.has(String(e["kind"])) else CWStyle.CANCER
 	for c: Vector2i in active:
-		_tile_label(c, z, 1.0, occ.get(c, LABEL_COL))
+		if numbers.has(c):
+			_tile_label(c, z, 1.0, numbers[c][1], String(numbers[c][0]))
+		else:
+			_tile_label(c, z, 1.0, occ.get(c, LABEL_COL))
 	for c: Vector2i in ghost:
 		_tile_label(c, z, 0.42, occ.get(c, LABEL_COL))
 
@@ -271,9 +380,9 @@ func _cell(e: Dictionary) -> void:
 	_cells.add_child(s)
 
 
-## 一个活跃格的轴坐标标签。见 LABEL_DY / LABEL_COL 上的两段说明。
-func _tile_label(c: Vector2i, z: float, alpha: float, col: Color) -> void:
-	var txt := "%d,%d" % [c.x, c.y]
+## 一个活跃格的标签（默认写轴坐标）。见 LABEL_DY / LABEL_COL 上的两段说明。
+func _tile_label(c: Vector2i, z: float, alpha: float, col: Color, text := "") -> void:
+	var txt := text if text != "" else "%d,%d" % [c.x, c.y]
 	var lb := CWStyle.label(txt, CWStyle.SIZE_LABEL, Color(col, alpha))
 	## 描边而不是垫块：垫块在密排的第四 / 五关会连成一片黑带，把组织颜色盖掉
 	lb.add_theme_color_override("font_outline_color", Color(0.02, 0.05, 0.08, alpha * 0.95))
@@ -308,7 +417,7 @@ func _head(title: String, asks: Array) -> void:
 		var col: Color = CWStyle.TEXT
 		if s.begins_with("圈"):
 			col = CWStyle.CANCER
-		elif s.begins_with("图例"):
+		elif s.begins_with("图例") or s.begins_with("长"):
 			col = CWStyle.TEXT_DIM
 		var lb := CWStyle.label(s, CWStyle.SIZE_LABEL, col)
 		lb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -356,27 +465,31 @@ func _legend(cells: Array) -> void:
 	_ui.add_child(pan)
 
 
-const TIP_COLOR := "图例　格色：绿 = 健康　红 = 癌组织　石 = 固化癌组织　灰纹 = 坏死　|　坐标色：青 = 这格站着免疫　橙 = 站着癌细胞　|　剪影：橙 = 要圈的格　青 = 几何锚点"
+const TIP_COLOR := "图例　格色：绿 = 健康　红 = 癌组织　石 = 固化癌组织　灰纹 = 坏死　|　坐标色：青 = 这格站着免疫　橙 = 站着癌细胞　|　剪影：淡青 = 本关新浮现的格　橙 = 要圈的癌组织 / 固化格　深青 = 几何锚点"
 
 
 # ════════════════════════════════════════════════════════════════
-#  七帧
+#  八帧
 # ════════════════════════════════════════════════════════════════
 
 ## 第一关（PRD:91-137）。两个横向连接的健康组织，一格起、一格落。
 func _f1() -> void:
+	var active := _a1()
+	var marks := {}
+	marks[Vector2i(-4, -1)] = _board.MARK_PLAN
 	_build({
-		"title": "第一关 免疫 —— 默认盘面（方案 §2.7）",
+		"title": "第一关 免疫 —— 同一张图的第 1 步（新增 2 格）",
 		"ask": [
-			"圈①　两格的位置：默认 (-1,-1) 起、(0,-1) 落（青剪影）。走 r=-1 排，是因为这一排一个特殊组织都没有（核心/骨髓/血管的 r 只取 -3/0/3/6）。要换排或换朝向吗？",
-			"圈②　玩家起点要不要和开场动画里细胞跌落的落点对上？",
+			"圈①　两格的位置：默认 (-5,-1) 起、(-4,-1) 落（深青）。摆在 r=-1 排的**最左端**是 v2 的骨架决定的 —— 这一排 q 从 -5 到 6 共 12 格、跨度 11，整个教程就沿着它向右长，第七关的「距离 9 + 击退 2」也正好用完这条线。",
+			"圈②　玩家起点要不要和开场动画里细胞跌落的落点对上？（开场动画保留不动，落点可按这一关调。）",
+			"长期账：**这两格到第七关还在原处**，而且 (-5,-1) 最后站着那只要杀死你的 T 细胞、(-4,-1) 是你最后一次【转移】的落点 —— 首尾在同两格上收口。不想要这个呼应就说，改 T 的落位即可。",
 			"癌席按数据纪律 8 给一只 alive:false 的死细胞压在活跃集之外 (6,-1)，看不见也点不到，图上不画。",
 			TIP_COLOR,
 		],
-		"active": [Vector2i(-1, -1), Vector2i(0, -1)],
-		"marks": { Vector2i(0, -1): _board.MARK_MOVE },
+		"active": active,
+		"marks": marks,
 		"cells": [
-			{ "kind": "immune", "at": Vector2i(-1, -1), "seat": 0,
+			{ "kind": "immune", "at": Vector2i(-5, -1), "seat": 0,
 				"name": "玩家·未分化免疫", "e": "∞（哨兵 99990）" },
 		],
 	})
@@ -384,40 +497,53 @@ func _f1() -> void:
 
 ## 第二关（PRD:139-215）。Step1 右延两格健康 + 两格癌；Step2 再延一格癌 + 1.0 能量癌细胞。
 func _f2() -> void:
-	var active := _row(-1, -1, 5)
+	var active := _a2()
+	var marks := {}
+	_paint(marks, [Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1)], _board.MARK_ATTACK)
+	_paint(marks, _minus(active, _a1()), MARK_NEW)
 	_build({
-		"title": "第二关 癌 —— 默认盘面（Step1 + Step2 同一份，靠 reveal 揭示）",
+		"title": "第二关 癌 —— 第 2 步（新增 5 格，全在 r=-1 排上继续向右）",
 		"ask": [
-			"圈①　Step1 右延的两格健康 (1,-1) (2,-1) 与两格癌 (3,-1) (4,-1)：位置与格数对吗？",
-			"圈②　Step2 再延的一格癌 (5,-1)，1.0 能量癌细胞就站这一格 —— 对吗？",
-			"圈③　免疫起点：默认 (0,-1)（承接第一关终点），往右四步正好净化两格癌、停在 (4,-1) 与癌细胞邻接。起点若退回 (-1,-1) 就成五步。",
+			"圈①　Step1 右延的两格健康 (-3,-1) (-2,-1) 与两格癌 (-1,-1) (0,-1)：位置与格数对吗？",
+			"圈②　Step2 再延的一格癌 (1,-1)，1.0 能量癌细胞就站这一格 —— 对吗？",
+			"圈③　免疫起点 (-4,-1)（承接第一关终点），往右四步正好净化两格癌、停在 (0,-1) 与癌细胞邻接，与 PRD:153「向右移动四格」严丝合缝。",
+			"圈④（= Q2-4）1.0 能量 + 一次成功 1.0 伤害 = 一击必杀，而 PRD:203 写「攻击癌细胞直到其死亡」。改文案为「击杀它」，还是把能量抬到 2.0、带子给两颗骰？",
 			TIP_COLOR,
 		],
 		"active": active,
-		"cancer": [Vector2i(3, -1), Vector2i(4, -1), Vector2i(5, -1)],
+		"cancer": [Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1)],
 		"cells": [
-			{ "kind": "immune", "at": Vector2i(0, -1), "seat": 0,
+			{ "kind": "immune", "at": Vector2i(-4, -1), "seat": 0,
 				"name": "玩家·未分化免疫", "e": "∞（哨兵 99990）" },
-			{ "kind": "osteo", "at": Vector2i(5, -1), "seat": 1,
+			{ "kind": "osteo", "at": Vector2i(1, -1), "seat": 1,
 				"name": "骨肉瘤（Step2 才现）", "e": "1.0" },
 		],
 	})
 
 
-## 第三关（PRD:217-283）。凸的癌组织连通块 + 3.0 能量癌细胞 + 能量 6.1 精确标定。
+## 第三关（PRD:223-283）。**09-19 02:12 的新描述**：向前方横向延伸、延伸部分纵向宽 3 格。
 func _f3() -> void:
-	var active := _row(-1, 0, 6)
-	active.append(Vector2i(5, -2))
+	var active := _a3()
+	var cancer := [Vector2i(1, -1), Vector2i(4, -1), Vector2i(5, -1), Vector2i(6, -1),
+		Vector2i(5, -2)]
+	var marks := {}
+	marks[Vector2i(4, 0)] = _board.MARK_PLAN            ## 唯一落在预算内的落点
+	_paint(marks, [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0), Vector2i(3, 0)],
+		_board.MARK_PLAN)                                ## 2.5 那条最省路
+	_paint(marks, cancer, _board.MARK_ATTACK)
+	_paint(marks, _minus(active, _a2()), MARK_NEW)
 	_build({
-		"title": "第三关 ATP —— 默认盘面（方案 §2.8，能量 6.1 就是按这张图算的）",
+		"title": "第三关 ATP —— 第 3 步（新增 19 格：3 格宽的横带，PRD:227 新描述）",
 		"ask": [
-			"圈①　「凸的癌组织连通块」具体哪几格？默认 (4,-1) (5,-1) (6,-1) 一条，再由 (5,-2) 凸出一格。",
-			"圈②　3.0 能量的癌细胞站哪格？默认连通块正中 (5,-1)。",
-			"圈③　免疫起点哪格？默认 (0,-1)。最短路 = 3 格健康(0.5×3) + 1 格癌(1.0) = 2.5、落点 (4,-1)；能量 6.1 = 2.5 + 攻击三次 3.0 + 失效自损 0.5 + 0.1。这三格一动，6.1 就要重算。",
+			"圈①　3 格宽的横带 = r=-2 / r=-1 / r=0 三排、q 从 0 到 6。横带里 (3,0) 是代谢核心、(6,0) 是血管，按数据纪律 2 显式写 type:normal 摊平。范围对吗？",
+			"圈②　「凸的癌组织连通块」：默认 (4,-1)(5,-1)(6,-1) 一条，再由 (5,-2) 向上凸一格；3.0 能量的癌细胞站正中 (5,-1)。要不要改凸的方向？",
+			"圈③　横带一宽，「用最少能量过去」才真是一道题：直线 4 步要踩 (1,-1) 与 (4,-1) 两格癌 = 3.0；绕 r=0 排 5 步全健康 = **2.5**（深青那条），落点 (4,0)。**能量 6.1 = 2.5 + 攻击三次 3.0 + 失效自损 0.5 + 0.1**，只有走深青这条才进得了预算。这三格一动，6.1 就要重算。",
+			"圈④　(1,-1) 是第二关打完留在原地的那格癌组织（没被净化）。留着它，最省路才唯一；要在第二关末加一步净化掉吗？",
 			TIP_COLOR,
 		],
 		"active": active,
-		"cancer": [Vector2i(4, -1), Vector2i(5, -1), Vector2i(6, -1), Vector2i(5, -2)],
+		"cancer": cancer,
+		"marks": marks,
 		"cells": [
 			{ "kind": "immune", "at": Vector2i(0, -1), "seat": 0,
 				"name": "玩家·未分化免疫", "e": "6.1" },
@@ -427,111 +553,123 @@ func _f3() -> void:
 	})
 
 
-## 第四关（PRD:285-328）。向周围延伸 + 若干癌组织连通块 + 1~5 能量癌细胞，任务是升到 III 级。
+## 第四关（PRD:287-328）。向周围延伸 + 若干癌组织连通块 + 1~5 能量癌细胞，任务是升到 III 级。
 func _f4() -> void:
-	var active := _disc(Vector2i(0, -1), 2)
-	var blk_a := [Vector2i(1, -3), Vector2i(2, -3), Vector2i(1, -2), Vector2i(2, -2)]
-	var blk_b := [Vector2i(-2, -1), Vector2i(-2, 0), Vector2i(-1, 0),
-		Vector2i(-2, 1), Vector2i(-1, 1)]
+	var active := _a4()
+	var blk_a := [Vector2i(4, -1), Vector2i(5, -1), Vector2i(6, -1), Vector2i(5, -2),
+		Vector2i(6, -2)]
+	var blk_b := [Vector2i(1, -3), Vector2i(2, -3), Vector2i(3, -3), Vector2i(2, -2)]
+	var blk_c := [Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(2, 1)]
+	var cancer := blk_a + blk_b + blk_c + [Vector2i(1, -1)]
+	var marks := {}
+	_paint(marks, cancer, _board.MARK_ATTACK)
+	_paint(marks, _minus(active, _a3()), MARK_NEW)
 	_build({
-		"title": "第四关 抗原记忆 —— 默认盘面（19 格，Q-16 的记忆账就挂在这张图上）",
+		"title": "第四关 抗原记忆 —— 第 4 步（新增 12 格 → 38 格；v1 只有 19 格）",
 		"ask": [
-			"圈①　「向周围延伸」默认 = 以免疫 (0,-1) 为心的半径 2、共 19 格。范围对吗？(0,-3) 压在代谢核心上，按数据纪律 2 显式写 type:normal 摊平成普通格。",
-			"圈②　几个癌组织连通块、各几格？默认两块：右上 4 格 + 左下 5 格。",
-			"圈③　癌细胞几只、各几能量？默认 4 只 5.0/4.0/3.0/3.0。记忆账 = 净化 9 格得 9 + 打掉 15.0 能量得 15 = 24，升 III 只需 +10（Q-16 起手 II 级 20 记忆）。增减细胞就是改这本账。",
+			"圈①　「向周围延伸」默认 = 横带上下各长一排（r=-3 的 q1~5、r=1 的 q-1~4）再往左补 (-1,0)，共 38 格。右侧顶到棋盘边缘（q=6 / s=-6），所以实际是向左、向上、向下三面长开。够大吗？",
+			"圈②　三个癌组织连通块：右 5 格（第三关那块长出 (6,-2)）/ 上 4 格 / 下 4 格，外加第二关留下的孤格 (1,-1)。块数与形状对吗？",
+			"圈③　癌细胞 4 只：(5,-1) 5.0 / (2,-3) 4.0 / (1,1) 3.0 / (0,1) 3.0。记忆账 = 净化 14 格得 14 + 打掉 15.0 能量得 15 = 29，升 III 只需 +10（起手 II 级 20 记忆）。增减细胞就是改这本账。",
+			"长期账：右栏 9 席是**席位**上限不是格子上限 —— 本关只用 5 席（玩家 + 4 癌），地图大小与它无关。",
 			TIP_COLOR,
 		],
 		"active": active,
-		"cancer": blk_a + blk_b,
+		"cancer": cancer,
+		"marks": marks,
 		"cells": [
-			{ "kind": "immune", "at": Vector2i(0, -1), "seat": 0,
+			{ "kind": "immune", "at": Vector2i(4, 0), "seat": 0,
 				"name": "玩家·未分化免疫", "e": "∞　II 级 20 记忆" },
-			{ "kind": "osteo", "at": Vector2i(1, -3), "seat": 1, "name": "骨肉瘤", "e": "5.0" },
-			{ "kind": "osteo", "at": Vector2i(2, -2), "seat": 2, "name": "骨肉瘤", "e": "4.0" },
-			{ "kind": "osteo", "at": Vector2i(-2, 0), "seat": 3, "name": "骨肉瘤", "e": "3.0" },
-			{ "kind": "osteo", "at": Vector2i(-1, 1), "seat": 4, "name": "骨肉瘤", "e": "3.0" },
+			{ "kind": "osteo", "at": Vector2i(5, -1), "seat": 1, "name": "骨肉瘤", "e": "5.0" },
+			{ "kind": "osteo", "at": Vector2i(2, -3), "seat": 2, "name": "骨肉瘤", "e": "4.0" },
+			{ "kind": "osteo", "at": Vector2i(1, 1), "seat": 3, "name": "骨肉瘤", "e": "3.0" },
+			{ "kind": "osteo", "at": Vector2i(0, 1), "seat": 4, "name": "骨肉瘤", "e": "3.0" },
 		],
 	})
 
 
 ## 第五关 Step2（PRD:329-383）。连通块扩大 + 固化癌组织 + 各种类免疫各一；席位顶到 9。
 func _f5() -> void:
-	var active := _disc(Vector2i(0, -1), 2)
-	var blk_a := [Vector2i(1, -3), Vector2i(2, -3), Vector2i(0, -2), Vector2i(1, -2),
-		Vector2i(2, -2), Vector2i(2, -1)]
-	var blk_b := [Vector2i(-2, -1), Vector2i(-2, 0), Vector2i(-1, 0),
-		Vector2i(-2, 1), Vector2i(-1, 1), Vector2i(0, 1)]
+	var active := _a5()
+	var blk_a := [Vector2i(4, -1), Vector2i(5, -1), Vector2i(5, -2), Vector2i(6, -2),
+		Vector2i(4, -2), Vector2i(5, -3)]
+	var blk_b := [Vector2i(1, -3), Vector2i(2, -3), Vector2i(3, -3), Vector2i(2, -2),
+		Vector2i(2, -4)]
+	var blk_c := [Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(2, 1),
+		Vector2i(0, 2)]
+	var solid := [Vector2i(6, -1), Vector2i(3, -4), Vector2i(1, 2)]
+	var marks := {}
+	_paint(marks, solid, _board.MARK_PLAN)
+	_paint(marks, blk_a + blk_b + blk_c, _board.MARK_ATTACK)
+	_paint(marks, _minus(active, _a4()), MARK_NEW)
 	_build({
-		"title": "第五关 分化 Step2 —— 默认盘面（9 席已到右栏上限）",
+		"title": "第五关 分化 Step2 —— 第 5 步（新增 9 格 → 47 格；9 席已到右栏上限）",
 		"ask": [
-			"圈①　连通块「扩大」到哪几格？默认在第四关两块上各加：右上 +(0,-2) +(2,-1)、左下 +(0,1)，两块各 6 格。",
-			"圈②　固化癌组织几格、放哪？默认 (2,-3) 与 (-2,1) 两格（写 state:solid，不是 solid 计数）。",
-			"圈③　「各种类免疫各一」站哪几格？默认 B (-1,-2) / T (1,-1) / 巨噬 (-1,-1) / 树突 (0,0)，各 1.0 能量、全站健康组织。",
-			"硬约束：右栏实测 9 席底边 532 ≤ 540、10 席放不下。现在正好 9 席（玩家 + 4 免疫 + 4 癌），再加一只就要减一只。",
+			"圈①　连通块「扩大」到哪几格？默认三块各长到 7 / 6 / 6 格，地图跟着往外接一圈（r=-4 的 q2~5、r=2 的 q-1~3）—— 癌块长到哪，地图就长到哪。",
+			"圈②　固化癌组织三格（深青）：(6,-1) / (3,-4) / (1,2)，写 state:solid 不是 solid 计数。它们到第七关还在，是「复活窗口必须有一格不被免疫占据的固化格」那条硬约束的余量。",
+			"圈③　「各种类免疫各一」站哪几格？默认 B (1,-2) / 巨噬 (5,0) / 树突 (0,0) / **T (-5,-1)**。T 特意摆在走廊最远端 —— 它就是第七关那只「离癌细胞比较远且在一条直线上」的 T，从这一关起就在原处。不接受的话第七关得另生一只。",
+			"圈④　玩家 Step2 起手站 (4,0)（关首那格）。第四 / 五关是自由行动，终局位置写不死，所以关与关之间按剧本重新指定格子（PRD 通用规则 2 静默换局）。",
 			TIP_COLOR,
 		],
 		"active": active,
-		"cancer": blk_a + blk_b,
-		"solid": [Vector2i(2, -3), Vector2i(-2, 1)],
+		"cancer": blk_a + blk_b + blk_c,
+		"solid": solid,
+		"marks": marks,
 		"cells": [
-			{ "kind": "immune", "at": Vector2i(0, -1), "seat": 0,
+			{ "kind": "immune", "at": Vector2i(4, 0), "seat": 0,
 				"name": "玩家（Step1 自选分化）", "e": "∞　III 级" },
-			{ "kind": "bcell", "at": Vector2i(-1, -2), "seat": 1, "name": "B 细胞", "e": "1.0" },
-			{ "kind": "tcell", "at": Vector2i(1, -1), "seat": 2, "name": "T 细胞", "e": "1.0" },
-			{ "kind": "macro", "at": Vector2i(-1, -1), "seat": 3, "name": "巨噬细胞", "e": "1.0" },
-			{ "kind": "dendritic", "at": Vector2i(0, 0), "seat": 4, "name": "树突细胞", "e": "1.0" },
-			{ "kind": "osteo", "at": Vector2i(1, -3), "seat": 5, "name": "骨肉瘤", "e": "5.0" },
-			{ "kind": "osteo", "at": Vector2i(2, -2), "seat": 6, "name": "骨肉瘤", "e": "3.0" },
-			{ "kind": "osteo", "at": Vector2i(-2, 0), "seat": 7, "name": "骨肉瘤", "e": "4.0" },
-			{ "kind": "osteo", "at": Vector2i(-1, 1), "seat": 8, "name": "骨肉瘤", "e": "2.0" },
+			{ "kind": "bcell", "at": Vector2i(1, -2), "seat": 1, "name": "B 细胞", "e": "1.0" },
+			{ "kind": "macro", "at": Vector2i(5, 0), "seat": 2, "name": "巨噬细胞", "e": "1.0" },
+			{ "kind": "dendritic", "at": Vector2i(0, 0), "seat": 3, "name": "树突细胞", "e": "1.0" },
+			{ "kind": "tcell", "at": Vector2i(-5, -1), "seat": 4,
+				"name": "T 细胞（走廊远端）", "e": "1.0" },
+			{ "kind": "osteo", "at": Vector2i(5, -1), "seat": 5, "name": "骨肉瘤", "e": "5.0" },
+			{ "kind": "osteo", "at": Vector2i(2, -3), "seat": 6, "name": "骨肉瘤", "e": "4.0" },
+			{ "kind": "osteo", "at": Vector2i(1, 1), "seat": 7, "name": "骨肉瘤", "e": "3.0" },
+			{ "kind": "osteo", "at": Vector2i(0, 2), "seat": 8, "name": "骨肉瘤", "e": "2.0" },
 		],
 	})
 
 
-## 第七关的活跃集：r=-1 / r=-2 两排走廊（零特殊格）+ 左端两格 r=0 把「围一圈」的环补全。
-func _l7_active() -> Array:
-	return _row(-1, -5, 6) + _row(-2, -4, 6) + [Vector2i(-5, 0), Vector2i(-4, 0)]
-
-
-## 第七关开局（PRD:413-461）。几何锚：围完停 (-3,-1) 距 T 9 格 → 两轮「进 1 退 2」→ 11 = 5×2+1。
+## 第七关开局（PRD:415-461）。几何锚：围完停 (4,-1) 距 T 9 格 → 两轮「进 1 退 2」→ 11 = 5×2+1。
 func _f7a() -> void:
-	var ghost := [Vector2i(-1, -3), Vector2i(4, -3), Vector2i(5, -3)]
-	## 橙 = 玩家还要走过去、把它踩成癌组织的 4 格；起点 (-3,-2) 本来就是癌（留着看石头贴图），
-	## 环上最后一格 (-3,-1) 单独用强青标出来 —— 全关几何的锚点就是它
+	var active := _a7()
+	var ghost := [Vector2i(6, -3), Vector2i(6, -4), Vector2i(6, -5)]
+	var solid := [Vector2i(6, -2), Vector2i(6, -1), Vector2i(3, -4), Vector2i(1, 2)]
 	var marks := {}
-	for c: Vector2i in _ring(Vector2i(-4, -1)):
-		if c != Vector2i(-3, -2) and c != Vector2i(-3, -1):
-			marks[c] = _board.MARK_ATTACK
-	marks[Vector2i(-3, -1)] = _board.MARK_PLAN       ## 围完停这里 = 击退序列起点，距 T 9 格
-	marks[Vector2i(0, -1)] = _board.MARK_MOVE        ## 第一次【转移】落点
-	marks[Vector2i(5, -1)] = _board.MARK_MOVE        ## 第二次【转移】落点，正好邻接 T
+	marks[Vector2i(4, -1)] = _board.MARK_PLAN        ## 围完停这里 = 击退序列起点，距 T 9 格
+	marks[Vector2i(6, -1)] = _board.MARK_PLAN        ## 两轮击退后的落点，距 T 11 = 5×2+1
+	marks[Vector2i(1, -1)] = _board.MARK_PLAN        ## 第一次【转移】落点
+	marks[Vector2i(-4, -1)] = _board.MARK_PLAN       ## 第二次【转移】落点，正好邻接 T
+	## 橙 = 玩家要走过去踩成癌组织的一环（把巨噬围死，第 4-5 步【微环境压迫】结算它）
+	_paint(marks, _ring(Vector2i(4, -2)), _board.MARK_ATTACK)
+	_paint(marks, _minus(active, _a5()), MARK_NEW)
 	_build({
-		"title": "第七关 初始盘面 —— 默认摆法（方案 §2.9 的几何全挂在这张图上）",
+		"title": "第七关 初始 —— 第 6 步（只在外缘补 8 格左口袋 → 55 格；地图没换，接着第五关 + 间章）",
 		"ask": [
-			"圈①　T 细胞与其余免疫的站位：默认 T (6,-1) 在 r=-1 直线远端、被围的未分化免疫 (-4,-1)、B (0,-2)、巨噬 (2,-1)。要几只、站哪？",
-			"圈②　围一圈的目标格 = (-4,-1) 的一环。玩家从 (-3,-2) 起步，5 步踩完橙色 4 格 + 收尾格，停在 (-3,-1)（强青）—— 到 T 正好 9 格。方案写的「玩家 (-3,-1)」指的就是围完之后。",
-			"圈③　再生 T/B 的边缘格（淡显三只）：默认 (-1,-3)/(4,-3)/(5,-3)。开局就预置、停在活跃格外（hex_at 只扫活跃集），第 23 步只 reveal、不新增席位。",
-			"几何锁：距 9 →「进 1 退 2」两轮 → 落 (-5,-1) 距 11 = 5×2+1 → 两次【转移】(0,-1)→(5,-1)（淡青）正好邻接 T（5k 会落到 T 头上，非法）。起点不能用 (-5,-1)，击退要出盘。",
+			"圈①　围一圈围的是间章里靠过来又被击退 1 格的那只巨噬 (4,-2)，一环 6 格（橙）。玩家从固化格 (6,-2) 出发 6 步：(5,-2)(5,-3)(4,-3)(3,-2)(3,-1)(4,-1)，收在 (4,-1)（深青）—— 到 T (-5,-1) 正好 **9** 格。",
+			"圈②　几何锁（四个深青）：距 9 →「进 1 退 2」两轮 → 落 (6,-1) 距 **11 = 5×2+1** → 两次【转移】(1,-1) → (-4,-1) 正好邻接 T（距离若是 5k 会落到 T 头上，非法）。全程走 r=-1 排 —— 就是第一～三关走过的那条走廊。",
+			"圈③　T 细胞站 (-5,-1)，正是第一关玩家出生的那格；它的【效应应答-Excalibur】是沿一个方向打到棋盘边缘的主射线，所以「在一条直线上」是规则要求不只是演出。要不要换？",
+			"圈④　左口袋 8 格（淡青，r=-2 的 q-4~-1 与 r=0 的 q-5~-2）是第七关唯一的新增：把 T 那一头从一格宽的死胡同撑成 3 格宽，【黏液破裂】的两环转化与最后一幕才有地方演。(-3,0) 是骨髓，摊平成普通格。不要的话说一声。",
 			TIP_COLOR,
 		],
-		"active": _l7_active(),
+		"active": active,
 		"ghost": ghost,
-		"solid": [Vector2i(-3, -2)],
+		"solid": solid,
 		"marks": marks,
 		"cells": [
-			{ "kind": "sclc", "at": Vector2i(-3, -2), "seat": 0,
+			{ "kind": "sclc", "at": Vector2i(6, -2), "seat": 0,
 				"name": "玩家·小细胞肺癌", "e": "Null（内部 ∞）" },
-			{ "kind": "immune", "at": Vector2i(-4, -1), "seat": 1,
-				"name": "未分化免疫（被围）", "e": "3.0" },
-			{ "kind": "bcell", "at": Vector2i(0, -2), "seat": 2, "name": "B 细胞", "e": "3.0" },
-			{ "kind": "macro", "at": Vector2i(2, -1), "seat": 3, "name": "巨噬细胞", "e": "3.0" },
-			{ "kind": "tcell", "at": Vector2i(6, -1), "seat": 4,
-				"name": "T 细胞（直线远端）", "e": "3.0" },
-			{ "kind": "tcell", "at": Vector2i(-1, -3), "seat": 5,
+			{ "kind": "macro", "at": Vector2i(4, -2), "seat": 1,
+				"name": "巨噬（要被围的那只）", "e": "3.0" },
+			{ "kind": "bcell", "at": Vector2i(1, -2), "seat": 2, "name": "B 细胞", "e": "3.0" },
+			{ "kind": "dendritic", "at": Vector2i(0, 0), "seat": 3, "name": "树突细胞", "e": "3.0" },
+			{ "kind": "tcell", "at": Vector2i(-5, -1), "seat": 4,
+				"name": "T 细胞（走廊远端）", "e": "3.0" },
+			{ "kind": "tcell", "at": Vector2i(6, -5), "seat": 5,
 				"name": "T 细胞（预置）", "e": "第 23 步揭示", "ghost": true },
-			{ "kind": "bcell", "at": Vector2i(4, -3), "seat": 6,
+			{ "kind": "bcell", "at": Vector2i(6, -4), "seat": 6,
 				"name": "B 细胞（预置）", "e": "第 23 步揭示", "ghost": true },
-			{ "kind": "tcell", "at": Vector2i(5, -3), "seat": 7,
+			{ "kind": "tcell", "at": Vector2i(6, -3), "seat": 7,
 				"name": "T 细胞（预置）", "e": "第 23 步揭示", "ghost": true },
 		],
 	})
@@ -539,37 +677,73 @@ func _f7a() -> void:
 
 ## 第七关第 23 步（PRD:499）。边缘再生 T / B 揭示之后的盘面。
 func _f7b() -> void:
-	var fresh := [Vector2i(-1, -3), Vector2i(4, -3), Vector2i(5, -3)]
-	var ring := _ring(Vector2i(-4, -1))
-	## 【黏液破裂】在 (5,-1) 一带随机转化的一片（示意，实际由带子钉死）
-	var mucus := [Vector2i(2, -1), Vector2i(3, -1), Vector2i(4, -1),
-		Vector2i(3, -2), Vector2i(4, -2), Vector2i(5, -2)]
+	var active := _a7b()
+	var fresh := [Vector2i(6, -3), Vector2i(6, -4), Vector2i(6, -5)]
+	var ring := _ring(Vector2i(4, -2))
+	## 【黏液破裂】在 (-4,-1) 两环内转化的一片（示意，实际由带子钉死）
+	var mucus := [Vector2i(-3, -1), Vector2i(-2, -1), Vector2i(-3, -2), Vector2i(-2, -2),
+		Vector2i(-4, 0), Vector2i(-3, 0)]
+	var solid := [Vector2i(6, -2), Vector2i(6, -1), Vector2i(3, -4), Vector2i(1, 2)]
 	var marks := {}
-	for c: Vector2i in fresh:
-		marks[c] = _board.MARK_ATTACK
+	_paint(marks, fresh, _board.MARK_ATTACK)
+	marks[Vector2i(6, -2)] = _board.MARK_PLAN
 	_build({
-		"title": "第七关 第 23 步 —— 边缘再生 T / B 揭示之后（默认摆法）",
+		"title": "第七关 第 23 步 —— 边缘再生 T / B 揭示之后（新增 3 格 → 58 格，全教程终盘）",
 		"ask": [
-			"圈①　「地图边缘再次生成若干 T 细胞和 B 细胞」= 哪几格、各几只？默认 T (-1,-3) / B (4,-3) / T (5,-3)（橙）。席位开局就有，这一步只是把这三格加进活跃集。",
-			"圈②　复活要站哪格固化癌组织？默认回起点 (-3,-2)（石头贴图那格，间章脚下留的）。硬约束：自毁到复活之间盘上必须有一格 state:solid 且不被免疫占据，否则当场弹结算屏。要在 T 那头另设一格吗？",
-			"圈③　【黏液破裂】转化的一片（默认 (2,-1)(3,-1)(4,-1)(3,-2)(4,-2)(5,-2)）与【细胞毒素】烧出的坏死格（灰纹 (5,-1)(6,-2)：1 环内癌组织转健康 + 坏死两个世界回合）—— 这两片靠录带子钉，图上只是示意。要钉死范围吗？",
+			"圈①　「地图边缘再次生成若干 T 细胞和 B 细胞」= 右缘 q=6 那一列的 (6,-3)(6,-4)(6,-5)（橙），T / B / T 三只。席位开局就预置好停在活跃集外，这一步只把三格加进活跃集 + 浮现，不新增席位。",
+			"圈②　复活站哪格固化（深青 (6,-2)）？默认回**出生那格** —— 间章冲击波在脚下生成的那一格。代价：【黏液破裂】发生在 (-4,-1)、复活点在 11 格外的右缘，最后一幕整个搬回右边；好处是「回到原点」且不必另造固化格。要不要改成在 T 那一头另设一格固化，让第 22-25 步就地收尾？",
+			"圈③　左边那一片：T 的【细胞毒素】1 环转健康 + 坏死（灰纹 (-5,-1)(-4,-1)(-4,-2)(-5,0)），【黏液破裂】两环转癌（红，示意）。两片都靠录带子钉，要钉死范围吗？",
+			"圈④　第 24 步「所有 T 细胞一齐效应应答」：原 T 在 (-5,-1)，与复活点 (6,-2) 不在一条直线上，它那一发只能是演出；真正结算的是右缘新生的两只 T。接受吗？",
 			TIP_COLOR,
 		],
-		"active": _l7_active() + fresh,
+		"active": active,
 		"cancer": ring + mucus,
-		"solid": [Vector2i(-3, -2)],
-		"necro": [Vector2i(5, -1), Vector2i(6, -2)],
+		"solid": solid,
+		"necro": [Vector2i(-5, -1), Vector2i(-4, -1), Vector2i(-4, -2), Vector2i(-5, 0)],
 		"marks": marks,
 		"cells": [
-			{ "kind": "signet", "at": Vector2i(-3, -2), "seat": 0,
+			{ "kind": "signet", "at": Vector2i(6, -2), "seat": 0,
 				"name": "玩家·印戒细胞癌（复活）", "e": "Null" },
-			{ "kind": "tcell", "at": Vector2i(6, -1), "seat": 4,
+			{ "kind": "tcell", "at": Vector2i(-5, -1), "seat": 4,
 				"name": "T 细胞（原）", "e": "3.0" },
-			{ "kind": "tcell", "at": Vector2i(-1, -3), "seat": 5,
+			{ "kind": "tcell", "at": Vector2i(6, -5), "seat": 5,
 				"name": "T 细胞（再生）", "e": "3.0" },
-			{ "kind": "bcell", "at": Vector2i(4, -3), "seat": 6,
+			{ "kind": "bcell", "at": Vector2i(6, -4), "seat": 6,
 				"name": "B 细胞（再生）", "e": "3.0" },
-			{ "kind": "tcell", "at": Vector2i(5, -3), "seat": 7,
+			{ "kind": "tcell", "at": Vector2i(6, -3), "seat": 7,
 				"name": "T 细胞（再生）", "e": "3.0" },
 		],
+	})
+
+
+## 第八帧：全关卡叠图。同一张图上按关次上色 + 在格心写关号。
+func _f8() -> void:
+	var stages: Array = [[1, _a1()], [2, _a2()], [3, _a3()], [4, _a4()], [5, _a5()],
+		[7, _a7b()]]
+	var marks := {}
+	var numbers := {}
+	var seen: Array = []
+	var counts: Array = []
+	for s in stages:
+		var lv: int = s[0]
+		var cur: Array = s[1]
+		var add := _minus(cur, seen)
+		var col: Color = LV_COLOR[lv]
+		for c: Vector2i in add:
+			marks[c] = Color(col, 0.5)
+			numbers[c] = [str(lv), col]
+		counts.append("%d关 +%d" % [lv, add.size()])
+		seen = cur
+	_build({
+		"title": "全关卡叠图 —— 一张图，七次生长（格心数字 = 这格是第几关浮现的）",
+		"ask": [
+			"长　%s　= 58 格（半径 6 的 127 格常驻，其余靠遮罩藏着）。第五关那 9 格是癌块扩大顶出来的；第七关那 11 格分两次：开局 8 格左口袋、第 23 步 3 格右缘。" % "　".join(counts),
+			"长　颜色：青 1 关　橙 2 关　绿 3 关　紫 4 关　红 5 关　白 7 关。**每一关的活跃格都是前一关的严格超集，已露出的格子一格没挪过位置** —— 这就是 Kevin 09-19 第①条要的东西。",
+			"长　走向：第一～三关沿 r=-1 排从最左端 (-5,-1) 向右长（第三关起宽到 3 排）；第四 / 五关在右半边向上下长成一大团；第七关只在两头的外缘各补一小块。第七关那条「距离 9 + 击退 2」的直线，就是第一～三关走过的那条走廊。",
+			"圈　这张生长图有没有哪一步看着不连贯？要改就在对应的那一帧上圈。",
+			TIP_COLOR,
+		],
+		"active": _a7b(),
+		"marks": marks,
+		"numbers": numbers,
 	})
