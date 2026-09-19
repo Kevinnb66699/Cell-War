@@ -5,7 +5,7 @@
   "subtitle": "算清能量，三次攻击拿下癌细胞",
   "codex_page": 2, "ui_stage": 1,
   "seats": 2, "human_seat": 0,
-  "expect_level_tiers": [0, 10, 30, 120],
+  "expect_level_tiers": [0, 10, 30, 70],
 
   "worlds": {
     "base": {
