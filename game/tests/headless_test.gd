@@ -12700,9 +12700,10 @@ func t_card_choices() -> void:
 	g.dispose()
 
 	## ⑩ 放疗（issue #54 逐字复核，2026-09-19）：以所选癌性组织为起点长一个**含它的连通 10 格**区域，
-	## 区域内癌性组织转健康、**整片**（含原本就是健康的格子）进「坏死」`CWData.NECROSIS_RADIO` 轮。
-	## 「共 10 格」「彼此连通」「可以包括健康组织」「全部坏死」四条各有一句断言 —— 前两条在这一段，
-	## 「可以包括健康组织」在下面那一小段（癌块只有 3 格，区域非长进健康组织不可）。
+	## 区域内的普通癌组织转健康、连同区域里原本就是健康的格子一起进「坏死」`CWData.NECROSIS_RADIO` 轮。
+	## 「共 10 格」「彼此连通」「可以包括健康组织」四条各有一句断言 —— 前两条在这一段，
+	## 「可以包括健康组织」在下面那一小段（癌块只有 3 格，区域非长进健康组织不可），
+	## 固化格不转不坏死那一条（Kevin 2026-09-19 追加拍板）在 ⑩ 续二。
 	pack = _choice_game()
 	g = pack[0]
 	b = pack[1]
@@ -12715,16 +12716,18 @@ func t_card_choices() -> void:
 		if CWData.hex_dist(c, Vector2i(3, 0)) <= 2:
 			g.tiles[c]["tissue"] = CWData.Tissue.CANCER
 			blob += 1
-	g.tiles[Vector2i(3, 0)]["tissue"] = CWData.Tissue.SOLID   ## 固化也算癌性组织
+	## 固化也算癌性组织（选项面不变）—— 但摆在区域长不到的角上（距起点 9 格）：
+	## 追加拍板后固化格不转也不坏死，混进区域会把下面「坏死区域是一整块」那条搅浑。
+	g.tiles[Vector2i(-6, 3)]["tissue"] = CWData.Tissue.SOLID
 	var dopts: Array = []
 	g.card_fx.hand_options(rd, dopts)
-	check(dopts.size() == blob, "放疗：全图每格癌性组织一个选项（%d）" % blob)
+	check(dopts.size() == blob + 1, "放疗：全图每格癌性组织一个选项（%d）" % (blob + 1))
 	await g.card_fx.play(rd, { "act": "play", "card": "放疗", "to": Vector2i(3, 0) })
 	check(g.count_necrosis() == CWData.RADIO_REGION,
 		"放疗：恰好 %d 格进入坏死（PRD 2026-09-09 由 15 改 10）" % CWData.RADIO_REGION)
 	check(g.tiles[Vector2i(3, 0)]["tissue"] == CWData.Tissue.HEALTHY
 		and g.tiles[Vector2i(3, 0)]["necrosis"] == CWData.NECROSIS_RADIO,
-		"起点固化癌组织转健康并坏死 2 轮")   ## 名字必须是字面量：拼出来的名字闸三的 covers 指不到
+		"起点普通癌组织转健康并坏死 2 轮")   ## 名字必须是字面量：拼出来的名字闸三的 covers 指不到
 	var necro_pred := func(c: Vector2i) -> bool:
 		return g.tiles[c]["necrosis"] > 0
 	check(g.blocks_of(necro_pred).size() == 1, "放疗：坏死区域是一整块连通区域")
@@ -12769,6 +12772,35 @@ func t_card_choices() -> void:
 	var necro_pred2 := func(c: Vector2i) -> bool:
 		return g.tiles[c]["necrosis"] > 0
 	check(g.blocks_of(necro_pred2).size() == 1, "含健康组织的区域也是一整块连通区域")
+	g.dispose()
+
+	## ⑩ 续二（Kevin 2026-09-19 对 issue #54 的追加拍板：「【放疗】区域内**只转癌组织、固化不转**」）：
+	## 起点是普通癌组织，它的六个邻格**全是固化癌组织** —— 区域要长到 10 格就必然吃进其中若干格。
+	## 固化格原样留着（不转健康、也不坏死）；普通癌格照旧转健康 + 坏死，健康格照旧坏死。
+	## 坏死格数的下界 4：区域 10 格 = 起点 + 最多 6 格固化邻格 + 至少 3 格二环外的非固化格。
+	pack = _choice_game()
+	g = pack[0]
+	b = pack[1]
+	var radio_hard := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(-5, 0), CWData.ImmuneType.BASIC, -1)
+	radio_hard["energy"] = 30
+	radio_hard["hand"] = ["放疗"]
+	g.cells.append(radio_hard)
+	for c: Vector2i in g.neighbors(Vector2i(3, 0)):
+		CWTissue.to_solid(g.tiles[c])
+	CWTissue.to_cancer(g.tiles[Vector2i(3, 0)], false)
+	var solid_before := g.count_tissue(CWData.Tissue.SOLID)
+	await g.card_fx.play(radio_hard, { "act": "play", "card": "放疗", "to": Vector2i(3, 0) })
+	check(g.count_tissue(CWData.Tissue.SOLID) == solid_before, "放疗：区域里的固化癌组织一格没少（不转健康）")
+	var solid_burned := 0
+	for c: Vector2i in g.tiles.keys():
+		if g.tiles[c]["tissue"] == CWData.Tissue.SOLID and int(g.tiles[c]["necrosis"]) > 0:
+			solid_burned += 1
+	check(solid_burned == 0, "放疗：固化癌组织也不进「坏死」")
+	check(g.count_necrosis() < CWData.RADIO_REGION, "放疗：固化格不计入坏死，坏死格数少于区域格数")
+	check(g.tiles[Vector2i(3, 0)]["tissue"] == CWData.Tissue.HEALTHY
+		and g.tiles[Vector2i(3, 0)]["necrosis"] == CWData.NECROSIS_RADIO,
+		"放疗：同一区域里的普通癌组织照旧转健康并坏死")
+	check(g.count_necrosis() >= 4, "放疗：区域里的健康组织照旧进「坏死」")
 	g.dispose()
 
 
