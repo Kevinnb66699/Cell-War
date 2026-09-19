@@ -981,11 +981,15 @@ func _remodel_heal_cands(chosen: Array[Vector2i]) -> Array[Vector2i]:
 
 ## 【放疗】以所选癌性组织为起点，随机生长出含它的连通 `CWData.RADIO_REGION` 格区域
 ## （PRD 2026-09-09 由 15 格改为 10 格）：
-## 区域内所有癌性组织（含固化、含有细胞站着的）→ 健康，整片进入「坏死」`CWData.NECROSIS_RADIO` 轮。
+## 区域内的**普通**癌组织（含有细胞站着的）→ 健康，连同区域里本来就是健康的格子一起进入
+## 「坏死」`CWData.NECROSIS_RADIO` 轮。
+## ⚠ **固化癌组织整格跳过：不转健康、也不坏死，原样留着**——Kevin 2026-09-19 对 issue #54 的追加
+## 拍板「【放疗】区域内**只转癌组织、固化不转**（现实现把固化也转了，要改，两侧 + L0）」。
+## 起点本身可以是固化格（选项面不变），那就只长区域、起点原样。
 ## 「坏死」沿用毒素那套倒计时（不为免疫供能、可被定殖，定殖时清除——同一口径）。
 ## ⚠ 轮数 2026-09-07 就随「坏死」收成通用状态回到 2 轮，这句注释此前还写着旧的「5 轮」（issue #54 复核时改）。
 ## **区域可以含健康组织**（issue #54 逐字）：长区域时不挑 tissue，只要连通；
-## 癌性的转健康、健康的原样留着，但整片一律进「坏死」—— 所以这张卡是有代价的。
+## 癌组织转健康、健康的原样留着，但两者都要进「坏死」—— 所以这张卡是有代价的。
 func _radiotherapy(start: Vector2i) -> void:
 	var region: Array[Vector2i] = [start]
 	var in_region := { start: true }
@@ -1003,13 +1007,18 @@ func _radiotherapy(start: Vector2i) -> void:
 				frontier.append(n)
 	game.fx("card_radiation", { "tiles": Array(region) })   ## issue #28：光柱逐格落下（区域定了就报，翻格在后）
 	var cleared := 0
+	var burned := 0
 	for c in region:
-		if game.is_cancerous(c):
+		var t: Dictionary = game.tile(c)
+		if t["tissue"] == CWData.Tissue.SOLID:
+			continue   ## 固化癌组织整格跳过：不转、也不坏死（issue #54 追加拍板）
+		if t["tissue"] == CWData.Tissue.CANCER:
 			cleared += 1
-		CWTissue.to_necrotic(game.tile(c), CWData.NECROSIS_RADIO)
-	game.log_msg("　【放疗】以 %s 为起点的 %d 格区域：%d 格癌性组织转为健康，全部进入「坏死」（%d 轮）" % [
-		str(start), region.size(), cleared, CWData.NECROSIS_RADIO])
-	game.announce("放疗：%d 格转健康 · %d 格坏死" % [cleared, region.size()], start, true)
+		CWTissue.to_necrotic(t, CWData.NECROSIS_RADIO)
+		burned += 1
+	game.log_msg("　【放疗】以 %s 为起点的 %d 格区域：%d 格癌组织转为健康，%d 格进入「坏死」（%d 轮；固化癌组织原样留着）" % [
+		str(start), region.size(), cleared, burned, CWData.NECROSIS_RADIO])
+	game.announce("放疗：%d 格转健康 · %d 格坏死" % [cleared, burned], start, true)
 
 
 # ============ 修饰类（2026-08-29 第二批）============

@@ -311,16 +311,25 @@ internal static class CardRules
                 ? CellRules.EnterTile(s, cell.Id, dest, rng)   // GD 1709 行 `enter_tile`：定殖 + 特殊组织收取 + 标记刷新
                 : s,
         // 【放疗】：起点由玩家在全盘癌性组织里选（GD 一格一条）；区域按 GD 的多重集 frontier 一轮一发地长（RadioRegion）；
-        // 翻格段零随机，整格走 to_necrotic（含清库存）
+        // 翻格段零随机，普通癌组织与健康组织走 to_necrotic（含清库存）。
+        // **固化癌组织整格跳过：不转健康、也不坏死**（Kevin 2026-09-19 对 issue #54 的追加拍板
+        // 「区域内只转癌组织、固化不转」）—— 起点自己是固化格时也一样，只长区域、起点原样。
         ["放疗"] = (s, cell, rng, target, targetCell) =>
         {
             if (target is not { } start || !RadiotherapyTargets(s).Contains(start)) return s;
             var region = RadioRegion(s, start, RadioRegionSize, rng);
             Stage.Emit(Stage.Fx(s, "card_radiation", ("tiles", region.ToArray())));   // GD cw_card_fx.gd:1009：区域定了就报，翻格在后
-            var cleared = region.Count(pos => Cancerous(s.Board.Tissues[pos]));
+            var cleared = 0;
+            var burned = 0;
             foreach (var pos in region)
+            {
+                var state = s.Board.Tissues[pos].State;
+                if (state == TissueState.SolidifiedCancer) continue;
+                if (state == TissueState.Cancer) cleared++;
                 s = Necrotize(s, pos, NecrosisRadio);
-            Stage.Announce(s, $"放疗：{cleared} 格转健康 · {region.Count} 格坏死", start, true);   // GD cw_card_fx.gd:1017
+                burned++;
+            }
+            Stage.Announce(s, $"放疗：{cleared} 格转健康 · {burned} 格坏死", start, true);   // GD cw_card_fx.gd:1020
             return s;
         },
         // 【克隆增殖】：相邻、**没有免疫细胞**占着的健康组织（癌细胞站着的照样算），随机 1/2/3 格（分期）转**新生**癌组织（GD `to_cancer(t, true)`）
