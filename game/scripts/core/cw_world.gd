@@ -587,7 +587,7 @@ func _erosion(fresh: Array[Vector2i] = []) -> void:
 	for block in game.blocks_of(healthy_pred):
 		var touches_edge := false
 		for c in block:
-			if CWData.is_edge(c):
+			if CWData.is_edge(c, game.board_radius):
 				touches_edge = true
 				break
 		if touches_edge:

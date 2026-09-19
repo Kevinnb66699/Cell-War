@@ -432,7 +432,7 @@ func _jump_quota_left(cell: Dictionary) -> bool:
 
 ## T 细胞【裂解】：目标是**1 环内**的固化癌组织（含脚下；云端 PRD 2026-09-10）
 func _is_lyse_legal_now(cell: Dictionary, to: Vector2i) -> bool:
-	return cell["alive"] and (to in CWData.ring(cell["pos"], 1)) 		and game.tile(to)["tissue"] == CWData.Tissue.SOLID
+	return cell["alive"] and (to in CWData.ring(cell["pos"], 1, game.board_radius)) 		and game.tile(to)["tissue"] == CWData.Tissue.SOLID
 
 
 func _lyse_targets(cell: Dictionary) -> Array[Vector2i]:
@@ -441,7 +441,7 @@ func _lyse_targets(cell: Dictionary) -> Array[Vector2i]:
 	## 2026-09-01 从「脚下」改成「相邻」，2026-09-10 云端 PRD 写成
 	## 「可将**1环内**的固化癌组织转为健康组织」—— 1 环 = 中心 + 六邻，两者都算。
 	## 免疫站在固化格上是合法的过渡态（传送/卡牌位移进来的），所以这一档不是空谈。
-	for n in CWData.ring(cell["pos"], 1):
+	for n in CWData.ring(cell["pos"], 1, game.board_radius):
 		if game.tile(n)["tissue"] == CWData.Tissue.SOLID:
 			out.append(n)
 	return out
@@ -1269,7 +1269,7 @@ func _can_toxin(cell: Dictionary) -> bool:
 
 func _toxin_targets(cell: Dictionary) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
-	for n in CWData.ring(cell["pos"], 1):
+	for n in CWData.ring(cell["pos"], 1, game.board_radius):
 		if game.tile(n)["tissue"] == CWData.Tissue.CANCER:
 			out.append(n)
 	return out
@@ -1289,7 +1289,7 @@ func _do_toxin(cell: Dictionary) -> void:
 		return
 	cell["toxin_used"] += 1
 	game.tile(cell["pos"])["toxin_round"] = game.round_no   ## 这一格本世界回合用过了
-	game.fx("toxin", { "from": cell["pos"], "tiles": CWData.ring(cell["pos"], 1) })
+	game.fx("toxin", { "from": cell["pos"], "tiles": CWData.ring(cell["pos"], 1, game.board_radius) })
 	for c in targets:
 		CWTissue.to_necrotic(game.tile(c), CWData.NECROSIS_TOXIN)
 	game.log_msg("【细胞毒素】1 环内 %d 格癌组织转为健康组织并进入「坏死」（不积累记忆）" % targets.size())
@@ -1297,7 +1297,7 @@ func _do_toxin(cell: Dictionary) -> void:
 	## 所以这里含不含中心其实不改结果 —— 写成 ring 是为了**和上面那半用同一把尺**，
 	## 免得将来有人只改一处。
 	var victims: Array = []
-	for n in CWData.ring(cell["pos"], 1):
+	for n in CWData.ring(cell["pos"], 1, game.board_radius):
 		victims.append_array(game.cells_at(n, CWData.Faction.CANCER))
 	## attack=false：细胞毒素是「技能」，同上（T 细胞专属）；【DNA损伤修复】可挡
 	game.immune_hit_area(victims, CWData.ATTACK_DMG_SUCCESS, cell, "细胞毒素")

@@ -936,9 +936,11 @@ static func round_tenth(num: int, den: int) -> int:
 ## 所以改写时每一处都要单独确认范围是不是真的扩了（Kevin 09-08 确认【细胞毒素】扩）。
 ##
 ## 返回**排好序**的坐标：范围技能的结算顺序要可复现（同种子同结果）。
-static func ring(center: Vector2i, n: int) -> Array[Vector2i]:
+## `radius` = 这一局的棋盘半径（`game.board_radius`；正式局 6）。**别用缺省值去算大盘**：
+## 教程间章起世界半径 11，缺省 6 会把第 6 环外的格悄悄漏掉（2026-09-19 S9a 报的）
+static func ring(center: Vector2i, n: int, radius := BOARD_RADIUS) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
-	for c in all_coords():
+	for c in all_coords(radius):
 		if hex_dist(c, center) <= n:
 			out.append(c)
 	out.sort()
@@ -974,9 +976,9 @@ static func dir_toward(dest: Vector2i, from: Vector2i) -> int:
 	return best
 
 
-static func is_edge(c: Vector2i) -> bool:
-	# 棋盘外缘格：邻居不满 6 个
-	return neighbors(c).size() < 6
+static func is_edge(c: Vector2i, radius := BOARD_RADIUS) -> bool:
+	# 棋盘外缘格：邻居不满 6 个。`radius` 同 ring()：大盘上按缺省 6 算会把第 6 环误判成外缘
+	return neighbors(c, radius).size() < 6
 
 
 static func special_of(c: Vector2i) -> Special:

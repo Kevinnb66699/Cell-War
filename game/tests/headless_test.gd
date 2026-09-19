@@ -7416,6 +7416,22 @@ func t_ring_and_toxin() -> void:
 	check(CWData.ring(Vector2i.ZERO, 2).size() == 19, "2 环 = 19 格")
 	## 棋盘外不算：最边上的格子环里格数会少
 	check(CWData.ring(Vector2i(6, 0), 1).size() < 7, "贴边的格子：棋盘外的方向不计")
+	## 大盘（教程间章起世界半径 11，S9a 2026-09-19）：ring / is_edge 要按**这一局**的半径算，缺省 6 只是正式局的巧合。
+	## 核里的五处 ring（细胞毒素 / 固化攻击）与一处 is_edge（侵蚀「外缘连通」）都改成传 game.board_radius
+	check(CWData.ring(Vector2i(8, 0), 1, 11).size() == 7 and CWData.ring(Vector2i(8, 0), 1).is_empty(),
+		"半径 11 的盘上 (8,0) 的 1 环有 7 格；按缺省 6 算是空的（正是要修的那条路）")
+	check(not CWData.is_edge(Vector2i(6, 0), 11) and CWData.is_edge(Vector2i(6, 0)) and CWData.is_edge(Vector2i(11, 0), 11),
+		"半径 11 的盘上 (6,0) 不是外缘、(11,0) 才是；缺省 6 下 (6,0) 是外缘")
+	var big := bare_game()
+	big.setup.build_board(11)
+	var far := Vector2i(9, 0)
+	var tf := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, far, CWData.ImmuneType.T_CELL, -1, 200)
+	big.cells.append(tf)
+	big.tiles[Vector2i(10, 0)]["tissue"] = CWData.Tissue.CANCER
+	await big.actions._do_toxin(tf)
+	check(big.tile(Vector2i(10, 0))["tissue"] == CWData.Tissue.HEALTHY and big.tile(Vector2i(10, 0))["necrosis"] > 0,
+		"半径 11 的盘上站在 (9,0) 放【细胞毒素】：第 6 环外的邻格 (10,0) 照样转化 + 坏死")
+	big.dispose()
 
 	## **含中心格是真的会差一格**：免疫细胞确实可能站在癌组织上
 	## （骨样硬化标记过的格要蹲一回合才净化，传送/卡牌位移进来的也没净化）
