@@ -71,19 +71,20 @@ const GLITCH_SLICES := 5      ## blocks 模式把胞体横切几条
 const GLITCH_BARS := 3        ## scanlines 模式同时几条暗带
 const MORPH_AT := 0.80        ## 演到这个比例就把贴图换成 morph_to
 const SHUFFLE_AT := 0.20      ## 随机切换从这个比例开始（PRD:487）
-## **马赛克串台**（Kevin 2026-09-19，看完动图改的口径：**以像素为单位，不是以一块矩形为单位**）：
-## blocks 模式下，错开的那几条里**逐像素**各掷一次 —— 中了的那个像素画的不是自己的，
-## 而是 `pool` / `morph_to` 的贴图**同一位置**那一个像素，像被撒了一层别人的像素噪点在身上闪。
-## 间章「分化→普通」「免疫→小细胞肺癌」与第七关「随机切换→定格印戒」这三处，
-## 串台来源正好就是「将要变成的样子」，噪点本身就成了预告；**定格之后整个关掉**。
+## **马赛克串台**（Kevin 2026-09-19，第三版口径）：blocks 模式下，**同一时间只有 1~3 个随机小块**在串台 ——
+## 块的位置与大小随机（整只细胞范围内，可以重叠、也可以落在没错开的地方），**块内仍是逐像素**各掷一次：
+## 中了的那个像素画的不是自己的，而是 `pool` / `morph_to` 的贴图**同一位置**那一个像素；**块外一个像素都不串**。
+## 一批块连着 1~3 帧再换一批位置。间章「分化→普通」「免疫→小细胞肺癌」与第七关「随机切换→定格印戒」
+## 这三处，串台来源正好就是「将要变成的样子」，噪点本身就成了预告；**定格之后整个关掉**。
 ##
-## 逐像素怎么还能算「随机全在 begin() 里摇完」：`begin()` 摇的是**每一帧一颗种子**（外加这一帧的密度），
-## 每个像素中不中是拿「种子 + 像素坐标」算的一个整数哈希（`_pix_noise`）—— 纯函数、零随机流，
+## 逐像素怎么还能算「随机全在 begin() 里摇完」：`begin()` 摇的是**一批 = 一颗种子 + 一个密度 + 几个块**，
+## 块里某个像素中不中，是拿「种子 + 像素坐标」算的一个整数哈希（`_pix_noise`）—— 纯函数、零随机流，
 ## 所以 `probe(t)` 依旧只查表，同一个 t 喂两遍仍然逐像素相同。
-const MOSAIC_DENSITY := {"light": Vector2(0.08, 0.15), "heavy": Vector2(0.25, 0.40)}
-## 同一批噪点连着几帧再重掷。**定的是 1 = 每帧重掷**：调到 3 逐帧截下来比过，看不出差别 ——
-## 胞体本来就每帧在错动，冻住的噪点跟着一起动，照样是新的一片
-const MOSAIC_HOLD := 1
+## 块**内**的密度（块外恒为 0）。剧烈档块数偏 3、块内也更密
+const MOSAIC_DENSITY := {"light": Vector2(0.20, 0.35), "heavy": Vector2(0.40, 0.62)}
+const MOSAIC_COUNT := {"light": Vector2i(1, 2), "heavy": Vector2i(2, 3)}   ## 同一时间几块
+const MOSAIC_BLOCK := Vector2(0.20, 0.34)   ## 一块多大：占胞体宽 / 高的这个比例（约 1/5~1/3）
+const MOSAIC_HOLD := 3                      ## 一批块连着几帧（1~这个数）再换一批位置
 ## 没给 `pool` / `morph_to` 时的替补来源：**同阵营另一种细胞**（照 CELL_ART 的名字分阵营，
 ## 演出层不认识内核的类型枚举）
 const MOSAIC_KIN := {
@@ -377,14 +378,23 @@ func _roll() -> Dictionary:
 					src = _kin_pool(pool[0] if not pool.is_empty() else null)
 				out["mosaic_src"] = src
 				var band: Vector2 = MOSAIC_DENSITY["heavy" if _heavy() else "light"]
+				var cnt: Vector2i = MOSAIC_COUNT["heavy" if _heavy() else "light"]
 				var mos: Array = []
 				mos.resize(n)
 				var f := 0
 				while f < n:
 					var hold := _rng.randi_range(1, MOSAIC_HOLD)
-					## 一帧 = [这一帧的噪点种子, 这一帧多大比例的像素被串]（像素中不中由 _pix_noise 算）
-					var here: Array = ([_rng.randi(), _rng.randf_range(band.x, band.y)]
-						if not src.is_empty() else [])
+					var here: Array = []
+					if not src.is_empty():
+						var blocks: Array = []
+						for _k in _rng.randi_range(cnt.x, cnt.y):
+							var bw := _rng.randf_range(MOSAIC_BLOCK.x, MOSAIC_BLOCK.y)
+							var bh := _rng.randf_range(MOSAIC_BLOCK.x, MOSAIC_BLOCK.y)
+							## 一块 = [左上 x, 左上 y, 宽, 高]，**全是占胞体的比例**（贴图尺寸会跟着随机切换变）
+							blocks.append([_rng.randf_range(0.0, 1.0 - bw),
+								_rng.randf_range(0.0, 1.0 - bh), bw, bh])
+						## 一批 = [噪点种子, 块内密度, 这一批的块]（哪个像素中由 _pix_noise 算）
+						here = [_rng.randi(), _rng.randf_range(band.x, band.y), blocks]
 					for j in range(f, mini(f + hold, n)):
 						mos[j] = here
 					f += hold
@@ -525,7 +535,7 @@ func _heavy() -> bool:
 	return s == "heavy" or s == "剧烈"
 
 
-## 这一帧的噪点种子与密度（**查表，不摇随机**）
+## 这一帧那一批 = [噪点种子, 块内密度, 几个块]（**查表，不摇随机**）
 func _mosaic_at(i: int) -> Array:
 	var mos: Array = _plan.get("mosaic", [])
 	if i < 0 or i >= mos.size() or not (mos[i] is Array):
@@ -533,23 +543,47 @@ func _mosaic_at(i: int) -> Array:
 	return (mos[i] as Array).duplicate(true)
 
 
+## 这一刻在串台的那 1~3 个块（**本体贴图一帧之内**的像素矩形）。块外一个像素都不串
+func mosaic_rects() -> Array:
+	var m: Array = _state.get("mosaic", [])
+	var tex := current_tex()
+	if m.size() < 3 or tex == null:
+		return []
+	var w := int(_fw(tex))
+	var h := int(_fh(tex))
+	var out: Array = []
+	for b: Array in m[2]:
+		var x0 := clampi(int(floorf(float(b[0]) * float(w))), 0, maxi(w - 1, 0))
+		var y0 := clampi(int(floorf(float(b[1]) * float(h))), 0, maxi(h - 1, 0))
+		out.append(Rect2i(x0, y0,
+			clampi(int(roundf(float(b[2]) * float(w))), 1, w - x0),
+			clampi(int(roundf(float(b[3]) * float(h))), 1, h - y0)))
+	return out
+
+
 ## 这一帧哪些像素被串了：`[[x, y, 采谁], …]`，坐标是**本体贴图一帧之内**的像素位。
-## **画与断言都走这一支**，两边口径就不会分家；纯函数（只看 `_state` 里那颗种子与密度）
+## 只在上面那几个块里掷（块重叠的部分只算一次），**画与断言都走这一支**，两边口径就不会分家；
+## 纯函数（只看 `_state` 里那颗种子、密度与块）
 func mosaic_pixels() -> Array:
 	var m: Array = _state.get("mosaic", [])
 	var tex := current_tex()
 	var srcn: int = (_plan.get("mosaic_src", []) as Array).size()
-	if m.size() < 2 or tex == null or srcn <= 0:
+	if m.size() < 3 or tex == null or srcn <= 0:
 		return []
 	var s := int(m[0])
 	var d := float(m[1])
 	var w := int(_fw(tex))
-	var h := int(_fh(tex))
+	var seen := {}
 	var out: Array = []
-	for y in h:
-		for x in w:
-			if _pix_noise(s, x, y) < d:
-				out.append([x, y, int(_pix_noise(s + 977, x, y) * float(srcn)) % srcn])
+	for r: Rect2i in mosaic_rects():
+		for y in range(r.position.y, r.end.y):
+			for x in range(r.position.x, r.end.x):
+				var key := y * w + x
+				if seen.has(key):
+					continue        ## 两块叠在一起的那一片只算一次
+				seen[key] = true
+				if _pix_noise(s, x, y) < d:
+					out.append([x, y, int(_pix_noise(s + 977, x, y) * float(srcn)) % srcn])
 	return out
 
 

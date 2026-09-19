@@ -22227,66 +22227,76 @@ func t_tutor_fx() -> void:
 			early = true
 	check(not early, "混乱像素里随机切换的那几张不含印戒细胞癌 —— 它只在最后定格时出现")
 
-	# ---- ⑤+ 马赛克串台（Kevin 09-19 改口径：**以像素为单位**）：错开的那几条里逐像素撒别人的像素 ----
+	# ---- ⑤+ 马赛克串台（Kevin 09-19 第三版）：同一时间只有 1~3 个随机小块，块内逐像素、块外为 0 ----
 	var mo := {"at": Vector2i(0, 0), "mode": "blocks", "intensity": "heavy", "tex": "Melanoma",
 		"pool": ["ImmuneBasic", "TCell"], "morph_to": "SignetRing", "seed": 20260919}
 	var want := [TUTOR_FX.CELL_ART["ImmuneBasic"], TUTOR_FX.CELL_ART["TCell"],
 		TUTOR_FX.CELL_ART["SignetRing"]]
 	var band: Vector2 = TUTOR_FX.MOSAIC_DENSITY["heavy"]
+	var cnt: Vector2i = TUTOR_FX.MOSAIC_COUNT["heavy"]
 	fx.begin("glitch", mo)
 	var mo_n := int(fx.duration() * TUTOR_FX.PIX_FPS)
-	var area := int(TUTOR_FX.CELL_ART["Melanoma"].get_width() / TUTOR_FX.BREATH_FRAMES) \
-		* TUTOR_FX.CELL_ART["Melanoma"].get_height()
+	var cell_w := int(TUTOR_FX.CELL_ART["Melanoma"].get_width() / TUTOR_FX.BREATH_FRAMES)
+	var cell_h := int(TUTOR_FX.CELL_ART["Melanoma"].get_height())
 	var lit := 0                      ## 有串台的帧数
 	var alien := 0                    ## 采的不是 pool / morph_to 的像素数
 	var selfie := 0                   ## 采到自己那张的像素数
-	var off_band: Array = []          ## 密度掉出区间的帧
+	var outside := 0                  ## 落在块外的像素数（必须是 0）
+	var bad_n: Array = []             ## 块数不在 1~3 的帧
+	var bad_size: Array = []          ## 块大小不在 1/5~1/3 的帧
+	var off_band: Array = []          ## 块内密度掉出区间的帧
 	var frozen := 0                   ## 定格之后还在串的像素数
-	var run_max := 0                  ## 横向最长的一条连续被串像素
-	var runs := 0
-	var run_px := 0
+	var shape: Array = []             ## 逐帧的块（比「几帧换一批」用）
 	for i in mo_n:
 		fx.seek(float(i) / TUTOR_FX.PIX_FPS)
 		var px: Array = fx.mosaic_pixels()
-		var morphed: bool = fx.current_tex() == TUTOR_FX.CELL_ART["SignetRing"]
-		if morphed:
+		var rs: Array = fx.mosaic_rects()
+		if fx.current_tex() == TUTOR_FX.CELL_ART["SignetRing"]:
 			frozen += px.size()
 			continue
-		if px.is_empty():
+		shape.append(str(rs))
+		if rs.is_empty():
 			continue
 		lit += 1
-		var d := float(px.size()) / float(area)
-		if d < band.x - 0.02 or d > band.y + 0.02:
-			off_band.append("%d帧%.0f%%" % [i, d * 100.0])
-		var mark := {}
+		if rs.size() < cnt.x or rs.size() > cnt.y or rs.size() > 3:
+			bad_n.append("%d帧%d块" % [i, rs.size()])
+		## 块外一个像素都不许有；顺手数块的并集有多大（重叠只算一次）
+		var inside := {}
+		for r: Rect2i in rs:
+			if r.size.x * 5 < cell_w - 2 or r.size.x * 3 > cell_w + 2 \
+					or r.size.y * 5 < cell_h - 2 or r.size.y * 3 > cell_h + 2:
+				bad_size.append("%d帧%s" % [i, str(r.size)])
+			for y in range(r.position.y, r.end.y):
+				for x in range(r.position.x, r.end.x):
+					inside[Vector2i(x, y)] = true
 		for p: Array in px:
-			mark[Vector2i(int(p[0]), int(p[1]))] = true
+			if not inside.has(Vector2i(int(p[0]), int(p[1]))):
+				outside += 1
 			var t2 = fx.mosaic_tex(int(p[2]))
 			if not (t2 in want):
 				alien += 1
 			if t2 == TUTOR_FX.CELL_ART["Melanoma"]:
 				selfie += 1
-		## 「不是整块矩形」：横着数每一条连续被串像素的游程，长的那种才是块
-		for p2: Array in px:
-			if mark.has(Vector2i(int(p2[0]) - 1, int(p2[1]))):
-				continue                ## 只从每条游程的头上数
-			var run := 0
-			while mark.has(Vector2i(int(p2[0]) + run, int(p2[1]))):
-				run += 1
-			run_max = maxi(run_max, run)
-			runs += 1
-			run_px += run
-	check(lit > 0 and alien == 0 and selfie == 0,
-		"blocks 模式 %d 帧逐像素串台，来源全在 `pool` / `morph_to` 里（采错的 %d 个像素、采到自己那张的 %d 个）"
-			% [lit, alien, selfie])
-	check(off_band.is_empty(),
-		"每帧被替换的像素占整只的 %.0f%%~%.0f%%（`MOSAIC_DENSITY.heavy`；掉出区间的帧：%s）"
-			% [band.x * 100.0, band.y * 100.0, str(off_band.slice(0, 4))])
-	var run_avg := float(run_px) / maxf(float(runs), 1.0)
-	check(run_max * 2 < int(TUTOR_FX.CELL_ART["Melanoma"].get_width() / TUTOR_FX.BREATH_FRAMES)
-			and run_avg < 3.0,
-		"撒的是**像素噪点不是整块矩形**：横向最长一条连续 %d 像素、平均 %.2f 像素（胞宽 %d）"
-			% [run_max, run_avg, int(TUTOR_FX.CELL_ART["Melanoma"].get_width() / TUTOR_FX.BREATH_FRAMES)])
+		var d := float(px.size()) / maxf(float(inside.size()), 1.0)
+		if d < band.x - 0.06 or d > band.y + 0.06:
+			off_band.append("%d帧%.0f%%" % [i, d * 100.0])
+	check(lit > 0 and outside == 0 and bad_n.is_empty(),
+		"同一时间只有 %d~%d 个块在串（%d 帧逐帧点过），**块外一个像素都没有**（越界 %d 个；块数不对的帧：%s）"
+			% [cnt.x, cnt.y, lit, outside, str(bad_n.slice(0, 3))])
+	check(bad_size.is_empty() and off_band.is_empty(),
+		"块大小在胞体的 1/5~1/3（不合的：%s），块**内**被换掉的像素占 %.0f%%~%.0f%%（掉出区间的帧：%s）"
+			% [str(bad_size.slice(0, 3)), band.x * 100.0, band.y * 100.0, str(off_band.slice(0, 3))])
+	check(alien == 0 and selfie == 0,
+		"块里逐像素采的全是 `pool` / `morph_to` 同一位置的像素（采错 %d 个、采到自己那张 %d 个）"
+			% [alien, selfie])
+	## 「块 ≤3 帧换一批位置」：同一批块连着出现的帧数不超过 MOSAIC_HOLD
+	var run := 1
+	var run_max := 1
+	for i in range(1, shape.size()):
+		run = (run + 1) if shape[i] == shape[i - 1] else 1
+		run_max = maxi(run_max, run)
+	check(run_max <= TUTOR_FX.MOSAIC_HOLD,
+		"同一批块最多连着 %d 帧（上限 %d）就换一批位置" % [run_max, TUTOR_FX.MOSAIC_HOLD])
 	check(frozen == 0,
 		"定格成 `morph_to` 之后一个串台像素都不剩（实测 %d 个）—— 已经变完了就没什么好预告的" % frozen)
 	## 没给 pool / morph_to 时的替补：**同阵营**另一种细胞（免疫串免疫，不会串出个癌细胞来）
@@ -22308,12 +22318,13 @@ func t_tutor_fx() -> void:
 	check(not kin.is_empty() and cross == 0,
 		"没给 `pool` / `morph_to` 就退回同阵营另一种细胞（这一段串到的是 %s，串出阵营或串回自己的 %d 个像素）"
 			% [str(kin), cross])
-	## 强度：剧烈档撒得密得多（同一段时长、同一个种子）
+	## 强度：剧烈档块多一个、块内也更密（同一段时长、同一个种子）
 	var mos_light := _tutor_fx_mosaic(fx, "light")
 	var mos_heavy := _tutor_fx_mosaic(fx, "heavy")
-	check(mos_light > 0 and mos_heavy > mos_light * 2,
-		"串台密度跟着 `intensity` 走：剧烈 %d 个像素 / 轻 %d 个（同时长同种子；区间 %s → %s）"
-			% [mos_heavy, mos_light, str(TUTOR_FX.MOSAIC_DENSITY["light"]),
+	check(mos_light > 0 and mos_heavy > mos_light,
+		"串台跟着 `intensity` 走：剧烈 %d 个像素 / 轻 %d 个（同时长同种子；块数 %s → %s、块内密度 %s → %s）"
+			% [mos_heavy, mos_light, str(TUTOR_FX.MOSAIC_COUNT["light"]),
+				str(TUTOR_FX.MOSAIC_COUNT["heavy"]), str(TUTOR_FX.MOSAIC_DENSITY["light"]),
 				str(TUTOR_FX.MOSAIC_DENSITY["heavy"])])
 
 	# ---- ⑥ `beam_hit` 的两件：loop 持续到 skip()；光束**不贯穿** ----
