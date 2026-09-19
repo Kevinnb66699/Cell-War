@@ -42,6 +42,11 @@ const ENERGY_NULL_MARK := "Null"
 ##   move_path —— 迁移态的路径规划器（关掉 = 不画线、不出「规划路径」按钮，
 ##                走已有的那条「降级可见」的路，PRD:107/151/197）
 ##   cost      —— 每格耗能与按钮上的价签（PRD:107）
+##   camera    —— **镜头**（PRD 04:08 版给关卡模板加的「镜头变化」，PRD:9-22）：
+##                `{"anchor": "map"|"player", "align": "center"|"left"|"right"}`。
+##                `map` = 让整张活跃地图落在镜头的正中 / 三分之一 / 三分之二处，
+##                `player` = 让玩家那只细胞落在那儿；竖直方向一律居中。
+##                **它是唯一不能「关」的层**（镜头永远存在）—— `"*": false` 也不碰它
 ##   energy    —— "plain"（照常写数字）/ "infinite"（标志值换成 ENERGY_INF_MARK）
 ##                / "null"（标志值换成 ENERGY_NULL_MARK，PRD:431）/ "hidden"（整个不写）
 ##
@@ -49,6 +54,12 @@ const ENERGY_NULL_MARK := "Null"
 ## **数组形态的「白名单」由决策闸（`allow`，方案 §3.2(a)）落实**，不在这儿过滤 ——
 ## 行动栏的按钮是从 `req["options"]` 建的，闸把选项滤掉按钮就根本不出现，
 ## 两处都过滤等于同一件事写两遍、还会对不上。这里只认「这一层开不开」。
+## 镜头那两个枚举与缺省值（「地图调中」）住在条目文法表里 —— **校验器读的是同一份**
+const BEATS := preload("res://scripts/kernel/cw_tutor_beats.gd")
+const CAMERA_DEFAULT := BEATS.CAMERA_DEFAULT
+const CAMERA_ANCHORS := BEATS.CAMERA_ANCHORS
+const CAMERA_ALIGNS := BEATS.CAMERA_ALIGNS
+
 const DEFAULTS := {
 	"action_bar": true,
 	"sidebar": true,
@@ -60,6 +71,7 @@ const DEFAULTS := {
 	"move_path": true,
 	"cost": true,
 	"energy": "plain",
+	"camera": CAMERA_DEFAULT,
 }
 
 ## 通配键：`{"*": false}` = 先把所有具名层按「关」的那一侧铺一遍，再按同一条里其余键覆写。
@@ -82,6 +94,8 @@ static func off_value(key: String) -> Variant:
 		return "hidden"
 	if d is Array:
 		return []
+	if d is Dictionary:
+		return (d as Dictionary).duplicate(true)   ## `camera`：镜头关不掉，通配也只是回到缺省
 	return false
 
 
@@ -115,6 +129,19 @@ static func on(key: String) -> bool:
 	if v is String:
 		return not (v as String).is_empty() and str(v) != "hidden"
 	return true
+
+
+## 这一刻的镜头（PRD:9-22）。**表外的值当缺省**：剧本写错一个字不该把镜头摔到某个
+## 算不出来的地方，但要说出来 —— 校验器（`cw_tutor_script.validate` 第 14 条）装载期就拦
+static func camera() -> Dictionary:
+	var v: Variant = _cur.get("camera", CAMERA_DEFAULT)
+	var d: Dictionary = v as Dictionary if v is Dictionary else {}
+	var anchor := str(d.get("anchor", "map"))
+	var align := str(d.get("align", "center"))
+	return {
+		"anchor": anchor if anchor in CAMERA_ANCHORS else "map",
+		"align": align if align in CAMERA_ALIGNS else "center",
+	}
 
 
 static func energy_mode() -> String:

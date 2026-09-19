@@ -166,6 +166,8 @@ func _run_all() -> void:
 		t_tutor_data, t_tutor_beats, t_tutor_flow, t_tutor_director, t_tutor_gate, t_tutor_view,
 		## 新手教程 v2 · S2：常驻壳（章节提示 / STOP 层 / 重置 / 目录）+ 提亮层（通用规则 8）
 		t_tutor_chrome, t_tutor_spot,
+		## 新手教程 v2 · S3：皮 A 贴身气泡 + 教程镜头（PRD:9-22）与通用规则 13（PRD:65）
+		t_tutor_view_bubble, t_tutor_camera,
 		## 新手引导 v2 S7：教程演出库 cw_tutor_fx（六种演出 / 零内核 rng / 时间的纯函数）
 		t_tutor_fx,
 	]
@@ -19933,6 +19935,25 @@ func t_tutor_data() -> void:
 	kind_bad["chapter_kind"] = "sub"
 	check(_tutor_errs(kind_bad).contains("chapter_kind"),
 		"chapter_kind 只许 main / interlude（间章不是主章节的附属，Kevin 2026-09-19）")
+	## ---- ⑭ 镜头（PRD 04:08 版给关卡模板加的「镜头变化」，PRD:9-22；S3 2026-09-19）----
+	var cam0: Dictionary = ((l1["flow"] as Array)[0] as Dictionary)["ui"]
+	check(cam0.get("camera", {}) == { "anchor": "map", "align": "center" },
+		"第一关照 PRD:105 写「地图调中」（实测 %s）" % str(cam0.get("camera", {})))
+	for bad_cam in [{ "anchor": "hero", "align": "center" }, { "anchor": "map", "align": "top" },
+			{ "anchor": "map", "align": "center", "zoom": 4.0 }, "地图调中"]:
+		var cbad: Dictionary = l1.duplicate(true)
+		(((cbad["flow"] as Array)[0] as Dictionary)["ui"] as Dictionary)["camera"] = bad_cam
+		check(_tutor_errs(cbad).contains("camera"),
+			"判别力：ui.camera 写成 %s 当场红（写错一个字在真机上只表现为「镜头没反应」）"
+				% str(bad_cam))
+	var cam_ok: Dictionary = l1.duplicate(true)
+	(((cam_ok["flow"] as Array)[0] as Dictionary)["ui"] as Dictionary)["camera"] = { "anchor": "player" }
+	check(not _tutor_errs(cam_ok).contains("camera"),
+		"两个键都可以省（省了就是缺省的「地图调中」）—— 只写 anchor 合法")
+	var cam_ui: Dictionary = l1.duplicate(true)
+	((cam_ui["flow"] as Array)[-2] as Dictionary)["ui"] = ["bar:迁移"]
+	check(not _tutor_errs(cam_ui).contains("camera"),
+		"只有 state 的 ui 是层字典：point / player 的 ui 是控件 id 表，别拿去当镜头判")
 
 
 func t_tutor_beats() -> void:
@@ -20597,6 +20618,290 @@ func t_tutor_spot() -> void:
 	view.queue_free()
 	spot.queue_free()
 	bar.queue_free()
+
+
+## 新手教程 v2 · S3：**皮 A 贴身气泡**（`cw_tutor_view_bubble.gd`）
+##
+## 这一支盯的是 Kevin 2026-09-19 那几条**能被测出来**的（方案 §5.5）：
+## 气泡挂在说话者那一格上方、`who:"ui:<id>"` 挂在控件上方、**提示行一出现就把台词收掉**、
+## 「……」三拍、图鉴小卡排队、说话期间闸与全屏 STOP 都关着。
+## 「好不好看」是真机截图的事（`截图_2026-09-19_教程v2_S3/`），这里一个像素都不判。
+func t_tutor_view_bubble() -> void:
+	print("[新手教程 v2 S3·贴身气泡]")
+	## ---- 纯函数先核：「……」是沉默几拍，不是三个句号 ----
+	check(CWTutorViewBubble.is_silence(PackedStringArray(["……"]))
+			and CWTutorViewBubble.is_silence(PackedStringArray([]))
+			and not CWTutorViewBubble.is_silence(PackedStringArray(["欢迎来到Cell_War！"])),
+		"「……」/ 空表 = 沉默；有字的一句不是")
+	check(CWTutorViewBubble.beats_of({}) == 3 and CWTutorViewBubble.beats_of({ "beats": 5 }) == 5,
+		"沉默默认三拍（三颗渐显的点），剧本写了 beats 就听它的")
+	check(CWTutorViewBubble.card_y(1) - CWTutorViewBubble.card_y(0)
+			== CWTutorViewBubble.CODEX.y + CWTutorViewBubble.CODEX_GAP,
+		"图鉴小卡竖向间距 %.0f（连着来几条就往下摞）" % CWTutorViewBubble.CODEX_GAP)
+	check(CWTutorViewBubble.card_title("tissue_healthy") == "健康组织"
+			and CWTutorViewBubble.card_title("没这条") == "没这条",
+		"卡面的名字走图鉴现成的对照表，表里没有就原样写 id（不自己编名字）")
+	## ---- 真棋盘 + 真相机：气泡的锚点跟着细胞那一格走 ----
+	CWTutorLayers.reset()
+	var bd: Node2D = load("res://scenes/Board.tscn").instantiate()
+	root.add_child(bd)
+	await process_frame
+	var cam := Camera2D.new()
+	root.add_child(cam)
+	CWView.apply(cam, bd, CWView.GAME_ZOOM, CWView.GAME_LOOK_AT, CWView.GAME_ANCHOR)
+	var spot = TUTOR_SPOT.new()
+	root.add_child(spot)
+	spot.board = bd
+	spot.camera = cam
+	var bar := CWActionBar.new()
+	root.add_child(bar)
+	await process_frame
+	bar.show_bar("", "", [{ "title": "迁移", "cost": "1 0.5" }])
+	await process_frame
+	spot.action_bar = bar   ## 不注入的话 `bar:<标题>` 那一支返回零矩形，两条断言会静默落空
+	var view := CWTutorViewBubble.new()
+	root.add_child(view)
+	await process_frame
+	view.spot = spot
+	## **捕一只数组而不是 Vector2i**：GDScript 的 lambda 按值捕获，
+	## 直接捕变量的话「细胞走一格」永远传不进皮里（这条断言会假绿）
+	var here := [Vector2i(-1, -1)]
+	view.speaker_of = func(who: String) -> Dictionary:
+		return { "at": here[0], "immune": true } if who == "player" else {}
+	## `say` 是协程（等「继续」）—— 这里**故意不 await**：要看的是气泡这一刻挂在哪
+	view.say("player", PackedStringArray(["欢迎来到Cell_War！"]), {})
+	await _tutor_pump(2)
+	check(view.busy(), "说话期间 busy() 为真（导演靠它决定翻不翻页）")
+	var head: Vector2 = spot.head_of(here[0], CWTutorViewBubble.HEAD_UP)
+	var box: Control = view._say
+	check(box != null and is_instance_valid(box),
+		"台词气泡建出来了（不是占位皮那条文字行）")
+	check(absf(box.position.x + box.size.x / 2.0 - head.x) <= 1.0
+			and box.position.y + box.size.y < head.y,
+		"气泡横向对准细胞头顶、整只压在它上方（实测中线 %.0f vs 头顶 %.0f）"
+			% [box.position.x + box.size.x / 2.0, head.x])
+	## 细胞走一格，气泡跟过去（Kevin：尾巴指向细胞、**跟随位置**）
+	var was := box.position.x
+	here[0] = Vector2i(2, -1)
+	await _tutor_pump(2)
+	check(absf(view._say.position.x + view._say.size.x / 2.0
+			- spot.head_of(here[0], CWTutorViewBubble.HEAD_UP).x) <= 1.0
+			and view._say.position.x != was,
+		"细胞挪了一格，气泡跟着挪（每帧现算，不缓存旧位置）")
+	## ---- `who: "ui:<id>"`：挂在那个控件矩形**上方** ----
+	view.say("ui:bar:迁移", PackedStringArray(["点这里"]), { "auto": true })
+	await _tutor_pump(2)
+	var br: Rect2 = bar.button_rect("迁移")
+	check(br.size != Vector2.ZERO and view._say.position.y + view._say.size.y <= br.position.y
+			and absf(view._say.position.x + view._say.size.x / 2.0 - br.get_center().x) <= 1.0,
+		"控件说话时气泡挂在控件矩形上方、横向对中（实测气泡下缘 %.0f vs 按钮上缘 %.0f）"
+			% [view._say.position.y + view._say.size.y, br.position.y])
+	check(not view.busy(), "auto:true 的一句不等「继续」，导演一帧翻过（气泡留在屏幕上）")
+	## ---- ★ 提示行一出现就把台词收掉（Kevin 2026-09-19）----
+	view.hint("点底部「迁移」，再点右边那一格")
+	await process_frame
+	check(view._say == null and view._hint.visible
+			and view._hint.text == "点底部「迁移」，再点右边那一格",
+		"★ 提示行一出现，上一段台词当场收掉（说话与催人动手在流程上互斥）")
+	check(CWTutorViewBubble.HINT_RECT.end.y <= CWActionBar.PROMPT_RECT.position.y,
+		"提示行的下缘让开行动栏的目标选择态（%.0f ≤ %.0f）"
+			% [CWTutorViewBubble.HINT_RECT.end.y, CWActionBar.PROMPT_RECT.position.y])
+	view.hint("")
+	await process_frame
+	check(not view._hint.visible, "空串 = 什么都不提示（清干净）")
+	## ---- 「……」：三颗渐显的点 ----
+	view.say("player", PackedStringArray(["……"]), { "auto": true })
+	await _tutor_pump(2)
+	check(view._dots.size() == 3, "「……」的正文换成三颗方点（实测 %d 颗）" % view._dots.size())
+	var lit := 0
+	for d in view._dots:
+		if (d as ColorRect).color.a > 0.0:
+			lit += 1
+	check(lit >= 1 and lit < 3,
+		"**逐颗**渐显（一拍一颗）：头两帧只亮了 %d 颗，不是一次性三颗全亮" % lit)
+	## ---- 控件旁的小气泡：只给 `tip` 非空的那种（Kevin：按钮保持单线原样，皮别再套气泡）----
+	view.point([{ "kind": "ui", "id": "bar:迁移" }], "soft")
+	await process_frame
+	check(view._tip == null and spot._nodes.size() == 1 and spot._rects.is_empty(),
+		"★ tip 空串 ⇒ 皮一个气泡都不挂；按钮照旧由提亮层只闪亮度、单线原样")
+	view.point([{ "kind": "ui", "id": "bar:迁移" }], "soft", "点击结算【微环境压迫】")
+	await _tutor_pump(2)
+	check(view._tip != null and not spot._tip.visible,
+		"tip 非空 ⇒ 皮自己出小气泡，**提亮层那块最小的牌让位**（不两块牌叠着）")
+	check(view._tip.position.y + view._tip.size.y <= bar.button_rect("迁移").position.y,
+		"小气泡贴在那枚控件的上缘（尾巴指着它）")
+	view.clear_point()
+	await process_frame
+	check(view._tip == null and not spot.visible, "clear_point 把小气泡与提亮层一起收掉")
+	## ---- 图鉴小卡：连着来几条就排队往下摞 ----
+	view.codex_unlocked(PackedStringArray(["tissue_healthy", "move"]))
+	await process_frame
+	check(view._cards.size() == 2
+			and is_equal_approx((view._cards[1] as Control).position.y, CWTutorViewBubble.card_y(1)),
+		"两条解锁 = 两张卡排着队（第二张在 y=%.0f）" % CWTutorViewBubble.card_y(1))
+	check((view._cards[0] as Control).position.x
+			> CWTutorViewBubble.card_right() - CWTutorViewBubble.CODEX.x,
+		"卡从右缘外往里滑（这一帧还没到位）")
+	check(CWTutorViewBubble.card_right() == CWTutorViewBubble.CODEX_RIGHT_SIDEBAR,
+		"右栏开着时卡让开那 264px（右缘 %.0f）" % CWTutorViewBubble.CODEX_RIGHT_SIDEBAR)
+	CWTutorLayers.apply({ "sidebar": false })
+	check(CWTutorViewBubble.card_right() == CWTutorViewBubble.CODEX_RIGHT,
+		"第一、二关没有右栏 ⇒ 卡贴到 %.0f" % CWTutorViewBubble.CODEX_RIGHT)
+	CWTutorLayers.reset()
+	## ---- 说话期间导演把闸与全屏 STOP 都关着（PRD:51 两层）----
+	var chrome := CWTutorChrome.new()
+	root.add_child(chrome)
+	await process_frame
+	## 前面故意不 await 地起过几段台词，它们**还停在 `await advance_pressed` 上**。
+	## 不先放掉的话，下面导演那一段一 advance 会把它们一起唤醒，
+	## 谁后醒谁把 `_busy` 清成 false —— 分片跑时间变了就随机红一次
+	view.advance_pressed.emit()
+	await process_frame
+	view.teardown()
+	view.chrome = chrome
+	var gate := TutorGateSpy.new()
+	var dir = TUTOR_DIRECTOR.new()
+	dir.view = view
+	dir.gate = gate
+	var d = TUTOR_SCRIPT.new()
+	var lv: Dictionary = d.load_level("c1_l1")
+	var g: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "base"))
+	var m: CWMirror = _mirror_of(g)
+	dir.mirror_of = func() -> CWMirror: return m
+	root.add_child(dir)
+	dir.open(lv, int(lv.get("human_seat", 0)))
+	dir.install()
+	## 关首第一件是**章节提示**（真常驻壳要播满 CHAPTER_SECS = 1.8 秒，不是计数皮那种立即返回），
+	## 所以这里按**墙钟**等「念到第一句台词」，不数帧 —— 无头一帧只有一两毫秒，数帧永远不够
+	var spin := 0
+	var t0 := Time.get_ticks_msec()
+	while not view.busy() and Time.get_ticks_msec() - t0 < 8000:
+		spin += 1
+		await process_frame
+	check(view.busy() and chrome.blocking() and gate.last() == [],
+		"关首第一句还在念：皮 busy、常驻壳的全屏 STOP 开着、闸是空表（PRD:51 的两层都在）—— 实测 busy=%s block=%s allow=%s 等了 %d 帧"
+			% [str(view.busy()), str(chrome.blocking()), str(gate.last()), spin])
+	var first_id: int = (view._say as Control).get_instance_id()
+	view.advance()
+	await _tutor_pump(4)
+	## 第一关连着三段台词 ⇒ 放行之后**原地换成下一段**（不摞第二个泡），busy 照旧为真
+	check(view._say != null and (view._say as Control).get_instance_id() != first_id
+			and view.busy(),
+		"点「继续」放行、原地换成下一段（真机截图走 call:CWTutorViewBubble:advance）")
+	dir.teardown()
+	dir.queue_free()
+	view.teardown()
+	## 把还停在 `await advance_pressed` 上的那几段台词放掉再销毁 ——
+	## 本测试故意不 await 地起过好几段，不放的话协程攥着皮不撒手（退出时一串 leaked）
+	view.advance_pressed.emit()
+	await process_frame
+	view.queue_free()
+	chrome.queue_free()
+	spot.queue_free()
+	bar.queue_free()
+	cam.queue_free()
+	bd.queue_free()
+	g.dispose()
+	CWTutorLayers.reset()
+
+
+## 新手教程 v2 · S3：**教程镜头**（PRD:9-22 的「镜头变化」+ 通用规则 13 PRD:65）
+##
+## 两件事：① 小棋盘按**活跃格集合**推近、整盘回对局机位，`ui.camera` 的 anchor / align
+## 决定看点落在镜头的哪儿；② **禁止玩家向镜头外 / 被镜头框切割的格子迁移** ——
+## 这条在真机上只表现为「那一格点不动」，不做成纯函数就永远查不出来是镜头还是规则。
+func t_tutor_camera() -> void:
+	print("[新手教程 v2 S3·教程镜头与通用规则 13]")
+	CWTutorLayers.reset()
+	var bd: Node2D = load("res://scenes/Board.tscn").instantiate()
+	root.add_child(bd)
+	await process_frame
+	var cam := Camera2D.new()
+	root.add_child(cam)
+	## ---- ① zoom：两格的第一关推近、整盘就是对局机位 ----
+	var l1 := [Vector2i(-1, -1), Vector2i(0, -1)]
+	var small := CWView.tutor_framing(bd, l1, "center", null, false)
+	check(float(small["zoom"]) == CWView.TUTOR_MAX_ZOOM,
+		"两格的第一关顶到上限 %.1f 倍（对局机位的 %.2f 在这儿只有指甲盖大）"
+			% [CWView.TUTOR_MAX_ZOOM, CWView.GAME_ZOOM])
+	var whole := CWView.tutor_framing(bd, CWData.all_coords(), "center", null, true)
+	check(float(whole["zoom"]) == CWView.GAME_ZOOM
+			and whole["look_at"] == CWView.GAME_LOOK_AT and whole["anchor"] == CWView.GAME_ANCHOR,
+		"★ 整盘 = **对局机位那三个数**（第四关起回正式机位，不走近似、不漂一两像素）")
+	var mid := CWView.tutor_framing(bd, CWData.all_coords(3), "center", null, true)
+	check(float(mid["zoom"]) > CWView.GAME_ZOOM and float(mid["zoom"]) < CWView.TUTOR_MAX_ZOOM,
+		"半径 3 的中等盘落在两头之间（实测 %.2f）—— zoom 是算出来的，不是一关一个魔数"
+			% float(mid["zoom"]))
+	## ---- ① align：调中 / 调左 / 调右 = 镜头横向的 1/2、1/3、2/3 ----
+	var span := CWView.tutor_span(true)
+	var xs := {}
+	for a in ["left", "center", "right"]:
+		xs[a] = float((CWView.tutor_framing(bd, l1, a, null, true)["anchor"] as Vector2).x)
+	check(is_equal_approx(xs["center"], span.x + (span.y - span.x) * 0.5)
+			and xs["left"] < xs["center"] and xs["center"] < xs["right"],
+		"调左 / 调中 / 调右 = 目标落在镜头横向的三分之一 / 一半 / 三分之二（实测 %.0f / %.0f / %.0f）"
+			% [xs["left"], xs["center"], xs["right"]])
+	check((CWView.tutor_framing(bd, l1, "left", null, true)["anchor"] as Vector2).y
+			== CWView.GAME_ANCHOR.y,
+		"竖直方向一律居中（PRD:9-22 那句「默认竖直方向地图/角色是居中的」）")
+	## ---- ① anchor：地图调中 vs 玩家调中，看点不是同一个点 ----
+	var by_map := CWView.tutor_framing(bd, CWData.all_coords(3), "center", null, true)
+	var by_me := CWView.tutor_framing(bd, CWData.all_coords(3), "center", Vector2i(2, -1), true)
+	check(by_map["look_at"] != by_me["look_at"],
+		"「地图调中」看的是活跃集包围盒的中心，「玩家调中」看的是他站的那一格")
+	## ---- ② 通用规则 13：镜头外 / 被框切到的格子不算数 ----
+	CWView.apply(cam, bd, float(small["zoom"]), small["look_at"], small["anchor"])
+	await process_frame
+	var rect := CWView.tutor_view_rect(false)
+	check(CWView.tile_fully_visible(cam, bd, l1[0], rect)
+			and CWView.tile_fully_visible(cam, bd, l1[1], rect),
+		"第一关那两格整格在镜头里（它们就是镜头算出来的取景对象）")
+	var out_of_frame: Array = []
+	for c in CWData.all_coords():
+		if not CWView.tile_fully_visible(cam, bd, c, rect):
+			out_of_frame.append(c)
+	check(out_of_frame.size() > 100 and not (l1[0] in out_of_frame),
+		"推到 %.1f 倍时盘上 %d 格落在镜头外 / 被框切到 —— 通用规则 13 拦的就是它们"
+			% [CWView.TUTOR_MAX_ZOOM, out_of_frame.size()])
+	## 擦着边也算「被镜头框切割」：把相机往右挪半格，最左那一格就该出局
+	var edge: Vector2i = l1[0]
+	var before := CWView.tile_fully_visible(cam, bd, edge, rect)
+	## 挪到「这一格的左缘刚好越过镜头框 1px」——「差一点点」才测得出「擦着边也算切到」
+	var tile_mid: Vector2 = CWView.board_to_screen(cam, bd.tile_center(edge))
+	var left_edge: float = tile_mid.x - CWView.TILE_HALF.x * cam.zoom.x
+	cam.position += Vector2((left_edge - rect.position.x + 1.0) / cam.zoom.x, 0.0)
+	await process_frame
+	check(before and not CWView.tile_fully_visible(cam, bd, edge, rect),
+		"★ 只要有一角出框就不许当目标（擦着边 = 被切割，不是「基本在里面」）")
+	## 整盘机位下一格都不该被切（正式局就是这个机位，规则 13 在那边等于没开）
+	CWView.apply(cam, bd, CWView.GAME_ZOOM, CWView.GAME_LOOK_AT, CWView.GAME_ANCHOR)
+	await process_frame
+	var clipped: Array = []
+	for c in CWData.all_coords():
+		if not CWView.tile_fully_visible(cam, bd, c, CWView.tutor_view_rect(true)):
+			clipped.append(c)
+	check(clipped.is_empty(),
+		"对局机位下 127 格一格不缺全在镜头里（被切的：%s）" % str(clipped))
+	## ---- 桥那头的闸：没注入 = 正式局，一格都不滤 ----
+	var br := CWUIBridge.new()
+	check(br.tile_selectable(Vector2i(6, 0)),
+		"正式局不注入 tile_visible ⇒ 一格都不滤（规则 13 只管教程）")
+	br.tile_visible = func(c: Vector2i) -> bool: return c == Vector2i.ZERO
+	check(br.tile_selectable(Vector2i.ZERO) and not br.tile_selectable(Vector2i(1, 0)),
+		"注入之后**每次点都现问** —— 镜头补间没走完的那几帧，目标格还没整格进镜头")
+	## ---- 数据那一层：层表认得 camera，通配也关不掉它 ----
+	CWTutorLayers.apply({ "*": false })
+	check(CWTutorLayers.camera() == CWTutorLayers.CAMERA_DEFAULT,
+		"★ `\"*\": false` 把十一层全关掉，**镜头关不掉**（退回缺省的「地图调中」）")
+	CWTutorLayers.apply({ "camera": { "anchor": "player", "align": "left" } })
+	check(CWTutorLayers.camera() == { "anchor": "player", "align": "left" },
+		"第三关的「角色调左」（PRD:249）一条 state 就切过去")
+	CWTutorLayers.apply({ "camera": { "anchor": "谁", "align": "偏上" } })
+	check(CWTutorLayers.camera() == CWTutorLayers.CAMERA_DEFAULT,
+		"表外的值退回缺省（真机不摔），但装载期由校验器第 ⑭ 条当场红")
+	CWTutorLayers.reset()
+	cam.queue_free()
+	bd.queue_free()
 
 
 ## 新手引导 v2 · S7：教程演出库 `cw_tutor_fx`

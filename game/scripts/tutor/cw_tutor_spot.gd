@@ -201,6 +201,18 @@ func board_rect() -> Rect2:
 	return Rect2(lo - half, hi - lo + half * 2.0)
 
 
+## 一格上站着的细胞「头顶」落在屏幕的哪儿 —— S3 那版皮的气泡尾尖指这里。
+## `up` 是棋盘像素（贴图高度那一路），所以要跟着 zoom 一起缩
+func head_of(at: Vector2i, up: float) -> Vector2:
+	return _hex_center(at) - Vector2(0.0, up * _zoom())
+
+
+## 本帧「第一个目标」的屏幕矩形。皮覆写 `point` 自己画 tip 小气泡时照它摆
+## （方案 §5.1 末：气泡的形状与尖角是**皮**的语言，这一层只认矩形）
+func focus_rect() -> Rect2:
+	return _first_rect()
+
+
 func _hex_center(at: Vector2i) -> Vector2:
 	if board == null or not is_instance_valid(board) or camera == null:
 		return Vector2.ZERO

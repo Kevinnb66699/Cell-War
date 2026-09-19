@@ -44,6 +44,14 @@ const POINT_MODES := ["soft", "arrow", "fullscreen"]
 const WHO_PLAIN := ["player", "narrator"]
 const WHO_PREFIX := ["seat:", "ui:"]
 
+## `state.ui.camera` 的两个枚举（PRD 04:08 版给关卡模板加的「镜头变化」，PRD:9-22）：
+##   `地图调中/左/右` ⇒ anchor = "map"，`玩家调中/左/右` ⇒ anchor = "player"
+## 缺省是「地图调中」（PRD「默认情况下调整后竖直方向地图/角色是居中的」）。
+## 和 `POINT_MODES` 一样住在这张表里：**校验器与常驻层表读的是同一份**，两处各抄一份必漂
+const CAMERA_ANCHORS := ["map", "player"]
+const CAMERA_ALIGNS := ["center", "left", "right"]
+const CAMERA_DEFAULT := { "anchor": "map", "align": "center" }
+
 ## ---- 三类谓词（方案 §3.3）----
 ## ① 差分：条目入口拍一张 `snap()`，每帧与现在比。`count` 可选（缺省 1）
 const DELTA := {

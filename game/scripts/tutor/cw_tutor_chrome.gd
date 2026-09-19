@@ -28,10 +28,18 @@ const CHAPTER_OUT := 0.35
 ## 幕布同 `tutorial_opening.SKY`：这一屏是开场最后一页的延续，换一套底色就断气了。
 ## **半透明**（通用规则 1 点名要的）：玩家得看得见自己刚才站在哪一格
 const SKY := Color("0a0d14")
-const SKY_ALPHA := 0.88
+## **0.88 → 0.94**（S3 2026-09-19 答 S2 留的第 ① 问）：0.88 挡不住棋盘正中的主角细胞 ——
+## 它比幕布亮一档，直接从「第一章」三个字底下透出来（09-19 真机 S2 的 ① 帧，「一」整个糊掉）。
+## 抬 alpha 是一半，另一半是下面那条 BAND（方向 A 的解法）；两条都要，只抬 alpha 仍压不住
+const SKY_ALPHA := 0.94
 ## 方向 B 的 ① 帧：两道 360×1 横线夹住大字，副标在下一行
 const RULE_W := 360.0
 const RULE_Y := [222.0, 298.0]
+## **整幅不透明横带**（方向 A §3 的解法，S3 补给 B 的样式）：字压在它上面而不是压在
+## 压暗的棋盘上。上下缘正好是 B 那两道横线，所以看起来仍是 B ——「透出来」那件事没了而已
+const BAND_TOP := RULE_Y[0]
+const BAND_H := 124.0        ## 下缘 346 = 副标（SUB_Y 310 + 一行 32）也整行压在带子上
+const BAND_ALPHA := 0.99
 const TITLE_Y := 236.0
 const SUB_Y := 310.0
 ## 副标那支字：方向 B 的表里写死「silkscreen_bold 20 + `spacing_glyph` 2」，照它走。
@@ -144,6 +152,13 @@ func _build_chapter() -> void:
 	sky.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_chapter.add_child(sky)
 	var w := CWView.screen_size().x
+	## 横带排在幕布之后、两道横线之前 ⇒ 它盖住棋盘，横线仍描在它的上下缘上
+	var band := ColorRect.new()
+	band.color = Color(SKY, BAND_ALPHA)
+	band.position = Vector2(0.0, BAND_TOP)
+	band.size = Vector2(w, BAND_H)
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_chapter.add_child(band)
 	for y in RULE_Y:
 		var rule := ColorRect.new()
 		rule.color = Color(CWStyle.LINE, 0.30)

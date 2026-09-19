@@ -177,6 +177,24 @@ func _bad(msg: String) -> void:
 	errors.append("%s：%s" % [_id, msg])
 
 
+## 判据 ⑭：`ui.camera` 的形状与两个枚举（PRD 的「地图 / 玩家 调中 / 左 / 右」）。
+## 两个键都可以省（省了就是缺省的「地图调中」），但写出来的必须在表里
+func _camera_ok(i: int, cam: Variant) -> void:
+	if not (cam is Dictionary):
+		_bad("flow[%d].ui.camera 要写成 {anchor, align} 的字典，实测 %s" % [i, str(cam)])
+		return
+	var d: Dictionary = cam
+	for k in d:
+		if not (str(k) in ["anchor", "align"]):
+			_bad("flow[%d].ui.camera 里有不认识的键「%s」（只有 anchor / align）" % [i, str(k)])
+	if d.has("anchor") and not (str(d["anchor"]) in BEATS.CAMERA_ANCHORS):
+		_bad("flow[%d].ui.camera.anchor 写的「%s」不在两档里（%s）"
+			% [i, str(d["anchor"]), ", ".join(BEATS.CAMERA_ANCHORS)])
+	if d.has("align") and not (str(d["align"]) in BEATS.CAMERA_ALIGNS):
+		_bad("flow[%d].ui.camera.align 写的「%s」不在三档里（%s）"
+			% [i, str(d["align"]), ", ".join(BEATS.CAMERA_ALIGNS)])
+
+
 func _only_keys(d: Dictionary, allowed: Array, where: String) -> void:
 	for k in d.keys():
 		if not (k in allowed):
@@ -347,6 +365,13 @@ func _check_flow(level: Dictionary, radius: int) -> void:
 		if row.has("mode") and not (str(row["mode"]) in BEATS.POINT_MODES):
 			_bad("flow[%d].mode 写的「%s」不在三档里（%s）"
 				% [i, str(row["mode"]), ", ".join(BEATS.POINT_MODES)])
+		## ⑭ 镜头（PRD 04:08 版给关卡模板加的「镜头变化」，PRD:9-22）。
+		## **只有 `state` 的 `ui` 是那张层字典**（`point` / `player` 的 `ui` 是控件 id 表）。
+		## 写错一个字的代价是「镜头没反应」，真机上查不出来 —— 装载期就红
+		if v == "state" and row.get("ui", null) is Dictionary:
+			var layers: Dictionary = row["ui"]
+			if layers.has("camera"):
+				_camera_ok(i, layers["camera"])
 		if v == "hook" and (hook_path == "" or not FileAccess.file_exists(hook_path)):
 			_bad("flow[%d] 是 hook，可这一关的 hook 文件「%s」不在" % [i, hook_path])
 		for s in row.get("reveal", []):
