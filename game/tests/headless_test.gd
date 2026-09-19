@@ -168,6 +168,8 @@ func _run_all() -> void:
 		t_tutor_chrome, t_tutor_spot,
 		## 新手教程 v2 · S8：钩子层（ctx 九方法 + epoch 取消语义 + 钩子文件三条护栏）
 		t_tutor_hooks,
+		## 新手教程 v2 · S6：进度四键（done / at:{level,beat} / unlocked / opening_seen）+ 目录面板
+		t_tutor_progress,
 		## 新手引导 v2 S7：教程演出库 cw_tutor_fx（六种演出 / 零内核 rng / 时间的纯函数）
 		t_tutor_fx,
 	]
@@ -10383,6 +10385,17 @@ func t_codex() -> void:
 	## codex_map.json：PRD 的「图鉴解锁：【X】」→ 条目 id。两个方向都扫
 	var umap := CWCodex.unlock_map()
 	check(umap.size() == 12, "codex_map 收了 PRD 的 12 个解锁点（当前 %d 个）" % umap.size())
+	## `names` 段（S6）：解锁通知小卡上写的是 PRD 那个【X】，不是条目标题 —— 两边 key 逐字对扫
+	var no_name: Array = []
+	for point in umap:
+		if CWCodex.unlock_name(str(point)) == str(point):
+			no_name.append(str(point))
+	check(no_name.is_empty(), "每个解锁点都有 PRD 里那个【X】的原字（缺的：%s）" % str(no_name))
+	check(CWCodex.unlock_names(["attack"]) == PackedStringArray(["攻击"])
+			and CWCodex.unlock_names(["purify", "memory", "immune_level"])
+				== PackedStringArray(["净化", "抗原记忆", "免疫等级"])
+			and CWCodex.unlock_names(["pressure", "proliferate", "erosion"]).size() == 3,
+		"一对二的【攻击】只出一个名字；同一拍解锁三条的按次序一次说完")
 	var bad_target: Array = []
 	for point in umap:
 		for eid in umap[point]:
@@ -10460,19 +10473,21 @@ func t_codex() -> void:
 		for e in CWCodex.chapters(book2._gate)[book2._page]["entries"]:
 			out[str(e["id"])] = bool((e as Dictionary).get("locked", false))
 		return out
-	## **改判（S6b 口径①：闸只在教程进行中生效）**：
-	## 原「零进度开书 →「健康组织」在闸后」→ 新「零进度 = 从没进过教程 ⇒ 一条都不闸」。
-	## 依据：Kevin 2026-09-19「从没进过教程的玩家也全解锁」
+	## **改判（新手教程 v2 · S6：图鉴去闸只留通知，方案 §3.8）**：
+	## 原「零进度 = 从没进过教程 ⇒ 一条都不闸」（S6b 的三态判断）→ 新「**压根没有闸**」。
+	## 依据：PRD 全文只写「图鉴解锁：【X】」，一句「没解锁就看不到」都没有；`codex_gated()` 已退役
 	check(book2._gate == null and not bool((on_page.call() as Dictionary)["board/healthy"])
 			and not bool((on_page.call() as Dictionary)["board/grid"]),
-		"零进度开书：没进过教程 ⇒ 连解锁集都不往下传，一条都不灰")
+		"零进度开书：`_gate` 恒 null，一条都不灰")
 	check(book2._glow.is_empty(), "没有新解锁 → 没有要闪的标题")
 	CWGuideProgress.unlock(["tissue_healthy"])
 	book2.open_to(1)
 	await process_frame   ## 上一版页面的控件是 queue_free 的，这一帧末才真消失；不等就会读到旧标签
-	check(book2._gate != null and not bool((on_page.call() as Dictionary)["board/healthy"])
-			and bool((on_page.call() as Dictionary)["board/solid"]),
-		"教程进行中重开书：闸开着 —— 刚解锁的「健康组织」转亮，同章没解锁的「固化癌组织」仍灰显")
+	## **改判（S6：去闸）**：原「闸开着 —— 刚解锁的转亮、同章没解锁的仍灰显」→
+	## 新「两条都是亮的，解锁只多一件事：那一条慢闪一轮」。依据同上
+	check(book2._gate == null and not bool((on_page.call() as Dictionary)["board/healthy"])
+			and not bool((on_page.call() as Dictionary)["board/solid"]),
+		"解锁一条之后重开书：**全书照样常驻可读**，没解锁的「固化癌组织」也不灰")
 	check(book2._glow.size() == 1 and book2._glow[0].text == "健康组织",
 		"解锁动效：只有刚解锁的那一条标题在闪（当前 %d 条）" % book2._glow.size())
 	book2._pulse_t = 0.0
@@ -10484,8 +10499,9 @@ func t_codex() -> void:
 			and is_equal_approx(book2._glow[0].modulate.a, CWCodex.HALO_ALPHA_HI)
 			and CWCodex.HALO_PERIOD == CWStyle.HALO_PERIOD,
 		"慢闪走 CWStyle 那三个常数（PRD 通用规则 8：闪烁参数收敛到一处），1/4 周期到顶")
-	## 灰显长什么样（S6b）：标题 `TEXT_OFF`、正文 `TEXT_OFF_DIM` —— CWStyle 现成的「灰掉」那一对，
-	## 不新造色值（同 `_paint_arrow` 压暗翻页箭头的写法）；两档都不收点击（`CWStyle.label` 一律 IGNORE）
+	## **改判（S6：去闸）**：原两条判「解锁了的亮、没解锁的标题 `TEXT_OFF` / 正文 `TEXT_OFF_DIM`」→
+	## 新「**两条一模一样地亮**」。`_mark_locked` 那套画法没删（方案 §3.8 明令留着），
+	## 只是产品侧再没有人往 `chapters()` 里传解锁集了 —— 上面那三条纯函数判据还在守着它
 	var row_of := func(title: String) -> Array:
 		var kids: Array = book2._content.get_children()
 		for i in kids.size():
@@ -10498,38 +10514,30 @@ func t_codex() -> void:
 	var dim_row: Array = row_of.call("固化癌组织")
 	check(lit_row.size() == 3 and lit_row[0] == CWStyle.TEXT_HI and lit_row[1] == CWStyle.TEXT,
 		"解锁了的条目：标题 TEXT_HI、正文 TEXT（一档没动）")
-	check(dim_row.size() == 3 and dim_row[0] == CWStyle.TEXT_OFF and dim_row[1] == CWStyle.TEXT_OFF_DIM
-			and dim_row[2] == Control.MOUSE_FILTER_IGNORE,
-		"未解锁的条目：**照样在页面上**、标题与正文各降一档灰、不收点击（灰显不隐藏，Kevin 09-19）")
-	## 结果页也灰显（改判：原「未解锁的搜不出来」）。「复活据点」全书只在没解锁的「固化癌组织」里
+	check(dim_row.size() == 3 and dim_row[0] == CWStyle.TEXT_HI and dim_row[1] == CWStyle.TEXT,
+		"**没解锁的条目长得一模一样**（去闸只留通知：全书常驻可读，S6）")
+	## **改判（S6：去闸）**：原三条判「结果页里没解锁的那一条灰显、不收点击、回车不跳过去」→
+	## 新「和别的条目一样：搜得到、点得动、回车跳得过去」。
+	## 「复活据点」全书只在「固化癌组织」里，而这次 `unlocked` 里没有 `tissue_solid`
 	book2._on_query("复活据点")
 	await process_frame
-	check(book2._hits.size() == 1 and bool(book2._hits[0]["locked"]),
-		"没解锁的条目**仍然搜得到**，命中带 locked（%d 条）" % book2._hits.size())
+	check(book2._hits.size() == 1 and not bool(book2._hits[0]["locked"]),
+		"没解锁的条目搜得到、且**不带 locked**（%d 条）" % book2._hits.size())
 	var hit_row: Control = book2._content.get_child(0)
-	check(hit_row.mouse_filter == Control.MOUSE_FILTER_IGNORE
-			and hit_row.get_signal_connection_list("gui_input").is_empty()
-			and (hit_row.get_child(0) as Label).get_theme_color("font_color") == CWStyle.TEXT_OFF,
-		"灰显那一条：整行不收点击、没挂点击回调、「章 > 条目」那一行也是灰的")
+	check(hit_row.mouse_filter == Control.MOUSE_FILTER_STOP
+			and not hit_row.get_signal_connection_list("gui_input").is_empty()
+			and (hit_row.get_child(0) as Label).get_theme_color("font_color") == CWStyle.IMMUNE,
+		"结果页那一条：收点击、挂着点击回调、「章 > 条目」标阵营色（去闸之后没有「点不动」的条目了）")
 	book2._on_submit("复活据点")
-	check(book2._in_results, "回车不跳到灰显的那一条（点不动的，回车也别绕过去）")
+	check(not book2._in_results and book2._page == int(book2._hits[0]["page"]),
+		"回车照常跳到那一条所在的章")
 	book2._on_query("")
 	book2.open_to(1)
 	check(book2._glow.is_empty(), "闪过一次就不再闪（翻到即记下，别每次开书都闪一遍）")
-	## ---- 跳过引导 → 图鉴当场全解锁（S6b，Kevin 2026-09-19）----
-	## **改判（新手教程 v2 · S1）**：原断言「真按老引导面板 `CWGuide._skip` 那颗按钮 ⇒ 闸放开」→
-	## 新断言「`set_skipped()` ⇒ 闸放开、`done` 不动」。
-	## 依据：老面板 `scripts/ui/guide.gd` 整份删了（Kevin 2026-09-19 推倒重做），
-	## 「按钮 → set_skipped」这一段接线随新常驻壳一起重建，接线闸迁到 S2 的 `t_tutor_view`。
-	CWGuideProgress.set_skipped()
-	check(not CWGuideProgress.codex_gated() and CWGuideProgress.done_count() == 0,
-		"跳过引导 → 图鉴闸当场放开，`done` 不动")
-	book2.open_to(1)
-	await process_frame
-	var after_skip: Dictionary = on_page.call()
-	check(book2._gate == null and not bool(after_skip["board/solid"])
-			and row_of.call("固化癌组织")[0] == CWStyle.TEXT_HI,
-		"跳过之后重开书：一条都不灰显，刚才那一条转回亮色")
+	## ---- 「跳过引导 → 图鉴当场全解锁」那三条：**作废**（新手教程 v2 · S6）----
+	## 依据：方案 §3.8「图鉴去闸只留通知」—— 全书本来就常驻可读，
+	## `CWGuideProgress.set_skipped()` / `codex_gated()` / `skipped` 键当天一并退役，
+	## 判据没有了被判对象。要重新上闸的话改 `cw_codex.gd:119` 一行，判据照 S6b 那三条抄回来
 	book2.queue_free()
 	CWGuideProgress.clear()   ## 别把解锁集脏到同一分片里后面那些开书 / 按进度开局的测试
 	book.queue_free()
@@ -20442,7 +20450,10 @@ func t_tutor_chrome() -> void:
 		"劝重置时「重置」在慢闪（实测 alpha %.2f，走的是 CWStyle 那三个参数）" % a)
 	chrome.urge_reset(false)
 	check(chrome._reset.modulate.a == 1.0, "劝完还原成常亮（不还的话它会一直闪下去）")
-	## ---- 目录占位面板（真面板 S6）：点了有反应 + menu_goto 这条线接得通 ----
+	## ---- 目录面板（S6 起是真面板）：点了有反应 + menu_goto 这条线接得通 ----
+	## **改判（S6）**：原判据数的是「表头 + 每关一行」；真面板底下多常驻一行「Cell War」
+	## （重看开场，Kevin Q-21），所以同样两关现在是 4 个 Label。
+	## 排版 / 间章平级 / 跳关那几条在 `t_tutor_progress` 里，这儿只守 S2 就有的那条线
 	chrome.sync({ "can_reset": true, "menu": [
 		{ "id": "c1_l1", "title": "第一关 免疫", "unlocked": true },
 		{ "id": "c1_l2", "title": "第二关 净化", "unlocked": false }] })
@@ -20451,8 +20462,10 @@ func t_tutor_chrome() -> void:
 	for ch in chrome._menu_panel.get_children():
 		if ch is Label:
 			rows.append(ch)
-	check(chrome.menu_open() and rows.size() == 3,
-		"点目录开出占位面板，关表照 shell() 那份列（标题 + %d 关）" % (rows.size() - 1))
+	check(chrome.menu_open() and rows.size() == 4
+			and (rows[3] as Label).text == CWTutorChrome.MENU_REPLAY,
+		"点目录开出面板：表头 + 2 关 + 底部「%s」（当前 %d 行）"
+			% [CWTutorChrome.MENU_REPLAY, rows.size()])
 	check((rows[2] as Label).get_theme_color("font_color") == CWStyle.TEXT_OFF
 			and (rows[2] as Label).mouse_filter == Control.MOUSE_FILTER_IGNORE,
 		"未解锁的那一关灰着、点不动（PRD:43）")
@@ -20476,6 +20489,184 @@ func t_tutor_chrome() -> void:
 	check(not chrome._chapter.visible,
 		"播完自己收掉（协程 —— 导演等着它，收不掉就把整局黑屏）")
 	chrome.queue_free()
+
+
+## 新手教程 v2 · S6：**进度存档（四键）+ 常驻目录面板**（方案 §3.6，PRD:43）
+##
+## 两件最容易静默错到底的事，各钉一条硬断言：
+##   ① **写盘一律 `ConfigFile.load` 之后 `set_value`** —— 整份覆盖会把 `opening_seen` 抹掉、
+##      开场每次重播。这条只有「写进度之后开场标记还在」的**正面**断言测得出来
+##      （反面测不了：抹掉之后一切照跑，只是玩家每次都要再看一遍开场）。
+##   ② **目录排版不溢出** —— 面板 480×360 是方案 §3.6 的上限，本 PRD 满编是
+##      「3 个章标题 + 6 关 + 1 个间章」10 行。老面板到 9 关就画到面板外面去了，
+##      而那种错在真机上要一直翻到最后一章才看得见，所以用 `capacity()` 这个纯函数钉住。
+func t_tutor_progress() -> void:
+	print("[新手教程 v2 S6·进度四键 + 目录面板]")
+	CWGuideProgress.clear()
+	## ---- ① 四键：done / at:{level,beat} / unlocked / opening_seen ----
+	var blank := CWGuideProgress.read()
+	check(int(blank["done"]) == 0 and (blank["at"] as Dictionary).is_empty()
+			and (blank["unlocked"] as PackedStringArray).is_empty()
+			and not blank.has("skipped"),
+		"没有存档时三键都是空的；**`skipped` 已退役**（图鉴去闸只留通知，方案 §3.8）")
+	## 开场标记归 `tutorial_opening.gd`（`SEEN_KEY`），本文件一个字都不写它
+	OPENING.mark_seen()
+	CWGuideProgress.set_done(0)
+	CWGuideProgress.unlock(["tissue_healthy", "move"])
+	CWGuideProgress.set_at("c1_l2", 4)
+	check(OPENING.seen(), "**写了三个键之后 `opening_seen` 还在**（写盘走 load + set_value，不整份覆盖）")
+	var prog := CWGuideProgress.read()
+	check(int(prog["done"]) == 1 and PackedStringArray(prog["unlocked"]) == PackedStringArray(["move", "tissue_healthy"])
+			and str((prog["at"] as Dictionary)["level"]) == "c1_l2"
+			and int((prog["at"] as Dictionary)["beat"]) == 4,
+		"四键互不覆盖：done=1 / unlocked 两条（存盘次序稳定）/ at={level:c1_l2, beat:4}")
+	## 断点续读**到「关」不到「步」**（Q-11）：`beat` 只记不读
+	check(CWGuideProgress.at_level() == "c1_l2", "续读认的是 `at.level` 这个关 id")
+	CWGuideProgress.set_at("c1_l2", 9)
+	check(CWGuideProgress.at_level() == "c1_l2" and OPENING.seen(),
+		"同一关里往后走只动 `beat`，续读的落点不变；开场标记照样没被碰")
+	## ---- 旧档（只有 `done`）也能起 ----
+	CWGuideProgress.clear()
+	var old := ConfigFile.new()
+	old.set_value(CWGuideProgress.SECTION, "done", 2)
+	old.save(CWGuideProgress.PATH)
+	var legacy := CWGuideProgress.read()
+	check(int(legacy["done"]) == 2 and (legacy["at"] as Dictionary).is_empty()
+			and CWGuideProgress.at_level() == "",
+		"旧档只有 `done`：读得出来、`at` 空、`at_level()` 空串 ⇒ 调用方退回按 `done` 数挑关")
+	CWGuideProgress.clear()
+
+	## ---- ② 导演喂给常驻壳的那份关表（`shell()` 的 `menu` 键）----
+	var rows: Array = TUTOR_DIRECTOR.menu_rows()
+	var heads: Array = []
+	for r in rows:
+		if str((r as Dictionary).get("kind", "")) == "chapter":
+			heads.append(str((r as Dictionary)["title"]))
+	check(not rows.is_empty() and heads.size() >= 1 and str(heads[0]).begins_with("第一章"),
+		"关表从 index.json 现读、章标题行是现插的（当前 %d 行 / %d 个章标题）" % [rows.size(), heads.size()])
+	var lit := 0
+	for r in rows:
+		if bool((r as Dictionary).get("unlocked", false)):
+			lit += 1
+	check(lit == 0, "零进度：一关都不可点（未通关灰显不可点，PRD:43）")
+	CWGuideProgress.set_done(0)            ## 过了第一关
+	var rows2: Array = TUTOR_DIRECTOR.menu_rows()
+	var lit2: Array = []
+	for r in rows2:
+		if bool((r as Dictionary).get("unlocked", false)):
+			lit2.append(str((r as Dictionary)["id"]))
+	check(lit2.size() == 1 and str(lit2[0]) == "c1_l1",
+		"过了第一关：只有它可跳，正在打的那一关仍是灰的（重来一遍是「重置」的活）")
+	CWGuideProgress.clear()
+
+	## ---- ③ 面板排版：满编 10 行不溢出、间章与章标题同级、关缩进一格 ----
+	var chrome := CWTutorChrome.new()
+	root.add_child(chrome)
+	await process_frame
+	var full: Array = [
+		{ "id": "", "kind": "chapter", "title": "第一章  Cell", "unlocked": false },
+		{ "id": "c1_l1", "kind": "level", "title": "第一关 免疫", "unlocked": true },
+		{ "id": "c1_l2", "kind": "level", "title": "第二关 癌", "unlocked": true },
+		{ "id": "c1_l3", "kind": "level", "title": "第三关 ATP", "unlocked": true },
+		{ "id": "", "kind": "chapter", "title": "第二章  Immune", "unlocked": false },
+		{ "id": "c2_l4", "kind": "level", "title": "第四关 抗原记忆", "unlocked": true },
+		{ "id": "c2_l5", "kind": "level", "title": "第五关 分化", "unlocked": false },
+		{ "id": "inter", "kind": "interlude", "title": "间章 癌变", "unlocked": false },
+		{ "id": "", "kind": "chapter", "title": "第三章  Cancer", "unlocked": false },
+		{ "id": "c3_l6", "kind": "level", "title": "第六关 ……", "unlocked": false },
+	]
+	check(CWTutorChrome.capacity() >= full.size(),
+		"满编 %d 行（3 章标题 + 6 关 + 1 间章）装得下：面板容量 %d 行（方案 §3.6：别再往上加）"
+			% [full.size(), CWTutorChrome.capacity()])
+	check(CWTutorChrome.row_y(full.size() - 1) + CWTutorChrome.MENU_ROW_H <= CWTutorChrome.MENU_FOOT_Y
+			and CWTutorChrome.MENU_FOOT_Y + 8.0 + CWTutorChrome.MENU_ROW_H
+				<= CWTutorChrome.MENU_PANEL.size.y,
+		"最后一行压不到页脚横线、「%s」那一行也没掉出面板下沿" % CWTutorChrome.MENU_REPLAY)
+	chrome.sync({ "can_reset": true, "menu": full })
+	chrome.toggle_menu()
+	var labels: Array = []
+	for c in chrome._menu_panel.get_children():
+		if c is Label:
+			labels.append(c)
+	check(labels.size() == full.size() + 2,
+		"面板里是「目录」表头 + %d 行 + 底部「%s」（当前 %d 个）"
+			% [full.size(), CWTutorChrome.MENU_REPLAY, labels.size()])
+	var by_text := {}
+	for l in labels:
+		by_text[(l as Label).text] = l
+	var head_x: float = (by_text["第一章  Cell"] as Label).position.x
+	var lvl_x: float = (by_text["第一关 免疫"] as Label).position.x
+	var inter: Label = by_text["间章 癌变"]
+	## ★ Kevin 2026-09-19：**间章是独立条目、与三个主章节平级**，不挂在第二章下面
+	check(is_equal_approx(inter.position.x, head_x) and lvl_x > head_x
+			and is_equal_approx(lvl_x - head_x, CWTutorChrome.MENU_INDENT),
+		"间章那一行与章标题**同级**（x=%.0f）、关行缩进一格（x=%.0f）" % [inter.position.x, lvl_x])
+	check(is_equal_approx(inter.position.y, CWTutorChrome.row_y(7))
+			and (by_text["第三章  Cancer"] as Label).position.y > inter.position.y,
+		"间章排在第二章的关之后、第三章之前，自己占一整行（平级单列）")
+	## 章标题行不可点；未通关的关灰显不可点；已通关的可跳
+	check((by_text["第一章  Cell"] as Label).mouse_filter == Control.MOUSE_FILTER_IGNORE
+			and (by_text["第一章  Cell"] as Label).get_theme_color("font_color") == CWStyle.IMMUNE,
+		"章标题行点不动（它不是一关）")
+	var locked_row: Label = by_text["第六关 ……"]
+	check(locked_row.mouse_filter == Control.MOUSE_FILTER_IGNORE
+			and locked_row.get_theme_color("font_color") == CWStyle.TEXT_OFF
+			and locked_row.get_signal_connection_list("gui_input").is_empty(),
+		"未通关的关：灰显、不收点击、连回调都没挂（PRD:43）")
+	var goto: Array = []
+	chrome.menu_goto.connect(func(id: String) -> void: goto.append(id))
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	(locked_row as Label).gui_input.emit(click)
+	check(goto.is_empty(), "点灰的那一关：什么都不发生")
+	(by_text["第三关 ATP"] as Label).gui_input.emit(click)
+	check(goto == ["c1_l3"] and not chrome.menu_open(),
+		"点已通关的那一关：发 menu_goto(%s) 并把面板收起来" % str(goto))
+	## ---- ④ 底部「Cell War」= 重看开场（Q-21：按钮名就叫片名）----
+	chrome.toggle_menu()
+	var replays: Array = []
+	chrome.replay_opening.connect(func() -> void: replays.append(1))
+	var replay_row: Label = null
+	for c in chrome._menu_panel.get_children():
+		if c is Label and (c as Label).text == CWTutorChrome.MENU_REPLAY:
+			replay_row = c
+	check(replay_row != null and replay_row.position.y > CWTutorChrome.MENU_FOOT_Y
+			and replay_row.mouse_filter == Control.MOUSE_FILTER_STOP,
+		"「%s」在页脚横线底下、常驻可点（它不是一关，不受「未通关灰显」那条管）"
+			% CWTutorChrome.MENU_REPLAY)
+	replay_row.gui_input.emit(click)
+	check(replays == [1] and not chrome.menu_open(),
+		"点「%s」：发 replay_opening 并收面板（接线方 clear_seen() + 重进引导）" % CWTutorChrome.MENU_REPLAY)
+	chrome.queue_free()
+
+	## ---- ⑤ 目录跳关：导演这一侧（代际 +1 + want_goto，换局本体归调用方）----
+	var d = TUTOR_DIRECTOR.new()
+	d.mirror_of = func() -> CWMirror: return null
+	var gate := TutorGateSpy.new()
+	d.gate = gate
+	root.add_child(d)
+	d.open(_tutor_stub_level(), 0)
+	var jumps: Array = []
+	d.want_goto.connect(func(id: String) -> void: jumps.append(id))
+	var ep: int = d.epoch
+	d.goto_level("")
+	check(jumps.is_empty() and d.epoch == ep, "空 id 什么都不做")
+	d.goto_level("c1_l3")
+	check(jumps == ["c1_l3"] and d.epoch == ep + 1 and not d.active
+			and not d.alive(ep),
+		"跳关：代际 +1（旧协程随之作废）+ 发 want_goto，导演自己不换局")
+	check(CWGuideProgress.done_count() == 0,
+		"**跳关不记「通关」** —— 否则点一下目录就把没打的关记成过了")
+	d.teardown()
+	d.queue_free()
+
+	## ---- ⑥ 解锁通知：谁解锁什么（名字走 codex_map 的 names 段，皮只管画）----
+	check(CWCodex.unlock_names(["tissue_healthy", "move"])
+			== PackedStringArray(["健康组织", "迁移"]),
+		"导演发的是解锁点 id，通知小卡上写的是 PRD 那个【X】")
+	CWGuideProgress.clear()
+	OPENING.clear_seen()   ## 别把开场标记脏到同一分片里后面那些测试
 
 
 ## 新手教程 v2 · S2：**提亮层**（PRD 通用规则 8 / PRD:445）

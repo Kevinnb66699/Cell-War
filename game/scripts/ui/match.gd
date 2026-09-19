@@ -15,6 +15,9 @@ extends Node2D
 
 ## 对局结束（winner = CWData.Faction）
 signal finished(winner: int)
+## 教程目录底部那行「Cell War」：重看开场（S6）。`opening_seen` 已经清掉了，
+## 接线方（`main.gd`）收摊这一局再重进引导即可 —— 开场动画本体是 `main.gd` 的活
+signal replay_opening
 
 ## 棋盘和相机都是**同级节点**：开场过场是同一个镜头往前推、不切场景，
 ## 所以菜单和对局共用同一张棋盘、同一台相机（见 Main.tscn 与 main.gd）。
@@ -194,6 +197,9 @@ const TUTOR_SPOT := preload("res://scripts/tutor/cw_tutor_spot.gd")
 const TUTOR_FX := preload("res://scripts/tutor/cw_tutor_fx.gd")
 ## 教程 NPC 席位的脚本 decider（Kevin 点名保留的那一件）
 const TUTOR_NPC := preload("res://scripts/kernel/cw_tutorial_npc.gd")
+## 开场动画脚本。**只用它一个静态方法 `clear_seen()`**（目录里那行「Cell War」，S6）——
+## 开场三件是 2026-09-19 推倒老教程时明令保留的，一个字都不改
+const OPENING := preload("res://scripts/ui/tutorial_opening.gd")
 ## 回合脚标（Kevin 2026-09-12：白天选 E 跑马灯轮廓，晚上改选 D「头顶指示箭」，画在 CWBoard.set_turn_mark）：
 ## 正在行动的细胞头顶一枚阵营色像素 V 形箭上下跳，旁观者也看得出「现在是谁在动」。第一版呼吸剪影 Kevin 嫌不好看；
 ## 画板里脚下那片阵营色影子上线后他也说不要，撤了。
@@ -975,10 +981,30 @@ func _attach_tutor() -> void:
 	_director.want_load.connect(_tutor_load_world)
 	_director.want_reset.connect(_tutor_reset_world)
 	_director.want_npc.connect(_tutor_set_npc)
+	## 目录跳关（S6）：导演已经把代际 +1 了，这儿只管换局 —— 走的是 `on_done` 同一条路，
+	## 差别只有一处：**跳关不记「通关」**（`mark_done = false`）
+	_director.want_goto.connect(func(id: String) -> void: _tutor_next_level(id, false))
 	add_child(_director)   ## 导演要 _process（三个驱动源之一是每帧）
 	_tutor_chrome.reset_pressed.connect(_tutor_reset_pressed)
 	## 目录跳关：常驻壳只管「点了哪一关」，往哪跳是皮那条对外信号的事（S6 接上导演）
 	_tutor_chrome.menu_goto.connect(func(id: String) -> void: _tutor_view.menu_goto.emit(id))
+	_tutor_view.menu_goto.connect(_tutor_menu_goto)
+	## 目录底部「Cell War」= 重看开场（Q-21）：清掉 `opening_seen`（**只调开场脚本现成的那一条**）
+	## 再把球传给 `main.gd` —— 收摊与重进引导是入口的活，对局自己演不了开场
+	_tutor_chrome.replay_opening.connect(_tutor_replay_opening)
+
+
+## 目录跳关（S6）：皮那条对外信号 → 导演。**经导演一手**是为了代际闸 ——
+## 直接换局的话，正在播的 `say` / 重置动画醒来后会对着新一关的皮说上一关的词
+func _tutor_menu_goto(id: String) -> void:
+	if _director != null and is_instance_valid(_director):
+		_director.goto_level(id)
+
+
+## 目录底部「Cell War」（S6）：重看开场
+func _tutor_replay_opening() -> void:
+	OPENING.clear_seen()
+	replay_opening.emit()
 
 
 ## 常驻「重置本关」（PRD:41）：走导演那条路（代际 +1 → 游标回 0 → 发 want_reset）。
@@ -988,12 +1014,19 @@ func _tutor_reset_pressed() -> void:
 		_director.reset_level()
 
 
-## 按进度挑这一关：`CWGuideProgress.done` = 已通关的关数，关表条数以 `index.json` 为准。
+## 按进度挑这一关。两条口径（方案 §3.6，S6）：
+##   ① **断点续读到「关」不到「步」**（Q-11）：存档里 `at.level` 是关 id，认它；
+##   ② **旧档只有 `done` 也能起**：`at` 缺席 / 关表里没有那个 id ⇒ 退回按 `done` 数挑。
 ## 关表是数据，加一关不该要改代码
 func _tutor_pick_level() -> void:
 	var d = TUTOR_SCRIPT.new()
 	var rows: Array = d.load_index().get("levels", [])
 	_tutor_index = clampi(CWGuideProgress.done_count(), 0, maxi(rows.size() - 1, 0))
+	var want := CWGuideProgress.at_level()
+	for i in rows.size():
+		if want != "" and str((rows[i] as Dictionary).get("id", "")) == want:
+			_tutor_index = i
+			break
 	_tutor_level = {}
 	if not rows.is_empty():
 		_tutor_level = d.load_level(str((rows[_tutor_index] as Dictionary).get("id", "")))
@@ -1125,13 +1158,18 @@ func _tutor_entry_world() -> String:
 ## 但从第二关起闸再也装不上（09-19 真机：第二关没有行动栏，没有任何警告）。
 ##
 ## 没有下一关（`on_done` 空 / 关表里没有）：只落一笔「全部通关」。
-## **Q-14 的默认「回主菜单」留给 S12**（入口那会儿才从灰恢复），这一片不弹结算屏、不换页
-func _tutor_next_level(next_id: String) -> void:
+## **Q-14 的默认「回主菜单」留给 S12**（入口那会儿才从灰恢复），这一片不弹结算屏、不换页。
+##
+## `mark_done`（S6）：**目录跳关走的是同一条拆装序列，但不记「通关」** ——
+## 点一下目录就把没打的关记成过了的话，进度会越点越前
+func _tutor_next_level(next_id: String, mark_done := true) -> void:
 	if not tutorial or kernel == null:
 		return
-	CWGuideProgress.set_done(_tutor_index)
+	if mark_done:
+		CWGuideProgress.set_done(_tutor_index)
 	if next_id == "" or not _tutor_goto(next_id):
-		CWGuideProgress.set_all_done()
+		if mark_done:
+			CWGuideProgress.set_all_done()
 		return
 	_loop_id += 1
 	## 拆旧局的次序钉死：**abort 永远排在 stop 之前** —— 只有 abort() 里的 _barrier_seq = 0

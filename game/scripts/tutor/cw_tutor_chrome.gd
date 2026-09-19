@@ -10,7 +10,11 @@
 ##    挡着的时候光标跟着变「…」（Kevin 2026-09-19 照方向 A）：降灰只说「这颗按钮不可用」，
 ##    光标说的是「整个画面此刻不接受操作」，两句话都得有。
 ## ② **常驻「重置 / 目录」**（PRD:41/43）：左上角两颗小图标按钮，悬停出字（Kevin 拍板取方向 A 的画法）。
-##    劝重置时「重置」跟着慢闪（PRD 通用规则 8）。目录面板本体是 S6 的活，这一片只出一块占位板。
+##    劝重置时「重置」跟着慢闪（PRD 通用规则 8）。**目录面板本体 S6 落地**（2026-09-19）：
+##    章-关两级、**间章与三个主章节平级单列**（Kevin 拍板：间章不是主章节的附属）、
+##    未通关的关灰显不可点、已通关的点了发 `menu_goto`，底部一行「**Cell War**」= 重看开场
+##    （Q-21：按钮名就叫片名，不写「重看开场」四个字）。关表与解锁与否由导演的 `shell()` 喂进来 ——
+##    壳不读 `index.json`、不读存档，它只会画。
 ## ③ **章节提示**（PRD:35）：全屏黑底 + 居中大字「第X章 XXXX」+ 一行英文副标
 ##    —— Kevin 2026-09-19 拍板「章节提示用 B 的样子」（`docs/新手引导v2_方向B.md` 的 ① 帧）。
 ##
@@ -56,9 +60,21 @@ const MENU_RECT := Rect2(52, 46, ICON, ICON)
 const ICON_BG := Color("0a1018cc")
 const ICON_BG_HOT := Color("12212ee6")
 const TIP_DX := 6.0          ## 悬停出的字摆在图标右侧几像素
-## 目录占位面板（真面板 S6 做，几何先按方向 A 的 `_toc` 占着）
-const MENU_PANEL := Rect2(268, 76, 424, 388)
+## 目录面板（方向 A 的 ⑤ 帧）。**480×360 是方案 §3.6 的排版上限，别再往上加**；
+## 960×540 的屏上居中摆 ⇒ 左上角 (240, 90)，既不压左上两颗图标（y 到 74）也不压出牌列（x 从 16 起）。
+##
+## ⚠ **行高取 26 不取 §3.6 顺手写的 34**：本 PRD 满编是「3 个章标题 + 6 关 + 1 个间章」= 10 行，
+## 10 × 34 = 340，再加表头 48 与底部那行「Cell War」就 440 了，480×360 装不下。
+## 26 正好：48 + 10 × 26 = 308 ≤ 314（页脚横线），一行不溢出。**再加关就得先加高面板**，
+## 所以 `capacity()` 是纯函数、`t_tutor_progress` 逐关算一遍
+const MENU_PANEL := Rect2(240, 90, 480, 360)
 const MENU_ROW_H := 26.0
+const MENU_PAD_X := 22.0        ## 章标题行 / 间章行 / 「Cell War」行的左边距
+const MENU_INDENT := 24.0       ## 关行相对章标题的缩进（**间章行不缩进**，它与章标题同级）
+const MENU_HEAD_Y := 12.0       ## 「目录」两个字
+const MENU_ROW_Y := 48.0        ## 第一行数据行的 y
+const MENU_FOOT_Y := 316.0      ## 页脚横线；「Cell War」在它下面
+const MENU_REPLAY := "Cell War" ## 重看开场那一行的字（Kevin 2026-09-19 Q-21：就叫片名）
 ## 禁操作期光标那三颗点（方向 A：「…」跟着指针走）
 const DOTS_AT := Vector2(14.0, 10.0)
 const DOTS_SIZE := 4.0
@@ -68,15 +84,23 @@ const DOTS_ALPHA := [1.0, 0.55, 0.22]
 signal reset_pressed
 signal menu_pressed
 signal menu_goto(level_id: String)
+## 目录底部「Cell War」：重看开场（接线方走 `tutorial_opening.clear_seen()` + 重进引导）
+signal replay_opening
 
 var _block: Block             ## 全屏 STOP 层
 var _reset: Icon
 var _menu: Icon
-var _menu_panel: Control      ## 目录占位面板（S6 换成真的）
+var _menu_panel: Control      ## 目录面板（S6 落地）
 var _chapter: Control         ## 章节提示那一屏
 var _chapter_title: Label
 var _chapter_sub: Label
-var _rows: Array = []         ## 目录里的关表（`shell()` 喂进来；S6 之前导演还没发）
+## 目录里的关表（`shell()` 的 `menu` 键喂进来，导演从 `index.json` + 进度现拼）。每行：
+##   `{ id, title, kind: "chapter" | "level" | "interlude", unlocked: bool }`
+##   · `chapter`   章标题行，不可点（`id` 空）；
+##   · `level`     关，缩进一格，`unlocked` 决定亮 / 灰与点不点得动；
+##   · `interlude` 间章，**不缩进**（与章标题同级，Kevin 2026-09-19），点法同 `level`。
+## 缺 `kind` 按 `level` 算 —— S2 那会儿喂的两行没有这个键
+var _rows: Array = []
 var _urging := false
 var _pulse_t := 0.0
 
@@ -116,8 +140,7 @@ func _icon(rect: Rect2, kind: String, tip: String, sig: Signal) -> Icon:
 	return ic
 
 
-## 目录占位面板。**只占位**：真面板（章-关两级、未通关灰显、点了跳关）是 S6 的活，
-## 本片只保证「点了目录有反应」，并把 `menu_goto` 这条线接通
+## 目录面板的壳（底 + 表头「目录」 + 两道横线）。**每次开面板只换数据行**，这几件不重建
 func _build_menu_panel() -> void:
 	_menu_panel = Control.new()
 	_menu_panel.position = MENU_PANEL.position
@@ -129,6 +152,13 @@ func _build_menu_panel() -> void:
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_menu_panel.add_child(bg)
+	for y in [MENU_ROW_Y - 8.0, MENU_FOOT_Y]:
+		var rule := ColorRect.new()
+		rule.color = Color(CWStyle.LINE, 0.22)
+		rule.position = Vector2(MENU_PAD_X, float(y))
+		rule.size = Vector2(MENU_PANEL.size.x - MENU_PAD_X * 2.0, 1.0)
+		rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_menu_panel.add_child(rule)
 	add_child(_menu_panel)
 
 
@@ -211,37 +241,62 @@ func menu_open() -> bool:
 	return _menu_panel != null and is_instance_valid(_menu_panel) and _menu_panel.visible
 
 
-## 占位面板里的关表：`shell()` 给了就列出来（未解锁的灰着、点不动），没给就写一行占位。
-## 章-关两级排版、间章平级单列、焦点菱形都留给 S6
+## 第 i 行数据行的 y。**纯函数**：排版会不会溢出由判据算，不靠真机上一眼看
+static func row_y(i: int) -> float:
+	return MENU_ROW_Y + MENU_ROW_H * float(i)
+
+
+## 面板装得下几行数据行（页脚横线之上）。**加关之前先看这个数**（方案 §3.6：别再往上加）
+static func capacity() -> int:
+	return int(floorf((MENU_FOOT_Y - MENU_ROW_Y) / MENU_ROW_H))
+
+
+## 面板里的关表：`shell()` 的 `menu` 那一份（见 `_rows` 的注释）。
+## 装不下的那些**不画**（宁可少一行也不许画到面板外面去，那是 09-19 之前老面板到 9 关时的样子）
 func _fill_menu() -> void:
 	for c in _menu_panel.get_children():
-		if c is Panel:
+		if c is Panel or c is ColorRect:
 			continue
 		_menu_panel.remove_child(c)
 		c.queue_free()
 	var head := CWStyle.label("目录", CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
-	head.position = Vector2(20.0, 16.0)
+	head.position = Vector2(MENU_PAD_X, MENU_HEAD_Y)
 	_menu_panel.add_child(head)
-	if _rows.is_empty():
-		var na := CWStyle.label("关表由 S6 接上", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-		na.position = Vector2(20.0, 16.0 + MENU_ROW_H)
-		_menu_panel.add_child(na)
-		return
-	for i in _rows.size():
-		var row: Dictionary = _rows[i]
-		var open := bool(row.get("unlocked", false))
-		var l := CWStyle.label(str(row.get("title", "")), CWStyle.SIZE_BODY,
-			CWStyle.TEXT_HI if open else CWStyle.TEXT_OFF)
-		l.position = Vector2(20.0, 16.0 + MENU_ROW_H * float(i + 1))
-		l.size = Vector2(MENU_PANEL.size.x - 40.0, MENU_ROW_H)
-		if open:
-			l.mouse_filter = Control.MOUSE_FILTER_STOP
-			var id := str(row.get("id", ""))
-			l.gui_input.connect(func(e: InputEvent) -> void:
-				if e is InputEventMouseButton and (e as InputEventMouseButton).pressed:
-					_menu_panel.visible = false
-					menu_goto.emit(id))
-		_menu_panel.add_child(l)
+	for i in mini(_rows.size(), capacity()):
+		_menu_panel.add_child(_menu_row(_rows[i], i))
+	## 底部「Cell War」= 重看开场（PRD 的片名，Q-21）。**常驻可点**：它不是一关，
+	## 不受「未通关灰显」那条管 —— 开场动画谁都看过得了
+	var replay := CWStyle.label(MENU_REPLAY, CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
+	replay.position = Vector2(MENU_PAD_X, MENU_FOOT_Y + 8.0)
+	replay.size = Vector2(MENU_PANEL.size.x - MENU_PAD_X * 2.0, MENU_ROW_H)
+	replay.mouse_filter = Control.MOUSE_FILTER_STOP
+	replay.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and (e as InputEventMouseButton).pressed:
+			_menu_panel.visible = false
+			replay_opening.emit())
+	_menu_panel.add_child(replay)
+
+
+## 一行：章标题（不可点）/ 关（缩进一格）/ 间章（**不缩进**，与章标题同级）
+func _menu_row(raw: Variant, i: int) -> Label:
+	var row: Dictionary = raw
+	var kind := str(row.get("kind", "level"))
+	var open := bool(row.get("unlocked", false))
+	var is_head := kind == "chapter"
+	var ink: Color = CWStyle.IMMUNE if is_head else (CWStyle.TEXT_HI if open else CWStyle.TEXT_OFF)
+	var l := CWStyle.label(str(row.get("title", "")), CWStyle.SIZE_BODY, ink)
+	## 间章与章标题同级（Kevin 2026-09-19）：只有 `level` 缩进
+	l.position = Vector2(MENU_PAD_X + (MENU_INDENT if kind == "level" else 0.0), row_y(i))
+	l.size = Vector2(MENU_PANEL.size.x - MENU_PAD_X * 2.0 - MENU_INDENT, MENU_ROW_H)
+	if is_head or not open:
+		return l                      ## 章标题行与没通关的那些：灰着、点不动（PRD:43）
+	l.mouse_filter = Control.MOUSE_FILTER_STOP
+	var id := str(row.get("id", ""))
+	l.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and (e as InputEventMouseButton).pressed:
+			_menu_panel.visible = false
+			menu_goto.emit(id))
+	return l
 
 
 ## ---- ③ 章节全屏提示（PRD:35，方向 B 的样子）----

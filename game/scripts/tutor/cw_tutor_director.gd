@@ -40,6 +40,9 @@ signal want_load(world_id: String)
 signal want_reset
 ## 给某席换脚本（`flow[].npc`）
 signal want_npc(seat: int, plan: Array)
+## 目录跳关（S6）：常驻壳点了某一关 → 皮 → `goto_level()` → 这一条。
+## **换局本体归调用方**（拆装次序那串一个字不能动，见 `CWMatch._tutor_next_level`）
+signal want_goto(level_id: String)
 
 ## 取「**此刻**那一份」镜像的一条线（`CWMatch` 给自己的 `mirror`）。
 ## **不存镜像、只存取法**：一关之内会换好几次局，存下来的那一份换局就过期了
@@ -111,8 +114,11 @@ func open(lv: Dictionary, seat: int) -> void:
 		_shown_chapter = key
 		_chapter_busy = true
 		_play_chapter(int(lv.get("chapter", 1)), str(lv.get("chapter_title", "")))
+	## 断点续读的落点（S6）：`at.level` 是关 id，`beat` 关首归 0。**续读只认「关」**（Q-11）
+	CWGuideProgress.set_at(str(lv.get("id", "")), 0)
 	if view != null and is_instance_valid(view):
-		view.shell({ "chapter": key[1], "level": str(lv.get("id", "")), "can_reset": true })
+		view.shell({ "chapter": key[1], "level": str(lv.get("id", "")), "can_reset": true,
+			"menu": menu_rows() })
 
 
 ## 退回关首（常驻「重置本关」与自动重置共用这一条）。
@@ -405,11 +411,66 @@ func _finish() -> void:
 	active = false
 	if gate != null and is_instance_valid(gate):
 		gate.set_allow([])            ## 关末把闸关死：换局那几帧不许玩家再动
-	CWGuideProgress.set_at(int(level.get("chapter", 1)), 0, _at)
+	CWGuideProgress.set_at(str(level.get("id", "")), _at)
 	level_done.emit(str(level.get("on_done", "")))
 
 
 # =====================================================================
+# 目录（S6）：跳关入口 + 喂给常驻壳的那份关表
+# =====================================================================
+
+## 目录跳关。常驻壳发 `menu_goto` → 皮 → 这里。**只做两件**：
+##   ① 代际 +1（`invalidate()`）—— 挂在旧闸 / 旧协程上的东西随之作废，
+##      正在播的 `say` / `reset_anim` 醒来时撞上代际闸，永挂而不是抢新一关的镜头；
+##   ② 发 `want_goto` —— **换局的拆装次序归调用方**（`abort → stop → close → dispose → 重挂皮与导演`，
+##      `CWMatch._tutor_next_level` 那一串一个字不能动）。
+##
+## **跳关不记「通关」**：`done` 只由 `level_done` 那条路推进 ——
+## 否则点一下目录就把没打的那关记成过了，下次目录里它是亮的，进度越点越前
+func goto_level(id: String) -> void:
+	if id == "":
+		return
+	invalidate()
+	active = false
+	want_goto.emit(id)
+
+
+## 喂给常驻壳的关表（`shell()` 的 `menu` 键）。每行 `{id, title, kind, unlocked}`，
+## `kind` 三档见 `cw_tutor_chrome.gd` 的 `_rows`。
+##
+## **章标题行是现插的**：`index.json` 里没有「章」这个东西，章是关的属性 ——
+## `(chapter_kind, chapter)` 二元组一变就插一条（同关首那条章节提示的比法）。
+## **间章不插章标题**：它自己那一行就是顶层的一条（Kevin 2026-09-19：与三个主章节平级单列），
+## 而且它**打断分组** —— 间章之后那一章要重新出一条章标题。
+##
+## **未通关的灰显不可点**（PRD:43）：`unlocked = 关下标 < done`。
+## 正在打的那一关也是灰的 —— 重来一遍是左边那颗「重置」的活，不是目录的
+static func menu_rows() -> Array:
+	var data = SCRIPT_DATA.new()
+	var rows: Array = data.load_index().get("levels", [])
+	var done := CWGuideProgress.done_count()
+	var out: Array = []
+	var seen: Array = []
+	for i in rows.size():
+		var lv: Dictionary = rows[i]
+		var kind := str(lv.get("chapter_kind", "main"))
+		var no := int(lv.get("chapter", 1))
+		if kind != "main":
+			seen = []     ## 间章打断分组
+		else:
+			var key: Array = [kind, no]
+			if key != seen:
+				seen = key
+				out.append({ "id": "", "kind": "chapter", "unlocked": false,
+					"title": CWTutorChrome.chapter_text(no, str(lv.get("chapter_title", "")))[0] })
+		out.append({ "id": str(lv.get("id", "")), "title": str(lv.get("title", "")),
+			"kind": "level" if kind == "main" else "interlude", "unlocked": i < done })
+	return out
+
+
+# =====================================================================
+# 钩子接口 `ctx` 的接缝（方案 §3.7；**实现是 S8 的 cw_tutor_ctx.gd**）
+
 # 钩子调度（方案 §3.7，S8）
 # =====================================================================
 #
