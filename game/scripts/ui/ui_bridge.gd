@@ -55,6 +55,10 @@ var chain_fx: CWChainFx
 var skill_fx: CWSkillFx   ## 一次性技能演出的合集（issue #15）
 var attack_animation: Callable
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
+## **PRD 通用规则 13**（教程，2026-09-19）：教程的镜头会推近，镜头外 / 被镜头框切到的格子
+## **不许当目标**。装配方（`CWMatch._attach_tutor`）注入；正式局不注入 ⇒ 一格都不滤。
+## 每次点的时候现问（不是进这一问时滤一遍）：镜头正在补间的那几帧还没放开
+var tile_visible: Callable = Callable()
 var erosion: CWErosionFx   ## 癌蔓延两帧过场（侵蚀 / 增生 / 定殖共用）；纯 AI 桥 / 测试里可为 null
 var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这里来（无界面时为 null）
 ## 正在选迁移目标时，每一格的耗能（坐标 → 十分能量）。空 = 此刻不在迁移态。
@@ -704,7 +708,7 @@ func _plan_extend(cell: Dictionary, c: Vector2i) -> void:
 	## 与棋盘上亮着的格子严格一致 —— 玩家看得见什么就能拖到什么。
 	## 之后几步棋盘上没有现成选项（细胞还没走过去），才去问 `plan_next_dests`
 	if _plan.is_empty():
-		if not _tiles.has(c):
+		if not _tiles.has(c) or not tile_selectable(c):
 			return
 	else:
 		var dests: Variant = kernel.query("plan_next_dests",
@@ -845,7 +849,7 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 			_plan_drag = true
 			_plan_extend(mirror.cell_of(_sticky_pid), c)
 			return
-		if tiles.has(c):
+		if tiles.has(c) and tile_selectable(c):
 			ans.fire(tiles[c])
 			return
 		## 点了一格却没反应，是界面最难受的一种沉默 —— 有理由就说出来
@@ -892,6 +896,12 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	board.tile_hovered.disconnect(on_hover)
 	board.drag_ended.disconnect(on_release)
 	return got
+
+
+## 通用规则 13（PRD:65）：这一格此刻能不能选。没注入 `tile_visible`（= 不是教程局）
+## 就一律能选。**每次现问**：教程镜头补间没走完的那几帧，目标格还没整格进镜头
+func tile_selectable(c: Vector2i) -> bool:
+	return not tile_visible.is_valid() or bool(tile_visible.call(c))
 
 
 ## 候选格用免疫青；落着敌人的那一格用癌方橙 —— 那一下是攻击，不是迁移，

@@ -35,6 +35,10 @@ var fx = null
 ## 地图浮现：把一组坐标加进棋盘的活跃集（`CWBoard.set_active_tiles`）。装配方注入，
 ## **皮不认识棋盘** —— 这是接口纪律「只发意图、不发控件」在 reveal 上的落法
 var reveal_tiles: Callable = Callable()
+## 说话人是谁（S3 的贴身气泡要它）：`who`（"player" / "seat:<n>"）→ `{ at: Vector2i, immune: bool }`，
+## 问不出来给 `{}`。装配方注入，同 `reveal_tiles` 那条 —— **皮不认识镜像**，
+## 而「气泡挂在哪一格、描边取哪个阵营色」这两件只有局面答得上来
+var speaker_of: Callable = Callable()
 
 
 ## ① 说台词。`who`: "player" | "seat:<n>" | "narrator" | "ui:<控件 id>"

@@ -42,18 +42,24 @@ const ENERGY_NULL_MARK := "Null"
 ##   move_path —— 迁移态的路径规划器（关掉 = 不画线、不出「规划路径」按钮，
 ##                走已有的那条「降级可见」的路，PRD:107/151/197）
 ##   cost      —— 每格耗能与按钮上的价签（PRD:107）
+##   camera    —— **镜头**（PRD 04:08 版给关卡模板加的「镜头变化」，PRD:9-22）：
+##                `{"anchor": "map"|"player", "align": "center"|"left"|"right"}`。
+##                `map` = 让整张活跃地图落在镜头的正中 / 三分之一 / 三分之二处，
+##                `player` = 让玩家那只细胞落在那儿；竖直方向一律居中。
+##                **它是唯一不能「关」的层**（镜头永远存在）—— `"*": false` 也不碰它
 ##   energy    —— "plain"（照常写数字）/ "infinite"（标志值换成 ENERGY_INF_MARK）
 ##                / "null"（标志值换成 ENERGY_NULL_MARK，PRD:431）/ "hidden"（整个不写）
-##   camera    —— 镜头取景（PRD 2026-09-19 04:08 版新增的「地图调中 / 左 / 右」「玩家调中 / 左 / 右」，
-##                模板见 PRD:9-22）。值是 `{ "anchor": "map"|"player", "align": "center"|"left"|"right" }`。
-##                **这一层没有「关」的那一档**：镜头永远在某个位置上，所以通配 `"*": false`
-##                把它铺回缺省（map/center）而不是 false。**实装在 S3**（皮 / 镜头），
-##                S4 的关卡数据先按 PRD 现文带上这一键 —— 层名不在白名单里 `apply()` 会当场 warning
 ##
 ## 值的约定：`false` / `[]` / `""` = 关，`true` / 非空数组 / 非空串 = 开。
 ## **数组形态的「白名单」由决策闸（`allow`，方案 §3.2(a)）落实**，不在这儿过滤 ——
 ## 行动栏的按钮是从 `req["options"]` 建的，闸把选项滤掉按钮就根本不出现，
 ## 两处都过滤等于同一件事写两遍、还会对不上。这里只认「这一层开不开」。
+## 镜头那两个枚举与缺省值（「地图调中」）住在条目文法表里 —— **校验器读的是同一份**
+const BEATS := preload("res://scripts/kernel/cw_tutor_beats.gd")
+const CAMERA_DEFAULT := BEATS.CAMERA_DEFAULT
+const CAMERA_ANCHORS := BEATS.CAMERA_ANCHORS
+const CAMERA_ALIGNS := BEATS.CAMERA_ALIGNS
+
 const DEFAULTS := {
 	"action_bar": true,
 	"sidebar": true,
@@ -65,7 +71,7 @@ const DEFAULTS := {
 	"move_path": true,
 	"cost": true,
 	"energy": "plain",
-	"camera": { "anchor": "map", "align": "center" },
+	"camera": CAMERA_DEFAULT,
 }
 
 ## 通配键：`{"*": false}` = 先把所有具名层按「关」的那一侧铺一遍，再按同一条里其余键覆写。
@@ -90,7 +96,7 @@ static func off_value(key: String) -> Variant:
 	if d is Array:
 		return []
 	if d is Dictionary:
-		return (d as Dictionary).duplicate(true)
+		return (d as Dictionary).duplicate(true)   ## `camera`：镜头关不掉，通配也只是回到缺省
 	return false
 
 
@@ -126,16 +132,21 @@ static func on(key: String) -> bool:
 	return true
 
 
+## 这一刻的镜头（PRD:9-22）。**表外的值当缺省**：剧本写错一个字不该把镜头摔到某个
+## 算不出来的地方，但要说出来 —— 校验器（`cw_tutor_script.validate` 第 14 条）装载期就拦
+static func camera() -> Dictionary:
+	var v: Variant = _cur.get("camera", CAMERA_DEFAULT)
+	var d: Dictionary = v as Dictionary if v is Dictionary else {}
+	var anchor := str(d.get("anchor", "map"))
+	var align := str(d.get("align", "center"))
+	return {
+		"anchor": anchor if anchor in CAMERA_ANCHORS else "map",
+		"align": align if align in CAMERA_ALIGNS else "center",
+	}
+
+
 static func energy_mode() -> String:
 	return str(_cur.get("energy", "plain"))
-
-
-## 此刻的镜头取景（PRD 04:08 版的「地图调中 / 角色调左」那一族）。**只读副本**。
-## 缺省是 `{ "anchor": "map", "align": "center" }` —— 正式对局永远拿到这一份
-static func camera() -> Dictionary:
-	var v: Variant = _cur.get("camera", DEFAULTS["camera"])
-	return (v as Dictionary).duplicate(true) if v is Dictionary \
-		else (DEFAULTS["camera"] as Dictionary).duplicate(true)
 
 
 ## 「切换种类」按一下要换成哪几份 world（按次序轮转）。没开这一层就是空表

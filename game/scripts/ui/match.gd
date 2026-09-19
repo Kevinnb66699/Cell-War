@@ -76,6 +76,10 @@ var _tutor_fx = null
 ## 关表里的第几关（0 起）与那一关的完整 JSON
 var _tutor_index := 0
 var _tutor_level := {}
+## 教程镜头（PRD:9-22 的「镜头变化」，S3）：此刻**已经定下来**的那组取景参数
+## `{zoom, look_at, anchor}` 与正在跑的补间。空 = 这一局还没摆过机位
+var _tutor_cam := {}
+var _tutor_cam_tween: Tween = null
 ## 非人类席位的脚本 decider（`cw_tutorial_npc.gd` 的 Decider）。一席一只、留着引用只为不被 GC
 var _npc_deciders: Array = []
 
@@ -188,6 +192,9 @@ const CELL_POP_SCALE := 0.7
 
 ## 细胞贴脚落在格子「顶面中心」再往下 6px，和主菜单的装饰细胞同一套。
 const CELL_FOOT_DY := 6.0
+## 教程镜头换机位的补间时长（PRD:9-22 的「镜头变化」，S3）。
+## 关首 / 重置是 0（直接就位），关内换 step 与地图浮现走这个数
+const TUTOR_CAM_SECS := 0.45
 ## 同一格站了多个细胞时左右错开的间距
 const STACK_DX := 9.0
 ## 普通攻击的本体冲撞（队友 PR #30）：没有 class_name —— 新类名热更装不上，所以走 preload
@@ -954,15 +961,17 @@ func _attach_tutor() -> void:
 	ui.add_child(_tutor_chrome)
 	if pause_menu != null:
 		ui.move_child(_tutor_chrome, pause_menu.get_index())
-	## 皮：**方向稿第二轮定稿之前一律用占位皮 P**（方案 §5.2；Kevin 2026-09-19「两个都不好，重做」）。
-	## 换皮 = 换这一行的实例，导演与数据一行都不用改 —— 这正是表现接口的全部意义
+	## 皮：缺省是 **A 贴身气泡**（Kevin 2026-09-19「整体走 A」，方案 §5.5）。
+	## 换皮 = 换这一行的实例（`CWSettings.tutor_skin` 现场 A/B 切），导演与数据一行都不用改
+	## —— 这正是表现接口的全部意义
 	if _tutor_view != null and is_instance_valid(_tutor_view):
 		_tutor_view.queue_free()
-	_tutor_view = CWTutorViewPlain.new()
+	_tutor_view = _tutor_skin()
 	ui.add_child(_tutor_view)
 	ui.move_child(_tutor_view, _tutor_chrome.get_index())
 	_tutor_view.chrome = _tutor_chrome
 	_tutor_view.reveal_tiles = _tutor_reveal   ## 皮不认识棋盘（接口纪律 1）：浮现经这条 Callable 回来
+	_tutor_view.speaker_of = _tutor_speaker    ## 皮不认识镜像（同上）：气泡挂哪一格、描边取哪个阵营色
 	## 提亮层（PRD 通用规则 8 / PRD:445）：压在皮**之下**、HUD 之上 —— 它只画不挡，
 	## 但描在按钮外的那一圈不该盖住台词。四个句柄由装配方注入（皮与导演都不认识这些控件）
 	if _tutor_spot != null and is_instance_valid(_tutor_spot):
@@ -983,9 +992,10 @@ func _attach_tutor() -> void:
 	board.add_child(_tutor_fx)
 	_tutor_view.fx = _tutor_fx
 	## 通报气泡别落在说明行上（Kevin 2026-09-12 截图）：禁区矩形**归皮挂**（接口纪律 3，
-	## 两版皮的形状必然不同），导演不碰
+	## 两版皮的形状必然不同），导演不碰。贴身气泡那版的常驻件只有行动提示行一条 ——
+	## 台词气泡是跟着细胞跑的，圈成禁区等于把半个屏幕划走
 	if toast != null:
-		toast.keep_out = CWTutorViewPlain.ZONE
+		toast.keep_out = _tutor_keep_out()
 	if _director != null and is_instance_valid(_director):
 		_director.teardown()
 		_director.queue_free()
@@ -1005,6 +1015,11 @@ func _attach_tutor() -> void:
 	## 差别只有一处：**跳关不记「通关」**（`mark_done = false`）
 	_director.want_goto.connect(func(id: String) -> void: _tutor_next_level(id, false))
 	add_child(_director)   ## 导演要 _process（三个驱动源之一是每帧）
+	## 通用规则 13（PRD:65）：镜头外 / 被镜头框切到的格子不许当目标。
+	## **只在教程局注入**（正式局的镜头恒是整盘机位，一格都不切）；
+	## 高亮那一半在 `_sync_marks`，能不能点那一半在桥里，两处共用这一支
+	if bridge != null:
+		bridge.tile_visible = _tutor_tile_visible
 	_tutor_chrome.reset_pressed.connect(_tutor_reset_pressed)
 	## 目录跳关：常驻壳只管「点了哪一关」，往哪跳是皮那条对外信号的事（S6 接上导演）
 	_tutor_chrome.menu_goto.connect(func(id: String) -> void: _tutor_view.menu_goto.emit(id))
@@ -1025,6 +1040,93 @@ func _tutor_menu_goto(id: String) -> void:
 func _tutor_replay_opening() -> void:
 	OPENING.clear_seen()
 	replay_opening.emit()
+
+
+## 这一局用哪一版皮（方案 §5.4 末的「换皮开关」）。缺省 A，别的两版留着可切
+func _tutor_skin() -> CWTutorView:
+	match CWSettings.tutor_skin:
+		"plain":
+			return CWTutorViewPlain.new()
+		"tally":
+			return CWTutorViewTally.new()
+		_:
+			return CWTutorViewBubble.new()
+
+
+## 通报气泡的禁区（接口纪律 3）：每版皮自己那块常驻件
+func _tutor_keep_out() -> Rect2:
+	match CWSettings.tutor_skin:
+		"plain":
+			return CWTutorViewPlain.ZONE
+		"tally":
+			return Rect2()          ## 计数皮什么都不画，没有禁区
+		_:
+			return CWTutorViewBubble.HINT_RECT
+
+
+## 皮问「这句话是谁说的、他站在哪」（新手教程 v2 · S3）。**皮不认识镜像**（接口纪律 1）：
+## 走这条 Callable 回来，和 `reveal_tiles` 同一个办法。问不出来给 {} —— 皮那头退成「旁白」
+func _tutor_speaker(who: String) -> Dictionary:
+	if mirror == null:
+		return {}
+	var seat := -1
+	if who == "player":
+		seat = int(human_players[0]) if not human_players.is_empty() else 0
+	elif who.begins_with("seat:"):
+		seat = int(who.substr(5))
+	if seat < 0:
+		return {}
+	for c in mirror.living_cells():
+		var cell: Dictionary = c
+		if int(cell["pid"]) == seat:
+			return { "at": cell["pos"],
+				"immune": int(cell["faction"]) == CWData.Faction.IMMUNE }
+	return {}
+
+
+## ---- 教程镜头（PRD:9-22 的「镜头变化」+ 通用规则 13，S3 2026-09-19）----
+
+## 这一刻该站在哪个机位。**按活跃格集合算 zoom**（小棋盘推近，整盘就是对局机位），
+## 按 `ui.camera` 的 anchor / align 算看点（地图 / 玩家，居中 / 偏左 / 偏右）
+func _tutor_framing() -> Dictionary:
+	var cam: Dictionary = CWTutorLayers.camera()
+	var focus: Variant = null
+	if str(cam["anchor"]) == "player":
+		var me := _tutor_speaker("player")
+		focus = me.get("at", null)
+	return CWView.tutor_framing(board, board.active_tiles(), str(cam["align"]), focus,
+		CWTutorLayers.on("sidebar"))
+
+
+## 把镜头挪过去。`secs <= 0` = 直接就位（关首 / 重置）；否则补间（关间与关内换 step）。
+## 插的是**取景参数**不是相机的 position（理由见 `CWView.blend()`）
+func _tutor_camera(secs := 0.0) -> void:
+	if not tutorial or board == null or camera == null:
+		return
+	var want := _tutor_framing()
+	if want == _tutor_cam:
+		return                       ## 这一步没改镜头：别为了一个没变的机位再补间一次
+	var from := _tutor_cam if not _tutor_cam.is_empty() else want
+	_tutor_cam = want
+	if _tutor_cam_tween != null and _tutor_cam_tween.is_valid():
+		_tutor_cam_tween.kill()
+	if secs <= 0.0:
+		CWView.apply(camera, board, float(want["zoom"]), want["look_at"], want["anchor"])
+		return
+	_tutor_cam_tween = create_tween()
+	var step := _tutor_cam_tween.tween_method(
+		func(k: float) -> void: CWView.blend_to(camera, board, from, want, k),
+		0.0, 1.0, secs)
+	step.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+
+
+## 通用规则 13（PRD:65）：这一格此刻**整格**在镜头里吗。
+## 拿的是**当下**的相机 —— 补间没走完就还没放开（题面点名要的那条）
+func _tutor_tile_visible(at: Vector2i) -> bool:
+	if not tutorial:
+		return true
+	return CWView.tile_fully_visible(camera, board, at,
+		CWView.tutor_view_rect(CWTutorLayers.on("sidebar")))
 
 
 ## 常驻「重置本关」（PRD:41）：走导演那条路（代际 +1 → 游标回 0 → 发 want_reset）。
@@ -1115,6 +1217,10 @@ func _open_tutor_level(cfg: Dictionary) -> CWKernel:
 		return null
 	if board != null:
 		board.set_active_tiles(_stage.active_tiles())
+	## 关首**直接就位**（PRD 通用规则 2：关与关之间静默切换，没有过场可给镜头飞）。
+	## 关内换 step 的补间由 `_sync_tutor_layers` 每帧那一问接手
+	_tutor_cam = {}
+	_tutor_camera()
 	return k
 
 
@@ -1144,6 +1250,8 @@ func _tutor_load_world(wid: String, back_to_start := false) -> void:
 	kernel = k
 	if board != null and back_to_start:
 		board.set_active_tiles(_stage.active_tiles(), 0.0)
+		_tutor_cam = {}
+		_tutor_camera()        ## 重置 = 退回关首那一份，镜头跟着直接就位（不补间）
 	_start_queue()
 	if _director != null and is_instance_valid(_director):
 		_director.install()   ## 同关首：装闸在 run() 之前
@@ -1250,6 +1358,9 @@ func _sync_tutor_layers() -> void:
 	if panel != null:
 		panel.visible = CWTutorLayers.on("sidebar")
 		panel.guide_layers(CWTutorLayers.on("end_turn"), CWTutorLayers.on("round_no"))
+	## 镜头也是一层（`ui.camera`）：关内换 step 改了镜头、或地图浮现把活跃集撑大了，
+	## 都在这儿补间过去。`_tutor_camera` 自己判「机位没变就不动」，每帧问一次不花钱
+	_tutor_camera(TUTOR_CAM_SECS)
 
 ## 教程「知识之书」直达：对局内把图鉴翻到点名的那一章。
 ## 图鉴盖在教程的皮上面，Esc / 右键关掉就回到教程；实例懒建，拆局只隐藏不销毁。
@@ -1872,8 +1983,17 @@ func _sync_tiles() -> void:
 	if _handoff != null and _handoff.active and _handoff.cell_pos != CWHandoff.INVALID:
 		marks[_handoff.cell_pos] = Color(_handoff.faction_color, 0.18 + 0.32 * _handoff.pulse())
 	## 交互高亮压过状态色标：正在选目标时，「这格能不能选」比「它是不是固化」重要。
+	## 教程还要再过一道**通用规则 13**（PRD:65）：镜头外 / 被镜头框切到的格子**不画成可选** ——
+	## 能不能点那一半在桥里，两处共用 `_tutor_tile_visible`，不各判一遍
 	if bridge != null:
-		marks.merge(bridge.marks, true)
+		var hot: Dictionary = bridge.marks
+		if tutorial:
+			var keep := {}
+			for c: Vector2i in hot:
+				if _tutor_tile_visible(c):
+					keep[c] = hot[c]
+			hot = keep
+		marks.merge(hot, true)
 	board.set_marks(marks)
 	board.set_mucus(mucus)
 	_mucus_shown.clear()

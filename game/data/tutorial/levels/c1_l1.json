@@ -9,6 +9,8 @@
     "PRD:91-137 整关。全关零抽取 ⇒ rolls 写空表（空带子 = 断言，不是省略）。",
     "缺席阵营（纪律 8）：癌席给一只 alive:false 的死细胞，占活跃集之外的 (6,-1) —— hex_at 只扫活跃集，看不见也点不到。",
     "【迁移】不消耗能量（PRD:105）只能走大能量 99990 + ui.cost/move_path 关掉：immune_move_healthy 是 tier C 旋钮，装载器双重拒。",
+    "ui.camera 照 PRD:105「地图调中」（04:08 版给关卡模板加的「镜头变化」，PRD:9-22）——",
+    "两格的小棋盘按活跃格集合推到 4.0 倍，正式局的 1.27 在这儿只有指甲盖大。",
     "最后一条的 prd 写 137 而不是 PRD:133：PRD 的「玩家任务」(133) 与「UI 提示」(137) 是同一拍，",
     "执行序必须是「先亮格子再开闸」（point 不阻塞、player 阻塞），而对账闸要求 prd 单调不减，所以两条都记 137。",
     "★ 2026-09-19 S4：两格坐标由 (-1,-1)(0,-1) 改成《新手引导v2_盘面提案》v4 的 (-5,-1)(-4,-1) ——",
@@ -41,7 +43,8 @@
 
   "flow": [
     { "do": "state", "prd": 93, "load": "base",
-      "ui": { "*": false, "action_bar": true, "move_path": false, "cost": false, "energy": "infinite" } },
+      "ui": { "*": false, "action_bar": true, "move_path": false, "cost": false, "energy": "infinite",
+        "camera": { "anchor": "map", "align": "center" } } },
 
     { "do": "say", "prd": 117, "who": "player",
       "lines": ["欢迎来到Cell_War！", "你是一个Q弹软萌的免疫细胞——", "作为主人忠诚的卫士，正在工作中…"] },
