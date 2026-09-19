@@ -140,7 +140,7 @@ func _run_all() -> void:
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_board_small, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
-		t_card_name_fit, t_view_blend, t_attack_fx, t_issue31_fx, t_issue_fx_0919, t_plan_allowance, t_announce, t_action_bar_width,
+		t_card_name_fit, t_view_blend, t_attack_fx, t_crit_gold, t_issue31_fx, t_issue_fx_0919, t_plan_allowance, t_announce, t_action_bar_width,
 		t_buttons_dim, t_enter_not_skipped, t_main_menu,
 		t_codex, t_quit_confirm, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
@@ -23469,3 +23469,44 @@ func _tutor_c2_diff(run: Dictionary, row: Dictionary, itype: int) -> void:
 	check(allow == null or TUTOR_BEATS.hits(CWSemKey.key({ "kind": "action" }, want), allow as Array),
 		"第五关 Step1：剧本的 allow 放行分化（%s）" % CWSemKey.key({ "kind": "action" }, want))
 	await g.actions.execute(cell, want)
+
+
+## 攻击大成功的金字（Kevin 2026-09-19「给攻击大成功加上金字特效」）：
+## 分派键与引擎原文一致、样式换了（金字 / 描边 / 金边）、盖章 / 闪光 / 火花挂上了并各自收场、
+## 普通结果不受影响、hide_now 释放气泡时绑在它身上的补间跟着死
+func t_crit_gold() -> void:
+	print("[攻击大成功金字]")
+	check("攻击" + CWActions.VERDICT_NAMES["crit"] == CWUIBridge.CRIT_RESULT,
+		"分派键与引擎 announce 的原文一致（%s）" % CWUIBridge.CRIT_RESULT)
+	var toast := CWToast.new()
+	root.add_child(toast)
+	await process_frame
+	var avoid := Rect2(Vector2(300, 300), Vector2(60, 60))
+	var plain: Control = toast.bubble_at("攻击成功", avoid, 3.0)
+	var crit: Control = toast.bubble_crit_at("攻击大成功", avoid, 3.0)
+	var pl: Label = plain.get_child(0)
+	var cl: Label = crit.get_child(0)
+	check(cl.get_theme_color("font_color") == CWToast.CRIT_GOLD and cl.get_theme_constant("outline_size") == 2
+		and cl.get_theme_color("font_outline_color") == CWToast.CRIT_OUTLINE, "大成功：金字 + 2px 深棕描边")
+	var sb: StyleBoxFlat = crit.get_theme_stylebox("panel")
+	check(sb.border_color == CWToast.CRIT_BORDER, "大成功：金边框")
+	check(pl.get_theme_color("font_color") == CWStyle.TEXT_HI
+		and (plain.get_theme_stylebox("panel") as StyleBoxFlat).border_color != CWToast.CRIT_BORDER,
+		"普通结果照旧：白字、青边")
+	check(crit.scale.x > 1.3 and crit.pivot_offset == crit.size / 2.0, "盖章从 %.1f 倍起、绕中心缩" % crit.scale.x)
+	check(crit.has_node("CritSparks"), "火花层挂上了")
+	## 走完盖章 / 闪光 / 火花（最长的火花 0.8 s）：回到原大、火花自毁、字色停在金
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 1200:
+		await process_frame
+	check(is_instance_valid(crit) and is_equal_approx(crit.scale.x, 1.0), "盖章结束回到原大")
+	check(not crit.has_node("CritSparks"), "火花活完自毁（%.1f s）" % CWToast.CRIT_SPARK_LIFE)
+	check(cl.get_theme_color("font_color") == CWToast.CRIT_GOLD, "闪三下之后停在金")
+	## hide_now 把气泡 free：绑在气泡上的补间跟着死，不会对着尸体写颜色
+	var crit2: Control = toast.bubble_crit_at("攻击大成功", avoid, 2.0)
+	toast.hide_now()
+	await process_frame
+	await process_frame
+	check(not is_instance_valid(crit2), "hide_now 之后气泡已释放（补间绑在气泡上，跟着死）")
+	root.remove_child(toast)
+	toast.free()

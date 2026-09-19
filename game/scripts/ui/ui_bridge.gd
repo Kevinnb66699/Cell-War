@@ -87,6 +87,9 @@ var marks := {}
 ## 紧跟骰子的结算说明（攻击 / 突变 / 抗体的结果文字）停多久。1.1 → 2.4（Kevin 2026-09-06：结果文字停久些，
 ## **骰子本身的演出不动** —— 那是 CWDice.play 的节拍，这里碰不到）。停久了就各自一只气泡，连着两次攻击才不会互相顶掉
 const RESULT_HOLD := 2.4
+## 攻击大成功那一句的原文（cw_actions.gd 攻击结算的 announce：`"攻击%s" % "大成功"`）——
+## 只有这一句换金字（CWToast.bubble_crit_at，Kevin 2026-09-19）。`t_crit_gold` 钉两边一致
+const CRIT_RESULT := "攻击大成功"
 ## 不是紧跟骰子的说明（事件卡效果、复活失败、次数用尽……）停多久：各自一只气泡（CWToast.bubble_at），互不顶掉
 const TEXT_HOLD := 4.0
 
@@ -1111,7 +1114,12 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 	## 让「攻击」和「攻击大成功」出现在同一个地方比各自找最优位置更好读。
 	## 先收掉掷骰时那行「攻击」，结果另起一只气泡停 RESULT_HOLD（各自一只：停久了才不会被下一次攻击的结果顶掉）
 	toast.hide_box()
-	toast.bubble_at(text, _dice_rect(board.tile_center(at)), RESULT_HOLD)
+	## 攻击大成功换金字（Kevin 2026-09-19）：文案是分派键（同上面准星那几条的道理），
+	## 原文在 cw_actions.gd 的 announce，`t_crit_gold` 钉着两边一致
+	if text == CRIT_RESULT:
+		toast.bubble_crit_at(text, _dice_rect(board.tile_center(at)), RESULT_HOLD)
+	else:
+		toast.bubble_at(text, _dice_rect(board.tile_center(at)), RESULT_HOLD)
 
 
 ## Excalibur 的光束过场：把轴坐标换成棋盘像素，交给演出层。
