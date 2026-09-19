@@ -54,6 +54,7 @@ func _run() -> void:
 		var cancer_wins := 0
 		var immune_wins := 0
 		var rounds_sum := 0
+		var win_kinds := {}   ## win_kind → 次数（击杀赢 immune_clear / 拖回合 limit_* / 加权 cancer_weighted / 投降）
 		for gi in games_n:
 			var g := CWGame.new()
 			g.init(CWData.FACTION_ORDER[players], seed_base + start + gi)
@@ -75,10 +76,13 @@ func _run() -> void:
 			elif g.winner == CWData.Faction.IMMUNE:
 				immune_wins += 1
 			rounds_sum += g.round_no
+			var wk := String(g.win_kind)
+			win_kinds[wk] = int(win_kinds.get(wk, 0)) + 1
 			g.dispose()
-		print("== %-12s 癌 %2d / 免 %2d / 平 %2d / 平均 %.1f 回合" % [
+		print("== %-12s 癌 %2d / 免 %2d / 平 %2d / 平均 %.1f 回合  [win_kind %s]" % [
 			cfg["name"], cancer_wins, immune_wins,
-			games_n - cancer_wins - immune_wins, rounds_sum / float(games_n)])
+			games_n - cancer_wins - immune_wins, rounds_sum / float(games_n),
+			str(win_kinds)])
 	quit(0)
 
 
