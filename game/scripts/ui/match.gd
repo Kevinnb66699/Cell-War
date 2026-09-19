@@ -73,6 +73,10 @@ var _tutor_spot = null
 ## 教程演出库（`scripts/tutor/cw_tutor_fx.gd`，S7 做的库，S2 把它接进来给 `reset_anim` 用）。
 ## **挂在棋盘下面**（同 `preview_tutor_fx.gd` 的做法）：它有一半画在棋盘坐标系里
 var _tutor_fx = null
+## 教程演出库此刻**代画**着哪一只细胞（`play` 的 `args.actor`，S9b）。-1 = 没有。
+## 真身要让位，而且必须在**这里**让：`_sync_cells` 每帧重写 `node.visible`，
+## 演出层自己 `_hide` 是藏不住的（同 `_attack_fx.owns(i)` 那一条的道理）
+var _tutor_fx_cid := -1
 ## 关表里的第几关（0 起）与那一关的完整 JSON
 var _tutor_index := 0
 var _tutor_level := {}
@@ -989,6 +993,9 @@ func _attach_tutor() -> void:
 		_tutor_fx.queue_free()
 	_tutor_fx = TUTOR_FX.new()
 	_tutor_fx.attach(board)
+	## 演出层不认识席位（方案 §3.7 的纪律）：席位 → 格由导演那条线换
+	_tutor_fx.seat_at = _tutor_seat_at
+	_tutor_fx_cid = -1
 	board.add_child(_tutor_fx)
 	_tutor_view.fx = _tutor_fx
 	## 通报气泡别落在说明行上（Kevin 2026-09-12 截图）：禁区矩形**归皮挂**（接口纪律 3，
@@ -1012,6 +1019,8 @@ func _attach_tutor() -> void:
 	_director.want_recenter.connect(_tutor_recenter)
 	_director.want_reset.connect(_tutor_reset_world)
 	_director.want_npc.connect(_tutor_set_npc)
+	_director.want_play.connect(_tutor_play)
+	_director.want_rematch.connect(_tutor_rematch)
 	## 目录跳关（S6）：导演已经把代际 +1 了，这儿只管换局 —— 走的是 `on_done` 同一条路，
 	## 差别只有一处：**跳关不记「通关」**（`mark_done = false`）
 	_director.want_goto.connect(func(id: String) -> void: _tutor_next_level(id, false))
@@ -1203,6 +1212,52 @@ func _tutor_deciders() -> Dictionary:
 	return out
 
 
+## 剧本要播一段教程演出（导演的 `want_play`，S9b）。**做事的是这儿** ——
+## 演出库挂在棋盘底下、归本文件持，导演只发意图（同 `want_npc` 的形制）。
+##
+## 这里补两样**数据里写不出来的东西**（导演已经把 `at` / `actor` 里的席位解析好了）：
+## · `args.tex` —— 代画要用的本体贴图。玩家上一关分化成了哪一种只有运行期知道，
+##   从屏幕上那只细胞的 `Sprite2D.texture` 直接取，不在数据里记第二份对照表；
+## · `_tutor_fx_cid` —— 真身让位那一层（见 `_sync_cells`）。
+## `args.actor` 用完就删：演出库的参数表里没有这个键
+func _tutor_play(kind: String, args: Dictionary, done: Callable) -> void:
+	if not tutorial or _tutor_fx == null or not is_instance_valid(_tutor_fx):
+		done.call()
+		return
+	var a := args.duplicate(true)
+	var cid := -1
+	if a.has("actor"):
+		cid = _tutor_cell_id(int(a["actor"]) if typeof(a["actor"]) == TYPE_INT else -1)
+		a.erase("actor")
+	if cid >= 0:
+		_tutor_fx_cid = cid
+		if not a.has("tex") and cid < _cell_nodes.size():
+			var spr := _cell_nodes[cid] as Sprite2D
+			if spr != null and spr.texture != null:
+				a["tex"] = spr.texture
+	await _tutor_fx.play(kind, a)
+	if cid >= 0 and _tutor_fx_cid == cid:
+		_tutor_fx_cid = -1
+	done.call()
+
+
+## 席位 → 这一刻那只细胞站的格（注入给演出库的那条线，见 `_attach_tutor`）
+func _tutor_seat_at(seat: int) -> Vector2i:
+	if _director != null and is_instance_valid(_director):
+		return _director.seat_at(seat)
+	return Vector2i.ZERO
+
+
+## 席位 → 镜像里那只细胞的下标（= `_cell_nodes` 的下标）。找不到给 -1
+func _tutor_cell_id(seat: int) -> int:
+	if seat < 0 or mirror == null:
+		return -1
+	for i in mirror.cells.size():
+		if int((mirror.cells[i] as Dictionary)["pid"]) == seat:
+			return i
+	return -1
+
+
 ## 给某席换脚本（`flow[].npc`，`Decider.plan`）。
 ## ⚠ 成员叫 `plan` 不叫 `script`：`Object` 自带 `script`，同名当场编译不过
 func _tutor_set_npc(seat: int, plan: Array) -> void:
@@ -1215,14 +1270,18 @@ func _tutor_set_npc(seat: int, plan: Array) -> void:
 ## 教程局的句柄从**舞台**来：舞台读那一关的 JSON、装一份 cwxworld/3、把带子挂上，
 ## 再用调用方这份 cfg 加 `adopt` 开局。**这里拿到的只有 CWKernel** —— 对局本身住在舞台里。
 ## 同时按数据把棋盘遮罩换成这一关的活跃格（半径恒 6，小棋盘只是遮罩，方案 §2.5）
-func _open_tutor_level(cfg: Dictionary) -> CWKernel:
-	CWTutorLayers.reset()   ## 每关从「全开」起步，再由 flow[0].ui 给全量
+## `wid` = 装哪一份 world（缺省 base；间章分镜 6 的完整换局点名 `flip`）。
+## `reset_layers` = 要不要把 UI 层表推回「全开」—— **关内的完整换局不推**：
+## 那是同一关的一拍，层表推回全开再由下一条 `state` 覆写的话，镜头会当场跳一下回「地图调中」
+func _open_tutor_level(cfg: Dictionary, wid := "base", reset_layers := true) -> CWKernel:
+	if reset_layers:
+		CWTutorLayers.reset()   ## 每关从「全开」起步，再由 flow[0].ui 给全量
 	if _tutor_level.is_empty():
 		push_error("CWMatch：关表里读不出第 %d 关（data/tutorial/index.json）" % (_tutor_index + 1))
 		return null
 	_stage = TUTOR_STAGE.new()
 	_stage.cfg = cfg
-	var k: CWKernel = _stage.open_level(_tutor_level)
+	var k: CWKernel = _stage.open_level(_tutor_level, wid)
 	if k == null:
 		push_error("CWMatch：教程关「%s」装不出来（%s）"
 			% [str(_tutor_level.get("id", "")), str(_stage.errors)])
@@ -1316,12 +1375,17 @@ func _tutor_reset_world() -> void:
 	_tutor_load_world(_tutor_entry_world(), true)
 
 
-## 这一关的「关首那份 world」：`flow[0].load`，没写就是 base
+## 这一关的「关首那份 world」：`flow[0].load`，没写就是 base。
+## **间章（`flow[0].load` 显式 null）给空串**：它承接上一关的活局面，根本没有「关首那一份」——
+## 空串走到 `_tutor_load_world` 的第一行就返回，「重置本关」于是只把游标与 UI 层退回关首，
+## 不去装一份并不存在的 base（装不出来会 push_error）
 func _tutor_entry_world() -> String:
 	var flow: Array = _tutor_level.get("flow", [])
 	if flow.is_empty():
 		return "base"
 	var head: Dictionary = flow[0]
+	if head.has("load") and head["load"] == null:
+		return ""
 	return str(head.get("load", "base")) if head.get("load", null) != null else "base"
 
 
@@ -1345,6 +1409,44 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 		if mark_done:
 			CWGuideProgress.set_all_done()
 		return
+	## ★ **承接此刻这一局**（间章，方案 §2.5）：下一关的 `flow[0]` 显式写了 `"load": null` ⇒
+	## 一局都不拆 —— 局面 / 席位 / 桥 / 队列全留着，只把导演换成新那一关的剧本。
+	## 第五关 Step2 是自由游玩，终局盘面（谁站哪、哪几格被净化）**不是作者期能写死的**，
+	## 而 PRD:415 要求冲击波在「最后一个癌细胞被杀死时原地」起 —— 重装就没有「原地」可言了。
+	## 舞台的 `level` 也要跟着换：后面分镜 6 的完整换局要按间章的 `worlds` / `rolls` 装
+	## 上一关的提示行与高亮收掉：皮是同一只，不清就跟着进新关。
+	## 别的关很快就会被自己的 `player` 条目覆写，**间章一条 `player` 都没有**——
+	## 第五关那句「点「分化」，挑一种免疫细胞」会挂满整段演出（真机出图括到的）
+	if _tutor_view != null and is_instance_valid(_tutor_view):
+		_tutor_view.hint("")
+		_tutor_view.clear_point()
+	if TUTOR_SCRIPT.adopts_live(_tutor_level):
+		if _stage != null:
+			_stage.level = _tutor_level
+		_tutor_start_level()
+		if _director != null and is_instance_valid(_director):
+			_director.rebase_hard()
+		return
+	_tutor_reopen("base", true)
+
+
+## 间章分镜 6 的**阵营翻转**（导演的 `want_rematch`，S9b）：关内的一拍，走的却是
+## **跨关规格**的那条拆装序列（算关 / 换席位 / 重挂桥与面板）—— 席位 order 在
+## `g.init(order, 1)` 时就定死了（`cw_world_loader.gd:142`），而关内 `reload_world` 是
+## 短路版、跳过那三段（`cw_tutorial_stage.gd` 的函数头写着）。
+##
+## 与跨关的唯一差别：**游标不动**（不调 `_director.open()`，否则剧本从分镜 1 重来）、
+## **UI 层表不推回全开**（同一关的一拍，推回去镜头会跳回「地图调中」）
+func _tutor_rematch(wid: String) -> void:
+	if not tutorial or kernel == null or wid == "":
+		return
+	_tutor_reopen(wid, false)
+
+
+## 跨关换局与关内完整换局共用的那一串。`fresh_cursor` = 这是新的一关吗。
+##
+## ★ **换局会新建一只桥**（`_wire_bridge`），所以要把**同一个**导演重新挂上去（见 `_tutor_next_level` 的头注）
+func _tutor_reopen(wid: String, fresh_cursor: bool) -> void:
 	_loop_id += 1
 	## 拆旧局的次序钉死：**abort 永远排在 stop 之前** —— 只有 abort() 里的 _barrier_seq = 0
 	## 能放掉正在等 ack 的那条 roll；先停队列就没人 ack，5 秒后内核报 barrier timeout
@@ -1363,11 +1465,14 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 	## 每一局都录（同 start()）：跨关换的是新一局，不置位的话从第二关起就不再录
 	kernel = _open_tutor_level({ "record_replay": true, "consumer": true,
 		"observe_viewer": CWKernel.VIEWER_OMNISCIENT, "autorun": false, "decider": bridge,
-		"deciders": _tutor_deciders() })
+		"deciders": _tutor_deciders() }, wid, fresh_cursor)
 	if kernel == null:
 		return
 	_start_queue()
-	_tutor_start_level()
+	if fresh_cursor:
+		_tutor_start_level()
+	elif _director != null and is_instance_valid(_director):
+		_director.install()       ## 同关首：装闸在 run() 之前。**不调 open()** —— 游标要停在这一条
 	kernel.run()
 	_observe_now()
 	if _director != null and is_instance_valid(_director):
@@ -2218,6 +2323,11 @@ func _sync_cells() -> void:
 			and board.is_active(c["pos"])
 		var attack_owned: bool = _attack_fx != null and _attack_fx.owns(i)   ## 演出层没有 class_name，返回值是 Variant，得显式标类型
 		if attack_owned:
+			node.visible = false
+		## 教程演出库正代画这一只（间章的像素错误 / 击退，S9b）：真身让位。
+		## **这一层在换局之后仍然成立**（下标即 cell id）—— 分镜 6 的阵营翻转就是趁演出还没收尾
+		## 时把整局换掉的，新的小细胞肺癌那只继续让位到演出收尾，所以一帧跳变都看不见
+		if _tutor_fx_cid == i:
 			node.visible = false
 		var became_alive: bool = c["alive"] and not _was_alive[i]
 		## 死而复活的也要淡入一次 —— 它和刚落子一样是「凭空出现」
