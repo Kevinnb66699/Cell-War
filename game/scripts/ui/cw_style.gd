@@ -23,6 +23,11 @@ const TEXT := Color("cfe2e6")        ## 常规文字
 const TEXT_DIM := Color("7b929b")    ## 次要文字（字段名、费用、单位）
 const TEXT_OFF := Color("5c737c")    ## 灰掉的文字
 const TEXT_OFF_DIM := Color("44565e")## 灰掉的次要文字
+## 能量增损（issue #48）：棋盘上的飘字与右栏那一行的色闪共用这两支笔 ——
+## 两处同一个色，眼睛才把「棋盘上这只」和「右栏那一行」对上。
+## 低反差、不和阵营色（免疫青 / 癌方橙）打架：进账偏青绿、出账偏粉红。
+const ENERGY_GAIN := Color("8fd9a2")
+const ENERGY_LOSS := Color("e8899c")
 
 # ---- 轻微慢闪（PRD 通用规则 8「较慢频次反差较低的轻微闪烁」）----
 ## 原来住 `guide.gd`（老引导浮层），2026-09-19 老教程整套推倒时搬到这儿 ——

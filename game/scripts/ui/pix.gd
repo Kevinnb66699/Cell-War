@@ -56,13 +56,30 @@ static func spark(ci: CanvasItem, c: Vector2, color: Color, size: int = 3) -> vo
 	line(ci, c - Vector2(0, size), c + Vector2(0, size), color)
 
 
-## 黄金角散布的碎粒：p 0→1 往外飞（inward = 往里收），y 压 0.7 = 贴地透视
+## 柔边的一颗：亮芯外再罩一圈淡一档的方块（issue #53 ⑤「和 html 中的虚化效果不符」）。
+## 像素风做不了真的高斯模糊，能做的就是**多一档**：外圈 size+2、alpha 压到 SOFT_A ——
+## 边缘不再是硬切口，而透明度仍只取两档（像素纪律 ③）。
+const SOFT_A := 0.3
+
+static func soft_px(ci: CanvasItem, at: Vector2, color: Color, size: int = 1) -> void:
+	var halo := color
+	halo.a = color.a * SOFT_A
+	ci.draw_rect(Rect2((at - Vector2.ONE).round(), Vector2(size + 2, size + 2)), halo, true)
+	px(ci, at, color, size)
+
+
+## 黄金角散布的碎粒：p 0→1 往外飞（inward = 往里收），y 压 0.7 = 贴地透视。
+## soft = 每颗走 soft_px（虚化，issue #53 ⑤）
 static func burst(ci: CanvasItem, c: Vector2, p: float, color: Color, count := 20, radius := 45.0,
-		inward := false) -> void:
+		inward := false, soft := false) -> void:
 	for i in count:
 		var a := float(i) * 2.399
 		var d := ((1.0 - p) if inward else p) * (radius + float(i % 5) * 2.0)
-		px(ci, c + Vector2(cos(a) * d, sin(a) * d * 0.7), color, 1 + i % 2)
+		var at := c + Vector2(cos(a) * d, sin(a) * d * 0.7)
+		if soft:
+			soft_px(ci, at, color, 1 + i % 2)
+		else:
+			px(ci, at, color, 1 + i % 2)
 
 
 ## 从 a 飞向 b 的一串尾迹：头两颗大一档（revised-effects.js 的 trail）

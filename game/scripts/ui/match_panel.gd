@@ -289,6 +289,41 @@ func rect_of(what: String) -> Rect2:
 	return Rect2()
 
 
+## ---- 能量增损的行内提示（issue #48）----
+## 棋盘上飘 ±数字的同一拍，右栏那一行的能量数字色闪一下（进账青绿、出账粉红，同 CWEnergyFx 的笔）——
+## 两处同步，眼睛才把「棋盘上这只」和「右栏那一行」对上。
+##
+## **只闪色、不滚数字**：这一行每帧全量刷（见文件头），滚数字得另记一份「正在显示的值」，
+## 而那份值一旦和引擎错开就是两套真相 —— 右栏是常驻信息，宁可朴素也不能骗人。
+const ENERGY_FLASH := 0.55
+var _energy_flash := {}   ## pid -> [开演的 ticks_msec, 是不是进账]
+
+
+## 由 `CWMatch._sync_cells` 的镜像差分调（和棋盘那条飘字同一处）
+func bump_energy(pid: int, up: bool) -> void:
+	_energy_flash[pid] = [Time.get_ticks_msec(), up]
+
+
+## 这一行的能量数字此刻什么色。`age` < 0 或已过 ENERGY_FLASH = 没在闪 → 常色。
+## **纯函数**（时间从外面进来，无头测试直接核）
+static func energy_color(dead: bool, age: float, up: bool) -> Color:
+	if dead:
+		return CWStyle.TEXT_OFF
+	if age < 0.0 or age >= ENERGY_FLASH:
+		return CWStyle.TEXT_HI
+	## 缓出：起手就是满色，快收时才追上常色 —— 一眼看得见，又不会闪得刺眼
+	var k := age / ENERGY_FLASH
+	return (CWStyle.ENERGY_GAIN if up else CWStyle.ENERGY_LOSS).lerp(CWStyle.TEXT_HI, k * k)
+
+
+## 这一席此刻闪了多久（秒）；没在闪 → -1
+func _flash_age(pid: int) -> float:
+	if not _energy_flash.has(pid):
+		return -1.0
+	var e: Array = _energy_flash[pid]
+	return float(Time.get_ticks_msec() - int(e[0])) / 1000.0
+
+
 ## 底框标「轮到谁」（Kevin 2026-09-12：开局落子、复活阶段也要亮）：行动回合里是 current_pid；
 ## 回合之外（落子 / 复活 / 卡牌追问）是引擎正在问的那一席 asking_pid（本地由 CWGame.ask 记，
 ## 联机由 state 报文的 turn 记）；两者都没有（结算演出中）就谁都不亮。**纯函数**。
@@ -339,8 +374,9 @@ func _refresh_row(m: CWMirror, pid: int) -> void:
 			row["type"].text += " · 离线代打"
 	## 教程的「无限能量」换成标志文字（渲染点三处之一，新手教程 v2 方案 §3.2(b) / CWTutorLayers）；正式局照常写数字
 	row["energy"].text = CWTutorLayers.energy_text(maxi(cell["energy"], 0))
+	var flash: Array = _energy_flash.get(pid, [0, true])
 	row["energy"].add_theme_color_override("font_color",
-		CWStyle.TEXT_OFF if dead else CWStyle.TEXT_HI)
+		energy_color(dead, _flash_age(pid), bool(flash[1])))
 	row["income"].text = "" if dead else income_text(m, cell)
 	## 手牌方块：持有的填阵营色，其余留描边色
 	_set_pips(row, cell["hand"].size(), CWStyle.TEXT_OFF if dead else faction_color)

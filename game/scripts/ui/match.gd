@@ -178,6 +178,8 @@ const CELL_FOOT_DY := 6.0
 const STACK_DX := 9.0
 ## 普通攻击的本体冲撞（队友 PR #30）：没有 class_name —— 新类名热更装不上，所以走 preload
 const ATTACK_FX := preload("res://scripts/ui/attack_fx.gd")
+## 能量增损的飘字（issue #48）。同样**没有 class_name**（热更装不上新全局类），见那个文件的头注
+const ENERGY_FX := preload("res://scripts/ui/energy_fx.gd")
 ## 教程的四件（新手教程 v2 · S1）。**一律 preload、都没有 class_name**（方案 §1.5：
 ## 剧本 / 导演 / 闸天天在改，补丁里新增的 class_name 进不了热更）
 const TUTOR_STAGE := preload("res://scripts/kernel/cw_tutorial_stage.gd")
@@ -359,6 +361,14 @@ var _beam_fx: CWBeamFx         ## T【Excalibur】的双螺旋光束
 var _chain_fx: CWChainFx       ## 巨噬【连续吞噬】的每一口
 var _skill_fx: CWSkillFx       ## 一次性技能演出的合集（issue #15）
 var _attack_fx: Node2D          ## 普通攻击的本体冲撞（PR #30）。**没有 class_name**（要走热更），见 ATTACK_FX
+var _energy_fx: Node2D          ## 能量增损的飘字（issue #48），同样没有 class_name，见 ENERGY_FX
+## 上一帧各细胞的能量，下标 = cell id；差分出来的变化就是 issue #48 要演的那件事。
+## `ENERGY_FX.UNSEEN` = 还没见过（新建 / 死着 / 刚复活），这一帧只记不演
+var _last_energy: Array[int] = []
+## 上一帧各格的组织，用来认出**固化癌组织的生成 / 解除**（issue #52 与 #53 ⑥）。
+## 同传送溶解那条先例：引擎零改动、不加报文，进 / 出 `Tissue.SOLID` 全靠差分。
+## 空 = 还没见过（开新局 / 拆局后的第一帧），那一帧只记不演
+var _last_tissue := {}
 var _decos: Array = []         ## 下标同 _cell_nodes：每只细胞 [背面, 正面] 两个 CWCellDeco（囊性护甲 / 刚性屏障 / 头顶标记）
 var _seal_fx: CWSealFx         ## B【中和抗体】的投递与封禁环（后者常驻，见 _sync_seal）
 ## 【E-侵蚀】的两帧过场。不是节点：它只决定「这一格这一帧画哪张图」，由 _sync_tiles 落实
@@ -428,6 +438,10 @@ func _ready() -> void:
 		_attack_fx = ATTACK_FX.new()
 		_attack_fx.z_index = board.Z_OVER_BOARD
 		board.add_child(_attack_fx)
+		## 能量飘字（issue #48）：字在细胞头顶，压在所有格子之上
+		_energy_fx = ENERGY_FX.new()
+		_energy_fx.z_index = board.Z_OVER_BOARD
+		board.add_child(_energy_fx)
 		_tile_info = CWTileInfo.new()
 		ui.add_child(_tile_info)
 		if pause_menu != null:
@@ -1482,6 +1496,8 @@ func teardown() -> void:
 	_was_alive.clear()
 	_ever_alive.clear()
 	_last_pos.clear()
+	_last_energy.clear()
+	_last_tissue.clear()   ## 差分是按格记的：留着的话下一局同一格会凭空演一次固化（同 _flash 当年那条）
 	_bloom.clear()
 	_flash.clear()
 	board.set_active_radius(CWData.BOARD_RADIUS, 0.0)   ## 兜底：不管从哪条路拆局，棋盘都回到 127 格全露
@@ -1629,6 +1645,8 @@ func _process(delta: float) -> void:
 		_chain_fx.sync(delta)
 	if _skill_fx != null:
 		_skill_fx.sync(delta)
+	if _energy_fx != null:
+		_energy_fx.sync(delta)
 	_sync_seal(delta)
 	_sync_hand()
 	if panel != null:
@@ -1664,10 +1682,17 @@ func _process(delta: float) -> void:
 		_sync_tutor_layers()
 
 
+## 一帧里固化格变了超过这么多就只记不演（issue #52）：联机快照回灌 / 存档 restore / 开新局
+## 都会一口气翻一片，那不是「刚刚发生了一件事」，演出来只会满屏炸。
+const SOLID_FX_MAX := 3
+
+
 func _sync_tiles() -> void:
 	var marks := {}
 	var mucus: Array[Vector2i] = []
 	var necro: Array[Vector2i] = []
+	## 这一帧进 / 出固化的格：[格, 是不是刚固化]。收齐了再一起决定演不演（见 SOLID_FX_MAX）
+	var solid_changed: Array = []
 	## 破裂开演的**那一帧**把「已经在地上的」记下来：液浪只管这次新铺的那一圈（issue #34）。
 	## 记的是上一帧真画出来的那批 —— 引擎这一帧已经把新格标成黏液了，现读就分不出新旧
 	var bursting: bool = _mucus_fx != null and _mucus_fx.active()
@@ -1678,6 +1703,14 @@ func _sync_tiles() -> void:
 	_mucus_bursting = bursting
 	for c: Vector2i in mirror.tiles:
 		var t: Dictionary = mirror.tiles[c]
+		## 固化癌组织的生成 / 解除（issue #52 与 #53 ⑥）：**镜像差分**认出进 / 出 SOLID 的那一格，
+		## 引擎与协议一字不动（同 CWTeleportFx 那条先例）。走的是**引擎的** tissue 而不是下面
+		## 那个画出来的 —— 开场绽开期间画的是健康组织，拿画面差分的话绽开放开那一刻满盘固化格会齐炸一次。
+		var now_solid: int = int(t["tissue"])
+		if _last_tissue.has(c) and int(_last_tissue[c]) != now_solid \
+				and (now_solid == CWData.Tissue.SOLID or int(_last_tissue[c]) == CWData.Tissue.SOLID):
+			solid_changed.append([c, now_solid == CWData.Tissue.SOLID])
+		_last_tissue[c] = now_solid
 		## 癌蔓延过场（侵蚀 / 增生 / 定殖共用）：引擎早就把这一格翻成癌了，但玩家还没看见「癌是从哪边漫过来的」。
 		## 过场这 0.32 秒里改画过场图 —— 不加覆盖层，所以不会和高亮剪影抢 Z_MARK。
 		## 演完 frame_of() 返回 null，下面那行自然把它换成癌组织，不需要收尾代码。
@@ -1725,6 +1758,13 @@ func _sync_tiles() -> void:
 	for c: Vector2i in mucus:
 		_mucus_shown[c] = true
 	board.set_necrosis(necro)
+	## 生成 = 粒子聚拢成固化的六边形纹理；解除 = 纹理散成同样的粒子飞开（issue #52 / #53 ⑥）。
+	## z 取 tile_z(格, Z_MARK)：这是**地上那块组织**，不该盖住站在上面的细胞
+	if _skill_fx != null and not solid_changed.is_empty() and solid_changed.size() <= SOLID_FX_MAX:
+		for e in solid_changed:
+			var at: Vector2i = e[0]
+			_skill_fx.play("solid_form" if bool(e[1]) else "solid_break",
+				{ "at": board.tile_center(at), "z": board.tile_z(at, board.Z_MARK) })
 
 
 ## 这一格的黏液这一帧画不画（issue #34）：破裂之前就在地上的照画，
@@ -1907,6 +1947,10 @@ func _sync_cells() -> void:
 		var carried: Variant = _skill_fx.carry_pos(i) if _skill_fx != null else null
 		if carried != null:
 			foot = carried
+		## 抗体打在身上的那一下震动（issue #53 ①）：同样由演出层代管偏移，
+		## 叠在最后 —— 被伪足拉着走的时候也该抖
+		if _skill_fx != null:
+			foot += _skill_fx.shake_offset(top + Vector2(0, CELL_FOOT_DY))
 		node.position = foot
 		node.z_index = board.tile_z(pos, board.Z_CELL)
 		## 装饰跟着走：位置是格顶面中心（选稿的坐标系）+ 同格错位，z 夹着细胞节点一前一后
@@ -1919,6 +1963,17 @@ func _sync_cells() -> void:
 			deco.z_index = node.z_index + (1 if side == 1 else -1)
 			## 小盾轨道要绕胞体中心转（Kevin 2026-09-12），装饰得知道这只细胞的贴图多高
 			deco.half_h = tex.get_height() / 2.0 if tex != null else 17.0
+		## 能量增损的飘字（issue #48）：**镜像差分**，引擎零改动、不加报文，
+		## 于是凡是改能量的事件（收入 / 伤害 / 反弹 / 迁移费 / 卡牌 / 过载…）一条不漏。
+		## 刚复活的那一跳不演（那是「凭空出现」，走 _pop_in），教程的无限能量也不演。
+		var e: int = int(c["energy"])
+		if _energy_fx != null and _last_energy[i] != ENERGY_FX.UNSEEN and e != _last_energy[i] \
+				and not became_alive and CWTutorLayers.energy_mode() != "infinite":
+			var head: float = float(tex.get_height()) if tex != null else 34.0
+			_energy_fx.push(i, foot - Vector2(0, head + 4.0), e - _last_energy[i])
+			if panel != null:
+				panel.bump_energy(int(c["pid"]), e > _last_energy[i])
+		_last_energy[i] = e
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"])
 			_sync_doom(node as Sprite2D, c)
@@ -1958,9 +2013,21 @@ func _play_teleports(jumps: Array) -> void:
 			_flash[from] = FLASH_TIME
 			_flash[to] = FLASH_TIME
 			delay = CWTeleportFx.VESSEL_LEAD
+		## 【早期血行转移】跟着血流走（issue #53 ④「癌细胞在粒子流发射后就应该缩小消失，
+		## 发射到目标后在目标格放大出现」）：这一跳如果正配着一条血行转移的血流，
+		## 就把离场推到**血流出发**那一刻、落场推到**血流落地**那一刻，中间那一秒细胞是不在场的。
+		## 演出层只认像素，所以拿两格的像素去问 CWSkillFx。别的传送（紊乱 / 血管互换 / 卡）照旧。
+		var lag := CWTeleportFx.LAG
+		var shrink := false
+		var homing: float = _skill_fx.homing_elapsed(board.tile_center(from), board.tile_center(to)) \
+			if _skill_fx != null else -1.0
+		if homing >= 0.0:
+			delay = maxf(CWSkillFx.HOMING_LAUNCH - homing, 0.0)
+			lag = CWSkillFx.HOMING_LAND - CWSkillFx.HOMING_LAUNCH
+			shrink = true
 		_teleport_fx.play(_cells_root, _cell_nodes[i] as Sprite2D, i, j["ghost_pos"], int(j["ghost_z"]),
 			CWTeleportFx.edge_for(int(mirror.cells[i]["faction"])), delay,
-			func() -> void: _flash[to] = FLASH_TIME)
+			func() -> void: _flash[to] = FLASH_TIME, lag, shrink)
 
 
 ## 手牌抽屉。抽到的卡从**发起抽卡的那个细胞**身上飞出来 ——
@@ -2094,6 +2161,7 @@ func _make_cell_node(cell: Dictionary) -> Node2D:
 	_was_alive.append(false)   ## 下一次 _sync_cells 就会认出「刚出现」并淡入
 	_ever_alive.append(false)
 	_last_pos.append(cell["pos"])
+	_last_energy.append(ENERGY_FX.UNSEEN)   ## 差分要有上一帧才成立：第一帧只记不演（issue #48）
 	return node
 
 
@@ -2117,7 +2185,7 @@ func _clear_board_fx() -> void:
 ## 只会在某一局的菜单背景里留下半透明的粒子。各层类型不同，按 Variant 用。
 func _board_fx_layers() -> Array:
 	var out: Array = []
-	for fx in [_skill_fx, _chain_fx, _beam_fx, _mucus_fx, _hunt_fx, _attack_fx,
+	for fx in [_skill_fx, _chain_fx, _beam_fx, _mucus_fx, _hunt_fx, _attack_fx, _energy_fx,
 			_seal_fx, _chemo_fx, _chemo_track_fx, _mark_aura_fx]:
 		if fx != null and is_instance_valid(fx):
 			out.append(fx)

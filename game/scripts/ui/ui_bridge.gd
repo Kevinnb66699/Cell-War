@@ -1086,13 +1086,20 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 
 ## Excalibur 的光束过场：把轴坐标换成棋盘像素，交给演出层。
 ## 队列会 await 它，但只等 BLOCK_BEAM_MS（蓄力 + 推到底）—— 余下那 1.3 s 的波及与散场自己演完。
+##
+## issue #53 ⑧「Excalibur 应该从细胞表面上下中心表面发出」：起点由格顶面中心改成**胞体中心**
+## （脚底再往上半个贴图高，同 FX_BODY_CENTER 那几种），光束的起手偏移改成**胞体半径** ——
+## 光芯于是正好从细胞轮廓上离开，而不是从脚底往外 16px 凭空冒出来。
+## 落点与侧向波及仍是格位：它们打的是地面上的组织。
 func show_beam(from: Vector2i, to: Vector2i, splash: Array) -> void:
 	if beam_fx == null or board == null:
 		return
 	var pts: Array[Vector2] = []
 	for c in splash:
 		pts.append(board.tile_center(c))
-	beam_fx.play(board.tile_center(from), board.tile_center(to), pts)
+	var half := _half_h(from)
+	var body: Vector2 = board.tile_center(from) + Vector2(0, CWMatch.CELL_FOOT_DY - half)
+	beam_fx.play(body, board.tile_center(to), pts, half)
 	await _block(BLOCK_BEAM_MS)
 
 
@@ -1112,11 +1119,23 @@ const FX_BODY_KEYS := {
 }
 ## 要对准**胞体中心**的那几种（issue #26，HXR-I：有氧 / 无氧的粒子对着脚底收拢看着错位、堆在细胞贴图上一点很诡异；
 ## 伪足要抓的也是胞体）：另给一份 `<键>_body`（脚底再往上半个贴图高）和 `r`（半个贴图高，当胞体半径用）。
-## 原键照旧是脚底 —— 十三种演出里只这三种改用胞体中心，其余仍是选稿的脚底坐标，一个像素不动。
-const FX_BODY_CENTER := { "respire": ["at"], "anaerobic": ["at"], "pseudopod": ["from"] }
+## 原键照旧是脚底 —— 演出层没拿到 `_body` 就退回选稿的脚底老画法，一个像素不动。
+##
+## 2026-09-19（issue #53 ①②⑤⑦）再添六种：抗体 / 裂解从**细胞中心**发出（原来从脚底，
+## 看着是从肚子底下射出来的）、分化与突变的粒子中心对胞体（突变原来整束落在细胞下半身）、
+## 复活那两条同理。数组键（抗体的 `targets`）给的是一串 `_body`，各按自己那格的贴图高算。
+const FX_BODY_CENTER := {
+	"respire": ["at"], "anaerobic": ["at"], "pseudopod": ["from"],
+	"antibody": ["from", "targets"], "lyse": ["from"], "differentiate": ["at"],
+	"mutate": ["at"], "revive_immune": ["at"], "revive_cancer": ["at"],
+}
 ## 那一格上站着的细胞贴图有多高（半高）。由 CWMatch 注入 —— 只有它认得细胞节点；
 ## 没注入（无界面跑测试）按 24px 贴图算。
 var cell_half_height: Callable
+
+
+func _half_h(c: Vector2i) -> float:
+	return float(cell_half_height.call(c)) if cell_half_height.is_valid() else 12.0
 
 
 ## 技能演出（issue #15）：把引擎给的轴坐标换成棋盘像素再交给演出层。
@@ -1154,9 +1173,23 @@ func show_fx(kind: String, data: Dictionary) -> void:
 	for key in FX_BODY_CENTER.get(kind, []):
 		var c: Variant = data.get(key)
 		if c is Vector2i:
-			var half: float = float(cell_half_height.call(c)) if cell_half_height.is_valid() else 12.0
+			var half: float = _half_h(c)
 			out[key + "_body"] = board.tile_center(c) + Vector2(0, CWMatch.CELL_FOOT_DY - half)
 			out["r"] = half
+		elif c is Array:
+			## 一串细胞（抗体的 targets）：各按自己那格的贴图高算，不共用一个 r
+			var pts: Array = []
+			for e in c:
+				if e is Vector2i:
+					pts.append(board.tile_center(e) + Vector2(0, CWMatch.CELL_FOOT_DY - _half_h(e)))
+			out[key + "_body"] = pts
+	## 细胞毒素走地面贴花（issue #53 ③）：一格一个节点，各拿自己那格的 z（比自己那格高、比细胞低）
+	if kind == "toxin" and data.get("tiles") is Array:
+		var zs: Array = []
+		for c in data["tiles"]:
+			if c is Vector2i:
+				zs.append(board.tile_z(c, board.Z_MARK))
+		out["tiles_z"] = zs
 	## 伪足穿透另留新格的轴坐标：定殖过场（show_erosion）要问「细胞几秒到这一格」（issue #29）
 	if kind == "pseudopod" and data.get("to") is Vector2i:
 		out["to_tile"] = data["to"]
