@@ -1,0 +1,320 @@
+[
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/chemo_recruit/free_move/two_steps_onto_core",
+  "op": "execute",
+  "covers": [
+   "t_card_choices::趋化募集：两步走上代谢核心，免费且照常收取 1.0"
+  ],
+  "source": "headless_test.gd:t_card_choices ①【趋化募集】。抽卡（第一笔带子 = I 级池总权重 35）抽到它 → 两步免费连走上代谢核心 0,-3。核心 store 10 被收走（$.board.tiles@0,-3.store → 0），energy 300−5（抽卡）+10（核心）= 305 —— 免费且照常收取 1.0。相邻的 1,-1 是癌组织、不在候选里（只进健康组织）。这条同时顶掉批 1 F10 登记的「enter_tile 的 free 档」。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "0,-3",
+     "store": 10
+    },
+    {
+     "at": "1,-1",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,-1",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    35,
+    35
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw",
+   "answers": "k=free_move|g=趋化募集|to=0,-2;k=free_move|g=趋化募集|to=0,-3"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@0,-3.cell": 0,
+    "$.board.tiles@0,-3.d.store_fraction": 0,
+    "$.board.tiles@0,-3.store": 0,
+    "$.board.tiles@0,-1.cell": -1,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 305,
+    "$.cells[0].pos.r": -3,
+    "$.g.feed_log": [
+     {
+      "card": "趋化募集",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/effector_infiltration/free_move/into_cancer_purify",
+  "op": "execute",
+  "covers": [],
+  "source": "【效应细胞浸润】的 into_cancer 分支：第 1 步进普通癌组织触发净化（tissue → 0）、第 2 问答停。⚠ covers 空：老断言 t_card_choices:13446 断的是 g.memory == mem0 + 1，它直调 resolve_event（depth 0）；走真正的抽卡路时 cw_cards.draw 先 card_resolve_depth += 1，净化就**不给**记忆 —— L0 复现不了那一半，本条只钉净化本身，记忆那半登记空档 effector-infiltration-memory-depth。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "3,0",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "2,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    47,
+    25
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw",
+   "answers": "k=free_move|g=效应细胞浸润|to=3,0;k=free_move|g=效应细胞浸润|stop=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@2,0.cell": -1,
+    "$.board.tiles@2,0.d.proliferate_chance": 0,
+    "$.board.tiles@2,1.d.proliferate_chance": 0,
+    "$.board.tiles@3,-1.d.proliferate_chance": 0,
+    "$.board.tiles@3,0.cell": 0,
+    "$.board.tiles@3,0.tissue": 0,
+    "$.board.tiles@3,1.d.proliferate_chance": 0,
+    "$.board.tiles@4,-1.d.proliferate_chance": 0,
+    "$.board.tiles@4,0.d.proliferate_chance": 0,
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.cells[0].pos.q": 3,
+    "$.g.feed_log": [
+     {
+      "card": "效应细胞浸润",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/inflammatory_chemotaxis/free_move/purify_no_memory",
+  "op": "execute",
+  "covers": [
+   "t_card_choices::第一步进癌组织触发净化（打出的卡引发：不给抗原记忆）",
+   "t_draw_purify_memory::卡牌引发的净化：不给记忆，日志写明原因（",
+   "t_draw_purify_memory::该净化的还是净化了，只是不给记忆",
+   "t_draw_purify_memory::打出的卡引发的净化：同样不给记忆"
+  ],
+  "source": "同上，落点 1,0 是普通癌组织：第一步进癌组织触发【净化】（$.board.tiles@1,0.tissue → 0），而 $.g.memory **不在** changed 里 —— 整集合比的另一半正是「打出的卡引发的净化不给抗原记忆」（card_resolve_depth 由真打出推上去，不需要新键）。日志文案那半留 GD。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "1,0",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "炎症性趋化"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=炎症性趋化|to=1,0",
+   "answers": "k=free_move|g=炎症性趋化|stop=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@0,0.cell": -1,
+    "$.board.tiles@0,0.d.proliferate_chance": 0,
+    "$.board.tiles@0,1.d.proliferate_chance": 0,
+    "$.board.tiles@1,-1.d.proliferate_chance": 0,
+    "$.board.tiles@1,0.cell": 0,
+    "$.board.tiles@1,0.tissue": 0,
+    "$.board.tiles@1,1.d.proliferate_chance": 0,
+    "$.board.tiles@2,-1.d.proliferate_chance": 0,
+    "$.board.tiles@2,0.d.proliferate_chance": 0,
+    "$.cells[0].energy": 298,
+    "$.cells[0].hand": [],
+    "$.cells[0].pos.q": 1,
+    "$.g.feed_log": [
+     {
+      "card": "炎症性趋化",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/inflammatory_chemotaxis/free_move/stop_at_step2",
+  "op": "execute",
+  "covers": [
+   "t_card_choices::只走一步只扣 0.2，结算后弃置"
+  ],
+  "source": "headless_test.gd:t_card_choices ⑤【炎症性趋化】。打出 → 第 1 步走到 1,0（卡面基准 0.2）→ 第 2 问答「停」。中途询问折进同一个 op（args.answers 的语义键串）：GD 挂 tests/l0_answer_bridge.gd 按语义键作答，C# 逐条 GetAvailableDecisions → SemanticKey.Of → ExecuteDecision。energy 300→298 = 只走一步只扣 0.2；hand [] = 结算后弃置。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "炎症性趋化"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=炎症性趋化|to=1,0",
+   "answers": "k=free_move|g=炎症性趋化|stop=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@0,0.cell": -1,
+    "$.board.tiles@1,0.cell": 0,
+    "$.cells[0].energy": 298,
+    "$.cells[0].hand": [],
+    "$.cells[0].pos.q": 1,
+    "$.g.feed_log": [
+     {
+      "card": "炎症性趋化",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ }
+]

@@ -1,0 +1,125 @@
+[
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/discard/anytime",
+  "op": "execute",
+  "covers": [
+   "t_card_instants::弃牌：随时可弃"
+  ],
+  "source": "弃牌随时可弃：k=action|act=discard|card=… （与手牌上限那一问是两路，SemanticKey.cs:DiscardDecision 分叉）。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "补体级联",
+      "缺氧适应"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=discard|card=缺氧适应"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].hand": [
+     "补体级联"
+    ]
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/mutate/face2_draw_and_cut_memory",
+  "op": "execute",
+  "covers": [
+   "t_mutation_faces::第 2 面：抽 1 张、削 1 抗原记忆（手牌"
+  ],
+  "source": "【突变】掷 3 面得 2：抽 1 张（第二笔带子 = 癌症 I 期池 51）+ 削 1 抗原记忆。批 2 清单让过来的 10 条里唯一落在候选函数之外的一条。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I",
+     "memory": 5
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ],
+   "seat": 1
+  },
+  "rolls": [
+   [
+    1,
+    3,
+    2
+   ],
+   [
+    1,
+    51,
+    1
+   ]
+  ],
+  "args": {
+   "seat": "1",
+   "key": "k=action|act=mutate"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[1].d.overload_loss": 147,
+    "$.cells[1].energy": 295,
+    "$.cells[1].hand": [
+     "BCL-2抗凋亡"
+    ],
+    "$.cells[1].mutate_used": true,
+    "$.g.memory": 4
+   },
+   "ignore": []
+  }
+ }
+]

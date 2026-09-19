@@ -1,0 +1,67 @@
+[
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/effector/neutralize/adjacent_healthy",
+  "op": "execute",
+  "covers": [
+   "t_effector_responses::每个细胞每局只有 1 次",
+   "t_effector_responses::免疫方每个世界回合只有 1 次",
+   "t_effector_responses::扣 15 效应记忆（余",
+   "t_effector_responses::被中和：种类特殊效果失效",
+   "t_effector_responses::被中和：永久卡牌效果一并失效"
+  ],
+  "source": "【效应应答·中和抗体】（B 细胞）：与健康组织相邻的癌细胞种类特殊效果 / 永久卡效果失效到下一回合末。一条就钉住 5 个断言：effector_used（每个细胞每局 1 次）/ $.g.effector_round（免疫方每世界回合 1 次）/ $.g.memory 25→5（扣 20 效应记忆，老断言名写的还是 15）/ 目标的 neutral_until。⚠ 卡在硬约定 T4「记忆一律压在 10 以下」：CWData.EFFECTOR_COST = 20，盘面非给 ≥20 不可，两条互斥。P2 已在副本上两侧同跑绿；level 在盘面上钉死为 X、这一步只 reduce_memory（GD 的门槛表只在 gain_memory 里查），所以 T4 要防的「两侧门槛表不同」在这条路上碰不到。批准放宽即可直接移进 batch5c/ 并把 effector/neutralize 档放回契约表。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "X",
+     "memory": 25
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "2,0",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "BCell",
+     "at": "0,0",
+     "energy": 300,
+     "differentiated": true
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "2,0",
+     "energy": 300
+    }
+   ],
+   "round": 3
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=effector"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].effector_used": true,
+    "$.cells[1].neutral_until": 4,
+    "$.g.effector_round": 3,
+    "$.g.memory": 5
+   },
+   "ignore": []
+  }
+ }
+]

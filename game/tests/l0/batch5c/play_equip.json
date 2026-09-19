@@ -1,0 +1,426 @@
+[
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/equip/permanent_to_panel",
+  "op": "execute",
+  "covers": [
+   "t_card_perms::打出即装备至角色面板"
+  ],
+  "source": "headless_test.gd:t_card_perms ①。永久技能无目标、打出即装备：$.cells[0].equipped 与 equip_seq 进 delta，手牌清空。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "组织驻留"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=组织驻留"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].equip_seq.组织驻留": 1,
+    "$.cells[0].equipped": [
+     "组织驻留"
+    ],
+    "$.cells[0].hand": [],
+    "$.cells[0].play_n": 1,
+    "$.g.feed_log": [
+     {
+      "card": "组织驻留",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.cells[0].equip_seq": null
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/equip/same_seq_ruler",
+  "op": "execute",
+  "covers": [
+   "t_card_mods::永久技能与即时卡盖在同一把尺上（装备在前）"
+  ],
+  "source": "盘面先把【组织驻留】装好（equip_seq 1），这一步打【CXCR3趋化】⇒ 即时卡的 mods.seq 排在 equip_seq 之后 —— 永久技能与即时卡盖在同一把尺上、装备在前。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "CXCR3趋化"
+     ],
+     "equipped": [
+      "组织驻留"
+     ],
+     "equip_seq": {
+      "组织驻留": 1
+     }
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=CXCR3趋化"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].hand": [],
+    "$.cells[0].mods[CXCR3趋化].name": "CXCR3趋化",
+    "$.cells[0].mods[CXCR3趋化].seq": 1,
+    "$.cells[0].mods[CXCR3趋化].until": "turn",
+    "$.cells[0].mods[CXCR3趋化].uses": 2,
+    "$.cells[0].play_n": 1,
+    "$.g.feed_log": [
+     {
+      "card": "CXCR3趋化",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/equip/cytokine_primes_on_play",
+  "op": "execute",
+  "covers": [
+   "t_card_perms::打完即时卡：网络上膛"
+  ],
+  "source": "【细胞因子网络】装备者打完即时卡 ⇒ 挂一条「细胞因子网络·待发」mods（E-2 路由表的 Route.Cytokine 就是为它开的）。⚠ 卡在 T8：equipped 要写【细胞因子网络】。副本上两侧已绿。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 2,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "细胞膜修复"
+     ],
+     "equipped": [
+      "细胞因子网络"
+     ],
+     "equip_seq": {
+      "细胞因子网络": 1
+     }
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "3,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=细胞膜修复"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].hand": [],
+    "$.cells[0].mods[细胞膜修复].name": "细胞膜修复",
+    "$.cells[0].mods[细胞膜修复].seq": 1,
+    "$.cells[0].mods[细胞膜修复].until": "",
+    "$.cells[0].mods[细胞膜修复].uses": 1,
+    "$.cells[0].mods[细胞因子网络·待发].name": "细胞因子网络·待发",
+    "$.cells[0].mods[细胞因子网络·待发].seq": 2,
+    "$.cells[0].mods[细胞因子网络·待发].until": "round",
+    "$.cells[0].mods[细胞因子网络·待发].uses": 1,
+    "$.cells[0].play_n": 2,
+    "$.g.feed_log": [
+     {
+      "card": "细胞膜修复",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/equip/cytokine_self_does_not_fire",
+  "op": "execute",
+  "covers": [
+   "t_card_perms::自己连打不触发自己的网络（「下一名」），也不重复上膛"
+  ],
+  "source": "盘面先挂好「细胞因子网络·待发」，装备者自己再打一张即时卡：不触发自己的网络（「下一名」）、也不重复上膛。⚠ 卡在 T8（equipped 要写【细胞因子网络】）。副本上两侧已绿。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 2,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "缺氧适应"
+     ],
+     "equipped": [
+      "细胞因子网络"
+     ],
+     "equip_seq": {
+      "细胞因子网络": 1
+     },
+     "mods": [
+      {
+       "name": "细胞因子网络·待发",
+       "uses": 1,
+       "until": "round",
+       "seq": 1
+      }
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "3,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=缺氧适应"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].hand": [],
+    "$.cells[0].mods[缺氧适应].name": "缺氧适应",
+    "$.cells[0].mods[缺氧适应].seq": 1,
+    "$.cells[0].mods[缺氧适应].until": "",
+    "$.cells[0].mods[缺氧适应].uses": 1,
+    "$.cells[0].play_n": 1,
+    "$.g.feed_log": [
+     {
+      "card": "缺氧适应",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/equip/cytokine_next_cell_gains",
+  "op": "execute",
+  "covers": [
+   "t_card_perms::下一名免疫细胞结算完即时卡：+0.5，网络消耗"
+  ],
+  "source": "另一名免疫细胞（席位 1）结算完即时卡：+0.5，上膛的网络被消耗。⚠ 卡在 T8（equipped 要写【细胞因子网络】）。副本上两侧已绿。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 2,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "equipped": [
+      "细胞因子网络"
+     ],
+     "equip_seq": {
+      "细胞因子网络": 1
+     },
+     "mods": [
+      {
+       "name": "细胞因子网络·待发",
+       "uses": 1,
+       "until": "round",
+       "seq": 1
+      }
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "3,0",
+     "energy": 300,
+     "hand": [
+      "细胞膜修复"
+     ]
+    },
+    {
+     "seat": 2,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ],
+   "seat": 1
+  },
+  "rolls": [],
+  "args": {
+   "seat": "1",
+   "key": "k=action|act=play|card=细胞膜修复"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[1].energy": 305,
+    "$.cells[1].hand": [],
+    "$.cells[1].mods[细胞膜修复].name": "细胞膜修复",
+    "$.cells[1].mods[细胞膜修复].seq": 1,
+    "$.cells[1].mods[细胞膜修复].until": "",
+    "$.cells[1].mods[细胞膜修复].uses": 1,
+    "$.cells[1].play_n": 1,
+    "$.g.feed_log": [
+     {
+      "card": "细胞膜修复",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 1,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.cells[0].mods[细胞因子网络·待发].name": null,
+    "$.cells[0].mods[细胞因子网络·待发].seq": null,
+    "$.cells[0].mods[细胞因子网络·待发].until": null,
+    "$.cells[0].mods[细胞因子网络·待发].uses": null
+   },
+   "ignore": []
+  }
+ }
+]

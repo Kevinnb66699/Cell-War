@@ -1,0 +1,383 @@
+[
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/pool/cancer_phase_one_span",
+  "op": "execute",
+  "covers": [
+   "t_card_pool::癌症池第"
+  ],
+  "source": "同上，癌症池不分等级、按肿瘤分期：第 1 世界回合 = I 期，总权重 51。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Melanoma"
+    },
+    {
+     "seat": 2,
+     "faction": "immune",
+     "level": "I"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Osteosarcoma",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Melanoma",
+     "at": "2,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "ImmuneBasic",
+     "at": "5,0",
+     "energy": 300
+    }
+   ],
+   "round": 1
+  },
+  "rolls": [
+   [
+    1,
+    51,
+    51
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 305,
+    "$.cells[1].energy": 310,
+    "$.g.feed_log": [
+     {
+      "card": "肿瘤血管生成",
+      "faction": 1,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/pool/equipped_permanent_excluded",
+  "op": "execute",
+  "covers": [
+   "t_card_pool::已装备的同名永久技能 → 抽不到",
+   "t_card_perms::已装备的同名永久技能不再进抽卡候选"
+  ],
+  "source": "已装备的同名【永久技能】（组织驻留，I 级权重 3）⇒ 从候选剔除，跨度 35→32。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I",
+     "memory": 2
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "equipped": [
+      "组织驻留"
+     ],
+     "equip_seq": {
+      "组织驻留": 1
+     }
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    32,
+    15
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.g.feed_log": [
+     {
+      "card": "抗原摄取",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.memory": 3
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/pool/immune_level_one_span",
+  "op": "execute",
+  "covers": [
+   "t_card_pool::免疫",
+   "t_card_pool::I 级池有"
+  ],
+  "source": "卡池大小由**带子跨度**钉死：I 级免疫池总权重 35（cw_cards.gd:pick 的 randi_range(1,total) ↔ C# CardRules.PickWeighted 的 NextInt(total)）。两侧候选集不一样大时 TapeRng 在结算之前就报 RNG_SPAN。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I",
+     "memory": 2
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    35,
+    15
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.g.feed_log": [
+     {
+      "card": "抗原摄取",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.memory": 3
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/pool/same_skill_in_hand_excluded",
+  "op": "execute",
+  "covers": [
+   "t_card_pool::手上已有同名技能 → 抽不到",
+   "t_card_pool::事件卡不受同名限制"
+  ],
+  "source": "手上已有同名【技能】（补体调理，I 级权重 4）⇒ 从候选剔除，跨度 35→31；而【事件】不受同名限制 —— 这一步照样抽到事件卡【抗原摄取】。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I",
+     "memory": 2
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "补体调理"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    31,
+    15
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.g.feed_log": [
+     {
+      "card": "抗原摄取",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.memory": 3
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/pool/skills_drained_events_only",
+  "op": "execute",
+  "covers": [
+   "t_card_pool::技能抽干后只剩事件卡"
+  ],
+  "source": "I 级池 7 张技能全在手上 ⇒ 候选只剩 4 张事件卡，跨度收缩到 12。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I",
+     "memory": 2
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "代谢适应",
+      "局部吞噬",
+      "模式识别增强",
+      "炎症趋化",
+      "细胞膜修复",
+      "组织驻留",
+      "补体调理"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    12,
+    10
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.g.feed_log": [
+     {
+      "card": "抗原摄取",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.memory": 3
+   },
+   "ignore": []
+  }
+ }
+]

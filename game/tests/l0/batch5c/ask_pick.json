@@ -1,0 +1,320 @@
+[
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/genome_instability/pick/nothing_happens",
+  "op": "execute",
+  "covers": [
+   "t_card_choices::基因组不稳定：免费（不扣 0.5）也不占每回合的突变次数",
+   "t_card_choices::第 5 回合也两掷二选一（不再挂第 20 回合）",
+   "t_card_choices::挑了「无事发生」→ 什么都没发生"
+  ],
+  "source": "headless_test.gd:t_card_choices【基因组不稳定】。第 5 世界回合抽到它（癌症池 I 期总权重 51）→ 两掷 3 面（1 与 3）、答 r=1「无事发生」：什么都没发生。免费 —— energy 只掉抽卡那一笔（不扣 0.5），mutate_used 不在 changed 里 = 不占每回合的突变次数。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "I"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Osteosarcoma",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "5,0",
+     "energy": 300
+    }
+   ],
+   "round": 5
+  },
+  "rolls": [
+   [
+    1,
+    51,
+    33
+   ],
+   [
+    1,
+    3,
+    1
+   ],
+   [
+    1,
+    3,
+    3
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw",
+   "answers": "k=pick|g=基因组不稳定|r=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 142,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 290,
+    "$.g.feed_log": [
+     {
+      "card": "基因组不稳定",
+      "faction": 1,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/genome_instability/pick/third_face_real_numbers",
+  "op": "execute",
+  "covers": [
+   "t_card_choices::二选一第三档写的就是真扣的数（",
+   "t_card_choices::不再是写死的旧数字 1.0 / 3（实为「"
+  ],
+  "source": "同上，答 r=3：真扣的是 CWData.MUTATE_EXTRA_LOSS=0.8 能量 + MUTATE_MEMORY_CUT=2 记忆，不是卡面旧写的 1.0 / 3 —— 两个数都落在 delta 上（energy、$.g.memory）。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "I",
+     "memory": 5
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Osteosarcoma",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "5,0",
+     "energy": 300
+    }
+   ],
+   "round": 5
+  },
+  "rolls": [
+   [
+    1,
+    51,
+    33
+   ],
+   [
+    1,
+    3,
+    1
+   ],
+   [
+    1,
+    3,
+    3
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw",
+   "answers": "k=pick|g=基因组不稳定|r=3"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 135,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 282,
+    "$.g.feed_log": [
+     {
+      "card": "基因组不稳定",
+      "faction": 1,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.memory": 3
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/metabolic_coupling/pick/cancel_at_direction",
+  "op": "execute",
+  "covers": [
+   "t_card_choices::取消（第"
+  ],
+  "source": "同上，第一问答「取消」（k=pick|g=代谢耦联|stop=1）：两边能量一分不动、**卡不弃置**（$.cells[0].hand 不在 changed 里）。delta 只剩 feed_log / feed_seq 那两条打牌流水。两条同名 check（取消（第 1/2 问）），闸三按名字去重。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 2,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "代谢耦联"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "2,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=代谢耦联|cid=1",
+   "answers": "k=pick|g=代谢耦联|stop=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.g.feed_log": [
+     {
+      "card": "代谢耦联",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/metabolic_coupling/pick/direction_then_tier",
+  "op": "execute",
+  "covers": [
+   "t_card_choices::转出 1.5、接收方得 2.0",
+   "t_card_choices::结算完才弃置"
+  ],
+  "source": "headless_test.gd:t_card_choices【代谢耦联】。两问 pick（方向 from/to_cid → 数额 pay/get），答第二档：转出 1.5（$.cells[0].energy 300→285）、接收方得 2.0（$.cells[1].energy 300→320）；hand [] = 结算完才弃置。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 2,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "代谢耦联"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "2,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=代谢耦联|cid=1",
+   "answers": "k=pick|g=代谢耦联|from=0|to_cid=1;k=pick|g=代谢耦联|pay=15|get=20"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 138,
+    "$.cells[0].energy": 285,
+    "$.cells[0].hand": [],
+    "$.cells[1].energy": 320,
+    "$.g.feed_log": [
+     {
+      "card": "代谢耦联",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ }
+]

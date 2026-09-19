@@ -1,0 +1,97 @@
+[
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/matrix_remodel/pick_tile/two_tiles",
+  "op": "execute",
+  "covers": [
+   "t_card_choices::第二格拆成普通癌组织（没被选去转健康）"
+  ],
+  "source": "headless_test.gd:t_card_choices【基质重塑】三问 pick_tile：第 1 格 1,0 由手牌选项带进来、第 2 问再拆 2,0、第 3 问把 1,1 转健康、第 4 问到此为止。2,0 拆成**普通癌组织**（tissue → 1、solid_fraction → 0）而没有被选去转健康 —— 正是「第二格拆成普通癌组织」那一条。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "X"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "1,0",
+     "state": "solid"
+    },
+    {
+     "at": "2,0",
+     "state": "solid"
+    },
+    {
+     "at": "1,1",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "基质重塑"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=基质重塑|to=1,0",
+   "answers": "k=pick_tile|g=基质重塑|to=2,0;k=pick_tile|g=基质重塑|to=1,1;k=pick_tile|g=基质重塑|stop=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@0,0.d.proliferate_chance": 30,
+    "$.board.tiles@0,1.d.proliferate_chance": 30,
+    "$.board.tiles@0,2.d.proliferate_chance": 0,
+    "$.board.tiles@1,-1.d.proliferate_chance": 30,
+    "$.board.tiles@1,0.d.proliferate_chance": 30,
+    "$.board.tiles@1,0.d.solid_fraction": 0,
+    "$.board.tiles@1,0.tissue": 1,
+    "$.board.tiles@1,1.d.proliferate_chance": 60,
+    "$.board.tiles@1,1.tissue": 0,
+    "$.board.tiles@1,2.d.proliferate_chance": 0,
+    "$.board.tiles@2,-1.d.proliferate_chance": 60,
+    "$.board.tiles@2,0.d.proliferate_chance": 30,
+    "$.board.tiles@2,0.d.solid_fraction": 0,
+    "$.board.tiles@2,0.tissue": 1,
+    "$.board.tiles@2,1.d.proliferate_chance": 30,
+    "$.board.tiles@3,-1.d.proliferate_chance": 30,
+    "$.board.tiles@3,0.d.proliferate_chance": 30,
+    "$.cells[0].hand": [],
+    "$.g.feed_log": [
+     {
+      "card": "基质重塑",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ }
+]

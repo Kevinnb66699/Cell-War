@@ -1,0 +1,218 @@
+[
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/limit/event_not_into_hand",
+  "op": "execute",
+  "covers": [
+   "t_draw_limit::进手牌的不会超过抽的次数"
+  ],
+  "source": "同上，抽到的是【事件】：立即结算并弃置、不进手牌 ⇒ draws_used +1 而 $.cells[0].hand 不在 changed 里 —— 「进手牌的不会超过抽的次数」。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I",
+     "memory": 2
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    35,
+    15
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.g.feed_log": [
+     {
+      "card": "抗原摄取",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.memory": 3
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/limit/pick/discard_one",
+  "op": "execute",
+  "covers": [],
+  "source": "手牌 8 张时再抽一张 ⇒ cw_cards.gd:discard_to_limit 追问一次 kind=pick / tag=手牌上限，answers 按语义键 k=pick|g=手牌上限|card=缺氧适应 弃掉那一张。同名技能在手 ⇒ 池总权重由 37 降到 16：两侧候选集不一样大的话 TapeRng 在结算之前就报 RNG_SPAN。（covers 空：手牌上限那组断言按 FUNC_SUBSYSTEM 归 ui，不在 core 分母里。）",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "II"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "免疫增援",
+      "基质降解",
+      "细胞膜修复",
+      "缺氧适应",
+      "补体级联",
+      "补体调理",
+      "CXCR3趋化",
+      "TNF-α局部炎症"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    16,
+    1
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw",
+   "answers": "k=pick|g=手牌上限|card=缺氧适应"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.cells[0].hand": [
+     "CXCR3趋化",
+     "LFA-1黏附",
+     "TNF-α局部炎症",
+     "免疫增援",
+     "基质降解",
+     "细胞膜修复",
+     "补体级联",
+     "补体调理"
+    ]
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/limit/third_draw_counts_three",
+  "op": "execute",
+  "covers": [
+   "t_draw_limit::计数是 3"
+  ],
+  "source": "headless_test.gd:t_draw_limit。盘面把 draws_used 摆成 2，这一步抽第 3 次 ⇒ 计数是 3。（一条 L0 用例只跑一个 op，三次连抽在靶场里表达不了，所以把前两次写进盘面。）",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "draws_used": 2
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    35,
+    35
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw",
+   "answers": "k=free_move|g=趋化募集|stop=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 3,
+    "$.cells[0].energy": 295,
+    "$.g.feed_log": [
+     {
+      "card": "趋化募集",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ }
+]

@@ -1,0 +1,959 @@
+[
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/acute_inflammation/aerobic_income_pinned",
+  "op": "execute",
+  "covers": [
+   "t_card_events::急性炎症反应：+"
+  ],
+  "source": "【急性炎症反应】= 一次有氧呼吸。按 T10：用例自己在 tuning 里把 aerobic_by_level[1] 钉成 41（PRD 不会出现的值），期望值只由这个旋钮决定，E-3 冻结面一个常数都不录。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ],
+   "tuning": {
+    "aerobic_by_level[1]": 41
+   }
+  },
+  "rolls": [
+   [
+    1,
+    35,
+    12
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 336,
+    "$.g.feed_log": [
+     {
+      "card": "急性炎症反应",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/acute_inflammation/necrosis_discount_pinned",
+  "op": "execute",
+  "covers": [
+   "t_card_events::站在坏死格上：给的也是打折后的"
+  ],
+  "source": "同上，细胞站在坏死格（necrosis 3）：necrosis_aerobic_pct 也钉成 13 ⇒ 给的是打折后的那一份。两个旋钮钉死，零 PRD 常数。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "0,0",
+     "necrosis": 3
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ],
+   "tuning": {
+    "aerobic_by_level[1]": 41,
+    "necrosis_aerobic_pct": 13
+   }
+  },
+  "rolls": [
+   [
+    1,
+    35,
+    12
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].draws_used": 1,
+    "$.g.feed_log": [
+     {
+      "card": "急性炎症反应",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/antigen_presentation/plus_three",
+  "op": "execute",
+  "covers": [
+   "t_card_events::抗原呈递增强：+3 记忆",
+   "t_draw_purify_memory::【抗原呈递增强】照给 +3（挡的只是净化那一份）"
+  ],
+  "source": "【抗原呈递增强】：II 级池 37 抽到它 ⇒ $.g.memory 2→5。卡面明写的 +3 照给 —— card_resolve_depth 挡的只是「净化顺带那一份」。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "II",
+     "memory": 2
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    37,
+    16
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.g.feed_log": [
+     {
+      "card": "抗原呈递增强",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.memory": 5
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/antigen_uptake/adjacent_plus_two",
+  "op": "execute",
+  "covers": [
+   "t_card_events::抗原摄取：邻癌性组织改为 +2 记忆"
+  ],
+  "source": "同上，1,0 摆成癌组织 ⇒ 邻癌性组织改为 +2（$.g.memory 2→4）。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I",
+     "memory": 2
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "1,0",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    35,
+    15
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.g.feed_log": [
+     {
+      "card": "抗原摄取",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.memory": 4
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/antigen_uptake/plain_plus_one",
+  "op": "execute",
+  "covers": [
+   "t_card_events::抗原摄取：不邻癌性组织 +1 记忆"
+  ],
+  "source": "headless_test.gd:t_card_events【抗原摄取】。I 级池 35，抽签落在 [13,15] ⇒ 抽到它；四周无癌性组织 ⇒ $.g.memory 2→3。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I",
+     "memory": 2
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    35,
+    15
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.g.feed_log": [
+     {
+      "card": "抗原摄取",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.memory": 3
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/clonal_expansion/all_immune_plus_one",
+  "op": "execute",
+  "covers": [
+   "t_card_events::克隆扩增：全体 +1.0、抽卡者共 +1.5"
+  ],
+  "source": "【克隆扩增】：III 级池 47 抽到 ⇒ 全体免疫 +1.0、抽卡者另 +0.5（抽卡 −0.5 后净 +1.0）。数字写在卡面，不是有氧常数。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 2,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "2,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    47,
+    11
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 310,
+    "$.cells[1].energy": 310,
+    "$.g.feed_log": [
+     {
+      "card": "克隆扩增",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/glycolysis_burst/anaerobic_pinned",
+  "op": "execute",
+  "covers": [
+   "t_card_events_cancer::糖酵解爆发：立刻结算一次无氧呼吸（3 普通癌 + 1 固化独占 ="
+  ],
+  "source": "【糖酵解爆发】立刻结算一次无氧呼吸。按 T10 / 批 2 anaerobic_pool 的做法：anaerobic_floor 与 anaerobic_cap 都钉成 33，期望值只由旋钮决定，无氧公式常数一个不录。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "I"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "1,0",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Osteosarcoma",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "5,0",
+     "energy": 300
+    }
+   ],
+   "round": 1,
+   "tuning": {
+    "anaerobic_floor": 33,
+    "anaerobic_cap": 33
+   }
+  },
+  "rolls": [
+   [
+    1,
+    51,
+    42
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 142,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 290,
+    "$.g.feed_log": [
+     {
+      "card": "糖酵解爆发",
+      "faction": 1,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/ifn_gamma_release/two_ring_minus_one",
+  "op": "execute",
+  "covers": [
+   "t_card_events::IFN-γ释放：2 格内癌细胞 −1.0、固化计数 −1.0"
+  ],
+  "source": "【IFN-γ释放】：III 级池 47 抽到 ⇒ 2 格内癌细胞 −1.0、范围内普通癌组织固化计数 −1.0（1,0 的 solid 15→5）。盘面按禁忌 T1 不放 ≤2 格树突（damage-tail-update-marks）。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "1,0",
+     "state": "cancer",
+     "solid": 15
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "2,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    47,
+    3
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@1,0.d.solid_fraction": 167,
+    "$.board.tiles@1,0.solid": 5,
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.cells[1].d.overload_loss": 142,
+    "$.cells[1].energy": 290,
+    "$.g.feed_log": [
+     {
+      "card": "IFN-γ释放",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/interferon_type1/shield_each_immune",
+  "op": "execute",
+  "covers": [
+   "t_card_mods::I型干扰素：事件给每个免疫细胞发盾"
+  ],
+  "source": "【I型干扰素】：I 级池 35 抽到 ⇒ 事件给**每个**免疫细胞挂一条 mods 四元组（name/uses/until/seq），两只免疫各一条。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "I"
+    },
+    {
+     "seat": 2,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "2,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    35,
+    3
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.cells[0].mods[I型干扰素].name": "I型干扰素",
+    "$.cells[0].mods[I型干扰素].seq": 1,
+    "$.cells[0].mods[I型干扰素].until": "round",
+    "$.cells[0].mods[I型干扰素].uses": 1,
+    "$.cells[0].play_n": 1,
+    "$.cells[1].mods[I型干扰素].name": "I型干扰素",
+    "$.cells[1].mods[I型干扰素].seq": 1,
+    "$.cells[1].mods[I型干扰素].until": "round",
+    "$.cells[1].mods[I型干扰素].uses": 1,
+    "$.cells[1].play_n": 1,
+    "$.g.feed_log": [
+     {
+      "card": "I型干扰素",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/marrow_mobilization/standing_collects",
+  "op": "execute",
+  "covers": [
+   "t_card_events::骨髓动员：全体 +0.5 且空仓骨髓立即产卡",
+   "t_card_events::骨髓动员：站在空仓骨髓上的细胞当场收走那张卡，没人站的骨髓留着"
+  ],
+  "source": "【骨髓动员】：II 级池 37 抽到 ⇒ 全体免疫 +0.5；空仓骨髓立即产卡。四个骨髓按 KG-6 显式写 cards: 1（不产），留 3,-3（抽卡者脚下，当场收走 ⇒ 第二笔带子就是那张卡的抽签）与 -3,-3（没人站 ⇒ cards 留在格上）。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "II"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "II"
+    },
+    {
+     "seat": 2,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "0,3",
+     "cards": 1
+    },
+    {
+     "at": "-3,0",
+     "cards": 1
+    },
+    {
+     "at": "6,-3",
+     "cards": 1
+    },
+    {
+     "at": "-3,6",
+     "cards": 1
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "3,-3",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "2,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    37,
+    37
+   ],
+   [
+    1,
+    37,
+    1
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@-3,-3.cards": 1,
+    "$.board.tiles@-3,-3.d.store_fraction": 1000,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].hand": [
+     "CXCR3趋化"
+    ],
+    "$.cells[1].energy": 305,
+    "$.g.feed_log": [
+     {
+      "card": "骨髓动员",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/systemic_clearance/single_candidate",
+  "op": "execute",
+  "covers": [
+   "t_card_events::全身性免疫清除："
+  ],
+  "source": "【全身性免疫清除】：X 级池 50 抽到 ⇒ 全场「与健康组织相邻、无癌细胞占据」的普通癌组织随机最多 5 格转健康。盘面只留 1 个候选 ⇒ _pick_random 的 randi_range(0,0) 退化、带子上不留痕（rolls 只有抽签那一笔）。它走 *_hit_area，撞已登记的 area-damage-batch / damage-tail-update-marks：批 4 已坐实顺序今天不产生差异，按 T1 避开 ≤2 格树突即可落。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "X"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "1,0",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    50,
+    20
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@0,0.d.proliferate_chance": 0,
+    "$.board.tiles@0,1.d.proliferate_chance": 0,
+    "$.board.tiles@1,-1.d.proliferate_chance": 0,
+    "$.board.tiles@1,0.tissue": 0,
+    "$.board.tiles@1,1.d.proliferate_chance": 0,
+    "$.board.tiles@2,-1.d.proliferate_chance": 0,
+    "$.board.tiles@2,0.d.proliferate_chance": 0,
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.g.feed_log": [
+     {
+      "card": "全身性免疫清除",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/tumor_angiogenesis/mid_phase",
+  "op": "execute",
+  "covers": [
+   "t_card_events_cancer::肿瘤血管生成：中期全体 +2.0、抽卡者 +2.5（第 8 回合 = 中期）"
+  ],
+  "source": "【肿瘤血管生成】：第 8 世界回合 = 肿瘤 II 期，癌症池总权重 57 ⇒ 全体癌细胞 +2.0、抽卡者另 +0.5（卡面常数，不是收入步）。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Melanoma"
+    },
+    {
+     "seat": 2,
+     "faction": "immune",
+     "level": "I"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Osteosarcoma",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "Melanoma",
+     "at": "2,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "ImmuneBasic",
+     "at": "5,0",
+     "energy": 300
+    }
+   ],
+   "round": 8
+  },
+  "rolls": [
+   [
+    1,
+    57,
+    57
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 315,
+    "$.cells[1].energy": 320,
+    "$.g.feed_log": [
+     {
+      "card": "肿瘤血管生成",
+      "faction": 1,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ }
+]

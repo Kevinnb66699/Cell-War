@@ -1,0 +1,82 @@
+[
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/memory/local_phagocytosis_gives_one",
+  "op": "execute",
+  "covers": [
+   "t_card_events::局部吞噬：转化唯一相邻癌组织并 +1 记忆",
+   "t_card_events::打出后从手牌消失",
+   "t_draw_purify_memory::【局部吞噬】卡面明写「获得1抗原记忆」→ 打出结算里照样给"
+  ],
+  "source": "【局部吞噬】2026-09-08 起是即时技能。相邻只有 1 格可转化的普通癌组织 ⇒ 随机落在它身上（randi_range(0,0) 退化、不占带子）：转健康 + **卡面明写**的 +1 抗原记忆照给（与 card_resolve_depth 无关），打出后从手牌消失。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "I",
+     "memory": 2
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "1,0",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Macrophage",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "局部吞噬"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=局部吞噬"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@0,0.d.proliferate_chance": 0,
+    "$.board.tiles@0,1.d.proliferate_chance": 0,
+    "$.board.tiles@1,-1.d.proliferate_chance": 0,
+    "$.board.tiles@1,0.tissue": 0,
+    "$.board.tiles@1,1.d.proliferate_chance": 0,
+    "$.board.tiles@2,-1.d.proliferate_chance": 0,
+    "$.board.tiles@2,0.d.proliferate_chance": 0,
+    "$.cells[0].hand": [],
+    "$.g.feed_log": [
+     {
+      "card": "局部吞噬",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.memory": 3
+   },
+   "ignore": []
+  }
+ }
+]

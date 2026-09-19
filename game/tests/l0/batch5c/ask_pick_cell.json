@@ -1,0 +1,233 @@
+[
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/immune_storm/pick_cell/two_ring",
+  "op": "execute",
+  "covers": [
+   "t_card_choices::免疫风暴：2 格内癌细胞 −1.0",
+   "t_card_choices::免疫风暴：空癌组织转健康，有癌细胞的不转"
+  ],
+  "source": "headless_test.gd:t_card_choices ④【免疫风暴】。X 级抽到（池 50）→ pick_cell 选 4,0：2 格内癌细胞 −1.0（$.cells[2].energy 300→290）；范围内**无癌细胞占据**的 5,0 转健康、癌细胞脚下的 4,2 不转。盘面按禁忌 T1 不放 ≤2 格树突。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "X"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "X"
+    },
+    {
+     "seat": 2,
+     "faction": "cancer",
+     "cancer_type": "Melanoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "5,0",
+     "state": "cancer"
+    },
+    {
+     "at": "4,2",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "4,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "Melanoma",
+     "at": "4,2",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    50,
+    17
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw",
+   "answers": "k=pick_cell|g=免疫风暴|to=4,0|cid=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@4,0.d.proliferate_chance": 0,
+    "$.board.tiles@4,1.d.proliferate_chance": 30,
+    "$.board.tiles@5,-1.d.proliferate_chance": 0,
+    "$.board.tiles@5,0.tissue": 0,
+    "$.board.tiles@5,1.d.proliferate_chance": 30,
+    "$.board.tiles@6,-1.d.proliferate_chance": 0,
+    "$.board.tiles@6,0.d.proliferate_chance": 0,
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.cells[2].d.overload_loss": 142,
+    "$.cells[2].energy": 290,
+    "$.g.feed_log": [
+     {
+      "card": "免疫风暴",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/draw/inflammatory_storm/pick_cell/neighbor_purify",
+  "op": "execute",
+  "covers": [
+   "t_card_choices::炎症风暴：邻格空癌组织转健康",
+   "t_card_choices::炎症风暴：有癌细胞站着的格不转化",
+   "t_card_choices::炎症风暴：邻接癌细胞 −0.5"
+  ],
+  "source": "headless_test.gd:t_card_choices ③【炎症风暴】。抽到（III 级池 47）→ 一问 pick_cell 选队友 4,0 为中心：邻格空癌组织 5,0 转健康；4,1 上站着癌细胞 ⇒ **不在 changed 里**（整集合比钉「有癌细胞站着的格不转化」）；邻接癌细胞 −0.5（$.cells[2].energy 300→295）。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 2,
+     "faction": "cancer",
+     "cancer_type": "Melanoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "5,0",
+     "state": "cancer"
+    },
+    {
+     "at": "4,1",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "4,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "Melanoma",
+     "at": "4,1",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    1,
+    47,
+    34
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=draw",
+   "answers": "k=pick_cell|g=炎症风暴|to=4,0|cid=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@4,0.d.proliferate_chance": 30,
+    "$.board.tiles@4,1.d.proliferate_chance": 0,
+    "$.board.tiles@5,-1.d.proliferate_chance": 0,
+    "$.board.tiles@5,0.tissue": 0,
+    "$.board.tiles@5,1.d.proliferate_chance": 30,
+    "$.board.tiles@6,-1.d.proliferate_chance": 0,
+    "$.board.tiles@6,0.d.proliferate_chance": 0,
+    "$.cells[0].d.overload_loss": 147,
+    "$.cells[0].draws_used": 1,
+    "$.cells[0].energy": 295,
+    "$.cells[2].d.income": 22,
+    "$.cells[2].d.overload_loss": 147,
+    "$.cells[2].energy": 295,
+    "$.g.feed_log": [
+     {
+      "card": "炎症风暴",
+      "faction": 0,
+      "kind": "event",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.players": [
+     {
+      "cancer_type": -1,
+      "cell_id": 0,
+      "d": {
+       "income": 45
+      },
+      "faction": 0,
+      "id": 0
+     },
+     {
+      "cancer_type": -1,
+      "cell_id": 1,
+      "d": {
+       "income": 45
+      },
+      "faction": 0,
+      "id": 1
+     },
+     {
+      "cancer_type": 0,
+      "cell_id": 2,
+      "d": {
+       "income": 22
+      },
+      "faction": 1,
+      "id": 2
+     }
+    ]
+   },
+   "ignore": []
+  }
+ }
+]

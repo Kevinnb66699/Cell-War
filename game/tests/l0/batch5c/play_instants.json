@@ -1,0 +1,1137 @@
+[
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/adcc/b_cell_one_and_half",
+  "op": "execute",
+  "covers": [
+   "t_card_instants::抗体依赖细胞毒作用：B 细胞造成 1.5（卡牌伤害不吃树突/巨噬）"
+  ],
+  "source": "【抗体依赖细胞毒作用】：B 细胞打出造成 1.5（非 B 细胞 1.0）。卡牌伤害不吃树突 / 巨噬那套减半 —— 盘面按禁忌 T1 不放 ≤2 格树突。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "2,0",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "BCell",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "抗体依赖细胞毒作用"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "2,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=抗体依赖细胞毒作用|cid=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].hand": [],
+    "$.cells[1].d.overload_loss": 138,
+    "$.cells[1].energy": 285,
+    "$.g.feed_log": [
+     {
+      "card": "抗体依赖细胞毒作用",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/cancer_metastasis/lands_and_colonizes",
+  "op": "execute",
+  "covers": [
+   "t_card_instants::落点先摆成健康组织",
+   "t_card_instants::癌症转移：落到"
+  ],
+  "source": "【癌症转移】：两环内任意无细胞占据的格；落点 2,0 先摆成健康组织 ⇒ 落地走 enter_tile、由【定殖】把它翻成癌组织。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "I"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Osteosarcoma",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "癌症转移"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "5,0",
+     "energy": 300
+    }
+   ],
+   "round": 1
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=癌症转移|to=2,0"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@0,0.cell": -1,
+    "$.board.tiles@1,0.d.proliferate_chance": 30,
+    "$.board.tiles@1,1.d.proliferate_chance": 30,
+    "$.board.tiles@2,-1.d.proliferate_chance": 30,
+    "$.board.tiles@2,0.cell": 0,
+    "$.board.tiles@2,0.newborn": true,
+    "$.board.tiles@2,0.tissue": 1,
+    "$.board.tiles@2,1.d.proliferate_chance": 30,
+    "$.board.tiles@3,-1.d.proliferate_chance": 30,
+    "$.board.tiles@3,0.d.proliferate_chance": 30,
+    "$.cells[0].d.income": 22,
+    "$.cells[0].hand": [],
+    "$.cells[0].pos.q": 2,
+    "$.g.feed_log": [
+     {
+      "card": "癌症转移",
+      "faction": 1,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.players": [
+     {
+      "cancer_type": 2,
+      "cell_id": 0,
+      "d": {
+       "income": 22
+      },
+      "faction": 1,
+      "id": 0
+     },
+     {
+      "cancer_type": -1,
+      "cell_id": 1,
+      "d": {
+       "income": 20
+      },
+      "faction": 0,
+      "id": 1
+     }
+    ]
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/clonal_proliferation/one_tile_early",
+  "op": "execute",
+  "covers": [
+   "t_card_events_cancer::克隆增殖：前期恰好转化 1 格（",
+   "t_card_events_cancer::即时技能结算后弃置（不再是抽到即结算的事件）"
+  ],
+  "source": "【克隆增殖】2026-09-10 由事件改为即时技能：I 期恰好转化 1 格（盘面把另外 5 个邻格摆成癌组织 ⇒ 候选只剩 1 个、randi_range(0,0) 退化），结算后弃置。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "I"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "1,0",
+     "state": "cancer"
+    },
+    {
+     "at": "1,-1",
+     "state": "cancer"
+    },
+    {
+     "at": "0,-1",
+     "state": "cancer"
+    },
+    {
+     "at": "-1,0",
+     "state": "cancer"
+    },
+    {
+     "at": "-1,1",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Osteosarcoma",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "克隆增殖"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "5,0",
+     "energy": 300
+    }
+   ],
+   "round": 1
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=克隆增殖"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@-1,1.d.proliferate_chance": 60,
+    "$.board.tiles@-1,2.d.proliferate_chance": 60,
+    "$.board.tiles@0,0.d.pressure": 15,
+    "$.board.tiles@0,0.d.proliferate_chance": 180,
+    "$.board.tiles@0,1.newborn": true,
+    "$.board.tiles@0,1.tissue": 1,
+    "$.board.tiles@0,2.d.proliferate_chance": 30,
+    "$.board.tiles@1,0.d.proliferate_chance": 60,
+    "$.board.tiles@1,1.d.proliferate_chance": 60,
+    "$.cells[0].hand": [],
+    "$.g.feed_log": [
+     {
+      "card": "克隆增殖",
+      "faction": 1,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/cross_presentation/plain_one_layer",
+  "op": "execute",
+  "covers": [
+   "t_card_instants::交叉呈递：目标获得【标记】",
+   "t_card_instants::交叉呈递：走 apply_mark —— 记施加回合、普通免疫细胞 1 层"
+  ],
+  "source": "【交叉呈递】：目标获得【标记】，走 apply_mark（Kevin 2026-09-17 方案 A）—— marked / mark_left / mark_round 三键一起进 delta，普通免疫细胞给 1 层、mark_round 记施加回合。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "交叉呈递"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "2,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=交叉呈递|cid=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].hand": [],
+    "$.cells[1].mark_left": 1,
+    "$.cells[1].mark_round": 1,
+    "$.cells[1].marked": true,
+    "$.g.feed_log": [
+     {
+      "card": "交叉呈递",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/immune_reinforce/teleport_near_ally",
+  "op": "execute",
+  "covers": [
+   "t_card_instants::免疫增援：传送到所选队友 2 格内的健康组织"
+  ],
+  "source": "【免疫增援】：传送到所选队友 2 格内的随机空健康组织（候选 18 格 ⇒ 带子一笔 [0,17]）。落地算「进入」。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 2,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "免疫增援"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "4,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "Osteosarcoma",
+     "at": "-4,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    0,
+    17,
+    0
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=免疫增援|cid=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@0,0.cell": -1,
+    "$.board.tiles@2,0.cell": 0,
+    "$.cells[0].hand": [],
+    "$.cells[0].pos.q": 2,
+    "$.g.feed_log": [
+     {
+      "card": "免疫增援",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/lactic_acidosis/early_phase",
+  "op": "execute",
+  "covers": [
+   "t_card_instants::乳酸酸化：前期 0.8"
+  ],
+  "source": "【乳酸酸化】第 1 世界回合 = I 期 ⇒ 相邻免疫细胞 −0.8。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "I"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Osteosarcoma",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "乳酸酸化"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "1,0",
+     "energy": 300
+    }
+   ],
+   "round": 1
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=乳酸酸化|cid=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].hand": [],
+    "$.cells[1].d.overload_loss": 144,
+    "$.cells[1].energy": 292,
+    "$.g.feed_log": [
+     {
+      "card": "乳酸酸化",
+      "faction": 1,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/lactic_acidosis/three_adjacent_cancerous",
+  "op": "execute",
+  "covers": [
+   "t_card_instants::乳酸酸化：目标邻 ≥3 格癌性组织额外 +0.5"
+  ],
+  "source": "同上，目标 1,0 相邻恰有 3 格癌性组织（2,0 / 2,-1 / 1,1 摆成癌组织）⇒ 额外 −0.5，合计 −1.3。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "I"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "2,0",
+     "state": "cancer"
+    },
+    {
+     "at": "2,-1",
+     "state": "cancer"
+    },
+    {
+     "at": "1,1",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Osteosarcoma",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "乳酸酸化"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "1,0",
+     "energy": 300
+    }
+   ],
+   "round": 1
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=乳酸酸化|cid=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].hand": [],
+    "$.cells[1].d.overload_loss": 140,
+    "$.cells[1].energy": 287,
+    "$.g.feed_log": [
+     {
+      "card": "乳酸酸化",
+      "faction": 1,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/lysosome/four_tiles_macro_heals",
+  "op": "execute",
+  "covers": [
+   "t_card_instants::溶酶体强化：转化 4 格、巨噬回 1.2"
+  ],
+  "source": "【溶酶体强化】：相邻 4 格无细胞占据的普通癌组织全转健康（_pick_random 取 4 格 ⇒ 带子 [0,3] / [0,2] / [0,1] 三笔，第四笔 randi_range(0,0) 退化不留痕），巨噬每格回 0.3 ⇒ 共 +1.2。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "1,0",
+     "state": "cancer"
+    },
+    {
+     "at": "0,1",
+     "state": "cancer"
+    },
+    {
+     "at": "-1,1",
+     "state": "cancer"
+    },
+    {
+     "at": "-1,0",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Macrophage",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "溶酶体强化"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    0,
+    3,
+    0
+   ],
+   [
+    0,
+    2,
+    0
+   ],
+   [
+    0,
+    1,
+    0
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=溶酶体强化"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@-2,0.d.proliferate_chance": 0,
+    "$.board.tiles@-2,1.d.proliferate_chance": 0,
+    "$.board.tiles@-2,2.d.proliferate_chance": 0,
+    "$.board.tiles@-1,-1.d.proliferate_chance": 0,
+    "$.board.tiles@-1,0.d.proliferate_chance": 0,
+    "$.board.tiles@-1,0.tissue": 0,
+    "$.board.tiles@-1,1.d.proliferate_chance": 0,
+    "$.board.tiles@-1,1.tissue": 0,
+    "$.board.tiles@-1,2.d.proliferate_chance": 0,
+    "$.board.tiles@0,-1.d.proliferate_chance": 0,
+    "$.board.tiles@0,0.d.pressure": 0,
+    "$.board.tiles@0,0.d.proliferate_chance": 0,
+    "$.board.tiles@0,1.d.proliferate_chance": 0,
+    "$.board.tiles@0,1.tissue": 0,
+    "$.board.tiles@0,2.d.proliferate_chance": 0,
+    "$.board.tiles@1,-1.d.proliferate_chance": 0,
+    "$.board.tiles@1,0.d.proliferate_chance": 0,
+    "$.board.tiles@1,0.tissue": 0,
+    "$.board.tiles@1,1.d.proliferate_chance": 0,
+    "$.board.tiles@2,-1.d.proliferate_chance": 0,
+    "$.board.tiles@2,0.d.proliferate_chance": 0,
+    "$.cells[0].energy": 312,
+    "$.cells[0].hand": [],
+    "$.g.feed_log": [
+     {
+      "card": "溶酶体强化",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/matrix_degrade/solid_to_cancer",
+  "op": "execute",
+  "covers": [
+   "t_card_instants::基质降解：固化转癌、计数清零、结算后弃置"
+  ],
+  "source": "【基质降解】：相邻固化癌组织 → 普通癌组织、固化计数清零（tissue / solid_fraction 进 delta），结算后弃置。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "III"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "1,0",
+     "state": "solid"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "基质降解"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=基质降解|to=1,0"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@0,0.d.proliferate_chance": 30,
+    "$.board.tiles@0,1.d.proliferate_chance": 30,
+    "$.board.tiles@1,-1.d.proliferate_chance": 30,
+    "$.board.tiles@1,0.d.solid_fraction": 0,
+    "$.board.tiles@1,0.tissue": 1,
+    "$.board.tiles@1,1.d.proliferate_chance": 30,
+    "$.board.tiles@2,-1.d.proliferate_chance": 30,
+    "$.board.tiles@2,0.d.proliferate_chance": 30,
+    "$.cells[0].hand": [],
+    "$.g.feed_log": [
+     {
+      "card": "基质降解",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/stroma_harden/late_reaches_threshold",
+  "op": "execute",
+  "covers": [
+   "t_card_instants::基质硬化：1.5 + 后期 2.0 达阈值，立即转固化"
+  ],
+  "source": "【基质硬化】第 12 世界回合 = III 期 ⇒ 固化计数 +2.0；盘面先给 1.0，达到阈值立即转固化（tissue → 2）。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    },
+    {
+     "seat": 1,
+     "faction": "immune",
+     "level": "I"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "1,0",
+     "state": "cancer",
+     "solid": 10
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Osteosarcoma",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "基质硬化"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "ImmuneBasic",
+     "at": "5,0",
+     "energy": 300
+    }
+   ],
+   "round": 12
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=基质硬化|to=1,0"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@0,0.d.proliferate_chance": 50,
+    "$.board.tiles@0,1.d.proliferate_chance": 50,
+    "$.board.tiles@1,-1.d.proliferate_chance": 50,
+    "$.board.tiles@1,0.d.solid_fraction": 1000,
+    "$.board.tiles@1,0.solid": 30,
+    "$.board.tiles@1,0.tissue": 2,
+    "$.board.tiles@1,1.d.proliferate_chance": 50,
+    "$.board.tiles@2,-1.d.proliferate_chance": 50,
+    "$.board.tiles@2,0.d.proliferate_chance": 50,
+    "$.cells[0].hand": [],
+    "$.g.feed_log": [
+     {
+      "card": "基质硬化",
+      "faction": 1,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/tumor_recruit/into_own_range",
+  "op": "execute",
+  "covers": [
+   "t_card_instants::肿瘤细胞募集：目标落到自身 2 格内的癌性组织"
+  ],
+  "source": "【肿瘤细胞募集】：把所选癌细胞传送到**自身** 3 格内（I 期）随机空癌性组织；盘面只留 1 格候选 ⇒ 退化不占带子。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Melanoma"
+    },
+    {
+     "seat": 2,
+     "faction": "immune",
+     "level": "I"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "1,0",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Osteosarcoma",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "肿瘤细胞募集"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Melanoma",
+     "at": "4,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "ImmuneBasic",
+     "at": "-4,0",
+     "energy": 300
+    }
+   ],
+   "round": 1
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=肿瘤细胞募集|cid=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@1,0.cell": 1,
+    "$.board.tiles@4,0.cell": -1,
+    "$.cells[0].hand": [],
+    "$.cells[1].d.income": 22,
+    "$.cells[1].pos.q": 1,
+    "$.g.feed_log": [
+     {
+      "card": "肿瘤细胞募集",
+      "faction": 1,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.players": [
+     {
+      "cancer_type": 2,
+      "cell_id": 0,
+      "d": {
+       "income": 0
+      },
+      "faction": 1,
+      "id": 0
+     },
+     {
+      "cancer_type": 0,
+      "cell_id": 1,
+      "d": {
+       "income": 22
+      },
+      "faction": 1,
+      "id": 1
+     },
+     {
+      "cancer_type": -1,
+      "cell_id": 2,
+      "d": {
+       "income": 20
+      },
+      "faction": 0,
+      "id": 2
+     }
+    ]
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/tumor_reinforce/self_to_ally_ring",
+  "op": "execute",
+  "covers": [
+   "t_card_instants::肿瘤增援：**自己**落到所选队友 3 环内的空癌性组织（"
+  ],
+  "source": "【肿瘤增援】是上一张的镜像：动的是**自己**、范围以**对方**为心（I 期 3 环）。盘面只留 1 格候选 ⇒ 退化不占带子。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Melanoma"
+    },
+    {
+     "seat": 2,
+     "faction": "immune",
+     "level": "I"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "4,1",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Osteosarcoma",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "肿瘤增援"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Melanoma",
+     "at": "4,0",
+     "energy": 300
+    },
+    {
+     "seat": 2,
+     "type": "ImmuneBasic",
+     "at": "-4,0",
+     "energy": 300
+    }
+   ],
+   "round": 1
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=肿瘤增援|cid=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@0,0.cell": -1,
+    "$.board.tiles@4,1.cell": 0,
+    "$.cells[0].d.income": 22,
+    "$.cells[0].hand": [],
+    "$.cells[0].pos.q": 4,
+    "$.cells[0].pos.r": 1,
+    "$.g.feed_log": [
+     {
+      "card": "肿瘤增援",
+      "faction": 1,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1,
+    "$.g.players": [
+     {
+      "cancer_type": 2,
+      "cell_id": 0,
+      "d": {
+       "income": 22
+      },
+      "faction": 1,
+      "id": 0
+     },
+     {
+      "cancer_type": 0,
+      "cell_id": 1,
+      "d": {
+       "income": 0
+      },
+      "faction": 1,
+      "id": 1
+     },
+     {
+      "cancer_type": -1,
+      "cell_id": 2,
+      "d": {
+       "income": 20
+      },
+      "faction": 0,
+      "id": 2
+     }
+    ]
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/cross_presentation/dendritic_two_layers",
+  "op": "execute",
+  "covers": [
+   "t_card_instants::交叉呈递：树突带【抗原呈递强化】给 2 层",
+   "t_card_perms::呈递强化树突施加的标记有两次翻倍"
+  ],
+  "source": "【交叉呈递】树突 + 装备【抗原呈递强化】⇒ 标记给 2 层（mark_left = 2）。⚠ 卡在硬约定 T8：equipped 白名单今天只有 5 个名字，【抗原呈递强化】不在内。P2 已在副本 scratchpad/p2b5c/ 上两侧同跑绿（GD runner + dotnet test L0RunnerTests）—— 批准扩白名单即可直接移进 batch5c/。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "X"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "Dendritic",
+     "at": "0,0",
+     "energy": 300,
+     "hand": [
+      "交叉呈递"
+     ],
+     "equipped": [
+      "抗原呈递强化"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "2,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=交叉呈递|cid=1"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.cells[0].hand": [],
+    "$.cells[1].mark_left": 2,
+    "$.cells[1].mark_round": 1,
+    "$.cells[1].marked": true,
+    "$.g.feed_log": [
+     {
+      "card": "交叉呈递",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ }
+]

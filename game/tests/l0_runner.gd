@@ -278,8 +278,14 @@ func _case_tree(g: CWGame, id: String, op: String, c: Dictionary, exp: Dictionar
 ## 包含比只钉「该变的变了」，钉不住「不该变的没变」—— C# 多改一个字段也要红。
 func _case_delta(g: CWGame, id: String, op: String, c: Dictionary, exp: Dictionary) -> void:
 	var pre: Dictionary = Diff.normalize(_envelope(g))
+	var asking_before: int = g.asking_pid
 	if not await _step(g, op, c.get("args", {})):
 		return
+	## `asking_pid` 是**瞬态**演出量（观测协议 §6.1「不在 GD 快照里」）：GD `game.ask()` 写了就不擦，
+	## C# 那边是 `Simulation.Input?.PlayerSeat ?? -1`、问答摘干净就回 −1。一条中途问过的 op 在 GD 侧
+	## 会多留一条 `$.g.asking_pid` 差分、C# 侧没有。契约步跑完没有人在被问 —— 原样放回
+	## （与批 3 B1「为了 dump 现补的字段取完原样放回」是同一条纪律）。
+	g.asking_pid = asking_before
 	var post: Dictionary = Diff.normalize(_envelope(g))
 	var got: Dictionary = Diff.diff(pre, post)
 	if not Diff.errors.is_empty():
@@ -625,13 +631,29 @@ func _execute(g: CWGame, args: Dictionary) -> bool:
 	if cell.is_empty():
 		return false
 	var want := str(args.get("key", ""))
+	## 中途询问按语义键作答（`answers` = ";" 分隔的键串；缺省 = 这一步不该问）。
+	## 装给 `g.order` 里所有席位：【代谢耦联】那类会问到**别人**（cw_game.gd:ask 按 pid 取桥）。
+	var bridge = load("res://tests/l0_answer_bridge.gd").new()
+	bridge.game = g
+	var ans := str(args.get("answers", ""))
+	if ans != "":
+		bridge.answers = PackedStringArray(ans.split(";"))
+	for pid in g.order:
+		g.bridges[pid] = bridge
 	var keys := PackedStringArray()
 	for o in g.actions.build_options(cell):
 		var k := CWSemKey.key({ "kind": "action" }, o["data"])
 		if k == want:
 			await g.actions.execute(cell, o["data"])
-			return true
+			g.bridges.clear()
+			for e in bridge.errors:
+				_fail("execute 的中途询问：%s" % e)
+			if bridge.used < bridge.answers.size():
+				_fail("execute 的 answers 有 %d 条没用上（只问了 %d 次）" % [
+					bridge.answers.size() - bridge.used, bridge.asked.size()])
+			return bridge.errors.is_empty() and bridge.used == bridge.answers.size()
 		keys.append(k)
+	g.bridges.clear()
 	keys.sort()
 	_fail("席位 %d 的选项表里没有语义键「%s」。已有：%s" % [int(args.get("seat", -1)), want, " / ".join(keys)])
 	return false

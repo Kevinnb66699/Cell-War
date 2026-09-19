@@ -110,7 +110,14 @@ internal static class Steps
         }
     }
 
-    /// <summary>见 <c>execute</c> 表项上的注释：按**席位 + 语义键**找回那一条决策，然后照常执行。</summary>
+    /// <summary>
+    /// 见 <c>execute</c> 表项上的注释：按**席位 + 语义键**找回那一条决策，然后照常执行。
+    ///
+    /// **中途询问（批 5b 卡牌半边）**：一张会问的卡在这边会留下 <c>WorldState.Turn</c> 上的 <c>Pending*</c>；
+    /// GD 那边是协程栈、没有字段，没装桥时基类恒答 0 一路跑到底。两侧要可比，就在**同一个 op 里**把询问序列
+    /// 答完 —— <c>args.answers</c> 是 ";" 分隔的语义键串，逐条 <see cref="BasicRulesEngine.GetAvailableDecisions"/>
+    /// → <see cref="SemanticKey.Of"/> 配对 → 执行。配对用的就是 L1 重放跑过 573 步 0 差异的那套，不新造机制。
+    /// </summary>
     private static WorldState Execute(WorldState s, Args a, TapeRng rng)
     {
         var seat = a.Int("seat");
@@ -121,10 +128,28 @@ internal static class Steps
             ?? throw new InvalidOperationException(
                 $"席位 {seat} 的选项表里没有语义键「{want}」。已有："
                 + string.Join(" / ", options.Select(d => SemanticKey.Of(s, d)).Order(StringComparer.Ordinal)));
-        var result = engine.ExecuteDecision(s, chosen, rng);
-        if (!result.Success) throw new InvalidOperationException($"{want} 执行失败：{result.ErrorMessage}");
-        // ExecuteDecision 自己开了一个 Stage 作用域、把演出条目收进 result.Events；这里再发回当前作用域，
-        // L0RunnerTests 才收得到 CardPlayed 那类条目、按 Runtime 同一条路记进 g.feed_log（card-play-feed-log，2026-09-19）
+        var state = Apply(engine, s, chosen, rng, want);
+        var asked = 0;
+        foreach (var key in (a.StrOpt("answers") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            asked++;
+            var opts = engine.GetAvailableDecisions(state, seat);
+            var pick = opts.FirstOrDefault(d => SemanticKey.Of(state, d) == key)
+                ?? throw new InvalidOperationException(
+                    $"第 {asked} 问里没有语义键「{key}」。已有："
+                    + string.Join(" / ", opts.Select(d => SemanticKey.Of(state, d)).Order(StringComparer.Ordinal)));
+            state = Apply(engine, state, pick, rng, key);
+        }
+        return state;
+    }
+
+    /// <summary>执行一条决策，并把 <c>ExecuteDecision</c> 自己那个 Stage 作用域里收下的演出条目发回当前作用域 ——
+    /// <c>L0RunnerTests</c> 才收得到 <c>CardPlayed</c> 那类条目、按 Runtime 同一条路记进 <c>g.feed_log</c>
+    /// （批 5a 的 card-play-feed-log）。</summary>
+    private static WorldState Apply(BasicRulesEngine engine, WorldState s, IDecision d, TapeRng rng, string key)
+    {
+        var result = engine.ExecuteDecision(s, d, rng);
+        if (!result.Success) throw new InvalidOperationException($"{key} 执行失败：{result.ErrorMessage}");
         foreach (var ev in result.Events) if (ev is IPresentationEvent pe) Stage.Emit(pe);
         return result.NewState;
     }
@@ -168,6 +193,9 @@ internal static class Steps
         internal int Int(string key) => bag.Int(key);
 
         internal string Str(string key) => bag.Str(key);
+
+        /// <summary>可缺省的字符串参数（缺 = null）。写了就照常进 <see cref="AssertAllUsed"/> 记账 —— 键名写歪当场炸。</summary>
+        internal string? StrOpt(string key) => raw.ContainsKey(key) ? bag.Str(key) : null;
 
         internal HexPosition Pos(string key) => bag.Pos(key);
 
