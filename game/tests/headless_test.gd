@@ -13789,7 +13789,10 @@ func t_card_choices() -> void:
 	check(b.asked.size() == 3 and rm["hand"].is_empty(), "追问三次（再拆一格 + 两次转健康）")
 	g.dispose()
 
-	## ⑩ 放疗：随机连通 15 格，区域内癌性组织清光、整片坏死 5 轮
+	## ⑩ 放疗（issue #54 逐字复核，2026-09-19）：以所选癌性组织为起点长一个**含它的连通 10 格**区域，
+	## 区域内癌性组织转健康、**整片**（含原本就是健康的格子）进「坏死」`CWData.NECROSIS_RADIO` 轮。
+	## 「共 10 格」「彼此连通」「可以包括健康组织」「全部坏死」四条各有一句断言 —— 前两条在这一段，
+	## 「可以包括健康组织」在下面那一小段（癌块只有 3 格，区域非长进健康组织不可）。
 	pack = _choice_game()
 	g = pack[0]
 	b = pack[1]
@@ -13811,7 +13814,7 @@ func t_card_choices() -> void:
 		"放疗：恰好 %d 格进入坏死（PRD 2026-09-09 由 15 改 10）" % CWData.RADIO_REGION)
 	check(g.tiles[Vector2i(3, 0)]["tissue"] == CWData.Tissue.HEALTHY
 		and g.tiles[Vector2i(3, 0)]["necrosis"] == CWData.NECROSIS_RADIO,
-		"起点固化癌组织转健康并坏死 5 轮")
+		"起点固化癌组织转健康并坏死 %d 轮" % CWData.NECROSIS_RADIO)
 	var necro_pred := func(c: Vector2i) -> bool:
 		return g.tiles[c]["necrosis"] > 0
 	check(g.blocks_of(necro_pred).size() == 1, "放疗：坏死区域是一整块连通区域")
@@ -13821,6 +13824,41 @@ func t_card_choices() -> void:
 			dirty = true
 	check(not dirty, "放疗：区域内没有残留的癌性组织")
 	check(rd["hand"].is_empty(), "结算后弃置")
+	g.dispose()
+
+	## ⑩ 续（issue #54「可以包括健康组织」）：癌块只有 3 格，区域要长到 10 格就**必须**吃进健康组织。
+	## 这一条此前没有断言 —— 上面那段的癌块有 19 格，区域整个落在癌区里，挑不挑 tissue 都看不出来。
+	pack = _choice_game()
+	g = pack[0]
+	b = pack[1]
+	var small := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(-5, 0), CWData.ImmuneType.BASIC, -1)
+	small["energy"] = 30
+	small["hand"] = ["放疗"]
+	g.cells.append(small)
+	var blob3: Array[Vector2i] = [Vector2i(3, 0), Vector2i(4, 0), Vector2i(3, 1)]
+	for c: Vector2i in blob3:
+		g.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	await g.card_fx.play(small, { "act": "play", "card": "放疗", "to": Vector2i(3, 0) })
+	check(g.count_necrosis() == CWData.RADIO_REGION,
+		"癌块只有 3 格时区域照样长到 %d 格（可以包括健康组织）" % CWData.RADIO_REGION)
+	## 区域是从起点随机长出来的，那 3 格癌组织不一定全被吃进去 ——
+	## 所以下界写成「10 − 癌块大小」：怎么长，区域里都至少有 7 格本来就是健康组织。
+	var was_healthy := 0
+	var still_cancerous := 0
+	for c: Vector2i in g.tiles.keys():
+		if int(g.tiles[c]["necrosis"]) <= 0:
+			continue
+		if not blob3.has(c):
+			was_healthy += 1
+		if g.is_cancerous(c):
+			still_cancerous += 1
+	check(was_healthy >= CWData.RADIO_REGION - blob3.size() and still_cancerous == 0,
+		"区域里至少 %d 格本来就是健康组织：原样留着健康，但照样进「坏死」"
+			% (CWData.RADIO_REGION - blob3.size()))
+	## 这里要**新造**一个谓词：GDScript 的 lambda 按值捕获，上面那个 `necro_pred` 抓的还是前一局的 g
+	var necro_pred2 := func(c: Vector2i) -> bool:
+		return g.tiles[c]["necrosis"] > 0
+	check(g.blocks_of(necro_pred2).size() == 1, "含健康组织的区域也是一整块连通区域")
 	g.dispose()
 
 

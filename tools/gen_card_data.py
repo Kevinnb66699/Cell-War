@@ -21,10 +21,15 @@ CWTuning，`prd_crosscheck.py` 那套反向核对够不着它们。这是行为�
 以前实现和 PRD 对不上只有读代码的人知道，现在玩家会照着卡面做决策。
 改 `cw_card_fx.gd` 里的数时，请同步改 PRD 并重跑本脚本。
 """
-import re, io, sys
+import os, re, io, sys
 
+## PRD 在仓库外，路径写死（两处工具同一个口径）。
+## **OUT 必须跟着脚本自己走**：2026-09-19 踩过 —— 写死主仓库绝对路径的话，
+## 在 git worktree 里跑 `--check` 校的是主仓库那一份、`gen` 改的也是主仓库那一份，
+## 于是 worktree 里的改动既验不到也落不下，还顺手把别人的工作目录弄脏了。
 PRD = "D:/Projects/SpringSense/2026-2027/Cell War/Cell_War_玩法PRD.md"   ## 2026-09-11 起叫这个名
-OUT = "D:/Projects/SpringSense/2026-2027/Cell War/Cell-War/game/scripts/core/cw_card_data.gd"
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(REPO, "game", "scripts", "core", "cw_card_data.gd")
 
 L = [l.rstrip() for l in io.open(PRD, encoding="utf-8")]
 clean = lambda s: s.replace("\\", "").strip()
