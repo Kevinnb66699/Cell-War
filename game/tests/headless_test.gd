@@ -24056,9 +24056,9 @@ func t_tutor_c3() -> void:
 	## ---- ① 盘面：§7.1 的表逐格减 (6,-2)（这张换算表是本关一切几何的地基）----
 	var g: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "base"))
 	check(g != null, "base 装得出来")
-	check(int(g.board_radius) == 11 and g.tiles.size() == 397
-			and (lv["active_tiles"] as Array).size() == 397,
-		"半径 11 / 397 格，活跃格一格不少（整盘就是间章末尾那一份）")
+	check(int(g.board_radius) == 12 and g.tiles.size() == 469
+			and (lv["active_tiles"] as Array).size() == 469,
+		"半径 12 / 469 格，活跃格一格不少（整盘就是间章末尾那一份；半径 12 是为了装下第五关直径 12 的老盘，2026-09-19 晚定）")
 	check(Vector2i(6, -2) + shift == Vector2i.ZERO and Vector2i(4, -2) + shift == Vector2i(-2, 0)
 			and Vector2i(1, -2) + shift == Vector2i(-5, 0) and Vector2i(0, 2) + shift == Vector2i(-6, 4)
 			and Vector2i(-5, -1) + shift == Vector2i(-11, 1),
@@ -24071,7 +24071,7 @@ func t_tutor_c3() -> void:
 		"巨噬 (-2,0) / B (-5,0) / 树突 (-6,4) / T (-11,1) 全落位")
 	check(CWData.hex_dist(Vector2i(-11, 1), Vector2i.ZERO) == 11
 			and CWData.hex_dist(Vector2i.ZERO, Vector2i(-2, 0)) == 2,
-		"★ T 正好站半径 11 的真外环；玩家与巨噬恰好隔 2 格（间章分镜 10「一环内免疫击退 1 格」的结果）")
+		"★ T 站第 11 环（盘半径 12，不再贴真外环）；玩家与巨噬恰好隔 2 格（间章分镜 10「一环内免疫击退 1 格」的结果）")
 	var solids: Array = []
 	for c in g.tiles.keys():
 		if int((g.tile(c) as Dictionary)["tissue"]) == CWData.Tissue.SOLID:
@@ -24090,10 +24090,11 @@ func t_tutor_c3() -> void:
 			and int(g.tile(Vector2i(0, 2))["special"]) == CWData.Special.VESSEL
 			and int(g.tile(Vector2i(3, 0))["special"]) == CWData.Special.NONE,
 		"器官平移到位、老绝对坐标上一个不留（实测 %d 格）" % organs.size())
-	check(not CWData.is_on_board(Vector2i(-6, 0) + shift, 11)
-			and CWData.hex_dist(Vector2i(-6, 0) + shift, Vector2i.ZERO) == 12,
-		"★ 少一个血管是**算出来的**：老 (-6,0) 平移到 (-12,2)，离新盘心 12 > 11 —— "
-			+ "半径 6 盘面的直径就是 12，S9b 的分镜 2 撞得到同一条账")
+	check(CWData.is_on_board(Vector2i(-6, 0) + shift, 12)
+			and CWData.hex_dist(Vector2i(-6, 0) + shift, Vector2i.ZERO) == 12
+			and int((g.tile(Vector2i(-12, 2)) as Dictionary)["special"]) == CWData.Special.VESSEL,
+		"★ 老 (-6,0) 的血管平移到 (-12,2)：半径 11 装不下（S10 时少一个血管），改半径 12 后回来了 —— "
+			+ "半径 6 盘面的直径就是 12，间章分镜 2 的重心平移也要装下这一账")
 
 	## ---- ③ 席位与旋钮 ----
 	check(int(lv["seats"]) == 5 and int(lv["human_seat"]) == 0 and int(lv["seats"]) <= 9,
@@ -24173,7 +24174,7 @@ func t_tutor_c3() -> void:
 			and dir_to_t in CWData.DIRS,
 		"★ 两次【转移】(0,1)→(-5,1)→(-10,1) 都在盘上，终点正好与 T 邻接（方向 (-1,0) 是六向之一）")
 	check(k2.is_on_board(Vector2i(-1, 1)) and k2.is_on_board(Vector2i(0, 1)),
-		"两次击退的落点 (-1,1) / (0,1) 都不出半径 11")
+		"两次击退的落点 (-1,1) / (0,1) 都在盘内")
 	check(CWData.hex_dist(Vector2i(0, 1), Vector2i(-11, 1)) == 11
 			and Vector2i(0, 1).y == Vector2i(-11, 1).y,
 		"玩家与 T 全程同在 r=1 那一排 —— 【效应应答-Excalibur】是一条直射线，这是规则要求不只是演出")
@@ -24222,7 +24223,7 @@ func t_tutor_c3() -> void:
 	check(spread and bool(rv.cell_of(1)["alive"]) and int(rv.cell_of(1)["itype"]) == CWData.ImmuneType.T_CELL
 			and int(rv.cell_of(2)["itype"]) == CWData.ImmuneType.B_CELL
 			and int(rv.cell_of(3)["itype"]) == CWData.ImmuneType.T_CELL,
-		"★ 第 23 步在半径 11 真外环再生 T / B / T：两两 ≥2 格、离原 T ≥2 格，"
+		"★ 第 23 步在第 11 环再生 T / B / T：两两 ≥2 格、离原 T ≥2 格，"
 			+ "且三格都与 (0,0) 六向共线（实测 %s）" % str(born))
 	rv.dispose()
 
