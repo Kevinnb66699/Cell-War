@@ -68,7 +68,7 @@ const DELTA := {
 ## ② 状态：只看此刻，不看基线（重置过也算数）。`arg` 可选
 const STATE = {
 	"beside": "站到了敌方细胞的相邻格",
-	"all_dead": "敌方细胞一只不剩",
+	"all_dead": "敌方细胞一只不剩；`arg` 写 \"cancer\" / \"immune\" 时改成数**那一个阵营**还剩几只",
 	"stuck": "能量不足以移动 —— 正问着这一席，可这一问里一个【迁移】选项都没有",
 	"level_at_least": "免疫等级到了 `arg` 那一档（写罗马字，如 \"III\"）",
 	"low_energy_beside": "站到了相邻格，可剩下的能量**少于** `arg`（十分位整数）",
@@ -249,7 +249,19 @@ static func _state_done(k: String, arg: Variant, now: Dictionary, m: CWMirror) -
 		"beside":
 			return bool(now["beside"])
 		"all_dead":
-			return int(now["foes"]) == 0
+			## 不带 `arg`：数「屏幕前这位真人的敌方」（`snap` 顺手数好的 `foes`，
+			## **缺省 1** ⇒「还没有镜像」那一瞬不成立，见文件头②）。
+			## 带 `arg`：按**阵营**数，不看谁是谁的敌人 —— 第五关 Step2 场上五个免疫席，
+			## 「我的敌人」要看问的是哪一只（S5）。没镜像 / 阵营名写歪一律不成立
+			if arg == null:
+				return int(now["foes"]) == 0
+			var fac := _faction_arg(arg)
+			if m == null or fac < 0:
+				return false
+			for c in m.cells:
+				if bool(c["alive"]) and int(c["faction"]) == fac:
+					return false
+			return true
 		"stuck":
 			## **必须正问着这一席**才谈得上走不动（`can_move` 默认 true，见文件头②）
 			return bool(now["asked"]) and not bool(now["can_move"])
@@ -288,6 +300,17 @@ static func _level_arg(arg: Variant) -> int:
 		return int(arg)
 	var i: int = CWData.LEVEL_NAMES.find(str(arg))
 	return i   ## 找不到给 -1 = 永不成立
+
+
+## `all_dead` 的阵营参数：照 `players[].faction` 的写法写（`"immune"` / `"cancer"`）。
+## 写歪给 -1 = 永不成立（同 `_level_arg` 的口径：缺省取更难成立的那一边）
+static func _faction_arg(arg: Variant) -> int:
+	match str(arg):
+		"immune":
+			return CWData.Faction.IMMUNE
+		"cancer":
+			return CWData.Faction.CANCER
+	return -1
 
 
 ## `"q,r"` → Vector2i；写歪了给哨兵
