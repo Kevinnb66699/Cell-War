@@ -17451,11 +17451,30 @@ func t_chat_box() -> void:
 	cb3._input(enter)
 	check(lp3.visible and chosen3 == [0] and ended3[0] == 1 and not cb3.is_open(),
 		"暂停菜单压着：L / 数字 / 空格 / 回车全让路（日志没被关掉、没选行动、没结束回合、没唤出聊天）")
+	## 手牌抽屉的拖动同理，而且它更狠：`CWHand._input` 是 Node 级回调、排在 GUI 派发**之前**，
+	## 菜单那整屏 MOUSE_FILTER_STOP 拦不住它 —— 不让路的话，在抽屉外松手就把牌**真打出去了**（不可撤销）
+	var hk := CWHand.new()
+	root.add_child(hk)
+	hk.sync(2, Vector2.INF, PackedStringArray(["交叉呈递", "乳酸酸化"]))
+	var played_k: Array = []
+	hk.play_requested.connect(func(n: String) -> void: played_k.append(n))
+	var drop := InputEventMouseButton.new()
+	drop.button_index = MOUSE_BUTTON_LEFT
+	drop.pressed = false
+	drop.position = Vector2(600, 120)        ## 抽屉外（drawer_rect 只到 x=312 / y=428）= 正常情形下的「打出」
+	hk._begin_drag(0, Vector2(10, 10))
+	hk._input(drop)
+	check(played_k.is_empty() and hk._drag == -1,
+		"菜单压着：抽屉外松手不打牌，半途的拖动也当场作废（卡飞回抽屉、不停在菜单上面）")
 	pmk.close()
 	lp3._unhandled_input(l3)
 	bar3._unhandled_key_input(one)
 	mp3._unhandled_key_input(press_action("ui_accept"))
 	check(not lp3.visible and chosen3 == [0, 0] and ended3[0] == 2, "菜单一关就恢复")
+	hk._begin_drag(0, Vector2(10, 10))
+	hk._input(drop)
+	check(played_k == ["交叉呈递"] and hk._drag == -1, "菜单关了：同样的松手照常把牌打出去")
+	hk.queue_free()
 	root.remove_child(pmk)
 	pmk.free()
 
@@ -18462,8 +18481,9 @@ func t_net_resume() -> void:
 	b.message.connect(p._on_message)    ## 真面板在 _connect() 里接的那一根
 	p.in_match = true                   ## 对局中：暂停菜单的「离开房间」走 leave_online
 	p._remember_seat()
-	check(str(p._resume.get("code", "")) == code and str(p._resume.get("token", "")) == token,
-		"离开前抄下这一席")
+	check(str(p._resume.get("code", "")) == code and str(p._resume.get("token", "")) == token
+		and str(p._resume.get("url", "")) == url,
+		"离开前抄下这一席（房间码 + 令牌 + **服务器地址**）")
 
 	## ② 客户端确实把票丢了 —— 这正是「回不去」的根
 	b.leave()
@@ -18503,16 +18523,35 @@ func t_net_resume() -> void:
 	p.client = c
 	c.message.connect(p._on_message)
 	p.in_match = false      ## 第 ④ 步重连成功后面板已经 hide_for_match 进了对局；这一段演的是回到大厅
-	p._resume = { "code": code, "token": "deadbeef" }
+	p._resume = { "code": code, "token": "deadbeef", "url": url }
 	p._lobby_join(code)
 	ok = await _net_pump(srv, [a, c], func() -> bool: return c.last_error.get("code", "") == "bad_token")
 	check(ok and p._resume.is_empty() and p._status.text.contains("已被收回"),
 		"令牌对不上：票作废 + 说清楚为什么（%s）" % p._status.text)
 	## 随手输错一个房间码同样答 no_room —— 不能连坐把好端端的票也作废
-	p._resume = { "code": code, "token": token }
+	p._resume = { "code": code, "token": token, "url": url }
 	p._lobby_join("ZZZZZZ")
 	ok = await _net_pump(srv, [a, c], func() -> bool: return c.last_error.get("code", "") == "no_room")
 	check(ok and not p._resume.is_empty(), "输错别的房间码：只报错，回程票不受牵连")
+	## ⑥ 换一台服务器：房间码只在它自己那台服务器上唯一。离开 A 服的对局改连 B 服，
+	## 照样预填 + 「点加入回去接着打」就是骗人：B 服答 no_room，`_resume_tried` 一真还会把
+	## A 服那张好端端的票解释成「那一局已经结束」给作废掉 —— 而它在 A 服好好打着
+	var back := c.url
+	c.url = "ws://10.66.66.66:8912"        ## 假装这条连接接的是另一台服务器
+	p._resume = { "code": code, "token": token, "url": url }
+	p._code.text = ""
+	p._lobby_live = [room.summary()]
+	p._show_page(CWOnlinePanel.Page.LOBBY)   ## 进大厅会调 _hint_resume + _repaint_lobby
+	check(p._code.text == "" and not p._resume.is_empty(),
+		"地址对不上：不预填房间码，票也不作废（回 A 服还能用）")
+	check(not p._lobby_labels[1].text.contains("回到对局"),
+		"地址对不上：大厅那一行不写「回到对局」（%s）" % p._lobby_labels[1].text)
+	p._lobby_join(code)
+	check(not p._resume_tried and not p._resume.is_empty(),
+		"地址对不上：点加入走的是普通 join，不拿票去 reconnect，答了错也不连坐")
+	c.url = back
+	p._hint_resume()
+	check(p._code.text == code, "地址又对上了：同一张票照样预填")
 	root.remove_child(p)
 	p.free()
 	a.dispose()

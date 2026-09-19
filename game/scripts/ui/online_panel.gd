@@ -144,7 +144,8 @@ var _leave_link: Label
 ## 回不去的是**客户端**：`CWNetClient.leave()` 顺手把房间码和令牌一起清了（`_clear_room`），
 ## 连接本身又被 `leave_online()` 丢掉，于是那张回程票谁都不拿着了。
 ## 所以离开之前先把这一席抄在**面板**上：面板跟着主菜单活着，比那条连接长命。
-## 字段 {code, token}；空 = 没有可回去的对局。**不落盘**（关掉游戏就算了，见开发日志的待办）。
+## 字段 {code, token, url}；空 = 没有可回去的对局。**不落盘**（关掉游戏就算了，见开发日志的待办）。
+## **连服务器地址一起抄**：房间码只在它自己那台服务器上唯一，判该不该拿票看 `_resume_here()`。
 var _resume := {}
 var _resume_tried := false   ## 上一次发出去的是「凭令牌回房」——错误报文该不该拿来作废 _resume，看它
 var _want_reconnect := false
@@ -557,7 +558,16 @@ func _remember_seat() -> void:
 		return
 	if str(client.room.get("state", "")) != "playing":
 		return
-	_resume = { "code": client.code, "token": client.token }
+	_resume = { "code": client.code, "token": client.token, "url": client.url }
+
+
+## 手里那张回程票是不是**这台服务器**上的。
+## 离开 A 服的对局改连 B 服，B 服上碰巧同号的房间既不是我那一局、令牌也对不上：
+## 照样预填 + 「点加入回去接着打」就是骗人，点下去被答 no_room 还会把 A 服那张好端端的票一并作废。
+## 地址对不上就**当没有票**：不预填、不改行文案、也不作废（票留着，回 A 服还能用）。
+func _resume_here() -> bool:
+	return not _resume.is_empty() and client != null \
+		and str(_resume.get("url", "")) == client.url
 
 
 ## 大厅里点一间房（列表行 / 房间码 + 「加入」都走这儿）：**自己那一局凭令牌回去，别的照旧加入**。
@@ -566,7 +576,7 @@ func _remember_seat() -> void:
 func _lobby_join(code: String) -> void:
 	if client == null or code == "":
 		return
-	if code == str(_resume.get("code", "")):
+	if _resume_here() and code == str(_resume.get("code", "")):   ## 地址也要对得上，见 _resume_here
 		_resume_tried = true
 		_set_status("回到房间 %s…" % code)
 		client.reconnect(code, str(_resume["token"]))
@@ -578,7 +588,7 @@ func _lobby_join(code: String) -> void:
 ## 回到大厅就把「你还有一局没打完」摆在眼前：房间码直接填进输入框，状态行写清按哪儿回去。
 ## **私密房在大厅列表里根本不出现**（`CWNetServer.lobby_view` 只列公开房），这条预填是它唯一的入口。
 func _hint_resume() -> void:
-	if _resume.is_empty() or _code == null:
+	if not _resume_here() or _code == null:   ## 别在 B 服预填 A 服的房间码，见 _resume_here
 		return
 	_code.text = str(_resume["code"])
 	_set_status("你还有一局没打完（房间 %s）—— 点「加入」回去接着打" % _resume["code"])
@@ -650,7 +660,8 @@ func _on_message(m: Dictionary) -> void:
 			_repaint_room()
 			## 回到自己那一席了：回程票用掉（issue #46）。判「有没有席位」而不是「进没进这间房」——
 			## 以观众身份进同一间房不算回来，那时票还得留着
-			if str(m.get("code", "")) == str(_resume.get("code", "")) and int(m.get("you_seat", -1)) >= 0:
+			if _resume_here() and str(m.get("code", "")) == str(_resume.get("code", "")) \
+					and int(m.get("you_seat", -1)) >= 0:
 				_resume = {}
 				_resume_tried = false
 			## 开局：从这一刻起对局流排队，等第一份状态到了再进棋盘。
@@ -1121,7 +1132,7 @@ func _repaint_lobby() -> void:
 		if str(r.get("state", "waiting")) == "playing":
 			## 进行中的房：坐不进去，写的是**观众满没满**——那才是这一行要拿来做的决定
 			## 全见的房要标出来：观众进去**看得到所有人手牌**，这是决定进不进的信息之一
-			if str(r["code"]) == str(_resume.get("code", "")):
+			if _resume_here() and str(r["code"]) == str(_resume.get("code", "")):
 				## 我自己那一局（issue #46）：点它是**回去接着打**，不是进去当观众 ——
 				## 写「观众 2/8」会让人以为自己的席位已经没了。
 				## **别往后加解释**：这一行定宽 LIST_W 400 px 加省略号，再多一句就被截掉

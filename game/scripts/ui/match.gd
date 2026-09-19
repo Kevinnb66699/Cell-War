@@ -1173,7 +1173,8 @@ func _adopt_mirror(m: CWMirror) -> void:
 ## 行动边界条目（新手引导 §1.10）。**装闸的唯一正确时机是 step_end**：
 ## 内核的 decider 路逐行是 `_close_step()` → `decider.ask()`（玩家在这儿作答）→ `_open_step()`
 ## （cw_kernel_inproc.gd:397/399/405），所以 `step_begin` 标的是「这一问已经答了、这一步开始演」，
-## 不是「这一问要问了」。`step_begin` 只留给演出分组（快进 / 跳过），一个闸都不装。
+## 不是「这一问要问了」。`step_begin` 只做演出分组（快进 / 跳过）与 issue #44 的接管判定，
+## 教程的装闸时机仍只在 `step_end`。
 ##
 ## S4 起真装闸：`allow` 过滤视图、`ui_layers`、`reveal` 浮现、章节提示都在这儿落地。
 func _on_step(e: Dictionary) -> void:
