@@ -43,6 +43,9 @@ const FLAGS := {
 	"differentiate": "differentiate",## 行动栏「分化」按钮；还没解锁就描右栏「免疫等级」块
 	"round": "round",                ## 右栏顶部回合 / 阶段块
 	"cancer_grow": "enemy",
+	## 剧本直接点名的格子（`steps[].hex`）：不看局面，给哪几格就亮哪几格。
+	## 写 `flag: "hex"` = 这一步**只**亮那一组；其余 flag 与它并存（见 sync 的注释）
+	"hex": "hex",
 	"immune_defend": "own",          ## 你的免疫细胞脚下
 	"world_event": "world_event",    ## 右栏回合块（事件行在那）+ 左上角「对局日志」入口
 	"graduated": "",
@@ -64,15 +67,27 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-## 每帧由 CWMatch 调用：flag 是引导当前步骤的提亮键，m 是对局（读它的 HUD 节点与那一份观测）
-func sync(flag: String, m) -> void:
+## 每帧由 CWMatch 调用：flag 是引导当前步骤的提亮键，m 是对局（读它的 HUD 节点与那一份观测），
+## `script_hexes` 是剧本这一步点名的格子（`CWGuide.highlight_hexes()` = `steps[].hex`）。
+##
+## **两者并存**：PRD 的 UI 提示从第一关起就是「【迁移】按钮闪 **+** 地图上目的格子闪」
+## （PRD:137 / :221），所以点名的那一组每帧都描，不占 flag 的位置；`flag: "hex"` 则是
+## 「这一步只亮那一组」的写法（FLAGS 里那一支，下面 match 的 "hex" 分支）。
+##
+## `flag == ""` 不再当场返回：只给 `hex`、不给 flag 的步也得亮得出来
+## （空 flag 在 FLAGS 里查不到种类，match 一支都不命中，行为与原先一致）。
+func sync(flag: String, m, script_hexes: Array = []) -> void:
 	rects = []
 	hexes = []
-	if flag == "" or m == null or m.mirror == null or m.camera == null or m.board == null:
+	if m == null or m.mirror == null or m.camera == null or m.board == null:
 		return
 	zoom = m.camera.zoom.x
+	for c in script_hexes:
+		_hex(m, c)
 	var pid: int = m.human_players[0] if not m.human_players.is_empty() else -1
 	match str(FLAGS.get(flag, "")):
+		"hex":
+			pass    ## 目标就是 script_hexes，上面已经描完（这一支让「只亮剧本点名的格子」写得出来）
 		"board":
 			_rect(_board_rect(m))
 		"special":

@@ -35,20 +35,28 @@ const KEYS := {
 	"leveled": "免疫等级涨了",
 	"ended": "换人或换回合了 —— 结束过一次行动回合",
 	"round": "世界回合前进了",
+	## 下面两条是**状态谓词**（只看此刻，不看基线），同 `placed` 的那一类。S5 补，第三关要它们：
+	"beside": "站到了敌方细胞的相邻格（PRD:247 第三关 Step1「迁移到癌细胞相邻格」）",
+	"stuck": "能量不足以移动 —— 正问着这一席，可这一问里一个【迁移】选项都没有（PRD:251 第三关的自动重置）",
 }
 
 
 ## 把此刻的局面拍成一张小快照。**只读**：批 1 起读的是观测镜像（CWMirror），够不着引擎。
 ## `pid` 是屏幕前这位真人的席位；没有席位 / 细胞不在场时位置是 NONE，其余为 0。
+##
+## 末三个键（`beside` / `asked` / `can_move`）服务两条**状态谓词**，它们只看此刻的这一张：
+## `can_move` 的默认是 **true**（「没在问 = 谈不上走不动」），别改成 false —— `stuck` 会当场把关卡重置掉。
 static func snapshot(m: CWMirror, pid: int) -> Dictionary:
 	var snap := { "pos": NONE, "hand": 0, "play_n": 0, "diff": false, "attacks": 0,
-		"draws": 0, "memory": 0, "level": 0, "round": 0, "actor": -1 }
+		"draws": 0, "memory": 0, "level": 0, "round": 0, "actor": -1,
+		"beside": false, "asked": false, "can_move": true }
 	if m == null:
 		return snap
 	snap["memory"] = int(m.memory)
 	snap["level"] = int(m.immune_level)
 	snap["round"] = int(m.round_no)
 	snap["actor"] = int(m.current_pid)
+	var me := {}
 	for c in m.cells:
 		if int(c["pid"]) == pid and bool(c["alive"]):
 			snap["pos"] = Vector2i(c["pos"])
@@ -57,7 +65,25 @@ static func snapshot(m: CWMirror, pid: int) -> Dictionary:
 			snap["diff"] = bool(c["differentiated"])
 			snap["attacks"] = int(c["attacks_used"])
 			snap["draws"] = int(c["draws_used"])
+			me = c
 			break
+	## 相邻格上有活着的敌方细胞吗（按**阵营**比，不按席位：教程里敌方只有一只，正式局也讲得通）
+	if not me.is_empty():
+		var ring: Array = CWData.neighbors(Vector2i(me["pos"]))
+		for c in m.cells:
+			if bool(c["alive"]) and int(c["faction"]) != int(me["faction"]) and Vector2i(c["pos"]) in ring:
+				snap["beside"] = true
+				break
+	## 「走不动了」只在**正问着这一席的顶层行动问**里谈得上：引擎的选项表已经把付不起的迁移滤掉了
+	## （`cw_actions.immune_move_options` 的 `can_pay` 那一行），所以「表里一条 act=move 都没有」
+	## 就是「能量不足以移动」。这里不自己算价钱 —— 算价钱要读旋钮，而 `CWMirror.tune` 只有 9 个键。
+	if not m.ask.is_empty() and str(m.ask.get("kind", "")) == "action" and int(m.ask.get("seat", -1)) == pid:
+		snap["asked"] = true
+		snap["can_move"] = false
+		for o in m.ask.get("options", []):
+			if str(((o as Dictionary).get("data", {}) as Dictionary).get("act", "")) == "move":
+				snap["can_move"] = true
+				break
 	return snap
 
 
@@ -95,4 +121,9 @@ static func done(key: String, base: Dictionary, now: Dictionary) -> bool:
 			return not same_turn(base, now)
 		"round":
 			return int(now.get("round", 0)) > int(base.get("round", 0))
+		"beside":
+			## 状态谓词：基线是什么样不管（同 placed）。第三关 Step1 就是「站过去」这一件事
+			return bool(now.get("beside", false))
+		"stuck":
+			return bool(now.get("asked", false)) and not bool(now.get("can_move", true))
 	return false

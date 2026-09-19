@@ -13,6 +13,7 @@
   ],
   "levels": [
     { "id": "c1_l1", "chapter": 1, "chapter_title": "Cell", "title": "第一关 免疫", "file": "levels/c1_l1.json" },
-    { "id": "c1_l2", "chapter": 1, "chapter_title": "Cell", "title": "第二关 癌", "file": "levels/c1_l2.json" }
+    { "id": "c1_l2", "chapter": 1, "chapter_title": "Cell", "title": "第二关 癌", "file": "levels/c1_l2.json" },
+    { "id": "c1_l3", "chapter": 1, "chapter_title": "Cell", "title": "第三关 ATP", "file": "levels/c1_l3.json" }
   ]
 }
