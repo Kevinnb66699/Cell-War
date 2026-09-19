@@ -5462,6 +5462,9 @@ func t_proliferate_tiers() -> void:
 	check(g6.world.proliferate_chance(t4) == 60, "III 期（第 11 回合起）：6%")
 	g6.tiles[n0]["tissue"] = CWData.Tissue.SOLID   ## 同块再加一格固化：邻居 2、固化 1
 	check(g6.world.proliferate_chance(t4) == 2 * (60 + 15), "III 期每固化 1.5%：2 × (6% + 1.5%×1) = 15%")
+	## II 期整条算式（issue #64 的正面断言）：基数 5% + 每固化 1%，同一个纯函数核算出来
+	g6.round_no = 6
+	check(g6.world.proliferate_chance(t4) == 2 * (50 + 10), "II 期整式：2 × (5% + 1%×1) = 12%（issue #64）")
 	g6.round_no = 1
 	check(g6.world.proliferate_chance(t4) == 2 * (30 + 5), "I 期每固化 0.5%：2 × (3% + 0.5%×1) = 7%")
 	g4.dispose()
