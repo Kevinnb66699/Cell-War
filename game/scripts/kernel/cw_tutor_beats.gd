@@ -251,10 +251,16 @@ static func _state_done(k: String, arg: Variant, now: Dictionary, m: CWMirror) -
 		"low_energy_beside":
 			return bool(now["beside"]) and int(now["energy"]) < int(arg if arg != null else 0)
 		"tile_healthy":
+			## ⚠ 镜像格字典的键叫 **`tissue`**，不是 `state`（`cw_mirror.gd:124` 一带）——
+			## 写 `state` 的那一版永远取不到值，这条谓词**永不成立**（S8 合 main 时发现，S4 修）。
+			## 钩子那一侧的 `ctx.read("tile")` 是**另建**的一份 `{ state, type, solid }` 投影
+			## （`cw_tutor_ctx.gd` 里现做的 tissue→state 映射），两处不是同一张字典，别照着对方的键名抄。
+			## 盘外的格直接判不成立：`m.tiles[at]` 取不存在的键会当场报运行时错
 			if m == null:
 				return false
 			var at := _at_arg(arg)
-			return at != NONE and int(m.tile(at).get("state", -1)) == CWData.Tissue.HEALTHY
+			return at != NONE and m.tiles.has(at) \
+				and int((m.tiles[at] as Dictionary)["tissue"]) == CWData.Tissue.HEALTHY
 		"cell_at":
 			if m == null or not (arg is Array) or (arg as Array).size() != 2:
 				return false

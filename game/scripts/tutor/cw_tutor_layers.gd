@@ -44,6 +44,11 @@ const ENERGY_NULL_MARK := "Null"
 ##   cost      —— 每格耗能与按钮上的价签（PRD:107）
 ##   energy    —— "plain"（照常写数字）/ "infinite"（标志值换成 ENERGY_INF_MARK）
 ##                / "null"（标志值换成 ENERGY_NULL_MARK，PRD:431）/ "hidden"（整个不写）
+##   camera    —— 镜头取景（PRD 2026-09-19 04:08 版新增的「地图调中 / 左 / 右」「玩家调中 / 左 / 右」，
+##                模板见 PRD:9-22）。值是 `{ "anchor": "map"|"player", "align": "center"|"left"|"right" }`。
+##                **这一层没有「关」的那一档**：镜头永远在某个位置上，所以通配 `"*": false`
+##                把它铺回缺省（map/center）而不是 false。**实装在 S3**（皮 / 镜头），
+##                S4 的关卡数据先按 PRD 现文带上这一键 —— 层名不在白名单里 `apply()` 会当场 warning
 ##
 ## 值的约定：`false` / `[]` / `""` = 关，`true` / 非空数组 / 非空串 = 开。
 ## **数组形态的「白名单」由决策闸（`allow`，方案 §3.2(a)）落实**，不在这儿过滤 ——
@@ -60,6 +65,7 @@ const DEFAULTS := {
 	"move_path": true,
 	"cost": true,
 	"energy": "plain",
+	"camera": { "anchor": "map", "align": "center" },
 }
 
 ## 通配键：`{"*": false}` = 先把所有具名层按「关」的那一侧铺一遍，再按同一条里其余键覆写。
@@ -75,13 +81,16 @@ static func reset() -> void:
 
 
 ## 「关」的那一侧长什么样：布尔层给 false，数组层给空表，`energy` 给 "hidden"。
-## 通配只铺这一份，**不碰** `energy` 之外的字符串层（今天只有 energy 一个）
+## 通配只铺这一份，**不碰** `energy` 之外的字符串层（今天只有 energy 一个）。
+## **字典层（camera）没有「关」这一档** —— 镜头永远在某个位置上，通配把它铺回缺省而不是关掉
 static func off_value(key: String) -> Variant:
 	var d: Variant = DEFAULTS.get(key, false)
 	if d is String:
 		return "hidden"
 	if d is Array:
 		return []
+	if d is Dictionary:
+		return (d as Dictionary).duplicate(true)
 	return false
 
 
@@ -119,6 +128,14 @@ static func on(key: String) -> bool:
 
 static func energy_mode() -> String:
 	return str(_cur.get("energy", "plain"))
+
+
+## 此刻的镜头取景（PRD 04:08 版的「地图调中 / 角色调左」那一族）。**只读副本**。
+## 缺省是 `{ "anchor": "map", "align": "center" }` —— 正式对局永远拿到这一份
+static func camera() -> Dictionary:
+	var v: Variant = _cur.get("camera", DEFAULTS["camera"])
+	return (v as Dictionary).duplicate(true) if v is Dictionary \
+		else (DEFAULTS["camera"] as Dictionary).duplicate(true)
 
 
 ## 「切换种类」按一下要换成哪几份 world（按次序轮转）。没开这一层就是空表
