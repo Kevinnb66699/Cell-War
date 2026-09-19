@@ -97,6 +97,13 @@ const NO_ANCHOR := Vector2i(9999, 9999)
 ## 正劝着重置（`advise_when` 命中）：这时 `until` **不翻页** ——
 ## 第三关「站到相邻格」在能量算亏时照样成立，翻过去那句劝退当场消失
 var _advising := false
+## 钩子正在跑的那一条声明式条目（`ctx.beat`）。**装闸时优先它**——
+## 主游标此刻停在 `hook` 那一条上（非 `player` ⇒ `install()` 给 `[]` 全禁），
+## 不认这一条的话，钩子里每一个 `player` beat 都会被它自己所在的 `hook` 行关死
+## —— 阀关着⇒玩家那一问挂起不作答，而 beat 的 `until` 永远等不到，当场死锁
+## （S11 第六关钩子 `encircle` 实测；间章的 `interlude.gd` 走同一条路）。
+## 非阻塞条目装完就还回去，阻塞条目撑到它自己跑完
+var _beat_row: Variant = null
 
 
 # =====================================================================
@@ -114,6 +121,7 @@ func open(lv: Dictionary, seat: int) -> void:
 	_saying = false
 	_advising = false
 	_hook_depth = 0      ## 上一关挂死的钩子协程不许按住新关的游标
+	_beat_row = null     ## 挂死的那一条 beat 也不许再把闸撑开
 	_hook_obj = null     ## 换关就换一支钩子脚本
 	active = true
 	rebase_hard()
@@ -140,6 +148,7 @@ func reset_level() -> void:
 	_saying = false
 	_advising = false
 	_hook_depth = 0      ## 挂死的钩子协程再也回不来，不清就把重置后的 `hook` 那一条按死
+	_beat_row = null
 	active = true
 	rebase_hard()
 	want_reset.emit()
@@ -219,7 +228,7 @@ func rebase_hard() -> void:
 func install() -> void:
 	if not active:
 		return
-	var row := _row()
+	var row: Dictionary = _beat_row if _beat_row is Dictionary else _row()
 	var is_player := str(row.get("do", "")) == "player"
 	if gate != null and is_instance_valid(gate):
 		gate.set_allow(row.get("allow", null) if is_player else [])
@@ -613,12 +622,18 @@ func run_beat(row: Dictionary, ep: int) -> void:
 		## 钩子里再点一支钩子：直接 await 内层那只（`_hook_depth` 那道闸是给**主游标**的）
 		await _run_hook(row)
 		return
+	var prev: Variant = _beat_row
+	_beat_row = row
 	_enter(row)
 	install()
 	if not BEATS.is_blocking(row):
+		_beat_row = prev
+		install()
 		return
 	while alive(ep) and not _advance_ok(row, get_process_delta_time()):
 		await next_frame()
+	_beat_row = prev
+	install()
 
 
 ## `ctx.until()`：等一个谓词。**同一张表、同一个基线**（`BEATS.done` + 入口处 `rebase()`）。

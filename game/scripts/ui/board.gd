@@ -675,6 +675,9 @@ const ACTIVE_FADE := 0.45
 ## 浮现（PRD:45）每环之间的间隔：新进集合的格按 `ring_delays`（:320）由内向外排队入场。
 ## 比高亮剪影的 MARK_RING_DELAY 稀一点 —— 浮现是「地长出来」的演出，太密就看不出环序。
 const ACTIVE_RING_DELAY := 0.06
+## 格网最大能长到第几环。教程最大的盘是第六关的 12（469 格）；
+## 封顶是防写歪的数据把格网撑爆（半径 n 的格数是 3n²+3n+1）
+const MAX_GRID_RADIUS := 16
 var active_radius: int = CWData.BOARD_RADIUS   ## 当前看得见、点得到的最大环号（= 活跃集里最大的环号）
 ## 格网**已经铺到**的最大环号（`ensure_radius` 只增不减）。与 `active_radius` 是两回事：
 ## 这个是「有没有这块格子」，那个是「这块格子露没露出来」
@@ -700,9 +703,18 @@ func set_active_radius(board_radius: int, seconds: float = ACTIVE_FADE) -> void:
 func set_active_tiles(tiles: Array, seconds: float = ACTIVE_FADE) -> void:
 	var want_set := {}
 	var top := 0
+	## **先把格网长到活跃集要的那么大**（S11 真机抓到）：教程局开一关时
+	## `CWMatch._open_tutor_level` 是「`set_active_tiles` 在前、第一次 `_adopt_mirror`
+	## （那里才 `ensure_radius`）在后」，第 7 环起的格这一刻还不在 `map` 里 ⇒ 下面那行
+	## `map.has` 会把它们整批滤掉，第六关 469 格的盘只露出中间 127 格、
+	## 玩家走到 (-10,1) 时脚下一片黑。活跃集声明的形状是**数据**，格网跟着它长
+	var want_ring := 0
+	for c: Vector2i in tiles:
+		want_ring = maxi(want_ring, CWData.hex_dist(c, Vector2i.ZERO))
+	ensure_radius(mini(want_ring, MAX_GRID_RADIUS))   ## 正式局恒在半径 6 内 ⇒ 第一行就返回，一格不加
 	for c: Vector2i in tiles:
 		if not map.has(axial_to_rc(c)):
-			continue
+			continue          ## 盘外 / 超过封顶的坐标照旧丢掉
 		want_set[c] = true
 		top = maxi(top, CWData.hex_dist(c, Vector2i.ZERO))
 	var fresh: Array = []
