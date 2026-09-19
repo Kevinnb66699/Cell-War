@@ -20843,13 +20843,49 @@ func t_issue_fx_0919() -> void:
 	check(CWSkillFx.HOMING_LAND - CWSkillFx.HOMING_LAUNCH > CWTeleportFx.LAG,
 		"落场推迟到血流落地（%.2f s），中间那一秒细胞不在场"
 			% (CWSkillFx.HOMING_LAND - CWSkillFx.HOMING_LAUNCH))
-	check(msrc.contains("CWSkillFx.HOMING_LAND - CWSkillFx.HOMING_LAUNCH") and msrc.contains("shrink = true"),
-		"癌细胞在粒子流发出后缩小消失、到目标后放大出现（_play_teleports 按血流对时）")
+	var tm0: Array = CWMatch.homing_teleport_timing(0.0)
+	var tm5: Array = CWMatch.homing_teleport_timing(0.5)
+	var tm_no: Array = CWMatch.homing_teleport_timing(-1.0)
+	check(bool(tm0[2]) and bool(tm5[2]) and not bool(tm_no[2]) and float(tm_no[0]) < 0.0,
+		"是血行转移才缩放；不是的话第一个返回 -1 —— 别动外面按环算好的那个 delay")
+	check(is_equal_approx(float(tm0[0]) + float(tm0[1]), CWSkillFx.HOMING_LAND)
+			and is_equal_approx(float(tm5[0]) + float(tm5[1]), CWSkillFx.HOMING_LAND - 0.5)
+			and is_zero_approx(float(tm5[0])),
+		"离场 / 落场都锚在**绝对时刻**：桥阻塞 500 ms 之后才轮到镜像差分，晚问 0.5 s 也照样在血流落地那一刻（%.2f s）凝出"
+			% CWSkillFx.HOMING_LAND)
+	check(float(CWMatch.homing_teleport_timing(CWSkillFx.HOMING_LAND + 1.0)[1]) >= CWTeleportFx.LAG,
+		"血流早落地了才问到：至少留出残影溶解那一下，不许负数")
+	check(msrc.contains("homing_teleport_timing(homing)"), "_play_teleports 走的就是这支纯函数")
 	sk.clear()
 
-	# ---- #53 ⑤ 粒子虚化 ----
-	check(CWPix.SOFT_A < 1.0 and fx_src.contains("CYAN, 9, 20.0, true, true"),
-		"分化那口粒子走柔边（亮芯 + 淡一档的外圈；像素风做不了真高斯模糊）")
+	# ---- #53 ⑤ 分化：粒子照原型是硬像素，虚化 = 贴图交叉淡入淡出 ----
+	check(fx_src.contains("CYAN, 9, 20.0, true)") and not fx_src.contains(", true, true)"),
+		"粒子逐参数照抄原型 common-skills.js:67 的 burst(…,cyan,9,20,true) —— 硬像素，虚化不在这儿")
+	check(is_equal_approx(CWMatch.ART_FADE, float(CWSkillFx.DURATION["differentiate"])),
+		"交叉淡入淡出与「粒子重组」共一条 p 曲线（原型里就是同一个 progress）")
+	var art_old: Texture2D = CWMatch.IMMUNE_ART[CWData.ImmuneType.BASIC]
+	var sp := Sprite2D.new()
+	sp.texture = art_old
+	sp.hframes = CWMatch.BREATH_FRAMES
+	sp.frame = 3
+	sp.offset = Vector2(0, -art_old.get_height() / 2.0)
+	root.add_child(sp)        ## 必须进场景树：补间由节点驱动（make_board 出来的那只没挂进去）
+	CWMatch.cross_fade_art(sp)
+	var ghost := sp.get_node_or_null(CWMatch.ART_FADE_NODE) as Sprite2D
+	check(ghost != null and ghost.texture == art_old and ghost.offset == sp.offset
+			and ghost.hframes == sp.hframes and ghost.frame == sp.frame,
+		"旧形态留一张同规格的临时贴图（三种贴图高度不同，offset 抄错就上下跳）")
+	check(is_equal_approx(ghost.self_modulate.a, 1.0) and is_zero_approx(sp.self_modulate.a),
+		"起手旧层不透明、真身全透明；走 self_modulate —— 父节点的 modulate 会乘到子节点上（_pop_in 用的就是它）")
+	await create_timer(CWMatch.ART_FADE * 0.5).timeout
+	check(ghost.self_modulate.a < 0.95 and sp.self_modulate.a > 0.05
+			and absf(ghost.self_modulate.a + sp.self_modulate.a - 1.0) < 0.02,
+		"中途两层 alpha 之和恒为 1（原型 fade(1-p) + fade(p)，common-skills.js:59）")
+	await create_timer(CWMatch.ART_FADE * 0.6).timeout
+	check(not ghost.visible and is_equal_approx(sp.self_modulate.a, 1.0),
+		"淡完：旧层收起、真身回到不透明")
+	root.remove_child(sp)
+	sp.free()
 
 	# ---- #53 ⑦ 突变上移 ----
 	check(fx_src.contains("var y := a.y - 12.0 + float(i) * 3.0"),
@@ -20865,6 +20901,61 @@ func t_issue_fx_0919() -> void:
 	var usrc := FileAccess.get_file_as_string("res://scripts/ui/ui_bridge.gd")
 	check(usrc.contains("beam_fx.play(body, board.tile_center(to), pts, half)"),
 		"桥把胞体中心与半径一起交给光束")
+	var psrc := FileAccess.get_file_as_string("res://tests/preview/preview_fx_0919.gd")
+	check(not psrc.contains("get_height() / 12.0"),
+		"动图预览的起手偏移也按胞体半径 —— 交给 Kevin 的那张图要演实装行为，不是另一套参数")
+
+	# ---- #48 / #52 遮罩外不演 + ⑤ 的接线：一只真 CWMatch 上走镜像差分 ----
+	CWTutorLayers.reset()          ## 能量层可能被别的教程用例改过（静态表跨局留味道）
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var mt: CWMatch = main_scene.match_node
+	var g := bare_game()
+	var imm := put_immune(g, Vector2i(0, 0))
+	mt.mirror = _mirror_of(g)
+	mt._sync_cells()                ## 首帧只记不演（差分得有上一帧）
+	check(mt._energy_fx.active() == 0, "第一次见这只细胞：只记不演")
+	imm["energy"] = int(imm["energy"]) + 9
+	mt.mirror = _mirror_of(g)
+	mt._sync_cells()
+	check(mt._energy_fx.active() == 1, "揭示过的格上能量一变就飘一个 ±数字")
+	mt.board.set_active_tiles([Vector2i(5, 0)], 0.0)     ## 把它那格遮起来
+	imm["energy"] = int(imm["energy"]) - 4
+	mt.mirror = _mirror_of(g)
+	mt._sync_cells()
+	check(mt._energy_fx.active() == 1,
+		"遮罩外的格不飘字 —— 否则教程里「预置 + 遮罩揭示」当场穿帮（飘字压在 Z_OVER_BOARD）")
+	mt.board.set_active_tiles(CWData.all_coords(), 0.0)
+	mt.mirror = _mirror_of(g)
+	mt._sync_cells()
+	check(mt._energy_fx.active() == 1,
+		"揭示之后不补演：_last_energy 照旧在条件外更新，攒不出一条")
+	## ⑤ 的接线：itype 变了才交叉，刚落子那一次直接上图
+	var node0: Sprite2D = mt._cell_nodes[0] as Sprite2D
+	check(node0.get_node_or_null(CWMatch.ART_FADE_NODE) == null, "刚落子那一次直接上图，不交叉")
+	var was_tex: Texture2D = node0.texture
+	imm["itype"] = CWData.ImmuneType.B_CELL
+	mt.mirror = _mirror_of(g)
+	mt._sync_cells()
+	var gh := node0.get_node_or_null(CWMatch.ART_FADE_NODE) as Sprite2D
+	check(gh != null and gh.visible and gh.texture == was_tex and node0.texture != was_tex,
+		"分化那一帧认出 itype 变了 → 旧形态淡出、新形态淡入（原型 common-skills.js:59）")
+	## #52 同理：进 / 出固化也归遮罩管
+	mt._sync_tiles()                                     ## 先记一份 tissue 基准
+	mt._skill_fx.clear()
+	var hidden := Vector2i(3, 0)
+	mt.board.set_active_tiles([Vector2i(-5, 0)], 0.0)
+	g.tiles[hidden]["tissue"] = CWData.Tissue.SOLID
+	mt.mirror = _mirror_of(g)
+	mt._sync_tiles()
+	check(mt._skill_fx.active() == 0, "遮罩外的格固化了也不炸粒子（同上：会把还没揭的盘面泄出去）")
+	mt.board.set_active_tiles(CWData.all_coords(), 0.0)
+	mt.mirror = _mirror_of(g)
+	mt._sync_tiles()
+	check(mt._skill_fx.active() == 0, "揭示之后同样不补演（_last_tissue 也在条件外更新）")
+	root.remove_child(main_scene)
+	main_scene.free()
 
 	bf.queue_free()
 	sk.queue_free()

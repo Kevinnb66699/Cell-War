@@ -592,11 +592,13 @@ func _minimal(t: float, d: Dictionary) -> void:
 		CWPix.line(self, at - dir * (17.0 + float(i) * 4.0) + lift, at - dir * (10.0 + float(i) * 4.0) + lift, STEEL)
 
 
-## 粒子重组：青色碎粒从外圈收拢到胞体。
-## issue #53 ⑤：中心取**胞体中心**（原来是格心上方 5px，细胞越高错得越多），粒子走柔边（虚化）
+## 粒子重组：青色碎粒从外圈收拢到胞体。逐参数照抄原型 `common-skills.js:67`
+## `burst(c,a.x,a.y-5,p,cyan,9,20,true)` —— 硬像素。
+## issue #53 ⑤：中心取**胞体中心**（原来是格心上方 5px，细胞越高错得越多）；
+## 那条 issue 说的「虚化」是原型第 59 行**贴图的交叉淡入淡出**，落在 `CWMatch.cross_fade_art`，不在这儿。
 func _differentiate(t: float, d: Dictionary) -> void:
 	var a: Vector2 = _v(d, "at_body") if d.has("at_body") else _v(d, "at") + Vector2(0, -5)
-	CWPix.burst(self, a, t / 1.65, CYAN, 9, 20.0, true, true)
+	CWPix.burst(self, a, t / 1.65, CYAN, 9, 20.0, true)
 
 
 ## 轻量吸收：七粒青色颗粒沿螺旋往**胞体中心**收（issue #26 前对着脚底收，看着错位），尾声胞体右上亮一点
@@ -612,10 +614,10 @@ func _respire(t: float, d: Dictionary) -> void:
 		CWPix.px(self, a + Vector2(radius * 0.9, -radius * 0.75), CYAN, 2)
 
 
-## 归拢重生：十四粒青色碎粒往复活格收拢（issue #53 ⑤ 的「分化等」：中心对胞体、粒子柔边）
+## 归拢重生：十四粒青色碎粒往复活格收拢（issue #53 ⑤ 的「分化等」：中心对胞体；粒子同原型是硬像素）
 func _revive_immune(t: float, d: Dictionary) -> void:
 	var a: Vector2 = _v(d, "at_body") if d.has("at_body") else _v(d, "at") + Vector2(0, -5)
-	CWPix.burst(self, a, t / 1.65, CYAN, 14, 25.0, true, true)
+	CWPix.burst(self, a, t / 1.65, CYAN, 14, 25.0, true)
 
 
 ## 碎石重生：铜色碎粒往格里收拢。
@@ -626,7 +628,7 @@ func _revive_immune(t: float, d: Dictionary) -> void:
 ## 散的是那块六边形纹理本身。
 func _revive_cancer(t: float, d: Dictionary) -> void:
 	var a: Vector2 = _v(d, "at_body") if d.has("at_body") else _v(d, "at") + Vector2(0, -5)
-	CWPix.burst(self, a, t / 1.65, COPPER, 14, 25.0, true, true)
+	CWPix.burst(self, a, t / 1.65, COPPER, 14, 25.0, true)
 
 
 ## 一格固化癌组织切成 3px 的马赛克：[[相对顶面中心的偏移, 颜色], …]。**只算一次**（贴图不会变）。

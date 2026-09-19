@@ -1706,8 +1706,12 @@ func _sync_tiles() -> void:
 		## 固化癌组织的生成 / 解除（issue #52 与 #53 ⑥）：**镜像差分**认出进 / 出 SOLID 的那一格，
 		## 引擎与协议一字不动（同 CWTeleportFx 那条先例）。走的是**引擎的** tissue 而不是下面
 		## 那个画出来的 —— 开场绽开期间画的是健康组织，拿画面差分的话绽开放开那一刻满盘固化格会齐炸一次。
+		## 遮罩外的格**不演**（同 _sync_cells 那条细胞可见性）：教程里预置在活跃集之外的固化格
+		## 一旦被揭示前改了 tissue，粒子会在一片空白上炸一次、把还没揭的盘面泄出去。
+		## `continue` 不行 —— 下面还要画这一格；`_last_tissue[c]` 也照旧更新，
+		## 否则揭示的那一刻会把「攒着的那一跳」补演出来。
 		var now_solid: int = int(t["tissue"])
-		if _last_tissue.has(c) and int(_last_tissue[c]) != now_solid \
+		if _last_tissue.has(c) and int(_last_tissue[c]) != now_solid and board.is_active(c) \
 				and (now_solid == CWData.Tissue.SOLID or int(_last_tissue[c]) == CWData.Tissue.SOLID):
 			solid_changed.append([c, now_solid == CWData.Tissue.SOLID])
 		_last_tissue[c] = now_solid
@@ -1966,16 +1970,23 @@ func _sync_cells() -> void:
 		## 能量增损的飘字（issue #48）：**镜像差分**，引擎零改动、不加报文，
 		## 于是凡是改能量的事件（收入 / 伤害 / 反弹 / 迁移费 / 卡牌 / 过载…）一条不漏。
 		## 刚复活的那一跳不演（那是「凭空出现」，走 _pop_in），教程的无限能量也不演。
+		## **遮罩外的不演**：上面那行细胞可见性押着「预置 + 遮罩揭示」，飘字压在 Z_OVER_BOARD 上、
+		## 不跟遮罩的话，还没揭示的那只细胞一有收入 / 伤害就会在空白处飘个 ±数字出来。
+		## 判的是 `board.is_active(pos)` 而不是 `node.visible`：后者还含「扑咬 / 普通攻击由演出层代画」
+		## 这一段（node.visible = false），而 `immune_attack` 只阻塞 450 ms、动画要演 0.66 s ——
+		## 镜像差分正好落在代画那一段里，拿 node.visible 去判会把**攻击伤害**这条最该演的飘字吃掉。
+		## `_last_energy[i] = e` 照旧在条件外更新：差分基准不能跟着跳过。
 		var e: int = int(c["energy"])
 		if _energy_fx != null and _last_energy[i] != ENERGY_FX.UNSEEN and e != _last_energy[i] \
-				and not became_alive and CWTutorLayers.energy_mode() != "infinite":
+				and not became_alive and board.is_active(pos) \
+				and CWTutorLayers.energy_mode() != "infinite":
 			var head: float = float(tex.get_height()) if tex != null else 34.0
 			_energy_fx.push(i, foot - Vector2(0, head + 4.0), e - _last_energy[i])
 			if panel != null:
 				panel.bump_energy(int(c["pid"]), e > _last_energy[i])
 		_last_energy[i] = e
 		if c["faction"] == CWData.Faction.IMMUNE:
-			_apply_immune_art(node as Sprite2D, c["itype"])
+			_apply_immune_art(node as Sprite2D, c["itype"], not became_alive)
 			_sync_doom(node as Sprite2D, c)
 		## 回合脚标（方案 D，Kevin 2026-09-12 晚）：轮到的这只细胞头顶一枚箭。挂在这里而不是 _sync_tiles，
 		## 因为只有这里知道它此刻画在哪（同格错位、被伪足拉着走都算）、贴图多高、头顶有没有冠印
@@ -2017,17 +2028,35 @@ func _play_teleports(jumps: Array) -> void:
 		## 发射到目标后在目标格放大出现」）：这一跳如果正配着一条血行转移的血流，
 		## 就把离场推到**血流出发**那一刻、落场推到**血流落地**那一刻，中间那一秒细胞是不在场的。
 		## 演出层只认像素，所以拿两格的像素去问 CWSkillFx。别的传送（紊乱 / 血管互换 / 卡）照旧。
-		var lag := CWTeleportFx.LAG
-		var shrink := false
 		var homing: float = _skill_fx.homing_elapsed(board.tile_center(from), board.tile_center(to)) \
 			if _skill_fx != null else -1.0
-		if homing >= 0.0:
-			delay = maxf(CWSkillFx.HOMING_LAUNCH - homing, 0.0)
-			lag = CWSkillFx.HOMING_LAND - CWSkillFx.HOMING_LAUNCH
-			shrink = true
+		var timing: Array = homing_teleport_timing(homing)
+		var lag: float = float(timing[1])
+		var shrink: bool = bool(timing[2])
+		if shrink:
+			delay = float(timing[0])
 		_teleport_fx.play(_cells_root, _cell_nodes[i] as Sprite2D, i, j["ghost_pos"], int(j["ghost_z"]),
 			CWTeleportFx.edge_for(int(mirror.cells[i]["faction"])), delay,
 			func() -> void: _flash[to] = FLASH_TIME, lag, shrink)
+
+
+## 【早期血行转移】那一跳的对时（issue #53 ④）。入参 `homing` = 这条血流**已经演了多久**
+## （`CWSkillFx.homing_elapsed`；不是血行转移就是负数）。出 `[离场延迟, 落场滞后, 要不要缩放]`，
+## 不是血行转移时第一个是 -1（= 别动外面按环算好的那个 delay）。
+##
+## 两个量都锚在**绝对时刻**上：血流 `HOMING_LAUNCH` 出发、`HOMING_LAND` 落地，而细胞这一跳是
+## 血流入队之后好一阵才被镜像差分认出来的（`cw_actions` 先 `game.fx("homing")` 入队 →
+## 桥的 `BLOCK_FX_MS["homing"]` 阻塞 500 ms → 才轮到 step_end 的 sync），问到的时候 homing 已经 ≈0.5 s。
+## 早先写的 `lag = HOMING_LAND - HOMING_LAUNCH` 是**相对残影开始**的偏移：细胞会比血流的落地爆
+## 晚 homing 秒才凝出来，中间空一拍（0.5 s 时差 0.45 s，问得越晚偏得越多）。
+static func homing_teleport_timing(homing: float) -> Array:
+	if homing < 0.0:
+		return [-1.0, CWTeleportFx.LAG, false]
+	var delay := maxf(CWSkillFx.HOMING_LAUNCH - homing, 0.0)
+	## 落场滞后是「从残影开始算」的，所以要把已经垫掉的 delay 也减出去；
+	## 兜底 CWTeleportFx.LAG —— 血流已经落地了才问到的话，至少还得留出溶解那一下
+	var lag := maxf(CWSkillFx.HOMING_LAND - homing - delay, CWTeleportFx.LAG)
+	return [delay, lag, true]
 
 
 ## 手牌抽屉。抽到的卡从**发起抽卡的那个细胞**身上飞出来 ——
@@ -2360,14 +2389,62 @@ func _animate_breath(delta: float) -> void:
 			var ring := s.get_node_or_null("DoomRing") as Sprite2D
 			if ring != null:
 				ring.frame = s.frame
+			## 分化淡出层同理（issue #53 ⑤）：不跟帧的话交叉那 1.65 秒两张图各呼各的
+			var fading := s.get_node_or_null(ART_FADE_NODE) as Sprite2D
+			if fading != null and fading.visible:
+				fading.frame = s.frame
 	_teleport_fx.sync_breath(_breath_step, BREATH_FRAMES)   ## 残影也要跟着呼吸，否则帧率不一致穿帮
 
 
 ## 分化会改 itype，所以贴图每帧对一次。
-func _apply_immune_art(s: Sprite2D, itype: int) -> void:
+## `cross` = 这只细胞上一帧就活着 ⇒ 换图是**分化**，走交叉淡入淡出；刚落子 / 刚复活的那一次直接上图。
+func _apply_immune_art(s: Sprite2D, itype: int, cross := false) -> void:
 	var tex: Texture2D = IMMUNE_ART[itype]
-	if s.texture != tex:
-		_set_cell_art(s, tex)
+	if s.texture == tex:
+		return
+	if cross and s.texture != null:
+		cross_fade_art(s)
+	_set_cell_art(s, tex)
+
+
+## 旧形态淡出、新形态淡入（issue #53 ⑤）。原型 `tools/art-preview/common-skills.js:59` 的分化
+## 就是这一件事：`fade(c,1-p,()=>cell(c,'immune',q,0)); fade(c,p,()=>cell(c,name,q,0))` ——
+## 两张贴图在同一格上交叉，`fade` 就是 `globalAlpha`。这边此前是**瞬间换图**。
+##
+## 旧贴图挂成真身的子节点：位置 / z / 同格错位 / 被伪足拉着走全都自动跟着，不用另记一份坐标。
+## 两层各走 `self_modulate` —— 父节点的 `modulate` 会乘到子节点上（`_pop_in` 用的就是它），
+## 拿它做交叉会把旧层一起压暗、交叉变成一起淡出。
+const ART_FADE_NODE := "ArtFade"
+## 时长对齐「粒子重组」（原型里粒子与交叉是同一条 p 曲线，见 common-skills.js:63-71）
+const ART_FADE := 1.65
+
+static func cross_fade_art(s: Sprite2D) -> void:
+	var ghost := s.get_node_or_null(ART_FADE_NODE) as Sprite2D
+	if ghost == null:
+		ghost = Sprite2D.new()
+		ghost.name = ART_FADE_NODE
+		s.add_child(ghost)
+	## 抄的是**旧**贴图那一套（调用点在 _set_cell_art 之前）：三种贴图高度不同，offset 抄错就上下跳
+	ghost.texture = s.texture
+	ghost.hframes = s.hframes
+	ghost.frame = s.frame
+	ghost.offset = s.offset
+	ghost.self_modulate.a = 1.0
+	ghost.visible = true
+	s.self_modulate.a = 0.0
+	## 上一次还没淡完就又换图（教程的「切换种类」）：旧补间不杀的话，它会先到期、
+	## 把这一次的旧层提前藏掉
+	if ghost.has_meta("fade_tw"):
+		var prev: Variant = ghost.get_meta("fade_tw")
+		if prev is Tween and (prev as Tween).is_valid():
+			(prev as Tween).kill()
+	var tw := s.create_tween()
+	ghost.set_meta("fade_tw", tw)
+	tw.tween_property(ghost, "self_modulate:a", 0.0, ART_FADE)
+	tw.parallel().tween_property(s, "self_modulate:a", 1.0, ART_FADE)
+	tw.tween_callback(func() -> void:
+		if is_instance_valid(ghost):
+			ghost.visible = false)
 
 
 ## offset 把锚点从贴图中心挪到脚底中心 —— 细胞是「站」在格子上的，

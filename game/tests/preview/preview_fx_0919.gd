@@ -4,11 +4,11 @@ extends SceneTree
 ## #48 能量增损的通用飘字、#52 固化癌组织生成的像素弥散、#53 特效 bug 八条：
 ## 这些全是「动起来才看得出对不对」的东西（粒子从哪儿发出、图层压在谁上面、
 ## 血门是躺着还是立着），一帧静态图说明不了问题，所以这支**连拍整段**，
-## 外面再用 `tools/make_gif.py` 拼成动图。
+## 外面再用 `tools/make_fx_gif.py` 拼成动图（`--from-prefix <前缀> <输出.gif> [--fps] [--crop]`）。
 ##
 ## 跑（**不能加 --headless**，要真渲染）：
 ##   godot --path game --script res://tests/preview/preview_fx_0919.gd -- <场景> <输出前缀>
-## 场景：energy（#48，带右栏）· solid（#52 / #53 ⑥）· fx53（#53 ①②③⑤⑦⑧）
+## 场景：energy（#48，带右栏）· solid（#52 / #53 ⑥）· fx53（#53 ①②③④⑤⑦⑧）
 ## 出图：`<输出前缀>_000.png` … 按 FPS 逐帧，直到 END。
 const WARMUP := 12
 const FPS := 20.0
@@ -20,6 +20,7 @@ var _board: Node2D
 var _fx: CWSkillFx
 var _energy: Node2D
 var _beam: CWBeamFx
+var _tp: CWTeleportFx
 var _panel: CWMatchPanel
 var _game: CWGame
 var _mirror: CWMirror
@@ -32,7 +33,8 @@ var _script: Array = []      ## [[开演时刻, Callable], …]，按时间逐�
 const ENERGY_FX := preload("res://scripts/ui/energy_fx.gd")
 ## 三只细胞摆哪、用哪张贴图。免疫在左、癌在右 —— 两边的飘字都要看得见
 const SPOTS: Array[Vector2i] = [Vector2i(-3, 0), Vector2i(1, -2), Vector2i(-2, 4), Vector2i(2, 2)]
-const ART := ["tcell", "melanoma", "bcell", "signet"]
+## 2 号起手是**通用免疫细胞**：⑤ 那一拍当场分化成 B 细胞，才看得见交叉淡入淡出
+const ART := ["tcell", "melanoma", "immune", "signet"]
 const ITYPE := [CWData.ImmuneType.T_CELL, -1, CWData.ImmuneType.B_CELL, -1]
 const CTYPE := [-1, CWData.CancerType.MELANOMA, -1, CWData.CancerType.SIGNET]
 
@@ -78,6 +80,7 @@ func _initialize() -> void:
 	_beam = CWBeamFx.new()
 	_beam.z_index = _board.Z_OVER_BOARD
 	_board.add_child(_beam)
+	_tp = CWTeleportFx.new()
 	if _scene == "energy":
 		_panel = CWMatchPanel.new()
 		root.add_child(_panel)
@@ -135,6 +138,31 @@ func _bump(i: int, amount: int) -> void:
 		_panel.bump_energy(i, amount > 0)
 
 
+## 分化换图（对局里由 CWMatch._apply_immune_art 在镜像差分认出 itype 变化时调，这儿手点）：
+## 旧形态淡出、新形态淡入，同 tools/art-preview/common-skills.js:59
+func _differentiate_to(i: int, art: String) -> void:
+	var sp: Sprite2D = _cells[i]["sprite"]
+	CWMatch.cross_fade_art(sp)
+	sp.texture = load("res://assets/art/cells/anim/%s_breath.png" % art)
+	sp.hframes = CWMatch.BREATH_FRAMES
+	sp.offset = Vector2(0, -sp.texture.get_height() / 2.0)
+
+
+## 跟着血流走的那一跳（issue #53 ④）：**对时走实装的那支纯函数**，参数一个不自己编 ——
+## 动图里看到的缩小 / 放大时刻和真机一致，这条 issue 要看的就是这个
+func _jump(i: int, to: Vector2i) -> void:
+	var sp: Sprite2D = _cells[i]["sprite"]
+	var from: Vector2i = _cells[i]["pos"]
+	var ghost_pos := sp.position
+	var ghost_z := sp.z_index
+	_cells[i]["pos"] = to
+	sp.position = _at(to, true)
+	sp.z_index = _board.tile_z(to, _board.Z_CELL)
+	var timing: Array = CWMatch.homing_teleport_timing(_fx.homing_elapsed(_at(from), _at(to)))
+	_tp.play(_board, sp, i, ghost_pos, ghost_z, CWTeleportFx.edge_for(CWData.Faction.CANCER),
+		maxf(float(timing[0]), 0.0), Callable(), float(timing[1]), bool(timing[2]))
+
+
 # ---- 三个场景的时间表 ----
 
 func _script_energy() -> Array:
@@ -187,15 +215,21 @@ func _script_fx53() -> Array:
 		## ④ 血门：躺在地上的伪 3D 圆圈
 		[1.20, func() -> void: _fx.play("homing",
 			{ "from": _at(SPOTS[1]), "to": _at(Vector2i(4, 2)), "spread": [_at(Vector2i(5, 1))] })],
-		## ⑤ 分化：粒子中心 = 胞体中心，柔边
-		[1.40, func() -> void: _fx.play("differentiate", { "at_body": _body(0) })],
+		## ⑤ 分化：通用免疫细胞淡出、B 细胞淡入（原型第 59 行），粒子中心 = 胞体中心
+		[1.40, func() -> void:
+			_differentiate_to(2, "bcell")
+			_fx.play("differentiate", { "at_body": _body(2) })],
+		## ④ 癌细胞跟着血流走：血流入队 → 桥阻塞 BLOCK_FX_MS["homing"] 0.5 s → 才轮到镜像差分
+		## 认出这一跳，所以这儿也等 0.5 s 再跳（时刻照实装算，见 _jump）
+		[1.70, func() -> void: _jump(1, Vector2i(4, 2))],
 		## ⑦ 突变：对准胞体中心（原来整束落在下半身）
 		[1.70, func() -> void: _fx.play("mutate", { "at_body": _body(3) })],
 		## ⑧ Excalibur：从细胞表面发出（起点胞体中心、起手偏移 = 胞体半径）
 		[2.00, func() -> void:
 			var sp: Sprite2D = _cells[0]["sprite"]
 			var none: Array[Vector2] = []
-			_beam.play(_body(0), _at(Vector2i(4, 0)), none, sp.texture.get_height() / 12.0)],
+			## 起手偏移 = **胞体半径**，同实装那条路（CWUIBridge.show_beam → CWMatch.cell_half_height）
+			_beam.play(_body(0), _at(Vector2i(4, 0)), none, sp.texture.get_height() / 2.0)],
 	]
 
 
