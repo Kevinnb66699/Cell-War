@@ -880,6 +880,10 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 
 ## 候选格用免疫青；落着敌人的那一格用癌方橙 —— 那一下是攻击，不是迁移，
 ## 颜色得先说出来。鼠标停着的那格再提亮一档。
+##
+## 候选格里**癌性组织（含固化）换红**（issue #47）：青色色标一盖，红底的癌组织和
+## 青底的健康组织混完就是一个色，可「这一步会不会净化」恰恰是选落点时要看的。
+## 判据走 `mirror.is_cancerous`（内核的同名查询），界面不自己数格子。
 func _repaint_marks() -> void:
 	if mirror == null:
 		marks = {}
@@ -891,7 +895,7 @@ func _repaint_marks() -> void:
 		elif _enemy >= 0 and not mirror.cells_at(c, _enemy).is_empty():
 			m[c] = board.MARK_ATTACK
 		else:
-			m[c] = board.MARK_MOVE
+			m[c] = board.MARK_MOVE_SICK if mirror.is_cancerous(c) else board.MARK_MOVE
 	## 规划出来的路线压在可达高亮之上：这几格是玩家自己选的，得比「可以去」更实。
 	## 走不通的那一步标橙，配上提示行里的原因
 	var steps: Array = _plan_quote.get("steps", [])

@@ -8005,6 +8005,45 @@ func t_ui_bridge() -> void:
 	check(abs(got.r - want.r) < 0.006 and abs(got.g - want.g) < 0.006
 			and abs(got.b - want.b) < 0.006, "候选格高亮叠色后与设计稿一致")
 
+	## ---- issue #47：迁移模式下癌性组织换红 ----
+	## 同一抹青压在红底的癌组织上会把它洗成灰蓝（#B04A5A 叠 MARK_MOVE = #79849F，
+	## 正是 Kevin 附图里那一格），和健康格叠出来的 #2F8491 几乎是一个色。
+	## 钉的是**对比度关系**而不是某个色值 —— 将来换色标它自己跟着走。
+	var sick_base := Color8(0xB0, 0x4A, 0x5A)     ## 普通癌组织贴图主色（board.gd 文件头）
+	var sk: Color = board.MARK_MOVE_SICK
+	var old_sick := sick_base.lerp(Color(mv.r, mv.g, mv.b), mv.a)
+	var new_sick := sick_base.lerp(Color(sk.r, sk.g, sk.b), sk.a)
+	check(new_sick.r - new_sick.g > 0.25 and new_sick.r - new_sick.b > 0.25,
+		"癌性候选格叠完仍然是红的（R %.2f / G %.2f / B %.2f）" % [new_sick.r, new_sick.g, new_sick.b])
+	var d_old := Vector3(old_sick.r - got.r, old_sick.g - got.g, old_sick.b - got.b).length()
+	var d_new := Vector3(new_sick.r - got.r, new_sick.g - got.g, new_sick.b - got.b).length()
+	## 探针：旧色标下两种组织的色距确实小得读不出来 —— 闸得认得出 issue 报的那个现象
+	check(d_old < 0.32, "探针：旧色标下癌性格与健康格只差 %.2f（#47 报的低对比）" % d_old)
+	check(d_new > d_old * 2.0, "新色标把色距拉到 %.2f（旧 %.2f，两倍以上）" % [d_new, d_old])
+	check(is_equal_approx(sk.a, mv.a), "混合比例不动：逐环亮起那个节奏一点不变")
+	## 分色的判据来自内核（mirror.is_cancerous），桥只负责挑颜色（架构约定 #10）。
+	## 固化癌组织也算癌性 —— 它同样要花 immune_move_cancerous 那一档
+	var healthy_c := Vector2i(0, 0)
+	var cancer_c := Vector2i(1, 0)
+	var solid_c := Vector2i(2, 0)
+	g.tiles[healthy_c]["tissue"] = CWData.Tissue.HEALTHY
+	g.tiles[cancer_c]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[solid_c]["tissue"] = CWData.Tissue.SOLID
+	board.hovered = board.NO_TILE
+	b.mirror = _mirror_of(g)
+	b._enemy = -1
+	b._plan_quote = {}
+	b._tiles = { healthy_c: {}, cancer_c: {}, solid_c: {} }
+	b._repaint_marks()
+	check(b.marks[healthy_c] == board.MARK_MOVE, "健康候选格照旧免疫青")
+	check(b.marks[cancer_c] == board.MARK_MOVE_SICK and b.marks[solid_c] == board.MARK_MOVE_SICK,
+		"癌组织与固化癌组织的候选格都换红")
+	## 「落着敌人的那一格仍是橙」由分支顺序保证：MARK_ATTACK 那条 elif 排在换红的 else 之前，
+	## 换红一个字也没碰它。这一局还停在落子那一问、场上一个细胞都没有，在这儿验不了。
+	b.mirror = null
+	b._tiles = {}
+	b._enemy = -1
+
 	g.dispose()
 	board.free()
 	stub.free()
@@ -8361,6 +8400,92 @@ func t_match_panel() -> void:
 	p.refresh(_mirror_of(g4), _query_of(g4))
 	check(not p._lv_bar_fill.visible and not p._lv_bar_bg.visible,
 		"X 级：槽和填充一起收起来")
+
+	## ---- issue #49：悬停抗原 / 效应记忆 → 浮出升级规则 ----
+	## 门槛与收益全部**现算**。写死的话这一条就绿不了 —— 四人档与六人档各验一遍
+	var rows4 := CWMatchPanel.level_rules_rows(four, 1)
+	var joined4 := ""
+	for r: Dictionary in rows4:
+		joined4 += String(r["text"]) + "\n"
+	for lv in CWData.LEVEL_NAMES.size():
+		check(joined4.contains("%s 级　记忆 %d 起" % [CWData.LEVEL_NAMES[lv], int(four[lv])]),
+			"四人档 %s 级门槛 %d 现算上屏" % [CWData.LEVEL_NAMES[lv], int(four[lv])])
+	check(joined4.contains("有氧 %s" % CWData.fmt(CWData.AEROBIC_BY_LEVEL[3]))
+		and joined4.contains("净化 %s" % CWData.fmt(CWData.IMMUNE_MOVE_CANCEROUS[0])),
+		"每级的收益也现算（有氧按等级表、净化按迁移价表）")
+	check(joined4.contains("解锁【分化】") and joined4.contains("解锁【效应应答】"),
+		"两处解锁都写出来了（分化挂 %s 级）" % CWData.LEVEL_NAMES[CWData.DIFFERENTIATE_MIN_LEVEL])
+	check(joined4.contains("%s从零重数" % CWData.memory_name(3)),
+		"X 级换名并从零重数这条不能漏 —— 不写玩家会以为记忆丢了")
+	check(rows4[2]["color"] == CWStyle.IMMUNE and rows4[1]["color"] == CWStyle.TEXT,
+		"当前这一档用免疫青标出来，别的档中性")
+	var rows6 := CWMatchPanel.level_rules_rows(six, 0)
+	check(String(rows6[3]["text"]).contains("记忆 %d 起" % int(six[2]))
+		and String(rows4[3]["text"]).contains("记忆 %d 起" % int(four[2])),
+		"六人档门槛自己跟着换（III 级六人 %d / 四人 %d）" % [int(six[2]), int(four[2])])
+	check(CWMatchPanel.level_rules_rows([], 0).is_empty(),
+		"tier B 缺席（门槛表空）时干脆不画 —— 半张门槛表比没有更糟，玩家会照着它算")
+
+	## ---- issue #50：悬停「肿瘤 n 期」→ 浮出当期效果 ----
+	## 三期逐项对照 CWData 的 `_BY_STAGE` 表；表一改这条自己跟着走
+	for st in CWData.STAGE_NAMES.size():
+		var sr := CWMatchPanel.stage_rows(st, CWData.SOLIDIFY_THRESHOLD_BY_STAGE[st])
+		var js := ""
+		for r: Dictionary in sr:
+			js += String(r["text"]) + "\n"
+		var er: Vector2i = CWData.EROSION_TILES_BY_STAGE[st]
+		check(js.contains(CWData.STAGE_NAMES[st])
+			and js.contains("×%s" % CWData.fmt(CWData.PRESSURE_MUL_BY_STAGE[st]))
+			and js.contains("每邻癌 %s%%" % CWData.fmt(CWData.PROLIFERATE_BASE_BY_STAGE[st]))
+			and js.contains("每固化 +%s%%" % CWData.fmt(CWData.PROLIFERATE_SOLID_BY_STAGE[st]))
+			and js.contains("2/3 概率 %d 格、1/3 概率 %d 格" % [er.x, er.y])
+			and js.contains("计数满 %s" % CWData.fmt(CWData.SOLIDIFY_THRESHOLD_BY_STAGE[st])),
+			"%s 的五项都现算（压迫 ×%s / 增生 %s%% / 侵蚀 %d·%d / 固化 %s）"
+			% [CWData.STAGE_NAMES[st], CWData.fmt(CWData.PRESSURE_MUL_BY_STAGE[st]),
+				CWData.fmt(CWData.PROLIFERATE_BASE_BY_STAGE[st]), er.x, er.y,
+				CWData.fmt(CWData.SOLIDIFY_THRESHOLD_BY_STAGE[st])])
+	check(String(CWMatchPanel.stage_rows(0, 30)[5]["text"]).contains("未生效")
+		and String(CWMatchPanel.stage_rows(2, 20)[5]["text"]).contains("%d 格" % CWData.ROOTED_BY_STAGE[2]),
+		"根深蒂固：I 期写「未生效」（表里是 %d），III 期写出格数 %d"
+		% [CWData.ROOTED_BY_STAGE[0], CWData.ROOTED_BY_STAGE[2]])
+	## 固化门槛走内核算好的那一个数，不是界面自己查表 —— 换了 tune 旋钮也跟得上
+	check(String(CWMatchPanel.stage_rows(2, 55)[4]["text"]).contains("计数满 5.5"),
+		"固化那一行照 mirror.solidify_threshold() 给的数写")
+
+	## ---- 两块浮窗的排版：最长的一行也得装进 INFO_W ----
+	var widest_info := 0.0
+	var widest_line := ""
+	for probe2: Array in [CWMatchPanel.level_rules_rows(six, 3), CWMatchPanel.stage_rows(0, 30),
+			CWMatchPanel.stage_rows(1, 20), CWMatchPanel.stage_rows(2, 20)]:
+		for r: Dictionary in probe2:
+			var lw: float = CWStyle.FONT.get_string_size(String(r["text"]),
+				HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+			if lw > widest_info:
+				widest_info = lw
+				widest_line = String(r["text"])
+	check(widest_info <= CWMatchPanel.INFO_W - 24.0,
+		"最长的一行「%s」%d px，装得进 %d 宽的浮窗（左右各 12 内边距）"
+		% [widest_line, int(widest_info), int(CWMatchPanel.INFO_W)])
+
+	## ---- 悬停这条路本身：注入探针（无头视口不跟踪悬停控件，mouse_entered 一次都不发）----
+	## 装在数组里：GDScript 的 lambda **按值**捕获局部变量，写成裸 String 改了也传不进去
+	var zone := ["stage"]
+	p.info_hover_probe = func() -> String: return zone[0]
+	var m4 := _mirror_of(g4)
+	p.refresh(m4, _query_of(g4))
+	check(p._info != null and p._info.visible, "停在「肿瘤 n 期」那一行上：浮窗出来了")
+	check(p._info.position.x <= -CWMatchPanel.INFO_W,
+		"浮窗整只浮在右栏左边（x %d），不压着右栏自己" % int(p._info.position.x))
+	check(_first_label(p._info).text == "%s · 当前效果" % CWData.STAGE_NAMES[m4.tumor_stage()],
+		"画的是**当前**那一期（%s）" % _first_label(p._info).text)
+	zone[0] = "level"
+	p.refresh(m4, _query_of(g4))
+	check(p._info.visible and _first_label(p._info).text == "免疫等级 · 升级规则",
+		"换停到免疫等级那一块：同一只浮窗改画升级规则")
+	zone[0] = ""
+	p.refresh(m4, _query_of(g4))
+	check(not p._info.visible, "指针移开就收")
+	p.info_hover_probe = Callable()
 	g4.dispose()
 
 	## 面板宽度必须和对局机位让出的那一条严丝合缝，否则棋盘要么被压要么留缝
@@ -17006,6 +17131,29 @@ func t_online_panel() -> void:
 		p.client.my_seat = -1
 		p._repaint_chat()
 		check(p._chat_scope.get_theme_color("font_color") == CWStyle.TEXT_DIM, "等待室：没入座的观众没有己方")
+		## ---- issue #51：悬停过之后切「己方」，移开鼠标不该变白 ----
+		## 5yntaxEr 报的那条路径原样走一遍：鼠标移上去（link_hot 把**当时**的字色记进 meta "rest"）
+		## → 悬停着点一下换到己方 → 鼠标移开（link_hot 按 rest 还原）。
+		## 旧代码在第二步直写 font_color，rest 还是白的，于是第三步把阵营色抹掉且再也回不来。
+		p.client.my_seat = 0
+		p._chat_team = false
+		p._repaint_chat()
+		CWStyle.link_hot(p._chat_scope, true)
+		check(p._chat_scope.get_theme_color("font_color") == Color.WHITE, "悬停照旧转白（辉光一点没丢）")
+		p._toggle_chat_scope()
+		check(p._chat_team and p._chat_scope.get_theme_color("font_color") == Color.WHITE,
+			"悬停着切到己方：白光还压着（静止色只是记下来）")
+		CWStyle.link_hot(p._chat_scope, false)
+		check(p._chat_scope.get_theme_color("font_color") == CWStyle.IMMUNE,
+			"移开鼠标还原成阵营色，不是白（#51）")
+		CWStyle.link_hot(p._chat_scope, true)
+		CWStyle.link_hot(p._chat_scope, false)
+		check(p._chat_scope.get_theme_color("font_color") == CWStyle.IMMUNE, "再移回再移开还是阵营色")
+		p._chat_team = false
+		p._repaint_chat()
+		CWStyle.link_hot(p._chat_scope, true)
+		CWStyle.link_hot(p._chat_scope, false)
+		check(p._chat_scope.get_theme_color("font_color") == CWStyle.TEXT_HI, "换回全体同理：还原成中性色")
 		p._chat_team = false
 		p.client.room = room_keep
 		p.client.my_seat = seat_keep
@@ -18564,6 +18712,14 @@ func _wait_pending(m: CWMatch, ms: int) -> int:
 
 func _kg(m: CWMatch) -> CWGame:
 	return (m.kernel as CWKernelInProc).game if m.kernel is CWKernelInProc else null
+
+
+## 浮窗里第一只 Label（第 0 个孩子是底板 Panel）。两处断言在用
+func _first_label(root_node: Control) -> Label:
+	for c in root_node.get_children():
+		if c is Label:
+			return c
+	return null
 
 
 func _mirror_of(g: CWGame, viewer: int = CWObsProto.VIEWER_OMNISCIENT) -> CWMirror:
