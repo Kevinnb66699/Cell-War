@@ -1,19 +1,20 @@
-## mech_strength.gd —— AI 组合强度对局（任意队 vs 任意队）
+## mech_strength.gd —— 意图 AI 强度对局（只打三种组合）
 ##
-## 免疫/癌两队可各自指定 AI：heu（启发式）/ mc（扁平蒙特卡洛）/ mcts（UCT）/ mech（意图级）。
-## 默认跑四组基准（heu/heu, heu/mech, mech/heu, mech/mech）；
-## 给了 immune_ai + cancer_ai 就跑单一组合。可选存回放（写 user://replays，主菜单「回放」可看）。
+## 2026-09-20 定：其余 AI（mc/mcts/普通对普通）对意图 AI 的评估没意义，不再跑。
+## 只打三种（意图 = MechBridge，普通 = CWHeuristicBridge）：
+##   heu/mech   普通免 vs 意图癌  ← 意图癌弱项
+##   mech/heu   意图免 vs 普通癌  ← 意图免强项
+##   mech/mech  意图癌 vs 意图免  ← 意图对意图
 ##
 ## 运行：
 ##   <godot> --headless --path game --script res://tests/mech_strength.gd -- \
-##       games=8 immune_ai=mech cancer_ai=mc save_replays=1
-##   start=<偏移>：并发分片用 —— 每个 worker 拿不相交的 game_id 段（seed_base + start + gi），
-##   同配置多进程各跑一段再合并，种子不撞、可复现。
-## 种子：每个 game_id 用 seed_base + start + gi 派生，同配置同 game_id 可复现。
+##       games=8 save_replays=1
+##   immune_ai/cancer_ai=heu|mech 可指定单跑某一种（start= 并发分片，种子基 seed + start + gi）。
+## 种子：同配置同 game_id 可复现。
 extends SceneTree
 
 
-const AI_TYPES := ["heu", "mc", "mcts", "mech"]
+const AI_TYPES := ["heu", "mech"]
 
 
 func _initialize() -> void:
@@ -45,7 +46,6 @@ func _run() -> void:
 		configs = [{ "name": "%s/%s" % [imm_arg, can_arg], "immune": imm_arg, "cancer": can_arg }]
 	else:
 		configs = [
-			{ "name": "heu/heu", "cancer": "heu", "immune": "heu" },
 			{ "name": "heu/mech", "cancer": "mech", "immune": "heu" },
 			{ "name": "mech/heu", "cancer": "heu", "immune": "mech" },
 			{ "name": "mech/mech", "cancer": "mech", "immune": "mech" },
@@ -85,18 +85,6 @@ func _run() -> void:
 func _make_bridge(kind: String, g: CWGame) -> CWBridge:
 	var b: CWBridge
 	match kind:
-		"mc":
-			var mc := CWMonteCarloBridge.new()
-			mc.rollouts = 2
-			mc.horizon = 40
-			mc.max_sim_steps = 192     ## 对齐 UI「较强」档预算
-			b = mc
-		"mcts":
-			var mcts := CWMCTSBridge.new()
-			mcts.iterations = 60
-			mcts.horizon = 8
-			mcts.max_sim_steps = 256   ## 轻预算（对齐 nn_sanity 用的档）
-			b = mcts
 		"mech":
 			b = MechBridge.new()
 		_:
