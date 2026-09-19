@@ -29,6 +29,9 @@ const INFINITE_MARK := "无限"
 ##   move_path —— 迁移态的路径规划器（关掉 = 不画线、不出「规划路径」按钮，走已有的「降级可见」那条路）
 ##   cost      —— 每格耗能与按钮上的价签
 ##   energy_display —— "plain"（照常写数字）/ "infinite"（标志值换成 INFINITE_MARK）
+##   switch_type —— 「切换种类」按钮（PRD:355 第五关 Step2）。**值是那一组 world 名**
+##                  （`["b", "t", "macro", "dc"]`）：按一下换下一份，换法就是关内 `load`
+##                  （方案 §1.4，`CWTutorialStage.reload_world`）。`false` / `[]` = 不出这个按钮
 ##
 ## 值的约定：`false` / `[]` = 关，`true` / 非空数组 = 开。
 ## **数组形态的「白名单」由决策闸（`allow`，§1.5）落实**，不在这儿过滤 ——
@@ -43,6 +46,7 @@ const DEFAULTS := {
 	"move_path": true,
 	"cost": true,
 	"energy_display": "plain",
+	"switch_type": false,
 }
 
 static var _cur: Dictionary = DEFAULTS.duplicate(true)
@@ -78,6 +82,12 @@ static func on(key: String) -> bool:
 
 static func energy_mode() -> String:
 	return str(_cur.get("energy_display", "plain"))
+
+
+## 「切换种类」按一下要换成哪几份 world（按次序轮转）。没开这一层就是空表（S8）
+static func switch_types() -> Array:
+	var v: Variant = _cur.get("switch_type", false)
+	return (v as Array).duplicate() if v is Array else []
 
 
 ## 能量数字该怎么写。**三个渲染点一律走这里**（见文件头）

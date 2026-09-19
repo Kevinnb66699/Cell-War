@@ -41,6 +41,10 @@ const FLAGS := {
 	"hand_card": "hand",
 	"hand_limit": "pips",            ## 右栏你那一行的手牌方块
 	"differentiate": "differentiate",## 行动栏「分化」按钮；还没解锁就描右栏「免疫等级」块
+	## 右栏「免疫等级」那一块本身（PRD:307 第四关「高亮右侧边栏免疫等级」）。
+	## **和 `differentiate` 不是一回事**：那一支优先描行动栏的按钮，只在按钮不在时才退到这儿，
+	## 而第四关要的就是那一块（那里有升级进度条），不该因为哪天分化提前解锁就跑到按钮上去
+	"level": "level",
 	"round": "round",                ## 右栏顶部回合 / 阶段块
 	"cancer_grow": "enemy",
 	## 剧本直接点名的格子（`steps[].hex`）：不看局面，给哪几格就亮哪几格。
@@ -128,6 +132,9 @@ func sync(flag: String, m, script_hexes: Array = []) -> void:
 				_rect(m.panel.rect_of("pips:%d" % pid))
 		"differentiate":
 			if not _bar_button(m, CWData.ACT_NAMES["differentiate"]) and m.panel != null:
+				_rect(m.panel.rect_of("level"))
+		"level":
+			if m.panel != null:
 				_rect(m.panel.rect_of("level"))
 		"round":
 			if m.panel != null:

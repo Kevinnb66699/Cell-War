@@ -40,6 +40,10 @@ const KEYS := {
 	"stuck": "能量不足以移动 —— 正问着这一席，可这一问里一个【迁移】选项都没有（PRD:251 第三关的自动重置）",
 	## 带参数的那一条（S5b）：`low_energy_beside:<十分能量>`
 	"low_energy_beside": "站到了敌方细胞的相邻格，可剩下的能量**少于参数**（PRD:251 第二条：所剩能量小于预期）",
+	## 第二章两条（S8）。同样是**状态谓词**：只看此刻，不看基线 ——
+	## 两关的任务都是「把局面做成某个样子」，中途重置过也该照样算数
+	"level_at_least": "免疫等级到了参数那一档（`level_at_least:III`，PRD:295 第四关的任务）",
+	"all_dead": "敌方细胞一只不剩（PRD:381 第五关 Step2「将全部癌细胞杀死」）",
 }
 
 
@@ -49,9 +53,11 @@ const KEYS := {
 ## 末四个键（`beside` / `asked` / `can_move` / `energy`）服务三条**状态谓词**，它们只看此刻的这一张：
 ## `can_move` 的默认是 **true**（「没在问 = 谈不上走不动」），别改成 false —— `stuck` 会当场把关卡重置掉。
 static func snapshot(m: CWMirror, pid: int) -> Dictionary:
+	## `foes` 的默认是 **1**（「不知道 = 还有敌人」），别改成 0 —— `all_dead` 会在
+	## 没有镜像 / 自己的细胞还没上场的那一瞬间当场成立，把第五关 Step2 直接翻过去
 	var snap := { "pos": NONE, "hand": 0, "play_n": 0, "diff": false, "attacks": 0,
 		"draws": 0, "memory": 0, "level": 0, "round": 0, "actor": -1,
-		"beside": false, "asked": false, "can_move": true, "energy": 0 }
+		"beside": false, "asked": false, "can_move": true, "energy": 0, "foes": 1 }
 	if m == null:
 		return snap
 	snap["memory"] = int(m.memory)
@@ -70,13 +76,18 @@ static func snapshot(m: CWMirror, pid: int) -> Dictionary:
 			snap["energy"] = int(c["energy"])
 			me = c
 			break
-	## 相邻格上有活着的敌方细胞吗（按**阵营**比，不按席位：教程里敌方只有一只，正式局也讲得通）
+	## 相邻格上有活着的敌方细胞吗（按**阵营**比，不按席位：教程里敌方只有一只，正式局也讲得通）。
+	## 同一趟顺手数一下场上还活着几只敌方细胞（`all_dead`，S8）—— 口径同上：按阵营比
 	if not me.is_empty():
 		var ring: Array = CWData.neighbors(Vector2i(me["pos"]))
+		var foes := 0
 		for c in m.cells:
-			if bool(c["alive"]) and int(c["faction"]) != int(me["faction"]) and Vector2i(c["pos"]) in ring:
+			if not bool(c["alive"]) or int(c["faction"]) == int(me["faction"]):
+				continue
+			foes += 1
+			if Vector2i(c["pos"]) in ring:
 				snap["beside"] = true
-				break
+		snap["foes"] = foes
 	## 「走不动了」只在**正问着这一席的顶层行动问**里谈得上：引擎的选项表已经把付不起的迁移滤掉了
 	## （`cw_actions.immune_move_options` 的 `can_pay` 那一行），所以「表里一条 act=move 都没有」
 	## 就是「能量不足以移动」。这里不自己算价钱 —— 算价钱要读旋钮，而 `CWMirror.tune` 只有 9 个键。
@@ -100,6 +111,14 @@ static func same_turn(base: Dictionary, now: Dictionary) -> bool:
 ## 剧本漏写参数只会让这一步等不到，不会把关卡自己翻过去或掀了（S5b）
 static func _arg(text: String, dflt: int) -> int:
 	return int(text) if text.is_valid_int() else dflt
+
+
+## `level_at_least:<级>` 的那个参数。**剧本照 `players[].level` 的写法写罗马字**
+## （`level_at_least:III`）—— 关卡数据里等级只有那一种拼法，再要人记住「III 是下标 2」
+## 就是给自己埋雷。下标也认（`_arg`），写歪了退回 99 = 永不成立（同上一段那条缺省口径）
+static func _level_arg(text: String) -> int:
+	var i: int = CWData.LEVEL_NAMES.find(text)
+	return i if i >= 0 else _arg(text, 99)
 
 
 ## 这一步做到了没有。`base` 是步骤开始那一刻的快照，`now` 是此刻的。
@@ -147,4 +166,12 @@ static func done(key: String, base: Dictionary, now: Dictionary) -> bool:
 			## 参数是十分能量（纪律 3），由剧本写死 —— 这里不自己算「三次攻击要多少」：
 			## 算它要读 `immune_move_cancerous` 这类分档旋钮，而 `CWMirror.tune` 只有 9 个键（同 `stuck`）
 			return bool(now.get("beside", false)) and int(now.get("energy", 0)) < _arg(arg, 0)
+		"level_at_least":
+			## 状态谓词 + 参数（PRD:295 第四关「免疫等级升级到III级」）。
+			## 免疫等级是**阵营共享的全局量**，镜像上就那一个数，不必挑席位
+			return int(now.get("level", 0)) >= _level_arg(arg)
+		"all_dead":
+			## 状态谓词（PRD:381 第五关 Step2）：敌方阵营一只活的都没有。
+			## 这里不查「还有没有固化癌组织」—— 那是 `check_immune_win` 的事，而教程整章进不了 E 阶段
+			return int(now.get("foes", 1)) == 0
 	return false

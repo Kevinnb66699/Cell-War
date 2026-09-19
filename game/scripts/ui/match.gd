@@ -60,6 +60,13 @@ var _step_rev := 0
 ## 句柄 adopt 模式的 close() 不 dispose，谁装配谁收摊，所以拆局 / 跨关都要显式 _stage.dispose()：
 ## 不收的话模块↔对局、桥↔对局两个引用环每换一关漏一份。
 var _stage = null
+## 已经替哪一步办过 `steps[].load`（`"关号/步号"`）。关内换盘只许办**一次**（S8）——
+## 每帧的 `_apply_guide_step` 都会重读这一步，不记账的话第五关 Step2 按下「切换种类」之后
+## 下一个 step_end 就把剧本写的那份 world 装回来，玩家刚换的种类当场被顶掉
+var _guide_load_key := ""
+## 第二章起给非人类席位装的脚本 decider（`cw_tutorial_npc.gd` 的 adapter A，方案 §1.8）。
+## 一席一只、留着引用只为不被 GC —— 内核那边按 `cfg["deciders"]` 逐席持有
+var _npc_deciders: Array = []
 
 ## 此刻能不能存档：引擎只在 pending 边界有完整快照（CWSave 的写入条件）。
 ## 暂停菜单拿它决定「保存并退出」亮不亮。联机局不写本地存档（状态在服务器，掉线凭令牌重连）。
@@ -172,6 +179,8 @@ const ATTACK_FX := preload("res://scripts/ui/attack_fx.gd")
 ## 教程舞台（新手引导 S3）：读一关 cwtut/1 → 装一份 cwxworld/2 → 交出 CWKernel。
 ## 住 scripts/kernel/ 且不带 class_name（引导天天在改，补丁里新增的 class_name 认不出来）
 const TUTORIAL_STAGE := preload("res://scripts/kernel/cw_tutorial_stage.gd")
+## 教程 NPC 席位的脚本 decider（新手引导 S8）。同上：住 scripts/kernel/、不带 class_name
+const TUTORIAL_NPC := preload("res://scripts/kernel/cw_tutorial_npc.gd")
 ## 回合脚标（Kevin 2026-09-12：白天选 E 跑马灯轮廓，晚上改选 D「头顶指示箭」，画在 CWBoard.set_turn_mark）：
 ## 正在行动的细胞头顶一枚阵营色像素 V 形箭上下跳，旁观者也看得出「现在是谁在动」。第一版呼吸剪影 Kevin 嫌不好看；
 ## 画板里脚下那片阵营色影子上线后他也说不要，撤了。
@@ -514,6 +523,8 @@ func start(snap: Dictionary = {}) -> void:
 	## 同一个桥对象当所有席位的 decider：人类那几位走界面，其余走 AI，
 	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。
 	cfg["decider"] = bridge
+	if by_stage:
+		cfg["deciders"] = _guide_deciders()   ## 非人类席位逐席覆盖（S8，见 _guide_deciders）
 	if tutorial:
 		_attach_guide()   ## 要在 open()（第一次询问）之前：第一句提示 / 第一次演示就要读章节
 	if by_stage:
@@ -527,11 +538,35 @@ func start(snap: Dictionary = {}) -> void:
 	_rebase_guide_watch()
 
 
+## 教程局非人类席位的 decider（新手引导 S8，方案 §1.8）。
+##
+## **为什么必须逐席装**：同一只 `CWGuideBridge` 当所有席位的 decider 时，非人类那几席走的是
+## `CWUIBridge.ask` 的 AI 分支（`ui_bridge.gd:190-196`）—— 而 PRD 通用规则 11 写着
+## 「生成的免疫/癌细胞……均为 npc，无 ai 控制」。第一章两关只有一只 `alive:false` 的占位对手、
+## 又永远进不了 E 阶段，所以这条一直没显形；第二章第五关 Step2 场上站着 8 只 NPC，一问就现原形。
+##
+## 脚本今天都是空表 = 纯三级兜底（选 stop/skip → 选「结束回合」→ 下标 0）。
+## 第七关（S10）才会有真脚本，接口位置就留在 `Decider.plan` 上。
+func _guide_deciders() -> Dictionary:
+	_npc_deciders = []
+	var out := {}
+	for pid in player_count:
+		if pid in human_players:
+			continue
+		var d = TUTORIAL_NPC.Decider.new()
+		d.seat = pid
+		d.mirror_of = func() -> CWMirror: return mirror
+		_npc_deciders.append(d)
+		out[pid] = d
+	return out
+
+
 ## 教程局的句柄从舞台来：舞台读那一关的 JSON、装一份 cwxworld/2、把预设骰子（rolls）挂上去，
 ## 再用调用方这份 cfg 加 `adopt` 开局。**这里拿到的只有 CWKernel** —— 对局本身住在舞台里。
 ## 同时按数据把棋盘遮罩换成这一关的活跃格（main.gd 在推镜头之前也设过一次，幂等）。
 func _open_tutorial_stage(cfg: Dictionary) -> CWKernel:
 	CWGuideLayers.reset()   ## 每关从「全开」起步，再由 step0 的 ui_layers 给全量（方案 §1.6）
+	_guide_load_key = ""    ## 新的一关：关内换盘的记账从头来（见 _guide_load_key）
 	_stage = TUTORIAL_STAGE.new()
 	_stage.cfg = cfg
 	var k: CWKernel = _stage.open_level(CWGuideData.level(_tutorial_ch))
@@ -574,7 +609,8 @@ func _advance_tutorial_chapter(next_ch: int) -> void:
 	## 每一局都录（同 start()）：跨章换的是新一局，不置位的话
 	## 从第 2 关起就不再录，最后 CWReplay.save 存出个空
 	kernel = _open_tutorial_stage({ "record_replay": true, "consumer": true,
-		"observe_viewer": CWKernel.VIEWER_OMNISCIENT, "autorun": false, "decider": bridge })
+		"observe_viewer": CWKernel.VIEWER_OMNISCIENT, "autorun": false, "decider": bridge,
+		"deciders": _guide_deciders() })
 	_start_queue()
 	_apply_guide_step()   ## 同 start()：关首那一次在 run() 之前
 	kernel.run()
@@ -981,6 +1017,7 @@ func _attach_guide() -> void:
 		ui.move_child(_shell, pause_menu.get_index())
 	_shell.reset_pressed.connect(_reset_tutorial_level)
 	_shell.menu_pressed.connect(func() -> void: _shell.toggle_menu(_tutorial_ch))
+	_shell.switch_type_pressed.connect(_switch_tutorial_type)
 	_shell.goto_pressed.connect(func(idx: int) -> void:
 		if _guide != null and is_instance_valid(_guide):
 			_guide.goto_chapter(idx))
@@ -1152,6 +1189,7 @@ func _on_step(e: Dictionary) -> void:
 func _sync_guide_shell() -> void:
 	if _shell != null and is_instance_valid(_shell) and bridge is CWGuideBridge:
 		(bridge as CWGuideBridge).set_blocked(_shell.blocking())   ## PRD:51 的第 1 层跟着遮挡层开合
+		_shell.show_switch_type(CWGuideLayers.on("switch_type"))   ## PRD:355（S8）
 	if action_bar != null and not CWGuideLayers.on("action_bar"):
 		action_bar.visible = false
 	if hand != null and not CWGuideLayers.on("hand"):
@@ -1180,6 +1218,15 @@ func _apply_guide_step() -> void:
 	var s: Dictionary = _current_guide_step()
 	if s.is_empty():
 		return
+	## ⓪ 关内换盘（方案 §1.4；第五关 Step2 在这儿把扩大后的癌块装进来）。
+	## 记账按「关号/步号」而不是「当前 world 名对不对得上」—— 对名字的话，
+	## 玩家按「切换种类」换走之后，下一个 step_end 会把剧本写的那份装回来（S8 回传）
+	var key := "%d/%d" % [_guide.chapter(), _guide.step_no()]
+	if s.has("load") and _guide_load_key != key:
+		_guide_load_key = key    ## 必须**先**记账：_load_tutorial_world 里还会再调一次本函数
+		if _stage != null and str(s["load"]) != str(_stage.world_id):
+			_load_tutorial_world(str(s["load"]))
+			return               ## 重装那条路自己走完剩下四步，这里不必再走一遍
 	## ① 章节提示（PRD:35）：`chapter` 变了才弹，关与关静默切换（PRD:37）
 	if _shell != null and is_instance_valid(_shell):
 		var lv: Dictionary = CWGuideData.level(_guide.chapter())
@@ -1245,22 +1292,48 @@ func _check_advise_when(s: Dictionary) -> void:
 func _reset_tutorial_level() -> void:
 	if not tutorial or _stage == null or kernel == null:
 		return
-	_loop_id += 1
-	var k: CWKernel = _stage.reload_world(_entry_world_id())
-	if k == null:
-		push_error("CWMatch：第 %d 关重置失败（%s）" % [_tutorial_ch + 1, str(_stage.errors)])
-		return
-	kernel = k
-	if board != null:
-		board.set_active_tiles(_stage.active_tiles(), 0.0)   ## 把 reveal 加进来的格也收回去
 	CWGuideLayers.reset()
+	_guide_load_key = ""   ## 退回关首 = 关内换盘的记账从头来
 	if _guide != null and is_instance_valid(_guide):
 		_guide.reset_to_step0()
+	_load_tutorial_world(_entry_world_id(), true)
+
+
+## 关内换一份 world。三个调用方共用（**次序一个字不能动**，见 `CWTutorialStage.reload_world`）：
+##   ① 重置本关（`_reset_tutorial_level`，退回关首那份）；
+##   ② 剧本某一步写了 `load`（第五关 Step2 的癌块扩大，方案 §1.4）；
+##   ③ 「切换种类」按钮（PRD:355，`ui_layers.switch_type` 那一组里轮转）。
+## `back_to_start` = 顺手把 `reveal` 加进来的活跃格收回去（只有重置要）。
+func _load_tutorial_world(wid: String, back_to_start := false) -> void:
+	if not tutorial or _stage == null or kernel == null or wid == "":
+		return
+	_loop_id += 1
+	var k: CWKernel = _stage.reload_world(wid)
+	if k == null:
+		push_error("CWMatch：第 %d 关装不出 world「%s」（%s）" % [_tutorial_ch + 1, wid, str(_stage.errors)])
+		return
+	kernel = k
+	if board != null and back_to_start:
+		board.set_active_tiles(_stage.active_tiles(), 0.0)
 	_start_queue()
 	_apply_guide_step()   ## 关首那一次（`run()` 之前）：不提前装，第一帧会闪一下全套界面
 	kernel.run()
 	_observe_now()
 	_rebase_guide_watch()
+
+
+## 「切换种类」按下（PRD:355 第五关 Step2）：在 `ui_layers.switch_type` 那一组 world 里轮到下一份。
+##
+## **换种类 = 换一份 world**，不是就地改细胞的 itype：分化过的细胞连技能、已用次数、
+## `game.differentiated` 一整套状态都跟着种类走（`cw_actions._do_differentiate`），
+## 就地改等于绕开规则往引擎状态上写字（方案 §0 的第一条硬边界）。四份 world 各自摆好，
+## 装载器装哪一份就是哪一种 —— 这也是判据③「四份 world 各自 dump ≡ minify」的由来。
+func _switch_tutorial_type() -> void:
+	var list: Array = CWGuideLayers.switch_types()
+	if list.is_empty() or _stage == null:
+		return
+	var at: int = list.find(str(_stage.world_id))
+	_load_tutorial_world(str(list[(at + 1) % list.size()]))
 
 
 ## 换局 / 重装之后立刻重取一次判据基线（S3 回传第 8 条）。
