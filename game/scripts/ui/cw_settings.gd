@@ -1,4 +1,4 @@
-## cw_settings.gd —— 玩家偏好：AI 行动节奏 + 掷骰动画开关 + 传送演出开关 + 联机的昵称与服务器地址
+## cw_settings.gd —— 玩家偏好：AI 行动节奏 + 掷骰动画开关 + 传送演出开关 + 联机的昵称 / 服务器地址 / 回程票
 ##
 ## 只放**现在真的有东西可设**的几项。音量等 BGM/音效进了工程再加 ——
 ## 没有的东西不做空壳设置项（设置页里一排灰按钮比没有设置页更糟）。
@@ -23,6 +23,10 @@ static var nick := ""
 ## 这台机器上的证书历史上过期过好几次，没必要让桌面联机也跟着一起挂。
 static var server := default_server()
 static var lan_port := CWNet.DEFAULT_PORT   ## 局域网开服上一次用的端口（Kevin 2026-09-12）
+## 没打完的那一局的回程票（issue #46，Kevin 09-19「落盘吧」）：`{code, token, url}`，空 = 没有。
+## 光记在面板上比那条连接长命、却**比不过一次运行** —— 关掉客户端再开票就没了，
+## 而服务器那一席的令牌还留着。值只由 `CWOnlinePanel._set_resume()` 写，这里只管存取。
+static var resume := {}
 ## 新手教程换皮（方案 §5.4 末「换皮开关」，S3 2026-09-19）。**不上设置页**：
 ## 它不是玩家偏好，是做教程时现场 A/B 切的旋钮 —— 设置页里一排没人懂的选项比没有更糟。
 ## `bubble` = 皮 A 贴身气泡（缺省，Kevin 09-19 拍板「整体走 A」）；
@@ -55,6 +59,9 @@ static func load_prefs() -> void:
 	if OS.has_feature("web") and not server.begins_with("wss://"):
 		server = default_server()
 	lan_port = int(cfg.get_value("online", "lan_port", lan_port))
+	## 旧 settings 里没有这一键 ⇒ 缺省空票；存成了别的类型也当没有票（宁可少一张，别拿垃圾去 reconnect）
+	var ticket: Variant = cfg.get_value("online", "resume", {})
+	resume = ticket if ticket is Dictionary else {}
 
 
 ## 这个平台**默认**连哪台服务器。
@@ -82,4 +89,5 @@ static func save_prefs() -> void:
 	cfg.set_value("online", "nick", nick)
 	cfg.set_value("online", "server", server)
 	cfg.set_value("online", "lan_port", lan_port)
+	cfg.set_value("online", "resume", resume)
 	cfg.save(PATH)
