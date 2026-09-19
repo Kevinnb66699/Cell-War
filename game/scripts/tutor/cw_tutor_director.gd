@@ -24,6 +24,8 @@ extends Node
 const BEATS := preload("res://scripts/kernel/cw_tutor_beats.gd")
 ## 坐标解析只有数据门面一处（`parse_at`），导演不再抄一份
 const SCRIPT_DATA := preload("res://scripts/kernel/cw_tutor_script.gd")
+## 钩子接口（方案 §3.7，S8）。**不标类型**：它没有 class_name（要走热更）
+const CTX := preload("res://scripts/tutor/cw_tutor_ctx.gd")
 
 ## 代际闸（搬方案 §3.7 / 乙的 epoch，`match.gd` 的换局代际号有先例）：
 ## GDScript 的协程**杀不掉，只能让它永挂**。`dead` 永不 emit —— 旧协程 `await` 在它上面，
@@ -45,6 +47,11 @@ var mirror_of: Callable = Callable()
 ## 闸桥（`cw_tutor_gate.gd`）。**不标类型**：它没有 class_name（要走热更）
 var gate = null
 var view: CWTutorView = null
+## 取「此刻那一份」活跃格的一条线（`CWBoard.active_tiles`）。**只给 `ctx.read("active")` 用**，
+## 没接就给空表 —— 钩子层之外没有人读它，接不接不影响别的关
+var active_of: Callable = Callable()
+## 钩子的流水账（`ctx.log()`）。无头验收读它：`invalidate()` 之后旧协程**一条都不该再产生**
+var hook_log: Array = []
 
 var level := {}
 var human_seat := 0
@@ -68,6 +75,13 @@ var _chapter_busy := false
 ## 上一次弹过的章节。比的是 **`(chapter_kind, chapter)` 二元组**，不是单个整数 ——
 ## 间章不是主章节的附属（Kevin 2026-09-19），它与主章节的 `chapter` 可能撞号
 var _shown_chapter: Array = []
+## 这一关的钩子实例（`level.hook` 那支脚本，一关一只）。**不标类型**：关卡钩子没有 class_name
+var _hook_obj = null
+## 此刻有几只钩子协程在跑（`ctx.beat` 里再点一支钩子就会嵌套）。
+## 主游标只认「回到 0」才翻过 `hook` 那一条 —— 用计数不用布尔，否则内层跑完外层就被当成完事了
+var _hook_depth := 0
+## `ctx.state()`：钩子唯一合法的状态落点。**随代际清空**（见 `invalidate()`）
+var _hook_state := {}
 ## 正劝着重置（`advise_when` 命中）：这时 `until` **不翻页** ——
 ## 第三关「站到相邻格」在能量算亏时照样成立，翻过去那句劝退当场消失
 var _advising := false
@@ -79,6 +93,7 @@ var _advising := false
 
 ## 开一关。调用方的次序钉死：`stage.open_level()` → `_start_queue()` → **`install()`** → `kernel.run()`
 func open(lv: Dictionary, seat: int) -> void:
+	invalidate()         ## 换局也是一代（方案 §3.7）：上一关挂在 await 上的钩子协程到这儿作废
 	level = lv
 	human_seat = seat
 	_at = 0
@@ -86,6 +101,8 @@ func open(lv: Dictionary, seat: int) -> void:
 	_wait_left = 0.0
 	_saying = false
 	_advising = false
+	_hook_depth = 0      ## 上一关挂死的钩子协程不许按住新关的游标
+	_hook_obj = null     ## 换关就换一支钩子脚本
 	active = true
 	rebase_hard()
 	## 章节提示（PRD:35）：`(chapter_kind, chapter)` 变了才弹，没变就静默切关（PRD:37）
@@ -107,6 +124,7 @@ func reset_level() -> void:
 	_wait_left = 0.0
 	_saying = false
 	_advising = false
+	_hook_depth = 0      ## 挂死的钩子协程再也回不来，不清就把重置后的 `hook` 那一条按死
 	active = true
 	rebase_hard()
 	want_reset.emit()
@@ -115,6 +133,7 @@ func reset_level() -> void:
 ## 取消语义：重置 / 目录跳关 / 换局各调一次。旧协程停在 `await dead` 上，永不返回
 func invalidate() -> void:
 	epoch += 1
+	_hook_state.clear()   ## 钩子的状态随代际一起清空（方案 §3.7 ⑦：钩子文件零成员变量，状态全在这儿）
 
 
 ## 这一代还活着吗（钩子层 S8 的 `ctx.alive()` 就是它）
@@ -266,9 +285,9 @@ func _enter(row: Dictionary) -> void:
 		"npc":
 			want_npc.emit(int(row.get("seat", -1)), row.get("plan", []) as Array)
 		"hook":
-			## 钩子层是 S8 的 `cw_tutor_ctx.gd`（九个方法，见文件末的接缝注释）。
-			## 这一片一条钩子都没有；真撞上就**说出来再往下走**，不静默、也不挂死
-			push_warning("flow[%d] 的 hook「%s」还没接上（S8）" % [_at, str(row.get("call", ""))])
+			## 交给关卡钩子的一段（方案 §3.7）。**不 await**：`_enter` 是「即时效果」那一拍，
+			## 翻不翻页由 `_advance_ok` 看 `_hook_depth`。点不到就 warning 再往下走，不静默、也不挂死
+			_run_hook(row)
 		_:
 			push_warning("flow[%d] 的动词「%s」不在九个里" % [_at, v])
 
@@ -319,7 +338,7 @@ func _advance_ok(row: Dictionary, delta: float) -> bool:
 		"player":
 			return _player_done(row)
 		"hook":
-			return true          ## S8 之前不挂死（_enter 已经 warning 过）
+			return _hook_depth == 0   ## 钩子的协程跑完才翻页（点不到那支函数时 `_run_hook` 压根没加过计数）
 	return true
 
 
@@ -391,20 +410,105 @@ func _finish() -> void:
 
 
 # =====================================================================
-# 钩子接口 `ctx` 的接缝（方案 §3.7；**实现是 S8 的 cw_tutor_ctx.gd**）
+# 钩子调度（方案 §3.7，S8）
 # =====================================================================
 #
-# 钩子 → 导演 的唯一接口。纪律：`ctx` **不暴露 kernel / mirror / game / view / stage 任何原始句柄**；
-# 钩子文件**零成员变量**（状态只能进 `ctx.state()`）；**每个 while 的条件都必须含 `ctx.alive()`**。
-# 每个 await 原语返回前都过一次代际闸（`if _ep != director.epoch: await director.dead`）。
+# 钩子 → 导演 的唯一接口是 `cw_tutor_ctx.gd` 的**九个方法**：
+#   ① beat(row)  ② until(pred, timeout_secs)  ③ read(q, arg)  ④ alive()  ⑤ frame()
+#   ⑥ rng()      ⑦ state()                    ⑧ log(msg)      ⑨ fail(why)
+# 纪律：`ctx` **不暴露 kernel / mirror / game / view / stage 任何原始句柄**；钩子文件**零成员变量**
+# （状态只能进 `ctx.state()`）；**每个 while 的条件都必须含 `ctx.alive()`**。护栏 `t_tutor_hooks` 逐条扫。
 #
-#   ① func beat(row: Dictionary) -> void                      ## 协程：跑一条与 flow[] 完全同构的条目
-#   ② func until(pred: Dictionary, timeout_secs := 0.0) -> bool ## 协程：等一个谓词（同一张表、同一个基线）
-#   ③ func read(q: String, arg = null) -> Variant             ## 只读查询（白名单，返回派生量的副本）
-#        "cells" / "tile" / "dist" / "beside" / "alive_count" / "round" / "energy" / "active"
-#   ④ func alive() -> bool                                    ## 代际闸：这一代还活着吗
-#   ⑤ func frame() -> void                                    ## 协程：让一帧（内含代际闸）
-#   ⑥ func rng() -> RandomNumberGenerator                     ## 钩子自己的演出随机数，**绝不碰内核 rng**
-#   ⑦ func state() -> Dictionary                              ## 钩子唯一合法的状态落点
-#   ⑧ func log(msg: String) -> void                           ## 记一笔（进无头流水账，不上屏）
-#   ⑨ func fail(why: String) -> void                          ## 剧本写不下去了：warning + 挂起
+# 取消语义：每个 await 原语返回前过一次代际闸，代际变了就 `await dead`（那条信号永不 emit）。
+# GDScript 的协程杀不掉、只能永挂 —— **挂死的协程持 ctx 与导演的引用，随导演一起被回收**，
+# 所以导演一关一只、关末显式 `teardown()` + `queue_free()`（`t_tutor_hooks` 有一条正面断言）。
+
+
+## `flow[].hook` 这一条：把钩子那支函数当协程跑起来。**调用方不 await** ——
+## `_enter` 是「即时效果」那一拍，翻不翻页由 `_advance_ok` 看 `_hook_depth`
+func _run_hook(row: Dictionary) -> void:
+	var ep := epoch
+	var call_name := str(row.get("call", ""))
+	var obj := _hook_of()
+	if obj == null or not obj.has_method(call_name):
+		## 点不到就说出来再往下走（不静默、也不挂死）。校验器 ⑩ 在装载期就该拦住这种数据
+		push_warning("flow[%d] 的 hook「%s」点不到（这一关的 hook 文件是「%s」）"
+			% [_at, call_name, str(level.get("hook", ""))])
+		return
+	_hook_depth += 1
+	await obj.call(call_name, CTX.new(self, ep, row.get("args", {}) as Dictionary))
+	if ep != epoch:
+		await dead                ## 代际闸：这一代已经作废，旧协程永挂（`_hook_depth` 由重置那边清零）
+	_hook_depth = maxi(_hook_depth - 1, 0)
+
+
+## 这一关的钩子实例（`level.hook`，一关一只，换关时 `open()` 清掉）
+func _hook_of() -> Object:
+	if _hook_obj != null:
+		return _hook_obj
+	var path := str(level.get("hook", ""))
+	if path == "" or not ResourceLoader.exists(path):
+		return null
+	var scr = load(path)
+	if scr == null:
+		return null
+	_hook_obj = scr.new()
+	return _hook_obj
+
+
+## `ctx.beat()`：跑一条与 `flow[]` 同构的条目。**走同一个 `_enter` + 同一套阻塞判据** ——
+## 钩子不自己说话、不自己画，也不另开第二条执行路（漏了这一条，钩子就会绕过闸与禁操作层）
+func run_beat(row: Dictionary, ep: int) -> void:
+	if not alive(ep):
+		return
+	if str(row.get("do", "")) == "hook":
+		## 钩子里再点一支钩子：直接 await 内层那只（`_hook_depth` 那道闸是给**主游标**的）
+		await _run_hook(row)
+		return
+	_enter(row)
+	install()
+	if not BEATS.is_blocking(row):
+		return
+	while alive(ep) and not _advance_ok(row, get_process_delta_time()):
+		await next_frame()
+
+
+## `ctx.until()`：等一个谓词。**同一张表、同一个基线**（`BEATS.done` + 入口处 `rebase()`）。
+## `timeout_secs > 0` 时超时返回 false —— 钩子拿它兜底，不然剧本写歪就是无声卡死
+func run_until(pred: Dictionary, ep: int, timeout_secs := 0.0) -> bool:
+	if not alive(ep):
+		return false
+	rebase()
+	var left := timeout_secs
+	while alive(ep):
+		var m := _mirror()
+		if BEATS.done(pred, _base, BEATS.snap(m, human_seat), m):
+			return true
+		if timeout_secs > 0.0:
+			left -= get_process_delta_time()
+			if left <= 0.0:
+				return false
+		await next_frame()
+	return false
+
+
+## `ctx.frame()` 与两条 `run_*` 共用的「让一帧」。不在树里就直接回来，
+## 免得钩子挂在一个永远不会到来的帧上（无头里导演是 `root` 的子节点，真机里是 `CWMatch` 的）
+func next_frame() -> void:
+	var t := get_tree()
+	if t != null:
+		await t.process_frame
+
+
+## `ctx.state()`：钩子唯一合法的状态落点（同一只字典反复给出去，`invalidate()` 时清空）
+func hook_state() -> Dictionary:
+	return _hook_state
+
+
+## `ctx.fail()`：剧本写不下去了。warning + **挂起** —— 游标停住、闸关死，不静默继续、不替玩家乱答。
+## 出路是常驻「重置 / 目录」：它们走 `reset_level()` / 换局，各自把 `active` 重新打开
+func hook_fail(why: String) -> void:
+	push_warning("教程钩子在 flow[%d] 挂起：%s" % [_at, why])
+	active = false
+	if gate != null and is_instance_valid(gate):
+		gate.set_allow([])

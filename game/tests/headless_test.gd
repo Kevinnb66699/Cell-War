@@ -164,6 +164,8 @@ func _run_all() -> void:
 		t_tutorial_npc,
 		## 新手教程 v2 · S1 commit B：六支新测试（方案 §6.1；_run_all 是**手写清单**，不登记就永远不跑）
 		t_tutor_data, t_tutor_beats, t_tutor_flow, t_tutor_director, t_tutor_gate, t_tutor_view,
+		## 新手教程 v2 · S8：钩子层（ctx 九方法 + epoch 取消语义 + 钩子文件三条护栏）
+		t_tutor_hooks,
 		## 新手引导 v2 S7：教程演出库 cw_tutor_fx（六种演出 / 零内核 rng / 时间的纯函数）
 		t_tutor_fx,
 	]
@@ -19743,6 +19745,8 @@ func t_tutorial_npc() -> void:
 #   t_tutor_director  假队列喂 step_end：**装闸时序**（丙测时序、甲测意图，两条互补）
 #   t_tutor_gate      闸桥三态 + 下标只映射一次 + abort 唤醒 + mutes_result
 #   t_tutor_view      计数皮跑第一关：九类意图与 flow 逐条比；两版皮九个方法齐全
+#   t_tutor_hooks     钩子层护栏：ctx 九方法签名 / 零句柄 / 钩子零成员变量 / while 含 alive()
+#                     + 行为：代际一换旧协程不再出账、until 超时、fail 挂起、对象数不越堆越快
 #
 # 老教程那 18 条的判据形状迁到哪里，逐条见 docs/开发日志.md 2026-09-19 那条。
 
@@ -19750,6 +19754,8 @@ func t_tutorial_npc() -> void:
 const TUTOR_BEATS := preload("res://scripts/kernel/cw_tutor_beats.gd")
 const TUTOR_DIRECTOR := preload("res://scripts/tutor/cw_tutor_director.gd")
 const TUTOR_GATE := preload("res://scripts/tutor/cw_tutor_gate.gd")
+## S8 的钩子接口。两份都没有 class_name（要走热更）⇒ 只能 preload
+const TUTOR_CTX := preload("res://scripts/tutor/cw_tutor_ctx.gd")
 
 
 ## 假闸：只记 `set_allow` 的流水账。导演测的是**时序**，不必真起一只桥
@@ -20330,6 +20336,298 @@ func t_tutor_view() -> void:
 	check(FileAccess.get_file_as_string("res://scripts/ui/action_bar.gd").contains("func button_rect(")
 			and FileAccess.get_file_as_string("res://scripts/ui/match_panel.gd").contains("func rect_of("),
 		"bar:<按钮标题> → action_bar.button_rect；panel:<什么> → panel.rect_of，两支分支都还在")
+	CWTutorLayers.reset()
+	CWGuideProgress.clear()
+
+
+## 新手教程 v2 · S8：钩子层 `ctx` 九方法 + epoch 取消语义（方案 §3.7）
+##
+## 这一条盯的是**两件纸面纪律能不能真的钉住**：
+## ① 钩子够不着引擎、够不着皮 —— `ctx` 只有九个方法，一个原始句柄都不往外递；
+## ② 代际一换，旧协程既不再出账、也不把对象堆起来（GDScript 的协程杀不掉，只能永挂）。
+## 所以判据一半是**源码扫**（签名 / 成员 / `while` 条件），一半是**行为**（流水账 / 超时 / 挂起 / 对象数）。
+##
+## §3.7 的九行签名，**逐字**。「`ctx.` 后面只许是那九个」这条护栏的前提就是九个是哪九个、长什么样 ——
+## 改这张表 = 改方案，两边要一起改（评委 2 的开工前提第 1 条）
+const CTX_SIGNATURES := [
+	"func beat(row: Dictionary) -> void",
+	"func until(pred: Dictionary, timeout_secs := 0.0) -> bool",
+	"func read(q: String, arg = null) -> Variant",
+	"func alive() -> bool",
+	"func frame() -> void",
+	"func rng() -> RandomNumberGenerator",
+	"func state() -> Dictionary",
+	"func log(msg: String) -> void",
+	"func fail(why: String) -> void",
+]
+const CTX_NINE := ["alive", "beat", "fail", "frame", "log", "read", "rng", "state", "until"]
+## 九个方法许可的返回类型：**全是值类型**。多一个引用类型就等于给钩子开一道拿句柄的门
+const CTX_RET_OK := ["void", "bool", "Variant", "Dictionary", "RandomNumberGenerator"]
+## 带 `class_name` 的三个例外（方案 §1.5）：两版皮 + 基类 + 常驻壳 + 层表 —— 它们要被
+## `screenshot.gd` 的 `call:类名:方法` 驱动。**会反复改的四件（导演 / 闸 / 钩子 / ctx）一个都不许有**
+const TUTOR_CLASS_NAME_OK := ["cw_tutor_view.gd", "cw_tutor_view_plain.gd",
+	"cw_tutor_view_tally.gd", "cw_tutor_chrome.gd", "cw_tutor_layers.gd", "cw_tutor_spot.gd"]
+
+
+## 钩子专用桩关卡：一条 `state` + 一条 `hook`。**不进 data/tutorial/** —— 它不是剧本，是夹具
+func _tutor_hook_level(call_name: String) -> Dictionary:
+	return {
+		"schema": "cwtut/2", "id": "_hook_stub",
+		"chapter": 9, "chapter_kind": "main", "chapter_title": "桩章", "title": "钩子桩关",
+		"seats": 2, "human_seat": 0,
+		"worlds": {}, "active_tiles": [], "rolls": [],
+		"hook": "res://scripts/tutor/levels/demo.gd",
+		"flow": [
+			{ "do": "state", "step": "S1", "prd": 1, "load": "base" },
+			{ "do": "hook", "step": "S1", "prd": 2, "call": call_name },
+		],
+		"on_done": "",
+	}
+
+
+## 跑 n 次「开一关 → 让钩子跑 frames 帧 → 重置」，返回这一段 OBJECT_COUNT 的涨幅。
+## 两个不同的 `frames` 各跑一遍，涨幅一样大才说明「挂死的协程是每代一只」
+func _tutor_reset_churn(d, n: int, frames: int) -> float:
+	var before := Performance.get_monitor(Performance.OBJECT_COUNT)
+	for i in n:
+		d.open(_tutor_hook_level("tick_forever"), 0)
+		d.install()
+		await _tutor_pump(frames)
+		d.reset_level()
+		await _tutor_pump(1)
+	return Performance.get_monitor(Performance.OBJECT_COUNT) - before
+
+
+## 把 `ctx.until()` 挂起来跑（协程不 await，好让测试继续往下走；同 `_tutor_gate_ask`）
+func _tutor_ctx_until(ctx, pred: Dictionary, secs: float, out: Array) -> void:
+	out.append(await ctx.until(pred, secs))
+
+
+func t_tutor_hooks() -> void:
+	print("[新手教程 v2 S8·钩子层 ctx 九方法 + 代际取消]")
+	CWGuideProgress.clear()
+	CWTutorLayers.reset()
+	var ctx_src := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_ctx.gd")
+	# ---- ① 九行签名逐字照 §3.7 ----
+	var missing: Array = []
+	for sig in CTX_SIGNATURES:
+		if not ctx_src.contains(sig):
+			missing.append(sig)
+	check(missing.is_empty(),
+		"ctx 九个方法的签名**逐字**照方案 §3.7（S9~S11 照着写钩子，签名一动那三只钩子全要返工；缺 %s）"
+			% str(missing))
+	# ---- ② 公开面只有那九个：多一个方法 / 多一个成员，就是给钩子多开一道门 ----
+	var pub_fn: Array = []
+	var pub_var: Array = []
+	var bad_ret: Array = []
+	for raw in ctx_src.split("\n"):
+		var line := str(raw).strip_edges(false, true)
+		if line.begins_with("var ") and not line.begins_with("var _"):
+			pub_var.append(line)
+		if not line.begins_with("func ") or line.begins_with("func _"):
+			continue
+		pub_fn.append(line.substr(5, line.find("(") - 5))
+		var ret := line.substr(line.rfind("->") + 2).strip_edges().trim_suffix(":") if line.contains("->") else "(没写返回类型)"
+		if not (ret in CTX_RET_OK):
+			bad_ret.append(ret)
+	pub_fn.sort()
+	check(pub_fn == CTX_NINE, "ctx 的公开方法**只有**那九个（实测 %s）" % str(pub_fn))
+	check(pub_var.is_empty(),
+		"ctx 一个公开成员都没有 —— 钩子拿不到 kernel / mirror / game / view / stage 的原始句柄（实测 %s）"
+			% str(pub_var))
+	check(bad_ret.is_empty(),
+		"九个方法的返回类型全是值类型（void / bool / Variant / Dictionary / RandomNumberGenerator；越界的：%s）"
+			% str(bad_ret))
+	# ---- ③ 钩子文件：零成员变量、每个 while 含 ctx.alive()、ctx. 后面只许是那九个 ----
+	var hook_files: Array[String] = []
+	_collect_files("res://scripts/tutor/levels", hook_files)
+	var member_hits: Array = []
+	var while_hits: Array = []
+	var alien: Array = []
+	var engine_hits: Array = []
+	var rx_ctx := RegEx.create_from_string("ctx[.]([A-Za-z_][A-Za-z_0-9]*)")
+	var rx_engine := RegEx.create_from_string("CWGame|CWWorld|CWActions|CWSetup|(^|[^_a-zA-Z0-9.])game[.]")
+	for f in hook_files:
+		for raw in FileAccess.get_file_as_string(f).split("\n"):
+			var line := _code_only(str(raw))
+			if line.begins_with("var ") or line.begins_with("@export"):
+				member_hits.append("%s：%s" % [f.get_file(), line.strip_edges()])
+			if line.strip_edges().begins_with("while ") and not line.contains("ctx.alive()"):
+				while_hits.append("%s：%s" % [f.get_file(), line.strip_edges()])
+			if rx_engine.search(line) != null:
+				engine_hits.append("%s：%s" % [f.get_file(), line.strip_edges()])
+			for m in rx_ctx.search_all(line):
+				if not (m.get_string(1) in CTX_NINE):
+					alien.append("%s：ctx.%s" % [f.get_file(), m.get_string(1)])
+	check(not hook_files.is_empty() and member_hits.is_empty(),
+		"钩子文件**零成员变量**：状态只能进 ctx.state()（扫了 %d 支；越界的 %s）"
+			% [hook_files.size(), str(member_hits)])
+	check(while_hits.is_empty(),
+		"钩子里**每个 while 的条件都含 ctx.alive()** —— 代际一换钩子自己退出循环（越界的 %s）"
+			% str(while_hits))
+	check(alien.is_empty(), "`ctx.` 后面只出现那九个标识符（越界的 %s）" % str(alien))
+	check(engine_hits.is_empty(),
+		"钩子文件零 CWGame / CWWorld / CWActions / CWSetup / game.（整棵 scripts/tutor 由 t_no_engine_in_ui 罩着；越界的 %s）"
+			% str(engine_hits))
+	## 闸本身要有判别力：三条探针必须各被认出来
+	check(rx_ctx.search("await ctx.frame()").get_string(1) == "frame"
+			and not (rx_ctx.search("ctx.kernel.run()").get_string(1) in CTX_NINE)
+			and rx_engine.search(_code_only("\tvar x = game.round_no")) != null,
+		"三条闸认得出 ctx.frame（放行）/ ctx.kernel（拦）/ game.（拦）")
+	# ---- ④ 除例外文件外，scripts/tutor 整棵树零 class_name（会反复改的四件要能热更）----
+	var tutor_files: Array[String] = []
+	_collect_files("res://scripts/tutor", tutor_files)
+	var named: Array = []
+	for f in tutor_files:
+		if f.get_file() in TUTOR_CLASS_NAME_OK:
+			continue
+		for raw in FileAccess.get_file_as_string(f).split("\n"):
+			if _code_only(str(raw)).begins_with("class_name "):
+				named.append(f.get_file())
+	check(named.is_empty(),
+		"导演 / 闸 / ctx / 钩子 / 演出库一个 class_name 都没有，补丁热更得了（例外只有两版皮 + 基类 + 常驻壳 + 层表；越界的 %s）"
+			% str(named))
+	# ---- ⑤ 剧本里每个 {"do":"hook","call":"X"} 点名的 X 真实存在 ----
+	var dsc = TUTOR_SCRIPT.new()
+	var hook_rows := 0
+	var no_target: Array = []
+	for row in dsc.load_index().get("levels", []):
+		var one: Dictionary = dsc.load_level(str((row as Dictionary).get("id", "")))
+		var src := ""
+		if str(one.get("hook", "")) != "" and ResourceLoader.exists(str(one["hook"])):
+			src = FileAccess.get_file_as_string(str(one["hook"]))
+		for r in one.get("flow", []):
+			if str((r as Dictionary).get("do", "")) != "hook":
+				continue
+			hook_rows += 1
+			if not src.contains("func %s(" % str((r as Dictionary).get("call", ""))):
+				no_target.append("%s → %s" % [str(one.get("id", "")), str((r as Dictionary).get("call", ""))])
+	var demo_src := FileAccess.get_file_as_string("res://scripts/tutor/levels/demo.gd")
+	check(no_target.is_empty() and demo_src.contains("func noop(ctx)")
+			and demo_src.contains("func peek_cells(ctx)") and demo_src.contains("func tick_forever(ctx)"),
+		"剧本点名的每一支钩子函数都在（这一刻剧本里 %d 条 hook；示例钩子三支齐；无主的 %s）"
+			% [hook_rows, str(no_target)])
+	# ---- ⑥ 行为：hook 动词真把关卡钩子跑起来了，而且主游标按在那一条上不翻页 ----
+	var view := CWTutorViewTally.new()
+	var gate := TutorGateSpy.new()
+	var d = TUTOR_DIRECTOR.new()
+	d.view = view
+	d.gate = gate
+	var g := _fx_game(2)
+	## `init()` 只摆棋盘不发细胞，镜像里得有人 `read` 才测得出东西 —— 两只就够（同 `_fx_game` 那几条的写法）
+	g.cells.append(CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), CWData.ImmuneType.BASIC, -1))
+	g.cells.append(CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(2, 0), -1, CWData.CancerType.MELANOMA))
+	var mir := _mirror_of(g)
+	d.mirror_of = func() -> CWMirror: return mir
+	d.active_of = func() -> Array: return [Vector2i(0, -1), Vector2i(0, 0)]
+	root.add_child(d)
+	d.open(_tutor_hook_level("tick_forever"), 0)
+	d.install()
+	await _tutor_pump(6)
+	var n0: int = d.hook_log.size()
+	check(n0 > 0 and str(d.hook_log[0]) == "tick",
+		"`hook` 动词真的加载 levels/demo.gd 并把 tick_forever 跑起来了（%d 笔流水账）" % n0)
+	check(d._at == 1 and d._hook_depth == 1,
+		"钩子没跑完，主游标就按在 hook 那一条上（_at=%d，在跑的钩子 %d 只）" % [d._at, d._hook_depth])
+	# ---- ⑦ 取消语义：invalidate() 之后旧协程一条流水账都不再产生 ----
+	d.invalidate()
+	await _tutor_pump(10)
+	check(d.hook_log.size() == n0,
+		"invalidate() 之后旧协程**一条流水账都不再产生**（%d → %d）—— 代际闸把它挂在了 dead 上"
+			% [n0, d.hook_log.size()])
+	# ---- ⑧ ctx.read：白名单只读查询，给的是**副本**，不是镜像本身 ----
+	var ctx = TUTOR_CTX.new(d, d.epoch)
+	var cells: Array = ctx.read("cells")
+	check(cells.size() == mir.cells.size() and (cells[0] as Dictionary).has("seat")
+			and (cells[0] as Dictionary).has("at") and (cells[0] as Dictionary).has("type")
+			and (cells[0] as Dictionary).has("alive") and (cells[0] as Dictionary).has("energy"),
+		"ctx.read(\"cells\") 给 {seat, at, type, alive, energy} 五个字段（%d 只）" % cells.size())
+	(cells[0] as Dictionary)["energy"] = -999
+	check(int((ctx.read("cells")[0] as Dictionary)["energy"]) != -999
+			and not (mir.cells[0] as Dictionary).has("seat"),
+		"改动返回值伤不到镜像：read 给的是**派生量的副本**，镜像本身一个字段都没多")
+	var seat0: int = int((mir.cells[0] as Dictionary)["pid"])
+	check(int(ctx.read("energy", seat0)) == int((mir.cells[0] as Dictionary)["energy"])
+			and int(ctx.read("round")) == int(mir.round_no)
+			and int(ctx.read("alive_count", "immune")) == mir.living_cells(CWData.Faction.IMMUNE).size()
+			and int(ctx.read("alive_count", "cancer")) == mir.living_cells(CWData.Faction.CANCER).size(),
+		"energy / round / alive_count 三项与镜像同口径（免疫 %d 只、癌 %d 只）"
+			% [int(ctx.read("alive_count", "immune")), int(ctx.read("alive_count", "cancer"))])
+	check(int(ctx.read("dist", [Vector2i(0, 0), Vector2i(2, 0)])) == 2
+			and int(ctx.read("dist", ["0,0", "2,0"])) == 2
+			and bool(ctx.read("beside", [0, 1])) == false,
+		"dist 两种坐标写法都认（Vector2i 与数据里的 \"q,r\"）；beside 按相邻格判（两只隔着 2 格 = false）")
+	var tile0: Dictionary = ctx.read("tile", Vector2i(0, 0))
+	check(tile0.has("state") and tile0.has("type") and tile0.has("solid")
+			and int(tile0["state"]) == int((mir.tile(Vector2i(0, 0)) as Dictionary)["tissue"])
+			and (ctx.read("active") as Array).size() == 2,
+		"tile 给 {state, type, solid}（state 就是镜像的 tissue）；active 经 active_of 那条线回来（%d 格）"
+			% (ctx.read("active") as Array).size())
+	check(ctx.read("kernel") == null and ctx.read("mirror") == null,
+		"白名单之外一律 null + warning —— 想经 read 要句柄，要不到")
+	# ---- ⑨ ctx.state()：钩子唯一合法的状态落点，随代际清空 ----
+	ctx.state()["k"] = 7
+	check(int(ctx.state().get("k", 0)) == 7, "ctx.state() 反复给出的是**同一只**字典（钩子文件才敢零成员变量）")
+	d.invalidate()
+	check(ctx.state().is_empty(), "invalidate() 把 ctx.state() 一起清空（方案 §3.7 ⑦）")
+	# ---- ⑩ ctx.rng()：种子来自数据，同种子两只 ctx 逐个数复现；**绝不碰内核 rng** ----
+	var r1 = TUTOR_CTX.new(d, d.epoch, { "seed": 20260919 }).rng()
+	var r2 = TUTOR_CTX.new(d, d.epoch, { "seed": 20260919 }).rng()
+	check(r1.randi() == r2.randi() and r1.randf() == r2.randf(),
+		"ctx.rng() 的种子来自数据（hook.args.seed）：同种子逐个数复现")
+	check(not ctx_src.contains("randi()") and not ctx_src.contains("randf()")
+			and ctx_src.contains("RandomNumberGenerator.new()"),
+		"ctx 自带实例、零裸随机 —— 内核 rng 此刻是带子，多掷一次整条错位而且是静默的")
+	# ---- ⑪ ctx.until 超时返回 false ----
+	d.reset_level()               ## 代际已经被上面拨过两次，重开一代好让 until 跑得起来
+	await _tutor_pump(2)
+	var live = TUTOR_CTX.new(d, d.epoch)
+	var out: Array = []
+	_tutor_ctx_until(live, { "delta": "moved" }, 0.02, out)
+	var t0 := Time.get_ticks_msec()
+	while out.is_empty() and Time.get_ticks_msec() - t0 < 4000:
+		await process_frame
+	check(out.size() == 1 and out[0] == false,
+		"ctx.until(pred, timeout_secs) 超时返回 false —— 剧本写歪了是等不到，不是无声卡死（实测 %s）" % str(out))
+	# ---- ⑫ ctx.fail：warning + 挂起，出路只有常驻「重置 / 目录」 ----
+	d.hook_fail("桩：剧本写不下去了")
+	check(not d.active and gate.last() is Array and (gate.last() as Array).is_empty(),
+		"fail 之后游标停住、闸关死（不静默继续、不替玩家乱答）")
+	var log_before: int = d.hook_log.size()
+	d.reset_level()
+	check(d.active and d._at == 0 and d._hook_depth == 0,
+		"常驻「重置本关」把挂起的关拉得回来：游标回 0、**挂死的钩子计数清零**（不清就再也翻不过 hook 那一条）")
+	await _tutor_pump(4)
+	check(d.hook_log.size() > log_before and d._hook_depth == 1,
+		"重置之后钩子在新一代里重新跑起来（流水账 %d → %d）" % [log_before, d.hook_log.size()])
+	# ---- ⑬ epoch 的对象账（方案 §3.7 风险对策 ②）----
+	# 跑两遍「20 次重置」，一遍让钩子只跑 3 帧、一遍跑 12 帧：**两遍的涨幅必须一样大**。
+	# 这一条要钉的性质是「涨的是**每代一只**挂死的协程，不是每帧一只」——
+	# 后者才是把第七关那种长关卡吃垮的那种，前者是 GDScript「协程杀不掉只能永挂」的固有代价。
+	#
+	# ⚠ **实测改判（S8，2026-09-19）**：方案 §3.7 的对策①「导演每关一只、关末 dispose 就回收」
+	# 在 Godot 4.5 上**不成立** —— 20 代挂死的协程约 280 只对象，`queue_free()` 之后只掉了 39 只。
+	# 所以这条闸不再断言「回到基线」（那是个假判据），改断言**常数级 + 与钩子跑多久无关**。
+	# 推论：这一条跑完，进程退出时那句 `ObjectDB instances leaked at exit` 的**警告**就是它留下的
+	# （约 800 只，两轮 churn 的挂死协程）。它是 GDScript 协程语义的固有代价，不是这一片写漏了；
+	# `tools/run_tests.sh` 只把 SCRIPT ERROR / Parse Error 当红，不看这句。
+	var grow_short := await _tutor_reset_churn(d, 20, 3)
+	var grow_long := await _tutor_reset_churn(d, 20, 12)
+	check(grow_short > 0.0 and absf(grow_long - grow_short) <= 24.0,
+		"钩子跑 3 帧与跑 12 帧，20 次重置的对象涨幅一样大（%.0f vs %.0f）—— 每代一只，不是每帧一只"
+			% [grow_short, grow_long])
+	check(grow_short / 20.0 <= 24.0,
+		"每一代挂死的协程约 %.1f 只对象（常数级；钩子里的 await 原语越少越省，S10/S11 照这条写）"
+			% (grow_short / 20.0))
+	d.teardown()
+	d.queue_free()
+	view.free()
+	await _tutor_pump(10)
+	var rest := Performance.get_monitor(Performance.OBJECT_COUNT)
+	await _tutor_pump(30)
+	check(Performance.get_monitor(Performance.OBJECT_COUNT) <= rest,
+		"导演收摊之后对象数**不再涨**：挂死的协程是真的停住了，不是还在后台一帧一帧跑（%.0f）" % rest)
+	g.dispose()
 	CWTutorLayers.reset()
 	CWGuideProgress.clear()
 

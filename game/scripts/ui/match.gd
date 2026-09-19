@@ -942,6 +942,8 @@ func _attach_tutor() -> void:
 	_director.view = _tutor_view
 	## **不存镜像、只存取法**：一关之内会换好几次局，存下来的那一份换局就过期了
 	_director.mirror_of = func() -> CWMirror: return mirror
+	## 钩子层的 `ctx.read("active")` 那一项（S8）：活跃格住在棋盘里，导演只存取法不存表
+	_director.active_of = func() -> Array: return board.active_tiles() if board != null else []
 	_director.level_done.connect(_tutor_next_level)
 	_director.want_load.connect(_tutor_load_world)
 	_director.want_reset.connect(_tutor_reset_world)
