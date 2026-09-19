@@ -71,13 +71,19 @@ const GLITCH_SLICES := 5      ## blocks 模式把胞体横切几条
 const GLITCH_BARS := 3        ## scanlines 模式同时几条暗带
 const MORPH_AT := 0.80        ## 演到这个比例就把贴图换成 morph_to
 const SHUFFLE_AT := 0.20      ## 随机切换从这个比例开始（PRD:487）
-## **马赛克串台**（Kevin 2026-09-19）：blocks 模式下，错开的那几条里随机挑 1~3 块，
-## 那一小片画的**不是自己的像素**，而是从 `pool` / `morph_to` 的贴图**同一位置**采来的，
-## 闪 1~3 帧再换一批 —— 像信号串台。间章「分化→普通」「免疫→小细胞肺癌」与第七关
-## 「随机切换→定格印戒」这三处，串台来源正好就是「将要变成的样子」，马赛克本身就成了预告。
-const MOSAIC_MAX := {"light": 2, "heavy": 3}      ## 一次同时串几块（1~这个数），随强度
-const MOSAIC_HOLD := 3                            ## 一组串台连着几帧（1~这个数）再换
-const MOSAIC_W := {"light": 0.34, "heavy": 0.58}  ## 串台块横向占胞宽多少，随强度
+## **马赛克串台**（Kevin 2026-09-19，看完动图改的口径：**以像素为单位，不是以一块矩形为单位**）：
+## blocks 模式下，错开的那几条里**逐像素**各掷一次 —— 中了的那个像素画的不是自己的，
+## 而是 `pool` / `morph_to` 的贴图**同一位置**那一个像素，像被撒了一层别人的像素噪点在身上闪。
+## 间章「分化→普通」「免疫→小细胞肺癌」与第七关「随机切换→定格印戒」这三处，
+## 串台来源正好就是「将要变成的样子」，噪点本身就成了预告；**定格之后整个关掉**。
+##
+## 逐像素怎么还能算「随机全在 begin() 里摇完」：`begin()` 摇的是**每一帧一颗种子**（外加这一帧的密度），
+## 每个像素中不中是拿「种子 + 像素坐标」算的一个整数哈希（`_pix_noise`）—— 纯函数、零随机流，
+## 所以 `probe(t)` 依旧只查表，同一个 t 喂两遍仍然逐像素相同。
+const MOSAIC_DENSITY := {"light": Vector2(0.08, 0.15), "heavy": Vector2(0.25, 0.40)}
+## 同一批噪点连着几帧再重掷。**定的是 1 = 每帧重掷**：调到 3 逐帧截下来比过，看不出差别 ——
+## 胞体本来就每帧在错动，冻住的噪点跟着一起动，照样是新的一片
+const MOSAIC_HOLD := 1
 ## 没给 `pool` / `morph_to` 时的替补来源：**同阵营另一种细胞**（照 CELL_ART 的名字分阵营，
 ## 演出层不认识内核的类型枚举）
 const MOSAIC_KIN := {
@@ -133,6 +139,7 @@ var _rng := RandomNumberGenerator.new()
 var _plan := {}                 ## begin() 时一次摇好的随机表 + 预算量；probe() 只查表
 var _state := {}                ## 这一帧的画面（= probe(t) 的结果）。**末帧留着**，skip() 之后还能问
 var _hidden: Array = []         ## 被本段代画而临时藏起来的真节点
+var _imgs := {}                 ## 贴图 -> Image（串台逐像素取色用；纯缓存，不进 _plan）
 var _shake_home := {}           ## 抖动节点 -> 原位（reset_hint 的 edge 候选）
 var _add: Painter               ## 叠加混合层：受击闪白 / 命中高光
 var _screen: CanvasLayer
@@ -369,19 +376,15 @@ func _roll() -> Dictionary:
 				if src.is_empty():
 					src = _kin_pool(pool[0] if not pool.is_empty() else null)
 				out["mosaic_src"] = src
-				var cap: int = int(MOSAIC_MAX["heavy" if _heavy() else "light"])
-				var wide: float = float(MOSAIC_W["heavy" if _heavy() else "light"])
+				var band: Vector2 = MOSAIC_DENSITY["heavy" if _heavy() else "light"]
 				var mos: Array = []
 				mos.resize(n)
 				var f := 0
 				while f < n:
 					var hold := _rng.randi_range(1, MOSAIC_HOLD)
-					var here: Array = []
-					for _k in (_rng.randi_range(1, cap) if not src.is_empty() else 0):
-						var u0 := _rng.randf_range(0.0, 1.0 - wide)
-						## 一条 = [横切的第几条, 采谁的贴图, 横向从哪到哪（占胞宽的比例）]
-						here.append([_rng.randi_range(0, GLITCH_SLICES - 1),
-							_rng.randi_range(0, src.size() - 1), u0, u0 + wide])
+					## 一帧 = [这一帧的噪点种子, 这一帧多大比例的像素被串]（像素中不中由 _pix_noise 算）
+					var here: Array = ([_rng.randi(), _rng.randf_range(band.x, band.y)]
+						if not src.is_empty() else [])
 					for j in range(f, mini(f + hold, n)):
 						mos[j] = here
 					f += hold
@@ -522,12 +525,49 @@ func _heavy() -> bool:
 	return s == "heavy" or s == "剧烈"
 
 
-## 这一帧串台的是哪几块（**查表，不摇随机**）
+## 这一帧的噪点种子与密度（**查表，不摇随机**）
 func _mosaic_at(i: int) -> Array:
 	var mos: Array = _plan.get("mosaic", [])
 	if i < 0 or i >= mos.size() or not (mos[i] is Array):
 		return []
 	return (mos[i] as Array).duplicate(true)
+
+
+## 这一帧哪些像素被串了：`[[x, y, 采谁], …]`，坐标是**本体贴图一帧之内**的像素位。
+## **画与断言都走这一支**，两边口径就不会分家；纯函数（只看 `_state` 里那颗种子与密度）
+func mosaic_pixels() -> Array:
+	var m: Array = _state.get("mosaic", [])
+	var tex := current_tex()
+	var srcn: int = (_plan.get("mosaic_src", []) as Array).size()
+	if m.size() < 2 or tex == null or srcn <= 0:
+		return []
+	var s := int(m[0])
+	var d := float(m[1])
+	var w := int(_fw(tex))
+	var h := int(_fh(tex))
+	var out: Array = []
+	for y in h:
+		for x in w:
+			if _pix_noise(s, x, y) < d:
+				out.append([x, y, int(_pix_noise(s + 977, x, y) * float(srcn)) % srcn])
+	return out
+
+
+## 一个像素中不中：拿「这一帧的种子 + 像素坐标」算整数哈希取 [0,1)。
+## **纯函数、零随机流** —— 逐像素掷点要是真去摇 rng，`probe(t)` 就不再是查表的了
+func _pix_noise(s: int, x: int, y: int) -> float:
+	var h := (s * 374761393) ^ (x * 668265263) ^ (y * 2147483647)
+	h = (h ^ (h >> 13)) * 1274126177
+	return float((h ^ (h >> 16)) & 0xFFFFFF) / 16777216.0
+
+
+## 串台要逐像素取色，贴图的 Image 取一次存着（纯缓存，取几次结果都一样）
+func _img(tex: Texture2D) -> Image:
+	if tex == null:
+		return null
+	if not _imgs.has(tex):
+		_imgs[tex] = tex.get_image()
+	return _imgs[tex]
 
 
 ## 没给 pool / morph_to 时的替补来源：同阵营的别的细胞（本体那张除外）
@@ -576,8 +616,8 @@ func _probe_glitch(q: float) -> Dictionary:
 	}
 	if mode == "blocks":
 		out["slices"] = (row["slices"] as Array).duplicate() if on else []
-		## 串台只跟着**错开的**那几条走：没错位的帧（轻强度下一小半）整只都是自己的
-		out["mosaic"] = _mosaic_at(i) if on else []
+		## 串台只跟着**错开的**那几条走（没错位的帧整只都是自己的），定格成 morph_to 之后整个关掉
+		out["mosaic"] = _mosaic_at(i) if (on and tex != morph) else []
 	elif mode == "scanlines":
 		out["bars"] = (row["bars"] as Array).duplicate()
 		out["roll"] = _steps(fmod(q * 0.75, 1.0))
@@ -611,16 +651,27 @@ func _draw_glitch() -> void:
 				var dx: float = float(slices[j]) if j < slices.size() else 0.0
 				_blit(self, tex, fr, foot, off + Vector2(dx, 0.0),
 					float(j) / float(n), float(j + 1) / float(n), tint)
-			## 马赛克串台：错开的这几条里，有一小片画的是**别人的**像素（同一位置采过来的），
-			## 闪一两帧就换走 —— 像信号串台，也是在预告这只细胞将要变成的样子
-			for e: Array in _state.get("mosaic", []):
-				var j2: int = clampi(int(e[0]), 0, n - 1)
-				var other := mosaic_tex(int(e[1]))
-				if other == null or other == tex:
-					continue        ## 已经定格成 morph_to 了，再串它自己就看不出来
+			## 马赛克串台：**逐像素**盖上去 —— 中了的那个像素画的是别人贴图同一位置的那一个像素，
+			## 像撒了一层别人的像素噪点在身上闪。跟着所在的那一条一起错开，才像是「同一只细胞坏了」
+			var fh := _fh(tex)
+			var fw := _fw(tex)
+			var top := foot + off - Vector2(fw / 2.0, fh)
+			for p: Array in mosaic_pixels():
+				var other := mosaic_tex(int(p[2]))
+				var img := _img(other)
+				if img == null:
+					continue
+				var sx := int(float(p[0]) * _fw(other) / fw) + int(fr * _fw(other))
+				var sy := int(float(p[1]) * _fh(other) / fh)
+				var c := img.get_pixel(clampi(sx, 0, img.get_width() - 1),
+					clampi(sy, 0, img.get_height() - 1))
+				if c.a <= 0.0:
+					continue        ## 那边这一格是空的：留着自己的像素，不挖洞
+				c.a *= tint.a
+				var j2: int = clampi(int(float(p[1]) / fh * float(n)), 0, n - 1)
 				var dx2: float = float(slices[j2]) if j2 < slices.size() else 0.0
-				_blit_part(self, other, tex, fr, foot, off + Vector2(dx2, 0.0),
-					float(j2) / float(n), float(j2 + 1) / float(n), float(e[2]), float(e[3]), tint)
+				draw_rect(Rect2((top + Vector2(float(p[0]) + dx2, float(p[1]))).round(),
+					Vector2.ONE), c, true)
 		"scanlines":
 			## 扫描线：本体带一道往下滑的横向撕裂，再压几条暗带
 			var roll: float = float(_state["roll"])
@@ -1005,28 +1056,6 @@ func _blit(ci: CanvasItem, tex: Texture2D, frame: int, foot: Vector2, off: Vecto
 	var f := clampi(frame, 0, BREATH_FRAMES - 1)
 	var src := Rect2(Vector2(float(f) * w, y0), Vector2(w, y1 - y0))
 	var dst := Rect2((foot + off - Vector2(w / 2.0, h - y0)).round(), Vector2(w, y1 - y0))
-	ci.draw_texture_rect_region(tex, dst, src, tint)
-
-
-## 串台块专用：**源**在 `tex` 上按比例取（r0~r1 竖着、u0~u1 横着），**落点**按 `own` 的尺寸算。
-## 两张贴图的帧尺寸不一定一样（小细胞肺癌只有别人的一半大），按比例对位才谈得上「同一位置的像素」
-func _blit_part(ci: CanvasItem, tex: Texture2D, own: Texture2D, frame: int, foot: Vector2,
-		off: Vector2, r0: float, r1: float, u0: float, u1: float, tint: Color) -> void:
-	var w := _fw(own)
-	var h := _fh(own)
-	var y0 := h * clampf(r0, 0.0, 1.0)
-	var y1 := h * clampf(r1, 0.0, 1.0)
-	var x0 := w * clampf(u0, 0.0, 1.0)
-	var x1 := w * clampf(u1, 0.0, 1.0)
-	if y1 - y0 <= 0.5 or x1 - x0 <= 0.5:
-		return
-	var f := clampi(frame, 0, BREATH_FRAMES - 1)
-	var sx := _fw(tex) / w        ## 源 / 本体的尺寸比
-	var sy := _fh(tex) / h
-	var src := Rect2(Vector2(float(f) * _fw(tex) + x0 * sx, y0 * sy),
-		Vector2((x1 - x0) * sx, (y1 - y0) * sy))
-	var dst := Rect2((foot + off - Vector2(w / 2.0 - x0, h - y0)).round(),
-		Vector2(x1 - x0, y1 - y0))
 	ci.draw_texture_rect_region(tex, dst, src, tint)
 
 
