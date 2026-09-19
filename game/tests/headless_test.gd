@@ -17424,6 +17424,24 @@ func t_net_resume() -> void:
 	check(str(p._resume.get("code", "")) == code and str(p._resume.get("token", "")) == token
 		and str(p._resume.get("url", "")) == url,
 		"离开前抄下这一席（房间码 + 令牌 + **服务器地址**）")
+	## **落盘**（Kevin 09-19「落盘吧」）：票得活过这一次运行 —— 服务器那一席留得比客户端久得多
+	check(str(CWSettings.resume.get("code", "")) == code and FileAccess.file_exists(CWSettings.PATH),
+		"抄席顺手写进 settings.cfg 的 [online] resume")
+	CWSettings.resume = {}            ## 把内存里那份打乱，逼它真去读盘（= 关掉客户端再开那一下）
+	CWSettings._loaded = false
+	CWSettings.load_prefs()
+	var p2 := CWOnlinePanel.new()
+	root.add_child(p2)
+	await process_frame
+	check(str(p2._resume.get("code", "")) == code and str(p2._resume.get("token", "")) == token
+		and str(p2._resume.get("url", "")) == url,
+		"重开客户端：新建的面板从盘上读回同一张票")
+	root.remove_child(p2)             ## 摘出树再换 client：_process 别去 poll 一条从没连过的连接
+	var elsewhere := CWNetClient.new()
+	elsewhere.url = "ws://10.66.66.66:8912"
+	p2.client = elsewhere
+	check(not p2._resume_here(), "从盘上读回来的票一样要认地址：换一台服务器就当没有票")
+	p2.free()
 
 	## ② 客户端确实把票丢了 —— 这正是「回不去」的根
 	b.leave()
@@ -17451,6 +17469,9 @@ func t_net_resume() -> void:
 		"凭令牌回到原席：服务器那边在线、不再是「已离开」")
 	check(b.token == token, "令牌还是原来那一枚")
 	check(p._resume.is_empty(), "回程票用掉了（再点「加入」就是普通加入）")
+	CWSettings._loaded = false
+	CWSettings.load_prefs()
+	check(CWSettings.resume.is_empty(), "票用掉的同时盘上也清了 —— 下次开客户端不会再预填")
 	ok = await _net_pump(srv, [a, b], func() -> bool:
 		return not b.pending_ask.is_empty() \
 			or b.stream.any(func(x: Dictionary) -> bool: return x["t"] == "ask"))
@@ -17492,6 +17513,9 @@ func t_net_resume() -> void:
 	c.url = back
 	p._hint_resume()
 	check(p._code.text == code, "地址又对上了：同一张票照样预填")
+	## 照 t_settings 的规矩收尾：别把票留在盘上祸害后面建面板的测试（进大厅会照着它预填房间码）
+	CWSettings.resume = {}
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(CWSettings.PATH))
 	root.remove_child(p)
 	p.free()
 	a.dispose()
