@@ -171,6 +171,8 @@ func _run_all() -> void:
 		t_tutorial_c1,
 		## 新手引导 S6：图鉴解锁与进度存档
 		t_guide_progress,
+		## 新手引导 S7：开场动画（PRD:59-87 逐行对账 + 零 rng + 接章节提示）
+		t_tutorial_opening,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -21998,3 +22000,237 @@ func _check_tape(stage: Object, lv: Dictionary, id: String) -> void:
 		and int(stage.tape.overrun) == 0 and int(stage.tape.bad_range) == 0,
 		"%s：预设骰子 %d 颗精确用尽（消耗 %d / 多掷 %d / 区间错 %d）"
 			% [id, want, int(stage.tape.at), int(stage.tape.overrun), int(stage.tape.bad_range)])
+
+
+# ---- 新手引导 S7：开场动画（PRD「开场动画」:59-87 / 方案 §S7）----
+## 开场是**独立场景**：没有内核、没有对局、没有席位，一张棋盘两只细胞全是画出来的。
+## 所以这条测试也不起局 —— 它只做三件事：把分镜和 PRD 逐行对账、盯住「一滴 rng 都不碰」、
+## 核对演完之后接得上第一章的章节提示。
+const OPENING := preload("res://scripts/ui/tutorial_opening.gd")
+const OPENING_SCENE := preload("res://scenes/tutorial_opening.tscn")
+## PRD:63-87 的逐行对账表 `[行号, kind, 原句]`。PRD 正本在仓库外（云端拉下来的那份），
+## 所以抄一份在这儿当基准：分镜加一条、减一条、改一个字，这条测试当场红。
+## 原句只去掉 markdown 的转义反斜杠（`Cell\_War` → `Cell_War`），其余逐字不动。
+const OPENING_PRD := [
+	[63, "logo", "显示Cell_War巨大文字和Immune vs. Cancer（和首页一致）"],
+	[65, "words_to_cells", "Immune和Cancer向中间移动变为免疫细胞与癌细胞"],
+	[67, "board_in", "背景浮现一个大于屏幕的游戏棋盘（和首页一致）"],
+	[69, "cancer_field", "棋盘右侧有部分组织为癌组织"],
+	[71, "stand", "免疫细胞站在左侧健康组织上，癌细胞站在右侧癌组织上"],
+	[73, "march", "免疫细胞移动到癌细胞面前（过程中会触发【净化】）"],
+	[75, "strike", "免疫细胞攻击癌细胞（触发攻击动画），癌细胞被打飞，免疫细胞被弹回原格子"],
+	[77, "rings", "随着癌细胞被打飞，产生一个以癌细胞为中心逐渐变大的同心圆，同心圆上的癌性组织被净化"],
+	[79, "erosion_rev", "净化需要有反向【侵蚀】特效"],
+	[81, "fall", "同心圆上的组织在被经过后的0~1秒的随机时间后跌落"],
+	[83, "keep", "免疫细胞所在组织和右侧组织不跌落"],
+	[85, "zoom", "随着跌落过程镜头逐渐放大，把免疫细胞调整到屏幕中央"],
+	[87, "chapter", "进入第一章全屏章节提示"],
+]
+## 攻击收势之后免疫站的那一格，与它右边那一格（= PRD:83 的「免疫细胞所在组织和右侧组织」）
+const OPENING_KEEP := [Vector2i(1, -1), Vector2i(2, -1)]
+
+
+func t_tutorial_opening() -> void:
+	print("[新手引导 S7·开场动画]")
+	var cut: Dictionary = OPENING.load_timeline()
+	var rows: Array = cut.get("cues", [])
+
+	# ---- ② 分镜条数与 PRD:63-87 逐行对得上 ----
+	check(rows.size() == OPENING_PRD.size(),
+		"分镜 %d 条 = PRD:63-87 的 %d 行（一行一条，不多不少）" % [rows.size(), OPENING_PRD.size()])
+	var off: Array = []
+	for i in mini(rows.size(), OPENING_PRD.size()):
+		var got: Dictionary = rows[i]
+		var want: Array = OPENING_PRD[i]
+		if int(got.get("prd", -1)) != int(want[0]) or str(got.get("kind", "")) != str(want[1]):
+			off.append("第 %d 条：prd %s / kind %s" % [i, str(got.get("prd")), str(got.get("kind"))])
+		elif str(got.get("text", "")) != str(want[2]):
+			off.append("PRD:%d 的文案改过了（%s）" % [int(want[0]), str(got.get("text", ""))])
+	check(off.is_empty(), "逐条对账：行号 / kind / 原句一字不差（对不上：%s）" % str(off.slice(0, 3)))
+	## 时间轴自身的三条：不倒流、一律落在 1/12 秒的格上（像素纪律②）、末条正是收尾那一刻
+	var back: Array = []
+	var off_grid: Array = []
+	var last := -1.0
+	for row in rows:
+		var t: float = float((row as Dictionary).get("t", 0.0))
+		if t < last:
+			back.append(str((row as Dictionary)["kind"]))
+		last = t
+		if absf(t * OPENING.PIX_FPS - roundf(t * OPENING.PIX_FPS)) > 0.0001:
+			off_grid.append("%s@%s" % [str((row as Dictionary)["kind"]), str(t)])
+	check(back.is_empty(), "分镜按时间排好（倒流的：%s）" % str(back))
+	check(off_grid.is_empty(),
+		"每条都落在 1/12 秒的格上（%s fps 量化，同 CWSkillFx）；出格的：%s"
+			% [str(OPENING.PIX_FPS), str(off_grid)])
+	var tail: Dictionary = rows[rows.size() - 1]
+	check(str(tail["kind"]) == "chapter"
+		and is_equal_approx(float(tail["t"]), float(cut.get("duration", 0.0))),
+		"末条 = PRD:87 的「进入第一章全屏章节提示」，且正好落在整段的收尾时刻 %s"
+			% str(cut.get("duration", 0.0)))
+
+	# ---- ① 不建内核 / 零 rng 消耗（源码闸：附 C 第 5 条）----
+	var src := FileAccess.get_file_as_string("res://scripts/ui/tutorial_opening.gd")
+	var lines := src.split("\n")
+	var engine_hits: Array = []
+	var rng_hits: Array = []
+	var rx_rng := RegEx.create_from_string("(^|[^._a-zA-Z0-9])(randf|randi|randomize|rand_from_seed|seed)[(]")
+	for n in lines.size():
+		var code := _code_only(lines[n])
+		for word in ["CWKernel", "CWGame", "CWWorld", "CWTutorialStage", "CWRollTape", "CWMirror"]:
+			if code.contains(word):
+				engine_hits.append("%d:%s" % [n + 1, word])
+		if rx_rng.search(code) != null:
+			rng_hits.append("%d:%s" % [n + 1, code.strip_edges()])
+	check(engine_hits.is_empty(),
+		"整段**不建内核**：开场脚本里一处 CWKernel / CWGame / CWWorld / 舞台 / 带子都没有（命中 %s）"
+			% str(engine_hits.slice(0, 4)))
+	check(rng_hits.is_empty(),
+		"零 rng 消耗：没有一处裸 randf / randi / randomize —— 随机只走自己那只 RandomNumberGenerator（命中 %s）"
+			% str(rng_hits.slice(0, 3)))
+	check(src.contains("RandomNumberGenerator.new()") and src.contains("_rng.randf_range"),
+		"跌落的 0~1 秒确实抽自本层的 RandomNumberGenerator（PRD:81 / 附 C 第 5 条）")
+
+	# ---- ① 行为闸：同种子同结果，且搅乱全局随机数也影响不到它 ----
+	var d1: Dictionary = await _opening_delays(20260918)
+	for _i in 64:
+		randi()                                   ## 把**全局** rng 往前搅 64 颗
+	var d2: Dictionary = await _opening_delays(20260918)
+	var d3: Dictionary = await _opening_delays(99)
+	check(d1.size() == CWData.all_coords().size() and d1 == d2,
+		"同一个种子跌落时刻逐格相同（%d 格）—— 中间搅了 64 颗全局随机数也没影响：它抽的不是那条流"
+			% d1.size())
+	check(d1 != d3, "换个种子就换一批时刻（不是写死的常数）")
+	var out_of_range: Array = []
+	for c in d1:
+		var v: float = d1[c]
+		if v < 0.0 or v > 1.0:
+			out_of_range.append("%s=%s" % [str(c), str(v)])
+	check(out_of_range.is_empty(), "每格的等待都落在 PRD:81 的 0~1 秒里（越界：%s）" % str(out_of_range.slice(0, 3)))
+
+	# ---- 整段演一遍：净化 / 跌落 / 两格不跌 / 镜头落在免疫身上 ----
+	var op: Node = await _opening_new(20260918)
+	var fired: Array = [0]
+	op.finished.connect(func() -> void: fired[0] += 1)
+	var guard := 0
+	while op._t < op.duration() and guard < 400:
+		op.advance(1.0 / OPENING.PIX_FPS)
+		guard += 1
+	check(fired[0] == 1 and op._t >= op.duration(),
+		"③ 演到末条就收尾，`finished` 只发一次（发了 %d 次）—— `main.gd` 等的就是这一下" % fired[0])
+	var kept_fell: Array = []
+	for c in OPENING_KEEP:
+		if op._hidden.has(c):
+			kept_fell.append(str(c))
+	check(kept_fell.is_empty() and op._hidden.size() >= 120,
+		"PRD:83 免疫脚下与它右边那一格不跌，其余 %d 格全掉了（掉了的不该掉：%s）"
+			% [op._hidden.size(), str(kept_fell)])
+	check(op._immune_at == OPENING_KEEP[0]
+		and CWData.hex_dist(OPENING_KEEP[0], OPENING_KEEP[1]) == 1,
+		"留下来的正是「两个横向连接的健康组织」，免疫站在左边那一格（与第一关地图同形，PRD:95）")
+	var unpurified: Array = []
+	for c in op._tissue:
+		if int(op._tissue[c]) == CWData.Tissue.CANCER and not op._purify_at.has(c):
+			unpurified.append(str(c))
+	check(unpurified.is_empty(),
+		"PRD:77 同心圆扫过之后一格癌组织都不剩（还癌着的：%s）" % str(unpurified.slice(0, 4)))
+	var march_at: float = float(op._purify_at.get(Vector2i(1, -1), 999.0))
+	check(march_at < float((rows[6] as Dictionary)["t"]),
+		"PRD:73 行进途中那一格是**走上去的时候**净化的（%s 秒），早于攻击（%s 秒）"
+			% [str(march_at), str((rows[6] as Dictionary)["t"])])
+	## PRD:79 反向【侵蚀】：美术那两帧**倒着**播 —— 先 p66 再 p33，然后才是健康组织
+	var probe := Vector2i(4, -1)
+	var pt: float = float(op._purify_at.get(probe, 0.0))
+	var dir: int = CWData.dir_toward(op._cancer_at, probe)
+	check(op._rev_erosion_frame(probe, pt, 0.16, 2) == CWErosionFx.ART[dir][1]
+		and op._rev_erosion_frame(probe, pt + 0.16, 0.16, 2) == CWErosionFx.ART[dir][0]
+		and op._rev_erosion_frame(probe, pt + 0.32, 0.16, 2) == null,
+		"PRD:79 反向侵蚀：p66 → p33 → 健康（正向是 p33 → p66，倒过来就是「癌退回去」）")
+	var anchor: Vector2 = op._to_screen(op._body_center(op._immune_at, op._immune))
+	check(anchor.distance_to(Vector2(480, 270)) <= 2.0 and is_equal_approx(op._stage.scale.x, 4.6),
+		"PRD:85 镜头收在免疫细胞身上：胞体中心落到屏幕正中（实得 %s），zoom 推到 %s"
+			% [str(anchor.round()), str(snappedf(op._stage.scale.x, 0.01))])
+	check(not op._cancer.visible and op._immune.visible,
+		"PRD:75 癌细胞被打飞之后不再回到盘上，免疫收势站回自己那一格")
+	op.queue_free()
+
+	# ---- 跳过：按任意键 / 点任意处，接的仍然是章节提示 ----
+	var sk: Node = await _opening_new(7)
+	sk.advance(0.5)                               ## 先越过 SKIP_GRACE
+	var sk_fired: Array = [0]
+	sk.finished.connect(func() -> void: sk_fired[0] += 1)
+	sk.skip()
+	check(sk_fired[0] == 1 and is_equal_approx(sk._t, sk.duration()),
+		"跳过 = 一步走到末帧并发 `finished` —— `main.gd` 那条路一个字不用改，照样接章节提示")
+	var sk_kept: bool = not sk._hidden.has(OPENING_KEEP[0]) and not sk._hidden.has(OPENING_KEEP[1])
+	check(sk_kept and is_equal_approx(sk._stage.scale.x, 4.6) and not sk._cancer.visible,
+		"跳过之后画面**定格在末帧**（两格还在、镜头已到位）：掀幕布那一下不会露出半截演出")
+	sk.queue_free()
+	var gr: Node = await _opening_new(7)
+	var gr_fired: Array = [0]
+	gr.finished.connect(func() -> void: gr_fired[0] += 1)
+	var key := InputEventKey.new()
+	key.keycode = KEY_SPACE
+	key.pressed = true
+	gr._unhandled_input(key)
+	check(gr_fired[0] == 0,
+		"起步 %s 秒内的按键不算跳过 —— 点开「新手引导」的那一下会一路漏到这里来（同 main.gd 的 SKIP_GRACE_MS）"
+			% str(OPENING.SKIP_GRACE))
+	gr.advance(0.4)
+	gr._unhandled_input(key)
+	check(gr_fired[0] == 1, "过了那一下，按任意键就跳过")
+	gr.queue_free()
+	var cl: Node = await _opening_new(7)
+	var cl_fired: Array = [0]
+	cl.finished.connect(func() -> void: cl_fired[0] += 1)
+	cl.advance(0.4)
+	var mb := InputEventMouseButton.new()
+	mb.button_index = MOUSE_BUTTON_LEFT
+	mb.pressed = true
+	cl._on_root_input(mb)
+	check(cl_fired[0] == 1 and cl._root.mouse_filter == Control.MOUSE_FILTER_STOP,
+		"点任意处也跳过；且整块 Control 吃鼠标 —— 演出期间底下的主菜单点不动"
+		+ "（菜单那几项是 Control.gui_input 接的，比 _unhandled_input 先收到）")
+	cl.queue_free()
+
+	# ---- 「看过就不再播」：与关卡进度同住一份 cfg，互不覆盖 ----
+	CWGuideProgress.clear()
+	check(not OPENING.seen(), "干净档：开场没看过 ⇒ 第一次进引导要播")
+	OPENING.mark_seen()
+	check(OPENING.seen(), "演完（或跳过）记上一笔 ⇒ 再进引导不再播")
+	CWGuideProgress.set_done(0)
+	check(OPENING.seen() and CWGuideProgress.done_count() == 1,
+		"关卡进度与「开场已看」同住 user://guide_progress.cfg，谁也不覆盖谁（没动 cw_guide_progress.gd）")
+	OPENING.clear_seen()
+	check(not OPENING.seen() and CWGuideProgress.done_count() == 1,
+		"「重看开场」只清自己那个键，关卡进度一动不动")
+	CWGuideProgress.clear()
+
+	# ---- ③ 接线次序：演完 → 装第一关（章节提示立起来）→ 最后才掀幕布 ----
+	var mg := FileAccess.get_file_as_string("res://scripts/ui/main.gd")
+	var i_seen := mg.find("if not OPENING.seen():")
+	var i_wait := mg.find("await cut.finished")
+	var i_boot := mg.find("await match_node.start_with_bloom(T_BLOOM)", i_wait)
+	var i_fade := mg.find("await cut.fade_out(T_OPENING_OUT)")
+	check(i_seen > 0 and i_wait > i_seen and i_boot > i_wait and i_fade > i_boot,
+		"PRD:87 不闪一帧对局界面：先等开场演完 → 再装第一关（章节提示这时就立起来了）→ 最后才把幕布淡掉")
+
+
+## 起一份开场动画（不自动播，时间由调用方喂）。**不带 check** —— 它只是台架。
+## `await process_frame` 少不了：`--script` 模式下 `_initialize()` 里的 root 还没进树，
+## `add_child` 当场不触发 `_ready`（同 `t_opening` 的写法）
+func _opening_new(rng_seed: int) -> Node:
+	var op: Node = OPENING_SCENE.instantiate()
+	op.auto_play = false           ## 要在 _ready 之前置：那里会照它决定播不播
+	op.rng_seed = rng_seed
+	root.add_child(op)
+	await process_frame
+	op.begin()
+	return op
+
+
+## 某个种子下逐格的跌落等待（PRD:81 的 0~1 秒）。起一份、抄走、拆掉
+func _opening_delays(rng_seed: int) -> Dictionary:
+	var op: Node = await _opening_new(rng_seed)
+	var out: Dictionary = (op._fall_delay as Dictionary).duplicate()
+	op.free()
+	return out
