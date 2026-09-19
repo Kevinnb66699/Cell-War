@@ -103,6 +103,9 @@ MAP = {
     "ATTACK_DMG_CRIT":        "1/6概率大成功，癌细胞-2能量",
     "COUNTER_DMG_ON_FAIL":    "1/3概率无效，不造成伤害，自身-0.5能量",
     "IMMUNE_RESPAWN_ENERGY":  "复活**，**初始1能量",
+    ## 死亡惩罚 X 的**初始值**（PRD 2026-09-19 收编罚停，issue #63）。递增那一半记在细胞的
+    ## `revives` 上、不是常量，这里只对得到初始值这一句；PRD 一改 1 就会失配。
+    "IMMUNE_RESPAWN_DELAY":   "X初始为1",
     "MACRO_HEAL_PURIFY":      "巨噬细胞每通过【迁移】触发一次【净化】，恢复0.2能量",
     "MACRO_MOVE_NET_MIN":     "恢复量不超过 本次迁移实际支付的能量-0.1",
     "ANTIBODY_COST":          "【抗体】：消耗1点能量",
@@ -263,7 +266,6 @@ MAP = {
 INTENTIONAL = {
     "BOARD_RADIUS":        "由 127 格推出（半径 6 蜂窝 = 1+3×6×7），PRD 只给格数",
     "LIMIT_CANCEROUS":     "PRD 写的是 ⌊1/3×总格数⌋，42 是算出来的",
-    "IMMUNE_RESPAWN_DELAY": "PRD 没有「罚停」概念，0 = 下一个 S 阶段即复活，与 PRD 一致",
     "INIT_CANCER_TILES":   "按人数分档，PRD 已落字（4 人 15 / 6 人 21），字典结构不便做串匹配",
     "SOLID_AT_CANCER_SPAWN": "【原发灶】已于 2026-08-31 取消（口径 #85），false = 与 PRD 一致",
     # 下面两条是 2026-08-31 的平衡实验（口径 #92），PRD 里都还没有对应措辞，

@@ -45,8 +45,9 @@ public sealed record RuleTuning
 
     /// <summary>小细胞肺癌【转移】的费用（GD `METASTASIS_COST`）。</summary>
     public int MetastasisCost { get; init; } = 10;
-    /// <summary>免疫细胞死亡后罚停几个世界回合（GD `CWData.IMMUNE_RESPAWN_DELAY` / `cw_tuning.gd immune_respawn_delay`）：
-    /// 死于第 N 回合 → 第 N+1+delay 回合的 S 阶段可复活；-1 = 不再复活。</summary>
+    /// <summary>PRD【S-复活】死亡惩罚 **X 的初始值**（GD `CWData.IMMUNE_RESPAWN_DELAY` / `cw_tuning.gd immune_respawn_delay`）：
+    /// 死于第 N 回合 → 第 N+1+X 回合的 S 阶段可复活，X = 这个初始值 + <see cref="Cell.Revives"/>（每结算一次复活 +1，issue #63）；
+    /// -1 = 不再复活。</summary>
     public int ImmuneRespawnDelay { get; init; } = 1;
     /// <summary>小细胞肺癌【转移】每世界回合最多几次（GD `cw_tuning.gd metastasis_max_per_round`，0 = 不限）。</summary>
     public int MetastasisMaxPerRound { get; init; } = 2;

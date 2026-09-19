@@ -240,6 +240,9 @@ public sealed record L0Cell
     public int DrawsUsed { get; init; }
     public int AttacksUsed { get; init; }
     public int RespawnRound { get; init; } = -1;
+
+    /// <summary>已结算过几次【复活】：PRD【S-复活】死亡惩罚 X = 旋钮初始值 + 这个数（issue #63）。不在观测协议里。</summary>
+    public int Revives { get; init; }
     public int CampRound { get; init; } = -1;
 
     /// <summary>蹲的是哪一格 `"q,r"`；没在蹲就不写。</summary>
