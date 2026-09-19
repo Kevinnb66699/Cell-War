@@ -1,7 +1,11 @@
-## cw_tutorial_stage.gd —— 新手引导的「舞台」：一关数据 → 一份 cwxworld/3 → 一局，交出 **CWKernel**
-## （docs/新手引导_实现方案.md §2.1 / S3，2026-09-19）
+## cw_tutorial_stage.gd —— 新手教程的「舞台」：一关数据 → 一份 cwxworld/3 → 一局，交出 **CWKernel**
+## （docs/新手引导v2_实现方案.md §1.3，2026-09-19）
 ##
-## 它替掉了 `scripts/ui/guide_director.gd`：老导演住在 UI 层、直接 `CWGame.new()` 再往引擎状态上写字段，
+## **新手教程 v2 · S1 只改了三处**：① `const DATA` 指新门面 `cw_tutor_script.gd`（`cwtut/2`）；
+## ② `_rolls()` 跟新 schema（字段名恰好没变，但口径改成了「空带子 ≠ 省略」那一条）；③ 文件头注释。
+## **整份重写是陷阱**：它的价值全在下面那条四步拆装序列上（`abort → queue.stop → close → dispose`）。
+##
+## 它替掉了老的 `scripts/ui/guide_director.gd`：老导演住在 UI 层、直接 `CWGame.new()` 再往引擎状态上写字段，
 ## 所以结构闸 `t_no_engine_in_ui` 得给它整份豁免。舞台住 `scripts/kernel/`（闸只扫 `scripts/ui` 那一层目录），
 ## 而且**只把 `CWKernel` 交出去** —— `match.gd` 整份不再出现 `CWGame`，白名单从两条降到一条。
 ##
@@ -13,14 +17,14 @@
 ##    **这个文件是产品代码里唯一持 `CWGame` 的地方**（`_game`）。
 ## ③ 规则代码一行不改：预设结果只写 `rolls`（带子 `cw_roll_tape.gd`），规则改动只写 `worlds.*.tuning`。
 ##
-## **不带 `class_name`、调用方 `preload`**（同 `cw_world_loader.gd` / `cw_tutorial_data.gd` 的理由：
+## **不带 `class_name`、调用方 `preload`**（同 `cw_world_loader.gd` / `cw_tutor_script.gd` 的理由：
 ## 补丁里新增的 `class_name` 认不出来，引导又是天天在改的东西）。
 ##
 ## 换 sidecar 那天要动的只有这一个文件：`adopt` 换成 `world_state` / `/restore`，
 ## UI 侧一个字都不改（它拿到的本来就是句柄）。
 extends RefCounted
 
-const DATA := preload("res://scripts/kernel/cw_tutorial_data.gd")
+const DATA := preload("res://scripts/kernel/cw_tutor_script.gd")
 const LOADER := preload("res://scripts/kernel/cw_world_loader.gd")
 const TAPE := preload("res://scripts/kernel/cw_roll_tape.gd")
 
@@ -30,7 +34,7 @@ var cfg := {}
 ## 播放队列（`CWMatch._start_queue` 建的那一个）。`reload_world` 要按次序停它，见下面的四步。
 var queue: CWPlayQueue = null
 
-## 当前这一关的完整 JSON（`cw_tutorial_data.load_level` 的产物）与正在跑的那份 world 的名字
+## 当前这一关的完整 JSON（`cw_tutor_script.load_level` 的产物）与正在跑的那份 world 的名字
 var level := {}
 var world_id := ""
 ## 挂上去的带子（`rolls` 为空时也挂 —— 空带子 = 「这一关一次 rng 都不许消耗」的断言）
@@ -44,7 +48,7 @@ var errors: PackedStringArray = []
 var _game: CWGame = null
 
 
-## 开一关：`level` 是 `cw_tutorial_data.load_level()` 读出来的那一份，`world_id` 指名用哪一份盘面。
+## 开一关：`level` 是 `cw_tutor_script.load_level()` 读出来的那一份，`world_id` 指名用哪一份盘面。
 ## 装不出来返回 `null`（原因在 `errors` 里），调用方自己决定是回主菜单还是打日志。
 func open_level(lv: Dictionary, wid := "base") -> CWKernel:
 	level = lv
@@ -124,7 +128,8 @@ func _open(wid: String) -> CWKernel:
 	return k
 
 
-## 这一关的预设骰子。`[[from, to, value], …]`，与 `cwxcase/2` 的 `rolls` 同形。
+## 这一关的预设骰子（`cwtut/2` 的 `rolls`）。`[[from, to, value], …]`，与 `cwxcase/2` 的 `rolls` 同形。
+## **`rolls: []` ≠ 省略**：空带子 = 「这一关一次 rng 都不许消耗」的断言（方案 §2.2）。
 ## **逐个转 int**：`JSON.parse_string` 把数字一律读成 float，带子的记账（`bad_range`）与调用方的比对
 ## 都按整数写的，留着 1.0 / 6.0 会让「这条带子对不对」变成浮点比较
 func _rolls() -> Array:

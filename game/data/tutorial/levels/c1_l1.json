@@ -1,11 +1,19 @@
 {
-  "schema": "cwtut/1",
+  "schema": "cwtut/2",
   "id": "c1_l1",
-  "chapter": 1, "chapter_title": "Cell", "title": "第一关 免疫",
+  "chapter": 1, "chapter_kind": "main", "chapter_title": "Cell",
+  "title": "第一关 免疫",
   "subtitle": "认识健康组织，学会【迁移】",
-  "codex_page": 0, "ui_stage": 1,
+
+  "_doc": [
+    "PRD:91-137 整关。全关零抽取 ⇒ rolls 写空表（空带子 = 断言，不是省略）。",
+    "缺席阵营（纪律 8）：癌席给一只 alive:false 的死细胞，占活跃集之外的 (6,-1) —— hex_at 只扫活跃集，看不见也点不到。",
+    "【迁移】不消耗能量（PRD:105）只能走大能量 99990 + ui.cost/move_path 关掉：immune_move_healthy 是 tier C 旋钮，装载器双重拒。",
+    "最后一条的 prd 写 137 而不是 PRD:133：PRD 的「玩家任务」(133) 与「UI 提示」(137) 是同一拍，",
+    "执行序必须是「先亮格子再开闸」（point 不阻塞、player 阻塞），而对账闸要求 prd 单调不减，所以两条都记 137。"
+  ],
+
   "seats": 2, "human_seat": 0,
-  "expect_level_tiers": [0, 10, 30, 70],
 
   "worlds": {
     "base": {
@@ -15,11 +23,11 @@
       "seat": 0,
       "players": [
         { "seat": 0, "faction": "immune", "level": "I", "memory": 0 },
-        { "seat": 1, "faction": "cancer", "cancer_type": "Melanoma" }
+        { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
       ],
       "cells": [
         { "seat": 0, "type": "ImmuneBasic", "at": "-1,-1", "energy": 99990 },
-        { "seat": 1, "type": "Melanoma", "at": "6,-1", "alive": false }
+        { "seat": 1, "type": "Osteosarcoma", "at": "6,-1", "alive": false }
       ]
     }
   },
@@ -28,23 +36,27 @@
 
   "rolls": [],
 
-  "steps": [
-    {
-      "load": "base",
-      "ui_layers": { "action_bar": ["move"], "sidebar": [], "hand": false,
-                     "end_turn": false, "round_no": false,
-                     "move_path": false, "cost": false, "energy_display": "infinite" },
-      "t": "欢迎来到Cell_War！",
-      "b": ["你是一个Q弹软萌的免疫细胞——",
-            "作为主人忠诚的卫士，正在工作中…",
-            "眼前的绿色格子是组成身体的基本单元——**健康组织**",
-            "下面继续巡逻吧！",
-            "使用【迁移】，向前行动一格"],
-      "unlock": ["tissue_healthy", "move"],
-      "flag": "move", "act": "move", "hex": ["0,-1"], "player": true,
+  "flow": [
+    { "do": "state", "prd": 93, "load": "base",
+      "ui": { "*": false, "action_bar": true, "move_path": false, "cost": false, "energy": "infinite" } },
+
+    { "do": "say", "prd": 117, "who": "player",
+      "lines": ["欢迎来到Cell_War！", "你是一个Q弹软萌的免疫细胞——", "作为主人忠诚的卫士，正在工作中…"] },
+
+    { "do": "say", "prd": 123, "who": "player",
+      "lines": ["眼前的绿色格子是组成身体的基本单元——健康组织"] },
+    { "do": "unlock", "prd": 125, "ids": ["tissue_healthy"] },
+
+    { "do": "say", "prd": 127, "who": "player",
+      "lines": ["下面继续巡逻吧！", "使用【迁移】，向前行动一格"] },
+    { "do": "unlock", "prd": 131, "ids": ["move"] },
+
+    { "do": "point", "prd": 137, "ui": ["bar:迁移"], "hex": ["0,-1"], "mode": "soft" },
+
+    { "do": "player", "prd": 137,
+      "hint": "点底部「迁移」，再点右边那一格",
       "allow": ["k=action|act=move|to=0,-1"],
-      "watch": "moved"
-    }
+      "until": { "delta": "moved" } }
   ],
 
   "on_done": "c1_l2"

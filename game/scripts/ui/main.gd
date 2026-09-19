@@ -102,29 +102,22 @@ func _begin(cfg: Dictionary) -> void:
 	_entering = false    ## 三拍走完才算「不在过场中」——忘了置回，返回主菜单会永远进不去
 
 
-## 「新手引导」：开一局固定种子的 2 人教程局（免疫 vs 癌方，人类坐免疫位）。
-## 引擎照常跑，教程只是 CWGuideBridge + CWGuide 在旁边提示、代做与提亮（见 match.start() / guide_data.gd），
-## 做错不惩罚。固定种子是为了每关的落子提示都出现在合理局面上；AI 用普通启发式，
-## 别让蒙特卡洛抢戏。过场和正式局一样三拍：新手也该先看到干净棋盘、再看到癌组织怎么铺开。
-## cancer_type 由主菜单决定：首次钉死骨肉瘤，引导全部看完后玩家自己挑（Kevin 2026-09-05）。
-func _begin_tutorial(cancer_type: int) -> void:
+## 「新手引导」：开一局教程局。过场和正式局一样三拍：新手也该先看到干净棋盘、再看到癌组织怎么铺开。
+##
+## **2026-09-19 老教程整套推倒**（新手教程 v2 · S1 commit A）：席位数 / 人类席 / 癌种 / 活跃格
+## 都是**关卡数据里的设计量**（方案 §2.2），不再在这儿现算 —— 装配整段搬去 commit B 的导演。
+## 入口母菜单那一项重做期间一直灰着（`main_menu.gd` 的 `enabled: false`），
+## `cancer_type` 形参留着不动：主菜单那套「过完教程可自选对手」是 Kevin 09-05 拍板过的，保留。
+func _begin_tutorial(_cancer_type: int) -> void:
 	if _entering:
 		return
 	match_node.tutorial = true
-	match_node.player_count = 2
-	match_node.human_players = [0]       ## 2 人局行动顺序 = [免疫, 癌]，人类坐免疫
-	match_node.ai_level = 0
-	match_node.cancer_types = [cancer_type]   ## 教程对手钉死（2 人局只有一个癌席），不随种子抽
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
 	## **菜单退场必须排在开场动画之前**：它要淡 T_DECOR = 1.1 秒，排在后面的话这 1.1 秒正好落在
 	## 「幕布淡掉、章节提示露出来」那一段，玩家会看见主菜单的 CELL WAR 标题和菜单项幽灵般叠在提示上
 	##（09-19 真机截图抓到的）。放在前面，它就在幕布底下淡完了
 	menu.dismiss(T_DECOR, DECOR_DRIFT)
-	## 教程小棋盘：推镜头之前就把活跃格外的格淡掉，镜头到位时看到的已经是那几格
-	##（Kevin 2026-09-11：原来是推完才换格网，画面「猛地缩小」）。淡的时长取推进的一半，走到一半棋盘就定了。
-	## 口径是**格集合**不是半径（新手引导 §1.3）：世界半径全程 6，关内长地图靠 reveal 加坐标
-	match_node.board.set_active_tiles(CWMatch.tutorial_active_tiles(), T_ENTER * 0.5)
 	## 开场动画（PRD:59-87）：**只有第一次**进引导时播，演完（或被跳过）就记上一笔。
 	## 它自带全屏幕布，所以底下的菜单退场、镜头推进、癌组织绽开全被盖着 —— 玩家看不到，也不必等
 	var cut = null   ## 不标 Node：开场脚本没有 class_name（附 C 第 1 条），标了就够不着它的成员
@@ -141,7 +134,7 @@ func _begin_tutorial(cancer_type: int) -> void:
 		_look(1.0)   ## 开场已经把镜头交代完了，不在幕布底下再空推一次 1.55 秒
 	await match_node.start_with_bloom(T_BLOOM)
 	if cut != null:
-		## 这会儿第一章的章节提示已经立起来了（`CWMatch.start()` 里的关首 `_apply_guide_step`），
+		## 这会儿第一章的章节提示已经立起来了（关首那一拍在 `CWMatch.start()` 里装），
 		## 幕布淡掉露出来的就是它 —— 一帧对局界面都不闪（PRD:87）
 		await cut.fade_out(T_OPENING_OUT)
 		cut.queue_free()

@@ -78,7 +78,8 @@ FUNC_SUBSYSTEM = [
     # —— AI ——
     (r"^t_(ai_|heur_|eval_|mc_budget)", "ai"),
     # —— 教程 / 引导 ——
-    (r"^t_(guide|tutorial)", "guide"),
+    # `tutor_` 是新手教程 v2（2026-09-19 推倒重来）那一套：t_tutor_data / _beats / _flow / _director / _gate / _view …
+    (r"^t_(guide|tutorial|tutor_)", "guide"),
     (r"^t_bridge_fx_overrides$", "guide"),
     # 教程 S5（2026-09-19）：`t_tutorial_c1` 的两个助手（照剧本打一关 / 带子双向核对），里面的 check 全是教程断言，跟着它们归 guide
     (r"^_(play_c1|check_tape)$", "guide"),

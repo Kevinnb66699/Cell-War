@@ -11,16 +11,15 @@
 ##   `skipped`  按过「跳过引导」。**不动 `done`** —— 跳过不等于看完，主菜单的完成标记口径没变；
 ##              它唯一的用处是 `codex_gated()`（S6b，Kevin 2026-09-19：跳过之后图鉴全解锁）。
 ##
-## **旧档迁移**：2026-09-19 之前的存档只有 `done`。`read()` 见到「有 done、没 unlocked」时
-## 按 `done` 现推一份解锁集（前 done 关剧本里写到的 unlock 全给），**不写回盘** ——
-## 下一次真解锁时 `unlock()` 会把合并后的完整集合落盘，迁移就此固化。
+## **旧档迁移**：2026-09-19 老教程整套推倒之后，旧档里那个 `done` 数的是**旧关**，
+## 回推解锁集已经没有意义 —— `_migrate_unlocked` 恒为空，理由见那个函数的头注。
 class_name CWGuideProgress
 extends RefCounted
 
 const PATH := "user://guide_progress.cfg"
 const SECTION := "guide"
 
-## 已完成的章节数（0..CHAPTER_COUNT）。主动跳过的章节不算完成。
+## 已完成的关数（0..level_count()）。主动跳过的关不算完成。
 static func read() -> Dictionary:
 	var prog := { "done": 0, "unlocked": PackedStringArray(), "at": {}, "skipped": false }
 	var cfg := ConfigFile.new()
@@ -36,16 +35,26 @@ static func read() -> Dictionary:
 	return prog
 
 
-## 旧档（只有 `done`）的解锁集：前 `done` 关剧本里写到的 unlock 点全算解锁。
-## 旧版 16 关的 `done` 可能比今天的关数大 —— 钳住就行，多出来的关本来就不存在了
-static func _migrate_unlocked(done: int) -> PackedStringArray:
-	var out := PackedStringArray()
-	for i in clampi(done, 0, CWGuideData.CHAPTER_COUNT):
-		for step in CWGuideData.steps(i):
-			for id in (step as Dictionary).get("unlock", []):
-				if not out.has(str(id)):
-					out.append(str(id))
-	return out
+## 旧档（只有 `done`）的解锁集。
+##
+## **2026-09-19 起恒为空**：老教程整套推倒（Kevin：「把之前教程的 UI 等设计全部删掉，
+## 基于脚本从 0 构建」），`cwtut/1` 的剧本连同 `guide_data.gd` 一起删了 —— 旧档里那个 `done`
+## 数的是**旧关**，拿新剧本按它回推解锁集只会给出一份对不上的清单，比给空的更难查。
+## 代价可控：图鉴的闸只在「教程进行中」生效，旧档玩家重走一遍新教程就会逐点解锁回来；
+## 方案 §3.8 还定了「图鉴去闸只留通知」（S6 落地），到那时这条迁移连同 `codex_gated()` 一起退役。
+static func _migrate_unlocked(_done: int) -> PackedStringArray:
+	return PackedStringArray()
+
+
+## 教程一共几关 = `index.json` 里关表的条数（老 `CWGuideData.CHAPTER_COUNT` 的口径原样搬过来，
+## 那个文件随老教程一起删了）。**每次现读**：关表是数据，加一关不该要改代码。
+## 读不出来（重做期间关表还空着）按 1 算 —— 别让 `all_done()` 在零关时恒为真
+static func level_count() -> int:
+	var raw: Variant = JSON.parse_string(
+		FileAccess.get_file_as_string("res://data/tutorial/index.json"))
+	if not (raw is Dictionary):
+		return 1
+	return maxi(((raw as Dictionary).get("levels", []) as Array).size(), 1)
 
 
 ## 已解锁的解锁点 id（含旧档迁移）
@@ -111,12 +120,12 @@ static func set_done(chapter: int) -> void:
 static func set_all_done() -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(PATH)
-	cfg.set_value(SECTION, "done", CWGuideData.CHAPTER_COUNT)
+	cfg.set_value(SECTION, "done", level_count())
 	cfg.save(PATH)
 
 
 static func all_done() -> bool:
-	return done_count() >= CWGuideData.CHAPTER_COUNT
+	return done_count() >= level_count()
 
 
 ## 按过「跳过引导」（`CWGuide.skip()`）。**只记这一笔，不动 `done`**：
@@ -147,7 +156,7 @@ static func codex_gated() -> bool:
 	var prog := read()
 	if bool(prog["skipped"]):
 		return false
-	if int(prog["done"]) >= CWGuideData.CHAPTER_COUNT:
+	if int(prog["done"]) >= level_count():
 		return false
 	return _started(prog)
 

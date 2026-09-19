@@ -295,6 +295,12 @@ func _ask_action(req: Dictionary) -> int:
 			return effects_of.get(String(args.get("act", "")), [])
 		for act in kinds:
 			var live: bool = groups.has(act)
+			## 教程局把卡牌与【基因表达】整个关掉（方案 Q-18：`ui.hand=false` + 盘面 `hand: []`）——
+			## 那几关连按钮都**不建**。正式局的「按钮不消失、只变暗」是为了「花掉能量不会让按钮
+			## 凭空少一个」，而教程第一关压根没有能量这回事，灰着的那一颗只会把新手引过去点
+			## （PRD:51 / 通用规则 9；09-19 真机截图抓到的）。`hand` 默认为真 ⇒ 非教程局读到的和今天一模一样
+			if act == "draw" and not CWTutorLayers.on("hand"):
+				continue
 			buttons.append({
 				"title": _move_title(cell) if act == "move" else ACT_TITLE.get(act, act),
 				## **「移动 / 迁移」不带价签**（Kevin 2026-09-08）：它的价随目的地变，
@@ -503,7 +509,7 @@ func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
 	move_costs.clear()
 	## 教程的 `ui_layers.cost = false`（PRD:107/151/197「迁移不显示消耗」）：价目表整张不填 ——
 	## 悬停详情那行「迁移耗能 x」是从这张表来的（`tile_info.gd:87`），空表 = 那一行不出现。正式局照常填
-	if CWGuideLayers.on("cost"):
+	if CWTutorLayers.on("cost"):
 		for i in moves:
 			move_costs[options[i]["data"]["to"]] = int(options[i]["data"]["cost"])
 	move_verb = verb
@@ -523,7 +529,7 @@ func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
 	## 按钮与提示行一起不出现 —— 降级要**看得见**，不能让玩家拖出一条按空报价配色的线
 	## 教程的 `ui_layers.move_path = false`（PRD:107/151/197「迁移不显示路径」）：
 	## 直接走已有的那条**降级可见**的路 —— 规划按钮与提示行一起不出现、拖不出线，一处开关两处生效
-	_plan_ok = kernel != null and CWGuideLayers.on("move_path")   ## 联机也开：同步答不了的那几帧由 plan_tick 补画（E-1 (a)）
+	_plan_ok = kernel != null and CWTutorLayers.on("move_path")   ## 联机也开：同步答不了的那几帧由 plan_tick 补画（E-1 (a)）
 	_plan_cell = cell
 	while not _aborted:
 		var got: Variant = await _prompt("选择要%s到的组织" % verb, _plan_hint(cell, tiles.size()),
@@ -627,7 +633,7 @@ func _plan_hint(cell: Dictionary, n_reach: int) -> String:
 	var head := "%d 步 · 合计 %s%s · 走完剩 %s" % [_plan.size(),
 		CWData.fmt(int(q.get("total", 0))),
 		" · 途中核心 +%s" % CWData.fmt(gained) if gained > 0 else "",
-		CWGuideLayers.energy_text(int(q.get("left", cell["energy"])))]   ## 无限能量的渲染点三处之三（方案 §1.6）
+		CWTutorLayers.energy_text(int(q.get("left", cell["energy"])))]   ## 无限能量的渲染点三处之三（方案 §3.2(b)）
 	if not q.get("ok", false):
 		var steps: Array = q.get("steps", [])
 		var why: String = steps[-1]["blocked"] if not steps.is_empty() else ""

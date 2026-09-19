@@ -260,7 +260,7 @@ func guide_layers(end_turn: bool, round_no: bool) -> void:
 		_phase.visible = round_no
 
 
-## 引导提亮用（CWGuideSpotlight）：某块区域的屏幕矩形。"round" 回合 / 阶段 / 事件块，"row:<pid>" 玩家行，
+## 教程提亮层用（scripts/tutor/cw_tutor_spot.gd，S2）：某块区域的屏幕矩形。"round" 回合 / 阶段 / 事件块，"row:<pid>" 玩家行，
 ## "pips:<pid>" 该行的手牌方块，"level" 免疫等级块，"end" 结束回合按钮。没建好 / 此刻不显示 → 零矩形（提亮就不画）
 func rect_of(what: String) -> Rect2:
 	if _built == 0:
@@ -337,8 +337,8 @@ func _refresh_row(m: CWMirror, pid: int) -> void:
 			row["type"].text += " · AI"
 		elif seat.get("kind", "") == "human" and not seat.get("online", true):
 			row["type"].text += " · 离线代打"
-	## 教程的「无限能量」换成标志文字（渲染点三处之一，方案 §1.6 / CWGuideLayers）；正式局照常写数字
-	row["energy"].text = CWGuideLayers.energy_text(maxi(cell["energy"], 0))
+	## 教程的「无限能量」换成标志文字（渲染点三处之一，新手教程 v2 方案 §3.2(b) / CWTutorLayers）；正式局照常写数字
+	row["energy"].text = CWTutorLayers.energy_text(maxi(cell["energy"], 0))
 	row["energy"].add_theme_color_override("font_color",
 		CWStyle.TEXT_OFF if dead else CWStyle.TEXT_HI)
 	row["income"].text = "" if dead else income_text(m, cell)

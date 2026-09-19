@@ -1,21 +1,24 @@
 {
   "_doc": [
-    "cwtut/1 · 九条数据纪律（正文见 docs/新手引导_实现方案.md §1.2；t_tutorial_data 逐条核）",
-    "1. worlds.* 只许 cwxworld/3 的 15 个顶层键，每份都要过 load_world 且 dump_world ≡ minify。",
-    "2. 省略 type = 棋盘本来的特殊组织；活跃格里压到 11 个特殊格的逐格显式写 \"type\": \"normal\"，否则白送一个收入格。",
+    "cwtut/2 · 九条数据纪律（正文见 docs/新手引导v2_实现方案.md §2.3；t_tutor_data 逐条核）",
+    "1. worlds.* 只许 cwxworld/3 的 15 个顶层键，每份 resolve 之后都要过 load_world 且 dump_world ≡ minify。",
+    "2. 省略 type = 棋盘本来的特殊组织；活跃格里压到 11 个特殊格的逐格显式写 \"type\": \"normal\"，否则白送一个收入格。推论：这 11 格的 r 只取 -3/0/3/6 ⇒ r=-1 与 r=-2 两整排零特殊格，第一～三章的教学带就走这两排。",
     "3. 能量一律写十分位整数（30 = 3.0）。",
-    "4. 一格一细胞、一席一细胞；players[i].seat 必须等于 i；缺席阵营写 alive:false 的死细胞占一个遮罩外的格。",
+    "4. 一格一细胞、一席一细胞；players[i].seat 必须等于 i；PRD 的「若干癌细胞」逐只展开成席位。",
     "5. 多个免疫席的 level / memory 必须一致 —— GD 的抗原记忆与免疫等级是阵营共享的全局量。",
     "6. 数字不写死在文案里：正文要出现数值就写 {{tune.旋钮名}} 占位，渲染期从 CWMirror.tune 现取。",
     "7. 旋钮只走 worlds.*.tuning 段（装载器的四档白名单），不许绕过 _load_tuning 直接 set。",
-    "8. 席位数是设计量：逐关显式写 seats / human_seat，按人数分档的数值写 expect_level_tiers 当场比。",
-    "9. 固化癌组织写 state: \"solid\"；tiles[].solid 是固化计数，写错了圆环测试抓不到。"
+    "8. 席位数是设计量：逐关显式写 seats / human_seat；缺席阵营写 alive:false 的死细胞、占一个活跃集之外的格（hex_at 只扫活跃集，看不见也点不到）。",
+    "9. 固化癌组织写 state: \"solid\"；tiles[].solid 是固化计数，写错了圆环测试抓不到。",
+    "",
+    "另两条口径：",
+    "· rolls: [] ≠ 省略 —— 空带子 = 「这一关一次 rng 都不许消耗」的断言。",
+    "· chapter_kind: \"main\" / \"interlude\"。间章不是主章节的附属（Kevin 2026-09-19），它自己一份数据、目录里与三个主章节平级单列；章节提示比的是 (chapter_kind, chapter) 这个二元组。",
+    "",
+    "⚠ 重做中：2026-09-19 老教程整套推倒，本表眼下只有第一关（S1）+ 一份第二关占位（把关间静默那条端到端跑通）。第二～五关 S4/S5、间章 S9、第七关 S10/S11。"
   ],
   "levels": [
-    { "id": "c1_l1", "chapter": 1, "chapter_title": "Cell", "title": "第一关 免疫", "file": "levels/c1_l1.json" },
-    { "id": "c1_l2", "chapter": 1, "chapter_title": "Cell", "title": "第二关 癌", "file": "levels/c1_l2.json" },
-    { "id": "c1_l3", "chapter": 1, "chapter_title": "Cell", "title": "第三关 ATP", "file": "levels/c1_l3.json" },
-    { "id": "c2_l4", "chapter": 2, "chapter_title": "Immune", "title": "第四关 抗原记忆", "file": "levels/c2_l4.json" },
-    { "id": "c2_l5", "chapter": 2, "chapter_title": "Immune", "title": "第五关 分化", "file": "levels/c2_l5.json" }
+    { "id": "c1_l1", "chapter": 1, "chapter_kind": "main", "chapter_title": "Cell", "title": "第一关 免疫", "file": "levels/c1_l1.json" },
+    { "id": "c1_l2", "chapter": 1, "chapter_kind": "main", "chapter_title": "Cell", "title": "第二关 净化", "file": "levels/c1_l2.json" }
   ]
 }
