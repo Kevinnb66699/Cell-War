@@ -28,7 +28,7 @@ const KEYS := {
 	"placed": "细胞已经上场（开局落子）",
 	"moved": "位置变了 —— 迁移过一次",
 	"purified": "抗原记忆涨了 —— **亲手**净化过一格（卡牌引发的净化不给记忆，正好只认亲手那次）",
-	"attacked": "本行动回合攻击次数涨了",
+	"attacked": "本行动回合攻击次数涨了（带参数 `attacked:N` = 涨满 N 次，S5b）",
 	"drew": "手牌多了一张 —— 抽过一次卡",
 	"played": "打出或装备过一张卡（`play_n` 涨）",
 	"differentiated": "分化过",
@@ -38,18 +38,20 @@ const KEYS := {
 	## 下面两条是**状态谓词**（只看此刻，不看基线），同 `placed` 的那一类。S5 补，第三关要它们：
 	"beside": "站到了敌方细胞的相邻格（PRD:247 第三关 Step1「迁移到癌细胞相邻格」）",
 	"stuck": "能量不足以移动 —— 正问着这一席，可这一问里一个【迁移】选项都没有（PRD:251 第三关的自动重置）",
+	## 带参数的那一条（S5b）：`low_energy_beside:<十分能量>`
+	"low_energy_beside": "站到了敌方细胞的相邻格，可剩下的能量**少于参数**（PRD:251 第二条：所剩能量小于预期）",
 }
 
 
 ## 把此刻的局面拍成一张小快照。**只读**：批 1 起读的是观测镜像（CWMirror），够不着引擎。
 ## `pid` 是屏幕前这位真人的席位；没有席位 / 细胞不在场时位置是 NONE，其余为 0。
 ##
-## 末三个键（`beside` / `asked` / `can_move`）服务两条**状态谓词**，它们只看此刻的这一张：
+## 末四个键（`beside` / `asked` / `can_move` / `energy`）服务三条**状态谓词**，它们只看此刻的这一张：
 ## `can_move` 的默认是 **true**（「没在问 = 谈不上走不动」），别改成 false —— `stuck` 会当场把关卡重置掉。
 static func snapshot(m: CWMirror, pid: int) -> Dictionary:
 	var snap := { "pos": NONE, "hand": 0, "play_n": 0, "diff": false, "attacks": 0,
 		"draws": 0, "memory": 0, "level": 0, "round": 0, "actor": -1,
-		"beside": false, "asked": false, "can_move": true }
+		"beside": false, "asked": false, "can_move": true, "energy": 0 }
 	if m == null:
 		return snap
 	snap["memory"] = int(m.memory)
@@ -65,6 +67,7 @@ static func snapshot(m: CWMirror, pid: int) -> Dictionary:
 			snap["diff"] = bool(c["differentiated"])
 			snap["attacks"] = int(c["attacks_used"])
 			snap["draws"] = int(c["draws_used"])
+			snap["energy"] = int(c["energy"])
 			me = c
 			break
 	## 相邻格上有活着的敌方细胞吗（按**阵营**比，不按席位：教程里敌方只有一只，正式局也讲得通）
@@ -93,10 +96,22 @@ static func same_turn(base: Dictionary, now: Dictionary) -> bool:
 		and int(base.get("actor", -1)) == int(now.get("actor", -2))
 
 
+## `键:参数` 里的那个整数。没写 / 写歪了退回缺省 —— 缺省一律取**更难成立**的那一边，
+## 剧本漏写参数只会让这一步等不到，不会把关卡自己翻过去或掀了（S5b）
+static func _arg(text: String, dflt: int) -> int:
+	return int(text) if text.is_valid_int() else dflt
+
+
 ## 这一步做到了没有。`base` 是步骤开始那一刻的快照，`now` 是此刻的。
 ## 不认识的键一律 false —— 剧本写错键不该让教程「自己翻过去」，护栏会当场报出来。
+##
+## **带参数的判据写成 `键:参数`**（S5b）：`cw_tutorial_data._check_steps` 查表时一直只看冒号前
+## 那一截，这里才是真解析参数的地方。今天两条用它：`attacked:N`（涨满 N 次，PRD:275
+## 「玩家前两次攻击」）与 `low_energy_beside:<十分能量>`（PRD:251 第二条）。
 static func done(key: String, base: Dictionary, now: Dictionary) -> bool:
-	match key:
+	var cut := key.split(":", true, 1)
+	var arg: String = cut[1] if cut.size() > 1 else ""
+	match cut[0]:
 		"placed":
 			return now.get("pos", NONE) != NONE
 		"moved":
@@ -106,7 +121,8 @@ static func done(key: String, base: Dictionary, now: Dictionary) -> bool:
 		"purified":
 			return int(now.get("memory", 0)) > int(base.get("memory", 0))
 		"attacked":
-			return int(now.get("attacks", 0)) > int(base.get("attacks", 0))
+			## 缺省「比基线多打一次」；`attacked:N` = 这一行动回合里**多打满 N 次**才算
+			return int(now.get("attacks", 0)) - int(base.get("attacks", 0)) >= _arg(arg, 1)
 		"drew":
 			return int(now.get("hand", 0)) > int(base.get("hand", 0))
 		"played":
@@ -126,4 +142,9 @@ static func done(key: String, base: Dictionary, now: Dictionary) -> bool:
 			return bool(now.get("beside", false))
 		"stuck":
 			return bool(now.get("asked", false)) and not bool(now.get("can_move", true))
+		"low_energy_beside":
+			## 状态谓词 + 参数（PRD:251 第二条）：站到了敌方相邻格，可剩下的能量**不够把它打死**。
+			## 参数是十分能量（纪律 3），由剧本写死 —— 这里不自己算「三次攻击要多少」：
+			## 算它要读 `immune_move_cancerous` 这类分档旋钮，而 `CWMirror.tune` 只有 9 个键（同 `stuck`）
+			return bool(now.get("beside", false)) and int(now.get("energy", 0)) < _arg(arg, 0)
 	return false

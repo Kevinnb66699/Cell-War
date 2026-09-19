@@ -3,7 +3,7 @@
   "id": "c1_l2",
   "chapter": 1, "chapter_title": "Cell", "title": "第二关 癌",
   "subtitle": "净化癌组织，向癌细胞发起攻击",
-  "codex_page": 1, "ui_stage": 0,
+  "codex_page": 1, "ui_stage": 1,
   "seats": 2, "human_seat": 0,
   "expect_level_tiers": [0, 10, 30, 70],
 

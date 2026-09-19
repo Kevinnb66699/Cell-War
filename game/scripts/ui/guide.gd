@@ -69,6 +69,15 @@ var demo_ready := Callable()
 var on_chapter_done := Callable()
 ## 「此刻该提示什么」：翻页时重新问桥一遍，提示跟着正在教的那一步走（教结束回合就说结束回合，不再停在迁移那句）
 var hint_now := Callable()
+## 「劝玩家自己重置」的那一句（`steps[].advise`，由 CWMatch 每帧按 `advise_when` 写）。
+## 非空时**顶掉**实时提示行（PRD:251 第二条，Kevin 2026-09-19：提示、不自动重置）——
+## 已经走不下去了还贴「点底部「迁移」…」只会让玩家继续撞墙。值没变不重绘
+var advise_text := "":
+	set(v):
+		if v == advise_text:
+			return
+		advise_text = v
+		_refresh_hint()
 ## 代做尾巴：代做可用时贴在按钮行上方的小字注解。%s = 按钮此刻的字（继续 / 下一章 / 完成引导），
 ## 关卡最后一步按钮写的是「下一章」，尾巴不能还说「继续」（Kevin 2026-09-05 截图报的）
 const OFFER_TAIL := "（点「%s」我替你做这一步）"
@@ -381,12 +390,14 @@ func _refresh_hint() -> void:
 		var now: String = hint_now.call()
 		if now != "":
 			_hint_text = now
+	## 「劝重置」顶掉这一行，但**不写回 `_hint_text`** —— 劝退散之后要能原样退回桥那句
+	var text: String = advise_text if advise_text != "" else _hint_text
 	var tail := ""
-	if _hint_text != "" and _btn != null and demo_ready.is_valid() and demo_ready.call():
+	if text != "" and _btn != null and demo_ready.is_valid() and demo_ready.call():
 		tail = OFFER_TAIL % _btn.text
-	_hint.text = _hint_text
-	_hint.visible = _hint_text != ""   ## 还没喂到提示时收着，柔光也跟着灭，别悬一团没来由的光
-	_halo.visible = _hint_text != ""
+	_hint.text = text
+	_hint.visible = text != ""   ## 还没喂到提示时收着，柔光也跟着灭，别悬一团没来由的光
+	_halo.visible = text != ""
 	_hint_tail.text = tail
 	_hint_tail.visible = tail != ""
 

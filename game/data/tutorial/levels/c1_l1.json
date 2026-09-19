@@ -3,7 +3,7 @@
   "id": "c1_l1",
   "chapter": 1, "chapter_title": "Cell", "title": "第一关 免疫",
   "subtitle": "认识健康组织，学会【迁移】",
-  "codex_page": 0, "ui_stage": 0,
+  "codex_page": 0, "ui_stage": 1,
   "seats": 2, "human_seat": 0,
   "expect_level_tiers": [0, 10, 30, 70],
 

@@ -22,7 +22,7 @@ const INDEX_PATH := DIR + "index.json"
 
 ## 正本装载器（S0 上提到 scripts/kernel/）。键表只有它与 L0/CaseModel.cs 两份，这里绝不再抄一份。
 const LOADER := preload("res://scripts/kernel/cw_world_loader.gd")
-## 完成判据表（`guide_watch.gd:27` 的 KEYS）。`watch` / `reset_when` 只许写表里的键。
+## 完成判据表（`guide_watch.gd:27` 的 KEYS）。`watch` / `reset_when` / `advise_when` 只许写表里的键。
 const WATCH := preload("res://scripts/ui/guide_watch.gd")
 
 ## 一关的顶层键（方案 §1.2 骨架 + 纪律 8 的 `expect_level_tiers`）
@@ -31,9 +31,12 @@ const WATCH := preload("res://scripts/ui/guide_watch.gd")
 const LEVEL_KEYS := ["schema", "id", "chapter", "chapter_title", "title", "subtitle",
 	"codex_page", "ui_stage", "seats", "human_seat", "expect_level_tiers",
 	"worlds", "active_tiles", "rolls", "steps", "on_done"]
-## 一步的键（方案 §1.2 表尾 + §1.10）
+## 一步的键（方案 §1.2 表尾 + §1.10）。
+## `reset_when` 自动把关卡退回关首；`advise_when` / `advise` 只**提示**玩家自己重置
+## （PRD:251 第二条，Kevin 2026-09-19：提示、不自动重置），S5b 补
 const STEP_KEYS := ["step_of", "load", "ui_layers", "t", "b", "unlock",
-	"flag", "hex", "player", "allow", "watch", "act", "reveal", "fx", "reset_when"]
+	"flag", "hex", "player", "allow", "watch", "act", "reveal", "fx",
+	"reset_when", "advise_when", "advise"]
 
 ## 上一次 validate 的错误清单（也由 validate 返回）
 var errors: PackedStringArray = []
@@ -199,11 +202,14 @@ static func _has_explicit_type(spec: Dictionary, at: Vector2i) -> bool:
 	return false
 
 
-## 判据 ⑥ watch / reset_when 的键在 CWGuideWatch.KEYS 里；⑩ reveal 的格必须已经在盘面上
+## 判据 ⑥ watch / reset_when / advise_when 的键在 CWGuideWatch.KEYS 里；⑩ reveal 的格必须已经在盘面上
 func _check_steps(level: Dictionary, radius: int) -> void:
 	for i in (level.get("steps", []) as Array).size():
 		var step: Dictionary = level["steps"][i]
-		for field in ["watch", "reset_when"]:
+		## 判据成立时要贴的那句话不写就是个静默的空操作（浮层提示行换成空串）——当场拦下
+		if step.has("advise_when") and str(step.get("advise", "")) == "":
+			_bad("steps[%d] 写了 advise_when 却没有 advise（命中时提示行会变成空串）" % i)
+		for field in ["watch", "reset_when", "advise_when"]:
 			if not step.has(field):
 				continue
 			## 判据带参数时写成 `键:参数`，表里查的是冒号前那一截
