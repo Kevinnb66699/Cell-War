@@ -22,6 +22,8 @@ signal reset_pressed
 signal goto_pressed(chapter: int)
 ## 点了常驻「目录」按钮（要开/关目录面板）。`CWMatch` 知道此刻是第几关，转调 `toggle_menu(current)`
 signal menu_pressed
+## 点了「切换种类」（PRD:355 第五关 Step2）。换的是哪一份 world 归 `CWMatch` 算（`ui_layers.switch_type`）
+signal switch_type_pressed
 
 ## 全屏遮罩的黑度。够读清中间那行字，又能看出底下还是同一局（不是换了场景）
 const DIM := Color(0.02, 0.06, 0.09, 0.72)
@@ -43,6 +45,8 @@ var _menu: Control           ## 目录
 var _menu_rows: Array[Label] = []
 var _reset_btn: Label
 var _menu_btn: Label
+## 「切换种类」：只有声明了 `ui_layers.switch_type` 的步才出（第五关 Step2）
+var _switch_btn: Label
 var _halo: TextureRect
 var _t := 0.0
 ## 已经弹过提示的章号（PRD:37：`chapter` 没变就静默切换，不弹）
@@ -87,6 +91,21 @@ func press_reset() -> void:
 
 func press_menu() -> void:
 	menu_pressed.emit()
+
+
+func press_switch_type() -> void:
+	switch_type_pressed.emit()
+
+
+## 「切换种类」这一帧显不显示（`CWMatch._sync_guide_shell` 每帧按 `ui_layers.switch_type` 喂）
+func show_switch_type(on: bool) -> void:
+	if _switch_btn != null:
+		_switch_btn.visible = on
+
+
+## 此刻显着吗（测试直接读）
+func switch_type_shown() -> bool:
+	return _switch_btn != null and _switch_btn.visible
 
 
 ## 劝玩家自己按「重置本关」（PRD:251 第二条；Kevin 2026-09-19：提示、**不自动重置**）。
@@ -226,6 +245,12 @@ func _build() -> void:
 	_menu_btn = _clicky("目录", press_menu)
 	_menu_btn.position = BTN_AT + Vector2(0, BTN_GAP)
 	add_child(_menu_btn)
+	## 「切换种类」排在两个常驻按钮之下（同一列、同样盖在遮挡层之上）。
+	## **默认不显示**：只有第五关 Step2 那一步的 `ui_layers.switch_type` 才把它打开
+	_switch_btn = _clicky("切换种类", press_switch_type)
+	_switch_btn.position = BTN_AT + Vector2(0, BTN_GAP * 2)
+	_switch_btn.visible = false
+	add_child(_switch_btn)
 
 
 ## 可点击的文字按钮（同 `CWGuide._clicky` 的打法：命中框贴着字、手型光标、悬停提白）

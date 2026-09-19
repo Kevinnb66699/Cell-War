@@ -171,6 +171,8 @@ func _run_all() -> void:
 		t_tutorial_c1,
 		## 新手引导 S6：图鉴解锁与进度存档
 		t_guide_progress,
+		## 新手引导 S8：第二章两关（方案 §S8 ①~④，①④ 按 Kevin 2026-09-19 Q-18 改判）+ NPC 席位的脚本作答
+		t_tutorial_c2, t_tutorial_npc,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -10164,6 +10166,9 @@ func t_guide_watch() -> void:
 		"stuck": { "asked": true, "can_move": false },
 		## 带参数的那一条（S5b）：`#key` = 真正喂给 done() 的整串，其余键照常盖进 now
 		"low_energy_beside": { "#key": "low_energy_beside:20", "beside": true, "energy": 19 },
+		## 第二章两条（S8）：一条带参数（罗马字），一条只看 `foes`
+		"level_at_least": { "#key": "level_at_least:III", "level": 2 },
+		"all_dead": { "foes": 0 },
 	}
 	var bad: Array = []
 	for key: String in GUIDE_WATCH.KEYS:
@@ -10196,6 +10201,17 @@ func t_guide_watch() -> void:
 	check(not GUIDE_WATCH.done("low_energy_beside:36", base, beside_rich)
 		and not GUIDE_WATCH.done("low_energy_beside", base, beside_rich),
 		"站到相邻格但能量**正好够**：不劝重置；参数漏写退回 0 ⇒ 永不成立（缺省取更难成立的那边）")
+	## ---- `level_at_least:<级>`（S8）：参数照 `players[].level` 的罗马字写，写歪了永不成立 ----
+	var lv3: Dictionary = base.duplicate()
+	lv3["level"] = 2                                 ## III 级（下标 2）
+	check(GUIDE_WATCH.done("level_at_least:III", base, lv3)
+		and GUIDE_WATCH.done("level_at_least:2", base, lv3)
+		and not GUIDE_WATCH.done("level_at_least:X", base, lv3)
+		and not GUIDE_WATCH.done("level_at_least:三", base, lv3),
+		"level_at_least 认罗马字也认下标；不认识的参数一律不成立（缺省取更难成立的那边）")
+	check(not GUIDE_WATCH.done("level_at_least:III", base, base)
+		and CWData.LEVEL_NAMES == ["I", "II", "III", "X"],
+		"II 级时 level_at_least:III 不成立（PRD:295 第四关的任务就是从这儿升上去）")
 	check(not GUIDE_WATCH.done("不存在的键", base, base), "不认识的键一律不成立（剧本写错键不该自己翻页）")
 	## 细胞还没上场：placed 不成立、moved 也不成立（别把「没有细胞」当成「动过了」）
 	var empty := { "pos": none, "round": 4, "actor": 0 }
@@ -21355,9 +21371,10 @@ func t_tutorial_data() -> void:
 	var rows: Array = index.get("levels", [])
 	check((index.get("_doc", []) as Array).size() >= 9,
 		"index.json 的文件头 _doc 写了九条纪律（%d 行）" % (index.get("_doc", []) as Array).size())
-	## **改判（S5）**：原断言「关表 = 第一章前两关」→「第一章三关」。依据：S5 补上第三关 ATP（PRD:223-283）；
-	## 第二章起仍不写（第四章 Kevin 明确不做）。判据本身一个字没动
-	check(rows.size() == 3, "关表 = 第一章三关（第二章起不写）：%d 关" % rows.size())
+	## **改判（S5 → S8）**：原断言「关表 = 第一章前两关」→ S5「第一章三关」→ S8「第一 ~ 二章五关」。
+	## 依据：S8 补上第四关 抗原记忆 与第五关 分化（PRD:285-383）；第三章（S10）与第四章（Kevin 明确不做）仍不写。
+	## 判据本身一个字没动
+	check(rows.size() == 5, "关表 = 第一 ~ 二章五关（第三章起不写）：%d 关" % rows.size())
 
 	## ① 每一关都过九条纪律
 	var levels := {}
@@ -21391,8 +21408,10 @@ func t_tutorial_data() -> void:
 				print("       %s" % m)
 			check(msgs.is_empty(), "%s.%s 装载往返齐" % [id, str(wid)])
 			n_worlds += 1
-	## **改判（S5）**：2 → 3，同上一条；第三关也只有一份 world（Step1/Step2 不换盘，方案 §S5 ④）
-	check(n_worlds == 3, "三关各一份完整 world（本片不做继承）：%d 份" % n_worlds)
+	## **改判（S5 → S8）**：2 → 3 → 9。前四关各一份（Step1/Step2 不换盘，方案 §S5 ④），
+	## 第五关**五份**：Step1 的 `base` + Step2 分化四种各一份（`b` / `t` / `macro` / `dc`，方案 §S8）。
+	## 3 + 1 + 5 = 9
+	check(n_worlds == 9, "五关九份完整 world（第五关分化四种各一份，本片仍不做继承）：%d 份" % n_worlds)
 
 	## ③ 七条坏数据，逐条命中它该命中的那一条纪律
 	var src: Dictionary = levels["c1_l2"]
@@ -21998,3 +22017,367 @@ func _check_tape(stage: Object, lv: Dictionary, id: String) -> void:
 		and int(stage.tape.overrun) == 0 and int(stage.tape.bad_range) == 0,
 		"%s：预设骰子 %d 颗精确用尽（消耗 %d / 多掷 %d / 区间错 %d）"
 			% [id, want, int(stage.tape.at), int(stage.tape.overrun), int(stage.tape.bad_range)])
+
+
+## 新手引导 S8：第二章两关（PRD:285-383）。方案 §S8 的四条验收判据逐条落，
+## **①④ 按 Kevin 2026-09-19 Q-18 改判**（改判理由写在各条上面，不在提交信息里）。
+##
+## 两关都是**自由探索关**（PRD 没给逐步脚本、也没有自动重置条件）：
+## `rolls` 空着走真 rng（装载器的种子恒为 1 ⇒ 仍然可复现），所以这里不调 `_check_tape` ——
+## 那条闸要的是「钉了几颗就用几颗」，而这两关一颗都没钉。
+func t_tutorial_c2() -> void:
+	print("[新手引导 S8·第二章两关]")
+	var d = TUT_DATA.new()
+	var l4: Dictionary = CWGuideData.level(3)
+	var l5: Dictionary = CWGuideData.level(4)
+	check(str(l4.get("id", "")) == "c2_l4" and str(l5.get("id", "")) == "c2_l5"
+		and int(l4.get("chapter", -1)) == 2 and int(l5.get("chapter", -1)) == 2
+		and str(l4.get("chapter_title", "")) == "Immune"
+		and str(l5.get("chapter_title", "")) == "Immune",
+		"第二章 = 第四 / 五关，chapter 2、章名「Immune」（PRD:285）")
+	for lv: Dictionary in [l4, l5]:
+		var errs: PackedStringArray = d.validate(lv)
+		for e in errs:
+			print("       %s" % e)
+		check(errs.is_empty(), "%s 过校验的十条判据（%d 条错）" % [str(lv["id"]), errs.size()])
+
+	# ---- ① 记忆门槛**钉六人档**（改判）----
+	## **原判据**（方案 §S8 ①）：「第四关按 `seats` 标定 III 级门槛 —— `seats == 4` 才是 20 点，
+	## 多一席就回落六人档 30」。**新判据**：两关一律六人档，不按席位数回落。
+	## **依据**：Kevin 2026-09-19 Q-18「每种类免疫各一个席位照 PRD 摆，但记忆门槛一律用 6 人局那一档
+	## （不按席位数回落）」。执行机构不是新代码、是**席位数**：`LEVEL_MIN_MEMORY_BY_PLAYERS`
+	## 只有四人那一档，所以只要 `seats != 4`，`level_min_memory()` 自己就退到六人档。
+	## 这条正是「钉住」那件事 —— 哪天有人把第四关改成 4 席，门槛会**静默**变成 20，当场红。
+	for lv: Dictionary in [l4, l5]:
+		var seats := int(lv["seats"])
+		var tiers: Array = []
+		for v in lv["expect_level_tiers"]:
+			tiers.append(int(v))
+		check(seats != 4 and CWData.level_min_memory(seats) == CWData.LEVEL_MIN_MEMORY
+			and tiers == CWData.LEVEL_MIN_MEMORY,
+			"%s：%d 席 ⇒ 门槛钉在六人档 %s（四人档 %s 不生效）"
+				% [str(lv["id"]), seats, str(CWData.LEVEL_MIN_MEMORY),
+					str(CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4])])
+
+	## ① 续：第四关真的升得到 III（PRD:295「免疫等级升级到III级」）。
+	## **不写死「还差几点」**：起手记忆、可净化的癌组织格数、癌细胞总能量全从数据现算，盘面一改就跟着走。
+	## 记忆两条进账：【净化】每格 +1（`cw_actions.gd:1047`）、【攻击】按实际伤害向下取整
+	## （`cw_actions.gd:917`，每 1.0 能量 +1）。癌细胞能量都是 1.0 的整数倍 ⇒ 逐刀取整不丢零头
+	var w4: Dictionary = l4["worlds"]["base"]
+	var start_mem := int((w4["players"] as Array)[0].get("memory", 0))
+	var purifiable := 0
+	for t in w4.get("tiles", []):
+		if str((t as Dictionary).get("state", "")) == "cancer":
+			purifiable += 1
+	var foe_energy := 0
+	for c in w4.get("cells", []):
+		if int((c as Dictionary)["seat"]) != int(l4["human_seat"]):
+			foe_energy += int((c as Dictionary).get("energy", 0))
+	var need: int = int(CWData.LEVEL_MIN_MEMORY[2])
+	check(start_mem < need and start_mem + purifiable + foe_energy / 10 >= need,
+		"第四关：起手 %d 记忆（%s 级）够不到 III 的 %d，而本关可得 %d（净化 %d 格 + 攻击 %s 能量）⇒ 升得上去"
+			% [start_mem, CWData.LEVEL_NAMES[1], need, purifiable + foe_energy / 10,
+				purifiable, CWData.fmt(foe_energy)])
+	var st4: Array = l4["steps"]
+	check(st4.size() == 4 and str((st4[3] as Dictionary).get("watch", "")) == "level_at_least:III"
+		and GUIDE_WATCH.KEYS.has("level_at_least")
+		and (st4[2] as Dictionary).get("unlock", []) == ["memory", "immune_level"],
+		"第四关四步：末步等 level_at_least:III，第三步解锁【抗原记忆】【免疫等级】（PRD:305-327）")
+	check(str((st4[1] as Dictionary).get("flag", "")) == "level"
+		and CWGuideSpotlight.FLAGS.has("level"),
+		"第四关第二步提亮右栏「免疫等级」那一块（PRD:307）—— 新 flag「level」在 FLAGS 里有归宿")
+	check(int(w4["tuning"]["attack_max_per_turn"]) == 0
+		and CWData.ATTACK_MAX_PER_TURN > 0,
+		"第四关走旋钮取消攻击次数上限（PRD:303「本关不设攻击次数上限」，正式局仍是 %d 次）"
+			% CWData.ATTACK_MAX_PER_TURN)
+
+	# ---- ③ 切换分化种类走 `load`，四份 world 各自 dump ≡ minify ----
+	## 分化过的细胞连技能、已用次数、`game.differentiated` 一整套状态都跟着种类走，
+	## 就地改 itype 等于绕开规则往引擎状态上写字（方案 §0 第一条硬边界）——
+	## 所以「切换种类」= 装另一份 world，四份各自摆好
+	var sw: Array = ((l5["steps"][2] as Dictionary)["ui_layers"] as Dictionary)["switch_type"]
+	check(sw == ["b", "t", "macro", "dc"] and str((l5["steps"][2] as Dictionary)["load"]) == "t"
+		and CWGuideLayers.DEFAULTS.has("switch_type")
+		and CWGuideLayers.DEFAULTS["switch_type"] == false,
+		"第五关 Step2：一次关内 load（%s）+ 切换种类那一组 %s；正式局这一层默认关着"
+			% [str((l5["steps"][2] as Dictionary)["load"]), str(sw)])
+	var want_itype := { "b": CWData.ImmuneType.B_CELL, "t": CWData.ImmuneType.T_CELL,
+		"macro": CWData.ImmuneType.MACRO, "dc": CWData.ImmuneType.DENDRITIC }
+	var s5 = TUT_STAGE.new()
+	s5.cfg = { "consumer": false, "autorun": false }
+	var k5: CWKernel = s5.open_level(l5)
+	check(k5 != null and s5.world_id == "base"
+		and int(s5._game.cell_of(0)["itype"]) == CWData.ImmuneType.BASIC
+		and not bool(s5._game.cell_of(0)["differentiated"]),
+		"第五关 Step1 从 base 起步：玩家还是未分化的免疫细胞（%s）" % str(s5.errors))
+	for wid: String in ["b", "t", "macro", "dc"]:
+		var k: CWKernel = s5.reload_world(wid)
+		if k == null:
+			check(false, "第五关 world「%s」装不出来：%s" % [wid, str(s5.errors)])
+			continue
+		var l = CASE_LOADER.new()
+		var msgs: PackedStringArray = CASE_DIFF.compare(l.dump_world(s5._game),
+			l.minify(d.resolve(l5, wid)))
+		for mm in msgs:
+			print("       %s" % mm)
+		var me: Dictionary = s5._game.cell_of(0)
+		check(msgs.is_empty() and s5.world_id == wid
+			and int(me["itype"]) == int(want_itype[wid]) and bool(me["differentiated"]),
+			"切到「%s」：玩家成了%s、dump_world ≡ minify(spec)"
+				% [wid, CWData.IMMUNE_TYPE_NAMES[want_itype[wid]]])
+		k.close()
+
+	# ---- ④ 席位：五种免疫各一 + 玩家 + 三只癌 = 9 席，右栏一行一席全显示（PRD:417）----
+	## **改判**（方案 §S8 ④ 原写「8~12 席」是个估计区间）：钉死 9 席并把「为什么是 9」写出来 ——
+	## 五种免疫各一（PRD:369「优先保证各个种类都各有一个」+ Kevin Q-18）+ 玩家 + 三只癌细胞。
+	## 上界是右栏：10 席起免疫等级那一块连让位之后也放不下（见下面那条实算）
+	var seats5 := int(l5["seats"])
+	var kinds := {}
+	var w5: Dictionary = l5["worlds"]["t"]
+	for c in w5["cells"]:
+		var cd: Dictionary = c
+		if int(cd["seat"]) >= 1 and int(cd["seat"]) <= 5:
+			kinds[str(cd["type"])] = true
+	check(seats5 == 9 and kinds.size() == 5
+		and kinds.has("ImmuneBasic") and kinds.has("BCell") and kinds.has("TCell")
+		and kinds.has("Macrophage") and kinds.has("Dendritic"),
+		"第五关 Step2 共 %d 席：NPC 免疫五种各一 %s + 玩家 + 三只癌（PRD:369 / Kevin Q-18）"
+			% [seats5, str(kinds.keys())])
+	var alive_foes := 0
+	for c in w5["cells"]:
+		if int((c as Dictionary)["seat"]) >= 6 and bool((c as Dictionary).get("alive", true)):
+			alive_foes += 1
+	var solids := 0
+	for t in w5["tiles"]:
+		if str((t as Dictionary).get("state", "")) == "solid":
+			solids += 1
+	check(alive_foes == 3 and solids == 2,
+		"第五关 Step2：三只 1~5 能量的癌细胞 + %d 格固化癌组织（PRD:365-367）" % solids)
+
+	## 右栏排版（PRD:417「显示……的状态、免疫等级」）。**教程把回合块关着 ⇒ 那 62px 让位**，
+	## 不让位的话 9 席时免疫等级整块掉到 540 之外（S8 实拍发现的，见开发日志）
+	var p := CWMatchPanel.new()
+	root.add_child(p)
+	p.guide_layers(true, true)
+	check(is_equal_approx(p.rows_top(), CWMatchPanel.PAD + CWMatchPanel.ROUND_H + CWMatchPanel.GAP
+			+ CWMatchPanel.SCORE_H + CWMatchPanel.GAP)
+		and is_equal_approx(p.level_bottom(6), 462.0),
+		"正式局排版一个像素没动：6 人局免疫等级底边仍是 462（第一行顶边 %d）" % int(p.rows_top()))
+	check(p.level_bottom(seats5) > CWMatchPanel.RECT.size.y,
+		"不让位的话 %d 席放不下：免疫等级底边 %d > 面板高 %d"
+			% [seats5, int(p.level_bottom(seats5)), int(CWMatchPanel.RECT.size.y)])
+	p.guide_layers(false, false)
+	p._build(seats5)
+	check(p.level_bottom(seats5) <= CWMatchPanel.RECT.size.y
+		and is_equal_approx(p._level_y + CWMatchPanel.LEVEL_H, p.level_bottom(seats5))
+		and p._rows.size() == seats5,
+		"教程关掉回合块之后 %d 行一行一席全在面板里：免疫等级底边 %d ≤ %d"
+			% [seats5, int(p.level_bottom(seats5)), int(CWMatchPanel.RECT.size.y)])
+	check(p.level_bottom(10) > CWMatchPanel.RECT.size.y,
+		"再多一席就放不下了（10 席底边 %d）—— 席位数的上界写在这儿，别再往上加"
+			% int(p.level_bottom(10)))
+	p.guide_layers(true, true)
+	root.remove_child(p)
+	p.free()
+
+	# ---- ② 全部癌细胞死亡：watch 成立，且**没有**弹结算屏 ----
+	## 教程整章进不了 E 阶段（`allow` 里一条 `act=end` 都没有，同一条在 t_guide_no_win），
+	## 而胜负判定**只在 E 阶段末**跑（`cw_world.gd:76-78`）⇒ 打光了也不会有 game_over 条目。
+	## 第二道锁：盘上还剩固化癌组织 ⇒ 就算真跑一次 E，`check_immune_win` 也会在「还有可复活据点」那行返回
+	var k5b: CWKernel = s5.reload_world("t")
+	check(k5b != null, "第五关 Step2（T细胞那份）装得出来：%s" % str(s5.errors))
+	var g5: CWGame = s5._game
+	await g5.advance()
+	var hits := await _clear_cancer(g5, 0, 200)
+	var snap: Dictionary = GUIDE_WATCH.snapshot(_mirror_of(g5), 0)
+	check(int(snap["foes"]) == 0 and GUIDE_WATCH.done("all_dead", snap, snap) and hits > 0,
+		"打完 %d 刀把三只癌细胞全清了 ⇒ watch: all_dead 成立（PRD:381）" % hits)
+	check(g5.winner < 0 and g5.win_kind == "" and g5.round_no == 1
+		and g5.count_tissue(CWData.Tissue.SOLID) > 0,
+		"清场之后没有任何胜负：winner=%d、还停在第 %d 世界回合（E 阶段一次都没跑）、盘上还剩 %d 格固化"
+			% [g5.winner, g5.round_no, g5.count_tissue(CWData.Tissue.SOLID)])
+	var end_allow: Array = []
+	for st in l5["steps"]:
+		for a in (st as Dictionary).get("allow", []):
+			if str(a).contains("act=end"):
+				end_allow.append(str(a))
+	check(end_allow.is_empty() and (l5["steps"][3] as Dictionary).has("allow"),
+		"第五关 Step2 的 allow 放行了技能与中途选择、就是不放「结束回合」（坏的：%s）" % str(end_allow))
+	k5b.close()
+	s5.dispose()
+
+
+## 把场上的癌细胞全部打死（只走引擎，不起界面）：每一问都从**引擎给的选项表**里挑 ——
+## 能打就打（迁移到站着活癌细胞的那一格 = 攻击），否则朝最近的那只挪一格。
+## 返回打了几刀。`cap` 是安全阀：挑不动 / 打不动时宁可少打几刀让判据红，也别把套件挂死。
+func _clear_cancer(g: CWGame, pid: int, cap: int) -> int:
+	var hits := 0
+	for n in cap:
+		var me: Dictionary = g.cell_of(pid)
+		var goal: Vector2i = GUIDE_WATCH.NONE   ## 同 CWBoard.NO_TILE 的哨兵约定
+		var near := 1 << 30
+		for c in g.cells:
+			if not bool(c["alive"]) or int(c["faction"]) != CWData.Faction.CANCER:
+				continue
+			var dd: int = CWData.hex_dist(Vector2i(me["pos"]), Vector2i(c["pos"]))
+			if dd < near:
+				near = dd
+				goal = Vector2i(c["pos"])
+		if goal == GUIDE_WATCH.NONE:
+			return hits                      ## 一只活的都没有了
+		var pick := -1
+		var pick_d := 1 << 30
+		var is_hit := false
+		var opts: Array = g._pending.get("options", [])
+		for i in opts.size():
+			var data: Dictionary = opts[i]["data"]
+			if str(data.get("act", "")) != "move" or not data.has("to"):
+				continue
+			var to: Vector2i = data["to"]
+			if to == goal:
+				pick = i
+				is_hit = true
+				break
+			var dd2: int = CWData.hex_dist(to, goal)
+			if dd2 < pick_d:
+				pick_d = dd2
+				pick = i
+		if pick < 0:
+			return hits
+		if is_hit:
+			hits += 1
+		await g.step(pick)
+	return hits
+
+
+## 新手引导 S8：NPC 席位的脚本作答（方案 §1.8）。三条判据：
+## **按语义键逐问作答**、**找不到就回落**、**零 `game.` 访问**（最后一条的源码闸在 t_tutorial_stage，
+## 这里验的是它真接到席位上之后的行为）。
+func t_tutorial_npc() -> void:
+	print("[新手引导 S8·NPC 席位的脚本作答]")
+	var req := { "kind": "action", "pid": 2, "prompt": "", "options": [
+		{ "label": "迁移", "data": { "act": "move", "to": Vector2i(1, 0) } },
+		{ "label": "迁移", "data": { "act": "move", "to": Vector2i(0, 1) } },
+		{ "label": "结束回合", "data": { "act": "end" } }] }
+	var want := CWSemKey.key(req, req["options"][1]["data"])
+	var end_key := CWSemKey.key(req, req["options"][2]["data"])
+
+	# ---- ① 按语义键逐问作答：脚本一条一条走，memo 自己往前挪 ----
+	var memo := {}
+	check(TUT_NPC.decide(req, null, [{ "key": want }], memo) == want and int(memo["at"]) == 1,
+		"脚本写死语义键：原样交出来，memo 记到第 %d 条" % int(memo["at"]))
+	check(TUT_NPC.decide(req, null, [{ "key": want }], memo) == end_key,
+		"脚本用完 ⇒ 回落（这一问有「结束回合」⇒ 兜底②）")
+	check(TUT_NPC.index_of(req, want) == 1 and TUT_NPC.index_of(req, "k=action|act=没有的") == -1
+		and TUT_NPC.index_of(req, "") == -1,
+		"index_of 把语义键换回下标；找不到给 -1（由调用方落第三级兜底，不在这儿悄悄落 0）")
+
+	# ---- ② 两条小策略：只看这一问的选项表与镜像，现算目标 ----
+	var d = TUT_DATA.new()
+	var g: CWGame = CASE_LOADER.new().load_world(d.resolve(CWGuideData.level(4), "t"))
+	check(g != null, "第五关 Step2 那份盘面装得出来（策略要一份真镜像）")
+	if g == null:
+		return
+	var m: CWMirror = _mirror_of(g)
+	## 假装轮到免疫 NPC 席 3（TCell 在 (1,0)）。癌席 6 在 (1,-1)、癌席 8 在 (1,1)
+	var view := { "kind": "action", "pid": 3, "prompt": "", "options": [
+		{ "label": "迁移", "data": { "act": "move", "to": Vector2i(1, -1) } },
+		{ "label": "迁移", "data": { "act": "move", "to": Vector2i(0, -1) } },
+		{ "label": "迁移", "data": { "act": "move", "to": Vector2i(2, 0) } }] }
+	check(m.cell_of(6)["pos"] == Vector2i(1, -1) and m.cell_of(8)["pos"] == Vector2i(1, 1),
+		"镜像里两只癌细胞就站在 %s / %s" % [str(m.cell_of(6)["pos"]), str(m.cell_of(8)["pos"])])
+	check(TUT_NPC.decide(view, m, [{ "policy": "attack_if_adjacent", "target_seat": 6 }], {})
+		== CWSemKey.key(view, view["options"][0]["data"]),
+		"attack_if_adjacent：落点上正站着目标 ⇒ 选那一条（选项表里攻击就是迁移）")
+	check(TUT_NPC.decide(view, m, [{ "policy": "attack_if_adjacent", "target_seat": 8 }], {}) == "",
+		"attack_if_adjacent：目标不在任何落点上 ⇒ 策略给不出，这一问又没有「结束回合」⇒ 空串")
+	check(TUT_NPC.decide(view, m, [{ "policy": "approach", "target_seat": 8 }], {})
+		== CWSemKey.key(view, view["options"][2]["data"]),
+		"approach：目标够不着就挑离它最近的那一格（(2,0) 距 1，另两格距 2 / 3）")
+	check(TUT_NPC.decide(view, m, [{ "policy": "end_turn" }], {}) == ""
+		and TUT_NPC.decide(view, m, [{ "policy": "pass" }], {}) == "",
+		"这一问没有「结束回合」选项：end_turn / pass 都给空串，由调用方落下标 0")
+	check(TUT_NPC.decide(view, m, [{ "policy": "approach", "target_seat": 99 }], {}) == ""
+		and TUT_NPC.decide(view, null, [{ "policy": "approach", "target_seat": 6 }], {}) == "",
+		"席位越界 / 没有镜像：策略一律给空串，不崩也不乱答")
+
+	# ---- ③ Adapter：一席一只 CWBridge 子类，键换下标、落不到就下标 0 ----
+	var dec = TUT_NPC.Decider.new()
+	dec.seat = 2
+	dec.mirror_of = func() -> CWMirror: return m
+	check(dec is CWBridge and await dec.ask(req) == 2,
+		"adapter 是一只 CWBridge 子类：空脚本 ⇒ 兜底②「结束回合」的下标 2")
+	dec.plan = [{ "key": want }]
+	dec.memo = {}
+	check(await dec.ask(req) == 1 and await dec.ask(req) == 2,
+		"adapter 按脚本答第 1 条，脚本用完接着兜底")
+	var no_end := { "kind": "pick_tile", "pid": 2, "prompt": "", "options": [
+		{ "label": "这一格", "data": { "to": Vector2i(3, 0) } }] }
+	check(await dec.ask(no_end) == 0,
+		"三条兜底全落空（没有 stop/skip、不是顶层 action）⇒ 下标 0，同基类默认")
+	g.dispose()
+
+	# ---- ④ 真接到席位上：非人类席各一只 Decider，人类席还是引导桥 ----
+	## 不装的话这几席走的是 `CWUIBridge.ask` 的 AI 分支 —— 而 PRD 通用规则 11 写着
+	## 「生成的免疫/癌细胞……均为 npc，无 ai 控制」
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var mt: CWMatch = main_scene.match_node
+	CWSettings.ai_delay_ms = 0
+	CWGuideProgress.clear()
+	mt.tutorial = true
+	mt.start()
+	await process_frame
+	## 面板的页码与对局的关号是两个游标（面板翻章才带着对局换局）——
+	## 直接换局时要自己把面板也摆过去，否则装闸读的还是第一关那一步
+	mt._guide._chapter = 4
+	mt._guide._step = 0
+	mt._advance_tutorial_chapter(4)          ## 第五关：8 个非人类席位
+	await process_frame
+	await process_frame
+	var kk := mt.kernel as CWKernelInProc
+	var bad: Array = []
+	var npc := 0
+	for pid in mt.player_count:
+		var who: Variant = kk.deciders.get(pid, null)
+		if pid in mt.human_players:
+			if not (who is CWGuideBridge):
+				bad.append("人类席 %d" % pid)
+		elif who == null or who.get_script() != TUT_NPC.Decider or int(who.seat) != pid:
+			bad.append("NPC 席 %d" % pid)
+		else:
+			npc += 1
+	check(mt.player_count == 9 and npc == 8 and bad.is_empty()
+		and kk.deciders.size() == mt.player_count,
+		"第五关 9 席：人类那席走引导桥，其余 %d 席各挂一只脚本 decider（坏的：%s）" % [npc, str(bad)])
+	## 关内换盘（方案 §1.4）：翻到 Step2 那一步，剧本写的 `load: "t"` 当场把扩大后的盘装进来
+	check(mt._stage.world_id == "base", "关首装的是 steps[0].load 那一份（%s）" % str(mt._stage.world_id))
+	mt._guide._step = 2
+	mt._guide._render()                      ## _render() 末尾会调 on_step_changed = _apply_guide_step
+	await process_frame
+	await process_frame
+	check(mt._stage.world_id == "t" and mt._shell.switch_type_shown()
+		and CWGuideLayers.switch_types() == ["b", "t", "macro", "dc"],
+		"翻到 Step2：关内换成 world「%s」，常驻壳的「切换种类」跟着出来（PRD:355）"
+			% str(mt._stage.world_id))
+	## 镜像是**现取**的，不是开局存下来那一份 —— 关内换一次盘（切换种类）之后还得跟得上
+	var before: CWMirror = mt.mirror
+	mt._switch_tutorial_type()
+	await process_frame
+	await process_frame
+	var one = (mt.kernel as CWKernelInProc).deciders[1]
+	check(mt._stage.world_id == "macro" and mt.mirror != before
+		and one.mirror_of.call() == mt.mirror,
+		"切换种类轮到下一份 world（%s），decider 取到的仍是**此刻**那份镜像" % str(mt._stage.world_id))
+	## 换过之后剧本那一步的 `load` **不许再把它装回去**（记账按「关号/步号」，见 match.gd 的 ⓪）
+	mt._apply_guide_step()
+	await process_frame
+	check(mt._stage.world_id == "macro",
+		"再走一次装闸也不把剧本那份装回来 —— 玩家刚换的种类留得住（实测 %s）" % str(mt._stage.world_id))
+	mt.teardown()
+	await process_frame
+	CWSettings.ai_delay_ms = 220
+	CWGuideProgress.clear()
+	root.remove_child(main_scene)
+	main_scene.free()

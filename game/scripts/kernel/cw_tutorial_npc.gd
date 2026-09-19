@@ -1,7 +1,10 @@
-## cw_tutorial_npc.gd —— 新手引导里 NPC 席位的脚本作答（docs/新手引导_实现方案.md §1.8 / S3 只建骨架）
+## cw_tutorial_npc.gd —— 新手引导里 NPC 席位的脚本作答（docs/新手引导_实现方案.md §1.8 / S3 建骨架、S8 接席位）
 ##
-## **本片还不接席位**：第一章两关都不结束回合（方案 §2.3），对手席永远轮不到，所以这里只有
-## 纯函数 `decide()` 与它的三级兜底。真正挂上去是第二章（S8）与第七关（S10）的事。
+## **S8 起真接到席位上**：第五关 Step2 一关就有 8 个非人类席位（五种免疫各一 + 三只癌），
+## 不给它们装 decider 的话，任何一次问到它们头上的询问都会落进界面桥 ——
+## 而界面桥对非人类席位是「转给 AI」（`ui_bridge.gd:190-196`），教程局里等于让 AI 替摆拍的 NPC
+## 走一步（PRD 通用规则 11：生成的细胞都是 npc、**无 ai 控制**）。
+## 装上之后这几席根本不产 `ask` 条目（`cw_kernel_inproc.gd:399-400`），演出也不会多出一拍。
 ##
 ## 形制（写死在这里，免得两条路以后打架）：
 ## - **纯函数**：只看「这一问的选项表」（已经按 `allow` 过滤过的 view）、`CWMirror` 与剧本给的 `script`，
@@ -110,3 +113,44 @@ static func _toward(ask_view: Dictionary, mirror: CWMirror, target_seat: int, ad
 			best_d = dist
 			best = CWSemKey.key(ask_view, d)
 	return best
+
+
+## 语义键 → 这一问的下标。找不到（脚本写歪了 / 局面变了）返回 **-1**，
+## 由调用方落第三级兜底（下标 0）—— 这里不自己落，是为了让「没命中」看得见（护栏要它）
+static func index_of(ask_view: Dictionary, key: String) -> int:
+	if key == "":
+		return -1
+	var opts: Array = ask_view.get("options", [])
+	for i in opts.size():
+		if CWSemKey.key(ask_view, (opts[i] as Dictionary).get("data", {})) == key:
+			return i
+	return -1
+
+
+## Adapter A（InProc，方案 §1.8）：一席一只，挂在 `cfg["deciders"][seat]` 上。
+##
+## 它**只**做三件事：拿一份镜像、问 `decide()` 要一个语义键、把键换回下标。
+## 规则判断一行都不在这儿 —— 那是 `decide()` 的事，而 `decide()` 只读镜像
+## （护栏扫的「零 `game.`」扫的是整个文件，包含这只 adapter）。
+##
+## `mirror_of` 是取「此刻那一份镜像」的一条线（`CWMatch` 给自己的 `mirror`）。
+## **不存镜像、只存取法**：教程一关之内会换好几次局（`reload_world` / 切换种类），
+## 存下来的那一份换局就过期了，而过期镜像会让 `approach` 朝着一只早就不在那儿的细胞走。
+class Decider extends CWBridge:
+	## 自引用 preload：内部类够不着外层的静态函数，而这个文件没有 class_name（热更，见文件头）
+	const NPC := preload("res://scripts/kernel/cw_tutorial_npc.gd")
+
+	var seat := -1
+	## 这一席的脚本（`[{key: …} | {policy: …}]`）。第二章两关都是空表 = 纯兜底；
+	## 第七关（S10）才由剧本喂真脚本进来。
+	## **叫 `plan` 不叫 `script`**：`script` 是 `Object` 自带的成员，同名会当场编译不过
+	var plan: Array = []
+	var memo := {}
+	var mirror_of: Callable = Callable()
+
+	func ask(req: Dictionary) -> int:
+		var m: CWMirror = null
+		if mirror_of.is_valid():
+			m = mirror_of.call() as CWMirror
+		var idx: int = NPC.index_of(req, NPC.decide(req, m, plan, memo))
+		return idx if idx >= 0 else 0    ## 第三级兜底：下标 0（基类默认，scripts/core/cw_bridge.gd:17-18）

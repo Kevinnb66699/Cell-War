@@ -6,6 +6,11 @@
 ## 6 人局合计 530，只余 10px —— 这套高度是按最挤的情况配平的，
 ## 随手把哪一块调高一点，6 人局就会溢出。
 ##
+## **唯一的例外是教程**（新手引导 S8）：`ui_layers.round_no` 关着时，回合块那 52 + 10 px
+## 真让给下面的行（`_layer_round` / `rows_top()`）。第五关 Step2 场上 9 席，不让位免疫等级
+## 那一块整块掉出 540，而 PRD:417 要的就是「显示……的状态、免疫等级」。
+## 正式对局 `round_no` 恒 true ⇒ 一个像素不动。
+##
 ## 为什么是右侧竖条而不是底部横条：见 [CWView] 的对局机位注释。
 ##
 ## 刷新方式和棋盘一致：每帧全量刷（refresh），只改 Label 的 text。
@@ -109,6 +114,12 @@ var _tip_key := ""         ## 上次搭悬浮框用的键，没变不重搭
 var net_seats: Array = []
 ## 教程的 `ui_layers.end_turn`（默认开）。正式局永远是 true
 var _layer_end := true
+## 教程的 `ui_layers.round_no`（默认开）。正式局永远是 true。
+## **关掉时那一块的 52 + 10 px 真让出来**（新手引导 S8）：第五关 Step2 场上有 9 席
+## （五种免疫各一 + 玩家 + 三只癌，Kevin 2026-09-19 Q-18），按原来的排版免疫等级那一块
+## 整块掉到 540 之外 —— 而 PRD:417 要的正是「显示……的状态、免疫等级」。
+## 只在**这一块本来就不显示**的时候让位，所以正式局一个像素不动（那边 round_no 恒 true）
+var _layer_round := true
 
 
 func _ready() -> void:
@@ -255,6 +266,12 @@ func guide_layers(end_turn: bool, round_no: bool) -> void:
 	_chrome()
 	if not end_turn and _end != null:
 		_end.visible = false
+	## 回合块关掉 = 它那 62px 让给下面的行（见 _layer_round）。**位置是 _build 时算死的**，
+	## 所以开关一变就得重搭一次；`refresh` 每帧全量刷，重搭之后下一帧内容自己回来
+	if round_no != _layer_round:
+		_layer_round = round_no
+		if _built > 0:
+			_build(_built)
 	if _round != null:
 		_round.visible = round_no
 	if _phase != null:
@@ -360,6 +377,21 @@ func _refresh_row(m: CWMirror, pid: int) -> void:
 
 # ============ 建节点（只跑一次）============
 
+## 胜负进度块的顶边：回合块关着就顶上去（见 _layer_round）
+func _score_top() -> float:
+	return PAD + (ROUND_H + GAP if _layer_round else 0)
+
+
+## 玩家列表第一行的顶边。**只有这一处算**（_build 摆行、_show_tip 对齐悬浮框，两边不许各算一遍）
+func rows_top() -> float:
+	return _score_top() + SCORE_H + GAP
+
+
+## n 席时免疫等级那一块的底边（测试拿它核对「一行一席都放得下」，PRD:417）。**纯函数**
+func level_bottom(n: int) -> float:
+	return rows_top() + n * ROW_H + GAP + LEVEL_H
+
+
 func _build(n: int) -> void:
 	_chrome()
 	for c in get_children():
@@ -391,7 +423,7 @@ func _build(n: int) -> void:
 	_event_tip_key = ""
 
 	# ② 胜负进度：一行标签 + 一条进度条
-	var y := PAD + ROUND_H + GAP
+	var y := _score_top()
 	_weighted_caption = _put(CWStyle.label("癌性加权", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM), PAD, y + 10, 100)
 	_weighted_max = _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
 		PAD, y + 10, W, HORIZONTAL_ALIGNMENT_RIGHT)
@@ -409,7 +441,7 @@ func _build(n: int) -> void:
 	add_child(_bar_fill)
 
 	# ③ 玩家列表
-	y = PAD + ROUND_H + GAP + SCORE_H + GAP
+	y = rows_top()
 	for i in n:
 		_rows.append(_build_row(y + i * ROW_H, i))
 
@@ -770,7 +802,7 @@ func _update_tip(m: CWMirror, q: Callable) -> void:
 	_tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var h := tip_height(rows, full)
 	_tip.size = Vector2(TIP_W, h)
-	var row_top: float = PAD + ROUND_H + GAP + SCORE_H + GAP + pid * ROW_H
+	var row_top: float = rows_top() + pid * ROW_H
 	_tip.position = Vector2(-(TIP_W + 8.0),
 		clampf(row_top, 8.0, RECT.size.y - h - 8.0))
 	var bg := Panel.new()

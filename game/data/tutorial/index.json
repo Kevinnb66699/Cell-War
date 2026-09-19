@@ -14,6 +14,8 @@
   "levels": [
     { "id": "c1_l1", "chapter": 1, "chapter_title": "Cell", "title": "第一关 免疫", "file": "levels/c1_l1.json" },
     { "id": "c1_l2", "chapter": 1, "chapter_title": "Cell", "title": "第二关 癌", "file": "levels/c1_l2.json" },
-    { "id": "c1_l3", "chapter": 1, "chapter_title": "Cell", "title": "第三关 ATP", "file": "levels/c1_l3.json" }
+    { "id": "c1_l3", "chapter": 1, "chapter_title": "Cell", "title": "第三关 ATP", "file": "levels/c1_l3.json" },
+    { "id": "c2_l4", "chapter": 2, "chapter_title": "Immune", "title": "第四关 抗原记忆", "file": "levels/c2_l4.json" },
+    { "id": "c2_l5", "chapter": 2, "chapter_title": "Immune", "title": "第五关 分化", "file": "levels/c2_l5.json" }
   ]
 }
