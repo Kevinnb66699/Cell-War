@@ -132,7 +132,7 @@
     "expect": {
       "kind": "delta",
       "changed": {
-        "$.cells[1].energy": 28
+        "$.cells[1].energy": 29
       },
       "ignore": []
     }

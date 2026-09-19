@@ -8,7 +8,7 @@
    "t_card_choices::第 5 回合也两掷二选一（不再挂第 20 回合）",
    "t_card_choices::挑了「无事发生」→ 什么都没发生"
   ],
-  "source": "headless_test.gd:t_card_choices【基因组不稳定】。第 5 世界回合抽到它（癌症池 I 期总权重 51）→ 两掷 3 面（1 与 3）、答 r=1「无事发生」：什么都没发生。免费 —— energy 只掉抽卡那一笔（不扣 0.5），mutate_used 不在 changed 里 = 不占每回合的突变次数。",
+  "source": "headless_test.gd:t_card_choices【基因组不稳定】。第 5 世界回合抽到它（癌症池 I 期总权重 50，issue #64 起）→ 两掷 3 面（1 与 3）、答 r=1「无事发生」",
   "world": {
    "players": [
     {
@@ -41,7 +41,7 @@
   "rolls": [
    [
     1,
-    51,
+    50,
     33
    ],
    [
@@ -123,7 +123,7 @@
   "rolls": [
    [
     1,
-    51,
+    50,
     33
    ],
    [
