@@ -11436,6 +11436,33 @@ func t_guide_progress() -> void:
 	CWGuideProgress.unlock(["tissue_solid"])
 	check(CWGuideProgress.unlocked().size() == want.size() + 1,
 		"迁移出来的那几条随第一次真解锁一起落盘")
+	## ---- 新手引导 S6b（Kevin 2026-09-19）：图鉴闸**只在教程进行中**生效 ----
+	## 三态各一条。判断只有 `codex_gated()` 这一处，面板只问它（方案 §1.11 口径③）
+	CWGuideProgress.clear()
+	check(not CWGuideProgress.codex_gated(), "① 没进过教程（连 cfg 都没有）→ 不闸，整本书全解锁")
+	CWGuideProgress.set_at(0, 0, 0)
+	check(CWGuideProgress.codex_gated(), "② 教程开着、还没跳过也没通关 → 闸")
+	CWGuideProgress.set_skipped()
+	check(not CWGuideProgress.codex_gated() and CWGuideProgress.done_count() == 0,
+		"③a 按过「跳过引导」→ 不闸；**`done` 一个数没动**（跳过不是看完）")
+	CWGuideProgress.clear()
+	CWGuideProgress.unlock(["purify"])
+	check(CWGuideProgress.codex_gated(), "解锁过一个点也算「进行中」（`at` 之外的第二条进度线）")
+	CWGuideProgress.set_all_done()
+	check(not CWGuideProgress.codex_gated() and CWGuideProgress.all_done(),
+		"③b 全部通关（set_all_done）→ 不闸")
+	## S7 的 `opening_seen` 与本片的 `skipped` 同住一份 cfg：看了开场不算「进过教程」，两边也不互相覆盖
+	CWGuideProgress.clear()
+	var seen_cfg := ConfigFile.new()
+	seen_cfg.set_value(CWGuideProgress.SECTION, "opening_seen", true)
+	seen_cfg.save(CWGuideProgress.PATH)
+	check(not CWGuideProgress.codex_gated(), "只看过开场动画（opening_seen）不算进度 → 不闸")
+	CWGuideProgress.set_skipped()
+	var kept := ConfigFile.new()
+	kept.load(CWGuideProgress.PATH)
+	check(bool(kept.get_value(CWGuideProgress.SECTION, "opening_seen", false))
+			and bool(CWGuideProgress.read()["skipped"]),
+		"set_skipped 不吃掉 opening_seen（两边各自 load + set_value）")
 	CWGuideProgress.clear()
 
 
@@ -11601,29 +11628,47 @@ func t_codex() -> void:
 	var gated := CWCodex.gated_entries()
 	check(gated.size() == 9 and gated.has("move/purify_memory") and not gated.has("board/grid"),
 		"codex_map 圈出 9 个受闸条目，没点名的（如「一块蜂窝棋盘」）常驻可见（当前 %d 个）" % gated.size())
+	## ---- S6b 改判（Kevin 2026-09-19：未解锁的**灰显**，不再隐藏；hxr Q-08 的提案）----
+	## 原：`chapters(unlocked)` 把没解锁的条目从页面上删掉，判据钉「一条都不出现」。
+	## 新：条目一条不少、位置一格不挪，没解锁的多一个 `locked: true`，渲染那头据此灰显。
+	## 依据：Kevin 2026-09-19 拍板「未解锁条目改灰显」（S6 回传①「等 hxr 拍」的那一条）。
 	var page_ids := func(unlocked: Variant) -> Dictionary:
 		var out := {}
 		for c in CWCodex.chapters(unlocked):
 			for e in c["entries"]:
-				out[str(e["id"])] = true
+				out[str(e["id"])] = bool((e as Dictionary).get("locked", false))
 		return out
 	var none_ids: Dictionary = page_ids.call([])
-	var leaked: Array = []
+	var missing: Array = []
+	var not_marked: Array = []
 	for eid in gated:
-		if none_ids.has(eid):
-			leaked.append(eid)
-	check(leaked.is_empty() and CWCodex.chapters([]).size() == chs.size(),
-		"零解锁：受闸条目一条都不出现在页面上（漏的：%s），但章一章不少（%d）" % [str(leaked), chs.size()])
+		if not none_ids.has(eid):
+			missing.append(eid)
+		elif not bool(none_ids[eid]):
+			not_marked.append(eid)
+	check(missing.is_empty() and not_marked.is_empty() and none_ids.size() == n_entries
+			and CWCodex.chapters([]).size() == chs.size(),
+		"零解锁：受闸条目**照样在页面上**、一条不少地打上 locked（少的：%s / 没打标的：%s），章一章不少（%d）"
+			% [str(missing), str(not_marked), chs.size()])
 	var one_ids: Dictionary = page_ids.call(["purify"])
-	check(one_ids.has("move/purify_memory") and not one_ids.has("board/healthy")
-			and one_ids.has("board/grid"),
-		"解锁【净化】→「净化与记忆」回到页面上；没解锁的「健康组织」仍在闸后，常驻条目照旧")
-	check(page_ids.call(null).size() == n_entries, "不传解锁集 = 不过滤（老调用方与护栏拿到整本书）")
-	## 搜索同步过滤 —— 不过滤的话没解锁的能从搜索框读出来，等于开了后门
+	check(not bool(one_ids["move/purify_memory"]) and bool(one_ids["board/healthy"])
+			and not bool(one_ids["board/grid"]),
+		"解锁【净化】→「净化与记忆」转亮；没解锁的「健康组织」灰着但还在；没点名的常驻条目从不灰")
+	var all_lit: Dictionary = page_ids.call(null)
+	var any_locked := false
+	for eid in all_lit:
+		if bool(all_lit[eid]):
+			any_locked = true
+	check(all_lit.size() == n_entries and not any_locked,
+		"不传解锁集 = 一条都不打标（老调用方与护栏拿到整本书、全亮）")
+	## 搜索：**命中但灰显**（S6b 改判；原判据「未解锁的搜不出来」——
+	## 现在条目在页面上本来就看得见，再从搜索里剔掉只会让玩家以为书里没这一条）。
 	## 「青绿色」全书只在「健康组织」一条里出现（受 tissue_healthy 闸）
-	check(not CWCodex.search("青绿色").is_empty() and CWCodex.search("青绿色", []).is_empty()
-			and not CWCodex.search("青绿色", ["tissue_healthy"]).is_empty(),
-		"未解锁的搜不出来，解锁之后搜得到")
+	var dark_hits: Array = CWCodex.search("青绿色", [])
+	var lit_hits: Array = CWCodex.search("青绿色", ["tissue_healthy"])
+	check(dark_hits.size() == CWCodex.search("青绿色").size() and not dark_hits.is_empty()
+			and bool(dark_hits[0]["locked"]) and not bool(lit_hits[0]["locked"]),
+		"未解锁的仍搜得到、结果带 locked；解锁之后同一条转亮（%d 条）" % dark_hits.size())
 	## 面板端到端 + 解锁动效：解锁集每次 open 现读，刚解锁的那一条标题慢闪一轮
 	CWGuideProgress.clear()
 	var book2 := CWCodex.new()
@@ -11632,16 +11677,22 @@ func t_codex() -> void:
 	book2.open_to(1)   ## 「棋盘与地形」
 	var on_page := func() -> Dictionary:
 		var out := {}
-		for e in CWCodex.chapters(book2._unlocked)[book2._page]["entries"]:
-			out[str(e["id"])] = true
+		for e in CWCodex.chapters(book2._gate)[book2._page]["entries"]:
+			out[str(e["id"])] = bool((e as Dictionary).get("locked", false))
 		return out
-	check(not (on_page.call() as Dictionary).has("board/healthy")
-			and (on_page.call() as Dictionary).has("board/grid"),
-		"零进度开书：「健康组织」在闸后，常驻条目照样在页面上")
+	## **改判（S6b 口径①：闸只在教程进行中生效）**：
+	## 原「零进度开书 →「健康组织」在闸后」→ 新「零进度 = 从没进过教程 ⇒ 一条都不闸」。
+	## 依据：Kevin 2026-09-19「从没进过教程的玩家也全解锁」
+	check(book2._gate == null and not bool((on_page.call() as Dictionary)["board/healthy"])
+			and not bool((on_page.call() as Dictionary)["board/grid"]),
+		"零进度开书：没进过教程 ⇒ 连解锁集都不往下传，一条都不灰")
 	check(book2._glow.is_empty(), "没有新解锁 → 没有要闪的标题")
 	CWGuideProgress.unlock(["tissue_healthy"])
 	book2.open_to(1)
-	check((on_page.call() as Dictionary).has("board/healthy"), "解锁【健康组织】后重开书：它回到页面上")
+	await process_frame   ## 上一版页面的控件是 queue_free 的，这一帧末才真消失；不等就会读到旧标签
+	check(book2._gate != null and not bool((on_page.call() as Dictionary)["board/healthy"])
+			and bool((on_page.call() as Dictionary)["board/solid"]),
+		"教程进行中重开书：闸开着 —— 刚解锁的「健康组织」转亮，同章没解锁的「固化癌组织」仍灰显")
 	check(book2._glow.size() == 1 and book2._glow[0].text == "健康组织",
 		"解锁动效：只有刚解锁的那一条标题在闪（当前 %d 条）" % book2._glow.size())
 	book2._pulse_t = 0.0
@@ -11653,8 +11704,57 @@ func t_codex() -> void:
 			and is_equal_approx(book2._glow[0].modulate.a, CWCodex.HALO_ALPHA_HI)
 			and CWCodex.HALO_PERIOD == CWGuide.HALO_PERIOD,
 		"慢闪走 CWGuide 那三个常数（§1.12 规则 8：闪烁参数收敛到一处），1/4 周期到顶")
+	## 灰显长什么样（S6b）：标题 `TEXT_OFF`、正文 `TEXT_OFF_DIM` —— CWStyle 现成的「灰掉」那一对，
+	## 不新造色值（同 `_paint_arrow` 压暗翻页箭头的写法）；两档都不收点击（`CWStyle.label` 一律 IGNORE）
+	var row_of := func(title: String) -> Array:
+		var kids: Array = book2._content.get_children()
+		for i in kids.size():
+			if kids[i] is Label and (kids[i] as Label).text == title:
+				return [(kids[i] as Label).get_theme_color("font_color"),
+					(kids[i + 1] as Label).get_theme_color("font_color"),
+					(kids[i] as Label).mouse_filter]
+		return []
+	var lit_row: Array = row_of.call("健康组织")
+	var dim_row: Array = row_of.call("固化癌组织")
+	check(lit_row.size() == 3 and lit_row[0] == CWStyle.TEXT_HI and lit_row[1] == CWStyle.TEXT,
+		"解锁了的条目：标题 TEXT_HI、正文 TEXT（一档没动）")
+	check(dim_row.size() == 3 and dim_row[0] == CWStyle.TEXT_OFF and dim_row[1] == CWStyle.TEXT_OFF_DIM
+			and dim_row[2] == Control.MOUSE_FILTER_IGNORE,
+		"未解锁的条目：**照样在页面上**、标题与正文各降一档灰、不收点击（灰显不隐藏，Kevin 09-19）")
+	## 结果页也灰显（改判：原「未解锁的搜不出来」）。「复活据点」全书只在没解锁的「固化癌组织」里
+	book2._on_query("复活据点")
+	await process_frame
+	check(book2._hits.size() == 1 and bool(book2._hits[0]["locked"]),
+		"没解锁的条目**仍然搜得到**，命中带 locked（%d 条）" % book2._hits.size())
+	var hit_row: Control = book2._content.get_child(0)
+	check(hit_row.mouse_filter == Control.MOUSE_FILTER_IGNORE
+			and hit_row.get_signal_connection_list("gui_input").is_empty()
+			and (hit_row.get_child(0) as Label).get_theme_color("font_color") == CWStyle.TEXT_OFF,
+		"灰显那一条：整行不收点击、没挂点击回调、「章 > 条目」那一行也是灰的")
+	book2._on_submit("复活据点")
+	check(book2._in_results, "回车不跳到灰显的那一条（点不动的，回车也别绕过去）")
+	book2._on_query("")
 	book2.open_to(1)
 	check(book2._glow.is_empty(), "闪过一次就不再闪（翻到即记下，别每次开书都闪一遍）")
+	## ---- 跳过引导 → 图鉴当场全解锁（S6b，Kevin 2026-09-19）----
+	## 真按那颗按钮，不是直接调 `set_skipped()`：接线断了这一条就当场红
+	var g := CWGuide.new()
+	root.add_child(g)
+	g._build()
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	g._skip.gui_input.emit(click)
+	check(not g.active and not g.visible and not CWGuideProgress.codex_gated()
+			and CWGuideProgress.done_count() == 0,
+		"按「跳过引导」→ 面板收起、图鉴闸当场放开，`done` 不动")
+	g.queue_free()
+	book2.open_to(1)
+	await process_frame
+	var after_skip: Dictionary = on_page.call()
+	check(book2._gate == null and not bool(after_skip["board/solid"])
+			and row_of.call("固化癌组织")[0] == CWStyle.TEXT_HI,
+		"跳过之后重开书：一条都不灰显，刚才那一条转回亮色")
 	book2.queue_free()
 	CWGuideProgress.clear()   ## 别把解锁集脏到同一分片里后面那些开书 / 按进度开局的测试
 	book.queue_free()

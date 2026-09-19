@@ -197,7 +197,7 @@ func _build() -> void:
 
 	_btn = _primary("继续")
 	_act.add_child(_btn)
-	_skip = _clicky("跳过引导", func() -> void: dismiss())
+	_skip = _clicky("跳过引导", func() -> void: skip())
 	_act.add_child(_skip)
 	_codex_btn = _clicky("知识之书", func() -> void: _open_codex())
 	_act.add_child(_codex_btn)   ## 三个按钮都只在这里挂一次（接入时发现这一个漏挂了）
@@ -359,6 +359,17 @@ func goto_chapter(idx: int) -> void:
 func dismiss() -> void:
 	active = false
 	visible = false
+
+
+## 「跳过引导」按钮（S6b，Kevin 2026-09-19）：**先记一笔「跳过了」再收面板**。
+## 图鉴闸只在教程进行中生效，跳过之后整本知识之书全解锁（`CWGuideProgress.codex_gated()`）——
+## 玩家明说了不想被一步步带着走，书就没有理由再对他关着。
+##
+## 和 `dismiss()` 分开是故意的：`dismiss()` 的口径是「只收面板、不改进度」，
+## 剧本走空（`_render()` 里那一处）与测试还在那么用，给它加副作用会顺手把进度也改了
+func skip() -> void:
+	CWGuideProgress.set_skipped()
+	dismiss()
 
 
 func open_codex_at_current() -> void:

@@ -19,12 +19,19 @@
 ## 不做运行时自动换行测量 —— 点阵字非整数行高会糊，测量又依赖字体排版细节，
 ## 固定行高最简单也最稳。chapters() 里每行的 b 就是折好的一行。
 ##
-## **图鉴解锁（新手引导 S6，2026-09-19）**：每条现在都有一个稳定 `id`（`{id, t, b}`，形如「章键/条目键」）——
+## **图鉴解锁（新手引导 S6 / S6b，2026-09-19）**：每条都有一个稳定 `id`（`{id, t, b}`，形如「章键/条目键」）——
 ## 正文按旋钮现算、整句会消失，所以下标不能当 id。`game/data/tutorial/codex_map.json` 把 PRD 的
 ## 「图鉴解锁：【X】」对到条目 id 上；**只有出现在那张表里的条目才受闸**，其余常驻可见，
 ## 于是那个文件不在 = 一个条目都不受闸 = 全解锁 = 退化成 09-19 之前的行为（回滚友好）。
-## `chapters()` / `search()` 都多一个可选的解锁集参数，**不传 = 不过滤**（纯函数、老调用方一个字不用改）；
-## 面板自己每次 `open()` 从 `CWGuideProgress` 读一次。**章一个不少，只隐藏条目** ——
+##
+## **S6b 改了两处口径（Kevin 2026-09-19）**：
+##   ① **闸只在教程进行中生效**。要不要闸这一句只问 `CWGuideProgress.codex_gated()`（那边一处判断、三态齐全）：
+##      跳过引导 / 全部通关 / 从没进过教程 ⇒ 整本书全解锁，面板连解锁集都不往下传。
+##   ② **未解锁的条目「灰显」而不是隐藏**（hxr Q-08）：条目照样出现、位置一格不挪，标题与正文降到
+##      `CWStyle.TEXT_OFF` / `TEXT_OFF_DIM`，不响应任何点击；搜索**命中但灰显**，不再从结果里剔除。
+##      于是 `chapters()` / `search()` 不再删条目，只给受闸而没解锁的那些打一个 `locked: true`。
+## `chapters()` / `search()` 的可选解锁集参数照旧，**不传 = 一条都不打标**（纯函数、老调用方一个字不用改）；
+## 面板自己每次 `open()` 从 `CWGuideProgress` 读一次。**章一个不少、条目一条不少** ——
 ## 章下标是 `open_to()` / `CWGuideData.CODEX_PAGE` 的口径，不能因为解锁与否漂移。
 class_name CWCodex
 extends Control
@@ -73,6 +80,8 @@ static var _map_cache: Dictionary = {}
 static var _map_read := false
 
 var _unlocked := PackedStringArray()   ## 这次打开时玩家已解锁的**解锁点** id（不是条目 id）
+## 往 chapters() / search() 里传的那一份：`null` = 教程没在进行中 ⇒ 一条都不打标（S6b）
+var _gate: Variant = null
 var _seen := {}                        ## 本实例已经闪过的条目 id —— 闪一次就够，别每次开书都闪一遍
 var _fresh := {}                       ## 这次翻到就要闪的条目 id
 var _glow: Array[Label] = []           ## 本页正在闪的条目标题
@@ -101,10 +110,12 @@ func open_to(page: int) -> void:
 	_rebuild_page()
 
 
-## 每次开书重读一次解锁集（书是覆盖层、活得比一次解锁久，缓存会让刚解锁的条目下次才出现）。
+## 每次开书重读一次解锁集（书是覆盖层、活得比一次解锁久，缓存会让刚解锁的条目下次才灰转亮）。
 ## 顺便算出「这次要闪的」：已解锁、且本实例还没让它闪过的条目
 func _refresh_unlocked() -> void:
 	_unlocked = PackedStringArray(CWGuideProgress.read()["unlocked"])
+	## 闸只在教程进行中生效（S6b）：跳过 / 通关 / 没进过教程 ⇒ 干脆不传解锁集
+	_gate = _unlocked if CWGuideProgress.codex_gated() else null
 	_fresh.clear()
 	var map := unlock_map()
 	for point in _unlocked:
@@ -224,8 +235,13 @@ static func gated_entries() -> Dictionary:
 	return out
 
 
-## 按解锁集过滤条目。`unlocked == null` = 不过滤；**章一个不少**，只隐藏条目（见文件头注）
-static func _filter(all: Array, unlocked: Variant) -> Array:
+## 给**受闸而还没解锁**的条目打上 `locked: true`（S6b：灰显不隐藏，见文件头注）。
+## `unlocked == null` = 一条都不打标；**章一个不少、条目一条不少、位置一格不挪** ——
+## 页面与搜索都照原位置排，locked 的只是画成灰的、不收点击。
+##
+## 就地打标（不另建一份）：唯一的调用方是 `chapters()`，而它每次现建整本书 ——
+## 这些字典没有第二个持有者，改不脏任何共享状态
+static func _mark_locked(all: Array, unlocked: Variant) -> Array:
 	if unlocked == null:
 		return all
 	var gated := gated_entries()
@@ -234,24 +250,24 @@ static func _filter(all: Array, unlocked: Variant) -> Array:
 	var have := {}
 	for x in unlocked:
 		have[str(x)] = true
-	var out: Array = []
 	for ch in all:
-		var kept: Array = []
 		for e in (ch as Dictionary)["entries"]:
 			var eid := str((e as Dictionary).get("id", ""))
 			if not gated.has(eid):
-				kept.append(e)
 				continue
+			var open_now := false
 			for point in gated[eid]:
 				if have.has(point):
-					kept.append(e)
+					open_now = true
 					break
-		out.append({ "title": (ch as Dictionary)["title"], "entries": kept })
-	return out
+			if not open_now:
+				(e as Dictionary)["locked"] = true
+	return all
 
 
-## 章节目录。纯函数：{ title, entries:[{id, t, b:[行...]}] }。数字现算、正文预折行。
-## `unlocked` = 已解锁的解锁点 id 集合；**不传（null）= 不过滤**，老调用方与护栏拿到的仍是整本书。
+## 章节目录。纯函数：{ title, entries:[{id, t, b:[行...], locked?}] }。数字现算、正文预折行。
+## `unlocked` = 已解锁的解锁点 id 集合；**不传（null）= 一条都不打标**。
+## 条目从不因为没解锁而消失（S6b）—— 没解锁的多一个 `locked: true`，渲染那头据此灰显。
 ## 会随旋钮变的句子（能量上限、有氧公式、无氧时机、反击、攻击上限、占地胜连续回合……）
 ## 按旋钮现值拼，关掉的机制整句消失 —— 和规则速查页同一条纪律：图鉴里不许出现和引擎不符的数
 ## （2026-09-05 按当日落地的九条规则逐条核对过，见开发日志）。点阵字库没有 √ ≥ − 这类符号，
@@ -377,7 +393,7 @@ static func chapters(unlocked: Variant = null) -> Array:
 		jump_limit = "（每世界回合最多 %d 次）" % tune.metastasis_max_per_round
 	var solid_rounds: int = int(tune.solidify_threshold[0]) / CWData.SOLIDIFY_STEP
 	var ev_rounds := event_rounds_text(tune.limit_round)
-	return _filter([
+	return _mark_locked([
 		{ "title": "目标与胜负", "entries": [
 			{ "id": "goal/what", "t": "你要做什么", "b": [
 				"免疫方与癌方轮流行动：免疫要清剿癌细胞、守住身体，",
@@ -649,10 +665,10 @@ static func chapters(unlocked: Variant = null) -> Array:
 
 ## 世界事件回合的清单文字（「3、6、10、15、20、25、30」），现算自 CWData.is_world_event_round，
 ## 图鉴与引导剧本共用，别在两处各写一份。
-## 在图鉴里找一个词（大小写不分，子串匹配）：返回 [{ page, chapter, t, line }]，line 为空 = 命中在条目标题上。
-## 一个条目里命中多行各算一条；最多 MAX_HITS 条。纯函数，无头测试直接核对。
-## `unlocked` 与 `chapters()` 同义（不传 = 不过滤）——**面板一定要传**：
-## 不过滤的话没解锁的条目能被搜出来，等于从后门把它读了（方案 §1.11）。
+## 在图鉴里找一个词（大小写不分，子串匹配）：返回 [{ page, chapter, t, line, locked }]，
+## line 为空 = 命中在条目标题上。一个条目里命中多行各算一条；最多 MAX_HITS 条。纯函数，无头测试直接核对。
+## `unlocked` 与 `chapters()` 同义（不传 = 一条都不打标）——**面板照旧传**：
+## 没解锁的条目**命中但灰显**（S6b 起不再从结果里剔除），`locked` 就是结果页画哪一档色的依据。
 static func search(query: String, unlocked: Variant = null) -> Array:
 	var q := query.strip_edges().to_lower()
 	var out: Array = []
@@ -662,13 +678,15 @@ static func search(query: String, unlocked: Variant = null) -> Array:
 	for p in all.size():
 		var ch: Dictionary = all[p]
 		for entry in ch["entries"]:
+			var locked: bool = bool((entry as Dictionary).get("locked", false))
 			if String(entry["t"]).to_lower().contains(q):
-				out.append({ "page": p, "chapter": ch["title"], "t": entry["t"], "line": "" })
+				out.append({ "page": p, "chapter": ch["title"], "t": entry["t"], "line": "", "locked": locked })
 				if out.size() >= MAX_HITS:
 					return out
 			for line in entry["b"]:
 				if String(line).to_lower().contains(q):
-					out.append({ "page": p, "chapter": ch["title"], "t": entry["t"], "line": line })
+					out.append({ "page": p, "chapter": ch["title"], "t": entry["t"], "line": line,
+						"locked": locked })
 					## 上限**逐条**判，不能等整个条目铺完再判：
 					## 那样一个多行条目能一次冲过 40（2026-09-07 加【效应应答】那条时正好撞上）
 					if out.size() >= MAX_HITS:
@@ -684,15 +702,17 @@ func _on_query(q: String) -> void:
 		_hits.clear()
 		_rebuild_page()
 		return
-	_hits = search(_query, _unlocked)
+	_hits = search(_query, _gate)
 	_in_results = true
 	_rebuild_results()
 
 
-## 回车：跳到第一条
+## 回车：跳到第一条**点得动的**。灰显的那些不响应点击（S6b），回车也不该绕过这一条
 func _on_submit(_q: String) -> void:
-	if not _hits.is_empty():
-		_goto(_hits[0])
+	for hit in _hits:
+		if not bool((hit as Dictionary).get("locked", false)):
+			_goto(hit)
+			return
 
 
 ## 跳到某条：翻到那一章，把那个条目滚到正文顶部；搜索词留在框里（Esc 可清）
@@ -702,8 +722,9 @@ func _goto(hit: Dictionary) -> void:
 		_search.release_focus()
 	open_to(int(hit["page"]))
 	var y := 0.0
-	## 滚到那个条目：要按**过滤后**的那一页算偏移，拿整本书的行高算会滚过头
-	for entry in chapters(_unlocked)[_page]["entries"]:
+	## 滚到那个条目：逐条累行高。条目不再因为没解锁而消失（S6b），所以这一页和整本书同形 ——
+	## 仍走 `_gate` 只是为了和别处同一条路，换成 `chapters()` 结果一样
+	for entry in chapters(_gate)[_page]["entries"]:
 		if entry["t"] == hit["t"]:
 			break
 		y += TITLE_LINE + entry["b"].size() * LINE + GAP
@@ -711,7 +732,9 @@ func _goto(hit: Dictionary) -> void:
 	_layout()
 
 
-## 结果页：标题「搜索」、页码换成条数；每条两行（章 > 条目 / 命中行，命中的字用阵营色），整条可点
+## 结果页：标题「搜索」、页码换成条数；每条两行（章 > 条目 / 命中行，命中的字用阵营色），整条可点。
+## **灰显的那些（S6b）**：整条降一档暗色、命中的字**不**标阵营色（标了就是这一行唯一的亮点，
+## 等于反过来替玩家指路），不收点击、不换鼠标形状、悬停也不提色
 func _rebuild_results() -> void:
 	for child in _content.get_children():
 		child.queue_free()
@@ -726,23 +749,32 @@ func _rebuild_results() -> void:
 		_content.add_child(none)
 		y = LINE + GAP
 	for hit in _hits:
+		var locked: bool = bool((hit as Dictionary).get("locked", false))
 		var row := Control.new()
 		row.position = Vector2(0, y)
 		row.size = Vector2(_body.size.x, HIT_H)
-		row.mouse_filter = Control.MOUSE_FILTER_STOP
-		row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE if locked else Control.MOUSE_FILTER_STOP
+		if not locked:
+			row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		## 分隔用 ASCII 的 > —— 点阵字库没有「›」，画出来是个方块（预览图里看见的）
-		var head := CWStyle.label("%s > %s" % [hit["chapter"], hit["t"]], CWStyle.SIZE_LABEL, CWStyle.IMMUNE)
+		var head := CWStyle.label("%s > %s" % [hit["chapter"], hit["t"]], CWStyle.SIZE_LABEL,
+			CWStyle.TEXT_OFF if locked else CWStyle.IMMUNE)
 		head.position = Vector2(0, 0)
 		row.add_child(head)
-		_put_marked(row, String(hit["line"]) if hit["line"] != "" else String(hit["t"]), Vector2(0, LINE))
-		row.gui_input.connect(func(e: InputEvent) -> void:
-			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
-				get_viewport().set_input_as_handled()
-				SFX.click()
-				_goto(hit))
-		row.mouse_entered.connect(func() -> void: head.add_theme_color_override("font_color", CWStyle.TEXT_HI))
-		row.mouse_exited.connect(func() -> void: head.add_theme_color_override("font_color", CWStyle.IMMUNE))
+		var line_text := String(hit["line"]) if hit["line"] != "" else String(hit["t"])
+		if locked:
+			var dim := CWStyle.label(line_text, CWStyle.SIZE_LABEL, CWStyle.TEXT_OFF_DIM)
+			dim.position = Vector2(0, LINE)
+			row.add_child(dim)
+		else:
+			_put_marked(row, line_text, Vector2(0, LINE))
+			row.gui_input.connect(func(e: InputEvent) -> void:
+				if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+					get_viewport().set_input_as_handled()
+					SFX.click()
+					_goto(hit))
+			row.mouse_entered.connect(func() -> void: head.add_theme_color_override("font_color", CWStyle.TEXT_HI))
+			row.mouse_exited.connect(func() -> void: head.add_theme_color_override("font_color", CWStyle.IMMUNE))
 		_content.add_child(row)
 		y += HIT_H
 		_content.add_child(_rule(y - GAP / 2.0))
@@ -911,7 +943,7 @@ func _rebuild_page() -> void:
 	_glow.clear()
 	_title.text = ""
 	_page_label.text = ""
-	var all := chapters(_unlocked)
+	var all := chapters(_gate)
 	if all.is_empty():
 		return
 	var ch: Dictionary = all[_page]
@@ -922,18 +954,24 @@ func _rebuild_page() -> void:
 
 	var y := 0.0
 	for entry in ch["entries"]:
-		var t := CWStyle.label(entry["t"], CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
+		## 灰显（S6b）：没解锁的条目**照样出现、位置一格不挪**，只把标题与正文降两档色。
+		## 色值一律取 CWStyle 现成的「灰掉」那一对，不新造 —— 同 `_paint_arrow` 压暗箭头的写法
+		var locked: bool = bool((entry as Dictionary).get("locked", false))
+		var t := CWStyle.label(entry["t"], CWStyle.SIZE_BODY,
+			CWStyle.TEXT_OFF if locked else CWStyle.TEXT_HI)
 		t.position = Vector2(0, y)
 		_content.add_child(t)
 		## 解锁动效：刚解锁、本实例还没让它闪过的条目，标题慢闪一轮。
-		## 翻到才记「闪过」—— 解锁的条目在别的章时，这次没翻过去就留到下次
+		## 翻到才记「闪过」—— 解锁的条目在别的章时，这次没翻过去就留到下次。
+		## （`_fresh` 只收**已解锁**的点，所以 locked 的条目永远进不来，不必另判）
 		var eid := str((entry as Dictionary).get("id", ""))
 		if _fresh.has(eid):
 			_seen[eid] = true
 			_glow.append(t)
 		y += TITLE_LINE
 		for line in entry["b"]:
-			var l := CWStyle.label(line, CWStyle.SIZE_LABEL, CWStyle.TEXT)
+			var l := CWStyle.label(line, CWStyle.SIZE_LABEL,
+				CWStyle.TEXT_OFF_DIM if locked else CWStyle.TEXT)
 			l.position = Vector2(0, y)
 			l.size = Vector2(_body.size.x, LINE)
 			l.clip_text = true
