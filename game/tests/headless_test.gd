@@ -18365,6 +18365,29 @@ func t_online_panel() -> void:
 		p.client.my_seat = -1
 		p._repaint_chat()
 		check(p._chat_scope.get_theme_color("font_color") == CWStyle.TEXT_DIM, "等待室：没入座的观众没有己方")
+		## ---- issue #51：悬停过之后切「己方」，移开鼠标不该变白 ----
+		## 5yntaxEr 报的那条路径原样走一遍：鼠标移上去（link_hot 把**当时**的字色记进 meta "rest"）
+		## → 悬停着点一下换到己方 → 鼠标移开（link_hot 按 rest 还原）。
+		## 旧代码在第二步直写 font_color，rest 还是白的，于是第三步把阵营色抹掉且再也回不来。
+		p.client.my_seat = 0
+		p._chat_team = false
+		p._repaint_chat()
+		CWStyle.link_hot(p._chat_scope, true)
+		check(p._chat_scope.get_theme_color("font_color") == Color.WHITE, "悬停照旧转白（辉光一点没丢）")
+		p._toggle_chat_scope()
+		check(p._chat_team and p._chat_scope.get_theme_color("font_color") == Color.WHITE,
+			"悬停着切到己方：白光还压着（静止色只是记下来）")
+		CWStyle.link_hot(p._chat_scope, false)
+		check(p._chat_scope.get_theme_color("font_color") == CWStyle.IMMUNE,
+			"移开鼠标还原成阵营色，不是白（#51）")
+		CWStyle.link_hot(p._chat_scope, true)
+		CWStyle.link_hot(p._chat_scope, false)
+		check(p._chat_scope.get_theme_color("font_color") == CWStyle.IMMUNE, "再移回再移开还是阵营色")
+		p._chat_team = false
+		p._repaint_chat()
+		CWStyle.link_hot(p._chat_scope, true)
+		CWStyle.link_hot(p._chat_scope, false)
+		check(p._chat_scope.get_theme_color("font_color") == CWStyle.TEXT_HI, "换回全体同理：还原成中性色")
 		p._chat_team = false
 		p.client.room = room_keep
 		p.client.my_seat = seat_keep

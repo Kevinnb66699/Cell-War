@@ -936,7 +936,14 @@ func _repaint_chat() -> void:
 	if _chat_scope == null:
 		return
 	_chat_scope.text = "己方" if _chat_team else "全体"
-	_chat_scope.add_theme_color_override("font_color",
+	## **定静止色一律走 `paint_link`**（issue #51）。这一条就写在 CWStyle.link_hot 头上，
+	## 这儿原来漏了：标签是 `_clicky` 建的，身上挂着悬停白光。鼠标移上去时
+	## `link_hot(true)` 把**当时**的字色（全体 = TEXT_HI）记进 meta "rest"；接着点一下换到「己方」，
+	## 这里直写 font_color 着上阵营色（看着是对的），可 meta 里还是 TEXT_HI ——
+	## 鼠标一移开，`link_hot(false)` 就把它还成白字，而且再也回不来了
+	## （5yntaxEr 报的「切到己方是蓝的，移开鼠标变白，再移回也是白」）。
+	## paint_link 改的是静止色本身，正悬停着就只记下来、等移开再生效。
+	CWStyle.paint_link(_chat_scope,
 		CWChatBox.faction_color(_my_faction()) if _chat_team else CWStyle.TEXT_HI)
 	var log: Array = client.chat_log if client != null else []
 	for i in CHAT_ROWS:
