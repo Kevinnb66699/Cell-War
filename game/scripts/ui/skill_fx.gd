@@ -123,6 +123,10 @@ const CARD_HEAD_DY := -27.0
 ## 【克隆增殖】第 i 格的感染流 1.3 + 0.3i 秒（选稿钟）到，定殖过场等到那一刻才翻（arrival_in）
 const CLONE_FLIP_AT := 1.3
 const CLONE_STAGGER := 0.3
+## 【补体级联】的冰蓝流打中目标后再传到那两格：第 i 格在 2.4 + 0.2i 秒（选稿钟，见 _card_hit）落地；
+## 净化翻格等到这一刻（issue #65：原来引擎一同步格子就白了、粒子后到）
+const CASCADE_HIT_AT := 2.4
+const CASCADE_STAGGER := 0.2
 const CARD_CYAN := Color("30d1fa")
 const CARD_ICE := Color("9cdff1")
 const CARD_AMBER := Color("ffb03a")
@@ -320,6 +324,10 @@ func arrival_in(tile: Vector2i) -> float:
 				var i: int = (d.get("tiles_axial", []) as Array).find(tile)
 				if i >= 0:
 					at = CLONE_FLIP_AT + float(i) * CLONE_STAGGER - CARD_LEAD
+			"card_cascade":
+				var j: int = (d.get("tiles_axial", []) as Array).find(tile)
+				if j >= 0:
+					at = CASCADE_HIT_AT + float(j) * CASCADE_STAGGER - CARD_LEAD
 		if at < 0.0:
 			continue
 		return maxf(0.0, at - float(p["t"]))
