@@ -12901,6 +12901,10 @@ func t_font_coverage() -> void:
 		supported[chars.unicode_at(k)] = true
 	check(not supported.has(0x2265) and supported.has(0x00B7),
 		"判定器自检：≥ 该缺、· 该有（防这个测试再次哑火）")
+	## ∞（U+221E）是 2026-09-19 手补进这份字库的（`tools/add_infinity_glyph.py`，
+	## 来龙去脉见 assets/fonts/README.md）。钉死这一条：教程 S4 的「能量 ∞」靠它上屏，
+	## 字体文件哪天被上游原版覆盖回去，这里先红，而不是等玩家看见一个方框
+	check(supported.has(0x221E), "∞（U+221E）在字库里 —— 手补的字形还在")
 	## 扫描器自检：注释行之后的字面量必须抠得出来，LF 和 CRLF 行尾都得行。
 	## 2026-08-30 实锤过一次「com 粘死」：CRLF 下换行比对失败，# 之后全被跳过，
 	## 扫描空转、检查空心绿——「−1.5」就是这么溜上屏的。
