@@ -47,11 +47,18 @@ if [ "$SC_CODE" -ne 0 ] || echo "$SC_OUT" | grep -qE "SCRIPT ERROR|Parse Error|F
 	CODE=1
 fi
 
-CS_OUT="$(dotnet test core/CellWar.Core.Tests --nologo -v q --filter "FullyQualifiedName~L0RunnerTests|FullyQualifiedName~PreParityTests|FullyQualifiedName~RoundTripTests|FullyQualifiedName~ContractGateTests|FullyQualifiedName~KeyTableTests|FullyQualifiedName~SetupOpsTests|FullyQualifiedName~SubsetTextTests" 2>&1)"
-CS_CODE=$?
-echo "$CS_OUT" | grep -E "\[FAIL\]|Passed!|Failed!| error " | sed 's/^/L0（C# 侧）：/'
-if [ "$CS_CODE" -ne 0 ]; then
-	CODE=1
+# C# 侧（L0RunnerTests / PreParityTests / RoundTripTests …）：**Kevin 2026-09-19「后续不再需要维护 C# 核心，C# 的测试也不用跑了」**
+# —— 默认跳过；要临时看一眼老的对拍就 CW_L0_CS=1 跑（core/ 不再随规则改动更新，红了不算数）。
+CS_CODE=0
+if [ "${CW_L0_CS:-0}" = "1" ]; then
+	CS_OUT="$(dotnet test core/CellWar.Core.Tests --nologo -v q --filter "FullyQualifiedName~L0RunnerTests|FullyQualifiedName~PreParityTests|FullyQualifiedName~RoundTripTests|FullyQualifiedName~ContractGateTests|FullyQualifiedName~KeyTableTests|FullyQualifiedName~SetupOpsTests|FullyQualifiedName~SubsetTextTests" 2>&1)"
+	CS_CODE=$?
+	echo "$CS_OUT" | grep -E "\[FAIL\]|Passed!|Failed!| error " | sed 's/^/L0（C# 侧）：/'
+	if [ "$CS_CODE" -ne 0 ]; then
+		CODE=1
+	fi
+else
+	echo "L0（C# 侧）：跳过（Kevin 2026-09-19：不再维护 C# 核心；CW_L0_CS=1 可临时跑）"
 fi
 
 # 闸三（测试迁移规格 A-8 / C-1 步 15）：covers ∩ 真实 check 名，单调不减；
@@ -60,7 +67,7 @@ fi
 python tools/xcheck_report.py --check || CODE=1
 
 if [ "$CODE" -eq 0 ]; then
-	echo "✔ L0 两侧同跑全绿 + 闸三过"
+	echo "✔ L0（GD 侧）全绿 + 闸三过"
 else
 	echo "✘ L0 有红（GD 退出码 $GD_CODE / GD 自检 $SC_CODE / C# 退出码 $CS_CODE）"
 fi
