@@ -124,7 +124,7 @@ const ANAEROBIC_FLOOR := 20
 ## 见《PRD差异对照》§7.6）。别再拿它的胜率提问题，也不用替它挑数。
 const ANAEROBIC_BLOCK_COEF := 28         # 十分能量：PRD 值 ×2.8（表里没有的人数退回它）
 const ANAEROBIC_BLOCK_COEF_BY_PLAYERS := { 2: 28, 4: 20, 6: 28 }
-const ANAEROBIC_SOLID_BONUS := 10        # 十分能量：**全图**每格固化癌组织 +1.0
+const ANAEROBIC_SOLID_BONUS := 5         # 十分能量：**块内**每格固化癌组织 +0.5（issue #66 2026-09-19：原「全图 ×1.0」改「连通块 ×0.5」）
 ## 【E-无氧呼吸】的**人数系数 k**（百分数）。PRD 2026-09-14（issue #43）给整条分式外面乘了一个 k：
 ## `max{2, k × (块内癌组织数^0.3 × 系数 + 全图固化数) ÷ 块内癌细胞数}`，
 ## 连通块内存活 1 / 2 / 3 个癌细胞时 k = 80% / 100% / 120%。**兜底 2.0 排在 k 之后**（先乘 k 再兜底）。
@@ -228,7 +228,7 @@ const AEROBIC_LEVEL_STEP := 15                # 十分能量，公式里的「×
 ## 一张表比硬凑一个公式诚实：PRD 给的就是四个数。
 ##
 ## `CWTuning.aerobic_by_level` 置空即退回老的线性 / 盘面式（balance_scan 的对照档还在）。
-const AEROBIC_BY_LEVEL := [20, 30, 45, 50]    # 十分能量，按 immune_level 0/1/2/3 取
+const AEROBIC_BY_LEVEL := [20, 30, 50, 70]    # 十分能量，按 immune_level 0/1/2/3 取（issue #66 2026-09-19：III / X 级 4.5 / 5 → 5 / 7）
 const AEROBIC_SPLIT_REF := 2                  # 均分标定人数（均分默认已关，留作 asplit=1 对照档）
 ## 站在坏死组织上的免疫细胞拿几成有氧。Kevin 2026-09-07 两次改口：「一份不给」→ 八折 → **减半**
 ## （线上版 PRD 写的是「获得【有氧呼吸】的能量减半」）。
@@ -427,7 +427,7 @@ const SOLIDIFY_STEP := 10                # 癌细胞停留：+1.0
 const STAGE_NAMES := ["肿瘤I期", "肿瘤II期", "肿瘤III期"]
 ## 【根深蒂固】（II/III 期）：每块固化癌组织每回合随机使相邻最多这么多格癌组织的固化计数 +1.0；I 期没有。
 ## **2026-09-19 issue #64**：II 期 1 → 3 格、III 期 3 → 5 格（PRD:421/439「相邻最多三格 / 五格」）。
-const ROOTED_BY_STAGE: Array[int] = [0, 3, 5]
+const ROOTED_BY_STAGE: Array[int] = [0, 1, 2]   # issue #66（2026-09-19）：#64 的 3 / 5 当天改回 1 / 2
 ## 【E-无氧呼吸】按肿瘤分期的增益（百分数，100 = 不加）：**2026-09-19 issue #56** 新增 —— II 期 +20%、III 期 +50%；
 ## **2026-09-19 issue #64** II 期 +20% → **+30%**（PRD:423「增益30%」；III 期 +50% 不变）。
 ## 「在基础数值上增益」= 乘在**连通块池子**上（`CWWorld._anaerobic_pool` 的返回值），
@@ -435,7 +435,7 @@ const ROOTED_BY_STAGE: Array[int] = [0, 3, 5]
 ## 放池子而不是放人头有两个后果，都是有意的：卡【糖酵解爆发】走同一个口子（`anaerobic_gain_for`）自动跟上；
 ## 兜底 2.0 不跟着涨（PRD 写的是 `max{2, …}`，2 是绝对地板不是基础数值）。
 ## 与 PRESSURE_MUL_BY_STAGE 同一个写法：**常量不是旋钮**，扫描要动就动 anaerobic_block_coef。
-const ANAEROBIC_STAGE_MUL_BY_STAGE: Array[int] = [100, 130, 150]
+const ANAEROBIC_STAGE_MUL_BY_STAGE: Array[int] = [100, 120, 130]   # issue #66（2026-09-19）：II +20%、III +30%（#64 的 130 / 150 当天改回）
 
 # ---- 场景事件（PRD 场景事件）----
 # 【E-微环境压迫】：损失 = max(0, 1/4 × (相邻癌组织 + 相邻固化癌组织 × 2 − 相邻健康组织))。
