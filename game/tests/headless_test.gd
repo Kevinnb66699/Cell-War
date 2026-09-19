@@ -8049,21 +8049,17 @@ func t_ui_bridge() -> void:
 	var sk: Color = board.MARK_MOVE_SICK
 	var old_sick := sick_base.lerp(Color(mv.r, mv.g, mv.b), mv.a)
 	var new_sick := sick_base.lerp(Color(sk.r, sk.g, sk.b), sk.a)
-	check(new_sick.r - new_sick.g > 0.25 and new_sick.r - new_sick.b > 0.25,
-		"癌性候选格叠完仍然是红的（R %.2f / G %.2f / B %.2f）" % [new_sick.r, new_sick.g, new_sick.b])
+	## Kevin 2026-09-19 最终口径：「在 issue #47 改之前的颜色（#79849F）上加红一点点」——
+	## 钉的是和 #47 之前那块灰蓝的关系：R 抬了一点（不是整格换红）、G / B 基本没动（还是那一家），
+	## 与健康候选格的色距不比之前小。混合比例照旧 0x6E
 	var d_old := Vector3(old_sick.r - got.r, old_sick.g - got.g, old_sick.b - got.b).length()
 	var d_new := Vector3(new_sick.r - got.r, new_sick.g - got.g, new_sick.b - got.b).length()
-	## 探针：旧色标下两种组织的色距确实小得读不出来 —— 闸得认得出 issue 报的那个现象
-	check(d_old < 0.32, "探针：旧色标下癌性格与健康格只差 %.2f（#47 报的低对比）" % d_old)
-	check(d_new > d_old * 2.0, "新色标把色距拉到 %.2f（旧 %.2f，两倍以上）" % [d_new, d_old])
-	## Kevin 2026-09-19「滤镜太淡了」→「把最原版的红色稍微加深一点就行了」：钉的是和第一版的关系 ——
-	## 同一家红，**更深**（饱和度高于第一版 #E05A6E @0x6E 叠出的 #C55163：粉压下去），
-	## 且**不比第一版更淡**（与未高亮癌格 #B04A5A 的色距不小于第一版的 0.09）
-	var first_sick := sick_base.lerp(Color8(0xE0, 0x5A, 0x6E), 0x6E / 255.0)
-	var d_first := Vector3(first_sick.r - sick_base.r, first_sick.g - sick_base.g, first_sick.b - sick_base.b).length()
-	var d_lift := Vector3(new_sick.r - sick_base.r, new_sick.g - sick_base.g, new_sick.b - sick_base.b).length()
-	check(new_sick.s > first_sick.s, "比第一版更深：饱和度 %.2f > 第一版 %.2f" % [new_sick.s, first_sick.s])
-	check(d_lift >= d_first, "不比第一版更淡：与未高亮癌格色距 %.2f ≥ 第一版 %.2f" % [d_lift, d_first])
+	check(new_sick.r - old_sick.r > 0.05 and new_sick.r - old_sick.r < 0.16,
+		"比 #47 之前的灰蓝红一点点：R %.2f → %.2f" % [old_sick.r, new_sick.r])
+	check(absf(new_sick.g - old_sick.g) < 0.06 and absf(new_sick.b - old_sick.b) < 0.06,
+		"G / B 还是那一家（%.2f / %.2f → %.2f / %.2f）" % [old_sick.g, old_sick.b, new_sick.g, new_sick.b])
+	check(d_new >= d_old, "与健康候选格的色距 %.2f 不比 #47 之前的 %.2f 小" % [d_new, d_old])
+	check(is_equal_approx(sk.a, mv.a), "混合比例照旧：逐环亮起那个节奏一点不变")
 	## 与「可攻击」的橙别撞色：那是另一个词
 	var atk_mark: Color = board.MARK_ATTACK
 	var atk_sick := sick_base.lerp(Color(atk_mark.r, atk_mark.g, atk_mark.b), atk_mark.a)

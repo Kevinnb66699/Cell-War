@@ -130,7 +130,7 @@ func _process(delta: float) -> bool:
 
 
 func _repaint(after: bool) -> void:
-	_cap.text = "issue #47 · 迁移模式的候选格：%s" % ("改后（癌性组织换红）" if after else "改前（一律免疫青）")
+	_cap.text = "issue #47 · 迁移模式的候选格：%s" % ("改后（癌性组织另配色）" if after else "改前（一律免疫青）")
 	var sk: Color = _board.MARK_MOVE_SICK
 	var blended := Color8(0xB0, 0x4A, 0x5A).lerp(Color(sk.r, sk.g, sk.b), sk.a)
 	_sub.text = "同一块棋盘、同一批候选格（种子 %d）。改前癌性格叠完是灰蓝 #79849F，和健康格的 #2F8491 几乎同色；改后是 #%s" % [
