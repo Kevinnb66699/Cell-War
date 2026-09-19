@@ -1,6 +1,6 @@
 ## cw_world_loader.gd —— cwxworld/3 的 `world` 段 ⇄ CWGame（测试迁移规格 A-2 / C-1 步 8；键表口径 = 规格 §0.6.1）
 ##
-## 此前它住在 game/tests/cw_case_loader.gd（测试工具）。新手引导（docs/新手引导_实现方案.md S0，2026-09-19）要在产品代码里
+## 此前它住在 game/tests/cw_case_loader.gd（测试工具）。新手引导（docs/archive/新手引导_实现方案_v1_2026-09-19.md S0，2026-09-19）要在产品代码里
 ## 用它灌关卡盘面，而导出预设 exclude_filter="tests/*" —— 产品侧 preload("res://tests/…") 一导出就白屏，所以上提到
 ## scripts/kernel/；tests/cw_case_loader.gd 改为薄委托（extends 这里），**不许出现第三份键表**。旋钮白名单 TUNE_PATH 仍指
 ## res://tests/contract_tune.json：第一章零旋钮、_load_tuning 在 tuning 为空时直接返回，json 到第一次真拧旋钮那一片再搬（方案 §2.2）。
