@@ -47,6 +47,8 @@ var _halo: TextureRect
 var _t := 0.0
 ## 已经弹过提示的章号（PRD:37：`chapter` 没变就静默切换，不弹）
 var _chapter_shown := -1
+## 正在劝玩家重置（`steps[].advise_when` 命中，PRD:251 第二条）：「重置本关」四个字跟着慢闪
+var _urge := false
 
 
 func _ready() -> void:
@@ -85,6 +87,22 @@ func press_reset() -> void:
 
 func press_menu() -> void:
 	menu_pressed.emit()
+
+
+## 劝玩家自己按「重置本关」（PRD:251 第二条；Kevin 2026-09-19：提示、**不自动重置**）。
+## 开着时那四个字跟着底下柔光同一个呼吸周期在常色 ↔ 白之间慢闪（PRD:49 的闪法，参数仍是那三个常数）；
+## 关掉就还原 —— 还原写在这儿而不是 `_process`，免得每帧都覆写一次悬停提白
+func urge_reset(on: bool) -> void:
+	if on == _urge:
+		return
+	_urge = on
+	if not on and _reset_btn != null:
+		_reset_btn.add_theme_color_override("font_color", CWStyle.TEXT)
+
+
+## 此刻在不在劝重置（测试直接读）
+func urging() -> bool:
+	return _urge
 
 
 ## 某一关此刻能不能从目录跳过去（Q-14 默认：未通关灰显不可点）。
@@ -234,3 +252,6 @@ func _process(delta: float) -> void:
 	_t += delta
 	var k := 0.5 + 0.5 * sin(_t * TAU / HALO_PERIOD)
 	_halo.modulate.a = lerpf(HALO_ALPHA_LO, HALO_ALPHA_HI, k)
+	## 劝重置时那四个字也跟着同一拍提亮（PRD:251 第二条）
+	if _urge and _reset_btn != null:
+		_reset_btn.add_theme_color_override("font_color", CWStyle.TEXT.lerp(Color.WHITE, k))

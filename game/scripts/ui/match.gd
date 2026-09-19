@@ -1159,8 +1159,11 @@ func _sync_guide_shell() -> void:
 	if panel != null:
 		panel.visible = CWGuideLayers.on("sidebar")
 		panel.guide_layers(CWGuideLayers.on("end_turn"), CWGuideLayers.on("round_no"))
-	## 自动重置是个**持续**判断（「走不下去了」不会只在装闸那一帧成立），所以跟 check_progress 一样每帧问
-	_check_reset_when(_current_guide_step())
+	## 自动重置与「劝重置」都是**持续**判断（「走不下去了」不会只在装闸那一帧成立），
+	## 所以跟 check_progress 一样每帧问，两条读同一份步骤
+	var step: Dictionary = _current_guide_step()
+	_check_reset_when(step)
+	_check_advise_when(step)
 
 
 ## 把剧本当前这一步「装上去」：章节提示 → 局面 / UI 层 → 浮现 → 决策闸（PRD:39 的执行序）。
@@ -1207,12 +1210,10 @@ func _current_guide_step() -> Dictionary:
 	return steps[clampi(_guide.step_no(), 0, steps.size() - 1)]
 
 
-## `reset_when`：这一步在什么情况下自动把关卡退回关首。
-## **S4 只做能用 `CWGuideWatch` 现有判据表达的那些**（键表见 `guide_watch.gd:27`）——
-## 「能量不足以移动」这类还没有的键留给 S5 扩表，数据侧现在就能写、校验也已经拦着
-## （`cw_tutorial_data._check_steps` 查 `CWGuideWatch.KEYS`）。
+## `reset_when`：这一步在什么情况下自动把关卡退回关首（键表见 `guide_watch.gd:27`）。
+## **整串原样交给判据表**（S5b 起 `done()` 自己解析 `键:参数`）—— 这里再 split 一次就把参数吃掉了。
 func _check_reset_when(s: Dictionary) -> void:
-	var key: String = str(s.get("reset_when", "")).split(":")[0]
+	var key := str(s.get("reset_when", ""))
 	if key == "" or _guide == null or not is_instance_valid(_guide):
 		return
 	if _guide.watch_hit(key):
@@ -1220,6 +1221,20 @@ func _check_reset_when(s: Dictionary) -> void:
 			## 通用规则 7：自动重置要有提示。`avoid` 给零矩形 = 不避让任何东西，落在默认位置
 			toast.show_at("这一步走不下去了，本关重新来过", Rect2(), CWUIBridge.TEXT_HOLD)
 		_reset_tutorial_level()
+
+
+## `advise_when`：这一步在什么情况下**劝玩家自己重置**（PRD:251 第二条；Kevin 2026-09-19 拍板
+## 「提示玩家重置」而不是自动重置 —— 站到了相邻格只是能量算亏了，局面还在，替他把关卡掀了更难受）。
+## 与 `reset_when` 同一张判据表、同一个基线，命中之后干的事不同：浮层提示行换成 `advise` 那一句，
+## 左上角常驻的「重置本关」跟着慢闪。**每帧都要写**（含不命中那一边）：玩家重置之后劝退要自己散掉
+func _check_advise_when(s: Dictionary) -> void:
+	if _guide == null or not is_instance_valid(_guide):
+		return
+	var key := str(s.get("advise_when", ""))
+	var hit: bool = key != "" and _guide.watch_hit(key)
+	_guide.advise_text = str(s.get("advise", "")) if hit else ""
+	if _shell != null and is_instance_valid(_shell):
+		_shell.urge_reset(hit)
 
 
 ## 常驻「重置」按钮（PRD:41）与自动重置（PRD:47）共用这一条：
@@ -1606,8 +1621,10 @@ func _process(delta: float) -> void:
 		_log_hint.refresh(log_store, _log_panel)          ## 迷你日志：日志尾巴两行，视角跟面板同一份（方案 A，Kevin 2026-09-06）
 	if tutorial:
 		_sync_guide_shell()
-	## 状态推进：带 watch 的步骤由真实局面翻页（不代做）；讲解型步骤不受影响
-	if _guide != null and is_instance_valid(_guide) and _guide.active:
+	## 状态推进：带 watch 的步骤由真实局面翻页（不代做）；讲解型步骤不受影响。
+	## **正劝着重置就按住这一页**（`advise_when` 命中，PRD:251 第二条）：第三关「站到相邻格」
+	## 这条 watch 在能量算亏的时候**照样成立**，翻过去那句劝退当场消失，玩家只剩一个打不死的癌细胞
+	if _guide != null and is_instance_valid(_guide) and _guide.active and _guide.advise_text == "":
 		_guide.check_progress()
 	if _spotlight != null and is_instance_valid(_spotlight):
 		var flag := ""

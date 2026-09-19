@@ -3,7 +3,7 @@
   "id": "c1_l3",
   "chapter": 1, "chapter_title": "Cell", "title": "第三关 ATP",
   "subtitle": "算清能量，三次攻击拿下癌细胞",
-  "codex_page": 2, "ui_stage": 0,
+  "codex_page": 2, "ui_stage": 1,
   "seats": 2, "human_seat": 0,
   "expect_level_tiers": [0, 10, 30, 70],
 
@@ -24,8 +24,8 @@
         { "at": "5,-2", "state": "cancer" }
       ],
       "cells": [
-        { "seat": 0, "type": "ImmuneBasic", "at": "0,-1", "energy": 51 },
-        { "seat": 1, "type": "Melanoma", "at": "4,-1", "energy": 30 }
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,-1", "energy": 61 },
+        { "seat": 1, "type": "Melanoma", "at": "5,-1", "energy": 30 }
       ]
     }
   },
@@ -43,32 +43,27 @@
                      "move_path": true, "cost": true, "energy_display": "infinite" },
       "t": "发现新的癌细胞，继续清理",
       "b": ["使用【迁移】移动到癌细胞相邻格"],
-      "flag": "move", "act": "move", "hex": ["4,-1"], "player": true,
+      "flag": "move", "act": "move", "hex": ["5,-1"], "player": true,
       "allow": ["k=action|act=move"],
       "watch": "beside",
-      "reset_when": "stuck"
+      "reset_when": "stuck",
+      "advise_when": "low_energy_beside:36",
+      "advise": "能量不够把它打死了，点左上角「重置本关」重来"
     },
     {
       "step_of": "Step2",
       "t": "继续攻击癌细胞",
-      "flag": "attack", "act": "attack", "hex": ["4,-1"], "player": true,
-      "allow": ["k=action|act=move|to=4,-1"],
-      "watch": "attacked"
-    },
-    {
-      "step_of": "Step2",
-      "t": "继续攻击癌细胞",
-      "flag": "attack", "act": "attack", "hex": ["4,-1"], "player": true,
-      "allow": ["k=action|act=move|to=4,-1"],
-      "watch": "attacked"
+      "flag": "attack", "act": "attack", "hex": ["5,-1"], "player": true,
+      "allow": ["k=action|act=move|to=5,-1"],
+      "watch": "attacked:2"
     },
     {
       "step_of": "Step2",
       "t": "Oops! 攻击失效，收到了反弹伤害",
       "b": ["不要灰心，继续尝试攻击"],
       "unlock": ["attack"],
-      "flag": "attack", "act": "attack", "hex": ["4,-1"], "player": true,
-      "allow": ["k=action|act=move|to=4,-1"],
+      "flag": "attack", "act": "attack", "hex": ["5,-1"], "player": true,
+      "allow": ["k=action|act=move|to=5,-1"],
       "watch": "attacked"
     }
   ],

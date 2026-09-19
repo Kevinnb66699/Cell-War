@@ -10160,6 +10160,8 @@ func t_guide_watch() -> void:
 		## 两条状态谓词（S5）：只看 now。基线里没这两个键 ⇒ 「什么都没做就成立」那一半照样成立
 		"beside": { "beside": true },
 		"stuck": { "asked": true, "can_move": false },
+		## 带参数的那一条（S5b）：`#key` = 真正喂给 done() 的整串，其余键照常盖进 now
+		"low_energy_beside": { "#key": "low_energy_beside:20", "beside": true, "energy": 19 },
 	}
 	var bad: Array = []
 	for key: String in GUIDE_WATCH.KEYS:
@@ -10167,14 +10169,31 @@ func t_guide_watch() -> void:
 			bad.append("%s（护栏没写）" % key)
 			continue
 		var now: Dictionary = base.duplicate()
+		var call_key: String = str(moves[key].get("#key", key))
 		for k: String in moves[key]:
+			if k.begins_with("#"):
+				continue
 			now[k] = moves[key][k]
-		if not GUIDE_WATCH.done(key, base, now):
+		if not GUIDE_WATCH.done(call_key, base, now):
 			bad.append("%s（变了却判不成立）" % key)
 		## placed 例外：它问的是「上场了没有」，基线自己就已经上场了
-		if key != "placed" and GUIDE_WATCH.done(key, base, base):
+		if key != "placed" and GUIDE_WATCH.done(call_key, base, base):
 			bad.append("%s（什么都没做就成立）" % key)
 	check(bad.is_empty(), "%d 条判据逐条对得上（坏的：%s）" % [GUIDE_WATCH.KEYS.size(), str(bad)])
+	## ---- `键:参数` 的文法（S5b）：`cw_tutorial_data` 的校验一直只查冒号前那一截，真解析在 done() ----
+	var two: Dictionary = base.duplicate()
+	two["attacks"] = 2
+	var one: Dictionary = base.duplicate()
+	one["attacks"] = 1
+	check(GUIDE_WATCH.done("attacked", base, one) and not GUIDE_WATCH.done("attacked:2", base, one)
+		and GUIDE_WATCH.done("attacked:2", base, two),
+		"attacked:N 要涨满 N 次才成立（PRD:275「玩家前两次攻击」，Kevin 2026-09-19 拍参数路）")
+	var beside_rich: Dictionary = base.duplicate()
+	beside_rich["beside"] = true
+	beside_rich["energy"] = 36
+	check(not GUIDE_WATCH.done("low_energy_beside:36", base, beside_rich)
+		and not GUIDE_WATCH.done("low_energy_beside", base, beside_rich),
+		"站到相邻格但能量**正好够**：不劝重置；参数漏写退回 0 ⇒ 永不成立（缺省取更难成立的那边）")
 	check(not GUIDE_WATCH.done("不存在的键", base, base), "不认识的键一律不成立（剧本写错键不该自己翻页）")
 	## 细胞还没上场：placed 不成立、moved 也不成立（别把「没有细胞」当成「动过了」）
 	var empty := { "pos": none, "round": 4, "actor": 0 }
@@ -11022,8 +11041,10 @@ func t_guide_data() -> void:
 			var a: String = CWGuideData.act_of(i, j)
 			if a != "" and not CWGuideBridge.STEP_HINTS.has(a):
 				bad_act.append("%d:%d %s" % [i, j, a])
+			## 判据可以带参数（S5b 的 `键:参数`，如 `attacked:2`），表里查的是冒号前那一截
+			## —— 同 `cw_tutorial_data._check_steps` 的查法
 			var w: String = CWGuideData.watch_of(i, j)
-			if w != "" and not GUIDE_WATCH.KEYS.has(w):
+			if w != "" and not GUIDE_WATCH.KEYS.has(w.split(":")[0]):
 				bad_watch.append("%d:%d %s" % [i, j, w])
 	check(bad_act.is_empty(), "动作键都在 STEP_HINTS 里（坏的：%s）" % str(bad_act))
 	## **只查这一个方向**（剧本用到的键必须有实现），不查反向：
@@ -11543,14 +11564,19 @@ func t_guide_bridge() -> void:
 	correction.record_mistake()
 	check(correction.mistake_count() == 1 and correction.step_no() == correction_step,
 		"教程纠错记录不推进步骤，之后仍可恢复作答")
-	## 渐进 UI 档：值从每关的 `ui_stage` 来（语义不变，0~3 四档）。第一章两关都还是 0 档
-	## （PRD:93 / 143 的界面清单：只有棋盘与「迁移」那一个按钮）
+	## 渐进 UI 档：值从每关的 `ui_stage` 来（语义不变，0~3 四档）。
+	## **改判（S5b）**：第一章三关从 0 档提到 1 档。依据：Kevin 2026-09-19「好」——
+	## PRD:137/221 的「地图上目的格子闪烁」压在 `CWMatch` 的 `ui_stage() >= 1` 下面，
+	## 0 档真机上一点都看不见（2026-09-12 提到 1 档当晚被他回滚过，这次是他自己拍的开）
 	check(CWGuideData.ui_stage(0) == int(CWGuideData.level(0)["ui_stage"])
 		and CWGuideData.ui_stage(CWGuideData.CHAPTER_COUNT - 1)
 			== int(CWGuideData.level(CWGuideData.CHAPTER_COUNT - 1)["ui_stage"]),
 		"渐进 UI 档逐关从数据来（第一关 %d 档）" % CWGuideData.ui_stage(0))
 	var staged := FakeGuide.new()
-	check(staged.ui_stage() == 0, "第一阶段不提前开放辅助层（2026-09-12 提到 1 档当晚被 Kevin 回滚）")
+	## **改判（S5b）**：原断言「第一阶段不提前开放辅助层（2026-09-12 提到 1 档当晚被 Kevin 回滚）」
+	## → 第一关就是 1 档。依据：Kevin 2026-09-19 亲自拍开（PRD:137/221 的目的格闪烁要能看见）。
+	## 判据形状没变 —— 仍是「面板停在第一关时 ui_stage() 报第一关那一档」
+	check(staged.ui_stage() == 1, "第一关开到 1 档辅助层：目的格子闪得出来（Kevin 2026-09-19 拍板）")
 	staged._chapter = CWGuideData.CHAPTER_COUNT - 1
 	check(staged.ui_stage() == CWGuideData.ui_stage(CWGuideData.CHAPTER_COUNT - 1),
 		"面板的 ui_stage() 跟着它停在哪一关走")
@@ -12831,7 +12857,7 @@ func t_font_coverage() -> void:
 		"扫描器自检：LF/CRLF 下注释后的字符串都抠得出")
 	var bad := {}
 	var files: Array[String] = []
-	_collect_gd("res://scripts", files)
+	_collect_files("res://scripts", files)
 	check(files.size() > 10, "扫到了 %d 个脚本" % files.size())
 	for path in files:
 		for s in _string_literals(FileAccess.get_file_as_string(path)):
@@ -12843,9 +12869,50 @@ func t_font_coverage() -> void:
 	for k in bad:
 		msg += "%s（%s）" % [k, bad[k]]
 	check(bad.is_empty(), "所有会上屏的字符字库里都有%s" % ("" if bad.is_empty() else "；缺：" + msg))
+	## ---- 教程剧本 JSON 也进这道闸（S5b）----
+	## 剧本正本 2026-09-19（S3）搬进 `data/tutorial/**` 之后，台词就不在 `.gd` 里了 ——
+	## S4 的 ∞ 正是被这道闸拦下来的，换成写进 JSON 今天一个人都拦不住（S5 回传第 5 条）。
+	## 只扫**会上屏**的那几个字段：`index.json` 的 `_doc` 是给人看的开发注释（里头就有个 ≡），
+	## 它爱写什么写什么，不该因为它把闸判红
+	var jbad := {}
+	var jfiles: Array[String] = []
+	_collect_files("res://data/tutorial", jfiles, ".json")
+	var lines: Array[String] = []
+	for path in jfiles:
+		var texts: Array[String] = []
+		_guide_texts(JSON.parse_string(FileAccess.get_file_as_string(path)), texts)
+		lines.append_array(texts)
+		for s in texts:
+			for k in s.length():
+				var code: int = s.unicode_at(k)
+				if code > 0x7F and not supported.has(code):
+					jbad["U+%04X %s" % [code, s[k]]] = path.get_file()
+	var jmsg := ""
+	for k in jbad:
+		jmsg += "%s（%s）" % [k, jbad[k]]
+	check(jfiles.size() >= 4 and lines.size() > 20 and jbad.is_empty(),
+		"教程剧本 %d 份 JSON 的 %d 条上屏文案也过字形闸%s"
+			% [jfiles.size(), lines.size(), "" if jbad.is_empty() else "；缺：" + jmsg])
 
 
-func _collect_gd(dir_path: String, out: Array[String]) -> void:
+## 教程剧本里**会上屏**的字段（其余字段是坐标 / 键名 / 开发注释，不进字形闸）
+const GUIDE_TEXT_KEYS := ["title", "chapter_title", "subtitle", "t", "b", "advise"]
+
+
+## 递归把上面那几个字段底下的字符串全收走（数组、嵌套字典都跟进去）
+func _guide_texts(v: Variant, out: Array[String], under := false) -> void:
+	if v is String:
+		if under:
+			out.append(v)
+	elif v is Array:
+		for e in v:
+			_guide_texts(e, out, under)
+	elif v is Dictionary:
+		for k in v:
+			_guide_texts(v[k], out, under or str(k) in GUIDE_TEXT_KEYS)
+
+
+func _collect_files(dir_path: String, out: Array[String], suffix := ".gd") -> void:
 	var d := DirAccess.open(dir_path)
 	if d == null:
 		return
@@ -12853,8 +12920,8 @@ func _collect_gd(dir_path: String, out: Array[String]) -> void:
 	var n := d.get_next()
 	while n != "":
 		if d.current_is_dir():
-			_collect_gd(dir_path + "/" + n, out)
-		elif n.ends_with(".gd"):
+			_collect_files(dir_path + "/" + n, out, suffix)
+		elif n.ends_with(suffix):
 			out.append(dir_path + "/" + n)
 		n = d.get_next()
 	d.list_dir_end()
@@ -21456,6 +21523,18 @@ func t_tutorial_shell() -> void:
 	check(m.kernel != k_before and m._guide.step_no() == 0
 		and m.mirror.cell_of(0)["pos"] == Vector2i(0, -1),
 		"reset_when 命中：走「重置」同一条路（换了句柄、回关首、步游标归零）")
+	## `advise_when`（S5b，PRD:251 第二条；Kevin 2026-09-19：**提示玩家重置**、不自动重置）：
+	## 同一张判据表、同一个基线，命中之后换的是提示行 + 左上角「重置本关」慢闪，局面一动不动。
+	## **不 await**：`_sync_guide_shell` 每帧都按真实步骤重写一次，过一帧这里就被擦掉了
+	var k_keep: CWKernel = m.kernel
+	m._guide._watch_base["pos"] = Vector2i(9, 9)
+	m._check_advise_when({ "advise_when": "moved", "advise": "劝你重来" })
+	check(m.kernel == k_keep and m._guide.advise_text == "劝你重来"
+		and m._guide._hint.text == "劝你重来" and shell.urging(),
+		"advise_when 命中：提示行换成那一句、「重置本关」跟着慢闪，**局面一动不动**")
+	m._check_advise_when({})
+	check(m._guide.advise_text == "" and not shell.urging(),
+		"这一步不带 advise_when：劝退当场散掉（提示行退回桥那一句、慢闪停掉）")
 
 	# ---- 8 跨关换局那一瞬间不许把上一关记成已完成（S3 回传第 8 条）----
 	## 两关的免疫起点不同格：拿上一关的基线去比，`watch: "moved"` 当场成立 ⇒ 第一关一出生就被判做完。
@@ -21509,6 +21588,8 @@ func t_tutorial_c1() -> void:
 	## Step2 靠 `reveal` 再加一格（PRD:189）；第三关 8 —— **PRD 没给格子**（Q-02 未答），
 	## 按 PRD 字面「地图自免疫细胞向前方延伸开来」+「距免疫细胞几格外有一个凸的癌组织连通块」
 	## 落成方案附 A 的提案：`r = -1` 排从免疫脚下铺到 (6,-1) 共 7 格 + 凸块借 `r = -2` 的 (5,-1) 上方那一格。
+	## **S5b 起癌细胞站在连通块里的 (5,-1)**（Kevin 2026-09-19：「可以踩癌组织，只要在确定的关卡
+	## 条件下，是最短路就行」）⇒ 最短路必须踩进癌组织一格，正是这一关要教的算账。
 	## 零特殊格也一并核：第一章整章走 `r = -1` / `r = -2` 两排，11 个特殊格的 `r` 只取 -3/0/3/6（方案附 A）
 	var want_active := [2, 6, 8]
 	for i in 3:
@@ -21560,20 +21641,28 @@ func t_tutorial_c1() -> void:
 	s2.kernel.close()
 	s2.dispose()
 
-	# ---- ①④ 第三关：三格迁移 + 三次攻击，能量与伤害都**刚好** ----
+	# ---- ①④ 第三关：四格迁移（最后一格踩癌组织）+ 三次攻击，能量与伤害都**刚好** ----
 	var trace: Array = []
 	var s3 = await _play_c1(2, [Vector2i(1, -1), Vector2i(2, -1), Vector2i(3, -1),
-		Vector2i(4, -1), Vector2i(4, -1), Vector2i(4, -1)], trace)
+		Vector2i(4, -1), Vector2i(5, -1), Vector2i(5, -1), Vector2i(5, -1)], trace)
 	var g3: CWGame = s3._game
 	var mv: int = g3.tune.immune_move_healthy[0]        ## 迁移→健康，I 级
-	var atk: int = g3.tune.immune_move_cancerous[0]     ## 攻击 = 迁移到癌细胞那一格，走癌性组织那一档
+	var atk: int = g3.tune.immune_move_cancerous[0]     ## 迁移→癌性；攻击 = 迁移到癌细胞那一格，同一档
 	var kick: int = g3.tune.counter_dmg_on_fail         ## 攻击失效被反弹，自身损失
 	var start3: int = int((lv[2]["worlds"]["base"]["cells"] as Array)[0]["energy"])
-	check(start3 == mv * 3 + atk * 3 + kick + 1,
-		"第三关能量 %s = 迁移 3 格 %s + 攻击 3 次 %s + 反弹 %s + 0.1（PRD:243 的算式）"
-			% [CWData.fmt(start3), CWData.fmt(mv * 3), CWData.fmt(atk * 3), CWData.fmt(kick)])
-	var want_trace := [start3 - mv, start3 - mv * 2, start3 - mv * 3,
-		start3 - mv * 3 - atk, start3 - mv * 3 - atk * 2 - kick, start3 - mv * 3 - atk * 3 - kick]
+	## 最短路：(0,-1)→(1,-1)→(2,-1)→(3,-1) 三格健康，再踩进癌组织 (4,-1) 一格 —— 那才是
+	## 癌细胞 (5,-1) 的相邻格（Kevin 2026-09-19：可以踩癌组织，只要是这个盘面上的最短路）
+	var shortest: int = mv * 3 + atk
+	check(start3 == shortest + atk * 3 + kick + 1,
+		"第三关能量 %s = 最短路 %s（健康 3 格 %s + 癌组织 1 格 %s）+ 攻击 3 次 %s + 反弹 %s + 0.1（PRD:243）"
+			% [CWData.fmt(start3), CWData.fmt(shortest), CWData.fmt(mv * 3), CWData.fmt(atk),
+				CWData.fmt(atk * 3), CWData.fmt(kick)])
+	## 「最短路」不是嘴上说的：拿引擎的两档报价在**活跃集**上跑一遍 Dijkstra，
+	## 站到癌细胞任一相邻格的最小耗能必须正好是上面那个数（盘面一改就红）
+	check(_cheapest_beside(lv[2], Vector2i(5, -1), mv, atk) == shortest,
+		"活跃集上「站到癌细胞相邻格」的最小耗能 = %s，按引擎报价逐格算出来的" % CWData.fmt(shortest))
+	var want_trace := [start3 - mv, start3 - mv * 2, start3 - mv * 3, start3 - shortest,
+		start3 - shortest - atk, start3 - shortest - atk * 2 - kick, start3 - shortest - atk * 3 - kick]
 	check(trace == want_trace, "第三关逐步能量账对得上：%s（要 %s）" % [str(trace), str(want_trace)])
 	var outcomes: Array = []
 	for e in lv[2].get("rolls", []):
@@ -21593,9 +21682,20 @@ func t_tutorial_c1() -> void:
 			% CWData.fmt(int(g3.cell_of(0)["energy"])))
 	_check_tape(s3, lv[2], ids[2])
 
+	# ---- 第三关剧本切成三步（S5b 改判）：Step1 一步 + Step2 两步 ----
+	## **原来是四步**（S5 把「继续攻击癌细胞」抄了两遍，因为 `attacked` 一次就成立）。
+	## Kevin 2026-09-19 拍了参数那条路 ⇒ 第一步等 `attacked:2`（PRD:275「玩家前两次攻击」），
+	## 第二步才贴「Oops!…」并等第三次（大成功打死）
+	var st3: Array = lv[2]["steps"]
+	check(st3.size() == 3 and str((st3[1] as Dictionary).get("watch", "")) == "attacked:2"
+		and str((st3[1] as Dictionary).get("t", "")) == "继续攻击癌细胞"
+		and str((st3[2] as Dictionary).get("t", "")).begins_with("Oops")
+		and str((st3[2] as Dictionary).get("watch", "")) == "attacked",
+		"第三关三步：「继续攻击癌细胞」等 attacked:2，再贴「Oops! 攻击失效…」等第三次（PRD:271-283）")
+
 	# ---- ⑤ reset_when「能量不足以移动」----
-	check(str((lv[2]["steps"][0] as Dictionary).get("reset_when", "")) == "stuck"
-		and GUIDE_WATCH.KEYS.has("stuck"),
+	var step0: Dictionary = st3[0]
+	check(str(step0.get("reset_when", "")) == "stuck" and GUIDE_WATCH.KEYS.has("stuck"),
 		"第三关 Step1 带自动重置条件 reset_when=stuck（PRD:251「能量不足以移动」）")
 	## 判据本身：**只看此刻这一张快照**。付不起的迁移引擎早就从选项表里滤掉了
 	## （`cw_actions.immune_move_options` 的 `can_pay`），所以「一条 act=move 都没有」就是「走不动了」
@@ -21618,6 +21718,27 @@ func t_tutorial_c1() -> void:
 		and GUIDE_WATCH.done("beside", snap_b, snap_b) == false,
 		"满能量时不成立（正问着、迁移选项在）；开局也还没站到癌细胞旁边")
 	gf.dispose()
+	## ---- ⑤′ PRD:251 第二条「所剩能量小于预期」：**提示重置、不自动重置**（Kevin 2026-09-19）----
+	## 判据带参数，参数 = 三次攻击 + 失效反弹 + 0.1 的和 —— 也就是「站到这儿之后还得花多少」。
+	## 走最短路剩下的正好是这个数 ⇒ 不劝；绕过路就一定少于它 ⇒ 当场劝
+	var need: int = atk * 3 + kick + 1
+	check(str(step0.get("advise_when", "")) == "low_energy_beside:%d" % need
+		and str(step0.get("advise", "")).contains("重置本关"),
+		"第三关 Step1 带 advise_when=low_energy_beside:%s（攻击三次 %s + 反弹 %s + 0.1），文案指向常驻「重置本关」"
+			% [CWData.fmt(need), CWData.fmt(atk * 3), CWData.fmt(kick)])
+	var exact := { "beside": true, "energy": start3 - shortest }
+	var detour := { "beside": true, "energy": start3 - shortest - mv }
+	check(int(exact["energy"]) == need
+		and not GUIDE_WATCH.done(str(step0["advise_when"]), exact, exact)
+		and GUIDE_WATCH.done(str(step0["advise_when"]), detour, detour),
+		"最短路站过去剩 %s = 正好够，不劝；多绕一格剩 %s 就劝"
+			% [CWData.fmt(start3 - shortest), CWData.fmt(start3 - shortest - mv)])
+	## 劝着的时候**不许翻页**：`beside` 在能量算亏时照样成立，翻过去那句劝退当场消失，
+	## 玩家就只剩一个打不死的癌细胞（这一条是 S5b 把两件事接起来的关键，源码闸盯着）
+	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(msrc.contains("_guide.advise_text == \"\"")
+		and msrc.contains("func _check_advise_when(s: Dictionary) -> void:"),
+		"劝重置期间按住这一页（`check_progress` 前面那道 advise_text 闸）")
 	## 「回关首那份 world」：自动重置与常驻「重置」按钮共用 `CWTutorialStage.reload_world(关首那份)`。
 	## 拿刚打完的那一局（能量 0.1、癌细胞已死、两格已净化）重装，装回来的要与关首 spec 逐键相同
 	var entry := str((lv[2]["steps"][0] as Dictionary).get("load", "base"))
@@ -21686,6 +21807,38 @@ func _play_c1(ch: int, plan: Array, trace: Array = []) -> Object:
 		await g.step(idx)
 		trace.append(int(g.cell_of(pid)["energy"]))
 	return stage
+
+
+## 「站到 `foe` 任一相邻格」在**活跃集**上的最小耗能（第三关的能量预算，PRD:243，就是照它定的）。
+## 逐格价目用引擎的两档报价：健康 `mv` / 癌组织 `atk`。**只在活跃集里搜** —— 集外的格玩家点不到
+## （`CWBoard.hex_at` 只扫活跃集），而这一关是「在确定的关卡条件下算最短路」（Kevin 2026-09-19）。
+## 走不进敌人脚下那一格：那是攻击、不是迁移。格子不到十个，松弛到不动点就够了
+func _cheapest_beside(level: Dictionary, foe: Vector2i, mv: int, atk: int) -> int:
+	var spec: Dictionary = level["worlds"]["base"]
+	var cancer := {}
+	for t in spec.get("tiles", []):
+		if str((t as Dictionary).get("state", "")) == "cancer":
+			cancer[TUT_DATA.parse_at(str((t as Dictionary)["at"]))] = true
+	var active := {}
+	for s in level.get("active_tiles", []):
+		active[TUT_DATA.parse_at(str(s))] = true
+	var cost := { TUT_DATA.parse_at(str((spec["cells"] as Array)[0]["at"])): 0 }
+	var again := true
+	while again:
+		again = false
+		for c: Vector2i in cost.keys():
+			for n: Vector2i in CWData.neighbors(c):
+				if not active.has(n) or n == foe:
+					continue
+				var via: int = int(cost[c]) + (atk if cancer.has(n) else mv)
+				if not cost.has(n) or via < int(cost[n]):
+					cost[n] = via
+					again = true
+	var best := -1
+	for c: Vector2i in CWData.neighbors(foe):
+		if cost.has(c) and (best < 0 or int(cost[c]) < best):
+			best = int(cost[c])
+	return best
 
 
 ## 带子**双向**核对：数据里钉了几颗就消耗几颗（`at`），一颗都不许多掷（`overrun`），
