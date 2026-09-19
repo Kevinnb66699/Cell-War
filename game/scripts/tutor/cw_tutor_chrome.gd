@@ -57,6 +57,10 @@ const ROMAN := ["", "I", "II", "III", "IV", "V", "VI", "VII"]
 const ICON := 28.0
 const RESET_RECT := Rect2(16, 46, ICON, ICON)
 const MENU_RECT := Rect2(52, 46, ICON, ICON)
+## 「切换种类」（PRD:375，第五关 Step2，S5）：接在两颗常驻图标右边第三个位子。
+## 同一条缝（y=46、高 28 ⇒ 底边 74）：上面是迷你日志（到 38）、下面是出牌列 CWFeed（从 76 起）。
+## **默认不建**：只有 `ui.switch_type` 非空那一关才懒建，其余关连节点都没有
+const SWITCH_RECT := Rect2(88, 46, ICON, ICON)
 const ICON_BG := Color("0a1018cc")
 const ICON_BG_HOT := Color("12212ee6")
 const TIP_DX := 6.0          ## 悬停出的字摆在图标右侧几像素
@@ -83,6 +87,9 @@ const DOTS_ALPHA := [1.0, 0.55, 0.22]
 
 signal reset_pressed
 signal menu_pressed
+## 「切换种类」按了（S5）。**壳不知道换成哪一份** —— 世界名在 `CWTutorLayers.switch_types()` 里，
+## 轮到哪一份由导演算（同「目录」那条：壳只管「点了」，往哪跳是皮与导演的事）
+signal switch_pressed
 signal menu_goto(level_id: String)
 ## 目录底部「Cell War」：重看开场（接线方走 `tutorial_opening.clear_seen()` + 重进引导）
 signal replay_opening
@@ -90,6 +97,7 @@ signal replay_opening
 var _block: Block             ## 全屏 STOP 层
 var _reset: Icon
 var _menu: Icon
+var _switch: Icon = null   ## 「切换种类」（懒建，S5）
 var _menu_panel: Control      ## 目录面板（S6 落地）
 var _chapter: Control         ## 章节提示那一屏
 var _chapter_title: Label
@@ -348,6 +356,28 @@ func sync(state: Dictionary) -> void:
 			_fill_menu()
 
 
+## ---- 「切换种类」（PRD:375，第五关 Step2，S5）----
+
+## 出 / 不出这颗按钮。导演每跑一条 `state` 就喂一次（`ui.switch_type` 是增量覆写的一层）。
+## **懒建**：不到第五关连节点都不建 —— 它不是 PRD 通用规则里的常驻件，只是那一关的界面变化。
+## **真机截图走 `call:CWTutorChrome:press_switch`** —— 合成鼠标点不到 Control
+func set_switch(on: bool) -> void:
+	if on and (_switch == null or not is_instance_valid(_switch)):
+		_switch = _icon(SWITCH_RECT, "switch", "切换种类", switch_pressed)
+	if _switch != null and is_instance_valid(_switch):
+		_switch.visible = on
+
+
+func switch_shown() -> bool:
+	return _switch != null and is_instance_valid(_switch) and _switch.visible
+
+
+## 真机截图 / 无头测试的驱动口（同 `toggle_menu`）。没出这颗就不发
+func press_switch() -> void:
+	if switch_shown():
+		switch_pressed.emit()
+
+
 ## 全屏 STOP 层。**只挡点击，不改画面**（PRD 没要求压暗），
 ## 另外把光标画成「…」—— 方向 A 第 7 条，Kevin 2026-09-19 照办
 class Block extends Control:
@@ -393,6 +423,13 @@ class Icon extends Control:
 			false, 1.0)
 		var ink := CWStyle.TEXT_HI if hot else CWStyle.TEXT
 		var o := (size - Vector2(12.0, 12.0)) / 2.0   ## 12×12 的图标居中
+		if kind == "switch":
+			## 切换种类：上下两枚反向的三角（同「轮换」的语言，与「重置」那枚回转箭头区分开）
+			draw_colored_polygon(PackedVector2Array([
+				o + Vector2(6.0, 0.0), o + Vector2(12.0, 5.0), o + Vector2(0.0, 5.0)]), ink)
+			draw_colored_polygon(PackedVector2Array([
+				o + Vector2(6.0, 12.0), o + Vector2(0.0, 7.0), o + Vector2(12.0, 7.0)]), ink)
+			return
 		if kind == "menu":
 			## 目录：三条横杠
 			for i in 3:

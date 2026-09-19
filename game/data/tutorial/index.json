@@ -15,13 +15,15 @@
     "· rolls: [] ≠ 省略 —— 空带子 = 「这一关一次 rng 都不许消耗」的断言。",
     "· chapter_kind: \"main\" / \"interlude\"。间章不是主章节的附属（Kevin 2026-09-19），它自己一份数据、目录里与三个主章节平级单列；章节提示比的是 (chapter_kind, chapter) 这个二元组。",
     "",
-    "⚠ 重做中：2026-09-19 老教程整套推倒，本表眼下是第一章三关（S1 第一关 + S4 第二 / 第三关）。第四～五关 S5、间章 S9、第七关 S10/S11。",
+    "⚠ 重做中：2026-09-19 老教程整套推倒，本表眼下是第一章三关（S1 第一关 + S4 第二 / 第三关）+ 第二章两关（S5 第四 / 第五关）。间章 S9、第六关 S10/S11。",
     "坐标口径统一走《新手引导v2_盘面提案》v4（第一关 (-5,-1)(-4,-1) 起，第二关 r=-1 排 q -5…1，第三关 3 格宽横带 37 格）——",
-    "三关连着一条教学带，关间静默切关时玩家细胞不跳格。"
+    "三关连着一条教学带，关间静默切关时玩家细胞不跳格；第四关起整盘 127 格、11 格特殊组织按本来的样子不摊平（v4 口径 4）。"
   ],
   "levels": [
     { "id": "c1_l1", "chapter": 1, "chapter_kind": "main", "chapter_title": "Cell", "title": "第一关 免疫", "file": "levels/c1_l1.json" },
     { "id": "c1_l2", "chapter": 1, "chapter_kind": "main", "chapter_title": "Cell", "title": "第二关 癌", "file": "levels/c1_l2.json" },
-    { "id": "c1_l3", "chapter": 1, "chapter_kind": "main", "chapter_title": "Cell", "title": "第三关 ATP", "file": "levels/c1_l3.json" }
+    { "id": "c1_l3", "chapter": 1, "chapter_kind": "main", "chapter_title": "Cell", "title": "第三关 ATP", "file": "levels/c1_l3.json" },
+    { "id": "c2_l4", "chapter": 2, "chapter_kind": "main", "chapter_title": "Immune", "title": "第四关 抗原记忆", "file": "levels/c2_l4.json" },
+    { "id": "c2_l5", "chapter": 2, "chapter_kind": "main", "chapter_title": "Immune", "title": "第五关 分化", "file": "levels/c2_l5.json" }
   ]
 }

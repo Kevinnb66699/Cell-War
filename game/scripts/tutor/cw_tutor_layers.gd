@@ -21,6 +21,15 @@ extends RefCounted
 ## 声明了 `energy: "infinite"` 的关就把它渲染成 `ENERGY_INF_MARK`，而不是「9999.0」。
 ## **不是拿 `>=` 去猜**：`energy` 是 `"plain"` 时照常按十分位写数字，标志值也照写。
 const INFINITE_AT := 99990
+## 显示判据取的是**一条带宽**而不是 `INFINITE_AT` 那一个数（S5）：
+## 哨兵不是真的无限 —— 玩家每走一格就被【迁移】啃掉 0.5~1.0，第四关整盘跑一趟约 100 能量。
+## 第一～三关右栏是关着的（看不见数字），**第四关起右栏开着**，拿 `>= 99990` 去判的话
+## 玩家走第一步那一刻「∞」就变成「9998.5」—— 恰好是 PRD:321 要的那一件事没做成。
+## 90000 = 9000.0：玩家要花掉 999.9 能量才跌出这条带（一整盘的十倍以上），
+## 而场上别的细胞最多几十（第五关 9 席里最高的是 5.0 = 50），够不着。
+## **仍然不是拿 `>=` 去猜「谁该写 ∞」**：`energy` 是 "plain" 时一律照十分位写数字。
+## 数据里写的仍是 `INFINITE_AT`（方案 §4），两个常量各管各的：一个是「数据写什么」、一个是「什么算无限」
+const INFINITE_MIN := 90000
 
 ## ★ **显示串常量只有这一处**（方案 §3.2(b) / 拆片 S13）。Kevin 2026-09-19 原话
 ## 「补字形，如果没有相似字形，就用 INF」—— 缝合像素 10px 原本没有 U+221E，
@@ -152,9 +161,9 @@ static func energy_text(v: int, mode := "") -> String:
 	var m := energy_mode() if mode == "" else mode
 	match m:
 		"infinite":
-			return ENERGY_INF_MARK if v >= INFINITE_AT else CWData.fmt(v)
+			return ENERGY_INF_MARK if v >= INFINITE_MIN else CWData.fmt(v)
 		"null":
-			return ENERGY_NULL_MARK if v >= INFINITE_AT else CWData.fmt(v)
+			return ENERGY_NULL_MARK if v >= INFINITE_MIN else CWData.fmt(v)
 		"hidden":
 			return ""
 		_:

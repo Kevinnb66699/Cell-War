@@ -176,6 +176,8 @@ func _run_all() -> void:
 		t_tutor_fx,
 		## 新手教程 v2 · S4：第一章三关端到端 + 第三关能量 6.6 引擎现算复核
 		t_tutor_c1, t_tutor_energy_formula,
+		## 新手教程 v2 · S5：第二章两关端到端（∞ 带宽 / 攻击不限次 / 分化 / 切换种类 / 9 席）
+		t_tutor_c2,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -22227,11 +22229,12 @@ func t_issue_fx_0919() -> void:
 ## 多给则说明剧本里那几次掷骰根本没发生 —— 两头都要判。
 
 
-## 一关的跑场：装盘面 → 挂带子 → 接导演。返回 `{ game, tape, dir, view, gate }`
-func _tutor_c1_open(lv: Dictionary) -> Dictionary:
+## 一关的跑场：装盘面 → 挂带子 → 接导演。返回 `{ game, tape, dir, view, gate }`。
+## `wid` 默认关首那份；第五关 Step2（S5）要从关内重装的那份起跑，所以开一个口
+func _tutor_c1_open(lv: Dictionary, wid := "base") -> Dictionary:
 	var d = TUTOR_SCRIPT.new()
-	var g: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "base"))
-	check(g != null, "关「%s」的 base 装得出来" % str(lv.get("id", "")))
+	var g: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, wid))
+	check(g != null, "关「%s」的 %s 装得出来" % [str(lv.get("id", "")), wid])
 	## 带子必须挂在跑起来之前（同 `cw_tutorial_stage._open`）：晚一步那一颗就走真 rng
 	var tape = ROLL_TAPE.new()
 	var rolls: Array = []
@@ -22616,3 +22619,350 @@ func t_tutor_energy_formula() -> void:
 		"劝重置阈值 %s = 攻击三次 + 反弹自损：最省剩 %s 不劝、次优 3.5 剩 %s 当场劝"
 			% [CWData.fmt(advise), CWData.fmt(got - best), CWData.fmt(got - 35)])
 	g.dispose()
+
+
+## 新手教程 v2 · S5：第二章两关（第四关 抗原记忆 / 第五关 分化）**端到端**
+## （PRD:305-403，行号基线 = PRD 2026-09-19 04:08 版）
+##
+## 与 `t_tutor_c1` 同一套跑场（真盘面、真规则、剧本自己的 `allow` 现场过闸），另外盯住
+## 本片独有的五件：∞ 的**显示带宽**、`attack_max_per_turn: 0`、门槛按 `seats != 4` 回落六人档、
+## 9 席右栏不溢出、四份分化 world 只差玩家那一只的 `type`。
+##
+## **不起 CWKernel**：装闸时序归 `t_tutor_director`、真入口归 `t_entry_smoke_tutorial`。
+func t_tutor_c2() -> void:
+	print("[新手教程 v2 S5·第二章两关端到端]")
+	CWGuideProgress.clear()
+	CWTutorLayers.reset()
+	var d = TUTOR_SCRIPT.new()
+	var lv4: Dictionary = d.load_level("c2_l4")
+	var lv5: Dictionary = d.load_level("c2_l5")
+
+	## ---- ⓪ 关表登记 + 两关的 allow 里没有 act=end ----
+	## 后者是「最后一只癌细胞死了也不弹结算屏」的**唯一依据**：`check_immune_win` 只在 E 阶段最后判
+	## （`cw_world.gd:74`），而进 E 阶段要先点「结束回合」—— 闸里没有这一条就永远走不到。
+	var ids: Array = []
+	var ch2: Array = []
+	for row in d.load_index().get("levels", []):
+		ids.append(str((row as Dictionary).get("id", "")))
+		if int((row as Dictionary).get("chapter", 0)) == 2:
+			ch2.append("%s/%s" % [str((row as Dictionary).get("chapter_title", "")),
+				str((row as Dictionary).get("chapter_kind", ""))])
+	check(ids == ["c1_l1", "c1_l2", "c1_l3", "c2_l4", "c2_l5"]
+			and ch2 == ["Immune/main", "Immune/main"],
+		"关表登记了第二章两关，章名照 PRD「Immune」（实测 %s）" % str(ids))
+	check(str(lv4.get("on_done", "")) == "c2_l5" and str(d.load_level("c1_l3").get("on_done", "")) == "c2_l4",
+		"第三关 → 第四关 → 第五关 串得上（on_done）")
+	var ends: Array = []
+	var free_rows: Array = []
+	for lv in [lv4, lv5]:
+		for r in lv.get("flow", []):
+			var row: Dictionary = r
+			if str(row.get("do", "")) != "player":
+				continue
+			if not row.has("allow"):
+				free_rows.append(str(lv.get("id", "")))
+				continue
+			for a in row["allow"]:
+				if str(a).contains("act=end"):
+					ends.append("%s:%s" % [str(lv.get("id", "")), str(a)])
+	check(ends.is_empty() and free_rows.is_empty(),
+		"★ 第四 / 五关的 allow 里没有 act=end、也没有敞开的自由段 —— 全癌死亡时进不了 E 阶段，"
+			+ "弹不出结算屏（结束回合：%s；敞开：%s）" % [str(ends), str(free_rows)])
+
+	## ---- ① 门槛：判据钉 `seats != 4`，别依赖四人档那一行 ----
+	var tiers4: Array = CWData.level_min_memory(int(lv4.get("seats", 0)))
+	var tiers5: Array = CWData.level_min_memory(int(lv5.get("seats", 0)))
+	check(int(lv4.get("seats", 0)) != 4 and int(lv5.get("seats", 0)) != 4
+			and tiers4 == CWData.LEVEL_MIN_MEMORY and tiers5 == CWData.LEVEL_MIN_MEMORY
+			and int(tiers4[2]) == 30,
+		"seats = %d / %d 都不是 4 ⇒ 门槛一律回落六人档，III 级 = %d 记忆"
+			% [int(lv4["seats"]), int(lv5["seats"]), int(tiers4[2])])
+
+	## ---- ② ∞：显示串 + **带宽**（本片改判：判据从 INFINITE_AT 那一个数改成 INFINITE_MIN 那条带）----
+	check(CWTutorLayers.energy_text(CWTutorLayers.INFINITE_AT, "infinite") == "∞"
+			and CWTutorLayers.ENERGY_INF_MARK == "∞",
+		"哨兵渲染成「∞」（显示串常量只有 CWTutorLayers 一处）")
+	check(CWTutorLayers.energy_text(CWTutorLayers.INFINITE_AT - 1000, "infinite") == "∞",
+		"★ 花掉 100 能量之后**仍然是 ∞**：第四关整盘跑一趟就得花这么多，"
+			+ "拿 `>= INFINITE_AT` 去判的话玩家走第一步那一刻 ∞ 就变回数字（S5 实测改判）")
+	check(CWTutorLayers.energy_text(50, "infinite") == "5.0"
+			and CWTutorLayers.energy_text(CWTutorLayers.INFINITE_AT, "plain") == "9999.0",
+		"同一关里别的细胞照常写数字；`plain` 档连哨兵都照写（不是拿 >= 去猜谁该写 ∞）")
+
+	## ---- ③ 第四关（PRD:305-347）：整盘 127 格、attack_max 0、净化 10 格升到 III ----
+	check((lv4["active_tiles"] as Array).size() == 127
+			and (lv5["active_tiles"] as Array).size() == 127
+			and CWData.all_coords().size() == 127,
+		"第四关一次揭到整盘 127 格，第五关一格不加（v4 口径 3：活跃集只增不减）")
+	var run4 := _tutor_c1_open(lv4)
+	var g4: CWGame = run4["game"]
+	check(int(g4.tune.attack_max_per_turn) == 0 and CWData.ATTACK_MAX_PER_TURN == 3,
+		"旋钮 attack_max_per_turn 拧到 0 = 不限（引擎判的是 `if cap > 0`；常量仍是 3）")
+	check(int(g4.memory) == 20 and int(g4.immune_level) == 1
+			and int(g4.cell_of(0)["energy"]) == CWTutorLayers.INFINITE_AT
+			and g4.cell_of(0)["pos"] == Vector2i(4, -1),
+		"起手 II 级 / 20 记忆 / ∞ 能量 / 站 (4,-1)（v4 Q4-5：第三关走直线那条最省路的终点）")
+	check(int(g4.tile(Vector2i(3, 0))["special"]) == CWData.Special.CORE
+			and int(g4.tile(Vector2i(6, 0))["special"]) == CWData.Special.VESSEL,
+		"★ 11 格特殊组织**按本来的样子、不摊平**（v4 口径 4）—— 第三关那四格摊成 normal 的做法到本关为止")
+	## 净化 10 格 = +10 记忆（20 → 30 = 六人档 III 级）。癌块 A 的 8 格 + 走 4 步过去癌块 B 的 2 格
+	var path4: Array = [
+		Vector2i(4, 0), Vector2i(5, 0), Vector2i(6, 0), Vector2i(6, -1), Vector2i(6, -2),
+		Vector2i(6, -3), Vector2i(5, -3), Vector2i(5, -2),
+		Vector2i(4, -2), Vector2i(4, -3), Vector2i(4, -4), Vector2i(3, -4),
+		Vector2i(3, -5), Vector2i(2, -5)]
+	await _tutor_c1_drive(run4, path4, "第四关")
+	check(int(g4.memory) == 30 and int(g4.immune_level) == 2 and not run4["dir"].active,
+		"亲手净化 10 格 ⇒ 记忆 20 → %d、免疫等级 II → %s，`until: level_at_least III` 命中"
+			% [int(g4.memory), CWData.LEVEL_NAMES[int(g4.immune_level)]])
+	_tutor_c1_close(run4)
+
+	## ---- ④ 第五关 Step1（PRD:351-367）：四种分化都选得到，玩家真分化一次 ----
+	CWTutorLayers.reset()
+	var run5 := _tutor_c1_open(lv5)
+	var g5: CWGame = run5["game"]
+	check(int(lv5.get("seats", 0)) == 9 and g5.cells.size() == 9
+			and int(g5.immune_level) == 2 and int(g5.memory) == 30,
+		"9 席（玩家 + 四只 NPC 免疫 + 四只癌）、起手 III 级 —— 分化挂 III 级（DIFFERENTIATE_MIN_LEVEL = 2）")
+	check(g5.differentiated.is_empty(),
+		"★ Step1 那四只 NPC 免疫是**未分化**的 ImmuneBasic：摆成已分化的话四种全被占，"
+			+ "`_diff_choices()` 当场空表、PRD:353 的任务一个选项都做不成")
+	var diffs: Array = []
+	for o in g5.actions.build_options(g5.cell_of(0)):
+		var data: Dictionary = (o as Dictionary)["data"]
+		if str(data.get("act", "")) == "differentiate":
+			diffs.append(int(data["type"]))
+	diffs.sort()
+	check(diffs == [CWData.ImmuneType.B_CELL, CWData.ImmuneType.T_CELL,
+			CWData.ImmuneType.MACRO, CWData.ImmuneType.DENDRITIC],
+		"四种分化都在选项表里（实测 %s）" % str(diffs))
+	## `step` 只标在一个 Step 的**头一条**上（同 c1_l3 的写法），所以按位置找：
+	## Step2 的 `state` = 第二条 `state`（关内重装那一条），Step1 的 `player` = 它前面最后一条 `player`
+	var step1_at := -1
+	var step2_at := -1
+	var seen_state := 0
+	for i in (lv5["flow"] as Array).size():
+		var row: Dictionary = lv5["flow"][i]
+		if str(row.get("do", "")) == "state":
+			seen_state += 1
+			if seen_state == 2:
+				step2_at = i
+				break
+		if str(row.get("do", "")) == "player":
+			step1_at = i
+	check(step1_at >= 0 and step2_at > step1_at
+			and str((lv5["flow"][step2_at] as Dictionary).get("step", "")) == "Step2",
+		"flow 里 Step1 的 player 在 %d、Step2 的 state 在 %d" % [step1_at, step2_at])
+	var loads5: Array = []
+	run5["dir"].want_load.connect(func(w: String) -> void: loads5.append(w))
+	await _tutor_c2_diff(run5, lv5["flow"][step1_at], CWData.ImmuneType.T_CELL)
+	await _tutor_pump(8)
+	check(bool(g5.cell_of(0)["differentiated"])
+			and int(g5.cell_of(0)["itype"]) == CWData.ImmuneType.T_CELL
+			and run5["dir"]._at > step1_at,
+		"分化成 T 细胞 ⇒ `until: delta differentiated` 命中、游标翻过 Step1（实测 %d）" % run5["dir"]._at)
+	var codex: Array = []
+	for e in (run5["view"] as CWTutorViewTally).log:
+		if str((e as Dictionary)["kind"]) == "codex_unlocked":
+			codex.append(((e as Dictionary)["args"] as Dictionary)["ids"])
+	check(codex == [PackedStringArray(["differentiate"])],
+		"分化完才解锁图鉴【分化】（PRD:367 挂在 O-玩家 之后，实测 %s）" % str(codex))
+	check(loads5 == ["base", "b"],
+		"Step2 那一条 state 走的是**关内 load**（PRD:381 改的是已露出的格，遮罩揭不了）：%s" % str(loads5))
+	_tutor_c1_close(run5)
+
+	## ---- ⑤ 四份分化 world：只差玩家那一只的 type，各自过圆环 ----
+	var shapes := {}
+	var kinds_seen: Array = []
+	for wid in ["b", "t", "macro", "dc"]:
+		var spec: Dictionary = d.resolve(lv5, wid)
+		var probe: Dictionary = spec.duplicate(true)
+		for c in probe["cells"]:
+			if int((c as Dictionary)["seat"]) == 0:
+				kinds_seen.append(str((c as Dictionary)["type"]))
+				(c as Dictionary)["type"] = "＜玩家＞"
+		shapes[wid] = JSON.stringify(probe)
+		var loader = CASE_LOADER.new()
+		var gw: CWGame = loader.load_world(spec.duplicate(true))
+		check(gw != null and TUTOR_SCRIPT.deep_eq(loader.dump_world(gw),
+				loader.minify(spec.duplicate(true))),
+			"world「%s」过圆环：dump_world(load_world(spec)) ≡ minify(spec)" % wid)
+		if gw != null:
+			gw.dispose()
+	check(shapes["b"] == shapes["t"] and shapes["t"] == shapes["macro"]
+			and shapes["macro"] == shapes["dc"],
+		"★ 四份 world **只差玩家那一只的 type**：把 seat 0 的种类抹掉之后四份逐字相同")
+	check(kinds_seen == ["BCell", "TCell", "Macrophage", "Dendritic"],
+		"四份各是一种免疫（实测 %s）" % str(kinds_seen))
+
+	## ---- ⑥ 第五关 Step2（PRD:375-403）：切换种类 / 攻击不限次 / all_dead ----
+	CWTutorLayers.reset()
+	var run6 := _tutor_c1_open(lv5, "b")
+	var g6: CWGame = run6["game"]
+	var dir6 = run6["dir"]
+	## 先让导演把**关首那一条 `state`** 跑完（ui 层是增量覆写的，Step2 那一条只写了 switch_type）。
+	## 这份盘面里玩家已经分化过了 ⇒ Step1 那条 `delta: differentiated` 永远等不到，正好停在那里
+	await _tutor_pump(10)
+	check(dir6._at == step1_at, "关首那几条跑完，游标停在 Step1 的 player 上（实测 %d）" % dir6._at)
+	var loads6: Array = []
+	dir6.want_load.connect(func(w: String) -> void: loads6.append(w))
+	dir6._at = step2_at          ## 直接落到 Step2 那一条（Step1 的分化在 ④ 里跑过了）
+	dir6._entered = false
+	await _tutor_pump(8)
+	check(CWTutorLayers.switch_types() == ["b", "t", "macro", "dc"]
+			and CWTutorLayers.energy_mode() == "infinite"
+			and not CWTutorLayers.on("round_no") and CWTutorLayers.on("sidebar")
+			and not CWTutorLayers.on("end_turn") and not CWTutorLayers.on("hand"),
+		"Step2 的 ui 层：出「切换种类」、能量 ∞、右栏开着但藏「第 X 回合」、无结束回合 / 无手牌")
+	check(CWTutorLayers.camera() == { "anchor": "player", "align": "center" },
+		"镜头照 PRD:313「角色调中」，第五关沿用（实测 %s）" % str(CWTutorLayers.camera()))
+	## 常驻壳那一颗：`ui.switch_type` 非空才出，出着才点得动
+	var chrome := CWTutorChrome.new()
+	root.add_child(chrome)
+	await process_frame
+	var pressed := [0]
+	chrome.switch_pressed.connect(func() -> void: pressed[0] += 1)
+	chrome.press_switch()
+	check(not chrome.switch_shown() and pressed[0] == 0,
+		"默认不出「切换种类」（前四关连节点都不建），点也点不动")
+	chrome.set_switch(true)
+	chrome.press_switch()
+	chrome.set_switch(false)
+	chrome.press_switch()
+	check(chrome.switch_shown() == false and pressed[0] == 1,
+		"开着点一下发一次，收回去之后再点不发（实测 %d 次）" % pressed[0])
+	chrome.queue_free()
+	await process_frame
+	## 按一下换下一份，走完一圈回到第一份
+	for _i in 4:
+		dir6.switch_type()
+	check(loads6 == ["b", "t", "macro", "dc", "b"],
+		"Step2 那条 `state` 先 load 一份，再按「切换种类」转满一圈回到起点（实测 %s）" % str(loads6))
+	## 攻击不限次：5.0 那只要连打 **5 次**，上限 3 的话第 4 次就没选项了
+	run6["tape"].tape = [[1, 6, 3], [1, 6, 3], [1, 6, 3], [1, 6, 3], [1, 6, 3]]
+	run6["tape"].at = 0
+	var foe: Dictionary = g6.cell_of(5)
+	check(foe["pos"] == Vector2i(5, -1) and int(foe["energy"]) == 50,
+		"要打的那只骨肉瘤在 (5,-1)、5.0 能量")
+	await _tutor_c1_drive(run6, [Vector2i(5, -1), Vector2i(5, -1), Vector2i(5, -1),
+		Vector2i(5, -1), Vector2i(5, -1)], "第五关 Step2")
+	check(int(g6.cell_of(0)["attacks_used"]) == 5 and not g6.cell_of(5)["alive"],
+		"★ 同一个行动回合里攻击 %d 次（ATTACK_MAX_PER_TURN = 3，不拧旋钮第 4 次就没选项了；"
+			% int(g6.cell_of(0)["attacks_used"])
+			+ "而第一～五关永不点结束回合 ⇒ attacks_used 一辈子不清零）")
+	## `all_dead:cancer` 只在**整个阵营**清空时成立 —— 剩三只时不许翻页
+	check(dir6.active and dir6._at == (lv5["flow"] as Array).size() - 1,
+		"还剩三只癌细胞，游标停在 Step2 那条 player 上")
+	for i in [6, 7, 8]:
+		g6.cells[i]["alive"] = false
+	await _tutor_pump(8)
+	check(not dir6.active, "四只全灭 ⇒ `until: all_dead cancer` 命中，这一关走完")
+	check(int(g6.winner) < 0,
+		"★ 没有任何胜负判定跑过（winner 仍是 %d）—— check_immune_win 只在 E 阶段最后判" % int(g6.winner))
+	var solid := 0
+	for c in g6.tiles.keys():
+		if int((g6.tiles[c] as Dictionary)["tissue"]) == CWData.Tissue.SOLID \
+				and g6.cells_at(c, CWData.Faction.IMMUNE).is_empty():
+			solid += 1
+	check(solid == 3,
+		"固化癌组织三格（v4 Q5-2）且都没被免疫占据 —— 就算哪天真跑到 E 阶段，"
+			+ "check_immune_win 也会在「还有可复活据点」那一行早退（实测 %d 格）" % solid)
+	_tutor_c1_close(run6)
+
+	## ---- ⑦ NPC 席位：八只非人类席逐席装 Decider，空计划 = 纯三级兜底（站着不动）----
+	var npc_req := { "kind": "action", "pid": 3, "prompt": "", "options": [
+		{ "label": "迁移", "data": { "act": "move", "to": Vector2i(1, 0) } },
+		{ "label": "结束回合", "data": { "act": "end" } }] }
+	var dec = TUT_NPC.Decider.new()
+	dec.seat = 3
+	check(dec.plan.is_empty() and await dec.ask(npc_req) == 1,
+		"空计划的 Decider 只会落兜底②「结束回合」= 什么都不做（下标 %d）" % 1)
+	## 真机那一路：教程局按进度开在第五关，八只非人类席逐席真的装上了 Decider
+	CWGuideProgress.clear()
+	CWGuideProgress.set_done(3)          ## done_count = 4 ⇒ `_tutor_pick_level` 挑第五关
+	CWSettings.ai_delay_ms = 0
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m5: CWMatch = main_scene.match_node
+	m5.tutorial = true
+	m5.start()
+	await process_frame
+	await process_frame
+	check(str(m5._tutor_level.get("id", "")) == "c2_l5" and m5.player_count == 9
+			and m5.human_players == [0],
+		"教程局按进度开在第五关、真的是 9 席（%s / %d 席）"
+			% [str(m5._tutor_level.get("id", "")), m5.player_count])
+	var seats_with_dec: Array = []
+	var plans: Array = []
+	for dd in m5._npc_deciders:
+		seats_with_dec.append(int(dd.seat))
+		plans.append((dd.plan as Array).size())
+	seats_with_dec.sort()
+	check(seats_with_dec == [1, 2, 3, 4, 5, 6, 7, 8] and plans == [0, 0, 0, 0, 0, 0, 0, 0],
+		"★ 八只非人类席逐席装 Decider、空计划 = 站着不动（PRD 通用规则 11「无 ai 控制」；实测 %s）"
+			% str(seats_with_dec))
+	check(m5.board.active_tiles().size() == 127,
+		"棋盘遮罩真的揭到整盘 127 格（实测 %d）" % m5.board.active_tiles().size())
+	check(not m5._tutor_chrome.switch_shown(),
+		"Step1 不出「切换种类」（`ui.switch_type` 还是空的）")
+	CWTutorLayers.apply({ "switch_type": ["b", "t", "macro", "dc"] })
+	m5._sync_tutor_layers()
+	check(m5._tutor_chrome.switch_shown() and m5.panel.visible,
+		"★ `ui.switch_type` 一非空，常驻壳那颗「切换种类」就出来了（跟着其余 ui 层每帧同步）")
+	m5.teardown()
+	await process_frame
+	main_scene.queue_free()
+	await process_frame
+	CWSettings.ai_delay_ms = 220
+
+	## ---- ⑧ 右栏 9 席实测不溢出（★ 上限写死在这儿，别再往上加）----
+	var panel := CWMatchPanel.new()
+	root.add_child(panel)
+	await process_frame
+	panel.guide_layers(false, false)      ## 教程口径：结束回合关、「第 X 回合」关 ⇒ 回合块那 62px 让出来
+	await process_frame
+	var bottom9: float = panel.level_bottom(9)
+	var bottom10: float = panel.level_bottom(10)
+	check(bottom9 <= CWMatchPanel.RECT.size.y and bottom10 > CWMatchPanel.RECT.size.y,
+		"★ 9 席免疫等级块底边 %.0f ≤ %.0f，10 席 %.0f 放不下 —— 席位上限就是 9"
+			% [bottom9, CWMatchPanel.RECT.size.y, bottom10])
+	panel.queue_free()
+	await process_frame
+
+	## ---- ⑨ `all_dead` 的缺省：没有镜像那一瞬**不成立**（老 S8 踩过）----
+	var empty_snap: Dictionary = TUTOR_BEATS.snap(null, 0)
+	check(int(empty_snap["foes"]) == 1
+			and not TUTOR_BEATS.done({ "state": "all_dead" }, empty_snap, empty_snap, null)
+			and not TUTOR_BEATS.done({ "state": "all_dead", "arg": "cancer" }, empty_snap, empty_snap, null)
+			and not TUTOR_BEATS.done({ "state": "all_dead", "arg": "妖怪" }, empty_snap, empty_snap, null),
+		"`foes` 缺省 1、带阵营那一支没镜像就不成立、阵营名写歪也不成立（缺省取更难成立的那一边）")
+	CWTutorLayers.reset()
+	CWGuideProgress.clear()
+
+
+## 第五关 Step1：玩家点【分化】挑一种。先过剧本的闸，再交给引擎（同 `_tutor_c1_step`）
+func _tutor_c2_diff(run: Dictionary, row: Dictionary, itype: int) -> void:
+	var g: CWGame = run["game"]
+	var dir = run["dir"]
+	for _f in 200:
+		await process_frame
+		if not dir.active:
+			break
+		if str(dir._row().get("do", "")) == "player" and dir._entered:
+			break
+	var cell: Dictionary = g.cell_of(0)
+	var want := {}
+	for o in g.actions.build_options(cell):
+		var data: Dictionary = (o as Dictionary)["data"]
+		if str(data.get("act", "")) == "differentiate" and int(data.get("type", -1)) == itype:
+			want = data
+			break
+	check(not want.is_empty(), "第五关 Step1：引擎给得出「分化为 %s」这条选项"
+		% CWData.IMMUNE_TYPE_NAMES[itype])
+	if want.is_empty():
+		return
+	var allow: Variant = row.get("allow", null)
+	check(allow == null or TUTOR_BEATS.hits(CWSemKey.key({ "kind": "action" }, want), allow as Array),
+		"第五关 Step1：剧本的 allow 放行分化（%s）" % CWSemKey.key({ "kind": "action" }, want))
+	await g.actions.execute(cell, want)

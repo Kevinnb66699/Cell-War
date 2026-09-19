@@ -1009,6 +1009,10 @@ func _attach_tutor() -> void:
 	## 目录跳关：常驻壳只管「点了哪一关」，往哪跳是皮那条对外信号的事（S6 接上导演）
 	_tutor_chrome.menu_goto.connect(func(id: String) -> void: _tutor_view.menu_goto.emit(id))
 	_tutor_view.menu_goto.connect(_tutor_menu_goto)
+	## 「切换种类」（PRD:375，第五关 Step2，S5）：同上一条的形状 ——
+	## 壳只管「点了」，换成哪一份 world 是导演的事（它才持着轮转下标）
+	_tutor_chrome.switch_pressed.connect(func() -> void: _tutor_view.switch_type_pressed.emit())
+	_tutor_view.switch_type_pressed.connect(_tutor_switch_type)
 	## 目录底部「Cell War」= 重看开场（Q-21）：清掉 `opening_seen`（**只调开场脚本现成的那一条**）
 	## 再把球传给 `main.gd` —— 收摊与重进引导是入口的活，对局自己演不了开场
 	_tutor_chrome.replay_opening.connect(_tutor_replay_opening)
@@ -1019,6 +1023,13 @@ func _attach_tutor() -> void:
 func _tutor_menu_goto(id: String) -> void:
 	if _director != null and is_instance_valid(_director):
 		_director.goto_level(id)
+
+
+## 「切换种类」（PRD:375，第五关 Step2，S5）：经导演一手，理由同目录跳关 ——
+## 它发回来的是 `want_load`，走的就是 `flow[].state.load` 同一条路（`_tutor_load_world`）
+func _tutor_switch_type() -> void:
+	if _director != null and is_instance_valid(_director):
+		_director.switch_type()
 
 
 ## 目录底部「Cell War」（S6）：重看开场
@@ -1250,6 +1261,11 @@ func _sync_tutor_layers() -> void:
 	if panel != null:
 		panel.visible = CWTutorLayers.on("sidebar")
 		panel.guide_layers(CWTutorLayers.on("end_turn"), CWTutorLayers.on("round_no"))
+	## 「切换种类」（PRD:375，第五关 Step2，S5）跟着其余 ui 层走同一条路：
+	## 层表是静态的、每帧全量刷，所以重置 / 目录跳关 / 关内重装都不用各自补一句。
+	## **不走导演→皮那条意图链**：它是一个显隐开关，与 sidebar / round_no 同类
+	if _tutor_chrome != null and is_instance_valid(_tutor_chrome):
+		_tutor_chrome.set_switch(not CWTutorLayers.switch_types().is_empty())
 
 ## 教程「知识之书」直达：对局内把图鉴翻到点名的那一章。
 ## 图鉴盖在教程的皮上面，Esc / 右键关掉就回到教程；实例懒建，拆局只隐藏不销毁。

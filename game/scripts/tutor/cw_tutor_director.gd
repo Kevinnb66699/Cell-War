@@ -85,6 +85,9 @@ var _hook_obj = null
 var _hook_depth := 0
 ## `ctx.state()`：钩子唯一合法的状态落点。**随代际清空**（见 `invalidate()`）
 var _hook_state := {}
+## 「切换种类」按到第几份了（`ui.switch_type` 那一组 world 名的下标，S5）。
+## 换关 / 重置一律回到第一份（随代际闸清，见 `invalidate()`）
+var _switch_at := 0
 ## 正劝着重置（`advise_when` 命中）：这时 `until` **不翻页** ——
 ## 第三关「站到相邻格」在能量算亏时照样成立，翻过去那句劝退当场消失
 var _advising := false
@@ -140,6 +143,7 @@ func reset_level() -> void:
 func invalidate() -> void:
 	epoch += 1
 	_hook_state.clear()   ## 钩子的状态随代际一起清空（方案 §3.7 ⑦：钩子文件零成员变量，状态全在这儿）
+	_switch_at = 0        ## 「切换种类」的轮转下标也随代际回到第一份（S5）
 
 
 ## 这一代还活着吗（钩子层 S8 的 `ctx.alive()` 就是它）
@@ -573,3 +577,16 @@ func hook_fail(why: String) -> void:
 	active = false
 	if gate != null and is_instance_valid(gate):
 		gate.set_allow([])
+
+
+## 常驻壳的「切换种类」按下了（PRD:375，第五关 Step2，S5）。
+## 换法就是**关内 `load`**：那四份 world 只差玩家那一只的 `type` ——
+## 分化在规则里是一次性的，就地改 `itype` 等于绕开规则往引擎状态里写字。
+## **拆装次序不归导演管**：同 `flow[].state.load`，发 `want_load`，
+## 由调用方走舞台的 `reload_world`（`abort → stop → close → dispose`，次序一个字不能改）
+func switch_type() -> void:
+	var names: Array = CWTutorLayers.switch_types()
+	if names.is_empty():
+		return
+	_switch_at = (_switch_at + 1) % names.size()
+	want_load.emit(str(names[_switch_at]))
