@@ -23,11 +23,23 @@ func _sample(g: CWGame) -> Dictionary:
 		ce += int(c["energy"])
 	for c in g.living_cells(CWData.Faction.IMMUNE):
 		ie += int(c["energy"])
+	## 骨髓状态：健康骨髓数（免疫复活点）/ 癌化骨髓数（被踩）
+	var healthy_marrows := 0
+	var cancer_marrows := 0
+	for m in CWData.MARROWS:
+		var t: int = g.tiles[m]["tissue"]
+		if t == CWData.Tissue.HEALTHY:
+			healthy_marrows += 1
+		elif t == CWData.Tissue.CANCER or t == CWData.Tissue.SOLID:
+			cancer_marrows += 1
+	## 场上存活免疫数
+	var imm_alive: int = g.living_cells(CWData.Faction.IMMUNE).size()
 	return {
 		"round": g.round_no, "ct": ct, "st": st, "wp": ct + 2 * st,
 		"supply": MechValue.total_supply(g),
 		"level": g.immune_level, "mem": g.memory,
 		"ce": ce, "ie": ie,
+		"hmarrow": healthy_marrows, "cmarrow": cancer_marrows, "imm_alive": imm_alive,
 	}
 
 
@@ -107,9 +119,9 @@ func _run() -> void:
 			if detail:
 				var head := "    "
 				for s in timeline:
-					head += "r%d[癌%d固%d 进%d 供%d 级%d 忆%d 能%d/%d] " % [
+					head += "r%d[癌%d固%d 进%d 供%d 级%d 忆%d 能%d/%d 髓%d/%d 免%d] " % [
 						s["round"], s["ct"], s["st"], s["wp"], s["supply"],
-						s["level"], s["mem"], s["ce"], s["ie"]]
+						s["level"], s["mem"], s["ce"], s["ie"], s["hmarrow"], s["cmarrow"], s["imm_alive"]]
 				print(head)
 			g.dispose()
 		## 汇总分布（只统计该组合里出现过的）
