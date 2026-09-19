@@ -338,6 +338,7 @@
       "load": "base",
       "ui": {
         "*": false,
+        "notice": true,
         "action_bar": true,
         "sidebar": true,
         "round_no": false,

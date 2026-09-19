@@ -42,6 +42,18 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 	super.show_result(text, at, linger)
 
 
+## `notice` 层关着（间章 `"*": false`，PRD:409「所有 UI 消失」）就一只气泡都不弹。
+## 只拦气泡：基类 show_result 里的盘面特效已经在这之前演过了。**纯函数**，护栏直接核
+static func mutes_bubbles() -> bool:
+	return not CWTutorLayers.on("notice")
+
+
+func _bubble_result(text: String, at: Vector2i, linger: bool) -> void:
+	if mutes_bubbles():
+		return
+	super._bubble_result(text, at, linger)
+
+
 ## 装一道新的决策闸。挂在闸上的那一问会被叫醒、重新判一次
 func set_allow(a: Variant) -> void:
 	_allow = a

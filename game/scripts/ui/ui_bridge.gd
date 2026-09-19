@@ -1129,6 +1129,12 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 	if text == CWData.EFFECTOR_NAMES[CWData.ImmuneType.B_CELL] \
 			and seal_fx != null and board != null and mirror != null:
 		seal_fx.play(board.tile_center(at), _sealed_centers())
+	_bubble_result(text, at, linger)
+
+
+## 结算说明的**气泡**那一段，从 show_result 里单拆出来：教程闸桥按 `notice` 层静掉气泡时，
+## 上面那些盘面特效（准星 / 连续吞噬 / 黏液 / 封锁）照旧要演 —— 静的是字，不是盘面
+func _bubble_result(text: String, at: Vector2i, linger: bool) -> void:
 	if toast == null or board == null or camera == null:
 		return
 	if linger:

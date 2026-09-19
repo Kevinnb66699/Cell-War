@@ -21047,6 +21047,55 @@ func t_tutor_gate() -> void:
 	check(src.contains("MISS_GRACE_FRAMES") and src.find("var waited := 0") > 0
 			and src.find("var waited := 0") < src.find("push_warning("),
 		"闸非空却落空时**先让几帧再喊** —— 过渡态不该报成剧本写错")
+	## ⑩ `notice` 层（间章 PRD:409「所有 UI 消失」，S9b 留的账）：关着就一只结算气泡都不弹。
+	## 通配 `"*": false` 把它一并关掉；六关关首都显式写 `true`（保持 S1～S12 验收时的样子），只有间章不写
+	CWTutorLayers.reset()
+	check(not TUTOR_GATE.mutes_bubbles(), "缺省（正式局的样子）不静气泡")
+	CWTutorLayers.apply({ "*": false })
+	check(TUTOR_GATE.mutes_bubbles(), "通配全关之后 notice 层也关了 ⇒ 静气泡")
+	CWTutorLayers.apply({ "notice": true })
+	check(not TUTOR_GATE.mutes_bubbles(), "notice 单独开回来就又弹")
+	var ts = TUTOR_SCRIPT.new()
+	for id in ["c1_l1", "c1_l2", "c1_l3", "c2_l4", "c2_l5", "c3_l6", "interlude"]:
+		var lv: Dictionary = ts.load_level(id)
+		var first_ui: Dictionary = {}
+		for e in lv.get("flow", []):
+			if str((e as Dictionary).get("do", "")) == "state" and (e as Dictionary).has("ui"):
+				first_ui = (e as Dictionary)["ui"]
+				break
+		CWTutorLayers.reset()
+		CWTutorLayers.apply(first_ui)
+		var want_on: bool = id != "interlude"
+		check(CWTutorLayers.on("notice") == want_on,
+			"%s 关首之后 notice 层%s（六关显式 true 保持验收时的样子，间章靠通配一并关掉）"
+			% [id, "开" if want_on else "关"])
+	## 真走一遍气泡那一路：闸桥 + 真气泡层，关着 0 只、开着 1 只。
+	## 盘面特效不在这条路上 —— 基类 show_result 先把特效演完才到 _bubble_result，静的只是字
+	var gb = TUTOR_GATE.new()
+	var gboard := make_board()
+	gb.board = gboard
+	var gt := CWToast.new()
+	root.add_child(gt)
+	var gc := Camera2D.new()
+	root.add_child(gc)
+	gb.toast = gt
+	gb.camera = gc
+	var gdice := StubDice.new()
+	gdice._ready()
+	gb.dice = gdice
+	CWTutorLayers.apply({ "*": false })
+	gb.show_result("攻击成功，造成 1.0 伤害", Vector2i.ZERO)
+	check(gt._bubbles.is_empty(), "notice 关着：show_result 一只气泡都不弹（实测 %d 只）" % gt._bubbles.size())
+	CWTutorLayers.apply({ "notice": true })
+	gb.show_result("攻击成功，造成 1.0 伤害", Vector2i.ZERO)
+	check(gt._bubbles.size() == 1, "notice 开着：照常弹一只（实测 %d 只）" % gt._bubbles.size())
+	CWTutorLayers.reset()
+	root.remove_child(gt)
+	gt.free()
+	root.remove_child(gc)
+	gc.free()
+	gboard.free()
+	gdice.free()
 
 
 func t_tutor_view() -> void:

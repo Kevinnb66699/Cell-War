@@ -43,8 +43,11 @@ const ENERGY_NULL_MARK := "Null"
 
 ## 层名 → 默认值。**这张表就是白名单**：`apply()` 收到表外的键当场 warning
 ## （剧本写错一个层名，真机上的表现是「那一层没反应」，不报就查不出来）。
-## 连通配符 `"*"` 一共 11 层（方案 §3.2(b) 的清单）：
+## 连通配符 `"*"` 一共 13 层（方案 §3.2(b) 的清单）：
 ##   action_bar / sidebar / round_no / end_turn / hand / skill_bar —— 控件显隐
+##   notice    —— 结算说明气泡（「攻击成功」「攻击次数已用尽」…，`CWUIBridge.show_result` 那一路）。
+##                关掉只静气泡，盘面特效与日志照旧。间章 PRD:409「所有 UI 消失」靠通配一并关掉；
+##                六关关首都显式写 `true`（保持 S1～S12 验收时的样子，要不要也静由 Kevin 定）
 ##   switch_type —— 「切换种类」按钮（PRD:355 第五关 Step2）。**值是那一组 world 名**
 ##                  （`["b", "t", "macro", "dc"]`）：按一下换下一份，换法就是关内 `load`。
 ##                  `false` / `[]` = 不出这个按钮
@@ -76,6 +79,7 @@ const DEFAULTS := {
 	"end_turn": true,
 	"hand": true,
 	"skill_bar": true,
+	"notice": true,
 	"switch_type": false,
 	"move_path": true,
 	"cost": true,
