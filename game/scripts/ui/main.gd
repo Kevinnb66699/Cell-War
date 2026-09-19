@@ -66,6 +66,7 @@ func _ready() -> void:
 	pause.chose.connect(_on_pause_chose)
 	pause.action_bar = match_node.action_bar
 	match_node.finished.connect(_on_match_finished)
+	match_node.replay_opening.connect(_replay_opening)
 	settle.chose.connect(_on_settle_chose)
 
 
@@ -139,6 +140,25 @@ func _begin_tutorial(_cancer_type: int) -> void:
 		await cut.fade_out(T_OPENING_OUT)
 		cut.queue_free()
 	_entering = false
+
+
+## 教程目录底部那行「Cell War」（Kevin 2026-09-19 Q-21）：重看开场。
+## `opening_seen` 已经由 `CWMatch` 清掉了（开场三件只调它现成的 `clear_seen()`），
+## 这儿只负责**收摊这一局再重进引导** —— 返场那三拍照抄 `_back_to_menu`，
+## 差别只有最后一步不是把菜单放出来，而是径直重进（`_begin_tutorial` 见 `seen()` 为假会重播开场）。
+## `_entering` 在重进之前先放掉：`_begin_tutorial` 自己头一句就判它
+func _replay_opening() -> void:
+	if _entering:
+		return
+	_entering = true
+	_started_ms = Time.get_ticks_msec()
+	match_node.fade_out(T_BACK * 0.8)
+	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_tween.tween_method(_look, 1.0, 0.0, T_BACK)
+	await _tween.finished
+	match_node.teardown()
+	_entering = false
+	_begin_tutorial(0)
 
 
 ## 联机开局：房间进入对局且第一份状态到了。过场和本地开局一样（推镜头 + 绽开），
