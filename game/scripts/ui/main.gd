@@ -107,8 +107,8 @@ func _begin(cfg: Dictionary) -> void:
 ##
 ## **2026-09-19 老教程整套推倒**（新手教程 v2 · S1 commit A）：席位数 / 人类席 / 癌种 / 活跃格
 ## 都是**关卡数据里的设计量**（方案 §2.2），不再在这儿现算 —— 装配整段搬去 commit B 的导演。
-## 入口母菜单那一项重做期间一直灰着（`main_menu.gd` 的 `enabled: false`），
-## `cancer_type` 形参留着不动：主菜单那套「过完教程可自选对手」是 Kevin 09-05 拍板过的，保留。
+## 入口母菜单那一项重做期间一直灰着，**2026-09-19 · S12 收口已恢复**（`main_menu.gd` 的 `enabled: true`，
+## 那是唯一一处开关）；`cancer_type` 形参留着不动：主菜单那套「过完教程可自选对手」是 Kevin 09-05 拍板过的，保留。
 func _begin_tutorial(_cancer_type: int) -> void:
 	if _entering:
 		return

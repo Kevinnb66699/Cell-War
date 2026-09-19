@@ -12028,6 +12028,17 @@ func t_font_coverage() -> void:
 	## 来龙去脉见 assets/fonts/README.md）。钉死这一条：教程 S4 的「能量 ∞」靠它上屏，
 	## 字体文件哪天被上游原版覆盖回去，这里先红，而不是等玩家看见一个方框
 	check(supported.has(0x221E), "∞（U+221E）在字库里 —— 手补的字形还在")
+	## 上一条盯的是字库，这一条盯的是**那个显示串本身**（方案 §6.2 的「两种终态都要有一条正面断言」）：
+	## 「能量 ∞」是 `cw_tutor_layers.gd` 里的**代码常量**，改成 `INF` 兜底也好、换个形近字形也好，
+	## 只要它逐字符都在字库覆盖集里就合法。扫 JSON 扫不到它，扫 `.gd` 字面量能扫到但抓不住
+	## 「拼出来的串」这一种 —— 所以在这里现调一次、逐字符核。
+	var inf_text := CWTutorLayers.energy_text(CWTutorLayers.INFINITE_AT, "infinite")
+	var inf_bad := ""
+	for k in inf_text.length():
+		if inf_text.unicode_at(k) > 0x7F and not supported.has(inf_text.unicode_at(k)):
+			inf_bad += inf_text[k]
+	check(inf_text != "" and inf_bad == "",
+		"「能量 ∞」那个显示串（%s）逐字符都在字库里%s" % [inf_text, "" if inf_bad == "" else "；缺：" + inf_bad])
 	## 扫描器自检：注释行之后的字面量必须抠得出来，LF 和 CRLF 行尾都得行。
 	## 2026-08-30 实锤过一次「com 粘死」：CRLF 下换行比对失败，# 之后全被跳过，
 	## 扫描空转、检查空心绿——「−1.5」就是这么溜上屏的。
@@ -12069,11 +12080,10 @@ func t_font_coverage() -> void:
 	var jmsg := ""
 	for k in jbad:
 		jmsg += "%s（%s）" % [k, jbad[k]]
-	## ⚠ **阈值临时下调**（新手教程 v2 · S1）：原阈值 `jfiles >= 4 and lines > 20` 是按六关剧本定的，
-	## 眼下只有第一关 + 一份第二关占位（commit B），够不着 —— 先降到 `jfiles >= 1 and lines > 5`，
-	## **S12 收口时抬回 4 / 20**（第二 ~ 五关 S4/S5、间章 S9、第七关 S10/S11 补齐之后）。
-	## 阈值本身是防「扫描空转、检查空心绿」的，降了也不能降到 0。
-	check(jfiles.size() >= 1 and lines.size() > 5 and jbad.is_empty(),
+	## **阈值已抬回 4 / 20**（新手教程 v2 · S12 收口，2026-09-19）：S1 临时降到 `1 / 5` 是因为
+	## 那一刻只有第一关 + 一份第二关占位；六关 + 间章补齐之后原阈值天然满足，按约定抬回去。
+	## 阈值本身是防「扫描空转、检查空心绿」的 —— 剧本哪天被挪走 / 键名再改一次，这一条先红。
+	check(jfiles.size() >= 4 and lines.size() > 20 and jbad.is_empty(),
 		"教程剧本 %d 份 JSON 的 %d 条上屏文案也过字形闸%s"
 			% [jfiles.size(), lines.size(), "" if jbad.is_empty() else "；缺：" + jmsg])
 
@@ -19732,7 +19742,7 @@ func _scan_preload_tests(dir: String, hits: Array[String]) -> void:
 	d.list_dir_end()
 
 
-## 新手引导 S1：活跃格集合与浮现（`docs/新手引导_实现方案.md` §1.9）。
+## 新手引导 S1：活跃格集合与浮现（`docs/archive/新手引导_实现方案_v1_2026-09-19.md` §1.9）。
 ##
 ## 口径从「半径」换成「格集合」——引导要露的是任意形状的几格（第二关右边那只癌细胞
 ## 得等到该露的那一步才出现），半径表达不了。`hex_at` 必须跟着扫集合：不同改就点击与显示脱节，
@@ -19887,18 +19897,22 @@ func t_entry_smoke_hotseat() -> void:
 ## 「把之前教程的 UI 等设计全部删掉，基于脚本从 0 构建」），这条冒烟原来核的三件
 ## —— `cfg.adopt`、活跃格由关卡数据声明、跨章换局重挂同一个引导面板 —— 断言对象**整体消失**。
 ## 重做期间它核两件还立得住的：
-##   ① **入口灰着**：`main_menu.gd` 的「新手引导」项 `enabled == false`（重做期间不许有人误放出去）；
+##   ① **入口开关**：`main_menu.gd` 的「新手引导」项（重做期间灰着，不许有人误放出去）；
 ##   ② 教程标志位仍是个**能起局、能拆干净的空壳**：127 格棋盘常驻、拆局无 barrier timeout。
 ## 原三条判据迁到 commit B 的 `t_tutor_director`（装闸时序 / 换局重挂）与 `t_tutor_view`（活跃格）。
+##
+## **再改判（S12 收口，2026-09-19）**：六关 + 间章全部落地、真机通关过一次 ⇒ 入口恢复，
+## 这一条跟着从「灰着」翻成「亮着」。它是入口的**唯一开关**，翻错了玩家就点不进教程（或误碰到半成品），
+## 所以正反两面都只由这一条钉死 —— 别再靠人眼看菜单。
 func t_entry_smoke_tutorial() -> void:
-	print("[入口冒烟·教程（重做期间的空壳）]")
+	print("[入口冒烟·教程]")
 	var menu_script = load("res://scripts/ui/main_menu.gd")
 	var guide_item: Dictionary = {}
 	for it in menu_script.ITEMS:
 		if str((it as Dictionary).get("node", "")) == "Guide":
 			guide_item = it
-	check(not guide_item.is_empty() and not bool(guide_item.get("enabled", true)),
-		"重做期间主菜单「新手引导」灰着（S12 收口时才恢复）")
+	check(not guide_item.is_empty() and bool(guide_item.get("enabled", false)),
+		"★ 主菜单「新手引导」入口已恢复（S12 收口；重做期间它是 enabled=false）")
 	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
 	root.add_child(main_scene)
 	await process_frame
@@ -23003,6 +23017,13 @@ func t_tutor_c1() -> void:
 	check(int(g3.cell_of(0)["energy"]) == 1,
 		"能量正好剩 0.1（PRD:261 公式最后那一项），实测 %s" % CWData.fmt(int(g3.cell_of(0)["energy"])))
 	check(not run3["dir"].active, "全癌死亡 ⇒ until:all_dead 命中，这一关走完")
+	## **迁自老 `t_guide_no_win`（S12 收口，方案 §6.4）**：老测试整份删掉了，但「教程局不产 game_over」
+	## 这条判据的形状还立得住，逐条迁过来 —— 上面 ⓪ 是**结构侧**（allow 里没有 act=end ⇒ 进不了 E 阶段），
+	## 这里补**运行期正面那一半**：第一章里唯一一关真把癌细胞全打死了，`winner` 仍是 -1、也没 aborted。
+	## 老断言是「教程局把 `win_checks` 关掉」，那个开关 2026-09-19 已整条消掉（不在 cwxworld/3 的 15 键里），
+	## 所以改成直接核结果 —— 判定跑没跑不重要，**不分出胜负**才是要的那件事。
+	check(int(g3.winner) == -1 and not g3.aborted,
+		"★ 教程局不产 game_over：第三关全癌死亡之后 winner 仍是 -1（实测 %d）、也没弹结算屏（迁自 t_guide_no_win）" % int(g3.winner))
 	_tutor_c1_tape(run3, "第三关")
 	_tutor_c1_close(run3)
 
