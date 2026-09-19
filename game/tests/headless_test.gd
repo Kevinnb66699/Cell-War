@@ -1261,18 +1261,66 @@ func t_immune_respawn() -> void:
 	g.round_no = 6
 	check(g.world.revive_options_immune(imm2["pid"]).is_empty(),
 		"唯一的健康骨髓被队友占着 → 没有落点")
-	## 旋钮 immune_respawn_delay=1（2026-09-02 后期引擎对比表杠杆④）：多罚停一个世界回合
+	## 旋钮 immune_respawn_delay=1（2026-09-02 后期引擎对比表杠杆④）= PRD 死亡惩罚 X 的**初始值**
 	g.tune.immune_respawn_delay = 1
 	g.round_no = 5
 	g.kill(imm)
-	check(imm["respawn_round"] == 7, "罚停 1：死于第 5 回合 → 第 7 回合才复活（默认是第 6）")
+	## imm 上面已经在骨髓结算过一次复活 → X = 初始值 1 + 已复活 1 = 2（PRD：每结算一次复活 X 加 1）
+	check(imm["revives"] == 1, "结算过一次复活 → revives = 1")
+	check(imm["respawn_round"] == 8, "第二次死亡、X=2：死于第 5 回合 → 第 8 回合才复活")
 	imm["alive"] = true
 	imm["respawn_round"] = -1
-	## 旋钮关掉 → 永久死亡
+	## 旋钮关掉 → 永久死亡（复活过几次都不参与）
 	g.tune.immune_respawn_delay = -1
 	g.kill(imm)
 	check(imm["respawn_round"] == -1, "旋钮关掉后不再排队复活")
 	g.dispose()
+
+	## ---- PRD【S-复活】死亡惩罚 X 逐次递增（PRD 2026-09-19 落字，issue #63）----
+	## 「X 初始为 1，免疫细胞每结算一次复活该免疫细胞的 X 增加 1」：
+	## 死于第 N 回合 → 第 N+1+X 回合才复活，一次比一次长。计数住在细胞的 `revives` 上，
+	## 所以它还要跟着快照与 cwxworld 往返（存档、推演、L0 用例、教程关卡都靠这两条路摆盘面）。
+	var g2 := make_game(4, 11)
+	await run_setup(g2)
+	var hero: Dictionary = g2.living_cells(CWData.Faction.IMMUNE)[0]
+	var hero_pid: int = hero["pid"]
+	check(hero["revives"] == 0, "出生时没死过：revives = 0")
+	g2.round_no = 10
+	g2.kill(hero)
+	check(hero["respawn_round"] == 12, "第一次死亡 X=1：死于第 10 回合 → 第 12 回合才复活")
+	## 腾一个健康空骨髓 —— **复活结算**才是 X 增加的那一刻
+	g2.tiles[CWData.MARROWS[0]]["tissue"] = CWData.Tissue.HEALTHY
+	await g2.world.revive_immune(hero_pid, CWData.MARROWS[0])
+	check(hero["revives"] == 1, "结算过一次复活：revives = 1")
+	g2.round_no = 20
+	g2.kill(hero)
+	check(hero["respawn_round"] == 23, "第二次死亡 X=2：死于第 20 回合 → 第 23 回合才复活")
+	g2.tiles[CWData.MARROWS[1]]["tissue"] = CWData.Tissue.HEALTHY
+	await g2.world.revive_immune(hero_pid, CWData.MARROWS[1])
+	g2.round_no = 30
+	g2.kill(hero)
+	check(hero["revives"] == 2 and hero["respawn_round"] == 34,
+		"第三次死亡 X=3：死于第 30 回合 → 第 34 回合才复活")
+	## 癌细胞没有 X：kill 在癌方那一支就返回了，计数一动不动
+	var can2: Dictionary = g2.living_cells(CWData.Faction.CANCER)[0]
+	g2.kill(can2)
+	check(can2["revives"] == 0 and can2["respawn_round"] == -1, "癌细胞不吃死亡惩罚，revives 恒 0")
+	## 快照往返（存档 / 回放 / 蒙特卡洛推演都走 snapshot）
+	var snap: Dictionary = g2.snapshot()
+	hero["revives"] = 0
+	g2.restore(snap)
+	check(int(g2.cell_of(hero_pid)["revives"]) == 2, "revives 随快照往返")
+	g2.dispose()
+	## cwxworld/3 往返：装得进、dump 得出来，否则 L0 用例摆不出「已经死过几次」的盘面
+	var loader = CASE_LOADER.new()
+	var spec := { "players": [{ "seat": 0, "faction": "immune" }],
+		"cells": [{ "seat": 0, "at": "0,0", "revives": 3 }] }
+	var loaded: CWGame = loader.load_world(spec.duplicate(true))
+	check(loaded != null and int(loaded.cells[0]["revives"]) == 3, "cwxworld 装得进 revives")
+	if loaded != null:
+		check(TUTOR_SCRIPT.deep_eq(loader.dump_world(loaded), loader.minify(spec.duplicate(true))),
+			"revives 过圆环：dump_world(load_world(spec)) ≡ minify(spec)")
+		loaded.dispose()
 
 
 # ---- 【E-微环境压迫】：相邻癌性组织 > 2 格时按超出格数扣能量 ----
@@ -18163,9 +18211,9 @@ func t_case_loader_keys() -> void:
 			seen[k] = true
 	check(dup.is_empty(), "键表元素无重复（%s）" % str(dup))
 	check(CASE_LOADER.CASE_KEYS.size() == 13 and CASE_LOADER.WORLD_KEYS.size() == 15
-		and CASE_LOADER.TILE_KEYS.size() == 12 and CASE_LOADER.CELL_KEYS.size() == 33
+		and CASE_LOADER.TILE_KEYS.size() == 12 and CASE_LOADER.CELL_KEYS.size() == 34
 		and CASE_LOADER.PLAYER_KEYS.size() == 5 and CASE_LOADER.ALARM_KEYS == ["streak"],
-		"条数：case 13 / world 15 / tile 12 / cell 33 / player 5；cancer_alarm 只收 streak")
+		"条数：case 13 / world 15 / tile 12 / cell 34 / player 5；cancer_alarm 只收 streak")
 
 	## ③ 正常盘面装得出来（下面每条硬错都是从它改一个地方来的）
 	var l = CASE_LOADER.new()

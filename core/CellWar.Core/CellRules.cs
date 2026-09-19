@@ -191,9 +191,10 @@ internal static class CellRules
     public static WorldState Kill(WorldState s, EntityId id)
     {
         var c = s.Cells[id];
-        // 免疫细胞记下「哪一回合起可以复活」（GD kill：`respawn_round = round_no + 1 + delay`，delay < 0 = 不再复活）；
-        // 它进 state_hash 与 L1 视图（6p 第 45 步就是差在这一格）。癌细胞的复活看固化癌组织，不用这个字段
-        var respawn = c.Faction == Faction.Immune && s.Tuning.ImmuneRespawnDelay >= 0 ? s.Turn.WorldRound + 1 + s.Tuning.ImmuneRespawnDelay : -1;
+        // 免疫细胞记下「哪一回合起可以复活」（GD kill：`respawn_round = round_no + 1 + X`，旋钮 < 0 = 不再复活）；
+        // 它进 state_hash 与 L1 视图（6p 第 45 步就是差在这一格）。癌细胞的复活看固化癌组织，不用这个字段。
+        // PRD【S-复活】的死亡惩罚 **X = 旋钮（初始值 1）+ 该细胞已复活次数**：「每结算一次复活该免疫细胞的 X 增加 1」（issue #63）
+        var respawn = c.Faction == Faction.Immune && s.Tuning.ImmuneRespawnDelay >= 0 ? s.Turn.WorldRound + 1 + s.Tuning.ImmuneRespawnDelay + c.Revives : -1;
         s = s.UpdateCell(id, c.Copy(energy: 0, alive: false, deathRound: s.Turn.WorldRound, respawnRound: respawn, modifiers: Array.Empty<ActiveModifier>()));
         if (s.Turn.TrackCell == id)
             s = s.WithTurn(s.Turn.WithTrack(null, c.Position, s.Turn.TrackRounds));

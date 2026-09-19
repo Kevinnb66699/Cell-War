@@ -428,6 +428,9 @@ public sealed class Cell
     public int MarkLeft { get; init; }  // 【标记】还能翻倍几次
     public int MarkRound { get; init; } = -1;  // 上一次获得【标记】的世界回合（同回合只能得一次）
     public int RespawnRound { get; init; } = -1;  // 免疫细胞可复活的世界回合（-1=未死亡/不复活）
+    // 本细胞已结算过几次【复活】。PRD【S-复活】的死亡惩罚 X = `Tuning.ImmuneRespawnDelay`（初始值）+ 这个数，
+    // 「每结算一次复活该免疫细胞的 X 增加 1」（PRD 2026-09-19，issue #63）。**不进观测协议**（ObservationV1 不加字段 = 不升协议号）。
+    public int Revives { get; init; }
     public int HandMax { get; init; } = 8;  // 手牌上限（旧实现 HAND_MAX）
     private System.Collections.Immutable.ImmutableArray<string> hand = System.Collections.Immutable.ImmutableArray<string>.Empty;
     public IReadOnlyList<string> Hand { get => hand; init => hand = System.Collections.Immutable.ImmutableArray.CreateRange(value); }
@@ -549,6 +552,7 @@ public sealed class Cell
         MarkLeft = MarkLeft,
         MarkRound = MarkRound,
         RespawnRound = RespawnRound,
+        Revives = Revives,
         HandMax = HandMax,
         Hand = Hand,
         Equipped = Equipped,
