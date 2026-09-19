@@ -1031,12 +1031,20 @@ func _block_ms(kind: String) -> int:
 	return int(BLOCK_FX_MS.get(kind, BLOCK_FX_DEFAULT_MS))
 
 
+## **阻塞时长的总开关**（Kevin 2026-09-19：「暂时把所有的阻塞时间都调成 0」）：
+## 上面那张表一个数不动，所有 `_block` 一律乘这个系数 —— 0 = 触发即走、演出各自在自己的层里演完，
+## 队列不等任何一条（骰子不在此列：它是 barrier 条目，本地局引擎在等 ack，照旧整只演完）。
+## 要恢复原来的节奏改回 1.0 即可
+const BLOCK_MUL := 0.0
+
+
 ## 只等「阻塞那一段」。没有场景树（无头测试 / 纯数据桥）立即返回 —— 队列照样顺序播，只是不等。
 func _block(ms: int) -> void:
 	var node: Node = delay_node if delay_node != null else board
-	if ms <= 0 or node == null or not node.is_inside_tree():
+	var wait := int(ms * BLOCK_MUL)
+	if wait <= 0 or node == null or not node.is_inside_tree():
 		return
-	await node.get_tree().create_timer(ms / 1000.0).timeout
+	await node.get_tree().create_timer(wait / 1000.0).timeout
 
 
 ## 把骰子摆到目标格旁边演一次，同时在它上方标出这次掷的是什么（"攻击"/"突变"/"抗体"）。
