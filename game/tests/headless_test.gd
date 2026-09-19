@@ -16761,8 +16761,9 @@ func t_net_game() -> void:
 	ok = await _net_pump(srv, [a, b], func() -> bool: return a.room.get("state", "") == "playing")
 	check(ok, "开局：房间进入 playing")
 	var room: CWRoom = srv.rooms[a.code]
-	room.bridge.mc.rollouts = 1     ## 专家席只要走到 MC 那条路，别在测试里烧时间
-	room.bridge.mc.horizon = 3
+	## 专家席 2026-09-19 起是意图级 MechBridge（同步、单问几十毫秒，见 t_mech_bridge_quiet 的打印），
+	## 没有 rollouts / horizon 可调；之前这里把 MC 调浅是为了别在测试里烧时间
+	check(room.bridge.mc is MechBridge, "服务器专家席桥是意图级 MechBridge")
 	ok = await _net_pump(srv, [a, b], func() -> bool: return not a.game_over.is_empty() and not b.game_over.is_empty(), 20000)
 	check(ok, "两个机器人客户端 + 两个 AI 席打完整局（%d 份状态）" % tally["states"])
 	check(tally["view_bad"] == 0, "每份视角快照 restore 后再 snapshot 与原文一致")
@@ -23063,4 +23064,33 @@ func t_mech_bridge_quiet() -> void:
 	var a2: int = await mb.ask(req)
 	check(a1 == a2, "同局面两次评估答案一致（确定性：副本 rng 随快照复原）")
 	g.dispose()
+	## 服务器专家档换成意图级（Kevin 2026-09-19「把意图级 AI 部署到服务器上，代替目前的专家级 AI」）：
+	## 它在服务器**主线程同步**跑，一问的耗时就是所有房间一起卡的时长。四人局、第一次轮到癌方时量一次，
+	## 打出来给人看；上限 1500 ms 是「别把联机卡死」的粗闸，不是标定值。
+	var g4 := make_game(4, 77)
+	var cp4 := -1
+	for pid in g4.order:
+		if int(g4.player(pid)["faction"]) == CWData.Faction.CANCER:
+			cp4 = pid
+			break
+	var mb4 := MechBridge.new()
+	mb4.game = g4
+	mb4.delay_ms = 0
+	g4.bridges[cp4] = mb4
+	await run_setup(g4)
+	var req4: Dictionary = {}
+	while true:
+		req4 = await g4.pending()
+		if req4.is_empty() or (req4["kind"] == "action" and req4["pid"] == cp4):
+			break
+		await g4.step(await g4.ask(req4["pid"], req4))
+	var t0 := Time.get_ticks_msec()
+	var a4: int = await mb4.ask(req4)
+	var ms := Time.get_ticks_msec() - t0
+	print("  意图级 AI 四人局一问耗时 %d ms（候选 %d 个）" % [ms, req4["options"].size()])
+	check(a4 >= 0 and ms < 1500, "四人局一问 %d ms（< 1500 ms 的粗闸；服务器主线程同步跑）" % ms)
+	var src := FileAccess.get_file_as_string("res://scripts/net/cw_net_bridge.gd")
+	check(src.contains("MechBridge.new()") and not src.contains("CWMonteCarloBridge.new()"),
+		"服务器专家档桥 = MechBridge（cw_net_bridge.gd 里不再 new 扁平蒙特卡洛）")
+	g4.dispose()
 
