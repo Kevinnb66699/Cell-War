@@ -68,10 +68,11 @@ const ROW_LABEL := Color("9fb6bd")
 const TIMER_TEXT := { 0: "不限", 30: "30 秒", 60: "60 秒", 90: "90 秒" }
 const CREATE_ROWS := ["人数", "每步计时", "可见性", "观众视角"]
 const N_CREATE_ROWS := 4
-## 建房页**自己**的行距：连接页 / 局域网页那几行还按 ROW_H 42 摆，这页曾要塞五行 ——
-## 251 起五行 × 34 到 413，离建房按钮（BTN_Y 438）还剩一行的空。2026-09-19 删掉
-## 「世界事件」行之后只剩四行，34 原样留着。改这个数记得看图。
-const CREATE_ROW_H := 34.0
+## 建房页的行距：这页曾要塞五行，只好压到 34（251 起五行到 413，离建房按钮 BTN_Y 438 还剩一行）。
+## 2026-09-19 删掉「世界事件」行之后只剩四行，Kevin 同日「行间距可以调大一点」——
+## 回到 ROW_H 42（与连接页 / 局域网页 / 配置页 / 主菜单项一致）：251 起四行到 377，末行底离按钮 40 多像素。
+## 改这个数记得看图（preview_online_lan.gd 的 _create 那张）。
+const CREATE_ROW_H := ROW_H
 const LAN_PORT_MIN := 1024      ## 1023 以下是系统端口，Windows / macOS 都要管理员才绑得上
 const LAN_PORT_MAX := 65535
 const CWLan := preload("res://scripts/net/cw_lan.gd")   ## 局域网自动发现（没有 class_name：要走热更）
