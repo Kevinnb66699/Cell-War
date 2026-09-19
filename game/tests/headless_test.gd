@@ -6389,6 +6389,19 @@ func t_hot_patch() -> void:
 	check(Boot.decide(good, 0, 0, 150)["act"] == "install",
 		"补丁比基线新 → 照装（正常那一档，别把它一起拦掉）")
 
+	## ---- 网页版根本不查更新（2026-09-19 全量发版还账）----
+	## 网页版重新部署静态文件就是更新；让它装桌面补丁反而危险 —— 补丁按桌面基线打，
+	## 会把网页包里更新的脚本盖回旧的。此前是靠 nginx 给 latest.json 回 404 顶着，
+	## 再早一点（混合内容拦截那一版）玩家要干等满 CHECK_BUDGET 十秒才进得去游戏。
+	##
+	## **只能按源码核**（同 t_ai_mc 开头那条线程判据）：无头桌面跑测试时
+	## `OS.has_feature("web")` 恒为假、这一支永远不进，而真需要它的那个构建跑不了这套测试。
+	## `boot_head` 就是「`await _fetch_update()` 之前的那一段源码」（上面那条清缓存的闸在用）。
+	check(boot_head.contains('if OS.has_feature("web")'),
+		"boot.gd：查更新之前先认一次「这是不是网页版」")
+	check(boot_head.contains("change_scene_to_file(MAIN_SCENE)"),
+		"而且那一支真的进主场景 —— 光 return 会把网页玩家永远留在启动器那块深色底上")
+
 	## ---- 断网时的启动兜底（Kevin 2026-09-10）----
 	## 起因：「玩家断网连不上服务器、一直黑屏，会不会最后进不了游戏？」
 	## 进不去是不会的 —— 每口请求都有硬上限，超时就照原样进（`decide({})` 那条已经钉着）。
@@ -6425,13 +6438,23 @@ func t_hot_patch() -> void:
 	evil["pck"] = "https://evil.example.com/patch.pck"
 	check(Boot.decide(evil, 100, 0, 100)["act"] == "skip", "下载地址不在写死的前缀底下 → 拒绝")
 	evil = good.duplicate()
-	evil["pck"] = "http://124.221.78.13.evil.com/cellwar/p.pck"
+	evil["pck"] = "https://cellwar.jiling.chat.evil.com/cellwar/p.pck"
 	check(Boot.decide(evil, 100, 0, 100)["act"] == "skip",
 		"前缀只是**看着像**（域名后面接了别的）→ 拒绝")
-	## 补丁包走明文 HTTP 是**有意的**：自家服务器国内快得多，而完整性靠 manifest 里的
-	## SHA-256（挂载前必校验），不靠传输层。manifest 本身仍走 GitHub HTTPS。
-	check(Boot.PCK_HOSTS[0].begins_with("http://124.221.78.13/"),
-		"补丁包默认走自家服务器（明文，但有 SHA 兜底）")
+	## **2026-09-19 全量发版还账**：默认前缀从明文 IP 改成 https 域名 —— 网页版是 https 页面，
+	## 发 http 请求会被当混合内容拦掉、还把整页标「不安全」（此前靠 deploy_web.sh 注入一个
+	## 猴补丁在发版侧改写地址，那个 shim 这一版删了）。
+	check(Boot.PCK_HOSTS[0].begins_with("https://cellwar.jiling.chat/"),
+		"补丁包默认走自家服务器的 https 域名")
+	## 而**明文的老地址仍然放行**：`tools/build_patch.sh` 写进 manifest 的下载地址还是它，
+	## 补丁包走明文本来就是有意的（完整性靠 manifest 里的 SHA-256，不靠传输层）。
+	## 两处地址一个在 .sh 里、一个在 boot.gd 里，**改一边漏一边的后果是每个补丁都被
+	## `decide()` 静默跳过** —— 不下载、不报错、没人发现。所以直接拿打包器那份 HOST 来核。
+	if bp != "":
+		var at_host: int = bp.find("\nHOST=\"")
+		var pck_host := bp.substr(at_host + 7, bp.find("\"", at_host + 7) - at_host - 7)
+		check(at_host > 0 and Boot.pinned(pck_host + "/patch-1.pck"),
+			"build_patch.sh 发的下载地址（%s）过得了 boot.gd 的 pinned()" % pck_host)
 	check(Boot.decide(good.duplicate(), 100, 0, 100)["act"] == "install",
 		"自家服务器的地址接受")
 	for bad_sha in ["", "abc", "z".repeat(64), "a".repeat(63)]:
