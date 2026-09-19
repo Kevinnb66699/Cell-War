@@ -18,6 +18,14 @@
 ## 正文渲染沿用规则速查页的做法：10px 点阵字、固定 15px 行高、预先手工折行，
 ## 不做运行时自动换行测量 —— 点阵字非整数行高会糊，测量又依赖字体排版细节，
 ## 固定行高最简单也最稳。chapters() 里每行的 b 就是折好的一行。
+##
+## **图鉴解锁（新手引导 S6，2026-09-19）**：每条现在都有一个稳定 `id`（`{id, t, b}`，形如「章键/条目键」）——
+## 正文按旋钮现算、整句会消失，所以下标不能当 id。`game/data/tutorial/codex_map.json` 把 PRD 的
+## 「图鉴解锁：【X】」对到条目 id 上；**只有出现在那张表里的条目才受闸**，其余常驻可见，
+## 于是那个文件不在 = 一个条目都不受闸 = 全解锁 = 退化成 09-19 之前的行为（回滚友好）。
+## `chapters()` / `search()` 都多一个可选的解锁集参数，**不传 = 不过滤**（纯函数、老调用方一个字不用改）；
+## 面板自己每次 `open()` 从 `CWGuideProgress` 读一次。**章一个不少，只隐藏条目** ——
+## 章下标是 `open_to()` / `CWGuideData.CODEX_PAGE` 的口径，不能因为解锁与否漂移。
 class_name CWCodex
 extends Control
 
@@ -54,6 +62,22 @@ const SEARCH_W := 220
 const HIT_H := LINE * 2 + GAP   ## 结果页每条两行：章 › 条目 / 命中行
 const MAX_HITS := 40
 
+## 解锁点 → 条目 id 的对照表（新手引导 S6）。**文件不在 = 一个条目都不受闸 = 全解锁**
+const MAP_PATH := "res://data/tutorial/codex_map.json"
+## 解锁动效的闪烁参数**取 CWGuide 那三个常数**（方案 §1.12 规则 8：闪烁参数收敛到一处），同 CWGuideShell 的写法
+const HALO_PERIOD := CWGuide.HALO_PERIOD
+const HALO_ALPHA_LO := CWGuide.HALO_ALPHA_LO
+const HALO_ALPHA_HI := CWGuide.HALO_ALPHA_HI
+
+static var _map_cache: Dictionary = {}
+static var _map_read := false
+
+var _unlocked := PackedStringArray()   ## 这次打开时玩家已解锁的**解锁点** id（不是条目 id）
+var _seen := {}                        ## 本实例已经闪过的条目 id —— 闪一次就够，别每次开书都闪一遍
+var _fresh := {}                       ## 这次翻到就要闪的条目 id
+var _glow: Array[Label] = []           ## 本页正在闪的条目标题
+var _pulse_t := 0.0
+
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -71,9 +95,23 @@ func open() -> void:
 func open_to(page: int) -> void:
 	_ensure_built()
 	visible = true
+	_refresh_unlocked()
 	_page = clampi(page, 0, chapters().size() - 1)
 	_scroll = 0.0
 	_rebuild_page()
+
+
+## 每次开书重读一次解锁集（书是覆盖层、活得比一次解锁久，缓存会让刚解锁的条目下次才出现）。
+## 顺便算出「这次要闪的」：已解锁、且本实例还没让它闪过的条目
+func _refresh_unlocked() -> void:
+	_unlocked = PackedStringArray(CWGuideProgress.read()["unlocked"])
+	_fresh.clear()
+	var map := unlock_map()
+	for point in _unlocked:
+		for eid in map.get(str(point), []):
+			if not _seen.has(str(eid)):
+				_fresh[str(eid)] = true
+	_pulse_t = 0.0
 
 
 ## 兜底：程序化建出来的实例在 _ready 之前就可能被 open/open_to 调用，
@@ -160,12 +198,65 @@ func _next_page() -> void:
 	_rebuild_page()
 
 
-## 章节目录。纯函数：{ title, entries:[{t, b:[行...]}] }。数字现算、正文预折行。
+## 解锁点 → 条目 id 的对照表：`{ 解锁点 id: [条目 id…] }`。读一次缓存（一局之内不变）。
+## 文件不在 / 读不出来 → 空表 → 一个条目都不受闸（回滚口径）
+static func unlock_map() -> Dictionary:
+	if _map_read:
+		return _map_cache
+	_map_read = true
+	if FileAccess.file_exists(MAP_PATH):
+		var raw: Variant = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH))
+		if raw is Dictionary:
+			_map_cache = (raw as Dictionary).get("unlocks", {})
+	return _map_cache
+
+
+## 反向表：`{ 条目 id: [解锁点 id…] }`。**在这张表里的条目才受闸**，其余常驻可见
+static func gated_entries() -> Dictionary:
+	var out := {}
+	var map := unlock_map()
+	for point in map:
+		for eid in map[point]:
+			var k := str(eid)
+			if not out.has(k):
+				out[k] = []
+			(out[k] as Array).append(str(point))
+	return out
+
+
+## 按解锁集过滤条目。`unlocked == null` = 不过滤；**章一个不少**，只隐藏条目（见文件头注）
+static func _filter(all: Array, unlocked: Variant) -> Array:
+	if unlocked == null:
+		return all
+	var gated := gated_entries()
+	if gated.is_empty():
+		return all
+	var have := {}
+	for x in unlocked:
+		have[str(x)] = true
+	var out: Array = []
+	for ch in all:
+		var kept: Array = []
+		for e in (ch as Dictionary)["entries"]:
+			var eid := str((e as Dictionary).get("id", ""))
+			if not gated.has(eid):
+				kept.append(e)
+				continue
+			for point in gated[eid]:
+				if have.has(point):
+					kept.append(e)
+					break
+		out.append({ "title": (ch as Dictionary)["title"], "entries": kept })
+	return out
+
+
+## 章节目录。纯函数：{ title, entries:[{id, t, b:[行...]}] }。数字现算、正文预折行。
+## `unlocked` = 已解锁的解锁点 id 集合；**不传（null）= 不过滤**，老调用方与护栏拿到的仍是整本书。
 ## 会随旋钮变的句子（能量上限、有氧公式、无氧时机、反击、攻击上限、占地胜连续回合……）
 ## 按旋钮现值拼，关掉的机制整句消失 —— 和规则速查页同一条纪律：图鉴里不许出现和引擎不符的数
 ## （2026-09-05 按当日落地的九条规则逐条核对过，见开发日志）。点阵字库没有 √ ≥ − 这类符号，
 ## 公式一律写成汉字（「平方根」）和 ASCII 的 - / ×。
-static func chapters() -> Array:
+static func chapters(unlocked: Variant = null) -> Array:
 	var tune := CWTuning.new()
 	var lv: Array = CWData.LEVEL_NAMES
 	## 【S-有氧呼吸】现行等级式：基数 + 等级 × 步长（-1 = 基数按人数分档）；0 = 退回旧的盘面公式
@@ -286,99 +377,99 @@ static func chapters() -> Array:
 		jump_limit = "（每世界回合最多 %d 次）" % tune.metastasis_max_per_round
 	var solid_rounds: int = int(tune.solidify_threshold[0]) / CWData.SOLIDIFY_STEP
 	var ev_rounds := event_rounds_text(tune.limit_round)
-	return [
+	return _filter([
 		{ "title": "目标与胜负", "entries": [
-			{ "t": "你要做什么", "b": [
+			{ "id": "goal/what", "t": "你要做什么", "b": [
 				"免疫方与癌方轮流行动：免疫要清剿癌细胞、守住身体，",
 				"癌方要扩张癌组织、挤占整片棋盘。每一格组织、每一点能量",
 				"都在此消彼长。",
 			] },
-			{ "t": "免疫怎么赢", "b": [
+			{ "id": "goal/immune_win", "t": "免疫怎么赢", "b": [
 				"把场上所有癌细胞消灭，并且没有可供癌方复活的固化癌组织，",
 				"在世界回合 E 阶段结算时立即获胜。",
 			] },
-			{ "t": "癌方怎么赢", "b": cancer_win },
-			{ "t": "回合打满怎么办", "b": [
+			{ "id": "goal/cancer_win", "t": "癌方怎么赢", "b": cancer_win },
+			{ "id": "goal/round_limit", "t": "回合打满怎么办", "b": [
 				"最多 %d 个世界回合。" % tune.limit_round,
 				"到点后癌性组织达到 %d 格判癌方胜，否则免疫胜。" % tune.limit_cancerous,
 			] },
 		] },
 		{ "title": "棋盘与地形", "entries": [
-			{ "t": "一块蜂窝棋盘", "b": [
+			{ "id": "board/grid", "t": "一块蜂窝棋盘", "b": [
 				"半径 6 的六边形网格，共 %d 格。" % CWData.TOTAL_TILES,
 				"细胞站在组织格上，一格最多一个细胞。",
 				"悬停任意格稍候，会弹出那一格的地形详情。",
 			] },
-			{ "t": "健康组织", "b": [
+			{ "id": "board/healthy", "t": "健康组织", "b": [
 				"青绿色，是双方争夺的本体。免疫走进癌组织会把它净化回健康，",
 				"癌细胞走进健康组织会把它定殖成癌组织。",
 			] },
-			{ "t": "癌组织", "b": [
+			{ "id": "board/cancer", "t": "癌组织", "b": [
 				"红色，癌方的地盘。癌细胞在上面蹲满 %d 个世界回合，" % solid_rounds,
 				"这一格就变成固化癌组织。",
 			] },
-			{ "t": "固化癌组织", "b": [
+			{ "id": "board/solid", "t": "固化癌组织", "b": [
 				"更深一档的癌组织，是癌方复活据点、加权占地记 2 分。",
 				"它不能被普通净化，得用 T 细胞的【裂解】破除。",
 			] },
-			{ "t": "三种特殊组织", "b": [
+			{ "id": "board/special", "t": "三种特殊组织", "b": [
 				"代谢核心储能量、骨髓储卡牌，踩上去当场收取；",
 				"血管会把踩上去的细胞传送到另一根血管，且不会固化。",
 				"它们的产出一格一格记，悬停就能看到储量。",
 			] },
 		] },
 		{ "title": "能量与费用", "entries": [
-			{ "t": "能量就是生命", "b": [
+			{ "id": "energy/life", "t": "能量就是生命", "b": [
 				"所有行动都要花能量，能量归零即死亡。",
 				"支付费用不能让能量降到 0，总要留一点底。",
 			] },
-			{ "t": "初始与上限", "b": energy },
-			{ "t": "免疫的收入", "b": aerobic },
-			{ "t": "癌方的收入", "b": anaerobic },
-			{ "t": "常用费用", "b": [
+			{ "id": "energy/init", "t": "初始与上限", "b": energy },
+			{ "id": "energy/aerobic", "t": "免疫的收入", "b": aerobic },
+			{ "id": "energy/anaerobic", "t": "癌方的收入", "b": anaerobic },
+			{ "id": "energy/costs", "t": "常用费用", "b": [
 				"免疫迁移健康 %s / 癌性按等级；" % CWData.fmt(tune.immune_move_healthy[0]),
 				"抽卡免疫 %s、癌方 %s；突变 %s；" % [CWData.fmt(CWData.IMMUNE_DRAW_COST), CWData.fmt(CWData.CANCER_DRAW_COST), CWData.fmt(CWData.MUTATE_COST)],
 				"细胞毒素 %s、裂解 %s。行动栏按钮上都会标价。" % [CWData.fmt(CWData.TOXIN_COST), CWData.fmt(CWData.LYSE_COST)],
 			] },
 		] },
 		{ "title": "一个世界回合", "entries": [
-			{ "t": "S 阶段", "b": [
+			{ "id": "round/s_phase", "t": "S 阶段", "b": [
 				"先按顺序结算世界事件、特殊组织产出、血管传送，",
 				"再轮到复活（免疫在骨髓、癌方在固化组织），",
 				"最后免疫结算【有氧呼吸】收入。",
 			] },
-			{ "t": "玩家回合", "b": turn_lines },
-			{ "t": "E 阶段", "b": [
+			{ "id": "round/turn", "t": "玩家回合", "b": turn_lines },
+			{ "id": "round/e_phase", "t": "E 阶段", "b": [
 				e_phase,
 				"固化与衰减依次发生，最后统一判定胜负。",
 			] },
-			{ "t": "环境恶化", "b": [
+			{ "id": "round/stage", "t": "环境恶化", "b": [
 				"第 6 回合起肿瘤 II 期、第 11 回合起 III 期：",
 				"压迫 ×1.5 / ×2，增生与侵蚀更凶；",
 				"II 期起固化格每回合再给相邻癌组织加 1.0 固化计数，",
 				"III 期固化门槛降到 %s。" % CWData.fmt(int(tune.solidify_threshold[2])),
 			] },
-			{ "t": "回合计数", "b": [
+			{ "id": "round/count", "t": "回合计数", "b": [
 				"世界事件只在第 %s 回合触发。" % ev_rounds,
 				"越往后局势越不受控制，别把决战拖到太晚。",
 			] },
 		] },
 		{ "title": "移动与净化", "entries": [
-			{ "t": "免疫迁移", "b": [
+			{ "id": "move/immune", "t": "免疫迁移", "b": [
 				"点「迁移」再点高亮的相邻格。走进癌组织会自动【净化】",
 				"并 +1 抗原记忆；走进有癌细胞的一格则触发攻击而不是净化。",
 			] },
-			{ "t": "癌方移动", "b": [
+			{ "id": "move/cancer", "t": "癌方移动", "b": [
 				"点「移动」再点相邻格。走进健康组织会【定殖】成癌组织，",
 				"这就是癌方扩张地盘的基本方式。",
 			] },
-			{ "t": "一格一格走", "b": [
+			{ "id": "move/step", "t": "一格一格走", "b": [
 				"「迁移 / 移动」是切换式：走完一步仍停在选目标格上，",
 				"可以连续走，右键或 Esc 结束。",
 			] },
 			## 门槛按人数分档（Kevin 2026-09-09），而图鉴是**静态**的、拿不到当前人数，
 			## 所以两档都写出来。写死一档的话有一半的局看到的是错的。
-			{ "t": "净化与记忆", "b": [
+			{ "id": "move/purify_memory", "t": "净化与记忆", "b": [
 				"免疫每净化一格 +1 抗原记忆。四人局记忆到 %d / %d 升 II / III 级，" % [
 					CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][1], CWData.LEVEL_MIN_MEMORY_BY_PLAYERS[4][2]],
 				"六人局 %d / %d；X 级四人 %d、六人 %d。" % [
@@ -388,32 +479,32 @@ static func chapters() -> Array:
 			] },
 		] },
 		{ "title": "攻击与判定", "entries": [
-			{ "t": "怎么发起攻击", "b": [
+			{ "id": "attack/how", "t": "怎么发起攻击", "b": [
 				"免疫迁移时，目标格上站着癌细胞就是一次攻击。",
 				"骰子会落在那一格上方演一遍，结算说明由引擎给出。",
 			] },
-			{ "t": "d6 判定", "b": [
+			{ "id": "attack/d6", "t": "d6 判定", "b": [
 				fail_line,
 				"3-5 成功（目标 -%s）；6 大成功（目标 -%s）。" % [CWData.fmt(tune.attack_dmg_success), CWData.fmt(tune.attack_dmg_crit)],
 			] },
-			{ "t": "标记翻倍", "b": [
+			{ "id": "attack/mark", "t": "标记翻倍", "b": [
 				"树突细胞给 %d 格内的癌细胞挂【标记】，带标记的目标受到的下一次" % CWData.MARK_RANGE,
 				"伤害翻倍，随后消耗一层标记。",
 			] },
-			{ "t": "攻击次数", "b": atk_limit },
+			{ "id": "attack/limit", "t": "攻击次数", "b": atk_limit },
 		] },
 		{ "title": "免疫分化", "entries": [
-			{ "t": "分化规则", "b": [
+			{ "id": "diff/rule", "t": "分化规则", "b": [
 				"免疫等级升到 %s 后可以分化，每个细胞一辈子一次，" % lv[tune.differentiate_min_level],
 				"每种分化全阵营限一个。分化免费。",
 			] },
-			{ "t": "B 细胞", "b": b_lines },
-			{ "t": "T 细胞", "b": t_lines },
-			{ "t": "巨噬细胞", "b": [
+			{ "id": "diff/b_cell", "t": "B 细胞", "b": b_lines },
+			{ "id": "diff/t_cell", "t": "T 细胞", "b": t_lines },
+			{ "id": "diff/macrophage", "t": "巨噬细胞", "b": [
 				macro_line,
 				"续航型，越打越有钱，适合反复净化。",
 			] },
-			{ "t": "效应应答", "b": [
+			{ "id": "diff/effector", "t": "效应应答", "b": [
 				"免疫等级到 %s 之后，抗原记忆改叫【效应记忆】并从零重数；" % lv[3],
 				"已分化的免疫细胞各解锁一个大招，每次花 %d 效应记忆。" % CWData.EFFECTOR_COST,
 				"每个细胞一辈子一次，整个免疫方每个世界回合也只放得了一次。",
@@ -426,7 +517,7 @@ static func chapters() -> Array:
 				"树突【免疫猎杀】：给全场任意一个癌细胞挂上标记，外加一个跟着它跑的趋化源——",
 				"　它自己怎么走都算「远离」，也就是怎么走都要多付钱。",
 			] },
-			{ "t": "树突状细胞", "b": [
+			{ "id": "diff/dendritic", "t": "树突状细胞", "b": [
 				"【趋化源】：花 %s 在任意格立源、持续 %d 个完整回合（到自己下个回合前），" % [
 					CWData.fmt(CWData.CHEMO_COST), CWData.CHEMO_FULL_TURNS],
 				"消失后本人冷却 %d 个世界回合才能再立；场上至多一个。" % CWData.CHEMO_COOLDOWN_ROUNDS,
@@ -437,135 +528,137 @@ static func chapters() -> Array:
 			] },
 		] },
 		{ "title": "四种癌细胞", "entries": [
-			{ "t": "恶性黑色素瘤", "b": [
+			{ "id": "cancer/melanoma", "t": "恶性黑色素瘤", "b": [
 				"【早期血行转移】从血管传送到任意空地并扩散癌组织，每世界回合一次；",
 				"【伪足穿透】目标邻接 %d 格以上癌性组织时移动只花 %s。" % [CWData.PSEUDOPOD_MIN_ADJ, CWData.fmt(tune.pseudopod_cost)],
 				"机动性极强。",
 			] },
-			{ "t": "印戒细胞癌", "b": [
+			{ "id": "cancer/signet", "t": "印戒细胞癌", "b": [
 				"【黏液破裂】耗尽能量自爆、范围转化癌组织" + mucus_tail,
 				"【囊性护甲】每世界回合第一次能量损失减 %s。肉盾型。" % CWData.fmt(CWData.ARMOR_REDUCTION),
 			] },
-			{ "t": "骨肉瘤", "b": [
+			{ "id": "cancer/osteo", "t": "骨肉瘤", "b": [
 				"【骨样硬化】花 %s 标记脚下的癌组织，%d 个世界回合后直接固化；" % [CWData.fmt(tune.osteo_ossify_cost), tune.osteo_ossify_rounds],
 				"免疫踏进标记格得蹲满一回合才能净化。站在固化组织上受伤只剩 %d%%。阵地型。" % CWData.OSTEO_BARRIER_PERCENT,
 			] },
-			{ "t": "小细胞肺癌", "b": [
+			{ "id": "cancer/sclc", "t": "小细胞肺癌", "b": [
 				"【转移】向某方向跃进 %d 格" % CWData.METASTASIS_RANGE + jump_limit + "；【瓦伯格】无氧呼吸 %d%%；" % CWData.WARBURG_PERCENT,
 				"移动至健康组织只花 %s。爆发型。" % CWData.fmt(tune.sclc_move_healthy),
 			] },
 		] },
 		{ "title": "细胞图鉴", "entries": [
-			{ "t": "原生免疫细胞", "b": [
+			{ "id": "cells/immune_basic", "t": "原生免疫细胞", "b": [
 				"免疫方的移动单位：走进癌组织自动【净化】并 +1 抗原记忆，",
 				"走进站有癌细胞的格子则触发攻击。能量花完或血被打空就死亡。",
 			] },
-			{ "t": "B 细胞", "b": [
+			{ "id": "cells/b_cell", "t": "B 细胞", "b": [
 				"免疫输出型分化：【抗体】花 %s 能量，范围内邻接健康组织" % CWData.fmt(CWData.ANTIBODY_COST),
 				"的癌细胞各受 %s 伤害；没有目标时改为转化癌组织。" % CWData.fmt(CWData.ANTIBODY_DAMAGE),
 			] },
-			{ "t": "T 细胞", "b": [
+			{ "id": "cells/t_cell", "t": "T 细胞", "b": [
 				"免疫攻坚型分化：【细胞毒素】花 %s 能量，把相邻癌组织转健康" % CWData.fmt(CWData.TOXIN_COST),
 				"并留下坏死；【裂解】花 %s 能量破除固化癌组织。" % CWData.fmt(CWData.LYSE_COST),
 				"克制骨肉瘤的骨壳，也能拆掉癌方的复活点。",
 			] },
-			{ "t": "巨噬细胞", "b": [
+			{ "id": "cells/macrophage", "t": "巨噬细胞", "b": [
 				macro_codex,
 				"配合反复净化能一直走下去，适合清扫大片癌组织。",
 			] },
-			{ "t": "树突状细胞", "b": [
+			{ "id": "cells/dendritic", "t": "树突状细胞", "b": [
 				"免疫辅助型分化：【趋化源】花 %s 立源，免疫朝它走打折、癌细胞背它走加价；" % CWData.fmt(CWData.CHEMO_COST),
 				"%d 格内的癌细胞自动带【标记】，下一次受伤翻倍。自身不能攻击。" % CWData.MARK_RANGE,
 			] },
-			{ "t": "恶性黑色素瘤", "b": [
+			{ "id": "cells/melanoma", "t": "恶性黑色素瘤", "b": [
 				"癌方游击手：【早期血行转移】花 %s 能量，每世界回合一次，" % CWData.fmt(CWData.MELANOMA_HOMING_COST),
 				"从血管传送到任意空地并扩散癌组织；【伪足穿透】贴着癌区走只花 %s。" % CWData.fmt(tune.pseudopod_cost),
 				"盯紧血管口。",
 			] },
-			{ "t": "印戒细胞癌", "b": [
+			{ "id": "cells/signet", "t": "印戒细胞癌", "b": [
 				"癌方肉盾：【黏液破裂】耗尽能量自爆、范围转化最多 %d 格癌组织" % CWData.MUCUS_MAX_CONVERT + mucus_tail,
 				"【囊性护甲】每世界回合第一次能量损失减 %s。别让它扎进健康区。" % CWData.fmt(CWData.ARMOR_REDUCTION),
 			] },
-			{ "t": "骨肉瘤", "b": [
+			{ "id": "cells/osteo", "t": "骨肉瘤", "b": [
 				"癌方阵地：【骨样硬化】花 %s 标记脚下癌组织，%d 回合后直接固化，" % [CWData.fmt(tune.osteo_ossify_cost), tune.osteo_ossify_rounds],
 				"免疫踏进标记格得蹲一回合才能净化；站在固化组织上受伤只剩 %d%%。" % CWData.OSTEO_BARRIER_PERCENT,
 				"用 T 细胞【裂解】拆壳最稳。",
 			] },
-			{ "t": "小细胞肺癌", "b": [
+			{ "id": "cells/sclc", "t": "小细胞肺癌", "b": [
 				"癌方爆发：【转移】向某方向跃进 %d 格" % CWData.METASTASIS_RANGE + jump_limit + "；【瓦伯格】无氧呼吸 %d%%；" % CWData.WARBURG_PERCENT,
 				"移动至健康组织仅 %s。贴脸就能打乱免疫阵型。" % CWData.fmt(tune.sclc_move_healthy),
 			] },
 		] },
 
 		{ "title": "卡牌", "entries": [
-			{ "t": "三类卡", "b": [
+			{ "id": "cards/kinds", "t": "三类卡", "b": [
 				"事件卡抽到立即结算并弃置；技能卡进手牌（上限 %d 张）；" % CWData.HAND_MAX,
 				"永久技能打出即装备，持续生效、死亡不掉。",
 			] },
-			{ "t": "怎么抽卡", "b": [
+			{ "id": "cards/draw", "t": "怎么抽卡", "b": [
 				"【基因表达】付费抽卡，每个行动回合最多 %d 次；" % CWData.DRAW_MAX_PER_TURN,
 				"踩骨髓也能拿卡。免疫按记忆等级抽池，癌方按回合分期抽池。",
 			] },
-			{ "t": "怎么出牌", "b": [
+			{ "id": "cards/play", "t": "怎么出牌", "b": [
 				"轮到人类玩家时，点左下角手牌即可打出或弃置。",
 				"带目标的卡会高亮可点格子；双击免确认直接打出。",
 			] },
 		] },
 		{ "title": "世界事件", "entries": [
-			{ "t": "十八个事件", "b": [
+			{ "id": "events/pool", "t": "十八个事件", "b": [
 				"在第 %s 回合从池中随机抽取，" % ev_rounds,
 				"同局不重复，每回合一个。效果可能持续一两个回合。",
 			] },
-			{ "t": "留意公告", "b": [
+			{ "id": "events/notice", "t": "留意公告", "b": [
 				"事件结算时骰子旁会弹出说明。持续效果会挂在右侧竖条",
 				"与回合流程里，多看对局日志（L 键）。",
 			] },
 		] },
 		{ "title": "界面与快捷键", "entries": [
-			{ "t": "右侧竖条", "b": [
+			{ "id": "ui/sidebar", "t": "右侧竖条", "b": [
 				"回合数、胜负进度、每位玩家的能量与手牌、免疫等级都在这里。",
 				"悬停玩家行可查看其已装备的永久技能。",
 			] },
-			{ "t": "行动栏", "b": [
+			{ "id": "ui/action_bar", "t": "行动栏", "b": [
 				"底部一排按钮，数字键 1-9 对应从左到右。",
 				"按钮不消失、只变暗，位置和编号始终稳定。",
 			] },
-			{ "t": "常用按键", "b": [
+			{ "id": "ui/keys", "t": "常用按键", "b": [
 				"空格 = 结束回合；L = 对局日志；Esc = 取消 / 打开暂停菜单；",
 				"右键 = 取消选目标。主菜单里方向键 + 回车即可全程操作。",
 			] },
-			{ "t": "悬停与提示", "b": [
+			{ "id": "ui/hover", "t": "悬停与提示", "b": [
 				"悬停格子看地形、悬停玩家行看装备、悬停按钮看费用。",
 				"点不动的时候，界面上一般会直接告诉你为什么。",
 			] },
 		] },
 		{ "title": "给新手的三个提醒", "entries": [
-			{ "t": "先扩张收入", "b": [
+			{ "id": "tips/income", "t": "先扩张收入", "b": [
 				"免疫多净化攒记忆、升等级，癌方多定殖把连通块做大，",
 				"收入才滚得起来。开局别只盯着一个细胞对砍。",
 			] },
-			{ "t": "守住复活点", "b": [
+			{ "id": "tips/respawn", "t": "守住复活点", "b": [
 				"癌方的命根子是固化癌组织，免疫的命根子是骨髓。",
 				"被对面占住复活位，往往比死一个细胞更伤。",
 			] },
-			{ "t": "能量别见底", "b": [
+			{ "id": "tips/energy", "t": "能量别见底", "b": [
 				"付钱不能降到 0，攒不出足够费用就会卡手。",
 				"留一两步移动的余量，关键时刻才进退自如。",
 			] },
 		] },
-	]
+	], unlocked)
 
 
 ## 世界事件回合的清单文字（「3、6、10、15、20、25、30」），现算自 CWData.is_world_event_round，
 ## 图鉴与引导剧本共用，别在两处各写一份。
 ## 在图鉴里找一个词（大小写不分，子串匹配）：返回 [{ page, chapter, t, line }]，line 为空 = 命中在条目标题上。
 ## 一个条目里命中多行各算一条；最多 MAX_HITS 条。纯函数，无头测试直接核对。
-static func search(query: String) -> Array:
+## `unlocked` 与 `chapters()` 同义（不传 = 不过滤）——**面板一定要传**：
+## 不过滤的话没解锁的条目能被搜出来，等于从后门把它读了（方案 §1.11）。
+static func search(query: String, unlocked: Variant = null) -> Array:
 	var q := query.strip_edges().to_lower()
 	var out: Array = []
 	if q == "":
 		return out
-	var all := chapters()
+	var all := chapters(unlocked)
 	for p in all.size():
 		var ch: Dictionary = all[p]
 		for entry in ch["entries"]:
@@ -591,7 +684,7 @@ func _on_query(q: String) -> void:
 		_hits.clear()
 		_rebuild_page()
 		return
-	_hits = search(_query)
+	_hits = search(_query, _unlocked)
 	_in_results = true
 	_rebuild_results()
 
@@ -609,7 +702,8 @@ func _goto(hit: Dictionary) -> void:
 		_search.release_focus()
 	open_to(int(hit["page"]))
 	var y := 0.0
-	for entry in chapters()[_page]["entries"]:
+	## 滚到那个条目：要按**过滤后**的那一页算偏移，拿整本书的行高算会滚过头
+	for entry in chapters(_unlocked)[_page]["entries"]:
 		if entry["t"] == hit["t"]:
 			break
 		y += TITLE_LINE + entry["b"].size() * LINE + GAP
@@ -621,6 +715,7 @@ func _goto(hit: Dictionary) -> void:
 func _rebuild_results() -> void:
 	for child in _content.get_children():
 		child.queue_free()
+	_glow.clear()   ## 结果页没有条目标题可闪
 	_title.text = "搜索「%s」" % _query
 	_page_label.text = "%d 条" % _hits.size()
 	_paint_arrows()   ## 结果页两枚都翻不动，_paint_arrows 自己会把它们压暗、不发光
@@ -813,9 +908,10 @@ func _clicky(text: String, at: Vector2, on_click: Callable, parent: Node = null)
 func _rebuild_page() -> void:
 	for child in _content.get_children():
 		child.queue_free()
+	_glow.clear()
 	_title.text = ""
 	_page_label.text = ""
-	var all := chapters()
+	var all := chapters(_unlocked)
 	if all.is_empty():
 		return
 	var ch: Dictionary = all[_page]
@@ -829,6 +925,12 @@ func _rebuild_page() -> void:
 		var t := CWStyle.label(entry["t"], CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
 		t.position = Vector2(0, y)
 		_content.add_child(t)
+		## 解锁动效：刚解锁、本实例还没让它闪过的条目，标题慢闪一轮。
+		## 翻到才记「闪过」—— 解锁的条目在别的章时，这次没翻过去就留到下次
+		var eid := str((entry as Dictionary).get("id", ""))
+		if _fresh.has(eid):
+			_seen[eid] = true
+			_glow.append(t)
 		y += TITLE_LINE
 		for line in entry["b"]:
 			var l := CWStyle.label(line, CWStyle.SIZE_LABEL, CWStyle.TEXT)
@@ -857,3 +959,20 @@ func _rule(at_y: float) -> ColorRect:
 func _layout() -> void:
 	_content.position = Vector2(0, -_scroll)
 	_max_scroll = maxf(_content.size.y - _body.size.y, 0.0)
+
+
+## 解锁动效的心跳。**无头视口不跑这一支**（书通常不进树），所以判据直接摆 `_pulse_t` 再调 `_apply_pulse()`
+func _process(delta: float) -> void:
+	if not visible or _glow.is_empty():
+		return
+	_pulse_t += delta
+	_apply_pulse()
+
+
+## 慢闪 = 标题整体透明度在 HALO_ALPHA_LO..HI 之间呼吸（同 CWGuide 的柔光、CWGuideShell 的横幅）。
+## 用 modulate 而不是换字色：点阵字换色会让字重看起来在变，透明度不会
+func _apply_pulse() -> void:
+	var k := 0.5 + 0.5 * sin(_pulse_t * TAU / HALO_PERIOD)
+	var a := lerpf(HALO_ALPHA_LO, HALO_ALPHA_HI, k)
+	for l in _glow:
+		l.modulate.a = a
