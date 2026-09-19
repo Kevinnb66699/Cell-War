@@ -256,7 +256,8 @@ var _mucus_root: Node2D             ## 黏液覆膜层（见 set_mucus）
 var _mucus_nodes := {}              ## 轴坐标 -> 那一格的覆膜 Sprite2D
 var _necro_root: Node2D             ## 坏死纹理层（见 set_necrosis），压在黏液膜下面
 var _necro_nodes := {}              ## 轴坐标 -> 那一格的坏死 Sprite2D
-var _necro_tex: ImageTexture
+var _necro_tex := {}                ## 特殊组织 -> 那一种格子的坏死膜（见 _necrosis_film）
+var _icon_px := {}                  ## 特殊组织 -> 图标占的像素集合（见 _icon_pixels）
 var _mucus_tex: ImageTexture        ## 覆膜贴图，第一次用到时烤一张，之后所有格共用
 var _mark_material: ShaderMaterial  ## 所有剪影共用一份
 
@@ -793,7 +794,7 @@ func set_mucus(cells: Array) -> void:
 ## 绘制调用。烤成 23×12 的贴图之后每格只剩一次 `draw_texture`。
 ## 坏死格的纹理（issue #15，2026-09-11；选稿 textures.js necrosis v0「灰色干枯」）：整格灰褐底、
 ## 两处短裂纹、两点淡色。此前坏死**根本没画**（只有悬停详情栏说一句），T 细胞放完毒素地上什么都看不出。
-## 覆在组织贴图上、压在黏液膜下面；贴图**只烤一次**，理由同 _mucus_film。
+## 覆在组织贴图上、压在黏液膜下面；贴图**每种特殊组织只烤一次**（issue #61 起分了几张），理由同 _mucus_film。
 const Z_NECRO := 0
 
 
@@ -813,7 +814,8 @@ func set_necrosis(cells: Array) -> void:
 		## 整格覆盖（HXR-I #27，2026-09-12）：膜就是组织贴图的剪影，摆法照抄那一格的 Sprite
 		var t: Sprite2D = map[axial_to_rc(c)]["instance"]
 		var s := Sprite2D.new()
-		s.texture = _necrosis_film()
+		## 膜按这一格的特殊组织挑：核心 / 骨髓那两张在图标处镂空（issue #61），其余是整张
+		s.texture = _necrosis_film(CWData.special_of(c))
 		s.centered = t.centered
 		s.offset = t.offset
 		s.position = t.position
@@ -837,25 +839,78 @@ func set_necrosis(cells: Array) -> void:
 ## 再描一圈反而是普通格没有的东西。
 const NECRO_INK := Color("686761")
 
+## 坏死膜**不盖特殊组织的图标**（issue #61，Kevin 2026-09-19：「坏死贴图盖住特殊组织纹路，
+## 当骨髓 / 代谢核心进入坏死状态后，骨髓的卡牌 icon 和代谢核心的闪电 icon 会被盖住」）。
+## 根因：图标是**烤进地块贴图里**的，而坏死膜是整格一张盖在上面 —— 核心 / 骨髓一坏死
+## 就退化成一块没有身份的灰地，「这格是什么」当场读不出来
+## （积累进度那圈反倒还在：它是格子的子节点、相对 z 高一层，本来就压在膜上面）。
+##
+## 改法是**在膜上给图标留个洞**（按像素位置镂空），而不是另起一层把图标重画一遍：
+## 洞底下露出来的就是地块贴图自己的那几十个像素，于是空仓 / 待结算 / 固化时图标各是什么样，
+## 这里一概不必知道，永远跟着 `set_tissue()` 当前那张走，也不必每帧同步。
+## 膜照旧盖满其余部分（顶面 + 两片侧面），坏死一眼还是认得出来。
+##
+## **只镂核心和骨髓**：血管那个菱形图标占顶面 144 px（四分之一张脸），镂了就不像坏死了；
+## 而 issue #61 点名的正是这两种。要不要连血管一起镂，等美术 / Kevin 说。
+const NECRO_KEEP_ICON: Array[int] = [CWData.Special.CORE, CWData.Special.MARROW]
 
-func _necrosis_film() -> ImageTexture:
-	if _necro_tex != null:
-		return _necro_tex
+
+## 这种特殊组织的图标占了顶面的哪几个像素（键 = 像素坐标）。不镂空的返回空字典。
+##
+## 位置从**健康版**贴图上量：顶面（= 普通组织贴图正中那一片同色区）上凡是与该格顶面底色
+## 不同的像素就算图标。底色取顶面上最多的那个颜色 —— 图标满打满算一百来个像素，
+## 抢不过五百多个的底色。
+## **不能拿当前那张贴图现量**：固化族的顶面是一片结晶花纹，现量会把花纹也当成图标镂掉。
+## 各变体（癌变 / 空仓 / 待结算 / 固化七档 × 变体）的图标位置与健康版逐像素一致，2026-09-19 核过。
+func _icon_pixels(special: int) -> Dictionary:
+	if _icon_px.has(special):
+		return _icon_px[special]
+	var out := {}
+	if special in NECRO_KEEP_ICON:
+		var src: Image = TISSUE_TEX[CWData.Special.NONE][0].get_image()
+		var sp: Image = TISSUE_TEX[special][0].get_image()
+		var face: Color = src.get_pixel(src.get_width() / 2, src.get_height() / 2)
+		var tally := {}
+		var base: Color = face
+		var most := 0
+		for y in src.get_height():
+			for x in src.get_width():
+				if src.get_pixel(x, y) != face:
+					continue        ## 两片侧面：那里没有图标，也不许镂
+				var c: Color = sp.get_pixel(x, y)
+				var n: int = int(tally.get(c, 0)) + 1
+				tally[c] = n
+				if n > most:
+					most = n
+					base = c
+		for y in src.get_height():
+			for x in src.get_width():
+				if src.get_pixel(x, y) == face and sp.get_pixel(x, y) != base:
+					out[Vector2i(x, y)] = true
+	_icon_px[special] = out
+	return out
+
+
+func _necrosis_film(special: int = CWData.Special.NONE) -> ImageTexture:
+	if _necro_tex.has(special):
+		return _necro_tex[special]
 	var src: Image = TISSUE_TEX[CWData.Special.NONE][0].get_image()
 	var w := src.get_width()
 	var h := src.get_height()
 	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	var keep: Dictionary = _icon_pixels(special)
 	## 顶面的明度当基准。取正中那个像素 —— 顶面是这张图最大的一片，正中必落在它上面
 	var top := _luma(src.get_pixel(w / 2, h / 2))
 	for y in h:
 		for x in w:
 			var p := src.get_pixel(x, y)
-			if p.a <= 0.0:
+			if p.a <= 0.0 or keep.has(Vector2i(x, y)):
 				continue
 			var k: float = _luma(p) / top if top > 0.0 else 1.0
 			img.set_pixel(x, y, Color(NECRO_INK.r * k, NECRO_INK.g * k, NECRO_INK.b * k, p.a))
-	_necro_tex = ImageTexture.create_from_image(img)
-	return _necro_tex
+	var tex := ImageTexture.create_from_image(img)
+	_necro_tex[special] = tex
+	return tex
 
 
 static func _luma(c: Color) -> float:
