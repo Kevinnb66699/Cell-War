@@ -1368,7 +1368,10 @@ func _sync_tutor_layers() -> void:
 		hand.visible = false
 	if panel != null:
 		panel.visible = CWTutorLayers.on("sidebar")
-		panel.guide_layers(CWTutorLayers.on("end_turn"), CWTutorLayers.on("round_no"))
+		## 第三个层位是「癌性加权」那一整块：**教程局一律不出**（Kevin 2026-09-19：右栏只留
+		## 状态框 + 抗原记忆框）。不给 `CWTutorLayers` 加新层 —— 那文件带 `class_name`、
+		## 走不了热更（方案 §1.5）；`_sync_tutor_layers` 本来就只有教程局每帧跑，写死 false 即可
+		panel.guide_layers(CWTutorLayers.on("end_turn"), CWTutorLayers.on("round_no"), false)
 	## 镜头也是一层（`ui.camera`）：关内换 step 改了镜头、或地图浮现把活跃集撑大了，
 	## 都在这儿补间过去。`_tutor_camera` 自己判「机位没变就不动」，每帧问一次不花钱
 	_tutor_camera(TUTOR_CAM_SECS)
@@ -2223,7 +2226,11 @@ func _sync_cells() -> void:
 			deco.half_h = tex.get_height() / 2.0 if tex != null else 17.0
 		## 能量增损的飘字（issue #48）：**镜像差分**，引擎零改动、不加报文，
 		## 于是凡是改能量的事件（收入 / 伤害 / 反弹 / 迁移费 / 卡牌 / 过载…）一条不漏。
-		## 刚复活的那一跳不演（那是「凭空出现」，走 _pop_in），教程的无限能量也不演。
+		## 刚复活的那一跳不演（那是「凭空出现」，走 _pop_in）。
+		## **教程的 ∞ 只静玩家自己那一只**（Kevin 2026-09-19）：静的判据是「这只细胞的能量在
+		## `INFINITE_MIN` 那条带里」= 右栏写着 ∞ 的那一只 —— 给一只写着 ∞ 的细胞飘「-1.0」自相矛盾。
+		## 别人的照飘：第五关 Step2 的卖点就是把癌细胞打爆那一下（整关静音的话爆炸一声不响）。
+		## 新旧值**任一**在带里就算（玩家那只一路从 99990 往下花，两头都在带里）。
 		## **遮罩外的不演**：上面那行细胞可见性押着「预置 + 遮罩揭示」，飘字压在 Z_OVER_BOARD 上、
 		## 不跟遮罩的话，还没揭示的那只细胞一有收入 / 伤害就会在空白处飘个 ±数字出来。
 		## 判的是 `board.is_active(pos)` 而不是 `node.visible`：后者还含「扑咬 / 普通攻击由演出层代画」
@@ -2231,9 +2238,10 @@ func _sync_cells() -> void:
 		## 镜像差分正好落在代画那一段里，拿 node.visible 去判会把**攻击伤害**这条最该演的飘字吃掉。
 		## `_last_energy[i] = e` 照旧在条件外更新：差分基准不能跟着跳过。
 		var e: int = int(c["energy"])
+		var muted: bool = CWTutorLayers.energy_mode() == "infinite" \
+				and (e >= CWTutorLayers.INFINITE_MIN or _last_energy[i] >= CWTutorLayers.INFINITE_MIN)
 		if _energy_fx != null and _last_energy[i] != ENERGY_FX.UNSEEN and e != _last_energy[i] \
-				and not became_alive and board.is_active(pos) \
-				and CWTutorLayers.energy_mode() != "infinite":
+				and not became_alive and board.is_active(pos) and not muted:
 			var head: float = float(tex.get_height()) if tex != null else 34.0
 			_energy_fx.push(i, foot - Vector2(0, head + 4.0), e - _last_energy[i])
 			if panel != null:

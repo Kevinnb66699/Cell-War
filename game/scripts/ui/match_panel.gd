@@ -10,6 +10,9 @@
 ## 真让给下面的行（`_layer_round` / `rows_top()`）。第五关 Step2 场上 9 席，不让位免疫等级
 ## 那一块整块掉出 540，而 PRD:417 要的就是「显示……的状态、免疫等级」。
 ## 正式对局 `round_no` 恒 true ⇒ 一个像素不动。
+## 教程的第二条例外（Kevin 2026-09-19）：「癌性加权」那一整块**整个藏掉**（`_layer_score`），
+## 右栏只留状态框 + 抗原记忆框。这一条**只藏不挪** —— 让出来的 66px 不给下面的行，
+## 九席那套配平就是按「藏着也占位」算的（`level_bottom`）。
 ##
 ## 为什么是右侧竖条而不是底部横条：见 [CWView] 的对局机位注释。
 ##
@@ -95,6 +98,7 @@ var _weighted: Label
 var _weighted_max: Label
 var _weighted_caption: Label   ## 平时写「癌性加权」，警报期换成「★ 警报 1/2」
 var _bar_fill: ColorRect
+var _bar_track: ColorRect   ## 胜负进度条的槽（教程局整块藏起来时跟着藏）
 var _level: Label
 var _memory: Label
 var _lv_bar_bg: ColorRect    ## 升级进度条的槽（胜负那条叫 _bar_fill，别混）
@@ -126,6 +130,13 @@ var _layer_end := true
 ## 整块掉到 540 之外 —— 而 PRD:417 要的正是「显示……的状态、免疫等级」。
 ## 只在**这一块本来就不显示**的时候让位，所以正式局一个像素不动（那边 round_no 恒 true）
 var _layer_round := true
+## 胜负进度块（「癌性加权」那一整块：标签 + 数值 + 进度条，警报期那行字也在里面）出不出。
+## **教程局一律关**（Kevin 2026-09-19：右栏只留状态框 + 抗原记忆框）——
+## 教程里也不会有警报（癌方加权胜利那条旋钮拧到 99 回合）。
+## 不给 `CWTutorLayers` 加新层：那文件带 `class_name`、走不了热更（方案 §1.5）；
+## 由 `CWMatch._sync_tutor_layers`（只有教程局每帧跑）随 `guide_layers` 一起喂。
+## **只藏不挪**：让出来的那 66px 不给下面的行 —— 九席那套配平是按这张排版算死的（`level_bottom`）
+var _layer_score := true
 
 
 func _ready() -> void:
@@ -198,20 +209,28 @@ func refresh(m: CWMirror, q: Callable) -> void:
 	var phase_text := str(m.g["d"]["phase_text"])
 	_phase.text = "%s · %s" % [phase_text, stage_name]
 
-	var w := m.cancer_weighted()
-	var goal: int = int(m.tune["cancer_win_weighted"])
-	_weighted.text = str(w)
-	_weighted_max.text = " / %d" % goal
-	## 定案 B（2026-09-01）：首次达标只拉警报。引擎的 cancer_win_streak > 0 就是「警报期」，
-	## 界面只负责把它显示出来（架构约定 #10），不自己数。
-	var alarm: Dictionary = m.g["cancer_alarm"]
-	if int(alarm["streak"]) > 0:
-		_weighted_caption.text = "★ 警报 %d/%d" % [int(alarm["streak"]), int(alarm["hold_rounds"])]
-		_weighted_caption.add_theme_color_override("font_color", CWStyle.CANCER)
-	else:
-		_weighted_caption.text = "癌性加权"
-		_weighted_caption.add_theme_color_override("font_color", CWStyle.TEXT_DIM)
-	_bar_fill.size.x = W * clampf(float(w) / float(goal), 0.0, 1.0)
+	## 教程局把这一整块藏掉（见 `_layer_score`）：标签、数值、槽、进度条一起，
+	## 警报期的「★ 警报」字样自然也就不出（教程里没有警报）
+	_weighted.visible = _layer_score
+	_weighted_max.visible = _layer_score
+	_weighted_caption.visible = _layer_score
+	_bar_track.visible = _layer_score
+	_bar_fill.visible = _layer_score
+	if _layer_score:
+		var w := m.cancer_weighted()
+		var goal: int = int(m.tune["cancer_win_weighted"])
+		_weighted.text = str(w)
+		_weighted_max.text = " / %d" % goal
+		## 定案 B（2026-09-01）：首次达标只拉警报。引擎的 cancer_win_streak > 0 就是「警报期」，
+		## 界面只负责把它显示出来（架构约定 #10），不自己数。
+		var alarm: Dictionary = m.g["cancer_alarm"]
+		if int(alarm["streak"]) > 0:
+			_weighted_caption.text = "★ 警报 %d/%d" % [int(alarm["streak"]), int(alarm["hold_rounds"])]
+			_weighted_caption.add_theme_color_override("font_color", CWStyle.CANCER)
+		else:
+			_weighted_caption.text = "癌性加权"
+			_weighted_caption.add_theme_color_override("font_color", CWStyle.TEXT_DIM)
+		_bar_fill.size.x = W * clampf(float(w) / float(goal), 0.0, 1.0)
 
 	for pid in m.players.size():
 		_refresh_row(m, pid)
@@ -263,8 +282,9 @@ func show_end_turn(on: bool) -> void:
 ## 教程的 UI 层开关（`ui_layers.end_turn` / `round_no`，只有 `CWMatch` 教程局每帧喂）。
 ## 「结束回合」是**闸**不是显隐：`show_end_turn(true)` 也得按它再关一道 ——
 ## 否则轮到玩家时询问桥会把它重新亮出来，而第一 ~ 五关整关不许结束回合（方案 §2.3）
-func guide_layers(end_turn: bool, round_no: bool) -> void:
+func guide_layers(end_turn: bool, round_no: bool, score := true) -> void:
 	_layer_end = end_turn
+	_layer_score = score   ## 「癌性加权」那一整块（教程局关）。只改显隐，排版一个像素不动
 	_chrome()
 	if not end_turn and _end != null:
 		_end.visible = false
@@ -463,11 +483,11 @@ func _build(n: int) -> void:
 		PAD, y + 10, W, HORIZONTAL_ALIGNMENT_RIGHT)
 	_weighted = _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.CANCER),
 		PAD, y, W - 36, HORIZONTAL_ALIGNMENT_RIGHT)
-	var track := ColorRect.new()
-	track.color = Color("0a0f16")
-	track.position = Vector2(PAD, y + 28)
-	track.size = Vector2(W, 8)
-	add_child(track)
+	_bar_track = ColorRect.new()
+	_bar_track.color = Color("0a0f16")
+	_bar_track.position = Vector2(PAD, y + 28)
+	_bar_track.size = Vector2(W, 8)
+	add_child(_bar_track)
 	_bar_fill = ColorRect.new()
 	_bar_fill.color = CWStyle.CANCER
 	_bar_fill.position = Vector2(PAD, y + 28)
