@@ -21334,8 +21334,9 @@ const CTX_NINE := ["alive", "beat", "fail", "frame", "log", "read", "rng", "stat
 const CTX_RET_OK := ["void", "bool", "Variant", "Dictionary", "RandomNumberGenerator"]
 ## 带 `class_name` 的三个例外（方案 §1.5）：两版皮 + 基类 + 常驻壳 + 层表 —— 它们要被
 ## `screenshot.gd` 的 `call:类名:方法` 驱动。**会反复改的四件（导演 / 闸 / 钩子 / ctx）一个都不许有**
+## 例外 = 皮（三版：占位 / 计数 / 贴身气泡，S3 的皮 A 要给 screenshot.gd 的 call:类名 驱动）+ 基类 + 常驻壳 + 层表 + 提亮层
 const TUTOR_CLASS_NAME_OK := ["cw_tutor_view.gd", "cw_tutor_view_plain.gd",
-	"cw_tutor_view_tally.gd", "cw_tutor_chrome.gd", "cw_tutor_layers.gd", "cw_tutor_spot.gd"]
+	"cw_tutor_view_tally.gd", "cw_tutor_view_bubble.gd", "cw_tutor_chrome.gd", "cw_tutor_layers.gd", "cw_tutor_spot.gd"]
 
 
 ## 钩子专用桩关卡：一条 `state` + 一条 `hook`。**不进 data/tutorial/** —— 它不是剧本，是夹具
