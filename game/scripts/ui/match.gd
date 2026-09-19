@@ -362,7 +362,7 @@ var _cell_nodes: Array[Node2D] = []   ## 下标 = cell["id"]，和 game.cells �
 var _was_alive: Array[bool] = []      ## 上一帧的存活状态，用来认出「复活」这一下
 var _ever_alive: Array[bool] = []     ## 只要曾经活过，就允许复活演出；初始出生不算复活
 var _bloom := {}      ## 开场还没揭开的格子：一律先按健康组织画
-var _hand_seen := {}  ## pid -> 上一帧的手牌数，用来认出「刚抽了一张」
+var _hand_seen := {}  ## pid -> 上一次刷进抽屉的那副牌名（PackedStringArray）；比内容不比张数，见 hand_refresh
 var _hand_pid := -1   ## 抽屉正在显示谁的手牌
 var _opening := false ## 正在演开场；start() 会把它带给桥（桥是 start() 里才建的）
 var _breath_acc := 0.0   ## 呼吸计时的小数积累
@@ -2372,7 +2372,7 @@ func _sync_hand() -> void:
 			hand.visible = true
 			var c0: Dictionary = mirror.cell_of(who)
 			var cards0: PackedStringArray = PackedStringArray(c0["hand"])
-			_hand_seen[who] = cards0.size()
+			_hand_seen[who] = cards0
 			hand.deal_from(cards0.size(), CWView.board_to_screen(camera, board.tile_center(c0["pos"])), cards0)
 			return
 	elif mirror.current_pid in human_players:
@@ -2383,15 +2383,26 @@ func _sync_hand() -> void:
 		return                       ## 开局布置阶段，这个人还没落子
 	var cell: Dictionary = mirror.cell_of(_hand_pid)
 	var cards: PackedStringArray = PackedStringArray(cell["hand"])
-	var n: int = cards.size()
-	var was: int = _hand_seen.get(_hand_pid, -1)
-	if was == n:
+	var how := hand_refresh(_hand_seen.has(_hand_pid), _hand_seen.get(_hand_pid, PackedStringArray()), cards)
+	if how == "":
 		return
-	_hand_seen[_hand_pid] = n
-	if was >= 0 and n > was:
-		hand.deal_from(n, CWView.board_to_screen(camera, board.tile_center(cell["pos"])), cards)
+	_hand_seen[_hand_pid] = cards
+	if how == "deal":
+		hand.deal_from(cards.size(), CWView.board_to_screen(camera, board.tile_center(cell["pos"])), cards)
 	else:
-		hand.sync(n, Vector2.INF, cards)   ## 首次显示 / 换人 / 打出去了：直接就位，不演
+		hand.sync(cards.size(), Vector2.INF, cards)   ## 首次显示 / 换人 / 打出去了：直接就位，不演
+
+
+## 手牌抽屉要不要刷、怎么刷（纯函数，`t_hand_swap` 钉着）："" = 不动、"deal" = 新到的卡从细胞身上飞进来、"sync" = 直接就位。
+## **按内容比，不按张数**：2026-09-19 之前只比张数 —— Kevin 打出【癌症转移】落到骨髓、同一步里又抽到一张，
+## 张数 1 → 1，抽屉没刷、还画着打出去的那张，双击它自然「还打不出（没有合法目标）」：引擎那边手里早是另一张牌了。
+## 张数没变也可能有新到的卡（打出一张 + 抽到一张），所以「飞入」看的是有没有**新到的**，不是张数有没有涨
+static func hand_refresh(seen: bool, was: PackedStringArray, now: PackedStringArray) -> String:
+	if seen and was == now:
+		return ""
+	if seen and CWHand.arrivals(was, now) > 0:
+		return "deal"
+	return "sync"
 
 
 ## 观众的手牌抽屉：跟着正在行动的那一席。没人在动（结算演出中 / 落子阶段）就收起来。
@@ -2410,12 +2421,13 @@ func _sync_hand_watch() -> void:
 	if _hand_pid != who:
 		_hand_pid = who
 		hand.visible = true
-		_hand_seen[who] = cards.size()
+		_hand_seen[who] = cards
 		hand.sync(cards.size(), Vector2.INF, cards)
 		return
-	if int(_hand_seen.get(who, -1)) == cards.size():
+	## 同上面的 hand_refresh：按内容比，张数没变、换了牌也要刷（观众看别人打一张再抽一张同样中招）
+	if _hand_seen.has(who) and (_hand_seen[who] as PackedStringArray) == cards:
 		return
-	_hand_seen[who] = cards.size()
+	_hand_seen[who] = cards
 	hand.sync(cards.size(), Vector2.INF, cards)
 
 
