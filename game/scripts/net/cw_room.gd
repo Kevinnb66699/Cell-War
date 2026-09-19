@@ -48,6 +48,7 @@ var timeouts := 0               ## 超时代打次数（统计/测试）
 
 var _ask := {}                  ## 正悬着的真人询问 {pid, ask_id, req, deadline, waiter}
 var _ask_seq := 0
+var _last_ask := {}             ## pid -> 上一次问他的 ask_id：重连时补发边界报文用（issue #62），一局一清
 var _log_cursor := {}           ## client id -> 已发到第几行日志
 var _vote := {}                 ## 正在进行的投降投票 {faction, by, agreed:{pid:true}, deadline}
 var _vote_block := {}           ## 阵营 -> 冷却到第几个世界回合（含）为止不许再发起
@@ -240,6 +241,13 @@ func reconnect(cid: int, nick: String, token: String) -> String:
 			push_state_to(cid, _ask.get("pid", -1))
 			if not _ask.is_empty() and _ask["pid"] == pid:
 				_send_ask()
+			elif _last_ask.has(pid):
+				## issue #62（#44 余账）：掉线期间他那一问被代打了（`_on_seat_offline` 掉线即答），
+				## 那条 `step_begin` 他没收到；此刻问的又是别人，客户端的界面就一直挂在旧一问上，
+				## 要等下一次轮到自己才被 `_serve_ask` 收掉。补发一条**他上一问**的 step_begin ——
+				## 客户端按 #44 的判据（这一问还挂在我手上 + 边界报了它 ⇒ 被代打了）当场收界面；
+				## 他自己早答过的话句柄里没有这一条，客户端一比就当没事，报文是幂等的
+				server.send(cid, { "t": "step_begin", "ask_id": int(_last_ask[pid]), "seat": pid })
 		return ""
 	return "bad_token"
 
@@ -442,6 +450,7 @@ func _teardown_game() -> void:
 	game = null
 	bridge = null
 	_ask = {}
+	_last_ask.clear()
 	_vote = {}
 	_vote_block = {}   ## 冷却按世界回合算，下一局回合数从头来，留着会误伤
 
@@ -465,6 +474,7 @@ func ask_human(pid: int, req: Dictionary) -> int:
 	var now := server.now_ms()
 	_ask = { "pid": pid, "ask_id": _ask_seq, "req": req,
 		"deadline": now + timer_secs * 1000 if timer_secs > 0 else 0, "waiter": Waiter.new() }
+	_last_ask[pid] = _ask_seq   ## 重连补发边界报文要它（issue #62）
 	_send_ask()
 	var idx: int = await _ask["waiter"].done
 	_ask = {}

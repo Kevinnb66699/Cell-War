@@ -146,7 +146,7 @@ func _run_all() -> void:
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
-		t_net_takeover, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
+		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
 		t_semkey_single_source, t_kernel_inproc, t_play_queue,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
@@ -23535,3 +23535,56 @@ func t_hand_swap() -> void:
 	hand.clear()
 	root.remove_child(hand)
 	hand.free()
+
+
+## issue #62（#44 余账）：**掉线期间**被代打，重连回来界面还挂在旧一问上，要等下一次轮到自己才恢复。
+## 掉线时收不到那条 step_begin；重连时服务器原来只重推状态 + 重发「此刻正问我的那一问」——
+## 此刻问的是别人时什么都不发，界面就一直卡着。现在 CWRoom.reconnect 在「此刻没在问我」时
+## 补发一条 step_begin{ask_id: 我上一问}，客户端照 #44 的判据当场收界面；自己早答过的话句柄里没这条、报文幂等
+func t_net_takeover_offline() -> void:
+	print("[掉线期间被代打，重连即收界面]")
+	var srv := _net_server()
+	check(srv != null, "联机：本机起服务器")
+	if srv == null:
+		return
+	var url := "ws://%s:%d" % [NET_HOST, srv.port]
+	var a := _net_client("甲", false)
+	var b := _net_client("乙", false)
+	await _net_pair(srv, a, b)
+	check(await _net_room(srv, a, b, 2, 0, 20260919), "2 人房就绪（不计时：掉线即代打）")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.get_node("Match")
+	var bar: CWActionBar = main_scene.get_node("Match/UI/ActionBar")
+	a.sequenced = true
+	a.start()
+	var ok := await _net_pump(srv, [a, b], func() -> bool:
+		return a.stream.any(func(x: Dictionary) -> bool: return x["t"] == "sync"))
+	check(ok, "开局后第一份状态排进了 stream")
+	m.start_online(a)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return bar.visible and not m.bridge.marks.is_empty())
+	check(ok, "第一问弹到界面")
+	var room: CWRoom = srv.rooms[a.code]
+	var ask_id: int = m._serving_ask
+	var code: String = a.code
+	var token: String = a.token
+	check(ask_id >= 0 and int(room._ask.get("ask_id", -1)) == ask_id, "服务器正问的就是我这一问（%d）" % ask_id)
+	## 掉线：连接断掉 → 服务器判席位离线 → 不计时立刻代打 → 引擎去问乙（乙不答，停在那儿）
+	a.close()
+	ok = await _net_pump(srv, [a, b], func() -> bool:
+		return not room.seats[0]["online"] and not room._ask.is_empty() and int(room._ask["pid"]) == 1)
+	check(ok, "掉线即代打：我那一问过去了，现在轮到乙（乙不答）")
+	check(bar.visible and m._serving_ask == ask_id and (m.kernel as CWKernelRemote).asking(ask_id),
+		"探针：掉线期间那条 step_begin 没收到，界面还挂在旧一问上（#62 报的那一屏）")
+	## 重连：凭令牌回来。服务器此刻问的是乙 ⇒ 修之前什么都不补发，界面一直卡到下次轮到我
+	check(a.connect_to(url, "甲", code, token) == OK, "凭令牌重连")
+	ok = await _net_pump(srv, [a, b], func() -> bool: return m.takeovers >= 1)
+	check(ok, "重连回来收到补发的 step_begin，界面按 #44 的判据当场收掉（takeovers %d）" % m.takeovers)
+	check(not bar.visible and m._serving_ask == -1 and m.bridge.marks.is_empty(), "行动栏 / 候选格收掉，不再挂着旧一问")
+	check(room.seats[0]["online"] and int(room._ask["pid"]) == 1, "席位回到在线，服务器仍在问乙")
+	m.teardown()
+	main_scene.queue_free()
+	a.dispose()
+	b.dispose()
+	srv.stop()
