@@ -483,7 +483,12 @@ internal static class RulePolicies
         // 2026-09-19（规格 §0.6.7「四个具名入口」）：这两段**原样**抽成 <see cref="AnaerobicPool"/> 与
         // <see cref="SplitShare"/> —— 一个算符都没动，只是把 GD 本来就分开的两个函数名补上，
         // 好让靶场 / AI 评估单取其中一段（此前只能整条 `AnaerobicShare` 一起取）。
-        var income = SplitShare(tune, AnaerobicPool(s, block), living);
+        // GD `anaerobic_gain_for` 写的是 `_split_share(pool, maxi(count, 1))`，`_anaerobic` 那一路则
+        // 先 `if here.is_empty(): continue` —— 两条都保证进 `_split_share` 的 count ≥ 1。
+        // C# 把这两路合成了一条 `AnaerobicShare`，所以那一刀挪到这里（此前写在 `SplitShare` 里面，
+        // 让具名入口 `SplitShare(tune, pool, 0)` 变成一个 GD 没有的口径）。
+        // **零行为改动**：living = 0 时 k 的下标 `clamp(0-1,0,2)` 与 `clamp(1-1,0,2)` 同为 0，除数同为 1。
+        var income = SplitShare(tune, AnaerobicPool(s, block), Math.Max(1, living));
         // 【瓦伯格超速糖酵解】110% 向上取整到十分位 —— GD `int(ceil(gain * WARBURG_PERCENT / 100.0))`：先乘 110 再除，50 → 55.0 恰好；
         // 此前 C# `income * 1.1` 是浮点 55.00000000000001，ceil 成 56（批扫 4p_1006 / 4p_1009 各多 0.1，2026-09-18）
         if (TypeAbilityOn(s, c) && c.Type == CellType.SmallCellLung) income = (int)Math.Ceiling(income * 110 / 100.0);
@@ -534,6 +539,19 @@ internal static class RulePolicies
     /// </summary>
     internal static int SplitShare(RuleTuning tune, double pool, int count)
     {
+        // `count <= 0`：**GD 那边是未定义行为，不是规则**，所以 C# 不复刻。
+        // 实测（Godot 4.5 headless，2026-09-19）：`_split_share(pool, 0)` 走 `scaled / float(0)` 得 inf（pool=0 时 nan），
+        // `int(round(inf))` 落成 INT64_MIN，再被 `clamp_income` 的 `anaerobic_floor` 兜成 2.0 ——
+        // 答案完全由「地板恰好开着」决定，换个 floor 或换个平台就变。
+        // GD 的两个真调用处都保证 ≥ 1（`_anaerobic` 先跳空块、`anaerobic_gain_for` 写 `maxi(count, 1)`），
+        // C# 把那一刀放在 `AnaerobicShare` 的调用处。具名入口（规格 §0.6.7）直接被喂 0 时**当场炸**，
+        // 不静默给一个 GD 没有的数（COVERAGE 空档 split-share-count-zero 就此收）。
+        if (count <= 0)
+            throw new NotSupportedException(
+                $"split_share(pool, {count})：GD `cw_world.gd:_split_share` 在 count ≤ 0 时是 `scaled / 0.0` 的溢出"
+                + "（int(inf) = INT64_MIN，随后被 anaerobic_floor 兜成地板值），那是 UB 不是规则 —— C# 不复刻。"
+                + "两个真调用处都保证 count ≥ 1；探针面禁 count ≤ 0");
+
         // **人数系数 k**（PRD 2026-09-14 / issue #43）：块内 1/2/3 个癌细胞 → 80%/100%/120%，
         // 乘在**整条分式外面**；兜底 2.0 排在它**之后**（PRD 写的是 `max{2, k × …}`）。
         // 2026-09-15 补：C# 此前**完全没有这个系数** —— 独占一块的癌细胞每回合多拿 20%。
@@ -541,7 +559,7 @@ internal static class RulePolicies
         var scaled = pool * k / 100.0;
 
         // 四舍五入**只在这里做一次**：池子是浮点，先取整再除会取整两次（GD 那边专门写了这句注释）
-        var income = (int)Math.Round(tune.AnaerobicSplit ? scaled / Math.Max(1, count) : scaled,
+        var income = (int)Math.Round(tune.AnaerobicSplit ? scaled / count : scaled,
             MidpointRounding.AwayFromZero);
         if (tune.AnaerobicFloor > 0) income = Math.Max(tune.AnaerobicFloor, income);
         if (tune.AnaerobicCap > 0) income = Math.Min(tune.AnaerobicCap, income);
@@ -639,8 +657,13 @@ internal static class RulePolicies
         // → **之外**再加【代谢适应】【自分泌生存信号】的额外获得（不吃 TGF-β，口径 #69）→ 站在坏死格整份打 5 折四舍五入。
         // 此前 C# 先加了额外获得再打 TGF 折：6p 第 187 步 GD 16 + 5 = 21、C# (20 + 5) × 0.8 = 20（2026-09-17）
         var share = AerobicBase(s, c);
-        // GD `aerobic_share` 的 clamp_income(aerobic_floor, aerobic_cap) 夹在**基准**上、排在均分之前：
-        // 那两个旋钮默认都是 0 = 恒等，C# 未迁（批 5b）——默认值下逐位相同。
+        // GD `aerobic_share` 的 `clamp_income(aerobic_floor, aerobic_cap)`（cw_tuning.gd:199）夹在**基准**上、
+        // **排在均分之前** —— 顺序反过来的话 2.0 的低保会把 2.5÷3=0.8 顶回 2.0，均分等于没开
+        // （GD 注释里记着 2026-09-05 t_batch2_rules 当场抓到这条）。
+        // 2026-09-19 迁：此前 C# 整条没有（`AerobicShare` 那句注释写的「批 5b」是笔误，应为批 2 第二段，
+        // COVERAGE 空档 aerobic-floor-cap-not-migrated）。两个旋钮默认都是 0 = 恒等 ⇒ 默认值下这两行逐位不改结果。
+        if (s.Tuning.AerobicFloor > 0) share = Math.Max(s.Tuning.AerobicFloor, share);
+        if (s.Tuning.AerobicCap > 0) share = Math.Min(s.Tuning.AerobicCap, share);
         if (s.Tuning.AerobicSplit) share = SplitAerobic(s.Tuning, share, Cells(s).Count(x => x.IsAlive && x.Faction == Faction.Immune));
         for (var i = 0; i < WorldEffects.Stacks(s, "TGF-β释放"); i++) share = share * 8 / 10;
         var bonus = (HasSkill(s, c, "代谢适应") ? 5 : 0) + (HasSkill(s, c, "自分泌生存信号") ? 8 : 0);   // AEROBIC_ADAPT / AEROBIC_AUTOCRINE
@@ -649,23 +672,53 @@ internal static class RulePolicies
         return income;
     }
 
+    /// <summary>GD `CWData.TOTAL_TILES`（常量不是旋钮）：棋盘总格数 **127**，盘面式有氧的分母。
+    /// **不是「当前棋盘有几格」** —— GD 那边写死的就是这个常量，所以 L0 的小盘面同样除 127。</summary>
+    public const int TotalTiles = 127;
+
+    /// <summary>GD `CWData.AEROBIC_LEVEL_BASE_BY_PLAYERS` / `AEROBIC_LEVEL_BASE`（常量不是旋钮，所以不进 `RuleTuning`）：
+    /// `aerobic_level_base &lt; 0` 时按人数取基数（二人 2.0 / 四人 2.0 / 六人 1.8，09-05 方案 f）；
+    /// 表里没有的人数退回 <see cref="AerobicLevelBaseDefault"/> —— balance_scan 会扫 5 人 / 7 人这类非正式人数，不能崩。</summary>
+    public const int AerobicLevelBaseDefault = 20;
+    public static readonly IReadOnlyDictionary<int, int> AerobicLevelBaseByPlayers =
+        new Dictionary<int, int> { [2] = 20, [4] = 20, [6] = 18 };
+
     /// <summary>
-    /// 一份【有氧呼吸】的基准 = GD `CWWorld._aerobic_base`（cw_world.gd:557）。
-    /// **表档最优先**：`aerobic_by_level` 非空时按抗原记忆等级查表（GD 是 `clampi(immune_level, 0, size-1)`；
-    /// C# 的 `ImmuneLevel` 枚举 1 起，减一正好是 GD 那个 0 起的下标）；置空则退到线性档 `base + step × 等级`。
+    /// 一份【有氧呼吸】的基准 = GD `CWWorld._aerobic_base`（cw_world.gd:557）。三条档，**表档最优先**：
+    ///   ① `aerobic_by_level` 非空 ⇒ 按抗原记忆等级查表（GD 是 `clampi(immune_level, 0, size-1)`；
+    ///      C# 的 `ImmuneLevel` 枚举 1 起，减一正好是 GD 那个 0 起的下标）；
+    ///   ② 置空 ⇒ 线性档 `base + step × 等级`，`base &lt; 0` 先按人数取（<see cref="AerobicLevelBaseByPlayers"/>）；
+    ///   ③ `base == 0` ⇒ 退回 09-04 之前的**盘面式** `(健康 − 坏死) × aerobic_mult_at(round) ÷ TOTAL_TILES`，
+    ///      四舍五入到十分位（GD `CWData.round_tenth` ≡ <see cref="Settlement.RoundDiv"/>）。
+    ///      「坏死」格照旧要数：它虽然是健康组织，但**不为免疫供能**。这一条 GD 明写「必须逐位不变」，
+    ///      否则 09-04 之前的扫描数据全作废。
     ///
-    /// GD 还有两条对照档 **C# 未迁**（批 5b）：`aerobic_level_base &lt; 0` 要 `CWData.AEROBIC_LEVEL_BASE_BY_PLAYERS`
-    /// 那张按人数的表，`== 0` 要退回盘面式 `(健康 − 坏死) × aerobic_mult_at(round) ÷ TOTAL_TILES`。
-    /// 两条都**抛**而不是静默取默认 —— 静默的话平衡扫描会拿到一个不是 GD 结果的数（口径二 E-3）。
+    /// 2026-09-19 迁 ②③（COVERAGE 空档 aerobic-board-formula-not-migrated）：此前两条都抛 NotSupportedException。
+    /// 盘面式的系数 = GD `tune.aerobic_mult_at(n)` = `maxi(aerobic_mult + aerobic_mult_growth × maxi(n−1, 0), 0)`；
+    /// `aerobic_mult_growth` 是 E-3 **判死**的旋钮（B 档，两侧拧了都当场红），C# 没有它 ⇒ 只剩 `maxi(aerobic_mult, 0)`，
+    /// 与 GD 在 growth = 0（唯一可装载的取值）时逐位相同。**那个 `maxi(…, 0)` 不能删**：负系数会让整数除法
+    /// 从「向下取整」翻成「向零截断」，取整口径当场翻面（GD 2026-09-01 第一版就漏过这句）。
     /// </summary>
     internal static int AerobicBase(WorldState s, Cell c)
     {
         var t = s.Tuning;
         var level = (int)s.Players[c.OwnerSeat].ImmuneLevel - 1;   // GD `game.immune_level` 是 0 起
         if (t.AerobicByLevel.Count > 0) return t.AerobicByLevel[Math.Clamp(level, 0, t.AerobicByLevel.Count - 1)];
-        if (t.AerobicLevelBase > 0) return t.AerobicLevelBase + t.AerobicLevelStep * level;
-        throw new NotSupportedException(
-            $"aerobic_level_base = {t.AerobicLevelBase}：GD 的「按人数分档（< 0）」与「盘面式（= 0）」两条对照档 C# 未迁（留给批 5b）。");
+
+        // -1 = 按人数取；>0 = 整体覆盖；0 = 退回盘面式（GD `_aerobic_base` 的三句照抄）
+        var b = t.AerobicLevelBase;
+        if (b < 0) b = AerobicLevelBaseByPlayers.TryGetValue(s.Players.Count, out var byPlayers) ? byPlayers : AerobicLevelBaseDefault;
+        if (b > 0) return b + t.AerobicLevelStep * level;
+
+        var healthy = 0;
+        var necrotic = 0;
+        foreach (var tile in Tiles(s))
+        {
+            if (tile.State != TissueState.Healthy) continue;
+            healthy++;
+            if (tile.NecrosisRounds > 0) necrotic++;
+        }
+        return Settlement.RoundDiv((healthy - necrotic) * Math.Max(t.AerobicMult, 0), TotalTiles);
     }
 
     /// <summary>【有氧呼吸】按存活免疫细胞数均分 = GD `CWWorld._split_aerobic`（cw_world.gd:542）：

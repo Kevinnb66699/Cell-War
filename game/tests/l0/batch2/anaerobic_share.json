@@ -1,0 +1,144 @@
+[
+  {
+    "schema": "cwxcase/2",
+    "id": "anaerobic/block_7/solo",
+    "probe": "anaerobic_share",
+    "covers": [
+      "t_batch2_rules::7 格块独占："
+    ],
+    "source": "cw_world.gd:anaerobic_gain_for ↔ RulePolicies.AnaerobicShare（整条：池子 → k → 均分 → 四舍五入 → 兜底 → 封顶）。① 算式：`_split_share(_anaerobic_pool(block), max(count, 1))`；② 出处：cw_world.gd:anaerobic_gain_for / RulePolicies.cs:AnaerobicShare；③ 池子冻结前 50.198119（7^0.3 × 28），k(1) = 80% ⇒ 40.158 → round 40，兜底 20 没触发；④ **PRD 常数** —— PRD:381/383 的无氧公式、PRD:385 的 k；引擎常量 CWData.ANAEROBIC_BLOCK_COEF(28)、ANAEROBIC_BLOCK_EXP(30)、ANAEROBIC_CELLS_K[0]=80、ANAEROBIC_FLOOR(20)。**与 anaerobic_pool / split_share 两个分段探针成三角**：这条走的是没拆开的整条，拆开那两条各自有自己的用例。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "-3,0",
+          "state": "cancer"
+        },
+        {
+          "at": "-2,0",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "0,0",
+          "state": "cancer"
+        },
+        {
+          "at": "1,0",
+          "state": "cancer"
+        },
+        {
+          "at": "2,0",
+          "state": "cancer"
+        },
+        {
+          "at": "3,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "0,0"
+        }
+      ]
+    },
+    "args": {
+      "cell": "1"
+    },
+    "expect": 40
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "anaerobic/warburg/sclc_single_tile",
+    "probe": "anaerobic_share",
+    "covers": [],
+    "source": "小细胞肺癌【瓦伯格超速糖酵解】110% **向上取整到十分位**：① 算式：GD `int(ceil(gain × CWData.WARBURG_PERCENT / 100.0))` ↔ C# `(int)Math.Ceiling(income * 110 / 100.0)`（**先乘 110 再除**：写成 `income * 1.1` 会得 55.00000000000001、ceil 成 56，2026-09-18 批扫抓到过）；② 出处：cw_world.gd:anaerobic_gain_for / RulePolicies.cs:AnaerobicShare；③ 单格块 ⇒ 池子 28.000000（1 的任何次幂恒 1）、k(1) = 80% ⇒ 22.4 → round 22 → ceil(22 × 110 / 100) = 25；④ **PRD 常数** —— PRD:551「【E-瓦伯格超速糖酵解】：其在无氧呼吸中能获得 110% 原产出（向上取整到十分位）」；引擎常量 CWData.WARBURG_PERCENT = 110、ANAEROBIC_BLOCK_COEF(28)、ANAEROBIC_CELLS_K[0]=80。covers 留空：`t_anaerobic_round::小细胞肺癌 1.1 → 1.3（110` 已被批 3 的 anaerobic/t_anaerobic_round/002 认领（T7 不重复认领）。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "SmallCellLung"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 1,
+          "type": "SmallCellLung",
+          "at": "0,0"
+        }
+      ]
+    },
+    "args": {
+      "cell": "1"
+    },
+    "expect": 25
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "anaerobic/glut1/single_tile",
+    "probe": "anaerobic_share",
+    "covers": [
+      "t_card_perms::GLUT1：单格块无氧"
+    ],
+    "source": "【GLUT1高表达】「每次结算无氧呼吸额外获得」，按 `CWCardData.cancer_phase(round_no)` 取档、加在份额之外。① 算式：GD `gain + _glut_bonus(target)` ↔ C# `income += CancerPhase(...) switch { 0 => 5, 1 => 8, _ => 10 }`；② 出处：cw_world.gd:_glut_bonus / RulePolicies.cs:AnaerobicShare；③ 22 + 5（第 1 世界回合 = 前期档）；④ **PRD 常数** —— PRD:1559「【GLUT1高表达】…自身每次结算【无氧呼吸】时额外获得 0.5 / 0.8 / 1 能量」；引擎常量 CWData.GLUT1_BONUS = [5, 8, 10]（本条取分期 0）、ANAEROBIC_BLOCK_COEF(28)、ANAEROBIC_CELLS_K[0]=80。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 1,
+          "type": "Melanoma",
+          "at": "0,0",
+          "equipped": [
+            "GLUT1高表达"
+          ]
+        }
+      ]
+    },
+    "args": {
+      "cell": "1"
+    },
+    "expect": 27
+  }
+]

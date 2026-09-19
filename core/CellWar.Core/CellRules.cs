@@ -204,13 +204,36 @@ internal static class CellRules
     public static WorldState SetSeatAlive(WorldState s, int seat, bool alive)
         => s.UpdatePlayer(seat, s.Players[seat].WithIsAlive(alive));
 
+    /// <summary>I/II/III/X 的抗原记忆门槛 = GD `CWData.LEVEL_MIN_MEMORY`（**六人档兼缺省**）与
+    /// `LEVEL_MIN_MEMORY_BY_PLAYERS`（四人档），下标 0/1/2/3 = I/II/III/X，常量不是旋钮。
+    /// 分档的理由见 GD 原注：记忆是全阵营共用一个计数器，而进账靠免疫细胞各自净化 ——
+    /// 四人局只有 2 个免疫、六人局有 3 个，同样门槛下四人局要多花约一半回合才升得上去。
+    /// **2 人局沿用缺省（六人）那张**，GD 注释明写「这不是待办」。</summary>
+    internal static readonly IReadOnlyList<int> LevelMinMemory = [0, 10, 30, 70];
+    internal static readonly IReadOnlyDictionary<int, IReadOnlyList<int>> LevelMinMemoryByPlayers =
+        new Dictionary<int, IReadOnlyList<int>> { [4] = [0, 10, 20, 50] };
+
+    /// <summary>GD `cw_game.gd:gain_memory`（门槛那一段）。**门槛按人数分档**：
+    /// `CWData.level_min_memory(order.size())` = 四人 `[0,10,20,50]` / 其余（含 2 人与 balance_scan 的 5、7 人）`[0,10,30,70]`。
+    ///
+    /// 2026-09-19 合（Kevin §十五 Q1：规则结果差）：此前 C# 行内写死 `Count==6 ? 70/30 : 50/20` ——
+    /// 4 人 / 6 人对得上，**2 人局分叉**（GD 走缺省的六人档 30/70，C# 给 20/50），而 L0 绝大多数盘面是 2 席。
+    /// COVERAGE 空档 immune-level-threshold-table 就此收。**签名不变**。
+    ///
+    /// 升级那一句 GD 写的是 `while lv &lt; 3 and memory &gt;= tiers[lv+1]`，从当前等级往上一级级走；
+    /// 门槛表升序 ⇒ 等价于「满足门槛的最高一级、且不低于当前等级」，就是下面这两行。
+    /// **X 级就地清零**：PRD「抗原记忆升级为【效应记忆】重新从零计数」，只在**这一次升**到 X 时清。
+    ///
+    /// ⚠ GD 那边 `gain_memory` 开头还有一条【抗原暴露】的 `event_stacks` 加成（每次获得 +stacks），
+    /// C# 今天整条没有 —— **不在本批范围**（事件族归批 5b），这里一行不动。</summary>
     public static WorldState AddMemory(WorldState s, int amount)
     {
+        var tiers = LevelMinMemoryByPlayers.TryGetValue(s.Players.Count, out var byPlayers) ? byPlayers : LevelMinMemory;
         foreach (var p in s.Players.Values.Where(p => p.Faction == Faction.Immune).OrderBy(p => p.Seat))
         {
             var memory = p.AntigenMemory + amount;
-            var level = memory >= (s.Players.Count == 6 ? 70 : 50) ? ImmuneLevel.X :
-                memory >= (s.Players.Count == 6 ? 30 : 20) ? ImmuneLevel.III : memory >= 10 ? ImmuneLevel.II : ImmuneLevel.I;
+            var level = memory >= tiers[3] ? ImmuneLevel.X :
+                memory >= tiers[2] ? ImmuneLevel.III : memory >= tiers[1] ? ImmuneLevel.II : ImmuneLevel.I;
             if (level < p.ImmuneLevel) level = p.ImmuneLevel;
             if (level == ImmuneLevel.X && p.ImmuneLevel != ImmuneLevel.X) memory = 0;
             s = s.UpdatePlayer(p.Seat, p.WithAntigenMemory(memory).WithImmuneLevel(level));

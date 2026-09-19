@@ -125,15 +125,20 @@ public class K1_AerobicKnobTests
         Assert.Equal(25, Share(levelOne));                                             // GD：abase=25 整体覆盖 → 2.5
     }
 
-    /// <summary>GD 那两条对照档（`-1` 按人数分档、`0` 退回盘面式）**C# 未迁**，必须抛而不是静默取一个不是 GD 结果的数。
-    /// 这一条就是那笔登记的可执行版本 —— 批 5b 补上实现时把它改掉。</summary>
+    /// <summary>GD 那两条对照档（`-1` 按人数分档、`0` 退回盘面式）**2026-09-19 已迁**
+    /// （批 2 第二段 P1，COVERAGE 空档 aerobic-board-formula-not-migrated 就此收）——
+    /// 此前这里钉的是「必须抛 NotSupportedException」，那笔登记到期了。
+    ///
+    /// 细账在 `K5Batch2RuleResultTests`；这里只留一条「不再抛、且给的是 GD 的数」的看门狗：
+    /// 本类的 `World()` 只有 **1 个席位** ⇒ 按人数表里没有 1 人、退回 `CWData.AEROBIC_LEVEL_BASE` = 2.0（I 级 step ×0）；
+    /// 盘面上只有 **1 格健康、0 格坏死** ⇒ 盘面式 `round_tenth(1 × 3.0, 127)` = 0。</summary>
     [Theory]
-    [InlineData(-1)]
-    [InlineData(0)]
-    public void aerobic_level_base_的按人数档与盘面档未迁_抛NotSupported(int baseValue)
+    [InlineData(-1, LevelIShare)]
+    [InlineData(0, 0)]
+    public void aerobic_level_base_的按人数档与盘面档已迁(int baseValue, int expected)
     {
         var s = Tune(World(), t => t with { AerobicByLevel = Array.Empty<int>(), AerobicLevelBase = baseValue });
-        Assert.Throws<NotSupportedException>(() => Share(s));
+        Assert.Equal(expected, Share(s));
     }
 
     // ---- aerobic_split / aerobic_split_ref ----

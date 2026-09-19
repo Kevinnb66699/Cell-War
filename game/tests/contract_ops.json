@@ -122,7 +122,18 @@
       { "tag": "level:I", "cases": "^aerobic_share/basic_level_I/" },
       { "tag": "level_III_pinned", "cases": "^aerobic_share/level_III_pinned$" },
       { "tag": "necrosis_zero", "cases": "^aerobic_share/necrosis_zero$" },
-      { "tag": "split_le_ref", "cases": "^aerobic_share/split_le_ref$" }
+      { "tag": "split_le_ref", "cases": "^aerobic_share/split_le_ref$" },
+      { "tag": "level:II", "cases": "^aerobic_share/level_II/" },
+      { "tag": "level:X", "cases": "^aerobic_share/level_X/" },
+      { "tag": "split_gt_ref", "cases": "^aerobic_share/split_gt_ref/" },
+      { "tag": "necrosis_cut", "cases": "^aerobic_share/necrosis_cut/" },
+      { "tag": "necrosis_100", "cases": "^aerobic_share/necrosis_100/" },
+      { "tag": "six_players", "cases": "^aerobic_share/six_players/" },
+      { "tag": "skill_bonus", "cases": "^aerobic_share/adapt_bonus/" },
+      { "tag": "floor", "cases": "^aerobic_share/floor_pinned$" },
+      { "tag": "cap", "cases": "^aerobic_share/cap_pinned$" },
+      { "tag": "board_formula", "cases": "^aerobic_share/board_formula/" },
+      { "tag": "by_players", "cases": "^aerobic_share/by_players/" }
     ]
   },
   {
@@ -136,7 +147,10 @@
       { "tag": "block:10/cells:1", "cases": "^anaerobic/block_10/one_cell/" },
       { "tag": "block:10/cells:2", "cases": "^anaerobic/block_10/two_cells/" },
       { "tag": "floor", "cases": "^anaerobic/floor_kicks_in$" },
-      { "tag": "solid", "cases": "^anaerobic/solid_is_counted_board_wide$" }
+      { "tag": "solid", "cases": "^anaerobic/solid_is_counted_board_wide$" },
+      { "tag": "block:7/solo", "cases": "^anaerobic/block_7/" },
+      { "tag": "warburg:sclc", "cases": "^anaerobic/warburg/" },
+      { "tag": "skill:glut1", "cases": "^anaerobic/glut1/" }
     ]
   },
   {
@@ -166,6 +180,18 @@
       {
         "tag": "solid_pinned",
         "cases": "^anaerobic_pool/solid_pinned/"
+      },
+      {
+        "tag": "cells:1",
+        "cases": "^anaerobic_pool/cells_1/"
+      },
+      {
+        "tag": "cells:3",
+        "cases": "^anaerobic_pool/cells_3/"
+      },
+      {
+        "tag": "coef_off",
+        "cases": "^anaerobic_pool/coef_off/"
       }
     ]
   },
@@ -193,6 +219,22 @@
       {
         "tag": "cap_pinned",
         "cases": "^split_share/cap_pinned$"
+      },
+      {
+        "tag": "count:1",
+        "cases": "^split_share/count_1/"
+      },
+      {
+        "tag": "count:2",
+        "cases": "^split_share/count_2/"
+      },
+      {
+        "tag": "count:3",
+        "cases": "^split_share/count_3/"
+      },
+      {
+        "tag": "no_split",
+        "cases": "^split_share/no_split/"
       }
     ]
   },
@@ -739,7 +781,10 @@
       { "tag": "level:I", "cases": "^aerobic_step/level_I$" },
       { "tag": "level:III", "cases": "^aerobic_step/level_III$" },
       { "tag": "necrosis_cut", "cases": "^aerobic_step/necrosis_cut$" },
-      { "tag": "tgf_consumed", "cases": "^aerobic_step/tgf_consumed$" }
+      { "tag": "tgf_consumed", "cases": "^aerobic_step/tgf_consumed$" },
+      { "tag": "true_value", "cases": "^aerobic_step/true_value/" },
+      { "tag": "tgf_discount", "cases": "^aerobic_step/tgf/" },
+      { "tag": "far_necrosis", "cases": "^aerobic_step/board_unaffected_by_far_necrosis$" }
     ]
   },
   {
@@ -768,7 +813,8 @@
       { "tag": "healthy", "cases": "^enter_tile/healthy/" },
       { "tag": "purify", "cases": "^enter_tile/purify/" },
       { "tag": "special", "cases": "^enter_tile/special/" },
-      { "tag": "purify_memory", "cases": "^enter_tile/purify/memory/" }
+      { "tag": "purify_memory", "cases": "^enter_tile/purify/memory/" },
+      { "tag": "memory:level_up", "cases": "^enter_tile/purify/memory/level/" }
     ]
   },
   {

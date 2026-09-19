@@ -659,6 +659,9 @@ public static class WorldLoader
             "anaerobic_block_exp" => tune with { AnaerobicBlockExpOverride = value },
             "anaerobic_per_cancer" => tune with { AnaerobicPerCancer = value },
             "anaerobic_per_solid" => tune with { AnaerobicPerSolid = value },
+            // 2026-09-19 随 `AerobicShare` 的 clamp_income 一起进来（缺省 0 = 恒等，不拧就看不见这道夹钳）
+            "aerobic_floor" => tune with { AerobicFloor = value },
+            "aerobic_cap" => tune with { AerobicCap = value },
             // ---- 2026-09-19 进内核的 12 个 + 配件（拍板记录 §九：E-3 补 6 + 待定 6 + aerobic_level_step）----
             "aerobic_level_base" => tune with { AerobicLevelBase = value },
             "aerobic_level_step" => tune with { AerobicLevelStep = value },
@@ -775,6 +778,8 @@ public static class WorldLoader
         yield return ("attack_max_per_turn", t.AttackMaxPerTurn, d.AttackMaxPerTurn);
         yield return ("anaerobic_solid_bonus", t.AnaerobicSolidBonus, d.AnaerobicSolidBonus);
         yield return ("anaerobic_floor", t.AnaerobicFloor, d.AnaerobicFloor);
+        yield return ("aerobic_floor", t.AerobicFloor, d.AerobicFloor);   // 批 2 第二段（评委冲突 #1）：WithKnob 接了这两行，dump / minify 的行表也得有，否则闸二 2a 对它们是空过
+        yield return ("aerobic_cap", t.AerobicCap, d.AerobicCap);
         yield return ("anaerobic_cap", t.AnaerobicCap, d.AnaerobicCap);
         yield return ("cancer_upkeep_pct", t.CancerUpkeepPercent, d.CancerUpkeepPercent);
         yield return ("energy_cap", t.EnergyCap, d.EnergyCap);

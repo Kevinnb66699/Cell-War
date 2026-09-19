@@ -172,5 +172,140 @@
       },
       "ignore": []
     }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_step/true_value/level_I",
+    "op": "aerobic",
+    "covers": [
+      "t_necrosis::现行等级式：I 级 →"
+    ],
+    "source": "cw_world.gd:_aerobic ↔ PhaseRules.Aerobic。不拧任何旋钮、收缺省那一档 ⇒ delta 里的 energy 直接带着有氧基数。**PRD 常数** —— PRD:329「【S-有氧呼吸】：每世界回合所有免疫细胞获得**健康组织**呼吸带来的能量」+ PRD:331 的四档表；引擎常量 CWData.AEROBIC_BY_LEVEL[0] = 20（细胞 energy 显式写 300 ⇒ 300 + 20 = 320，不烘默认初始能量）。第一段的 aerobic_step/level_I 用旋钮钉死代替了它，这条补真值那一半。changed 由 GD runner 录出。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300
+        }
+      ]
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 320
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_step/tgf/restores_next_round",
+    "op": "aerobic",
+    "covers": [
+      "t_card_mods::下一次有氧恢复原额"
+    ],
+    "source": "cw_world.gd:_aerobic 的【TGF-β释放】分支（逐份 ×80% 向下取整、结算完把同名条目整批剔除）↔ PhaseRules.Aerobic 的同两步。① 算式：`gain = gain * 8 / 10`（整数除法 = 向下取整到十分位，定案 #63）+ 末尾 `RemoveEffects(\"TGF-β释放\")`；② 出处：cw_world.gd:_aerobic / PhaseRules.cs 有氧那一步；③ 本条 = 300 + (20 × 8 / 10) = 316，同时整条事件被摘掉；④ **PRD 常数** —— PRD:331 的基准表；引擎常量 CWData.AEROBIC_BY_LEVEL[0] = 20，×80% 是卡面数（定案 #63）。**「下一次恢复原额」在一条 L0 用例里表达成「这一次打折 + 条目当场消失」** —— L0 一条用例只跑一个契约步，连跑两步装不下（批 1 F5 同款）；条目消失即下一次没有折扣，两件事是同一件。events.active 只写一条、`data` 写 {}（硬约定 T4）。第一段的 aerobic_step/tgf_consumed 把收入钉成 0 只留消耗那一件，这条补的是「折扣真的打在了 16 上」。changed 由 GD runner 录出（含 `$.g.players` 这枚粗叶子 —— income 变了它整条重印）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300
+        }
+      ],
+      "events": {
+        "active": [
+          {
+            "name": "TGF-β释放",
+            "left": 2,
+            "stacks": 1,
+            "doubled": "",
+            "data": {}
+          }
+        ]
+      }
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].d.income": 20,
+        "$.cells[0].energy": 316,
+        "$.g.players": [
+          {
+            "cancer_type": -1,
+            "cell_id": 0,
+            "d": {
+              "income": 20
+            },
+            "faction": 0,
+            "id": 0
+          }
+        ],
+        "$.g.events.active[TGF-β释放].d.is_world_event": null,
+        "$.g.events.active[TGF-β释放].data": null,
+        "$.g.events.active[TGF-β释放].doubled": null,
+        "$.g.events.active[TGF-β释放].left": null,
+        "$.g.events.active[TGF-β释放].name": null,
+        "$.g.events.active[TGF-β释放].stacks": null
+      },
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_step/board_unaffected_by_far_necrosis",
+    "op": "aerobic",
+    "covers": [
+      "t_necrosis::别处的坏死不再拉低全场有氧（09-04 换公式后的口径）"
+    ],
+    "source": "cw_world.gd:_aerobic ↔ PhaseRules.Aerobic：盘面别处铺坏死，站在干净格上的免疫收入**一点不变**。钉的是 09-04 换等级式之后的口径：坏死不再按全局比例扣有氧，只罚站在坏死格上的那一只（局部）。**PRD 常数** —— PRD:331（与 true_value/level_I 同一份基准）；引擎常量 CWData.AEROBIC_BY_LEVEL[0] = 20。与 true_value/level_I 逐字节同一个 changed ⇒ 「别处坏死不影响」这件事由两条的 expect 相等来表达。changed 由 GD runner 录出。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300
+        }
+      ],
+      "tiles": [
+        {
+          "at": "3,-1",
+          "necrosis": 2
+        },
+        {
+          "at": "4,-1",
+          "necrosis": 2
+        }
+      ]
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.cells[0].energy": 320
+      },
+      "ignore": []
+    }
   }
 ]

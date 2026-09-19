@@ -107,5 +107,324 @@
       "cell": "0"
     },
     "expect": 41
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_share/level_II/true_value",
+    "probe": "aerobic_share",
+    "covers": [],
+    "source": "cw_world.gd:_aerobic_base 的按等级查表 ↔ RulePolicies.AerobicBase。**PRD 常数** —— PRD:331「$能量= 2~|~3~|~4.5~|~5$，按免疫等级给予」；引擎常量 CWData.AEROBIC_BY_LEVEL[1] = 30（十分能量）。结构（查表、1 基下标）已由本批第一段 aerobic_share/level_III_pinned 用旋钮钉死，这一条补的是第 2 档的**真值**。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "II"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        }
+      ]
+    },
+    "args": {
+      "cell": "0"
+    },
+    "expect": 30
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_share/level_X/true_value",
+    "probe": "aerobic_share",
+    "covers": [],
+    "source": "同 level_II，取第 4 档，顺带钉 `clampi(immune_level, 0, size - 1)` / `Math.Clamp(level, 0, Count - 1)` 的上界。**PRD 常数** —— PRD:331 同上；引擎常量 CWData.AEROBIC_BY_LEVEL[3] = 50。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "X"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        }
+      ]
+    },
+    "args": {
+      "cell": "0"
+    },
+    "expect": 50
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_share/split_gt_ref/three_immunes",
+    "probe": "aerobic_share",
+    "covers": [
+      "t_batch2_rules::3 个免疫："
+    ],
+    "source": "cw_world.gd:_split_aerobic 的 `n > ref` 分支 ↔ RulePolicies.SplitAerobic。① 算式：`(2 * per_cell * ref + n) / (2 * n)`（四舍五入到十分位的整数写法）；② 出处：cw_world.gd:_split_aerobic / RulePolicies.cs:SplitAerobic；③ 本条 = (2 × 20 × 2 + 3) / 6 的整数除法；④ **PRD 无对应**（`aerobic_split` / `aerobic_split_ref` 是 09-05 方案 f 之后的扫描对照旋钮，prd_crosscheck 里没有映射行，缺省 aerobic_split = false）；引擎常量 CWData.AEROBIC_BY_LEVEL[0] = 20、CWData.AEROBIC_SPLIT_REF = 2。本批第一段的 split_le_ref 钉的是 `n ≤ ref` 那一半，这条补 `n > ref`。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        },
+        {
+          "seat": 1,
+          "faction": "immune"
+        },
+        {
+          "seat": 2,
+          "faction": "immune"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        },
+        {
+          "seat": 1,
+          "type": "ImmuneBasic",
+          "at": "1,0"
+        },
+        {
+          "seat": 2,
+          "type": "ImmuneBasic",
+          "at": "2,0"
+        }
+      ],
+      "tuning": {
+        "aerobic_split": 1,
+        "aerobic_split_ref": 2
+      }
+    },
+    "args": {
+      "cell": "0"
+    },
+    "expect": 13
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_share/necrosis_cut/true_pct",
+    "probe": "aerobic_share",
+    "covers": [
+      "t_batch2_rules::站在坏死格上：只拿"
+    ],
+    "source": "cw_world.gd:necrosis_cut ↔ RulePolicies.NecrosisCut。① 算式：`CWData.round_tenth(gain × necrosis_aerobic_pct, 100)` ↔ `(gain × pct + 50) / 100`；② 出处：cw_world.gd:necrosis_cut / RulePolicies.cs:NecrosisCut；③ 本条 = round_tenth(20 × 50, 100)；④ **PRD 常数** —— PRD:261「站在「坏死」状态组织上的免疫细胞该世界回合获得【有氧呼吸】的能量减半」（另 PRD:333 同义句）；引擎常量 CWData.NECROSIS_AEROBIC_PCT = 50、CWData.AEROBIC_BY_LEVEL[0] = 20。第一段只录了 pct = 0 的恒等档（aerobic_share/necrosis_zero），这条是真打折那一半。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "necrosis": 2
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        }
+      ]
+    },
+    "args": {
+      "cell": "0"
+    },
+    "expect": 10
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_share/necrosis_100/no_effect",
+    "probe": "aerobic_share",
+    "covers": [
+      "t_batch2_rules::necro=100：坏死无影响，照拿"
+    ],
+    "source": "同 necrosis_cut，旋钮拧到 100 ⇒ 打折等于恒等、照拿全额。**PRD 常数**（期望 = 真基准值）—— PRD:331；引擎常量 CWData.AEROBIC_BY_LEVEL[0] = 20；旋钮 necrosis_aerobic_pct = 100 是 A 档的扫描对照值。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "necrosis": 2
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        }
+      ],
+      "tuning": {
+        "necrosis_aerobic_pct": 100
+      }
+    },
+    "args": {
+      "cell": "0"
+    },
+    "expect": 20
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_share/six_players/level_I",
+    "probe": "aerobic_share",
+    "covers": [
+      "t_batch2_rules::六人局 I 级有氧 = 表里第一档"
+    ],
+    "source": "cw_world.gd:_aerobic_base 的表档最优先分支 ↔ RulePolicies.AerobicBase。钉的是「按等级查表这一档**与人数无关**」（六人局 I 级仍是表里第一档，不走按人数分档的 AEROBIC_LEVEL_BASE_BY_PLAYERS）。**PRD 常数** —— PRD:331；引擎常量 CWData.AEROBIC_BY_LEVEL[0] = 20。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        },
+        {
+          "seat": 1,
+          "faction": "immune"
+        },
+        {
+          "seat": 2,
+          "faction": "immune"
+        },
+        {
+          "seat": 3,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        },
+        {
+          "seat": 4,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        },
+        {
+          "seat": 5,
+          "faction": "cancer",
+          "cancer_type": "Melanoma"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        }
+      ]
+    },
+    "args": {
+      "cell": "0"
+    },
+    "expect": 20
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_share/adapt_bonus/autocrine",
+    "probe": "aerobic_share",
+    "covers": [
+      "t_card_perms::有氧"
+    ],
+    "source": "cw_world.gd:_aerobic_bonus ↔ RulePolicies.AerobicShare 里的 `bonus` 两句。① 算式：`necrosis_cut(cell, aerobic_share() + _aerobic_bonus(cell))` —— 额外获得**在每份之外加**、不吃 TGF 的 −20%（口径 #69）；② 出处：cw_world.gd:_aerobic_bonus / RulePolicies.cs:AerobicShare；③ 本条 = 20 + 5 + 8；④ **PRD 常数** —— PRD:789「【代谢适应】…自身每次结算【有氧呼吸】时额外获得 0.5 能量」、PRD:939「【自分泌生存信号】…额外获得 0.8 能量」；引擎常量 CWData.AEROBIC_ADAPT = 5、CWData.AEROBIC_AUTOCRINE = 8、AEROBIC_BY_LEVEL[0] = 20。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "equipped": [
+            "代谢适应",
+            "自分泌生存信号"
+          ]
+        }
+      ]
+    },
+    "args": {
+      "cell": "0"
+    },
+    "expect": 33
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_share/floor_pinned",
+    "probe": "aerobic_share",
+    "covers": [],
+    "source": "cw_tuning.gd:clamp_income 在 `aerobic_share()` 里夹在**基准**上、排在均分之前 —— C# `RulePolicies.AerobicShare` **未迁**（COVERAGE 空档 aerobic-floor-cap-not-migrated）。① 算式：`clamp_income(_aerobic_base(...), aerobic_floor, aerobic_cap)`；② 出处：cw_world.gd:aerobic_share → cw_tuning.gd:clamp_income；③ 基准钉 13（`aerobic_by_level[1]`，A 档）、地板钉 33 ⇒ 13 被抬到 33；④ **旋钮钉死：期望 = tuning 里的 aerobic_floor，不受数值口径影响**。⚠ **等 P1 ③**（把 clamp_income 迁进 C# AerobicShare）**外加 contract_tune.json 两行 tier**：`aerobic_floor` / `aerobic_cap` 今天 cs 字段是空串、tier 是 C —— 不挪 A′ 这一条装不进去。P1 简报的 ⑤ 只列了三行无氧旋钮，这两行是本条的新增前置（见 questions）。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        }
+      ],
+      "tuning": {
+        "aerobic_floor": 33,
+        "aerobic_by_level[1]": 13
+      }
+    },
+    "args": {
+      "cell": "0"
+    },
+    "expect": 33
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "aerobic_share/cap_pinned",
+    "probe": "aerobic_share",
+    "covers": [],
+    "source": "同 floor_pinned 的另一半：地板归 0、封顶钉 37，基准钉 99 ⇒ 被压到 37。钉的是「封顶排在兜底之后、且 cap ≤ 0 时不封顶」这条夹钳形状（与 split_share/cap_pinned 同一条 clamp_income）。④ **旋钮钉死：期望 = tuning 里的 aerobic_cap**。⚠ 前置同 floor_pinned（P1 ③ + 两行 tier）。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0"
+        }
+      ],
+      "tuning": {
+        "aerobic_floor": 0,
+        "aerobic_cap": 37,
+        "aerobic_by_level[1]": 99
+      }
+    },
+    "args": {
+      "cell": "0"
+    },
+    "expect": 37
   }
 ]

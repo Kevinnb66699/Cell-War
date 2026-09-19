@@ -124,6 +124,21 @@ public sealed record RuleTuning
     /// 0 = 一份不给（09-05~09-07 的旧行为，`necro=0` 扫回），100 = 坏死对有氧没有影响。</summary>
     public int NecrosisAerobicPct { get; init; } = 50;
 
+    /// <summary>**旧盘面式**的乘数，十分能量（GD `aerobic_mult` = `CWData.AEROBIC_MULT` = 3.0）：
+    /// 每份 = (健康 − 坏死) × 本值 ÷ <see cref="RulePolicies.TotalTiles"/>。
+    /// 只在 <see cref="AerobicByLevel"/> 置空**且** <see cref="AerobicLevelBase"/> = 0 时生效（09-04 之前的扫描数据靠它复现）。
+    /// GD 那边还有一个 `aerobic_mult_growth`（系数随世界回合线性增长）—— 那个是 E-3 **判死**的旋钮
+    /// （`contract_tune.json` 的 B 档、`docs/临时下架清单.md`），C# 没有它，所以这里的系数不随回合变。</summary>
+    public int AerobicMult { get; init; } = 30;
+
+    /// <summary>有氧**基准**的低保，十分能量（GD `aerobic_floor` = `CWData.AEROBIC_FLOOR` = 0）：**0 = 关**（恒等）。
+    /// 夹在基准上、**排在均分之前** —— 顺序反过来 2.0 的低保会把 2.5÷3=0.8 顶回 2.0、均分等于没开
+    /// （GD `cw_world.gd:aerobic_share` 2026-09-05 当场抓到的那条）。</summary>
+    public int AerobicFloor { get; init; }
+
+    /// <summary>有氧**基准**的封顶，十分能量（GD `aerobic_cap` = 0）：**0 = 不封顶**。与 <see cref="AerobicFloor"/> 同一次夹钳，排在低保之后。</summary>
+    public int AerobicCap { get; init; }
+
     // ---- E 阶段：无氧呼吸 ----
     //
     // 单位一律照 GD：**十分能量**。公式（PRD 2026-09-14 issue #43）：

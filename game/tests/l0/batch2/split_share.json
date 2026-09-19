@@ -47,5 +47,97 @@
       "count": "1"
     },
     "expect": 37
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "split_share/count_1/paired_with_pool",
+    "probe": "split_share",
+    "covers": [],
+    "source": "cw_world.gd:_split_share ↔ RulePolicies.SplitShare。① 算式：`clamp_income(int(round(pool × anaerobic_cells_k(count) / 100.0 / count)), anaerobic_floor, anaerobic_cap)`；② 出处：cw_world.gd:_split_share / RulePolicies.cs:SplitShare；③ pool 字面量 72.647622 = **配对 anaerobic_pool/cells_1/block_24 的冻结前精确值**（R4 成对绑定，一起改一起红）；④ **PRD 常数** —— PRD:385「k 为人数系数，癌性组织连通块内存活 1/2/3 个癌细胞时，k 为 80%/100%/120%」、PRD:381/383 的 `\\max\\{2, …}` 兜底；引擎常量 CWData.ANAEROBIC_CELLS_K([80,100,120]) 取 k(1)=80、CWData.ANAEROBIC_FLOOR(20)（本条 58 > 20，兜底没触发）、CWData.ANAEROBIC_CAP(0 = 不封顶)。`anaerobic_split: 1` 显式写出（硬约定 T3）。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tuning": {
+        "anaerobic_split": 1
+      }
+    },
+    "args": {
+      "pool": "72.647622",
+      "count": "1"
+    },
+    "expect": 58
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "split_share/count_2/paired_with_pool",
+    "probe": "split_share",
+    "covers": [],
+    "source": "同 count_1，k 取第 2 档。① 算式同上；② 出处同上；③ pool 字面量 55.867345 = **配对 anaerobic_pool/cells_3/block_10 的冻结前精确值**（R4 成对绑定）；④ **PRD 常数** —— PRD:385 的 k(2)=100%；引擎常量 CWData.ANAEROBIC_CELLS_K[1]=100、ANAEROBIC_FLOOR(20)。与 no_split/whole_pool 同一份 pool、同一个 count，**只差 anaerobic_split 一个旋钮** —— 两条成对钉住「均分那一步真的除了 count」。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tuning": {
+        "anaerobic_split": 1
+      }
+    },
+    "args": {
+      "pool": "55.867345",
+      "count": "2"
+    },
+    "expect": 28
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "split_share/count_3/paired_with_pool",
+    "probe": "split_share",
+    "covers": [],
+    "source": "同 count_1，k 取第 3 档。① 算式同上；② 出处同上；③ pool 字面量 55.867345 = **配对 anaerobic_pool/cells_3/block_10 的冻结前精确值**（R4 成对绑定）；④ **PRD 常数** —— PRD:385 的 k(3)=120%；引擎常量 CWData.ANAEROBIC_CELLS_K[2]=120、ANAEROBIC_FLOOR(20)。与 count_2 同一份 pool ⇒ 两条的差只来自 k 与 count，钉住「k 乘在整条分式外面」。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tuning": {
+        "anaerobic_split": 1
+      }
+    },
+    "args": {
+      "pool": "55.867345",
+      "count": "3"
+    },
+    "expect": 22
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "split_share/no_split/whole_pool",
+    "probe": "split_share",
+    "covers": [],
+    "source": "`anaerobic_split = 0` ⇒ 不除以块内细胞数（`int(round(scaled))` 那一支）。① 算式：`clamp_income(int(round(pool × k(count) / 100.0)), floor, cap)`；② 出处同 count_1；③ pool 字面量 55.867345 = 配对 anaerobic_pool/cells_3/block_10 的精确值；④ **PRD 无对应**（`anaerobic_split` 是平衡扫描的对照旋钮）；引擎常量 CWData.ANAEROBIC_CELLS_K[1]=100、ANAEROBIC_FLOOR(20)。**⚠ 改正一条草稿里的判断**：草稿 source 写「开不开 split 的差别恰好被 k(2) = 100 吃掉（count = 2 时两条路同值）」——实测不成立。k 只缩放分子，除以 count 那一步仍在：同一份池子 count = 2 时开 split 得 28、关 split 得 56。所以这一档**今天就有区分度**，不需要等换一个 k ≠ 100 的 count。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "tuning": {
+        "anaerobic_split": 0
+      }
+    },
+    "args": {
+      "pool": "55.867345",
+      "count": "2"
+    },
+    "expect": 56
   }
 ]
