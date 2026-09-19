@@ -1,0 +1,52 @@
+{
+  "schema": "cwtut/2",
+  "id": "c1_l2",
+  "chapter": 1, "chapter_kind": "main", "chapter_title": "Cell",
+  "title": "第二关 净化",
+  "subtitle": "认识癌组织，学会【净化】",
+
+  "_doc": [
+    "⚠ S1 的占位关：它只为把「第一关走完 → 关间静默切到第二关」这条端到端跑通（PRD:37），",
+    "S4 按 PRD:141-215 整关重写（Step1 亲手净化两格、Step2 预置 + reveal 延伸一格 + 1 能量癌细胞）。",
+    "盘面接着第一关的落点 (0,-1) 起，所以换关那一瞬间玩家细胞不跳格；",
+    "on_done 写空串 = 到此为止（后面几关还没落地），导演只落一笔「全部通关」，不弹结算屏。"
+  ],
+
+  "seats": 2, "human_seat": 0,
+
+  "worlds": {
+    "base": {
+      "radius": 6,
+      "round": 1,
+      "phase": "PlayerAction",
+      "seat": 0,
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I", "memory": 0 },
+        { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
+      ],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,-1", "energy": 99990 },
+        { "seat": 1, "type": "Osteosarcoma", "at": "6,-1", "alive": false }
+      ]
+    }
+  },
+
+  "active_tiles": ["0,-1", "1,-1"],
+
+  "rolls": [],
+
+  "flow": [
+    { "do": "state", "prd": 143, "load": "base",
+      "ui": { "*": false, "action_bar": true, "move_path": false, "cost": false, "energy": "infinite" } },
+
+    { "do": "say", "prd": 157, "who": "player",
+      "lines": ["巡逻还在继续——", "（第二关的正文等 S4 按剧本写全）"] },
+
+    { "do": "player", "prd": 161,
+      "hint": "点底部「迁移」，再点右边那一格",
+      "allow": ["k=action|act=move|to=1,-1"],
+      "until": { "delta": "moved" } }
+  ],
+
+  "on_done": ""
+}

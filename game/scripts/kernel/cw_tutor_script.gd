@@ -17,17 +17,21 @@
 ## **校验只读**：`validate` 一个字节都不改数据 —— 传给装载器的是 `duplicate(true)`，
 ## 因为 `load_world` 会把 spec 里的 tiles/cells 拿去建局。
 ##
-## ⚠ **S1 只落了不依赖条目文法的那几条判据**（①②顶层 ③④⑤⑪）。
-##    依赖 `cw_tutor_beats.gd` 的那几条（⑥动词表 / ⑦谓词表 / ⑧allow 语义键 / ⑨unlock 归宿
-##    / ⑩fx 与 hook 点名 / ⑬prd 对账）在同一片的 commit B 补上，别当成漏了。
+## 十三条判据的落点见 `validate()`：①②顶层 ③④⑤⑪ 不依赖条目文法，
+## ⑥动词表 / ⑦谓词表 / ⑧allow 语义键 / ⑨unlock 归宿 / ⑩fx 与 hook 点名 / ⑬prd 对账
+## 走 `cw_tutor_beats.gd`（同一张表，导演与校验器共读）。
+## ⑫`rolls` 双向归零是**运行期**的事（带子跑完 `at == 0`），落在 `t_tutor_c1` 那边。
 extends RefCounted
 
 const SCHEMA := "cwtut/2"
 const DIR := "res://data/tutorial/"
 const INDEX_PATH := DIR + "index.json"
+const CODEX_MAP := DIR + "codex_map.json"
 
 ## 正本装载器（S0 上提到 scripts/kernel/）。键表只有它与 L0/CaseModel.cs 两份，这里绝不再抄一份
 const LOADER := preload("res://scripts/kernel/cw_world_loader.gd")
+## 条目文法（九个动词 + 三类谓词 + allow 前缀匹配）。**导演读的是同一份**
+const BEATS := preload("res://scripts/kernel/cw_tutor_beats.gd")
 
 ## 一关的顶层键（方案 §2.2 的 16 键白名单）。
 ## `chapter_title` 是**章**的名字（PRD:35 的全屏提示读它），`title` 是**关**的名字，
@@ -165,6 +169,7 @@ func validate(level: Dictionary) -> PackedStringArray:
 	var radius := _check_worlds(level, seats)
 	_check_active(level, radius)
 	_check_flow_head(level)
+	_check_flow(level, radius)
 	return errors
 
 
@@ -298,6 +303,58 @@ func _check_flow_head(level: Dictionary) -> void:
 	if str(level.get("chapter_kind", KIND_MAIN)) == KIND_INTERLUDE and head.has("load"):
 		return   ## 间章：显式写出来的 null，承接上一关的活局面
 	_bad("flow[0] 没有带 load（只有 chapter_kind == \"interlude\" 才许显式写 \"load\": null）")
+
+
+## 判据 ⑥ 动词在九个里、条目只许白名单键；⑦ 谓词在三张表里；⑧ `allow` 每条是合法语义键前缀；
+## ⑨ `unlock.ids` 在 `codex_map.json` 里有归宿；⑩ `hook.call` 点名的关卡钩子文件真实存在；
+## ⑬ `prd` 行号单调不减（对账闸）。另加两条形状闸：`reveal` 的格必须在盘上、`advise_when` 必须带 `advise`
+func _check_flow(level: Dictionary, radius: int) -> void:
+	var umap: Dictionary = _read_json(CODEX_MAP).get("unlocks", {})
+	var hook_path := str(level.get("hook", ""))
+	var last_prd := -1
+	var flow: Array = level.get("flow", [])
+	for i in flow.size():
+		var row: Dictionary = flow[i]
+		var v := str(row.get("do", ""))
+		if not BEATS.is_verb(v):
+			_bad("flow[%d].do 写的「%s」不在九个动词里（%s）"
+				% [i, v, ", ".join(PackedStringArray(BEATS.VERBS.keys()))])
+			continue
+		var extra := BEATS.bad_keys(row)
+		if not extra.is_empty():
+			_bad("flow[%d]（%s）里有不认识的键：%s（许可：%s）"
+				% [i, v, str(extra), ", ".join(BEATS.keys_of(v))])
+		if int(row.get("prd", last_prd)) < last_prd:
+			_bad("flow[%d].prd = %d 比上一条的 %d 小 —— PRD 行号必须单调不减（对账闸）"
+				% [i, int(row.get("prd", last_prd)), last_prd])
+		last_prd = maxi(last_prd, int(row.get("prd", last_prd)))
+		for field in ["until", "reset_when", "advise_when"]:
+			if row.has(field) and BEATS.pred_kind(row[field] as Dictionary) == "":
+				_bad("flow[%d].%s 的谓词不在三张表里：%s" % [i, field, str(row[field])])
+		if row.has("advise_when") and str(row.get("advise", "")) == "":
+			_bad("flow[%d] 写了 advise_when 却没有 advise（命中时提示行会变成空串）" % i)
+		if row.has("allow") and row["allow"] is Array:
+			for a in row["allow"]:
+				if not str(a).begins_with("k="):
+					_bad("flow[%d].allow 的「%s」不是语义键前缀（文法 k=<kind>[|g=<tag>]|<字段>=<值>|…）"
+						% [i, str(a)])
+		for id in row.get("ids", []):
+			if not umap.has(str(id)):
+				_bad("flow[%d] 的 unlock「%s」在 codex_map.json 里没有归宿" % [i, str(id)])
+		if str(row.get("who", "")) != "" and not BEATS.who_ok(str(row["who"])):
+			_bad("flow[%d].who 写的「%s」不在四档里（player / narrator / seat:<n> / ui:<id>）"
+				% [i, str(row["who"])])
+		if row.has("mode") and not (str(row["mode"]) in BEATS.POINT_MODES):
+			_bad("flow[%d].mode 写的「%s」不在三档里（%s）"
+				% [i, str(row["mode"]), ", ".join(BEATS.POINT_MODES)])
+		if v == "hook" and (hook_path == "" or not FileAccess.file_exists(hook_path)):
+			_bad("flow[%d] 是 hook，可这一关的 hook 文件「%s」不在" % [i, hook_path])
+		for s in row.get("reveal", []):
+			if not CWData.is_on_board(parse_at(str(s)), radius):
+				_bad("flow[%d] 的 reveal 的格不在盘上：%s（预置 + 遮罩揭示，不是凭空造格）" % [i, str(s)])
+		for s in row.get("hex", []):
+			if not CWData.is_on_board(parse_at(str(s)), radius):
+				_bad("flow[%d] 的 hex 的格不在盘上：%s" % [i, str(s)])
 
 
 # ---- 小工具 ----

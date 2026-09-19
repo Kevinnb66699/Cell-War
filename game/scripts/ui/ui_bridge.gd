@@ -295,6 +295,12 @@ func _ask_action(req: Dictionary) -> int:
 			return effects_of.get(String(args.get("act", "")), [])
 		for act in kinds:
 			var live: bool = groups.has(act)
+			## 教程局把卡牌与【基因表达】整个关掉（方案 Q-18：`ui.hand=false` + 盘面 `hand: []`）——
+			## 那几关连按钮都**不建**。正式局的「按钮不消失、只变暗」是为了「花掉能量不会让按钮
+			## 凭空少一个」，而教程第一关压根没有能量这回事，灰着的那一颗只会把新手引过去点
+			## （PRD:51 / 通用规则 9；09-19 真机截图抓到的）。`hand` 默认为真 ⇒ 非教程局读到的和今天一模一样
+			if act == "draw" and not CWTutorLayers.on("hand"):
+				continue
 			buttons.append({
 				"title": _move_title(cell) if act == "move" else ACT_TITLE.get(act, act),
 				## **「移动 / 迁移」不带价签**（Kevin 2026-09-08）：它的价随目的地变，

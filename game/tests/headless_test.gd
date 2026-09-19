@@ -162,6 +162,8 @@ func _run_all() -> void:
 		t_tutorial_opening,
 		## 教程 NPC 席位的脚本作答（改判：只剩纯 decider 那三段，接到席位上那一段随老导演一起作废）
 		t_tutorial_npc,
+		## 新手教程 v2 · S1 commit B：六支新测试（方案 §6.1；_run_all 是**手写清单**，不登记就永远不跑）
+		t_tutor_data, t_tutor_beats, t_tutor_flow, t_tutor_director, t_tutor_gate, t_tutor_view,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -11672,11 +11674,11 @@ func t_font_coverage() -> void:
 	var jmsg := ""
 	for k in jbad:
 		jmsg += "%s（%s）" % [k, jbad[k]]
-	## ⚠ **阈值临时下调**（新手教程 v2 · S1 commit A）：老剧本整份删了、新第一关还没落地，
-	## 这一刻 `data/tutorial/**` 下一份关卡 JSON 都没有。原阈值 `jfiles >= 4 and lines > 20`
-	## 是按六关剧本定的，必然判红 —— 拆除这一拍先只核「没有坏字形」，
-	## **commit B 第一关落地当天恢复成 `jfiles >= 1 and lines > 5`，S12 再抬回 4 / 20**。
-	check(jfiles.size() >= 1 and jbad.is_empty(),
+	## ⚠ **阈值临时下调**（新手教程 v2 · S1）：原阈值 `jfiles >= 4 and lines > 20` 是按六关剧本定的，
+	## 眼下只有第一关 + 一份第二关占位（commit B），够不着 —— 先降到 `jfiles >= 1 and lines > 5`，
+	## **S12 收口时抬回 4 / 20**（第二 ~ 五关 S4/S5、间章 S9、第七关 S10/S11 补齐之后）。
+	## 阈值本身是防「扫描空转、检查空心绿」的，降了也不能降到 0。
+	check(jfiles.size() >= 1 and lines.size() > 5 and jbad.is_empty(),
 		"教程剧本 %d 份 JSON 的 %d 条上屏文案也过字形闸%s"
 			% [jfiles.size(), lines.size(), "" if jbad.is_empty() else "；缺：" + jmsg])
 
@@ -19165,6 +19167,10 @@ func t_entry_smoke_tutorial() -> void:
 	CWSettings.ai_delay_ms = 220
 	CWGuideProgress.clear()   ## 别脏到同一分片里后面按进度开局的测试
 	main_scene.queue_free()
+	## ★ 等这一帧把它真的释放掉：`queue_free` 是延迟的，而 `CWMatch._exit_tree` 会再走一遍
+	## `teardown()`（含 `CWTutorLayers.reset()`）—— 不等的话那一下会落在**下一个测试**的中间，
+	## 把教程 UI 层开关悄悄推回默认（09-19：t_tutor_flow 单跑绿、跟在这条后面跑红）
+	await process_frame
 
 
 func t_entry_smoke_replay() -> void:
@@ -19722,3 +19728,605 @@ func t_tutorial_npc() -> void:
 		"三条兜底全落空（没有 stop/skip、不是顶层 action）⇒ 下标 0，同基类默认")
 	g.dispose()
 
+
+
+# =====================================================================
+# 新手教程 v2 · S1 commit B：六支新测试（方案 §6.1）
+# =====================================================================
+#
+# 分工（三支纯函数、三支带局面）：
+#   t_tutor_data      数据门面：读 / resolve 继承 / validate 的判别力（**正反都测**）
+#   t_tutor_beats     条目文法：九个动词 + 三类谓词 + allow 前缀匹配（零引擎、毫秒级）
+#   t_tutor_flow      桩关卡 + 记录型假皮：**意图序列**逐条相同（导演本体与引擎解耦）
+#   t_tutor_director  假队列喂 step_end：**装闸时序**（丙测时序、甲测意图，两条互补）
+#   t_tutor_gate      闸桥三态 + 下标只映射一次 + abort 唤醒 + mutes_result
+#   t_tutor_view      计数皮跑第一关：九类意图与 flow 逐条比；两版皮九个方法齐全
+#
+# 老教程那 18 条的判据形状迁到哪里，逐条见 docs/开发日志.md 2026-09-19 那条。
+
+## 教程的另外三件（`TUTOR_SCRIPT` 上面 L0 那一段已经 preload 过，不再抄第二份）
+const TUTOR_BEATS := preload("res://scripts/kernel/cw_tutor_beats.gd")
+const TUTOR_DIRECTOR := preload("res://scripts/tutor/cw_tutor_director.gd")
+const TUTOR_GATE := preload("res://scripts/tutor/cw_tutor_gate.gd")
+
+
+## 假闸：只记 `set_allow` 的流水账。导演测的是**时序**，不必真起一只桥
+class TutorGateSpy extends RefCounted:
+	var log: Array = []          ## 依次装过哪几道闸
+	var blocked := false
+
+	func set_allow(a: Variant) -> void:
+		log.append(a)
+
+	func set_blocked(v: bool) -> void:
+		blocked = v
+
+	## 最后装上去的那一道
+	func last() -> Variant:
+		return log[-1] if not log.is_empty() else "(一次都没装)"
+
+
+## 校验器报的错拼成一段，供 `contains` 核判别力
+func _tutor_errs(lv: Dictionary) -> String:
+	return "\n".join(TUTOR_SCRIPT.new().validate(lv))
+
+
+## 让导演在树里真跑几帧（三个驱动源之一是 `_process`）
+func _tutor_pump(frames := 8) -> void:
+	for _i in frames:
+		await process_frame
+
+
+## 桩关卡：九个动词各至少一条，三个 step 标签。**不进 data/tutorial/**（它不是剧本，是夹具）
+func _tutor_stub_level() -> Dictionary:
+	return {
+		"schema": "cwtut/2", "id": "_stub",
+		"chapter": 9, "chapter_kind": "main", "chapter_title": "桩章", "title": "桩关",
+		"seats": 2, "human_seat": 0,
+		"worlds": {}, "active_tiles": [], "rolls": [],
+		"flow": [
+			{ "do": "state", "step": "S1", "prd": 1, "load": "base",
+				"ui": { "*": false, "action_bar": true }, "reveal": ["0,-1"] },
+			{ "do": "point", "prd": 2, "ui": ["bar:迁移"], "hex": ["0,-1"] },
+			{ "do": "unlock", "prd": 3, "ids": ["_stub_unlock"] },
+			{ "do": "say", "step": "S2", "prd": 4, "who": "player", "lines": ["桩台词"], "auto": true },
+			{ "do": "npc", "prd": 5, "seat": 1, "plan": [] },
+			{ "do": "wait", "prd": 6, "secs": 0.0 },
+			{ "do": "play", "prd": 7, "fx": "none", "secs": 0.0 },
+			{ "do": "hook", "step": "S3", "prd": 8, "call": "_stub_hook" },
+			{ "do": "player", "prd": 9, "hint": "该你动手了", "allow": ["k=action|act=move"] },
+		],
+		"on_done": "",
+	}
+
+
+func t_tutor_data() -> void:
+	print("[教程数据门面 cwtut/2]")
+	var d = TUTOR_SCRIPT.new()
+	var index: Dictionary = d.load_index()
+	var rows: Array = index.get("levels", [])
+	check(not rows.is_empty() and index.has("_doc"),
+		"关表读得出（%d 关）且带着九条数据纪律的 _doc" % rows.size())
+	check(d.first_level_id() == "c1_l1", "教程从关表第一行起跑（%s）" % d.first_level_id())
+	## ---- 正面：仓库里每一关都干净 ----
+	var dirty: Array = []
+	for row in rows:
+		var id := str((row as Dictionary).get("id", ""))
+		var lv: Dictionary = d.load_level(id)
+		if lv.is_empty():
+			dirty.append("%s（读不出来）" % id)
+			continue
+		var errs: PackedStringArray = TUTOR_SCRIPT.new().validate(lv)
+		if not errs.is_empty():
+			dirty.append("%s：%s" % [id, errs[0]])
+	check(dirty.is_empty(), "%d 关全过十三条校验（红的：%s）" % [rows.size(), str(dirty)])
+	var l1: Dictionary = d.load_level("c1_l1")
+	## `rolls: []` ≠ 省略：空带子 = 「这一关一次 rng 都不许消耗」的断言（方案 §2.2）
+	check(l1.has("rolls") and (l1["rolls"] as Array).is_empty(),
+		"第一关显式写了空带子（PRD:91-137 全关零抽取）—— 省略与 [] 不是一回事")
+	check(int(l1.get("seats", -1)) == 2 and int(l1.get("human_seat", -1)) == 0,
+		"席位数与人类席是数据里的设计量（纪律 8），不在代码里现算")
+	## ---- resolve：`from` + `patch` 继承（方案 §2.4，这次真实现）----
+	var fam := { "worlds": {
+		"base": {
+			"radius": 6, "round": 1, "phase": "PlayerAction", "seat": 0,
+			"players": [{ "seat": 0, "faction": "immune", "level": "I", "memory": 0 },
+				{ "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }],
+			"tiles": [{ "at": "4,-1", "state": "cancer" }],
+			"cells": [{ "seat": 0, "type": "ImmuneBasic", "at": "-1,-1", "energy": 50 },
+				{ "seat": 1, "type": "Osteosarcoma", "at": "6,-1", "alive": false }] },
+		"knock1": { "from": "base", "patch": { "round": 2, "cells": [{ "seat": 0, "at": "-4,-1" }] } },
+		"signet": { "from": "knock1", "patch": {
+			"tiles": null,
+			"players": [{ "seat": 1, "cancer_type": "SignetRing" }],
+			"cells": [{ "seat": 1, "type": "SignetRing", "alive": null }] } },
+		"ring_a": { "from": "ring_b", "patch": {} },
+		"ring_b": { "from": "ring_a", "patch": {} },
+	} }
+	var w1: Dictionary = d.resolve(fam, "knock1")
+	var c0: Dictionary = (w1.get("cells", []) as Array)[0]
+	check(int(w1.get("round", -1)) == 2 and str(c0.get("at", "")) == "-4,-1"
+			and int(c0.get("energy", -1)) == 50,
+		"patch：顶层标量直接盖、cells 按 seat **逐字段合并**（没写到的 energy 留着）")
+	var w2: Dictionary = d.resolve(fam, "signet")
+	var p1: Dictionary = (w2.get("players", []) as Array)[1]
+	var c1: Dictionary = (w2.get("cells", []) as Array)[1]
+	check(not w2.has("tiles") and str(p1.get("cancer_type", "")) == "SignetRing"
+			and str(c1.get("type", "")) == "SignetRing" and not c1.has("alive")
+			and str(((w2.get("cells", []) as Array)[0] as Dictionary).get("at", "")) == "-4,-1",
+		"两级继承：顶层键写 null = 删这一段、行内字段写 null = 删这个字段、上一级的改动照样在")
+	check(d.resolve(fam, "ring_a").is_empty() and d.resolve(fam, "没有这一份").is_empty(),
+		"继承链成环 / 指向不存在的 world：解不开就返回 {}，不把栈吃光")
+	check(TUTOR_SCRIPT.parse_at(" -3 , 6 ") == Vector2i(-3, 6)
+			and TUTOR_SCRIPT.parse_at("坏掉了") == Vector2i(9999, 9999),
+		"坐标解析只有这一处：\"q,r\"，写歪了给哨兵（不静默当成 0,0）")
+	check(TUTOR_SCRIPT.deep_eq({ "a": [1, { "b": 2 }] }, { "a": [1, { "b": 2 }] })
+			and not TUTOR_SCRIPT.deep_eq({ "a": 1 }, { "a": 1, "b": 2 }),
+		"deep_eq 逐层比、字典书写次序不算差异（dump 与 minify 各按自己的顺序装键）")
+	## ---- 反面：闸得有判别力（每一条都单独造一次） ----
+	var bad: Dictionary = l1.duplicate(true)
+	bad["schema"] = "cwtut/1"
+	check(_tutor_errs(bad).contains("schema"), "判别力：schema 写成老的当场红")
+	bad = l1.duplicate(true)
+	bad["ui_stage"] = 1
+	check(_tutor_errs(bad).contains("不认识的键"), "判别力：顶层多一个老字段（ui_stage）当场红")
+	bad = l1.duplicate(true)
+	(bad["flow"] as Array)[0] = { "do": "say", "who": "player", "lines": ["先说话"] }
+	check(_tutor_errs(bad).contains("flow[0]"), "判别力：flow[0] 不是带 load 的 state 当场红（PRD:39）")
+	bad = l1.duplicate(true)
+	(bad["flow"] as Array).append({ "do": "dance", "prd": 999 })
+	check(_tutor_errs(bad).contains("九个动词"), "判别力：第十个动词当场红")
+	bad = l1.duplicate(true)
+	((bad["flow"] as Array)[-1] as Dictionary)["allow"] = ["迁移"]
+	check(_tutor_errs(bad).contains("语义键前缀"), "判别力：allow 写成按钮标题（不是语义键）当场红")
+	bad = l1.duplicate(true)
+	((bad["flow"] as Array)[-1] as Dictionary)["until"] = { "state": "走到了" }
+	check(_tutor_errs(bad).contains("谓词"), "判别力：谓词不在三张表里当场红")
+	bad = l1.duplicate(true)
+	((bad["flow"] as Array)[1] as Dictionary)["prd"] = 9
+	check(_tutor_errs(bad).contains("单调不减"), "判别力：prd 行号倒着写当场红（剧本对账闸）")
+	bad = l1.duplicate(true)
+	((bad["flow"] as Array)[3] as Dictionary)["ids"] = ["没这条图鉴"]
+	check(_tutor_errs(bad).contains("没有归宿"), "判别力：unlock 的 id 在 codex_map.json 里没有归宿当场红")
+	bad = l1.duplicate(true)
+	(bad["worlds"]["base"]["cells"] as Array).append(
+		{ "seat": 0, "type": "ImmuneBasic", "at": "1,-1", "energy": 10 })
+	check(_tutor_errs(bad).contains("每席恰好一只"),
+		"判别力：同席两只细胞当场红（装载器只拦同格，同席是后写的**静默**盖掉）")
+	bad = l1.duplicate(true)
+	bad["active_tiles"] = ["0,-3"]
+	check(_tutor_errs(bad).contains("特殊组织"),
+		"判别力：活跃格压到核心 / 骨髓 / 血管又没显式写 type 当场红（白送一个收入格，纪律 2）")
+	bad = l1.duplicate(true)
+	bad["active_tiles"] = ["99,99"]
+	check(_tutor_errs(bad).contains("棋盘外"), "判别力：活跃格在盘外当场红")
+	## ---- 间章那条唯一例外（方案 §2.5 / §2.10 第 11 条）----
+	var inter: Dictionary = l1.duplicate(true)
+	inter["id"] = "_inter"
+	inter["chapter_kind"] = "interlude"
+	(inter["flow"] as Array)[0] = { "do": "state", "prd": 93, "load": null, "ui": { "*": false } }
+	check(not _tutor_errs(inter).contains("flow[0]"),
+		"间章例外：chapter_kind == interlude 时允许显式写 \"load\": null（承接上一关的活局面）")
+	var inter2: Dictionary = inter.duplicate(true)
+	(inter2["flow"] as Array)[0] = { "do": "state", "prd": 93, "ui": { "*": false } }
+	check(_tutor_errs(inter2).contains("flow[0]"),
+		"间章也不许**省略** load —— 省略仍判红，免得「忘了写」冒充「有意不装」")
+	var kind_bad: Dictionary = l1.duplicate(true)
+	kind_bad["chapter_kind"] = "sub"
+	check(_tutor_errs(kind_bad).contains("chapter_kind"),
+		"chapter_kind 只许 main / interlude（间章不是主章节的附属，Kevin 2026-09-19）")
+
+
+func t_tutor_beats() -> void:
+	print("[教程条目文法 cwtut/2]")
+	check(TUTOR_BEATS.VERBS.size() == 9, "九个动词，不允许第十个（实测 %d）" % TUTOR_BEATS.VERBS.size())
+	var missing: Array = []
+	for v in ["state", "say", "point", "unlock", "play", "wait", "player", "npc", "hook"]:
+		if not TUTOR_BEATS.is_verb(v):
+			missing.append(v)
+	check(missing.is_empty() and not TUTOR_BEATS.is_verb("dance"),
+		"九个动词全认、表外的一个都不认（缺：%s）" % str(missing))
+	## 阻塞型：这一条没跑完导演不翻页
+	var blocking: Array = []
+	for v in TUTOR_BEATS.VERBS:
+		if TUTOR_BEATS.is_blocking({ "do": str(v) }):
+			blocking.append(str(v))
+	blocking.sort()
+	check(blocking == ["hook", "play", "player", "say", "wait"],
+		"阻塞的正好是 say / play / wait / player / hook 五个（state / point / unlock / npc 同帧跑完，正是 PRD:39 的次序）")
+	check(TUTOR_BEATS.bad_keys({ "do": "say", "step": "S1", "prd": 1, "who": "player", "lines": [] }).is_empty()
+			and TUTOR_BEATS.bad_keys({ "do": "say", "allow": [] }) == ["allow"],
+		"条目只许通用字段 + 这个动词自己的那几个（allow 是 player 的，写进 say 里当场认出来）")
+	## allow 是**前缀**匹配（选项在观测协议里已带好语义键）
+	var key := "k=action|act=move|to=0,-1"
+	check(TUTOR_BEATS.hits(key, ["k=action|act=move"]) and TUTOR_BEATS.hits(key, [key])
+			and not TUTOR_BEATS.hits(key, ["k=action|act=end"])
+			and not TUTOR_BEATS.hits(key, []),
+		"allow 前缀匹配：写到 act 就放过所有目标格，写全就只放那一格；空表一条都不放")
+	check(TUTOR_BEATS.pred_kind({ "delta": "moved" }) == "delta"
+			and TUTOR_BEATS.pred_kind({ "state": "beside" }) == "state"
+			and TUTOR_BEATS.pred_kind({ "entry": "e_done" }) == "entry"
+			and TUTOR_BEATS.pred_kind({ "entry": "roll:attack" }) == "entry"
+			and TUTOR_BEATS.pred_kind({ "state": "写歪了" }) == "",
+		"三类谓词各认各的，写歪的报空串（校验器据此判红）")
+	check(TUTOR_BEATS.who_ok("player") and TUTOR_BEATS.who_ok("narrator")
+			and TUTOR_BEATS.who_ok("seat:2") and TUTOR_BEATS.who_ok("ui:bar:迁移")
+			and not TUTOR_BEATS.who_ok("seat:") and not TUTOR_BEATS.who_ok("旁白"),
+		"say.who 四档：player / narrator / seat:<n> / ui:<控件 id>，带参数的必须真带参数")
+	check(TUTOR_BEATS.POINT_MODES == ["soft", "arrow", "fullscreen"],
+		"point.mode 三档；缺省 soft = PRD 通用规则 8 的轻微慢闪")
+	## ---- 判据：拿手搓的快照比，零引擎 ----
+	var base := TUTOR_BEATS.snap(null, 0)
+	check(Vector2i(base["pos"]) == TUTOR_BEATS.NONE and bool(base["can_move"])
+			and int(base["foes"]) == 1 and not bool(base["asked"]),
+		"没有镜像时默认值取**更保守**的那一边：can_move 真、foes 1 —— 反过来写，关卡会在「还没有镜像」那一瞬间被自动重置掉 / 被直接翻过去")
+	var now: Dictionary = base.duplicate()
+	now["pos"] = Vector2i(0, -1)
+	check(TUTOR_BEATS.done({ "delta": "moved" }, base, now)
+			and not TUTOR_BEATS.done({ "delta": "moved" }, base, base),
+		"delta:moved = 位置变了（第一关的完成判据）")
+	## 计数类只在同一个行动回合内有效：引擎每个行动回合把 attacks_used 清零
+	var b2: Dictionary = base.duplicate()
+	b2["actor"] = 0
+	var n2: Dictionary = b2.duplicate()
+	n2["attacks"] = 2
+	check(TUTOR_BEATS.done({ "delta": "attacked", "count": 2 }, b2, n2)
+			and not TUTOR_BEATS.done({ "delta": "attacked", "count": 3 }, b2, n2),
+		"delta:attacked 认 count（PRD:275「玩家前两次攻击」）")
+	var n3: Dictionary = n2.duplicate()
+	n3["round"] = int(n2["round"]) + 1
+	check(not TUTOR_BEATS.done({ "delta": "attacked", "count": 2 }, b2, n3)
+			and not TUTOR_BEATS.same_turn(b2, n3),
+		"**计数谓词跨回合基线作废**：换回合要重新取基线，不然拿上一回合的数接着算")
+	var n4: Dictionary = base.duplicate()
+	n4["asked"] = true
+	n4["can_move"] = false
+	check(TUTOR_BEATS.done({ "state": "stuck" }, base, n4)
+			and not TUTOR_BEATS.done({ "state": "stuck" }, base, base),
+		"state:stuck 必须**正问着这一席**才谈得上走不动（第三关自动重置的判据，PRD:251 第一条）")
+	var n5: Dictionary = base.duplicate()
+	n5["beside"] = true
+	n5["energy"] = 30
+	check(TUTOR_BEATS.done({ "state": "low_energy_beside", "arg": 35 }, base, n5)
+			and not TUTOR_BEATS.done({ "state": "low_energy_beside", "arg": 20 }, base, n5),
+		"state:low_energy_beside 认 arg（十分位整数；第三关劝重置那一档 = 35）")
+	var n6: Dictionary = base.duplicate()
+	n6["level"] = 2
+	check(TUTOR_BEATS.done({ "state": "level_at_least", "arg": "III" }, base, n6)
+			and not TUTOR_BEATS.done({ "state": "level_at_least", "arg": "III" }, base, base),
+		"state:level_at_least 的参数照 players[].level 写罗马字（\"III\"），不必记住它是下标 2")
+	check(not TUTOR_BEATS.done({ "state": "level_at_least", "arg": "IX" }, base, n6)
+			and not TUTOR_BEATS.done({ "delta": "写歪了" }, base, n6),
+		"**写歪的谓词一律 false**：剧本漏写参数只会让这一步等不到，不会把关卡自己翻过去或掀了")
+
+
+func t_tutor_flow() -> void:
+	print("[教程导演·意图序列（桩关卡 + 记录型假皮）]")
+	CWGuideProgress.clear()
+	CWTutorLayers.reset()
+	var view := CWTutorViewTally.new()
+	var gate := TutorGateSpy.new()
+	var d = TUTOR_DIRECTOR.new()
+	d.view = view
+	d.gate = gate
+	d.mirror_of = func() -> CWMirror: return null
+	var loads: Array = []
+	var npcs: Array = []
+	var dones: Array = []
+	d.want_load.connect(func(wid: String) -> void: loads.append(wid))
+	d.want_npc.connect(func(seat: int, plan: Array) -> void: npcs.append([seat, plan]))
+	d.level_done.connect(func(next_id: String) -> void: dones.append(next_id))
+	root.add_child(d)
+	d.open(_tutor_stub_level(), 0)
+	d.install()                      ## 关首那一次（真机上在 kernel.run() 之前）
+	await _tutor_pump(10)
+	## ---- 九类意图的调用序（滤掉 block，它成对得太密，单独一条核）----
+	var seq: Array = []
+	for e in view.log:
+		var k := str((e as Dictionary)["kind"])
+		if k != "block":
+			seq.append(k)
+	check(seq == ["chapter", "shell", "reveal", "point", "codex_unlocked", "say",
+			"hint", "urge_reset"],
+		"意图序列逐条相同（实测 %s）" % str(seq))
+	## PRD:39：先结算界面与状态、再显示文本提示
+	check(seq.find("reveal") < seq.find("say") and seq.find("shell") < seq.find("say"),
+		"先状态后文本（PRD:39）：reveal / shell 都排在第一条 say 之前")
+	## PRD:35：章节变了才弹全屏提示，而且它是协程（播完才往下）
+	var ch: Dictionary = (view.log[0] as Dictionary)["args"]
+	check(str((view.log[0] as Dictionary)["kind"]) == "chapter" and int(ch["no"]) == 9
+			and str(ch["title"]) == "桩章",
+		"章节提示排在最前、章号与章名从数据来（PRD:35）")
+	## PRD 通用规则 8：point 缺省就是轻微慢闪
+	var pt: Dictionary = {}
+	for e in view.log:
+		if str((e as Dictionary)["kind"]) == "point":
+			pt = (e as Dictionary)["args"]
+	check(str(pt.get("mode", "")) == "soft" and (pt.get("targets", []) as Array).size() == 2
+			and str(((pt["targets"] as Array)[0] as Dictionary)["id"]) == "bar:迁移"
+			and Vector2i(((pt["targets"] as Array)[1] as Dictionary)["at"]) == Vector2i(0, -1),
+		"point 缺省 mode == soft；ui 与 hex 两类目标并存（PRD:137 那一条就是两个目标）")
+	## PRD:51 第 2 层：非 player 条目一律挡住，轮到玩家才放开
+	var blocks: Array = []
+	for e in view.log:
+		if str((e as Dictionary)["kind"]) == "block":
+			blocks.append(bool(((e as Dictionary)["args"] as Dictionary)["on"]))
+	check(not blocks.is_empty() and blocks[-1] == false and blocks.count(true) == blocks.size() - 1,
+		"block(true/false) 成对：讲解期一路挡着，只有轮到 player 那一条才放开（%d 次）" % blocks.size())
+	## 九个动词都真走了一趟
+	check(loads == ["base"] and npcs.size() == 1 and int(npcs[0][0]) == 1
+			and CWGuideProgress.unlocked().has("_stub_unlock") and dones == [""],
+		"state.load / npc / unlock / on_done 四条出口都通（loads=%s npcs=%s dones=%s）"
+			% [str(loads), str(npcs), str(dones)])
+	check(not CWTutorLayers.on("hand") and CWTutorLayers.on("action_bar"),
+		"flow[].ui 的 \"*\": false 先全关再覆写（手牌关着、行动栏开着）")
+	## 关末把闸关死：换局那几帧不许玩家再动
+	check(gate.log[-1] is Array and (gate.log[-1] as Array).is_empty(),
+		"剧本走完先把闸关死，再发 level_done（换局那几帧不许玩家再动）")
+	d.teardown()
+	d.queue_free()
+	view.free()
+	CWTutorLayers.reset()
+	CWGuideProgress.clear()
+
+
+func t_tutor_director() -> void:
+	print("[教程导演·装闸时序（假队列喂 step_end）]")
+	CWGuideProgress.clear()
+	CWTutorLayers.reset()
+	var view := CWTutorViewTally.new()
+	var gate := TutorGateSpy.new()
+	var d = TUTOR_DIRECTOR.new()
+	d.view = view
+	d.gate = gate
+	d.mirror_of = func() -> CWMirror: return null
+	var lv := _tutor_stub_level()
+	d.open(lv, 0)
+	## ① 关首那一次：**还没喂过任何 step_end**，闸就已经是 []（不提前装，玩家会先看见一瞬间的全套界面）
+	d.install()
+	check(gate.log.size() == 1 and (gate.log[0] as Array).is_empty(),
+		"关首装闸在任何 step_end 之前，且装的是 []（flow[0] 是讲解型 state）")
+	## ② 幂等：同一条装两次不会出第二份效果
+	d.install()
+	check(gate.log.size() == 2 and (gate.log[1] as Array).is_empty()
+			and str((view.log[-1] as Dictionary)["kind"]) == "block",
+		"install() 幂等：再装一次还是同一道闸（第三个调用点是「游标自己翻页那一下」）")
+	## ③ 换局那一瞬间的脏基线：step_end 是「这一局已经换过了」的最早时刻，在那儿重取
+	d._base = { "pos": Vector2i(5, 5), "round": 99 }
+	d.on_step_end()
+	check(Vector2i(d._base["pos"]) == TUTOR_BEATS.NONE,
+		"step_end 上重取判据基线 —— 不重取的话，两关免疫起点不同格，`delta:moved` 当场成立、把新关第一步直接翻过去")
+	check(gate.log.size() == 3, "step_end 顺手把闸装一次（装闸的唯一正牌时机）")
+	## ★ **只取那一次**：每个 step_end 都取的话，玩家刚走完的那一步会把 `delta:moved` 的基线
+	## 一起更新掉 —— 判据当场不成立、关卡卡死在这一步。而且它是竞态（同一帧队列先泵还是导演先 tick），
+	## 09-19 真机上第一关「走完一格」一次翻页一次卡住，就是这一条
+	d._base = { "pos": Vector2i(5, 5), "round": 99 }
+	d.on_step_end()
+	check(Vector2i(d._base["pos"]) == Vector2i(5, 5) and gate.log.size() == 4,
+		"再来一个 step_end 就**不**重取了（只有换局 / 重装欠的那一次才取），闸照装不误")
+	## ④ 玩家那一条才放行；`allow` 原样交给闸（导演不自己解析语义键）
+	d._at = 8
+	d._entered = false
+	d.install()
+	check(gate.last() is Array and (gate.last() as Array) == ["k=action|act=move"],
+		"轮到 player 那一条：把剧本写的 allow 原样装上去（%s）" % str(gate.last()))
+	## ⑤ 关间静默（PRD:37）：章号没变就不再弹章节提示
+	view.clear_log()
+	var same := _tutor_stub_level()
+	same["id"] = "_stub2"
+	d.open(same, 0)
+	check(view.kinds().find("chapter") < 0,
+		"同一章里换关**静默**：一条 chapter 意图都不发（PRD:37）")
+	## 章号变了才弹（比的是 (chapter_kind, chapter) 二元组 —— 间章与主章节的 chapter 可能撞号）
+	view.clear_log()
+	var inter := _tutor_stub_level()
+	inter["id"] = "_inter"
+	inter["chapter_kind"] = "interlude"
+	d.open(inter, 0)
+	check(view.kinds().find("chapter") >= 0,
+		"chapter 号相同但 chapter_kind 变了照样算换章：比的是二元组，不是单个整数")
+	## ⑥ 代际闸：重置 / 跳关 / 换局各 +1，旧协程据此永挂
+	var ep: int = d.epoch
+	check(d.alive(ep) and not d.alive(ep - 1), "alive(ep)：只认当代")
+	d.invalidate()
+	check(d.epoch == ep + 1 and not d.alive(ep), "invalidate() 之后旧代当场失效（取消语义，方案 §3.7）")
+	d.teardown()
+	d.queue_free()
+	view.free()
+	## ⑦ 调用次序是 match.gd 那边的事，按源码核一次（装闸必须在 run() 之前）
+	var src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	var start_at := src.find("func start(snap: Dictionary = {})")
+	var seg := src.substr(start_at, src.find("\nfunc ", start_at + 10) - start_at)
+	check(start_at > 0 and seg.find("_tutor_start_level()") > 0
+			and seg.find("_tutor_start_level()") < seg.find("kernel.run()"),
+		"start() 里关首装闸（_tutor_start_level）排在 kernel.run() **之前**")
+	var next_at := src.find("func _tutor_next_level(")
+	var nseg := src.substr(next_at, src.find("\nfunc ", next_at + 10) - next_at)
+	check(next_at > 0 and nseg.find("_director.gate = bridge") > 0
+			and nseg.find("_wire_bridge(ai_level)") < nseg.find("_director.gate = bridge")
+			and nseg.find("_director.gate = bridge") < nseg.find("_start_queue()"),
+		"跨关换局：_wire_bridge 新建桥之后、_start_queue 之前，把**同一个**导演重挂上去（漏了就从第二关起一个闸都装不上，而且不报警告）")
+	check(nseg.find("kernel.abort()") < nseg.find("queue.stop()")
+			and nseg.find("queue.stop()") < nseg.find("kernel.close()")
+			and nseg.find("kernel.close()") < nseg.find("_stage.dispose()"),
+		"拆旧局次序钉死：abort → queue.stop → close → dispose（abort 永远排在 stop 之前，否则 5 秒后 barrier timeout）")
+	CWTutorLayers.reset()
+	CWGuideProgress.clear()
+
+
+## 把一问挂在闸上跑（协程不 await，好让测试继续往下走）
+func _tutor_gate_ask(gate, req: Dictionary, out: Array) -> void:
+	out.append(await gate.ask(req))
+
+
+func t_tutor_gate() -> void:
+	print("[教程闸桥·三态]")
+	var gate = TUTOR_GATE.new()
+	var humans: Array[int] = [0]
+	gate.human_pids = humans
+	## 过了闸之后交给**下游**的那一步用回放答案顶掉（`CWUIBridge.ask` 的第一条分支）：
+	## 这一支测的是闸，不是 AI 怎么挑 —— 下游一确定，「下标映射回原表」才有唯一正确答案
+	gate.replay_answers = [0, 0, 0, 0, 0, 0, 0, 0]
+	var req := { "kind": "action", "pid": 0, "prompt": "", "options": [
+		{ "label": "迁移", "data": { "act": "move", "to": Vector2i(0, -1) } },
+		{ "label": "抽卡", "data": { "act": "draw" } },
+		{ "label": "结束回合", "data": { "act": "end" } }] }
+	check(CWSemKey.key(req, req["options"][0]["data"]) == "k=action|act=move|to=0,-1",
+		"选项在观测协议里已经带好语义键，剧本的 allow 就是照它写的")
+	## ① 缺省 null：不过滤
+	gate.set_allow(null)
+	var i0: int = await gate.ask(req)
+	check(i0 >= 0 and i0 < 3, "缺省 null = 不过滤（自由游玩段；本 PRD 只有第五关 Step2 半开）")
+	## ② 非空：只留命中的，**下标映射回原表**
+	gate.set_allow(["k=action|act=end"])
+	var i1: int = await gate.ask(req)
+	check(i1 == 2, "非空闸只留命中的那一条，答案映射回原表下标（实测 %d，期望 2）" % i1)
+	## ③ [] 全禁：这一问挂起不作答
+	gate.set_allow([])
+	var out2: Array = []
+	_tutor_gate_ask(gate, req, out2)
+	await _tutor_pump(3)
+	check(out2.is_empty() and gate.gate_closed(),
+		"[] = 全禁：这一问挂起不作答（挂着 = 压根没走到建行动栏那一步）")
+	gate.set_allow(["k=action|act=draw"])
+	await _tutor_pump(3)
+	check(out2 == [1], "闸一换，挂着的那一问当场醒过来并按新闸作答（实测 %s）" % str(out2))
+	## ④ 非空但一条都没命中：warning + 挂起，**绝不回落成全开**
+	gate.set_allow(["k=action|act=differentiate"])
+	var out3: Array = []
+	_tutor_gate_ask(gate, req, out3)
+	await _tutor_pump(3)
+	check(out3.is_empty(), "剧本写错（闸非空却一条都没命中）：warning + 挂起，绝不回落全开、绝不替玩家乱答")
+	gate.set_allow(["k=action|act=move"])
+	await _tutor_pump(3)
+	check(out3 == [0], "闸换成命中得上的，那一问自己重来一遍（出路还有常驻「重置 / 目录」）")
+	## ⑤ abort() 要叫醒挂在闸上的那一问 —— 闸不是 _pending，基类够不着它
+	gate.set_allow([])
+	var out4: Array = []
+	_tutor_gate_ask(gate, req, out4)
+	await _tutor_pump(2)
+	gate.abort()
+	await _tutor_pump(2)
+	check(out4 == [0], "abort() 发一次 allow_changed 把挂着的那一问叫醒（不发就留一条永远醒不来的协程）")
+	## ⑥ 常驻壳的遮挡层：等同于 [] 但不覆盖剧本的闸（PRD:51 第 1 层）
+	gate.set_allow(["k=action|act=end"])
+	gate.set_blocked(true)
+	check(gate.gate_closed() and (gate.allow() as Array) == ["k=action|act=end"],
+		"遮挡层开着时闸照样是关的，剧本那道闸原封不动（遮挡一撤就接着用）")
+	gate.set_blocked(false)
+	check(not gate.gate_closed(), "遮挡一撤，闸回到剧本那一道")
+	## ⑦ 教程局静掉「无法复活」那类通报（Kevin 2026-09-12 截图：正好压在说明行上）
+	check(TUTOR_GATE.mutes_result("癌症A %s没有固化癌组织" % CWData.NO_REVIVE_MARK)
+			and not TUTOR_GATE.mutes_result("攻击成功，造成 1.0 伤害"),
+		"mutes_result 是纯函数：只静「无法复活：」那一类，正式局照旧要这句")
+	## ⑧ 两条钉在源码上的纪律
+	var src := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_gate.gd")
+	check(src.find("await _await_playback()") > 0
+			and src.find("await _await_playback()") < src.find("while not _aborted and gate_closed()"),
+		"ask() 里**自己先** await _await_playback() 再读闸 —— allow 是队列播到 step_end 才装的，不先等就读到上一条的闸")
+	check(src.count("keep[") == 1,
+		"下标**只映射一次**（全文件只有一处 keep[…]）—— 映射两次不崩，只是静默选错选项（老方案附 C 最贵的那个坑）")
+	## ⑨ 落空的宽限帧（09-19 真机查出来的）：玩家刚走完那一下，引擎抢在导演翻页之前就抛下一问，
+	## 闸还停在上一步 ⇒ 一条都不命中。那是过渡态，报成「剧本写错」的话，每走一步都有一条假警告
+	check(src.contains("MISS_GRACE_FRAMES") and src.find("var waited := 0") > 0
+			and src.find("var waited := 0") < src.find("push_warning("),
+		"闸非空却落空时**先让几帧再喊** —— 过渡态不该报成剧本写错")
+
+
+func t_tutor_view() -> void:
+	print("[教程表现接口·计数皮跑第一关]")
+	CWGuideProgress.clear()
+	CWTutorLayers.reset()
+	var d = TUTOR_SCRIPT.new()
+	var lv: Dictionary = d.load_level("c1_l1")
+	## 真盘面 + 真镜像（判据要读局面），但不起句柄 —— 这一支测的是**皮收到什么**
+	var g: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "base"))
+	check(g != null, "第一关的 base 装得出来")
+	var m: CWMirror = _mirror_of(g)
+	var view := CWTutorViewTally.new()
+	var gate := TutorGateSpy.new()
+	var dir = TUTOR_DIRECTOR.new()
+	dir.view = view
+	dir.gate = gate
+	dir.mirror_of = func() -> CWMirror: return m
+	root.add_child(dir)
+	dir.open(lv, int(lv.get("human_seat", 0)))
+	dir.install()
+	await _tutor_pump(10)
+	var seq: Array = []
+	for e in view.log:
+		var k := str((e as Dictionary)["kind"])
+		if k != "block":
+			seq.append(k)
+	## 第一关（PRD:91-137）：章节提示 → 常驻壳 → 三段台词夹着两次图鉴解锁 → 提亮 → 行动提示行
+	check(seq == ["chapter", "shell", "say", "say", "codex_unlocked", "say",
+			"codex_unlocked", "point", "hint", "urge_reset"],
+		"第一关的意图序列与 flow 逐条对得上（实测 %s）" % str(seq))
+	var says: Array = []
+	for e in view.log:
+		if str((e as Dictionary)["kind"]) == "say":
+			says.append(((e as Dictionary)["args"] as Dictionary)["lines"])
+	var flow_lines: Array = []
+	for row in lv["flow"]:
+		if str((row as Dictionary).get("do", "")) == "say":
+			flow_lines.append(PackedStringArray((row as Dictionary)["lines"]))
+	var n_lines := 0
+	for one_say in says:
+		n_lines += PackedStringArray(one_say).size()
+	check(says == flow_lines and says.size() == 3,
+		"三段台词逐字来自 JSON（%d 段共 %d 句）—— 台词不在代码里，改文案不动一行 .gd"
+			% [says.size(), n_lines])
+	## 卡在【迁移】那一步不往下翻：判据是真局面（免疫细胞还没动）
+	check(dir._at == (lv["flow"] as Array).size() - 1 and dir.active,
+		"走到最后那条 player 就停住，等玩家真的迁移一格（until: delta moved）")
+	check(gate.last() is Array and (gate.last() as Array) == ["k=action|act=move|to=0,-1"],
+		"闸收到的是剧本点名的那一格：六向只放被点名的那一条")
+	dir.teardown()
+	dir.queue_free()
+	view.free()
+	g.dispose()
+	## ---- 接口纪律：九个方法齐全（源码扫），换皮 = 换一个实例 ----
+	var api := ["func say(", "func busy(", "func point(", "func clear_point(", "func chapter(",
+		"func codex_unlocked(", "func block(", "func reset_anim(", "func reveal(",
+		"func hint(", "func urge_reset(", "func shell(", "func teardown("]
+	var base_src := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_view.gd")
+	var lack: Array = []
+	for f in api:
+		if not base_src.contains(f):
+			lack.append(f)
+	check(lack.is_empty(), "基类给齐了导演要的全部方法（缺：%s）" % str(lack))
+	## 计数皮必须**每一个协程方法都立即返回**并记一条账，测试才断言得了顺序
+	var tally_src := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_view_tally.gd")
+	var t_lack: Array = []
+	for f in api:
+		if not tally_src.contains(f):
+			t_lack.append(f)
+	check(t_lack.is_empty() and not tally_src.contains("await"),
+		"计数皮把九类意图全覆写且**一个 await 都没有**（缺：%s）" % str(t_lack))
+	var plain_src := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_view_plain.gd")
+	check(plain_src.contains("class_name CWTutorViewPlain") and plain_src.contains("func advance(")
+			and plain_src.contains("只保证流程跑得通"),
+		"占位皮 P：带 class_name（真机截图要 call:CWTutorViewPlain:advance 驱动）、文件头写明它不代表任何美术口径")
+	## ---- 控件 id 归宿表（方案 §5.4）：剧本用到的每个 id 都指到一支真实分支 ----
+	var ids := {}
+	for row in d.load_index().get("levels", []):
+		var one: Dictionary = d.load_level(str((row as Dictionary).get("id", "")))
+		for r in one.get("flow", []):
+			var frow: Dictionary = r
+			## **只有 point / player 的 `ui` 是控件 id**：state 的 `ui` 是 11 层开关那张字典
+			if str(frow.get("do", "")) != "point" and str(frow.get("do", "")) != "player":
+				continue
+			for u in frow.get("ui", []):
+				ids[str(u)] = true
+	var homeless: Array = []
+	for id in ids:
+		var head := str(id).split(":")[0]
+		if not (head in ["bar", "panel", "hand", "board", "hex", "skill"]):
+			homeless.append(str(id))
+	check(not ids.is_empty() and homeless.is_empty(),
+		"剧本用到的 %d 个控件 id 全在归宿表里（无主的：%s）" % [ids.size(), str(homeless)])
+	check(FileAccess.get_file_as_string("res://scripts/ui/action_bar.gd").contains("func button_rect(")
+			and FileAccess.get_file_as_string("res://scripts/ui/match_panel.gd").contains("func rect_of("),
+		"bar:<按钮标题> → action_bar.button_rect；panel:<什么> → panel.rect_of，两支分支都还在")
+	CWTutorLayers.reset()
+	CWGuideProgress.clear()

@@ -53,6 +53,23 @@ signal finished(winner: int)
 ## 最后一条 step_end 的观测号（queue.on_step，见 _on_step）。教程的装闸点就挂在这个边界上
 var _step_rev := 0
 
+## ---- 教程局（新手教程 v2 · S1 commit B）----
+## 舞台（`scripts/kernel/cw_tutorial_stage.gd`）：读一关 JSON → 装一份 cwxworld/3 → 交出 CWKernel。
+## **持对局的是它、不是这里** —— UI 侧只有句柄，结构闸 t_no_engine_in_ui 的白名单因此只剩一条。
+## 收养模式的 close() 不 dispose，谁装配谁收摊 ⇒ 拆局 / 跨关都要显式 _stage.dispose()。
+var _stage = null
+## 导演（`scripts/tutor/cw_tutor_director.gd`）：游标 + 装闸 + 意图分发。**不标类型**：
+## 它没有 class_name（要走热更，方案 §1.5）
+var _director = null
+## 皮（方向稿第二轮定稿之前一律是占位皮 P）与常驻壳。两者一局一份，拆局就销毁
+var _tutor_view: CWTutorView = null
+var _tutor_chrome: CWTutorChrome = null
+## 关表里的第几关（0 起）与那一关的完整 JSON
+var _tutor_index := 0
+var _tutor_level := {}
+## 非人类席位的脚本 decider（`cw_tutorial_npc.gd` 的 Decider）。一席一只、留着引用只为不被 GC
+var _npc_deciders: Array = []
+
 ## 此刻能不能存档：引擎只在 pending 边界有完整快照（CWSave 的写入条件）。
 ## 暂停菜单拿它决定「保存并退出」亮不亮。联机局不写本地存档（状态在服务器，掉线凭令牌重连）。
 ## 错误气泡挂在哪一格：自己的细胞脚下（视线本来就在那儿）；没有细胞就挂棋盘中心。
@@ -161,6 +178,14 @@ const CELL_FOOT_DY := 6.0
 const STACK_DX := 9.0
 ## 普通攻击的本体冲撞（队友 PR #30）：没有 class_name —— 新类名热更装不上，所以走 preload
 const ATTACK_FX := preload("res://scripts/ui/attack_fx.gd")
+## 教程的四件（新手教程 v2 · S1）。**一律 preload、都没有 class_name**（方案 §1.5：
+## 剧本 / 导演 / 闸天天在改，补丁里新增的 class_name 进不了热更）
+const TUTOR_STAGE := preload("res://scripts/kernel/cw_tutorial_stage.gd")
+const TUTOR_SCRIPT := preload("res://scripts/kernel/cw_tutor_script.gd")
+const TUTOR_DIRECTOR := preload("res://scripts/tutor/cw_tutor_director.gd")
+const TUTOR_GATE := preload("res://scripts/tutor/cw_tutor_gate.gd")
+## 教程 NPC 席位的脚本 decider（Kevin 点名保留的那一件）
+const TUTOR_NPC := preload("res://scripts/kernel/cw_tutorial_npc.gd")
 ## 回合脚标（Kevin 2026-09-12：白天选 E 跑马灯轮廓，晚上改选 D「头顶指示箭」，画在 CWBoard.set_turn_mark）：
 ## 正在行动的细胞头顶一枚阵营色像素 V 形箭上下跳，旁观者也看得出「现在是谁在动」。第一版呼吸剪影 Kevin 嫌不好看；
 ## 画板里脚下那片阵营色影子上线后他也说不要，撤了。
@@ -459,7 +484,11 @@ func _ready() -> void:
 ## 待决的询问重新问出来（恢复点必然是 pending 边界，CWSave 只在那儿写得出档）。
 func start(snap: Dictionary = {}) -> void:
 	_prepare_ui()
-	kernel = CWKernelInProc.new()
+	## 教程局的句柄由**舞台**建（它要先把盘面装出来、把带子挂上，再 open）；其余入口照旧自己建。
+	## 读档进来的教程局不走这条路：存档里不记教程标志，读回来就是正式局
+	var by_stage := tutorial and snap.is_empty()
+	if not by_stage:
+		kernel = CWKernelInProc.new()
 	## 本地 / 热座 / 教程共用的 cfg（规格 A-1.2）：
 	##   consumer  = 有界面在播演出 ⇒ 掷骰要等消费者 ack（barrier）
 	##   observe_viewer = 每次问人之前、终局之前各推一份 sync（A-1.5 的观测节拍；热座要看多席真手牌 ⇒ 全知）
@@ -471,19 +500,37 @@ func start(snap: Dictionary = {}) -> void:
 		"observe_viewer": CWKernel.VIEWER_OMNISCIENT,
 		"autorun": false,
 	}
-	cfg["factions"] = CWData.FACTION_ORDER[player_count]
-	cfg["seed"] = match_seed if match_seed != 0 else int(Time.get_unix_time_from_system())
-	cfg["cancer_types"] = cancer_types.duplicate()   ## 内核把它排在 init 之前：抽种类在开局第一步
-	if not snap.is_empty():
-		cfg["world_state"] = snap   ## **只有读档才给**：句柄只判 has()，塞个 {} 会把空快照灌进引擎
+	if by_stage:
+		## 席位数与人类席都是**关卡数据里的设计量**（方案 §2.2 纪律 8），
+		## 不再按「正式局与否 / 视角阵营」现算
+		_tutor_pick_level()
+		player_count = int(_tutor_level.get("seats", 2))
+		human_players = [int(_tutor_level.get("human_seat", 0))]
+	else:
+		cfg["factions"] = CWData.FACTION_ORDER[player_count]
+		cfg["seed"] = match_seed if match_seed != 0 else int(Time.get_unix_time_from_system())
+		cfg["cancer_types"] = cancer_types.duplicate()   ## 内核把它排在 init 之前：抽种类在开局第一步
+		if not snap.is_empty():
+			cfg["world_state"] = snap   ## **只有读档才给**：句柄只判 has()，塞个 {} 会把空快照灌进引擎
 	_wire_bridge(ai_level)
 	## 同一个桥对象当所有席位的 decider：人类那几位走界面，其余走 AI，
 	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。
 	cfg["decider"] = bridge
-	kernel.open(cfg)
+	if by_stage:
+		cfg["deciders"] = _tutor_deciders()   ## 非人类席位逐席覆盖（PRD 通用规则 11「无 ai 控制」）
+		_attach_tutor()                       ## 要在 open()（第一次询问）之前：导演的闸就挂在第一问上
+		kernel = _open_tutor_level(cfg)
+		if kernel == null:
+			return
+	else:
+		kernel.open(cfg)
 	_start_queue()
+	if by_stage:
+		_tutor_start_level()   ## 关首装闸那一次在 `kernel.run()` **之前**：不提前装，玩家会先看见一瞬间的全套界面
 	kernel.run()     ## autorun=false 的局从这里起跑；同步跑到第一问才让出
 	_observe_now()   ## 再取一份：开局布置的初始癌组织到第一问才落地，_bloom_order 要的是这一份
+	if by_stage and _director != null and is_instance_valid(_director):
+		_director.rebase_hard()   ## 新镜像刚落地（`step_end` 也会取一次，但队列是异步消费的，等它就晚了）
 
 
 ## 回放：局面是**本地重建**的（`CWReplay.Player` 已经建好并跑着），
@@ -747,9 +794,9 @@ const MCTS_MAX_STEPS := 384
 
 
 func _wire_bridge(level: int) -> void:
-	## 教程局包一层**闸桥**（`scripts/tutor/cw_tutor_gate.gd`，子类，只多一道决策闸）——
-	## S1 commit A 把老引导桥整份删了，commit B 接上新的；这中间教程局与本地局共用同一只桥
-	bridge = CWUIBridge.new()
+	## 教程局包一层**闸桥**（`scripts/tutor/cw_tutor_gate.gd`，子类，只多一道决策闸：
+	## `allow` 三态 + 下标只映射一次 + `mutes_result`）。其余装配与正式局完全相同
+	bridge = TUTOR_GATE.new() if tutorial else CWUIBridge.new()
 	bridge.hunt_fx = _hunt_fx
 	bridge.mucus_fx = _mucus_fx
 	bridge.seal_fx = _seal_fx
@@ -844,6 +891,276 @@ func clear_transient_hud() -> void:
 		_feed.clear_all()
 		_feed_seq = 0
 
+
+## ===================================================================
+## 教程局的装配（新手教程 v2 · S1 commit B，方案 §1.3 的依赖线）
+## ===================================================================
+##
+##   data/tutorial/*.json  →  cw_tutor_script（读 / resolve / validate）
+##        ↓ cw_tutorial_stage（**产品代码里唯一持 CWGame 的文件**）→ CWKernel
+##        ↓ cw_tutor_director（游标 + 装闸 + 意图分发）
+##             ├── cw_tutor_gate      人类作答（闸）
+##             ├── cw_tutorial_npc.Decider   NPC 席位作答
+##             └── CWTutorView        意图（九类），导演不知道皮长什么样
+##
+## `match.gd` 自己只干四件：建这几个对象、把信号接起来、按剧本的 `state.load` 换 world、
+## 把 UI 层开关落到控件上。**一个 CWGame 都不碰**（结构闸 t_no_engine_in_ui）。
+
+
+## 建常驻壳 + 皮 + 导演，并把线接起来。`start()` 里在 `_wire_bridge` 之后、`open()` 之前调 ——
+## 第一问就要过闸，晚一步玩家会先看见一瞬间的全套界面。每局都新建、不复用
+func _attach_tutor() -> void:
+	if ui == null:
+		return
+	## 常驻壳（PRD:41/43/51）：排在皮**之上**、暂停菜单之下 —— 它的全屏 STOP 层要连皮一起盖住，
+	## 而「重置 / 目录」两颗又要盖在 STOP 层之上（提示期照常可点）
+	if _tutor_chrome != null and is_instance_valid(_tutor_chrome):
+		_tutor_chrome.queue_free()
+	_tutor_chrome = CWTutorChrome.new()
+	ui.add_child(_tutor_chrome)
+	if pause_menu != null:
+		ui.move_child(_tutor_chrome, pause_menu.get_index())
+	## 皮：**方向稿第二轮定稿之前一律用占位皮 P**（方案 §5.2；Kevin 2026-09-19「两个都不好，重做」）。
+	## 换皮 = 换这一行的实例，导演与数据一行都不用改 —— 这正是表现接口的全部意义
+	if _tutor_view != null and is_instance_valid(_tutor_view):
+		_tutor_view.queue_free()
+	_tutor_view = CWTutorViewPlain.new()
+	ui.add_child(_tutor_view)
+	ui.move_child(_tutor_view, _tutor_chrome.get_index())
+	_tutor_view.chrome = _tutor_chrome
+	_tutor_view.reveal_tiles = _tutor_reveal   ## 皮不认识棋盘（接口纪律 1）：浮现经这条 Callable 回来
+	## 通报气泡别落在说明行上（Kevin 2026-09-12 截图）：禁区矩形**归皮挂**（接口纪律 3，
+	## 两版皮的形状必然不同），导演不碰
+	if toast != null:
+		toast.keep_out = CWTutorViewPlain.ZONE
+	if _director != null and is_instance_valid(_director):
+		_director.teardown()
+		_director.queue_free()
+	_director = TUTOR_DIRECTOR.new()
+	_director.name = "TutorDirector"
+	_director.gate = bridge
+	_director.view = _tutor_view
+	## **不存镜像、只存取法**：一关之内会换好几次局，存下来的那一份换局就过期了
+	_director.mirror_of = func() -> CWMirror: return mirror
+	_director.level_done.connect(_tutor_next_level)
+	_director.want_load.connect(_tutor_load_world)
+	_director.want_reset.connect(_tutor_reset_world)
+	_director.want_npc.connect(_tutor_set_npc)
+	add_child(_director)   ## 导演要 _process（三个驱动源之一是每帧）
+	_tutor_chrome.reset_pressed.connect(_tutor_reset_pressed)
+
+
+## 常驻「重置本关」（PRD:41）：走导演那条路（代际 +1 → 游标回 0 → 发 want_reset）。
+## 手动重置**不播**重置动画，自动重置（`reset_when`）才播（方案 §3.5）
+func _tutor_reset_pressed() -> void:
+	if _director != null and is_instance_valid(_director):
+		_director.reset_level()
+
+
+## 按进度挑这一关：`CWGuideProgress.done` = 已通关的关数，关表条数以 `index.json` 为准。
+## 关表是数据，加一关不该要改代码
+func _tutor_pick_level() -> void:
+	var d = TUTOR_SCRIPT.new()
+	var rows: Array = d.load_index().get("levels", [])
+	_tutor_index = clampi(CWGuideProgress.done_count(), 0, maxi(rows.size() - 1, 0))
+	_tutor_level = {}
+	if not rows.is_empty():
+		_tutor_level = d.load_level(str((rows[_tutor_index] as Dictionary).get("id", "")))
+
+
+## 按 id 翻到关表里的某一关（`on_done` 与将来的目录跳关共用）。关表里没有这个 id 就返回 false
+func _tutor_goto(id: String) -> bool:
+	var d = TUTOR_SCRIPT.new()
+	var rows: Array = d.load_index().get("levels", [])
+	for i in rows.size():
+		if str((rows[i] as Dictionary).get("id", "")) != id:
+			continue
+		var lv: Dictionary = d.load_level(id)
+		if lv.is_empty():
+			return false
+		_tutor_index = i
+		_tutor_level = lv
+		return true
+	return false
+
+
+## 教程局非人类席位的 decider。
+##
+## **为什么必须逐席装**：同一只闸桥当所有席位的 decider 时，非人类那几席走的是
+## `CWUIBridge.ask` 的 AI 分支 —— 而 PRD 通用规则 11 写着「生成的免疫 / 癌细胞……均为 npc，
+## 无 ai 控制」。第一关只有一只 alive:false 的占位对手、又永远进不了 E 阶段，所以这条不显形；
+## 第五关 Step2 场上站着 8 只 NPC，一问就现原形（S5 的事，接口位置先留在这儿）。
+## `plan` 空表 = 纯三级兜底（选 stop/skip → 选「结束回合」→ 下标 0）
+func _tutor_deciders() -> Dictionary:
+	_npc_deciders = []
+	var out := {}
+	for pid in player_count:
+		if pid in human_players:
+			continue
+		var d = TUTOR_NPC.Decider.new()
+		d.seat = pid
+		d.mirror_of = func() -> CWMirror: return mirror
+		_npc_deciders.append(d)
+		out[pid] = d
+	return out
+
+
+## 给某席换脚本（`flow[].npc`，`Decider.plan`）。
+## ⚠ 成员叫 `plan` 不叫 `script`：`Object` 自带 `script`，同名当场编译不过
+func _tutor_set_npc(seat: int, plan: Array) -> void:
+	for d in _npc_deciders:
+		if int(d.seat) == seat:
+			d.plan = plan.duplicate(true)
+			return
+
+
+## 教程局的句柄从**舞台**来：舞台读那一关的 JSON、装一份 cwxworld/3、把带子挂上，
+## 再用调用方这份 cfg 加 `adopt` 开局。**这里拿到的只有 CWKernel** —— 对局本身住在舞台里。
+## 同时按数据把棋盘遮罩换成这一关的活跃格（半径恒 6，小棋盘只是遮罩，方案 §2.5）
+func _open_tutor_level(cfg: Dictionary) -> CWKernel:
+	CWTutorLayers.reset()   ## 每关从「全开」起步，再由 flow[0].ui 给全量
+	if _tutor_level.is_empty():
+		push_error("CWMatch：关表里读不出第 %d 关（data/tutorial/index.json）" % (_tutor_index + 1))
+		return null
+	_stage = TUTOR_STAGE.new()
+	_stage.cfg = cfg
+	var k: CWKernel = _stage.open_level(_tutor_level)
+	if k == null:
+		push_error("CWMatch：教程关「%s」装不出来（%s）"
+			% [str(_tutor_level.get("id", "")), str(_stage.errors)])
+		return null
+	if board != null:
+		board.set_active_tiles(_stage.active_tiles())
+	return k
+
+
+## 开这一关的剧本：导演拿数据 + 关首那一次装闸。**必须在 `kernel.run()` 之前**
+func _tutor_start_level() -> void:
+	if _director == null or not is_instance_valid(_director):
+		return
+	_director.open(_tutor_level, int(_tutor_level.get("human_seat", 0)))
+	_director.install()
+
+
+## 关内换一份 world（剧本 `state.load` / 重置 / 将来的「切换种类」共用）。
+## 拆装次序不自己写：走舞台的 `reload_world`（`abort → stop → close → dispose`，
+## **abort 永远排在 stop 之前**）。`back_to_start` = 顺手把 reveal 加进来的活跃格收回去（只有重置要）
+func _tutor_load_world(wid: String, back_to_start := false) -> void:
+	if not tutorial or _stage == null or kernel == null or wid == "":
+		return
+	## 已经是这一份就不重装：关首那条 `state` 每次装闸都会再发一遍，重装一次等于把关卡掀了
+	if not back_to_start and str(_stage.world_id) == wid:
+		return
+	_loop_id += 1
+	var k: CWKernel = _stage.reload_world(wid)
+	if k == null:
+		push_error("CWMatch：教程关「%s」装不出 world「%s」（%s）"
+			% [str(_tutor_level.get("id", "")), wid, str(_stage.errors)])
+		return
+	kernel = k
+	if board != null and back_to_start:
+		board.set_active_tiles(_stage.active_tiles(), 0.0)
+	_start_queue()
+	if _director != null and is_instance_valid(_director):
+		_director.install()   ## 同关首：装闸在 run() 之前
+	kernel.run()
+	_observe_now()
+	if _director != null and is_instance_valid(_director):
+		_director.rebase_hard()
+
+
+## 自动重置（`reset_when`）与常驻「重置本关」共用：局面退回**关首那份 world**、
+## UI 层回默认再按 flow[0] 重铺。导演那边已经把游标归零、代际 +1 了
+func _tutor_reset_world() -> void:
+	if not tutorial or _stage == null:
+		return
+	CWTutorLayers.reset()
+	_tutor_load_world(_tutor_entry_world(), true)
+
+
+## 这一关的「关首那份 world」：`flow[0].load`，没写就是 base
+func _tutor_entry_world() -> String:
+	var flow: Array = _tutor_level.get("flow", [])
+	if flow.is_empty():
+		return "base"
+	var head: Dictionary = flow[0]
+	return str(head.get("load", "base")) if head.get("load", null) != null else "base"
+
+
+## 剧本走完（导演的 `level_done`）→ `on_done` 指名的下一关 = **换一局**（PRD:37 关间静默）。
+##
+## ★ **换局会新建一只桥**（`_wire_bridge`），所以要把**同一个**导演重新挂上去。
+## 不重挂的话新桥的 `gate` 是空的 —— 每处都判空，于是不崩、
+## 但从第二关起闸再也装不上（09-19 真机：第二关没有行动栏，没有任何警告）。
+##
+## 没有下一关（`on_done` 空 / 关表里没有）：只落一笔「全部通关」。
+## **Q-14 的默认「回主菜单」留给 S12**（入口那会儿才从灰恢复），这一片不弹结算屏、不换页
+func _tutor_next_level(next_id: String) -> void:
+	if not tutorial or kernel == null:
+		return
+	CWGuideProgress.set_done(_tutor_index)
+	if next_id == "" or not _tutor_goto(next_id):
+		CWGuideProgress.set_all_done()
+		return
+	_loop_id += 1
+	## 拆旧局的次序钉死：**abort 永远排在 stop 之前** —— 只有 abort() 里的 _barrier_seq = 0
+	## 能放掉正在等 ack 的那条 roll；先停队列就没人 ack，5 秒后内核报 barrier timeout
+	kernel.abort()
+	if queue != null:
+		queue.stop()
+	kernel.close()
+	if _stage != null:
+		_stage.dispose()   ## adopt 模式的 close() 不 dispose：谁装配谁收摊
+		_stage = null
+	player_count = int(_tutor_level.get("seats", 2))
+	human_players = [int(_tutor_level.get("human_seat", 0))]
+	_wire_bridge(ai_level)
+	if _director != null and is_instance_valid(_director):
+		_director.gate = bridge   ## ★ 见函数头
+	## 每一局都录（同 start()）：跨关换的是新一局，不置位的话从第二关起就不再录
+	kernel = _open_tutor_level({ "record_replay": true, "consumer": true,
+		"observe_viewer": CWKernel.VIEWER_OMNISCIENT, "autorun": false, "decider": bridge,
+		"deciders": _tutor_deciders() })
+	if kernel == null:
+		return
+	_start_queue()
+	_tutor_start_level()
+	kernel.run()
+	_observe_now()
+	if _director != null and is_instance_valid(_director):
+		_director.rebase_hard()
+
+
+## 地图浮现（PRD:45）：把一组坐标并进棋盘的活跃集。皮经 `reveal_tiles` 这条 Callable 回来 ——
+## **皮不认识棋盘**（接口纪律 1）。细胞跟着遮罩走那一条在 `_sync_cells` 里（`is_active`）
+func _tutor_reveal(coords: Array) -> void:
+	if board == null:
+		return
+	var want: Array = board.active_tiles()
+	for c in TUTOR_STAGE.coords_of(coords):
+		if not want.has(c):
+			want.append(c)
+	board.set_active_tiles(want)
+
+
+## 每帧把 UI 层开关落到控件上（只在教程局走，方案 §3.2(b)）。
+##
+## **只强制「关」、不强制「开」**（行动栏与手牌抽屉）：它们自己有显隐逻辑
+## （`CWActionBar.show_bar/clear`、`_sync_hand`），每帧强行置 true 会和那套抢。
+## 右栏是常驻件，直接跟着开关走。
+## 闸那一层（PRD:51 第 1 层）跟着常驻壳的遮挡开合：`install()` 里 `allow` 与 `block()` 本来就成对，
+## 这一行是给 S2 的章节提示 / 目录面板留的 —— 那两样自己开遮挡，导演不知情
+func _sync_tutor_layers() -> void:
+	if _director != null and is_instance_valid(_director) and _director.gate != null \
+		and is_instance_valid(_director.gate) and _tutor_chrome != null and is_instance_valid(_tutor_chrome):
+		_director.gate.set_blocked(_tutor_chrome.blocking())
+	if action_bar != null and not CWTutorLayers.on("action_bar"):
+		action_bar.visible = false
+	if hand != null and not CWTutorLayers.on("hand"):
+		hand.visible = false
+	if panel != null:
+		panel.visible = CWTutorLayers.on("sidebar")
+		panel.guide_layers(CWTutorLayers.on("end_turn"), CWTutorLayers.on("round_no"))
 
 ## 教程「知识之书」直达：对局内把图鉴翻到点名的那一章。
 ## 图鉴盖在教程的皮上面，Esc / 右键关掉就回到教程；实例懒建，拆局只隐藏不销毁。
@@ -994,6 +1311,11 @@ func _on_step(e: Dictionary) -> void:
 	if str(e.get("kind", "")) != "step_end":
 		return
 	_step_rev = int(e.get("rev", 0))
+	## 导演在这儿重取判据基线 + 装闸（同一个幂等的 `install()`）。
+	## **换局那一瞬间的脏基线**：两关的免疫起点不同格，拿上一关的基线去比 `delta:moved`
+	## 当场成立、把新关的第一步直接翻过去 —— 行动边界是「这一局已经换过了」的最早时刻
+	if _director != null and is_instance_valid(_director):
+		_director.on_step_end()
 
 
 ## 终局条目：tape 由它带下来（本地是引擎录的、联机是服务器发的），main.gd 用 replay_tape() 取。
@@ -1140,6 +1462,9 @@ func teardown() -> void:
 	queue = null
 	mirror = null
 	_serving_ask = -1
+	if _stage != null:
+		_stage.dispose()   ## 收养的对局句柄不销毁（adopt 模式的 close() 不 dispose）：谁装配谁收摊
+		_stage = null
 	_clear_played_card_fx()
 	_clear_revive_fx()
 	bridge = null
@@ -1191,6 +1516,17 @@ func teardown() -> void:
 		_chat.close()
 	if _log_hint != null:
 		_log_hint.set_chat(null)   ## 下一局是联机局时 _wire_bridge 再装回去
+	if _director != null and is_instance_valid(_director):
+		_director.teardown()   ## 代际 +1：挂在旧闸 / 旧协程上的东西随导演一起被回收
+		_director.queue_free()
+	_director = null
+	if _tutor_view != null and is_instance_valid(_tutor_view):
+		_tutor_view.queue_free()   ## 皮一局一份，拆局就销毁（下一局教程 _attach_tutor 重建）
+	_tutor_view = null
+	if _tutor_chrome != null and is_instance_valid(_tutor_chrome):
+		_tutor_chrome.queue_free()
+	_tutor_chrome = null
+	_npc_deciders = []
 	CWTutorLayers.reset()   ## UI 层开关是静态的（见那个文件头）：拆局必须复位，否则下一局正式对局跟着教程的层走
 	if panel != null:
 		panel.guide_layers(true, true)   ## 右栏是**同一个节点跨局复用**的：教程把「结束回合」关上了，不撤就带进下一局
@@ -1324,6 +1660,8 @@ func _process(delta: float) -> void:
 	if _log_hint != null and _log_panel != null:
 		_log_hint.visible = not _log_panel.visible   ## 面板开着就让位（同一个角）
 		_log_hint.refresh(log_store, _log_panel)          ## 迷你日志：日志尾巴两行，视角跟面板同一份（方案 A，Kevin 2026-09-06）
+	if tutorial:
+		_sync_tutor_layers()
 
 
 func _sync_tiles() -> void:
