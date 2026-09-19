@@ -144,7 +144,9 @@ var _leave_link: Label
 ## 回不去的是**客户端**：`CWNetClient.leave()` 顺手把房间码和令牌一起清了（`_clear_room`），
 ## 连接本身又被 `leave_online()` 丢掉，于是那张回程票谁都不拿着了。
 ## 所以离开之前先把这一席抄在**面板**上：面板跟着主菜单活着，比那条连接长命。
-## 字段 {code, token, url}；空 = 没有可回去的对局。**不落盘**（关掉游戏就算了，见开发日志的待办）。
+## 字段 {code, token, url}；空 = 没有可回去的对局。**落盘**进 `CWSettings.resume`（Kevin 09-19「落盘吧」）：
+## 面板比那条连接长命，却比不过一次运行 —— 关掉客户端再开票就没了，而服务器那一席还留着。
+## 写票一律走 `_set_resume()`（抄席 / 用掉 / 作废三处），漏一处盘上就留着张过期票继续骗人。
 ## **连服务器地址一起抄**：房间码只在它自己那台服务器上唯一，判该不该拿票看 `_resume_here()`。
 var _resume := {}
 var _resume_tried := false   ## 上一次发出去的是「凭令牌回房」——错误报文该不该拿来作废 _resume，看它
@@ -159,6 +161,9 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP   ## 整层接管：底下淡掉的菜单项收不到点击
 	visible = false
 	_build()
+	## 上一次运行留下的回程票（issue #46 落盘）。面板是点「联机对战」才建的
+	## （`CWMainMenu._open_online`），所以「进联机页」正是读盘这一下。
+	_resume = CWSettings.resume.duplicate()
 
 
 func open() -> void:
@@ -558,7 +563,15 @@ func _remember_seat() -> void:
 		return
 	if str(client.room.get("state", "")) != "playing":
 		return
-	_resume = { "code": client.code, "token": client.token, "url": client.url }
+	_set_resume({ "code": client.code, "token": client.token, "url": client.url })
+
+
+## 写票的唯一入口：面板上那份与 `settings.cfg` 的 `[online] resume` 得始终是同一张（issue #46 落盘）。
+## 抄席 / 用掉 / 作废三处都走这儿 —— 漏一处，下次开客户端就会照着盘上那张过期票预填房间码。
+func _set_resume(ticket: Dictionary) -> void:
+	_resume = ticket
+	CWSettings.resume = ticket
+	CWSettings.save_prefs()
 
 
 ## 手里那张回程票是不是**这台服务器**上的。
@@ -662,7 +675,7 @@ func _on_message(m: Dictionary) -> void:
 			## 以观众身份进同一间房不算回来，那时票还得留着
 			if _resume_here() and str(m.get("code", "")) == str(_resume.get("code", "")) \
 					and int(m.get("you_seat", -1)) >= 0:
-				_resume = {}
+				_set_resume({})
 				_resume_tried = false
 			## 开局：从这一刻起对局流排队，等第一份状态到了再进棋盘。
 			## **不看有没有席位**（2026-09-09）：没坐下的人进去就是观众，
@@ -694,7 +707,7 @@ func _on_message(m: Dictionary) -> void:
 				## 票作废掉，别让预填的房间码和「点加入回去接着打」继续骗人（issue #46）。
 				## 只认**自己发起的那一次**：随手输错一个房间码同样答 no_room，不能连坐
 				if _resume_tried and not in_match:
-					_resume = {}
+					_set_resume({})
 					_resume_tried = false
 					_set_status("那一局已经结束，或席位已被收回")
 				if in_match:
