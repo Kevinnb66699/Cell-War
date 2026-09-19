@@ -85,13 +85,23 @@ def _flush(pending):
 
     只做两件排版上的事，不碰字：去掉 markdown 的 `**` 粗体标记（点阵字渲染不了），
     列表项的 `- ` 换成 `· `（行首减号在满是数值的卡面上会被读成负号）。
+
+    **整段只有一条列表项时把 `- ` 直接去掉**（2026-09-19 复核）：PRD 里单条效果偶尔也写成
+    markdown 列表项（【放疗】PRD:1245 就是），一律换成 `· ` 的话卡面上就会出现一个
+    **没有同伴的孤立圆点** —— 69 张卡里独此一张行首带点。圆点是给「多条并列」用的
+    （【迁移】【增生】那几张才是它的正常用法）。生成器仍然逐字跟 PRD，改的只是这一条排版。
     """
     if pending is None:
         return
     card, is_cancer, buf = pending
     if not buf:
         return
-    text = font_safe(re.sub(r"^- ", "· ", "\n".join(buf).replace("**", ""), flags=re.M))
+    body = "\n".join(buf).replace("**", "")
+    if len(buf) == 1 and body.startswith("- "):
+        body = body[2:]
+    else:
+        body = re.sub(r"^- ", "· ", body, flags=re.M)
+    text = font_safe(body)
     ## **同一阵营内**效果文应当一字不差（免疫卡会在 I/II/III/X 四个池里重复出现）。
     ## 不一致就是 PRD 自己的问题，得人去看。
     ##
