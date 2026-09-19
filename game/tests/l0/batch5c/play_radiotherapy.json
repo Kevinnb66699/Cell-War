@@ -4,12 +4,12 @@
   "id": "execute/play/radiotherapy/necrotic_region",
   "op": "execute",
   "covers": [
-   "t_card_choices::起点固化癌组织转健康并坏死 2 轮",
+   "t_card_choices::起点普通癌组织转健康并坏死 2 轮",
    "t_card_choices::放疗：坏死区域是一整块连通区域",
    "t_card_choices::放疗：区域内没有残留的癌性组织",
    "t_card_choices::结算后弃置"
   ],
-  "source": "headless_test.gd:t_card_choices【放疗】。以 1,0（固化癌组织）为起点随机长出含它的连通 10 格区域：起点由固化转健康并坏死 2 轮（CWData.NECROSIS_RADIO；「5 轮」是 2026-09-07 之前的旧值，issue #54 复核时改）、坏死区域是一整块连通区域（necrosis → 2 的那一批）、区域内没有残留的癌性组织、结算后弃置。带子 11 笔是 _radiotherapy 的 frontier 抽签（值一律取区间下界，在副本上跑到不动点）。",
+  "source": "headless_test.gd:t_card_choices【放疗】。以 1,0（普通癌组织）为起点随机长出含它的连通 10 格区域：起点转健康并坏死 2 轮（CWData.NECROSIS_RADIO；「5 轮」是 2026-09-07 之前的旧值，issue #54 复核时改）、坏死区域是一整块连通区域（necrosis → 2 的那一批）、区域内没有残留的癌性组织、结算后弃置。带子 11 笔是 _radiotherapy 的 frontier 抽签（值一律取区间下界，在副本上跑到不动点）。固化格那一条另起一条用例（solid_kept）。",
   "world": {
    "players": [
     {
@@ -196,6 +196,232 @@
     "$.board.tiles@3,-1.necrosis": 2,
     "$.board.tiles@3,-1.tissue": 0,
     "$.board.tiles@3,0.d.proliferate_chance": 0,
+    "$.board.tiles@3,0.necrosis": 2,
+    "$.board.tiles@3,0.tissue": 0,
+    "$.board.tiles@3,1.d.proliferate_chance": 0,
+    "$.board.tiles@4,-2.d.proliferate_chance": 0,
+    "$.board.tiles@4,-1.d.proliferate_chance": 0,
+    "$.board.tiles@4,0.d.proliferate_chance": 0,
+    "$.cells[0].hand": [],
+    "$.g.feed_log": [
+     {
+      "card": "放疗",
+      "faction": 0,
+      "kind": "play",
+      "left": 0,
+      "pid": 0,
+      "seq": 1
+     }
+    ],
+    "$.g.feed_seq": 1
+   },
+   "ignore": []
+  }
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "execute/play/radiotherapy/solid_kept",
+  "op": "execute",
+  "covers": [
+   "t_card_choices::放疗：区域里的固化癌组织一格没少（不转健康）",
+   "t_card_choices::放疗：固化癌组织也不进「坏死」",
+   "t_card_choices::放疗：固化格不计入坏死，坏死格数少于区域格数",
+   "t_card_choices::放疗：同一区域里的普通癌组织照旧转健康并坏死",
+   "t_card_choices::放疗：区域里的健康组织照旧进「坏死」"
+  ],
+  "source": "headless_test.gd:t_card_choices【放疗】⑩ 续二（Kevin 2026-09-19 对 issue #54 的追加拍板：「区域内只转癌组织、固化不转」）。盘面与带子跟 necrotic_region 逐字相同（区域生长不看 tissue，所以区域是同一批 10 格），只把区域内的 2,0 与 1,1 改成固化癌组织：这两格原样留着（不转健康、也不坏死），区域里其余 7 格普通癌组织转健康 + 坏死、原本就健康的 0,0 照旧坏死。",
+  "world": {
+   "players": [
+    {
+     "seat": 0,
+     "faction": "immune",
+     "level": "X"
+    },
+    {
+     "seat": 1,
+     "faction": "cancer",
+     "cancer_type": "Osteosarcoma"
+    }
+   ],
+   "tiles": [
+    {
+     "at": "1,0",
+     "state": "cancer"
+    },
+    {
+     "at": "2,0",
+     "state": "solid"
+    },
+    {
+     "at": "1,1",
+     "state": "solid"
+    },
+    {
+     "at": "0,1",
+     "state": "cancer"
+    },
+    {
+     "at": "2,-1",
+     "state": "cancer"
+    },
+    {
+     "at": "1,-1",
+     "state": "cancer"
+    },
+    {
+     "at": "0,-1",
+     "state": "cancer"
+    },
+    {
+     "at": "-1,0",
+     "state": "cancer"
+    },
+    {
+     "at": "-1,1",
+     "state": "cancer"
+    },
+    {
+     "at": "3,0",
+     "state": "cancer"
+    },
+    {
+     "at": "2,1",
+     "state": "cancer"
+    },
+    {
+     "at": "3,-1",
+     "state": "cancer"
+    }
+   ],
+   "cells": [
+    {
+     "seat": 0,
+     "type": "ImmuneBasic",
+     "at": "-2,0",
+     "energy": 300,
+     "hand": [
+      "放疗"
+     ]
+    },
+    {
+     "seat": 1,
+     "type": "Osteosarcoma",
+     "at": "5,0",
+     "energy": 300
+    }
+   ]
+  },
+  "rolls": [
+   [
+    0,
+    5,
+    0
+   ],
+   [
+    0,
+    9,
+    0
+   ],
+   [
+    0,
+    12,
+    0
+   ],
+   [
+    0,
+    15,
+    0
+   ],
+   [
+    0,
+    18,
+    0
+   ],
+   [
+    0,
+    21,
+    0
+   ],
+   [
+    0,
+    23,
+    0
+   ],
+   [
+    0,
+    27,
+    0
+   ],
+   [
+    0,
+    29,
+    0
+   ],
+   [
+    0,
+    28,
+    0
+   ],
+   [
+    0,
+    27,
+    0
+   ]
+  ],
+  "args": {
+   "seat": "0",
+   "key": "k=action|act=play|card=放疗|to=1,0"
+  },
+  "expect": {
+   "kind": "delta",
+   "changed": {
+    "$.board.tiles@-2,0.d.proliferate_chance": 30,
+    "$.board.tiles@-2,1.d.proliferate_chance": 60,
+    "$.board.tiles@-2,2.d.proliferate_chance": 30,
+    "$.board.tiles@-1,-1.d.proliferate_chance": 60,
+    "$.board.tiles@-1,0.d.proliferate_chance": 60,
+    "$.board.tiles@-1,1.d.proliferate_chance": 30,
+    "$.board.tiles@-1,2.d.proliferate_chance": 30,
+    "$.board.tiles@0,-2.d.proliferate_chance": 30,
+    "$.board.tiles@0,-1.d.proliferate_chance": 30,
+    "$.board.tiles@0,0.d.pressure": 0,
+    "$.board.tiles@0,0.d.proliferate_chance": 90,
+    "$.board.tiles@0,0.necrosis": 2,
+    "$.board.tiles@0,1.d.pressure": 0,
+    "$.board.tiles@0,1.d.proliferate_chance": 80,
+    "$.board.tiles@0,1.necrosis": 2,
+    "$.board.tiles@0,1.tissue": 0,
+    "$.board.tiles@0,2.d.proliferate_chance": 40,
+    "$.board.tiles@1,-2.d.proliferate_chance": 30,
+    "$.board.tiles@1,-1.d.proliferate_chance": 30,
+    "$.board.tiles@1,-1.necrosis": 2,
+    "$.board.tiles@1,-1.tissue": 0,
+    "$.board.tiles@1,0.d.pressure": 0,
+    "$.board.tiles@1,0.d.proliferate_chance": 80,
+    "$.board.tiles@1,0.necrosis": 2,
+    "$.board.tiles@1,0.tissue": 0,
+    "$.board.tiles@1,1.d.pressure": 0,
+    "$.board.tiles@1,1.d.proliferate_chance": 40,
+    "$.board.tiles@1,2.d.proliferate_chance": 40,
+    "$.board.tiles@2,-2.d.proliferate_chance": 0,
+    "$.board.tiles@2,-1.d.pressure": 0,
+    "$.board.tiles@2,-1.d.proliferate_chance": 40,
+    "$.board.tiles@2,-1.necrosis": 2,
+    "$.board.tiles@2,-1.tissue": 0,
+    "$.board.tiles@2,0.d.pressure": 0,
+    "$.board.tiles@2,0.d.proliferate_chance": 40,
+    "$.board.tiles@2,1.d.pressure": 0,
+    "$.board.tiles@2,1.d.proliferate_chance": 80,
+    "$.board.tiles@2,1.necrosis": 2,
+    "$.board.tiles@2,1.tissue": 0,
+    "$.board.tiles@2,2.d.proliferate_chance": 0,
+    "$.board.tiles@3,-2.d.proliferate_chance": 0,
+    "$.board.tiles@3,-1.d.pressure": 0,
+    "$.board.tiles@3,-1.d.proliferate_chance": 40,
+    "$.board.tiles@3,-1.necrosis": 2,
+    "$.board.tiles@3,-1.tissue": 0,
+    "$.board.tiles@3,0.d.pressure": 0,
+    "$.board.tiles@3,0.d.proliferate_chance": 40,
     "$.board.tiles@3,0.necrosis": 2,
     "$.board.tiles@3,0.tissue": 0,
     "$.board.tiles@3,1.d.proliferate_chance": 0,
