@@ -13093,14 +13093,13 @@ func t_tutorial_pick() -> void:
 	for i in menu.ITEMS.size():
 		if menu.ITEMS[i]["node"] == "Guide":
 			guide_i = i
-	## 2026-09-14 ～ 09-19「新手引导」曾在主菜单灰掉（Kevin 让暂时禁用）；2026-09-19 Kevin「把新手教程启用」
-	## 开回来：菜单项亮、点下去就走 `_open_tutorial()`。改判：原「灰的、点下去什么都不发生」→「亮的、点下去直接开教程」。
-	## 下面那套「挑对手癌种」的逻辑不变，仍绕开菜单直接调 `_open_tutorial()`（先把菜单那一下的请求清掉）。
+	## 「新手引导」入口：2026-09-14 灰掉 → 2026-09-19 开了一次 → 同日又灰回去（Kevin：老教程整套推倒、
+	## 基于剧本从 0 重做，重做期间不开）。改判回「灰的、点下去什么都不发生」；新版随全量发版开回来时再改成
+	## 「亮的、点下去直接开教程」。下面那套「挑对手癌种」的逻辑不变，绕开菜单直接调 `_open_tutorial()`。
 	menu.guide_done_check = func() -> bool: return false
 	menu._activate(guide_i)
-	check(menu._item_enabled(guide_i) and got == [CWData.CancerType.OSTEO],
-		"「新手引导」已启用（Kevin 2026-09-19）：菜单项是亮的，点下去直接开教程")
-	got.clear()
+	check(not menu._item_enabled(guide_i) and got.is_empty(),
+		"「新手引导」重做期间停用：菜单项是灰的，点下去什么都不发生")
 	menu._open_tutorial()
 	check(got == [CWData.CancerType.OSTEO] and (menu._confirm == null or not menu._confirm.visible),
 		"没看完引导：直接开教程、对手钉死骨肉瘤、不弹选种")
