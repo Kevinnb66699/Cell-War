@@ -83,7 +83,13 @@ static func block_pool(g: CWGame, block: Array, overrides: Dictionary = {}, soli
 			if tissue == CWData.Tissue.CANCER:
 				plain += 1
 		var exp_term := pow(float(plain), exp_pct / 100.0) if plain > 0 else 0.0
-		var solid: int = g.count_tissue(CWData.Tissue.SOLID) if solid_override < 0 else solid_override
+		## issue #66（2026-09-19）：固化项按**块内**数（同引擎 _anaerobic_pool），overrides 里改成固化的也算
+		var solid := 0
+		for c in block:
+			if int(overrides.get(c, g.tiles[c]["tissue"])) == CWData.Tissue.SOLID:
+				solid += 1
+		if solid_override >= 0:
+			solid = solid_override
 		return _stage_boost(g, exp_term * float(coef) + float(solid * g.tune.anaerobic_solid_bonus))
 	## 退回线性式（coef == 0 对照档）
 	var pool := 0.0
@@ -201,11 +207,9 @@ static func purify_supply_gain(g: CWGame, to: Vector2i) -> int:
 		return 0
 	var tiles2 := _current_cancer_tiles(g)
 	tiles2.erase(to)
-	var solid_override := -1
-	if tissue == CWData.Tissue.SOLID:
-		solid_override = g.count_tissue(CWData.Tissue.SOLID) - 1
+	## issue #66：固化项已按块内数，`tiles2` 去掉那一格后块内固化数自然少一，不再另传全图修正
 	return total_supply_layout(g, tiles2,
-		g.living_cells(CWData.Faction.CANCER), {}, solid_override) - total_supply(g)
+		g.living_cells(CWData.Faction.CANCER), {}, -1) - total_supply(g)
 
 
 ## 小细胞肺癌【转移】跳块的反事实收益（十分位整数）：
