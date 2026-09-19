@@ -20873,7 +20873,7 @@ func t_kernel_attach_engine() -> void:
 	var tree_ai := CWMCTSBridge.new()
 	tree_ai.use_threading = false
 	tree_ai.delay_ms = 0
-	b.mcts = tree_ai
+	b.ai_bridge = tree_ai
 	var k := CWKernelInProc.new()
 	check(k.open({ "factions": CWData.FACTION_ORDER[4], "seed": 9, "decider": b, "step_drive": true }), "open 成功")
 	check(k.game != null and b.game == k.game, "open：decider 有 attach_engine 就走它（CWUIBridge.game 拿到引擎）")
@@ -20890,7 +20890,7 @@ func t_kernel_attach_engine() -> void:
 	var tree2 := CWMCTSBridge.new()
 	tree2.use_threading = false
 	tree2.delay_ms = 0
-	b2.mcts = tree2
+	b2.ai_bridge = tree2
 	k.set_decider(b2)
 	check(b2.game == k.game and tree2.game == k.game, "set_decider：换上的界面桥与它的 MCTS 桥都拿到引擎")
 	k.close()
