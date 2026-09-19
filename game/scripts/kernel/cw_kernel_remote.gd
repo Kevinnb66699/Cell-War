@@ -107,6 +107,13 @@ func entry_seq() -> int:
 	return _next_seq - 1
 
 
+## 这一问**还挂在我手上**（收到过、还没 answer 过）。issue #44 的判据：
+## 服务器代打（超时 / 掉线即答）之后不会再给我发一条 ask，只推一条 step_begin{ask_id} 往下走 ——
+## 那一拍如果这一问在我这儿还挂着，答它的人就不是我。自己答过的一定是 false（answer 里已经 erase）。
+func asking(ask_id: int) -> bool:
+	return _asks.has(ask_id)
+
+
 func discard_before(seq: int) -> void:
 	var n := 0
 	while n < _entries.size() and int(_entries[n]["seq"]) <= seq:

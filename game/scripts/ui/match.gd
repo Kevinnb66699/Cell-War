@@ -75,6 +75,11 @@ func _error_at() -> Vector2i:
 	var pid: int = bridge.viewing_pid()
 	if pid < 0 or pid >= mirror.players.size():
 		return Vector2i.ZERO
+	## 落子阶段（细胞还没摆上去）`cell_id` 是 -1，`CWMirror.cell_of` 会当场 `cells[-1]` 越界。
+	## 从前走不到这儿：调本函数的只有「对局中冒出来的服务器拒绝」，那都在开局之后。
+	## issue #44 的接管提示在**落子那一问**就可能弹，于是撞上了（2026-09-19 无头测试逮到）
+	if int(mirror.player(pid).get("cell_id", -1)) < 0:
+		return Vector2i.ZERO
 	var cell: Dictionary = mirror.cell_of(pid)
 	return cell["pos"] if cell.get("alive", false) else Vector2i.ZERO
 
@@ -298,6 +303,7 @@ var _chat_seen := 0          ## 已经搬到框里的第几条（同 _feed_seq �
 var _chat_client: CWNetClient   ## 框里的消息来自哪个连接：换了连接就清框、游标归零（同一房间再来一局则接着用）
 var log_store: CWLogStore = CWLogStore.new()   ## 对局日志的 UI 侧存储（批 1 步 5，规格 A-7）：日志面板 / 迷你日志只读它
 var _serving_ask := -1   ## 正在服务的那一问的 ask_id（条目自带，不用自己编号）：服务器代打后重问的旧答案不发
+var takeovers := 0       ## 这一局被服务器代打接管过几次（issue #44 的观测口，测试与排错用）
 var _game_no := -1       ## 联机的换局边界（CWKernelRemote.game_no，envelope 里没有等价物）：变了就清日志缓冲
 
 @onready var board: Node2D = get_node(board_path)
@@ -1173,6 +1179,8 @@ func _adopt_mirror(m: CWMirror) -> void:
 func _on_step(e: Dictionary) -> void:
 	if _loop_id != _queue_loop:
 		return
+	if String(e.get("t", "")) == "step_begin":
+		_check_taken_over(int(e.get("ask_id", -1)))
 	if str(e.get("kind", "")) != "step_end":
 		return
 	_step_rev = int(e.get("rev", 0))
@@ -1383,6 +1391,34 @@ func _serve_ask(e: Dictionary) -> void:
 	## 语义键由句柄照下标现算再发（cw_kernel_remote.gd:answer，两端同源 CWSemKey）：
 	## 服务器把选项顺序打乱后仍选中同一项
 	kernel.answer(ask_id, { "index": idx })
+
+
+## 这一拍的 step_begin 说的是不是「我这一问被别人答了」（issue #44）。**纯函数**，好直接测。
+## `p_asking` = 句柄手里这一问还挂着（我还没 answer 过）—— 自己答过的一定是 false。
+static func taken_over(step_ask_id: int, serving_ask: int, p_asking: bool) -> bool:
+	return step_ask_id >= 0 and step_ask_id == serving_ask and p_asking
+
+
+## 服务器代打接管了我这一问（超时 / 掉线即答，`CWRoom._auto_answer`）。
+##
+## **它不会再给我发一条 ask** —— 答完就直接 `step_begin` 往下走，下一条 ask 可能是下一轮的事。
+## 界面这边还挂在上一问的 `await` 上：行动栏、可达高亮、路径规划器全留在屏幕上，
+## 点哪一格都没反应，倒计时停在「剩 0 秒」（Kevin 的截图就是这一屏）——
+## 玩家看到的是「移动到一半卡住了」，而对局其实早就走过去了（issue #44）。
+##
+## `step_begin{ask_id, seat}` 就是「这一问已经答了」的那一拍（cw_room.gd 的 answer / _auto_answer
+## 都在 emit 之前广播它）。答的人是不是我，问句柄：我自己答过的话 `_asks` 里早就没这一条了。
+func _check_taken_over(ask_id: int) -> void:
+	if bridge == null or not (kernel is CWKernelRemote):
+		return
+	if not taken_over(ask_id, _serving_ask, (kernel as CWKernelRemote).asking(ask_id)):
+		return
+	_serving_ask = -1          ## 排在 abort() 之前：旧协程醒来一比就知道这个答案不该发了
+	takeovers += 1
+	if net_hud != null:
+		net_hud.stop_countdown()
+	bridge.taken_over()
+	bridge.show_result("这一步由代打接管了", _error_at(), true)
 
 
 ## 断线遮罩与席位状态跟着客户端走

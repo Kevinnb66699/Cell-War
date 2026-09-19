@@ -156,6 +156,10 @@ func toggle_scope() -> void:
 ## 只在三种情形出手：关着时的回车、开着时的 Esc 与 Tab；输入框里的回车（发送）照旧归它自己。
 ## Tab 截在这一层还省掉了输入框上那一道 accept：焦点导航（`ui_focus_next`）也排在 `_input` 后面。
 func _input(event: InputEvent) -> void:
+	## 暂停菜单压在上面（联机局不冻树）：回车 / Esc / Tab 全归菜单。**这一条必须在最前面** ——
+	## 本框的键盘走 `_input`，比谁都早，不让路的话 Esc 会被它先吃掉、菜单关不掉（issue #45）
+	if CWPauseMenu.modal():
+		return
 	if not _open:
 		if active and is_enter(event):
 			get_viewport().set_input_as_handled()

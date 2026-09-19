@@ -148,7 +148,9 @@ func _run_all() -> void:
 		t_codex, t_guide_bridge, t_guide_spotlight, t_guide_director, t_quit_confirm,
 		t_tutorial_pick, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
-		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_guide_watch, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
+		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
+		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
+		t_net_takeover, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_guide_watch, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
 		t_semkey_single_source, t_kernel_inproc, t_play_queue,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
@@ -9330,7 +9332,9 @@ func t_pause_and_teardown() -> void:
 		"那一项叫「退出回放」，不叫「离开房间」")
 	check(CWPauseMenu.confirm_hint("menu", false, true) == "",
 		"回放的确认页**一句小字都不写**（没进度会丢，也没人代打）")
-	check(CWPauseMenu.confirm_hint("menu", true, false) == "离开后本局由 AI 代打", "联机那句照旧")
+	check(CWPauseMenu.confirm_hint("menu", true, false) == "离开后本局由 AI 代打，可凭房间码回来接着打",
+		"联机那句多了后半截（issue #46 把「退出还能回来」那条路补通了）：%s"
+		% CWPauseMenu.confirm_hint("menu", true, false))
 	## 观战：没有席位，走了谁也不用替 —— 那句「AI 代打」对观众是假的（Kevin 2026-09-13）
 	check(CWPauseMenu.confirm_hint("menu", true, false, true) == "你是观众，离开不影响这一局",
 		"观战·离开房间换一句：%s" % CWPauseMenu.confirm_hint("menu", true, false, true))
@@ -9339,12 +9343,39 @@ func t_pause_and_teardown() -> void:
 		"观战·退出游戏换一句：%s" % CWPauseMenu.confirm_hint("quit", true, false, true))
 	## 有席位的人两页都是「交给 AI 代打」：联机局的进度在服务器上，
 	## 「当前对局不会保存」是本地局的说法，拿来当联机退出的代价是答非所问（Kevin 2026-09-13）
-	check(CWPauseMenu.confirm_hint("quit", true, false) == "退出后本局由 AI 代打",
+	check(CWPauseMenu.confirm_hint("quit", true, false) == "退出后本局由 AI 代打，可凭房间码回来接着打",
 		"联机有席位·退出游戏：%s" % CWPauseMenu.confirm_hint("quit", true, false))
 	check(CWPauseMenu.confirm_hint("quit", false, false) == CWPauseMenu.CONFIRM_HINT
 		and CWPauseMenu.confirm_hint("menu", false, false) == CWPauseMenu.CONFIRM_HINT,
 		"本地局两页照旧「当前对局不会保存」")
 	check(CWPauseMenu.confirm_hint("menu", true, true, true) == "", "回放优先级最高，仍是一句都不说")
+
+	## ---- issue #45：联机局的暂停菜单不冻树（本地局照旧冻）----
+	check(CWPauseMenu.freezes_tree(false) and not CWPauseMenu.freezes_tree(true),
+		"本地局冻树、联机局不冻（联机由服务器驱动，客户端停下来的只有演出）")
+	var pm45 := CWPauseMenu.new()
+	root.add_child(pm45)
+	pm45.active = true
+	pm45.online = true
+	check(not CWPauseMenu.modal(), "没开菜单：闸是开的")
+	pm45.open()
+	check(CWPauseMenu.modal() and not pm45.get_tree().paused,
+		"联机局开菜单：单键快捷键的闸落下，但树没冻（演出接着播）")
+	pm45.close()
+	check(not CWPauseMenu.modal(), "关掉就放开")
+	pm45.online = false
+	pm45.open()
+	check(pm45.get_tree().paused, "本地局照旧真暂停")
+	pm45.close()
+	pm45.get_tree().paused = false
+	## **自愈**：不走 close() 的拆解路（对局 teardown、直接 free 掉整层）也不能把闸永久钉住 ——
+	## 这正是「一面 static 旗子」会犯的错（第一版就是它，套件当场红 9 项），换成现问现答就不会
+	pm45.online = true      ## 摘出树之前先回联机档：本地档 open() 会冻树，而摘出去之后 get_tree() 是 null，解不了冻
+	pm45.open()
+	root.remove_child(pm45)
+	check(not CWPauseMenu.modal(), "菜单开着就被摘出场景树：闸自己放开（不靠谁记得调 close）")
+	pm45.free()
+	check(not CWPauseMenu.modal(), "菜单开着就被 free：同理")
 	var msrc2 := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
 	check(msrc2.contains("pause_menu.watching = human_players.is_empty()"),
 		"开局时按「有没有席位」置观战档（漏了置位就永远显示 AI 代打）")
@@ -17408,6 +17439,26 @@ func t_chat_box() -> void:
 	mp3._unhandled_key_input(press_action("ui_accept"))
 	check(lp3.visible and chosen3 == [0] and ended3[0] == 1, "没在打字时 L / 数字 / 空格照常")
 
+	## ---- issue #45：联机局不冻树 ⇒ 暂停菜单开着时事件照样派发到这几支，各自要让路 ----
+	var pmk := CWPauseMenu.new()
+	root.add_child(pmk)
+	pmk.active = true
+	pmk.online = true          ## 联机档：open() 不冻树，下面这几下才真的会走到各自的处理函数
+	pmk.open()
+	lp3._unhandled_input(l3)
+	bar3._unhandled_key_input(one)
+	mp3._unhandled_key_input(press_action("ui_accept"))
+	cb3._input(enter)
+	check(lp3.visible and chosen3 == [0] and ended3[0] == 1 and not cb3.is_open(),
+		"暂停菜单压着：L / 数字 / 空格 / 回车全让路（日志没被关掉、没选行动、没结束回合、没唤出聊天）")
+	pmk.close()
+	lp3._unhandled_input(l3)
+	bar3._unhandled_key_input(one)
+	mp3._unhandled_key_input(press_action("ui_accept"))
+	check(not lp3.visible and chosen3 == [0, 0] and ended3[0] == 2, "菜单一关就恢复")
+	root.remove_child(pmk)
+	pmk.free()
+
 	## ---- 2026-09-17：输入行的位置与样式（Kevin 截图：输入框压在面板底边上）----
 	check(cb3._line.size.y <= CWChatBox.INPUT_H + 0.5
 		and cb3._line.position.y + cb3._line.size.y <= CWChatBox.RECT.size.y - CWChatBox.PAD + 0.5,
@@ -18377,6 +18428,167 @@ func t_online_panel() -> void:
 
 
 ## 影子对局驱动的对局界面：真服务器 + 界面客户端，第一问（落子）通过现有的桥弹出来、点格子作答
+## issue #46：联机对战退出房间后无法重连继续对战
+##
+## 席位与令牌一直好端端留在服务器上（`CWRoom.leave` 在对局中只把席位标成「已离开」，
+## 令牌原封不动）—— 丢掉回程票的是**客户端**：`CWNetClient.leave()` 顺手清了房间码与令牌
+## （`_clear_room`），那条连接又被 `CWOnlinePanel.leave_online()` 丢掉。
+## 于是大厅里只剩「进去当观众」这一条路：看得见盘面、答不了任何一问，自己的席位还空着。
+func t_net_resume() -> void:
+	print("[退出后回来接着打]")
+	var srv := _net_server()
+	check(srv != null, "联机：本机起服务器")
+	if srv == null:
+		return
+	var url := "ws://%s:%d" % [NET_HOST, srv.port]
+	var a := _net_client("甲")          ## 留在局里的那位：autoplay，好让对局自己往下走
+	var b := _net_client("乙", false)   ## 要走的那位
+	await _net_pair(srv, a, b)
+	check(await _net_room(srv, a, b, 2, 0, 20260921), "2 人房就绪（不计时）")
+	a.start()
+	var ok := await _net_pump(srv, [a, b],
+		func() -> bool: return str(b.room.get("state", "")) == "playing")
+	check(ok, "开局")
+	var room: CWRoom = srv.rooms[a.code]
+	var code: String = b.code
+	var token: String = b.token
+	check(code != "" and token != "" and b.my_seat == 1, "乙手里有房间码（%s）与令牌" % code)
+
+	## ① 离开之前把这一席抄在面板上（面板比那条连接长命）
+	var p := CWOnlinePanel.new()
+	root.add_child(p)
+	await process_frame
+	p.client = b
+	b.message.connect(p._on_message)    ## 真面板在 _connect() 里接的那一根
+	p.in_match = true                   ## 对局中：暂停菜单的「离开房间」走 leave_online
+	p._remember_seat()
+	check(str(p._resume.get("code", "")) == code and str(p._resume.get("token", "")) == token,
+		"离开前抄下这一席")
+
+	## ② 客户端确实把票丢了 —— 这正是「回不去」的根
+	b.leave()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return not room.seats[1]["online"])
+	check(ok and room.seats[1]["left"] and room.state == CWRoom.State.PLAYING,
+		"主动离开：席位标「已离开」，对局还在打（离开期间由代打顶着）")
+	check(b.code == "" and b.token == "", "客户端把房间码与令牌一起清了（CWNetClient._clear_room）")
+	check(str(room.seats[1]["token"]) == token,
+		"服务器那一席的令牌一直留着 —— 缺的从来只是「有人拿着它回来」")
+
+	## ③ 大厅：自己那一局改口，且房间码预填
+	p.in_match = false
+	p._lobby_rooms = []
+	p._lobby_live = [room.summary()]
+	p._show_page(CWOnlinePanel.Page.LOBBY)
+	check(p._lobby_labels[1].text.contains("回到对局"),
+		"大厅里自己那一局写「回到对局」而不是「观众 n/m」（%s）" % p._lobby_labels[1].text)
+	check(p._code.text == code and p._status.text.contains("没打完"),
+		"进大厅：房间码预填、状态行把话说在前头（%s）" % p._status.text)
+
+	## ④ 点「加入」= 凭令牌回原席（私密房在大厅列表里根本不出现，这是它唯一的入口）
+	p._join_code()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return b.my_seat == 1 and b.code == code)
+	check(ok and room.seats[1]["online"] and not room.seats[1]["left"],
+		"凭令牌回到原席：服务器那边在线、不再是「已离开」")
+	check(b.token == token, "令牌还是原来那一枚")
+	check(p._resume.is_empty(), "回程票用掉了（再点「加入」就是普通加入）")
+	ok = await _net_pump(srv, [a, b], func() -> bool:
+		return not b.pending_ask.is_empty() \
+			or b.stream.any(func(x: Dictionary) -> bool: return x["t"] == "ask"))
+	check(ok, "回来之后服务器又开始问我 —— 这一局真的接着打了")
+
+	## ⑤ 席位已经没了（局打完腾席 / 关房 / 令牌作废）：票要当场作废，别让预填的房间码继续骗人
+	var c := _net_client("丙", false)
+	c.connect_to(url, "丙")
+	await _net_pump(srv, [a, c], func() -> bool: return c.client_id >= 0)
+	p.client = c
+	c.message.connect(p._on_message)
+	p.in_match = false      ## 第 ④ 步重连成功后面板已经 hide_for_match 进了对局；这一段演的是回到大厅
+	p._resume = { "code": code, "token": "deadbeef" }
+	p._lobby_join(code)
+	ok = await _net_pump(srv, [a, c], func() -> bool: return c.last_error.get("code", "") == "bad_token")
+	check(ok and p._resume.is_empty() and p._status.text.contains("已被收回"),
+		"令牌对不上：票作废 + 说清楚为什么（%s）" % p._status.text)
+	## 随手输错一个房间码同样答 no_room —— 不能连坐把好端端的票也作废
+	p._resume = { "code": code, "token": token }
+	p._lobby_join("ZZZZZZ")
+	ok = await _net_pump(srv, [a, c], func() -> bool: return c.last_error.get("code", "") == "no_room")
+	check(ok and not p._resume.is_empty(), "输错别的房间码：只报错，回程票不受牵连")
+	root.remove_child(p)
+	p.free()
+	a.dispose()
+	b.dispose()
+	c.dispose()
+	srv.stop()
+
+
+## issue #44：移动（迁移）中被服务器代打接管 → 界面卡在选目标态
+##
+## 时序（Kevin 的截图就是最后那一屏）：轮到我 → 我点了「迁移」，正在选目标格 / 拖路线 →
+## 计时到点（或我掉线），服务器按 `CWRoom._auto_answer` 用启发式替我答了这一问 →
+## **它不会再给我发一条 ask**，答完就 `step_begin` 往下走。界面这边还挂在上一问的 await 上：
+## 行动栏、可达高亮、规划器全留在屏幕上，点哪一格都没反应，倒计时停在「剩 0 秒」，
+## 而对局早就走到下一位了。下一次轮到我才被 `_serve_ask` 的 abort 收掉 —— 中间这一整段就是「卡住」。
+func t_net_takeover() -> void:
+	print("[代打接管]")
+	## ① 判据本身是纯函数，先正面钉住
+	check(CWMatch.taken_over(7, 7, true), "这一问还挂在我手上、step_begin 却报了它 ⇒ 答的人不是我")
+	check(not CWMatch.taken_over(7, 7, false),
+		"我自己答过的不算接管（answer 时句柄里已经 erase 掉这一条）")
+	check(not CWMatch.taken_over(8, 7, true) and not CWMatch.taken_over(-1, -1, true),
+		"别人席位的那一问、以及手上没在服务任何问的时候：都不算")
+	## ② 真服务器 + 真对局界面走一遍
+	var srv := _net_server()
+	check(srv != null, "联机：本机起服务器")
+	if srv == null:
+		return
+	## **两边都不 autoplay**：代打之后引擎会去问乙，乙不答就停在那儿 ——
+	## 甲不会被重新问到，下面几条断言才量得准（否则新的一问当场把行动栏又摆回来）
+	var a := _net_client("甲", false)
+	var b := _net_client("乙", false)
+	await _net_pair(srv, a, b)
+	check(await _net_room(srv, a, b, 2, 0, 20260919), "2 人房就绪（不计时：代打由测试按点触发）")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.get_node("Match")
+	var bar: CWActionBar = main_scene.get_node("Match/UI/ActionBar")
+	a.sequenced = true           ## CWOnlinePanel 在收到 room(playing) 时做的事
+	a.start()
+	var ok := await _net_pump(srv, [a, b], func() -> bool:
+		return a.stream.any(func(x: Dictionary) -> bool: return x["t"] == "sync"))
+	check(ok, "开局后第一份状态排进了 stream")
+	m.start_online(a)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return bar.visible and not m.bridge.marks.is_empty())
+	check(ok, "第一问弹到界面：提示栏亮着、候选格高亮 %d 格" % m.bridge.marks.size())
+	var room: CWRoom = srv.rooms[a.code]
+	var ask_id: int = m._serving_ask
+	check(ask_id >= 0 and (m.kernel as CWKernelRemote).asking(ask_id),
+		"这一问还挂在句柄手上（我还没答）")
+	## 装成「正在迁移」：上一步选的是迁移、还规划了一条路。
+	## 这两样**跨问留存**，正是 issue 标题里「移动时」那三个字的分量所在
+	m.bridge._sticky_move = true
+	m.bridge._sticky_pid = 0
+	m.bridge._plan.append(Vector2i(1, 0))
+	m.bridge._plan.append(Vector2i(2, 0))
+	m.net_hud.start_countdown(8000)
+	check(m.net_hud.seconds_left() >= 0, "倒计时在走")
+	## 服务器这一刻替我答了（`CWRoom.tick` 计时到点、`_on_seat_offline` 掉线即答，走的都是这一条）
+	room._auto_answer()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return m.takeovers > 0)
+	check(ok, "代打答完推来的 step_begin 那一拍，界面认出「这一问不是我答的」")
+	check(not bar.visible and m.bridge.marks.is_empty() and m._serving_ask == -1,
+		"界面当场收掉：提示栏没了、可达高亮没了（卡住时留在屏幕上的就是这两样）")
+	check(m.bridge._plan.is_empty() and not m.bridge._sticky_move,
+		"规划好的路线与「上一步选的是迁移」一并作废 —— 留着的话下一问会照旧盘面的路不问自答")
+	check(m.net_hud.seconds_left() == -1, "倒计时停掉（卡住时它就停在「剩 0 秒」）")
+	check(room._ask.is_empty() or room._ask["ask_id"] != ask_id, "服务器那边这一问也确实过去了")
+	m.teardown()
+	main_scene.queue_free()
+	a.dispose()
+	b.dispose()
+	srv.stop()
+
+
 func t_match_online() -> void:
 	print("[联机对局界面]")
 	var srv := _net_server()
@@ -18441,6 +18653,22 @@ func t_match_online() -> void:
 	var wbox: Control = m._feed._rows[m._feed._rows.size() - 1]["box"]
 	check(not wbox.gui_input.get_connections().is_empty(),
 		"联机补齐的那张卡点得开（2026-09-07 漏接过 gui_input）")
+	## ---- issue #45：联机局的 Esc 菜单不该挡住演出 ----
+	## 冻了树，演出层的补间停在半截、`_process` 也不再跑 —— 骰子那一条还是 barrier 条目，
+	## `CWPlayQueue` 正 await 着消费者播完，于是整条条目流跟着卡住，菜单一关又一口气补播。
+	## 服务器可不等人：计时照走、别人照打。这一条量的就是「菜单开着，推来的状态照样落地」。
+	check(m.pause_menu.online, "联机局的暂停菜单挂着 online")
+	m.pause_menu.open()
+	check(not m.get_tree().paused and CWPauseMenu.modal(),
+		"联机局开菜单：树没冻（演出接着播），只有单键快捷键那道闸落下")
+	feed_n = m._feed._rows.size()
+	room.game.note_feed("play", 0, CWData.Faction.IMMUNE, "局部炎症")
+	room.push_state(-1)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return m._feed._rows.size() > feed_n)
+	check(ok, "菜单开着：服务器推来的状态照样落地、出牌列照样长（冻了树 _process 就停，这一条必红）")
+	m.pause_menu.close()
+	check(not CWPauseMenu.modal() and not m.get_tree().paused, "关掉菜单，闸放开")
+
 	var pick: Vector2i = m.bridge.marks.keys()[0]
 	var states0: int = _net_count(a, "sync")
 	board.tile_clicked.emit(pick)
