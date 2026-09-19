@@ -483,7 +483,7 @@ func count_tissue(tissue: int) -> int:
 
 
 ## 名为 name 的全局修饰当前叠了几层（0 = 未生效）。所有结算点都走这里；
-## 卡牌的**全局**修饰（基质稳定/TGF-β/TNF 冻结格）塞进 events["active"]，
+## 卡牌的**全局**修饰（TGF-β/TNF 冻结格）塞进 events["active"]，
 ## 被同一批挂接点认出（对照 5.1 #26 的框架承诺，2026-08-29 兑现）。
 func event_stacks(name: String) -> int:
 	for e in events["active"]:

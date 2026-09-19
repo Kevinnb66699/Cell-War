@@ -336,10 +336,10 @@ func t_mech_purify_supply() -> void:
 
 
 ## —— 癌方【E-固化】单格生灭 ——
-## 确定性过程：有癌细胞停留 → 每世界回合 +1.0（SOLIDIFY_STEP）；无细胞且计数>0 → −0.5。
-## 计数到阈值（I 期 3.0 / II·III 期 2.0）即转固化癌组织，转后不再累计、SOLID 不衰减。
+## 确定性过程：有癌细胞停留 → 每世界回合 +1.0（SOLIDIFY_STEP）；**没人停留的格子计数原样不动**
+## （2026-09-19 issue #64 删了衰减那一步）。计数到阈值（I 期 3.0 / II·III 期 2.0）即转固化癌组织，转后不再累计。
 ## 验证：手工构造「A 格有细胞停（solid=5）、B 格无人停（solid=15）」，
-## 逐世界回合调用引擎 _solidify() + _decay()，与解析 solidify_after / decay_after 逐位对拍。
+## 逐世界回合调用引擎 _solidify()，与解析 solidify_after 逐位对拍；B 格钉「一点都没掉」。
 func t_mech_solidify() -> void:
 	print("[机制·固化生灭]")
 	var g := bare_game()
@@ -360,7 +360,6 @@ func t_mech_solidify() -> void:
 	var solidified_at := -1
 	for r in 5:
 		g.world._solidify()
-		g.world._decay()
 		var want_a: Dictionary = MechValue.solidify_after(5, r + 1, th)
 		if int(a["solid"]) != int(want_a["solid"]):
 			solid_ok = false
@@ -373,17 +372,17 @@ func t_mech_solidify() -> void:
 				r + 1, a_solidified, want_a["solidified"]])
 		if a_solidified and solidified_at < 0:
 			solidified_at = r + 1
-		var want_b: int = MechValue.decay_after(15, r + 1)
-		if int(b["solid"]) != want_b:
+		## issue #64：没人停留就一点都不掉（解析侧不再有 decay_after 这支）
+		if int(b["solid"]) != 15:
 			decay_ok = false
-			check(false, "回合 %d：B 格 solid %d != 解析 %d" % [
-				r + 1, int(b["solid"]), want_b])
+			check(false, "回合 %d：B 格 solid %d != 15（计数不再递减）" % [
+				r + 1, int(b["solid"])])
 	check(solid_ok, "A 格逐回合计数/固化与解析一致（5 回合）")
-	check(decay_ok, "B 格逐回合衰减与解析一致（5 回合）")
+	check(decay_ok, "B 格无人停留：5 个世界回合计数一点不掉（issue #64 删衰减）")
 	check(solidified_at == 3, "A 格第 3 回合转固化（5+1.0×3=35 ≥ 30，实测第 %d 回合）" % solidified_at)
 	## 固化后不再累计：第 4、5 回合 solid 应保持 35（引擎 _solidify 对 SOLID 直接 continue）
 	check(int(a["solid"]) == 5 + CWData.SOLIDIFY_STEP * 3, "转固化后 solid 不再涨（%d）" % int(a["solid"]))
-	check(int(b["solid"]) == 0, "B 格衰减到 0 不再衰减")
+	check(int(b["solid"]) == 15, "B 格计数停在 15（issue #64 起不衰减）")
 	## rounds_to_solidify：从 5 开始持续停留要几回合（阈值 30）
 	check(MechValue.rounds_to_solidify(5, th) == 3, "rounds_to_solidify(5,30)=3")
 	check(MechValue.rounds_to_solidify(25, th) == 1, "rounds_to_solidify(25,30)=1")
