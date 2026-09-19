@@ -64,6 +64,12 @@ var _director = null
 ## 皮（方向稿第二轮定稿之前一律是占位皮 P）与常驻壳。两者一局一份，拆局就销毁
 var _tutor_view: CWTutorView = null
 var _tutor_chrome: CWTutorChrome = null
+## 提亮层（`scripts/tutor/cw_tutor_spot.gd`，S2）。**不标类型**：它没有 class_name。
+## 同样一局一份 —— 它借着行动栏按钮的 `modulate` 在慢闪，留到下一局就把别人的按钮闪着了
+var _tutor_spot = null
+## 教程演出库（`scripts/tutor/cw_tutor_fx.gd`，S7 做的库，S2 把它接进来给 `reset_anim` 用）。
+## **挂在棋盘下面**（同 `preview_tutor_fx.gd` 的做法）：它有一半画在棋盘坐标系里
+var _tutor_fx = null
 ## 关表里的第几关（0 起）与那一关的完整 JSON
 var _tutor_index := 0
 var _tutor_level := {}
@@ -178,12 +184,14 @@ const CELL_FOOT_DY := 6.0
 const STACK_DX := 9.0
 ## 普通攻击的本体冲撞（队友 PR #30）：没有 class_name —— 新类名热更装不上，所以走 preload
 const ATTACK_FX := preload("res://scripts/ui/attack_fx.gd")
-## 教程的四件（新手教程 v2 · S1）。**一律 preload、都没有 class_name**（方案 §1.5：
-## 剧本 / 导演 / 闸天天在改，补丁里新增的 class_name 进不了热更）
+## 教程的五件（新手教程 v2 · S1，S2 补上提亮层）。**一律 preload、都没有 class_name**
+## （方案 §1.5：剧本 / 导演 / 闸天天在改，补丁里新增的 class_name 进不了热更）
 const TUTOR_STAGE := preload("res://scripts/kernel/cw_tutorial_stage.gd")
 const TUTOR_SCRIPT := preload("res://scripts/kernel/cw_tutor_script.gd")
 const TUTOR_DIRECTOR := preload("res://scripts/tutor/cw_tutor_director.gd")
 const TUTOR_GATE := preload("res://scripts/tutor/cw_tutor_gate.gd")
+const TUTOR_SPOT := preload("res://scripts/tutor/cw_tutor_spot.gd")
+const TUTOR_FX := preload("res://scripts/tutor/cw_tutor_fx.gd")
 ## 教程 NPC 席位的脚本 decider（Kevin 点名保留的那一件）
 const TUTOR_NPC := preload("res://scripts/kernel/cw_tutorial_npc.gd")
 ## 回合脚标（Kevin 2026-09-12：白天选 E 跑马灯轮廓，晚上改选 D「头顶指示箭」，画在 CWBoard.set_turn_mark）：
@@ -929,6 +937,25 @@ func _attach_tutor() -> void:
 	ui.move_child(_tutor_view, _tutor_chrome.get_index())
 	_tutor_view.chrome = _tutor_chrome
 	_tutor_view.reveal_tiles = _tutor_reveal   ## 皮不认识棋盘（接口纪律 1）：浮现经这条 Callable 回来
+	## 提亮层（PRD 通用规则 8 / PRD:445）：压在皮**之下**、HUD 之上 —— 它只画不挡，
+	## 但描在按钮外的那一圈不该盖住台词。四个句柄由装配方注入（皮与导演都不认识这些控件）
+	if _tutor_spot != null and is_instance_valid(_tutor_spot):
+		_tutor_spot.queue_free()
+	_tutor_spot = TUTOR_SPOT.new()
+	ui.add_child(_tutor_spot)
+	ui.move_child(_tutor_spot, _tutor_view.get_index())
+	_tutor_spot.action_bar = action_bar
+	_tutor_spot.panel = panel
+	_tutor_spot.board = board
+	_tutor_spot.camera = camera
+	_tutor_view.spot = _tutor_spot
+	## 演出库：自动重置的「倒带」（PRD:47 / 通用规则 7）走它。皮不认识棋盘，所以由装配方接
+	if _tutor_fx != null and is_instance_valid(_tutor_fx):
+		_tutor_fx.queue_free()
+	_tutor_fx = TUTOR_FX.new()
+	_tutor_fx.attach(board)
+	board.add_child(_tutor_fx)
+	_tutor_view.fx = _tutor_fx
 	## 通报气泡别落在说明行上（Kevin 2026-09-12 截图）：禁区矩形**归皮挂**（接口纪律 3，
 	## 两版皮的形状必然不同），导演不碰
 	if toast != null:
@@ -948,6 +975,8 @@ func _attach_tutor() -> void:
 	_director.want_npc.connect(_tutor_set_npc)
 	add_child(_director)   ## 导演要 _process（三个驱动源之一是每帧）
 	_tutor_chrome.reset_pressed.connect(_tutor_reset_pressed)
+	## 目录跳关：常驻壳只管「点了哪一关」，往哪跳是皮那条对外信号的事（S6 接上导演）
+	_tutor_chrome.menu_goto.connect(func(id: String) -> void: _tutor_view.menu_goto.emit(id))
 
 
 ## 常驻「重置本关」（PRD:41）：走导演那条路（代际 +1 → 游标回 0 → 发 want_reset）。
@@ -1526,6 +1555,14 @@ func teardown() -> void:
 	if _tutor_chrome != null and is_instance_valid(_tutor_chrome):
 		_tutor_chrome.queue_free()
 	_tutor_chrome = null
+	if _tutor_spot != null and is_instance_valid(_tutor_spot):
+		_tutor_spot.clear()        ## 先把借走的按钮亮度还回去，再销毁
+		_tutor_spot.queue_free()
+	_tutor_spot = null
+	if _tutor_fx != null and is_instance_valid(_tutor_fx):
+		_tutor_fx.clear()          ## 演出层靠 advance() 把自己收走：没人喂时间就得手动清
+		_tutor_fx.queue_free()
+	_tutor_fx = null
 	_npc_deciders = []
 	CWTutorLayers.reset()   ## UI 层开关是静态的（见那个文件头）：拆局必须复位，否则下一局正式对局跟着教程的层走
 	if panel != null:

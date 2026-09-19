@@ -274,14 +274,23 @@ func _set_hot(index: int) -> void:
 	hovered.emit(index)
 
 
-## 教程提亮层用（scripts/tutor/cw_tutor_spot.gd，S2）：标题为 title 的那枚按钮的屏幕矩形；栏收着 / 这一问没它 → 零矩形
-func button_rect(title: String) -> Rect2:
+## 教程提亮层用（scripts/tutor/cw_tutor_spot.gd，S2）：标题为 title 的那枚按钮**本体**；
+## 栏收着 / 这一问没它 → null。
+## 为什么要节点而不是矩形：Kevin 2026-09-19 的提亮口径是「按钮保持单线原样，只闪亮度」
+## （方案 §5.5 第 1 条）⇒ 提亮层要改的是这枚控件自己的 `modulate`，光有矩形办不到
+func button_node(title: String) -> Control:
 	if not visible:
-		return Rect2()
+		return null
 	for b in _buttons:
 		if (b as Control).get_meta("title", "") == title:
-			return (b as Control).get_global_rect()
-	return Rect2()
+			return b as Control
+	return null
+
+
+## 同上，取它的屏幕矩形；栏收着 / 这一问没它 → 零矩形
+func button_rect(title: String) -> Rect2:
+	var b := button_node(title)
+	return b.get_global_rect() if b != null else Rect2()
 
 
 ## 整条按钮栏的屏幕矩形；收着 → 零矩形
