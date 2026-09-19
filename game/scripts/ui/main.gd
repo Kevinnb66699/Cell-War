@@ -30,6 +30,16 @@ const T_RESTART := 0.85
 ## 而破坏的表现是**过场整个消失**（画面瞬间就位），极难察觉。
 const SKIP_GRACE_MS := 250
 
+## 新手引导的开场动画（PRD:59-87 / 方案 §S7）。独立场景、自带相机、压根不建内核，
+## 盖在整棵树之上（CanvasLayer layer 100）演完再让位。**只有第一次进引导时播**，
+## 看过没有记在 `user://guide_progress.cfg` 里（键 `opening_seen`，见那个脚本的静态方法）。
+const OPENING_SCENE := preload("res://scenes/tutorial_opening.tscn")
+const OPENING := preload("res://scripts/ui/tutorial_opening.gd")
+## 开场演完、第一关的章节提示已经立起来之后，盖着的那一层淡掉要多久。
+## 之所以**不在演完的当下就掀掉**：掀早了玩家会先看见一帧光秃秃的对局界面（行动栏 / 右栏），
+## 而 PRD:87 要的是「直接进第一章全屏章节提示」
+const T_OPENING_OUT := 0.45
+
 @onready var camera: Camera2D = $Camera2D
 @onready var board: Node2D = $Board
 @onready var menu: Node2D = $MainMenu
@@ -109,15 +119,34 @@ func _begin_tutorial(cancer_type: int) -> void:
 	match_node.cancer_types = [cancer_type]   ## 教程对手钉死（2 人局只有一个癌席），不随种子抽
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
+	## **菜单退场必须排在开场动画之前**：它要淡 T_DECOR = 1.1 秒，排在后面的话这 1.1 秒正好落在
+	## 「幕布淡掉、章节提示露出来」那一段，玩家会看见主菜单的 CELL WAR 标题和菜单项幽灵般叠在提示上
+	##（09-19 真机截图抓到的）。放在前面，它就在幕布底下淡完了
 	menu.dismiss(T_DECOR, DECOR_DRIFT)
 	## 教程小棋盘：推镜头之前就把活跃格外的格淡掉，镜头到位时看到的已经是那几格
 	##（Kevin 2026-09-11：原来是推完才换格网，画面「猛地缩小」）。淡的时长取推进的一半，走到一半棋盘就定了。
 	## 口径是**格集合**不是半径（新手引导 §1.3）：世界半径全程 6，关内长地图靠 reveal 加坐标
 	match_node.board.set_active_tiles(CWMatch.tutorial_active_tiles(), T_ENTER * 0.5)
-	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_tween.tween_method(_look, 0.0, 1.0, T_ENTER)
-	await _tween.finished
+	## 开场动画（PRD:59-87）：**只有第一次**进引导时播，演完（或被跳过）就记上一笔。
+	## 它自带全屏幕布，所以底下的菜单退场、镜头推进、癌组织绽开全被盖着 —— 玩家看不到，也不必等
+	var cut = null   ## 不标 Node：开场脚本没有 class_name（附 C 第 1 条），标了就够不着它的成员
+	if not OPENING.seen():
+		cut = OPENING_SCENE.instantiate()
+		add_child(cut)
+		await cut.finished
+		OPENING.mark_seen()
+	if cut == null:
+		_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		_tween.tween_method(_look, 0.0, 1.0, T_ENTER)
+		await _tween.finished
+	else:
+		_look(1.0)   ## 开场已经把镜头交代完了，不在幕布底下再空推一次 1.55 秒
 	await match_node.start_with_bloom(T_BLOOM)
+	if cut != null:
+		## 这会儿第一章的章节提示已经立起来了（`CWMatch.start()` 里的关首 `_apply_guide_step`），
+		## 幕布淡掉露出来的就是它 —— 一帧对局界面都不闪（PRD:87）
+		await cut.fade_out(T_OPENING_OUT)
+		cut.queue_free()
 	_entering = false
 
 
