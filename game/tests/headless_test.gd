@@ -9083,6 +9083,17 @@ func t_settle_screen() -> void:
 			ring_back = false
 	check(fx_back and ring_back and is_equal_approx(bd3._necro_root.modulate.a, 1.0),
 		"跳过过场后重开：演出层 / 进度环 / 坏死膜的 alpha 也还原了")
+	## 拆局还把演出层 `visible = false`（_clear_board_fx）。第二局里第一次普通攻击：这一层得亮着
+	## （2026-09-19 Kevin「联机模式下…攻击动画会消失」的根因：attack_fx.play 没把自己亮回来，
+	## 同一次启动里第二局起普通攻击一次也不演；别的层都在 play 里自己亮）
+	var m2: CWMatch = main_scene.match_node
+	check(m2._attack_fx != null and not m2._attack_fx.visible,
+		"探针：拆局把普通攻击那一层藏起来了（不藏的话下面那条验不到东西）")
+	m2._play_attack_animation({ "from": Vector2i.ZERO, "to": Vector2i(1, 0), "cid": 0, "target_id": 1,
+		"itype": CWData.ImmuneType.BASIC, "ctype": CWData.CancerType.MELANOMA,
+		"target_alive": true, "attacker_alive": true, "entered": false, "hit": true })
+	check(m2._attack_fx.visible and m2._attack_fx.owns(0), "第二局第一次普通攻击：演出层亮着、登记了双方")
+	m2._attack_fx.clear()
 
 	## 同一个触发条件下的第二个症状：`fade_to_healthy()` 的过渡叠层挂在 `_marks` 下，
 	## 却不在 `set_marks` 管的表里，清不掉；它的回调会把格子刷成健康贴图。
@@ -9759,6 +9770,13 @@ func t_attack_fx() -> void:
 	## ③ 拆局清干净（不清的话下一局同下标的细胞会凭空隐身）
 	fx.clear()
 	check(not fx.owns(3) and not fx.owns(9), "clear() 之后不再代画任何细胞")
+	## ③b 拆局还会把整层 `visible = false`（CWMatch._clear_board_fx）：下一局第一次 play 必须自己亮回来。
+	## 2026-09-19 之前这一层没这一句 ⇒ 同一次启动里第二局起普通攻击再也不演
+	## （Kevin：「联机模式下玩家操控的免疫细胞攻击 AI 癌细胞，攻击动画会消失」）
+	fx.visible = false
+	fx.play(data, Vector2(-36, 0), Vector2(0, 0), imm, mel)
+	check(fx.visible and fx.owns(3), "拆局藏过之后再 play：这一层自己亮回来（第二局起攻击动画消失的根因）")
+	fx.clear()
 	root.remove_child(fx)
 	fx.free()
 	## ④ 引擎：普通攻击结算完报 immune_attack，巨噬照旧只报 chomp（那边是【连续吞噬】那副嘴）
