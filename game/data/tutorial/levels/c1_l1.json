@@ -10,7 +10,10 @@
     "缺席阵营（纪律 8）：癌席给一只 alive:false 的死细胞，占活跃集之外的 (6,-1) —— hex_at 只扫活跃集，看不见也点不到。",
     "【迁移】不消耗能量（PRD:105）只能走大能量 99990 + ui.cost/move_path 关掉：immune_move_healthy 是 tier C 旋钮，装载器双重拒。",
     "最后一条的 prd 写 137 而不是 PRD:133：PRD 的「玩家任务」(133) 与「UI 提示」(137) 是同一拍，",
-    "执行序必须是「先亮格子再开闸」（point 不阻塞、player 阻塞），而对账闸要求 prd 单调不减，所以两条都记 137。"
+    "执行序必须是「先亮格子再开闸」（point 不阻塞、player 阻塞），而对账闸要求 prd 单调不减，所以两条都记 137。",
+    "★ 2026-09-19 S4：两格坐标由 (-1,-1)(0,-1) 改成《新手引导v2_盘面提案》v4 的 (-5,-1)(-4,-1) ——",
+    "第二关起整条教学带都长在 v4 那套坐标上（第二关 r=-1 排 q -5…1、免疫承接第一关终点 (-4,-1)）；",
+    "不改的话关间静默切关那一瞬间玩家细胞要跳 4 格，而第一关的终点 (0,-1) 在第二关是癌组织。"
   ],
 
   "seats": 2, "human_seat": 0,
@@ -26,13 +29,13 @@
         { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
       ],
       "cells": [
-        { "seat": 0, "type": "ImmuneBasic", "at": "-1,-1", "energy": 99990 },
+        { "seat": 0, "type": "ImmuneBasic", "at": "-5,-1", "energy": 99990 },
         { "seat": 1, "type": "Osteosarcoma", "at": "6,-1", "alive": false }
       ]
     }
   },
 
-  "active_tiles": ["-1,-1", "0,-1"],
+  "active_tiles": ["-5,-1", "-4,-1"],
 
   "rolls": [],
 
@@ -51,11 +54,11 @@
       "lines": ["下面继续巡逻吧！", "使用【迁移】，向前行动一格"] },
     { "do": "unlock", "prd": 131, "ids": ["move"] },
 
-    { "do": "point", "prd": 137, "ui": ["bar:迁移"], "hex": ["0,-1"], "mode": "soft" },
+    { "do": "point", "prd": 137, "ui": ["bar:迁移"], "hex": ["-4,-1"], "mode": "soft" },
 
     { "do": "player", "prd": 137,
       "hint": "点底部「迁移」，再点右边那一格",
-      "allow": ["k=action|act=move|to=0,-1"],
+      "allow": ["k=action|act=move|to=-4,-1"],
       "until": { "delta": "moved" } }
   ],
 

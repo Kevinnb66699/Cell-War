@@ -1,0 +1,124 @@
+{
+  "schema": "cwtut/2",
+  "id": "c1_l3",
+  "chapter": 1, "chapter_kind": "main", "chapter_title": "Cell",
+  "title": "第三关 ATP",
+  "subtitle": "能量是有限的：自己算一条最省的路",
+
+  "_doc": [
+    "PRD:239-301 整关（行号基线 = Cell_War_新手引导PRD_hxr.md 2026-09-19 04:08 版，532 行）。",
+    "盘面照《新手引导v2_盘面提案》v4 第三关一节：3 格宽横带 r=-2 的 q -4…6、r=-1 的 q -5…6、",
+    "r=0 的 q -6…6，外加外突的 (5,-3) —— 共 37 格（PRD:243「纵向宽度扩充为 3 格」）。",
+    "癌组织连通块唯一一个、9 格：中排 (3,-1)(4,-1)(5,-1)(6,-1) + 柄 (5,-2)(5,-3) + 下排 (3,0)(4,0)(5,0)（PRD:245 的「凸」）。",
+    "",
+    "纪律 2：r=0 这一排压到 4 个特殊格 —— 血管 (-6,0) (6,0)、骨髓 (-3,0)、核心 (3,0)，",
+    "逐格显式写 \"type\": \"normal\"，否则白送收入格（核心还会在路上给能量，整关的能量账当场作废）。",
+    "",
+    "能量账（v4，PRD:259-261 那条公式逐项）：",
+    "  3.0 最省路 + 3.0 攻击三次 × 1.0 + 0.5 攻击失效自损 + 0.1 = **6.6 ⇒ energy 66**。",
+    "  最省路 3.0 **两条并列**（Q3-6 Kevin 接受并列）：直线 (1,-1)(2,-1) 健康 0.5×2 + (3,-1)(4,-1) 癌 1.0×2；",
+    "  绕 r=-2 排 (1,-2)(2,-2)(3,-2)(4,-2) 健康 0.5×4 + (5,-2) 癌 1.0。两条都落在癌细胞一环上。",
+    "  ⇒ 判据写「到相邻格」（state:beside），**不判路径**：两条都算对。",
+    "  攻击 = 迁进癌细胞那一格，费用就是 immune_move_cancerous[I] = 1.0；三次 3.0。",
+    "  劝重置阈值 35：走 3.0 剩 36 ≥ 35 不劝；次优 3.5（绕 r=0 排 / 走到 (6,-2)）剩 31 < 35 当场劝。",
+    "  逐项由 t_tutor_energy_formula 用引擎现算复核，差一分当场红。",
+    "",
+    "rolls 三条 = PRD:257「下三次攻击结算为成功、失效、大成功」（r==6 大成功 / r<=2 失效 / 3~5 成功）：",
+    "伤害 1.0 + 0 + 2.0 = 3.0 正好打死 3.0 能量那只；ATTACK_MAX_PER_TURN = 3 锁死带子长度，打不出第四次 ⇒ 永不 overrun。",
+    "",
+    "自动重置（PRD:269）只有第一条「能量不足以移动」= reset_when state:stuck；",
+    "第二条「所剩能量小于预期」按 Kevin 2026-09-19 是**劝重置**不自动重置 = advise_when low_energy_beside:35。",
+    "",
+    "⚠ 要 hxr 答：**第二关的终点是 (1,-1)，本关起点照 v4 写 (0,-1)，切关时玩家退一格**。",
+    "原因是实跑出来的引擎口径：攻击得手会把攻击方挪进那一格（cw_actions._do_move 的致死分支），",
+    "所以第二关打死癌细胞之后人就站在 (1,-1) 上。改成 (1,-1) 起的话最省路少一步 2.5、能量回落到 6.1（= v3 那个数），",
+    "与 v4 拍的 6.6 冲突 ⇒ 先照 v4 走，退这一格记在账上。",
+    "",
+    "Step1 不给 point.hex（Q3-5）：这一关的全部教学量就是「自己算最省的路」，把答案闪出来等于替玩家做题。",
+    "allow 敞开 k=action|act=move 而不逐格点名：迁移落点是在棋盘上点的，hex_at 只扫活跃集 ——",
+    "带外的格既看不见也点不到，遮罩本身就是第二道闸（通用规则 13 由 S3 在闸 / 目标选择层收口）。",
+    "",
+    "ui：PRD:247 第三关才弹右栏，且只留「状态框 + 抗原记忆框」⇒ sidebar 开、round_no 关（Kevin：第一～三章右栏藏回合数）、",
+    "end_turn 关（第一～三关的 allow 里没有 act=end ⇒ 进不了 E 阶段 ⇒ 胜负判定压根不跑）。",
+    "move_path / cost 仍关着：PRD 的「界面变化」是**对比上一关的增删**，第三关没写要把它们加回来。",
+    "ui.camera（PRD:249「角色调左」）形状 { anchor, align }，**实装在 S3**，数据先带上。"
+  ],
+
+  "seats": 2, "human_seat": 0,
+
+  "worlds": {
+    "base": {
+      "radius": 6,
+      "round": 1,
+      "phase": "PlayerAction",
+      "seat": 0,
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I", "memory": 0 },
+        { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
+      ],
+      "tiles": [
+        { "at": "-6,0", "type": "normal" },
+        { "at": "-3,0", "type": "normal" },
+        { "at": "3,0", "type": "normal", "state": "cancer" },
+        { "at": "6,0", "type": "normal" },
+        { "at": "3,-1", "state": "cancer" },
+        { "at": "4,-1", "state": "cancer" },
+        { "at": "5,-1", "state": "cancer" },
+        { "at": "6,-1", "state": "cancer" },
+        { "at": "5,-2", "state": "cancer" },
+        { "at": "5,-3", "state": "cancer" },
+        { "at": "4,0", "state": "cancer" },
+        { "at": "5,0", "state": "cancer" }
+      ],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,-1", "energy": 66 },
+        { "seat": 1, "type": "Osteosarcoma", "at": "5,-1", "energy": 30 }
+      ]
+    }
+  },
+
+  "active_tiles": [
+    "-4,-2", "-3,-2", "-2,-2", "-1,-2", "0,-2", "1,-2", "2,-2", "3,-2", "4,-2", "5,-2", "6,-2",
+    "-5,-1", "-4,-1", "-3,-1", "-2,-1", "-1,-1", "0,-1", "1,-1", "2,-1", "3,-1", "4,-1", "5,-1", "6,-1",
+    "-6,0", "-5,0", "-4,0", "-3,0", "-2,0", "-1,0", "0,0", "1,0", "2,0", "3,0", "4,0", "5,0", "6,0",
+    "5,-3"
+  ],
+
+  "rolls": [[1, 6, 3], [1, 6, 1], [1, 6, 6]],
+
+  "flow": [
+    { "do": "state", "step": "Step1", "prd": 241, "load": "base",
+      "ui": { "*": false, "action_bar": true, "sidebar": true, "round_no": false, "end_turn": false,
+        "move_path": false, "cost": false, "energy": "plain",
+        "camera": { "anchor": "player", "align": "left" } } },
+
+    { "do": "say", "prd": 275, "who": "player", "lines": ["发现新的癌细胞，继续清理"] },
+    { "do": "say", "prd": 277, "who": "player", "lines": ["使用【迁移】移动到癌细胞相邻格"] },
+
+    { "do": "player", "prd": 279,
+      "hint": "自己算一条最省的路，走到癌细胞旁边",
+      "allow": ["k=action|act=move"],
+      "until": { "state": "beside" },
+      "reset_when": { "state": "stuck" },
+      "advise_when": { "state": "low_energy_beside", "arg": 35 },
+      "advise": "能量算亏了，这一路打不完。点左上角「重置本关」再来一次吧" },
+
+    { "do": "say", "step": "Step2", "prd": 289, "who": "player", "lines": ["继续攻击癌细胞"] },
+
+    { "do": "player", "prd": 291,
+      "hint": "迁到癌细胞那一格就是攻击",
+      "allow": ["k=action|act=move|to=5,-1"],
+      "until": { "delta": "attacked", "count": 2 } },
+
+    { "do": "say", "prd": 295, "who": "player", "lines": ["Oops！攻击失效，收到了反弹伤害"] },
+    { "do": "unlock", "prd": 297, "ids": ["attack"] },
+    { "do": "say", "prd": 299, "who": "player", "lines": ["不要灰心，继续尝试攻击"] },
+
+    { "do": "player", "prd": 301,
+      "hint": "再打一次，这一下是大成功",
+      "allow": ["k=action|act=move|to=5,-1"],
+      "until": { "state": "all_dead" } }
+  ],
+
+  "on_done": "c2_l4"
+}

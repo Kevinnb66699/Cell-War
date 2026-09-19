@@ -174,6 +174,8 @@ func _run_all() -> void:
 		t_tutor_progress,
 		## 新手引导 v2 S7：教程演出库 cw_tutor_fx（六种演出 / 零内核 rng / 时间的纯函数）
 		t_tutor_fx,
+		## 新手教程 v2 · S4：第一章三关端到端 + 第三关能量 6.6 引擎现算复核
+		t_tutor_c1, t_tutor_energy_formula,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -20802,7 +20804,8 @@ func t_tutor_view() -> void:
 	## 卡在【迁移】那一步不往下翻：判据是真局面（免疫细胞还没动）
 	check(dir._at == (lv["flow"] as Array).size() - 1 and dir.active,
 		"走到最后那条 player 就停住，等玩家真的迁移一格（until: delta moved）")
-	check(gate.last() is Array and (gate.last() as Array) == ["k=action|act=move|to=0,-1"],
+	## 坐标 2026-09-19（S4）改成《盘面提案》v4 的 (-5,-1) → (-4,-1)：第二关起整条教学带都长在那套坐标上
+	check(gate.last() is Array and (gate.last() as Array) == ["k=action|act=move|to=-4,-1"],
 		"闸收到的是剧本点名的那一格：六向只放被点名的那一条")
 	dir.teardown()
 	dir.queue_free()
@@ -22210,3 +22213,406 @@ func t_issue_fx_0919() -> void:
 	ef.queue_free()
 	board.queue_free()
 	await process_frame
+
+## 新手教程 v2 · S4：第一章三关**端到端**（PRD:107-301，行号基线 = PRD 2026-09-19 04:08 版）
+##
+## 这一支把三关逐关真跑一遍：真盘面、真规则、真带子。玩家那几步由**剧本自己的 `allow`** 现场过闸
+## （与闸桥 `cw_tutor_gate._keep` 同一条路：语义键前缀匹配），所以「剧本点名的那一格走不走得通」
+## 是跑出来的，不是写出来的 —— 剧本把坐标写歪、把费用算错，这里当场红。
+##
+## **不起 CWKernel**：句柄那一层由 `t_tutor_director`（装闸时序）与 `t_entry_smoke_tutorial`（真入口）
+## 各自盯着；这一支盯的是「数据 × 规则 × 导演」三者对不对得上。
+##
+## 带子**双向归零**是本支最贵的一条：少给会静默回落真 rng（`cw_roll_tape.gd:26-28` 的 overrun 不报警），
+## 多给则说明剧本里那几次掷骰根本没发生 —— 两头都要判。
+
+
+## 一关的跑场：装盘面 → 挂带子 → 接导演。返回 `{ game, tape, dir, view, gate }`
+func _tutor_c1_open(lv: Dictionary) -> Dictionary:
+	var d = TUTOR_SCRIPT.new()
+	var g: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "base"))
+	check(g != null, "关「%s」的 base 装得出来" % str(lv.get("id", "")))
+	## 带子必须挂在跑起来之前（同 `cw_tutorial_stage._open`）：晚一步那一颗就走真 rng
+	var tape = ROLL_TAPE.new()
+	var rolls: Array = []
+	for e in lv.get("rolls", []):
+		rolls.append([int((e as Array)[0]), int((e as Array)[1]), int((e as Array)[2])])
+	tape.tape = rolls
+	if g.rng is RandomNumberGenerator:
+		tape.seed = int((g.rng as RandomNumberGenerator).seed)
+	g.rng = tape
+	var view := CWTutorViewTally.new()
+	var gate := TutorGateSpy.new()
+	var dir = TUTOR_DIRECTOR.new()
+	dir.view = view
+	dir.gate = gate
+	## **不存镜像、只存取法**（同 `CWMatch`）：一关之内盘面每一步都在变
+	dir.mirror_of = func() -> CWMirror: return _mirror_of(g)
+	root.add_child(dir)
+	dir.open(lv, int(lv.get("human_seat", 0)))
+	dir.install()
+	return { "game": g, "tape": tape, "dir": dir, "view": view, "gate": gate }
+
+
+func _tutor_c1_close(run: Dictionary) -> void:
+	run["dir"].teardown()
+	run["dir"].queue_free()
+	(run["view"] as CWTutorViewTally).free()
+	(run["game"] as CWGame).dispose()
+
+
+## 玩家走一步：**先过剧本的闸**，再交给引擎。`to` 是剧本点名的那一格
+func _tutor_c1_step(g: CWGame, row: Dictionary, to: Vector2i, tag: String) -> void:
+	var cell: Dictionary = g.cell_of(0)
+	var want := {}
+	for o in g.actions.build_options(cell):
+		var data: Dictionary = (o as Dictionary)["data"]
+		if str(data.get("act", "")) == "move" and data.get("to", Vector2i.MAX) == to:
+			want = data
+			break
+	check(not want.is_empty(), "%s：引擎给得出「迁移→%s」这条选项" % [tag, str(to)])
+	if want.is_empty():
+		return
+	var allow: Variant = row.get("allow", null)
+	check(allow == null or TUTOR_BEATS.hits(CWSemKey.key({ "kind": "action" }, want), allow as Array),
+		"%s：剧本的 allow 放行这一步（%s）" % [tag, CWSemKey.key({ "kind": "action" }, want)])
+	await g.actions.execute(cell, want)
+
+
+## 按剧本把一关走完：`steps` 是玩家依次要落脚的格（含攻击 —— 攻击就是迁进敌人那一格）
+func _tutor_c1_drive(run: Dictionary, steps: Array, tag: String) -> void:
+	var g: CWGame = run["game"]
+	var dir = run["dir"]
+	var at := 0
+	for _f in 400:
+		await process_frame
+		if not dir.active:
+			break
+		if at >= steps.size():
+			continue
+		var row: Dictionary = dir._row()
+		if str(row.get("do", "")) != "player" or not dir._entered:
+			continue
+		await _tutor_c1_step(g, row, steps[at], "%s 第 %d 步" % [tag, at + 1])
+		at += 1
+	check(at == steps.size(), "%s：剧本点名的 %d 步全走完了（实走 %d）" % [tag, steps.size(), at])
+
+
+## 带子双向归零：少给会静默回落真 rng，没用完说明那几次掷骰压根没发生
+func _tutor_c1_tape(run: Dictionary, tag: String) -> void:
+	var tape = run["tape"]
+	check(int(tape.at) == (tape.tape as Array).size() and int(tape.overrun) == 0
+			and int(tape.bad_range) == 0,
+		"%s：带子双向归零（放了 %d / 共 %d，overrun %d，区间不符 %d）"
+			% [tag, int(tape.at), (tape.tape as Array).size(), int(tape.overrun), int(tape.bad_range)])
+
+
+func t_tutor_c1() -> void:
+	print("[新手教程 v2 S4·第一章三关端到端]")
+	CWGuideProgress.clear()
+	CWTutorLayers.reset()
+	var d = TUTOR_SCRIPT.new()
+
+	## ---- ⓪ 第一～三关的 allow 里没有 act=end（⇒ 进不了 E 阶段 ⇒ 胜负判定压根不跑）----
+	var ends: Array = []
+	var free_rows: Array = []
+	for id in ["c1_l1", "c1_l2", "c1_l3"]:
+		for r in d.load_level(id).get("flow", []):
+			var row: Dictionary = r
+			if str(row.get("do", "")) != "player":
+				continue
+			if not row.has("allow"):
+				free_rows.append(id)      ## 缺省 null = 不过滤，第一章一条都不该有
+				continue
+			for a in row["allow"]:
+				if str(a).contains("act=end"):
+					ends.append("%s:%s" % [id, str(a)])
+	check(ends.is_empty() and free_rows.is_empty(),
+		"第一～三关的 allow 里没有 act=end、也没有敞开的自由段（结束回合：%s；敞开：%s）"
+			% [str(ends), str(free_rows)])
+
+	## ---- ① 第一关（PRD:107-147）：两格、零抽取 ----
+	var lv1: Dictionary = d.load_level("c1_l1")
+	var run1 := _tutor_c1_open(lv1)
+	await _tutor_c1_drive(run1, [Vector2i(-4, -1)], "第一关")
+	check(not run1["dir"].active and (run1["game"] as CWGame).cell_of(0)["pos"] == Vector2i(-4, -1),
+		"第一关走完：玩家停在 (-4,-1) —— 正是第二关的起点（关间静默切关不跳格）")
+	_tutor_c1_tape(run1, "第一关")
+	_tutor_c1_close(run1)
+
+	## ---- ② 第二关（PRD:149-237）：Step1 亲手净化两格、Step2 预置 + reveal，零关内重装 ----
+	var lv2: Dictionary = d.load_level("c1_l2")
+	var run2 := _tutor_c1_open(lv2)
+	var g2: CWGame = run2["game"]
+	## Step1 开跑之前：那只 1.0 能量的癌细胞已经在盘上（预置），但不在活跃集里
+	check(g2.cell_of(1)["alive"] and g2.cell_of(1)["pos"] == Vector2i(1, -1)
+			and int(g2.cell_of(1)["energy"]) == 10,
+		"Step2 那只癌细胞开局就预置在 (1,-1)（1.0 能量）—— 零关内重装靠的就是这一条")
+	var base_m: CWMirror = _mirror_of(g2)
+	var base_snap: Dictionary = TUTOR_BEATS.snap(base_m, 0)
+	check(not TUTOR_BEATS.done({ "state": "tile_healthy", "arg": "-1,-1" }, base_snap, base_snap, base_m),
+		"state:tile_healthy 认得出 (-1,-1) 此刻是癌组织（镜像的键叫 tissue 不是 state，写错了这条谓词永不成立）")
+	await _tutor_c1_drive(run2, [Vector2i(-3, -1), Vector2i(-2, -1), Vector2i(-1, -1),
+		Vector2i(0, -1), Vector2i(1, -1)], "第二关")
+	check(g2.tile(Vector2i(-1, -1))["tissue"] == CWData.Tissue.HEALTHY
+			and g2.tile(Vector2i(0, -1))["tissue"] == CWData.Tissue.HEALTHY,
+		"Step1 亲手净化的两格，跑到 Step2 结束仍是健康组织（没有任何一次关内重装把它们冲掉）")
+	## 记忆 4 = Step1 亲手净化两格（+2）+ Step2 攻击造成损失（+1）+ 击杀后进格顺手净化 (1,-1)（+1）。
+	## **攻击得手会把攻击方挪进那一格**（`cw_actions._do_move` 的致死分支），这是实跑出来的口径，
+	## 第三关的起点因此与第二关的终点差一格（见 c1_l3 的 _doc / 要 hxr 答的那条）
+	check(int(g2.memory) == 4, "亲手净化两格 +2、攻击得手 +1、击杀进格再净化 +1 = 4（实测 %d）" % int(g2.memory))
+	var now_m: CWMirror = _mirror_of(g2)
+	check(TUTOR_BEATS.done({ "state": "tile_healthy", "arg": "-1,-1" }, base_snap,
+			TUTOR_BEATS.snap(now_m, 0), now_m),
+		"净化之后 state:tile_healthy 成立 —— 这条谓词真的读得到镜像（tissue 键）")
+	check(not g2.cell_of(1)["alive"] and g2.cell_of(0)["pos"] == Vector2i(1, -1),
+		"Step2 一击必杀（带子钉死的成功判定）：1.0 伤害打死 1.0 能量那只，攻击方随即进格停在 (1,-1)")
+	var revealed: Array = []
+	for e in (run2["view"] as CWTutorViewTally).log:
+		if str((e as Dictionary)["kind"]) == "reveal":
+			revealed.append(((e as Dictionary)["args"] as Dictionary)["coords"])
+	check(revealed == [["1,-1"]] and (lv2["active_tiles"] as Array).size() == 6,
+		"Step2 靠 reveal 揭第 7 格（关首活跃集 6 格 + 揭 1 格），一次 load 都没有（实测 %s）" % str(revealed))
+	_tutor_c1_tape(run2, "第二关")
+	_tutor_c1_close(run2)
+
+	## ---- ③ 活跃格遮罩：Step1 期间那只癌细胞**画不出来**（PRD:201 的「Step2 才延伸出来」全押在这一条上）----
+	var bd: Node2D = load("res://scenes/Board.tscn").instantiate()
+	root.add_child(bd)
+	await process_frame
+	var step1: Array = []
+	for s in lv2["active_tiles"]:
+		step1.append(TUTOR_SCRIPT.parse_at(str(s)))
+	bd.set_active_tiles(step1, 0.0)
+	check(bd.is_active(Vector2i(0, -1)) and not bd.is_active(Vector2i(1, -1))
+			and bd.hex_at(bd.tile_center(Vector2i(1, -1))) == bd.NO_TILE,
+		"Step1 的活跃集不含 (1,-1)：那一格看不见，`hex_at` 也点不到")
+	bd.set_active_tiles(step1 + [Vector2i(1, -1)], 0.0)
+	check(bd.is_active(Vector2i(1, -1)), "reveal 之后 (1,-1) 进活跃集")
+	bd.queue_free()
+	await process_frame
+	## 细胞节点跟着遮罩走的那一行在 `match.gd:_sync_cells` 里（皮与导演都不认识棋盘）
+	var match_src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	check(match_src.contains("node.visible = c[\"alive\"]") and match_src.contains("board.is_active(c[\"pos\"])"),
+		"细胞贴图挂在 `board.is_active` 上：活跃格外的活细胞 visible == false")
+	## 真机那一路：教程局开在第二关，Step1 那一帧癌细胞的节点真的是 visible == false
+	CWGuideProgress.clear()
+	CWGuideProgress.set_done(0)          ## done_count = 1 ⇒ `_tutor_pick_level` 挑第二关
+	CWSettings.ai_delay_ms = 0
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m2: CWMatch = main_scene.match_node
+	m2.tutorial = true
+	m2.start()
+	await process_frame
+	await process_frame
+	check(str(m2._tutor_level.get("id", "")) == "c1_l2", "教程局按进度开在第二关（%s）" % str(m2._tutor_level.get("id", "")))
+	var foe_node: Node2D = m2._cell_nodes[1] if m2._cell_nodes.size() > 1 else null
+	check(foe_node != null and not foe_node.visible,
+		"★ Step1 期间那只癌细胞的节点 **visible == false**（活跃格遮罩，PRD:201 的「Step2 才延伸」）")
+	m2.teardown()
+	await process_frame
+	main_scene.queue_free()
+	await process_frame
+	CWSettings.ai_delay_ms = 220
+	CWGuideProgress.clear()
+	CWTutorLayers.reset()
+
+	## ---- ④ 第三关（PRD:239-301）：最省路 3.0 + 三次攻击，能量正好剩 0.1 ----
+	var lv3: Dictionary = d.load_level("c1_l3")
+	var run3 := _tutor_c1_open(lv3)
+	var g3: CWGame = run3["game"]
+	check(int(g3.cell_of(0)["energy"]) == 66 and int(g3.cell_of(1)["energy"]) == 30,
+		"第三关开局：免疫 6.6、癌细胞 3.0（逐项账见 t_tutor_energy_formula）")
+	check(int(g3.tile(Vector2i(3, 0))["special"]) == CWData.Special.NONE,
+		"纪律 2：核心 (3,0) 压在横带里，显式写了 type:normal —— 否则路上白捡一笔能量，整关的能量账作废")
+	## 直线那条最省路（另一条并列的绕 r=-2 排，两条都 3.0；判据只判「到相邻格」不判路径）
+	await _tutor_c1_drive(run3, [Vector2i(1, -1), Vector2i(2, -1), Vector2i(3, -1), Vector2i(4, -1),
+		Vector2i(5, -1), Vector2i(5, -1), Vector2i(5, -1)], "第三关")
+	check(int(g3.cell_of(0)["attacks_used"]) == 3 and not g3.cell_of(1)["alive"],
+		"三次攻击 1.0 + 0 + 2.0 = 3.0 正好打死（成功 / 失效 / 大成功，带子钉死）")
+	check(int(g3.cell_of(0)["energy"]) == 1,
+		"能量正好剩 0.1（PRD:261 公式最后那一项），实测 %s" % CWData.fmt(int(g3.cell_of(0)["energy"])))
+	check(not run3["dir"].active, "全癌死亡 ⇒ until:all_dead 命中，这一关走完")
+	_tutor_c1_tape(run3, "第三关")
+	_tutor_c1_close(run3)
+
+	## ---- ⑤ 劝重置：命中时不重置、只换提示行 + 重置按钮慢闪，而且 `until` **不翻页** ----
+	var run4 := _tutor_c1_open(lv3)
+	var g4: CWGame = run4["game"]
+	var dir4 = run4["dir"]
+	## 次优路（绕 r=0 排）：0.5×3 + 1.0×2 = 3.5 ⇒ 剩 3.1 < 阈值 3.5 ⇒ 当场劝
+	await _tutor_c1_drive(run4, [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0), Vector2i(3, 0),
+		Vector2i(4, 0)], "第三关次优路")
+	await _tutor_pump(4)
+	var step1_at: int = 3          ## flow 里 Step1 那条 player 的下标
+	check(int(g4.cell_of(0)["energy"]) == 31 and dir4._advising and dir4._at == step1_at,
+		"次优路剩 3.1 < 3.5 ⇒ 劝重置命中：**不重置、也不翻页**（游标仍停在 Step1 那条，实测 %d）" % dir4._at)
+	var v4log: Array = (run4["view"] as CWTutorViewTally).log
+	var last_hint := ""
+	var urged := false
+	var reset_played := false
+	for e in v4log:
+		var kind := str((e as Dictionary)["kind"])
+		if kind == "hint":
+			last_hint = str(((e as Dictionary)["args"] as Dictionary)["text"])
+		elif kind == "urge_reset":
+			urged = bool(((e as Dictionary)["args"] as Dictionary)["on"])
+		elif kind == "reset_anim":
+			reset_played = true
+	var advise_text := str((lv3["flow"][step1_at] as Dictionary).get("advise", ""))
+	check(last_hint == advise_text and urged and not reset_played,
+		"劝重置只换提示行 + 重置按钮慢闪，一帧重置动画都没播（提示行：%s）" % last_hint)
+	_tutor_c1_close(run4)
+
+	## ---- ⑥ 自动重置：`stuck` 命中 ⇒ 先播重置动画、再退回关首（游标归零 + 代际 +1）----
+	var run5 := _tutor_c1_open(lv3)
+	var g5: CWGame = run5["game"]
+	var dir5 = run5["dir"]
+	var view5 := run5["view"] as CWTutorViewTally
+	var reset_seen := [0]
+	dir5.want_reset.connect(func() -> void: reset_seen[0] = view5.log.size())
+	## 「走不动了」只在**正问着这一席**的顶层行动问里谈得上（`cw_tutor_beats.snap` 的那道闸）：
+	## 这里不起句柄，所以把那一问按引擎的形状补上 —— 一个【迁移】选项都没有 = 能量不足以移动
+	dir5.mirror_of = func() -> CWMirror:
+		var mm := _mirror_of(g5)
+		mm.ask = { "kind": "action", "seat": 0, "options": [] }
+		return mm
+	await _tutor_pump(2)
+	await _tutor_c1_step(g5, (lv3["flow"][step1_at] as Dictionary), Vector2i(1, -1), "第三关自动重置前")
+	var epoch_before: int = dir5.epoch
+	await _tutor_pump(12)
+	var kinds := Array(view5.kinds())
+	check(kinds.has("reset_anim") and reset_seen[0] > 0
+			and kinds.find("reset_anim") < reset_seen[0],
+		"reset_when 命中：**先播重置动画、再发 want_reset**（PRD:47 / 通用规则 7 的那条次序）")
+	check(dir5._at == 0 and dir5.epoch > epoch_before and dir5.active,
+		"重置之后游标回关首、代际 +1（挂在旧闸 / 旧协程上的东西随之作废）")
+	_tutor_c1_close(run5)
+
+	## ---- ⑦ 「回关首那份 world」：装载往返逐字相等，玩家动过的那一步一点都不剩 ----
+	var entry := str((lv3["flow"][0] as Dictionary).get("load", "base"))
+	var loader = CASE_LOADER.new()
+	var spec: Dictionary = d.resolve(lv3, entry)
+	var back: CWGame = loader.load_world(spec.duplicate(true))
+	check(back != null and TUTOR_SCRIPT.deep_eq(loader.dump_world(back), loader.minify(spec.duplicate(true)))
+			and back.cell_of(0)["pos"] == Vector2i(0, -1) and int(back.cell_of(0)["energy"]) == 66,
+		"重置装回的是关首那份 world（flow[0].load = %s）：dump_world ≡ minify，人回 (0,-1)、能量回 6.6" % entry)
+	if back != null:
+		back.dispose()
+	check(match_src.contains("_tutor_load_world(_tutor_entry_world(), true)")
+			and match_src.contains("board.set_active_tiles(_stage.active_tiles(), 0.0)"),
+		"装配侧：want_reset 走的就是「关首那份 world + 把 reveal 加进来的活跃格收回去」")
+
+	CWTutorLayers.reset()
+	CWGuideProgress.clear()
+
+
+## 新手教程 v2 · S4：第三关的能量 **6.6** 用引擎现算复核（方案 §6.1，搬乙）
+##
+## 为什么要单独一支：`energy: 66` 是**写死在数据里**的一个数，而它是四项加出来的
+## （最省路 + 攻击三次 + 失效自损 + 0.1）。盘面改一格、旋钮动一档，这个数就该跟着变，
+## 但 JSON 不会自己变 —— 没有这一条，第三关会安静地变成「打不完」或「多出一截能量」。
+## 所以四项一项一项从**引擎此刻的表**里取（`game.tune` / `CWActions.quote_path` / `pass_through_map`），
+## 加出来与数据逐分比，差一分当场红。
+func t_tutor_energy_formula() -> void:
+	print("[新手教程 v2 S4·第三关能量 6.6 引擎现算复核]")
+	var d = TUTOR_SCRIPT.new()
+	var lv: Dictionary = d.load_level("c1_l3")
+	var g: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "base"))
+	check(g != null, "第三关的 base 装得出来")
+	if g == null:
+		return
+	var cell: Dictionary = g.cell_of(0)
+	var foe: Dictionary = g.cell_of(1)
+	var lvl: int = g.immune_level
+	var healthy: int = g.tune.immune_move_healthy[lvl]
+	var cancerous: int = g.tune.immune_move_cancerous[lvl]
+
+	## ---- ① 最省路：拿**引擎的单格价**跑一遍 Dijkstra，落点取癌细胞的一环 ----
+	## 免疫踩过癌组织当场【净化】，但简单路径不会走回头路，所以逐格静态价就是这条路的真价。
+	var price := {}
+	for c in CWData.all_coords():
+		price[c] = cancerous if g.is_cancerous(c) else healthy
+	var dist := { cell["pos"]: 0 }
+	var queue: Array = [cell["pos"]]
+	while not queue.is_empty():
+		var cur: Vector2i = queue.pop_front()
+		for n in CWData.neighbors(cur):
+			if n == foe["pos"]:
+				continue          ## 敌人那一格是**攻击**不是迁移，不进路径
+			var nd: int = int(dist[cur]) + int(price[n])
+			if not dist.has(n) or nd < int(dist[n]):
+				dist[n] = nd
+				queue.append(n)
+	var best := 1 << 30
+	var ties: Array = []
+	for n in CWData.neighbors(foe["pos"]):
+		if not dist.has(n):
+			continue
+		if int(dist[n]) < best:
+			best = int(dist[n])
+			ties = [n]
+		elif int(dist[n]) == best:
+			ties.append(n)
+	ties.sort()
+	check(best == 30 and ties == [Vector2i(4, -1), Vector2i(5, -2)],
+		"最省路 = %s，**两条并列**落在 %s（Q3-6 接受并列；判据只判「到相邻格」不判路径）"
+			% [CWData.fmt(best), str(ties)])
+
+	## 引擎自己的报价器再核一遍这两条（它逐步模拟净化与翻面，是价钱的唯一权威）
+	var paths := {
+		"直线": [Vector2i(1, -1), Vector2i(2, -1), Vector2i(3, -1), Vector2i(4, -1)],
+		"绕 r=-2 排": [Vector2i(1, -2), Vector2i(2, -2), Vector2i(3, -2), Vector2i(4, -2), Vector2i(5, -2)],
+	}
+	var quoted: Array = []
+	var all_ok := true
+	for name in paths:
+		var q: Dictionary = g.actions.quote_path(cell, paths[name])
+		quoted.append("%s %s" % [name, CWData.fmt(int(q["total"]))])
+		if int(q["total"]) != 30 or not bool(q["ok"]) or int(q["gained"]) != 0:
+			all_ok = false
+	check(all_ok, "引擎 quote_path 复核两条并列最省路：都是 3.0、都走得通、路上一分核心收入都没有（%s）"
+		% ", ".join(PackedStringArray(quoted)))
+	check((g.actions.pass_through_map(cell) as Dictionary).is_empty(),
+		"借道前进给不出更便宜的走法（场上没有第二只免疫细胞，pass_through_map 是空的）")
+
+	## ---- ② 攻击三次：攻击就是迁进敌人那一格，单价 = immune_move_cancerous ----
+	var attacks: int = 3 * cancerous
+	check(g.is_cancerous(foe["pos"]) and CWData.ATTACK_MAX_PER_TURN == 3
+			and (lv["rolls"] as Array).size() == 3,
+		"攻击次数上限 3 锁死带子长度（打不出第四次 ⇒ 带子永不 overrun）")
+
+	## ---- ③ 失效自损 + PRD:261 的 +0.1 ----
+	var counter: int = g.tune.counter_dmg_on_fail
+	var tail := 1
+
+	## ---- ④ 四项加起来，与数据里写死的那个数逐分比 ----
+	var want: int = best + attacks + counter + tail
+	var got: int = int(cell["energy"])
+	check(got == want,
+		"★ 能量 %s = %s 最省路 + %s 攻击三次 + %s 失效自损 + 0.1（数据里写的是 %s）"
+			% [CWData.fmt(want), CWData.fmt(best), CWData.fmt(attacks),
+				CWData.fmt(counter), CWData.fmt(got)])
+	check(want == 66, "v4 盘面下这个数是 6.6（v3 的 6.1 是 (3,0)(4,0)(5,0) 变癌之前的账）")
+
+	## ---- ⑤ 伤害正好打死：成功 1.0 + 失效 0 + 大成功 2.0 = 3.0 ----
+	check(CWData.ATTACK_DMG_SUCCESS + 0 + CWData.ATTACK_DMG_CRIT == int(foe["energy"]),
+		"伤害 %s + 0 + %s = %s 正好是癌细胞的能量 —— 第三次刚好打死"
+			% [CWData.fmt(CWData.ATTACK_DMG_SUCCESS), CWData.fmt(CWData.ATTACK_DMG_CRIT),
+				CWData.fmt(int(foe["energy"]))])
+	check(g.actions.base_verdict(3) == "success" and g.actions.base_verdict(1) == "fail"
+			and g.actions.base_verdict(6) == "crit",
+		"带子 3 / 1 / 6 对应 PRD:257 的「成功、失效、大成功」")
+
+	## ---- ⑥ 劝重置阈值 35 把最省与次优分得干干净净 ----
+	var advise := 0
+	for r in lv["flow"]:
+		var row: Dictionary = r
+		if row.has("advise_when"):
+			advise = int((row["advise_when"] as Dictionary).get("arg", 0))
+	check(advise == attacks + counter and got - best >= advise and got - 35 < advise,
+		"劝重置阈值 %s = 攻击三次 + 反弹自损：最省剩 %s 不劝、次优 3.5 剩 %s 当场劝"
+			% [CWData.fmt(advise), CWData.fmt(got - best), CWData.fmt(got - 35)])
+	g.dispose()
