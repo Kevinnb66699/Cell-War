@@ -9660,6 +9660,46 @@ func t_issue31_fx() -> void:
 	## **这一条才是防回归的那条**：侧面必须还在、且必须比顶面暗，否则格子又会长出尖角
 	check(film_ok and side_n > 200 and body_n > side_n,
 		"坏死膜：%d 颗侧面（比顶面暗）+ %d 颗顶面，明暗关系与组织贴图逐像素一致" % [side_n, body_n])
+	## issue #61（Kevin 2026-09-19）：坏死膜整格一张，把**烤进地块贴图里**的特殊组织图标盖没了 ——
+	## 核心 / 骨髓一坏死就成了一块没身份的灰地（进度环反倒还在，它是格子的子节点、z 高一层）。
+	## 现在膜按特殊组织分张，图标那几十个像素**镂空**，地块贴图自己的图标从洞里露出来。
+	var core_c: Vector2i = CWData.CORES[0]
+	var marrow_c: Vector2i = CWData.MARROWS[0]
+	bd.set_necrosis([core_c, marrow_c, Vector2i.ZERO])
+	check(bd._necro_nodes[core_c].texture == bd._necrosis_film(CWData.Special.CORE)
+		and bd._necro_nodes[marrow_c].texture == bd._necrosis_film(CWData.Special.MARROW)
+		and bd._necro_nodes[Vector2i.ZERO].texture == bd._necrosis_film(),
+		"坏死膜按格子的特殊组织挑张：核心 / 骨髓各一张镂空的，普通格还是原来那张")
+	var plain_film: Image = bd._necrosis_film().get_image()
+	for sp: int in [CWData.Special.CORE, CWData.Special.MARROW]:
+		var holes: Dictionary = bd._icon_pixels(sp)
+		var sp_film: Image = bd._necrosis_film(sp).get_image()
+		var hp: Image = bd.TISSUE_TEX[sp][0].get_image()   ## 健康版
+		var cp: Image = bd.TISSUE_TEX[sp][1].get_image()   ## 癌变版
+		var punched := true          ## 图标那些像素：膜里一笔不画，而原来那张确实盖着
+		var same_elsewhere := true   ## 其余像素与普通格那张逐像素一致 —— 膜照旧盖满，坏死仍认得出
+		## 洞里露出来的确实是**图标**：癌变只换底色和侧面，图标色一点不动（2026-09-14 定的口径），
+		## 所以「健康版与癌变版同色」这一条把图标和其余部分分得干干净净
+		var icon_n := 0
+		var base_n := 0
+		for y in sp_film.get_height():
+			for x in sp_film.get_width():
+				var px := Vector2i(x, y)
+				var agree: bool = hp.get_pixel(x, y) == cp.get_pixel(x, y)
+				if holes.has(px):
+					if sp_film.get_pixel(x, y).a > 0.0 or plain_film.get_pixel(x, y).a <= 0.0:
+						punched = false
+					if agree:
+						icon_n += 1
+				else:
+					if sp_film.get_pixel(x, y) != plain_film.get_pixel(x, y):
+						same_elsewhere = false
+					if agree and plain_film.get_pixel(x, y).a > 0.0:
+						base_n += 1
+		check(punched and same_elsewhere and holes.size() > 50 and icon_n >= 60 and base_n == 0,
+			"坏死不盖图标（%s）：%d 个图标像素镂空、其中 %d 个癌变也不改色，其余照旧逐像素盖住"
+			% ["核心" if sp == CWData.Special.CORE else "骨髓", holes.size(), icon_n])
+	bd.set_necrosis([])
 	bd.free()
 	## ④ 细胞膜修复：简约像素盾 —— 左右严格对称、下半收尖、只按整数倍收束
 	var rows: Array = CWSkillFx.shield_rows()
