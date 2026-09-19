@@ -53,24 +53,6 @@ fi
 [ -f "$OUT/index.wasm" ] && [ -f "$OUT/index.pck" ] || { tail -25 "$LOG" >&2; die "产物不全：index.wasm / index.pck 没出来"; }
 rm -f "$LOG"
 
-# 注入同源改写（见 tools/web/same_origin_shim.js 的文件头）。
-# 游戏里有两处地址写死成 http://124.221.78.13/cellwar/，在 https 页面上会被当混合内容拦掉、
-# 并把整页标成「不安全」。改那两个地址要动 boot.gd = 必须全量发版，所以改在**发版这一侧**。
-# 必须插在引擎脚本**之前** —— </head> 前面正好。
-SHIM="tools/web/same_origin_shim.js"
-[ -f "$SHIM" ] || die "找不到 $SHIM"
-python - "$OUT/index.html" "$SHIM" <<'PYEOF'
-import io, sys
-page, shim = sys.argv[1], sys.argv[2]
-html = io.open(page, encoding="utf-8", newline="").read()
-js = io.open(shim, encoding="utf-8", newline="").read()
-assert "same-origin-shim" not in html, "已经注入过了"
-tag = "<script id=\"same-origin-shim\">\n" + js + "</script>\n\t</head>"
-assert html.count("\t</head>") == 1, "index.html 的 </head> 锚点对不上（Godot 换模板了？）"
-io.open(page, "w", encoding="utf-8", newline="").write(html.replace("\t</head>", tag))
-print("  已注入同源改写")
-PYEOF
-
 # 预压：wasm 有 36 MB，不压的话首次加载能拖到几分钟。
 # **在这里压而不是让 nginx 现压** —— 现压等于每个请求都 gzip 一遍 36 MB，CPU 白烧。
 # 服务器那边 `gzip_static on`，同名的 .gz 存在就直接发它。
