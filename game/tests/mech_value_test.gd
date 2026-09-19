@@ -43,6 +43,10 @@ func _run() -> void:
 	await t_mech_infra_savings()
 	await t_mech_intent_eval()
 	await t_mech_intent_select()
+	await t_mech_two_step()
+	await t_mech_scorer_dims()
+	await t_mech_strategic_metrics()
+	await t_mech_cancer_scorer_strategic()
 	await t_mech_bridge()
 	await t_entry_smoke_intent()
 	print("\n%d 项检查，%d 失败" % [checks, fails])
@@ -658,6 +662,160 @@ func t_mech_intent_select() -> void:
 		"best 是最大癌方供给（%d）" % max_supply)
 	check(g.state_hash() == hash_before, "选择后真局面复原")
 	g.dispose()
+
+
+## —— 2 步候选 + metrics 局部维度 ——
+## 1) candidates 应生成 2 步路径（回合内计划：走过去→蹲固化/踩核心/继续扩）；
+## 2) 2 步候选可执行（evaluate_path ok=true）；
+## 3) metrics 含行动细胞局部读数 actor_energy / actor_solid_rounds / actor_min_immune_dist。
+func t_mech_two_step() -> void:
+	print("[意图·2 步候选与局部读数]")
+	var found := false
+	for si in 6:
+		var g := make_game(4, 48010 + si)
+		g.sim_quiet = true
+		for _step_i in 300:
+			var req: Dictionary = await g.pending()
+			if req.is_empty():
+				break
+			var p: int = req["pid"]
+			if req["kind"] == "action" \
+					and g.player(p)["faction"] == CWData.Faction.CANCER:
+				var intent := MechIntent.new()
+				var cands: Array = await intent.candidates(g, p, 2)
+				var two_step: Array = []
+				for c in cands:
+					if c.size() == 2:
+						two_step.append(c)
+				if two_step.is_empty():
+					break
+				found = true
+				check(two_step.size() >= 1, "生成 2 步候选（%d 条，共 %d 候选）" % [
+					two_step.size(), cands.size()])
+				var m: Dictionary = await intent.evaluate_path(g, p, two_step[0])
+				check(m["ok"] == true, "2 步候选可执行（%s → %s）" % [
+					str(two_step[0][0]), str(two_step[0][1])])
+				check(m.has("actor_energy") and m.has("actor_solid_rounds") \
+						and m.has("actor_min_immune_dist"),
+					"metrics 含行动细胞局部读数")
+				check(int(m["actor_energy"]) >= 0 and int(m["actor_min_immune_dist"]) >= 1,
+					"局部读数合理（能量 %d、距免疫 %d、固化回合 %d）" % [
+						int(m["actor_energy"]), int(m["actor_min_immune_dist"]),
+						int(m["actor_solid_rounds"])])
+				g.dispose()
+				break
+			var idx: int = await g.ask(req["pid"], req)
+			await g.step(idx)
+		g.dispose()
+		if found:
+			break
+	check(found, "在至少一局里找到 2 步候选")
+
+
+## —— 癌方 scorer 三维度（合成局面）——
+## 固化潜力：行动细胞蹲在「1 回合可固化」的癌格上（不动基线）应胜过迁去别处；
+## 生存：能量 < 2.0 应被重罚。
+func t_mech_scorer_dims() -> void:
+	print("[意图·scorer 固化/生存维度]")
+	var g := bare_game()
+	## 癌格 A：solid 已达 29（1 回合固化）；B：solid 0。行动癌在 A 上。
+	var ca := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, Vector2i(0, 0),
+		-1, CWData.CancerType.SCLC, 500)
+	g.cells.append(ca)
+	g.tiles[Vector2i(0, 0)]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[Vector2i(0, 0)]["solid"] = 29
+	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[Vector2i(1, 0)]["solid"] = 0
+	var m_stay := { "win_progress": 10, "cancer_supply": 20,
+		"cancer_energy": 300, "immune_energy": 200,
+		"actor_energy": 300, "actor_solid_rounds": 1, "actor_min_immune_dist": 5 }
+	var m_leave := m_stay.duplicate()
+	m_leave["actor_solid_rounds"] = 3   ## 迁去别的癌格，蹲守价值降低
+	check(MechBridge._cancer_score(m_stay) > MechBridge._cancer_score(m_leave),
+		"蹲在快固化格（rounds=1）得分高于迁走（rounds=3）")
+	var m_weak := m_stay.duplicate()
+	m_weak["actor_energy"] = 10          ## 能量 1.0，危险
+	check(MechBridge._cancer_score(m_stay) > MechBridge._cancer_score(m_weak) + 10.0,
+		"能量 1.0 被重罚（生存维度生效）")
+	var m_threat := m_stay.duplicate()
+	m_threat["actor_min_immune_dist"] = 1   ## 贴免疫
+	check(MechBridge._cancer_score(m_stay) > MechBridge._cancer_score(m_threat) + 5.0,
+		"贴免疫被罚（威胁维度生效）")
+	g.dispose()
+
+
+## —— 战略读数：压迫 / 可压死 / 骨髓 / 最弱免疫（合成局面）——
+## 癌方「追杀免疫 + 踩骨髓」的度量基础。癌方没有走过去攻击的对称机制，
+## 减免疫能量靠【微环境压迫】（E 阶段被动）——所以「追杀」= 让免疫被压迫压死。
+## 构造：一只低能量免疫、一只高能量免疫，各自周围铺癌性格使前者被压死、后者不死；
+## 一个健康骨髓、一个癌化骨髓。验证 metrics 的战略读数与引擎 pressure_* 一致。
+func t_mech_strategic_metrics() -> void:
+	print("[意图·战略读数]")
+	var g := bare_game()
+	## 低能量免疫 A 在 (0,0)，邻居全铺癌 → 高压迫压死；高能量免疫 B 在 (3,0)，邻居全健康 → 不压死
+	var ia := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0), -1, -1, 5)
+	var ib := CWSetup.make_cell(1, 0, CWData.Faction.IMMUNE, Vector2i(3, 0), -1, -1, 500)
+	var cc := CWSetup.make_cell(2, 1, CWData.Faction.CANCER, Vector2i(0, 3), -1, CWData.CancerType.SCLC, 500)
+	g.cells.append(ia)
+	g.cells.append(ib)
+	g.cells.append(cc)
+	for nb in g.neighbors(Vector2i(0, 0)):
+		g.tiles[nb]["tissue"] = CWData.Tissue.CANCER
+	## 不重推压迫公式（那是引擎的事）：直接读引擎查询当真相
+	var press_a: int = g.world.pressure_at(Vector2i(0, 0))
+	var press_b: int = g.world.pressure_at(Vector2i(3, 0))
+	var n_a: int = g.neighbors(Vector2i(0, 0)).size()
+	check(press_a == CWData.round_tenth(n_a * CWData.PRESSURE_CANCER_W * CWData.PRESSURE_MUL_BY_STAGE[0], CWData.PRESSURE_DIV),
+		"引擎压迫查询：低能量免疫周围 %d 癌格 → 压迫 %d" % [n_a, press_a])
+	check(g.world.pressure_lethal(ia) == true, "低能量免疫（能量 5）被压迫压死")
+	check(g.world.pressure_lethal(ib) == false, "高能量免疫（能量 500）不被压死")
+	## 一个健康骨髓、一个癌化骨髓
+	var m0: Vector2i = CWData.MARROWS[0]
+	var m1: Vector2i = CWData.MARROWS[1]
+	g.tiles[m0]["tissue"] = CWData.Tissue.HEALTHY
+	g.tiles[m1]["tissue"] = CWData.Tissue.CANCER
+	var intent := MechIntent.new()
+	var m: Dictionary = intent._read_metrics(g, 1)
+	check(int(m["immune_alive"]) == 2, "immune_alive = 2")
+	check(int(m["immune_pressure_total"]) == press_a + press_b,
+		"immune_pressure_total 与引擎 pressure_at 之和一致")
+	check(int(m["immune_lethal_count"]) == 1, "immune_lethal_count = 1（只低能量那只）")
+	check(int(m["min_immune_energy"]) == 5, "min_immune_energy = 5")
+	check(int(m["healthy_marrows"]) + int(m["cancer_marrows"]) == CWData.MARROWS.size(),
+		"healthy + cancer 骨髓 = 总骨髓数（%d）" % CWData.MARROWS.size())
+	check(int(m["cancer_marrows"]) >= 1, "cancer_marrows ≥ 1（踩过一个）")
+	g.dispose()
+
+
+## —— 癌方 scorer 战略维度：压迫 / 击杀 / 封骨髓（合成 metrics）——
+## 击杀一个免疫（immune_lethal_count+1）应大幅加分；持续压迫应加分；
+## 封住骨髓（cancer_marrows+1）应加分。权重必须让「真有战略结果」的候选
+## 赢过「只多占一格」的候选——这是 B+A 失败（维度够但权重没对齐）要修的。
+func t_mech_cancer_scorer_strategic() -> void:
+	print("[意图·癌方 scorer 战略维度]")
+	var base := { "win_progress": 20, "cancer_supply": 100,
+		"cancer_energy": 300, "immune_energy": 200,
+		"actor_energy": 300, "actor_solid_rounds": -1, "actor_min_immune_dist": 5,
+		"immune_alive": 2, "immune_pressure_total": 0, "immune_lethal_count": 0,
+		"min_immune_energy": 100, "healthy_marrows": 6, "cancer_marrows": 0 }
+	## 击杀：把一个免疫压死（lethal_count 0→1）应胜过只多占一格（win_progress +1）
+	var kill := base.duplicate()
+	kill["immune_lethal_count"] = 1
+	var expand := base.duplicate()
+	expand["win_progress"] = base["win_progress"] + 1
+	check(MechBridge._cancer_score(kill) > MechBridge._cancer_score(expand),
+		"压死一个免疫 > 多占一格（击杀被正确重权）")
+	## 持续压迫：总压迫上升应加分（剥削免疫能量）
+	var press := base.duplicate()
+	press["immune_pressure_total"] = 20
+	check(MechBridge._cancer_score(press) > MechBridge._cancer_score(base),
+		"持续压迫（+20）加分")
+	## 封骨髓：癌化一个骨髓（cancer_marrows 0→1）应加分
+	var marrow := base.duplicate()
+	marrow["cancer_marrows"] = 1
+	marrow["healthy_marrows"] = 5
+	check(MechBridge._cancer_score(marrow) > MechBridge._cancer_score(base),
+		"癌化一个骨髓（封复活点）加分")
 
 
 ## —— 意图 AI 桥冒烟与确定性 ——

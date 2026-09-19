@@ -55,6 +55,9 @@ func _find_move(req: Dictionary, to: Vector2i) -> int:
 
 
 ## 最终局面的杠杆读数：「做完之后的地图和能量」。
+## 除全局量外，加**行动细胞局部读数**（评估后 = 做完后的状态）：
+##   actor_energy：行动细胞能量（生存）；actor_solid_rounds：所在格到固化还需几回合（-1 = 非癌格）；
+##   actor_min_immune_dist：到最近免疫的距离（威胁，越小越危险）。
 func _read_metrics(g: CWGame, pid: int) -> Dictionary:
 	var faction: int = g.player(pid)["faction"]
 	var ct: int = g.count_tissue(CWData.Tissue.CANCER)
@@ -65,6 +68,50 @@ func _read_metrics(g: CWGame, pid: int) -> Dictionary:
 		imm_energy += int(c["energy"])
 	for c in g.living_cells(CWData.Faction.CANCER):
 		can_energy += int(c["energy"])
+	## 行动细胞（该 pid 第一只活细胞；评估后位置 = 最后落点）
+	var actor := {}
+	for c in g.cells:
+		if c["alive"] and int(c["pid"]) == pid:
+			actor = c
+			break
+	var actor_energy := 0
+	var actor_solid_rounds := -1
+	var actor_min_immune_dist := 999
+	if not actor.is_empty():
+		actor_energy = int(actor["energy"])
+		var ap: Vector2i = actor["pos"]
+		if g.tiles[ap]["tissue"] == CWData.Tissue.CANCER:
+			actor_solid_rounds = MechValue.rounds_to_solidify(
+				int(g.tiles[ap]["solid"]), MechValue.solidify_threshold(g))
+		for im in g.living_cells(CWData.Faction.IMMUNE):
+			actor_min_immune_dist = mini(actor_min_immune_dist, CWData.hex_dist(ap, im["pos"]))
+	## —— 战略读数（癌方「追杀免疫 + 踩骨髓」的度量）——
+	## 癌方没有走过去攻击的对称机制，减免疫能量靠【微环境压迫】（E 阶段被动）。
+	## 所以「追杀」= 让免疫被回合末压迫压死：用引擎 pressure_lethal 逐只判（含护盾减免）。
+	## 读的是「此刻盘面」的压迫 —— 评估路径试走后盘面已含定殖转化，是真实下界。
+	var immune_alive := 0
+	var immune_pressure_total := 0
+	var immune_lethal_count := 0
+	var min_immune_energy := 0
+	var first_immune := true
+	for im in g.living_cells(CWData.Faction.IMMUNE):
+		immune_alive += 1
+		immune_pressure_total += g.world.pressure_at(im["pos"])
+		if g.world.pressure_lethal(im):
+			immune_lethal_count += 1
+		var e: int = int(im["energy"])
+		if first_immune or e < min_immune_energy:
+			min_immune_energy = e
+			first_immune = false
+	## 骨髓控制：健康骨髓 = 免疫复活点；癌化/固化 = 封掉复活点
+	var healthy_marrows := 0
+	var cancer_marrows := 0
+	for mc in CWData.MARROWS:
+		var mt: int = int(g.tiles[mc]["tissue"])
+		if mt == CWData.Tissue.HEALTHY:
+			healthy_marrows += 1
+		elif mt == CWData.Tissue.CANCER or mt == CWData.Tissue.SOLID:
+			cancer_marrows += 1
 	return {
 		"faction": faction, "round_no": g.round_no,
 		"cancer_supply": MechValue.total_supply(g),
@@ -72,6 +119,15 @@ func _read_metrics(g: CWGame, pid: int) -> Dictionary:
 		"win_progress": ct + 2 * st,
 		"immune_level": g.immune_level, "memory": g.memory,
 		"immune_energy": imm_energy, "cancer_energy": can_energy,
+		"actor_energy": actor_energy,
+		"actor_solid_rounds": actor_solid_rounds,
+		"actor_min_immune_dist": actor_min_immune_dist,
+		"immune_alive": immune_alive,
+		"immune_pressure_total": immune_pressure_total,
+		"immune_lethal_count": immune_lethal_count,
+		"min_immune_energy": min_immune_energy,
+		"healthy_marrows": healthy_marrows,
+		"cancer_marrows": cancer_marrows,
 		"state_hash": g.state_hash(),
 	}
 
@@ -81,16 +137,43 @@ func _read_metrics(g: CWGame, pid: int) -> Dictionary:
 ## 生成当前行动方的迁移候选路径（从 pending 的合法 move 目标）。
 ## **第一项永远是「不动」（空路径）**：评估器必须能说「这个局面下任何迁移都不如站着」，
 ## 让桥只在「动了更好」时接管，否则回落启发式（攻击/卡牌/结束回合交给它）。
-## 返回 Array[Array[Vector2i]]。后续加 2 步 / 技能 / 卡牌意图时在这里扩展。
-func candidates(g: CWGame, pid: int) -> Array:
+## 默认生成 1 步 + **2 步**候选（回合内计划：走过去→蹲固化/踩核心/继续扩）：
+## 对每个 1 步目标试走一步（快照→step→恢复），取可达的下一步目标前 K 个。
+## 返回 Array[Array[Vector2i]]。
+func candidates(g: CWGame, pid: int, max_steps := 2) -> Array:
 	var req: Dictionary = await g.pending()
 	if req.is_empty() or int(req["pid"]) != pid:
 		return []
 	var out: Array = [[]]   ## 不动基线
+	var one_step: Array = []
 	for opt in req["options"]:
 		if opt["data"].get("act", "") == "move":
-			out.append([opt["data"]["to"]])
+			one_step.append(opt["data"]["to"])
+	for t in one_step:
+		out.append([t])
+	if max_steps < 2:
+		return out
+	## 2 步：对每个 1 步目标试走一步，取下一步可达目标前 K 个（控制候选数）
+	for to1 in one_step:
+		var idx := _find_move(req, to1)
+		if idx < 0:
+			continue
+		var snap := g.snapshot()
+		await g.step(idx)
+		var req2: Dictionary = await g.pending()
+		var second: Array = []
+		if not req2.is_empty() and int(req2["pid"]) == pid:
+			for opt in req2["options"]:
+				if opt["data"].get("act", "") == "move":
+					second.append(opt["data"]["to"])
+		g.restore(snap)
+		for to2 in second.slice(0, SECOND_STEP_MAX):
+			out.append([to1, to2])
 	return out
+
+
+## 每个 1 步目标最多展开的 2 步分支数（控候选数防爆炸；评估成本 ×~2）。
+const SECOND_STEP_MAX := 3
 
 
 ## 评估全部候选（每个 = { path, metrics }），评估后真局面复原。

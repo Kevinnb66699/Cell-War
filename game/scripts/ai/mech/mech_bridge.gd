@@ -28,13 +28,43 @@ func ask(req: Dictionary) -> int:
 	return await super.ask(req)
 
 
-## 癌方视角：地盘（胜利进度）+ 供给 + 能量银行差。
-## ⚠ 实验记录（2026-09-20）：曾试「供给 × 剩余回合折现 + 能量差降权」→ 移动率 6.7%→33% 但
-##    对普通免胜率反而 27.5%→15%（60 局实锤）。癌方弱不是「移动不够」；折现导致过度扩张、
-##    能量被掏空送免收割，方向错误，已回退。真正缺的是固化/生存/免疫威胁的评估（下一步）。
+## 癌方视角：地盘 + 供给 + 能量差，再叠局部与战略维度：
+##   · 固化潜力：蹲在接近固化的癌格上加分（造复活点/永久地盘/全图供给加成）；
+##   · 生存：行动细胞能量 < 2.0 时重罚（癌能量低=随时被免疫打死）；
+##   · 免疫威胁：贴免疫（dist<3）罚分（别送死——癌细胞会被免疫迁入攻击）；
+##   · 战略三维（2026-09-20）：击杀 / 压迫 / 封骨髓。癌方没有走过去攻击的对称机制，
+##     减免疫能量靠【微环境压迫】——所以「追杀」= 让免疫被回合末压迫压死。
+## ⚠ 实验记录：曾试「供给×剩余回合折现」→ 移动率升但胜率 27.5%→15%，已回退（30%）。
+## ⚠ B+A 教训：只加维度不调权重没用——这次是「真有战略结果（击杀/封髓）才重权」。
+## 权重是先验估计，待强度对局标定。
+
+## 击杀一个免疫的重权：移除一个行动者、强制复活延迟/耗骨髓、封完骨髓则永久。
+const W_KILL := 50.0
+## 持续压迫每点（十分能量/回合的剥削）的权重——回合末转化为免疫能量损失。
+const W_PRESSURE := 2.0
+## 封一个骨髓复活点的权重——配合击杀才致命，单独是中等战略价值。
+const W_MARROW := 15.0
+
 static func _cancer_score(m: Dictionary) -> float:
-	return float(m["win_progress"]) + float(m["cancer_supply"]) \
+	var s := float(m["win_progress"]) + float(m["cancer_supply"]) \
 		+ float(m["cancer_energy"]) - float(m["immune_energy"])
+	## 固化潜力：蹲在 1~2 回合内能固化的癌格上加分
+	var sr: int = int(m.get("actor_solid_rounds", -1))
+	if sr >= 0 and sr <= 2:
+		s += float(3 - sr)
+	## 生存：能量 < 2.0（十分位 20）危险，随缺口重罚
+	var ae: int = int(m.get("actor_energy", 0))
+	if ae < 20:
+		s -= float(20 - ae) * 2.0
+	## 免疫威胁：dist < 3 罚分（免疫能迁入攻击）
+	var d: int = int(m.get("actor_min_immune_dist", 999))
+	if d < 3:
+		s -= float(3 - d) * 5.0
+	## 战略三维：击杀 / 压迫 / 封骨髓（真有结果才重权）
+	s += float(m.get("immune_lethal_count", 0)) * W_KILL
+	s += float(m.get("immune_pressure_total", 0)) * W_PRESSURE
+	s += float(m.get("cancer_marrows", 0)) * W_MARROW
+	return s
 
 
 ## 免疫方视角：与癌方相反（-癌地盘 -癌供给）+ 免疫能量银行 + 记忆进度。权重先全 1。
