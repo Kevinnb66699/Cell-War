@@ -154,7 +154,7 @@ func _run_all() -> void:
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial,
 		t_entry_smoke_replay, t_entry_smoke_online,
-		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides, t_kernel_attach_engine, t_kernel_loader_moved, t_board_active_tiles,
+		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_kernel_loader_moved, t_board_active_tiles,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
 		t_rec_depth, t_rec_shape, t_rec_contract_only, t_rec_transparent,
 		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
@@ -22962,3 +22962,49 @@ func t_tutor_energy_formula() -> void:
 		"劝重置阈值 %s = 攻击三次 + 反弹自损：最省剩 %s 不劝、次优 3.5 剩 %s 当场劝"
 			% [CWData.fmt(advise), CWData.fmt(got - best), CWData.fmt(got - 35)])
 	g.dispose()
+
+## 意图级 AI（PR #59 的第四档）**只许在独立副本上试走**（Kevin 2026-09-19：「意图级 AI 会导致动画乱套或重复播放，
+## 怀疑是 AI 线程阻塞」—— 不是线程：MechBridge 在主线程同步跑，真凶是 MechIntent 把「快照→试走→回滚」
+## 跑在**真 game** 上）。每一次试走的 `g.step()` 都是真步：内核消费者把它推成 roll / result / fx / feed 条目、
+## 界面照演，回滚后真的那一步又演一遍 ⇒ 乱套、重复；日志与出牌列也被假动作填满。
+## 判据与 t_ai_mc 的 ①同一口径：评估完真局面哈希逐位不变、日志与出牌列一条不多、pending 还是同一问。
+func t_mech_bridge_quiet() -> void:
+	print("[AI·意图级：试走只在独立副本上]")
+	var g := make_game(2, 33)
+	var cp := -1
+	for pid in g.order:
+		if int(g.player(pid)["faction"]) == CWData.Faction.CANCER:
+			cp = pid
+			break
+	var mb := MechBridge.new()
+	mb.game = g
+	mb.delay_ms = 0
+	g.bridges[cp] = mb
+	await run_setup(g)
+	var req: Dictionary = {}
+	while true:
+		req = await g.pending()
+		if req.is_empty() or (req["kind"] == "action" and req["pid"] == cp):
+			break
+		await g.step(await g.ask(req["pid"], req))
+	check(not req.is_empty(), "推进到了癌方的行动决策点")
+	var h0 := g.state_hash()
+	var n0 := g.logs.size()
+	var f0 := g.feed_log.size()
+	var seq0 := g.feed_seq
+	var lines: Array = []
+	g.log_line.connect(func(t: String) -> void: lines.append(t))
+	var a1: int = await mb.ask(req)
+	check(a1 >= 0 and a1 < req["options"].size(), "意图档给出的是这一问的合法下标（%d / %d）" % [a1, req["options"].size()])
+	check(g.state_hash() == h0, "意图评估完，真局面哈希逐位不变（试走没有落在真 game 上）")
+	check(g.logs.size() == n0 and lines.is_empty(), "试走没有留下日志、也没往界面发过一条 log_line（%d 条）" % lines.size())
+	check(g.feed_log.size() == f0 and g.feed_seq == seq0, "出牌列 feed_log / feed_seq 一条不多（假动作不进演出）")
+	var again: Dictionary = await g.pending()
+	check(not again.is_empty() and again["pid"] == req["pid"] and again["kind"] == "action"
+			and again["options"].size() == req["options"].size(),
+		"评估完 pending 还是原来那一问（真 game 没被 step 过）")
+	check(not g.sim_quiet, "真 game 的 sim_quiet 没被副本的静音波及")
+	var a2: int = await mb.ask(req)
+	check(a1 == a2, "同局面两次评估答案一致（确定性：副本 rng 随快照复原）")
+	g.dispose()
+

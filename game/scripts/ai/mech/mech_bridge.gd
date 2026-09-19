@@ -19,7 +19,15 @@ func ask(req: Dictionary) -> int:
 		var scorer: Callable = MechBridge._cancer_score if fac == CWData.Faction.CANCER \
 			else MechBridge._immune_score
 		var intent := MechIntent.new()
-		var best: Dictionary = await intent.best_by(game, req["pid"], scorer)
+		## ⚠ **评估只许在独立副本上跑，真 game 一行不动**（Kevin 2026-09-19：意图档「动画乱套或重复播放」）。
+		## 第一版把 MechIntent 的「快照→试走→回滚」直接跑在真 game 上：每一次试走的 `g.step()` 都是真步——
+		## 内核消费者把它推成 roll / result / fx / feed 条目、界面照演，回滚之后真的那一步又演一遍；
+		## 日志与出牌列也被假动作污染。与 MC / MCTS 同一条路：从快照造一份 `sim_quiet` 的副本
+		## （陪练全是同步启发式，零真挂起），确定性照旧（rng 随快照复原）。护栏 `t_mech_bridge_quiet`。
+		var image: CWGame = CWMonteCarloBridge._build_image_static(game.snapshot(), {
+			"fixed_lineup": fixed_lineup, "lifecare": lifecare, "sim_no_lifecare": false })
+		var best: Dictionary = await intent.best_by(image, req["pid"], scorer)
+		image.dispose()
 		## 只在「动过确实更好」时接管：best 为空路径（不动基线赢）→ 回落启发式
 		if best.has("path") and best["path"].size() > 0:
 			var idx := _find_move_option(req, best["path"][0])
