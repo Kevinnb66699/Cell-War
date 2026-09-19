@@ -98,6 +98,10 @@ FUNC_SUBSYSTEM = [
     #   t_effector_fx / t_attack_fx / t_spread_fx / t_teleport_fx / t_dice / t_human_ask / t_card_fx_hooks 归 ui。
     (r"^t_(attack_fx|card_draw_fx|chemo_blink|effector_fx)$", "ui"),
     (r"^t_(hunt_fx|issue31_fx|spread_fx|teleport_fx|ui_sfx)$", "ui"),
+    # 2026-09-19 的三条表现 issue（#48 能量飘字 / #52 固化弥散 / #53 特效八条）：
+    # 整支都是演出层的纯函数与接线断言，**零规则量** —— 兜底的 `^_?t_` 会把它扫进 core、
+    # 凭空把闸三的分母抬 32 站点，按 §0.6.5 第 6 条逐名归 ui
+    (r"^t_issue_fx_0919$", "ui"),
     (r"^t_.*_(panel|bar|box|row|tip|info|view|preview|marker|blink|glow|highlight|width|fit)$", "ui"),
     (r"^t_(action_bar_width|announce|board_view|breath_sheets|buttons_dim|codex)$", "ui"),
     (r"^t_(config_custom|config_panel|feedback|font_coverage|hex_pick|hover_layer)$", "ui"),

@@ -140,7 +140,7 @@ func _run_all() -> void:
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_board_small, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
-		t_card_name_fit, t_view_blend, t_attack_fx, t_issue31_fx, t_plan_allowance, t_announce, t_action_bar_width,
+		t_card_name_fit, t_view_blend, t_attack_fx, t_issue31_fx, t_issue_fx_0919, t_plan_allowance, t_announce, t_action_bar_width,
 		t_buttons_dim, t_enter_not_skipped, t_main_menu,
 		t_codex, t_quit_confirm, t_roll_hook, t_dice, t_net_protocol,
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
@@ -21612,10 +21612,13 @@ const TUTOR_FX_CASES := [
 ## 公共特效三支的**源文件指纹**（行尾统一成 LF 之后的 md5）。
 ## 这条闸的意思只有一句：**教程别去改公共特效**。真要动它们（真人对局的回归面），
 ## 改完把这三个数更新掉，并在 `docs/开发日志.md` 里说清为什么动 —— 别默默改了闸。
+## 2026-09-19（issue #53 ④⑧）：beam_fx / teleport_fx 由**表现组**按 issue 改过一轮
+## （光束起点改胞体表面；传送多了 lag / shrink 两个可选参数给血行转移对时），指纹随之重录。
+## 这道闸认的是「**教程**没去改真人对局也在用的那几支」—— 改的人不是教程，重录是对的。
 const PUBLIC_FX_MD5 := {
-	"res://scripts/ui/beam_fx.gd": "28579d5d058859f956e767c5b32ebff2",
+	"res://scripts/ui/beam_fx.gd": "ef91f82f916b989bea2e2827a980582b",
 	"res://scripts/ui/attack_fx.gd": "bd407bdc8afeffe5b1c962cc14819d4d",
-	"res://scripts/ui/teleport_fx.gd": "7b046d89b1433e686909130501433561",
+	"res://scripts/ui/teleport_fx.gd": "2a9f91fcc2c6020d007dbc676206f15e",
 }
 
 
@@ -21928,3 +21931,282 @@ func _tutor_fx_track(fx, args: Dictionary) -> Array:
 		out.append([st.get("off", Vector2.ZERO), st.get("tex", -1), st.get("alpha", 0.0),
 			st.get("slices", []), st.get("bars", [])])
 	return out
+
+
+## 2026-09-19 的三条表现 issue：#48 能量增损通用动画、#52 固化生成的像素弥散、#53 特效 bug 八条。
+## 每条钉一句「改成了什么」——改回去就红。演出层的时间都是纯函数，所以无头喂帧就够。
+func t_issue_fx_0919() -> void:
+	print("[issue #48 / #52 / #53 · 表现]")
+	var board := make_board()
+	var fx_src := FileAccess.get_file_as_string("res://scripts/ui/skill_fx.gd")
+	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+
+	# ---- #48 能量增损的通用飘字 ----
+	var ENERGY := preload("res://scripts/ui/energy_fx.gd")
+	check(ENERGY.text_of(15) == "+1.5" and ENERGY.text_of(-15) == "-1.5"
+			and ENERGY.text_of(-5) == "-0.5" and ENERGY.text_of(3) == "+0.3",
+		"飘字文案自己带符号 —— 直接用 CWData.fmt(-5) 会印成「0.5」（整数除法把符号吃了）")
+	var missing: Array = []
+	for ch in "0123456789+-.":
+		if not ENERGY.GLYPH.has(ch):
+			missing.append(ch)
+	check(missing.is_empty() and ENERGY.text_width("+1.5") == 13,
+		"3×5 字模齐了 0~9 与 +-.，「+1.5」宽 %d px（小数点只占半格）" % ENERGY.text_width("+1.5"))
+	check(is_zero_approx(ENERGY.rise(0.0)) and ENERGY.rise(ENERGY.LIFE) < -12.0
+			and ENERGY.rise(0.3) > ENERGY.rise(0.6),
+		"一生往上走 %.0f px，缓出（起手快、末尾几乎停住）" % -ENERGY.rise(ENERGY.LIFE))
+	var steps := {}
+	for i in 30:
+		steps[ENERGY.alpha_of(float(i) * ENERGY.LIFE / 30.0)] = true
+	check(steps.size() <= 3 and is_zero_approx(ENERGY.alpha_of(ENERGY.LIFE)),
+		"透明度只取 %d 档、末尾归零（像素纪律 ③）" % steps.size())
+
+	var ef: Node2D = ENERGY.new()
+	board.add_child(ef)
+	ef.push(0, Vector2(10, 10), 12)
+	ef.push(0, Vector2(10, 10), -4)
+	check(ef.active() == 1, "同一拍里的多次变化合并成一条（攻击扣血 + 反弹常常一起落地）")
+	ef.push(1, Vector2(40, 10), 7)
+	ef.sync(ENERGY.MERGE + 0.01)
+	ef.push(0, Vector2(10, 10), -3)
+	check(ef.active() == 3, "合并窗口过了就另起一条，左右错峰（不叠在一起）")
+	for i in ENERGY.MAX_PER_CELL + 2:
+		ef.sync(ENERGY.MERGE + 0.01)
+		ef.push(0, Vector2(10, 10), -1)
+	var mine := 0
+	for f in ef._floats:
+		if int(f["cid"]) == 0:
+			mine += 1
+	check(mine <= ENERGY.MAX_PER_CELL, "同一只细胞最多同时留 %d 条 —— 别刷屏" % ENERGY.MAX_PER_CELL)
+	var before_cancel: int = ef.active()
+	ef.push(2, Vector2(0, 0), 5)
+	ef.push(2, Vector2(0, 0), -5)
+	check(ef.active() == before_cancel, "一进一出正好抵消 → 那条自己撤掉")
+	ef.clear()
+	check(not ef.visible and ef.active() == 0, "拆局擦得干净（没人再 sync，最后一帧会永远留在屏幕上）")
+
+	check(CWMatchPanel.energy_color(false, 0.0, true).is_equal_approx(CWStyle.ENERGY_GAIN)
+			and CWMatchPanel.energy_color(false, 0.0, false).is_equal_approx(CWStyle.ENERGY_LOSS)
+			and CWMatchPanel.energy_color(false, -1.0, true).is_equal_approx(CWStyle.TEXT_HI)
+			and CWMatchPanel.energy_color(false, CWMatchPanel.ENERGY_FLASH, true).is_equal_approx(CWStyle.TEXT_HI)
+			and CWMatchPanel.energy_color(true, 0.0, true).is_equal_approx(CWStyle.TEXT_OFF),
+		"右栏那一行同步色闪：进账青绿 / 出账粉红，%.2f 秒回到常色；死了照旧灰" % CWMatchPanel.ENERGY_FLASH)
+	check(msrc.contains("_energy_fx.push(i,") and msrc.contains("panel.bump_energy(")
+			and msrc.contains("_last_energy[i] != ENERGY_FX.UNSEEN"),
+		"棋盘飘字与右栏色闪同一处触发，判据是**镜像差分**（引擎零改动，同传送溶解那条先例）")
+
+	# ---- #52 固化癌组织的生成 / #53 ⑥ 解除 ----
+	check(CWSkillFx.DURATION.has("solid_form") and CWSkillFx.DURATION.has("solid_break"),
+		"固化的生成与解除各是一条演出")
+	var m: Array = CWSkillFx.solid_mosaic()
+	var x0 := 99
+	var y0 := 99
+	var y1 := -99
+	var outside := 0
+	for b in m:
+		var at: Vector2i = b[0]
+		x0 = mini(x0, at.x)
+		y0 = mini(y0, at.y)
+		y1 = maxi(y1, at.y)
+		if absf(float(at.x)) + absf(float(at.y)) * 0.6 > 17.0:
+			outside += 1
+	check(x0 == CWSkillFx.MOSAIC_X0 and y0 == CWSkillFx.MOSAIC_Y0 and y1 >= 18 and outside > 0,
+		"马赛克铺满整张六边形贴图（x %d…、y %d…%d，越出旧方框的块 %d）—— 不再是那个长方形"
+			% [x0, y0, y1, outside])
+	var home := CWSkillFx.solid_block(3, Vector2i(0, 0), 1.0)
+	var away := CWSkillFx.solid_block(3, Vector2i(0, 0), 0.0)
+	check(Vector2(home["off"]).is_zero_approx() and is_equal_approx(float(home["a"]), 1.0)
+			and Vector2(away["off"]).length() > 10.0,
+		"p=1 全就位、p=0 全散开（生成与解除是同一套粒子，只差方向）")
+	check(not fx_src.contains("func stone_patch") and not fx_src.contains("stone_patch(self"),
+		"「碎石重生」那层长方形马赛克整条删掉了（issue #53 ⑥；它还画错了格 —— 降级的是 anchor）")
+	check(msrc.contains('"solid_form" if bool(e[1]) else "solid_break"')
+			and msrc.contains("SOLID_FX_MAX"),
+		"进 / 出 SOLID 由 _sync_tiles 的镜像差分开演，一帧变太多格（快照回灌）只记不演")
+
+	# ---- #53 ①② 从细胞中心发出 + 受击震动 ----
+	for kind in ["antibody", "lyse", "differentiate", "mutate", "revive_immune", "revive_cancer"]:
+		check(CWUIBridge.FX_BODY_CENTER.has(kind), "%s 的粒子中心对准胞体，不再是脚底 / 格心" % kind)
+	check((CWUIBridge.FX_BODY_CENTER["antibody"] as Array).has("targets"),
+		"抗体连**目标**也按各自那格的贴图高算（数组键也给 _body）")
+	check(CWSkillFx.hit_shake(-0.1) == Vector2.ZERO
+			and CWSkillFx.hit_shake(CWSkillFx.HIT_SHAKE_FOR) == Vector2.ZERO
+			and CWSkillFx.hit_shake(0.02).length() > 0.0
+			and is_zero_approx(CWSkillFx.hit_shake(0.02).y),
+		"受击震动只横向、幅度线性收敛、%.2f 秒收干净" % CWSkillFx.HIT_SHAKE_FOR)
+	var sk := CWSkillFx.new()
+	sk.z_index = board.Z_OVER_BOARD
+	board.add_child(sk)
+	var hit: Vector2 = board.tile_center(Vector2i(1, 0)) + Vector2(0, CWMatch.CELL_FOOT_DY)
+	sk.play("antibody", { "from": board.tile_center(Vector2i(-1, 0)), "targets": [hit] })
+	check(sk.shake_offset(hit) == Vector2.ZERO, "抗体还在飞的时候不抖")
+	sk.sync(CWSkillFx.ANTIBODY_HIT + 0.1)
+	check(sk.shake_offset(hit) != Vector2.ZERO
+			and sk.shake_offset(hit + Vector2(40, 0)) == Vector2.ZERO,
+		"命中那一刻只有**被打中的那一格**上的细胞抖")
+	check(msrc.contains("_skill_fx.shake_offset(top + Vector2(0, CELL_FOOT_DY))"),
+		"抖动和伪足的 carry_pos 一样由演出层代管（细胞 position 每帧被 _sync_cells 覆写）")
+
+	# ---- #53 ③ 细胞毒素在细胞之下 ----
+	var axials: Array[Vector2i] = [Vector2i(0, 0), Vector2i(1, 0), Vector2i(0, 1)]
+	var tiles: Array = []
+	var zs: Array = []
+	for c in axials:
+		tiles.append(board.tile_center(c))
+		zs.append(board.tile_z(c, board.Z_MARK))
+	sk.play("toxin", { "from": board.tile_center(Vector2i(0, 0)), "tiles": tiles, "tiles_z": zs })
+	var dots: Array = []
+	for ch in sk.get_children():
+		if ch is CWSkillFx.GroundDot and String((ch as CWSkillFx.GroundDot).kind) == "toxin":
+			dots.append(ch)
+	var z_ok := dots.size() == axials.size()
+	for i in dots.size():
+		var dot: Node2D = dots[i]
+		## 比的是**同一格**上的细胞：z 是按排算的（前一排 +20），拿别的格去比毫无意义
+		if dot.z_as_relative or dot.z_index != int(zs[i]) \
+				or dot.z_index >= board.tile_z(axials[i], board.Z_CELL):
+			z_ok = false
+	check(z_ok, "七格各一个贴花节点、各拿自己那格的 z（比自己那格高、比细胞低）—— 一层 z 铺不出按排分层")
+	sk.clear()
+	await process_frame
+	var left := 0
+	for ch in sk.get_children():
+		if ch is CWSkillFx.GroundDot:
+			left += 1
+	check(left == 0, "拆局把贴花一并 queue_free（下一局不许留着上一局的粒子）")
+
+	# ---- #53 ④ 血门伪 3D + 癌细胞跟着血流走 ----
+	check(CWSkillFx.HOMING_SQUASH < 0.5 and not is_zero_approx(CWSkillFx.HOMING_TILT),
+		"血门压扁到 %.2f 并整体倾斜 —— 躺在地上而不是立在格子上" % CWSkillFx.HOMING_SQUASH)
+	var a: Vector2 = board.tile_center(Vector2i(-2, 0))
+	var b: Vector2 = board.tile_center(Vector2i(2, 0))
+	sk.play("homing", { "from": a, "to": b })
+	check(sk.homing_elapsed(a, b) >= 0.0 and sk.homing_elapsed(b, a) < 0.0,
+		"传送演出拿两格的像素问「这一跳是不是血行转移」")
+	check(CWSkillFx.HOMING_LAND - CWSkillFx.HOMING_LAUNCH > CWTeleportFx.LAG,
+		"落场推迟到血流落地（%.2f s），中间那一秒细胞不在场"
+			% (CWSkillFx.HOMING_LAND - CWSkillFx.HOMING_LAUNCH))
+	var tm0: Array = CWMatch.homing_teleport_timing(0.0)
+	var tm5: Array = CWMatch.homing_teleport_timing(0.5)
+	var tm_no: Array = CWMatch.homing_teleport_timing(-1.0)
+	check(bool(tm0[2]) and bool(tm5[2]) and not bool(tm_no[2]) and float(tm_no[0]) < 0.0,
+		"是血行转移才缩放；不是的话第一个返回 -1 —— 别动外面按环算好的那个 delay")
+	check(is_equal_approx(float(tm0[0]) + float(tm0[1]), CWSkillFx.HOMING_LAND)
+			and is_equal_approx(float(tm5[0]) + float(tm5[1]), CWSkillFx.HOMING_LAND - 0.5)
+			and is_zero_approx(float(tm5[0])),
+		"离场 / 落场都锚在**绝对时刻**：桥阻塞 500 ms 之后才轮到镜像差分，晚问 0.5 s 也照样在血流落地那一刻（%.2f s）凝出"
+			% CWSkillFx.HOMING_LAND)
+	check(float(CWMatch.homing_teleport_timing(CWSkillFx.HOMING_LAND + 1.0)[1]) >= CWTeleportFx.LAG,
+		"血流早落地了才问到：至少留出残影溶解那一下，不许负数")
+	check(msrc.contains("homing_teleport_timing(homing)"), "_play_teleports 走的就是这支纯函数")
+	sk.clear()
+
+	# ---- #53 ⑤ 分化：粒子照原型是硬像素，虚化 = 贴图交叉淡入淡出 ----
+	check(fx_src.contains("CYAN, 9, 20.0, true)") and not fx_src.contains(", true, true)"),
+		"粒子逐参数照抄原型 common-skills.js:67 的 burst(…,cyan,9,20,true) —— 硬像素，虚化不在这儿")
+	check(is_equal_approx(CWMatch.ART_FADE, float(CWSkillFx.DURATION["differentiate"])),
+		"交叉淡入淡出与「粒子重组」共一条 p 曲线（原型里就是同一个 progress）")
+	var art_old: Texture2D = CWMatch.IMMUNE_ART[CWData.ImmuneType.BASIC]
+	var sp := Sprite2D.new()
+	sp.texture = art_old
+	sp.hframes = CWMatch.BREATH_FRAMES
+	sp.frame = 3
+	sp.offset = Vector2(0, -art_old.get_height() / 2.0)
+	root.add_child(sp)        ## 必须进场景树：补间由节点驱动（make_board 出来的那只没挂进去）
+	CWMatch.cross_fade_art(sp)
+	var ghost := sp.get_node_or_null(CWMatch.ART_FADE_NODE) as Sprite2D
+	check(ghost != null and ghost.texture == art_old and ghost.offset == sp.offset
+			and ghost.hframes == sp.hframes and ghost.frame == sp.frame,
+		"旧形态留一张同规格的临时贴图（三种贴图高度不同，offset 抄错就上下跳）")
+	check(is_equal_approx(ghost.self_modulate.a, 1.0) and is_zero_approx(sp.self_modulate.a),
+		"起手旧层不透明、真身全透明；走 self_modulate —— 父节点的 modulate 会乘到子节点上（_pop_in 用的就是它）")
+	await create_timer(CWMatch.ART_FADE * 0.5).timeout
+	check(ghost.self_modulate.a < 0.95 and sp.self_modulate.a > 0.05
+			and absf(ghost.self_modulate.a + sp.self_modulate.a - 1.0) < 0.02,
+		"中途两层 alpha 之和恒为 1（原型 fade(1-p) + fade(p)，common-skills.js:59）")
+	await create_timer(CWMatch.ART_FADE * 0.6).timeout
+	check(not ghost.visible and is_equal_approx(sp.self_modulate.a, 1.0),
+		"淡完：旧层收起、真身回到不透明")
+	root.remove_child(sp)
+	sp.free()
+
+	# ---- #53 ⑦ 突变上移 ----
+	check(fx_src.contains("var y := a.y - 12.0 + float(i) * 3.0"),
+		"突变的双股以胞体中心为准上下各 12px（原来整束落在细胞下半身）")
+
+	# ---- #53 ⑧ Excalibur 从细胞表面发出 ----
+	var bf := CWBeamFx.new()
+	board.add_child(bf)
+	var none: Array[Vector2] = []
+	bf.play(Vector2(0, 0), Vector2(100, 0), none, 11.0)
+	check(is_equal_approx(bf._start, 11.0),
+		"光束的起手偏移改成**胞体半径**（起点也改成胞体中心）—— 不再是写死的 16px")
+	var usrc := FileAccess.get_file_as_string("res://scripts/ui/ui_bridge.gd")
+	check(usrc.contains("beam_fx.play(body, board.tile_center(to), pts, half)"),
+		"桥把胞体中心与半径一起交给光束")
+	var psrc := FileAccess.get_file_as_string("res://tests/preview/preview_fx_0919.gd")
+	check(not psrc.contains("get_height() / 12.0"),
+		"动图预览的起手偏移也按胞体半径 —— 交给 Kevin 的那张图要演实装行为，不是另一套参数")
+
+	# ---- #48 / #52 遮罩外不演 + ⑤ 的接线：一只真 CWMatch 上走镜像差分 ----
+	CWTutorLayers.reset()          ## 能量层可能被别的教程用例改过（静态表跨局留味道）
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var mt: CWMatch = main_scene.match_node
+	var g := bare_game()
+	var imm := put_immune(g, Vector2i(0, 0))
+	mt.mirror = _mirror_of(g)
+	mt._sync_cells()                ## 首帧只记不演（差分得有上一帧）
+	check(mt._energy_fx.active() == 0, "第一次见这只细胞：只记不演")
+	imm["energy"] = int(imm["energy"]) + 9
+	mt.mirror = _mirror_of(g)
+	mt._sync_cells()
+	check(mt._energy_fx.active() == 1, "揭示过的格上能量一变就飘一个 ±数字")
+	## 评审（2026-09-19 合并时）抓的哑火：同一只细胞在 MERGE 窗口（0.22 s）内的第二笔会**并进**上一条，
+	## 条数不变、active() 照样是 1，把 match.gd 的 `and board.is_active(pos)` 删掉这两条也绿。
+	## 所以先把窗口推过去（sync 0.3 s），泄漏就会长出第二条；再核金额仍是 +9（并进去会变 5）。
+	mt._energy_fx.sync(0.3)
+	mt.board.set_active_tiles([Vector2i(5, 0)], 0.0)     ## 把它那格遮起来
+	imm["energy"] = int(imm["energy"]) - 4
+	mt.mirror = _mirror_of(g)
+	mt._sync_cells()
+	check(mt._energy_fx.active() == 1 and int(mt._energy_fx._floats[0]["amount"]) == 9,
+		"遮罩外的格不飘字 —— 否则教程里「预置 + 遮罩揭示」当场穿帮（飘字压在 Z_OVER_BOARD；条数与金额都核）")
+	mt._energy_fx.sync(0.3)
+	mt.board.set_active_tiles(CWData.all_coords(), 0.0)
+	mt.mirror = _mirror_of(g)
+	mt._sync_cells()
+	check(mt._energy_fx.active() == 1 and int(mt._energy_fx._floats[0]["amount"]) == 9,
+		"揭示之后不补演：_last_energy 照旧在条件外更新，攒不出一条（条数与金额都核）")
+	## ⑤ 的接线：itype 变了才交叉，刚落子那一次直接上图
+	var node0: Sprite2D = mt._cell_nodes[0] as Sprite2D
+	check(node0.get_node_or_null(CWMatch.ART_FADE_NODE) == null, "刚落子那一次直接上图，不交叉")
+	var was_tex: Texture2D = node0.texture
+	imm["itype"] = CWData.ImmuneType.B_CELL
+	mt.mirror = _mirror_of(g)
+	mt._sync_cells()
+	var gh := node0.get_node_or_null(CWMatch.ART_FADE_NODE) as Sprite2D
+	check(gh != null and gh.visible and gh.texture == was_tex and node0.texture != was_tex,
+		"分化那一帧认出 itype 变了 → 旧形态淡出、新形态淡入（原型 common-skills.js:59）")
+	## #52 同理：进 / 出固化也归遮罩管
+	mt._sync_tiles()                                     ## 先记一份 tissue 基准
+	mt._skill_fx.clear()
+	var hidden := Vector2i(3, 0)
+	mt.board.set_active_tiles([Vector2i(-5, 0)], 0.0)
+	g.tiles[hidden]["tissue"] = CWData.Tissue.SOLID
+	mt.mirror = _mirror_of(g)
+	mt._sync_tiles()
+	check(mt._skill_fx.active() == 0, "遮罩外的格固化了也不炸粒子（同上：会把还没揭的盘面泄出去）")
+	mt.board.set_active_tiles(CWData.all_coords(), 0.0)
+	mt.mirror = _mirror_of(g)
+	mt._sync_tiles()
+	check(mt._skill_fx.active() == 0, "揭示之后同样不补演（_last_tissue 也在条件外更新）")
+	root.remove_child(main_scene)
+	main_scene.free()
+
+	bf.queue_free()
+	sk.queue_free()
+	ef.queue_free()
+	board.queue_free()
+	await process_frame
