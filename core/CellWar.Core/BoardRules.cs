@@ -342,7 +342,7 @@ internal static class BoardRules
         return count >= SolidifyThreshold(s) ? s.UpdateTissueState(pos, TissueState.SolidifiedCancer) : s;
     }
 
-    /// <summary>固化门槛：走旋钮（默认 I 期 3.0，II/III 期 2.0）。</summary>
+    /// <summary>固化门槛：走旋钮（默认 I 期 3.0、II 期 2.0、III 期 1.5 —— 环境恶化，issue #56）。</summary>
     internal static int SolidifyThreshold(WorldState s) => RuleTuning.ByStage(s.Tuning.SolidifyThreshold, Stage(s));
 
     /// <summary>5 【E-固化】：有癌细胞停留的癌组织按格加计数（说明 #22；同一格只算一次）。</summary>
