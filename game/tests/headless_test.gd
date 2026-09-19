@@ -8058,13 +8058,14 @@ func t_ui_bridge() -> void:
 	## 探针：旧色标下两种组织的色距确实小得读不出来 —— 闸得认得出 issue 报的那个现象
 	check(d_old < 0.32, "探针：旧色标下癌性格与健康格只差 %.2f（#47 报的低对比）" % d_old)
 	check(d_new > d_old * 2.0, "新色标把色距拉到 %.2f（旧 %.2f，两倍以上）" % [d_new, d_old])
-	## Kevin 2026-09-19「癌性组织上方的滤镜太淡了」：高亮的癌格还得和**没高亮的**癌格分得开。
-	## 第一版（#E05A6E @0x6E）叠完只差 0.09 —— 探针：那个值闸得认得出来
+	## Kevin 2026-09-19「滤镜太淡了」→「把最原版的红色稍微加深一点就行了」：钉的是和第一版的关系 ——
+	## 同一家红，**更深**（饱和度高于第一版 #E05A6E @0x6E 叠出的 #C55163：粉压下去），
+	## 且**不比第一版更淡**（与未高亮癌格 #B04A5A 的色距不小于第一版的 0.09）
 	var first_sick := sick_base.lerp(Color8(0xE0, 0x5A, 0x6E), 0x6E / 255.0)
 	var d_first := Vector3(first_sick.r - sick_base.r, first_sick.g - sick_base.g, first_sick.b - sick_base.b).length()
 	var d_lift := Vector3(new_sick.r - sick_base.r, new_sick.g - sick_base.g, new_sick.b - sick_base.b).length()
-	check(d_first < 0.12, "探针：第一版色标叠完与未高亮癌格只差 %.2f（滤镜太淡）" % d_first)
-	check(d_lift > 0.15, "现色标叠完与未高亮癌格差 %.2f（> 0.15，高亮读得出来）" % d_lift)
+	check(new_sick.s > first_sick.s, "比第一版更深：饱和度 %.2f > 第一版 %.2f" % [new_sick.s, first_sick.s])
+	check(d_lift >= d_first, "不比第一版更淡：与未高亮癌格色距 %.2f ≥ 第一版 %.2f" % [d_lift, d_first])
 	## 与「可攻击」的橙别撞色：那是另一个词
 	var atk_mark: Color = board.MARK_ATTACK
 	var atk_sick := sick_base.lerp(Color(atk_mark.r, atk_mark.g, atk_mark.b), atk_mark.a)
