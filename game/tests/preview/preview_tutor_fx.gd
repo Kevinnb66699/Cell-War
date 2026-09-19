@@ -4,6 +4,8 @@ extends SceneTree
 ## 为什么非得出图：这六种演出规则里都没有，无头测试只能证明「喂时间不报错、同一个 t 结果一样」，
 ## 证明不了**好不好看**。而本片里有两处是明着要 Kevin / hxr 挑的：
 ##   ① 像素错误三种表现（jitter 抖动 / blocks 色块错位 / scanlines 扫描线）—— hxr 未答口径，三种都做；
+##      **Kevin 2026-09-19 定 `blocks` 为默认并加了「马赛克串台」**（错开的那几条里有一小片是别人的像素）,
+##      所以 blocks 另出一段 `glitch_blocks_morph`：串台来源 = pool / morph_to，马赛克就是变身预告；
 ##   ② 自动重置提示三个候选（rewind 倒带 / edge 边缘红光 + 棋盘抖 / dissolve 溶解再浮现）——
 ##      Kevin 2026-09-19「两个都不好，重做」，这是重做的三版。
 ##
@@ -51,6 +53,18 @@ const SHOTS := [
 		"cells": [[Vector2i(0, 0), "Macrophage"], [Vector2i(2, 0), "ImmuneBasic"],
 			[Vector2i(-2, 1), "TCell"]],
 		"at": [0.20, 0.60, 1.10]},
+
+	## ③′ 像素错误 · **拍板的那一版**：blocks + 马赛克串台 + 随机切换 + 定格印戒细胞癌
+	## （PRD:487-489）。串台块采的就是 `pool` / `morph_to` 里的贴图 —— 错开的那几条里
+	## 会先闪出「将要变成的样子」，再定格成印戒细胞癌。第七关那一处用的就是这套参数
+	{"name": "glitch_blocks_morph", "kind": "glitch", "proxy": 0, "tumor": Vector2i(0, 0),
+		"zoom": 2.8,
+		"args": {"at": Vector2i(0, 0), "mode": "blocks", "intensity": "heavy",
+			"shuffle": true, "pool": ["ImmuneBasic", "TCell", "Melanoma", "Osteosarcoma"],
+			"morph_to": "SignetRing", "seed": 20260919},
+		"cells": [[Vector2i(0, 0), "Melanoma"], [Vector2i(2, 0), "ImmuneBasic"],
+			[Vector2i(-2, 1), "TCell"]],
+		"at": [0.30, 1.10, 1.85]},
 
 	## ④ 像素错误 · 模式三：扫描线（**剧烈** + 随机切换 + 定格印戒细胞癌，PRD:487-489）
 	{"name": "glitch_scanlines", "kind": "glitch", "proxy": 0, "tumor": Vector2i(0, 0), "zoom": 2.8,
@@ -114,7 +128,7 @@ var _k := 0
 var _t := 0.0
 var _save := ""
 var _n := 0
-var _dump := ""                 ## 非空 = 逐帧倾倒这一段（空 = 照旧出 27 张静帧）
+var _dump := ""                 ## 非空 = 逐帧倾倒这一段（空 = 照旧出 30 张静帧）
 var _dump_n := 0
 var _dump_total := 0
 

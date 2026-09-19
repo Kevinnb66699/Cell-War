@@ -65,11 +65,25 @@ const DARK_B := Color("2b1338")   ## 环
 const DARK_C := Color("6b2f7a")   ## 环缘 / 碎粒
 
 ## 像素错误（PRD:399/403/487）
+const GLITCH_MODE := "blocks"   ## 缺省表现（Kevin 2026-09-19 拍板：三选一定「色块错位」）
 const GLITCH_SECS := {"light": 1.2, "heavy": 2.0}
 const GLITCH_SLICES := 5      ## blocks 模式把胞体横切几条
 const GLITCH_BARS := 3        ## scanlines 模式同时几条暗带
 const MORPH_AT := 0.80        ## 演到这个比例就把贴图换成 morph_to
 const SHUFFLE_AT := 0.20      ## 随机切换从这个比例开始（PRD:487）
+## **马赛克串台**（Kevin 2026-09-19）：blocks 模式下，错开的那几条里随机挑 1~3 块，
+## 那一小片画的**不是自己的像素**，而是从 `pool` / `morph_to` 的贴图**同一位置**采来的，
+## 闪 1~3 帧再换一批 —— 像信号串台。间章「分化→普通」「免疫→小细胞肺癌」与第七关
+## 「随机切换→定格印戒」这三处，串台来源正好就是「将要变成的样子」，马赛克本身就成了预告。
+const MOSAIC_MAX := {"light": 2, "heavy": 3}      ## 一次同时串几块（1~这个数），随强度
+const MOSAIC_HOLD := 3                            ## 一组串台连着几帧（1~这个数）再换
+const MOSAIC_W := {"light": 0.34, "heavy": 0.58}  ## 串台块横向占胞宽多少，随强度
+## 没给 `pool` / `morph_to` 时的替补来源：**同阵营另一种细胞**（照 CELL_ART 的名字分阵营，
+## 演出层不认识内核的类型枚举）
+const MOSAIC_KIN := {
+	"immune": ["ImmuneBasic", "TCell", "BCell", "Macrophage", "Dendritic"],
+	"cancer": ["Melanoma", "SignetRing", "Osteosarcoma", "SmallCellLung"],
+}
 const INK_CYAN := Color("30d1fa")   ## 色差重影：同 CWStyle.IMMUNE
 const INK_MAGENTA := Color("ff5ec4")
 
@@ -98,6 +112,7 @@ const INK_BEAM_CORE := Color("faf3d4")
 const RESET_SECS := 1.5
 const RESET_TEXT := "本关重置"
 const RESET_VARIANTS := ["rewind", "edge", "dissolve"]
+const RESET_VARIANT := "rewind"   ## 缺省候选（Kevin 2026-09-19 拍板：三选一定「倒带」）
 const INK_RESET := Color("ff4d5a")
 const INK_TEXT := Color("eaf8fc")   ## 同 CWStyle.TEXT_HI
 const SCREEN_LAYER := 60
@@ -234,6 +249,14 @@ func current_tex() -> Texture2D:
 	return pool[i]
 
 
+## 马赛克串台这一块采的是谁的贴图（`_state.mosaic` 条目里的第 2 个数）
+func mosaic_tex(i: int) -> Texture2D:
+	var src: Array = _plan.get("mosaic_src", [])
+	if i < 0 or i >= src.size():
+		return null
+	return src[i]
+
+
 ## 喂时间。真机由 _process 调；无头测试自己调
 func advance(delta: float) -> void:
 	if not _running:
@@ -337,6 +360,32 @@ func _roll() -> Dictionary:
 				picks.append(_rng.randi_range(1, maxi(int(out["hi"]), 1)))
 			out["rows"] = rows
 			out["picks"] = picks
+			## 马赛克串台**只在 blocks 摇**：另两种模式的随机流一颗都不动，表现一帧不变
+			out["mosaic_src"] = []
+			out["mosaic"] = []
+			if str(_args.get("mode", GLITCH_MODE)) == "blocks":
+				## 来源：pool / morph_to（第 0 张是本体，不算）；一张都没给就退回同阵营另一种细胞
+				var src: Array = pool.slice(1)
+				if src.is_empty():
+					src = _kin_pool(pool[0] if not pool.is_empty() else null)
+				out["mosaic_src"] = src
+				var cap: int = int(MOSAIC_MAX["heavy" if _heavy() else "light"])
+				var wide: float = float(MOSAIC_W["heavy" if _heavy() else "light"])
+				var mos: Array = []
+				mos.resize(n)
+				var f := 0
+				while f < n:
+					var hold := _rng.randi_range(1, MOSAIC_HOLD)
+					var here: Array = []
+					for _k in (_rng.randi_range(1, cap) if not src.is_empty() else 0):
+						var u0 := _rng.randf_range(0.0, 1.0 - wide)
+						## 一条 = [横切的第几条, 采谁的贴图, 横向从哪到哪（占胞宽的比例）]
+						here.append([_rng.randi_range(0, GLITCH_SLICES - 1),
+							_rng.randi_range(0, src.size() - 1), u0, u0 + wide])
+					for j in range(f, mini(f + hold, n)):
+						mos[j] = here
+					f += hold
+				out["mosaic"] = mos
 		"reset_hint":
 			var delay: Array = []
 			for _c in _args.get("cells", []):
@@ -376,7 +425,7 @@ func _prepare() -> void:
 	_hide(_args.get("node", null))
 	for n in _args.get("nodes", []):
 		_hide(n)
-	if _kind == "reset_hint" and str(_args.get("variant", "rewind")) == "edge":
+	if _kind == "reset_hint" and str(_args.get("variant", RESET_VARIANT)) == "edge":
 		var sh = _args.get("shake_node", board)
 		if sh is Node2D:
 			_shake_home[sh] = (sh as Node2D).position
@@ -473,6 +522,30 @@ func _heavy() -> bool:
 	return s == "heavy" or s == "剧烈"
 
 
+## 这一帧串台的是哪几块（**查表，不摇随机**）
+func _mosaic_at(i: int) -> Array:
+	var mos: Array = _plan.get("mosaic", [])
+	if i < 0 or i >= mos.size() or not (mos[i] is Array):
+		return []
+	return (mos[i] as Array).duplicate(true)
+
+
+## 没给 pool / morph_to 时的替补来源：同阵营的别的细胞（本体那张除外）
+func _kin_pool(own: Texture2D) -> Array:
+	var name := ""
+	for k in CELL_ART:
+		if CELL_ART[k] == own:
+			name = str(k)
+			break
+	var camp := "cancer" if (MOSAIC_KIN["cancer"] as Array).has(name) else "immune"
+	var out: Array = []
+	for k2 in MOSAIC_KIN[camp]:
+		var t: Texture2D = CELL_ART[k2]
+		if t != own:
+			out.append(t)
+	return out
+
+
 func _probe_glitch(q: float) -> Dictionary:
 	var rows: Array = _plan.get("rows", [])
 	if rows.is_empty():
@@ -493,16 +566,18 @@ func _probe_glitch(q: float) -> Dictionary:
 		tex = morph                                  ## 末段定格：分化→普通 / 免疫→小细胞肺癌 / 印戒
 	elif int(_plan.get("hi", 0)) >= 1 and p >= SHUFFLE_AT and bool(_args.get("shuffle", false)):
 		tex = clampi(int((_plan["picks"] as Array)[i]), 0, int(_plan["hi"]))
-	var mode := str(_args.get("mode", "jitter"))
+	var mode := str(_args.get("mode", GLITCH_MODE))
 	var out := {
 		"kind": "glitch", "q": q, "mode": mode, "heavy": heavy, "p": p,
 		"foot": _foot(_coord(_args.get("at", _args.get("target", Vector2i.ZERO)))),
 		"off": off.round(), "tex": tex, "frame": _breath(q),
 		"alpha": _steps(0.4 if (on and float(row["cut"]) < 0.12) else 1.0),
-		"slices": [], "bars": [], "roll": 0.0,
+		"slices": [], "bars": [], "roll": 0.0, "mosaic": [],
 	}
 	if mode == "blocks":
 		out["slices"] = (row["slices"] as Array).duplicate() if on else []
+		## 串台只跟着**错开的**那几条走：没错位的帧（轻强度下一小半）整只都是自己的
+		out["mosaic"] = _mosaic_at(i) if on else []
 	elif mode == "scanlines":
 		out["bars"] = (row["bars"] as Array).duplicate()
 		out["roll"] = _steps(fmod(q * 0.75, 1.0))
@@ -536,6 +611,16 @@ func _draw_glitch() -> void:
 				var dx: float = float(slices[j]) if j < slices.size() else 0.0
 				_blit(self, tex, fr, foot, off + Vector2(dx, 0.0),
 					float(j) / float(n), float(j + 1) / float(n), tint)
+			## 马赛克串台：错开的这几条里，有一小片画的是**别人的**像素（同一位置采过来的），
+			## 闪一两帧就换走 —— 像信号串台，也是在预告这只细胞将要变成的样子
+			for e: Array in _state.get("mosaic", []):
+				var j2: int = clampi(int(e[0]), 0, n - 1)
+				var other := mosaic_tex(int(e[1]))
+				if other == null or other == tex:
+					continue        ## 已经定格成 morph_to 了，再串它自己就看不出来
+				var dx2: float = float(slices[j2]) if j2 < slices.size() else 0.0
+				_blit_part(self, other, tex, fr, foot, off + Vector2(dx2, 0.0),
+					float(j2) / float(n), float(j2 + 1) / float(n), float(e[2]), float(e[3]), tint)
 		"scanlines":
 			## 扫描线：本体带一道往下滑的横向撕裂，再压几条暗带
 			var roll: float = float(_state["roll"])
@@ -655,7 +740,7 @@ func _draw_beam() -> void:
 # ── ⑥ 自动重置提示（PRD:47）：三个候选 ────────────────────────────────
 
 func _probe_reset(q: float) -> Dictionary:
-	var v := str(_args.get("variant", "rewind"))
+	var v := str(_args.get("variant", RESET_VARIANT))
 	var p := clampf(q / maxf(_dur, 0.001), 0.0, 1.0)
 	## 两头各淡一下，中间满亮
 	var fade := minf(CWPix.phase(q, 0.0, 0.18), 1.0 - CWPix.phase(q, _dur - 0.25, 0.25))
@@ -920,6 +1005,28 @@ func _blit(ci: CanvasItem, tex: Texture2D, frame: int, foot: Vector2, off: Vecto
 	var f := clampi(frame, 0, BREATH_FRAMES - 1)
 	var src := Rect2(Vector2(float(f) * w, y0), Vector2(w, y1 - y0))
 	var dst := Rect2((foot + off - Vector2(w / 2.0, h - y0)).round(), Vector2(w, y1 - y0))
+	ci.draw_texture_rect_region(tex, dst, src, tint)
+
+
+## 串台块专用：**源**在 `tex` 上按比例取（r0~r1 竖着、u0~u1 横着），**落点**按 `own` 的尺寸算。
+## 两张贴图的帧尺寸不一定一样（小细胞肺癌只有别人的一半大），按比例对位才谈得上「同一位置的像素」
+func _blit_part(ci: CanvasItem, tex: Texture2D, own: Texture2D, frame: int, foot: Vector2,
+		off: Vector2, r0: float, r1: float, u0: float, u1: float, tint: Color) -> void:
+	var w := _fw(own)
+	var h := _fh(own)
+	var y0 := h * clampf(r0, 0.0, 1.0)
+	var y1 := h * clampf(r1, 0.0, 1.0)
+	var x0 := w * clampf(u0, 0.0, 1.0)
+	var x1 := w * clampf(u1, 0.0, 1.0)
+	if y1 - y0 <= 0.5 or x1 - x0 <= 0.5:
+		return
+	var f := clampi(frame, 0, BREATH_FRAMES - 1)
+	var sx := _fw(tex) / w        ## 源 / 本体的尺寸比
+	var sy := _fh(tex) / h
+	var src := Rect2(Vector2(float(f) * _fw(tex) + x0 * sx, y0 * sy),
+		Vector2((x1 - x0) * sx, (y1 - y0) * sy))
+	var dst := Rect2((foot + off - Vector2(w / 2.0 - x0, h - y0)).round(),
+		Vector2(x1 - x0, y1 - y0))
 	ci.draw_texture_rect_region(tex, dst, src, tint)
 
 
