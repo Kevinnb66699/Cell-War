@@ -13,9 +13,16 @@ extends SceneTree
 ##
 ## 跑（**不能加 --headless**，要真渲染）：
 ##   godot --path game --script res://tests/preview/preview_tutor_fx.gd -- <输出目录>
+##
+## 逐帧倾倒（出动图用）：一次一段，从 0 到「收尾后再定格 DUMP_HOLD 秒」，每 1/12 秒一张：
+##   godot --path game --script res://tests/preview/preview_tutor_fx.gd -- dump=reset_hint:rewind out=<目录>
+## dump 认 SHOTS 里的名字，`kind:variant` 与 `kind_variant` 两种写法都行；
+## 出来的是 `<名字>_000.png` 起的一串 960×540，再交给 tools/make_fx_gif.py 合成 GIF
 const FX := preload("res://scripts/tutor/cw_tutor_fx.gd")
 const WARMUP := 12                 ## 棋盘铺完、相机就位再开拍
 const OUT_DEFAULT := "user://tutor_fx"
+const DUMP_HOLD := 0.5             ## 逐帧模式：收尾之后再定格多久
+const DUMP_STEP := 1.0 / FX.PIX_FPS   ## 一帧 = 演出库自己的量化格（1/12 秒）
 
 ## 一条 = 一段演出。`cells` 里每条是 [格, 贴图名]；`proxy` 指哪一只交给演出库代画；
 ## `tumor` 是要染成癌性组织的中心（半径 1）；`at` 是在哪几刻截图（秒）。
@@ -107,12 +114,21 @@ var _k := 0
 var _t := 0.0
 var _save := ""
 var _n := 0
+var _dump := ""                 ## 非空 = 逐帧倾倒这一段（空 = 照旧出 27 张静帧）
+var _dump_n := 0
+var _dump_total := 0
 
 
 func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
-	if args.size() > 0:
-		_out = args[0].rstrip("/").rstrip("\\")
+	for a in args:
+		var s := str(a)
+		if s.begins_with("dump="):
+			_dump = s.substr(5).replace(":", "_")
+		elif s.begins_with("out="):
+			_out = s.substr(4).rstrip("/").rstrip("\\")
+		else:
+			_out = s.rstrip("/").rstrip("\\")
 	DirAccess.make_dir_recursive_absolute(_out)
 	_board = load("res://scenes/Board.tscn").instantiate()
 	root.add_child(_board)
@@ -133,6 +149,8 @@ func _process(d: float) -> bool:
 		CWView.apply(_cam, _board, CWView.GAME_ZOOM, CWView.GAME_LOOK_AT, CWView.GAME_ANCHOR)
 	if _frames < WARMUP:
 		return false
+	if _dump != "":
+		return _dump_step()
 	## 存的是**上一帧**渲染出来的画面，所以「推进」与「存盘」各占一帧
 	if _save != "":
 		root.get_texture().get_image().save_png(_save)
@@ -155,6 +173,43 @@ func _process(d: float) -> bool:
 		_save = "%s/%s_%d.png" % [_out, str(SHOTS[_i]["name"]), _k]
 		_n += 1
 	return false
+
+
+## 逐帧倾倒一段演出。时间用 `seek()` 给（不收尾），超过时长那一帧才 `skip()`
+## 收尾（代画的真节点还回去），剩下的帧就是「演完之后的盘面」定格。
+## 和静帧一样，「喂时间」与「存盘」各占一帧 —— 存的是上一帧渲染出来的画面
+func _dump_step() -> bool:
+	if _save != "":
+		root.get_texture().get_image().save_png(_save)
+		_save = ""
+		_dump_n += 1
+		return false
+	if _i < 0:
+		_i = _find(_dump)
+		if _i < 0:
+			push_error("教程演出库：没这一段「%s」" % _dump)
+			return true
+		_setup(SHOTS[_i])
+		_dump_total = int(ceilf((_fx.duration() + DUMP_HOLD) * FX.PIX_FPS))
+		print("  逐帧倾倒 %d 帧 @%d fps" % [_dump_total, int(FX.PIX_FPS)])
+		return false
+	if _dump_n >= _dump_total:
+		print("[教程演出库 S7] %s 共 %d 帧" % [_dump, _dump_total])
+		return true
+	var t := float(_dump_n) * DUMP_STEP
+	if t < _fx.duration() - 0.0005:
+		_fx.seek(t + 0.001)        ## 微推一下：别让浮点误差把量化掉到上一格
+	elif _fx.running():
+		_fx.skip()
+	_save = "%s/%s_%03d.png" % [_out, str(SHOTS[_i]["name"]), _dump_n]
+	return false
+
+
+func _find(name: String) -> int:
+	for j in SHOTS.size():
+		if str(SHOTS[j]["name"]) == name:
+			return j
+	return -1
 
 
 ## 一段戏的台面：擦干净上一段 → 铺组织 → 摆细胞 → 交参数开演
