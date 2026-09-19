@@ -220,6 +220,12 @@ static func leaving_indices(was: PackedStringArray, now: PackedStringArray) -> A
 	return out
 
 
+## 这一次比上一次**新到**了几张（多重集差，同名各算各的）。张数没变也可能有新到的 ——
+## 打出一张、同一步里又抽到一张；CWMatch.hand_refresh 据此决定要不要演飞入（2026-09-19）
+static func arrivals(was: PackedStringArray, now: PackedStringArray) -> int:
+	return now.size() - (was.size() - leaving_indices(was, now).size())
+
+
 ## 留一张便条给下一次离场。手势一发就写，写完覆盖上一张。
 func _hint_exit(card_name: String, kind: int) -> void:
 	_exit_hint = { "name": card_name, "kind": kind }

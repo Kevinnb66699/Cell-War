@@ -136,7 +136,7 @@ func _run_all() -> void:
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
 		t_hot_patch, t_online_doc, t_save_load, t_settings, t_feedback, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_skill_fx, t_card_fx_hooks, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
-		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit,
+		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit, t_hand_swap,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_board_small, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
 		t_hand_long_name, t_diff_info, t_card_pool, t_font_coverage,
@@ -23507,3 +23507,31 @@ func t_crit_gold() -> void:
 	check(not is_instance_valid(crit2), "hide_now 之后气泡已释放（补间绑在气泡上，跟着死）")
 	root.remove_child(toast)
 	toast.free()
+
+
+## 手牌抽屉「张数没变、内容变了」也要刷（Kevin 2026-09-19：打出【癌症转移】落到骨髓、同一步里又抽到一张，
+## 抽屉还画着打出去的那张，双击它「还打不出（没有合法目标）」—— 引擎那边手里早是另一张牌了）。
+## 老规则只比张数（1 → 1 当成没变），这里钉的是「按内容比 + 有新到的才演飞入」
+func t_hand_swap() -> void:
+	print("[手牌抽屉：张数不变内容变]")
+	check(CWHand.arrivals(PackedStringArray(["癌症转移"]), PackedStringArray(["肿瘤增援"])) == 1, "打出一张 + 抽到一张：新到 1 张")
+	check(CWHand.arrivals(PackedStringArray(["甲", "乙"]), PackedStringArray(["乙"])) == 0, "只打出：新到 0")
+	check(CWHand.arrivals(PackedStringArray(["甲"]), PackedStringArray(["甲", "乙"])) == 1, "只抽到：新到 1")
+	check(CWHand.arrivals(PackedStringArray(["甲", "甲"]), PackedStringArray(["甲"])) == 0, "同名两张打出一张：新到 0（多重集）")
+	check(CWMatch.hand_refresh(true, PackedStringArray(["癌症转移"]), PackedStringArray(["肿瘤增援"])) == "deal",
+		"张数 1 → 1 但换了牌：要刷、新牌飞入（老规则按张数会跳过 —— Kevin 报的就是这个）")
+	check(CWMatch.hand_refresh(true, PackedStringArray(["甲", "乙"]), PackedStringArray(["甲", "乙"])) == "", "一模一样：不动")
+	check(CWMatch.hand_refresh(true, PackedStringArray(["甲", "乙"]), PackedStringArray(["乙"])) == "sync", "只打出一张：直接就位，不演飞入")
+	check(CWMatch.hand_refresh(true, PackedStringArray(["甲"]), PackedStringArray(["甲", "乙"])) == "deal", "只抽到一张：飞入")
+	check(CWMatch.hand_refresh(false, PackedStringArray(), PackedStringArray(["甲"])) == "sync", "首次显示：直接就位")
+	## 抽屉本体：同张数换牌 → 老的那张飞走、新的就位、名字换了
+	var hand := CWHand.new()
+	root.add_child(hand)
+	hand.sync(1, Vector2.INF, PackedStringArray(["癌症转移"]))
+	var old: Control = hand._cards[0]
+	hand.sync(1, Vector2.INF, PackedStringArray(["肿瘤增援"]))
+	check(hand._cards.size() == 1 and hand._cards[0] != old and hand._flying.has(old)
+		and hand._name_at(0) == "肿瘤增援", "同张数换牌：旧卡飞出、新卡就位、名字是新的")
+	hand.clear()
+	root.remove_child(hand)
+	hand.free()
