@@ -184,6 +184,8 @@ func _run_all() -> void:
 		t_board_grow, t_tutor_recenter,
 		## 新手教程 v2 · S10：第六关 a（盘面 / 几何 / 席位 / 旋钮 / 带子 / 三条胜负护栏）
 		t_tutor_c3,
+		## 新手教程 v2 · S9b：间章本体（play 接演出库 / 十个分镜 / 阵营翻转 / 击退是重装）
+		t_tutor_play, t_tutor_interlude,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -20909,14 +20911,21 @@ func t_tutor_director() -> void:
 	d.open(same, 0)
 	check(view.kinds().find("chapter") < 0,
 		"同一章里换关**静默**：一条 chapter 意图都不发（PRD:37）")
-	## 章号变了才弹（比的是 (chapter_kind, chapter) 二元组 —— 间章与主章节的 chapter 可能撞号）
+	## 间章**一屏都不弹**（★ 改判 S9b，Kevin 2026-09-19：静默进入）。
+	## 二元组照记 ⇒ 它后面那一个主章节与它不相等、照弹（「弹过就不弹了」那种写法会把第三章吃掉）
 	view.clear_log()
 	var inter := _tutor_stub_level()
 	inter["id"] = "_inter"
 	inter["chapter_kind"] = "interlude"
 	d.open(inter, 0)
+	check(view.kinds().find("chapter") < 0,
+		"★ 间章静默进入：一条 chapter 意图都不发（Kevin 2026-09-19）")
+	view.clear_log()
+	var back := _tutor_stub_level()
+	back["id"] = "_after_inter"
+	d.open(back, 0)
 	check(view.kinds().find("chapter") >= 0,
-		"chapter 号相同但 chapter_kind 变了照样算换章：比的是二元组，不是单个整数")
+		"间章之后那一个主章节照弹 —— 比的是 (chapter_kind, chapter) 二元组，不是单个整数")
 	## ⑥ 代际闸：重置 / 跳关 / 换局各 +1，旧协程据此永挂
 	var ep: int = d.epoch
 	check(d.alive(ep) and not d.alive(ep - 1), "alive(ep)：只认当代")
@@ -20932,7 +20941,9 @@ func t_tutor_director() -> void:
 	check(start_at > 0 and seg.find("_tutor_start_level()") > 0
 			and seg.find("_tutor_start_level()") < seg.find("kernel.run()"),
 		"start() 里关首装闸（_tutor_start_level）排在 kernel.run() **之前**")
-	var next_at := src.find("func _tutor_next_level(")
+	## ★ 改判 S9b：这一串搬进了 `_tutor_reopen`（跨关换局与间章分镜 6 的关内完整换局共用），
+	## `_tutor_next_level` 只剩「记通关 / 翻关表 / 分承接与重开两条路」
+	var next_at := src.find("func _tutor_reopen(")
 	var nseg := src.substr(next_at, src.find("\nfunc ", next_at + 10) - next_at)
 	check(next_at > 0 and nseg.find("_director.gate = bridge") > 0
 			and nseg.find("_wire_bridge(ai_level)") < nseg.find("_director.gate = bridge")
@@ -23276,11 +23287,14 @@ func t_tutor_c2() -> void:
 		if int((row as Dictionary).get("chapter", 0)) == 2:
 			ch2.append("%s/%s" % [str((row as Dictionary).get("chapter_title", "")),
 				str((row as Dictionary).get("chapter_kind", ""))])
-	check(ids == ["c1_l1", "c1_l2", "c1_l3", "c2_l4", "c2_l5", "c3_l6"]
+	check(ids == ["c1_l1", "c1_l2", "c1_l3", "c2_l4", "c2_l5", "interlude", "c3_l6"]
 			and ch2 == ["Immune/main", "Immune/main"],
-		"关表登记了第二章两关，章名照 PRD「Immune」（S10 起关表末尾多了第三章的 c3_l6；实测 %s）" % str(ids))
-	check(str(lv4.get("on_done", "")) == "c2_l5" and str(d.load_level("c1_l3").get("on_done", "")) == "c2_l4",
-		"第三关 → 第四关 → 第五关 串得上（on_done）")
+		"关表登记了第二章两关，章名照 PRD「Immune」（末尾跟着间章（S9b）与第三章 c3_l6（S10）；实测 %s）" % str(ids))
+	check(str(lv4.get("on_done", "")) == "c2_l5"
+			and str(d.load_level("c1_l3").get("on_done", "")) == "c2_l4"
+			and str(lv5.get("on_done", "")) == "interlude"
+			and str(d.load_level("interlude").get("on_done", "")) == "c3_l6",
+		"第三关 → 第四关 → 第五关 → 间章 → 第六关 串得上（on_done；★ 后两条是 S9b 接上的）")
 	var ends: Array = []
 	var free_rows: Array = []
 	for lv in [lv4, lv5]:
@@ -24290,3 +24304,464 @@ func t_tutor_c3() -> void:
 	g.dispose()
 	CWGuideProgress.clear()
 	CWTutorLayers.reset()
+## ── 新手教程 v2 · S9b：间章「癌变」本体（PRD:407-435 十个分镜）────────────────
+## 两条护栏：`t_tutor_play` 盯「`play` 这个动词真的接到了演出库」，
+## `t_tutor_interlude` 盯间章本身（承接 / 平移 / 翻转 / 三下 / 击退 / 目录 / 对账）。
+
+## 间章那份数据的 id。新盘子的半径与 S9a 共用 `S9A_RADIUS`（11 / 397 格），不另写一份
+const S9B_LEVEL := "interlude"
+## 击退**不是规则**：`cw_actions.gd` 一个字都不许动（照 t_tutor_fx ⑩ 的写法，LF 归一后的 md5）
+const S9B_ACTIONS_MD5 := "3bba63141eb1227b84e4acdb6bb60067"
+## 第六关初始盘面（盘面提案 §7.1 的绝对坐标表 **减 (6,-2)**，§6.3 拍板）：
+## 间章最后一拍走完，长出来的就是它 —— 这是 S10 的起点。
+## **席位顺序与 §7.1 那张表不同**：免疫四只在前（0~3）、玩家排最后（4）——
+## 间章是强制演出，人类那一问挂在关死的闸上永不作答，而行动游标只前进不回头：
+## 他不排最后的话，巨噬打完三下游标就走到队尾、直接进 E 阶段（实测 18 次骰）
+const S9B_L6_CELLS := { 0: Vector2i(0, 0), 1: Vector2i(-2, 0), 2: Vector2i(-5, 0),
+	3: Vector2i(-6, 4), 4: Vector2i(-11, 1) }
+## 人类席与那只要过来打三下的免疫（巨噬）—— 逐字照 c3_l6.base
+const S9B_HUMAN := 0
+const S9B_MACRO := 1
+## 重心平移之后那个盘子（主线程 2026-09-19 口径：12，不是 11）。
+## 第五关盘子直径就是 12，而 `_pin_specials` 把 127 格全写进 spec：
+## 半径 12 时玩家站得偏一点就有老格平移到盘外 ⇒ translate 报错、整份作废
+const S9B_RADIUS := 12
+const S9B_TILES := 469
+const S9B_L6_SOLID := [Vector2i(0, 0), Vector2i(0, 1), Vector2i(-5, -3), Vector2i(-4, 5)]
+## 十个分镜在正本（09-19 06:32 的 534 行版）里的行号
+const S9B_PRD := [415, 417, 419, 421, 423, 425, 427, 429, 431, 433, 435]
+
+
+## `play` 这个动词的接线（S9b）：导演 → 一条 `want_play` → 调用方喂给 `cw_tutor_fx`。
+## **不测演出本身**（那是 t_tutor_fx 的活，源码闸也在那边），只测「意图有没有原样送到、
+## `await` 会不会真的按住游标」。
+func t_tutor_play() -> void:
+	print("[flow[].play → 教程演出库的接线（S9b）]")
+	var lv := _s9a_level()
+	var g: CWGame = CASE_LOADER.new().load_world(TUTOR_SCRIPT.new().resolve(lv, "base"))
+	var view := CWTutorViewTally.new()
+	var dir = TUTOR_DIRECTOR.new()
+	dir.view = view
+	dir.mirror_of = func() -> CWMirror: return _mirror_of(g)
+	root.add_child(dir)
+	dir.open(lv, 0)
+	var got: Array = []
+	var receipts: Array = []
+	dir.want_play.connect(func(fx_kind: String, args: Dictionary, done: Callable) -> void:
+		got.append([fx_kind, args])
+		receipts.append(done))
+
+	## ---- ① 三种位置写法各翻一遍（演出层不认识席位，导演把 `player` / `seat:<n>` 翻成席位号）----
+	dir._enter_play({ "do": "play", "fx": "shockwave", "at": "player", "args": { "radius": 4 } })
+	dir._enter_play({ "do": "play", "fx": "glitch", "at": "seat:2",
+		"args": { "actor": "player", "intensity": "heavy" }, "seed": 7 })
+	dir._enter_play({ "do": "play", "fx": "knockback", "at": "5,-1", "args": {} })
+	check(got.size() == 3 and str((got[0] as Array)[0]) == "shockwave"
+			and ((got[0] as Array)[1] as Dictionary)["at"] == 0
+			and int(((got[0] as Array)[1] as Dictionary)["radius"]) == 4,
+		"`at: \"player\"` 翻成**人类席位号**、其余 args 原样透传（实测 %s）"
+			% str((got[0] as Array)[1]))
+	check(str((got[1] as Array)[0]) == "glitch"
+			and ((got[1] as Array)[1] as Dictionary)["at"] == 2
+			and ((got[1] as Array)[1] as Dictionary)["actor"] == 0
+			and int(((got[1] as Array)[1] as Dictionary)["seed"]) == 7,
+		"`seat:<n>` 翻成那一席、`args.actor` 同一套解析、`seed` 进 args（实测 %s）"
+			% str((got[1] as Array)[1]))
+	check(((got[2] as Array)[1] as Dictionary)["at"] == Vector2i(5, -1),
+		"写成 \"q,r\" 的直接翻成格坐标（实测 %s）" % str(((got[2] as Array)[1] as Dictionary)["at"]))
+	## 钩子喂进来的行：`at` / `args.from` 本来就是 Vector2i / 席位号，原样过
+	got.clear()
+	dir._enter_play({ "do": "play", "fx": "knockback", "at": 1,
+		"args": { "actor": 1, "from": Vector2i(-1, 0), "to": Vector2i(-2, 0) } })
+	check(((got[0] as Array)[1] as Dictionary)["at"] == 1
+			and ((got[0] as Array)[1] as Dictionary)["from"] == Vector2i(-1, 0),
+		"钩子喂的席位号 / Vector2i 原样过（实测 %s）" % str((got[0] as Array)[1]))
+	got.clear()
+	dir._enter_play({ "do": "play", "secs": 0.0 })
+	check(got.is_empty(), "没写 fx 的 play 只 warning、不发意图（也不崩）")
+
+	## ---- ② `await` 的两档：true 等回执，false 只等 secs ----
+	receipts.clear()
+	dir._enter_play({ "do": "play", "fx": "shockwave", "at": "player", "secs": 0.2, "await": true })
+	var row := { "do": "play", "fx": "shockwave", "secs": 0.2, "await": true }
+	check(not dir._advance_ok(row, 1.0), "`await: true`：`secs` 早耗光了也不翻页 —— 在等回执")
+	(receipts[receipts.size() - 1] as Callable).call()
+	check(dir._advance_ok(row, 0.0), "回执一到就翻页")
+	dir._enter_play({ "do": "play", "fx": "shockwave", "secs": 0.3 })
+	var row2 := { "do": "play", "fx": "shockwave", "secs": 0.3 }
+	check(not dir._advance_ok(row2, 0.1) and dir._advance_ok(row2, 0.5),
+		"`await: false`（缺省）：只按 `secs` 空等，演出爱演多久演多久")
+
+	## ---- ③ 上一段的迟到回执解不开这一段（段号 token）----
+	receipts.clear()
+	dir._enter_play({ "do": "play", "fx": "glitch", "at": "player", "await": true })
+	var stale: Callable = receipts[0]
+	dir._enter_play({ "do": "play", "fx": "shockwave", "at": "player", "await": true })
+	stale.call()
+	check(not dir._advance_ok({ "do": "play", "await": true }, 0.0),
+		"★ 上一段的回执迟到：解不开这一段的 `await`（间章分镜 4 的像素错误要一直演到分镜 6，"
+			+ "两段在场上叠着，没有段号就会被前一条提前放过）")
+	(receipts[1] as Callable).call()
+	check(dir._advance_ok({ "do": "play", "await": true }, 0.0), "本段的回执照样认")
+
+	## ---- ④ 换代：旧回执一概作废 ----
+	receipts.clear()
+	dir._enter_play({ "do": "play", "fx": "shockwave", "at": "player", "await": true })
+	var old: Callable = receipts[0]
+	dir.reset_level()
+	dir._enter_play({ "do": "play", "fx": "shockwave", "at": "player", "await": true })
+	old.call()
+	check(not dir._advance_ok({ "do": "play", "await": true }, 0.0),
+		"重置 / 跳关之后，上一代那段演出的回执也解不开新一代的 `await`")
+
+	## ---- ⑤ 文法：play 是阻塞型、键表一个不多（导演与校验器共读同一张表）----
+	check(TUTOR_BEATS.is_blocking({ "do": "play" })
+			and TUTOR_BEATS.keys_of("play") == ["do", "step", "prd", "fx", "at", "secs",
+				"args", "seed", "await"],
+		"`play` 阻塞、键表 = 通用三个 + fx/at/secs/args/seed/await（实测 %s）"
+			% str(TUTOR_BEATS.keys_of("play")))
+
+	## ---- ⑥ 剧本与钩子里点到的每一支 fx 都在演出库的 KINDS 里 ----
+	var bad: Array = []
+	var d2 = TUTOR_SCRIPT.new()
+	for r in (d2.load_index().get("levels", []) as Array):
+		var one: Dictionary = d2.load_level(str((r as Dictionary).get("id", "")))
+		for e in one.get("flow", []):
+			var er: Dictionary = e
+			if str(er.get("do", "")) == "play" and not (str(er.get("fx", "")) in TUTOR_FX.KINDS):
+				bad.append("%s: %s" % [str(one.get("id", "")), str(er.get("fx", ""))])
+	var hook_files: Array[String] = []
+	_collect_files("res://scripts/tutor/levels", hook_files)
+	for f in hook_files:
+		var src := FileAccess.get_file_as_string(f)
+		var at := src.find("\"fx\": \"")
+		while at >= 0:
+			var e0 := at + 7
+			var e1 := src.find("\"", e0)
+			if e1 > e0 and not (src.substr(e0, e1 - e0) in TUTOR_FX.KINDS):
+				bad.append("%s: %s" % [String(f).get_file(), src.substr(e0, e1 - e0)])
+			at = src.find("\"fx\": \"", e1)
+	check(bad.is_empty(), "剧本 / 钩子里点到的 fx 全在 KINDS（%s）里（表外的：%s）"
+		% [str(TUTOR_FX.KINDS), str(bad)])
+
+	## ---- ⑦ 真 fx 走一遍：同一条意图直接喂进演出库，装得起来、席位换得出格 ----
+	var bd: Node2D = load("res://scenes/Board.tscn").instantiate()
+	root.add_child(bd)
+	await process_frame
+	var fx = TUTOR_FX.new()
+	fx.attach(bd)
+	fx.auto_play = false
+	fx.seat_at = Callable(dir, "seat_at")
+	bd.add_child(fx)
+	await process_frame
+	got.clear()
+	dir._enter_play({ "do": "play", "fx": "shockwave", "at": "player", "args": { "radius": 3 } })
+	fx.begin(str((got[0] as Array)[0]), (got[0] as Array)[1] as Dictionary)
+	check(fx.running() and fx.duration() > 0.0
+			and (fx.probe(0.2) as Dictionary)["at"] == bd.tile_center(Vector2i(4, -1)),
+		"★ 导演发的那份 args 直接喂得进演出库：席位 0 经注入的 `seat_at` 换成了 (4,-1) 那一格")
+	fx.skip()
+	check(not fx.running(), "skip() 一步收尾")
+	fx.clear()
+	bd.queue_free()
+	dir.teardown()
+	dir.queue_free()
+	view.free()
+	g.dispose()
+	CWGuideProgress.clear()
+
+
+## 间章「癌变」本体（S9b）。方案 §6.1 那一行的九条判据逐条。
+func t_tutor_interlude() -> void:
+	print("[间章 癌变：十个分镜 / 承接 / 阵营翻转 / 击退（S9b）]")
+	CWGuideProgress.clear()
+	var d = TUTOR_SCRIPT.new()
+	var lv: Dictionary = d.load_level(S9B_LEVEL)
+	check(not lv.is_empty() and d.validate(lv).is_empty(),
+		"间章那份数据过十三条校验（%s）" % str(d.validate(lv)))
+	var flow: Array = lv.get("flow", [])
+
+	## ---- ⑦ 章型与目录：独立成段、平级单列、**不弹章节提示** ----
+	check(str(lv.get("chapter_kind", "")) == TUTOR_SCRIPT.KIND_INTERLUDE
+			and str(lv.get("chapter_title", "")) == "癌变"
+			and str(lv.get("hook", "")) == "res://scripts/tutor/levels/interlude.gd",
+		"chapter_kind = interlude / 章名「癌变」/ 钩子指到 levels/interlude.gd")
+	var rows: Array = TUTOR_DIRECTOR.menu_rows()
+	var kinds: Array = []
+	for r in rows:
+		kinds.append("%s:%s" % [str((r as Dictionary).get("kind", "")),
+			str((r as Dictionary).get("id", ""))])
+	var at_i: int = kinds.find("interlude:%s" % S9B_LEVEL)
+	check(at_i > 0 and str(kinds[at_i - 1]) == "level:c2_l5"
+			and str(kinds[at_i + 1]) == "chapter:",
+		"★ 目录里间章自己一行（kind = interlude，不缩进）：紧跟第五关之后、第三章章标题之前（实测 %s）"
+			% str(kinds))
+	check(kinds.count("chapter:") == 3
+			and not kinds.has("chapter:%s" % S9B_LEVEL),
+		"三个主章节各插一条章标题、**间章不插**（它自己就是顶层的一条，而且打断分组）")
+	var tally := CWTutorViewTally.new()
+	var dir0 = TUTOR_DIRECTOR.new()
+	dir0.view = tally
+	root.add_child(dir0)
+	dir0.open(d.load_level("c2_l4"), 0)       ## 主章节：该弹
+	var main_chapters: int = Array(tally.kinds()).count("chapter")
+	tally.clear_log()
+	dir0.open(lv, 0)                          ## 间章：静默
+	check(main_chapters == 1 and Array(tally.kinds()).count("chapter") == 0,
+		"★ 主章节弹一屏、间章一屏都不弹（Kevin 2026-09-19：静默进入）")
+	tally.clear_log()
+	dir0.open(d.load_level("c1_l1"), 0)       ## 间章之后的主章节：照弹
+	check(Array(tally.kinds()).count("chapter") == 1,
+		"间章之后那一个主章节照常弹（二元组比法，不是「弹过就不弹了」）")
+	dir0.teardown()
+	dir0.queue_free()
+	tally.free()
+
+	## ---- ⑧ 十个分镜的对账：prd 单调不减、PRD 的编号行一条不漏 ----
+	var prds: Array = []
+	var mono := true
+	var last := -1
+	for e in flow:
+		var p := int((e as Dictionary).get("prd", last))
+		mono = mono and p >= last
+		last = p
+		if not prds.has(p):
+			prds.append(p)
+	var miss: Array = []
+	for p in S9B_PRD:
+		if not prds.has(int(p)):
+			miss.append(int(p))
+	check(mono and miss.is_empty() and int(prds[0]) == 409,
+		"prd 单调不减、PRD:409（所有 UI 消失）+ 十个分镜的行号一条不漏（漏的：%s）" % str(miss))
+
+	## ---- ① 承接上一关的活局面：flow[0] 显式 null，省略判红 ----
+	check(TUTOR_SCRIPT.adopts_live(lv) and (flow[0] as Dictionary)["load"] == null
+			and not TUTOR_SCRIPT.adopts_live(d.load_level("c2_l5")),
+		"★ flow[0].load 显式写成 null = 承接活局面；正常关（第五关）不是这一支")
+	var probe: Dictionary = lv.duplicate(true)
+	(probe["flow"] as Array)[0] = { "do": "state", "prd": 409, "ui": { "*": false } }
+	check(not TUTOR_SCRIPT.new().validate(probe).is_empty(),
+		"**省略** load 仍判红 —— 不许「忘了写」冒充「有意不装」（判据 ⑪）")
+	check(str(d.load_level("c2_l5").get("on_done", "")) == S9B_LEVEL
+			and str(lv.get("on_done", "")) == "c3_l6",
+		"第五关 on_done 指间章、间章 on_done 指第六关 c3_l6（S10 才建）")
+
+	## ---- ④ flip 装得进：玩家席翻成 Null 能量的小细胞肺癌 ----
+	var loader = CASE_LOADER.new()
+	var gf: CWGame = loader.load_world(d.resolve(lv, "flip"))
+	check(gf != null and int(gf.board_radius) == S9B_RADIUS and gf.tiles.size() == S9B_TILES,
+		"flip 是半径 12 / 469 格的整盘（%s）" % str(loader.errors))
+	if gf != null:
+		var p0: Dictionary = gf.players[S9B_HUMAN]
+		var c0: Dictionary = gf.cell_of(S9B_HUMAN)
+		check(int(p0["faction"]) == CWData.Faction.CANCER
+				and int(p0.get("cancer_type", -1)) == CWData.CancerType.SCLC
+				and c0["pos"] == Vector2i.ZERO and int(c0["energy"]) == CWTutorLayers.INFINITE_AT,
+			"★ 玩家席（席 4）faction = cancer + 小细胞肺癌、站 (0,0)、能量 99990")
+		check(CWTutorLayers.energy_text(CWTutorLayers.INFINITE_AT, "null")
+				== CWTutorLayers.ENERGY_NULL_MARK,
+			"`ui.energy: \"null\"` 把 99990 渲染成「Null」（PRD:431 的口径）")
+		var organs := 0
+		for c in CWData.all_coords(S9B_RADIUS):
+			if int((gf.tile(c) as Dictionary)["special"]) != CWData.Special.NONE:
+				organs += 1
+		check(organs == 11 and int(gf.tile(Vector2i(-6, -1))["special"]) == CWData.Special.CORE
+				and int(gf.tile(Vector2i(3, 0))["special"]) == CWData.Special.NONE,
+			"器官跟着世界搬到「绝对坐标 − (6,-2)」上：老 (0,-3) 那个核心现在在 (-6,-1)；"
+				+ "半径 12 下血管 (-6,0) 的落点 (-12,2) 还在盘上 ⇒ 11 个全在（实测 %d）" % organs)
+		gf.dispose()
+
+	## ---- ⑨ solid = 第六关 §7.1（减 (6,-2)）的初始盘面：逐格逐只对账（S10 的起点）----
+	var gs: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "solid"))
+	check(gs != null, "solid 装得进")
+	if gs != null:
+		var wrong: Array = []
+		for seat in S9B_L6_CELLS:
+			var c: Dictionary = gs.cell_of(int(seat))
+			if c.is_empty() or c["pos"] != S9B_L6_CELLS[seat] or not bool(c["alive"]):
+				wrong.append("席 %d" % int(seat))
+		var solids: Array = []
+		for c in CWData.all_coords(S9B_RADIUS):
+			if int((gs.tile(c) as Dictionary)["tissue"]) == CWData.Tissue.SOLID:
+				solids.append(c)
+		solids.sort()
+		var want: Array = S9B_L6_SOLID.duplicate()
+		want.sort()
+		check(wrong.is_empty() and solids == want,
+			"★ 间章最后一拍的盘面 = 第六关初始盘面：五只各就各位（错的 %s）、"
+				% str(wrong) + "四格固化 %s（实测 %s）" % [str(want), str(solids)])
+		var healthy := true
+		for c in CWData.all_coords(S9B_RADIUS):
+			if int((gs.tile(c) as Dictionary)["tissue"]) == CWData.Tissue.CANCER:
+				healthy = false
+		check(healthy, "其余组织全健康（§7.1 Q7-6：第五关把癌组织清干净了，固化清不掉）")
+		## ★ S10 的接缝：间章最后一拍的盘面 **逐只逐格 = 第六关的 c3_l6.base**。
+		## 换关是一次完整换局（第六关自己重装 base），所以接得上不是靠状态带过去、而是靠这两份盘面相等
+		var l6: Dictionary = d.load_level("c3_l6")
+		var g6: CWGame = CASE_LOADER.new().load_world(d.resolve(l6, "base"))
+		var diff: Array = []
+		if g6 == null:
+			diff.append("c3_l6.base 装不进")
+		else:
+			for i in 5:
+				var a: Dictionary = gs.cell_of(i)
+				var b: Dictionary = g6.cell_of(i)
+				if a["pos"] != b["pos"] or int(a["itype"]) != int(b["itype"]) \
+						or int(a["ctype"]) != int(b["ctype"]) or int(a["faction"]) != int(b["faction"]) \
+						or int(a["energy"]) != int(b["energy"]):
+					diff.append("席 %d" % i)
+			for c in CWData.all_coords(mini(int(gs.board_radius), int(g6.board_radius))):
+				var ta: Dictionary = gs.tile(c)
+				var tb: Dictionary = g6.tile(c)
+				if int(ta["tissue"]) != int(tb["tissue"]) or int(ta["special"]) != int(tb["special"]):
+					diff.append(str(c))
+			g6.dispose()
+		check(diff.is_empty(),
+			"★ 间章末尾的 solid 与第六关的 c3_l6.base 逐只逐格相等（组织 / 器官 / 五只细胞的位置 / 种类 / 能量；对不上的：%s）" % str(diff.slice(0, 6)))
+		gs.dispose()
+
+	## ---- ⑥ 击退是重装不是规则：规则文件一个字没动 ----
+	var actions_md5 := FileAccess.get_file_as_string("res://scripts/core/cw_actions.gd") \
+		.replace("\r\n", "\n").md5_text()
+	var core_src := FileAccess.get_file_as_string("res://scripts/core/cw_actions.gd") \
+		+ FileAccess.get_file_as_string("res://scripts/core/cw_world.gd")
+	check(actions_md5 == S9B_ACTIONS_MD5 and not core_src.contains("击退"),
+		"★ 规则里没有「击退」这回事：cw_actions.gd 指纹未变（实测 %s；基线录于 2fc632a 那次核改动之后，S9b 一个字没动它）、core 里零命中"
+			% actions_md5)
+	## 击退落在**数据**上：flip 里巨噬本来就写在 (-2,0)，分镜 9 走到 (-1,0)，分镜 10 重装推回去
+	check(S9B_L6_CELLS[S9B_MACRO] == Vector2i(-2, 0)
+			and CWData.hex_dist(Vector2i(-1, 0), Vector2i.ZERO) == 1
+			and CWData.hex_dist(S9B_L6_CELLS[S9B_MACRO], Vector2i.ZERO) == 2,
+		"一环内那只从 (-1,0) 被推到 (-2,0)：正好是 §7.4 第 6 条「玩家与巨噬距 2 且同一直线」")
+
+	## ---- ②③⑤ 真机那一路：承接 → 重心平移 → 完整换局 → 三下攻击 ----
+	await _s9b_live()
+	CWGuideProgress.clear()
+
+
+## 间章的真机那一路（起 Main.tscn，第五关 → 间章）。判据 ②③⑤ 在这儿
+func _s9b_live() -> void:
+	CWGuideProgress.clear()
+	CWGuideProgress.set_done(3)          ## done_count = 4 ⇒ `_tutor_pick_level` 挑第五关
+	CWSettings.ai_delay_ms = 0
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	m.tutorial = true
+	m.start()
+	await process_frame
+	await process_frame
+	check(str(m._tutor_level.get("id", "")) == "c2_l5", "教程局开在第五关")
+	var k0: CWKernel = m.kernel
+	var s0 = m._stage
+	var was: Vector2i = m.mirror.cell_of(0)["pos"]
+	var cancer0 := 0
+	for c in CWData.all_coords():
+		if int((m.mirror.tiles[c] as Dictionary)["tissue"]) == CWData.Tissue.CANCER:
+			cancer0 += 1
+
+	## ---- ① 进间章：一局都不拆、没有黑场 ----
+	m._tutor_next_level(S9B_LEVEL)
+	await process_frame
+	check(str(m._tutor_level.get("id", "")) == S9B_LEVEL and m.kernel == k0 and m._stage == s0
+			and m._stage.level.get("id", "") == S9B_LEVEL,
+		"★ 进间章一局都没拆：句柄 / 舞台是同两只，舞台的 level 换成了间章那一份")
+	check(m.mirror.cell_of(0)["pos"] == was and m.player_count == 9,
+		"进间章前后玩家细胞坐标一致（%s），席位表还没换 —— 翻转那一拍才换" % str(was))
+
+	## ---- ② 分镜 2：重心平移到玩家，469 格、老格状态一个不丢 ----
+	m._director._enter_state((m._tutor_level["flow"] as Array)[3] as Dictionary)
+	await process_frame
+	await process_frame
+	var cancer1 := 0
+	for c in CWData.all_coords(S9B_RADIUS):
+		if m.mirror.tiles.has(c) and int((m.mirror.tiles[c] as Dictionary)["tissue"]) == CWData.Tissue.CANCER:
+			cancer1 += 1
+	check(m.mirror.cell_of(0)["pos"] == Vector2i.ZERO and m.mirror.tiles.size() == S9B_TILES
+			and m.board.active_tiles().size() == S9B_TILES,
+		"★ 分镜 2：玩家落 (0,0)、盘子 469 格、遮罩跟着揭到 469（实测 %d 格 / %d 活跃）"
+			% [m.mirror.tiles.size(), m.board.active_tiles().size()])
+	check(cancer1 == cancer0,
+		"落在新盘内的老格状态一个不丢（癌组织 %d → %d）" % [cancer0, cancer1])
+
+	## ---- ③ 分镜 6：阵营翻转走的是**完整换局** ----
+	var bridge0 = m.bridge
+	m._tutor_rematch("flip")
+	await process_frame
+	await process_frame
+	check(m.player_count == 5 and m.human_players == [S9B_HUMAN]
+			and m.kernel != k0 and m._stage != s0,
+		"★ 翻转走完整换局：席位 9 → 5、人类席换到队尾的 4、句柄与舞台都换了新的（实测 %d 席 / %s）"
+			% [m.player_count, str(m.human_players)])
+	check(m.bridge != bridge0 and m._director.gate == m.bridge,
+		"★ 新桥重挂在同一个导演上（不重挂的话从这一拍起闸再也装不上，而且不报错）")
+	check(int(m.mirror.cell_of(S9B_HUMAN)["faction"]) == CWData.Faction.CANCER
+			and m.mirror.cell_of(S9B_HUMAN)["pos"] == Vector2i.ZERO
+			and m.mirror.players.size() == 5,
+		"右栏那份镜像也真的换了：玩家是癌方、站 (0,0)、五席")
+	check(str(m._tutor_level.get("id", "")) == S9B_LEVEL and m._director.level.get("id", "") == S9B_LEVEL,
+		"游标没被重置回分镜 1（完整换局那一条不调 director.open）")
+
+	## ---- ③④⑤ 分镜 8 / 9 / 10：**真的走钩子**（levels/interlude.gd）----
+	## 皮换成计数皮：真皮的 `say` 是个按帧走的协程，无头里没必要真等它念完；
+	## 演出库改成手喂时间（它本来就是时间的纯函数）—— 无头一帧的 delta 小得跑不完一段
+	var tal := CWTutorViewTally.new()
+	m.ui.add_child(tal)
+	m._director.view = tal
+	m._tutor_fx.auto_play = false
+	var fl: Array = m._tutor_level["flow"]
+	await _s9b_hook(m, fl[11] as Dictionary)        ## 分镜 8：alarm
+	var said := {}
+	for e in tal.log:
+		if str((e as Dictionary)["kind"]) == "say":
+			said = (e as Dictionary)["args"]
+	check(str(said.get("who", "")) == "seat:%d" % S9B_MACRO
+			and str(((said.get("lines", PackedStringArray()) as PackedStringArray))[0]).begins_with("发现新的敌人"),
+		"★ 分镜 8 的说话人由钩子运行期挑：离玩家最近的那只免疫（实测 %s）"
+			% str(said.get("who", "")))
+
+	## ---- ⑤ 分镜 9：三次攻击，带子精确用尽 ----
+	await _s9b_hook(m, fl[12] as Dictionary)        ## 分镜 9：assault
+	var tape = m._stage.tape
+	check(int(tape.at) == 3 and int(tape.overrun) == 0 and int(tape.bad_range) == 0
+			and (tape.tape as Array).size() == 3,
+		"★ 三次攻击的带子**双向归零**：三条全用掉、一次都没 overrun（实测 at %d / overrun %d）"
+			% [int(tape.at), int(tape.overrun)])
+	check(int(m.mirror.cell_of(S9B_HUMAN)["energy"]) < CWTutorLayers.INFINITE_AT
+			and bool(m.mirror.cell_of(S9B_HUMAN)["alive"]),
+		"玩家挨了三下、掉了血但打不死（99990 能量；实测 %d）" % int(m.mirror.cell_of(S9B_HUMAN)["energy"]))
+	check(m.mirror.cell_of(S9B_MACRO)["pos"] == Vector2i(-1, 0),
+		"打完之后那只免疫停在玩家相邻格 (-1,0)（实测 %s）" % str(m.mirror.cell_of(S9B_MACRO)["pos"]))
+
+	## ---- 分镜 10：脚下固化 + 一环内免疫外推 1 格（重装，不是规则）----
+	await _s9b_hook(m, fl[13] as Dictionary)        ## 分镜 10：erupt
+	check(int((m.mirror.tiles[Vector2i.ZERO] as Dictionary)["tissue"]) == CWData.Tissue.SOLID
+			and m.mirror.cell_of(S9B_MACRO)["pos"] == Vector2i(-2, 0),
+		"★ 分镜 10：脚下 (0,0) 变固化、一环内那只被推回 (-2,0) —— 这一拍就是第六关的开局摆拍")
+	var logged := 0
+	for s in m._director.hook_log:
+		if str(s).contains("分镜"):
+			logged += 1
+	check(logged >= 4, "钩子流水账记了四笔以上（实测 %d）" % logged)
+	m._director.view = null
+	tal.queue_free()
+	m.teardown()
+	await process_frame
+	main_scene.queue_free()
+	await process_frame
+	CWSettings.ai_delay_ms = 220
+
+
+## 跑一条 `hook` 条目到完（钩子协程回到 0）。
+## 演出库手喂时间：无头一帧的 delta 小得惊人，按真帧跑一段冲击波要几千帧
+func _s9b_hook(m: CWMatch, row: Dictionary) -> void:
+	m._director._enter(row)
+	var spins := 0
+	while spins < 900 and m._director._hook_depth > 0:
+		spins += 1
+		if m._tutor_fx != null and is_instance_valid(m._tutor_fx) and m._tutor_fx.running():
+			m._tutor_fx.advance(0.1)
+		await process_frame
+	check(m._director._hook_depth == 0,
+		"钩子「%s」跑完了（%d 帧）" % [str(row.get("call", "")), spins])

@@ -201,6 +201,7 @@ func _open_spec(spec: Dictionary) -> CWKernel:
 	if g == null:
 		errors.append_array(loader.errors)
 		return null
+	_point_cursor(g)
 
 	## ★ 带子必须挂在 `open()` **之前**：`open()` 之后引擎随时可能掷第一颗骰，
 	##   晚一步挂上去那一颗就走真 rng，整条带子当场错位（`cw_roll_tape.gd` 的 overrun 会静默回落）。
@@ -218,6 +219,29 @@ func _open_spec(spec: Dictionary) -> CWKernel:
 	k.open(c)
 	kernel = k
 	return k
+
+
+## 把行动游标对到 `seat` 那一席上（S9b）。
+##
+## cwxworld/3 的 `seat` 只写进 `g.current_pid`，而轮到谁实际上是
+## `cw_game._advance_turn` 里的 `order[flow["i"]]` 说了算—— `flow["i"]` 装完恒为 0，
+## 而 `order` 恒是 `[0, 1, 2, …]`，所以不补这一脚的话**永远是席 0 先行**，
+## `seat: 1` 写了等于没写（真机上的表现：间章分镜 9 的巨噬根本不被问，
+## 而玩家那一问挂在关死的闸上，演出当场停死）。
+##
+## **不改装载器**：它与 L0 / C# 对拍共用一张键表，L0 夹具里真有写着
+## `seat: 2` 的世界，改掉就是两侧语义分叉。教程这一侧自己补：
+## `current_pid > 0` 才动，而其余每一关的 world 写的都是 `seat: 0` ⇒ 行为一字不变。
+##
+## 顺带的语义：`current_pid == order[flow.i]` 之后 `_advance_turn` **不再走 `begin_turn`**
+## —— `seat: N` 读成「正在 N 的回合中」，而不是「请开始 N 的回合」。
+## 刚装出来的盘面里 `attacks_used` 本来就是 0，间章那三下不受影响
+func _point_cursor(g: CWGame) -> void:
+	if int(g.current_pid) <= 0 or int((g.flow as Dictionary).get("i", 0)) != 0:
+		return
+	var k: int = (g.order as Array).find(int(g.current_pid))
+	if k > 0:
+		g.flow["i"] = k
 
 
 ## 这一关的预设骰子（`cwtut/2` 的 `rolls`）。`[[from, to, value], …]`，与 `cwxcase/2` 的 `rolls` 同形。

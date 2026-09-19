@@ -253,19 +253,26 @@ func _only_keys(d: Dictionary, allowed: Array, where: String) -> void:
 			_bad("%s 里有不认识的键「%s」（许可：%s）" % [where, str(k), ", ".join(allowed)])
 
 
-## 判据 ⑮：`state.load` 写成表时的形状。**两种表写法互斥**，一份 load 只许一种：
+## 判据 ⑮：`state.load` 写成表时的形状。**三种表写法互斥**，一份 load 只许一种：
 ## · `{"by_player_type": {…}}`（S5 修订，Kevin 2026-09-19「Step2 重装要保留玩家 Step1 选的那一种」）；
-## · `{"recenter": "player", "radius": 11}`（S9a，间章分镜 2：承接活局面 + 重心平移到锚点）。
+## · `{"recenter": "player", "radius": 11}`（S9a，间章分镜 2：承接活局面 + 重心平移到锚点）；
+## · `{"world": "flip", "rematch": true}`（S9b，间章分镜 6：走**跨关规格的完整换局**）。
 ## 混着写的话导演挑谁都是猜，所以在这儿当场红
 func _load_table_ok(i: int, tbl: Dictionary, level: Dictionary) -> void:
 	var by_kind := tbl.has("by_player_type")
 	var recenter := tbl.has("recenter")
-	if by_kind == recenter:
-		_bad("flow[%d].load 写成表只有两种写法：{\"by_player_type\": {…}} 或 {\"recenter\": …, \"radius\": …}，"
-			% i + "两者互斥、不能混写（实测键 %s）" % str(tbl.keys()))
+	var rematch := tbl.has("rematch") or tbl.has("world")
+	var n := int(by_kind) + int(recenter) + int(rematch)
+	if n != 1:
+		_bad(("flow[%d].load 写成表只有三种写法：{\"by_player_type\": {…}} / " % i)
+			+ "{\"recenter\": …, \"radius\": …} / {\"world\": …, \"rematch\": true}，"
+			+ "三者互斥、不能混写（实测键 %s）" % str(tbl.keys()))
 		return
 	if recenter:
 		_recenter_ok(i, tbl)
+		return
+	if rematch:
+		_rematch_ok(i, tbl, level)
 		return
 	if tbl.size() != 1:
 		_bad("flow[%d].load 的 by_player_type 写法不许再带别的键（实测键 %s）" % [i, str(tbl.keys())])
@@ -281,6 +288,24 @@ func _load_table_ok(i: int, tbl: Dictionary, level: Dictionary) -> void:
 		if not worlds.has(str(by[k])):
 			_bad("flow[%d].load.by_player_type[\"%s\"] 点的 world「%s」这一关没有"
 				% [i, str(k), str(by[k])])
+
+
+## 判据 ⑮ 的第三种：`state.load` 的**完整换局写法**（S9b，间章分镜 6，PRD:427
+## 「控制免疫细胞再次出现像素错误、剧烈抖动，最终转为 Null 能量的小细胞肺癌」）。
+##
+## `{"world": "flip", "rematch": true}` = 走 `CWMatch._tutor_next_level` 那条**跨关规格**的拆装序列
+## （算关 / 换席位 / 重挂桥与面板），而不是关内 `reload_world` 的短路版 —— 阵营翻转会改席位表，
+## 而席位 order 在 `g.init(order, 1)` 时就定死了（`cw_world_loader.gd:142`）。
+## 两个键都必须显式写：`world` 点名装哪一份，`rematch: true` 是「请走长的那条路」的声明
+func _rematch_ok(i: int, tbl: Dictionary, level: Dictionary) -> void:
+	for k in tbl:
+		if not (str(k) in ["world", "rematch"]):
+			_bad("flow[%d].load 的完整换局写法只有 world / rematch 两个键，多出「%s」" % [i, str(k)])
+	if not bool(tbl.get("rematch", false)):
+		_bad("flow[%d].load 写了 world 却没写 rematch: true —— 点名一份 world 就直接写字符串" % i)
+	var wid := str(tbl.get("world", ""))
+	if not (level.get("worlds", {}) as Dictionary).has(wid):
+		_bad("flow[%d].load.world 点的「%s」这一关没有" % [i, wid])
 
 
 ## 判据 ⑮ 的另一半：`state.load` 的**重心平移写法**（S9a，间章分镜 2，PRD:395-397
@@ -497,6 +522,18 @@ func _check_flow(level: Dictionary, radius: int) -> void:
 
 
 # ---- 小工具 ----
+
+## 这一关要**承接上一关的活局面**吗（S9b）：`flow[0]` 里**显式**写了 `"load": null`。
+## 校验器判据 ⑪ 只让 `chapter_kind == "interlude"` 这么写，所以这条等价于「它是间章」，
+## 但判的是**机制本身**（承接 = 不重装），调用方（`CWMatch._tutor_next_level`）不必认章型。
+## 省略 `load` 与写 `null` 在这儿必须分得清 —— 判据 ⑪ 就是为这一点判红「忘了写」的
+static func adopts_live(level: Dictionary) -> bool:
+	var flow: Array = level.get("flow", [])
+	if flow.is_empty():
+		return false
+	var head: Dictionary = flow[0]
+	return head.has("load") and head["load"] == null
+
 
 ## 一只细胞此刻是什么种类 —— 返回的就是 world spec 里 `cells[].type` 那个词。
 ## 参数可以是镜像里的条目，也可以是 spec 装出来的对局里的那只

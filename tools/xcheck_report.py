@@ -87,6 +87,8 @@ FUNC_SUBSYSTEM = [
     # 连同它们的逐帧助手一并归 guide —— 不加这两行会掉进兜底的 core 档，把闸三的分母搅了
     (r"^t_tutor_", "guide"),
     (r"^_tutor_", "guide"),
+    # S9a / S9b 的分片助手（`_s9a_level` 夹具、`_s9b_live` / `_s9b_hook` 真机那一路）：里面的 check 全是教程断言，跟着归 guide
+    (r"^_s9[ab]_", "guide"),
     # —— 联机 ——
     (r"^t_(net_|lan_|online_|watch_|match_online|replay)", "net"),
     (r"^t_(surrender|surrender_seats|barrier_release|chat_box)$", "net"),

@@ -43,6 +43,15 @@ signal want_recenter(delta: Vector2i, radius: int)
 signal want_reset
 ## 给某席换脚本（`flow[].npc`）
 signal want_npc(seat: int, plan: Array)
+## 剧本要播一段教程演出（`flow[].play`，S9b）。**同 `want_npc` 的形制**：发意图，做事的是调用方
+## —— 演出库（`cw_tutor_fx.gd`）挂在棋盘底下，归 `CWMatch` 持，导演一个节点都不认识。
+## `done` 是**一次性回执**：`await: true` 的那一条要等演完才翻页，调用方播完回调它
+## （`await: false` 只按 `secs` 空等，回执照发、导演自己判要不要理）
+signal want_play(fx: String, args: Dictionary, done: Callable)
+## 剧本要走一次**跨关规格的完整换局**（`state.load` 写成 `{"world": …, "rematch": true}`，S9b）。
+## 间章分镜 6 的阵营翻转：席位 order 在 `g.init(order, 1)` 时定死，而关内 `reload_world` 是
+## 四步拆装的**短路版**（跳过「算关 / 换席位 / 重挂面板」三段）—— 翻转必须走长的那一条
+signal want_rematch(world_id: String)
 ## 目录跳关（S6）：常驻壳点了某一关 → 皮 → `goto_level()` → 这一条。
 ## **换局本体归调用方**（拆装次序那串一个字不能动，见 `CWMatch._tutor_next_level`）
 signal want_goto(level_id: String)
@@ -74,6 +83,10 @@ var _base := {}
 var _rebase_next := false
 ## `wait` / `play` 的倒计时
 var _wait_left := 0.0
+## `play` 且 `await: true` 时：演出还没播完（同 `_saying` 的形制）
+var _playing := false
+## 发出去的第 n 段演出。回执带着这个号回来 —— 上一段的迟到回执不许把这一段的 `_playing` 解掉
+var _play_seq := 0
 ## `say` 还在念吗（皮的协程没回来）
 var _saying := false
 ## 章节提示正在播（协程，播完才往下，PRD:35）
@@ -112,17 +125,26 @@ func open(lv: Dictionary, seat: int) -> void:
 	_entered = false
 	_wait_left = 0.0
 	_saying = false
+	_playing = false     ## 上一关的演出回执迟到也解不开新关的这一条（回执带段号，见 `_enter_play`）
+	## 上一关那一屏章节提示挂在代际闸上永不返回（`_play_chapter` 里 `await dead`）⇒
+	## 它再也没机会把这一位放下。不在这儿清的话，下一关的游标永远被 `_tick` 开头
+	## 那条 `if _chapter_busy: return` 按死 —— 真机上的表现是「进了间章却一拍也不演」
+	_chapter_busy = false
 	_advising = false
 	_hook_depth = 0      ## 上一关挂死的钩子协程不许按住新关的游标
 	_hook_obj = null     ## 换关就换一支钩子脚本
 	active = true
 	rebase_hard()
-	## 章节提示（PRD:35）：`(chapter_kind, chapter)` 变了才弹，没变就静默切关（PRD:37）
-	var key: Array = [str(lv.get("chapter_kind", "main")), int(lv.get("chapter", 1))]
+	## 章节提示（PRD:35）：`(chapter_kind, chapter)` 变了才弹，没变就静默切关（PRD:37）。
+	## **间章一律不弹**（Kevin 2026-09-19：静默进入，进第六关时照常弹「第三章 Cancer」）——
+	## 二元组照记，所以下一条主章节与它不相等、该弹的那一屏一次都不少
+	var kind := str(lv.get("chapter_kind", SCRIPT_DATA.KIND_MAIN))
+	var key: Array = [kind, int(lv.get("chapter", 1))]
 	if key != _shown_chapter:
 		_shown_chapter = key
-		_chapter_busy = true
-		_play_chapter(int(lv.get("chapter", 1)), str(lv.get("chapter_title", "")))
+		if kind != SCRIPT_DATA.KIND_INTERLUDE:
+			_chapter_busy = true
+			_play_chapter(int(lv.get("chapter", 1)), str(lv.get("chapter_title", "")))
 	## 断点续读的落点（S6）：`at.level` 是关 id，`beat` 关首归 0。**续读只认「关」**（Q-11）
 	CWGuideProgress.set_at(str(lv.get("id", "")), 0)
 	if view != null and is_instance_valid(view):
@@ -138,6 +160,7 @@ func reset_level() -> void:
 	_entered = false
 	_wait_left = 0.0
 	_saying = false
+	_playing = false
 	_advising = false
 	_hook_depth = 0      ## 挂死的钩子协程再也回不来，不清就把重置后的 `hook` 那一条按死
 	active = true
@@ -292,8 +315,7 @@ func _enter(row: Dictionary) -> void:
 			if view != null and is_instance_valid(view) and not added.is_empty():
 				view.codex_unlocked(added)
 		"play":
-			## 教程演出库是 S7 的 `cw_tutor_fx.gd`；这一片先按 `secs` 空等，接缝留着
-			_wait_left = float(row.get("secs", 0.0))
+			_enter_play(row)
 		"wait":
 			_wait_left = float(row.get("secs", 0.0))
 		"player":
@@ -321,7 +343,10 @@ func _enter_state(row: Dictionary) -> void:
 			var k: int = CWTutorLayers.switch_types().find(wid)
 			if k >= 0:
 				_switch_at = k
-			want_load.emit(wid)              ## 已经是这一份的话调用方自己判掉（幂等）
+			if _is_rematch(row["load"]):
+				want_rematch.emit(wid)       ## 跨关规格的完整换局（间章分镜 6 的阵营翻转，S9b）
+			else:
+				want_load.emit(wid)          ## 已经是这一份的话调用方自己判掉（幂等）
 	if row.has("npc"):
 		for e in row["npc"]:
 			want_npc.emit(int((e as Dictionary).get("seat", -1)), (e as Dictionary).get("plan", []) as Array)
@@ -333,6 +358,11 @@ func _enter_state(row: Dictionary) -> void:
 ## 这一条 `load` 是重心平移写法吗（S9a）
 static func _is_recenter(v: Variant) -> bool:
 	return v is Dictionary and (v as Dictionary).has("recenter")
+
+
+## 这一条 `load` 要走**完整换局**吗（S9b，`{"world": "flip", "rematch": true}`）
+static func _is_rematch(v: Variant) -> bool:
+	return v is Dictionary and bool((v as Dictionary).get("rematch", false))
 
 
 ## 把 `{"recenter": "player", "radius": 11}` 翻成一条 `want_recenter(−P, radius)`。
@@ -359,6 +389,8 @@ func _emit_recenter(d: Dictionary) -> void:
 func _world_for(v: Variant) -> String:
 	if not (v is Dictionary):
 		return str(v)
+	if (v as Dictionary).has("world"):
+		return str((v as Dictionary)["world"])     ## 完整换局写法（S9b）：点名的那一份
 	var by: Dictionary = (v as Dictionary).get("by_player_type", {})
 	if by.is_empty():
 		push_warning("flow[%d].load 的表里没有 by_player_type" % _at)
@@ -368,6 +400,60 @@ func _world_for(v: Variant) -> String:
 		return str(by[kind])
 	push_warning("flow[%d].load.by_player_type 里没有「%s」这一档，退回第一份" % [_at, kind])
 	return str(by.values()[0])
+
+
+## 席位 → 这一刻那只细胞站的格。**演出层认不得席位**（它碰不到内核），所以由调用方把这条线
+## 注入进 `cw_tutor_fx.seat_at`。找不到那只时给盘心：演出画歪一格总好过让 `board.tile_center`
+## 拿哨兵坐标去查一张没有这个键的表
+func seat_at(seat: int) -> Vector2i:
+	var at := _anchor_at("seat:%d" % seat)
+	if at == NO_ANCHOR:
+		push_warning("seat_at：席位 %d 此刻在镜像里找不到活细胞" % seat)
+		return Vector2i.ZERO
+	return at
+
+
+## `flow[].play` 这一条（S9b）：把意图发给调用方，自己只管「等多久」。
+##
+## `args` 原样透传给演出库，只补两处**数据写不出来的东西**：
+## · `at`（这一段画在哪一格）与 `args.actor`（代画哪一只）里的 `"player"` / `"seat:<n>"`
+##   翻成**席位号** —— 演出层再用注入的 `seat_at` 换成格；写成 `"q,r"` 的直接翻成 `Vector2i`；
+## · `seed`（演出随机的种子，数据里写了就用数据的）。
+## 钩子喂进来的行里 `at` / `actor` 本来就可能已经是 `Vector2i` / 席位号，那种原样过
+func _enter_play(row: Dictionary) -> void:
+	_wait_left = float(row.get("secs", 0.0))
+	var kind := str(row.get("fx", ""))
+	if kind == "":
+		push_warning("flow[%d] 是 play 却没写 fx" % _at)
+		return
+	var args: Dictionary = (row.get("args", {}) as Dictionary).duplicate(true)
+	if row.has("at"):
+		args["at"] = _fx_where(row["at"])
+	if args.has("actor"):
+		args["actor"] = _fx_where(args["actor"])
+	if row.has("seed"):
+		args["seed"] = int(row["seed"])
+	_play_seq += 1
+	var tok := _play_seq
+	var ep := epoch
+	if bool(row.get("await", false)):
+		_playing = true
+	want_play.emit(kind, args, func() -> void:
+		if ep == epoch and tok == _play_seq:
+			_playing = false)
+
+
+## `play` 里那两个位置字段的三种写法 → 演出库认得的东西：
+## `"player"` / `"seat:<n>"` → 席位号（int），`"q,r"` → `Vector2i`，其余原样
+func _fx_where(v: Variant) -> Variant:
+	if not (v is String):
+		return v
+	var s := str(v)
+	if s == "player":
+		return human_seat
+	if s.begins_with("seat:"):
+		return int(s.substr(5))
+	return SCRIPT_DATA.parse_at(s)
 
 
 ## `"player"` / `"seat:<n>"` 那只此刻站的格；找不到给 `NO_ANCHOR`
@@ -425,9 +511,13 @@ func _advance_ok(row: Dictionary, delta: float) -> bool:
 	match str(row.get("do", "")):
 		"say":
 			return not _saying and (view == null or not is_instance_valid(view) or not view.busy())
-		"wait", "play":
+		"wait":
 			_wait_left -= delta
 			return _wait_left <= 0.0
+		"play":
+			## `await: true` ⇒ 等演完**并且**等够 `secs`；`await: false` ⇒ 只等 `secs`
+			_wait_left -= delta
+			return not _playing and _wait_left <= 0.0
 		"player":
 			return _player_done(row)
 		"hook":
