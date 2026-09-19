@@ -12,14 +12,35 @@
 class_name MechBridge
 extends CWHeuristicBridge
 
+## **true = 用数据拟合位置估值（MechValue.position_eval，2026-09-20 估值体检产物）**
+## 代替旧手拍 scorer；AI 档名 "mev"（mech 桥 + 拟合估值）。旧行为（false）不变。
+var use_fit_eval := false
+## true 且 use_fit_eval：用线性版 position_eval_linear（对照「log 阻尼坑癌」实验，档名 "mel"）。
+var fit_linear := false
+static var _fit_linear_on := false
+## true = action 用意图级 alpha-beta（depth=SEARCH_DEPTH，叶=拟合估值），否则旧贪心 best_by。
+var use_search := false
+const SEARCH_DEPTH := 2
+
 
 func ask(req: Dictionary) -> int:
 	if req["kind"] == "action":
 		var fac: int = game.player(req["pid"])["faction"]
-		var scorer: Callable = MechBridge._cancer_score if fac == CWData.Faction.CANCER \
-			else MechBridge._immune_score
 		var intent := MechIntent.new()
-		var best: Dictionary = await intent.best_by(game, req["pid"], scorer)
+		var best: Dictionary
+		if use_search:
+			## 叶估值 = 拟合 E(s)（零和：免疫 +E / 癌 −E）；走子排序仍用旧手拍（动作知识层）
+			var leaf: Callable = func(m: Dictionary) -> float:
+				var ev: float = MechValue.position_eval_linear(m) if _fit_linear_on else MechValue.position_eval(m)
+				return ev if int(m.get("faction", 0)) == CWData.Faction.IMMUNE else -ev
+			best = await intent.search_best(game, req["pid"], leaf, SEARCH_DEPTH)
+			if best.has("path") and best["path"].size() > 0:
+				var ix := _find_move_option(req, best["path"][0])
+				if ix >= 0:
+					return ix
+			return await super.ask(req)
+		var scorer: Callable = _pick_scorer(fac)
+		best = await intent.best_by(game, req["pid"], scorer)
 		## 只在「动过确实更好」时接管：best 为空路径（不动基线赢）→ 回落启发式
 		if best.has("path") and best["path"].size() > 0:
 			var idx := _find_move_option(req, best["path"][0])
@@ -72,6 +93,47 @@ static func _immune_score(m: Dictionary) -> float:
 	return float(m["immune_energy"]) - float(m["cancer_energy"]) \
 		- float(m["cancer_supply"]) - float(m["win_progress"]) \
 		+ float(m["memory"])
+
+
+## scorer 选择（实例方法：需要读 use_fit_eval）：拟合估值是零和 E（免疫 max / 癌 min），
+## 两侧共用同一可调用（内部按阵营翻号）。
+func _pick_scorer(fac: int) -> Callable:
+	if use_fit_eval:
+		return MechBridge._fit_score
+	return MechBridge._cancer_score if fac == CWData.Faction.CANCER \
+		else MechBridge._immune_score
+
+## 零和拟合估值包装：免疫 +E，癌 −E（E 的 log-odds 定义见 MechValue.position_eval）。
+## 【实锤实验】补回三个 actor 战术项（权重抄旧手拍基线，非新拍数）——验证
+## "mev 贪心崩盘 = 局面估值缺走子战术项" 这一结论：若胜率回升则实锤。
+## A/B 开关：fit_tactical=false 跑纯局面版（对照），true 跑补战术版。
+@export var fit_tactical := true
+
+static func _fit_score(m: Dictionary) -> float:
+	var e: float = MechValue.position_eval_linear(m) if _fit_linear_on else MechValue.position_eval(m)
+	return e if int(m.get("faction", 0)) == CWData.Faction.IMMUNE else -e
+	## 【实锤记录 2026-09-20】曾试补三个 actor 战术项(solid_rounds/energy/min_dist, 旧权重×0.1/×1)：
+	##   全量纲 免10-2→4-8、0.1x →5-7，均比纯局面版差 → "mev 贪心弱=缺战术项"假设被否。
+	##   真因：走子要"动作导向"即时回报(净化/攻击+分)，局面估值是"状态导向"终局预测 ——
+	##   状态估值只能当搜索叶(见 MechValue.position_eval 头注)，不能喂贪心。
+
+## actor 战术项（与旧 _cancer_score 同权重×TACTICAL_SCALE）：走子价值 = 局面价值 + 本手战术
+## TACTICAL_SCALE=0.1：旧项量级(±10)直接叠 log-odds(±几)会淹没局面估值（实测免疫 10-2→4-8 崩），
+## 缩到 0.1 让战术只做"同局面下的次序微调"，不覆盖战略判断。
+const TACTICAL_SCALE := 0.1
+
+static func _tactical_bonus(m: Dictionary) -> float:
+	var t := 0.0
+	var sr: int = int(m.get("actor_solid_rounds", -1))
+	if sr >= 0 and sr <= 2:
+		t += float(3 - sr)
+	var ae: int = int(m.get("actor_energy", 0))
+	if ae < 20:
+		t -= float(20 - ae) * 2.0
+	var d: int = int(m.get("actor_min_immune_dist", 999))
+	if d < 3:
+		t -= float(3 - d) * 5.0
+	return TACTICAL_SCALE * t
 
 
 func _find_move_option(req: Dictionary, to: Vector2i) -> int:

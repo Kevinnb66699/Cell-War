@@ -92,6 +92,7 @@ func _read_metrics(g: CWGame, pid: int, with_hash := false) -> Dictionary:
 	## 所以「追杀」= 让免疫被回合末压迫压死：用引擎 pressure_lethal 逐只判（含护盾减免）。
 	## 读的是「此刻盘面」的压迫 —— 评估路径试走后盘面已含定殖转化，是真实下界。
 	var immune_alive := 0
+	var cancer_alive := 0
 	var immune_pressure_total := 0
 	var immune_lethal_count := 0
 	var min_immune_energy := 0
@@ -105,6 +106,7 @@ func _read_metrics(g: CWGame, pid: int, with_hash := false) -> Dictionary:
 		if first_immune or e < min_immune_energy:
 			min_immune_energy = e
 			first_immune = false
+	cancer_alive = g.living_cells(CWData.Faction.CANCER).size()
 	## 骨髓控制：健康骨髓 = 免疫复活点；癌化/固化 = 封掉复活点
 	var healthy_marrows := 0
 	var cancer_marrows := 0
@@ -125,6 +127,7 @@ func _read_metrics(g: CWGame, pid: int, with_hash := false) -> Dictionary:
 		"actor_solid_rounds": actor_solid_rounds,
 		"actor_min_immune_dist": actor_min_immune_dist,
 		"immune_alive": immune_alive,
+		"cancer_alive": cancer_alive,
 		"immune_pressure_total": immune_pressure_total,
 		"immune_lethal_count": immune_lethal_count,
 		"min_immune_energy": min_immune_energy,
@@ -201,3 +204,100 @@ func best_by(g: CWGame, pid: int, scorer: Callable) -> Dictionary:
 			best = e.duplicate(true)
 	best["score"] = best_score
 	return best
+
+
+# ==================== alpha-beta 搜索（意图级，2026-09-20） ====================
+##
+## 设计（三轮实测定位后的架构，见 mech_bridge 实锤记录）：
+##   · 节点 = 一个细胞的**整回合计划**（候选由 candidates() 生成 = 动作知识层）；
+##   · 叶估值 = MechValue.position_eval / position_eval_linear（预测器本职：评走完后的局面）；
+##   · 免疫节点取 max、癌节点取 min（E 零和），深度 D = 往后看的席位数；
+##   · 引擎快照→试走→读数→回滚（evaluate_path 已有），完全确定、可复现。
+##
+## 为什么是 alpha-beta 不是 MCTS：有验证过的估值函数（MCTS 反而用不上）+ 引擎滚整局太贵
+## （MCTS 需成百上千次完整模拟，深度 2 的 alpha-beta 只需 K² 次叶评估）+ 项目要确定性。
+
+## alpha-beta 主入口：为 pid 选「考虑对手最优应对后」最优的整回合计划。
+## 返回 { path, score }；leaf_eval(metrics)->float 由桥注入（含阵营翻号）。
+## depth = 往后看的席位数（1 = 只看自己，2 = 自己+下一席应对）。
+func search_best(g: CWGame, pid: int, leaf_eval: Callable, depth := 2, top_k := 6) -> Dictionary:
+	var cands: Array = await candidates(g, pid)
+	## 用动作知识层（旧手拍式快评）给候选**排序**——alpha-beta 剪枝效率全靠好序
+	var quick := MechBridge._cancer_score if g.player(pid)["faction"] == CWData.Faction.CANCER \
+		else MechBridge._immune_score
+	var scored: Array = []
+	for path in cands:
+		var m: Dictionary = await evaluate_path(g, pid, path)
+		scored.append({ "path": path, "metrics": m, "q": float(quick.call(m)) })
+	scored.sort_custom(func(a, b): return float(a["q"]) > float(b["q"]))
+	if scored.size() > top_k:
+		scored = scored.slice(0, top_k)
+	var alpha := -INF
+	var best: Dictionary = {}
+	for c in scored:
+		var snap: Dictionary = g.snapshot()
+		var v: float = await _ab_recurse(g, pid, c, leaf_eval, depth - 1, alpha, INF)
+		g.restore(snap)
+		if v > alpha or best.is_empty():
+			alpha = v
+			best = { "path": c["path"], "score": v }
+	return best
+
+
+## 递归：己方计划 c 已在盘上（调用方负责快照），继续往下 depth-1 席。
+## 下一席 = 引擎行动顺序里 pid 之后的下一个活席位（min/max 按其阵营）。
+func _ab_recurse(g: CWGame, pid: int, c: Dictionary, leaf_eval: Callable, depth: int, alpha: float, beta: float) -> float:
+	## 落地当前计划（真走，不回滚——回滚由最外层统一做）
+	var played := true
+	for to in c["path"]:
+		var req: Dictionary = await g.pending()
+		if req.is_empty() or int(req["pid"]) != pid:
+			played = false
+			break
+		var idx := _find_move(req, to)
+		if idx < 0:
+			played = false
+			break
+		await g.step(idx)
+	if depth <= 0 or not played:
+		return float(leaf_eval.call(c["metrics"]))
+	## 下一席：顺序里 pid 之后第一个活席
+	var nxt := -1
+	var n := g.order.size()
+	for k in range(1, n + 1):
+		var q: int = g.order[(g.order.find(pid) + k) % n]
+		if g.player(q)["faction"] >= 0:
+			nxt = q
+			break
+	if nxt < 0:
+		return float(leaf_eval.call(c["metrics"]))
+	var nxt_fac: int = g.player(nxt)["faction"]
+	var maximizing := nxt_fac == CWData.Faction.IMMUNE
+	var sub: Array = await candidates(g, nxt)
+	var quick := MechBridge._cancer_score if nxt_fac == CWData.Faction.CANCER \
+		else MechBridge._immune_score
+	var subs: Array = []
+	for path in sub:
+		var m: Dictionary = await evaluate_path(g, nxt, path)
+		subs.append({ "path": path, "metrics": m, "q": float(quick.call(m)) })
+	subs.sort_custom(func(a, b): return (float(a["q"]) > float(b["q"])) if maximizing else (float(a["q"]) < float(b["q"])))
+	if subs.size() > top_k_const():
+		subs = subs.slice(0, top_k_const())
+	var best_v := -INF if maximizing else INF
+	for sc in subs:
+		var snap2: Dictionary = g.snapshot()
+		var v: float = await _ab_recurse(g, nxt, sc, leaf_eval, depth - 1, alpha, beta)
+		g.restore(snap2)
+		if maximizing:
+			best_v = maxf(best_v, v)
+			alpha = maxf(alpha, v)
+		else:
+			best_v = minf(best_v, v)
+			beta = minf(beta, v)
+		if beta <= alpha:
+			break
+	return best_v
+
+
+static func top_k_const() -> int:
+	return 6

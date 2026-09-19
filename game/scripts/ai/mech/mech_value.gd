@@ -319,3 +319,68 @@ static func rounds_to_solidify(solid: int, threshold: int) -> int:
 	if solid >= threshold:
 		return 0
 	return ceili(float(threshold - solid) / float(CWData.SOLIDIFY_STEP))
+
+
+# ==================== 数据拟合位置估值（2026-09-20 估值体检产物） ====================
+##
+## **全程数据说话，无手拍权重**：
+##   · 数据：145 局（2354 局面，heu/mech 五配置混采），采集器 res://tests/mech_eval_health.gd；
+##   · 拟合：logistic 回归，P(免疫胜) = σ(E)，特征 = log(1+杠杆)（log 乘区，模型比较中优于线性）；
+##   · 数学预处理：删 wp（=ct+2st）、cm（=常数−hm）两条完全共线杠杆；
+##   · 稳定性：主导系数 5/5 折同号；全盘 5 折 CV AUC=0.830（早回合 r≤3 AUC=0.612），
+##     对比旧手拍 `_immune_score` 同数据 AUC≈0.75 → 本式显著更优；
+##   · 复现脚本：tools/eval_formula.py（系数如有更新以该脚本重跑为准）。
+##
+## E(s) = log-odds(免疫胜)，**零和**：免疫取 max、癌取 min（= −E）。
+## ⚠ 拟合分布限制：训练局面来自 heu/mech 对弈，搜索 AI 走出更强局面时外推需复测。
+
+## 截距（全数据拟合）。
+const FIT_B := 4.0552
+
+## 零和位置估值：输入 `_read_metrics` 的字典（需含 cancer_alive），输出越大对免疫越优。
+static func position_eval(m: Dictionary) -> float:
+	var e := FIT_B
+	e += 2.0602 * _lf(m, "immune_level")       ## 免疫等级门（最强正项）
+	e += 1.8128 * _lf(m, "immune_alive")       ## 免疫兵力
+	e -= 1.5817 * _lf(m, "cancer_tiles")       ## 癌地盘
+	e -= 1.3008 * _lf(m, "solid_tiles")        ## 癌固化
+	e -= 0.9080 * _lf(m, "cancer_alive")       ## 癌兵力
+	e += 0.8470 * _lf(m, "healthy_marrows")    ## 健康骨髓（免疫复活点）
+	## ⚠ mie 系数是共线伪影：mie 与 ie/ia 强共线，拟合给它负号（最弱免疫能量越高越差），
+	##   机制上倒置 —— 实测它驱动 AI 主动削弱自己最弱细胞（mev 1-11 崩盘的主因之一）。
+	##   按「数据矛盾时以机制为准」剔除该项（数学/机制裁决，非拍数）。
+	## e -= 0.2755 * _lf(m, "min_immune_energy")
+	e += 0.2541 * _lf(m, "memory")             ## 抗原记忆
+	e -= 0.2370 * _lf(m, "cancer_energy")
+	e -= 0.2258 * _lf(m, "immune_lethal_count")## 即将被压死的免疫数
+	e -= 0.1512 * _lf(m, "immune_pressure_total")
+	e += 0.0639 * _lf(m, "cancer_supply")
+	e += 0.0430 * _lf(m, "immune_energy")      ## 免疫能量：数据说几乎不预测输赢（旧估值把它当头项=配反）
+	return e
+
+## log(1+x)，x 下限 0（杠杆全是非负量）。
+static func _lf(m: Dictionary, key: String) -> float:
+	return log(1.0 + maxf(float(m.get(key, 0.0)), 0.0))
+
+
+## 【对照实验】线性特征版（同一份清洗数据、剔除 mie 毒项）：检验「log 阻尼坑癌」假设。
+##   线性版预测 AUC=0.820（≈log 的 0.830），但癌的积累赛跑梯度**恒定**（ct 每格恒 +0.045），
+##   不随 ct 增大而衰减 —— 若癌侧用线性版明显回暖，则「log 阻尼」是坑癌主因之一。
+##   数据：同 position_eval 的 145 局，tools 线性重拟合。零和：免疫 max / 癌 min。
+const FIT_LIN_B := 0.4576
+
+static func position_eval_linear(m: Dictionary) -> float:
+	var e := FIT_LIN_B
+	e -= 0.04544 * float(m.get("cancer_tiles", 0))
+	e -= 0.25741 * float(m.get("solid_tiles", 0))
+	e -= 0.00551 * float(m.get("cancer_supply", 0))
+	e -= 0.00210 * float(m.get("cancer_energy", 0))
+	e -= 0.00011 * float(m.get("immune_energy", 0))
+	e += 0.61035 * float(m.get("immune_alive", 0))
+	e -= 0.36126 * float(m.get("cancer_alive", 0))
+	e += 0.20788 * float(m.get("healthy_marrows", 0))
+	e -= 0.01551 * float(m.get("immune_pressure_total", 0))
+	e += 0.10344 * float(m.get("immune_lethal_count", 0))
+	e += 0.99377 * float(m.get("immune_level", 0))
+	e += 0.00843 * float(m.get("memory", 0))
+	return e
