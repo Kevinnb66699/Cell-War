@@ -65,6 +65,14 @@ func gate_closed() -> bool:
 	return blocked or (_allow is Array and (_allow as Array).is_empty())
 
 
+## 强制演出（PRD:453「玩家仅可点击 UI 提示的部分」）：闸非空的那几步里，
+## `allow` 之外的行动种类**根本不建**（`CWUIBridge._ask_action` 的那一行问的就是这个），
+## **不是置灰** —— 灰按钮只会把玩家引过去点一下再被挡回来（09-19 真机截图抓到的）。
+## `null`（自由游玩段）与 `[]`（全禁，行动栏本来就不建）两档都返回 false
+func hides_dead_acts() -> bool:
+	return _allow is Array and not (_allow as Array).is_empty()
+
+
 ## 闸不是 `_pending`，基类够不着它，不发这一下就留一条永远醒不来的协程
 func abort() -> void:
 	super.abort()

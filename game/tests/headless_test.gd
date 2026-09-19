@@ -24095,13 +24095,14 @@ func t_tutor_recenter() -> void:
 	CWGuideProgress.clear()
 
 
-## 新手教程 v2 · S10：第六关 a —— 盘面 / 几何 / 席位 / 旋钮 / 带子 / 三条胜负护栏。
-## **25 步流程、三个钩子、五段演出是 S11**，这里只钉「盘面立得住、演出跑得完」那一层。
+## 新手教程 v2 · 第六关。**两段**：
+## · a 段（S10）盘面 / 几何 / 席位 / 旋钮 / 带子 / 三条胜负护栏 —— 判据 ①～⑨；
+## · b 段（S11）25 步流程 / 三个钩子 / 五段演出 / 强制演出闸 —— 判据 ⑩～⑱。
 ##
 ## 坐标口径（Kevin 2026-09-19，盘面提案 §6.3）：间章分镜 2 把世界重心平移到玩家 ⇒
-## 玩家 = (0,0)、半径 11，本关全部坐标 = §7.1 / §7.4 的表**逐格减 (6,-2)**。
+## 玩家 = (0,0)、半径 12，本关全部坐标 = §7.1 / §7.4 的表**逐格减 (6,-2)**。
 func t_tutor_c3() -> void:
-	print("[新手教程 v2 S10·第六关 a：盘面 / 几何 / 席位 / 带子 / 三条胜负护栏]")
+	print("[新手教程 v2 S10/S11·第六关：盘面 + 25 步流程 / 三个钩子 / 五段演出]")
 	CWGuideProgress.clear()
 	CWTutorLayers.reset()
 	var shift := Vector2i(-6, 2)          ## = −(6,-2)，§7 的表到本关坐标的换算
@@ -24248,8 +24249,8 @@ func t_tutor_c3() -> void:
 
 	## ---- ⑦ 两处内核按半径 6 写死：本关撞得到，护栏在这儿**钉住理由**（修不修由主线程定）----
 	check(CWData.ring(Vector2i(-11, 1), 1).is_empty() and CWData.ring(Vector2i.ZERO, 1).size() == 7,
-		"★ `CWData.ring` 遍历的是**默认半径 6** 的 all_coords ⇒ T 站 (-11,1) 时【细胞毒素】"
-			+ "一个目标都取不到、整条技能空转。本片的护栏因此**跳过细胞毒素**（PRD:497 第 18 步）")
+		"`CWData.ring` 的**缺省**半径仍是 6 ⇒ 不传 radius 时 T 站 (-11,1) 一个目标都取不到 —— "
+			+ "第 18 步【细胞毒素】立得住全靠调用方传 `game.board_radius`（判据 ⑯ 正面钉）")
 	check(CWData.is_edge(Vector2i(0, 7)) and not CWData.is_edge(Vector2i.ZERO),
 		"`CWData.is_edge` 同样按半径 6 判 ⇒ 半径 6 之外一律算外缘、【侵蚀】永不触发 —— "
 			+ "对本关是利好，但它是巧合不是设计")
@@ -24293,13 +24294,265 @@ func t_tutor_c3() -> void:
 			+ "且三格都与 (0,0) 六向共线（实测 %s）" % str(born))
 	rv.dispose()
 
-	## ---- ⑨ flow：本片只放关首那一条 + 一条占位 wait（25 步是 S11）----
-	var head: Dictionary = (lv["flow"] as Array)[0]
+	## ---- ⑨ 关首那一条：界面照 PRD:441-447 ----
+	var flow: Array = lv["flow"]
+	var head: Dictionary = flow[0]
 	var ui: Dictionary = head["ui"]
 	check(str(head.get("load", "")) == "base" and bool(ui["sidebar"]) and bool(ui["end_turn"])
 			and not bool(ui["round_no"]) and not bool(ui["skill_bar"]) and not bool(ui["move_path"])
 			and str(ui["energy"]) == "null" and not bool(ui["*"]),
 		"关首界面照 PRD:441-447：侧边栏 + 结束回合开、不显示第 X 回合、技能栏 / 路径规划关、能量写 Null")
+
+	# =================================================================
+	# b 段（S11）：25 步流程 / 三个钩子 / 五段演出 / 强制演出闸
+	# =================================================================
+
+	## ---- ⑩ 25 步与 PRD 逐条对账：`prd` 单调不减 + 25 个编号行逐条覆盖 ----
+	## 这是**对账闸**：剧本改一条、PRD 挪一行，这里当场红。校验器 ⑬ 只管单调，「逐条覆盖」在这儿
+	var want_prd: Array = [463, 465, 467, 469, 473, 475, 477, 483, 487, 491, 493, 495,
+		497, 499, 501, 503, 505, 509, 511, 515, 517, 519, 523, 525, 527]
+	var mono := true
+	var last_prd := -1
+	var seen := {}
+	for r in flow:
+		var p := int((r as Dictionary).get("prd", last_prd))
+		if p < last_prd:
+			mono = false
+		last_prd = maxi(last_prd, p)
+		seen[p] = true
+	var miss_prd: Array = []
+	for p in want_prd:
+		if not seen.has(p):
+			miss_prd.append(p)
+	check(mono and miss_prd.is_empty() and want_prd.size() == 25 and int(head["prd"]) == 441,
+		"★ 25 步逐条对账：`prd` 单调不减、PRD:437-528 的 25 个编号行一条不缺（flow %d 条，关首那条钉 441；缺 %s）"
+			% [flow.size(), str(miss_prd)])
+
+	## ---- ⑪ 强制演出闸（PRD:453）：`allow` 之外的选项**根本不建**，不是置灰 ----
+	var open_gate: Array = []
+	var stray: Array = []
+	var multi: Array = []
+	var player_rows := 0
+	for i in flow.size():
+		var r: Dictionary = flow[i]
+		if str(r.get("do", "")) != "player":
+			if r.has("allow"):
+				stray.append(i)
+			continue
+		player_rows += 1
+		var a: Variant = r.get("allow", null)
+		if not (a is Array) or (a as Array).is_empty():
+			open_gate.append(i)
+		elif (a as Array).size() != 1:
+			multi.append("%d:%s" % [i, str(a)])
+	check(player_rows == 7 and open_gate.is_empty() and stray.is_empty() and multi.is_empty(),
+		"★ 强制演出闸：%d 个 player 条目**每条只放一条语义键**（锁定迁移模式 PRD:457 = 六向只放下一格）、"
+			% player_rows + "非 player 条目一个 allow 都没写（导演统一给它们 [] 全禁）；越界 %s / %s / %s"
+			% [str(open_gate), str(stray), str(multi)])
+	## 点名的那几条逐字核：结束回合 / 两跳转移 / 黏液破裂 / 复活于固化格
+	var allows: Array = []
+	for r in flow:
+		if str(r.get("do", "")) == "player":
+			allows.append(str((r["allow"] as Array)[0]))
+	check("k=action|act=end" in allows and "k=action|act=jump|to=-5,1" in allows
+			and "k=action|act=jump|to=-10,1" in allows and "k=action|act=mucus" in allows
+			and "k=revive|to=0,0" in allows,
+		"逐字核：结束回合 / 两跳【转移】(0,1)→(-5,1)→(-10,1) / 【黏液破裂】/ 复活于固化格 (0,0) 各只放一条")
+	## **行为面**：闸之外的种类在行动栏里**根本不建**（不是置灰）。
+	## `_ask_action` 的按钮集合来自 `mirror.action_kinds_of`（整份种类表）、只把没选项的那几个置灰 ——
+	## 09-19 真机第一版就是这么漏的：第六关第 3 步只许【移动】，行动栏上却同时亮着【突变】【转移】
+	var tg = TUTOR_GATE.new()
+	var g0 := CWUIBridge.new()
+	check(not g0.hides_dead_acts() and not tg.hides_dead_acts(),
+		"★ 正式局恒不藏（基类 `CWUIBridge.hides_dead_acts` 恒 false）；闸桥的缺省 `null`（自由游玩段）也不藏")
+	tg.set_allow([])
+	var off := tg.hides_dead_acts()
+	tg.set_allow(["k=action|act=move|to=-1,0"])
+	check(not off and tg.hides_dead_acts(),
+		"★ 闸非空的那几步才藏：`[]`（全禁，行动栏本来就不建）不藏、非空藏 ⇒ PRD:453「玩家仅可点击 UI 提示的部分」")
+
+	## ---- ⑪b 469 格的盘真的铺得出来：活跃集要多大，格网就长多大 ----
+	## `CWMatch._open_tutor_level` 是「`set_active_tiles` 在前、第一次 `_adopt_mirror`
+	## （那里才 `ensure_radius`）在后」⇒ 第 7 环起的格那一刻还不在 `map` 里。
+	## 09-19 真机抓到：第六关只露出中间 127 格，玩家走到 (-10,1) 时脚下一片黑
+	var bd6 := make_board()
+	bd6.set_active_tiles(lv["active_tiles"].map(func(s): return TUTOR_SCRIPT.parse_at(str(s))), 0.0)
+	check(bd6._grid_radius >= 12 and bd6.active_tiles().size() == 469
+			and bd6.is_active(Vector2i(-11, 1)) and bd6.is_active(Vector2i(0, -12)),
+		"★ `set_active_tiles` 自己把格网长到活跃集要的半径（铺到第 %d 环、活跃 %d 格，T (-11,1) 与真外环都在）"
+			% [bd6._grid_radius, bd6.active_tiles().size()])
+	bd6.queue_free()
+
+	## ---- ⑫ 镜头与技能栏（主线程 2026-09-19 的实装口径 ①）----
+	var cam: Dictionary = ui["camera"]
+	var skill_on := -1
+	for i in flow.size():
+		var r: Dictionary = flow[i]
+		if str(r.get("do", "")) == "state" and r.get("ui", null) is Dictionary \
+				and bool((r["ui"] as Dictionary).get("skill_bar", false)):
+			skill_on = i
+	check(str(cam["anchor"]) == "player" and str(cam["align"]) == "right"
+			and not cam.has("zoom") and skill_on > 0 and int(flow[skill_on]["prd"]) == 501,
+		"★ 镜头一律 {anchor: player, align: right}（玩家靠右、T 那条线从左侧进画面）、**不改缩放**；"
+			+ "技能栏在 PRD:501 第 15 步才打开（flow[%d]）" % skill_on)
+
+	## ---- ⑬ 五段演出：fx 名都在 `cw_tutor_fx.KINDS` 里，五段一段不少 ----
+	var fx_seen := {}
+	var bad_fx: Array = []
+	var loose: Array = []
+	for i in flow.size():
+		var r: Dictionary = flow[i]
+		if str(r.get("do", "")) != "play":
+			continue
+		var k := str(r.get("fx", ""))
+		fx_seen[k] = int(fx_seen.get(k, 0)) + 1
+		if not (k in TUTOR_FX.KINDS):
+			bad_fx.append(k)
+		if not TUTOR_BEATS.bad_keys(r).is_empty():
+			loose.append("%d:%s" % [i, str(TUTOR_BEATS.bad_keys(r))])
+	check(bad_fx.is_empty() and loose.is_empty() and int(fx_seen.get("knockback", 0)) == 2
+			and int(fx_seen.get("beam_hit", 0)) >= 4 and int(fx_seen.get("glitch", 0)) == 2
+			and int(fx_seen.get("shockwave", 0)) == 1,
+		"★ 五段演出：击退受击 ×2（第 11/13 步）、命中不贯穿的效应应答 ×%d（第 9/17/18/24 步）、"
+			% int(fx_seen.get("beam_hit", 0)) + "像素错误 ×2（第 19/25 步）、黏液破裂 ×1（第 21 步）；"
+			+ "fx 名全在 KINDS 里、键全在 §2.6 的六个里（越界 %s / %s）" % [str(bad_fx), str(loose)])
+	## 「一直持续」与「停」：第 9 / 17 步 loop=true，第 18 步那一发 loop=false（播完即收）
+	var loops: Array = []
+	for r in flow:
+		if str(r.get("do", "")) == "play" and str(r.get("fx", "")) == "beam_hit":
+			loops.append([int(r["prd"]), bool((r.get("args", {}) as Dictionary).get("loop", false)),
+				int((r.get("args", {}) as Dictionary).get("target", -1))])
+	check(loops == [[487, true, 0], [507, true, 0], [509, false, 0], [525, false, 0]],
+		"★ 效应应答 loop 账：PRD:487「一直持续」与 :507「始终止于癌细胞位置」都 loop（target 写**席位 0** "
+			+ "⇒ 随玩家位置更新）；:509 第 18 步那一发不 loop = 停；:525 齐发也不 loop（实测 %s）" % str(loops))
+
+	## ---- ⑭ 钩子文件三条纪律 + 三支函数齐（`t_tutor_hooks` 扫整棵树，这里单钉第六关那一支）----
+	var hsrc := FileAccess.get_file_as_string("res://scripts/tutor/levels/c3_l6.gd")
+	var hlines: PackedStringArray = hsrc.split("\n")
+	var members: Array = []
+	var bad_while: Array = []
+	for raw in hlines:
+		var line := _code_only(str(raw))
+		if line.begins_with("var ") or line.begins_with("@export"):
+			members.append(line.strip_edges())
+		if line.strip_edges().begins_with("while ") and not line.contains("ctx.alive()"):
+			bad_while.append(line.strip_edges())
+	var calls: Array = []
+	for r in flow:
+		if str(r.get("do", "")) == "hook":
+			calls.append(str(r["call"]))
+	check(hlines.size() <= 300 and members.is_empty() and bad_while.is_empty()
+			and not hsrc.contains("class_name ") and hsrc.contains("func encircle(ctx)")
+			and hsrc.contains("func immune_turn(ctx)") and hsrc.contains("func repeat_until_last_t(ctx)")
+			and calls == ["encircle", "immune_turn", "repeat_until_last_t"]
+			and str(lv["hook"]) == "res://scripts/tutor/levels/c3_l6.gd",
+		"★ 钩子 c3_l6.gd：%d 行 ≤ 300 / 零成员变量 / 每个 while 含 ctx.alive() / 零 class_name；"
+			% hlines.size() + "剧本按 PRD 次序点名三支 %s（越界 %s / %s）"
+			% [str(calls), str(members), str(bad_while)])
+
+	## ---- ⑭b 钩子里的 `player` beat 真能把闸撑开（S11 实测的死锁，三个钩子全靠它）----
+	## `install()` 读的是**主游标那一条**，而钩子跑的时候主游标停在 `hook` 上（非 player ⇒ `[]` 全禁）：
+	## 不认 `ctx.beat` 那一条的话，`encircle` 的每一步都是「闸关死 + `until` 永远等不到」= 死锁
+	var view6 := CWTutorViewTally.new()
+	var spy6 := TutorGateSpy.new()
+	var d6 = TUTOR_DIRECTOR.new()
+	d6.view = view6
+	d6.gate = spy6
+	root.add_child(d6)
+	d6.open(_tutor_hook_level("tick_forever"), 0)   ## 钩子不返回 ⇒ 主游标一直按在 hook 那一条上
+	d6.install()
+	await _tutor_pump(6)
+	var shut: Variant = spy6.last()          ## 主游标在 hook 那一条上 ⇒ 全禁
+	## 先试非阻塞条目：装完就还回 `[]`（它不该把闸留开着）
+	d6.run_beat({ "do": "point", "prd": 467, "hex": ["-1,0"], "mode": "soft" }, d6.epoch)
+	var back: Variant = spy6.last()
+	## 再试阻塞的 `player`：它得把自己的 `allow` 装上去，并一直撑到跑完
+	d6.run_beat({ "do": "player", "prd": 467, "allow": ["k=action|act=move|to=-1,0"],
+		"until": { "state": "cell_at", "arg": [0, "-1,0"] } }, d6.epoch)
+	await _tutor_pump(3)                     ## 主游标每帧都再 `install()` 一次，得撑住
+	var opened: Variant = spy6.last()
+	check(shut is Array and (shut as Array).is_empty()
+			and back is Array and (back as Array).is_empty()
+			and opened == ["k=action|act=move|to=-1,0"],
+		"★ `ctx.beat` 的 `player` 条目把闸撑开并撑住（%s），非阻塞条目装完就还回 `[]`（%s）"
+			% [str(opened), str(back)] + " —— 主游标此刻停在 `hook` 那一条上，不认 beat 就是死锁")
+	d6.teardown()
+	d6.queue_free()
+	view6.free()
+
+	## ---- ⑮ B 三次抗体靠 `npc.plan`、巨噬净化走内核 ----
+	var anti_hook := 0
+	for raw in hlines:
+		anti_hook += _code_only(str(raw)).count("k=action|act=antibody")
+	var anti_flow := 0
+	for r in flow:
+		if str(r.get("do", "")) != "npc":
+			continue
+		for e in r.get("plan", []):
+			if str((e as Dictionary).get("key", "")) == "k=action|act=antibody":
+				anti_flow += 1
+	check(anti_hook == 3 and anti_flow == 3 and hsrc.contains("\"policy\": \"approach\"")
+			and not hsrc.contains("purify") and not hsrc.contains("act=toxin"),
+		"★ B 细胞三次抗体（PRD:479）= plan 里**点名三条**（钩子里 %d 条、第 24 步齐发那条 %d 条）；"
+			% [anti_hook, anti_flow] + "巨噬净化（PRD:481）钩子里一个字都没写 —— 走内核动画")
+
+	## ---- ⑯ 第 18 步【细胞毒素】：口径 ② 的护栏打开（S10 跳过的那一条）----
+	## 第 17 步玩家两跳落到 (-10,1) 时【定殖】把那一格染成癌组织 ⇒ T 脚下一环终于有目标。
+	## 判别力全在 `radius` 那个实参上：不传就是缺省 6，T 在第 11 环、一个目标都取不到
+	var tox: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "signet"))
+	(tox.tile(Vector2i(-10, 1)) as Dictionary)["tissue"] = CWData.Tissue.CANCER
+	var targets: Array = []
+	for n in CWData.ring(Vector2i(-11, 1), 1, tox.board_radius):
+		if int((tox.tile(n) as Dictionary)["tissue"]) == CWData.Tissue.CANCER:
+			targets.append(n)
+	check(int(tox.board_radius) == 12 and CWData.ring(Vector2i(-11, 1), 1, 12).size() == 7
+			and targets == [Vector2i(-10, 1)],
+		"★ 【细胞毒素】护栏打开：T (-11,1) 的 1 环在半径 12 的盘上是 7 格，玩家转移落点 (-10,1) "
+			+ "被【定殖】染成癌组织之后正好是唯一目标（实测 %s）" % str(targets))
+	tox.dispose()
+
+	## ---- ⑰ 第 22 步复活：`k=revive|to=0,0` 真的是引擎给得出的语义键，紧跟一份重装拨回哨兵 ----
+	var rvg: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "signet"))
+	rvg.kill(rvg.cell_of(0))
+	var rkeys: Array = []
+	for o in rvg.world.revive_options_cancer(0):
+		rkeys.append(CWSemKey.key({ "kind": "revive" }, (o as Dictionary)["data"]))
+	var at_revive := -1
+	for i in flow.size():
+		if str((flow[i] as Dictionary).get("do", "")) == "player" \
+				and str(((flow[i] as Dictionary)["allow"] as Array)[0]) == "k=revive|to=0,0":
+			at_revive = i
+	var after_load := ""
+	for i in range(at_revive + 1, flow.size()):
+		if str((flow[i] as Dictionary).get("do", "")) == "state":
+			after_load = str((flow[i] as Dictionary).get("load", ""))
+			break
+	check("k=revive|to=0,0" in rkeys and at_revive > 0 and after_load == "revived"
+			and int(rvg.cell_of(0)["energy"]) < CWTutorLayers.INFINITE_MIN
+			and int((d.resolve(lv, "revived")["cells"] as Array)[0]["energy"]) == CWTutorLayers.INFINITE_AT,
+		"★ 复活那一步：`k=revive|to=0,0` 在引擎给的 %d 条选项里；**紧跟一份 `load: revived`** 把能量从 "
+			% rkeys.size() + "REVIVE_ENERGY 拨回哨兵 %d（PRD:455 的 Null 不能在复活那一刻掉回 2.0）"
+			% CWTutorLayers.INFINITE_AT)
+	rvg.dispose()
+
+	## ---- ⑱ 不产 `game_over`：【黏液破裂】走**内核真技能**跑一遍，自毁 → 跨一次 E → 仍不终局 ----
+	## 带子这一段照旧写 `rolls: []`：黏液的 `pick_random` 结果在**第 22-23 步的 `load: revived`**
+	## 里被整份覆盖（`revived` 是绝对坐标 spec、`from: signet` 拿的是原盘 tiles），
+	## 转化了哪几格影响不到结局画面 —— 这一条把「影响不到」钉住
+	var mu: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "signet"))
+	var before_solid := int((mu.tile(Vector2i.ZERO) as Dictionary)["tissue"])
+	await mu.actions.execute(mu.cell_of(0), { "act": "mucus" })
+	await mu.world.e_phase()
+	check(not bool(mu.cell_of(0)["alive"]) and int(mu.winner) == -1 and str(mu.win_kind) == ""
+			and before_solid == CWData.Tissue.SOLID
+			and int((mu.tile(Vector2i.ZERO) as Dictionary)["tissue"]) == CWData.Tissue.SOLID,
+		"★ 【黏液破裂】真技能自毁 + 跨一次 E：**不产 game_over**（winner=%d），复活点 (0,0) 那格固化"
+			% int(mu.winner) + "离引爆点 10 格、黏液一点都碰不到 ⇒ 第 22 步永远有得复活")
+	check(str(lv["on_done"]) == "",
+		"★ 第 25 步之后 `on_done` 是空串 = **全部通关**（Q-14：PRD 第四章没写接什么 ⇒ "
+			+ "落一笔「全部通关」+ 回主菜单，不弹结算屏）")
+	mu.dispose()
+
 	g.dispose()
 	CWGuideProgress.clear()
 	CWTutorLayers.reset()

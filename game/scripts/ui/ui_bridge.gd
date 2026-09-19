@@ -154,6 +154,15 @@ class Answer:
 ## **debug 模式下 Godot 会直接断在调试器里，表现就是「游戏卡死」**
 ## （2026-08-27 团队试玩报的就是这个）。
 ## 引擎那边由 CWGame.aborted 收摊，两边配合才能安全展开。
+## 这一问里**没有选项的那几个种类**要不要连按钮都不建？正式局恒 `false`
+## （灰按钮是有意的：「花掉能量不会让按钮凭空少一个」）。
+## 教程的闸桥（`cw_tutor_gate.gd`）在 `allow` 非空时覆写成 `true` —— 强制演出关里
+## 「allow 之外的选项根本不建」是 PRD:453 的原话。**虚函数放基类**：`_ask_action` 里
+## 那一行不认识教程，只问「要不要藏」
+func hides_dead_acts() -> bool:
+	return false
+
+
 func abort() -> void:
 	_aborted = true
 	_clear_ui()
@@ -323,6 +332,13 @@ func _ask_action(req: Dictionary) -> int:
 			## 凭空少一个」，而教程第一关压根没有能量这回事，灰着的那一颗只会把新手引过去点
 			## （PRD:51 / 通用规则 9；09-19 真机截图抓到的）。`hand` 默认为真 ⇒ 非教程局读到的和今天一模一样
 			if act == "draw" and not CWTutorLayers.on("hand"):
+				continue
+			## 教程的**强制演出**（PRD:453 第六关：「玩家仅可点击 UI 提示的部分」）：
+			## `allow` 之外的种类**根本不建**，不是置灰。灰着的按钮在正式局是对的
+			## （「花掉能量不会让按钮凭空少一个」），可在摆拍关里它只会把玩家引过去点一下、
+			## 再被闸挡回来 —— 09-19 真机实测：第六关第 3 步的行动栏上同时亮着【突变】【转移】。
+			## 判据在闸那头（`CWTutorGate.hides_dead_acts`），基类恒 false ⇒ 正式局一字不变
+			if not live and hides_dead_acts():
 				continue
 			buttons.append({
 				"title": _move_title(cell) if act == "move" else ACT_TITLE.get(act, act),

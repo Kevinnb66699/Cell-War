@@ -29,7 +29,10 @@ const VERBS := {
 	"unlock": { "blocking": false, "keys": ["ids"] },
 	"play":   { "blocking": true,  "keys": ["fx", "at", "secs", "args", "seed", "await"] },
 	"wait":   { "blocking": true,  "keys": ["secs"] },
-	"player": { "blocking": true,  "keys": ["allow", "until", "hint", "hex", "ui",
+	## `mode` / `tip` 与 `point` 同义（导演的 `_enter_player` 本来就读这两个）：**这一条自己也要提亮**。
+	## 不许的话，紧跟在 `point` 后面的 `player` 会把上一条的提亮**覆写成默认的 soft + 空 tip**
+	## —— 第六关第 4 步的全屏提示与按钮上「点击结算【微环境压迫】」那颗小气泡当场消失（S11 真机抓到）
+	"player": { "blocking": true,  "keys": ["allow", "until", "hint", "hex", "ui", "mode", "tip",
 		"reset_when", "advise_when", "advise"] },
 	"npc":    { "blocking": false, "keys": ["seat", "plan"] },
 	"hook":   { "blocking": true,  "keys": ["call", "args"] },

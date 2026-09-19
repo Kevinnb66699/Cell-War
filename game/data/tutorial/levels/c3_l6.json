@@ -8,7 +8,15 @@
   "subtitle": "你成了这盘棋上唯一的癌细胞",
   "_doc": [
     "PRD:437-528「第三章 Cancer · 第六关」25 步（行号基线 = 09-19 06:32 版；旧称第七关，id 一律 c3_l6）。",
-    "★ 本片（S10）只做**盘面 / 几何 / 席位 / 旋钮 / 带子 / 护栏**；25 步流程、三个钩子、五段演出是 S11。",
+    "★ 盘面那一层（五份 world / 几何 / 席位 / 旋钮 / 带子）= S10；**`flow` 35 条、钩子 `scripts/tutor/levels/c3_l6.gd`、五段演出 = S11**。",
+    "S11 四条改判（详见开发日志 2026-09-19 S11 条与方案 §4.1 的 as-built 表）：",
+    "· 第 18 步【细胞毒素】与第 25 步「癌细胞死亡」各落成**演出**（前者还在玩家的行动回合里、T 轮不到手；",
+    "  后者与 PRD:455 的「能量保持 Null」相冲 —— 哨兵 99990 下免疫怎么打都打不死）；",
+    "· `player` 条目也许写 `mode` / `tip`（`cw_tutor_beats.VERBS`）：不许的话紧跟在 `point` 后面的 `player`",
+    "  会把上一条的提亮覆写成缺省 soft + 空 tip（第 4 步的全屏提示与按钮小气泡当场消失）；",
+    "· `rolls` 仍写空表：【黏液破裂】的 `pick_random` 确实掷骰，但它转化了哪几格在第 22-23 步的",
+    "  `load: revived` 里被整份覆盖（`revived` 顺 `from` 链拿的是原盘 tiles），影响不到结局画面；",
+    "  录一条全程带子要先有一只能无头驱动 25 步的驱动器，`record_level_rolls.gd` 只跑 E 阶段。",
     "",
     "坐标口径（Kevin 2026-09-19，《新手引导v2_盘面提案》§6.3）：间章分镜 2 把世界重心平移到玩家 ⇒",
     "**玩家 = (0,0)、世界半径 11（397 格）**，本关全部绝对坐标 = §7.1 / §7.2 / §7.4 的表**逐格减 (6,-2)**。",
@@ -403,6 +411,7 @@
     "-12,12", "-11,12", "-10,12", "-9,12", "-8,12", "-7,12", "-6,12", "-5,12", "-4,12", "-3,12", "-2,12", "-1,12", "0,12"
   ],
   "rolls": [],
+  "hook": "res://scripts/tutor/levels/c3_l6.gd",
   "flow": [
     {
       "do": "state",
@@ -420,14 +429,396 @@
         "energy": "null",
         "camera": {
           "anchor": "player",
-          "align": "center"
+          "align": "right"
         }
       }
     },
     {
-      "do": "wait",
+      "do": "say",
       "prd": 463,
-      "secs": 0.5
+      "who": "narrator",
+      "lines": [
+        "……"
+      ]
+    },
+    {
+      "do": "point",
+      "prd": 465,
+      "hex": [
+        "0,0"
+      ],
+      "mode": "soft"
+    },
+    {
+      "do": "hook",
+      "prd": 467,
+      "call": "encircle"
+    },
+    {
+      "do": "point",
+      "prd": 469,
+      "ui": [
+        "panel:end"
+      ],
+      "mode": "fullscreen",
+      "tip": "点击结算【微环境压迫】"
+    },
+    {
+      "do": "player",
+      "prd": 471,
+      "hint": "点右边的「结束回合」，把这一轮结算掉",
+      "ui": [
+        "panel:end"
+      ],
+      "allow": [
+        "k=action|act=end"
+      ],
+      "until": {
+        "delta": "ended"
+      },
+      "mode": "fullscreen",
+      "tip": "点击结算【微环境压迫】"
+    },
+    {
+      "do": "wait",
+      "prd": 473,
+      "secs": 2.0
+    },
+    {
+      "do": "unlock",
+      "prd": 475,
+      "ids": [
+        "pressure",
+        "proliferate",
+        "erosion"
+      ]
+    },
+    {
+      "do": "hook",
+      "prd": 477,
+      "call": "immune_turn"
+    },
+    {
+      "do": "hook",
+      "prd": 483,
+      "call": "repeat_until_last_t"
+    },
+    {
+      "do": "play",
+      "prd": 487,
+      "fx": "beam_hit",
+      "at": "-11,1",
+      "secs": 1.4,
+      "args": {
+        "from": "-11,1",
+        "target": 0,
+        "loop": true
+      }
+    },
+    {
+      "do": "player",
+      "prd": 491,
+      "hint": "朝 T 细胞那边走一格",
+      "hex": [
+        "-3,1"
+      ],
+      "allow": [
+        "k=action|act=move|to=-3,1"
+      ],
+      "until": {
+        "state": "cell_at",
+        "arg": [
+          0,
+          "-3,1"
+        ]
+      }
+    },
+    {
+      "do": "play",
+      "prd": 493,
+      "fx": "knockback",
+      "at": "-3,1",
+      "secs": 0.62,
+      "args": {
+        "from": "-3,1",
+        "to": "-1,1",
+        "tex": "SmallCellLung"
+      }
+    },
+    {
+      "do": "state",
+      "prd": 493,
+      "load": "knock1"
+    },
+    {
+      "do": "player",
+      "prd": 495,
+      "hint": "再朝 T 细胞走一格",
+      "hex": [
+        "-2,1"
+      ],
+      "allow": [
+        "k=action|act=move|to=-2,1"
+      ],
+      "until": {
+        "state": "cell_at",
+        "arg": [
+          0,
+          "-2,1"
+        ]
+      }
+    },
+    {
+      "do": "play",
+      "prd": 497,
+      "fx": "knockback",
+      "at": "-2,1",
+      "secs": 0.62,
+      "args": {
+        "from": "-2,1",
+        "to": "0,1",
+        "tex": "SmallCellLung"
+      }
+    },
+    {
+      "do": "state",
+      "prd": 497,
+      "load": "knock2"
+    },
+    {
+      "do": "say",
+      "prd": 499,
+      "who": "narrator",
+      "lines": [
+        "……"
+      ]
+    },
+    {
+      "do": "state",
+      "prd": 501,
+      "ui": {
+        "skill_bar": true
+      }
+    },
+    {
+      "do": "point",
+      "prd": 503,
+      "ui": [
+        "bar:转移"
+      ],
+      "mode": "soft",
+      "tip": "使用【转移】接近 T 细胞"
+    },
+    {
+      "do": "player",
+      "prd": 505,
+      "hint": "点【转移】，向 T 细胞那边跃进 5 格",
+      "ui": [
+        "bar:转移"
+      ],
+      "hex": [
+        "-5,1"
+      ],
+      "allow": [
+        "k=action|act=jump|to=-5,1"
+      ],
+      "until": {
+        "state": "cell_at",
+        "arg": [
+          0,
+          "-5,1"
+        ]
+      },
+      "mode": "soft",
+      "tip": "使用【转移】接近 T 细胞"
+    },
+    {
+      "do": "player",
+      "prd": 505,
+      "hint": "再转移一次，正好落在 T 细胞旁边",
+      "ui": [
+        "bar:转移"
+      ],
+      "hex": [
+        "-10,1"
+      ],
+      "allow": [
+        "k=action|act=jump|to=-10,1"
+      ],
+      "until": {
+        "state": "cell_at",
+        "arg": [
+          0,
+          "-10,1"
+        ]
+      },
+      "mode": "soft",
+      "tip": "使用【转移】接近 T 细胞"
+    },
+    {
+      "do": "play",
+      "prd": 507,
+      "fx": "beam_hit",
+      "at": "-10,1",
+      "secs": 1.0,
+      "args": {
+        "from": "-11,1",
+        "target": 0,
+        "loop": true
+      }
+    },
+    {
+      "do": "play",
+      "prd": 509,
+      "fx": "beam_hit",
+      "at": "-10,1",
+      "secs": 0.9,
+      "args": {
+        "from": "-11,1",
+        "target": 0,
+        "loop": false
+      }
+    },
+    {
+      "do": "play",
+      "prd": 511,
+      "fx": "glitch",
+      "at": "-10,1",
+      "secs": 2.0,
+      "seed": 20260919,
+      "args": {
+        "intensity": "heavy",
+        "shuffle": true,
+        "tex": "SmallCellLung",
+        "morph_to": "SignetRing",
+        "pool": [
+          "TCell",
+          "BCell",
+          "Macrophage",
+          "Dendritic",
+          "Melanoma",
+          "Osteosarcoma"
+        ]
+      }
+    },
+    {
+      "do": "state",
+      "prd": 513,
+      "load": "signet"
+    },
+    {
+      "do": "point",
+      "prd": 515,
+      "ui": [
+        "bar:黏液破裂"
+      ],
+      "mode": "soft",
+      "tip": "使用【黏液破裂】"
+    },
+    {
+      "do": "player",
+      "prd": 517,
+      "hint": "点【黏液破裂】—— 这一下会把自己也炸掉",
+      "ui": [
+        "bar:黏液破裂"
+      ],
+      "allow": [
+        "k=action|act=mucus"
+      ],
+      "until": {
+        "state": "all_dead",
+        "arg": "cancer"
+      },
+      "mode": "soft",
+      "tip": "使用【黏液破裂】"
+    },
+    {
+      "do": "play",
+      "prd": 517,
+      "fx": "shockwave",
+      "at": "-10,1",
+      "secs": 1.2,
+      "args": {
+        "at": "-10,1",
+        "radius": 2
+      }
+    },
+    {
+      "do": "player",
+      "prd": 519,
+      "hint": "选「复活于 (0,0)」—— 固化癌组织是癌细胞的复活点",
+      "hex": [
+        "0,0"
+      ],
+      "allow": [
+        "k=revive|to=0,0"
+      ],
+      "until": {
+        "state": "cell_at",
+        "arg": [
+          0,
+          "0,0"
+        ]
+      }
+    },
+    {
+      "do": "unlock",
+      "prd": 521,
+      "ids": [
+        "tissue_solid"
+      ]
+    },
+    {
+      "do": "state",
+      "prd": 523,
+      "load": "revived"
+    },
+    {
+      "do": "npc",
+      "prd": 525,
+      "seat": 2,
+      "plan": [
+        {
+          "key": "k=action|act=antibody"
+        },
+        {
+          "key": "k=action|act=antibody"
+        },
+        {
+          "key": "k=action|act=antibody"
+        },
+        {
+          "policy": "end_turn"
+        }
+      ]
+    },
+    {
+      "do": "play",
+      "prd": 525,
+      "fx": "beam_hit",
+      "at": "0,0",
+      "secs": 2.2,
+      "args": {
+        "from": [
+          "0,-11",
+          "11,0",
+          "-11,1"
+        ],
+        "target": 0,
+        "loop": false
+      }
+    },
+    {
+      "do": "play",
+      "prd": 527,
+      "fx": "glitch",
+      "at": "0,0",
+      "secs": 1.6,
+      "seed": 20260919,
+      "args": {
+        "intensity": "heavy",
+        "tex": "SignetRing"
+      }
     }
   ],
   "on_done": ""
