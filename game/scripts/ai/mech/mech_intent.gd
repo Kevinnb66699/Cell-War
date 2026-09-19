@@ -21,7 +21,7 @@ extends RefCounted
 ## 返回 Dictionary：{ ok, steps_done, faction, round_no,
 ##   cancer_supply, cancer_tiles, solid_tiles, win_progress,
 ##   immune_level, memory, immune_energy, cancer_energy, state_hash }
-func evaluate_path(g: CWGame, pid: int, path: Array) -> Dictionary:
+func evaluate_path(g: CWGame, pid: int, path: Array, with_hash := false) -> Dictionary:
 	var snap := g.snapshot()
 	var steps := 0
 	var ok := true
@@ -38,7 +38,9 @@ func evaluate_path(g: CWGame, pid: int, path: Array) -> Dictionary:
 			break
 		await g.step(idx)
 		steps += 1
-	var metrics := _read_metrics(g, pid)
+	## state_hash 全盘编码+HASH（O(board)），热路径逐候选算极贵且两个 scorer 都不用 →
+	## 默认跳过（快 64%），需要时（回放/排错）以 with_hash=true 单独取一次。
+	var metrics := _read_metrics(g, pid, with_hash)
 	metrics["ok"] = ok
 	metrics["steps_done"] = steps
 	g.restore(snap)
@@ -58,7 +60,7 @@ func _find_move(req: Dictionary, to: Vector2i) -> int:
 ## 除全局量外，加**行动细胞局部读数**（评估后 = 做完后的状态）：
 ##   actor_energy：行动细胞能量（生存）；actor_solid_rounds：所在格到固化还需几回合（-1 = 非癌格）；
 ##   actor_min_immune_dist：到最近免疫的距离（威胁，越小越危险）。
-func _read_metrics(g: CWGame, pid: int) -> Dictionary:
+func _read_metrics(g: CWGame, pid: int, with_hash := false) -> Dictionary:
 	var faction: int = g.player(pid)["faction"]
 	var ct: int = g.count_tissue(CWData.Tissue.CANCER)
 	var st: int = g.count_tissue(CWData.Tissue.SOLID)
@@ -128,7 +130,7 @@ func _read_metrics(g: CWGame, pid: int) -> Dictionary:
 		"min_immune_energy": min_immune_energy,
 		"healthy_marrows": healthy_marrows,
 		"cancer_marrows": cancer_marrows,
-		"state_hash": g.state_hash(),
+		"state_hash": g.state_hash() if with_hash else "",
 	}
 
 
