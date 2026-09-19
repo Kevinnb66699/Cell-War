@@ -43,11 +43,12 @@ const PROBE_NAMES: Array[String] = [
 	"move_legal", "anaerobic_pool", "split_share", "settle_loss",   ## §0.6.7 四条：Kevin 09-19 接受、C# 入口已开，探针面随各批定
 	"antibody_damage",   ## 批 4（E-6 规矩 1）：GD 收细胞，C# 侧新开同形的具名重载，两侧探针都只转调一句
 ]
-## S 族分派表：26 真（批 4 把 `damage_hit` 换成真转调；它住在 CWGame 上、四个代理够不着 ⇒ rec: manual，用例手写）。
+## S 族分派表：25 真（批 4 把 `damage_hit` 换成真转调；它住在 CWGame 上、四个代理够不着 ⇒ rec: manual，用例手写）。
+## 2026-09-19 issue #64：`decay` 整条删（固化计数不再递减，GD 那一步没了）。
 ## `execute` 是决策类 op（批 1 进表，§0.6.4 第 1 条按 GD 入口名）：两侧签名不同，args 走**席位 + 语义键**。
 const STEP_NAMES: Array[String] = [
 	"anaerobic", "cancer_upkeep", "pressure", "proliferate", "erosion", "resolve_camping",
-	"solidify", "rooted", "ossify", "decay", "mark_adhesion", "tick_durations",
+	"solidify", "rooted", "ossify", "mark_adhesion", "tick_durations",
 	"tick_necrosis", "tick_chemo_cd", "tick_chemo_track", "expire_marks", "clear_newborn",
 	"cap_energy", "reset_round_flags", "tissue_production", "vessel_teleport",
 	"aerobic", "overload", "enter_tile", "execute", "damage_hit",
@@ -552,7 +553,6 @@ func _step(g: CWGame, op: String, args: Dictionary) -> bool:
 		"solidify": g.world._solidify()
 		"rooted": g.world._rooted()
 		"ossify": g.world._ossify()
-		"decay": g.world._decay()
 		"mark_adhesion": g.world._mark_adhesion()
 		"tick_durations": g.world_fx.tick_durations()
 		"tick_necrosis": g.world._tick_necrosis()

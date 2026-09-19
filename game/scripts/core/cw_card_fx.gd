@@ -4,10 +4,10 @@
 ##
 ## **修饰卡的口径**（2026-08-29 落地，定案 #57~#64）：
 ##   自我修饰挂 `cell["mods"]`（game.add_mod：uses 次数 + turn/round/用尽三种时钟），
-##   全局修饰（基质稳定/TGF-β/TNF 冻结格）挂 events["active"]（game.install_event）。
+##   全局修饰（TGF-β/TNF 冻结格）挂 events["active"]（game.install_event）。
 ##   同名条目**同时生效**、各扣一次；触发/消耗散在各挂接点——攻击链在
 ##   cw_actions._do_move、移动计费在 _move_cost_mod、伤害减免在 immune_hit/cancer_hit、
-##   有氧在 CWWorld._aerobic、固化在 raise_solid/_decay。
+##   有氧在 CWWorld._aerobic、固化在 raise_solid。
 ##
 ## **中途选择的口径**（2026-08-29 定，「需中途选择」批随此落地）：
 ##   结算里要玩家做的决定走 `await game.ask(pid, req)`，kind 取
@@ -109,11 +109,6 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 				game.add_mod(c, card, 1, "round")
 			game.log_msg("　【I型干扰素】所有免疫细胞下一次能量损失 -1.0（本世界回合内）")
 			_evt(card, "全体免疫下次损失 -1.0", cell["pos"])
-		"基质稳定":
-			## left=1：E 阶段衰减在回合末之前结算，挂到回合末正好盖住本回合那一次
-			game.install_event(card, 1)
-			game.log_msg("　【基质稳定】本世界回合结束时固化计数不衰减")
-			_evt(card, "本回合固化计数不衰减", cell["pos"])
 		"TGF-β释放":
 			## left=2：下一次有氧在**下个**世界回合的 S 阶段，要活过本回合末；
 			## 结算时整条消耗（CWWorld._aerobic），多抽几张就多几条，逐份 -20%（#63）
@@ -1024,7 +1019,7 @@ func _radiotherapy(start: Vector2i) -> void:
 # ============ 修饰类（2026-08-29 第二批）============
 # 自我修饰的卡在 play() 里只挂条目（game.add_mod / install_event），
 # 触发和消耗散在各挂接点：攻击链（cw_actions._do_move）、移动计费（_move_cost_mod）、
-# 伤害管线（immune_hit / cancer_hit）、有氧（_aerobic）、固化（raise_solid / _decay）。
+# 伤害管线（immune_hit / cancer_hit）、有氧（_aerobic）、固化（raise_solid）。
 # 只有【TNF-α局部炎症】带一段立即结算，住在下面。
 
 func _tnf_area(cell: Dictionary) -> Array[Vector2i]:

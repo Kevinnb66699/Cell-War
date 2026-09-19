@@ -141,7 +141,7 @@
     "covers": [
       "t_proliferate_tiers::默认按分期：3"
     ],
-    "source": "headless_test.gd:t_proliferate_tiers L5236（整表）+ t_ev_proliferate L14822（只钉 [0] == 30，整表取值即覆盖）；PRD 环境恶化 3% / 4% / 5%（issue #56 把 II 期 3.5%→4%、III 期 4%→5%）；cw_data.gd:431 ↔ C# RuleTuning.ProliferatePerAdjacent（旋钮缺省值，名字与 GD 不同）。单位：千分率",
+    "source": "headless_test.gd:t_proliferate_tiers（整表）；PRD 环境恶化 3% / 5% / 6%（issue #56 把 II 期 3.5%→4%、III 期 4%→5%，**issue #64** 再抬到 5% / 6%）；cw_data.gd ↔ 旋钮 proliferate_per_adjacent 的缺省值。单位：千分率",
     "world": {
       "players": [
         {
@@ -157,8 +157,8 @@
       "kind": "tree",
       "value": [
         30,
-        40,
-        50
+        50,
+        60
       ]
     }
   },

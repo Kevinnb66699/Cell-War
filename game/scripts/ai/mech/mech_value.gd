@@ -294,11 +294,11 @@ static func _glut_bonus(g: CWGame, cell: Dictionary) -> int:
 
 ## —— 癌方【E-固化】单格生灭（确定性）——
 ##
-## 核心机制（PRD + cw_world._solidify/_decay/raise_solid）：
+## 核心机制（PRD + cw_world._solidify/raise_solid）：
 ##   · 有癌细胞停留的（非新生、非血管）癌组织：每世界回合 solid += SOLIDIFY_STEP（+1.0）
-##   · 无细胞停留且 solid>0 的癌组织：每世界回合 solid −= SOLIDIFY_DECAY（−0.5）
-##   · solid 达阈值（I 期 3.0 / II 期 2.0 / III 期 1.5，CWGame.solidify_threshold）→ 转固化癌组织
-##   · 转固化后：_solidify 不再累计（tissue 非 CANCER）、_decay 不再衰减（非 CANCER）
+##   · **计数只增不减**（2026-09-19 issue #64 删掉衰减那一步）：没人停留的格子计数原样留着
+##   · solid 达阈值（I 期 3.0 / II·III 期 2.0，CWGame.solidify_threshold）→ 转固化癌组织
+##   · 转固化后：_solidify 不再累计（tissue 非 CANCER）
 ## 纯确定性，无随机 —— 这是 AI 判断「蹲几回合能造一个复活点/容错」的解析基础。
 
 ## 当前固化阈值（对齐 CWGame.solidify_threshold，按肿瘤分期分档）。
@@ -318,11 +318,6 @@ static func solidify_after(solid: int, rounds: int, threshold: int) -> Dictionar
 		if s >= threshold:
 			solidified = true
 	return { "solid": s, "solidified": solidified }
-
-
-## 无人停留 rounds 个世界回合后的计数（每回合 −SOLIDIFY_DECAY，最低 0）。
-static func decay_after(solid: int, rounds: int) -> int:
-	return maxi(solid - CWData.SOLIDIFY_DECAY * rounds, 0)
 
 
 ## 从当前计数到固化所需的持续停留回合数（按给定阈值；跨分期阈值变化需调用方分段）。

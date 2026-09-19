@@ -742,7 +742,9 @@ func t_anaerobic_round() -> void:
 	g.dispose()
 
 
-# ---- 固化：计数用十分整数，阈值 3.0、衰减 −0.5、骨肉瘤 +1.5 ----
+# ---- 固化：计数用十分整数，阈值 3.0、骨肉瘤 +1.5 ----
+## 函数名里的 `_and_decay` 留着：L0 用例的 `covers` 按「函数名::断言名」索引，改名要把
+## `l0/batch3/solidify.json` 里十几条 covers 一起改。**衰减本身 2026-09-19 issue #64 已整步删除**。
 func t_solidify_and_decay() -> void:
 	print("[固化]")
 	var g := make_game(2, 1)
@@ -773,16 +775,16 @@ func t_solidify_and_decay() -> void:
 		g.world._solidify()
 	check(g.tiles[op]["tissue"] == CWData.Tissue.SOLID,
 		"%d 回合固化，与其他癌种相同" % (CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0] / CWData.SOLIDIFY_STEP))
-	## 衰减：无细胞停留的癌组织每世界回合 −0.5
+	## **2026-09-19 issue #64：计数不再递减** —— 衰减那一步整个删了（原 E 阶段第 6 步）。
+	## 两条反向钉：函数本体没了；结算步反复跑，没人停留的那一格一点都不掉。
+	## 「跑完一整个 E 阶段也不掉」那条在 t_phase_order（那边有现成的满盘局面）。
 	var d1 := Vector2i(-1, 0)
 	g.tiles[d1]["tissue"] = CWData.Tissue.CANCER
 	g.tiles[d1]["solid"] = 10
-	g.world._decay()
-	check(g.tiles[d1]["solid"] == 5, "无人停留 → 计数 −0.5")
-	g.world._decay()
-	check(g.tiles[d1]["solid"] == 0, "再减一次归零，不会变负")
-	g.world._decay()
-	check(g.tiles[d1]["solid"] == 0, "已经是 0 就不再减")
+	check(not g.world.has_method("_decay"), "issue #64：`CWWorld._decay` 整支删除，E 阶段少一步")
+	for _k in 3:
+		g.world._solidify()
+	check(g.tiles[d1]["solid"] == 10, "无人停留的计数一点没掉（issue #64：不再 −0.5）")
 	## 「新生」保护是旋钮（2026-09-04 Kevin 拍板取消该机制，默认关）。**正反两个方向都钉**：
 	## 只钉一边的话，把读取点删干净也照样绿，而旋钮拨回 true 就该逐位复现旧行为
 	var nb := Vector2i(0, 1)
@@ -1810,13 +1812,14 @@ func t_tumor_stages() -> void:
 	check(g.world.pressure_at(pos) == 23, "II 期 ×1.5：2.25 → 2.3（整条只取整一次）")
 	g.round_no = 11
 	check(g.world.pressure_at(pos) == 30, "III 期 ×2：3.0")
-	## ② 固化门槛：II 期 2.0、III 期 1.5（issue #56 把 III 期再降一档），raise_solid 到门槛就转
+	## ② 固化门槛：II / III 期都是 2.0（issue #56 曾把 III 期降到 1.5，**issue #64 沿 II 期改回 2**
+	## —— PRD 的 III 恶化效果里不再单列这一条，Kevin 拍板沿 II 期），raise_solid 到门槛就转
 	g.round_no = 1
 	check(g.solidify_threshold() == 30, "I 期门槛 3.0")
 	g.round_no = 6
 	check(g.solidify_threshold() == 20, "II 期门槛 2.0（PRD 2026-09-12 把 2.0 提前到 II 期）")
 	g.round_no = 11
-	check(g.solidify_threshold() == 15, "III 期门槛 1.5（issue #56 环境恶化加强）")
+	check(g.solidify_threshold() == 20, "III 期门槛 2.0（issue #64：沿 II 期，不再是 1.5）")
 	var c2 := Vector2i.MAX
 	for c in g.tiles.keys():
 		if CWTissue.solidifiable(g.tile(c)) and CWData.hex_dist(c, pos) > 1 and g.cells_at(c).is_empty():
@@ -1825,8 +1828,10 @@ func t_tumor_stages() -> void:
 	g.tiles[c2]["tissue"] = CWData.Tissue.CANCER
 	g.tiles[c2]["solid"] = 10
 	g.raise_solid(c2, 5)
-	check(g.tiles[c2]["tissue"] == CWData.Tissue.SOLID,
-		"III 期计数到 1.5 就转固化（旧门槛 2.0 时这一步还不会转）")
+	check(g.tiles[c2]["tissue"] == CWData.Tissue.CANCER,
+		"III 期计数 1.5 还不到门槛 2.0（issue #64 把 #56 的 1.5 改回 2）")
+	g.raise_solid(c2, 5)
+	check(g.tiles[c2]["tissue"] == CWData.Tissue.SOLID, "再 +0.5 到 2.0 → 转固化")
 	## ③ 侵蚀格数表：I/II (2,3)、III (3,5)
 	check(g.tune.erosion_tiles[0] == Vector2i(2, 3) and g.tune.erosion_tiles[1] == Vector2i(2, 3)
 		and g.tune.erosion_tiles[2] == Vector2i(3, 5), "侵蚀格数表：I/II 期 (2,3)、III 期 (3,5)")
@@ -1835,7 +1840,8 @@ func t_tumor_stages() -> void:
 	check(CWStyle.FONT.get_string_size(longest, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x <= CWMatchPanel.W,
 		"右栏阶段行最长写法「%s」放得进 %d px" % [longest, CWMatchPanel.W])
 	g.dispose()
-	## ④ 【根深蒂固】：II 期每块固化随机推 1 格相邻癌组织 +1.0；III 期最多 3 格；I 期没有
+	## ④ 【根深蒂固】：II 期每块固化随机推 3 格相邻癌组织 +1.0；III 期最多 5 格；I 期没有
+	## （**2026-09-19 issue #64**：II 期 1 → 3 格、III 期 3 → 5 格，PRD:421/439）
 	var g2 := _blank_board()
 	var s := Vector2i(0, 0)
 	g2.tiles[s]["tissue"] = CWData.Tissue.SOLID
@@ -1852,7 +1858,7 @@ func t_tumor_stages() -> void:
 	check(sum_solid.call(g2) == 0, "I 期没有【根深蒂固】")
 	g2.round_no = 6
 	g2.world._rooted()
-	check(sum_solid.call(g2) == CWData.SOLIDIFY_STEP, "II 期：一块固化推了恰好 1 格 +1.0")
+	check(sum_solid.call(g2) == 3 * CWData.SOLIDIFY_STEP, "II 期：一块固化推了恰好 3 格，各 +1.0（issue #64）")
 	g2.dispose()
 	var g3 := _blank_board()
 	g3.tiles[s]["tissue"] = CWData.Tissue.SOLID
@@ -1860,7 +1866,7 @@ func t_tumor_stages() -> void:
 		g3.tiles[nb]["tissue"] = CWData.Tissue.CANCER
 	g3.round_no = 11
 	g3.world._rooted()
-	check(sum_solid.call(g3) == 3 * CWData.SOLIDIFY_STEP, "III 期：推 3 格，各 +1.0（门槛 1.5，1.0 还没到）")
+	check(sum_solid.call(g3) == 5 * CWData.SOLIDIFY_STEP, "III 期：推 5 格，各 +1.0（门槛 2.0，1.0 还没到）")
 	g3.dispose()
 	## 推到门槛就当场转固化；本步刚固化的格子这一回合不再当「来源」去推别人
 	var g4 := _blank_board()
@@ -1873,17 +1879,47 @@ func t_tumor_stages() -> void:
 	g4.round_no = 11
 	g4.world._rooted()
 	check(g4.tiles[only]["tissue"] == CWData.Tissue.SOLID,
-		"唯一目标 1.0 + 1.0 ≥ III 期门槛 1.5 → 当场转固化")
+		"唯一目标 1.0 + 1.0 ≥ III 期门槛 2.0 → 当场转固化")
 	check(int(g4.tiles[beyond]["solid"]) == 0, "本步刚固化的格子不在这一回合当「来源」推别人")
 	g4.world._rooted()   ## 现在 s 与 only 都是固化：only 会推 beyond；s 没有癌组织邻居 → 跳过、不报错
 	check(int(g4.tiles[beyond]["solid"]) == CWData.SOLIDIFY_STEP, "下一回合它才作为来源推邻居")
 	g4.dispose()
+	## ④a **「最多」不是「一定」**（issue #64 把 n 抬到 3 / 5 之后这条才有判别力）：
+	## 六邻里只有 2 格是癌组织、其余四格是健康组织，II 期就只推那 2 格 ——
+	## 顺带钉住 targets 的过滤器：健康组织不是目标。
+	var g5b := _blank_board()
+	g5b.tiles[s]["tissue"] = CWData.Tissue.SOLID
+	g5b.tiles[ring[0]]["tissue"] = CWData.Tissue.CANCER
+	g5b.tiles[ring[1]]["tissue"] = CWData.Tissue.CANCER
+	g5b.round_no = 6
+	g5b.world._rooted()
+	check(int(g5b.tiles[ring[0]]["solid"]) == CWData.SOLIDIFY_STEP
+		and int(g5b.tiles[ring[1]]["solid"]) == CWData.SOLIDIFY_STEP
+		and sum_solid.call(g5b) == 2 * CWData.SOLIDIFY_STEP,
+		"II 期最多 3 格：只有 2 个癌组织候选就推 2 格，健康格不算目标")
+	g5b.dispose()
+	## ④b **每块固化各推各的**（不是全图挑 n 格）：两块互不相邻的固化，II 期各推 3 格 = 共 6 格
+	var g5c := _blank_board()
+	var s2 := Vector2i(4, 0)
+	g5c.tiles[s]["tissue"] = CWData.Tissue.SOLID
+	g5c.tiles[s2]["tissue"] = CWData.Tissue.SOLID
+	var pushed := 0
+	for c: Vector2i in CWData.neighbors(s) + CWData.neighbors(s2):
+		g5c.tiles[c]["tissue"] = CWData.Tissue.CANCER
+	g5c.round_no = 6
+	g5c.world._rooted()
+	for c: Vector2i in CWData.neighbors(s) + CWData.neighbors(s2):
+		pushed += 1 if int(g5c.tiles[c]["solid"]) > 0 else 0
+	if pushed != 6:
+		print("       实推 %d 格" % pushed)
+	check(pushed == 6, "两块固化各推满 3 格 = 共 6 格（不是全图只挑 3 格）")
+	g5c.dispose()
 
-	## ⑤ 【E-无氧呼吸】的分期增益（issue #56）：II 期 +20%、III 期 +50%。
+	## ⑤ 【E-无氧呼吸】的分期增益（issue #56；**issue #64** 把 II 期抬到 +30%）：II 期 +30%、III 期 +50%。
 	## 增益乘在**池子**上，人数系数 k / 均分 / 四舍五入 / 兜底 2.0 都排在它之后 ——
 	## 所以这里拿 `_pool_of` 的池子先乘增益再进 `_share`，与引擎同一条算式、仍只取整一次。
-	check(CWData.ANAEROBIC_STAGE_MUL_BY_STAGE == [100, 120, 150],
-		"无氧分期增益表：I 期不加、II 期 ×1.2、III 期 ×1.5（issue #56）")
+	check(CWData.ANAEROBIC_STAGE_MUL_BY_STAGE == [100, 130, 150],
+		"无氧分期增益表：I 期不加、II 期 ×1.3、III 期 ×1.5（issue #64 把 II 期从 ×1.2 抬上来）")
 	var block4 := [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0), Vector2i(3, 0)]
 	var seen := []
 	for pair: Array in [[1, 0], [6, 1], [11, 2]]:
@@ -2610,8 +2646,9 @@ func t_phase_order() -> void:
 	body = body.substr(0, body.find("# ---- S 阶段"))
 	## 增生与侵蚀 2026-09-09 起是**嵌套调用**（见下面那条），所以这一格搜的是整个调用式
 	## 2026-09-14（issue #40）起【无氧呼吸】在最前 —— PRD 的第 1 步就是它
+	## 2026-09-19 issue #64：`_decay()` 整步删除（PRD 的 E 阶段列表同日删掉「固化计数衰减」那一条）
 	var seq: Array[String] = ["_anaerobic()", "_pressure()", "_erosion(_proliferate())",
-		"_solidify()", "_decay()", "_tick_necrosis()", "_clear_newborn()"]
+		"_solidify()", "_rooted()", "_tick_necrosis()", "_clear_newborn()"]
 	var last := -1
 	var ordered := true
 	for name in seq:
@@ -2634,8 +2671,13 @@ func t_phase_order() -> void:
 		CWData.CancerType.MELANOMA, 100)
 	go.cells.append(imm)
 	go.cells.append(can)
+	## **2026-09-19 issue #64**：顺手钉「跑完一整个 E 阶段，没人停留的固化计数一点不掉」。
+	## keep 离两只细胞都远，`_solidify` 够不着它；I 期没有【根深蒂固】，所以只剩「衰减」能动它。
+	var keep := Vector2i(-3, 0)
+	go.tiles[keep]["solid"] = 10
 	var n0: int = go.logs.size()
 	await go.world.e_phase()
+	check(go.tiles[keep]["solid"] == 10, "E 阶段跑完：无人停留的固化计数一点没掉（issue #64 删衰减）")
 	var text := "
 ".join(go.logs.slice(n0))
 	var at_air: int = text.find("【无氧呼吸】")
@@ -5307,7 +5349,7 @@ func t_effector_responses() -> void:
 ##
 ## 【E-增生】的概率公式（PRD 2026-09-11 云端版，环境恶化）：
 ##   相邻癌性组织数 × (基数 + 每固化 × **所有相邻癌性组织连通块的固化数之和**)，同一块只算一次；
-##   基数 / 每固化按分期：I 期 3% / 0.5%，II 期 3.5% / 1%，III 期 4% / 1%。
+##   基数 / 每固化按分期：I 期 3% / 0.5%，II 期 5% / 1%，III 期 6% / 1.5%（issue #64）。
 ## 09-08 那版是逐个邻居各按「它所在块的固化数」累加 —— 邻居全在同一块时两式逐位相同，
 ## 分属两块时新式多出交叉项（见 ④）。①②③ 的局面邻居都只有一个，两式不分。
 ##
@@ -5315,8 +5357,8 @@ func t_effector_responses() -> void:
 ## 于是每条断言要么必转要么必不转，验的是算式本身而不是运气。
 func t_proliferate_tiers() -> void:
 	print("[增生概率 / 侵蚀格数]")
-	check(CWData.PROLIFERATE_BASE_BY_STAGE == [30, 40, 50] and CWData.PROLIFERATE_SOLID_BY_STAGE == [5, 10, 15],
-		"默认按分期：3%+0.5%×固化 / 4%+1%× / 5%+1.5%×（issue #56 环境恶化加强）")
+	check(CWData.PROLIFERATE_BASE_BY_STAGE == [30, 50, 60] and CWData.PROLIFERATE_SOLID_BY_STAGE == [5, 10, 15],
+		"默认按分期：3%+0.5%×固化 / 5%+1%× / 6%+1.5%×（issue #64 把基数抬到 5% / 6%）")
 
 	## ① 数的是「**邻居所属连通块**里的固化数」，不是「这个邻居自己是不是固化」，
 	## 也不是全图固化数。摆两处互不相邻：a 的邻居那块没固化，b 的邻居那块更远处有一格。
@@ -5403,17 +5445,17 @@ func t_proliferate_tiers() -> void:
 	g5.tiles[n1]["tissue"] = CWData.Tissue.CANCER
 	check(g5.world.proliferate_chance(t4) == 2 * (250 * 1),
 		"同一块只算一次固化：2 × (0 + 250 × 1) = 500，不是 1000")
-	## 默认值按分期：一个相邻癌组织、无固化 → I 期 30‰、II 期 40‰、III 期 50‰（issue #56）
+	## 默认值按分期：一个相邻癌组织、无固化 → I 期 30‰、II 期 50‰、III 期 60‰（issue #64 抬了 II/III）
 	var g6 := _blank_board()
 	g6.tiles[n1]["tissue"] = CWData.Tissue.CANCER
 	g6.round_no = 1
 	check(g6.world.proliferate_chance(t4) == 30, "I 期：3%")
 	g6.round_no = 6
-	check(g6.world.proliferate_chance(t4) == 40, "II 期（第 6 回合起）：4%")
+	check(g6.world.proliferate_chance(t4) == 50, "II 期（第 6 回合起）：5%")
 	g6.round_no = 11
-	check(g6.world.proliferate_chance(t4) == 50, "III 期（第 11 回合起）：5%")
+	check(g6.world.proliferate_chance(t4) == 60, "III 期（第 11 回合起）：6%")
 	g6.tiles[n0]["tissue"] = CWData.Tissue.SOLID   ## 同块再加一格固化：邻居 2、固化 1
-	check(g6.world.proliferate_chance(t4) == 2 * (50 + 15), "III 期每固化 1.5%：2 × (5% + 1.5%×1) = 13%")
+	check(g6.world.proliferate_chance(t4) == 2 * (60 + 15), "III 期每固化 1.5%：2 × (6% + 1.5%×1) = 15%")
 	g6.round_no = 1
 	check(g6.world.proliferate_chance(t4) == 2 * (30 + 5), "I 期每固化 0.5%：2 × (3% + 0.5%×1) = 7%")
 	g4.dispose()
@@ -7002,10 +7044,18 @@ func t_mutation_faces() -> void:
 	await g.actions.apply_mutation(can, 1)
 	check(can["energy"] == e0 and g.memory == m0, "第 1 面：无事发生，能量与记忆都不动")
 
-	## 第 2 面：抽一张 + 削 1 记忆
+	## 第 2 面：抽一张 + 削 1 记忆。
+	## **钉的是「抽了一张」而不是「手牌 +1」**：抽到事件卡会当场结算、根本不进手牌
+	## （`CWCards.draw` 的 EVENT 分支）。2026-09-19 issue #64 删掉【基质稳定】、癌症池 19 → 18 张之后，
+	## 这一抽正好换成了一张事件卡 —— 拿手牌数当「抽了没有」的代理，卡池一动就会漂。
 	var h0: int = can["hand"].size()
+	var drew := [0]
+	var count_draw := func(_cid: int, _pid: int, _pos: Vector2i, _src: String) -> void:
+		drew[0] += 1
+	g.card_drawn.connect(count_draw)
 	await g.actions.apply_mutation(can, 2)
-	check(can["hand"].size() == h0 + 1 and g.memory == m0 - 1,
+	g.card_drawn.disconnect(count_draw)
+	check(drew[0] == 1 and can["hand"].size() <= h0 + 1 and g.memory == m0 - 1,
 		"第 2 面：抽 1 张、削 1 抗原记忆（手牌 %d→%d，记忆 %d→%d）"
 			% [h0, can["hand"].size(), m0, g.memory])
 
@@ -11746,7 +11796,8 @@ func t_hand_limit() -> void:
 # ---- 卡池：身份表 + 抽卡合法性（效果尚未实现）----
 func t_card_pool() -> void:
 	print("[卡池]")
-	check(CWCardData.CARDS.size() == 68, "68 张唯一卡（%d）" % CWCardData.CARDS.size())
+	## 2026-09-19 issue #64：删【基质稳定】—— 唯一卡 68 → 67、癌症池 19 → 18（免疫四池不受影响）
+	check(CWCardData.CARDS.size() == 67, "67 张唯一卡（%d）" % CWCardData.CARDS.size())
 	## 四个免疫池 + 癌症三期的张数，逐个对照 PRD
 	var want := [11, 14, 17, 22]
 	for lv in 4:
@@ -11754,7 +11805,7 @@ func t_card_pool() -> void:
 		check(n == want[lv], "免疫 %s 级池 %d 张" % [CWData.LEVEL_NAMES[lv], n])
 	for r in [1, 10, 20]:
 		var n: int = CWCardData.pool_of(CWData.Faction.CANCER, 0, r).size()
-		check(n == 19, "癌症池第 %d 回合 %d 张（不分等级）" % [r, n])
+		check(n == 18, "癌症池第 %d 回合 %d 张（不分等级）" % [r, n])
 	check(CWCardData.cancer_phase(5) == 0 and CWCardData.cancer_phase(6) == 1 \
 		and CWCardData.cancer_phase(10) == 1 and CWCardData.cancer_phase(11) == 2,
 		"癌症卡分期切在第 6 / 11 回合（PRD：1—5 / 6—10 / 11—15）")
@@ -11767,7 +11818,7 @@ func t_card_pool() -> void:
 		var e: String = CWCardData.CARDS[n].get("effect", "")
 		if e.length() < 6:
 			missing.append(n)
-	check(missing.is_empty(), "68 张卡都带效果原文（缺：%s）" % str(missing))
+	check(missing.is_empty(), "67 张卡都带效果原文（缺：%s）" % str(missing))
 	## 【代谢耦联】是唯一同时进两个卡池的卡，PRD 给了它按阵营镜像的两套措辞
 	var mc_i := CWCardData.effect_of("代谢耦联", CWData.Faction.IMMUNE)
 	var mc_c := CWCardData.effect_of("代谢耦联", CWData.Faction.CANCER)
@@ -12943,10 +12994,14 @@ func t_card_perms() -> void:
 	g.cells.append(gl)
 	g.tiles[Vector2i(5, 0)]["tissue"] = CWData.Tissue.CANCER
 	g.round_no = 8   ## 中期（PRD 分期 2026-09-07 改成 1—5 / 6—10 / 11—15）
-	check(g.world.anaerobic_gain_for(gl) == _share(_pool_of(1, 0, 4), 1) + CWData.GLUT1_BONUS[1],
-		"GLUT1：单格块无氧 %s + 中期 0.8（糖酵解爆发同口径）" % CWData.fmt(_share(_pool_of(1, 0, 4), 1)))
+	## ⚠ 镜像侧要连**肿瘤分期增益**一起算（issue #56 加的表，issue #64 把 II 期抬到 ×1.3）。
+	## 2026-09-19 之前这里漏了这一乘：两侧那时都被 `ANAEROBIC_FLOOR`（2.0）夹住，漏算照样绿；
+	## II 期抬到 ×1.3 之后池子越过地板，这条才把漏算暴露出来。
+	var gl_pool := _pool_of(1, 0, 4) * float(CWData.ANAEROBIC_STAGE_MUL_BY_STAGE[1]) / 100.0
+	check(g.world.anaerobic_gain_for(gl) == _share(gl_pool, 1) + CWData.GLUT1_BONUS[1],
+		"GLUT1：单格块无氧 %s + 中期 0.8（糖酵解爆发同口径）" % CWData.fmt(_share(gl_pool, 1)))
 	g.world._anaerobic()
-	check(gl["energy"] == _share(_pool_of(1, 0, 4), 1) + CWData.GLUT1_BONUS[1], "E 阶段无氧同样加成")
+	check(gl["energy"] == _share(gl_pool, 1) + CWData.GLUT1_BONUS[1], "E 阶段无氧同样加成")
 	g.dispose()
 
 	## ⑥ 净化连锁：模式识别增强 + 效应记忆形成（每世界回合一次）；免疫记忆库免费抽
@@ -13588,19 +13643,13 @@ func t_card_mods() -> void:
 	check(g.tiles[Vector2i(0, 1)]["solid"] == 10, "回合末解冻，固化恢复正常")
 	g.dispose()
 
-	## ⑩ 基质稳定：本回合固化不衰减；TGF-β：下次有氧逐份 −20% 且结算即消耗
+	## ⑩ TGF-β：下次有氧逐份 −20% 且结算即消耗
+	## （同段原有的【基质稳定】两条 2026-09-19 issue #64 随卡一起删 —— 卡没了，固化计数也不再衰减）
 	g = _fx_game(4)
 	var dr := CWSetup.make_cell(0, 0, CWData.Faction.CANCER, Vector2i(5, 5), -1, CWData.CancerType.MELANOMA)
 	dr["energy"] = 100
 	g.cells.append(dr)
-	g.tiles[Vector2i(3, 0)]["tissue"] = CWData.Tissue.CANCER
-	g.tiles[Vector2i(3, 0)]["solid"] = 10
-	await g.card_fx.resolve_event(dr, "基质稳定")
-	g.world._decay()
-	check(g.tiles[Vector2i(3, 0)]["solid"] == 10, "基质稳定：本回合固化计数不衰减")
-	g.world_fx.tick_durations()
-	g.world._decay()
-	check(g.tiles[Vector2i(3, 0)]["solid"] == 5, "事件到期后衰减恢复")
+	check(not CWCardData.CARDS.has("基质稳定"), "issue #64：【基质稳定】整张退出卡表")
 	var iw := CWSetup.make_cell(1, 1, CWData.Faction.IMMUNE, Vector2i(-5, 0), CWData.ImmuneType.BASIC, -1)
 	iw["energy"] = 0
 	g.cells.append(iw)
@@ -20038,14 +20087,15 @@ func t_rec_shape() -> void:
 
 ## 规矩 1 的执行机构（§0.3 / 风险 R2）：代理能覆写 60 个私有 _xxx，录下来就等于把 GD 的
 ## 内部分解写进跨内核契约。覆写集合必须逐名等于 l0_contract_gate.recorder_overrides()
-## 给的那 24 条 `gd` 字段，多一个少一个都红；表读不到也红（那时它返回一条「读不到 …」）。
+## 给的那 23 条 `gd` 字段（2026-09-19 issue #64 删掉 `_decay` 之后从 24 条变 23），
+## 多一个少一个都红；表读不到也红（那时它返回一条「读不到 …」）。
 func t_rec_contract_only() -> void:
 	print("[录制代理·只覆写契约面]")
 	var rec = REC.new()
 	var bad: PackedStringArray = rec.contract_mismatch()
 	for b in bad:
 		print("       %s" % b)
-	check(bad.is_empty(), "四个代理的覆写集合 ≡ contract_ops.json 里可录的 24 条 S 族")
+	check(bad.is_empty(), "四个代理的覆写集合 ≡ contract_ops.json 里可录的 23 条 S 族")
 
 
 ## 代理零行为改动的**唯一硬证据**：同一个局面跑两遍，CWStateCodec.state_hash 逐位相同。

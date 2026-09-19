@@ -40,13 +40,16 @@ func overload() -> void:
 	_overload()
 
 
-## 严格按 PRD「E 阶段」的九步走。校正过两次：
+## 严格按 PRD「E 阶段」的步骤走（2026-09-19 issue #64 删掉「固化计数衰减」之后是八步）。校正过三次：
 ## · 2026-08-31 第 7~9 步的先后（口径 #86）—— 此前 `world_fx.round_end()`（回合末结算 + 修饰到期）
 ##   整体排在 `_clear_newborn()` 之后，于是回合末补结算造出的癌组织会多背一个世界回合的「新生」。
 ## · 2026-09-14 **【无氧呼吸】提到第 1 步**（issue #40）：PRD 早就写成「1. 所有存活的癌细胞结算
 ##   【无氧呼吸】。2. 结算【微环境压迫】…」，引擎却一直停在「压迫在前、无氧第 4」的旧顺序。
 ##   **这不是纸面先后**：压迫要扣癌细胞的能量，先呼吸就意味着扣之前先进账 —— 同一个局面下
 ##   死不死人会不一样。
+## · 2026-09-19 **【固化计数衰减】整步删除**（issue #64「计数不再递减」，PRD 的 E 阶段列表里那一条同日删掉）——
+##   原第 6 步没了，后面「其他 E 类 / 更新持续时间 / 胜利检查」各往前挪一位。卡【基质稳定】随之整张删除
+##   （它唯一的作用就是跳过这一步）。**这一步删掉之后固化只增不减**：没人停留的计数会一直留着。
 func e_phase() -> void:
 	if not game.tune.anaerobic_on_turn_end:
 		_anaerobic()                         ## 1 【无氧呼吸】（默认走这里；`eturn=1` 改在各癌细胞回合末，见 settle_anaerobic_turn）
@@ -58,15 +61,14 @@ func e_phase() -> void:
 	_solidify()                              ## 5 【固化】
 	_rooted()                                ## 5 【根深蒂固】（环境恶化 II/III 期，同属第 5 步：固化格给相邻癌组织加计数）
 	_ossify()                                ## 5 骨肉瘤【骨样硬化】标记到期（同属第 5 步，排在计数固化之后）
-	_decay()                                 ## 6 固化计数衰减
-	_mark_adhesion()                         ## 7 树突【E-组织黏连】（第 7 步「其他 E 类」目前只剩它）
-	game.world_fx.tick_durations()           ## 8 全局修饰倒计时/到期 + 「本世界回合」修饰过期
-	_tick_necrosis()                         ## 8 「坏死」倒计时（同属第 8 步）
-	_tick_chemo_cd()                         ## 8 树突【I-趋化源】的技能冷却（同属第 8 步；源本身按完整回合过期）
-	_tick_chemo_track()                      ## 8 【免疫猎杀】的追踪趋化源倒计时（同属第 8 步）
-	_expire_marks()                          ## 8 树突【I-标记】到期：标记后第二次世界回合结算移除（PRD 2026-09-12，同属第 8 步）
-	_clear_newborn()                         ## 9 移除「新生」
-	_cap_energy()                            ## 9.5 能量上限（PRD 之外，见口径 #92）
+	_mark_adhesion()                         ## 6 树突【E-组织黏连】（第 6 步「其他 E 类」目前只剩它）
+	game.world_fx.tick_durations()           ## 7 全局修饰倒计时/到期 + 「本世界回合」修饰过期
+	_tick_necrosis()                         ## 7 「坏死」倒计时（同属第 7 步）
+	_tick_chemo_cd()                         ## 7 树突【I-趋化源】的技能冷却（同属第 7 步；源本身按完整回合过期）
+	_tick_chemo_track()                      ## 7 【免疫猎杀】的追踪趋化源倒计时（同属第 7 步）
+	_expire_marks()                          ## 7 树突【I-标记】到期：标记后第二次世界回合结算移除（PRD 2026-09-12，同属第 7 步）
+	_clear_newborn()                         ## 8.5 移除「新生」（PRD 之外的簿记，排在胜负检查之前）
+	_cap_energy()                            ## 8.5 能量上限（PRD 之外，见口径 #92）
 	## 10 胜利条件检查。免疫先判：PRD 的列举顺序如此，
 	## 而且两边同时满足时「癌细胞已全灭」比「占地达标」更靠后发生，判给免疫更符合直觉。
 	## 教程 fixture 局跳过这两条「立刻赢」（game.win_checks，见那儿的注释）：摆拍局面一判就是免疫胜利。
@@ -1074,19 +1076,6 @@ func _solidify() -> void:
 ## 【E-能量上限】E 阶段末的那一次结算，实体在 CWGame.cap_energy（还有另外两个结算点要用）。
 func _cap_energy() -> void:
 	game.cap_energy()
-
-
-## 固化计数衰减：计数 > 0 且无癌细胞停留的**癌组织**，每世界回合 -0.5（PRD）
-func _decay() -> void:
-	if game.event_stacks("基质稳定") > 0:
-		game.log_msg("【基质稳定】本世界回合固化计数不衰减")
-		return
-	for c in game.tiles.keys():
-		var t: Dictionary = game.tiles[c]
-		if t["tissue"] != CWData.Tissue.CANCER or t["solid"] <= 0:
-			continue
-		if game.cells_at(c, CWData.Faction.CANCER).is_empty():
-			t["solid"] = maxi(t["solid"] - CWData.SOLIDIFY_DECAY, 0)
 
 
 ## 【E-微环境压迫】：每个免疫细胞受相邻组织的压迫，
