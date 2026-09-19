@@ -22768,6 +22768,7 @@ func t_tutor_c1() -> void:
 	## ---- ① 第一关（PRD:107-147）：两格、零抽取 ----
 	var lv1: Dictionary = d.load_level("c1_l1")
 	var run1 := _tutor_c1_open(lv1)
+	check(int(run1["game"].tune.attack_max_per_turn) == 0, "第一章章节设定 PRD:99「本章不设回合/攻击次数上限」：第一关的世界 attack_max_per_turn = 0（Kevin 2026-09-19）")
 	await _tutor_c1_drive(run1, [Vector2i(-4, -1)], "第一关")
 	check(not run1["dir"].active and (run1["game"] as CWGame).cell_of(0)["pos"] == Vector2i(-4, -1),
 		"第一关走完：玩家停在 (-4,-1) —— 正是第二关的起点（关间静默切关不跳格）")
@@ -22777,6 +22778,7 @@ func t_tutor_c1() -> void:
 	## ---- ② 第二关（PRD:149-237）：Step1 亲手净化两格、Step2 预置 + reveal，零关内重装 ----
 	var lv2: Dictionary = d.load_level("c1_l2")
 	var run2 := _tutor_c1_open(lv2)
+	check(int(run2["game"].tune.attack_max_per_turn) == 0, "第一章章节设定 PRD:99「本章不设回合/攻击次数上限」：第二关的世界 attack_max_per_turn = 0（Kevin 2026-09-19）")
 	var g2: CWGame = run2["game"]
 	## Step1 开跑之前：那只 1.0 能量的癌细胞已经在盘上（预置），但不在活跃集里
 	check(g2.cell_of(1)["alive"] and g2.cell_of(1)["pos"] == Vector2i(1, -1)
@@ -22856,6 +22858,7 @@ func t_tutor_c1() -> void:
 	## ---- ④ 第三关（PRD:239-301）：最省路 3.0 + 三次攻击，能量正好剩 0.1 ----
 	var lv3: Dictionary = d.load_level("c1_l3")
 	var run3 := _tutor_c1_open(lv3)
+	check(int(run3["game"].tune.attack_max_per_turn) == 0, "第一章章节设定 PRD:99「本章不设回合/攻击次数上限」：第三关的世界 attack_max_per_turn = 0（Kevin 2026-09-19）")
 	var g3: CWGame = run3["game"]
 	check(int(g3.cell_of(0)["energy"]) == 66 and int(g3.cell_of(1)["energy"]) == 30,
 		"第三关开局：免疫 6.6、癌细胞 3.0（逐项账见 t_tutor_energy_formula）")

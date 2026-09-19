@@ -73,7 +73,10 @@
       "cells": [
         { "seat": 0, "type": "ImmuneBasic", "at": "0,-1", "energy": 66 },
         { "seat": 1, "type": "Osteosarcoma", "at": "5,-1", "energy": 30 }
-      ]
+      ],
+      "tuning": {
+        "attack_max_per_turn": 0
+      }
     }
   },
 
