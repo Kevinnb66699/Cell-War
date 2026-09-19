@@ -503,7 +503,7 @@ func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
 	move_costs.clear()
 	## 教程的 `ui_layers.cost = false`（PRD:107/151/197「迁移不显示消耗」）：价目表整张不填 ——
 	## 悬停详情那行「迁移耗能 x」是从这张表来的（`tile_info.gd:87`），空表 = 那一行不出现。正式局照常填
-	if CWGuideLayers.on("cost"):
+	if CWTutorLayers.on("cost"):
 		for i in moves:
 			move_costs[options[i]["data"]["to"]] = int(options[i]["data"]["cost"])
 	move_verb = verb
@@ -523,7 +523,7 @@ func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
 	## 按钮与提示行一起不出现 —— 降级要**看得见**，不能让玩家拖出一条按空报价配色的线
 	## 教程的 `ui_layers.move_path = false`（PRD:107/151/197「迁移不显示路径」）：
 	## 直接走已有的那条**降级可见**的路 —— 规划按钮与提示行一起不出现、拖不出线，一处开关两处生效
-	_plan_ok = kernel != null and CWGuideLayers.on("move_path")   ## 联机也开：同步答不了的那几帧由 plan_tick 补画（E-1 (a)）
+	_plan_ok = kernel != null and CWTutorLayers.on("move_path")   ## 联机也开：同步答不了的那几帧由 plan_tick 补画（E-1 (a)）
 	_plan_cell = cell
 	while not _aborted:
 		var got: Variant = await _prompt("选择要%s到的组织" % verb, _plan_hint(cell, tiles.size()),
@@ -627,7 +627,7 @@ func _plan_hint(cell: Dictionary, n_reach: int) -> String:
 	var head := "%d 步 · 合计 %s%s · 走完剩 %s" % [_plan.size(),
 		CWData.fmt(int(q.get("total", 0))),
 		" · 途中核心 +%s" % CWData.fmt(gained) if gained > 0 else "",
-		CWGuideLayers.energy_text(int(q.get("left", cell["energy"])))]   ## 无限能量的渲染点三处之三（方案 §1.6）
+		CWTutorLayers.energy_text(int(q.get("left", cell["energy"])))]   ## 无限能量的渲染点三处之三（方案 §3.2(b)）
 	if not q.get("ok", false):
 		var steps: Array = q.get("steps", [])
 		var why: String = steps[-1]["blocked"] if not steps.is_empty() else ""

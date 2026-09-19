@@ -32,7 +32,7 @@
 ##      于是 `chapters()` / `search()` 不再删条目，只给受闸而没解锁的那些打一个 `locked: true`。
 ## `chapters()` / `search()` 的可选解锁集参数照旧，**不传 = 一条都不打标**（纯函数、老调用方一个字不用改）；
 ## 面板自己每次 `open()` 从 `CWGuideProgress` 读一次。**章一个不少、条目一条不少** ——
-## 章下标是 `open_to()` / `CWGuideData.CODEX_PAGE` 的口径，不能因为解锁与否漂移。
+## 章下标是 `open_to()` 的口径（教程直达哪一章由剧本点名），不能因为解锁与否漂移。
 class_name CWCodex
 extends Control
 
@@ -71,10 +71,11 @@ const MAX_HITS := 40
 
 ## 解锁点 → 条目 id 的对照表（新手引导 S6）。**文件不在 = 一个条目都不受闸 = 全解锁**
 const MAP_PATH := "res://data/tutorial/codex_map.json"
-## 解锁动效的闪烁参数**取 CWGuide 那三个常数**（方案 §1.12 规则 8：闪烁参数收敛到一处），同 CWGuideShell 的写法
-const HALO_PERIOD := CWGuide.HALO_PERIOD
-const HALO_ALPHA_LO := CWGuide.HALO_ALPHA_LO
-const HALO_ALPHA_HI := CWGuide.HALO_ALPHA_HI
+## 解锁动效的闪烁参数**取 CWStyle 那三个常数**（PRD 通用规则 8：闪烁参数收敛到一处）。
+## 2026-09-19 老教程整套推倒，这三个常数从 `guide.gd` 搬进 `cw_style.gd`，取法不变
+const HALO_PERIOD := CWStyle.HALO_PERIOD
+const HALO_ALPHA_LO := CWStyle.HALO_ALPHA_LO
+const HALO_ALPHA_HI := CWStyle.HALO_ALPHA_HI
 
 static var _map_cache: Dictionary = {}
 static var _map_read := false
@@ -986,7 +987,7 @@ func _process(delta: float) -> void:
 	_apply_pulse()
 
 
-## 慢闪 = 标题整体透明度在 HALO_ALPHA_LO..HI 之间呼吸（同 CWGuide 的柔光、CWGuideShell 的横幅）。
+## 慢闪 = 标题整体透明度在 HALO_ALPHA_LO..HI 之间呼吸（同教程提亮层的柔光，PRD 通用规则 8）。
 ## 用 modulate 而不是换字色：点阵字换色会让字重看起来在变，透明度不会
 func _apply_pulse() -> void:
 	var k := 0.5 + 0.5 * sin(_pulse_t * TAU / HALO_PERIOD)

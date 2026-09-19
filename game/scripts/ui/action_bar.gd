@@ -274,7 +274,7 @@ func _set_hot(index: int) -> void:
 	hovered.emit(index)
 
 
-## 引导提亮用（CWGuideSpotlight）：标题为 title 的那枚按钮的屏幕矩形；栏收着 / 这一问没它 → 零矩形
+## 教程提亮层用（scripts/tutor/cw_tutor_spot.gd，S2）：标题为 title 的那枚按钮的屏幕矩形；栏收着 / 这一问没它 → 零矩形
 func button_rect(title: String) -> Rect2:
 	if not visible:
 		return Rect2()
