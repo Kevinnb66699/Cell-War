@@ -501,6 +501,11 @@ func _render() -> void:
 		dismiss()
 		return
 	var s: Dictionary = all[mini(_step, all.size() - 1)]
+	## 图鉴解锁与断点（S6）：这一步点名的条目在**它成为当前的那一刻**解锁 ——
+	## 剧本正文刚讲完那件事，玩家这时点「知识之书」就该看得到。
+	## 两个写入都是集合 / 幂等语义，重复渲染同一步不会反复写盘
+	CWGuideProgress.unlock(s.get("unlock", []))
+	CWGuideProgress.set_at(int(CWGuideData.level(_chapter).get("chapter", 0)), _chapter, _step)
 	_chapter_label.text = "%d/%d %s · 步骤 %d/%d" % [
 		_chapter + 1, CWGuideData.CHAPTER_COUNT,
 		CWGuideData.chapter_titles()[_chapter], _step + 1, all.size()]

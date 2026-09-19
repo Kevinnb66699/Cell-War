@@ -169,6 +169,8 @@ func _run_all() -> void:
 		t_tutorial_shell,
 		## 新手引导 S5：第一章三关（方案 §S5 的六条验收判据）
 		t_tutorial_c1,
+		## 新手引导 S6：图鉴解锁与进度存档
+		t_guide_progress,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -11360,6 +11362,60 @@ func t_tutorial_auto_advance() -> void:
 	main_scene.free()
 
 
+## **新手引导 S6（2026-09-19）**：引导进度存档从「一个 done」扩成三个键。
+## 三件事逐条验：① `unlocked` / `at` 写入 → 读回；② 旧档只有 `done` 时的迁移（按剧本现推解锁集）；
+## ③ `done` 的老口径一个字没变 —— 主菜单与 `match.gd` 还在读它。
+func t_guide_progress() -> void:
+	print("[引导进度存档]")
+	CWGuideProgress.clear()
+	var empty := CWGuideProgress.read()
+	check(int(empty["done"]) == 0 and (empty["unlocked"] as PackedStringArray).is_empty()
+			and (empty["at"] as Dictionary).is_empty(),
+		"没有存档 → done 0 / 解锁集空 / at 空")
+	## ① 写入 → 读回
+	check(CWGuideProgress.unlock(["purify", "move"]).size() == 2, "第一次解锁两个点，两个都算新增")
+	check(CWGuideProgress.unlock(["purify"]).is_empty(), "重复解锁是空操作（集合语义，不重复落盘）")
+	var got := CWGuideProgress.unlocked()
+	check(got.size() == 2 and got.has("purify") and got.has("move"), "解锁集读得回来（%s）" % str(got))
+	CWGuideProgress.set_at(1, 2, 3)
+	var at: Dictionary = CWGuideProgress.read()["at"]
+	check(int(at["chapter"]) == 1 and int(at["level"]) == 2 and int(at["step"]) == 3,
+		"at 写入 → 读回：第 1 章第 2 关第 3 步")
+	## ③ 两边互不相干：只解锁不改 done，只记完成不动解锁集
+	check(int(CWGuideProgress.read()["done"]) == 0, "只解锁不改 done（老口径一个字没变）")
+	CWGuideProgress.set_done(0)
+	check(CWGuideProgress.done_count() == 1 and CWGuideProgress.unlocked().size() == 2,
+		"只记完成不动解锁集")
+	## ② 旧档迁移：2026-09-19 之前的存档只有 done，解锁集按剧本现推
+	var want := {}
+	for i in CWGuideData.CHAPTER_COUNT:
+		for step in CWGuideData.steps(i):
+			for id in (step as Dictionary).get("unlock", []):
+				want[str(id)] = true
+	CWGuideProgress.clear()
+	var old := ConfigFile.new()
+	old.set_value(CWGuideProgress.SECTION, "done", CWGuideData.CHAPTER_COUNT)
+	old.save(CWGuideProgress.PATH)
+	var migrated := CWGuideProgress.unlocked()
+	var all_there := migrated.size() == want.size()
+	for id in want:
+		if not migrated.has(id):
+			all_there = false
+	check(all_there, "旧档只有 done：前 done 关剧本里的 unlock 全算解锁（%d 个：%s）"
+		% [migrated.size(), str(migrated)])
+	## 旧版 16 关的 done 比今天的关数大 —— 钳住，别越界
+	CWGuideProgress.clear()
+	old = ConfigFile.new()
+	old.set_value(CWGuideProgress.SECTION, "done", 16)
+	old.save(CWGuideProgress.PATH)
+	check(CWGuideProgress.unlocked().size() == want.size(), "旧版 done=16 钳到今天的关数，不越界")
+	## 迁移本身不写回盘（read 只读），第一次真解锁时才把合并后的集合固化
+	CWGuideProgress.unlock(["tissue_solid"])
+	check(CWGuideProgress.unlocked().size() == want.size() + 1,
+		"迁移出来的那几条随第一次真解锁一起落盘")
+	CWGuideProgress.clear()
+
+
 func t_codex() -> void:
 	print("[知识之书]")
 	var chs: Array = CWCodex.chapters()
@@ -11486,6 +11542,98 @@ func t_codex() -> void:
 	book._paint_arrows()
 	check(glow.call(book._next) == 0 and glow.call(book._prev) == 0,
 		"结果页：两枚都翻不动，悬停也不发光")
+	## ---- 新手引导 S6（2026-09-19）：稳定 id、按解锁集过滤、解锁动效（方案 §1.11 / §S6）----
+	## 为什么下标不能当 id：正文按旋钮现算、关掉的机制整句消失，条目的位置天天在动
+	var ids := {}
+	var n_entries := 0
+	var no_id: Array = []
+	for ch in chs:
+		for e in ch["entries"]:
+			n_entries += 1
+			var eid := str((e as Dictionary).get("id", ""))
+			if eid == "":
+				no_id.append("%s > %s" % [str(ch["title"]), str(e["t"])])
+			else:
+				ids[eid] = true
+	check(no_id.is_empty(), "每条都有稳定 id（缺的：%s）" % str(no_id))
+	check(ids.size() == n_entries, "id 全书唯一（%d 个 id / %d 个条目）" % [ids.size(), n_entries])
+	## codex_map.json：PRD 的「图鉴解锁：【X】」→ 条目 id。两个方向都扫
+	var umap := CWCodex.unlock_map()
+	check(umap.size() == 12, "codex_map 收了 PRD 的 12 个解锁点（当前 %d 个）" % umap.size())
+	var bad_target: Array = []
+	for point in umap:
+		for eid in umap[point]:
+			if not ids.has(str(eid)):
+				bad_target.append("%s → %s" % [str(point), str(eid)])
+	check(bad_target.is_empty(), "codex_map 每个目标都是真实存在的条目 id（对不上的：%s）" % str(bad_target))
+	## 关卡数据里的 unlock 必须在表里有归宿（`cw_tutorial_data.validate` 不查这一条，判据在这儿）
+	var homeless: Array = []
+	for i in CWGuideData.CHAPTER_COUNT:
+		for step in CWGuideData.steps(i):
+			for id in (step as Dictionary).get("unlock", []):
+				if not umap.has(str(id)):
+					homeless.append("第 %d 关 unlock「%s」" % [i + 1, str(id)])
+	check(homeless.is_empty(), "剧本写的 unlock 在 codex_map 里都有归宿（没有的：%s）" % str(homeless))
+	## 过滤：受闸条目 = 出现在 codex_map 里的那些；其余常驻可见（所以表不加载 = 全解锁）
+	var gated := CWCodex.gated_entries()
+	check(gated.size() == 9 and gated.has("move/purify_memory") and not gated.has("board/grid"),
+		"codex_map 圈出 9 个受闸条目，没点名的（如「一块蜂窝棋盘」）常驻可见（当前 %d 个）" % gated.size())
+	var page_ids := func(unlocked: Variant) -> Dictionary:
+		var out := {}
+		for c in CWCodex.chapters(unlocked):
+			for e in c["entries"]:
+				out[str(e["id"])] = true
+		return out
+	var none_ids: Dictionary = page_ids.call([])
+	var leaked: Array = []
+	for eid in gated:
+		if none_ids.has(eid):
+			leaked.append(eid)
+	check(leaked.is_empty() and CWCodex.chapters([]).size() == chs.size(),
+		"零解锁：受闸条目一条都不出现在页面上（漏的：%s），但章一章不少（%d）" % [str(leaked), chs.size()])
+	var one_ids: Dictionary = page_ids.call(["purify"])
+	check(one_ids.has("move/purify_memory") and not one_ids.has("board/healthy")
+			and one_ids.has("board/grid"),
+		"解锁【净化】→「净化与记忆」回到页面上；没解锁的「健康组织」仍在闸后，常驻条目照旧")
+	check(page_ids.call(null).size() == n_entries, "不传解锁集 = 不过滤（老调用方与护栏拿到整本书）")
+	## 搜索同步过滤 —— 不过滤的话没解锁的能从搜索框读出来，等于开了后门
+	## 「青绿色」全书只在「健康组织」一条里出现（受 tissue_healthy 闸）
+	check(not CWCodex.search("青绿色").is_empty() and CWCodex.search("青绿色", []).is_empty()
+			and not CWCodex.search("青绿色", ["tissue_healthy"]).is_empty(),
+		"未解锁的搜不出来，解锁之后搜得到")
+	## 面板端到端 + 解锁动效：解锁集每次 open 现读，刚解锁的那一条标题慢闪一轮
+	CWGuideProgress.clear()
+	var book2 := CWCodex.new()
+	root.add_child(book2)
+	await process_frame
+	book2.open_to(1)   ## 「棋盘与地形」
+	var on_page := func() -> Dictionary:
+		var out := {}
+		for e in CWCodex.chapters(book2._unlocked)[book2._page]["entries"]:
+			out[str(e["id"])] = true
+		return out
+	check(not (on_page.call() as Dictionary).has("board/healthy")
+			and (on_page.call() as Dictionary).has("board/grid"),
+		"零进度开书：「健康组织」在闸后，常驻条目照样在页面上")
+	check(book2._glow.is_empty(), "没有新解锁 → 没有要闪的标题")
+	CWGuideProgress.unlock(["tissue_healthy"])
+	book2.open_to(1)
+	check((on_page.call() as Dictionary).has("board/healthy"), "解锁【健康组织】后重开书：它回到页面上")
+	check(book2._glow.size() == 1 and book2._glow[0].text == "健康组织",
+		"解锁动效：只有刚解锁的那一条标题在闪（当前 %d 条）" % book2._glow.size())
+	book2._pulse_t = 0.0
+	book2._apply_pulse()
+	var mid: float = book2._glow[0].modulate.a
+	book2._pulse_t = CWCodex.HALO_PERIOD / 4.0
+	book2._apply_pulse()
+	check(is_equal_approx(mid, (CWCodex.HALO_ALPHA_LO + CWCodex.HALO_ALPHA_HI) / 2.0)
+			and is_equal_approx(book2._glow[0].modulate.a, CWCodex.HALO_ALPHA_HI)
+			and CWCodex.HALO_PERIOD == CWGuide.HALO_PERIOD,
+		"慢闪走 CWGuide 那三个常数（§1.12 规则 8：闪烁参数收敛到一处），1/4 周期到顶")
+	book2.open_to(1)
+	check(book2._glow.is_empty(), "闪过一次就不再闪（翻到即记下，别每次开书都闪一遍）")
+	book2.queue_free()
+	CWGuideProgress.clear()   ## 别把解锁集脏到同一分片里后面那些开书 / 按进度开局的测试
 	book.queue_free()
 
 
