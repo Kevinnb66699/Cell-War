@@ -399,6 +399,18 @@ func highlight_flag() -> String:
 	return str(all[_step].get("flag", ""))
 
 
+## 当前步骤点名要提亮的格子（`steps[].hex`，`["q,r", …]` → `[Vector2i, …]`）。
+## 与 `highlight_flag()` 并存：剧本一直两个都写（按钮闪 + 目的格闪），S5 起真消费它
+func highlight_hexes() -> Array:
+	var all := CWGuideData.steps(_chapter)
+	if _step < 0 or _step >= all.size():
+		return []
+	var out: Array = []
+	for s in (all[_step] as Dictionary).get("hex", []):
+		out.append(CWGuideData.DATA.parse_at(str(s)))
+	return out
+
+
 ## 当前章节与步骤号
 func chapter() -> int:
 	return _chapter

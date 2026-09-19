@@ -80,6 +80,8 @@ FUNC_SUBSYSTEM = [
     # —— 教程 / 引导 ——
     (r"^t_(guide|tutorial)", "guide"),
     (r"^t_bridge_fx_overrides$", "guide"),
+    # 教程 S5（2026-09-19）：`t_tutorial_c1` 的两个助手（照剧本打一关 / 带子双向核对），里面的 check 全是教程断言，跟着它们归 guide
+    (r"^_(play_c1|check_tape)$", "guide"),
     # —— 联机 ——
     (r"^t_(net_|lan_|online_|watch_|match_online|replay)", "net"),
     (r"^t_(surrender|surrender_seats|barrier_release|chat_box)$", "net"),

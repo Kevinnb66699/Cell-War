@@ -39,7 +39,7 @@
       "load": "base",
       "ui_layers": { "action_bar": ["move"], "sidebar": [], "hand": false,
                      "end_turn": false, "round_no": false,
-                     "move_path": false, "cost": false, "energy_display": "plain" },
+                     "move_path": false, "cost": false, "energy_display": "infinite" },
       "t": "！！！",
       "b": ["发现**癌组织**，立即执行清除程序！",
             "使用【迁移】移动到**癌组织**，将其【净化】"],

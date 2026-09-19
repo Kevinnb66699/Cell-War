@@ -167,6 +167,8 @@ func _run_all() -> void:
 		t_tutorial_data,
 		## 新手引导 S4：常驻壳 + 决策闸 + ui_layers + reveal
 		t_tutorial_shell,
+		## 新手引导 S5：第一章三关（方案 §S5 的六条验收判据）
+		t_tutorial_c1,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -10155,6 +10157,9 @@ func t_guide_watch() -> void:
 		"leveled": { "level": 2 },
 		"ended": { "actor": 1 },
 		"round": { "round": 5, "actor": -1 },
+		## 两条状态谓词（S5）：只看 now。基线里没这两个键 ⇒ 「什么都没做就成立」那一半照样成立
+		"beside": { "beside": true },
+		"stuck": { "asked": true, "can_move": false },
 	}
 	var bad: Array = []
 	for key: String in GUIDE_WATCH.KEYS:
@@ -21135,7 +21140,9 @@ func t_tutorial_data() -> void:
 	var rows: Array = index.get("levels", [])
 	check((index.get("_doc", []) as Array).size() >= 9,
 		"index.json 的文件头 _doc 写了九条纪律（%d 行）" % (index.get("_doc", []) as Array).size())
-	check(rows.size() == 2, "关表 = 第一章前两关（第四章不写）：%d 关" % rows.size())
+	## **改判（S5）**：原断言「关表 = 第一章前两关」→「第一章三关」。依据：S5 补上第三关 ATP（PRD:223-283）；
+	## 第二章起仍不写（第四章 Kevin 明确不做）。判据本身一个字没动
+	check(rows.size() == 3, "关表 = 第一章三关（第二章起不写）：%d 关" % rows.size())
 
 	## ① 每一关都过九条纪律
 	var levels := {}
@@ -21169,7 +21176,8 @@ func t_tutorial_data() -> void:
 				print("       %s" % m)
 			check(msgs.is_empty(), "%s.%s 装载往返齐" % [id, str(wid)])
 			n_worlds += 1
-	check(n_worlds == 2, "两关各一份完整 world（本片不做继承）：%d 份" % n_worlds)
+	## **改判（S5）**：2 → 3，同上一条；第三关也只有一份 world（Step1/Step2 不换盘，方案 §S5 ④）
+	check(n_worlds == 3, "三关各一份完整 world（本片不做继承）：%d 份" % n_worlds)
 
 	## ③ 七条坏数据，逐条命中它该命中的那一条纪律
 	var src: Dictionary = levels["c1_l2"]
@@ -21433,7 +21441,11 @@ func t_tutorial_shell() -> void:
 	check(m._guide.step_no() == 0 and not m.board.is_active(hidden)
 		and m.board.active_tiles().size() == CWGuideData.active_tiles(1).size(),
 		"步游标归零、reveal 加进来的格收回去（活跃集 %d 格）" % m.board.active_tiles().size())
-	check(not m.panel.visible and CWGuideLayers.energy_mode() == "plain",
+	## **改判（S5）**：原断言 `energy_mode() == "plain"` → `"infinite"`。
+	## 依据：Kevin 2026-09-19 拍「第一章各关能量显示改成『无限』」（S4 回传的那个问题：
+	## 大能量 99990 悬停详情会写成 9999.0）—— 三关的 `ui_layers.energy_display` 都改成了 `"infinite"`。
+	## 判据本身没变：重置之后 UI 层 = 关首那一套（先 reset 再按 step0 的 ui_layers 重装）
+	check(not m.panel.visible and CWGuideLayers.energy_mode() == "infinite",
 		"UI 层也回到关首那一套（先 reset 再按 step0 的 ui_layers 重装）")
 	## `reset_when`（PRD:17 / 通用规则 7）：本片只接 `CWGuideWatch` 现有键能表达的那些，
 	## 触发走的是**「重置」同一条路** + 一句提示。这里把基线拨脏让 `moved` 当场成立，验那条路真接上了
@@ -21467,3 +21479,221 @@ func t_tutorial_shell() -> void:
 	CWGuideProgress.clear()
 	root.remove_child(main_scene)
 	main_scene.free()
+
+
+## 新手引导 S5：第一章三关（PRD:91-283）—— 方案 §S5 的六条验收判据逐条落。
+##
+## **全是新增判据**：跟着数据自动多出来的那几条（`t_guide_director` 的逐关循环、
+## `t_tutorial_data` 的关表条数、`t_guide_script` 的逐关文案）在各自那边改，这里一条都不重复。
+## 三关都**只走引擎**：舞台装局 + 从引擎给的选项表里挑一条作答（= 「玩家点了一下」，
+## 与 `t_guide_director` 的 L1 冒烟同一条缝）。只有 ③ 的「节点画不画」要真节点，接在最后一段。
+func t_tutorial_c1() -> void:
+	print("[新手引导 S5·第一章三关]")
+	var d = TUT_DATA.new()
+	var lv: Array = [CWGuideData.level(0), CWGuideData.level(1), CWGuideData.level(2)]
+	var ids: Array = []
+	var chapters: Array = []
+	for l in lv:
+		ids.append(str((l as Dictionary).get("id", "?")))
+		chapters.append(int((l as Dictionary).get("chapter", -1)))
+	check(ids == ["c1_l1", "c1_l2", "c1_l3"] and chapters == [1, 1, 1],
+		"第一章 = 前三关、同属 chapter 1（同章之间静默切换，PRD:37）：%s" % str(ids))
+	for i in 3:
+		var errs: PackedStringArray = d.validate(lv[i])
+		for e in errs:
+			print("       %s" % e)
+		check(errs.is_empty(), "%s 过校验的十条判据（%d 条错）" % [ids[i], errs.size()])
+
+	# ---- ⑥ 每关活跃格条数与 PRD 对得上 ----
+	## 第一关 2（PRD:93「两个横向连接的健康组织」）；第二关关首 6（PRD:143「右侧再延伸两格健康组织，两格癌组织」），
+	## Step2 靠 `reveal` 再加一格（PRD:189）；第三关 8 —— **PRD 没给格子**（Q-02 未答），
+	## 按 PRD 字面「地图自免疫细胞向前方延伸开来」+「距免疫细胞几格外有一个凸的癌组织连通块」
+	## 落成方案附 A 的提案：`r = -1` 排从免疫脚下铺到 (6,-1) 共 7 格 + 凸块借 `r = -2` 的 (5,-1) 上方那一格。
+	## 零特殊格也一并核：第一章整章走 `r = -1` / `r = -2` 两排，11 个特殊格的 `r` 只取 -3/0/3/6（方案附 A）
+	var want_active := [2, 6, 8]
+	for i in 3:
+		var act: Array = CWGuideData.active_tiles(i)
+		var off: Array = []
+		var special: Array = []
+		for c: Vector2i in act:
+			if not CWData.is_on_board(c):
+				off.append(c)
+			if int(CWData.special_of(c)) != CWData.Special.NONE:
+				special.append(c)
+		check(act.size() == want_active[i] and off.is_empty() and special.is_empty(),
+			"%s 活跃格 %d 格（要 %d）、全在盘上、零特殊格（盘外 %s / 特殊 %s）"
+				% [ids[i], act.size(), want_active[i], str(off), str(special)])
+	check((lv[1]["steps"][2] as Dictionary).get("reveal", []) == ["5,-1"],
+		"第二关 Step2 那一格走 reveal（预置 + 遮罩揭示，零重装）")
+
+	# ---- ②④ 关内只在关首装一次盘：`load` 只许出现在 steps[0] ----
+	## 不守这条，第二关 Step1 净化过的两格会在 Step2 被重装冲掉（关内连续性），
+	## 第三关整关那一份能量预算（PRD:243）也无从成立
+	for i in 3:
+		var loads: Array = []
+		for j in (lv[i]["steps"] as Array).size():
+			if (lv[i]["steps"][j] as Dictionary).has("load"):
+				loads.append(j)
+		check(loads == [0], "%s 的 load 只在关首那一步（实测在第 %s 步）" % [ids[i], str(loads)])
+
+	# ---- ① 第一关：一步迁移；带子是空的 ⇒ 整关一次 rng 都不许消耗 ----
+	var s1 = await _play_c1(0, [Vector2i(0, -1)])
+	check(s1._game != null and s1._game.cell_of(0)["pos"] == Vector2i(0, -1),
+		"第一关：玩家向前走了一格（PRD:113）")
+	_check_tape(s1, lv[0], ids[0])
+	s1.kernel.close()
+	s1.dispose()
+
+	# ---- ①②③ 第二关：四格迁移（后两格是净化）+ 一击死 ----
+	var s2 = await _play_c1(1, [Vector2i(1, -1), Vector2i(2, -1), Vector2i(3, -1),
+		Vector2i(4, -1), Vector2i(5, -1)])
+	var g2: CWGame = s2._game
+	var foe2: Dictionary = g2.cell_of(1)
+	check(not foe2["alive"] and int(g2.cell_of(0)["attacks_used"]) == 1,
+		"第二关 Step2 一击死：一次成功攻击 %s 伤害打光那只 %s 能量的癌细胞"
+			% [CWData.fmt(g2.tune.attack_dmg_success),
+				CWData.fmt(int((lv[1]["worlds"]["base"]["cells"] as Array)[1]["energy"]))])
+	check(g2.tile(Vector2i(3, -1))["tissue"] == CWData.Tissue.HEALTHY
+		and g2.tile(Vector2i(4, -1))["tissue"] == CWData.Tissue.HEALTHY,
+		"Step1 净化过的两格在 Step2 仍是健康组织 —— 关内连续性（整关只装一次盘）")
+	_check_tape(s2, lv[1], ids[1])
+	s2.kernel.close()
+	s2.dispose()
+
+	# ---- ①④ 第三关：三格迁移 + 三次攻击，能量与伤害都**刚好** ----
+	var trace: Array = []
+	var s3 = await _play_c1(2, [Vector2i(1, -1), Vector2i(2, -1), Vector2i(3, -1),
+		Vector2i(4, -1), Vector2i(4, -1), Vector2i(4, -1)], trace)
+	var g3: CWGame = s3._game
+	var mv: int = g3.tune.immune_move_healthy[0]        ## 迁移→健康，I 级
+	var atk: int = g3.tune.immune_move_cancerous[0]     ## 攻击 = 迁移到癌细胞那一格，走癌性组织那一档
+	var kick: int = g3.tune.counter_dmg_on_fail         ## 攻击失效被反弹，自身损失
+	var start3: int = int((lv[2]["worlds"]["base"]["cells"] as Array)[0]["energy"])
+	check(start3 == mv * 3 + atk * 3 + kick + 1,
+		"第三关能量 %s = 迁移 3 格 %s + 攻击 3 次 %s + 反弹 %s + 0.1（PRD:243 的算式）"
+			% [CWData.fmt(start3), CWData.fmt(mv * 3), CWData.fmt(atk * 3), CWData.fmt(kick)])
+	var want_trace := [start3 - mv, start3 - mv * 2, start3 - mv * 3,
+		start3 - mv * 3 - atk, start3 - mv * 3 - atk * 2 - kick, start3 - mv * 3 - atk * 3 - kick]
+	check(trace == want_trace, "第三关逐步能量账对得上：%s（要 %s）" % [str(trace), str(want_trace)])
+	var outcomes: Array = []
+	for e in lv[2].get("rolls", []):
+		outcomes.append(g3.actions.attack_outcome(int((e as Array)[2])))
+	check(outcomes == ["success", "fail", "crit"],
+		"带子钉死的三次判定 = 成功 / 失效 / 大成功（PRD:239）：%s" % str(outcomes))
+	var foe3: Dictionary = g3.cell_of(1)
+	var foe3_e: int = int((lv[2]["worlds"]["base"]["cells"] as Array)[1]["energy"])
+	check(foe3_e == g3.tune.attack_dmg_success + g3.tune.attack_dmg_crit
+		and not foe3["alive"] and int(foe3["energy"]) == 0
+		and int(g3.cell_of(0)["attacks_used"]) == 3,
+		"三次攻击 %s + 0 + %s = %s **刚好**打死那只 %s 能量的癌细胞"
+			% [CWData.fmt(g3.tune.attack_dmg_success), CWData.fmt(g3.tune.attack_dmg_crit),
+				CWData.fmt(foe3_e), CWData.fmt(foe3_e)])
+	check(int(g3.cell_of(0)["energy"]) == 1,
+		"打完只剩 0.1 —— PRD:243 那个 +0.1 就是这一手余量（实测 %s）"
+			% CWData.fmt(int(g3.cell_of(0)["energy"])))
+	_check_tape(s3, lv[2], ids[2])
+
+	# ---- ⑤ reset_when「能量不足以移动」----
+	check(str((lv[2]["steps"][0] as Dictionary).get("reset_when", "")) == "stuck"
+		and GUIDE_WATCH.KEYS.has("stuck"),
+		"第三关 Step1 带自动重置条件 reset_when=stuck（PRD:251「能量不足以移动」）")
+	## 判据本身：**只看此刻这一张快照**。付不起的迁移引擎早就从选项表里滤掉了
+	## （`cw_actions.immune_move_options` 的 `can_pay`），所以「一条 act=move 都没有」就是「走不动了」
+	var broke: Dictionary = d.resolve(lv[2], "base")
+	(broke["cells"] as Array)[0]["energy"] = mv - 1
+	var gb: CWGame = CASE_LOADER.new().load_world(broke)
+	await gb.advance()
+	var snap_b: Dictionary = GUIDE_WATCH.snapshot(_mirror_of(gb), 0)
+	check(GUIDE_WATCH.done("stuck", snap_b, snap_b) and bool(snap_b["asked"])
+		and not bool(snap_b["can_move"]),
+		"只剩 %s 能量时这一问里一条迁移选项都没有 ⇒ 判据成立" % CWData.fmt(mv - 1))
+	gb.dispose()
+	var gf: CWGame = CASE_LOADER.new().load_world(d.resolve(lv[2], "base"))
+	var snap_idle: Dictionary = GUIDE_WATCH.snapshot(_mirror_of(gf), 0)
+	check(not GUIDE_WATCH.done("stuck", snap_idle, snap_idle) and not bool(snap_idle["asked"]),
+		"没在问这一席的时候谈不上「走不动」（默认 can_move=true，否则每一帧都在重置关卡）")
+	await gf.advance()
+	var snap_f: Dictionary = GUIDE_WATCH.snapshot(_mirror_of(gf), 0)
+	check(not GUIDE_WATCH.done("stuck", snap_f, snap_f) and bool(snap_f["can_move"])
+		and GUIDE_WATCH.done("beside", snap_b, snap_b) == false,
+		"满能量时不成立（正问着、迁移选项在）；开局也还没站到癌细胞旁边")
+	gf.dispose()
+	## 「回关首那份 world」：自动重置与常驻「重置」按钮共用 `CWTutorialStage.reload_world(关首那份)`。
+	## 拿刚打完的那一局（能量 0.1、癌细胞已死、两格已净化）重装，装回来的要与关首 spec 逐键相同
+	var entry := str((lv[2]["steps"][0] as Dictionary).get("load", "base"))
+	var k3b: CWKernel = s3.reload_world(entry)
+	check(k3b != null, "第三关重装装得出来：%s" % str(s3.errors))
+	if k3b != null:
+		var l3 = CASE_LOADER.new()
+		var msgs3: PackedStringArray = CASE_DIFF.compare(l3.dump_world(s3._game), l3.minify(d.resolve(lv[2], entry)))
+		for mm in msgs3:
+			print("       %s" % mm)
+		check(msgs3.is_empty() and s3.world_id == entry and int(s3.tape.at) == 0,
+			"自动重置装回**关首那份 world**（%s）：dump_world ≡ minify(spec)，带子也回到开头" % entry)
+		k3b.close()
+	s3.dispose()
+
+	# ---- ③ 界面那一半：Step1 期间那只癌细胞的节点**不画**（方案 §1.9，match.gd 的遮罩）----
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	CWSettings.ai_delay_ms = 0
+	CWGuideProgress.clear()
+	m.tutorial = true
+	m.start()
+	await process_frame
+	m._advance_tutorial_chapter(1)          ## 换到第二关（席位数与人类席都从数据来）
+	await process_frame
+	await process_frame
+	await create_timer(0.6).timeout          ## 等换关那一下的淡出补间走完，"画没画"才比得干净
+	check(m._tutorial_ch == 1 and m.mirror.cell_of(1)["alive"]
+		and m.mirror.cell_of(1)["pos"] == Vector2i(5, -1)
+		and not m.board.is_active(Vector2i(5, -1)) and not m._cell_nodes[1].visible,
+		"第二关 Step1：那只癌细胞**活着**、就站在 (5,-1)，但格在遮罩外 ⇒ 节点 visible=false")
+	m.teardown()
+	await process_frame
+	CWSettings.ai_delay_ms = 220
+	CWGuideProgress.clear()   ## 跨关换局会让 watch:moved 成立并写进度，别脏到同片后面的测试
+	root.remove_child(main_scene)
+	main_scene.free()
+
+
+## 照剧本把一关打到底（只走引擎，不起界面）。`plan` 是依次要迁移 / 攻击到的格 ——
+## 每一步都**从引擎给的选项表里挑**，挑不到就当场记一条红（比「静默少走一步」好查）。
+## `trace` 非空时每答完一步记一次人类那只的能量。返回舞台，调用方查完自己 close + dispose。
+func _play_c1(ch: int, plan: Array, trace: Array = []) -> Object:
+	var stage = TUT_STAGE.new()
+	stage.cfg = { "consumer": false, "autorun": false }
+	var k: CWKernel = stage.open_level(CWGuideData.level(ch))
+	if k == null:
+		check(false, "第 %d 关装不出来：%s" % [ch + 1, str(stage.errors)])
+		return stage
+	var g: CWGame = stage._game
+	var pid: int = CWGuideData.human_seat(ch)
+	await g.advance()
+	for to: Vector2i in plan:
+		var idx := -1
+		for i in (g._pending.get("options", []) as Array).size():
+			var data: Dictionary = g._pending["options"][i]["data"]
+			if str(data.get("act", "")) == "move" and data.get("to", null) == to:
+				idx = i
+				break
+		if idx < 0:
+			check(false, "第 %d 关：选项表里没有「迁移到 %s」（此刻在 %s、能量 %s）"
+				% [ch + 1, str(to), str(g.cell_of(pid)["pos"]), CWData.fmt(int(g.cell_of(pid)["energy"]))])
+			break
+		await g.step(idx)
+		trace.append(int(g.cell_of(pid)["energy"]))
+	return stage
+
+
+## 带子**双向**核对：数据里钉了几颗就消耗几颗（`at`），一颗都不许多掷（`overrun`），
+## 区间也不许写错（`bad_range`）。少掷 = 剧本或盘面漂了；多掷 = 带子放完偷偷回落到真 rng，
+## 从那一颗起整关不可复现（`cw_roll_tape.gd` 的记账就是为这件事留的）
+func _check_tape(stage: Object, lv: Dictionary, id: String) -> void:
+	var want: int = (lv.get("rolls", []) as Array).size()
+	check(stage.tape != null and int(stage.tape.at) == want
+		and int(stage.tape.overrun) == 0 and int(stage.tape.bad_range) == 0,
+		"%s：预设骰子 %d 颗精确用尽（消耗 %d / 多掷 %d / 区间错 %d）"
+			% [id, want, int(stage.tape.at), int(stage.tape.overrun), int(stage.tape.bad_range)])

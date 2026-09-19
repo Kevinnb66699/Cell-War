@@ -33,7 +33,7 @@
       "load": "base",
       "ui_layers": { "action_bar": ["move"], "sidebar": [], "hand": false,
                      "end_turn": false, "round_no": false,
-                     "move_path": false, "cost": false, "energy_display": "plain" },
+                     "move_path": false, "cost": false, "energy_display": "infinite" },
       "t": "欢迎来到Cell_War！",
       "b": ["你是一个Q弹软萌的免疫细胞——",
             "作为主人忠诚的卫士，正在工作中…",

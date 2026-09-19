@@ -1,0 +1,77 @@
+{
+  "schema": "cwtut/1",
+  "id": "c1_l3",
+  "chapter": 1, "chapter_title": "Cell", "title": "第三关 ATP",
+  "subtitle": "算清能量，三次攻击拿下癌细胞",
+  "codex_page": 2, "ui_stage": 0,
+  "seats": 2, "human_seat": 0,
+  "expect_level_tiers": [0, 10, 30, 70],
+
+  "worlds": {
+    "base": {
+      "radius": 6,
+      "round": 1,
+      "phase": "PlayerAction",
+      "seat": 0,
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I", "memory": 0 },
+        { "seat": 1, "faction": "cancer", "cancer_type": "Melanoma" }
+      ],
+      "tiles": [
+        { "at": "4,-1", "state": "cancer" },
+        { "at": "5,-1", "state": "cancer" },
+        { "at": "6,-1", "state": "cancer" },
+        { "at": "5,-2", "state": "cancer" }
+      ],
+      "cells": [
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,-1", "energy": 51 },
+        { "seat": 1, "type": "Melanoma", "at": "4,-1", "energy": 30 }
+      ]
+    }
+  },
+
+  "active_tiles": ["0,-1", "1,-1", "2,-1", "3,-1", "4,-1", "5,-1", "6,-1", "5,-2"],
+
+  "rolls": [[1, 6, 3], [1, 6, 1], [1, 6, 6]],
+
+  "steps": [
+    {
+      "step_of": "Step1",
+      "load": "base",
+      "ui_layers": { "action_bar": ["move"], "sidebar": true, "hand": false,
+                     "end_turn": false, "round_no": false,
+                     "move_path": true, "cost": true, "energy_display": "infinite" },
+      "t": "发现新的癌细胞，继续清理",
+      "b": ["使用【迁移】移动到癌细胞相邻格"],
+      "flag": "move", "act": "move", "hex": ["4,-1"], "player": true,
+      "allow": ["k=action|act=move"],
+      "watch": "beside",
+      "reset_when": "stuck"
+    },
+    {
+      "step_of": "Step2",
+      "t": "继续攻击癌细胞",
+      "flag": "attack", "act": "attack", "hex": ["4,-1"], "player": true,
+      "allow": ["k=action|act=move|to=4,-1"],
+      "watch": "attacked"
+    },
+    {
+      "step_of": "Step2",
+      "t": "继续攻击癌细胞",
+      "flag": "attack", "act": "attack", "hex": ["4,-1"], "player": true,
+      "allow": ["k=action|act=move|to=4,-1"],
+      "watch": "attacked"
+    },
+    {
+      "step_of": "Step2",
+      "t": "Oops! 攻击失效，收到了反弹伤害",
+      "b": ["不要灰心，继续尝试攻击"],
+      "unlock": ["attack"],
+      "flag": "attack", "act": "attack", "hex": ["4,-1"], "player": true,
+      "allow": ["k=action|act=move|to=4,-1"],
+      "watch": "attacked"
+    }
+  ],
+
+  "on_done": ""
+}
