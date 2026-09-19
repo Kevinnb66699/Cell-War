@@ -46,6 +46,11 @@ const LEVEL_KEYS := ["schema", "id", "chapter", "chapter_kind", "chapter_title",
 const KIND_MAIN := "main"
 const KIND_INTERLUDE := "interlude"
 
+## `state.load` 的表写法（S5 修订，Kevin 2026-09-19）许用的键 —— 就是 world spec 里
+## `cells[].type` 那个词，**不另造一套简写**（简写要在数据、导演、校验器三处各记一遍）。
+## `ImmuneBasic` 也在表里：玩家还没分化时同样得挑得出一份
+const PLAYER_KINDS := ["ImmuneBasic", "BCell", "TCell", "Macrophage", "Dendritic"]
+
 ## `worlds.*.patch` 里按哪个字段 upsert（方案 §2.4）
 const PATCH_BY := { "tiles": "at", "cells": "seat", "players": "seat" }
 
@@ -201,6 +206,27 @@ func _only_keys(d: Dictionary, allowed: Array, where: String) -> void:
 			_bad("%s 里有不认识的键「%s」（许可：%s）" % [where, str(k), ", ".join(allowed)])
 
 
+## 判据 ⑮：`state.load` 写成表时的形状（S5 修订，Kevin 2026-09-19「Step2 重装要保留
+## 玩家 Step1 选的那一种」）。只有一种表写法，键是 `PLAYER_KINDS` 里的种类名、
+## 值是**这一关真有的** world 名
+func _load_table_ok(i: int, tbl: Dictionary, level: Dictionary) -> void:
+	if tbl.size() != 1 or not tbl.has("by_player_type"):
+		_bad("flow[%d].load 写成表就只有一种写法：{\"by_player_type\": {…}}（实测键 %s）"
+			% [i, str(tbl.keys())])
+		return
+	var by: Dictionary = tbl["by_player_type"] as Dictionary if tbl["by_player_type"] is Dictionary else {}
+	var worlds: Dictionary = level.get("worlds", {})
+	if by.is_empty():
+		_bad("flow[%d].load.by_player_type 是空表 —— 一档都没有的话运行期挑不出 world" % i)
+	for k in by:
+		if not (str(k) in PLAYER_KINDS):
+			_bad("flow[%d].load.by_player_type 的键「%s」不是免疫种类名（只许 %s）"
+				% [i, str(k), ", ".join(PLAYER_KINDS)])
+		if not worlds.has(str(by[k])):
+			_bad("flow[%d].load.by_player_type[\"%s\"] 点的 world「%s」这一关没有"
+				% [i, str(k), str(by[k])])
+
+
 ## 判据 ① schema；② 顶层键白名单 + chapter_kind 两档
 func _check_schema(level: Dictionary) -> void:
 	if str(level.get("schema", "")) != SCHEMA:
@@ -317,6 +343,9 @@ func _check_flow_head(level: Dictionary) -> void:
 		_bad("flow[0].do 必须是 \"state\"（PRD:39：先结算界面与状态，再出文本）")
 		return
 	if head.has("load") and head["load"] != null:
+		if not (head["load"] is String):
+			_bad("flow[0].load 必须点名一份 world（字符串）——「重置本关」退回的就是它"
+				+ "（`CWMatch._tutor_entry_world`）；按玩家种类挑那种表写法只许出现在关内的 state 上")
 		return
 	if str(level.get("chapter_kind", KIND_MAIN)) == KIND_INTERLUDE and head.has("load"):
 		return   ## 间章：显式写出来的 null，承接上一关的活局面
@@ -372,6 +401,10 @@ func _check_flow(level: Dictionary, radius: int) -> void:
 			var layers: Dictionary = row["ui"]
 			if layers.has("camera"):
 				_camera_ok(i, layers["camera"])
+		## ⑮ `state.load` 的**表写法**（S5 修订）：`{"by_player_type": {<种类名>: <world 名>}}`。
+		## 写错一个种类名的代价是「关内重装挑错盘面」，真机上只表现为「玩家怎么变回 B 细胞了」
+		if v == "state" and row.get("load", null) is Dictionary:
+			_load_table_ok(i, row["load"] as Dictionary, level)
 		if v == "hook" and (hook_path == "" or not FileAccess.file_exists(hook_path)):
 			_bad("flow[%d] 是 hook，可这一关的 hook 文件「%s」不在" % [i, hook_path])
 		for s in row.get("reveal", []):
@@ -383,6 +416,14 @@ func _check_flow(level: Dictionary, radius: int) -> void:
 
 
 # ---- 小工具 ----
+
+## 一只细胞此刻是什么种类 —— 返回的就是 world spec 里 `cells[].type` 那个词。
+## 参数可以是镜像里的条目，也可以是 spec 装出来的对局里的那只
+## （两边都是 `{faction, itype, ctype}` 这三个键）。**对照表只有装载器一处**（`_kind_name`），
+## 这里只是把它开放给导演（`state.load` 的 `by_player_type` 要用），别在 tutor 那边另抄一份枚举
+static func kind_name(cell: Dictionary) -> String:
+	return LOADER._kind_name(cell)
+
 
 ## 坐标解析只有这一处：数据里一律写 "q,r"。舞台的 `coords_of` 与导演也走它，所以是公开的
 static func parse_at(text: String) -> Vector2i:

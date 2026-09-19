@@ -23270,9 +23270,34 @@ func t_tutor_c2() -> void:
 			codex.append(((e as Dictionary)["args"] as Dictionary)["ids"])
 	check(codex == [PackedStringArray(["differentiate"])],
 		"分化完才解锁图鉴【分化】（PRD:367 挂在 O-玩家 之后，实测 %s）" % str(codex))
-	check(loads5 == ["base", "b"],
-		"Step2 那一条 state 走的是**关内 load**（PRD:381 改的是已露出的格，遮罩揭不了）：%s" % str(loads5))
+	check(loads5 == ["base", "t"],
+		"★ Step2 那一条 state 走的是**关内 load**（PRD:381 改的是已露出的格，遮罩揭不了），"
+			+ "而且装的是**玩家刚挑的那一种** —— Step1 分化成 T ⇒ 装 `t`，不是表头那份 `b`"
+			+ "（Kevin 2026-09-19 第 3 条「不接受」把玩家摆回 B 细胞）：%s" % str(loads5))
 	_tutor_c1_close(run5)
+
+	## ---- ④′ 四种分化各跑一次：Step2 装出来就是那一种，「切换种类」从那一份往下轮 ----
+	## 护栏点在**关内重装**这一步上：`state.load` 写成 `{by_player_type: …}` 之后，
+	## 装哪一份是运行期按玩家那只的种类现挑的（`cw_tutor_director._world_for`）。
+	## 四份 world 一个字没改 —— 挑错一份的表现是「玩家莫名其妙变回 B 细胞」，真机上只看得见结果
+	var kept: Array = []
+	var rolled: Array = []
+	for itype in [CWData.ImmuneType.B_CELL, CWData.ImmuneType.T_CELL,
+			CWData.ImmuneType.MACRO, CWData.ImmuneType.DENDRITIC]:
+		CWTutorLayers.reset()
+		var runk := _tutor_c1_open(lv5)
+		var loadsk: Array = []
+		runk["dir"].want_load.connect(func(w: String) -> void: loadsk.append(w))
+		await _tutor_c2_diff(runk, lv5["flow"][step1_at], int(itype))
+		await _tutor_pump(8)
+		kept.append(str(loadsk[loadsk.size() - 1]) if not loadsk.is_empty() else "（一次都没装）")
+		runk["dir"].switch_type()          ## 按一下「切换种类」
+		rolled.append(str(loadsk[loadsk.size() - 1]))
+		_tutor_c1_close(runk)
+	check(kept == ["b", "t", "macro", "dc"],
+		"★ Step1 分化成哪一种，Step2 就装哪一份 world（实测 %s）" % str(kept))
+	check(rolled == ["t", "macro", "dc", "b"],
+		"★「切换种类」从**此刻这一份**往下轮，不是跳回表头那份 `b`（实测 %s）" % str(rolled))
 
 	## ---- ⑤ 四份分化 world：只差玩家那一只的 type，各自过圆环 ----
 	var shapes := {}
@@ -23372,6 +23397,43 @@ func t_tutor_c2() -> void:
 			+ "check_immune_win 也会在「还有可复活据点」那一行早退（实测 %d 格）" % solid)
 	_tutor_c1_close(run6)
 
+	## ---- ⑥′ 能量飘字：教程的 ∞ **只静玩家自己那一只**（Kevin 2026-09-19 第 4 条）----
+	## 第五关 Step2 的卖点是 PRD:403「来场盛大的爆炸吧——」：整关静音的话癌细胞挨打一声不响。
+	## 静的判据是「这只细胞的能量在 INFINITE_MIN 那条带里」= 右栏写着 ∞ 的那一只
+	CWTutorLayers.reset()
+	CWTutorLayers.apply({ "energy": "infinite" })
+	var scene_e: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(scene_e)
+	await process_frame
+	var me: CWMatch = scene_e.match_node
+	var ge := bare_game()
+	var mine := put_immune(ge, Vector2i(0, 0))
+	mine["energy"] = CWTutorLayers.INFINITE_AT        ## 玩家那只：右栏写着 ∞
+	var foe_e := CWSetup.make_cell(ge.cells.size(), 1, CWData.Faction.CANCER, Vector2i(2, 0),
+		-1, CWData.CancerType.OSTEO, 50)
+	ge.cells.append(foe_e)
+	me.mirror = _mirror_of(ge)
+	me._sync_cells()                                  ## 首帧只记不演（差分要有上一帧）
+	check(me._energy_fx.active() == 0, "第一次见这两只：只记不演")
+	mine["energy"] = int(mine["energy"]) - 10         ## 玩家花掉 1.0（仍在 ∞ 带里）
+	foe_e["energy"] = int(foe_e["energy"]) - 15       ## 癌细胞挨了一下
+	me.mirror = _mirror_of(ge)
+	me._sync_cells()
+	check(_energy_marks(me) == [[1, -15]],
+		"★ 癌细胞受击照飘「-1.5」，玩家自己那只掉能量**没有条目**（实测 %s）" % str(_energy_marks(me)))
+	## 同一局里能量层一撤（正式对局 = plain），两只都照飘 —— 静音只跟着 ∞ 走，不是写死谁不飘
+	CWTutorLayers.reset()
+	me._energy_fx.clear()
+	mine["energy"] = int(mine["energy"]) - 10
+	foe_e["energy"] = int(foe_e["energy"]) - 15
+	me.mirror = _mirror_of(ge)
+	me._sync_cells()
+	check(_energy_marks(me) == [[0, -10], [1, -15]],
+		"能量层不是 infinite 时两只都飘（实测 %s）" % str(_energy_marks(me)))
+	ge.dispose()
+	root.remove_child(scene_e)
+	scene_e.free()
+
 	## ---- ⑦ NPC 席位：八只非人类席逐席装 Decider，空计划 = 纯三级兜底（站着不动）----
 	var npc_req := { "kind": "action", "pid": 3, "prompt": "", "options": [
 		{ "label": "迁移", "data": { "act": "move", "to": Vector2i(1, 0) } },
@@ -23423,8 +23485,24 @@ func t_tutor_c2() -> void:
 	var panel := CWMatchPanel.new()
 	root.add_child(panel)
 	await process_frame
-	panel.guide_layers(false, false)      ## 教程口径：结束回合关、「第 X 回合」关 ⇒ 回合块那 62px 让出来
+	panel.guide_layers(false, false, false)   ## 教程口径：结束回合关、「第 X 回合」关、「癌性加权」块关
 	await process_frame
+	## 「癌性加权」那一整块：**教程局不出**（Kevin 2026-09-19 第 5 条：右栏只留状态框 + 抗原记忆框）。
+	## 判据点在真控件的 visible 上（内容那几行每帧全量刷，藏着也照刷，所以不能只核文字）
+	var pg := bare_game()
+	panel.refresh(_mirror_of(pg), _query_of(pg))
+	check(not panel._weighted.visible and not panel._weighted_max.visible
+			and not panel._weighted_caption.visible
+			and not panel._bar_track.visible and not panel._bar_fill.visible,
+		"★ 教程局右栏不出「癌性加权」那一块：标签 / 数值 / 槽 / 进度条一起藏"
+			+ "（警报期的「★ 警报」字样也就无处可出 —— 教程里没有警报）")
+	panel.guide_layers(false, false)      ## 第三个参数缺省 = 出（正式对局那一档）
+	panel.refresh(_mirror_of(pg), _query_of(pg))
+	check(panel._weighted.visible and panel._weighted_caption.visible and panel._bar_track.visible
+			and panel._weighted_caption.text == "癌性加权",
+		"正式对局照旧出这一块（`guide_layers` 的第三个参数缺省是 true）")
+	pg.dispose()
+	panel.guide_layers(false, false, false)
 	var bottom9: float = panel.level_bottom(9)
 	var bottom10: float = panel.level_bottom(10)
 	check(bottom9 <= CWMatchPanel.RECT.size.y and bottom10 > CWMatchPanel.RECT.size.y,
@@ -23442,6 +23520,16 @@ func t_tutor_c2() -> void:
 		"`foes` 缺省 1、带阵营那一支没镜像就不成立、阵营名写歪也不成立（缺省取更难成立的那一边）")
 	CWTutorLayers.reset()
 	CWGuideProgress.clear()
+
+
+## 此刻场上有哪几条能量飘字：`[[cid, amount], …]`，按 cid 排序（条数与金额都要核 ——
+## 只核条数的话，同一只细胞在 MERGE 窗口里并进去的第二笔会把泄漏盖住）
+func _energy_marks(m: CWMatch) -> Array:
+	var out: Array = []
+	for f in m._energy_fx._floats:
+		out.append([int((f as Dictionary)["cid"]), int((f as Dictionary)["amount"])])
+	out.sort()
+	return out
 
 
 ## 第五关 Step1：玩家点【分化】挑一种。先过剧本的闸，再交给引擎（同 `_tutor_c1_step`）

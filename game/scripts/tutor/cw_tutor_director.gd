@@ -306,13 +306,55 @@ func _enter_state(row: Dictionary) -> void:
 	if row.has("ui"):
 		CWTutorLayers.apply(row["ui"] as Dictionary)
 	if row.has("load") and row["load"] != null:
-		want_load.emit(str(row["load"]))     ## 已经是这一份的话调用方自己判掉（幂等）
+		var wid := _world_for(row["load"])
+		## 「切换种类」从**此刻这一份**往下轮（S5 修订）：装的是哪一份，下标就对到哪一份，
+		## 否则按第一下会跳回表头那一份（玩家刚挑完 T 细胞、一按就变回 B）
+		var k: int = CWTutorLayers.switch_types().find(wid)
+		if k >= 0:
+			_switch_at = k
+		want_load.emit(wid)                  ## 已经是这一份的话调用方自己判掉（幂等）
 	if row.has("npc"):
 		for e in row["npc"]:
 			want_npc.emit(int((e as Dictionary).get("seat", -1)), (e as Dictionary).get("plan", []) as Array)
 	var reveal: Array = row.get("reveal", [])
 	if not reveal.is_empty() and view != null and is_instance_valid(view):
 		view.reveal(reveal)
+
+
+## `flow[].state.load` 解析成一份 world 名。两种写法：
+## · **字符串** —— 点名那一份（老写法）；
+## · **`{"by_player_type": {"BCell": "b", …}}`** —— 按**玩家此刻的免疫种类**挑一份
+##   （S5 修订，Kevin 2026-09-19：「Step2 重装要保留玩家 Step1 选的那一种」）。
+##   键就是 world spec 里 `cells[].type` 那个词，校验器（判据 ⑮）装载期核键与 world 名。
+##
+## 为什么解析在导演这儿：这一问的答案只有**运行期**才有（玩家挑了什么），而数据是死的；
+## 导演本来就持着取镜像的那条线，调用方（`CWMatch._tutor_load_world`）照旧只收一个 world 名。
+## 表里没有这一档（剧本写漏 / 玩家还没分化）→ warning + 退回表里第一份：挑错一份还能玩，
+## 什么都不装则是关卡当场停死
+func _world_for(v: Variant) -> String:
+	if not (v is Dictionary):
+		return str(v)
+	var by: Dictionary = (v as Dictionary).get("by_player_type", {})
+	if by.is_empty():
+		push_warning("flow[%d].load 的表里没有 by_player_type" % _at)
+		return ""
+	var kind := _player_kind()
+	if by.has(kind):
+		return str(by[kind])
+	push_warning("flow[%d].load.by_player_type 里没有「%s」这一档，退回第一份" % [_at, kind])
+	return str(by.values()[0])
+
+
+## 玩家那一只此刻是什么免疫种类（world spec 里 `cells[].type` 那个词）。
+## **对照表不在这儿**：走数据门面的 `kind_name`（它再转给装载器那一份，全案只有一处）
+func _player_kind() -> String:
+	var m := _mirror()
+	if m == null:
+		return ""
+	for c in m.cells:
+		if int(c["pid"]) == human_seat:
+			return SCRIPT_DATA.kind_name(c)
+	return ""
 
 
 func _enter_player(row: Dictionary) -> void:
@@ -584,6 +626,8 @@ func hook_fail(why: String) -> void:
 ## 分化在规则里是一次性的，就地改 `itype` 等于绕开规则往引擎状态里写字。
 ## **拆装次序不归导演管**：同 `flow[].state.load`，发 `want_load`，
 ## 由调用方走舞台的 `reload_world`（`abort → stop → close → dispose`，次序一个字不能改）
+## **下标已经对在「此刻这一份」上**（`_enter_state` 装完就对，见 `_world_for`），
+## 所以按一下永远是「从现在这种往下一种」
 func switch_type() -> void:
 	var names: Array = CWTutorLayers.switch_types()
 	if names.is_empty():
