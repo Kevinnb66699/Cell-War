@@ -8465,6 +8465,92 @@ func t_match_panel() -> void:
 	p.refresh(_mirror_of(g4), _query_of(g4))
 	check(not p._lv_bar_fill.visible and not p._lv_bar_bg.visible,
 		"X 级：槽和填充一起收起来")
+
+	## ---- issue #49：悬停抗原 / 效应记忆 → 浮出升级规则 ----
+	## 门槛与收益全部**现算**。写死的话这一条就绿不了 —— 四人档与六人档各验一遍
+	var rows4 := CWMatchPanel.level_rules_rows(four, 1)
+	var joined4 := ""
+	for r: Dictionary in rows4:
+		joined4 += String(r["text"]) + "\n"
+	for lv in CWData.LEVEL_NAMES.size():
+		check(joined4.contains("%s 级　记忆 %d 起" % [CWData.LEVEL_NAMES[lv], int(four[lv])]),
+			"四人档 %s 级门槛 %d 现算上屏" % [CWData.LEVEL_NAMES[lv], int(four[lv])])
+	check(joined4.contains("有氧 %s" % CWData.fmt(CWData.AEROBIC_BY_LEVEL[3]))
+		and joined4.contains("净化 %s" % CWData.fmt(CWData.IMMUNE_MOVE_CANCEROUS[0])),
+		"每级的收益也现算（有氧按等级表、净化按迁移价表）")
+	check(joined4.contains("解锁【分化】") and joined4.contains("解锁【效应应答】"),
+		"两处解锁都写出来了（分化挂 %s 级）" % CWData.LEVEL_NAMES[CWData.DIFFERENTIATE_MIN_LEVEL])
+	check(joined4.contains("%s从零重数" % CWData.memory_name(3)),
+		"X 级换名并从零重数这条不能漏 —— 不写玩家会以为记忆丢了")
+	check(rows4[2]["color"] == CWStyle.IMMUNE and rows4[1]["color"] == CWStyle.TEXT,
+		"当前这一档用免疫青标出来，别的档中性")
+	var rows6 := CWMatchPanel.level_rules_rows(six, 0)
+	check(String(rows6[3]["text"]).contains("记忆 %d 起" % int(six[2]))
+		and String(rows4[3]["text"]).contains("记忆 %d 起" % int(four[2])),
+		"六人档门槛自己跟着换（III 级六人 %d / 四人 %d）" % [int(six[2]), int(four[2])])
+	check(CWMatchPanel.level_rules_rows([], 0).is_empty(),
+		"tier B 缺席（门槛表空）时干脆不画 —— 半张门槛表比没有更糟，玩家会照着它算")
+
+	## ---- issue #50：悬停「肿瘤 n 期」→ 浮出当期效果 ----
+	## 三期逐项对照 CWData 的 `_BY_STAGE` 表；表一改这条自己跟着走
+	for st in CWData.STAGE_NAMES.size():
+		var sr := CWMatchPanel.stage_rows(st, CWData.SOLIDIFY_THRESHOLD_BY_STAGE[st])
+		var js := ""
+		for r: Dictionary in sr:
+			js += String(r["text"]) + "\n"
+		var er: Vector2i = CWData.EROSION_TILES_BY_STAGE[st]
+		check(js.contains(CWData.STAGE_NAMES[st])
+			and js.contains("×%s" % CWData.fmt(CWData.PRESSURE_MUL_BY_STAGE[st]))
+			and js.contains("每邻癌 %s%%" % CWData.fmt(CWData.PROLIFERATE_BASE_BY_STAGE[st]))
+			and js.contains("每固化 +%s%%" % CWData.fmt(CWData.PROLIFERATE_SOLID_BY_STAGE[st]))
+			and js.contains("2/3 概率 %d 格、1/3 概率 %d 格" % [er.x, er.y])
+			and js.contains("计数满 %s" % CWData.fmt(CWData.SOLIDIFY_THRESHOLD_BY_STAGE[st])),
+			"%s 的五项都现算（压迫 ×%s / 增生 %s%% / 侵蚀 %d·%d / 固化 %s）"
+			% [CWData.STAGE_NAMES[st], CWData.fmt(CWData.PRESSURE_MUL_BY_STAGE[st]),
+				CWData.fmt(CWData.PROLIFERATE_BASE_BY_STAGE[st]), er.x, er.y,
+				CWData.fmt(CWData.SOLIDIFY_THRESHOLD_BY_STAGE[st])])
+	check(String(CWMatchPanel.stage_rows(0, 30)[5]["text"]).contains("未生效")
+		and String(CWMatchPanel.stage_rows(2, 20)[5]["text"]).contains("%d 格" % CWData.ROOTED_BY_STAGE[2]),
+		"根深蒂固：I 期写「未生效」（表里是 %d），III 期写出格数 %d"
+		% [CWData.ROOTED_BY_STAGE[0], CWData.ROOTED_BY_STAGE[2]])
+	## 固化门槛走内核算好的那一个数，不是界面自己查表 —— 换了 tune 旋钮也跟得上
+	check(String(CWMatchPanel.stage_rows(2, 55)[4]["text"]).contains("计数满 5.5"),
+		"固化那一行照 mirror.solidify_threshold() 给的数写")
+
+	## ---- 两块浮窗的排版：最长的一行也得装进 INFO_W ----
+	var widest_info := 0.0
+	var widest_line := ""
+	for probe2: Array in [CWMatchPanel.level_rules_rows(six, 3), CWMatchPanel.stage_rows(0, 30),
+			CWMatchPanel.stage_rows(1, 20), CWMatchPanel.stage_rows(2, 20)]:
+		for r: Dictionary in probe2:
+			var lw: float = CWStyle.FONT.get_string_size(String(r["text"]),
+				HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x
+			if lw > widest_info:
+				widest_info = lw
+				widest_line = String(r["text"])
+	check(widest_info <= CWMatchPanel.INFO_W - 24.0,
+		"最长的一行「%s」%d px，装得进 %d 宽的浮窗（左右各 12 内边距）"
+		% [widest_line, int(widest_info), int(CWMatchPanel.INFO_W)])
+
+	## ---- 悬停这条路本身：注入探针（无头视口不跟踪悬停控件，mouse_entered 一次都不发）----
+	## 装在数组里：GDScript 的 lambda **按值**捕获局部变量，写成裸 String 改了也传不进去
+	var zone := ["stage"]
+	p.info_hover_probe = func() -> String: return zone[0]
+	var m4 := _mirror_of(g4)
+	p.refresh(m4, _query_of(g4))
+	check(p._info != null and p._info.visible, "停在「肿瘤 n 期」那一行上：浮窗出来了")
+	check(p._info.position.x <= -CWMatchPanel.INFO_W,
+		"浮窗整只浮在右栏左边（x %d），不压着右栏自己" % int(p._info.position.x))
+	check(_first_label(p._info).text == "%s · 当前效果" % CWData.STAGE_NAMES[m4.tumor_stage()],
+		"画的是**当前**那一期（%s）" % _first_label(p._info).text)
+	zone[0] = "level"
+	p.refresh(m4, _query_of(g4))
+	check(p._info.visible and _first_label(p._info).text == "免疫等级 · 升级规则",
+		"换停到免疫等级那一块：同一只浮窗改画升级规则")
+	zone[0] = ""
+	p.refresh(m4, _query_of(g4))
+	check(not p._info.visible, "指针移开就收")
+	p.info_hover_probe = Callable()
 	g4.dispose()
 
 	## 面板宽度必须和对局机位让出的那一条严丝合缝，否则棋盘要么被压要么留缝
@@ -19944,6 +20030,14 @@ func _wait_pending(m: CWMatch, ms: int) -> int:
 
 func _kg(m: CWMatch) -> CWGame:
 	return (m.kernel as CWKernelInProc).game if m.kernel is CWKernelInProc else null
+
+
+## 浮窗里第一只 Label（第 0 个孩子是底板 Panel）。两处断言在用
+func _first_label(root_node: Control) -> Label:
+	for c in root_node.get_children():
+		if c is Label:
+			return c
+	return null
 
 
 func _mirror_of(g: CWGame, viewer: int = CWObsProto.VIEWER_OMNISCIENT) -> CWMirror:

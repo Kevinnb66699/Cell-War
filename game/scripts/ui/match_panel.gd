@@ -67,6 +67,11 @@ const ENERGY_RESERVE := 52  ## 能量数字预留的宽度，右对齐到预计�
 const NAME_W := 64
 ## 技能详情框的宽度。固定态要放下「停在技能上看详情 · 再点该行取消固定」这行小字（10px×18 字 = 180）
 const TIP_W := 200.0
+## 规则浮窗（#49 升级规则 / #50 当期效果）的宽度与行距。比技能详情框宽一点：
+## 那只列的是技能名，这只要把「门槛 + 收益」并排写在一行里。
+## 行距取 10px 小字那一档（同技能框的小标题行），六七行也只有一百来像素高。
+const INFO_W := 252.0
+const INFO_ROW := 15.0
 
 ## 玩家行里的种类图标。和棋盘上是同一批贴图，但棋盘那份要对齐脚底、这份是居中摆，
 ## 用途不同所以各留各的表（棋盘那份见 CWMatch.IMMUNE_ART / CANCER_ART）。
@@ -103,6 +108,14 @@ var _tip: Control = null   ## 技能详情框（悬停玩家行时列出已装�
 var _tip_pid := -1         ## 正悬停哪一行；-1 = 收起
 var _tip_pinned := -1      ## 被点住固定的那一行；-1 = 没固定。固定后框不随鼠标收起、条目可悬停
 var _tip_key := ""         ## 上次搭悬浮框用的键，没变不重搭
+var _info: Control = null      ## 规则浮窗（#49 升级规则 / #50 当期效果），和 _tip 各管各的
+var _info_key := ""            ## 上次搭它用的键，没变不重搭
+var _info_hover := ""          ## "level" / "stage" / ""：指针正停在哪一块上
+var _stage_zone: Control = null  ## 「肿瘤 n 期」那一行的感应区（回合块关掉时跟着收）
+## 悬停探针，**只给无头测试**。无头视口不跟踪悬停控件 —— mouse_entered 一次都不会发，
+## 注入一个返回 "level" / "stage" / "" 的 Callable 就能在无头里驱动这两块浮窗。
+## 真机一个字也不碰它，照旧走 mouse_entered / mouse_exited。
+var info_hover_probe := Callable()
 ## 联机：房间视图里的席位表（下标 = pid）。AI 席 / 离线席在种类后面加个角标；本地对局留空
 var net_seats: Array = []
 ## 教程的 `ui_layers.end_turn`（默认开）。正式局永远是 true
@@ -215,6 +228,7 @@ func refresh(m: CWMirror, q: Callable) -> void:
 	_lv_bar_bg.visible = p >= 0.0
 	_lv_bar_fill.visible = p >= 0.0
 	_lv_bar_fill.size = Vector2(W * maxf(p, 0.0), BAR_H)
+	_update_info_tip(m, tiers)
 
 
 ## 回到主菜单时清空：下一局人数可能不同，节点结构要按新人数重建。
@@ -233,6 +247,10 @@ func reset() -> void:
 	_tip_pid = -1
 	_tip_pinned = -1
 	_tip_key = ""
+	_info = null
+	_info_key = ""
+	_info_hover = ""
+	_stage_zone = null
 
 
 func show_end_turn(on: bool) -> void:
@@ -258,6 +276,8 @@ func guide_layers(end_turn: bool, round_no: bool) -> void:
 		_round.visible = round_no
 	if _phase != null:
 		_phase.visible = round_no
+	if _stage_zone != null:
+		_stage_zone.visible = round_no   ## 那一行都不显示了，感应区也不该还在那儿等人
 
 
 ## 引导提亮用（CWGuideSpotlight）：某块区域的屏幕矩形。"round" 回合 / 阶段 / 事件块，"row:<pid>" 玩家行，
@@ -387,10 +407,16 @@ func _build(n: int) -> void:
 	_tip_pid = -1
 	_tip_pinned = -1
 	_tip_key = ""
+	_info = null
+	_info_key = ""
+	_info_hover = ""      ## 感应区连同浮窗一起重建，旧的那份「正停在哪儿」作废
 
 	# ① 回合 / 阶段
 	_round = _put(CWStyle.label("", CWStyle.SIZE_BIG, CWStyle.TEXT_HI), PAD, PAD, W)
 	_phase = _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM), PAD, PAD + 36, W)
+	## #50：悬停「肿瘤 n 期」浮出当期效果。感应区做**整条阶段行**（10px 小字行框 16 高），
+	## 不是只框住「肿瘤II期」那四个字 —— 那点面积算不上一个命中目标（同玩家行那条的理由）
+	_stage_zone = _put_hover(Vector2(PAD, PAD + 36), Vector2(W, 16), "stage")
 
 	# ② 胜负进度：一行标签 + 一条进度条
 	var y := _score_top()
@@ -459,6 +485,9 @@ func _build(n: int) -> void:
 	_lv_bar_fill.size = Vector2(0, BAR_H)
 	_lv_bar_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_lv_bar_fill)
+	## #49：悬停免疫等级那**一整块**浮出升级规则。范围同 `rect_of("level")`（引导提亮用的也是它）——
+	## 这一块是四个标签加两条色带拼出来的，逐个挂 mouse_entered 等于把「这一块」散写六遍
+	_put_hover(Vector2(PAD, _level_y), Vector2(W, LEVEL_H), "level")
 
 	## ⑤「结束回合」钉在底部（设计稿 margin-top:auto），在 _chrome() 里建
 
@@ -675,6 +704,131 @@ static func tip_height(rows: Array, full: bool) -> float:
 	for r in rows:
 		h += 15.0 if r.has("head") else 24.0
 	return h + (15.0 if full else 0.0)
+
+
+## #49：悬停「抗原 / 效应记忆」那一块浮出的升级规则。**纯函数**，一个数都不写死 ——
+## 门槛取内核按人数算好的 `d.level_thresholds`（同 memory_text，四人 / 六人各一档），
+## 每一级的收益取 CWData 的按等级表。门槛表或收益表哪天改了，这儿自己跟着变。
+##
+## tiers 不全（tier B 缺席时是空表）就返回空表、干脆不画 —— 同 memory_text 的退路：
+## 半张门槛表比没有更糟，玩家会照着它算。
+##
+## ⚠ 收益读的是 `CWData` 常量而不是 `tune`：按等级的那两张表（aerobic_by_level /
+## immune_move_cancerous）不在观测协议的 tune 里（CWObsProto.TUNE 只有八个键），
+## 平衡扫描改旋钮时这儿会跟不上。正式局两者恒等。
+static func level_rules_rows(tiers: Array, level: int) -> Array:
+	var n: int = CWData.LEVEL_NAMES.size()
+	if tiers.size() < n:
+		return []
+	var out: Array = [{ "text": "免疫等级 · 升级规则", "color": CWStyle.TEXT_DIM }]
+	for lv in n:
+		## 当前这一档用免疫青标出来：四行数字里得有一行是「我在这儿」
+		out.append({ "text": "%s 级　记忆 %d 起　有氧 %s　净化 %s" % [CWData.LEVEL_NAMES[lv],
+				int(tiers[lv]), CWData.fmt(CWData.AEROBIC_BY_LEVEL[lv]),
+				CWData.fmt(CWData.IMMUNE_MOVE_CANCEROUS[lv])],
+			"color": CWStyle.IMMUNE if lv == level else CWStyle.TEXT })
+		if lv == CWData.DIFFERENTIATE_MIN_LEVEL:
+			out.append({ "text": "　　解锁【分化】", "color": CWStyle.TEXT_DIM })
+		if lv == n - 1:
+			## X 级把计数器改名并从零重数（CWData.memory_name），不写清楚玩家会以为记忆丢了
+			out.append({ "text": "　　解锁【效应应答】（%s从零重数）" % CWData.memory_name(lv),
+				"color": CWStyle.TEXT_DIM })
+	return out
+
+
+## #50：悬停右上角「肿瘤 n 期」浮出的**当期**效果。**纯函数**。
+##
+## 固化门槛走内核算好的那一个数（`mirror.solidify_threshold()`，协议的 tune 里有这张三档表）；
+## 其余四项协议没带，读 CWData 的同一张 `_BY_STAGE` 表 —— 界面不自己推分期，表一改这儿跟着变。
+##
+## ⚠ 无氧呼吸的分期增益（PRD 环境恶化那条 II +20% / III +50%）今天引擎里还没有，
+## 所以这儿不写。哪天加了一张 `_BY_STAGE` 表，照下面的样子再补一行。
+static func stage_rows(stage: int, solidify: int) -> Array:
+	var s: int = clampi(stage, 0, CWData.STAGE_NAMES.size() - 1)
+	var tiles: Vector2i = CWData.EROSION_TILES_BY_STAGE[s]
+	var rooted: int = CWData.ROOTED_BY_STAGE[s]
+	return [
+		{ "text": "%s · 当前效果" % CWData.STAGE_NAMES[s], "color": CWStyle.TEXT_DIM },
+		{ "text": "微环境压迫　能量损失 ×%s" % CWData.fmt(CWData.PRESSURE_MUL_BY_STAGE[s]),
+			"color": CWStyle.TEXT },
+		{ "text": "增生　每邻癌 %s%%，每固化 +%s%%" % [CWData.fmt(CWData.PROLIFERATE_BASE_BY_STAGE[s]),
+			CWData.fmt(CWData.PROLIFERATE_SOLID_BY_STAGE[s])], "color": CWStyle.TEXT },
+		{ "text": "侵蚀　2/3 概率 %d 格、1/3 概率 %d 格" % [tiles.x, tiles.y], "color": CWStyle.TEXT },
+		{ "text": "固化　计数满 %s 转固化癌组织" % CWData.fmt(solidify), "color": CWStyle.TEXT },
+		{ "text": "根深蒂固　%s" % ("未生效" if rooted <= 0
+			else "每块固化每回合助推 %d 格" % rooted), "color": CWStyle.TEXT },
+	]
+
+
+## 一块只感应悬停的透明区（不吃点击，同玩家行那只）。kind 进 `_info_hover`，决定浮窗画哪一份。
+func _put_hover(at: Vector2, sz: Vector2, kind: String) -> Control:
+	var z := Control.new()
+	z.position = at
+	z.size = sz
+	z.mouse_filter = Control.MOUSE_FILTER_PASS
+	z.mouse_entered.connect(func() -> void: _info_hover = kind)
+	z.mouse_exited.connect(func() -> void:
+		if _info_hover == kind:
+			_info_hover = "")
+	add_child(z)
+	return z
+
+
+## 规则浮窗（#49 / #50）。和技能详情框同一套（键没变就不重搭），但**另起一只节点**：
+## 那只按玩家行摆、这只按自己那一块摆，合成一只就得在里头再分两种锚点。
+func _update_info_tip(m: CWMirror, tiers: Array) -> void:
+	## 无头没有真鼠标，探针在时它说了算（见 info_hover_probe）
+	if info_hover_probe.is_valid():
+		_info_hover = String(info_hover_probe.call())
+	var rows: Array = []
+	var anchor := 0.0
+	if _info_hover == "level":
+		rows = level_rules_rows(tiers, m.immune_level)
+		anchor = _level_y
+	elif _info_hover == "stage":
+		rows = stage_rows(m.tumor_stage(), m.solidify_threshold())
+		anchor = PAD + 36.0
+	if rows.is_empty():
+		if _info != null:
+			_info.visible = false
+		_info_key = ""
+		return
+	var names := PackedStringArray()
+	for r in rows:
+		names.append(String(r["text"]))
+	var key := "%s|%s" % [_info_hover, ",".join(names)]
+	var h: float = 16.0 + rows.size() * INFO_ROW
+	if key != _info_key or _info == null:
+		_info_key = key
+		if _info != null:
+			remove_child(_info)
+			_info.queue_free()
+		_info = Control.new()
+		_info.mouse_filter = Control.MOUSE_FILTER_IGNORE   ## 只是个牌子，别挡棋盘的悬停
+		_info.size = Vector2(INFO_W, h)
+		var bg := Panel.new()
+		bg.add_theme_stylebox_override("panel", CWStyle.box(0.45, CWStyle.BTN_BG))
+		bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_info.add_child(bg)
+		var ry := 8.0
+		for r in rows:
+			var col: Color = r["color"]
+			var l := CWStyle.label(String(r["text"]), CWStyle.SIZE_LABEL, col)
+			l.position = Vector2(12, ry)
+			_info.add_child(l)
+			ry += INFO_ROW
+		add_child(_info)
+	_info.visible = true
+	## 竖向对齐到自己那一块的顶边，够不着就往回挪。技能详情框正巧也在这条竖带上
+	## （它按玩家行摆），钉住的时候真会撞上 —— Kevin 2026-09-06 报过「两个框叠在一起」。
+	## 撞上就再往左让一格，不去抢它的位置。
+	var top := clampf(anchor, 8.0, RECT.size.y - h - 8.0)
+	var x := -(INFO_W + 8.0)
+	if _tip != null and _tip.visible and top < _tip.position.y + _tip.size.y \
+			and _tip.position.y < top + h:
+		x -= TIP_W + 8.0
+	_info.position = Vector2(x, top)
 
 
 func _update_tip(m: CWMirror, q: Callable) -> void:
