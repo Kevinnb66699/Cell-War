@@ -139,6 +139,15 @@ var _ready_text: Label
 var _start_btn: Panel
 var _stand_link: Label
 var _leave_link: Label
+## **退出房间之后还回得去**（issue #46）。一局打到一半点「离开房间」，服务器那边
+## 席位与令牌是留着的（`CWRoom.leave` 只在等待室清席位，对局中只标「已离开」）——
+## 回不去的是**客户端**：`CWNetClient.leave()` 顺手把房间码和令牌一起清了（`_clear_room`），
+## 连接本身又被 `leave_online()` 丢掉，于是那张回程票谁都不拿着了。
+## 所以离开之前先把这一席抄在**面板**上：面板跟着主菜单活着，比那条连接长命。
+## 字段 {code, token, url}；空 = 没有可回去的对局。**不落盘**（关掉游戏就算了，见开发日志的待办）。
+## **连服务器地址一起抄**：房间码只在它自己那台服务器上唯一，判该不该拿票看 `_resume_here()`。
+var _resume := {}
+var _resume_tried := false   ## 上一次发出去的是「凭令牌回房」——错误报文该不该拿来作废 _resume，看它
 var _want_reconnect := false
 var _retry_at := 0
 var _awaiting_state := false
@@ -193,6 +202,7 @@ func leave_online() -> void:
 	in_match = false
 	_want_reconnect = false
 	_awaiting_state = false
+	_remember_seat()     ## 对局中退出（暂停菜单「离开房间」走的就是这条）：留一张回程票，issue #46
 	if client != null:
 		if client.code != "":
 			client.leave()
@@ -271,7 +281,7 @@ func handle_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 				var code := _row_code(_lobby_sel)
 				if code != "":
-					client.join(code)
+					_lobby_join(code)
 		Page.CREATE:
 			if event.is_action_pressed("ui_cancel"):
 				get_viewport().set_input_as_handled()
@@ -527,16 +537,61 @@ func _join_code() -> void:
 	if code.length() != CWNet.CODE_LEN:
 		_set_status("房间码是 %d 位" % CWNet.CODE_LEN)
 		return
-	client.join(code)
+	_lobby_join(code)
 
 
 func _leave_room() -> void:
 	if client == null:
 		return
 	_want_reconnect = false
+	_remember_seat()     ## issue #46
 	client.leave()
 	_show_page(Page.LOBBY)
 	client.list_rooms()
+
+
+## 离开一个**正在打的**房间之前，把自己那一席抄下来（issue #46）。
+## 三个条件缺一不可：局在打、我有席位、手里有令牌 —— 观众和等待室里的人没有可回去的对局
+## （等待室的规矩本来就是「掉线 = 起身」，`CWRoom.leave` 在那一档直接把席位清空）。
+func _remember_seat() -> void:
+	if client == null or client.code == "" or client.token == "" or client.my_seat < 0:
+		return
+	if str(client.room.get("state", "")) != "playing":
+		return
+	_resume = { "code": client.code, "token": client.token, "url": client.url }
+
+
+## 手里那张回程票是不是**这台服务器**上的。
+## 离开 A 服的对局改连 B 服，B 服上碰巧同号的房间既不是我那一局、令牌也对不上：
+## 照样预填 + 「点加入回去接着打」就是骗人，点下去被答 no_room 还会把 A 服那张好端端的票一并作废。
+## 地址对不上就**当没有票**：不预填、不改行文案、也不作废（票留着，回 A 服还能用）。
+func _resume_here() -> bool:
+	return not _resume.is_empty() and client != null \
+		and str(_resume.get("url", "")) == client.url
+
+
+## 大厅里点一间房（列表行 / 房间码 + 「加入」都走这儿）：**自己那一局凭令牌回去，别的照旧加入**。
+## 差的不只是一个报文 —— `join` 进去是**观众**：看得见盘面、没有席位、一问都答不了，
+## 而那一局的座位明明还给我留着。只有 `reconnect` 才是「接着打」（issue #46）。
+func _lobby_join(code: String) -> void:
+	if client == null or code == "":
+		return
+	if _resume_here() and code == str(_resume.get("code", "")):   ## 地址也要对得上，见 _resume_here
+		_resume_tried = true
+		_set_status("回到房间 %s…" % code)
+		client.reconnect(code, str(_resume["token"]))
+		return
+	_resume_tried = false
+	client.join(code)
+
+
+## 回到大厅就把「你还有一局没打完」摆在眼前：房间码直接填进输入框，状态行写清按哪儿回去。
+## **私密房在大厅列表里根本不出现**（`CWNetServer.lobby_view` 只列公开房），这条预填是它唯一的入口。
+func _hint_resume() -> void:
+	if not _resume_here() or _code == null:   ## 别在 B 服预填 A 服的房间码，见 _resume_here
+		return
+	_code.text = str(_resume["code"])
+	_set_status("你还有一局没打完（房间 %s）—— 点「加入」回去接着打" % _resume["code"])
 
 
 func _toggle_ready() -> void:
@@ -585,6 +640,7 @@ func _on_message(m: Dictionary) -> void:
 				_show_page(Page.LOBBY)
 				client.list_rooms()
 			_set_status("维护中：暂不能建新房" if m.get("maintenance", false) else "")
+			_hint_resume()     ## 重新连上服务器正是回去的必经之路（issue #46）：别让那句话被冲掉
 		"lobby":
 			_lobby_rooms = m.get("rooms", [])
 			## 观战（`CWMatch.WATCH_ON`，2026-09-13 开回来）：`live` 是正在打、可以观战的房。
@@ -602,6 +658,12 @@ func _on_message(m: Dictionary) -> void:
 				_show_page(Page.ROOM)
 				_set_status("")
 			_repaint_room()
+			## 回到自己那一席了：回程票用掉（issue #46）。判「有没有席位」而不是「进没进这间房」——
+			## 以观众身份进同一间房不算回来，那时票还得留着
+			if _resume_here() and str(m.get("code", "")) == str(_resume.get("code", "")) \
+					and int(m.get("you_seat", -1)) >= 0:
+				_resume = {}
+				_resume_tried = false
 			## 开局：从这一刻起对局流排队，等第一份状态到了再进棋盘。
 			## **不看有没有席位**（2026-09-09）：没坐下的人进去就是观众，
 			## `CWMatch.start_online` 见 `my_seat < 0` 就把 human_players 留空 = 纯看，
@@ -628,6 +690,13 @@ func _on_message(m: Dictionary) -> void:
 			if code in ["room_closed", "kicked", "no_room", "bad_token"]:
 				_want_reconnect = false
 				_awaiting_state = false
+				## 刚才那一下就是「凭令牌回房」而它被拒了 ⇒ 那一席没了（局打完腾席 / 关房 / 令牌作废）。
+				## 票作废掉，别让预填的房间码和「点加入回去接着打」继续骗人（issue #46）。
+				## 只认**自己发起的那一次**：随手输错一个房间码同样答 no_room，不能连坐
+				if _resume_tried and not in_match:
+					_resume = {}
+					_resume_tried = false
+					_set_status("那一局已经结束，或席位已被收回")
 				if in_match:
 					match_lost.emit(m.get("msg", code))
 				elif page == Page.ROOM:
@@ -791,7 +860,7 @@ func _build_lobby(root: Control) -> void:
 			func() -> void:
 				var code := _row_code(i)
 				if code != "":
-					client.join(code))
+					_lobby_join(code))
 		row.mouse_entered.connect(func() -> void:
 			if _row_code(i) != "":
 				_lobby_sel = i
@@ -988,6 +1057,7 @@ func _show_page(p: Page) -> void:
 			_lan_ips.text = lan_address_text()   ## 每次进页重扫：Wi-Fi 刚连上地址才有
 		Page.LOBBY:
 			_title.text = "大厅"
+			_hint_resume()     ## issue #46：有没打完的对局就预填房间码、把话说在前头
 			_repaint_lobby()
 		Page.CREATE:
 			_title.text = "建房"
@@ -1069,9 +1139,17 @@ func _repaint_lobby() -> void:
 		if str(r.get("state", "waiting")) == "playing":
 			## 进行中的房：坐不进去，写的是**观众满没满**——那才是这一行要拿来做的决定
 			## 全见的房要标出来：观众进去**看得到所有人手牌**，这是决定进不进的信息之一
-			l.text = "%s  %d 人局  观众 %d/%d%s  %s 的房间" % [r["code"], r["players"],
-				int(r.get("watchers", 0)), int(r.get("watch_max", 0)),
-				"  全见" if bool(r.get("watch_hands", false)) else "", r["host"]]
+			if _resume_here() and str(r["code"]) == str(_resume.get("code", "")):
+				## 我自己那一局（issue #46）：点它是**回去接着打**，不是进去当观众 ——
+				## 写「观众 2/8」会让人以为自己的席位已经没了。
+				## **别往后加解释**：这一行定宽 LIST_W 400 px 加省略号，再多一句就被截掉
+				## （真渲染图 `截图_2026-09-19_issues_net/lobby_after.png` 第一版就是这么截的），
+				## 该说的话由状态行那一句承担
+				l.text = "%s  %d 人局  ← 回到对局" % [r["code"], r["players"]]
+			else:
+				l.text = "%s  %d 人局  观众 %d/%d%s  %s 的房间" % [r["code"], r["players"],
+					int(r.get("watchers", 0)), int(r.get("watch_max", 0)),
+					"  全见" if bool(r.get("watch_hands", false)) else "", r["host"]]
 		else:
 			l.text = "%s  %d 人局 %d/%d  %s  %s 的房间" % [r["code"], r["players"],
 				r["seated"], r["players"], TIMER_TEXT.get(r["timer"], "%d 秒" % r["timer"]), r["host"]]

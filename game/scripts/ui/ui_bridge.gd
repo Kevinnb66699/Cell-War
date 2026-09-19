@@ -158,6 +158,22 @@ func abort() -> void:
 		p.fire(null)
 
 
+## 这一问被**别人**答掉了（服务器代打接管，issue #44）：像 abort() 那样收掉界面，
+## 另外再把迁移那两样**跨问留存**的状态一起作废 ——
+## · `_sticky_move`「上一步选的是迁移」：留着的话，下一问会直接跳回选目标态，
+##   而代打刚刚替我走的多半是别的一步，玩家对着一屏高亮格不知道自己在选什么；
+## · `_plan` 规划好的路线：留着的话 `_pick_move` 开头那句 `_plan_take_step` 会**不问自答**，
+##   照着一条按旧盘面算出来的路继续走。
+## abort() 自己不清这两样是对的：每一次新询问（含迁移的每一步）都要经过它，清了迁移就不再是切换式的。
+func taken_over() -> void:
+	_sticky_move = false
+	_sticky_pid = -1
+	_sticky_round = -1
+	_plan_reset()
+	move_costs.clear()
+	abort()
+
+
 ## 该不该先弹换手遮罩：热座、且这次被问的真人不是上一位露过牌的真人（第一问时 current_human = -1，也弹 —— 宣布谁先手）。
 ## 同一人连续被问（复活选点、抽卡中途选择、迁移的多步）不弹；AI 席位不经此路。static 供测试直接核对。
 static func needs_handoff(p_hotseat: bool, p_current_human: int, pid: int) -> bool:
