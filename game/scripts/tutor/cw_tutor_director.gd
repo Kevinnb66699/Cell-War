@@ -36,6 +36,9 @@ signal level_done(next_id: String)
 ## 剧本要换一份 world（`flow[].state.load`）。**拆装次序不归导演管** ——
 ## 调用方走舞台的 `reload_world`（`abort → queue.stop → close → dispose`，次序一个字不能动）
 signal want_load(world_id: String)
+## 剧本要把世界**重心平移到锚点**（`state.load` 的 `{"recenter": …, "radius": …}` 写法，S9a）。
+## `delta` = −P（P = 锚点那只此刻那格），装完它就站在 `(0,0)`。调用方走舞台的 `reload_recentered`
+signal want_recenter(delta: Vector2i, radius: int)
 ## 自动重置（`reset_when` 命中）/ 常驻「重置本关」
 signal want_reset
 ## 给某席换脚本（`flow[].npc`）
@@ -88,6 +91,9 @@ var _hook_state := {}
 ## 「切换种类」按到第几份了（`ui.switch_type` 那一组 world 名的下标，S5）。
 ## 换关 / 重置一律回到第一份（随代际闸清，见 `invalidate()`）
 var _switch_at := 0
+## 锚点（`"player"` / `"seat:<n>"`）在镜像里找不到时的哨兵。
+## 轴坐标本身有负数、(0,0) 又是盘心，所以不能拿 0 或 -1 当「没有」
+const NO_ANCHOR := Vector2i(9999, 9999)
 ## 正劝着重置（`advise_when` 命中）：这时 `until` **不翻页** ——
 ## 第三关「站到相邻格」在能量算亏时照样成立，翻过去那句劝退当场消失
 var _advising := false
@@ -306,19 +312,38 @@ func _enter_state(row: Dictionary) -> void:
 	if row.has("ui"):
 		CWTutorLayers.apply(row["ui"] as Dictionary)
 	if row.has("load") and row["load"] != null:
-		var wid := _world_for(row["load"])
-		## 「切换种类」从**此刻这一份**往下轮（S5 修订）：装的是哪一份，下标就对到哪一份，
-		## 否则按第一下会跳回表头那一份（玩家刚挑完 T 细胞、一按就变回 B）
-		var k: int = CWTutorLayers.switch_types().find(wid)
-		if k >= 0:
-			_switch_at = k
-		want_load.emit(wid)                  ## 已经是这一份的话调用方自己判掉（幂等）
+		if _is_recenter(row["load"]):
+			_emit_recenter(row["load"] as Dictionary)
+		else:
+			var wid := _world_for(row["load"])
+			## 「切换种类」从**此刻这一份**往下轮（S5 修订）：装的是哪一份，下标就对到哪一份，
+			## 否则按第一下会跳回表头那一份（玩家刚挑完 T 细胞、一按就变回 B）
+			var k: int = CWTutorLayers.switch_types().find(wid)
+			if k >= 0:
+				_switch_at = k
+			want_load.emit(wid)              ## 已经是这一份的话调用方自己判掉（幂等）
 	if row.has("npc"):
 		for e in row["npc"]:
 			want_npc.emit(int((e as Dictionary).get("seat", -1)), (e as Dictionary).get("plan", []) as Array)
 	var reveal: Array = row.get("reveal", [])
 	if not reveal.is_empty() and view != null and is_instance_valid(view):
 		view.reveal(reveal)
+
+
+## 这一条 `load` 是重心平移写法吗（S9a）
+static func _is_recenter(v: Variant) -> bool:
+	return v is Dictionary and (v as Dictionary).has("recenter")
+
+
+## 把 `{"recenter": "player", "radius": 11}` 翻成一条 `want_recenter(−P, radius)`。
+## 为什么解析在导演这儿（同 `_world_for`）：「锚点那只此刻站哪」只有运行期答得上来，
+## 而数据是死的；平移本身归数据门面（`CWTutorScript.translate`），舞台负责拆装次序
+func _emit_recenter(d: Dictionary) -> void:
+	var at := _anchor_at(str(d.get("recenter", "")))
+	if at == NO_ANCHOR:
+		push_warning("flow[%d].load.recenter 的锚点在镜像里找不到，这一拍不平移" % _at)
+		return
+	want_recenter.emit(-at, int(d.get("radius", CWData.BOARD_RADIUS)))
 
 
 ## `flow[].state.load` 解析成一份 world 名。两种写法：
@@ -343,6 +368,22 @@ func _world_for(v: Variant) -> String:
 		return str(by[kind])
 	push_warning("flow[%d].load.by_player_type 里没有「%s」这一档，退回第一份" % [_at, kind])
 	return str(by.values()[0])
+
+
+## `"player"` / `"seat:<n>"` 那只此刻站的格；找不到给 `NO_ANCHOR`
+func _anchor_at(who: String) -> Vector2i:
+	var seat := -1
+	if who == "player":
+		seat = human_seat
+	elif who.begins_with("seat:"):
+		seat = int(who.substr(5))
+	var m := _mirror()
+	if seat < 0 or m == null:
+		return NO_ANCHOR
+	for c in m.cells:
+		if int(c["pid"]) == seat:
+			return Vector2i(c["pos"])
+	return NO_ANCHOR
 
 
 ## 玩家那一只此刻是什么免疫种类（world spec 里 `cells[].type` 那个词）。

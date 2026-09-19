@@ -54,6 +54,11 @@ const PLAYER_KINDS := ["ImmuneBasic", "BCell", "TCell", "Macrophage", "Dendritic
 ## `worlds.*.patch` 里按哪个字段 upsert（方案 §2.4）
 const PATCH_BY := { "tiles": "at", "cells": "seat", "players": "seat" }
 
+## 锚点写法（S9a）：`"player"` = 人类席那只，`"seat:<n>"` = 点名那一席。
+## 今天只有 `state.load` 的重心平移写法（`recenter`）用它；再有第二处也读这一份，别另抄一套
+static func anchor_ok(s: String) -> bool:
+	return s == "player" or (s.begins_with("seat:") and s.substr(5).is_valid_int())
+
 ## 继承链的深度上限：`from` 写成环时不至于把栈吃光，报一条错就收
 const MAX_INHERIT := 8
 
@@ -108,6 +113,48 @@ func first_level_id() -> String:
 ## ⚠ 「删掉整只细胞 / 整格」今天没有关卡需要，写法等 S10 真用上再定 —— 眼下 upsert 只加不减。
 func resolve(level: Dictionary, world_id: String) -> Dictionary:
 	return _resolve(level, world_id, 0)
+
+
+## 把一份 cwxworld/3 里的**每一个坐标键**整体平移 `delta`（**原地改**），返回错误清单（空 = 全好）。
+## 间章分镜 2 的「重心平移到玩家」就是它：把活局面 `dump_world` 出来、平移 −P、半径改大，再关内换盘。
+##
+## 这张坐标键表是按 `cw_world_loader` 的键表逐个数出来的：
+## `tiles[].at`（TILE_KEYS）、`cells[].at` / `cells[].camp_pos`（CELL_KEYS）、
+## `chemo.at`（CHEMO_KEYS）、`chemo_track.at`（TRACK_KEYS）—— 恰好就是装载器 `load_world`
+## 那一半里 `pos(str(…))` 出现的**五处**，`t_tutor_recenter` 有一条**照源码数**的断言钉住它。
+##
+## 越界的格**照实报错、不静默裁掉**：少半张盘在真机上只表现为「换完局地图小了一圈」，查不出来。
+## 判界用的是 spec 里**此刻**那个 `radius` —— 所以调用方要先把半径改大再平移。
+##
+## **全案只有这一处做平移**（数据门面），舞台与导演都只是把 delta 透过来。
+static func translate(spec: Dictionary, delta: Vector2i) -> PackedStringArray:
+	var errs := PackedStringArray()
+	if delta == Vector2i.ZERO:
+		return errs
+	var radius := int(spec.get("radius", CWData.BOARD_RADIUS))
+	for t in spec.get("tiles", []):
+		_move_key(t as Dictionary, "at", delta, radius, "tiles", errs)
+	for c in spec.get("cells", []):
+		_move_key(c as Dictionary, "at", delta, radius, "cells", errs)
+		## `camp_pos` 的 `"0,0"` 是**哨兵**（= 没扎营，dump / minify 都把它削掉），
+		## 跟着平移就等于凭空给每只细胞造一个营地
+		if str((c as Dictionary).get("camp_pos", "0,0")) != "0,0":
+			_move_key(c as Dictionary, "camp_pos", delta, radius, "cells", errs)
+	for name in ["chemo", "chemo_track"]:
+		if spec.get(name, null) is Dictionary:
+			_move_key(spec[name] as Dictionary, "at", delta, radius, name, errs)
+	return errs
+
+
+static func _move_key(d: Dictionary, key: String, delta: Vector2i, radius: int,
+		where: String, errs: PackedStringArray) -> void:
+	if not d.has(key):
+		return
+	var at := parse_at(str(d[key])) + delta
+	if not CWData.is_on_board(at, radius):
+		errs.append("按 %s 平移之后 %s.%s = %s 出了半径 %d 的盘" % [at_text(delta), where, key, at_text(at), radius])
+		return
+	d[key] = at_text(at)
 
 
 func _resolve(level: Dictionary, world_id: String, depth: int) -> Dictionary:
@@ -206,13 +253,22 @@ func _only_keys(d: Dictionary, allowed: Array, where: String) -> void:
 			_bad("%s 里有不认识的键「%s」（许可：%s）" % [where, str(k), ", ".join(allowed)])
 
 
-## 判据 ⑮：`state.load` 写成表时的形状（S5 修订，Kevin 2026-09-19「Step2 重装要保留
-## 玩家 Step1 选的那一种」）。只有一种表写法，键是 `PLAYER_KINDS` 里的种类名、
-## 值是**这一关真有的** world 名
+## 判据 ⑮：`state.load` 写成表时的形状。**两种表写法互斥**，一份 load 只许一种：
+## · `{"by_player_type": {…}}`（S5 修订，Kevin 2026-09-19「Step2 重装要保留玩家 Step1 选的那一种」）；
+## · `{"recenter": "player", "radius": 11}`（S9a，间章分镜 2：承接活局面 + 重心平移到锚点）。
+## 混着写的话导演挑谁都是猜，所以在这儿当场红
 func _load_table_ok(i: int, tbl: Dictionary, level: Dictionary) -> void:
-	if tbl.size() != 1 or not tbl.has("by_player_type"):
-		_bad("flow[%d].load 写成表就只有一种写法：{\"by_player_type\": {…}}（实测键 %s）"
-			% [i, str(tbl.keys())])
+	var by_kind := tbl.has("by_player_type")
+	var recenter := tbl.has("recenter")
+	if by_kind == recenter:
+		_bad("flow[%d].load 写成表只有两种写法：{\"by_player_type\": {…}} 或 {\"recenter\": …, \"radius\": …}，"
+			% i + "两者互斥、不能混写（实测键 %s）" % str(tbl.keys()))
+		return
+	if recenter:
+		_recenter_ok(i, tbl)
+		return
+	if tbl.size() != 1:
+		_bad("flow[%d].load 的 by_player_type 写法不许再带别的键（实测键 %s）" % [i, str(tbl.keys())])
 		return
 	var by: Dictionary = tbl["by_player_type"] as Dictionary if tbl["by_player_type"] is Dictionary else {}
 	var worlds: Dictionary = level.get("worlds", {})
@@ -225,6 +281,26 @@ func _load_table_ok(i: int, tbl: Dictionary, level: Dictionary) -> void:
 		if not worlds.has(str(by[k])):
 			_bad("flow[%d].load.by_player_type[\"%s\"] 点的 world「%s」这一关没有"
 				% [i, str(k), str(by[k])])
+
+
+## 判据 ⑮ 的另一半：`state.load` 的**重心平移写法**（S9a，间章分镜 2，PRD:395-397
+## 「地图以免疫细胞为中心向四周延伸，补齐缺失格子使其处于一个完整棋盘的中央格」）。
+##
+## `{"recenter": "player", "radius": 11}` = **不点名任何一份 world** —— 装的是把**活局面**
+## `dump_world` 出来、每个坐标键平移 −P（P = 锚点那只此刻那格 ⇒ 它落到 `(0,0)`）、
+## 半径改成这里写的那个数，再关内换盘。所以这两个键都**必须显式写**：
+## 一个定新原点、一个定新盘子多大，缺哪个都只能靠猜。
+func _recenter_ok(i: int, tbl: Dictionary) -> void:
+	for k in tbl:
+		if not (str(k) in ["recenter", "radius"]):
+			_bad("flow[%d].load 的重心平移写法只有 recenter / radius 两个键，多出「%s」" % [i, str(k)])
+	if not anchor_ok(str(tbl["recenter"])):
+		_bad("flow[%d].load.recenter 写的「%s」不在两档里（player / seat:<n>）—— 新原点挂在它身上"
+			% [i, str(tbl["recenter"])])
+	var r := int(tbl.get("radius", -1))
+	if r < CWData.BOARD_RADIUS:
+		_bad("flow[%d].load.radius = %d：重心平移之后的盘子不许比正式盘（%d）还小"
+			% [i, r, CWData.BOARD_RADIUS])
 
 
 ## 判据 ① schema；② 顶层键白名单 + chapter_kind 两档
@@ -260,16 +336,20 @@ func _check_seats(level: Dictionary) -> int:
 
 
 ## 判据 ③ 每席恰好一只细胞 / `players[i].seat == i`；⑤ 每份 world 过装载往返。
-## 返回所有 world 里最小的那个半径（活跃格要在每一份盘面上都站得住）
+## 返回所有 world 里最小的那个半径（活跃格要在每一份盘面上都站得住）。
+## **起点不再是 `CWData.BOARD_RADIUS`**（S9a）：以前拿 6 去 `mini` 就等于把结果钉死在 ≤ 6，
+## 路 C 之后教程世界可以大过 127 格（第四 / 五关是 12），判据 ④ / ⑯ 都得按真半径判。
+## 一份 world 都解不开时退回 6
 func _check_worlds(level: Dictionary, seats: int) -> int:
-	var radius := CWData.BOARD_RADIUS
+	var radius := -1
 	var ids: Array = (level.get("worlds", {}) as Dictionary).keys()
 	ids.sort()
 	for wid in ids:
 		var spec := resolve(level, str(wid))
 		if spec.is_empty():
 			continue   ## 继承解不开，上面已经报过一条
-		radius = mini(radius, int(spec.get("radius", CWData.BOARD_RADIUS)))
+		var r := int(spec.get("radius", CWData.BOARD_RADIUS))
+		radius = r if radius < 0 else mini(radius, r)
 		var players: Array = spec.get("players", [])
 		if players.size() != seats:
 			_bad("world「%s」的 players 有 %d 条，与 seats = %d 不符" % [str(wid), players.size(), seats])
@@ -287,7 +367,7 @@ func _check_worlds(level: Dictionary, seats: int) -> int:
 				_bad("world「%s」的席位 %d 有 %d 只细胞 —— 每席恰好一只（缺席阵营写 alive:false 的死细胞，纪律 8）"
 					% [str(wid), s, n])
 		_roundtrip(str(wid), spec)
-	return radius
+	return radius if radius >= 0 else CWData.BOARD_RADIUS
 
 
 ## 判据 ⑤ 的比法：`dump_world(load_world(spec)) ≡ minify(spec)`。
@@ -345,7 +425,8 @@ func _check_flow_head(level: Dictionary) -> void:
 	if head.has("load") and head["load"] != null:
 		if not (head["load"] is String):
 			_bad("flow[0].load 必须点名一份 world（字符串）——「重置本关」退回的就是它"
-				+ "（`CWMatch._tutor_entry_world`）；按玩家种类挑那种表写法只许出现在关内的 state 上")
+				+ "（`CWMatch._tutor_entry_world`）；两种表写法（按玩家种类挑 / 重心平移）"
+				+ "都只许出现在关内的 state 上")
 		return
 	if str(level.get("chapter_kind", KIND_MAIN)) == KIND_INTERLUDE and head.has("load"):
 		return   ## 间章：显式写出来的 null，承接上一关的活局面
@@ -431,6 +512,12 @@ static func parse_at(text: String) -> Vector2i:
 	if parts.size() != 2:
 		return Vector2i(9999, 9999)
 	return Vector2i(int(parts[0].strip_edges()), int(parts[1].strip_edges()))
+
+
+## `parse_at` 的逆：坐标写回数据侧那种 `"q,r"`。相对写法平移完要写回去，
+## 圆盘 `reveal` 也要把算出来的格交回皮。**转调装载器那一份**，全案只有一处实现
+static func at_text(v: Vector2i) -> String:
+	return LOADER.at_text(v)
 
 
 ## 逐层比。Dictionary 的书写次序不算差异（dump 与 minify 各按自己的顺序装键）

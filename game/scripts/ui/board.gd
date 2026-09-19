@@ -92,9 +92,14 @@ var marrow_position = []
 
 ## 轴坐标 (q,r) → 本文件的「行,列」下标。
 ## 中间那一行是 r=0，行内 q 自左向右递增；r 每 +1 往下走一行，整行同时右移半格。
-## ring 取当前格网的最大环号（格网只在 _ready 铺一次、恒为正式盘；教程小棋盘靠遮罩，不重铺）。
+##
+## **ring 取的是正式盘的半径，不是当前格网的最大环号**（S9a，2026-09-19）：
+## `ensure_radius()` 往外长环的时候，老 127 格的键**一个字都不许变** —— 变了 `map` 里
+## 原有的条目就全查不到了（格网会整片"失踪"）。以 6 为基准之后，第 7 环起的格
+## 自然落到 row ≤ 0 / col ≤ 0 或 col 超出老范围的位置上，与老键不冲突
+## （同一行里 col 与 q 是双射，所以加环只是把每行两头接长）。
 func axial_to_rc(a: Vector2i) -> Vector2:
-	var ring: int = radius - 1
+	var ring: int = CWData.BOARD_RADIUS
 	var q_min: int = -ring if a.y >= 0 else -ring - a.y      ## 这一行最左边那格的 q
 	return Vector2(a.y + ring + 1, a.x - q_min + 1)
 
@@ -353,8 +358,10 @@ static func ring_delays(coords: Array, step: float) -> Dictionary:
 ## 把癌性组织交叉淡回健康组织（返回主菜单时用）。
 ## 直接换贴图会「啪」地一下；而两种贴图的**图案**不同，单靠调色也淡不过去 ——
 ## 所以在每格上盖一张健康贴图、alpha 0→1，淡完再把底下那张换掉、撤掉盖的那张。
+## **跟着大半径走**（读 `_coords`）：教程大盘上第 7 环起的格也可能被染成癌组织，
+## 不淡的话返场后它们红着躺在菜单底下（虽然 alpha 0 看不见，但下一局一露出来就是上一局的颜色）
 func fade_to_healthy(seconds: float) -> void:
-	for c in CWData.all_coords():
+	for c in _coords:
 		var key := axial_to_rc(c)
 		if not map.has(key):
 			continue
@@ -398,9 +405,11 @@ func fade_extras(seconds: float) -> void:
 
 
 ## 棋盘上现有的积累进度环。正式盘只有 9 个核心 / 骨髓预建了环，教程 fixture 会临时加几个。
+## **跟着大半径走**（读 `_coords`）纯粹是为了三处扫格网的循环口径一致 —— 进度环只长在
+## 11 格特殊组织上（`CWData.CORES` / `MARROWS`，全在 6 环内），大盘上多扫的那几百格恒为空。
 func _store_rings() -> Array[Sprite2D]:
 	var out: Array[Sprite2D] = []
-	for c in CWData.all_coords():
+	for c in _coords:
 		var key := axial_to_rc(c)
 		if not map.has(key):
 			continue
@@ -633,6 +642,7 @@ func _ready():
 	energy_position = CWData.CORES.map(axial_to_rc)
 	marrow_position = CWData.MARROWS.map(axial_to_rc)
 	_grid()
+	_coords = CWData.all_coords()   ## `_grid()` 铺的就是这 127 格；往后由 `ensure_radius` 追加
 	## 默认整盘活跃（= active_radius 的默认值 BOARD_RADIUS）。`hex_at` 只扫这个集合，
 	## 所以它必须在格网铺完的同一时刻就装满，不能等哪个调用方来设。
 	set_active_tiles(CWData.all_coords(), 0.0)
@@ -666,14 +676,23 @@ const ACTIVE_FADE := 0.45
 ## 比高亮剪影的 MARK_RING_DELAY 稀一点 —— 浮现是「地长出来」的演出，太密就看不出环序。
 const ACTIVE_RING_DELAY := 0.06
 var active_radius: int = CWData.BOARD_RADIUS   ## 当前看得见、点得到的最大环号（= 活跃集里最大的环号）
+## 格网**已经铺到**的最大环号（`ensure_radius` 只增不减）。与 `active_radius` 是两回事：
+## 这个是「有没有这块格子」，那个是「这块格子露没露出来」
+var _grid_radius: int = CWData.BOARD_RADIUS
+## 格网上真实存在的所有格（`_ready()` 铺 127 格，`ensure_radius` 往后追加）。
+## **凡是「逐格扫一遍格网」的循环都读它，不读 `CWData.all_coords()`** ——
+## 后者恒是 127 格，大盘上会漏掉第 7 环起那些格
+var _coords: Array[Vector2i] = []
 ## 活跃格集合（格坐标 -> true）。`_ready()` 里铺成全 127 格，与 active_radius 的默认值对上。
 var _active_set := {}
 var _active_tws := {}   ## 格坐标 -> 正在跑的淡入淡出补间；换向时先杀掉上一条，别让两条抢同一个 alpha
 
 ## 老签名保留：半径 = 「到中心不超过 r」这一种活跃集。拆局兜底（match.gd:1140/1236）与
 ## `_adopt_mirror`（match.gd:1062）还在用它，改口径不该逼它们跟着改。
+## 上限取**已经铺到的**环号而不是 `CWData.BOARD_RADIUS`：正式盘两者都是 6（行为一个字不变），
+## 大盘上才允许把 7 环以外的格也一并露出来
 func set_active_radius(board_radius: int, seconds: float = ACTIVE_FADE) -> void:
-	set_active_tiles(CWData.all_coords(clampi(board_radius, 0, CWData.BOARD_RADIUS)), seconds)
+	set_active_tiles(CWData.all_coords(clampi(board_radius, 0, _grid_radius)), seconds)
 
 
 ## 换一批活跃格：新进集合的格错峰浮现，离开集合的格淡出，一直在（或一直不在）的格一动不动。
@@ -694,7 +713,9 @@ func set_active_tiles(tiles: Array, seconds: float = ACTIVE_FADE) -> void:
 	## 先换集合再排补间：`is_active` 是即时谓词，浮现的那半秒里它就得答「在」。
 	_active_set = want_set
 	active_radius = top
-	for c in CWData.all_coords():
+	## **必须跟着大半径走**（读 `_coords`）：这是「把 alpha 落到每一格」的那一趟，
+	## 漏掉第 7 环起的格就等于大盘上揭出来的格永远淡不进来
+	for c in _coords:
 		var key := axial_to_rc(c)
 		if not map.has(key):
 			continue
@@ -744,6 +765,34 @@ func _grid() -> void:
 			first_x -= distance_x/2
 		else:
 			first_x += distance_x/2
+
+
+## 把格网**一次性长到** `want` 这个半径（S9a「路 C」，盘面提案 §6.3，Kevin 2026-09-19
+## 「对地图的格数上限没有要求，可以超过 127 格，补全缺格即可」）。
+##
+## 口径三条，一条都不能松：
+##   ① **只加、不删、不重铺** —— 老 127 格的节点对象原地不动（09-10 那次按半径重铺格网，
+##      画面「猛地缩小」、返场又没换回来，Kevin 当天报了两个现象）；
+##   ② 新格**默认不在活跃集** = alpha 0、`hex_at` 扫不到（它只扫 `_active_set`），
+##      所以「看不见也点不到」，第四关在半径 12 的世界上与之前**逐像素相同**；
+##   ③ `want <= _grid_radius` 直接返回 ⇒ **正式对局零变化**（镜像半径恒 6，一行都不跑）。
+##
+## 新格的像素位置照 `_grid()` 那套布局的闭式解算：以中央格为原点，
+## `(q, r)` 往右 `distance_x·q`、往下 `distance_y·r`，再因为隔行错半格而右移 `distance_x/2·r`。
+## 不复用 `_grid()` 的 `first_x` 累加：那个变量在 `_grid()` 跑完之后已经不在起点上了。
+func ensure_radius(want: int) -> void:
+	if want <= _grid_radius:
+		return
+	var origin: Vector2 = map[axial_to_rc(Vector2i.ZERO)]["position"]
+	for c in CWData.all_coords(want):
+		var key := axial_to_rc(c)
+		if map.has(key):
+			continue
+		var at := origin + Vector2(distance_x * c.x + distance_x * 0.5 * c.y, distance_y * c.y)
+		new_tissue(key.x, key.y, at.x, at.y)
+		(map[key]["instance"] as Sprite2D).modulate.a = 1.0 if _active_set.has(c) else 0.0
+		_coords.append(c)
+	_grid_radius = want
 
 
 # ============ 黏液覆膜 ============

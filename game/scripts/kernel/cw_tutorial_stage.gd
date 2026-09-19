@@ -37,6 +37,9 @@ var queue: CWPlayQueue = null
 ## 当前这一关的完整 JSON（`cw_tutor_script.load_level` 的产物）与正在跑的那份 world 的名字
 var level := {}
 var world_id := ""
+## 这一局相对**关卡数据里写的坐标**已经累计平移了多少（`recenter` 每走一次就叠一次，S9a）。
+## 零 = 没平移过。活跃格要跟着它走，否则遮罩与盘面错开一大截
+var world_offset := Vector2i.ZERO
 ## 挂上去的带子（`rolls` 为空时也挂 —— 空带子 = 「这一关一次 rng 都不许消耗」的断言）
 var tape = null
 ## 当前句柄。`reload_world` 与 `dispose` 都从它走
@@ -52,6 +55,7 @@ var _game: CWGame = null
 ## 装不出来返回 `null`（原因在 `errors` 里），调用方自己决定是回主菜单还是打日志。
 func open_level(lv: Dictionary, wid := "base") -> CWKernel:
 	level = lv
+	world_offset = Vector2i.ZERO   ## 新的一关从关卡数据写的坐标起算
 	return _open(wid)
 
 
@@ -64,14 +68,79 @@ func open_level(lv: Dictionary, wid := "base") -> CWKernel:
 ## 这里**不重挂引导面板**：重装不换桥（`decider` 还是 `cfg` 里那一个对象），
 ## 「换局会新建桥 ⇒ 必须重挂同一个 `_guide`」那个坑只在跨关换局那条路上（`match.gd:539-546`）。
 func reload_world(wid: String) -> CWKernel:
-	if kernel != null:
-		kernel.abort()
-	if queue != null:
-		queue.stop()
-	if kernel != null:
-		kernel.close()
-	dispose()
+	_teardown()
 	return _open(wid)
+
+
+## 间章分镜 2（PRD:395-397「地图以免疫细胞为中心向四周延伸，补齐缺失格子使其处于一个
+## **完整棋盘的中央格**」，Kevin 2026-09-19 拍板走「重心平移」）。
+##
+## 不点名任何一份 world —— 装的是**此刻这一局自己**：
+##   ① `dump_world` 把活局面导成一份 cwxworld/3（组织 / 固化 / 坏死 / 细胞 / 记忆 / 回合全在里头）；
+##   ② 半径改成 `radius`（新盘子），再 `CWTutorScript.translate` 把每个坐标键平移 `delta`
+##      （`delta = -P`，P = 锚点那只此刻那格 ⇒ 它落到 `(0,0)`）——**先改半径再平移**，
+##      不然判界还按老半径走，平移到第 7 环的格会被当成出盘；
+##   ③ 走关内换盘那条路（`reload_world` 的四步拆装），**不是跨关完整换局** ——
+##      席位 / 面板 / 桥一律不动，间章是一段连续的演出。
+##
+## 新长出来的格是 `build_board` 铺的健康组织（装载器只改 spec 里点了名的格）。
+## **cwxworld/3 装不下的运行期字段会丢**（`attacks_used` / `draws_used` / `mods` / `equipped` /
+## `fx_turn` 等不在 CELL_KEYS 里的那些）—— 间章是强制演出、玩家不再操作，这一刀可以吃。
+func reload_recentered(delta: Vector2i, radius: int) -> CWKernel:
+	errors = PackedStringArray()
+	if _game == null:
+		errors.append("重心平移：此刻没有活着的对局可导出")
+		return null
+	var loader = LOADER.new()
+	var spec: Dictionary = loader.dump_world(_game)
+	if not loader.errors.is_empty():
+		errors.append_array(loader.errors)
+		return null
+	_pin_specials(spec)          ## 必须在平移之前：这一步写的是**老**坐标上的器官
+	spec["radius"] = radius
+	var moved := DATA.translate(spec, delta)
+	if not moved.is_empty():
+		errors.append_array(moved)
+		return null
+	_fill_plain(spec, radius)
+	_teardown()
+	world_offset += delta
+	return _open_spec(spec)
+
+
+## 特殊组织（3 代谢核心 / 6 骨髓 / 2 血管）要**跟着世界一起搬**。
+## `CWData.special_of` 是一张**绝对坐标**表，而 `dump_world` 按「与那张表一致就省略」写 `type`
+## （装载器口径第 2 条）—— spec 里不显式写的话，装载器会拿**新**坐标去查那张表：
+## 组织整体挪了位置、器官却钉在原地，真机上看着就是「器官瞬间换了位置」。
+## 所以平移前给老盘**每一格**写死它此刻的 type（这一步之后 tiles 覆盖老盘全部格）。
+func _pin_specials(spec: Dictionary) -> void:
+	var tiles: Array = spec.get("tiles", [])
+	var by_at := {}
+	for t in tiles:
+		by_at[str((t as Dictionary)["at"])] = t
+	for c in CWData.all_coords(int(_game.board_radius)):
+		var key := LOADER.at_text(c)
+		var e: Dictionary = by_at.get(key, {})
+		if e.is_empty():
+			e = { "at": key }
+			tiles.append(e)
+		if not e.has("type"):
+			e["type"] = LOADER._special_name(int((_game.tile(c) as Dictionary)["special"]))
+	spec["tiles"] = tiles
+
+
+## 平移之后四周空出来的那一圈：显式写成**普通**健康组织。
+## 不写的话装载器照样按绝对坐标表往新格上铺器官 ⇒ 盘上会多出第二套核心 / 骨髓 / 血管
+func _fill_plain(spec: Dictionary, radius: int) -> void:
+	var tiles: Array = spec.get("tiles", [])
+	var seen := {}
+	for t in tiles:
+		seen[str((t as Dictionary)["at"])] = true
+	for c in CWData.all_coords(radius):
+		var key := LOADER.at_text(c)
+		if not seen.has(key):
+			tiles.append({ "at": key, "type": "normal" })
+	spec["tiles"] = tiles
 
 
 ## 收摊：收养模式的 `close()` 不 dispose，谁装配谁收摊 —— 不收的话模块↔对局、桥↔对局两个引用环每换一关漏一份。
@@ -83,9 +152,14 @@ func dispose() -> void:
 	tape = null
 
 
-## 这一关声明的活跃格（棋盘遮罩的唯一口径，方案 §1.3：半径恒 6，小棋盘靠集合不靠半径）
+## 这一关声明的活跃格（棋盘遮罩的唯一口径，方案 §1.3：小棋盘靠集合不靠半径）。
+## **跟着 `world_offset` 一起平移**（S9a）：重心平移之后整份盘面挪了位置，
+## 活跃集还停在关卡数据写的绝对坐标上的话，遮罩与盘面就错开一大截
 func active_tiles() -> Array:
-	return coords_of(level.get("active_tiles", []))
+	var out: Array = []
+	for c in coords_of(level.get("active_tiles", [])):
+		out.append((c as Vector2i) + world_offset)
+	return out
 
 
 ## `["q,r", …]` → `[Vector2i, …]`。数据侧的坐标写法只有这一种，解析也只有这一处
@@ -96,6 +170,18 @@ static func coords_of(list: Array) -> Array:
 	return out
 
 
+## `reload_world` / `reload_recentered` 共用的四步拆装。**次序一个字不能动**：
+## `abort` 永远排在 `stop` 之前（只有 `abort()` 里的 `_barrier_seq = 0` 放得掉正在等 ack 的那条 roll）
+func _teardown() -> void:
+	if kernel != null:
+		kernel.abort()
+	if queue != null:
+		queue.stop()
+	if kernel != null:
+		kernel.close()
+	dispose()
+
+
 func _open(wid: String) -> CWKernel:
 	errors = PackedStringArray()
 	world_id = wid
@@ -104,6 +190,12 @@ func _open(wid: String) -> CWKernel:
 	if spec.is_empty():
 		errors.append("关「%s」里没有名为「%s」的 world" % [str(level.get("id", "(无 id)")), wid])
 		return null
+	return _open_spec(spec)
+
+
+## 一份现成的 cwxworld/3 → 一局（挂带子 → 收养 → 交句柄）。
+## `_open`（按 world 名 resolve 出来的）与 `reload_recentered`（从活局面 dump 出来的）共用
+func _open_spec(spec: Dictionary) -> CWKernel:
 	var loader = LOADER.new()
 	var g: CWGame = loader.load_world(spec)
 	if g == null:

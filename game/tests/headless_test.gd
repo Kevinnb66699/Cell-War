@@ -180,6 +180,8 @@ func _run_all() -> void:
 		t_tutor_c1, t_tutor_energy_formula,
 		## 新手教程 v2 · S5：第二章两关端到端（∞ 带宽 / 攻击不限次 / 分化 / 切换种类 / 9 席）
 		t_tutor_c2,
+		## 新手教程 v2 · S9a：间章地基（格网按世界半径长 + 间章分镜 2 的重心平移）
+		t_board_grow, t_tutor_recenter,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -23684,3 +23686,278 @@ func t_net_takeover_offline() -> void:
 	a.dispose()
 	b.dispose()
 	srv.stop()
+## ── 新手教程 v2 · S9a：间章地基（Kevin 2026-09-19 拍板「重心平移」）────────────
+## PRD:395-397 间章分镜 2：「地图以免疫细胞为中心向四周延伸，补齐缺失格子使其处于一个
+## **完整棋盘的中央格**」。落法 = 把活局面 dump 成 cwxworld/3、每个坐标键平移 −P、半径抬到 11，
+## 再走关内换盘。两条护栏各盯一件：格网按世界半径长 / 重心平移本身。
+## **间章本体（分镜、阵营翻转、levels/interlude.json）是 S9b 的活，这一片只落地基。**
+
+## 重心平移之后那个「完整棋盘」的半径（397 格）。按 §7.4 那套几何定的：
+## 第六关的绝对坐标表减去 (6,-2) 之后，T 细胞落在 (−11,1) —— 离盘心正好 11
+const S9A_RADIUS := 11
+
+
+func t_board_grow() -> void:
+	print("[棋盘格网按世界半径长（S9a）]")
+	## 同 t_board_active_tiles：进树后等一帧，让引擎自己那次 _ready 先跑完
+	var bd: Node2D = load("res://scenes/Board.tscn").instantiate()
+	root.add_child(bd)
+	await process_frame
+	var children_before := bd.get_child_count()
+	var center_node: Sprite2D = bd.map[bd.axial_to_rc(Vector2i.ZERO)]["instance"]
+	var before := {}
+	for c in CWData.all_coords():
+		before[c] = bd.tile_center(c)
+	var grown := CWData.all_coords(S9A_RADIUS).size()
+
+	## ---- ① 正式对局零变化：镜像半径 6 ⇒ 第一行就返回 ----
+	bd.ensure_radius(CWData.BOARD_RADIUS)
+	check(bd.map.size() == 127 and bd.get_child_count() == children_before
+			and bd._grid_radius == CWData.BOARD_RADIUS,
+		"ensure_radius(6) 是空操作：格网仍 127 格、一个子节点都没加（正式局零变化）")
+
+	## ---- ② 长到 11：只加 7…11 环，老格一个不动 ----
+	bd.ensure_radius(S9A_RADIUS)
+	check(bd.map.size() == 397 and grown == 397 and bd._grid_radius == S9A_RADIUS,
+		"ensure_radius(11)：格网长到 397 格（实测 %d）" % bd.map.size())
+	var moved: Array = []
+	for c in before:
+		if bd.tile_center(c) != before[c]:
+			moved.append(c)
+	check(moved.is_empty() and bd.map[bd.axial_to_rc(Vector2i.ZERO)]["instance"] == center_node
+			and bd.get_child_count() == children_before + 397 - 127,
+		"老 127 格没被重铺：中央格还是同一个节点、每格像素位置一格没挪（挪了的：%s）" % str(moved))
+	## 新格与老格在同一张格点阵上 —— axial_to_rc 的键基准要是跟着半径走，这两条当场错开
+	check(bd.tile_center(Vector2i(7, 0)) - bd.tile_center(Vector2i(6, 0))
+				== bd.tile_center(Vector2i(1, 0)) - bd.tile_center(Vector2i(0, 0))
+			and bd.tile_center(Vector2i(0, 7)) - bd.tile_center(Vector2i(0, 6))
+				== bd.tile_center(Vector2i(0, 1)) - bd.tile_center(Vector2i(0, 0)),
+		"新格落在同一张格点阵上（隔行错半格那套闭式解与 _grid() 逐像素一致）")
+
+	## ---- ③ 新格默认不在活跃集：看不见、点不到 ----
+	check(not bd.is_active(Vector2i(9, 0)) and not bd.tile_shown(Vector2i(9, 0))
+			and bd.hex_at(bd.tile_center(Vector2i(9, 0))) == bd.NO_TILE
+			and bd.active_tiles().size() == 127,
+		"第 7 环起的新格默认不在活跃集：alpha 0、hex_at 扫不到（hex_at 只扫活跃集）")
+	check(bd.hex_at(bd.tile_center(Vector2i(6, 0))) == Vector2i(6, 0),
+		"老 127 格照旧点得到 —— 没做重心平移的关（第一～五关）看起来与之前一模一样")
+
+	## ---- ④ 揭出去：活跃集能超过 127 ----
+	bd.set_active_tiles(CWData.all_coords(S9A_RADIUS), 0.0)
+	check(bd.active_tiles().size() == 397 and bd.is_active(Vector2i(9, 0))
+			and bd.tile_shown(Vector2i(9, 0)) and bd.active_radius == S9A_RADIUS
+			and bd.hex_at(bd.tile_center(Vector2i(9, 0))) == Vector2i(9, 0),
+		"揭到 397 格之后新格看得见也点得到（set_active_tiles 那趟 alpha 跟着大半径走）")
+
+	## ---- ⑤ 幂等 + 只增不减 ----
+	var n := bd.get_child_count()
+	bd.ensure_radius(S9A_RADIUS)
+	bd.ensure_radius(8)
+	check(bd.map.size() == 397 and bd.get_child_count() == n and bd._grid_radius == S9A_RADIUS,
+		"ensure_radius 幂等且只增不减：重复调 / 调更小的半径都不动格网")
+	bd.set_active_radius(CWData.BOARD_RADIUS, 0.0)
+	check(bd.active_tiles().size() == 127 and bd.map.size() == 397,
+		"set_active_radius 收回 127 格：遮罩缩回去，格网留着（不重铺）")
+	bd.queue_free()
+
+
+## 重心平移的夹具：玩家 (4,-1)、四只 NPC、盘上有癌 / 固化 / 坏死 / 黏液格。
+## 不进 `data/tutorial/`：护栏不为自己造正式关卡
+func _s9a_level() -> Dictionary:
+	return {
+		"schema": "cwtut/2", "id": "s9a_fixture",
+		"chapter": 2, "chapter_kind": "main", "chapter_title": "Immune",
+		"title": "S9a 夹具", "seats": 3, "human_seat": 0,
+		"worlds": { "base": {
+			"round": 2, "phase": "PlayerAction", "seat": 0,
+			"players": [
+				{ "seat": 0, "faction": "immune", "level": "II", "memory": 20 },
+				{ "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" },
+				{ "seat": 2, "faction": "cancer", "cancer_type": "SmallCellLung" }],
+			"tiles": [
+				{ "at": "5,-1", "state": "cancer" },
+				{ "at": "5,-2", "state": "solid", "solid": 15 },
+				{ "at": "3,-1", "necrosis": 2 },
+				{ "at": "3,0", "state": "cancer", "mucus": true }],
+			"cells": [
+				{ "seat": 0, "type": "ImmuneBasic", "at": "4,-1", "energy": 99990 },
+				{ "seat": 1, "type": "Osteosarcoma", "at": "6,-1", "energy": 50 },
+				{ "seat": 2, "type": "SmallCellLung", "at": "-5,3", "alive": false }] } },
+		"active_tiles": ["4,-1", "5,-1", "6,-1"],
+		"rolls": [],
+		"flow": [{ "do": "state", "prd": 305, "load": "base" }],
+	}
+
+
+func t_tutor_recenter() -> void:
+	print("[间章分镜 2 · 世界重心平移到玩家（S9a）]")
+	CWGuideProgress.clear()
+	var d = TUTOR_SCRIPT.new()
+	var lv := _s9a_level()
+	check(d.validate(lv).is_empty(), "夹具本身过全部校验（%s）" % str(d.validate(lv)))
+
+	## ---- ① 校验器（判据 ⑮）：重心平移写法的形状，与 by_player_type **互斥** ----
+	var cases := [
+		[{ "recenter": "player", "radius": 11 }, true, "重心平移：recenter + radius"],
+		[{ "recenter": "seat:1", "radius": 11 }, true, "recenter 也认 seat:<n>"],
+		[{ "recenter": "player" }, false, "radius 必须显式写（新盘子多大不能靠猜）"],
+		[{ "recenter": "玩家", "radius": 11 }, false, "recenter 不在两档里"],
+		[{ "recenter": "player", "radius": 5 }, false, "新盘子不许比正式盘还小"],
+		[{ "recenter": "player", "radius": 11, "by_player_type": { "ImmuneBasic": "base" } },
+			false, "★ 与 by_player_type 混写：两种表写法互斥"],
+		[{ "by_player_type": { "ImmuneBasic": "base" } }, true, "by_player_type 那一种照旧"],
+		[{ "recenter": "player", "radius": 11, "world": "base" }, false, "只有 recenter / radius 两个键"],
+	]
+	var wrong: Array = []
+	for row in cases:
+		var probe: Dictionary = _s9a_level()
+		(probe["flow"] as Array).append({ "do": "state", "load": (row as Array)[0] })
+		if TUTOR_SCRIPT.new().validate(probe).is_empty() != bool((row as Array)[1]):
+			wrong.append(str((row as Array)[2]))
+	check(wrong.is_empty(), "判据 ⑮ 八条各有判别力（判反的：%s）" % str(wrong))
+
+	## ---- ② translate：五个坐标键逐个平移，越界照实报错 ----
+	## 这张键表是照 `cw_world_loader` 数出来的；装载器再加坐标键，下面那条源码闸当场红
+	var raw := {
+		"radius": 11,
+		"tiles": [{ "at": "0,0", "state": "cancer" }],
+		"cells": [
+			{ "seat": 0, "type": "ImmuneBasic", "at": "0,0", "camp_pos": "0,0" },
+			{ "seat": 1, "type": "Osteosarcoma", "at": "2,0", "camp_pos": "-1,1" }],
+		"chemo": { "at": "1,0", "left": 2, "by": 1, "cid": 0 },
+		"chemo_track": { "cid": 1, "at": "-1,0", "left": 1 },
+	}
+	var errs := TUTOR_SCRIPT.translate(raw, Vector2i(-4, 1))
+	var cells: Array = raw["cells"]
+	check(errs.is_empty()
+			and str(((raw["tiles"] as Array)[0] as Dictionary)["at"]) == "-4,1"
+			and str((cells[0] as Dictionary)["at"]) == "-4,1"
+			and str((cells[1] as Dictionary)["at"]) == "-2,1"
+			and str((cells[1] as Dictionary)["camp_pos"]) == "-5,2"
+			and str((raw["chemo"] as Dictionary)["at"]) == "-3,1"
+			and str((raw["chemo_track"] as Dictionary)["at"]) == "-5,1",
+		"五个坐标键全按 (-4,1) 平移：tiles[].at / cells[].at / cells[].camp_pos / chemo.at / chemo_track.at")
+	check(str((cells[0] as Dictionary)["camp_pos"]) == "0,0",
+		"camp_pos 的 \"0,0\" 是哨兵（= 没扎营，dump/minify 都削掉它），不跟着平移")
+	var over := { "radius": 11, "tiles": [{ "at": "8,0" }] }
+	var why := TUTOR_SCRIPT.translate(over, Vector2i(5, 0))
+	check(why.size() == 1 and str(why[0]).contains("出了半径 11 的盘"),
+		"平移出盘照实报错、不静默裁掉：%s" % str(why))
+
+	## 键表闸：装载器「装入」那一半里解析坐标的地方恰好五处
+	var src := FileAccess.get_file_as_string("res://scripts/kernel/cw_world_loader.gd")
+	var cut := src.find("func dump_world(")
+	var head := src.substr(0, cut)
+	check(cut > 0 and head.count("pos(str(") == 5,
+		"cw_world_loader 装入那一半恰好五处 pos(str(…))，与 translate 的坐标键表一一对上（实测 %d）"
+			% head.count("pos(str("))
+
+	## ---- ③ 舞台：dump → 平移 → load，状态一个不丢 ----
+	var stage = TUT_STAGE.new()
+	## 同 CWMatch：教程局 autorun 是关的（不关的话内核会自己把整局跑完，盘面早不是夹具写的那一份）
+	stage.cfg = { "autorun": false }
+	var k: CWKernel = stage.open_level(lv)
+	check(k != null and stage._game != null, "夹具开得起来（%s）" % str(stage.errors))
+	var g0: CWGame = stage._game
+	check(int(g0.board_radius) == CWData.BOARD_RADIUS and g0.cell_of(0)["pos"] == Vector2i(4, -1),
+		"平移前：半径 6 的正式盘、玩家站 (4,-1)")
+	var k2: CWKernel = stage.reload_recentered(Vector2i(-4, 1), S9A_RADIUS)
+	check(k2 != null, "重心平移装得出来（%s）" % str(stage.errors))
+	var g: CWGame = stage._game
+	check(g != null and int(g.board_radius) == S9A_RADIUS and g.tiles.size() == 397,
+		"新盘子：半径 11 / 397 格（实测 %d 格）" % (g.tiles.size() if g != null else -1))
+	check(g.cell_of(0)["pos"] == Vector2i.ZERO,
+		"★ 玩家落到 (0,0) —— 他成了「一个完整棋盘的中央格」（PRD:397）")
+	check(g.cell_of(1)["pos"] == Vector2i(2, 0) and g.cell_of(2)["pos"] == Vector2i(-9, 4)
+			and not bool(g.cell_of(2)["alive"]) and int(g.cell_of(1)["energy"]) == 50,
+		"每只细胞都平移了 (-4,1)，生死 / 能量原样带过来")
+	check(int(g.tile(Vector2i(1, 0))["tissue"]) == CWData.Tissue.CANCER
+			and int(g.tile(Vector2i(1, -1))["tissue"]) == CWData.Tissue.SOLID
+			and int(g.tile(Vector2i(1, -1))["solid"]) == 15
+			and int(g.tile(Vector2i(-1, 0))["necrosis"]) == 2
+			and bool(g.tile(Vector2i(-1, 1))["mucus"]),
+		"癌 / 固化计数 / 坏死计时 / 黏液逐格跟着平移，一个状态不丢")
+	check(int(g.memory) == 20 and int(g.immune_level) == 1
+			and int(g.round_no) == 2 and int(g.current_pid) == 0,
+		"玩家全局量（免疫等级 II / 记忆 20）与 round / seat 原样带过来")
+	## 特殊组织跟着世界一起搬：`CWData.special_of` 是张**绝对坐标**表，
+	## 不钉住的话器官会原地不动、盘上还会多出第二套（真机图 02 ↔ 04 一眼看得出来）
+	var specials: Array = []
+	for c in CWData.all_coords(S9A_RADIUS):
+		if int((g.tile(c) as Dictionary)["special"]) != CWData.Special.NONE:
+			specials.append(c)
+	check(specials.size() == 11
+			and int(g.tile(Vector2i(-1, 1))["special"]) == CWData.Special.CORE
+			and int(g.tile(Vector2i(3, 0))["special"]) == CWData.Special.NONE,
+		"11 格特殊组织跟着世界搬家：老 (3,0) 那个代谢核心现在在 (-1,1)，盘上不多不少（实测 %d 格）"
+			% specials.size())
+	var far := CWData.hex_dist(Vector2i(-11, 1), Vector2i.ZERO)
+	check(g.tiles.has(Vector2i(-11, 1)) and far == S9A_RADIUS
+			and int(g.tile(Vector2i(-11, 1))["tissue"]) == CWData.Tissue.HEALTHY,
+		"四周补出来的新格是健康组织；§7.4 那套几何（T 在 (-11,1)）正好落在真外环")
+	## 再往返一次：平移出来的这份盘面本身仍是一份合法的 cwxworld/3
+	var loader = CASE_LOADER.new()
+	var dumped: Dictionary = loader.dump_world(g)
+	var back: CWGame = CASE_LOADER.new().load_world(dumped.duplicate(true))
+	check(back != null and int(back.board_radius) == S9A_RADIUS
+			and back.cell_of(0)["pos"] == Vector2i.ZERO,
+		"平移出来的盘面能再 dump_world → load_world 一个来回（%s）" % str(loader.errors))
+	if back != null:
+		back.dispose()
+	check(stage.world_offset == Vector2i(-4, 1)
+			and stage.active_tiles() == [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0)],
+		"舞台记下累计平移量，关卡声明的活跃格跟着一起挪（遮罩与盘面不许错开）")
+	if stage.kernel != null:
+		stage.kernel.close()
+	stage.dispose()
+
+	## ---- ④ 导演：`state.load` 的重心平移写法 → 一条 want_recenter(−P, radius) ----
+	var g2: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "base"))
+	var view := CWTutorViewTally.new()
+	var dir = TUTOR_DIRECTOR.new()
+	dir.view = view
+	dir.mirror_of = func() -> CWMirror: return _mirror_of(g2)
+	root.add_child(dir)
+	dir.open(lv, 0)
+	var got: Array = []
+	dir.want_recenter.connect(func(delta: Vector2i, r: int) -> void: got.append([delta, r]))
+	var loads: Array = []
+	dir.want_load.connect(func(w: String) -> void: loads.append(w))
+	dir._enter_state({ "do": "state", "load": { "recenter": "player", "radius": S9A_RADIUS } })
+	check(got == [[Vector2i(-4, 1), S9A_RADIUS]] and loads.is_empty(),
+		"重心平移写法发的是 want_recenter(−P, 11)、不发 want_load（实测 %s）" % str(got))
+	got.clear()
+	dir._enter_state({ "do": "state", "load": { "recenter": "seat:1", "radius": S9A_RADIUS } })
+	check(got == [[Vector2i(-6, 1), S9A_RADIUS]], "recenter 也认 seat:<n>（实测 %s）" % str(got))
+	got.clear()
+	dir._enter_state({ "do": "state", "load": "base" })
+	check(got.is_empty() and loads == ["base"], "老的字符串写法一个字没变，照发 want_load")
+
+	## ---- ⑤ 镜头：玩家居中那一档在整盘上也认 focus，否则重装那一瞬间整张图会跳 ----
+	var bd: Node2D = load("res://scenes/Board.tscn").instantiate()
+	root.add_child(bd)
+	await process_frame
+	bd.ensure_radius(S9A_RADIUS)
+	var f_map: Dictionary = CWView.tutor_framing(bd, CWData.all_coords(), "center", null, true)
+	var f_me: Dictionary = CWView.tutor_framing(bd, CWData.all_coords(), "center", Vector2i(4, -1), true)
+	var f_after: Dictionary = CWView.tutor_framing(bd, CWData.all_coords(S9A_RADIUS), "center",
+		Vector2i.ZERO, true)
+	check(is_equal_approx(float(f_map["zoom"]), CWView.GAME_ZOOM)
+			and f_map["look_at"] == CWView.GAME_LOOK_AT,
+		"「地图调中」那一档一个字没变：整盘仍直接给对局机位那三个数")
+	check(is_equal_approx(float(f_me["zoom"]), CWView.GAME_ZOOM)
+			and f_me["look_at"] != CWView.GAME_LOOK_AT
+			and f_me["look_at"] == bd.tile_center(Vector2i(4, -1)) - CWView.board_origin(bd),
+		"「玩家调中」在整盘上也盯着玩家那一格（倍率仍是对局机位）")
+	check(is_equal_approx(float(f_after["zoom"]), float(f_me["zoom"]))
+			and f_after["anchor"] == f_me["anchor"]
+			and (f_me["look_at"] as Vector2) - (f_after["look_at"] as Vector2)
+				== bd.tile_center(Vector2i(4, -1)) - bd.tile_center(Vector2i.ZERO),
+		"★ 平移前后：倍率与屏幕锚点一样，看点正好差「玩家那格挪了多少」⇒ 画面不跳，只有新格浮现")
+	bd.queue_free()
+
+	dir.teardown()
+	dir.queue_free()
+	view.free()
+	g2.dispose()
+	CWGuideProgress.clear()
