@@ -164,6 +164,8 @@ func _run_all() -> void:
 		t_tutorial_npc,
 		## 新手教程 v2 · S1 commit B：六支新测试（方案 §6.1；_run_all 是**手写清单**，不登记就永远不跑）
 		t_tutor_data, t_tutor_beats, t_tutor_flow, t_tutor_director, t_tutor_gate, t_tutor_view,
+		## 新手教程 v2 · S2：常驻壳（章节提示 / STOP 层 / 重置 / 目录）+ 提亮层（通用规则 8）
+		t_tutor_chrome, t_tutor_spot,
 		## 新手引导 v2 S7：教程演出库 cw_tutor_fx（六种演出 / 零内核 rng / 时间的纯函数）
 		t_tutor_fx,
 	]
@@ -19750,6 +19752,8 @@ func t_tutorial_npc() -> void:
 const TUTOR_BEATS := preload("res://scripts/kernel/cw_tutor_beats.gd")
 const TUTOR_DIRECTOR := preload("res://scripts/tutor/cw_tutor_director.gd")
 const TUTOR_GATE := preload("res://scripts/tutor/cw_tutor_gate.gd")
+## 提亮层（S2）。**没有 class_name**（方案 §1.5 只给三个例外），测试里照样 preload 取
+const TUTOR_SPOT := preload("res://scripts/tutor/cw_tutor_spot.gd")
 
 
 ## 假闸：只记 `set_allow` 的流水账。导演测的是**时序**，不必真起一只桥
@@ -19766,6 +19770,18 @@ class TutorGateSpy extends RefCounted:
 	## 最后装上去的那一道
 	func last() -> Variant:
 		return log[-1] if not log.is_empty() else "(一次都没装)"
+
+
+## 假演出库（S2）：只记 `play` 的流水账。这一跳测的是「皮真的去调了 reset_hint 的倒带」，
+## 演出本身好不好看是 `t_tutor_fx` 与真机截图的事
+class TutorFxSpy extends RefCounted:
+	var log: Array = []
+
+	func play(kind: String, args: Dictionary) -> void:
+		log.append([kind, str(args.get("variant", ""))])
+
+	func clear() -> void:
+		pass
 
 
 ## 校验器报的错拼成一段，供 `contains` 核判别力
@@ -20332,6 +20348,255 @@ func t_tutor_view() -> void:
 		"bar:<按钮标题> → action_bar.button_rect；panel:<什么> → panel.rect_of，两支分支都还在")
 	CWTutorLayers.reset()
 	CWGuideProgress.clear()
+
+
+## 新手教程 v2 · S2：**常驻壳**（章节提示 / 全屏 STOP / 重置 / 目录）
+##
+## 这一支盯 PRD 通用规则 1 / 4 / 5 / 9 的**壳那一半**：章节提示按 B 的样子出字、播完自己收，
+## 两颗常驻按钮压在遮挡层**之上**（提示期照常可点），劝重置只推拉亮度。
+## 文案与亮度曲线都做成了纯函数 —— 真机上才发现少个空格太贵，这里逐字核。
+func t_tutor_chrome() -> void:
+	print("[新手教程 v2 S2·常驻壳]")
+	## ---- ③ 章节提示的两行字（方向 B 的 ① 帧；Kevin 2026-09-19「章节提示用 B 的样子」）----
+	var c1 := CWTutorChrome.chapter_text(1, "Cell")
+	var c3 := CWTutorChrome.chapter_text(3, "Cancer")
+	check(c1[0] == "第一章  Cell" and c1[1] == "CHAPTER I - CELL",
+		"第一章的大字与英文副标逐字对（实测 %s / %s）" % [c1[0], c1[1]])
+	check(c3[0] == "第三章  Cancer" and c3[1] == "CHAPTER III - CANCER",
+		"第三章同版式，只换字（罗马数字跟着章号走）")
+	var c9 := CWTutorChrome.chapter_text(9, "X")
+	check(c9[0] == "第9章  X" and c9[1] == "CHAPTER 9 - X",
+		"章号超出汉字 / 罗马数字表就退成阿拉伯数字，不崩也不出空字")
+	## ---- 整屏那条亮度曲线：淡入 → 停 → 淡出，总长仍是 S1 定的 CHAPTER_SECS ----
+	check(CWTutorChrome.CHAPTER_SECS == 1.8,
+		"章节提示总时长口径与 S1 一致（1.8 秒），S2 只是把它切成三段")
+	var a_lo: float = CWTutorChrome.chapter_alpha(0.0)
+	var a_mid: float = CWTutorChrome.chapter_alpha(CWTutorChrome.CHAPTER_SECS / 2.0)
+	var a_end: float = CWTutorChrome.chapter_alpha(CWTutorChrome.CHAPTER_SECS)
+	check(a_lo == 0.0 and a_mid == 1.0 and a_end == 0.0,
+		"起手全透明、中段满亮、末刻回到全透明（实测 %.2f / %.2f / %.2f）" % [a_lo, a_mid, a_end])
+	var out_of_range := false
+	for i in 40:
+		var v: float = CWTutorChrome.chapter_alpha(CWTutorChrome.CHAPTER_SECS * float(i) / 39.0)
+		if v < 0.0 or v > 1.0:
+			out_of_range = true
+	check(not out_of_range, "整条曲线都落在 [0,1]（alpha 越界会把整屏画成纯黑）")
+	## ---- 真节点：z 序、点击、慢闪、目录 ----
+	var chrome := CWTutorChrome.new()
+	root.add_child(chrome)
+	await process_frame
+	## PRD:51 的第 2 层 + PRD:41/43：遮挡层在**最底**、两颗常驻按钮在它之上、章节提示在最顶
+	check(chrome._block.get_index() < chrome._reset.get_index()
+			and chrome._block.get_index() < chrome._menu.get_index(),
+		"全屏 STOP 层排在「重置 / 目录」之下 —— 提示期这两颗照常可点（PRD:41/43）")
+	check(chrome._chapter.get_index() > chrome._menu.get_index(),
+		"章节提示排在最顶：它自己也禁操作（通用规则 9），连那两颗一起罩住")
+	## 「真·全屏」看的是锚点（老 CWGuide.ZONE 是个 600×200 的硬矩形，盖不住棋盘与右栏）——
+	## 不看 `size`：无头视口没真开窗口，布局那一遍量出来是 0
+	check(chrome.mouse_filter == Control.MOUSE_FILTER_IGNORE
+			and chrome._block.mouse_filter == Control.MOUSE_FILTER_STOP
+			and chrome._block.anchor_right == 1.0 and chrome._block.anchor_bottom == 1.0
+			and chrome._block.anchor_left == 0.0 and chrome._block.anchor_top == 0.0,
+		"壳本体只是个容器（IGNORE），遮挡层是**真·全屏**锚点 + STOP")
+	## 两颗按钮的位置：**不照抄方向 A 的 (12,12)** —— 那儿被迷你日志占着（09-19 真机叠成一团）
+	check(CWTutorChrome.RESET_RECT.position.y >= CWLogPanel.RECT.position.y + 22.0 + 8.0
+			and CWTutorChrome.MENU_RECT.end.y <= CWFeed.RECT.position.y,
+		"两颗图标卡在迷你日志（%d 高）与出牌列（y=%d）之间那条缝里"
+			% [22, int(CWFeed.RECT.position.y)])
+	## 提示期照常可点（通用规则 4/5 的「常驻」就是这个意思）
+	var hits := [0, 0]
+	chrome.reset_pressed.connect(func() -> void: hits[0] += 1)
+	chrome.menu_pressed.connect(func() -> void: hits[1] += 1)
+	chrome.set_block(true)
+	var ev := InputEventMouseButton.new()
+	ev.pressed = true
+	ev.button_index = MOUSE_BUTTON_LEFT
+	chrome._reset._gui_input(ev)
+	chrome._menu._gui_input(ev)
+	check(chrome.blocking() and hits == [1, 1] and chrome.menu_open(),
+		"遮挡层开着的时候，「重置 / 目录」照样收得到点击，目录当场开出面板（实测 %s）" % str(hits))
+	chrome.toggle_menu()          ## 刚那一下把目录点开了，先收回去
+	chrome.set_block(false)
+	check(not chrome.blocking(), "遮挡层关得掉（对话播完导演要还给玩家）")
+	## 悬停出字（方向 A 的画法）：鼠标进 / 出各一次
+	var tips: Array = []
+	for ch in chrome.get_children():
+		if ch is Label and (ch as Label).text == "目录":
+			tips.append(ch)
+	check(tips.size() == 1 and not (tips[0] as Label).visible, "「目录」两个字平时藏着")
+	chrome._menu.mouse_entered.emit()
+	check((tips[0] as Label).visible, "悬停出字")
+	chrome._menu.mouse_exited.emit()
+	check(not (tips[0] as Label).visible, "指针一走就收回去")
+	## ---- 劝重置（方案 §3.5）：**不重置**，只让「重置」按通用规则 8 慢闪 ----
+	chrome.urge_reset(true)
+	await _tutor_pump(4)
+	var a: float = chrome._reset.modulate.a
+	check(a >= CWStyle.HALO_ALPHA_LO and a <= CWStyle.HALO_ALPHA_HI and a != 1.0,
+		"劝重置时「重置」在慢闪（实测 alpha %.2f，走的是 CWStyle 那三个参数）" % a)
+	chrome.urge_reset(false)
+	check(chrome._reset.modulate.a == 1.0, "劝完还原成常亮（不还的话它会一直闪下去）")
+	## ---- 目录占位面板（真面板 S6）：点了有反应 + menu_goto 这条线接得通 ----
+	chrome.sync({ "can_reset": true, "menu": [
+		{ "id": "c1_l1", "title": "第一关 免疫", "unlocked": true },
+		{ "id": "c1_l2", "title": "第二关 净化", "unlocked": false }] })
+	chrome.toggle_menu()
+	var rows: Array = []
+	for ch in chrome._menu_panel.get_children():
+		if ch is Label:
+			rows.append(ch)
+	check(chrome.menu_open() and rows.size() == 3,
+		"点目录开出占位面板，关表照 shell() 那份列（标题 + %d 关）" % (rows.size() - 1))
+	check((rows[2] as Label).get_theme_color("font_color") == CWStyle.TEXT_OFF
+			and (rows[2] as Label).mouse_filter == Control.MOUSE_FILTER_IGNORE,
+		"未解锁的那一关灰着、点不动（PRD:43）")
+	var goto: Array = []
+	chrome.menu_goto.connect(func(id: String) -> void: goto.append(id))
+	(rows[1] as Label).gui_input.emit(ev)
+	check(goto == ["c1_l1"] and not chrome.menu_open(),
+		"点已解锁的那一关：发 menu_goto 并把面板收起来（跳关本体 S6 接）")
+	## `can_reset == false` 时那颗整个不出（间章「所有 UI 消失」靠它）
+	chrome.sync({ "can_reset": false })
+	check(not chrome._reset.visible, "can_reset=false 时「重置」整颗不出")
+	## ---- 章节提示真的播：出字 → 播完自己收 ----
+	chrome.show_chapter(2, "Immune")          ## **不 await**：要在播着的时候看它
+	await _tutor_pump(2)
+	check(chrome._chapter.visible and chrome._chapter_title.text == "第二章  Immune"
+			and chrome._chapter_sub.text == "CHAPTER II - IMMUNE",
+		"章节提示播着：黑底 + 居中大字 + 英文副标（B 的 ① 帧）")
+	var t0 := Time.get_ticks_msec()
+	while chrome._chapter.visible and Time.get_ticks_msec() - t0 < 6000:
+		await process_frame
+	check(not chrome._chapter.visible,
+		"播完自己收掉（协程 —— 导演等着它，收不掉就把整局黑屏）")
+	chrome.queue_free()
+
+
+## 新手教程 v2 · S2：**提亮层**（PRD 通用规则 8 / PRD:445）
+##
+## ★ 这一支最要紧的是 **Kevin 2026-09-19 的提亮口径**（方案 §5.5 第 1 条）：
+## 「迁移按钮改为单线原样，用闪烁来提示用户」⇒ 拿得到本体的目标**一笔都不画**，
+## 只推拉它自己的 `modulate.a`。真机那两帧对拍看的是同一件事，这里用断言钉死：
+## 提亮前后按钮的**描边线宽、描边色、底色、字色一字不差**，提亮层的几何表是空的。
+func t_tutor_spot() -> void:
+	print("[新手教程 v2 S2·提亮层]")
+	## ---- 通用规则 8：较慢频次、反差较低。三个参数收敛在 CWStyle 一处 ----
+	check(is_equal_approx(TUTOR_SPOT.pulse(0.0),
+			lerpf(CWStyle.HALO_ALPHA_LO, CWStyle.HALO_ALPHA_HI, 0.5)),
+		"t=0 从中间那一档起（不从全暗起，免得提亮的第一眼是「消失了」）")
+	check(is_equal_approx(TUTOR_SPOT.pulse(0.7), TUTOR_SPOT.pulse(0.7 + CWStyle.HALO_PERIOD)),
+		"周期就是 CWStyle.HALO_PERIOD = %.1f 秒一个来回（= 较慢频次）" % CWStyle.HALO_PERIOD)
+	var lo := 9.0
+	var hi := -9.0
+	for i in 128:
+		var v: float = TUTOR_SPOT.pulse(CWStyle.HALO_PERIOD * float(i) / 64.0)
+		lo = minf(lo, v)
+		hi = maxf(hi, v)
+	check(lo >= CWStyle.HALO_ALPHA_LO - 0.001 and hi <= CWStyle.HALO_ALPHA_HI + 0.001
+			and CWStyle.HALO_PERIOD >= 2.0,
+		"亮度只在 [%.2f, %.2f] 之间走（反差较低），周期不短于 2 秒"
+			% [CWStyle.HALO_ALPHA_LO, CWStyle.HALO_ALPHA_HI])
+	## ---- 两个几何纯函数（老 guide_spotlight.gd:164-224 原样搬过来的那几支）----
+	var pts := TUTOR_SPOT.hex_points(Vector2(100.0, 100.0), 1.0)
+	var pts2 := TUTOR_SPOT.hex_points(Vector2(100.0, 100.0), 2.0)
+	check(pts.size() == 7 and pts[0] == pts[6],
+		"一格顶面六边形是 7 个点、首尾相接（少一点就是缺一条边）")
+	check(is_equal_approx((pts2[0] - Vector2(100.0, 100.0)).length(),
+			(pts[0] - Vector2(100.0, 100.0)).length() * 2.0),
+		"顶点跟着 zoom 缩放 —— 教程小棋盘把 zoom 推到 3 倍以上，按固定像素画会框不住")
+	var hr := TUTOR_SPOT.hand_rect()
+	check(hr.position == Vector2(CWHand.LEFT, CWHand.REST_TOP) and hr.size.x == CWHand.SPAN,
+		"手牌抽屉那一条照 CWHand 的常量现算（抽屉挪了这里跟着挪）")
+	## ---- ★ soft 的口径：控件保持单线原样，只闪亮度 ----
+	var bar := CWActionBar.new()
+	root.add_child(bar)
+	await process_frame
+	bar.show_bar("", "", [{ "title": "迁移", "cost": "1 0.5" },
+		{ "title": "基因表达", "cost": "2 0.5" }])
+	await process_frame
+	var btn := bar.button_node("迁移")
+	var sb0: StyleBoxFlat = btn.get_theme_stylebox("panel")
+	var w0: int = sb0.border_width_left
+	var line0: Color = sb0.border_color
+	var bg0: Color = sb0.bg_color
+	var ink0: Color = (btn.get_child(0).get_child(0) as Label).get_theme_color("font_color")
+	var spot = TUTOR_SPOT.new()
+	root.add_child(spot)
+	await process_frame
+	spot.action_bar = bar
+	spot.point([{ "kind": "ui", "id": "bar:迁移" }])
+	await _tutor_pump(4)
+	var ba: float = btn.modulate.a
+	check(ba >= CWStyle.HALO_ALPHA_LO and ba <= CWStyle.HALO_ALPHA_HI and ba != 1.0,
+		"【迁移】自己在慢闪（实测 alpha %.2f）—— 走的是这枚控件的 modulate" % ba)
+	var sb1: StyleBoxFlat = btn.get_theme_stylebox("panel")
+	var ink1: Color = (btn.get_child(0).get_child(0) as Label).get_theme_color("font_color")
+	check(sb1.border_width_left == w0 and sb1.border_color == line0 and sb1.bg_color == bg0
+			and ink1 == ink0,
+		"★ 按钮轮廓线宽与颜色一字不差、底色与字色也没动（Kevin 09-19：单线原样，只差亮度）")
+	check(spot._rects.is_empty() and spot._hexes.is_empty(),
+		"★ 拿得到本体就**一笔都不画**：不加描边、不换底色、不套第二层框")
+	spot.clear()
+	check(btn.modulate.a == 1.0,
+		"收提亮时把借走的亮度还回去（不还的话那颗按钮会永远停在半亮上）")
+	## 拿不到本体的目标才退到「描一圈」—— 那些地方本来就没有自己的外框
+	spot.point([{ "kind": "ui", "id": "hand" }])
+	await process_frame
+	check(spot._rects.size() == 1 and spot._rects[0] == TUTOR_SPOT.hand_rect()
+			and spot._nodes.is_empty(),
+		"手牌抽屉没有独立节点 ⇒ 描一圈（矩形照 §5.4 的归宿表现算）")
+	## 两种写法都落到格子那一档：`{kind:"hex"}` 与 `hex:<q,r>`
+	spot.point([{ "kind": "hex", "at": Vector2i(0, -1) }, { "kind": "ui", "id": "hex:1,0" }])
+	await process_frame
+	check(spot._hexes.size() == 2,
+		"格子目标两种写法都认（剧本写 hex:[]，钩子可能直接给 id）")
+	## 三档 mode + 挂一句话
+	spot.point([{ "kind": "ui", "id": "hand" }], "soft", "点这里")
+	await process_frame
+	check(spot._mode == "soft" and spot._tip.visible and spot._tip.text == "点这里",
+		"tip 挂在目标旁（PRD:447）；mode 缺省就是 soft（通用规则 8）")
+	for m in ["arrow", "fullscreen"]:
+		spot.point([{ "kind": "ui", "id": "hand" }], m)
+		await process_frame
+		check(spot._mode == m and not spot._tip.visible,
+			"mode「%s」认得（PRD:445 的全屏引导指向走 fullscreen），tip 空串就不挂" % m)
+	## ---- 控件 id 归宿表（方案 §5.4）：每支分支都指得着，句柄缺了也只是零矩形 ----
+	var homeless: Array = []
+	for id in ["bar", "bar:迁移", "hand", "board", "panel:round", "panel:level", "panel:end",
+			"row:0", "pips:0", "skill:转移"]:
+		if not (spot.rect_of(id) is Rect2):
+			homeless.append(id)
+	check(homeless.is_empty() and spot.rect_of("bar:迁移") == btn.get_global_rect(),
+		"归宿表十支 id 全指得着；句柄没注入的那几支返回零矩形、不报错（无主的：%s）"
+			% str(homeless))
+	## ---- 基类的六个默认实现**真的转调共用件**（方案 §5.1：两皮各抄一份必然漂移）----
+	var chrome := CWTutorChrome.new()
+	root.add_child(chrome)
+	var view := CWTutorViewPlain.new()
+	root.add_child(view)
+	await process_frame
+	view.chrome = chrome
+	view.spot = spot
+	view.block(true)
+	view.point([{ "kind": "ui", "id": "hand" }], "arrow", "看这里")
+	check(chrome.blocking() and spot._mode == "arrow" and spot._tip.text == "看这里",
+		"皮的 block / point 转调常驻壳与提亮层（皮自己一个控件都不认识）")
+	view.clear_point()
+	check(not spot.visible, "clear_point 把提亮层整个收掉")
+	view.urge_reset(true)
+	check(chrome._urging, "urge_reset 转调常驻壳（劝重置不重置，只慢闪）")
+	view.urge_reset(false)
+	## 通用规则 7：自动重置要有动画提示 ⇒ 转调演出库的 reset_hint，候选是 Kevin 拍的「倒带」
+	var fx := TutorFxSpy.new()
+	view.fx = fx
+	await view.reset_anim()
+	check(fx.log == [["reset_hint", "rewind"]],
+		"reset_anim 转调 cw_tutor_fx 的 reset_hint「倒带」（实测 %s）" % str(fx.log))
+	view.teardown()
+	chrome.queue_free()
+	view.queue_free()
+	spot.queue_free()
+	bar.queue_free()
 
 
 ## 新手引导 v2 · S7：教程演出库 `cw_tutor_fx`

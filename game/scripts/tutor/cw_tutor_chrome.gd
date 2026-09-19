@@ -1,31 +1,82 @@
-## cw_tutor_chrome.gd —— 教程的**常驻壳**：全屏 STOP 层 + 常驻「重置本关」
-## （docs/新手引导v2_实现方案.md §3.4 / §3.6，S1 最小版，2026-09-19）
+## cw_tutor_chrome.gd —— 教程的**常驻壳**：全屏 STOP 层 + 左上角「重置 / 目录」两颗图标 + 章节提示那一屏
+## （docs/新手引导v2_实现方案.md §3.4 / §3.6，S1 起骨架、S2 补全，2026-09-19）
 ##
-## **这一片只做两件**（S2 补齐章节提示的全屏半透明大字、目录面板、「切换种类」）：
+## 三件（PRD 通用规则 1 / 4 / 5 / 9）：
 ## ① **禁操作的第二层**（PRD:51）—— 提示 / 对话播放期，闸那一层把「这一问」挂起了，
 ##    但玩家还能点棋盘、点行动栏上一问留下的按钮。所以要一层**真·全屏 `Control`**
 ##    （`MOUSE_FILTER_STOP`），z 序盖在棋盘与行动栏之上、**排在常驻按钮之下**
 ##    —— 「重置 / 目录」提示期照常可点（PRD:41/43）。
 ##    **不能指望皮自己那层**：老 `CWGuide.ZONE` 只有 600×200，盖不住棋盘与右栏。
-## ② **常驻「重置本关」**（PRD:41）：局面退回本关初始状态。劝重置时它跟着慢闪（PRD 通用规则 8）。
+##    挡着的时候光标跟着变「…」（Kevin 2026-09-19 照方向 A）：降灰只说「这颗按钮不可用」，
+##    光标说的是「整个画面此刻不接受操作」，两句话都得有。
+## ② **常驻「重置 / 目录」**（PRD:41/43）：左上角两颗小图标按钮，悬停出字（Kevin 拍板取方向 A 的画法）。
+##    劝重置时「重置」跟着慢闪（PRD 通用规则 8）。目录面板本体是 S6 的活，这一片只出一块占位板。
+## ③ **章节提示**（PRD:35）：全屏黑底 + 居中大字「第X章 XXXX」+ 一行英文副标
+##    —— Kevin 2026-09-19 拍板「章节提示用 B 的样子」（`docs/新手引导v2_方向B.md` 的 ① 帧）。
 ##
 ## 带 class_name 的理由同两版皮（方案 §1.5 的三个例外）：真机截图要 `call:CWTutorChrome:方法` 驱动。
 class_name CWTutorChrome
 extends Control
 
-## 章节提示停多久（S2 才真画，这里只把时长与协程形状定下来）
+## 提亮层那条慢闪曲线（`urge_reset` 的慢闪与提亮走同一条，不各写一份）
+const SPOT := preload("res://scripts/tutor/cw_tutor_spot.gd")
+
+## 章节提示整屏停多久（**S1 定的口径一个数没动**，S2 只是把它切成「淡入 / 停 / 淡出」三段）
 const CHAPTER_SECS := 1.8
-## 「重置本关」那颗的位置：左上角，**排在迷你日志入口下面一行**。
-## 迷你日志收成 compact 之后仍占 `CWLogPanel.RECT.position`（16,16）起的 300x22
-## （`log_hint.gd:61` / `:27` / `:33`）—— 09-19 真机第一版写的 (12,12) 正好压在它身上，
-## 两行字叠成一团。x 跟它对齐、y 让过 22 + 8 的行距，再往下就撞出牌列 CWFeed 的顶（y=76）
-const RESET_RECT := Rect2(16, 46, 120, 24)
+const CHAPTER_IN := 0.30
+const CHAPTER_OUT := 0.35
+## 幕布同 `tutorial_opening.SKY`：这一屏是开场最后一页的延续，换一套底色就断气了。
+## **半透明**（通用规则 1 点名要的）：玩家得看得见自己刚才站在哪一格
+const SKY := Color("0a0d14")
+const SKY_ALPHA := 0.88
+## 方向 B 的 ① 帧：两道 360×1 横线夹住大字，副标在下一行
+const RULE_W := 360.0
+const RULE_Y := [222.0, 298.0]
+const TITLE_Y := 236.0
+const SUB_Y := 310.0
+## 副标那支字：方向 B 的表里写死「silkscreen_bold 20 + `spacing_glyph` 2」，照它走。
+## ⚠ 它旁边那句理由「照抄开场页」对不上 —— 开场页的副标（`tutorial_opening.gd:57-60`）
+## 用的是**点阵字** PIXEL_FONT，同样 20 号、同样字距 2，silkscreen 是那一页的大 Logo 那支。
+## 两支都是 ASCII 字形、都过字形闸，**按 B 的表落 silkscreen**；要改成点阵只换这一行
+const SUB_FONT := preload("res://assets/fonts/silkscreen_bold.ttf")
+const SUB_SIZE := 20
+const SUB_SPACING := 2
+## 「第X章」的汉字数与罗马数字。本 PRD 只到第三章，表长到七够用；超出就退成阿拉伯数字
+const CN_NUM := ["", "一", "二", "三", "四", "五", "六", "七"]
+const ROMAN := ["", "I", "II", "III", "IV", "V", "VI", "VII"]
+
+## 左上角两颗图标按钮（方向 A 的 `_corner`）。
+## **位置不照抄 A 的 (12,12)**：那一格被迷你日志占着（`CWLogPanel.RECT` 从 (16,16) 起、
+## 收成 compact 之后仍是 300×22，见 `log_hint.gd:33`），09-19 真机第一版就是这么把两行字叠成
+## 一团的。往下让过 22+8 的行距 ⇒ y=46；再往下 y=76 是出牌列 `CWFeed.RECT` 的顶
+## ⇒ 图标收成 28×28（A 写的是 32×32），正好卡在这条缝里
+const ICON := 28.0
+const RESET_RECT := Rect2(16, 46, ICON, ICON)
+const MENU_RECT := Rect2(52, 46, ICON, ICON)
+const ICON_BG := Color("0a1018cc")
+const ICON_BG_HOT := Color("12212ee6")
+const TIP_DX := 6.0          ## 悬停出的字摆在图标右侧几像素
+## 目录占位面板（真面板 S6 做，几何先按方向 A 的 `_toc` 占着）
+const MENU_PANEL := Rect2(268, 76, 424, 388)
+const MENU_ROW_H := 26.0
+## 禁操作期光标那三颗点（方向 A：「…」跟着指针走）
+const DOTS_AT := Vector2(14.0, 10.0)
+const DOTS_SIZE := 4.0
+const DOTS_GAP := 6.0
+const DOTS_ALPHA := [1.0, 0.55, 0.22]
 
 signal reset_pressed
 signal menu_pressed
+signal menu_goto(level_id: String)
 
-var _block: ColorRect       ## 全屏 STOP 层
-var _reset: Label
+var _block: Block             ## 全屏 STOP 层
+var _reset: Icon
+var _menu: Icon
+var _menu_panel: Control      ## 目录占位面板（S6 换成真的）
+var _chapter: Control         ## 章节提示那一屏
+var _chapter_title: Label
+var _chapter_sub: Label
+var _rows: Array = []         ## 目录里的关表（`shell()` 喂进来；S6 之前导演还没发）
 var _urging := false
 var _pulse_t := 0.0
 
@@ -33,33 +84,101 @@ var _pulse_t := 0.0
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-	_block = ColorRect.new()
-	_block.color = Color(0, 0, 0, 0)          ## 只挡点击，不改画面（PRD 没要求压暗）
+	## ---- z 序：**加进来的先后就是上下**（PRD:51 / 41 / 43 / 35）----
+	## 遮挡层在最底 ⇒ 盖住棋盘与行动栏；两颗按钮加在它之后 ⇒ 提示期照常可点；
+	## 章节提示在最顶 ⇒ 它自己也挡操作（通用规则 9），连那两颗一起罩住
+	_block = Block.new()
 	_block.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_block.mouse_filter = Control.MOUSE_FILTER_STOP
 	_block.visible = false
 	add_child(_block)
-	## 常驻按钮加在遮挡层**之后** ⇒ z 序在它之上 ⇒ 提示期照常可点
-	_reset = CWStyle.label("重置本关", CWStyle.SIZE_BODY, CWStyle.TEXT_DIM)
-	_reset.position = RESET_RECT.position
-	_reset.size = RESET_RECT.size
-	_reset.mouse_filter = Control.MOUSE_FILTER_STOP
-	_reset.gui_input.connect(func(e: InputEvent) -> void:
-		if e is InputEventMouseButton and (e as InputEventMouseButton).pressed:
-			reset_pressed.emit())
-	add_child(_reset)
+	_reset = _icon(RESET_RECT, "reset", "重置本关", reset_pressed)
+	_menu = _icon(MENU_RECT, "menu", "目录", menu_pressed)
+	_menu.pressed.connect(toggle_menu)
+	_build_menu_panel()
+	_build_chapter()
+
+
+## 一颗图标按钮：底 + 描边 + 12×12 的点阵图标 + 悬停出的那两个字
+func _icon(rect: Rect2, kind: String, tip: String, sig: Signal) -> Icon:
+	var ic := Icon.new()
+	ic.kind = kind
+	ic.position = rect.position
+	ic.size = rect.size
+	ic.mouse_filter = Control.MOUSE_FILTER_STOP
+	ic.pressed.connect(func() -> void: sig.emit())
+	add_child(ic)
+	var l := CWStyle.label(tip, CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
+	l.position = rect.position + Vector2(rect.size.x + TIP_DX, rect.size.y / 2.0 - 6.0)
+	l.visible = false
+	add_child(l)
+	ic.hover.connect(func(on: bool) -> void: l.visible = on)
+	return ic
+
+
+## 目录占位面板。**只占位**：真面板（章-关两级、未通关灰显、点了跳关）是 S6 的活，
+## 本片只保证「点了目录有反应」，并把 `menu_goto` 这条线接通
+func _build_menu_panel() -> void:
+	_menu_panel = Control.new()
+	_menu_panel.position = MENU_PANEL.position
+	_menu_panel.size = MENU_PANEL.size
+	_menu_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_menu_panel.visible = false
+	var bg := Panel.new()
+	bg.add_theme_stylebox_override("panel", CWStyle.box(0.45, CWStyle.PANEL))
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_menu_panel.add_child(bg)
+	add_child(_menu_panel)
+
+
+## 章节提示那一屏（方向 B 的 ① 帧）。**每次 `show_chapter` 只改文字**，不重建节点
+func _build_chapter() -> void:
+	_chapter = Control.new()
+	_chapter.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_chapter.mouse_filter = Control.MOUSE_FILTER_STOP   ## 通用规则 9：这一屏自己也禁操作
+	_chapter.visible = false
+	var sky := ColorRect.new()
+	sky.color = Color(SKY, SKY_ALPHA)
+	sky.set_anchors_preset(Control.PRESET_FULL_RECT)
+	sky.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_chapter.add_child(sky)
+	var w := CWView.screen_size().x
+	for y in RULE_Y:
+		var rule := ColorRect.new()
+		rule.color = Color(CWStyle.LINE, 0.30)
+		rule.position = Vector2((w - RULE_W) / 2.0, float(y))
+		rule.size = Vector2(RULE_W, 1.0)
+		rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_chapter.add_child(rule)
+	_chapter_title = CWStyle.label("", CWStyle.SIZE_HERO, CWStyle.TEXT_HI)
+	_chapter_title.position = Vector2(0.0, TITLE_Y)
+	_chapter_title.size = Vector2(w, float(RULE_Y[1]) - TITLE_Y)
+	_chapter_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_chapter.add_child(_chapter_title)
+	_chapter_sub = CWStyle.label("", SUB_SIZE, CWStyle.IMMUNE)
+	var sub_font := FontVariation.new()
+	sub_font.base_font = SUB_FONT
+	sub_font.spacing_glyph = SUB_SPACING
+	_chapter_sub.add_theme_font_override("font", sub_font)
+	_chapter_sub.position = Vector2(0.0, SUB_Y)
+	_chapter_sub.size = Vector2(w, float(SUB_SIZE) * 1.6)
+	_chapter_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_chapter.add_child(_chapter_sub)
+	add_child(_chapter)
 
 
 func _process(delta: float) -> void:
 	if not _urging:
 		return
-	## PRD 通用规则 8：较慢频次、反差较低的轻微闪烁。三个参数收敛在 CWStyle 一处
+	## PRD 通用规则 8：较慢频次、反差较低的轻微闪烁。三个参数收敛在 CWStyle 一处 ——
+	## 提亮层 `cw_tutor_spot.pulse()` 走的是同一条曲线
 	_pulse_t += delta
-	var k := 0.5 + 0.5 * sin(_pulse_t * TAU / CWStyle.HALO_PERIOD)
-	_reset.modulate.a = lerpf(CWStyle.HALO_ALPHA_LO, CWStyle.HALO_ALPHA_HI, k)
+	_reset.modulate.a = SPOT.pulse(_pulse_t)
 
 
-## 禁操作层开合（PRD:51 的第 2 层）
+## ---- ① 禁操作层（PRD:51 的第 2 层）----
+
 func set_block(on: bool) -> void:
 	if _block != null and is_instance_valid(_block):
 		_block.visible = on
@@ -69,7 +188,9 @@ func blocking() -> bool:
 	return _block != null and is_instance_valid(_block) and _block.visible
 
 
-## 劝重置（方案 §3.5）：**不重置**，只让「重置本关」慢闪
+## ---- ② 常驻「重置 / 目录」（PRD:41/43）----
+
+## 劝重置（方案 §3.5）：**不重置**，只让「重置」那颗慢闪
 func urge_reset(on: bool) -> void:
 	_urging = on
 	if not on and _reset != null and is_instance_valid(_reset):
@@ -77,15 +198,152 @@ func urge_reset(on: bool) -> void:
 		_reset.modulate.a = 1.0
 
 
-## 章节全屏提示（PRD:35）。**协程**：播完才往下。S2 才真画那一屏半透明大字 ——
-## 这一片先把「它是协程、导演要等它」这件事钉住，免得 S2 接上时导演要跟着改
-func show_chapter(_no: int, _title: String) -> void:
+## 开 / 关目录占位面板。**真机截图走 `call:CWTutorChrome:toggle_menu`** —— 合成鼠标点不到 Control
+func toggle_menu() -> void:
+	if _menu_panel == null or not is_instance_valid(_menu_panel):
+		return
+	_menu_panel.visible = not _menu_panel.visible
+	if _menu_panel.visible:
+		_fill_menu()
+
+
+func menu_open() -> bool:
+	return _menu_panel != null and is_instance_valid(_menu_panel) and _menu_panel.visible
+
+
+## 占位面板里的关表：`shell()` 给了就列出来（未解锁的灰着、点不动），没给就写一行占位。
+## 章-关两级排版、间章平级单列、焦点菱形都留给 S6
+func _fill_menu() -> void:
+	for c in _menu_panel.get_children():
+		if c is Panel:
+			continue
+		_menu_panel.remove_child(c)
+		c.queue_free()
+	var head := CWStyle.label("目录", CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
+	head.position = Vector2(20.0, 16.0)
+	_menu_panel.add_child(head)
+	if _rows.is_empty():
+		var na := CWStyle.label("关表由 S6 接上", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+		na.position = Vector2(20.0, 16.0 + MENU_ROW_H)
+		_menu_panel.add_child(na)
+		return
+	for i in _rows.size():
+		var row: Dictionary = _rows[i]
+		var open := bool(row.get("unlocked", false))
+		var l := CWStyle.label(str(row.get("title", "")), CWStyle.SIZE_BODY,
+			CWStyle.TEXT_HI if open else CWStyle.TEXT_OFF)
+		l.position = Vector2(20.0, 16.0 + MENU_ROW_H * float(i + 1))
+		l.size = Vector2(MENU_PANEL.size.x - 40.0, MENU_ROW_H)
+		if open:
+			l.mouse_filter = Control.MOUSE_FILTER_STOP
+			var id := str(row.get("id", ""))
+			l.gui_input.connect(func(e: InputEvent) -> void:
+				if e is InputEventMouseButton and (e as InputEventMouseButton).pressed:
+					_menu_panel.visible = false
+					menu_goto.emit(id))
+		_menu_panel.add_child(l)
+
+
+## ---- ③ 章节全屏提示（PRD:35，方向 B 的样子）----
+
+## 「第X章 XXXX」与英文副标。**纯函数**：测试逐字核这两行，免得真机上才发现少个空格
+static func chapter_text(no: int, title: String) -> PackedStringArray:
+	var cn: String = CN_NUM[no] if no > 0 and no < CN_NUM.size() else str(no)
+	var ro: String = ROMAN[no] if no > 0 and no < ROMAN.size() else str(no)
+	return PackedStringArray(["第%s章  %s" % [cn, title],
+		"CHAPTER %s - %s" % [ro, title.to_upper()]])
+
+
+## 整屏的亮度曲线：淡入 → 停 → 淡出。**纯函数**，时长口径与 S1 的 `CHAPTER_SECS` 一致
+static func chapter_alpha(t: float) -> float:
+	if t <= 0.0:
+		return 0.0
+	if t < CHAPTER_IN:
+		return t / CHAPTER_IN
+	if t <= CHAPTER_SECS - CHAPTER_OUT:
+		return 1.0
+	return clampf((CHAPTER_SECS - t) / CHAPTER_OUT, 0.0, 1.0)
+
+
+## **协程**：播完才往下（导演等着它）
+func show_chapter(no: int, title: String) -> void:
 	if not is_inside_tree():
 		return
-	await get_tree().create_timer(CHAPTER_SECS).timeout
+	var texts := chapter_text(no, title)
+	_chapter_title.text = texts[0]
+	_chapter_sub.text = texts[1]
+	_chapter.modulate.a = 0.0
+	_chapter.visible = true
+	var t := 0.0
+	while t < CHAPTER_SECS and is_inside_tree():
+		await get_tree().process_frame
+		t += get_process_delta_time()
+		_chapter.modulate.a = chapter_alpha(t)
+	_chapter.visible = false
 
 
-## 常驻壳的一份状态（S2 的目录面板读它）。这一片只认 `can_reset`
+## ---- 常驻壳的一份状态：{chapter, level, menu:[{id,title,unlocked}], can_reset} ----
+
 func sync(state: Dictionary) -> void:
 	if _reset != null and is_instance_valid(_reset):
 		_reset.visible = bool(state.get("can_reset", true))
+	if state.has("menu"):
+		_rows = (state["menu"] as Array).duplicate(true)
+		if menu_open():
+			_fill_menu()
+
+
+## 全屏 STOP 层。**只挡点击，不改画面**（PRD 没要求压暗），
+## 另外把光标画成「…」—— 方向 A 第 7 条，Kevin 2026-09-19 照办
+class Block extends Control:
+	func _process(_delta: float) -> void:
+		if visible:
+			queue_redraw()
+
+	func _draw() -> void:
+		var at := get_local_mouse_position() + CWTutorChrome.DOTS_AT
+		for i in CWTutorChrome.DOTS_ALPHA.size():
+			draw_rect(Rect2(at + Vector2(CWTutorChrome.DOTS_GAP * float(i), 0.0),
+				Vector2(CWTutorChrome.DOTS_SIZE, CWTutorChrome.DOTS_SIZE)),
+				Color(CWStyle.TEXT_HI, float(CWTutorChrome.DOTS_ALPHA[i])), true)
+
+
+## 左上角那两颗。图标是画出来的 12×12 点阵（和全游戏的点阵字同一副嗓子），
+## 不烤图是因为两个形状都只有几笔，烤出来反而多两份资产要管
+class Icon extends Control:
+	signal pressed
+	signal hover(on: bool)
+
+	var kind := "reset"
+	var hot := false
+
+	func _ready() -> void:
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		mouse_entered.connect(func() -> void: _set_hot(true))
+		mouse_exited.connect(func() -> void: _set_hot(false))
+
+	func _set_hot(on: bool) -> void:
+		hot = on
+		hover.emit(on)
+		queue_redraw()
+
+	func _gui_input(e: InputEvent) -> void:
+		if e is InputEventMouseButton and (e as InputEventMouseButton).pressed:
+			accept_event()
+			pressed.emit()
+
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), CWTutorChrome.ICON_BG_HOT if hot else CWTutorChrome.ICON_BG, true)
+		draw_rect(Rect2(Vector2.ZERO, size), Color(CWStyle.LINE, 0.5 if hot else 0.3),
+			false, 1.0)
+		var ink := CWStyle.TEXT_HI if hot else CWStyle.TEXT
+		var o := (size - Vector2(12.0, 12.0)) / 2.0   ## 12×12 的图标居中
+		if kind == "menu":
+			## 目录：三条横杠
+			for i in 3:
+				draw_rect(Rect2(o + Vector2(0.0, float(i) * 5.0), Vector2(12.0, 2.0)), ink, true)
+			return
+		## 重置：一圈缺口的回转环 + 一枚箭头（同「倒带」那支演出的语言）
+		draw_arc(o + Vector2(6.0, 6.0), 5.0, deg_to_rad(40.0), deg_to_rad(340.0), 16, ink, 2.0)
+		draw_colored_polygon(PackedVector2Array([
+			o + Vector2(10.0, 0.0), o + Vector2(10.0, 6.0), o + Vector2(4.0, 3.0)]), ink)

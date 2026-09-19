@@ -19,8 +19,19 @@ signal reset_pressed                ## 常驻壳
 signal menu_goto(level_id: String)
 signal switch_type_pressed
 
+## 提亮层（`cw_tutor_spot.gd`）与教程演出库（`cw_tutor_fx.gd`）。两支都**没有 class_name**
+## （方案 §1.5 只给了三个例外），所以在这儿 preload 一次
+const SPOT := preload("res://scripts/tutor/cw_tutor_spot.gd")
+const FX := preload("res://scripts/tutor/cw_tutor_fx.gd")
+
 ## 常驻壳（章节提示 / 全屏 STOP / 重置 / 目录）。两皮共用一只，由装配方注入
 var chrome: CWTutorChrome = null
+## 提亮层。两皮共用一只，由装配方注入 —— 它要认识行动栏 / 右栏 / 棋盘的矩形，而**皮不认识**
+var spot = null
+## 教程演出库（`cw_tutor_fx.gd`）。**装配方注入接了棋盘的那一只**，皮不自己建 ——
+## 「倒带」那支有一半画在棋盘上（`_draw_rewind` 要 `board.tile_center`），
+## 没接棋盘的话每一帧报一条「Nonexistent function 'tile_center' in base 'Nil'」（09-19 真机实测）
+var fx = null
 ## 地图浮现：把一组坐标加进棋盘的活跃集（`CWBoard.set_active_tiles`）。装配方注入，
 ## **皮不认识棋盘** —— 这是接口纪律「只发意图、不发控件」在 reveal 上的落法
 var reveal_tiles: Callable = Callable()
@@ -41,12 +52,14 @@ func busy() -> bool:
 ## ② 高亮。`targets` 每条形如 { "kind":"ui", "id":… } / { "kind":"hex", "at":Vector2i }
 ##    `mode`: "soft"（默认 = PRD 通用规则 8 的轻微慢闪）| "arrow" | "fullscreen"（PRD:445）
 ##    `tip`: 挂在目标上的一句话（PRD:447/479/491），空串 = 不挂
-func point(_targets: Array, _mode := "soft", _tip := "") -> void:
-	pass          ## 提亮层是 S2 的 cw_tutor_spot.gd；这一片先留接缝
+func point(targets: Array, mode := "soft", tip := "") -> void:
+	if spot != null and is_instance_valid(spot):
+		spot.point(targets, mode, tip)
 
 
 func clear_point() -> void:
-	pass
+	if spot != null and is_instance_valid(spot):
+		spot.clear()
 
 
 ## ③ 章节全屏半透明提示（PRD:35）。**协程**：播完才往下
@@ -67,9 +80,13 @@ func block(on: bool) -> void:
 		chrome.set_block(on)
 
 
-## ⑥ 自动重置动画提示（PRD:47）。**协程**
+## ⑥ 自动重置动画提示（PRD:47）。**协程**：播完才重装关首那份 world。
+## 候选走 `cw_tutor_fx.RESET_VARIANT`（Kevin 2026-09-19 三选一定「倒带」rewind）——
+## 换候选只改演出库那一行常量，这里不再抄一份
 func reset_anim() -> void:
-	pass
+	if fx == null or not is_instance_valid(fx):
+		return
+	await fx.play("reset_hint", { "variant": FX.RESET_VARIANT })
 
 
 ## ⑦ 地图浮现（PRD:45）。**协程**：按 `ring_delays` 错峰由棋盘那边做
@@ -97,3 +114,5 @@ func shell(state: Dictionary) -> void:
 
 func teardown() -> void:
 	clear_point()
+	if fx != null and is_instance_valid(fx):
+		fx.clear()
