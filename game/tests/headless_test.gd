@@ -22049,9 +22049,11 @@ const TUTOR_FX_CASES := [
 ## 2026-09-19（issue #53 ④⑧）：beam_fx / teleport_fx 由**表现组**按 issue 改过一轮
 ## （光束起点改胞体表面；传送多了 lag / shrink 两个可选参数给血行转移对时），指纹随之重录。
 ## 这道闸认的是「**教程**没去改真人对局也在用的那几支」—— 改的人不是教程，重录是对的。
+## 2026-09-19 晚：attack_fx 修「拆局藏过之后 play 不亮回来 ⇒ 第二局起攻击动画消失」（Kevin 报的联机现象），
+## 一行 `visible = true`；改的是真人对局的 bug，不是教程，指纹重录。
 const PUBLIC_FX_MD5 := {
 	"res://scripts/ui/beam_fx.gd": "ef91f82f916b989bea2e2827a980582b",
-	"res://scripts/ui/attack_fx.gd": "bd407bdc8afeffe5b1c962cc14819d4d",
+	"res://scripts/ui/attack_fx.gd": "cc3bdf8f70cabb60b306095ed3da9b26",
 	"res://scripts/ui/teleport_fx.gd": "2a9f91fcc2c6020d007dbc676206f15e",
 }
 
