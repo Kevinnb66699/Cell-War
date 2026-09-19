@@ -950,15 +950,21 @@ func kill(cell: Dictionary) -> void:
 	if cell["faction"] == CWData.Faction.CANCER:
 		log_msg("☠ %s 死亡" % cell_name(cell))
 		return
-	# 免疫细胞：下一个 S 阶段在骨髓复活（PRD 没有额外罚停，delay 默认 0）。
-	# 死于第 N 回合的玩家阶段 → 第 N+1 回合 S 阶段复活，天然缺席一整轮。
+	# 免疫细胞：PRD【S-复活】的**死亡惩罚 X** —— 死亡回合后的下 X 个世界回合无法复活，
+	# 「X 初始为 1，免疫细胞每结算一次复活该 X 增加 1」（PRD 2026-09-19）。
+	# 死于第 N 回合 → 第 N+1+X 回合的 S 阶段才复活；X 的初始值是旋钮 `immune_respawn_delay`，
+	# 已复活次数记在细胞自己的 `revives` 上（癌细胞没有 X，上面那支就返回了）。
 	var delay: int = tune.immune_respawn_delay
 	if delay < 0:
 		cell["respawn_round"] = -1
 		log_msg("☠ %s 死亡（不再复活）" % cell_name(cell))
 		return
-	cell["respawn_round"] = round_no + 1 + delay
-	log_msg("☠ %s 死亡，罚停至第 %d 世界回合" % [cell_name(cell), cell["respawn_round"]])
+	## `get` 而不是 `[]`：补丁前存的旧档里没有这个键，不能因补字段读不了旧档
+	var revives: int = int(cell.get("revives", 0))
+	var penalty: int = delay + revives
+	cell["respawn_round"] = round_no + 1 + penalty
+	log_msg("☠ %s 死亡，罚停至第 %d 世界回合（第 %d 次死亡，X=%d）"
+		% [cell_name(cell), cell["respawn_round"], revives + 1, penalty])
 
 
 # ---- 抗原记忆 / 免疫等级 ----

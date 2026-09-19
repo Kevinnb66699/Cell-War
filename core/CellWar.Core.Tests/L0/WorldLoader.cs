@@ -114,6 +114,7 @@ public static class WorldLoader
                 DrawsThisTurn = c.DrawsUsed,
                 AttacksThisTurn = c.AttacksUsed,
                 RespawnRound = c.RespawnRound,
+                Revives = c.Revives,
                 CampRound = c.CampRound,
                 // GD loader 缺省 `camp_pos = "0,0"`（dump 把 (0,0) 省掉了）：蹲守中而没写坐标 ⇒ (0,0)，否则 envelope 一侧 {0,0} 一侧 null（批 3 KG-5）
                 CampPosition = c.CampPos is null ? (c.CampRound >= 0 ? Pos("0,0") : null) : Pos(c.CampPos),
@@ -460,7 +461,7 @@ public static class WorldLoader
         ArmorUsed = c.ArmorUsedThisRound, MutateUsed = c.MutateUsedThisRound, ToxinUsed = c.ToxinThisRound,
         AntibodyUsed = c.AntibodyThisRound, MetastasisUsed = c.MetastasisUsedThisRound, JumpUsed = c.JumpUsedThisRound,
         DrawsUsed = c.DrawsThisTurn, AttacksUsed = c.AttacksThisTurn,
-        RespawnRound = c.RespawnRound, CampRound = c.CampRound,
+        RespawnRound = c.RespawnRound, Revives = c.Revives, CampRound = c.CampRound,
         CampPos = c.CampRound >= 0 && c.CampPosition is { } cp && At(cp) != "0,0" ? At(cp) : null,   // (0,0) 是缺省，与 GD dump 同样省掉
         ChainLeft = c.ChainLeft, ChainBonus = c.ChainBonus,
         NeutralUntil = c.NeutralUntil <= 0 ? -1 : c.NeutralUntil,

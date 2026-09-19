@@ -341,7 +341,10 @@ internal static class PhaseRules
         if (revival.SourcePosition is { } source)
             s = CardRules.CrackToCancer(s, source);   // GD `crack_to_cancer`：固化格拆回普通癌组织（to_cancer(false)，五项一起清）
         // GD `revive_*` 只写 alive / energy / respawn_round：**不清 attacks_used**（它在 begin_turn 清；批扫 4p_1009 第 93 步就是这一格）
-        s = s.UpdateCell(dead.Id, dead.Copy(alive: true, energy: dead.Faction == Faction.Immune ? 10 : 20, position: revival.TargetPosition, respawnRound: -1));   // GD 复活后 respawn_round = -1
+        // PRD【S-复活】：「每结算一次复活该免疫细胞的 X 增加 1」—— 复活次数记在细胞上，下一次死亡的罚停就长一个回合（GD `revive_immune`）。
+        // 癌方没有 X（它的复活看固化癌组织），所以只给免疫加。
+        s = s.UpdateCell(dead.Id, dead.Copy(alive: true, energy: dead.Faction == Faction.Immune ? 10 : 20, position: revival.TargetPosition, respawnRound: -1,
+            revives: dead.Faction == Faction.Immune ? dead.Revives + 1 : dead.Revives));   // GD 复活后 respawn_round = -1
         s = s.UpdateTissueOccupant(revival.TargetPosition, dead.Id);
         s = SetSeatAlive(s, dead.OwnerSeat, true);
         // 癌方这一席问过了（GD `flow["i"] += 1`）：别的癌席复活碎掉的固化格再造出落点，也轮不回来

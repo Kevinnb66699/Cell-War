@@ -21,8 +21,10 @@
 ##   4. **UNLOADABLE**：`load_world` 返回 null 且 `errors` 首条以 `"UNLOADABLE: "` 开头（§0.6.1 第 7 条）。
 ##      两个 runner 单列这一档计数并整体红 —— 仓库用例集里不许有装不进的用例。
 ##
-## 细胞 33 键的账（§0.6.1 第 4 条）：构造三键 `seat` / `type` / `at` + 30 个可写状态键
-## （`cw_obs_proto.gd:CELL` 去掉 `d` 的 36 键，减去派生的 `id` / `pid` / `faction` / `pos` / `itype` / `ctype`）。
+## 细胞 34 键的账（§0.6.1 第 4 条）：构造三键 `seat` / `type` / `at` + 30 个可写状态键
+## （`cw_obs_proto.gd:CELL` 去掉 `d` 的 36 键，减去派生的 `id` / `pid` / `faction` / `pos` / `itype` / `ctype`）
+## + `revives`（PRD 死亡惩罚 X 的「已复活次数」，issue #63）。**它不在观测协议里** ——
+## 客户端不拿它算规则，加进 envelope 就得升协议号换包；但它改结算结果，所以必须能装、能 dump。
 ##
 ## 不带 class_name（同 xcheck_* 的规矩），用 preload 取。
 extends RefCounted
@@ -46,7 +48,7 @@ const CELL_KEYS := ["seat", "type", "at",
 	"energy", "alive", "marked", "mark_left", "mark_round", "effector_used", "hand", "equipped",
 	"mods", "play_n", "equip_seq", "fx_turn", "fx_round", "differentiated", "chemo_cd",
 	"armor_used", "mutate_used", "toxin_used", "antibody_used", "metastasis_used", "jump_used",
-	"draws_used", "attacks_used", "respawn_round", "camp_round", "camp_pos",
+	"draws_used", "attacks_used", "respawn_round", "revives", "camp_round", "camp_pos",
 	"chain_left", "chain_bonus", "neutral_until", "chain_running"]
 ## 修饰条目四元组（E-2）：出处 cw_obs_proto.gd:MOD。**不带 `data`** —— 它不在 envelope 白名单里
 const MOD_KEYS := ["name", "uses", "until", "seq"]
@@ -261,6 +263,7 @@ func _load_cells(g: CWGame, spec: Dictionary) -> bool:
 		cell["draws_used"] = int(c.get("draws_used", 0))
 		cell["attacks_used"] = int(c.get("attacks_used", 0))
 		cell["respawn_round"] = int(c.get("respawn_round", -1))
+		cell["revives"] = int(c.get("revives", 0))
 		cell["camp_round"] = int(c.get("camp_round", -1))
 		cell["camp_pos"] = pos(str(c.get("camp_pos", "0,0")))
 		## 动态 4 键（不在 make_cell 里，envelope 用 get 取默认）
@@ -671,7 +674,7 @@ func _dump_cells(g: CWGame) -> Array:
 			e["fx_round"] = fxr
 		for pair in [["play_n", 0], ["chemo_cd", 0], ["toxin_used", 0], ["antibody_used", 0],
 				["jump_used", 0], ["draws_used", 0], ["attacks_used", 0], ["respawn_round", -1],
-				["camp_round", -1], ["chain_left", 0], ["chain_bonus", 0], ["neutral_until", -1]]:
+				["revives", 0], ["camp_round", -1], ["chain_left", 0], ["chain_bonus", 0], ["neutral_until", -1]]:
 			if int(cell.get(pair[0], pair[1])) != int(pair[1]):
 				e[pair[0]] = int(cell.get(pair[0], pair[1]))
 		for name in ["effector_used", "differentiated", "armor_used", "mutate_used",
@@ -817,7 +820,7 @@ func minify(spec: Dictionary) -> Dictionary:
 			e["fx_round"] = fxr
 		for pair in [["play_n", 0], ["chemo_cd", 0], ["toxin_used", 0], ["antibody_used", 0],
 				["jump_used", 0], ["draws_used", 0], ["attacks_used", 0], ["respawn_round", -1],
-				["camp_round", -1], ["chain_left", 0], ["chain_bonus", 0], ["neutral_until", -1]]:
+				["revives", 0], ["camp_round", -1], ["chain_left", 0], ["chain_bonus", 0], ["neutral_until", -1]]:
 			if int(c.get(pair[0], pair[1])) != int(pair[1]):
 				e[pair[0]] = int(c[pair[0]])
 		for name in ["effector_used", "differentiated", "armor_used", "mutate_used",
