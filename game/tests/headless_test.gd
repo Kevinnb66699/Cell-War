@@ -8070,6 +8070,45 @@ func t_ui_bridge() -> void:
 	check(abs(got.r - want.r) < 0.006 and abs(got.g - want.g) < 0.006
 			and abs(got.b - want.b) < 0.006, "候选格高亮叠色后与设计稿一致")
 
+	## ---- issue #47：迁移模式下癌性组织换红 ----
+	## 同一抹青压在红底的癌组织上会把它洗成灰蓝（#B04A5A 叠 MARK_MOVE = #79849F，
+	## 正是 Kevin 附图里那一格），和健康格叠出来的 #2F8491 几乎是一个色。
+	## 钉的是**对比度关系**而不是某个色值 —— 将来换色标它自己跟着走。
+	var sick_base := Color8(0xB0, 0x4A, 0x5A)     ## 普通癌组织贴图主色（board.gd 文件头）
+	var sk: Color = board.MARK_MOVE_SICK
+	var old_sick := sick_base.lerp(Color(mv.r, mv.g, mv.b), mv.a)
+	var new_sick := sick_base.lerp(Color(sk.r, sk.g, sk.b), sk.a)
+	check(new_sick.r - new_sick.g > 0.25 and new_sick.r - new_sick.b > 0.25,
+		"癌性候选格叠完仍然是红的（R %.2f / G %.2f / B %.2f）" % [new_sick.r, new_sick.g, new_sick.b])
+	var d_old := Vector3(old_sick.r - got.r, old_sick.g - got.g, old_sick.b - got.b).length()
+	var d_new := Vector3(new_sick.r - got.r, new_sick.g - got.g, new_sick.b - got.b).length()
+	## 探针：旧色标下两种组织的色距确实小得读不出来 —— 闸得认得出 issue 报的那个现象
+	check(d_old < 0.32, "探针：旧色标下癌性格与健康格只差 %.2f（#47 报的低对比）" % d_old)
+	check(d_new > d_old * 2.0, "新色标把色距拉到 %.2f（旧 %.2f，两倍以上）" % [d_new, d_old])
+	check(is_equal_approx(sk.a, mv.a), "混合比例不动：逐环亮起那个节奏一点不变")
+	## 分色的判据来自内核（mirror.is_cancerous），桥只负责挑颜色（架构约定 #10）。
+	## 固化癌组织也算癌性 —— 它同样要花 immune_move_cancerous 那一档
+	var healthy_c := Vector2i(0, 0)
+	var cancer_c := Vector2i(1, 0)
+	var solid_c := Vector2i(2, 0)
+	g.tiles[healthy_c]["tissue"] = CWData.Tissue.HEALTHY
+	g.tiles[cancer_c]["tissue"] = CWData.Tissue.CANCER
+	g.tiles[solid_c]["tissue"] = CWData.Tissue.SOLID
+	board.hovered = board.NO_TILE
+	b.mirror = _mirror_of(g)
+	b._enemy = -1
+	b._plan_quote = {}
+	b._tiles = { healthy_c: {}, cancer_c: {}, solid_c: {} }
+	b._repaint_marks()
+	check(b.marks[healthy_c] == board.MARK_MOVE, "健康候选格照旧免疫青")
+	check(b.marks[cancer_c] == board.MARK_MOVE_SICK and b.marks[solid_c] == board.MARK_MOVE_SICK,
+		"癌组织与固化癌组织的候选格都换红")
+	## 「落着敌人的那一格仍是橙」由分支顺序保证：MARK_ATTACK 那条 elif 排在换红的 else 之前，
+	## 换红一个字也没碰它。这一局还停在落子那一问、场上一个细胞都没有，在这儿验不了。
+	b.mirror = null
+	b._tiles = {}
+	b._enemy = -1
+
 	g.dispose()
 	board.free()
 	stub.free()

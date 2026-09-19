@@ -233,6 +233,15 @@ func tile_z(a: Vector2i, above: int) -> int:
 	return int(map[key]["position"].y) + above
 
 const MARK_MOVE := Color("30d1fa6e")     ## 可迁移/可移动：免疫青，0x6E ≈ 0.43
+## 癌性组织（含固化）的可迁移格换成**红**，不再和健康格共用那一抹青（issue #47）。
+##
+## 青色色标压在红底的癌组织上会把它洗成灰青（#B04A5A 叠 0.43 的 #30D1FA = #7984 9F，
+## 正是 Kevin 附图里那块灰蓝），而健康格叠出来是 #2F8491 —— 两种组织几乎是一个色，
+## 可「这一步会不会净化 / 花不花得起」恰恰是选迁移落点时最要紧的一条信息。
+## 色取普通癌组织贴图那块红（#B04A5A）提亮一档，和地块贴图同一家；
+## 混合比例照旧的 0x6E，逐环亮起那个节奏一点不变。
+## **不能用癌方橙**：那是「可攻击」（MARK_ATTACK）的词，占了就再也读不出「格里站着敌人」。
+const MARK_MOVE_SICK := Color("e05a6e6e")
 const MARK_ATTACK := Color("ffb03a6e")   ## 可攻击：癌方橙，同混合比例
 const MARK_HOVER := Color("eaf8fc8f")    ## 鼠标所在格：提亮到 0.56
 ## 规划器画的路径：走得通用免疫青加深一档（比 MARK_MOVE 更实，一眼看出「这几格是我选的」），
