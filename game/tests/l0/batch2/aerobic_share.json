@@ -140,7 +140,7 @@
     "id": "aerobic_share/level_X/true_value",
     "probe": "aerobic_share",
     "covers": [],
-    "source": "同 level_II，取第 4 档，顺带钉 `clampi(immune_level, 0, size - 1)` / `Math.Clamp(level, 0, Count - 1)` 的上界。**PRD 常数** —— PRD:331 同上；引擎常量 CWData.AEROBIC_BY_LEVEL[3] = 50。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
+    "source": "同 level_II，取第 4 档，顺带钉 `clampi(immune_level, 0, size - 1)` / `Math.Clamp(level, 0, Count - 1)` 的上界。**PRD 常数** —— PRD:331 同上；引擎常量 CWData.AEROBIC_BY_LEVEL[3] = 70（issue #66）。expect 由副本 scratchpad/p2b2s 的 GD runner 真跑录出（b2s_rec2.log），一个数都没手算。",
     "world": {
       "players": [
         {
@@ -160,7 +160,7 @@
     "args": {
       "cell": "0"
     },
-    "expect": 50
+    "expect": 70
   },
   {
     "schema": "cwxcase/2",

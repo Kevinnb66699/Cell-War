@@ -10,6 +10,9 @@
 ## 真让给下面的行（`_layer_round` / `rows_top()`）。第五关 Step2 场上 9 席，不让位免疫等级
 ## 那一块整块掉出 540，而 PRD:417 要的就是「显示……的状态、免疫等级」。
 ## 正式对局 `round_no` 恒 true ⇒ 一个像素不动。
+## 教程的第二条例外（Kevin 2026-09-19）：「癌性加权」那一整块**整个藏掉**（`_layer_score`），
+## 右栏只留状态框 + 抗原记忆框。这一条**只藏不挪** —— 让出来的 66px 不给下面的行，
+## 九席那套配平就是按「藏着也占位」算的（`level_bottom`）。
 ##
 ## 为什么是右侧竖条而不是底部横条：见 [CWView] 的对局机位注释。
 ##
@@ -67,6 +70,11 @@ const ENERGY_RESERVE := 52  ## 能量数字预留的宽度，右对齐到预计�
 const NAME_W := 64
 ## 技能详情框的宽度。固定态要放下「停在技能上看详情 · 再点该行取消固定」这行小字（10px×18 字 = 180）
 const TIP_W := 200.0
+## 规则浮窗（#49 升级规则 / #50 当期效果）的宽度与行距。比技能详情框宽一点：
+## 那只列的是技能名，这只要把「门槛 + 收益」并排写在一行里。
+## 行距取 10px 小字那一档（同技能框的小标题行），六七行也只有一百来像素高。
+const INFO_W := 252.0
+const INFO_ROW := 15.0
 
 ## 玩家行里的种类图标。和棋盘上是同一批贴图，但棋盘那份要对齐脚底、这份是居中摆，
 ## 用途不同所以各留各的表（棋盘那份见 CWMatch.IMMUNE_ART / CANCER_ART）。
@@ -90,6 +98,7 @@ var _weighted: Label
 var _weighted_max: Label
 var _weighted_caption: Label   ## 平时写「癌性加权」，警报期换成「★ 警报 1/2」
 var _bar_fill: ColorRect
+var _bar_track: ColorRect   ## 胜负进度条的槽（教程局整块藏起来时跟着藏）
 var _level: Label
 var _memory: Label
 var _lv_bar_bg: ColorRect    ## 升级进度条的槽（胜负那条叫 _bar_fill，别混）
@@ -103,6 +112,14 @@ var _tip: Control = null   ## 技能详情框（悬停玩家行时列出已装�
 var _tip_pid := -1         ## 正悬停哪一行；-1 = 收起
 var _tip_pinned := -1      ## 被点住固定的那一行；-1 = 没固定。固定后框不随鼠标收起、条目可悬停
 var _tip_key := ""         ## 上次搭悬浮框用的键，没变不重搭
+var _info: Control = null      ## 规则浮窗（#49 升级规则 / #50 当期效果），和 _tip 各管各的
+var _info_key := ""            ## 上次搭它用的键，没变不重搭
+var _info_hover := ""          ## "level" / "stage" / ""：指针正停在哪一块上
+var _stage_zone: Control = null  ## 「肿瘤 n 期」那一行的感应区（回合块关掉时跟着收）
+## 悬停探针，**只给无头测试**。无头视口不跟踪悬停控件 —— mouse_entered 一次都不会发，
+## 注入一个返回 "level" / "stage" / "" 的 Callable 就能在无头里驱动这两块浮窗。
+## 真机一个字也不碰它，照旧走 mouse_entered / mouse_exited。
+var info_hover_probe := Callable()
 ## 联机：房间视图里的席位表（下标 = pid）。AI 席 / 离线席在种类后面加个角标；本地对局留空
 var net_seats: Array = []
 ## 教程的 `ui_layers.end_turn`（默认开）。正式局永远是 true
@@ -113,6 +130,13 @@ var _layer_end := true
 ## 整块掉到 540 之外 —— 而 PRD:417 要的正是「显示……的状态、免疫等级」。
 ## 只在**这一块本来就不显示**的时候让位，所以正式局一个像素不动（那边 round_no 恒 true）
 var _layer_round := true
+## 胜负进度块（「癌性加权」那一整块：标签 + 数值 + 进度条，警报期那行字也在里面）出不出。
+## **教程局一律关**（Kevin 2026-09-19：右栏只留状态框 + 抗原记忆框）——
+## 教程里也不会有警报（癌方加权胜利那条旋钮拧到 99 回合）。
+## 不给 `CWTutorLayers` 加新层：那文件带 `class_name`、走不了热更（方案 §1.5）；
+## 由 `CWMatch._sync_tutor_layers`（只有教程局每帧跑）随 `guide_layers` 一起喂。
+## **只藏不挪**：让出来的那 66px 不给下面的行 —— 九席那套配平是按这张排版算死的（`level_bottom`）
+var _layer_score := true
 
 
 func _ready() -> void:
@@ -164,6 +188,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	## 聊天框里打字时让路（拼音选字就是按空格）—— 判据同 L 键，见 CWChatBox.typing
 	if CWChatBox.typing(get_viewport()):
 		return
+	if CWPauseMenu.modal():
+		return   ## 暂停菜单压在上面（联机局不冻树）：空格归菜单的「确定」，不结束回合，issue #45
 	if _end != null and _end.visible and event.is_action_pressed("ui_accept"):
 		get_viewport().set_input_as_handled()
 		end_turn_pressed.emit()
@@ -183,20 +209,28 @@ func refresh(m: CWMirror, q: Callable) -> void:
 	var phase_text := str(m.g["d"]["phase_text"])
 	_phase.text = "%s · %s" % [phase_text, stage_name]
 
-	var w := m.cancer_weighted()
-	var goal: int = int(m.tune["cancer_win_weighted"])
-	_weighted.text = str(w)
-	_weighted_max.text = " / %d" % goal
-	## 定案 B（2026-09-01）：首次达标只拉警报。引擎的 cancer_win_streak > 0 就是「警报期」，
-	## 界面只负责把它显示出来（架构约定 #10），不自己数。
-	var alarm: Dictionary = m.g["cancer_alarm"]
-	if int(alarm["streak"]) > 0:
-		_weighted_caption.text = "★ 警报 %d/%d" % [int(alarm["streak"]), int(alarm["hold_rounds"])]
-		_weighted_caption.add_theme_color_override("font_color", CWStyle.CANCER)
-	else:
-		_weighted_caption.text = "癌性加权"
-		_weighted_caption.add_theme_color_override("font_color", CWStyle.TEXT_DIM)
-	_bar_fill.size.x = W * clampf(float(w) / float(goal), 0.0, 1.0)
+	## 教程局把这一整块藏掉（见 `_layer_score`）：标签、数值、槽、进度条一起，
+	## 警报期的「★ 警报」字样自然也就不出（教程里没有警报）
+	_weighted.visible = _layer_score
+	_weighted_max.visible = _layer_score
+	_weighted_caption.visible = _layer_score
+	_bar_track.visible = _layer_score
+	_bar_fill.visible = _layer_score
+	if _layer_score:
+		var w := m.cancer_weighted()
+		var goal: int = int(m.tune["cancer_win_weighted"])
+		_weighted.text = str(w)
+		_weighted_max.text = " / %d" % goal
+		## 定案 B（2026-09-01）：首次达标只拉警报。引擎的 cancer_win_streak > 0 就是「警报期」，
+		## 界面只负责把它显示出来（架构约定 #10），不自己数。
+		var alarm: Dictionary = m.g["cancer_alarm"]
+		if int(alarm["streak"]) > 0:
+			_weighted_caption.text = "★ 警报 %d/%d" % [int(alarm["streak"]), int(alarm["hold_rounds"])]
+			_weighted_caption.add_theme_color_override("font_color", CWStyle.CANCER)
+		else:
+			_weighted_caption.text = "癌性加权"
+			_weighted_caption.add_theme_color_override("font_color", CWStyle.TEXT_DIM)
+		_bar_fill.size.x = W * clampf(float(w) / float(goal), 0.0, 1.0)
 
 	for pid in m.players.size():
 		_refresh_row(m, pid)
@@ -215,6 +249,7 @@ func refresh(m: CWMirror, q: Callable) -> void:
 	_lv_bar_bg.visible = p >= 0.0
 	_lv_bar_fill.visible = p >= 0.0
 	_lv_bar_fill.size = Vector2(W * maxf(p, 0.0), BAR_H)
+	_update_info_tip(m, tiers)
 
 
 ## 回到主菜单时清空：下一局人数可能不同，节点结构要按新人数重建。
@@ -233,6 +268,10 @@ func reset() -> void:
 	_tip_pid = -1
 	_tip_pinned = -1
 	_tip_key = ""
+	_info = null
+	_info_key = ""
+	_info_hover = ""
+	_stage_zone = null
 
 
 func show_end_turn(on: bool) -> void:
@@ -243,8 +282,9 @@ func show_end_turn(on: bool) -> void:
 ## 教程的 UI 层开关（`ui_layers.end_turn` / `round_no`，只有 `CWMatch` 教程局每帧喂）。
 ## 「结束回合」是**闸**不是显隐：`show_end_turn(true)` 也得按它再关一道 ——
 ## 否则轮到玩家时询问桥会把它重新亮出来，而第一 ~ 五关整关不许结束回合（方案 §2.3）
-func guide_layers(end_turn: bool, round_no: bool) -> void:
+func guide_layers(end_turn: bool, round_no: bool, score := true) -> void:
 	_layer_end = end_turn
+	_layer_score = score   ## 「癌性加权」那一整块（教程局关）。只改显隐，排版一个像素不动
 	_chrome()
 	if not end_turn and _end != null:
 		_end.visible = false
@@ -258,9 +298,11 @@ func guide_layers(end_turn: bool, round_no: bool) -> void:
 		_round.visible = round_no
 	if _phase != null:
 		_phase.visible = round_no
+	if _stage_zone != null:
+		_stage_zone.visible = round_no   ## 那一行都不显示了，感应区也不该还在那儿等人
 
 
-## 引导提亮用（CWGuideSpotlight）：某块区域的屏幕矩形。"round" 回合 / 阶段 / 事件块，"row:<pid>" 玩家行，
+## 教程提亮层用（scripts/tutor/cw_tutor_spot.gd，S2）：某块区域的屏幕矩形。"round" 回合 / 阶段 / 事件块，"row:<pid>" 玩家行，
 ## "pips:<pid>" 该行的手牌方块，"level" 免疫等级块，"end" 结束回合按钮。没建好 / 此刻不显示 → 零矩形（提亮就不画）
 func rect_of(what: String) -> Rect2:
 	if _built == 0:
@@ -287,6 +329,41 @@ func rect_of(what: String) -> Rect2:
 			r = r.merge((p as Control).get_global_rect())
 		return r
 	return Rect2()
+
+
+## ---- 能量增损的行内提示（issue #48）----
+## 棋盘上飘 ±数字的同一拍，右栏那一行的能量数字色闪一下（进账青绿、出账粉红，同 CWEnergyFx 的笔）——
+## 两处同步，眼睛才把「棋盘上这只」和「右栏那一行」对上。
+##
+## **只闪色、不滚数字**：这一行每帧全量刷（见文件头），滚数字得另记一份「正在显示的值」，
+## 而那份值一旦和引擎错开就是两套真相 —— 右栏是常驻信息，宁可朴素也不能骗人。
+const ENERGY_FLASH := 0.55
+var _energy_flash := {}   ## pid -> [开演的 ticks_msec, 是不是进账]
+
+
+## 由 `CWMatch._sync_cells` 的镜像差分调（和棋盘那条飘字同一处）
+func bump_energy(pid: int, up: bool) -> void:
+	_energy_flash[pid] = [Time.get_ticks_msec(), up]
+
+
+## 这一行的能量数字此刻什么色。`age` < 0 或已过 ENERGY_FLASH = 没在闪 → 常色。
+## **纯函数**（时间从外面进来，无头测试直接核）
+static func energy_color(dead: bool, age: float, up: bool) -> Color:
+	if dead:
+		return CWStyle.TEXT_OFF
+	if age < 0.0 or age >= ENERGY_FLASH:
+		return CWStyle.TEXT_HI
+	## 缓出：起手就是满色，快收时才追上常色 —— 一眼看得见，又不会闪得刺眼
+	var k := age / ENERGY_FLASH
+	return (CWStyle.ENERGY_GAIN if up else CWStyle.ENERGY_LOSS).lerp(CWStyle.TEXT_HI, k * k)
+
+
+## 这一席此刻闪了多久（秒）；没在闪 → -1
+func _flash_age(pid: int) -> float:
+	if not _energy_flash.has(pid):
+		return -1.0
+	var e: Array = _energy_flash[pid]
+	return float(Time.get_ticks_msec() - int(e[0])) / 1000.0
 
 
 ## 底框标「轮到谁」（Kevin 2026-09-12：开局落子、复活阶段也要亮）：行动回合里是 current_pid；
@@ -337,10 +414,11 @@ func _refresh_row(m: CWMirror, pid: int) -> void:
 			row["type"].text += " · AI"
 		elif seat.get("kind", "") == "human" and not seat.get("online", true):
 			row["type"].text += " · 离线代打"
-	## 教程的「无限能量」换成标志文字（渲染点三处之一，方案 §1.6 / CWGuideLayers）；正式局照常写数字
-	row["energy"].text = CWGuideLayers.energy_text(maxi(cell["energy"], 0))
+	## 教程的「无限能量」换成标志文字（渲染点三处之一，新手教程 v2 方案 §3.2(b) / CWTutorLayers）；正式局照常写数字
+	row["energy"].text = CWTutorLayers.energy_text(maxi(cell["energy"], 0))
+	var flash: Array = _energy_flash.get(pid, [0, true])
 	row["energy"].add_theme_color_override("font_color",
-		CWStyle.TEXT_OFF if dead else CWStyle.TEXT_HI)
+		energy_color(dead, _flash_age(pid), bool(flash[1])))
 	row["income"].text = "" if dead else income_text(m, cell)
 	## 手牌方块：持有的填阵营色，其余留描边色
 	_set_pips(row, cell["hand"].size(), CWStyle.TEXT_OFF if dead else faction_color)
@@ -387,10 +465,16 @@ func _build(n: int) -> void:
 	_tip_pid = -1
 	_tip_pinned = -1
 	_tip_key = ""
+	_info = null
+	_info_key = ""
+	_info_hover = ""      ## 感应区连同浮窗一起重建，旧的那份「正停在哪儿」作废
 
 	# ① 回合 / 阶段
 	_round = _put(CWStyle.label("", CWStyle.SIZE_BIG, CWStyle.TEXT_HI), PAD, PAD, W)
 	_phase = _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM), PAD, PAD + 36, W)
+	## #50：悬停「肿瘤 n 期」浮出当期效果。感应区做**整条阶段行**（10px 小字行框 16 高），
+	## 不是只框住「肿瘤II期」那四个字 —— 那点面积算不上一个命中目标（同玩家行那条的理由）
+	_stage_zone = _put_hover(Vector2(PAD, PAD + 36), Vector2(W, 16), "stage")
 
 	# ② 胜负进度：一行标签 + 一条进度条
 	var y := _score_top()
@@ -399,11 +483,11 @@ func _build(n: int) -> void:
 		PAD, y + 10, W, HORIZONTAL_ALIGNMENT_RIGHT)
 	_weighted = _put(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.CANCER),
 		PAD, y, W - 36, HORIZONTAL_ALIGNMENT_RIGHT)
-	var track := ColorRect.new()
-	track.color = Color("0a0f16")
-	track.position = Vector2(PAD, y + 28)
-	track.size = Vector2(W, 8)
-	add_child(track)
+	_bar_track = ColorRect.new()
+	_bar_track.color = Color("0a0f16")
+	_bar_track.position = Vector2(PAD, y + 28)
+	_bar_track.size = Vector2(W, 8)
+	add_child(_bar_track)
 	_bar_fill = ColorRect.new()
 	_bar_fill.color = CWStyle.CANCER
 	_bar_fill.position = Vector2(PAD, y + 28)
@@ -459,6 +543,9 @@ func _build(n: int) -> void:
 	_lv_bar_fill.size = Vector2(0, BAR_H)
 	_lv_bar_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_lv_bar_fill)
+	## #49：悬停免疫等级那**一整块**浮出升级规则。范围同 `rect_of("level")`（引导提亮用的也是它）——
+	## 这一块是四个标签加两条色带拼出来的，逐个挂 mouse_entered 等于把「这一块」散写六遍
+	_put_hover(Vector2(PAD, _level_y), Vector2(W, LEVEL_H), "level")
 
 	## ⑤「结束回合」钉在底部（设计稿 margin-top:auto），在 _chrome() 里建
 
@@ -675,6 +762,131 @@ static func tip_height(rows: Array, full: bool) -> float:
 	for r in rows:
 		h += 15.0 if r.has("head") else 24.0
 	return h + (15.0 if full else 0.0)
+
+
+## #49：悬停「抗原 / 效应记忆」那一块浮出的升级规则。**纯函数**，一个数都不写死 ——
+## 门槛取内核按人数算好的 `d.level_thresholds`（同 memory_text，四人 / 六人各一档），
+## 每一级的收益取 CWData 的按等级表。门槛表或收益表哪天改了，这儿自己跟着变。
+##
+## tiers 不全（tier B 缺席时是空表）就返回空表、干脆不画 —— 同 memory_text 的退路：
+## 半张门槛表比没有更糟，玩家会照着它算。
+##
+## ⚠ 收益读的是 `CWData` 常量而不是 `tune`：按等级的那两张表（aerobic_by_level /
+## immune_move_cancerous）不在观测协议的 tune 里（CWObsProto.TUNE 只有八个键），
+## 平衡扫描改旋钮时这儿会跟不上。正式局两者恒等。
+static func level_rules_rows(tiers: Array, level: int) -> Array:
+	var n: int = CWData.LEVEL_NAMES.size()
+	if tiers.size() < n:
+		return []
+	var out: Array = [{ "text": "免疫等级 · 升级规则", "color": CWStyle.TEXT_DIM }]
+	for lv in n:
+		## 当前这一档用免疫青标出来：四行数字里得有一行是「我在这儿」
+		out.append({ "text": "%s 级　记忆 %d 起　有氧 %s　净化 %s" % [CWData.LEVEL_NAMES[lv],
+				int(tiers[lv]), CWData.fmt(CWData.AEROBIC_BY_LEVEL[lv]),
+				CWData.fmt(CWData.IMMUNE_MOVE_CANCEROUS[lv])],
+			"color": CWStyle.IMMUNE if lv == level else CWStyle.TEXT })
+		if lv == CWData.DIFFERENTIATE_MIN_LEVEL:
+			out.append({ "text": "　　解锁【分化】", "color": CWStyle.TEXT_DIM })
+		if lv == n - 1:
+			## X 级把计数器改名并从零重数（CWData.memory_name），不写清楚玩家会以为记忆丢了
+			out.append({ "text": "　　解锁【效应应答】（%s从零重数）" % CWData.memory_name(lv),
+				"color": CWStyle.TEXT_DIM })
+	return out
+
+
+## #50：悬停右上角「肿瘤 n 期」浮出的**当期**效果。**纯函数**。
+##
+## 固化门槛走内核算好的那一个数（`mirror.solidify_threshold()`，协议的 tune 里有这张三档表）；
+## 其余四项协议没带，读 CWData 的同一张 `_BY_STAGE` 表 —— 界面不自己推分期，表一改这儿跟着变。
+##
+## ⚠ 无氧呼吸的分期增益（PRD 环境恶化那条 II +20% / III +50%）今天引擎里还没有，
+## 所以这儿不写。哪天加了一张 `_BY_STAGE` 表，照下面的样子再补一行。
+static func stage_rows(stage: int, solidify: int) -> Array:
+	var s: int = clampi(stage, 0, CWData.STAGE_NAMES.size() - 1)
+	var tiles: Vector2i = CWData.EROSION_TILES_BY_STAGE[s]
+	var rooted: int = CWData.ROOTED_BY_STAGE[s]
+	return [
+		{ "text": "%s · 当前效果" % CWData.STAGE_NAMES[s], "color": CWStyle.TEXT_DIM },
+		{ "text": "微环境压迫　能量损失 ×%s" % CWData.fmt(CWData.PRESSURE_MUL_BY_STAGE[s]),
+			"color": CWStyle.TEXT },
+		{ "text": "增生　每邻癌 %s%%，每固化 +%s%%" % [CWData.fmt(CWData.PROLIFERATE_BASE_BY_STAGE[s]),
+			CWData.fmt(CWData.PROLIFERATE_SOLID_BY_STAGE[s])], "color": CWStyle.TEXT },
+		{ "text": "侵蚀　2/3 概率 %d 格、1/3 概率 %d 格" % [tiles.x, tiles.y], "color": CWStyle.TEXT },
+		{ "text": "固化　计数满 %s 转固化癌组织" % CWData.fmt(solidify), "color": CWStyle.TEXT },
+		{ "text": "根深蒂固　%s" % ("未生效" if rooted <= 0
+			else "每块固化每回合助推 %d 格" % rooted), "color": CWStyle.TEXT },
+	]
+
+
+## 一块只感应悬停的透明区（不吃点击，同玩家行那只）。kind 进 `_info_hover`，决定浮窗画哪一份。
+func _put_hover(at: Vector2, sz: Vector2, kind: String) -> Control:
+	var z := Control.new()
+	z.position = at
+	z.size = sz
+	z.mouse_filter = Control.MOUSE_FILTER_PASS
+	z.mouse_entered.connect(func() -> void: _info_hover = kind)
+	z.mouse_exited.connect(func() -> void:
+		if _info_hover == kind:
+			_info_hover = "")
+	add_child(z)
+	return z
+
+
+## 规则浮窗（#49 / #50）。和技能详情框同一套（键没变就不重搭），但**另起一只节点**：
+## 那只按玩家行摆、这只按自己那一块摆，合成一只就得在里头再分两种锚点。
+func _update_info_tip(m: CWMirror, tiers: Array) -> void:
+	## 无头没有真鼠标，探针在时它说了算（见 info_hover_probe）
+	if info_hover_probe.is_valid():
+		_info_hover = String(info_hover_probe.call())
+	var rows: Array = []
+	var anchor := 0.0
+	if _info_hover == "level":
+		rows = level_rules_rows(tiers, m.immune_level)
+		anchor = _level_y
+	elif _info_hover == "stage":
+		rows = stage_rows(m.tumor_stage(), m.solidify_threshold())
+		anchor = PAD + 36.0
+	if rows.is_empty():
+		if _info != null:
+			_info.visible = false
+		_info_key = ""
+		return
+	var names := PackedStringArray()
+	for r in rows:
+		names.append(String(r["text"]))
+	var key := "%s|%s" % [_info_hover, ",".join(names)]
+	var h: float = 16.0 + rows.size() * INFO_ROW
+	if key != _info_key or _info == null:
+		_info_key = key
+		if _info != null:
+			remove_child(_info)
+			_info.queue_free()
+		_info = Control.new()
+		_info.mouse_filter = Control.MOUSE_FILTER_IGNORE   ## 只是个牌子，别挡棋盘的悬停
+		_info.size = Vector2(INFO_W, h)
+		var bg := Panel.new()
+		bg.add_theme_stylebox_override("panel", CWStyle.box(0.45, CWStyle.BTN_BG))
+		bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_info.add_child(bg)
+		var ry := 8.0
+		for r in rows:
+			var col: Color = r["color"]
+			var l := CWStyle.label(String(r["text"]), CWStyle.SIZE_LABEL, col)
+			l.position = Vector2(12, ry)
+			_info.add_child(l)
+			ry += INFO_ROW
+		add_child(_info)
+	_info.visible = true
+	## 竖向对齐到自己那一块的顶边，够不着就往回挪。技能详情框正巧也在这条竖带上
+	## （它按玩家行摆），钉住的时候真会撞上 —— Kevin 2026-09-06 报过「两个框叠在一起」。
+	## 撞上就再往左让一格，不去抢它的位置。
+	var top := clampf(anchor, 8.0, RECT.size.y - h - 8.0)
+	var x := -(INFO_W + 8.0)
+	if _tip != null and _tip.visible and top < _tip.position.y + _tip.size.y \
+			and _tip.position.y < top + h:
+		x -= TIP_W + 8.0
+	_info.position = Vector2(x, top)
 
 
 func _update_tip(m: CWMirror, q: Callable) -> void:

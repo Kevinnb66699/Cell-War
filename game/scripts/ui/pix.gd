@@ -56,7 +56,12 @@ static func spark(ci: CanvasItem, c: Vector2, color: Color, size: int = 3) -> vo
 	line(ci, c - Vector2(0, size), c + Vector2(0, size), color)
 
 
-## 黄金角散布的碎粒：p 0→1 往外飞（inward = 往里收），y 压 0.7 = 贴地透视
+## 黄金角散布的碎粒：p 0→1 往外飞（inward = 往里收），y 压 0.7 = 贴地透视。
+##
+## **硬像素，逐参数照抄原型** `tools/art-preview/draw.js:64-68` 的 `burst`。2026-09-19 一度给它加过
+## 一档「柔边」外圈（issue #53 ⑤「和 html 中的虚化效果不符」），当天复核推翻：原型那口
+## `burst(c,a.x,a.y-5,p,cyan,9,20,true)` 走的就是 `pixel()` 硬方块，虚化指的是**贴图的交叉淡入淡出**
+## （`common-skills.js:59`，落在 `CWMatch.cross_fade_art`），不是粒子。加外圈反而更偏离原型。
 static func burst(ci: CanvasItem, c: Vector2, p: float, color: Color, count := 20, radius := 45.0,
 		inward := false) -> void:
 	for i in count:

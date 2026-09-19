@@ -1,11 +1,35 @@
 {
-  "schema": "cwtut/1",
+  "schema": "cwtut/2",
   "id": "c1_l2",
-  "chapter": 1, "chapter_title": "Cell", "title": "第二关 癌",
-  "subtitle": "净化癌组织，向癌细胞发起攻击",
-  "codex_page": 1, "ui_stage": 1,
+  "chapter": 1, "chapter_kind": "main", "chapter_title": "Cell",
+  "title": "第二关 癌",
+  "subtitle": "认识癌组织，学会【净化】与【攻击】",
+
+  "_doc": [
+    "PRD:149-237 整关（行号基线 = Cell_War_新手引导PRD_hxr.md 2026-09-19 04:08 版，532 行；",
+    "03:41 版的 :139-221 在 04:08 版里整段下移，见开发日志 09-19 S4 那条）。",
+    "盘面照《新手引导v2_盘面提案》v4 第二关一节：r=-1 排 q -5…1 共 7 格，",
+    "Step1 露 6 格（q -5…0）、Step2 reveal 第 7 格 (1,-1)。",
+    "",
+    "Step1 / Step2 同一份 JSON、**零关内重装**（方案 §2.5）：Step2 要延伸的那格癌组织与那只 1.0 能量的癌细胞",
+    "开局就预置在盘上，只是 (1,-1) 不在 active_tiles 里 —— 棋盘遮罩让它看不见（match.gd:_sync_cells 的 is_active）",
+    "也点不到（hex_at 只扫活跃集）。重装的话玩家在 Step1 净化过哪两格、人站哪都要重新写死。",
+    "",
+    "【迁移】不消耗能量（PRD:163）只能走大能量 99990 + ui.cost/move_path 关掉：immune_move_healthy",
+    "与 immune_move_cancerous 都是 tier C 旋钮，装载器双重拒（方案 §3.2(c)）。",
+    "rolls 一条 [[1,6,3]] = PRD:215「免疫细胞下次攻击结果为成功」（3~5 成功），",
+    "伤害 1.0 正好打死 1.0 能量那只 —— 带子双向归零：少给报错、没用完也报错。",
+    "",
+    "allow 逐格点名（而不是敞开 k=action|act=move）：引擎不认识活跃格，不点名玩家一步就能走出可见带。",
+    "point / player 两条记同一个 prd（同第一关的理由：point 不阻塞、player 阻塞，执行序必须是先亮格子再开闸，",
+    "而对账闸要求 prd 单调不减）；PRD:195 / :237 那两条 UI 提示是关级口径，摊在这几条 point 上。",
+    "",
+    "ui.camera（PRD 04:08 版新增的镜头描述，:9-22 模板 + :155 / :203「地图调中」）：",
+    "字段形状 { anchor: \"map\"|\"player\", align: \"center\"|\"left\"|\"right\" }，缺省 map/center；",
+    "**实装在 S3**（皮 / 镜头），数据这边先按 PRD 现文填上。"
+  ],
+
   "seats": 2, "human_seat": 0,
-  "expect_level_tiers": [0, 10, 30, 70],
 
   "worlds": {
     "base": {
@@ -15,60 +39,72 @@
       "seat": 0,
       "players": [
         { "seat": 0, "faction": "immune", "level": "I", "memory": 0 },
-        { "seat": 1, "faction": "cancer", "cancer_type": "Melanoma" }
+        { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
       ],
       "tiles": [
-        { "at": "3,-1", "state": "cancer" },
-        { "at": "4,-1", "state": "cancer" },
-        { "at": "5,-1", "state": "cancer" }
+        { "at": "-1,-1", "state": "cancer" },
+        { "at": "0,-1", "state": "cancer" },
+        { "at": "1,-1", "state": "cancer" }
       ],
       "cells": [
-        { "seat": 0, "type": "ImmuneBasic", "at": "0,-1", "energy": 99990 },
-        { "seat": 1, "type": "Melanoma", "at": "5,-1", "energy": 10 }
-      ]
+        { "seat": 0, "type": "ImmuneBasic", "at": "-4,-1", "energy": 99990 },
+        { "seat": 1, "type": "Osteosarcoma", "at": "1,-1", "energy": 10 }
+      ],
+      "tuning": {
+        "attack_max_per_turn": 0
+      }
     }
   },
 
-  "active_tiles": ["-1,-1", "0,-1", "1,-1", "2,-1", "3,-1", "4,-1"],
+  "active_tiles": ["-5,-1", "-4,-1", "-3,-1", "-2,-1", "-1,-1", "0,-1"],
 
   "rolls": [[1, 6, 3]],
 
-  "steps": [
-    {
-      "step_of": "Step1",
-      "load": "base",
-      "ui_layers": { "action_bar": ["move"], "sidebar": [], "hand": false,
-                     "end_turn": false, "round_no": false,
-                     "move_path": false, "cost": false, "energy_display": "infinite" },
-      "t": "！！！",
-      "b": ["发现**癌组织**，立即执行清除程序！",
-            "使用【迁移】移动到**癌组织**，将其【净化】"],
-      "unlock": ["tissue_cancer"],
-      "flag": "move", "act": "purify", "hex": ["1,-1", "2,-1", "3,-1"], "player": true,
-      "allow": ["k=action|act=move"],
-      "watch": "purified"
-    },
-    {
-      "step_of": "Step1",
-      "t": "当迁移到癌组织上时，会自动将癌组织转为健康组织",
-      "unlock": ["purify"],
-      "flag": "move", "act": "purify", "hex": ["4,-1"], "player": true,
-      "allow": ["k=action|act=move|to=4,-1"],
-      "watch": "purified"
-    },
-    {
-      "step_of": "Step2",
-      "reveal": ["5,-1"],
-      "t": "！！！",
-      "b": ["发现敌人**癌细胞**", "发起攻击"]
-    },
-    {
-      "step_of": "Step2",
-      "t": "试图【迁移】到癌细胞所在组织可以发起攻击",
-      "flag": "move", "act": "attack", "hex": ["5,-1"], "player": true,
-      "allow": ["k=action|act=move|to=5,-1"],
-      "watch": "attacked"
-    }
+  "flow": [
+    { "do": "state", "step": "Step1", "prd": 153, "load": "base",
+      "ui": { "*": false, "action_bar": true, "move_path": false, "cost": false, "energy": "infinite",
+        "camera": { "anchor": "map", "align": "center" } } },
+
+    { "do": "say", "prd": 175, "who": "player", "lines": ["！！！"] },
+
+    { "do": "say", "prd": 177, "who": "player",
+      "lines": ["发现癌组织，立即执行清除程序！"] },
+    { "do": "unlock", "prd": 179, "ids": ["tissue_cancer"] },
+
+    { "do": "say", "prd": 181, "who": "player",
+      "lines": ["使用【迁移】移动到癌组织，将其【净化】"] },
+
+    { "do": "point", "prd": 183, "ui": ["bar:迁移"], "hex": ["-1,-1"], "mode": "soft" },
+    { "do": "player", "prd": 183,
+      "hint": "点底部「迁移」，一格一格走到右边的癌组织上",
+      "allow": ["k=action|act=move|to=-3,-1", "k=action|act=move|to=-2,-1",
+        "k=action|act=move|to=-1,-1"],
+      "until": { "delta": "purified" } },
+
+    { "do": "say", "prd": 187, "who": "player",
+      "lines": ["当迁移到癌组织上时，会自动将癌组织转为健康组织"] },
+    { "do": "unlock", "prd": 189, "ids": ["purify"] },
+
+    { "do": "point", "prd": 191, "ui": ["bar:迁移"], "hex": ["0,-1"], "mode": "soft" },
+    { "do": "player", "prd": 191,
+      "hint": "再往前一格，把另一格癌组织也净化掉",
+      "allow": ["k=action|act=move|to=0,-1"],
+      "until": { "delta": "purified" } },
+
+    { "do": "state", "step": "Step2", "prd": 199, "reveal": ["1,-1"],
+      "ui": { "camera": { "anchor": "map", "align": "center" } } },
+
+    { "do": "say", "prd": 225, "who": "player", "lines": ["！！！"] },
+    { "do": "say", "prd": 227, "who": "player", "lines": ["发现敌人癌细胞"] },
+    { "do": "say", "prd": 229, "who": "player", "lines": ["发起攻击"] },
+    { "do": "say", "prd": 231, "who": "player",
+      "lines": ["试图【迁移】到癌细胞所在组织，就可以对它发起攻击"] },
+
+    { "do": "point", "prd": 233, "ui": ["bar:迁移"], "hex": ["1,-1"], "mode": "soft" },
+    { "do": "player", "prd": 233,
+      "hint": "迁到癌细胞那一格，就是对它发起攻击",
+      "allow": ["k=action|act=move|to=1,-1"],
+      "until": { "state": "all_dead" } }
   ],
 
   "on_done": "c1_l3"

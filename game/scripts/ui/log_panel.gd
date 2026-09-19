@@ -124,6 +124,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			and event.keycode == KEY_L:
 		if CWChatBox.typing(get_viewport()):
 			return   ## 玩家在聊天框里打字：那个 L 是字，不是快捷键（Kevin 2026-09-10）
+		if CWPauseMenu.modal():
+			return   ## 暂停菜单压在上面（联机局不冻树）：L 让路，issue #45
 		get_viewport().set_input_as_handled()
 		toggle()
 		return

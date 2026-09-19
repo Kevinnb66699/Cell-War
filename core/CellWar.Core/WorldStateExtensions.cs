@@ -92,7 +92,7 @@ public static class WorldStateExtensions
             ToxinRound = toxinRound ?? t.ToxinRound
         };
     public static Cell Copy(this Cell c, int? energy = null, HexPosition? position = null, bool? alive = null, int? attacks = null, int? deathRound = null, int? campRound = null, HexPosition? campPosition = null,
-        int? draws = null, int? toxin = null, bool? mutateUsed = null, bool? differentiated = null, bool? effectorUsed = null, bool? marked = null, int? markLeft = null, int? markRound = null, int? respawnRound = null,
+        int? draws = null, int? toxin = null, bool? mutateUsed = null, bool? differentiated = null, bool? effectorUsed = null, bool? marked = null, int? markLeft = null, int? markRound = null, int? respawnRound = null, int? revives = null,
         IReadOnlyList<string>? hand = null, IReadOnlyList<string>? equipped = null, CellType? type = null, int? playCounter = null, IReadOnlyList<ActiveModifier>? modifiers = null,
         int? antibody = null, bool? metastasis = null, int? jump = null, bool? armor = null,
         IReadOnlyDictionary<string, int>? equipSeq = null,
@@ -105,7 +105,7 @@ public static class WorldStateExtensions
             AntibodyThisRound = antibody ?? c.AntibodyThisRound, MetastasisUsedThisRound = metastasis ?? c.MetastasisUsedThisRound, JumpUsedThisRound = jump ?? c.JumpUsedThisRound,
             ArmorUsedThisRound = armor ?? c.ArmorUsedThisRound,
             Differentiated = differentiated ?? c.Differentiated, EffectorUsed = effectorUsed ?? c.EffectorUsed, Marked = marked ?? c.Marked,
-            MarkLeft = markLeft ?? c.MarkLeft, MarkRound = markRound ?? c.MarkRound, RespawnRound = respawnRound ?? c.RespawnRound,
+            MarkLeft = markLeft ?? c.MarkLeft, MarkRound = markRound ?? c.MarkRound, RespawnRound = respawnRound ?? c.RespawnRound, Revives = revives ?? c.Revives,
             HandMax = c.HandMax, Hand = hand ?? c.Hand, Equipped = equipped ?? c.Equipped,
             PlayCounter = playCounter ?? c.PlayCounter, EquipSeq = equipSeq ?? c.EquipSeq,
             FxTurn = fxTurn ?? c.FxTurn, FxRound = fxRound ?? c.FxRound,

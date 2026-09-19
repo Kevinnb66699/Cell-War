@@ -78,10 +78,17 @@ FUNC_SUBSYSTEM = [
     # —— AI ——
     (r"^t_(ai_|heur_|eval_|mc_budget)", "ai"),
     # —— 教程 / 引导 ——
-    (r"^t_(guide|tutorial)", "guide"),
+    # `tutor_` 是新手教程 v2（2026-09-19 推倒重来）那一套：t_tutor_data / _beats / _flow / _director / _gate / _view …
+    (r"^t_(guide|tutorial|tutor_)", "guide"),
     (r"^t_bridge_fx_overrides$", "guide"),
     # 教程 S5（2026-09-19）：`t_tutorial_c1` 的两个助手（照剧本打一关 / 带子双向核对），里面的 check 全是教程断言，跟着它们归 guide
     (r"^_(play_c1|check_tape)$", "guide"),
+    # 新手教程 v2（2026-09-19 起）：新一批测试叫 `t_tutor_*`（不是 `t_tutorial_*`，少一个 ial），
+    # 连同它们的逐帧助手一并归 guide —— 不加这两行会掉进兜底的 core 档，把闸三的分母搅了
+    (r"^t_tutor_", "guide"),
+    (r"^_tutor_", "guide"),
+    # S9a / S9b 的分片助手（`_s9a_level` 夹具、`_s9b_live` / `_s9b_hook` 真机那一路）：里面的 check 全是教程断言，跟着归 guide
+    (r"^_s9[ab]_", "guide"),
     # —— 联机 ——
     (r"^t_(net_|lan_|online_|watch_|match_online|replay)", "net"),
     (r"^t_(surrender|surrender_seats|barrier_release|chat_box)$", "net"),
@@ -93,6 +100,10 @@ FUNC_SUBSYSTEM = [
     #   t_effector_fx / t_attack_fx / t_spread_fx / t_teleport_fx / t_dice / t_human_ask / t_card_fx_hooks 归 ui。
     (r"^t_(attack_fx|card_draw_fx|chemo_blink|effector_fx)$", "ui"),
     (r"^t_(hunt_fx|issue31_fx|spread_fx|teleport_fx|ui_sfx)$", "ui"),
+    # 2026-09-19 的三条表现 issue（#48 能量飘字 / #52 固化弥散 / #53 特效八条）：
+    # 整支都是演出层的纯函数与接线断言，**零规则量** —— 兜底的 `^_?t_` 会把它扫进 core、
+    # 凭空把闸三的分母抬 32 站点，按 §0.6.5 第 6 条逐名归 ui
+    (r"^t_issue_fx_0919$", "ui"),
     (r"^t_.*_(panel|bar|box|row|tip|info|view|preview|marker|blink|glow|highlight|width|fit)$", "ui"),
     (r"^t_(action_bar_width|announce|board_view|breath_sheets|buttons_dim|codex)$", "ui"),
     (r"^t_(config_custom|config_panel|feedback|font_coverage|hex_pick|hover_layer)$", "ui"),
@@ -108,6 +119,9 @@ FUNC_SUBSYSTEM = [
     (r"^_t_move_cost_wiring$", "ui"),
     # 教程 S1（2026-09-19）：`t_board_active_tiles` 全是棋盘遮罩 / 浮现补间 / hex_at 的 UI 断言，零规则量，逐名归 ui（§0.6.5 第 6 条）
     (r"^t_board_active_tiles$", "ui"),
+    # 教程 S9a（2026-09-19）：`t_board_grow` 同理 —— `ensure_radius` 往外长格网、老格不重铺、
+    # 新格不在活跃集，全是渲染层断言，零规则量
+    (r"^t_board_grow$", "ui"),
     # —— core 规则：剩下的 t_* / _t_* 全归它 ——
     (r"^_?t_", "core"),
 ]

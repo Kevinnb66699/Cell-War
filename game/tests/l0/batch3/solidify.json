@@ -374,5 +374,58 @@
       },
       "ignore": []
     }
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "solidify/no_owner_keeps_count",
+    "op": "solidify",
+    "covers": [
+      "t_solidify_and_decay::无人停留的计数一点没掉（issue #64：不再 −0.5）"
+    ],
+    "status": "OK",
+    "source": "cw_world.gd:_solidify；**2026-09-19 issue #64**：衰减整步删掉之后，「没有癌细胞停留的癌组织」这一格在 E 阶段里再也不该有任何变化 —— 同盘面里另有一格站着癌细胞、照常 +1.0，正负各一边",
+    "harvested_from": "headless_test.gd:t_solidify_and_decay",
+    "world": {
+      "phase": "Setup",
+      "players": [
+        {
+          "faction": "immune",
+          "seat": 0
+        },
+        {
+          "cancer_type": "Osteosarcoma",
+          "faction": "cancer",
+          "seat": 1
+        }
+      ],
+      "tiles": [
+        {
+          "at": "0,0",
+          "solid": 10,
+          "state": "cancer"
+        },
+        {
+          "at": "3,0",
+          "state": "cancer"
+        }
+      ],
+      "cells": [
+        {
+          "at": "3,0",
+          "seat": 1,
+          "type": "Osteosarcoma"
+        }
+      ]
+    },
+    "rolls": [],
+    "args": {},
+    "expect": {
+      "kind": "delta",
+      "changed": {
+        "$.board.tiles@3,0.d.solid_fraction": 333,
+        "$.board.tiles@3,0.solid": 10
+      },
+      "ignore": []
+    }
   }
 ]

@@ -191,9 +191,10 @@ internal static class CellRules
     public static WorldState Kill(WorldState s, EntityId id)
     {
         var c = s.Cells[id];
-        // 免疫细胞记下「哪一回合起可以复活」（GD kill：`respawn_round = round_no + 1 + delay`，delay < 0 = 不再复活）；
-        // 它进 state_hash 与 L1 视图（6p 第 45 步就是差在这一格）。癌细胞的复活看固化癌组织，不用这个字段
-        var respawn = c.Faction == Faction.Immune && s.Tuning.ImmuneRespawnDelay >= 0 ? s.Turn.WorldRound + 1 + s.Tuning.ImmuneRespawnDelay : -1;
+        // 免疫细胞记下「哪一回合起可以复活」（GD kill：`respawn_round = round_no + 1 + X`，旋钮 < 0 = 不再复活）；
+        // 它进 state_hash 与 L1 视图（6p 第 45 步就是差在这一格）。癌细胞的复活看固化癌组织，不用这个字段。
+        // PRD【S-复活】的死亡惩罚 **X = 旋钮（初始值 1）+ 该细胞已复活次数**：「每结算一次复活该免疫细胞的 X 增加 1」（issue #63）
+        var respawn = c.Faction == Faction.Immune && s.Tuning.ImmuneRespawnDelay >= 0 ? s.Turn.WorldRound + 1 + s.Tuning.ImmuneRespawnDelay + c.Revives : -1;
         s = s.UpdateCell(id, c.Copy(energy: 0, alive: false, deathRound: s.Turn.WorldRound, respawnRound: respawn, modifiers: Array.Empty<ActiveModifier>()));
         if (s.Turn.TrackCell == id)
             s = s.WithTurn(s.Turn.WithTrack(null, c.Position, s.Turn.TrackRounds));
@@ -208,13 +209,14 @@ internal static class CellRules
     /// `LEVEL_MIN_MEMORY_BY_PLAYERS`（四人档），下标 0/1/2/3 = I/II/III/X，常量不是旋钮。
     /// 分档的理由见 GD 原注：记忆是全阵营共用一个计数器，而进账靠免疫细胞各自净化 ——
     /// 四人局只有 2 个免疫、六人局有 3 个，同样门槛下四人局要多花约一半回合才升得上去。
-    /// **2 人局沿用缺省（六人）那张**，GD 注释明写「这不是待办」。</summary>
-    internal static readonly IReadOnlyList<int> LevelMinMemory = [0, 10, 30, 70];
+    /// **2 人局沿用缺省（六人）那张**，GD 注释明写「这不是待办」。
+    /// **2026-09-19 issue #55**：X 级门槛四人 50→100、六人 70→120，II / III 两档不动。</summary>
+    internal static readonly IReadOnlyList<int> LevelMinMemory = [0, 10, 30, 120];
     internal static readonly IReadOnlyDictionary<int, IReadOnlyList<int>> LevelMinMemoryByPlayers =
-        new Dictionary<int, IReadOnlyList<int>> { [4] = [0, 10, 20, 50] };
+        new Dictionary<int, IReadOnlyList<int>> { [4] = [0, 10, 20, 100] };
 
     /// <summary>GD `cw_game.gd:gain_memory`（门槛那一段）。**门槛按人数分档**：
-    /// `CWData.level_min_memory(order.size())` = 四人 `[0,10,20,50]` / 其余（含 2 人与 balance_scan 的 5、7 人）`[0,10,30,70]`。
+    /// `CWData.level_min_memory(order.size())` = 四人 `[0,10,20,100]` / 其余（含 2 人与 balance_scan 的 5、7 人）`[0,10,30,120]`（issue #55）。
     ///
     /// 2026-09-19 合（Kevin §十五 Q1：规则结果差）：此前 C# 行内写死 `Count==6 ? 70/30 : 50/20` ——
     /// 4 人 / 6 人对得上，**2 人局分叉**（GD 走缺省的六人档 30/70，C# 给 20/50），而 L0 绝大多数盘面是 2 席。

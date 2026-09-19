@@ -1,92 +1,426 @@
 {
-  "schema": "cwtut/1",
+  "schema": "cwtut/2",
   "id": "c2_l4",
   "chapter": 2,
+  "chapter_kind": "main",
   "chapter_title": "Immune",
   "title": "第四关 抗原记忆",
-  "subtitle": "净化与攻击积累抗原记忆，升到 III 级",
-  "codex_page": 4,
-  "ui_stage": 1,
+  "subtitle": "净化与攻击攒下抗原记忆，免疫等级跟着往上走",
+  "_doc": [
+    "PRD:305-347 整关（行号基线 = Cell_War_新手引导PRD_hxr.md 2026-09-19 04:08 版，532 行）。",
+    "盘面照《新手引导v2_盘面提案》v4 第四关一节：整盘 127 格一次揭完（PRD:309 的「向周围延伸」",
+    "由 CWBoard.set_active_tiles 的错峰浮现做，零 reveal、零关内重装），",
+    "四个癌组织连通块各 10 格、块与块最近 3 格，五只骨肉瘤 5.0 / 2.0 / 4.0 / 3.0 / 3.0（PRD:319「1~5 能量」）。",
+    "",
+    "⚠ 起手格写死 (4,-1)（v4 Q4-5）。第三关的最省路**两条并列**：走直线的停在 (4,-1)、",
+    "绕 r=-2 排的停在 (5,-2)。第四关是新关、整盘重装，起手位置本来就按剧本写死 ——",
+    "走另一条的玩家会看见自己从 (5,-2) 挪到 (4,-1)（PRD 通用规则 2 静默换局）。要 hxr 过目。",
+    "",
+    "纪律 2：整盘 127 格都在活跃集里 ⇒ 11 格特殊组织逐格显式写 type。",
+    "**写的是它本来的名字**（core / marrow / vessel），不是 normal —— v4 口径 4「第四关起就是正常棋盘、",
+    "不摊平」：第一～五关从 PlayerAction 中途开局、闸里永不放「结束回合」⇒ 进不到 S 阶段 ⇒",
+    "收入与存卡不结算，摊不摊平零影响；而第六关要真结算，那时它们本来就该是特殊格。",
+    "代价：第三关把 (3,0)(6,0)(-3,0)(-6,0) 摊成了 normal，换到本关又变回核心 / 血管 —— 静默换局里看得见。",
+    "",
+    "记忆账（PRD:327「免疫等级升级到 III 级」）：seats = 6 ⇒ 门槛回落六人档 LEVEL_MIN_MEMORY = [0,10,30,120]",
+    "（CWData.level_min_memory 里只有四人一档，`seats != 4` 一律走这张）。起手 II 级 20 记忆 ⇒ 只差 +10。",
+    "默认盘面可得 40（净化 40 格）+ 17（打掉 17.0 能量，gain_memory 是整数除法）= 57，富余 47 ——",
+    "Kevin：富余不用减，多出来的是给玩家自由探索的。",
+    "",
+    "能量 ∞（PRD:321）：数据写哨兵 99990 + ui.energy = \"infinite\"。",
+    "⚠ 本关是第一关「右栏开着 + 无限能量」的关 —— 玩家走一步哨兵就被啃掉一点，",
+    "所以显示判据取的是 CWTutorLayers.INFINITE_MIN 那条带宽（90000）而不是 99990 那一个数。",
+    "本关不点结束回合 ⇒ 进不到 E 阶段 ⇒ 【能量过载】不跑，overload_div 不用写（方案 §4 PRD:301/369 那行）。",
+    "",
+    "旋钮：attack_max_per_turn = 0（PRD:323「不设攻击次数上限」，tier A；引擎判的是 `if cap > 0`）。",
+    "⚠ 实名是 attack_max_per_turn，不是 attacks_per_turn。",
+    "",
+    "ui：右栏开着但藏「第 X 回合」（Kevin 2026-09-19：第一～三章右栏只留状态框 + 抗原记忆框）；",
+    "end_turn 关（allow 里也没有 act=end ⇒ 进不了 E 阶段 ⇒ 胜负判定压根不跑 ⇒ 不会弹结算屏）；",
+    "move_path / cost 仍关着 —— PRD 的「界面变化」是对比上一关的增删，本关没写要把它们加回来。",
+    "camera 照 PRD:313「角色调中」= { anchor: player, align: center }。",
+    "",
+    "**不写 rolls**（省略 ≠ rolls: []）：本关是自由行动，玩家打几次骰子、每次判成什么写不死 ——",
+    "省略 = 掷骰照常走引擎自己的 rng；写成空带子反而是「一次 rng 都不许消耗」的断言，当场挡路。"
+  ],
   "seats": 6,
   "human_seat": 0,
-  "expect_level_tiers": [0, 10, 30, 70],
   "worlds": {
     "base": {
       "radius": 6,
       "round": 1,
       "phase": "PlayerAction",
       "seat": 0,
-      "tuning": { "attack_max_per_turn": 0 },
       "players": [
-        { "seat": 0, "faction": "immune", "level": "II", "memory": 20 },
-        { "seat": 1, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 2, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 3, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 4, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 5, "faction": "cancer", "cancer_type": "Melanoma" }
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "II",
+          "memory": 20
+        },
+        {
+          "seat": 1,
+          "faction": "cancer",
+          "cancer_type": "Osteosarcoma"
+        },
+        {
+          "seat": 2,
+          "faction": "cancer",
+          "cancer_type": "Osteosarcoma"
+        },
+        {
+          "seat": 3,
+          "faction": "cancer",
+          "cancer_type": "Osteosarcoma"
+        },
+        {
+          "seat": 4,
+          "faction": "cancer",
+          "cancer_type": "Osteosarcoma"
+        },
+        {
+          "seat": 5,
+          "faction": "cancer",
+          "cancer_type": "Osteosarcoma"
+        }
       ],
       "tiles": [
-        { "at": "1,-2", "state": "cancer" },
-        { "at": "2,-2", "state": "cancer" },
-        { "at": "2,-1", "state": "cancer" },
-        { "at": "-2,0", "state": "cancer" },
-        { "at": "-1,0", "state": "cancer" },
-        { "at": "-2,1", "state": "cancer" },
-        { "at": "0,1", "state": "cancer" },
-        { "at": "1,1", "state": "cancer" },
-        { "at": "0,2", "state": "cancer" }
+        {
+          "at": "-6,0",
+          "type": "vessel"
+        },
+        {
+          "at": "-5,2",
+          "state": "cancer"
+        },
+        {
+          "at": "-5,3",
+          "state": "cancer"
+        },
+        {
+          "at": "-4,1",
+          "state": "cancer"
+        },
+        {
+          "at": "-4,2",
+          "state": "cancer"
+        },
+        {
+          "at": "-4,3",
+          "state": "cancer"
+        },
+        {
+          "at": "-3,-3",
+          "type": "marrow"
+        },
+        {
+          "at": "-3,0",
+          "type": "marrow"
+        },
+        {
+          "at": "-3,1",
+          "state": "cancer"
+        },
+        {
+          "at": "-3,2",
+          "state": "cancer"
+        },
+        {
+          "at": "-3,3",
+          "state": "cancer",
+          "type": "core"
+        },
+        {
+          "at": "-3,6",
+          "type": "marrow"
+        },
+        {
+          "at": "-2,1",
+          "state": "cancer"
+        },
+        {
+          "at": "-2,2",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,4",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,5",
+          "state": "cancer"
+        },
+        {
+          "at": "0,-5",
+          "state": "cancer"
+        },
+        {
+          "at": "0,-4",
+          "state": "cancer"
+        },
+        {
+          "at": "0,-3",
+          "state": "cancer",
+          "type": "core"
+        },
+        {
+          "at": "0,3",
+          "state": "cancer",
+          "type": "marrow"
+        },
+        {
+          "at": "0,4",
+          "state": "cancer"
+        },
+        {
+          "at": "0,5",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-5",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-4",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-3",
+          "state": "cancer"
+        },
+        {
+          "at": "1,3",
+          "state": "cancer"
+        },
+        {
+          "at": "1,4",
+          "state": "cancer"
+        },
+        {
+          "at": "1,5",
+          "state": "cancer"
+        },
+        {
+          "at": "2,-5",
+          "state": "cancer"
+        },
+        {
+          "at": "2,-4",
+          "state": "cancer"
+        },
+        {
+          "at": "2,-3",
+          "state": "cancer"
+        },
+        {
+          "at": "2,3",
+          "state": "cancer"
+        },
+        {
+          "at": "2,4",
+          "state": "cancer"
+        },
+        {
+          "at": "3,-5",
+          "state": "cancer"
+        },
+        {
+          "at": "3,-3",
+          "type": "marrow"
+        },
+        {
+          "at": "3,0",
+          "state": "cancer",
+          "type": "core"
+        },
+        {
+          "at": "4,0",
+          "state": "cancer"
+        },
+        {
+          "at": "5,-3",
+          "state": "cancer"
+        },
+        {
+          "at": "5,-2",
+          "state": "cancer"
+        },
+        {
+          "at": "5,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "5,0",
+          "state": "cancer"
+        },
+        {
+          "at": "6,-3",
+          "state": "cancer",
+          "type": "marrow"
+        },
+        {
+          "at": "6,-2",
+          "state": "cancer"
+        },
+        {
+          "at": "6,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "6,0",
+          "state": "cancer",
+          "type": "vessel"
+        }
       ],
       "cells": [
-        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 99990 },
-        { "seat": 1, "type": "Melanoma", "at": "1,-2", "energy": 10 },
-        { "seat": 2, "type": "Melanoma", "at": "2,-1", "energy": 20 },
-        { "seat": 3, "type": "Melanoma", "at": "-1,0", "energy": 30 },
-        { "seat": 4, "type": "Melanoma", "at": "-2,1", "energy": 40 },
-        { "seat": 5, "type": "Melanoma", "at": "0,2", "energy": 50 }
-      ]
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "4,-1",
+          "energy": 99990
+        },
+        {
+          "seat": 1,
+          "type": "Osteosarcoma",
+          "at": "5,-1",
+          "energy": 50
+        },
+        {
+          "seat": 2,
+          "type": "Osteosarcoma",
+          "at": "3,0",
+          "energy": 20
+        },
+        {
+          "seat": 3,
+          "type": "Osteosarcoma",
+          "at": "1,-4",
+          "energy": 40
+        },
+        {
+          "seat": 4,
+          "type": "Osteosarcoma",
+          "at": "-3,2",
+          "energy": 30
+        },
+        {
+          "seat": 5,
+          "type": "Osteosarcoma",
+          "at": "1,4",
+          "energy": 30
+        }
+      ],
+      "tuning": {
+        "attack_max_per_turn": 0
+      }
     }
   },
-  "active_tiles": ["0,-2", "1,-2", "2,-2", "-1,-1", "0,-1", "1,-1", "2,-1", "-2,0", "-1,0", "0,0", "1,0", "2,0", "-2,1", "-1,1", "0,1", "1,1", "-2,2", "-1,2", "0,2"],
-  "rolls": [],
-  "steps": [
+  "active_tiles": [
+    "0,-6", "1,-6", "2,-6", "3,-6", "4,-6", "5,-6", "6,-6",
+    "-1,-5", "0,-5", "1,-5", "2,-5", "3,-5", "4,-5", "5,-5", "6,-5",
+    "-2,-4", "-1,-4", "0,-4", "1,-4", "2,-4", "3,-4", "4,-4", "5,-4", "6,-4",
+    "-3,-3", "-2,-3", "-1,-3", "0,-3", "1,-3", "2,-3", "3,-3", "4,-3", "5,-3", "6,-3",
+    "-4,-2", "-3,-2", "-2,-2", "-1,-2", "0,-2", "1,-2", "2,-2", "3,-2", "4,-2", "5,-2", "6,-2",
+    "-5,-1", "-4,-1", "-3,-1", "-2,-1", "-1,-1", "0,-1", "1,-1", "2,-1", "3,-1", "4,-1", "5,-1", "6,-1",
+    "-6,0", "-5,0", "-4,0", "-3,0", "-2,0", "-1,0", "0,0", "1,0", "2,0", "3,0", "4,0", "5,0", "6,0",
+    "-6,1", "-5,1", "-4,1", "-3,1", "-2,1", "-1,1", "0,1", "1,1", "2,1", "3,1", "4,1", "5,1",
+    "-6,2", "-5,2", "-4,2", "-3,2", "-2,2", "-1,2", "0,2", "1,2", "2,2", "3,2", "4,2",
+    "-6,3", "-5,3", "-4,3", "-3,3", "-2,3", "-1,3", "0,3", "1,3", "2,3", "3,3",
+    "-6,4", "-5,4", "-4,4", "-3,4", "-2,4", "-1,4", "0,4", "1,4", "2,4",
+    "-6,5", "-5,5", "-4,5", "-3,5", "-2,5", "-1,5", "0,5", "1,5",
+    "-6,6", "-5,6", "-4,6", "-3,6", "-2,6", "-1,6", "0,6"
+  ],
+  "flow": [
     {
+      "do": "state",
+      "step": "Step1",
+      "prd": 307,
       "load": "base",
-      "ui_layers": {
-        "action_bar": ["move"],
+      "ui": {
+        "*": false,
+        "action_bar": true,
         "sidebar": true,
-        "hand": false,
-        "end_turn": false,
         "round_no": false,
-        "move_path": true,
+        "end_turn": false,
+        "move_path": false,
         "cost": false,
-        "energy_display": "infinite",
-        "switch_type": false
-      },
-      "t": "地图向四周延伸开来，癌组织也多了起来",
-      "b": ["【净化】与【攻击】都可以积累**抗原记忆**"],
-      "allow": []
+        "energy": "infinite",
+        "camera": {
+          "anchor": "player",
+          "align": "center"
+        }
+      }
     },
     {
-      "t": "积累**抗原记忆**可以提升【免疫等级】",
-      "b": ["右侧边栏里那条就是升级进度"],
-      "allow": [],
-      "flag": "level"
+      "do": "say",
+      "prd": 333,
+      "who": "player",
+      "lines": [
+        "净化与攻击可以积累【抗原记忆】"
+      ]
     },
     {
-      "t": "免疫等级提升可以使免疫细胞获得强化",
-      "b": ["等级越高，迁移越省能量，攻击也越狠"],
-      "allow": [],
-      "unlock": ["memory", "immune_level"],
-      "flag": "level"
+      "do": "say",
+      "prd": 335,
+      "who": "player",
+      "lines": [
+        "积累抗原记忆可以提升【免疫等级】"
+      ]
     },
     {
-      "t": "下面试试提升自己的免疫等级吧",
-      "b": ["要努力变强哟——", "把癌组织一格一格净化掉，顺手打掉癌细胞"],
-      "flag": "purify",
-      "act": "purify",
-      "player": true,
-      "allow": ["k=action|act=move"],
-      "watch": "level_at_least:III"
+      "do": "point",
+      "prd": 337,
+      "ui": [
+        "panel:level"
+      ],
+      "mode": "soft"
+    },
+    {
+      "do": "say",
+      "prd": 339,
+      "who": "player",
+      "lines": [
+        "免疫等级提升可以使免疫细胞获得强化"
+      ]
+    },
+    {
+      "do": "unlock",
+      "prd": 341,
+      "ids": [
+        "memory",
+        "immune_level"
+      ]
+    },
+    {
+      "do": "say",
+      "prd": 343,
+      "who": "player",
+      "lines": [
+        "下面试试提升自己的免疫等级吧"
+      ]
+    },
+    {
+      "do": "say",
+      "prd": 345,
+      "who": "player",
+      "lines": [
+        "要努力变强哟"
+      ]
+    },
+    {
+      "do": "player",
+      "prd": 347,
+      "hint": "满盘都是癌组织：净化和攻击都攒抗原记忆，把免疫等级顶到 III 级",
+      "allow": [
+        "k=action|act=move"
+      ],
+      "ui": [
+        "panel:level"
+      ],
+      "until": {
+        "state": "level_at_least",
+        "arg": "III"
+      }
     }
   ],
   "on_done": "c2_l5"

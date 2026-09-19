@@ -106,15 +106,6 @@ func _ossify() -> void:
 	rec.finish()
 
 
-func _decay() -> void:
-	if not rec.begin("cw_world.gd:_decay", {}):
-		super._decay()
-		rec.skip()
-		return
-	super._decay()
-	rec.finish()
-
-
 func _mark_adhesion() -> void:
 	if not rec.begin("cw_world.gd:_mark_adhesion", {}):
 		super._mark_adhesion()

@@ -4,10 +4,10 @@
 ##
 ## **修饰卡的口径**（2026-08-29 落地，定案 #57~#64）：
 ##   自我修饰挂 `cell["mods"]`（game.add_mod：uses 次数 + turn/round/用尽三种时钟），
-##   全局修饰（基质稳定/TGF-β/TNF 冻结格）挂 events["active"]（game.install_event）。
+##   全局修饰（TGF-β/TNF 冻结格）挂 events["active"]（game.install_event）。
 ##   同名条目**同时生效**、各扣一次；触发/消耗散在各挂接点——攻击链在
 ##   cw_actions._do_move、移动计费在 _move_cost_mod、伤害减免在 immune_hit/cancer_hit、
-##   有氧在 CWWorld._aerobic、固化在 raise_solid/_decay。
+##   有氧在 CWWorld._aerobic、固化在 raise_solid。
 ##
 ## **中途选择的口径**（2026-08-29 定，「需中途选择」批随此落地）：
 ##   结算里要玩家做的决定走 `await game.ask(pid, req)`，kind 取
@@ -109,11 +109,6 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 				game.add_mod(c, card, 1, "round")
 			game.log_msg("　【I型干扰素】所有免疫细胞下一次能量损失 -1.0（本世界回合内）")
 			_evt(card, "全体免疫下次损失 -1.0", cell["pos"])
-		"基质稳定":
-			## left=1：E 阶段衰减在回合末之前结算，挂到回合末正好盖住本回合那一次
-			game.install_event(card, 1)
-			game.log_msg("　【基质稳定】本世界回合结束时固化计数不衰减")
-			_evt(card, "本回合固化计数不衰减", cell["pos"])
 		"TGF-β释放":
 			## left=2：下一次有氧在**下个**世界回合的 S 阶段，要活过本回合末；
 			## 结算时整条消耗（CWWorld._aerobic），多抽几张就多几条，逐份 -20%（#63）
@@ -981,8 +976,15 @@ func _remodel_heal_cands(chosen: Array[Vector2i]) -> Array[Vector2i]:
 
 ## 【放疗】以所选癌性组织为起点，随机生长出含它的连通 `CWData.RADIO_REGION` 格区域
 ## （PRD 2026-09-09 由 15 格改为 10 格）：
-## 区域内所有癌性组织（含固化、含有细胞站着的）→ 健康，整片进入「坏死」5 轮。
+## 区域内的**普通**癌组织（含有细胞站着的）→ 健康，连同区域里本来就是健康的格子一起进入
+## 「坏死」`CWData.NECROSIS_RADIO` 轮。
+## ⚠ **固化癌组织整格跳过：不转健康、也不坏死，原样留着**——Kevin 2026-09-19 对 issue #54 的追加
+## 拍板「【放疗】区域内**只转癌组织、固化不转**（现实现把固化也转了，要改，两侧 + L0）」。
+## 起点本身可以是固化格（选项面不变），那就只长区域、起点原样。
 ## 「坏死」沿用毒素那套倒计时（不为免疫供能、可被定殖，定殖时清除——同一口径）。
+## ⚠ 轮数 2026-09-07 就随「坏死」收成通用状态回到 2 轮，这句注释此前还写着旧的「5 轮」（issue #54 复核时改）。
+## **区域可以含健康组织**（issue #54 逐字）：长区域时不挑 tissue，只要连通；
+## 癌组织转健康、健康的原样留着，但两者都要进「坏死」—— 所以这张卡是有代价的。
 func _radiotherapy(start: Vector2i) -> void:
 	var region: Array[Vector2i] = [start]
 	var in_region := { start: true }
@@ -1000,19 +1002,24 @@ func _radiotherapy(start: Vector2i) -> void:
 				frontier.append(n)
 	game.fx("card_radiation", { "tiles": Array(region) })   ## issue #28：光柱逐格落下（区域定了就报，翻格在后）
 	var cleared := 0
+	var burned := 0
 	for c in region:
-		if game.is_cancerous(c):
+		var t: Dictionary = game.tile(c)
+		if t["tissue"] == CWData.Tissue.SOLID:
+			continue   ## 固化癌组织整格跳过：不转、也不坏死（issue #54 追加拍板）
+		if t["tissue"] == CWData.Tissue.CANCER:
 			cleared += 1
-		CWTissue.to_necrotic(game.tile(c), CWData.NECROSIS_RADIO)
-	game.log_msg("　【放疗】以 %s 为起点的 %d 格区域：%d 格癌性组织转为健康，全部进入「坏死」（%d 轮）" % [
-		str(start), region.size(), cleared, CWData.NECROSIS_RADIO])
-	game.announce("放疗：%d 格转健康 · %d 格坏死" % [cleared, region.size()], start, true)
+		CWTissue.to_necrotic(t, CWData.NECROSIS_RADIO)
+		burned += 1
+	game.log_msg("　【放疗】以 %s 为起点的 %d 格区域：%d 格癌组织转为健康，%d 格进入「坏死」（%d 轮；固化癌组织原样留着）" % [
+		str(start), region.size(), cleared, burned, CWData.NECROSIS_RADIO])
+	game.announce("放疗：%d 格转健康 · %d 格坏死" % [cleared, burned], start, true)
 
 
 # ============ 修饰类（2026-08-29 第二批）============
 # 自我修饰的卡在 play() 里只挂条目（game.add_mod / install_event），
 # 触发和消耗散在各挂接点：攻击链（cw_actions._do_move）、移动计费（_move_cost_mod）、
-# 伤害管线（immune_hit / cancer_hit）、有氧（_aerobic）、固化（raise_solid / _decay）。
+# 伤害管线（immune_hit / cancer_hit）、有氧（_aerobic）、固化（raise_solid）。
 # 只有【TNF-α局部炎症】带一段立即结算，住在下面。
 
 func _tnf_area(cell: Dictionary) -> Array[Vector2i]:

@@ -27,20 +27,25 @@ func ask(req: Dictionary) -> int:
 	if req["kind"] == "action":
 		var fac: int = game.player(req["pid"])["faction"]
 		var intent := MechIntent.new()
+		## ⚠ **评估只许在独立副本上跑，真 game 一行不动**（Kevin 2026-09-19：意图档「动画乱套或重复播放」）。
+		## 第一版把 MechIntent 的「快照→试走→回滚」直接跑在真 game 上：每一次试走的 `g.step()` 都是真步——
+		## 内核消费者把它推成 roll / result / fx / feed 条目、界面照演，回滚之后真的那一步又演一遍；
+		## 日志与出牌列也被假动作污染。与 MC / MCTS 同一条路：从快照造一份 `sim_quiet` 的副本
+		## （陪练全是同步启发式，零真挂起），确定性照旧（rng 随快照复原）。护栏 `t_mech_bridge_quiet`。
+		## 【alpha-beta 分支同规矩】search_best 的整棵搜索树也只跑 image，真局零污染。
+		var image: CWGame = CWMonteCarloBridge._build_image_static(game.snapshot(), {
+			"fixed_lineup": fixed_lineup, "lifecare": lifecare, "sim_no_lifecare": false })
 		var best: Dictionary
 		if use_search:
 			## 叶估值 = 拟合 E(s)（零和：免疫 +E / 癌 −E）；走子排序仍用旧手拍（动作知识层）
 			var leaf: Callable = func(m: Dictionary) -> float:
 				var ev: float = MechValue.position_eval_linear(m) if _fit_linear_on else MechValue.position_eval(m)
 				return ev if int(m.get("faction", 0)) == CWData.Faction.IMMUNE else -ev
-			best = await intent.search_best(game, req["pid"], leaf, SEARCH_DEPTH)
-			if best.has("path") and best["path"].size() > 0:
-				var ix := _find_move_option(req, best["path"][0])
-				if ix >= 0:
-					return ix
-			return await super.ask(req)
-		var scorer: Callable = _pick_scorer(fac)
-		best = await intent.best_by(game, req["pid"], scorer)
+			best = await intent.search_best(image, req["pid"], leaf, SEARCH_DEPTH)
+		else:
+			var scorer: Callable = _pick_scorer(fac)
+			best = await intent.best_by(image, req["pid"], scorer)
+		image.dispose()
 		## 只在「动过确实更好」时接管：best 为空路径（不动基线赢）→ 回落启发式
 		if best.has("path") and best["path"].size() > 0:
 			var idx := _find_move_option(req, best["path"][0])

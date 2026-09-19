@@ -220,6 +220,12 @@ static func leaving_indices(was: PackedStringArray, now: PackedStringArray) -> A
 	return out
 
 
+## 这一次比上一次**新到**了几张（多重集差，同名各算各的）。张数没变也可能有新到的 ——
+## 打出一张、同一步里又抽到一张；CWMatch.hand_refresh 据此决定要不要演飞入（2026-09-19）
+static func arrivals(was: PackedStringArray, now: PackedStringArray) -> int:
+	return now.size() - (was.size() - leaving_indices(was, now).size())
+
+
 ## 留一张便条给下一次离场。手势一发就写，写完覆盖上一张。
 func _hint_exit(card_name: String, kind: int) -> void:
 	_exit_hint = { "name": card_name, "kind": kind }
@@ -475,7 +481,19 @@ func _begin_drag(index: int, grab_local: Vector2) -> void:
 
 ## 拖动中的卡不归 _layout() 管，所以事件得在这一层收：光标离开卡面之后，
 ## 卡自己的 gui_input 就再也收不到了（Control 只在指针压在自己身上时才有 gui_input）。
+##
+## **暂停菜单压在上面时这一支得自己让路**（联机局不冻树，issue #45）：
+## `_input` 是 Node 级回调、排在 GUI 派发**之前**，菜单那整屏 MOUSE_FILTER_STOP 根本拦不住它
+## （同 chat_box.gd 的键盘那一支）。从前靠 `get_tree().paused` 连它一起停掉，现在联机局不停了。
+## 不让路的后果不止是卡画在模态菜单之上：在抽屉外松手照样 emit play_requested，
+## 这张牌就在菜单开着的时候被真打出去了、还不可撤销。
+## 半途的拖动当场作废：留着 `_drag` 卡就停在菜单上面（`_layout()` 碰都不碰拖动中的那张）。
 func _input(event: InputEvent) -> void:
+	if CWPauseMenu.modal():
+		if _drag >= 0:
+			_drag = -1
+			_layout()                      ## 让卡飞回抽屉，别停在菜单上面
+		return
 	if _drag < 0:
 		return
 	var me := event as InputEventMouse

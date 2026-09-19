@@ -2,7 +2,7 @@
   {
     "schema": "cwxcase/2",
     "id": "aerobic_share/basic_level_I/four_seats_full_healthy",
-    "covers": ["t_immune_level_rules::四档就是 2.0 / 3.0 / 4.5 / 5.0（issue #13）"],
+    "covers": ["t_immune_level_rules::四档就是 2.0 / 3.0 / 5.0 / 7.0（issue #66；#13 时是 4.5 / 5.0）"],
     "probe": "aerobic_share",
     "source": "cw_world.gd aerobic_income(cell) = necrosis_cut(cell, aerobic_share() + _aerobic_bonus(cell))；四席、全健康盘、I 级基础免疫细胞。expect 由 GD runner 实跑得出，C# 必须同值",
     "world": {

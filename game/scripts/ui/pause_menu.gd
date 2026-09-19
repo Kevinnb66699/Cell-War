@@ -11,6 +11,15 @@
 ##
 ## 暂停期间 `get_tree().paused = true`：AI 的行动间隔是 SceneTreeTimer，
 ## 会跟着一起停，所以这是真暂停而不只是盖一层。本节点自己设成 ALWAYS 才收得到输入。
+##
+## **联机局不冻树**（issue #45，2026-09-19）：联机由服务器驱动，客户端只是镜像 + 播放。
+## 冻了树，演出层的补间与 `_process` 全停在半截 —— 而骰子那一条是 barrier 条目，
+## `CWPlayQueue.play_one` 正 `await` 着消费者播完，于是整条条目流跟着卡住，
+## 菜单一关又一口气补播。服务器可不等人：计时照走、别人照打，玩家回来看到的是一段追帧。
+## 改成「只挡输入、不停播放」：鼠标本来就被本节点整屏的 MOUSE_FILTER_STOP 挡着，
+## 键盘由 `modal()` 这道闸挡 —— 对局里那几个单键快捷键（行动栏数字 / 右栏空格 /
+## 日志 L / 聊天回车）各自先问一句，判据和它们早就在问的 `CWChatBox.typing()` 同一路数。
+## 本地局与回放照旧真暂停（没有服务器在推，停下来才是玩家要的那个「暂停」）。
 class_name CWPauseMenu
 extends Control
 
@@ -159,6 +168,24 @@ func _ready() -> void:
 	visible = false
 
 
+## 最近一次 open() 的那只菜单（issue #45）。**别把它换成一面 `static var modal := false` 旗子**：
+## 那样每一条不走 close() 的拆解路（对局 teardown、测试里直接 free 掉整层）都会把旗子
+## 永久钉在 true 上，之后全局的单键快捷键集体失灵，而且一点报错都没有。
+static var _open_menu: CWPauseMenu = null
+
+## 此刻有没有一张暂停菜单压在对局上面。**现问现答**（活着 + 在树上 + 可见），所以自愈。
+## 联机局不冻树，对局里的单键快捷键靠它让路；本地局树本来就冻着，这道闸只是多一重保险。
+static func modal() -> bool:
+	return _open_menu != null and is_instance_valid(_open_menu) \
+		and _open_menu.is_inside_tree() and _open_menu.visible
+
+
+## 这一档要不要把整棵树冻住。**纯函数**，好直接测（issue #45）。
+## 联机局不冻：盘面在服务器上，客户端停下来的只有演出，停完还得补播。
+static func freezes_tree(p_online: bool) -> bool:
+	return not p_online
+
+
 func toggle() -> void:
 	if visible:
 		close()
@@ -168,10 +195,11 @@ func toggle() -> void:
 
 func open() -> void:
 	visible = true
+	_open_menu = self
 	## **必须比日志 / 聊天更顶**：那两个展开时会 move_to_front()，
 	## 而这是模态层 —— 聊天开着时按 Esc 弹出菜单，菜单不能被压在它底下
 	move_to_front()
-	if is_inside_tree():
+	if is_inside_tree() and freezes_tree(online):
 		get_tree().paused = true
 	_show_page("")
 
@@ -274,8 +302,10 @@ static func confirm_hint(confirm_id: String, p_online: bool, p_replay: bool,
 	## 有席位的人：**两页都是同一件事** —— 人走了，那一席交给 AI 代打（Kevin 2026-09-13）。
 	## 「当前对局不会保存」是本地局的说法，联机局的进度在服务器上，本来就不存本地存档，
 	## 拿它当联机退出的代价说明是答非所问。
+	## 「还能回来」这半句是 issue #46 把那条路补通之后才成立的：席位与令牌留在服务器上，
+	## 回大厅填一次房间码就接着打。不说清楚，玩家只会读到「走了这局就没了」，于是宁可挂机干等。
 	if p_online and (confirm_id == "menu" or confirm_id == "quit"):
-		return "%s后本局由 AI 代打" % ("离开" if confirm_id == "menu" else "退出")
+		return "%s后本局由 AI 代打，可凭房间码回来接着打" % ("离开" if confirm_id == "menu" else "退出")
 	return CONFIRM_HINT
 
 

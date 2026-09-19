@@ -3,10 +3,10 @@ extends SceneTree
 ##
 ## 为什么要有：正文里的数字是从 `CWTuning` / `CWData` 现算的（`{{tune.*}}` 占位，费用、伤害、门槛…）。
 ## 想通读一遍、或者要和团队逐句对文案，翻数据既费劲又容易漏掉「这句里的数其实是算出来的」。
-## 这里直接问门面要，导出来的就是**玩家真会看到的那几行字**。
 ##
-## 新手引导 S3 起剧本正本是 `game/data/tutorial/*.json`（`CWGuideData` 退成读它的门面），
-## 逐关的标签也跟着换：老导演那三项（棋盘半径 / 视角 / 实验区）没有了，改成数据里的活跃格数与席位。
+## **2026-09-19 改读 `cwtut/2`**（新手教程 v2 · S1）：老 `CWGuideData` 随老教程一起删了，
+## 数据门面换成 `scripts/kernel/cw_tutor_script.gd`，逐关按 `index.json` 的关表走，
+## 每条 `flow[]` 按九个动词原样列出来。**这一片是桩**：占位符替换与按皮排版由 S12 重写。
 ##
 ## 跑（可以加 --headless）：
 ##   godot --headless --path game --script res://tests/dump_guide.gd -- <输出.md>
@@ -16,6 +16,8 @@ extends SceneTree
 ## 文案是队友在改的东西，留下每一版才对得起「改完再导一份」这句话；
 ## 不要覆盖同一个文件名，那样改了什么就再也看不出来了。
 
+const SCRIPT_DATA := preload("res://scripts/kernel/cw_tutor_script.gd")
+
 var _out := ""
 
 
@@ -23,53 +25,48 @@ func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.size() > 0:
 		_out = args[0]
+	var d = SCRIPT_DATA.new()
+	var rows: Array = d.load_index().get("levels", [])
 	var md := PackedStringArray()
-	md.append("# 教程剧本（现行）")
+	md.append("# 教程剧本（现行 · cwtut/2）")
 	md.append("")
-	md.append("由 `game/tests/dump_guide.gd` 从引擎导出 —— **这就是玩家真会看到的字**，")
-	md.append("正文里的数字是 `CWTuning` / `CWData` 现算的，不是写死的。")
+	md.append("由 `game/tests/dump_guide.gd` 从数据导出 —— **这就是玩家真会看到的字**。")
 	md.append("")
-	md.append("- 共 %d 关；`渐进 UI` 档位：0 只看棋盘 · 1 目标高亮 · 2 规则/资源提示 · 3 预测与解释"
-		% CWGuideData.CHAPTER_COUNT)
-	md.append("- 每步的字段：**正文**（可空，最多六行）`高亮`（提亮层目标）`动作`（可由「继续」代做）`完成`（真实状态判据）")
+	md.append("- 共 %d 关；每条 `flow[]` 带 `do`（九个动词之一）与 `prd`（剧本行号，对账闸用）" % rows.size())
 	md.append("")
-	var titles := CWGuideData.chapter_titles()
-	var subs := CWGuideData.chapter_subtitles()
 	var total := 0
-	for i in CWGuideData.CHAPTER_COUNT:
-		var steps: Array = CWGuideData.steps(i)
-		total += steps.size()
+	for row: Dictionary in rows:
+		var lv: Dictionary = d.load_level(str(row.get("id", "")))
+		if lv.is_empty():
+			md.append("> ⚠ 关「%s」读不出来（关表里的 file 指错了？）" % str(row.get("id", "")))
+			continue
+		var flow: Array = lv.get("flow", [])
+		total += flow.size()
 		md.append("---")
 		md.append("")
-		md.append("## 第 %d 关 · %s" % [i + 1, titles[i]])
+		md.append("## %s · %s" % [str(lv.get("title", "")), str(lv.get("chapter_title", ""))])
 		md.append("")
-		md.append("> %s" % subs[i])
+		md.append("> %s" % str(lv.get("subtitle", "")))
 		md.append("")
-		md.append("`活跃格 %d` `席位 %d（人类坐第 %d 席）` `渐进 UI %d` `知识之书第 %d 章` `%d 步`"
-			% [CWGuideData.active_tiles(i).size(), CWGuideData.seats(i),
-				CWGuideData.human_seat(i) + 1, CWGuideData.ui_stage(i),
-				int(CWGuideData.CODEX_PAGE[i]) + 1, steps.size()])
+		md.append("`%s` `活跃格 %d` `席位 %d（人类坐第 %d 席）` `带子 %d 颗` `%d 条`"
+			% [str(lv.get("chapter_kind", "main")), (lv.get("active_tiles", []) as Array).size(),
+				int(lv.get("seats", 0)), int(lv.get("human_seat", 0)) + 1,
+				(lv.get("rolls", []) as Array).size(), flow.size()])
 		md.append("")
-		for k in steps.size():
-			var s: Dictionary = steps[k]
-			md.append("**%d.%d %s**" % [i + 1, k + 1, str(s.get("t", ""))])
+		for k in flow.size():
+			var e: Dictionary = flow[k]
+			md.append("**%d. `%s`**%s" % [k + 1, str(e.get("do", "")),
+				"（PRD:%d）" % int(e["prd"]) if e.has("prd") else ""])
 			md.append("")
-			for line in s.get("b", []):
+			for line in e.get("lines", []):
 				md.append("> %s" % str(line))
+			for field in ["hint", "advise", "tip"]:
+				if str(e.get(field, "")) != "":
+					md.append("　　%s `%s`" % [field, str(e[field])])
 			md.append("")
-			var tags := PackedStringArray()
-			if str(s.get("flag", "")) != "":
-				tags.append("高亮 `%s`" % str(s["flag"]))
-			if str(s.get("act", "")) != "":
-				tags.append("动作 `%s`" % str(s["act"]))
-			if str(s.get("watch", "")) != "":
-				tags.append("完成 `%s`" % str(s["watch"]))
-			if not tags.is_empty():
-				md.append("　　%s" % " · ".join(tags))
-				md.append("")
 	md.append("---")
 	md.append("")
-	md.append("合计 %d 步。" % total)
+	md.append("合计 %d 条。" % total)
 	md.append("")
 	var text := "\n".join(md)
 	if _out == "":
@@ -81,5 +78,5 @@ func _initialize() -> void:
 		else:
 			f.store_string(text)
 			f.close()
-			print("已导出 %s（%d 关 / %d 步）" % [_out, CWGuideData.CHAPTER_COUNT, total])
+			print("已导出 %s（%d 关 / %d 条）" % [_out, rows.size(), total])
 	quit()

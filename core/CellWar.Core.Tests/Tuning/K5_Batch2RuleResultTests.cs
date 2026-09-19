@@ -19,31 +19,32 @@ public class K5Batch2RuleResultTests
 {
     // ======== ① 抗原记忆门槛表：GD CWData.level_min_memory(n_players) ========
 
-    /// <summary>四人档 `[0,10,20,50]`、其余（含 **2 人**与 balance_scan 的 5 / 7 人）走缺省的六人档 `[0,10,30,70]`。
+    /// <summary>四人档 `[0,10,20,100]`、其余（含 **2 人**与 balance_scan 的 5 / 7 人）走缺省的六人档 `[0,10,30,120]`。
+    /// **2026-09-19 issue #55** 把 X 级抬到四人 100 / 六人 120（II / III 两档不动）。
     /// 2 人局那两行就是本批要合的分叉：此前 C# 行内 `Count==6 ? 70/30 : 50/20` 给 2 人局发的是四人档。</summary>
     [Theory]
-    // 2 人局（L0 的绝大多数盘面）：20 还在 II、30 才 III；50 还在 III、70 才 X
+    // 2 人局（L0 的绝大多数盘面）：20 还在 II、30 才 III；119 还在 III、120 才 X
     [InlineData(2, 19, ImmuneLevel.II)]
     [InlineData(2, 20, ImmuneLevel.II)]
     [InlineData(2, 29, ImmuneLevel.II)]
     [InlineData(2, 30, ImmuneLevel.III)]
-    [InlineData(2, 69, ImmuneLevel.III)]
-    [InlineData(2, 70, ImmuneLevel.X)]
-    // 四人局：20 → III、50 → X
+    [InlineData(2, 119, ImmuneLevel.III)]
+    [InlineData(2, 120, ImmuneLevel.X)]
+    // 四人局：20 → III、100 → X
     [InlineData(4, 19, ImmuneLevel.II)]
     [InlineData(4, 20, ImmuneLevel.III)]
-    [InlineData(4, 49, ImmuneLevel.III)]
-    [InlineData(4, 50, ImmuneLevel.X)]
-    // 六人局：30 → III、70 → X
+    [InlineData(4, 99, ImmuneLevel.III)]
+    [InlineData(4, 100, ImmuneLevel.X)]
+    // 六人局：30 → III、120 → X
     [InlineData(6, 29, ImmuneLevel.II)]
     [InlineData(6, 30, ImmuneLevel.III)]
-    [InlineData(6, 69, ImmuneLevel.III)]
-    [InlineData(6, 70, ImmuneLevel.X)]
+    [InlineData(6, 119, ImmuneLevel.III)]
+    [InlineData(6, 120, ImmuneLevel.X)]
     // 表里没有的人数（balance_scan 会扫）退回缺省的六人档
     [InlineData(5, 20, ImmuneLevel.II)]
     [InlineData(5, 30, ImmuneLevel.III)]
-    [InlineData(7, 69, ImmuneLevel.III)]
-    [InlineData(7, 70, ImmuneLevel.X)]
+    [InlineData(7, 119, ImmuneLevel.III)]
+    [InlineData(7, 120, ImmuneLevel.X)]
     public void 免疫等级门槛按人数分档(int seats, int gained, ImmuneLevel expected)
     {
         var after = CellRules.AddMemory(Seats(seats), gained);
@@ -66,7 +67,7 @@ public class K5Batch2RuleResultTests
     [Fact]
     public void 升到X级就地清零且只清一次()
     {
-        var atX = CellRules.AddMemory(Seats(2), 70);
+        var atX = CellRules.AddMemory(Seats(2), 120);
         Assert.Equal(ImmuneLevel.X, atX.Players[0].ImmuneLevel);
         Assert.Equal(0, atX.Players[0].AntigenMemory);
 
@@ -87,13 +88,13 @@ public class K5Batch2RuleResultTests
     }
 
     /// <summary>门槛表逐字等于 GD 的两张常量表（改了 `CWData` 就该红在这里）。
-    /// GD 录出（2026-09-19）：`CWData.level_min_memory(n)` 对 n = 1/2/3/5/6/7 都是 [0,10,30,70]，n = 4 是 [0,10,20,50]。</summary>
+    /// GD 录出（2026-09-19，issue #55 之后）：`CWData.level_min_memory(n)` 对 n = 1/2/3/5/6/7 都是 [0,10,30,120]，n = 4 是 [0,10,20,100]。</summary>
     [Fact]
     public void 门槛表逐字等于GD的两张常量表()
     {
-        Assert.Equal(new[] { 0, 10, 30, 70 }, CellRules.LevelMinMemory);              // CWData.LEVEL_MIN_MEMORY
-        Assert.Equal(new[] { 4 }, CellRules.LevelMinMemoryByPlayers.Keys);            // 只有四人一档
-        Assert.Equal(new[] { 0, 10, 20, 50 }, CellRules.LevelMinMemoryByPlayers[4]);  // CWData.LEVEL_MIN_MEMORY_BY_PLAYERS
+        Assert.Equal(new[] { 0, 10, 30, 120 }, CellRules.LevelMinMemory);              // CWData.LEVEL_MIN_MEMORY
+        Assert.Equal(new[] { 4 }, CellRules.LevelMinMemoryByPlayers.Keys);             // 只有四人一档
+        Assert.Equal(new[] { 0, 10, 20, 100 }, CellRules.LevelMinMemoryByPlayers[4]);  // CWData.LEVEL_MIN_MEMORY_BY_PLAYERS
     }
 
     // ======== ② AerobicBase：按人数分档 + 盘面式 ========

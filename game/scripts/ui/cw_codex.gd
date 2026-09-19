@@ -24,15 +24,16 @@
 ## 「图鉴解锁：【X】」对到条目 id 上；**只有出现在那张表里的条目才受闸**，其余常驻可见，
 ## 于是那个文件不在 = 一个条目都不受闸 = 全解锁 = 退化成 09-19 之前的行为（回滚友好）。
 ##
-## **S6b 改了两处口径（Kevin 2026-09-19）**：
-##   ① **闸只在教程进行中生效**。要不要闸这一句只问 `CWGuideProgress.codex_gated()`（那边一处判断、三态齐全）：
-##      跳过引导 / 全部通关 / 从没进过教程 ⇒ 整本书全解锁，面板连解锁集都不往下传。
-##   ② **未解锁的条目「灰显」而不是隐藏**（hxr Q-08）：条目照样出现、位置一格不挪，标题与正文降到
-##      `CWStyle.TEXT_OFF` / `TEXT_OFF_DIM`，不响应任何点击；搜索**命中但灰显**，不再从结果里剔除。
-##      于是 `chapters()` / `search()` 不再删条目，只给受闸而没解锁的那些打一个 `locked: true`。
-## `chapters()` / `search()` 的可选解锁集参数照旧，**不传 = 一条都不打标**（纯函数、老调用方一个字不用改）；
-## 面板自己每次 `open()` 从 `CWGuideProgress` 读一次。**章一个不少、条目一条不少** ——
-## 章下标是 `open_to()` / `CWGuideData.CODEX_PAGE` 的口径，不能因为解锁与否漂移。
+## **⚠ 2026-09-19（新手教程 v2 · S6）：图鉴「去闸只留通知」**（方案 §3.8，Kevin 拍板）。
+## PRD 全文只写「图鉴解锁：【X】」，**一句「没解锁就看不到」都没有** —— 于是：
+##   · **全书常驻可读**：`_gate` 恒 `null`（:119），面板永远不往 `chapters()` 里传解锁集，
+##     一个条目都不灰、一条都不拦；`CWGuideProgress.codex_gated()` 与 `skipped` 键当天退役。
+##   · 解锁时留下的只有两件：导演发一条 `codex_unlocked(ids)`（通知小卡归皮，S3 画），
+##     与**图鉴里那一条标题慢闪一轮**（`_fresh` / `_glow`，下面那套一个字没动）。
+##   · `_mark_locked` 与 `chapters(unlocked)` / `search(query, unlocked)` 的可选参数
+##     **留着不删**（方案 §3.8 明令）：老判据靠它们，而且将来要重新上闸就是把 :119 改回去一行。
+##     不传 = 一条都不打标；传了照旧打 `locked: true`，只是产品侧再没有人传了。
+## **章一个不少、条目一条不少** —— 章下标是 `open_to()` 的口径（教程直达哪一章由剧本点名）。
 class_name CWCodex
 extends Control
 
@@ -71,16 +72,18 @@ const MAX_HITS := 40
 
 ## 解锁点 → 条目 id 的对照表（新手引导 S6）。**文件不在 = 一个条目都不受闸 = 全解锁**
 const MAP_PATH := "res://data/tutorial/codex_map.json"
-## 解锁动效的闪烁参数**取 CWGuide 那三个常数**（方案 §1.12 规则 8：闪烁参数收敛到一处），同 CWGuideShell 的写法
-const HALO_PERIOD := CWGuide.HALO_PERIOD
-const HALO_ALPHA_LO := CWGuide.HALO_ALPHA_LO
-const HALO_ALPHA_HI := CWGuide.HALO_ALPHA_HI
+## 解锁动效的闪烁参数**取 CWStyle 那三个常数**（PRD 通用规则 8：闪烁参数收敛到一处）。
+## 2026-09-19 老教程整套推倒，这三个常数从 `guide.gd` 搬进 `cw_style.gd`，取法不变
+const HALO_PERIOD := CWStyle.HALO_PERIOD
+const HALO_ALPHA_LO := CWStyle.HALO_ALPHA_LO
+const HALO_ALPHA_HI := CWStyle.HALO_ALPHA_HI
 
 static var _map_cache: Dictionary = {}
 static var _map_read := false
 
 var _unlocked := PackedStringArray()   ## 这次打开时玩家已解锁的**解锁点** id（不是条目 id）
-## 往 chapters() / search() 里传的那一份：`null` = 教程没在进行中 ⇒ 一条都不打标（S6b）
+## 往 chapters() / search() 里传的那一份。**S6 起恒 `null`**（去闸只留通知）⇒ 一条都不打标；
+## 留着这个成员是因为它是「闸」的唯一开关，删了将来要上闸得重铺三处调用
 var _gate: Variant = null
 var _seen := {}                        ## 本实例已经闪过的条目 id —— 闪一次就够，别每次开书都闪一遍
 var _fresh := {}                       ## 这次翻到就要闪的条目 id
@@ -110,12 +113,13 @@ func open_to(page: int) -> void:
 	_rebuild_page()
 
 
-## 每次开书重读一次解锁集（书是覆盖层、活得比一次解锁久，缓存会让刚解锁的条目下次才灰转亮）。
-## 顺便算出「这次要闪的」：已解锁、且本实例还没让它闪过的条目
+## 每次开书重读一次解锁集（书是覆盖层、活得比一次解锁久，缓存会让刚解锁的那一条下次才闪）。
+## 算的是「这次要闪的」：已解锁、且本实例还没让它闪过的条目
 func _refresh_unlocked() -> void:
 	_unlocked = PackedStringArray(CWGuideProgress.read()["unlocked"])
-	## 闸只在教程进行中生效（S6b）：跳过 / 通关 / 没进过教程 ⇒ 干脆不传解锁集
-	_gate = _unlocked if CWGuideProgress.codex_gated() else null
+	## **恒 null**（S6：去闸只留通知，方案 §3.8）——解锁集只喂慢闪，不再决定哪条看得见。
+	## 这一行就是那个闸的全部开关：要重新上闸，改回 `_unlocked if 某谓词 else null` 即可
+	_gate = null
 	_fresh.clear()
 	var map := unlock_map()
 	for point in _unlocked:
@@ -212,17 +216,42 @@ func _next_page() -> void:
 ## 解锁点 → 条目 id 的对照表：`{ 解锁点 id: [条目 id…] }`。读一次缓存（一局之内不变）。
 ## 文件不在 / 读不出来 → 空表 → 一个条目都不受闸（回滚口径）
 static func unlock_map() -> Dictionary:
+	return _read_map().get("unlocks", {})
+
+
+## 整份 `codex_map.json`（`unlocks` + `names`）。读一次缓存（一局之内不变）
+static func _read_map() -> Dictionary:
 	if _map_read:
 		return _map_cache
 	_map_read = true
 	if FileAccess.file_exists(MAP_PATH):
 		var raw: Variant = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH))
 		if raw is Dictionary:
-			_map_cache = (raw as Dictionary).get("unlocks", {})
+			_map_cache = raw as Dictionary
 	return _map_cache
 
 
-## 反向表：`{ 条目 id: [解锁点 id…] }`。**在这张表里的条目才受闸**，其余常驻可见
+## 解锁点 → PRD 里那个【X】（`codex_map.json` 的 `names` 段）。
+## **通知小卡上写的是这个名字，不是条目标题**：PRD:279 写的是「图鉴解锁：【攻击】」一条，
+## 而它落到「怎么打」「攻击骰」两个条目上（一对二），拿条目标题拼会当场多出一行。
+## 表里没有这个点 → 返回它自己的 id（宁可露出 id 也别静默吞掉一条通知）
+static func unlock_name(point: String) -> String:
+	var names: Dictionary = _read_map().get("names", {})
+	return str(names.get(point, point))
+
+
+## 一串解锁点的名字，**按传进来的次序、去重**（同一拍解锁两条的话通知要一次说完）
+static func unlock_names(points) -> PackedStringArray:
+	var out := PackedStringArray()
+	for p in points:
+		var n := unlock_name(str(p))
+		if not out.has(n):
+			out.append(n)
+	return out
+
+
+## 反向表：`{ 条目 id: [解锁点 id…] }`。**在这张表里的条目才受闸** —— S6 起产品侧没有人上闸了，
+## 留着给判据与将来重新上闸用（方案 §3.8：`_mark_locked` 那一套一并留着）
 static func gated_entries() -> Dictionary:
 	var out := {}
 	var map := unlock_map()
@@ -986,7 +1015,7 @@ func _process(delta: float) -> void:
 	_apply_pulse()
 
 
-## 慢闪 = 标题整体透明度在 HALO_ALPHA_LO..HI 之间呼吸（同 CWGuide 的柔光、CWGuideShell 的横幅）。
+## 慢闪 = 标题整体透明度在 HALO_ALPHA_LO..HI 之间呼吸（同教程提亮层的柔光，PRD 通用规则 8）。
 ## 用 modulate 而不是换字色：点阵字换色会让字重看起来在变，透明度不会
 func _apply_pulse() -> void:
 	var k := 0.5 + 0.5 * sin(_pulse_t * TAU / HALO_PERIOD)

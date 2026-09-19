@@ -45,8 +45,9 @@ public sealed record RuleTuning
 
     /// <summary>小细胞肺癌【转移】的费用（GD `METASTASIS_COST`）。</summary>
     public int MetastasisCost { get; init; } = 10;
-    /// <summary>免疫细胞死亡后罚停几个世界回合（GD `CWData.IMMUNE_RESPAWN_DELAY` / `cw_tuning.gd immune_respawn_delay`）：
-    /// 死于第 N 回合 → 第 N+1+delay 回合的 S 阶段可复活；-1 = 不再复活。</summary>
+    /// <summary>PRD【S-复活】死亡惩罚 **X 的初始值**（GD `CWData.IMMUNE_RESPAWN_DELAY` / `cw_tuning.gd immune_respawn_delay`）：
+    /// 死于第 N 回合 → 第 N+1+X 回合的 S 阶段可复活，X = 这个初始值 + <see cref="Cell.Revives"/>（每结算一次复活 +1，issue #63）；
+    /// -1 = 不再复活。</summary>
     public int ImmuneRespawnDelay { get; init; } = 1;
     /// <summary>小细胞肺癌【转移】每世界回合最多几次（GD `cw_tuning.gd metastasis_max_per_round`，0 = 不限）。</summary>
     public int MetastasisMaxPerRound { get; init; } = 2;
@@ -76,15 +77,18 @@ public sealed record RuleTuning
 
     /// <summary>
     /// 【E-固化】的计数门槛，按肿瘤分期三档（GD `SOLIDIFY_THRESHOLD_BY_STAGE`）。
-    /// II 期就降到 2.0 是 PRD 2026-09-12 把它从 III 期提前来的。
+    /// II 期就降到 2.0 是 PRD 2026-09-12 把它从 III 期提前来的；
+    /// **2026-09-19 issue #56**：III 期再降到 **1.5**（十分单位 15）。
     /// </summary>
-    public IReadOnlyList<int> SolidifyThreshold { get; init; } = [30, 20, 20];
+    public IReadOnlyList<int> SolidifyThreshold { get; init; } = [30, 20, 15];
 
-    /// <summary>【E-增生】每个相邻癌性组织的基数，千分率，按分期三档（GD `PROLIFERATE_BASE_BY_STAGE`）。</summary>
-    public IReadOnlyList<int> ProliferatePerAdjacent { get; init; } = [30, 35, 40];
+    /// <summary>【E-增生】每个相邻癌性组织的基数，千分率，按分期三档（GD `PROLIFERATE_BASE_BY_STAGE`）。
+    /// **2026-09-19 issue #56**：II 期 35→40、III 期 40→50。</summary>
+    public IReadOnlyList<int> ProliferatePerAdjacent { get; init; } = [30, 40, 50];
 
-    /// <summary>【E-增生】块内每格固化癌组织的加成，千分率，按分期三档（GD `PROLIFERATE_SOLID_BY_STAGE`）。</summary>
-    public IReadOnlyList<int> ProliferatePerSolid { get; init; } = [5, 10, 10];
+    /// <summary>【E-增生】块内每格固化癌组织的加成，千分率，按分期三档（GD `PROLIFERATE_SOLID_BY_STAGE`）。
+    /// **2026-09-19 issue #56**：III 期 10→15。</summary>
+    public IReadOnlyList<int> ProliferatePerSolid { get; init; } = [5, 10, 15];
 
     /// <summary>
     /// 【E-侵蚀】每个封闭健康块转几格，按分期三档的 (常见值, 少见值)。

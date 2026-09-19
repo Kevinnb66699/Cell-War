@@ -147,7 +147,7 @@
       { "tag": "block:10/cells:1", "cases": "^anaerobic/block_10/one_cell/" },
       { "tag": "block:10/cells:2", "cases": "^anaerobic/block_10/two_cells/" },
       { "tag": "floor", "cases": "^anaerobic/floor_kicks_in$" },
-      { "tag": "solid", "cases": "^anaerobic/solid_is_counted_board_wide$" },
+      { "tag": "solid", "cases": "^anaerobic/solid_counted_in_block_only$" },
       { "tag": "block:7/solo", "cases": "^anaerobic/block_7/" },
       { "tag": "warburg:sclc", "cases": "^anaerobic/warburg/" },
       { "tag": "skill:glut1", "cases": "^anaerobic/glut1/" }
@@ -523,8 +523,8 @@
     "note": "B4（bare_game 末尾也过一次 on_game_made）之后这一步才收得到：六条断言全在 `t_tumor_stages` 的 _blank_board()（底座 bare_game()）上，补之前是零草稿。目标是 pick_random 抽的，两侧 pop-loop 同形（GD `CWGame.pick_random` ↔ C# `TapeRng.PickRandom`，退化区间都零消耗），本批 5 条两侧绿 = 带子对得上",
     "boundaries": [
       { "tag": "stage:I_none", "cases": "^rooted/t_tumor_stages/000$" },
-      { "tag": "stage:II_n1", "cases": "^rooted/t_tumor_stages/001$" },
-      { "tag": "stage:III_n3", "cases": "^rooted/t_tumor_stages/002$" },
+      { "tag": "stage:II_n3", "cases": "^rooted/t_tumor_stages/001$" },
+      { "tag": "stage:III_n5", "cases": "^rooted/t_tumor_stages/002$" },
       { "tag": "threshold:flip_on_push", "cases": "^rooted/t_tumor_stages/003$" },
       { "tag": "next_round_becomes_source", "cases": "^rooted/t_tumor_stages/004$" }
     ]
@@ -541,20 +541,6 @@
       { "tag": "already_purified", "cases": "^ossify/t_batch2_rules/043$" },
       { "tag": "left_then_flip", "cases": "^ossify/t_batch2_rules/050$" },
       { "tag": "immune_standing_keeps_mark", "cases": "^ossify/t_batch2_rules/048$" }
-    ]
-  },
-  {
-    "op": "decay", "kind": "step", "family": "S",
-    "prd": "E-6 固化计数衰减",
-    "gd": "cw_world.gd:_decay", "gd_module": "CWWorld",
-    "cs": "BoardRules.Decay",
-    "args": [], "rng": false,
-    "status": "OK", "cases": "required",
-    "note": "【基质稳定】（**卡牌**挂的全局修饰，不是世界事件）在场那一回合整步跳过，两侧都是开头一句 return（GD `event_stacks` ↔ C# `WorldEffects.Active`）。两档（抑制 / 到期恢复）撞 KG-7：`t_card_mods` ⑩段把那只癌细胞摆在 (5,5)（半径 6 的棋盘外），GD 容得下、C# WorldLoader 不收 —— 记 COVERAGE.md 空档，归 Kevin 那条问（改测试盘面 or 统一盘外口径）。",
-    "boundaries": [
-      { "tag": "minus_0.5", "cases": "^decay/t_solidify_and_decay/006$" },
-      { "tag": "floor_zero", "cases": "^decay/t_solidify_and_decay/007$" },
-      { "tag": "already_zero_noop", "cases": "^decay/t_solidify_and_decay/008$" }
     ]
   },
   {

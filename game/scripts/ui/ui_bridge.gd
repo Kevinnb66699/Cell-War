@@ -55,6 +55,10 @@ var chain_fx: CWChainFx
 var skill_fx: CWSkillFx   ## 一次性技能演出的合集（issue #15）
 var attack_animation: Callable
 var camera: Camera2D   ## 棋盘坐标 → 屏幕坐标要用它（提示挂在 CanvasLayer 上）
+## **PRD 通用规则 13**（教程，2026-09-19）：教程的镜头会推近，镜头外 / 被镜头框切到的格子
+## **不许当目标**。装配方（`CWMatch._attach_tutor`）注入；正式局不注入 ⇒ 一格都不滤。
+## 每次点的时候现问（不是进这一问时滤一遍）：镜头正在补间的那几帧还没放开
+var tile_visible: Callable = Callable()
 var erosion: CWErosionFx   ## 癌蔓延两帧过场（侵蚀 / 增生 / 定殖共用）；纯 AI 桥 / 测试里可为 null
 var hand: CWHand       ## 手牌抽屉：方案甲的打出/弃置手势从这里来（无界面时为 null）
 ## 正在选迁移目标时，每一格的耗能（坐标 → 十分能量）。空 = 此刻不在迁移态。
@@ -83,6 +87,9 @@ var marks := {}
 ## 紧跟骰子的结算说明（攻击 / 突变 / 抗体的结果文字）停多久。1.1 → 2.4（Kevin 2026-09-06：结果文字停久些，
 ## **骰子本身的演出不动** —— 那是 CWDice.play 的节拍，这里碰不到）。停久了就各自一只气泡，连着两次攻击才不会互相顶掉
 const RESULT_HOLD := 2.4
+## 攻击大成功那一句的原文（cw_actions.gd 攻击结算的 announce：`"攻击%s" % "大成功"`）——
+## 只有这一句换金字（CWToast.bubble_crit_at，Kevin 2026-09-19）。`t_crit_gold` 钉两边一致
+const CRIT_RESULT := "攻击大成功"
 ## 不是紧跟骰子的说明（事件卡效果、复活失败、次数用尽……）停多久：各自一只气泡（CWToast.bubble_at），互不顶掉
 const TEXT_HOLD := 4.0
 
@@ -147,6 +154,15 @@ class Answer:
 ## **debug 模式下 Godot 会直接断在调试器里，表现就是「游戏卡死」**
 ## （2026-08-27 团队试玩报的就是这个）。
 ## 引擎那边由 CWGame.aborted 收摊，两边配合才能安全展开。
+## 这一问里**没有选项的那几个种类**要不要连按钮都不建？正式局恒 `false`
+## （灰按钮是有意的：「花掉能量不会让按钮凭空少一个」）。
+## 教程的闸桥（`cw_tutor_gate.gd`）在 `allow` 非空时覆写成 `true` —— 强制演出关里
+## 「allow 之外的选项根本不建」是 PRD:453 的原话。**虚函数放基类**：`_ask_action` 里
+## 那一行不认识教程，只问「要不要藏」
+func hides_dead_acts() -> bool:
+	return false
+
+
 func abort() -> void:
 	_aborted = true
 	_clear_ui()
@@ -156,6 +172,22 @@ func abort() -> void:
 		var p := _pending
 		_pending = null
 		p.fire(null)
+
+
+## 这一问被**别人**答掉了（服务器代打接管，issue #44）：像 abort() 那样收掉界面，
+## 另外再把迁移那两样**跨问留存**的状态一起作废 ——
+## · `_sticky_move`「上一步选的是迁移」：留着的话，下一问会直接跳回选目标态，
+##   而代打刚刚替我走的多半是别的一步，玩家对着一屏高亮格不知道自己在选什么；
+## · `_plan` 规划好的路线：留着的话 `_pick_move` 开头那句 `_plan_take_step` 会**不问自答**，
+##   照着一条按旧盘面算出来的路继续走。
+## abort() 自己不清这两样是对的：每一次新询问（含迁移的每一步）都要经过它，清了迁移就不再是切换式的。
+func taken_over() -> void:
+	_sticky_move = false
+	_sticky_pid = -1
+	_sticky_round = -1
+	_plan_reset()
+	move_costs.clear()
+	abort()
 
 
 ## 该不该先弹换手遮罩：热座、且这次被问的真人不是上一位露过牌的真人（第一问时 current_human = -1，也弹 —— 宣布谁先手）。
@@ -295,6 +327,19 @@ func _ask_action(req: Dictionary) -> int:
 			return effects_of.get(String(args.get("act", "")), [])
 		for act in kinds:
 			var live: bool = groups.has(act)
+			## 教程局把卡牌与【基因表达】整个关掉（方案 Q-18：`ui.hand=false` + 盘面 `hand: []`）——
+			## 那几关连按钮都**不建**。正式局的「按钮不消失、只变暗」是为了「花掉能量不会让按钮
+			## 凭空少一个」，而教程第一关压根没有能量这回事，灰着的那一颗只会把新手引过去点
+			## （PRD:51 / 通用规则 9；09-19 真机截图抓到的）。`hand` 默认为真 ⇒ 非教程局读到的和今天一模一样
+			if act == "draw" and not CWTutorLayers.on("hand"):
+				continue
+			## 教程的**强制演出**（PRD:453 第六关：「玩家仅可点击 UI 提示的部分」）：
+			## `allow` 之外的种类**根本不建**，不是置灰。灰着的按钮在正式局是对的
+			## （「花掉能量不会让按钮凭空少一个」），可在摆拍关里它只会把玩家引过去点一下、
+			## 再被闸挡回来 —— 09-19 真机实测：第六关第 3 步的行动栏上同时亮着【突变】【转移】。
+			## 判据在闸那头（`CWTutorGate.hides_dead_acts`），基类恒 false ⇒ 正式局一字不变
+			if not live and hides_dead_acts():
+				continue
 			buttons.append({
 				"title": _move_title(cell) if act == "move" else ACT_TITLE.get(act, act),
 				## **「移动 / 迁移」不带价签**（Kevin 2026-09-08）：它的价随目的地变，
@@ -503,7 +548,7 @@ func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
 	move_costs.clear()
 	## 教程的 `ui_layers.cost = false`（PRD:107/151/197「迁移不显示消耗」）：价目表整张不填 ——
 	## 悬停详情那行「迁移耗能 x」是从这张表来的（`tile_info.gd:87`），空表 = 那一行不出现。正式局照常填
-	if CWGuideLayers.on("cost"):
+	if CWTutorLayers.on("cost"):
 		for i in moves:
 			move_costs[options[i]["data"]["to"]] = int(options[i]["data"]["cost"])
 	move_verb = verb
@@ -523,7 +568,7 @@ func _pick_move(cell: Dictionary, options: Array, moves: Array) -> Variant:
 	## 按钮与提示行一起不出现 —— 降级要**看得见**，不能让玩家拖出一条按空报价配色的线
 	## 教程的 `ui_layers.move_path = false`（PRD:107/151/197「迁移不显示路径」）：
 	## 直接走已有的那条**降级可见**的路 —— 规划按钮与提示行一起不出现、拖不出线，一处开关两处生效
-	_plan_ok = kernel != null and CWGuideLayers.on("move_path")   ## 联机也开：同步答不了的那几帧由 plan_tick 补画（E-1 (a)）
+	_plan_ok = kernel != null and CWTutorLayers.on("move_path")   ## 联机也开：同步答不了的那几帧由 plan_tick 补画（E-1 (a)）
 	_plan_cell = cell
 	while not _aborted:
 		var got: Variant = await _prompt("选择要%s到的组织" % verb, _plan_hint(cell, tiles.size()),
@@ -627,7 +672,7 @@ func _plan_hint(cell: Dictionary, n_reach: int) -> String:
 	var head := "%d 步 · 合计 %s%s · 走完剩 %s" % [_plan.size(),
 		CWData.fmt(int(q.get("total", 0))),
 		" · 途中核心 +%s" % CWData.fmt(gained) if gained > 0 else "",
-		CWGuideLayers.energy_text(int(q.get("left", cell["energy"])))]   ## 无限能量的渲染点三处之三（方案 §1.6）
+		CWTutorLayers.energy_text(int(q.get("left", cell["energy"])))]   ## 无限能量的渲染点三处之三（方案 §3.2(b)）
 	if not q.get("ok", false):
 		var steps: Array = q.get("steps", [])
 		var why: String = steps[-1]["blocked"] if not steps.is_empty() else ""
@@ -682,7 +727,7 @@ func _plan_extend(cell: Dictionary, c: Vector2i) -> void:
 	## 与棋盘上亮着的格子严格一致 —— 玩家看得见什么就能拖到什么。
 	## 之后几步棋盘上没有现成选项（细胞还没走过去），才去问 `plan_next_dests`
 	if _plan.is_empty():
-		if not _tiles.has(c):
+		if not _tiles.has(c) or not tile_selectable(c):
 			return
 	else:
 		var dests: Variant = kernel.query("plan_next_dests",
@@ -823,7 +868,7 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 			_plan_drag = true
 			_plan_extend(mirror.cell_of(_sticky_pid), c)
 			return
-		if tiles.has(c):
+		if tiles.has(c) and tile_selectable(c):
 			ans.fire(tiles[c])
 			return
 		## 点了一格却没反应，是界面最难受的一种沉默 —— 有理由就说出来
@@ -872,8 +917,18 @@ func _prompt(title: String, hint: String, buttons: Array, values: Array,
 	return got
 
 
+## 通用规则 13（PRD:65）：这一格此刻能不能选。没注入 `tile_visible`（= 不是教程局）
+## 就一律能选。**每次现问**：教程镜头补间没走完的那几帧，目标格还没整格进镜头
+func tile_selectable(c: Vector2i) -> bool:
+	return not tile_visible.is_valid() or bool(tile_visible.call(c))
+
+
 ## 候选格用免疫青；落着敌人的那一格用癌方橙 —— 那一下是攻击，不是迁移，
 ## 颜色得先说出来。鼠标停着的那格再提亮一档。
+##
+## 候选格里**癌性组织（含固化）换红**（issue #47）：青色色标一盖，红底的癌组织和
+## 青底的健康组织混完就是一个色，可「这一步会不会净化」恰恰是选落点时要看的。
+## 判据走 `mirror.is_cancerous`（内核的同名查询），界面不自己数格子。
 func _repaint_marks() -> void:
 	if mirror == null:
 		marks = {}
@@ -885,7 +940,7 @@ func _repaint_marks() -> void:
 		elif _enemy >= 0 and not mirror.cells_at(c, _enemy).is_empty():
 			m[c] = board.MARK_ATTACK
 		else:
-			m[c] = board.MARK_MOVE
+			m[c] = board.MARK_MOVE_SICK if mirror.is_cancerous(c) else board.MARK_MOVE
 	## 规划出来的路线压在可达高亮之上：这几格是玩家自己选的，得比「可以去」更实。
 	## 走不通的那一步标橙，配上提示行里的原因
 	var steps: Array = _plan_quote.get("steps", [])
@@ -992,12 +1047,20 @@ func _block_ms(kind: String) -> int:
 	return int(BLOCK_FX_MS.get(kind, BLOCK_FX_DEFAULT_MS))
 
 
+## **阻塞时长的总开关**（Kevin 2026-09-19：「暂时把所有的阻塞时间都调成 0」）：
+## 上面那张表一个数不动，所有 `_block` 一律乘这个系数 —— 0 = 触发即走、演出各自在自己的层里演完，
+## 队列不等任何一条（骰子不在此列：它是 barrier 条目，本地局引擎在等 ack，照旧整只演完）。
+## 要恢复原来的节奏改回 1.0 即可
+const BLOCK_MUL := 0.0
+
+
 ## 只等「阻塞那一段」。没有场景树（无头测试 / 纯数据桥）立即返回 —— 队列照样顺序播，只是不等。
 func _block(ms: int) -> void:
 	var node: Node = delay_node if delay_node != null else board
-	if ms <= 0 or node == null or not node.is_inside_tree():
+	var wait := int(ms * BLOCK_MUL)
+	if wait <= 0 or node == null or not node.is_inside_tree():
 		return
-	await node.get_tree().create_timer(ms / 1000.0).timeout
+	await node.get_tree().create_timer(wait / 1000.0).timeout
 
 
 ## 把骰子摆到目标格旁边演一次，同时在它上方标出这次掷的是什么（"攻击"/"突变"/"抗体"）。
@@ -1075,18 +1138,30 @@ func show_result(text: String, at: Vector2i, linger := false) -> void:
 	## 让「攻击」和「攻击大成功」出现在同一个地方比各自找最优位置更好读。
 	## 先收掉掷骰时那行「攻击」，结果另起一只气泡停 RESULT_HOLD（各自一只：停久了才不会被下一次攻击的结果顶掉）
 	toast.hide_box()
-	toast.bubble_at(text, _dice_rect(board.tile_center(at)), RESULT_HOLD)
+	## 攻击大成功换金字（Kevin 2026-09-19）：文案是分派键（同上面准星那几条的道理），
+	## 原文在 cw_actions.gd 的 announce，`t_crit_gold` 钉着两边一致
+	if text == CRIT_RESULT:
+		toast.bubble_crit_at(text, _dice_rect(board.tile_center(at)), RESULT_HOLD)
+	else:
+		toast.bubble_at(text, _dice_rect(board.tile_center(at)), RESULT_HOLD)
 
 
 ## Excalibur 的光束过场：把轴坐标换成棋盘像素，交给演出层。
 ## 队列会 await 它，但只等 BLOCK_BEAM_MS（蓄力 + 推到底）—— 余下那 1.3 s 的波及与散场自己演完。
+##
+## issue #53 ⑧「Excalibur 应该从细胞表面上下中心表面发出」：起点由格顶面中心改成**胞体中心**
+## （脚底再往上半个贴图高，同 FX_BODY_CENTER 那几种），光束的起手偏移改成**胞体半径** ——
+## 光芯于是正好从细胞轮廓上离开，而不是从脚底往外 16px 凭空冒出来。
+## 落点与侧向波及仍是格位：它们打的是地面上的组织。
 func show_beam(from: Vector2i, to: Vector2i, splash: Array) -> void:
 	if beam_fx == null or board == null:
 		return
 	var pts: Array[Vector2] = []
 	for c in splash:
 		pts.append(board.tile_center(c))
-	beam_fx.play(board.tile_center(from), board.tile_center(to), pts)
+	var half := _half_h(from)
+	var body: Vector2 = board.tile_center(from) + Vector2(0, CWMatch.CELL_FOOT_DY - half)
+	beam_fx.play(body, board.tile_center(to), pts, half)
 	await _block(BLOCK_BEAM_MS)
 
 
@@ -1106,11 +1181,23 @@ const FX_BODY_KEYS := {
 }
 ## 要对准**胞体中心**的那几种（issue #26，HXR-I：有氧 / 无氧的粒子对着脚底收拢看着错位、堆在细胞贴图上一点很诡异；
 ## 伪足要抓的也是胞体）：另给一份 `<键>_body`（脚底再往上半个贴图高）和 `r`（半个贴图高，当胞体半径用）。
-## 原键照旧是脚底 —— 十三种演出里只这三种改用胞体中心，其余仍是选稿的脚底坐标，一个像素不动。
-const FX_BODY_CENTER := { "respire": ["at"], "anaerobic": ["at"], "pseudopod": ["from"] }
+## 原键照旧是脚底 —— 演出层没拿到 `_body` 就退回选稿的脚底老画法，一个像素不动。
+##
+## 2026-09-19（issue #53 ①②⑤⑦）再添六种：抗体 / 裂解从**细胞中心**发出（原来从脚底，
+## 看着是从肚子底下射出来的）、分化与突变的粒子中心对胞体（突变原来整束落在细胞下半身）、
+## 复活那两条同理。数组键（抗体的 `targets`）给的是一串 `_body`，各按自己那格的贴图高算。
+const FX_BODY_CENTER := {
+	"respire": ["at"], "anaerobic": ["at"], "pseudopod": ["from"],
+	"antibody": ["from", "targets"], "lyse": ["from"], "differentiate": ["at"],
+	"mutate": ["at"], "revive_immune": ["at"], "revive_cancer": ["at"],
+}
 ## 那一格上站着的细胞贴图有多高（半高）。由 CWMatch 注入 —— 只有它认得细胞节点；
 ## 没注入（无界面跑测试）按 24px 贴图算。
 var cell_half_height: Callable
+
+
+func _half_h(c: Vector2i) -> float:
+	return float(cell_half_height.call(c)) if cell_half_height.is_valid() else 12.0
 
 
 ## 技能演出（issue #15）：把引擎给的轴坐标换成棋盘像素再交给演出层。
@@ -1148,14 +1235,29 @@ func show_fx(kind: String, data: Dictionary) -> void:
 	for key in FX_BODY_CENTER.get(kind, []):
 		var c: Variant = data.get(key)
 		if c is Vector2i:
-			var half: float = float(cell_half_height.call(c)) if cell_half_height.is_valid() else 12.0
+			var half: float = _half_h(c)
 			out[key + "_body"] = board.tile_center(c) + Vector2(0, CWMatch.CELL_FOOT_DY - half)
 			out["r"] = half
+		elif c is Array:
+			## 一串细胞（抗体的 targets）：各按自己那格的贴图高算，不共用一个 r
+			var pts: Array = []
+			for e in c:
+				if e is Vector2i:
+					pts.append(board.tile_center(e) + Vector2(0, CWMatch.CELL_FOOT_DY - _half_h(e)))
+			out[key + "_body"] = pts
+	## 细胞毒素走地面贴花（issue #53 ③）：一格一个节点，各拿自己那格的 z（比自己那格高、比细胞低）
+	if kind == "toxin" and data.get("tiles") is Array:
+		var zs: Array = []
+		for c in data["tiles"]:
+			if c is Vector2i:
+				zs.append(board.tile_z(c, board.Z_MARK))
+		out["tiles_z"] = zs
 	## 伪足穿透另留新格的轴坐标：定殖过场（show_erosion）要问「细胞几秒到这一格」（issue #29）
 	if kind == "pseudopod" and data.get("to") is Vector2i:
 		out["to_tile"] = data["to"]
-	## 【克隆增殖】同理（issue #28）：那几格的定殖过场各等自己那道感染流
-	if kind == "card_clone" and data.get("tiles") is Array:
+	## 【克隆增殖】同理（issue #28）：那几格的定殖过场各等自己那道感染流；
+	## 【补体级联】（issue #65）：那两格的**净化**翻格也要等冰蓝流到了再翻，同一把尺
+	if kind in ["card_clone", "card_cascade"] and data.get("tiles") is Array:
 		out["tiles_axial"] = data["tiles"]
 	skill_fx.play(kind, out)
 	await _block(_block_ms(kind))

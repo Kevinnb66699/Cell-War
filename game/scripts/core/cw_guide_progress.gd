@@ -3,32 +3,37 @@
 ## 单独一份小配置而不是塞进 CWSave：引导进度是「这个玩家看了多少」的偏好信息，
 ## 跟有没有进行中的对局无关。主菜单「新手引导」项据此显示已完成标记/继续入口。
 ##
-## **四个键**（新手引导 S6 / S6b，2026-09-19 扩，方案 §1.11）：
-##   `done`     已完成的关数。**原样保留**：主菜单与 `match.gd` 还在读它，口径一个字没变。
-##   `unlocked` 已解锁的**图鉴解锁点** id（剧本 `steps[].unlock` 写的那些），知识之书据此灰显条目。
-##   `at`       读到哪了 `{chapter, level, step}` —— chapter 是 PRD 的章号，level 是关下标。
-##              今天只写不读（断点续读要不要做是另一回事，别顺手改 `_read_progress` 的行为）。
-##   `skipped`  按过「跳过引导」。**不动 `done`** —— 跳过不等于看完，主菜单的完成标记口径没变；
-##              它唯一的用处是 `codex_gated()`（S6b，Kevin 2026-09-19：跳过之后图鉴全解锁）。
+## **四个键**（新手教程 v2 · S6，2026-09-19 重定，方案 §3.6）：
+##   `done`         已完成的关数。**原样保留**：主菜单（`main_menu.gd:136`）与 `match.gd` 还在读它。
+##   `at`           读到哪了 `{level, beat}` —— `level` 是 `index.json` 里那个**关 id**，
+##                  `beat` 是关内 `flow` 下标。**续读只认「关」不认「步」**（Q-11）：
+##                  `beat` 只记不读，续到步要连带定义「重进时局面怎么摆」，那是行为改动不是存档改动。
+##   `unlocked`     已解锁的**图鉴解锁点** id（剧本 `flow[].unlock.ids` 写的那些）。
+##                  图鉴 2026-09-19 起**去闸只留通知**（方案 §3.8）—— 这份集合今天只喂
+##                  「解锁通知 + 图鉴里那一条慢闪一轮」，不再决定哪条看得见。
+##   `opening_seen` 开场动画看过没有。**别碰**：那一键归 `tutorial_opening.gd`（`SEEN_KEY`），
+##                  本文件一个字都不写它 —— 目录里的「Cell War」走的是它现成的 `clear_seen()`。
 ##
-## **旧档迁移**：2026-09-19 之前的存档只有 `done`。`read()` 见到「有 done、没 unlocked」时
-## 按 `done` 现推一份解锁集（前 done 关剧本里写到的 unlock 全给），**不写回盘** ——
-## 下一次真解锁时 `unlock()` 会把合并后的完整集合落盘，迁移就此固化。
+## ⚠ **写盘一律 `ConfigFile.load` 之后 `set_value`**（方案 §3.6 的硬口径）：两边各自读改写、
+## 互不覆盖。整份覆盖会把 `opening_seen` 抹掉、开场每次重播 —— `t_tutor_progress` 正面断言这一条。
+##
+## **旧档迁移**：2026-09-19 老教程整套推倒之后，旧档里那个 `done` 数的是**旧关**，
+## 回推解锁集已经没有意义 —— `_migrate_unlocked` 恒为空，理由见那个函数的头注。
+## 旧档只有 `done`（没有 `at`）照样起得来：`at_level()` 返回空串，挑关退回按 `done` 数。
 class_name CWGuideProgress
 extends RefCounted
 
 const PATH := "user://guide_progress.cfg"
 const SECTION := "guide"
 
-## 已完成的章节数（0..CHAPTER_COUNT）。主动跳过的章节不算完成。
+## 已完成的关数（0..level_count()）。主动跳过的关不算完成。
 static func read() -> Dictionary:
-	var prog := { "done": 0, "unlocked": PackedStringArray(), "at": {}, "skipped": false }
+	var prog := { "done": 0, "unlocked": PackedStringArray(), "at": {} }
 	var cfg := ConfigFile.new()
 	if cfg.load(PATH) != OK:
 		return prog
 	prog["done"] = int(cfg.get_value(SECTION, "done", 0))
 	prog["at"] = cfg.get_value(SECTION, "at", {}) as Dictionary
-	prog["skipped"] = bool(cfg.get_value(SECTION, "skipped", false))
 	if cfg.has_section_key(SECTION, "unlocked"):
 		prog["unlocked"] = PackedStringArray(cfg.get_value(SECTION, "unlocked", PackedStringArray()))
 	else:
@@ -36,16 +41,26 @@ static func read() -> Dictionary:
 	return prog
 
 
-## 旧档（只有 `done`）的解锁集：前 `done` 关剧本里写到的 unlock 点全算解锁。
-## 旧版 16 关的 `done` 可能比今天的关数大 —— 钳住就行，多出来的关本来就不存在了
-static func _migrate_unlocked(done: int) -> PackedStringArray:
-	var out := PackedStringArray()
-	for i in clampi(done, 0, CWGuideData.CHAPTER_COUNT):
-		for step in CWGuideData.steps(i):
-			for id in (step as Dictionary).get("unlock", []):
-				if not out.has(str(id)):
-					out.append(str(id))
-	return out
+## 旧档（只有 `done`）的解锁集。
+##
+## **2026-09-19 起恒为空**：老教程整套推倒（Kevin：「把之前教程的 UI 等设计全部删掉，
+## 基于脚本从 0 构建」），`cwtut/1` 的剧本连同 `guide_data.gd` 一起删了 —— 旧档里那个 `done`
+## 数的是**旧关**，拿新剧本按它回推解锁集只会给出一份对不上的清单，比给空的更难查。
+## 代价可控：**图鉴 S6 已经去闸**（方案 §3.8，`codex_gated()` 随之退役），没解锁只是少一条
+## 「解锁通知 + 慢闪」，旧档玩家重走一遍新教程就会逐点补回来 —— 一个条目都不会看不见。
+static func _migrate_unlocked(_done: int) -> PackedStringArray:
+	return PackedStringArray()
+
+
+## 教程一共几关 = `index.json` 里关表的条数（老 `CWGuideData.CHAPTER_COUNT` 的口径原样搬过来，
+## 那个文件随老教程一起删了）。**每次现读**：关表是数据，加一关不该要改代码。
+## 读不出来（重做期间关表还空着）按 1 算 —— 别让 `all_done()` 在零关时恒为真
+static func level_count() -> int:
+	var raw: Variant = JSON.parse_string(
+		FileAccess.get_file_as_string("res://data/tutorial/index.json"))
+	if not (raw is Dictionary):
+		return 1
+	return maxi(((raw as Dictionary).get("levels", []) as Array).size(), 1)
 
 
 ## 已解锁的解锁点 id（含旧档迁移）
@@ -75,18 +90,24 @@ static func unlock(ids) -> PackedStringArray:
 	return added
 
 
-## 读到哪了。`chapter` = PRD 的章号，`level` = 关下标，`step` = 关内步号
-static func set_at(chapter: int, level: int, step: int) -> void:
+## 读到哪了：`level` = `index.json` 里那个**关 id**，`beat` = 关内 `flow` 下标。
+## 老签名 `(chapter, level, step)` 三个整数 S6 作废 —— 关下标会随关表增删漂移，关 id 不会。
+static func set_at(level_id: String, beat: int) -> void:
 	## 同一步渲染多次（重排 / 重算提示）不重复写盘。**逐字段比**：
 	## Dictionary 的 `==` 在 Godot 4 里比的是引用，拿它判「没变」永远为假
 	var cur: Dictionary = read()["at"]
-	if int(cur.get("chapter", -1)) == chapter and int(cur.get("level", -1)) == level \
-			and int(cur.get("step", -1)) == step:
+	if str(cur.get("level", "")) == level_id and int(cur.get("beat", -1)) == beat:
 		return
 	var cfg := ConfigFile.new()
-	cfg.load(PATH)
-	cfg.set_value(SECTION, "at", { "chapter": chapter, "level": level, "step": step })
+	cfg.load(PATH)   ## 旧文件存在就把其它字段带回来（含 opening_seen，见头注那条硬口径）
+	cfg.set_value(SECTION, "at", { "level": level_id, "beat": beat })
 	cfg.save(PATH)
+
+
+## 断点续读的落点：上次读到**哪一关**（关 id）。旧档（只有 `done`）返回空串，
+## 调用方退回按 `done` 数挑关 —— 见 `match.gd` 的 `_tutor_pick_level`
+static func at_level() -> String:
+	return str((read()["at"] as Dictionary).get("level", ""))
 
 
 static func done_count() -> int:
@@ -111,52 +132,19 @@ static func set_done(chapter: int) -> void:
 static func set_all_done() -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(PATH)
-	cfg.set_value(SECTION, "done", CWGuideData.CHAPTER_COUNT)
+	cfg.set_value(SECTION, "done", level_count())
 	cfg.save(PATH)
 
 
 static func all_done() -> bool:
-	return done_count() >= CWGuideData.CHAPTER_COUNT
+	return done_count() >= level_count()
 
 
-## 按过「跳过引导」（`CWGuide.skip()`）。**只记这一笔，不动 `done`**：
-## 跳过不是看完，主菜单的完成标记不该因此变绿
-static func set_skipped() -> void:
-	if bool(read()["skipped"]):
-		return
-	var cfg := ConfigFile.new()
-	cfg.load(PATH)   ## 旧文件存在就把其它字段带回来
-	cfg.set_value(SECTION, "skipped", true)
-	cfg.save(PATH)
-
-
-## 知识之书现在要不要按解锁集闸？（Kevin 2026-09-19 拍板，方案 §1.11 口径③）
-##
-## **闸只在「教程进行中」这一个状态下生效**，三态各一句：
-##   · 从没进过教程（没有这份 cfg，或者一点进度都没有）→ **不闸**，整本书随便看；
-##   · 教程开着、还没跳过也没通关                       → **闸**，没解锁的条目灰显（S6b 起不再隐藏）；
-##   · 按过「跳过引导」／ 全部通关（`set_all_done`）      → **不闸**，全解锁。
-##
-## 写成这一个只读谓词而不是把判断散进面板：`cw_codex.gd` 只问它一句，
-## 将来口径再改也只有这一处（S6 那会儿面板自己读 `unlocked` 就完事，改起来是两处）。
-##
-## 「进过教程」按**进度**算，不按 `opening_seen`（S7 写在同一份 cfg 里的另一个键）算 ——
-## 看了开场就退出去的玩家一课都没上，图鉴不该因此对他关门。
-## 跳过之后再回来接着看，`skipped` 不会自己清掉 ⇒ 也不再闸（「跳过之后全解锁」的字面口径）
-static func codex_gated() -> bool:
-	var prog := read()
-	if bool(prog["skipped"]):
-		return false
-	if int(prog["done"]) >= CWGuideData.CHAPTER_COUNT:
-		return false
-	return _started(prog)
-
-
-## 这个玩家进过教程吗：`read()` 出来的三样进度里有任何一样就算
-static func _started(prog: Dictionary) -> bool:
-	return int(prog["done"]) > 0 \
-		or not (prog["unlocked"] as PackedStringArray).is_empty() \
-		or not (prog["at"] as Dictionary).is_empty()
+## ⚠ **`set_skipped()` / `codex_gated()` / `skipped` 键 2026-09-19 一并退役**（方案 §3.8：
+## 图鉴去闸只留通知）。全书从此常驻可读，没有任何一处再问「要不要闸」——
+## 连带着「跳过引导之后全解锁」也不必单独记一笔了。老调用方只有 `cw_codex.gd:119` 与
+## `t_codex` 那三条，S6 当天一起改判。**别再把这三样加回来**：要重新上闸的话，
+## `cw_codex.gd` 的 `_mark_locked` 与两个可选参数都还留着（方案 §3.8 明令不删），打开是一行的事。
 
 
 static func clear() -> void:

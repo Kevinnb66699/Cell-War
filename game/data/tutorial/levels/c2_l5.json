@@ -1,277 +1,802 @@
 {
-  "schema": "cwtut/1",
+  "schema": "cwtut/2",
   "id": "c2_l5",
   "chapter": 2,
+  "chapter_kind": "main",
   "chapter_title": "Immune",
   "title": "第五关 分化",
-  "subtitle": "分化成各种免疫细胞，清光全部癌细胞",
-  "codex_page": 6,
-  "ui_stage": 1,
+  "subtitle": "选一个职业，然后把场上的癌细胞全清了",
+  "_doc": [
+    "PRD:349-403 整关（行号基线 = 04:08 版）。Step1 沿用第四关盘面（PRD 没写 Step1 的界面 / 状态变化），",
+    "Step2 是**全案三处关内重装之一**（方案 §2.5）：PRD:381「使已有癌组织连通块扩大」改的是已露出的格，",
+    "遮罩揭不了 ⇒ 只能 load。",
+    "",
+    "⚠ 剧本正本 09-19 06:32 那版（534 行）在第四关的「界面变化 / 游戏状态变化」里多了三个空行，",
+    "  第五关整段因此下移 2 行（本关 = 现文 PRD:351-405）。flow[].prd 仍是 04:08 基线，与 c2_l4 同口径；",
+    "  要重编就两关一起编（对账闸判据 ⑬ 只看单调不减，眼下两边都成立）。",
+    "盘面照《新手引导v2_盘面提案》v4 第五关一节：",
+    "· 四块各长两格（10 → 12），块与块仍最近 3 格；活跃格 127，一格不加。",
+    "· 固化癌组织三格 (6,-1) (1,-5) (2,3)：写 state: \"solid\"（纪律 9），**不是** solid: n —— 后者是固化计数。",
+    "  这三格到第六关还在，是「复活窗口必须有一格不被免疫占据的固化格」那条硬约束的余量。",
+    "· 各种类免疫各一（PRD:387）：B (1,-2) / 巨噬 (6,-4) / 树突 (0,2) / T (-5,-1)，各 1.0、全站健康组织。",
+    "  巨噬摆在离 (6,-2) 最近处（间章点名的就是它）、T 摆在走廊最远端（第六关那只）。",
+    "  Step1 那四只必须是未分化的 ImmuneBasic（否则四种全被占、玩家一个【分化】选项都没有），",
+    "  代价是玩家挑的那一种必然与 Step2 的某一只 NPC 撞种 —— **Kevin 2026-09-19：可以撞种**，不改。",
+    "· 癌细胞从第四关的 5 只收成 4 只（PRD:385）—— 给四个免疫席让位。",
+    "",
+    "★ **9 席到顶**（席位预算，不是地图预算）：右栏 264×540 的高度是按最挤的情况配平的，",
+    "回合块让出那 62px 之后 9 席的免疫等级块底边 = 532 ≤ 540，**10 席放不下**。",
+    "判据在 t_tutor_c2 里钉死（CWMatchPanel.level_bottom 是纯函数）。",
+    "",
+    "切换种类（PRD:375）：ui.switch_type 的值 = 一组 world 名 [b, t, macro, dc]，",
+    "常驻壳按一下 = 关内 load 下一份。四份只差玩家那一只的 type（t / macro / dc 都 from: \"b\"、",
+    "patch 只写 cells[0].type）—— 分化在规则里是一次性的，就地改 itype 等于绕开规则往引擎状态写字。",
+    "玩家那一只在四份里都写 differentiated: true：Step1 已经分化过，按钮不该再回来。",
+    "",
+    "★ Step2 那一条的 load 写成**表**（Kevin 2026-09-19 第 3 条：「不接受」把玩家摆回 B 细胞）：",
+    "{ by_player_type: { BCell: b, TCell: t, Macrophage: macro, Dendritic: dc } } —— 导演运行期按",
+    "玩家那一只此刻的种类（镜像里的 cells[human_seat].type）挑一份，四份 world 一个字没改。",
+    "键就是 world spec 里 cells[].type 那个词，不另造简写；校验器判据 ⑮ 装载期核键与 world 名。",
+    "「切换种类」的轮转下标随之对到装上的那一份 ⇒ 按一下是「从现在这种往下一种」，不是跳回表头。",
+    "",
+    "门槛：seats = 9 ⇒ 仍是六人档（CWData.level_min_memory 只有四人一档）。玩家起手 III 级 / 30 记忆 ——",
+    "30 正是六人档 III 级的门槛，【分化】挂 III 级（DIFFERENTIATE_MIN_LEVEL = 2）。",
+    "纪律 5：五个免疫席的 level / memory 必须一致（GD 里是阵营共享量），所以四只 NPC 免疫也写 III / 30。",
+    "",
+    "Step2 的闸是**半开**（方案 §3.2(a) 的第三态）：allow 列出除「结束回合」与「基因表达」之外的全部，",
+    "**就是不放 act=end** —— 放了就会进 E 阶段，最后一只癌细胞被杀那一刻 check_immune_win 当场弹结算屏，",
+    "而 PRD:405 之后接的是间章。抽卡也不放：PRD 没把手牌加回来（ui.hand 仍关着）。",
+    "",
+    "until 写 all_dead 的 arg = \"cancer\"：按**阵营**数，不按「我的敌人」数 —— Step2 场上有 5 个免疫席，",
+    "谁是「敌人」要看问的是哪一只。缺省 foes = 1 保证「还没有镜像」那一瞬不成立（老 S8 踩过）。",
+    "",
+    "★ 旋钮 attack_max_per_turn = 0 **本关也要写**：cell.attacks_used 只在 cw_turn 的回合开始清零，",
+    "而第一～五关永远不点结束回合 ⇒ 它一辈子不清零。不拧这一档的话，玩家打满 3 次就再也攻击不了，",
+    "「把全部癌细胞杀死」当场变成死局。**Kevin 2026-09-19 追认，行为不变**。",
+    "⚠ 剧本正本（09-19 06:32 版）里这一条仍只写在第四关：现文 PRD:325「玩家本关不设攻击次数上限」，",
+    "  第一章另有章节设定 PRD:99「本章不设回合/攻击次数上限」；第五关 PRD:351-405 通篇没有这一句。",
+    "",
+    "rolls 不写：Step2 是自由游玩，玩家打几次骰子写不死（省略 ≠ rolls: []）。"
+  ],
   "seats": 9,
   "human_seat": 0,
-  "expect_level_tiers": [0, 10, 30, 70],
   "worlds": {
     "base": {
       "radius": 6,
       "round": 1,
       "phase": "PlayerAction",
       "seat": 0,
-      "tuning": { "attack_max_per_turn": 0 },
       "players": [
-        { "seat": 0, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 1, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 2, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 3, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 4, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 5, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 6, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 7, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 8, "faction": "cancer", "cancer_type": "Melanoma" }
+        {
+          "seat": 0,
+          "faction": "immune",
+          "level": "III",
+          "memory": 30
+        },
+        {
+          "seat": 1,
+          "faction": "immune",
+          "level": "III",
+          "memory": 30
+        },
+        {
+          "seat": 2,
+          "faction": "immune",
+          "level": "III",
+          "memory": 30
+        },
+        {
+          "seat": 3,
+          "faction": "immune",
+          "level": "III",
+          "memory": 30
+        },
+        {
+          "seat": 4,
+          "faction": "immune",
+          "level": "III",
+          "memory": 30
+        },
+        {
+          "seat": 5,
+          "faction": "cancer",
+          "cancer_type": "Osteosarcoma"
+        },
+        {
+          "seat": 6,
+          "faction": "cancer",
+          "cancer_type": "Osteosarcoma"
+        },
+        {
+          "seat": 7,
+          "faction": "cancer",
+          "cancer_type": "Osteosarcoma"
+        },
+        {
+          "seat": 8,
+          "faction": "cancer",
+          "cancer_type": "Osteosarcoma"
+        }
       ],
       "tiles": [
-        { "at": "2,-2", "state": "cancer" },
-        { "at": "2,-1", "state": "cancer" },
-        { "at": "-2,0", "state": "cancer" },
-        { "at": "-2,1", "state": "cancer" },
-        { "at": "1,1", "state": "cancer" },
-        { "at": "0,2", "state": "cancer" }
+        {
+          "at": "-6,0",
+          "type": "vessel"
+        },
+        {
+          "at": "-5,2",
+          "state": "cancer"
+        },
+        {
+          "at": "-5,3",
+          "state": "cancer"
+        },
+        {
+          "at": "-4,1",
+          "state": "cancer"
+        },
+        {
+          "at": "-4,2",
+          "state": "cancer"
+        },
+        {
+          "at": "-4,3",
+          "state": "cancer"
+        },
+        {
+          "at": "-3,-3",
+          "type": "marrow"
+        },
+        {
+          "at": "-3,0",
+          "type": "marrow"
+        },
+        {
+          "at": "-3,1",
+          "state": "cancer"
+        },
+        {
+          "at": "-3,2",
+          "state": "cancer"
+        },
+        {
+          "at": "-3,3",
+          "state": "cancer",
+          "type": "core"
+        },
+        {
+          "at": "-3,6",
+          "type": "marrow"
+        },
+        {
+          "at": "-2,1",
+          "state": "cancer"
+        },
+        {
+          "at": "-2,2",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,4",
+          "state": "cancer"
+        },
+        {
+          "at": "-1,5",
+          "state": "cancer"
+        },
+        {
+          "at": "0,-5",
+          "state": "cancer"
+        },
+        {
+          "at": "0,-4",
+          "state": "cancer"
+        },
+        {
+          "at": "0,-3",
+          "state": "cancer",
+          "type": "core"
+        },
+        {
+          "at": "0,3",
+          "state": "cancer",
+          "type": "marrow"
+        },
+        {
+          "at": "0,4",
+          "state": "cancer"
+        },
+        {
+          "at": "0,5",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-5",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-4",
+          "state": "cancer"
+        },
+        {
+          "at": "1,-3",
+          "state": "cancer"
+        },
+        {
+          "at": "1,3",
+          "state": "cancer"
+        },
+        {
+          "at": "1,4",
+          "state": "cancer"
+        },
+        {
+          "at": "1,5",
+          "state": "cancer"
+        },
+        {
+          "at": "2,-5",
+          "state": "cancer"
+        },
+        {
+          "at": "2,-4",
+          "state": "cancer"
+        },
+        {
+          "at": "2,-3",
+          "state": "cancer"
+        },
+        {
+          "at": "2,3",
+          "state": "cancer"
+        },
+        {
+          "at": "2,4",
+          "state": "cancer"
+        },
+        {
+          "at": "3,-5",
+          "state": "cancer"
+        },
+        {
+          "at": "3,-3",
+          "type": "marrow"
+        },
+        {
+          "at": "3,0",
+          "state": "cancer",
+          "type": "core"
+        },
+        {
+          "at": "4,0",
+          "state": "cancer"
+        },
+        {
+          "at": "5,-3",
+          "state": "cancer"
+        },
+        {
+          "at": "5,-2",
+          "state": "cancer"
+        },
+        {
+          "at": "5,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "5,0",
+          "state": "cancer"
+        },
+        {
+          "at": "6,-3",
+          "state": "cancer",
+          "type": "marrow"
+        },
+        {
+          "at": "6,-2",
+          "state": "cancer"
+        },
+        {
+          "at": "6,-1",
+          "state": "cancer"
+        },
+        {
+          "at": "6,0",
+          "state": "cancer",
+          "type": "vessel"
+        }
       ],
       "cells": [
-        { "seat": 0, "type": "ImmuneBasic", "at": "0,0", "energy": 99990 },
-        { "seat": 1, "type": "ImmuneBasic", "at": "4,-2", "alive": false },
-        { "seat": 2, "type": "ImmuneBasic", "at": "4,-1", "alive": false },
-        { "seat": 3, "type": "ImmuneBasic", "at": "4,0", "alive": false },
-        { "seat": 4, "type": "ImmuneBasic", "at": "5,-2", "alive": false },
-        { "seat": 5, "type": "ImmuneBasic", "at": "5,-1", "alive": false },
-        { "seat": 6, "type": "Melanoma", "at": "2,-1", "energy": 10 },
-        { "seat": 7, "type": "Melanoma", "at": "-2,1", "energy": 30 },
-        { "seat": 8, "type": "Melanoma", "at": "1,1", "energy": 50 }
-      ]
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "4,-1",
+          "energy": 99990
+        },
+        {
+          "seat": 1,
+          "type": "ImmuneBasic",
+          "at": "1,-2",
+          "energy": 10
+        },
+        {
+          "seat": 2,
+          "type": "ImmuneBasic",
+          "at": "6,-4",
+          "energy": 10
+        },
+        {
+          "seat": 3,
+          "type": "ImmuneBasic",
+          "at": "0,2",
+          "energy": 10
+        },
+        {
+          "seat": 4,
+          "type": "ImmuneBasic",
+          "at": "-5,-1",
+          "energy": 10
+        },
+        {
+          "seat": 5,
+          "type": "Osteosarcoma",
+          "at": "5,-1",
+          "energy": 50
+        },
+        {
+          "seat": 6,
+          "type": "Osteosarcoma",
+          "at": "1,-4",
+          "energy": 40
+        },
+        {
+          "seat": 7,
+          "type": "Osteosarcoma",
+          "at": "-3,2",
+          "energy": 30
+        },
+        {
+          "seat": 8,
+          "type": "Osteosarcoma",
+          "at": "1,4",
+          "energy": 20
+        }
+      ],
+      "tuning": {
+        "attack_max_per_turn": 0
+      }
     },
     "b": {
-      "radius": 6,
-      "round": 1,
-      "phase": "PlayerAction",
-      "seat": 0,
-      "tuning": { "attack_max_per_turn": 0 },
-      "players": [
-        { "seat": 0, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 1, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 2, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 3, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 4, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 5, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 6, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 7, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 8, "faction": "cancer", "cancer_type": "Melanoma" }
-      ],
-      "tiles": [
-        { "at": "1,-2", "state": "cancer" },
-        { "at": "1,-1", "state": "cancer" },
-        { "at": "2,-1", "state": "cancer" },
-        { "at": "-2,0", "state": "cancer" },
-        { "at": "-1,0", "state": "cancer" },
-        { "at": "-2,1", "state": "cancer" },
-        { "at": "0,1", "state": "cancer" },
-        { "at": "1,1", "state": "cancer" },
-        { "at": "0,2", "state": "cancer" },
-        { "at": "2,-2", "state": "solid" },
-        { "at": "-2,2", "state": "solid" }
-      ],
-      "cells": [
-        { "seat": 0, "type": "BCell", "at": "0,0", "energy": 99990, "differentiated": true },
-        { "seat": 1, "type": "ImmuneBasic", "at": "0,-1", "energy": 10 },
-        { "seat": 2, "type": "BCell", "at": "-1,-1", "energy": 10, "differentiated": true },
-        { "seat": 3, "type": "TCell", "at": "1,0", "energy": 10, "differentiated": true },
-        { "seat": 4, "type": "Macrophage", "at": "-1,1", "energy": 10, "differentiated": true },
-        { "seat": 5, "type": "Dendritic", "at": "2,0", "energy": 10, "differentiated": true },
-        { "seat": 6, "type": "Melanoma", "at": "1,-1", "energy": 10 },
-        { "seat": 7, "type": "Melanoma", "at": "-1,0", "energy": 30 },
-        { "seat": 8, "type": "Melanoma", "at": "1,1", "energy": 50 }
-      ]
+      "from": "base",
+      "patch": {
+        "tiles": [
+          {
+            "at": "-6,0",
+            "type": "vessel"
+          },
+          {
+            "at": "-6,3",
+            "state": "cancer"
+          },
+          {
+            "at": "-5,1",
+            "state": "cancer"
+          },
+          {
+            "at": "-5,2",
+            "state": "cancer"
+          },
+          {
+            "at": "-5,3",
+            "state": "cancer"
+          },
+          {
+            "at": "-4,1",
+            "state": "cancer"
+          },
+          {
+            "at": "-4,2",
+            "state": "cancer"
+          },
+          {
+            "at": "-4,3",
+            "state": "cancer"
+          },
+          {
+            "at": "-3,-3",
+            "type": "marrow"
+          },
+          {
+            "at": "-3,0",
+            "type": "marrow"
+          },
+          {
+            "at": "-3,1",
+            "state": "cancer"
+          },
+          {
+            "at": "-3,2",
+            "state": "cancer"
+          },
+          {
+            "at": "-3,3",
+            "state": "cancer",
+            "type": "core"
+          },
+          {
+            "at": "-3,6",
+            "type": "marrow"
+          },
+          {
+            "at": "-2,1",
+            "state": "cancer"
+          },
+          {
+            "at": "-2,2",
+            "state": "cancer"
+          },
+          {
+            "at": "-2,5",
+            "state": "cancer"
+          },
+          {
+            "at": "-1,4",
+            "state": "cancer"
+          },
+          {
+            "at": "-1,5",
+            "state": "cancer"
+          },
+          {
+            "at": "0,-5",
+            "state": "cancer"
+          },
+          {
+            "at": "0,-4",
+            "state": "cancer"
+          },
+          {
+            "at": "0,-3",
+            "state": "cancer",
+            "type": "core"
+          },
+          {
+            "at": "0,3",
+            "state": "cancer",
+            "type": "marrow"
+          },
+          {
+            "at": "0,4",
+            "state": "cancer"
+          },
+          {
+            "at": "0,5",
+            "state": "cancer"
+          },
+          {
+            "at": "0,6",
+            "state": "cancer"
+          },
+          {
+            "at": "1,-6",
+            "state": "cancer"
+          },
+          {
+            "at": "1,-5",
+            "state": "solid"
+          },
+          {
+            "at": "1,-4",
+            "state": "cancer"
+          },
+          {
+            "at": "1,-3",
+            "state": "cancer"
+          },
+          {
+            "at": "1,3",
+            "state": "cancer"
+          },
+          {
+            "at": "1,4",
+            "state": "cancer"
+          },
+          {
+            "at": "1,5",
+            "state": "cancer"
+          },
+          {
+            "at": "2,-5",
+            "state": "cancer"
+          },
+          {
+            "at": "2,-4",
+            "state": "cancer"
+          },
+          {
+            "at": "2,-3",
+            "state": "cancer"
+          },
+          {
+            "at": "2,3",
+            "state": "solid"
+          },
+          {
+            "at": "2,4",
+            "state": "cancer"
+          },
+          {
+            "at": "3,-5",
+            "state": "cancer"
+          },
+          {
+            "at": "3,-4",
+            "state": "cancer"
+          },
+          {
+            "at": "3,-3",
+            "type": "marrow"
+          },
+          {
+            "at": "3,0",
+            "state": "cancer",
+            "type": "core"
+          },
+          {
+            "at": "4,-2",
+            "state": "cancer"
+          },
+          {
+            "at": "4,0",
+            "state": "cancer"
+          },
+          {
+            "at": "5,-3",
+            "state": "cancer"
+          },
+          {
+            "at": "5,-2",
+            "state": "cancer"
+          },
+          {
+            "at": "5,-1",
+            "state": "cancer"
+          },
+          {
+            "at": "5,0",
+            "state": "cancer"
+          },
+          {
+            "at": "5,1",
+            "state": "cancer"
+          },
+          {
+            "at": "6,-3",
+            "state": "cancer",
+            "type": "marrow"
+          },
+          {
+            "at": "6,-2",
+            "state": "cancer"
+          },
+          {
+            "at": "6,-1",
+            "state": "solid"
+          },
+          {
+            "at": "6,0",
+            "state": "cancer",
+            "type": "vessel"
+          }
+        ],
+        "cells": [
+          {
+            "seat": 0,
+            "type": "BCell",
+            "differentiated": true
+          },
+          {
+            "seat": 1,
+            "type": "BCell",
+            "differentiated": true
+          },
+          {
+            "seat": 2,
+            "type": "Macrophage",
+            "differentiated": true
+          },
+          {
+            "seat": 3,
+            "type": "Dendritic",
+            "differentiated": true
+          },
+          {
+            "seat": 4,
+            "type": "TCell",
+            "differentiated": true
+          }
+        ]
+      }
     },
     "t": {
-      "radius": 6,
-      "round": 1,
-      "phase": "PlayerAction",
-      "seat": 0,
-      "tuning": { "attack_max_per_turn": 0 },
-      "players": [
-        { "seat": 0, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 1, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 2, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 3, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 4, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 5, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 6, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 7, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 8, "faction": "cancer", "cancer_type": "Melanoma" }
-      ],
-      "tiles": [
-        { "at": "1,-2", "state": "cancer" },
-        { "at": "1,-1", "state": "cancer" },
-        { "at": "2,-1", "state": "cancer" },
-        { "at": "-2,0", "state": "cancer" },
-        { "at": "-1,0", "state": "cancer" },
-        { "at": "-2,1", "state": "cancer" },
-        { "at": "0,1", "state": "cancer" },
-        { "at": "1,1", "state": "cancer" },
-        { "at": "0,2", "state": "cancer" },
-        { "at": "2,-2", "state": "solid" },
-        { "at": "-2,2", "state": "solid" }
-      ],
-      "cells": [
-        { "seat": 0, "type": "TCell", "at": "0,0", "energy": 99990, "differentiated": true },
-        { "seat": 1, "type": "ImmuneBasic", "at": "0,-1", "energy": 10 },
-        { "seat": 2, "type": "BCell", "at": "-1,-1", "energy": 10, "differentiated": true },
-        { "seat": 3, "type": "TCell", "at": "1,0", "energy": 10, "differentiated": true },
-        { "seat": 4, "type": "Macrophage", "at": "-1,1", "energy": 10, "differentiated": true },
-        { "seat": 5, "type": "Dendritic", "at": "2,0", "energy": 10, "differentiated": true },
-        { "seat": 6, "type": "Melanoma", "at": "1,-1", "energy": 10 },
-        { "seat": 7, "type": "Melanoma", "at": "-1,0", "energy": 30 },
-        { "seat": 8, "type": "Melanoma", "at": "1,1", "energy": 50 }
-      ]
+      "from": "b",
+      "patch": {
+        "cells": [
+          {
+            "seat": 0,
+            "type": "TCell"
+          }
+        ]
+      }
     },
     "macro": {
-      "radius": 6,
-      "round": 1,
-      "phase": "PlayerAction",
-      "seat": 0,
-      "tuning": { "attack_max_per_turn": 0 },
-      "players": [
-        { "seat": 0, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 1, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 2, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 3, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 4, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 5, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 6, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 7, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 8, "faction": "cancer", "cancer_type": "Melanoma" }
-      ],
-      "tiles": [
-        { "at": "1,-2", "state": "cancer" },
-        { "at": "1,-1", "state": "cancer" },
-        { "at": "2,-1", "state": "cancer" },
-        { "at": "-2,0", "state": "cancer" },
-        { "at": "-1,0", "state": "cancer" },
-        { "at": "-2,1", "state": "cancer" },
-        { "at": "0,1", "state": "cancer" },
-        { "at": "1,1", "state": "cancer" },
-        { "at": "0,2", "state": "cancer" },
-        { "at": "2,-2", "state": "solid" },
-        { "at": "-2,2", "state": "solid" }
-      ],
-      "cells": [
-        { "seat": 0, "type": "Macrophage", "at": "0,0", "energy": 99990, "differentiated": true },
-        { "seat": 1, "type": "ImmuneBasic", "at": "0,-1", "energy": 10 },
-        { "seat": 2, "type": "BCell", "at": "-1,-1", "energy": 10, "differentiated": true },
-        { "seat": 3, "type": "TCell", "at": "1,0", "energy": 10, "differentiated": true },
-        { "seat": 4, "type": "Macrophage", "at": "-1,1", "energy": 10, "differentiated": true },
-        { "seat": 5, "type": "Dendritic", "at": "2,0", "energy": 10, "differentiated": true },
-        { "seat": 6, "type": "Melanoma", "at": "1,-1", "energy": 10 },
-        { "seat": 7, "type": "Melanoma", "at": "-1,0", "energy": 30 },
-        { "seat": 8, "type": "Melanoma", "at": "1,1", "energy": 50 }
-      ]
+      "from": "b",
+      "patch": {
+        "cells": [
+          {
+            "seat": 0,
+            "type": "Macrophage"
+          }
+        ]
+      }
     },
     "dc": {
-      "radius": 6,
-      "round": 1,
-      "phase": "PlayerAction",
-      "seat": 0,
-      "tuning": { "attack_max_per_turn": 0 },
-      "players": [
-        { "seat": 0, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 1, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 2, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 3, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 4, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 5, "faction": "immune", "level": "III", "memory": 30 },
-        { "seat": 6, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 7, "faction": "cancer", "cancer_type": "Melanoma" },
-        { "seat": 8, "faction": "cancer", "cancer_type": "Melanoma" }
-      ],
-      "tiles": [
-        { "at": "1,-2", "state": "cancer" },
-        { "at": "1,-1", "state": "cancer" },
-        { "at": "2,-1", "state": "cancer" },
-        { "at": "-2,0", "state": "cancer" },
-        { "at": "-1,0", "state": "cancer" },
-        { "at": "-2,1", "state": "cancer" },
-        { "at": "0,1", "state": "cancer" },
-        { "at": "1,1", "state": "cancer" },
-        { "at": "0,2", "state": "cancer" },
-        { "at": "2,-2", "state": "solid" },
-        { "at": "-2,2", "state": "solid" }
-      ],
-      "cells": [
-        { "seat": 0, "type": "Dendritic", "at": "0,0", "energy": 99990, "differentiated": true },
-        { "seat": 1, "type": "ImmuneBasic", "at": "0,-1", "energy": 10 },
-        { "seat": 2, "type": "BCell", "at": "-1,-1", "energy": 10, "differentiated": true },
-        { "seat": 3, "type": "TCell", "at": "1,0", "energy": 10, "differentiated": true },
-        { "seat": 4, "type": "Macrophage", "at": "-1,1", "energy": 10, "differentiated": true },
-        { "seat": 5, "type": "Dendritic", "at": "2,0", "energy": 10, "differentiated": true },
-        { "seat": 6, "type": "Melanoma", "at": "1,-1", "energy": 10 },
-        { "seat": 7, "type": "Melanoma", "at": "-1,0", "energy": 30 },
-        { "seat": 8, "type": "Melanoma", "at": "1,1", "energy": 50 }
-      ]
+      "from": "b",
+      "patch": {
+        "cells": [
+          {
+            "seat": 0,
+            "type": "Dendritic"
+          }
+        ]
+      }
     }
   },
-  "active_tiles": ["0,-2", "1,-2", "2,-2", "-1,-1", "0,-1", "1,-1", "2,-1", "-2,0", "-1,0", "0,0", "1,0", "2,0", "-2,1", "-1,1", "0,1", "1,1", "-2,2", "-1,2", "0,2"],
-  "rolls": [],
-  "steps": [
+  "active_tiles": [
+    "0,-6", "1,-6", "2,-6", "3,-6", "4,-6", "5,-6", "6,-6",
+    "-1,-5", "0,-5", "1,-5", "2,-5", "3,-5", "4,-5", "5,-5", "6,-5",
+    "-2,-4", "-1,-4", "0,-4", "1,-4", "2,-4", "3,-4", "4,-4", "5,-4", "6,-4",
+    "-3,-3", "-2,-3", "-1,-3", "0,-3", "1,-3", "2,-3", "3,-3", "4,-3", "5,-3", "6,-3",
+    "-4,-2", "-3,-2", "-2,-2", "-1,-2", "0,-2", "1,-2", "2,-2", "3,-2", "4,-2", "5,-2", "6,-2",
+    "-5,-1", "-4,-1", "-3,-1", "-2,-1", "-1,-1", "0,-1", "1,-1", "2,-1", "3,-1", "4,-1", "5,-1", "6,-1",
+    "-6,0", "-5,0", "-4,0", "-3,0", "-2,0", "-1,0", "0,0", "1,0", "2,0", "3,0", "4,0", "5,0", "6,0",
+    "-6,1", "-5,1", "-4,1", "-3,1", "-2,1", "-1,1", "0,1", "1,1", "2,1", "3,1", "4,1", "5,1",
+    "-6,2", "-5,2", "-4,2", "-3,2", "-2,2", "-1,2", "0,2", "1,2", "2,2", "3,2", "4,2",
+    "-6,3", "-5,3", "-4,3", "-3,3", "-2,3", "-1,3", "0,3", "1,3", "2,3", "3,3",
+    "-6,4", "-5,4", "-4,4", "-3,4", "-2,4", "-1,4", "0,4", "1,4", "2,4",
+    "-6,5", "-5,5", "-4,5", "-3,5", "-2,5", "-1,5", "0,5", "1,5",
+    "-6,6", "-5,6", "-4,6", "-3,6", "-2,6", "-1,6", "0,6"
+  ],
+  "flow": [
     {
-      "step_of": "Step1",
+      "do": "state",
+      "step": "Step1",
+      "prd": 351,
       "load": "base",
-      "ui_layers": {
-        "action_bar": ["move", "differentiate"],
+      "ui": {
+        "*": false,
+        "action_bar": true,
         "sidebar": true,
-        "hand": false,
-        "end_turn": false,
         "round_no": false,
-        "move_path": true,
+        "end_turn": false,
+        "move_path": false,
         "cost": false,
-        "energy_display": "infinite",
-        "switch_type": false
+        "energy": "infinite",
+        "camera": {
+          "anchor": "player",
+          "align": "center"
+        }
+      }
+    },
+    {
+      "do": "say",
+      "prd": 359,
+      "who": "player",
+      "lines": [
+        "当免疫等级到达 III 时，免疫方解锁【分化】能力"
+      ]
+    },
+    {
+      "do": "point",
+      "prd": 361,
+      "ui": [
+        "bar:分化"
+      ],
+      "mode": "soft"
+    },
+    {
+      "do": "say",
+      "prd": 363,
+      "who": "player",
+      "lines": [
+        "你可以变成各种各样的免疫细胞，尝试各种职业"
+      ]
+    },
+    {
+      "do": "player",
+      "prd": 365,
+      "hint": "点「分化」，挑一种免疫细胞",
+      "allow": [
+        "k=action|act=move",
+        "k=action|act=differentiate"
+      ],
+      "ui": [
+        "bar:分化"
+      ],
+      "until": {
+        "delta": "differentiated"
+      }
+    },
+    {
+      "do": "unlock",
+      "prd": 367,
+      "ids": [
+        "differentiate"
+      ]
+    },
+    {
+      "do": "state",
+      "step": "Step2",
+      "prd": 375,
+      "load": {
+        "by_player_type": {
+          "BCell": "b",
+          "TCell": "t",
+          "Macrophage": "macro",
+          "Dendritic": "dc"
+        }
       },
-      "t": "当免疫等级到达III时，免疫方解锁【分化】能力",
-      "b": ["右侧边栏的免疫等级已经升到 III 了"],
-      "allow": [],
-      "flag": "differentiate"
+      "ui": {
+        "switch_type": [
+          "b",
+          "t",
+          "macro",
+          "dc"
+        ]
+      }
     },
     {
-      "step_of": "Step1",
-      "t": "你可以变成各种各样的免疫细胞，尝试各种职业",
-      "b": ["点底部【分化】，挑一个喜欢的种类"],
-      "unlock": ["differentiate"],
-      "flag": "differentiate",
-      "act": "differentiate",
-      "player": true,
-      "allow": ["k=action|act=differentiate"],
-      "watch": "differentiated"
+      "do": "say",
+      "prd": 399,
+      "who": "player",
+      "lines": [
+        "在此你可以自由探索各种类型的免疫细胞"
+      ]
     },
     {
-      "step_of": "Step2",
-      "load": "t",
-      "ui_layers": {
-        "action_bar": ["move"],
-        "cost": false,
-        "switch_type": ["b", "t", "macro", "dc"]
-      },
-      "t": "在此你可以自由探索各种类型的免疫细胞",
-      "b": ["左上角的【切换种类】随时换一种免疫细胞", "癌组织连通块长大了，上面还固化了两格"],
-      "allow": []
+      "do": "say",
+      "prd": 401,
+      "who": "player",
+      "lines": [
+        "来场盛大的爆炸吧——"
+      ]
     },
     {
-      "step_of": "Step2",
-      "t": "来场盛大的爆炸吧——",
-      "b": ["把场上的癌细胞全部消灭"],
-      "flag": "attack",
-      "act": "attack",
-      "player": true,
-      "allow": ["k=action|act=move", "k=action|act=antibody", "k=action|act=toxin", "k=action|act=lyse", "k=action|act=chemo", "k=free_move", "k=pick", "k=chemo_target", "k=effector_target"],
-      "watch": "all_dead"
+      "do": "player",
+      "prd": 403,
+      "hint": "把场上的癌细胞全部杀掉；想换个职业就点左上角的「切换种类」",
+      "allow": [
+        "k=action|act=move",
+        "k=action|act=antibody",
+        "k=action|act=toxin",
+        "k=action|act=lyse",
+        "k=action|act=chemo",
+        "k=action|act=effector",
+        "k=chemo_target",
+        "k=effector_target",
+        "k=free_move",
+        "k=armor",
+        "k=mark",
+        "k=mod",
+        "k=pick",
+        "k=pick_cell",
+        "k=pick_tile"
+      ],
+      "until": {
+        "state": "all_dead",
+        "arg": "cancer"
+      }
     }
   ],
-  "on_done": ""
+  "on_done": "interlude"
 }

@@ -55,10 +55,15 @@ static func attack_ev() -> Dictionary:
 ## —— 癌方【E-无氧呼吸】连通块供给 ——
 ##
 ## 核心机制（PRD 2026-09-12 + issue #43）：能量按**连通块**算，不是按总面积。
-##   pool = 块内癌组织数^0.3 × coef + 全图固化数 × solid_bonus     （块池，浮点十分位）
+##   pool = (块内癌组织数^0.3 × coef + 全图固化数 × solid_bonus) × 分期增益   （块池，浮点十分位）
 ##   gain = round(pool × k(块内癌细胞数) / 100 ÷ 块内癌细胞数)      （k = 80/100/120）
 ##   每细胞兜底 anaerobic_floor（2.0）
+## 分期增益 = `CWData.ANAEROBIC_STAGE_MUL_BY_STAGE`（环境恶化，issue #56：II 期 ×1.2、III 期 ×1.5），
+## 位置照抄引擎的 `CWWorld._stage_boost()`：乘在**池子**上，k / 均分 / 四舍五入 / 兜底 2.0 都排在它之后。
 ## 对齐 cw_world._anaerobic_pool / _split_share / anaerobic_gain_for（默认规则下逐位一致）。
+## ⚠ **这份镜像不会自己跟着引擎走**：引擎每改一次无氧口径，这里就要同改一次 —— issue #56 第一版
+## 只改了引擎，从肿瘤 II 期起两边差 20% / 50%，而 `t_mech_anaerobic` 的三局 60 步都跨不到第 6 世界回合，
+## 对拍全绿地放它过去（改判：那条测试现在额外钉 round_no = 6 / 11 两档）。
 ## 组件拆开是为了能算「假如块变了」的反事实（小细胞跳块 / 断供 / 连块）。
 
 ## 块池（浮点十分位）。coef/exp < 0 时按人数取（四人 2.0 / 六人 2.8）。
@@ -78,15 +83,27 @@ static func block_pool(g: CWGame, block: Array, overrides: Dictionary = {}, soli
 			if tissue == CWData.Tissue.CANCER:
 				plain += 1
 		var exp_term := pow(float(plain), exp_pct / 100.0) if plain > 0 else 0.0
-		var solid: int = g.count_tissue(CWData.Tissue.SOLID) if solid_override < 0 else solid_override
-		return exp_term * float(coef) + float(solid * g.tune.anaerobic_solid_bonus)
+		## issue #66（2026-09-19）：固化项按**块内**数（同引擎 _anaerobic_pool），overrides 里改成固化的也算
+		var solid := 0
+		for c in block:
+			if int(overrides.get(c, g.tiles[c]["tissue"])) == CWData.Tissue.SOLID:
+				solid += 1
+		if solid_override >= 0:
+			solid = solid_override
+		return _stage_boost(g, exp_term * float(coef) + float(solid * g.tune.anaerobic_solid_bonus))
 	## 退回线性式（coef == 0 对照档）
 	var pool := 0.0
 	for c in block:
 		var tissue: int = int(overrides.get(c, g.tiles[c]["tissue"]))
 		pool += g.tune.anaerobic_per_solid \
 			if tissue == CWData.Tissue.SOLID else g.tune.anaerobic_per_cancer
-	return pool
+	return _stage_boost(g, pool)
+
+
+## 【E-无氧呼吸】的**环境恶化增益**（issue #56）：II 期 ×1.2、III 期 ×1.5，乘在池子上、不取整。
+## 逐位镜像 `CWWorld._stage_boost()` —— 连 coef == 0 的线性对照档也照吃这一刀，引擎那边也是这么写的。
+static func _stage_boost(g: CWGame, pool: float) -> float:
+	return pool * CWData.ANAEROBIC_STAGE_MUL_BY_STAGE[g.tumor_stage()] / 100.0
 
 
 ## 块内存活的癌细胞数（对齐 anaerobic_gain_for 的口径：living_cells 过滤）。
@@ -190,11 +207,9 @@ static func purify_supply_gain(g: CWGame, to: Vector2i) -> int:
 		return 0
 	var tiles2 := _current_cancer_tiles(g)
 	tiles2.erase(to)
-	var solid_override := -1
-	if tissue == CWData.Tissue.SOLID:
-		solid_override = g.count_tissue(CWData.Tissue.SOLID) - 1
+	## issue #66：固化项已按块内数，`tiles2` 去掉那一格后块内固化数自然少一，不再另传全图修正
 	return total_supply_layout(g, tiles2,
-		g.living_cells(CWData.Faction.CANCER), {}, solid_override) - total_supply(g)
+		g.living_cells(CWData.Faction.CANCER), {}, -1) - total_supply(g)
 
 
 ## 小细胞肺癌【转移】跳块的反事实收益（十分位整数）：
@@ -283,11 +298,11 @@ static func _glut_bonus(g: CWGame, cell: Dictionary) -> int:
 
 ## —— 癌方【E-固化】单格生灭（确定性）——
 ##
-## 核心机制（PRD + cw_world._solidify/_decay/raise_solid）：
+## 核心机制（PRD + cw_world._solidify/raise_solid）：
 ##   · 有癌细胞停留的（非新生、非血管）癌组织：每世界回合 solid += SOLIDIFY_STEP（+1.0）
-##   · 无细胞停留且 solid>0 的癌组织：每世界回合 solid −= SOLIDIFY_DECAY（−0.5）
+##   · **计数只增不减**（2026-09-19 issue #64 删掉衰减那一步）：没人停留的格子计数原样留着
 ##   · solid 达阈值（I 期 3.0 / II·III 期 2.0，CWGame.solidify_threshold）→ 转固化癌组织
-##   · 转固化后：_solidify 不再累计（tissue 非 CANCER）、_decay 不再衰减（非 CANCER）
+##   · 转固化后：_solidify 不再累计（tissue 非 CANCER）
 ## 纯确定性，无随机 —— 这是 AI 判断「蹲几回合能造一个复活点/容错」的解析基础。
 
 ## 当前固化阈值（对齐 CWGame.solidify_threshold，按肿瘤分期分档）。
@@ -307,11 +322,6 @@ static func solidify_after(solid: int, rounds: int, threshold: int) -> Dictionar
 		if s >= threshold:
 			solidified = true
 	return { "solid": s, "solidified": solidified }
-
-
-## 无人停留 rounds 个世界回合后的计数（每回合 −SOLIDIFY_DECAY，最低 0）。
-static func decay_after(solid: int, rounds: int) -> int:
-	return maxi(solid - CWData.SOLIDIFY_DECAY * rounds, 0)
 
 
 ## 从当前计数到固化所需的持续停留回合数（按给定阈值；跨分期阈值变化需调用方分段）。

@@ -13,7 +13,11 @@ extends CWBridge
 
 var room: CWRoom
 var heur := CWHeuristicBridge.new()     ## 新手档 AI，也是超时 / 离线的代打
-var mc := CWMonteCarloBridge.new()      ## 专家档 AI：人机对战参数（rollouts=2 · horizon=40，Kevin 2026-09-02 定）
+## 专家档 AI（席位 tier 仍叫 "mc"：那是建房报文里的键，客户端还在发，改名要升协议）。
+## 2026-09-02 起是扁平蒙特卡洛（rollouts=2 · horizon=40）；**2026-09-19 Kevin「把意图级 AI 部署到服务器上，
+## 代替目前的专家级 AI」** ⇒ 换成 MechBridge（PR #59 的第四档：迁移走意图规划器、其余回落启发式）。
+## 它在服务器主线程同步跑、不起线程，评估只在独立副本上（t_mech_bridge_quiet），单问耗时见同一条测试打印的数。
+var mc: CWHeuristicBridge = MechBridge.new()
 
 
 func ask(req: Dictionary) -> int:

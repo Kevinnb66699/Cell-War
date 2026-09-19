@@ -55,7 +55,7 @@
   {
     "schema": "cwxcase/2",
     "id": "stress/store/core_tile_store_roundtrips",
-    "covers": ["t_immune_level_rules::四档就是 2.0 / 3.0 / 4.5 / 5.0（issue #13）"],
+    "covers": ["t_immune_level_rules::四档就是 2.0 / 3.0 / 5.0 / 7.0（issue #66；#13 时是 4.5 / 5.0）"],
     "probe": "aerobic_share",
     "source": "cw_setup.gd:make_tile 的 `store`（代谢核心存了多少十分能量，上限 CWData.CORE_STORE_MAX = 20）。坐标 0,-3 在 CWData.CORES 上，显式写 type=core。cw_world.gd:aerobic_share 经 _aerobic_base 走 tune.aerobic_by_level 按免疫等级查表（I = 2.0），与任何格子的存量无关 ⇒ 仍是 20。核心存量真正兑现在 cw_world.gd 的 S 阶段产出（批 3）。3,-3 / -3,0 / 0,3 在 CWData.MARROWS 上，与 derived_a 迁移后一样显式写 type=normal（§0.6.1 第 3 条：省略 type = 棋盘本来的特殊组织）",
     "world": {

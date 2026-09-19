@@ -126,6 +126,41 @@ func t_mech_anaerobic() -> void:
 	check(total > 50, "采样到 %d 个癌细胞·步 供给" % total)
 	check(bad == 0, "解析供给与引擎逐位一致（%d 采样，%d 偏差）" % [total, bad])
 
+	## ---- 肿瘤 II / III 期的分期增益（issue #56 复核补）----
+	## 上面那三局各 60 步**都跨不到第 6 世界回合**，全程停在肿瘤 I 期（增益 ×1.0）——
+	## 镜像漏掉 `_stage_boost` 也照样 0 偏差，第一版就是这么放过去的（引擎改了、AI 侧没跟）。
+	## 所以这里把同一张盘面直接钉到三个分期上再对拍：`tumor_stage()` 只看 `round_no`，
+	## 而下面只调 `anaerobic_gain_for` / `cell_income` 两个纯查询，不推进引擎、不消耗 rng。
+	var g2 := make_game(6, 41011)
+	g2.sim_quiet = true
+	for _step in 40:
+		var req2: Dictionary = await g2.pending()
+		if req2.is_empty():
+			break
+		var idx2: int = await g2.ask(req2["pid"], req2)
+		await g2.step(idx2)
+	var foes: Array = g2.living_cells(CWData.Faction.CANCER)
+	check(not foes.is_empty(), "分期对拍局里还有 %d 只存活癌细胞" % foes.size())
+	var stage_bad := 0
+	var sums: Array[int] = []
+	for r in [1, 6, 11]:
+		g2.round_no = int(r)
+		var s := 0
+		for cell in foes:
+			var want2: int = g2.world.anaerobic_gain_for(cell)
+			var got2: int = MechValue.cell_income(g2, cell)
+			s += want2
+			if got2 != want2:
+				stage_bad += 1
+				check(false, "第 %d 世界回合（肿瘤 %d 期）癌细胞 %d 解析 %d != 引擎 %d"
+					% [int(r), g2.tumor_stage() + 1, cell["id"], got2, want2])
+		sums.append(s)
+	check(stage_bad == 0, "I / II / III 三档解析供给与引擎逐位一致（%d 只 × 3 档）" % foes.size())
+	## 增益真的落到了账上（不是被兜底 2.0 或封顶吃干净）——这条才是「×1.2 / ×1.5 生效了」的正面证据。
+	check(sums[0] < sums[1] and sums[1] < sums[2],
+		"分期增益抬高了总供给：I %d < II %d < III %d" % [sums[0], sums[1], sums[2]])
+	g2.dispose()
+
 
 ## —— 小细胞肺癌【转移】跳块收益反事实（L0/L1）——
 ## 用户点名的核心机制：跳走成两个连通块以获得更多总能量供给。
@@ -301,10 +336,10 @@ func t_mech_purify_supply() -> void:
 
 
 ## —— 癌方【E-固化】单格生灭 ——
-## 确定性过程：有癌细胞停留 → 每世界回合 +1.0（SOLIDIFY_STEP）；无细胞且计数>0 → −0.5。
-## 计数到阈值（I 期 3.0 / II·III 期 2.0）即转固化癌组织，转后不再累计、SOLID 不衰减。
+## 确定性过程：有癌细胞停留 → 每世界回合 +1.0（SOLIDIFY_STEP）；**没人停留的格子计数原样不动**
+## （2026-09-19 issue #64 删了衰减那一步）。计数到阈值（I 期 3.0 / II·III 期 2.0）即转固化癌组织，转后不再累计。
 ## 验证：手工构造「A 格有细胞停（solid=5）、B 格无人停（solid=15）」，
-## 逐世界回合调用引擎 _solidify() + _decay()，与解析 solidify_after / decay_after 逐位对拍。
+## 逐世界回合调用引擎 _solidify()，与解析 solidify_after 逐位对拍；B 格钉「一点都没掉」。
 func t_mech_solidify() -> void:
 	print("[机制·固化生灭]")
 	var g := bare_game()
@@ -325,7 +360,6 @@ func t_mech_solidify() -> void:
 	var solidified_at := -1
 	for r in 5:
 		g.world._solidify()
-		g.world._decay()
 		var want_a: Dictionary = MechValue.solidify_after(5, r + 1, th)
 		if int(a["solid"]) != int(want_a["solid"]):
 			solid_ok = false
@@ -338,17 +372,17 @@ func t_mech_solidify() -> void:
 				r + 1, a_solidified, want_a["solidified"]])
 		if a_solidified and solidified_at < 0:
 			solidified_at = r + 1
-		var want_b: int = MechValue.decay_after(15, r + 1)
-		if int(b["solid"]) != want_b:
+		## issue #64：没人停留就一点都不掉（解析侧不再有 decay_after 这支）
+		if int(b["solid"]) != 15:
 			decay_ok = false
-			check(false, "回合 %d：B 格 solid %d != 解析 %d" % [
-				r + 1, int(b["solid"]), want_b])
+			check(false, "回合 %d：B 格 solid %d != 15（计数不再递减）" % [
+				r + 1, int(b["solid"])])
 	check(solid_ok, "A 格逐回合计数/固化与解析一致（5 回合）")
-	check(decay_ok, "B 格逐回合衰减与解析一致（5 回合）")
+	check(decay_ok, "B 格无人停留：5 个世界回合计数一点不掉（issue #64 删衰减）")
 	check(solidified_at == 3, "A 格第 3 回合转固化（5+1.0×3=35 ≥ 30，实测第 %d 回合）" % solidified_at)
 	## 固化后不再累计：第 4、5 回合 solid 应保持 35（引擎 _solidify 对 SOLID 直接 continue）
 	check(int(a["solid"]) == 5 + CWData.SOLIDIFY_STEP * 3, "转固化后 solid 不再涨（%d）" % int(a["solid"]))
-	check(int(b["solid"]) == 0, "B 格衰减到 0 不再衰减")
+	check(int(b["solid"]) == 15, "B 格计数停在 15（issue #64 起不衰减）")
 	## rounds_to_solidify：从 5 开始持续停留要几回合（阈值 30）
 	check(MechValue.rounds_to_solidify(5, th) == 3, "rounds_to_solidify(5,30)=3")
 	check(MechValue.rounds_to_solidify(25, th) == 1, "rounds_to_solidify(25,30)=1")

@@ -171,7 +171,7 @@
         "$.board.tiles@1,1.d.proliferate_chance": 0,
         "$.board.tiles@2,-1.d.proliferate_chance": 0,
         "$.board.tiles@2,0.d.proliferate_chance": 0,
-        "$.cells[0].d.income": 45,
+        "$.cells[0].d.income": 50,
         "$.cells[0].pos.q": 1,
         "$.g.immune_level": 2,
         "$.g.memory": 20,
@@ -180,7 +180,7 @@
             "cancer_type": -1,
             "cell_id": 0,
             "d": {
-              "income": 45
+              "income": 50
             },
             "faction": 0,
             "id": 0
@@ -224,14 +224,14 @@
     "covers": [
       "t_effector_responses::升到 X 级：抗原记忆升级为效应记忆、就地清零（"
     ],
-    "source": "cw_game.gd:gain_memory 的 `if lv == 3: memory = 0` ↔ CellRules.AddMemory 的 `if (level == X && p.ImmuneLevel != X) memory = 0`。① 算式同上；② 出处同上；③ 二人局（走缺省档）memory 69 / III 级，净化 +1 ⇒ 70 ⇒ 跨过缺省档的 X 门槛 ⇒ 就地清零；④ **PRD 常数** —— PRD:367「X 级（4 人 ≥50 抗原记忆 \\| 6 人 ≥70 抗原记忆）」、PRD:369「抗原记忆升级为【效应记忆】并重新从零计数」；引擎常量 CWData.LEVEL_MIN_MEMORY[3] = 70。**两侧今天同值**（70 ≥ C# 的 50 也 ≥ GD 的 70，落点一样），不等 P1 ①；P1 ① 之后仍须绿。delta 里 `$.g.memory → 0` 与 `$.g.immune_level → 3` 同时出现，正是「升级 + 清零」这一对。changed 由 GD runner 录出。",
+    "source": "cw_game.gd:gain_memory 的 `if lv == 3: memory = 0` ↔ CellRules.AddMemory 的 `if (level == X && p.ImmuneLevel != X) memory = 0`。① 算式同上；② 出处同上；③ 二人局（走缺省档）memory 119 / III 级，净化 +1 ⇒ 120 ⇒ 跨过缺省档的 X 门槛 ⇒ 就地清零；④ **PRD 常数** —— PRD:365「X 级（4 人 ≥100 抗原记忆 \\| 6 人 ≥120 抗原记忆）」（issue #55）、PRD:367「抗原记忆升级为【效应记忆】并重新从零计数」；引擎常量 CWData.LEVEL_MIN_MEMORY[3] = 120。**两侧今天同值**（两张表 issue #55 一起抬，落点一样），不等 P1 ①；P1 ① 之后仍须绿。delta 里 `$.g.memory → 0` 与 `$.g.immune_level → 3` 同时出现，正是「升级 + 清零」这一对。changed 由 GD runner 录出。",
     "world": {
       "players": [
         {
           "seat": 0,
           "faction": "immune",
           "level": "III",
-          "memory": 69
+          "memory": 119
         }
       ],
       "tiles": [
@@ -264,7 +264,7 @@
         "$.board.tiles@1,1.d.proliferate_chance": 0,
         "$.board.tiles@2,-1.d.proliferate_chance": 0,
         "$.board.tiles@2,0.d.proliferate_chance": 0,
-        "$.cells[0].d.income": 50,
+        "$.cells[0].d.income": 70,
         "$.cells[0].pos.q": 1,
         "$.g.immune_level": 3,
         "$.g.memory": 0,
@@ -273,7 +273,7 @@
             "cancer_type": -1,
             "cell_id": 0,
             "d": {
-              "income": 50
+              "income": 70
             },
             "faction": 0,
             "id": 0

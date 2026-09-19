@@ -16,14 +16,16 @@ namespace CellWar.Core.Tests.L1;
 ///    树突建源局：players=4 seed=4242 steps=400 policy=chemo → trace_4p_chemo_4242.jsonl，exporter 在源消散 + 冷却归零后 12 步自动收尾）
 /// </code>
 /// 录完要 grep `SCRIPT ERROR`（GDScript 运行时错误不中断执行），并跑两遍比逐字节相同。
-/// 2p 那条 173 步就分出胜负，录到终局为止。
+/// 2p 那条录到终局为止。
+/// **2026-09-19 issue #55 / #56 之后四条全部重录**：规则一动轨迹就变 —— 2p 终局从 173 步挪到 172 步、
+/// 树突建源局从 279 步挪到 343 步。水位线跟着新夹具重定，不是「往下放」。
 /// </summary>
 public class L1ReplayTests
 {
     /// <summary>4p seed 4242 的水位线（2026-09-17：200 步整条一致）。往上拧，别往下放。</summary>
     public const int Ratchet = 200;
-    /// <summary>2p seed 2222（终局 173 步，2026-09-17 晚整条一致）。</summary>
-    public const int Ratchet2p = 173;
+    /// <summary>2p seed 2222（2026-09-19 issue #55 / #56 重录后终局 172 步，整条一致）。</summary>
+    public const int Ratchet2p = 172;
     /// <summary>6p seed 6666（200 步，2026-09-17 晚整条一致）。</summary>
     public const int Ratchet6p = 200;
     /// <summary>
@@ -35,7 +37,10 @@ public class L1ReplayTests
     /// 水位线从 237 拧到 **279**（整条）。envelope 那边另停在 248：第 249 / 250 / 272 / 277 / 278 五步的**迁移报价**（`cost` / `cost_rows`）与 GD 不同 ——
     /// 盘面本身逐字一致（这里 279 步全 PASS），差的是趋化源在场时的算费，新登记 KNOWN_GAP `chemo-move-quote`。
     /// </summary>
-    public const int RatchetChemo = 279;
+    /// **2026-09-19 issue #55 / #56 重录**：新轨迹 343 步，**前 282 步整条一致**，水位线 279 → **282**。
+    /// 第 283 步新暴露一处分叉（`cells[1]` 的 `marked` / `mark_left` / `mark_round`：GD 在第 12 世界回合又标了一次、
+    /// C# 让标记过期）—— 与本批三条规则无关，是旧夹具停在 279 步时够不到的老分叉，另开工单。
+    public const int RatchetChemo = 282;
 
     [Theory]
     [InlineData("trace_4p_4242.jsonl", Ratchet)]
