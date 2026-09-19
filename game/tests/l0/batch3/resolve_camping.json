@@ -170,10 +170,7 @@
           "at": "6,-3",
           "prod": 1
         }
-      ],
-      "tuning": {
-        "world_events_on": 1
-      }
+      ]
     },
     "rolls": [],
     "args": {},

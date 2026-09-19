@@ -19,7 +19,7 @@ public class ObservationV1Tests
         var env = session.ObserveV1(ObservationV1Codec.ViewerOmniscient);
         var json = ObservationV1Codec.Serialize(env);
 
-        Assert.Equal(2, env.P);   // p=2（批 1 步 1）
+        Assert.Equal(3, env.P);   // p=3（2026-09-19 删七个世界事件残留字段）
         Assert.Equal(["A"], env.ProducedTiers);
         Assert.True(env.Full); Assert.Null(env.Base);
         Assert.DoesNotContain("\"rng\"", json);
@@ -44,7 +44,6 @@ public class ObservationV1Tests
         Assert.Equal("玩家回合", env.State.G.D.PhaseText);
         Assert.Equal([30, 20, 20], env.State.G.Tune.SolidifyThreshold);
         Assert.Equal(63, env.State.G.Tune.LimitCancerous);
-        Assert.Empty(env.State.G.Events.Pool);   // pool 恒 []（世界事件已删，Kevin 2026-09-19）
         Assert.Equal("", env.State.G.WinKind); Assert.Equal(-1, env.State.G.Winner); Assert.False(env.State.G.IsOver);
         Assert.Equal(-1, env.State.G.EffectorRound);   // 从没发动过：C# 存 0、协议给 -1
     }

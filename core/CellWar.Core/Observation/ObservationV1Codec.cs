@@ -14,16 +14,15 @@ namespace CellWar.Core.Observation;
 /// </summary>
 public static class ObservationV1Codec
 {
-    public const int Protocol = 2;   // 2026-09-19 批 1 步 1（观测协议 §九）
+    public const int Protocol = 3;   // 2026-09-19 删七个世界事件残留字段（观测协议 §九）
     public const int HostAbi = 1;
     public const string RulesBuild = "core-slice-1+b0";
     public const int ViewerWatcher = -1;      // GD CWKernel.VIEWER_WATCHER
     public const int ViewerOmniscient = -2;   // GD CWKernel.VIEWER_OMNISCIENT，禁止过网
 
     // ---- C# 今天没有旋钮、引擎里是字面量的那几个 tune 键（GD 默认值逐个核对过：cw_data.gd:41,46）----
-    // `world_events_on` / `cancer_win_hold_rounds` / `osteo_ossify_cost` 2026-09-19 起有旋钮了（K2），改从 `s.Tuning` 现读；
-    // （`world_events_on` 同日起恒 false：世界事件已删，旋钮冻结待批 1 全量发版那次协议升号一并物理删）
-    // 默认值与原来的字面量逐个相同（false / 2 / 20），编码结果不变。
+    // `cancer_win_hold_rounds` / `osteo_ossify_cost` 2026-09-19 起有旋钮了（K2），改从 `s.Tuning` 现读；
+    // 默认值与原来的字面量逐个相同（2 / 20），编码结果不变。
     private const int CancerWinWeighted = OutcomeRules.CancerWinWeighted;   // 同一个数，别抄第二份
     private const int LimitRound = 15;             // OutcomeRules：WorldRound >= 15
 
@@ -88,9 +87,7 @@ public static class ObservationV1Codec
             new ObsCancerAlarm(s.Turn.CancerWinStreak, s.Tuning.CancerWinHoldRounds),
             s.Turn.ChemoAt is { } ca ? new ObsChemo(Pos(ca), s.Turn.ChemoRounds, s.Turn.ChemoOwner, s.Turn.ChemoCreator is { } cc ? Id(cc) : -1) : null,
             Track(s),
-            new ObsEvents(Array.Empty<string>(),   // 世界事件已删（Kevin 2026-09-19）：pool 恒 []、double_next 恒 false、d.is_world_event 恒 false —— 三个字段随协议升号一并物理删
-                s.Effects.Select(e => new ObsEffect(e.Name, e.Left, e.Stacks, e.Doubled, new Dictionary<string, int>(e.Data), new ObsEffectD(false))).ToArray(),
-                false),
+            new ObsEvents(s.Effects.Select(e => new ObsEffect(e.Name, e.Left, e.Stacks, new Dictionary<string, int>(e.Data))).ToArray()),
             sim.FeedLog.Select(f => new ObsFeed(f.Seq, f.Kind, f.Pid, f.Faction, f.Card, f.Left)).ToArray(), sim.FeedSeq,
             s.Turn.PendingChainCell is { } pc ? Id(pc) : -1,
             false, s.Turn.Winner is not null,
@@ -99,10 +96,10 @@ public static class ObservationV1Codec
                 cells.Where(c => c.OwnerSeat == p.Seat).Select(c => Id(c.Id)).DefaultIfEmpty(-1).First(),
                 p.CancerType is { } ct ? GdEnum.Ctype(ct) : -1,
                 new ObsPlayerD(cells.Where(c => c.OwnerSeat == p.Seat).Sum(c => Income(s, c))))).ToArray(),
-            new ObsTune(s.Tuning.WorldEventsOn, CancerWinWeighted, s.Tuning.CancerWinHoldRounds, LimitRound, s.Board.Tissues.Count / 2,
+            new ObsTune(CancerWinWeighted, s.Tuning.CancerWinHoldRounds, LimitRound, s.Board.Tissues.Count / 2,
                 s.Tuning.MucusMoveSurcharge, s.Tuning.MetastasisCost, s.Tuning.OsteoOssifyCost, s.Tuning.SolidifyThreshold.ToArray()),
             new ObsGlobalD(BoardRules.SolidifyThreshold(s), RulePolicies.Stage(s), RulePolicies.CancerPhase(s.Turn.WorldRound), PhaseText(s.Turn.Phase),
-                false, null, null, null, null, null, null, null, null));   // is_world_event_round 恒 false（世界事件已删）
+                null, null, null, null, null, null, null));
 
         return new ObsEnvelope(Protocol, new ObsRuleset(HostAbi, RulesBuild, RulesBuild), revision.Value, sim.NextPresentationSeq - 1,
             ViewerOmniscient, false, ["A"], true, null,

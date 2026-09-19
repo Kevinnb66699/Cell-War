@@ -151,7 +151,6 @@
             "name": "TGF-β释放",
             "left": 2,
             "stacks": 1,
-            "doubled": "",
             "data": {}
           }
         ]
@@ -163,9 +162,7 @@
     "expect": {
       "kind": "delta",
       "changed": {
-        "$.g.events.active[TGF-β释放].d.is_world_event": null,
         "$.g.events.active[TGF-β释放].data": null,
-        "$.g.events.active[TGF-β释放].doubled": null,
         "$.g.events.active[TGF-β释放].left": null,
         "$.g.events.active[TGF-β释放].name": null,
         "$.g.events.active[TGF-β释放].stacks": null
@@ -234,7 +231,6 @@
             "name": "TGF-β释放",
             "left": 2,
             "stacks": 1,
-            "doubled": "",
             "data": {}
           }
         ]
@@ -256,9 +252,7 @@
             "id": 0
           }
         ],
-        "$.g.events.active[TGF-β释放].d.is_world_event": null,
         "$.g.events.active[TGF-β释放].data": null,
-        "$.g.events.active[TGF-β释放].doubled": null,
         "$.g.events.active[TGF-β释放].left": null,
         "$.g.events.active[TGF-β释放].name": null,
         "$.g.events.active[TGF-β释放].stacks": null

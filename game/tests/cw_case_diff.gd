@@ -16,7 +16,7 @@
 ##   `$.board.tiles@<q>,<r>.<键>` / `$.cells[<席位>].<键>` / `$.cells[<席位>].mods[<卡名>].<键>` /
 ##   `$.g.<键>` / `$.g.events.active[<事件名>].<键>` / `$.ask.kind` `$.ask.tag` `$.ask.seat`。
 ##   **只有上面这四个数组有语义键**（tiles / cells / cells[].mods / g.events.active）；
-##   其余数组（`hand` / `equipped` / `fx_round` / `g.players` / `g.order` / `g.feed_log` / `events.pool` …）
+##   其余数组（`hand` / `equipped` / `fx_round` / `g.players` / `g.order` / `g.feed_log` …）
 ##   整条当一个叶子比 —— 序号下标在「一席多细胞」那天会静默换靶，所以一个都不开。
 ##   `*` 只许出现在**倒数第二段**；同席多细胞取 `cells[<席位>]` = 硬错；`$.ask.options` 及子路径 = 硬错。
 ##

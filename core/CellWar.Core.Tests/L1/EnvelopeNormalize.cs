@@ -11,7 +11,7 @@ internal static class EnvelopeNormalize
     public static readonly string[] TileB = ["prod_left", "store_max", "solid_frozen", "store_pending"];
     public static readonly string[] CellB = ["action_kinds", "status_rows", "pressure_lethal", "neutralized", "type_ability_on", "antibody_cost",
         "metastasis_cost_real", "ossify_cost_real", "attack_cap_left", "draw_cap_left", "homing_cost_real"];
-    public static readonly string[] GlobalB = ["count_healthy", "count_cancer", "count_solid", "count_necrosis", "cancer_weighted", "level_thresholds", "memory_next_at", "next_event_round"];
+    public static readonly string[] GlobalB = ["count_healthy", "count_cancer", "count_solid", "count_necrosis", "cancer_weighted", "level_thresholds", "memory_next_at"];
 
     private static readonly HashSet<string> TileBSet = new(TileB, StringComparer.Ordinal);
     private static readonly HashSet<string> CellBSet = new(CellB, StringComparer.Ordinal);

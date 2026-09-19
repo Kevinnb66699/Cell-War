@@ -190,14 +190,10 @@ static func _global(game: CWGame, req: Dictionary) -> Dictionary:
 		if bool(cell.get("chain_running", false)):
 			chain_cell = int(cell["id"])
 			break
-	var pool: Array = []
-	for n in game.events["pool"]:
-		pool.append(str(n))
 	var active: Array = []
 	for e: Dictionary in game.events["active"]:
 		active.append({ "name": str(e["name"]), "left": int(e["left"]), "stacks": int(e.get("stacks", 1)),
-			"doubled": str(e.get("doubled", "")), "data": _effect_data(e.get("data", {})),
-			"d": { "is_world_event": false } })   ## 保留键，恒 false（世界事件 2026-09-19 已删）
+			"data": _effect_data(e.get("data", {})) })
 	var feed: Array = []
 	for f: Dictionary in game.feed_log:
 		feed.append({ "seq": int(f["seq"]), "kind": str(f["kind"]), "pid": int(f["pid"]), "faction": int(f["faction"]),
@@ -231,13 +227,13 @@ static func _global(game: CWGame, req: Dictionary) -> Dictionary:
 		"cancer_alarm": { "streak": int(game.cancer_win_streak), "hold_rounds": int(game.tune.cancer_win_hold_rounds) },
 		"chemo": (null if chemo.is_empty() else { "at": pos(chemo["at"]), "left": int(chemo["left"]), "by": int(chemo["by"]), "cid": int(chemo.get("cid", -1)) }),
 		"chemo_track": (null if track.is_empty() else { "cid": int(track.get("cid", -1)), "at": pos(game.chemo_track_at()), "left": int(track.get("left", 0)) }),
-		"events": { "pool": pool, "active": active, "double_next": bool(game.events["double_next"]) },
+		"events": { "active": active },
 		"feed_log": feed, "feed_seq": int(game.feed_seq),
 		"chain_cell": chain_cell, "aborted": bool(game.aborted), "is_over": game.is_over(),
 		"order": Array(game.order),
 		"players": players,
 		"tune": {
-			"world_events_on": bool(game.tune.world_events_on), "cancer_win_weighted": int(game.tune.cancer_win_weighted),
+			"cancer_win_weighted": int(game.tune.cancer_win_weighted),
 			"cancer_win_hold_rounds": int(game.tune.cancer_win_hold_rounds), "limit_round": int(game.tune.limit_round),
 			"limit_cancerous": int(game.tune.limit_cancerous), "mucus_move_surcharge": int(game.tune.mucus_move_surcharge),
 			"metastasis_cost": int(game.tune.metastasis_cost), "osteo_ossify_cost": int(game.tune.osteo_ossify_cost),
@@ -245,20 +241,13 @@ static func _global(game: CWGame, req: Dictionary) -> Dictionary:
 		},
 		"d": {
 			"solid_threshold": game.solidify_threshold(), "tumor_stage": game.tumor_stage() + 1, "cancer_phase": game.tumor_stage(),
-			"phase_text": str(game.phase), "is_world_event_round": false,   ## 保留键，恒 false（同上）
+			"phase_text": str(game.phase),
 			"count_healthy": game.count_tissue(CWData.Tissue.HEALTHY), "count_cancer": game.count_tissue(CWData.Tissue.CANCER),
 			"count_solid": game.count_tissue(CWData.Tissue.SOLID), "count_necrosis": game.count_necrosis(),
 			"cancer_weighted": game.count_tissue(CWData.Tissue.CANCER) + 2 * game.count_tissue(CWData.Tissue.SOLID),   ## cw_game.gd:1118 同式
 			"level_thresholds": thresholds, "memory_next_at": next_at,
-			"next_event_round": next_event_round(game.round_no),   ## 保留键，恒 0（同上）
 		},
 	}
-
-
-## 保留的协议字段（G_D_B）。世界事件 2026-09-19 整块删除之后**恒 0** ——
-## 函数签名与键都留着，随批 1 全量发版那次协议升号一并物理删除。
-static func next_event_round(_from: int) -> int:
-	return 0
 
 
 ## 全局条目的 data：键统一成字符串（Vector2i 键 → "q,r"），值 bool → 1/0、Vector2i → {q,r}（C# 那边存的是 int）

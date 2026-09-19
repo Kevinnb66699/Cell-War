@@ -55,10 +55,7 @@
           "faction": "cancer",
           "seat": 3
         }
-      ],
-      "tuning": {
-        "world_events_on": 1
-      }
+      ]
     },
     "args": {},
     "rolls": [],
@@ -130,10 +127,7 @@
           "faction": "cancer",
           "seat": 3
         }
-      ],
-      "tuning": {
-        "world_events_on": 1
-      }
+      ]
     },
     "args": {},
     "rolls": [],

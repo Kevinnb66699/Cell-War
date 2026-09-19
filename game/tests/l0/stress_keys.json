@@ -4,7 +4,7 @@
     "id": "stress/events/tgf_beta_one_stack_cuts_aerobic",
     "covers": ["t_card_mods::TGF-β 两份叠加："],
     "probe": "aerobic_share",
-    "source": "cw_world.gd:aerobic_share 末尾 `for i in _tgf_stacks(): gain = gain * 8 / 10`（逐份 ×80% 向下取整，定案 #63）；_tgf_stacks 读 game.events[\"active\"] 里名为【TGF-β释放】的条目的 stacks 求和。盘面与 derived_a 的 aerobic_share/basic_level_I 逐格相同（那条今天 = 20：_aerobic_base 走 tune.aerobic_by_level[0] = 2.0，clamp_income 的 floor/cap 都是 0 不夹，aerobic_split 默认 false 不均分），挂一层 TGF-β 后 20 × 8 / 10 = 16。**八条里唯一一条新键会改数的**，其余七条钉的是「新键装得进、往返不掉、且确实不改这个探针的数」。只写 events.active：pool / double_next 走默认（§0.6.1 第 5 条）",
+    "source": "cw_world.gd:aerobic_share 末尾 `for i in _tgf_stacks(): gain = gain * 8 / 10`（逐份 ×80% 向下取整，定案 #63）；_tgf_stacks 读 game.events[\"active\"] 里名为【TGF-β释放】的条目的 stacks 求和。盘面与 derived_a 的 aerobic_share/basic_level_I 逐格相同（那条今天 = 20：_aerobic_base 走 tune.aerobic_by_level[0] = 2.0，clamp_income 的 floor/cap 都是 0 不夹，aerobic_split 默认 false 不均分），挂一层 TGF-β 后 20 × 8 / 10 = 16。**八条里唯一一条新键会改数的**，其余七条钉的是「新键装得进、往返不掉、且确实不改这个探针的数」。只写 events.active（events 只有这一个键，§0.6.1 第 5 条）",
     "world": {
       "players": [
         { "seat": 0, "faction": "immune", "level": "I" },
@@ -25,7 +25,7 @@
         { "seat": 3, "type": "SignetRing", "at": "0,3" }
       ],
       "events": {
-        "active": [{ "name": "TGF-β释放", "left": 2, "stacks": 1, "doubled": "" }]
+        "active": [{ "name": "TGF-β释放", "left": 2, "stacks": 1 }]
       }
     },
     "args": { "cell": "0" },
@@ -140,7 +140,7 @@
     "id": "stress/global/win_fields_and_counters_roundtrip",
     "covers": ["t_tumor_stages::II 期门槛 2.0（PRD 2026-09-12 把 2.0 提前到 II 期）"],
     "probe": "solidify_threshold",
-    "source": "cwxworld/2 的 world 顶层四个全局量（§0.6.1 第 1 条）：winner / win_kind / effector_round / cancer_alarm.streak —— cw_obs_proto.gd:G 里有、而今天 loader 一个都装不进（effector_round 就是这么漏掉的）。**只写这四个**：win_reason 是文案（C# 由 win_kind 现算）、feed_seq 是演出流水号、chain_cell 派生自 cells[].chain_running、cancer_alarm.hold_rounds 是旋钮 cancer_win_hold_rounds 的转写，四者都不收；differentiated 由 cells 现算。期望值与它们无关：cw_game.gd:solidify_threshold 只读 tune.solidify_threshold[tumor_stage()]，回合 6 经 cw_card_data.gd:cancer_phase 落在 II 期 ⇒ CWData.SOLIDIFY_THRESHOLD_BY_STAGE[1] = 20",
+    "source": "cwxworld/3 的 world 顶层四个全局量（§0.6.1 第 1 条）：winner / win_kind / effector_round / cancer_alarm.streak —— cw_obs_proto.gd:G 里有、而今天 loader 一个都装不进（effector_round 就是这么漏掉的）。**只写这四个**：win_reason 是文案（C# 由 win_kind 现算）、feed_seq 是演出流水号、chain_cell 派生自 cells[].chain_running、cancer_alarm.hold_rounds 是旋钮 cancer_win_hold_rounds 的转写，四者都不收；differentiated 由 cells 现算。期望值与它们无关：cw_game.gd:solidify_threshold 只读 tune.solidify_threshold[tumor_stage()]，回合 6 经 cw_card_data.gd:cancer_phase 落在 II 期 ⇒ CWData.SOLIDIFY_THRESHOLD_BY_STAGE[1] = 20",
     "world": {
       "round": 6,
       "phase": "Finished",

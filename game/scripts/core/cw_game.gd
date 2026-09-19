@@ -40,9 +40,8 @@ var immune_level := 0      # 0..3 = I/II/III/X，只升不降
 var differentiated: Array = []   # 已被分化占用的免疫种类（每种全阵营限一个）
 ## 全局修饰容器（CWWorldFx 管回合时钟，结算点用 event_stacks() 查询）。
 ## active = 生效中的条目 {name, left, stacks, data}，卡牌的全局修饰住这里（对照 5.1 #26）。
-## pool / double_next 是**世界事件删除（2026-09-19）后留下的空壳**：pool 恒 []、
-## double_next 恒 false，随批 1 全量发版那次协议升号物理删除。整体进快照与哈希。
-var events := { "pool": [], "active": [], "double_next": false }
+## 整体进快照与哈希。
+var events := { "active": [] }
 var winner := -1           # -1 未分胜负；否则 CWData.Faction
 # 中途放弃这一局（返回主菜单）。置位后引擎的各个循环会在下一个检查点收摊，
 # 让卡在「等玩家作答」上的那次询问能安全地一路展开回来 ——
@@ -740,7 +739,6 @@ func _unique_bridges() -> Array:
 ## info 带 cell_id / pos / faction / card：联机的影子对局不跑 card_fx.play，客户端的头顶飞卡与右栏历史小卡
 ## （队友 2026-09-06 的表现层，本地走 `card_played` 信号）靠这条报文驱动。方法名带 broadcast_ 是为了不和那个信号撞名。
 ## 往出牌流水里记一条。kind：play = 谁打出的 / event = 谁抽到的事件卡。
-## （kind="world" 是世界事件删除后留下的保留档，协议键表里还在、但再也不会产生。）
 ## 推演（sim_quiet）不记：那是副本里的假动作，记了既浪费又会污染快照。
 func note_feed(kind: String, pid: int, faction: int, card: String, left := 0) -> void:
 	if sim_quiet:

@@ -4,9 +4,9 @@
 ## InProc 把 CWGame 的桥回调翻译成入队；Sidecar / Remote 把报文翻译成入队。消费者只认「一条有序条目流 + 一个 answer 出口」，
 ## 不关心对端是本地 CWGame、本地 C# 进程还是服务器 —— 所以服务器走 (a) 还是 (b) 不阻塞这里。
 ##
-## 条目形状（16 种，字段逐字照 cw_net_bridge.gd:34-80 的报文键，一个键都不改）：
-##   演出 10 种：roll{reason,value,sides,pid,at} · result{text,at,linger} · notice{text} · card_played{pid,text,cell_id,pos,faction,card}
-##              event_drawn{pid,cell_id,pos,faction,card} · card_drawn{pid,cell_id,pos,source} · world_event{ev,left}（保留档，2026-09-19 起不再产生）
+## 条目形状（15 种，字段逐字照 cw_net_bridge.gd:34-80 的报文键，一个键都不改）：
+##   演出 9 种：roll{reason,value,sides,pid,at} · result{text,at,linger} · notice{text} · card_played{pid,text,cell_id,pos,faction,card}
+##              event_drawn{pid,cell_id,pos,faction,card} · card_drawn{pid,cell_id,pos,source}
 ##              erosion{at,dir} · beam{from,to,splash} · fx{kind,data}
 ##   另 4 种：log{index,text,secret_pid,public_text}（index 与上一条相同 = 就地改写末条，装得下 CWGame.log_run 的语义）
 ##            ask{ask_id,req,left_ms} · game_over{winner,reason,kind,round,replay} · sync{envelope}（传输层必发；InProc 在 cfg.observe_viewer 打开时也发，节拍见批 1 规格 A-1.5）
@@ -25,7 +25,7 @@ enum State { IDLE, STARTING, READY, AWAITING, ENDED, UNAVAILABLE, FAULTED }
 enum Fault { NONE, SPAWN_FAILED, ABI_MISMATCH, SELFTEST_FAILED, HANDSHAKE_TIMEOUT, CRASHED, PROTOCOL }
 const VIEWER_WATCHER := -1      ## 观众：手牌全占位、问答只给 kind / tag / seat / prompt
 const VIEWER_OMNISCIENT := -2   ## 全知：明文、全给 —— **禁止过网**，只给本地宿主 / 热座
-const STREAM_KINDS := ["roll", "result", "notice", "card_played", "event_drawn", "card_drawn", "world_event",
+const STREAM_KINDS := ["roll", "result", "notice", "card_played", "event_drawn", "card_drawn",
 	"erosion", "beam", "fx", "log", "ask", "game_over", "sync", "step_begin", "step_end"]
 
 signal entry_ready()                          ## 队列里有新条目
@@ -37,7 +37,7 @@ var _fault_msg := ""
 
 
 # ---- 生命周期 ----
-## cfg = { factions, seed, cancer_types?, world_events_on?（保留旋钮，恒 false）, world_state?, record_replay?, deciders? / decider?, consumer?, step_drive?,
+## cfg = { factions, seed, cancer_types?, world_state?, record_replay?, deciders? / decider?, consumer?, step_drive?,
 ##         rules?（tune.restore_rules_state，排在 init 之后 world_state 之前）, autorun?（默认 true；false = 等 run()）,
 ##         adopt?（收养一个现成 CWGame：跳过 new+init、close() 不 dispose；没有 consumer 时不装 CWKernelBridge、不连 log_line）,
 ##         observe_viewer?（设了就在每次问人之前、终局之前各推一条 sync，批 1 规格 A-1.5）, open_hands? }

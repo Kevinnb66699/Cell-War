@@ -18,11 +18,7 @@ namespace CellWar.Core;
 /// 注意**同名多条**也是合法的（打两张【TGF-β释放】= 两条各 1 层），
 /// 所以强度一律用 <see cref="WorldEffects.Stacks"/> 求和，别只看第一条。
 /// </param>
-/// <param name="Doubled">
-/// 协议保留字段，恒空串（原【双重触发】的档位；世界事件已删，Kevin 2026-09-19）。
-/// **形状本批不动** —— 物理删除随批 1 全量发版那次协议升号一起做。
-/// </param>
-public sealed record ActiveEffect(string Name, int Left, int Stacks = 1, string Doubled = "")
+public sealed record ActiveEffect(string Name, int Left, int Stacks = 1)
 {
     /// <summary>
     /// 条目私有簿记（GD 侧 `data`）。

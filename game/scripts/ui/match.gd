@@ -53,7 +53,7 @@ signal finished(winner: int)
 var _tutorial_ch := 0
 ## 最后一条 step_end 的观测号（queue.on_step，见 _on_step）。S4 的装闸点就挂在这个边界上
 var _step_rev := 0
-## 教程舞台（scripts/kernel/cw_tutorial_stage.gd）：读一关 JSON → 装一份 cwxworld/2 → 交出 CWKernel。
+## 教程舞台（scripts/kernel/cw_tutorial_stage.gd）：读一关 JSON → 装一份 cwxworld/3 → 交出 CWKernel。
 ## **持对局的是它、不是这里** —— UI 侧只有句柄，结构闸 t_no_engine_in_ui 的白名单因此降到一条。
 ## 句柄 adopt 模式的 close() 不 dispose，谁装配谁收摊，所以拆局 / 跨关都要显式 _stage.dispose()：
 ## 不收的话模块↔对局、桥↔对局两个引用环每换一关漏一份。
@@ -174,7 +174,7 @@ const CELL_FOOT_DY := 6.0
 const STACK_DX := 9.0
 ## 普通攻击的本体冲撞（队友 PR #30）：没有 class_name —— 新类名热更装不上，所以走 preload
 const ATTACK_FX := preload("res://scripts/ui/attack_fx.gd")
-## 教程舞台（新手引导 S3）：读一关 cwtut/1 → 装一份 cwxworld/2 → 交出 CWKernel。
+## 教程舞台（新手引导 S3）：读一关 cwtut/1 → 装一份 cwxworld/3 → 交出 CWKernel。
 ## 住 scripts/kernel/ 且不带 class_name（引导天天在改，补丁里新增的 class_name 认不出来）
 const TUTORIAL_STAGE := preload("res://scripts/kernel/cw_tutorial_stage.gd")
 ## 教程 NPC 席位的脚本 decider（新手引导 S8）。同上：住 scripts/kernel/、不带 class_name
@@ -558,7 +558,7 @@ func _guide_deciders() -> Dictionary:
 	return out
 
 
-## 教程局的句柄从舞台来：舞台读那一关的 JSON、装一份 cwxworld/2、把预设骰子（rolls）挂上去，
+## 教程局的句柄从舞台来：舞台读那一关的 JSON、装一份 cwxworld/3、把预设骰子（rolls）挂上去，
 ## 再用调用方这份 cfg 加 `adopt` 开局。**这里拿到的只有 CWKernel** —— 对局本身住在舞台里。
 ## 同时按数据把棋盘遮罩换成这一关的活跃格（main.gd 在推镜头之前也设过一次，幂等）。
 func _open_tutorial_stage(cfg: Dictionary) -> CWKernel:

@@ -1,4 +1,4 @@
-## cw_world_loader.gd —— cwxworld/2 的 `world` 段 ⇄ CWGame（测试迁移规格 A-2 / C-1 步 8；键表口径 = 规格 §0.6.1）
+## cw_world_loader.gd —— cwxworld/3 的 `world` 段 ⇄ CWGame（测试迁移规格 A-2 / C-1 步 8；键表口径 = 规格 §0.6.1）
 ##
 ## 此前它住在 game/tests/cw_case_loader.gd（测试工具）。新手引导（docs/新手引导_实现方案.md S0，2026-09-19）要在产品代码里
 ## 用它灌关卡盘面，而导出预设 exclude_filter="tests/*" —— 产品侧 preload("res://tests/…") 一导出就白屏，所以上提到
@@ -33,7 +33,7 @@ const TUNE_PATH := "res://tests/contract_tune.json"
 ## cwxcase/2 的 13 键（§0.6.2 第 1 条）
 const CASE_KEYS := ["schema", "id", "probe", "op", "covers", "status", "prd", "source",
 	"harvested_from", "world", "rolls", "args", "expect"]
-## cwxworld/2 的顶层 15 键（§0.6.1 第 1 条）
+## cwxworld/3 的顶层 15 键（§0.6.1 第 1 条）
 const WORLD_KEYS := ["radius", "round", "phase", "seat",
 	"winner", "win_kind", "effector_round",
 	"chemo", "chemo_track", "cancer_alarm",
@@ -50,8 +50,8 @@ const CELL_KEYS := ["seat", "type", "at",
 	"chain_left", "chain_bonus", "neutral_until", "chain_running"]
 ## 修饰条目四元组（E-2）：出处 cw_obs_proto.gd:MOD。**不带 `data`** —— 它不在 envelope 白名单里
 const MOD_KEYS := ["name", "uses", "until", "seq"]
-const EVENTS_KEYS := ["pool", "active", "double_next"]
-const EFFECT_KEYS := ["name", "left", "stacks", "doubled", "data"]
+const EVENTS_KEYS := ["active"]
+const EFFECT_KEYS := ["name", "left", "stacks", "data"]
 const CHEMO_KEYS := ["at", "left", "by", "cid"]
 const TRACK_KEYS := ["cid", "at", "left"]
 ## `hold_rounds` 是旋钮（tune.cancer_win_hold_rounds）的转写，走 tuning，不在这儿装（§0.6.1 第 1 条）
@@ -281,7 +281,7 @@ func _load_cells(g: CWGame, spec: Dictionary) -> bool:
 	for cell in g.cells:
 		var at: Vector2i = cell["pos"]
 		if occupied.has(at):
-			fail("格 %s 上站了两只细胞 —— cwxworld/2 不表达同格" % str(at))
+			fail("格 %s 上站了两只细胞 —— cwxworld/3 不表达同格" % str(at))
 			return false
 		occupied[at] = true
 	## 免疫分化种类由 cells 现算（§0.6.1 第 1 条）：不这么置，两侧 envelope 的 g.differentiated 对不上
@@ -415,24 +415,21 @@ func _cell_of_seat(g: CWGame, seat: int, where: String) -> int:
 	return found
 
 
-## ⚠ `events.pool` 自 2026-09-19（世界事件删除）起**缺省就是空表**，这里仍是
-## **覆盖**不是追加（§0.6.1 第 5 条）—— 键是协议保留字段，用例照样能写。
+## `events` 只有 `active`（2026-09-19 起其余两个键已随世界事件物理删除），
+## 这里是**覆盖**不是追加（§0.6.1 第 5 条）。
 func _load_events(g: CWGame, spec: Dictionary) -> bool:
 	if not spec.has("events"):
 		return true
 	var ev: Dictionary = spec["events"]
 	if not only_keys(ev, EVENTS_KEYS, "events"):
 		return false
-	if ev.has("pool"):
-		g.events["pool"] = _strings(ev["pool"])
-	g.events["double_next"] = bool(ev.get("double_next", false))
 	var active: Array = []
 	for e in ev.get("active", []):
 		if not only_keys(e, EFFECT_KEYS, "events.active"):
 			return false
 		## `stacks: n` 装成**一条** stacks = n（§0.6.1 第 5 条；C# InstallEffect(name, left, stacks) 有这个形参）
 		active.append({ "name": str(e.get("name", "")), "left": int(e.get("left", 0)),
-			"stacks": int(e.get("stacks", 1)), "doubled": str(e.get("doubled", "")),
+			"stacks": int(e.get("stacks", 1)),
 			"data": (e.get("data", {}) as Dictionary).duplicate(true) })
 	g.events["active"] = active
 	return true
@@ -547,7 +544,7 @@ func dump_world(g: CWGame) -> Dictionary:
 	var stage := str(g.flow["stage"])
 	var word: String = STAGE_TO_PHASE.get(stage, "")
 	if word == "":
-		unloadable("流程停在「%s」，cwxworld/2 只表达 Setup / S / PlayerAction / E / Finished" % stage)
+		unloadable("流程停在「%s」，cwxworld/3 只表达 Setup / S / PlayerAction / E / Finished" % stage)
 		return {}
 	if int(g.winner) != -1:
 		word = "Finished"   ## 终局：协议 phase 由 is_over 派生，spec 里写 Finished（与 C# Phase.Finished 同）
@@ -610,7 +607,7 @@ func _dump_players(g: CWGame) -> Array:
 		else:
 			var ct := int(p.get("cancer_type", -1))
 			if ct < 0:
-				unloadable("癌席 %d 没有癌种 —— cwxworld/2 的 cancer_type 必填，没有 \"none\" 哨兵" % int(p["id"]))
+				unloadable("癌席 %d 没有癌种 —— cwxworld/3 的 cancer_type 必填，没有 \"none\" 哨兵" % int(p["id"]))
 				return out
 			e["cancer_type"] = _ctype_name(ct)
 		out.append(e)
@@ -689,15 +686,10 @@ func _dump_cells(g: CWGame) -> Array:
 
 func _dump_events(g: CWGame) -> Dictionary:
 	var out := {}
-	var pool: Array = _strings(g.events["pool"])
-	if not pool.is_empty():   ## 空表 = 缺省（世界事件删除后 pool 恒 []）
-		out["pool"] = pool
-	if bool(g.events["double_next"]):
-		out["double_next"] = true
 	var active: Array = []
 	for e in g.events["active"]:
 		active.append({ "name": str(e["name"]), "left": int(e.get("left", 0)),
-			"stacks": int(e.get("stacks", 1)), "doubled": str(e.get("doubled", "")),
+			"stacks": int(e.get("stacks", 1)),
 			"data": (e.get("data", {}) as Dictionary).duplicate(true) })
 	if not active.is_empty():
 		out["active"] = active
@@ -840,15 +832,10 @@ func minify(spec: Dictionary) -> Dictionary:
 	if spec.has("events"):
 		var ev: Dictionary = spec["events"]
 		var e := {}
-		var pl: Array = _strings(ev.get("pool", []))
-		if not pl.is_empty():   ## 空表 = 缺省（与 _dump_events 同口径，否则 §0.6.5 往返自证红）
-			e["pool"] = pl
-		if bool(ev.get("double_next", false)):
-			e["double_next"] = true
 		var active: Array = []
 		for x in ev.get("active", []):
 			active.append({ "name": str(x.get("name", "")), "left": int(x.get("left", 0)),
-				"stacks": int(x.get("stacks", 1)), "doubled": str(x.get("doubled", "")),
+				"stacks": int(x.get("stacks", 1)),
 				"data": (x.get("data", {}) as Dictionary).duplicate(true) })
 		if not active.is_empty():
 			e["active"] = active

@@ -5,7 +5,7 @@ using CellWar.Core.Tests.L1;
 namespace CellWar.Core.Tests.L0;
 
 /// <summary>
-/// 把 <see cref="L0World"/>（schema `cwxworld/2`）装成一个真的 <see cref="WorldState"/>，以及它的逆 <see cref="Dump"/>。
+/// 把 <see cref="L0World"/>（schema `cwxworld/3`）装成一个真的 <see cref="WorldState"/>，以及它的逆 <see cref="Dump"/>。
 ///
 /// **一条规矩贯穿全文：认不出来的就炸，不许静默跳过。**
 /// 迁移计划专门点过这个坑 ——「loader 只走完三分之一」，
@@ -17,7 +17,7 @@ namespace CellWar.Core.Tests.L0;
 /// 旋钮走 `game/tests/contract_tune.json`）。
 ///
 /// **装不出来就拒收**（<see cref="UnloadableException"/>）：多免疫席 level/memory 不等、
-/// `events.pool` 改写、`double_next`、席位解析不出唯一活细胞、`mods` 里前奏路由表认不出的名字 —— 逐条见 §0.6.1 / E-2。
+/// 席位解析不出唯一活细胞、`mods` 里前奏路由表认不出的名字 —— 逐条见 §0.6.1 / E-2。
 /// </summary>
 public static class WorldLoader
 {
@@ -154,10 +154,6 @@ public static class WorldLoader
             throw new UnloadableException("多免疫席的 `memory` / `level` 不等 —— GD 那边它们是阵营级全局量，这个世界装不出来（E-5）");
 
         var events = spec.Events ?? new L0Events();
-        if (events.Pool is { Count: > 0 })
-            throw new UnloadableException("`events.pool` 非空 —— 世界事件已删（Kevin 2026-09-19），两侧的池子恒空表");
-        if (events.DoubleNext)
-            throw new UnloadableException("`events.double_next` = true —— 世界事件已删，这是协议保留字段，恒 false");
 
         // 终局：`phase` 写 Finished 当且仅当 `winner` 非空（GD 的协议 phase 由 is_over 派生，C# 是 Phase.Finished —— 两侧同一条校验）
         if ((spec.Phase == "Finished") != (spec.Winner != ""))
@@ -198,8 +194,6 @@ public static class WorldLoader
         {
             world = world.InstallEffect(fx.Name, fx.Left, fx.Stacks,
                 fx.Data is null ? null : new Dictionary<string, int>(fx.Data, StringComparer.Ordinal));
-            if (fx.Doubled.Length > 0)   // `doubled` 不在 InstallEffect 的形参里，挂完补一手
-                world = world.Copy(effects: [.. world.Effects.Take(world.Effects.Count - 1), world.Effects[^1] with { Doubled = fx.Doubled }]);
         }
         if (spec.Tuning.Count > 0) world = world.WithTuning(Tune(world.Tuning, spec.Tuning));
         return SetupOps(spec, world);   // 排在最后：前奏转调的生产代码要看见装完的世界（回合数 / 细胞种类 / 旋钮都算进那六项里）
@@ -351,7 +345,7 @@ public static class WorldLoader
     };
 
     /// <summary>
-    /// 世界 → `cwxworld/2`。**没有它「只进世界不进文件」的字段永远漏**（`effector_round` 就是这么漏的），
+    /// 世界 → `cwxworld/3`。**没有它「只进世界不进文件」的字段永远漏**（`effector_round` 就是这么漏的），
     /// 录制代理也落不了 pre。闸二 2a / 2d 的载体。
     ///
     /// 派生量不回写：`win_reason`（由 `win_kind` 现算）、`differentiated`（由 cells 现算）、
@@ -382,7 +376,7 @@ public static class WorldLoader
                 : s.Turn.TrackFrozenAt is { } fa ? new L0Track(-1, At(fa), s.Turn.TrackRounds) : null,
             CancerAlarm = s.Turn.CancerWinStreak == 0 ? null : new L0CancerAlarm(s.Turn.CancerWinStreak),
             Events = s.Effects.Count == 0 ? null : new L0Events(Active: s.Effects
-                .Select(e => new L0Effect(e.Name, e.Left, e.Stacks, e.Doubled,
+                .Select(e => new L0Effect(e.Name, e.Left, e.Stacks,
                     e.Data.Count == 0 ? null : new Dictionary<string, int>(e.Data, StringComparer.Ordinal))).ToList()),
             Tuning = DumpTuning(s.Tuning),
         };
@@ -434,10 +428,9 @@ public static class WorldLoader
 
         L0Events? MinifyEvents(L0Events e)
         {
-            var pool = e.Pool is { Count: 0 } ? null : e.Pool;   // 空表 = 缺省（世界事件已删）
             // 空 `data` 与没写等价（Dump 也写 null）—— 默认表两侧同：GD dump 同样省略空 data
             var active = e.Active is { Count: 0 } ? null : e.Active?.Select(x => x.Data is { Count: 0 } ? x with { Data = null } : x).ToList();
-            return pool is null && active is null && !e.DoubleNext ? null : new L0Events(pool, active, e.DoubleNext);
+            return active is null ? null : new L0Events(active);
         }
     }
 
@@ -669,7 +662,6 @@ public static class WorldLoader
             "aerobic_split_ref" => tune with { AerobicSplitRef = value },
             "necrosis_aerobic_pct" => tune with { NecrosisAerobicPct = value },
             "anaerobic_on_turn_end" => tune with { AnaerobicOnTurnEnd = value != 0 },
-            "world_events_on" => tune with { WorldEventsOn = value != 0 },
             "cancer_win_hold_rounds" => tune with { CancerWinHoldRounds = value },
             "attack_dmg_success" => tune with { AttackDmgSuccess = value },
             "antibody_halve" => tune with { AntibodyHalve = value != 0 },
@@ -803,7 +795,6 @@ public static class WorldLoader
         yield return ("newborn_protect", t.NewbornProtect ? 1 : 0, d.NewbornProtect ? 1 : 0);
         yield return ("aerobic_split", t.AerobicSplit ? 1 : 0, d.AerobicSplit ? 1 : 0);
         yield return ("anaerobic_on_turn_end", t.AnaerobicOnTurnEnd ? 1 : 0, d.AnaerobicOnTurnEnd ? 1 : 0);
-        yield return ("world_events_on", t.WorldEventsOn ? 1 : 0, d.WorldEventsOn ? 1 : 0);
         yield return ("antibody_halve", t.AntibodyHalve ? 1 : 0, d.AntibodyHalve ? 1 : 0);
     }
 
@@ -816,7 +807,7 @@ public static class WorldLoader
     }
 
     /// <summary>
-    /// 旋钮四档白名单（§0.6.3）：`{"schema":"cwxtune/1","knobs":[{name,tier,gd,cs,in_rule_fields,note} × 65]}`。
+    /// 旋钮四档白名单（§0.6.3）：`{"schema":"cwxtune/1","knobs":[{name,tier,gd,cs,in_rule_fields,note} × 64]}`。
     /// **两侧同读 `game/tests/contract_tune.json` 一份**，按 `tier` 分桶，不再各写一张桶表 ——
     /// 拒绝的集合必须一样，否则「拧了个寂寞」在一边绿一边红。
     /// </summary>

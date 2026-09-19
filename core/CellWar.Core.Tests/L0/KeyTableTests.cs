@@ -6,7 +6,7 @@ using CellWar.Core.Tests.L1;
 namespace CellWar.Core.Tests.L0;
 
 /// <summary>
-/// `cwxworld/2` / `cwxcase/2` 的键表护栏（§0.6.1 开头：**仓库里只许有这两份**键表 ——
+/// `cwxworld/3` / `cwxcase/2` 的键表护栏（§0.6.1 开头：**仓库里只许有这两份**键表 ——
 /// `L0/CaseModel.cs` 与 `game/scripts/kernel/cw_world_loader.gd`（2026-09-19 前叫 `game/tests/cw_case_loader.gd`））。
 ///
 /// 做法照 `L1/SemanticKeyTests.GD侧的KEY_FIELDS与CSharp的FieldOrder逐字相同`：正则读 GD 的 `const XXX_KEYS := [...]`，

@@ -162,9 +162,9 @@ T 细胞每次成功都追加一笔 1.0 的**直击**（同批第二笔）——
 夹具里这张卡 0 次（ImmuneX 池），`CytotoxicTests` 6 条钉。
 ⑧ **抗原记忆与巨噬吸血的基数**：GD 按这一批的 **actual**（过完倍率与护盾、含直击、不超过目标余量；`dealt >= 10` 才 gain_memory；吸血只认主笔 `ceil(actual/2)`），C# 此前按裸值 `min(目标能量, 基础伤害)` / `min(目标能量, 基础+加成)`。
 改成读 `Damage` 的 `dealt` / `mainDealt` 出参。三条夹具照旧整条一致（夹具里没有标记 / 护盾撞上攻击的局面）。
-⑨ **世界事件（裁定延后，不进 C# 对拍）**：GD `cw_tuning.gd` `world_events_on := false` 默认关（PRD 2026-09-10 起「暂时停止维护」），`cw_world_fx.trigger()` 的 guard 拦在 pop 之前 —— 默认档零 RNG、零挂载；
+⑨ **世界事件（2026-09-19 整块删除，本条作废）**：机制、旋钮 `world_events_on` 与七个协议残留字段已于 2026-09-19 物理删除（观测协议 p=3）。此前的裁定（延后、不进 C# 对拍）留作史实：GD 当时 `world_events_on := false` 默认关（PRD 2026-09-10 起「暂时停止维护」），`cw_world_fx.trigger()` 的 guard 拦在 pop 之前 —— 默认档零 RNG、零挂载；
 三条夹具跨过全部触发回合（2p 跑到第 14 世界回合）`events` 一律只有卡牌挂的全局修饰。C# 只有名字表（`WorldEffects.WorldEventNames`）。裁定的是「不进 C# 对拍」，**不是 GD 可以删**（GD 回归网仍实测这 15 个事件）。
-关着也在的差异记着：`world_events_on` 不在 TUNE_KEYS（C# 无法表达这个旋钮）；TNF-α 的容器形状（GD `install_event` 进 `events.active`、C# 用 `Tissue.SolidLockRound`，一旦带子打到这张卡 `$.g.events` 整片红，既有裁定「暂时不动」）；
+关着也在的差异记着（`world_events_on` 本身已于 2026-09-19 删除）：那个旋钮从来不在 TUNE_KEYS 里（C# 无法表达）；TNF-α 的容器形状（GD `install_event` 进 `events.active`、C# 用 `Tissue.SolidLockRound`，一旦带子打到这张卡 `$.g.events` 整片红，既有裁定「暂时不动」）；
 【信号放大】的 `_amp` 在 C# 三处卡牌（乳酸酸化 / 代谢耦联 / TNF-α）都不放大；`event_stacks` GD 取首条、C# 求和（今天只有【TGF-β释放】会同名多条，GD 读它走 `_tgf_stacks` 求和，恒等）。
 **批评镜头点名、本批没做的**：`vessel-transport`；`revive-landing`；`counter-dmg-knob`（攻击失败的反弹 C# 写死 0.5、不读 `counter_dmg_on_fail`）；`residency-shape`（【组织驻留】GD 在 fx_turn、C# 是一条 Uses:2 的 Free 修饰，`mods` 逐条比对时 C# 多一条）；
 `aerobic-board-base`（`aerobic_level_base=0` 的盘面式基数 C# 未实现，对照档才会撞）；2 人局记忆门槛（GD 缺省档 10/30/70、C# 10/20/50 —— **Kevin 09-18：2 人局暂时不考虑维护，不动**）；选项顺序 / 下标稳定性不再被验证（阶段 1 待办）。
@@ -259,7 +259,7 @@ Kevin 09-18 补口径：**尽量保留 C# 架构，只保证规则对齐**。
 
 | 项 | 不比 | **不注入** |
 |---|---|---|
-| `events{pool,active,double_next}`（卡牌全局修饰容器；15 个世界事件 2026-09-19 已删，`pool` / `double_next` 冻成恒定值） | 部分 | 部分 |
+| `events{active}`（卡牌全局修饰容器；15 个世界事件与 `pool` / `double_next` 2026-09-19 已删，协议 p=3） | 部分 | 部分 |
 | `tune`（59 旋钮） | ✓ | ✓ |
 | ~~`chemo_track`~~ **2026-09-16 起 C# 有了（`Turn.TrackCell/TrackFrozenAt/TrackRounds`）** | — | 照字段注入 |
 | `differentiated`（分化种类全阵营去重） | ✓ | ✓ |
@@ -292,7 +292,7 @@ Kevin 09-18 补口径：**尽量保留 C# 架构，只保证规则对齐**。
 
 **不搬了**：15 个世界事件的内容、`pool`（同局不重复的抽取）、`double_next`（【双重触发】的三档加倍）
 —— 2026-09-19 Kevin 拍板「我们不加入世界事件了」，两条分支同批整块删除；
-`pool` / `double_next` / `active[].doubled` 三个协议字段保留形状、恒定值，随批 1 全量发版那次升号物理删除。
+`pool` / `double_next` / `active[].doubled` 三个协议字段**已于 2026-09-19 物理删除**（观测协议 p=3、`cwxworld/3`）。
 **【TNF-α局部炎症】也还没搬**：GD 把冻结的**格子**记在事件条目的 `data` 里，
 C# 是每格一个 `Tissue.SolidLockRound` 回合戳 —— 行为等价（left=1 随回合末解冻 ≡ 戳 == 当前回合），
 但形状不同，`mods` 那种逐条比对碰不到它，暂时不动。
@@ -319,7 +319,7 @@ C# 是每格一个 `Tissue.SolidLockRound` 回合戳 —— 行为等价（left=
 `schema` / `id` / `probe` / `op` / `covers` / `status` / `prd` / `source` / `harvested_from` / `world` / `rolls` / `args` / `expect`。
 `schema` 必填且恒 `"cwxcase/2"`；**P 族写 `probe`、S 族写 `op`，二选一**，都写或都不写 = 硬错；`covers` 缺省 `[]`、`status` 缺省 `"OK"`、`rolls` 缺省 `[]`（= 断言「这一步不消耗 rng」）。
 
-`world` 是 `cwxworld/2`：顶层 **15 键** `radius` / `round` / `phase` / `seat` / `winner` / `win_kind` / `effector_round` / `chemo` / `chemo_track` / `cancer_alarm` / `players` / `tiles` / `cells` / `events` / `tuning`；
+`world` 是 `cwxworld/3`：顶层 **15 键** `radius` / `round` / `phase` / `seat` / `winner` / `win_kind` / `effector_round` / `chemo` / `chemo_track` / `cancer_alarm` / `players` / `tiles` / `cells` / `events` / `tuning`；
 tile **12 键**（`at` + `make_tile` 11，**不收 `cell`**）、cell **33 键**、player **5 键**、`mods` 四元组 `{name, uses, until, seq}`。逐条名单在 `docs/口径二_测试迁移规格.md` §0.6.1，**仓库里只许那两份键表**。
 
 **未知键 = 硬错，两侧都真的实现了**：C# 是 `JsonSerializerOptions.UnmappedMemberHandling = Disallow`，GD 是 `cw_case_loader.gd` 的显式白名单。方案稿写的 `CellFields` / `TileFields` **在代码库里不存在** —— 不要去找。
@@ -365,7 +365,7 @@ tile **12 键**（`at` + `make_tile` 11，**不收 `cell`**）、cell **33 键**
 }
 ```
 
-**词汇一律用 GD 字段名**（实测：`cw_setup.gd:make_tile` **11 键** / `make_cell` **32 键**；`cw_obs_proto.gd:CELL` 去掉 `d` 是 **36 键**，三个数别混）。`cwxworld/2` 的落地口径：tile **12 键** = `at` + make_tile 11、**不收 `cell`**；cell **33 键** = 构造三键 `seat` / `type` / `at` + 30 个可写状态键（CELL 36 减去派生的 `id` / `pid` / `faction` / `pos` / `itype` / `ctype`）。映射负担压在两侧各一份 loader 里。
+**词汇一律用 GD 字段名**（实测：`cw_setup.gd:make_tile` **11 键** / `make_cell` **32 键**；`cw_obs_proto.gd:CELL` 去掉 `d` 是 **36 键**，三个数别混）。`cwxworld/3` 的落地口径：tile **12 键** = `at` + make_tile 11、**不收 `cell`**；cell **33 键** = 构造三键 `seat` / `type` / `at` + 30 个可写状态键（CELL 36 减去派生的 `id` / `pid` / `faction` / `pos` / `itype` / `ctype`）。映射负担压在两侧各一份 loader 里。
 
 **规矩**：
 1. **稀疏补丁**：底板 = 半径 6 的 127 格全健康 + 特殊组织按坐标表铺（GD 走 `CWSetup.build_board()`；C# 借 `MatchSetup.Create(n,1)` 的布局再清成 Healthy，**不在 loader 里抄第二份坐标表**——11 个特殊格坐标 `cw_data.gd:500-505` ↔ `MatchSetup.cs:16-22` 已逐个核对一致）。
@@ -483,8 +483,8 @@ tile **12 键**（`at` + `make_tile` 11，**不收 `cell`**）、cell **33 键**
 >   **GD 红 = 用例不忠实于原断言（改用例）；C# 红 = 规则不等价（进对拍差异表，走 `docs/内核替换_拍板记录.md`）。**
 > * **契约面台账**：`game/tests/contract_ops.json` **44 行**（P 16 + S 25 + 3 条挂档），逐 op 带
 >   `kind` / `family` / `status`（五档）/ `cases`（`required` / `deferred` / `none`）/ `gd` / `cs` 落点 / `boundaries`；
->   旋钮台账是同目录的 `contract_tune.json`（`{"schema":"cwxtune/1","knobs":[{name,tier,gd,cs,in_rule_fields,note} × 65]}`，
->   `tier` ∈ `A` / `A'` / `B` / `C` = 22 / 3 / 18 / 22，两侧按 tier 分桶、不再各写一张桶表）。
+>   旋钮台账是同目录的 `contract_tune.json`（`{"schema":"cwxtune/1","knobs":[{name,tier,gd,cs,in_rule_fields,note} × 64]}`（2026-09-19 删 `world_events_on`，65 → 64），
+>   `tier` ∈ `A` / `A'` / `B` / `C` = 35 / 7 / 6 / 16（实测台账；原来那串 22 / 3 / 18 / 22 是分桶重排之前的旧数），两侧按 tier 分桶、不再各写一张桶表）。
 >   覆盖率台账在 `xcheck/COUNT` 与 `xcheck/COVERAGE.md`。
 >
 > **下面那条「每条规则至少三条用例，跨越它的分段边界」的教训已经机制化了**：

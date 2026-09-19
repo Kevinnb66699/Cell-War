@@ -230,11 +230,6 @@ public sealed record RuleTuning
 
     // ---- 全局开关与胜负 ----
 
-    /// <summary>世界事件总开关（GD `world_events_on`）。**世界事件 2026-09-19 由 Kevin 取消，机制已删空，这个旋钮恒 false**；
-    /// 留着只因为它在 `CWTuning.RULE_FIELDS` 里 —— 删了会改 `rules_state` / `state_hash` ⇒ NET_VERSION 30→31 + 全量发版，
-    /// 字段随批 1 全量发版那次协议升号一起物理删除。</summary>
-    public bool WorldEventsOn { get; init; }
-
     /// <summary>癌方占地胜利要**连续几个世界回合末**都达标才判定
     /// （GD `cancer_win_hold_rounds` = `CWData.CANCER_WIN_HOLD_ROUNDS` = 2，团队 2026-09-01 定案 B：首次达标只拉警报）；
     /// 1 = 达标即胜的旧规则。K2 接 `OutcomeRules.Evaluate`。</summary>

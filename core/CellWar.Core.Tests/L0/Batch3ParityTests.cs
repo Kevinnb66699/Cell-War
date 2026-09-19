@@ -5,7 +5,7 @@ namespace CellWar.Core.Tests.L0;
 
 /// <summary>批 3 规划（2026-09-19）在副本上坐实的两侧差异，逐条钉住（KG-1 / KG-4 / KG-5 / KG-8；
 /// KG-2【增殖抑制】/ KG-3【异常增殖】随世界事件删除作废，Kevin 2026-09-19）。
-/// 盘面走 <see cref="WorldLoader"/>（cwxworld/2），与 L0 用例同一条装载路。</summary>
+/// 盘面走 <see cref="WorldLoader"/>（cwxworld/3），与 L0 用例同一条装载路。</summary>
 public class Batch3ParityTests
 {
     private static L0World Cancer(int round, Dictionary<string, int>? tuning = null, params L0Tile[] tiles) => new()

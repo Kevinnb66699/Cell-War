@@ -180,7 +180,7 @@
     "id": "move_cost/chemo/immune_toward",
     "probe": "move_cost",
     "covers": ["t_dendritic_rework::免疫朝它走："],
-    "source": "headless_test.gd:t_dendritic_rework L3766 `q_toward == int(ceil(plain * CWData.CHEMO_IMMUNE_PCT / 100.0))`；树突【I-趋化源】：非建源方的免疫**朝它走** ⇒ 费用 ×0.7（DIV 阶段，向上取整）。0.5 × 0.7 = 0.35 → 0.4。⚠ 原测试里免疫与癌细胞同站一格，cwxworld/2 不表达同格 ⇒ 拆成免疫 / 癌方两个世界。单位：十分能量",
+    "source": "headless_test.gd:t_dendritic_rework L3766 `q_toward == int(ceil(plain * CWData.CHEMO_IMMUNE_PCT / 100.0))`；树突【I-趋化源】：非建源方的免疫**朝它走** ⇒ 费用 ×0.7（DIV 阶段，向上取整）。0.5 × 0.7 = 0.35 → 0.4。⚠ 原测试里免疫与癌细胞同站一格，cwxworld/3 不表达同格 ⇒ 拆成免疫 / 癌方两个世界。单位：十分能量",
     "world": {
       "players": [
         { "seat": 0, "faction": "immune", "level": "I" },

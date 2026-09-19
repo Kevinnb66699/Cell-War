@@ -65,27 +65,24 @@ public sealed record ObsChemo(ObsPos At, int Left, int By, int Cid);
 
 public sealed record ObsTrack(int Cid, ObsPos At, int Left);
 
-public sealed record ObsEffect(string Name, int Left, int Stacks, string Doubled, Dictionary<string, int> Data, ObsEffectD D);
+public sealed record ObsEffect(string Name, int Left, int Stacks, Dictionary<string, int> Data);
 
-public sealed record ObsEffectD(bool IsWorldEvent);
-
-public sealed record ObsEvents(string[] Pool, ObsEffect[] Active, bool DoubleNext);
+public sealed record ObsEvents(ObsEffect[] Active);
 
 public sealed record ObsFeed(long Seq, string Kind, int Pid, int Faction, string Card, int Left);
 
-/// <summary>UI 真读的 9 个旋钮；`solidify_threshold` 是按分期的三档原值（GD 的 tune 就是数组），分期后的当前值在 `g.d.solid_threshold`。</summary>
-public sealed record ObsTune(bool WorldEventsOn, int CancerWinWeighted, int CancerWinHoldRounds, int LimitRound, int LimitCancerous,
+/// <summary>UI 真读的 8 个旋钮；`solidify_threshold` 是按分期的三档原值（GD 的 tune 就是数组），分期后的当前值在 `g.d.solid_threshold`。</summary>
+public sealed record ObsTune(int CancerWinWeighted, int CancerWinHoldRounds, int LimitRound, int LimitCancerous,
     int MucusMoveSurcharge, int MetastasisCost, int OsteoOssifyCost, int[] SolidifyThreshold);
 
-public sealed record ObsGlobalD(int SolidThreshold, int TumorStage, int CancerPhase, string PhaseText, bool IsWorldEventRound,
+public sealed record ObsGlobalD(int SolidThreshold, int TumorStage, int CancerPhase, string PhaseText,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CountHealthy,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CountCancer,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CountSolid,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CountNecrosis,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CancerWeighted,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int[]? LevelThresholds,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? MemoryNextAt,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? NextEventRound);   // p=2
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? MemoryNextAt);
 
 /// <summary>§四 · 顶层。</summary>
 public sealed record ObsGlobal(int RoundNo, string Phase, int CurrentPid, int AskingPid, int Memory, int ImmuneLevel, int EffectorRound,

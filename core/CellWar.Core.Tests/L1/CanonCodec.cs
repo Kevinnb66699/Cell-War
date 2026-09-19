@@ -74,7 +74,7 @@ public static class CanonCodec
                 p.CancerType is { } ct ? (int)ct : null)).ToList(),
         },
 
-        Events = s.Effects.Select(e => new CanonEffect(e.Name, e.Left, e.Stacks, e.Doubled,
+        Events = s.Effects.Select(e => new CanonEffect(e.Name, e.Left, e.Stacks,
             e.Data.ToDictionary(kv => kv.Key, kv => kv.Value))).ToList(),
 
         Tune = TuneToCanon(s.Tuning),
@@ -157,7 +157,7 @@ public static class CanonCodec
             Board = new Board { Radius = c.Board.Radius, Tissues = tiles },
             Cells = cells,
             Players = players,
-            Effects = c.Events.Select(e => new ActiveEffect(e.Name, e.Left, e.Stacks, e.Doubled) { Data = e.Data }).ToList(),
+            Effects = c.Events.Select(e => new ActiveEffect(e.Name, e.Left, e.Stacks) { Data = e.Data }).ToList(),
             Tuning = TuneFromCanon(c.Tune),
             Turn = new TurnState
             {

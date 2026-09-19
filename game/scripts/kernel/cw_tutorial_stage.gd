@@ -1,4 +1,4 @@
-## cw_tutorial_stage.gd —— 新手引导的「舞台」：一关数据 → 一份 cwxworld/2 → 一局，交出 **CWKernel**
+## cw_tutorial_stage.gd —— 新手引导的「舞台」：一关数据 → 一份 cwxworld/3 → 一局，交出 **CWKernel**
 ## （docs/新手引导_实现方案.md §2.1 / S3，2026-09-19）
 ##
 ## 它替掉了 `scripts/ui/guide_director.gd`：老导演住在 UI 层、直接 `CWGame.new()` 再往引擎状态上写字段，
@@ -6,8 +6,8 @@
 ## 而且**只把 `CWKernel` 交出去** —— `match.gd` 整份不再出现 `CWGame`，白名单从两条降到一条。
 ##
 ## 三条硬边界怎么守（方案 §0）：
-## ① 盘面一律走 `cwxworld/2` 装载器（`scripts/kernel/cw_world_loader.gd`，与 C# 的 L0/WorldLoader 同一张键表），
-##    教程不再需要任何「不在 cwxworld/2 里」的引擎字段 —— 老导演那句 `g.win_checks = false` 整条消掉了
+## ① 盘面一律走 `cwxworld/3` 装载器（`scripts/kernel/cw_world_loader.gd`，与 C# 的 L0/WorldLoader 同一张键表），
+##    教程不再需要任何「不在 cwxworld/3 里」的引擎字段 —— 老导演那句 `g.win_checks = false` 整条消掉了
 ##    （改用数据：第一 ~ 五关的 `allow` 里不放「结束回合」⇒ 永远进不了 E 阶段 ⇒ 胜负判定压根不跑，方案 §2.3）。
 ## ② UI 只读 `CWMirror`、只经 `CWKernel` 作答、演出走 `CWPlayQueue`：`open_level()` 的返回类型写 `CWKernel`。
 ##    **这个文件是产品代码里唯一持 `CWGame` 的地方**（`_game`）。

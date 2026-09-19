@@ -86,7 +86,7 @@ public sealed record L0Case
 public sealed record L0Prd(string Sha, int Line, string Text);
 
 /// <summary>
-/// 盘面装载规格 `cwxworld/2`（规格 A-2 / §0.6.1）。**刻意只认列出来的键**：多打一个字、少填一个字段都要当场报错，
+/// 盘面装载规格 `cwxworld/3`（规格 A-2 / §0.6.1）。**刻意只认列出来的键**：多打一个字、少填一个字段都要当场报错，
 /// 不许「认识的就读、不认识的就忽略」—— 那样写错的用例会变成静默绿灯。
 ///
 /// 键表在仓库里只许有两份、且逐键相同：这里与 GD 的 `game/scripts/kernel/cw_world_loader.gd`（<see cref="KeyTableTests"/> 钉住）。
@@ -154,13 +154,11 @@ public sealed record L0Track(int Cid, string At, int Left);
 /// <param name="Streak">连续达标的世界回合数</param>
 public sealed record L0CancerAlarm(int Streak);
 
-/// <param name="Pool">事件池。世界事件已删（Kevin 2026-09-19），两侧恒空表；写了非空就是 UNLOADABLE</param>
 /// <param name="Active">挂着的条目</param>
-/// <param name="DoubleNext">协议保留字段，恒 false（世界事件已删）；写 true = UNLOADABLE</param>
-public sealed record L0Events(List<string>? Pool = null, List<L0Effect>? Active = null, bool DoubleNext = false);
+public sealed record L0Events(List<L0Effect>? Active = null);
 
 /// <summary>`cw_obs_proto.gd:EFFECT` 去掉 `d`。`stacks: n` 装成**一条** `stacks = n`（§0.6.1 第 5 条）。</summary>
-public sealed record L0Effect(string Name, int Left, int Stacks = 1, string Doubled = "", Dictionary<string, int>? Data = null);
+public sealed record L0Effect(string Name, int Left, int Stacks = 1, Dictionary<string, int>? Data = null);
 
 /// <summary>`cw_obs_proto.gd:MOD` 的四元组（E-2）。`data` 不在 envelope 白名单里，不进 spec。</summary>
 /// <param name="Until">"" / turn / round</param>

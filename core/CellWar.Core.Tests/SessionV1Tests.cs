@@ -90,7 +90,7 @@ public class SessionV1Tests
         Assert.Equal(page.Entries[0]["seq"].GetInt64(), page.DroppedBefore);
         var since = page.Entries[^1]["seq"].GetInt64();
         Assert.All(session.PullPresentation(-2, since).Entries, e => Assert.True(e["seq"].GetInt64() > since));
-        Assert.All(page.Entries, e => Assert.Contains(e["t"].GetString(), new[] { "roll", "attack", "result", "notice", "card_played", "event_drawn", "card_drawn", "world_event", "erosion", "beam", "fx", "step_begin", "step_end" }));
+        Assert.All(page.Entries, e => Assert.Contains(e["t"].GetString(), new[] { "roll", "attack", "result", "notice", "card_played", "event_drawn", "card_drawn", "erosion", "beam", "fx", "step_begin", "step_end" }));
     }
 
     /// <summary>批 1 步 4（Kevin 拍演出播放形态 2）：答下之后第一条是 step_begin{ask_id, seat}，下一问挂起之前最后一条是 step_end{rev}，rev 与随后的 envelope.rev 同一个数。</summary>

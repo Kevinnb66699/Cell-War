@@ -277,8 +277,6 @@ static func _validate(e: Dictionary) -> String:
 	if err == "":
 		for ev: Dictionary in g["events"]["active"]:
 			err = CWObsProto.check(ev, CWObsProto.EFFECT, [], "g.events.active %s" % str(ev.get("name", "?")))
-			if err == "":
-				err = CWObsProto.check(ev["d"], CWObsProto.EFFECT_D, [], "g.events.active .d")
 			if err != "":
 				break
 	if err == "":

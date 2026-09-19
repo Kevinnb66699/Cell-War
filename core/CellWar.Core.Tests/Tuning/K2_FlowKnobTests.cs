@@ -3,8 +3,8 @@ using CellWar.Core.Observation;
 namespace CellWar.Core.Tests.Tuning;
 
 /// <summary>
-/// K2 · 流程 / 全局开关三个旋钮（口径二 E-3，12 个旋钮进内核）：
-/// `anaerobic_on_turn_end` / `world_events_on` / `cancer_win_hold_rounds`，外加观测协议 `tune` 块的三个键。
+/// K2 · 流程 / 全局开关两个旋钮（口径二 E-3，12 个旋钮进内核）：
+/// `anaerobic_on_turn_end` / `cancer_win_hold_rounds`，外加观测协议 `tune` 块的两个键。
 ///
 /// 每一条的期望都移植自 GD `game/tests/headless_test.gd`（`source` 注释指到那边的 check 名），
 /// 默认值一律 = `game/scripts/core/cw_tuning.gd` 今天的值 —— 这一组同时是「零行为改动」的判据：
@@ -17,17 +17,15 @@ public class K2_FlowKnobTests
     // ================= ① 默认值（文档钉子）=================
 
     /// <summary>
-    /// 三个旋钮的默认值逐个等于 GD 今天的默认值：
+    /// 两个旋钮的默认值逐个等于 GD 今天的默认值：
     ///   · `cw_tuning.gd:117  var anaerobic_on_turn_end := false`（Kevin 2026-09-06 改回 E 阶段统一结算）
-    ///   · `cw_tuning.gd:330  var world_events_on := false`（2026-09-10 起默认关，云端 PRD「暂时停止维护」）
     ///   · `cw_tuning.gd:297  var cancer_win_hold_rounds := CWData.CANCER_WIN_HOLD_ROUNDS`，`cw_data.gd:42 = 2`
     /// source: headless_test.gd `t_cancer_win_hold` 首条 check、`t_balance_knobs` ④ 的「默认 E 阶段统一结算」。
     /// </summary>
     [Fact]
-    public void 三个流程旋钮的默认值就是GD今天的值()
+    public void 两个流程旋钮的默认值就是GD今天的值()
     {
         Assert.False(Base.AnaerobicOnTurnEnd);
-        Assert.False(Base.WorldEventsOn);
         Assert.Equal(2, Base.CancerWinHoldRounds);
     }
 
@@ -158,35 +156,33 @@ public class K2_FlowKnobTests
         Assert.Equal(before, ended.Cells[immune].Energy);
     }
 
-    // ================= ④ world_events_on + 观测协议 tune 块 =================
+    // ================= ④ 观测协议 tune 块 =================
 
     /// <summary>
-    /// 观测协议 `$.g.tune` 的三个键跟着旋钮走（GD `cw_obs_codec.gd:239-242` 逐个读 `game.tune.*`）；
+    /// 观测协议 `$.g.tune` 的两个键跟着旋钮走（GD `cw_obs_codec.gd:239-242` 逐个读 `game.tune.*`）；
     /// `$.g.cancer_alarm.hold_rounds` 同一个旋钮（GD `cw_obs_codec.gd:231`）。
-    /// 默认档的值 = 旋钮化之前写死的字面量（false / 2 / 20）—— 这就是零行为改动那一条。
+    /// 默认档的值 = 旋钮化之前写死的字面量（2 / 20）—— 这就是零行为改动那一条。
     /// </summary>
     [Fact]
-    public void 观测协议tune块的三个键默认值不变()
+    public void 观测协议tune块的两个键默认值不变()
     {
         using var session = new MatchSession(DemoScenario.Create());
         var g = session.ObserveV1(ObservationV1Codec.ViewerOmniscient).State.G;
 
-        Assert.False(g.Tune.WorldEventsOn);
         Assert.Equal(2, g.Tune.CancerWinHoldRounds);
         Assert.Equal(20, g.Tune.OsteoOssifyCost);
         Assert.Equal(2, g.CancerAlarm.HoldRounds);
     }
 
-    /// <summary>拧一下，三个键都跟着变（旋钮化之前这三个是常量，拧了也纹丝不动 —— 这条就是那个判据）。</summary>
+    /// <summary>拧一下，两个键都跟着变（旋钮化之前这两个是常量，拧了也纹丝不动 —— 这条就是那个判据）。</summary>
     [Fact]
-    public void 观测协议tune块的三个键跟着旋钮走()
+    public void 观测协议tune块的两个键跟着旋钮走()
     {
         var world = DemoScenario.Create();
-        world = world.WithTuning(world.Tuning with { WorldEventsOn = true, CancerWinHoldRounds = 1, OsteoOssifyCost = 77 });
+        world = world.WithTuning(world.Tuning with { CancerWinHoldRounds = 1, OsteoOssifyCost = 77 });
         using var session = new MatchSession(world);
         var g = session.ObserveV1(ObservationV1Codec.ViewerOmniscient).State.G;
 
-        Assert.True(g.Tune.WorldEventsOn);
         Assert.Equal(1, g.Tune.CancerWinHoldRounds);
         Assert.Equal(77, g.Tune.OsteoOssifyCost);
         Assert.Equal(1, g.CancerAlarm.HoldRounds);

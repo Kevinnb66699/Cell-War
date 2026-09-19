@@ -80,9 +80,8 @@ public class K1_AerobicKnobTests
         Assert.Equal(SplitRef, t.AerobicSplitRef);                  // CWData.AEROBIC_SPLIT_REF = 2
         Assert.Equal(50, t.NecrosisAerobicPct);                     // CWData.NECROSIS_AEROBIC_PCT = 50（减半）
 
-        // K2 · 流程 / 全局开关（这三个由 K2 接进规则，这里只钉默认值）
+        // K2 · 流程 / 全局开关（这两个由 K2 接进规则，这里只钉默认值）
         Assert.False(t.AnaerobicOnTurnEnd);                         // Kevin 2026-09-06 改回 E 阶段结算
-        Assert.False(t.WorldEventsOn);                              // 2026-09-10 起默认关
         Assert.Equal(2, t.CancerWinHoldRounds);                     // CWData.CANCER_WIN_HOLD_ROUNDS = 2
 
         // K3 · 战斗 / 技能（同上，由 K3 接）

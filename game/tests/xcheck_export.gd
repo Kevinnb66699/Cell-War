@@ -20,7 +20,7 @@ extends SceneTree
 const Tape := preload("res://tests/xcheck_tape.gd")
 const XBridge := preload("res://tests/xcheck_bridge.gd")
 
-const PROTO := 2
+const PROTO := 3
 ## 与 C# `CanonCodec.TuneToCanon` 同一份键（22 个）；两边各自从自己的旋钮对象读
 const TUNE_KEYS := [
 	"cancer_move_cancerous", "cancer_move_healthy", "sclc_move_healthy", "pseudopod_cost",

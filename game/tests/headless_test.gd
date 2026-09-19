@@ -1825,7 +1825,7 @@ func t_tumor_stages() -> void:
 
 
 ## T-TUTORIAL-MECHANISM-TRIALS：第 12 关三个实验区必须由真实 CWGame 状态触发。
-## 一份最小的 cwxworld/2：两席（免疫 0 / 癌 1）+ 指名的癌组织 + 指名的细胞。
+## 一份最小的 cwxworld/3：两席（免疫 0 / 癌 1）+ 指名的癌组织 + 指名的细胞。
 ## 教程的盘面从此一律走装载器（新手引导 §0：两侧同一张键表），测试也跟着走同一条路
 func _trial_world(radius: int, cancer_tiles: Array, cells: Array) -> CWGame:
 	var tiles: Array = []
@@ -1846,7 +1846,7 @@ func _trial_world(radius: int, cancer_tiles: Array, cells: Array) -> CWGame:
 
 
 ## **改判（新手引导 S3）**：原断言「CWGuideDirector.assemble(11, 0/1/2) 装出来的第 12 关三个实验区」→
-## 新断言「同样三个局面由 cwxworld/2 装载器装出来」。
+## 新断言「同样三个局面由 cwxworld/3 装载器装出来」。
 ## 依据：方案 §2.3 第 1/2 条（导演与老关卡表整份删掉）+ 附 B（`t_tutorial_mechanism_trials` 改判，check 条数不减）。
 ## **要守住的是规则那一半**：压迫真扣能量、增生真把健康格转癌、侵蚀真吃掉封闭健康岛 —— 这三条与教程无关，
 ## 换个装配器照样成立，所以断言原文一个字不改，只换局面来源。新 PRD 没有「机制试炼」这一关（Q-17 待 Kevin）。
@@ -9634,7 +9634,7 @@ func t_attack_fx() -> void:
 ## E 阶段第 10 步的【E-免疫胜利】（癌细胞全灭 + 无可复活的固化癌组织）当场成立。
 ## **改判（新手引导 S3）**：原断言「教程局把 `g.win_checks` 关掉 ⇒ E 阶段不判胜负」→
 ## 新断言「**第一关起的 `allow` 里不放『结束回合』⇒ 永远进不了 E 阶段 ⇒ 判定压根不跑**」。
-## 依据：方案 §2.3 —— `win_checks` 不在 `cwxworld/2` 的 15 键里、也没有 C# 对应物，
+## 依据：方案 §2.3 —— `win_checks` 不在 `cwxworld/3` 的 15 键里、也没有 C# 对应物，
 ## 教程不再用它（这是「换 C# sidecar 那天零改动」能成立的前提）。
 ## 原来那三条（①②③）证的是「关掉判定 ⇒ 不弹结算」；现在证的是同一件事的新路径：
 ## ① 数据里没有一条 `allow` 放行 `act=end`；② E 阶段跑不到；③ 真跑一遍 E 阶段确实会判 —— 所以闸必须在前面。
@@ -9659,7 +9659,7 @@ func t_guide_no_win() -> void:
 			if _code_only(line).contains("win_checks"):
 				win_hits.append("%s:%d" % [f.get_file(), ln])
 	check(win_hits.is_empty(),
-		"舞台与 match.gd 的非注释行都不再碰 win_checks（它不在 cwxworld/2 的 15 键里，也没有 C# 对应物）：%s" % str(win_hits))
+		"舞台与 match.gd 的非注释行都不再碰 win_checks（它不在 cwxworld/3 的 15 键里，也没有 C# 对应物）：%s" % str(win_hits))
 	## ③ 同一个局面真跑一遍 E 阶段**确实会判免疫胜利** —— 正是 Kevin 2026-09-12 截图里那一屏。
 	##   所以闸必须挡在「进 E 阶段」之前，这条是闸的判别力证明（原来的 ③ 同一个用途）
 	var lv1: Dictionary = CWGuideData.level(0)
@@ -10908,7 +10908,7 @@ func t_guide_data() -> void:
 
 ## **改判（新手引导 S3）**：断言对象 `CWGuideDirector` / `CWGuideLevels` **整体消失**（方案 §2.3 第 1/2 条），
 ## 改判为「**数据版的逐关开局**」—— 同一件事换了装配器：从「16 关硬编码 fixture 直写引擎字段」
-## 换成「每关一份 cwtut/1，舞台经 cwxworld/2 装载器装出来」。
+## 换成「每关一份 cwtut/1，舞台经 cwxworld/3 装载器装出来」。
 ##
 ## 保留原样的两组（与导演无关，一个字不改）：半径接缝那 7 条、正式隔离与 RNG 隔离那 4 条。
 ## 逐关那一组改成**按 `index.json` 循环**：数据加一关，断言自动多一关（S5 / S8 / S10 会把关数补回来）。
@@ -12399,7 +12399,7 @@ func t_state_codec() -> void:
 		func(): g._pending["pid"] = 1 - int(g._pending["pid"]),
 		func(): g.current_pid = int(g.current_pid) + 1,
 		func(): g.differentiated.append(CWData.ImmuneType.T_CELL),
-		func(): g.events["active"].append({ "name": "状态测试修饰", "left": 1, "stacks": 1, "data": {} }),   ## 2026-09-19：pool 恒 []，改由 active 钉「修饰容器进哈希」
+		func(): g.events["active"].append({ "name": "状态测试修饰", "left": 1, "stacks": 1, "data": {} }),   ## 2026-09-19：events.pool 已删，由 active 钉「修饰容器进哈希」
 		func(): g.cells[0]["draws_used"] += 1,
 		func(): g.cells[0]["fx_turn"]["test"] = 1,
 		func(): g.cells[0]["antibody_used"] += 1,
@@ -17960,7 +17960,7 @@ func t_surrender_seats() -> void:
 	if srv == null:
 		return
 	var r := CWRoom.new()
-	r.configure(srv, "TESTAA", 4, 0, true, true)
+	r.configure(srv, "TESTAA", 4, 0, true)
 	for pid in 4:
 		r.seats[pid] = { "kind": "human", "client": 100 + pid, "nick": "P%d" % pid,
 			"ready": true, "tier": "", "token": "t%d" % pid, "online": true,
@@ -17990,7 +17990,7 @@ func t_surrender_seats() -> void:
 		"断满 %.1f 分钟 → 视同已离开，不再计入" % (CWNet.DROP_TO_LEFT_MS / 60000.0))
 	## 一局打完回等待室：人已经不在房里的席位要腾空（Kevin 2026-09-13 issue #38：一个人占两个号）
 	var r2 := CWRoom.new()
-	r2.configure(srv, "TESTBB", 4, 0, true, true)
+	r2.configure(srv, "TESTBB", 4, 0, true)
 	r2.members[100] = "在场的"
 	r2.seats[0] = { "kind": "human", "client": 100, "nick": "在场的", "ready": true, "tier": "",
 		"token": "t0", "online": true, "left": false, "off_at": 0 }
@@ -18476,7 +18476,7 @@ func t_watch_entry() -> void:
 	p._cycle_create(last_row, 1)
 	check(not bool(p._create["watch_hands"]), "再拨回来")
 	var osrc := FileAccess.get_file_as_string("res://scripts/ui/online_panel.gd")
-	check(osrc.contains('false, _create["watch_hands"])'),
+	check(osrc.contains('_create["watch_hands"])'),
 		"建房时把这一档发给服务器（漏了就永远是背面）")
 	## ①' 「进行中 · 可观战」这行小标题**真的画得出来**（Kevin 2026-09-13 截图：「这里没有可观战的 title」）。
 	## 字一直都在，塌的是**宽度**：房间行那一支开着 clip_text + 省略号，而 Label 在开着裁剪时
@@ -18818,13 +18818,13 @@ func t_turn_mark() -> void:
 # ---- 口径二 C-1 步 8 / 9：L0 靶场的两件机件（规格 §0.6.1 / §0.6.2）----
 const CASE_LOADER := preload("res://scripts/kernel/cw_world_loader.gd")
 const CASE_DIFF := preload("res://tests/cw_case_diff.gd")
-## 新手引导 S3：舞台（读一关 → 装一份 cwxworld/2 → 交出 CWKernel）与带子（预设骰子）
+## 新手引导 S3：舞台（读一关 → 装一份 cwxworld/3 → 交出 CWKernel）与带子（预设骰子）
 const TUT_STAGE := preload("res://scripts/kernel/cw_tutorial_stage.gd")
 const ROLL_TAPE := preload("res://scripts/kernel/cw_roll_tape.gd")
 const TUT_NPC := preload("res://scripts/kernel/cw_tutorial_npc.gd")
 
 
-## 步 8：cwxworld/2 / cwxcase/2 的键表与四条硬错。
+## 步 8：cwxworld/3 / cwxcase/2 的键表与四条硬错。
 ## 键表是**两侧共读的契约**（另一份是 L0/CaseModel.cs），这里钉 GD 半边：
 ## 表内无重复、旋钮表与 CWTuning 对得上、四类「loader 不许编数据」的写法当场红。
 func t_case_loader_keys() -> void:
@@ -19051,11 +19051,11 @@ func t_kernel_inproc() -> void:
 	for e in entries:
 		kinds[e["t"]] = int(kinds.get(e["t"], 0)) + 1
 	var same := true
-	for kind in ["roll", "result", "card_played", "event_drawn", "card_drawn", "erosion", "beam", "fx", "notice", "world_event"]:
+	for kind in ["roll", "result", "card_played", "event_drawn", "card_drawn", "erosion", "beam", "fx", "notice"]:
 		if int(kinds.get(kind, 0)) != int(probe.counts.get(kind, 0)):
 			same = false
 			print("  演出计数不一致：%s 句柄 %d / 探针 %d" % [kind, int(kinds.get(kind, 0)), int(probe.counts.get(kind, 0))])
-	check(same, "十类演出条目逐类计数 = 直接挂一个计数桥的结果（roll %d / fx %d / erosion %d）" % [
+	check(same, "九类演出条目逐类计数 = 直接挂一个计数桥的结果（roll %d / fx %d / erosion %d）" % [
 		int(kinds.get("roll", 0)), int(kinds.get("fx", 0)), int(kinds.get("erosion", 0))])
 	check(not kinds.has("ask") and int(kinds.get("game_over", 0)) == 1 and int(kinds.get("log", 0)) >= logs0,
 		"有 decider 时没有 ask 条目；game_over 恰一条；log 条目不少于日志行数（%d / %d）" % [int(kinds.get("log", 0)), logs0])
@@ -19655,8 +19655,8 @@ func t_obs_codec() -> void:
 	check(text.find("\"rng\"") < 0, "零 rng")
 	check(int(back["p"]) == CWObsProto.P and back["produced_tiers"].size() == 2, "p = %d、GD 恒交 A + B" % CWObsProto.P)
 	var t0: Dictionary = m.tiles.values()[0]
-	check(t0["d"].has("store_pending") and c0["d"].has("homing_cost_real") and m.g["d"].has("next_event_round")
-		and int(m.g["d"]["next_event_round"]) == CWObsCodec.next_event_round(g.round_no), "p=2 的三个 tier B 键都在（next_event_round 与 match_panel 同口径）")
+	check(t0["d"].has("store_pending") and c0["d"].has("homing_cost_real"),
+		"p=3 的两个 tier B 键都在（第三个键随世界事件删）")
 	check(m.pressure_lethal(c0) == g.world.pressure_lethal(g.cell_of(0)), "镜像 pressure_lethal 转手 tier B")
 	g.dispose()
 
@@ -20196,10 +20196,10 @@ func t_kernel_parity() -> void:
 	check(not r.can_save() and r.save().is_empty() and r.replay_tape().is_empty()
 		and not bool(cr["query_sync"]) and k.can_save() == (not g._pending.is_empty() and not g.is_over()),
 		"降级契约：Remote can_save/save/replay_tape 一律空、query_sync=false；InProc 的 can_save 与引擎判据同口径")
-	## ④ 条目形状：14 类（批 1 步 4 加了 step_begin / step_end 成 16 类）在两只句柄上字段名相同
+	## ④ 条目形状：15 类（批 1 步 4 由 14 加到 16；2026-09-19 随世界事件删掉一类成 15）在两只句柄上字段名相同
 	var kinds := ["sync", "ask", "roll", "result", "notice", "card_played", "event_drawn", "card_drawn",
-		"world_event", "erosion", "beam", "fx", "log", "game_over", "step_begin", "step_end"]
-	check(kinds.size() == 16, "条目一览 16 类（批 1 步 4 由 14 加到 16：step_begin / step_end）")
+		"erosion", "beam", "fx", "log", "game_over", "step_begin", "step_end"]
+	check(kinds.size() == 15, "条目一览 15 类（2026-09-19 随世界事件删掉一类，16 → 15）")
 	for kind in kinds:
 		check(kind in CWNetClient.STREAM_KINDS or kind in ["sync", "ask", "log", "game_over"],
 			"条目类 %s 在客户端的 STREAM_KINDS 里有对应报文（或是本地专有的四类之一）" % kind)
@@ -20373,7 +20373,7 @@ class ProbeQueue:
 		super.stop()
 
 
-## 新手引导 S3 · 舞台：一关数据 → 一份 cwxworld/2 → CWKernel。
+## 新手引导 S3 · 舞台：一关数据 → 一份 cwxworld/3 → CWKernel。
 ## 四条（方案 ③ S3 的「测试（新）」）：① 只交句柄不泄露引擎；② 重装次序；③ 带子挂在 open 之前；④ 第一关盘面。
 func t_tutorial_stage() -> void:
 	print("[新手引导 S3·教程舞台]")
@@ -20578,7 +20578,7 @@ func t_entry_smoke_tutorial() -> void:
 	var k := m.kernel as CWKernelInProc
 	check(k != null and k.adopted, "教程走 cfg.adopt：收养**舞台**（cw_tutorial_stage）装出来的那一局")
 	## **改判（新手引导 S3）**：原断言「win_checks=false 带过来了」→「教程不再碰 win_checks」。
-	## 依据：方案 §2.3 —— 它不在 cwxworld/2 的 15 键里、也没有 C# 对应物；
+	## 依据：方案 §2.3 —— 它不在 cwxworld/3 的 15 键里、也没有 C# 对应物；
 	## 不判胜负改由数据保证（allow 里不放结束回合 ⇒ 进不了 E 阶段），同一条在 t_guide_no_win 里正面核。
 	check(k.game.win_checks, "判定照常开着 —— 教程靠 allow 把「结束回合」关在门外，不靠引擎开关")
 	## **改判**：原断言「镜像 7 格 / 半径 1 / active_radius 1」→「127 格 / 半径 6 / 活跃格 = 数据里那两格」（§1.3 后果表）
@@ -20865,7 +20865,7 @@ func t_tutorial_data() -> void:
 		ids.sort()
 		for wid in ids:
 			var spec: Dictionary = d.resolve(levels[id], str(wid))
-			check(not spec.is_empty() and spec.has("players"), "%s.%s resolve 取得出完整 cwxworld/2" % [id, str(wid)])
+			check(not spec.is_empty() and spec.has("players"), "%s.%s resolve 取得出完整 cwxworld/3" % [id, str(wid)])
 			var l = CASE_LOADER.new()
 			var g: CWGame = l.load_world(spec)
 			if g == null:

@@ -153,7 +153,7 @@ public static class L1View
         }).ToList();
 
         var events = g.GetProperty("events").EnumerateArray()
-            .Select(e => new CanonEffect(S(e, "name"), I(e, "left"), I(e, "stacks"), "", []))
+            .Select(e => new CanonEffect(S(e, "name"), I(e, "left"), I(e, "stacks"), []))
             .ToList();
 
         var canon = new CanonState

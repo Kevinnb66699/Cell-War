@@ -87,13 +87,13 @@
     },
     {
       "name": "events/active_keyed_by_event_name",
-      "note": "g.events.active 按事件名取键；pool 没有语义键，整条当叶子（这里没变，不进差分）",
+      "note": "g.events.active 按事件名取键",
       "pre": {
         "board": { "radius": 6, "tiles": [] },
         "cells": [],
         "g": {
           "round_no": 3,
-          "events": { "pool": ["营养输送", "代谢加速"], "active": [{ "name": "代谢加速", "left": 2, "stacks": 1 }, { "name": "紊乱", "left": 1, "stacks": 1 }], "double_next": false }
+          "events": { "active": [{ "name": "代谢加速", "left": 2, "stacks": 1 }, { "name": "紊乱", "left": 1, "stacks": 1 }] }
         },
         "ask": null
       },
@@ -102,7 +102,7 @@
         "cells": [],
         "g": {
           "round_no": 4,
-          "events": { "pool": ["营养输送", "代谢加速"], "active": [{ "name": "代谢加速", "left": 1, "stacks": 2 }], "double_next": true }
+          "events": { "active": [{ "name": "代谢加速", "left": 1, "stacks": 2 }] }
         },
         "ask": null
       },
@@ -112,8 +112,7 @@
         "$.g.events.active[代谢加速].stacks": 2,
         "$.g.events.active[紊乱].name": null,
         "$.g.events.active[紊乱].left": null,
-        "$.g.events.active[紊乱].stacks": null,
-        "$.g.events.double_next": true
+        "$.g.events.active[紊乱].stacks": null
       }
     },
     {

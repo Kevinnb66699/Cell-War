@@ -5,11 +5,9 @@
 ## 卡牌的修饰效果（对照 5.1 #26）往 game.events["active"] 里塞条目、复用全部挂接点，
 ## 已经住进来的有【基质稳定】【TGF-β释放】【TNF-α局部炎症】。
 ##
-## 修饰器容器 = game.events["active"]，条目 {name, left, stacks, doubled, data}：
+## 修饰器容器 = game.events["active"]，条目 {name, left, stacks, data}：
 ##   - left   还能存活的世界回合数（含本回合）。回合末 -1，归零移除。
 ##   - stacks 叠加层数。卡牌条目一律 1。
-##   - doubled 保留字段、恒空串（加倍那一档随世界事件一起删了）。旧档没有这个键，
-##            读的地方一律 `.get("doubled", "")`。**随批 1 全量发版那次协议升号物理删除。**
 ##   - data   条目私有簿记，键一律用 cell["id"]，随快照深拷贝、进 state_hash。
 ##
 ## 各结算点读条目一律走 game.event_stacks(名字)。

@@ -45,7 +45,7 @@ var pending_ask := {}                    ## 最近收到、尚未作答的询问
 ## 顺序播放模式（界面用）：对局流报文先进 stream，等使用者 apply_now；机器人与测试保持 false
 var sequenced := false
 var stream: Array = []
-const STREAM_KINDS := ["state", "sync", "ask", "roll", "result", "notice", "erosion", "beam", "fx", "card_played", "event_drawn", "card_drawn", "world_event", "game_over", "step_begin", "step_end"]   ## sync / step_* 是批 1 步 8 服务器升 v30 后发的
+const STREAM_KINDS := ["state", "sync", "ask", "roll", "result", "notice", "erosion", "beam", "fx", "card_played", "event_drawn", "card_drawn", "game_over", "step_begin", "step_end"]   ## sync / step_* 是批 1 步 8 服务器升 v30 后发的
 var query_results: Array = []            ## S→C query_result（批 1 E-1 (a) 的 RPC 应答）：不进 stream（不是演出），CWKernelRemote.drain 来取
 const INBOX_MAX := 2000                  ## inbox 只给测试和机器人翻，界面跑一整晚也别让它无限长
 ## 握手超时：TCP 握手包丢了、或来源 IP 被云安全组限流时，WebSocketPeer 会无限期停在 CONNECTING、不报任何错
@@ -161,12 +161,10 @@ func list_rooms() -> void:
 	send({ "t": "list_rooms" })
 
 
-## `world_events` 默认 true = 改动之前的行为；服务器那边也按 true 兜底，
-## 所以老客户端连新服务器照常建房。
 func create_room(players: int, timer: int, public: bool, seed_value: int = 0,
-		world_events: bool = true, watch_hands: bool = false) -> void:
+		watch_hands: bool = false) -> void:
 	var m := { "t": "create_room", "players": players, "timer": timer, "public": public,
-		"world_events": world_events, "watch_hands": watch_hands }
+		"watch_hands": watch_hands }
 	if seed_value != 0:
 		m["seed"] = seed_value
 	send(m)

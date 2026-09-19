@@ -1,7 +1,7 @@
 ## cw_tutorial_data.gd —— 新手引导关卡数据 `cwtut/1` 的读取与校验（docs/新手引导_实现方案.md S2，2026-09-19）
 ##
 ## **这一片还不接线**：舞台（S3）才会真拿它开局。现在它只做三件事 ——
-## 读 `res://data/tutorial/` 下的关表与关卡、按 `world_id` 取出一份 cwxworld/2、把方案 §1.2 的**九条数据纪律**
+## 读 `res://data/tutorial/` 下的关表与关卡、按 `world_id` 取出一份 cwxworld/3、把方案 §1.2 的**九条数据纪律**
 ## 摊成一张能跑的清单（`validate`）。剧本写错的代价是「真机上静默错到底」（附 C 第 8 条），所以纪律要有执行机构。
 ##
 ## **为什么住 scripts/kernel/ 而不是 tests/**：`game/export_presets.cfg` 四个预设全写着 `exclude_filter="tests/*"`，
@@ -13,7 +13,7 @@
 ## **校验只读**：`validate` 一个字节都不改数据 —— 传给装载器的是 `duplicate(true)`，
 ## 因为 `load_world` 会把 spec 里的 tiles/cells 拿去建局，留一手比事后查便宜。
 ##
-## 本片的 `worlds` 每一份都是**完整的** cwxworld/2，`resolve` 不做继承（方案 §1.4 的继承等真有第二份差分世界再说）。
+## 本片的 `worlds` 每一份都是**完整的** cwxworld/3，`resolve` 不做继承（方案 §1.4 的继承等真有第二份差分世界再说）。
 extends RefCounted
 
 const SCHEMA := "cwtut/1"
@@ -68,7 +68,7 @@ func load_level(id: String) -> Dictionary:
 	return {}
 
 
-## 取一关里名为 `world_id` 的那份 cwxworld/2（深拷贝，调用方随便改）。没有就返回 `{}`
+## 取一关里名为 `world_id` 的那份 cwxworld/3（深拷贝，调用方随便改）。没有就返回 `{}`
 func resolve(level: Dictionary, world_id: String) -> Dictionary:
 	var worlds: Dictionary = level.get("worlds", {})
 	if not worlds.has(world_id):

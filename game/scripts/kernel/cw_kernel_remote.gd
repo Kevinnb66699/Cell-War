@@ -199,7 +199,7 @@ func _translate(m: Dictionary) -> void:
 		"query_result":
 			_on_query_result(m)
 			return
-		"roll", "result", "notice", "erosion", "beam", "fx", "card_played", "event_drawn", "card_drawn", "world_event", "step_begin", "step_end":
+		"roll", "result", "notice", "erosion", "beam", "fx", "card_played", "event_drawn", "card_drawn", "step_begin", "step_end":
 			e = m.duplicate()
 			e.erase("t")
 		_:

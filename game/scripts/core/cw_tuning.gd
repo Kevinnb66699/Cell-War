@@ -22,7 +22,7 @@ const RULE_FIELDS := [
 	"counter_dmg_on_fail", "solidify_threshold", "limit_round", "limit_cancerous",
 	"cancer_win_weighted", "cancer_win_hold_rounds", "solid_at_cancer_spawn",
 	"immune_respawn_delay", "immune_respawn_energy", "macro_heal_purify",
-	"antibody_max_per_round", "antibody_halve", "world_events_on",
+	"antibody_max_per_round", "antibody_halve",
 	"anaerobic_block_exp", "anaerobic_block_coef", "anaerobic_solid_bonus",
 	"proliferate_per_adjacent", "proliferate_per_solid", "erosion_tiles",
 	"metastasis_cost", "metastasis_max_per_round",
@@ -319,15 +319,6 @@ var antibody_max_per_round := CWData.ANTIBODY_MAX_PER_ROUND
 ## PRD 正本与仓库这份 diff 都已同步到这一条上（09-04 那次「已撤回」的标注随之作废）。
 var antibody_halve := true
 
-## 世界事件总开关。**机制已于 2026-09-19 整块删除**（Kevin：「我们不加入世界事件了」），
-## 这个字段只剩一个恒 false 的空壳：拨成 true 也没有任何事件会发生。
-##
-## **为什么不一并删掉**：它在 RULE_FIELDS 里 —— 快照、`tune.signature()` 的回放指纹、联机下发给
-## 影子对局的旋钮表都逐条读 RULE_FIELDS，删它要动 `rules_state()` 的形状并重录所有带旋钮表的夹具，
-## Kevin 还没答（拍板记录 §十五再续六 ①）。（`state_hash` 本批已因 `events.pool` 退出快照而变，
-## 它只进 sync 报文、客户端只存不比，所以不是理由。）与 `events.pool` / `double_next` /
-## `active[].doubled` 同处置：**字段随下一次协议升号一并物理删除**，本批只冻结。
-var world_events_on := false
 ## 【E-无氧呼吸】现行公式（Kevin 2026-09-07）：
 ##   `(块内普通癌组织数 ^ (exp/100) × coef + 全图固化数 × solid_bonus) ÷ 块内癌细胞数`
 ## 三个旋钮都是给扫描拨的；**coef = 0 = 关 = 09-04 之前的线性求和**（对照档）。见 CWWorld._anaerobic_pool()。

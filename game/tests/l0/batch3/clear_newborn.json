@@ -41,10 +41,7 @@
           "newborn": true,
           "state": "cancer"
         }
-      ],
-      "tuning": {
-        "world_events_on": 1
-      }
+      ]
     },
     "rolls": [],
     "args": {},

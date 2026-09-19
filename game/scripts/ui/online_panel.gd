@@ -515,10 +515,8 @@ func _host_lan() -> void:
 func _create_room() -> void:
 	if client == null:
 		return
-	## world_events 形参是世界事件删除（2026-09-19）后留下的冻结报文字段：传字面 false，
-	## 报文与 NET_VERSION 一字不动（随批 1 全量发版那次协议升号一并物理删除）。
 	client.create_room(_create["players"], _create["timer"], _create["public"], 0,
-		false, _create["watch_hands"])
+		_create["watch_hands"])
 	_set_status("建房中…")
 
 

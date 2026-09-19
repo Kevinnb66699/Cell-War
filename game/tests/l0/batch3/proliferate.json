@@ -57,8 +57,7 @@
       "tuning": {
         "proliferate_per_adjacent[1]": 1000,
         "proliferate_per_adjacent[2]": 1000,
-        "proliferate_per_adjacent[3]": 1000,
-        "world_events_on": 1
+        "proliferate_per_adjacent[3]": 1000
       }
     },
     "rolls": [
@@ -164,8 +163,7 @@
       "tuning": {
         "proliferate_per_adjacent[1]": 1000,
         "proliferate_per_adjacent[2]": 1000,
-        "proliferate_per_adjacent[3]": 1000,
-        "world_events_on": 1
+        "proliferate_per_adjacent[3]": 1000
       }
     },
     "rolls": [
@@ -272,8 +270,7 @@
       "tuning": {
         "proliferate_per_adjacent[1]": 1000,
         "proliferate_per_adjacent[2]": 1000,
-        "proliferate_per_adjacent[3]": 1000,
-        "world_events_on": 1
+        "proliferate_per_adjacent[3]": 1000
       }
     },
     "rolls": [

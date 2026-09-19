@@ -1,7 +1,7 @@
 {
   "_doc": [
     "cwtut/1 · 九条数据纪律（正文见 docs/新手引导_实现方案.md §1.2；t_tutorial_data 逐条核）",
-    "1. worlds.* 只许 cwxworld/2 的 15 个顶层键，每份都要过 load_world 且 dump_world ≡ minify。",
+    "1. worlds.* 只许 cwxworld/3 的 15 个顶层键，每份都要过 load_world 且 dump_world ≡ minify。",
     "2. 省略 type = 棋盘本来的特殊组织；活跃格里压到 11 个特殊格的逐格显式写 \"type\": \"normal\"，否则白送一个收入格。",
     "3. 能量一律写十分位整数（30 = 3.0）。",
     "4. 一格一细胞、一席一细胞；players[i].seat 必须等于 i；缺席阵营写 alive:false 的死细胞占一个遮罩外的格。",

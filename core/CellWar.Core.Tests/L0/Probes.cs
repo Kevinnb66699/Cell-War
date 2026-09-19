@@ -173,7 +173,7 @@ public static class Probes
     ///
     /// **传输形状**（两侧表项逐字同一套，GD 侧 l0_runner.gd 上有同一段注释）：
     /// * int → <c>scalar</c>，裸整数原样；
-    /// * bool → <c>scalar</c>，写 1 / 0（<c>const</c> 表里今天一个都没有 —— 唯一那个 <c>is_world_event_round</c> 随世界事件删了；ops 表的 <c>move_legal</c> 还走这套）；
+    /// * bool → <c>scalar</c>，写 1 / 0（<c>const</c> 表里今天一个都没有；ops 表的 <c>move_legal</c> 还走这套）；
     /// * float → 按**千分位**冻成整数 <c>round(x * 1000)</c> —— 批 0 一个都没有，批 2 的探针 <c>anaerobic_pool</c> 是第一个真用户；
     /// * 表 / 字典 → <c>tree</c>：坐标写 <c>"q,r"</c>（这边调 <see cref="WorldLoader.At"/>，
     ///   GD 那边由 runner 的 <c>_to_json()</c> 收口，出来的字符串逐字相同）、枚举写整数值。

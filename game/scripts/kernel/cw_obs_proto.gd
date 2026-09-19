@@ -6,7 +6,7 @@
 class_name CWObsProto
 extends RefCounted
 
-const P := 2   ## 2026-09-19 批 1 步 1：tier B 加三键 + cost_effects_for 批量形参 + InProc 可推 sync（观测协议 §九）
+const P := 3   ## 2026-09-19：删七个世界事件残留字段（逐条见观测协议 §九 的 p=3 条目）
 const VIEWER_WATCHER := -1
 const VIEWER_OMNISCIENT := -2
 const TIERS_GD := ["A", "B"]
@@ -35,18 +35,17 @@ const STATUS_ROW := ["kind", "name", "detail"]
 const G := ["round_no", "phase", "current_pid", "asking_pid", "memory", "immune_level", "effector_round", "differentiated",
 	"winner", "win_reason", "win_kind", "cancer_alarm", "chemo", "chemo_track", "events", "feed_log", "feed_seq", "chain_cell",
 	"aborted", "is_over", "order", "players", "tune", "d"]
-const G_D_A := ["solid_threshold", "tumor_stage", "cancer_phase", "phase_text", "is_world_event_round"]
-const G_D_B := ["count_healthy", "count_cancer", "count_solid", "count_necrosis", "cancer_weighted", "level_thresholds", "memory_next_at", "next_event_round"]
+const G_D_A := ["solid_threshold", "tumor_stage", "cancer_phase", "phase_text"]
+const G_D_B := ["count_healthy", "count_cancer", "count_solid", "count_necrosis", "cancer_weighted", "level_thresholds", "memory_next_at"]
 const CANCER_ALARM := ["streak", "hold_rounds"]
 const CHEMO := ["at", "left", "by", "cid"]
 const TRACK := ["cid", "at", "left"]
-const EVENTS := ["pool", "active", "double_next"]
-const EFFECT := ["name", "left", "stacks", "doubled", "data", "d"]
-const EFFECT_D := ["is_world_event"]
+const EVENTS := ["active"]
+const EFFECT := ["name", "left", "stacks", "data"]
 const FEED := ["seq", "kind", "pid", "faction", "card", "left"]
 const PLAYER := ["id", "name", "faction", "cell_id", "cancer_type", "d"]
 const PLAYER_D := ["income"]
-const TUNE := ["world_events_on", "cancer_win_weighted", "cancer_win_hold_rounds", "limit_round", "limit_cancerous",
+const TUNE := ["cancer_win_weighted", "cancer_win_hold_rounds", "limit_round", "limit_cancerous",
 	"mucus_move_surcharge", "metastasis_cost", "osteo_ossify_cost", "solidify_threshold"]
 ## §六
 const ASK := ["ask_id", "rev", "kind", "tag", "seat", "prompt", "mine", "stop_index", "options"]
