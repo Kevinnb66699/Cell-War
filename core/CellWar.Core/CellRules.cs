@@ -209,9 +209,10 @@ internal static class CellRules
     /// 分档的理由见 GD 原注：记忆是全阵营共用一个计数器，而进账靠免疫细胞各自净化 ——
     /// 四人局只有 2 个免疫、六人局有 3 个，同样门槛下四人局要多花约一半回合才升得上去。
     /// **2 人局沿用缺省（六人）那张**，GD 注释明写「这不是待办」。</summary>
-    internal static readonly IReadOnlyList<int> LevelMinMemory = [0, 10, 30, 70];
+    /// **2026-09-19 issue #55**：X 级门槛四人 50→100、六人 70→120，II / III 两档不动。
+    internal static readonly IReadOnlyList<int> LevelMinMemory = [0, 10, 30, 120];
     internal static readonly IReadOnlyDictionary<int, IReadOnlyList<int>> LevelMinMemoryByPlayers =
-        new Dictionary<int, IReadOnlyList<int>> { [4] = [0, 10, 20, 50] };
+        new Dictionary<int, IReadOnlyList<int>> { [4] = [0, 10, 20, 100] };
 
     /// <summary>GD `cw_game.gd:gain_memory`（门槛那一段）。**门槛按人数分档**：
     /// `CWData.level_min_memory(order.size())` = 四人 `[0,10,20,50]` / 其余（含 2 人与 balance_scan 的 5、7 人）`[0,10,30,70]`。

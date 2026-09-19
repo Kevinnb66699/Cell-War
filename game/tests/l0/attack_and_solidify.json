@@ -144,9 +144,9 @@
   {
     "schema": "cwxcase/2",
     "id": "solidify/threshold_stage_III",
-    "covers": ["t_tumor_stages::III 期门槛 2.0"],
+    "covers": ["t_tumor_stages::III 期门槛 1.5（issue #56 环境恶化加强）"],
     "probe": "solidify_threshold",
-    "source": "同上：III 期 2.0",
+    "source": "同上：III 期 1.5（issue #56 把 III 期从 2.0 再降一档）",
     "world": {
       "round": 11,
       "players": [{ "seat": 0, "faction": "cancer", "cancer_type": "Osteosarcoma" }],
@@ -154,6 +154,6 @@
       "cells": [{ "seat": 0, "type": "Osteosarcoma", "at": "0,0" }]
     },
     "args": {},
-    "expect": 20
+    "expect": 15
   }
 ]

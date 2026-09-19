@@ -5,7 +5,7 @@
   "subtitle": "认识健康组织，学会【迁移】",
   "codex_page": 0, "ui_stage": 1,
   "seats": 2, "human_seat": 0,
-  "expect_level_tiers": [0, 10, 30, 70],
+  "expect_level_tiers": [0, 10, 30, 120],
 
   "worlds": {
     "base": {

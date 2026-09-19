@@ -42,7 +42,7 @@ public class ObservationV1Tests
             Assert.Equal(p.Id, env.State.Cells.Single(c => c.Pid == p.Id).Id);   // DemoScenario 每席一只，id = 席位
         Assert.Equal("turn", env.State.G.Phase);
         Assert.Equal("玩家回合", env.State.G.D.PhaseText);
-        Assert.Equal([30, 20, 20], env.State.G.Tune.SolidifyThreshold);
+        Assert.Equal([30, 20, 15], env.State.G.Tune.SolidifyThreshold);   // issue #56：III 期 2.0 → 1.5
         Assert.Equal(63, env.State.G.Tune.LimitCancerous);
         Assert.Equal("", env.State.G.WinKind); Assert.Equal(-1, env.State.G.Winner); Assert.False(env.State.G.IsOver);
         Assert.Equal(-1, env.State.G.EffectorRound);   // 从没发动过：C# 存 0、协议给 -1

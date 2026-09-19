@@ -794,13 +794,20 @@ func _anaerobic_pool(block: Array) -> float:
 		if exp_pct < 0:
 			exp_pct = CWData.anaerobic_block_exp(game.order.size())
 		var exp_term := pow(float(plain), exp_pct / 100.0) if plain > 0 else 0.0
-		return exp_term * float(coef) + float(solid * game.tune.anaerobic_solid_bonus)
+		return _stage_boost(exp_term * float(coef) + float(solid * game.tune.anaerobic_solid_bonus))
 	var pool := 0.0
 	for c in block:
 		pool += game.tune.anaerobic_per_solid \
 			if game.tiles[c]["tissue"] == CWData.Tissue.SOLID \
 			else game.tune.anaerobic_per_cancer
-	return pool
+	return _stage_boost(pool)
+
+
+## 【E-无氧呼吸】的**环境恶化增益**（issue #56，2026-09-19）：II 期 ×1.2、III 期 ×1.5。
+## 乘在池子上、**不取整**（四舍五入仍只在 `_split_share` 里做一次）；对照档的线性求和也照样吃这一刀 ——
+## 「在基础数值上增益」说的是无氧这条规则本身，不是某一种算法。
+func _stage_boost(pool: float) -> float:
+	return pool * CWData.ANAEROBIC_STAGE_MUL_BY_STAGE[game.tumor_stage()] / 100.0
 
 
 ## 池子按块内癌细胞数均分。**四舍五入只在这里做一次**（池子是浮点，见 _anaerobic_pool）：

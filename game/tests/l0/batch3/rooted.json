@@ -138,7 +138,7 @@
     "id": "rooted/t_tumor_stages/002",
     "op": "rooted",
     "covers": [
-      "t_tumor_stages::III 期：推 3 格，各 +1.0（门槛 2.0，1.0 还没到）"
+      "t_tumor_stages::III 期：推 3 格，各 +1.0（门槛 1.5，1.0 还没到）"
     ],
     "status": "OK",
     "source": "cw_world.gd:_rooted ↔ BoardRules.Rooted；g3 round 11 的唯一一次：三格各 +1.0，rolls 3 段",
@@ -209,11 +209,11 @@
     "expect": {
       "kind": "delta",
       "changed": {
-        "$.board.tiles@-1,0.d.solid_fraction": 500,
+        "$.board.tiles@-1,0.d.solid_fraction": 667,
         "$.board.tiles@-1,0.solid": 10,
-        "$.board.tiles@-1,1.d.solid_fraction": 500,
+        "$.board.tiles@-1,1.d.solid_fraction": 667,
         "$.board.tiles@-1,1.solid": 10,
-        "$.board.tiles@1,-1.d.solid_fraction": 500,
+        "$.board.tiles@1,-1.d.solid_fraction": 667,
         "$.board.tiles@1,-1.solid": 10
       },
       "ignore": []
@@ -224,7 +224,7 @@
     "id": "rooted/t_tumor_stages/003",
     "op": "rooted",
     "covers": [
-      "t_tumor_stages::唯一目标 1.0 + 1.0 = III 期门槛 2.0 → 当场转固化",
+      "t_tumor_stages::唯一目标 1.0 + 1.0 ≥ III 期门槛 1.5 → 当场转固化",
       "t_tumor_stages::本步刚固化的格子不在这一回合当「来源」推别人"
     ],
     "status": "OK",
@@ -265,22 +265,22 @@
     "expect": {
       "kind": "delta",
       "changed": {
-        "$.board.tiles@-1,0.d.proliferate_chance": 60,
-        "$.board.tiles@-1,1.d.proliferate_chance": 60,
-        "$.board.tiles@0,-1.d.proliferate_chance": 60,
-        "$.board.tiles@0,0.d.proliferate_chance": 60,
-        "$.board.tiles@0,1.d.proliferate_chance": 120,
-        "$.board.tiles@1,-1.d.proliferate_chance": 120,
-        "$.board.tiles@1,0.d.proliferate_chance": 120,
+        "$.board.tiles@-1,0.d.proliferate_chance": 80,
+        "$.board.tiles@-1,1.d.proliferate_chance": 80,
+        "$.board.tiles@0,-1.d.proliferate_chance": 80,
+        "$.board.tiles@0,0.d.proliferate_chance": 80,
+        "$.board.tiles@0,1.d.proliferate_chance": 160,
+        "$.board.tiles@1,-1.d.proliferate_chance": 160,
+        "$.board.tiles@1,0.d.proliferate_chance": 160,
         "$.board.tiles@1,0.d.solid_fraction": 1000,
         "$.board.tiles@1,0.solid": 20,
         "$.board.tiles@1,0.tissue": 2,
-        "$.board.tiles@1,1.d.proliferate_chance": 120,
-        "$.board.tiles@2,-1.d.proliferate_chance": 120,
-        "$.board.tiles@2,0.d.proliferate_chance": 60,
-        "$.board.tiles@2,1.d.proliferate_chance": 60,
-        "$.board.tiles@3,-1.d.proliferate_chance": 60,
-        "$.board.tiles@3,0.d.proliferate_chance": 60
+        "$.board.tiles@1,1.d.proliferate_chance": 160,
+        "$.board.tiles@2,-1.d.proliferate_chance": 160,
+        "$.board.tiles@2,0.d.proliferate_chance": 80,
+        "$.board.tiles@2,1.d.proliferate_chance": 80,
+        "$.board.tiles@3,-1.d.proliferate_chance": 80,
+        "$.board.tiles@3,0.d.proliferate_chance": 80
       },
       "ignore": []
     }
@@ -330,7 +330,7 @@
     "expect": {
       "kind": "delta",
       "changed": {
-        "$.board.tiles@2,0.d.solid_fraction": 500,
+        "$.board.tiles@2,0.d.solid_fraction": 667,
         "$.board.tiles@2,0.solid": 10
       },
       "ignore": []

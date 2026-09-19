@@ -76,15 +76,18 @@ public sealed record RuleTuning
 
     /// <summary>
     /// 【E-固化】的计数门槛，按肿瘤分期三档（GD `SOLIDIFY_THRESHOLD_BY_STAGE`）。
-    /// II 期就降到 2.0 是 PRD 2026-09-12 把它从 III 期提前来的。
+    /// II 期就降到 2.0 是 PRD 2026-09-12 把它从 III 期提前来的；
+    /// **2026-09-19 issue #56**：III 期再降到 **1.5**（十分单位 15）。
     /// </summary>
-    public IReadOnlyList<int> SolidifyThreshold { get; init; } = [30, 20, 20];
+    public IReadOnlyList<int> SolidifyThreshold { get; init; } = [30, 20, 15];
 
-    /// <summary>【E-增生】每个相邻癌性组织的基数，千分率，按分期三档（GD `PROLIFERATE_BASE_BY_STAGE`）。</summary>
-    public IReadOnlyList<int> ProliferatePerAdjacent { get; init; } = [30, 35, 40];
+    /// <summary>【E-增生】每个相邻癌性组织的基数，千分率，按分期三档（GD `PROLIFERATE_BASE_BY_STAGE`）。
+    /// **2026-09-19 issue #56**：II 期 35→40、III 期 40→50。</summary>
+    public IReadOnlyList<int> ProliferatePerAdjacent { get; init; } = [30, 40, 50];
 
-    /// <summary>【E-增生】块内每格固化癌组织的加成，千分率，按分期三档（GD `PROLIFERATE_SOLID_BY_STAGE`）。</summary>
-    public IReadOnlyList<int> ProliferatePerSolid { get; init; } = [5, 10, 10];
+    /// <summary>【E-增生】块内每格固化癌组织的加成，千分率，按分期三档（GD `PROLIFERATE_SOLID_BY_STAGE`）。
+    /// **2026-09-19 issue #56**：III 期 10→15。</summary>
+    public IReadOnlyList<int> ProliferatePerSolid { get; init; } = [5, 10, 15];
 
     /// <summary>
     /// 【E-侵蚀】每个封闭健康块转几格，按分期三档的 (常见值, 少见值)。

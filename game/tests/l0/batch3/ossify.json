@@ -87,15 +87,15 @@
     "expect": {
       "kind": "delta",
       "changed": {
-        "$.board.tiles@-1,0.d.proliferate_chance": 45,
-        "$.board.tiles@-1,1.d.proliferate_chance": 45,
-        "$.board.tiles@0,-1.d.proliferate_chance": 45,
+        "$.board.tiles@-1,0.d.proliferate_chance": 50,
+        "$.board.tiles@-1,1.d.proliferate_chance": 50,
+        "$.board.tiles@0,-1.d.proliferate_chance": 50,
         "$.board.tiles@0,0.d.solid_fraction": 1000,
         "$.board.tiles@0,0.ossify_at": 0,
         "$.board.tiles@0,0.tissue": 2,
-        "$.board.tiles@0,1.d.proliferate_chance": 45,
-        "$.board.tiles@1,-1.d.proliferate_chance": 45,
-        "$.board.tiles@1,0.d.proliferate_chance": 45
+        "$.board.tiles@0,1.d.proliferate_chance": 50,
+        "$.board.tiles@1,-1.d.proliferate_chance": 50,
+        "$.board.tiles@1,0.d.proliferate_chance": 50
       },
       "ignore": []
     }

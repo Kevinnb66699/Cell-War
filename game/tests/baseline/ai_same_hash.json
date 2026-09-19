@@ -1,42 +1,42 @@
 {
 	"cases": {
 		"heur4": {
-			"hash": "bc0904eb9ba6aa2b303da9dfdf63e4f5511f2d4a2a3f4f359b496b5b438d4c42",
-			"round_no": 12,
-			"steps": 400,
-			"winner": -1
-		},
-		"heur6": {
-			"hash": "777a7e2b321dde03c9c23181763ad390f7d947b49b0bc4cce4dcd370082ebcb2",
+			"hash": "def3a150982edc0089f9b0389f198244119cfcb9e35abfe2e5437d3a06a88ec9",
 			"round_no": 11,
 			"steps": 400,
 			"winner": -1
 		},
+		"heur6": {
+			"hash": "4034d1797e71ddf3149379f94f319f63238bfcf715d1181dc0d8f01be1e8c252",
+			"round_no": 10,
+			"steps": 400,
+			"winner": -1
+		},
 		"mc4": {
-			"hash": "147a23a0e551470efc6bc9d325744a037f5c481344f7f793a04b60c1b5db5c65",
+			"hash": "24b1b3088aad915fa5076c4ba2330c7d602be56637c1e4b36741e081caa200c0",
 			"round_no": 10,
 			"steps": 400,
 			"winner": -1
 		},
 		"mc6": {
-			"hash": "4986c4938dafd21ea7a6e3ac06bb1506dad9ef10f0cbe3062b76f4e04cc057ca",
+			"hash": "7302227c92984ecdf7c45e0ebe1dad6230f94ff31a02445dca35ec0ce522a351",
 			"round_no": 7,
 			"steps": 400,
 			"winner": -1
 		},
 		"mcts4": {
-			"hash": "654220f6a0aed3e159689254e9e3b1adb5da67f8b4f751b8f2eb0a2ad31f37d4",
-			"round_no": 15,
-			"steps": 374,
+			"hash": "bfb5a65abfc644f5fd5a9d41c3d305f274d626b71e1630b7d584755db84c8836",
+			"round_no": 12,
+			"steps": 282,
 			"winner": 0
 		},
 		"mcts6": {
-			"hash": "843325ad5040ec981530feb1809bb8b1705d8f5256396a591fca74c005430e48",
-			"round_no": 12,
-			"steps": 400,
-			"winner": -1
+			"hash": "45cacfd43868e3e2ca196ca5ba771848c5e5c8686dab601d32580dfee756d36e",
+			"round_no": 10,
+			"steps": 308,
+			"winner": 0
 		}
 	},
 	"max_steps": 400,
-	"recorded": "2026-09-19T00:20:23"
+	"recorded": "2026-09-19T02:39:53"
 }
