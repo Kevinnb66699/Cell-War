@@ -617,7 +617,8 @@ func tumor_stage() -> int:
 	return CWCardData.cancer_phase(round_no)
 
 
-## 本分期的固化门槛（III 期降为 2.0）。结算、界面、AI 一律走这里，别各自去查 `tune.solidify_threshold` 的表。
+## 本分期的固化门槛（II 期 2.0、III 期 1.5 —— issue #56，2026-09-19）。
+## 结算、界面、AI 一律走这里，别各自去查 `tune.solidify_threshold` 的表。
 func solidify_threshold() -> int:
 	return int(tune.solidify_threshold[tumor_stage()])
 

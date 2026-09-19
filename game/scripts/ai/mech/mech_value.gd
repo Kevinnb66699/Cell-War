@@ -286,7 +286,7 @@ static func _glut_bonus(g: CWGame, cell: Dictionary) -> int:
 ## 核心机制（PRD + cw_world._solidify/_decay/raise_solid）：
 ##   · 有癌细胞停留的（非新生、非血管）癌组织：每世界回合 solid += SOLIDIFY_STEP（+1.0）
 ##   · 无细胞停留且 solid>0 的癌组织：每世界回合 solid −= SOLIDIFY_DECAY（−0.5）
-##   · solid 达阈值（I 期 3.0 / II·III 期 2.0，CWGame.solidify_threshold）→ 转固化癌组织
+##   · solid 达阈值（I 期 3.0 / II 期 2.0 / III 期 1.5，CWGame.solidify_threshold）→ 转固化癌组织
 ##   · 转固化后：_solidify 不再累计（tissue 非 CANCER）、_decay 不再衰减（非 CANCER）
 ## 纯确定性，无随机 —— 这是 AI 判断「蹲几回合能造一个复活点/容错」的解析基础。
 

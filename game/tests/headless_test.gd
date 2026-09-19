@@ -13844,7 +13844,7 @@ func t_card_choices() -> void:
 		"放疗：恰好 %d 格进入坏死（PRD 2026-09-09 由 15 改 10）" % CWData.RADIO_REGION)
 	check(g.tiles[Vector2i(3, 0)]["tissue"] == CWData.Tissue.HEALTHY
 		and g.tiles[Vector2i(3, 0)]["necrosis"] == CWData.NECROSIS_RADIO,
-		"起点固化癌组织转健康并坏死 %d 轮" % CWData.NECROSIS_RADIO)
+		"起点固化癌组织转健康并坏死 2 轮")   ## 名字必须是字面量：拼出来的名字闸三的 covers 指不到
 	var necro_pred := func(c: Vector2i) -> bool:
 		return g.tiles[c]["necrosis"] > 0
 	check(g.blocks_of(necro_pred).size() == 1, "放疗：坏死区域是一整块连通区域")
