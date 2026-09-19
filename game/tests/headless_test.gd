@@ -173,6 +173,8 @@ func _run_all() -> void:
 		t_tutorial_opening,
 		## 新手引导 S8：第二章两关（方案 §S8 ①~④，①④ 按 Kevin 2026-09-19 Q-18 改判）+ NPC 席位的脚本作答
 		t_tutorial_c2, t_tutorial_npc,
+		## 新手引导 v2 S7：教程演出库 cw_tutor_fx（六种演出 / 零内核 rng / 时间的纯函数）
+		t_tutor_fx,
 	]
 	var owner := _assign(tests)
 	var mine := 0
@@ -22087,3 +22089,231 @@ func t_tutorial_npc() -> void:
 	CWGuideProgress.clear()
 	root.remove_child(main_scene)
 	main_scene.free()
+
+
+## 新手引导 v2 · S7：教程演出库 `cw_tutor_fx`
+##
+## 这一条盯的不是「好不好看」（那是真机截图的事，见 `tests/preview/preview_tutor_fx.gd`），
+## 而是三件**看不出来、出事却很贵**的性质：
+##   ① 演出层**一滴内核 rng 都不沾**。教程那几关的骰子是预设带子，多掷一次整条错位，
+##      而 `cw_roll_tape.gd:26-28` 的 overrun 是静默回落真 rng —— 错了不报警。
+##   ② 整段是**时间的纯函数**：同一个 t 喂两遍结果一样，同种子逐帧复现，
+##      中间搅多少全局随机数都影响不到它（否则「跳过 = seek(末刻)」立刻不成立）。
+##   ③ **教程的变体归教程**：PRD:465 的「命中不贯穿」是本库自己的 `beam_hit`，
+##      公共 `beam_fx.gd` / `attack_fx.gd` / `teleport_fx.gd` 一字不动 —— 那三支真人对局也在用。
+const TUTOR_FX := preload("res://scripts/tutor/cw_tutor_fx.gd")
+
+## 六种 kind 的样例参数（`glitch` 三种模式、`reset_hint` 三个候选各一条）
+const TUTOR_FX_CASES := [
+	["shockwave", {"at": Vector2i(0, 0), "radius": 3}],
+	["glitch", {"at": Vector2i(0, 0), "mode": "jitter", "intensity": "light",
+		"tex": "ImmuneBasic", "morph_to": "Melanoma", "seed": 20260919}],
+	["glitch", {"at": Vector2i(0, 0), "mode": "blocks", "intensity": "light",
+		"tex": "ImmuneBasic", "seed": 20260919}],
+	["glitch", {"at": Vector2i(0, 0), "mode": "scanlines", "intensity": "heavy",
+		"tex": "Melanoma", "shuffle": true, "pool": ["ImmuneBasic", "TCell", "Osteosarcoma"],
+		"morph_to": "SignetRing", "seed": 20260919}],
+	["knockback", {"from": Vector2i(0, 0), "to": Vector2i(2, 0), "tex": "ImmuneBasic"}],
+	["beam_hit", {"from": Vector2i(-4, 0), "to": Vector2i(2, 0)}],
+	["reveal", {"coords": [Vector2i(0, 0), Vector2i(1, 0), Vector2i(0, 1), Vector2i(2, -1)]}],
+	["reset_hint", {"variant": "rewind"}],
+	["reset_hint", {"variant": "edge"}],
+	["reset_hint", {"variant": "dissolve", "seed": 20260919,
+		"cells": [{"at": Vector2i(0, 0), "tex": "ImmuneBasic"},
+			{"at": Vector2i(1, 0), "tex": "Melanoma"}]}],
+]
+
+## 公共特效三支的**源文件指纹**（行尾统一成 LF 之后的 md5）。
+## 这条闸的意思只有一句：**教程别去改公共特效**。真要动它们（真人对局的回归面），
+## 改完把这三个数更新掉，并在 `docs/开发日志.md` 里说清为什么动 —— 别默默改了闸。
+const PUBLIC_FX_MD5 := {
+	"res://scripts/ui/beam_fx.gd": "28579d5d058859f956e767c5b32ebff2",
+	"res://scripts/ui/attack_fx.gd": "bd407bdc8afeffe5b1c962cc14819d4d",
+	"res://scripts/ui/teleport_fx.gd": "7b046d89b1433e686909130501433561",
+}
+
+
+func t_tutor_fx() -> void:
+	print("[新手引导 v2 S7·教程演出库]")
+	var bd: Node2D = load("res://scenes/Board.tscn").instantiate()
+	root.add_child(bd)
+	await process_frame
+	var fx = TUTOR_FX.new()
+	fx.auto_play = false          ## 时间由本测试喂：不用真等，也不看帧率脸色
+	fx.attach(bd)
+	bd.add_child(fx)
+	await process_frame
+
+	# ---- ① 六种 kind 各喂一遍时间：跑得完、时长为正、末刻自己收尾 ----
+	var stuck: Array = []
+	var zero: Array = []
+	for row: Array in TUTOR_FX_CASES:
+		fx.begin(str(row[0]), row[1])
+		if fx.duration() <= 0.0:
+			zero.append(str(row[0]))
+		var guard := 0
+		while fx.running() and guard < 400:
+			fx.advance(1.0 / TUTOR_FX.PIX_FPS)
+			guard += 1
+		if fx.running():
+			stuck.append("%s@%s" % [str(row[0]), str(row[1].get("mode", row[1].get("variant", "")))])
+	check(zero.is_empty(), "每种演出都算得出时长（时长为 0 的：%s）" % str(zero))
+	check(stuck.is_empty(),
+		"%d 条样例逐帧喂到底都能自己收尾（卡住的：%s）" % [TUTOR_FX_CASES.size(), str(stuck)])
+
+	# ---- ② `skip()` 一步到位 ----
+	var not_done: Array = []
+	for row: Array in TUTOR_FX_CASES:
+		fx.begin(str(row[0]), row[1])
+		fx.advance(1.0 / TUTOR_FX.PIX_FPS)
+		fx.skip()
+		if fx.running() or fx.now() < fx.duration():
+			not_done.append(str(row[0]))
+	check(not_done.is_empty(),
+		"`skip()` 一步跳到末刻并收尾（没到位的：%s）—— 演出是时间的纯函数才能这么跳" % str(not_done))
+
+	# ---- ③ `probe(t)` 幂等：同一个 t 喂两遍结果一样，中间搅 64 颗全局随机数也不变 ----
+	var drift: Array = []
+	for row: Array in TUTOR_FX_CASES:
+		fx.begin(str(row[0]), row[1])
+		var a: Dictionary = fx.probe(0.37)
+		fx.seek(0.91)                              ## 先往后跳一段，确认它不带「上一帧」的记忆
+		for _i in 64:
+			randi()                                ## 把**全局** rng 往前搅 64 颗
+		var b: Dictionary = fx.probe(0.37)
+		if a != b:
+			drift.append(str(row[0]))
+	check(drift.is_empty(),
+		"同一个 t 两次结果逐字段相同（漂的：%s）—— 随机全在 begin() 里摇完存表，probe 只查表" % str(drift))
+
+	# ---- ④ 同种子逐帧复现；换个种子就换一批 ----
+	var g: Dictionary = (TUTOR_FX_CASES[3][1] as Dictionary).duplicate()
+	var s1 := _tutor_fx_track(fx, g)
+	for _i in 64:
+		randi()
+	var s2 := _tutor_fx_track(fx, g)
+	var g2 := g.duplicate()
+	g2["seed"] = 99
+	var s3 := _tutor_fx_track(fx, g2)
+	check(s1.size() == 24 and s1 == s2,
+		"同一个种子逐帧复现（%d 帧一字不差）—— 它抽的不是全局那条流" % s1.size())
+	check(s1 != s3, "换个种子就换一批表现（不是写死的常数）")
+
+	# ---- ⑤ `morph_to`：末帧贴图确实换了（PRD:399/403/487-489 的定格）----
+	fx.begin("glitch", g)
+	var tex0 = fx.current_tex()
+	fx.skip()
+	var tex1 = fx.current_tex()
+	check(tex0 == TUTOR_FX.CELL_ART["Melanoma"] and tex1 == TUTOR_FX.CELL_ART["SignetRing"],
+		"像素错误开头画的是本体、末帧定格在 `morph_to`（%s → %s）"
+			% [str(tex0 != null), str(tex1 == TUTOR_FX.CELL_ART["SignetRing"])])
+	## 随机切换（PRD:487）只在 pool 里挑，**定格那一张不许提前抽到**
+	var early := false
+	fx.begin("glitch", g)
+	var steps := int(fx.duration() * TUTOR_FX.PIX_FPS * 0.79)
+	for i in steps:
+		fx.seek(float(i) / TUTOR_FX.PIX_FPS)
+		if fx.current_tex() == TUTOR_FX.CELL_ART["SignetRing"]:
+			early = true
+	check(not early, "混乱像素里随机切换的那几张不含印戒细胞癌 —— 它只在最后定格时出现")
+
+	# ---- ⑥ `beam_hit` 的两件：loop 持续到 skip()；光束**不贯穿** ----
+	var loop_args := {"from": Vector2i(-4, 0), "to": Vector2i(2, 0), "loop": true}
+	fx.begin("beam_hit", loop_args)
+	for _i in 60:
+		fx.advance(1.0 / TUTOR_FX.PIX_FPS)
+	var still := fx.running() and fx.now() > fx.duration()
+	var st: Dictionary = fx.probe(fx.now())
+	var over := float(st["tip"]) > float(st["full"]) - TUTOR_FX.BEAM_HALT + 0.001
+	fx.skip()
+	check(still and not fx.running(),
+		"`loop:true` 的效应应答演到过了时长仍在持续，`skip()` 才停（PRD:463「一直持续」）")
+	check(not over,
+		"光束**止于目标胸前 %s 像素**，任何时刻都越不过去（PRD:465 命中而非贯穿；实测 tip %.1f / 全长 %.1f）"
+			% [str(TUTOR_FX.BEAM_HALT), float(st["tip"]), float(st["full"])])
+
+	# ---- ⑦ `reveal` 是**转调** board 的活跃集淡入，不是另写一套 ----
+	bd.set_active_tiles([Vector2i.ZERO], 0.0)
+	fx.begin("reveal", TUTOR_FX_CASES[6][1])
+	var missing: Array = []
+	for c: Vector2i in (TUTOR_FX_CASES[6][1] as Dictionary)["coords"]:
+		if not bd.is_active(c):
+			missing.append(str(c))
+	check(missing.is_empty() and fx.duration() > bd.ACTIVE_FADE,
+		"浮现转调 `board.set_active_tiles`（即时谓词当帧为真；时长 %.2fs > 纯淡入 %.2fs，含 ring_delays 的错峰）"
+			% [fx.duration(), bd.ACTIVE_FADE])
+	fx.skip()
+
+	# ---- ⑧ 代画：真节点演出期间藏起来，收尾还回去 ----
+	var sp := Sprite2D.new()
+	sp.texture = TUTOR_FX.CELL_ART["ImmuneBasic"]
+	bd.add_child(sp)
+	fx.begin("knockback", {"from": Vector2i(0, 0), "to": Vector2i(2, 0),
+		"tex": "ImmuneBasic", "node": sp})
+	var hid := not sp.visible
+	fx.skip()
+	check(hid and sp.visible,
+		"交给 `args.node` 的那只真细胞演出期间藏起来、收尾自动还回去（同 CWAttackFx 的代画路数）")
+	sp.queue_free()
+
+	# ---- ⑨ 源码闸：不碰内核、不裸摇随机、不带 class_name ----
+	var files: Array[String] = []
+	_collect_files("res://scripts/tutor", files)
+	var engine_hits: Array = []
+	var rng_hits: Array = []
+	var named: Array = []
+	var borrowed: Array = []
+	var rx_rng := RegEx.create_from_string("(^|[^._a-zA-Z0-9])(randf|randi|randomize|rand_from_seed|seed)[(]")
+	for f in files:
+		var lines := FileAccess.get_file_as_string(f).split("\n")
+		for n in lines.size():
+			var code := _code_only(lines[n])
+			for word in ["CWGame", "CWWorld", "CWActions", "CWSetup", "CWKernel", "CWMirror",
+					"CWRollTape", "game."]:
+				if code.contains(word):
+					engine_hits.append("%s:%d:%s" % [f.get_file(), n + 1, word])
+			for word2 in ["CWBeamFx", "CWAttackFx", "CWTeleportFx", "beam_fx", "attack_fx", "teleport_fx"]:
+				if code.contains(word2):
+					borrowed.append("%s:%d:%s" % [f.get_file(), n + 1, word2])
+			if rx_rng.search(code) != null:
+				rng_hits.append("%s:%d" % [f.get_file(), n + 1])
+			if code.begins_with("class_name "):
+				named.append(f.get_file())
+	check(files.size() >= 1, "扫到 %d 份 `scripts/tutor/**` 的脚本（递归，`levels/` 这类子目录也罩得住）" % files.size())
+	check(engine_hits.is_empty(),
+		"演出层碰不到内核：一处 CWGame / CWWorld / CWActions / CWSetup / CWKernel / CWMirror / 带子 / `game.` 都没有（命中 %s）"
+			% str(engine_hits.slice(0, 4)))
+	check(rng_hits.is_empty(),
+		"零裸随机：没有一处 `randf(` / `randi(` / `randomize(` —— 只走自带的 RandomNumberGenerator（命中 %s）"
+			% str(rng_hits.slice(0, 3)))
+	check(named.is_empty(),
+		"`scripts/tutor/**` 零 `class_name`（新全局类进不了热更补丁，方案 §1.5；命中 %s）" % str(named))
+	check(borrowed.is_empty(),
+		"教程的变体归教程：一处都没去引用公共 beam_fx / attack_fx / teleport_fx（命中 %s）" % str(borrowed))
+	var src := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_fx.gd")
+	check(src.contains("RandomNumberGenerator.new()") and src.contains("_rng.seed = int("),
+		"随机确实抽自本层的 RandomNumberGenerator，种子来自 `args.seed`（方案 §1.4）")
+
+	# ---- ⑩ 公共特效三支一字未动 ----
+	var touched: Array = []
+	for path in PUBLIC_FX_MD5:
+		var got := FileAccess.get_file_as_string(path).replace("\r\n", "\n").md5_text()
+		if got != str(PUBLIC_FX_MD5[path]):
+			touched.append("%s（实测 %s）" % [String(path).get_file(), got])
+	check(touched.is_empty(),
+		"公共特效三支源文件指纹未变 —— 教程没去改真人对局也在用的那几支（动过的：%s）" % str(touched))
+
+	fx.clear()
+	bd.queue_free()
+	await process_frame
+
+
+## 逐帧记一段 `glitch` 的表现（错位 / 贴图 / 透明度），用来比「同种子是不是同一批」
+func _tutor_fx_track(fx, args: Dictionary) -> Array:
+	fx.begin("glitch", args)
+	var out: Array = []
+	for i in 24:
+		var st: Dictionary = fx.probe(float(i) / TUTOR_FX.PIX_FPS)
+		out.append([st.get("off", Vector2.ZERO), st.get("tex", -1), st.get("alpha", 0.0),
+			st.get("slices", []), st.get("bars", [])])
+	return out
