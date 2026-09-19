@@ -1009,6 +1009,7 @@ func _attach_tutor() -> void:
 	_director.active_of = func() -> Array: return board.active_tiles() if board != null else []
 	_director.level_done.connect(_tutor_next_level)
 	_director.want_load.connect(_tutor_load_world)
+	_director.want_recenter.connect(_tutor_recenter)
 	_director.want_reset.connect(_tutor_reset_world)
 	_director.want_npc.connect(_tutor_set_npc)
 	## 目录跳关（S6）：导演已经把代际 +1 了，这儿只管换局 —— 走的是 `on_done` 同一条路，
@@ -1272,6 +1273,40 @@ func _tutor_load_world(wid: String, back_to_start := false) -> void:
 		_director.rebase_hard()
 
 
+## 间章分镜 2 的**重心平移**（`state.load` 的 `{"recenter": …, "radius": …}`，S9a）：
+## 把活局面整体挪到「玩家 = 新盘心」，盘子同时长大到 `radius`，四周补出来的新格按环错峰浮现。
+##
+## 走的是**关内换盘**那条路（`reload_recentered` 里的四步拆装），席位 / 面板 / 桥一律不动。
+##
+## ★ **不许出现整张图跳一下**：数据把 `ui.camera` 写成 `{anchor: player, align: center}`，
+## 而 `_enter_state` 里 `ui` 那一层排在 `load` 前面 ⇒ 重装前镜头已经盯着玩家那一格。
+## 平移之后玩家换了坐标、但仍在屏幕正中，周围老格的相对位置一格没变，
+## 玩家看到的只有「四周长出新格子」。所以这里**镜头直接就位**（`_tutor_cam = {}` 再重算），
+## 补间反而会让画面漂一下。
+func _tutor_recenter(delta: Vector2i, radius: int) -> void:
+	if not tutorial or _stage == null or kernel == null or delta == Vector2i.ZERO:
+		return
+	_loop_id += 1
+	var k: CWKernel = _stage.reload_recentered(delta, radius)
+	if k == null:
+		push_error("CWMatch：教程关「%s」重心平移失败（%s）"
+			% [str(_tutor_level.get("id", "")), str(_stage.errors)])
+		return
+	kernel = k
+	_start_queue()
+	if _director != null and is_instance_valid(_director):
+		_director.install()   ## 同关首：装闸在 run() 之前
+	kernel.run()
+	_observe_now()            ## 这一步会 `_adopt_mirror` ⇒ `board.ensure_radius(radius)` 把格网长出来
+	if board != null:
+		## 活跃集 = 新世界的全部格。老格本来就在集合里（一动不动），新格按环错峰淡入
+		board.set_active_tiles(CWData.all_coords(radius))
+		_tutor_cam = {}
+		_tutor_camera()
+	if _director != null and is_instance_valid(_director):
+		_director.rebase_hard()
+
+
 ## 自动重置（`reset_when`）与常驻「重置本关」共用：局面退回**关首那份 world**、
 ## UI 层回默认再按 flow[0] 重铺。导演那边已经把游标归零、代际 +1 了
 func _tutor_reset_world() -> void:
@@ -1507,7 +1542,12 @@ func _adopt_mirror(m: CWMirror) -> void:
 	mirror = m
 	if bridge != null:
 		bridge.mirror = m    ## 询问界面读的就是这一份（手牌 / 价签 / 名字 / 阵营）
-	## 教程局的活跃格是关卡数据声明的**任意形状**（世界半径恒 6，方案 §1.3）——
+	## 格网按**镜像的半径**长（S9a「路 C」，盘面提案 §6.3）：教程第四 / 五关起世界半径 12，
+	## 间章分镜 2 要以玩家为心往外揭一圈，盘子不先长出来就没格可揭。
+	## 正式对局的镜像半径恒 6 ⇒ `ensure_radius` 第一行就返回，一格都不加。
+	## 教程局也走这儿：跨关换局与关内重装都会重新 `_adopt_mirror`
+	board.ensure_radius(int(m.board_radius))
+	## 教程局的活跃格是关卡数据声明的**任意形状**（方案 §1.3）——
 	## 按半径覆盖一次就把整盘露出来了，第二关右边那只癌细胞会提前穿帮。活跃集由导演那边设（开一关 / reveal）
 	if not tutorial and board.active_radius != m.board_radius:
 		board.set_active_radius(m.board_radius)   ## 半径随 envelope 走：读档 / 联机自动跟上；每份 sync 都调会一直重启淡出补间，所以只在变了才调

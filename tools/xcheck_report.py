@@ -117,6 +117,9 @@ FUNC_SUBSYSTEM = [
     (r"^_t_move_cost_wiring$", "ui"),
     # 教程 S1（2026-09-19）：`t_board_active_tiles` 全是棋盘遮罩 / 浮现补间 / hex_at 的 UI 断言，零规则量，逐名归 ui（§0.6.5 第 6 条）
     (r"^t_board_active_tiles$", "ui"),
+    # 教程 S9a（2026-09-19）：`t_board_grow` 同理 —— `ensure_radius` 往外长格网、老格不重铺、
+    # 新格不在活跃集，全是渲染层断言，零规则量
+    (r"^t_board_grow$", "ui"),
     # —— core 规则：剩下的 t_* / _t_* 全归它 ——
     (r"^_?t_", "core"),
 ]

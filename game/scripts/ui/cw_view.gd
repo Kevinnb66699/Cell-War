@@ -99,14 +99,19 @@ static func tutor_zoom(box: Rect2, avail: Vector2, max_zoom := TUTOR_MAX_ZOOM) -
 ## `tiles` = 棋盘的活跃格集合，`focus` = 「玩家调…」时玩家那一格（null = 「地图调…」）。
 ## **整盘就是对局机位**（第四关起）：不走近似，直接给 `GAME_*` 那三个数，
 ## 免得第三关切第四关时棋盘漂一两像素。
+## ★ **「玩家调…」那几档除外**（S9a）：间章分镜 2 的重心平移靠的就是「重装前后玩家都在
+## 屏幕同一点」—— 这时若退回整盘机位（看的是盘心），玩家换坐标那一瞬间整张图会跳一下。
+## 所以有 `focus` 时看点仍取玩家那一格，**但倍率照样钉死在对局机位**：
+## 127 格的包围盒按可用区算出来是 1.282、397 格的算出来是 1.27，跟着算就会在重装那一瞬间缩一下。
 static func tutor_framing(board: Node2D, tiles: Array, align: String, focus: Variant,
 		sidebar: bool) -> Dictionary:
-	if tiles.size() >= CWData.all_coords().size():
+	var full := tiles.size() >= CWData.all_coords().size()
+	if full and focus == null:
 		return { "zoom": GAME_ZOOM, "look_at": GAME_LOOK_AT, "anchor": GAME_ANCHOR }
 	var span := tutor_span(sidebar)
 	var avail := Vector2(span.y - span.x, TUTOR_BAND.y - TUTOR_BAND.x)
 	var box := tiles_box(board, tiles)
-	var zoom := tutor_zoom(box, avail)
+	var zoom := GAME_ZOOM if full else tutor_zoom(box, avail)
 	## 看点：地图 = 包围盒中心；玩家 = 他站的那一格顶面中心。两者都是相对**贴图中心**的偏移
 	var at: Vector2 = box.get_center()
 	if focus != null:
