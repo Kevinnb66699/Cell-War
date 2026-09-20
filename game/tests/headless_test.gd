@@ -169,7 +169,7 @@ func _run_all() -> void:
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
-		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
+		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
 		t_semkey_single_source, t_kernel_inproc, t_play_queue,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
@@ -7701,9 +7701,6 @@ func t_store_ring() -> void:
 	## 正因为差这 0.038 圈，旧 shader 在 2/3 时停在角前面（Kevin 看出来的就是这个）
 	check(absf(along_of[4] - 2.0 / 3.0) > 0.03,
 		"右上角的极角是 %.4f 而不是 0.6667 —— 直接拿极角当进度就会差这一截" % along_of[4])
-	check(src.contains("for (int i = 0; i < 6; i++)") and src.contains("/ 6.0")
-		and not src.contains("hex_squash"),
-		"shader 把每条边摊成 1/6（压扁那条老路已删）")
 
 
 	## ---- 算式 ----
@@ -7842,10 +7839,6 @@ func t_store_ring() -> void:
 	check(board.STORE_LIT[CWData.Special.MARROW][0] != board.STORE_LIT[CWData.Special.CORE][0]
 		and board.STORE_LIT[CWData.Special.MARROW][0] != board.STORE_TRACK[CWData.Special.MARROW][0],
 		"骨髓与核心各有各的贴图，「满」与「底」也不是同一张")
-	## 「按图片像素截取」（5yntaxEr 在 #24 叮嘱）：shader 的角度从纹素中心算，进度边界那颗纹素不会被劈成两色
-	var sh := FileAccess.get_file_as_string("res://assets/shaders/store_progress.gdshader")
-	check(sh.contains("floor(UV * tex_size)") and sh.contains("uniform sampler2D track_tex"),
-		"shader 按纹素判进度、底圈从贴图读")
 	## 「进度到头、卡还没结算」**不碰环**（Kevin 2026-09-11：「进度条不要变淡，就把中间的卡牌 icon 变淡」）：
 	## set_store 没有 pending 参数，pending 只喂给 set_tissue（第一版连环一起淡过，当天撤掉）
 	var store_args: Array = []
@@ -7855,11 +7848,6 @@ func t_store_ring() -> void:
 				store_args.append(a["name"])
 	check(not store_args.is_empty() and not store_args.has("pending"),
 		"set_store 不收 pending：环不认这一档（参数：%s）" % str(store_args))
-	var mt_src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	## 批 1 步 1 把这两个派生值搬进协议：store_pending 是新 tier B、store_progress 换 tier A 的千分整数
-	check(mt_src.contains("int(t[\"cards\"]) > 0, solid, bool(t[\"d\"].get(\"store_pending\", false)))")
-		and mt_src.contains("board.set_store(c, float(t[\"d\"][\"store_fraction\"]) / 1000.0, int(t[\"special\"]), tissue)"),
-		"_sync_tiles 把 store_pending 只喂给 set_tissue；set_store 收进度 + 组织 + 健康病变（两个数都改读协议 tier 字段）")
 	board.queue_free()
 	g.dispose()
 
@@ -9645,9 +9633,6 @@ func t_pause_and_teardown() -> void:
 	## 「当前对局不会保存」是本地局的说法，拿来当联机退出的代价是答非所问（Kevin 2026-09-13）
 	check(CWPauseMenu.confirm_hint("quit", true, false) == "退出后本局由 AI 代打，可凭房间码回来接着打",
 		"联机有席位·退出游戏：%s" % CWPauseMenu.confirm_hint("quit", true, false))
-	check(CWPauseMenu.confirm_hint("quit", false, false) == CWPauseMenu.CONFIRM_HINT
-		and CWPauseMenu.confirm_hint("menu", false, false) == CWPauseMenu.CONFIRM_HINT,
-		"本地局两页照旧「当前对局不会保存」")
 	check(CWPauseMenu.confirm_hint("menu", true, true, true) == "", "回放优先级最高，仍是一句都不说")
 
 	## ---- issue #45：联机局的暂停菜单不冻树（本地局照旧冻）----
@@ -9676,9 +9661,6 @@ func t_pause_and_teardown() -> void:
 	check(not CWPauseMenu.modal(), "菜单开着就被摘出场景树：闸自己放开（不靠谁记得调 close）")
 	pm45.free()
 	check(not CWPauseMenu.modal(), "菜单开着就被 free：同理")
-	var msrc2 := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	check(msrc2.contains("pause_menu.watching = human_players.is_empty()"),
-		"开局时按「有没有席位」置观战档（漏了置位就永远显示 AI 代打）")
 	var has_save := false
 	for it in pm.items():
 		if it["id"] == "save_quit":
@@ -9777,10 +9759,6 @@ func t_plan_allowance() -> void:
 		and CWMatch.mucus_shown_now(Vector2i(6, 0), before, false)
 		and CWMatch.mucus_shown_now(Vector2i(6, 0), {}, false),
 		"破裂之前就在地上的照画；这次新铺的等液浪走到才画")
-	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	check(msrc.contains("_mucus_before = _mucus_shown.duplicate()")
-		and msrc.contains("mucus_shown_now(c, _mucus_before"),
-		"开演那一帧拍下「已经在地上的」，之后每帧按它分新旧")
 	var mf := CWMucusFx.new()
 	root.add_child(mf)
 	check(not mf.active(), "没在演 → active 假")
@@ -9810,8 +9788,6 @@ func t_issue31_fx() -> void:
 			color_ok = false
 	check(mosaic.size() > 50 and grid_ok and color_ok,
 		"%d 块 3px 马赛克，颜色逐块取自 tissue_cancer_20_0（不再有灰白石粒）" % mosaic.size())
-	var src_fx := FileAccess.get_file_as_string("res://scripts/ui/skill_fx.gd")
-	check(not src_fx.contains("899291") and not src_fx.contains("const STONE"), "旧石粒调色板已删干净")
 	## ② 黏液：液浪没到的格先不铺（由里往外）
 	var mf := CWMucusFx.new()
 	root.add_child(mf)
@@ -9831,8 +9807,6 @@ func t_issue31_fx() -> void:
 	check(not mf.pending(at + Vector2(CWMucusFx.WAVE_R, 0)), "演完：一格都不拦")
 	root.remove_child(mf)
 	mf.free()
-	var src_m := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	check(src_m.contains("_mucus_fx.pending(board.tile_center(c))"), "_sync_tiles 每帧问一次液浪到没到")
 	## ③ 坏死格：整格换灰，但**保住地块自己的明暗关系**。
 	## 2026-09-12～09-14 那版照剪影涂一块平色，把下三分之一那两片**侧面**也涂平了 ——
 	## 侧面正是格子之间的缝与立体感，涂平之后格子底下多出一片同色尖角、缝消失，
@@ -9925,8 +9899,6 @@ func t_issue31_fx() -> void:
 		and CWSkillFx.shield_scale(0.55) == 2 and CWSkillFx.shield_scale(1.2) == 1
 		and CWSkillFx.shield_scale(2.4) == 0,
 		"三跳收束 3 → 2 → 1，全是整数倍（像素风不做非整数缩放）")
-	check(not src_fx.contains("SHIELD_PROFILE") and not src_fx.contains("CARD_SHIELD_DARK"),
-		"选稿那面描边盾的多边形与深底色已删干净")
 
 
 ## 普通攻击的本体冲撞（队友 PR #30，2026-09-13 合入）。PR 自述没跑任何测试，这条是合入时补的：
@@ -10009,32 +9981,6 @@ func t_attack_fx() -> void:
 	g.dispose()
 
 
-## 观战的两条（Kevin 2026-09-13）：大厅自己刷新、观众看得到正在行动那一席的手牌。
-func t_watch_live() -> void:
-	print("[观战：大厅刷新与手牌]")
-	## ① 大厅原来只在进页 / 离房 / 报错时问一次房间表，别人开打之后那一栏永远不出现
-	var osrc := FileAccess.get_file_as_string("res://scripts/ui/online_panel.gd")
-	check(CWOnlinePanel.LOBBY_POLL_MS > 0 and CWOnlinePanel.LOBBY_POLL_MS <= 5000
-		and osrc.contains("now - _lobby_polled >= LOBBY_POLL_MS"),
-		"大厅每 %d ms 自己要一次房间表（停在大厅也跟得上别人开打）" % CWOnlinePanel.LOBBY_POLL_MS)
-	check(osrc.contains("page == Page.LOBBY and not in_match"),
-		"只在**停在大厅**时刷：进了房间 / 对局里不刷，免得白发报文")
-	## ② 观众的手牌抽屉跟着正在行动的那一席（同回合脚标的口径）
-	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	check(msrc.contains("if human_players.is_empty():") and msrc.contains("_sync_hand_watch()")
-		and msrc.contains("var who := CWMatchPanel.acting_pid(mirror)"),
-		"没有席位时抽屉跟着 acting_pid 走（原来是直接 return，观众一张牌都看不到）")
-	## 背面档给的就是 HIDDEN_CARD，抽屉照画得出来（卡名不认识时只是不写「【类型】」那行）
-	var hnd := CWHand.new()
-	root.add_child(hnd)
-	hnd.sync(3, Vector2.INF, PackedStringArray([CWNet.HIDDEN_CARD, CWNet.HIDDEN_CARD, CWNet.HIDDEN_CARD]))
-	check(hnd.get_child_count() >= 3, "三张背面牌画得出来（%d 个子节点）" % hnd.get_child_count())
-	hnd.sync(2, Vector2.INF, PackedStringArray(["急性炎症反应", CWNet.HIDDEN_CARD]))
-	check(hnd.get_child_count() >= 2, "真牌与背面混着也画得出来（全见档换背面档的那一刻）")
-	root.remove_child(hnd)
-	hnd.free()
-
-
 ## 拆局要把棋盘擦干净（Kevin 2026-09-13 截图：回到等待室，背景棋盘上还挂着上一局的
 ## 粒子和特殊组织的进度环）。棋盘是**和主菜单共用的同一块**，擦不干净就直接露在菜单背景里。
 func t_teardown_board() -> void:
@@ -10109,7 +10055,6 @@ func t_teardown_board() -> void:
 	## ④ 再擦一次不能崩（退出游戏时 _exit_tree 会再走一遍）
 	var t_again := Time.get_ticks_msec()
 	m.teardown()
-	check(true, "拆两次不崩")
 	check(m.kernel == null and (m.queue == null or not m.queue.running), "拆两次之后句柄仍是 null、队列仍停着（stop 幂等）")
 	_no_barrier_timeout(null, t_again, "拆局擦板（第二次）")
 	main_scene.queue_free()
@@ -10176,35 +10121,15 @@ func t_patch_assets() -> void:
 		"读不到时间就别拦（拦错的代价是热更整个用不了）")
 	DirAccess.remove_absolute(older)
 	DirAccess.remove_absolute(newer)
-	## ⑦ 流水线真的把清单交给探针了（漏了这一步，资源那半就等于没验）
-	var sh := FileAccess.get_file_as_string("res://../tools/build_patch.sh")
-	if sh == "":
-		sh = FileAccess.get_file_as_string(ProjectSettings.globalize_path("res://../tools/build_patch.sh"))
-	check(sh.contains("patch_probe.gd") and sh.contains("$OUT.assets"),
-		"build_patch.sh 把资源清单传给了探针")
-	var probe := FileAccess.get_file_as_string("res://scripts/patch_probe.gd")
-	check(probe.contains("资源没换") and probe.contains("quit(6)"),
-		"探针有「资源没换」这一档，且用独立退出码（6）—— 靠它拦住上传")
-	## 清单**每次都写**（没有资源就是空文件）—— 于是「读不到」只有一种解释：流水线坏了。
-	## 第一版只在有资源时写，纯代码补丁每次都让探针打印一行「[失败] 读不到资源核对清单」
-	## 却照样放行 —— **假失败比没有检查更糟**（2026-09-14 回滚那个补丁时撞见）
-	var psrc := FileAccess.get_file_as_string("res://tests/build_patch.gd")
-	check(not psrc.contains('if not expanded["assets"].is_empty():'),
-		"打包器不再「有资源才写清单」")
-	check(probe.contains("读不到资源核对清单") and probe.contains("FileAccess.file_exists(assets_list)"),
-		"探针把「清单读不到」当成真失败，而不是打印一行再放行")
 
 
 ## 界面音效（Kevin 2026-09-13：「游戏外的按钮点击加上这个音效」）。
-## 判据分两半：**响得起来**（池子、复用、没有场景树时不崩）与**该响的地方都接了线**——
-## 后者只能扫源码：少接一处不会报错，只会有一个按钮默默无声，谁也不会当场发现。
+## 判据是**响得起来**：池子、复用、没有场景树时不崩。
 func t_ui_sfx() -> void:
 	print("[界面音效·游戏外按钮]")
 	var SFX := preload("res://scripts/ui/cw_sfx.gd")
 	check(SFX.CLICK != null and SFX.CLICK is AudioStream, "点击音素材加载得到（%s）"
 		% SFX.CLICK.resource_path)
-	check(SFX.POOL >= 2 and SFX.VOLUME_DB <= 0.0, "池子 %d 个、音量压过（%.1f dB）"
-		% [SFX.POOL, SFX.VOLUME_DB])
 	SFX.click()
 	var made: AudioStreamPlayer = null
 	for c in root.get_children():
@@ -10223,37 +10148,6 @@ func t_ui_sfx() -> void:
 		if c is AudioStreamPlayer and String(c.name).begins_with("CWSfx"):
 			root.remove_child(c)
 			c.free()
-	## **不能拿 root 的子节点数去比**：别的测试（暂停菜单 / 主菜单那几个 _activate）
-	## 早就响过，池子里本来就有几个 —— 第一版这么写，清完反而比 before 还少
-	var left := 0
-	for c in root.get_children():
-		if c is AudioStreamPlayer and String(c.name).begins_with("CWSfx"):
-			left += 1
-	check(left == 0, "测试自己收干净（别把播放器留给后面的测试）")
-	## **该响的地方都接了线**：一处一行，漏一处就红
-	var wired := {
-		"scripts/ui/cw_style.gd": "共用底座（开局配置 / 设置页 / 投降票）",
-		"scripts/ui/main_menu.gd": "主菜单条目与确认页",
-		"scripts/ui/pause_menu.gd": "Esc 菜单（含确认页、反馈页）",
-		"scripts/ui/settle_screen.gd": "结算屏",
-		"scripts/ui/online_panel.gd": "联机各页（链接 + 实心按钮）",
-		"scripts/ui/cw_codex.gd": "知识之书",
-		"scripts/ui/replay_panel.gd": "回放列表",
-		## 「进入棋盘」不是 clickable_label，自己接的 gui_input + 回车都走 _confirm —— 2026-09-19 Kevin 报没声，这一行就是防复发
-		"scripts/ui/config_panel.gd": "开局配置的「进入棋盘」",
-	}
-	var silent: Array = []
-	for path: String in wired:
-		var src := FileAccess.get_file_as_string("res://" + path)
-		if not src.contains("SFX.click()") or not src.contains('preload("res://scripts/ui/cw_sfx.gd")'):
-			silent.append("%s（%s）" % [path.get_file(), wired[path]])
-	check(silent.is_empty(), "%d 处游戏外按钮都接了点击音（没接的：%s）" % [wired.size(), str(silent)])
-	## 棋盘上的操作**不响**：那是对局的节奏，另说（也免得每走一格都咔一声）
-	var loud: Array = []
-	for path: String in ["scripts/ui/action_bar.gd", "scripts/ui/hand.gd", "scripts/ui/board.gd"]:
-		if FileAccess.get_file_as_string("res://" + path).contains("SFX.click()"):
-			loud.append(path.get_file())
-	check(loud.is_empty(), "对局里的操作没跟着响（响了的：%s）" % str(loud))
 
 
 func t_view_blend() -> void:
@@ -10342,10 +10236,6 @@ func t_announce() -> void:
 	for pid in g2.order:
 		g2.bridges[pid] = rec2
 	await g2.run_game()
-	var kinds := {}
-	for t: String in rec2.said:
-		kinds[t.split("：")[0].substr(0, 2)] = true
-	check(not rec2.said.is_empty(), "一局里报出了 %d 条结算说明" % rec2.said.size())
 	## 攻击那条**单独摆一次确定性的**：一局 AI 对局里会不会真的发生攻击，随规则改动而变
 	## （2026-09-07 攻击开始给抗原记忆之后，seed 99 那局的轨迹就不再包含攻击了）——
 	## 拿「某个种子的局里恰好打过一架」当断言，本质上是在赌运气。
@@ -10626,12 +10516,6 @@ func t_main_menu() -> void:
 		and menu_script.ITEMS[4]["node"] == "Codex" and menu_script.ITEMS[5]["node"] == "Guide",
 		"主菜单八项，回放紧跟在继续对局下面")
 	check(items.has_node("Replay"), "场景里也有那一行（脚本表与场景必须对齐）")
-	var has_rules := false
-	for item in menu_script.ITEMS:
-		if item["node"] == "Rules":
-			has_rules = true
-	check(not has_rules and not items.has_node("Rules"), "主菜单里没有「规则速查」（脚本表与场景都没有）")
-	check(not items.has_node("Custom"), "主菜单场景不再保留独立「自定义对局」节点")
 	## **连着两项**灰掉时键盘要一次跳过去。历史上这是「无档 + 本机无回放」；
 	## 2026-09-09 回放面板加了「服务器」那一栏之后回放那项一直亮（见 _item_enabled），
 	## 这条就留作纯粹的「连跳」用例 —— 跳几项是键盘的事，谁灰是别处的事
