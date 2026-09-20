@@ -229,6 +229,10 @@ func _build() -> void:
 	_scope.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			toggle_scope())
+	## 悬停辉光走全游戏链接同一套（`CWStyle.link_hot`，联机各页 / 回放面板都是它；Kevin 2026-09-20
+	## 「局内的聊天范围切换按钮没有辉光效果」）。静止色由 `_repaint` 经 `paint_link` 定，悬停中重画不盖光
+	_scope.mouse_entered.connect(func() -> void: CWStyle.link_hot(_scope, true))
+	_scope.mouse_exited.connect(func() -> void: CWStyle.link_hot(_scope, false))
 	_bar.add_child(_scope)
 
 	for i in MAX_ROWS:
@@ -300,8 +304,8 @@ static func line_text(line: Dictionary) -> String:
 
 func _repaint() -> void:
 	_scope.text = "己方" if _team else "全体"
-	_scope.add_theme_color_override("font_color",
-		faction_color(team_faction) if _team else CWStyle.TEXT_HI)
+	## 静止色走 paint_link：正悬停着（白光）时只记下来，移开再生效 —— 直接写 font_color 会把光盖掉
+	CWStyle.paint_link(_scope, faction_color(team_faction) if _team else CWStyle.TEXT_HI)
 	for i in MAX_ROWS:
 		var idx: int = _lines.size() - MAX_ROWS + i
 		var l: Label = _rows[i]
