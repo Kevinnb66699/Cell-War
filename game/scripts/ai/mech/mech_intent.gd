@@ -245,15 +245,28 @@ func search_best(g: CWGame, pid: int, leaf_eval: Callable, depth := 2, top_k := 
 		if v > alpha or best.is_empty():
 			alpha = v
 			best = { "path": c["path"], "score": v }
+	## 把最优线的**完整执行序列**抓下来（第一手 + 叶模拟里本席位的后续动作，
+	## 含卡牌/pick/结束）交回桥缓存：同回合后续询问直接执行、不再重搜。
+	## 根因修复（2026-09-20 人机实测）：每问重搜 + 假设"剩余由启发式打完"，但真实
+	## 执行者是下一轮搜索 → 等值格之间互相追逐 = 无意义走动。执行 = 评估，搜索才诚实。
+	var plan: Array = []
+	if best.has("path") and best["path"].size() > 0:
+		plan.append({ "kind": "action", "data": { "act": "move", "to": best["path"][0] } })
+	var snap2: Dictionary = g.snapshot()
+	var rec: Array = []
+	await _ab_line(g, pid, best.get("path", []), my_fac, 1, -INF, INF, leaf_eval, rec)
+	g.restore(snap2)
+	plan.append_array(rec)
+	best["plan"] = plan
 	return best
 
 
 ## 一条线：落地 path → 推进到回合边界（其余席位+E阶段全结算）→ depth>1 则边界上的
 ## 下一席再选计划再推进 → 叶读数。值全在搜索方视角。
 func _ab_line(g: CWGame, actor: int, path: Array, my_fac: int, depth: int,
-		alpha: float, beta: float, leaf_eval: Callable) -> float:
+		alpha: float, beta: float, leaf_eval: Callable, record = null) -> float:
 	await _play_path(g, actor, path)
-	var req: Dictionary = await _drive_to_round_end(g)
+	var req: Dictionary = await _drive_to_round_end(g, record, actor)
 	if depth <= 1 or req.is_empty():
 		var m: Dictionary = _read_metrics(g, int(req.get("pid", actor)), false)
 		return float(leaf_eval.call(m))
@@ -297,7 +310,7 @@ func _play_path(g: CWGame, pid: int, path: Array) -> void:
 
 ## 步进到本回合结束（其余席位按 image 内各自的桥作答 + E 阶段结算），
 ## 返回**跨入下一回合后的第一个询问**（= 回合边界，叶读数点）；终局返回空。
-func _drive_to_round_end(g: CWGame) -> Dictionary:
+func _drive_to_round_end(g: CWGame, record = null, watch_pid: int = -1) -> Dictionary:
 	var r0: int = g.round_no
 	var guard := 0
 	while guard < 240:
@@ -308,6 +321,11 @@ func _drive_to_round_end(g: CWGame) -> Dictionary:
 		if int(g.round_no) != r0:
 			return req
 		var idx: int = await g.ask(req["pid"], req)
+		## 录制 watch_pid 的每一步语义（move/play/pick/end…）——回放最优线时用，
+		## 交给桥缓存执行：执行 = 叶评估时模拟的那条序列，计划-执行不再脱节。
+		if record != null and int(req["pid"]) == watch_pid and idx < req["options"].size():
+			record.append({ "kind": str(req["kind"]),
+				"data": req["options"][idx]["data"] })
 		await g.step(idx)
 	return {}
 

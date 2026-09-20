@@ -20,10 +20,35 @@ var fit_linear := false
 static var _fit_linear_on := false
 ## true = action 用意图级 alpha-beta（depth=SEARCH_DEPTH，叶=拟合估值），否则旧贪心 best_by。
 var use_search := false
+## 计划缓存（pid → {round, actions, i}）：同细胞同回合只搜一次，后续询问执行
+## 叶模拟时的既定序列（见 search_best 的 plan 捕获）。回合更替自动作废。
+var _plan := {}
 const SEARCH_DEPTH := 2
 
 
 func ask(req: Dictionary) -> int:
+	## 【计划缓存快路径】2026-09-20 人机实测修复"无意义走动"：
+	## v2 每问重搜且假设"本回合剩余由启发式打完"，但真实执行者是下一轮搜索，
+	## 等值格之间互相追逐 → 来回抖。现在执行 = 叶评估时的模拟序列。
+	var _pid := int(req.get("pid", -1))
+	var _pc: Dictionary = _plan.get(_pid, {})
+	if not _pc.is_empty():
+		if int(_pc["round"]) == game.round_no:
+			var _acts: Array = _pc["actions"]
+			var _i: int = int(_pc["i"])
+			if _i < _acts.size():
+				var _pidx := _find_plan_option(req, _acts[_i])
+				if _pidx >= 0:
+					_pc["i"] = _i + 1
+					return _pidx
+				## 计划内的 action 对不上 = 局面已分叉（模拟外的询问改了状态）→ 作废。
+				## 非.action 询问（roll/pick 等）不作废，让启发式答，计划留着。
+				if str(req.get("kind", "")) == "action":
+					_plan.erase(_pid)
+			else:
+				_plan.erase(_pid)   ## 序列走完
+		else:
+			_plan.erase(_pid)       ## 回合已更替
 	if req["kind"] == "action":
 		var fac: int = game.player(req["pid"])["faction"]
 		var intent := MechIntent.new()
@@ -49,8 +74,16 @@ func ask(req: Dictionary) -> int:
 			var scorer: Callable = _pick_scorer(fac)
 			best = await intent.best_by(image, req["pid"], scorer)
 		image.dispose()
-		## 只在「动过确实更好」时接管：best 为空路径（不动基线赢）→ 回落启发式
-		if best.has("path") and best["path"].size() > 0:
+		if use_search and best.has("plan"):
+			## 缓存整回合执行序列（含第一手），本回合后续询问走快路径
+			_plan[_pid] = { "round": game.round_no, "actions": best["plan"], "i": 0 }
+			if not best["plan"].is_empty():
+				var _pidx2 := _find_plan_option(req, best["plan"][0])
+				if _pidx2 >= 0:
+					_plan[_pid]["i"] = 1
+					return _pidx2
+			_plan.erase(_pid)   ## 空序列 / 首手对不上 → 回落启发式
+		elif best.has("path") and best["path"].size() > 0:
 			var idx := _find_move_option(req, best["path"][0])
 			if idx >= 0:
 				return idx
@@ -142,6 +175,30 @@ static func _tactical_bonus(m: Dictionary) -> float:
 	if d < 3:
 		t -= float(3 - d) * 5.0
 	return TACTICAL_SCALE * t
+
+
+## 在当前询问里找与缓存动作匹配的选项（kind 一致 + 语义键匹配，容忍 cost 等漂移）。
+func _find_plan_option(req: Dictionary, action: Dictionary) -> int:
+	if str(req.get("kind", "")) != str(action.get("kind", "")):
+		return -1
+	var opts: Array = req.get("options", [])
+	for i in opts.size():
+		if _action_matches(opts[i]["data"], action["data"]):
+			return i
+	return -1
+
+
+## 语义键匹配：act 必同；有 to/card/cid 的键逐一比对，其余（end/mutate/draw）act 同即命中。
+static func _action_matches(d: Dictionary, want: Dictionary) -> bool:
+	if str(d.get("act", "")) != str(want.get("act", "")):
+		return false
+	if want.has("to") and d.get("to", Vector2i(99999, 99999)) != want["to"]:
+		return false
+	if want.has("card") and str(d.get("card", "")) != str(want["card"]):
+		return false
+	if want.has("cid") and int(d.get("cid", -1)) != int(want["cid"]):
+		return false
+	return true
 
 
 func _find_move_option(req: Dictionary, to: Vector2i) -> int:
