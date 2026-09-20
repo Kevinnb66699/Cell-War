@@ -16393,6 +16393,20 @@ func t_chat_box() -> void:
 	check(cb2._team and cb2._scope.text == "己方", "Tab 换到己方")
 	cb2._input(tab)
 	check(not cb2._team and cb2._scope.text == "全体", "再按一下换回全体")
+	## 悬停辉光（Kevin 2026-09-20「局内的聊天范围切换按钮没有辉光效果」）：走 CWStyle.link_hot，
+	## 10px 字描边 6；悬停中换频道不盖光、移开才落回频道自己的静止色
+	cb2._scope.mouse_entered.emit()
+	check(cb2._scope.get_theme_color("font_color") == Color.WHITE and cb2._scope.get_theme_constant("outline_size") == 6,
+		"悬停：范围切换白字 + 描边 6（同联机各页的链接辉光）")
+	cb2._input(tab)
+	check(cb2._team and cb2._scope.get_theme_color("font_color") == Color.WHITE,
+		"悬停中按 Tab 换到己方：光不被重画盖掉")
+	cb2._scope.mouse_exited.emit()
+	check(cb2._scope.get_theme_constant("outline_size") == 0
+			and cb2._scope.get_theme_color("font_color") == CWChatBox.faction_color(cb2.team_faction),
+		"移开：描边归零、落回己方的阵营色")
+	cb2._input(tab)
+	check(not cb2._team and cb2._scope.get_theme_color("font_color") == CWStyle.TEXT_HI, "换回全体：中性色")
 	## 「己方」的颜色跟**自己**的阵营走（Kevin 2026-09-17：癌症方的己方要黄）
 	cb2.team_faction = CWData.Faction.CANCER
 	cb2._input(tab)
