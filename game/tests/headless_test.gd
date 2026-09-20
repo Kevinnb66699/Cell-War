@@ -22087,6 +22087,40 @@ func t_tutor_view_bubble() -> void:
 	var box: Control = view._say
 	check(box != null and is_instance_valid(box),
 		"台词气泡建出来了（不是占位皮那条文字行）")
+	## ★ 玩家真的点得到「继续」（Kevin 2026-09-19 真机「这里点不了继续」：这张皮此前只给截图工具留了
+	## call:advance，气泡整只 IGNORE、「继续」是纯 Label，谁也点不着；占位皮 P 早就接了 gui_input）
+	check(box.mouse_filter == Control.MOUSE_FILTER_STOP
+			and box.mouse_default_cursor_shape == Control.CURSOR_POINTING_HAND,
+		"带「继续」的台词气泡本体接鼠标（STOP + 手形光标）")
+	check(view._next != null and view._next.visible, "这一句画完「继续 ▸」亮着（点得动的前提）")
+	var pressed_n := [0]
+	view.advance_pressed.connect(func() -> void: pressed_n[0] += 1)
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	view._on_say_click(click)
+	check(pressed_n[0] == 1 and not view._next.visible,
+		"点气泡本体一下 = 发 advance_pressed 一次、「继续」随即藏起（实测 %d 次）" % pressed_n[0])
+	view._on_say_click(click)
+	check(pressed_n[0] == 1, "「继续」藏着时再点不重复发（连点不跳句）")
+	await _tutor_pump(2)
+	check(not view.busy(), "一句的台词点一下就翻完：busy() 回 false")
+	## 回车 / 空格（ui_accept）也翻页：两句的段落按两下
+	view.say("player", PackedStringArray(["第一句", "第二句"]), {})
+	await _tutor_pump(2)
+	var key := InputEventAction.new()
+	key.action = "ui_accept"
+	key.pressed = true
+	view._unhandled_input(key)
+	await _tutor_pump(2)
+	check(pressed_n[0] == 2 and view.busy() and view._next != null and view._next.visible,
+		"ui_accept 翻过第一句，第二句画出来、「继续」又亮了（实测 %d 次）" % pressed_n[0])
+	view._unhandled_input(key)
+	await _tutor_pump(2)
+	check(pressed_n[0] == 3 and not view.busy(), "再按一下翻完第二句，段落结束（实测 %d 次）" % pressed_n[0])
+	view.say("player", PackedStringArray(["欢迎来到Cell_War！"]), {})
+	await _tutor_pump(2)
+	box = view._say
 	check(absf(box.position.x + box.size.x / 2.0 - head.x) <= 1.0
 			and box.position.y + box.size.y < head.y,
 		"气泡横向对准细胞头顶、整只压在它上方（实测中线 %.0f vs 头顶 %.0f）"
