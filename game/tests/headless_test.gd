@@ -168,6 +168,8 @@ func _run_all() -> void:
 		t_tutor_data, t_tutor_beats, t_tutor_flow, t_tutor_director, t_tutor_gate, t_tutor_view,
 		## 新手教程 v2 · S2：常驻壳（章节提示 / STOP 层 / 重置 / 目录）+ 提亮层（通用规则 8）
 		t_tutor_chrome, t_tutor_spot,
+		## 导出版护栏（2026-09-19 真机「点开新手教程死机闪退」）：产品代码不许指向被导出排除的 res://tests/
+		t_export_paths,
 		## 新手教程 v2 · S8：钩子层（ctx 九方法 + epoch 取消语义 + 钩子文件三条护栏）
 		t_tutor_hooks,
 		## 新手教程 v2 · S6：进度四键（done / at:{level,beat} / unlocked / opening_seen）+ 目录面板
@@ -21157,6 +21159,41 @@ func t_tutor_gate() -> void:
 			and start_snap > start_obs and start_snap - start_obs < 200
 			and resnap_fn > 0 and msrc.find("_tutor_cam = {}", resnap_fn) < msrc.find("_tutor_camera()", resnap_fn),
 		"跨关与关首两条路都在第一份镜像落地（_observe_now）之后紧跟 _tutor_resnap()：清掉机位缓存再直接就位")
+
+
+## 导出预设 exclude_filter="tests/*"：产品代码（scripts / scenes / data）里一条指向 res://tests/ 的路径 = 导出版必炸，
+## 而编辑器里跑的套件永远看不见（tests/ 就在脚下）。2026-09-19 真机：旋钮契约表还住在 tests/，
+## 第一～三关一拧 attack_max_per_turn，导出版一开教程就「死机闪退」。注释里提到不算，只查代码
+func t_export_paths() -> void:
+	print("[导出版不许引用 res://tests/]")
+	var hits: Array = []
+	for dir in ["res://scripts", "res://scenes", "res://data"]:
+		_scan_test_refs(dir, hits)
+	check(hits.is_empty(), "产品代码里没有指向 res://tests/ 的路径（导出预设排除 tests/*）：%s" % str(hits))
+	check(not str(CASE_LOADER.TUNE_PATH).begins_with("res://tests/") and FileAccess.file_exists(CASE_LOADER.TUNE_PATH),
+		"旋钮契约表住在导出会带上的位置，且真的在那儿（%s）" % str(CASE_LOADER.TUNE_PATH))
+	check(not FileAccess.file_exists("res://tests/contract_tune.json"),
+		"tests/ 下没有第二份 contract_tune.json（两份就会静默分叉）")
+
+
+func _scan_test_refs(dir: String, hits: Array) -> void:
+	var d := DirAccess.open(dir)
+	if d == null:
+		return
+	d.list_dir_begin()
+	var name := d.get_next()
+	while name != "":
+		var p := dir.path_join(name)
+		if d.current_is_dir():
+			if not name.begins_with("."):
+				_scan_test_refs(p, hits)
+		elif name.ends_with(".gd") or name.ends_with(".tscn") or name.ends_with(".json"):
+			var lines := FileAccess.get_file_as_string(p).split("\n")
+			for i in lines.size():
+				var code: String = lines[i].get_slice("#", 0) if name.ends_with(".gd") else lines[i]
+				if code.contains("res://tests/"):
+					hits.append("%s:%d" % [p, i + 1])
+		name = d.get_next()
 
 
 func t_tutor_view() -> void:
