@@ -1460,21 +1460,16 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 
 ## 单机局（一位真人对 AI）：真人那一席的名字加「（我）」后缀（Kevin 2026-09-19「方便玩家进行定位」）。
 ## 右栏 / 悬停详情 / 日志 / 结算屏读的都是引擎里的同一个 `name`，所以只改这一处、一处都不用另判。
-## **走联机同一条路**：直接写引擎的 `players[pid]["name"]`（`cw_room.gd` 就是这么把昵称写进去的），
-## 在 `kernel.open` 之后、第一份镜像之前。**不加**的三种局：热座（两位以上真人，换手遮罩已写明轮到谁，
-## 「我」反而说不清是谁）、联机（名字是昵称、服务器写）、回放（不问人）；教程局另一条装配路，名字由关卡数据定
+## **走联机同一条路**：改引擎里的 `players[pid]["name"]`（`cw_room.gd` 就是这么把昵称写进去的），
+## 但 UI 层不许碰 CWGame（护栏③），所以经句柄 `kernel.mark_player` 代劳，在 `kernel.open` 之后、第一份镜像之前。
+## **不加**的三种局：热座（两位以上真人，换手遮罩已写明轮到谁，「我」反而说不清是谁）、
+## 联机（名字是昵称、服务器写；网络句柄的 mark_player 回 false）、回放（不问人）；教程局另一条装配路，名字由关卡数据定
 const ME_SUFFIX := "（我）"
 
 func _mark_me() -> void:
-	if online or replay != null or human_players.size() != 1 or not (kernel is CWKernelInProc):
+	if online or replay != null or human_players.size() != 1 or kernel == null:
 		return
-	var g: CWGame = (kernel as CWKernelInProc).game
-	if g == null:
-		return
-	var pid: int = int(human_players[0])
-	if pid < 0 or pid >= g.players.size() or str(g.players[pid]["name"]).ends_with(ME_SUFFIX):
-		return
-	g.players[pid]["name"] = str(g.players[pid]["name"]) + ME_SUFFIX
+	kernel.mark_player(int(human_players[0]), ME_SUFFIX)
 
 
 ## 关末的结算气泡（「攻击成功」「攻击大成功」…）按自己的 RESULT_HOLD 活着，静默切关会把它切断；
