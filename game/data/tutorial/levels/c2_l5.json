@@ -682,10 +682,7 @@
         "move_path": false,
         "cost": false,
         "energy": "infinite",
-        "camera": {
-          "anchor": "player",
-          "align": "center"
-        }
+        "camera": { "anchor": "map", "align": "center" }
       }
     },
     {

@@ -155,6 +155,12 @@ static func board_to_screen(camera: Camera2D, p: Vector2) -> Vector2:
 	return screen_size() / 2.0 + (p - camera.position) * camera.zoom.x
 
 
+## `board_to_screen` 的反函数：屏幕上的点在**此刻这台相机**下落在棋盘的哪一点
+## （关间过渡把旧一关的屏幕位置换算到新机位下用）
+static func screen_to_board(camera: Camera2D, s: Vector2) -> Vector2:
+	return camera.position + (s - screen_size() / 2.0) / camera.zoom.x
+
+
 ## 把相机摆到指定机位。
 static func apply(camera: Camera2D, board: Node2D, zoom: float,
 		look_at: Vector2, anchor: Vector2) -> void:

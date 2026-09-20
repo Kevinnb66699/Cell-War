@@ -17572,6 +17572,28 @@ func t_entry_smoke_tutorial() -> void:
 	await process_frame
 	var k := m.kernel as CWKernelInProc
 	check(k != null, "教程标志位仍能起一局（空壳：导演由 commit B 接上）")
+	## ---- 关间过渡（Kevin 2026-09-20「关到关之间的动画加上，现在是闪切」）：目录跳到第二关 = 跨关换局 ----
+	await _tutor_pump(2)                         ## 第一关的细胞节点要先建出来（_sync_cells 每帧一次）
+	var old_cid: int = m._tutor_cell_id(0)
+	check(old_cid >= 0 and (m._cell_nodes[old_cid] as Sprite2D).texture != null,
+		"第一关玩家那只细胞在棋盘上（替身要抄它的贴图）")
+	m._tutor_next_level("c1_l2", false)          ## 目录跳关那条路：fresh_cursor；同一章 ⇒ 没有章节提示，当帧就飞
+	await process_frame
+	var new_cid: int = m._tutor_cell_id(0)
+	var new_pos: Vector2i = (m.mirror.cells[new_cid] as Dictionary)["pos"]
+	check(m._tutor_glide.size() == 2 and m._tutor_fx_cid == new_cid and not m.board.tile_shown(new_pos),
+		"★ 换关那一刻：替身（格 + 细胞）在飞、真身让位、脚下那格先不浮现（实测替身 %d 个）" % m._tutor_glide.size())
+	check(m._director._held and m._director._at == 0,
+		"飞行中导演按住游标（关首那条 state 照旧办掉、第一句台词等真身到位）")
+	await create_timer(CWMatch.TUTOR_GLIDE_SECS + 0.4).timeout
+	check(m._tutor_glide.is_empty() and m._tutor_fx_cid == -1 and m.board.tile_shown(new_pos)
+			and not m._director._held,
+		"飞到位：替身收掉、真身归位、脚下那格亮起、导演放手")
+	var hidden_other := 0
+	for c in m.board.active_tiles():
+		if c != new_pos and not m.board.tile_shown(c):
+			hidden_other += 1
+	check(hidden_other == 0, "其余活跃格按环浮现完毕（还藏着 %d 格）" % hidden_other)
 	## **改判**：原断言「镜像 7 格 / 半径 1 / active_radius 1」→「127 格 / 半径 6」。
 	## 半径恒 6、小棋盘只是**活跃格遮罩**，这一条与教程重做无关，原样留着
 	check(m.mirror != null and m.mirror.tiles.size() == CWData.TOTAL_TILES
@@ -19691,6 +19713,38 @@ func t_tutor_camera() -> void:
 	await process_frame
 	var cam := Camera2D.new()
 	root.add_child(cam)
+	## ---- ⓪ 屏幕 ⇄ 棋盘互为反函数（关间过渡把旧位置换算到新机位下靠它）----
+	CWView.apply(cam, bd, 3.4, Vector2(-72.0, -20.0), Vector2(520.0, 270.0))
+	var p0 := Vector2(123.4, -56.7)
+	var back: Vector2 = CWView.screen_to_board(cam, CWView.board_to_screen(cam, p0))
+	check(back.distance_to(p0) < 0.01, "screen_to_board(board_to_screen(p)) == p（实测偏差 %.4f）" % back.distance_to(p0))
+	## ---- ⓪ 五关的关首机位下活跃格**整格**都在镜头里（通用规则 13；含第二关 reveal 之后的 7 格）----
+	## 09-20 两次真机反馈都栽在这儿：第三关「角色调左」把左边推出屏幕、第四 / 五关「角色调中」整盘偏左一截。
+	## 数据驱动：关表里前五关（≤ 127 格、地图锚）逐关按 flow[0].ui 取景，一格被切当场红
+	var dscr = TUTOR_SCRIPT.new()
+	var stage_cls = load("res://scripts/kernel/cw_tutorial_stage.gd")
+	var cut_all: Array = []
+	for lid in ["c1_l1", "c1_l2", "c1_l3", "c2_l4", "c2_l5"]:
+		var lvx: Dictionary = dscr.load_level(lid)
+		var uix: Dictionary = ((lvx["flow"] as Array)[0] as Dictionary).get("ui", {})
+		var camx: Dictionary = uix.get("camera", { "anchor": "map", "align": "center" })
+		var tilesx: Array = stage_cls.coords_of(lvx["active_tiles"])
+		for row in lvx.get("flow", []):
+			if (row as Dictionary).has("reveal"):
+				for c in stage_cls.coords_of((row as Dictionary)["reveal"]):
+					if not tilesx.has(c):
+						tilesx.append(c)
+		check(str(camx.get("anchor", "map")) == "map",
+			"%s 关首镜头锚在地图上（角色锚只留给第六关那张 469 格的大盘）" % lid)
+		var frx: Dictionary = CWView.tutor_framing(bd, tilesx, str(camx.get("align", "center")), null,
+			bool(uix.get("sidebar", false)))
+		CWView.apply(cam, bd, float(frx["zoom"]), frx["look_at"], frx["anchor"])
+		await process_frame
+		var rectx := CWView.tutor_view_rect(bool(uix.get("sidebar", false)))
+		for c in tilesx:
+			if not CWView.tile_fully_visible(cam, bd, c, rectx):
+				cut_all.append("%s:%s" % [lid, str(c)])
+	check(cut_all.is_empty(), "★ 前五关关首机位下没有一格被镜头框切到（被切的：%s）" % str(cut_all))
 	## ---- ① zoom：两格的第一关推近、整盘就是对局机位 ----
 	var l1 := [Vector2i(-1, -1), Vector2i(0, -1)]
 	var small := CWView.tutor_framing(bd, l1, "center", null, false)
@@ -21060,8 +21114,9 @@ func t_tutor_c2() -> void:
 			and not CWTutorLayers.on("round_no") and CWTutorLayers.on("sidebar")
 			and not CWTutorLayers.on("end_turn") and not CWTutorLayers.on("hand"),
 		"Step2 的 ui 层：出「切换种类」、能量 ∞、右栏开着但藏「第 X 回合」、无结束回合 / 无手牌")
-	check(CWTutorLayers.camera() == { "anchor": "player", "align": "center" },
-		"镜头照 PRD:313「角色调中」，第五关沿用（实测 %s）" % str(CWTutorLayers.camera()))
+	check(CWTutorLayers.camera() == { "anchor": "map", "align": "center" },
+		"镜头 09-20 起改地图调中（PRD:313 写「角色调中」，整盘锚在玩家上会把左边推出屏幕，Kevin），第五关沿用（实测 %s）"
+			% str(CWTutorLayers.camera()))
 	## 常驻壳那一颗：`ui.switch_type` 非空才出，出着才点得动
 	var chrome := CWTutorChrome.new()
 	root.add_child(chrome)

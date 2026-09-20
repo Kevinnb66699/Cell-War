@@ -137,6 +137,7 @@ func open(lv: Dictionary, seat: int) -> void:
 	## 它再也没机会把这一位放下。不在这儿清的话，下一关的游标永远被 `_tick` 开头
 	## 那条 `if _chapter_busy: return` 按死 —— 真机上的表现是「进了间章却一拍也不演」
 	_chapter_busy = false
+	_held = false        ## 上一关关间过渡的替身要是还在飞，`_tutor_glide_abort` 已经放手；这儿再保一次
 	_advising = false
 	_hook_depth = 0      ## 上一关挂死的钩子协程不许按住新关的游标
 	_beat_row = null     ## 挂死的那一条 beat 也不许再把闸撑开
@@ -280,7 +281,8 @@ func _tick(delta: float) -> void:
 	## 它管的是「界面变化 + 状态变化」，正该在那一屏底下落定：提示一撤，露出来的就是这一关
 	## 该有的界面，一帧全套 UI 都不闪（同 `main.gd` 让开场动画的幕布盖住推镜头那条账）。
 	## 09-19 真机第一版没这一段：章节提示那 1.8 秒里右栏、回合块、能量全亮着
-	if _chapter_busy:
+	## 关间过渡的替身在飞（`hold()`，2026-09-20）同样先别翻页：第一句台词气泡指着真身，真身还没到位
+	if _chapter_busy or _held:
 		if _at == 0 and not _entered and not flow.is_empty() \
 				and str((flow[0] as Dictionary).get("do", "")) == "state":
 			_entered = true
@@ -591,6 +593,13 @@ func _play_chapter(no: int, title: String) -> void:
 	if ep != epoch:
 		await dead
 	_chapter_busy = false
+
+
+## 关间过渡（CWMatch 的替身在飞，2026-09-20）：游标按住不翻页，关首那条 `state` 照旧先办掉（同章节提示）
+var _held := false
+
+func hold(on: bool) -> void:
+	_held = on
 
 
 func _finish() -> void:
