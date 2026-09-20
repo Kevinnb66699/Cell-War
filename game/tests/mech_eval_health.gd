@@ -1,7 +1,7 @@
 ## 估值体检 · 数据采集：每回合记录**完整全局杠杆向量** + 终局输赢 → JSONL。
 ## 设计：只记**原始杠杆**（pid 无关的位置量），不记任何固定标量公式 ——
 ## 离线可测任意标量化（现行固定权重 / 分相位权重 / 加阈值项），不必重跑对局。
-## 运行：-- games=N players=4 seed= immune_ai=heu|mech|abs cancer_ai=heu|mech|abs out=<文件名>
+## 运行：-- games=N players=4 seed= immune_ai=heu|mc|mcts|mech|mev|mel|abs cancer_ai=同 out=<文件名>
 extends SceneTree
 
 var _lines: Array = []
@@ -59,7 +59,18 @@ func _run() -> void:
 	var imm_ai: String = args.get("immune_ai", "heu")
 	var can_ai: String = args.get("cancer_ai", "heu")
 	var out_name: String = args.get("out", "eval_health.jsonl")
+	## 参数扫描注入口(不传=默认): 只对 abs 桥生效
+	var sw_topk: int = int(args.get("topk", "0"))
+	var sw_hz: int = int(args.get("hz", "0"))
+	var sw_wt: float = float(args.get("wt", "15"))
+	var sw_reach: int = int(args.get("reach", "60"))
 	var cfg: String = "%s/%s/%dp" % [imm_ai, can_ai, players]
+	if sw_topk > 0 or sw_hz > 0 or absf(sw_wt - 15.0) > 0.01 or sw_reach != 60:
+		cfg += "_t%02d_h%d_w%02.0f_r%02d" % [sw_topk, sw_hz, sw_wt, sw_reach]
+		MechBridge.TOPK_OVERRIDE = sw_topk
+		MechBridge.HORIZON_OVERRIDE = sw_hz
+		MechBridge.W_THREAT = sw_wt
+		MechBridge.THREAT_REACH = sw_reach
 	for gi in games_n:
 		var g := CWGame.new()
 		g.init(CWData.FACTION_ORDER[players], seed_base + gi)
@@ -75,6 +86,26 @@ func _run() -> void:
 				b = ab
 			elif which == "mech":
 				b = MechBridge.new()
+			elif which == "mev":
+				var mv := MechBridge.new()
+				mv.use_fit_eval = true
+				MechBridge._fit_linear_on = false
+				b = mv
+			elif which == "mel":
+				var ml := MechBridge.new()
+				ml.use_fit_eval = true
+				MechBridge._fit_linear_on = true
+				b = ml
+			elif which == "mc":
+				var mc := CWMonteCarloBridge.new()
+				mc.max_sim_steps = 192      ## 与 match.gd AI_MC 装配同参
+				b = mc
+			elif which == "mcts":
+				var ms := CWMCTSBridge.new()
+				ms.iterations = 160         ## 与 match.gd AI_MCTS 装配同参
+				ms.horizon = 12
+				ms.max_sim_steps = 384
+				b = ms
 			else:
 				b = CWHeuristicBridge.new()
 			b.game = g
