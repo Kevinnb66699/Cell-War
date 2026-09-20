@@ -21062,8 +21062,8 @@ func t_mech_bridge_quiet() -> void:
 	## CWNetBridge 一建出来 mc 就开着搜索 + E4 拟合估值，与单机第五档同款
 	var nb := CWNetBridge.new()
 	check(nb.mc is MechBridge and (nb.mc as MechBridge).use_search and (nb.mc as MechBridge).use_fit_eval
-			and not MechBridge._fit_linear_on,
-		"服务器专家档 mc：搜索 + E4 拟合估值开着（与单机「搜索」档同款）")
+			and (nb.mc as MechBridge).use_threading and not MechBridge._fit_linear_on,
+		"服务器专家档 mc：搜索 + E4 拟合估值 + 线程化开着（与单机「搜索」档同款线程化）")
 	await run_setup(g)
 	var req: Dictionary = {}
 	while true:
@@ -21090,6 +21090,15 @@ func t_mech_bridge_quiet() -> void:
 	check(not g.sim_quiet, "真 game 的 sim_quiet 没被副本的静音波及")
 	var a2: int = await mb.ask(req)
 	check(a1 == a2, "同局面两次评估答案一致（确定性：副本 rng 随快照复原）")
+	## —— 线程化等价（2026-09-20）——
+	## 同一决策点：清掉计划缓存强搜一轮，开副线程再问。答案与真局面哈希必须与同步路径逐位一致
+	## （image 全用同步启发式桥 → search_best 抛副线程也零真挂起，worker 可整体跑到底）。
+	mb._plan.clear()
+	mb.use_threading = true
+	var a3: int = await mb.ask(req)
+	check(a3 == a1, "线程化后同一决策点答案不变（%d → %d）" % [a1, a3])
+	check(g.state_hash() == h0, "线程化评估完，真局面哈希仍逐位不变")
+	mb.use_threading = false
 	g.dispose()
 	## 服务器专家档换成意图级（Kevin 2026-09-19「把意图级 AI 部署到服务器上，代替目前的专家级 AI」）：
 	## 它在服务器**主线程同步**跑，一问的耗时就是所有房间一起卡的时长。四人局、第一次轮到癌方时量一次，

@@ -924,7 +924,10 @@ func _wire_bridge(level: int) -> void:
 			alt_ai.max_sim_steps = MCTS_MAX_STEPS
 			alt_ai.use_threading = thinking
 		else:
-			alt_ai = MechBridge.new()   ## 意图评估在主线程同步跑（可接受，后续再线程化）
+			alt_ai = MechBridge.new()
+			## 意图/搜索档都线程化：image 全用同步启发式桥，search_best 整体抛副线程、
+			## 主线程只出帧等结果（和 MCTS 同一条路）。护栏 t_mech_bridge_quiet 锁同步与线程两条。
+			alt_ai.use_threading = thinking
 			if level == AI_ABS:
 				## 「搜索」档 = mech_strength 里验证过的 abs 配置：alpha-beta v2（叶=回合边界）
 				## + E4 新平衡拟合估值（log 版）。同款决策在 AI 互撞实测：免 58% 对旧意图免。

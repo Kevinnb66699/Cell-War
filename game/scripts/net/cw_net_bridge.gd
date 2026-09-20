@@ -16,11 +16,12 @@ var heur := CWHeuristicBridge.new()     ## 新手档 AI（超时 / 离线的代�
 ## 专家档 AI（席位 tier 仍叫 "mc"：那是建房报文里的键，客户端还在发，改名要升协议）。
 ## 2026-09-02 起是扁平蒙特卡洛（rollouts=2 · horizon=40）；**2026-09-19 Kevin「把意图级 AI 部署到服务器上，
 ## 代替目前的专家级 AI」** ⇒ 换成 MechBridge（PR #59 的第四档：迁移走意图规划器、其余回落启发式）。
-## 它在服务器主线程同步跑、不起线程，评估只在独立副本上（t_mech_bridge_quiet），单问耗时见同一条测试打印的数。
+## 评估只在独立副本上（t_mech_bridge_quiet），单问耗时见同一条测试打印的数。
 ## **2026-09-20 Kevin「把服务器专家档 AI 也更新为这一版意图模型」**：开成 PR #69 的「搜索」配置
-## （alpha-beta v2、叶 = 回合边界、E4 拟合估值），与单机第五档同款。代价（bench_search 整局实测）：
-## 中位仍 ≈ 0 ms（计划缓存快路径），p95 ≈ 0.8 s，单问最大 4 人 1.4 s / 6 人 2.1 s，一局约 40 次超过 0.5 s ——
-## 主线程同步想的这几秒全服房间一起停。要压就得线程化（原注释里的「后续再线程化」）
+## （alpha-beta v2、叶 = 回合边界、E4 拟合估值），与单机第五档同款。
+## **线程化（2026-09-20）**：服务器进程是 SceneTree（server_main.gd extends SceneTree），search_best 整体
+## 抛副线程、主线程只在 next_frame / process_frame 出帧等结果 → 不再有 bench_search 那几秒「全服房间一起停」。
+## 卸本地守护：无线程构建 / 拿不到 SceneTree 时自动退同步路径（代价回到原注释里的量级）。
 var mc: CWHeuristicBridge = MechBridge.new()
 
 
@@ -28,6 +29,7 @@ func _init() -> void:
 	var m := mc as MechBridge
 	m.use_search = true
 	m.use_fit_eval = true
+	m.use_threading = true
 	MechBridge._fit_linear_on = false
 
 
