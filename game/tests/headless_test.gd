@@ -17584,16 +17584,25 @@ func t_entry_smoke_tutorial() -> void:
 	check(m._tutor_glide.size() == 2 and m._tutor_fx_cid == new_cid and not m.board.tile_shown(new_pos),
 		"★ 换关那一刻：替身（格 + 细胞）在飞、真身让位、脚下那格先不浮现（实测替身 %d 个）" % m._tutor_glide.size())
 	check(m._director._held and m._director._at == 0,
-		"飞行中导演按住游标（关首那条 state 照旧办掉、第一句台词等真身到位）")
-	await create_timer(CWMatch.TUTOR_GLIDE_SECS + 0.4).timeout
+		"飞行中导演按住游标（关首那条 state 照旧办掉、第一句台词等地图到齐）")
+	## ★ 主细胞先就位、地图再浮现（Kevin 2026-09-20 第二条）：飞行中其余活跃格一格都还没开始浮现，别的细胞也按住
+	var shown_early := 0
+	for c in m.board.active_tiles():
+		if c != new_pos and m.board.tile_shown(c):
+			shown_early += 1
+	check(shown_early == 0 and m._tutor_cells_held,
+		"★ 飞行中剩余地图一格没浮现（实测 %d 格已亮）、别的细胞按住（_tutor_cells_held）" % shown_early)
+	await create_timer(CWMatch.TUTOR_GLIDE_SECS + 0.25).timeout
 	check(m._tutor_glide.is_empty() and m._tutor_fx_cid == -1 and m.board.tile_shown(new_pos)
-			and not m._director._held,
-		"飞到位：替身收掉、真身归位、脚下那格亮起、导演放手")
+			and not m._tutor_cells_held and m._director._held,
+		"飞到位：替身收掉、真身归位、脚下那格亮起、别的细胞放行；地图还在浮现所以导演仍按着")
+	await create_timer(m.board.ACTIVE_FADE + 0.8).timeout
 	var hidden_other := 0
 	for c in m.board.active_tiles():
 		if c != new_pos and not m.board.tile_shown(c):
 			hidden_other += 1
-	check(hidden_other == 0, "其余活跃格按环浮现完毕（还藏着 %d 格）" % hidden_other)
+	check(hidden_other == 0 and not m._director._held,
+		"其余活跃格按环浮现完毕（还藏着 %d 格）、导演放手" % hidden_other)
 	## **改判**：原断言「镜像 7 格 / 半径 1 / active_radius 1」→「127 格 / 半径 6」。
 	## 半径恒 6、小棋盘只是**活跃格遮罩**，这一条与教程重做无关，原样留着
 	check(m.mirror != null and m.mirror.tiles.size() == CWData.TOTAL_TILES
