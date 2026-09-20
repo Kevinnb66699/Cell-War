@@ -1501,6 +1501,8 @@ const TUTOR_GLIDE_SECS := 0.6
 var _tutor_layers_seen := {}
 ## 关间过渡飞行中的替身节点（格 + 细胞），到位就 free；空 = 没在飞
 var _tutor_glide: Array = []
+## 主细胞还在飞，别的细胞先别露面（Kevin 2026-09-20 第二条：主细胞与脚下格**先就位**，其余细胞连同剩余地图一起浮现）
+var _tutor_cells_held := false
 
 func _wait_result_bubbles() -> void:
 	var waited := 0.0
@@ -1650,9 +1652,12 @@ func _tutor_glide_capture() -> Dictionary:
 	}
 
 
-## 新一关开好、机位就位之后：其余活跃格先藏起来，章节提示（黑幕）播完再按环浮现 —— 提示期间幕布盖着，
-## 浮现与飞行都白演；同一章的静默切关没有提示，当帧就动。替身（格 + 细胞）从旧的屏幕位置飞到新格，
-## 缩放从「旧倍率 / 新倍率」过渡到 1；真身借 `_tutor_fx_cid` 让位、脚下那格 `hold_tile` 到位再亮
+## 新一关开好、机位就位之后，**三拍**（Kevin 2026-09-20 两条）：
+##   ① 活跃格与别的细胞先全藏起来；有章节提示（黑幕）就等它播完 —— 提示期间幕布盖着，演了也白演；
+##   ② 替身（格 + 细胞）从旧的屏幕位置飞到新格，缩放从「旧倍率 / 新倍率」过渡到 1，真身借 `_tutor_fx_cid` 让位、
+##      脚下那格 `hold_tile`；
+##   ③ 主细胞就位了，剩余地图按环浮现、别的细胞随之淡入，浮现完导演才放手（第一句台词这时才冒）。
+## 抄不到旧位置（`g` 空）就只剩「地图浮现」那一拍
 func _tutor_glide_start(g: Dictionary) -> void:
 	var lid := _loop_id
 	var cid := _tutor_cell_id(int(human_players[0])) if not human_players.is_empty() else -1
@@ -1664,15 +1669,16 @@ func _tutor_glide_start(g: Dictionary) -> void:
 	if can_fly:
 		board.hold_tile(pos)
 		_tutor_fx_cid = cid
+		_tutor_cells_held = true
 	while _director != null and is_instance_valid(_director) and _director._chapter_busy and _loop_id == lid:
 		await get_tree().process_frame
 	if _loop_id != lid or board == null or not is_instance_valid(board):
 		return
-	board.reveal_active(board.ACTIVE_FADE, [pos] if can_fly else [])
 	if not can_fly:
+		board.reveal_active(board.ACTIVE_FADE)
 		return
 	if _director != null and is_instance_valid(_director):
-		_director.hold(true)    ## 飞行中游标不翻页：第一句台词等真身到位再冒
+		_director.hold(true)    ## 飞行 + 浮现期间游标不翻页：第一句台词等地图到齐再冒
 	var k: float = float(g["zoom"]) / camera.zoom.x
 	var tile_to: Vector2 = board.tile_center(pos) + (g["tile_rel"] as Vector2)
 	var cell_to: Vector2 = board.tile_center(pos) + (g["cell_rel"] as Vector2)
@@ -1710,16 +1716,34 @@ func _tutor_glide_start(g: Dictionary) -> void:
 	if _loop_id != lid:
 		return   ## 飞到一半又换了关 / 拆了局：`_tutor_glide_abort` 已经收过（含放开导演）
 	_tutor_glide_clear()
-	if _director != null and is_instance_valid(_director):
-		_director.hold(false)
-	if board != null and is_instance_valid(board):
-		board.show_tile_now(pos)
+	board.show_tile_now(pos)
 	if _tutor_fx_cid == cid:
 		_tutor_fx_cid = -1
+	## ③ 主细胞就位：剩余地图按环浮现，别的细胞跟着淡入
+	board.reveal_active(board.ACTIVE_FADE, [pos])
+	_tutor_cells_held = false
+	_tutor_pop_others(cid)
+	await get_tree().create_timer(board.ACTIVE_FADE
+		+ board.ACTIVE_RING_DELAY * float(board.active_radius + 1)).timeout
+	if _loop_id != lid:
+		return
+	if _director != null and is_instance_valid(_director):
+		_director.hold(false)
+
+
+## 别的活细胞随剩余地图一起淡入（同落子那一下的 `_pop_in`）。主细胞不在内 —— 它刚落位
+func _tutor_pop_others(cid: int) -> void:
+	if mirror == null:
+		return
+	for i in mini(_cell_nodes.size(), mirror.cells.size()):
+		var c: Dictionary = mirror.cells[i]
+		if i != cid and bool(c["alive"]) and board.is_active(c["pos"]):
+			_pop_in(_cell_nodes[i])
 
 
 ## 飞到一半被换关 / 拆局打断：替身收掉、真身放回来（不放的话新一关同下标那只细胞永远藏着）
 func _tutor_glide_abort() -> void:
+	_tutor_cells_held = false
 	if _tutor_glide.is_empty():
 		return
 	_tutor_glide_clear()
@@ -2601,6 +2625,9 @@ func _sync_cells() -> void:
 		## **这一层在换局之后仍然成立**（下标即 cell id）—— 分镜 6 的阵营翻转就是趁演出还没收尾
 		## 时把整局换掉的，新的小细胞肺癌那只继续让位到演出收尾，所以一帧跳变都看不见
 		if _tutor_fx_cid == i:
+			node.visible = false
+		## 关间过渡：主细胞还在飞，别的细胞先别露面（Kevin 2026-09-20），落位后随剩余地图一起淡入
+		if _tutor_cells_held:
 			node.visible = false
 		var became_alive: bool = c["alive"] and not _was_alive[i]
 		## 死而复活的也要淡入一次 —— 它和刚落子一样是「凭空出现」
