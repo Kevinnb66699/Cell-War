@@ -299,7 +299,7 @@
   "covers": [
    "t_card_events::抗原摄取：不邻癌性组织 +1 记忆"
   ],
-  "source": "headless_test.gd:t_card_events【抗原摄取】。I 级池 35，抽签落在 [13,15] ⇒ 抽到它；四周无癌性组织 ⇒ $.g.memory 2→3。",
+  "source": "原 headless_test.gd:t_card_events【抗原摄取】（2026-09-20 该支整支迁进 L0 后退役）。I 级池 35，抽签落在 [13,15] ⇒ 抽到它；四周无癌性组织 ⇒ $.g.memory 2→3。",
   "world": {
    "players": [
     {
