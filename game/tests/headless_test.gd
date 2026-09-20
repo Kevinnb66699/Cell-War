@@ -21089,6 +21089,9 @@ func t_tutor_gate() -> void:
 	CWTutorLayers.apply({ "notice": true })
 	gb.show_result("攻击成功，造成 1.0 伤害", Vector2i.ZERO)
 	check(gt._bubbles.size() == 1, "notice 开着：照常弹一只（实测 %d 只）" % gt._bubbles.size())
+	check(gt.has_bubbles(), "has_bubbles()：气泡还在飘就是 true（关末等它播完再切关靠它）")
+	gt.hide_now()
+	check(not gt.has_bubbles(), "hide_now() 把气泡全收掉之后 has_bubbles() 是 false")
 	CWTutorLayers.reset()
 	root.remove_child(gt)
 	gt.free()
@@ -21106,6 +21109,20 @@ func t_tutor_gate() -> void:
 	check(open_at > 0 and hide_at > open_at and hide_at < stage_at
 			and msrc.find("CWTutorLayers.reset()", open_at) < hide_at,
 		"_open_tutor_level 换关（reset_layers）那一支在开新舞台之前 toast.hide_now()：上一关的结算气泡不带进下一关")
+	## ⑫ 真通关先等结算气泡播完、再停一拍才切下一关（Kevin 2026-09-19：「攻击大成功的弹窗消失之前，
+	## 第二章已经开始了」）：`_tutor_next_level` 里 `await _wait_result_bubbles()` 要排在两条换局路
+	## （承接活局的 `_tutor_start_level()` / 重装的 `_tutor_reopen(`）前面，且只在 mark_done 那一支
+	var next_at := msrc.find("func _tutor_next_level(")
+	var wait_at := msrc.find("await _wait_result_bubbles()", next_at)
+	var live_at := msrc.find("_tutor_start_level()", next_at)
+	var reopen_at := msrc.find("_tutor_reopen(\"base\", true)", next_at)
+	var guard_at := msrc.rfind("if mark_done:", wait_at)   ## 紧挨着 await 上面那一句必须是 mark_done 的闸
+	check(next_at > 0 and wait_at > next_at and wait_at < live_at and wait_at < reopen_at
+			and guard_at > next_at and wait_at - guard_at < 120,
+		"_tutor_next_level：真通关（mark_done）先 await _wait_result_bubbles() 再走两条换局路；目录跳关不等")
+	check(CWMatch.TUTOR_SWITCH_BEAT >= 0.5 and CWMatch.TUTOR_BUBBLE_WAIT_MAX > CWUIBridge.RESULT_HOLD + 1.0,
+		"气泡收完之后至少再停半秒；等气泡的上限要盖过 RESULT_HOLD + 淡出（%.1f / %.1f）"
+			% [CWMatch.TUTOR_SWITCH_BEAT, CWMatch.TUTOR_BUBBLE_WAIT_MAX])
 
 
 func t_tutor_view() -> void:
@@ -21545,6 +21562,18 @@ func t_tutor_spot() -> void:
 	check(is_equal_approx((pts2[0] - Vector2(100.0, 100.0)).length(),
 			(pts[0] - Vector2(100.0, 100.0)).length() * 2.0),
 		"顶点跟着 zoom 缩放 —— 教程小棋盘把 zoom 推到 3 倍以上，按固定像素画会框不住")
+	## 框要**套在贴图的顶面上**（Kevin 2026-09-19「蓝色六边形框显示有问题」：老口径按横距 36 画，
+	## 比 32 宽的顶面每边宽 2 px，4 倍镜头下框明显套不上格子）。宽高钉在贴图本身上：贴图一换这里先红
+	var tile_tex := load("res://assets/art/tissue_normal.png") as Texture2D
+	check(tile_tex != null and tile_tex.get_width() == int(TUTOR_SPOT.FACE_HALF_W * 2.0)
+			and tile_tex.get_height() - 8 == int(TUTOR_SPOT.FACE_HALF_H * 2.0),
+		"六边形框的宽 = 贴图宽（%d）、高 = 贴图高减 8 px 立面（%d）"
+			% [tile_tex.get_width() if tile_tex != null else -1, tile_tex.get_height() if tile_tex != null else -1])
+	check(pts[0] == Vector2(100.0, 100.0 - TUTOR_SPOT.FACE_HALF_H)
+			and pts[1] == Vector2(100.0 + TUTOR_SPOT.FACE_HALF_W, 100.0 - TUTOR_SPOT.FACE_SIDE_Y)
+			and pts[3] == Vector2(100.0, 100.0 + TUTOR_SPOT.FACE_HALF_H)
+			and pts[4] == Vector2(100.0 - TUTOR_SPOT.FACE_HALF_W, 100.0 + TUTOR_SPOT.FACE_SIDE_Y),
+		"七个点从尖顶起顺时针：尖顶 / 右上角 / … / 左下角，竖边两端离中心 ±FACE_SIDE_Y（贴图第 8 / 18 行）")
 	var hr := TUTOR_SPOT.hand_rect()
 	check(hr.position == Vector2(CWHand.LEFT, CWHand.REST_TOP) and hr.size.x == CWHand.SPAN,
 		"手牌抽屉那一条照 CWHand 的常量现算（抽屉挪了这里跟着挪）")

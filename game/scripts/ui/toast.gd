@@ -265,6 +265,12 @@ func _make_box() -> PanelContainer:
 	return box
 
 
+## 还有结算气泡在飘吗（淡出补间一完气泡就把自己从 `_bubbles` 里擦掉）。
+## 教程关末等它们播完再切下一关（Kevin 2026-09-19：「攻击大成功的弹窗消失之前第二章已经开始了」）
+func has_bubbles() -> bool:
+	return not _bubbles.is_empty()
+
+
 ## 只收骰子旁那只 `_box`（掷骰时的「攻击」标签），气泡与队列不动 —— 骰子停稳、结果另起气泡时用
 func hide_box() -> void:
 	if _tween != null and _tween.is_valid():
