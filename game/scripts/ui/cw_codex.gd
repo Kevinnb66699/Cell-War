@@ -187,7 +187,7 @@ static func atlas_cells(faction: int) -> Array:
 			{"name":"单体与连锁", "skills":[
 				["抗体依赖细胞毒作用", "Y形抗体命中单个癌细胞。", "antibody"],
 				["穿孔素-颗粒酶", "成功攻击后颗粒注入目标。", "card_granule"],
-				["乳酸酸化", "酸滴使相邻免疫细胞损失能量。", "card_acid"],
+				["乳酸酸化", "癌细胞释放乳酸，使相邻免疫细胞损失能量。", "card_lactic_acid"],
 				["补体级联", "命中后粒子传向邻近组织。", "card_cascade"]
 			]},
 			{"name":"支援与状态", "skills":[
@@ -199,9 +199,9 @@ static func atlas_cells(faction: int) -> Array:
 			]},
 			{"name":"组织与能量", "skills":[
 				["基质降解", "固化矿物层散去。", "card_degrade"],
-				["克隆增殖", "邻近健康组织依次转癌。", "card_clone"],
+				["克隆增殖", "癌细胞向邻近健康组织依次扩增。", "card_clone_cancer"],
 				["糖酵解爆发", "暖色能量粒子汇入癌细胞。", "anaerobic"],
-				["肿瘤血管生成", "多个癌细胞同时吸收血色能量。", "card_blood"]
+				["肿瘤血管生成", "多个癌细胞同时吸收血色能量。", "card_blood_cancer"]
 			]}
 		]
 	if faction == 3:
@@ -238,17 +238,17 @@ static func atlas_cells(faction: int) -> Array:
 		]
 	if faction == 0:
 		return [
-			{"name":"基础免疫细胞", "skills":[["迁移","向相邻组织移动并触发净化或攻击。","minimal"],["基因表达","消耗能量抽取卡牌。","differentiate"],["分化","转为一种专属免疫细胞。","differentiate"]]},
+			{"name":"基础免疫细胞", "skills":[["迁移","基础免疫细胞向相邻组织移动并触发净化或攻击。","immune_move"],["基因表达","消耗能量抽取卡牌。","differentiate"],["分化","转为一种专属免疫细胞。","differentiate"]]},
 			{"name":"B细胞", "skills":[["抗体","Y形抗体命中符合条件的癌细胞。","antibody"],["中和抗体","效应应答：封禁目标技能与永久卡。","seal"]]},
 			{"name":"T细胞", "skills":[["细胞毒素","一环七格范围净化并留下坏死。","toxin"],["裂解","破除相邻固化癌组织。","lyse"],["Excalibur","效应应答：沿选定方向扫射。","beam"]]},
-			{"name":"巨噬细胞", "skills":[["连续吞噬","连续净化后继续免费移动。","chain"],["I-吞噬","净化或成功攻击后恢复能量。","respire"]]},
+			{"name":"巨噬细胞", "skills":[["连续吞噬","连续净化后继续免费移动。","chain"],["I-吞噬","巨噬细胞吞噬目标后恢复能量。","macro_respire"]]},
 			{"name":"树突状细胞", "skills":[["趋化源","建立信号源改变双方移动费用。","chemo"],["标记","自动识别范围内癌细胞。","mark_aura"],["组织黏连","世界回合末传递标记。","adhesion"],["免疫猎杀","效应应答：锁定全场癌细胞。","hunt"]]}
 		]
 	return [
 		{"name":"恶性黑色素瘤", "skills":[["早期血行转移","从血管转移到空健康格并扩散。","homing"],["伪足穿透","目标邻接至少三格癌组织时低费移动。","pseudopod"]]},
-		{"name":"印戒细胞癌", "skills":[["黏液破裂","耗尽能量后使范围进入黏液侵染。","mucus"],["囊性护甲","每世界回合第一次损失获得减免。","card_repair"]]},
-		{"name":"骨肉瘤", "skills":[["骨样硬化","标记组织，两个世界回合后固化。","card_degrade"],["刚性屏障","位于固化组织上时减免能量损失。","card_repair"]]},
-		{"name":"小细胞肺癌", "skills":[["极简胞浆","移动至健康组织时永久降低费用。","minimal"],["转移","向一个方向跃进五格。","card_teleport"],["瓦伯格超速糖酵解","无氧呼吸获得额外产出。","anaerobic"]]}
+		{"name":"印戒细胞癌", "skills":[["黏液破裂","耗尽能量后使范围进入黏液侵染。","mucus"],["囊性护甲","印戒细胞癌的囊性护甲在每世界回合第一次损失时减免。","signet_armor"]]},
+		{"name":"骨肉瘤", "skills":[["骨样硬化","骨肉瘤标记组织，两个世界回合后固化。","osteo_ossify"],["刚性屏障","骨肉瘤位于固化组织上时减免能量损失。","osteo_barrier"]]},
+		{"name":"小细胞肺癌", "skills":[["极简胞浆","移动至健康组织时永久降低费用。","minimal"],["转移","小细胞肺癌向一个方向跃进五格。","sclc_metastasis"],["瓦伯格超速糖酵解","小细胞肺癌通过无氧呼吸获得额外产出。","sclc_warburg"]]}
 	]
 
 func _atlas_button(text: String, at: Vector2, size: Vector2, on_click: Callable, active := false) -> Button:

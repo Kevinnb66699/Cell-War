@@ -10049,6 +10049,40 @@ func t_codex() -> void:
 	check(unplayed.is_empty(), "逐个创建并推进全部 %d 种唯一 FX（未起播 %s）" % [fx_kinds.size(), str(unplayed)])
 	root.remove_child(fx_stage)
 	fx_stage.free()
+	## 图鉴的 FX 可以复用，但演员不能跟着复用错：每个技能必须由规则里对应的细胞出演。
+	var actor_cases := {
+		"immune_move": ["res://assets/art/cells/anim/immune_breath.png", "res://assets/art/cells/anim/immune_breath.png"],
+		"macro_respire": ["res://assets/art/cells/anim/macrophage_breath.png"],
+		"signet_armor": ["res://assets/art/cells/anim/signet_breath.png"],
+		"osteo_ossify": ["res://assets/art/cells/anim/osteo_breath.png"],
+		"osteo_barrier": ["res://assets/art/cells/anim/osteo_breath.png"],
+		"sclc_metastasis": ["res://assets/art/cells/anim/sclc_breath.png", "res://assets/art/cells/anim/sclc_breath.png"],
+		"sclc_warburg": ["res://assets/art/cells/anim/sclc_breath.png"],
+		"card_lactic_acid": ["res://assets/art/cells/anim/melanoma_breath.png", "res://assets/art/cells/anim/immune_breath.png"],
+		"card_clone_cancer": ["res://assets/art/cells/anim/melanoma_breath.png"],
+		"card_blood_cancer": ["res://assets/art/cells/anim/melanoma_breath.png", "res://assets/art/cells/anim/melanoma_breath.png", "res://assets/art/cells/anim/melanoma_breath.png"],
+	}
+	var wrong_actors: Array[String] = []
+	for kind: String in actor_cases:
+		var actor_stage = CodexFx.new()
+		root.add_child(actor_stage)
+		actor_stage.play(kind)
+		if actor_stage.actor_texture_paths() != actor_cases[kind]:
+			wrong_actors.append("%s=%s" % [kind, str(actor_stage.actor_texture_paths())])
+		root.remove_child(actor_stage)
+		actor_stage.free()
+	check(wrong_actors.is_empty(),
+		"图鉴技能由对应细胞出演：基础免疫 / 巨噬 / 印戒 / 骨肉瘤 / 小细胞肺癌 / 癌方卡牌（错配 %s）" % str(wrong_actors))
+	var chemo_stage = CodexFx.new()
+	root.add_child(chemo_stage)
+	chemo_stage.play("chemo")
+	chemo_stage._process(1.0 / 12.0)
+	check(chemo_stage._special != null
+		and chemo_stage._special.z_index == CodexFx.Z_OVER_BOARD
+		and not chemo_stage._special.z_as_relative,
+		"趋化源使用绝对高层级绘制，不被预览地图覆盖")
+	root.remove_child(chemo_stage)
+	chemo_stage.free()
 	book._atlas_faction = 3
 	book._atlas_type = 2
 	book._atlas_skill = 1
