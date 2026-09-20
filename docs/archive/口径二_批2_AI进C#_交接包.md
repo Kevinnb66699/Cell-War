@@ -1,13 +1,13 @@
 ﻿# 口径二 · 批 2「AI 进 C#」—— 交接包（硬约定 + 设计稿，2026-09-19）
 
-> **交接说明**：Kevin 2026-09-19 决定「AI 进 C# 让队友完成」，并已拍：只交付**普通 AI（启发式）**进 C# + 策略口，扁平 MC / MCTS 不迁；其余六条见 `docs/内核替换_拍板记录.md` §十 / §十五。本包 = 规划工作流 S1 出的硬约定（JSON 原文附后）+ 设计稿 + 主会话对八个工程问题的裁决。方案稿正文见 `docs/口径二_批2_AI进C#_方案.md`。三条线（A 止血两件 / B 子进程入口 / C `CellWar.Ai`）都还**没有落地**，副本 `scratchpad` 里的半成品不作数，队友从硬约定开工即可。
+> **交接说明**：Kevin 2026-09-19 决定「AI 进 C# 让队友完成」，并已拍：只交付**普通 AI（启发式）**进 C# + 策略口，扁平 MC / MCTS 不迁；其余六条见 `docs/archive/内核替换_拍板记录.md` §十 / §十五。本包 = 规划工作流 S1 出的硬约定（JSON 原文附后）+ 设计稿 + 主会话对八个工程问题的裁决。方案稿正文见 `docs/archive/口径二_批2_AI进C#_方案.md`。三条线（A 止血两件 / B 子进程入口 / C `CellWar.Ai`）都还**没有落地**，副本 `scratchpad` 里的半成品不作数，队友从硬约定开工即可。
 
 ---
 
 # 批 2「AI 进 C#」—— 三条线的设计、人日、风险（S1 产出）
 
 > 只读调研。行号核于 `csharp-core` HEAD **7487567**。
-> **S1 写完时 HEAD 已前进到 022bd16**（「拍板记录 §十五再续三」）—— 逐文件核过：那一次**只改 `docs/内核替换_拍板记录.md`（+5 行）**，本文引用的代码行号一处没动。
+> **S1 写完时 HEAD 已前进到 022bd16**（「拍板记录 §十五再续三」）—— 逐文件核过：那一次**只改 `docs/archive/内核替换_拍板记录.md`（+5 行）**，本文引用的代码行号一处没动。
 > 那 5 行正是本轮的收窄口径入库：Kevin 原话「关于 AI 交付的问题，拍板 1 你只需要交付普通 AI（启发式），剩下两个不需要迁移」，同处写明「§十 拍板 1 收窄定稿……扁平 MC 与 MCTS 不迁移（留在 GD 侧直到 GD 内核退役，之后由训练模型接）。(a3) 子进程止血与 4bis / 计数器照旧」。
 > 硬约定的机器可读版在 `scratchpad/ai_contract.json`；本文只写「为什么这么切」「多少人日」「哪里会塌」。
 > **每条事实带出处**。没有出处的句子是判断，一律用「⇒」「建议」起头。
@@ -71,7 +71,7 @@
 | 决定 | 理由 |
 |---|---|
 | 子进程 = **本体自身** `OS.get_executable_path()` | 导出包里它就是游戏 exe ⇒ **导出模板与 `publish_release.sh` 零改动**。编辑器 / 源码树里要额外带 `--path`。 |
-| worker 脚本放 **`game/scripts/ai/cw_ai_worker.gd`** | 导出预设 `exclude_filter="tests/*"`（`docs/内核替换_迁移计划.md:294-295` 段落引的同一条），放 `game/tests/` 导出包里就没有它。 |
+| worker 脚本放 **`game/scripts/ai/cw_ai_worker.gd`** | 导出预设 `exclude_filter="tests/*"`（`docs/archive/内核替换_迁移计划.md:294-295` 段落引的同一条），放 `game/tests/` 导出包里就没有它。 |
 | 通信走**本地 TCP**（loopback + 一次性 token） | ① 编解码现成：`CWNet.encode/decode` 就是「4 字节原长 + zstd(var_to_bytes)」（`cw_net.gd:249`/`:267`），能直接吃带 `Vector2i` 键的快照；走 stdio + JSON 要新写一套 `Vector2i` 编码。② 与 sidecar 计划的 loopback + token 共用一套（`cw_kernel_sidecar.gd:3`）。③ 宿主轮询形状与今天的 `while not ready: await tree.process_frame` 逐字相同。④ **`OS.execute_with_pipe` 在无头导出包上可用与否，方案稿 §九 #6 自己说没核** —— 不拿未核的 API 当地基。 |
 | **短命进程**先做（每决策一只），worker 池后议 | §九 #7：Godot 无头冷启动耗时**今天没量过**。子进程入口开头 print 一行冷启动毫秒 ⇒ 第一次跑完就有数，再让 Kevin 定要不要池。 |
 | `use_subprocess` **默认 false** | 否则 `run_tests.sh` / 平衡模拟 / 教程会起成千上万个进程。只有真对局 UI（`match.gd:905` 旁）与联机桥拨开。 |
@@ -212,7 +212,7 @@ GD 的启发式按 `hash([game.rng.state, pid])` 挑分化种类（`heuristic_br
 **(1) 的残留**：方案连带指出的那条注释（`ai_baseline_case.gd:7-8`「两边都成立」）今天仍在。**但实际代码是对的** —— `make_bridge` 自己在 `:29` 显式写了 `tree_ai.game = g`，所以那个夹具从来没踩到 `attach_engine` 那个洞。⇒ 纯文字瑕疵，不影响行为。
 
 **(3) 的新连带后果 —— 这是本轮唯一新出现的账**：
-批 1 规格判「`bot` 旁路与 `CWNet.view_for` / `view_for_watcher` **批 2 AI 进 C# 之后整块删**」（`docs/口径二_批1_原子切规格.md:301-305` / `:804`），`cw_room.gd:704` 的注释也照这么写。
+批 1 规格判「`bot` 旁路与 `CWNet.view_for` / `view_for_watcher` **批 2 AI 进 C# 之后整块删**」（`docs/archive/口径二_批1_原子切规格.md:301-305` / `:804`），`cw_room.gd:704` 的注释也照这么写。
 而**今天的收窄口径是「只迁启发式、MC / MCTS 留 GD」** ⇒ **这块删不掉**：bot 客户端的 MC 要跟着 GD 的扁平 MC 活到 GD 内核退役那天。
 ⇒ 「批 2 整块删」这条判决要顺延，并回写批 1 规格与 `cw_room.gd:704` 的注释。**列进 questions。**
 
@@ -294,8 +294,8 @@ GD 的启发式按 `hash([game.rng.state, pid])` 挑分化种类（`heuristic_br
       "core/CellWar.Core/RulePolicies.cs (M) —— S1 写完时已被提交进 022bd16 之前的树，工作树现已干净"
     ],
     "head_after_s1": "022bd16",
-    "head_moved_note": "S1 写完时 HEAD 已前进到 022bd16（『拍板记录 §十五再续三』）。逐文件核过：该提交**只改 docs/内核替换_拍板记录.md（+5 行）**，本契约引用的任何代码行号一处都没动。P-A/P-B/P-C 仍按自己拷副本那一刻的 HEAD 写 old 锚点。",
-    "kevin_scope_override": "Kevin 09-19 追加，比简报第 1 条更窄、以此为准。**已入库**：docs/内核替换_拍板记录.md「同日再续三」（022bd16），原文『关于 AI 交付的问题，拍板 1 你只需要交付普通 AI（启发式），剩下两个不需要迁移』，该条同时写明「§十 拍板 1 收窄定稿：批 2 只交付普通 AI = 启发式（移植进 CellWar.Ai，不求逐决策一致，策略口保留给训练模型）；扁平 MC 与 MCTS 不迁移（留在 GD 侧直到 GD 内核退役，之后由训练模型接）。(a3) 子进程止血与 4bis / 计数器照旧」。⇒ 线 C = 完整的普通 AI（产品 AI，不是陪练桩）+ IPolicy；不留 MC/MCTS 接口占位。线 A / 线 B 不变。",
+    "head_moved_note": "S1 写完时 HEAD 已前进到 022bd16（『拍板记录 §十五再续三』）。逐文件核过：该提交**只改 docs/archive/内核替换_拍板记录.md（+5 行）**，本契约引用的任何代码行号一处都没动。P-A/P-B/P-C 仍按自己拷副本那一刻的 HEAD 写 old 锚点。",
+    "kevin_scope_override": "Kevin 09-19 追加，比简报第 1 条更窄、以此为准。**已入库**：docs/archive/内核替换_拍板记录.md「同日再续三」（022bd16），原文『关于 AI 交付的问题，拍板 1 你只需要交付普通 AI（启发式），剩下两个不需要迁移』，该条同时写明「§十 拍板 1 收窄定稿：批 2 只交付普通 AI = 启发式（移植进 CellWar.Ai，不求逐决策一致，策略口保留给训练模型）；扁平 MC 与 MCTS 不迁移（留在 GD 侧直到 GD 内核退役，之后由训练模型接）。(a3) 子进程止血与 4bis / 计数器照旧」。⇒ 线 C = 完整的普通 AI（产品 AI，不是陪练桩）+ IPolicy；不留 MC/MCTS 接口占位。线 A / 线 B 不变。",
     "commit_order": [
       "A",
       "B",
@@ -415,7 +415,7 @@ GD 的启发式按 `hash([game.rng.state, pid])` 挑分化种类（`heuristic_br
         "game/scripts/kernel/cw_play_queue.gd",
         "game/tests/headless_test.gd",
         "docs/开发日志.md",
-        "docs/口径二_批2_AI进C#_方案.md"
+        "docs/archive/口径二_批2_AI进C#_方案.md"
       ],
       "items": [
         {
@@ -490,7 +490,7 @@ GD 的启发式按 `hash([game.rng.state, pid])` 挑分化种类（`heuristic_br
       ],
       "docs": [
         "docs/开发日志.md 顶部加一条（联机专家档补预算 + 两个计数器；写明「专家档弱一档」这条对外说法要统一）",
-        "docs/口径二_批2_AI进C#_方案.md §七 / §八 拍板 4bis 与拍板 5 下面各补一行落地记录（改稿、不重写）"
+        "docs/archive/口径二_批2_AI进C#_方案.md §七 / §八 拍板 4bis 与拍板 5 下面各补一行落地记录（改稿、不重写）"
       ]
     },
     {
@@ -509,7 +509,7 @@ GD 的启发式按 `hash([game.rng.state, pid])` 挑分化种类（`heuristic_br
         "game/tests/headless_test.gd",
         "docs/开发日志.md",
         "docs/架构说明书.md §416 AI 小节",
-        "docs/口径二_批2_AI进C#_方案.md §3.1bis"
+        "docs/archive/口径二_批2_AI进C#_方案.md §3.1bis"
       ],
       "entries_to_wrap": [
         "CWMonteCarloBridge.cw_mc_thread_entry —— game/scripts/ai/monte_carlo_bridge.gd:135",
@@ -597,7 +597,7 @@ GD 的启发式按 `hash([game.rng.state, pid])` 挑分化种类（`heuristic_br
       "docs": [
         "docs/开发日志.md 一条（子进程入口落地 + 冷启动实测毫秒）",
         "docs/架构说明书.md §416「AI game/scripts/ai/」补两个新文件与三级回落",
-        "docs/口径二_批2_AI进C#_方案.md §3.1bis 补落地记录 + 把 §九 #6（stdio 还是 TCP）与 #7（短命还是池）各销一条账"
+        "docs/archive/口径二_批2_AI进C#_方案.md §3.1bis 补落地记录 + 把 §九 #6（stdio 还是 TCP）与 #7（短命还是池）各销一条账"
       ],
       "open_risks": [
         "R-B1 导出包里 `--headless --script res://scripts/ai/cw_ai_worker.gd` 能不能跑 —— 仓库零先例，P-B 必须实测（至少在无头 + 一个真导出包上各跑一次）。跑不通就停下来报，不要自己改成 stdio。",
@@ -761,7 +761,7 @@ GD 的启发式按 `hash([game.rng.state, pid])` 挑分化种类（`heuristic_br
           }
         ],
         "suite": [
-          "dotnet test core/CellWar.Core.Tests 全量绿（基线 1013 项，见 docs/口径二_测试迁移规格.md 批 5a 落地记录）",
+          "dotnet test core/CellWar.Core.Tests 全量绿（基线 1013 项，见 docs/archive/口径二_测试迁移规格.md 批 5a 落地记录）",
           "bash tools/run_l0.sh 全绿（Ai 不参与 L0，但 csproj 一动就要重跑）"
         ]
       },
@@ -787,8 +787,8 @@ GD 的启发式按 `hash([game.rng.state, pid])` 挑分化种类（`heuristic_br
       "docs": [
         "docs/开发日志.md 一条（新程序集 + 启发式移植 + 两行 csproj 的理由）",
         "docs/架构说明书.md §236「C# 内核（core/）」加 CellWar.Ai 一节（职责、TFM、InternalsVisibleTo、测试在 Core.Tests/Ai/）",
-        "docs/口径二_批2_AI进C#_方案.md §3.2 / §八 拍板 1·2·3 下补落地记录，并**改一句**：Kevin 09-19 追加口径把交付范围从「地基 + 陪练启发式」收窄成「完整的普通 AI + IPolicy，MC/MCTS 不迁移」",
-        "登记（只写不改）：CellWar.Ai.dll 进热更载荷的清单位置（docs/路线A_内核热更方案.md:136-137 的 build 表）与 ObsRuleset.ai_build 要升 p 这条"
+        "docs/archive/口径二_批2_AI进C#_方案.md §3.2 / §八 拍板 1·2·3 下补落地记录，并**改一句**：Kevin 09-19 追加口径把交付范围从「地基 + 陪练启发式」收窄成「完整的普通 AI + IPolicy，MC/MCTS 不迁移」",
+        "登记（只写不改）：CellWar.Ai.dll 进热更载荷的清单位置（docs/archive/路线A_内核热更方案.md:136-137 的 build 表）与 ObsRuleset.ai_build 要升 p 这条"
       ]
     }
   ],

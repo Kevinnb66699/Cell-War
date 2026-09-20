@@ -23,7 +23,7 @@
 算账要分清**两种边界**，这是本稿第一版算错、修订时纠过来的一条：
 
 - **逐 step 观测穿不过。** 一次全知 envelope 的 encode + 装载中位 **8.5 ms**（`docs/观测协议_v1.md` 附录 D），真对局较强档一次决策要跑 **192 个模拟 step**（`game/scripts/ui/match.gd:872`）。若每个 step 都要一份 envelope，192 × 8.5 ms ≈ **1.6 s / 决策**，而今天同一档实测 **48.7 ~ 52.8 ms**（`docs/archive/架构审查_2026-09-02.md:68`）。⇒ **「进程里没有引擎、靠观测报文推演」（路 (c) 那种形态）差 30 倍，不成立。**
-- **整批 rollout 穿得过。** 仓库里现成的副线程入口 `cw_mc_thread_entry`（`monte_carlo_bridge.gd:135`）与 `cw_mcts_thread_entry`（`mcts_bridge.gd:118`）都是 **static**，入参只有 `(holder, snap, options, cfg, _box)`，`_evaluate_on` 的注释自承「**只依赖 `image`（一份完全自洽的 CWGame）与 cfg**，绝不碰外层 game / 场景树」（`monte_carlo_bridge.gd:164-165`），回一个 `{best: 下标, stats}`（`:224`、`mcts_bridge.gd:228`）。⇒ **一次决策要跨的是一份快照 + 一个整数，不是 192 份 envelope。** 这份快照今天已经在跨机器传了：联机的 `state` 报文就是它（裁过 rng 与他人手牌），实测 **3.3 KB（zstd 后）、`shadow.restore` 0.25 ms**（`docs/内核替换_拍板记录.md:313`、`docs/开发日志.md:170`）。
+- **整批 rollout 穿得过。** 仓库里现成的副线程入口 `cw_mc_thread_entry`（`monte_carlo_bridge.gd:135`）与 `cw_mcts_thread_entry`（`mcts_bridge.gd:118`）都是 **static**，入参只有 `(holder, snap, options, cfg, _box)`，`_evaluate_on` 的注释自承「**只依赖 `image`（一份完全自洽的 CWGame）与 cfg**，绝不碰外层 game / 场景树」（`monte_carlo_bridge.gd:164-165`），回一个 `{best: 下标, stats}`（`:224`、`mcts_bridge.gd:228`）。⇒ **一次决策要跨的是一份快照 + 一个整数，不是 192 份 envelope。** 这份快照今天已经在跨机器传了：联机的 `state` 报文就是它（裁过 rng 与他人手牌），实测 **3.3 KB（zstd 后）、`shadow.restore` 0.25 ms**（`docs/archive/内核替换_拍板记录.md:313`、`docs/开发日志.md:170`）。
 
 **2. 四条路的一句话判词**（(a3) 是修订时补的第四条，比 a1/a2 都便宜）
 
@@ -35,9 +35,9 @@
 | **(c) AI 当决策服务（envelope 进、语义键出）** | 协议层**今天就成立**，但**承载不了推演** | 治（策略在别的进程） | 只能跑「不搜索的策略」；模型本身还不存在；全知档**禁止过网**要先破 |
 
 **3. 推荐（一句话）**：**(a3) 立刻止血、(b) 做地基、(c) 做策略口、(a1/a2) 不做**。
-它们不是四选一 —— (a3) 是一条不改算法、不改协议、**不动平衡标尺**的纯搬运（§3.1bis）；(b) 提供「可分叉的世界 + 合法动作枚举 + 特征」；(c) 提供「策略可替换、可跨语言」的那一个口子。(b)+(c) 拼起来正好是训练模型路线要的形态（拍板记录 §九 #7：「我们在训练 AI 模型」，`docs/内核替换_拍板记录.md:333/:336`）。
+它们不是四选一 —— (a3) 是一条不改算法、不改协议、**不动平衡标尺**的纯搬运（§3.1bis）；(b) 提供「可分叉的世界 + 合法动作枚举 + 特征」；(c) 提供「策略可替换、可跨语言」的那一个口子。(b)+(c) 拼起来正好是训练模型路线要的形态（拍板记录 §九 #7：「我们在训练 AI 模型」，`docs/archive/内核替换_拍板记录.md:333/:336`）。
 
-**4. Kevin 那一次「攻击动画不完整」，AI 已经被排除过了** —— 不是本稿的新发现：`docs/开发日志.md:161`「那局**没有 AI**，『专家档 AI 堵帧』假说作废；代码里房主与远端客户端路径逐字相同」，`docs/内核替换_拍板记录.md:315` 同句。而且诊断线已经走过一轮并被叫停（fx-diag 补丁 build 202609180001 已打、至今 **0 条** `[fx-diag]`，`拍板记录:317/:330`；Kevin「复现不等了、诊断线不再是发版的顾虑」，`拍板记录:338`）。⇒ **要再量，必须换一种不依赖 Kevin 复现的量法**（计数器，§7 / 拍板 5），否则就是把已经叫停的那件事重提一遍。
+**4. Kevin 那一次「攻击动画不完整」，AI 已经被排除过了** —— 不是本稿的新发现：`docs/开发日志.md:161`「那局**没有 AI**，『专家档 AI 堵帧』假说作废；代码里房主与远端客户端路径逐字相同」，`docs/archive/内核替换_拍板记录.md:315` 同句。而且诊断线已经走过一轮并被叫停（fx-diag 补丁 build 202609180001 已打、至今 **0 条** `[fx-diag]`，`拍板记录:317/:330`；Kevin「复现不等了、诊断线不再是发版的顾虑」，`拍板记录:338`）。⇒ **要再量，必须换一种不依赖 Kevin 复现的量法**（计数器，§7 / 拍板 5），否则就是把已经叫停的那件事重提一遍。
 
 ---
 
@@ -59,7 +59,7 @@ CWMCTSBridge              game/scripts/ai/mcts_bridge.gd:27-28     273 行，直
 
 桥与引擎的**唯一**接口是 `bridge.ask(req) -> int`，`req = {kind, pid, prompt, options:[{label, data}], tag?}`，10 种 `kind`（`game/scripts/core/cw_bridge.gd:1-18`）；引擎侧入口 `game.ask(pid, req)`（`game/scripts/core/cw_game.gd:403-410`）。
 
-AI 代码量：`game/scripts/ai/` 共 **1585 行**（`wc -l`，不含 `.uid`）；迁移计划 §四 记的是 1576 行 MC/MCTS/启发式，C# 侧 **0 行**（`docs/内核替换_迁移计划.md:189`）。
+AI 代码量：`game/scripts/ai/` 共 **1585 行**（`wc -l`，不含 `.uid`）；迁移计划 §四 记的是 1576 行 MC/MCTS/启发式，C# 侧 **0 行**（`docs/archive/内核替换_迁移计划.md:189`）。
 
 ⚠ **这 1585 行里有自承的死码，搬迁量要先剔**：`heuristic_bridge.gd:324` 注释原文「（`kind="differentiate"` 那条 `_pick_differentiation` 是死代码 —— **引擎从不发那种询问**，留着没动。）」，函数体在 `:622`、分支在 `:72-73`。同类还有 `:70` 的 `"attack_target"` 分支 —— 引擎侧 `grep -o '"kind": "[a-z_]*"' game/scripts/core/*.gd` 的实际取值里**没有** `attack_target`，`cw_bridge.gd:5-8` 的 10 种 kind 清单里也没有（那 10 种是 `setup_place / immune_revive / revive / action / free_move / pick_cell / pick_tile / pick / chemo_target / effector_target`；同处还写明「UI 自己发起的 `confirm`（裂解净化二次确认）**不经引擎、不是 kind**」）。⇒ **至少两个分支是引擎已不再发的死码，本稿的人日表按「先剔再搬」口径估。**
 
@@ -127,7 +127,7 @@ AI 代码量：`game/scripts/ai/` 共 **1585 行**（`wc -l`，不含 `.uid`）�
 3. `copy.restore(snap)`；
 4. 副本所有席位挂**同一只纯启发式陪练**、`copy.sim_quiet = true`。
 
-快照本体是 `CWStateCodec.snapshot`（`game/scripts/core/cw_state_codec.gd:9-28`）/ `restore`（`:30-59`），字典是 **25 键**：`tiles / board_radius / cells / chemo_track / feed_log / feed_seq / effector_round / players / order / differentiated / flow / pending / round_no / memory / immune_level / winner / win_reason / win_kind / cancer_win_streak / chemo / current_pid / phase / events / rng / tune`（`tiles`/`cells`/`players`/`events` 全部 `duplicate(true)` 深拷）。`docs/内核替换_迁移计划.md:86` 记的同样是 25 键，并且是「`CWMirror` 不收 `flow / pending / rng`」那条的出处。`CWGame.snapshot/restore` 只是薄壳（`cw_game.gd:371-377`）。**`rng.state` 也在快照里**（`cw_state_codec.gd:25`）—— `cw_game.gd:366-367` 明写「少了它，同一步走两遍会掷出不同的骰子，整个推演就没有意义了」。
+快照本体是 `CWStateCodec.snapshot`（`game/scripts/core/cw_state_codec.gd:9-28`）/ `restore`（`:30-59`），字典是 **25 键**：`tiles / board_radius / cells / chemo_track / feed_log / feed_seq / effector_round / players / order / differentiated / flow / pending / round_no / memory / immune_level / winner / win_reason / win_kind / cancer_win_streak / chemo / current_pid / phase / events / rng / tune`（`tiles`/`cells`/`players`/`events` 全部 `duplicate(true)` 深拷）。`docs/archive/内核替换_迁移计划.md:86` 记的同样是 25 键，并且是「`CWMirror` 不收 `flow / pending / rng`」那条的出处。`CWGame.snapshot/restore` 只是薄壳（`cw_game.gd:371-377`）。**`rng.state` 也在快照里**（`cw_state_codec.gd:25`）—— `cw_game.gd:366-367` 明写「少了它，同一步走两遍会掷出不同的骰子，整个推演就没有意义了」。
 
 **快照是可序列化的纯数据**：`tune` 那一项是 `game.tune.rules_state()`，实现就是把 `RULE_FIELDS` 逐个 `get()` 装成字典（`game/scripts/core/cw_tuning.gd:34-38`），`rng` 是一个整数。全字典里没有对象引用，键里的 `Vector2i` 正是 `var_to_bytes` 存在的理由（`cw_net.gd:5-6`：「报文 = 4 字节原长 + `zstd(var_to_bytes(字典))`……因为棋盘键是 Vector2i」）。⇒ **这份快照今天就在跨机器传**，(a3) 不需要发明新的序列化。
 
@@ -145,7 +145,7 @@ AI 代码量：`game/scripts/ai/` 共 **1585 行**（`wc -l`，不含 `.uid`）�
 | `bench_mc` 早/中/晚三局面，无限预算（656 step） | **178.6 / 182.7 / 179.2 ms** | `docs/archive/架构审查_2026-09-02.md:68` |
 | 同上，真对局较强档预算（192 step） | **48.7 / 49.9 / 52.8 ms** | 同上 |
 | 浅层整局（r=1 h=2 budget=24）2/4/6 人 | 2.95 / 2.38 / 2.88 s | 同上 |
-| **联机专家档（无预算闸，Kevin 机器实测）** | **381 ～ 645 ms / 决策** | `docs/内核替换_拍板记录.md:313`、`docs/开发日志.md:170` |
+| **联机专家档（无预算闸，Kevin 机器实测）** | **381 ～ 645 ms / 决策** | `docs/archive/内核替换_拍板记录.md:313`、`docs/开发日志.md:170` |
 | 联机 AI 席历史事故 | **一整个 AI 回合把服务器堵死 8 秒**，客户端心跳超时被判掉线 | `docs/开发日志.md:8630` |
 | 一次全知 envelope（`viewer = -2`） | C# 36 259 ~ 48 108 B；GD 42 961 ~ 52 764 B（gzip 约 3.4~4.1 KB） | `docs/观测协议_v1.md` 附录 D |
 | 一次全知 envelope 的 GD encode + `CWMirror` 装载 | 中位 **8.5 ms**（encode 3.9 / 装载 4.6） | 同上 |
@@ -202,7 +202,7 @@ static func cw_mc_thread_entry(holder, snap, options, cfg, _box) -> void:
 
 1. **评估是零挂起的纯 CPU 协程**。`monte_carlo_bridge.gd:164-165`：「它本身是协程，但只在 image 的桥全为同步启发式时才会一路跑到底（**零真挂起**）」；`mcts_bridge.gd:138` 同。同步路径下它整段占住调用线程，一帧都不让。
 2. **`use_threading` 默认 false**（`monte_carlo_bridge.gd:50`、`mcts_bridge.gd:47`），**只有真对局的 UI 装配拨开**：`match.gd:876-877` `thinking = level != AI_NORMAL and not tutorial`、`bridge.use_threading = level == AI_MC and thinking`；`match.gd:888` 给树搜索桥。⇒ 平衡模拟、无头测试、教程局、**以及联机服务器**全是 false。
-3. **联机服务器单线程、从没开过线程化，而且没有预算闸**。`game/scripts/net/cw_net_server.gd:9-12`：「单线程的代价：AI 席决策期间本进程不轮询网络」，两条对策是让一帧（`cw_net_bridge.gd:26` → `cw_net_server.gd:80-83`）与 `STALL_FORGIVE_MS = 1000` 的超时豁免（`cw_net_server.gd:42`）。`cw_net_bridge.gd:16` 建的 `mc` 既没设 `use_threading = true`、**也没设 `max_sim_steps`**（默认 `0 = 无上限`，`monte_carlo_bridge.gd:32`）⇒ **专家档 AI 席在服务器主线程同步推演、且是无预算档：每决策 180 ms 量级起，Kevin 机器上实测到 645 ms**（`docs/内核替换_拍板记录.md:313`、`docs/开发日志.md:170`），历史上堵死过 8 秒（`docs/开发日志.md:8630`）。`docs/开发日志.md:2186` 记着「服务器代码处处假定单线程（AI 席让帧靠 `SceneTree.process_frame`），搬线程等于重写那一层」。
+3. **联机服务器单线程、从没开过线程化，而且没有预算闸**。`game/scripts/net/cw_net_server.gd:9-12`：「单线程的代价：AI 席决策期间本进程不轮询网络」，两条对策是让一帧（`cw_net_bridge.gd:26` → `cw_net_server.gd:80-83`）与 `STALL_FORGIVE_MS = 1000` 的超时豁免（`cw_net_server.gd:42`）。`cw_net_bridge.gd:16` 建的 `mc` 既没设 `use_threading = true`、**也没设 `max_sim_steps`**（默认 `0 = 无上限`，`monte_carlo_bridge.gd:32`）⇒ **专家档 AI 席在服务器主线程同步推演、且是无预算档：每决策 180 ms 量级起，Kevin 机器上实测到 645 ms**（`docs/archive/内核替换_拍板记录.md:313`、`docs/开发日志.md:170`），历史上堵死过 8 秒（`docs/开发日志.md:8630`）。`docs/开发日志.md:2186` 记着「服务器代码处处假定单线程（AI 席让帧靠 `SceneTree.process_frame`），搬线程等于重写那一层」。
    ⇒ **这里有两个独立的旋钮**：给联机 `mc` 补一个 `max_sim_steps`（≈ 3.5 倍提速，0.5 人日，不动架构），与把评估挪出主线程（线程 = 与 :2186 那句冲突；子进程 = (a3)）。
 4. **局域网开房时服务器与客户端同进程同线程**（`online_panel.gd:390` / `:218`）⇒ 服务器侧任何同步段都直接表现为**房主客户端掉帧**。
 5. **网页版必然同步**（路 3）。
@@ -216,13 +216,13 @@ static func cw_mc_thread_entry(holder, snap, options, cfg, _box) -> void:
 
 ⇒ 主线程被堵那段时间条目积压，解堵后一批 ≥ 24 条 → 队列自动快进 → **有时长的攻击演出被吞掉一半**。症状与 Kevin 的判断吻合。**（代码推演，未跑真机验证。）**
 
-另一条独立的截断规则：`attack_fx.gd:play` 用新一段顶掉同细胞旧一段（间隔 < 0.66 s），且「联机比本地容易撞是因为服务器 AI 没有本地那 220 ms 的每步停顿」（`docs/内核替换_拍板记录.md:313`）。
+另一条独立的截断规则：`attack_fx.gd:play` 用新一段顶掉同细胞旧一段（间隔 < 0.66 s），且「联机比本地容易撞是因为服务器 AI 没有本地那 220 ms 的每步停顿」（`docs/archive/内核替换_拍板记录.md:313`）。
 
 ### 1.7 顺手抓到的三处不一致
 
 **(1) `CWKernelInProc` 漏调 `attach_engine` ⇒ 树搜索档真对局必崩 —— 已确认，已随本稿修掉。**
 
-规格要求 `CWKernelInProc.open()` 里写 `if d.has_method("attach_engine"): d.attach_engine(game)`（`docs/口径二_批1_原子切规格.md:374-389`，A-5.3），`ui_bridge.gd:167-173` 的文档注释也照这么写（「`CWKernelInProc.open()` 对每个 decider 试调这个鸭子方法」），且它的实现同时喂 `game` 和 `mcts.game`。**但批 1 步 6+8 把 `match.gd` 的 `bridge.game = game` 换成「只挂不喂」（`match.gd:884`）时，`CWKernelInProc` 这一侧漏了转调** —— `open` 与 `set_decider` 都是无条件的 `d.game = game`，`match.gd:884` 那句注释因此落空。
+规格要求 `CWKernelInProc.open()` 里写 `if d.has_method("attach_engine"): d.attach_engine(game)`（`docs/archive/口径二_批1_原子切规格.md:374-389`，A-5.3），`ui_bridge.gd:167-173` 的文档注释也照这么写（「`CWKernelInProc.open()` 对每个 decider 试调这个鸭子方法」），且它的实现同时喂 `game` 和 `mcts.game`。**但批 1 步 6+8 把 `match.gd` 的 `bridge.game = game` 换成「只挂不喂」（`match.gd:884`）时，`CWKernelInProc` 这一侧漏了转调** —— `open` 与 `set_decider` 都是无条件的 `d.game = game`，`match.gd:884` 那句注释因此落空。
 
 **崩点**（`CWMCTSBridge.enabled` 默认 **true**，`mcts_bridge.gd:45`，所以顶层 `action` 询问一定进 `_mcts_pick`）：`ui_bridge.gd:194` 转给 `mcts.ask(req)` → `mcts_bridge.gd:63-66` 放行 → `_mcts_pick`（`:69`）**第一句碰 game 的是 `:71` 的 `var snap := game.snapshot()`**（`:70` 只读 `req["pid"]`，不碰 game），`game` 恒 `null`，当场崩。
 
@@ -280,28 +280,28 @@ MC 与 MCTS 是它。真对局较强档一次决策 **192 个模拟 step**（`ma
 
 **通信协议**：两种子形态，差别很大。
 
-- **a1 · 复用现有 `bot` 通道**（网络报文 + **按席位裁剪过的** `view`）。改动最小。⚠ 但 `CWNet.view_for` **不是全量快照**：`rng` 置 0、他人手牌换 `HIDDEN_CARD`、他人 `pending.options` 清空（`cw_net.gd:317-330`，详见 §1.7(3)）⇒ **a1 天生带一个保真度缺口**，启发式读不到对手真手牌。而且这块正是批 1 规格判了死刑的欠账：「机器人客户端旁路与 `CWNet.view_for` / `view_for_watcher` **批 2 AI 进 C# 之后整块删**」（`docs/口径二_批1_原子切规格.md:301-305` 与 `:804`）。⇒ **选 a1 = 把这笔欠账续期 + 继承那个缺口，并且要写进拍板记录。**
-- **a2 · 改走 envelope（观测协议 v1）**。**对启发式档成立、对 MC/MCTS 不成立**，真正的障碍是 **`CWMirror` 不是一个可 `step()` 的 `CWGame`** —— 它的清单里 `flow / pending / tune` 不进（`docs/内核替换_迁移计划.md:86`），而 `_build_image_static` 要 `snap["order"] / ["players"] / ["tune"]["cancer_types"]` 再 `copy.restore(snap)` 才造得出世界（§1.3）。⇒ **造不出能推演的 `CWGame`。** 要让 a2 支持 MC，就得新开一条「给 AI 的全量状态报文」—— 那正是 a1 的老 `view` 换个名字。
+- **a1 · 复用现有 `bot` 通道**（网络报文 + **按席位裁剪过的** `view`）。改动最小。⚠ 但 `CWNet.view_for` **不是全量快照**：`rng` 置 0、他人手牌换 `HIDDEN_CARD`、他人 `pending.options` 清空（`cw_net.gd:317-330`，详见 §1.7(3)）⇒ **a1 天生带一个保真度缺口**，启发式读不到对手真手牌。而且这块正是批 1 规格判了死刑的欠账：「机器人客户端旁路与 `CWNet.view_for` / `view_for_watcher` **批 2 AI 进 C# 之后整块删**」（`docs/archive/口径二_批1_原子切规格.md:301-305` 与 `:804`）。⇒ **选 a1 = 把这笔欠账续期 + 继承那个缺口，并且要写进拍板记录。**
+- **a2 · 改走 envelope（观测协议 v1）**。**对启发式档成立、对 MC/MCTS 不成立**，真正的障碍是 **`CWMirror` 不是一个可 `step()` 的 `CWGame`** —— 它的清单里 `flow / pending / tune` 不进（`docs/archive/内核替换_迁移计划.md:86`），而 `_build_image_static` 要 `snap["order"] / ["players"] / ["tune"]["cancer_types"]` 再 `copy.restore(snap)` 才造得出世界（§1.3）。⇒ **造不出能推演的 `CWGame`。** 要让 a2 支持 MC，就得新开一条「给 AI 的全量状态报文」—— 那正是 a1 的老 `view` 换个名字。
   > 脚注：envelope 里没有 rng（附录 C 明写）这一点**不是**障碍。MC 本来就不该用真骰子 —— `_playout_seed` 从快照的 rng 状态派生（`monte_carlo_bridge.gd:231-240`），`view_for` 里 rng 恒 0 反而无害。本稿第一版把分界理由压在 rng 上，是错的；分界线是「能不能重建一个可 `step()` 的 `CWGame`」。
 
 **rng 与可复现性**：子进程里的 GD 引擎自带 rng，与权威侧无关；推演用 `_playout_seed` 派生（`monte_carlo_bridge.gd:239-240`），这一条今天就是对的。
-**但**：权威侧一旦换成 C#，两边 RNG 是两个算法（Godot 内建 PCG vs `Xoshiro256StarStar`），「同种子整局对拍」**结构上不可能**（`docs/内核替换_迁移计划.md:262-272`，§五）。⇒ **AI 会按 GD 规则想、按 C# 规则走**。这不是 bug，但它是 (a) 的最大隐性代价，且随 GD/C# 规则差异收敛而缩小、**永远不为零**。
+**但**：权威侧一旦换成 C#，两边 RNG 是两个算法（Godot 内建 PCG vs `Xoshiro256StarStar`），「同种子整局对拍」**结构上不可能**（`docs/archive/内核替换_迁移计划.md:262-272`，§五）。⇒ **AI 会按 GD 规则想、按 C# 规则走**。这不是 bug，但它是 (a) 的最大隐性代价，且随 GD/C# 规则差异收敛而缩小、**永远不为零**。
 
 **对三条产品路的影响**：
 
 - **本地单机 / 热座 / 教程 —— a1/a2 要多起一个 loopback 服务器；(a3) 不用。** 单机没有服务器（`match.gd:508-511` 直接 `CWKernelInProc.open()`，全在客户端进程），a1/a2 靠的是**网络报文**，所以在单机上得先把单机跑成联机（多一层协议 + 多一个进程）。
   ⚠ **本稿第一版在这里写成「(a) 在本地单机不成立」，那是错的**，并且是对 (a) 评价最重的一句：单机时 `CWGame` 就在客户端进程里，要喂子进程只需 `game.snapshot()` —— **和今天喂副线程的数据一模一样**（§1.5），不需要任何服务器、任何网络报文。把「子进程」默认等同于「联机」是第一版的推理错误。⇒ 这一条只对 a1/a2 成立，**对 (a3) 不成立**。
-- **联机 —— 最自然。** 服务器本来就是 Godot（§六 拍板 1 已定「Godot 服务器保留 + sidecar 内核」，`docs/内核替换_迁移计划.md:277`），AI 子进程与服务器同机走 loopback，当场治 §1.6 第 3 条。
-- **网页版 —— 无影响。** 网页版连服务器（拍板 1，`docs/内核替换_拍板记录.md:14`），网页人机局的 AI 本来就在服务器上（`docs/内核替换_迁移计划.md:240-241`）。
+- **联机 —— 最自然。** 服务器本来就是 Godot（§六 拍板 1 已定「Godot 服务器保留 + sidecar 内核」，`docs/archive/内核替换_迁移计划.md:277`），AI 子进程与服务器同机走 loopback，当场治 §1.6 第 3 条。
+- **网页版 —— 无影响。** 网页版连服务器（拍板 1，`docs/archive/内核替换_拍板记录.md:14`），网页人机局的 AI 本来就在服务器上（`docs/archive/内核替换_迁移计划.md:240-241`）。
 
 **与 C# 内核 / sidecar 的关系**：正交，**且重复**。AI 子进程不是 sidecar，它是第二个 Godot。桌面一局要跑**三个进程**（客户端 Godot + C# sidecar + AI Godot），两套握手、两套版本闸、两套崩溃语义。
 
-**⚠ 与已有拍板冲突**：a1/a2 要求**永远保留一份长驻 GD 引擎**（AI 的推演世界，而且要跟着权威侧同步）。而 §六 拍板 2（2026-09-18）是「**不留 GD 内核，教程到时候用 C# 写**」（`docs/内核替换_迁移计划.md:277`），§七 还给 GD 内核写了退役准入（`:328-336`）。⇒ **选 a1/a2 就意味着 GD 内核永远退不了役**，除非明确只是过渡、并写死期限。（(a3) 的子进程是一次性的、不跟权威侧同步，冲突程度低得多 —— 见 §3.1bis 末段。）
+**⚠ 与已有拍板冲突**：a1/a2 要求**永远保留一份长驻 GD 引擎**（AI 的推演世界，而且要跟着权威侧同步）。而 §六 拍板 2（2026-09-18）是「**不留 GD 内核，教程到时候用 C# 写**」（`docs/archive/内核替换_迁移计划.md:277`），§七 还给 GD 内核写了退役准入（`:328-336`）。⇒ **选 a1/a2 就意味着 GD 内核永远退不了役**，除非明确只是过渡、并写死期限。（(a3) 的子进程是一次性的、不跟权威侧同步，冲突程度低得多 —— 见 §3.1bis 末段。）
 
 **与训练模型路线的兼容**：**最短**。`docs/RL策略架构设计.md` §5.1 明写「**采样端运行无头 Godot，多进程并行对局**；Python 侧负责模型、批量推理、轨迹处理和优化」，§5.2 要求「新增决策桥，在每次询问上输出观测和候选」—— 那与 (a) 的子进程是同一件事。
 
 **硬前置**：
-- a1：AI 版本自报出口（P-5）；子进程生命周期（起/停/超时/崩溃，且**崩溃绝不能计进 `patch_state.gd:82` 的 STRIKES**，同 `docs/口径二_批0_底座规格.md` A-3.3 硬不变量②的精神）；联机席位表要认「外部 bot 占席」（掉线保席 / 投降投票 / 重连令牌都在 `cw_room.gd` 那 500 行里）。
+- a1：AI 版本自报出口（P-5）；子进程生命周期（起/停/超时/崩溃，且**崩溃绝不能计进 `patch_state.gd:82` 的 STRIKES**，同 `docs/archive/口径二_批0_底座规格.md` A-3.3 硬不变量②的精神）；联机席位表要认「外部 bot 占席」（掉线保席 / 投降投票 / 重连令牌都在 `cw_room.gd` 那 500 行里）。
 - a2 另加：一条「给 AI 的全量状态报文」（新报文，升 `p`）。
 
 **人日（纯编码，不含 triage / 平衡重标定）**：
@@ -329,7 +329,7 @@ MC 与 MCTS 是它。真对局较强档一次决策 **192 个模拟 step**（`ma
 - **联机**：`cw_net_bridge.gd:16` 那只 `mc` 换成子进程即可。§1.6 第 3 条（服务器主线程同步推演）当场消失，且**不碰 `docs/开发日志.md:2186` 说的「服务器代码处处假定单线程」那一层** —— 因为主线程仍然是单线程，它只是在 `await tree.process_frame` 上等（与今天 `cw_net_bridge.gd:26` → `cw_net_server.gd:80-83` 的让帧是同一套）。局域网房主同进程的那条路（`online_panel.gd:390`）一并治好。
 - **网页版**：**不治，但也不退化。** 浏览器里起不了子进程，(a3) 必须保留今天的三级回落 —— 子进程 → 线程 → 同步（今天是 `if not OS.has_feature("threads"): return await _eval_sync(...)`，`monte_carlo_bridge.gd:111-112` / `mcts_bridge.gd:101-102`）。⇒ 网页版仍是 `monte_carlo_bridge.gd:110` 那句「单线程的必然」。
 
-**与 C# 内核 / sidecar 的关系**：**正交，且不制造第二个长驻内核。** 子进程是一次性的推演器，不是权威侧，不需要握手、不需要版本闸对齐规则（它用的就是宿主发来的快照）。⚠ 但**权威侧一旦换成 C#**，(a3) 与 (a1)/(a2) 一样要面对「AI 按 GD 规则想、按 C# 规则走」（`docs/内核替换_迁移计划.md:262-272`，两边 RNG 是两个算法）。⇒ **(a3) 是止血，不是终局。**
+**与 C# 内核 / sidecar 的关系**：**正交，且不制造第二个长驻内核。** 子进程是一次性的推演器，不是权威侧，不需要握手、不需要版本闸对齐规则（它用的就是宿主发来的快照）。⚠ 但**权威侧一旦换成 C#**，(a3) 与 (a1)/(a2) 一样要面对「AI 按 GD 规则想、按 C# 规则走」（`docs/archive/内核替换_迁移计划.md:262-272`，两边 RNG 是两个算法）。⇒ **(a3) 是止血，不是终局。**
 
 **与训练模型路线的兼容**：**中性。** 它不推进也不阻碍 —— RL 稿 §5.1 的「无头 Godot 多进程并行采样」与 (a3) 起的是同一种进程，子进程入口这套脚手架可以复用。
 
@@ -339,7 +339,7 @@ MC 与 MCTS 是它。真对局较强档一次决策 **192 个模拟 step**（`ma
 2. **子进程怎么起？—— 仓库里今天零先例，这是 (a3) 唯一真正的新代码。** 全仓 `OS.create_process` / `OS.execute` **一次都没用过**；唯一提到它的是 sidecar stub 的计划注释（`game/scripts/kernel/cw_kernel_sidecar.gd:3`：「真正的实现在 sidecar 那一批：`OS.create_process` 起 `CellWar.Sidecar`、loopback + token……」）。⇒ **建议与 sidecar 共用同一套进程生命周期代码**（起 / 停 / 超时 / 崩溃 / 退出码），别写两份。
 3. **通信走 stdio 还是本地 TCP？⇒ 建议本地 TCP（loopback + token），理由有三条**：① 报文编解码**现成**——`CWNet.encode/decode` 就是「4 字节原长 + zstd(var_to_bytes)」（`cw_net.gd:5-6`、`:249`、`:267`），能直接吃带 `Vector2i` 键的快照，走 stdio + JSON 反而要新写一套 Vector2i 编码；② sidecar 那一批计划的就是 loopback + token（`cw_kernel_sidecar.gd:3`），共用一套；③ 宿主侧的轮询形状与今天的 `while not ready: await tree.process_frame` 完全一致。
    ⚠ **待核（引擎 API，不是仓库事实）**：Godot 4.5 的 `OS.create_process` 只回 PID、不给管道；带管道的是 `OS.execute_with_pipe`。走 stdio 前必须先确认后者在无头导出包上可用 —— **本稿不替这条下结论**。
-4. **网页版怎么办？—— 不做，回落到今天的路径。** 见上「对三条产品路的影响」。⇒ (a3) 必须写成**三级回落**，不能假定子进程一定起得来（这也是 sidecar 的硬纪律：起不来绝不能计进 `patch_state.gd` 的 STRIKES，`docs/口径二_批0_底座规格.md` A-3.3 硬不变量②）。
+4. **网页版怎么办？—— 不做，回落到今天的路径。** 见上「对三条产品路的影响」。⇒ (a3) 必须写成**三级回落**，不能假定子进程一定起得来（这也是 sidecar 的硬纪律：起不来绝不能计进 `patch_state.gd` 的 STRIKES，`docs/archive/口径二_批0_底座规格.md` A-3.3 硬不变量②）。
 
 **人日（纯编码，不含 triage / 平衡重标定）**：
 | 项 | 人日 |
@@ -356,7 +356,7 @@ MC 与 MCTS 是它。真对局较强档一次决策 **192 个模拟 step**（`ma
 
 ### 3.2 路 (b)：AI 重写进 C#，住 C# 内核同一进程（迁移计划原案）
 
-**进程边界**：**不新增进程**。AI 住在已经规划好的那个内核进程里 —— 桌面是 sidecar（拍板 1：「桌面本地 sidecar，网页版连服务器」，`docs/内核替换_拍板记录.md:14`），联机是服务器旁的 sidecar（§六 拍板 1 (a)）。
+**进程边界**：**不新增进程**。AI 住在已经规划好的那个内核进程里 —— 桌面是 sidecar（拍板 1：「桌面本地 sidecar，网页版连服务器」，`docs/archive/内核替换_拍板记录.md:14`），联机是服务器旁的 sidecar（§六 拍板 1 (a)）。
 ⇒ **对客户端渲染进程而言，AI 已经「迁出去」了。** Kevin 要的那件事由 (b) 天然满足，代价是要等 sidecar。
 
 **通信协议**：**跨进程不新增报文**。AI 与内核在同一进程、同一份 `WorldState` 上，直接吃：
@@ -369,7 +369,7 @@ MC 与 MCTS 是它。真对局较强档一次决策 **192 个模拟 step**（`ma
 
 `Runtime.Fork()` 把 `rngPrototype.Fork()` 传给新 Runtime（`Runtime.cs:179-188`），**但构造函数只在 `lease.Snapshot.Simulation.Rng == null` 时才写入**（`Runtime.cs:44-49`）。分叉出来的快照里 `Rng` **非空**，于是每步 `rng.SetState(before.Rng!.Value)`（`:94-95`）用的是**真实流** ⇒ **AI 的推演会掷出与主线完全相同的骰子**。
 
-`Runtime.cs:84-93` 的注释自己把这条写在第三位：「③ **AI 推演不能用真实 rng 状态，否则 AI 提前看到自己要掷的骰子** —— GDScript 侧 2026-09-01 修过同一个 bug（`monte_carlo_bridge` 的 `_playout_seed`）」。拍板记录 §五 #4 也写着「权威内核必须能控制随机源，**AI 一进来它就从『不阻塞』变成阻塞**」（`docs/内核替换_拍板记录.md:211`）。
+`Runtime.cs:84-93` 的注释自己把这条写在第三位：「③ **AI 推演不能用真实 rng 状态，否则 AI 提前看到自己要掷的骰子** —— GDScript 侧 2026-09-01 修过同一个 bug（`monte_carlo_bridge` 的 `_playout_seed`）」。拍板记录 §五 #4 也写着「权威内核必须能控制随机源，**AI 一进来它就从『不阻塞』变成阻塞**」（`docs/archive/内核替换_拍板记录.md:211`）。
 
 ⇒ **P-1 必修，且今天零成本**（加一个 `Fork(RngState derived)` 或 `WithRng(...)`）。
 
@@ -380,7 +380,7 @@ MC 与 MCTS 是它。真对局较强档一次决策 **192 个模拟 step**（`ma
 - **联机**：服务器是 Godot，AI 在 C# 里 ⇒ 每次决策穿一次 sidecar 边界。但**推演在 sidecar 内部**，边界只穿「问 / 答」两句话 ⇒ 便宜。AI 算力从 Godot 服务器主线程搬到 sidecar 进程，§1.6 第 3 条当场消失。
 - **网页版**：连服务器，同联机；`monte_carlo_bridge.gd:110` 那句「标签页会卡住」随之作废。
 
-**与 C# 内核 / sidecar 的关系**：**硬依赖**。`CWKernelSidecar` 今天是 **stub**：`open()` 恒失败 → `UNAVAILABLE` + `SPAWN_FAILED`，批 0 只交付一份线协议附录、不写实现（`docs/口径二_批0_底座规格.md` A-3.5）。本仓 `find . -name "*.csproj"` 只有 `core/CellWar.Core` 与 `core/CellWar.Core.Tests`，**`CellWar.Sidecar` / `CellWar.Ai` 目前只在文档里**（`docs/路线A_内核热更方案.md:115` / `:275`）。⇒ **(b) 的落地时间 = sidecar 落地时间 + AI 本体。**
+**与 C# 内核 / sidecar 的关系**：**硬依赖**。`CWKernelSidecar` 今天是 **stub**：`open()` 恒失败 → `UNAVAILABLE` + `SPAWN_FAILED`，批 0 只交付一份线协议附录、不写实现（`docs/archive/口径二_批0_底座规格.md` A-3.5）。本仓 `find . -name "*.csproj"` 只有 `core/CellWar.Core` 与 `core/CellWar.Core.Tests`，**`CellWar.Sidecar` / `CellWar.Ai` 目前只在文档里**（`docs/archive/路线A_内核热更方案.md:115` / `:275`）。⇒ **(b) 的落地时间 = sidecar 落地时间 + AI 本体。**
 
 **与训练模型路线的兼容**：**中等，且要改一版设计稿**。(b) 给训练的是「合法动作枚举 + 观测特征 + O(1) 可分叉世界」—— 正是 RL 采样端要的东西，而且比 GD 的深拷快。但 `docs/RL策略架构设计.md` §5.1 写的是「无头 Godot 采样端」，换成 C# 采样端要重写那一节（⇒ 判断：不难，吞吐反而更好，但**得有人认领改稿**）。
 (b) 本身**不产出**神经网络，它产出的是网络能插进去的那些口子。
@@ -421,12 +421,12 @@ MC 与 MCTS 是它。真对局较强档一次决策 **192 个模拟 step**（`ma
 **⚠ 致命限制：这条通道承载不了推演。** 一次全量 envelope C# 36~48 KB、GD 侧 encode + 装载中位 **8.5 ms**（附录 D），较强档一次决策 192 个模拟 step ⇒ **192 × 8.5 ms ≈ 1.6 s / 决策**。附录 D 自己给的结论是「按『每次问人之前一份』**绰绰有余**；按『每帧一份』**不行**」。
 ⇒ **(c) 只能跑「不搜索的策略」**：启发式（它只读当前局面，`heuristic_bridge.gd:3-4`），以及**训练出来的神经网络策略**（一次前向、不搜索）。要搜索，推演必须留在内核侧，外部只回一个键。
 
-**rng 与可复现性**：决策服务**不需要 rng，也不该有** —— 它是纯函数 `(观测, 候选) → 键`。可复现性完全落在内核侧，这与 §五「L2 同种子整局对拍不可能」的结论一致（`docs/内核替换_迁移计划.md:262-272`）：**外部策略不该依赖复现引擎的随机流**。
+**rng 与可复现性**：决策服务**不需要 rng，也不该有** —— 它是纯函数 `(观测, 候选) → 键`。可复现性完全落在内核侧，这与 §五「L2 同种子整局对拍不可能」的结论一致（`docs/archive/内核替换_迁移计划.md:262-272`）：**外部策略不该依赖复现引擎的随机流**。
 ⚠ **一条要拍的细节**：如果网络按 softmax 采样出招，采样本身就是随机。要么温度 0 贪心（完全确定），要么**把采样种子当报文字段由内核下发**（可复现，但要升 `p`）。今天没有任何一份文档写过这条。
 
 **对三条产品路的影响**：
-- **本地单机**：桌面要跑一个本地推理服务（pytorch / ONNX Runtime）⇒ 分发变重。**权重不进 pck 是已拍的铁律②**（`docs/内核替换_迁移计划.md:316-320`，按 `game/scripts/ai/cw_leaf_value_nn.gd:12-14` 的设计走本地常驻服务；「要下发权重另立项，且必须先回答『权重版本怎么和规则版本绑』」）。⇒ 桌面要么接受多一个重进程，要么单机档只用不带网络的 AI。
-- **联机**：服务器旁一个推理进程，**多局共享一次 batch** ⇒ 算力最省。也顺带缓解 §三 那条「每个网页人机局在服务器上占一份 AI 算力」（`docs/内核替换_迁移计划.md:240-241`）。
+- **本地单机**：桌面要跑一个本地推理服务（pytorch / ONNX Runtime）⇒ 分发变重。**权重不进 pck 是已拍的铁律②**（`docs/archive/内核替换_迁移计划.md:316-320`，按 `game/scripts/ai/cw_leaf_value_nn.gd:12-14` 的设计走本地常驻服务；「要下发权重另立项，且必须先回答『权重版本怎么和规则版本绑』」）。⇒ 桌面要么接受多一个重进程，要么单机档只用不带网络的 AI。
+- **联机**：服务器旁一个推理进程，**多局共享一次 batch** ⇒ 算力最省。也顺带缓解 §三 那条「每个网页人机局在服务器上占一份 AI 算力」（`docs/archive/内核替换_迁移计划.md:240-241`）。
 - **网页版**：连服务器 ⇒ 天然可用。**而且这是网页版唯一能用上强 AI 又不卡标签页的路**（`monte_carlo_bridge.gd:110` 那句「单线程的必然」对不搜索的策略不成立）。
 
 **与 C# 内核 / sidecar 的关系**：**正交且互补**。sidecar 提供世界与枚举，(c) 提供策略。(c) 不阻塞 sidecar，sidecar 也不阻塞 (c)。
@@ -468,14 +468,14 @@ MC 与 MCTS 是它。真对局较强档一次决策 **192 个模拟 step**（`ma
 > **(a3) 的硬前置不在本节，在 §3.1bis**（四条：快照可序列化 ✅ 已成立 / 子进程怎么起 ⚠ 零先例 / stdio 还是本地 TCP ⚠ 待核引擎 API / 网页版回落 ✅ 照今天）。它**不依赖本节任何一条 P** —— 这正是它能立刻开工的原因。
 
 **P-1 [b] `Runtime.Fork()` 要能派生 rng —— ★ 第一必修，今天零成本**
-分叉出来的推演用的是真实 rng 流（`core/CellWar.Core/Runtime.cs:44-49` + `:94-95` + `:179-188`），AI 会提前看到自己的骰子。GD 侧 2026-09-01 修过同一个 bug（`monte_carlo_bridge.gd:231-240`），`Runtime.cs:84-93` 的注释自己写着这条。迁移计划把它排在热更载荷之前：「AI 的真正前置不是热更载荷，是 `Runtime.cs` 的 rng 注入」（`docs/内核替换_迁移计划.md:322-324`）。
+分叉出来的推演用的是真实 rng 流（`core/CellWar.Core/Runtime.cs:44-49` + `:94-95` + `:179-188`），AI 会提前看到自己的骰子。GD 侧 2026-09-01 修过同一个 bug（`monte_carlo_bridge.gd:231-240`），`Runtime.cs:84-93` 的注释自己写着这条。迁移计划把它排在热更载荷之前：「AI 的真正前置不是热更载荷，是 `Runtime.cs` 的 rng 注入」（`docs/archive/内核替换_迁移计划.md:322-324`）。
 **建议实现口径**：照 GD 抄 —— `derived = hash([snapshot.Rng, playoutIndex])`，不要沿用真状态、也不要算术偏移（`monte_carlo_bridge.gd:236-238` 解释过为什么用 `hash`：LCG 的「状态+常数」两条流在头几个数上有结构性相关）。
 
 **P-2 [b] `MatchSession` 要能注入 rng**
 两个 public 构造与 `Restore` 都写死 `new Xoshiro256StarStar(...)`（`core/CellWar.Core/MatchSession.cs:122-136`、`:291-298`），`CheckpointCodec.cs:104` 还用它校验 checkpoint 的 rng 形状。⇒ 「注入随机源」只在 `Runtime` 构造那一层有效，走 `MatchSession` 的消费者（sidecar / 服务器 / AI）拿不到。拍板记录 §五 #4 只修到一半。
 
 **P-3 [b] 纯查询 RPC = 对拍 L0 的 P2 四条（已完成一半）**
-迁移计划 §二「两笔省」第 2 条：「**AI 要的纯查询 RPC ≈ 对拍 L0 的 P2 四条**（`ProliferateChance` / `ErosionCandidates` / `PressureLoss` / `RootedTargets`），同一批函数」（`docs/内核替换_迁移计划.md:114-115`）。现状：
+迁移计划 §二「两笔省」第 2 条：「**AI 要的纯查询 RPC ≈ 对拍 L0 的 P2 四条**（`ProliferateChance` / `ErosionCandidates` / `PressureLoss` / `RootedTargets`），同一批函数」（`docs/archive/内核替换_迁移计划.md:114-115`）。现状：
 
 | 函数 | C# 状态 |
 |---|---|
@@ -490,10 +490,10 @@ MC 与 MCTS 是它。真对局较强档一次决策 **192 个模拟 step**（`ma
 **门面是 public 的**：`IRulesEngine`（`IRulesEngine.cs:7`，含 `GetAvailableDecisions` `:31`）、`BasicRulesEngine`（含 `SolidFraction:11` / `StoreFraction:14` / `QuoteMove:21` / `GetAvailableDecisions:36`）、`GameRulesEngine` / `WorldState` / `MatchSession` / `MatchSetup` / `SemanticKey` / `Settlement` / `WorldEffects` / `CardCatalog` / `SeatFilter` 全是 public 类。
 **读不到的是规则域里的那几条**：`RulePolicies:16` / `BoardRules:11` / `CellRules:24` / `CardRules:16` / `SkillRules:12` / `PhaseRules:11` / `PlacementRules:10` / `OutcomeRules:9` / `Stage:14` / `DecisionRouter:10` **全部 `internal static class`**；`core/CellWar.Core/CellWar.Core.csproj:10` 只对 `CellWar.Core.Tests` 开 `InternalsVisibleTo`。⚠ 注意 `PressureAt`（`RulePolicies.cs:562`）与 `ProliferateChance`（`:590`）**方法本身是 public，但类是 internal**，外部照样读不到。
 ⇒ **准确的判词**：门面（`BasicRulesEngine` 的四个方法 + `QuoteMove` / `SolidFraction` / `StoreFraction`）外部可读；**P-3 要的那四条纯查询，以及 09-19 四个具名入口里的三个（`RulePolicies.AnaerobicPool:496` / `SplitShare:515` / `CellRules.MoveLegal:365`），住在 internal 类里，一个独立的 `CellWar.Ai` 程序集一条都读不到**（只有 `Settlement.SettleLoss:145` 在 public 类里）。
-三选一不变：AI 进同一程序集 / 加 `InternalsVisibleTo("CellWar.Ai")` / 做一层 public 查询门面。**这是铁律①「AI 与 Core 永远同包同 build」在代码层的具体含义**（`docs/内核替换_迁移计划.md:316-320`），要一起拍（§8 第 3 条）。
+三选一不变：AI 进同一程序集 / 加 `InternalsVisibleTo("CellWar.Ai")` / 做一层 public 查询门面。**这是铁律①「AI 与 Core 永远同包同 build」在代码层的具体含义**（`docs/archive/内核替换_迁移计划.md:316-320`），要一起拍（§8 第 3 条）。
 
 **P-5 [全] AI 版本自报出口 `ai_build`**
-铁律③：「宿主要有一个自报 AI 版本的出口，否则探针没有判据（探针多读一个 `AiBuild`）」（`docs/内核替换_迁移计划.md:316-320`）。今天不存在：`MatchSession.Version()` 只给 `{host_abi, rules_build, digest}` 三项（`core/CellWar.Core/MatchSession.cs:283`；`ObsRuleset` 在 `Observation/ObservationV1.cs:15`，常量 `HostAbi = 1` / `RulesBuild = "core-slice-1+b0"` 在 `Observation/ObservationV1Codec.cs:18-19`）。GD 侧只有 `CWHeuristicBridge.AI_VERSION = "v11"`（`heuristic_bridge.gd:36`）与 `balance_scan` 的 `version_tag()`。
+铁律③：「宿主要有一个自报 AI 版本的出口，否则探针没有判据（探针多读一个 `AiBuild`）」（`docs/archive/内核替换_迁移计划.md:316-320`）。今天不存在：`MatchSession.Version()` 只给 `{host_abi, rules_build, digest}` 三项（`core/CellWar.Core/MatchSession.cs:283`；`ObsRuleset` 在 `Observation/ObservationV1.cs:15`，常量 `HostAbi = 1` / `RulesBuild = "core-slice-1+b0"` 在 `Observation/ObservationV1Codec.cs:18-19`）。GD 侧只有 `CWHeuristicBridge.AI_VERSION = "v11"`（`heuristic_bridge.gd:36`）与 `balance_scan` 的 `version_tag()`。
 ⚠ 加字段**必须升 `p`**：「字段增删改名 / 类型或单位变化一律升 `p`，消费者 `p` 不等即拒收（硬错，不静默兼容）；改协议要同一提交改 `cw_obs_proto.gd` + `ObservationV1.cs` + 两侧测试」（`docs/观测协议_v1.md` §九）。
 并附一句已写进迁移计划的话：「**AI 版本号一改，所有用它量出来的平衡数字随之作废**」（`:322-324`）。
 
@@ -501,18 +501,18 @@ MC 与 MCTS 是它。真对局较强档一次决策 **192 个模拟 step**（`ma
 GD 句柄侧今天是**空槽**：`game/scripts/kernel/cw_kernel.gd:188-190` 返回 `null`，三个实现的 `caps().rollout` **全是 false**（`cw_kernel.gd:76` / `cw_kernel_inproc.gd:131` / `cw_kernel_remote.gd:62` / `cw_kernel_sidecar.gd:22`）。批 0 底座规格 A-3.3 依据表原文：「**两份草案都漏**；批 0 只占槽 + caps 位，**政策归 AI 批**」。⇒ **就是本批要填的那一格**：谁能 fork、fork 出来的句柄能不能再 fork、`caps.rollout` 在三个实现上各是什么。
 
 **P-7 [b] 推演吞吐的真成本不是 AI 的算力，是每步重算一次全量选项表**
-`RuleFlow.Continue` **无条件**调 `rules.GetAvailableDecisions(state, ActivePlayerSeat)`（`core/CellWar.Core/RuleHandlers.cs:55-61`），而 `DecisionRouter.Available` 是 cells × tiles 的穷举 + 逐条 `Validate`（移动、分化、13 类带目标卡、六种种类技能各自摊开，`core/CellWar.Core/DecisionRouter.cs:182-373`）。迁移计划 §〇 记着「**每决策分配 298.6 KB**」的结构性证据（`docs/内核替换_迁移计划.md:45-48`）。
+`RuleFlow.Continue` **无条件**调 `rules.GetAvailableDecisions(state, ActivePlayerSeat)`（`core/CellWar.Core/RuleHandlers.cs:55-61`），而 `DecisionRouter.Available` 是 cells × tiles 的穷举 + 逐条 `Validate`（移动、分化、13 类带目标卡、六种种类技能各自摊开，`core/CellWar.Core/DecisionRouter.cs:182-373`）。迁移计划 §〇 记着「**每决策分配 298.6 KB**」的结构性证据（`docs/archive/内核替换_迁移计划.md:45-48`）。
 ⇒ **建议在 (b) 动手前先量一次**：C# 侧 **78 个测试文件**里**没有一个 Stopwatch / Benchmark**（`find core/CellWar.Core.Tests -name "*.cs" -not -path '*/bin/*' -not -path '*/obj/*'` = 78；源码侧 `core/CellWar.Core` 同口径 48 个。零 Stopwatch 是同口径 grep 的结果，`bin/` 下的 DLL 命中不算），而迁移计划 §〇 判定两路性能实测互相矛盾（C# 慢 34% vs 快 2~3 倍）「**两条都不能用**」。⇒ **今天本仓没有任何证据支持「C# AI 会快多少」。** 先补一个 `bench` 对照 `game/tests/bench_mc.gd` 的三个局面，否则 (b) 的工期与档位旋钮都是拍脑袋。
 
-**P-8 [全] 同包同 build 三条铁律（已拍板，`docs/内核替换_迁移计划.md:316-320`）**
+**P-8 [全] 同包同 build 三条铁律（已拍板，`docs/archive/内核替换_迁移计划.md:316-320`）**
 ① **AI 与 Core 永远同包同 build**，并配**正向自测**（造一个只含 `ai.dll` 的假清单跑闸、断言退出码 ——「不配正向自测的新闸就是白写」）；
 ② **神经网络权重不进 pck**，走本地常驻服务；要下发权重另立项，且必须先回答「权重版本怎么和规则版本绑」；
 ③ 宿主要有自报 AI 版本的出口（= P-5）。
 
 **P-9 [全] 平衡标尺的处置 —— 这一条最容易被漏**
-今天的护栏是 `t_ai_same_hash`：同种子 4 人 / 6 人全 AI 局、三档 AI 各一遍（`heur4 / heur6 / mc4 / mc6 / mcts4 / mcts6`，`game/tests/ai_baseline_case.gd` 的 `CASES`），`winner` / `round_no` / 整局 `state_hash` 与改动前**逐位相同**；基线在提交 `15ff402` 上录、400 步封顶（`MAX_STEPS`），存 `game/tests/baseline/ai_same_hash.json`（`docs/口径二_批1_原子切规格.md:559` 与 `:680`）。**这是「AI 动了但标尺没动」的唯一硬证据。**
+今天的护栏是 `t_ai_same_hash`：同种子 4 人 / 6 人全 AI 局、三档 AI 各一遍（`heur4 / heur6 / mc4 / mc6 / mcts4 / mcts6`，`game/tests/ai_baseline_case.gd` 的 `CASES`），`winner` / `round_no` / 整局 `state_hash` 与改动前**逐位相同**；基线在提交 `15ff402` 上录、400 步封顶（`MAX_STEPS`），存 `game/tests/baseline/ai_same_hash.json`（`docs/archive/口径二_批1_原子切规格.md:559` 与 `:680`）。**这是「AI 动了但标尺没动」的唯一硬证据。**
 ⚠ **限定一条**：它钉的是 AI **桥**的行为，**不含装配路径** —— `make_bridge` 自己写 `tree_ai.game = g` / `b.game = g`（`ai_baseline_case.gd:37`、`:44`），绕开 `CWKernelInProc.open`，所以 §1.7(1) 那个装配 bug 它一次都没抓到（现由新测试 `t_kernel_attach_engine` 补上）。
-⚠ **而且它跨不了语言**：§五已经判定「同种子整局对拍结构上不可能」，两边 RNG 是两个算法（`docs/内核替换_迁移计划.md:262-272`）。⇒ **AI 一旦进 C#，`t_ai_same_hash` 就失去参照物，平衡标尺只能靠重新测量**。这要在拍板时讲明（§8 第 2 条）。**唯独 (a3) 不触发这条** —— 它跑的是同一段 GD 代码、同一份快照，`best` 逐位不变（§3.1bis）。
+⚠ **而且它跨不了语言**：§五已经判定「同种子整局对拍结构上不可能」，两边 RNG 是两个算法（`docs/archive/内核替换_迁移计划.md:262-272`）。⇒ **AI 一旦进 C#，`t_ai_same_hash` 就失去参照物，平衡标尺只能靠重新测量**。这要在拍板时讲明（§8 第 2 条）。**唯独 (a3) 不触发这条** —— 它跑的是同一段 GD 代码、同一份快照，`best` 逐位不变（§3.1bis）。
 同时要认一笔账：**平衡测量工具全在 GD 侧、且全部直接 `new` AI 桥 + `CWGame`**。同口径 grep（`grep -rln "CWHeuristicBridge|CWMonteCarloBridge|CWMCTSBridge|CWEval" game/`）**42 条命中里，去掉 13 条 `game/android/build/assets/` 副本、2 条 `.godot` 缓存，剩 27 个源码文件，其中 15 个在 `game/tests/`**：`ai_baseline_case.gd`、`balance_scan.gd`、`bench_mc.gd`、`collect_eval_data.gd`、`dump_game.gd`、`fx_recorder.gd`、`headless_test.gd`、`kernel_probe_bridge.gd`、`net_live.gd`、`net_play.gd`、`play.gd`、`slow_fx_bridge.gd`、`archive/balance_sim.gd`、`archive/balance_variants.gd`、`archive/demo_revive_block.gd`。
 `game/tests/` 之外的 12 个是：`game/scripts/ai/` 八个（`cw_eval` / `cw_leaf_value` / `cw_leaf_value_classic` / `cw_leaf_value_nn` / `heuristic_bridge` / `monte_carlo_bridge` / `mcts_bridge` / `mcts_value_bridge`）+ `scripts/core/cw_data.gd` + `scripts/net/cw_net_bridge.gd` + `scripts/ui/match.gd` + `scripts/ui/ui_bridge.gd`。
 ⇒ **AI 进 C# = 这 15 个工具要么改、要么留在 GD 侧对着一个已经不用的 AI 跑。** 这是「AI 进 C# 的隐藏账单」，数字按上面的口径数，别再数出别的数。
@@ -534,7 +534,7 @@ GD 句柄侧今天是**空槽**：`game/scripts/kernel/cw_kernel.gd:188-190` 返
 | **全知档 `-2` 的过网政策**（新开「AI 档」裁剪，或改 §七 的表） | **(c)**（P-10） | §七 `:303` 今天写的是 ✘ **禁止过网**。新开一档 ⇒ 改 `docs/观测协议_v1.md` §七 + 两侧 `SeatFilter` / `cw_obs_proto.gd` + 升 `p` |
 | 「给 AI 的全量状态报文」（含 `rng`） | **(a2)** | `CWMirror` 不收 `flow/pending/tune`（`迁移计划:86`）⇒ 造不出可 `step()` 的 `CWGame`，要么新开一条，要么就是 a1 的老 `view`（rng 那条不是障碍，见 §3.1 脚注） |
 | **（无）** | **(a3)** | **(a3) 零新增报文、零升 `p`** —— 传的是 `CWStateCodec.snapshot()` 本体，走 `CWNet.encode/decode` 那套现成编码（`cw_net.gd:249`/`:267`），不进联机协议、不进观测协议 |
-| `CWNet` 的 `bot` 旁路（`view` / `turn` / `logs`） | **(a1)** | **不是新增，是不删**。批 1 规格要求「批 2 AI 进 C# 之后整块删」（`docs/口径二_批1_原子切规格.md:301-305` / `:804`）⇒ 选 a1 要显式把它改成「保留」，并写进拍板记录 |
+| `CWNet` 的 `bot` 旁路（`view` / `turn` / `logs`） | **(a1)** | **不是新增，是不删**。批 1 规格要求「批 2 AI 进 C# 之后整块删」（`docs/archive/口径二_批1_原子切规格.md:301-305` / `:804`）⇒ 选 a1 要显式把它改成「保留」，并写进拍板记录 |
 
 ---
 
@@ -562,18 +562,18 @@ GD 句柄侧今天是**空槽**：`game/scripts/kernel/cw_kernel.gd:188-190` 返
 
 **(b) 阻塞多，但阻塞的都是本来就要做的。** P-1/P-2 是拍板记录 §五 #4 的欠账，P-3 是对拍 L0 的 P2 四条（迁移计划 §二已经算过「做一次算两笔」的账，`:114-115`），P-5 是铁律③。⇒ **(b) 的前置不是额外开销，是把已欠的账还了。** 真正的阻塞是 **sidecar 本体**（今天 stub）。
 
-**(a1/a2) 会新增一笔欠账。** `bot` 旁路与 `CWNet.view_for` / `view_for_watcher` 本来判了批 2 整块删（`docs/口径二_批1_原子切规格.md:301-305` / `:804`），选 a1 等于续期；同时它要求永远留一份长驻 GD 引擎，与 §六 拍板 2（「不留 GD 内核」）冲突。**(a3) 两笔都不欠** —— 它不碰 `bot` 旁路，子进程也不是长驻内核。
+**(a1/a2) 会新增一笔欠账。** `bot` 旁路与 `CWNet.view_for` / `view_for_watcher` 本来判了批 2 整块删（`docs/archive/口径二_批1_原子切规格.md:301-305` / `:804`），选 a1 等于续期；同时它要求永远留一份长驻 GD 引擎，与 §六 拍板 2（「不留 GD 内核」）冲突。**(a3) 两笔都不欠** —— 它不碰 `bot` 旁路，子进程也不是长驻内核。
 
 ---
 
 ## 七、止血：Kevin 那一次「攻击动画不完整」
 
-> **入库的原话**（`docs/内核替换_拍板记录.md:338` = `docs/开发日志.md:86`）：「没有攻击动画不完整的问题，**大概率是线程阻塞，到时候把 AI 迁出去就好了**」。
+> **入库的原话**（`docs/archive/内核替换_拍板记录.md:338` = `docs/开发日志.md:86`）：「没有攻击动画不完整的问题，**大概率是线程阻塞，到时候把 AI 迁出去就好了**」。
 > **未入库**：「我开的是局域网房，但是没有放 AI，把 AI 思考单开一个进程吧」—— 这句是**口头转述（09-19，未入库）**。本稿第一版给它挂了 `拍板记录:338` + `开发日志:78` 两个出处，**两个都不成立**（`grep -rn '局域网房' --include=*.md .` 只命中 `拍板记录:313/:315` 与 `开发日志:110/:161/:170`，没有一条是这句）。按本稿自己定的规矩「没有出处的句子是判断，不是事实」，这里改标口头。
 
 **先认三件已经入库的事，不要当成新发现**：
 
-1. **那一局没有 AI 席 ⇒ 「AI 堵帧」假说 09-19 早前一轮就作废了。** `docs/开发日志.md:161`：「局域网房主看不到攻击动画：**那局没有 AI**，『专家档 AI 堵帧』假说作废；**代码里房主与远端客户端路径逐字相同**」；`docs/内核替换_拍板记录.md:315` 同句。⇒ 「把 AI 迁出去」会消掉**最大的一个**积压源（历史上堵死过 8 秒，`docs/开发日志.md:8630`），但**治不了他当天看到的那一次**。
+1. **那一局没有 AI 席 ⇒ 「AI 堵帧」假说 09-19 早前一轮就作废了。** `docs/开发日志.md:161`：「局域网房主看不到攻击动画：**那局没有 AI**，『专家档 AI 堵帧』假说作废；**代码里房主与远端客户端路径逐字相同**」；`docs/archive/内核替换_拍板记录.md:315` 同句。⇒ 「把 AI 迁出去」会消掉**最大的一个**积压源（历史上堵死过 8 秒，`docs/开发日志.md:8630`），但**治不了他当天看到的那一次**。
 2. **诊断补丁已经打过，而且没跑出数据。** `拍板记录:317`：fx-diag 补丁 build 202609180001 已上线（从 `a2fa59a` 另起分支 `diag-fx-0919`，只加 `[fx-diag]` print）；`:330`：「现在 **0 条 `[fx-diag]`**：带诊断的客户端还没跑过」。
 3. **Kevin 已经叫停过一次。** `拍板记录:338`：「fx-diag 复现**不等了**、诊断线**不再是发版的顾虑**」。
 
@@ -587,7 +587,7 @@ GD 句柄侧今天是**空槽**：`game/scripts/kernel/cw_kernel.gd:188-190` 返
 | 观众 envelope 已按日志游标分档共用（正常一局只有一档） | 已优化 | `cw_room.gd:665-681` |
 | `game.state_hash()` 每次 push 一次 | 未量 | `cw_room.gd:664` |
 | 演出队列积压快进阈值 | `hurry_backlog := 24` | `game/scripts/kernel/cw_play_queue.gd:28`、`:50`、`:113-118` |
-| `attack_fx.gd:play` 同细胞新段顶掉旧段（间隔 < 0.66 s） | 独立截断规则 | `docs/内核替换_拍板记录.md:313` |
+| `attack_fx.gd:play` 同细胞新段顶掉旧段（间隔 < 0.66 s） | 独立截断规则 | `docs/archive/内核替换_拍板记录.md:313` |
 
 **建议（按性价比排，都不需要等批 2）**：
 
@@ -595,7 +595,7 @@ GD 句柄侧今天是**空槽**：`game/scripts/kernel/cw_kernel.gd:188-190` 返
 2. **换一种量法（约 0.5 人日）—— 不是 fx-diag，是计数器。** 在 `cw_room.push_state`（`game/scripts/net/cw_room.gd:662`）记「本次 push 的毫秒数」与「`game.state_hash()` 单独的毫秒数」（`:665`），在 `CWPlayQueue.pump`（`game/scripts/kernel/cw_play_queue.gd:38`）记「触发快进那一刻的 `batch.size()`」（`:50`）。
    **为什么这次拿得到上次拿不到的数**：fx-diag 是**客户端**的 print，要 Kevin 装上带诊断的包、打一局、复现、把日志发回来 —— 这三步一步都没发生（`拍板记录:330`，0 条）。而这两个计数器打在**服务器 / 房主侧**，**我们自己跑的无头联机测试**（`game/tests/net_play.gd` / `net_live.gd`）与任何一局局域网房都会写出来，**不依赖 Kevin 复现，也不需要再发一版诊断补丁**。
    ⇒ 一局下来就能分清是 envelope（41 ms/次）、是 `state_hash`、还是别的。**没有这个数，改什么都是猜。**
-3. **把 `hurry_backlog` 从「条数」改成「条数 + 已积压时长」二选一**，或者对 `fx` 单独豁免快进。**这一条直接对着症状**，与 AI 住哪无关。⚠ 但它会改变拍板 2 定下的播放形态（「有时长的演出播完再放下一条」，`docs/内核替换_拍板记录.md:315`）⇒ 要 Kevin 点头。
+3. **把 `hurry_backlog` 从「条数」改成「条数 + 已积压时长」二选一**，或者对 `fx` 单独豁免快进。**这一条直接对着症状**，与 AI 住哪无关。⚠ 但它会改变拍板 2 定下的播放形态（「有时长的演出播完再放下一条」，`docs/archive/内核替换_拍板记录.md:315`）⇒ 要 Kevin 点头。
 4. **联机专家档 AI 席挪出主线程。** 两种做法：
    - **开 `use_threading`（约 1 人日 + 验证）**：技术上可行 —— `_threaded_eval` 只要求 `Engine.get_main_loop() as SceneTree`（`monte_carlo_bridge.gd:117-120`），而无头服务器正是 `SceneTree` 子类、`_process` 里 `server.poll()`（`game/server/server_main.gd:59-61`），局域网房主也有 SceneTree。⚠ **但撞 `docs/开发日志.md:2186`**「服务器代码处处假定单线程（AI 席让帧靠 `SceneTree.process_frame`），搬线程等于重写那一层」。
    - **换成子进程 = (a3)（3~5 人日）**：主线程仍然单线程，只是在 `await tree.process_frame` 上等，**不碰 :2186 说的那一层**。⇒ **推荐这条**，理由见 §3.1bis。
@@ -610,16 +610,16 @@ GD 句柄侧今天是**空槽**：`game/scripts/kernel/cw_kernel.gd:188-190` 返
 - **(B)** 先只交付**地基**（可分叉世界 + 合法动作枚举 + 特征 + 陪练用的启发式），**策略留一个可替换的口子**；MCTS 与「更强的档」等模型。
 
 **推荐 (B)，但要认清它的性质：(B) = 收窄拍板 7 的交付范围，需要 Kevin 明确重拍。**
-⚠ **不能把 (B) 说成「与已拍的一致」。** 拍板 7 白纸黑字是「**重写成 C#**，后续接神经网络模型」（`docs/内核替换_拍板记录.md:21`）；而 §九 #7 的「启发式 v4 去留不重要，AI 走训练模型路线」（`:333`、原话 `:336`）说的是**启发式的下一版升级**不重要，**不等于现有启发式不用搬**。
+⚠ **不能把 (B) 说成「与已拍的一致」。** 拍板 7 白纸黑字是「**重写成 C#**，后续接神经网络模型」（`docs/archive/内核替换_拍板记录.md:21`）；而 §九 #7 的「启发式 v4 去留不重要，AI 走训练模型路线」（`:333`、原话 `:336`）说的是**启发式的下一版升级**不重要，**不等于现有启发式不用搬**。
 支持 (B) 的理由：训练路线最终要的是那个策略口（RL 稿 §3），不是一份 C# 启发式；先搬地基能让 (b) 与 (c) 两条同时往前走；而且 1585 行里已有自承死码要先剔（§1.1）。
-另：这一条在批 0 里有登记在案的版本 —— `docs/口径二_批0_底座规格.md:691` 第 7 条「**本地 AI 归 GDScript 还是进 sidecar**……**它决定 GD 内核能不能退役**」，与本条和拍板 4 是同一件事的两个面，建议一起答。
+另：这一条在批 0 里有登记在案的版本 —— `docs/archive/口径二_批0_底座规格.md:691` 第 7 条「**本地 AI 归 GDScript 还是进 sidecar**……**它决定 GD 内核能不能退役**」，与本条和拍板 4 是同一件事的两个面，建议一起答。
 
 ### 拍板 2 · C# 的 AI 要不要保证与 GD 的 AI 逐决策一致？
 
 - **(A)** 要：C# 启发式与 GD 启发式同局面同答案，平衡标尺不用重标定。
 - **(B)** 不要：接受**重新测量**，AI 版本号一并升。
 
-**推荐 (B)。** 理由：§五 已经判定「同种子整局对拍结构上不可能」（两边 RNG 是两个算法，`docs/内核替换_迁移计划.md:262-272`），`t_ai_same_hash` 跨不了语言；硬要逐决策一致，等于把 798 行里每一个 tie-break 都写成规格条款。**代价要认**：所有用今天 AI 量出来的平衡数字随之作废（`:322-324` 已写明），4 人 / 6 人的基线要重跑。
+**推荐 (B)。** 理由：§五 已经判定「同种子整局对拍结构上不可能」（两边 RNG 是两个算法，`docs/archive/内核替换_迁移计划.md:262-272`），`t_ai_same_hash` 跨不了语言；硬要逐决策一致，等于把 798 行里每一个 tie-break 都写成规格条款。**代价要认**：所有用今天 AI 量出来的平衡数字随之作废（`:322-324` 已写明），4 人 / 6 人的基线要重跑。
 
 ### 拍板 3 · `CellWar.Ai` 怎么读 Core 的 internal？
 
@@ -628,8 +628,8 @@ GD 句柄侧今天是**空槽**：`game/scripts/kernel/cw_kernel.gd:188-190` 返
 - **(C)** 给 AI 做一层 public 查询门面。
 
 **推荐 (B)。**
-⚠ **先说 (A) 的问题**：`docs/内核替换_迁移计划.md:294-295` 第 6 条「**`CellWar.Ai` 进不进热更载荷？—— 已拍板：进**」，`:278` 的 09-18 拍板表第 6 条「进（已拍过）」，`docs/开发日志.md:435` 同。**载荷里独立发一份 `CellWar.Ai.dll`，就意味着它是独立程序集** ⇒ 把 (A) 当开放选项摆上来，等于让 Kevin 在不知情的情况下推翻自己。本稿把它降级为「不建议」。
-**(B) 的理由**：铁律①「AI 与 Core 永远同包同 build」（`docs/内核替换_迁移计划.md:316-320`）说的是**同一次发版载荷**、不是同一个程序集，**(B) 才是这条铁律的字面实现**；internal 边界本来也不构成隔离；而 (C) 是第二份 API 表面，规则一改要改两处 —— 何况启发式还要 `_toxin_targets` 这种私有方法（`heuristic_bridge.gd:160`），门面会越开越大。
+⚠ **先说 (A) 的问题**：`docs/archive/内核替换_迁移计划.md:294-295` 第 6 条「**`CellWar.Ai` 进不进热更载荷？—— 已拍板：进**」，`:278` 的 09-18 拍板表第 6 条「进（已拍过）」，`docs/开发日志.md:435` 同。**载荷里独立发一份 `CellWar.Ai.dll`，就意味着它是独立程序集** ⇒ 把 (A) 当开放选项摆上来，等于让 Kevin 在不知情的情况下推翻自己。本稿把它降级为「不建议」。
+**(B) 的理由**：铁律①「AI 与 Core 永远同包同 build」（`docs/archive/内核替换_迁移计划.md:316-320`）说的是**同一次发版载荷**、不是同一个程序集，**(B) 才是这条铁律的字面实现**；internal 边界本来也不构成隔离；而 (C) 是第二份 API 表面，规则一改要改两处 —— 何况启发式还要 `_toxin_targets` 这种私有方法（`heuristic_bridge.gd:160`），门面会越开越大。
 
 ### 拍板 4 · 「AI 单开一个进程」落在哪个进程？
 
@@ -642,9 +642,9 @@ GD 句柄侧今天是**空槽**：`game/scripts/kernel/cw_kernel.gd:188-190` 返
 理由：
 - **(a3) 是四条里唯一「立刻能做、不动平衡标尺、三条产品路一起治」的**（§3.1bis）—— 它把今天已经是纯数据边界的 `Thread` 换成子进程，AI 算法一行不动、零新增报文、`t_ai_same_hash` 不用重录。**它不等 sidecar、不等批 2。**
 - **终局仍是 (A)**：桌面已经要起 sidecar（拍板 1），再多一个长驻进程就要多一套握手 / 版本闸 / 崩溃语义；而**推演必须贴着一份规则引擎跑，跨出去逐 step 取观测就穿不动**（192 step × 8.5 ms ≈ 1.6 s/决策，附录 D）。
-- **(C) 不建议**：a1/a2 要 6~9（+5~8 才治单机）人日，比 (a3) 贵一倍，还要把 `bot` 旁路欠账续期（`docs/口径二_批1_原子切规格.md:301-305` / `:804` 判了批 2 整块删）并继承 `view_for` 的保真度缺口（§1.7(3)）。
+- **(C) 不建议**：a1/a2 要 6~9（+5~8 才治单机）人日，比 (a3) 贵一倍，还要把 `bot` 旁路欠账续期（`docs/archive/口径二_批1_原子切规格.md:301-305` / `:804` 判了批 2 整块删）并继承 `view_for` 的保真度缺口（§1.7(3)）。
 ⚠ 若仍选 (C)，**必须同时写明**：① 期限；② `bot` 旁路从「批 2 删」改成「过渡期保留」；③ 它在本地单机上要额外起一个 loopback 服务器。
-⚠ 若选 (D)，**要接受一条**：(a3) 是止血不是终局 —— 权威侧换成 C# 之后，GD AI 仍然「按 GD 规则想、按 C# 规则走」（`docs/内核替换_迁移计划.md:262-272`）。
+⚠ 若选 (D)，**要接受一条**：(a3) 是止血不是终局 —— 权威侧换成 C# 之后，GD AI 仍然「按 GD 规则想、按 C# 规则走」（`docs/archive/内核替换_迁移计划.md:262-272`）。
 
 ### 拍板 4bis · 联机专家档要不要立刻补一个 `max_sim_steps`？（0.5 人日，独立于上面所有条）
 
@@ -655,7 +655,7 @@ GD 句柄侧今天是**空槽**：`game/scripts/kernel/cw_kernel.gd:188-190` 返
 
 ### 拍板 5 · Kevin 那一次「攻击动画不完整」要不要单独止血？
 
-> **前史（必须先摆出来，否则这条会被当场驳回）**：① 「那局没有 AI ⇒ AI 堵帧假说作废」**不是新发现**，`docs/开发日志.md:161` 与 `docs/内核替换_拍板记录.md:315` 早写下了，同处还记着「代码里房主与远端客户端路径逐字相同」；② **诊断已经打过一轮并被叫停** —— fx-diag 补丁 build 202609180001 已上线（`拍板记录:317`）、至今 **0 条 `[fx-diag]`**（`:330`）、Kevin「复现不等了、诊断线不再是发版的顾虑」（`:338`）。
+> **前史（必须先摆出来，否则这条会被当场驳回）**：① 「那局没有 AI ⇒ AI 堵帧假说作废」**不是新发现**，`docs/开发日志.md:161` 与 `docs/archive/内核替换_拍板记录.md:315` 早写下了，同处还记着「代码里房主与远端客户端路径逐字相同」；② **诊断已经打过一轮并被叫停** —— fx-diag 补丁 build 202609180001 已上线（`拍板记录:317`）、至今 **0 条 `[fx-diag]`**（`:330`）、Kevin「复现不等了、诊断线不再是发版的顾虑」（`:338`）。
 
 - **(A)** 不单独做，等批 2/3 一起（= 09-19 §八 ② 的现状）。
 - **(B)** **换一种量法**：**不是** fx-diag（已打、没跑出数据、Kevin 已叫停），而是在 `cw_room.push_state`（`cw_room.gd:662`，含 `state_hash()` `:665` 单独计时）与 `CWPlayQueue.pump`（`cw_play_queue.gd:38`，记触发快进时的 `batch.size()`，`:50`）各埋一个计数器，约 0.5 人日。
@@ -671,7 +671,7 @@ GD 句柄侧今天是**空槽**：`game/scripts/kernel/cw_kernel.gd:188-190` 返
 
 1. **第四档 `CWMCTSValueBridge` 怎么处置？** 它今天是未接线的 23 行（§1.1）。接上 / 删掉 / 随批 2 一起搬，要有人认领。
 2. **C# 侧的 AI 性能没有任何本仓证据。** 78 个测试文件里零 Stopwatch；迁移计划 §〇 判定两路实测互相矛盾、「两条都不能用」。**(b) 动手前建议先补一个对照 `bench_mc.gd` 三局面的基准**（P-7）。
-3. **权重版本怎么和规则版本绑？** 铁律②明写「要下发权重另立项，且**必须先回答**」这个问题（`docs/内核替换_迁移计划.md:316-320`）。本稿没有答案。
+3. **权重版本怎么和规则版本绑？** 铁律②明写「要下发权重另立项，且**必须先回答**」这个问题（`docs/archive/内核替换_迁移计划.md:316-320`）。本稿没有答案。
 4. **策略若按 softmax 采样，采样的可复现性归谁？** 今天没有任何一份文档写过（§5 表末行）。
 5. **GD 侧那 15 个用 AI 桥的平衡 / 测试工具怎么办？**（P-9）搬、改、还是留在 GD 侧对着一个停用的 AI 跑 —— 这笔账本稿只记，没有排。
 6. **(a3) 的子进程通信走 stdio 还是本地 TCP，取决于一条本稿没核的引擎 API**：Godot 4.5 的 `OS.create_process` 只回 PID、不给管道，带管道的是 `OS.execute_with_pipe` —— **它在无头导出包上可不可用，要实测**（§3.1bis 硬前置 ③）。本稿倾向本地 TCP（编解码现成、与 sidecar 共用），但没有替这条下结论。
@@ -696,10 +696,10 @@ GD 句柄侧今天是**空槽**：`game/scripts/kernel/cw_kernel.gd:188-190` 返
 `core/CellWar.Core/Runtime.cs:18-19/44-49/84-95/179-188` · `MatchSession.cs:22-27/122-136/143-297` · `ISession.cs:5-22` · `IRulesEngine.cs:28-31` · `BasicRulesEngine.cs:8-36` · `IRuntime.cs:62-68` · `InMemoryStateStore.cs:92` · `RulePolicies.cs:16/496/515/556-575/585-612` · `BoardRules.cs:11/259-294/369-383` · `CellRules.cs:365` · `DecisionRouter.cs:10/182-373` · `RuleHandlers.cs:55-61` · `SemanticKey.cs:1-31` · `CheckpointCodec.cs:104` · `Observation/ObservationV1.cs:15/28/45/60` · `Observation/ObservationV1Codec.cs:18-19` · `Observation/SeatFilter.cs:18-27` · `CellWar.Core.csproj:10`
 
 **文档**
-`docs/内核替换_拍板记录.md:14`（十条拍板表）`:21`（决策 7「重写成 C#，后续接神经网络模型」）`:167-169`（浮点收窄的第 3 条理由）`:189/:194`（§四 体量）`:211`（§五 #4 rng）`:295`（§八 标题 = 2026-09-19）`:313`（专家档 381~645 ms / state 3.3 KB / restore 0.25 ms）`:315`（播放形态 2 + **那一局没有 AI**）`:317`（fx-diag 补丁 202609180001 已打）`:328/:330`（发版挂起 / **0 条 [fx-diag]**）`:333/:336`（§九 启发式 v4 不重要）`:338`（**Kevin 叫停 fx-diag**）
-`docs/内核替换_迁移计划.md:45-48`（§〇 性能两路矛盾）`:86`（**CWMirror 25 键 / 不收 flow·pending·tune**）`:95/:100`（§二 批次图）`:114-115`（两笔省）`:132`（ai 84 站点）`:189`（C# 侧 AI 0 行）`:198-199`（可以先不动的两条）`:240-241`（网页 AI 在服务器）`:262-272`（§五 L2 不可能）`:277/:278`（§六 09-18 全部拍完 + 第 6 条「进（已拍过）」）`:294-295`（第 6 条 `CellWar.Ai` 进热更载荷 **已拍板：进**）`:316-324`（三条铁律 + 顺序）`:328-336`（§七 退役准入）`:404-413`（§八 工期口径，**33~70 = 全工程下界**，与本稿 §3.2 冲突）
-`docs/口径二_批0_底座规格.md` A-3.3（`fork_for_rollout` 占槽 / 硬不变量②）、A-3.5 + `:452`（sidecar stub / 硬纪律）、`:691`（**待拍第 7 条：本地 AI 归 GDScript 还是进 sidecar；它决定 GD 内核能不能退役**）
-`docs/口径二_批1_原子切规格.md:46`（ai 零改动）`:301-305`/`:804`（bot 旁路批 2 删）`:374-389`（A-5.3 attach_engine）`:559`/`:680`（t_ai_same_hash）`:706`（结构闸白名单）`:756-766`（E-2 拍板 a）
+`docs/archive/内核替换_拍板记录.md:14`（十条拍板表）`:21`（决策 7「重写成 C#，后续接神经网络模型」）`:167-169`（浮点收窄的第 3 条理由）`:189/:194`（§四 体量）`:211`（§五 #4 rng）`:295`（§八 标题 = 2026-09-19）`:313`（专家档 381~645 ms / state 3.3 KB / restore 0.25 ms）`:315`（播放形态 2 + **那一局没有 AI**）`:317`（fx-diag 补丁 202609180001 已打）`:328/:330`（发版挂起 / **0 条 [fx-diag]**）`:333/:336`（§九 启发式 v4 不重要）`:338`（**Kevin 叫停 fx-diag**）
+`docs/archive/内核替换_迁移计划.md:45-48`（§〇 性能两路矛盾）`:86`（**CWMirror 25 键 / 不收 flow·pending·tune**）`:95/:100`（§二 批次图）`:114-115`（两笔省）`:132`（ai 84 站点）`:189`（C# 侧 AI 0 行）`:198-199`（可以先不动的两条）`:240-241`（网页 AI 在服务器）`:262-272`（§五 L2 不可能）`:277/:278`（§六 09-18 全部拍完 + 第 6 条「进（已拍过）」）`:294-295`（第 6 条 `CellWar.Ai` 进热更载荷 **已拍板：进**）`:316-324`（三条铁律 + 顺序）`:328-336`（§七 退役准入）`:404-413`（§八 工期口径，**33~70 = 全工程下界**，与本稿 §3.2 冲突）
+`docs/archive/口径二_批0_底座规格.md` A-3.3（`fork_for_rollout` 占槽 / 硬不变量②）、A-3.5 + `:452`（sidecar stub / 硬纪律）、`:691`（**待拍第 7 条：本地 AI 归 GDScript 还是进 sidecar；它决定 GD 内核能不能退役**）
+`docs/archive/口径二_批1_原子切规格.md:46`（ai 零改动）`:301-305`/`:804`（bot 旁路批 2 删）`:374-389`（A-5.3 attach_engine）`:559`/`:680`（t_ai_same_hash）`:706`（结构闸白名单）`:756-766`（E-2 拍板 a）
 `docs/观测协议_v1.md:37`（viewer 字段注释「-2 全知（禁止过网）」）、§5.3（四条查询式）、**§七 `:297-309`（三档裁剪；`:303` 全知档「过网？」= ✘ 禁止；`:309` InProc 默认 -2）**、§九（版本纪律）、附录 C（sidecar 线协议 / op 清单 / 没有 rng）、附录 D（体积与耗时实测）
 `docs/网页导出.md:48`（**`thread_support=false` 的稳定出处**）`:73`
 `docs/架构说明书.md:143-165/241/340-372/409-421` · `docs/RL策略架构设计.md:1-40`（§1~§2）、§3、§5.1-5.3、§7、§7.1-7.2 · `docs/archive/架构审查_2026-09-02.md:68`

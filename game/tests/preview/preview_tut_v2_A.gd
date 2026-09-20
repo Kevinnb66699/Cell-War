@@ -3,7 +3,7 @@ extends SceneTree
 ##
 ## Kevin 2026-09-19：「把之前教程的 UI 等设计全部删掉，基于脚本从 0 构建一个全新的新手教程」。
 ## 这一份只回答「长什么样」，不接流程 / 关卡数据 / 内核，不碰 `scripts/**`。
-## 剧本是 `Cell_War_新手引导PRD_hxr.md`（09-18 版），逐帧说明见 `docs/新手引导v2_方向A.md`。
+## 剧本是 `Cell_War_新手引导PRD_hxr.md`（09-18 版），逐帧说明见 `docs/archive/新手引导v2_方向A.md`。
 ##
 ## 方向 A 的一句话：**台词贴着细胞说，控件提示贴着控件长，屏幕中央永远留给棋盘。**
 ##   · 台词 = 尾巴指向细胞的像素气泡，跟着细胞位置走；「……」是三颗渐显的点
@@ -619,7 +619,7 @@ func _sidebar(seats: int, level: int, memory: int, round_no: bool, end_turn: boo
 
 ## 教程里没有「癌性加权 / 胜负进度」这回事（第四章才讲回合），那一块整个收掉。
 ## **本稿只是隐藏，位置没让出来** —— 实装时它该和 `round_no` 一样加一道 ui_layers 闸，
-## 真把 66px 让给下面的行（见 docs/新手引导v2_方向A.md 的风险一条）
+## 真把 66px 让给下面的行（见 docs/archive/新手引导v2_方向A.md 的风险一条）
 func _trim_weighted() -> void:
 	for l in [_panel._weighted, _panel._weighted_max, _panel._weighted_caption]:
 		(l as Control).visible = false

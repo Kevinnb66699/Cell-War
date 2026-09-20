@@ -1,6 +1,6 @@
 ﻿<!-- 本文由 2026-09-15 的一次 12 agent 并行核查产出，全部事实为本机实测并标了 文件:行。 -->
 
-> **状态：已实装（2026-09-19，实现口径见各节首段；正本是 `docs/口径二_测试迁移规格.md`）。** 进仓库的机件：`game/tests/l0_runner.gd` / `cw_case_loader.gd` / `cw_case_diff.gd` / `l0_contract_gate.gd` / `contract_ops.json` / `contract_tune.json` / `l0/*.json`，`core/CellWar.Core.Tests/L0/`（`CaseModel.cs` / `WorldLoader.cs` / `Expect.cs` / `Subset.cs` / `Probes.cs` / `Steps.cs` / `L0RunnerTests.cs` / `RoundTripTests.cs` / `PreParityTests.cs` / `ContractGateTests.cs`），`tools/run_l0.sh` / `tools/xcheck_report.py` / `xcheck/`。**本文凡与代码冲突的一律以代码为准**；下面原稿里「未拍板／还没有开工授权」的那一段只当历史留档。
+> **状态：已实装（2026-09-19，实现口径见各节首段；正本是 `docs/archive/口径二_测试迁移规格.md`）。** 进仓库的机件：`game/tests/l0_runner.gd` / `cw_case_loader.gd` / `cw_case_diff.gd` / `l0_contract_gate.gd` / `contract_ops.json` / `contract_tune.json` / `l0/*.json`，`core/CellWar.Core.Tests/L0/`（`CaseModel.cs` / `WorldLoader.cs` / `Expect.cs` / `Subset.cs` / `Probes.cs` / `Steps.cs` / `L0RunnerTests.cs` / `RoundTripTests.cs` / `PreParityTests.cs` / `ContractGateTests.cs`），`tools/run_l0.sh` / `tools/xcheck_report.py` / `xcheck/`。**本文凡与代码冲突的一律以代码为准**；下面原稿里「未拍板／还没有开工授权」的那一段只当历史留档。
 > 它要花我们约 6.5 人天、队友约 3.5 人天，且要求队友改 C# 侧的 RNG 抽法口径 ——
 > 那两件事都得 Kevin 与队友先点头。
 >
@@ -320,7 +320,7 @@ C# 是每格一个 `Tissue.SolidLockRound` 回合戳 —— 行为等价（left=
 `schema` 必填且恒 `"cwxcase/2"`；**P 族写 `probe`、S 族写 `op`，二选一**，都写或都不写 = 硬错；`covers` 缺省 `[]`、`status` 缺省 `"OK"`、`rolls` 缺省 `[]`（= 断言「这一步不消耗 rng」）。
 
 `world` 是 `cwxworld/3`：顶层 **15 键** `radius` / `round` / `phase` / `seat` / `winner` / `win_kind` / `effector_round` / `chemo` / `chemo_track` / `cancer_alarm` / `players` / `tiles` / `cells` / `events` / `tuning`；
-tile **12 键**（`at` + `make_tile` 11，**不收 `cell`**）、cell **33 键**、player **5 键**、`mods` 四元组 `{name, uses, until, seq}`。逐条名单在 `docs/口径二_测试迁移规格.md` §0.6.1，**仓库里只许那两份键表**。
+tile **12 键**（`at` + `make_tile` 11，**不收 `cell`**）、cell **33 键**、player **5 键**、`mods` 四元组 `{name, uses, until, seq}`。逐条名单在 `docs/archive/口径二_测试迁移规格.md` §0.6.1，**仓库里只许那两份键表**。
 
 **未知键 = 硬错，两侧都真的实现了**：C# 是 `JsonSerializerOptions.UnmappedMemberHandling = Disallow`，GD 是 `cw_case_loader.gd` 的显式白名单。方案稿写的 `CellFields` / `TileFields` **在代码库里不存在** —— 不要去找。
 **装不进 = `UNLOADABLE`**：GD `load_world` 返回 null 且 `errors` 首条以 `UNLOADABLE:` 开头，C# 抛 `UnloadableException`；两个 runner 单列这一档并整体红（仓库用例集里不许有装不进的用例，只有收割器拿它跳条目）。
@@ -378,7 +378,7 @@ tile **12 键**（`at` + `make_tile` 11，**不收 `cell`**）、cell **33 键**
 1. **裸整数** = `scalar`（45 条老用例就是这一类，**不许改写成 `{kind:"scalar"}`，两侧也不接受这种写法**）；
 2. `{"kind": "tree", "value": <一棵字面 JSON 树>}` —— 逐字段比（C# `L1/DeepDiff.cs:Compare` / GD `cw_case_diff.gd:compare`）；
 3. `{"kind": "delta", "changed": {路径: 值}, "ignore": [路径]}` —— 两侧各自 `diff(normalize(env_pre), normalize(env_post))` 后与 `changed` **整集合比**（多改一个字段红、少改一个也红）。
-根 `$` = envelope 的 `{board, cells, g, ask}` 四件；路径文法与全局豁免表见 `docs/口径二_测试迁移规格.md` A-1，**本批禁选 `$.ask.options`**，整条消失记 `null`。
+根 `$` = envelope 的 `{board, cells, g, ask}` 四件；路径文法与全局豁免表见 `docs/archive/口径二_测试迁移规格.md` A-1，**本批禁选 `$.ask.options`**，整条消失记 `null`。
 方案稿写的 `kind:"tenths"` / `kind:"path"` **一行代码都没有**。
 
 ### 2.2 `canon` —— L1 规范化状态
@@ -480,7 +480,7 @@ tile **12 键**（`at` + `make_tile` 11，**不收 `cell`**）、cell **33 键**
 >
 > * **逐条差异**：`tools/run_l0.sh` 同跑两个 runner，任一侧红即整体红。GD 侧一行
 >   `FAIL <id>（探针 <op>）：期望 x，GD 算出 y` 外加用例自带的 `source`；C# 侧同形。
->   **GD 红 = 用例不忠实于原断言（改用例）；C# 红 = 规则不等价（进对拍差异表，走 `docs/内核替换_拍板记录.md`）。**
+>   **GD 红 = 用例不忠实于原断言（改用例）；C# 红 = 规则不等价（进对拍差异表，走 `docs/archive/内核替换_拍板记录.md`）。**
 > * **契约面台账**：`game/tests/contract_ops.json` **44 行**（P 16 + S 25 + 3 条挂档），逐 op 带
 >   `kind` / `family` / `status`（五档）/ `cases`（`required` / `deferred` / `none`）/ `gd` / `cs` 落点 / `boundaries`；
 >   旋钮台账是同目录的 `contract_tune.json`（`{"schema":"cwxtune/1","knobs":[{name,tier,gd,cs,in_rule_fields,note} × 64]}`（2026-09-19 删 `world_events_on`，65 → 64），

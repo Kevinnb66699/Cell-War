@@ -17080,7 +17080,7 @@ func _no_barrier_timeout(k: CWKernelInProc, t0: int, tag: String) -> void:
 		% [tag, spent, CWKernelInProc.BARRIER_TIMEOUT_MS])
 
 
-# ---- 口径二 · 批 1 步 0：两条不依赖切换的计量闸（docs/口径二_批1_原子切规格.md C-1 步 0）----
+# ---- 口径二 · 批 1 步 0：两条不依赖切换的计量闸（docs/archive/口径二_批1_原子切规格.md C-1 步 0）----
 ## 6 人局推到第 2 回合的玩家回合，量「一次全知 observe（encode + 镜像装载）」与「6 席 + 2 观众各一份裁剪 envelope」的墙钟中位数与字节数。
 ## 数字写进 docs/观测协议_v1.md 附录 D；阈值是回归闸（约实测的 3 倍），步 6 的 go/no-go 另按每帧路径复量。
 func t_observe_budget() -> void:

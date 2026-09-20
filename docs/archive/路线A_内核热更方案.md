@@ -485,7 +485,7 @@ Passed!  - Failed: 0, Passed: 141, Skipped: 0, Total: 141, Duration: 477 ms
 | 4 | **自检夹具哈希的浮点确定性** | `RulePolicies.cs:260` 用 `Math.Pow(ordinary, 0.35/0.3)`，而 `CheckpointCodec.Encode` 把含 `double Energy` 的 WorldState 整个 JSON 序列化后才取 SHA。`Math.Pow` 不保证跨平台/跨运行时逐位一致 | 打包机与玩家机差 1 ULP 且落在 `RoundTenth` 中点 → 哈希对不上 → 静默 quarantine → 攒满永久拉黑。**缓解：夹具只对整数化的量取哈希，或显式避开浮点参与的字段；并在每次全量发版时重新定基线** |
 | 5 | **sidecar 冷启动 + 握手能否稳定落进 `PROVE_SEC ≤ 5.0`** | 护栏 `headless_test.gd:6223` 钉死这个上限；自包含 + R2R 控制台冷启动理论上 40~120 ms，但没实测过 | 落不进就要把证明期与握手解耦（另起一个 `CORE_PROVE_SEC`），护栏跟着加 |
 | 6 | **Windows 从单 exe 改目录后的玩家失败模式** | 新形态没发过 | "只拖走 exe 就打不开"是新增的支持工单类型 |
-| 7 | **Godot 4.7 的 .NET 是否有 Web 导出** | `docs/融合方案_cellwar-next.md` §二① 说没有，但要拿真的 .NET 构建导一次才算数 | 决定网页版单机的归宿：继续跑 GDScript core（= 永久两套实现），还是变成纯联机。**这一条不是热更问题，但它决定路线 A 本身成不成立** |
+| 7 | **Godot 4.7 的 .NET 是否有 Web 导出** | `docs/archive/融合方案_cellwar-next.md` §二① 说没有，但要拿真的 .NET 构建导一次才算数 | 决定网页版单机的归宿：继续跑 GDScript core（= 永久两套实现），还是变成纯联机。**这一条不是热更问题，但它决定路线 A 本身成不成立** |
 | 8 | **`MatchObservation` 全量快照的体积** | radius 6 = 127 个 `TissueObservation` + 全部 cells + `DecisionRouter.Available` 逐格枚举的全部 options（己方每细胞 × 127 格，树突【趋化源】再乘 127），单次几十 KB | loopback 无所谓；但任何"内核不在本机"的分支（网页版单机走服务器、联机观战）都会被报文体积卡死，必须先做游标/增量。与热更无关，但在同一条链上 |
 
 ---
