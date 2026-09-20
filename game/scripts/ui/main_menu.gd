@@ -187,6 +187,9 @@ func _ensure_atlas_button() -> void:
 		_atlas_button.gui_input.connect(_on_atlas_button_input)
 		_atlas_button.set_meta("atlas_wired", true)
 	_atlas_button.text = "细胞图鉴"
+	var codex_label: Label = _items.get_node("Codex")
+	_atlas_button.add_theme_font_override("font", codex_label.get_theme_font("font"))
+	_atlas_button.add_theme_font_size_override("font_size", codex_label.get_theme_font_size("font_size"))
 	_atlas_button.position = atlas_at
 	_atlas_button.size = _atlas_button.get_minimum_size()
 	_atlas_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
