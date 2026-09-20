@@ -8877,17 +8877,20 @@ func t_income_display() -> void:
 	var inc: Label = p._rows[0]["income"]
 	var en: Label = p._rows[0]["energy"]
 	var sk: Label = p._rows[0]["skills"]
-	## 顶行从右往左：+x.x（贴行右缘）→ 能量 → 技 N（Kevin 2026-09-06 看截图定的顺序）
+	## 顶行从右往左：+x.x（贴行右缘）→ 能量（Kevin 2026-09-06 看截图定的顺序）。
+	## 「技 N」2026-09-19 起在**第二行**（Kevin 选的 E 案：名字行让给「免疫A (我)」）：与种类小字同一行，
+	## 右缘离手牌方块左缘 SKILL_GAP
 	var pip_right: float = p._rows[0]["pips"][CWData.HAND_MAX - 1].position.x + CWMatchPanel.PIP
+	var pip_left: float = p._rows[0]["pips"][0].position.x
 	check(inc.position.x + inc.size.x == pip_right
 		and en.position.x + en.size.x == inc.position.x + inc.size.x - CWMatchPanel.INCOME_RESERVE
-		and sk.position.x + sk.size.x == en.position.x + en.size.x - CWMatchPanel.ENERGY_RESERVE
-		and inc.position.y == sk.position.y,
-		"小字贴行右缘（与手牌方块同一右缘），能量右对齐到它左边，「技 N」再让出 ENERGY_RESERVE")
+		and sk.position.x + sk.size.x == pip_left - CWMatchPanel.SKILL_GAP
+		and sk.position.y == p._rows[0]["type"].position.y and inc.position.y != sk.position.y,
+		"小字贴行右缘（与手牌方块同一右缘），能量右对齐到它左边；「技 N」在第二行、右缘离手牌方块 SKILL_GAP")
+	## 名字行现在只有名字（+ 单机小字「(我)」）与能量：裁剪区不压到两位数能量（20px「12.5」≈ 44px）
 	check(p._rows[0]["name"].size.x == CWMatchPanel.NAME_W
-		and p._rows[0]["name"].position.x + CWMatchPanel.NAME_W <= sk.position.x + sk.size.x
-			- CWStyle.FONT.get_string_size("技 0", HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x,
-		"玩家名裁剪区不压到「技 N」")
+		and p._rows[0]["name"].position.x + CWMatchPanel.NAME_W <= en.position.x + en.size.x - 44.0,
+		"玩家名裁剪区不压到两位数能量")
 	can["alive"] = false
 	p.refresh(_mirror_of(g), _query_of(g))
 	check(p._rows[1]["income"].text == "", "死亡：不显示预计")
