@@ -68,6 +68,15 @@ func _ready() -> void:
 	match_node.finished.connect(_on_match_finished)
 	match_node.replay_opening.connect(_replay_opening)
 	settle.chose.connect(_on_settle_chose)
+	## 开机没通关新手教程就直接进教程（Kevin 2026-09-20）。判的是 `all_done()`：第六关打完或「跳过」
+	## （`set_all_done`）之后才不再自动进；中途退出的下次开机接着进（断点续到关，`CWMatch._tutor_pick_level`）。
+	## 主菜单「新手引导」那一项照旧可手动进。让过这一帧：菜单的 `_ready` 已经跑完，但第一帧还没画，
+	## `dismiss()` 的退场要有画面可退（同 `_begin` 由点击触发时的状态）。
+	## **只在真开机时判**：Main 是 `current_scene`（boot.gd `change_scene_to_file` 切进来的）才算开机；
+	## 无头测试把 Main.tscn 挂在树下当夹具（21 处），不是开机 —— 不判的话热座 / 入口 smoke 全被拉进教程（09-20 第一轮全量红 12 条）
+	if not CWGuideProgress.all_done() and get_tree().current_scene == self:
+		await get_tree().process_frame
+		_begin_tutorial(0)
 
 
 ## cfg 来自配置面板（CWConfigPanel.config()）。座位规则：人类坐所选阵营

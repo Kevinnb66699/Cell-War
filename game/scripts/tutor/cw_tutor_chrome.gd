@@ -87,6 +87,17 @@ const MENU_HEAD_Y := 12.0       ## 「目录」两个字
 const MENU_ROW_Y := 48.0        ## 第一行数据行的 y
 const MENU_FOOT_Y := 316.0      ## 页脚横线；「Cell War」在它下面
 const MENU_REPLAY := "Cell War" ## 重看开场那一行的字（Kevin 2026-09-19 Q-21：就叫片名）
+## 页脚右侧「重置教程进度」（Kevin 2026-09-20）：进度文件整份清掉不可撤销，所以**先在同一行问一遍**
+## （「Cell War」暂时让位，右端换成确认 / 取消），确认才发 `reset_progress`。壳只问、不读不写存档 ——
+## 清档与重进归接线方（`CWMatch._tutor_reset_progress`）。真机截图 / 无头测试走下面三个无参方法驱动
+const MENU_RESET := "重置教程进度"
+const MENU_RESET_ASK := "清空全部进度并重看开场？"
+const MENU_RESET_YES := "确认重置"
+const MENU_RESET_NO := "取消"
+const MENU_RESET_W := 132.0      ## 「重置教程进度」六个 20 号字 ≈ 120，右对齐贴页脚右端
+const MENU_RESET_YES_W := 92.0   ## 「确认重置」
+const MENU_RESET_NO_W := 48.0    ## 「取消」
+const MENU_RESET_GAP := 14.0
 ## 禁操作期光标那三颗点（方向 A：「…」跟着指针走）
 const DOTS_AT := Vector2(14.0, 10.0)
 const DOTS_SIZE := 4.0
@@ -101,6 +112,8 @@ signal switch_pressed
 signal menu_goto(level_id: String)
 ## 目录底部「Cell War」：重看开场（接线方走 `tutorial_opening.clear_seen()` + 重进引导）
 signal replay_opening
+## 目录页脚「重置教程进度」按过确认（Kevin 2026-09-20）：接线方清进度存档再重进引导
+signal reset_progress
 
 var _block: Block             ## 全屏 STOP 层
 var _reset: Icon
@@ -117,6 +130,7 @@ var _chapter_sub: Label
 ##   · `interlude` 间章，**不缩进**（与章标题同级，Kevin 2026-09-19），点法同 `level`。
 ## 缺 `kind` 按 `level` 算 —— S2 那会儿喂的两行没有这个键
 var _rows: Array = []
+var _reset_asking := false    ## 页脚正在问「清空全部进度？」（开 / 收面板都归零）
 var _urging := false
 var _pulse_t := 0.0
 
@@ -255,6 +269,7 @@ func urge_reset(on: bool) -> void:
 func toggle_menu() -> void:
 	if _menu_panel == null or not is_instance_valid(_menu_panel):
 		return
+	_reset_asking = false         ## 开 / 收都从「没在问」起：问到一半收面板，下次开不该还停在问
 	_menu_panel.visible = not _menu_panel.visible
 	if _menu_panel.visible:
 		_fill_menu()
@@ -287,17 +302,79 @@ func _fill_menu() -> void:
 	_menu_panel.add_child(head)
 	for i in mini(_rows.size(), capacity()):
 		_menu_panel.add_child(_menu_row(_rows[i], i))
-	## 底部「Cell War」= 重看开场（PRD 的片名，Q-21）。**常驻可点**：它不是一关，
-	## 不受「未通关灰显」那条管 —— 开场动画谁都看过得了
-	var replay := CWStyle.label(MENU_REPLAY, CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
-	replay.position = Vector2(MENU_PAD_X, MENU_FOOT_Y + 8.0)
-	replay.size = Vector2(MENU_PANEL.size.x - MENU_PAD_X * 2.0, MENU_ROW_H)
-	replay.mouse_filter = Control.MOUSE_FILTER_STOP
-	replay.gui_input.connect(func(e: InputEvent) -> void:
-		if e is InputEventMouseButton and (e as InputEventMouseButton).pressed:
+	_fill_footer()
+
+
+## 页脚那一行（横线之下）：左「Cell War」= 重看开场（PRD 的片名，Q-21，**常驻可点** —— 它不是一关，
+## 不受「未通关灰显」那条管，开场动画谁都看过得了），右「重置教程进度」（Kevin 2026-09-20）。
+## 问着的时候整行换成问句 + 确认 / 取消：一行装不下三样，「Cell War」暂时让位
+func _fill_footer() -> void:
+	var y := MENU_FOOT_Y + 8.0
+	var right := MENU_PANEL.size.x - MENU_PAD_X
+	if _reset_asking:
+		var ask := CWStyle.label(MENU_RESET_ASK, CWStyle.SIZE_BODY, CWStyle.CANCER)
+		ask.position = Vector2(MENU_PAD_X, y)
+		ask.size = Vector2(right - MENU_PAD_X - MENU_RESET_YES_W - MENU_RESET_NO_W - MENU_RESET_GAP * 2.0,
+			MENU_ROW_H)
+		_menu_panel.add_child(ask)
+		_menu_panel.add_child(_footer_button(MENU_RESET_NO,
+			Rect2(right - MENU_RESET_NO_W, y, MENU_RESET_NO_W, MENU_ROW_H), CWStyle.TEXT_HI, cancel_reset_progress))
+		_menu_panel.add_child(_footer_button(MENU_RESET_YES,
+			Rect2(right - MENU_RESET_NO_W - MENU_RESET_GAP - MENU_RESET_YES_W, y, MENU_RESET_YES_W, MENU_ROW_H),
+			CWStyle.CANCER, confirm_reset_progress))
+		return
+	var replay := _footer_button(MENU_REPLAY,
+		Rect2(MENU_PAD_X, y, right - MENU_PAD_X - MENU_RESET_W - MENU_RESET_GAP, MENU_ROW_H), CWStyle.TEXT_HI,
+		func() -> void:
 			_menu_panel.visible = false
 			replay_opening.emit())
+	replay.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_menu_panel.add_child(replay)
+	_menu_panel.add_child(_footer_button(MENU_RESET,
+		Rect2(right - MENU_RESET_W, y, MENU_RESET_W, MENU_ROW_H), CWStyle.TEXT, press_reset_progress))
+
+
+## 页脚上的一个可点文字：右对齐、左键回调（同关行的点法）
+func _footer_button(text: String, rect: Rect2, ink: Color, on_press: Callable) -> Label:
+	var l := CWStyle.label(text, CWStyle.SIZE_BODY, ink)
+	l.position = rect.position
+	l.size = rect.size
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	l.mouse_filter = Control.MOUSE_FILTER_STOP
+	l.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and (e as InputEventMouseButton).pressed:
+			on_press.call())
+	return l
+
+
+## ---- 「重置教程进度」三步（Kevin 2026-09-20，二次确认）。真机截图走 `call:CWTutorChrome:方法` ----
+
+func press_reset_progress() -> void:
+	if not menu_open() or _reset_asking:
+		return
+	_reset_asking = true
+	_fill_menu()
+
+
+func cancel_reset_progress() -> void:
+	if not _reset_asking:
+		return
+	_reset_asking = false
+	if menu_open():
+		_fill_menu()
+
+
+## 只有问着的时候才算数：`call:` 驱动误触一下不该清掉玩家的进度
+func confirm_reset_progress() -> void:
+	if not _reset_asking:
+		return
+	_reset_asking = false
+	_menu_panel.visible = false
+	reset_progress.emit()
+
+
+func reset_asking() -> bool:
+	return _reset_asking
 
 
 ## 一行：章标题（不可点）/ 关（缩进一格）/ 间章（**不缩进**，与章标题同级）

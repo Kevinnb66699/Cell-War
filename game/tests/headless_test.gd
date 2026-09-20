@@ -20620,6 +20620,15 @@ func _tutor_pump(frames := 8) -> void:
 
 
 ## 桩关卡：九个动词各至少一条，三个 step 标签。**不进 data/tutorial/**（它不是剧本，是夹具）
+## 目录面板里此刻画着的所有文字（页脚那几样也在内）
+func _tutor_menu_texts(chrome) -> Array:
+	var out: Array = []
+	for c in chrome._menu_panel.get_children():
+		if c is Label:
+			out.append((c as Label).text)
+	return out
+
+
 func _tutor_stub_level() -> Dictionary:
 	return {
 		"schema": "cwtut/2", "id": "_stub",
@@ -21463,10 +21472,11 @@ func t_tutor_chrome() -> void:
 	for ch in chrome._menu_panel.get_children():
 		if ch is Label:
 			rows.append(ch)
-	check(chrome.menu_open() and rows.size() == 4
-			and (rows[3] as Label).text == CWTutorChrome.MENU_REPLAY,
-		"点目录开出面板：表头 + 2 关 + 底部「%s」（当前 %d 行）"
-			% [CWTutorChrome.MENU_REPLAY, rows.size()])
+	check(chrome.menu_open() and rows.size() == 5
+			and (rows[3] as Label).text == CWTutorChrome.MENU_REPLAY
+			and (rows[4] as Label).text == CWTutorChrome.MENU_RESET,
+		"点目录开出面板：表头 + 2 关 + 页脚「%s」+「%s」（当前 %d 行）"
+			% [CWTutorChrome.MENU_REPLAY, CWTutorChrome.MENU_RESET, rows.size()])
 	check((rows[2] as Label).get_theme_color("font_color") == CWStyle.TEXT_OFF
 			and (rows[2] as Label).mouse_filter == Control.MOUSE_FILTER_IGNORE,
 		"未解锁的那一关灰着、点不动（PRD:43）")
@@ -21475,6 +21485,45 @@ func t_tutor_chrome() -> void:
 	(rows[1] as Label).gui_input.emit(ev)
 	check(goto == ["c1_l1"] and not chrome.menu_open(),
 		"点已解锁的那一关：发 menu_goto 并把面板收起来（跳关本体 S6 接）")
+	## ---- 页脚右侧「重置教程进度」（Kevin 2026-09-20）：二次确认在同一行里问，确认才发 reset_progress ----
+	var resets: Array = []
+	chrome.reset_progress.connect(func() -> void: resets.append(1))
+	chrome.toggle_menu()
+	var texts: Array = _tutor_menu_texts(chrome)
+	check(chrome.menu_open() and texts.has(CWTutorChrome.MENU_RESET) and not chrome.reset_asking(),
+		"目录页脚右侧有「%s」，平时不在问" % CWTutorChrome.MENU_RESET)
+	var reset_row: Label = null
+	for c in chrome._menu_panel.get_children():
+		if c is Label and (c as Label).text == CWTutorChrome.MENU_RESET:
+			reset_row = c
+	check(reset_row != null and reset_row.mouse_filter == Control.MOUSE_FILTER_STOP
+			and reset_row.position.y > CWTutorChrome.MENU_FOOT_Y
+			and reset_row.position.x + reset_row.size.x <= CWTutorChrome.MENU_PANEL.size.x - CWTutorChrome.MENU_PAD_X,
+		"它在页脚横线底下、贴右边距、可点")
+	reset_row.gui_input.emit(ev)
+	texts = _tutor_menu_texts(chrome)
+	check(chrome.reset_asking() and resets.is_empty() and chrome.menu_open()
+			and texts.has(CWTutorChrome.MENU_RESET_ASK) and texts.has(CWTutorChrome.MENU_RESET_YES)
+			and texts.has(CWTutorChrome.MENU_RESET_NO) and not texts.has(CWTutorChrome.MENU_REPLAY),
+		"点一下只是问：同一行换成「%s」+ 确认 / 取消，「%s」让位，reset_progress 还没发"
+			% [CWTutorChrome.MENU_RESET_ASK, CWTutorChrome.MENU_REPLAY])
+	chrome.cancel_reset_progress()
+	texts = _tutor_menu_texts(chrome)
+	check(not chrome.reset_asking() and resets.is_empty() and chrome.menu_open()
+			and texts.has(CWTutorChrome.MENU_RESET) and texts.has(CWTutorChrome.MENU_REPLAY),
+		"「取消」退回原样，面板还开着")
+	chrome.press_reset_progress()
+	chrome.toggle_menu()
+	chrome.toggle_menu()
+	check(chrome.menu_open() and not chrome.reset_asking()
+			and _tutor_menu_texts(chrome).has(CWTutorChrome.MENU_RESET),
+		"问到一半收面板再开：从「没在问」起，不该还停在问")
+	chrome.confirm_reset_progress()
+	check(resets.is_empty(), "没在问的时候 confirm 是空操作（真机 call: 驱动误触不该清进度）")
+	chrome.press_reset_progress()
+	chrome.confirm_reset_progress()
+	check(resets == [1] and not chrome.menu_open() and not chrome.reset_asking(),
+		"「确认重置」才发 reset_progress（一次）并把面板收起来")
 	## `can_reset == false` 时那颗整个不出（间章「所有 UI 消失」靠它）
 	chrome.sync({ "can_reset": false })
 	check(not chrome._reset.visible, "can_reset=false 时「重置」整颗不出")
@@ -21589,9 +21638,9 @@ func t_tutor_progress() -> void:
 	for c in chrome._menu_panel.get_children():
 		if c is Label:
 			labels.append(c)
-	check(labels.size() == full.size() + 2,
-		"面板里是「目录」表头 + %d 行 + 底部「%s」（当前 %d 个）"
-			% [full.size(), CWTutorChrome.MENU_REPLAY, labels.size()])
+	check(labels.size() == full.size() + 3,
+		"面板里是「目录」表头 + %d 行 + 页脚「%s」+「%s」（当前 %d 个）"
+			% [full.size(), CWTutorChrome.MENU_REPLAY, CWTutorChrome.MENU_RESET, labels.size()])
 	var by_text := {}
 	for l in labels:
 		by_text[(l as Label).text] = l
@@ -23264,6 +23313,30 @@ func t_tutor_c1() -> void:
 
 	## ---- ④ 第三关（PRD:239-301）：最省路 3.0 + 三次攻击，能量正好剩 0.1 ----
 	var lv3: Dictionary = d.load_level("c1_l3")
+	## 镜头（Kevin 2026-09-20「第三关地图左侧显示不完整」）：v4 横带向左接到前两关的教学带、玩家站在 q=0 正中，
+	## PRD:249 的「角色调左」把左边六格里两格半推到镜头外 ⇒ 数据改「地图调中」。按包围盒算出来 1.28 倍正好
+	## 顶满可用区，37 格要**整格**都在镜头里（通用规则 13 把没整格露出的判成不可见；`TUTOR_PAD_X` 多让的那 1px
+	## 就是给两端那格的余量），真算一遍取景钉住
+	var cam3: Dictionary = ((lv3["flow"][0] as Dictionary)["ui"] as Dictionary)["camera"]
+	check(cam3 == { "anchor": "map", "align": "center" },
+		"第三关关首镜头 = 地图调中（实测 %s）" % str(cam3))
+	var bd3: Node2D = load("res://scenes/Board.tscn").instantiate()
+	root.add_child(bd3)
+	var cam3_node := Camera2D.new()
+	root.add_child(cam3_node)
+	await process_frame
+	var tiles3: Array = load("res://scripts/kernel/cw_tutorial_stage.gd").coords_of(lv3["active_tiles"])
+	var fr3: Dictionary = CWView.tutor_framing(bd3, tiles3, "center", null, true)
+	CWView.apply(cam3_node, bd3, float(fr3["zoom"]), fr3["look_at"], fr3["anchor"])
+	await process_frame
+	var cut3: Array = []
+	for c in tiles3:
+		if not CWView.tile_fully_visible(cam3_node, bd3, c, CWView.tutor_view_rect(true)):
+			cut3.append(c)
+	check(tiles3.size() == 37 and float(fr3["zoom"]) >= CWView.GAME_ZOOM and cut3.is_empty(),
+		"★ 37 格横带在 %.3f 倍下整格都在镜头里（被切到的：%s）" % [float(fr3["zoom"]), str(cut3)])
+	cam3_node.queue_free()
+	bd3.queue_free()
 	var run3 := _tutor_c1_open(lv3)
 	check(int(run3["game"].tune.attack_max_per_turn) == 0, "第一章章节设定 PRD:99「本章不设回合/攻击次数上限」：第三关的世界 attack_max_per_turn = 0（Kevin 2026-09-19）")
 	var g3: CWGame = run3["game"]
@@ -23286,6 +23359,14 @@ func t_tutor_c1() -> void:
 	## 所以改成直接核结果 —— 判定跑没跑不重要，**不分出胜负**才是要的那件事。
 	check(int(g3.winner) == -1 and not g3.aborted,
 		"★ 教程局不产 game_over：第三关全癌死亡之后 winner 仍是 -1（实测 %d）、也没弹结算屏（迁自 t_guide_no_win）" % int(g3.winner))
+	## 09-20 真机：上面这条无头里成立、真机不成立 —— 第三关末引擎真的判了【免疫胜利】并弹出结算屏。
+	## 所以 UI 侧再加一道：教程局的 game_over 条目到 `CWMatch._on_game_over` 就止步、不发 finished（源码判）
+	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	var go_at := msrc.find("func _on_game_over(")
+	var go_emit := msrc.find("finished.emit(", go_at)
+	check(go_at >= 0 and go_emit > go_at
+			and msrc.substr(go_at, go_emit - go_at).contains("if tutorial:"),
+		"★ `_on_game_over` 在 finished.emit 之前先判 tutorial 并返回 —— 教程局不弹结算屏（Kevin 2026-09-20）")
 	_tutor_c1_tape(run3, "第三关")
 	_tutor_c1_close(run3)
 

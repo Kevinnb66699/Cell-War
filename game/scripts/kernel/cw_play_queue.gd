@@ -36,6 +36,10 @@ var _hurry_now := false
 
 ## 协程：跑到 game_over 或 stop()。Remote 句柄每圈先 drain() 把报文翻成条目
 func pump() -> void:
+	## 协程里握一个自己的强引用：调用方换了新队列之后（`CWMatch._start_queue` 三处引用一起换），这一只要活到
+	## 循环自己退出 —— 停在 `await process_frame` 上被释放的话，下一帧引擎会报「Resumed function after await,
+	## but class instance is gone」（2026-09-20 把队列交给舞台停之后 t_tutor_interlude 抓到的）
+	var _keep := self
 	running = true
 	var tree := Engine.get_main_loop() as SceneTree
 	while running and kernel != null:
