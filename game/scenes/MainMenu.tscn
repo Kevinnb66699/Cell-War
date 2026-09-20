@@ -288,9 +288,9 @@ text = "知识之书"
 
 [node name="Guide" type="Label" parent="UI/Screen/Items"]
 offset_left = 165.0
-offset_top = 418.0
+offset_top = 446.0
 offset_right = 365.0
-offset_bottom = 446.0
+offset_bottom = 474.0
 theme_override_colors/font_color = Color(0.811765, 0.886275, 0.901961, 1)
 theme_override_fonts/font = SubResource("FontVariation_px20")
 theme_override_font_sizes/font_size = 20
@@ -298,9 +298,9 @@ text = "新手引导"
 
 [node name="Settings" type="Label" parent="UI/Screen/Items"]
 offset_left = 165.0
-offset_top = 446.0
+offset_top = 474.0
 offset_right = 365.0
-offset_bottom = 474.0
+offset_bottom = 502.0
 theme_override_colors/font_color = Color(0.811765, 0.886275, 0.901961, 1)
 theme_override_fonts/font = SubResource("FontVariation_px20")
 theme_override_font_sizes/font_size = 20
@@ -308,9 +308,9 @@ text = "设置"
 
 [node name="Quit" type="Label" parent="UI/Screen/Items"]
 offset_left = 165.0
-offset_top = 474.0
+offset_top = 502.0
 offset_right = 365.0
-offset_bottom = 502.0
+offset_bottom = 530.0
 theme_override_colors/font_color = Color(0.811765, 0.886275, 0.901961, 1)
 theme_override_fonts/font = SubResource("FontVariation_px20")
 theme_override_font_sizes/font_size = 20

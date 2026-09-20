@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cell War · 技能图标候选稿</title>
+<style>
+@font-face{font-family:CellPixel;src:url('../game/assets/fonts/fusion_pixel_10px.ttf') format('truetype')}
+:root{--bg:#10171d;--panel:#17232b;--panel2:#1b2a33;--line:#35515b;--cyan:#30d1fa;--white:#eaf8fc;--muted:#86a0aa;--dim:#526872;--shadow:#0b1118}
+*{box-sizing:border-box}html{background:var(--bg)}body{margin:0;color:var(--white);font:14px CellPixel,monospace;letter-spacing:0;image-rendering:pixelated}
+button{font:inherit;letter-spacing:0;color:inherit;cursor:pointer}.shell{max-width:1420px;margin:0 auto;padding:28px 30px 44px}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;border-bottom:1px solid var(--line);padding-bottom:22px;margin-bottom:22px}
+.eyebrow{color:var(--cyan);font-size:11px;letter-spacing:1px;margin-bottom:10px}.title{font-size:30px;line-height:1.15;margin:0}.intro{color:var(--muted);line-height:1.8;margin:10px 0 0;max-width:720px}
+.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.actions button{border:1px solid var(--line);background:var(--panel);padding:9px 12px;border-radius:2px}.actions button:hover{border-color:var(--cyan);color:var(--cyan)}
+.status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;margin-bottom:18px}.status strong{color:var(--white)}.dot{width:7px;height:7px;background:var(--cyan);display:inline-block}.dot.ready{background:var(--cyan)}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;color:var(--muted);font-size:11px}.legend span{display:inline-flex;align-items:center;gap:6px}.swatch{width:9px;height:9px;display:inline-block}.swatch.c{background:var(--cyan)}.swatch.w{background:var(--white)}
+.rows{display:grid;gap:10px}.skill-row{display:grid;grid-template-columns:180px minmax(0,1fr);gap:16px;align-items:stretch;border:1px solid #263b44;background:rgba(23,35,43,.78);padding:12px}.skill-meta{display:flex;flex-direction:column;justify-content:center;min-width:0}.skill-num{color:var(--dim);font-size:11px}.skill-name{font-size:17px;margin:6px 0 7px}.skill-key{color:var(--cyan);font-size:11px}.variants{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.candidate{position:relative;min-height:145px;border:1px solid var(--line);background:var(--panel2);padding:10px;display:grid;grid-template-columns:82px minmax(0,1fr);gap:12px;text-align:left;transition:transform 100ms steps(2),border-color 100ms steps(2),background 100ms steps(2)}.candidate:hover{transform:translateY(-3px);border-color:var(--white);background:#20323c}.candidate.selected{border-color:var(--white);box-shadow:inset 0 0 0 1px var(--white),0 0 0 1px rgba(48,209,250,.35)}.candidate.selected:before{content:'✓';position:absolute;right:7px;top:5px;color:var(--cyan);font-size:13px}.candidate:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.preview{width:72px;height:72px;display:grid;place-items:center;background:#0f1822;border:1px solid #2c4953;align-self:start}.icon-pixel{width:16px;height:16px;image-rendering:pixelated;shape-rendering:crispEdges}.icon-large{width:64px;height:64px;image-rendering:pixelated;shape-rendering:crispEdges}.candidate-copy{min-width:0}.variant{color:var(--cyan);font-size:11px}.candidate h3{font-size:15px;margin:8px 0 7px}.candidate p{font-size:11px;line-height:1.6;color:var(--muted);margin:0}.badge{display:inline-block;margin-top:10px;border:1px solid #365460;color:var(--muted);padding:3px 5px;font-size:10px}
+.export{margin-top:24px;border-top:1px solid var(--line);padding-top:18px}.export h2{font-size:16px;margin:0 0 10px}.export-grid{display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:16px}.output{width:100%;min-height:92px;resize:vertical;background:#0b1118;border:1px solid var(--line);color:#bde9f2;padding:10px;font:12px/1.6 monospace}.notes{border-left:2px solid var(--cyan);padding:2px 0 2px 12px;color:var(--muted);font-size:11px;line-height:1.8}.notes strong{color:var(--white)}
+.option{min-width:0}.candidate{width:100%;grid-template-columns:72px minmax(0,1fr);min-height:218px}.game-proof{grid-column:1/-1;display:flex;flex-direction:column;align-items:flex-start;gap:8px;border-top:1px solid var(--line);padding-top:10px}.game-proof small{color:var(--muted);font-size:11px}.game-proof img{image-rendering:pixelated;max-width:100%;object-fit:contain}.scene-link{width:100%;margin-top:6px;padding:9px;background:#0f1822;border:1px solid var(--line);color:var(--cyan);font-size:11px}.scene-link:hover{border-color:var(--white)}dialog{padding:12px;background:var(--panel);color:var(--white);border:1px solid var(--white);width:min(1000px,96vw);max-height:94vh}dialog::backdrop{background:rgba(5,9,12,.85)}.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.modal-close{background:var(--bg);color:var(--white);padding:9px;border:1px solid var(--line)}.scene-scroll{overflow:auto}.scene-scroll img{width:960px;height:540px;max-width:none;image-rendering:pixelated;display:block}.render-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:16px 0;color:var(--muted)}.render-controls select{padding:8px;background:var(--panel);color:var(--white);border:1px solid var(--line);font:inherit}.candidate:focus-visible,.scene-link:focus-visible,select:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}@media(prefers-reduced-motion:reduce){.candidate{transition:none;transform:none!important}}
+@media(max-width:980px){.skill-row{grid-template-columns:1fr}.skill-meta{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}.skill-name{margin:0}.skill-key{text-align:right}.candidate{min-height:130px;grid-template-columns:72px minmax(0,1fr)}.preview{width:64px;height:64px}.icon-large{width:48px;height:48px}}
+@media(max-width:620px){.shell{padding:20px 14px 32px}header{display:block}.actions{justify-content:flex-start;margin-top:18px}.variants{grid-template-columns:1fr}.candidate{min-height:112px}.export-grid{grid-template-columns:1fr}.title{font-size:24px}}
+</style>
+</head>
+<body>
+<main class="shell">
+<header>
+  <div><div class="eyebrow">CELL WAR / SKILL ICON REVIEW</div><h1 class="title">技能图标候选稿</h1><p class="intro">每个候选下方附 Godot 真实行动栏截图：原始 16×16 图标、游戏字体与费用行。点击选稿；展开全局图查看摆放位置。</p></div>
+  <div class="actions"><button id="copy">复制选择结果</button><button id="download">下载 JSON</button><button id="reset">重置选择</button></div>
+</header>
+<div class="status"><span class="dot ready" id="statusDot"></span><span id="statusText">已加载默认候选</span><strong id="count">13 / 13</strong></div>
+<div class="legend"><span><i class="swatch c"></i>蓝色：主体 / 能量 / 轨迹</span><span><i class="swatch w"></i>白色：高光 / 轮廓 / 目标</span><span>新版候选：双色、少形状、整数像素</span></div>
+<div class="render-controls"><label for="renderState">行动栏截图状态</label><select id="renderState"><option value="normal">常态</option><option value="hover">悬停高亮</option><option value="disabled">禁用变暗</option></select><span>截图费用仅作排版示例 · 候选在全局图第 2 个按钮 · 未替换游戏正式图集</span></div>
+<section class="rows" id="rows" aria-label="技能图标候选"></section>
+<section class="export"><h2>当前选择</h2><div class="export-grid"><textarea class="output" id="output" readonly aria-label="当前选择 JSON"></textarea><div class="notes"><strong>交付说明</strong><br>记录会自动保存在当前浏览器。确定稿后可将这里的选择映射回 `skill_icons.svg`，每个技能只保留选定版本。</div></div></section>
+</main>
+<dialog id="artModal" aria-labelledby="artTitle"><div class="modal-head"><span id="artTitle">Godot 真实行动栏截图</span><button class="modal-close" id="artClose">关闭</button></div><div class="scene-scroll"><img id="artScene" alt="包含候选图标的 Godot 对局预览截图" width="960" height="540"></div><p>原始 960×540；窄屏可横向滚动。固定预览局面，候选图标只注入测试节点。</p></dialog>
+<script>
+const C={c:'#30d1fa',w:'#eaf8fc',d:'#0b1118',n:'#0f1822',p:'#8ee9fa'};
+const op=(color,x,y,w=1,h=1)=>[color,x,y,w,h];
+const S={
+  move:{name:'迁移',key:'move',tag:'位移',desc:['A 方向箭头','B 细胞穿行','C 短距跃迁'],v:[
+    [op('d',1,7,11,3),op('c',1,6,8,1),op('c',1,10,8,1),op('c',9,4,3,8),op('w',12,5,2,2),op('w',12,9,2,2)],
+    [op('c',2,5,4,6),op('c',4,3,4,10),op('w',3,4,2,2),op('w',3,10,2,2),op('c',8,7,6,2),op('c',12,5,2,6)],
+    [op('d',3,3,10,10),op('c',5,5,6,6),op('w',7,2,2,3),op('w',7,11,2,3),op('c',2,7,3,2),op('c',11,7,3,2)]
+  ]},
+  draw:{name:'抽卡',key:'draw',tag:'抽取',desc:['A 直接翻牌','B 卡牌与能量','C 三张牌堆'],v:[
+    [op('d',3,3,9,11),op('c',4,2,8,10),op('w',6,4,4,1),op('n',6,6,5,1),op('n',6,8,3,1),op('c',12,2,2,4),op('c',10,4,4,2)],
+    [op('c',2,3,4,10),op('c',6,2,4,11),op('d',8,4,4,10),op('w',3,5,2,2),op('w',7,4,2,2),op('c',10,2,4,2),op('c',12,4,2,3)],
+    [op('d',2,4,9,10),op('c',4,2,9,10),op('w',6,4,4,1),op('n',6,6,5,1),op('c',5,11,3,2),op('c',9,11,3,2),op('w',11,3,2,2)]
+  ]},
+  differentiate:{name:'分化',key:'differentiate',tag:'分化',desc:['A 一分为二','B 树状分支','C 细胞核展开'],v:[
+    [op('c',7,2,2,6),op('c',4,7,8,2),op('c',4,9,2,4),op('c',10,9,2,4),op('w',6,1,4,2),op('w',3,13,4,2),op('w',9,13,4,2)],
+    [op('c',7,2,2,12),op('c',4,6,8,2),op('c',3,4,2,4),op('c',11,4,2,4),op('w',2,3,3,2),op('w',11,3,3,2),op('c',5,12,2,2),op('c',9,12,2,2)],
+    [op('d',5,2,6,12),op('c',6,3,4,5),op('c',3,8,4,2),op('c',9,8,4,2),op('c',5,11,2,3),op('c',9,11,2,3),op('w',7,1,2,2)]
+  ]},
+  antibody:{name:'抗体',key:'antibody',tag:'防御',desc:['A Y 型抗体','B 护盾锁定','C 识别标记'],v:[
+    [op('c',3,2,2,8),op('c',11,2,2,8),op('c',5,7,6,2),op('c',6,9,4,3),op('w',4,1,3,2),op('w',9,1,3,2),op('c',5,12,6,2)],
+    [op('w',6,2,4,2),op('c',4,4,8,2),op('c',3,6,2,6),op('c',11,6,2,6),op('c',5,12,6,2),op('c',6,7,4,2),op('d',7,8,2,3)],
+    [op('c',3,3,10,2),op('c',2,5,2,6),op('c',12,5,2,6),op('c',4,11,8,2),op('w',5,4,2,2),op('w',9,4,2,2),op('c',7,7,2,3)]
+  ]},
+  toxin:{name:'细胞毒素',key:'toxin',tag:'伤害',desc:['A 注射毒素','B 毒液瓶','C 中毒细胞'],v:[
+    [op('w',5,1,6,2),op('c',4,3,8,10),op('n',6,5,4,5),op('c',2,7,3,2),op('c',11,7,3,2),op('c',7,4,2,7),op('w',3,13,10,2)],
+    [op('c',5,2,6,2),op('c',4,4,8,9),op('n',6,6,4,5),op('c',7,7,2,4),op('w',3,13,10,2),op('c',2,5,2,2),op('c',12,5,2,2)],
+    [op('d',4,3,8,10),op('c',5,2,6,11),op('c',6,5,4,2),op('c',7,7,2,4),op('w',2,7,2,2),op('w',12,7,2,2),op('w',6,13,4,2)]
+  ]},
+  lyse:{name:'裂解',key:'lyse',tag:'净化',desc:['A 撕裂目标','B 断开的膜','C 分解碎片'],v:[
+    [op('c',2,3,5,2),op('c',9,3,5,2),op('c',1,5,3,7),op('c',12,5,3,7),op('w',4,5,2,2),op('w',10,9,2,2),op('c',6,7,4,2),op('c',7,9,2,3)],
+    [op('c',2,2,4,2),op('c',10,2,4,2),op('c',1,4,3,8),op('c',12,4,3,8),op('c',6,4,4,2),op('c',7,6,2,5),op('w',4,11,2,2),op('w',10,5,2,2)],
+    [op('d',3,3,10,10),op('c',4,4,3,3),op('c',9,4,3,3),op('c',4,9,3,3),op('c',9,9,3,3),op('c',7,6,2,5),op('w',7,2,2,2),op('w',7,12,2,2)]
+  ]},
+  chemo:{name:'趋化源',key:'chemo',tag:'引导',desc:['A 引力漏斗','B 化学信号','C 目标气味'],v:[
+    [op('c',3,2,3,3),op('c',10,2,3,3),op('c',2,5,12,2),op('c',5,7,6,2),op('w',6,9,4,2),op('w',7,11,2,3),op('c',1,12,4,2),op('c',11,12,4,2)],
+    [op('c',2,2,3,3),op('c',11,2,3,3),op('c',4,4,8,2),op('c',5,6,6,2),op('c',6,8,4,2),op('w',7,10,2,4),op('w',2,11,2,2),op('w',12,11,2,2)],
+    [op('c',2,2,3,3),op('c',11,2,3,3),op('c',3,5,10,2),op('c',5,7,6,2),op('c',6,9,4,2),op('w',7,11,2,3),op('w',3,12,2,2),op('w',11,12,2,2)]
+  ]},
+  mutate:{name:'突变',key:'mutate',tag:'变化',desc:['A DNA 分叉','B 变异双螺旋','C 进化翅片'],v:[
+    [op('c',3,1,2,3),op('c',11,1,2,3),op('c',5,3,6,2),op('c',5,5,2,3),op('c',9,5,2,3),op('w',3,7,10,2),op('c',5,9,2,3),op('c',9,9,2,3),op('c',3,12,2,3),op('c',11,12,2,3)],
+    [op('c',3,2,2,11),op('c',11,2,2,11),op('c',5,3,2,3),op('c',9,3,2,3),op('w',5,6,6,2),op('c',5,9,2,3),op('c',9,9,2,3),op('w',6,1,4,2)],
+    [op('c',2,3,3,3),op('c',11,3,3,3),op('c',5,4,6,8),op('w',7,2,2,3),op('w',7,11,2,3),op('c',3,8,2,3),op('c',11,8,2,3),op('d',7,6,2,4)]
+  ]},
+  homing:{name:'血行转移',key:'homing',tag:'追踪',desc:['A 血流箭头','B 追踪细胞','C 靶心锁定'],v:[
+    [op('c',2,6,10,4),op('c',4,4,6,8),op('c',11,5,2,6),op('c',13,7,2,2),op('w',3,7,3,2),op('w',6,5,2,2),op('w',6,9,2,2),op('c',1,4,2,2),op('c',1,10,2,2)],
+    [op('c',2,3,2,10),op('c',4,5,8,2),op('c',5,4,6,8),op('w',7,5,2,2),op('w',7,9,2,2),op('c',11,7,4,2),op('c',1,7,4,2),op('d',7,7,2,2)],
+    [op('c',2,2,12,2),op('c',2,12,12,2),op('c',2,4,2,8),op('c',12,4,2,8),op('c',5,5,6,6),op('w',7,3,2,3),op('w',7,10,2,3),op('d',7,7,2,2)]
+  ]},
+  mucus:{name:'黏液破裂',key:'mucus',tag:'阻隔',desc:['A 黏液团','B 破裂膜','C 滴落屏障'],v:[
+    [op('c',5,2,6,2),op('c',3,4,10,7),op('c',5,11,6,3),op('w',6,5,4,2),op('w',4,8,3,2),op('w',9,8,3,2),op('c',1,12,2,2),op('c',13,12,2,2)],
+    [op('c',3,3,10,2),op('c',2,5,12,2),op('c',4,7,8,4),op('c',6,11,4,3),op('w',5,8,2,2),op('w',9,8,2,2),op('c',1,12,3,2),op('c',12,12,3,2)],
+    [op('c',4,2,8,2),op('c',3,4,10,4),op('w',5,5,2,2),op('w',9,5,2,2),op('c',2,8,12,2),op('c',4,10,8,2),op('c',6,12,4,2),op('w',7,14,2,1)]
+  ]},
+  jump:{name:'转移',key:'jump',tag:'传送',desc:['A 瞬移十字','B 传送门','C 位点交换'],v:[
+    [op('w',7,1,2,4),op('w',7,11,2,4),op('w',1,7,4,2),op('w',11,7,4,2),op('c',5,5,6,6),op('c',7,3,2,10),op('c',3,7,10,2)],
+    [op('c',4,3,8,2),op('c',3,5,2,8),op('c',11,5,2,8),op('c',4,11,8,2),op('c',6,5,4,2),op('c',5,7,6,2),op('c',6,9,4,2),op('w',7,7,2,2)],
+    [op('c',2,3,4,2),op('c',10,3,4,2),op('c',2,11,4,2),op('c',10,11,4,2),op('c',6,5,4,6),op('w',7,2,2,3),op('w',7,11,2,3),op('c',4,7,8,2)]
+  ]},
+  ossify:{name:'骨样硬化',key:'ossify',tag:'固化',desc:['A 晶体硬化','B 骨片包覆','C 裂纹核心'],v:[
+    [op('w',1,3,4,4),op('w',11,9,4,4),op('c',4,5,8,6),op('c',6,3,4,2),op('c',6,11,4,2),op('d',7,6,2,4),op('d',5,7,6,2)],
+    [op('w',2,2,3,3),op('w',11,11,3,3),op('c',4,4,8,8),op('c',6,2,4,2),op('c',6,12,4,2),op('d',6,6,4,4),op('d',5,8,6,2)],
+    [op('c',5,2,6,2),op('c',3,4,10,8),op('c',5,12,6,2),op('w',2,5,2,4),op('w',12,7,2,4),op('d',7,5,2,3),op('d',5,8,6,2),op('w',7,11,2,2)]
+  ]},
+  end:{name:'结束回合',key:'end',tag:'阶段',desc:['A 终止流程','B 旗帜落下','C 结算脉冲'],v:[
+    [op('w',3,2,2,12),op('c',5,3,8,2),op('c',11,5,2,5),op('c',5,10,8,2),op('c',7,6,3,2),op('c',9,7,3,2),op('c',11,8,3,2)],
+    [op('w',2,2,2,12),op('c',4,3,8,2),op('c',4,5,2,6),op('c',6,7,6,2),op('c',8,5,2,2),op('c',10,7,2,2),op('c',12,9,2,2),op('w',5,12,8,2)],
+    [op('c',7,2,2,12),op('c',3,7,10,2),op('w',1,3,3,2),op('w',12,3,3,2),op('w',1,11,3,2),op('w',12,11,3,2),op('c',5,5,6,2),op('c',5,9,6,2)]
+  ]}
+};
+const skills=Object.values(S), storageKey='cell-war-skill-icon-picks-v1';
+let picks=Object.fromEntries(skills.map(s=>[s.key,0]));
+try{const saved=JSON.parse(localStorage.getItem(storageKey)||'{}');skills.forEach(s=>{if(Number.isInteger(saved[s.key])&&saved[s.key]>=0&&saved[s.key]<3)picks[s.key]=saved[s.key]})}catch(e){}
+function iconSvg(ops,large=false){return `<svg class="${large?'icon-large':'icon-pixel'}" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${ops.map(([color,x,y,w,h])=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${C[color]}"/>`).join('')}</svg>`}
+let renderState='normal';
+function shotPath(key,variant,state){return `skill-icon-renders/${key}-${'ABC'[variant]}-${state}.png`}
+function openArt(key,variant){document.querySelector('#artTitle').textContent=`${S[key].name} / ${'ABC'[variant]} · Godot 全局截图`;document.querySelector('#artScene').src=shotPath(key,variant,'scene');document.querySelector('#artModal').showModal()}
+function render(){
+ const rows=document.querySelector('#rows');
+ rows.innerHTML=skills.map((s,index)=>`<article class="skill-row"><div class="skill-meta"><span class="skill-num">${String(index+1).padStart(2,'0')}</span><strong class="skill-name">${s.name}</strong><span class="skill-key">${s.key}</span></div><div class="variants">${s.v.map((ops,i)=>`<div class="option"><button class="candidate ${picks[s.key]===i?'selected':''}" data-key="${s.key}" data-variant="${i}" aria-pressed="${picks[s.key]===i}"><span class="preview">${iconSvg(ops,true)}</span><span class="candidate-copy"><span class="variant">${'ABC'[i]} / ${s.tag}</span><h3>${s.desc[i]}</h3><span class="badge">点击选定</span></span><span class="game-proof"><small>游戏行动栏 · 原始尺寸</small><img src="${shotPath(s.key,i,renderState)}" alt="${s.name} ${'ABC'[i]} 行动栏${renderState}截图" loading="lazy"></span></button><button class="scene-link" data-scene="${s.key}" data-variant="${i}">查看 ${'ABC'[i]} 版全局截图</button></div>`).join('')}</div></article>`).join('');
+rows.querySelectorAll('.scene-link').forEach(b=>b.addEventListener('click',()=>openArt(b.dataset.scene,Number(b.dataset.variant))));
+rows.querySelectorAll('.candidate').forEach(b=>b.addEventListener('click',()=>{picks[b.dataset.key]=Number(b.dataset.variant);save();render()}));updateOutput()}
+function save(){localStorage.setItem(storageKey,JSON.stringify(picks));document.querySelector('#statusText').textContent='选择已保存到本机浏览器';document.querySelector('#statusDot').className='dot ready'}
+function updateOutput(){const result=Object.fromEntries(skills.map(s=>[s.key,String.fromCharCode(65+picks[s.key])]));document.querySelector('#output').value=JSON.stringify(result,null,2);document.querySelector('#count').textContent=`${skills.length} / ${skills.length}`}
+document.querySelector('#artClose').addEventListener('click',()=>document.querySelector('#artModal').close());
+document.querySelector('#artModal').addEventListener('click',e=>{if(e.target.id==='artModal')e.currentTarget.close()});
+document.querySelector('#renderState').addEventListener('change',e=>{renderState=e.target.value;render()});
+document.querySelector('#reset').addEventListener('click',()=>{picks=Object.fromEntries(skills.map(s=>[s.key,0]));save();render();document.querySelector('#statusText').textContent='已重置为 A 版本'});
+document.querySelector('#copy').addEventListener('click',async()=>{const text=document.querySelector('#output').value;try{await navigator.clipboard.writeText(text);document.querySelector('#statusText').textContent='选择结果已复制'}catch(e){document.querySelector('#output').select();document.execCommand('copy');document.querySelector('#statusText').textContent='选择结果已复制'}});
+document.querySelector('#download').addEventListener('click',()=>{const blob=new Blob([document.querySelector('#output').value+'\n'],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='skill-icon-selections.json';a.click();URL.revokeObjectURL(a.href);document.querySelector('#statusText').textContent='JSON 已下载'});
+render();
+</script>
+</body>
+</html>
+

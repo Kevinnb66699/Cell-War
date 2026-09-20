@@ -65,6 +65,7 @@ static func clickable_label(parent: Control, text: String, at: Vector2,
 	## 点击音就挂在这条共用底座上 —— 用它的几处（开局配置、设置页、投降票）一并有声
 	var clickable := label(text, SIZE_BODY, TEXT_HI)
 	clickable.position = at
+	clickable.size = clickable.get_minimum_size()  ## Label 默认尺寸为 0×0；命中框必须贴住文字
 	clickable.mouse_filter = Control.MOUSE_FILTER_STOP
 	clickable.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	clickable.gui_input.connect(func(e: InputEvent) -> void:

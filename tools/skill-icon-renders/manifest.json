@@ -1,0 +1,1172 @@
+[
+  {
+    "file": "move-A-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "move",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "move-A-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "move",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "move-A-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "move",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "move-B-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "move",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "move-B-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "move",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "move-B-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "move",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "move-C-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "move",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "move-C-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "move",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "move-C-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "move",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "draw-A-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "draw",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "draw-A-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "draw",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "draw-A-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "draw",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "draw-B-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "draw",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "draw-B-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "draw",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "draw-B-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "draw",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "draw-C-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "draw",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "draw-C-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "draw",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "draw-C-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "draw",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "differentiate-A-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "differentiate",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "differentiate-A-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "differentiate",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "differentiate-A-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "differentiate",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "differentiate-B-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "differentiate",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "differentiate-B-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "differentiate",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "differentiate-B-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "differentiate",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "differentiate-C-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "differentiate",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "differentiate-C-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "differentiate",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "differentiate-C-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "differentiate",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "antibody-A-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "antibody",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "antibody-A-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "antibody",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "antibody-A-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "antibody",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "antibody-B-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "antibody",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "antibody-B-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "antibody",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "antibody-B-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "antibody",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "antibody-C-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "antibody",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "antibody-C-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "antibody",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "antibody-C-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "antibody",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "toxin-A-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "toxin",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "toxin-A-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "toxin",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "toxin-A-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "toxin",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "toxin-B-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "toxin",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "toxin-B-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "toxin",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "toxin-B-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "toxin",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "toxin-C-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "toxin",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "toxin-C-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "toxin",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "toxin-C-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "toxin",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "lyse-A-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "lyse",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "lyse-A-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "lyse",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "lyse-A-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "lyse",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "lyse-B-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "lyse",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "lyse-B-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "lyse",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "lyse-B-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "lyse",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "lyse-C-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "lyse",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "lyse-C-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "lyse",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "lyse-C-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "lyse",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "chemo-A-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "chemo",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "A",
+    "width": 76
+  },
+  {
+    "file": "chemo-A-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "chemo",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "A",
+    "width": 76
+  },
+  {
+    "file": "chemo-A-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "chemo",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "A",
+    "width": 76
+  },
+  {
+    "file": "chemo-B-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "chemo",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "B",
+    "width": 76
+  },
+  {
+    "file": "chemo-B-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "chemo",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "B",
+    "width": 76
+  },
+  {
+    "file": "chemo-B-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "chemo",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "B",
+    "width": 76
+  },
+  {
+    "file": "chemo-C-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "chemo",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "C",
+    "width": 76
+  },
+  {
+    "file": "chemo-C-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "chemo",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "C",
+    "width": 76
+  },
+  {
+    "file": "chemo-C-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "chemo",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "C",
+    "width": 76
+  },
+  {
+    "file": "mutate-A-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mutate",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "mutate-A-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mutate",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "mutate-A-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mutate",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "mutate-B-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mutate",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "mutate-B-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mutate",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "mutate-B-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mutate",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "mutate-C-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mutate",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "mutate-C-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mutate",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "mutate-C-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mutate",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "homing-A-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "homing",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "homing-A-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "homing",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "homing-A-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "homing",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "homing-B-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "homing",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "homing-B-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "homing",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "homing-B-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "homing",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "homing-C-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "homing",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "homing-C-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "homing",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "homing-C-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "homing",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "mucus-A-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mucus",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "mucus-A-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mucus",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "mucus-A-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mucus",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "mucus-B-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mucus",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "mucus-B-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mucus",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "mucus-B-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mucus",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "mucus-C-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mucus",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "mucus-C-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mucus",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "mucus-C-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "mucus",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "jump-A-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "jump",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "jump-A-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "jump",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "jump-A-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "jump",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "A",
+    "width": 65
+  },
+  {
+    "file": "jump-B-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "jump",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "jump-B-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "jump",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "jump-B-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "jump",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "B",
+    "width": 65
+  },
+  {
+    "file": "jump-C-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "jump",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "jump-C-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "jump",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "jump-C-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "jump",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "C",
+    "width": 65
+  },
+  {
+    "file": "ossify-A-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "ossify",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "ossify-A-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "ossify",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "ossify-A-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "ossify",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "ossify-B-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "ossify",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "ossify-B-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "ossify",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "ossify-B-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "ossify",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "ossify-C-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "ossify",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "ossify-C-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "ossify",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "ossify-C-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "ossify",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "end-A-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "end",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "end-A-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "end",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "end-A-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "end",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "A",
+    "width": 96
+  },
+  {
+    "file": "end-B-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "end",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "end-B-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "end",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "end-B-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "end",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "B",
+    "width": 96
+  },
+  {
+    "file": "end-C-normal.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "end",
+    "renderer": "CWActionBar",
+    "state": "normal",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "end-C-hover.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "end",
+    "renderer": "CWActionBar",
+    "state": "hover",
+    "variant": "C",
+    "width": 96
+  },
+  {
+    "file": "end-C-disabled.png",
+    "height": 58,
+    "icon_size": 16,
+    "key": "end",
+    "renderer": "CWActionBar",
+    "state": "disabled",
+    "variant": "C",
+    "width": 96
+  }
+]

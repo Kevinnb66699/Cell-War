@@ -9672,6 +9672,8 @@ func t_main_menu() -> void:
 	# 菜单场景里的节点名、字号
 	var scene = load("res://scenes/MainMenu.tscn").instantiate()
 	var items: Control = scene.get_node("UI/Screen/Items")
+	check(not items.has_node("Atlas"),
+		"细胞图鉴由 CWStyle.clickable_label 运行时建立，场景不重复声明入口")
 	var names_ok := true
 	for item in menu_script.ITEMS:
 		if not items.has_node(item["node"]):
@@ -9717,7 +9719,7 @@ func t_main_menu() -> void:
 		"共用件自己也扛得住：0 项 / 0 方向都原地不动")
 	var with_save := [true, true, true, true, true, true, true]
 	check(menu_script.next_enabled(1, 1, with_save) == 2, "有档：从「联机对战」往下落到「继续对局」")
-	## 七项要排得下：最后一项底边不出屏，相邻两项不重叠。
+	## 静态菜单项要排得下：最后一项底边不出屏，相邻两项不重叠。
 	var ys: Array = []
 	for item in menu_script.ITEMS:
 		ys.append((items.get_node(item["node"]) as Label).position.y)
@@ -9725,8 +9727,8 @@ func t_main_menu() -> void:
 	for i in range(1, ys.size()):
 		if ys[i] - ys[i - 1] < 26:
 			spaced = false
-	## 整块上移 14px（Kevin 2026-09-05 选乙案）：首项 292 → 278，末项底边 528 → 514，屏幕底留 26px
-	check(spaced and ys[0] == 278 and ys[-1] + 28 <= 514, "七项行距 ≥ 26、首项 278、末项底边 ≤ 514（%s）" % str(ys))
+	## 图鉴是独立入口，插在知识之书之后；场景内静态项因此保留一个 28px 行位。
+	check(spaced and ys[0] == 278 and ys[-1] + 28 <= 542, "静态菜单项行距 ≥ 26、首项 278、末项不出屏（%s）" % str(ys))
 	var sub: Control = scene.get_node("UI/Screen/Sub")
 	var logo: Control = scene.get_node("UI/Screen/Logo")
 	check(sub.position.y == 119 and logo.position.y == 172, "副标题 / 标题跟着菜单项一起上移 14px（%d / %d）" % [sub.position.y, logo.position.y])
@@ -9953,6 +9955,117 @@ func t_codex() -> void:
 	## 判据没有了被判对象。要重新上闸的话改 `cw_codex.gd:119` 一行，判据照 S6b 那三条抄回来
 	book2.queue_free()
 	CWGuideProgress.clear()   ## 别把解锁集脏到同一分片里后面那些开书 / 按进度开局的测试
+	## 细胞图鉴使用更宽的独立画布，知识之书切回时恢复原比例。
+	book.open_atlas()
+	check(book._atlas_mode and book._panel.size == Vector2(CWCodex.ATLAS_W, CWCodex.ATLAS_H)
+		and book._panel.position == Vector2(70, 20)
+		and book._body.size == Vector2(CWCodex.ATLAS_W - CWCodex.PAD * 2,
+			CWCodex.ATLAS_H - CWCodex.PAD - CWCodex.HEADER_H - CWCodex.FOOTER_H),
+		"细胞图鉴使用 820x500 宽屏面板，居中且保留 960x540 屏幕边距")
+	var atlas_home_buttons := 0
+	for child in book._content.get_children():
+		if child is Button:
+			atlas_home_buttons += 1
+	check(book._atlas_home and not book._search.visible and atlas_home_buttons == 3,
+		"细胞图鉴先显示免疫 / 癌细胞 / 卡牌效果三个并列入口")
+	var thumbnail_counts: Array[int] = []
+	for faction in 3:
+		book._enter_atlas(faction)
+		await process_frame
+		var atlas_left: Panel = book._content.get_child(0) as Panel
+		var thumbnail_buttons := 0
+		for child in atlas_left.get_children():
+			if child is Button and (child as Button).icon != null:
+				thumbnail_buttons += 1
+		thumbnail_counts.append(thumbnail_buttons)
+	check(not book._atlas_home and book._search.visible
+		and thumbnail_counts == [CWCodex.atlas_cells(0).size(),
+			CWCodex.atlas_cells(1).size(), CWCodex.atlas_cells(2).size()],
+		"进入三类图鉴后，左栏每个细胞或卡牌分类都有对应缩略图")
+	## 两级返回：详情页的 Esc / 右键先回三个分类入口；再次返回才关闭图鉴。
+	book._enter_atlas(0)
+	var atlas_cancel := InputEventAction.new()
+	atlas_cancel.action = "ui_cancel"
+	atlas_cancel.pressed = true
+	book.handle_input(atlas_cancel)
+	check(book.visible and book._atlas_mode and book._atlas_home and not book._search.visible,
+		"详情页按 Esc 先回图鉴分类首页")
+	book.handle_input(atlas_cancel)
+	check(not book.visible, "分类首页再次按 Esc 才关闭图鉴")
+	book.open_atlas()
+	book._enter_atlas(1)
+	var atlas_right := InputEventMouseButton.new()
+	atlas_right.button_index = MOUSE_BUTTON_RIGHT
+	atlas_right.pressed = true
+	book._gui_input(atlas_right)
+	check(book.visible and book._atlas_mode and book._atlas_home and not book._search.visible,
+		"详情页点右键先回图鉴分类首页")
+	book._gui_input(atlas_right)
+	check(not book.visible, "分类首页再次点右键才关闭图鉴")
+	book._leave_atlas_detail()
+	await process_frame
+	check(book._atlas_home and not book._search.visible,
+		"详情页返回后回到三类图鉴入口，而不是直接关闭")
+	check(486 + (book._body.size.x - 486) <= book._body.size.x
+		and 204 + (book._body.size.x - 204) <= book._body.size.x,
+		"图鉴技能栏与详情栏按新宽度落在正文区域内、不越界")
+	## 动画记录：art-preview 的动态项目全部登记；卡牌拆组后仍恰好 16 张。
+	var card_count := 0
+	for group in CWCodex.atlas_cells(2):
+		card_count += (group["skills"] as Array).size()
+	var animation_count := 0
+	for group in CWCodex.atlas_cells(3):
+		animation_count += (group["skills"] as Array).size()
+	check(card_count == 16 and animation_count == 21,
+		"图鉴记录 tools/art-preview 的 16 张卡牌与 21 个动态项目（当前 %d / %d）" % [card_count, animation_count])
+	var CodexFx := preload("res://scripts/ui/cw_codex_fx.gd")
+	var malformed: Array = []
+	var unsupported: Array = []
+	var crowded: Array = []
+	var fx_kinds: Array[String] = []
+	for faction in 4:
+		for group in CWCodex.atlas_cells(faction):
+			var skills: Array = group["skills"]
+			if skills.size() > 9:
+				crowded.append(group["name"])
+			for skill in skills:
+				if (skill as Array).size() != 3:
+					malformed.append(skill)
+				elif not CodexFx.supports(String(skill[2])):
+					unsupported.append(skill[2])
+				elif not fx_kinds.has(String(skill[2])):
+					fx_kinds.append(String(skill[2]))
+	check(malformed.is_empty() and unsupported.is_empty(),
+		"全部图鉴条目都有名称 / 描述 / FX，且 FX 可播放（坏数据 %s；未知 FX %s）" % [str(malformed), str(unsupported)])
+	check(crowded.is_empty(), "每个二级分组最多 9 项，不与底部倍速控件重叠（超限 %s）" % str(crowded))
+	var fx_stage = CodexFx.new()
+	root.add_child(fx_stage)
+	var unplayed: Array[String] = []
+	for kind in fx_kinds:
+		fx_stage.play(kind)
+		fx_stage._process(1.0 / 12.0)
+		if fx_stage._kind != kind or fx_stage.get_child_count() == 0:
+			unplayed.append(kind)
+	check(unplayed.is_empty(), "逐个创建并推进全部 %d 种唯一 FX（未起播 %s）" % [fx_kinds.size(), str(unplayed)])
+	root.remove_child(fx_stage)
+	fx_stage.free()
+	book._atlas_faction = 3
+	book._atlas_type = 2
+	book._atlas_skill = 1
+	book._rebuild_atlas()
+	await process_frame
+	check(book._atlas_fx != null and book._atlas_fx._kind == "revive_immune" and book._atlas_fx.get_child_count() > 0,
+		"动画记录可切到免疫复活，并创建游戏同源 FX 舞台")
+	book._atlas_speed = 0.25
+	book._replay_atlas_action()
+	check(is_equal_approx(book._atlas_fx._speed, 0.25) and is_equal_approx(book._atlas_fx._time, 0.0),
+		"0.25x 倍速写入舞台并从头重播")
+	book._atlas_speed = 2.0
+	book._replay_atlas_action()
+	check(is_equal_approx(book._atlas_fx._speed, 2.0), "2x 倍速写入舞台")
+	book.open()
+	check(not book._atlas_mode and book._panel.size == Vector2(CWCodex.W, CWCodex.H),
+		"返回知识之书时恢复 580x470 原面板尺寸")
 	book.queue_free()
 
 
@@ -11156,6 +11269,38 @@ func t_quit_confirm() -> void:
 	root.add_child(cam)
 	root.add_child(menu)
 	await process_frame
+	var atlas_button: Label = menu.get_node("UI/Screen/Items/Atlas")
+	check(atlas_button.size.x > 0.0 and atlas_button.size.y > 0.0
+		and atlas_button.mouse_filter == Control.MOUSE_FILTER_STOP,
+		"主界面细胞图鉴文字入口有实际命中区域")
+	var codex_button: Label = menu.get_node("UI/Screen/Items/Codex")
+	var guide_button: Label = menu.get_node("UI/Screen/Items/Guide")
+	var settings_button: Label = menu.get_node("UI/Screen/Items/Settings")
+	var quit_button: Label = menu.get_node("UI/Screen/Items/Quit")
+	check(is_equal_approx(atlas_button.position.y, codex_button.position.y + 28.0)
+		and is_equal_approx(guide_button.position.y, atlas_button.position.y + 28.0)
+		and is_equal_approx(settings_button.position.y, guide_button.position.y + 28.0)
+		and is_equal_approx(quit_button.position.y, settings_button.position.y + 28.0)
+		and quit_button.position.y + quit_button.size.y <= 540.0,
+		"细胞图鉴紧跟知识之书，后续三项保持 28px 行距且不出屏")
+	menu._on_atlas_button_entered()
+	check(menu._atlas_hovered and menu._glow.visible
+		and is_equal_approx(menu._marker.position.y, atlas_button.position.y + atlas_button.size.y / 2.0)
+		and menu._glow.position == atlas_button.position,
+		"悬停细胞图鉴：共用蓝色菱形与文字辉光，并跟到图鉴行")
+	menu._on_atlas_button_exited()
+	check(not menu._atlas_hovered and not menu._glow.visible
+		and is_equal_approx(menu._marker.position.y,
+			menu._labels[menu._selected].position.y + menu._labels[menu._selected].size.y / 2.0),
+		"移出细胞图鉴：菱形回到普通菜单当前选中项")
+	var atlas_click := InputEventMouseButton.new()
+	atlas_click.button_index = MOUSE_BUTTON_LEFT
+	atlas_click.pressed = true
+	atlas_button.gui_input.emit(atlas_click)
+	await process_frame
+	check(menu._atlas != null and menu._atlas.visible and menu._atlas._atlas_mode,
+		"主菜单细胞图鉴按钮 pressed 信号打开独立细胞图鉴")
+	menu._atlas.visible = false
 	## 「退出游戏」是最后一项
 	var quit_i: int = menu.ITEMS.size() - 1
 	check(menu.ITEMS[quit_i]["node"] == "Quit", "最后一项是退出游戏")

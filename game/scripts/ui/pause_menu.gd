@@ -52,6 +52,7 @@ const ITEMS := [
 	{ "id": "resume", "text": "继续对局", "enabled": true, "confirm": "" },
 	{ "id": "save_quit", "text": "保存并退出", "enabled": true, "confirm": "" },
 	{ "id": "codex", "text": "知识之书", "enabled": true, "confirm": "" },
+	{ "id": "atlas", "text": "细胞图鉴", "enabled": true, "confirm": "" },
 	{ "id": "settings", "text": "设置", "enabled": true, "confirm": "" },
 	## 「反馈 bug」（issue #19，2026-09-11）：截图（不含本菜单）+ 对局快照 + 一句说明，POST 到自家服务器存档；
 	## 界面在 _show_feedback_page，打包与发送在 CWFeedback。联机 / 回放里也能用 —— 出问题的画面不分模式
@@ -135,6 +136,7 @@ var feedback_post := Callable()
 
 var _settings: CWSettingsPage
 var _codex: CWCodex
+var _atlas: CWCodex
 var _panel: Control
 var _title: Label
 var _hint: Label
@@ -163,8 +165,11 @@ func _ready() -> void:
 	add_child(_settings)
 	_codex = CWCodex.new()
 	add_child(_codex)
+	_atlas = CWCodex.new()
+	add_child(_atlas)
 	_settings.visibility_changed.connect(_sub_changed)
 	_codex.visibility_changed.connect(_sub_changed)
+	_atlas.visibility_changed.connect(_sub_changed)
 	visible = false
 
 
@@ -217,6 +222,8 @@ func close() -> void:
 		_settings.visible = false
 	if _codex != null:
 		_codex.visible = false
+	if _atlas != null:
+		_atlas.visible = false
 	## teardown() 在 _exit_tree 里也会调到这儿，那时已经离开场景树、get_tree() 是 null
 	if is_inside_tree():
 		get_tree().paused = false
@@ -225,7 +232,8 @@ func close() -> void:
 ## 子页开着时列表让位（两块面板同宽同位，叠着会透出一圈重影）；树保持冻结
 func _sub_changed() -> void:
 	var sub_open: bool = (_settings != null and _settings.visible) \
-		or (_codex != null and _codex.visible)
+		or (_codex != null and _codex.visible) \
+		or (_atlas != null and _atlas.visible)
 	_panel.visible = not sub_open
 
 
@@ -241,6 +249,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _codex != null and _codex.visible:
 		_codex.handle_input(event)
+		return
+	if _atlas != null and _atlas.visible:
+		_atlas.handle_input(event)
 		return
 	if event.is_action_pressed("ui_cancel"):
 		## 正在选目标格时，Esc 归行动栏的「取消」，不开菜单
@@ -361,6 +372,9 @@ func _activate(i: int) -> void:
 		return
 	if id == "codex":
 		_codex.open()
+		return
+	if id == "atlas":
+		_atlas.open_atlas()
 		return
 	## 反馈 bug 的三步在菜单内部消化：抓图进反馈页 → 提交 / 重试 → 返回列表
 	if id == "feedback":
