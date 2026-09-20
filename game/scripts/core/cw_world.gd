@@ -356,7 +356,7 @@ func revive_immune(pid: int, pos: Vector2i) -> void:
 	cell["alive"] = true
 	cell["energy"] = game.tune.immune_respawn_energy
 	cell["respawn_round"] = -1
-	## PRD【S-复活】：「每结算一次复活该免疫细胞的 X 增加 1」——下一次死亡的罚停就长一个回合（见 CWGame.kill）
+	## `revives` 只记账（issue #68 回调：X 不再随复活次数长，见 CWGame.kill）；快照 / L0 夹具里还有它
 	cell["revives"] = int(cell.get("revives", 0)) + 1
 	await game.actions.enter_tile(cell, pos)
 	game.fx("revive_immune", { "at": pos })

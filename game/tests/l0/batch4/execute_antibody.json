@@ -96,7 +96,7 @@
       "kind": "delta",
       "changed": {
         "$.cells[0].antibody_used": 3,
-        "$.cells[0].d.antibody_damage": 1,
+        "$.cells[0].d.antibody_damage": 2,
         "$.cells[0].energy": 490,
         "$.cells[1].energy": 497
       }
