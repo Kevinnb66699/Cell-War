@@ -345,27 +345,25 @@ static func rounds_to_solidify(solid: int, threshold: int) -> int:
 ## ⚠ 拟合分布限制：训练局面来自 heu/mech 对弈，搜索 AI 走出更强局面时外推需复测。
 
 ## 截距（全数据拟合）。
-const FIT_B := 4.0552
+const FIT_B := 6.1447
 
 ## 零和位置估值：输入 `_read_metrics` 的字典（需含 cancer_alive），输出越大对免疫越优。
+## 【E4·2026-09-20 新平衡(#64/#66)重拟合】167局(1516+abs癌22局, evh3+evh4) logistic,
+## log(1+x)特征, 5折CV AUC=0.890; 剔除 wp/cm(共线)、mie(毒项实锤)、lc/epd(不稳+内生混淆,
+## 剥削价值经 ia 由搜索视野交付, 见 mech_intent v2 头注)。复现: tools/eval_new_balance.py。
 static func position_eval(m: Dictionary) -> float:
 	var e := FIT_B
-	e += 2.0602 * _lf(m, "immune_level")       ## 免疫等级门（最强正项）
-	e += 1.8128 * _lf(m, "immune_alive")       ## 免疫兵力
-	e -= 1.5817 * _lf(m, "cancer_tiles")       ## 癌地盘
-	e -= 1.3008 * _lf(m, "solid_tiles")        ## 癌固化
-	e -= 0.9080 * _lf(m, "cancer_alive")       ## 癌兵力
-	e += 0.8470 * _lf(m, "healthy_marrows")    ## 健康骨髓（免疫复活点）
-	## ⚠ mie 系数是共线伪影：mie 与 ie/ia 强共线，拟合给它负号（最弱免疫能量越高越差），
-	##   机制上倒置 —— 实测它驱动 AI 主动削弱自己最弱细胞（mev 1-11 崩盘的主因之一）。
-	##   按「数据矛盾时以机制为准」剔除该项（数学/机制裁决，非拍数）。
-	## e -= 0.2755 * _lf(m, "min_immune_energy")
-	e += 0.2541 * _lf(m, "memory")             ## 抗原记忆
-	e -= 0.2370 * _lf(m, "cancer_energy")
-	e -= 0.2258 * _lf(m, "immune_lethal_count")## 即将被压死的免疫数
-	e -= 0.1512 * _lf(m, "immune_pressure_total")
-	e += 0.0639 * _lf(m, "cancer_supply")
-	e += 0.0430 * _lf(m, "immune_energy")      ## 免疫能量：数据说几乎不预测输赢（旧估值把它当头项=配反）
+	e += 2.0535 * _lf(m, "immune_level")       ## 免疫等级门
+	e += 1.0054 * _lf(m, "memory")             ## 抗原记忆(新平衡下升级更关键, 权重翻4倍)
+	e += 3.6284 * _lf(m, "immune_alive")       ## 免疫兵力(=击杀价值的载体, 搜索视野交付)
+	e -= 2.1900 * _lf(m, "cancer_tiles")
+	e -= 2.1521 * _lf(m, "solid_tiles")
+	e -= 0.6381 * _lf(m, "cancer_alive")       ## 癌兵力
+	e -= 0.5761 * _lf(m, "cancer_energy")
+	e -= 0.5305 * _lf(m, "immune_energy")      ## 负号=新平衡下囤能量的免疫会输(数据)
+	e -= 0.3989 * _lf(m, "cancer_supply")
+	e -= 0.1842 * _lf(m, "immune_pressure_total")
+	e += 0.1526 * _lf(m, "healthy_marrows")
 	return e
 
 ## log(1+x)，x 下限 0（杠杆全是非负量）。
