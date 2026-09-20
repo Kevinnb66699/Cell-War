@@ -3,7 +3,7 @@
 #   同一份 game/tests/l0/*.json，GD runner（tests/l0_runner.gd）与 C# runner（L0RunnerTests）都要绿，
 #   外加闸二 2b 装载自证（PreParityTests：两侧装出来的世界逐字段相同）、
 #   闸二 2a/2d 往返自证（GD `l0_runner.gd --selfcheck` + C# RoundTripTests）、
-#   契约表三条启动断言（ContractGateTests）、闸三计数（tools/xcheck_report.py）。
+#   契约表三条启动断言（ContractGateTests）。闸三计数 2026-09-20 退役。
 #   任一侧红、或 GD 侧有运行时报错，整体就红。tools/run_tests.sh 末尾会调这里；也可以单独跑。
 #
 # 提醒：pre_envelopes.jsonl.gz 是 GD 侧装载结果的夹具 —— 用例一动就要重录：
@@ -61,13 +61,11 @@ else
 	echo "L0（C# 侧）：跳过（Kevin 2026-09-19：不再维护 C# 核心；CW_L0_CS=1 可临时跑）"
 fi
 
-# 闸三（测试迁移规格 A-8 / C-1 步 15）：covers ∩ 真实 check 名，单调不减；
-# 指不到断言的 covers 当场红。口径写死在脚本里、不读配置。
-# --write 只在人工抬 COUNT 时用，CI 一律 --check。
-python tools/xcheck_report.py --check || CODE=1
+# 闸三（covers ∩ 真实 check 名、covered_sites 单调不减、xcheck/COUNT）2026-09-20 退役（Kevin：测试整理口径 A）：
+# 它是 C# 对拍时期「分子不许造」的记账，C# 已冻结；L0 用例照跑，用例里的 covers 字段只当出处注记、不再校验。
 
 if [ "$CODE" -eq 0 ]; then
-	echo "✔ L0（GD 侧）全绿 + 闸三过"
+	echo "✔ L0（GD 侧）全绿"
 else
 	echo "✘ L0 有红（GD 退出码 $GD_CODE / GD 自检 $SC_CODE / C# 退出码 $CS_CODE）"
 fi
