@@ -21125,6 +21125,15 @@ func t_mech_bridge_quiet() -> void:
 	var ms := Time.get_ticks_msec() - t0
 	print("  意图级 AI 四人局一问耗时 %d ms（候选 %d 个）" % [ms, req4["options"].size()])
 	check(a4 >= 0 and ms < 1500, "四人局一问 %d ms（< 1500 ms 的粗闸；服务器主线程同步跑）" % ms)
+	## —— 方案 A 四人局搜索 · 协作让帧护栏（2026-09-20）——
+	## 之前派 worker Thread 会让 Godot 副线程协程态损坏段错误；现在改主线程协作让帧不崩。
+	## 同局面用协作让帧（use_threading=true）再问一次：断言不崩、答案合法、与同步一致（确定性）。
+	var tb := Time.get_ticks_msec()
+	mb4.use_threading = true
+	var a4b: int = await mb4.ask(req4)
+	var msb := Time.get_ticks_msec() - tb
+	check(a4b >= 0 and a4b == a4, "四人局搜索协作让帧不崩、答案与同步一致（%d）" % a4b)
+	print("  四人局搜索协作让帧一问 %d ms（节流 48 步/帧）" % msb)
 	g4.dispose()
 
 

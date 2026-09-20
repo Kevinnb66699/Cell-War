@@ -17,6 +17,25 @@ extends RefCounted
 
 const REACH_FIELD := preload("res://scripts/ai/mech/mech_dist.gd")
 
+## 协作让帧（2026-09-20 方案 A，见 docs/搜索线程化方案说明.md）：重搜索只在主线程跑，
+## 每 coop_every 步让出一帧 → 渲染/输入照转、不冻结。>0 开、0 关（关=全速阻塞）。
+## 只影响步进节奏，不改确定性（答案只依赖 rng/局面，与帧数无关）。
+## 之所以不派 worker Thread：Godot 副线程跑深递归 alpha-beta + 整回合前推会损坏
+## 协程态段错误（MC/MCTS 扁平+预算封顶能扛，MechBridge 的深递归受不了）。
+var coop_every := 0
+var _coop_pt := 0
+
+## 协作让帧步进器：攒够 coop_every 步就把主线程让出去一帧（无线程、无副作用）。
+func _coop_step() -> void:
+	if coop_every <= 0:
+		return
+	_coop_pt += 1
+	if _coop_pt >= coop_every:
+		_coop_pt = 0
+		var loop := Engine.get_main_loop()
+		if loop is SceneTree:
+			await (loop as SceneTree).process_frame
+
 
 ## 在 g（须为 pending 边界）上按序执行 pid 的迁移路径，返回「做完之后的地图和能量」读数，
 ## 然后复原 g。path: Array[Vector2i]（cell 的下一个落点）。
@@ -40,6 +59,7 @@ func evaluate_path(g: CWGame, pid: int, path: Array, with_hash := false) -> Dict
 			break
 		await g.step(idx)
 		steps += 1
+		await _coop_step()
 	## state_hash 全盘编码+HASH（O(board)），热路径逐候选算极贵且两个 scorer 都不用 →
 	## 默认跳过（快 64%），需要时（回放/排错）以 with_hash=true 单独取一次。
 	var metrics := _read_metrics(g, pid, with_hash)
@@ -316,6 +336,7 @@ func _play_path(g: CWGame, pid: int, path: Array) -> void:
 		if idx < 0:
 			return
 		await g.step(idx)
+		await _coop_step()
 
 
 ## 步进到本回合结束（其余席位按 image 内各自的桥作答 + E 阶段结算），
@@ -337,6 +358,7 @@ func _drive_to_round_end(g: CWGame, record = null, watch_pid: int = -1) -> Dicti
 			record.append({ "kind": str(req["kind"]),
 				"data": req["options"][idx]["data"] })
 		await g.step(idx)
+		await _coop_step()
 	return {}
 
 

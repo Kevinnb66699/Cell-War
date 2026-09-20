@@ -81,12 +81,9 @@ func ask(req: Dictionary) -> int:
 			"fit_linear": _fit_linear_on,
 			"fixed_lineup": fixed_lineup, "lifecare": lifecare,
 			"sim_no_lifecare": false, "depth": SEARCH_DEPTH, "top_k": 4,
+			"use_threading": use_threading,   ## 方案 A：true=主线程协作让帧
 		}
-		var best: Dictionary
-		if use_threading:
-			best = await _threaded_pick(game.snapshot(), cfg)
-		else:
-			best = await _pick_sync(game.snapshot(), cfg)
+		var best: Dictionary = await _pick_sync(game.snapshot(), cfg)
 		if use_search and best.has("plan"):
 			## 缓存整回合执行序列（含第一手），本回合后续询问走快路径
 			_plan[_pid] = { "round": game.round_no, "actions": best["plan"], "i": 0 }
@@ -105,42 +102,17 @@ func ask(req: Dictionary) -> int:
 
 ## —— 同步 / 副线程挑选入口（2026-09-20 线程化，与 MC / MCTS 同一套路）——
 
-## 同步路径：主线程协程里直接跑（无线程构建 / SceneTree 拿不到时退回这里）。
-## image 全用同步启发式桥 → cw_mech_work 的协程零真挂起，await 一路到底。
+## 协作让帧（2026-09-20 方案 A）：搜索**只在主线程**跑，绝不派 worker Thread ——
+## worker 里跑递归 alpha-beta + 整回合前推会让 Godot 副线程协程态损坏段错误（见
+## docs/搜索线程化方案说明.md）。改为 intent 在重循环里周期 `await process_frame`
+## 让出一帧：渲染/输入照转、不冻结，确定性不变，客户端+服务器都安全。
+## （use_threading=true 时由 cw_mech_work 打开 intent.coop_every，重循环被节流让帧。）
 func _pick_sync(snap: Dictionary, cfg: Dictionary) -> Dictionary:
 	return await cw_mech_work(snap, cfg)
 
 
-## 副线程路径：提交一个静态入口（绝不捕获主桥实例），主线程只在释放点出帧等结果。
-func _threaded_pick(snap: Dictionary, cfg: Dictionary) -> Dictionary:
-	## 与 MC / MCTS 相同的护栏：无线程构建 / 拿不到 SceneTree 时退回同步路径，绝不忙等。
-	## （`threads` 这个 feature 标签只在带线程的构建上有；万一在此类构建上不识别 use_threading
-	##  却起步线程且回调不同步，holder 永远填不上，while 就死等 → 干脆一开头就认一次。）
-	if not OS.has_feature("threads"):
-		return await _pick_sync(snap, cfg)
-	var tree: SceneTree = Engine.get_main_loop() as SceneTree
-	if tree == null:
-		push_warning("MechBridge._threaded_pick: 拿不到 SceneTree，退回同步路径")
-		return await _pick_sync(snap, cfg)
-	var holder := { "result": {} }
-	var box := RefCounted.new()   ## 仅作 Thread 入参的稳定对象；worker 不读写它
-	var t := Thread.new()
-	## 静态入口 + bind：Thread 只拿到快照数据与 cfg，接触不到主 game / UI / 场景树。
-	t.start(cw_mech_thread_entry.bind(holder, snap, cfg, box))
-	while holder["result"].is_empty():
-		await tree.process_frame   ## 主线程出帧等结果，不被算力堵死
-	t.wait_to_finish()
-	return holder["result"]
-
-
-## 副线程真正的入口：worker 建独立对局、跑评估、写 holder，全程碰不到主 game / UI / 场景树。
-static func cw_mech_thread_entry(holder: Dictionary, snap: Dictionary, cfg: Dictionary, _box: RefCounted) -> void:
-	var best: Dictionary = await cw_mech_work(snap, cfg)
-	holder["result"] = best
-
-
 ## 核心工作：由快照建独立 image（纯启发式桥），跑 search_best / best_by，返回 best。
-## 只依赖 snap 与 cfg，不碰外层 game / 场景树 → 主线程协程与副线程 work 都能 await 到同一结果。
+## 只依赖 snap 与 cfg，不碰外层 game / 场景树。use_threading=true → intent 协作让帧。
 static func cw_mech_work(snap: Dictionary, cfg: Dictionary) -> Dictionary:
 	var image: CWGame = CWMonteCarloBridge._build_image_static(snap, {
 		"fixed_lineup": bool(cfg.get("fixed_lineup", false)),
@@ -150,6 +122,8 @@ static func cw_mech_work(snap: Dictionary, cfg: Dictionary) -> Dictionary:
 	var pid: int = int(cfg["pid"])
 	var fac: int = int(cfg["my_faction"])
 	var intent := MechIntent.new()
+	if bool(cfg.get("use_threading", false)):
+		intent.coop_every = 48   ## 主线程每 48 步让一帧（节流防止过度放慢；0=关全速阻塞）
 	var best: Dictionary
 	if bool(cfg["use_search"]):
 		## 叶估值 = 拟合 E(s)，**按搜索方阵营翻号一次**（树内所有值统一搜索方视角，
