@@ -1192,7 +1192,9 @@ func antibody_damage(cell: Dictionary) -> int:
 		return dmg
 	for _i in int(cell["antibody_used"]):
 		dmg /= 2
-	return dmg
+	## 递减有底：最低 0.2（PRD 2026-09-20「每多用一次伤害减半，最低为 0.2」，issue #67）——
+	## 此前整数除法一路衰减到 0，第四发起白花能量打 0 伤害
+	return maxi(dmg, CWData.ANTIBODY_MIN_DAMAGE)
 
 
 ## 【抗体亲和力成熟】B 细胞强化：抗体费**降低** 0.5（卡面 2026-09-07 从「降低为 0.5」改成「降低 0.5」，

@@ -43,26 +43,26 @@
     "id": "antibody_damage/used_3",
     "probe": "antibody_damage",
     "covers": ["t_antibody_halve::第"],
-    "source": "headless_test.gd:t_antibody_halve L2394 的第 4 发：0.3 → 0.1",
+    "source": "headless_test.gd:t_antibody_halve 的第 4 发：0.3 → 0.15 向下取整得 0.1，再抬到底 **0.2**（PRD 2026-09-20「最低为0.2」，issue #67）",
     "world": {
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
       "cells": [{ "seat": 0, "type": "BCell", "at": "0,0", "energy": 500, "antibody_used": 3 }]
     },
     "args": { "cell": "0" },
-    "expect": 1
+    "expect": 2
   },
   {
     "schema": "cwxcase/2",
     "id": "antibody_damage/used_4_zero",
     "probe": "antibody_damage",
     "covers": ["t_antibody_halve::第"],
-    "source": "headless_test.gd:t_antibody_halve L2394 的第 5 发：0.1 → 0，自然衰减到 0 而不是永远留个尾巴",
+    "source": "headless_test.gd:t_antibody_halve 的第 5 发：再减半也停在底 **0.2**（issue #67；此前一路衰减到 0，第四发起白花能量）",
     "world": {
       "players": [{ "seat": 0, "faction": "immune", "level": "I" }],
       "cells": [{ "seat": 0, "type": "BCell", "at": "0,0", "energy": 500, "antibody_used": 4 }]
     },
     "args": { "cell": "0" },
-    "expect": 0
+    "expect": 2
   },
   {
     "schema": "cwxcase/2",

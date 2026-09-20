@@ -105,11 +105,12 @@ MAP = {
     "IMMUNE_RESPAWN_ENERGY":  "复活**，**初始1能量",
     ## 死亡惩罚 X 的**初始值**（PRD 2026-09-19 收编罚停，issue #63）。递增那一半记在细胞的
     ## `revives` 上、不是常量，这里只对得到初始值这一句；PRD 一改 1 就会失配。
-    "IMMUNE_RESPAWN_DELAY":   "X初始为1",
+    "IMMUNE_RESPAWN_DELAY":   "死亡回合后的下1世界回合无法复活",
     "MACRO_HEAL_PURIFY":      "巨噬细胞每通过【迁移】触发一次【净化】，恢复0.2能量",
     "MACRO_MOVE_NET_MIN":     "恢复量不超过 本次迁移实际支付的能量-0.1",
     "ANTIBODY_COST":          "【抗体】：消耗1点能量",
     "ANTIBODY_DAMAGE":        "默认能损为**1.5能量**",
+    "ANTIBODY_MIN_DAMAGE":    "每多用一次伤害减半**，最低为0.2",
     "ANTIBODY_MAX_PER_ROUND": "【抗体】：消耗1点能量，使所有与**健康组织**邻接的癌细胞",
     "TOXIN_COST":             "【细胞毒素】：消耗1点能量",
     "TOXIN_MAX_PER_ROUND":    "T细胞每**世界回合**最多发动3次",

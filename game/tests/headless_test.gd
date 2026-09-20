@@ -1275,9 +1275,9 @@ func t_immune_respawn() -> void:
 	g.tune.immune_respawn_delay = 1
 	g.round_no = 5
 	g.kill(imm)
-	## imm 上面已经在骨髓结算过一次复活 → X = 初始值 1 + 已复活 1 = 2（PRD：每结算一次复活 X 加 1）
+	## imm 上面已经在骨髓结算过一次复活：revives 只记账，X 仍是旋钮值 1（issue #68 回调 #63 的逐次递增）
 	check(imm["revives"] == 1, "结算过一次复活 → revives = 1")
-	check(imm["respawn_round"] == 8, "第二次死亡、X=2：死于第 5 回合 → 第 8 回合才复活")
+	check(imm["respawn_round"] == 7, "第二次死亡 X 仍是 1：死于第 5 回合 → 第 7 回合复活（#68 回调，不随 revives 长）")
 	imm["alive"] = true
 	imm["respawn_round"] = -1
 	## 旋钮关掉 → 永久死亡（复活过几次都不参与）
@@ -1286,10 +1286,10 @@ func t_immune_respawn() -> void:
 	check(imm["respawn_round"] == -1, "旋钮关掉后不再排队复活")
 	g.dispose()
 
-	## ---- PRD【S-复活】死亡惩罚 X 逐次递增（PRD 2026-09-19 落字，issue #63）----
-	## 「X 初始为 1，免疫细胞每结算一次复活该免疫细胞的 X 增加 1」：
-	## 死于第 N 回合 → 第 N+1+X 回合才复活，一次比一次长。计数住在细胞的 `revives` 上，
-	## 所以它还要跟着快照与 cwxworld 往返（存档、推演、L0 用例、教程关卡都靠这两条路摆盘面）。
+	## ---- PRD【S-复活】死亡惩罚：X 恒为「下 1 世界回合」（issue #68 回调，PRD 2026-09-20）----
+	## issue #63 曾按 PRD 09-19 那句「每结算一次复活 X 增加 1」做成逐次递增，PRD 09-20 把那句删了：
+	## 死于第 N 回合 → 第 N+1+X 回合复活，**几次都一样**。`revives` 只剩记账，仍跟着快照与 cwxworld 往返
+	## （存档、推演、L0 用例、教程关卡都靠这两条路摆盘面），所以往返那几条照旧核
 	var g2 := make_game(4, 11)
 	await run_setup(g2)
 	var hero: Dictionary = g2.living_cells(CWData.Faction.IMMUNE)[0]
@@ -1297,20 +1297,20 @@ func t_immune_respawn() -> void:
 	check(hero["revives"] == 0, "出生时没死过：revives = 0")
 	g2.round_no = 10
 	g2.kill(hero)
-	check(hero["respawn_round"] == 12, "第一次死亡 X=1：死于第 10 回合 → 第 12 回合才复活")
-	## 腾一个健康空骨髓 —— **复活结算**才是 X 增加的那一刻
+	check(hero["respawn_round"] == 12, "第一次死亡：死于第 10 回合 → 第 12 回合才复活（X=1）")
+	## 腾一个健康空骨髓 —— 复活结算只给 `revives` 记一笔
 	g2.tiles[CWData.MARROWS[0]]["tissue"] = CWData.Tissue.HEALTHY
 	await g2.world.revive_immune(hero_pid, CWData.MARROWS[0])
 	check(hero["revives"] == 1, "结算过一次复活：revives = 1")
 	g2.round_no = 20
 	g2.kill(hero)
-	check(hero["respawn_round"] == 23, "第二次死亡 X=2：死于第 20 回合 → 第 23 回合才复活")
+	check(hero["respawn_round"] == 22, "第二次死亡 X 仍是 1：死于第 20 回合 → 第 22 回合复活（#68 回调，不再递增）")
 	g2.tiles[CWData.MARROWS[1]]["tissue"] = CWData.Tissue.HEALTHY
 	await g2.world.revive_immune(hero_pid, CWData.MARROWS[1])
 	g2.round_no = 30
 	g2.kill(hero)
-	check(hero["revives"] == 2 and hero["respawn_round"] == 34,
-		"第三次死亡 X=3：死于第 30 回合 → 第 34 回合才复活")
+	check(hero["revives"] == 2 and hero["respawn_round"] == 32,
+		"第三次死亡 X 仍是 1：死于第 30 回合 → 第 32 回合复活；revives 只记账（=2）")
 	## 癌细胞没有 X：kill 在癌方那一支就返回了，计数一动不动
 	var can2: Dictionary = g2.living_cells(CWData.Faction.CANCER)[0]
 	g2.kill(can2)
@@ -2504,8 +2504,9 @@ func t_antibody_halve() -> void:
 	g.cells.append(foe)
 
 	check(g.tune.antibody_halve, "默认开（团队 2026-09-04 定案：保留递减机制）")
-	## 15 → 7 → 3 → 1 → 0：整数除法向下取整，自然衰减到 0 而不是永远留个尾巴
-	var want := [15, 7, 3, 1, 0]
+	## 15 → 7 → 3 → 2 → 2：整数除法向下取整，但**有底 0.2**（PRD 2026-09-20「最低为 0.2」，issue #67；
+	## 此前一路衰减到 0，第四发起白花能量打 0 伤害）
+	var want := [15, 7, 3, 2, 2]
 	for k in want.size():
 		check(g.actions.antibody_damage(b) == want[k],
 			"第 %d 发伤害 %s" % [k + 1, CWData.fmt(want[k])])

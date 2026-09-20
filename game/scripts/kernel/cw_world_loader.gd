@@ -24,8 +24,8 @@
 ##
 ## 细胞 34 键的账（§0.6.1 第 4 条）：构造三键 `seat` / `type` / `at` + 30 个可写状态键
 ## （`cw_obs_proto.gd:CELL` 去掉 `d` 的 36 键，减去派生的 `id` / `pid` / `faction` / `pos` / `itype` / `ctype`）
-## + `revives`（PRD 死亡惩罚 X 的「已复活次数」，issue #63）。**它不在观测协议里** ——
-## 客户端不拿它算规则，加进 envelope 就得升协议号换包；但它改结算结果，所以必须能装、能 dump。
+## + `revives`（「已复活次数」，issue #63 加的；#68 回调后只记账、不再进死亡惩罚 X）。**它不在观测协议里** ——
+## 客户端不拿它算规则，加进 envelope 就得升协议号换包；键表两侧同读，所以照旧能装、能 dump。
 ##
 ## 不带 class_name（同 xcheck_* 的规矩），用 preload 取。
 extends RefCounted

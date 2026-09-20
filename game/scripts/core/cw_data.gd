@@ -63,11 +63,10 @@ const SOLID_AT_CANCER_SPAWN := false
 # 免疫细胞可被杀死，但罚停若干回合后在随机健康组织复活（无限次）。
 # 注意：造成免疫死亡的手段尚未定案（反弹反击可被免疫主动规避，见开发日志），
 # 所以这套机制目前基本不会触发——等癌方主动伤害手段定下来才会真正生效。
-# **PRD 2026-09-19 起自己写明了罚停**（【S-复活】死亡惩罚）：「免疫细胞死亡回合后的下 X 世界回合无法复活，
-# X 初始为 1，免疫细胞每结算一次复活该免疫细胞的 X 增加 1」。死于第 N 回合 → 第 N+1+X 回合的 S 阶段复活。
-# 所以这个旋钮现在是 **X 的初始值**（PRD 的 1），不再是「引擎有意偏离 PRD」的那一条；
-# 递增的那一半记在细胞自己的 `revives` 上（CWSetup.make_cell / CWGame.kill / CWWorld.revive_immune）。
-# 沿革：2026-09-07 Kevin 先在引擎里定了 0 → 1，09-19 PRD 收编并加上逐次递增（issue #63）。
+# **PRD 写明的罚停**（【S-复活】死亡惩罚）：「免疫细胞死亡回合后的下 1 世界回合无法复活」。
+# 死于第 N 回合 → 第 N+1+X 回合的 S 阶段复活，这个旋钮就是 X（PRD 的 1）。
+# 沿革：2026-09-07 Kevin 先在引擎里定了 0 → 1；09-19 PRD 收编并加上「每复活一次 X+1」（issue #63，
+# 计数 `revives`）；09-20 PRD 把递增那句删了（issue #68 回调），`revives` 只剩记账、不再进规则。
 # -1 = 不再复活（CWEval 认得这个值）。
 const IMMUNE_RESPAWN_DELAY := 1
 const IMMUNE_RESPAWN_ENERGY := 10        # PRD：复活初始 1.0 能量（癌细胞是 2.0，见 REVIVE_ENERGY）
@@ -350,6 +349,7 @@ const MUTATE_EXTRA_LOSS := 8
 const MUTATE_MEMORY_CUT := 2             # 同一面削减的抗原记忆
 const ANTIBODY_COST := 10
 const ANTIBODY_DAMAGE := 15              # 每目标 -1.5
+const ANTIBODY_MIN_DAMAGE := 2           # 同回合递减到最低 0.2（PRD 2026-09-20，issue #67）
 ## 无目标时改为转化癌组织：掷 d3，2/3 概率取前一个数、1/3 概率取后一个数。
 ## **按免疫等级分档**（PRD 2026-09-13 云端版，issue #37）：III 级 3/5、X 级 4/6。
 ## 卡面只写 III 与 X 两档就够了：【分化】挂 III 级（`DIFFERENTIATE_MIN_LEVEL`），
