@@ -573,6 +573,7 @@ func start(snap: Dictionary = {}) -> void:
 			return
 	else:
 		kernel.open(cfg)
+		_mark_me()   ## 单机：唯一那位真人的名字加「（我）」（Kevin 2026-09-19）
 	_start_queue()
 	if by_stage:
 		_tutor_start_level()   ## 关首装闸那一次在 `kernel.run()` **之前**：不提前装，玩家会先看见一瞬间的全套界面
@@ -1455,6 +1456,25 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 			_director.rebase_hard()
 		return
 	_tutor_reopen("base", true)
+
+
+## 单机局（一位真人对 AI）：真人那一席的名字加「（我）」后缀（Kevin 2026-09-19「方便玩家进行定位」）。
+## 右栏 / 悬停详情 / 日志 / 结算屏读的都是引擎里的同一个 `name`，所以只改这一处、一处都不用另判。
+## **走联机同一条路**：直接写引擎的 `players[pid]["name"]`（`cw_room.gd` 就是这么把昵称写进去的），
+## 在 `kernel.open` 之后、第一份镜像之前。**不加**的三种局：热座（两位以上真人，换手遮罩已写明轮到谁，
+## 「我」反而说不清是谁）、联机（名字是昵称、服务器写）、回放（不问人）；教程局另一条装配路，名字由关卡数据定
+const ME_SUFFIX := "（我）"
+
+func _mark_me() -> void:
+	if online or replay != null or human_players.size() != 1 or not (kernel is CWKernelInProc):
+		return
+	var g: CWGame = (kernel as CWKernelInProc).game
+	if g == null:
+		return
+	var pid: int = int(human_players[0])
+	if pid < 0 or pid >= g.players.size() or str(g.players[pid]["name"]).ends_with(ME_SUFFIX):
+		return
+	g.players[pid]["name"] = str(g.players[pid]["name"]) + ME_SUFFIX
 
 
 ## 关末的结算气泡（「攻击成功」「攻击大成功」…）按自己的 RESULT_HOLD 活着，静默切关会把它切断；

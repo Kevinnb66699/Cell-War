@@ -3240,6 +3240,9 @@ func t_hotseat() -> void:
 	await process_frame
 	check(m.bridge.current_human == 0 and not m._handoff.active, "确认后：免疫A 成为露牌者、遮罩收起")
 	check(m._log_panel.viewer == 0, "日志面板切到免疫A 的视角")
+	check(not str(m.mirror.player(0)["name"]).ends_with(CWMatch.ME_SUFFIX)
+			and not str(m.mirror.player(1)["name"]).ends_with(CWMatch.ME_SUFFIX),
+		"热座局两位真人都不加「（我）」—— 换手遮罩已写明轮到谁，「我」反而说不清是谁")
 	m.teardown()
 	await process_frame
 	check(not m._handoff.active and not m._handoff.visible and m.bridge == null, "拆局：遮罩收掉")
@@ -3258,6 +3261,12 @@ func t_hotseat() -> void:
 	await process_frame
 	check(not m.bridge.hotseat and not m._handoff.active and m._log_panel.filter and m._log_panel.viewer == 0,
 		"单人局：不是热座、不弹遮罩，但日志仍按这一席的视角过滤（AI 抽的牌名也收，Kevin 09-05）")
+	## 单机「（我）」后缀（Kevin 2026-09-19「方便玩家进行定位」）：唯一那位真人的名字带后缀、AI 席不带。
+	## 写在引擎的 name 上（同联机写昵称那条路），右栏 / 悬停 / 日志 / 结算屏都跟着
+	check(str(m.mirror.player(0)["name"]).ends_with(CWMatch.ME_SUFFIX)
+			and not str(m.mirror.player(1)["name"]).ends_with(CWMatch.ME_SUFFIX),
+		"单人局：真人席名字带「（我）」、AI 席不带（实测 %s / %s）"
+			% [str(m.mirror.player(0)["name"]), str(m.mirror.player(1)["name"])])
 	m.teardown()
 	await process_frame
 	CWSettings.ai_delay_ms = 220
