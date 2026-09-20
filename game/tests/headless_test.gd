@@ -21094,6 +21094,29 @@ func t_tutor_gate() -> void:
 		"遮挡层开着时闸照样是关的，剧本那道闸原封不动（遮挡一撤就接着用）")
 	gate.set_blocked(false)
 	check(not gate.gate_closed(), "遮挡一撤，闸回到剧本那一道")
+	## ---- 行动栏挂着时闸换了 ⇒ 收掉这一问、按新闸重问（Kevin 2026-09-20「无法选择迁移到最右边的癌组织」）----
+	check(TUTOR_GATE.same_allow(null, null) and TUTOR_GATE.same_allow(["a", "b"], ["a", "b"])
+			and not TUTOR_GATE.same_allow(["a"], ["a", "b"]) and not TUTOR_GATE.same_allow(null, [])
+			and not TUTOR_GATE.same_allow([], null),
+		"same_allow：null / [] / 内容逐条比（`install()` 每个 step_end 重装同一道时不惊动挂着的那一问）")
+	gate._aborted = false
+	gate._prompting = true
+	gate.set_allow(["k=action|act=end"])          ## 与上面装的是同一道
+	check(not gate._refilter and not gate._aborted, "闸没变：不收、不重问")
+	gate.set_allow(["k=action|act=move|to=0,-1"])
+	check(gate._refilter and gate._aborted,
+		"★ 行动栏挂着时闸真的换了：当场收掉这一问（super.abort）并标记按新闸重问 —— MISS_GRACE 只兜「一条都没命中」，兜不住「命中了上一步那格」")
+	gate._prompting = false
+	gate._refilter = false
+	gate._aborted = false
+	gate.set_blocked(true)
+	check(not gate._refilter, "没在等玩家时遮挡开合只发 allow_changed，不标记重问")
+	gate.set_blocked(false)
+	var gsrc := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_gate.gd")
+	var ask_at := gsrc.find("await super.ask(view)")
+	check(ask_at > 0 and gsrc.find("if _refilter:", ask_at) > 0
+			and gsrc.find("return await ask(req)", gsrc.find("if _refilter:", ask_at)) > 0,
+		"`ask()`：super.ask 回来先看 _refilter，是就从头再过一遍闸（源码判；真机复验见开发日志 09-20）")
 	## ⑦ 教程局静掉「无法复活」那类通报（Kevin 2026-09-12 截图：正好压在说明行上）
 	check(TUTOR_GATE.mutes_result("癌症A %s没有固化癌组织" % CWData.NO_REVIVE_MARK)
 			and not TUTOR_GATE.mutes_result("攻击成功，造成 1.0 伤害"),
