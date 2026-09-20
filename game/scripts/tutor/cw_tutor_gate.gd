@@ -25,6 +25,14 @@ signal allow_changed
 var _allow: Variant = null
 ## 常驻壳的章节提示 / 目录开着（PRD:51 的第 1 层）：等同于 `allow = []`，但不覆盖剧本的闸
 var blocked := false
+## 行动栏正挂在屏幕上等玩家（闸已经过了、`super.ask` 还没回来）。**这期间闸一换就得收掉这一问重问**：
+## 09-20 真机（Kevin「无法选择迁移到最右边的癌组织」）：玩家刚净化完，引擎立刻抛下一问，闸那一刻还是上一步的
+## （导演要到下一帧的 `_process` 才翻页），上一步的 allow 里正好有一格与玩家相邻 ⇒ 命中一条、行动栏就建起来了；
+## 导演随后把闸换成「到 0,-1」，可 `super.ask` 已经在等点击，谁也不会再过一遍闸 —— 屏幕上只亮着上一步那格。
+## `MISS_GRACE_FRAMES` 只兜「一条都没命中」，兜不住「命中了上一步那格」。
+## 重问不掉迁移模式：`CWUIBridge._sticky_move` 是跨问留存的，重问直接回到选格
+var _prompting := false
+var _refilter := false
 
 
 ## 教程局静掉「谁复活不了」那类通报（Kevin 2026-09-12 截图）。
@@ -54,9 +62,34 @@ func _bubble_result(text: String, at: Vector2i, linger: bool) -> void:
 	super._bubble_result(text, at, linger)
 
 
-## 装一道新的决策闸。挂在闸上的那一问会被叫醒、重新判一次
+## 装一道新的决策闸。挂在闸上的那一问会被叫醒、重新判一次；行动栏挂着的那一问会被收掉重问。
+## **同一道不重装**：导演的 `install()` 每个 step_end 都会再装一遍当前行的闸，没变就别惊动屏幕上那一问
 func set_allow(a: Variant) -> void:
+	if same_allow(_allow, a):
+		return
 	_allow = a
+	_poke()
+
+
+## 两道闸一样吗（null / [] / 逐条比字面）。**纯函数**，护栏直接核
+static func same_allow(a: Variant, b: Variant) -> bool:
+	if a == null or b == null:
+		return a == null and b == null
+	var x: Array = a
+	var y: Array = b
+	if x.size() != y.size():
+		return false
+	for i in x.size():
+		if str(x[i]) != str(y[i]):
+			return false
+	return true
+
+
+## 闸换了：挂着的那一问叫醒重判；行动栏挂着的那一问当场收掉（`super.abort`），`ask()` 里 `super.ask` 一回来就按新闸重问
+func _poke() -> void:
+	if _prompting:
+		_refilter = true
+		super.abort()
 	allow_changed.emit()
 
 
@@ -69,7 +102,7 @@ func set_blocked(v: bool) -> void:
 	if blocked == v:
 		return
 	blocked = v
-	allow_changed.emit()
+	_poke()
 
 
 ## 闸关着吗（`[]` 全禁 / 遮挡层开着）
@@ -135,7 +168,13 @@ func ask(req: Dictionary) -> int:
 	for i in keep:
 		opts.append(req["options"][i])
 	view["options"] = opts
-	return keep[await super.ask(view)]   ## ← 下标映射回原表，**全文件只此一处**
+	_prompting = true
+	var picked: int = await super.ask(view)
+	_prompting = false
+	if _refilter:
+		_refilter = false
+		return await ask(req)          ## 闸在玩家挑的时候换了：从头再过一遍闸（`ask()` 开头会把 _aborted 复位）
+	return keep[picked]   ## ← 下标映射回原表，**全文件只此一处**
 
 
 ## 这一问里闸放行的那几条（view 下标 → 原表下标）
