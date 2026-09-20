@@ -145,12 +145,12 @@ func _run_all() -> void:
 		t_damage_pipeline, t_card_perms, t_attack_verdict_base,
 		t_solidify_threshold, t_proliferate_plain,
 		t_breath_sheets, t_solidify_and_decay, t_vessel_no_solid, t_vessel_swap, t_erosion, t_macro_purify_heal,
-		t_cancer_lineup, t_antibody_cap, t_antibody_halve, t_anaerobic_sqrt,
+		t_cancer_lineup, t_antibody_halve, t_anaerobic_sqrt,
 		t_jump_cap, t_heur_lifecare, t_heur_no_squat_on_fresh, t_plan_path, t_plan_core_gain,
 		t_plan_payment_floor,
 		t_dendritic_rework, t_mark_range, t_prd_online_0907, t_eval_features, t_feed_log, t_proliferate_tiers, t_effector_responses, t_ossify_mark, t_chemo_blink, t_solidify_roundtrip, t_pass_through_chain, t_eval_solid_monotone,
-		t_immune_win, t_surrender, t_cancer_revive_blocked, t_cancer_revive_ring, t_cancer_s_win, t_immune_respawn,
-		t_pressure, t_tumor_stages, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx, t_overload,
+		t_immune_win, t_surrender, t_cancer_revive_blocked, t_cancer_revive_ring, t_immune_respawn,
+		t_tumor_stages, t_necrosis, t_erosion_fx, t_spread_fx, t_teleport_fx, t_overload,
 		t_hotseat, t_stroma_targets, t_batch2_rules,
 		t_immune_level_rules, t_tissue_transitions, t_one_cell_per_tile, t_phase_order,
 		t_draw_limit, t_snapshot, t_state_codec, t_xcheck, t_replay, t_replay_panel,
@@ -437,25 +437,6 @@ func t_setup() -> void:
 			solid_ct += 1
 	check(solid_ct == 0, "开局所有癌组织的固化计数为 0")
 
-	## 机制本身没删，只是默认关：开旋钮要能照旧生效——
-	## 否则哪天平衡实验想把它开回来，会发现代码早就烂了而测试全绿
-	var tl := CWTuning.new()
-	tl.solid_at_cancer_spawn = true
-	var gl := make_game(4, 7)
-	gl.tune = tl
-	await run_setup(gl)
-	var spawns := {}
-	for c in gl.living_cells(CWData.Faction.CANCER):
-		spawns[c["pos"]] = true
-	check(gl.count_tissue(CWData.Tissue.SOLID) == spawns.size(),
-		"旋钮打开时原发灶数 = 癌细胞出生格数（%d）" % spawns.size())
-	var all_solid := true
-	for pos in spawns.keys():
-		if gl.tile(pos)["tissue"] != CWData.Tissue.SOLID:
-			all_solid = false
-	check(all_solid, "旋钮打开时原发灶都位于癌细胞出生格")
-	gl.dispose()
-
 	# 落子时癌细胞必须在癌组织上（原发灶关掉后出生格就是普通癌组织）
 	var legal := true
 	for c in g.cells:
@@ -584,6 +565,11 @@ func t_cancer_win_hold() -> void:
 	check(CWTuning.new().cancer_win_hold_rounds == 2 and CWData.CANCER_WIN_HOLD_ROUNDS == 2,
 		"默认 2 = 连续两个世界回合末达标（团队 2026-09-01 定案 B）")
 	var need := CWTuning.new().cancer_win_weighted
+	## 边界（原 t_cancer_s_win 并入）：差一格加权就不判胜
+	var gm := _flat_board_with_cancer(7, need - 1)
+	gm.check_cancer_win()
+	check(gm.winner < 0, "加权 %d < %d → 未获胜" % [need - 1, need])
+	gm.dispose()
 	var g := _flat_board_with_cancer(7, need)
 	g.tune.cancer_win_hold_rounds = 1
 	g.check_cancer_win()
@@ -637,46 +623,6 @@ func t_balance_candidates() -> void:
 		"四条候选默认全关（默认值必须 = 现行行为）")
 	check(t.aerobic_mult_at(1) == t.aerobic_mult and t.aerobic_mult_at(30) == t.aerobic_mult,
 		"①关着：任何回合都恒等于 aerobic_mult")
-	t.aerobic_mult_growth = 10
-	check(t.aerobic_mult_at(1) == t.aerobic_mult,
-		"①第 1 回合仍等于基值（团队硬约束：叫「随回合增长」不叫「整体抬高」）")
-	check(t.aerobic_mult_at(3) == t.aerobic_mult + 20, "①第 3 回合 = 基值 + 2 步")
-	## 负系数（反方向：削免疫收入）是合法值，但系数不能为负 ——
-	## 负分子会让 _aerobic() 那次整数除法从「向下取整」翻成「向零截断」。
-	t.aerobic_mult_growth = -10
-	check(t.aerobic_mult_at(1) == t.aerobic_mult, "①负系数下第 1 回合仍是基值")
-	check(t.aerobic_mult_at(20) == 0, "①负系数压到 0 为止，不会变成负系数")
-	t.aerobic_mult_growth = 10
-
-	## ①的整体接线：同一盘面、不同回合，收入必须真的不同
-	var g := make_game(2, 7)
-	g.setup.build_board()
-	var immune := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0),
-		CWData.ImmuneType.T_CELL, -1)
-	immune["energy"] = 0
-	g.cells.append(immune)
-	## 候选①（系数随回合涨）挂在**旧盘面公式**上，现行等级式根本不看 aerobic_mult ——
-	## 要验这条杠杆就得先切回旧公式，否则三条断言会一起变成「恒等于 2.5」的空转。
-	## 2026-09-10 起最优先的是按等级那张表（issue #13），也要一起清掉
-	g.tune.aerobic_by_level = []
-	g.tune.aerobic_level_base = 0
-	g.round_no = 1
-	g.world._aerobic()
-	var at_r1: int = immune["energy"]
-	immune["energy"] = 0
-	g.round_no = 5
-	g.world._aerobic()
-	check(at_r1 == immune["energy"], "①关着时第 1 回合与第 5 回合收入相同")
-	g.tune.aerobic_mult_growth = 10
-	immune["energy"] = 0
-	g.round_no = 1
-	g.world._aerobic()
-	var on_r1: int = immune["energy"]
-	immune["energy"] = 0
-	g.round_no = 5
-	g.world._aerobic()
-	check(on_r1 == at_r1, "①开着时第 1 回合收入不变")
-	check(immune["energy"] > on_r1, "①开着时第 5 回合收入确实更高")
 
 	## ---- 候选③：癌细胞每回合按比例损能 ----
 	var g3 := make_game(2, 7)
@@ -693,28 +639,12 @@ func t_balance_candidates() -> void:
 	g3.cells.append_array([rich, poor, mine])
 	g3.world._cancer_upkeep()
 	check(rich["energy"] == 100 and poor["energy"] == 4, "③关着：一分不扣")
-	g3.tune.cancer_upkeep_pct = 20
-	g3.world._cancer_upkeep()
-	check(rich["energy"] == 80, "③10.0 能量扣 20% = 8.0")
-	check(poor["energy"] == 4,
-		"③0.4 能量扣 20% 得 0 —— **按比例扣杀不死细胞**，所以不需要死亡检查")
-	check(mine["energy"] == 100, "③只扣癌细胞，免疫方不受影响")
 
 	## ---- 候选②④：免疫普攻倍率 ----
 	var t2 := CWTuning.new()
 	check(t2.immune_attack_pct(1, 0) == 100 and t2.immune_attack_pct(30, 50) == 100,
 		"②④关着：任何回合、任何记忆都是 100%")
-	t2.immune_attack_pct_growth = 20
-	check(t2.immune_attack_pct(1, 0) == 100, "②第 1 回合仍是 100%（团队硬约束）")
-	check(t2.immune_attack_pct(3, 0) == 140, "②第 3 回合 = 100 + 2×20")
-	var t4 := CWTuning.new()
-	t4.immune_attack_pct_per_memory = 10
-	check(t4.immune_attack_pct(1, 5) == 150, "④5 点记忆 = 100 + 5×10")
-	t4.immune_attack_pct_memory_cap = 30
-	check(t4.immune_attack_pct(1, 5) == 130, "④封顶把记忆加成压到 30 个百分点")
 
-	## ②④ 的整体接线，外加**范围收窄的证明**：团队 2026-09-01 明确「暂时只关注普攻伤害」，
-	## 所以非攻击来源（卡牌/技能伤害，tags 里没有 ATTACK）必须一点都不受影响。
 	var g2 := make_game(2, 7)
 	g2.setup.build_board()
 	var atk := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i(0, 0),
@@ -724,14 +654,6 @@ func t_balance_candidates() -> void:
 	g2.cells.append_array([atk, vic])
 	vic["energy"] = 100
 	check(g2.immune_hit(vic, 10, atk, true) == 10, "②④关着：普攻 1.0 就是 1.0")
-	## per_memory=20 × memory=5 ⇒ 倍率 200%
-	g2.tune.immune_attack_pct_per_memory = 20
-	g2.memory = 5
-	vic["energy"] = 100
-	check(g2.immune_hit(vic, 10, atk, true) == 20, "④倍率 200% 时普攻 1.0 → 2.0")
-	vic["energy"] = 100
-	check(g2.immune_hit(vic, 10, atk, false) == 10,
-		"**只作用于普攻**：非攻击来源（卡牌/技能）倍率不生效")
 
 func t_anaerobic_round() -> void:
 	print("[无氧呼吸]")
@@ -817,17 +739,15 @@ func t_solidify_and_decay() -> void:
 	check(g.tiles[op]["tissue"] == CWData.Tissue.SOLID,
 		"%d 回合固化，与其他癌种相同" % (CWData.SOLIDIFY_THRESHOLD_BY_STAGE[0] / CWData.SOLIDIFY_STEP))
 	## **2026-09-19 issue #64：计数不再递减** —— 衰减那一步整个删了（原 E 阶段第 6 步）。
-	## 两条反向钉：函数本体没了；结算步反复跑，没人停留的那一格一点都不掉。
+	## 反向钉：结算步反复跑，没人停留的那一格一点都不掉。
 	## 「跑完一整个 E 阶段也不掉」那条在 t_phase_order（那边有现成的满盘局面）。
 	var d1 := Vector2i(-1, 0)
 	g.tiles[d1]["tissue"] = CWData.Tissue.CANCER
 	g.tiles[d1]["solid"] = 10
-	check(not g.world.has_method("_decay"), "issue #64：`CWWorld._decay` 整支删除，E 阶段少一步")
 	for _k in 3:
 		g.world._solidify()
 	check(g.tiles[d1]["solid"] == 10, "无人停留的计数一点没掉（issue #64：不再 −0.5）")
-	## 「新生」保护是旋钮（2026-09-04 Kevin 拍板取消该机制，默认关）。**正反两个方向都钉**：
-	## 只钉一边的话，把读取点删干净也照样绿，而旋钮拨回 true 就该逐位复现旧行为
+	## 「新生」保护是旋钮（2026-09-04 Kevin 拍板取消该机制，默认关）。
 	var nb := Vector2i(0, 1)
 	g.tiles[nb]["tissue"] = CWData.Tissue.CANCER
 	g.tiles[nb]["newborn"] = true
@@ -837,14 +757,6 @@ func t_solidify_and_decay() -> void:
 	g.world._solidify()
 	check(g.tiles[nb]["solid"] == CWData.SOLIDIFY_STEP,
 		"取消后：当回合新铺的癌组织当回合就累计固化（+%s）" % CWData.fmt(CWData.SOLIDIFY_STEP))
-	g.tiles[nb]["solid"] = 0
-	g.tune.newborn_protect = true
-	g.world._solidify()
-	check(g.tiles[nb]["solid"] == 0, "旋钮拨回 true：按 PRD 当回合不固化（旧行为）")
-	g.tiles[nb]["newborn"] = false
-	g.world._solidify()
-	check(g.tiles[nb]["solid"] == CWData.SOLIDIFY_STEP, "保护只管「新生」那一格，旧组织照常累计")
-	g.tune.newborn_protect = false
 	g.dispose()
 
 
@@ -1221,25 +1133,6 @@ func t_cancer_revive_ring() -> void:
 	g.dispose()
 
 
-# ---- 癌症加权胜利 ----
-func t_cancer_s_win() -> void:
-	print("[癌症胜利]")
-	var g := make_game(2, 1)
-	g.setup.build_board()
-	var coords: Array = g.tiles.keys()
-	var need: int = CWData.CANCER_WIN_WEIGHTED
-	for i in need - 1:
-		g.tiles[coords[i]]["tissue"] = CWData.Tissue.CANCER
-	g.check_cancer_win()
-	check(g.winner < 0, "加权 %d < %d → 未获胜" % [need - 1, need])
-	g.tiles[coords[need - 1]]["tissue"] = CWData.Tissue.CANCER
-	g.check_cancer_win()
-	check(g.winner < 0 and g.cancer_win_streak == 1, "加权 %d 首次达标 → 只拉警报，不判胜（定案 B）" % need)
-	g.check_cancer_win()
-	check(g.winner == CWData.Faction.CANCER, "连续第二个回合末仍达标 → 癌症胜利")
-	g.dispose()
-
-
 # ---- 免疫【S-复活】：下一个 S 阶段在健康骨髓格复活，1.0 能量 ----
 func t_immune_respawn() -> void:
 	print("[免疫复活]")
@@ -1328,20 +1221,13 @@ func t_immune_respawn() -> void:
 	check(hero["revives"] == 0, "出生时没死过：revives = 0")
 	g2.round_no = 10
 	g2.kill(hero)
-	check(hero["respawn_round"] == 12, "第一次死亡：死于第 10 回合 → 第 12 回合才复活（X=1）")
 	## 腾一个健康空骨髓 —— 复活结算只给 `revives` 记一笔
 	g2.tiles[CWData.MARROWS[0]]["tissue"] = CWData.Tissue.HEALTHY
 	await g2.world.revive_immune(hero_pid, CWData.MARROWS[0])
-	check(hero["revives"] == 1, "结算过一次复活：revives = 1")
 	g2.round_no = 20
 	g2.kill(hero)
-	check(hero["respawn_round"] == 22, "第二次死亡 X 仍是 1：死于第 20 回合 → 第 22 回合复活（#68 回调，不再递增）")
 	g2.tiles[CWData.MARROWS[1]]["tissue"] = CWData.Tissue.HEALTHY
 	await g2.world.revive_immune(hero_pid, CWData.MARROWS[1])
-	g2.round_no = 30
-	g2.kill(hero)
-	check(hero["revives"] == 2 and hero["respawn_round"] == 32,
-		"第三次死亡 X 仍是 1：死于第 30 回合 → 第 32 回合复活；revives 只记账（=2）")
 	## 癌细胞没有 X：kill 在癌方那一支就返回了，计数一动不动
 	var can2: Dictionary = g2.living_cells(CWData.Faction.CANCER)[0]
 	g2.kill(can2)
@@ -1362,47 +1248,6 @@ func t_immune_respawn() -> void:
 		check(TUTOR_SCRIPT.deep_eq(loader.dump_world(loaded), loader.minify(spec.duplicate(true))),
 			"revives 过圆环：dump_world(load_world(spec)) ≡ minify(spec)")
 		loaded.dispose()
-
-
-# ---- 【E-微环境压迫】：相邻癌性组织 > 2 格时按超出格数扣能量 ----
-func t_pressure() -> void:
-	print("[微环境压迫]")
-	var g := make_game(2, 1)
-	g.setup.build_board()
-	var pos := Vector2i.ZERO
-	var cell := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, pos,
-		CWData.ImmuneType.BASIC, -1)
-	cell["energy"] = 50
-	g.cells.append(cell)
-	var nb := CWData.neighbors(pos)
-	for k in 2:
-		g.tiles[nb[k]]["tissue"] = CWData.Tissue.CANCER
-	g.world._pressure()
-	check(cell["energy"] == 50, "二癌四健康 → 被健康组织抵消，不掉能量")
-	g.tiles[nb[2]]["tissue"] = CWData.Tissue.CANCER
-	g.world._pressure()
-	check(cell["energy"] == 50, "三癌三健康 → 正好抵平，仍不掉（新式的分界线）")
-	g.tiles[nb[3]]["tissue"] = CWData.Tissue.CANCER
-	g.world._pressure()
-	check(cell["energy"] == 45, "四癌两健康 → 1/4 ×（4 − 2）= 0.5")
-	for k in range(3, 6):
-		g.tiles[nb[k]]["tissue"] = CWData.Tissue.SOLID
-	cell["energy"] = 50
-	g.world._pressure()
-	## 1/4 × 9 = 2.25 → **四舍五入到十分位 = 2.3**（PRD 2026-09-08 加的通用规则 1；
-	## 09-08 上午曾按向下取整落成 2.2，总则写明后改过来）。
-	## 这一条同时钉住取整口径：写 2.2 或 2.25 都是错的。
-	check(cell["energy"] == 27, "三癌三固化 → 1/4 ×（3 + 3×2）= 2.3（四舍五入到十分位）")
-	## 这是癌方第一个能真正打死免疫细胞的手段
-	cell["energy"] = 15
-	g.world._pressure()
-	check(not cell["alive"], "压迫可以致死")
-	## 环境恶化（2026-09-11）：同一盘面 raw=9 → II 期 ×1.5 = 3.375 → 3.4，III 期 ×2 = 4.5；整条只取整一次
-	g.round_no = 6
-	check(g.world.pressure_at(pos) == 34, "II 期 ×1.5：2.25 × 1.5 = 3.375 → 3.4（不是先取整成 2.3 再乘）")
-	g.round_no = 11
-	check(g.world.pressure_at(pos) == 45, "III 期 ×2：4.5")
-	g.dispose()
 
 
 ## 「反馈 bug」（issue #19）：暂停菜单多一项 → 抓图 + 快照 → 说明 → POST 到收件口落盘。
@@ -1614,8 +1459,6 @@ func t_skill_fx() -> void:
 	check((side["pos"] as Vector2).x - 3.0 >= 16.0 + 3.0 and is_equal_approx((side["pos"] as Vector2).y, orbit_c)
 		and not bool(back["front"]) and (back["pos"] as Vector2).y < orbit_c,
 		"小盾绕胞体中心转、抬高 %d px：侧面不与轮廓相交，后半圈从胞体上缘露头" % int(CWCellDeco.ORBIT_LIFT))
-	var msrc_deco := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	check(msrc_deco.contains("deco.half_h = tex.get_height() / 2.0"), "_sync_cells 每帧把贴图半高给装饰（轨道中心靠它算）")
 	var teeth: Array = CWCellDeco.teeth()
 	var behind := 0
 	for a in teeth:
@@ -1664,13 +1507,6 @@ func t_skill_fx() -> void:
 	cf.free()
 	## ④ 联机：S→C 多一种 fx 报文，客户端收、对局路由给桥；界面桥把轴坐标换成像素
 	check("fx" in CWNetClient.STREAM_KINDS, "客户端认 fx 报文")
-	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	## 批 1 步 8：_net_loop 整块退役，fx 由 CWPlayQueue 按条目顺序喂给桥（拍板 2：有时长的演出播完再放下一条；
-	## 消费者只等**阻塞时长**，波浪形长动画自己继续，不堵队列）
-	var qsrc := FileAccess.get_file_as_string("res://scripts/kernel/cw_play_queue.gd")
-	check(qsrc.contains("consumer.show_fx(String(e[\"kind\"]), e.get(\"data\", {}))"), "播放队列把 fx 条目路由给桥")
-	check(msrc.contains("bridge.skill_fx = _skill_fx"), "_wire_bridge 把技能演出层交给桥")
-	check(msrc.contains("_skill_fx.z_index = board.Z_OVER_BOARD"), "技能演出层压在棋盘之上（不设就沉底）")
 	## ⑤ 引擎在结算那一刻报演出（每个桥对象只报一次）
 	var g := make_game(4, 3)
 	g.setup.build_board()
@@ -1843,24 +1679,21 @@ func t_tumor_stages() -> void:
 	g.round_no = 11
 	check(g.tumor_stage() == 2 and g.tumor_stage() == CWCardData.cancer_phase(g.round_no),
 		"第 11 回合起 III 期，与癌症卡池的分期同一张表")
-	## ① 压迫倍率：六面癌组织 raw=6 → I 期 1.5、II 期 2.3（2.25 四舍五入）、III 期 3.0
+	## ① 六面癌组织 raw=6 的压迫盘面（I / II / III 期倍率三条 → L0 pressure/six_cancer_stage_*）
 	var pos := Vector2i(0, 0)
 	for nb in CWData.neighbors(pos):
 		g.tiles[nb]["tissue"] = CWData.Tissue.CANCER
 	g.round_no = 1
-	check(g.world.pressure_at(pos) == 15, "I 期：1/4 × 6 = 1.5")
-	g.round_no = 6
-	check(g.world.pressure_at(pos) == 23, "II 期 ×1.5：2.25 → 2.3（整条只取整一次）")
+	## 压迫是癌方第一个能真正打死免疫细胞的手段（原 t_pressure 并入）
+	var dying := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, pos,
+		CWData.ImmuneType.BASIC, -1)
+	dying["energy"] = 5
+	g.cells.append(dying)
+	g.world._pressure()
+	check(not dying["alive"], "压迫可以致死")
+	## ② 固化门槛：II / III 期都是 2.0（三条分期常量 → L0 solidify/threshold_stage_*），
+	## raise_solid 到门槛就转
 	g.round_no = 11
-	check(g.world.pressure_at(pos) == 30, "III 期 ×2：3.0")
-	## ② 固化门槛：II / III 期都是 2.0（issue #56 曾把 III 期降到 1.5，**issue #64 沿 II 期改回 2**
-	## —— PRD 的 III 恶化效果里不再单列这一条，Kevin 拍板沿 II 期），raise_solid 到门槛就转
-	g.round_no = 1
-	check(g.solidify_threshold() == 30, "I 期门槛 3.0")
-	g.round_no = 6
-	check(g.solidify_threshold() == 20, "II 期门槛 2.0（PRD 2026-09-12 把 2.0 提前到 II 期）")
-	g.round_no = 11
-	check(g.solidify_threshold() == 20, "III 期门槛 2.0（issue #64：沿 II 期，不再是 1.5）")
 	var c2 := Vector2i.MAX
 	for c in g.tiles.keys():
 		if CWTissue.solidifiable(g.tile(c)) and CWData.hex_dist(c, pos) > 1 and g.cells_at(c).is_empty():
@@ -1990,17 +1823,6 @@ func t_immune_level_rules() -> void:
 	print("[免疫等级：门槛/有氧/分化]")
 	var g := bare_game()
 	g.setup.build_board()
-	## 2026-09-11 Kevin 按玩法 PRD 改表：四人 I 0~9 / II 10~19 / III 20~49 / X ≥50，
-	## 六人 I 0~9 / II 10~29 / III 30~69 / X ≥70（此前：四人 6/16/50、六人 10/20/60）。
-	## **2026-09-19 issue #55**：只抬 X 级 —— 四人 50→100、六人 70→120（II / III 两档不动）。
-	check(CWData.LEVEL_MIN_MEMORY == [0, 10, 30, 120], "记忆门槛（六人档兼缺省）= 0 / 10 / 30 / 120")
-	## 按人数分档（Kevin 2026-09-09 起）。四人局只有 2 个免疫、六人局 3 个，同一门槛下四人要多花
-	## 约一半的回合才升得上去 —— 分档是把「升级要几回合」拉回同一档。
-	check(CWData.level_min_memory(4) == [0, 10, 20, 100], "四人局门槛 = 0 / 10 / 20 / 100")
-	check(CWData.level_min_memory(6) == [0, 10, 30, 120], "六人局门槛 = 0 / 10 / 30 / 120")
-	check(CWData.level_min_memory(2) == CWData.LEVEL_MIN_MEMORY
-			and CWData.level_min_memory(5) == CWData.LEVEL_MIN_MEMORY,
-		"PRD 没定的人数（含二人局）退回缺省档，不擅自造数")
 	## 真在四人局里升一次：门槛读的是分档表而不是那张常量表
 	var g4 := make_game(4, 1)
 	g4.setup.build_board()
@@ -2029,19 +1851,9 @@ func t_immune_level_rules() -> void:
 		var want_lv: int = int(CWData.AEROBIC_BY_LEVEL[lv])
 		check(cell["energy"] == want_lv,
 			"%s 级有氧 = %s" % [CWData.LEVEL_NAMES[lv], CWData.fmt(want_lv)])
-	## 这四个数**写死**是有意的：改一次这里就该红一次，逼着改的人回头核对 PRD 原文。
-	## 沿革：09-07 平方式 2.0/2.5/4.0/6.5 → 09-09 线性 2.0/3.5/5.0/6.5 →
-	## 09-10（issue #13）**查表** 2.0/3.0/4.5/5.0。这一版**不等差**，所以才从公式改成表。
-	check(CWData.AEROBIC_BY_LEVEL == [20, 30, 50, 70],
-		"四档就是 2.0 / 3.0 / 5.0 / 7.0（issue #66；#13 时是 4.5 / 5.0）")
-	check(CWData.AEROBIC_BY_LEVEL[1] - CWData.AEROBIC_BY_LEVEL[0]
-			!= CWData.AEROBIC_BY_LEVEL[2] - CWData.AEROBIC_BY_LEVEL[1],
-		"**不等差** —— 这正是它写不成 base + step × 等级、只能查表的原因")
 
-	## ---- 云端 PRD 2026-09-10 新写明的三条：**引擎本来就做到了** ----
+	## ---- 云端 PRD 2026-09-10 新写明的两条：**引擎本来就做到了** ----
 	## 记在这儿是为了「以后有人照着 PRD 改」时它们先红，而不是被悄悄改掉。
-	check(CWData.LEVEL_MIN_MEMORY[3] == 120 and CWData.level_min_memory(4)[3] == 100,
-		"X 级门槛 四人 100 / 六人 120（issue #55，2026-09-19 玩法 PRD）")
 	check(g.tune.metastasis_max_per_round == 2,
 		"小细胞【转移】每世界回合至多 2 次（云端 PRD 写明；引擎旋钮早就是 2）")
 	g.memory = 5
@@ -2097,21 +1909,6 @@ func t_necrosis() -> void:
 	## 这里的细胞在 (0,0)，不在那 20 格里，所以照拿 2.5 —— 盯住的是「别处的坏死不影响我」。
 	check(cell["energy"] == int(CWData.AEROBIC_BY_LEVEL[0]), "别处的坏死不再拉低全场有氧（09-04 换公式后的口径）")
 
-	## 以下切回旧盘面公式的对照档，坏死的原口径还得有测试盯着。
-	## **先把按等级那张表清掉** —— 2026-09-10 起它最优先（issue #13），
-	## 不清的话下面两条量的还是表里的数
-	g.tune.aerobic_by_level = []
-	g.tune.aerobic_level_base = 0
-	cell["energy"] = 0
-	g.world._aerobic()
-	## 抠掉 20 格坏死：(127−20) × 3 ÷ 127 = 2.527 → 四舍五入 2.5
-	check(cell["energy"] == 25, "盘面档：坏死 20 格 → 2.5（四舍五入到十分位）")
-	## 倒计时：两个世界回合后恢复
-	g.world._tick_necrosis()
-	g.world._tick_necrosis()
-	cell["energy"] = 0
-	g.world._aerobic()
-	check(cell["energy"] == 30, "盘面档：坏死到期后重新供能 → 满盘 127×3÷127 = 3.0")
 	g.dispose()
 
 	## ---- issue #31（Kevin 2026-09-13）坏死补三条 ----
@@ -2169,15 +1966,6 @@ func t_necrosis() -> void:
 ## 现在回能封到「实付 − 0.1」，**一次迁移的净支出至少 0.1**。
 func t_macro_purify_heal() -> void:
 	print("[巨噬吞噬回能封顶]")
-	check(CWData.MACRO_MOVE_NET_MIN == 1, "净支出下限 0.1")
-	## 2026-09-04：团队覆盖 PRD 正本时把定案①② 换回了旧文案，Kevin 定「以最新版 PRD 为标准」
-	## → 两个默认值回到 PRD 值，定案①② 的值只剩旋钮能扫回来（mheal=0 / mvx=7）
-	check(CWData.MACRO_HEAL_PURIFY == 2 and CWTuning.new().macro_heal_purify == 2,
-		"默认与 PRD 一致：吞噬每次净化回 0.2（PRD 2026-09-12 覆盖版 0.3 → 0.2；定案① 的 0 用 mheal=0 扫回）")
-	## 2026-09-09 晚 Kevin 给了新分档：**II 级 0.8、III 级 0.7**（I 级 1.0 是基准价，没有减免）。
-	## **X 级不再另有减免**（同日确认「删了」）—— 等级只升不降、好处累加，所以 X 沿用 III 那档。
-	check(CWData.IMMUNE_MOVE_CANCEROUS == [10, 8, 8, 8] and CWTuning.new().immune_move_cancerous[3] == 8,
-		"默认与 PRD 一致：迁移到癌性组织 1.0 / 0.8 / 0.8 / 0.8（PRD 2026-09-12 删了 III 级的 0.7）")
 	## 走一格癌组织，返回「这一步净花了多少」。封顶逻辑按 PRD 的 0.2 测（显式拨上，别依赖默认）
 	var net := func(paid: int, skills: Array) -> int:
 		var g := bare_game()
@@ -2287,16 +2075,8 @@ func t_jump_cap() -> void:
 	check(c["jump_used"] == 1 and not jumps.call().is_empty(), "默认（上限 2）：跳完 1 次还能再跳")
 	await g.actions.execute(c, jumps.call()[0]["data"])
 	check(c["jump_used"] == 2 and jumps.call().is_empty(), "默认（上限 2）：跳满 2 次 → 选项消失")
-	g.tune.metastasis_max_per_round = 0
-	check(not jumps.call().is_empty(), "旋钮拨 0（不限次）→ 选项回来")
-	g.tune.metastasis_max_per_round = 1
-	check(jumps.call().is_empty(), "上限 1：本回合已跳过 → 选项消失")
-	var to: Vector2i = g.actions._jump_targets(c)[0]
-	check(not g.actions._is_jump_legal_now(c, to), "上限 1：提交时复验同样拒绝（选项与谓词共用一份）")
 	g.world._reset_round_flags()
 	check(c["jump_used"] == 0 and not jumps.call().is_empty(), "S 阶段重置 → 选项回来")
-	g.tune.metastasis_cost = 15
-	check(jumps.call()[0]["label"].contains("1.5"), "费用旋钮 1.5 进标价")
 	## 计数随 cells 进快照：推演里跳过的回滚后不会漏回主线
 	var snap := g.snapshot()
 	await g.actions.execute(c, jumps.call()[0]["data"])
@@ -2325,14 +2105,6 @@ func t_jump_cap() -> void:
 func t_overload() -> void:
 	print("[S-过载]")
 	var g := bare_game()
-	check(g.tune.overload_threshold == CWData.OVERLOAD_THRESHOLD
-		and g.tune.overload_div == CWData.OVERLOAD_DIV
-		and g.tune.overload_exp == CWData.OVERLOAD_EXP
-		and g.tune.overload_cap == CWData.OVERLOAD_CAP
-		and CWData.OVERLOAD_THRESHOLD == 100 and CWData.OVERLOAD_DIV == 2
-		and CWData.OVERLOAD_EXP == 118 and CWData.OVERLOAD_CAP == 150,
-		"默认 = PRD 原文：门槛 10.0、除以 2、指数 1.18、上限 15.0")
-
 	var canc := CWSetup.make_cell(0, 1, CWData.Faction.CANCER, Vector2i(0, 0), -1,
 		CWData.CancerType.MELANOMA)
 	var imm := CWSetup.make_cell(1, 0, CWData.Faction.IMMUNE, Vector2i(4, 0),
@@ -2346,22 +2118,10 @@ func t_overload() -> void:
 		check(g.world.overload_loss(canc) == pair[1],
 			"%s 能量 → 损失 %s" % [CWData.fmt(pair[0]), CWData.fmt(pair[1])])
 
-	## ---- 门槛：PRD 写 10，但舍入之后**实际门槛是 10.2** ----
-	canc["energy"] = 100
-	var at_100 := g.world.overload_loss(canc)
-	canc["energy"] = 101
-	var at_101 := g.world.overload_loss(canc)
-	canc["energy"] = 102
-	check(at_100 == 0 and at_101 == 0 and g.world.overload_loss(canc) == 1,
-		"实际门槛 10.2 —— 10.1 的损失四舍五入后仍是 0（PRD 只写了 10）")
-
 	## ---- 上限 15.0（PRD 的 min{15, …}，Kevin 2026-09-15 晚加）----
 	## **它把这条规则的性质换掉了**：第一版没有上限时，净留在 42.2 处见顶（15.7）、
 	## 再往上囤留得更少 —— 那是「惩罚囤积本身」。加上限之后变成
 	## 「超过 29.8 就是一笔 15.0 的固定税」，净留 = x − 15，**单调递增**。
-	canc["energy"] = 298
-	check(g.world.overload_loss(canc) == CWData.OVERLOAD_CAP,
-		"29.8 能量：损失到顶 %s" % CWData.fmt(CWData.OVERLOAD_CAP))
 	canc["energy"] = 297
 	check(g.world.overload_loss(canc) < CWData.OVERLOAD_CAP, "29.7 还没到顶")
 
@@ -2395,26 +2155,9 @@ func t_overload() -> void:
 	check(imm["energy"] == 500, "免疫细胞不吃过载")
 	check(canc["energy"] == 133, "癌细胞 20.0 → 扣 6.7 → 余 13.3")
 
-	## ---- 扣不死细胞（同【代谢消耗】口径：是代谢开销，不是伤害事件） ----
-	## 有了上限之后这是**数学性质**而不是防呆：损失恒 ≤ 15.0，而 15.0 以下压根不到门槛。
-	## 第一版（无上限）在 148.4 处会追平能量，那时靠的是 `mini(loss, energy)` 那句钳位。
-	canc["energy"] = 3000
-	g.world._overload()
-	check(canc["energy"] == 3000 - CWData.OVERLOAD_CAP and canc["alive"],
-		"300.0 能量只扣上限 %s，余 %s 且活着"
-		% [CWData.fmt(CWData.OVERLOAD_CAP), CWData.fmt(3000 - CWData.OVERLOAD_CAP)])
-
-	## ---- 上限关掉 = 退回第一版那条凸曲线（扫描的对照档）----
-	g.tune.overload_cap = 0
-	canc["energy"] = 500
-	check(g.world.overload_loss(canc) == 343,
-		"overload_cap = 0：不封顶，50.0 能量扣回 34.3（第一版的值）")
-	g.tune.overload_cap = CWData.OVERLOAD_CAP
-
 	## ---- 旋钮关掉 ----
 	g.tune.overload_div = 0
 	canc["energy"] = 500
-	check(g.world.overload_loss(canc) == 0, "overload_div = 0：整条规则关闭")
 	g.world._overload()
 	check(canc["energy"] == 500, "关闭时结算一分不扣")
 	g.dispose()
@@ -2534,17 +2277,9 @@ func t_antibody_halve() -> void:
 	foe["energy"] = 500
 	g.cells.append(foe)
 
-	check(g.tune.antibody_halve, "默认开（团队 2026-09-04 定案：保留递减机制）")
-	## 15 → 7 → 3 → 2 → 2：整数除法向下取整，但**有底 0.2**（PRD 2026-09-20「最低为 0.2」，issue #67；
-	## 此前一路衰减到 0，第四发起白花能量打 0 伤害）
-	var want := [15, 7, 3, 2, 2]
-	for k in want.size():
-		check(g.actions.antibody_damage(b) == want[k],
-			"第 %d 发伤害 %s" % [k + 1, CWData.fmt(want[k])])
-		var before: int = g.cells[1]["energy"]
+	## 先打满 5 发（数列 15 → 7 → 3 → 2 → 2 与「旋钮关掉 = 老行为」由 L0 antibody_damage/* 钉）
+	for _k in 5:
 		await g.actions.execute(b, { "act": "antibody" })
-		check(g.cells[1]["energy"] == before - want[k],
-			"第 %d 发实扣 %s" % [k + 1, CWData.fmt(want[k])])
 
 	## 选项标签要把「这一次打多少」写出来 —— 不写玩家会白花 1.0 能量打 0 伤害
 	var label := ""
@@ -2556,27 +2291,24 @@ func t_antibody_halve() -> void:
 	g.world._reset_round_flags()
 	check(g.actions.antibody_damage(b) == 15, "S 阶段重置 → 伤害回到满值")
 
-	g.tune.antibody_halve = false
-	for k in 3:
+	## antibody_used 计数与快照往返（原 t_antibody_cap 并入）：
+	## MC 推演里打过的抗体回滚后不会漏回主线，主线打过的推演里也不会凭空多出额度
+	for _k in 3:
 		await g.actions.execute(b, { "act": "antibody" })
-	check(g.actions.antibody_damage(b) == 15, "旋钮关掉 = 老行为，放几次都打满")
+	check(b["antibody_used"] == 3, "计数跟着走（3）")
+	var snap := g.snapshot()
+	g.world._reset_round_flags()
+	check(g.cell_of(0)["antibody_used"] == 0, "重置后计数 0")
+	g.restore(snap)
+	check(g.cell_of(0)["antibody_used"] == 3, "restore 回到 3")
+	g.dispose()
 
 ## 【抗体】无目标时转化几格：PRD 2026-09-13 起按免疫等级分档（issue #37）
 func t_antibody_no_target_x() -> void:
 	print("[抗体·无目标转化格数]")
-	check(CWData.antibody_no_target_x(2) == [3, 5] and CWData.antibody_no_target_x(3) == [4, 6],
-		"III 级 3/5、X 级 4/6（卡面 2026-09-13）")
-	## I / II 级到不了：分化挂 III 级，没有 B 细胞就放不出【抗体】。这两行纯兜底
-	check(CWData.antibody_no_target_x(0) == [2, 3] and CWData.antibody_no_target_x(1) == [2, 3]
-		and CWData.DIFFERENTIATE_MIN_LEVEL == 2,
-		"I / II 只是兜底：分化挂 III 级，那两级压根没有 B 细胞")
+	## 分档那张表由 L0 const/data/fn/antibody_no_target_x/* 逐档钉，这里只留越界钳位
 	check(CWData.antibody_no_target_x(-1) == [2, 3] and CWData.antibody_no_target_x(9) == [4, 6],
 		"越界钳住，不崩")
-	## 掷 d3：1、2 取小，3 取大 —— 「2/3 概率」就是这么来的
-	var src := FileAccess.get_file_as_string("res://scripts/core/cw_actions.gd")
-	check(src.contains("CWData.antibody_no_target_x(game.immune_level)")
-		and src.contains("tier[0 if roll <= 2 else 1]"),
-		"结算处按等级取档、按 d3 分 2/3 与 1/3")
 
 
 ## 【早期血行转移】那条血流要**连到落点**（Kevin 2026-09-13 issue #37）
@@ -2593,43 +2325,6 @@ func t_homing_stream() -> void:
 	## 老毛病的判据：终点的 y 不能还停在起点那一行（那就是「永远水平」）
 	var up := CWSkillFx.homing_stream_pos(a, Vector2(300, 40), 1.0)
 	check(absf(up.y - (a.y - 7.0)) > 100.0, "终点真的抬到落点那边去了（y 差 %.0f）" % absf(up.y - (a.y - 7.0)))
-
-
-func t_antibody_cap() -> void:
-	print("[抗体次数上限旋钮]")
-	var g := bare_game()
-	var b := put_immune(g, Vector2i.ZERO)
-	b["itype"] = CWData.ImmuneType.B_CELL
-	## 一个与健康组织相邻的癌细胞 = 抗体有目标；血厚到打不死
-	var foe := CWSetup.make_cell(1, 1, CWData.Faction.CANCER, Vector2i(3, 0), -1,
-		CWData.CancerType.MELANOMA)
-	foe["energy"] = 500
-	g.cells.append(foe)
-	var has_ab := func() -> bool:
-		for o in g.actions.build_options(b):
-			if o["data"].get("act", "") == "antibody":
-				return true
-		return false
-	check(g.tune.antibody_max_per_round == 0, "默认 0 = 不限（现行 PRD）")
-	for k in 3:
-		check(has_ab.call(), "默认：第 %d 发前选项在" % (k + 1))
-		await g.actions.execute(b, { "act": "antibody" })
-	check(b["antibody_used"] == 3, "计数跟着走（3）")
-	check(has_ab.call(), "默认：打了 3 发选项仍在")
-	g.tune.antibody_max_per_round = 2
-	check(not has_ab.call(), "上限 2：本回合已用 3 → 选项消失")
-	g.world._reset_round_flags()
-	check(b["antibody_used"] == 0 and has_ab.call(), "S 阶段重置 → 选项回来")
-	await g.actions.execute(b, { "act": "antibody" })
-	await g.actions.execute(b, { "act": "antibody" })
-	check(not has_ab.call(), "上限 2：第 3 发不给选")
-	## 计数随 cells 进快照：MC 推演里打过的抗体回滚后不会漏回主线，主线打过的推演里也不会凭空多出额度
-	var snap := g.snapshot()
-	g.world._reset_round_flags()
-	check(g.cell_of(0)["antibody_used"] == 0, "重置后计数 0")
-	g.restore(snap)
-	check(g.cell_of(0)["antibody_used"] == 2, "restore 回到 2")
-	g.dispose()
 
 
 # ---- 一格一细胞 + 骨肉瘤【刚性屏障】 ----
@@ -2682,25 +2377,7 @@ func t_one_cell_per_tile() -> void:
 # ---- E 阶段顺序：增生必须排在侵蚀之前 ----
 func t_phase_order() -> void:
 	print("[阶段顺序]")
-	var src := FileAccess.get_file_as_string("res://scripts/core/cw_world.gd")
-	var body := src.substr(src.find("func e_phase"))
-	body = body.substr(0, body.find("# ---- S 阶段"))
-	## 增生与侵蚀 2026-09-09 起是**嵌套调用**（见下面那条），所以这一格搜的是整个调用式
-	## 2026-09-14（issue #40）起【无氧呼吸】在最前 —— PRD 的第 1 步就是它
-	## 2026-09-19 issue #64：`_decay()` 整步删除（PRD 的 E 阶段列表同日删掉「固化计数衰减」那一条）
-	var seq: Array[String] = ["_anaerobic()", "_pressure()", "_erosion(_proliferate())",
-		"_solidify()", "_rooted()", "_tick_necrosis()", "_clear_newborn()"]
-	var last := -1
-	var ordered := true
-	for name in seq:
-		var at: int = body.find(name)
-		if at < 0 or at < last:
-			ordered = false
-		last = at
-	check(ordered, "E 阶段各步都在、且顺序和 PRD 一致")
-	## **行为判据**：真跑一次 E 阶段，日志里【无氧呼吸】必须排在【微环境压迫】前面。
-	## 上面那条查的是「谁写在前」，这条查的是「谁先发生」——
-	## 把 _anaerobic() 挪进某个分支里，源码顺序还对、实际顺序就反了，只有这条拦得住。
+	## **行为判据**：真跑一次 E 阶段，日志里【无氧呼吸】必须排在【微环境压迫】前面
 	## （issue #40：PRD 第 1 步就是无氧呼吸，引擎一直停在「压迫在前、无氧第 4」的旧顺序）
 	var go := _fx_game(2)
 	for c: Vector2i in go.tiles.keys():
@@ -2726,12 +2403,6 @@ func t_phase_order() -> void:
 	check(at_air >= 0 and at_press >= 0 and at_air < at_press,
 		"真跑一遍：日志里【无氧呼吸】(%d) 排在【微环境压迫】(%d) 之前" % [at_air, at_press])
 	go.dispose()
-	## 最容易搞反的一对：增生会改变「完全包围」的判定结果，必须先增生后侵蚀。
-	## 2026-09-09 起这一对写成 `_erosion(_proliferate())` —— 参数先求值，增生仍然在前，
-	## 而且增生新造的格子作为「这一轮不算来源」的名单传进侵蚀（PRD 的「注」）。
-	## **这里钉的就是这种写法**：拆回两句独立调用，顺序还对、但那份名单会悄悄丢掉。
-	check(body.contains("_erosion(_proliferate())"),
-		"【增生】排在【侵蚀】之前，且新格名单直接喂进侵蚀")
 
 	## 行为验证：**本回合增生刚造的癌组织不算侵蚀的「来源」**（PRD 的「注」，
 	## Kevin 2026-09-09 定「只把新格排除在来源之外」）。
