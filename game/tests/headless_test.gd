@@ -24824,7 +24824,7 @@ func t_tutor_c3() -> void:
 ## 间章那份数据的 id。新盘子的半径与 S9a 共用 `S9A_RADIUS`（11 / 397 格），不另写一份
 const S9B_LEVEL := "interlude"
 ## 击退**不是规则**：`cw_actions.gd` 一个字都不许动（照 t_tutor_fx ⑩ 的写法，LF 归一后的 md5）
-const S9B_ACTIONS_MD5 := "3bba63141eb1227b84e4acdb6bb60067"
+const S9B_ACTIONS_MD5 := "fc78a9cb692197055173bb67e2b5e0dc"   ## 2026-09-20 issue #67 抗体递减有底之后重录（core 里仍零「击退」）
 ## 第六关初始盘面（盘面提案 §7.1 的绝对坐标表 **减 (6,-2)**，§6.3 拍板）：
 ## 间章最后一拍走完，长出来的就是它 —— 这是 S10 的起点。
 ## **席位顺序与 §7.1 那张表不同**：免疫四只在前（0~3）、玩家排最后（4）——
