@@ -208,8 +208,10 @@ func _run_all() -> void:
 		var total := 0
 		for d in _durations:
 			total += int(d[0])
-		print("耗时 %.1fs，最慢：" % (total / 1000.0))
-		for d in _durations.slice(0, 8):
+		## 全部打出来（降序）：清单整理要按用时排，只给最慢 8 条不够（Kevin 2026-09-20「测试的用时也列出来」）。
+		## 平时 run_tests.sh 不传 --timing，这 250 行只在要看的时候出现
+		print("耗时 %.1fs，各测试用时（降序）：" % (total / 1000.0))
+		for d in _durations:
 			print("  %6.1fs  %s" % [d[0] / 1000.0, d[1]])
 	_cur_started = 0   ## 跑完了，关掉看门狗（下面就 quit）
 	var tag := "" if _shards == 1 else "分片 %d/%d " % [_shard + 1, _shards]
