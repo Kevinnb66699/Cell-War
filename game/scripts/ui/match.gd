@@ -1280,6 +1280,11 @@ func _tutor_set_npc(seat: int, plan: Array) -> void:
 func _open_tutor_level(cfg: Dictionary, wid := "base", reset_layers := true) -> CWKernel:
 	if reset_layers:
 		CWTutorLayers.reset()   ## 每关从「全开」起步，再由 flow[0].ui 给全量
+		## 上一关的结算气泡不带进这一关：关与关之间是静默切换，气泡却按自己的 RESULT_HOLD 活着 ——
+		## 真机（2026-09-19）第三关末那一下「攻击大成功」的金字气泡压在第四关的章节横带上。
+		## 正式局的同一件事在 `_prepare_ui`（issue #26），教程换关不走那条路
+		if toast != null:
+			toast.hide_now()
 	if _tutor_level.is_empty():
 		push_error("CWMatch：关表里读不出第 %d 关（data/tutorial/index.json）" % (_tutor_index + 1))
 		return null
