@@ -217,26 +217,30 @@ func best_by(g: CWGame, pid: int, scorer: Callable) -> Dictionary:
 ## 为什么是 alpha-beta 不是 MCTS：有验证过的估值函数（MCTS 反而用不上）+ 引擎滚整局太贵
 ## （MCTS 需成百上千次完整模拟，深度 2 的 alpha-beta 只需 K² 次叶评估）+ 项目要确定性。
 
-## alpha-beta 主入口：为 pid 选「考虑对手最优应对后」最优的整回合计划。
-## 返回 { path, score }；leaf_eval(metrics)->float 由桥注入（含阵营翻号）。
-## depth = 往后看的席位数（1 = 只看自己，2 = 自己+下一席应对）。
-func search_best(g: CWGame, pid: int, leaf_eval: Callable, depth := 2, top_k := 6) -> Dictionary:
-	var cands: Array = await candidates(g, pid)
-	## 用动作知识层（旧手拍式快评）给候选**排序**——alpha-beta 剪枝效率全靠好序
-	var quick := MechBridge._cancer_score if g.player(pid)["faction"] == CWData.Faction.CANCER \
-		else MechBridge._immune_score
+## alpha-beta 主入口 v2：叶 = 【回合边界】（2026-09-20 epd 实验后的关键改动）。
+## 原因：压迫出伤的因果链（包围 → E阶段结算 → 能量掉/死 → ia降）**结构性地落在
+## 「走1-2步就评」的所有线之外**——静态叶永远看不见结算瞬间；而估值（训练分布=回合
+## 边界）本来就认识"死了"（ia +3.6, 5/5）。把叶推到回合边界 = 压迫链进视野
+## + 叶回到训练分布 + 其余席位的应对顺带完成（image 内各席桥作答）。
+## 值统一在【搜索方视角】（leaf_eval 由桥按搜索方阵营翻号一次），节点 max/min 按行动方阵营。
+func search_best(g: CWGame, pid: int, leaf_eval: Callable, depth := 2, top_k := 4) -> Dictionary:
+	## 候选取**单步**：叶会把本回合剩余部分(含E阶段)整个模拟掉，计划只需选"下一手"——
+	## 多步候选的额外分支在整回合模拟面前没有增量信息，只烧时间。
+	var cands: Array = await candidates(g, pid, 1)
+	var quick := MechBridge._cancer_score if g.player(pid)["faction"] == CWData.Faction.CANCER 		else MechBridge._immune_score
 	var scored: Array = []
 	for path in cands:
 		var m: Dictionary = await evaluate_path(g, pid, path)
-		scored.append({ "path": path, "metrics": m, "q": float(quick.call(m)) })
+		scored.append({ "path": path, "q": float(quick.call(m)) })
 	scored.sort_custom(func(a, b): return float(a["q"]) > float(b["q"]))
 	if scored.size() > top_k:
 		scored = scored.slice(0, top_k)
+	var my_fac: int = g.player(pid)["faction"]
 	var alpha := -INF
 	var best: Dictionary = {}
 	for c in scored:
 		var snap: Dictionary = g.snapshot()
-		var v: float = await _ab_recurse(g, pid, c, leaf_eval, depth - 1, alpha, INF)
+		var v: float = await _ab_line(g, pid, c["path"], my_fac, depth, alpha, INF, leaf_eval)
 		g.restore(snap)
 		if v > alpha or best.is_empty():
 			alpha = v
@@ -244,60 +248,70 @@ func search_best(g: CWGame, pid: int, leaf_eval: Callable, depth := 2, top_k := 
 	return best
 
 
-## 递归：己方计划 c 已在盘上（调用方负责快照），继续往下 depth-1 席。
-## 下一席 = 引擎行动顺序里 pid 之后的下一个活席位（min/max 按其阵营）。
-func _ab_recurse(g: CWGame, pid: int, c: Dictionary, leaf_eval: Callable, depth: int, alpha: float, beta: float) -> float:
-	## 落地当前计划（真走，不回滚——回滚由最外层统一做）
-	var played := true
-	for to in c["path"]:
-		var req: Dictionary = await g.pending()
-		if req.is_empty() or int(req["pid"]) != pid:
-			played = false
-			break
-		var idx := _find_move(req, to)
-		if idx < 0:
-			played = false
-			break
-		await g.step(idx)
-	if depth <= 0 or not played:
-		return float(leaf_eval.call(c["metrics"]))
-	## 下一席：顺序里 pid 之后第一个活席
-	var nxt := -1
-	var n := g.order.size()
-	for k in range(1, n + 1):
-		var q: int = g.order[(g.order.find(pid) + k) % n]
-		if g.player(q)["faction"] >= 0:
-			nxt = q
-			break
-	if nxt < 0:
-		return float(leaf_eval.call(c["metrics"]))
+## 一条线：落地 path → 推进到回合边界（其余席位+E阶段全结算）→ depth>1 则边界上的
+## 下一席再选计划再推进 → 叶读数。值全在搜索方视角。
+func _ab_line(g: CWGame, actor: int, path: Array, my_fac: int, depth: int,
+		alpha: float, beta: float, leaf_eval: Callable) -> float:
+	await _play_path(g, actor, path)
+	var req: Dictionary = await _drive_to_round_end(g)
+	if depth <= 1 or req.is_empty():
+		var m: Dictionary = _read_metrics(g, int(req.get("pid", actor)), false)
+		return float(leaf_eval.call(m))
+	var nxt: int = int(req["pid"])
 	var nxt_fac: int = g.player(nxt)["faction"]
-	var maximizing := nxt_fac == CWData.Faction.IMMUNE
+	var maximizing := nxt_fac == my_fac   ## 同阵营=友军节点也取 max（6人交错序必需）
 	var sub: Array = await candidates(g, nxt)
-	var quick := MechBridge._cancer_score if nxt_fac == CWData.Faction.CANCER \
-		else MechBridge._immune_score
+	var quick := MechBridge._cancer_score if nxt_fac == CWData.Faction.CANCER 		else MechBridge._immune_score
 	var subs: Array = []
-	for path in sub:
-		var m: Dictionary = await evaluate_path(g, nxt, path)
-		subs.append({ "path": path, "metrics": m, "q": float(quick.call(m)) })
-	subs.sort_custom(func(a, b): return (float(a["q"]) > float(b["q"])) if maximizing else (float(a["q"]) < float(b["q"])))
-	if subs.size() > top_k_const():
-		subs = subs.slice(0, top_k_const())
+	for p in sub:
+		var m: Dictionary = await evaluate_path(g, nxt, p)
+		subs.append({ "path": p, "q": float(quick.call(m)) })
+	subs.sort_custom(func(a, b): return (float(a["q"]) > float(b["q"])) if maximizing 		else (float(a["q"]) < float(b["q"])))
+	if subs.size() > OPP_TOP_K():
+		subs = subs.slice(0, OPP_TOP_K())
 	var best_v := -INF if maximizing else INF
 	for sc in subs:
-		var snap2: Dictionary = g.snapshot()
-		var v: float = await _ab_recurse(g, nxt, sc, leaf_eval, depth - 1, alpha, beta)
-		g.restore(snap2)
+		var snap: Dictionary = g.snapshot()
+		var v: float = await _ab_line(g, nxt, sc["path"], my_fac, depth - 1, alpha, beta, leaf_eval)
+		g.restore(snap)
 		if maximizing:
-			best_v = maxf(best_v, v)
-			alpha = maxf(alpha, v)
+			best_v = maxf(best_v, v); alpha = maxf(alpha, v)
 		else:
-			best_v = minf(best_v, v)
-			beta = minf(beta, v)
+			best_v = minf(best_v, v); beta = minf(beta, v)
 		if beta <= alpha:
 			break
 	return best_v
 
 
-static func top_k_const() -> int:
-	return 6
+## 按序落地一条迁移路径（限本席位内；局面变了就地停，不视为失败）。
+func _play_path(g: CWGame, pid: int, path: Array) -> void:
+	for to in path:
+		var req: Dictionary = await g.pending()
+		if req.is_empty() or int(req["pid"]) != pid:
+			return
+		var idx := _find_move(req, to)
+		if idx < 0:
+			return
+		await g.step(idx)
+
+
+## 步进到本回合结束（其余席位按 image 内各自的桥作答 + E 阶段结算），
+## 返回**跨入下一回合后的第一个询问**（= 回合边界，叶读数点）；终局返回空。
+func _drive_to_round_end(g: CWGame) -> Dictionary:
+	var r0: int = g.round_no
+	var guard := 0
+	while guard < 240:
+		guard += 1
+		var req: Dictionary = await g.pending()
+		if req.is_empty():
+			return {}
+		if int(g.round_no) != r0:
+			return req
+		var idx: int = await g.ask(req["pid"], req)
+		await g.step(idx)
+	return {}
+
+
+## 对手节点的候选数（对手建模可以比己方粗糙——控成本）。
+static func OPP_TOP_K() -> int:
+	return 3

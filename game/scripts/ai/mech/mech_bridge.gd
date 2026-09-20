@@ -37,10 +37,13 @@ func ask(req: Dictionary) -> int:
 			"fixed_lineup": fixed_lineup, "lifecare": lifecare, "sim_no_lifecare": false })
 		var best: Dictionary
 		if use_search:
-			## 叶估值 = 拟合 E(s)（零和：免疫 +E / 癌 −E）；走子排序仍用旧手拍（动作知识层）
+			## 叶估值 = 拟合 E(s)，**按搜索方阵营翻号一次**（树内所有值统一搜索方视角，
+			## 节点 max/min 由 _ab_line 按行动方阵营处理）——v1 按 metrics.faction 翻号
+			## 会让 alpha/beta 跨节点量纲不一致，v2 修正。
+			var my_fac: int = fac
 			var leaf: Callable = func(m: Dictionary) -> float:
 				var ev: float = MechValue.position_eval_linear(m) if _fit_linear_on else MechValue.position_eval(m)
-				return ev if int(m.get("faction", 0)) == CWData.Faction.IMMUNE else -ev
+				return ev if my_fac == CWData.Faction.IMMUNE else -ev
 			best = await intent.search_best(image, req["pid"], leaf, SEARCH_DEPTH)
 		else:
 			var scorer: Callable = _pick_scorer(fac)

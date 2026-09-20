@@ -29,19 +29,22 @@ func _lever_vec(g: CWGame) -> Dictionary:
 		elif t == CWData.Tissue.CANCER or t == CWData.Tissue.SOLID: cm += 1
 	var pt := 0
 	var lc := 0
+	var epd := 0
 	var mie := 0
 	var first := true
 	for im in g.living_cells(CWData.Faction.IMMUNE):
-		pt += g.world.pressure_at(im["pos"])
+		var pc: int = g.world.pressure_at(im["pos"])
+		pt += pc
 		if g.world.pressure_lethal(im): lc += 1
-		var e: int = int(im["energy"])
-		if first or e < mie: mie = e; first = false
+		var ee: int = int(im["energy"])
+		epd += mini(pc, ee)
+		if first or ee < mie: mie = ee; first = false
 	return {
 		"round": g.round_no, "phase": CWCardData.cancer_phase(g.round_no),
 		"level": g.immune_level, "mem": g.memory,
 		"wp": ct + 2 * st, "ct": ct, "st": st, "supply": MechValue.total_supply(g),
 		"ce": ce, "ie": ie, "ia": ia, "ca": ca,
-		"hm": hm, "cm": cm, "pt": pt, "lc": lc, "mie": mie,
+		"hm": hm, "cm": cm, "pt": pt, "lc": lc, "epd": epd, "mie": mie,
 	}
 
 
