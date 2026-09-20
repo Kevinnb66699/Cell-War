@@ -1,7 +1,6 @@
 ## cw_room.gd —— 联机房间：席位、等待室、对局宿主、每客户端的视角推送
 ##
-## 一个房间 = 一份 CWGame + 一个 CWNetBridge（注册给所有 pid）+ 席位表 + 一个**收养**这份 CWGame 的 CWKernelInProc。
-## 句柄在这里只当「观测门面」：每步的状态推送与四条纯查询走它，权威侧（规则、演出广播、生命周期）仍直接握着 game。
+## 一个房间 = 一份 CWGame + 一个 CWNetBridge（注册给所有 pid）+ 席位表。
 ## 服务器每帧 poll → 报文分发到这里；真人作答通过 Waiter 信号把挂在 ask_human 里的引擎协程接着往下推，
 ## 引擎一路跑到下一次需要真人作答的询问再挂起 —— 中间的 AI 席位、演出广播、状态推送全在这一次调用里完成。
 ## 所以控制权在服务器手里时，引擎要么已结束、要么正停在某个真人的询问上（_ask 非空）。
@@ -26,6 +25,10 @@ const MAX_WATCHERS := 8
 var code := ""
 var public := true
 var timer_secs := 60            ## 每次决策的秒数，0 = 不限
+## 世界事件开关（Kevin 2026-09-08）。房主建房时拨，整局有效。
+## **只存在房间这一份**：开局时喂给 `game.tune`，之后随快照下发给客户端 ——
+## 客户端的影子对局据此判断该不该等事件，不必自己收一份设置。
+var world_events := true
 ## 观众能不能看到所有人的手牌（Kevin 2026-09-13 定的上帝视角档）。房主建房时拨，整局有效。
 ## 默认 **false = 背面**，和这个开关加进来之前的行为一致；老客户端建的房也落在这一档。
 var watch_hands := false
@@ -36,10 +39,6 @@ var members := {}               ## client id -> 昵称（房里所有人，含�
 var host := -1                  ## 房主的 client id
 var state := State.WAITING
 var game: CWGame
-## 观测门面（批 1 A-3）：start() 里收养上面那份 game，只用来 observe_envelope / query。
-## **不驱动对局**（open 时 autorun=false，起跑仍是下面的 _run()），也**不装 CWKernelBridge**——
-## 演出仍由 CWNetBridge 同步广播，服务器侧因此不需要播放队列，也不会被日志条目撑爆 _entries
-var kernel: CWKernelInProc
 var bridge: CWNetBridge
 var server: CWNetServer
 var empty_since := 0            ## members 空了的时刻（ms），0 = 不空
@@ -48,7 +47,6 @@ var timeouts := 0               ## 超时代打次数（统计/测试）
 
 var _ask := {}                  ## 正悬着的真人询问 {pid, ask_id, req, deadline, waiter}
 var _ask_seq := 0
-var _last_ask := {}             ## pid -> 上一次问他的 ask_id：重连时补发边界报文用（issue #62），一局一清
 var _log_cursor := {}           ## client id -> 已发到第几行日志
 var _vote := {}                 ## 正在进行的投降投票 {faction, by, agreed:{pid:true}, deadline}
 var _vote_block := {}           ## 阵营 -> 冷却到第几个世界回合（含）为止不许再发起
@@ -76,12 +74,13 @@ static func ai_seat(tier: String) -> Dictionary:
 
 
 func configure(p_server: CWNetServer, p_code: String, players: int, timer: int,
-		p_public: bool, p_watch_hands: bool = false) -> void:
+		p_public: bool, p_world_events: bool = true, p_watch_hands: bool = false) -> void:
 	server = p_server
 	code = p_code
 	player_count = players
 	timer_secs = timer
 	public = p_public
+	world_events = p_world_events
 	watch_hands = p_watch_hands
 	seats = []
 	for i in players:
@@ -241,13 +240,6 @@ func reconnect(cid: int, nick: String, token: String) -> String:
 			push_state_to(cid, _ask.get("pid", -1))
 			if not _ask.is_empty() and _ask["pid"] == pid:
 				_send_ask()
-			elif _last_ask.has(pid):
-				## issue #62（#44 余账）：掉线期间他那一问被代打了（`_on_seat_offline` 掉线即答），
-				## 那条 `step_begin` 他没收到；此刻问的又是别人，客户端的界面就一直挂在旧一问上，
-				## 要等下一次轮到自己才被 `_serve_ask` 收掉。补发一条**他上一问**的 step_begin ——
-				## 客户端按 #44 的判据（这一问还挂在我手上 + 边界报了它 ⇒ 被代打了）当场收界面；
-				## 他自己早答过的话句柄里没有这一条，客户端一比就当没事，报文是幂等的
-				server.send(cid, { "t": "step_begin", "ask_id": int(_last_ask[pid]), "seat": pid })
 		return ""
 	return "bad_token"
 
@@ -372,6 +364,8 @@ func start(cid: int) -> String:
 		if s["kind"] == "human" and not s["ready"]:
 			return "not_ready"
 	game = CWGame.new()
+	## 必须在 init 之前：开局第一步就可能撞上事件回合
+	game.tune.world_events_on = world_events
 	var seed_value: int = seed_override if seed_override != 0 else server.rng.randi()
 	game.init(CWData.FACTION_ORDER[player_count], seed_value)
 	game.record_replay = true          ## 真对局才录（MC 推演不录，见 CWGame.ask）
@@ -383,11 +377,6 @@ func start(cid: int) -> String:
 	bridge.mc.game = game
 	for pid in game.order:
 		game.bridges[pid] = bridge
-	## 上面那十行一字不动（拍板 1(a)）。句柄在这儿收养它们建好的对局：
-	## adopt = 不 new/init、不写 record_replay、不装 CWKernelBridge、close() 不 dispose；
-	## consumer=false = 不等 barrier（服务器不播演出）；autorun=false = 起跑仍归下面的 _run()
-	kernel = CWKernelInProc.new()
-	kernel.open({ "adopt": game, "consumer": false, "autorun": false, "open_hands": watch_hands })
 	state = State.PLAYING
 	_log_cursor.clear()
 	push_room()
@@ -438,11 +427,6 @@ func _release_offline_seats() -> void:
 func _teardown_game() -> void:
 	if game == null:
 		return
-	## 排在原来那六行之前：收养模式下 close() 只摘句柄自己的钩子，不 dispose、不清 deciders 的 game ——
-	## 谁建谁销毁，下面 game.dispose() 那行照旧是唯一的销毁点
-	if kernel != null:
-		kernel.close()
-		kernel = null
 	bridge.heur.game = null
 	bridge.mc.game = null
 	bridge.room = null
@@ -450,7 +434,6 @@ func _teardown_game() -> void:
 	game = null
 	bridge = null
 	_ask = {}
-	_last_ask.clear()
 	_vote = {}
 	_vote_block = {}   ## 冷却按世界回合算，下一局回合数从头来，留着会误伤
 
@@ -474,7 +457,6 @@ func ask_human(pid: int, req: Dictionary) -> int:
 	var now := server.now_ms()
 	_ask = { "pid": pid, "ask_id": _ask_seq, "req": req,
 		"deadline": now + timer_secs * 1000 if timer_secs > 0 else 0, "waiter": Waiter.new() }
-	_last_ask[pid] = _ask_seq   ## 重连补发边界报文要它（issue #62）
 	_send_ask()
 	var idx: int = await _ask["waiter"].done
 	_ask = {}
@@ -490,32 +472,15 @@ func _send_ask() -> void:
 		"left_ms": -1 if dl <= 0 else maxi(0, dl - server.now_ms()) })
 
 
-## **键为准、下标兜底**（观测协议 §6.2，批 1 A-3）：客户端与服务器各自 `CWSemKey.key(req, data)` 现算 ——
-## 引擎的 req 里 options 只有 {label, data}，**没有 key 字段**，所以两端都只能现算（规格 §0.4 #2）。
-## 键对上就用键，对不上退回下标，两者都不中 ⇒ `bad_index`。**不钳位**：钳位会把一个过期的选择
-## 悄悄变成「第一项」，而那正是乱序作答时最难查的一类错。
-func answer(cid: int, ask_id: Variant, key: Variant, index: Variant) -> String:
+func answer(cid: int, ask_id: Variant, index: Variant) -> String:
 	var pid := pid_of_client(cid)
 	if pid < 0:
 		return "not_seated"
 	if _ask.is_empty() or _ask["pid"] != pid or _ask["ask_id"] != ask_id:
 		return "stale"
-	var req: Dictionary = _ask["req"]
-	var opts: Array = req["options"]
-	var idx := -1
-	if key is String and key != "":
-		for i in opts.size():
-			if CWSemKey.key(req, opts[i]["data"]) == key:
-				idx = i
-				break
-	if idx < 0 and typeof(index) == TYPE_INT:
-		idx = int(index)
-	if idx < 0 or idx >= opts.size():
+	if typeof(index) != TYPE_INT or index < 0 or index >= _ask["req"]["options"].size():
 		return "bad_index"
-	## 一问答下即开步：这一步的演出都排在它之后（拍板 2 的行动边界）。
-	## **必须排在 emit 之前** —— emit 会同步把引擎一路推到下一次询问，那期间的演出报文已经发出去了
-	broadcast({ "t": "step_begin", "ask_id": _ask["ask_id"], "seat": pid })
-	_ask["waiter"].done.emit(idx)
+	_ask["waiter"].done.emit(index)
 	return ""
 
 
@@ -552,11 +517,9 @@ func tick(now: int) -> void:
 
 func _auto_answer() -> void:
 	var a := _ask
-	var idx: int = await bridge.take_over(a["req"])   ## 专家档代打（Kevin 2026-09-20；此前是新手档 heur）
+	var idx: int = await bridge.heur.ask(a["req"])
 	if _ask != a:
 		return
-	## 代打也是「一问答下」：边界报文同样要排在 emit 之前（理由见 answer()）
-	broadcast({ "t": "step_begin", "ask_id": a["ask_id"], "seat": a["pid"] })
 	a["waiter"].done.emit(idx)
 
 
@@ -663,89 +626,32 @@ func _end_vote(why: String) -> void:
 
 
 func push_state(turn_pid: int) -> void:
-	if game == null or kernel == null:
+	if game == null:
 		return
 	var h := game.state_hash()
-	## **观众的 envelope 尽量只编一次**：他们的 viewer 全是 -1，盘面那半逐字节相同，
-	## 而那是一次全盘编码 —— 逐人各编一遍的话，围观人数会直接变成每步的延迟。
-	## 批 1 起日志**并进了 envelope**（不再单发），而各人的日志游标不同 ⇒ 按游标分档共用：
-	## 一起进来的人一档，中途进来的自成一档。正常一局只有一档，开销与改动之前相同。
-	var watcher_envs := {}
+	## **观众的视角只算一次**：他们的 pid 全是 -1，`view_for` 出来的快照逐字节相同，
+	## 而那是一次全盘深拷 —— 逐人各算一遍的话，围观人数会直接变成每步的延迟。
+	## 日志仍要逐人算（各人的游标不同），那个便宜得多。
+	var watcher_view := {}
 	for cid in members.keys():
 		var pid := pid_of_client(cid)
-		var ready := {}
-		if pid < 0:
-			var from: int = _log_cursor.get(cid, 0)
-			if not watcher_envs.has(from):
-				kernel.open_hands = watch_hands
-				watcher_envs[from] = kernel.observe_envelope(CWKernel.VIEWER_WATCHER, from)
-			ready = watcher_envs[from]
-		push_state_to(cid, turn_pid, h, ready)
+		if pid < 0 and watcher_view.is_empty():
+			watcher_view = CWNet.view_for_watcher(game, watch_hands)
+		push_state_to(cid, turn_pid, h, watcher_view if pid < 0 else {})
 
 
-## `ready_env` = 已经编好的 envelope（`push_state` 给同一日志档的观众共用的那一份）；空 = 自己编
-func push_state_to(cid: int, turn_pid: int, h: String = "", ready_env: Dictionary = {}) -> void:
-	if game == null or kernel == null:
+## `ready_view` = 已经算好的视角（`push_state` 给观众共用的那一份）；空 = 自己算
+func push_state_to(cid: int, turn_pid: int, h: String = "", ready_view: Dictionary = {}) -> void:
+	if game == null:
 		return
 	var pid := pid_of_client(cid)
 	var from: int = _log_cursor.get(cid, 0)
-	## **每次推送前都赋一遍**：`watch_hands` 是房主中途能改的，而句柄 open 时读的那一份会过期。
-	## 放在这里而不是 push_state，是因为 join / reconnect 也直接走这条路（观众中途进来那一份同样要对）
-	kernel.open_hands = watch_hands
-	## envelope 自带按席位裁好的日志（观众在「全见」那一档连秘密行也照实给，与 CWNet.logs_for 同口径）
-	var env: Dictionary = ready_env if not ready_env.is_empty() else kernel.observe_envelope(pid, from)
-	var elogs: Dictionary = env["logs"]
-	_log_cursor[cid] = int(elogs["from"]) + elogs["lines"].size()
-	## step_end 紧挨着 sync（拍板 2）：顺序播的客户端走到这里时这一步的演出已经播完，sync 才落地。
-	## `rev` 必须是**这一份** envelope 的 rev（协议附录 B：与随后的 sync 同一个数）⇒ 逐人发，不能广播
-	server.send(cid, { "t": "step_end", "rev": int(env.get("rev", 0)) })
-	var m := { "t": "sync", "envelope": env,
-		"hash": h if h != "" else game.state_hash(), "game": games_played }
-	if server.is_bot(cid):
-		## 机器人客户端读的还是影子对局（AI 桥要 game.world / actions / rng，MC 还要 fork）：额外给它
-		## 一份老 view + turn + 日志行（A-3.4）。`logs` 直接取 envelope 里那份 —— 同源 CWNet.logs_for，白送。
-		## 代价只落在测试与线上验收这几个连接上；批 2 AI 进 C# 之后整块删
-		m["view"] = CWNet.view_for(game, pid) if pid >= 0 else CWNet.view_for_watcher(game, watch_hands)
-		m["turn"] = turn_pid
-		m["logs"] = elogs["lines"]
-	server.send(cid, m)
-
-
-## 纯查询 RPC（批 1 E-1 (a)，观测协议 §5.3 的四条）：客户端锁到观测镜像之后，
-## 路径规划 / 逐段报价 / 灰格理由 / 技能「当前影响」都没有本地引擎可算，只能问权威侧。
-##
-## **只读**：`kernel.query` 直连 `game.actions.*` 的纯查询函数，不改任何局面、不进状态哈希。
-## 观众也答 —— 改动之前他们手里就是一份完整的影子对局、本来就能自己算，这不是新开的信息口子。
-func query(cid: int, msg: Dictionary) -> String:
-	if not members.has(cid):
-		return "not_in_room"
-	if state != State.PLAYING or kernel == null:
-		return "not_waiting"
-	var args: Variant = msg.get("args", {})
-	var kind := str(msg.get("kind", ""))
-	if typeof(args) != TYPE_DICTIONARY or not _query_args_ok(kind, args):
-		return "bad_param"
-	server.send(cid, { "t": "query_result", "qid": msg.get("qid", 0),
-		"value": kernel.query(kind, args) })
-	return ""
-
-
-## 形参先在这儿挡一道：`kernel.query` 把 `args` 里的值直接喂给 `game.actions.*`，
-## 而服务器是**单线程**权威 —— 一份手捏的报文让它报错就是整局的事。
-## 这里只保证「键齐、类型对」；值合不合法（格子存不存在之类）仍由 game.actions 自己判。
-func _query_args_ok(kind: String, args: Dictionary) -> bool:
-	if typeof(args.get("cid")) != TYPE_INT:
-		return false
-	match kind:
-		"plan_next_dests":
-			return args.get("from") is Vector2i
-		"quote_path":
-			return args.get("path") is Array
-		"cost_effects_for":
-			return args.get("act") is String or args.get("acts") is Array
-		"move_block_reason":
-			return args.get("to") is Vector2i
-	return false
+	## 观众在「全见」那一档连秘密行也照实给 —— 手牌都露着了，日志再遮就自相矛盾
+	var lines := CWNet.logs_for(game, pid, from, pid < 0 and watch_hands)
+	_log_cursor[cid] = game.logs.size()
+	var view: Dictionary = ready_view if not ready_view.is_empty() else CWNet.view_for(game, pid)
+	server.send(cid, { "t": "state", "view": view, "logs": lines,
+		"turn": turn_pid, "hash": h if h != "" else game.state_hash(), "game": games_played })
 
 
 func broadcast(msg: Dictionary) -> void:
@@ -765,7 +671,7 @@ func view_for(cid: int) -> Dictionary:
 	for c in members:
 		names.append(members[c])
 	return { "t": "room", "code": code, "public": public, "timer": timer_secs, "players": player_count,
-		"watch_hands": watch_hands,
+		"world_events": world_events, "watch_hands": watch_hands,
 		"state": "playing" if state == State.PLAYING else "waiting",
 		"host": members.get(host, ""), "you_host": cid == host, "you_seat": my_pid,
 		"token": seats[my_pid]["token"] if my_pid >= 0 else "",
@@ -787,6 +693,6 @@ func summary() -> Dictionary:
 		if s["kind"] == "human":
 			humans += 1
 	return { "code": code, "players": player_count, "seated": seated, "humans": humans,
-		"timer": timer_secs, "host": members.get(host, ""),
+		"timer": timer_secs, "world_events": world_events, "host": members.get(host, ""),
 		"watchers": watchers(), "watch_max": MAX_WATCHERS, "watch_hands": watch_hands,
 		"state": "playing" if state == State.PLAYING else "waiting" }

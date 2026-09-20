@@ -30,16 +30,6 @@ const T_RESTART := 0.85
 ## 而破坏的表现是**过场整个消失**（画面瞬间就位），极难察觉。
 const SKIP_GRACE_MS := 250
 
-## 新手引导的开场动画（PRD:59-87 / 方案 §S7）。独立场景、自带相机、压根不建内核，
-## 盖在整棵树之上（CanvasLayer layer 100）演完再让位。**只有第一次进引导时播**，
-## 看过没有记在 `user://guide_progress.cfg` 里（键 `opening_seen`，见那个脚本的静态方法）。
-const OPENING_SCENE := preload("res://scenes/tutorial_opening.tscn")
-const OPENING := preload("res://scripts/ui/tutorial_opening.gd")
-## 开场演完、第一关的章节提示已经立起来之后，盖着的那一层淡掉要多久。
-## 之所以**不在演完的当下就掀掉**：掀早了玩家会先看见一帧光秃秃的对局界面（行动栏 / 右栏），
-## 而 PRD:87 要的是「直接进第一章全屏章节提示」
-const T_OPENING_OUT := 0.45
-
 @onready var camera: Camera2D = $Camera2D
 @onready var board: Node2D = $Board
 @onready var menu: Node2D = $MainMenu
@@ -53,9 +43,6 @@ var _started_ms := 0   ## 本次过场起步的时刻
 
 
 func _ready() -> void:
-	## 批 1 步 9 / E-3：旧版存档与回放启动时静默清掉（版本 / 规则指纹不符的一律读不出，留着只会让「继续对局」永远灰着）
-	CWSave.purge_stale()
-	CWReplay.purge_stale()
 	CWSettings.load_prefs()   ## 偏好尽早读：AI 节奏/掷骰动画在开局装配时就要用
 	menu.start_requested.connect(_begin)
 	menu.continue_requested.connect(_continue)
@@ -66,7 +53,6 @@ func _ready() -> void:
 	pause.chose.connect(_on_pause_chose)
 	pause.action_bar = match_node.action_bar
 	match_node.finished.connect(_on_match_finished)
-	match_node.replay_opening.connect(_replay_opening)
 	settle.chose.connect(_on_settle_chose)
 
 
@@ -90,6 +76,8 @@ func _begin(cfg: Dictionary) -> void:
 	match_node.match_seed = int(cfg.get("seed", 0))
 	## 自定义对局钉死的癌种（按癌席顺序，-1 = 随机；普通对局是空表）
 	match_node.cancer_types = Array(cfg.get("cancer_types", []))
+	## 世界事件开关（Kevin 2026-09-08）。默认开；关掉整局不触发
+	match_node.world_events = bool(cfg.get("world_events", true))
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
 	menu.dismiss(T_DECOR, DECOR_DRIFT)
@@ -103,62 +91,30 @@ func _begin(cfg: Dictionary) -> void:
 	_entering = false    ## 三拍走完才算「不在过场中」——忘了置回，返回主菜单会永远进不去
 
 
-## 「新手引导」：开一局教程局。过场和正式局一样三拍：新手也该先看到干净棋盘、再看到癌组织怎么铺开。
-##
-## **2026-09-19 老教程整套推倒**（新手教程 v2 · S1 commit A）：席位数 / 人类席 / 癌种 / 活跃格
-## 都是**关卡数据里的设计量**（方案 §2.2），不再在这儿现算 —— 装配整段搬去 commit B 的导演。
-## 入口母菜单那一项重做期间一直灰着，**2026-09-19 · S12 收口已恢复**（`main_menu.gd` 的 `enabled: true`，
-## 那是唯一一处开关）；`cancer_type` 形参留着不动：主菜单那套「过完教程可自选对手」是 Kevin 09-05 拍板过的，保留。
-func _begin_tutorial(_cancer_type: int) -> void:
+## 「新手引导」：开一局固定种子的 2 人教程局（免疫 vs 癌方，人类坐免疫位）。
+## 引擎照常跑，教程只是 CWGuideBridge + CWGuide 在旁边提示、代做与提亮（见 match.start() / guide_data.gd），
+## 做错不惩罚。固定种子是为了每关的落子提示都出现在合理局面上；AI 用普通启发式，
+## 别让蒙特卡洛抢戏。过场和正式局一样三拍：新手也该先看到干净棋盘、再看到癌组织怎么铺开。
+## cancer_type 由主菜单决定：首次钉死骨肉瘤，引导全部看完后玩家自己挑（Kevin 2026-09-05）。
+func _begin_tutorial(cancer_type: int) -> void:
 	if _entering:
 		return
 	match_node.tutorial = true
+	match_node.player_count = 2
+	match_node.human_players = [0]       ## 2 人局行动顺序 = [免疫, 癌]，人类坐免疫
+	match_node.ai_level = 0
+	match_node.cancer_types = [cancer_type]   ## 教程对手钉死（2 人局只有一个癌席），不随种子抽
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
-	## **菜单退场必须排在开场动画之前**：它要淡 T_DECOR = 1.1 秒，排在后面的话这 1.1 秒正好落在
-	## 「幕布淡掉、章节提示露出来」那一段，玩家会看见主菜单的 CELL WAR 标题和菜单项幽灵般叠在提示上
-	##（09-19 真机截图抓到的）。放在前面，它就在幕布底下淡完了
 	menu.dismiss(T_DECOR, DECOR_DRIFT)
-	## 开场动画（PRD:59-87）：**只有第一次**进引导时播，演完（或被跳过）就记上一笔。
-	## 它自带全屏幕布，所以底下的菜单退场、镜头推进、癌组织绽开全被盖着 —— 玩家看不到，也不必等
-	var cut = null   ## 不标 Node：开场脚本没有 class_name（附 C 第 1 条），标了就够不着它的成员
-	if not OPENING.seen():
-		cut = OPENING_SCENE.instantiate()
-		add_child(cut)
-		await cut.finished
-		OPENING.mark_seen()
-	if cut == null:
-		_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		_tween.tween_method(_look, 0.0, 1.0, T_ENTER)
-		await _tween.finished
-	else:
-		_look(1.0)   ## 开场已经把镜头交代完了，不在幕布底下再空推一次 1.55 秒
-	await match_node.start_with_bloom(T_BLOOM)
-	if cut != null:
-		## 这会儿第一章的章节提示已经立起来了（关首那一拍在 `CWMatch.start()` 里装），
-		## 幕布淡掉露出来的就是它 —— 一帧对局界面都不闪（PRD:87）
-		await cut.fade_out(T_OPENING_OUT)
-		cut.queue_free()
-	_entering = false
-
-
-## 教程目录底部那行「Cell War」（Kevin 2026-09-19 Q-21）：重看开场。
-## `opening_seen` 已经由 `CWMatch` 清掉了（开场三件只调它现成的 `clear_seen()`），
-## 这儿只负责**收摊这一局再重进引导** —— 返场那三拍照抄 `_back_to_menu`，
-## 差别只有最后一步不是把菜单放出来，而是径直重进（`_begin_tutorial` 见 `seen()` 为假会重播开场）。
-## `_entering` 在重进之前先放掉：`_begin_tutorial` 自己头一句就判它
-func _replay_opening() -> void:
-	if _entering:
-		return
-	_entering = true
-	_started_ms = Time.get_ticks_msec()
-	match_node.fade_out(T_BACK * 0.8)
+	## 教程小棋盘：推镜头之前就把半径外的格淡掉，镜头到位时看到的已经是那几格
+	##（Kevin 2026-09-11：原来是推完才换格网，画面「猛地缩小」）。淡的时长取推进的一半，走到一半棋盘就定了
+	match_node.board.set_active_radius(CWMatch.tutorial_board_radius(), T_ENTER * 0.5)
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_tween.tween_method(_look, 1.0, 0.0, T_BACK)
+	_tween.tween_method(_look, 0.0, 1.0, T_ENTER)
 	await _tween.finished
-	match_node.teardown()
+	await match_node.start_with_bloom(T_BLOOM)
 	_entering = false
-	_begin_tutorial(0)
 
 
 ## 联机开局：房间进入对局且第一份状态到了。过场和本地开局一样（推镜头 + 绽开），
@@ -226,8 +182,8 @@ func _on_match_finished(winner: int) -> void:
 	## 本地局的回放自己存（联机局是服务器随终局发下来、客户端那边存的）。
 	## 存不下就算了 —— 一局回放丢了不该挡住结算屏
 	if not match_node.online:
-		CWReplay.save(match_node.replay_tape())   ## 批 1 步 7：存的是 tape，不再收 CWGame
-	settle.show_result(match_node.mirror)   ## 批 1 步 8：结算屏吃终局那一份镜像
+		CWReplay.save(match_node.game)
+	settle.show_result(match_node.game)
 
 
 ## 结算屏的「看这局回放」：刚打完那一局就是**最新的一份**（本地局在
@@ -290,7 +246,7 @@ func _on_pause_chose(action: String) -> void:
 		"save_quit":
 			## 先落盘再演返场——fade_out 会把对局 aborted，那之后就没得存了。
 			## 写失败（磁盘问题）就留在对局里，别让玩家以为存上了。
-			if CWSave.write(match_node.save_blob(), match_node.player_count, match_node.human_players, match_node.ai_level):
+			if CWSave.write(match_node.game, match_node.human_players, match_node.ai_level):
 				_back_to_menu()
 			else:
 				push_warning("存档写入失败，留在对局中")
@@ -309,7 +265,7 @@ func _on_pause_chose(action: String) -> void:
 func _watch_replay(d: Dictionary) -> void:
 	if _entering:
 		return
-	var p := CWReplay.Player.open(d, true)   ## consumer=true：界面那条路要等演出（批 1 步 7；步 8 接播放队列）
+	var p := CWReplay.Player.open(d)
 	if p == null:
 		return          ## 读得出但建不起来（版本/参数不认）：留在菜单，面板那边已经报过
 	match_node.tutorial = false

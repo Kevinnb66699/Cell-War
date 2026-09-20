@@ -2,10 +2,9 @@
 ##
 ## 引擎通过 game.ask(pid, req) 询问，桥返回所选选项的下标。
 ## req = { kind, pid, prompt, options:[{label, data}], (tag) }
-## kind 取值（与 docs/观测协议_v1.md §6.1 的 10 种一致，批 1 步 10 回写）：
-##           setup_place / immune_revive / revive / action（流程状态机的顶层询问），
-##           free_move / pick_cell / pick_tile / pick / chemo_target / effector_target（卡牌 / 技能结算的中途选择，tag=卡名或技能）。
-##           UI 自己发起的 confirm（裂解净化二次确认）不经引擎、不是 kind。
+## kind 取值：setup_place / immune_revive / revive / action（流程状态机的顶层询问），
+##           free_move / pick_cell / pick_tile / pick（卡牌结算的中途选择，tag=卡名），
+##           confirm（预留）。
 ## 基类默认永远选第 0 项 —— 中途选择把「停止/放弃」放在下标 0，正是为了这个默认安全。
 ## UI 桥与 AI 桥各自重写 ask()。
 class_name CWBridge
@@ -56,6 +55,10 @@ func show_event_drawn(_pid: int, _info := {}) -> void:
 	pass
 
 
+## 抽到一个世界事件（联机桥发报文；本地表现层直接接 CWGame.world_event 信号）
+func show_world_event(_ev_name: String, _info := {}) -> void:
+	pass
+
 
 ## 某位玩家抽到了一张卡（不说是哪张）。info = { cell_id, pos, source }。
 ## 给头顶的抽卡演出用；联机桥原样转发。
@@ -78,7 +81,7 @@ func show_beam(_from: Vector2i, _to: Vector2i, _splash: Array) -> void:
 	pass
 
 
-## 全局通报：不挂在哪一格上的大事。
+## 全局通报：不挂在哪一格上的大事（目前只有「抽到世界事件」）。
 ## 与 show_result 分开是因为展示方式不同 —— 那个贴着骰子、1 秒多就走；这个要在棋盘上方停够看完一句话的时间。
 func show_notice(_text: String) -> void:
 	pass

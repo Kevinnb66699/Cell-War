@@ -10,11 +10,7 @@ class_name CWFeedback
 extends RefCounted
 
 const PatchState := preload("res://scripts/patch_state.gd")
-## **2026-09-19 全量发版还账**：明文 IP 改 https 域名。网页版是 https 页面，发 http 请求
-## 会被当混合内容拦掉（反馈**根本发不出去**，还连累整页标「不安全」）；
-## nginx 在 `cellwar.jiling.chat` 上把 `/cellwar/feedback` 反代到 8612，两端同一个口。
-## 同 boot.gd 的 `SELF_HOST`，出处见 `docs/网页导出.md` §①。
-const URL := "https://cellwar.jiling.chat/cellwar/feedback"
+const URL := "http://124.221.78.13/cellwar/feedback"
 const TEXT_MAX := 200            ## 说明最多多少字；LineEdit 的 max_length 也是它
 const TIMEOUT_SEC := 20.0
 

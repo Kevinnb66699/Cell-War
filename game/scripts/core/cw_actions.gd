@@ -176,7 +176,7 @@ func quote_path(cell: Dictionary, path: Array) -> Dictionary:
 		budget -= cost
 		total += cost
 		## 这一步花掉的**额度**也要预演（issue #35）：【组织驻留】那类「前 N 次免费」、
-		## 限次修饰。不预演的话第二步照样算自己是第一次，
+		## 限次修饰、世界事件的免费首移。不预演的话第二步照样算自己是第一次，
 		## 整条路线的价钱全是 0.0。事后由 _restore_spend 原样放回
 		game.cost.burn_allowances(cell, q)
 		## 走过去：位置动，脚下组织按【定殖】/【净化】翻面（enter_tile 里那两条，同样的条件）
@@ -210,17 +210,28 @@ func quote_path(cell: Dictionary, path: Array) -> Dictionary:
 ## 规划器预演「额度」时会动的三样东西，先存一份（issue #35）：
 ##   · `fx_turn`  「本行动回合前 N 次」的闸门（【组织驻留】就住这儿）
 ##   · `mods`     限次修饰条目（用尽会被 CWCost 删掉，所以要深拷）
+##   · 世界事件【迁移激活】的免费首移：记在事件数据里、按细胞 id
 ## 纯查询的契约在这儿最容易破 —— 光是把路拖过去看一眼就把玩家的免费额度烧了。
 func _spend_snapshot(cell: Dictionary) -> Dictionary:
+	var free_used := false
+	for e in game.events["active"]:
+		if e["name"] == "迁移激活":
+			free_used = e["data"].has(cell["id"])
 	return {
 		"fx_turn": (cell["fx_turn"] as Dictionary).duplicate(true),
 		"mods": (cell["mods"] as Array).duplicate(true),
+		"free_used": free_used,
 	}
 
 
 func _restore_spend(cell: Dictionary, snap: Dictionary) -> void:
 	cell["fx_turn"] = snap["fx_turn"]
 	cell["mods"] = snap["mods"]
+	if bool(snap["free_used"]):
+		return
+	for e in game.events["active"]:
+		if e["name"] == "迁移激活":
+			e["data"].erase(cell["id"])
 
 
 ## 规划器预演时会动、算完要原样放回的组织字段。
@@ -432,7 +443,7 @@ func _jump_quota_left(cell: Dictionary) -> bool:
 
 ## T 细胞【裂解】：目标是**1 环内**的固化癌组织（含脚下；云端 PRD 2026-09-10）
 func _is_lyse_legal_now(cell: Dictionary, to: Vector2i) -> bool:
-	return cell["alive"] and (to in CWData.ring(cell["pos"], 1, game.board_radius)) 		and game.tile(to)["tissue"] == CWData.Tissue.SOLID
+	return cell["alive"] and (to in CWData.ring(cell["pos"], 1)) 		and game.tile(to)["tissue"] == CWData.Tissue.SOLID
 
 
 func _lyse_targets(cell: Dictionary) -> Array[Vector2i]:
@@ -441,7 +452,7 @@ func _lyse_targets(cell: Dictionary) -> Array[Vector2i]:
 	## 2026-09-01 从「脚下」改成「相邻」，2026-09-10 云端 PRD 写成
 	## 「可将**1环内**的固化癌组织转为健康组织」—— 1 环 = 中心 + 六邻，两者都算。
 	## 免疫站在固化格上是合法的过渡态（传送/卡牌位移进来的），所以这一档不是空谈。
-	for n in CWData.ring(cell["pos"], 1, game.board_radius):
+	for n in CWData.ring(cell["pos"], 1):
 		if game.tile(n)["tissue"] == CWData.Tissue.SOLID:
 			out.append(n)
 	return out
@@ -542,7 +553,7 @@ func _cancerous_adj(c: Vector2i) -> int:
 
 ## 移动费的**基准价**（设计 §四 的第②层）：行动本身 + 免疫等级 + 细胞自带技能
 ## （黑色素瘤【伪足穿透】、小细胞肺癌【极简胞浆】都在 _cancer_move_cost 里）。
-## 基准价之上的所有修饰交给 CWCost —— 卡牌、永久技能一律以
+## 基准价之上的所有修饰交给 CWCost —— 卡牌、永久技能、世界事件一律以
 ## CostModifier 的形式登记在 CWCost.TEMPLATES，本文件不再自己判谁减多少。
 func _move_base_cost(cell: Dictionary, dest: Vector2i) -> int:
 	if not (dest in game.neighbors(cell["pos"])):
@@ -718,11 +729,16 @@ func base_verdict(r: int, attacker: Dictionary = {}) -> String:
 	return "crit" if r == 6 else ("fail" if r <= 2 else "success")
 
 
-## 基础判定之上的「并给」层（不重掷）。世界事件删除（2026-09-19）之后**没有活的并给来源**，
-## 这一层保留成契约：函数在契约表里（attack_outcome），4 条 L0 用例钉着它，
-## 将来的卡牌若要「攻击不会无效 / 不会大成功」应当住进来。
+## 基础判定再套世界事件修正（并给，不重掷）——
+## 【细胞毒】失败并给成功（PRD：5/6 成功、1/6 大成功）；
+## 【免疫伪装】大成功并给成功（PRD：1/3 失败、2/3 成功；2026-08-29 按 PRD 改判）
 func attack_outcome(r: int, attacker: Dictionary = {}) -> String:
-	return base_verdict(r, attacker)
+	var out := base_verdict(r, attacker)
+	if out == "fail" and game.event_stacks("抗原引导") > 0:
+		out = "success"
+	if out == "crit" and game.event_stacks("免疫伪装") > 0:
+		out = "success"
+	return out
 
 
 ## base = 报价的起点。默认 -1 表示「现算」（_move_base_cost）——
@@ -792,9 +808,9 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		else:
 			game.log_msg("　【攻击】第 %d/%d 次" % [used, cap])
 	## ---- 判定链（定案 #59/#60）----
-	## 骰面 → 并给层（attack_outcome）→【补体调理】失败自动重掷（重掷严格不劣，
+	## 骰面 → 世界事件并给（attack_outcome）→【补体调理】失败自动重掷（重掷严格不劣，
 	## 不必发问）→ 防御方【PD-L1表达】最后压一级。【高亲和力克隆】不掷骰直接大成功，
-	## 管骰面概率的那一层因此不介入，但 PD-L1 照压（它压的是「判定」不是骰面）。
+	## 管骰面概率的世界事件因此不介入，但 PD-L1 照压（它压的是「判定」不是骰面）。
 	## 补体调理/高亲和力克隆骑在「下一次攻击」上：无论结果如何，这次攻击就把它们消耗掉。
 	var opsonin := game.spend_mods(cell, "补体调理")
 	var affinity := game.spend_mods(cell, "高亲和力克隆")
@@ -832,6 +848,9 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 	if outcome == "fail":
 		game.log_msg("　攻击无效，%s 被反弹回原格" % game.cell_name(cell))
 		game.announce("攻击无效", to)
+		## 【抗原变异】攻击失败 → 被攻击的癌细胞抽牌（按层数）
+		for i in game.event_stacks("抗原变异"):
+			await game.cards.draw(target, "抗原变异")
 		## PRD：攻击失败时攻击者「自身-0.5能量」（口径 #84）。走 cancer_hit 而不是直接扣，
 		## 是为了让它和别的损失一样吃减伤/护盾/死亡检查——注意按口径 #62，
 		## 反弹**不算**「癌细胞技能造成的损失」，【缺氧适应】挡不住它。
@@ -901,6 +920,10 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		## 【补体级联】的组织转化不是能量损失，「整体免疫」那一层拦不住它
 		for i in game.spend_mods(cell, "补体级联"):
 			_cascade(cell, target)
+		## 【抗原变异】攻击大成功 → 攻击方抽牌（按层数）
+		if crit:
+			for i in game.event_stacks("抗原变异"):
+				await game.cards.draw(cell, "抗原变异")
 	## 【抗原呈递强化】每世界回合第一次攻击未被【标记】的癌细胞后 → 施加【标记】。
 	## 「攻击…后」按**攻击发动**读（口径 #70）：判定失败算攻过，把目标当场打死也算攻过，
 	## 所以额度在这里就烧掉。**alive 判断刻意放在闸门之后**（团队 2026-08-30 定案 C）——
@@ -932,9 +955,14 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 const VERDICT_NAMES := { "fail": "无效", "success": "成功", "crit": "大成功" }
 
 
-## 骰面 → 判定（重掷时会再走一遍）
+## 骰面 → 判定，顺带把世界事件的并给记进日志（重掷时会再走一遍）
 func _judged(r: int, attacker: Dictionary) -> String:
+	var base := base_verdict(r, attacker)
 	var out := attack_outcome(r, attacker)
+	if base == "fail" and out != "fail":
+		game.log_msg("　【细胞毒】攻击不会无效：判定并给成功")
+	elif base == "crit" and out != "crit":
+		game.log_msg("　【免疫伪装】攻击不会大成功：判定并给成功")
 	game.log_msg("　攻击掷骰 %d：%s" % [r, VERDICT_NAMES[out]])
 	return out
 
@@ -1054,11 +1082,15 @@ func purify_here(cell: Dictionary, dest: Vector2i, paid: int) -> void:
 ## 踩上这一格能从【代谢核心】拿到多少能量（0 = 拿不到：不是核心、或者已经被取空）。
 ##
 ## 抽出来是因为**要有两个调用方**：`collect_special()` 真收，`quote_path()` 预演。
-## 规划器抄第二份必然漂。同 `CWWorld.pressure_at` 的纪律：一条算式只留一份。
+## 规划器抄第二份必然漂 —— 【代谢加速】那个翻倍是世界事件给的，忘了跟就会少算一半。
+## 同 `CWWorld.pressure_at` 的纪律：一条算式只留一份。
 func core_gain(t: Dictionary) -> int:
 	if t["special"] != CWData.Special.CORE or t["store"] <= 0:
 		return 0
-	return t["store"]
+	var gain: int = t["store"]
+	for i in game.event_stacks("代谢加速"):
+		gain *= 2   ## 【代谢加速】进入代谢核心获得的能量翻倍
+	return gain
 
 
 func collect_special(cell: Dictionary, c: Vector2i) -> void:
@@ -1192,9 +1224,7 @@ func antibody_damage(cell: Dictionary) -> int:
 		return dmg
 	for _i in int(cell["antibody_used"]):
 		dmg /= 2
-	## 递减有底：最低 0.2（PRD 2026-09-20「每多用一次伤害减半，最低为 0.2」，issue #67）——
-	## 此前整数除法一路衰减到 0，第四发起白花能量打 0 伤害
-	return maxi(dmg, CWData.ANTIBODY_MIN_DAMAGE)
+	return dmg
 
 
 ## 【抗体亲和力成熟】B 细胞强化：抗体费**降低** 0.5（卡面 2026-09-07 从「降低为 0.5」改成「降低 0.5」，
@@ -1271,7 +1301,7 @@ func _can_toxin(cell: Dictionary) -> bool:
 
 func _toxin_targets(cell: Dictionary) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
-	for n in CWData.ring(cell["pos"], 1, game.board_radius):
+	for n in CWData.ring(cell["pos"], 1):
 		if game.tile(n)["tissue"] == CWData.Tissue.CANCER:
 			out.append(n)
 	return out
@@ -1291,7 +1321,7 @@ func _do_toxin(cell: Dictionary) -> void:
 		return
 	cell["toxin_used"] += 1
 	game.tile(cell["pos"])["toxin_round"] = game.round_no   ## 这一格本世界回合用过了
-	game.fx("toxin", { "from": cell["pos"], "tiles": CWData.ring(cell["pos"], 1, game.board_radius) })
+	game.fx("toxin", { "from": cell["pos"], "tiles": CWData.ring(cell["pos"], 1) })
 	for c in targets:
 		CWTissue.to_necrotic(game.tile(c), CWData.NECROSIS_TOXIN)
 	game.log_msg("【细胞毒素】1 环内 %d 格癌组织转为健康组织并进入「坏死」（不积累记忆）" % targets.size())
@@ -1299,7 +1329,7 @@ func _do_toxin(cell: Dictionary) -> void:
 	## 所以这里含不含中心其实不改结果 —— 写成 ring 是为了**和上面那半用同一把尺**，
 	## 免得将来有人只改一处。
 	var victims: Array = []
-	for n in CWData.ring(cell["pos"], 1, game.board_radius):
+	for n in CWData.ring(cell["pos"], 1):
 		victims.append_array(game.cells_at(n, CWData.Faction.CANCER))
 	## attack=false：细胞毒素是「技能」，同上（T 细胞专属）；【DNA损伤修复】可挡
 	game.immune_hit_area(victims, CWData.ATTACK_DMG_SUCCESS, cell, "细胞毒素")

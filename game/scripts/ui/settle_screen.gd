@@ -114,14 +114,12 @@ func _ready() -> void:
 # ============ 对外 ============
 
 ## 摆好数据并开演。中途放弃的那条路**不会**走到这里（winner 仍是 -1）。
-## ⚠ 传进来的必须是**终局那一份**观测：InProc 在 game_over 条目之前先推了一份 sync（规格 A-1.5），
-## 联机侧 cw_room.gd:_run 也是先 push_state(-1) 再 broadcast game_over —— 两条路都对得上。
-func show_result(m: CWMirror) -> void:
+func show_result(game: CWGame) -> void:
 	if not _built:
 		_build()
 	elif _built_online != online:
 		_rebuild_buttons()
-	_fill(m)
+	_fill(game)
 	visible = true
 	_play()
 
@@ -137,31 +135,32 @@ func reset() -> void:
 
 # ============ 取数 ============
 
-func _fill(m: CWMirror) -> void:
-	var immune: bool = m.winner == CWData.Faction.IMMUNE
+func _fill(game: CWGame) -> void:
+	var immune: bool = game.winner == CWData.Faction.IMMUNE
 	var accent: Color = CWStyle.IMMUNE if immune else CWStyle.CANCER
 	_fac.color = accent
 	_title.text = "免疫胜利" if immune else "癌症胜利"
 	_title.add_theme_color_override("font_color", accent)
 	_chip.position.x = _title.position.x + CWStyle.FONT.get_string_size(
 		_title.text, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_HERO).x + 14
-	_chip_text.text = KIND_CHIP.get(m.win_kind, "")
+	_chip_text.text = KIND_CHIP.get(game.win_kind, "")
 	_chip_text.add_theme_color_override("font_color", accent)
 	var chip_box := CWStyle.box(1.0, Color(0, 0, 0, 0), 3, 6)
 	chip_box.border_color = Color(accent, 0.55)
 	chip_box.set_border_width_all(2)
 	_chip.add_theme_stylebox_override("panel", chip_box)
-	_reason.text = _reason_text(m)
+	_reason.text = _reason_text(game)
 
-	_board_size.text = "终局盘面　%d 格" % m.tiles.size()
+	_board_size.text = "终局盘面　%d 格" % game.tiles.size()
 	_stats = [
-		m.count_tissue(CWData.Tissue.HEALTHY),
-		m.count_tissue(CWData.Tissue.CANCER),
-		m.count_tissue(CWData.Tissue.SOLID),
-		m.count_necrosis(),
+		game.count_tissue(CWData.Tissue.HEALTHY),
+		game.count_tissue(CWData.Tissue.CANCER),
+		game.count_tissue(CWData.Tissue.SOLID),
+		game.count_necrosis(),
 	]
-	_weighted = m.cancer_weighted()
-	_goal = maxi(int(m.tune["cancer_win_weighted"]), 1)
+	_weighted = game.count_tissue(CWData.Tissue.CANCER) \
+		+ 2 * game.count_tissue(CWData.Tissue.SOLID)
+	_goal = maxi(game.tune.cancer_win_weighted, 1)
 	_w_max.text = " / %d" % _goal
 	_bar_note.text = "↑ 胜利线 %d" % _goal
 	## 刻度钉在「胜利线占满条多少」的位置上；加权可能超过阈值（本例 98/64），
@@ -169,28 +168,29 @@ func _fill(m: CWMirror) -> void:
 	_bar_tick.position.x = BAR_W * float(_goal) / float(maxi(_weighted, _goal))
 	_bar_note.position.x = maxf(_bar_tick.position.x - 24.0, 0.0)
 	_meta.text = "第 %d 回合 / 上限 %d　·　玩家结局见右侧竖条" % [
-		m.round_no, int(m.tune["limit_round"])]
+		game.round_no, game.tune.limit_round]
 
 
-## 一句话胜因。**不直接用 m.win_reason** —— 那句自带「癌症胜利：」前缀，
+## 一句话胜因。**不直接用 game.win_reason** —— 那句自带「癌症胜利：」前缀，
 ## 和上面 40px 的标题重复；而且四种结局的句式不统一（两种带前缀、两种带后缀）。
 ## 这里按 win_kind 现写，数字仍旧从引擎取，文案与方向稿「四种结局」那张一致。
-func _reason_text(m: CWMirror) -> String:
-	var w: int = m.cancer_weighted()
-	var cancerous: int = m.count_tissue(CWData.Tissue.CANCER) \
-		+ m.count_tissue(CWData.Tissue.SOLID)
-	match m.win_kind:
+func _reason_text(game: CWGame) -> String:
+	var w: int = game.count_tissue(CWData.Tissue.CANCER) \
+		+ 2 * game.count_tissue(CWData.Tissue.SOLID)
+	var cancerous: int = game.count_tissue(CWData.Tissue.CANCER) \
+		+ game.count_tissue(CWData.Tissue.SOLID)
+	match game.win_kind:
 		"immune_clear":
 			return "癌细胞全灭，且场上没有可用于复活的固化癌组织"
 		"cancer_weighted":
-			return "加权占地 %d >= %d，癌方达成占地胜利" % [w, int(m.tune["cancer_win_weighted"])]
+			return "加权占地 %d >= %d，癌方达成占地胜利" % [w, game.tune.cancer_win_weighted]
 		"limit_cancer":
 			return "%d 回合到，癌性组织 %d >= %d，癌方判定胜" % [
-				int(m.tune["limit_round"]), cancerous, int(m.tune["limit_cancerous"])]
+				game.tune.limit_round, cancerous, game.tune.limit_cancerous]
 		"limit_immune":
 			return "%d 回合到，癌性组织 %d < %d，免疫方守住" % [
-				int(m.tune["limit_round"]), cancerous, int(m.tune["limit_cancerous"])]
-	return m.win_reason   ## 兜底：将来加了新的 win_kind 也不至于空着
+				game.tune.limit_round, cancerous, game.tune.limit_cancerous]
+	return game.win_reason   ## 兜底：将来加了新的 win_kind 也不至于空着
 
 
 # ============ 演出 ============

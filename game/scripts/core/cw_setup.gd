@@ -83,7 +83,6 @@ static func make_cell(id: int, pid: int, faction: int, pos: Vector2i,
 		"draws_used": 0,           # 【基因表达】3 次/行动回合
 		"attacks_used": 0,         # 本行动回合已攻击次数（上限见 CWTuning.attack_max_per_turn）
 		"respawn_round": -1,       # 免疫细胞死亡后可复活的世界回合（-1 = 未死亡/不复活）
-		"revives": 0,              # 本细胞已结算过几次【复活】；只记账（issue #68 回调后不再进死亡惩罚 X）
 		"camp_round": -1,          # 免疫踏进【骨样硬化】标记格的世界回合（-1 = 没在蹲）；下一回合 S 阶段兑现净化
 		"camp_pos": Vector2i.ZERO, # 蹲的是哪一格（挪窝即作废）
 	}

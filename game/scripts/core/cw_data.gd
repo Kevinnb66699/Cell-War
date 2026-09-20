@@ -41,7 +41,7 @@ static func init_cancer_tiles(n_players: int) -> int:
 const CANCER_WIN_WEIGHTED := 90          # 癌+2×固化 ≥ 90 时癌症即胜（PRD 原值 85）
 const CANCER_WIN_HOLD_ROUNDS := 2        # 要**连续**这么多个世界回合末都达标才判胜（团队 2026-09-01 定案 B：首次达标只拉警报）
 ## 终局世界回合数。2026-09-07 Kevin 换 PRD 正本：30 → **15**。
-## 连带：癌症卡池分期跟着压缩（见 CWCardData.cancer_phase），
+## 连带：世界事件回合、癌症卡池分期都跟着压缩（见 is_world_event_round / CWCardData.cancer_phase），
 ## 而**所有平衡标定作废** —— 后期池这下真能出场，癌方滚雪球却只剩一半时间（团队自行重标）。
 const LIMIT_ROUND := 15                  # 终局世界回合数
 const LIMIT_CANCEROUS := 63              # 终局判定线 ⌊1/2×127⌋
@@ -63,11 +63,12 @@ const SOLID_AT_CANCER_SPAWN := false
 # 免疫细胞可被杀死，但罚停若干回合后在随机健康组织复活（无限次）。
 # 注意：造成免疫死亡的手段尚未定案（反弹反击可被免疫主动规避，见开发日志），
 # 所以这套机制目前基本不会触发——等癌方主动伤害手段定下来才会真正生效。
-# **PRD 写明的罚停**（【S-复活】死亡惩罚）：「免疫细胞死亡回合后的下 1 世界回合无法复活」。
-# 死于第 N 回合 → 第 N+1+X 回合的 S 阶段复活，这个旋钮就是 X（PRD 的 1）。
-# 沿革：2026-09-07 Kevin 先在引擎里定了 0 → 1；09-19 PRD 收编并加上「每复活一次 X+1」（issue #63，
-# 计数 `revives`）；09-20 PRD 把递增那句删了（issue #68 回调），`revives` 只剩记账、不再进规则。
-# -1 = 不再复活（CWEval 认得这个值）。
+# PRD 没有罚停条款：死亡的免疫细胞在**下一个** S 阶段结算【复活】，
+# 死于第 N 回合的玩家阶段 → 第 N+1 回合 S 阶段复活，天然就缺席了一整轮。
+# **2026-09-07 Kevin 定再加一回合罚停**（0 → 1）：死一次的代价原本只有「少走一轮」，
+# 而 09-07 起攻击开始给抗原记忆、免疫方节奏整体变快，死亡需要更实在的代价。
+# 这是**引擎有意偏离 PRD** 的一条，见 docs/archive/PRD差异对照.md（09-11 归档）。旋钮 `immune_respawn_delay`，
+# 扫回 0 就是 PRD 原文；-1 = 不再复活（CWEval 认得这个值）。
 const IMMUNE_RESPAWN_DELAY := 1
 const IMMUNE_RESPAWN_ENERGY := 10        # PRD：复活初始 1.0 能量（癌细胞是 2.0，见 REVIVE_ENERGY）
 
@@ -123,17 +124,7 @@ const ANAEROBIC_FLOOR := 20
 ## 见《PRD差异对照》§7.6）。别再拿它的胜率提问题，也不用替它挑数。
 const ANAEROBIC_BLOCK_COEF := 28         # 十分能量：PRD 值 ×2.8（表里没有的人数退回它）
 const ANAEROBIC_BLOCK_COEF_BY_PLAYERS := { 2: 28, 4: 20, 6: 28 }
-const ANAEROBIC_SOLID_BONUS := 5         # 十分能量：**块内**每格固化癌组织 +0.5（issue #66 2026-09-19：原「全图 ×1.0」改「连通块 ×0.5」）
-## 【E-无氧呼吸】的**人数系数 k**（百分数）。PRD 2026-09-14（issue #43）给整条分式外面乘了一个 k：
-## `max{2, k × (块内癌组织数^0.3 × 系数 + 全图固化数) ÷ 块内癌细胞数}`，
-## 连通块内存活 1 / 2 / 3 个癌细胞时 k = 80% / 100% / 120%。**兜底 2.0 排在 k 之后**（先乘 k 再兜底）。
-##
-## 净效果是**罚独占、奖抱团**：一个细胞独享一块每回合拿 0.8×池（旧式 1.0×），
-## 三个挤一块每人拿 0.4×池（旧式 0.333×）—— 挤在一起的总损失从 −67% 收窄到 −60%。
-##
-## 按下标取，**4 个及以上退回最后一档**：正式局里到不了 —— 块内癌细胞数 ≤ 全场癌细胞数 = 癌方席位数，
-## 六人局 3 个、四人局 2 个。这一条纯属防呆（教程 fixture 能摆出任意局面）。
-const ANAEROBIC_CELLS_K := [80, 100, 120]
+const ANAEROBIC_SOLID_BONUS := 10        # 十分能量：**全图**每格固化癌组织 +1.0
 const ANAEROBIC_CAP := 0                 # 0 = 不封（团队 2026-09-04 定案）
 
 ## 【E-能量上限】每个世界回合结算末，所有存活细胞的能量削到这个数（Kevin 2026-08-31 定）。
@@ -144,35 +135,6 @@ const ANAEROBIC_CAP := 0                 # 0 = 不封（团队 2026-09-04 定案
 ## 而免疫方从没碰到过。换成开方式无氧之后收入自带刹车，天花板就没有存在理由了。
 ## 机制完好，`emax=150` 随时扫回来做对照。
 const ENERGY_CAP_PER_ROUND := 0          # 0 = 不封（原值 150 = 15.0）
-
-## 【S-过载】癌细胞能量过多时会损失部分能量（PRD 2026-09-15 新增，S 阶段**第 6 步**）：
-##   能量损失 = min{15, max{0, ((x − 10) ÷ 2) ^ 1.18}}     x = 该癌细胞当前能量（显示单位）
-##
-## **上限 15.0 是 Kevin 2026-09-15 晚加的**（第一版没有）。它把这条规则的性质换掉了，
-## 别按旧印象读：
-##
-## | | 无上限那版 | 现在 |
-## |---|---|---|
-## | 净留 | **42.2 处见顶（15.7），再往上囤留得更少** | **单调递增，不再见顶** |
-## | 极端能量 | 148.4 处损失追平能量、148.8 起反超 | **永远追不上**（实扫 0 例） |
-## | 29.8 以上 | 越囤扣越狠 | 固定扣 15.0，净留 = x − 15 |
-##
-## 也就是从「**惩罚囤积本身**」变成「**超过 29.8 就是一笔 15.0 的固定税**」。
-##
-## 三个拐点（`((e − 100) ÷ 20)^1.18`，e 为十分能量；见 CWWorld.overload_loss）：
-##   · **实际门槛是 10.2 不是 10.0** —— 10.1 的损失舍入后为 0.0
-##   · **29.8 起损失到顶** 15.0，之后恒定
-##   · **损失永远小于当前能量**（上限那一版实扫 0 例）—— 于是「扣不死细胞」是**数学性质**，
-##     和【代谢消耗】同源。`overload_loss` 里那句钳位因此在默认值下打不到，
-##     但**不能删**：`overload_cap` 是旋钮，扫描时抬高或关掉它，交叉点就回来了。
-##
-## 四个数各一个旋钮（balance_scan 要拨）。**它和上面的 ENERGY_CAP_PER_ROUND、
-## 平衡候选③ `cancer_upkeep_pct` 职能重叠**，但那两个现在都默认关着（都是 0），
-## 所以这次不动它们，等平衡扫过再定去留。
-const OVERLOAD_THRESHOLD := 100          # 十分能量：10.0 以下不扣
-const OVERLOAD_DIV := 2                  # 分母：(x − 10) ÷ **2**；≤0 = 关闭这条规则
-const OVERLOAD_EXP := 118                # 百分数：指数 1.18
-const OVERLOAD_CAP := 150                # 十分能量：单次损失上限 15.0；0 = 不封顶
 # PRD【I-免疫记忆】：II 级「降为 **0.8**」、III 级「降为 **0.7**」（Kevin 2026-09-09 晚给的分档表）。
 # **X 级不再另有减免**（Kevin 2026-09-09 确认「删了」，PRD 的「X 级迁移耗能均改为 0.5」同日删除）——
 # 等级只升不降、好处累加，所以 X 级沿用 III 级那一档。
@@ -227,7 +189,7 @@ const AEROBIC_LEVEL_STEP := 15                # 十分能量，公式里的「×
 ## 一张表比硬凑一个公式诚实：PRD 给的就是四个数。
 ##
 ## `CWTuning.aerobic_by_level` 置空即退回老的线性 / 盘面式（balance_scan 的对照档还在）。
-const AEROBIC_BY_LEVEL := [20, 30, 50, 70]    # 十分能量，按 immune_level 0/1/2/3 取（issue #66 2026-09-19：III / X 级 4.5 / 5 → 5 / 7）
+const AEROBIC_BY_LEVEL := [20, 30, 45, 50]    # 十分能量，按 immune_level 0/1/2/3 取
 const AEROBIC_SPLIT_REF := 2                  # 均分标定人数（均分默认已关，留作 asplit=1 对照档）
 ## 站在坏死组织上的免疫细胞拿几成有氧。Kevin 2026-09-07 两次改口：「一份不给」→ 八折 → **减半**
 ## （线上版 PRD 写的是「获得【有氧呼吸】的能量减半」）。
@@ -248,17 +210,11 @@ static func anaerobic_block_coef(n_players: int) -> int:
 ## 按人数取无氧指数（PRD 2026-09-12 + issue #29：四人 0.3 / 六人 0.3）。表里没有的人数退回缺省。
 static func anaerobic_block_exp(n_players: int) -> int:
 	return ANAEROBIC_BLOCK_EXP_BY_PLAYERS.get(n_players, ANAEROBIC_BLOCK_EXP)
-
-
-## 连通块里有 n_cells 个癌细胞时的人数系数（百分数）；见 ANAEROBIC_CELLS_K
-static func anaerobic_cells_k(n_cells: int) -> int:
-	return ANAEROBIC_CELLS_K[clampi(n_cells - 1, 0, ANAEROBIC_CELLS_K.size() - 1)]
 ## I/II/III/X 记忆门槛。**这一张是 6 人局的**，也是没列人数时的缺省 —— 四人档见下面的分档表。
 ## 沿革：团队 09-04 6→10、16→20；Kevin 09-07 定「30 及以上都归 X」；09-10 issue #13 把 X 抬到 60；
-## **2026-09-11 Kevin 按玩法 PRD 改表**：六人 I 0~9 / II 10~29 / III 30~69 / X ≥70；
-## **2026-09-19 issue #55「免疫等级所需抗原记忆提升」**：只抬 X 级，六人 70→120（III 级区间变成 30~119）。
-const LEVEL_MIN_MEMORY := [0, 10, 30, 120]
-## 门槛**按人数分档**（Kevin 2026-09-09 起）。2026-09-19 版：四人局 10 / 20 / 100，六人局 10 / 30 / 120。
+## **2026-09-11 Kevin 按玩法 PRD 改表**：六人 I 0~9 / II 10~29 / III 30~69 / X ≥70。
+const LEVEL_MIN_MEMORY := [0, 10, 30, 70]
+## 门槛**按人数分档**（Kevin 2026-09-09 起）。2026-09-11 版：四人局 10 / 20 / 50，六人局 10 / 30 / 70。
 ##
 ## 为什么要分：记忆是**全阵营共用一个计数器**，而进账靠免疫细胞各自净化。
 ## 四人局只有 2 个免疫、六人局有 3 个，同样的门槛下四人局要多花约一半的回合才升得上去 ——
@@ -268,10 +224,8 @@ const LEVEL_MIN_MEMORY := [0, 10, 30, 120]
 ## 见《PRD差异对照》§7.6），不必替它挑数。真要定的话 `{ 2: [...] }` 加进表里就生效。
 ## issue #13（2026-09-10）先把 X 级抬到四人 50 / 六人 60（原来 30 让效应记忆那段来得太早）；
 ## 2026-09-11 Kevin 按玩法 PRD 再改：四人 I 0~9 / II 10~19 / III 20~49 / X ≥50 ——
-## II 级门槛四人六人拉平（都是 10），III 级四人 20 / 六人 30。
-## **2026-09-19 issue #55**：X 级四人 50→100、六人 70→120（II / III 两档一字不动）——
-## 效应记忆那一段来得太早，X 级一到记忆就清零重数，整局后半截等于没有升级目标。
-const LEVEL_MIN_MEMORY_BY_PLAYERS := { 4: [0, 10, 20, 100] }
+## II 级门槛四人六人拉平（都是 10），III 级四人 20 / 六人 30，X 级四人 50 / 六人 70。
+const LEVEL_MIN_MEMORY_BY_PLAYERS := { 4: [0, 10, 20, 50] }
 
 
 ## 按人数取记忆门槛表。表里没有的人数（balance_scan 会扫 5 人 / 7 人）退回 PRD 的六人档。
@@ -334,11 +288,6 @@ const OSTEO_BARRIER_PERCENT := 40        # 受到的能量损失 ×40%，向下�
 # 小细胞肺癌
 ## ⚠ 偏离 PRD（PRD 是 0.3）：随占地单价同比例抬，见 CANCER_MOVE_HEALTHY
 const SCLC_MOVE_HEALTHY := 7             # 【极简胞浆】移动至健康组织永久 0.7
-## 卡【癌症转移】的射程：两环内（PRD 2026-09-14，issue #42）。
-## 与下面小细胞肺癌【转移】的 METASTASIS_RANGE 同名不同物 —— 那是「朝一个方向跃进 5 格」，
-## 这是「两环内任选一格」，别把两个数并成一个。
-const METASTASIS_CARD_RANGE := 2
-
 const METASTASIS_COST := 10              # 【转移】1.0 能量
 const METASTASIS_RANGE := 5              # 向某方向跃进 5 格
 const WARBURG_PERCENT := 110             # 【瓦伯格超速糖酵解】无氧呼吸 110%，向上取整到十分位
@@ -349,7 +298,6 @@ const MUTATE_EXTRA_LOSS := 8
 const MUTATE_MEMORY_CUT := 2             # 同一面削减的抗原记忆
 const ANTIBODY_COST := 10
 const ANTIBODY_DAMAGE := 15              # 每目标 -1.5
-const ANTIBODY_MIN_DAMAGE := 2           # 同回合递减到最低 0.2（PRD 2026-09-20，issue #67）
 ## 无目标时改为转化癌组织：掷 d3，2/3 概率取前一个数、1/3 概率取后一个数。
 ## **按免疫等级分档**（PRD 2026-09-13 云端版，issue #37）：III 级 3/5、X 级 4/6。
 ## 卡面只写 III 与 X 两档就够了：【分化】挂 III 级（`DIFFERENTIATE_MIN_LEVEL`），
@@ -402,9 +350,7 @@ const ANAEROBIC_PER_CANCER := 4          # 每癌组织供能 0.4
 const ANAEROBIC_PER_SOLID := 10          # 每固化癌组织供能 1.0
 
 # 固化计数也用「十分」整数存（10 = 1 点）。PRD 里它不再是整数：
-# 癌症卡【基质硬化】+1/+1.5/+2（骨肉瘤旧版的 +1.5 已于 2026-09-05 撤）。
-# **2026-09-19 issue #64**：衰减整条删除（「计数不再递减」），`SOLIDIFY_DECAY` 随之删，
-# E 阶段少一步（`CWWorld._decay` 整支删），卡【基质稳定】也没有了存在意义 —— 整张删。
+# 衰减 -0.5、癌症卡【基质硬化】+1/+1.5/+2（骨肉瘤旧版的 +1.5 已于 2026-09-05 撤）。
 ## 沿革（来回过两轮，写全免得再翻）：
 ## · 2026-09-01 定案乙 3.0→2.0 —— 当时 3.0 下固化**从不出现**（癌细胞蹲 3 回合 =
 ##   放弃约 30 格扩张，三局手打 36 次盘面快照全是 0），癌方没有复活据点、一团灭就结束。
@@ -412,13 +358,11 @@ const ANAEROBIC_PER_SOLID := 10          # 每固化癌组织供能 1.0
 ##   （第 363 行写「计数到达 2」）不一致 —— 我已把 PRD 一并改成 3 并记进差异对照。
 ##   9 月 1 号之后变了三件可能改变结论的事：固化进度**看得见了**（地块贴图）、
 ##   增生换了公式、09-08 加了「队友旁复活」。重标时这一格要重点看。
-## 按**肿瘤分期**给（环境恶化，PRD 2026-09-11 云端版）：II 期「降低为 2」。
+## 按**肿瘤分期**给（环境恶化，PRD 2026-09-11 云端版）：III 期「所需的固化计数降低为 2」。
 ## 结算、界面、AI 一律走 `CWGame.solidify_threshold()`，别各自查表。
-## **2026-09-19 issue #56「环境恶化加强」**：III 期 2.0 → 1.5（= 15 个十分单位）。
-## **2026-09-19 issue #64**：III 期 1.5 → 2（PRD III 段不再单列这一条，沿 II 期；Kevin 拍板）。
-## 衰减删掉之后粒度回到整 1.0，1.5 这种半格门槛也就再没有落点了。
-const SOLIDIFY_THRESHOLD_BY_STAGE: Array[int] = [30, 20, 20]   # 计数达 3.0 → 固化癌组织；II/III 期 2.0（issue #64）
+const SOLIDIFY_THRESHOLD_BY_STAGE: Array[int] = [30, 20, 20]   # 计数达 3.0 → 固化癌组织；II / III 期 2.0（PRD 2026-09-12 把 2.0 提前到 II 期）
 const SOLIDIFY_STEP := 10                # 癌细胞停留：+1.0
+const SOLIDIFY_DECAY := 5                # 无癌细胞停留：每世界回合 -0.5
 
 # ---- 环境恶化：肿瘤分期（PRD 2026-09-11 云端版新增）----
 ## 第 1—5 世界回合 = 肿瘤 I 期、6—10 = II 期、11—15 = III 期 —— 与癌症卡池的分期是**同一张表**
@@ -426,32 +370,20 @@ const SOLIDIFY_STEP := 10                # 癌细胞停留：+1.0
 ## 下面凡是 `_BY_STAGE` 的表都是 3 项，下标 = 分期。
 const STAGE_NAMES := ["肿瘤I期", "肿瘤II期", "肿瘤III期"]
 ## 【根深蒂固】（II/III 期）：每块固化癌组织每回合随机使相邻最多这么多格癌组织的固化计数 +1.0；I 期没有。
-## **2026-09-19 issue #64**：II 期 1 → 3 格、III 期 3 → 5 格（PRD:421/439「相邻最多三格 / 五格」）。
-const ROOTED_BY_STAGE: Array[int] = [0, 1, 2]   # issue #66（2026-09-19）：#64 的 3 / 5 当天改回 1 / 2
-## 【E-无氧呼吸】按肿瘤分期的增益（百分数，100 = 不加）：**2026-09-19 issue #56** 新增 —— II 期 +20%、III 期 +50%；
-## **2026-09-19 issue #64** II 期 +20% → **+30%**（PRD:423「增益30%」；III 期 +50% 不变）。
-## 「在基础数值上增益」= 乘在**连通块池子**上（`CWWorld._anaerobic_pool` 的返回值），
-## 所以人数系数 k、均分、四舍五入、兜底 2.0 与封顶都排在它之后，整条算式仍然只取整一次。
-## 放池子而不是放人头有两个后果，都是有意的：卡【糖酵解爆发】走同一个口子（`anaerobic_gain_for`）自动跟上；
-## 兜底 2.0 不跟着涨（PRD 写的是 `max{2, …}`，2 是绝对地板不是基础数值）。
-## 与 PRESSURE_MUL_BY_STAGE 同一个写法：**常量不是旋钮**，扫描要动就动 anaerobic_block_coef。
-const ANAEROBIC_STAGE_MUL_BY_STAGE: Array[int] = [100, 120, 130]   # issue #66（2026-09-19）：II +20%、III +30%（#64 的 130 / 150 当天改回）
+const ROOTED_BY_STAGE: Array[int] = [0, 1, 3]
 
 # ---- 场景事件（PRD 场景事件）----
 # 【E-微环境压迫】：损失 = max(0, 1/4 × (相邻癌组织 + 相邻固化癌组织 × 2 − 相邻健康组织))。
 # 这是癌方**第一个稳定的伤害来源** —— 在此之前免疫细胞几乎不可能死（旧说明 #23）。
 # 【E-增生】：没有免疫细胞的健康组织，按「相邻癌性组织数 × 4%」的概率转为癌组织。
 # 这条原本是团队 2026-08-26 的提案（引擎里做成了默认关闭的旋钮），PRD 已正式采纳。
-## 按肿瘤分期给（环境恶化）：I 期 3% + 0.5%×固化数，II 期 5% + 1%×，III 期 6% + 1.5%×。
+## 按肿瘤分期给（环境恶化）：I 期 3% + 0.5%×固化数，II 期 3.5% + 1%×，III 期 4% + 1%×。
 ## 概率 = 相邻癌性组织数 × (基数 + 每固化 × **所有相邻连通块**的固化数之和)，算式见 CWWorld._proliferate_chance。
-## **2026-09-19 issue #56**：II 期基数 3.5%→4%、III 期 4%→5%（I 期照 PRD 原值 3% 不动）。
-## **2026-09-19 issue #64**：II 期 4%→5%、III 期 5%→6%（PRD:411/431；每固化那张表不动）。
-const PROLIFERATE_BASE_BY_STAGE: Array[int] = [30, 50, 60]   # 千分率：每个相邻癌性组织的基数 3% / 5% / 6%
+const PROLIFERATE_BASE_BY_STAGE: Array[int] = [30, 35, 40]   # 千分率：每个相邻癌性组织的基数 3% / 3.5% / 4%
 ## 千分率：相邻癌性组织所在连通块里**每一格固化**再加这么多（按块去重后求和）。
 ## 判的是「这一格所属的连通块含多少固化」，不是「这一格自己是不是固化」——
-## 一片地里固化了一格，整片的对外扩散都加速。I 期 0.5%、II 期 1%、III 期 1.5%
-## （**2026-09-19 issue #56** 把 III 期从 1% 抬到 1.5%）。
-const PROLIFERATE_SOLID_BY_STAGE: Array[int] = [5, 10, 15]
+## 一片地里固化了一格，整片的对外扩散都加速。I 期 0.5%、II/III 期 1%（云端 PRD 原文如此）。
+const PROLIFERATE_SOLID_BY_STAGE: Array[int] = [5, 10, 10]
 
 ## 【E-侵蚀】一次转几格：2/3 概率取前者、1/3 概率取后者（PRD 2026-09-07 由 1/2 抬到 2/3）。
 ## 做成常量是为了能扫 —— 它和增生一样是「癌方占地速度」的直接杠杆。
@@ -941,11 +873,9 @@ static func round_tenth(num: int, den: int) -> int:
 ## 所以改写时每一处都要单独确认范围是不是真的扩了（Kevin 09-08 确认【细胞毒素】扩）。
 ##
 ## 返回**排好序**的坐标：范围技能的结算顺序要可复现（同种子同结果）。
-## `radius` = 这一局的棋盘半径（`game.board_radius`；正式局 6）。**别用缺省值去算大盘**：
-## 教程间章起世界半径 11，缺省 6 会把第 6 环外的格悄悄漏掉（2026-09-19 S9a 报的）
-static func ring(center: Vector2i, n: int, radius := BOARD_RADIUS) -> Array[Vector2i]:
+static func ring(center: Vector2i, n: int) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
-	for c in all_coords(radius):
+	for c in all_coords():
 		if hex_dist(c, center) <= n:
 			out.append(c)
 	out.sort()
@@ -981,9 +911,9 @@ static func dir_toward(dest: Vector2i, from: Vector2i) -> int:
 	return best
 
 
-static func is_edge(c: Vector2i, radius := BOARD_RADIUS) -> bool:
-	# 棋盘外缘格：邻居不满 6 个。`radius` 同 ring()：大盘上按缺省 6 算会把第 6 环误判成外缘
-	return neighbors(c, radius).size() < 6
+static func is_edge(c: Vector2i) -> bool:
+	# 棋盘外缘格：邻居不满 6 个
+	return neighbors(c).size() < 6
 
 
 static func special_of(c: Vector2i) -> Special:
@@ -995,6 +925,10 @@ static func special_of(c: Vector2i) -> Special:
 		return Special.VESSEL
 	return Special.NONE
 
+
+static func is_world_event_round(r: int) -> bool:
+	# PRD：第 3、6、10、14 世界回合（2026-09-07 随 15 回合制改；14 而非 15 —— 终局那回合不再插事件）
+	return r in [3, 6, 10, 14]
 
 
 ## 十分能量 → 显示字符串（如 15 → "1.5"）

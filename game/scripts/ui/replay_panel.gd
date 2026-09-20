@@ -81,7 +81,6 @@ func open() -> void:
 func refresh() -> void:
 	_note.text = ""
 	if _src == Src.LOCAL:
-		CWReplay.purge_stale()   ## 批 1 步 7 / E-3：读不出来的（版本 / 规则指纹不符）静默清掉，不挂一行「读不出来」
 		_files = CWReplay.list_files()
 	else:
 		_asked = false     ## 连上（或已经连着）就发 list_replays，见 _ask_list

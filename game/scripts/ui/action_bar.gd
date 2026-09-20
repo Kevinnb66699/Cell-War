@@ -29,6 +29,8 @@ const PAD_H := 8
 const BTN_H := 52
 ## 放不下时按钮标题最多缩到这个字号（正文 20）。再小就不是缩字号能救的了，该改文案
 const MIN_TITLE_SIZE := 14
+const SKILL_ICON_ATLAS := preload("res://assets/art/ui/skill_icons.svg")
+const SKILL_ICON_SIZE := 16
 ## 快捷键数字标在**费用行前面**。实测四个技能（T细胞，最挤的情况）共 331 / 361，
 ## 只有「迁移」会因为加前缀而变宽（它的标题最短、费用最长），加完 349，仍然放得下。
 ## 标在标题上不行：那样每个按钮都变宽，四个加起来就出界了。
@@ -235,6 +237,9 @@ func _make_button(entry: Dictionary, index: int) -> PanelContainer:
 		var line := HBoxContainer.new()
 		line.add_theme_constant_override("separation", 4)
 		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var icon := _skill_icon(entry.get("act", ""))
+		if icon != null:
+			line.add_child(icon)
 		if _keys:
 			line.add_child(_key_badge(index + 1))
 		if cost != "":
@@ -260,6 +265,27 @@ func _key_badge(n: int) -> Control:
 	return CWStyle.keycap(str(n))
 
 
+## 16×16 整数像素技能图标。图集顺序与技能键保持一致；目标选择按钮没有 act 时不显示。
+func _skill_icon(act: String) -> TextureRect:
+	var order := ["move", "draw", "differentiate", "antibody", "toxin", "lyse", "chemo",
+		"mutate", "homing", "mucus", "jump", "ossify", "end"]
+	var index := order.find(act)
+	if index < 0:
+		return null
+	var atlas := AtlasTexture.new()
+	atlas.atlas = SKILL_ICON_ATLAS
+	atlas.region = Rect2(index * SKILL_ICON_SIZE, 0, SKILL_ICON_SIZE, SKILL_ICON_SIZE)
+	var icon := TextureRect.new()
+	icon.texture = atlas
+	icon.custom_minimum_size = Vector2(SKILL_ICON_SIZE, SKILL_ICON_SIZE)
+	icon.size = icon.custom_minimum_size
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return icon
+
+
 ## 按当前的 _hot 和 _disabled 把所有按钮重画一遍。
 func _repaint_all() -> void:
 	for i in _buttons.size():
@@ -274,23 +300,14 @@ func _set_hot(index: int) -> void:
 	hovered.emit(index)
 
 
-## 教程提亮层用（scripts/tutor/cw_tutor_spot.gd，S2）：标题为 title 的那枚按钮**本体**；
-## 栏收着 / 这一问没它 → null。
-## 为什么要节点而不是矩形：Kevin 2026-09-19 的提亮口径是「按钮保持单线原样，只闪亮度」
-## （方案 §5.5 第 1 条）⇒ 提亮层要改的是这枚控件自己的 `modulate`，光有矩形办不到
-func button_node(title: String) -> Control:
+## 引导提亮用（CWGuideSpotlight）：标题为 title 的那枚按钮的屏幕矩形；栏收着 / 这一问没它 → 零矩形
+func button_rect(title: String) -> Rect2:
 	if not visible:
-		return null
+		return Rect2()
 	for b in _buttons:
 		if (b as Control).get_meta("title", "") == title:
-			return b as Control
-	return null
-
-
-## 同上，取它的屏幕矩形；栏收着 / 这一问没它 → 零矩形
-func button_rect(title: String) -> Rect2:
-	var b := button_node(title)
-	return b.get_global_rect() if b != null else Rect2()
+			return (b as Control).get_global_rect()
+	return Rect2()
 
 
 ## 整条按钮栏的屏幕矩形；收着 → 零矩形
@@ -323,6 +340,9 @@ func _paint(p: PanelContainer, hot: bool) -> void:
 			if c is Label:
 				(c as Label).add_theme_color_override("font_color",
 					CWStyle.TEXT_OFF_DIM if off else CWStyle.TEXT_DIM)
+			elif c is TextureRect:
+				(c as TextureRect).modulate = Color(0.42, 0.52, 0.56) if off \
+					else (Color(1.18, 1.18, 1.18) if hot else Color.WHITE)
 
 
 ## 数字键 1..9 = 从左到右的第几个按钮。
@@ -330,10 +350,6 @@ func _paint(p: PanelContainer, hot: bool) -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not _keys or not visible:
 		return
-	if CWChatBox.typing(get_viewport()):
-		return   ## 聊天框里打字（拼音选字就是按数字）：让路，判据见 CWChatBox.typing
-	if CWPauseMenu.modal():
-		return   ## 暂停菜单压在上面（联机局不冻树，事件照样派发到这儿）：数字键让路，issue #45
 	if not (event is InputEventKey) or not event.pressed or event.is_echo():
 		return
 	var code: int = (event as InputEventKey).keycode

@@ -23,18 +23,6 @@ const TEXT := Color("cfe2e6")        ## 常规文字
 const TEXT_DIM := Color("7b929b")    ## 次要文字（字段名、费用、单位）
 const TEXT_OFF := Color("5c737c")    ## 灰掉的文字
 const TEXT_OFF_DIM := Color("44565e")## 灰掉的次要文字
-## 能量增损（issue #48）：棋盘上的飘字与右栏那一行的色闪共用这两支笔 ——
-## 两处同一个色，眼睛才把「棋盘上这只」和「右栏那一行」对上。
-## 低反差、不和阵营色（免疫青 / 癌方橙）打架：进账偏青绿、出账偏粉红。
-const ENERGY_GAIN := Color("8fd9a2")
-const ENERGY_LOSS := Color("e8899c")
-
-# ---- 轻微慢闪（PRD 通用规则 8「较慢频次反差较低的轻微闪烁」）----
-## 原来住 `guide.gd`（老引导浮层），2026-09-19 老教程整套推倒时搬到这儿 ——
-## 知识之书的解锁动效与教程的提亮层都要它，**闪烁参数收敛到一处**是通用规则 8 的本意。
-const HALO_PERIOD := 3.2
-const HALO_ALPHA_LO := 0.35
-const HALO_ALPHA_HI := 1.0
 
 # ---- 字号（只有四档，见设计稿「右侧竖条 · 尺寸与字号」）----
 ## 结算屏的胜负宣告。**一局只出现一次**，比回合数还大一档 ——
@@ -65,6 +53,7 @@ static func clickable_label(parent: Control, text: String, at: Vector2,
 	## 点击音就挂在这条共用底座上 —— 用它的几处（开局配置、设置页、投降票）一并有声
 	var clickable := label(text, SIZE_BODY, TEXT_HI)
 	clickable.position = at
+	clickable.size = clickable.get_minimum_size()  ## Label 默认尺寸为 0×0；命中框必须贴住文字
 	clickable.mouse_filter = Control.MOUSE_FILTER_STOP
 	clickable.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	clickable.gui_input.connect(func(e: InputEvent) -> void:

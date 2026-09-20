@@ -26,8 +26,6 @@ const EMERGE := 0.30       ## 落场：真身 progress 1→0
 const RING_STEP := 0.045   ## 同帧多个传送（紊乱）按离重心的环数错峰，每环这么多秒（复用 board.ring_delays）
 const VESSEL_LEAD := 0.10  ## 血管互换：两端血管格先亮这么久再开演（交代「是血管干的」）
 const SCALE_FROM := 0.6
-## 残影「缩小消失」时收到多小（issue #53 ④）
-const SHRINK_TO := 0.35
 const SCALE_OVER := 1.10
 const EDGE_IMMUNE := Color(0.188, 0.82, 0.98)   ## #30D1FA，与 board 的 MARK_MOVE 同源
 const EDGE_CANCER := Color(1.0, 0.69, 0.23)     ## #FFB03A，与 MARK_ATTACK 同源
@@ -61,11 +59,8 @@ func ghost_count() -> int:
 ##   edge        离场边缘色（阵营色，见 edge_for）
 ##   delay       启动延迟（紊乱错峰 / 血管前置）
 ##   on_land     落地完成回调（调用方拿它去白闪目标格）；传 Callable() 表示不要
-##   lag         落场比离场晚多久开始。默认 LAG（0.15）；【早期血行转移】把它拉长到「血流落地」
-##               那一刻 —— issue #53 ④：癌细胞在粒子流发出后缩小消失，流到了目标才在那格放大出现
-##   shrink      残影一并缩小（同一条 issue 的「缩小消失」）；默认只溶解、不缩
 func play(parent: Node2D, body: Sprite2D, idx: int, ghost_pos: Vector2, ghost_z: int,
-		edge: Color, delay: float, on_land: Callable, lag := LAG, shrink := false) -> void:
+		edge: Color, delay: float, on_land: Callable) -> void:
 	played += 1
 	_prune()
 	## ---- 残影：复制离场那一帧，原地溶解 ----
@@ -93,14 +88,6 @@ func play(parent: Node2D, body: Sprite2D, idx: int, ghost_pos: Vector2, ghost_z:
 		_ghosts.erase(entry)
 		ghost.queue_free())
 	_tweens.append(tw)
-	## 缩小消失（issue #53 ④）：另起一条，和溶解同始同终 —— 溶解管「化掉」，这条管「变小」
-	if shrink:
-		var tw0 := parent.create_tween()
-		if delay > 0.0:
-			tw0.tween_interval(delay)
-		tw0.tween_property(ghost, "scale", Vector2.ONE * SHRINK_TO, SINK) \
-			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-		_tweens.append(tw0)
 
 	## ---- 真身：先整个溶掉藏住（它已经站在新格了），到点再从脚底凝出 ----
 	var bmat := ShaderMaterial.new()
@@ -111,7 +98,7 @@ func play(parent: Node2D, body: Sprite2D, idx: int, ghost_pos: Vector2, ghost_z:
 	body.material = bmat
 	_bodies.append(body)
 	var tw2 := parent.create_tween()
-	tw2.tween_interval(delay + lag)
+	tw2.tween_interval(delay + LAG)
 	tw2.tween_method(func(v: float) -> void: bmat.set_shader_parameter("progress", v), 1.0, 0.0, EMERGE)
 	tw2.tween_callback(func() -> void:
 		body.material = null          ## 摘掉而不是留着 progress=0：真身平时就该是干净的精灵
@@ -122,7 +109,7 @@ func play(parent: Node2D, body: Sprite2D, idx: int, ghost_pos: Vector2, ghost_z:
 	_tweens.append(tw2)
 	## scale 过冲单开一条：0.6 → 1.10（凝出的前 70%）→ 1.0（后 30%），与凝出同始同终
 	var tw3 := parent.create_tween()
-	tw3.tween_interval(delay + lag)
+	tw3.tween_interval(delay + LAG)
 	tw3.tween_callback(func() -> void: body.scale = Vector2.ONE * SCALE_FROM)
 	tw3.tween_property(body, "scale", Vector2.ONE * SCALE_OVER, EMERGE * 0.7) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)

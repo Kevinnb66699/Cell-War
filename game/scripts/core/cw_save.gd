@@ -15,7 +15,7 @@ class_name CWSave
 extends RefCounted
 
 const PATH := "user://save.cw"
-const VERSION := 2   ## 批 1 步 9（2026-09-19）：blob 从 GD 快照换成内核 blob（批 3 换 C# Checkpoint 同号内再换），旧档一律读不出、启动时静默清掉（E-3）
+const VERSION := 1
 
 
 static func exists() -> bool:
@@ -31,19 +31,17 @@ static func can_continue() -> bool:
 ## ai_level：0 普通 / 1 较强 / 2 树搜索。**旧字段 smart 照写不误** ——
 ## read() 的合法性校验认它，而且老版本的客户端读新档时还能退回两档语义。
 ## 正因为两个字段并存，这次不必抬 VERSION（抬了等于让所有旧档作废）。
-## 批 1 步 7：收内核给的 blob（`kernel.save()` / 过渡期 `game.snapshot()`），「能不能存」的判据上移到调用方（`kernel.can_save()` / `CWMatch.can_save_now`）——
-## 这里只认「blob 非空、人数合法」。批 3 换 C# Checkpoint 时这一层一个字不用改
-static func write(blob: Dictionary, players: int, human: Array, ai_level: int) -> bool:
-	if blob.is_empty() or not CWData.FACTION_ORDER.has(players):
+static func write(game: CWGame, human: Array, ai_level: int) -> bool:
+	if game == null or game._pending.is_empty() or game.is_over():
 		return false
 	var payload := {
 		"version": VERSION,
-		"players": players,
+		"players": game.order.size(),
 		"human": Array(human),
 		"smart": ai_level >= 1,
 		"ai_level": ai_level,
 		"at": Time.get_datetime_string_from_system(false, true),
-		"snap": blob,
+		"snap": game.snapshot(),
 	}
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
 	if f == null:
@@ -78,21 +76,13 @@ static func read() -> Dictionary:
 
 
 ## 从存档里取 AI 档位。老档没有 ai_level，就按 smart 折回两档。
-## `smart` 折回是老档兼容：步 9 VERSION 跳号后走不到（旧档一律读不出），留着只因 t_save_load 直接对字典断言它
 static func ai_level_of(payload: Dictionary) -> int:
 	if payload.has("ai_level"):
 		return clampi(int(payload["ai_level"]), 0, 2)
 	return 1 if bool(payload.get("smart", false)) else 0
 
 
-## 批 1 步 7：降成**内核无关的形状校验**（非空字典）。真判据交给 `kernel.restore()` 的返回值 ——
-## `can_continue()` 在主菜单被调（那时没有任何句柄），批 3 换 C# Checkpoint 后 GD 快照的 16 个键会整片失效，这个口径现在定下来是零成本
 static func _valid_snapshot(snap: Variant) -> bool:
-	return snap is Dictionary and not snap.is_empty()
-
-
-## 老的逐键校验留作参考（GD 快照的 16 个键），步 7 起不再调用
-static func _valid_gd_snapshot(snap: Variant) -> bool:
 	if not (snap is Dictionary):
 		return false
 	## 这是 restore() 的必需结构；细节由正常的游戏数据与既有 v1 格式保留。
@@ -110,14 +100,6 @@ static func _valid_gd_snapshot(snap: Variant) -> bool:
 	if not (snap["winner"] is int and snap["current_pid"] is int and snap["rng"] is int):
 		return false
 	return true
-
-
-## 启动时清掉读不出来的旧档（版本不符 / 结构坏）—— E-3（Kevin 2026-09-19）：直接清盘、不加提示。返回有没有清
-static func purge_stale() -> bool:
-	if exists() and read().is_empty():
-		clear()
-		return true
-	return false
 
 
 static func clear() -> void:

@@ -37,16 +37,14 @@ enum Phase {
 	SURCHARGE,   ## ⑪ 不可豁免附加费：「额外支付 X」，免费也豁免不掉
 }
 
-## 同阶段同优先级时的平局顺序（设计 §六 / PRD 的来源层级）。
-## WORLD 是 PRD §181 写的最后一层（与 C# 的 SourceLayer.WorldEvent 对称）：
-## 世界事件删除（2026-09-19）之后暂时没有模板用它，枚举成员按 PRD 保留。
+## 同阶段同优先级时的平局顺序（设计 §六）
 enum Source { PASSIVE, CARD, SKILL, WORLD }
 
 ## 消耗策略（设计 §七.3）。默认 ON_BENEFIT：实际改变了费用才消耗。
 enum Consume { ON_COMMIT, ON_BENEFIT }
 
 ## 修饰条目住在哪儿——决定 commit 时怎么把它消耗掉
-enum Store { MOD, GATE, NONE }
+enum Store { MOD, GATE, EVENT_FREE, NONE }
 
 ## 支付后必须保留的能量下限。规则总则「不能使能量降至 0」= 至少留 0.1。
 ## 从前藏在 `CWGame.pay()` 的 `<=` 里，现在按设计 §二 显式化。
@@ -142,10 +140,42 @@ const TEMPLATES := {
 		"action": Action.MOVE, "phase": Phase.FREE, "spec": 2,
 		"cond": ["to_cancerous", "has_allowance"], "source": Source.SKILL, "store": Store.MOD,
 	}],
-	## ⚠ Phase.SURCHARGE（不可豁免附加费，口径 #65「净化的钱不是迁移的钱」）眼下**没有条目**
-	## ——【免疫抑制因子】2026-09-08 随 PRD 删除，它是唯一用过这一层的。那一层没有拆：
+	# ---- 世界事件 ----
+	## ⚠【免疫抑制因子】2026-09-08 随 PRD 删除，它是**唯一**用 Phase.SURCHARGE 的条目。
+	## 那一层（不可豁免附加费，口径 #65「净化的钱不是迁移的钱」）暂时空着但**没有拆**——
 	## 拆掉要动整条报价管线与它的测试，而「额外支付 X」是设计 §五写明的一层，迟早还会用上。
-	## 2026-09-19 世界事件整块删除后，本表**只剩细胞被动 / 卡牌 / 技能**三类来源。
+	## 【细胞应激】打出卡牌需支付 0.5/层。是普通加费，不是附加费——
+	## 将来若有「打牌免费」的卡，应当能豁免掉它
+	"细胞应激": [{
+		"action": Action.PLAY_CARD, "phase": Phase.FLAT_ADD, "value": 5,
+		"cond": [], "source": Source.WORLD, "store": Store.NONE,
+	}],
+	## 「癌细胞移动 +0.2」是普通加费，按设计 §六 进固定加费层，不因来源是世界事件就覆盖一切
+	"免疫伪装": [{
+		"action": Action.MOVE, "phase": Phase.FLAT_ADD, "value": 2,
+		"cond": ["cancer"], "source": Source.WORLD, "store": Store.NONE,
+	}],
+	## 2026-09-06 Kevin：改成**仅对癌细胞生效** —— 免疫的【迁移】（含【炎症性趋化】的每步）与
+	## T 细胞【裂解】（也走 CELL_SKILL）不再翻倍。PRD 正本同步为「癌细胞移动能量花费翻倍」。
+	"基质阻隔": [
+		{
+			"action": Action.MOVE, "phase": Phase.MULT, "value": 2,
+			"cond": ["cancer"], "source": Source.WORLD, "store": Store.NONE,
+		},
+		## 技能移动（小细胞肺癌【转移】、黑色素瘤【早期血行转移】）也翻倍。
+		## PRD 只写「移动能量花费翻倍」，没说技能移动算不算——按「它们花的也是
+		## 位移的钱」外推（口径 #91）。⚠ 这是**引擎比 PRD 多做的一步**，
+		## 不是 PRD 明写的，改之前先看那条口径。cancer 条件与上一条同口径（2026-09-06）。
+		{
+			"action": Action.SKILL_MOVE, "phase": Phase.MULT, "value": 2,
+			"cond": ["cancer"], "source": Source.WORLD, "store": Store.NONE,
+		},
+	],
+	## 全场免疫细胞的每回合首次移动，适用范围最宽 → 竞争时排在细胞自己的额度之后
+	"迁移激活": [{
+		"action": Action.MOVE, "phase": Phase.FREE, "spec": 0,
+		"cond": ["immune", "free_move_left"], "source": Source.WORLD, "store": Store.EVENT_FREE,
+	}],
 }
 
 
@@ -311,9 +341,9 @@ func _collect(ctx: Dictionary) -> Array:
 		if actor["mods"].any(func(m: Dictionary) -> bool: return m["name"] == s):
 			continue   ## 已经从 mods 那边收过了（【癌症干性】那种「技能+限次额度」）
 		_emit(out, ctx, s, Store.GATE, int(actor["equip_seq"].get(s, 0)))
-	## 卡牌挂的全局条目（对照 5.1 #26 复用同一批挂接点）
+	## 世界事件与卡牌挂的全局条目
 	for e in game.events["active"]:
-		_emit(out, ctx, e["name"], Store.NONE, 0, e["stacks"])
+		_emit(out, ctx, e["name"], Store.EVENT_FREE, 0, e["stacks"])
 	## 树突【I-趋化源】：场上实体，不属于任何人的 mods / equipped，单独发一条。
 	## 【免疫猎杀】的【追踪趋化源】走同一套修饰（方向判定见 _chemo_toward / _chemo_away）。
 	if not game.chemo.is_empty() or not game.chemo_track.is_empty():
@@ -341,8 +371,7 @@ func _collect(ctx: Dictionary) -> Array:
 ## 只有叠到 2 层才炸。2026-09-08 由 Kevin 报「黑色素放不出血行转移」查出来：
 ## 【基质阻隔】叠 2 层把 1.0 的技能移动抬到了 16.0，细胞有 6.9 自然点不动。
 ##
-## 只有 Source.WORLD 的条目按层数发（层数原是世界事件独有的概念）——
-## 2026-09-19 世界事件删除后本表已无该来源，这一问恒为 1 层，保留成契约。
+## 非世界事件来源一律按 1 层（层数是世界事件独有的概念）。
 static func _value_stacks(t: Dictionary, stacks: int) -> int:
 	if t["source"] != Source.WORLD:
 		return 1
@@ -400,6 +429,8 @@ func _cond_ok(cond: String, ctx: Dictionary, name: String) -> bool:
 			return actor["fx_turn"].get(name, 0) < GATE_USES.get(name, 1)
 		"gate_closed":
 			return actor["fx_turn"].get(name, 0) >= GATE_USES.get(name, 1)
+		"free_move_left":
+			return game.world_fx.free_move_available(actor)
 		## 建立趋化源的**那一个**细胞：它朝自己的源走减免 50%（其余免疫 30%）。
 		## 认的是 `chemo["by"]`（建立者 pid），不是「是不是树突」—— PRD 写的是「自身」。
 		"chemo_owner":
@@ -506,13 +537,13 @@ static func _order(a: Dictionary, b: Dictionary) -> bool:
 ## 可沿用打出先后顺序**」——玩家记「谁先上场谁先用」比记「谁的条件更窄」容易得多，
 ## 所以这里按打出先后排，specificity 只留作字段备查、不参与排序。
 ##
-## 来源仍排在打出先后之前：细胞自带被动没有「被谁打出」的时刻，
-## applied_seq 恒为 0，不先按来源分层的话它会永远抢在卡牌给的额度前面。
+## 来源仍排在打出先后之前：世界事件（如【迁移激活】）没有「被谁打出」的时刻，
+## applied_seq 恒为 0，不先按来源分层的话它会永远抢在细胞自己的额度前面。
 static func _free_order(a: Dictionary, b: Dictionary) -> bool:
 	if a["priority"] != b["priority"]:
 		return a["priority"] > b["priority"]
 	if a["source"] != b["source"]:
-		return a["source"] < b["source"]     ## 角色被动 → 卡牌 → 技能 → 其他来源（PRD §181）
+		return a["source"] < b["source"]     ## 角色被动 → 卡牌 → 技能 → 世界事件
 	if a["applied_seq"] != b["applied_seq"]:
 		return a["applied_seq"] < b["applied_seq"]
 	return a["name"] < b["name"]
@@ -524,11 +555,11 @@ static func _take(m: Dictionary, consume: Array, marks: Array) -> void:
 		Store.GATE:
 			if not marks.has(m["name"]):
 				marks.append(m["name"])
-		Store.MOD:
+		Store.MOD, Store.EVENT_FREE:
 			consume.append({ "name": m["name"], "store": m["store"] })
 
 
-## 把 quote() 说的**额度**真花掉：限次修饰（mods）与闸门（fx_turn）。
+## 把 quote() 说的**额度**真花掉：限次修饰（mods / 世界事件的免费首移）与闸门（fx_turn）。
 ## 不碰能量、不写日志 —— commit 扣完钱调它，**规划器也调它**：
 ## `CWActions.quote_path` 要逐步预演，不然每一步都以为自己是「第一次」，
 ## 装着【组织驻留】时整条路线的价钱全显示 0.0（issue #35）。
@@ -544,6 +575,8 @@ func _consume(actor: Dictionary, c: Dictionary) -> void:
 	match c["store"]:
 		Store.MOD:
 			_spend_one_mod(actor, c["name"])
+		Store.EVENT_FREE:
+			game.world_fx.consume_free_move(actor)
 
 
 ## 消耗**一条**同名修饰条目（用尽即移除），取最早打出的那条。

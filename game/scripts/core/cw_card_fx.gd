@@ -4,10 +4,10 @@
 ##
 ## **修饰卡的口径**（2026-08-29 落地，定案 #57~#64）：
 ##   自我修饰挂 `cell["mods"]`（game.add_mod：uses 次数 + turn/round/用尽三种时钟），
-##   全局修饰（TGF-β/TNF 冻结格）挂 events["active"]（game.install_event）。
+##   全局修饰（基质稳定/TGF-β/TNF 冻结格）挂 events["active"]（game.install_event）。
 ##   同名条目**同时生效**、各扣一次；触发/消耗散在各挂接点——攻击链在
 ##   cw_actions._do_move、移动计费在 _move_cost_mod、伤害减免在 immune_hit/cancer_hit、
-##   有氧在 CWWorld._aerobic、固化在 raise_solid。
+##   有氧在 CWWorld._aerobic、固化在 raise_solid/_decay。
 ##
 ## **中途选择的口径**（2026-08-29 定，「需中途选择」批随此落地）：
 ##   结算里要玩家做的决定走 `await game.ask(pid, req)`，kind 取
@@ -57,8 +57,7 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 			game.log_msg("　【抗原呈递增强】免疫方 +3 抗原记忆（%d）" % game.memory)
 			_evt(card, "+3 抗原记忆", cell["pos"])
 		"骨髓动员":
-			## 2026-09-18 补 await：此前同步桥下是嵌套、界面 / 联机桥下脱手（站在骨髓上的细胞的抽卡追问会与外层同时在飞）
-			await _marrow_mobilization(cell)
+			_marrow_mobilization(cell)
 		"克隆扩增":
 			for c in game.living_cells(CWData.Faction.IMMUNE):
 				c["energy"] += _amp(10)
@@ -109,6 +108,11 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 				game.add_mod(c, card, 1, "round")
 			game.log_msg("　【I型干扰素】所有免疫细胞下一次能量损失 -1.0（本世界回合内）")
 			_evt(card, "全体免疫下次损失 -1.0", cell["pos"])
+		"基质稳定":
+			## left=1：E 阶段衰减在回合末之前结算，挂到回合末正好盖住本回合那一次
+			game.install_event(card, 1)
+			game.log_msg("　【基质稳定】本世界回合结束时固化计数不衰减")
+			_evt(card, "本回合固化计数不衰减", cell["pos"])
 		"TGF-β释放":
 			## left=2：下一次有氧在**下个**世界回合的 S 阶段，要活过本回合末；
 			## 结算时整条消耗（CWWorld._aerobic），多抽几张就多几条，逐份 -20%（#63）
@@ -127,6 +131,9 @@ func resolve_event(cell: Dictionary, card: String) -> bool:
 ## 中途还有别的决定的卡（代谢耦联的方向数额、基质重塑的后续格、炎症性趋化的后两步）
 ## 只摊**第一个**决定，其余在 play() 里经 game.ask 追问。
 func hand_options(cell: Dictionary, opts: Array) -> void:
+	## 【细胞应激】本回合打牌收费；付不起就一张也打不出（选项直接不出现）
+	if _stress_fee() > 0 and not game.can_pay(cell, _stress_fee()):
+		return
 	for card in cell["hand"]:
 		## 永久技能：无目标，打出即装备（同名限一张由抽卡合法性把关，手上不会有重复）
 		if CWCardData.CARDS[card]["kind"] == CWCardData.Kind.PERMANENT:
@@ -142,11 +149,9 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 					if _adjacent_healthy(t["pos"]):
 						opts.append(_opt(card, "→%s" % game.cell_name(t), { "cid": t["id"] }))
 			"交叉呈递":
-				## 结算走 apply_mark（Kevin 2026-09-17 裁定）：它对「本回合已经给过标记」的目标直接 return，
-				## 所以同回合被伤害吃掉标记的癌细胞这里也不出选项 —— 不然是「花了卡什么都没发生」
 				var r := 4 if cell["itype"] == CWData.ImmuneType.DENDRITIC else 2
 				for t in _cancer_cells_in_range(cell["pos"], r):
-					if not t["marked"] and int(t.get("mark_round", -1)) != game.round_no:
+					if not t["marked"]:
 						opts.append(_opt(card, "→%s" % game.cell_name(t), { "cid": t["id"] }))
 			"溶酶体强化":
 				if not _adjacent_plain_cancer_empty(cell["pos"]).is_empty():
@@ -229,13 +234,6 @@ func hand_options(cell: Dictionary, opts: Array) -> void:
 					if _empty_cancerous_in_range(t["pos"], r2).is_empty():
 						continue
 					opts.append(_opt(card, "→%s 附近" % game.cell_name(t), { "cid": t["id"] }))
-			"癌症转移":
-				## 「两环内**任意**格子」—— 不挑地形（健康 / 癌 / 固化都行，同小细胞肺癌【转移】
-				## 的落点约束）。唯一的限制是**没有细胞占着**：一格只能站一个，
-				## 自己所在的中心格也因此自动被排除（同 _empty_*_in_range 那两条注释）。
-				for c in _tiles_in_range(cell["pos"], CWData.METASTASIS_CARD_RANGE):
-					if game.cells_at(c).is_empty():
-						opts.append(_opt(card, "→%s" % str(c), { "to": c }))
 			"克隆增殖":
 				## 2026-09-10 Kevin 把它从【事件】改成【即时技能】。
 				## 目标是**随机**的，所以不给玩家选格子；但相邻一个可转的健康格都没有时
@@ -254,6 +252,11 @@ func play(cell: Dictionary, data: Dictionary) -> void:
 	if not card in cell["hand"]:
 		return
 	game.log_msg("%s 打出【%s】" % [game.cell_name(cell), card])
+	var fee := _stress_fee()
+	if fee > 0:
+		if not game.pay(cell, fee):
+			return   ## 选项层已按费用把过关，这里只是兜底
+		game.log_msg("　【细胞应激】支付 %s 能量" % CWData.fmt(fee))
 	game.broadcast_card_played(cell, card)   ## 给别人的弹窗（Kevin 2026-09-06）；付费失败的兜底分支已经 return 掉，不会误报
 	## 永久技能：置于角色面板持续生效（PRD 卡牌规则），效果在各挂接点按 equipped 查询
 	game.card_played.emit(int(cell["id"]), int(cell["pid"]), Vector2i(cell["pos"]), int(cell["faction"]), card, data)
@@ -288,11 +291,7 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 			game.immune_hit(game.cells[data["cid"]], _amp(base), cell, false)
 		"交叉呈递":
 			var target: Dictionary = game.cells[data["cid"]]
-			## 2026-09-17 前是裸写 `target["marked"] = true`：不记施加回合（寿命按上一次的算，标过的目标当回合末就掉）、
-			## 不记层数（树突【抗原呈递强化】的 2 层给不到）、绕开「同一回合只给一次」。
-			## apply_mark 的注释本来就写着「树突光环、抗原呈递强化、卡牌三条路都得守同一条规矩」—— 这条路此前没守。
-			## Kevin 裁定方案 A：走 apply_mark，协议 v28。
-			game.apply_mark(target, cell)
+			target["marked"] = true
 			game.fx("card_mark", { "from": cell["pos"], "to": target["pos"] })   ## issue #28：头顶到头顶的粉流 + 菱形头标
 			game.log_msg("　%s 获得【标记】" % game.cell_name(target))
 		"溶酶体强化":
@@ -304,10 +303,7 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 		"炎症性趋化":
 			await _chemotaxis(cell, data)
 		"代谢耦联":
-			## 追问里按了「取消」：无效果、**卡不弃置**（return 走的是 _: 那条「未弃置」的同一条路）
-			if not await _couple(cell, game.cells[data["cid"]]):
-				game.log_msg("　【代谢耦联】已取消，卡未弃置")
-				return
+			await _couple(cell, game.cells[data["cid"]])
 		"基质重塑":
 			await _remodel(cell, data["to"])
 		"放疗":
@@ -386,8 +382,6 @@ func _resolve_played(cell: Dictionary, data: Dictionary, card: String) -> void:
 			await _recruit(cell, game.cells[data["cid"]])
 		"肿瘤增援":
 			await _tumor_reinforce(cell, game.cells[data["cid"]])
-		"癌症转移":
-			await _metastasis(cell, data["to"])
 		"克隆增殖":
 			_clonal_growth(cell)
 		_:
@@ -510,21 +504,6 @@ func _clonal_growth_targets(cell: Dictionary) -> Array[Vector2i]:
 ## 【克隆增殖】相邻、未被免疫占据的健康组织，随机最多 1/2/3 格（按分期）→ 癌组织。
 ## 格数今天来回改过两趟：早上 Kevin 抬到 2/3/4，晚上云端 PRD 又写回 **1/2/3**。
 ## 「由【事件】改为【即时技能】」那半保留（云端也是即时技能）。
-## 【癌症转移】（2026-09-14 新增，issue #42）：自己传送到两环内任意空格。
-##
-## 「正常触发【定殖】」= 落点交给 `enter_tile` 处理，一步不特殊化 ——
-## 定殖、特殊组织收取、踩黏液这些全在那儿算。所以这里除了记一行日志什么都不做。
-##
-## 和癌方另外两张传送牌的分工：【肿瘤细胞募集】动别人、【肿瘤增援】把自己送到**队友**身边
-## （两张的落点都是随机空癌性组织）；这张**落点由玩家自己挑、也不要求是癌性组织**，
-## 是唯一一张能主动往健康地里扎的 —— 配合定殖就是「跳过去，顺手把那格染了」。
-##
-## 传送的溶解演出不用在这里接：界面每帧按位置差自行检出远距离位移（见 match.gd `_play_teleports`）。
-func _metastasis(cell: Dictionary, to: Vector2i) -> void:
-	game.log_msg("　%s 转移至 %s" % [game.cell_name(cell), str(to)])
-	await game.actions.enter_tile(cell, to)
-
-
 func _clonal_growth(cell: Dictionary) -> void:
 	var cands := _clonal_growth_targets(cell)
 	var picked := _pick_random(cands, [1, 2, 3][_phase()])
@@ -852,10 +831,7 @@ func _couple_tiers(payer: Dictionary) -> Array:
 
 ## 【代谢耦联】结算：先问方向（谁付给谁），再问数额。**哪怕只有一种也问** ——
 ## 转出能量不可撤销，替玩家按掉那一下省不了什么（issue #14，2026-09-10）。
-## 返回 true = 结算完（含「落空」）；false = 玩家在追问里按了「取消」—— 卡**不弃置**（Kevin 2026-09-16）。
-## 两问的下标 0 都是「取消」：`game.ask` 的约定是「可以不做」的询问把停止/放弃放在 0，中止对局时固定答 0 也就等于取消。
-## 「取消」不进 dirs / tiers 本身 —— 空不空的判断（落空）只看真选项。
-func _couple(cell: Dictionary, ally: Dictionary) -> bool:
+func _couple(cell: Dictionary, ally: Dictionary) -> void:
 	var dirs: Array = []
 	if not _couple_tiers(cell).is_empty():
 		## 方向按钮只写玩家名（「癌症B」），不带细胞种类那一长串 —— 理由同数额档：一行要放得下
@@ -871,41 +847,30 @@ func _couple(cell: Dictionary, ally: Dictionary) -> bool:
 		## 和下面「付不出…落空」是同一种处理，早返回，别让 dirs[di] 越界。
 		## （2026-08-31 并行跑蒙特卡洛网格时崩出来的，无头测试当时覆盖不到这个局面）
 		game.log_msg("　【代谢耦联】双方都付不出最低一档，落空")
-		return true
+		return
 	## **只有一个方向也要问**（issue #14）：转出能量是不可撤销的一步，
 	## 玩家该看见「往哪个方向、转多少」再点头，而不是替他按掉
-	var dir_opts: Array = [{ "label": "取消", "data": { "stop": true } }]
-	dir_opts.append_array(dirs)
-	di = await game.ask(cell["pid"], { "kind": "pick", "tag": "代谢耦联",
-		"prompt": "【代谢耦联】选择转移方向", "options": dir_opts })
-	var chosen_dir: Dictionary = dir_opts[di]["data"]
-	if chosen_dir.get("stop", false):
-		game.log_msg("　【代谢耦联】取消")
-		return false
-	var payer: Dictionary = game.cells[chosen_dir["from"]]
-	var getter: Dictionary = game.cells[chosen_dir["to_cid"]]
+	if not dirs.is_empty():
+		di = await game.ask(cell["pid"], { "kind": "pick", "tag": "代谢耦联",
+			"prompt": "【代谢耦联】选择转移方向", "options": dirs })
+	var payer: Dictionary = game.cells[dirs[di]["data"]["from"]]
+	var getter: Dictionary = game.cells[dirs[di]["data"]["to_cid"]]
 	var tiers := _couple_tiers(payer)
 	var ti := 0
 	## 同上：只够转一档时也把那一档摆出来问一次（HXR-I 举的正是这个例子）
-	var tier_opts: Array = [{ "label": "取消", "data": { "stop": true } }]
-	tier_opts.append_array(tiers)
-	ti = await game.ask(cell["pid"], { "kind": "pick", "tag": "代谢耦联",
-		"prompt": "【代谢耦联】转出 → 接收方得", "options": tier_opts })
-	var chosen_tier: Dictionary = tier_opts[ti]["data"]
-	if chosen_tier.get("stop", false):
-		game.log_msg("　【代谢耦联】取消")
-		return false
-	var pay: int = chosen_tier["pay"]
-	var get: int = chosen_tier["get"]
+	if not tiers.is_empty():
+		ti = await game.ask(cell["pid"], { "kind": "pick", "tag": "代谢耦联",
+			"prompt": "【代谢耦联】转出 → 接收方得", "options": tiers })
+	var pay: int = tiers[ti]["data"]["pay"]
+	var get: int = tiers[ti]["data"]["get"]
 	if not game.pay(payer, pay):
 		game.log_msg("　【代谢耦联】%s 付不出 %s，落空" % [game.cell_name(payer), CWData.fmt(pay)])
-		return true
+		return
 	getter["energy"] += get
 	game.log_msg("　【代谢耦联】%s 转出 %s，%s 获得 %s（现 %s）" % [
 		game.cell_name(payer), CWData.fmt(pay),
 		game.cell_name(getter), CWData.fmt(get), CWData.fmt(getter["energy"])])
 	game.fx("card_transfer", { "from": payer["pos"], "to": getter["pos"] })   ## issue #28：青流 ×3，收方回拢
-	return true
 
 
 func _solid_in_range(center: Vector2i, r: int) -> Array[Vector2i]:
@@ -976,21 +941,14 @@ func _remodel_heal_cands(chosen: Array[Vector2i]) -> Array[Vector2i]:
 
 ## 【放疗】以所选癌性组织为起点，随机生长出含它的连通 `CWData.RADIO_REGION` 格区域
 ## （PRD 2026-09-09 由 15 格改为 10 格）：
-## 区域内的**普通**癌组织（含有细胞站着的）→ 健康，连同区域里本来就是健康的格子一起进入
-## 「坏死」`CWData.NECROSIS_RADIO` 轮。
-## ⚠ **固化癌组织整格跳过：不转健康、也不坏死，原样留着**——Kevin 2026-09-19 对 issue #54 的追加
-## 拍板「【放疗】区域内**只转癌组织、固化不转**（现实现把固化也转了，要改，两侧 + L0）」。
-## 起点本身可以是固化格（选项面不变），那就只长区域、起点原样。
+## 区域内所有癌性组织（含固化、含有细胞站着的）→ 健康，整片进入「坏死」5 轮。
 ## 「坏死」沿用毒素那套倒计时（不为免疫供能、可被定殖，定殖时清除——同一口径）。
-## ⚠ 轮数 2026-09-07 就随「坏死」收成通用状态回到 2 轮，这句注释此前还写着旧的「5 轮」（issue #54 复核时改）。
-## **区域可以含健康组织**（issue #54 逐字）：长区域时不挑 tissue，只要连通；
-## 癌组织转健康、健康的原样留着，但两者都要进「坏死」—— 所以这张卡是有代价的。
 func _radiotherapy(start: Vector2i) -> void:
 	var region: Array[Vector2i] = [start]
 	var in_region := { start: true }
 	var frontier: Array[Vector2i] = game.neighbors(start)
 	while region.size() < CWData.RADIO_REGION and not frontier.is_empty():
-		var i: int = game.rng.randi_range(0, frontier.size() - 1)
+		var i := game.rng.randi_range(0, frontier.size() - 1)
 		var c: Vector2i = frontier[i]
 		frontier.remove_at(i)
 		if in_region.has(c):
@@ -1002,24 +960,19 @@ func _radiotherapy(start: Vector2i) -> void:
 				frontier.append(n)
 	game.fx("card_radiation", { "tiles": Array(region) })   ## issue #28：光柱逐格落下（区域定了就报，翻格在后）
 	var cleared := 0
-	var burned := 0
 	for c in region:
-		var t: Dictionary = game.tile(c)
-		if t["tissue"] == CWData.Tissue.SOLID:
-			continue   ## 固化癌组织整格跳过：不转、也不坏死（issue #54 追加拍板）
-		if t["tissue"] == CWData.Tissue.CANCER:
+		if game.is_cancerous(c):
 			cleared += 1
-		CWTissue.to_necrotic(t, CWData.NECROSIS_RADIO)
-		burned += 1
-	game.log_msg("　【放疗】以 %s 为起点的 %d 格区域：%d 格癌组织转为健康，%d 格进入「坏死」（%d 轮；固化癌组织原样留着）" % [
-		str(start), region.size(), cleared, burned, CWData.NECROSIS_RADIO])
-	game.announce("放疗：%d 格转健康 · %d 格坏死" % [cleared, burned], start, true)
+		CWTissue.to_necrotic(game.tile(c), CWData.NECROSIS_RADIO)
+	game.log_msg("　【放疗】以 %s 为起点的 %d 格区域：%d 格癌性组织转为健康，全部进入「坏死」（%d 轮）" % [
+		str(start), region.size(), cleared, CWData.NECROSIS_RADIO])
+	game.announce("放疗：%d 格转健康 · %d 格坏死" % [cleared, region.size()], start, true)
 
 
 # ============ 修饰类（2026-08-29 第二批）============
 # 自我修饰的卡在 play() 里只挂条目（game.add_mod / install_event），
 # 触发和消耗散在各挂接点：攻击链（cw_actions._do_move）、移动计费（_move_cost_mod）、
-# 伤害管线（immune_hit / cancer_hit）、有氧（_aerobic）、固化（raise_solid）。
+# 伤害管线（immune_hit / cancer_hit）、有氧（_aerobic）、固化（raise_solid / _decay）。
 # 只有【TNF-α局部炎症】带一段立即结算，住在下面。
 
 func _tnf_area(cell: Dictionary) -> Array[Vector2i]:
@@ -1090,12 +1043,16 @@ func _opt(card: String, suffix: String, extra: Dictionary = {}) -> Dictionary:
 	return { "label": "打出【%s】%s" % [card, suffix], "data": data }
 
 
-## 卡牌效果中能量增减的**统一放大层**（定案 W8 的口径：即时技能卡与事件卡走这里，
-## 永久技能卡与细胞自带技能不走——本模块只住前两类，能量数值全部过这一层）。
-## 唯一的放大来源【信号放大】随世界事件删除（2026-09-19），这一层保留成契约：
-## 30 处调用点钉着它，将来的「效果翻倍」类卡牌应当住进来。
+## 【信号放大】：卡牌效果中的能量增减翻倍（定案 W8：即时技能卡翻、事件卡按同口径翻，
+## 永久技能卡与细胞自带技能不翻——本模块只住前两类，能量数值全部过这一层）
 func _amp(n: int) -> int:
+	for i in game.event_stacks("信号放大"):
+		n *= 2
 	return n
+
+
+func _stress_fee() -> int:
+	return 5 * game.event_stacks("细胞应激")   ## 【细胞应激】打牌费 0.5/层
 
 
 func _gain(cell: Dictionary, n: int, tag: String = "") -> void:
@@ -1172,7 +1129,7 @@ func _pick_random(cands: Array, n: int) -> Array:
 	var pool := cands.duplicate()
 	var out: Array = []
 	while out.size() < n and not pool.is_empty():
-		var i: int = game.rng.randi_range(0, pool.size() - 1)
+		var i := game.rng.randi_range(0, pool.size() - 1)
 		out.append(pool[i])
 		pool.remove_at(i)
 	return out

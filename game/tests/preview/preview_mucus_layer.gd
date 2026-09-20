@@ -59,12 +59,8 @@ func _process(_d: float) -> bool:
 		0:
 			strip.save_png(_out + "_fresh.png")
 			print("已保存 ", _out, "_fresh.png（刚炸完：一圈黏液 + 中间转癌）")
-			## 再给一格挂上骨化倒计时，看两个状态撞在一起时谁压谁。
-			## ⚠ **这里必须写引擎、不能写镜像**（规格 A-10 ④ 的例外）：这只预览跑的是真对局，
-			## 下一份 sync 会把镜像整份覆盖掉 —— 写进镜像的 ossify_at 会在下一帧悄悄消失，
-			## _mixed.png 就丢了骨化倒计时（而且不报任何错）。
-			var eng := (_match.kernel as CWKernelInProc).game
-			eng.tile(Vector2i(1, 0))["ossify_at"] = eng.round_no + 1
+			## 再给一格挂上骨化倒计时，看两个状态撞在一起时谁压谁
+			_match.game.tile(Vector2i(1, 0))["ossify_at"] = _match.game.round_no + 1
 		1:
 			strip.save_png(_out + "_mixed.png")
 			print("已保存 ", _out, "_mixed.png（黏液格上再叠骨化倒计时）")
@@ -77,8 +73,7 @@ func _process(_d: float) -> bool:
 ## 手摆一个「刚被印戒自爆过」的局面。**不真跑技能** —— 那要等 AI 攒够 2.0 能量、
 ## 还得正好站在这儿；这只预览要的是结果的样子，不是过程。
 func _paint() -> void:
-	## ⚠ 同上：mucus / to_cancer 三处都写**引擎**。预览跑的是真对局，写镜像会被下一份 sync 覆盖掉
-	var g: CWGame = (_match.kernel as CWKernelInProc).game
+	var g: CWGame = _match.game
 	var area: Array = []
 	for c: Vector2i in g.tiles:
 		if CWData.hex_dist(c, CENTER) <= CWData.MUCUS_RADIUS:

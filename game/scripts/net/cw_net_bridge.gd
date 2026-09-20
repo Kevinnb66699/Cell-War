@@ -12,23 +12,8 @@ class_name CWNetBridge
 extends CWBridge
 
 var room: CWRoom
-var heur := CWHeuristicBridge.new()     ## 新手档 AI（超时 / 离线的代打 2026-09-20 起改走专家档，见 take_over）
-## 专家档 AI（席位 tier 仍叫 "mc"：那是建房报文里的键，客户端还在发，改名要升协议）。
-## 2026-09-02 起是扁平蒙特卡洛（rollouts=2 · horizon=40）；**2026-09-19 Kevin「把意图级 AI 部署到服务器上，
-## 代替目前的专家级 AI」** ⇒ 换成 MechBridge（PR #59 的第四档：迁移走意图规划器、其余回落启发式）。
-## 它在服务器主线程同步跑、不起线程，评估只在独立副本上（t_mech_bridge_quiet），单问耗时见同一条测试打印的数。
-## **2026-09-20 Kevin「把服务器专家档 AI 也更新为这一版意图模型」**：开成 PR #69 的「搜索」配置
-## （alpha-beta v2、叶 = 回合边界、E4 拟合估值），与单机第五档同款。代价（bench_search 整局实测）：
-## 中位仍 ≈ 0 ms（计划缓存快路径），p95 ≈ 0.8 s，单问最大 4 人 1.4 s / 6 人 2.1 s，一局约 40 次超过 0.5 s ——
-## 主线程同步想的这几秒全服房间一起停。要压就得线程化（原注释里的「后续再线程化」）
-var mc: CWHeuristicBridge = MechBridge.new()
-
-
-func _init() -> void:
-	var m := mc as MechBridge
-	m.use_search = true
-	m.use_fit_eval = true
-	MechBridge._fit_linear_on = false
+var heur := CWHeuristicBridge.new()     ## 新手档 AI，也是超时 / 离线的代打
+var mc := CWMonteCarloBridge.new()      ## 专家档 AI：人机对战参数（rollouts=2 · horizon=40，Kevin 2026-09-02 定）
 
 
 func ask(req: Dictionary) -> int:
@@ -41,20 +26,9 @@ func ask(req: Dictionary) -> int:
 	await room.server.next_frame()
 	if room.game == null or room.game.aborted:
 		return 0            ## 让帧期间房间被关了
-	if s["kind"] == "human":
-		return await take_over(req)   ## 离线的真人席：专家档代打
-	if s["tier"] == "mc":
+	if s["kind"] == "ai" and s["tier"] == "mc":
 		return await mc.ask(req)
 	return await heur.ask(req)
-
-
-## 代打（离线 / 超时的真人席）：**走专家档**（Kevin 2026-09-20「如果是新手级，帮我换成专家级 ai 代打」；
-## 此前两条代打路都是新手档 heur）。房间的超时路（`CWRoom._tick` 到点）也从这儿走，计数给测试与统计
-var takeovers := 0
-
-func take_over(req: Dictionary) -> int:
-	takeovers += 1
-	return await mc.ask(req)
 
 
 func show_roll(reason: String, value: int, sides: int, pid: int, at: Vector2i) -> void:
@@ -76,6 +50,11 @@ func show_event_drawn(pid: int, info := {}) -> void:
 	m.merge(info)
 	room.broadcast(m)
 
+
+func show_world_event(ev_name: String, info := {}) -> void:
+	var m := { "t": "world_event", "ev": ev_name }
+	m.merge(info)
+	room.broadcast(m)
 
 
 func show_card_drawn(pid: int, info := {}) -> void:

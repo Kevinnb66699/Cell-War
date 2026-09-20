@@ -11,6 +11,8 @@ signal card_played(cell_id: int, pid: int, pos: Vector2i, faction: int, card_nam
 ## 抽到即结算的事件卡（不进手牌、不算「谁打出的」）。与 card_played 分开：
 ## Kevin 2026-09-07「事件卡放在回合数那一栏结算，不要和细胞主动打出的卡放在一起」
 signal event_drawn(cell_id: int, pid: int, pos: Vector2i, faction: int, card_name: String)
+## 抽到一个**世界事件**（不是事件卡）。棋盘左侧那一列据此摆一张牌面。
+signal world_event(ev_name: String, left: int)
 ## 这个细胞**抽到了一张卡**（不说是哪张 —— 牌名只有本人能看）。给头顶的抽卡演出用（Kevin 2026-09-07）。
 ## source = 「基因表达」/「骨髓」/「突变」，表现层要只演某一种时在那边过滤。
 signal card_drawn(cell_id: int, pid: int, pos: Vector2i, source: String)
@@ -38,10 +40,10 @@ func neighbors(c: Vector2i) -> Array[Vector2i]:
 var memory := 0            # 免疫方抗原记忆（阵营共享）
 var immune_level := 0      # 0..3 = I/II/III/X，只升不降
 var differentiated: Array = []   # 已被分化占用的免疫种类（每种全阵营限一个）
-## 全局修饰容器（CWWorldFx 管回合时钟，结算点用 event_stacks() 查询）。
-## active = 生效中的条目 {name, left, stacks, data}，卡牌的全局修饰住这里（对照 5.1 #26）。
-## 整体进快照与哈希。
-var events := { "active": [] }
+## 世界事件状态（CWWorldFx 管理，结算点用 event_stacks() 查询）。
+## pool = 尚未抽过的事件名（定案 #42 同局不可重复）；active = 生效中的效果条目
+## {name, left, stacks, data}；double_next = 【双重触发】待兑现的标记。整体进快照与哈希。
+var events := { "pool": [], "active": [], "double_next": false }
 var winner := -1           # -1 未分胜负；否则 CWData.Faction
 # 中途放弃这一局（返回主菜单）。置位后引擎的各个循环会在下一个检查点收摊，
 # 让卡在「等玩家作答」上的那次询问能安全地一路展开回来 ——
@@ -58,11 +60,11 @@ var win_kind := ""         # immune_clear / cancer_weighted / limit_cancer / lim
 var chemo := {}
 ## 【免疫猎杀】附着在某个癌细胞身上的【追踪趋化源】：{ cid, at, left }。
 ## **位置不存在这里**——活着时现读那个细胞的 pos（`chemo_track_at()`），
-## 死了才把 at 冻在死亡格上、cid 置 -1。否则每一条改 pos 的路（迁移/转移/传送）都得记得同步。
+## 死了才把 at 冻在死亡格上、cid 置 -1。否则每一条改 pos 的路（迁移/转移/紊乱/传送）都得记得同步。
 var chemo_track := {}
 ## 免疫方上一次发动【效应应答】的世界回合（PRD：免疫方每个世界回合最多 1 次）
 var effector_round := -1
-## 左侧出牌列的**数据源**：最近 CWData.FEED_KEEP 条「打出 / 抽到事件卡」。
+## 左侧出牌列的**数据源**：最近 CWData.FEED_KEEP 条「打出 / 抽到事件卡 / 世界事件」。
 ##
 ## 为什么放进对局状态、而不是只靠 broadcast_*：广播是一次性的。客户端断线重连期间
 ## （哪怕只断两秒、玩家毫无察觉）广播过的那几条就**永久错过**了 —— 日志有游标、
@@ -74,10 +76,7 @@ var effector_round := -1
 var feed_log: Array = []
 var feed_seq := 0
 var cancer_win_streak := 0  # 癌方加权占地连续达标的回合末次数（见 tune.cancer_win_hold_rounds）；进快照与哈希
-## `Object` 不是 `RandomNumberGenerator`：这是**对拍的注入点**（tests/xcheck_tape.gd 的鸭子替身要装进来）。
-## 引擎只用 seed / state / randi_range 三样。改回静态类型不会报错，只会让整套对拍静默失效 ——
-## headless_test 里有一条护栏（t_rng_injectable）专盯这一行。
-var rng: Object = RandomNumberGenerator.new()
+var rng := RandomNumberGenerator.new()
 var bridges := {}          # player_id -> CWBridge
 var logs: PackedStringArray = []
 ## 与 logs 平行的两列（联机视角用）：这一行只对哪个席位可见（-1 = 公开），以及给其他席位看的公开替身。
@@ -134,6 +133,7 @@ func init(faction_list: Array, seed_value: int) -> void:
 	damage = CWDamage.new()
 	for m in [setup, world, turn, actions, cards, card_fx, world_fx, cost, damage]:
 		m.game = self
+	events["pool"] = CWWorldFx.EVENTS.duplicate()
 	var immune_i := 0
 	var cancer_i := 0
 	for i in faction_list.size():
@@ -255,8 +255,7 @@ func advance() -> void:
 			"revive_cancer":
 				if not _ask_each("revive", func(pid: int) -> Array:
 					return world.revive_options_cancer(pid)):
-					world.aerobic()   ## PRD S 阶段第 5 步
-					world.overload()  ## 第 6 步【过载】（2026-09-15 新增，必须排在有氧之后）
+					world.aerobic()
 					cap_energy()      ## S 阶段这一次结算完，溢出的不留
 					_goto("turn")
 			"turn":
@@ -482,8 +481,8 @@ func count_tissue(tissue: int) -> int:
 	return n
 
 
-## 名为 name 的全局修饰当前叠了几层（0 = 未生效）。所有结算点都走这里；
-## 卡牌的**全局**修饰（TGF-β/TNF 冻结格）塞进 events["active"]，
+## 名为 name 的世界事件当前叠了几层（0 = 未生效）。所有结算点都走这里；
+## 卡牌的**全局**修饰（基质稳定/TGF-β/TNF 冻结格）也塞进 events["active"]，
 ## 被同一批挂接点认出（对照 5.1 #26 的框架承诺，2026-08-29 兑现）。
 func event_stacks(name: String) -> int:
 	for e in events["active"]:
@@ -492,8 +491,8 @@ func event_stacks(name: String) -> int:
 	return 0
 
 
-## 往修饰器容器里挂一个全局条目（卡牌的全局修饰用）。
-## left 按世界回合倒计时，回合末 -1、归零移除（CWWorldFx.tick_durations）。
+## 往修饰器容器里挂一个全局条目（卡牌的全局修饰用；世界事件走 world_fx.trigger）。
+## left 按世界回合倒计时，回合末 -1、归零移除 —— 与世界事件同一套时钟。
 func install_event(ev_name: String, left: int, data: Dictionary = {}) -> void:
 	events["active"].append({ "name": ev_name, "left": left, "stacks": 1, "data": data })
 
@@ -617,14 +616,13 @@ func tumor_stage() -> int:
 	return CWCardData.cancer_phase(round_no)
 
 
-## 本分期的固化门槛（II 期 2.0、III 期 1.5 —— issue #56，2026-09-19）。
-## 结算、界面、AI 一律走这里，别各自去查 `tune.solidify_threshold` 的表。
+## 本分期的固化门槛（III 期降为 2.0）。结算、界面、AI 一律走这里，别各自去查 `tune.solidify_threshold` 的表。
 func solidify_threshold() -> int:
 	return int(tune.solidify_threshold[tumor_stage()])
 
 
 ## 固化计数的**增加**一律走这里（【E-固化】与卡【基质硬化】共用）：达到阈值即转固化。
-## 2026-09-07 拆掉了【固化加速】的支路（随 PRD 正本删除）。
+## 2026-09-07 拆掉了【固化加速】的支路（该世界事件随 PRD 正本删除）。
 ## 血管不可固化（Kevin 2026-09-06）：计数也不累计，日志说一句（癌细胞蹲在血管上时别让人以为是 bug）。
 func raise_solid(pos: Vector2i, amount: int) -> void:
 	if solid_frozen(pos):
@@ -706,7 +704,7 @@ func roll_d3() -> int:
 ## 广播给**所有**桥，而不是只给 pid 那一个 —— AI 掷的骰，旁观的人类也得看见。
 ## 同一个桥对象注册给多个玩家时（热座共用一个 UI）按对象去重，只演一次。
 func roll_shown(sides: int, reason: String, pid: int, at: Vector2i) -> int:
-	var v: int = rng.randi_range(1, sides)
+	var v := rng.randi_range(1, sides)
 	var shown: Array = []
 	for b in bridges.values():
 		if b == null or shown.has(b):
@@ -739,7 +737,7 @@ func _unique_bridges() -> Array:
 ## 文案用席位名不用细胞名（「癌症A 打出【糖酵解爆发】」）。去重规则同 announce。
 ## info 带 cell_id / pos / faction / card：联机的影子对局不跑 card_fx.play，客户端的头顶飞卡与右栏历史小卡
 ## （队友 2026-09-06 的表现层，本地走 `card_played` 信号）靠这条报文驱动。方法名带 broadcast_ 是为了不和那个信号撞名。
-## 往出牌流水里记一条。kind：play = 谁打出的 / event = 谁抽到的事件卡。
+## 往出牌流水里记一条。kind：play = 谁打出的 / event = 谁抽到的事件卡 / world = 世界事件。
 ## 推演（sim_quiet）不记：那是副本里的假动作，记了既浪费又会污染快照。
 func note_feed(kind: String, pid: int, faction: int, card: String, left := 0) -> void:
 	if sim_quiet:
@@ -758,6 +756,15 @@ func broadcast_card_played(cell: Dictionary, card: String) -> void:
 	for b in _unique_bridges():
 		b.show_card_played(cell["pid"], text, info)
 
+
+## 抽到一个世界事件：广播给各桥（联机据此发报文），本地表现层走 `world_event` 信号。
+## 与 `notice()` 并存而不是复用它：notice 传的是一句拼好的话，而左侧那一列要的是
+## **结构化的事件名 + 剩余回合**（卡面写名字、详情框写效果）。从字符串里再解析出来太脆。
+func broadcast_world_event(ev_name: String, left: int) -> void:
+	note_feed("world", -1, -1, ev_name, left)
+	world_event.emit(ev_name, left)
+	for b in _unique_bridges():
+		b.show_world_event(ev_name, { "left": left })
 
 
 ## 抽到即结算的事件卡：广播给各桥（联机据此发报文），本地表现层走 `event_drawn` 信号。
@@ -861,10 +868,10 @@ static func settle_loss(base: int, add: int, mult: int, div: int, cut: int) -> i
 
 ## 印戒【囊性护甲】：**每世界回合第一次能量损失 -0.5**（团队 2026-08-30 定案 B，口径 #76）。
 ##
-## 卡面原来写「受到的能量损失」，实现也就只挂在 immune_hit 上，于是中立来源
+## 卡面原来写「受到的能量损失」，实现也就只挂在 immune_hit 上，于是世界事件
 ## （当时的【免疫抑制因子】对全体癌细胞的 0.5）那一路完全绕过了护甲 —— 2026-08-30 审查发现。
-## 那条 2026-09-08 已随 PRD 删除，**眼下没有任何中立来源伤害癌细胞**，
-## 但减免不限来源这条契约照旧 —— 下一个这类效果加进来时不该再踩一次同样的坑。
+## 该事件 2026-09-08 已随 PRD 删除，**眼下没有任何世界事件伤害癌细胞**，
+## 但减免不限来源这条契约照旧 —— 下一个这类事件加进来时不该再踩一次同样的坑。
 ## 新卡面**不再限定来源**，所以两条伤害管线都要来这里取减免，别再各写一份。
 ##
 ## 唯一没盖到的是【突变】第 3 面的自扣（cell["energy"] -= …，不走管线）——
@@ -896,10 +903,10 @@ func immune_hit(target: Dictionary, base: int, attacker: Dictionary, attack: boo
 	return damage.submit([ev])[0]["actual"]
 
 
-## 癌症来源**或中立来源**的能量损失（微环境压迫、黏液破裂、癌症卡、
-## 事件卡的「失去 X 能量」）。同样只是 CWDamage 的薄壳。
+## 癌症来源**或世界事件等中立来源**的能量损失（微环境压迫、黏液破裂、癌症卡、
+## 事件的「失去 X 能量」）。同样只是 CWDamage 的薄壳。
 ## skill=true 表示来源是**癌细胞的技能**（含癌方即时卡）——【缺氧适应】挡这一类
-## 加上【微环境压迫】；中立来源与反弹不算（口径 #62）。
+## 加上【微环境压迫】；世界事件与反弹不算（口径 #62）。
 func cancer_hit(target: Dictionary, base: int, reason: String, skill: bool = false) -> int:
 	var ev := damage.event({}, target, base,
 		CWDamage.Kind.CELL_SKILL if skill else CWDamage.Kind.WORLD,
@@ -950,18 +957,15 @@ func kill(cell: Dictionary) -> void:
 	if cell["faction"] == CWData.Faction.CANCER:
 		log_msg("☠ %s 死亡" % cell_name(cell))
 		return
-	# 免疫细胞：PRD【S-复活】的**死亡惩罚** —— 「死亡回合后的下 1 世界回合无法复活」。
-	# 死于第 N 回合 → 第 N+1+X 回合的 S 阶段才复活，X = 旋钮 `immune_respawn_delay`（默认 1）。
-	# 2026-09-19 issue #63 曾把 X 做成随 `revives` 逐次递增，PRD 2026-09-20 把那句删了（issue #68 回调）：
-	# X 不再随复活次数长；`revives` 只剩记账（快照 / L0 夹具里还有它），不再进规则。癌细胞没有 X，上面那支就返回了
+	# 免疫细胞：下一个 S 阶段在骨髓复活（PRD 没有额外罚停，delay 默认 0）。
+	# 死于第 N 回合的玩家阶段 → 第 N+1 回合 S 阶段复活，天然缺席一整轮。
 	var delay: int = tune.immune_respawn_delay
 	if delay < 0:
 		cell["respawn_round"] = -1
 		log_msg("☠ %s 死亡（不再复活）" % cell_name(cell))
 		return
 	cell["respawn_round"] = round_no + 1 + delay
-	log_msg("☠ %s 死亡，罚停至第 %d 世界回合（X=%d）"
-		% [cell_name(cell), cell["respawn_round"], delay])
+	log_msg("☠ %s 死亡，罚停至第 %d 世界回合" % [cell_name(cell), cell["respawn_round"]])
 
 
 # ---- 抗原记忆 / 免疫等级 ----
@@ -979,7 +983,10 @@ func purify_gives_memory() -> bool:
 
 
 func gain_memory(n: int) -> void:
-	memory += n
+	var bonus := event_stacks("抗原暴露")   ## 每**次**获得时 +1，不按点数（按 stacks 叠）
+	if bonus > 0:
+		log_msg("　【抗原暴露】抗原记忆额外 +%d" % bonus)
+	memory += n + bonus
 	var lv := immune_level
 	## 门槛按人数分档（四人 6/16/30、六人 10/20/30，Kevin 2026-09-09）——
 	## **别读 CWData.LEVEL_MIN_MEMORY 那张常量表**，那是六人档兼缺省。

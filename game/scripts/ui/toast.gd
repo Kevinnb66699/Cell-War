@@ -20,25 +20,11 @@ const FADE_OUT := 0.25
 const GAP := 10.0       ## 提示和骰子之间留的空
 const MARGIN := 8.0     ## 贴画布边时留的余量
 
-## ---- 攻击大成功的金字（Kevin 2026-09-19「给攻击大成功加上金字特效」）----
-## 结果文字仍由引擎给（announce），表现层只认那一句换一套样式（分派在 CWUIBridge.show_result）：
-## 金字 + 深棕描边 + 金边框，出现时从大到小「盖章」一拍，字色在金与暖白之间闪三下，气泡四周迸几粒十字火花。
-## 调色跟 Excalibur 光束同一家（CWBeamFx.INK_A / INK_B）——「大成功」和「必杀」是一个色系。
-const CRIT_GOLD := Color("f6d66a")
-const CRIT_GOLD_HI := Color("fff3c5")
-const CRIT_OUTLINE := Color("5a3708")
-const CRIT_BORDER := Color("e3c071")
-const CRIT_BG := Color("1a1206f2")
-const CRIT_STAMP := 0.22       ## 盖章：1.6 → 1.0 的时长
-const CRIT_STAMP_FROM := 1.6
-const CRIT_SHIMMER := 0.9      ## 字色闪三下的总长
-const CRIT_SPARK_LIFE := 0.8   ## 火花层活多久（每粒 0.45 s，错峰迸出）
-
 var _box: PanelContainer
 var _label: Label
 var _tween: Tween
 ## 排队显示（全局通报那只实例用）：正在显示时后来的先排着，等这一条淡出再上下一条。
-## 复活失败这类通报常在 S / E 阶段扎堆蹦出来，直接 show_at 会互相顶掉，
+## 世界事件、复活失败这类通报常在 S / E 阶段扎堆蹦出来，直接 show_at 会互相顶掉，
 ## 玩家只看得见最后一条（Kevin 2026-09-06「都显示得太快」）—— 光拉长 hold 治不了顶掉。
 var _queue: Array = []   ## [{ text, avoid, hold, max_w }]
 var _busy := false
@@ -65,7 +51,7 @@ func _ready() -> void:
 ## 在 avoid（骰子在屏幕上的外框）**旁边**显示一行字，不压到它上面。
 ## hold <= 0 表示一直留着，等下一次 show_at() 或 hide_now() ——
 ## 掷骰过程中显示「攻击」用的就是这一档，骰子停稳后再换成结果并给它一个 hold。
-## max_w > 0：超过这个宽度就按字折行（顶带右半只有三百多像素，长句会超）
+## max_w > 0：超过这个宽度就按字折行（顶带右半只有三百多像素，世界事件那句会超）
 func show_at(text: String, avoid: Rect2, hold: float, max_w := 0.0) -> void:
 	_label.text = wrap_body(text, max_w) if max_w > 0.0 else text
 	_box.size = _box.get_combined_minimum_size()
@@ -153,69 +139,6 @@ func bubble_at(text: String, avoid: Rect2, hold: float, max_w := 0.0) -> Control
 	return box
 
 
-## 攻击大成功那一句：同 bubble_at 摆位 / 停留 / 淡出，换金字样式 + 盖章 + 闪光 + 火花。
-## 三段补间都绑在气泡自己身上（`box.create_tween`）：hide_now 把气泡 free 掉时它们跟着死，
-## 不会对着已释放的 Label 继续写颜色
-func bubble_crit_at(text: String, avoid: Rect2, hold: float, max_w := 0.0) -> Control:
-	var box := bubble_at(text, avoid, hold, max_w)
-	var label: Label = box.get_child(0)
-	box.add_theme_stylebox_override("panel", crit_style())
-	label.add_theme_color_override("font_color", CRIT_GOLD)
-	label.add_theme_color_override("font_outline_color", CRIT_OUTLINE)
-	label.add_theme_constant_override("outline_size", 2)
-	## 盖章：从 1.6 倍缩到原大，带一点回弹
-	box.pivot_offset = box.size / 2.0
-	box.scale = Vector2(CRIT_STAMP_FROM, CRIT_STAMP_FROM)
-	var stamp := box.create_tween()
-	stamp.tween_property(box, "scale", Vector2.ONE, CRIT_STAMP) \
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	## 闪光：金 → 暖白 → 金，三下
-	var shimmer := box.create_tween()
-	var paint := func(c: Color) -> void:
-		label.add_theme_color_override("font_color", c)
-	for i in 3:
-		shimmer.tween_method(paint, CRIT_GOLD, CRIT_GOLD_HI, CRIT_SHIMMER / 6.0)
-		shimmer.tween_method(paint, CRIT_GOLD_HI, CRIT_GOLD, CRIT_SHIMMER / 6.0)
-	## 火花：挂在气泡上，跟着盖章一起缩，活完自毁
-	var sparks := CritSparks.new()
-	sparks.box_size = box.size
-	sparks.name = "CritSparks"
-	box.add_child(sparks)
-	return box
-
-
-static func crit_style() -> StyleBoxFlat:
-	var s := CWStyle.box(1.0, CRIT_BG, PAD_V, PAD_H)
-	s.border_color = CRIT_BORDER
-	return s
-
-
-## 气泡四周的十字火花：八粒沿边缘错峰迸出，每粒先长后缩（硬像素，CWPix.spark）
-class CritSparks extends Node2D:
-	const EACH := 0.45
-	var box_size := Vector2.ZERO
-	var _t := 0.0
-
-	func _process(delta: float) -> void:
-		_t += delta
-		if _t >= CWToast.CRIT_SPARK_LIFE:
-			queue_free()
-			return
-		queue_redraw()
-
-	func _draw() -> void:
-		for i in 8:
-			var age := _t - float(i) * 0.04
-			if age < 0.0 or age > EACH:
-				continue
-			var s := int(round(sin(age / EACH * PI) * 4.0))
-			if s <= 0:
-				continue
-			var a := float(i) / 8.0 * TAU + 0.3
-			var c := box_size / 2.0 + Vector2(cos(a) * (box_size.x / 2.0 + 6.0), sin(a) * (box_size.y / 2.0 + 6.0))
-			CWPix.spark(self, c.round(), CWToast.CRIT_GOLD_HI if i % 2 == 0 else CWToast.CRIT_GOLD, s)
-
-
 ## 和活着的气泡重叠就往上挪（气泡高 + 4），挪到画布上沿就改往下挪
 func _dodge(pos: Vector2, size_: Vector2) -> Vector2:
 	var rect := Rect2(pos, size_)
@@ -263,12 +186,6 @@ func _make_box() -> PanelContainer:
 	box.add_child(CWStyle.label("", CWStyle.SIZE_BODY, CWStyle.TEXT_HI))
 	box.modulate.a = 0.0
 	return box
-
-
-## 还有结算气泡在飘吗（淡出补间一完气泡就把自己从 `_bubbles` 里擦掉）。
-## 教程关末等它们播完再切下一关（Kevin 2026-09-19：「攻击大成功的弹窗消失之前第二章已经开始了」）
-func has_bubbles() -> bool:
-	return not _bubbles.is_empty()
 
 
 ## 只收骰子旁那只 `_box`（掷骰时的「攻击」标签），气泡与队列不动 —— 骰子停稳、结果另起气泡时用

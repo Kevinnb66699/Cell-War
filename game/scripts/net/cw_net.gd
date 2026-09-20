@@ -1,6 +1,6 @@
 ## cw_net.gd —— 联机协议：版本号、常量、报文编解码、视角快照（服务器与客户端共用）
 ##
-## 拍板与全貌见 docs/archive/联机设计_2026-09-02.md。要点：
+## 拍板与全貌见 docs/联机设计_2026-09-02.md。要点：
 ##   · 服务器权威：规则、骰子、抽卡全在服务器的 CWGame 里跑；客户端只发「选第几项」。
 ##   · 报文 = 4 字节原长 + zstd(var_to_bytes(字典))。用 Godot 序列化而不是 JSON，
 ##     因为棋盘键是 Vector2i、演出坐标也是；解码禁对象（bytes_to_var 默认），报文里塞不进脚本。
@@ -9,24 +9,15 @@
 ##     客户端拿不到随机数状态与他人手牌，改客户端也算不出下一张牌。
 ##
 ## 报文一览（t = 类型；C→S 客户端发，S→C 服务器发）：
-##   C→S  hello{ver, nick, room?, token?, bot?}   握手；带 room+token 即顺手重连。
-##                                          bot=true 是机器人客户端（AI 对战 / 无头测试 / 线上验收，autoplay 作答）：
-##                                          它读的还是影子对局，服务器据此在 sync 里额外带一份老 view（v30，见 CWRoom.push_state_to）
+##   C→S  hello{ver, nick, room?, token?}   握手；带 room+token 即顺手重连
 ##        ping · list_rooms · create_room{players, timer, public, seed?} · join_room{code}
 ##        leave_room · reconnect{code, token} · sit{seat} · stand · ready{ready}
-##        set_ai{seat, tier} · kick{seat} · start（后三个房主专用）· answer{ask_id, key, index}
-##        query{qid, kind, args}            纯查询 RPC（v30）：路径规划 / 逐段报价 / 灰格理由 / 技能「当前影响」四条
-##                                          （观测协议 §5.3）。客户端锁到镜像之后没有影子对局可算，这是唯一出口
+##        set_ai{seat, tier} · kick{seat} · start（后三个房主专用）· answer{ask_id, index}
 ##        chat{text, scope}                 房内聊天。scope = "all" 全体 / "team" 己方（2026-09-09）
 ##        list_replays · get_replay{id}     服务器留着的最近几局回放（2026-09-09）
 ##   S→C  welcome{client_id, ver, maintenance} · pong · lobby{rooms, maintenance}
 ##        room{...}（等待室全量视图，见 CWRoom.view_for）
-##        sync{envelope, hash, game}（观测 envelope —— 日志并进 envelope.logs、正在决策的席位并进
-##                                    envelope.state.g.asking_pid；hash 是服务器诊断用、game 是换局边界。
-##                                    bot 客户端另带老字段 view / turn / logs，见 CWRoom.push_state_to）
-##        step_begin{ask_id, seat} · step_end{rev}（一步行动的演出边界，v30）——
-##                                    客户端把一步的演出按序播完、走到 step_end 才让随后的 sync 落地
-##        query_result{qid, value}          query 的应答。**不进对局流**（不是演出），客户端按 envelope.rev 缓存
+##        state{view, logs, turn, hash, game}（视角快照 + 新增日志行 + 正在决策的席位）
 ##        ask{ask_id, req, left_ms}（只发给该席位）· roll · result · notice（三种演出）
 ##        chat{nick, seat, faction, scope, text}
 ##                                          房内聊天：seat < 0 = 观众，faction < 0 = 没阵营
@@ -126,68 +117,13 @@ extends RefCounted
 ## v19（2026-09-13）：观战开回来 —— 房间多一个「观众视角」开关（`watch_hands`，房主建房时拨）。
 ##   开着时观众收到的快照带真手牌、日志也不换替身；`create_room` / `room` / `lobby` 三处报文各多一个字段。
 ##   局面推进没变，但报文形状变了：老客户端读不到这个字段，会把房间当成「观众看背面」那一档。
-## v20～v23（2026-09-13～14）当时**没留说明**，2026-09-14 照升号那几个提交补回来 ——
-##   这张表是分叉排查时第一个要查的东西，缺四行等于缺四条线索：
-##   · v20（b74b47c）：issues #36～#39 —— 骰子层 / 血行转移红线 / 等待室幽灵席位 / 抗体分档
-##   · v21（984ef18）：血管传送两边都有细胞时**交换位置**，不再按阵营跳过（PRD 覆盖版）
-##   · v22（ae786d6）：issue #40 —— E 阶段把【无氧呼吸】提到第 1 步（顺序变了，收入就变了）
-##   · v23（d0035e8）：issue #41 —— 【糖酵解爆发】权重 3/4/6 → **2/3/4**
-## v24（2026-09-14）：issue #42 + #43 两条一起进哈希 ——
-##   · **新增卡【癌症转移】**（癌症池 3/2/2，即时技能：传送到两环内任意空格、正常触发【定殖】）。
-##     卡池从 18 张变 19 张 = **抽卡的随机消耗与候选下标全变**，老客户端跟着算必分叉。
-##   · 【E-无氧呼吸】整条分式外面乘**人数系数 k**：块内活着 1/2/3 个癌细胞 → 80%/100%/120%，
-##     兜底 2.0 排在 k 之后（`max{2, k × … ÷ 块内癌细胞数}`）。癌方每回合的进账直接变了。
-## v25（2026-09-15）：PRD 线上版新增【S-过载】—— S 阶段插进**第 6 步**（在【有氧呼吸】之后、
-##   其他 S 类之前），癌细胞能量超过 10.0 的部分按 `max{0, ((x−10)÷2)^1.18}` 损失。
-##   两条都让老客户端分叉：① 癌方每个世界回合的账直接变了；
-##   ② `overload_threshold` / `overload_div` / `overload_exp` 三个旋钮进了 RULE_FIELDS，
-##   `rules_state()` 多三个键 —— 快照形状也变了。
-## v26（2026-09-15 晚）：两条规则口径改动，都改局面推进 ——
-##   · **【S-过载】加单次损失上限 15.0**（Kevin 给的新公式 `min{15, max{0, ((x−10)÷2)^1.18}}`）。
-##     这不只是「少扣一点」：**它把曲线的性质换掉了** —— 无上限那版净留在 42.2 处见顶、
-##     再往上囤留得更少（惩罚囤积本身）；加上限之后 29.8 起是一笔 15.0 的固定税、
-##     净留 = x − 15 单调递增。旋钮 `overload_cap` 进了 RULE_FIELDS，快照形状也变了。
-##   · **树突【标记】只认免疫来源**（Kevin 拍板，照 PRD:573 原文）。
-##     这一条**不改变今天任何行为**（打到癌细胞的伤害全部走 immune_hit*，已逐条查证），
-##     但它进了同一次发版，写在这里备查。
-## v27（2026-09-16）：【代谢耦联】的两次追问各加一条「取消」（下标 0，取消不弃置卡）。规则变了，打了补丁和没打的人状态哈希会对不上。
-## v30（2026-09-19，口径二批 1 步 8）：**报文改版**，规则一个字没改 —— 服务器从「视角快照」改发「观测 envelope」。
-##   · S→C `state{view, logs, turn, hash, game}` → **`sync{envelope, hash, game}`**：日志并进 `envelope.logs`、
-##     正在决策的席位并进 `envelope.state.g.asking_pid`；`hash`（服务器诊断）与 `game`（换局边界，envelope 里
-##     没有等价物）留在报文外壳。`hello` 自报 `bot:true` 的客户端另带老的 `view` / `turn` / `logs`，
-##     批 2 AI 进 C# 之后整块删。
-##   · 新增 S→C **`step_begin{ask_id, seat}` / `step_end{rev}`**：一步行动的演出边界（Kevin 2026-09-19 拍
-##     「演出播放形态 2」）。客户端按条目顺序播完这一步的演出，走到 `step_end` 才让随后的 `sync` 落地 ——
-##     盘面不再先于演出变。引擎 / 服务器照旧不等演出。
-##   · C→S `answer{ask_id, index}` → **`{ask_id, key, index}`**：语义键为准、下标兜底（观测协议 §6.2，
-##     两端各自 `CWSemKey.key(req, data)` 现算，所以 `ask` 报文不用改）。
-##   · 新增 C→S **`query{qid, kind, args}`** / S→C **`query_result{qid, value}`**：路径规划 / 逐段报价 /
-##     灰格理由 / 技能「当前影响」四条纯查询（批 1 E-1 (a)）。
-##   **必须升号**：报文形状全变了，老客户端读不出盘面 —— 不升的话它连得上、然后对着一片空棋盘，
-##   而不是一句「请更新」。这一号同时是 `CWSave.VERSION` / `CWReplay.VERSION` 跳号那一批的一部分。
-## v31（2026-09-19）：**删世界事件总开关旋钮 + 物理删除七个「冻结」的观测协议字段**（Kevin「删」；
-##   七个字段的逐条清单见 docs/观测协议_v1.md §九 的 p=3 条目）。
-##   · 那个旋钮出 `CWTuning.RULE_FIELDS`（63 → 62）⇒ `rules_state()` / `tune.signature()` /
-##     `state_hash` 三者的形状同时变 —— 打了补丁和没打的人对不上哈希。
-##   · 观测协议 `p` 2 → **3**：`events` 只剩 `active`、条目只剩 {name,left,stacks,data}、`g.d` 与 `tune` 各少键。
-##   · 报文形状变：建房报文、房间报文与大厅列表行各去掉同一个布尔字段；那一类演出条目出 `STREAM_KINDS`（零生产者）。
-##   **必须升号**：老客户端建的房会带一个服务器不再认的字段、收到的 room 行少一个键、快照哈希也对不上。
-##   · **2026-09-19 issue #55 / #56 并进同一号**（本批未发版，所以不再升）：记忆门槛 X 级
-##     四人 50→100 / 六人 70→120；增生 `[30,35,40]`→`[30,40,50]` 与 `[5,10,10]`→`[5,10,15]`；
-##     固化门槛 `[30,20,20]`→`[30,20,15]`；新增无氧分期增益 `[100,120,150]`。
-##     **值变形状不变** ⇒ `RULE_FIELDS` 条数没动，但 `tune.signature()` / `state_hash` 的**取值**变了：
-##     打了这批补丁的人和没打的人协议号一样、哈希对不上。照协议号回溯的人要知道这一段。
-const NET_VERSION := 31
+const NET_VERSION := 21
 
 ## 一条聊天最多多少字。定这个数不是怕刷屏（那有 RATE_PER_SEC 管），
 ## 是**排版**：聊天行和大厅房间行共用同一条定宽，超了就是省略号，
 ## 看不全的字发出去也没意义。
 const CHAT_MAX := 60
 const DEFAULT_HOST := "124.221.78.13"
-## 网页版的默认地址（2026-09-14）。**必须是 wss://**：网页版跑在 https:// 下，
-## 而 HTTPS 页面连 ws:// 会被浏览器当混合内容直接拦掉，没有第二条路。
-## `/ws` 由 nginx 反代到本机 127.0.0.1:8611（配置在 sites-available/cellwar.conf）。
-const WEB_HOST := "wss://cellwar.jiling.chat/ws"
 const DEFAULT_PORT := 8611
 ## 单条报文（压缩后）上限；超过即断开
 const MAX_PACKET := 65536
@@ -211,8 +147,7 @@ const HIDDEN_CARD := "？"             ## 别人手牌的占位
 
 ## 错误码 → 给玩家看的话
 const ERRORS := {
-	## 硬不变量④：拒绝老客户端时必须说清楚去哪儿拿新的（照 boot.gd:176 的 too_old 那句）
-	"version": "客户端版本与服务器不符，请到 GitHub Releases 下载新客户端",
+	"version": "客户端版本与服务器不符，请更新游戏",
 	"bad_message": "报文格式错误",
 	"maintenance": "服务器维护中，暂不能开新局",
 	"no_room": "没有这个房间",

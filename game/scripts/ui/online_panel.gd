@@ -2,7 +2,7 @@
 ##
 ## 面板槽语法同对局配置面板（CWConfigPanel）：主菜单淡出后本面板在同一位置淡入，
 ## 眉题 / 标题 / 行 / 按钮的坐标照抄那边，拨值箭头也是固定位置那一套。
-## 拍板与流程见 docs/archive/联机设计_2026-09-02.md §七：主菜单「联机对战」→ 连接（昵称 / 地址）→ 大厅
+## 拍板与流程见 docs/联机设计_2026-09-02.md §七：主菜单「联机对战」→ 连接（昵称 / 地址）→ 大厅
 ## （公开房列表 / 建房 / 输房间码）→ 等待室（点空席坐下 / 准备 / 房主放 AI、踢人、开局）→ 对局 → 结算 → 等待室。
 ##
 ## CWNetClient 由本面板持有并每帧轮询。process_mode = ALWAYS：对局里暂停菜单会冻结整棵树，
@@ -23,10 +23,7 @@ extends Control
 const SFX := preload("res://scripts/ui/cw_sfx.gd")
 
 signal cancelled                             ## 第一页 Esc：主菜单把自己淡回来
-## 房间开局且第一份 sync 已排进 stream：main.gd 推镜头进棋盘。
-## 批 1 步 8 起交出去的是**句柄**而不是客户端 —— 对局侧只认 CWKernel。
-## 客户端本身仍归本面板管（回等待室 / 回大厅还要用这条连接），所以 CWMatch 拆联机局时只放手、不 close()
-signal match_started(client: CWNetClient)   ## 句柄由 CWMatch.start_online 自建（客户端的生命周期仍归本面板）
+signal match_started(client: CWNetClient)    ## 房间开局且第一份状态已排进 stream：main.gd 推镜头进棋盘
 signal match_lost(reason: String)            ## 对局中房间没了 / 令牌失效：main.gd 收摊回主菜单
 
 enum Page { CONNECT, LOBBY, CREATE, ROOM, LAN }
@@ -54,8 +51,6 @@ const CHAT_Y := 214.0
 const CHAT_W := 340.0
 const CHAT_ROWS := 7
 const CHAT_ROW_H := 18.0
-const CHAT_HEAD := "聊天　Tab 换频道"   ## 标题顺带当快捷键表（同对局里那份 CWChatBox.TITLE）
-const CHAT_INPUT_H := CWChatBox.INPUT_H   ## 输入框同局内那只（Kevin 2026-09-17：换成局内那种效果）
 
 const SEAT_Y0 := 214.0       ## 等待室席位第一行
 const SEAT_H := 30.0
@@ -66,13 +61,11 @@ const RETRY_MS := 3000
 const LOBBY_POLL_MS := 3000
 const ROW_LABEL := Color("9fb6bd")
 const TIMER_TEXT := { 0: "不限", 30: "30 秒", 60: "60 秒", 90: "90 秒" }
-const CREATE_ROWS := ["人数", "每步计时", "可见性", "观众视角"]
-const N_CREATE_ROWS := 4
-## 建房页的行距：这页曾要塞五行，只好压到 34（251 起五行到 413，离建房按钮 BTN_Y 438 还剩一行）。
-## 2026-09-19 删掉「世界事件」行之后只剩四行，Kevin 同日「行间距可以调大一点」——
-## 回到 ROW_H 42（与连接页 / 局域网页 / 配置页 / 主菜单项一致）：251 起四行到 377，末行底离按钮 40 多像素。
-## 改这个数记得看图（preview_online_lan.gd 的 _create 那张）。
-const CREATE_ROW_H := ROW_H
+const CREATE_ROWS := ["人数", "每步计时", "可见性", "世界事件", "观众视角"]
+const N_CREATE_ROWS := 5
+## 建房页**自己**的行距：连接页 / 局域网页那几行还按 ROW_H 42 摆，这页要塞五行 ——
+## 251 起五行 × 34 到 413，离建房按钮（BTN_Y 438）还剩一行的空。改这个数记得看图。
+const CREATE_ROW_H := 34.0
 const LAN_PORT_MIN := 1024      ## 1023 以下是系统端口，Windows / macOS 都要管理员才绑得上
 const LAN_PORT_MAX := 65535
 const CWLan := preload("res://scripts/net/cw_lan.gd")   ## 局域网自动发现（没有 class_name：要走热更）
@@ -104,9 +97,11 @@ var _status: Label
 var _title: Label
 var _sub: Label
 ## 建房页的取值与焦点（与配置面板同一套键盘模型：上下选行、左右拨值）
+## 世界事件建房默认**关**（Kevin 2026-09-12）：拨到「开」才触发。
 ## 观众视角默认**背面**：不是保守，是「别让房主在不知情的情况下把自己的手牌公开出去」——
 ## 要露手牌得自己拨一下（Kevin 2026-09-13 定这一档可选）
-var _create := { "players": 4, "timer": 60, "public": true, "watch_hands": false }
+var _create := { "players": 4, "timer": 60, "public": true, "world_events": false,
+	"watch_hands": false }
 var _create_sel := 0
 var _create_names: Array[Label] = []
 var _create_values: Array[Label] = []
@@ -126,7 +121,6 @@ var _lobby_view_rows: Array = []
 var _chat_rows: Array[Label] = []
 var _chat_input: LineEdit
 var _chat_scope: Label
-var _chat_head: Label
 var _chat_team := false      ## 这一句发给谁：false 全体 / true 己方
 var _lobby_labels: Array[Label] = []
 var _lobby_sel := -1
@@ -139,17 +133,6 @@ var _ready_text: Label
 var _start_btn: Panel
 var _stand_link: Label
 var _leave_link: Label
-## **退出房间之后还回得去**（issue #46）。一局打到一半点「离开房间」，服务器那边
-## 席位与令牌是留着的（`CWRoom.leave` 只在等待室清席位，对局中只标「已离开」）——
-## 回不去的是**客户端**：`CWNetClient.leave()` 顺手把房间码和令牌一起清了（`_clear_room`），
-## 连接本身又被 `leave_online()` 丢掉，于是那张回程票谁都不拿着了。
-## 所以离开之前先把这一席抄在**面板**上：面板跟着主菜单活着，比那条连接长命。
-## 字段 {code, token, url}；空 = 没有可回去的对局。**落盘**进 `CWSettings.resume`（Kevin 09-19「落盘吧」）：
-## 面板比那条连接长命，却比不过一次运行 —— 关掉客户端再开票就没了，而服务器那一席还留着。
-## 写票一律走 `_set_resume()`（抄席 / 用掉 / 作废三处），漏一处盘上就留着张过期票继续骗人。
-## **连服务器地址一起抄**：房间码只在它自己那台服务器上唯一，判该不该拿票看 `_resume_here()`。
-var _resume := {}
-var _resume_tried := false   ## 上一次发出去的是「凭令牌回房」——错误报文该不该拿来作废 _resume，看它
 var _want_reconnect := false
 var _retry_at := 0
 var _awaiting_state := false
@@ -161,9 +144,6 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP   ## 整层接管：底下淡掉的菜单项收不到点击
 	visible = false
 	_build()
-	## 上一次运行留下的回程票（issue #46 落盘）。面板是点「联机对战」才建的
-	## （`CWMainMenu._open_online`），所以「进联机页」正是读盘这一下。
-	_resume = CWSettings.resume.duplicate()
 
 
 func open() -> void:
@@ -207,7 +187,6 @@ func leave_online() -> void:
 	in_match = false
 	_want_reconnect = false
 	_awaiting_state = false
-	_remember_seat()     ## 对局中退出（暂停菜单「离开房间」走的就是这条）：留一张回程票，issue #46
 	if client != null:
 		if client.code != "":
 			client.leave()
@@ -286,7 +265,7 @@ func handle_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 				var code := _row_code(_lobby_sel)
 				if code != "":
-					_lobby_join(code)
+					client.join(code)
 		Page.CREATE:
 			if event.is_action_pressed("ui_cancel"):
 				get_viewport().set_input_as_handled()
@@ -531,7 +510,7 @@ func _create_room() -> void:
 	if client == null:
 		return
 	client.create_room(_create["players"], _create["timer"], _create["public"], 0,
-		_create["watch_hands"])
+		_create["world_events"], _create["watch_hands"])
 	_set_status("建房中…")
 
 
@@ -542,69 +521,16 @@ func _join_code() -> void:
 	if code.length() != CWNet.CODE_LEN:
 		_set_status("房间码是 %d 位" % CWNet.CODE_LEN)
 		return
-	_lobby_join(code)
+	client.join(code)
 
 
 func _leave_room() -> void:
 	if client == null:
 		return
 	_want_reconnect = false
-	_remember_seat()     ## issue #46
 	client.leave()
 	_show_page(Page.LOBBY)
 	client.list_rooms()
-
-
-## 离开一个**正在打的**房间之前，把自己那一席抄下来（issue #46）。
-## 三个条件缺一不可：局在打、我有席位、手里有令牌 —— 观众和等待室里的人没有可回去的对局
-## （等待室的规矩本来就是「掉线 = 起身」，`CWRoom.leave` 在那一档直接把席位清空）。
-func _remember_seat() -> void:
-	if client == null or client.code == "" or client.token == "" or client.my_seat < 0:
-		return
-	if str(client.room.get("state", "")) != "playing":
-		return
-	_set_resume({ "code": client.code, "token": client.token, "url": client.url })
-
-
-## 写票的唯一入口：面板上那份与 `settings.cfg` 的 `[online] resume` 得始终是同一张（issue #46 落盘）。
-## 抄席 / 用掉 / 作废三处都走这儿 —— 漏一处，下次开客户端就会照着盘上那张过期票预填房间码。
-func _set_resume(ticket: Dictionary) -> void:
-	_resume = ticket
-	CWSettings.resume = ticket
-	CWSettings.save_prefs()
-
-
-## 手里那张回程票是不是**这台服务器**上的。
-## 离开 A 服的对局改连 B 服，B 服上碰巧同号的房间既不是我那一局、令牌也对不上：
-## 照样预填 + 「点加入回去接着打」就是骗人，点下去被答 no_room 还会把 A 服那张好端端的票一并作废。
-## 地址对不上就**当没有票**：不预填、不改行文案、也不作废（票留着，回 A 服还能用）。
-func _resume_here() -> bool:
-	return not _resume.is_empty() and client != null \
-		and str(_resume.get("url", "")) == client.url
-
-
-## 大厅里点一间房（列表行 / 房间码 + 「加入」都走这儿）：**自己那一局凭令牌回去，别的照旧加入**。
-## 差的不只是一个报文 —— `join` 进去是**观众**：看得见盘面、没有席位、一问都答不了，
-## 而那一局的座位明明还给我留着。只有 `reconnect` 才是「接着打」（issue #46）。
-func _lobby_join(code: String) -> void:
-	if client == null or code == "":
-		return
-	if _resume_here() and code == str(_resume.get("code", "")):   ## 地址也要对得上，见 _resume_here
-		_resume_tried = true
-		_set_status("回到房间 %s…" % code)
-		client.reconnect(code, str(_resume["token"]))
-		return
-	_resume_tried = false
-	client.join(code)
-
-
-## 回到大厅就把「你还有一局没打完」摆在眼前：房间码直接填进输入框，状态行写清按哪儿回去。
-## **私密房在大厅列表里根本不出现**（`CWNetServer.lobby_view` 只列公开房），这条预填是它唯一的入口。
-func _hint_resume() -> void:
-	if not _resume_here() or _code == null:   ## 别在 B 服预填 A 服的房间码，见 _resume_here
-		return
-	_code.text = str(_resume["code"])
-	_set_status("你还有一局没打完（房间 %s）—— 点「加入」回去接着打" % _resume["code"])
 
 
 func _toggle_ready() -> void:
@@ -635,6 +561,8 @@ func _cycle_create(row: int, dir: int) -> void:
 		2:
 			_create["public"] = not _create["public"]
 		3:
+			_create["world_events"] = not _create["world_events"]
+		4:
 			_create["watch_hands"] = not _create["watch_hands"]
 		_:
 			return
@@ -653,7 +581,6 @@ func _on_message(m: Dictionary) -> void:
 				_show_page(Page.LOBBY)
 				client.list_rooms()
 			_set_status("维护中：暂不能建新房" if m.get("maintenance", false) else "")
-			_hint_resume()     ## 重新连上服务器正是回去的必经之路（issue #46）：别让那句话被冲掉
 		"lobby":
 			_lobby_rooms = m.get("rooms", [])
 			## 观战（`CWMatch.WATCH_ON`，2026-09-13 开回来）：`live` 是正在打、可以观战的房。
@@ -671,12 +598,6 @@ func _on_message(m: Dictionary) -> void:
 				_show_page(Page.ROOM)
 				_set_status("")
 			_repaint_room()
-			## 回到自己那一席了：回程票用掉（issue #46）。判「有没有席位」而不是「进没进这间房」——
-			## 以观众身份进同一间房不算回来，那时票还得留着
-			if _resume_here() and str(m.get("code", "")) == str(_resume.get("code", "")) \
-					and int(m.get("you_seat", -1)) >= 0:
-				_set_resume({})
-				_resume_tried = false
 			## 开局：从这一刻起对局流排队，等第一份状态到了再进棋盘。
 			## **不看有没有席位**（2026-09-09）：没坐下的人进去就是观众，
 			## `CWMatch.start_online` 见 `my_seat < 0` 就把 human_players 留空 = 纯看，
@@ -687,11 +608,10 @@ func _on_message(m: Dictionary) -> void:
 				_awaiting_state = true
 		"chat":
 			_repaint_chat()
-		"sync":
+		"state":
 			if _awaiting_state and client.sequenced:
 				_awaiting_state = false
 				hide_for_match()
-				## sequenced 仍是 true：对局流照旧排队；CWKernelRemote 由 CWMatch.start_online 自建、镜像从 stream 里的 sync 条目装出来
 				match_started.emit(client)
 		"left":
 			if not in_match and page == Page.ROOM:
@@ -703,13 +623,6 @@ func _on_message(m: Dictionary) -> void:
 			if code in ["room_closed", "kicked", "no_room", "bad_token"]:
 				_want_reconnect = false
 				_awaiting_state = false
-				## 刚才那一下就是「凭令牌回房」而它被拒了 ⇒ 那一席没了（局打完腾席 / 关房 / 令牌作废）。
-				## 票作废掉，别让预填的房间码和「点加入回去接着打」继续骗人（issue #46）。
-				## 只认**自己发起的那一次**：随手输错一个房间码同样答 no_room，不能连坐
-				if _resume_tried and not in_match:
-					_set_resume({})
-					_resume_tried = false
-					_set_status("那一局已经结束，或席位已被收回")
 				if in_match:
 					match_lost.emit(m.get("msg", code))
 				elif page == Page.ROOM:
@@ -804,11 +717,8 @@ func _build_connect(root: Control) -> void:
 	_addr.text_submitted.connect(func(_t: String) -> void: _connect())
 	## 「默认」：填过局域网房主的地址之后一键回公网服务器（Kevin 2026-09-12 局域网联机顺带）。
 	## 和大厅页输入框旁的「加入」同一套：正文字号、行基线、悬停白光（_clicky 自带，Kevin 特意叮嘱过要有）
-	## **走 CWSettings.default_server() 而不是自己拼** —— 网页版的默认地址是
-	## wss://（见那个函数），原来这里硬写桌面那套，网页上点「默认」等于填一个
-	## 必然被浏览器拦掉的 ws://
 	_clicky(root, "默认", Vector2(ARROW_R_X + 10, ROW_Y0 + ROW_H), func() -> void:
-		_addr.text = CWSettings.default_server())
+		_addr.text = "%s:%d" % [CWNet.DEFAULT_HOST, CWNet.DEFAULT_PORT])
 	## 第三行：局域网开服的入口（Kevin 2026-09-12）—— 端口与本机地址在下一页填
 	_row_label(root, "局域网", 2)
 	_clicky(root, "在本机开服", Vector2(VALUE_X, ROW_Y0 + ROW_H * 2), func() -> void: _show_page(Page.LAN))
@@ -873,7 +783,7 @@ func _build_lobby(root: Control) -> void:
 			func() -> void:
 				var code := _row_code(i)
 				if code != "":
-					_lobby_join(code))
+					client.join(code))
 		row.mouse_entered.connect(func() -> void:
 			if _row_code(i) != "":
 				_lobby_sel = i
@@ -955,9 +865,10 @@ func _build_room(root: Control) -> void:
 		if client != null:
 			client.stand())
 	_leave_link = _clicky(root, "离开房间", Vector2(SLOT_X + 320, BTN_Y + 5), _leave_room)
-	## 聊天总开关 `CWMatch.CHAT_ON`（2026-09-10 关、09-16 开回来）。关着时**整块不建**，
+	## 聊天临时下架（`CWMatch.CHAT_ON`，见 docs/临时下架清单.md）：**整块不建**。
 	## 收在这一处就够 —— `_repaint_chat()` 开头判 `_chat_scope == null` 就返回，
 	## 两个调用点（收到 chat 报文、切到等待室页）都会安静地什么都不做。
+	## 协议的 say/chat、服务器那半边一个字没改。
 	if CWMatch.CHAT_ON:
 		_build_chat(root)
 
@@ -975,15 +886,16 @@ func _build_chat(root: Control) -> void:
 	box.set_corner_radius_all(6)
 	plate.add_theme_stylebox_override("panel", box)
 	plate.position = Vector2(CHAT_X - 16, CHAT_Y - 40)
-	## 竖向：标题 40 + 消息行 + 8 + 输入框 + 12。输入框 09-17 从正文字号那档（写 34、实为 36）换成局内那只（22 高、标签字号），板子跟着收
-	plate.size = Vector2(CHAT_W + 32, CHAT_ROWS * CHAT_ROW_H + 40 + 8 + CHAT_INPUT_H + 12)
+	plate.size = Vector2(CHAT_W + 32, CHAT_ROWS * CHAT_ROW_H + 40 + 46)
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(plate)
-	_chat_head = CWStyle.label(CHAT_HEAD, CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	_chat_head.position = Vector2(CHAT_X, CHAT_Y - 18)
-	root.add_child(_chat_head)
-	## 发给谁：点一下换，或者按 Tab（Kevin 2026-09-17：等待室也要）。同对局里那套 —— 用颜色说话，不写「[全体]」前缀
-	_chat_scope = _clicky(root, "", Vector2(CHAT_X + CHAT_W - 60, CHAT_Y - 18), _toggle_chat_scope, CWStyle.SIZE_LABEL)
+	var head := CWStyle.label("聊天", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	head.position = Vector2(CHAT_X, CHAT_Y - 18)
+	root.add_child(head)
+	## 发给谁：点一下换。同对局里那套 —— 用颜色说话，不写「[全体]」前缀
+	_chat_scope = _clicky(root, "", Vector2(CHAT_X + CHAT_W - 60, CHAT_Y - 18), func() -> void:
+		_chat_team = not _chat_team
+		_repaint_chat(), CWStyle.SIZE_LABEL)
 	for i in CHAT_ROWS:
 		var l := CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
 		l.position = Vector2(CHAT_X, CHAT_Y + i * CHAT_ROW_H)
@@ -993,23 +905,11 @@ func _build_chat(root: Control) -> void:
 		root.add_child(l)
 		_chat_rows.append(l)
 	_chat_input = _edit(root, Vector2(CHAT_X, CHAT_Y + CHAT_ROWS * CHAT_ROW_H + 8),
-		CHAT_W, "说点什么…", CWNet.CHAT_MAX, true)
+		CHAT_W, "说点什么…", CWNet.CHAT_MAX)
 	_chat_input.text_submitted.connect(func(t: String) -> void:
 		if client != null:
 			client.say(t, _chat_team)
 		_chat_input.text = "")
-	## Tab **必须在输入框自己这一层截**：焦点导航（`ui_focus_next`）就绑在 Tab 上、排在 `_unhandled_input` 前面，
-	## 不 accept 的话这一下被拿去切焦点，输入框还丢焦点（对局里那份 09-10 踩过）
-	_chat_input.gui_input.connect(func(e: InputEvent) -> void:
-		if CWChatBox.is_tab(e):
-			_chat_input.accept_event()
-			_toggle_chat_scope())
-
-
-## 全体 ⇄ 己方。标签点一下、按 Tab，两条路同一个出口
-func _toggle_chat_scope() -> void:
-	_chat_team = not _chat_team
-	_repaint_chat()
 
 
 ## 把客户端收到的聊天铺到板上。**每次收到就重铺**，不做增量 ——
@@ -1018,15 +918,8 @@ func _repaint_chat() -> void:
 	if _chat_scope == null:
 		return
 	_chat_scope.text = "己方" if _chat_team else "全体"
-	## **定静止色一律走 `paint_link`**（issue #51）。这一条就写在 CWStyle.link_hot 头上，
-	## 这儿原来漏了：标签是 `_clicky` 建的，身上挂着悬停白光。鼠标移上去时
-	## `link_hot(true)` 把**当时**的字色（全体 = TEXT_HI）记进 meta "rest"；接着点一下换到「己方」，
-	## 这里直写 font_color 着上阵营色（看着是对的），可 meta 里还是 TEXT_HI ——
-	## 鼠标一移开，`link_hot(false)` 就把它还成白字，而且再也回不来了
-	## （5yntaxEr 报的「切到己方是蓝的，移开鼠标变白，再移回也是白」）。
-	## paint_link 改的是静止色本身，正悬停着就只记下来、等移开再生效。
-	CWStyle.paint_link(_chat_scope,
-		CWChatBox.faction_color(_my_faction()) if _chat_team else CWStyle.TEXT_HI)
+	_chat_scope.add_theme_color_override("font_color",
+		CWStyle.IMMUNE if _chat_team else CWStyle.TEXT_HI)
 	var log: Array = client.chat_log if client != null else []
 	for i in CHAT_ROWS:
 		var idx: int = log.size() - CHAT_ROWS + i
@@ -1070,7 +963,6 @@ func _show_page(p: Page) -> void:
 			_lan_ips.text = lan_address_text()   ## 每次进页重扫：Wi-Fi 刚连上地址才有
 		Page.LOBBY:
 			_title.text = "大厅"
-			_hint_resume()     ## issue #46：有没打完的对局就预填房间码、把话说在前头
 			_repaint_lobby()
 		Page.CREATE:
 			_title.text = "建房"
@@ -1152,17 +1044,9 @@ func _repaint_lobby() -> void:
 		if str(r.get("state", "waiting")) == "playing":
 			## 进行中的房：坐不进去，写的是**观众满没满**——那才是这一行要拿来做的决定
 			## 全见的房要标出来：观众进去**看得到所有人手牌**，这是决定进不进的信息之一
-			if _resume_here() and str(r["code"]) == str(_resume.get("code", "")):
-				## 我自己那一局（issue #46）：点它是**回去接着打**，不是进去当观众 ——
-				## 写「观众 2/8」会让人以为自己的席位已经没了。
-				## **别往后加解释**：这一行定宽 LIST_W 400 px 加省略号，再多一句就被截掉
-				## （真渲染图 `截图_2026-09-19_issues_net/lobby_after.png` 第一版就是这么截的），
-				## 该说的话由状态行那一句承担
-				l.text = "%s  %d 人局  ← 回到对局" % [r["code"], r["players"]]
-			else:
-				l.text = "%s  %d 人局  观众 %d/%d%s  %s 的房间" % [r["code"], r["players"],
-					int(r.get("watchers", 0)), int(r.get("watch_max", 0)),
-					"  全见" if bool(r.get("watch_hands", false)) else "", r["host"]]
+			l.text = "%s  %d 人局  观众 %d/%d%s  %s 的房间" % [r["code"], r["players"],
+				int(r.get("watchers", 0)), int(r.get("watch_max", 0)),
+				"  全见" if bool(r.get("watch_hands", false)) else "", r["host"]]
 		else:
 			l.text = "%s  %d 人局 %d/%d  %s  %s 的房间" % [r["code"], r["players"],
 				r["seated"], r["players"], TIMER_TEXT.get(r["timer"], "%d 秒" % r["timer"]), r["host"]]
@@ -1184,6 +1068,8 @@ func _create_value_text(i: int) -> String:
 		2:
 			return "公开（进大厅列表）" if _create["public"] else "私密（凭房间码）"
 		3:
+			return "开" if _create["world_events"] else "关（整局不触发）"
+		4:
 			## 观众看不看得到手牌（Kevin 2026-09-13）。写清楚代价：全见 = 连你自己的手牌也露给观众
 			## 值要短到 VALUE_X(250)~ARROW_R_X(500) 这 240px 里 —— 长了会盖住右边那枚拨值箭头
 			return "全见（含所有人手牌）" if _create["watch_hands"] else "背面（看不到手牌）"
@@ -1217,18 +1103,9 @@ func _repaint_create() -> void:
 
 
 ## 等待室整页按最新的 room 视图重画（席位行每次重建：行数、按钮集合都随视图变）
-## 我坐在哪个阵营：「己方」标签的颜色跟它走（Kevin 2026-09-17：癌症方要黄）；没入座 = 观众 = -1
-func _my_faction() -> int:
-	if client == null or client.my_seat < 0 or client.room.is_empty():
-		return -1
-	var seats: Array = client.room.get("seats", [])
-	return int(seats[client.my_seat]["faction"]) if client.my_seat < seats.size() else -1
-
-
 func _repaint_room() -> void:
 	if client == null or client.room.is_empty():
 		return
-	_repaint_chat()   ## 换了席位「己方」要跟着换色；关着时它自己判空返回
 	var v: Dictionary = client.room
 	_title.text = "房间 %s" % v["code"]
 	_sub.text = "%s · 每步 %s · %d 人局 · 房主 %s%s" % ["公开" if v["public"] else "私密",
@@ -1363,26 +1240,21 @@ func _row_label(root: Control, text: String, row: int) -> Label:
 
 
 ## 输入框：点阵字 20px、和按钮同一套描边；焦点时描边全亮
-## small = 局内聊天框那种小输入框（标签字号 10、22 高、内边距 6）；默认是表单那种（正文字号 20、36 高）
-func _edit(root: Control, at: Vector2, w: float, placeholder: String, max_len: int, small := false) -> LineEdit:
+func _edit(root: Control, at: Vector2, w: float, placeholder: String, max_len: int) -> LineEdit:
 	var e := LineEdit.new()
+	e.position = at
+	e.size = Vector2(w, 34)
 	e.placeholder_text = placeholder
 	e.max_length = max_len
 	e.context_menu_enabled = false
 	e.add_theme_font_override("font", CWStyle.FONT)
-	e.add_theme_font_size_override("font_size", CWStyle.SIZE_LABEL if small else CWStyle.SIZE_BODY)
+	e.add_theme_font_size_override("font_size", CWStyle.SIZE_BODY)
 	e.add_theme_color_override("font_color", CWStyle.TEXT_HI)
 	e.add_theme_color_override("font_placeholder_color", CWStyle.TEXT_OFF)
 	e.add_theme_color_override("caret_color", CWStyle.IMMUNE)
-	var pad_h := 6 if small else 8   ## 内边距随字号折半，同 CWChatBox
-	e.add_theme_stylebox_override("normal", CWStyle.box(0.45, CWStyle.BTN_BG, 2, pad_h))
-	e.add_theme_stylebox_override("focus", CWStyle.box(1.0, CWStyle.BTN_BG, 2, pad_h))
+	e.add_theme_stylebox_override("normal", CWStyle.box(0.45, CWStyle.BTN_BG, 2, 8))
+	e.add_theme_stylebox_override("focus", CWStyle.box(1.0, CWStyle.BTN_BG, 2, 8))
 	root.add_child(e)
-	## 尺寸在**进树之后**设（同 CWChatBox 那条，2026-09-17）：进树前会被默认主题的最小高 31 钳住，
-	## 22 那档当场就会被撑成 31。表单那档写 36 = 20px 字的行框 32 + 上下内边距 2×2 —— 以前写的 34
-	## 进树后照样被真实最小高顶成 36（探针量过），从来就是 36，写成真值免得再骗一次
-	e.position = at
-	e.size = Vector2(w, CHAT_INPUT_H if small else 36.0)
 	return e
 
 

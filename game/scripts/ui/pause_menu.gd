@@ -11,15 +11,6 @@
 ##
 ## 暂停期间 `get_tree().paused = true`：AI 的行动间隔是 SceneTreeTimer，
 ## 会跟着一起停，所以这是真暂停而不只是盖一层。本节点自己设成 ALWAYS 才收得到输入。
-##
-## **联机局不冻树**（issue #45，2026-09-19）：联机由服务器驱动，客户端只是镜像 + 播放。
-## 冻了树，演出层的补间与 `_process` 全停在半截 —— 而骰子那一条是 barrier 条目，
-## `CWPlayQueue.play_one` 正 `await` 着消费者播完，于是整条条目流跟着卡住，
-## 菜单一关又一口气补播。服务器可不等人：计时照走、别人照打，玩家回来看到的是一段追帧。
-## 改成「只挡输入、不停播放」：鼠标本来就被本节点整屏的 MOUSE_FILTER_STOP 挡着，
-## 键盘由 `modal()` 这道闸挡 —— 对局里那几个单键快捷键（行动栏数字 / 右栏空格 /
-## 日志 L / 聊天回车）各自先问一句，判据和它们早就在问的 `CWChatBox.typing()` 同一路数。
-## 本地局与回放照旧真暂停（没有服务器在推，停下来才是玩家要的那个「暂停」）。
 class_name CWPauseMenu
 extends Control
 
@@ -52,6 +43,7 @@ const ITEMS := [
 	{ "id": "resume", "text": "继续对局", "enabled": true, "confirm": "" },
 	{ "id": "save_quit", "text": "保存并退出", "enabled": true, "confirm": "" },
 	{ "id": "codex", "text": "知识之书", "enabled": true, "confirm": "" },
+	{ "id": "atlas", "text": "细胞图鉴", "enabled": true, "confirm": "" },
 	{ "id": "settings", "text": "设置", "enabled": true, "confirm": "" },
 	## 「反馈 bug」（issue #19，2026-09-11）：截图（不含本菜单）+ 对局快照 + 一句说明，POST 到自家服务器存档；
 	## 界面在 _show_feedback_page，打包与发送在 CWFeedback。联机 / 回放里也能用 —— 出问题的画面不分模式
@@ -91,8 +83,7 @@ const FEEDBACK_HINT := {
 	"done": "已提交，谢谢！",
 	"failed": "发送失败，请稍后再试",
 }
-const INPUT_H := 36            ## 反馈页那格说明输入框的高度：实测最小高 36（20px 字 + 上下内边距），同 CWOnlinePanel._edit 表单档；
-                               ## 以前写 34，进树后照样被顶成 36，排版按 34 算就少了 2 px
+const INPUT_H := 34            ## 反馈页那格说明输入框的高度（同联机面板的 _edit）
 
 ## 主菜单那套辉光：四层白描边由外到内叠出来，越外越淡（尺寸与 alpha 照搬 MainMenu.tscn）。
 ## 为什么不用引擎的辉光后期：开 hdr_2d 会把整张画布的颜色都改掉。
@@ -135,6 +126,7 @@ var feedback_post := Callable()
 
 var _settings: CWSettingsPage
 var _codex: CWCodex
+var _atlas: CWCodex
 var _panel: Control
 var _title: Label
 var _hint: Label
@@ -163,27 +155,12 @@ func _ready() -> void:
 	add_child(_settings)
 	_codex = CWCodex.new()
 	add_child(_codex)
+	_atlas = CWCodex.new()
+	add_child(_atlas)
 	_settings.visibility_changed.connect(_sub_changed)
 	_codex.visibility_changed.connect(_sub_changed)
+	_atlas.visibility_changed.connect(_sub_changed)
 	visible = false
-
-
-## 最近一次 open() 的那只菜单（issue #45）。**别把它换成一面 `static var modal := false` 旗子**：
-## 那样每一条不走 close() 的拆解路（对局 teardown、测试里直接 free 掉整层）都会把旗子
-## 永久钉在 true 上，之后全局的单键快捷键集体失灵，而且一点报错都没有。
-static var _open_menu: CWPauseMenu = null
-
-## 此刻有没有一张暂停菜单压在对局上面。**现问现答**（活着 + 在树上 + 可见），所以自愈。
-## 联机局不冻树，对局里的单键快捷键靠它让路；本地局树本来就冻着，这道闸只是多一重保险。
-static func modal() -> bool:
-	return _open_menu != null and is_instance_valid(_open_menu) \
-		and _open_menu.is_inside_tree() and _open_menu.visible
-
-
-## 这一档要不要把整棵树冻住。**纯函数**，好直接测（issue #45）。
-## 联机局不冻：盘面在服务器上，客户端停下来的只有演出，停完还得补播。
-static func freezes_tree(p_online: bool) -> bool:
-	return not p_online
 
 
 func toggle() -> void:
@@ -195,11 +172,10 @@ func toggle() -> void:
 
 func open() -> void:
 	visible = true
-	_open_menu = self
 	## **必须比日志 / 聊天更顶**：那两个展开时会 move_to_front()，
 	## 而这是模态层 —— 聊天开着时按 Esc 弹出菜单，菜单不能被压在它底下
 	move_to_front()
-	if is_inside_tree() and freezes_tree(online):
+	if is_inside_tree():
 		get_tree().paused = true
 	_show_page("")
 
@@ -217,6 +193,8 @@ func close() -> void:
 		_settings.visible = false
 	if _codex != null:
 		_codex.visible = false
+	if _atlas != null:
+		_atlas.visible = false
 	## teardown() 在 _exit_tree 里也会调到这儿，那时已经离开场景树、get_tree() 是 null
 	if is_inside_tree():
 		get_tree().paused = false
@@ -225,7 +203,8 @@ func close() -> void:
 ## 子页开着时列表让位（两块面板同宽同位，叠着会透出一圈重影）；树保持冻结
 func _sub_changed() -> void:
 	var sub_open: bool = (_settings != null and _settings.visible) \
-		or (_codex != null and _codex.visible)
+		or (_codex != null and _codex.visible) \
+		or (_atlas != null and _atlas.visible)
 	_panel.visible = not sub_open
 
 
@@ -241,6 +220,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _codex != null and _codex.visible:
 		_codex.handle_input(event)
+		return
+	if _atlas != null and _atlas.visible:
+		_atlas.handle_input(event)
 		return
 	if event.is_action_pressed("ui_cancel"):
 		## 正在选目标格时，Esc 归行动栏的「取消」，不开菜单
@@ -302,10 +284,8 @@ static func confirm_hint(confirm_id: String, p_online: bool, p_replay: bool,
 	## 有席位的人：**两页都是同一件事** —— 人走了，那一席交给 AI 代打（Kevin 2026-09-13）。
 	## 「当前对局不会保存」是本地局的说法，联机局的进度在服务器上，本来就不存本地存档，
 	## 拿它当联机退出的代价说明是答非所问。
-	## 「还能回来」这半句是 issue #46 把那条路补通之后才成立的：席位与令牌留在服务器上，
-	## 回大厅填一次房间码就接着打。不说清楚，玩家只会读到「走了这局就没了」，于是宁可挂机干等。
 	if p_online and (confirm_id == "menu" or confirm_id == "quit"):
-		return "%s后本局由 AI 代打，可凭房间码回来接着打" % ("离开" if confirm_id == "menu" else "退出")
+		return "%s后本局由 AI 代打" % ("离开" if confirm_id == "menu" else "退出")
 	return CONFIRM_HINT
 
 
@@ -361,6 +341,9 @@ func _activate(i: int) -> void:
 		return
 	if id == "codex":
 		_codex.open()
+		return
+	if id == "atlas":
+		_atlas.open_atlas()
 		return
 	## 反馈 bug 的三步在菜单内部消化：抓图进反馈页 → 提交 / 重试 → 返回列表
 	if id == "feedback":
@@ -487,6 +470,7 @@ func _build_chrome() -> void:
 	_input.add_theme_color_override("caret_color", CWStyle.IMMUNE)
 	_input.add_theme_stylebox_override("normal", CWStyle.box(0.45, CWStyle.BTN_BG, 2, 8))
 	_input.add_theme_stylebox_override("focus", CWStyle.box(1.0, CWStyle.BTN_BG, 2, 8))
+	_input.size = Vector2(W - PAD * 2, INPUT_H)
 	_input.text_submitted.connect(func(_t: String) -> void:
 		if _feedback_page == "edit" or _feedback_page == "failed":
 			_send_feedback())
@@ -495,8 +479,6 @@ func _build_chrome() -> void:
 			_input.accept_event()
 			_show_page(""))
 	_panel.add_child(_input)
-	## 尺寸在**进树之后**设（同 CWChatBox 那条，2026-09-17）：进树前会被默认主题的最小高 31 钳住，之后不缩回
-	_input.size = Vector2(W - PAD * 2, INPUT_H)
 
 	## 辉光整套只备一份、跟着选中项走 —— 同时只可能有一项被选中，不必每项各备一份
 	_glow = Control.new()

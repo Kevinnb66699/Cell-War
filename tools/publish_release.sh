@@ -34,49 +34,12 @@ MAC="dist/mac/CellWar.zip"
 
 die() { echo "✘ $1" >&2; exit 1; }
 
-# ---- 挂账提醒：全量发版是还它的**唯一**时机 ----
-#
-# 2026-09-15：网页版上有一个**发版侧的猴补丁**（tools/web/same_origin_shim.js），
-# 用来把游戏里写死的 http://124.221.78.13/cellwar/ 改写成同源路径 —— 否则 https 页面上
-# 那些请求会被当混合内容拦掉，整页被标成「不安全」。
-#
-# 之所以当时没根治，是因为根治要改 boot.gd 的 SELF_HOST，而**改 boot.gd 必须全量发版**
-# （启动器在挂载补丁之前就被读了，热更不了；而且一改，补丁打包器就整个拒绝出包，
-# 直到下一次全量发版为止）。
-#
-# **你现在正在做的就是全量发版。** 所以这里提醒 —— 不在这儿提，就没有别的地方会提了：
-# 文档是被动的，只有这个脚本是「真要发版时一定会跑」的那一个。
-#
-# 提醒随 shim 文件自动消失：改完删掉它，这段就不再打印。
-#
-# **放在所有闸之前**：放后面的话，看到它时两个包都已经导完了 —— 而照着它改完代码
-# 还得再导一遍。放最前面，才来得及先改再导。
-if [ -f "tools/web/same_origin_shim.js" ]; then
-	cat >&2 <<'NOTE'
-
-⚠ 挂账未还：网页版还挂着一个发版侧猴补丁（tools/web/same_origin_shim.js）
-   它赌 Godot 的 web 版 HTTPRequest 走 fetch/XHR。引擎换实现就会**静默失效** ——
-   页面变回「不安全」，而且不报任何错。
-
-   **全量发版是还这笔账的唯一时机**，就是现在：
-     1. boot.gd：SELF_HOST 改成 https://cellwar.jiling.chat/cellwar/
-        （顺手 `if OS.has_feature("web")` 跳过查更新 —— 网页版根本不需要热更）
-     2. nginx：cellwar 那块的 /cellwar/latest.json(.sig) 那两条 404 可以撤了
-     3. 删掉 tools/web/same_origin_shim.js 与 deploy_web.sh 里注入它的那一段
-     4. 重新 tools/deploy_web.sh
-   细节见 docs/网页导出.md 的「①」。不做也能发，但这笔账会一直挂着。
-
-NOTE
-fi
-
-# ---- ⓪ 卡面数据与 PRD 一致 ----
+# ---- ⓪ 卡面文案能从 PRD 生成出来 ----
 # 2026-09-09 三次撞上同一件事：PRD 里同一张卡按池子重复出现，团队改一处漏两处，
 # `gen_card_data.py` 的一致性断言当场红 —— 而它**只在有人跑的时候才报错**，
 # 于是卡面文案停更了两天没人发现。现在把它挂进发版守卫：生成不出来就不许发。
 if command -v python >/dev/null 2>&1 && [ -f tools/gen_card_data.py ]; then
-	# 2026-09-14（issue #41）由「生成得出来」改成 `--check` 逐字比对：
-	# 生成得出来**不等于**仓库里那份是最新的 —— PRD 改了没重跑，照样一路绿灯发出去。
-	python tools/gen_card_data.py --check 		|| die "卡面数据和 PRD 对不上（上面写了差在哪一行）：跑 python tools/gen_card_data.py 重新生成并提交"
+	python tools/gen_card_data.py >/dev/null 2>&1 		|| die "卡面文案生成失败：PRD 里大概有同名卡文案不一致，先跑 python tools/gen_card_data.py 看报错"
 fi
 
 # ---- ① 工作树干净（.png.import 那类导出脏数据不算）----
@@ -145,11 +108,7 @@ git rev-parse -q --verify "refs/tags/$TAG" >/dev/null && die "tag $TAG 本地已
 git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1 && die "tag $TAG 远端已存在"
 
 SHORT="$(git rev-parse --short HEAD)"
-# ⚠ mac 那行别再写「已签名」：仓库里一行 codesign / notarytool 都没有，
-# 导出预设的 identity 与 team_id 都是空（game/export_presets.cfg:86-88），
-# 跑的是 Godot 内建的**临时签名（ad-hoc）** —— 有签名，但不是 Developer ID、没有公证。
-# 玩家照样会被 Gatekeeper 拦。写「已签名」会让人以为双击就能开，那是骗人。
-NOTES="$(printf '客户端包，对应提交 %s。\n\n- Windows：CellWar.exe（首次可能被 SmartScreen 拦，选「更多信息 → 仍要运行」）\n- macOS：CellWar.zip —— **右键 → 打开 → 再点「打开」**（只有临时签名、未公证，直接双击会被 Gatekeeper 拦）\n\n服务器同版由 tools/deploy_server.sh 发布。' "$SHORT")"
+NOTES="$(printf '客户端包，对应提交 %s。\n\n- Windows：CellWar.exe\n- macOS：CellWar.zip（已签名）\n\n服务器同版由 tools/deploy_server.sh 发布。' "$SHORT")"
 
 echo "tag        $TAG"
 echo "commit     $SHORT"

@@ -1,7 +1,11 @@
 # AGENTS.md
 
-给 AI 编码工具的入口说明：
+## Repository guidelines
 
-1. 先读 `docs/架构说明书.md` 了解项目结构与模块职责。
-2. 协作规则（开发日志 / 可读性 / 架构文档同步）见根目录 `CLAUDE.md`，对所有 AI 工具同样生效。
-3. 重大变化与决策写入 `docs/开发日志.md`。
+- Treat this directory as the project root.
+- Inspect existing files before making changes.
+- Limit edits to this repository.
+- Preserve unrelated user changes.
+- Use the project's existing build and test commands.
+- After changes, run the relevant tests or clearly report why they could not run.
+- Never invent file contents; inspect the actual files when tools are available.

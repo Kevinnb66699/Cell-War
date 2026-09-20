@@ -32,7 +32,12 @@ const FADE := 0.22
 ## 事件卡底行的后缀：写成「<抽到者> 事件卡」（Kevin 2026-09-07 定的措辞，前面是人、后面是类别）。
 ## **后面那三个字不能省** —— 只写名字的话，它和「谁打出的」那种卡长得一模一样，
 ## 而抽到即结算的事件卡不是任何人主动打的。
+## 也**别写「世界事件」**：那是另一回事——世界事件是第 3/6/10/14 回合由系统抽的那 17 个全局事件。
 const EVENT_SUFFIX := " 事件卡"
+
+## 世界事件那一行写什么。**和事件卡分开**：世界事件是系统在第 3/6/10/14 回合抽的全局事件，
+## 不属于任何一方，所以底行写「世界事件」、顶边用中性色（事件卡按抽到者的阵营染色）。
+const WORLD_WHO := "世界事件"
 
 ## 点了某张卡：把它的卡面内容和屏幕位置交出去（对上 CWCardInfo.show_info 的签名）
 signal card_pressed(rows: Dictionary, x: float, y: float)
@@ -109,10 +114,25 @@ func _layout() -> void:
 		y += CARD_H + GAP
 
 
-## 入口的**共用收尾**：挂上去、挤掉旧的、排版、淡入、连上「点开看详情」。
+## 记一个**世界事件**。牌面写事件名，底下写「世界事件」，顶边中性色 —— 它不属于任何一方。
+## 详情框的内容照 CWCardInfo.describe 的 { name, kind, lines } 形状拼，点开走同一只框。
+func add_world_event(ev_name: String, left: int) -> void:
+	var body: String = CWWorldFx.BLURB.get(ev_name, "")
+	if left > 1:
+		body += "（持续 %d 回合）" % left
+	var rows := {
+		"name": "【%s】" % ev_name,
+		"kind": "【世界事件】",
+		"lines": CWCardInfo.wrap_text(body, CWCardInfo.W - CWCardInfo.PAD_H * 2.0),
+	}
+	_push(_make_face(ev_name, WORLD_WHO, CWStyle.TEXT_HI), ev_name, WORLD_WHO, rows)
+
+
+## 两个入口（打出/抽到的卡、世界事件）**共用的收尾**：挂上去、挤掉旧的、排版、淡入、
+## 连上「点开看详情」。
 ##
-## 为什么非要收成一个：2026-09-07 曾照着 add_card 手抄过第二个入口，
-## 抄漏了 `gui_input` 那一段 —— 于是那张卡点不开，而两边看起来都「写好了」。
+## 为什么非要收成一个：2026-09-07 世界事件那条路是照着 add_card 手抄的，
+## 抄漏了 `gui_input` 那一段 —— 于是世界事件那张卡点不开，而两边看起来都「写好了」。
 ## 收尾只留一份，就不会再有下一次分叉。
 func _push(box: Control, card_name: String, who: String, rows: Dictionary) -> void:
 	add_child(box)

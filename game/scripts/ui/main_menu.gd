@@ -73,11 +73,6 @@ const ITEMS := [
 	## 一个接着打、一个重看，放一起读得顺（Kevin 2026-09-09 定）
 	{"node": "Replay", "enabled": true},
 	{"node": "Codex", "enabled": true},
-	## 「新手引导」2026-09-14 起暂时停用（老教程退出再启动会崩），重做期间一直灰着；
-	## **2026-09-19 新手教程 v2 收口（S12）恢复**：六关 + 间章全部落地、真机从主菜单一路通关过一次，
-	## 灰着的理由（老教程那套 UI 与剧本门面）已经整份不存在了。
-	## 这里是入口的**唯一开关**——灰 / 亮都走菜单自带那条路（`.mi.dim` 画灰 + 不吃鼠标 + 键盘跳过
-	## + `_activate` 直接返回），别的一行不用动。`t_entry_smoke_tutorial` 正面钉着这一条。
 	{"node": "Guide", "enabled": true},
 	{"node": "Settings", "enabled": true},
 	{"node": "Quit", "enabled": true},
@@ -138,6 +133,8 @@ var _config: CWConfigPanel       ## 对局配置面板；null = 还没建过
 var _online: CWOnlinePanel       ## 联机面板（连接 / 大厅 / 等待室）；null = 还没建过
 var _replay: CWReplayPanel       ## 回放面板（列表）；同上，懒建
 var _codex: CWCodex             ## 知识之书图鉴；null = 还没建过
+var _atlas: CWCodex             ## 主界面细胞图鉴；与知识之书独立
+var _atlas_hovered := false
 var _settings: CWSettingsPage    ## 设置页；null = 还没建过
 var _swap: Tween                 ## 菜单↔配置的槽位换面板动画（0.30s 出 / 0.32s 入）
 
@@ -150,6 +147,7 @@ const T_SWAP_OUT := 0.30
 @onready var _marker: Node2D = $UI/Screen/Items/Marker
 @onready var _glow: Control = $UI/Screen/Items/Glow
 @onready var _version: Label = $UI/Screen/Ver
+var _atlas_button: Label
 @onready var _ui: CanvasLayer = $UI
 
 
@@ -157,12 +155,60 @@ func _ready() -> void:
 	_place_camera()
 	_spawn_decor()
 	_setup_items()
+	_ensure_atlas_button()
 	## 版本号读工程设置，别在界面里写死第二份；**基线号与补丁号也要露出来**（见 version_text）
 	var ps := preload("res://scripts/patch_state.gd")
 	_version.text = version_text(
 		str(ProjectSettings.get_setting("application/config/version", "0.0.0")),
 		ps.base_build(), ps.installed_build())
 	_repaint()
+
+
+## 细胞图鉴不属于八项键盘菜单：它是知识之书下面的独立鼠标入口。
+## 集中在这里创建并恢复，避免从对局/联机返场时只恢复了菜单文字，
+## 却把这个动态节点留在旧的隐藏或 IGNORE 状态（回归测试曾漏掉这一条）。
+func _ensure_atlas_button() -> void:
+	if _atlas_button == null or not is_instance_valid(_atlas_button):
+		_atlas_button = _items.get_node_or_null("Atlas") as Label
+	if _atlas_button == null:
+		## 场景只保留固定八项；运行时创建避免改变原有键盘契约。
+		_atlas_button = CWStyle.clickable_label(_items, "细胞图鉴", Vector2(165, 418), _activate_atlas)
+		_atlas_button.name = "Atlas"
+	if not _atlas_button.has_meta("atlas_wired"):
+		_atlas_button.mouse_entered.connect(_on_atlas_button_entered)
+		_atlas_button.mouse_exited.connect(_on_atlas_button_exited)
+		_atlas_button.gui_input.connect(_on_atlas_button_input)
+		_atlas_button.set_meta("atlas_wired", true)
+	_atlas_button.text = "细胞图鉴"
+	_atlas_button.position = Vector2(165, 418)
+	_atlas_button.size = _atlas_button.get_minimum_size()
+	_atlas_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_atlas_button.visible = true
+	_atlas_button.mouse_filter = Control.MOUSE_FILTER_STOP
+
+func _on_atlas_button_entered() -> void:
+	_atlas_hovered = true
+	CWStyle.link_hot(_atlas_button, true)
+	_repaint()
+
+
+func _on_atlas_button_exited() -> void:
+	_atlas_hovered = false
+	CWStyle.link_hot(_atlas_button, false)
+	_repaint()
+
+
+func _on_atlas_button_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		get_viewport().set_input_as_handled()
+		_activate_atlas()
+
+
+func _activate_atlas() -> void:
+	if _atlas == null:
+		_atlas = CWCodex.new()
+		_ui.add_child(_atlas)
+	_atlas.open_atlas()
 
 
 ## 右下角那行版本号。**纯函数**，好直接测。
@@ -189,6 +235,8 @@ static func version_text(ver: String, base: int, patched: int) -> String:
 ## 真实开局双方都有；数量跟人数走（2/4/6 人局不同）；位置由玩家落子决定。
 func dismiss(seconds: float, drift: float) -> void:
 	set_process_unhandled_input(false)   ## 过场里别再响应上下键
+	_atlas_button.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_atlas_hovered = false
 	## 淡出**一开始**就得停止吃鼠标：Control 的 modulate 归零只是看不见，
 	## 照样挡点击；而「开始对局」那一行正压在棋盘上方，不摘掉的话过场结束后
 	## 点那块棋盘会毫无反应，还查不出原因（2026-08-27 端到端跑出来的）。
@@ -212,6 +260,9 @@ func dismiss(seconds: float, drift: float) -> void:
 ## 它们本来就是纯装饰，位置由 DECOR 常量决定，重建比记账便宜也不会记漏。
 func appear(seconds: float) -> void:
 	_respawn_decor()
+	_ensure_atlas_button()
+	_atlas_hovered = false
+	CWStyle.paint_link(_atlas_button, COLOR_REST)
 	_apply_filters()   ## 「继续对局」的亮灭跟着存档有无走，回菜单时重新算
 	set_process_unhandled_input(true)
 	_hovered = -1
@@ -341,7 +392,8 @@ func _repaint() -> void:
 			color = COLOR_HOVER if hot else (COLOR_SELECTED if i == _selected else COLOR_REST)
 		label.add_theme_color_override("font_color", color)
 		label.position.y = _rest_y[i] - (HOVER_LIFT if hot else 0.0)
-	var sel: Label = _labels[_selected]
+	## 图鉴虽不加入 ITEMS（保持原键盘顺序），鼠标悬停时仍复用同一枚蓝色菱形。
+	var sel: Label = _atlas_button if _atlas_hovered else _labels[_selected]
 	_marker.position = Vector2(MARKER_X, sel.position.y + sel.size.y / 2.0)
 	_move_glow()
 
@@ -355,10 +407,10 @@ func _repaint() -> void:
 ## 加密之后每级的 alpha 落差都很小，台阶就看不出来了。
 ## 各层的尺寸与 alpha 都在场景里，要调手感直接在编辑器里改，不用碰代码。
 func _move_glow() -> void:
-	_glow.visible = _hovered >= 0
+	_glow.visible = _atlas_hovered or _hovered >= 0
 	if not _glow.visible:
 		return
-	var hot: Label = _labels[_hovered]
+	var hot: Label = _atlas_button if _atlas_hovered else _labels[_hovered]
 	_glow.position = hot.position
 	for layer in _glow.get_children():
 		(layer as Label).text = hot.text
@@ -409,6 +461,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _codex != null and _codex.visible:
 		_codex.handle_input(event)
+		return
+	if _atlas != null and _atlas.visible:
+		_atlas.handle_input(event)
 		return
 	if _confirm != null and _confirm.visible:
 		_confirm_input(event)

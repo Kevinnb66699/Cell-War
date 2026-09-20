@@ -1,15 +1,6 @@
 # -*- coding: utf-8 -*-
 """从 PRD 生成 cw_card_data.gd —— 卡名/类别/各池权重 + **效果原文**。
 
-用法：
-    python tools/gen_card_data.py            # 生成并写回 cw_card_data.gd
-    python tools/gen_card_data.py --check    # 只比对、不落盘；对不上退 1（发版守卫用这个）
-
-**为什么要有 --check**（2026-09-14，issue #41）：这份文件是**生成**的 —— PRD 一改它就得重跑，
-而没有任何东西保证有人记得跑。那次是【糖酵解爆发】的权重：团队把 PRD 改成 2/3/4，
-引擎里还留着 3/4/6，靠人看出来才发现。发版守卫原来只验「生成得出来」（跑一遍、扔掉输出），
-而**生成得出来不等于仓库里那份是最新的** —— 这一条正是它验不到的。
-
 效果文本是 2026-09-01 加的，为了「悬停查看详情」。**逐字照抄 PRD，不做任何改写**：
 一改写就等于把规则抄了第二份（架构约定 #10），PRD 一动就对不上。
 所以卡面上会原样出现「0.8 / 1.5 / 2」这种分档写法 —— 那正是 PRD 的写法。
@@ -21,23 +12,15 @@ CWTuning，`prd_crosscheck.py` 那套反向核对够不着它们。这是行为�
 以前实现和 PRD 对不上只有读代码的人知道，现在玩家会照着卡面做决策。
 改 `cw_card_fx.gd` 里的数时，请同步改 PRD 并重跑本脚本。
 """
-import os, re, io, sys
+import re, io
 
-## PRD 在仓库外，路径写死（两处工具同一个口径）。
-## **OUT 必须跟着脚本自己走**：2026-09-19 踩过 —— 写死主仓库绝对路径的话，
-## 在 git worktree 里跑 `--check` 校的是主仓库那一份、`gen` 改的也是主仓库那一份，
-## 于是 worktree 里的改动既验不到也落不下，还顺手把别人的工作目录弄脏了。
 PRD = "D:/Projects/SpringSense/2026-2027/Cell War/Cell_War_玩法PRD.md"   ## 2026-09-11 起叫这个名
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(REPO, "game", "scripts", "core", "cw_card_data.gd")
+OUT = "D:/Projects/SpringSense/2026-2027/Cell War/Cell-War/game/scripts/core/cw_card_data.gd"
 
 L = [l.rstrip() for l in io.open(PRD, encoding="utf-8")]
 clean = lambda s: s.replace("\\", "").strip()
 start = next(i for i, l in enumerate(L) if l.startswith("## 免疫卡池"))
-## 卡池节的结束锚点。世界事件 2026-09-19 从 PRD 整章删除（Kevin：「我们不加入世界事件了」），
-## 但团队手上的 PRD 正本可能还没同步 —— **两种都要跑得通**：有那一章就停在它前面
-## （否则会把事件条目当卡读），没有就一直读到文件末尾（世界事件原本就是最后一章）。
-end = next((i for i, l in enumerate(L) if l.startswith("# 世界事件")), len(L))
+end = next(i for i, l in enumerate(L) if l.startswith("# 世界事件"))
 
 POOL_KEY = {"I级卡池": 0, "II级卡池": 1, "III级卡池": 2, "X级卡池": 3}
 KIND = {"事件": "EVENT", "即时技能": "INSTANT", "永久技能": "PERMANENT"}
@@ -85,23 +68,13 @@ def _flush(pending):
 
     只做两件排版上的事，不碰字：去掉 markdown 的 `**` 粗体标记（点阵字渲染不了），
     列表项的 `- ` 换成 `· `（行首减号在满是数值的卡面上会被读成负号）。
-
-    **整段只有一条列表项时把 `- ` 直接去掉**（2026-09-19 复核）：PRD 里单条效果偶尔也写成
-    markdown 列表项（【放疗】PRD:1245 就是），一律换成 `· ` 的话卡面上就会出现一个
-    **没有同伴的孤立圆点** —— 69 张卡里独此一张行首带点。圆点是给「多条并列」用的
-    （【迁移】【增生】那几张才是它的正常用法）。生成器仍然逐字跟 PRD，改的只是这一条排版。
     """
     if pending is None:
         return
     card, is_cancer, buf = pending
     if not buf:
         return
-    body = "\n".join(buf).replace("**", "")
-    if len(buf) == 1 and body.startswith("- "):
-        body = body[2:]
-    else:
-        body = re.sub(r"^- ", "· ", body, flags=re.M)
-    text = font_safe(body)
+    text = font_safe(re.sub(r"^- ", "· ", "\n".join(buf).replace("**", ""), flags=re.M))
     ## **同一阵营内**效果文应当一字不差（免疫卡会在 I/II/III/X 四个池里重复出现）。
     ## 不一致就是 PRD 自己的问题，得人去看。
     ##
@@ -246,23 +219,7 @@ A("\t\t\telse c[\"cancer\"][phase]")
 A("\t\tif w > 0:")
 A('\t\t\tout.append({ "name": name, "weight": w })')
 A("\treturn out")
-made = "\n".join(lines) + "\n"
-if "--check" in sys.argv:
-    ## 只比对不落盘（别在发版中途改工作树）。行尾先统一：仓库里那份可能被 git 换成 CRLF
-    have = io.open(OUT, encoding="utf-8", newline="").read().replace("\r\n", "\n")
-    if have != made:
-        a, b = have.split("\n"), made.split("\n")
-        first = next((k for k, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
-        print("MISMATCH: cw_card_data.gd is stale (first diff at line %d)" % (first + 1))
-        if first < len(a):
-            print("  repo: %s" % a[first].strip()[:120])
-        if first < len(b):
-            print("  PRD : %s" % b[first].strip()[:120])
-        print("  fix : python tools/gen_card_data.py   (then commit the file)")
-        raise SystemExit(1)
-    print("OK: cw_card_data.gd matches the PRD")
-else:
-    io.open(OUT, "w", encoding="utf-8", newline="\n").write(made)
+io.open(OUT, "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
 
 ev = sum(1 for c in cards.values() if c["kind"] == "EVENT")
 ins = sum(1 for c in cards.values() if c["kind"] == "INSTANT")

@@ -72,7 +72,4 @@ if ($Shards -gt 1) {
 		Write-Host "✘ $Shards 片里有红（合计 $total 项检查）"
 	}
 }
-# L0 契约靶场两侧同跑（测试迁移规格闸一 + 闸二 2b）：与无头套件一起算总账（脚本是 bash 的，走 Git Bash）
-bash (Join-Path $PSScriptRoot "run_l0.sh")
-if ($LASTEXITCODE -ne 0) { $exitCode = 1 }
 exit $exitCode

@@ -24,11 +24,6 @@ func play(data: Dictionary, from: Vector2, to: Vector2,
 		"attacker": attacker, "defender": defender})
 	_plays.append(entry)
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	## **拆局会把这一层 `visible = false`**（CWMatch._clear_board_fx，2026-09-13「上一局的特效留在等待室的棋盘上」），
-	## 别的演出层都在 play 里自己亮回来，这一层漏了 ⇒ 同一次启动里第二局起普通攻击再也不演
-	## （Kevin 2026-09-19：「联机模式下玩家操控的免疫细胞攻击 AI 癌细胞，攻击动画会消失」——
-	## 连打几局的房间里正是第二局起；不是线程的事，服务器 AI 根本没有线程）
-	visible = true
 	queue_redraw()
 
 

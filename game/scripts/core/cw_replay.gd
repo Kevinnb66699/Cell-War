@@ -1,37 +1,5 @@
 ## cw_replay.gd —— 对局回放：录下来、存下来、放回去
 ##
-## ## ⚠ 未决：VERSION 停在 2，而作答串早就变过好几轮（Kevin 2026-09-14 暂缓，记在这里防忘）
-##
-## 下面 `VERSION` 那条注释自己写明了规矩：**询问的条数或次序一变，旧文件按新代码放会整串错位，
-## 而且放出来是另一局、不会报错** —— 所以那种改动就该升号。
-##
-## **可是从 v2（2026-09-10）到协议 v25（2026-09-15），这条规矩一次都没执行过。**
-## 期间至少这几次改动都动了作答串：
-## · issue #32 开局癌组织按种子随机生成 —— rng 的消耗次序整个变了
-## · issue #40 E 阶段把【无氧呼吸】提到第 1 步 —— 收入变了，合法选项跟着变
-## · issue #41 【糖酵解爆发】权重 3/4/6 → 2/3/4 —— 抽卡的随机消耗变了
-## · issue #42 新增卡【癌症转移】—— 卡池 18 → 19 张，牌堆整个不一样
-## · issue #43 【无氧呼吸】加人数系数 k —— 又一次改收入
-## · 2026-09-15 新增【S-过载】（协议 v25）—— 癌方每回合的账又变了，可选动作跟着变。
-##   **这是第六次。** 六次全漏，正说明下面那条「② 存指纹自动失效」才是根治 ——
-##   只要「升号」还是个靠人记住的动作，它就会继续漏。
-##
-## 所以**今天存在的旧回放，多半已经放不出原来那一局了，而且不会有任何提示**。
-##
-## **2026-09-19 批 1 步 7：出路 ② 落地** —— `of()` 存 `digest = tune.signature()`，`valid()` 用 tape 自己的规则重算一遍比对；
-## 规则一改旧回放自动读不出来，不再靠人记得升号。旧文件（没有 digest）从此一律读不出，`purge_stale()` 在面板打开时静默清掉
-## （Kevin 2026-09-19 拍 E-3：直接清盘、不加提示 —— 存档回放本来就没启用）。步 9 同日把 VERSION 跳到 3，出路 ①② 都落了。
-##
-## 没有当场升到 v3，是因为升号等于把玩家手里现有的回放全部作废 —— 那是删东西，
-## 得团队定，不该由「顺手修正一致性」带出去（Kevin 2026-09-14：「回放暂时不考虑」）。
-##
-## **要么二选一，别再拖成第三轮**：
-## ① 升 v3，承认旧回放作废、面板上老老实实写「这份读不出来」；
-## ② 改成**把规则指纹存进文件、读盘时比对**（比如 `CWNet.NET_VERSION`，或 `tune.signature()`
-##    再掺一个「代码版本」）—— 一劳永逸：以后每次规则改动自动让旧回放读不出来，
-##    不必再指望有人记得手动升号。**这条才是根治**，上面那五条之所以全漏掉，
-##    根因就是「升号」是个纯靠人记住的动作。
-##
 ## ## 为什么不用存快照
 ##
 ## **一局 = 开局参数 + 一串下标。** 客户端发给服务器的本来就只是 `answer{ask_id, index}`，
@@ -62,10 +30,7 @@ extends RefCounted
 ## v2（2026-09-10，issue #14）：【代谢耦联】的方向与数额**只有一种时也要问**了 ——
 ## 于是同一局的作答串比从前多几个下标。旧文件按新代码放会从那一处起整串错位，
 ## 而且**放出来是另一局**、不会报错。升号让它们干脆读不出来（面板上写「这份读不出来」）。
-##
-## ⚠ **这个号从 2026-09-10 起就没跟上了** —— 之后有五次改动同样动了作答串却没升号。
-## 原委、影响范围和两条出路都写在文件头第一节，动这个常量之前先读那一节。
-const VERSION := 3   ## 批 1 步 9（2026-09-19）升号：作答串经句柄（step_once）录、tape 带规则指纹；旧文件读不出、面板打开 / 启动时静默清掉（E-3）
+const VERSION := 2
 const DIR := "user://replays"
 const EXT := ".cwr"
 const KEEP := 20        ## 最多留几份；再多就从最旧的开始删（回放很小，但也不该无限长）
@@ -85,8 +50,6 @@ static func of(game: CWGame) -> Dictionary:
 		"winner": game.winner,
 		"win_reason": game.win_reason,
 		"at": Time.get_datetime_string_from_system(false, true),
-		## 规则指纹（批 1 步 7）：读盘时用这份 tape 自己的 rules 重算一遍比对，规则一改旧回放自动作废
-		"digest": game.tune.signature(),
 	}
 
 
@@ -99,29 +62,24 @@ static func valid(d: Dictionary) -> bool:
 		return false
 	if typeof(d.get("answers")) != TYPE_PACKED_INT32_ARRAY:
 		return false
-	if typeof(d.get("rules")) != TYPE_DICTIONARY:
-		return false
-	## 规则指纹：基准是**这份 tape 自己的规则**（非默认旋钮的合法回放也要能放；比 CWTuning.new().signature() 会把它们一并判死）。
-	## 代码里旋钮表一变，restore 出来的 tuning 多了新字段的默认值 → 指纹对不上 → 旧回放读不出，不靠人记得升号
-	var tt := CWTuning.new()
-	tt.restore_rules_state(d["rules"])
-	return String(d.get("digest", "")) == tt.signature()
+	return typeof(d.get("rules")) == TYPE_DICTIONARY
 
 
-## 按这份数据重建一局：返回**单步驱动**的内核句柄（批 1 步 7），「念下标」的桥当 decider 服务所有席位。
-## 返回的是**没有推进过**的对局：调用方自己 `await k.step_once()` 一步步推（回放没有「谁在决策」这回事）。
-## consumer 由调用方传：只有界面那条路（main.gd:_watch_replay）传 true —— 无头测试传 false，否则 roll 的 barrier 没人 ack。
-static func build(d: Dictionary, consumer := false) -> CWKernelInProc:
+## 按这份数据重建一局，并把「念下标」的桥装给所有席位。
+## 返回的是**没有推进过**的对局：调用方自己 `await g.run_game()`（界面那边要一步步演）。
+static func build(d: Dictionary) -> CWGame:
 	if not valid(d):
 		return null
+	var g := CWGame.new()
+	g.init(CWData.FACTION_ORDER[int(d["players"])], int(d["seed"]))
+	g.tune.restore_rules_state(d["rules"])
+	g.tune.cancer_types = Array(d.get("cancer_types", []))
 	var b := Bridge.new()
 	b.answers = d["answers"]
-	var k := CWKernelInProc.new()
-	if not k.open({ "factions": CWData.FACTION_ORDER[int(d["players"])], "seed": int(d["seed"]),
-			"cancer_types": Array(d.get("cancer_types", [])), "rules": d["rules"],
-			"step_drive": true, "consumer": consumer, "decider": b }):
-		return null
-	return k
+	b.game = g
+	for pid in g.order:
+		g.bridges[pid] = b        ## 一个桥服务所有席位：回放没有「谁在决策」这回事
+	return g
 
 
 # ============ 存取 ============
@@ -131,12 +89,12 @@ static func _ensure_dir() -> void:
 		DirAccess.make_dir_recursive_absolute(DIR)
 
 
-## 存一份，返回落盘路径；存不下返回空串。tape = `of(game)` / `kernel.replay_tape()` 那份字典（批 1 步 7：不再收 CWGame）。
+## 存一份，返回落盘路径；存不下返回空串。
 ## 文件名带时间戳 —— 一局一份，不覆盖（覆盖就等于「上一局白打了」）。
-static func save(tape: Dictionary) -> String:
-	if tape.is_empty() or PackedInt32Array(tape.get("answers", PackedInt32Array())).is_empty():
+static func save(game: CWGame) -> String:
+	if game == null or game.replay.is_empty():
 		return ""
-	return write(tape)
+	return write(of(game))
 
 
 ## 把**已经成形**的一份回放落盘。联机那条路走这里：服务器随终局把它发下来，
@@ -179,17 +137,6 @@ static func list_files() -> PackedStringArray:
 	out.sort()
 	out.reverse()
 	return out
-
-
-## 清掉本机读不出来的回放文件（版本 / 规则指纹不符）：回放面板打开时调一次。
-## `_trim()` 只在 `write()` 时跑，不清的话它们会一直挂着；E-3（Kevin 2026-09-19）：直接清盘、不加提示。返回清掉几份
-static func purge_stale() -> int:
-	var n := 0
-	for path in list_files():
-		if read(path).is_empty():
-			DirAccess.remove_absolute(path)
-			n += 1
-	return n
 
 
 ## 超过 KEEP 份就从最旧的删起
@@ -237,7 +184,7 @@ class Player extends RefCounted:
 	const KEY_EVERY := 25        ## 每多少步存一个关键帧
 
 	var data := {}
-	var kernel: CWKernelInProc   ## 批 1 步 7：播放器自己持句柄（单步驱动），`game` 字段撤掉 —— 界面过渡期读 `kernel.game`，步 8 换镜像
+	var game: CWGame
 	## 念下标的那个桥。无头那条路用 `CWReplay.Bridge`；
 	## **界面那条路用 `CWUIBridge`** —— 掷骰演出、通报、过场全是走桥的，
 	## 换成纯数据桥回放就成了没有任何演出的哑剧（见 CWUIBridge.ask 的注释）。
@@ -245,22 +192,21 @@ class Player extends RefCounted:
 	var bridge: Object
 	var total := 0               ## 一共几步
 	var _ui_flavor := false
-	var _keys: Array = []        ## [{at, snap, seq}]，按 at 升序；seq = 存帧时句柄最后一条条目，快退后 discard_after 它
-	var _over := false           ## step_once() 返回 false 后置位（不能用 kernel.state()：step_drive 下永远 READY）
+	var _keys: Array = []        ## [{at, snap}]，按 at 升序
 
-	## 开一份回放；数据不合法返回 null。consumer 只有界面那条路传 true（见 build）
-	static func open(d: Dictionary, consumer := false) -> Player:
-		var k := CWReplay.build(d, consumer)
-		if k == null:
+	## 开一份回放；数据不合法返回 null
+	static func open(d: Dictionary) -> Player:
+		var g := CWReplay.build(d)
+		if g == null:
 			return null
 		var p := Player.new()
 		p.data = d
-		p.kernel = k
-		p.bridge = k.deciders[k.game.order[0]]
+		p.game = g
+		p.bridge = g.bridges[g.order[0]]
 		p.total = PackedInt32Array(d["answers"]).size()
 		## 第 0 帧一定要有 —— 有了它 `_rewind_to` 永远找得到落脚点，
-		## 就不必在半路重建对局（重建会换掉句柄，界面那头还拿着旧引用）
-		p._keys = [{ "at": 0, "snap": k.save(), "seq": k.entry_seq() }]
+		## 就不必在半路重建对局（重建会换掉 `game` 这个对象，界面那头还拿着旧引用）
+		p._keys = [{ "at": 0, "snap": g.snapshot() }]
 		return p
 
 	## 换一个桥来念（界面那条路：`CWMatch` 把自己的 `CWUIBridge` 装进来）。
@@ -273,7 +219,8 @@ class Player extends RefCounted:
 			b.replay_answers = PackedInt32Array(data["answers"])
 		else:
 			b.answers = PackedInt32Array(data["answers"])
-		kernel.set_decider(b)              ## 批 1 步 7：中途换桥走句柄的口子（B-2 ⑤）
+		for pid in game.order:
+			game.bridges[pid] = b
 		_set_at(was)
 
 
@@ -289,17 +236,19 @@ class Player extends RefCounted:
 			bridge.at = n
 
 	func done() -> bool:
-		return _over or at() >= total
+		return game.is_over() or at() >= total
 
-	## 往前一步。放完 / 放到终局返回 false。
-	## 三步（pending → ask → step）收进了 `kernel.step_once()`（B-2 ④）—— `cw_game.gd:ask` 仍是 asking_pid / clampi / record_replay 的唯一通道
+	## 往前一步。放完 / 放到终局返回 false
 	func step_once() -> bool:
-		if _over:
+		if game.is_over():
 			return false
-		var ok: bool = await kernel.step_once()
-		if not ok:
-			_over = true
+		var req: Dictionary = await game.pending()
+		if req.is_empty():
 			return false
+		var idx: int = await game.ask(req["pid"], req)
+		if game.aborted or game.winner >= 0:
+			return false
+		await game.step(idx)
 		_maybe_key()
 		return true
 
@@ -318,19 +267,16 @@ class Player extends RefCounted:
 		for k: Dictionary in _keys:
 			if int(k["at"]) == at():
 				return          ## 这一帧存过了（往回跳之后再推回来会重走同一段）
-		_keys.append({ "at": at(), "snap": kernel.save(), "seq": kernel.entry_seq() })
+		_keys.append({ "at": at(), "snap": game.snapshot() })
 		_keys.sort_custom(func(x: Dictionary, y: Dictionary) -> bool:
 			return int(x["at"]) < int(y["at"]))
 
-	## 还原到不晚于 n 的那个关键帧。`restore` 是**就地改**句柄里那局，
-	## 所以桥还挂着、界面那头的引用也不用换 —— 只要把桥的游标一起拨回去；
-	## 存帧之后产的条目一并丢掉（discard_after），重推时同一段演出才不会重复入队
+	## 还原到不晚于 n 的那个关键帧。`restore` 是**就地改**这个 game 对象，
+	## 所以桥还挂着、界面那头的引用也不用换 —— 只要把桥的游标一起拨回去
 	func _rewind_to(n: int) -> void:
 		var best: Dictionary = _keys[0]
 		for k: Dictionary in _keys:
 			if int(k["at"]) <= n:
 				best = k
-		kernel.restore(best["snap"])
-		kernel.discard_after(int(best["seq"]))
-		_over = false
+		game.restore(best["snap"])
 		_set_at(int(best["at"]))

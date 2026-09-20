@@ -1,0 +1,236 @@
+[
+  {
+    "key": "move",
+    "name": "迁移",
+    "variant": "A",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"1\" y=\"7\" width=\"11\" height=\"3\" fill=\"#0b1118\"/><rect x=\"1\" y=\"6\" width=\"8\" height=\"1\" fill=\"#30d1fa\"/><rect x=\"1\" y=\"10\" width=\"8\" height=\"1\" fill=\"#30d1fa\"/><rect x=\"9\" y=\"4\" width=\"3\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"12\" y=\"5\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"12\" y=\"9\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "move",
+    "name": "迁移",
+    "variant": "B",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"5\" width=\"4\" height=\"6\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"3\" width=\"4\" height=\"10\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"4\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"3\" y=\"10\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"8\" y=\"7\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"12\" y=\"5\" width=\"2\" height=\"6\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "move",
+    "name": "迁移",
+    "variant": "C",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"3\" y=\"3\" width=\"10\" height=\"10\" fill=\"#0b1118\"/><rect x=\"5\" y=\"5\" width=\"6\" height=\"6\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"2\" width=\"2\" height=\"3\" fill=\"#eaf8fc\"/><rect x=\"7\" y=\"11\" width=\"2\" height=\"3\" fill=\"#eaf8fc\"/><rect x=\"2\" y=\"7\" width=\"3\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"7\" width=\"3\" height=\"2\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "draw",
+    "name": "抽卡",
+    "variant": "A",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"3\" y=\"3\" width=\"9\" height=\"11\" fill=\"#0b1118\"/><rect x=\"4\" y=\"2\" width=\"8\" height=\"10\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"4\" width=\"4\" height=\"1\" fill=\"#eaf8fc\"/><rect x=\"6\" y=\"6\" width=\"5\" height=\"1\" fill=\"#0f1822\"/><rect x=\"6\" y=\"8\" width=\"3\" height=\"1\" fill=\"#0f1822\"/><rect x=\"12\" y=\"2\" width=\"2\" height=\"4\" fill=\"#30d1fa\"/><rect x=\"10\" y=\"4\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "draw",
+    "name": "抽卡",
+    "variant": "B",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"3\" width=\"4\" height=\"10\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"2\" width=\"4\" height=\"11\" fill=\"#30d1fa\"/><rect x=\"8\" y=\"4\" width=\"4\" height=\"10\" fill=\"#0b1118\"/><rect x=\"3\" y=\"5\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"7\" y=\"4\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"10\" y=\"2\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"12\" y=\"4\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "draw",
+    "name": "抽卡",
+    "variant": "C",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"4\" width=\"9\" height=\"10\" fill=\"#0b1118\"/><rect x=\"4\" y=\"2\" width=\"9\" height=\"10\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"4\" width=\"4\" height=\"1\" fill=\"#eaf8fc\"/><rect x=\"6\" y=\"6\" width=\"5\" height=\"1\" fill=\"#0f1822\"/><rect x=\"5\" y=\"11\" width=\"3\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"9\" y=\"11\" width=\"3\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"3\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "differentiate",
+    "name": "分化",
+    "variant": "A",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"7\" y=\"2\" width=\"2\" height=\"6\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"7\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"9\" width=\"2\" height=\"4\" fill=\"#30d1fa\"/><rect x=\"10\" y=\"9\" width=\"2\" height=\"4\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"1\" width=\"4\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"3\" y=\"13\" width=\"4\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"9\" y=\"13\" width=\"4\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "differentiate",
+    "name": "分化",
+    "variant": "B",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"7\" y=\"2\" width=\"2\" height=\"12\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"6\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"4\" width=\"2\" height=\"4\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"4\" width=\"2\" height=\"4\" fill=\"#30d1fa\"/><rect x=\"2\" y=\"3\" width=\"3\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"11\" y=\"3\" width=\"3\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"5\" y=\"12\" width=\"2\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"9\" y=\"12\" width=\"2\" height=\"2\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "differentiate",
+    "name": "分化",
+    "variant": "C",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"5\" y=\"2\" width=\"6\" height=\"12\" fill=\"#0b1118\"/><rect x=\"6\" y=\"3\" width=\"4\" height=\"5\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"8\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"9\" y=\"8\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"11\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"9\" y=\"11\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"1\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "antibody",
+    "name": "抗体",
+    "variant": "A",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"3\" y=\"2\" width=\"2\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"2\" width=\"2\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"7\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"9\" width=\"4\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"1\" width=\"3\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"9\" y=\"1\" width=\"3\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"5\" y=\"12\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "antibody",
+    "name": "抗体",
+    "variant": "B",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"6\" y=\"2\" width=\"4\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"4\" y=\"4\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"6\" width=\"2\" height=\"6\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"6\" width=\"2\" height=\"6\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"12\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"7\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"8\" width=\"2\" height=\"3\" fill=\"#0b1118\"/></svg>"
+  },
+  {
+    "key": "antibody",
+    "name": "抗体",
+    "variant": "C",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"3\" y=\"3\" width=\"10\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"2\" y=\"5\" width=\"2\" height=\"6\" fill=\"#30d1fa\"/><rect x=\"12\" y=\"5\" width=\"2\" height=\"6\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"11\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"4\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"9\" y=\"4\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"7\" y=\"7\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "toxin",
+    "name": "细胞毒素",
+    "variant": "A",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"5\" y=\"1\" width=\"6\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"4\" y=\"3\" width=\"8\" height=\"10\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"5\" width=\"4\" height=\"5\" fill=\"#0f1822\"/><rect x=\"2\" y=\"7\" width=\"3\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"7\" width=\"3\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"4\" width=\"2\" height=\"7\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"13\" width=\"10\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "toxin",
+    "name": "细胞毒素",
+    "variant": "B",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"5\" y=\"2\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"4\" width=\"8\" height=\"9\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"6\" width=\"4\" height=\"5\" fill=\"#0f1822\"/><rect x=\"7\" y=\"7\" width=\"2\" height=\"4\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"13\" width=\"10\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"2\" y=\"5\" width=\"2\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"12\" y=\"5\" width=\"2\" height=\"2\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "toxin",
+    "name": "细胞毒素",
+    "variant": "C",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"4\" y=\"3\" width=\"8\" height=\"10\" fill=\"#0b1118\"/><rect x=\"5\" y=\"2\" width=\"6\" height=\"11\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"5\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"7\" width=\"2\" height=\"4\" fill=\"#30d1fa\"/><rect x=\"2\" y=\"7\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"12\" y=\"7\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"6\" y=\"13\" width=\"4\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "lyse",
+    "name": "裂解",
+    "variant": "A",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"3\" width=\"5\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"9\" y=\"3\" width=\"5\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"1\" y=\"5\" width=\"3\" height=\"7\" fill=\"#30d1fa\"/><rect x=\"12\" y=\"5\" width=\"3\" height=\"7\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"5\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"10\" y=\"9\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"6\" y=\"7\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"9\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "lyse",
+    "name": "裂解",
+    "variant": "B",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"2\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"10\" y=\"2\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"1\" y=\"4\" width=\"3\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"12\" y=\"4\" width=\"3\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"4\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"6\" width=\"2\" height=\"5\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"11\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"10\" y=\"5\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "lyse",
+    "name": "裂解",
+    "variant": "C",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"3\" y=\"3\" width=\"10\" height=\"10\" fill=\"#0b1118\"/><rect x=\"4\" y=\"4\" width=\"3\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"9\" y=\"4\" width=\"3\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"9\" width=\"3\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"9\" y=\"9\" width=\"3\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"6\" width=\"2\" height=\"5\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"2\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"7\" y=\"12\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "chemo",
+    "name": "趋化源",
+    "variant": "A",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"3\" y=\"2\" width=\"3\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"10\" y=\"2\" width=\"3\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"2\" y=\"5\" width=\"12\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"7\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"9\" width=\"4\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"7\" y=\"11\" width=\"2\" height=\"3\" fill=\"#eaf8fc\"/><rect x=\"1\" y=\"12\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"12\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "chemo",
+    "name": "趋化源",
+    "variant": "B",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"2\" width=\"3\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"2\" width=\"3\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"4\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"6\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"8\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"10\" width=\"2\" height=\"4\" fill=\"#eaf8fc\"/><rect x=\"2\" y=\"11\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"12\" y=\"11\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "chemo",
+    "name": "趋化源",
+    "variant": "C",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"2\" width=\"3\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"2\" width=\"3\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"5\" width=\"10\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"7\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"9\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"11\" width=\"2\" height=\"3\" fill=\"#eaf8fc\"/><rect x=\"3\" y=\"12\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"11\" y=\"12\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "mutate",
+    "name": "突变",
+    "variant": "A",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"3\" y=\"1\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"1\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"3\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"5\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"9\" y=\"5\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"7\" width=\"10\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"5\" y=\"9\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"9\" y=\"9\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"12\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"12\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "mutate",
+    "name": "突变",
+    "variant": "B",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"3\" y=\"2\" width=\"2\" height=\"11\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"2\" width=\"2\" height=\"11\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"3\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"9\" y=\"3\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"6\" width=\"6\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"5\" y=\"9\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"9\" y=\"9\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"1\" width=\"4\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "mutate",
+    "name": "突变",
+    "variant": "C",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"3\" width=\"3\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"3\" width=\"3\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"4\" width=\"6\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"2\" width=\"2\" height=\"3\" fill=\"#eaf8fc\"/><rect x=\"7\" y=\"11\" width=\"2\" height=\"3\" fill=\"#eaf8fc\"/><rect x=\"3\" y=\"8\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"8\" width=\"2\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"6\" width=\"2\" height=\"4\" fill=\"#0b1118\"/></svg>"
+  },
+  {
+    "key": "homing",
+    "name": "血行转移",
+    "variant": "A",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"6\" width=\"10\" height=\"4\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"4\" width=\"6\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"5\" width=\"2\" height=\"6\" fill=\"#30d1fa\"/><rect x=\"13\" y=\"7\" width=\"2\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"7\" width=\"3\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"6\" y=\"5\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"6\" y=\"9\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"1\" y=\"4\" width=\"2\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"1\" y=\"10\" width=\"2\" height=\"2\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "homing",
+    "name": "血行转移",
+    "variant": "B",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"3\" width=\"2\" height=\"10\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"5\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"4\" width=\"6\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"5\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"7\" y=\"9\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"11\" y=\"7\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"1\" y=\"7\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"7\" width=\"2\" height=\"2\" fill=\"#0b1118\"/></svg>"
+  },
+  {
+    "key": "homing",
+    "name": "血行转移",
+    "variant": "C",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"2\" width=\"12\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"2\" y=\"12\" width=\"12\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"2\" y=\"4\" width=\"2\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"12\" y=\"4\" width=\"2\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"5\" width=\"6\" height=\"6\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"3\" width=\"2\" height=\"3\" fill=\"#eaf8fc\"/><rect x=\"7\" y=\"10\" width=\"2\" height=\"3\" fill=\"#eaf8fc\"/><rect x=\"7\" y=\"7\" width=\"2\" height=\"2\" fill=\"#0b1118\"/></svg>"
+  },
+  {
+    "key": "mucus",
+    "name": "黏液破裂",
+    "variant": "A",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"5\" y=\"2\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"4\" width=\"10\" height=\"7\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"11\" width=\"6\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"5\" width=\"4\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"4\" y=\"8\" width=\"3\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"9\" y=\"8\" width=\"3\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"1\" y=\"12\" width=\"2\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"13\" y=\"12\" width=\"2\" height=\"2\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "mucus",
+    "name": "黏液破裂",
+    "variant": "B",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"3\" y=\"3\" width=\"10\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"2\" y=\"5\" width=\"12\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"7\" width=\"8\" height=\"4\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"11\" width=\"4\" height=\"3\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"8\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"9\" y=\"8\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"1\" y=\"12\" width=\"3\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"12\" y=\"12\" width=\"3\" height=\"2\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "mucus",
+    "name": "黏液破裂",
+    "variant": "C",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"4\" y=\"2\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"4\" width=\"10\" height=\"4\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"5\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"9\" y=\"5\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"2\" y=\"8\" width=\"12\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"10\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"12\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"14\" width=\"2\" height=\"1\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "jump",
+    "name": "转移",
+    "variant": "A",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"7\" y=\"1\" width=\"2\" height=\"4\" fill=\"#eaf8fc\"/><rect x=\"7\" y=\"11\" width=\"2\" height=\"4\" fill=\"#eaf8fc\"/><rect x=\"1\" y=\"7\" width=\"4\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"11\" y=\"7\" width=\"4\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"5\" y=\"5\" width=\"6\" height=\"6\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"3\" width=\"2\" height=\"10\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"7\" width=\"10\" height=\"2\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "jump",
+    "name": "转移",
+    "variant": "B",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"4\" y=\"3\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"5\" width=\"2\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"5\" width=\"2\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"11\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"5\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"7\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"9\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"7\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "jump",
+    "name": "转移",
+    "variant": "C",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"3\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"10\" y=\"3\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"2\" y=\"11\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"10\" y=\"11\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"5\" width=\"4\" height=\"6\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"2\" width=\"2\" height=\"3\" fill=\"#eaf8fc\"/><rect x=\"7\" y=\"11\" width=\"2\" height=\"3\" fill=\"#eaf8fc\"/><rect x=\"4\" y=\"7\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "ossify",
+    "name": "骨样硬化",
+    "variant": "A",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"1\" y=\"3\" width=\"4\" height=\"4\" fill=\"#eaf8fc\"/><rect x=\"11\" y=\"9\" width=\"4\" height=\"4\" fill=\"#eaf8fc\"/><rect x=\"4\" y=\"5\" width=\"8\" height=\"6\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"3\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"11\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"6\" width=\"2\" height=\"4\" fill=\"#0b1118\"/><rect x=\"5\" y=\"7\" width=\"6\" height=\"2\" fill=\"#0b1118\"/></svg>"
+  },
+  {
+    "key": "ossify",
+    "name": "骨样硬化",
+    "variant": "B",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"2\" width=\"3\" height=\"3\" fill=\"#eaf8fc\"/><rect x=\"11\" y=\"11\" width=\"3\" height=\"3\" fill=\"#eaf8fc\"/><rect x=\"4\" y=\"4\" width=\"8\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"2\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"12\" width=\"4\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"6\" width=\"4\" height=\"4\" fill=\"#0b1118\"/><rect x=\"5\" y=\"8\" width=\"6\" height=\"2\" fill=\"#0b1118\"/></svg>"
+  },
+  {
+    "key": "ossify",
+    "name": "骨样硬化",
+    "variant": "C",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"5\" y=\"2\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"4\" width=\"10\" height=\"8\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"12\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"2\" y=\"5\" width=\"2\" height=\"4\" fill=\"#eaf8fc\"/><rect x=\"12\" y=\"7\" width=\"2\" height=\"4\" fill=\"#eaf8fc\"/><rect x=\"7\" y=\"5\" width=\"2\" height=\"3\" fill=\"#0b1118\"/><rect x=\"5\" y=\"8\" width=\"6\" height=\"2\" fill=\"#0b1118\"/><rect x=\"7\" y=\"11\" width=\"2\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "end",
+    "name": "结束回合",
+    "variant": "A",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"3\" y=\"2\" width=\"2\" height=\"12\" fill=\"#eaf8fc\"/><rect x=\"5\" y=\"3\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"5\" width=\"2\" height=\"5\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"10\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"7\" y=\"6\" width=\"3\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"9\" y=\"7\" width=\"3\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"11\" y=\"8\" width=\"3\" height=\"2\" fill=\"#30d1fa\"/></svg>"
+  },
+  {
+    "key": "end",
+    "name": "结束回合",
+    "variant": "B",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"2\" y=\"2\" width=\"2\" height=\"12\" fill=\"#eaf8fc\"/><rect x=\"4\" y=\"3\" width=\"8\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"4\" y=\"5\" width=\"2\" height=\"6\" fill=\"#30d1fa\"/><rect x=\"6\" y=\"7\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"8\" y=\"5\" width=\"2\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"10\" y=\"7\" width=\"2\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"12\" y=\"9\" width=\"2\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"12\" width=\"8\" height=\"2\" fill=\"#eaf8fc\"/></svg>"
+  },
+  {
+    "key": "end",
+    "name": "结束回合",
+    "variant": "C",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><rect x=\"7\" y=\"2\" width=\"2\" height=\"12\" fill=\"#30d1fa\"/><rect x=\"3\" y=\"7\" width=\"10\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"1\" y=\"3\" width=\"3\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"12\" y=\"3\" width=\"3\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"1\" y=\"11\" width=\"3\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"12\" y=\"11\" width=\"3\" height=\"2\" fill=\"#eaf8fc\"/><rect x=\"5\" y=\"5\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/><rect x=\"5\" y=\"9\" width=\"6\" height=\"2\" fill=\"#30d1fa\"/></svg>"
+  }
+]

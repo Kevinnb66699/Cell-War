@@ -74,7 +74,7 @@ func _process(_delta: float) -> bool:
 		for d in deck:
 			_feed.add_card(String(d[0]), String(d[1]), int(d[2]),
 				CWCardInfo.describe(String(d[0]), int(d[2]), 0), bool(d[3]))
-		_pin(CWStyle.label("← 打出的卡 / 抽到的事件卡，越新的越靠上；点一张看全文",
+		_pin(CWStyle.label("← 打出的卡 / 抽到的事件卡 / 世界事件，越新的越靠上；点一张看全文",
 			CWStyle.SIZE_LABEL, CWStyle.TEXT_HI), Vector2(70, 502))
 		return false
 	if _frames < WARMUP:

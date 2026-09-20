@@ -37,14 +37,9 @@ func _initialize() -> void:
 		g.round_no = 12
 		g.immune_level = int(STATES[i]["lv"])
 		g.memory = int(STATES[i]["mem"])
-		## 批 1 步 6：面板吃 CWMirror。这张图不浮技能框，纯查询句柄给个空 Callable 即可
-		var m := CWMirror.new()
-		var err := m.sync_from(g)
-		if err != "":
-			push_error("preview_level_bar：镜像装载失败 —— %s" % err)
 		var p := CWMatchPanel.new()
 		root.add_child(p)
-		p.refresh(m, Callable())
+		p.refresh(g)
 		_panels.append(p)
 
 

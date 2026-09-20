@@ -15,10 +15,7 @@ extends Node2D
 const CHARGE := 0.65         ## 蓄力多久
 const REACH := 0.55          ## 光束推到底要多久
 const TOTAL := 2.2           ## 整只演出的长度
-## 光束从发动者身上偏出多少才起头（别糊在细胞脸上）。**默认值只是退路**：
-## issue #53 ⑧「Excalibur 应该从细胞表面上下中心表面发出」—— 起点由 `CWUIBridge.show_beam`
-## 改成**胞体中心**、这个偏移改成**胞体半径**，于是光芯正好从细胞轮廓上离开（play 的 start）。
-const START := 16.0
+const START := 16.0          ## 光束从发动者身上偏出多少才起头（别糊在细胞脸上）
 const SWELL := 7.0           ## 螺旋最粗处的振幅
 const TWIST := 0.1           ## 螺旋的空间频率
 const SPIN := 9.0            ## 螺旋的转速
@@ -34,15 +31,13 @@ const INK_SPLASH := Color("dabb80")
 var _t := 0.0
 var _from := Vector2.ZERO
 var _to := Vector2.ZERO
-var _start := START
 var _splash: Array[Vector2] = []
 var _active := false
 
 
-func play(from: Vector2, to: Vector2, splash: Array[Vector2], start := START) -> void:
+func play(from: Vector2, to: Vector2, splash: Array[Vector2]) -> void:
 	_from = from
 	_to = to
-	_start = start
 	_splash = splash.duplicate()
 	_t = 0.0
 	_active = true
@@ -77,22 +72,22 @@ func _draw() -> void:
 		_burst(_from, 1.0 - _t / CHARGE, INK_CHARGE, CHARGE_DOTS, 30.0)
 		return
 	var full: float = _from.distance_to(_to)
-	if full <= _start:
+	if full <= START:
 		return
 	var axis := (_to - _from) / full
 	var perp := Vector2(-axis.y, axis.x)
 	var reach := clampf((_t - CHARGE) / REACH, 0.0, 1.0)
-	var tip: float = lerpf(_start, full, reach)
+	var tip: float = lerpf(START, full, reach)
 	## 两道螺旋：同一条包络（中间最粗、两头收尖）上，一道取正一道取负
-	var s := _start
+	var s := START
 	while s < tip:
-		var env: float = sin((s - _start) / maxf(full - _start, 1.0) * PI) * SWELL
+		var env: float = sin((s - START) / maxf(full - START, 1.0) * PI) * SWELL
 		var off: float = sin(s * TWIST - _t * SPIN) * env
 		var base := _from + axis * s
 		draw_rect(Rect2((base + perp * off).round(), Vector2(2, 2)), INK_A, true)
 		draw_rect(Rect2((base - perp * off).round(), Vector2(2, 2)), INK_B, true)
 		s += 1.0
-	draw_line(_from + axis * _start, _from + axis * tip, INK_CORE, 1.0, false)
+	draw_line(_from + axis * START, _from + axis * tip, INK_CORE, 1.0, false)
 
 	## 侧向波及：哪几格被扫到是**引擎掷的**，这儿只负责炸
 	if _t > SPLASH_AT and _t < SPLASH_AT + SPLASH_FOR:

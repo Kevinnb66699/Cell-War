@@ -67,11 +67,6 @@ func stop() -> void:
 	_started = false
 
 
-## 这个连接是不是机器人客户端（hello 里自报）。真人界面客户端读观测镜像，只有机器人还要老 view（批 1 A-3.4）
-func is_bot(cid: int) -> bool:
-	return clients.has(cid) and bool(clients[cid].get("bot", false))
-
-
 func now_ms() -> int:
 	return Time.get_ticks_msec()
 
@@ -151,7 +146,7 @@ func _on_connected(cid: int) -> void:
 		peer.disconnect_peer(cid)
 		return
 	clients[cid] = { "nick": "", "room": "", "hello": false, "last_seen": now_ms(), "ip": ip,
-		"sec": 0, "count": 0, "kick_at": 0, "bot": false }
+		"sec": 0, "count": 0, "kick_at": 0 }
 
 
 func _on_disconnected(cid: int) -> void:
@@ -241,15 +236,13 @@ func _handle(cid: int, bytes: PackedByteArray) -> void:
 			return
 		c["hello"] = true
 		c["nick"] = CWNet.clean_nick(msg.get("nick", ""))
-		## 机器人客户端（AI 对战 / 无头测试 / 线上验收）：每步额外给它一份老 view，见 CWRoom.push_state_to（批 1 A-3.4）
-		c["bot"] = bool(msg.get("bot", false))
 		send(cid, { "t": "welcome", "client_id": cid, "ver": CWNet.NET_VERSION, "maintenance": drain })
 		say("连接 #%d %s（%s）" % [cid, c["nick"], c["ip"]])
 		var token: Variant = msg.get("token", "")
 		if token is String and token != "":
 			_reconnect(cid, str(msg.get("room", "")), token)
 		return
-	if t != "answer" and t != "ping" and t != "query":   ## query 只在本席被问的那段时间发生、服务器正空转（E-1 (a)）；拖一条多步路线每格两问，按 30 条/秒算会被踢线
+	if t != "answer" and t != "ping":
 		var sec := now_ms() / 1000
 		if c["sec"] != sec:
 			c["sec"] = sec
@@ -293,8 +286,7 @@ func _handle(cid: int, bytes: PackedByteArray) -> void:
 				"set_ai": e = r.set_ai(cid, msg.get("seat"), msg.get("tier", ""))
 				"kick": e = r.kick(cid, msg.get("seat"))
 				"start": e = r.start(cid)
-				"answer": e = r.answer(cid, msg.get("ask_id"), msg.get("key", ""), msg.get("index", -1))
-				"query": e = r.query(cid, msg)
+				"answer": e = r.answer(cid, msg.get("ask_id"), msg.get("index"))
 				"surrender": e = r.surrender(cid, msg.get("agree", true))
 				"chat": e = r.chat(cid, str(msg.get("text", "")), str(msg.get("scope", "all")))
 				_: e = "bad_message"
@@ -309,11 +301,13 @@ func _create_room(cid: int, msg: Dictionary) -> void:
 	var n: Variant = msg.get("players", 4)
 	var timer: Variant = msg.get("timer", 60)
 	var pub: Variant = msg.get("public", true)
+	## 老客户端不带这个字段 → 默认开（与改动之前的行为一致）
+	var wev: Variant = msg.get("world_events", true)
 	## 观众视角：不带 → false = 手牌背面，也就是这个开关加进来之前的行为
 	var wh: Variant = msg.get("watch_hands", false)
 	if not (n in CWNet.PLAYER_CHOICES) or typeof(timer) != TYPE_INT or timer < 0 \
 			or timer > CWNet.TIMER_MAX or typeof(pub) != TYPE_BOOL \
-			or typeof(wh) != TYPE_BOOL:
+			or typeof(wev) != TYPE_BOOL or typeof(wh) != TYPE_BOOL:
 		_error(cid, "bad_param")
 		return
 	unbind(cid)
@@ -321,15 +315,15 @@ func _create_room(cid: int, msg: Dictionary) -> void:
 	while rooms.has(code):
 		code = CWNet.make_code(rng)
 	var r := CWRoom.new()
-	r.configure(self, code, n, timer, pub, wh)
+	r.configure(self, code, n, timer, pub, wev, wh)
 	var sd: Variant = msg.get("seed", 0)
 	if sd is int:
 		r.seed_override = sd
 	rooms[code] = r
 	clients[cid]["room"] = code
 	r.join(cid, clients[cid]["nick"])
-	say("建房 %s：%d 人，计时 %d s，%s%s，房主 %s" % [code, n, timer,
-		"公开" if pub else "私密",
+	say("建房 %s：%d 人，计时 %d s，%s%s%s，房主 %s" % [code, n, timer,
+		"公开" if pub else "私密", "" if wev else "，无世界事件",
 		"，观众全见" if wh else "", clients[cid]["nick"]])
 
 
@@ -382,9 +376,6 @@ func _load_replays() -> void:
 	for n in names:
 		if not n.ends_with(CWReplay.EXT):
 			continue
-		## 序号**不依赖 valid()**（批 1 步 7）：版本 / 指纹跳号后旧文件读不出，序号若归零，keep_replay 会从 00000001 起覆盖同名旧文件，
-		## 旧文件永远进不了 REPLAY_KEEP 淘汰、永久占目录
-		_replay_seq = maxi(_replay_seq, n.get_basename().to_int())
 		var rep := CWReplay.read("%s/%s" % [REPLAY_DIR, n])
 		if rep.is_empty():
 			continue

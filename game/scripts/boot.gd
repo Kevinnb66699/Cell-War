@@ -36,14 +36,9 @@ extends Node
 ## · **补丁包只走明文** —— 完整性靠 manifest 里那个 SHA-256（挂载前必校验），
 ##   换不成旧包：manifest 同时钉死 `build`，只有比本地新的才装。
 ##
-## **2026-09-09 当初不上 HTTPS 的理由**：那台机器上的证书老是过期 ——
-## 查的时候四个站已经死了两个，剩一个 10 天后到期。热更不该因为谁忘了续证就静默失效，
-## 而签名给的保证比 TLS 更贴题（要的是真伪不是保密）。
-##
-## **2026-09-19 改成 https 域名**（全量发版还账，见下面 `SELF_HOST`）。信任锚一个字没变 ——
-## 仍然是烧在包里的那把公钥；换地址只为网页版不再被当混合内容拦掉。
-## 代价写在这儿：**热更这条链从此吃证书** —— 证书死了 = manifest 取不到 = 静默不更新。
-## （四个站 09-14 起全是 Let's Encrypt + certbot 自动续，`certbot renew --dry-run` 过。）
+## **为什么不上 HTTPS**：那台机器上的证书老是过期 ——
+## 2026-09-09 查的时候四个站已经死了两个，剩一个 10 天后到期。
+## 热更不该因为谁忘了续证就静默失效，而签名给的保证比 TLS 更贴题（要的是真伪不是保密）。
 ##
 ## 四条纪律，缺一条整套就不成立：
 ## ① **地址写死在常量里**（`MANIFEST` / `PCK_HOSTS`），不许来自配置文件或命令行，
@@ -55,27 +50,13 @@ extends Node
 const PatchState := preload("res://scripts/patch_state.gd")
 const MAIN_SCENE := "res://scenes/Main.tscn"
 
-## ⚠ 全部写死。真伪靠签名不靠传输层 —— manifest 有 RSA 签名，补丁包有 manifest 里的 SHA-256。
-##
-## **2026-09-19 全量发版还账**：从明文 IP 改成 https 域名。网页版必须跑在 https 页面上，
-## 而 https 页面发出的 http 请求会被浏览器当**混合内容**拦掉、并把整页标成「不安全」
-## （上线当天 Kevin 第一句话就是这个）。09-15 只能先在**发版侧**顶一个注入 index.html 的
-## 猴补丁改写地址（`tools/web/same_origin_shim.js`），因为改这一行就必须全量发版：
-## 本文件读在挂载补丁之前，热更不了它。这一版改到位，shim 已删。
-## 出处：`tools/publish_release.sh` 的挂账提醒、`docs/网页导出.md` §①。
-const SELF_HOST := "https://cellwar.jiling.chat/cellwar/"
+## ⚠ 全部写死。明文没关系 —— manifest 靠签名验真伪，补丁包靠 manifest 里的 SHA-256。
+const SELF_HOST := "http://124.221.78.13/cellwar/"
 const MANIFEST := SELF_HOST + "latest.json"
 const MANIFEST_SIG := MANIFEST + ".sig"
 ## 补丁包允许来自哪儿。manifest 里给的地址必须落在其中之一 ——
 ## 就算私钥泄漏了，攻击者也只能从这几个前缀发东西，多一道门槛。
-##
-## ⚠ **第二条是明文的老地址，故意留着**：`tools/build_patch.sh` 写进 manifest 的下载地址
-## 仍然是 `http://124.221.78.13/cellwar/…`，而补丁包走明文本来就是有意的（完整性靠
-## manifest 里那个 SHA-256，见文件头「两段路」；混合内容只是**网页**的事，
-## 而网页版从 2026-09-19 起根本不查更新，见 `_ready`）。
-## 去掉这一条而不同时改打包器，后果是**每个补丁都被 `decide()` 静默跳过**——
-## 下载不发生、不报错、没人会发现。护栏 `t_hot_patch` 直接读 build_patch.sh 的 HOST 核这条。
-const PCK_HOSTS := [SELF_HOST, "http://124.221.78.13/cellwar/"]
+const PCK_HOSTS := [SELF_HOST]
 ## 查更新最多等这么久。**查不到就照原样进游戏** —— 联网是锦上添花，
 ## 不该让一个断网的人打不开单机（Kevin 的队友常在手机热点下玩）。
 ## 2026-09-13 随两个门槛一起从 6 抬到 10：护栏钉着「补丁包的超时不短于查更新的总预算」，
@@ -103,20 +84,6 @@ var _t0 := 0               ## 启动时刻，用来算「等了多久」（按�
 
 
 func _ready() -> void:
-	## **网页版不走热更，连查都不查**（2026-09-19 全量发版还账）：重新部署静态文件就是更新，
-	## 而让它装桌面补丁反而危险 —— 补丁按桌面基线打，会把网页包里更新的脚本盖回旧的。
-	## 此前是靠 nginx 给 `/cellwar/latest.json` 回 404 达到同样效果，代价是每次启动
-	## 都要白跑一趟请求；再早一点（混合内容拦截那一版）是干等满 `CHECK_BUDGET` 十秒。
-	## 出处：`tools/publish_release.sh` 的挂账提醒、`docs/网页导出.md` §①。
-	if OS.has_feature("web"):
-		get_tree().change_scene_to_file(MAIN_SCENE)
-		return
-	## **编辑器运行时跳过整个热更**：本地开发应该跑磁盘上的代码，
-	## 不被服务器上的补丁覆盖（线上旧补丁会把新档位/新代码盖回旧版，F5 一跑就中招）。
-	## 只影响 `OS.has_feature("editor")` 的运行；导出客户端行为零变化。
-	if OS.has_feature("editor"):
-		get_tree().change_scene_to_file(MAIN_SCENE)
-		return
 	_t0 = Time.get_ticks_msec()
 	_build_note()
 	## **一进来就写字**。上一版这一段是全空白的：`_note` 建出来是空的，

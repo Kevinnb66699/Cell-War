@@ -2,11 +2,11 @@
 ##
 ## 阶段顺序**逐条照抄 PRD「世界回合」那一节**，改动前先回去核对，别凭印象调：
 ##
-## S 阶段：特殊组织产出 → 血管传送 → 免疫【复活】→ 癌细胞【复活】
+## S 阶段：世界事件 → 特殊组织产出 → 血管传送 → 免疫【复活】→ 癌细胞【复活】
 ##        → 免疫【有氧呼吸】→ 其他 S 类
-## E 阶段：【无氧呼吸】→【微环境压迫】→【增生】→【侵蚀】→【固化】→ 固化计数衰减
+## E 阶段：【微环境压迫】→【增生】→【侵蚀】→【无氧呼吸】→【固化】→ 固化计数衰减
 ##        → 其他 E 类 → 更新持续状态（「坏死」到期）→ 移除「新生」
-##        → 全局修饰倒计时/到期 → **胜利条件检查**
+##        → 世界事件到期（紊乱返回、持续效果倒计时）→ **胜利条件检查**
 ##
 ## 两个容易踩的点：
 ## ① **增生在侵蚀之前**，但增生这一轮**新造的格子不作侵蚀的来源**
@@ -21,12 +21,15 @@ extends RefCounted
 var game: CWGame
 
 
-## S 阶段的**自动结算部分**（特殊组织产出 → 血管传送）。
+## S 阶段的**自动结算部分**（世界事件 → 特殊组织产出 → 血管传送）。
 ## 两处【复活】要玩家选落点，交给流程状态机；有氧呼吸在复活全部结算完之后调。
 ## 是协程：产出收取和血管落地都可能抽到要中途选择的事件卡（await 链见 cw_card_fx 头注）。
 func round_start() -> void:
 	game.log_msg("━━━━ 第 %d 世界回合 ━━━━" % game.round_no)
 	_reset_round_flags()
+	await game.world_fx.on_round_start()
+	if CWData.is_world_event_round(game.round_no):
+		await game.world_fx.trigger()
 	await _tissue_production()
 	await _vessel_teleport()
 
@@ -35,40 +38,30 @@ func aerobic() -> void:
 	_aerobic()
 
 
-## S 阶段第 6 步【过载】（PRD 2026-09-15 新增）。排在【有氧呼吸】之后、其他 S 类之前。
-func overload() -> void:
-	_overload()
-
-
-## 严格按 PRD「E 阶段」的步骤走（2026-09-19 issue #64 删掉「固化计数衰减」之后是八步）。校正过三次：
-## · 2026-08-31 第 7~9 步的先后（口径 #86）—— 此前 `world_fx.round_end()`（回合末结算 + 修饰到期）
-##   整体排在 `_clear_newborn()` 之后，于是回合末补结算造出的癌组织会多背一个世界回合的「新生」。
-## · 2026-09-14 **【无氧呼吸】提到第 1 步**（issue #40）：PRD 早就写成「1. 所有存活的癌细胞结算
-##   【无氧呼吸】。2. 结算【微环境压迫】…」，引擎却一直停在「压迫在前、无氧第 4」的旧顺序。
-##   **这不是纸面先后**：压迫要扣癌细胞的能量，先呼吸就意味着扣之前先进账 —— 同一个局面下
-##   死不死人会不一样。
-## · 2026-09-19 **【固化计数衰减】整步删除**（issue #64「计数不再递减」，PRD 的 E 阶段列表里那一条同日删掉）——
-##   原第 6 步没了，后面「其他 E 类 / 更新持续时间 / 胜利检查」各往前挪一位。卡【基质稳定】随之整张删除
-##   （它唯一的作用就是跳过这一步）。**这一步删掉之后固化只增不减**：没人停留的计数会一直留着。
+## 严格按 PRD「E 阶段」的十步走。2026-08-31 校正了第 7~9 步的先后（口径 #86）：
+## 此前 `world_fx.round_end()`（紊乱返回 + 事件到期）整体排在 `_clear_newborn()` 之后，
+## 于是紊乱返回时【定殖】造出的癌组织会多背一个世界回合的「新生」。
 func e_phase() -> void:
-	if not game.tune.anaerobic_on_turn_end:
-		_anaerobic()                         ## 1 【无氧呼吸】（默认走这里；`eturn=1` 改在各癌细胞回合末，见 settle_anaerobic_turn）
-	_cancer_upkeep()                         ## 1.5 【代谢消耗】（PRD 之外，平衡候选③；跟着无氧走 —— 它是无氧的另一半，进账与支出）
-	_pressure()                              ## 2 【微环境压迫】
+	_pressure()                              ## 1 【微环境压迫】
 	## 增生把它这一轮造出来的格子交给侵蚀，让侵蚀**不要拿它们当来源**（PRD 的「注」，Kevin 2026-09-09 定读法）
-	_erosion(_proliferate())                 ## 3 【增生】→ 4 【侵蚀】
+	_erosion(_proliferate())                 ## 2 【增生】→ 3 【侵蚀】
+	if not game.tune.anaerobic_on_turn_end:
+		_anaerobic()                         ## 4 【无氧呼吸】（默认走这里；`eturn=1` 改在各癌细胞回合末，见 settle_anaerobic_turn）
+	_cancer_upkeep()                         ## 4.5 【代谢消耗】（PRD 之外，平衡候选③）
 	await _resolve_camping()                 ## 4.9 骨样硬化标记格上的蹲守净化（排在固化之前，见 _resolve_camping）
 	_solidify()                              ## 5 【固化】
 	_rooted()                                ## 5 【根深蒂固】（环境恶化 II/III 期，同属第 5 步：固化格给相邻癌组织加计数）
 	_ossify()                                ## 5 骨肉瘤【骨样硬化】标记到期（同属第 5 步，排在计数固化之后）
-	_mark_adhesion()                         ## 6 树突【E-组织黏连】（第 6 步「其他 E 类」目前只剩它）
-	game.world_fx.tick_durations()           ## 7 全局修饰倒计时/到期 + 「本世界回合」修饰过期
-	_tick_necrosis()                         ## 7 「坏死」倒计时（同属第 7 步）
-	_tick_chemo_cd()                         ## 7 树突【I-趋化源】的技能冷却（同属第 7 步；源本身按完整回合过期）
-	_tick_chemo_track()                      ## 7 【免疫猎杀】的追踪趋化源倒计时（同属第 7 步）
-	_expire_marks()                          ## 7 树突【I-标记】到期：标记后第二次世界回合结算移除（PRD 2026-09-12，同属第 7 步）
-	_clear_newborn()                         ## 8.5 移除「新生」（PRD 之外的簿记，排在胜负检查之前）
-	_cap_energy()                            ## 8.5 能量上限（PRD 之外，见口径 #92）
+	_decay()                                 ## 6 固化计数衰减
+	_mark_adhesion()                         ## 7 树突【E-组织黏连】（也是 E 类，排在紊乱返回之前）
+	await game.world_fx.round_effects()      ## 7 其他 E 类效果：目前只有【紊乱】返回原位
+	game.world_fx.tick_durations()           ## 8 世界事件倒计时/到期 + 「本世界回合」修饰过期
+	_tick_necrosis()                         ## 8 「坏死」倒计时（同属第 8 步）
+	_tick_chemo_cd()                         ## 8 树突【I-趋化源】的技能冷却（同属第 8 步；源本身按完整回合过期）
+	_tick_chemo_track()                      ## 8 【免疫猎杀】的追踪趋化源倒计时（同属第 8 步）
+	_expire_marks()                          ## 8 树突【I-标记】到期：标记后第二次世界回合结算移除（PRD 2026-09-12，同属第 8 步）
+	_clear_newborn()                         ## 9 移除「新生」
+	_cap_energy()                            ## 9.5 能量上限（PRD 之外，见口径 #92）
 	## 10 胜利条件检查。免疫先判：PRD 的列举顺序如此，
 	## 而且两边同时满足时「癌细胞已全灭」比「占地达标」更靠后发生，判给免疫更符合直觉。
 	## 教程 fixture 局跳过这两条「立刻赢」（game.win_checks，见那儿的注释）：摆拍局面一判就是免疫胜利。
@@ -96,6 +89,9 @@ func _reset_round_flags() -> void:
 
 ## 代谢核心/骨髓产出；产出瞬间站在其上的细胞立即收取（说明 #9）
 func _tissue_production() -> void:
+	if game.event_stacks("营养缺乏") > 0:
+		game.log_msg("【营养缺乏】本回合特殊组织不产出")
+		return
 	for c in game.tiles.keys():
 		var t: Dictionary = game.tiles[c]
 		if t["special"] != CWData.Special.CORE and t["special"] != CWData.Special.MARROW:
@@ -151,9 +147,11 @@ func _vessel_teleport() -> void:
 	for cell in ca:
 		game.log_msg("【血管】%s 传送至 %s" % [game.cell_name(cell), str(b)])
 		await game.actions.enter_tile(cell, b)
+		await game.world_fx.on_vessel_pass(cell)
 	for cell in cb:
 		game.log_msg("【血管】%s 传送至 %s" % [game.cell_name(cell), str(a)])
 		await game.actions.enter_tile(cell, a)
+		await game.world_fx.on_vessel_pass(cell)
 
 
 ## 【S-复活】癌症，可自愿放弃（说明 #21）。
@@ -356,8 +354,6 @@ func revive_immune(pid: int, pos: Vector2i) -> void:
 	cell["alive"] = true
 	cell["energy"] = game.tune.immune_respawn_energy
 	cell["respawn_round"] = -1
-	## `revives` 只记账（issue #68 回调：X 不再随复活次数长，见 CWGame.kill）；快照 / L0 夹具里还有它
-	cell["revives"] = int(cell.get("revives", 0)) + 1
 	await game.actions.enter_tile(cell, pos)
 	game.fx("revive_immune", { "at": pos })
 	game.log_msg("【免疫复活】%s 于骨髓 %s 复活（%s 能量）" % [
@@ -438,43 +434,6 @@ func necrosis_cut(cell: Dictionary, gain: int) -> int:
 	return CWData.round_tenth(gain * game.tune.necrosis_aerobic_pct, 100)
 
 
-## 【S-过载】某个癌细胞此刻会被扣掉多少（十分能量）。**纯查询，不改任何状态** ——
-## 和 `aerobic_income` / `anaerobic_gain_for` 同一个位置：结算走 `_overload`，两边共用这一份算式。
-##
-## PRD：`能量损失 = min{15, max{0, ((x − 10) ÷ 2) ^ 1.18}}`，x 是显示单位的能量。
-##
-## **用 `pow()` 是照抄现成先例**，不是新引入浮点：`_anaerobic_pool` 的指数项
-## （本文件 `pow(float(plain), exp_pct / 100.0)`）早就这么算了，
-## 而且 `_split_share` 同样是「浮点算完、`int(round(…))` 落到十分位」。
-## 这条规则照这个形状写，才不会在同一个内核里出现两套数值口径。
-##
-## 取整：**四舍五入到十分位**（PRD 通用规则 1）。注意不能走 `CWData.round_tenth` ——
-## 那个收的是两个整数，这里的底已经是浮点了。
-##
-## 四处钳位，各有各的理由：
-##   ① `x ≤ 门槛` 直接 0 —— 底数为负时实数域没有 1.18 次幂，`max{0, …}` 工程上必须钳在**底数**上；
-##   ② **上限 `overload_cap`**（PRD 的 `min{15, …}`，2026-09-15 晚 Kevin 加）——
-##      29.8 能量起损失到顶 15.0，之后恒定；
-##   ③ 损失**不超过当前能量** —— 有了 ② 之后这一句在默认值下**打不到**
-##      （实扫 0 例，「扣不死细胞」成了数学性质，与【代谢消耗】同源），
-##      但**不能删**：`overload_cap` 是旋钮，扫描时抬高或关掉它，交叉点就回来了；
-##   ④ `overload_div ≤ 0` 关闭整条规则（扫描的对照档，顺带兜住除零）。
-func overload_loss(cell: Dictionary) -> int:
-	var div: int = game.tune.overload_div
-	if div <= 0:
-		return 0
-	var over: int = cell["energy"] - game.tune.overload_threshold
-	if over <= 0:
-		return 0
-	## 换算成显示单位再套 PRD 的式子，最后乘 10 回到十分能量
-	var base := float(over) / 10.0 / float(div)
-	var loss := int(round(pow(base, game.tune.overload_exp / 100.0) * 10.0))
-	var cap: int = game.tune.overload_cap
-	if cap > 0:
-		loss = mini(loss, cap)
-	return mini(loss, cell["energy"])
-
-
 func _aerobic() -> void:
 	var immune: Array = game.living_cells(CWData.Faction.IMMUNE)
 	if immune.is_empty():
@@ -509,27 +468,6 @@ func _aerobic() -> void:
 	var why := "抗原记忆 %s 级" % CWData.LEVEL_NAMES[game.immune_level] \
 		if game.tune.aerobic_level_base != 0 else "健康 %d - 坏死 %d" % [hn.x, hn.y]
 	game.log_msg("【有氧呼吸】所有免疫细胞 +%s 能量（%s）" % [CWData.fmt(gain), why])
-
-
-## 【S-过载】：能量过多的癌细胞损失一部分（PRD 2026-09-15，S 阶段第 6 步）。
-## 每个细胞扣多少只看它自己的能量（`overload_loss`），所以**遍历顺序不影响结果** ——
-## 不需要像范围伤害那样先算后扣。
-##
-## 三条口径照抄【代谢消耗】`_cancer_upkeep`，理由同源（PRD 对这三点都没写，是外推）：
-##   ① **不算伤害事件** —— 不走 CWDamage 管线，【缺氧适应】【囊性护甲】【耗竭抵抗】一概挡不住。
-##      它是「代谢开销」不是「谁打了谁」，进管线会让一堆减伤牌凭空多出一层用途；
-##   ② **扣不死细胞** —— `overload_loss` 已经把损失钳在当前能量以内，最多扣到 0；
-##      但和【代谢消耗】不同，这里的 0 是**钳出来的**不是数学性质，所以钳位那一行不能删；
-##   ③ 只扣**存活**的癌细胞。第 4 步刚复活的也在内 —— PRD 第 6 步写的是「结算【过载】」，
-##      没有排除当回合复活的细胞，而复活后的能量同样是能量。
-func _overload() -> void:
-	for cell in game.living_cells(CWData.Faction.CANCER):
-		var lost := overload_loss(cell)
-		if lost <= 0:
-			continue
-		cell["energy"] -= lost
-		game.log_msg("【过载】%s 能量过多，损失 %s（余 %s）" % [
-			game.cell_name(cell), CWData.fmt(lost), CWData.fmt(cell["energy"])])
 
 
 ## 均分：n ≤ ref 每人全额；n > ref 把 ref 份总额均分，四舍五入到十分位（(2p+n)/(2n) 的整数写法，同 _split_share）。
@@ -591,7 +529,7 @@ func _erosion(fresh: Array[Vector2i] = []) -> void:
 	for block in game.blocks_of(healthy_pred):
 		var touches_edge := false
 		for c in block:
-			if CWData.is_edge(c, game.board_radius):
+			if CWData.is_edge(c):
 				touches_edge = true
 				break
 		if touches_edge:
@@ -649,9 +587,15 @@ func _erosion_dir(c: Vector2i) -> int:
 ## 返回**本回合新造出来的癌组织**，交给 `_erosion()` 当作「这一轮不算来源」的名单（见那边的注释）。
 func _proliferate() -> Array[Vector2i]:
 	var none: Array[Vector2i] = []
+	if game.event_stacks("增殖抑制") > 0:
+		game.log_msg("【增殖抑制】本回合组织无法增生")
+		return none
 	var stage := game.tumor_stage()
 	var rate: int = game.tune.proliferate_per_adjacent[stage]
 	var per_solid: int = game.tune.proliferate_per_solid[stage]
+	for i in game.event_stacks("异常增殖"):
+		rate *= 2        ## 【异常增殖】增生概率翻倍（叠加时按层数连乘）
+		per_solid *= 2   ## 两项一起翻，否则事件生效期间反而把固化的加成压扁了
 	if rate <= 0 and per_solid <= 0:
 		return none
 	## 先把每格所属的连通块与各块的固化数一次性算出来 —— 每格各跑一遍洪水填充的话，一次增生要跑 127 遍。
@@ -716,7 +660,8 @@ func _proliferate_chance(c: Vector2i, rate: int, per_solid: int, block_of: Dicti
 	return n_adj * (rate + per_solid * solids)
 
 
-## 公开的纯查询（测试核算式、界面将来显示「增生概率」用）：按当前分期与旋钮算某格的千分率。
+## 公开的纯查询（测试核算式、界面将来显示「增生概率」用）：按当前分期与旋钮算某格的千分率，
+## **不含**世界事件的翻倍/抑制 —— 那两条在 _proliferate 里。
 func proliferate_chance(c: Vector2i) -> int:
 	var stage := game.tumor_stage()
 	var bs := _block_solids()
@@ -792,41 +737,25 @@ func _anaerobic_pool(block: Array) -> float:
 		for c in block:
 			if game.tiles[c]["tissue"] == CWData.Tissue.CANCER:
 				plain += 1
-		## issue #66（2026-09-19）：固化项改按**块内**固化数（PRD「连通块固化癌组织个数 × 0.5」），不再数全图
-		var solid := 0
-		for c in block:
-			if game.tiles[c]["tissue"] == CWData.Tissue.SOLID:
-				solid += 1
+		var solid: int = game.count_tissue(CWData.Tissue.SOLID)
 		## 指数 -1 = 按人数取（四人 0.3 / 六人 0.3，PRD 2026-09-12 + issue #29）；>0 = 整体覆盖
 		var exp_pct: int = game.tune.anaerobic_block_exp
 		if exp_pct < 0:
 			exp_pct = CWData.anaerobic_block_exp(game.order.size())
 		var exp_term := pow(float(plain), exp_pct / 100.0) if plain > 0 else 0.0
-		return _stage_boost(exp_term * float(coef) + float(solid * game.tune.anaerobic_solid_bonus))
+		return exp_term * float(coef) + float(solid * game.tune.anaerobic_solid_bonus)
 	var pool := 0.0
 	for c in block:
 		pool += game.tune.anaerobic_per_solid \
 			if game.tiles[c]["tissue"] == CWData.Tissue.SOLID \
 			else game.tune.anaerobic_per_cancer
-	return _stage_boost(pool)
-
-
-## 【E-无氧呼吸】的**环境恶化增益**（issue #56，2026-09-19）：II 期 ×1.2、III 期 ×1.5。
-## 乘在池子上、**不取整**（四舍五入仍只在 `_split_share` 里做一次）；对照档的线性求和也照样吃这一刀 ——
-## 「在基础数值上增益」说的是无氧这条规则本身，不是某一种算法。
-func _stage_boost(pool: float) -> float:
-	return pool * CWData.ANAEROBIC_STAGE_MUL_BY_STAGE[game.tumor_stage()] / 100.0
+	return pool
 
 
 ## 池子按块内癌细胞数均分。**四舍五入只在这里做一次**（池子是浮点，见 _anaerobic_pool）：
 ## 先取整再除会取整两次，和 PRD 的「四舍五入到十分位」对不上。
-## **人数系数 k 乘在整个分式上**（PRD 2026-09-14，issue #43）：块内 1/2/3 个癌细胞 → 80%/100%/120%。
-## 放在这里而不是 `_anaerobic_pool`，因为池子不知道块里有几个细胞 —— 而 E 阶段结算和
-## 卡【糖酵解爆发】**都从这道口子出去**，写这一份两边就都对。
-## 兜底 2.0（`anaerobic_floor`）排在 k **之后**：PRD 写的是 `max{2, k × …}`。
 func _split_share(pool: float, count: int) -> int:
-	var scaled := pool * CWData.anaerobic_cells_k(count) / 100.0
-	var gain: int = int(round(scaled / float(count))) if game.tune.anaerobic_split else int(round(scaled))
+	var gain: int = int(round(pool / float(count))) if game.tune.anaerobic_split else int(round(pool))
 	return game.tune.clamp_income(gain, game.tune.anaerobic_floor, game.tune.anaerobic_cap)
 
 
@@ -1080,6 +1009,19 @@ func _solidify() -> void:
 ## 【E-能量上限】E 阶段末的那一次结算，实体在 CWGame.cap_energy（还有另外两个结算点要用）。
 func _cap_energy() -> void:
 	game.cap_energy()
+
+
+## 固化计数衰减：计数 > 0 且无癌细胞停留的**癌组织**，每世界回合 -0.5（PRD）
+func _decay() -> void:
+	if game.event_stacks("基质稳定") > 0:
+		game.log_msg("【基质稳定】本世界回合固化计数不衰减")
+		return
+	for c in game.tiles.keys():
+		var t: Dictionary = game.tiles[c]
+		if t["tissue"] != CWData.Tissue.CANCER or t["solid"] <= 0:
+			continue
+		if game.cells_at(c, CWData.Faction.CANCER).is_empty():
+			t["solid"] = maxi(t["solid"] - CWData.SOLIDIFY_DECAY, 0)
 
 
 ## 【E-微环境压迫】：每个免疫细胞受相邻组织的压迫，

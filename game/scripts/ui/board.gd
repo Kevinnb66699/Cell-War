@@ -13,10 +13,6 @@ const VESSELC = preload("res://assets/art/vessel_cancer.png")
 ## shader 按进度从底顶点顺时针把「满」露出来、其余露「底」，**按贴图纹素截取**。
 ## 颜色全在贴图里，代码不再给色。病变那两对在 zip 里名字写反了（癌化骨髓给的是绿、核心给的是紫），
 ## 2026-09-11 Kevin 让整对（底 + 满）对调过来，现在四对都和各自健康那对同色系；要改直接换文件。下标 0 = 健康、1 = 病变（含固化，和 set_tissue 同一口径）。
-##
-## 「满」圈**健康版和病变版同色**（核心都是 #3f9d5f、骨髓都是 #b07fe0）—— 癌化从来不改它。
-## 「底」圈则是 `lerp(所在地块的顶面底色, 满圈色, 0.30)`，所以地块底色一换它必须跟着换；
-## 2026-09-14 癌变特殊组织统一到普通癌组织那块红之后，那两张由 `tools/gen_special_cancer.py` 重推。
 const STORE_SHADER = preload("res://assets/shaders/store_progress.gdshader")
 const STORE_TRACK := {
 	CWData.Special.CORE: [preload("res://assets/art/ui/store/core_track_normal.png"),
@@ -32,11 +28,6 @@ const STORE_LIT := {
 }
 const ENERGYH = preload("res://assets/art/energy_normal.png")
 const MARROWH = preload("res://assets/art/marrow_normal.png")
-## 癌变版的**底色一律是普通癌组织那块红**（#b04a5a，与 tissue_cancer 同一套三档面色），
-## 图标（闪电 / 骨头 / 血管菱形）保持健康版的颜色原样不动 —— Kevin 2026-09-14：
-## 「代谢核心被癌化后，地块颜色和普通癌组织不一样，请修复」。此前核心自带 #c16271、骨髓自带 #a03984，
-## 同样是癌组织却一眼看着不是一回事。由 `tools/gen_special_cancer.py` 从健康版推出来，
-## **美术重画健康版之后要重跑它**（再跑 gen_marrow_pending.py 和 gen_solid_tissue.py）。
 const ENERGYC = preload("res://assets/art/energy_cancer.png")
 const MARROWC = preload("res://assets/art/marrow_cancer.png")
 ## 骨髓的「空仓」两张：图标那个框照旧，里面的骨头**淡下去**（保留 35% 的图标色）。
@@ -92,14 +83,9 @@ var marrow_position = []
 
 ## 轴坐标 (q,r) → 本文件的「行,列」下标。
 ## 中间那一行是 r=0，行内 q 自左向右递增；r 每 +1 往下走一行，整行同时右移半格。
-##
-## **ring 取的是正式盘的半径，不是当前格网的最大环号**（S9a，2026-09-19）：
-## `ensure_radius()` 往外长环的时候，老 127 格的键**一个字都不许变** —— 变了 `map` 里
-## 原有的条目就全查不到了（格网会整片"失踪"）。以 6 为基准之后，第 7 环起的格
-## 自然落到 row ≤ 0 / col ≤ 0 或 col 超出老范围的位置上，与老键不冲突
-## （同一行里 col 与 q 是双射，所以加环只是把每行两头接长）。
+## ring 取当前格网的最大环号（格网只在 _ready 铺一次、恒为正式盘；教程小棋盘靠遮罩，不重铺）。
 func axial_to_rc(a: Vector2i) -> Vector2:
-	var ring: int = CWData.BOARD_RADIUS
+	var ring: int = radius - 1
 	var q_min: int = -ring if a.y >= 0 else -ring - a.y      ## 这一行最左边那格的 q
 	return Vector2(a.y + ring + 1, a.x - q_min + 1)
 
@@ -134,7 +120,7 @@ func hex_at(p: Vector2) -> Vector2i:
 	var squash: float = distance_x * sqrt(3.0) / 2.0 / distance_y
 	var best := NO_TILE
 	var best_d: float = distance_x / sqrt(3.0)
-	for c: Vector2i in _active_set:   ## 遮罩掉的格点不到（教程小棋盘）：只扫活跃集，集合外一律 NO_TILE
+	for c in CWData.all_coords(active_radius):   ## 遮罩掉的格点不到（教程小棋盘）
 		var d: Vector2 = p - tile_center(c)
 		var dist := Vector2(d.x, d.y * squash).length()
 		if dist < best_d:
@@ -238,20 +224,6 @@ func tile_z(a: Vector2i, above: int) -> int:
 	return int(map[key]["position"].y) + above
 
 const MARK_MOVE := Color("30d1fa6e")     ## 可迁移/可移动：免疫青，0x6E ≈ 0.43
-## 癌性组织（含固化）的可迁移格换成**红**，不再和健康格共用那一抹青（issue #47）。
-##
-## 青色色标压在红底的癌组织上会把它洗成灰青（#B04A5A 叠 0.43 的 #30D1FA = #7984 9F，
-## 正是 Kevin 附图里那块灰蓝），而健康格叠出来是 #2F8491 —— 两种组织几乎是一个色，
-## 可「这一步会不会净化 / 花不花得起」恰恰是选迁移落点时最要紧的一条信息。
-## **不能用癌方橙**：那是「可攻击」（MARK_ATTACK）的词，占了就再也读不出「格里站着敌人」。
-##
-## 2026-09-19 折腾了三版（提亮红 #E05A6E → 艳红 #FF3D5C → 深红 #D8364F）之后 Kevin 定的最终口径：
-## **「在 issue #47 改之前的颜色（#79849F）上加红一点点」** —— 不是红格，是那块灰蓝往红偏一点。
-## 色标从目标叠色反推：c = 底色 + (目标 − 底色) / 0.43，比例照 #47 之前的 0x6E 一个数没动；
-## 目标 #8E7E9C（#79849F 的 R +21、G −6、B −3）⇒ 色标 #61C3F3（免疫青掺一点暖），
-## 与健康候选格 #2F8491 色距 0.38（#47 之前 0.29），与攻击橙叠色 0.41。
-## 候选帧（R +12 / +21 / +30）见 `截图_2026-09-19_issue47_加深/对比_灰蓝加红_甲乙丙.png`，选的中间那档
-const MARK_MOVE_SICK := Color("61c3f36e")
 const MARK_ATTACK := Color("ffb03a6e")   ## 可攻击：癌方橙，同混合比例
 const MARK_HOVER := Color("eaf8fc8f")    ## 鼠标所在格：提亮到 0.56
 ## 规划器画的路径：走得通用免疫青加深一档（比 MARK_MOVE 更实，一眼看出「这几格是我选的」），
@@ -266,8 +238,7 @@ var _mucus_root: Node2D             ## 黏液覆膜层（见 set_mucus）
 var _mucus_nodes := {}              ## 轴坐标 -> 那一格的覆膜 Sprite2D
 var _necro_root: Node2D             ## 坏死纹理层（见 set_necrosis），压在黏液膜下面
 var _necro_nodes := {}              ## 轴坐标 -> 那一格的坏死 Sprite2D
-var _necro_tex := {}                ## 特殊组织 -> 那一种格子的坏死膜（见 _necrosis_film）
-var _icon_px := {}                  ## 特殊组织 -> 图标占的像素集合（见 _icon_pixels）
+var _necro_tex: ImageTexture
 var _mucus_tex: ImageTexture        ## 覆膜贴图，第一次用到时烤一张，之后所有格共用
 var _mark_material: ShaderMaterial  ## 所有剪影共用一份
 
@@ -358,10 +329,8 @@ static func ring_delays(coords: Array, step: float) -> Dictionary:
 ## 把癌性组织交叉淡回健康组织（返回主菜单时用）。
 ## 直接换贴图会「啪」地一下；而两种贴图的**图案**不同，单靠调色也淡不过去 ——
 ## 所以在每格上盖一张健康贴图、alpha 0→1，淡完再把底下那张换掉、撤掉盖的那张。
-## **跟着大半径走**（读 `_coords`）：教程大盘上第 7 环起的格也可能被染成癌组织，
-## 不淡的话返场后它们红着躺在菜单底下（虽然 alpha 0 看不见，但下一局一露出来就是上一局的颜色）
 func fade_to_healthy(seconds: float) -> void:
-	for c in _coords:
+	for c in CWData.all_coords():
 		var key := axial_to_rc(c)
 		if not map.has(key):
 			continue
@@ -405,11 +374,9 @@ func fade_extras(seconds: float) -> void:
 
 
 ## 棋盘上现有的积累进度环。正式盘只有 9 个核心 / 骨髓预建了环，教程 fixture 会临时加几个。
-## **跟着大半径走**（读 `_coords`）纯粹是为了三处扫格网的循环口径一致 —— 进度环只长在
-## 11 格特殊组织上（`CWData.CORES` / `MARROWS`，全在 6 环内），大盘上多扫的那几百格恒为空。
 func _store_rings() -> Array[Sprite2D]:
 	var out: Array[Sprite2D] = []
-	for c in _coords:
+	for c in CWData.all_coords():
 		var key := axial_to_rc(c)
 		if not map.has(key):
 			continue
@@ -570,7 +537,7 @@ func set_store(a: Vector2i, frac: float, special: int, tissue: int = CWData.Tiss
 		if not show:
 			return
 		## 正式盘只给 9 个核心 / 骨髓预建了环；教程 fixture 会把特殊组织摆在任意格
-		##（关卡数据 tiles[].solid），第一次要画时再建（2026-09-11）
+		##（guide_levels.gd 的 tile_extras），第一次要画时再建（2026-09-11）
 		_add_store_ring(t)
 		ring = t.get_node("StoreRing") as Sprite2D
 	ring.visible = show
@@ -642,10 +609,6 @@ func _ready():
 	energy_position = CWData.CORES.map(axial_to_rc)
 	marrow_position = CWData.MARROWS.map(axial_to_rc)
 	_grid()
-	_coords = CWData.all_coords()   ## `_grid()` 铺的就是这 127 格；往后由 `ensure_radius` 追加
-	## 默认整盘活跃（= active_radius 的默认值 BOARD_RADIUS）。`hex_at` 只扫这个集合，
-	## 所以它必须在格网铺完的同一时刻就装满，不能等哪个调用方来设。
-	set_active_tiles(CWData.all_coords(), 0.0)
 	_mark_material = ShaderMaterial.new()
 	_mark_material.shader = SILHOUETTE
 	_marks = Node2D.new()
@@ -668,71 +631,19 @@ func _ready():
 ## 09-10 的第一版是按半径**重铺**格网：开局相机推完才重铺、画面「猛地缩小」，返场又没换回来，
 ## 菜单就站在 7 格棋盘上、装饰细胞全落到原点（Kevin 当天报的两个现象）。
 ## seconds = 0 立即到位（无头测试 / 拆局兜底）；淡出的格连同挂在它上面的进度环一起淡（modulate 继承）。
-##
-## 真正的口径是**一个格集合**而不是半径：新手引导要露的是任意形状的几格（第二关右边那只癌细胞
-## 要等到该露的那一步才出现），半径表达不了。半径只是集合的一种特例，`set_active_radius` 转调即可。
 const ACTIVE_FADE := 0.45
-## 浮现（PRD:45）每环之间的间隔：新进集合的格按 `ring_delays`（:320）由内向外排队入场。
-## 比高亮剪影的 MARK_RING_DELAY 稀一点 —— 浮现是「地长出来」的演出，太密就看不出环序。
-const ACTIVE_RING_DELAY := 0.06
-## 格网最大能长到第几环。教程最大的盘是第六关的 12（469 格）；
-## 封顶是防写歪的数据把格网撑爆（半径 n 的格数是 3n²+3n+1）
-const MAX_GRID_RADIUS := 16
-var active_radius: int = CWData.BOARD_RADIUS   ## 当前看得见、点得到的最大环号（= 活跃集里最大的环号）
-## 格网**已经铺到**的最大环号（`ensure_radius` 只增不减）。与 `active_radius` 是两回事：
-## 这个是「有没有这块格子」，那个是「这块格子露没露出来」
-var _grid_radius: int = CWData.BOARD_RADIUS
-## 格网上真实存在的所有格（`_ready()` 铺 127 格，`ensure_radius` 往后追加）。
-## **凡是「逐格扫一遍格网」的循环都读它，不读 `CWData.all_coords()`** ——
-## 后者恒是 127 格，大盘上会漏掉第 7 环起那些格
-var _coords: Array[Vector2i] = []
-## 活跃格集合（格坐标 -> true）。`_ready()` 里铺成全 127 格，与 active_radius 的默认值对上。
-var _active_set := {}
+var active_radius: int = CWData.BOARD_RADIUS   ## 当前看得见、点得到的最大环号
 var _active_tws := {}   ## 格坐标 -> 正在跑的淡入淡出补间；换向时先杀掉上一条，别让两条抢同一个 alpha
 
-## 老签名保留：半径 = 「到中心不超过 r」这一种活跃集。拆局兜底（match.gd:1140/1236）与
-## `_adopt_mirror`（match.gd:1062）还在用它，改口径不该逼它们跟着改。
-## 上限取**已经铺到的**环号而不是 `CWData.BOARD_RADIUS`：正式盘两者都是 6（行为一个字不变），
-## 大盘上才允许把 7 环以外的格也一并露出来
 func set_active_radius(board_radius: int, seconds: float = ACTIVE_FADE) -> void:
-	set_active_tiles(CWData.all_coords(clampi(board_radius, 0, _grid_radius)), seconds)
-
-
-## 换一批活跃格：新进集合的格错峰浮现，离开集合的格淡出，一直在（或一直不在）的格一动不动。
-## 盘外的坐标直接丢掉 —— 集合里只装真实存在的格，否则 `hex_at` 会拿它去查一个空位置。
-func set_active_tiles(tiles: Array, seconds: float = ACTIVE_FADE) -> void:
-	var want_set := {}
-	var top := 0
-	## **先把格网长到活跃集要的那么大**（S11 真机抓到）：教程局开一关时
-	## `CWMatch._open_tutor_level` 是「`set_active_tiles` 在前、第一次 `_adopt_mirror`
-	## （那里才 `ensure_radius`）在后」，第 7 环起的格这一刻还不在 `map` 里 ⇒ 下面那行
-	## `map.has` 会把它们整批滤掉，第六关 469 格的盘只露出中间 127 格、
-	## 玩家走到 (-10,1) 时脚下一片黑。活跃集声明的形状是**数据**，格网跟着它长
-	var want_ring := 0
-	for c: Vector2i in tiles:
-		want_ring = maxi(want_ring, CWData.hex_dist(c, Vector2i.ZERO))
-	ensure_radius(mini(want_ring, MAX_GRID_RADIUS))   ## 正式局恒在半径 6 内 ⇒ 第一行就返回，一格不加
-	for c: Vector2i in tiles:
-		if not map.has(axial_to_rc(c)):
-			continue          ## 盘外 / 超过封顶的坐标照旧丢掉
-		want_set[c] = true
-		top = maxi(top, CWData.hex_dist(c, Vector2i.ZERO))
-	var fresh: Array = []
-	for c: Vector2i in want_set:
-		if not _active_set.has(c):
-			fresh.append(c)
-	var delays := ring_delays(fresh, ACTIVE_RING_DELAY)
-	## 先换集合再排补间：`is_active` 是即时谓词，浮现的那半秒里它就得答「在」。
-	_active_set = want_set
-	active_radius = top
-	## **必须跟着大半径走**（读 `_coords`）：这是「把 alpha 落到每一格」的那一趟，
-	## 漏掉第 7 环起的格就等于大盘上揭出来的格永远淡不进来
-	for c in _coords:
+	board_radius = clampi(board_radius, 0, CWData.BOARD_RADIUS)
+	active_radius = board_radius
+	for c in CWData.all_coords():
 		var key := axial_to_rc(c)
 		if not map.has(key):
 			continue
 		var tile: Sprite2D = map[key]["instance"]
-		var want: float = 1.0 if want_set.has(c) else 0.0
+		var want: float = 1.0 if CWData.hex_dist(c, Vector2i.ZERO) <= board_radius else 0.0
 		var running: Tween = _active_tws.get(c)
 		if running != null and running.is_valid():
 			running.kill()
@@ -741,22 +652,8 @@ func set_active_tiles(tiles: Array, seconds: float = ACTIVE_FADE) -> void:
 			tile.modulate.a = want
 			continue
 		var tw := tile.create_tween()
-		var delay: float = delays.get(c, 0.0)
-		if delay > 0.0:
-			tw.tween_interval(delay)
 		tw.tween_property(tile, "modulate:a", want, seconds)
 		_active_tws[c] = tw
-
-
-## 这一格此刻算不算「露出来了」—— **即时**谓词，读集合、不看补间走到哪儿。
-## 细胞贴图的遮罩要用它（match.gd:1622，S3 接）：用 tile_shown 会在浮现的那半秒里闪一下。
-func is_active(c: Vector2i) -> bool:
-	return _active_set.has(c)
-
-
-## 此刻的活跃格（新手引导的 `reveal` 要在它之上做并集：活跃集 ∪ reveal，方案 §1.9）
-func active_tiles() -> Array:
-	return _active_set.keys()
 
 
 ## 这一格此刻在画面上吗（淡出补间走完后为假）。测试与拆局核对用。
@@ -777,34 +674,6 @@ func _grid() -> void:
 			first_x -= distance_x/2
 		else:
 			first_x += distance_x/2
-
-
-## 把格网**一次性长到** `want` 这个半径（S9a「路 C」，盘面提案 §6.3，Kevin 2026-09-19
-## 「对地图的格数上限没有要求，可以超过 127 格，补全缺格即可」）。
-##
-## 口径三条，一条都不能松：
-##   ① **只加、不删、不重铺** —— 老 127 格的节点对象原地不动（09-10 那次按半径重铺格网，
-##      画面「猛地缩小」、返场又没换回来，Kevin 当天报了两个现象）；
-##   ② 新格**默认不在活跃集** = alpha 0、`hex_at` 扫不到（它只扫 `_active_set`），
-##      所以「看不见也点不到」，第四关在半径 12 的世界上与之前**逐像素相同**；
-##   ③ `want <= _grid_radius` 直接返回 ⇒ **正式对局零变化**（镜像半径恒 6，一行都不跑）。
-##
-## 新格的像素位置照 `_grid()` 那套布局的闭式解算：以中央格为原点，
-## `(q, r)` 往右 `distance_x·q`、往下 `distance_y·r`，再因为隔行错半格而右移 `distance_x/2·r`。
-## 不复用 `_grid()` 的 `first_x` 累加：那个变量在 `_grid()` 跑完之后已经不在起点上了。
-func ensure_radius(want: int) -> void:
-	if want <= _grid_radius:
-		return
-	var origin: Vector2 = map[axial_to_rc(Vector2i.ZERO)]["position"]
-	for c in CWData.all_coords(want):
-		var key := axial_to_rc(c)
-		if map.has(key):
-			continue
-		var at := origin + Vector2(distance_x * c.x + distance_x * 0.5 * c.y, distance_y * c.y)
-		new_tissue(key.x, key.y, at.x, at.y)
-		(map[key]["instance"] as Sprite2D).modulate.a = 1.0 if _active_set.has(c) else 0.0
-		_coords.append(c)
-	_grid_radius = want
 
 
 # ============ 黏液覆膜 ============
@@ -860,7 +729,7 @@ func set_mucus(cells: Array) -> void:
 ## 绘制调用。烤成 23×12 的贴图之后每格只剩一次 `draw_texture`。
 ## 坏死格的纹理（issue #15，2026-09-11；选稿 textures.js necrosis v0「灰色干枯」）：整格灰褐底、
 ## 两处短裂纹、两点淡色。此前坏死**根本没画**（只有悬停详情栏说一句），T 细胞放完毒素地上什么都看不出。
-## 覆在组织贴图上、压在黏液膜下面；贴图**每种特殊组织只烤一次**（issue #61 起分了几张），理由同 _mucus_film。
+## 覆在组织贴图上、压在黏液膜下面；贴图**只烤一次**，理由同 _mucus_film。
 const Z_NECRO := 0
 
 
@@ -880,8 +749,7 @@ func set_necrosis(cells: Array) -> void:
 		## 整格覆盖（HXR-I #27，2026-09-12）：膜就是组织贴图的剪影，摆法照抄那一格的 Sprite
 		var t: Sprite2D = map[axial_to_rc(c)]["instance"]
 		var s := Sprite2D.new()
-		## 膜按这一格的特殊组织挑：核心 / 骨髓那两张在图标处镂空（issue #61），其余是整张
-		s.texture = _necrosis_film(CWData.special_of(c))
+		s.texture = _necrosis_film()
 		s.centered = t.centered
 		s.offset = t.offset
 		s.position = t.position
@@ -890,97 +758,35 @@ func set_necrosis(cells: Array) -> void:
 		_necro_nodes[c] = s
 
 
-## 坏死膜：整格换成灰，但**保住地块自己的明暗关系**（HXR-I #27 要的「纯色整格」）。
-##
-## ⚠ **不能照剪影涂一块平色** —— 2026-09-12 到 09-14 就是那么涂的，Kevin 报
-## 「坏死的效果改变了原地图格子的形状」。原因在贴图的下三分之一：那不是格子的一部分花纹，
-## 是这块六棱柱的**两片侧面**（深 #0c1417 / 中 #20332d），**格子之间的缝和立体感全靠它们**。
-## 连侧面一起涂平之后，格子底下多出一整片同色的尖角、缝消失，看着就是地图的格子变了形状。
-##
-## 所以逐像素按**自身明度 ÷ 顶面明度**上色：顶面拿满 NECRO_INK，两片侧面自动压到原来的比例
-## （0.69 / 0.28），轮廓、缝、立体感与旁边的健康格逐像素一致。美术重画地块贴图这里自动跟上。
-##
-## 侧面回来之后**不再描边**：issue #31 那圈轮廓是给平色版救场的（整片同色时几格连一起读不出边界），
-## 现在相邻的坏死格照旧靠背景缝（横向）与暗侧面（斜向）分开，和普通格同一套，
-## 再描一圈反而是普通格没有的东西。
+## 坏死膜：**纯色大色块 + 一圈轮廓**（HXR-I #27 定的纯色；Kevin 2026-09-13 issue #31 补的轮廓 ——
+## 整片同色时几格连在一起读不出边界，描一圈深色边，一眼看得出是几格）。
+## 用健康组织贴图的透明度当剪影 —— 贴图换了尺寸这里也跟着对。
+## 轮廓 = 四邻里有一边是透明的那些像素（贴图自己的外沿），所以边总是贴着格子的形状走。
 const NECRO_INK := Color("686761")
+const NECRO_EDGE := Color("3f3e3a")
 
-## 坏死膜**不盖特殊组织的图标**（issue #61，Kevin 2026-09-19：「坏死贴图盖住特殊组织纹路，
-## 当骨髓 / 代谢核心进入坏死状态后，骨髓的卡牌 icon 和代谢核心的闪电 icon 会被盖住」）。
-## 根因：图标是**烤进地块贴图里**的，而坏死膜是整格一张盖在上面 —— 核心 / 骨髓一坏死
-## 就退化成一块没有身份的灰地，「这格是什么」当场读不出来
-## （积累进度那圈反倒还在：它是格子的子节点、相对 z 高一层，本来就压在膜上面）。
-##
-## 改法是**在膜上给图标留个洞**（按像素位置镂空），而不是另起一层把图标重画一遍：
-## 洞底下露出来的就是地块贴图自己的那几十个像素，于是空仓 / 待结算 / 固化时图标各是什么样，
-## 这里一概不必知道，永远跟着 `set_tissue()` 当前那张走，也不必每帧同步。
-## 膜照旧盖满其余部分（顶面 + 两片侧面），坏死一眼还是认得出来。
-##
-## **只镂核心和骨髓**：血管那个菱形图标占顶面 144 px（四分之一张脸），镂了就不像坏死了；
-## 而 issue #61 点名的正是这两种。要不要连血管一起镂，等美术 / Kevin 说。
-const NECRO_KEEP_ICON: Array[int] = [CWData.Special.CORE, CWData.Special.MARROW]
-
-
-## 这种特殊组织的图标占了顶面的哪几个像素（键 = 像素坐标）。不镂空的返回空字典。
-##
-## 位置从**健康版**贴图上量：顶面（= 普通组织贴图正中那一片同色区）上凡是与该格顶面底色
-## 不同的像素就算图标。底色取顶面上最多的那个颜色 —— 图标满打满算一百来个像素，
-## 抢不过五百多个的底色。
-## **不能拿当前那张贴图现量**：固化族的顶面是一片结晶花纹，现量会把花纹也当成图标镂掉。
-## 各变体（癌变 / 空仓 / 待结算 / 固化七档 × 变体）的图标位置与健康版逐像素一致，2026-09-19 核过。
-func _icon_pixels(special: int) -> Dictionary:
-	if _icon_px.has(special):
-		return _icon_px[special]
-	var out := {}
-	if special in NECRO_KEEP_ICON:
-		var src: Image = TISSUE_TEX[CWData.Special.NONE][0].get_image()
-		var sp: Image = TISSUE_TEX[special][0].get_image()
-		var face: Color = src.get_pixel(src.get_width() / 2, src.get_height() / 2)
-		var tally := {}
-		var base: Color = face
-		var most := 0
-		for y in src.get_height():
-			for x in src.get_width():
-				if src.get_pixel(x, y) != face:
-					continue        ## 两片侧面：那里没有图标，也不许镂
-				var c: Color = sp.get_pixel(x, y)
-				var n: int = int(tally.get(c, 0)) + 1
-				tally[c] = n
-				if n > most:
-					most = n
-					base = c
-		for y in src.get_height():
-			for x in src.get_width():
-				if src.get_pixel(x, y) == face and sp.get_pixel(x, y) != base:
-					out[Vector2i(x, y)] = true
-	_icon_px[special] = out
-	return out
-
-
-func _necrosis_film(special: int = CWData.Special.NONE) -> ImageTexture:
-	if _necro_tex.has(special):
-		return _necro_tex[special]
+func _necrosis_film() -> ImageTexture:
+	if _necro_tex != null:
+		return _necro_tex
 	var src: Image = TISSUE_TEX[CWData.Special.NONE][0].get_image()
 	var w := src.get_width()
 	var h := src.get_height()
 	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
-	var keep: Dictionary = _icon_pixels(special)
-	## 顶面的明度当基准。取正中那个像素 —— 顶面是这张图最大的一片，正中必落在它上面
-	var top := _luma(src.get_pixel(w / 2, h / 2))
 	for y in h:
 		for x in w:
-			var p := src.get_pixel(x, y)
-			if p.a <= 0.0 or keep.has(Vector2i(x, y)):
+			var a := src.get_pixel(x, y).a
+			if a <= 0.0:
 				continue
-			var k: float = _luma(p) / top if top > 0.0 else 1.0
-			img.set_pixel(x, y, Color(NECRO_INK.r * k, NECRO_INK.g * k, NECRO_INK.b * k, p.a))
-	var tex := ImageTexture.create_from_image(img)
-	_necro_tex[special] = tex
-	return tex
-
-
-static func _luma(c: Color) -> float:
-	return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b
+			var edge := false
+			for d: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				var nx := x + d.x
+				var ny := y + d.y
+				if nx < 0 or ny < 0 or nx >= w or ny >= h or src.get_pixel(nx, ny).a <= 0.0:
+					edge = true
+					break
+			img.set_pixel(x, y, Color(NECRO_EDGE if edge else NECRO_INK, a))
+	_necro_tex = ImageTexture.create_from_image(img)
+	return _necro_tex
 
 
 func _mucus_film() -> ImageTexture:

@@ -5,7 +5,7 @@
 ## **每只细胞两个节点**（front / back）：盾要绕着胞体转、骨牙要嵌在胞体前后，
 ## 前后各一半 —— 一个节点画不出「一半压在细胞后面」。两个节点都挂在 CWMatch 的 _cells_root 上，
 ## 位置 = 那一格的顶面中心（选稿的坐标系），z 由 CWMatch._sync_cells 按细胞节点 ±1 摆。
-## 状态**每帧现读镜像**（`mirror.cells[index]`），这儿不另记一份：护甲用掉了（armor_used）盾就收，
+## 状态**每帧现读引擎**（`game.cells[index]`），这儿不另记一份：护甲用掉了（armor_used）盾就收，
 ## 走下固化格底盘就没，标记消了冠印就没。只有「标记是哪一刻出现的」得自己记 —— 缩入动画从那一刻数。
 class_name CWCellDeco
 extends Node2D
@@ -26,8 +26,8 @@ const ORBIT_RY := 8.0
 const ORBIT_LIFT := 4.0
 
 var front := false            ## true = 画在细胞前面的那一半
-var mirror: CWMirror
-var index := -1               ## mirror.cells 的下标（稠密、含死者，等于细胞 id）
+var game: CWGame
+var index := -1               ## game.cells 的下标
 var half_h := 17.0            ## 这只细胞贴图的半高（CWMatch._sync_cells 每帧给；癌细胞贴图 32×34）
 var _t := 0.0
 var _marked_since := -1.0     ## 标记出现的时刻（_t 的读数）；-1 = 此刻没标记
@@ -62,20 +62,20 @@ static func marker_size(age: float) -> int:
 
 
 func _draw() -> void:
-	if mirror == null or index < 0 or index >= mirror.cells.size():
+	if game == null or index < 0 or index >= game.cells.size():
 		return
-	var c: Dictionary = mirror.cells[index]
+	var c: Dictionary = game.cells[index]
 	if not bool(c["alive"]) or int(c["faction"]) != CWData.Faction.CANCER:
 		_marked_since = -1.0
 		return
 	var body := Vector2(0, CWMatch.CELL_FOOT_DY)
 	match int(c["ctype"]):
 		CWData.CancerType.SIGNET:
-			if mirror.type_ability_on(c) and not bool(c.get("armor_used", false)):
+			if game.type_ability_on(c) and not bool(c.get("armor_used", false)):
 				_armor(body)
 		CWData.CancerType.OSTEO:
-			if mirror.type_ability_on(c) and mirror.tiles.has(c["pos"]) \
-					and int(mirror.tiles[c["pos"]]["tissue"]) == CWData.Tissue.SOLID:
+			if game.type_ability_on(c) and game.tiles.has(c["pos"]) \
+					and int(game.tiles[c["pos"]]["tissue"]) == CWData.Tissue.SOLID:
 				_barrier()
 	if bool(c.get("marked", false)):
 		if _marked_since < 0.0:

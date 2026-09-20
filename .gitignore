@@ -7,20 +7,3 @@ Desktop.ini
 
 # 客户端导出包（不入库；由 game/export_presets.cfg 生成）
 /dist/
-
-# 安卓自定义构建模板（tools/setup_android_build.py 装的）。
-# 光 android/build/libs/ 里的预编译原生库就 202 MB —— 这种东西进 git 一次就再也拿不出来。
-# 我们自己的那份改动在 tools/android/，换机器跑一次脚本就还原。
-/game/android/
-
-/.codegraph/
-
-# C# 内核（core/）的构建产物 —— 和 dist/ 同理，换台机器重跑就有
-/core/**/bin/
-/core/**/obj/
-
-# Claude Code 工作流 agent 的隔离 worktree 落在这里；不进仓库，也别让它绊倒发版脚本的「工作树干净」闸
-.claude/worktrees/
-
-# python 工具的字节码缓存（tools/xcheck_report.py 等）
-__pycache__/

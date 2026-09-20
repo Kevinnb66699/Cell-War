@@ -22,12 +22,11 @@ const RULE_FIELDS := [
 	"counter_dmg_on_fail", "solidify_threshold", "limit_round", "limit_cancerous",
 	"cancer_win_weighted", "cancer_win_hold_rounds", "solid_at_cancer_spawn",
 	"immune_respawn_delay", "immune_respawn_energy", "macro_heal_purify",
-	"antibody_max_per_round", "antibody_halve",
+	"antibody_max_per_round", "antibody_halve", "world_events_on",
 	"anaerobic_block_exp", "anaerobic_block_coef", "anaerobic_solid_bonus",
 	"proliferate_per_adjacent", "proliferate_per_solid", "erosion_tiles",
 	"metastasis_cost", "metastasis_max_per_round",
 	"newborn_protect",
-	"overload_threshold", "overload_div", "overload_exp", "overload_cap",
 ]
 
 
@@ -147,16 +146,6 @@ var aerobic_cap := 0
 ## 和上面四个「收入低保/封顶」不是一回事：那四个管**这一回合进多少**，
 ## 这个管**账上最多留多少**。囤积是靠这个封的（口径 #92）。
 var energy_cap := CWData.ENERGY_CAP_PER_ROUND
-
-## 【S-过载】三个旋钮，默认 = PRD 原文（见 CWData.OVERLOAD_*）。
-## 和 energy_cap / cancer_upkeep_pct 都管「囤积」，但这条是 PRD 写明的，那两个是候选。
-## **`overload_div = 0` 关闭整条规则** —— 扫描要有「过载关 + 另两个开」的对照档。
-var overload_threshold := CWData.OVERLOAD_THRESHOLD
-var overload_div := CWData.OVERLOAD_DIV
-var overload_exp := CWData.OVERLOAD_EXP
-## 单次损失上限（PRD 的 min{15, …}，Kevin 2026-09-15 晚加）；**0 = 不封顶**，
-## 那就退回第一版那条「越囤扣越狠、42.2 处净留见顶」的凸曲线 —— 扫描要有这一档对照。
-var overload_cap := CWData.OVERLOAD_CAP
 
 ## 【平衡候选③】癌细胞每个世界回合按**当前能量的百分比**自动损能（能量越多损失越多），
 ## 扣在 E 阶段【无氧呼吸】**之后**。整数百分比，**0 = 关闭**（默认）。
@@ -319,6 +308,15 @@ var antibody_max_per_round := CWData.ANTIBODY_MAX_PER_ROUND
 ## PRD 正本与仓库这份 diff 都已同步到这一条上（09-04 那次「已撤回」的标注随之作废）。
 var antibody_halve := true
 
+## 世界事件总开关（Kevin 2026-09-08 要的：单机与联机都能整局关掉）。
+## 关掉后 `CWWorldFx.trigger()` 直接返回 —— 不抽、不挂、不通报，事件池原样留着。
+##
+## **进 RULE_FIELDS**：它改的是规则，必须随快照下发、并进状态哈希 ——
+## 否则联机时服务器不放事件、客户端影子对局却以为该放，两边立刻对不上账。
+## 世界事件总开关。**2026-09-10 起默认关** —— 云端 PRD 给整节加了标题
+## 「世界事件（暂时停止维护，正常平衡性测试和对局不考虑世界事件）」。
+## 机制一行没删，拨回 true 就全回来；平衡扫描想带上它也照样带。
+var world_events_on := false
 ## 【E-无氧呼吸】现行公式（Kevin 2026-09-07）：
 ##   `(块内普通癌组织数 ^ (exp/100) × coef + 全图固化数 × solid_bonus) ÷ 块内癌细胞数`
 ## 三个旋钮都是给扫描拨的；**coef = 0 = 关 = 09-04 之前的线性求和**（对照档）。见 CWWorld._anaerobic_pool()。
