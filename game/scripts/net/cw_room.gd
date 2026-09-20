@@ -552,7 +552,7 @@ func tick(now: int) -> void:
 
 func _auto_answer() -> void:
 	var a := _ask
-	var idx: int = await bridge.heur.ask(a["req"])
+	var idx: int = await bridge.take_over(a["req"])   ## 专家档代打（Kevin 2026-09-20；此前是新手档 heur）
 	if _ask != a:
 		return
 	## 代打也是「一问答下」：边界报文同样要排在 emit 之前（理由见 answer()）
