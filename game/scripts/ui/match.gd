@@ -573,14 +573,11 @@ func start(snap: Dictionary = {}) -> void:
 			return
 	else:
 		kernel.open(cfg)
-		_mark_me()   ## 单机：唯一那位真人的名字加「（我）」（Kevin 2026-09-19）
 	_start_queue()
 	if by_stage:
 		_tutor_start_level()   ## 关首装闸那一次在 `kernel.run()` **之前**：不提前装，玩家会先看见一瞬间的全套界面
 	kernel.run()     ## autorun=false 的局从这里起跑；同步跑到第一问才让出
 	_observe_now()   ## 再取一份：开局布置的初始癌组织到第一问才落地，_bloom_order 要的是这一份
-	if by_stage:
-		_tutor_resnap()   ## 关首取景要按这一份镜像里玩家的格（见 `_tutor_resnap`）
 	if by_stage and _director != null and is_instance_valid(_director):
 		_director.rebase_hard()   ## 新镜像刚落地（`step_end` 也会取一次，但队列是异步消费的，等它就晚了）
 
@@ -832,11 +829,12 @@ func _prepare_ui() -> void:
 
 
 ## 三档 AI 的名字。**唯一一处**：配置面板的行文、存档的兼容映射、装配都读它。
-const AI_LEVEL_NAMES := ["普通", "较强", "树搜索", "意图"]
+const AI_LEVEL_NAMES := ["普通", "较强", "树搜索", "意图", "搜索"]
 const AI_NORMAL := 0
 const AI_MC := 1        ## 扁平蒙特卡洛（CWUIBridge 的基类本体），也是平衡标尺
 const AI_MCTS := 2      ## UCT 树搜索（队友 2026-09-07 的 CWMCTSBridge）
 const AI_INTENT := 3    ## 意图级规划（MechBridge，2026-09-20）：杠杆库 + 意图评估器，仅实验档
+const AI_ABS := 4       ## 对抗搜索（2026-09-20）：alpha-beta v2 + 回合边界叶 + E4 拟合估值，仅实验档
 ## 树搜索档的预算。扁平 MC 的专家档是 192 个模拟 step；树搜索给两倍，
 ## 依据是「它该更强，也该更慢一点，但仍要有可预测的上限」——
 ## ⚠ **这三个数没有对局数据支撑**，只是量纲上的合理取值，等有了 AI 互搏基准再定。
@@ -913,7 +911,7 @@ func _wire_bridge(level: int) -> void:
 	## 第四档「意图」：挂 MechBridge（意图级规划，杠杆库 + 意图评估器）。
 	## 两者共用同一个 `ai_bridge` 槽（泛化：只认 game + ask），非顶层询问自己回落启发式。
 	bridge.ai_bridge = null
-	if (level == AI_MCTS or level == AI_INTENT) and not tutorial:
+	if (level >= AI_MCTS) and not tutorial:
 		var alt_ai: CWBridge
 		if level == AI_MCTS:
 			alt_ai = CWMCTSBridge.new()
@@ -924,6 +922,12 @@ func _wire_bridge(level: int) -> void:
 			alt_ai.use_threading = thinking
 		else:
 			alt_ai = MechBridge.new()   ## 意图评估在主线程同步跑（可接受，后续再线程化）
+			if level == AI_ABS:
+				## 「搜索」档 = mech_strength 里验证过的 abs 配置：alpha-beta v2（叶=回合边界）
+				## + E4 新平衡拟合估值（log 版）。同款决策在 AI 互撞实测：免 58% 对旧意图免。
+				alt_ai.use_search = true
+				alt_ai.use_fit_eval = true
+				MechBridge._fit_linear_on = false
 		alt_ai.delay_ms = CWSettings.ai_delay_ms
 		alt_ai.delay_node = self
 		bridge.ai_bridge = alt_ai
@@ -1283,19 +1287,6 @@ func _tutor_set_npc(seat: int, plan: Array) -> void:
 func _open_tutor_level(cfg: Dictionary, wid := "base", reset_layers := true) -> CWKernel:
 	if reset_layers:
 		CWTutorLayers.reset()   ## 每关从「全开」起步，再由 flow[0].ui 给全量
-		## 上一关的结算气泡不带进这一关：关与关之间是静默切换，气泡却按自己的 RESULT_HOLD 活着 ——
-		## 真机（2026-09-19）第三关末那一下「攻击大成功」的金字气泡压在第四关的章节横带上。
-		## 正式局的同一件事在 `_prepare_ui`（issue #26），教程换关不走那条路
-		if toast != null:
-			toast.hide_now()
-		## 关首那条 `state` 的 `ui` **先铺一遍再取景**：不然下面按缺省机位（地图调中）直接就位，
-		## 导演翻到 flow[0] 再把镜头改成这一关要的（第四关「角色调中」），`_sync_tutor_layers`
-		## 就补间 0.45 s 过去 —— 新一关一开场镜头先滑一下（Kevin 2026-09-19「切到第二章时镜头会晃一下」）。
-		## 导演稍后再 apply 一遍同一份是幂等的，`_tutor_camera` 看机位没变就不再动
-		var flow: Array = _tutor_level.get("flow", [])
-		var first: Dictionary = flow[0] if not flow.is_empty() and flow[0] is Dictionary else {}
-		if str(first.get("do", "")) == "state" and first.get("ui") is Dictionary:
-			CWTutorLayers.apply(first["ui"])
 	if _tutor_level.is_empty():
 		push_error("CWMatch：关表里读不出第 %d 关（data/tutorial/index.json）" % (_tutor_index + 1))
 		return null
@@ -1429,14 +1420,6 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 		if mark_done:
 			CWGuideProgress.set_all_done()
 		return
-	## 真通关（不是目录跳关）先等关末的结算演出播完、再停一拍才切（Kevin 2026-09-19：
-	## 「攻击大成功的弹窗消失之前，第二章已经开始了」）。等的这几秒闸是关死的（导演 `_finish()`）。
-	## 等完要核一遍代际：目录跳关 / 拆局可能抢在前面，那就不再切这一次
-	if mark_done:
-		var lid := _loop_id
-		await _wait_result_bubbles()
-		if _loop_id != lid or not tutorial or kernel == null:
-			return
 	## ★ **承接此刻这一局**（间章，方案 §2.5）：下一关的 `flow[0]` 显式写了 `"load": null` ⇒
 	## 一局都不拆 —— 局面 / 席位 / 桥 / 队列全留着，只把导演换成新那一关的剧本。
 	## 第五关 Step2 是自由游玩，终局盘面（谁站哪、哪几格被净化）**不是作者期能写死的**，
@@ -1458,37 +1441,6 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 	_tutor_reopen("base", true)
 
 
-## 单机局（一位真人对 AI）：真人那一席的名字加「（我）」后缀（Kevin 2026-09-19「方便玩家进行定位」）。
-## 右栏 / 悬停详情 / 日志 / 结算屏读的都是引擎里的同一个 `name`，所以只改这一处、一处都不用另判。
-## **走联机同一条路**：改引擎里的 `players[pid]["name"]`（`cw_room.gd` 就是这么把昵称写进去的），
-## 但 UI 层不许碰 CWGame（护栏③），所以经句柄 `kernel.mark_player` 代劳，在 `kernel.open` 之后、第一份镜像之前。
-## **不加**的三种局：热座（两位以上真人，换手遮罩已写明轮到谁，「我」反而说不清是谁）、
-## 联机（名字是昵称、服务器写；网络句柄的 mark_player 回 false）、回放（不问人）；教程局另一条装配路，名字由关卡数据定
-const ME_SUFFIX := "(我)"   ## 半角括号（Kevin 2026-09-19）：右栏把它拆成小字画（CWMatchPanel），日志 / 提示行原样
-
-func _mark_me() -> void:
-	if online or replay != null or human_players.size() != 1 or kernel == null:
-		return
-	kernel.mark_player(int(human_players[0]), ME_SUFFIX)
-
-
-## 关末的结算气泡（「攻击成功」「攻击大成功」…）按自己的 RESULT_HOLD 活着，静默切关会把它切断；
-## 先等它们播完、再停 TUTOR_SWITCH_BEAT 一拍，第二章才开（Kevin 2026-09-19）。
-## 上限兜底：气泡层要是被别的东西卡住，别让通关永挂在这儿
-const TUTOR_SWITCH_BEAT := 0.8
-const TUTOR_BUBBLE_WAIT_MAX := 6.0
-## `_sync_tutor_layers` 上一帧看到的层表：变了才重算机位（镜头不跟细胞，Kevin 2026-09-19）
-var _tutor_layers_seen := {}
-
-func _wait_result_bubbles() -> void:
-	var waited := 0.0
-	while toast != null and is_instance_valid(toast) and toast.has_bubbles() \
-			and waited < TUTOR_BUBBLE_WAIT_MAX:
-		await get_tree().create_timer(0.1).timeout
-		waited += 0.1
-	await get_tree().create_timer(TUTOR_SWITCH_BEAT).timeout
-
-
 ## 间章分镜 6 的**阵营翻转**（导演的 `want_rematch`，S9b）：关内的一拍，走的却是
 ## **跨关规格**的那条拆装序列（算关 / 换席位 / 重挂桥与面板）—— 席位 order 在
 ## `g.init(order, 1)` 时就定死了（`cw_world_loader.gd:142`），而关内 `reload_world` 是
@@ -1507,8 +1459,6 @@ func _tutor_rematch(wid: String) -> void:
 ## ★ **换局会新建一只桥**（`_wire_bridge`），所以要把**同一个**导演重新挂上去（见 `_tutor_next_level` 的头注）
 func _tutor_reopen(wid: String, fresh_cursor: bool) -> void:
 	_loop_id += 1
-	if fresh_cursor:
-		_tutor_cut()
 	## 拆旧局的次序钉死：**abort 永远排在 stop 之前** —— 只有 abort() 里的 _barrier_seq = 0
 	## 能放掉正在等 ack 的那条 roll；先停队列就没人 ack，5 秒后内核报 barrier timeout
 	kernel.abort()
@@ -1529,8 +1479,6 @@ func _tutor_reopen(wid: String, fresh_cursor: bool) -> void:
 		"deciders": _tutor_deciders() }, wid, fresh_cursor)
 	if kernel == null:
 		return
-	if _cells_root != null and is_instance_valid(_cells_root):
-		_cells_root.visible = true   ## `_tutor_cut()` 藏起来的那一层：新一关的细胞随第一份镜像落位
 	_start_queue()
 	if fresh_cursor:
 		_tutor_start_level()
@@ -1538,35 +1486,8 @@ func _tutor_reopen(wid: String, fresh_cursor: bool) -> void:
 		_director.install()       ## 同关首：装闸在 run() 之前。**不调 open()** —— 游标要停在这一条
 	kernel.run()
 	_observe_now()
-	if fresh_cursor:
-		_tutor_resnap()
 	if _director != null and is_instance_valid(_director):
 		_director.rebase_hard()
-
-
-## 关首取景要的是**新一关**玩家站的格：`_open_tutor_level` 就位那一下镜像还是上一关的
-## （第一份新镜像要到 `kernel.run()` 之后的 `_observe_now()` 才落地），「角色调中 / 调左」的关
-## 就先按老坐标就位、新镜像一到 `_sync_tutor_layers` 再补间 0.45 s 过去 —— 开场又滑一下
-## （2026-09-19 真机连拍：切进第四关后 0.3 s 内整盘还在挪）。第一份镜像落地后**再直接就位一次**
-func _tutor_resnap() -> void:
-	_tutor_cam = {}
-	_tutor_camera()
-	_tutor_layers_seen = CWTutorLayers.current()   ## 就位那一刻的层表：下一帧别再为同一份层表补间一次
-
-
-## 跨关的那一刀（Kevin 2026-09-19「切到第二章的时候镜头会晃动一下」）。真机连拍查到的不是镜头在动：
-## 老盘面的格子本来在新机位下花 ACTIVE_FADE 淡出、老细胞也要等新镜像到了才收 ——
-## 镜头一就位，它们整体滑了一下，看着就是镜头在晃。静默切换 = 老的东西**当帧消失**：
-## 格子 alpha 直接归零、细胞层先藏起来（`_tutor_reopen` 开好新一关再放出来）、盘面特效只清状态不动显隐
-## （显隐归各层自己管，藏了没人再开）。只在跨关做：关内完整换局（间章翻转）盘面本来就要连着
-func _tutor_cut() -> void:
-	if board != null and is_instance_valid(board):
-		board.set_active_tiles([], 0.0)
-	if _cells_root != null and is_instance_valid(_cells_root):
-		_cells_root.visible = false
-	for fx in _board_fx_layers():
-		if fx.has_method("clear"):
-			fx.clear()
 
 
 ## 地图浮现（PRD:45）：把一组坐标并进棋盘的活跃集。皮经 `reveal_tiles` 这条 Callable 回来 ——
@@ -1579,7 +1500,6 @@ func _tutor_reveal(coords: Array) -> void:
 		if not want.has(c):
 			want.append(c)
 	board.set_active_tiles(want)
-	_tutor_camera(TUTOR_CAM_SECS)   ## 活跃集撑大了才重算机位（镜头不再每帧跟细胞，见 `_sync_tutor_layers`）
 
 
 ## 每帧把 UI 层开关落到控件上（只在教程局走，方案 §3.2(b)）。
@@ -1603,14 +1523,9 @@ func _sync_tutor_layers() -> void:
 		## 状态框 + 抗原记忆框）。不给 `CWTutorLayers` 加新层 —— 那文件带 `class_name`、
 		## 走不了热更（方案 §1.5）；`_sync_tutor_layers` 本来就只有教程局每帧跑，写死 false 即可
 		panel.guide_layers(CWTutorLayers.on("end_turn"), CWTutorLayers.on("round_no"), false)
-	## 镜头也是一层（`ui.camera`）—— 但**只在层表变了**（剧本改了镜头 / 开关了右栏）才重算并补间过去。
-	## 每帧都算的话，「角色调中 / 调左」的关会跟着细胞走（玩家每走一格棋盘就滚一格）；
-	## Kevin 2026-09-19：「镜头只需要在关卡开始的时候调中一次，不需要一直跟随细胞」。
-	## 另外两种要重算的事件各自显式调：地图浮现（`_tutor_reveal`）、换局 / 重置 / 重心平移（直接就位）
-	var layers_now := CWTutorLayers.current()
-	if layers_now != _tutor_layers_seen:
-		_tutor_layers_seen = layers_now
-		_tutor_camera(TUTOR_CAM_SECS)
+	## 镜头也是一层（`ui.camera`）：关内换 step 改了镜头、或地图浮现把活跃集撑大了，
+	## 都在这儿补间过去。`_tutor_camera` 自己判「机位没变就不动」，每帧问一次不花钱
+	_tutor_camera(TUTOR_CAM_SECS)
 	## 「切换种类」（PRD:375，第五关 Step2，S5）跟着其余 ui 层走同一条路：
 	## 层表是静态的、每帧全量刷，所以重置 / 目录跳关 / 关内重装都不用各自补一句。
 	## **不走导演→皮那条意图链**：它是一个显隐开关，与 sidebar / round_no 同类

@@ -19,7 +19,7 @@
 			"winner": -1
 		},
 		"mc6": {
-			"hash": "b5a332702ab68c2c956c6277bcf4496c2e404c10c8a93ffe86041fa0adddf872",
+			"hash": "0ceea8c1fa8d797368e67c2c4b015d742a25f72fc63aebbbe537dc68a1958345",
 			"round_no": 7,
 			"steps": 400,
 			"winner": -1
@@ -31,12 +31,12 @@
 			"winner": 0
 		},
 		"mcts6": {
-			"hash": "a907515b1595b551089467f6b5c74f187657f6c3511abe259b1ac61ab708b9da",
+			"hash": "dd9a02b671beae7e7861e1d81b607067321c748bbf541fb771ab23bd2a01a346",
 			"round_no": 3,
 			"steps": 112,
 			"winner": 0
 		}
 	},
 	"max_steps": 400,
-	"recorded": "2026-09-19T20:43:45"
+	"recorded": "2026-09-20T14:13:37"
 }

@@ -79,6 +79,7 @@ func _read_metrics(g: CWGame, pid: int, with_hash := false) -> Dictionary:
 	var actor_energy := 0
 	var actor_solid_rounds := -1
 	var actor_min_immune_dist := 999
+	var actor_immune_reach_cost := 9999   ## 威胁 v2：最近免疫迁入到 actor 格的**能量成本**（十分位）
 	if not actor.is_empty():
 		actor_energy = int(actor["energy"])
 		var ap: Vector2i = actor["pos"]
@@ -87,11 +88,16 @@ func _read_metrics(g: CWGame, pid: int, with_hash := false) -> Dictionary:
 				int(g.tiles[ap]["solid"]), MechValue.solidify_threshold(g))
 		for im in g.living_cells(CWData.Faction.IMMUNE):
 			actor_min_immune_dist = mini(actor_min_immune_dist, CWData.hex_dist(ap, im["pos"]))
+		## 能量距离场（MechDist）：免疫「真走得过来要多少能量」——地形癌化决定，
+		## 六边形距离分不出来（人机局4 退角病灶的度量根）。
+		var fld: Dictionary = MechDist.immune_reach_field(g)
+		actor_immune_reach_cost = int(fld.get(ap, 9999))
 	## —— 战略读数（癌方「追杀免疫 + 踩骨髓」的度量）——
 	## 癌方没有走过去攻击的对称机制，减免疫能量靠【微环境压迫】（E 阶段被动）。
 	## 所以「追杀」= 让免疫被回合末压迫压死：用引擎 pressure_lethal 逐只判（含护盾减免）。
 	## 读的是「此刻盘面」的压迫 —— 评估路径试走后盘面已含定殖转化，是真实下界。
 	var immune_alive := 0
+	var cancer_alive := 0
 	var immune_pressure_total := 0
 	var immune_lethal_count := 0
 	var min_immune_energy := 0
@@ -105,6 +111,7 @@ func _read_metrics(g: CWGame, pid: int, with_hash := false) -> Dictionary:
 		if first_immune or e < min_immune_energy:
 			min_immune_energy = e
 			first_immune = false
+	cancer_alive = g.living_cells(CWData.Faction.CANCER).size()
 	## 骨髓控制：健康骨髓 = 免疫复活点；癌化/固化 = 封掉复活点
 	var healthy_marrows := 0
 	var cancer_marrows := 0
@@ -124,7 +131,9 @@ func _read_metrics(g: CWGame, pid: int, with_hash := false) -> Dictionary:
 		"actor_energy": actor_energy,
 		"actor_solid_rounds": actor_solid_rounds,
 		"actor_min_immune_dist": actor_min_immune_dist,
+		"actor_immune_reach_cost": actor_immune_reach_cost,
 		"immune_alive": immune_alive,
+		"cancer_alive": cancer_alive,
 		"immune_pressure_total": immune_pressure_total,
 		"immune_lethal_count": immune_lethal_count,
 		"min_immune_energy": min_immune_energy,
@@ -201,3 +210,134 @@ func best_by(g: CWGame, pid: int, scorer: Callable) -> Dictionary:
 			best = e.duplicate(true)
 	best["score"] = best_score
 	return best
+
+
+# ==================== alpha-beta 搜索（意图级，2026-09-20） ====================
+##
+## 设计（三轮实测定位后的架构，见 mech_bridge 实锤记录）：
+##   · 节点 = 一个细胞的**整回合计划**（候选由 candidates() 生成 = 动作知识层）；
+##   · 叶估值 = MechValue.position_eval / position_eval_linear（预测器本职：评走完后的局面）；
+##   · 免疫节点取 max、癌节点取 min（E 零和），深度 D = 往后看的席位数；
+##   · 引擎快照→试走→读数→回滚（evaluate_path 已有），完全确定、可复现。
+##
+## 为什么是 alpha-beta 不是 MCTS：有验证过的估值函数（MCTS 反而用不上）+ 引擎滚整局太贵
+## （MCTS 需成百上千次完整模拟，深度 2 的 alpha-beta 只需 K² 次叶评估）+ 项目要确定性。
+
+## alpha-beta 主入口 v2：叶 = 【回合边界】（2026-09-20 epd 实验后的关键改动）。
+## 原因：压迫出伤的因果链（包围 → E阶段结算 → 能量掉/死 → ia降）**结构性地落在
+## 「走1-2步就评」的所有线之外**——静态叶永远看不见结算瞬间；而估值（训练分布=回合
+## 边界）本来就认识"死了"（ia +3.6, 5/5）。把叶推到回合边界 = 压迫链进视野
+## + 叶回到训练分布 + 其余席位的应对顺带完成（image 内各席桥作答）。
+## 值统一在【搜索方视角】（leaf_eval 由桥按搜索方阵营翻号一次），节点 max/min 按行动方阵营。
+func search_best(g: CWGame, pid: int, leaf_eval: Callable, depth := 2, top_k := 4) -> Dictionary:
+	if MechBridge.TOPK_OVERRIDE > 0:
+		top_k = MechBridge.TOPK_OVERRIDE
+	## 候选取**单步**：叶会把本回合剩余部分(含E阶段)整个模拟掉，计划只需选"下一手"——
+	## 多步候选的额外分支在整回合模拟面前没有增量信息，只烧时间。
+	var cands: Array = await candidates(g, pid, 1)
+	var quick := MechBridge._cancer_score if g.player(pid)["faction"] == CWData.Faction.CANCER 		else MechBridge._immune_score
+	var scored: Array = []
+	for path in cands:
+		var m: Dictionary = await evaluate_path(g, pid, path)
+		scored.append({ "path": path, "q": float(quick.call(m)) })
+	scored.sort_custom(func(a, b): return float(a["q"]) > float(b["q"]))
+	if scored.size() > top_k:
+		scored = scored.slice(0, top_k)
+	var my_fac: int = g.player(pid)["faction"]
+	var alpha := -INF
+	var best: Dictionary = {}
+	for c in scored:
+		var snap: Dictionary = g.snapshot()
+		var v: float = await _ab_line(g, pid, c["path"], my_fac, depth, alpha, INF, leaf_eval)
+		g.restore(snap)
+		if v > alpha or best.is_empty():
+			alpha = v
+			best = { "path": c["path"], "score": v }
+	## 把最优线的**完整执行序列**抓下来（第一手 + 叶模拟里本席位的后续动作，
+	## 含卡牌/pick/结束）交回桥缓存：同回合后续询问直接执行、不再重搜。
+	## 根因修复（2026-09-20 人机实测）：每问重搜 + 假设"剩余由启发式打完"，但真实
+	## 执行者是下一轮搜索 → 等值格之间互相追逐 = 无意义走动。执行 = 评估，搜索才诚实。
+	var plan: Array = []
+	if best.has("path") and best["path"].size() > 0:
+		plan.append({ "kind": "action", "data": { "act": "move", "to": best["path"][0] } })
+	var snap2: Dictionary = g.snapshot()
+	var rec: Array = []
+	await _ab_line(g, pid, best.get("path", []), my_fac, 1, -INF, INF, leaf_eval, rec)
+	g.restore(snap2)
+	plan.append_array(rec)
+	best["plan"] = plan
+	return best
+
+
+## 一条线：落地 path → 推进到回合边界（其余席位+E阶段全结算）→ depth>1 则边界上的
+## 下一席再选计划再推进 → 叶读数。值全在搜索方视角。
+func _ab_line(g: CWGame, actor: int, path: Array, my_fac: int, depth: int,
+		alpha: float, beta: float, leaf_eval: Callable, record = null) -> float:
+	await _play_path(g, actor, path)
+	var req: Dictionary = await _drive_to_round_end(g, record, actor)
+	if depth <= 1 or req.is_empty():
+		var m: Dictionary = _read_metrics(g, int(req.get("pid", actor)), false)
+		return float(leaf_eval.call(m))
+	var nxt: int = int(req["pid"])
+	var nxt_fac: int = g.player(nxt)["faction"]
+	var maximizing := nxt_fac == my_fac   ## 同阵营=友军节点也取 max（6人交错序必需）
+	var sub: Array = await candidates(g, nxt)
+	var quick := MechBridge._cancer_score if nxt_fac == CWData.Faction.CANCER 		else MechBridge._immune_score
+	var subs: Array = []
+	for p in sub:
+		var m: Dictionary = await evaluate_path(g, nxt, p)
+		subs.append({ "path": p, "q": float(quick.call(m)) })
+	subs.sort_custom(func(a, b): return (float(a["q"]) > float(b["q"])) if maximizing 		else (float(a["q"]) < float(b["q"])))
+	if subs.size() > OPP_TOP_K():
+		subs = subs.slice(0, OPP_TOP_K())
+	var best_v := -INF if maximizing else INF
+	for sc in subs:
+		var snap: Dictionary = g.snapshot()
+		var v: float = await _ab_line(g, nxt, sc["path"], my_fac, depth - 1, alpha, beta, leaf_eval)
+		g.restore(snap)
+		if maximizing:
+			best_v = maxf(best_v, v); alpha = maxf(alpha, v)
+		else:
+			best_v = minf(best_v, v); beta = minf(beta, v)
+		if beta <= alpha:
+			break
+	return best_v
+
+
+## 按序落地一条迁移路径（限本席位内；局面变了就地停，不视为失败）。
+func _play_path(g: CWGame, pid: int, path: Array) -> void:
+	for to in path:
+		var req: Dictionary = await g.pending()
+		if req.is_empty() or int(req["pid"]) != pid:
+			return
+		var idx := _find_move(req, to)
+		if idx < 0:
+			return
+		await g.step(idx)
+
+
+## 步进到本回合结束（其余席位按 image 内各自的桥作答 + E 阶段结算），
+## 返回**跨入下一回合后的第一个询问**（= 回合边界，叶读数点）；终局返回空。
+func _drive_to_round_end(g: CWGame, record = null, watch_pid: int = -1) -> Dictionary:
+	var r0: int = g.round_no
+	var guard := 0
+	while guard < 240:
+		guard += 1
+		var req: Dictionary = await g.pending()
+		if req.is_empty():
+			return {}
+		if int(g.round_no) != r0:
+			return req
+		var idx: int = await g.ask(req["pid"], req)
+		## 录制 watch_pid 的每一步语义（move/play/pick/end…）——回放最优线时用，
+		## 交给桥缓存执行：执行 = 叶评估时模拟的那条序列，计划-执行不再脱节。
+		if record != null and int(req["pid"]) == watch_pid and idx < req["options"].size():
+			record.append({ "kind": str(req["kind"]),
+				"data": req["options"][idx]["data"] })
+		await g.step(idx)
+	return {}
+
+
+## 对手节点的候选数（对手建模可以比己方粗糙——控成本）。
+static func OPP_TOP_K() -> int:
+	return 3

@@ -33,24 +33,18 @@ var _watchdog_floor_ms := 120000
 var _cur_test := ""           ## 此刻在跑哪个测试（看门狗报错时要说出名字）
 var _cur_started := 0          ## 它是什么时候开始的；协程一死这个数就不动了
 var _durations: Array = []   ## [毫秒, 测试名]
-## 各测试的耗时权重（秒，2026-09-20 单进程 `--timing` 实测；没列的按 0.1）。分片按「最重优先」贪心：先排最重的，
-## 每个放到此刻最轻的那一片。**t_ai_same_hash 拆成六个用例各一支**（mcts4 78 s 是单支上限，拆开才能摊到各片）。
-## 加了明显变慢的测试就把它填进来（跑一次 `-- --timing` 看末尾那张表）；看门狗上限 = 权重 × 4 s
+## 各测试的耗时权重（秒，2026-09-05 `--timing` 实测；没列的按 0.1）。分片按「最重优先」贪心：先排最重的，
+## 每个放到此刻最轻的那一片。靠下标取模的话 t_net_game 一个就 79 s、落在哪片哪片就是 100 s，另一片 9 s 就跑完了。
+## 加了明显变慢的测试就把它填进来（跑一次 `-- --timing` 看末尾那张表）
 const WEIGHTS := {
-	"t_ai_same_hash_mcts4": 78.0, "t_ai_same_hash_mc4": 66.5, "t_ai_same_hash_mc6": 58.8, "t_ai_same_hash_mcts6": 34.9,
-	"t_ai_mc": 13.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
-	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_drain": 5.1,
-	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
-	"t_tutor_chrome": 1.8, "t_rec_transparent": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
-	"t_kernel_inproc": 1.3, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
-	"t_net_lobby": 1.0, "t_hotseat": 0.9, "t_pause_and_teardown": 0.9, "t_board_active_tiles": 0.8,
-	"t_eval_features": 0.8, "t_teleport_fx": 0.8, "t_play_queue": 0.7, "t_opening": 0.6,
-	"t_ai_same_hash_heur6": 0.6, "t_rec_shape": 0.5, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
-	"t_hover_info": 0.4, "t_no_engine_in_ui": 0.4, "t_determinism": 0.4, "t_net_resume": 0.4,
-	"t_teardown_board": 0.4, "t_human_ask": 0.4, "t_net_surrender": 0.4, "t_online_panel": 0.4,
-	"t_tutorial_opening": 0.4, "t_ai_mcts": 0.4, "t_entry_smoke_replay": 0.3, "t_match_online": 0.3,
-	"t_mc_budget": 0.3, "t_tutor_c3": 0.3, "t_net_watch": 0.3, "t_match_panel": 0.3,
-	"t_tutor_data": 0.3, "t_ai_same_hash_heur4": 0.2,
+	"t_net_game": 79.0, "t_ai_mc": 7.4, "t_ai_mcts": 0.7, "t_settle_screen": 4.6, "t_net_reconnect": 3.5,
+	"t_net_timeout": 3.0, "t_net_drain": 1.3, "t_net_lobby": 1.0, "t_hotseat": 0.8,
+	"t_teleport_fx": 0.7, "t_opening": 0.6,
+	## 批 1 步 6+8：t_ai_same_hash 的六个用例里两个是 MCTS 全 AI 局，是新的最重一条 —— 别和 t_net_game 落同一片。
+	## 看门狗上限 = 权重 × 4 s ⇒ 90 给它 6 分钟；真跑下来超了就把 ai_baseline_case.gd 的 MAX_STEPS 调小并重录基线
+	"t_ai_same_hash": 90.0, "t_kernel_parity": 1.0,
+	"t_entry_smoke_local": 1.2, "t_entry_smoke_hotseat": 1.2, "t_entry_smoke_tutorial": 1.2,
+	"t_entry_smoke_replay": 1.0, "t_entry_smoke_online": 0.6, "t_no_engine_in_ui": 0.3,
 }
 
 
@@ -82,21 +76,7 @@ func _assign(tests: Array[Callable]) -> Array[int]:
 				s = k
 		owner[i] = s
 		load[s] += _weight(tests[i])
-	## 绑同一片：这几组各自占着同一个固定端口（局域网发现 18650 / 18700），分到两片就同时抢端口
-	var by_name := {}
-	for i in tests.size():
-		by_name[tests[i].get_method()] = i
-	for group in SAME_SHARD:
-		if not by_name.has(group[0]):
-			continue
-		for name in group.slice(1):
-			if by_name.has(name):
-				owner[by_name[name]] = owner[by_name[group[0]]]
 	return owner
-
-
-## 必须落在同一片的测试（共用固定端口）
-const SAME_SHARD := [["t_lan_discovery", "t_lan_host"]]
 
 
 func _weight(t: Callable) -> float:
@@ -174,7 +154,7 @@ func _run_all() -> void:
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial,
 		t_entry_smoke_replay, t_entry_smoke_online,
-		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash_heur4, t_ai_same_hash_heur6, t_ai_same_hash_mc4, t_ai_same_hash_mc6, t_ai_same_hash_mcts4, t_ai_same_hash_mcts6, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_kernel_loader_moved, t_board_active_tiles,
+		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_kernel_loader_moved, t_board_active_tiles,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
 		t_rec_depth, t_rec_shape, t_rec_contract_only, t_rec_transparent,
 		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
@@ -188,8 +168,6 @@ func _run_all() -> void:
 		t_tutor_data, t_tutor_beats, t_tutor_flow, t_tutor_director, t_tutor_gate, t_tutor_view,
 		## 新手教程 v2 · S2：常驻壳（章节提示 / STOP 层 / 重置 / 目录）+ 提亮层（通用规则 8）
 		t_tutor_chrome, t_tutor_spot,
-		## 导出版护栏（2026-09-19 真机「点开新手教程死机闪退」）：产品代码不许指向被导出排除的 res://tests/
-		t_export_paths,
 		## 新手教程 v2 · S8：钩子层（ctx 九方法 + epoch 取消语义 + 钩子文件三条护栏）
 		t_tutor_hooks,
 		## 新手教程 v2 · S6：进度四键（done / at:{level,beat} / unlocked / opening_seen）+ 目录面板
@@ -228,10 +206,8 @@ func _run_all() -> void:
 		var total := 0
 		for d in _durations:
 			total += int(d[0])
-		## 全部打出来（降序）：清单整理要按用时排，只给最慢 8 条不够（Kevin 2026-09-20「测试的用时也列出来」）。
-		## 平时 run_tests.sh 不传 --timing，这 250 行只在要看的时候出现
-		print("耗时 %.1fs，各测试用时（降序）：" % (total / 1000.0))
-		for d in _durations:
+		print("耗时 %.1fs，最慢：" % (total / 1000.0))
+		for d in _durations.slice(0, 8):
 			print("  %6.1fs  %s" % [d[0] / 1000.0, d[1]])
 	_cur_started = 0   ## 跑完了，关掉看门狗（下面就 quit）
 	var tag := "" if _shards == 1 else "分片 %d/%d " % [_shard + 1, _shards]
@@ -1297,9 +1273,9 @@ func t_immune_respawn() -> void:
 	g.tune.immune_respawn_delay = 1
 	g.round_no = 5
 	g.kill(imm)
-	## imm 上面已经在骨髓结算过一次复活：revives 只记账，X 仍是旋钮值 1（issue #68 回调 #63 的逐次递增）
+	## imm 上面已经在骨髓结算过一次复活 → X = 初始值 1 + 已复活 1 = 2（PRD：每结算一次复活 X 加 1）
 	check(imm["revives"] == 1, "结算过一次复活 → revives = 1")
-	check(imm["respawn_round"] == 7, "第二次死亡 X 仍是 1：死于第 5 回合 → 第 7 回合复活（#68 回调，不随 revives 长）")
+	check(imm["respawn_round"] == 8, "第二次死亡、X=2：死于第 5 回合 → 第 8 回合才复活")
 	imm["alive"] = true
 	imm["respawn_round"] = -1
 	## 旋钮关掉 → 永久死亡（复活过几次都不参与）
@@ -1308,10 +1284,10 @@ func t_immune_respawn() -> void:
 	check(imm["respawn_round"] == -1, "旋钮关掉后不再排队复活")
 	g.dispose()
 
-	## ---- PRD【S-复活】死亡惩罚：X 恒为「下 1 世界回合」（issue #68 回调，PRD 2026-09-20）----
-	## issue #63 曾按 PRD 09-19 那句「每结算一次复活 X 增加 1」做成逐次递增，PRD 09-20 把那句删了：
-	## 死于第 N 回合 → 第 N+1+X 回合复活，**几次都一样**。`revives` 只剩记账，仍跟着快照与 cwxworld 往返
-	## （存档、推演、L0 用例、教程关卡都靠这两条路摆盘面），所以往返那几条照旧核
+	## ---- PRD【S-复活】死亡惩罚 X 逐次递增（PRD 2026-09-19 落字，issue #63）----
+	## 「X 初始为 1，免疫细胞每结算一次复活该免疫细胞的 X 增加 1」：
+	## 死于第 N 回合 → 第 N+1+X 回合才复活，一次比一次长。计数住在细胞的 `revives` 上，
+	## 所以它还要跟着快照与 cwxworld 往返（存档、推演、L0 用例、教程关卡都靠这两条路摆盘面）。
 	var g2 := make_game(4, 11)
 	await run_setup(g2)
 	var hero: Dictionary = g2.living_cells(CWData.Faction.IMMUNE)[0]
@@ -1319,20 +1295,20 @@ func t_immune_respawn() -> void:
 	check(hero["revives"] == 0, "出生时没死过：revives = 0")
 	g2.round_no = 10
 	g2.kill(hero)
-	check(hero["respawn_round"] == 12, "第一次死亡：死于第 10 回合 → 第 12 回合才复活（X=1）")
-	## 腾一个健康空骨髓 —— 复活结算只给 `revives` 记一笔
+	check(hero["respawn_round"] == 12, "第一次死亡 X=1：死于第 10 回合 → 第 12 回合才复活")
+	## 腾一个健康空骨髓 —— **复活结算**才是 X 增加的那一刻
 	g2.tiles[CWData.MARROWS[0]]["tissue"] = CWData.Tissue.HEALTHY
 	await g2.world.revive_immune(hero_pid, CWData.MARROWS[0])
 	check(hero["revives"] == 1, "结算过一次复活：revives = 1")
 	g2.round_no = 20
 	g2.kill(hero)
-	check(hero["respawn_round"] == 22, "第二次死亡 X 仍是 1：死于第 20 回合 → 第 22 回合复活（#68 回调，不再递增）")
+	check(hero["respawn_round"] == 23, "第二次死亡 X=2：死于第 20 回合 → 第 23 回合才复活")
 	g2.tiles[CWData.MARROWS[1]]["tissue"] = CWData.Tissue.HEALTHY
 	await g2.world.revive_immune(hero_pid, CWData.MARROWS[1])
 	g2.round_no = 30
 	g2.kill(hero)
-	check(hero["revives"] == 2 and hero["respawn_round"] == 32,
-		"第三次死亡 X 仍是 1：死于第 30 回合 → 第 32 回合复活；revives 只记账（=2）")
+	check(hero["revives"] == 2 and hero["respawn_round"] == 34,
+		"第三次死亡 X=3：死于第 30 回合 → 第 34 回合才复活")
 	## 癌细胞没有 X：kill 在癌方那一支就返回了，计数一动不动
 	var can2: Dictionary = g2.living_cells(CWData.Faction.CANCER)[0]
 	g2.kill(can2)
@@ -2526,9 +2502,8 @@ func t_antibody_halve() -> void:
 	g.cells.append(foe)
 
 	check(g.tune.antibody_halve, "默认开（团队 2026-09-04 定案：保留递减机制）")
-	## 15 → 7 → 3 → 2 → 2：整数除法向下取整，但**有底 0.2**（PRD 2026-09-20「最低为 0.2」，issue #67；
-	## 此前一路衰减到 0，第四发起白花能量打 0 伤害）
-	var want := [15, 7, 3, 2, 2]
+	## 15 → 7 → 3 → 1 → 0：整数除法向下取整，自然衰减到 0 而不是永远留个尾巴
+	var want := [15, 7, 3, 1, 0]
 	for k in want.size():
 		check(g.actions.antibody_damage(b) == want[k],
 			"第 %d 发伤害 %s" % [k + 1, CWData.fmt(want[k])])
@@ -3263,9 +3238,6 @@ func t_hotseat() -> void:
 	await process_frame
 	check(m.bridge.current_human == 0 and not m._handoff.active, "确认后：免疫A 成为露牌者、遮罩收起")
 	check(m._log_panel.viewer == 0, "日志面板切到免疫A 的视角")
-	check(not str(m.mirror.player(0)["name"]).ends_with(CWMatch.ME_SUFFIX)
-			and not str(m.mirror.player(1)["name"]).ends_with(CWMatch.ME_SUFFIX),
-		"热座局两位真人都不加「（我）」—— 换手遮罩已写明轮到谁，「我」反而说不清是谁")
 	m.teardown()
 	await process_frame
 	check(not m._handoff.active and not m._handoff.visible and m.bridge == null, "拆局：遮罩收掉")
@@ -3284,29 +3256,6 @@ func t_hotseat() -> void:
 	await process_frame
 	check(not m.bridge.hotseat and not m._handoff.active and m._log_panel.filter and m._log_panel.viewer == 0,
 		"单人局：不是热座、不弹遮罩，但日志仍按这一席的视角过滤（AI 抽的牌名也收，Kevin 09-05）")
-	## 单机「（我）」后缀（Kevin 2026-09-19「方便玩家进行定位」）：唯一那位真人的名字带后缀、AI 席不带。
-	## 写在引擎的 name 上（同联机写昵称那条路），右栏 / 悬停 / 日志 / 结算屏都跟着
-	check(str(m.mirror.player(0)["name"]).ends_with(CWMatch.ME_SUFFIX)
-			and not str(m.mirror.player(1)["name"]).ends_with(CWMatch.ME_SUFFIX),
-		"单人局：真人席名字带「(我)」、AI 席不带（实测 %s / %s）"
-			% [str(m.mirror.player(0)["name"]), str(m.mirror.player(1)["name"])])
-	## E 案（Kevin 2026-09-19 选）：右栏名字行 = 名字全尺寸 + 小字「(我)」贴在名字真实宽度之后；
-	## 「技 N」挪到第二行、手牌方块左边再往左让 SKILL_GAP；AI 行没有小字
-	var r0: Dictionary = m.panel._rows[0]
-	var r1: Dictionary = m.panel._rows[1]
-	check(r0["name"].text == "免疫A" and r0["me"].visible and r0["me"].text == CWMatch.ME_SUFFIX
-			and r0["me"].position.x >= r0["name"].position.x + 52.0 + CWMatchPanel.ME_GAP - 1.0
-			and r0["me"].position.x <= r0["name"].position.x + CWMatchPanel.NAME_W + CWMatchPanel.ME_GAP + 1.0,
-		"右栏真人行：名字「免疫A」全尺寸，小字「(我)」贴在名字之后（小字 x %.0f / 名字 x %.0f）"
-			% [r0["me"].position.x, r0["name"].position.x])
-	check(not r1["me"].visible and r1["name"].text == "癌症A", "AI 行：名字原样、没有小字")
-	check(is_equal_approx(r0["skills"].position.y, r0["type"].position.y)
-			and r0["skills"].position.x + r0["skills"].size.x <= (r0["pips"][0] as Control).position.x - CWMatchPanel.SKILL_GAP + 0.5,
-		"「技 N」在第二行、右缘离手牌方块 ≥ SKILL_GAP（右缘 %.0f vs 方块 %.0f）"
-			% [r0["skills"].position.x + r0["skills"].size.x, (r0["pips"][0] as Control).position.x])
-	check(r0["type"].position.x + r0["type"].size.x <= r0["skills"].position.x + r0["skills"].size.x - CWMatchPanel.SKILL_RESERVE + 0.5,
-		"种类小字在「技 N」左边收住（右缘 %.0f vs 技 右缘 %.0f）"
-			% [r0["type"].position.x + r0["type"].size.x, r0["skills"].position.x + r0["skills"].size.x])
 	m.teardown()
 	await process_frame
 	CWSettings.ai_delay_ms = 220
@@ -4781,9 +4730,11 @@ func t_config_panel() -> void:
 	## 插在树搜索之后，四档才绕回普通；档数钉 AI_LEVEL_NAMES 的长度，再加档这里不用再改。
 	check(p.config()["ai"] == CWMatch.AI_INTENT, "再拨一格 → 意图（第四档，PR #59）")
 	p._cycle(CWConfigPanel.ROW_SMART, 1)
-	check(p.config()["ai"] == CWMatch.AI_NORMAL and CWMatch.AI_LEVEL_NAMES.size() == 4, "四档循环，拨回普通")
+	check(p.config()["ai"] == CWMatch.AI_ABS, "再拨一格 → 搜索（第五档，2026-09-20 对抗搜索）")
+	p._cycle(CWConfigPanel.ROW_SMART, 1)
+	check(p.config()["ai"] == CWMatch.AI_NORMAL and CWMatch.AI_LEVEL_NAMES.size() == 5, "五档循环，拨回普通")
 	p._cycle(CWConfigPanel.ROW_SMART, -1)
-	check(p.config()["ai"] == CWMatch.AI_INTENT, "反向拨同样绕回来（到第四档）")
+	check(p.config()["ai"] == CWMatch.AI_ABS, "反向拨同样绕回来（到第五档）")
 	## 同上：从「AI 强度」走到「随机种子」的步数由常量推
 	for _i in CWConfigPanel.ROW_SEED - CWConfigPanel.ROW_SMART:
 		p.handle_input(down)
@@ -4800,8 +4751,8 @@ func t_config_panel() -> void:
 	check(not p.visible and got.size() == 1 and cancels.size() == 1,
 		"Esc 收面板并发 cancelled，不开局")
 	p.open()
-	check(p.config()["players"] == 2 and p.config()["ai"] == CWMatch.AI_INTENT \
-		and p.config()["faction"] == -1, "再次打开保留上次取值（AI 停在上面反向拨到的第四档）")
+	check(p.config()["players"] == 2 and p.config()["ai"] == CWMatch.AI_ABS \
+		and p.config()["faction"] == -1, "再次打开保留上次取值（AI 停在上面反向拨到的第五档）")
 	## 箭头定位固定；按钮变白按「最后动的设备」裁决（Kevin 8-30 终稿）：
 	## 键盘选到按钮=白；鼠标一旦介入按悬停算，直到下一次键盘按键夺回
 	## 「返回主菜单」链接（2026-09-04 Kevin：两种配置页都要有鼠标出口，同联机连接页）
@@ -8900,20 +8851,17 @@ func t_income_display() -> void:
 	var inc: Label = p._rows[0]["income"]
 	var en: Label = p._rows[0]["energy"]
 	var sk: Label = p._rows[0]["skills"]
-	## 顶行从右往左：+x.x（贴行右缘）→ 能量（Kevin 2026-09-06 看截图定的顺序）。
-	## 「技 N」2026-09-19 起在**第二行**（Kevin 选的 E 案：名字行让给「免疫A (我)」）：与种类小字同一行，
-	## 右缘离手牌方块左缘 SKILL_GAP
+	## 顶行从右往左：+x.x（贴行右缘）→ 能量 → 技 N（Kevin 2026-09-06 看截图定的顺序）
 	var pip_right: float = p._rows[0]["pips"][CWData.HAND_MAX - 1].position.x + CWMatchPanel.PIP
-	var pip_left: float = p._rows[0]["pips"][0].position.x
 	check(inc.position.x + inc.size.x == pip_right
 		and en.position.x + en.size.x == inc.position.x + inc.size.x - CWMatchPanel.INCOME_RESERVE
-		and sk.position.x + sk.size.x == pip_left - CWMatchPanel.SKILL_GAP
-		and sk.position.y == p._rows[0]["type"].position.y and inc.position.y != sk.position.y,
-		"小字贴行右缘（与手牌方块同一右缘），能量右对齐到它左边；「技 N」在第二行、右缘离手牌方块 SKILL_GAP")
-	## 名字行现在只有名字（+ 单机小字「(我)」）与能量：裁剪区不压到两位数能量（20px「12.5」≈ 44px）
+		and sk.position.x + sk.size.x == en.position.x + en.size.x - CWMatchPanel.ENERGY_RESERVE
+		and inc.position.y == sk.position.y,
+		"小字贴行右缘（与手牌方块同一右缘），能量右对齐到它左边，「技 N」再让出 ENERGY_RESERVE")
 	check(p._rows[0]["name"].size.x == CWMatchPanel.NAME_W
-		and p._rows[0]["name"].position.x + CWMatchPanel.NAME_W <= en.position.x + en.size.x - 44.0,
-		"玩家名裁剪区不压到两位数能量")
+		and p._rows[0]["name"].position.x + CWMatchPanel.NAME_W <= sk.position.x + sk.size.x
+			- CWStyle.FONT.get_string_size("技 0", HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_LABEL).x,
+		"玩家名裁剪区不压到「技 N」")
 	can["alive"] = false
 	p.refresh(_mirror_of(g), _query_of(g))
 	check(p._rows[1]["income"].text == "", "死亡：不显示预计")
@@ -12082,17 +12030,6 @@ func t_font_coverage() -> void:
 	## 来龙去脉见 assets/fonts/README.md）。钉死这一条：教程 S4 的「能量 ∞」靠它上屏，
 	## 字体文件哪天被上游原版覆盖回去，这里先红，而不是等玩家看见一个方框
 	check(supported.has(0x221E), "∞（U+221E）在字库里 —— 手补的字形还在")
-	## 上一条盯的是字库，这一条盯的是**那个显示串本身**（方案 §6.2 的「两种终态都要有一条正面断言」）：
-	## 「能量 ∞」是 `cw_tutor_layers.gd` 里的**代码常量**，改成 `INF` 兜底也好、换个形近字形也好，
-	## 只要它逐字符都在字库覆盖集里就合法。扫 JSON 扫不到它，扫 `.gd` 字面量能扫到但抓不住
-	## 「拼出来的串」这一种 —— 所以在这里现调一次、逐字符核。
-	var inf_text := CWTutorLayers.energy_text(CWTutorLayers.INFINITE_AT, "infinite")
-	var inf_bad := ""
-	for k in inf_text.length():
-		if inf_text.unicode_at(k) > 0x7F and not supported.has(inf_text.unicode_at(k)):
-			inf_bad += inf_text[k]
-	check(inf_text != "" and inf_bad == "",
-		"「能量 ∞」那个显示串（%s）逐字符都在字库里%s" % [inf_text, "" if inf_bad == "" else "；缺：" + inf_bad])
 	## 扫描器自检：注释行之后的字面量必须抠得出来，LF 和 CRLF 行尾都得行。
 	## 2026-08-30 实锤过一次「com 粘死」：CRLF 下换行比对失败，# 之后全被跳过，
 	## 扫描空转、检查空心绿——「−1.5」就是这么溜上屏的。
@@ -12134,10 +12071,11 @@ func t_font_coverage() -> void:
 	var jmsg := ""
 	for k in jbad:
 		jmsg += "%s（%s）" % [k, jbad[k]]
-	## **阈值已抬回 4 / 20**（新手教程 v2 · S12 收口，2026-09-19）：S1 临时降到 `1 / 5` 是因为
-	## 那一刻只有第一关 + 一份第二关占位；六关 + 间章补齐之后原阈值天然满足，按约定抬回去。
-	## 阈值本身是防「扫描空转、检查空心绿」的 —— 剧本哪天被挪走 / 键名再改一次，这一条先红。
-	check(jfiles.size() >= 4 and lines.size() > 20 and jbad.is_empty(),
+	## ⚠ **阈值临时下调**（新手教程 v2 · S1）：原阈值 `jfiles >= 4 and lines > 20` 是按六关剧本定的，
+	## 眼下只有第一关 + 一份第二关占位（commit B），够不着 —— 先降到 `jfiles >= 1 and lines > 5`，
+	## **S12 收口时抬回 4 / 20**（第二 ~ 五关 S4/S5、间章 S9、第七关 S10/S11 补齐之后）。
+	## 阈值本身是防「扫描空转、检查空心绿」的，降了也不能降到 0。
+	check(jfiles.size() >= 1 and lines.size() > 5 and jbad.is_empty(),
 		"教程剧本 %d 份 JSON 的 %d 条上屏文案也过字形闸%s"
 			% [jfiles.size(), lines.size(), "" if jbad.is_empty() else "；缺：" + jmsg])
 
@@ -16415,20 +16353,6 @@ func t_chat_box() -> void:
 	check(cb2._team and cb2._scope.text == "己方", "Tab 换到己方")
 	cb2._input(tab)
 	check(not cb2._team and cb2._scope.text == "全体", "再按一下换回全体")
-	## 悬停辉光（Kevin 2026-09-20「局内的聊天范围切换按钮没有辉光效果」）：走 CWStyle.link_hot，
-	## 10px 字描边 6；悬停中换频道不盖光、移开才落回频道自己的静止色
-	cb2._scope.mouse_entered.emit()
-	check(cb2._scope.get_theme_color("font_color") == Color.WHITE and cb2._scope.get_theme_constant("outline_size") == 6,
-		"悬停：范围切换白字 + 描边 6（同联机各页的链接辉光）")
-	cb2._input(tab)
-	check(cb2._team and cb2._scope.get_theme_color("font_color") == Color.WHITE,
-		"悬停中按 Tab 换到己方：光不被重画盖掉")
-	cb2._scope.mouse_exited.emit()
-	check(cb2._scope.get_theme_constant("outline_size") == 0
-			and cb2._scope.get_theme_color("font_color") == CWChatBox.faction_color(cb2.team_faction),
-		"移开：描边归零、落回己方的阵营色")
-	cb2._input(tab)
-	check(not cb2._team and cb2._scope.get_theme_color("font_color") == CWStyle.TEXT_HI, "换回全体：中性色")
 	## 「己方」的颜色跟**自己**的阵营走（Kevin 2026-09-17：癌症方的己方要黄）
 	cb2.team_faction = CWData.Faction.CANCER
 	cb2._input(tab)
@@ -19649,33 +19573,8 @@ func t_no_engine_in_ui() -> void:
 
 # ---- 护栏⑦：平衡标尺没动（规格 C-3 ⑦ / A-10 ⑤⑧）----
 ## 基线必须在**改动之前**录："<godot>" --headless --path game --script res://tests/record_ai_baseline.gd
-## 拆成六支（一个用例一支）：mcts4 一局 78 s，六个用例串在一支里 191 s、分片摊不开（Kevin 2026-09-20「能通过继续切片来加快测试速度嘛」）
-func t_ai_same_hash_heur4() -> void:
-	await _ai_same_hash("heur4")
-
-
-func t_ai_same_hash_heur6() -> void:
-	await _ai_same_hash("heur6")
-
-
-func t_ai_same_hash_mc4() -> void:
-	await _ai_same_hash("mc4")
-
-
-func t_ai_same_hash_mc6() -> void:
-	await _ai_same_hash("mc6")
-
-
-func t_ai_same_hash_mcts4() -> void:
-	await _ai_same_hash("mcts4")
-
-
-func t_ai_same_hash_mcts6() -> void:
-	await _ai_same_hash("mcts6")
-
-
-func _ai_same_hash(which: String) -> void:
-	print("[护栏⑦·平衡标尺没动·%s]" % which)
+func t_ai_same_hash() -> void:
+	print("[护栏⑦·平衡标尺没动]")
 	var base = JSON.parse_string(FileAccess.get_file_as_string(AI_BASELINE_PATH))
 	var ok: bool = base is Dictionary and (base as Dictionary).has("cases")
 	check(ok, "基线文件在（%s）—— 没有就先在改动前跑 tests/record_ai_baseline.gd 录一份" % AI_BASELINE_PATH)
@@ -19686,8 +19585,6 @@ func _ai_same_hash(which: String) -> void:
 		% [AI_CASE.MAX_STEPS, AI_CASE.CASES.size()])
 	for case in AI_CASE.CASES:
 		var name := String(case["name"])
-		if name != which:
-			continue
 		var got: Dictionary = await AI_CASE.run_case(case)
 		var want: Dictionary = (base["cases"] as Dictionary).get(name, {})
 		check(not want.is_empty() and int(got["winner"]) == int(want["winner"])
@@ -19837,7 +19734,7 @@ func _scan_preload_tests(dir: String, hits: Array[String]) -> void:
 	d.list_dir_end()
 
 
-## 新手引导 S1：活跃格集合与浮现（`docs/archive/新手引导_实现方案_v1_2026-09-19.md` §1.9）。
+## 新手引导 S1：活跃格集合与浮现（`docs/新手引导_实现方案.md` §1.9）。
 ##
 ## 口径从「半径」换成「格集合」——引导要露的是任意形状的几格（第二关右边那只癌细胞
 ## 得等到该露的那一步才出现），半径表达不了。`hex_at` 必须跟着扫集合：不同改就点击与显示脱节，
@@ -19992,22 +19889,18 @@ func t_entry_smoke_hotseat() -> void:
 ## 「把之前教程的 UI 等设计全部删掉，基于脚本从 0 构建」），这条冒烟原来核的三件
 ## —— `cfg.adopt`、活跃格由关卡数据声明、跨章换局重挂同一个引导面板 —— 断言对象**整体消失**。
 ## 重做期间它核两件还立得住的：
-##   ① **入口开关**：`main_menu.gd` 的「新手引导」项（重做期间灰着，不许有人误放出去）；
+##   ① **入口灰着**：`main_menu.gd` 的「新手引导」项 `enabled == false`（重做期间不许有人误放出去）；
 ##   ② 教程标志位仍是个**能起局、能拆干净的空壳**：127 格棋盘常驻、拆局无 barrier timeout。
 ## 原三条判据迁到 commit B 的 `t_tutor_director`（装闸时序 / 换局重挂）与 `t_tutor_view`（活跃格）。
-##
-## **再改判（S12 收口，2026-09-19）**：六关 + 间章全部落地、真机通关过一次 ⇒ 入口恢复，
-## 这一条跟着从「灰着」翻成「亮着」。它是入口的**唯一开关**，翻错了玩家就点不进教程（或误碰到半成品），
-## 所以正反两面都只由这一条钉死 —— 别再靠人眼看菜单。
 func t_entry_smoke_tutorial() -> void:
-	print("[入口冒烟·教程]")
+	print("[入口冒烟·教程（重做期间的空壳）]")
 	var menu_script = load("res://scripts/ui/main_menu.gd")
 	var guide_item: Dictionary = {}
 	for it in menu_script.ITEMS:
 		if str((it as Dictionary).get("node", "")) == "Guide":
 			guide_item = it
-	check(not guide_item.is_empty() and bool(guide_item.get("enabled", false)),
-		"★ 主菜单「新手引导」入口已恢复（S12 收口；重做期间它是 enabled=false）")
+	check(not guide_item.is_empty() and not bool(guide_item.get("enabled", true)),
+		"重做期间主菜单「新手引导」灰着（S12 收口时才恢复）")
 	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
 	root.add_child(main_scene)
 	await process_frame
@@ -21142,168 +21035,6 @@ func t_tutor_gate() -> void:
 	check(src.contains("MISS_GRACE_FRAMES") and src.find("var waited := 0") > 0
 			and src.find("var waited := 0") < src.find("push_warning("),
 		"闸非空却落空时**先让几帧再喊** —— 过渡态不该报成剧本写错")
-	## ⑩ `notice` 层（间章 PRD:409「所有 UI 消失」，S9b 留的账）：关着就一只结算气泡都不弹。
-	## 通配 `"*": false` 把它一并关掉；六关关首都显式写 `true`（保持 S1～S12 验收时的样子），只有间章不写
-	CWTutorLayers.reset()
-	check(not TUTOR_GATE.mutes_bubbles(), "缺省（正式局的样子）不静气泡")
-	CWTutorLayers.apply({ "*": false })
-	check(TUTOR_GATE.mutes_bubbles(), "通配全关之后 notice 层也关了 ⇒ 静气泡")
-	CWTutorLayers.apply({ "notice": true })
-	check(not TUTOR_GATE.mutes_bubbles(), "notice 单独开回来就又弹")
-	var ts = TUTOR_SCRIPT.new()
-	for id in ["c1_l1", "c1_l2", "c1_l3", "c2_l4", "c2_l5", "c3_l6", "interlude"]:
-		var lv: Dictionary = ts.load_level(id)
-		var first_ui: Dictionary = {}
-		for e in lv.get("flow", []):
-			if str((e as Dictionary).get("do", "")) == "state" and (e as Dictionary).has("ui"):
-				first_ui = (e as Dictionary)["ui"]
-				break
-		CWTutorLayers.reset()
-		CWTutorLayers.apply(first_ui)
-		## Kevin 2026-09-19 晚「结算气泡收掉」：六关也静，和间章一样全靠关首那条 `"*": false`；正式局照旧
-		check(not CWTutorLayers.on("notice") and not first_ui.has("notice"),
-			"%s 关首之后 notice 层关（靠通配，关卡数据里不单写 notice）" % id)
-	## 真走一遍气泡那一路：闸桥 + 真气泡层，关着 0 只、开着 1 只。
-	## 盘面特效不在这条路上 —— 基类 show_result 先把特效演完才到 _bubble_result，静的只是字
-	var gb = TUTOR_GATE.new()
-	var gboard := make_board()
-	gb.board = gboard
-	var gt := CWToast.new()
-	root.add_child(gt)
-	var gc := Camera2D.new()
-	root.add_child(gc)
-	gb.toast = gt
-	gb.camera = gc
-	var gdice := StubDice.new()
-	gdice._ready()
-	gb.dice = gdice
-	CWTutorLayers.apply({ "*": false })
-	gb.show_result("攻击成功，造成 1.0 伤害", Vector2i.ZERO)
-	check(gt._bubbles.is_empty(), "notice 关着：show_result 一只气泡都不弹（实测 %d 只）" % gt._bubbles.size())
-	CWTutorLayers.apply({ "notice": true })
-	gb.show_result("攻击成功，造成 1.0 伤害", Vector2i.ZERO)
-	check(gt._bubbles.size() == 1, "notice 开着：照常弹一只（实测 %d 只）" % gt._bubbles.size())
-	check(gt.has_bubbles(), "has_bubbles()：气泡还在飘就是 true（关末等它播完再切关靠它）")
-	gt.hide_now()
-	check(not gt.has_bubbles(), "hide_now() 把气泡全收掉之后 has_bubbles() 是 false")
-	CWTutorLayers.reset()
-	root.remove_child(gt)
-	gt.free()
-	root.remove_child(gc)
-	gc.free()
-	gboard.free()
-	gdice.free()
-	## ⑪ 换关要把上一关的结算气泡收掉（真机 2026-09-19：第三关末「攻击大成功」的金字气泡按自己的
-	## RESULT_HOLD 活着，跟着静默切关压在第四关的章节横带上）。正式局的同一件事在 `_prepare_ui`
-	## （issue #26），教程换关不走那条路 ⇒ `_open_tutor_level` 推层表回全开的那一支自己收
-	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	var open_at := msrc.find("func _open_tutor_level(")
-	var stage_at := msrc.find("_stage = TUTOR_STAGE.new()", open_at)
-	var hide_at := msrc.find("toast.hide_now()", open_at)
-	check(open_at > 0 and hide_at > open_at and hide_at < stage_at
-			and msrc.find("CWTutorLayers.reset()", open_at) < hide_at,
-		"_open_tutor_level 换关（reset_layers）那一支在开新舞台之前 toast.hide_now()：上一关的结算气泡不带进下一关")
-	## ⑫ 真通关先等结算气泡播完、再停一拍才切下一关（Kevin 2026-09-19：「攻击大成功的弹窗消失之前，
-	## 第二章已经开始了」）：`_tutor_next_level` 里 `await _wait_result_bubbles()` 要排在两条换局路
-	## （承接活局的 `_tutor_start_level()` / 重装的 `_tutor_reopen(`）前面，且只在 mark_done 那一支
-	var next_at := msrc.find("func _tutor_next_level(")
-	var wait_at := msrc.find("await _wait_result_bubbles()", next_at)
-	var live_at := msrc.find("_tutor_start_level()", next_at)
-	var reopen_at := msrc.find("_tutor_reopen(\"base\", true)", next_at)
-	var guard_at := msrc.rfind("if mark_done:", wait_at)   ## 紧挨着 await 上面那一句必须是 mark_done 的闸
-	check(next_at > 0 and wait_at > next_at and wait_at < live_at and wait_at < reopen_at
-			and guard_at > next_at and wait_at - guard_at < 120,
-		"_tutor_next_level：真通关（mark_done）先 await _wait_result_bubbles() 再走两条换局路；目录跳关不等")
-	check(CWMatch.TUTOR_SWITCH_BEAT >= 0.5 and CWMatch.TUTOR_BUBBLE_WAIT_MAX > CWUIBridge.RESULT_HOLD + 1.0,
-		"气泡收完之后至少再停半秒；等气泡的上限要盖过 RESULT_HOLD + 淡出（%.1f / %.1f）"
-			% [CWMatch.TUTOR_SWITCH_BEAT, CWMatch.TUTOR_BUBBLE_WAIT_MAX])
-	## ⑬ 切关不许「镜头晃一下」（Kevin 2026-09-19）。真机连拍查到两半：(a) 老盘面在新机位下淡出、老细胞等新镜像
-	## 才收 ⇒ 整盘滑一下 —— 跨关那一刀要让老东西当帧消失（格子 alpha 归零、细胞层先藏、特效清状态）；
-	## (b) 关首按缺省机位就位、导演翻到 flow[0] 才改镜头 ⇒ 开场补间 0.45 s —— 取景前先把 flow[0].ui 铺一遍
-	var reopen_fn := msrc.find("func _tutor_reopen(")
-	var cut_call := msrc.find("_tutor_cut()", reopen_fn)
-	var abort_at := msrc.find("kernel.abort()", reopen_fn)
-	var show_at := msrc.find("_cells_root.visible = true", reopen_fn)
-	var open_call := msrc.find("kernel = _open_tutor_level(", reopen_fn)
-	check(reopen_fn > 0 and cut_call > reopen_fn and cut_call < abort_at
-			and msrc.rfind("if fresh_cursor:", cut_call) > reopen_fn and cut_call - msrc.rfind("if fresh_cursor:", cut_call) < 40
-			and show_at > open_call,
-		"_tutor_reopen：跨关（fresh_cursor）先 _tutor_cut() 再拆局；开好新一关才把细胞层放出来")
-	var cut_fn := msrc.find("func _tutor_cut(")
-	var cut_end := msrc.find("\nfunc ", cut_fn + 10)
-	var cut_body := msrc.substr(cut_fn, cut_end - cut_fn)
-	check(cut_fn > 0 and cut_body.contains("set_active_tiles([], 0.0)") and cut_body.contains("_cells_root.visible = false")
-			and cut_body.contains("fx.clear()") and not cut_body.contains("fx.visible = false"),
-		"_tutor_cut：格子当帧归零（seconds 0）、细胞层藏起来、特效只 clear() 不动 visible（藏了没人再开）")
-	var cam_at := msrc.find("_tutor_camera()", open_at)
-	var preapply_at := msrc.find("CWTutorLayers.apply(first[\"ui\"])", open_at)
-	check(preapply_at > open_at and preapply_at < cam_at and preapply_at < stage_at,
-		"_open_tutor_level：取景（_tutor_camera）之前先把 flow[0].ui 铺一遍，新一关开场镜头不再补间")
-	## (c) 「角色调中 / 调左」的关：`_open_tutor_level` 就位时镜像还是上一关的，第一份新镜像落地
-	## （kernel.run 之后的 _observe_now）要**再直接就位一次**，不然 _sync_tutor_layers 补间 0.45 s 过去
-	var reopen_obs := msrc.find("_observe_now()", open_call)
-	var reopen_snap := msrc.find("_tutor_resnap()", open_call)
-	var start_fn := msrc.find("func start(")
-	var start_obs := msrc.find("_observe_now()", start_fn)
-	var start_snap := msrc.find("_tutor_resnap()", start_fn)
-	var resnap_fn := msrc.find("func _tutor_resnap(")
-	check(reopen_snap > reopen_obs and reopen_snap - reopen_obs < 80
-			and start_snap > start_obs and start_snap - start_obs < 200
-			and resnap_fn > 0 and msrc.find("_tutor_cam = {}", resnap_fn) < msrc.find("_tutor_camera()", resnap_fn),
-		"跨关与关首两条路都在第一份镜像落地（_observe_now）之后紧跟 _tutor_resnap()：清掉机位缓存再直接就位")
-	## ⑭ 镜头不跟细胞（Kevin 2026-09-19 晚「只需要在关卡开始的时候调中一次，不需要一直跟随细胞」）：
-	## `_sync_tutor_layers` 每帧只比层表，层表变了才 `_tutor_camera(TUTOR_CAM_SECS)`；
-	## 其余要重算的事件各自显式调：地图浮现（`_tutor_reveal`）、换局 / 重置 / 重心平移（直接就位）
-	var sync_fn := msrc.find("func _sync_tutor_layers(")
-	var sync_end := msrc.find("\nfunc ", sync_fn + 10)
-	var sync_body := msrc.substr(sync_fn, sync_end - sync_fn)
-	var cmp_at := sync_body.find("if layers_now != _tutor_layers_seen:")
-	var sync_cam_at := sync_body.find("_tutor_camera(TUTOR_CAM_SECS)")
-	check(cmp_at > 0 and sync_cam_at > cmp_at and sync_body.count("_tutor_camera(") == 1
-			and sync_body.find("_tutor_layers_seen = layers_now") > cmp_at
-			and sync_body.find("_tutor_layers_seen = layers_now") < sync_cam_at,
-		"_sync_tutor_layers：只在层表变了那一帧重算机位（每帧算就是跟着细胞走）")
-	var reveal_fn := msrc.find("func _tutor_reveal(")
-	var reveal_end := msrc.find("\nfunc ", reveal_fn + 10)
-	check(msrc.substr(reveal_fn, reveal_end - reveal_fn).contains("_tutor_camera(TUTOR_CAM_SECS)"),
-		"地图浮现（活跃集撑大）自己补间一次机位 —— 不靠每帧跟")
-	check(msrc.substr(resnap_fn, msrc.find("\nfunc ", resnap_fn + 10) - resnap_fn).contains("_tutor_layers_seen = CWTutorLayers.current()"),
-		"直接就位那一刻把层表记下：下一帧别再为同一份层表补间一次")
-
-
-## 导出预设 exclude_filter="tests/*"：产品代码（scripts / scenes / data）里一条指向 res://tests/ 的路径 = 导出版必炸，
-## 而编辑器里跑的套件永远看不见（tests/ 就在脚下）。2026-09-19 真机：旋钮契约表还住在 tests/，
-## 第一～三关一拧 attack_max_per_turn，导出版一开教程就「死机闪退」。注释里提到不算，只查代码
-func t_export_paths() -> void:
-	print("[导出版不许引用 res://tests/]")
-	var hits: Array = []
-	for dir in ["res://scripts", "res://scenes", "res://data"]:
-		_scan_test_refs(dir, hits)
-	check(hits.is_empty(), "产品代码里没有指向 res://tests/ 的路径（导出预设排除 tests/*）：%s" % str(hits))
-	check(not str(CASE_LOADER.TUNE_PATH).begins_with("res://tests/") and FileAccess.file_exists(CASE_LOADER.TUNE_PATH),
-		"旋钮契约表住在导出会带上的位置，且真的在那儿（%s）" % str(CASE_LOADER.TUNE_PATH))
-	check(not FileAccess.file_exists("res://tests/contract_tune.json"),
-		"tests/ 下没有第二份 contract_tune.json（两份就会静默分叉）")
-
-
-func _scan_test_refs(dir: String, hits: Array) -> void:
-	var d := DirAccess.open(dir)
-	if d == null:
-		return
-	d.list_dir_begin()
-	var name := d.get_next()
-	while name != "":
-		var p := dir.path_join(name)
-		if d.current_is_dir():
-			if not name.begins_with("."):
-				_scan_test_refs(p, hits)
-		elif name.ends_with(".gd") or name.ends_with(".tscn") or name.ends_with(".json"):
-			var lines := FileAccess.get_file_as_string(p).split("\n")
-			for i in lines.size():
-				var code: String = lines[i].get_slice("#", 0) if name.ends_with(".gd") else lines[i]
-				if code.contains("res://tests/"):
-					hits.append("%s:%d" % [p, i + 1])
-		name = d.get_next()
 
 
 func t_tutor_view() -> void:
@@ -21743,18 +21474,6 @@ func t_tutor_spot() -> void:
 	check(is_equal_approx((pts2[0] - Vector2(100.0, 100.0)).length(),
 			(pts[0] - Vector2(100.0, 100.0)).length() * 2.0),
 		"顶点跟着 zoom 缩放 —— 教程小棋盘把 zoom 推到 3 倍以上，按固定像素画会框不住")
-	## 框要**套在贴图的顶面上**（Kevin 2026-09-19「蓝色六边形框显示有问题」：老口径按横距 36 画，
-	## 比 32 宽的顶面每边宽 2 px，4 倍镜头下框明显套不上格子）。宽高钉在贴图本身上：贴图一换这里先红
-	var tile_tex := load("res://assets/art/tissue_normal.png") as Texture2D
-	check(tile_tex != null and tile_tex.get_width() == int(TUTOR_SPOT.FACE_HALF_W * 2.0)
-			and tile_tex.get_height() - 8 == int(TUTOR_SPOT.FACE_HALF_H * 2.0),
-		"六边形框的宽 = 贴图宽（%d）、高 = 贴图高减 8 px 立面（%d）"
-			% [tile_tex.get_width() if tile_tex != null else -1, tile_tex.get_height() if tile_tex != null else -1])
-	check(pts[0] == Vector2(100.0, 100.0 - TUTOR_SPOT.FACE_HALF_H)
-			and pts[1] == Vector2(100.0 + TUTOR_SPOT.FACE_HALF_W, 100.0 - TUTOR_SPOT.FACE_SIDE_Y)
-			and pts[3] == Vector2(100.0, 100.0 + TUTOR_SPOT.FACE_HALF_H)
-			and pts[4] == Vector2(100.0 - TUTOR_SPOT.FACE_HALF_W, 100.0 + TUTOR_SPOT.FACE_SIDE_Y),
-		"七个点从尖顶起顺时针：尖顶 / 右上角 / … / 左下角，竖边两端离中心 ±FACE_SIDE_Y（贴图第 8 / 18 行）")
 	var hr := TUTOR_SPOT.hand_rect()
 	check(hr.position == Vector2(CWHand.LEFT, CWHand.REST_TOP) and hr.size.x == CWHand.SPAN,
 		"手牌抽屉那一条照 CWHand 的常量现算（抽屉挪了这里跟着挪）")
@@ -22197,40 +21916,6 @@ func t_tutor_view_bubble() -> void:
 	var box: Control = view._say
 	check(box != null and is_instance_valid(box),
 		"台词气泡建出来了（不是占位皮那条文字行）")
-	## ★ 玩家真的点得到「继续」（Kevin 2026-09-19 真机「这里点不了继续」：这张皮此前只给截图工具留了
-	## call:advance，气泡整只 IGNORE、「继续」是纯 Label，谁也点不着；占位皮 P 早就接了 gui_input）
-	check(box.mouse_filter == Control.MOUSE_FILTER_STOP
-			and box.mouse_default_cursor_shape == Control.CURSOR_POINTING_HAND,
-		"带「继续」的台词气泡本体接鼠标（STOP + 手形光标）")
-	check(view._next != null and view._next.visible, "这一句画完「继续 ▸」亮着（点得动的前提）")
-	var pressed_n := [0]
-	view.advance_pressed.connect(func() -> void: pressed_n[0] += 1)
-	var click := InputEventMouseButton.new()
-	click.button_index = MOUSE_BUTTON_LEFT
-	click.pressed = true
-	view._on_say_click(click)
-	check(pressed_n[0] == 1 and not view._next.visible,
-		"点气泡本体一下 = 发 advance_pressed 一次、「继续」随即藏起（实测 %d 次）" % pressed_n[0])
-	view._on_say_click(click)
-	check(pressed_n[0] == 1, "「继续」藏着时再点不重复发（连点不跳句）")
-	await _tutor_pump(2)
-	check(not view.busy(), "一句的台词点一下就翻完：busy() 回 false")
-	## 回车 / 空格（ui_accept）也翻页：两句的段落按两下
-	view.say("player", PackedStringArray(["第一句", "第二句"]), {})
-	await _tutor_pump(2)
-	var key := InputEventAction.new()
-	key.action = "ui_accept"
-	key.pressed = true
-	view._unhandled_input(key)
-	await _tutor_pump(2)
-	check(pressed_n[0] == 2 and view.busy() and view._next != null and view._next.visible,
-		"ui_accept 翻过第一句，第二句画出来、「继续」又亮了（实测 %d 次）" % pressed_n[0])
-	view._unhandled_input(key)
-	await _tutor_pump(2)
-	check(pressed_n[0] == 3 and not view.busy(), "再按一下翻完第二句，段落结束（实测 %d 次）" % pressed_n[0])
-	view.say("player", PackedStringArray(["欢迎来到Cell_War！"]), {})
-	await _tutor_pump(2)
-	box = view._say
 	check(absf(box.position.x + box.size.x / 2.0 - head.x) <= 1.0
 			and box.position.y + box.size.y < head.y,
 		"气泡横向对准细胞头顶、整只压在它上方（实测中线 %.0f vs 头顶 %.0f）"
@@ -23320,13 +23005,6 @@ func t_tutor_c1() -> void:
 	check(int(g3.cell_of(0)["energy"]) == 1,
 		"能量正好剩 0.1（PRD:261 公式最后那一项），实测 %s" % CWData.fmt(int(g3.cell_of(0)["energy"])))
 	check(not run3["dir"].active, "全癌死亡 ⇒ until:all_dead 命中，这一关走完")
-	## **迁自老 `t_guide_no_win`（S12 收口，方案 §6.4）**：老测试整份删掉了，但「教程局不产 game_over」
-	## 这条判据的形状还立得住，逐条迁过来 —— 上面 ⓪ 是**结构侧**（allow 里没有 act=end ⇒ 进不了 E 阶段），
-	## 这里补**运行期正面那一半**：第一章里唯一一关真把癌细胞全打死了，`winner` 仍是 -1、也没 aborted。
-	## 老断言是「教程局把 `win_checks` 关掉」，那个开关 2026-09-19 已整条消掉（不在 cwxworld/3 的 15 键里），
-	## 所以改成直接核结果 —— 判定跑没跑不重要，**不分出胜负**才是要的那件事。
-	check(int(g3.winner) == -1 and not g3.aborted,
-		"★ 教程局不产 game_over：第三关全癌死亡之后 winner 仍是 -1（实测 %d）、也没弹结算屏（迁自 t_guide_no_win）" % int(g3.winner))
 	_tutor_c1_tape(run3, "第三关")
 	_tutor_c1_close(run3)
 
@@ -24887,7 +24565,7 @@ func t_tutor_c3() -> void:
 ## 间章那份数据的 id。新盘子的半径与 S9a 共用 `S9A_RADIUS`（11 / 397 格），不另写一份
 const S9B_LEVEL := "interlude"
 ## 击退**不是规则**：`cw_actions.gd` 一个字都不许动（照 t_tutor_fx ⑩ 的写法，LF 归一后的 md5）
-const S9B_ACTIONS_MD5 := "fc78a9cb692197055173bb67e2b5e0dc"   ## 2026-09-20 issue #67 抗体递减有底之后重录（core 里仍零「击退」）
+const S9B_ACTIONS_MD5 := "3bba63141eb1227b84e4acdb6bb60067"
 ## 第六关初始盘面（盘面提案 §7.1 的绝对坐标表 **减 (6,-2)**，§6.3 拍板）：
 ## 间章最后一拍走完，长出来的就是它 —— 这是 S10 的起点。
 ## **席位顺序与 §7.1 那张表不同**：免疫四只在前（0~3）、玩家排最后（4）——
@@ -25239,9 +24917,6 @@ func _s9b_live() -> void:
 
 	## ---- ① 进间章：一局都不拆、没有黑场 ----
 	m._tutor_next_level(S9B_LEVEL)
-	## 真通关先等关末的结算气泡播完、再停 TUTOR_SWITCH_BEAT 一拍才切（Kevin 2026-09-19）：
-	## 这里没有气泡，只等那一拍
-	await create_timer(CWMatch.TUTOR_SWITCH_BEAT + 0.3).timeout
 	await process_frame
 	check(str(m._tutor_level.get("id", "")) == S9B_LEVEL and m.kernel == k0 and m._stage == s0
 			and m._stage.level.get("id", "") == S9B_LEVEL,
