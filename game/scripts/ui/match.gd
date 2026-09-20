@@ -1055,6 +1055,7 @@ func _attach_tutor() -> void:
 	## 目录底部「Cell War」= 重看开场（Q-21）：清掉 `opening_seen`（**只调开场脚本现成的那一条**）
 	## 再把球传给 `main.gd` —— 收摊与重进引导是入口的活，对局自己演不了开场
 	_tutor_chrome.replay_opening.connect(_tutor_replay_opening)
+	_tutor_chrome.reset_progress.connect(_tutor_reset_progress)
 
 
 ## 目录跳关（S6）：皮那条对外信号 → 导演。**经导演一手**是为了代际闸 ——
@@ -1074,6 +1075,14 @@ func _tutor_switch_type() -> void:
 ## 目录底部「Cell War」（S6）：重看开场
 func _tutor_replay_opening() -> void:
 	OPENING.clear_seen()
+	replay_opening.emit()
+
+
+## 目录页脚「重置教程进度」（Kevin 2026-09-20，二次确认在壳里问过了）：进度文件**整份**清掉
+## （done / at / unlocked / opening_seen 一起），再走「重看开场」同一条重进路 —— main.gd 收摊这一局、
+## 重进引导，`_begin_tutorial` 见 `seen()` 为假重播开场，`_tutor_pick_level` 见空档从第一关起
+func _tutor_reset_progress() -> void:
+	CWGuideProgress.clear()
 	replay_opening.emit()
 
 
@@ -1713,6 +1722,11 @@ func _start_queue() -> void:
 	## **装闸一律在 step_end** —— 内核的 decider 路是 `_close_step() → decider.ask() → _open_step()`
 	## （**按文件核准：cw_kernel_inproc.gd:399 / :401 / :406**），所以 step_begin 标的是「这一问已经答了、动作开始演」。
 	queue.on_step = _on_step
+	## 关内换盘（重置 / 间章重心平移）拆旧局走的是舞台的 `_teardown`（abort → queue.stop → close → dispose），
+	## 它停的是 `_stage.queue` —— 09-20 之前从没赋过：旧队列一直空转、还把旧局收摊时那几条 step_end / sync /
+	## game_over(-1) 送进新一局（`_loop_id` 那道闸看的是「有没有新队列」，分不出条目来自哪一只）
+	if _stage != null:
+		_stage.queue = queue
 	_observe_now()   ## ★ 第一问之前桥手里就得有一份镜像：_ask_human 一上来就读它
 	queue.pump()
 
@@ -1792,6 +1806,12 @@ func _on_step(e: Dictionary) -> void:
 ## 代际守卫替代原来的 _run_gen：教程跨章换局 / 已经拆局时，旧队列安静退场。
 func _on_game_over(e: Dictionary) -> void:
 	if _loop_id != _queue_loop:
+		return
+	## 教程局的终局归导演（PRD:37 关间静默切换、Q-14 通关不弹结算屏）：引擎照旧会判胜负，这条 game_over
+	## 到这儿就止步、不发 finished。09-20 真机：第三关「攻击大成功」之后弹出「免疫胜利 · 洁场」——
+	## 09-19 之前切关是同步的，上面 `_loop_id` 那道闸顺手把它吃掉；09-19 加的「等结算气泡再切」
+	## （`_wait_result_bubbles`）把窗口打开，它就漏到了 main.gd 的结算屏
+	if tutorial:
 		return
 	_replay_tape = e.get("replay", {})
 	finished.emit(int(e["winner"]))
