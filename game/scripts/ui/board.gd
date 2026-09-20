@@ -765,6 +765,67 @@ func tile_shown(c: Vector2i) -> bool:
 	return map.has(key) and (map[key]["instance"] as Sprite2D).modulate.a > 0.001
 
 
+## ── 关间过渡（Kevin 2026-09-20「细胞和所在格平滑移动到目标位置，其他格子自己浮出来」）──
+## 这一格先别浮现：它跟着细胞一起飞过来，到位了再 `show_tile_now`。正在跑的浮现补间一并杀掉
+func hold_tile(c: Vector2i) -> void:
+	_set_tile_alpha_now(c, 0.0)
+
+
+func show_tile_now(c: Vector2i) -> void:
+	_set_tile_alpha_now(c, 1.0)
+
+
+func _set_tile_alpha_now(c: Vector2i, a: float) -> void:
+	var key := axial_to_rc(c)
+	if not map.has(key):
+		return
+	var running: Tween = _active_tws.get(c)
+	if running != null and running.is_valid():
+		running.kill()
+	_active_tws.erase(c)
+	(map[key]["instance"] as Sprite2D).modulate.a = a
+
+
+## 活跃格整批先藏起来（alpha 0、补间全杀），等 `reveal_active` 再浮现 —— 关间过渡要把浮现推迟到章节提示之后
+func hide_active_now() -> void:
+	for c in _active_set:
+		_set_tile_alpha_now(c, 0.0)
+
+
+## 把此刻藏着的活跃格按环错峰浮现（同 `set_active_tiles` 那一趟，只是不换集合）。`skip` 里的格不动（细胞脚下那格另有安排）
+func reveal_active(seconds: float = ACTIVE_FADE, skip: Array = []) -> void:
+	var coords: Array = []
+	for c in _active_set:
+		if not (c in skip):
+			coords.append(c)
+	var delays := ring_delays(coords, ACTIVE_RING_DELAY)
+	for c in coords:
+		var key := axial_to_rc(c)
+		if not map.has(key):
+			continue
+		var tile: Sprite2D = map[key]["instance"]
+		if is_equal_approx(tile.modulate.a, 1.0):
+			continue
+		var running: Tween = _active_tws.get(c)
+		if running != null and running.is_valid():
+			running.kill()
+		if seconds <= 0.0 or not is_inside_tree():
+			tile.modulate.a = 1.0
+			continue
+		var tw := tile.create_tween()
+		var delay: float = delays.get(c, 0.0)
+		if delay > 0.0:
+			tw.tween_interval(delay)
+		tw.tween_property(tile, "modulate:a", 1.0, seconds)
+		_active_tws[c] = tw
+
+
+## 某格的贴图节点（关间过渡抄它的贴图与位置画替身）；盘上没有这一格给 null
+func tile_sprite(c: Vector2i) -> Sprite2D:
+	var key := axial_to_rc(c)
+	return map[key]["instance"] if map.has(key) else null
+
+
 func _grid() -> void:
 	for i in range(0, radius*2-1):
 		if i < radius-1:

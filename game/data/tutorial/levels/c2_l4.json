@@ -38,7 +38,7 @@
     "ui：右栏开着但藏「第 X 回合」（Kevin 2026-09-19：第一～三章右栏只留状态框 + 抗原记忆框）；",
     "end_turn 关（allow 里也没有 act=end ⇒ 进不了 E 阶段 ⇒ 胜负判定压根不跑 ⇒ 不会弹结算屏）；",
     "move_path / cost 仍关着 —— PRD 的「界面变化」是对比上一关的增删，本关没写要把它们加回来。",
-    "camera 照 PRD:313「角色调中」= { anchor: player, align: center }。",
+    "camera 2026-09-20 起改「地图调中」（PRD:313 写的是「角色调中」）：整盘 127 格锚在玩家上会把左边推出屏幕、右边空一大截（Kevin 09-20「把地图放在左侧的中央」）；地图调中 = 对局机位，整盘落在出牌列与右栏之间正中。第五关同。",
     "",
     "**不写 rolls**（省略 ≠ rolls: []）：本关是自由行动，玩家打几次骰子、每次判成什么写不死 ——",
     "省略 = 掷骰照常走引擎自己的 rng；写成空带子反而是「一次 rng 都不许消耗」的断言，当场挡路。"
@@ -345,10 +345,7 @@
         "move_path": false,
         "cost": false,
         "energy": "infinite",
-        "camera": {
-          "anchor": "player",
-          "align": "center"
-        }
+        "camera": { "anchor": "map", "align": "center" }
       }
     },
     {
