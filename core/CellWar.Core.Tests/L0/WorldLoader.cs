@@ -14,7 +14,7 @@ namespace CellWar.Core.Tests.L0;
 ///
 /// **不许在靶场里重写规则**（§0.5 纪律 3）：这里一条算式都没有，缺省值一律指向生产代码里的同一张表
 /// （底板走 <see cref="MatchSetup.SpecialAt"/>、
-/// 旋钮走 `game/tests/contract_tune.json`）。
+/// 旋钮走 `game/data/contract_tune.json`）。
 ///
 /// **装不出来就拒收**（<see cref="UnloadableException"/>）：多免疫席 level/memory 不等、
 /// 席位解析不出唯一活细胞、`mods` 里前奏路由表认不出的名字 —— 逐条见 §0.6.1 / E-2。
@@ -565,7 +565,7 @@ public static class WorldLoader
         : throw new InvalidOperationException($"不认识的阶段：{s}");
 
     /// <summary>
-    /// 拧旋钮。四档白名单在 `game/tests/contract_tune.json`（两侧同读一份，拒绝的集合必须一样）。
+    /// 拧旋钮。四档白名单在 `game/data/contract_tune.json`（两侧同读一份，拒绝的集合必须一样）。
     /// 分档表写下标：`proliferate_per_adjacent[1]`，**1 基**（与 `RuleTuning.ByStage` 同基）。
     /// </summary>
     private static RuleTuning Tune(RuleTuning tune, Dictionary<string, int> knobs)
@@ -809,7 +809,7 @@ public static class WorldLoader
 
     /// <summary>
     /// 旋钮四档白名单（§0.6.3）：`{"schema":"cwxtune/1","knobs":[{name,tier,gd,cs,in_rule_fields,note} × 64]}`。
-    /// **两侧同读 `game/tests/contract_tune.json` 一份**，按 `tier` 分桶，不再各写一张桶表 ——
+    /// **两侧同读 `game/data/contract_tune.json` 一份**，按 `tier` 分桶，不再各写一张桶表 ——
     /// 拒绝的集合必须一样，否则「拧了个寂寞」在一边绿一边红。
     /// </summary>
     internal sealed class TuneTable
@@ -823,7 +823,7 @@ public static class WorldLoader
 
         public IReadOnlyDictionary<string, string> Tiers => tier;
 
-        public static string Path() => System.IO.Path.Combine(L0RunnerTests.GameTestsDir(), "contract_tune.json");
+        public static string Path() => System.IO.Path.Combine(L0RunnerTests.GameTestsDir(), "..", "data", "contract_tune.json");   // 2026-09-19 搬到 game/data/（导出版要读）
 
         private static TuneTable Read()
         {

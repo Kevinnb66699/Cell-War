@@ -137,7 +137,7 @@ public sealed record L0World
     /// <summary>全局修饰容器。⚠ 装载时**覆盖**引擎自己填的池子，不是追加（A-2）。</summary>
     public L0Events? Events { get; init; }
 
-    /// <summary>要拧的旋钮；不填就是 PRD 原文。键名按**GD 的名字**（snake_case），四档白名单在 `game/tests/contract_tune.json`。分档表写下标：`proliferate_per_adjacent[1]`（1 基）。</summary>
+    /// <summary>要拧的旋钮；不填就是 PRD 原文。键名按**GD 的名字**（snake_case），四档白名单在 `game/data/contract_tune.json`。分档表写下标：`proliferate_per_adjacent[1]`（1 基）。</summary>
     public Dictionary<string, int> Tuning { get; init; } = [];
 }
 

@@ -2,8 +2,9 @@
 ##
 ## 此前它住在 game/tests/cw_case_loader.gd（测试工具）。新手引导（docs/archive/新手引导_实现方案_v1_2026-09-19.md S0，2026-09-19）要在产品代码里
 ## 用它灌关卡盘面，而导出预设 exclude_filter="tests/*" —— 产品侧 preload("res://tests/…") 一导出就白屏，所以上提到
-## scripts/kernel/；tests/cw_case_loader.gd 改为薄委托（extends 这里），**不许出现第三份键表**。旋钮白名单 TUNE_PATH 仍指
-## res://tests/contract_tune.json：第一章零旋钮、_load_tuning 在 tuning 为空时直接返回，json 到第一次真拧旋钮那一片再搬（方案 §2.2）。
+## scripts/kernel/；tests/cw_case_loader.gd 改为薄委托（extends 这里），**不许出现第三份键表**。旋钮白名单 TUNE_PATH
+## 曾指 res://tests/contract_tune.json（「json 到第一次真拧旋钮那一片再搬」）—— 第一～三关拧 attack_max_per_turn 时没人搬，
+## 导出版一开教程就死（2026-09-19），现已搬到 res://data/contract_tune.json；护栏 t_export_paths 拦产品代码里的 res://tests/。
 ##
 ## 四处用它：l0_runner.gd（跑探针与契约步）、l0_pre_dump.gd（闸二 2b）、tests/rec/（录制代理落 pre/post）、教程舞台（S3 起）。
 ## 显式键表：用例里出现表外的键 = 硬错（闸 2c）。**仓库里只许两份键表**：这一份与 L0/CaseModel.cs，逐键相同（C# KeyTableTests 按路径读这个文件）。
@@ -30,7 +31,9 @@
 extends RefCounted
 
 ## 旋钮契约表（§0.6.3）。两侧同读这一份：C# 的 WorldLoader.WithKnob 也读它，按 tier 分桶，拒绝的集合必须一样。
-const TUNE_PATH := "res://tests/contract_tune.json"
+## **不能放 res://tests/**：导出预设 exclude_filter="tests/*"，导出版里读不到 ⇒ 带旋钮的关（第一～三、五、六关、间章）
+## 一装就 fail，教程入口直接死（Kevin 2026-09-19 真机「点开新手教程死机闪退」）。L0 / 工具从这儿读同一份
+const TUNE_PATH := "res://data/contract_tune.json"
 
 ## cwxcase/2 的 13 键（§0.6.2 第 1 条）
 const CASE_KEYS := ["schema", "id", "probe", "op", "covers", "status", "prd", "source",

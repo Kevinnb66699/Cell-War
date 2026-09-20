@@ -171,7 +171,7 @@ public class ContractGateTests
 
     private static JsonElement[] Knobs()
     {
-        var path = Path.Combine(TestsDir(), "contract_tune.json");
+        var path = Path.Combine(TestsDir(), "..", "data", "contract_tune.json");   // 2026-09-19 搬到 game/data/（导出版要读）
         Assert.True(File.Exists(path), $"缺旋钮表 {path}（规格 §0.6.3）");
         using var doc = JsonDocument.Parse(File.ReadAllText(path));
         return doc.RootElement.GetProperty("knobs").EnumerateArray().Select(e => e.Clone()).ToArray();
