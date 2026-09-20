@@ -14786,7 +14786,8 @@ func t_net_lobby() -> void:
 	a.set_ai(3, "mc")
 	ok = await _net_pump(srv, [a, b],
 		func() -> bool: return a.room["seats"][2]["kind"] == "ai" and a.room["seats"][3]["tier"] == "mc")
-	check(ok and a.room["seats"][3]["nick"] == "AI·专家", "房主给两个空席放新手/专家 AI")
+	check(ok and a.room["seats"][2]["nick"] == CWNet.AI_TIERS["heur"]
+			and a.room["seats"][3]["nick"] == CWNet.AI_TIERS["mc"], "房主给两个空席放新手/对抗搜索 AI，昵称与档位一致")
 	a.set_ai(1, "heur")
 	ok = await _net_pump(srv, [a, b], func() -> bool: return a.last_error.get("code", "") == "seat_taken")
 	check(ok, "有人坐着的席位不能放 AI")

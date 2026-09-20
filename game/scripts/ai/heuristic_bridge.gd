@@ -11,6 +11,8 @@
 class_name CWHeuristicBridge
 extends CWBridge
 
+const REACH_FIELD := preload("res://scripts/ai/mech/mech_dist.gd")
+
 ## 陪练 / 平衡标尺的版本号。**改任何 AI 行为（本桥、MC 桥、CWEval）都要升号**：所有用它量出来的平衡数字随之作废，
 ## 表格要标明是哪一版量的。balance_scan 的结果行会打出来。
 ## v1：2026-08 ~ 09-01 —— 分化拿选项列表第一个（固定 B→T→巨噬→树突）、死亡在估值里免费。
@@ -495,7 +497,7 @@ func _best_cancer_move(options: Array, me: Dictionary, _threat: int) -> int:
 	## → 癌铺不出去（evh8 自对弈 72 局癌胜 4% 的机制）。改为**整体抬一档**：
 	## reach≤10(≈贴脸,免疫下回合就能打) → idx1(-40)；10-20 → idx2(-5，旧「2格外」档)；
 	## 20+ → idx3/4(安全)。真·贴脸与远方的梯度保留，中段不再误伤扩张。
-	var field: Dictionary = MechDist.immune_reach_field(game)
+	var field: Dictionary = REACH_FIELD.immune_reach_field(game)
 	var safety_of := func(pos: Vector2i) -> int:
 		return SAFETY_BY_DIST[mini(_dist_to_nearest_immune(pos), 4)]
 	var best := -1

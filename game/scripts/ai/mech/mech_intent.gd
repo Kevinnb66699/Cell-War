@@ -15,6 +15,8 @@
 class_name MechIntent
 extends RefCounted
 
+const REACH_FIELD := preload("res://scripts/ai/mech/mech_dist.gd")
+
 
 ## 在 g（须为 pending 边界）上按序执行 pid 的迁移路径，返回「做完之后的地图和能量」读数，
 ## 然后复原 g。path: Array[Vector2i]（cell 的下一个落点）。
@@ -90,7 +92,7 @@ func _read_metrics(g: CWGame, pid: int, with_hash := false) -> Dictionary:
 			actor_min_immune_dist = mini(actor_min_immune_dist, CWData.hex_dist(ap, im["pos"]))
 		## 能量距离场（MechDist）：免疫「真走得过来要多少能量」——地形癌化决定，
 		## 六边形距离分不出来（人机局4 退角病灶的度量根）。
-		var fld: Dictionary = MechDist.immune_reach_field(g)
+		var fld: Dictionary = REACH_FIELD.immune_reach_field(g)
 		actor_immune_reach_cost = int(fld.get(ap, 9999))
 	## —— 战略读数（癌方「追杀免疫 + 踩骨髓」的度量）——
 	## 癌方没有走过去攻击的对称机制，减免疫能量靠【微环境压迫】（E 阶段被动）。

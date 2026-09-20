@@ -1,4 +1,5 @@
-class_name MechDist
+extends RefCounted
+## 按路径加载，避免热更依赖旧客户端全局类表中不存在的 MechDist。
 ## 能量距离场（2026-09-20）：按引擎计价模型的多源 Dijkstra。
 ##
 ## 为什么不用六边形距离：迁移的真实成本由**组织类型 + tune 表**决定（健康/癌化价差悬殊），
