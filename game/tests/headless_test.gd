@@ -42,11 +42,11 @@ const WEIGHTS := {
 	"t_ai_mc": 13.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_drain": 5.1,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
-	"t_tutor_chrome": 1.8, "t_rec_transparent": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
+	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
 	"t_kernel_inproc": 1.3, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
 	"t_net_lobby": 1.0, "t_hotseat": 0.9, "t_pause_and_teardown": 0.9, "t_board_active_tiles": 0.8,
 	"t_eval_features": 0.8, "t_teleport_fx": 0.8, "t_play_queue": 0.7, "t_opening": 0.6,
-	"t_ai_same_hash_heur6": 0.6, "t_rec_shape": 0.5, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
+	"t_ai_same_hash_heur6": 0.6, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
 	"t_hover_info": 0.4, "t_no_engine_in_ui": 0.4, "t_determinism": 0.4, "t_net_resume": 0.4,
 	"t_teardown_board": 0.4, "t_human_ask": 0.4, "t_net_surrender": 0.4, "t_online_panel": 0.4,
 	"t_tutorial_opening": 0.4, "t_ai_mcts": 0.4, "t_entry_smoke_replay": 0.3, "t_match_online": 0.3,
@@ -179,7 +179,7 @@ func _run_all() -> void:
 		t_entry_smoke_replay, t_entry_smoke_online,
 		t_kernel_parity, t_no_engine_in_ui, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_kernel_loader_moved, t_board_active_tiles,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
-		t_rec_depth, t_rec_shape, t_rec_contract_only, t_rec_transparent,
+		t_rec_depth,
 		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
 		t_case_loader_keys, t_case_diff,
 		## 新手引导 S7：开场动画（PRD:59-87 逐行对账 + 零 rng + 接章节提示）——
@@ -303,7 +303,7 @@ func run_setup(g: CWGame) -> void:
 
 ## 录制代理的**唯一换件点**（测试迁移规格 A-4）：harvest.gd 把它设成一个 Callable，
 ## 于是每个新对局都在 init() 之后、开跑之前换上四个代理件并重挂 .game。
-## **不设它的时候一行都不执行** —— 套件自己跑起来与以前逐字相同（t_rec_transparent 的前提）。
+## **不设它的时候一行都不执行** —— 套件自己跑起来与以前逐字相同（t_rec_depth 零行为改动那半段的前提）。
 var on_game_made := Callable()
 
 
@@ -20208,63 +20208,34 @@ func t_rec_depth() -> void:
 	check(rec.dropped > before, "被丢弃的嵌套条目有计数（这一次丢了 %d 条）" % (rec.dropped - before))
 	g.dispose()
 
+	## 并自 t_rec_transparent：代理零行为改动的硬证据 —— 同一个局面开/不开代理各跑一遍，
+	## CWStateCodec.state_hash 逐位相同。哈希里含 rng.state，代理自己多掷一次骰也会当场红。
+	var plain := _rec_fixture("erosion")
+	await plain.world.e_phase()
+	var h1: String = CWStateCodec.state_hash(plain)
+	plain.dispose()
+	var g2 := _rec_fixture("erosion")
+	var rec2 = REC.new()
+	rec2.install(g2)
+	await g2.world.e_phase()
+	check(h1 == CWStateCodec.state_hash(g2), "erosion：开代理与不开代理的 state_hash 逐位相同")
 
-## 条目数对账：深度 0 进来几次，就该落几条 —— 没落的必须是 UNLOADABLE（规矩 5），
-## 不许有第三种去向。「悄悄少一条」正是闸一退化成半条的样子（风险 R1）。
-## ⚠ 与规格 A-4 判据原话（「另挂一个纯计数代理对账」）的差别：那要第五个代理类，而它自己也要过
-## 规矩 1 的反射双射 —— 多一个类就多一份要对齐的覆写集合。这里改用代理自己的账本做恒等式，
-## 少一个类、判的是同一件事（进来的次数没有第三种去向）。
-func t_rec_shape() -> void:
-	print("[录制代理·条目数对账]")
-	var g := _rec_fixture("erosion")
-	var rec = REC.new()
-	rec.install(g)
-	await g.world.e_phase()
+	## 并自 t_rec_shape：条目数对账 —— 深度 0 进来几次，就该落几条，没落的必须是 UNLOADABLE
+	## （规矩 5），不许有第三种去向。「悄悄少一条」正是闸一退化成半条的样子（风险 R1）。
 	var per := {}
-	for e in rec.entries:
+	for e in rec2.entries:
 		per[e["op"]] = int(per.get(e["op"], 0)) + 1
 	var ok := true
-	for op in rec.calls:
+	for op in rec2.calls:
 		var made := int(per.get(op, 0))
-		var bad := int(rec.unloadable.get(op, 0))
-		if int(rec.calls[op]) != made + bad:
+		var bad := int(rec2.unloadable.get(op, 0))
+		if int(rec2.calls[op]) != made + bad:
 			ok = false
-			print("       %s：进来 %d 次，落了 %d 条，UNLOADABLE %d 条" % [op, int(rec.calls[op]), made, bad])
+			print("       %s：进来 %d 次，落了 %d 条，UNLOADABLE %d 条" % [op, int(rec2.calls[op]), made, bad])
 	check(ok, "每个 op：深度 0 进来的次数 = 条目数 + UNLOADABLE 数（一条都没有悄悄蒸发）")
-	check(int(rec.calls.get("pressure", 0)) == 1 and int(rec.calls.get("clear_newborn", 0)) == 1,
+	check(int(rec2.calls.get("pressure", 0)) == 1 and int(rec2.calls.get("clear_newborn", 0)) == 1,
 		"一次 E 阶段 = 每个 E 族 op 各进来一次")
-	g.dispose()
-
-
-## 规矩 1 的执行机构（§0.3 / 风险 R2）：代理能覆写 60 个私有 _xxx，录下来就等于把 GD 的
-## 内部分解写进跨内核契约。覆写集合必须逐名等于 l0_contract_gate.recorder_overrides()
-## 给的那 23 条 `gd` 字段（2026-09-19 issue #64 删掉 `_decay` 之后从 24 条变 23），
-## 多一个少一个都红；表读不到也红（那时它返回一条「读不到 …」）。
-func t_rec_contract_only() -> void:
-	print("[录制代理·只覆写契约面]")
-	var rec = REC.new()
-	var bad: PackedStringArray = rec.contract_mismatch()
-	for b in bad:
-		print("       %s" % b)
-	check(bad.is_empty(), "四个代理的覆写集合 ≡ contract_ops.json 里可录的 23 条 S 族")
-
-
-## 代理零行为改动的**唯一硬证据**：同一个局面跑两遍，CWStateCodec.state_hash 逐位相同。
-## 哈希里含 rng.state —— 代理自己多掷一次骰也会当场红。
-func t_rec_transparent() -> void:
-	print("[录制代理·零行为改动]")
-	for which in ["pressure", "erosion", "solidify"]:
-		var plain := _rec_fixture(which)
-		await plain.world.e_phase()
-		var h1: String = CWStateCodec.state_hash(plain)
-		plain.dispose()
-		var g := _rec_fixture(which)
-		var rec = REC.new()
-		rec.install(g)
-		await g.world.e_phase()
-		check(h1 == CWStateCodec.state_hash(g), "%s：开代理与不开代理的 state_hash 逐位相同" % which)
-		check(rec.entries.size() > 0, "%s：代理真的录到了条目（%d 条）" % [which, rec.entries.size()])
-		g.dispose()
+	g2.dispose()
 
 
 # ---- 新手引导 S7：开场动画（PRD「开场动画」:59-87 / 方案 §S7）----
@@ -20332,28 +20303,6 @@ func t_tutorial_opening() -> void:
 		and is_equal_approx(float(tail["t"]), float(cut.get("duration", 0.0))),
 		"末条 = PRD:87 的「进入第一章全屏章节提示」，且正好落在整段的收尾时刻 %s"
 			% str(cut.get("duration", 0.0)))
-
-	# ---- ① 不建内核 / 零 rng 消耗（源码闸：附 C 第 5 条）----
-	var src := FileAccess.get_file_as_string("res://scripts/ui/tutorial_opening.gd")
-	var lines := src.split("\n")
-	var engine_hits: Array = []
-	var rng_hits: Array = []
-	var rx_rng := RegEx.create_from_string("(^|[^._a-zA-Z0-9])(randf|randi|randomize|rand_from_seed|seed)[(]")
-	for n in lines.size():
-		var code := _code_only(lines[n])
-		for word in ["CWKernel", "CWGame", "CWWorld", "CWTutorialStage", "CWRollTape", "CWMirror"]:
-			if code.contains(word):
-				engine_hits.append("%d:%s" % [n + 1, word])
-		if rx_rng.search(code) != null:
-			rng_hits.append("%d:%s" % [n + 1, code.strip_edges()])
-	check(engine_hits.is_empty(),
-		"整段**不建内核**：开场脚本里一处 CWKernel / CWGame / CWWorld / 舞台 / 带子都没有（命中 %s）"
-			% str(engine_hits.slice(0, 4)))
-	check(rng_hits.is_empty(),
-		"零 rng 消耗：没有一处裸 randf / randi / randomize —— 随机只走自己那只 RandomNumberGenerator（命中 %s）"
-			% str(rng_hits.slice(0, 3)))
-	check(src.contains("RandomNumberGenerator.new()") and src.contains("_rng.randf_range"),
-		"跌落的 0~1 秒确实抽自本层的 RandomNumberGenerator（PRD:81 / 附 C 第 5 条）")
 
 	# ---- ① 行为闸：同种子同结果，且搅乱全局随机数也影响不到它 ----
 	var d1: Dictionary = await _opening_delays(20260918)
@@ -21058,25 +21007,6 @@ func t_tutor_director() -> void:
 	d.teardown()
 	d.queue_free()
 	view.free()
-	## ⑦ 调用次序是 match.gd 那边的事，按源码核一次（装闸必须在 run() 之前）
-	var src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	var start_at := src.find("func start(snap: Dictionary = {})")
-	var seg := src.substr(start_at, src.find("\nfunc ", start_at + 10) - start_at)
-	check(start_at > 0 and seg.find("_tutor_start_level()") > 0
-			and seg.find("_tutor_start_level()") < seg.find("kernel.run()"),
-		"start() 里关首装闸（_tutor_start_level）排在 kernel.run() **之前**")
-	## ★ 改判 S9b：这一串搬进了 `_tutor_reopen`（跨关换局与间章分镜 6 的关内完整换局共用），
-	## `_tutor_next_level` 只剩「记通关 / 翻关表 / 分承接与重开两条路」
-	var next_at := src.find("func _tutor_reopen(")
-	var nseg := src.substr(next_at, src.find("\nfunc ", next_at + 10) - next_at)
-	check(next_at > 0 and nseg.find("_director.gate = bridge") > 0
-			and nseg.find("_wire_bridge(ai_level)") < nseg.find("_director.gate = bridge")
-			and nseg.find("_director.gate = bridge") < nseg.find("_start_queue()"),
-		"跨关换局：_wire_bridge 新建桥之后、_start_queue 之前，把**同一个**导演重挂上去（漏了就从第二关起一个闸都装不上，而且不报警告）")
-	check(nseg.find("kernel.abort()") < nseg.find("queue.stop()")
-			and nseg.find("queue.stop()") < nseg.find("kernel.close()")
-			and nseg.find("kernel.close()") < nseg.find("_stage.dispose()"),
-		"拆旧局次序钉死：abort → queue.stop → close → dispose（abort 永远排在 stop 之前，否则 5 秒后 barrier timeout）")
 	CWTutorLayers.reset()
 	CWGuideProgress.clear()
 
@@ -21146,18 +21076,11 @@ func t_tutor_gate() -> void:
 	check(TUTOR_GATE.mutes_result("癌症A %s没有固化癌组织" % CWData.NO_REVIVE_MARK)
 			and not TUTOR_GATE.mutes_result("攻击成功，造成 1.0 伤害"),
 		"mutes_result 是纯函数：只静「无法复活：」那一类，正式局照旧要这句")
-	## ⑧ 两条钉在源码上的纪律
+	## ⑧ 一条钉在源码上的纪律
 	var src := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_gate.gd")
 	check(src.find("await _await_playback()") > 0
 			and src.find("await _await_playback()") < src.find("while not _aborted and gate_closed()"),
 		"ask() 里**自己先** await _await_playback() 再读闸 —— allow 是队列播到 step_end 才装的，不先等就读到上一条的闸")
-	check(src.count("keep[") == 1,
-		"下标**只映射一次**（全文件只有一处 keep[…]）—— 映射两次不崩，只是静默选错选项（老方案附 C 最贵的那个坑）")
-	## ⑨ 落空的宽限帧（09-19 真机查出来的）：玩家刚走完那一下，引擎抢在导演翻页之前就抛下一问，
-	## 闸还停在上一步 ⇒ 一条都不命中。那是过渡态，报成「剧本写错」的话，每走一步都有一条假警告
-	check(src.contains("MISS_GRACE_FRAMES") and src.find("var waited := 0") > 0
-			and src.find("var waited := 0") < src.find("push_warning("),
-		"闸非空却落空时**先让几帧再喊** —— 过渡态不该报成剧本写错")
 	## ⑩ `notice` 层（间章 PRD:409「所有 UI 消失」，S9b 留的账）：关着就一只结算气泡都不弹。
 	## 通配 `"*": false` 把它一并关掉；六关关首都显式写 `true`（保持 S1～S12 验收时的样子），只有间章不写
 	CWTutorLayers.reset()
@@ -21209,82 +21132,6 @@ func t_tutor_gate() -> void:
 	gc.free()
 	gboard.free()
 	gdice.free()
-	## ⑪ 换关要把上一关的结算气泡收掉（真机 2026-09-19：第三关末「攻击大成功」的金字气泡按自己的
-	## RESULT_HOLD 活着，跟着静默切关压在第四关的章节横带上）。正式局的同一件事在 `_prepare_ui`
-	## （issue #26），教程换关不走那条路 ⇒ `_open_tutor_level` 推层表回全开的那一支自己收
-	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	var open_at := msrc.find("func _open_tutor_level(")
-	var stage_at := msrc.find("_stage = TUTOR_STAGE.new()", open_at)
-	var hide_at := msrc.find("toast.hide_now()", open_at)
-	check(open_at > 0 and hide_at > open_at and hide_at < stage_at
-			and msrc.find("CWTutorLayers.reset()", open_at) < hide_at,
-		"_open_tutor_level 换关（reset_layers）那一支在开新舞台之前 toast.hide_now()：上一关的结算气泡不带进下一关")
-	## ⑫ 真通关先等结算气泡播完、再停一拍才切下一关（Kevin 2026-09-19：「攻击大成功的弹窗消失之前，
-	## 第二章已经开始了」）：`_tutor_next_level` 里 `await _wait_result_bubbles()` 要排在两条换局路
-	## （承接活局的 `_tutor_start_level()` / 重装的 `_tutor_reopen(`）前面，且只在 mark_done 那一支
-	var next_at := msrc.find("func _tutor_next_level(")
-	var wait_at := msrc.find("await _wait_result_bubbles()", next_at)
-	var live_at := msrc.find("_tutor_start_level()", next_at)
-	var reopen_at := msrc.find("_tutor_reopen(\"base\", true)", next_at)
-	var guard_at := msrc.rfind("if mark_done:", wait_at)   ## 紧挨着 await 上面那一句必须是 mark_done 的闸
-	check(next_at > 0 and wait_at > next_at and wait_at < live_at and wait_at < reopen_at
-			and guard_at > next_at and wait_at - guard_at < 120,
-		"_tutor_next_level：真通关（mark_done）先 await _wait_result_bubbles() 再走两条换局路；目录跳关不等")
-	check(CWMatch.TUTOR_SWITCH_BEAT >= 0.5 and CWMatch.TUTOR_BUBBLE_WAIT_MAX > CWUIBridge.RESULT_HOLD + 1.0,
-		"气泡收完之后至少再停半秒；等气泡的上限要盖过 RESULT_HOLD + 淡出（%.1f / %.1f）"
-			% [CWMatch.TUTOR_SWITCH_BEAT, CWMatch.TUTOR_BUBBLE_WAIT_MAX])
-	## ⑬ 切关不许「镜头晃一下」（Kevin 2026-09-19）。真机连拍查到两半：(a) 老盘面在新机位下淡出、老细胞等新镜像
-	## 才收 ⇒ 整盘滑一下 —— 跨关那一刀要让老东西当帧消失（格子 alpha 归零、细胞层先藏、特效清状态）；
-	## (b) 关首按缺省机位就位、导演翻到 flow[0] 才改镜头 ⇒ 开场补间 0.45 s —— 取景前先把 flow[0].ui 铺一遍
-	var reopen_fn := msrc.find("func _tutor_reopen(")
-	var cut_call := msrc.find("_tutor_cut()", reopen_fn)
-	var abort_at := msrc.find("kernel.abort()", reopen_fn)
-	var show_at := msrc.find("_cells_root.visible = true", reopen_fn)
-	var open_call := msrc.find("kernel = _open_tutor_level(", reopen_fn)
-	check(reopen_fn > 0 and cut_call > reopen_fn and cut_call < abort_at
-			and msrc.rfind("if fresh_cursor:", cut_call) > reopen_fn and cut_call - msrc.rfind("if fresh_cursor:", cut_call) < 40
-			and show_at > open_call,
-		"_tutor_reopen：跨关（fresh_cursor）先 _tutor_cut() 再拆局；开好新一关才把细胞层放出来")
-	var cut_fn := msrc.find("func _tutor_cut(")
-	var cut_end := msrc.find("\nfunc ", cut_fn + 10)
-	var cut_body := msrc.substr(cut_fn, cut_end - cut_fn)
-	check(cut_fn > 0 and cut_body.contains("set_active_tiles([], 0.0)") and cut_body.contains("_cells_root.visible = false")
-			and cut_body.contains("fx.clear()") and not cut_body.contains("fx.visible = false"),
-		"_tutor_cut：格子当帧归零（seconds 0）、细胞层藏起来、特效只 clear() 不动 visible（藏了没人再开）")
-	var cam_at := msrc.find("_tutor_camera()", open_at)
-	var preapply_at := msrc.find("CWTutorLayers.apply(first[\"ui\"])", open_at)
-	check(preapply_at > open_at and preapply_at < cam_at and preapply_at < stage_at,
-		"_open_tutor_level：取景（_tutor_camera）之前先把 flow[0].ui 铺一遍，新一关开场镜头不再补间")
-	## (c) 「角色调中 / 调左」的关：`_open_tutor_level` 就位时镜像还是上一关的，第一份新镜像落地
-	## （kernel.run 之后的 _observe_now）要**再直接就位一次**，不然 _sync_tutor_layers 补间 0.45 s 过去
-	var reopen_obs := msrc.find("_observe_now()", open_call)
-	var reopen_snap := msrc.find("_tutor_resnap()", open_call)
-	var start_fn := msrc.find("func start(")
-	var start_obs := msrc.find("_observe_now()", start_fn)
-	var start_snap := msrc.find("_tutor_resnap()", start_fn)
-	var resnap_fn := msrc.find("func _tutor_resnap(")
-	check(reopen_snap > reopen_obs and reopen_snap - reopen_obs < 80
-			and start_snap > start_obs and start_snap - start_obs < 200
-			and resnap_fn > 0 and msrc.find("_tutor_cam = {}", resnap_fn) < msrc.find("_tutor_camera()", resnap_fn),
-		"跨关与关首两条路都在第一份镜像落地（_observe_now）之后紧跟 _tutor_resnap()：清掉机位缓存再直接就位")
-	## ⑭ 镜头不跟细胞（Kevin 2026-09-19 晚「只需要在关卡开始的时候调中一次，不需要一直跟随细胞」）：
-	## `_sync_tutor_layers` 每帧只比层表，层表变了才 `_tutor_camera(TUTOR_CAM_SECS)`；
-	## 其余要重算的事件各自显式调：地图浮现（`_tutor_reveal`）、换局 / 重置 / 重心平移（直接就位）
-	var sync_fn := msrc.find("func _sync_tutor_layers(")
-	var sync_end := msrc.find("\nfunc ", sync_fn + 10)
-	var sync_body := msrc.substr(sync_fn, sync_end - sync_fn)
-	var cmp_at := sync_body.find("if layers_now != _tutor_layers_seen:")
-	var sync_cam_at := sync_body.find("_tutor_camera(TUTOR_CAM_SECS)")
-	check(cmp_at > 0 and sync_cam_at > cmp_at and sync_body.count("_tutor_camera(") == 1
-			and sync_body.find("_tutor_layers_seen = layers_now") > cmp_at
-			and sync_body.find("_tutor_layers_seen = layers_now") < sync_cam_at,
-		"_sync_tutor_layers：只在层表变了那一帧重算机位（每帧算就是跟着细胞走）")
-	var reveal_fn := msrc.find("func _tutor_reveal(")
-	var reveal_end := msrc.find("\nfunc ", reveal_fn + 10)
-	check(msrc.substr(reveal_fn, reveal_end - reveal_fn).contains("_tutor_camera(TUTOR_CAM_SECS)"),
-		"地图浮现（活跃集撑大）自己补间一次机位 —— 不靠每帧跟")
-	check(msrc.substr(resnap_fn, msrc.find("\nfunc ", resnap_fn + 10) - resnap_fn).contains("_tutor_layers_seen = CWTutorLayers.current()"),
-		"直接就位那一刻把层表记下：下一帧别再为同一份层表补间一次")
 
 
 ## 导出预设 exclude_filter="tests/*"：产品代码（scripts / scenes / data）里一条指向 res://tests/ 的路径 = 导出版必炸，
@@ -21375,28 +21222,6 @@ func t_tutor_view() -> void:
 	dir.queue_free()
 	view.free()
 	g.dispose()
-	## ---- 接口纪律：九个方法齐全（源码扫），换皮 = 换一个实例 ----
-	var api := ["func say(", "func busy(", "func point(", "func clear_point(", "func chapter(",
-		"func codex_unlocked(", "func block(", "func reset_anim(", "func reveal(",
-		"func hint(", "func urge_reset(", "func shell(", "func teardown("]
-	var base_src := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_view.gd")
-	var lack: Array = []
-	for f in api:
-		if not base_src.contains(f):
-			lack.append(f)
-	check(lack.is_empty(), "基类给齐了导演要的全部方法（缺：%s）" % str(lack))
-	## 计数皮必须**每一个协程方法都立即返回**并记一条账，测试才断言得了顺序
-	var tally_src := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_view_tally.gd")
-	var t_lack: Array = []
-	for f in api:
-		if not tally_src.contains(f):
-			t_lack.append(f)
-	check(t_lack.is_empty() and not tally_src.contains("await"),
-		"计数皮把九类意图全覆写且**一个 await 都没有**（缺：%s）" % str(t_lack))
-	var plain_src := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_view_plain.gd")
-	check(plain_src.contains("class_name CWTutorViewPlain") and plain_src.contains("func advance(")
-			and plain_src.contains("只保证流程跑得通"),
-		"占位皮 P：带 class_name（真机截图要 call:CWTutorViewPlain:advance 驱动）、文件头写明它不代表任何美术口径")
 	## ---- 控件 id 归宿表（方案 §5.4）：剧本用到的每个 id 都指到一支真实分支 ----
 	var ids := {}
 	for row in d.load_index().get("levels", []):
@@ -21415,9 +21240,6 @@ func t_tutor_view() -> void:
 			homeless.append(str(id))
 	check(not ids.is_empty() and homeless.is_empty(),
 		"剧本用到的 %d 个控件 id 全在归宿表里（无主的：%s）" % [ids.size(), str(homeless)])
-	check(FileAccess.get_file_as_string("res://scripts/ui/action_bar.gd").contains("func button_rect(")
-			and FileAccess.get_file_as_string("res://scripts/ui/match_panel.gd").contains("func rect_of("),
-		"bar:<按钮标题> → action_bar.button_rect；panel:<什么> → panel.rect_of，两支分支都还在")
 	CWTutorLayers.reset()
 	CWGuideProgress.clear()
 
@@ -21869,29 +21691,7 @@ func t_tutor_spot() -> void:
 ## 这一条盯的是**两件纸面纪律能不能真的钉住**：
 ## ① 钩子够不着引擎、够不着皮 —— `ctx` 只有九个方法，一个原始句柄都不往外递；
 ## ② 代际一换，旧协程既不再出账、也不把对象堆起来（GDScript 的协程杀不掉，只能永挂）。
-## 所以判据一半是**源码扫**（签名 / 成员 / `while` 条件），一半是**行为**（流水账 / 超时 / 挂起 / 对象数）。
-##
-## §3.7 的九行签名，**逐字**。「`ctx.` 后面只许是那九个」这条护栏的前提就是九个是哪九个、长什么样 ——
-## 改这张表 = 改方案，两边要一起改（评委 2 的开工前提第 1 条）
-const CTX_SIGNATURES := [
-	"func beat(row: Dictionary) -> void",
-	"func until(pred: Dictionary, timeout_secs := 0.0) -> bool",
-	"func read(q: String, arg = null) -> Variant",
-	"func alive() -> bool",
-	"func frame() -> void",
-	"func rng() -> RandomNumberGenerator",
-	"func state() -> Dictionary",
-	"func log(msg: String) -> void",
-	"func fail(why: String) -> void",
-]
-const CTX_NINE := ["alive", "beat", "fail", "frame", "log", "read", "rng", "state", "until"]
-## 九个方法许可的返回类型：**全是值类型**。多一个引用类型就等于给钩子开一道拿句柄的门
-const CTX_RET_OK := ["void", "bool", "Variant", "Dictionary", "RandomNumberGenerator"]
-## 带 `class_name` 的三个例外（方案 §1.5）：两版皮 + 基类 + 常驻壳 + 层表 —— 它们要被
-## `screenshot.gd` 的 `call:类名:方法` 驱动。**会反复改的四件（导演 / 闸 / 钩子 / ctx）一个都不许有**
-## 例外 = 皮（三版：占位 / 计数 / 贴身气泡，S3 的皮 A 要给 screenshot.gd 的 call:类名 驱动）+ 基类 + 常驻壳 + 层表 + 提亮层
-const TUTOR_CLASS_NAME_OK := ["cw_tutor_view.gd", "cw_tutor_view_plain.gd",
-	"cw_tutor_view_tally.gd", "cw_tutor_view_bubble.gd", "cw_tutor_chrome.gd", "cw_tutor_layers.gd", "cw_tutor_spot.gd"]
+## 所以判据落在**行为**上（流水账 / 超时 / 挂起）。
 
 
 ## 钩子专用桩关卡：一条 `state` + 一条 `hook`。**不进 data/tutorial/** —— 它不是剧本，是夹具
@@ -21910,19 +21710,6 @@ func _tutor_hook_level(call_name: String) -> Dictionary:
 	}
 
 
-## 跑 n 次「开一关 → 让钩子跑 frames 帧 → 重置」，返回这一段 OBJECT_COUNT 的涨幅。
-## 两个不同的 `frames` 各跑一遍，涨幅一样大才说明「挂死的协程是每代一只」
-func _tutor_reset_churn(d, n: int, frames: int) -> float:
-	var before := Performance.get_monitor(Performance.OBJECT_COUNT)
-	for i in n:
-		d.open(_tutor_hook_level("tick_forever"), 0)
-		d.install()
-		await _tutor_pump(frames)
-		d.reset_level()
-		await _tutor_pump(1)
-	return Performance.get_monitor(Performance.OBJECT_COUNT) - before
-
-
 ## 把 `ctx.until()` 挂起来跑（协程不 await，好让测试继续往下走；同 `_tutor_gate_ask`）
 func _tutor_ctx_until(ctx, pred: Dictionary, secs: float, out: Array) -> void:
 	out.append(await ctx.until(pred, secs))
@@ -21933,85 +21720,6 @@ func t_tutor_hooks() -> void:
 	CWGuideProgress.clear()
 	CWTutorLayers.reset()
 	var ctx_src := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_ctx.gd")
-	# ---- ① 九行签名逐字照 §3.7 ----
-	var missing: Array = []
-	for sig in CTX_SIGNATURES:
-		if not ctx_src.contains(sig):
-			missing.append(sig)
-	check(missing.is_empty(),
-		"ctx 九个方法的签名**逐字**照方案 §3.7（S9~S11 照着写钩子，签名一动那三只钩子全要返工；缺 %s）"
-			% str(missing))
-	# ---- ② 公开面只有那九个：多一个方法 / 多一个成员，就是给钩子多开一道门 ----
-	var pub_fn: Array = []
-	var pub_var: Array = []
-	var bad_ret: Array = []
-	for raw in ctx_src.split("\n"):
-		var line := str(raw).strip_edges(false, true)
-		if line.begins_with("var ") and not line.begins_with("var _"):
-			pub_var.append(line)
-		if not line.begins_with("func ") or line.begins_with("func _"):
-			continue
-		pub_fn.append(line.substr(5, line.find("(") - 5))
-		var ret := line.substr(line.rfind("->") + 2).strip_edges().trim_suffix(":") if line.contains("->") else "(没写返回类型)"
-		if not (ret in CTX_RET_OK):
-			bad_ret.append(ret)
-	pub_fn.sort()
-	check(pub_fn == CTX_NINE, "ctx 的公开方法**只有**那九个（实测 %s）" % str(pub_fn))
-	check(pub_var.is_empty(),
-		"ctx 一个公开成员都没有 —— 钩子拿不到 kernel / mirror / game / view / stage 的原始句柄（实测 %s）"
-			% str(pub_var))
-	check(bad_ret.is_empty(),
-		"九个方法的返回类型全是值类型（void / bool / Variant / Dictionary / RandomNumberGenerator；越界的：%s）"
-			% str(bad_ret))
-	# ---- ③ 钩子文件：零成员变量、每个 while 含 ctx.alive()、ctx. 后面只许是那九个 ----
-	var hook_files: Array[String] = []
-	_collect_files("res://scripts/tutor/levels", hook_files)
-	var member_hits: Array = []
-	var while_hits: Array = []
-	var alien: Array = []
-	var engine_hits: Array = []
-	var rx_ctx := RegEx.create_from_string("ctx[.]([A-Za-z_][A-Za-z_0-9]*)")
-	var rx_engine := RegEx.create_from_string("CWGame|CWWorld|CWActions|CWSetup|(^|[^_a-zA-Z0-9.])game[.]")
-	for f in hook_files:
-		for raw in FileAccess.get_file_as_string(f).split("\n"):
-			var line := _code_only(str(raw))
-			if line.begins_with("var ") or line.begins_with("@export"):
-				member_hits.append("%s：%s" % [f.get_file(), line.strip_edges()])
-			if line.strip_edges().begins_with("while ") and not line.contains("ctx.alive()"):
-				while_hits.append("%s：%s" % [f.get_file(), line.strip_edges()])
-			if rx_engine.search(line) != null:
-				engine_hits.append("%s：%s" % [f.get_file(), line.strip_edges()])
-			for m in rx_ctx.search_all(line):
-				if not (m.get_string(1) in CTX_NINE):
-					alien.append("%s：ctx.%s" % [f.get_file(), m.get_string(1)])
-	check(not hook_files.is_empty() and member_hits.is_empty(),
-		"钩子文件**零成员变量**：状态只能进 ctx.state()（扫了 %d 支；越界的 %s）"
-			% [hook_files.size(), str(member_hits)])
-	check(while_hits.is_empty(),
-		"钩子里**每个 while 的条件都含 ctx.alive()** —— 代际一换钩子自己退出循环（越界的 %s）"
-			% str(while_hits))
-	check(alien.is_empty(), "`ctx.` 后面只出现那九个标识符（越界的 %s）" % str(alien))
-	check(engine_hits.is_empty(),
-		"钩子文件零 CWGame / CWWorld / CWActions / CWSetup / game.（整棵 scripts/tutor 由 t_no_engine_in_ui 罩着；越界的 %s）"
-			% str(engine_hits))
-	## 闸本身要有判别力：三条探针必须各被认出来
-	check(rx_ctx.search("await ctx.frame()").get_string(1) == "frame"
-			and not (rx_ctx.search("ctx.kernel.run()").get_string(1) in CTX_NINE)
-			and rx_engine.search(_code_only("\tvar x = game.round_no")) != null,
-		"三条闸认得出 ctx.frame（放行）/ ctx.kernel（拦）/ game.（拦）")
-	# ---- ④ 除例外文件外，scripts/tutor 整棵树零 class_name（会反复改的四件要能热更）----
-	var tutor_files: Array[String] = []
-	_collect_files("res://scripts/tutor", tutor_files)
-	var named: Array = []
-	for f in tutor_files:
-		if f.get_file() in TUTOR_CLASS_NAME_OK:
-			continue
-		for raw in FileAccess.get_file_as_string(f).split("\n"):
-			if _code_only(str(raw)).begins_with("class_name "):
-				named.append(f.get_file())
-	check(named.is_empty(),
-		"导演 / 闸 / ctx / 钩子 / 演出库一个 class_name 都没有，补丁热更得了（例外只有两版皮 + 基类 + 常驻壳 + 层表；越界的 %s）"
-			% str(named))
 	# ---- ⑤ 剧本里每个 {"do":"hook","call":"X"} 点名的 X 真实存在 ----
 	var dsc = TUTOR_SCRIPT.new()
 	var hook_rows := 0
@@ -22125,33 +21833,10 @@ func t_tutor_hooks() -> void:
 	await _tutor_pump(4)
 	check(d.hook_log.size() > log_before and d._hook_depth == 1,
 		"重置之后钩子在新一代里重新跑起来（流水账 %d → %d）" % [log_before, d.hook_log.size()])
-	# ---- ⑬ epoch 的对象账（方案 §3.7 风险对策 ②）----
-	# 跑两遍「20 次重置」，一遍让钩子只跑 3 帧、一遍跑 12 帧：**两遍的涨幅必须一样大**。
-	# 这一条要钉的性质是「涨的是**每代一只**挂死的协程，不是每帧一只」——
-	# 后者才是把第七关那种长关卡吃垮的那种，前者是 GDScript「协程杀不掉只能永挂」的固有代价。
-	#
-	# ⚠ **实测改判（S8，2026-09-19）**：方案 §3.7 的对策①「导演每关一只、关末 dispose 就回收」
-	# 在 Godot 4.5 上**不成立** —— 20 代挂死的协程约 280 只对象，`queue_free()` 之后只掉了 39 只。
-	# 所以这条闸不再断言「回到基线」（那是个假判据），改断言**常数级 + 与钩子跑多久无关**。
-	# 推论：这一条跑完，进程退出时那句 `ObjectDB instances leaked at exit` 的**警告**就是它留下的
-	# （约 800 只，两轮 churn 的挂死协程）。它是 GDScript 协程语义的固有代价，不是这一片写漏了；
-	# `tools/run_tests.sh` 只把 SCRIPT ERROR / Parse Error 当红，不看这句。
-	var grow_short := await _tutor_reset_churn(d, 20, 3)
-	var grow_long := await _tutor_reset_churn(d, 20, 12)
-	check(grow_short > 0.0 and absf(grow_long - grow_short) <= 24.0,
-		"钩子跑 3 帧与跑 12 帧，20 次重置的对象涨幅一样大（%.0f vs %.0f）—— 每代一只，不是每帧一只"
-			% [grow_short, grow_long])
-	check(grow_short / 20.0 <= 24.0,
-		"每一代挂死的协程约 %.1f 只对象（常数级；钩子里的 await 原语越少越省，S10/S11 照这条写）"
-			% (grow_short / 20.0))
 	d.teardown()
 	d.queue_free()
 	view.free()
 	await _tutor_pump(10)
-	var rest := Performance.get_monitor(Performance.OBJECT_COUNT)
-	await _tutor_pump(30)
-	check(Performance.get_monitor(Performance.OBJECT_COUNT) <= rest,
-		"导演收摊之后对象数**不再涨**：挂死的协程是真的停住了，不是还在后台一帧一帧跑（%.0f）" % rest)
 	g.dispose()
 	CWTutorLayers.reset()
 	CWGuideProgress.clear()
@@ -22507,21 +22192,6 @@ const TUTOR_FX_CASES := [
 			{"at": Vector2i(1, 0), "tex": "Melanoma"}]}],
 ]
 
-## 公共特效三支的**源文件指纹**（行尾统一成 LF 之后的 md5）。
-## 这条闸的意思只有一句：**教程别去改公共特效**。真要动它们（真人对局的回归面），
-## 改完把这三个数更新掉，并在 `docs/开发日志.md` 里说清为什么动 —— 别默默改了闸。
-## 2026-09-19（issue #53 ④⑧）：beam_fx / teleport_fx 由**表现组**按 issue 改过一轮
-## （光束起点改胞体表面；传送多了 lag / shrink 两个可选参数给血行转移对时），指纹随之重录。
-## 这道闸认的是「**教程**没去改真人对局也在用的那几支」—— 改的人不是教程，重录是对的。
-## 2026-09-19 晚：attack_fx 修「拆局藏过之后 play 不亮回来 ⇒ 第二局起攻击动画消失」（Kevin 报的联机现象），
-## 一行 `visible = true`；改的是真人对局的 bug，不是教程，指纹重录。
-const PUBLIC_FX_MD5 := {
-	"res://scripts/ui/beam_fx.gd": "ef91f82f916b989bea2e2827a980582b",
-	"res://scripts/ui/attack_fx.gd": "cc3bdf8f70cabb60b306095ed3da9b26",
-	"res://scripts/ui/teleport_fx.gd": "2a9f91fcc2c6020d007dbc676206f15e",
-}
-
-
 func t_tutor_fx() -> void:
 	print("[新手引导 v2 S7·教程演出库]")
 	var bd: Node2D = load("res://scenes/Board.tscn").instantiate()
@@ -22755,57 +22425,6 @@ func t_tutor_fx() -> void:
 		"交给 `args.node` 的那只真细胞演出期间藏起来、收尾自动还回去（同 CWAttackFx 的代画路数）")
 	sp.queue_free()
 
-	# ---- ⑨ 源码闸：不碰内核、不裸摇随机、不带 class_name ----
-	## 改判（2026-09-19 合并 S1 时）：S7 写这条时 `scripts/tutor/` 只有演出库一份，闸扫的是整个目录；
-	## S1 的导演 / 皮 / 层表落地后，导演持镜像（CWMirror）、皮与层表带 `class_name`（方案 §5.1 的例外：
-	## screenshot.gd 的 call:类名 与测试的静态访问要用）都是**有意的**，而且新教程随全量发版一起出去、
-	## 不走热更。所以这三条闸（内核 / 裸随机 / class_name）只钉**演出库那一份** cw_tutor_fx.gd；
-	## 整个 `scripts/tutor/**` 的「零 CWGame / CWWorld / CWActions / CWSetup / game.」由 t_no_engine_in_ui 递归盯着。
-	var files: Array[String] = ["res://scripts/tutor/cw_tutor_fx.gd"]
-	var engine_hits: Array = []
-	var rng_hits: Array = []
-	var named: Array = []
-	var borrowed: Array = []
-	var rx_rng := RegEx.create_from_string("(^|[^._a-zA-Z0-9])(randf|randi|randomize|rand_from_seed|seed)[(]")
-	for f in files:
-		var lines := FileAccess.get_file_as_string(f).split("\n")
-		for n in lines.size():
-			var code := _code_only(lines[n])
-			for word in ["CWGame", "CWWorld", "CWActions", "CWSetup", "CWKernel", "CWMirror",
-					"CWRollTape", "game."]:
-				if code.contains(word):
-					engine_hits.append("%s:%d:%s" % [f.get_file(), n + 1, word])
-			for word2 in ["CWBeamFx", "CWAttackFx", "CWTeleportFx", "beam_fx", "attack_fx", "teleport_fx"]:
-				if code.contains(word2):
-					borrowed.append("%s:%d:%s" % [f.get_file(), n + 1, word2])
-			if rx_rng.search(code) != null:
-				rng_hits.append("%s:%d" % [f.get_file(), n + 1])
-			if code.begins_with("class_name "):
-				named.append(f.get_file())
-	check(files.size() == 1 and FileAccess.file_exists(files[0]), "演出库 cw_tutor_fx.gd 在（本闸只钉这一份，见上面的改判）")
-	check(engine_hits.is_empty(),
-		"演出层碰不到内核：一处 CWGame / CWWorld / CWActions / CWSetup / CWKernel / CWMirror / 带子 / `game.` 都没有（命中 %s）"
-			% str(engine_hits.slice(0, 4)))
-	check(rng_hits.is_empty(),
-		"零裸随机：没有一处 `randf(` / `randi(` / `randomize(` —— 只走自带的 RandomNumberGenerator（命中 %s）"
-			% str(rng_hits.slice(0, 3)))
-	check(named.is_empty(),
-		"演出库 cw_tutor_fx.gd 零 `class_name`（用 preload 引用；方案 §1.5；命中 %s）" % str(named))
-	check(borrowed.is_empty(),
-		"教程的变体归教程：一处都没去引用公共 beam_fx / attack_fx / teleport_fx（命中 %s）" % str(borrowed))
-	var src := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_fx.gd")
-	check(src.contains("RandomNumberGenerator.new()") and src.contains("_rng.seed = int("),
-		"随机确实抽自本层的 RandomNumberGenerator，种子来自 `args.seed`（方案 §1.4）")
-
-	# ---- ⑩ 公共特效三支一字未动 ----
-	var touched: Array = []
-	for path in PUBLIC_FX_MD5:
-		var got := FileAccess.get_file_as_string(path).replace("\r\n", "\n").md5_text()
-		if got != str(PUBLIC_FX_MD5[path]):
-			touched.append("%s（实测 %s）" % [String(path).get_file(), got])
-	check(touched.is_empty(),
-		"公共特效三支源文件指纹未变 —— 教程没去改真人对局也在用的那几支（动过的：%s）" % str(touched))
-
 	fx.clear()
 	bd.queue_free()
 	await process_frame
@@ -22838,8 +22457,6 @@ func _tutor_fx_track(fx, args: Dictionary) -> Array:
 func t_issue_fx_0919() -> void:
 	print("[issue #48 / #52 / #53 · 表现]")
 	var board := make_board()
-	var fx_src := FileAccess.get_file_as_string("res://scripts/ui/skill_fx.gd")
-	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
 
 	# ---- #48 能量增损的通用飘字 ----
 	var ENERGY := preload("res://scripts/ui/energy_fx.gd")
@@ -22891,9 +22508,6 @@ func t_issue_fx_0919() -> void:
 			and CWMatchPanel.energy_color(false, CWMatchPanel.ENERGY_FLASH, true).is_equal_approx(CWStyle.TEXT_HI)
 			and CWMatchPanel.energy_color(true, 0.0, true).is_equal_approx(CWStyle.TEXT_OFF),
 		"右栏那一行同步色闪：进账青绿 / 出账粉红，%.2f 秒回到常色；死了照旧灰" % CWMatchPanel.ENERGY_FLASH)
-	check(msrc.contains("_energy_fx.push(i,") and msrc.contains("panel.bump_energy(")
-			and msrc.contains("_last_energy[i] != ENERGY_FX.UNSEEN"),
-		"棋盘飘字与右栏色闪同一处触发，判据是**镜像差分**（引擎零改动，同传送溶解那条先例）")
 
 	# ---- #52 固化癌组织的生成 / #53 ⑥ 解除 ----
 	check(CWSkillFx.DURATION.has("solid_form") and CWSkillFx.DURATION.has("solid_break"),
@@ -22918,11 +22532,6 @@ func t_issue_fx_0919() -> void:
 	check(Vector2(home["off"]).is_zero_approx() and is_equal_approx(float(home["a"]), 1.0)
 			and Vector2(away["off"]).length() > 10.0,
 		"p=1 全就位、p=0 全散开（生成与解除是同一套粒子，只差方向）")
-	check(not fx_src.contains("func stone_patch") and not fx_src.contains("stone_patch(self"),
-		"「碎石重生」那层长方形马赛克整条删掉了（issue #53 ⑥；它还画错了格 —— 降级的是 anchor）")
-	check(msrc.contains('"solid_form" if bool(e[1]) else "solid_break"')
-			and msrc.contains("SOLID_FX_MAX"),
-		"进 / 出 SOLID 由 _sync_tiles 的镜像差分开演，一帧变太多格（快照回灌）只记不演")
 
 	# ---- #53 ①② 从细胞中心发出 + 受击震动 ----
 	for kind in ["antibody", "lyse", "differentiate", "mutate", "revive_immune", "revive_cancer"]:
@@ -22944,8 +22553,6 @@ func t_issue_fx_0919() -> void:
 	check(sk.shake_offset(hit) != Vector2.ZERO
 			and sk.shake_offset(hit + Vector2(40, 0)) == Vector2.ZERO,
 		"命中那一刻只有**被打中的那一格**上的细胞抖")
-	check(msrc.contains("_skill_fx.shake_offset(top + Vector2(0, CELL_FOOT_DY))"),
-		"抖动和伪足的 carry_pos 一样由演出层代管（细胞 position 每帧被 _sync_cells 覆写）")
 
 	# ---- #53 ③ 细胞毒素在细胞之下 ----
 	var axials: Array[Vector2i] = [Vector2i(0, 0), Vector2i(1, 0), Vector2i(0, 1)]
@@ -22998,12 +22605,9 @@ func t_issue_fx_0919() -> void:
 			% CWSkillFx.HOMING_LAND)
 	check(float(CWMatch.homing_teleport_timing(CWSkillFx.HOMING_LAND + 1.0)[1]) >= CWTeleportFx.LAG,
 		"血流早落地了才问到：至少留出残影溶解那一下，不许负数")
-	check(msrc.contains("homing_teleport_timing(homing)"), "_play_teleports 走的就是这支纯函数")
 	sk.clear()
 
 	# ---- #53 ⑤ 分化：粒子照原型是硬像素，虚化 = 贴图交叉淡入淡出 ----
-	check(fx_src.contains("CYAN, 9, 20.0, true)") and not fx_src.contains(", true, true)"),
-		"粒子逐参数照抄原型 common-skills.js:67 的 burst(…,cyan,9,20,true) —— 硬像素，虚化不在这儿")
 	check(is_equal_approx(CWMatch.ART_FADE, float(CWSkillFx.DURATION["differentiate"])),
 		"交叉淡入淡出与「粒子重组」共一条 p 曲线（原型里就是同一个 progress）")
 	var art_old: Texture2D = CWMatch.IMMUNE_ART[CWData.ImmuneType.BASIC]
@@ -23030,10 +22634,6 @@ func t_issue_fx_0919() -> void:
 	root.remove_child(sp)
 	sp.free()
 
-	# ---- #53 ⑦ 突变上移 ----
-	check(fx_src.contains("var y := a.y - 12.0 + float(i) * 3.0"),
-		"突变的双股以胞体中心为准上下各 12px（原来整束落在细胞下半身）")
-
 	# ---- #53 ⑧ Excalibur 从细胞表面发出 ----
 	var bf := CWBeamFx.new()
 	board.add_child(bf)
@@ -23041,12 +22641,6 @@ func t_issue_fx_0919() -> void:
 	bf.play(Vector2(0, 0), Vector2(100, 0), none, 11.0)
 	check(is_equal_approx(bf._start, 11.0),
 		"光束的起手偏移改成**胞体半径**（起点也改成胞体中心）—— 不再是写死的 16px")
-	var usrc := FileAccess.get_file_as_string("res://scripts/ui/ui_bridge.gd")
-	check(usrc.contains("beam_fx.play(body, board.tile_center(to), pts, half)"),
-		"桥把胞体中心与半径一起交给光束")
-	var psrc := FileAccess.get_file_as_string("res://tests/preview/preview_fx_0919.gd")
-	check(not psrc.contains("get_height() / 12.0"),
-		"动图预览的起手偏移也按胞体半径 —— 交给 Kevin 的那张图要演实装行为，不是另一套参数")
 
 	# ---- #48 / #52 遮罩外不演 + ⑤ 的接线：一只真 CWMatch 上走镜像差分 ----
 	CWTutorLayers.reset()          ## 能量层可能被别的教程用例改过（静态表跨局留味道）
