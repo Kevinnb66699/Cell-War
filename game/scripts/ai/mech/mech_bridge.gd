@@ -23,6 +23,17 @@ var use_search := false
 ## 计划缓存（pid → {round, actions, i}）：同细胞同回合只搜一次，后续询问执行
 ## 叶模拟时的既定序列（见 search_best 的 plan 捕获）。回合更替自动作废。
 var _plan := {}
+## 计划视野：只承诺前 2 手（搜索手+1 手续走）。2026-09-20 实测教训：整回合缓存
+## 把搜索覆盖从「每手一搜」降到「一回合一搜」，续走启发式的弱势被放大——
+## 自对弈癌胜率 54%→33%（再叠威胁 v2 一度 4%）。2 手足以断「等值格振荡」，
+## 之后重搜恢复覆盖。 Steps: 振荡的周期是 1 手（A→B→A），2 手承诺即断。
+## 参数扫描注入口(0=用默认): 云上网格搜索用。已部署调优值: topk=6/hz=1
+## (2026-09-20 云扫描13配置x48局 + 大样本确认432局55.6% vs 默认44.5%)。
+static var TOPK_OVERRIDE := 0
+static var HORIZON_OVERRIDE := 0
+static var W_THREAT := 15.0
+static var THREAT_REACH := 60
+const PLAN_HORIZON := 1
 const SEARCH_DEPTH := 2
 
 
@@ -36,7 +47,8 @@ func ask(req: Dictionary) -> int:
 		if int(_pc["round"]) == game.round_no:
 			var _acts: Array = _pc["actions"]
 			var _i: int = int(_pc["i"])
-			if _i < _acts.size():
+			var _hz: int = HORIZON_OVERRIDE if HORIZON_OVERRIDE > 0 else PLAN_HORIZON
+			if _i < _acts.size() and _i < _hz:
 				var _pidx := _find_plan_option(req, _acts[_i])
 				if _pidx >= 0:
 					_pc["i"] = _i + 1
@@ -118,10 +130,16 @@ static func _cancer_score(m: Dictionary) -> float:
 	var ae: int = int(m.get("actor_energy", 0))
 	if ae < 20:
 		s -= float(20 - ae) * 2.0
-	## 免疫威胁：dist < 3 罚分（免疫能迁入攻击）
-	var d: int = int(m.get("actor_min_immune_dist", 999))
-	if d < 3:
-		s -= float(3 - d) * 5.0
+	## 免疫威胁 v2（2026-09-20）：能量距离（MechDist）替代六边形 dist——
+	## 「贴免疫」≠「会被打」：真实威胁 = 免疫**走过来要多少能量**（地形癌化决定）
+	## × 自己还有没有血扛（用户实测口径：送死由免疫能量/地图癌化/自己血量共决）。
+	## reach < 6.0 能量才构成威胁；危险度随自身能量衰减（≥4.0 不躲）。
+	## 权重先验（峰值 15 = 旧 (3-d)*5 的峰值），待强度对局标定。
+	var reach: int = int(m.get("actor_immune_reach_cost", 9999))
+	if reach < THREAT_REACH:
+		var danger: float = 1.0 - float(reach) / float(THREAT_REACH)
+		var hp_scale: float = clampf((40.0 - float(ae)) / 30.0, 0.0, 1.0)
+		s -= danger * hp_scale * W_THREAT
 	## 战略三维：击杀 / 压迫 / 封骨髓（真有结果才重权）
 	s += float(m.get("immune_lethal_count", 0)) * W_KILL
 	s += float(m.get("immune_pressure_total", 0)) * W_PRESSURE

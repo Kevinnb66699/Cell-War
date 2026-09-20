@@ -15,6 +15,8 @@
 class_name MechIntent
 extends RefCounted
 
+const REACH_FIELD := preload("res://scripts/ai/mech/mech_dist.gd")
+
 
 ## 在 g（须为 pending 边界）上按序执行 pid 的迁移路径，返回「做完之后的地图和能量」读数，
 ## 然后复原 g。path: Array[Vector2i]（cell 的下一个落点）。
@@ -79,6 +81,7 @@ func _read_metrics(g: CWGame, pid: int, with_hash := false) -> Dictionary:
 	var actor_energy := 0
 	var actor_solid_rounds := -1
 	var actor_min_immune_dist := 999
+	var actor_immune_reach_cost := 9999   ## 威胁 v2：最近免疫迁入到 actor 格的**能量成本**（十分位）
 	if not actor.is_empty():
 		actor_energy = int(actor["energy"])
 		var ap: Vector2i = actor["pos"]
@@ -87,6 +90,10 @@ func _read_metrics(g: CWGame, pid: int, with_hash := false) -> Dictionary:
 				int(g.tiles[ap]["solid"]), MechValue.solidify_threshold(g))
 		for im in g.living_cells(CWData.Faction.IMMUNE):
 			actor_min_immune_dist = mini(actor_min_immune_dist, CWData.hex_dist(ap, im["pos"]))
+		## 能量距离场（MechDist）：免疫「真走得过来要多少能量」——地形癌化决定，
+		## 六边形距离分不出来（人机局4 退角病灶的度量根）。
+		var fld: Dictionary = REACH_FIELD.immune_reach_field(g)
+		actor_immune_reach_cost = int(fld.get(ap, 9999))
 	## —— 战略读数（癌方「追杀免疫 + 踩骨髓」的度量）——
 	## 癌方没有走过去攻击的对称机制，减免疫能量靠【微环境压迫】（E 阶段被动）。
 	## 所以「追杀」= 让免疫被回合末压迫压死：用引擎 pressure_lethal 逐只判（含护盾减免）。
@@ -126,6 +133,7 @@ func _read_metrics(g: CWGame, pid: int, with_hash := false) -> Dictionary:
 		"actor_energy": actor_energy,
 		"actor_solid_rounds": actor_solid_rounds,
 		"actor_min_immune_dist": actor_min_immune_dist,
+		"actor_immune_reach_cost": actor_immune_reach_cost,
 		"immune_alive": immune_alive,
 		"cancer_alive": cancer_alive,
 		"immune_pressure_total": immune_pressure_total,
@@ -223,7 +231,9 @@ func best_by(g: CWGame, pid: int, scorer: Callable) -> Dictionary:
 ## 边界）本来就认识"死了"（ia +3.6, 5/5）。把叶推到回合边界 = 压迫链进视野
 ## + 叶回到训练分布 + 其余席位的应对顺带完成（image 内各席桥作答）。
 ## 值统一在【搜索方视角】（leaf_eval 由桥按搜索方阵营翻号一次），节点 max/min 按行动方阵营。
-func search_best(g: CWGame, pid: int, leaf_eval: Callable, depth := 2, top_k := 4) -> Dictionary:
+func search_best(g: CWGame, pid: int, leaf_eval: Callable, depth := 2, top_k := 6) -> Dictionary:
+	if MechBridge.TOPK_OVERRIDE > 0:
+		top_k = MechBridge.TOPK_OVERRIDE
 	## 候选取**单步**：叶会把本回合剩余部分(含E阶段)整个模拟掉，计划只需选"下一手"——
 	## 多步候选的额外分支在整回合模拟面前没有增量信息，只烧时间。
 	var cands: Array = await candidates(g, pid, 1)

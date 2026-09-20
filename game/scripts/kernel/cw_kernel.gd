@@ -1,4 +1,4 @@
-## cw_kernel.gd —— 内核句柄抽象基类（口径二 · 批 0 步 9，docs/口径二_批0_底座规格.md A-3）
+## cw_kernel.gd —— 内核句柄抽象基类（口径二 · 批 0 步 9，docs/archive/口径二_批0_底座规格.md A-3）
 ##
 ## 形制照今天已经在跑的联机路反推（Remote = cw_net_client.gd 的影子对局 + 报文流）：**镜像 + 有序条目队列 + 一个 answer**。
 ## InProc 把 CWGame 的桥回调翻译成入队；Sidecar / Remote 把报文翻译成入队。消费者只认「一条有序条目流 + 一个 answer 出口」，

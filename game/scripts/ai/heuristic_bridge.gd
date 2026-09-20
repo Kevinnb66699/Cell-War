@@ -11,6 +11,8 @@
 class_name CWHeuristicBridge
 extends CWBridge
 
+const REACH_FIELD := preload("res://scripts/ai/mech/mech_dist.gd")
+
 ## 陪练 / 平衡标尺的版本号。**改任何 AI 行为（本桥、MC 桥、CWEval）都要升号**：所有用它量出来的平衡数字随之作废，
 ## 表格要标明是哪一版量的。balance_scan 的结果行会打出来。
 ## v1：2026-08 ~ 09-01 —— 分化拿选项列表第一个（固定 B→T→巨噬→树突）、死亡在估值里免费。
@@ -486,6 +488,18 @@ const CANCER_RESERVE_NEAR := 30
 ## 癌细胞移动打分：安全（保命）+ 定殖健康组织（占地=收入=胜利条件）+ 扩张前景 - 能量成本
 ## threat = 当前距最近免疫细胞的距离，贴脸时连「原地不动」都要重新估值。
 func _best_cancer_move(options: Array, me: Dictionary, _threat: int) -> int:
+	## 威胁 v2（2026-09-20）：安全表从六边形距离换成**能量距离**（MechDist.reach_field）。
+	## 旧法「远离免疫=安全」在几何上就是往角跑（人机局4：R1 四步直线退角，6 回合被清场）。
+	## 免疫的真实威胁 = 它**走过来要花多少能量**——癌化地毯上六格可能只值 1.2，
+	## 健康地上两格就要 2.4，六边形距离分不出来。
+	## 量纲衔接（v2.1，自对弈 4% 崩盘修正）：reach/10 查表会扩大全档惩罚——
+	## 前沿扩张格通常 reach 15-25（1.5-2.5 能量），落到 -40/-5 档 + 30 储备冻结
+	## → 癌铺不出去（evh8 自对弈 72 局癌胜 4% 的机制）。改为**整体抬一档**：
+	## reach≤10(≈贴脸,免疫下回合就能打) → idx1(-40)；10-20 → idx2(-5，旧「2格外」档)；
+	## 20+ → idx3/4(安全)。真·贴脸与远方的梯度保留，中段不再误伤扩张。
+	var field: Dictionary = REACH_FIELD.immune_reach_field(game)
+	var safety_of := func(pos: Vector2i) -> int:
+		return SAFETY_BY_DIST[mini(_dist_to_nearest_immune(pos), 4)]
 	var best := -1
 	var best_score := -999999
 	for i in options.size():
@@ -493,13 +507,13 @@ func _best_cancer_move(options: Array, me: Dictionary, _threat: int) -> int:
 		if d["act"] != "move":
 			continue
 		var to: Vector2i = d["to"]
-		var threat_to := _dist_to_nearest_immune(to)
-		## 远离威胁只留 0.5 别把自己走到濒死；停到免疫 2 格内要留 3.0（CANCER_RESERVE_NEAR）。
-		## 退到安全格只要 0.5，所以贴脸低血时「撤」永远是可选项。
-		var reserve: int = CANCER_RESERVE_NEAR if lifecare and threat_to <= 2 else 5
+		var threat_to := int(field.get(to, 99))
+		## 储备分层（v2.1）：≤1.0 能量(真贴脸,免疫随时开刀)留 3.0；1.0-2.0 留 1.0；其余 0.5。
+		## 旧版一刀切 2.0 能量内全留 3.0 = 前沿冻结（上面 v2.1 注）。
+		var reserve: int = CANCER_RESERVE_NEAR if lifecare and _dist_to_nearest_immune(to) <= 2 else 5
 		if me["energy"] < d["cost"] + reserve:
 			continue
-		var score: int = SAFETY_BY_DIST[mini(threat_to, 4)]
+		var score: int = safety_of.call(to)
 		if not game.is_cancerous(to):
 			score += 15  # 定殖：永久 +1 格地盘，是癌方的核心收益
 		for n in CWData.neighbors(to):
@@ -510,7 +524,7 @@ func _best_cancer_move(options: Array, me: Dictionary, _threat: int) -> int:
 			best_score = score
 			best = i
 	# 原地不动的价值（不花能量，但也不占地）；比它差的移动一律不做
-	var stay_score: int = SAFETY_BY_DIST[mini(_dist_to_nearest_immune(me["pos"]), 4)]
+	var stay_score: int = safety_of.call(me["pos"])
 	return best if best_score > stay_score else -1
 
 

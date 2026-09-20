@@ -1,6 +1,6 @@
 ## cw_net.gd —— 联机协议：版本号、常量、报文编解码、视角快照（服务器与客户端共用）
 ##
-## 拍板与全貌见 docs/联机设计_2026-09-02.md。要点：
+## 拍板与全貌见 docs/archive/联机设计_2026-09-02.md。要点：
 ##   · 服务器权威：规则、骰子、抽卡全在服务器的 CWGame 里跑；客户端只发「选第几项」。
 ##   · 报文 = 4 字节原长 + zstd(var_to_bytes(字典))。用 Godot 序列化而不是 JSON，
 ##     因为棋盘键是 Vector2i、演出坐标也是；解码禁对象（bytes_to_var 默认），报文里塞不进脚本。
@@ -200,7 +200,7 @@ const PLAYER_CHOICES := [2, 4, 6]
 ## 每次决策的秒数（界面给的档位）；协议本身接受 0~TIMER_MAX 的任意整数，0 = 不限
 const TIMER_CHOICES := [0, 30, 60, 90]
 const TIMER_MAX := 600
-const AI_TIERS := { "heur": "AI·新手", "mc": "AI·专家" }
+const AI_TIERS := { "heur": "AI·新手", "mc": "AI·对抗搜索" }
 const NICK_MAX := 12
 const HEARTBEAT_MS := 5000            ## 客户端多久发一次 ping
 const DEAD_MS := 20000                ## 服务器多久没收到任何报文就当掉线

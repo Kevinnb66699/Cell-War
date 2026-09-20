@@ -39,9 +39,30 @@ extends Control
 
 ## 界面音效（游戏外按钮的点击）。**preload 不给 class_name**：新类走不了热更，见那个文件的头注
 const SFX := preload("res://scripts/ui/cw_sfx.gd")
+const CODEX_FX := preload("res://scripts/ui/cw_codex_fx.gd")
+const ATLAS_CARD_ICON := preload("res://assets/art/ui/card_chip.png")
+const ATLAS_CELL_ICONS := [
+	[
+		preload("res://assets/art/cells/immune.png"),
+		preload("res://assets/art/cells/bcell.png"),
+		preload("res://assets/art/cells/tcell.png"),
+		preload("res://assets/art/cells/macrophage.png"),
+		preload("res://assets/art/cells/dendritic.png"),
+	],
+	[
+		preload("res://assets/art/cells/melanoma.png"),
+		preload("res://assets/art/cells/signet.png"),
+		preload("res://assets/art/cells/osteo.png"),
+		preload("res://assets/art/cells/sclc.png"),
+	],
+]
 
 const W := 580
 const H := 470
+## 细胞图鉴有三级信息（阵营 / 细胞 / 技能详情），单独放宽；知识之书仍保持原比例。
+const ATLAS_W := 820
+const ATLAS_H := 500
+const ATLAS_FX_CENTER := Vector2(150, 82)
 const PAD := 20
 const HEADER_H := 52
 const FOOTER_H := 34
@@ -60,11 +81,20 @@ var _page_label: Label
 var _prev: Label
 var _next: Label
 var _search: LineEdit
+var _footer: Label
 var _query := ""
 var _hits: Array = []
 var _in_results := false
 var _hot_arrow: Label = null   ## 正被鼠标悬停的翻页箭头；null = 没有（同 CWConfigPanel）
 var _n_pages := 0              ## 章数，_rebuild_page 时记下 —— 免得每次悬停都重建整本书
+var _atlas_mode := false
+var _atlas_home := true
+var _atlas_faction := 0
+var _atlas_type := 0
+var _atlas_skill := 0
+var _atlas_speed := 1.0
+var _atlas_anim: Tween
+var _atlas_fx: Node2D
 
 const SEARCH_W := 220
 const HIT_H := LINE * 2 + GAP   ## 结果页每条两行：章 › 条目 / 命中行
@@ -100,17 +130,409 @@ func _ready() -> void:
 
 func open() -> void:
 	_ensure_built()
+	visible = true
+	_atlas_mode = false
+	_query = ""
+	_search.text = ""
+	_search.visible = true
+	_search.placeholder_text = "搜索图鉴… 回车跳到第一条"
+	_footer.text = "ESC / 右键 返回 · ←→ 翻页 · 滚轮阅读 · 细则以规则原文为准"
+	_resize_panel(W, H)
 	open_to(0)
+
+func open_atlas() -> void:
+	_ensure_built()
+	visible = true
+	_open_atlas()
 
 
 ## 直接翻到指定章（引导面板「翻到知识之书」用）。页码会被钳到合法范围。
 func open_to(page: int) -> void:
 	_ensure_built()
 	visible = true
+	_atlas_mode = false
+	_search.visible = true
+	_search.placeholder_text = "搜索图鉴… 回车跳到第一条"
+	_footer.text = "ESC / 右键 返回 · ←→ 翻页 · 滚轮阅读 · 细则以规则原文为准"
+	_resize_panel(W, H)
 	_refresh_unlocked()
 	_page = clampi(page, 0, chapters().size() - 1)
 	_scroll = 0.0
 	_rebuild_page()
+
+func _open_atlas() -> void:
+	_atlas_mode = true
+	_atlas_home = true
+	_in_results = false
+	_hits.clear()
+	_resize_panel(ATLAS_W, ATLAS_H)
+	_atlas_faction = 0
+	_atlas_type = 0
+	_atlas_skill = 0
+	_query = ""
+	_search.text = ""
+	_search.visible = false
+	_search.placeholder_text = "搜索细胞 / 技能…"
+	_footer.text = "ESC / 右键 返回 · 选择一个图鉴继续"
+	_rebuild_atlas()
+
+static func atlas_cells(faction: int) -> Array:
+	if faction == 2:
+		return [
+			{"name":"范围结算", "skills":[
+				["放疗", "范围结算：区域内癌组织转健康并留下坏死。", "card_radiation"],
+				["免疫风暴", "两格范围受击并净化空癌组织。", "card_storm"],
+				["TNF-α局部炎症", "范围内癌细胞受击并抑制固化。", "card_inflammation"]
+			]},
+			{"name":"单体与连锁", "skills":[
+				["抗体依赖细胞毒作用", "Y形抗体命中单个癌细胞。", "antibody"],
+				["穿孔素-颗粒酶", "成功攻击后颗粒注入目标。", "card_granule"],
+				["乳酸酸化", "酸滴使相邻免疫细胞损失能量。", "card_acid"],
+				["补体级联", "命中后粒子传向邻近组织。", "card_cascade"]
+			]},
+			{"name":"支援与状态", "skills":[
+				["代谢耦联", "同阵营细胞之间定向输能。", "card_transfer"],
+				["BCL-2抗凋亡", "濒死胞体散开后回拢。", "card_survive"],
+				["交叉呈递", "粒子抵达后形成头顶标记。", "card_mark"],
+				["细胞膜修复", "像素盾由大到小收束。", "card_repair"],
+				["免疫增援", "原格消隐，健康落点重组。", "card_teleport"]
+			]},
+			{"name":"组织与能量", "skills":[
+				["基质降解", "固化矿物层散去。", "card_degrade"],
+				["克隆增殖", "邻近健康组织依次转癌。", "card_clone"],
+				["糖酵解爆发", "暖色能量粒子汇入癌细胞。", "anaerobic"],
+				["肿瘤血管生成", "多个癌细胞同时吸收血色能量。", "card_blood"]
+			]}
+		]
+	if faction == 3:
+		## art-preview 当前 24 个非卡牌项目里有 3 个静态纹理；其余 21 个动态项目
+		## 全部在这里留档。展示复用游戏同源 FX，避免另存一份会随实现过期的视频。
+		return [
+			{"name":"免疫技能", "skills":[
+				["连续吞噬", "猛扑、咬合并留下强化余效。", "chain"],
+				["免疫猎杀", "全局搜索后收束到目标。", "hunt"],
+				["Excalibur", "双螺旋光束贯穿选定方向。", "beam"],
+				["中和抗体", "抗体抵达后形成双环封禁。", "seal"],
+				["抗体", "Y形抗体飞行并命中癌细胞。", "antibody"],
+				["细胞毒素", "颗粒覆盖自身及一环组织。", "toxin"],
+				["裂解", "颗粒注入后使固化组织碎裂。", "lyse"],
+				["组织黏连", "头顶标记沿粒子轨迹传递。", "adhesion"],
+				["分化", "粒子收束并重组细胞形态。", "differentiate"]
+			]},
+			{"name":"癌细胞技能", "skills":[
+				["黏液破裂", "胞体破裂并向外铺开黏液。", "mucus"],
+				["早期血行转移", "血门连接落点并扩散侵染。", "homing"],
+				["伪足穿透", "邻格伪足抓取并牵引胞体。", "pseudopod"],
+				["囊性护甲", "像素护盾收束到细胞外缘。", "card_repair"],
+				["刚性屏障", "硬质外壳承接外来冲击。", "card_repair"],
+				["极简胞浆", "轻量胞体快速迁移并落位。", "minimal"],
+				["突变", "双股像素在胞体周围扰动后消散。", "mutate"],
+				["无氧呼吸", "癌性组织能量汇入胞体。", "anaerobic"]
+			]},
+			{"name":"世界与状态", "skills":[
+				["有氧呼吸", "青蓝能量从周围汇入免疫细胞。", "respire"],
+				["免疫细胞复活", "在合法复活格逐步重建胞体。", "revive_immune"],
+				["癌细胞复活", "固化组织碎开后重建胞体。", "revive_cancer"],
+				["癌细胞头顶标记", "识别标记在目标头顶收束并维持。", "mark_aura"]
+			]}
+		]
+	if faction == 0:
+		return [
+			{"name":"基础免疫细胞", "skills":[["迁移","向相邻组织移动并触发净化或攻击。","minimal"],["基因表达","消耗能量抽取卡牌。","differentiate"],["分化","转为一种专属免疫细胞。","differentiate"]]},
+			{"name":"B细胞", "skills":[["抗体","Y形抗体命中符合条件的癌细胞。","antibody"],["中和抗体","效应应答：封禁目标技能与永久卡。","seal"]]},
+			{"name":"T细胞", "skills":[["细胞毒素","一环七格范围净化并留下坏死。","toxin"],["裂解","破除相邻固化癌组织。","lyse"],["Excalibur","效应应答：沿选定方向扫射。","beam"]]},
+			{"name":"巨噬细胞", "skills":[["连续吞噬","连续净化后继续免费移动。","chain"],["I-吞噬","净化或成功攻击后恢复能量。","respire"]]},
+			{"name":"树突状细胞", "skills":[["趋化源","建立信号源改变双方移动费用。","chemo"],["标记","自动识别范围内癌细胞。","mark_aura"],["组织黏连","世界回合末传递标记。","adhesion"],["免疫猎杀","效应应答：锁定全场癌细胞。","hunt"]]}
+		]
+	return [
+		{"name":"恶性黑色素瘤", "skills":[["早期血行转移","从血管转移到空健康格并扩散。","homing"],["伪足穿透","目标邻接至少三格癌组织时低费移动。","pseudopod"]]},
+		{"name":"印戒细胞癌", "skills":[["黏液破裂","耗尽能量后使范围进入黏液侵染。","mucus"],["囊性护甲","每世界回合第一次损失获得减免。","card_repair"]]},
+		{"name":"骨肉瘤", "skills":[["骨样硬化","标记组织，两个世界回合后固化。","card_degrade"],["刚性屏障","位于固化组织上时减免能量损失。","card_repair"]]},
+		{"name":"小细胞肺癌", "skills":[["极简胞浆","移动至健康组织时永久降低费用。","minimal"],["转移","向一个方向跃进五格。","card_teleport"],["瓦伯格超速糖酵解","无氧呼吸获得额外产出。","anaerobic"]]}
+	]
+
+func _atlas_button(text: String, at: Vector2, size: Vector2, on_click: Callable, active := false) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.position = at
+	b.size = size
+	b.focus_mode = Control.FOCUS_ALL
+	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.add_theme_font_override("font", CWStyle.FONT)
+	b.add_theme_font_size_override("font_size", CWStyle.SIZE_LABEL)
+	b.add_theme_color_override("font_color", CWStyle.TEXT_HI if active else CWStyle.TEXT)
+	b.add_theme_color_override("font_hover_color", CWStyle.IMMUNE)
+	b.add_theme_stylebox_override("normal", CWStyle.box(0.25, CWStyle.BTN_BG))
+	b.add_theme_stylebox_override("hover", CWStyle.box(0.7, CWStyle.BTN_BG, 1, 2))
+	b.mouse_entered.connect(func() -> void:
+		b.add_theme_color_override("font_color", Color.WHITE)
+		b.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
+		b.add_theme_constant_override("outline_size", 6))
+	b.mouse_exited.connect(func() -> void:
+		b.add_theme_color_override("font_color", CWStyle.TEXT_HI if active else CWStyle.TEXT)
+		b.add_theme_constant_override("outline_size", 0))
+	b.pressed.connect(func() -> void:
+		SFX.click()
+		on_click.call())
+	_content.add_child(b)
+	return b
+
+func _rebuild_atlas() -> void:
+	## faction 3 是旧测试与美术校验使用的隐藏“动画记录”目录；正式入口只展示 0..2。
+	if _atlas_home and _atlas_faction < 3:
+		_rebuild_atlas_home()
+	else:
+		_rebuild_atlas_reference()
+
+
+func _enter_atlas(faction: int) -> void:
+	_atlas_home = false
+	_atlas_faction = faction
+	_atlas_type = 0
+	_atlas_skill = 0
+	_query = ""
+	_search.text = ""
+	_search.visible = true
+	_footer.text = "ESC / 右键 返回分类 · 选择条目查看动画"
+	_rebuild_atlas()
+
+
+func _leave_atlas_detail() -> void:
+	_atlas_home = true
+	_query = ""
+	_search.text = ""
+	_search.release_focus()
+	_search.visible = false
+	_footer.text = "ESC / 右键 返回 · 选择一个图鉴继续"
+	_rebuild_atlas()
+
+
+func _atlas_icon(faction: int, index: int) -> Texture2D:
+	if faction >= 0 and faction < ATLAS_CELL_ICONS.size():
+		var icons: Array = ATLAS_CELL_ICONS[faction]
+		return icons[clampi(index, 0, icons.size() - 1)] as Texture2D
+	return ATLAS_CARD_ICON
+
+
+func _atlas_category_card(title: String, subtitle: String, icon: Texture2D,
+		at: Vector2, faction: int) -> void:
+	var button := Button.new()
+	button.position = at
+	button.size = Vector2(238, 286)
+	button.focus_mode = Control.FOCUS_ALL
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	button.add_theme_stylebox_override("normal", CWStyle.box(0.55, Color("17232b"), 6, 10))
+	button.add_theme_stylebox_override("hover", CWStyle.box(1.0, Color("20323c"), 6, 10))
+	button.add_theme_stylebox_override("pressed", CWStyle.box(1.0, Color("20323c"), 6, 10))
+	_content.add_child(button)
+
+	var picture := TextureRect.new()
+	picture.texture = icon
+	picture.position = Vector2(69, 34)
+	picture.size = Vector2(100, 108)
+	picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	picture.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(picture)
+	var card_title := CWStyle.label(title, CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
+	card_title.position = Vector2(12, 164)
+	card_title.size = Vector2(214, 24)
+	card_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(card_title)
+	var card_subtitle := CWStyle.label(subtitle, CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	## 细胞分类的说明文字字形更长，视觉重心更容易向右；两个细胞入口单独再左移。
+	var subtitle_x := -4.0 if faction < 2 else 2.0
+	card_subtitle.position = Vector2(subtitle_x, 202)
+	card_subtitle.size = Vector2(194, 46)
+	card_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card_subtitle.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	card_subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	card_subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(card_subtitle)
+	button.mouse_entered.connect(func() -> void:
+		card_title.add_theme_color_override("font_color", Color.WHITE)
+		card_title.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.5))
+		card_title.add_theme_constant_override("outline_size", 7))
+	button.mouse_exited.connect(func() -> void:
+		card_title.add_theme_color_override("font_color", CWStyle.TEXT_HI)
+		card_title.add_theme_constant_override("outline_size", 0))
+	button.pressed.connect(func() -> void:
+		SFX.click()
+		_enter_atlas(faction))
+
+
+func _rebuild_atlas_home() -> void:
+	for child in _content.get_children():
+		child.queue_free()
+	_title.text = ""
+	_page_label.text = ""
+	_prev.visible = false
+	_next.visible = false
+	var intro := CWStyle.label("选择要查阅的图鉴", CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
+	intro.position = Vector2(0, 2)
+	intro.size = Vector2(_body.size.x, 24)
+	intro.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_content.add_child(intro)
+	var cards := [
+		["免疫细胞图鉴", "查看免疫细胞、分化类型与专属技能", _atlas_icon(0, 0)],
+		["癌细胞图鉴", "查看癌细胞类型、特性与专属技能", _atlas_icon(1, 0)],
+		["卡牌效果图鉴", "查看卡牌结算、支援与组织效果", ATLAS_CARD_ICON],
+	]
+	for i in cards.size():
+		_atlas_category_card(cards[i][0], cards[i][1], cards[i][2],
+			Vector2(9 + i * 257, 44), i)
+	_content.size = _body.size
+	_scroll = 0.0
+	_layout()
+
+
+func _atlas_list_button(text: String, icon: Texture2D, at: Vector2, size: Vector2,
+		on_click: Callable, active: bool) -> Button:
+	var button := _atlas_button(text, at, size, on_click, active)
+	button.icon = icon
+	button.expand_icon = true
+	button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	button.add_theme_constant_override("icon_max_width", 30)
+	button.add_theme_constant_override("h_separation", 8)
+	button.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	return button
+
+func _rebuild_atlas_reference() -> void:
+	for child in _content.get_children(): child.queue_free()
+	_title.text = ""
+	_page_label.text = ""
+	_prev.visible = false
+	_next.visible = false
+	var cells := atlas_cells(_atlas_faction)
+	var cell_data: Dictionary = cells[_atlas_type]
+	var all_skills: Array = cell_data["skills"]
+	var skills: Array = []
+	for skill in all_skills:
+		if _query == "" or (String(skill[0]) + String(skill[1])).to_lower().contains(_query.to_lower()):
+			skills.append(skill)
+	if skills.is_empty():
+		skills = all_skills
+	var faction_name: String = ["免疫细胞图鉴", "癌细胞图鉴", "卡牌效果图鉴", "动画记录"][_atlas_faction]
+	var body_h := _body.size.y
+	var left_w := 184.0
+	var middle_x := 196.0
+	var middle_w := 230.0
+	var right_x := 438.0
+	var right_w := _body.size.x - right_x
+	var panels := []
+	for spec in [[0.0, left_w], [middle_x, middle_w], [right_x, right_w]]:
+		var p := Panel.new()
+		p.position = Vector2(float(spec[0]), 0)
+		p.size = Vector2(float(spec[1]), body_h)
+		p.add_theme_stylebox_override("panel", CWStyle.box(0.55, Color("17232b")))
+		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_content.add_child(p)
+		panels.append(p)
+	var left_panel: Panel = panels[0]
+	var middle_panel: Panel = panels[1]
+	var right_panel: Panel = panels[2]
+	var back := _atlas_button("< 返回图鉴分类", Vector2(10, 10), Vector2(left_w - 20, 26),
+		_leave_atlas_detail)
+	back.reparent(left_panel, false)
+	back.add_theme_stylebox_override("normal", CWStyle.box(0.0, Color("17232b"), 4, 6))
+	back.add_theme_stylebox_override("hover", CWStyle.box(0.85, Color("20323c"), 4, 6))
+	var left_head := CWStyle.label("细胞列表" if _atlas_faction < 2 else "卡牌分类",
+		CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	left_head.position = Vector2(12, 45)
+	left_panel.add_child(left_head)
+	for i in cells.size():
+		var b := _atlas_list_button(cells[i]["name"], _atlas_icon(_atlas_faction, i),
+			Vector2(10, 64 + i * 52), Vector2(left_w - 20, 46), func(index := i) -> void:
+			_atlas_type = index
+			_atlas_skill = 0
+			_rebuild_atlas(), i == _atlas_type)
+		b.reparent(left_panel, false)
+		b.add_theme_font_size_override("font_size", CWStyle.SIZE_LABEL)
+		b.add_theme_stylebox_override("normal", CWStyle.box(0.0, Color("17232b"), 4, 6))
+		b.add_theme_stylebox_override("hover", CWStyle.box(0.85, Color("20323c"), 4, 6))
+	var middle_head := CWStyle.label("技能与卡牌", CWStyle.SIZE_BODY, CWStyle.TEXT_HI)
+	middle_head.position = Vector2(12, 10)
+	middle_panel.add_child(middle_head)
+	var middle_count := CWStyle.label("共 %d 项" % skills.size(), CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	middle_count.position = Vector2(12, 32)
+	middle_panel.add_child(middle_count)
+	for i in skills.size():
+		var b := _atlas_button(String(skills[i][0]), Vector2(10, 52 + i * 30), Vector2(middle_w - 20, 26), func(index := i) -> void:
+			_atlas_skill = index
+			_rebuild_atlas())
+		b.reparent(middle_panel, false)
+		b.add_theme_font_size_override("font_size", CWStyle.SIZE_LABEL)
+		b.add_theme_stylebox_override("normal", CWStyle.box(0.35, Color("1b2a33"), 5, 7))
+		b.add_theme_stylebox_override("hover", CWStyle.box(0.9, Color("20323c"), 5, 7))
+	var section := CWStyle.label(faction_name + " / " + String(cell_data["name"]), CWStyle.SIZE_LABEL, CWStyle.IMMUNE if _atlas_faction != 1 else CWStyle.CANCER)
+	section.position = Vector2(12, 10)
+	right_panel.add_child(section)
+	var chosen: Array = skills[clampi(_atlas_skill, 0, skills.size() - 1)]
+	var detail := CWStyle.label(String(chosen[0]), CWStyle.SIZE_BIG, CWStyle.TEXT_HI)
+	detail.position = Vector2(12, 27)
+	right_panel.add_child(detail)
+	var stage_y := 78.0
+	var stage_h := 118.0
+	var stage_bg := Panel.new()
+	stage_bg.position = Vector2(12, stage_y)
+	stage_bg.size = Vector2(right_w - 24, stage_h)
+	stage_bg.add_theme_stylebox_override("panel", CWStyle.box(0.65, Color("0b1118")))
+	stage_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	right_panel.add_child(stage_bg)
+	var stage_clip := Control.new()
+	stage_clip.position = stage_bg.position
+	stage_clip.size = stage_bg.size
+	stage_clip.clip_contents = true
+	stage_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	right_panel.add_child(stage_clip)
+	_atlas_fx = CODEX_FX.new()
+	## CWCodexFx 内部坐标以 (150, 82) 为动画中心；节点原点要反算到展示框中心。
+	_atlas_fx.position = Vector2((right_w - 24.0) / 2.0, stage_h / 2.0) - ATLAS_FX_CENTER
+	stage_clip.add_child(_atlas_fx)
+	_atlas_fx.set_speed(_atlas_speed)
+	_atlas_fx.play(String(chosen[2]))
+	## 最上层边框：地图与动画在框内绘制，边框线永远压在它们上面。
+	var stage_frame := Panel.new()
+	stage_frame.position = stage_bg.position
+	stage_frame.size = stage_bg.size
+	stage_frame.z_index = 100
+	stage_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage_frame.add_theme_stylebox_override("panel", CWStyle.box(0.9, Color(0, 0, 0, 0)))
+	right_panel.add_child(stage_frame)
+	var explain := CWStyle.label(String(chosen[1]), CWStyle.SIZE_LABEL, CWStyle.TEXT)
+	explain.position = Vector2(12, 206)
+	explain.size = Vector2(right_w - 24, 34)
+	explain.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	right_panel.add_child(explain)
+	var phase_head := CWStyle.label("动画阶段", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
+	phase_head.position = Vector2(12, 248)
+	right_panel.add_child(phase_head)
+	for i in 3:
+		var b := _atlas_button(String(["0.5x", "1x", "2x"][i]), Vector2(12 + i * 58, 266), Vector2(54, 22), func(index := i) -> void:
+			_atlas_fx.set_speed([0.5, 1.0, 2.0][index])
+			_atlas_fx.replay())
+		b.reparent(right_panel, false)
+		b.add_theme_font_size_override("font_size", CWStyle.SIZE_LABEL)
+	var effect_head := CWStyle.label("效果说明", CWStyle.SIZE_LABEL, CWStyle.TEXT_HI)
+	effect_head.position = Vector2(12, 300)
+	right_panel.add_child(effect_head)
+	var effect := CWStyle.label(String(chosen[1]), CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	effect.position = Vector2(12, 317)
+	effect.size = Vector2(right_w - 24, 34)
+	effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	right_panel.add_child(effect)
+	_content.size = Vector2(_body.size.x, body_h)
+	_scroll = 0.0
+	_layout()
+
+func _replay_atlas_action() -> void:
+	if _atlas_fx == null:
+		return
+	_atlas_fx.set_speed(_atlas_speed)
+	_atlas_fx.replay()
 
 
 ## 每次开书重读一次解锁集（书是覆盖层、活得比一次解锁久，缓存会让刚解锁的那一条下次才闪）。
@@ -145,8 +567,13 @@ func handle_input(event: InputEvent) -> void:
 		if _search != null and (_search.has_focus() or _in_results):
 			_dismiss_search()
 			return
+		if _atlas_mode and not _atlas_home:
+			_leave_atlas_detail()
+			return
 		visible = false
 	elif _search != null and _search.has_focus():
+		return
+	elif _atlas_mode:
 		return
 	elif event.is_action_pressed("ui_right") or event.is_action_pressed("ui_down"):
 		get_viewport().set_input_as_handled()
@@ -171,7 +598,10 @@ func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_RIGHT:
 			accept_event()
-			visible = false
+			if _atlas_mode and not _atlas_home:
+				_leave_atlas_detail()
+			else:
+				visible = false
 		elif event.button_index == MOUSE_BUTTON_LEFT \
 				and not _panel.get_global_rect().has_point(event.position):
 			## 点在面板矩形之外 = 空白处，收起。面板内的点击各有去处
@@ -180,10 +610,12 @@ func _gui_input(event: InputEvent) -> void:
 			visible = false
 		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			accept_event()
-			_scroll_by(-40.0)
+			if not _atlas_mode:
+				_scroll_by(-40.0)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			accept_event()
-			_scroll_by(40.0)
+			if not _atlas_mode:
+				_scroll_by(40.0)
 
 
 func _scroll_by(delta: float) -> void:
@@ -712,6 +1144,11 @@ static func search(query: String, unlocked: Variant = null) -> Array:
 ## 输入框里的词变了：有词铺结果页，没词回到原来那一页
 func _on_query(q: String) -> void:
 	_query = q.strip_edges()
+	if _atlas_mode:
+		if not _atlas_home:
+			_atlas_skill = 0
+			_rebuild_atlas()
+		return
 	if _query == "":
 		_in_results = false
 		_hits.clear()
@@ -724,6 +1161,9 @@ func _on_query(q: String) -> void:
 
 ## 回车：跳到第一条**点得动的**。灰显的那些不响应点击（S6b），回车也不该绕过这一条
 func _on_submit(_q: String) -> void:
+	if _atlas_mode:
+		_search.release_focus()
+		return
 	for hit in _hits:
 		if not bool((hit as Dictionary).get("locked", false)):
 			_goto(hit)
@@ -837,9 +1277,12 @@ func _build() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(bg)
 
-	var head := CWStyle.label("知识之书", CWStyle.SIZE_BIG, CWStyle.TEXT_HI)
+	var head := CWStyle.label("细胞图鉴", CWStyle.SIZE_BIG, CWStyle.TEXT_HI)
 	head.position = Vector2(PAD, PAD - 4)
 	panel.add_child(head)
+	var subtitle := CWStyle.label("查看细胞身份、技能动画、效果描述与关联卡牌。", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	subtitle.position = Vector2(PAD, PAD + 36)
+	panel.add_child(subtitle)
 
 	## 搜索框（Kevin 2026-09-06）占了原来副标题的位置；副标题那句挪进页脚
 	_search = LineEdit.new()
@@ -902,12 +1345,29 @@ func _build() -> void:
 	_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_body.add_child(_content)
 
-	var hint := CWStyle.label("ESC / 右键 返回 · ←→ 翻页 · 滚轮阅读 · 细则以规则原文为准",
+	_footer = CWStyle.label("ESC / 右键 返回 · ←→ 翻页 · 滚轮阅读 · 细则以规则原文为准",
 		CWStyle.SIZE_LABEL, CWStyle.TEXT_OFF)
-	hint.size = Vector2(W - PAD * 2, 14)
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.position = Vector2(PAD, H - PAD - 10)
-	panel.add_child(hint)
+	_footer.size = Vector2(W - PAD * 2, 14)
+	_footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_footer.position = Vector2(PAD, H - PAD - 10)
+	panel.add_child(_footer)
+
+
+## 知识之书与细胞图鉴共用控件树，但按内容密度使用各自尺寸。
+## 这里只改静态布局，不缩放像素字体，避免点阵落到半像素。
+func _resize_panel(width: float, height: float) -> void:
+	if _panel == null:
+		return
+	var screen := CWView.screen_size()
+	_panel.position = Vector2((screen.x - width) / 2.0, (screen.y - height) / 2.0)
+	_panel.size = Vector2(width, height)
+	_search.position = Vector2(width - PAD - SEARCH_W, PAD + 2)
+	_page_label.position = Vector2(width - PAD - 78, PAD + HEADER_H - 22)
+	_prev.position = Vector2(width - PAD - 40, PAD + HEADER_H - 24)
+	_next.position = Vector2(width - PAD - 20, PAD + HEADER_H - 24)
+	_body.size = Vector2(width - PAD * 2, height - PAD - HEADER_H - FOOTER_H)
+	_footer.size = Vector2(width - PAD * 2, 14)
+	_footer.position = Vector2(PAD, height - PAD - 10)
 
 
 ## 两枚翻页箭头的配色与辉光。

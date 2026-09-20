@@ -9,7 +9,7 @@
 ##
 ## 口径二 · 批 1 起这里**一点引擎都不碰**：状态只从 CWMirror 读（每次问人之前、终局之前各换一份，
 ## 规格 A-1.5）、作答只经 CWKernel 句柄、演出只从 CWPlayQueue 按条目顺序播。
-## 规格：docs/口径二_批1_原子切规格.md A-1。
+## 规格：docs/archive/口径二_批1_原子切规格.md A-1。
 class_name CWMatch
 extends Node2D
 
