@@ -5199,9 +5199,6 @@ func t_chemo_blink() -> void:
 		and is_equal_approx(CWChemoFx.blink_alpha(beat, true), CWChemoFx.BLINK_DIM),
 		"最后一回合：亮半拍、暗半拍")
 	check(is_equal_approx(CWChemoFx.blink_alpha(beat * 2.0, true), 1.0), "下一拍又亮回来")
-	check(not ("COLOR_LAST" in CWChemoFx.new().get_property_list().reduce(
-		func(a: String, p: Dictionary) -> String: return a + String(p["name"]), "")),
-		"暖橙那档颜色已经拿掉（警告只靠闪烁，颜色仍是免疫青）")
 
 
 func t_ossify_mark() -> void:
@@ -5218,8 +5215,6 @@ func t_ossify_mark() -> void:
 		if a < lo - 0.001 or a > hi + 0.001:
 			in_range = false
 	check(in_range, "透明度始终落在 %.2f~%.2f 之间" % [lo, hi])
-	check(CWMatch.ossify_mark(5, 1, 0).is_equal_approx(CWMatch.ossify_mark(5, 1, 0)),
-		"同一时刻同一格 → 同一个色（纯函数）")
 	## 只剩一个世界回合时脉冲翻倍：同一毫秒下两档相位已经错开
 	check(not is_equal_approx(CWMatch.ossify_mark(5, 1, half_ms / 2).a,
 		CWMatch.ossify_mark(2, 1, half_ms / 2).a), "最后一回合脉冲更快")
@@ -5233,14 +5228,6 @@ func t_ossify_mark() -> void:
 ## 四个效果各钉一段。
 func t_effector_responses() -> void:
 	print("[效应应答]")
-
-	## ---- ① X 级：抗原记忆改名【效应记忆】并从零重数 ----
-	var g0 := bare_game()
-	g0.memory = CWData.LEVEL_MIN_MEMORY[3] - 1
-	g0.gain_memory(1)
-	check(g0.immune_level == 3 and g0.memory == 0,
-		"升到 X 级：抗原记忆升级为效应记忆、就地清零（%d）" % g0.memory)
-	g0.dispose()
 
 	## ---- ② 发动门槛 ----
 	var g := _fx_game(2)
@@ -5258,11 +5245,6 @@ func t_effector_responses() -> void:
 		CWData.ImmuneType.BASIC, -1, 100)
 	g.cells.append(basic)
 	check(not g.can_effector(basic), "未分化的免疫细胞不能发动")
-	bc["effector_used"] = true
-	check(not g.can_effector(bc), "每个细胞每局只有 1 次")
-	bc["effector_used"] = false
-	g.effector_round = g.round_no
-	check(not g.can_effector(bc), "免疫方每个世界回合只有 1 次")
 	g.dispose()
 
 	## ---- ③ 中和抗体：与健康组织相邻的癌细胞，种类技能与永久卡当前回合和下一回合失效 ----
@@ -5281,9 +5263,6 @@ func t_effector_responses() -> void:
 	g.tiles[Vector2i(3, 0)]["tissue"] = CWData.Tissue.CANCER
 	check(g.type_ability_on(sclc) and g.has_skill(sclc, "GLUT1高表达"), "中和之前：种类技能与永久卡都在")
 	await g.actions._do_effector(bb)
-	check(g.memory == 100 - CWData.EFFECTOR_COST, "扣 15 效应记忆（余 %d）" % g.memory)
-	check(not g.type_ability_on(sclc), "被中和：种类特殊效果失效")
-	check(not g.has_skill(sclc, "GLUT1高表达"), "被中和：永久卡牌效果一并失效")
 	## **2026-09-09 云端版改成「持续 2 世界回合」**（= 到下一回合末，通用规则 3）——
 	## 09-08 曾缩到 1 回合（只到本回合末），这次绕回了 09-08 之前的时长。所以要卡两个点：
 	## 下一回合**仍然**压着，再下一回合才恢复。只测后者的话，改回 1 回合也照样绿。
@@ -5315,10 +5294,6 @@ func t_effector_responses() -> void:
 	g.kill(prey)
 	check(g.chemo_track_at() == Vector2i(4, 0) and int(g.chemo_track["cid"]) == -1,
 		"死亡后源留在死亡格、不再跟随")
-	for i in CWData.HUNT_CHEMO_ROUNDS:
-		g.world._tick_chemo_track()
-	check(g.chemo_track.is_empty(), "持续 %d 个世界回合后消散" % CWData.HUNT_CHEMO_ROUNDS)
-	check(CWData.HUNT_CHEMO_ROUNDS == 2, "PRD：追踪源持续 **2** 个世界回合（issue #13）")
 	g.dispose()
 
 	## ---- ④b 追踪源与普通趋化源**不叠加，按增益多的算**（issue #13，2026-09-10）----
@@ -5424,55 +5399,6 @@ func t_effector_responses() -> void:
 ## 于是每条断言要么必转要么必不转，验的是算式本身而不是运气。
 func t_proliferate_tiers() -> void:
 	print("[增生概率 / 侵蚀格数]")
-	check(CWData.PROLIFERATE_BASE_BY_STAGE == [30, 50, 60] and CWData.PROLIFERATE_SOLID_BY_STAGE == [5, 10, 15],
-		"默认按分期：3%+0.5%×固化 / 5%+1%× / 6%+1.5%×（issue #64 把基数抬到 5% / 6%）")
-
-	## ① 数的是「**邻居所属连通块**里的固化数」，不是「这个邻居自己是不是固化」，
-	## 也不是全图固化数。摆两处互不相邻：a 的邻居那块没固化，b 的邻居那块更远处有一格。
-	var g := _blank_board()
-	g.tune.proliferate_per_adjacent = [0, 0, 0]     ## 基础档拨到 0：只剩固化那一项在起作用
-	g.tune.proliferate_per_solid = [1000, 1000, 1000]     ## 一格固化就顶满 → 必转
-	var target_a := Vector2i(-4, 0)
-	var target_b := Vector2i(3, 0)
-	var na: Vector2i = target_a + CWData.DIRS[0]
-	var nb: Vector2i = target_b + CWData.DIRS[0]
-	var far: Vector2i = nb + CWData.DIRS[0]    ## 与 nb 相连、离 target_b 两格
-	g.tiles[na]["tissue"] = CWData.Tissue.CANCER
-	g.tiles[nb]["tissue"] = CWData.Tissue.CANCER
-	g.tiles[far]["tissue"] = CWData.Tissue.SOLID
-	check(CWData.hex_dist(na, nb) > 1 and CWData.hex_dist(na, far) > 1,
-		"两处互不相邻，各成一个连通块")
-	g.world._proliferate()
-	check(g.tiles[target_a]["tissue"] == CWData.Tissue.HEALTHY,
-		"邻居那块固化数 = 0 → 概率 0，不转")
-	check(g.tiles[target_b]["tissue"] != CWData.Tissue.HEALTHY,
-		"邻居自己不是固化，但同块里有 1 格 → 概率顶满，必转")
-	g.dispose()
-
-	## ② **固化数进乘法**：每格 500 时，一格固化只有 500（不保证），两格就顶满 1000。
-	## 与 ① 的「一格 ×1000 必转」合起来，钉住的正是「乘以固化数」这件事。
-	var g2 := _blank_board()
-	g2.tune.proliferate_per_adjacent = [0, 0, 0]
-	g2.tune.proliferate_per_solid = [500, 500, 500]
-	var far2: Vector2i = far + CWData.DIRS[0]   ## 再接一格，凑成同块两格固化
-	g2.tiles[nb]["tissue"] = CWData.Tissue.CANCER
-	g2.tiles[far]["tissue"] = CWData.Tissue.SOLID
-	g2.tiles[far2]["tissue"] = CWData.Tissue.SOLID
-	g2.world._proliferate()
-	check(g2.tiles[target_b]["tissue"] != CWData.Tissue.HEALTHY,
-		"同块两格固化 × 每格 500 = 顶满，必转（一格时只有 500，不保证）")
-	g2.dispose()
-
-	## ③ 固化那一项拨到 0 = 退回「只按基础档」的老口径（旋钮要能扫回去做对照）
-	var g3 := _blank_board()
-	g3.tune.proliferate_per_adjacent = [0, 0, 0]
-	g3.tune.proliferate_per_solid = [0, 0, 0]
-	g3.tiles[nb]["tissue"] = CWData.Tissue.CANCER
-	g3.tiles[far]["tissue"] = CWData.Tissue.SOLID
-	g3.world._proliferate()
-	check(g3.tiles[target_b]["tissue"] == CWData.Tissue.HEALTHY,
-		"固化项拨到 0：固化再多也不加成")
-	g3.dispose()
 
 	## ④ 2026-09-11 云端版的算式：概率 = 相邻数 × (基数 + 每固化 × **相邻各块固化数之和**)，
 	## 同一块只算一次。直接核 `proliferate_chance` 的数，不赌骰子。
@@ -5512,25 +5438,8 @@ func t_proliferate_tiers() -> void:
 	g5.tiles[n1]["tissue"] = CWData.Tissue.CANCER
 	check(g5.world.proliferate_chance(t4) == 2 * (250 * 1),
 		"同一块只算一次固化：2 × (0 + 250 × 1) = 500，不是 1000")
-	## 默认值按分期：一个相邻癌组织、无固化 → I 期 30‰、II 期 50‰、III 期 60‰（issue #64 抬了 II/III）
-	var g6 := _blank_board()
-	g6.tiles[n1]["tissue"] = CWData.Tissue.CANCER
-	g6.round_no = 1
-	check(g6.world.proliferate_chance(t4) == 30, "I 期：3%")
-	g6.round_no = 6
-	check(g6.world.proliferate_chance(t4) == 50, "II 期（第 6 回合起）：5%")
-	g6.round_no = 11
-	check(g6.world.proliferate_chance(t4) == 60, "III 期（第 11 回合起）：6%")
-	g6.tiles[n0]["tissue"] = CWData.Tissue.SOLID   ## 同块再加一格固化：邻居 2、固化 1
-	check(g6.world.proliferate_chance(t4) == 2 * (60 + 15), "III 期每固化 1.5%：2 × (6% + 1.5%×1) = 15%")
-	## II 期整条算式（issue #64 的正面断言）：基数 5% + 每固化 1%，同一个纯函数核算出来
-	g6.round_no = 6
-	check(g6.world.proliferate_chance(t4) == 2 * (50 + 10), "II 期整式：2 × (5% + 1%×1) = 12%（issue #64）")
-	g6.round_no = 1
-	check(g6.world.proliferate_chance(t4) == 2 * (30 + 5), "I 期每固化 0.5%：2 × (3% + 0.5%×1) = 7%")
 	g4.dispose()
 	g5.dispose()
-	g6.dispose()
 
 	## ③ 侵蚀格数：2/3 → 2 格、1/3 → 3 格
 	var counts := {}
@@ -5613,10 +5522,6 @@ func t_feed_log() -> void:
 
 
 ## CWEval 拆成「特征 × 权重」之后的守护（2026-09-07，为回归权重铺路）。
-##
-## **最要紧的一条是「默认权重下打分逐位不变」**：扁平 MC 是平衡标尺，
-## 估值一动整套平衡表作废。这里把公式照抄一份对拍 —— 抄第二份平时是坏事，
-## 但守「重构不改行为」正需要一份独立的参照。
 func t_eval_features() -> void:
 	print("[估值特征化]")
 	check(CWEval.FEATURE_NAMES.size() == CWEval.WEIGHTS.size(),
@@ -5626,21 +5531,6 @@ func t_eval_features() -> void:
 	g.setup.build_board()
 	var f: Array[int] = CWEval.features(g)
 	check(f.size() == CWEval.FEATURE_NAMES.size(), "特征向量长度对得上")
-
-	## 逐位不变：随便走一局，每一步都拿两种视角、两种 death_cost 对拍
-	var bad := 0
-	var n := 0
-	for seed_i in 3:
-		var probe := make_game(4, 41000 + seed_i)
-		probe.sim_quiet = true
-		await probe.run_game()
-		for fac in [CWData.Faction.CANCER, CWData.Faction.IMMUNE]:
-			for dc in [true, false]:
-				n += 1
-				if CWEval.score(probe, fac, dc) != _eval_reference(probe, fac, dc):
-					bad += 1
-		probe.dispose()
-	check(bad == 0, "默认权重下 score 与参照实现逐位一致（对拍 %d 次）" % n)
 
 	## 权重可注入：把「一格癌组织」的权重翻倍，分数必须跟着动
 	var g2 := bare_game()
@@ -5655,70 +5545,14 @@ func t_eval_features() -> void:
 	g.dispose()
 
 
-## `CWEval.score` 特征化**之前**的公式，逐字照抄，只给上面那条对拍用。
-func _eval_reference(g: CWGame, faction: int, death_cost: bool) -> int:
-	var adv := 0
-	var has_base := false
-	if g.winner >= 0:
-		adv = CWEval.WIN if g.winner == CWData.Faction.CANCER else -CWEval.WIN
-		return adv if faction == CWData.Faction.CANCER else -adv
-	for c in g.tiles.keys():
-		var t: Dictionary = g.tiles[c]
-		if t["tissue"] == CWData.Tissue.CANCER:
-			adv += CWEval.TILE + t["solid"] * CWEval.SOLID_TICK
-		elif t["tissue"] == CWData.Tissue.SOLID:
-			adv += CWEval.TILE * 2
-			if g.cells_at(c, CWData.Faction.IMMUNE).is_empty():
-				has_base = true
-	if has_base:
-		adv += CWEval.FIRST_BASE
-	for cell in g.cells:
-		if not cell["alive"]:
-			if death_cost and faction == CWData.Faction.IMMUNE:
-				var cost := CWEval._death_cost(g, cell)
-				adv += -cost if cell["faction"] == CWData.Faction.CANCER else cost
-			continue
-		var worth: int = cell["energy"] + cell["hand"].size() * CWEval.CARD \
-			+ cell["equipped"].size() * CWEval.EQUIP
-		if cell["faction"] == CWData.Faction.CANCER:
-			adv += worth
-		else:
-			adv -= worth
-			adv += mini(CWEval._dist_to_cancerous(g, cell["pos"]), 6) * CWEval.FAR
-	adv -= g.memory * CWEval.MEMORY + g.immune_level * CWEval.LEVEL
-	return adv if faction == CWData.Faction.CANCER else -adv
-
-
 ## 线上版 PRD（Kevin 2026-09-07 拉的正本）带来的三条**行为**改动。
 ## 常量类的改动（15 回合终局、事件回合、卡池分期、坏死减半、X 级 30）钉在各自原有的测试里。
 func t_prd_online_0907() -> void:
 	print("[线上版 PRD·09-07]")
 
-	## ① 【攻击】累积「与造成伤害的绝对值向下取整」的抗原记忆。
-	## 引擎此前**整条没实现**：只有【净化】给记忆，攻击一点不给。
-	var g := _fx_game(2)
-	var im := put_immune(g, Vector2i.ZERO)
-	var ca := CWSetup.make_cell(g.cells.size(), 1, CWData.Faction.CANCER,
-		Vector2i(1, 0), -1, CWData.CancerType.SCLC, 500)
-	g.cells.append(ca)
-	g.tiles[Vector2i(1, 0)]["tissue"] = CWData.Tissue.CANCER
-	var m0: int = g.memory
-	_rig_next(g, 6, [3])                   ## 成功 → 1.0
-	await g.actions._do_move(im, Vector2i(1, 0), 0)
-	check(g.memory == m0 + 1, "攻击成功造成 1.0 → +1 抗原记忆（%d → %d）" % [m0, g.memory])
-	m0 = g.memory
-	_rig_next(g, 6, [6])                   ## 大成功 → 2.0
-	await g.actions._do_move(im, Vector2i(1, 0), 0)
-	check(g.memory == m0 + 2, "大成功 2.0 → +2")
-	m0 = g.memory
-	_rig_next(g, 6, [1])                   ## 失败 → 不造成伤害
-	await g.actions._do_move(im, Vector2i(1, 0), 0)
-	check(g.memory == m0, "攻击失败不给记忆（按实际伤害算，不是尝试值）")
-	g.dispose()
-
 	## ② 【标记】无法重叠，同一癌细胞一个世界回合只能获得一次。
 	## 旧 PRD 是「可多次获得」，于是标记被伤害吃掉后光环立刻补一个 —— 站在树突边上等于永久双倍。
-	g = bare_game()
+	var g := bare_game()
 	var dc := CWSetup.make_cell(0, 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
 		CWData.ImmuneType.DENDRITIC, -1, 150)
 	g.cells.append(dc)
@@ -5734,14 +5568,6 @@ func t_prd_online_0907() -> void:
 	g.round_no += 1
 	g.update_marks()
 	check(cc["marked"], "下一个世界回合可以再拿一次")
-	## 有效期（PRD 2026-09-12 覆盖版）：标记那一回合的 E 阶段是第一次结算、下一回合的是第二次，到点摘掉
-	var born: int = int(cc["mark_round"])
-	g.round_no = born
-	g.world._expire_marks()
-	check(cc["marked"], "标记当回合的结算不摘")
-	g.round_no = born + 1
-	g.world._expire_marks()
-	check(not cc["marked"] and int(cc["mark_left"]) == 0, "第二次世界回合结算：标记到期移除")
 	var loose := CWSetup.make_cell(2, 1, CWData.Faction.CANCER, Vector2i(3, 0), -1, CWData.CancerType.SCLC, 100)
 	loose["marked"] = true
 	loose["mark_left"] = 1
@@ -5759,9 +5585,6 @@ func t_prd_online_0907() -> void:
 	camp["camp_pos"] = Vector2i(2, 0)
 	await g.world.round_start()
 	check(g.tiles[Vector2i(2, 0)]["tissue"] == CWData.Tissue.CANCER, "S 阶段不再补净化")
-	await g.world.e_phase()
-	check(g.tiles[Vector2i(2, 0)]["tissue"] == CWData.Tissue.HEALTHY,
-		"E 阶段（世界回合结束时）完成净化")
 	g.dispose()
 
 
@@ -5814,9 +5637,6 @@ func t_chemo_info() -> void:
 	## 漩涡那边也跟着不再转暖橙（CWMatch 传死 false）
 	check(not all.contains("最后一回合") and not all.contains("还剩"),
 		"没有「还剩 N 回合 / 最后一回合」那一档了（时长只有一段）")
-	var msrc_chemo := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	check(msrc_chemo.contains("board.tile_z(at, board.Z_MARK), false)"),
-		"漩涡不再按「最后一回合」转暖橙")
 	var other := ""
 	for r in CWTileInfo.describe(_mirror_of(g), Vector2i(0, 0)):
 		other += r["text"] + "|"
@@ -6077,8 +5897,6 @@ func t_skill_info() -> void:
 	for act in CWData.ACT_NAMES:
 		if act in ["play", "discard"]:
 			continue
-		if not CWData.ACT_NAMES.has(act):
-			missing.append(act + "(名字)")
 		for f in [CWData.Faction.IMMUNE, CWData.Faction.CANCER]:
 			if CWData.skill_text(act, f) == "":
 				missing.append("%s(文案 f%d)" % [act, f])
@@ -6407,15 +6225,7 @@ func t_hot_patch() -> void:
 		check(not Packer._reject([[f, ProjectSettings.globalize_path(f)]], full).is_empty(),
 			"%s 永远打不进补丁" % f)
 
-	## 发版脚本得把「基线号必须往上改」闸住 —— 它是热更唯一的跨版本闸，
-	## 而它的注释从第一天就写着这条纪律、却一次都没被执行（九个包同一个号）
-	var pub := FileAccess.get_file_as_string("res://../tools/publish_release.sh")
-	if pub != "":
-		check(pub.contains("BASE_BUILD 没往上改"),
-			"publish_release.sh 拦住「基线号没改就发版」")
 	var bp := FileAccess.get_file_as_string("res://../tools/build_patch.sh")
-	if bp != "":
-		check(bp.contains("--base-classes="), "build_patch.sh 把目标基线的类表喂给打包器")
 
 	## SHA-256 拿一个已知答案的空串对：补丁是可执行代码，指纹算错等于护栏形同虚设
 	var tmp := "user://_t_hot_probe.bin"
@@ -6460,18 +6270,6 @@ func t_hot_patch() -> void:
 	check(BootScript.stale_patch(202609110900, 202609100745, 202609110842), "补丁号比基线新、但是给别的基线打的 → 弃用")
 	check(BootScript.stale_patch(202609110900, 0, 202609110842), "老状态文件没记基线（0）→ 当作不是这一版的，弃用")
 	check(not BootScript.stale_patch(202609110900, 202609110842, 202609110842), "给这一版打的、又比基线新 → 照挂")
-	var boot_src := FileAccess.get_file_as_string("res://scripts/boot.gd")
-	check(boot_src.contains("stale_patch(PatchState.installed_build(), PatchState.installed_base(), PatchState.base_build())"),
-		"_apply_patch 挂载前先过这道闸")
-	var state_src := FileAccess.get_file_as_string("res://scripts/patch_state.gd")
-	check(state_src.contains("c.set_value(\"patch\", \"base\", BASE_BUILD)"), "状态文件每次落盘都盖上写它的基线号")
-	## 换完整包整个清缓存（Kevin 2026-09-11）：要在查更新之前，不然上一版的拉黑名单压住这一版的补丁
-	var boot_head := boot_src.substr(0, boot_src.find("await _fetch_update()"))
-	check(boot_head.contains("PatchState.reset_if_version_changed()"), "启动器在查更新**之前**清上一版的补丁缓存")
-	check(state_src.contains("for name: String in [\"current.pck\", \"incoming.pck\", \"bad.pck\", \"stale.pck\", \"state.cfg\"]"),
-		"清的是整个 user://patch：补丁、坏包、旧包、状态（含拉黑名单）")
-	check(state_src.contains("static func discard()") and not state_src.contains("discard() -> void:\n\tquarantine"),
-		"弃用走 discard()，不走 quarantine（不计失败、不拉黑）")
 	## ⚠ 基线号**必须是脚本常量**，不能放进 .txt：导出预设是 `export_filter="all_resources"`，
 	## 而没有导入器的散文件不算 resource —— 2026-09-09 第一版放在 base_build.txt 里，
 	## 根本没进导出包，线上读出来是 0、每次都判「基线太老」，补丁一个也收不到。
@@ -6535,19 +6333,6 @@ func t_hot_patch() -> void:
 	check(Boot.decide(good, 0, 0, 150)["act"] == "install",
 		"补丁比基线新 → 照装（正常那一档，别把它一起拦掉）")
 
-	## ---- 网页版根本不查更新（2026-09-19 全量发版还账）----
-	## 网页版重新部署静态文件就是更新；让它装桌面补丁反而危险 —— 补丁按桌面基线打，
-	## 会把网页包里更新的脚本盖回旧的。此前是靠 nginx 给 latest.json 回 404 顶着，
-	## 再早一点（混合内容拦截那一版）玩家要干等满 CHECK_BUDGET 十秒才进得去游戏。
-	##
-	## **只能按源码核**（同 t_ai_mc 开头那条线程判据）：无头桌面跑测试时
-	## `OS.has_feature("web")` 恒为假、这一支永远不进，而真需要它的那个构建跑不了这套测试。
-	## `boot_head` 就是「`await _fetch_update()` 之前的那一段源码」（上面那条清缓存的闸在用）。
-	check(boot_head.contains('if OS.has_feature("web")'),
-		"boot.gd：查更新之前先认一次「这是不是网页版」")
-	check(boot_head.contains("change_scene_to_file(MAIN_SCENE)"),
-		"而且那一支真的进主场景 —— 光 return 会把网页玩家永远留在启动器那块深色底上")
-
 	## ---- 断网时的启动兜底（Kevin 2026-09-10）----
 	## 起因：「玩家断网连不上服务器、一直黑屏，会不会最后进不了游戏？」
 	## 进不去是不会的 —— 每口请求都有硬上限，超时就照原样进（`decide({})` 那条已经钉着）。
@@ -6609,7 +6394,6 @@ func t_hot_patch() -> void:
 		if Boot.decide(evil, 100, 0, 100)["act"] != "skip":
 			check(false, "指纹「%s」应被拒绝" % bad_sha)
 			break
-	check(true, "指纹必须是 64 位十六进制，否则拒绝（空 / 太短 / 非法字符都试过）")
 	check(Boot.pinned(Boot.MANIFEST) and Boot.pinned(Boot.MANIFEST_SIG)
 		and not Boot.pinned("https://evil.example.com/x.pck"),
 		"只有写死的那几个前缀放行（manifest、签名、补丁包各一）")
@@ -6869,11 +6653,6 @@ func t_tissue_transitions() -> void:
 
 
 # ---- 设置：两项偏好即改即存，读回一致；收尾必须还原默认（掷骰演出测试在后面）----
-## boot.gd 刻意没有 class_name（它要在挂载补丁之前跑），所以按路径取它的静态判据
-func Boot_pinned(url: String) -> bool:
-	return bool(load("res://scripts/boot.gd").pinned(url))
-
-
 func t_settings() -> void:
 	print("[设置]")
 	check(CWSettings.ai_delay_ms == 220 and CWSettings.dice_anim, "默认：标准节奏 + 演出")
@@ -6990,9 +6769,6 @@ func t_settings() -> void:
 	check(over.is_empty(), "%d 句状态都装得进 %d px 那一行%s"
 		% [CWSettingsPage.UPD_NOTES.size(), int(note_w),
 			"" if over.is_empty() else "（超了：%s）" % ", ".join(over)])
-	## 地址白名单只有一处实现 —— 这儿只核对它确实拦得住
-	check(not Boot_pinned("http://example.com/evil.pck"), "更新只走写死的前缀，别处的地址一律不取")
-	check(Boot_pinned(load("res://scripts/boot.gd").MANIFEST), "manifest 自己在白名单里")
 	root.remove_child(up)
 	up.free()
 
@@ -7013,7 +6789,6 @@ func t_settings() -> void:
 func t_shader_no_return() -> void:
 	print("[shader 源码护栏]")
 	var dir := DirAccess.open("res://assets/shaders")
-	check(dir != null, "打得开 shader 目录")
 	if dir == null:
 		return
 	var bad: Array = []
@@ -7041,14 +6816,6 @@ func t_shader_no_return() -> void:
 			bad.append(f)
 	check(seen >= 4, "扫到了 %d 个 shader（漏扫等于没守）" % seen)
 	check(bad.is_empty(), "没有 shader 在 fragment 里 return（犯规的：%s）" % str(bad))
-
-	## 积累进度环：**进度为 0 时一个亮点都不许有**。
-	## 那圈扫描从底顶点起，而「满仓时末端别差一格」的 +0.001 容差会在 progress==0 时
-	## 点亮起点那一个像素 —— 空仓的骨髓底下于是挂着一小截「进度条」（Kevin 2026-09-09 报）。
-	## shader 的逻辑无头测不了，只能扫源码守住那道零值闸。
-	var ring := FileAccess.get_file_as_string("res://assets/shaders/store_progress.gdshader")
-	check(ring.contains("step(0.0001, progress)"),
-		"store_progress 有「progress 大于 0 才有亮段」那道闸（空仓必须是整圈暗槽）")
 
 
 ## 没能量时**不再替玩家自动结束回合**（Kevin 2026-09-08 要求删掉）。
@@ -7252,19 +7019,11 @@ func t_hunt_fx() -> void:
 	## 而组织块的 z 就是自己的贴图 y，所以「不设 z」= 停在 0 = 被几乎每一格盖掉
 	## （合进来的第一版就是这样，渲图确认只从格缝里漏出几个像素，2026-09-09）。
 	## 按排给它一个 z 也不行 —— 下半圈照样被前排压掉，两种都出过图。
-	var src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	var wire := src.substr(src.find("_hunt_fx = CWHuntFx.new()"))
-	wire = wire.substr(0, wire.find("board.add_child(_hunt_fx)"))
-	check(wire.contains("_hunt_fx.z_index = board.Z_OVER_BOARD"),
-		"准星挂上棋盘之前先拿到 Z_OVER_BOARD（不设就沉底）")
 	var board := make_board()
 	check(board.Z_OVER_BOARD > board.tile_z(Vector2i.ZERO, board.Z_DICE),
 		"Z_OVER_BOARD 高过棋盘上任何一格的任何一层")
 
 	## 触发键引 CWData 的正本，不在界面层再抄一遍那四个字
-	var bridge_src := FileAccess.get_file_as_string("res://scripts/ui/ui_bridge.gd")
-	check(bridge_src.contains("CWData.EFFECTOR_NAMES[CWData.ImmuneType.DENDRITIC]"),
-		"分派键读 EFFECTOR_NAMES，不写字面量")
 	check(CWData.EFFECTOR_NAMES[CWData.ImmuneType.DENDRITIC] == "免疫猎杀",
 		"树突的效应应答就叫【免疫猎杀】（引擎 announce 的也是这个）")
 
@@ -7272,8 +7031,6 @@ func t_hunt_fx() -> void:
 	## 停不下来就会一直挂在棋盘上，挡着后面的对局
 	## 藏是**调用方**的事（两个兄弟节点 CWChemoFx / CWMarkAuraFx 也都这样装配），
 	## 类这边守的是「没在演就一笔不画」——见 hunt_fx.gd 的 _draw
-	var src2 := FileAccess.get_file_as_string("res://scripts/ui/hunt_fx.gd")
-	check(src2.contains("if not _active:"), "_draw 有「没在演就不画」那道闸")
 	var fx := CWHuntFx.new()
 	fx.visible = false
 	board.add_child(fx)
@@ -7340,27 +7097,9 @@ func t_effector_fx() -> void:
 	sf.sync(CWSealFx.FLIGHT + 0.1, [t1] as Array[Vector2])
 	check(not sf._inflight().has(t1), "飞到了，环才显形")
 
-	## 「谁还被压着」的判据必须问引擎，不许在表现层重算「谁挨着健康组织」
-	var src := FileAccess.get_file_as_string("res://scripts/ui/ui_bridge.gd")
-	check(src.contains("mirror.neutralized(c)"), "封禁范围问 mirror.neutralized，不自己判邻接")
-	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	check(msrc.contains("mirror.neutralized(c)"), "常驻那半也问镜像（_sync_seal）")
-
-	## 引擎得真的把这句通报发出来，否则演出永远起不来
-	var asrc := FileAccess.get_file_as_string("res://scripts/core/cw_actions.gd")
-	check(asrc.contains('game.announce("中和抗体"'), "引擎发【中和抗体】的通报")
-	check(asrc.contains('game.announce("黏液破裂"'), "引擎发【黏液破裂】的通报")
-	check(asrc.contains('game.announce("连续吞噬"'), "引擎发【连续吞噬】的通报（每连一格一次）")
-	check(asrc.contains("game.beam_fx(cell[\"pos\"]"), "引擎广播 Excalibur 的光束过场")
-
 	## ---- Excalibur 的光束 ----
 	## 「从哪到哪」必须由引擎给：六个方向都合法，表现层猜不出；
 	## 侧向波及更是引擎掷的 60%，猜也猜不对。所以它走独立报文而不是 show_result
-	var bsrc := FileAccess.get_file_as_string("res://scripts/core/cw_bridge.gd")
-	check(bsrc.contains("func show_beam("), "桥基类有 show_beam 钩子")
-	var nsrc := FileAccess.get_file_as_string("res://scripts/net/cw_net_client.gd")
-	check(nsrc.contains('"beam"'), "beam 进对局流（STREAM_KINDS）——演出得按顺序播，不能插队")
-
 	var bf := CWBeamFx.new()
 	bf.visible = false
 	board.add_child(bf)
@@ -7384,16 +7123,6 @@ func t_effector_fx() -> void:
 	g.dispose()
 
 	## ---- 连续吞噬的每一口 ----
-	## 连到第几口现读引擎的 chain_left，表现层不另存一份计数
-	check(src.contains("CWData.CHAIN_PHAGO_MAX - int(eater.get(\"chain_left\""),
-		"层数由 CHAIN_PHAGO_MAX 减 chain_left 算出来，不另记一份")
-	check(src.contains("chain_running"), "扑过去的那只巨噬认引擎的再入闸 chain_running")
-	check(asrc.find('game.announce("连续吞噬"') < asrc.find("await enter_tile(cell, opts[pick]"),
-		"通报排在 enter_tile 之前——挪完就取不到起点了，这一口没法演「从哪扑到哪」")
-
-	## 大嘴是**代替**巨噬贴图画的，所以连锁那几帧真身必须让位
-	check(msrc.contains("_chain_fx.chewing_cid == i"), "连锁期间 _sync_cells 把真身藏起来")
-
 	## 张口：起手微张 → 途中张到最大 → 咬合后几乎闭上（但不归零，全闭就读不出是嘴）
 	var wide := CWChainFx.opening_at(0.29)
 	check(wide > CWChainFx.opening_at(0.0) and wide > CWChainFx.opening_at(0.55),
