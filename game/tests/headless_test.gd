@@ -21096,6 +21096,16 @@ func t_tutor_gate() -> void:
 	gc.free()
 	gboard.free()
 	gdice.free()
+	## ⑪ 换关要把上一关的结算气泡收掉（真机 2026-09-19：第三关末「攻击大成功」的金字气泡按自己的
+	## RESULT_HOLD 活着，跟着静默切关压在第四关的章节横带上）。正式局的同一件事在 `_prepare_ui`
+	## （issue #26），教程换关不走那条路 ⇒ `_open_tutor_level` 推层表回全开的那一支自己收
+	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
+	var open_at := msrc.find("func _open_tutor_level(")
+	var stage_at := msrc.find("_stage = TUTOR_STAGE.new()", open_at)
+	var hide_at := msrc.find("toast.hide_now()", open_at)
+	check(open_at > 0 and hide_at > open_at and hide_at < stage_at
+			and msrc.find("CWTutorLayers.reset()", open_at) < hide_at,
+		"_open_tutor_level 换关（reset_layers）那一支在开新舞台之前 toast.hide_now()：上一关的结算气泡不带进下一关")
 
 
 func t_tutor_view() -> void:
