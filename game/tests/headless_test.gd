@@ -21067,10 +21067,9 @@ func t_tutor_gate() -> void:
 				break
 		CWTutorLayers.reset()
 		CWTutorLayers.apply(first_ui)
-		var want_on: bool = id != "interlude"
-		check(CWTutorLayers.on("notice") == want_on,
-			"%s 关首之后 notice 层%s（六关显式 true 保持验收时的样子，间章靠通配一并关掉）"
-			% [id, "开" if want_on else "关"])
+		## Kevin 2026-09-19 晚「结算气泡收掉」：六关也静，和间章一样全靠关首那条 `"*": false`；正式局照旧
+		check(not CWTutorLayers.on("notice") and not first_ui.has("notice"),
+			"%s 关首之后 notice 层关（靠通配，关卡数据里不单写 notice）" % id)
 	## 真走一遍气泡那一路：闸桥 + 真气泡层，关着 0 只、开着 1 只。
 	## 盘面特效不在这条路上 —— 基类 show_result 先把特效演完才到 _bubble_result，静的只是字
 	var gb = TUTOR_GATE.new()
@@ -21159,6 +21158,24 @@ func t_tutor_gate() -> void:
 			and start_snap > start_obs and start_snap - start_obs < 200
 			and resnap_fn > 0 and msrc.find("_tutor_cam = {}", resnap_fn) < msrc.find("_tutor_camera()", resnap_fn),
 		"跨关与关首两条路都在第一份镜像落地（_observe_now）之后紧跟 _tutor_resnap()：清掉机位缓存再直接就位")
+	## ⑭ 镜头不跟细胞（Kevin 2026-09-19 晚「只需要在关卡开始的时候调中一次，不需要一直跟随细胞」）：
+	## `_sync_tutor_layers` 每帧只比层表，层表变了才 `_tutor_camera(TUTOR_CAM_SECS)`；
+	## 其余要重算的事件各自显式调：地图浮现（`_tutor_reveal`）、换局 / 重置 / 重心平移（直接就位）
+	var sync_fn := msrc.find("func _sync_tutor_layers(")
+	var sync_end := msrc.find("\nfunc ", sync_fn + 10)
+	var sync_body := msrc.substr(sync_fn, sync_end - sync_fn)
+	var cmp_at := sync_body.find("if layers_now != _tutor_layers_seen:")
+	var sync_cam_at := sync_body.find("_tutor_camera(TUTOR_CAM_SECS)")
+	check(cmp_at > 0 and sync_cam_at > cmp_at and sync_body.count("_tutor_camera(") == 1
+			and sync_body.find("_tutor_layers_seen = layers_now") > cmp_at
+			and sync_body.find("_tutor_layers_seen = layers_now") < sync_cam_at,
+		"_sync_tutor_layers：只在层表变了那一帧重算机位（每帧算就是跟着细胞走）")
+	var reveal_fn := msrc.find("func _tutor_reveal(")
+	var reveal_end := msrc.find("\nfunc ", reveal_fn + 10)
+	check(msrc.substr(reveal_fn, reveal_end - reveal_fn).contains("_tutor_camera(TUTOR_CAM_SECS)"),
+		"地图浮现（活跃集撑大）自己补间一次机位 —— 不靠每帧跟")
+	check(msrc.substr(resnap_fn, msrc.find("\nfunc ", resnap_fn + 10) - resnap_fn).contains("_tutor_layers_seen = CWTutorLayers.current()"),
+		"直接就位那一刻把层表记下：下一帧别再为同一份层表补间一次")
 
 
 ## 导出预设 exclude_filter="tests/*"：产品代码（scripts / scenes / data）里一条指向 res://tests/ 的路径 = 导出版必炸，

@@ -46,7 +46,7 @@
 
   "flow": [
     { "do": "state", "prd": 93, "load": "base",
-      "ui": { "*": false, "notice": true, "action_bar": true, "move_path": false, "cost": false, "energy": "infinite",
+      "ui": { "*": false, "action_bar": true, "move_path": false, "cost": false, "energy": "infinite",
         "camera": { "anchor": "map", "align": "center" } } },
 
     { "do": "say", "prd": 117, "who": "player",

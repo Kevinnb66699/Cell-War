@@ -1462,6 +1462,8 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 ## 上限兜底：气泡层要是被别的东西卡住，别让通关永挂在这儿
 const TUTOR_SWITCH_BEAT := 0.8
 const TUTOR_BUBBLE_WAIT_MAX := 6.0
+## `_sync_tutor_layers` 上一帧看到的层表：变了才重算机位（镜头不跟细胞，Kevin 2026-09-19）
+var _tutor_layers_seen := {}
 
 func _wait_result_bubbles() -> void:
 	var waited := 0.0
@@ -1534,6 +1536,7 @@ func _tutor_reopen(wid: String, fresh_cursor: bool) -> void:
 func _tutor_resnap() -> void:
 	_tutor_cam = {}
 	_tutor_camera()
+	_tutor_layers_seen = CWTutorLayers.current()   ## 就位那一刻的层表：下一帧别再为同一份层表补间一次
 
 
 ## 跨关的那一刀（Kevin 2026-09-19「切到第二章的时候镜头会晃动一下」）。真机连拍查到的不是镜头在动：
@@ -1561,6 +1564,7 @@ func _tutor_reveal(coords: Array) -> void:
 		if not want.has(c):
 			want.append(c)
 	board.set_active_tiles(want)
+	_tutor_camera(TUTOR_CAM_SECS)   ## 活跃集撑大了才重算机位（镜头不再每帧跟细胞，见 `_sync_tutor_layers`）
 
 
 ## 每帧把 UI 层开关落到控件上（只在教程局走，方案 §3.2(b)）。
@@ -1584,9 +1588,14 @@ func _sync_tutor_layers() -> void:
 		## 状态框 + 抗原记忆框）。不给 `CWTutorLayers` 加新层 —— 那文件带 `class_name`、
 		## 走不了热更（方案 §1.5）；`_sync_tutor_layers` 本来就只有教程局每帧跑，写死 false 即可
 		panel.guide_layers(CWTutorLayers.on("end_turn"), CWTutorLayers.on("round_no"), false)
-	## 镜头也是一层（`ui.camera`）：关内换 step 改了镜头、或地图浮现把活跃集撑大了，
-	## 都在这儿补间过去。`_tutor_camera` 自己判「机位没变就不动」，每帧问一次不花钱
-	_tutor_camera(TUTOR_CAM_SECS)
+	## 镜头也是一层（`ui.camera`）—— 但**只在层表变了**（剧本改了镜头 / 开关了右栏）才重算并补间过去。
+	## 每帧都算的话，「角色调中 / 调左」的关会跟着细胞走（玩家每走一格棋盘就滚一格）；
+	## Kevin 2026-09-19：「镜头只需要在关卡开始的时候调中一次，不需要一直跟随细胞」。
+	## 另外两种要重算的事件各自显式调：地图浮现（`_tutor_reveal`）、换局 / 重置 / 重心平移（直接就位）
+	var layers_now := CWTutorLayers.current()
+	if layers_now != _tutor_layers_seen:
+		_tutor_layers_seen = layers_now
+		_tutor_camera(TUTOR_CAM_SECS)
 	## 「切换种类」（PRD:375，第五关 Step2，S5）跟着其余 ui 层走同一条路：
 	## 层表是静态的、每帧全量刷，所以重置 / 目录跳关 / 关内重装都不用各自补一句。
 	## **不走导演→皮那条意图链**：它是一个显隐开关，与 sidebar / round_no 同类
