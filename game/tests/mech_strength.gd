@@ -5,6 +5,7 @@
 ##   heu/mech   普通免 vs 意图癌  ← 意图癌弱项
 ##   mech/heu   意图免 vs 普通癌  ← 意图免强项
 ##   mech/mech  意图癌 vs 意图免  ← 意图对意图
+##   mev = MechBridge + 数据拟合位置估值（MechValue.position_eval，2026-09-20 体检产物）
 ##
 ## 运行：
 ##   <godot> --headless --path game --script res://tests/mech_strength.gd -- \
@@ -14,7 +15,7 @@
 extends SceneTree
 
 
-const AI_TYPES := ["heu", "mech"]
+const AI_TYPES := ["heu", "mech", "mev", "mel", "abs"]
 
 
 func _initialize() -> void:
@@ -91,6 +92,22 @@ func _make_bridge(kind: String, g: CWGame) -> CWBridge:
 	match kind:
 		"mech":
 			b = MechBridge.new()
+		"mev":
+			var mb := MechBridge.new()
+			mb.use_fit_eval = true
+			MechBridge._fit_linear_on = false
+			b = mb
+		"abs":
+			var ab := MechBridge.new()
+			ab.use_search = true
+			ab.use_fit_eval = true
+			MechBridge._fit_linear_on = true
+			b = ab
+		"mel":
+			var mb2 := MechBridge.new()
+			mb2.use_fit_eval = true
+			MechBridge._fit_linear_on = true
+			b = mb2
 		_:
 			b = CWHeuristicBridge.new()
 	b.game = g

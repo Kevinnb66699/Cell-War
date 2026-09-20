@@ -4790,9 +4790,11 @@ func t_config_panel() -> void:
 	## 插在树搜索之后，四档才绕回普通；档数钉 AI_LEVEL_NAMES 的长度，再加档这里不用再改。
 	check(p.config()["ai"] == CWMatch.AI_INTENT, "再拨一格 → 意图（第四档，PR #59）")
 	p._cycle(CWConfigPanel.ROW_SMART, 1)
-	check(p.config()["ai"] == CWMatch.AI_NORMAL and CWMatch.AI_LEVEL_NAMES.size() == 4, "四档循环，拨回普通")
+	check(p.config()["ai"] == CWMatch.AI_ABS, "再拨一格 → 搜索（第五档，2026-09-20 对抗搜索）")
+	p._cycle(CWConfigPanel.ROW_SMART, 1)
+	check(p.config()["ai"] == CWMatch.AI_NORMAL and CWMatch.AI_LEVEL_NAMES.size() == 5, "五档循环，拨回普通")
 	p._cycle(CWConfigPanel.ROW_SMART, -1)
-	check(p.config()["ai"] == CWMatch.AI_INTENT, "反向拨同样绕回来（到第四档）")
+	check(p.config()["ai"] == CWMatch.AI_ABS, "反向拨同样绕回来（到第五档）")
 	## 同上：从「AI 强度」走到「随机种子」的步数由常量推
 	for _i in CWConfigPanel.ROW_SEED - CWConfigPanel.ROW_SMART:
 		p.handle_input(down)
@@ -4809,8 +4811,8 @@ func t_config_panel() -> void:
 	check(not p.visible and got.size() == 1 and cancels.size() == 1,
 		"Esc 收面板并发 cancelled，不开局")
 	p.open()
-	check(p.config()["players"] == 2 and p.config()["ai"] == CWMatch.AI_INTENT \
-		and p.config()["faction"] == -1, "再次打开保留上次取值（AI 停在上面反向拨到的第四档）")
+	check(p.config()["players"] == 2 and p.config()["ai"] == CWMatch.AI_ABS \
+		and p.config()["faction"] == -1, "再次打开保留上次取值（AI 停在上面反向拨到的第五档）")
 	## 箭头定位固定；按钮变白按「最后动的设备」裁决（Kevin 8-30 终稿）：
 	## 键盘选到按钮=白；鼠标一旦介入按悬停算，直到下一次键盘按键夺回
 	## 「返回主菜单」链接（2026-09-04 Kevin：两种配置页都要有鼠标出口，同联机连接页）

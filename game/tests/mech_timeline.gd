@@ -6,7 +6,7 @@
 ##   3) 各组合破点回合的分布（哪一回合开始不可逆）。
 ##
 ## 运行：<godot> --headless --path game --script res://tests/mech_timeline.gd -- \
-##       games=6 [immune_ai=heu|cancer_ai=mech 单跑一组] [detail=1 每局全打时间线]
+##       games=6 [players=4|6] [immune_ai=heu|cancer_ai=mech 单跑一组] [detail=1 每局全打时间线]
 extends SceneTree
 
 
@@ -50,6 +50,7 @@ func _run() -> void:
 		if kv.size() == 2:
 			args[kv[0]] = kv[1]
 	var games_n: int = int(args.get("games", 6))
+	var players: int = int(args.get("players", 4))
 	var seed_base: int = int(args.get("seed", 70000))
 	var detail: bool = args.get("detail", "0") == "1"
 	var imm_arg: String = args.get("immune_ai", "")
@@ -63,20 +64,21 @@ func _run() -> void:
 			{ "name": "mech/heu", "cancer": "heu", "immune": "mech" },
 			{ "name": "mech/mech", "cancer": "mech", "immune": "mech" },
 		]
-	print("mech_timeline: %d 局/组合" % games_n)
+	print("mech_timeline: %d 局/组合, %d 人" % [games_n, players])
 	for cfg in configs:
-		print("########## %s ##########" % cfg["name"])
+		print("########## %s (%d 人) ##########" % [cfg["name"], players])
 		var break_rounds := {
 			"imm_II": [], "imm_III": [], "first_solid": [], "wp_half": [], "energy_flip": [],
 		}
 		for gi in games_n:
 			var g := CWGame.new()
-			g.init(CWData.FACTION_ORDER[4], seed_base + gi)
+			g.init(CWData.FACTION_ORDER[players], seed_base + gi)
 			g.sim_quiet = true
 			for pid in g.order:
 				var fac: int = g.player(pid)["faction"]
 				var which: String = cfg["cancer"] if fac == CWData.Faction.CANCER else cfg["immune"]
-				var b: CWBridge = MechBridge.new() if which == "mech" else CWHeuristicBridge.new()
+				var b: CWBridge = MechBridge.new() if (which == "mech" or which == "mev") else CWHeuristicBridge.new()
+				if which == "mev": b.use_fit_eval = true
 				b.game = g
 				g.bridges[pid] = b
 			## 驱动并逐回合采样
