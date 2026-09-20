@@ -106,6 +106,31 @@ func busy() -> bool:
 	return _busy
 
 
+## 「继续」亮着（这一句画完、还没翻）才算 —— 翻过去的那一瞬 `advance()` 已把它藏起，连点不会跳句
+func _next_armed() -> bool:
+	return _busy and _next != null and is_instance_valid(_next) and _next.visible
+
+
+## 点气泡本体 = 翻页（只认左键按下；`gui_input` 只在带「继续」的气泡上接）
+func _on_say_click(e: InputEvent) -> void:
+	if e is InputEventMouseButton and (e as InputEventMouseButton).pressed \
+			and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT and _next_armed():
+		advance()
+
+
+## 回车 / 空格（ui_accept）也能翻页：键盘玩家不用去够那只跟着细胞跑的气泡
+func _unhandled_input(e: InputEvent) -> void:
+	if e.is_action_pressed("ui_accept") and _next_armed():
+		advance()
+		get_viewport().set_input_as_handled()
+
+
+## 悬停时「继续 ▸」由暗字提到亮字：告诉玩家这只气泡是可以点的
+func _set_next_hot(hot: bool) -> void:
+	if _next != null and is_instance_valid(_next):
+		_next.add_theme_color_override("font_color", CWStyle.TEXT_HI if hot else CWStyle.TEXT_DIM)
+
+
 # ════════════════════════════════════════════════════════════════
 #  ① 台词（贴着说话者那一格上方）
 # ════════════════════════════════════════════════════════════════
@@ -425,6 +450,16 @@ static func tail_tex(accent: Color) -> ImageTexture:
 func _bubble(text: String, accent: Color, max_w: float, with_next: bool, dots: int) -> Control:
 	var box := Control.new()
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if with_next:
+		## ★ 带「继续」的气泡**整只接鼠标**（Kevin 2026-09-19 真机「这里点不了继续」：
+		## 这张皮此前只给截图工具留了 `call:advance`，气泡 IGNORE、「继续」是纯 Label，玩家谁也点不着；
+		## 占位皮 P 早就接了 `_next.gui_input`）。点整只气泡而不只点那两个字：手指 / 鼠标都好点。
+		## 说话期间闸是关死的（PRD:51），气泡压住的那几格本来也点不了什么
+		box.mouse_filter = Control.MOUSE_FILTER_STOP
+		box.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		box.gui_input.connect(_on_say_click)
+		box.mouse_entered.connect(_set_next_hot.bind(true))
+		box.mouse_exited.connect(_set_next_hot.bind(false))
 	## 尾巴**只烤一次**：气泡每帧都要跟着细胞重摆，每帧重烤一张小图是纯浪费
 	var tail := TextureRect.new()
 	tail.name = "Tail"
