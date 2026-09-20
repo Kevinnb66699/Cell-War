@@ -17073,7 +17073,8 @@ func t_net_reconnect() -> void:
 	var id2: int = c.pending_ask["ask_id"]
 	c.dispose()
 	ok = await _net_pump(srv, [a, c], func() -> bool: return not room2.seats[1]["online"])
-	check(ok and (room2._ask.is_empty() or room2._ask["ask_id"] != id2), "无计时：断线的询问立刻由启发式代打")
+	check(ok and (room2._ask.is_empty() or room2._ask["ask_id"] != id2) and room2.bridge.takeovers >= 1,
+		"无计时：断线的询问立刻由专家档代打（take_over 计数 %d；Kevin 2026-09-20 从新手档换成专家档）" % room2.bridge.takeovers)
 	ok = await _net_pump(srv, [a], func() -> bool: return room2.games_played == 1, 20000)
 	check(ok and not a.game_over.is_empty(), "对方一直离线，甲一个人也能把这局打完（离线席位由 AI 代打）")
 	a.dispose()
@@ -17097,9 +17098,14 @@ func t_net_timeout() -> void:
 	var room: CWRoom = srv.rooms[a.code]
 	var id0: int = b.pending_ask["ask_id"]
 	check(ok and b.pending_ask["left_ms"] <= 1000, "1 秒计时的询问")
-	await _net_pump_ms(srv, [a, b], 1500)
-	check(room.timeouts >= 1 and (b.pending_ask.is_empty() or b.pending_ask["ask_id"] != id0),
-		"到点：服务器按启发式代打，对局继续（代打 %d 次）" % room.timeouts)
+	## 到点判据改成「等到服务器记下第一次代打」而不是固定睡 1.5 s：六片并行同机时 1 s 计时 + 帧调度会超过 1.5 s 假红（2026-09-20）。
+	## 等到之后再泵 300 ms，让客户端把新一问收进来
+	var fired := await _net_pump(srv, [a, b], func() -> bool: return room.timeouts >= 1, 900)
+	## 代打之后客户端要收到新一问（或旧问被清）—— 也等条件，别赌 300 ms
+	var moved := await _net_pump(srv, [a, b],
+		func() -> bool: return b.pending_ask.is_empty() or int(b.pending_ask.get("ask_id", -1)) != id0, 900)
+	check(fired and moved and room.timeouts >= 1 and room.bridge.takeovers >= 1,
+		"到点：服务器按专家档代打，对局继续（超时 %d 次、take_over %d 次）" % [room.timeouts, room.bridge.takeovers])
 	b.autoplay = CWHeuristicBridge.new()
 	ok = await _net_pump(srv, [a, b], func() -> bool: return room.games_played == 1, 20000)
 	check(ok, "之后正常作答打完")
@@ -23479,6 +23485,12 @@ func t_mech_bridge_quiet() -> void:
 	mb.game = g
 	mb.delay_ms = 0
 	g.bridges[cp] = mb
+	## 服务器专家档 = PR #69 的「搜索」配置（Kevin 2026-09-20「把服务器专家档 AI 也更新为这一版意图模型」）：
+	## CWNetBridge 一建出来 mc 就开着搜索 + E4 拟合估值，与单机第五档同款
+	var nb := CWNetBridge.new()
+	check(nb.mc is MechBridge and (nb.mc as MechBridge).use_search and (nb.mc as MechBridge).use_fit_eval
+			and not MechBridge._fit_linear_on,
+		"服务器专家档 mc：搜索 + E4 拟合估值开着（与单机「搜索」档同款）")
 	await run_setup(g)
 	var req: Dictionary = {}
 	while true:
