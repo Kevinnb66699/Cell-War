@@ -68,6 +68,13 @@ const ENERGY_RESERVE := 52  ## 能量数字预留的宽度，右对齐到预计�
 ## 玩家名的裁剪宽度：原 110，给预计收入让位后 64。本地对局的「免疫A」52px 不受影响；
 ## 联机长昵称本来就要裁（2026-09-03 排版体检），只是裁得更早一点
 const NAME_W := 64
+## 「技 N」在**第二行**、手牌方块左边（Kevin 2026-09-19 选的 E 案，见 `_build_row`）：
+## 离方块左缘再往左让 SKILL_GAP（Kevin：「技能 10 这一段往左移动一点」）；种类小字给它留 SKILL_RESERVE
+const SKILL_GAP := 10
+const SKILL_RESERVE := 30
+## 单机「(我)」后缀在名字行的画法：名字全尺寸、后缀小字紧跟名字之后（E 案）。
+## 后缀原文是 `CWMatch.ME_SUFFIX`，写在引擎的 name 里；这里只是把它拆成两个字号画
+const ME_GAP := 4
 ## 技能详情框的宽度。固定态要放下「停在技能上看详情 · 再点该行取消固定」这行小字（10px×18 字 = 180）
 const TIP_W := 200.0
 ## 规则浮窗（#49 升级规则 / #50 当期效果）的宽度与行距。比技能详情框宽一点：
@@ -379,7 +386,19 @@ func _refresh_row(m: CWMirror, pid: int) -> void:
 	var immune: bool = p["faction"] == CWData.Faction.IMMUNE
 	var faction_color: Color = CWStyle.IMMUNE if immune else CWStyle.CANCER
 	row["fac"].color = faction_color
-	row["name"].text = p["name"]
+	## 单机「(我)」：名字里带后缀的拆成「名字（全尺寸）+ (我)（小字）」，小字贴在名字真实宽度之后（E 案）
+	var full := str(p["name"])
+	var base := full
+	var tag := ""
+	if full.ends_with(CWMatch.ME_SUFFIX):
+		base = full.trim_suffix(CWMatch.ME_SUFFIX)
+		tag = CWMatch.ME_SUFFIX
+	row["name"].text = base
+	row["me"].text = tag
+	row["me"].visible = tag != ""
+	if tag != "":
+		var name_w: float = minf(CWStyle.FONT.get_string_size(base, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_BODY).x, NAME_W)
+		row["me"].position.x = row["name"].position.x + name_w + ME_GAP
 	var on: bool = acting_pid(m) == pid
 
 	## 开局布置阶段是一个一个落子的：玩家已经建好，细胞还没有。
@@ -595,6 +614,9 @@ func _build_row(y: float, pid: int) -> Dictionary:
 	## 本地对局的「免疫A」只有 52px，不受影响（2026-09-03 排版体检）
 	nm.clip_text = true
 	nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	## 单机「(我)」小字：位置每次 `_refresh_row` 按名字真实宽度摆，这里只建出来
+	var me := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM), x + NAME_W, y + 10, 30)
+	me.visible = false
 	## **先开裁切再定尺寸**（架构约定；不裁的 Label 最小宽 = 全文宽，会把定下的宽度顶开）——
 	## 2026-09-07 Kevin 拍到「图标重叠」：联机局的「恶性黑色素瘤 · 离线代打」正是这么压过去的。
 	## 实际宽度等下面手牌方块定了位再收到方块左边
@@ -616,15 +638,17 @@ func _build_row(y: float, pid: int) -> Dictionary:
 		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(pip)
 		pips.append(pip)
-	## 种类小字铺到手牌方块左边为止（这一行原来还摆着本回合历史小卡，Kevin 2026-09-11 删了）
-	ty.size.x = maxf(40.0, right - total - 4.0 - x)
+	## 种类小字铺到「技 N」左边为止（这一行原来还摆着本回合历史小卡，Kevin 2026-09-11 删了；
+	## 2026-09-19 起「技 N」也在这一行，给它留 SKILL_RESERVE + SKILL_GAP）
+	ty.size.x = maxf(40.0, right - total - SKILL_GAP - SKILL_RESERVE - 4.0 - x)
 	## 预计收入「+x.x」贴行右缘、能量数右边（Kevin 2026-09-06：每回合预计拿到的有氧 / 无氧呼吸，显示在能量边）
 	var inc := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
 		x, y + 10, right - x, HORIZONTAL_ALIGNMENT_RIGHT)
-	## 「技 N」放**能量那一行**（团队 2026-08-28 选的右边那版），右对齐到能量左侧
+	## 「技 N」在**第二行**、手牌方块左边，右对齐到方块左缘再往左让 SKILL_GAP
+	## （Kevin 2026-09-19 选的 E 案：名字行让给「免疫A (我)」；团队 2026-08-28「放能量那一行」那版就此作废）
 	var sk := _put(CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM),
-		x, y + 10, right - ENERGY_RESERVE - INCOME_RESERVE - x, HORIZONTAL_ALIGNMENT_RIGHT)
-	return { "bg": bg, "fac": fac, "icon": icon,
+		x, y + 26, right - total - SKILL_GAP - x, HORIZONTAL_ALIGNMENT_RIGHT)
+	return { "bg": bg, "fac": fac, "icon": icon, "me": me,
 		"name": nm, "type": ty, "energy": en, "income": inc, "pips": pips, "skills": sk }
 
 
