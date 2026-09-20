@@ -112,6 +112,9 @@ const CONFIRM_W := 264
 const CONFIRM_PAD := 16
 const CONFIRM_ITEM_H := 36
 const CONFIRM_TITLE_H := 42
+const ENTRY_ITEM_H := 64
+const ENTRY_ITEMS := ["我是新手", "我是老手"]
+const ENTRY_DETAILS := ["进入新手教程", "直接进入游戏"]
 ## 教程对手癌种（引导全部看完后再进「新手引导」时弹）：同一块覆盖层换一组项
 const TUTORIAL_PICK_TITLE := "教程对手癌种"
 ## 首次教程钉死的对手：骨肉瘤是站桩型，剧本里「落子到癌区外侧 / 迁过去攻击」的提示才成立
@@ -130,6 +133,8 @@ var _confirm_labels: Array[Label] = []
 var _confirm_bars: Array[ColorRect] = []
 var _confirm_glow: Control
 var _confirm_items: Array = []   ## 此刻列出的项（CONFIRM_ITEMS 或四种癌）
+var _confirm_details: Array = []
+var _entry_choice_open := false
 var _confirm_on_pick := Callable()   ## 选了第 i 项做什么（关层由回调自己负责）
 var _confirm_sel := 1            ## 退出确认默认停在「取消」，别让回车顺手就退了
 ## 「引导全部看完了吗」的判据。默认读 CWGuideProgress（user:// 里玩家的真实进度）；
@@ -506,6 +511,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _confirm_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
+		if _entry_choice_open:
+			get_viewport().set_input_as_handled()
+			return   ## 首次选择必须明确点一项，Esc 不能绕过存档
 		get_viewport().set_input_as_handled()
 		_close_confirm()
 	elif event.is_action_pressed("ui_down") or event.is_action_pressed("ui_up"):
@@ -543,10 +551,20 @@ func _open_tutorial() -> void:
 
 
 ## 弹出覆盖式小列表：title 标题、items 各项文字、default_sel 默认停在哪一项、on_pick(i) 选中回调
-func _open_pick(title: String, items: Array, default_sel: int, on_pick: Callable) -> void:
+func show_entry_choice(on_choice: Callable) -> void:
+	_entry_choice_open = true
+	_open_pick("选择游玩方式", ENTRY_ITEMS, 0, func(i: int) -> void:
+		_entry_choice_open = false
+		_close_confirm()
+		on_choice.call(i), ENTRY_DETAILS)
+
+
+func _open_pick(title: String, items: Array, default_sel: int, on_pick: Callable,
+		details: Array = []) -> void:
 	if _confirm == null:
 		_build_confirm()
 	_confirm_items = items
+	_confirm_details = details
 	_confirm_on_pick = on_pick
 	_confirm_title.text = title
 	_fill_pick()
@@ -618,14 +636,15 @@ func _fill_pick() -> void:
 	_confirm_labels.clear()
 	_confirm_bars.clear()
 
+	var row_h: float = ENTRY_ITEM_H if not _confirm_details.is_empty() else CONFIRM_ITEM_H
 	var h: float = CONFIRM_PAD + CONFIRM_TITLE_H \
-		+ _confirm_items.size() * CONFIRM_ITEM_H + CONFIRM_PAD
+		+ _confirm_items.size() * row_h + CONFIRM_PAD
 	var screen := CWView.screen_size()
 	_confirm_panel.position = Vector2((screen.x - CONFIRM_W) / 2.0, (screen.y - h) / 2.0)
 	_confirm_panel.size = Vector2(CONFIRM_W, h)
 
 	for i in _confirm_items.size():
-		var y: float = CONFIRM_PAD + CONFIRM_TITLE_H + i * CONFIRM_ITEM_H
+		var y: float = CONFIRM_PAD + CONFIRM_TITLE_H + i * row_h
 		var mark := ColorRect.new()
 		mark.position = Vector2(CONFIRM_PAD, y + 6)
 		mark.size = Vector2(4, 22)
@@ -635,7 +654,12 @@ func _fill_pick() -> void:
 		_confirm_bars.append(mark)
 		var label := CWStyle.label(_confirm_items[i], CWStyle.SIZE_BODY, CWStyle.TEXT)
 		label.position = Vector2(CONFIRM_PAD + 16, y + 5)
-		label.size = label.get_minimum_size()   ## 命中框贴着字，别把右边空白也算进去
+		label.size = label.get_minimum_size() if _confirm_details.is_empty() \
+			else Vector2(CONFIRM_W - CONFIRM_PAD * 2.0 - 16.0, row_h)
+		if not _confirm_details.is_empty():
+			var detail := CWStyle.label(str(_confirm_details[i]), CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+			detail.position = Vector2(0, 30)
+			label.add_child(detail)
 		label.mouse_filter = Control.MOUSE_FILTER_STOP
 		label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		label.mouse_entered.connect(func() -> void:

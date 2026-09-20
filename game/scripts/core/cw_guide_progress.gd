@@ -3,7 +3,7 @@
 ## 单独一份小配置而不是塞进 CWSave：引导进度是「这个玩家看了多少」的偏好信息，
 ## 跟有没有进行中的对局无关。主菜单「新手引导」项据此显示已完成标记/继续入口。
 ##
-## **四个键**（新手教程 v2 · S6，2026-09-19 重定，方案 §3.6）：
+## **原有四个键 + 首次选择**（新手教程 v2 · S6，2026-09-19 重定，方案 §3.6）：
 ##   `done`         已完成的关数。**原样保留**：主菜单（`main_menu.gd:136`）与 `match.gd` 还在读它。
 ##   `at`           读到哪了 `{level, beat}` —— `level` 是 `index.json` 里那个**关 id**，
 ##                  `beat` 是关内 `flow` 下标。**续读只认「关」不认「步」**（Q-11）：
@@ -11,6 +11,7 @@
 ##   `unlocked`     已解锁的**图鉴解锁点** id（剧本 `flow[].unlock.ids` 写的那些）。
 ##                  图鉴 2026-09-19 起**去闸只留通知**（方案 §3.8）—— 这份集合今天只喂
 ##                  「解锁通知 + 图鉴里那一条慢闪一轮」，不再决定哪条看得见。
+##   `entry_choice`  首次进入时选 new / experienced；已有进度文件的旧玩家不再弹首次选择。
 ##   `opening_seen` 开场动画看过没有。**别碰**：那一键归 `tutorial_opening.gd`（`SEEN_KEY`），
 ##                  本文件一个字都不写它 —— 目录里的「Cell War」走的是它现成的 `clear_seen()`。
 ##
@@ -25,6 +26,25 @@ extends RefCounted
 
 const PATH := "user://guide_progress.cfg"
 const SECTION := "guide"
+const ENTRY_NEW := "new"
+const ENTRY_EXPERIENCED := "experienced"
+
+
+## 只在这台设备没有引导记录时询问一次。旧版留下的进度文件也算已进入过游戏，
+## 升级客户端不能把老玩家重新带进首次选择。
+static func needs_entry_choice() -> bool:
+	return not FileAccess.file_exists(PATH)
+
+
+## 选择先落盘再切界面：新手中途退出后，下次启动直接到主菜单，可从菜单继续引导。
+static func choose_entry(choice: String) -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(PATH)
+	cfg.set_value(SECTION, "entry_choice", choice)
+	if choice == ENTRY_EXPERIENCED:
+		cfg.set_value(SECTION, "done", level_count())
+		cfg.set_value(SECTION, "at", {})
+	cfg.save(PATH)
 
 ## 已完成的关数（0..level_count()）。主动跳过的关不算完成。
 static func read() -> Dictionary:

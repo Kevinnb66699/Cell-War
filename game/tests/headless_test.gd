@@ -11305,6 +11305,25 @@ func t_quit_confirm() -> void:
 	check(menu._atlas != null and menu._atlas.visible and menu._atlas._atlas_mode,
 		"主菜单细胞图鉴按钮 pressed 信号打开独立细胞图鉴")
 	menu._atlas.visible = false
+	var entry_picks: Array = []
+	menu.show_entry_choice(func(i: int) -> void: entry_picks.append(i))
+	check(menu._confirm.visible and menu._entry_choice_open
+			and menu._confirm_labels.size() == 2,
+		"首次进入弹出新手 / 老手两项")
+	check(menu._confirm_labels[0].text == "我是新手"
+			and (menu._confirm_labels[0].get_child(0) as Label).text == "进入新手教程"
+			and menu._confirm_labels[1].text == "我是老手"
+			and (menu._confirm_labels[1].get_child(0) as Label).text == "直接进入游戏"
+			and menu._confirm_labels[1].position.y > menu._confirm_labels[0].position.y,
+		"两项标题和下方小字完整显示")
+	var entry_esc := InputEventAction.new()
+	entry_esc.action = "ui_cancel"
+	entry_esc.pressed = true
+	menu._confirm_input(entry_esc)
+	check(menu._confirm.visible and entry_picks.is_empty(), "首次选择不能按 Esc 绕过")
+	menu._pick_confirm(1)
+	check(entry_picks == [1] and not menu._confirm.visible,
+		"选老手只回调一次并收起弹窗")
 	## 「退出游戏」是最后一项
 	var quit_i: int = menu.ITEMS.size() - 1
 	check(menu.ITEMS[quit_i]["node"] == "Quit", "最后一项是退出游戏")
@@ -19174,6 +19193,19 @@ func t_tutor_chrome() -> void:
 func t_tutor_progress() -> void:
 	print("[新手教程 v2 S6·进度四键 + 目录面板]")
 	CWGuideProgress.clear()
+	check(CWGuideProgress.needs_entry_choice(), "新设备没有引导记录：首次进入需要选择")
+	CWGuideProgress.choose_entry(CWGuideProgress.ENTRY_NEW)
+	check(not CWGuideProgress.needs_entry_choice() and not CWGuideProgress.all_done(),
+		"选新手即保存选择，但保留未完成的教程")
+	CWGuideProgress.set_at("c1_l2", 4)
+	check(not CWGuideProgress.needs_entry_choice() and CWGuideProgress.at_level() == "c1_l2",
+		"教程只做一半再退出：下次启动不会自动进入，也保留可手动续关的进度")
+	CWGuideProgress.clear()
+	CWGuideProgress.choose_entry(CWGuideProgress.ENTRY_EXPERIENCED)
+	check(not CWGuideProgress.needs_entry_choice() and CWGuideProgress.all_done()
+			and CWGuideProgress.at_level() == "",
+		"选老手：教程标记为全部完成，之后不再出现首次选择")
+	CWGuideProgress.clear()
 	## ---- ① 四键：done / at:{level,beat} / unlocked / opening_seen ----
 	var blank := CWGuideProgress.read()
 	check(int(blank["done"]) == 0 and (blank["at"] as Dictionary).is_empty()
@@ -19202,6 +19234,7 @@ func t_tutor_progress() -> void:
 	old.set_value(CWGuideProgress.SECTION, "done", 2)
 	old.save(CWGuideProgress.PATH)
 	var legacy := CWGuideProgress.read()
+	check(not CWGuideProgress.needs_entry_choice(), "旧版进度文件也视作已访问，不把老玩家当新玩家")
 	check(int(legacy["done"]) == 2 and (legacy["at"] as Dictionary).is_empty()
 			and CWGuideProgress.at_level() == "",
 		"旧档只有 `done`：读得出来、`at` 空、`at_level()` 空串 ⇒ 调用方退回按 `done` 数挑关")
