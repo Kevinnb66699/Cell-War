@@ -21123,6 +21123,40 @@ func t_tutor_gate() -> void:
 	check(CWMatch.TUTOR_SWITCH_BEAT >= 0.5 and CWMatch.TUTOR_BUBBLE_WAIT_MAX > CWUIBridge.RESULT_HOLD + 1.0,
 		"气泡收完之后至少再停半秒；等气泡的上限要盖过 RESULT_HOLD + 淡出（%.1f / %.1f）"
 			% [CWMatch.TUTOR_SWITCH_BEAT, CWMatch.TUTOR_BUBBLE_WAIT_MAX])
+	## ⑬ 切关不许「镜头晃一下」（Kevin 2026-09-19）。真机连拍查到两半：(a) 老盘面在新机位下淡出、老细胞等新镜像
+	## 才收 ⇒ 整盘滑一下 —— 跨关那一刀要让老东西当帧消失（格子 alpha 归零、细胞层先藏、特效清状态）；
+	## (b) 关首按缺省机位就位、导演翻到 flow[0] 才改镜头 ⇒ 开场补间 0.45 s —— 取景前先把 flow[0].ui 铺一遍
+	var reopen_fn := msrc.find("func _tutor_reopen(")
+	var cut_call := msrc.find("_tutor_cut()", reopen_fn)
+	var abort_at := msrc.find("kernel.abort()", reopen_fn)
+	var show_at := msrc.find("_cells_root.visible = true", reopen_fn)
+	var open_call := msrc.find("kernel = _open_tutor_level(", reopen_fn)
+	check(reopen_fn > 0 and cut_call > reopen_fn and cut_call < abort_at
+			and msrc.rfind("if fresh_cursor:", cut_call) > reopen_fn and cut_call - msrc.rfind("if fresh_cursor:", cut_call) < 40
+			and show_at > open_call,
+		"_tutor_reopen：跨关（fresh_cursor）先 _tutor_cut() 再拆局；开好新一关才把细胞层放出来")
+	var cut_fn := msrc.find("func _tutor_cut(")
+	var cut_end := msrc.find("\nfunc ", cut_fn + 10)
+	var cut_body := msrc.substr(cut_fn, cut_end - cut_fn)
+	check(cut_fn > 0 and cut_body.contains("set_active_tiles([], 0.0)") and cut_body.contains("_cells_root.visible = false")
+			and cut_body.contains("fx.clear()") and not cut_body.contains("fx.visible = false"),
+		"_tutor_cut：格子当帧归零（seconds 0）、细胞层藏起来、特效只 clear() 不动 visible（藏了没人再开）")
+	var cam_at := msrc.find("_tutor_camera()", open_at)
+	var preapply_at := msrc.find("CWTutorLayers.apply(first[\"ui\"])", open_at)
+	check(preapply_at > open_at and preapply_at < cam_at and preapply_at < stage_at,
+		"_open_tutor_level：取景（_tutor_camera）之前先把 flow[0].ui 铺一遍，新一关开场镜头不再补间")
+	## (c) 「角色调中 / 调左」的关：`_open_tutor_level` 就位时镜像还是上一关的，第一份新镜像落地
+	## （kernel.run 之后的 _observe_now）要**再直接就位一次**，不然 _sync_tutor_layers 补间 0.45 s 过去
+	var reopen_obs := msrc.find("_observe_now()", open_call)
+	var reopen_snap := msrc.find("_tutor_resnap()", open_call)
+	var start_fn := msrc.find("func start(")
+	var start_obs := msrc.find("_observe_now()", start_fn)
+	var start_snap := msrc.find("_tutor_resnap()", start_fn)
+	var resnap_fn := msrc.find("func _tutor_resnap(")
+	check(reopen_snap > reopen_obs and reopen_snap - reopen_obs < 80
+			and start_snap > start_obs and start_snap - start_obs < 200
+			and resnap_fn > 0 and msrc.find("_tutor_cam = {}", resnap_fn) < msrc.find("_tutor_camera()", resnap_fn),
+		"跨关与关首两条路都在第一份镜像落地（_observe_now）之后紧跟 _tutor_resnap()：清掉机位缓存再直接就位")
 
 
 func t_tutor_view() -> void:
@@ -25024,6 +25058,9 @@ func _s9b_live() -> void:
 
 	## ---- ① 进间章：一局都不拆、没有黑场 ----
 	m._tutor_next_level(S9B_LEVEL)
+	## 真通关先等关末的结算气泡播完、再停 TUTOR_SWITCH_BEAT 一拍才切（Kevin 2026-09-19）：
+	## 这里没有气泡，只等那一拍
+	await create_timer(CWMatch.TUTOR_SWITCH_BEAT + 0.3).timeout
 	await process_frame
 	check(str(m._tutor_level.get("id", "")) == S9B_LEVEL and m.kernel == k0 and m._stage == s0
 			and m._stage.level.get("id", "") == S9B_LEVEL,

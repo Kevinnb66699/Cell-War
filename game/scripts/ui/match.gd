@@ -578,6 +578,8 @@ func start(snap: Dictionary = {}) -> void:
 		_tutor_start_level()   ## 关首装闸那一次在 `kernel.run()` **之前**：不提前装，玩家会先看见一瞬间的全套界面
 	kernel.run()     ## autorun=false 的局从这里起跑；同步跑到第一问才让出
 	_observe_now()   ## 再取一份：开局布置的初始癌组织到第一问才落地，_bloom_order 要的是这一份
+	if by_stage:
+		_tutor_resnap()   ## 关首取景要按这一份镜像里玩家的格（见 `_tutor_resnap`）
 	if by_stage and _director != null and is_instance_valid(_director):
 		_director.rebase_hard()   ## 新镜像刚落地（`step_end` 也会取一次，但队列是异步消费的，等它就晚了）
 
@@ -1285,6 +1287,14 @@ func _open_tutor_level(cfg: Dictionary, wid := "base", reset_layers := true) -> 
 		## 正式局的同一件事在 `_prepare_ui`（issue #26），教程换关不走那条路
 		if toast != null:
 			toast.hide_now()
+		## 关首那条 `state` 的 `ui` **先铺一遍再取景**：不然下面按缺省机位（地图调中）直接就位，
+		## 导演翻到 flow[0] 再把镜头改成这一关要的（第四关「角色调中」），`_sync_tutor_layers`
+		## 就补间 0.45 s 过去 —— 新一关一开场镜头先滑一下（Kevin 2026-09-19「切到第二章时镜头会晃一下」）。
+		## 导演稍后再 apply 一遍同一份是幂等的，`_tutor_camera` 看机位没变就不再动
+		var flow: Array = _tutor_level.get("flow", [])
+		var first: Dictionary = flow[0] if not flow.is_empty() and flow[0] is Dictionary else {}
+		if str(first.get("do", "")) == "state" and first.get("ui") is Dictionary:
+			CWTutorLayers.apply(first["ui"])
 	if _tutor_level.is_empty():
 		push_error("CWMatch：关表里读不出第 %d 关（data/tutorial/index.json）" % (_tutor_index + 1))
 		return null
@@ -1480,6 +1490,8 @@ func _tutor_rematch(wid: String) -> void:
 ## ★ **换局会新建一只桥**（`_wire_bridge`），所以要把**同一个**导演重新挂上去（见 `_tutor_next_level` 的头注）
 func _tutor_reopen(wid: String, fresh_cursor: bool) -> void:
 	_loop_id += 1
+	if fresh_cursor:
+		_tutor_cut()
 	## 拆旧局的次序钉死：**abort 永远排在 stop 之前** —— 只有 abort() 里的 _barrier_seq = 0
 	## 能放掉正在等 ack 的那条 roll；先停队列就没人 ack，5 秒后内核报 barrier timeout
 	kernel.abort()
@@ -1500,6 +1512,8 @@ func _tutor_reopen(wid: String, fresh_cursor: bool) -> void:
 		"deciders": _tutor_deciders() }, wid, fresh_cursor)
 	if kernel == null:
 		return
+	if _cells_root != null and is_instance_valid(_cells_root):
+		_cells_root.visible = true   ## `_tutor_cut()` 藏起来的那一层：新一关的细胞随第一份镜像落位
 	_start_queue()
 	if fresh_cursor:
 		_tutor_start_level()
@@ -1507,8 +1521,34 @@ func _tutor_reopen(wid: String, fresh_cursor: bool) -> void:
 		_director.install()       ## 同关首：装闸在 run() 之前。**不调 open()** —— 游标要停在这一条
 	kernel.run()
 	_observe_now()
+	if fresh_cursor:
+		_tutor_resnap()
 	if _director != null and is_instance_valid(_director):
 		_director.rebase_hard()
+
+
+## 关首取景要的是**新一关**玩家站的格：`_open_tutor_level` 就位那一下镜像还是上一关的
+## （第一份新镜像要到 `kernel.run()` 之后的 `_observe_now()` 才落地），「角色调中 / 调左」的关
+## 就先按老坐标就位、新镜像一到 `_sync_tutor_layers` 再补间 0.45 s 过去 —— 开场又滑一下
+## （2026-09-19 真机连拍：切进第四关后 0.3 s 内整盘还在挪）。第一份镜像落地后**再直接就位一次**
+func _tutor_resnap() -> void:
+	_tutor_cam = {}
+	_tutor_camera()
+
+
+## 跨关的那一刀（Kevin 2026-09-19「切到第二章的时候镜头会晃动一下」）。真机连拍查到的不是镜头在动：
+## 老盘面的格子本来在新机位下花 ACTIVE_FADE 淡出、老细胞也要等新镜像到了才收 ——
+## 镜头一就位，它们整体滑了一下，看着就是镜头在晃。静默切换 = 老的东西**当帧消失**：
+## 格子 alpha 直接归零、细胞层先藏起来（`_tutor_reopen` 开好新一关再放出来）、盘面特效只清状态不动显隐
+## （显隐归各层自己管，藏了没人再开）。只在跨关做：关内完整换局（间章翻转）盘面本来就要连着
+func _tutor_cut() -> void:
+	if board != null and is_instance_valid(board):
+		board.set_active_tiles([], 0.0)
+	if _cells_root != null and is_instance_valid(_cells_root):
+		_cells_root.visible = false
+	for fx in _board_fx_layers():
+		if fx.has_method("clear"):
+			fx.clear()
 
 
 ## 地图浮现（PRD:45）：把一组坐标并进棋盘的活跃集。皮经 `reveal_tiles` 这条 Callable 回来 ——
