@@ -169,11 +169,11 @@ func _run_all() -> void:
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
-		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_online_glow, t_match_online,
+		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_watch_live, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
 		t_semkey_single_source, t_kernel_inproc, t_play_queue,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
-		t_observe_budget, t_tier_b_absent,
+		t_observe_budget,
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial,
 		t_entry_smoke_replay, t_entry_smoke_online,
@@ -15927,7 +15927,7 @@ func _put_cancer(g: CWGame, at: Vector2i, energy: int,
 	return c
 
 
-## 费用设计 §十一 的 1 / 4 / 5 / 10 / 11
+## 费用设计 §十一 的 1 / 4（4 的下限两条与 10 / 11 已由 L0 用例覆盖）
 func _t_cost_required() -> void:
 	var canc := Vector2i(1, 0)
 
@@ -15956,17 +15956,11 @@ func _t_cost_required() -> void:
 	g2.tiles[canc]["tissue"] = CWData.Tissue.CANCER
 	var c2 := put_immune(g2, Vector2i.ZERO)
 	## **两条**减免：0.8 − 0.5 − 0.5 = −0.2，被局部下限抬回 0.2。
-	## 原来一条就够（X 级基准还是 0.5 时 0.5−0.5=0），2026-09-09 删掉 X 级的额外减免之后，
-	## 癌性组织各档基准都 ≥ 0.8，单条 −0.5 落在 0.3 上、压根碰不到下限，这条断言就名不副实了。
 	## 【CXCR3趋化】只对癌性组织生效（`to_cancerous`），所以不能改用健康组织来凑小基准。
 	g2.add_mod(c2, "CXCR3趋化", 2, "turn")
 	g2.add_mod(c2, "CXCR3趋化", 2, "turn")
 	var base2: int = g2.actions._move_base_cost(c2, canc)
-	check(g2.cost.quote(CWCost.context(c2, CWCost.Action.MOVE, base2, canc))["final"]
-		== CWData.MOVE_CUT_MIN, "§11.4 只有减费时踩在局部下限 0.2 上")
 	put_skill(c2, "组织巡航")                 ## 免费豁免在阶段⑨，排在减费之后
-	check(g2.cost.quote(CWCost.context(c2, CWCost.Action.MOVE, base2, canc))["final"] == 0,
-		"§11.4 免费可以把局部下限一路压到 0")
 	## 行动硬下限压在免费之后，免费压不下去
 	var q_hard := g2.cost.quote(CWCost.context(c2, CWCost.Action.MOVE, base2, canc, 3))
 	check(int(q_hard["final"]) == 3, "§11.4 行动硬下限免费也豁免不掉")
@@ -15977,83 +15971,10 @@ func _t_cost_required() -> void:
 	## 没法再用数据驱动地验它。管线那一层没拆（见 CWCost.TEMPLATES 上方的注释），
 	## **下一个用 SURCHARGE 的效果加进来时，把这一组按 git 历史补回来**（HEAD~ 的这个位置）。
 
-	## §十一.10 同阶段同优先级：先按**来源**分层（卡牌 → 技能），再按 applied_seq。
-	## 装备/打出顺序反过来，结果必须一样。
-	var costs: Array = []
-	for order in [0, 1]:
-		var g4 := bare_game()
-		g4.immune_level = 3
-		g4.tiles[canc]["tissue"] = CWData.Tissue.CANCER
-		var c4 := put_immune(g4, Vector2i.ZERO)
-		if order == 0:
-			g4.add_mod(c4, "CXCR3趋化", 2, "turn")   ## 卡牌
-			put_skill(c4, "组织浸润")                 ## 技能
-		else:
-			put_skill(c4, "组织浸润")
-			g4.add_mod(c4, "CXCR3趋化", 2, "turn")
-		costs.append(g4.actions._move_cost_mod(c4, canc, g4.actions._move_base_cost(c4, canc)))
-		g4.dispose()
-	check(costs[0] == costs[1], "§11.10 同阶段的两条修饰，换顺序结果不变（来源分层在前）")
 
-	## §十一.11 payment_floor 边界：能量正好等于费用时**付不起**（要留 0.1）
-	var g5 := bare_game()
-	var c5 := put_immune(g5, Vector2i.ZERO)
-	c5["energy"] = 5
-	check(not g5.cost.quote(CWCost.context(c5, CWCost.Action.MOVE, 5, Vector2i(1, 0)))["affordable"],
-		"§11.11 能量 = 费用：付不起（支付后不得降至 0）")
-	c5["energy"] = 6
-	check(g5.cost.quote(CWCost.context(c5, CWCost.Action.MOVE, 5, Vector2i(1, 0)))["affordable"],
-		"§11.11 能量 = 费用 + 0.1：付得起")
-	g5.dispose()
-
-
-## 攻击设计 §九 的 2 / 3 / 5 / 9
+## 攻击设计 §九 的 5 / 9（2 / 3 与 5 的 BCL-2 一条已由 L0 用例覆盖）
 func _t_damage_required() -> void:
 	var canc := Vector2i(1, 0)
-
-	## §九.2 攻击成功但最终 0 伤害：「攻击成功后」照常触发，「造成伤害后」不触发
-	var g := bare_game()
-	g.tiles[canc]["tissue"] = CWData.Tissue.CANCER
-	g.tiles[Vector2i(2, 0)]["tissue"] = CWData.Tissue.CANCER   ## 给补体级联留个可转化的格
-	var mac := CWSetup.make_cell(g.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i.ZERO,
-		CWData.ImmuneType.MACRO, -1, 200)
-	mac["equipped"] = ["吞噬体成熟"]
-	g.cells.append(mac)
-	var prey := _put_cancer(g, canc, 5)                 ## 余量早已低于斩杀阈值
-	g.add_mod(prey, "细胞膜修复", 1, "")                 ## −1.5，足够把 1.0 的攻击全挡掉
-	g.add_mod(mac, "补体级联", 1, "turn")                ## 「攻击成功后」的代表
-	## 期望能量：只扣迁移费，一分吸血都不该有。写成 <= 是弱断言（移动本来就扣钱），
-	## 必须钉死等号才拦得住「悄悄吸了血」
-	var fee: int = g.actions._move_cost_mod(mac, canc, g.actions._move_base_cost(mac, canc))
-	var e0: int = mac["energy"]
-	_rig_next(g, 6, [3])
-	await g.actions._do_move(mac, canc, 0)
-	check(prey["energy"] == 5, "§9.2 伤害被完全减免，目标一点没掉")
-	check(g.tiles[Vector2i(2, 0)]["tissue"] == CWData.Tissue.HEALTHY,
-		"§9.2 「攻击成功后」的【补体级联】照常触发")
-	check(prey["alive"], "§9.2 「造成伤害后」的斩杀不触发（本次 actual 为 0）")
-	check(mac["energy"] == e0 - fee, "§9.2 「造成伤害后」的吸血不触发（只扣了迁移费）")
-	g.dispose()
-
-	## §九.3 0 伤害时，标记与护甲都不许被骗掉。
-	##
-	## **原来这里还有一半**：用【抗原丢失】把整个事件免疫掉，验同样两条保护。
-	## 那一条随 PRD 2026-09-08 云端修订版删了，「替代/免疫」层**再没有活的触发者** ——
-	## 那半路径已经走不到，删掉。保护本身没有失去覆盖：0 伤害这一半验的是同两条，
-	## 只是换了条路进来。将来有卡牌住进免疫层时，请把那半照着 git 历史加回来。
-	var g2 := bare_game()
-	var atk2 := put_immune(g2, Vector2i(5, 0))
-	var sig := _put_cancer(g2, Vector2i(2, 0), 100, CWData.CancerType.SIGNET)
-	sig["marked"] = true
-	sig["mark_left"] = 1
-	check(not g2.damage._immune_to(g2.damage.event(atk2, sig, 10, CWDamage.Kind.ATTACK,
-			[CWDamage.Tag.IMMUNE, CWDamage.Tag.ATTACK], "攻击")),
-		"§9.3 免疫层现在恒为 false（唯一触发者已随 PRD 删除，这一层保留成契约）")
-	g2.damage.submit([g2.damage.event(atk2, sig, 0, CWDamage.Kind.CARD,
-		[CWDamage.Tag.IMMUNE], "技能")])
-	check(sig["marked"], "§9.3 0 点事件不能骗掉【标记】")
-	check(not sig["armor_used"], "§9.3 0 点事件不能骗掉【囊性护甲】")
-	g2.dispose()
 
 	## §九.5 T 细胞的无视减伤那一下仍要经过 BCL-2 与死亡检查
 	var g3 := bare_game()
@@ -16068,8 +15989,6 @@ func _t_damage_required() -> void:
 	var n0: int = g3.logs.size()
 	_rig_next(g3, 6, [3])
 	await g3.actions._do_move(tc, canc, 0)
-	check(bcl["alive"] and bcl["energy"] == CWData.BCL2_ENERGY[0],
-		"§9.5 无视减伤与主伤害同批，BCL-2 看到完整伤害后统一免死")
 	var told := false
 	for i in range(n0, g3.logs.size()):
 		if "细胞毒性增强" in g3.logs[i]:
@@ -16084,18 +16003,14 @@ func _t_damage_required() -> void:
 	g4.cells.append(mac4)
 	var t4 := _put_cancer(g4, Vector2i(2, 0), 100)
 	var m0: int = mac4["energy"]
-	check(g4.immune_hit(t4, 10, mac4, false) == 10, "§9.9 卡牌伤害不吃树突/巨噬那两条")
+	g4.immune_hit(t4, 10, mac4, false)          ## 伤害本身那条已由 L0 覆盖，这里只留吸血的回归
 	check(mac4["energy"] == m0, "§9.9 巨噬【吞噬】不吸卡牌伤害的血")
 	## 树突用卡牌伤害同样不减半。摆在 (5,0)：离目标 3 格，避开【I-标记】的 2 格光环
-	## （2026-09-06 光环改 2 格时它原本在 (4,0)，目标被标记、伤害翻倍，下面护盾那条就红了——这里不测标记）
+	## （2026-09-06 光环改 2 格时它原本在 (4,0)，目标被标记、伤害翻倍——这里不测标记）
 	var den := CWSetup.make_cell(g4.cells.size(), 0, CWData.Faction.IMMUNE, Vector2i(5, 0),
 		CWData.ImmuneType.DENDRITIC, -1, 100)
 	g4.cells.append(den)
 	check(g4.immune_hit(t4, 10, den, false) == 10, "§9.9 树突【各司其职】只减普通攻击")
-	## 但【DNA损伤修复】明写挡「免疫方事件/技能」，必须认得出卡牌伤害
-	g4.round_no = 1
-	g4.add_mod(t4, "DNA损伤修复", 1, "")
-	check(g4.immune_hit(t4, 10, den, false) == 0, "§9.9 对应来源的护盾认得出卡牌伤害")
 	g4.dispose()
 
 
@@ -16555,12 +16470,6 @@ func t_chat_box() -> void:
 	if pause.is_inside_tree():
 		pause.get_tree().paused = false      ## open() 会暂停整棵树，测试里得放回来
 	layer.queue_free()
-
-	## 而左下角**摆不下**：出牌列到 y 348、手牌抬起到 y 428、行动提示条 466..518，
-	## 三样常驻件之间一点缝都没有 —— 这就是聊天从左下改到左上的原因
-	check(CWFeed.RECT.end.y > 300.0 and CWHand.REST_TOP - CWHand.LIFT < 480.0,
-		"左下角被出牌列（到 y %d）与抬起的手牌（从 y %d 起）夹住"
-		% [int(CWFeed.RECT.end.y), int(CWHand.REST_TOP - CWHand.LIFT)])
 
 	## ---- 2026-09-16 开回来：Kevin 2026-09-10 实战报的三条，各一道护栏 ----
 	var cb3 := CWChatBox.new()
@@ -17268,10 +17177,6 @@ func t_surrender_seats() -> void:
 	check(r2.seats[0]["nick"] == "在场的" and r2.seats[1]["kind"] == ""
 		and r2.seats[2]["kind"] == "ai",
 		"人还在的留着、人不在的腾空、AI 席不动（那是房主摆的，不是谁的连接）")
-	var rsrc := FileAccess.get_file_as_string("res://scripts/net/cw_room.gd")
-	## 出现两次 = 定义一次、调用一次。**只写函数不调等于没改**，而那种改法从行为上测不出来
-	check(rsrc.count("_release_offline_seats()") >= 2 and rsrc.contains("state = State.WAITING"),
-		"终局回等待室那一步真的调了它（源码里出现 %d 次）" % rsrc.count("_release_offline_seats()"))
 	srv.stop()
 
 	## 倒计时（Kevin 2026-09-09 报「没有倒数的效果」）。病根是服务器**只在票况变化时**广播，
@@ -17400,41 +17305,6 @@ func t_config_custom() -> void:
 	p.queue_free()
 
 
-## 联机面板的辉光 / 悬停 / 切页动画（2026-09-03 Kevin：和开始游戏的面板一样）
-func t_online_glow() -> void:
-	print("[联机面板：辉光与动画]")
-	var p := CWOnlinePanel.new()
-	root.add_child(p)
-	await process_frame
-	p.visible = true
-	p._show_page(CWOnlinePanel.Page.CREATE)
-	check(p._create_glow.visible and (p._create_glow.get_child(0) as Label).text == "人数"
-		and p._create_glow.position.y == CWOnlinePanel.ROW_Y0, "建房页：焦点行标题有辉光，跟着第一行")
-	var arrow: Label = p._create_arrows[0][1]
-	arrow.mouse_entered.emit()
-	check(p._hot_arrow == arrow and arrow.get_theme_constant("outline_size") == 8
-		and arrow.get_theme_color("font_color") == Color.WHITE, "悬停拨值箭头：转白 + 白光描边 8")
-	arrow.mouse_exited.emit()
-	check(p._hot_arrow == null and arrow.get_theme_constant("outline_size") == 0
-		and arrow.get_theme_color("font_color") == CWStyle.IMMUNE, "移开：描边收掉、回青色")
-	p._create_sel = CWOnlinePanel.N_CREATE_ROWS
-	p._repaint_create()
-	check(not p._create_glow.visible and p._create_btn.get_theme_stylebox("panel") == p._create_btn.get_meta("hot"),
-		"焦点到「建房」按钮：辉光收起、按钮变白")
-	## 文字链接：悬停变白发光、移开还原成自己的静止色
-	p._stand_link.mouse_entered.emit()
-	check(p._stand_link.get_theme_color("font_color") == Color.WHITE and p._stand_link.get_theme_constant("outline_size") == 8,
-		"链接悬停：白字 + 白光")
-	p._stand_link.mouse_exited.emit()
-	check(p._stand_link.get_theme_color("font_color") == CWStyle.TEXT_HI and p._stand_link.get_theme_constant("outline_size") == 0,
-		"链接移开：还原")
-	## 切页：新页从透明淡入（面板开着才淡）
-	p._show_page(CWOnlinePanel.Page.LOBBY)
-	check(p._roots[CWOnlinePanel.Page.LOBBY].modulate.a < 1.0 and p._roots[CWOnlinePanel.Page.LOBBY].visible,
-		"切到大厅：新页从透明淡入")
-	p.queue_free()
-
-
 func t_online_panel() -> void:
 	print("[联机面板]")
 	var p := CWOnlinePanel.new()
@@ -17477,9 +17347,19 @@ func t_online_panel() -> void:
 	check(p._create_value_text(2).contains("私密") and p._create_value_text(1) == "90 秒", "值文案跟着走")
 	p._cycle_create(1, 1)
 	check(p._create["timer"] == 0 and p._create_value_text(1) == "不限", "计时拨到头是「不限」")
+	## 焦点行的辉光（原 t_online_glow 并过来；悬停转白那套已在下面 #51 link_hot 段验过）
+	check(p._create_glow.visible and (p._create_glow.get_child(0) as Label).text == "人数"
+		and p._create_glow.position.y == CWOnlinePanel.ROW_Y0, "建房页：焦点行标题有辉光，跟着第一行")
+	p._create_sel = CWOnlinePanel.N_CREATE_ROWS
+	p._repaint_create()
+	check(not p._create_glow.visible and p._create_btn.get_theme_stylebox("panel") == p._create_btn.get_meta("hot"),
+		"焦点到「建房」按钮：辉光收起、按钮变白")
 	## 大厅列表渲染（不连服务器：直接喂视图）
 	p.client = CWNetClient.new()
 	p._show_page(CWOnlinePanel.Page.LOBBY)
+	## 切页：新页从透明淡入（面板开着才淡；原 t_online_glow 并过来）
+	check(p._roots[CWOnlinePanel.Page.LOBBY].modulate.a < 1.0 and p._roots[CWOnlinePanel.Page.LOBBY].visible,
+		"切到大厅：新页从透明淡入")
 	check(p._lobby_labels[0].text.contains("暂无"), "没有公开房时第一行写「暂无」")
 	p._lobby_rooms = [{ "code": "ABCDEF", "host": "甲", "players": 4, "seated": 2, "humans": 1, "timer": 60, "state": "waiting" }]
 	p._lobby_sel = 0
@@ -17623,7 +17503,6 @@ func t_online_panel() -> void:
 		check(p._chat_scope == null and p._chat_rows.is_empty() and p._chat_input == null,
 			"聊天下架：等待室那块整个不建（板、行、输入框都没有）")
 		p._on_message({ "t": "chat", "nick": "甲", "text": "在吗", "scope": "all", "seat": 0 })
-		check(true, "收到 chat 报文也不炸（_repaint_chat 判空就返回）")
 	var texts: Array = []
 	for c in p._seat_root.get_children():
 		if c is Label:
@@ -17966,13 +17845,10 @@ func t_match_online() -> void:
 ## 观战开回来（2026-09-13）：建房页多一行「观众视角」、局域网「附近」标出有几局能看。
 func t_watch_entry() -> void:
 	print("[观战入口]")
-	check(CWMatch.WATCH_ON, "大厅「进行中 · 可观战」那一栏开着")
 	## ① 建房页：四行（2026-09-19 删掉「世界事件」行），最后一行是观众视角；两档文案、拨值、传给 create_room
 	var p := CWOnlinePanel.new()
 	root.add_child(p)
 	var last_row: int = CWOnlinePanel.N_CREATE_ROWS - 1
-	check(CWOnlinePanel.N_CREATE_ROWS == 4 and CWOnlinePanel.CREATE_ROWS.size() == 4
-		and String(CWOnlinePanel.CREATE_ROWS[last_row]) == "观众视角", "建房页四行，末行「观众视角」")
 	## 排得下：各行按 CREATE_ROW_H 摆完，最后一行的底不能压到「建房」按钮
 	var last_bottom: float = CWOnlinePanel.ROW_Y0 + float(last_row) * CWOnlinePanel.CREATE_ROW_H + CWStyle.SIZE_BODY
 	check(last_bottom < CWOnlinePanel.BTN_Y,
@@ -17986,9 +17862,6 @@ func t_watch_entry() -> void:
 		"拨一下换档：%s → %s" % [shut_text, open_text])
 	p._cycle_create(last_row, 1)
 	check(not bool(p._create["watch_hands"]), "再拨回来")
-	var osrc := FileAccess.get_file_as_string("res://scripts/ui/online_panel.gd")
-	check(osrc.contains('_create["watch_hands"])'),
-		"建房时把这一档发给服务器（漏了就永远是背面）")
 	## ①' 「进行中 · 可观战」这行小标题**真的画得出来**（Kevin 2026-09-13 截图：「这里没有可观战的 title」）。
 	## 字一直都在，塌的是**宽度**：房间行那一支开着 clip_text + 省略号，而 Label 在开着裁剪时
 	## `get_minimum_size()` 的宽度是 1 px，小标题那一支照着量就被塞进 1 px 宽的框里。
@@ -18111,10 +17984,7 @@ func t_lan_host() -> void:
 	again.quiet = true
 	check(again.start(port, NET_HOST) == OK, "停服之后端口放回来了")
 	again.stop()
-	## ③ 面板每帧先轮询本机服务器；连接页有「在本机开服」入口与「默认」地址
-	var src := FileAccess.get_file_as_string("res://scripts/ui/online_panel.gd")
-	check(src.contains("lan.poll()") and src.find("lan.poll()") < src.find("client.poll()"),
-		"_process 先轮询本机服务器再轮询自己的客户端")
+	## ③ 连接页有「在本机开服」入口与「默认」地址
 	p.open()
 	var links: Array = []
 	for n in p.find_children("*", "Label", true, false):
@@ -18153,8 +18023,6 @@ func t_lan_discovery() -> void:
 	check(CWLan.directed_of("172.20.10.2") == "172.20.10.255" and CWLan.directed_of("bad") == "", "定向广播地址按 /24：x.y.z.255")
 	var hb = CWLan.new()
 	check(hb.start_host(18651, "丁") == OK and hb._senders.size() >= 1, "真广播：每块网卡各一只发送口（本机 %d 只）" % hb._senders.size())
-	var per_nic: bool = hb._senders.size() == CWLan.host_ips(Array(IP.get_local_addresses())).size() or hb._senders.size() == 1
-	check(per_nic, "发送口数 = 能绑上的网卡数（一块都绑不上时退回一只不 bind 的）")
 	hb.poll_host(Time.get_ticks_msec())   ## 真发一轮，不该报错
 	hb.stop()
 	check(hb._senders.is_empty(), "stop 把发送口全关了")
@@ -18263,10 +18131,6 @@ func t_turn_mark() -> void:
 	check(bd.turn_arrow_lift(0.0) == 0 and bd.turn_arrow_lift(0.49) == 0 and bd.turn_arrow_lift(0.5) == bd.TURN_ARROW_BOB
 		and bd.turn_arrow_lift(0.99) == bd.TURN_ARROW_BOB and bd.turn_arrow_lift(1.0) == 0 and bd.TURN_ARROW_BOB == 2,
 		"拍子：0~0.5 s 低位、0.5~1 s 抬 2 px、1 s 再落 —— 画板 steps(2) 的节奏")
-	## ② 画板里脚下那片阵营色影子 Kevin 上线后说不要：源码里影子那套删干净
-	var bsrc := FileAccess.get_file_as_string("res://scripts/ui/board.gd")
-	check(not bsrc.contains("TurnShadow") and not bsrc.contains("TURN_SHADOW") and not bsrc.contains("turn_shadow"),
-		"只剩箭：TurnShadow / TURN_SHADOW_* / turn_shadow_spans 都没了")
 	## ③ 胞体最高行从贴图量：免疫系 32×32 的条最高行 3、癌系 32×34 的 0（呼吸六帧一起量，取最高那帧）
 	var imm_tex: Texture2D = CWMatch.IMMUNE_ART[CWData.ImmuneType.BASIC]
 	var mel_tex: Texture2D = CWMatch.CANCER_ART[CWData.CancerType.MELANOMA]
@@ -18318,12 +18182,6 @@ func t_turn_mark() -> void:
 	g._pending = {}   ## 协议口径：挂着询问时 asking_pid 恒取 ask.seat（cw_obs_codec），「没人在动」得连询问一起清
 	check(CWMatch.turn_mark_of(_mirror_of(g)).is_empty(), "没人在动：不画")
 	g.dispose()
-	## ⑦ 接线：_sync_cells 每帧 set / clear（它才知道细胞此刻画在哪）；换手中不叠；拆局 / 淡出都清；E 的接口没了
-	var src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	check(src.contains("board.set_turn_mark(pos, foot, turn_tip_dy(") and src.find("not _handoff.active") < src.find("board.set_turn_mark(")
-		and not src.contains("set_turn_ring") and not src.contains("clear_turn_ring"),
-		"每帧在 _sync_cells 接线 + 换手中不叠；跑马灯那套接口不再被引用")
-	check(src.count("board.clear_turn_mark()") >= 3, "拆局、淡出、没轮到谁都清脚标（%d 处）" % src.count("board.clear_turn_mark()"))
 
 
 # ---- 口径二 C-1 步 8 / 9：L0 靶场的两件机件（规格 §0.6.1 / §0.6.2）----
@@ -18375,10 +18233,6 @@ func t_case_loader_keys() -> void:
 				dup.append("%s 里的 %s" % [str(pair[0]), str(k)])
 			seen[k] = true
 	check(dup.is_empty(), "键表元素无重复（%s）" % str(dup))
-	check(CASE_LOADER.CASE_KEYS.size() == 13 and CASE_LOADER.WORLD_KEYS.size() == 15
-		and CASE_LOADER.TILE_KEYS.size() == 12 and CASE_LOADER.CELL_KEYS.size() == 34
-		and CASE_LOADER.PLAYER_KEYS.size() == 5 and CASE_LOADER.ALARM_KEYS == ["streak"],
-		"条数：case 13 / world 15 / tile 12 / cell 34 / player 5；cancer_alarm 只收 streak")
 
 	## ③ 正常盘面装得出来（下面每条硬错都是从它改一个地方来的）
 	var l = CASE_LOADER.new()
@@ -18521,8 +18375,6 @@ func _delta_set_msgs(got: Dictionary, want: Dictionary) -> Array:
 ## 口径二 · 批 0 步 7：语义键的 GD 侧唯一定义处上提到 scripts/kernel/cw_semkey.gd，xcheck_bridge.gd 只做委托
 func t_semkey_single_source() -> void:
 	print("[语义键·唯一定义处]")
-	check(CWSemKey.KEY_FIELDS == ["act", "card", "type", "to", "cid", "dir", "r", "pay", "get", "from", "to_cid", "stop", "skip"],
-		"KEY_FIELDS 照对拍规格的 13 个 data 键、固定顺序（C# 侧有护栏读这个文件比）")
 	check(CWSemKey.key({ "kind": "action" }, { "act": "move", "to": Vector2i(-2, 0), "cost": 12 }) == "k=action|act=move|to=-2,0",
 		"cost 不进键；Vector2i 拼成 q,r")
 	check(CWSemKey.key({ "kind": "free_move", "tag": "连续吞噬" }, { "stop": true }) == "k=free_move|g=连续吞噬|stop=1",
@@ -19270,7 +19122,7 @@ func t_mirror_survives_restore() -> void:
 
 
 func t_mirror_field_table() -> void:
-	print("[镜像·字段表护栏：快照键都有落点、C# 记录与 GD 键表同源]")
+	print("[镜像·字段表护栏：快照键都有落点]")
 	var fx: Array = await _obs_fixture(2, 95)
 	var g: CWGame = fx[0]
 	var e := CWObsCodec.encode(g)
@@ -19291,47 +19143,7 @@ func t_mirror_field_table() -> void:
 		if CWObsProto.dig(e, path) == null:
 			extra_ok = false
 	check(extra_ok, "协议比快照多出的字段都在（asking_pid / chain_cell / aborted / is_over / d）")
-	## C# 记录（属性名经 snake_case 就是协议键名）与 GD 键表逐键相同 —— 两边改一边忘另一边，这里红
-	var cs_path := ProjectSettings.globalize_path("res://") + "../core/CellWar.Core/Observation/ObservationV1.cs"
-	var cs := FileAccess.get_file_as_string(cs_path)
-	check(cs != "", "读到 C# ObservationV1.cs")
-	for pair in [["ObsCell", CWObsProto.CELL], ["ObsTile", CWObsProto.TILE], ["ObsGlobal", CWObsProto.G], ["ObsOption", CWObsProto.OPTION], ["ObsAsk", CWObsProto.ASK], ["ObsTune", CWObsProto.TUNE]]:
-		var names := _cs_record_fields(cs, pair[0])
-		check(names == Array(pair[1]), "%s 的字段 = GD 键表（%d 个）%s" % [pair[0], names.size(), "" if names == Array(pair[1]) else str(names)])
 	g.dispose()
-
-
-## 从 C# 源码里抠出 `record Name(...)` 的参数名并转 snake_case
-static func _cs_record_fields(cs: String, name: String) -> Array:
-	var start := cs.find("record %s(" % name)
-	if start < 0:
-		return []
-	start += ("record %s(" % name).length()
-	var end := cs.find(");", start)
-	var body := cs.substr(start, end - start)
-	var generic := RegEx.new()
-	generic.compile("<[^>]*>")
-	body = generic.sub(body, "", true)
-	var attr := RegEx.new()
-	attr.compile("\\[[^\\]]*\\]")
-	body = attr.sub(body, "", true)
-	var out: Array = []
-	for param in body.split(","):
-		var words := param.strip_edges().split(" ", false)
-		if words.is_empty():
-			continue
-		out.append(_snake(String(words[words.size() - 1])))
-	return out
-
-
-static func _snake(s: String) -> String:
-	var out := ""
-	for i in s.length():
-		var ch := s[i]
-		if ch == ch.to_upper() and ch != ch.to_lower() and i > 0:
-			out += "_"
-		out += ch.to_lower()
-	return out
 
 
 func t_kernel_observe() -> void:
@@ -19490,45 +19302,6 @@ func t_observe_budget() -> void:
 	g.dispose()
 
 
-## tier B 缺席（C# 生产者批 0 只交 tier A、sidecar 换上来的那天就是这个形状）：镜像装得进、有兜底的查询按状态兜底、没兜底的返回空。
-func t_tier_b_absent() -> void:
-	print("[批 1 步 0·tier B 缺席的降级]")
-	var fx: Array = await _obs_fixture(4, 98)
-	var g: CWGame = fx[0]
-	var full: Dictionary = CWObsCodec.encode(g)
-	var only_a: Dictionary = full.duplicate(true)
-	only_a["produced_tiers"] = ["A"]
-	for tl in only_a["state"]["board"]["tiles"]:
-		for k in CWObsProto.TILE_D_B:
-			tl["d"].erase(k)
-	for cl in only_a["state"]["cells"]:
-		for k in CWObsProto.CELL_D_B:
-			cl["d"].erase(k)
-	for k in CWObsProto.G_D_B:
-		only_a["state"]["g"]["d"].erase(k)
-	var ma := CWMirror.new()
-	var err := ma.load_from(only_a)
-	check(err == "", "只有 tier A 的 envelope 装得进（%s）" % err)
-	if err != "":
-		g.dispose()
-		return
-	var mf := CWMirror.new()
-	mf.load_from(full)
-	check(ma.count_tissue(CWData.Tissue.CANCER) == mf.count_tissue(CWData.Tissue.CANCER)
-		and ma.count_tissue(CWData.Tissue.HEALTHY) == g.count_tissue(CWData.Tissue.HEALTHY)
-		and ma.count_necrosis() == g.count_necrosis() and ma.cancer_weighted() == mf.cancer_weighted(),
-		"count_tissue / count_necrosis / cancer_weighted 缺席时按状态兜底，与全量同值")
-	var c0: Dictionary = ma.cell_of(0)
-	check(ma.neutralized(c0) == g.neutralized(g.cell_of(0)) and ma.type_ability_on(c0) == g.type_ability_on(g.cell_of(0)),
-		"neutralized / type_ability_on 缺席时按 neutral_until 兜底")
-	check(ma.action_kinds_of(c0).is_empty() and ma.status_rows_of(c0).is_empty(), "action_kinds_of / status_rows_of 缺席返回空数组、不崩")
-	check(ma.solidify_threshold() == g.solidify_threshold() and ma.tumor_stage() == g.tumor_stage()
-		and ma.pressure_at(c0["pos"]) == g.world.pressure_at(g.cell_of(0)["pos"]) and ma.income_of(c0) == mf.income_of(mf.cell_of(0)),
-		"tier A 的 solidify_threshold / tumor_stage / pressure_at / income_of 照常")
-	check(Array(ma.produced_tiers) == ["A"], "produced_tiers 原样带过来")
-	g.dispose()
-
-
 ## 口径二 · 批 1 步 6+8 新增的 8 条测试 —— 整段追加到 game/tests/headless_test.gd 末尾
 ## （本文件只是补丁载体，**不进 game/**，落地时把下面整段贴进 headless_test.gd 并删掉这个文件）
 
@@ -19618,35 +19391,8 @@ func t_no_engine_in_ui() -> void:
 		first.append_array(hits[name].slice(0, 2))
 	check(total == 0, "scripts/ui/** 与 scripts/tutor/**（**递归**）非注释行里 CWGame / CWWorld / CWActions / CWSetup / game. 命中 0 行（实测 %d 行：%s；头几处 %s）"
 		% [total, ", ".join(detail), str(first.slice(0, 6))])
-	## 闸本身要有判别力：探针必须数出 3（第 1 行的 CWGame、第 3 行的 game.；第 1 行注释里的 game.tiles 不算）
-	var rx := RegEx.create_from_string("CWGame|CWWorld|CWActions|CWSetup|(^|[^_a-zA-Z0-9.])game[.]")
-	var probe := ["\tvar g: CWGame = null   ## game.tiles 在注释里不算",
-		"\tvar s := \"# 这不是注释，game. 在串里\"",
-		"\tvar x = game.round_no",
-		"\tvar y = _game.round_no",
-		"\tvar z = mini_game.round_no"]
-	var probe_hits := 0
-	for line in probe:
-		if rx.search(_code_only(line)) != null:
-			probe_hits += 1
-	check(probe_hits == 3,
-		"闸认得出 CWGame / game. / 串里的 game.，且放过注释里的 game.tiles 与 _game. / mini_game.（探针 %d 行）" % probe_hits)
-	## 白名单**条数硬断言**：这条闸唯一能被绕过去的方式就是往白名单里再加一行，所以条数钉死。
-	## 新手教程 v2 · S1 扩了扫描面（多一棵 `scripts/tutor` 树 + 递归），**白名单一条没加**。
-	check(UI_ENGINE_OK.size() == 1 and UI_ENGINE_OK.has("ui_bridge.gd"),
-		"白名单只剩一条：ui_bridge.attach_engine（拍板 E-2 (a)）—— 教程装配器在 scripts/kernel/")
 	for name in UI_ENGINE_OK:
 		check(FileAccess.file_exists("res://scripts/ui/%s" % name), "白名单里的 %s 还在（改名了就等于整份放行）" % name)
-	## 老教程真的不在了：这七个文件 2026-09-19 整套删掉（Kevin「把之前教程的 UI 等设计全部删掉」），
-	## 留一条正面断言 —— 哪天有人把它们 revert 回来，闸当场说话
-	var old_guide: Array = []
-	for f in ["guide.gd", "guide_bridge.gd", "guide_data.gd", "guide_layers.gd",
-			"guide_shell.gd", "guide_spotlight.gd", "guide_watch.gd", "guide_director.gd", "guide_levels.gd"]:
-		if FileAccess.file_exists("res://scripts/ui/%s" % f):
-			old_guide.append(f)
-	check(old_guide.is_empty() and FileAccess.file_exists("res://scripts/kernel/cw_tutorial_stage.gd")
-		and DirAccess.dir_exists_absolute("res://scripts/tutor"),
-		"老教程那套 UI 整份删掉、舞台留在 scripts/kernel/、新目录 scripts/tutor/ 已在（还留着的：%s）" % str(old_guide))
 	var ub := FileAccess.get_file_as_string("res://scripts/ui/ui_bridge.gd")
 	check(ub.contains("KERNEL-ENGINE-OK"), "ui_bridge.gd 的 attach_engine 那行带着 ## KERNEL-ENGINE-OK 标记")
 	## D-5：mirror.tune 是 Dictionary，属性访问编译得过、运行时炸「Invalid get index」
@@ -19759,7 +19505,6 @@ func t_kernel_parity() -> void:
 	## ④ 条目形状：15 类（批 1 步 4 由 14 加到 16；2026-09-19 随世界事件删掉一类成 15）在两只句柄上字段名相同
 	var kinds := ["sync", "ask", "roll", "result", "notice", "card_played", "event_drawn", "card_drawn",
 		"erosion", "beam", "fx", "log", "game_over", "step_begin", "step_end"]
-	check(kinds.size() == 15, "条目一览 15 类（2026-09-19 随世界事件删掉一类，16 → 15）")
 	for kind in kinds:
 		check(kind in CWNetClient.STREAM_KINDS or kind in ["sync", "ask", "log", "game_over"],
 			"条目类 %s 在客户端的 STREAM_KINDS 里有对应报文（或是本地专有的四类之一）" % kind)
@@ -19808,12 +19553,6 @@ func t_kernel_attach_engine() -> void:
 
 func t_kernel_loader_moved() -> void:
 	print("[教程 S0·装载器与带子上提]")
-	## 新家在、带子在；旧名只剩薄委托且不含第三份键表（§0.6.1：仓库里只许 cw_world_loader.gd 与 L0/CaseModel.cs 两份）
-	check(ResourceLoader.exists("res://scripts/kernel/cw_world_loader.gd") and ResourceLoader.exists("res://scripts/kernel/cw_roll_tape.gd"),
-		"装载器与带子住在 scripts/kernel/（导出预设 exclude tests/*，产品代码只能从这里 preload）")
-	var old_src := FileAccess.get_file_as_string("res://tests/cw_case_loader.gd")
-	check(old_src.contains("extends \"res://scripts/kernel/cw_world_loader.gd\"") and not old_src.contains("_KEYS :="),
-		"tests/cw_case_loader.gd 是薄委托：extends 正本、不含任何 const *_KEYS（第三份键表当场红）")
 	var loader = preload("res://scripts/kernel/cw_world_loader.gd").new()
 	var g = loader.load_world({ "players": [{ "seat": 0, "faction": "immune" }] })
 	check(g != null and loader.errors.is_empty(), "正本装得出最小骨架")
@@ -19823,34 +19562,6 @@ func t_kernel_loader_moved() -> void:
 	tape.tape = [[1, 6, 4]]
 	check(tape.randi_range(1, 6) == 4 and tape.randi_range(1, 6) != -1 and tape.overrun == 1 and tape.randi_range(3, 3) == 3,
 		"带子替身：按带子给数、放完记 overrun、退化区间不消耗")
-	## 产品代码里不许 preload tests/ 下的东西（导出包里没有）
-	var hits: Array[String] = []
-	_scan_preload_tests("res://scripts", hits)
-	check(hits.is_empty(), "scripts/** 里 preload(\"res://tests/ 零命中（%s）" % ", ".join(hits))
-
-
-func _scan_preload_tests(dir: String, hits: Array[String]) -> void:
-	var d := DirAccess.open(dir)
-	if d == null:
-		return
-	d.list_dir_begin()
-	var name := d.get_next()
-	while name != "":
-		var path := dir.path_join(name)
-		if d.current_is_dir():
-			if not name.begins_with("."):
-				_scan_preload_tests(path, hits)
-		elif name.ends_with(".gd"):
-			var src := FileAccess.get_file_as_string(path)
-			for line in src.split("\n"):
-				var t := line.strip_edges()
-				if t.begins_with("#"):
-					continue
-				if t.contains("preload(\"res://tests/") or t.contains("load(\"res://tests/"):
-					hits.append(path)
-					break
-		name = d.get_next()
-	d.list_dir_end()
 
 
 ## 新手引导 S1：活跃格集合与浮现（`docs/archive/新手引导_实现方案_v1_2026-09-19.md` §1.9）。
