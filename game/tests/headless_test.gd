@@ -33,18 +33,24 @@ var _watchdog_floor_ms := 120000
 var _cur_test := ""           ## 此刻在跑哪个测试（看门狗报错时要说出名字）
 var _cur_started := 0          ## 它是什么时候开始的；协程一死这个数就不动了
 var _durations: Array = []   ## [毫秒, 测试名]
-## 各测试的耗时权重（秒，2026-09-05 `--timing` 实测；没列的按 0.1）。分片按「最重优先」贪心：先排最重的，
-## 每个放到此刻最轻的那一片。靠下标取模的话 t_net_game 一个就 79 s、落在哪片哪片就是 100 s，另一片 9 s 就跑完了。
-## 加了明显变慢的测试就把它填进来（跑一次 `-- --timing` 看末尾那张表）
+## 各测试的耗时权重（秒，2026-09-20 单进程 `--timing` 实测；没列的按 0.1）。分片按「最重优先」贪心：先排最重的，
+## 每个放到此刻最轻的那一片。**t_ai_same_hash 拆成六个用例各一支**（mcts4 78 s 是单支上限，拆开才能摊到各片）。
+## 加了明显变慢的测试就把它填进来（跑一次 `-- --timing` 看末尾那张表）；看门狗上限 = 权重 × 4 s
 const WEIGHTS := {
-	"t_net_game": 79.0, "t_ai_mc": 7.4, "t_ai_mcts": 0.7, "t_settle_screen": 4.6, "t_net_reconnect": 3.5,
-	"t_net_timeout": 3.0, "t_net_drain": 1.3, "t_net_lobby": 1.0, "t_hotseat": 0.8,
-	"t_teleport_fx": 0.7, "t_opening": 0.6,
-	## 批 1 步 6+8：t_ai_same_hash 的六个用例里两个是 MCTS 全 AI 局，是新的最重一条 —— 别和 t_net_game 落同一片。
-	## 看门狗上限 = 权重 × 4 s ⇒ 90 给它 6 分钟；真跑下来超了就把 ai_baseline_case.gd 的 MAX_STEPS 调小并重录基线
-	"t_ai_same_hash": 90.0, "t_kernel_parity": 1.0,
-	"t_entry_smoke_local": 1.2, "t_entry_smoke_hotseat": 1.2, "t_entry_smoke_tutorial": 1.2,
-	"t_entry_smoke_replay": 1.0, "t_entry_smoke_online": 0.6, "t_no_engine_in_ui": 0.3,
+	"t_ai_same_hash_mcts4": 78.0, "t_ai_same_hash_mc4": 66.5, "t_ai_same_hash_mc6": 58.8, "t_ai_same_hash_mcts6": 34.9,
+	"t_ai_mc": 13.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
+	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_drain": 5.1,
+	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
+	"t_tutor_chrome": 1.8, "t_rec_transparent": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
+	"t_kernel_inproc": 1.3, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
+	"t_net_lobby": 1.0, "t_hotseat": 0.9, "t_pause_and_teardown": 0.9, "t_board_active_tiles": 0.8,
+	"t_eval_features": 0.8, "t_teleport_fx": 0.8, "t_play_queue": 0.7, "t_opening": 0.6,
+	"t_ai_same_hash_heur6": 0.6, "t_rec_shape": 0.5, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
+	"t_hover_info": 0.4, "t_no_engine_in_ui": 0.4, "t_determinism": 0.4, "t_net_resume": 0.4,
+	"t_teardown_board": 0.4, "t_human_ask": 0.4, "t_net_surrender": 0.4, "t_online_panel": 0.4,
+	"t_tutorial_opening": 0.4, "t_ai_mcts": 0.4, "t_entry_smoke_replay": 0.3, "t_match_online": 0.3,
+	"t_mc_budget": 0.3, "t_tutor_c3": 0.3, "t_net_watch": 0.3, "t_match_panel": 0.3,
+	"t_tutor_data": 0.3, "t_ai_same_hash_heur4": 0.2,
 }
 
 
@@ -76,7 +82,21 @@ func _assign(tests: Array[Callable]) -> Array[int]:
 				s = k
 		owner[i] = s
 		load[s] += _weight(tests[i])
+	## 绑同一片：这几组各自占着同一个固定端口（局域网发现 18650 / 18700），分到两片就同时抢端口
+	var by_name := {}
+	for i in tests.size():
+		by_name[tests[i].get_method()] = i
+	for group in SAME_SHARD:
+		if not by_name.has(group[0]):
+			continue
+		for name in group.slice(1):
+			if by_name.has(name):
+				owner[by_name[name]] = owner[by_name[group[0]]]
 	return owner
+
+
+## 必须落在同一片的测试（共用固定端口）
+const SAME_SHARD := [["t_lan_discovery", "t_lan_host"]]
 
 
 func _weight(t: Callable) -> float:
@@ -154,7 +174,7 @@ func _run_all() -> void:
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial,
 		t_entry_smoke_replay, t_entry_smoke_online,
-		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_kernel_loader_moved, t_board_active_tiles,
+		t_kernel_parity, t_no_engine_in_ui, t_ai_same_hash_heur4, t_ai_same_hash_heur6, t_ai_same_hash_mc4, t_ai_same_hash_mc6, t_ai_same_hash_mcts4, t_ai_same_hash_mcts6, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_kernel_loader_moved, t_board_active_tiles,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
 		t_rec_depth, t_rec_shape, t_rec_contract_only, t_rec_transparent,
 		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
@@ -19629,8 +19649,33 @@ func t_no_engine_in_ui() -> void:
 
 # ---- 护栏⑦：平衡标尺没动（规格 C-3 ⑦ / A-10 ⑤⑧）----
 ## 基线必须在**改动之前**录："<godot>" --headless --path game --script res://tests/record_ai_baseline.gd
-func t_ai_same_hash() -> void:
-	print("[护栏⑦·平衡标尺没动]")
+## 拆成六支（一个用例一支）：mcts4 一局 78 s，六个用例串在一支里 191 s、分片摊不开（Kevin 2026-09-20「能通过继续切片来加快测试速度嘛」）
+func t_ai_same_hash_heur4() -> void:
+	await _ai_same_hash("heur4")
+
+
+func t_ai_same_hash_heur6() -> void:
+	await _ai_same_hash("heur6")
+
+
+func t_ai_same_hash_mc4() -> void:
+	await _ai_same_hash("mc4")
+
+
+func t_ai_same_hash_mc6() -> void:
+	await _ai_same_hash("mc6")
+
+
+func t_ai_same_hash_mcts4() -> void:
+	await _ai_same_hash("mcts4")
+
+
+func t_ai_same_hash_mcts6() -> void:
+	await _ai_same_hash("mcts6")
+
+
+func _ai_same_hash(which: String) -> void:
+	print("[护栏⑦·平衡标尺没动·%s]" % which)
 	var base = JSON.parse_string(FileAccess.get_file_as_string(AI_BASELINE_PATH))
 	var ok: bool = base is Dictionary and (base as Dictionary).has("cases")
 	check(ok, "基线文件在（%s）—— 没有就先在改动前跑 tests/record_ai_baseline.gd 录一份" % AI_BASELINE_PATH)
@@ -19641,6 +19686,8 @@ func t_ai_same_hash() -> void:
 		% [AI_CASE.MAX_STEPS, AI_CASE.CASES.size()])
 	for case in AI_CASE.CASES:
 		var name := String(case["name"])
+		if name != which:
+			continue
 		var got: Dictionary = await AI_CASE.run_case(case)
 		var want: Dictionary = (base["cases"] as Dictionary).get(name, {})
 		check(not want.is_empty() and int(got["winner"]) == int(want["winner"])

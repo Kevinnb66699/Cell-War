@@ -13,7 +13,7 @@
 # SHARDS=1 退回串行。
 set -u
 GODOT="${GODOT:-D:/Godot/Godot_v4.5-stable_win64.exe/Godot_v4.5-stable_win64_console.exe}"
-SHARDS="${SHARDS:-2}"
+SHARDS="${SHARDS:-6}"   # 2026-09-20 起默认 6 片（16 核机；t_ai_same_hash 拆六支后单支上限 78 s，六片把其余摊平）
 # 每片的墙钟上限（秒）。0 = 不设。
 # 为什么要有：headless_test.gd 自己那只看门狗按「当前测试跑了多久」判，
 # 但**单帧里的死循环**根本轮不到 _process —— 2026-09-07 的 _next_event_round 无上界 while
@@ -31,6 +31,11 @@ if [ "$TIMEOUT" -gt 0 ]; then
 fi
 trap 'rm -rf "$TMP"' EXIT
 
+# L0 靶场和分片**同时**起（它不依赖分片，串在后面白等 30 s）；输出落文件，末尾再打
+(
+	bash "$(dirname "$0")/run_l0.sh" > "$TMP/l0.log" 2>&1
+	echo $? > "$TMP/l0.code"
+) &
 i=0
 while [ "$i" -lt "$SHARDS" ]; do
 	(
@@ -77,8 +82,9 @@ if [ "$SHARDS" -gt 1 ]; then
 		echo "✘ ${SHARDS} 片里有红（合计 ${TOTAL} 项检查）"
 	fi
 fi
-# L0 契约靶场两侧同跑（测试迁移规格闸一 + 闸二 2b）：与无头套件一起算总账
-if ! bash "$(dirname "$0")/run_l0.sh"; then
+# L0 契约靶场（测试迁移规格闸一 + 闸二 2b）：上面已经和分片并行跑完，这里只收账
+cat "$TMP/l0.log"
+if [ "$(cat "$TMP/l0.code")" -ne 0 ]; then
 	CODE=1
 fi
 exit $CODE
