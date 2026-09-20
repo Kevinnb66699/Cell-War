@@ -23,10 +23,13 @@
 ## 教程不硬锁步，提亮只是帮新手把视线放对地方。
 extends Control
 
-## 顶面六边形的几何：横向邻格相距 36、行距 20、隔行错半格（老 `guide_spotlight.gd:218-224` 原样搬）。
-## 尖顶六边形外接圆半径 36/√3 ≈ 20.78，纵向再乘压扁比 20 ÷ (36·√3/2)
-const HEX_R := 36.0 / sqrt(3.0)
-const HEX_SQUASH := 20.0 / (36.0 * sqrt(3.0) / 2.0)
+## 顶面六边形的几何 —— **按贴图量的**（`assets/art/tissue_normal.png` 32×34：顶面占前 26 行，
+## 尖顶 2 px 宽、每行往外扩 2 px、第 8 行起满宽 32、竖边到第 18 行、第 26 行起是立面；
+## 横距 36 里留着 4 px 缝）。老 `guide_spotlight.gd` 搬来的是「横距 36 的标准尖顶六边形再压扁」，
+## 比顶面每边宽 2 px、侧顶点又高 / 低 1.7 px，第一 / 二关 4 倍镜头下框明显套不上格子（Kevin 2026-09-19）
+const FACE_HALF_W := 16.0
+const FACE_HALF_H := 13.0
+const FACE_SIDE_Y := 5.0     ## 竖直侧边两端离顶面中心几像素：第 8 / 18 行 → 13 − 8
 
 const LINE_W := 2.0
 const GROW := 4.0            ## 矩形描边往外让几像素，别压在元素自己的描边上
@@ -73,12 +76,14 @@ static func pulse(t: float) -> float:
 		0.5 + 0.5 * sin(t * TAU / CWStyle.HALO_PERIOD))
 
 
-## 一格顶面六边形的 7 个顶点（首尾相接），屏幕坐标（老 `guide_spotlight.gd:218-224`）
+## 一格顶面六边形的 7 个顶点（首尾相接），屏幕坐标：从尖顶起顺时针，贴图的六个角
 static func hex_points(center: Vector2, zoom: float) -> PackedVector2Array:
 	var pts := PackedVector2Array()
-	for i in 7:
-		var a := deg_to_rad(30.0 + 60.0 * (i % 6))
-		pts.append(center + Vector2(cos(a), sin(a) * HEX_SQUASH) * HEX_R * zoom)
+	for d in [Vector2(0.0, -FACE_HALF_H), Vector2(FACE_HALF_W, -FACE_SIDE_Y),
+			Vector2(FACE_HALF_W, FACE_SIDE_Y), Vector2(0.0, FACE_HALF_H),
+			Vector2(-FACE_HALF_W, FACE_SIDE_Y), Vector2(-FACE_HALF_W, -FACE_SIDE_Y),
+			Vector2(0.0, -FACE_HALF_H)]:
+		pts.append(center + (d as Vector2) * zoom)
 	return pts
 
 
@@ -197,7 +202,7 @@ func board_rect() -> Rect2:
 		var p: Vector2 = CWView.board_to_screen(camera, board.tile_center(c))
 		lo = lo.min(p)
 		hi = hi.max(p)
-	var half := Vector2(HEX_R * sqrt(3.0) / 2.0, HEX_R * HEX_SQUASH) * _zoom()
+	var half := Vector2(FACE_HALF_W, FACE_HALF_H) * _zoom()
 	return Rect2(lo - half, hi - lo + half * 2.0)
 
 
@@ -251,7 +256,7 @@ func _first_rect() -> Rect2:
 			return (n as Control).get_global_rect()
 	if not _hexes.is_empty():
 		var c: Vector2 = _hexes[0]
-		var half := Vector2(HEX_R * sqrt(3.0) / 2.0, HEX_R * HEX_SQUASH) * _zoom()
+		var half := Vector2(FACE_HALF_W, FACE_HALF_H) * _zoom()
 		return Rect2(c - half, half * 2.0)
 	return Rect2(size / 2.0, Vector2.ZERO)
 
@@ -269,7 +274,7 @@ func _draw() -> void:
 		for r in _all_rects():
 			_draw_arrow(Vector2(r.position.x + r.size.x / 2.0, r.position.y - ARROW_GAP), col)
 		for h in _hexes:
-			_draw_arrow(h - Vector2(0.0, HEX_R * HEX_SQUASH + ARROW_GAP), col)
+			_draw_arrow(h - Vector2(0.0, FACE_HALF_H + ARROW_GAP), col)
 
 
 ## 暗幕留洞（PRD:445）：目标那一块不压暗，其余四条带子压

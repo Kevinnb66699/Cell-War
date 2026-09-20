@@ -1418,6 +1418,14 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 		if mark_done:
 			CWGuideProgress.set_all_done()
 		return
+	## 真通关（不是目录跳关）先等关末的结算演出播完、再停一拍才切（Kevin 2026-09-19：
+	## 「攻击大成功的弹窗消失之前，第二章已经开始了」）。等的这几秒闸是关死的（导演 `_finish()`）。
+	## 等完要核一遍代际：目录跳关 / 拆局可能抢在前面，那就不再切这一次
+	if mark_done:
+		var lid := _loop_id
+		await _wait_result_bubbles()
+		if _loop_id != lid or not tutorial or kernel == null:
+			return
 	## ★ **承接此刻这一局**（间章，方案 §2.5）：下一关的 `flow[0]` 显式写了 `"load": null` ⇒
 	## 一局都不拆 —— 局面 / 席位 / 桥 / 队列全留着，只把导演换成新那一关的剧本。
 	## 第五关 Step2 是自由游玩，终局盘面（谁站哪、哪几格被净化）**不是作者期能写死的**，
@@ -1437,6 +1445,21 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 			_director.rebase_hard()
 		return
 	_tutor_reopen("base", true)
+
+
+## 关末的结算气泡（「攻击成功」「攻击大成功」…）按自己的 RESULT_HOLD 活着，静默切关会把它切断；
+## 先等它们播完、再停 TUTOR_SWITCH_BEAT 一拍，第二章才开（Kevin 2026-09-19）。
+## 上限兜底：气泡层要是被别的东西卡住，别让通关永挂在这儿
+const TUTOR_SWITCH_BEAT := 0.8
+const TUTOR_BUBBLE_WAIT_MAX := 6.0
+
+func _wait_result_bubbles() -> void:
+	var waited := 0.0
+	while toast != null and is_instance_valid(toast) and toast.has_bubbles() \
+			and waited < TUTOR_BUBBLE_WAIT_MAX:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(TUTOR_SWITCH_BEAT).timeout
 
 
 ## 间章分镜 6 的**阵营翻转**（导演的 `want_rematch`，S9b）：关内的一拍，走的却是
