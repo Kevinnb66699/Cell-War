@@ -65,6 +65,7 @@ const CELL_FOOT_DY := 6.0
 ## 主菜单只保留一个开始入口。七项行距 28，首项 278、末项底边 474：
 ## 2026-09-05 加到九项后整块（副标题 / 标题 / 竖线 / 菜单项）上移 14px，底部留 26px（Kevin 选乙案）；
 ## 2026-09-06 Kevin 把「规则速查」从主菜单去掉（只留 Esc 菜单那份，CWRulesPage 类还在），首项位置不动、行距回到 28。
+const MENU_ROW_H := 28.0
 const ITEMS := [
 	{"node": "Start", "enabled": true},
 	{"node": "Online", "enabled": true},
@@ -173,11 +174,12 @@ func _ready() -> void:
 ## 集中在这里创建并恢复，避免从对局/联机返场时只恢复了菜单文字，
 ## 却把这个动态节点留在旧的隐藏或 IGNORE 状态（回归测试曾漏掉这一条）。
 func _ensure_atlas_button() -> void:
+	var atlas_at: Vector2 = _items.get_node("Codex").position + Vector2(0.0, MENU_ROW_H)
 	if _atlas_button == null or not is_instance_valid(_atlas_button):
 		_atlas_button = _items.get_node_or_null("Atlas") as Label
 	if _atlas_button == null:
 		## 场景只保留固定八项；运行时创建避免改变原有键盘契约。
-		_atlas_button = CWStyle.clickable_label(_items, "细胞图鉴", Vector2(165, 418), _activate_atlas)
+		_atlas_button = CWStyle.clickable_label(_items, "细胞图鉴", atlas_at, _activate_atlas)
 		_atlas_button.name = "Atlas"
 	if not _atlas_button.has_meta("atlas_wired"):
 		_atlas_button.mouse_entered.connect(_on_atlas_button_entered)
@@ -185,7 +187,7 @@ func _ensure_atlas_button() -> void:
 		_atlas_button.gui_input.connect(_on_atlas_button_input)
 		_atlas_button.set_meta("atlas_wired", true)
 	_atlas_button.text = "细胞图鉴"
-	_atlas_button.position = Vector2(165, 418)
+	_atlas_button.position = atlas_at
 	_atlas_button.size = _atlas_button.get_minimum_size()
 	_atlas_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_atlas_button.visible = true
@@ -336,6 +338,12 @@ func _spawn_decor() -> void:
 
 
 func _setup_items() -> void:
+	## 旧导出包的场景 remap 仍指向原来的 .scn，热更只改 .tscn 不会挪动按钮。
+	## 给动态「细胞图鉴」留一行，再记 _rest_y，避免悬停重画把「新手引导」搬回旧位置。
+	var next_y: float = _items.get_node("Codex").position.y + MENU_ROW_H * 2.0
+	for name in ["Guide", "Settings", "Quit"]:
+		_items.get_node(name).position.y = next_y
+		next_y += MENU_ROW_H
 	for i in ITEMS.size():
 		var label: Label = _items.get_node(ITEMS[i]["node"])
 		_labels.append(label)

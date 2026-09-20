@@ -11259,6 +11259,10 @@ func _string_literals(src: String) -> Array[String]:
 func t_quit_confirm() -> void:
 	print("[退出确认]")
 	var menu: Node2D = load("res://scenes/MainMenu.tscn").instantiate()
+	## 模拟 client-2026-09-19-4 烘焙场景：热更后必须由脚本给图鉴留行。
+	menu.get_node("UI/Screen/Items/Guide").position.y = 418.0
+	menu.get_node("UI/Screen/Items/Settings").position.y = 446.0
+	menu.get_node("UI/Screen/Items/Quit").position.y = 474.0
 	var root := Node2D.new()
 	get_root().add_child(root)
 	var board := make_board()
