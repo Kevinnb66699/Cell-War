@@ -42,7 +42,13 @@ const EDGE := 10.0                     ## 气泡离画布边至少留这么多�
 const HEAD_UP := 29.0
 ## 「继续 ▸」占气泡底部的一行（`auto:false` 时才有）。真机截图走 `call:CWTutorViewBubble:advance`
 const NEXT_TEXT := "继续 ▸"
-const NEXT_H := 18.0
+
+
+## 那一行的高 = **字体的行高**（20 号点阵字 28：ascent 22 + descent 6），不写死。
+## 09-19 写的 18：Label 的最小尺寸会把自己悄悄撑到 28，行底就压出气泡的内边距、盖在底边描边与尾巴上
+## （Kevin 2026-09-20 真机「继续显示到屏幕外了」）。气泡因此比原来高 10px，位置逻辑一字不变
+static func next_h() -> float:
+	return CWStyle.FONT.get_height(CWStyle.SIZE_BODY)
 
 ## 「……」= 沉默几拍，不是三个句号（方向 A §1）：三颗 10×10 的方点，
 ## alpha 依次 1.0 / 0.55 / 0.22，**逐颗渐显**（一拍一颗），停 0.6 秒
@@ -482,7 +488,7 @@ func _bubble(text: String, accent: Color, max_w: float, with_next: bool, dots: i
 	if with_next:
 		body_w = maxf(body_w, CWStyle.FONT.get_string_size(
 			NEXT_TEXT, HORIZONTAL_ALIGNMENT_LEFT, -1, CWStyle.SIZE_BODY).x)
-		body_h += NEXT_H
+		body_h += next_h()
 	box.size = Vector2(body_w + PAD_H * 2.0, body_h + PAD_V * 2.0)
 	var skin := Panel.new()
 	var b := StyleBoxFlat.new()
@@ -507,14 +513,14 @@ func _bubble(text: String, accent: Color, max_w: float, with_next: bool, dots: i
 		lb.name = "Body"          ## `_fit` 每帧照它的真实行数把气泡撑到位
 		lb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		lb.position = Vector2(PAD_H, PAD_V)
-		lb.size = Vector2(body_w, body_h - (NEXT_H if with_next else 0.0))
+		lb.size = Vector2(body_w, body_h - (next_h() if with_next else 0.0))
 		box.add_child(lb)
 	if with_next:
 		## 「继续 ▸」钉在气泡**右下角**：正文左对齐，右下角永远空着
 		_next = CWStyle.label(NEXT_TEXT, CWStyle.SIZE_BODY, CWStyle.TEXT_DIM)
 		_next.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		_next.position = Vector2(PAD_H, box.size.y - PAD_V - NEXT_H)
-		_next.size = Vector2(body_w, NEXT_H)
+		_next.position = Vector2(PAD_H, box.size.y - PAD_V - next_h())
+		_next.size = Vector2(body_w, next_h())
 		_next.visible = false
 		box.add_child(_next)
 	box.add_child(tail)          ## 尾巴最后加 ⇒ 压在气泡底边之上（要盖掉那 2px）
@@ -533,9 +539,9 @@ func _fit(box: Control) -> void:
 		return
 	lb.size.y = want
 	var tall: bool = _next != null and is_instance_valid(_next) and _next.get_parent() == box
-	box.size.y = want + PAD_V * 2.0 + (NEXT_H if tall else 0.0)
+	box.size.y = want + PAD_V * 2.0 + (next_h() if tall else 0.0)
 	if tall:
-		_next.position.y = box.size.y - PAD_V - NEXT_H
+		_next.position.y = box.size.y - PAD_V - next_h()
 
 
 ## 把气泡摆到 `target`（屏幕坐标）旁边，尾尖指着它。

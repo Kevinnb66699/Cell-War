@@ -22211,6 +22211,13 @@ func t_tutor_view_bubble() -> void:
 			and box.mouse_default_cursor_shape == Control.CURSOR_POINTING_HAND,
 		"带「继续」的台词气泡本体接鼠标（STOP + 手形光标）")
 	check(view._next != null and view._next.visible, "这一句画完「继续 ▸」亮着（点得动的前提）")
+	## 「继续 ▸」那一行按字体行高留（Kevin 2026-09-20 真机「继续显示到屏幕外了」：写死 18 时 Label 的最小尺寸
+	## 把自己撑到 28，行底压出气泡内边距、盖在底边描边与尾巴上）
+	check(is_equal_approx(CWTutorViewBubble.next_h(), float(view._next.get_line_height()))
+			and view._next.size.y >= float(view._next.get_line_height())
+			and view._next.position.y + view._next.size.y <= box.size.y - CWTutorViewBubble.PAD_V + 0.01,
+		"★「继续 ▸」整行落在气泡内边距之内（行高 %d、行底 %.0f、气泡高 %.0f）"
+			% [view._next.get_line_height(), view._next.position.y + view._next.size.y, box.size.y])
 	var pressed_n := [0]
 	view.advance_pressed.connect(func() -> void: pressed_n[0] += 1)
 	var click := InputEventMouseButton.new()
