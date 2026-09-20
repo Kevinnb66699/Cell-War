@@ -20,6 +20,15 @@ var heur := CWHeuristicBridge.new()     ## 新手档 AI，也是超时 / 离线�
 var mc: CWHeuristicBridge = MechBridge.new()
 
 
+func _init() -> void:
+	## 专家档升级（2026-09-20）：与单人第五档「搜索」同款——alpha-beta v2 + E5 拟合估值
+	## （单人实测：对最强免疫 0%→55.6%，见 docs/汇报_AI线_2026-09-21晨.md；本地未推）。
+	## 延续 09-19 Kevin「意图级 AI 上服务器」的原地升级模式：tier 键仍是 "mc"，协议不动。
+	## 代价：AI 决策同步跑在服务器主线程，单问 ~2-5s（回合制可接受）；评估只在独立副本（t_mech_bridge_quiet）。
+	mc.use_search = true
+	mc.use_fit_eval = true
+
+
 func ask(req: Dictionary) -> int:
 	var pid: int = req["pid"]
 	room.push_state(pid)
