@@ -172,6 +172,12 @@ func log_msg(_text: String, _secret_pid := -1, _public_text := "") -> void:
 	pass
 
 
+## 给某一席的名字加后缀（单机局真人席的「（我）」，Kevin 2026-09-19）。**纯装饰**，不进规则；
+## 已经带了就不重复加。只有进程内句柄做得到；网络句柄名字归服务器（昵称），回 false
+func mark_player(_pid: int, _suffix: String) -> bool:
+	return false
+
+
 func surrender(_faction: int) -> void:
 	pass
 

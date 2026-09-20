@@ -339,6 +339,16 @@ func log_msg(text: String, secret_pid := -1, public_text := "") -> void:
 		game.log_msg(text, secret_pid, public_text)
 
 
+## 同 `cw_room.gd` 写昵称那条路：直接改引擎里的 name。UI 层不许碰 CWGame（护栏③），所以由句柄代劳
+func mark_player(pid: int, suffix: String) -> bool:
+	if game == null or pid < 0 or pid >= game.players.size() or suffix == "":
+		return false
+	var cur := str(game.players[pid]["name"])
+	if not cur.ends_with(suffix):
+		game.players[pid]["name"] = cur + suffix
+	return true
+
+
 func surrender(faction: int) -> void:
 	if game != null:
 		game.surrender(faction)
