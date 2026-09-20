@@ -1,6 +1,7 @@
 import json, math, glob, os, random
 
-D = r"C:/Users/skyal/AppData/Roaming/Godot/app_userdata/Cell War"
+import os
+D = os.environ.get("GODOT_DATA", r"C:/Users/skyal/AppData/Roaming/Godot/app_userdata/Cell War")
 ALL_LEVERS = ["ct","st","supply","ce","ie","ia","ca","hm","pt","lc","mie","level","mem"]
 
 def load(prefix):
