@@ -27,12 +27,13 @@ var _plan := {}
 ## 把搜索覆盖从「每手一搜」降到「一回合一搜」，续走启发式的弱势被放大——
 ## 自对弈癌胜率 54%→33%（再叠威胁 v2 一度 4%）。2 手足以断「等值格振荡」，
 ## 之后重搜恢复覆盖。 Steps: 振荡的周期是 1 手（A→B→A），2 手承诺即断。
-## 参数扫描注入口(0=用默认): 云上网格搜索用,平时保持0。
+## 参数扫描注入口(0=用默认): 云上网格搜索用。已部署调优值: topk=6/hz=1
+## (2026-09-20 云扫描13配置x48局 + 大样本确认432局55.6% vs 默认44.5%)。
 static var TOPK_OVERRIDE := 0
 static var HORIZON_OVERRIDE := 0
 static var W_THREAT := 15.0
 static var THREAT_REACH := 60
-const PLAN_HORIZON := 2
+const PLAN_HORIZON := 1
 const SEARCH_DEPTH := 2
 
 

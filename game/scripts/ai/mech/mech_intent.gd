@@ -229,7 +229,7 @@ func best_by(g: CWGame, pid: int, scorer: Callable) -> Dictionary:
 ## 边界）本来就认识"死了"（ia +3.6, 5/5）。把叶推到回合边界 = 压迫链进视野
 ## + 叶回到训练分布 + 其余席位的应对顺带完成（image 内各席桥作答）。
 ## 值统一在【搜索方视角】（leaf_eval 由桥按搜索方阵营翻号一次），节点 max/min 按行动方阵营。
-func search_best(g: CWGame, pid: int, leaf_eval: Callable, depth := 2, top_k := 4) -> Dictionary:
+func search_best(g: CWGame, pid: int, leaf_eval: Callable, depth := 2, top_k := 6) -> Dictionary:
 	if MechBridge.TOPK_OVERRIDE > 0:
 		top_k = MechBridge.TOPK_OVERRIDE
 	## 候选取**单步**：叶会把本回合剩余部分(含E阶段)整个模拟掉，计划只需选"下一手"——
