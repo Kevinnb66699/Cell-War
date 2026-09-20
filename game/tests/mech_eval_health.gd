@@ -1,7 +1,7 @@
 ## 估值体检 · 数据采集：每回合记录**完整全局杠杆向量** + 终局输赢 → JSONL。
 ## 设计：只记**原始杠杆**（pid 无关的位置量），不记任何固定标量公式 ——
 ## 离线可测任意标量化（现行固定权重 / 分相位权重 / 加阈值项），不必重跑对局。
-## 运行：-- games=N players=4 seed= immune_ai=heu|mech cancer_ai=heu|mech out=<文件名>
+## 运行：-- games=N players=4 seed= immune_ai=heu|mech|abs cancer_ai=heu|mech|abs out=<文件名>
 extends SceneTree
 
 var _lines: Array = []
@@ -67,7 +67,16 @@ func _run() -> void:
 		for pid in g.order:
 			var fac: int = g.player(pid)["faction"]
 			var which: String = can_ai if fac == CWData.Faction.CANCER else imm_ai
-			var b: CWHeuristicBridge = MechBridge.new() if which == "mech" else CWHeuristicBridge.new()
+			var b: CWHeuristicBridge
+			if which == "abs":
+				var ab := MechBridge.new()
+				ab.use_search = true
+				ab.use_fit_eval = true
+				b = ab
+			elif which == "mech":
+				b = MechBridge.new()
+			else:
+				b = CWHeuristicBridge.new()
 			b.game = g
 			g.bridges[pid] = b
 		var last_round := -1
@@ -78,12 +87,12 @@ func _run() -> void:
 				last_round = g.round_no
 				var v := _lever_vec(g)
 				v["cfg"] = cfg
-				v["gid"] = gi
+				v["gid"] = seed_base + gi   ## 全局唯一(并行分片 seed_base 互异,避免合并时 gid 冲突)
 				_lines.append(JSON.stringify(v))
 			var idx: int = await g.ask(req["pid"], req)
 			await g.step(idx)
 		_lines.append(JSON.stringify({
-			"cfg": cfg, "gid": gi, "outcome": true,
+			"cfg": cfg, "gid": seed_base + gi, "outcome": true,
 			"winner": g.winner, "win_kind": String(g.win_kind), "rounds": g.round_no,
 		}))
 		g.dispose()

@@ -829,11 +829,12 @@ func _prepare_ui() -> void:
 
 
 ## 三档 AI 的名字。**唯一一处**：配置面板的行文、存档的兼容映射、装配都读它。
-const AI_LEVEL_NAMES := ["普通", "较强", "树搜索", "意图"]
+const AI_LEVEL_NAMES := ["普通", "较强", "树搜索", "意图", "搜索"]
 const AI_NORMAL := 0
 const AI_MC := 1        ## 扁平蒙特卡洛（CWUIBridge 的基类本体），也是平衡标尺
 const AI_MCTS := 2      ## UCT 树搜索（队友 2026-09-07 的 CWMCTSBridge）
 const AI_INTENT := 3    ## 意图级规划（MechBridge，2026-09-20）：杠杆库 + 意图评估器，仅实验档
+const AI_ABS := 4       ## 对抗搜索（2026-09-20）：alpha-beta v2 + 回合边界叶 + E4 拟合估值，仅实验档
 ## 树搜索档的预算。扁平 MC 的专家档是 192 个模拟 step；树搜索给两倍，
 ## 依据是「它该更强，也该更慢一点，但仍要有可预测的上限」——
 ## ⚠ **这三个数没有对局数据支撑**，只是量纲上的合理取值，等有了 AI 互搏基准再定。
@@ -910,7 +911,7 @@ func _wire_bridge(level: int) -> void:
 	## 第四档「意图」：挂 MechBridge（意图级规划，杠杆库 + 意图评估器）。
 	## 两者共用同一个 `ai_bridge` 槽（泛化：只认 game + ask），非顶层询问自己回落启发式。
 	bridge.ai_bridge = null
-	if (level == AI_MCTS or level == AI_INTENT) and not tutorial:
+	if (level >= AI_MCTS) and not tutorial:
 		var alt_ai: CWBridge
 		if level == AI_MCTS:
 			alt_ai = CWMCTSBridge.new()
@@ -921,6 +922,12 @@ func _wire_bridge(level: int) -> void:
 			alt_ai.use_threading = thinking
 		else:
 			alt_ai = MechBridge.new()   ## 意图评估在主线程同步跑（可接受，后续再线程化）
+			if level == AI_ABS:
+				## 「搜索」档 = mech_strength 里验证过的 abs 配置：alpha-beta v2（叶=回合边界）
+				## + E4 新平衡拟合估值（log 版）。同款决策在 AI 互撞实测：免 58% 对旧意图免。
+				alt_ai.use_search = true
+				alt_ai.use_fit_eval = true
+				MechBridge._fit_linear_on = false
 		alt_ai.delay_ms = CWSettings.ai_delay_ms
 		alt_ai.delay_node = self
 		bridge.ai_bridge = alt_ai
