@@ -21133,7 +21133,7 @@ func t_mech_bridge_quiet() -> void:
 	var a4b: int = await mb4.ask(req4)
 	var msb := Time.get_ticks_msec() - tb
 	check(a4b >= 0 and a4b == a4, "四人局搜索协作让帧不崩、答案与同步一致（%d）" % a4b)
-	print("  四人局搜索协作让帧一问 %d ms（节流 48 步/帧）" % msb)
+	print("  四人局搜索协作让帧一问 %d ms（时间片让帧 24ms）" % msb)
 	g4.dispose()
 
 

@@ -18,23 +18,28 @@ extends RefCounted
 const REACH_FIELD := preload("res://scripts/ai/mech/mech_dist.gd")
 
 ## 协作让帧（2026-09-20 方案 A，见 docs/搜索线程化方案说明.md）：重搜索只在主线程跑，
-## 每 coop_every 步让出一帧 → 渲染/输入照转、不冻结。>0 开、0 关（关=全速阻塞）。
-## 只影响步进节奏，不改确定性（答案只依赖 rng/局面，与帧数无关）。
+## 按**时间片**让帧：距上次让帧超过 coop_ms 毫秒才让出一帧 → 渲染/输入照转、不冻结，
+## 且快问（<coop_ms）零开销、长问有界（每 24ms 至多一帧）。只影响节奏，不改确定性。
 ## 之所以不派 worker Thread：Godot 副线程跑深递归 alpha-beta + 整回合前推会损坏
 ## 协程态段错误（MC/MCTS 扁平+预算封顶能扛，MechBridge 的深递归受不了）。
-var coop_every := 0
-var _coop_pt := 0
+## ⚠ 不能按“每 N 步让一帧”：搜索内部步数上千，帧率低的宿主上每 ask 会拖到数秒。
+var coop_ms := 0
+var _coop_last := 0
 
-## 协作让帧步进器：攒够 coop_every 步就把主线程让出去一帧（无线程、无副作用）。
+## 协作让帧步进器：距上次让帧超过 coop_ms 毫米就把主线程让出去一帧。
 func _coop_step() -> void:
-	if coop_every <= 0:
+	if coop_ms <= 0:
 		return
-	_coop_pt += 1
-	if _coop_pt >= coop_every:
-		_coop_pt = 0
-		var loop := Engine.get_main_loop()
-		if loop is SceneTree:
-			await (loop as SceneTree).process_frame
+	var now := Time.get_ticks_msec()
+	if _coop_last == 0:
+		_coop_last = now
+		return
+	if now - _coop_last < coop_ms:
+		return
+	_coop_last = now
+	var loop := Engine.get_main_loop()
+	if loop is SceneTree:
+		await (loop as SceneTree).process_frame
 
 
 ## 在 g（须为 pending 边界）上按序执行 pid 的迁移路径，返回「做完之后的地图和能量」读数，

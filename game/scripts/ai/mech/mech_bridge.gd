@@ -80,7 +80,10 @@ func ask(req: Dictionary) -> int:
 			"use_search": use_search, "use_fit_eval": use_fit_eval,
 			"fit_linear": _fit_linear_on,
 			"fixed_lineup": fixed_lineup, "lifecare": lifecare,
-			"sim_no_lifecare": false, "depth": SEARCH_DEPTH, "top_k": 4,
+			"sim_no_lifecare": false, "depth": SEARCH_DEPTH, "top_k": 6,
+			## ↑ top_k 必须 = 8f5781b 的调优值 6（云扫 624+432 局确认 55.6% vs 44.5%）。
+			## 2026-09-20 教训：线程化重构时这里曾被硬编码回旧默认 4，搜索档当场变
+			## 傻来回走（调优失效 = 实际降级），且哈希基线的 mc 档是扁平 MC、照不到搜索档。
 			"use_threading": use_threading,   ## 方案 A：true=主线程协作让帧
 		}
 		var best: Dictionary = await _pick_sync(game.snapshot(), cfg)
@@ -123,7 +126,7 @@ static func cw_mech_work(snap: Dictionary, cfg: Dictionary) -> Dictionary:
 	var fac: int = int(cfg["my_faction"])
 	var intent := MechIntent.new()
 	if bool(cfg.get("use_threading", false)):
-		intent.coop_every = 48   ## 主线程每 48 步让一帧（节流防止过度放慢；0=关全速阻塞）
+		intent.coop_ms = 24   ## 时间片让帧：距上次让帧超 24ms 才让一帧（快问零开销，UI 永不被堵超 24ms）
 	var best: Dictionary
 	if bool(cfg["use_search"]):
 		## 叶估值 = 拟合 E(s)，**按搜索方阵营翻号一次**（树内所有值统一搜索方视角，
