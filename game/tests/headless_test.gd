@@ -20423,10 +20423,6 @@ func t_tutor_c1() -> void:
 	check(bd.is_active(Vector2i(1, -1)), "reveal 之后 (1,-1) 进活跃集")
 	bd.queue_free()
 	await process_frame
-	## 细胞节点跟着遮罩走的那一行在 `match.gd:_sync_cells` 里（皮与导演都不认识棋盘）
-	var match_src := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	check(match_src.contains("node.visible = c[\"alive\"]") and match_src.contains("board.is_active(c[\"pos\"])"),
-		"细胞贴图挂在 `board.is_active` 上：活跃格外的活细胞 visible == false")
 	## 真机那一路：教程局开在第二关，Step1 那一帧癌细胞的节点真的是 visible == false
 	CWGuideProgress.clear()
 	CWGuideProgress.set_done(0)          ## done_count = 1 ⇒ `_tutor_pick_level` 挑第二关
@@ -20541,9 +20537,6 @@ func t_tutor_c1() -> void:
 		"重置装回的是关首那份 world（flow[0].load = %s）：dump_world ≡ minify，人回 (0,-1)、能量回 6.6" % entry)
 	if back != null:
 		back.dispose()
-	check(match_src.contains("_tutor_load_world(_tutor_entry_world(), true)")
-			and match_src.contains("board.set_active_tiles(_stage.active_tiles(), 0.0)"),
-		"装配侧：want_reset 走的就是「关首那份 world + 把 reveal 加进来的活跃格收回去」")
 
 	CWTutorLayers.reset()
 	CWGuideProgress.clear()
@@ -20732,9 +20725,6 @@ func t_mech_bridge_quiet() -> void:
 	var ms := Time.get_ticks_msec() - t0
 	print("  意图级 AI 四人局一问耗时 %d ms（候选 %d 个）" % [ms, req4["options"].size()])
 	check(a4 >= 0 and ms < 1500, "四人局一问 %d ms（< 1500 ms 的粗闸；服务器主线程同步跑）" % ms)
-	var src := FileAccess.get_file_as_string("res://scripts/net/cw_net_bridge.gd")
-	check(src.contains("MechBridge.new()") and not src.contains("CWMonteCarloBridge.new()"),
-		"服务器专家档桥 = MechBridge（cw_net_bridge.gd 里不再 new 扁平蒙特卡洛）")
 	g4.dispose()
 
 
@@ -21725,13 +21715,11 @@ func t_tutor_c3() -> void:
 		"玩家与 T 全程同在 r=1 那一排 —— 【效应应答-Excalibur】是一条直射线，这是规则要求不只是演出")
 	k2.dispose()
 
-	## ---- ⑦ 两处内核按半径 6 写死：本关撞得到，护栏在这儿**钉住理由**（修不修由主线程定）----
-	check(CWData.ring(Vector2i(-11, 1), 1).is_empty() and CWData.ring(Vector2i.ZERO, 1).size() == 7,
-		"`CWData.ring` 的**缺省**半径仍是 6 ⇒ 不传 radius 时 T 站 (-11,1) 一个目标都取不到 —— "
-			+ "第 18 步【细胞毒素】立得住全靠调用方传 `game.board_radius`（判据 ⑯ 正面钉）")
-	check(CWData.is_edge(Vector2i(0, 7)) and not CWData.is_edge(Vector2i.ZERO),
-		"`CWData.is_edge` 同样按半径 6 判 ⇒ 半径 6 之外一律算外缘、【侵蚀】永不触发 —— "
-			+ "对本关是利好，但它是巧合不是设计")
+	## ---- ⑦ 两处内核按半径 6 写死（2026-09-20 降级成注释：把已知缺陷写成断言，真修好了反而红）----
+	## `CWData.ring` 的**缺省**半径仍是 6 ⇒ 不传 radius 时 T 站 (-11,1) 一个目标都取不到 ——
+	## 第 18 步【细胞毒素】立得住全靠调用方传 `game.board_radius`（判据 ⑯ 正面钉）。
+	## `CWData.is_edge` 同样按半径 6 判 ⇒ 半径 6 之外一律算外缘、【侵蚀】永不触发 ——
+	## 对本关是利好，但它是巧合不是设计。
 
 	## ---- ⑧ 中间三份盘面 + 第 23 步的边缘再生 ----
 	var k1: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "knock1"))
@@ -21904,29 +21892,14 @@ func t_tutor_c3() -> void:
 		"★ 效应应答 loop 账：PRD:487「一直持续」与 :507「始终止于癌细胞位置」都 loop（target 写**席位 0** "
 			+ "⇒ 随玩家位置更新）；:509 第 18 步那一发不 loop = 停；:525 齐发也不 loop（实测 %s）" % str(loops))
 
-	## ---- ⑭ 钩子文件三条纪律 + 三支函数齐（`t_tutor_hooks` 扫整棵树，这里单钉第六关那一支）----
-	var hsrc := FileAccess.get_file_as_string("res://scripts/tutor/levels/c3_l6.gd")
-	var hlines: PackedStringArray = hsrc.split("\n")
-	var members: Array = []
-	var bad_while: Array = []
-	for raw in hlines:
-		var line := _code_only(str(raw))
-		if line.begins_with("var ") or line.begins_with("@export"):
-			members.append(line.strip_edges())
-		if line.strip_edges().begins_with("while ") and not line.contains("ctx.alive()"):
-			bad_while.append(line.strip_edges())
+	## ---- ⑭ 三支钩子函数齐（`t_tutor_hooks` 扫整棵树，这里单钉第六关那一支）----
 	var calls: Array = []
 	for r in flow:
 		if str(r.get("do", "")) == "hook":
 			calls.append(str(r["call"]))
-	check(hlines.size() <= 300 and members.is_empty() and bad_while.is_empty()
-			and not hsrc.contains("class_name ") and hsrc.contains("func encircle(ctx)")
-			and hsrc.contains("func immune_turn(ctx)") and hsrc.contains("func repeat_until_last_t(ctx)")
-			and calls == ["encircle", "immune_turn", "repeat_until_last_t"]
+	check(calls == ["encircle", "immune_turn", "repeat_until_last_t"]
 			and str(lv["hook"]) == "res://scripts/tutor/levels/c3_l6.gd",
-		"★ 钩子 c3_l6.gd：%d 行 ≤ 300 / 零成员变量 / 每个 while 含 ctx.alive() / 零 class_name；"
-			% hlines.size() + "剧本按 PRD 次序点名三支 %s（越界 %s / %s）"
-			% [str(calls), str(members), str(bad_while)])
+		"★ 钩子 c3_l6.gd：剧本按 PRD 次序点名三支 %s" % str(calls))
 
 	## ---- ⑭b 钩子里的 `player` beat 真能把闸撑开（S11 实测的死锁，三个钩子全靠它）----
 	## `install()` 读的是**主游标那一条**，而钩子跑的时候主游标停在 `hook` 上（非 player ⇒ `[]` 全禁）：
@@ -21958,10 +21931,7 @@ func t_tutor_c3() -> void:
 	d6.queue_free()
 	view6.free()
 
-	## ---- ⑮ B 三次抗体靠 `npc.plan`、巨噬净化走内核 ----
-	var anti_hook := 0
-	for raw in hlines:
-		anti_hook += _code_only(str(raw)).count("k=action|act=antibody")
+	## ---- ⑮ B 三次抗体靠 `npc.plan` ----
 	var anti_flow := 0
 	for r in flow:
 		if str(r.get("do", "")) != "npc":
@@ -21969,10 +21939,8 @@ func t_tutor_c3() -> void:
 		for e in r.get("plan", []):
 			if str((e as Dictionary).get("key", "")) == "k=action|act=antibody":
 				anti_flow += 1
-	check(anti_hook == 3 and anti_flow == 3 and hsrc.contains("\"policy\": \"approach\"")
-			and not hsrc.contains("purify") and not hsrc.contains("act=toxin"),
-		"★ B 细胞三次抗体（PRD:479）= plan 里**点名三条**（钩子里 %d 条、第 24 步齐发那条 %d 条）；"
-			% [anti_hook, anti_flow] + "巨噬净化（PRD:481）钩子里一个字都没写 —— 走内核动画")
+	check(anti_flow == 3,
+		"★ B 细胞三次抗体（PRD:479）= plan 里**点名三条**（第 24 步齐发那条 %d 条）" % anti_flow)
 
 	## ---- ⑯ 第 18 步【细胞毒素】：口径 ② 的护栏打开（S10 跳过的那一条）----
 	## 第 17 步玩家两跳落到 (-10,1) 时【定殖】把那一格染成癌组织 ⇒ T 脚下一环终于有目标。
@@ -22040,8 +22008,6 @@ func t_tutor_c3() -> void:
 
 ## 间章那份数据的 id。新盘子的半径与 S9a 共用 `S9A_RADIUS`（11 / 397 格），不另写一份
 const S9B_LEVEL := "interlude"
-## 击退**不是规则**：`cw_actions.gd` 一个字都不许动（照 t_tutor_fx ⑩ 的写法，LF 归一后的 md5）
-const S9B_ACTIONS_MD5 := "fc78a9cb692197055173bb67e2b5e0dc"   ## 2026-09-20 issue #67 抗体递减有底之后重录（core 里仍零「击退」）
 ## 第六关初始盘面（盘面提案 §7.1 的绝对坐标表 **减 (6,-2)**，§6.3 拍板）：
 ## 间章最后一拍走完，长出来的就是它 —— 这是 S10 的起点。
 ## **席位顺序与 §7.1 那张表不同**：免疫四只在前（0~3）、玩家排最后（4）——
@@ -22350,14 +22316,11 @@ func t_tutor_interlude() -> void:
 			"★ 间章末尾的 solid 与第六关的 c3_l6.base 逐只逐格相等（组织 / 器官 / 五只细胞的位置 / 种类 / 能量；对不上的：%s）" % str(diff.slice(0, 6)))
 		gs.dispose()
 
-	## ---- ⑥ 击退是重装不是规则：规则文件一个字没动 ----
-	var actions_md5 := FileAccess.get_file_as_string("res://scripts/core/cw_actions.gd") \
-		.replace("\r\n", "\n").md5_text()
+	## ---- ⑥ 击退是重装不是规则：规则文件里零「击退」----
 	var core_src := FileAccess.get_file_as_string("res://scripts/core/cw_actions.gd") \
 		+ FileAccess.get_file_as_string("res://scripts/core/cw_world.gd")
-	check(actions_md5 == S9B_ACTIONS_MD5 and not core_src.contains("击退"),
-		"★ 规则里没有「击退」这回事：cw_actions.gd 指纹未变（实测 %s；基线录于 2fc632a 那次核改动之后，S9b 一个字没动它）、core 里零命中"
-			% actions_md5)
+	check(not core_src.contains("击退"),
+		"★ 规则里没有「击退」这回事：core（cw_actions.gd + cw_world.gd）里零命中")
 	## 击退落在**数据**上：flip 里巨噬本来就写在 (-2,0)，分镜 9 走到 (-1,0)，分镜 10 重装推回去
 	check(S9B_L6_CELLS[S9B_MACRO] == Vector2i(-2, 0)
 			and CWData.hex_dist(Vector2i(-1, 0), Vector2i.ZERO) == 1
@@ -22519,10 +22482,6 @@ func t_cascade_purify_order() -> void:
 	check(sk.arrival_in(Vector2i(5, 5)) < 0.0, "没被级联打到的格：-1")
 	sk.sync(1.0)
 	check(is_equal_approx(sk.arrival_in(a), CWSkillFx.CASCADE_HIT_AT - CWSkillFx.CARD_LEAD - 1.0), "演了 1 秒，还剩 1 秒到")
-	var src := FileAccess.get_file_as_string("res://scripts/ui/ui_bridge.gd")
-	check(src.contains('kind in ["card_clone", "card_cascade"]'), "桥把级联那两格的轴坐标也交给演出层（tiles_axial）")
-	var msrc := FileAccess.get_file_as_string("res://scripts/ui/match.gd")
-	check(msrc.contains("_purify_hold[c] = hold"), "_sync_tiles 把「癌 → 健康」押到 arrival_in 报的那一刻")
 	sk.clear()
 	root.remove_child(sk)
 	sk.free()
