@@ -3265,8 +3265,25 @@ func t_hotseat() -> void:
 	## 写在引擎的 name 上（同联机写昵称那条路），右栏 / 悬停 / 日志 / 结算屏都跟着
 	check(str(m.mirror.player(0)["name"]).ends_with(CWMatch.ME_SUFFIX)
 			and not str(m.mirror.player(1)["name"]).ends_with(CWMatch.ME_SUFFIX),
-		"单人局：真人席名字带「（我）」、AI 席不带（实测 %s / %s）"
+		"单人局：真人席名字带「(我)」、AI 席不带（实测 %s / %s）"
 			% [str(m.mirror.player(0)["name"]), str(m.mirror.player(1)["name"])])
+	## E 案（Kevin 2026-09-19 选）：右栏名字行 = 名字全尺寸 + 小字「(我)」贴在名字真实宽度之后；
+	## 「技 N」挪到第二行、手牌方块左边再往左让 SKILL_GAP；AI 行没有小字
+	var r0: Dictionary = m.panel._rows[0]
+	var r1: Dictionary = m.panel._rows[1]
+	check(r0["name"].text == "免疫A" and r0["me"].visible and r0["me"].text == CWMatch.ME_SUFFIX
+			and r0["me"].position.x >= r0["name"].position.x + 52.0 + CWMatchPanel.ME_GAP - 1.0
+			and r0["me"].position.x <= r0["name"].position.x + CWMatchPanel.NAME_W + CWMatchPanel.ME_GAP + 1.0,
+		"右栏真人行：名字「免疫A」全尺寸，小字「(我)」贴在名字之后（小字 x %.0f / 名字 x %.0f）"
+			% [r0["me"].position.x, r0["name"].position.x])
+	check(not r1["me"].visible and r1["name"].text == "癌症A", "AI 行：名字原样、没有小字")
+	check(is_equal_approx(r0["skills"].position.y, r0["type"].position.y)
+			and r0["skills"].position.x + r0["skills"].size.x <= (r0["pips"][0] as Control).position.x - CWMatchPanel.SKILL_GAP + 0.5,
+		"「技 N」在第二行、右缘离手牌方块 ≥ SKILL_GAP（右缘 %.0f vs 方块 %.0f）"
+			% [r0["skills"].position.x + r0["skills"].size.x, (r0["pips"][0] as Control).position.x])
+	check(r0["type"].position.x + r0["type"].size.x <= r0["skills"].position.x + r0["skills"].size.x - CWMatchPanel.SKILL_RESERVE + 0.5,
+		"种类小字在「技 N」左边收住（右缘 %.0f vs 技 右缘 %.0f）"
+			% [r0["type"].position.x + r0["type"].size.x, r0["skills"].position.x + r0["skills"].size.x])
 	m.teardown()
 	await process_frame
 	CWSettings.ai_delay_ms = 220

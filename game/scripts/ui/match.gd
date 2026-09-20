@@ -1464,7 +1464,7 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 ## 但 UI 层不许碰 CWGame（护栏③），所以经句柄 `kernel.mark_player` 代劳，在 `kernel.open` 之后、第一份镜像之前。
 ## **不加**的三种局：热座（两位以上真人，换手遮罩已写明轮到谁，「我」反而说不清是谁）、
 ## 联机（名字是昵称、服务器写；网络句柄的 mark_player 回 false）、回放（不问人）；教程局另一条装配路，名字由关卡数据定
-const ME_SUFFIX := "（我）"
+const ME_SUFFIX := "(我)"   ## 半角括号（Kevin 2026-09-19）：右栏把它拆成小字画（CWMatchPanel），日志 / 提示行原样
 
 func _mark_me() -> void:
 	if online or replay != null or human_players.size() != 1 or kernel == null:
