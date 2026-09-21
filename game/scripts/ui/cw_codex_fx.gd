@@ -22,6 +22,24 @@ const OSTEO_TEX := preload("res://assets/art/cells/anim/osteo_breath.png")
 const SCLC_TEX := preload("res://assets/art/cells/anim/sclc_breath.png")
 const HEALTH_TEX := preload("res://assets/art/tissue_normal.png")
 const CANCER_TEX := preload("res://assets/art/tissue_cancer.png")
+## 卡牌不指定癌细胞亚型时，以恶性黑色素瘤贴图代表一般癌细胞。
+## 项目没有独立的「通用癌细胞」资源，关键是不能误画成免疫细胞。
+const CANCER_CELL_TEX := MELANOMA_TEX
+
+## 图鉴专用变体复用正式 FX，只替换画面中的细胞语义。
+## 对局仍只发送右侧的原始 kind，不受这些预览键影响。
+const VARIANT_BASE := {
+	"immune_move": "minimal",
+	"macro_respire": "respire",
+	"signet_armor": "card_repair",
+	"osteo_ossify": "card_degrade",
+	"osteo_barrier": "card_repair",
+	"sclc_metastasis": "card_teleport",
+	"sclc_warburg": "anaerobic",
+	"card_lactic_acid": "card_acid",
+	"card_clone_cancer": "card_clone",
+	"card_blood_cancer": "card_blood",
+}
 
 const CENTER := Vector2(150, 82)
 ## 与正式 CWBoard 的 BOARD_RADIUS=6 对齐：完整 127 格棋盘在展示框内绘制，
@@ -115,7 +133,12 @@ func set_speed(value: float) -> void:
 
 
 static func supports(kind: String) -> bool:
-	return DURATION.has(kind) or SKILL_FX.DURATION.has(kind)
+	var base := _base_kind(kind)
+	return DURATION.has(base) or SKILL_FX.DURATION.has(base)
+
+
+static func _base_kind(kind: String) -> String:
+	return String(VARIANT_BASE.get(kind, kind))
 
 
 func replay() -> void:
@@ -156,9 +179,10 @@ func _process(delta: float) -> void:
 
 
 func _duration() -> float:
-	if DURATION.has(_kind):
-		return float(DURATION[_kind])
-	return SKILL_FX.duration(_kind)
+	var base := _base_kind(_kind)
+	if DURATION.has(base):
+		return float(DURATION[base])
+	return SKILL_FX.duration(base)
 
 
 func _play_current() -> void:
@@ -167,22 +191,24 @@ func _play_current() -> void:
 			child.queue_free()
 	_fx = null
 	_special = null
-	if _kind in DURATION:
+	var base := _base_kind(_kind)
+	if base in DURATION:
 		_play_special()
 		return
 	_fx = SKILL_FX.new()
 	_fx.z_index = Z_OVER_BOARD
 	add_child(_fx)
-	_fx.play(_kind, _sample(_kind))
+	_fx.play(base, _sample(base))
 	_add_actors(_kind)
 
 
 func _sync_special(step: float) -> void:
-	match _kind:
+	match _base_kind(_kind):
 		"beam": (_special as CWBeamFx).sync(step)
 		"chain": (_special as CWChainFx).sync(step)
 		"hunt": (_special as CWHuntFx).sync(step)
-		"chemo": (_special as CWChemoFx).sync(step, CENTER, 0, false)
+		## CWChemoFx.sync 会采用传入的绝对层级；传 0 会和地图格重叠并被后画的格子盖住。
+		"chemo": (_special as CWChemoFx).sync(step, CENTER, Z_OVER_BOARD, false)
 		"mark_aura":
 			var tiles := [
 				{"pos": _tile_center(Vector2i.ZERO), "z": _tile_z(Vector2i.ZERO, 0)},
@@ -198,7 +224,7 @@ func _sync_special(step: float) -> void:
 
 func _play_special() -> void:
 	_special = null
-	match _kind:
+	match _base_kind(_kind):
 		"beam":
 			_special = BEAM_FX.new()
 			_special.z_index = Z_OVER_BOARD
@@ -223,6 +249,7 @@ func _play_special() -> void:
 			_special = CHEMO_FX.new()
 			_special.z_index = Z_OVER_BOARD
 			add_child(_special)
+			_add_actor(DENDRITIC_TEX, Vector2i(-1, 0))
 		"mark_aura":
 			_special = MARK_FX.new()
 			_special.z_index = Z_OVER_BOARD
@@ -247,6 +274,7 @@ func _play_special() -> void:
 
 func _add_actor(texture: Texture2D, coord: Vector2i) -> void:
 	var actor := Sprite2D.new()
+	actor.set_meta("codex_actor", true)
 	actor.texture = texture
 	actor.hframes = 6
 	actor.frame = 0
@@ -259,6 +287,19 @@ func _add_actor(texture: Texture2D, coord: Vector2i) -> void:
 
 func _add_actors(kind: String) -> void:
 	match kind:
+		"immune_move":
+			_add_actor(IMMUNE_TEX, Vector2i(-1, 0)); _add_actor(IMMUNE_TEX, Vector2i(1, 0))
+		"macro_respire": _add_actor(MACRO_TEX, Vector2i.ZERO)
+		"signet_armor": _add_actor(SIGNET_TEX, Vector2i.ZERO)
+		"osteo_ossify", "osteo_barrier": _add_actor(OSTEO_TEX, Vector2i.ZERO)
+		"sclc_metastasis":
+			_add_actor(SCLC_TEX, Vector2i(-1, 0)); _add_actor(SCLC_TEX, Vector2i(1, 0))
+		"sclc_warburg": _add_actor(SCLC_TEX, Vector2i.ZERO)
+		"card_lactic_acid":
+			_add_actor(CANCER_CELL_TEX, Vector2i(-1, 0)); _add_actor(IMMUNE_TEX, Vector2i(1, 0))
+		"card_clone_cancer": _add_actor(CANCER_CELL_TEX, Vector2i.ZERO)
+		"card_blood_cancer":
+			_add_actor(CANCER_CELL_TEX, Vector2i(-1, 0)); _add_actor(CANCER_CELL_TEX, Vector2i.ZERO); _add_actor(CANCER_CELL_TEX, Vector2i(1, 0))
 		"antibody":
 			_add_actor(B_TEX, Vector2i(-1, 0)); _add_actor(MELANOMA_TEX, Vector2i(1, 0))
 		"toxin": _add_actor(T_TEX, Vector2i.ZERO)
@@ -273,7 +314,31 @@ func _add_actors(kind: String) -> void:
 			_add_actor(SCLC_TEX, Vector2i(-1, 0)); _add_actor(SCLC_TEX, Vector2i(1, 0))
 		"differentiate", "respire", "revive_immune": _add_actor(IMMUNE_TEX, Vector2i.ZERO)
 		"revive_cancer", "mutate", "anaerobic": _add_actor(MELANOMA_TEX, Vector2i.ZERO)
-		_: _add_actor(IMMUNE_TEX, Vector2i.ZERO)
+		"card_storm", "card_inflammation", "card_repair": _add_actor(IMMUNE_TEX, Vector2i.ZERO)
+		"card_granule":
+			_add_actor(T_TEX, Vector2i(-1, 0)); _add_actor(CANCER_CELL_TEX, Vector2i(1, 0))
+		"card_acid":
+			_add_actor(CANCER_CELL_TEX, Vector2i(-1, 0)); _add_actor(IMMUNE_TEX, Vector2i(1, 0))
+		"card_cascade", "card_mark":
+			_add_actor(IMMUNE_TEX, Vector2i(-1, 0)); _add_actor(CANCER_CELL_TEX, Vector2i(1, 0))
+		"card_transfer":
+			_add_actor(IMMUNE_TEX, Vector2i(-1, 0)); _add_actor(IMMUNE_TEX, Vector2i(1, 0))
+		"card_teleport":
+			_add_actor(IMMUNE_TEX, Vector2i(-1, 0)); _add_actor(IMMUNE_TEX, Vector2i(1, 0))
+		"card_survive", "card_clone": _add_actor(CANCER_CELL_TEX, Vector2i.ZERO)
+		"card_degrade": _add_actor(IMMUNE_TEX, Vector2i(-1, 0))
+		"card_blood":
+			_add_actor(CANCER_CELL_TEX, Vector2i(-1, 0)); _add_actor(CANCER_CELL_TEX, Vector2i.ZERO); _add_actor(CANCER_CELL_TEX, Vector2i(1, 0))
+		## 放疗没有施法细胞；范围由系统落下。其余未知 kind 不臆造演员。
+		_: pass
+
+
+func actor_texture_paths() -> Array[String]:
+	var out: Array[String] = []
+	for child in get_children():
+		if child.get_meta("codex_actor", false) and child is Sprite2D:
+			out.append((child as Sprite2D).texture.resource_path)
+	return out
 
 
 func _sample(kind: String) -> Dictionary:

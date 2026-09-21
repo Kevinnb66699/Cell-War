@@ -35,6 +35,10 @@ static var W_THREAT := 15.0
 static var THREAT_REACH := 60
 const PLAN_HORIZON := 1
 const SEARCH_DEPTH := 2
+## 线程化：true 时整棵搜索树（search_best / best_by）抛给副线程，主线程只出帧等结果。
+## 和 MC / MCTS 同一前提：image 全用同步启发式桥 → 协程零真挂起，worker 可整体跑到底。
+## 默认关；`use_threading=true` 时结果与同步路径逐位一致（除 `_fit_linear_on` 走 cfg 快照）。
+var use_threading := false
 
 
 func ask(req: Dictionary) -> int:
@@ -63,29 +67,26 @@ func ask(req: Dictionary) -> int:
 			_plan.erase(_pid)       ## 回合已更替
 	if req["kind"] == "action":
 		var fac: int = game.player(req["pid"])["faction"]
-		var intent := MechIntent.new()
 		## ⚠ **评估只许在独立副本上跑，真 game 一行不动**（Kevin 2026-09-19：意图档「动画乱套或重复播放」）。
 		## 第一版把 MechIntent 的「快照→试走→回滚」直接跑在真 game 上：每一次试走的 `g.step()` 都是真步——
 		## 内核消费者把它推成 roll / result / fx / feed 条目、界面照演，回滚之后真的那一步又演一遍；
 		## 日志与出牌列也被假动作污染。与 MC / MCTS 同一条路：从快照造一份 `sim_quiet` 的副本
 		## （陪练全是同步启发式，零真挂起），确定性照旧（rng 随快照复原）。护栏 `t_mech_bridge_quiet`。
-		## 【alpha-beta 分支同规矩】search_best 的整棵搜索树也只跑 image，真局零污染。
-		var image: CWGame = CWMonteCarloBridge._build_image_static(game.snapshot(), {
-			"fixed_lineup": fixed_lineup, "lifecare": lifecare, "sim_no_lifecare": false })
-		var best: Dictionary
-		if use_search:
-			## 叶估值 = 拟合 E(s)，**按搜索方阵营翻号一次**（树内所有值统一搜索方视角，
-			## 节点 max/min 由 _ab_line 按行动方阵营处理）——v1 按 metrics.faction 翻号
-			## 会让 alpha/beta 跨节点量纲不一致，v2 修正。
-			var my_fac: int = fac
-			var leaf: Callable = func(m: Dictionary) -> float:
-				var ev: float = MechValue.position_eval_linear(m) if _fit_linear_on else MechValue.position_eval(m)
-				return ev if my_fac == CWData.Faction.IMMUNE else -ev
-			best = await intent.search_best(image, req["pid"], leaf, SEARCH_DEPTH)
-		else:
-			var scorer: Callable = _pick_scorer(fac)
-			best = await intent.best_by(image, req["pid"], scorer)
-		image.dispose()
+		## 【alpha-beta 分支同规矩】search_best / best_by 的整棵树也只跑 image，真局零污染。
+		## 【线程化】image 全用同步启发式桥 → 协程零真挂起，评估就能整体抛给副线程
+		## （use_threading=true 时），主线程只在 _threaded_pick 里出帧等结果 —— 和 MC / MCTS 同一套路。
+		var cfg := {
+			"pid": req["pid"], "my_faction": fac,
+			"use_search": use_search, "use_fit_eval": use_fit_eval,
+			"fit_linear": _fit_linear_on,
+			"fixed_lineup": fixed_lineup, "lifecare": lifecare,
+			"sim_no_lifecare": false, "depth": SEARCH_DEPTH, "top_k": 6,
+			## ↑ top_k 必须 = 8f5781b 的调优值 6（云扫 624+432 局确认 55.6% vs 44.5%）。
+			## 2026-09-20 教训：线程化重构时这里曾被硬编码回旧默认 4，搜索档当场变
+			## 傻来回走（调优失效 = 实际降级），且哈希基线的 mc 档是扁平 MC、照不到搜索档。
+			"use_threading": use_threading,   ## 方案 A：true=主线程协作让帧
+		}
+		var best: Dictionary = await _pick_sync(game.snapshot(), cfg)
 		if use_search and best.has("plan"):
 			## 缓存整回合执行序列（含第一手），本回合后续询问走快路径
 			_plan[_pid] = { "round": game.round_no, "actions": best["plan"], "i": 0 }
@@ -100,6 +101,53 @@ func ask(req: Dictionary) -> int:
 			if idx >= 0:
 				return idx
 	return await super.ask(req)
+
+
+## —— 同步 / 副线程挑选入口（2026-09-20 线程化，与 MC / MCTS 同一套路）——
+
+## 协作让帧（2026-09-20 方案 A）：搜索**只在主线程**跑，绝不派 worker Thread ——
+## worker 里跑递归 alpha-beta + 整回合前推会让 Godot 副线程协程态损坏段错误（见
+## docs/搜索线程化方案说明.md）。改为 intent 在重循环里周期 `await process_frame`
+## 让出一帧：渲染/输入照转、不冻结，确定性不变，客户端+服务器都安全。
+## （use_threading=true 时由 cw_mech_work 打开 intent.coop_every，重循环被节流让帧。）
+func _pick_sync(snap: Dictionary, cfg: Dictionary) -> Dictionary:
+	return await cw_mech_work(snap, cfg)
+
+
+## 核心工作：由快照建独立 image（纯启发式桥），跑 search_best / best_by，返回 best。
+## 只依赖 snap 与 cfg，不碰外层 game / 场景树。use_threading=true → intent 协作让帧。
+static func cw_mech_work(snap: Dictionary, cfg: Dictionary) -> Dictionary:
+	var image: CWGame = CWMonteCarloBridge._build_image_static(snap, {
+		"fixed_lineup": bool(cfg.get("fixed_lineup", false)),
+		"lifecare": bool(cfg.get("lifecare", false)),
+		"sim_no_lifecare": bool(cfg.get("sim_no_lifecare", false)),
+	})
+	var pid: int = int(cfg["pid"])
+	var fac: int = int(cfg["my_faction"])
+	var intent := MechIntent.new()
+	if bool(cfg.get("use_threading", false)):
+		intent.coop_ms = 24   ## 时间片让帧：距上次让帧超 24ms 才让一帧（快问零开销，UI 永不被堵超 24ms）
+	var best: Dictionary
+	if bool(cfg["use_search"]):
+		## 叶估值 = 拟合 E(s)，**按搜索方阵营翻号一次**（树内所有值统一搜索方视角，
+		## 节点 max/min 由 _ab_line 按行动方阵营处理）——v1 按 metrics.faction 翻号
+		## 会让 alpha/beta 跨节点量纲不一致，v2 修正。
+		var my_fac: int = fac
+		var lin: bool = bool(cfg.get("fit_linear", false))
+		var leaf: Callable = func(m: Dictionary) -> float:
+			var ev: float = MechValue.position_eval_linear(m) if lin else MechValue.position_eval(m)
+			return ev if my_fac == CWData.Faction.IMMUNE else -ev
+		best = await intent.search_best(image, pid, leaf, int(cfg["depth"]), int(cfg["top_k"]))
+	else:
+		var scorer: Callable
+		if bool(cfg.get("use_fit_eval", false)):
+			scorer = MechBridge._fit_score
+		else:
+			scorer = MechBridge._cancer_score if fac == CWData.Faction.CANCER \
+				else MechBridge._immune_score
+		best = await intent.best_by(image, pid, scorer)
+	image.dispose()
+	return best
 
 
 ## 癌方视角：地盘 + 供给 + 能量差，再叠局部与战略维度：
@@ -153,14 +201,6 @@ static func _immune_score(m: Dictionary) -> float:
 		- float(m["cancer_supply"]) - float(m["win_progress"]) \
 		+ float(m["memory"])
 
-
-## scorer 选择（实例方法：需要读 use_fit_eval）：拟合估值是零和 E（免疫 max / 癌 min），
-## 两侧共用同一可调用（内部按阵营翻号）。
-func _pick_scorer(fac: int) -> Callable:
-	if use_fit_eval:
-		return MechBridge._fit_score
-	return MechBridge._cancer_score if fac == CWData.Faction.CANCER \
-		else MechBridge._immune_score
 
 ## 零和拟合估值包装：免疫 +E，癌 −E（E 的 log-odds 定义见 MechValue.position_eval）。
 ## 【实锤实验】补回三个 actor 战术项（权重抄旧手拍基线，非新拍数）——验证

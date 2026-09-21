@@ -924,7 +924,10 @@ func _wire_bridge(level: int) -> void:
 			alt_ai.max_sim_steps = MCTS_MAX_STEPS
 			alt_ai.use_threading = thinking
 		else:
-			alt_ai = MechBridge.new()   ## 意图评估在主线程同步跑（可接受，后续再线程化）
+			alt_ai = MechBridge.new()
+			## 意图/搜索档都开协作让帧（方案 A）：搜索只在主线程跑，重循环周期让出一帧
+			## → 不冻结；不派 worker Thread（Godot 副线程协程态会段错误）。护栏 t_mech_bridge_quiet。
+			alt_ai.use_threading = thinking
 			if level == AI_ABS:
 				## 「搜索」档 = mech_strength 里验证过的 abs 配置：alpha-beta v2（叶=回合边界）
 				## + E4 新平衡拟合估值（log 版）。同款决策在 AI 互撞实测：免 58% 对旧意图免。
