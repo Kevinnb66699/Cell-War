@@ -22808,6 +22808,13 @@ func _s9b_live() -> void:
 		"右栏那份镜像也真的换了：玩家是癌方、站 (0,0)、五席")
 	check(str(m._tutor_level.get("id", "")) == S9B_LEVEL and m._director.level.get("id", "") == S9B_LEVEL,
 		"游标没被重置回分镜 1（完整换局那一条不调 director.open）")
+	## ★ 2026-09-21 回归：翻转后真身节点必须重建 —— 癌细胞贴图建节点时定一次，
+	## 旧节点不重建的话玩家到进第六关之前都顶着旧贴图（Kevin 真机）
+	await process_frame
+	var node0 := m._cell_nodes[S9B_HUMAN] as Sprite2D
+	check(m._cell_nodes.size() == 5 and node0 != null and node0.texture == CWMatch.CANCER_ART[CWData.CancerType.SCLC],
+		"★ 翻转重建细胞节点：玩家的真身已是小细胞肺癌贴图（实测 %d 只 / %s）"
+			% [m._cell_nodes.size(), str(node0.texture.resource_path if node0 != null else "")])
 
 	## ---- ③④⑤ 分镜 8 / 9 / 10：**真的走钩子**（levels/interlude.gd）----
 	## 皮换成计数皮：真皮的 `say` 是个按帧走的协程，无头里没必要真等它念完；
@@ -22818,14 +22825,14 @@ func _s9b_live() -> void:
 	m._tutor_fx.auto_play = false
 	var fl: Array = m._tutor_level["flow"]
 	await _s9b_hook(m, fl[11] as Dictionary)        ## 分镜 8：alarm
-	var said := {}
+	## 2026-09-21：那句「发现新的敌人，继续清除——」不在新手教程 PRD 里，已删净 ——
+	## 分镜 8 现在是静默拍（钩子只记流水账），计数皮不该收到任何 say
+	var said_count := 0
 	for e in tal.log:
 		if str((e as Dictionary)["kind"]) == "say":
-			said = (e as Dictionary)["args"]
-	check(str(said.get("who", "")) == "seat:%d" % S9B_MACRO
-			and str(((said.get("lines", PackedStringArray()) as PackedStringArray))[0]).begins_with("发现新的敌人"),
-		"★ 分镜 8 的说话人由钩子运行期挑：离玩家最近的那只免疫（实测 %s）"
-			% str(said.get("who", "")))
+			said_count += 1
+	check(said_count == 0,
+		"★ 分镜 8 静默：非 PRD 台词已删，计数皮一条 say 都没收到（实测 %d 条）" % said_count)
 
 	## ---- ⑤ 分镜 9：三次攻击，带子精确用尽 ----
 	await _s9b_hook(m, fl[12] as Dictionary)        ## 分镜 9：assault

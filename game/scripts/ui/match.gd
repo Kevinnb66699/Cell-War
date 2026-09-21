@@ -1539,7 +1539,12 @@ func _tutor_reopen(wid: String, fresh_cursor: bool) -> void:
 	if fresh_cursor:
 		glide = _tutor_glide_capture()   ## 抄在 `_tutor_cut()` 之前：下一行老盘面就当帧消失
 		_tutor_cut()
-		_reset_diff_state()              ## 上一关的细胞节点与差分基准一并清掉（同拆局）：新一关从零差分
+	## **两条路都清**（2026-09-21 Kevin 真机：间章翻转演完后主细胞没变成小细胞、进第六关才变对）：
+	## 癌细胞贴图是建节点时定一次的（`_make_cell_node` 头注），关内完整换局同样换了「一局」——
+	## 玩家的癌变种类在 flip 里换成了 SmallCellLung，旧节点不重建就永远是旧图；差分基准同账
+	## （09-20 跨关那笔：−9930 飘字 / 传送残影）。演出让位按**下标**认细胞（`_tutor_fx_cid`），
+	## 重建后下标仍是 0，morph 收尾前新真身照旧藏着，看不见一帧跳变。
+	_reset_diff_state()
 	## 拆旧局的次序钉死：**abort 永远排在 stop 之前** —— 只有 abort() 里的 _barrier_seq = 0
 	## 能放掉正在等 ack 的那条 roll；先停队列就没人 ack，5 秒后内核报 barrier timeout
 	kernel.abort()
