@@ -22856,6 +22856,33 @@ func _s9b_live() -> void:
 		if str(s).contains("分镜"):
 			logged += 1
 	check(logged >= 4, "钩子流水账记了四笔以上（实测 %d）" % logged)
+
+	## ---- 关间承接（2026-09-21 Kevin「检查新手引导是否连续」）：间章末与第六关关首同一盘面 ----
+	## 老路是 `_tutor_reopen`：整盘 469 格当帧消失再按环重浮 —— 盘面一个字没变，纯属闪一下。
+	## 现在承接活局：桥不换、没有替身飞行、一格不灭；第六关关首那条 state 在章节提示底下
+	## 静默把 world 换到 base（内核随重装换新、tuning 跟上，盘面零变化）
+	var bridge_before = m.bridge
+	var tiles_total: int = m.board.active_tiles().size()
+	## 直接调换关函数（对局里它就是 level_done 的那一条路）。钩子是上面带外直驱的、
+	## 导演自己的 _tick 还在后面补 say 行——先把它的 _process 停掉，不然带外的 rematch 行
+	## 会在换关等待里抢跑重开一局（上一版这条断言就是被它顶翻的）
+	m._director.set_process(false)
+	await m._tutor_next_level("c3_l6", true)
+	m._director.set_process(true)
+	await _tutor_pump(30)              ## 章节提示底下 flow[0]（state.load base）静默换装
+	check(m.bridge == bridge_before and str(m._stage.level.get("id", "")) == "c3_l6",
+		"★ 间章→第六关承接活局：桥没换、剧本已切到 c3_l6（重开那条路必换桥；实测 level %s / 桥没换 %s）"
+			% [str(m._stage.level.get("id", "")), str(m.bridge == bridge_before)])
+	check(m._tutor_glide.is_empty() and not m._tutor_cells_held,
+		"没有替身在飞、也没按住细胞（同一盘面不需要过渡）")
+	var still_shown := 0
+	for c in m.board.active_tiles():
+		if m.board.tile_shown(c):
+			still_shown += 1
+	check(still_shown == tiles_total,
+		"★ 469 格一格没灭过（实测亮 %d / %d）" % [still_shown, tiles_total])
+	check(str(m._stage.world_id) == "base",
+		"第六关关首 state 已在章节提示底下静默装好（world → base，attack 上限的旋钮跟上）")
 	m._director.view = null
 	tal.queue_free()
 	m.teardown()
