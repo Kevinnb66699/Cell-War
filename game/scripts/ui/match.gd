@@ -1467,7 +1467,7 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 	if _tutor_view != null and is_instance_valid(_tutor_view):
 		_tutor_view.hint("")
 		_tutor_view.clear_point()
-	if TUTOR_SCRIPT.adopts_live(_tutor_level):
+	if TUTOR_SCRIPT.adopts_live(_tutor_level) or _tutor_live_matches_base():
 		if _stage != null:
 			_stage.level = _tutor_level
 		_tutor_start_level()
@@ -1475,6 +1475,56 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 			_director.rebase_hard()
 		return
 	_tutor_reopen("base", true)
+
+
+## 下一关的关首盘面与当前活局**逐格逐只相同**吗（2026-09-21 Kevin「检查新手引导是否连续」）？
+## 相同就承接活局（同 `adopts_live` 那一支）：不做 `_tutor_cut` 那一刀、不整盘按环重浮 ——
+## 间章最后一拍 `solid` 本来就是照第六关 `base` 摆的（护栏 ⑨「间章末尾的盘面 = 第六关开局盘面」），
+## 再切一次等于 469 格无意义地消失又重建。
+## **tuning 不进比对**：承接后新一关关首那条 `state.load` 会照常发 `want_load`，
+## `_tutor_load_world` 的守卫按 world_id 判（"solid" ≠ "base"）→ 静默重装一次、盘面零变化，
+## 正好把新一关的旋钮带上（间章 `solid` 没拧 `attack_max_per_turn`，第六关 base 拧成 0）。
+## **带子不空的关不承接**：`rolls` 的带子是开局挂在 rng 上的，承接换不来新一关那份。
+## 关首 `load` 不是字符串（recenter / rematch / by_player_type）的也不接 —— 那些不是「同一盘面」。
+func _tutor_live_matches_base() -> bool:
+	if _stage == null or kernel == null:
+		return false
+	var flow: Array = _tutor_level.get("flow", [])
+	if flow.is_empty() or not (_tutor_level.get("rolls", []) as Array).is_empty():
+		return false
+	var head_load: Variant = (flow[0] as Dictionary).get("load", "base")
+	if typeof(head_load) != TYPE_STRING:
+		return false
+	var script := TUTOR_SCRIPT.new()
+	var live := script.resolve(_stage.level, str(_stage.world_id))
+	var base := script.resolve(_tutor_level, str(head_load))
+	if live.is_empty() or base.is_empty():
+		return false
+	for k in ["radius", "round", "phase", "seat"]:
+		if not script.deep_eq(live.get(k), base.get(k)):
+			return false
+	## tiles / cells 按「格 / 席位」keyed 比对：`resolve` 的 from+patch 合并只保证**集合**相等，
+	## 数组次序随写法漂移（间章 solid 是 flip 打补丁合出来的、第六关 base 是手写的，逐格全同、
+	## 次序不同）。玩家表次序就是席位序，不稳的只有这两张
+	if not script.deep_eq(_tutor_tiles_by_at(live), _tutor_tiles_by_at(base)):
+		return false
+	if not script.deep_eq(_tutor_cells_by_seat(live), _tutor_cells_by_seat(base)):
+		return false
+	return true
+
+
+static func _tutor_tiles_by_at(spec: Dictionary) -> Dictionary:
+	var out := {}
+	for t in spec.get("tiles", []):
+		out[str((t as Dictionary).get("at", ""))] = t
+	return out
+
+
+static func _tutor_cells_by_seat(spec: Dictionary) -> Dictionary:
+	var out := {}
+	for c in spec.get("cells", []):
+		out[str((c as Dictionary).get("seat", ""))] = c
+	return out
 
 
 ## 单机局（一位真人对 AI）：真人那一席的名字加「（我）」后缀（Kevin 2026-09-19「方便玩家进行定位」）。
@@ -1539,7 +1589,12 @@ func _tutor_reopen(wid: String, fresh_cursor: bool) -> void:
 	if fresh_cursor:
 		glide = _tutor_glide_capture()   ## 抄在 `_tutor_cut()` 之前：下一行老盘面就当帧消失
 		_tutor_cut()
-		_reset_diff_state()              ## 上一关的细胞节点与差分基准一并清掉（同拆局）：新一关从零差分
+	## **两条路都清**（2026-09-21 Kevin 真机：间章翻转演完后主细胞没变成小细胞、进第六关才变对）：
+	## 癌细胞贴图是建节点时定一次的（`_make_cell_node` 头注），关内完整换局同样换了「一局」——
+	## 玩家的癌变种类在 flip 里换成了 SmallCellLung，旧节点不重建就永远是旧图；差分基准同账
+	## （09-20 跨关那笔：−9930 飘字 / 传送残影）。演出让位按**下标**认细胞（`_tutor_fx_cid`），
+	## 重建后下标仍是 0，morph 收尾前新真身照旧藏着，看不见一帧跳变。
+	_reset_diff_state()
 	## 拆旧局的次序钉死：**abort 永远排在 stop 之前** —— 只有 abort() 里的 _barrier_seq = 0
 	## 能放掉正在等 ack 的那条 roll；先停队列就没人 ack，5 秒后内核报 barrier timeout
 	kernel.abort()

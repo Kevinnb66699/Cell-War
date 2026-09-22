@@ -102,17 +102,13 @@
     { "do": "say", "prd": 277, "who": "player", "lines": ["使用【迁移】移动到癌细胞相邻格"] },
 
     { "do": "player", "prd": 279,
-      "hint": "自己算一条最省的路，走到癌细胞旁边",
       "allow": ["k=action|act=move"],
       "until": { "state": "beside" },
-      "reset_when": { "state": "stuck" },
-      "advise_when": { "state": "low_energy_beside", "arg": 35 },
-      "advise": "能量算亏了，这一路打不完。点左上角「重置本关」再来一次吧" },
+      "reset_when": { "state": "stuck" } },
 
     { "do": "say", "step": "Step2", "prd": 289, "who": "player", "lines": ["继续攻击癌细胞"] },
 
     { "do": "player", "prd": 291,
-      "hint": "迁到癌细胞那一格就是攻击",
       "allow": ["k=action|act=move|to=5,-1"],
       "until": { "delta": "attacked", "count": 2 } },
 
@@ -121,7 +117,6 @@
     { "do": "say", "prd": 299, "who": "player", "lines": ["不要灰心，继续尝试攻击"] },
 
     { "do": "player", "prd": 301,
-      "hint": "再打一次，这一下是大成功",
       "allow": ["k=action|act=move|to=5,-1"],
       "until": { "state": "all_dead" } }
   ],

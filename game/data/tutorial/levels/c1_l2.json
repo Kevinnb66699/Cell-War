@@ -76,7 +76,6 @@
 
     { "do": "point", "prd": 183, "ui": ["bar:迁移"], "hex": ["-1,-1"], "mode": "soft" },
     { "do": "player", "prd": 183,
-      "hint": "点底部「迁移」，一格一格走到右边的癌组织上",
       "allow": ["k=action|act=move|to=-3,-1", "k=action|act=move|to=-2,-1",
         "k=action|act=move|to=-1,-1"],
       "until": { "delta": "purified" } },
@@ -87,7 +86,6 @@
 
     { "do": "point", "prd": 191, "ui": ["bar:迁移"], "hex": ["0,-1"], "mode": "soft" },
     { "do": "player", "prd": 191,
-      "hint": "再往前一格，把另一格癌组织也净化掉",
       "allow": ["k=action|act=move|to=0,-1"],
       "until": { "delta": "purified" } },
 
@@ -102,7 +100,6 @@
 
     { "do": "point", "prd": 233, "ui": ["bar:迁移"], "hex": ["1,-1"], "mode": "soft" },
     { "do": "player", "prd": 233,
-      "hint": "迁到癌细胞那一格，就是对它发起攻击",
       "allow": ["k=action|act=move|to=1,-1"],
       "until": { "state": "all_dead" } }
   ],

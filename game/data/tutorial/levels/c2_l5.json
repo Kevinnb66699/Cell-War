@@ -712,7 +712,6 @@
     {
       "do": "player",
       "prd": 365,
-      "hint": "点「分化」，挑一种免疫细胞",
       "allow": [
         "k=action|act=move",
         "k=action|act=differentiate"
@@ -771,7 +770,6 @@
     {
       "do": "player",
       "prd": 403,
-      "hint": "把场上的癌细胞全部杀掉；想换个职业就点左上角的「切换种类」",
       "allow": [
         "k=action|act=move",
         "k=action|act=antibody",
