@@ -407,7 +407,6 @@
     {
       "do": "player",
       "prd": 347,
-      "hint": "满盘都是癌组织：净化和攻击都攒抗原记忆，把免疫等级顶到 III 级",
       "allow": [
         "k=action|act=move"
       ],

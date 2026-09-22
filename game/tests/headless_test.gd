@@ -20865,32 +20865,30 @@ func t_tutor_c1() -> void:
 	_tutor_c1_tape(run3, "第三关")
 	_tutor_c1_close(run3)
 
-	## ---- ⑤ 劝重置：命中时不重置、只换提示行 + 重置按钮慢闪，而且 `until` **不翻页** ----
+	## ---- ⑤ 次优路（2026-09-21 改判）：PRD 里没有劝重置的文案，advise 那一组已删 ----
+	## 次优路走到相邻格：不再劝（无 urge_reset / 无提示行文案），`until: beside` 照常翻页
 	var run4 := _tutor_c1_open(lv3)
 	var g4: CWGame = run4["game"]
 	var dir4 = run4["dir"]
-	## 次优路（绕 r=0 排）：0.5×3 + 1.0×2 = 3.5 ⇒ 剩 3.1 < 阈值 3.5 ⇒ 当场劝
+	## 次优路（绕 r=0 排）：0.5×3 + 1.0×2 = 3.5 ⇒ 剩 3.1 —— 原先低于 3.5 那一档会触发劝重置
 	await _tutor_c1_drive(run4, [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0), Vector2i(3, 0),
 		Vector2i(4, 0)], "第三关次优路")
 	await _tutor_pump(4)
 	var step1_at: int = 3          ## flow 里 Step1 那条 player 的下标
-	check(int(g4.cell_of(0)["energy"]) == 31 and dir4._advising and dir4._at == step1_at,
-		"次优路剩 3.1 < 3.5 ⇒ 劝重置命中：**不重置、也不翻页**（游标仍停在 Step1 那条，实测 %d）" % dir4._at)
+	check(int(g4.cell_of(0)["energy"]) == 31 and not dir4._advising and dir4._at > step1_at,
+		"次优路剩 3.1 也不再劝（advise 组已删）：`until: beside` 照常翻页（游标 %d 已过 Step1）" % dir4._at)
 	var v4log: Array = (run4["view"] as CWTutorViewTally).log
-	var last_hint := ""
-	var urged := false
-	var reset_played := false
+	var urged4 := false
+	var hinted4 := false
 	for e in v4log:
-		var kind := str((e as Dictionary)["kind"])
-		if kind == "hint":
-			last_hint = str(((e as Dictionary)["args"] as Dictionary)["text"])
-		elif kind == "urge_reset":
-			urged = bool(((e as Dictionary)["args"] as Dictionary)["on"])
-		elif kind == "reset_anim":
-			reset_played = true
-	var advise_text := str((lv3["flow"][step1_at] as Dictionary).get("advise", ""))
-	check(last_hint == advise_text and urged and not reset_played,
-		"劝重置只换提示行 + 重置按钮慢闪，一帧重置动画都没播（提示行：%s）" % last_hint)
+		var kind4 := str((e as Dictionary)["kind"])
+		if kind4 == "urge_reset":
+			urged4 = urged4 or bool(((e as Dictionary)["args"] as Dictionary)["on"])
+		elif kind4 == "hint":
+			## 导演每帧都写 hint（含清空的那一笔），只数**真的把字写上屏**的
+			hinted4 = hinted4 or str(((e as Dictionary)["args"] as Dictionary)["text"]) != ""
+	check(not urged4 and not hinted4,
+		"全程无 urge_reset、无 hint 上屏（两样文案都随 PRD 对账删净，机制留给别处用）")
 	_tutor_c1_close(run4)
 
 	## ---- ⑥ 自动重置：`stuck` 命中 ⇒ 先播重置动画、再退回关首（游标归零 + 代际 +1）----
@@ -21030,15 +21028,14 @@ func t_tutor_energy_formula() -> void:
 			and g.actions.base_verdict(6) == "crit",
 		"带子 3 / 1 / 6 对应 PRD:257 的「成功、失效、大成功」")
 
-	## ---- ⑥ 劝重置阈值 35 把最省与次优分得干干净净 ----
-	var advise := 0
+	## ---- ⑥ 劝重置阈值（2026-09-21 改判）：advise 组随 PRD 对账删净，不再有阈值 ----
+	var advise_n := 0
 	for r in lv["flow"]:
 		var row: Dictionary = r
 		if row.has("advise_when"):
-			advise = int((row["advise_when"] as Dictionary).get("arg", 0))
-	check(advise == attacks + counter and got - best >= advise and got - 35 < advise,
-		"劝重置阈值 %s = 攻击三次 + 反弹自损：最省剩 %s 不劝、次优 3.5 剩 %s 当场劝"
-			% [CWData.fmt(advise), CWData.fmt(got - best), CWData.fmt(got - 35)])
+			advise_n += 1
+	check(advise_n == 0,
+		"第三关不再带 advise_when/advise（PRD 没有劝重置文案；同条件的兜底是 stuck 自动重置）")
 	g.dispose()
 
 ## 意图级 AI（PR #59 的第四档）**只许在独立副本上试走**（Kevin 2026-09-19：「意图级 AI 会导致动画乱套或重复播放，
@@ -22825,14 +22822,16 @@ func _s9b_live() -> void:
 	m._tutor_fx.auto_play = false
 	var fl: Array = m._tutor_level["flow"]
 	await _s9b_hook(m, fl[11] as Dictionary)        ## 分镜 8：alarm
-	## 2026-09-21：那句「发现新的敌人，继续清除——」不在新手教程 PRD 里，已删净 ——
-	## 分镜 8 现在是静默拍（钩子只记流水账），计数皮不该收到任何 say
-	var said_count := 0
+	## 台词 = 教程 PRD「周围免疫弹出文字提示：发现新的敌人，继续清除——」的原文
+	## （2026-09-21 拿到正本对账后确认在册、恢复；说话人仍由钩子运行期挑最近免疫）
+	var said := {}
 	for e in tal.log:
 		if str((e as Dictionary)["kind"]) == "say":
-			said_count += 1
-	check(said_count == 0,
-		"★ 分镜 8 静默：非 PRD 台词已删，计数皮一条 say 都没收到（实测 %d 条）" % said_count)
+			said = (e as Dictionary)["args"]
+	check(str(said.get("who", "")) == "seat:%d" % S9B_MACRO
+			and str(((said.get("lines", PackedStringArray()) as PackedStringArray))[0]).begins_with("发现新的敌人"),
+		"★ 分镜 8 的说话人由钩子运行期挑：离玩家最近的那只免疫（台词逐字对 PRD）（实测 %s）"
+			% str(said.get("who", "")))
 
 	## ---- ⑤ 分镜 9：三次攻击，带子精确用尽 ----
 	await _s9b_hook(m, fl[12] as Dictionary)        ## 分镜 9：assault

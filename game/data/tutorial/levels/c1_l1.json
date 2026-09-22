@@ -63,7 +63,6 @@
     { "do": "point", "prd": 137, "ui": ["bar:迁移"], "hex": ["-4,-1"], "mode": "soft" },
 
     { "do": "player", "prd": 137,
-      "hint": "点底部「迁移」，再点右边那一格",
       "allow": ["k=action|act=move|to=-4,-1"],
       "until": { "delta": "moved" } }
   ],
