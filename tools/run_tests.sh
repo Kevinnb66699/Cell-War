@@ -25,8 +25,10 @@ RUNNER=""
 if [ "$TIMEOUT" -gt 0 ]; then
 	if command -v timeout >/dev/null 2>&1; then
 		RUNNER="timeout -k 10 $TIMEOUT"
+	elif command -v gtimeout >/dev/null 2>&1; then   # macOS：brew install coreutils 装的是 gtimeout
+		RUNNER="gtimeout -k 10 $TIMEOUT"
 	else
-		echo "⚠ 找不到 timeout，跳过墙钟上限（单帧死循环将无人兜底）"
+		echo "⚠ 找不到 timeout / gtimeout，跳过墙钟上限（单帧死循环将无人兜底；macOS 上 brew install coreutils）"
 	fi
 fi
 trap 'rm -rf "$TMP"' EXIT

@@ -15,6 +15,8 @@ cd "$(dirname "$0")/.."
 RUNNER=""
 if [ "$TIMEOUT" -gt 0 ] && command -v timeout >/dev/null 2>&1; then
 	RUNNER="timeout -k 10 $TIMEOUT"
+elif [ "$TIMEOUT" -gt 0 ] && command -v gtimeout >/dev/null 2>&1; then   # macOS：brew install coreutils 装的是 gtimeout
+	RUNNER="gtimeout -k 10 $TIMEOUT"
 fi
 CODE=0
 

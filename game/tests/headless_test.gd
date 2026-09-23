@@ -14112,8 +14112,11 @@ func _net_pair(srv: CWNetServer, a: CWNetClient, b: CWNetClient) -> bool:
 
 ## 甲建房、乙加入、各坐 0/1 号席并准备
 func _net_room(srv: CWNetServer, a: CWNetClient, b: CWNetClient, players: int, timer: int, seed_value: int) -> bool:
+	## 打完一局后 a.code 还是上一个房间号（没收到 left 不会清）——只等「非空」会被旧号骗过、立刻往下走，
+	## 乙随后 join 进旧房间。Windows 上服务器回复碰巧在同一轮 poll 里到、一直没暴露；Mac 上必现（2026-09-23）
+	var old_code := a.code
 	a.create_room(players, timer, true, seed_value)
-	if not await _net_pump(srv, [a, b], func() -> bool: return a.code != ""):
+	if not await _net_pump(srv, [a, b], func() -> bool: return a.code != "" and a.code != old_code):
 		return false
 	b.join(a.code)
 	if not await _net_pump(srv, [a, b], func() -> bool: return b.code == a.code):
