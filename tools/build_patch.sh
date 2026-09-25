@@ -126,6 +126,8 @@ fi
 # 比它老的客户端会被 boot.gd 拦下来，提示去下完整包，而不是硬套一个可能用不了的补丁。
 # 基线号从 patch_state.gd 的常量读（放 .txt 里的第一版没进导出包，见那边的注释）。
 MIN_BASE="$(grep -oE '^const BASE_BUILD := [0-9]+' game/scripts/patch_state.gd | grep -oE '[0-9]+$')"
+# notes = 最近一次提交的标题，**按 JSON 转义**（反斜杠、双引号）—— 不转义的话说明里一个引号就写坏 manifest
+NOTES="$(git log -1 --format=%s | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
 SHA="$(sha256sum "$OUT" | cut -d' ' -f1)"
 # 补丁包放**自家服务器**（Kevin 2026-09-09：国内比 GitHub 快一个量级）。
 # 明文 HTTP 没关系：完整性由下面写进 manifest 的 SHA-256 保证，
@@ -144,9 +146,15 @@ cat > "$OUTDIR/latest.json" <<JSON
   "min_base": $MIN_BASE,
   "pck": "$HOST/$(basename "$OUT")",
   "sha256": "$SHA",
-  "notes": "$(git log -1 --format=%s)"
+  "notes": "$NOTES"
 }
 JSON
+# manifest 必须是合法 JSON：提交说明里带引号 / 反斜杠就把它写坏（2026-09-24 一份带「"null"」的说明让线上 manifest
+# 解析不出来、客户端一个补丁都收不到）。上面已经转义过；这里再用 python 解析一遍，坏了就停在上传之前
+if command -v python3 >/dev/null 2>&1; then
+	python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$OUTDIR/latest.json" \
+		|| die "manifest 不是合法 JSON（提交说明里有没转义干净的字符？）"
+fi
 echo
 echo "manifest → $OUTDIR/latest.json"
 cat "$OUTDIR/latest.json"
