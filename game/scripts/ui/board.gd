@@ -157,7 +157,7 @@ signal drag_ended
 var hovered := NO_TILE
 
 ## 「指针此刻是不是被某个界面控件占着」。默认问视口（4.2 起有这个查询）；无头测试里视口不跟踪悬停控件
-## （喂事件也不更新，2026-09-06 探过），所以做成可替换的 Callable —— 和 CWMainMenu.guide_done_check 同一个套路。
+## （喂事件也不更新，2026-09-06 探过），所以做成可替换的 Callable（无头测试注入假判据、不碰真实文件的套路）。
 var pointer_on_control: Callable = func() -> bool:
 	return get_viewport().gui_get_hovered_control() != null
 

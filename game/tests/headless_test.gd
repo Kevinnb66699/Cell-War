@@ -17771,6 +17771,23 @@ func t_entry_smoke_tutorial() -> void:
 	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
 	root.add_child(main_scene)
 	await process_frame
+	## 2026-09-25 Kevin：通关之后再点「新手引导」不再弹「教程对手癌种」四选一（教程 v2 的癌种是关卡数据，
+	## 选了也没用）—— 直接发信号开局。先把 main 的接线摘掉，免得这一问真起一局
+	CWGuideProgress.set_all_done()
+	var menu = main_scene.menu
+	menu.tutorial_requested.disconnect(main_scene._begin_tutorial)
+	var asked: Array = [0]
+	var probe := func(_t: int) -> void: asked[0] += 1
+	menu.tutorial_requested.connect(probe)
+	menu._open_tutorial()
+	await process_frame
+	check(asked[0] == 1 and CWGuideProgress.all_done() and (menu._confirm == null or not menu._confirm.visible),
+		"★ 全通关过的存档点「新手引导」：直接发 tutorial_requested、不弹对手癌种选单（发了 %d 次，覆盖层 %s）"
+			% [asked[0], "没建" if menu._confirm == null else str(menu._confirm.visible)])
+	menu.tutorial_requested.disconnect(probe)
+	menu.tutorial_requested.connect(main_scene._begin_tutorial)
+	CWGuideProgress.clear()
+	await process_frame
 	var m: CWMatch = main_scene.match_node
 	m.tutorial = true
 	CWSettings.ai_delay_ms = 0
