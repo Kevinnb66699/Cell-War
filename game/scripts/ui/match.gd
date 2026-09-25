@@ -92,6 +92,9 @@ var _npc_deciders: Array = []
 ## 教程演出「击退」（`play knockback` 带 `actor`）刚把某只细胞画到的落点：紧接着的 `state.load` 把真身钉到同一格时
 ## **不再演传送**（否则替身飞完、真身又溶解传送一次 —— 09-24 复核抓到的双重位移）。cell id → 落点，用一次就删
 var _tutor_knocked := {}
+## 通关停顿的代际：`_tutor_next_level` 每进一次 +1。目录跳关走的是同一个函数，承接活局那一支（间章）不动 `_loop_id`，
+## 只靠 `_loop_id` 守的话停顿里从图鉴跳去间章、2 s 后 `tutorial_done` 照发、人被拉回主菜单（09-25 复核抓到）
+var _tutor_done_gen := 0
 
 ## 此刻能不能存档：引擎只在 pending 边界有完整快照（CWSave 的写入条件）。
 ## 暂停菜单拿它决定「保存并退出」亮不亮。联机局不写本地存档（状态在服务器，掉线凭令牌重连）。
@@ -1487,15 +1490,19 @@ func _tutor_entry_world() -> String:
 func _tutor_next_level(next_id: String, mark_done := true) -> void:
 	if not tutorial or kernel == null:
 		return
+	_tutor_done_gen += 1
 	if mark_done:
 		CWGuideProgress.set_done(_tutor_index)
 	if next_id == "" or not _tutor_goto(next_id):
 		if mark_done:
 			CWGuideProgress.set_all_done()
-			## 通关：给最后一条解锁小卡 / 冲击波留一口气再回主菜单（Q-14 默认；Kevin 09-25「最后卡在了这里」）
+			## 通关：给最后一条解锁小卡 / 冲击波留一口气再回主菜单（Q-14 默认；Kevin 09-25「最后卡在了这里」）。
+			## 计时**随暂停停**（process_always=false）：暂停菜单开着时到点返场，`fade_out` 会把常驻的暂停菜单淡没、
+			## 树却还停着 —— 一张冻住的棋盘（09-25 复核抓到）。到点再核代际：拆局 / 重置动 `_loop_id`，目录跳关动 `_tutor_done_gen`
 			var lid := _loop_id
-			await get_tree().create_timer(TUTOR_DONE_LINGER).timeout
-			if _loop_id == lid and tutorial and kernel != null:
+			var gen := _tutor_done_gen
+			await get_tree().create_timer(TUTOR_DONE_LINGER, false).timeout
+			if _loop_id == lid and _tutor_done_gen == gen and tutorial and kernel != null:
 				tutorial_done.emit()
 		return
 	## 真通关（不是目录跳关）先等关末的结算演出播完、再停一拍才切（Kevin 2026-09-19：
