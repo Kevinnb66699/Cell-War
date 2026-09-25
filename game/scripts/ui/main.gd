@@ -67,6 +67,7 @@ func _ready() -> void:
 	pause.action_bar = match_node.action_bar
 	match_node.finished.connect(_on_match_finished)
 	match_node.replay_opening.connect(_replay_opening)
+	match_node.tutorial_done.connect(_back_to_menu)   ## 教程全部通关 → 返场回主菜单（Q-14 默认，09-25 接上）
 	settle.chose.connect(_on_settle_chose)
 	## 首次进入才询问一次。旧版进度文件视为已访问；选新手后即使只过了半关，
 	## 下次启动也回主菜单。Main 作为测试夹具挂树时不是开机，不弹这层。

@@ -18,6 +18,9 @@ signal finished(winner: int)
 ## 教程目录底部那行「Cell War」：重看开场（S6）。`opening_seen` 已经清掉了，
 ## 接线方（`main.gd`）收摊这一局再重进引导即可 —— 开场动画本体是 `main.gd` 的活
 signal replay_opening
+## 教程全部通关（最后一关的 `on_done` 为空）：主场景收摊回主菜单（Q-14 的默认「回主菜单」；
+## Kevin 2026-09-25 真机「最后卡在了这里」—— 此前只记一笔进度，画面就停在最后一拍）
+signal tutorial_done
 
 ## 棋盘和相机都是**同级节点**：开场过场是同一个镜头往前推、不切场景，
 ## 所以菜单和对局共用同一张棋盘、同一台相机（见 Main.tscn 与 main.gd）。
@@ -202,6 +205,8 @@ const CELL_FOOT_DY := 6.0
 ## 教程镜头换机位的补间时长（PRD:9-22 的「镜头变化」，S3）。
 ## 关首 / 重置是 0（直接就位），关内换 step 与地图浮现走这个数
 const TUTOR_CAM_SECS := 0.45
+## 全部通关之后停多久再回主菜单（最后一拍是冲击波 1.2 s + 解锁小卡）
+const TUTOR_DONE_LINGER := 2.0
 ## 同一格站了多个细胞时左右错开的间距
 const STACK_DX := 9.0
 ## 普通攻击的本体冲撞（队友 PR #30）：没有 class_name —— 新类名热更装不上，所以走 preload
@@ -1487,6 +1492,11 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 	if next_id == "" or not _tutor_goto(next_id):
 		if mark_done:
 			CWGuideProgress.set_all_done()
+			## 通关：给最后一条解锁小卡 / 冲击波留一口气再回主菜单（Q-14 默认；Kevin 09-25「最后卡在了这里」）
+			var lid := _loop_id
+			await get_tree().create_timer(TUTOR_DONE_LINGER).timeout
+			if _loop_id == lid and tutorial and kernel != null:
+				tutorial_done.emit()
 		return
 	## 真通关（不是目录跳关）先等关末的结算演出播完、再停一拍才切（Kevin 2026-09-19：
 	## 「攻击大成功的弹窗消失之前，第二章已经开始了」）。等的这几秒闸是关死的（导演 `_finish()`）。
