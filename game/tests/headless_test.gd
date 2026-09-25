@@ -175,7 +175,7 @@ func _run_all() -> void:
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
 		t_observe_budget,
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
-		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial,
+		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial, t_settings_button,
 		t_entry_smoke_replay, t_entry_smoke_online,
 		t_kernel_parity, t_no_engine_in_ui, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_kernel_loader_moved, t_board_active_tiles,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
@@ -17842,6 +17842,49 @@ func t_entry_smoke_tutorial() -> void:
 	## ★ 等这一帧把它真的释放掉：`queue_free` 是延迟的，而 `CWMatch._exit_tree` 会再走一遍
 	## `teardown()`（含 `CWTutorLayers.reset()`）—— 不等的话那一下会落在**下一个测试**的中间，
 	## 把教程 UI 层开关悄悄推回默认（09-19：t_tutor_flow 单跑绿、跟在这条后面跑红）
+	await process_frame
+
+
+## 网页版右上角「设置」按钮（Kevin 2026-09-25：手机玩家没有 Esc）：只在 web 导出里建；点一下 = Esc 开暂停菜单、
+## 再点一下收；结算屏（pause.active=false）时藏；拆局后藏
+func t_settings_button() -> void:
+	print("[网页版右上角设置按钮 = Esc]")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	check(not m.settings_button_wanted and m._settings_btn == null,
+		"非 web 导出（无头 = 桌面）缺省不建：桌面有 Esc")
+	m.settings_button_wanted = true
+	m.human_players = [0]
+	m.player_count = 4
+	m.start()
+	await process_frame
+	await process_frame
+	var btn = m._settings_btn
+	check(btn != null and btn.visible and btn.get_index() > m.pause_menu.get_index()
+			and Rect2(btn.position, btn.size) == CWMatch.SETTINGS_BTN
+			and btn.process_mode == Node.PROCESS_MODE_ALWAYS,
+		"★ 开局建在 UI 层最顶（暂停菜单之上）、钉在右上角 %s、暂停时照常收输入" % str(CWMatch.SETTINGS_BTN))
+	btn.press()
+	await process_frame
+	await process_frame
+	check(m.pause_menu.visible and paused and btn.get_index() > m.pause_menu.get_index(),
+		"★ 点一下 = Esc：暂停菜单开、树冻住，按钮仍在菜单之上（菜单 open() 会 move_to_front，真机抓到第二下被模态层吃掉；visible=%s paused=%s）"
+			% [str(m.pause_menu.visible), str(paused)])
+	btn.press()
+	await process_frame
+	check(not m.pause_menu.visible and not paused, "再点一下：菜单收、树解冻")
+	m.pause_menu.active = false
+	await process_frame
+	await process_frame
+	check(not btn.visible, "结算屏期间（pause.active=false）自己藏起来")
+	m.pause_menu.active = true
+	await process_frame
+	m.teardown()
+	await process_frame
+	check(not btn.visible and not paused, "拆局后藏、树没冻着")
+	main_scene.queue_free()
 	await process_frame
 
 
