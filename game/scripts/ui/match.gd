@@ -92,6 +92,13 @@ var _npc_deciders: Array = []
 ## 教程演出「击退」（`play knockback` 带 `actor`）刚把某只细胞画到的落点：紧接着的 `state.load` 把真身钉到同一格时
 ## **不再演传送**（否则替身飞完、真身又溶解传送一次 —— 09-24 复核抓到的双重位移）。cell id → 落点，用一次就删
 var _tutor_knocked := {}
+## 网页版右上角「设置」按钮（Kevin 2026-09-25：手机玩家没有 Esc）：点它 = Esc，开 / 收暂停菜单。
+## **只在 web 导出里建**（桌面有 Esc；安卓要的话把判据加一档就行）；无头测试把 `settings_button_wanted`
+## 置 true 再 start()。位置钉在屏幕右上角：右栏「第 N 回合」那行到 x≈850 就完了，(912..948, 12..48) 是空的；
+## 36 px 是手机横屏下（960 宽缩到 ≈850 CSS px）指头点得中的下限
+const SETTINGS_BTN := Rect2(960.0 - 12.0 - 36.0, 12.0, 36.0, 36.0)
+var settings_button_wanted := OS.has_feature("web")
+var _settings_btn: SettingsIcon = null
 ## 通关停顿的代际：`_tutor_next_level` 每进一次 +1。目录跳关走的是同一个函数，承接活局那一支（间章）不动 `_loop_id`，
 ## 只靠 `_loop_id` 守的话停顿里从图鉴跳去间章、2 s 后 `tutorial_done` 照发、人被拉回主菜单（09-25 复核抓到）
 var _tutor_done_gen := 0
@@ -804,6 +811,7 @@ func _prepare_ui() -> void:
 		for c in ui.get_children():
 			if c is Control:
 				(c as Control).modulate.a = 1.0
+	_ensure_settings_button()
 	if pause_menu != null:
 		pause_menu.active = true
 		## 菜单形制一律先还原成本地局，联机 / 回放各自的 start 会紧接着再打开。
@@ -2219,6 +2227,29 @@ func fade_out(seconds: float) -> void:
 				_fade_tws.append(ui_tw)
 
 
+## 网页版右上角的「设置」按钮：懒建一次、加在 UI 层**最顶**（暂停菜单之上 —— 菜单开着时再点一下要能收掉），
+## 之后每局 `_prepare_ui` 亮、`teardown` 藏；结算屏期间（`pause_menu.active` 为假）它自己藏
+func _ensure_settings_button() -> void:
+	if not settings_button_wanted or ui == null or pause_menu == null:
+		return
+	if _settings_btn == null:
+		_settings_btn = SettingsIcon.new()
+		_settings_btn.match_node = self
+		_settings_btn.position = SETTINGS_BTN.position
+		_settings_btn.size = SETTINGS_BTN.size
+		ui.add_child(_settings_btn)
+	_settings_btn.visible = true
+
+
+## 点「设置」= Esc：开 / 收暂停菜单。图鉴开着、对局已结束（结算屏）时不响应，同 `CWPauseMenu._unhandled_input` 的闸
+func _settings_pressed() -> void:
+	if pause_menu == null or not pause_menu.active:
+		return
+	if pause_menu.codex_open.is_valid() and pause_menu.codex_open.call():
+		return
+	pause_menu.toggle()
+
+
 ## 拆掉当前这一局，把棋盘擦回开局前的样子。
 ##
 ## 返回主菜单必须走这里：棋盘和相机是**和菜单共用的同一份**，
@@ -2226,6 +2257,8 @@ func fade_out(seconds: float) -> void:
 func teardown() -> void:
 	_fading = false
 	_loop_id += 1            ## 联机：让 _net_loop 退出（回放的 _replay_loop 同理）
+	if _settings_btn != null:
+		_settings_btn.visible = false   ## 菜单背景里不该留着它（每局 _prepare_ui 再亮）
 	_tutor_glide_abort()     ## 关间过渡飞到一半就返回主菜单：替身不能留在菜单背景里
 	## 播放器和控制条是这一份回放的，拆局就得撒手。**不撒手的话下一局带着走**：
 	## 控制条留在屏幕上；更糟的是 `_unhandled_input` 见 `replay != null` 就把方向键
@@ -3354,3 +3387,50 @@ static func doom_pulse(ms: int = -1) -> float:
 	var t: float = float(Time.get_ticks_msec() if ms < 0 else ms) / 1000.0
 	var k := 0.5 + 0.5 * sin(t * DOOM_HZ * TAU)
 	return lerpf(DOOM_ALPHA.x, DOOM_ALPHA.y, k)
+
+
+## 右上角那颗「设置」图标：底 + 描边 + 一枚齿轮，形制照左上角教程图标（`CWTutorChrome.Icon`）。
+## `PROCESS_MODE_ALWAYS`：本地局暂停菜单一开树就冻住，它还得收得到第二下点击去收菜单
+class SettingsIcon extends Control:
+	const BG := Color("0a1018cc")
+	const BG_HOT := Color("12212ee6")
+	var match_node: CWMatch = null
+	var hot := false
+
+	func _ready() -> void:
+		process_mode = Node.PROCESS_MODE_ALWAYS
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		mouse_entered.connect(func() -> void: hot = true; queue_redraw())
+		mouse_exited.connect(func() -> void: hot = false; queue_redraw())
+
+	func _process(_dt: float) -> void:
+		## 结算屏期间（main 把 pause.active 关掉）藏起来：Esc 那时归结算屏，这颗也不该在
+		if match_node != null and match_node.pause_menu != null and match_node.kernel != null:
+			visible = match_node.pause_menu.active
+			## 暂停菜单 open() 会 move_to_front() 压到最顶（它要压住日志 / 聊天），这颗得再翻上去，
+			## 不然菜单开着时第二下点击全被模态层吃掉（真机合成点击抓到的：再点收不掉）
+			if match_node.pause_menu.visible and get_index() < match_node.pause_menu.get_index():
+				move_to_front()
+
+	func _gui_input(e: InputEvent) -> void:
+		if (e is InputEventMouseButton and (e as InputEventMouseButton).pressed \
+				and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT) \
+				or (e is InputEventScreenTouch and (e as InputEventScreenTouch).pressed):
+			accept_event()
+			press()
+
+	## 测试与真机截图脚本走这一条（同一下点击）
+	func press() -> void:
+		if match_node != null:
+			match_node._settings_pressed()
+
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), BG_HOT if hot else BG, true)
+		draw_rect(Rect2(Vector2.ZERO, size), Color(CWStyle.LINE, 0.5 if hot else 0.3), false, 1.0)
+		var ink: Color = CWStyle.TEXT_HI if hot else CWStyle.TEXT
+		var c := size / 2.0
+		draw_arc(c, 5.5, 0.0, TAU, 24, ink, 2.0)          ## 齿轮：一圈环 + 六枚齿
+		for k in 6:
+			var dir := Vector2.RIGHT.rotated(float(k) * TAU / 6.0)
+			draw_line(c + dir * 6.5, c + dir * 9.5, ink, 2.5)
