@@ -2790,7 +2790,9 @@ func _sync_cells() -> void:
 		## 镜像差分正好落在代画那一段里，拿 node.visible 去判会把**攻击伤害**这条最该演的飘字吃掉。
 		## `_last_energy[i] = e` 照旧在条件外更新：差分基准不能跟着跳过。
 		var e: int = int(c["energy"])
-		var muted: bool = CWTutorLayers.energy_mode() == "infinite" \
+		## `"null"`（第六关 PRD:455「能量保持为 Null」）与 `"infinite"` 同样静：右栏写着 Null、头顶却飘「+5.1」「-3.0」
+		## （无氧收入 / 重装把哨兵拨回去的差分），09-24 真机截图抓到的
+		var muted: bool = CWTutorLayers.energy_mode() in ["infinite", "null"] \
 				and (e >= CWTutorLayers.INFINITE_MIN or _last_energy[i] >= CWTutorLayers.INFINITE_MIN)
 		if _energy_fx != null and _last_energy[i] != ENERGY_FX.UNSEEN and e != _last_energy[i] \
 				and not became_alive and board.is_active(pos) and not muted:

@@ -448,6 +448,12 @@ func _enter_play(row: Dictionary) -> void:
 	if kind == "":
 		push_warning("flow[%d] 是 play 却没写 fx" % _at)
 		return
+	## 演出一开演，上一条 `player` 留下的提示行与提亮 / 控件旁小气泡收掉（`say` 本来就收、`player` 会重挂）：
+	## 第六关第 9 步 T 放光束时底下还挂着「点右边的结束回合」，右栏那颗按钮收了、小气泡掉到左上角
+	## （2026-09-24 真机截图）。每一条 `player` 都自己重挂 hex / ui，收在这儿不影响后面的提示
+	if view != null and is_instance_valid(view):
+		view.hint("")
+		view.clear_point()
 	var args: Dictionary = (row.get("args", {}) as Dictionary).duplicate(true)
 	if row.has("at"):
 		args["at"] = _fx_where(row["at"])

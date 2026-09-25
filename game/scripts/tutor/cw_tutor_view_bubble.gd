@@ -368,9 +368,16 @@ static func card_right() -> float:
 	return CODEX_RIGHT_SIDEBAR if CWTutorLayers.on("sidebar") else CODEX_RIGHT
 
 
+## 几个解锁点落到同一条目（第六关第 6 步 压迫 / 增生 / 侵蚀 三点共用「E 阶段」）就只滑一张卡 ——
+## 三张一模一样的「【E 阶段】」摞在右上角（2026-09-24 真机截图）
 func codex_unlocked(ids: PackedStringArray) -> void:
+	var seen: Array = []
 	for id in ids:
-		_push_card(card_title(str(id)))
+		var title := card_title(str(id))
+		if title in seen:
+			continue
+		seen.append(title)
+		_push_card(title)
 
 
 func _push_card(title: String) -> void:
