@@ -22719,6 +22719,8 @@ func t_tutor_c3_drive() -> void:
 	var seats_at10: Array = []
 	var tp_at10 := -1              ## 传送演出计数：两次击退重装都不该演传送（09-24 复核抓到的双重位移）
 	var tex_at10: Texture2D = null   ## 印戒切换：signet 重装前后玩家真身的贴图（09-24 真机：模型没变）
+	var cancer_at25: Array = []      ## signet 重装前的盘面（两跳落过的 (-5,1) (-10,1) 烘进 signet，重装不抹）
+	var solid_at25: Array = []
 	var tex_after_signet: Texture2D = null
 	var tp_at17 := -1
 	var knock_hidden: Array = []   ## 两条 play knockback 起手那一帧真身是否让位（actor: player）
@@ -22748,6 +22750,9 @@ func t_tutor_c3_drive() -> void:
 				tp_at17 = int(m._teleport_fx.played)
 			if dd._at == 10 and m._tutor_cell_id(0) >= 0:
 				tex_at10 = (m._cell_nodes[m._tutor_cell_id(0)] as Sprite2D).texture
+			if dd._at == 25 and m.mirror != null:              ## 像素错误：signet 重装前
+				cancer_at25 = _tutor_tissue_tiles(m, CWData.Tissue.CANCER)
+				solid_at25 = _tutor_tissue_tiles(m, CWData.Tissue.SOLID)
 			## signet 重装（26）之后：换图发生在重装后第一次 _sync_cells，像素错误演出收尾那一帧真身还让着位；
 			## 到黏液破裂放出去（29 冲击波）时贴图早已是印戒，按区间抓第一帧
 			if dd._at >= 29 and dd._at <= 31 and tex_after_signet == null and m._tutor_cell_id(0) >= 0:
@@ -22846,7 +22851,24 @@ func t_tutor_c3_drive() -> void:
 		"★ 两条 play knockback 起手真身就让位（actor: player）、knock1 / knock2 两次重装一次传送都没演（让位 %s；传送计数 %d → %d）"
 			% [str(knock_hidden), tp_at10, tp_at17])
 
-	## ---- ④c 第 19 步印戒切换：signet 重装之后玩家真身的贴图跟着换（Kevin 09-24 真机：模型没变）----
+	## ---- ④c 第 19 步印戒切换：signet 重装之后玩家真身的贴图跟着换（Kevin 09-24 真机：模型没变）；
+	##      两跳落过的 (-5,1) (-10,1) 烘进 signet，重装前后癌 / 固化逐格相同 ----
+	## 重装后的盘面直接拿数据算（黏液破裂在 replay 下一问就爆、镜像来不及截）：resolve(signet) 的癌 / 固化 = 重装前活局
+	var sg: Dictionary = TUTOR_SCRIPT.new().resolve(m._tutor_level, "signet")
+	var sg_cancer: Array = []
+	var sg_solid: Array = []
+	for t in sg.get("tiles", []):
+		var p: PackedStringArray = str((t as Dictionary)["at"]).split(",")
+		var at := Vector2i(int(p[0]), int(p[1]))
+		if str((t as Dictionary).get("state", "")) == "cancer":
+			sg_cancer.append(at)
+		elif str((t as Dictionary).get("state", "")) == "solid":
+			sg_solid.append(at)
+	sg_cancer.sort()
+	sg_solid.sort()
+	check(cancer_at25.size() == 14 and cancer_at25 == sg_cancer and solid_at25 == sg_solid,
+		"★ signet 重装前的活局 = 数据里的 signet 盘面（两跳落过的 (-5,1) (-10,1) 烘进了 signet，重装不抹；癌 活局 %d / 数据 %d，固化 %d / %d）"
+			% [cancer_at25.size(), sg_cancer.size(), solid_at25.size(), sg_solid.size()])
 	check(tex_at10 == CWMatch.CANCER_ART[CWData.CancerType.SCLC]
 			and tex_after_signet == CWMatch.CANCER_ART[CWData.CancerType.SIGNET],
 		"★ 印戒切换：signet 重装前是小细胞肺癌贴图、之后真身立刻换成印戒贴图（前 %s / 后 %s）"
