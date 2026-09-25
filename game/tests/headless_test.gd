@@ -22718,6 +22718,8 @@ func t_tutor_c3_drive() -> void:
 	var solid_at14: Array = []
 	var seats_at10: Array = []
 	var tp_at10 := -1              ## 传送演出计数：两次击退重装都不该演传送（09-24 复核抓到的双重位移）
+	var tex_at10: Texture2D = null   ## 印戒切换：signet 重装前后玩家真身的贴图（09-24 真机：模型没变）
+	var tex_after_signet: Texture2D = null
 	var tp_at17 := -1
 	var knock_hidden: Array = []   ## 两条 play knockback 起手那一帧真身是否让位（actor: player）
 	var last_at := -1
@@ -22744,6 +22746,12 @@ func t_tutor_c3_drive() -> void:
 				knock_hidden.append(m._tutor_fx_cid == m._tutor_cell_id(0))
 			if dd._at == 17 and m._teleport_fx != null:
 				tp_at17 = int(m._teleport_fx.played)
+			if dd._at == 10 and m._tutor_cell_id(0) >= 0:
+				tex_at10 = (m._cell_nodes[m._tutor_cell_id(0)] as Sprite2D).texture
+			## signet 重装（26）之后：换图发生在重装后第一次 _sync_cells，像素错误演出收尾那一帧真身还让着位；
+			## 到黏液破裂放出去（29 冲击波）时贴图早已是印戒，按区间抓第一帧
+			if dd._at >= 29 and dd._at <= 31 and tex_after_signet == null and m._tutor_cell_id(0) >= 0:
+				tex_after_signet = (m._cell_nodes[m._tutor_cell_id(0)] as Sprite2D).texture
 			if dd._at == 10 and m.mirror != null:          ## 第 9 步的效应应答：第 8 步刚收口
 				if m._teleport_fx != null:
 					tp_at10 = int(m._teleport_fx.played)
@@ -22837,6 +22845,13 @@ func t_tutor_c3_drive() -> void:
 	check(knock_hidden == [true, true] and tp_at10 >= 0 and tp_at17 == tp_at10,
 		"★ 两条 play knockback 起手真身就让位（actor: player）、knock1 / knock2 两次重装一次传送都没演（让位 %s；传送计数 %d → %d）"
 			% [str(knock_hidden), tp_at10, tp_at17])
+
+	## ---- ④c 第 19 步印戒切换：signet 重装之后玩家真身的贴图跟着换（Kevin 09-24 真机：模型没变）----
+	check(tex_at10 == CWMatch.CANCER_ART[CWData.CancerType.SCLC]
+			and tex_after_signet == CWMatch.CANCER_ART[CWData.CancerType.SIGNET],
+		"★ 印戒切换：signet 重装前是小细胞肺癌贴图、之后真身立刻换成印戒贴图（前 %s / 后 %s）"
+			% [str(tex_at10.resource_path.get_file()) if tex_at10 != null else "null",
+				str(tex_after_signet.resource_path.get_file()) if tex_after_signet != null else "null"])
 
 	## ---- ⑤ NPC 脚本游标（09-24 复核抓到的两条路径：重置本关 / 承接进关）----
 	## `_tutor_set_npc` 换脚本才清游标、同一份反复登记不动；`_tutor_npc_rewind`（重置 / 承接时调）全清

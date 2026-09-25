@@ -2804,6 +2804,14 @@ func _sync_cells() -> void:
 		if c["faction"] == CWData.Faction.IMMUNE:
 			_apply_immune_art(node as Sprite2D, c["itype"], not became_alive)
 			_sync_doom(node as Sprite2D, c)
+		elif int(c.get("ctype", -1)) >= 0:
+			## 癌种一局之内本不会变，但教程用关内重装换种（第六关第 19 步小细胞肺癌 → 印戒，PRD:511-513 的
+			## `state.load: signet`）：贴图跟着镜像走，**瞬间**换 —— 像素错误那段演出已经把「变形」演完、
+			## 演出期间真身让位（beat 带 actor），收尾露出来的就该是新形态；再交叉淡入反而像变了两次。
+			## Kevin 2026-09-24 真机：「印戒切换的时候，细胞的模型并没有修改」
+			var want: Texture2D = CANCER_ART[int(c["ctype"])]
+			if (node as Sprite2D).texture != want:
+				_set_cell_art(node as Sprite2D, want)
 		## 回合脚标（方案 D，Kevin 2026-09-12 晚）：轮到的这只细胞头顶一枚箭。挂在这里而不是 _sync_tiles，
 		## 因为只有这里知道它此刻画在哪（同格错位、被伪足拉着走都算）、贴图多高、头顶有没有冠印
 		if int(tm.get("cid", -1)) == i:
@@ -2995,7 +3003,8 @@ func _sync_hand_watch() -> void:
 
 func _make_cell_node(cell: Dictionary) -> Node2D:
 	var node := Sprite2D.new()
-	## 癌细胞的种类一局之内不会变（会变形态的只有免疫方的分化），贴图建节点时定一次就够。
+	## 癌细胞的种类正式局里一局之内不会变（会变形态的只有免疫方的分化），贴图建节点时定一次；
+	## 教程关内重装换种（第六关印戒）由 `_sync_cells` 按镜像的 ctype 补换（09-24）。
 	## 免疫的 itype 会变，所以它的贴图交给 _sync_cells 每帧对一次。
 	## 死亡占位（教程 fixture 的缺席方，ctype -1）：不配贴图，反正永不可见。
 	if cell["faction"] == CWData.Faction.CANCER:
