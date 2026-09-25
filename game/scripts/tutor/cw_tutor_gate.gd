@@ -58,6 +58,11 @@ static func mutes_bubbles() -> bool:
 
 func _bubble_result(text: String, at: Vector2i, linger: bool) -> void:
 	if mutes_bubbles():
+		## 掷骰时 `show_roll` 挂的那行「攻击」是 hold=0、专等结算说明来顶掉的（基类 `_bubble_result` 第一句
+		## 就是 `toast.hide_box()`）；气泡静了也得把它收掉，否则第六关巨噬打一下之后「攻击」框挂到通关
+		## （2026-09-24 真机截图）。静的是结算那句话，不是掷骰的收尾
+		if toast != null:
+			toast.hide_box()
 		return
 	super._bubble_result(text, at, linger)
 

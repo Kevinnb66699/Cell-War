@@ -18687,8 +18687,9 @@ func t_tutor_flow() -> void:
 		var k := str((e as Dictionary)["kind"])
 		if k != "block":
 			seq.append(k)
+	## 09-24：`play` 一开演先收提示行与提亮（hint "" + clear_point），再轮到 player 重挂 hint
 	check(seq == ["chapter", "shell", "reveal", "point", "codex_unlocked", "say",
-			"hint", "urge_reset"],
+			"hint", "clear_point", "hint", "urge_reset"],
 		"意图序列逐条相同（实测 %s）" % str(seq))
 	## PRD:39：先结算界面与状态、再显示文本提示
 	check(seq.find("reveal") < seq.find("say") and seq.find("shell") < seq.find("say"),
@@ -19876,6 +19877,12 @@ func t_tutor_view_bubble() -> void:
 	check((view._cards[0] as Control).position.x
 			> CWTutorViewBubble.card_right() - CWTutorViewBubble.CODEX.x,
 		"卡从右缘外往里滑（这一帧还没到位）")
+	## 09-24：几个解锁点落到同一条目只滑一张（第六关第 6 步 压迫 / 增生 / 侵蚀 = 「E 阶段」，真机摞了三张一样的）
+	var before_cards: int = view._cards.size()
+	view.codex_unlocked(PackedStringArray(["pressure", "proliferate", "erosion"]))
+	await process_frame
+	check(view._cards.size() == before_cards + 1,
+		"★ 同一条目的几个解锁点只滑一张卡（%d → %d）" % [before_cards, view._cards.size()])
 	check(CWTutorViewBubble.card_right() == CWTutorViewBubble.CODEX_RIGHT_SIDEBAR,
 		"右栏开着时卡让开那 264px（右缘 %.0f）" % CWTutorViewBubble.CODEX_RIGHT_SIDEBAR)
 	CWTutorLayers.apply({ "sidebar": false })
@@ -22400,6 +22407,13 @@ func t_tutor_c3() -> void:
 	await _tutor_pump(6)
 	var shut: Variant = spy6.last()          ## 主游标在 hook 那一条上 ⇒ 全禁
 	## 先试非阻塞条目：装完就还回 `[]`（它不该把闸留开着）
+	## 09-24 真机：`play` 一开演就把上一条 `player` 留下的提示行与提亮 / 小气泡收掉（第 9 步 T 放光束时底下
+	## 还挂着「点右边的结束回合」、右栏按钮收了小气泡掉到左上角）
+	view6.clear_log()
+	d6.run_beat({ "do": "play", "prd": 487, "fx": "beam_hit", "at": "-11,1", "secs": 0.1,
+		"args": { "from": "-11,1", "target": 0 } }, d6.epoch)
+	check(Array(view6.kinds()).has("hint") and Array(view6.kinds()).has("clear_point"),
+		"★ play 一开演就收掉提示行与提亮（实测 %s）" % str(view6.kinds()))
 	d6.run_beat({ "do": "point", "prd": 467, "hex": ["-1,0"], "mode": "soft" }, d6.epoch)
 	var back: Variant = spy6.last()
 	## 再试阻塞的 `player`：它得把自己的 `allow` 装上去，并一直撑到跑完
@@ -22898,8 +22912,8 @@ func t_tutor_c3_ui() -> void:
 			break
 		if not dd.active and dd._at >= flow.size():
 			break
-		## 钩子发的 beat（围圈那一步步）住在 `_beat_row`，主游标那一行是 `hook`；两处都要看
-		var row: Dictionary = dd._beat_row if dd._beat_row is Dictionary else dd._row()
+		## 钩子发的 beat（围圈那一步步）住在 `_beat_row`，主游标那一行是 `hook`；两处都要看（只在钩子真在跑时信它）
+		var row: Dictionary = dd._beat_row if dd._beat_row is Dictionary and int(dd._hook_depth) > 0 else dd._row()
 		var sig := "%d|%s" % [dd._at, str(row.get("allow", ""))]
 		var now := Time.get_ticks_msec()
 		if sig != last_sig:
@@ -22961,6 +22975,8 @@ func t_tutor_c3_ui() -> void:
 		"★ 两跳 / 黏液破裂 / 复活 / ≥3 次「结束回合」都是真按出来的（结束回合 %d 次；%s）"
 			% [did.count("k=action|act=end"), str(did.slice(0, 4))])
 	check(slow.is_empty(), "★ 没有任何目标格等镜头超过 3 s（第二跳靠第一跳之后那条 ui.camera、复活靠 {map, center}；超时的：%s）" % str(slow))
+	check(m.toast != null and m.toast._box.modulate.a == 0.0,
+		"★ 掷骰时那行「攻击」在气泡静掉的关里也收掉了（09-24 真机：巨噬第 1 回合打一下之后「攻击」框挂到通关）")
 	m.teardown()
 	await process_frame
 	CWSettings.ai_delay_ms = 220
