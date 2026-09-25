@@ -103,8 +103,10 @@ const MARKER_X := 147.0   ## 菱形中心的横坐标（原型：菜单项左边
 ## 退出确认默认停在「取消」，Esc / 右键 = 取消。连辉光都用 [CWPauseMenu] 的同一份参数 ——
 ## 两处确认长得不一样的话，玩家会以为是两种不同的东西。
 ##
-## 2026-09-05 起同一块覆盖层也给「教程对手癌种」用（引导全部看完后再进「新手引导」，先挑对手；
-## Kevin 拍板）：`_open_pick(标题, 项, 默认项, 选中回调)`，面板高度按项数现算，其余不变。
+## 2026-09-05 起同一块覆盖层做成通用的 `_open_pick(标题, 项, 默认项, 选中回调)`，面板高度按项数现算；
+## 首次进入的「我是新手 / 老手」二选一走它。（曾经还给「教程对手癌种」四选一用：引导全部看完后再进
+## 「新手引导」先挑对手 —— 2026-09-25 Kevin 删：教程 v2 的对手癌种是每关 JSON 里的设计量，挑了也没用，
+## 通关之后再点「新手引导」弹出来只会让人莫名其妙。）
 ## 仍没抽成公共控件：暂停菜单那一套还绑着「暂停整棵树」和「两页切换」，共性只在本文件内复用。
 const CONFIRM_TITLE := "退出游戏？"
 const CONFIRM_ITEMS := ["确定", "取消"]
@@ -115,10 +117,7 @@ const CONFIRM_TITLE_H := 42
 const ENTRY_ITEM_H := 64
 const ENTRY_ITEMS := ["我是新手", "我是老手"]
 const ENTRY_DETAILS := ["进入新手教程", "直接进入游戏"]
-## 教程对手癌种（引导全部看完后再进「新手引导」时弹）：同一块覆盖层换一组项
-const TUTORIAL_PICK_TITLE := "教程对手癌种"
-## 首次教程钉死的对手：骨肉瘤是站桩型，剧本里「落子到癌区外侧 / 迁过去攻击」的提示才成立
-## （固定种子抽到的正好也是它，但抽种类走对局随机数，规则一改就可能换，所以钉死 —— Kevin 2026-09-05 拍板）
+## 「新手引导」信号带的癌种：教程 v2 起 main.gd 不再读它（每关 JSON 定死），留着只为信号形状不变
 const TUTORIAL_CANCER := CWData.CancerType.OSTEO
 
 var _labels: Array[Label] = []
@@ -126,20 +125,17 @@ var _rest_y: Array[float] = []   ## 各项的静止纵坐标，悬停上浮后�
 var _selected := 0
 var _hovered := -1
 var _leave: Tween   ## 退场动画，快速点击要能一步到位
-var _confirm: Control            ## 覆盖式小列表（退出确认 / 教程对手癌种）的整块覆盖层；null = 还没建过
+var _confirm: Control            ## 覆盖式小列表（退出确认 / 首次入口二选一）的整块覆盖层；null = 还没建过
 var _confirm_panel: Control
 var _confirm_title: Label
 var _confirm_labels: Array[Label] = []
 var _confirm_bars: Array[ColorRect] = []
 var _confirm_glow: Control
-var _confirm_items: Array = []   ## 此刻列出的项（CONFIRM_ITEMS 或四种癌）
+var _confirm_items: Array = []   ## 此刻列出的项（CONFIRM_ITEMS 或 ENTRY_ITEMS）
 var _confirm_details: Array = []
 var _entry_choice_open := false
 var _confirm_on_pick := Callable()   ## 选了第 i 项做什么（关层由回调自己负责）
 var _confirm_sel := 1            ## 退出确认默认停在「取消」，别让回车顺手就退了
-## 「引导全部看完了吗」的判据。默认读 CWGuideProgress（user:// 里玩家的真实进度）；
-## 无头测试注入假判据，不碰真实文件
-var guide_done_check := Callable(CWGuideProgress, "all_done")
 var _config: CWConfigPanel       ## 对局配置面板；null = 还没建过
 var _online: CWOnlinePanel       ## 联机面板（连接 / 大厅 / 等待室）；null = 还没建过
 var _replay: CWReplayPanel       ## 回放面板（列表）；同上，懒建
@@ -535,19 +531,9 @@ func _open_confirm() -> void:
 			_close_confirm())
 
 
-## 「新手引导」：引导全部看完过的玩家先挑对手癌种再开局（Kevin 2026-09-05：过完教程可自由选）；
-## 没看完（或从没进过）就钉死骨肉瘤直接开
+## 「新手引导」：直接开教程局，按进度续到上次那一关。不再弹「教程对手癌种」（2026-09-25 Kevin 删，见文件头注）
 func _open_tutorial() -> void:
-	if not (guide_done_check.is_valid() and guide_done_check.call()):
-		tutorial_requested.emit(TUTORIAL_CANCER)
-		return
-	var types: Array = CWData.CancerType.values()
-	var names: Array = []
-	for t in types:
-		names.append(CWData.CANCER_TYPE_NAMES[t])
-	_open_pick(TUTORIAL_PICK_TITLE, names, types.find(TUTORIAL_CANCER), func(i: int) -> void:
-		_close_confirm()
-		tutorial_requested.emit(types[i]))
+	tutorial_requested.emit(TUTORIAL_CANCER)
 
 
 ## 弹出覆盖式小列表：title 标题、items 各项文字、default_sel 默认停在哪一项、on_pick(i) 选中回调
