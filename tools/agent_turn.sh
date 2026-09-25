@@ -124,6 +124,6 @@ while :; do
 	sleep "$POLL"
 	waited=$(awk -v w="$waited" -v p="$POLL" 'BEGIN{print w+p}')
 	case $(awk -v w="$waited" -v t="$TIMEOUT" 'BEGIN{print (w>t)}') in
-		1) echo "还没轮到席位 $SEAT（其余席位还在行动）。不带下标再调一次即可 —— 这很正常。"; exit 5;;
+		1) echo "还没轮到席位 ${SEAT}（其余席位还在行动）。不带下标再调一次即可 —— 这很正常。"; exit 5;;
 	esac
 done

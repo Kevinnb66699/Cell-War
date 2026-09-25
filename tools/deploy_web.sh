@@ -32,12 +32,12 @@ DEBUG="${DEBUG:-0}"
 
 die() { echo "✘ $1" >&2; exit 1; }
 
-[ -x "$GODOT" ] || die "找不到 Godot：$GODOT（用 GODOT=... 指定）"
+[ -x "$GODOT" ] || die "找不到 Godot：${GODOT}（用 GODOT=... 指定）"
 
 MODE="--export-release"
 [ "$DEBUG" = "1" ] && MODE="--export-debug"
 
-echo "导出网页版（$MODE）…"
+echo "导出网页版（${MODE}）…"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 ABS="$(pwd)/$OUT/index.html"
