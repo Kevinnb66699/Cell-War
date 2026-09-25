@@ -453,11 +453,11 @@ func _enter_play(row: Dictionary) -> void:
 		args["at"] = _fx_where(row["at"])
 	if args.has("actor"):
 		args["actor"] = _fx_where(args["actor"])
-	for k in ["from", "to"]:
+	for k in ["from", "to", "target"]:
 		if args.has(k):
 			args[k] = _fx_where_each(args[k])
 	if args.has("target") and not args.has("to"):
-		args["to"] = _fx_where(args["target"])
+		args["to"] = args["target"]
 	if row.has("seed"):
 		args["seed"] = int(row["seed"])
 	_play_seq += 1

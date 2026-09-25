@@ -86,6 +86,9 @@ var _tutor_cam := {}
 var _tutor_cam_tween: Tween = null
 ## 非人类席位的脚本 decider（`cw_tutorial_npc.gd` 的 Decider）。一席一只、留着引用只为不被 GC
 var _npc_deciders: Array = []
+## 教程演出「击退」（`play knockback` 带 `actor`）刚把某只细胞画到的落点：紧接着的 `state.load` 把真身钉到同一格时
+## **不再演传送**（否则替身飞完、真身又溶解传送一次 —— 09-24 复核抓到的双重位移）。cell id → 落点，用一次就删
+var _tutor_knocked := {}
 
 ## 此刻能不能存档：引擎只在 pending 边界有完整快照（CWSave 的写入条件）。
 ## 暂停菜单拿它决定「保存并退出」亮不亮。联机局不写本地存档（状态在服务器，掉线凭令牌重连）。
@@ -1013,6 +1016,7 @@ func _attach_tutor() -> void:
 	## 演出层不认识席位（方案 §3.7 的纪律）：席位 → 格由导演那条线换
 	_tutor_fx.seat_at = _tutor_seat_at
 	_tutor_fx_cid = -1
+	_tutor_knocked = {}
 	board.add_child(_tutor_fx)
 	_tutor_view.fx = _tutor_fx
 	## 通报气泡别落在说明行上（Kevin 2026-09-12 截图）：禁区矩形**归皮挂**（接口纪律 3，
@@ -1271,6 +1275,16 @@ func _tutor_play(kind: String, args: Dictionary, done: Callable) -> void:
 			var spr := _cell_nodes[cid] as Sprite2D
 			if spr != null and spr.texture != null:
 				a["tex"] = spr.texture
+	## 击退：记下替身要飞到的格，紧接着的重装把真身钉到那儿时不再演传送（见 `_tutor_knocked`）
+	if kind == "knockback" and cid >= 0 and a.has("to"):
+		var to_v: Variant = a["to"]
+		var to_at: Vector2i = Vector2i.MAX
+		if to_v is Vector2i:
+			to_at = to_v
+		elif typeof(to_v) == TYPE_INT or typeof(to_v) == TYPE_FLOAT:
+			to_at = _tutor_seat_at(int(to_v))
+		if to_at != Vector2i.MAX:
+			_tutor_knocked[cid] = to_at
 	await _tutor_fx.play(kind, a)
 	if cid >= 0 and _tutor_fx_cid == cid:
 		_tutor_fx_cid = -1
@@ -1295,12 +1309,26 @@ func _tutor_cell_id(seat: int) -> int:
 
 
 ## 给某席换脚本（`flow[].npc`，`Decider.plan`）。
-## ⚠ 成员叫 `plan` 不叫 `script`：`Object` 自带 `script`，同名当场编译不过
+## ⚠ 成员叫 `plan` 不叫 `script`：`Object` 自带 `script`，同名当场编译不过。
+## **换了一份脚本 = 游标从头**（`memo` 清零）；同一份反复登记（钩子每轮都喂同一张表）不动游标 ——
+## 09-24 复核抓到：游标在整条教程链路里从不清零，间章分镜 9 喂过巨噬 5 行，承接进第六关时它带着 memo.at=5、
+## 第 1 回合读到「结束回合」不攻击；第六关 B / 树突写死的路线更是从中间读起
 func _tutor_set_npc(seat: int, plan: Array) -> void:
 	for d in _npc_deciders:
 		if int(d.seat) == seat:
+			if str(d.plan) != str(plan):
+				d.memo = {}
 			d.plan = plan.duplicate(true)
 			return
+
+
+## 所有 NPC 的脚本游标归零、脚本清空（`Decider.memo` / `plan`）：重置本关、承接活局进下一关时调。
+## 重置后钩子会重新喂同一份 plan（内容没变 ⇒ `_tutor_set_npc` 不清游标），不在这儿清的话 B / 树突写死的路线
+## 从上一次走到的那一行往下读、够不着的行被跳过，两只再也不动，第 3～8 步整段教学丢失（09-24 复核实测）
+func _tutor_npc_rewind() -> void:
+	for d in _npc_deciders:
+		d.memo = {}
+		d.plan = []
 
 
 ## 教程局的句柄从**舞台**来：舞台读那一关的 JSON、装一份 cwxworld/3、把带子挂上，
@@ -1368,6 +1396,8 @@ func _tutor_load_world(wid: String, back_to_start := false) -> void:
 			% [str(_tutor_level.get("id", "")), wid, str(_stage.errors)])
 		return
 	kernel = k
+	if back_to_start:
+		_tutor_npc_rewind()    ## 重置 = NPC 的脚本游标也从头（见 `_tutor_npc_rewind`）
 	if board != null and back_to_start:
 		board.set_active_tiles(_stage.active_tiles(), 0.0)
 		_tutor_cam = {}
@@ -1480,6 +1510,7 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 	if TUTOR_SCRIPT.adopts_live(_tutor_level) or _tutor_live_matches_base():
 		if _stage != null:
 			_stage.level = _tutor_level
+		_tutor_npc_rewind()    ## 承接活局：decider 是同一批，上一关喂的脚本与游标都不该带进新关（09-24 复核）
 		_tutor_start_level()
 		if _director != null and is_instance_valid(_director):
 			_director.rebase_hard()
@@ -2705,8 +2736,11 @@ func _sync_cells() -> void:
 		## 判定顺序先复活再传送：复活走 _pop_in，不和传送混淆（规格 §三.1）。
 		## 残影要站在它上一帧**实际画的位置**：趁下面覆写 position 之前抄走，同格错位也就自动对上
 		elif c["alive"] and CWData.hex_dist(_last_pos[i], c["pos"]) > 1:
-			jumps.append({ "i": i, "from": _last_pos[i], "to": c["pos"],
-				"ghost_pos": node.position, "ghost_z": node.z_index })
+			if _tutor_knocked.get(i, Vector2i.MAX) == c["pos"]:
+				_tutor_knocked.erase(i)   ## 教程击退演出已经把它画到这一格：真身直接就位，不再演传送
+			else:
+				jumps.append({ "i": i, "from": _last_pos[i], "to": c["pos"],
+					"ghost_pos": node.position, "ghost_z": node.z_index })
 		_was_alive[i] = c["alive"]
 		if c["alive"]:
 			_ever_alive[i] = true

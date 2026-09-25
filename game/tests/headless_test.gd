@@ -39,7 +39,7 @@ var _durations: Array = []   ## [毫秒, 测试名]
 ## 加了明显变慢的测试就把它填进来（跑一次 `-- --timing` 看末尾那张表）；看门狗上限 = 权重 × 4 s
 const WEIGHTS := {
 	"t_ai_same_hash_mcts4": 78.0, "t_ai_same_hash_mc4": 66.5, "t_ai_same_hash_mc6": 58.8, "t_ai_same_hash_mcts6": 34.9,
-	"t_tutor_c3_drive": 26.0, "t_tutor_c3_ui": 18.0, "t_ai_mc": 13.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
+	"t_tutor_c3_drive": 22.0, "t_tutor_c3_ui": 22.0, "t_ai_mc": 13.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_drain": 5.1,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
 	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
@@ -22154,7 +22154,8 @@ func t_tutor_c3() -> void:
 	check(all_cancer and CWData.hex_dist(Vector2i(-2, 0), ring6[0]) == 1
 			and k1.cell_of(0)["pos"] == Vector2i(-1, 1)
 			and not bool(k1.cell_of(1)["alive"]) and bool(k1.cell_of(4)["alive"]),
-		"knock1：围出来的一环（巨噬六邻）五格癌组织 + 出发格 (-2,1) 固化、玩家在第一次击退落点 (-1,1)、只剩最后一个 T")
+		"knock1：围出来的一环（巨噬六邻）五格癌组织 + 出发格 (-2,1) 固化（靠全局 I 期门槛 3.0 × 三次结算，tier C 旋钮钉不住；"
+			+ "门槛一改 t_tutor_c3_drive ④ 先红）、玩家在第一次击退落点 (-1,1)、只剩最后一个 T")
 	var k1_cancer := 0
 	var k1_solid := 0
 	for c in k1.tiles.keys():
@@ -22170,8 +22171,8 @@ func t_tutor_c3() -> void:
 	## 整盘一环的压迫 = 1.5/回合（癌 I 期；PRESSURE_MUL_BY_STAGE 是常量不是旋钮），免疫默认每回合 +3～5 有氧、
 	## 死了下一回合骨髓复活 ⇒ 原数据（三只 3.0）下「重复直到只剩 T」永远等不到。改的是**关卡数据**，压迫公式不动。
 	## 09-24 下午再改：免疫自己走到玩家身边（B / 树突走钩子写死的路线），玩家每一圈从 (-2,1) 出发回到 (-2,1)
-	## —— 能量按路线重算：B 7.5 = 走一格 0.5 + 三发抗体 3.0 + 踩两格癌组织 1.6 + 结算 1.2 + 打一下 0.8 之后剩 0.1；
-	## 树突 2.5 = 走四格 2.0 之后剩 0.5，被围下一次结算就死
+	## —— 能量按路线重算：B 7.5 = 走一格 0.5 + 三发抗体 3.0 + 踩两格癌组织 1.6 = 剩 2.4，第 2 回合结算五癌一健 1.0 剩 1.4，
+	## 第 3 回合打一下 0.8 剩 0.6，结算 1.5 压死；树突 2.5 = 走四格 2.0 之后剩 0.5，被围下一次结算就死
 	var b6: Dictionary = d.resolve(lv, "base")
 	var tune6: Dictionary = b6.get("tuning", {})
 	var no_income := true
@@ -22676,7 +22677,7 @@ func t_tutor_play() -> void:
 ## 钉四件事：① 35 条 flow 走到头；② 三只免疫真的被【微环境压迫】压死（巨噬第 1 世界回合、B 第 2、树突第 3），
 ## 第 8 步两轮重复就收口、没走 pressed 纠偏；③ B 在第 1 回合真发了三发抗体（PRD:479）；
 ## ④ 第 11 步 `knock1` 重装前后癌组织**逐格相同**、且 = 数据里烘的 22 格（走过的痕迹烘在数据里，重装不抹）。
-## 约 26 s（WEIGHTS 里登记着：免疫回合那口气 1.5 s × 3 + 五段演出）。
+## 约 22 s（WEIGHTS 里登记着；免疫回合按回合号等、B 攻击那回合带掷骰演出约 2 s）。
 ## 内核日志跨换局累计：每次 `state.load` 都换一只新 CWGame、`logs` 归零，所以按句柄换新时从 0 重读
 func t_tutor_c3_drive() -> void:
 	print("[新手教程 v2·第六关整关无头走一遍：压迫压死三只免疫 / 两轮重复收口 / knock1 不抹痕迹]")
@@ -22702,6 +22703,9 @@ func t_tutor_c3_drive() -> void:
 	var solid_at10: Array = []
 	var solid_at14: Array = []
 	var seats_at10: Array = []
+	var tp_at10 := -1              ## 传送演出计数：两次击退重装都不该演传送（09-24 复核抓到的双重位移）
+	var tp_at17 := -1
+	var knock_hidden: Array = []   ## 两条 play knockback 起手那一帧真身是否让位（actor: player）
 	var last_at := -1
 	var t0 := Time.get_ticks_msec()
 	var done := false
@@ -22722,7 +22726,13 @@ func t_tutor_c3_drive() -> void:
 			break
 		if dd._at != last_at:
 			last_at = dd._at
+			if dd._at in [12, 15]:
+				knock_hidden.append(m._tutor_fx_cid == m._tutor_cell_id(0))
+			if dd._at == 17 and m._teleport_fx != null:
+				tp_at17 = int(m._teleport_fx.played)
 			if dd._at == 10 and m.mirror != null:          ## 第 9 步的效应应答：第 8 步刚收口
+				if m._teleport_fx != null:
+					tp_at10 = int(m._teleport_fx.played)
 				cancer_at10 = _tutor_tissue_tiles(m, CWData.Tissue.CANCER)
 				solid_at10 = _tutor_tissue_tiles(m, CWData.Tissue.SOLID)
 				for c in m.mirror.cells:
@@ -22778,7 +22788,7 @@ func t_tutor_c3_drive() -> void:
 		"★ 三只免疫各在被围的那一回合死：巨噬第 1 世界回合、树突第 2（自己走到 (-2,2)）、B 第 3（自己走进死巨噬那格 (-2,0)，"
 			+ "玩家把一环重新踩满）；死因是【微环境压迫】或攻击失败【反弹】归零、树突必是压死（实测 %s / %s）" % [str(died), str(cause)])
 	check(antibodies_r1 == 3,
-		"★ B 在第 1 回合真发了三发抗体（PRD:479；4.6 − 迁一步 0.5 − 三发 3.0 = 1.1 < 压迫 1.5；实测 %d 发）" % antibodies_r1)
+		"★ B 在第 1 回合真发了三发抗体（PRD:479；7.5 − 走一格 0.5 − 三发 3.0 = 剩 4.0，第 3 回合才被围死；实测 %d 发）" % antibodies_r1)
 	var seats_ok := seats_at10.size() == 5
 	for row in seats_at10:
 		var pid := int(row[0])
@@ -22809,6 +22819,30 @@ func t_tutor_c3_drive() -> void:
 		"★ 第 11 步 knock1 重装前后癌组织 / 固化格逐格相同、且 = 数据里烘的 12 癌 + 5 固化（癌：前 %d / 后 %d / 数据 %d；固化：前 %d / 后 %d / 数据 %d）"
 			% [cancer_at10.size(), cancer_at14.size(), k1_cancer.size(), solid_at10.size(), solid_at14.size(), k1_solid.size()])
 
+	## ---- ④b 两次击退：替身飞的时候真身让位、紧接着的重装不再演传送（09-24 复核：此前替身飞完真身又溶解一次）----
+	check(knock_hidden == [true, true] and tp_at10 >= 0 and tp_at17 == tp_at10,
+		"★ 两条 play knockback 起手真身就让位（actor: player）、knock1 / knock2 两次重装一次传送都没演（让位 %s；传送计数 %d → %d）"
+			% [str(knock_hidden), tp_at10, tp_at17])
+
+	## ---- ⑤ NPC 脚本游标（09-24 复核抓到的两条路径：重置本关 / 承接进关）----
+	## `_tutor_set_npc` 换脚本才清游标、同一份反复登记不动；`_tutor_npc_rewind`（重置 / 承接时调）全清
+	var dec0 = m._npc_deciders[1] if m._npc_deciders.size() > 1 else null
+	var memo_ok := false
+	if dec0 != null:
+		var seat0: int = int(dec0.seat)
+		var plan_a: Array = [{ "policy": "end_turn" }]
+		var plan_b: Array = [{ "key": "k=action|act=end" }, { "policy": "end_turn" }]
+		m._tutor_set_npc(seat0, plan_a)
+		dec0.memo = { "at": 1 }
+		m._tutor_set_npc(seat0, plan_a)              ## 同一份：游标不动
+		var kept: bool = int((dec0.memo as Dictionary).get("at", -1)) == 1
+		m._tutor_set_npc(seat0, plan_b)              ## 换了一份：游标从头
+		var cleared: bool = (dec0.memo as Dictionary).is_empty()
+		dec0.memo = { "at": 3 }
+		m._tutor_npc_rewind()
+		memo_ok = kept and cleared and (dec0.memo as Dictionary).is_empty() and (dec0.plan as Array).is_empty()
+	check(memo_ok, "★ NPC 脚本游标：同一份 plan 反复登记不动游标、换一份就清零、重置 / 承接时全清（09-24 复核：重置后 B / 树突路线从中间读起再也不动）")
+
 	m.teardown()
 	await process_frame
 	CWSettings.ai_delay_ms = 220
@@ -22828,15 +22862,16 @@ func _tutor_tissue_tiles(m: CWMatch, tissue: int) -> Array:
 	return out
 
 
-## 第六关**真实界面**走后半段（2026-09-24 Kevin「第二段转移按不出去」的护栏）：前半段用 replay 快进，
-## 从第 14 步的台词起清掉 replay，像真人一样**按技能栏的按钮、点棋盘格**（`bar.chosen.emit` / `board.tile_clicked.emit`
-## 走的仍是 `ui_bridge._prompt` 的 on_button / on_tile 闭包，`tiles.has` 与 `tile_selectable`（通用规则 13）两道判据都过）。
-## `replay_answers` 直接在 `CWUIBridge.ask` 里作答、根本走不到点格子那一步，所以 t_tutor_c3_drive 测不到这一类 bug。
-## 钉四件：① 第一跳 (-5,1)；② **第二跳 (-10,1)**——镜头本来停在关首机位、(-10,1) 在镜头框外点不动，
-## 第一跳之后那条 `state.ui.camera` 让镜头跟过去之后才点得动；③【黏液破裂】按钮直接执行；④ 复活格 (0,0) 在镜头回整盘机位之后点得动。
-## 约 18 s（WEIGHTS 登记）
+## 第六关**全程真实界面**（09-24 复核后从「只走后半段」改成全程）：一次 replay 都不用 —— 每一条 `player` 都像真人一样
+## 按行动栏 / 技能栏的按钮、点棋盘格（`bar.chosen.emit` / `board.tile_clicked.emit` 走的仍是 `ui_bridge._prompt` 的
+## on_button / on_tile 闭包，`tiles.has` + `tile_selectable`（通用规则 13）两道判据都过）、按右栏「结束回合」（按之前先核它可见）。
+## `replay_answers` 在 `CWUIBridge.ask` 里当场作答、走不到这些闭包，所以 t_tutor_c3_drive 测不到这一类 bug
+## （09-24 真机「第二段转移按不出去」= 落点 (-10,1) 在镜头框外被规则 13 挡掉，drive 是绿的）。
+## 钉：① 37 条走到头、真实界面操作 ≥ 27 次；② 两跳 / 黏液破裂 / 复活 / 结束回合都是真按出来的；
+## ③ 没有任何目标格等镜头超过 3 s（第二跳靠第一跳之后那条 ui.camera、复活靠 {map, center}）；④ ai_delay 用真机的 220 ms。
+## 约 22 s（WEIGHTS 登记）
 func t_tutor_c3_ui() -> void:
-	print("[新手教程 v2·第六关真实界面：两次【转移】按栏点格（规则 13）/ 黏液破裂 / 在固化格复活]")
+	print("[新手教程 v2·第六关全程真实界面：按栏点格 / 结束回合按钮 / 两次【转移】（规则 13）/ 黏液破裂 / 在固化格复活]")
 	CWGuideProgress.clear()
 	CWGuideProgress.set_at("c3_l6", 0)
 	CWTutorLayers.reset()
@@ -22845,121 +22880,93 @@ func t_tutor_c3_ui() -> void:
 	await process_frame
 	var m: CWMatch = main_scene.match_node
 	m.tutorial = true
-	CWSettings.ai_delay_ms = 0
+	CWSettings.ai_delay_ms = 220
 	m.start()
 	await process_frame
 	var flow: Array = m._tutor_level.get("flow", [])
-	var jump1 := -1
-	var jump2 := -1
-	var mucus := -1
-	var revive := -1
-	for i in flow.size():
-		var r: Dictionary = flow[i]
-		if str(r.get("do", "")) != "player":
-			continue
-		var allow: Array = r.get("allow", [])
-		if allow.has("k=action|act=jump|to=-5,1"):
-			jump1 = i
-		elif allow.has("k=action|act=jump|to=-10,1"):
-			jump2 = i
-		elif allow.has("k=action|act=mucus"):
-			mucus = i
-		elif allow.has("k=revive|to=0,0"):
-			revive = i
-	check(jump1 > 0 and jump2 == jump1 + 2 and mucus > jump2 and revive > mucus,
-		"剧本里找得到两跳 / 黏液破裂 / 复活四条 player（%d / %d / %d / %d；两跳之间隔一条镜头）" % [jump1, jump2, mucus, revive])
-	## 第 14 步的台词（第一跳前三条）起清 replay：闸一开、`ask` 就会把 replay 当场念掉
-	var hands_on: int = jump1 - 3
 	var t0 := Time.get_ticks_msec()
-	while Time.get_ticks_msec() - t0 < 60000 and m._director != null and m._director._at < hands_on:
+	var actions := 0
+	var did: Array = []
+	var slow: Array = []
+	var last_sig := ""
+	var since := t0
+	var stuck := ""
+	while Time.get_ticks_msec() - t0 < 120000:
 		await process_frame
-		if m.bridge != null and m.bridge.replay_answers.is_empty():
-			m.bridge.replay_answers = PackedInt32Array([0])
-	m.bridge.replay_answers = PackedInt32Array()
-	m.bridge.replay_at = 0
-	check(m._director != null and m._director._at >= hands_on and m._director._at < jump1,
-		"replay 快进到第一跳前（游标 %d，第一跳在 %d）" % [m._director._at if m._director != null else -1, jump1])
-	var ok1: bool = await _tutor_ui_jump(m, Vector2i(-5, 1), jump1, jump1 + 1)
-	check(ok1, "★ 第一跳：技能栏上有一颗能按的「转移」→ 第二段选格表里有 (-5,1) 且整格在镜头里 → 点它，导演翻页")
-	var ok2: bool = await _tutor_ui_jump(m, Vector2i(-10, 1), jump2, jump2 + 1)
-	check(ok2, "★ 第二跳：第一跳之后那条 ui.camera 把镜头带到 T 那一头，(-10,1) 整格进镜头，真点得动"
-		+ "（09-24 前镜头停在关首机位、这一格在框外，规则 13 挡点击 = 真机「第二段转移按不出去」）")
-	## ③ 黏液破裂：单一打法、不选格，按下就执行
-	t0 = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - t0 < 15000 and not (m._director._at == mucus and m.action_bar.button_node("黏液破裂") != null):
-		await process_frame
-	var mb = m.action_bar.button_node("黏液破裂")
-	var mucus_ok := false
-	if mb != null:
-		m.action_bar.chosen.emit(m.action_bar._buttons.find(mb))
-		t0 = Time.get_ticks_msec()
-		while Time.get_ticks_msec() - t0 < 8000 and m._director._at <= mucus:
-			await process_frame
-		mucus_ok = m._director._at > mucus
-	check(mucus_ok, "★【黏液破裂】：技能栏上那颗按下去就放（不选格），导演翻页（游标 %d）" % m._director._at)
-	## ④ 复活：内核问「在哪复活」，选格表里只有 (0,0)；镜头那条 {map, center} 先把它带回镜头里
-	t0 = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - t0 < 15000 and not (m._director._at == revive and m.bridge._tiles.has(Vector2i.ZERO)):
-		await process_frame
-	var had_tile: bool = m.bridge._tiles.has(Vector2i.ZERO)
-	t0 = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - t0 < 3000 and not m.bridge.tile_selectable(Vector2i.ZERO):
-		await process_frame
-	var revive_visible: bool = m.bridge.tile_selectable(Vector2i.ZERO)
-	var revive_ok := false
-	if had_tile and revive_visible:
-		m.board.tile_clicked.emit(Vector2i.ZERO)
-		t0 = Time.get_ticks_msec()
-		while Time.get_ticks_msec() - t0 < 8000 and m._director._at <= revive:
-			await process_frame
-		revive_ok = m._director._at > revive
-	check(had_tile and revive_visible and revive_ok,
-		"★ 复活：选格表里有 (0,0)（%s）、镜头回整盘机位后它整格在镜头里（%s）、点它导演翻页（%s）" % [str(had_tile), str(revive_visible), str(revive_ok)])
-	## 收尾的几条都是演出，不用再答；等导演走到头
-	t0 = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - t0 < 20000 and m._director != null and (m._director.active or m._director._at < flow.size()):
-		await process_frame
-	check(m._director != null and m._director._at >= flow.size(), "剧本走到头（游标 %d / %d）" % [m._director._at, flow.size()])
+		var dd = m._director
+		if dd == null:
+			break
+		if not dd.active and dd._at >= flow.size():
+			break
+		## 钩子发的 beat（围圈那一步步）住在 `_beat_row`，主游标那一行是 `hook`；两处都要看
+		var row: Dictionary = dd._beat_row if dd._beat_row is Dictionary else dd._row()
+		var sig := "%d|%s" % [dd._at, str(row.get("allow", ""))]
+		var now := Time.get_ticks_msec()
+		if sig != last_sig:
+			last_sig = sig
+			since = now
+		elif now - since > 20000:
+			stuck = "游标 %d 停了 20 s：row=%s pending=%s tiles=%s" % [dd._at, str(row).substr(0, 160),
+				str(m.bridge._pending != null), str(m.bridge._tiles.keys())]
+			break
+		if m.bridge._pending == null or str(row.get("do", "")) != "player":
+			continue
+		var allow: Array = row.get("allow", [])
+		if allow.is_empty():
+			continue
+		var key := str(allow[0])
+		var ok := false
+		if key == "k=action|act=end":
+			if m.panel != null and m.panel._end.is_visible_in_tree():
+				m.panel.end_turn_pressed.emit()
+				ok = true
+		elif key.begins_with("k=action|act=mucus"):
+			var mb = m.action_bar.button_node("黏液破裂")
+			if mb != null:
+				m.action_bar.chosen.emit(m.action_bar._buttons.find(mb))
+				ok = true
+		elif key.find("to=") >= 0:
+			var p: PackedStringArray = key.split("to=")[1].split(",")
+			var to := Vector2i(int(p[0]), int(p[1]))
+			if not m.bridge._tiles.has(to):
+				## 先按那颗按钮（第一步要按「移动 / 迁移」；同一回合再走一格内核直接给选格；跳要按「转移」）
+				var want_title := "转移" if key.find("act=jump") >= 0 else "移动"
+				var btn = null
+				if m.action_bar.visible:
+					for bb in m.action_bar._buttons:
+						var tt := str((bb as Control).get_meta("title", ""))
+						if tt.begins_with(want_title) or (want_title == "移动" and tt.begins_with("迁移")):
+							btn = bb
+				if btn != null:
+					m.action_bar.chosen.emit(m.action_bar._buttons.find(btn))
+					for _i in 3:
+						await process_frame
+			if m.bridge._tiles.has(to):
+				if m.bridge.tile_selectable(to):
+					m.board.tile_clicked.emit(to)
+					ok = true
+				elif now - since > 3000 and not slow.has(sig):
+					slow.append(sig)    ## 亮着可选、却 3 s 还没整格进镜头：记下来（不硬点，等镜头）
+		if ok:
+			actions += 1
+			did.append(key)
+			for _i in 2:
+				await process_frame
+	var secs: float = (Time.get_ticks_msec() - t0) / 1000.0
+	check(stuck == "" and m._director != null and m._director._at >= flow.size() and actions >= 27,
+		"★ %d 条走到头，全程 %d 次真实界面操作、零 replay（%.1f s%s）" % [flow.size(), actions, secs,
+			"；" + stuck if stuck != "" else ""])
+	check(did.has("k=action|act=jump|to=-5,1") and did.has("k=action|act=jump|to=-10,1")
+			and did.has("k=action|act=mucus") and did.has("k=revive|to=0,0") and did.count("k=action|act=end") >= 3,
+		"★ 两跳 / 黏液破裂 / 复活 / ≥3 次「结束回合」都是真按出来的（结束回合 %d 次；%s）"
+			% [did.count("k=action|act=end"), str(did.slice(0, 4))])
+	check(slow.is_empty(), "★ 没有任何目标格等镜头超过 3 s（第二跳靠第一跳之后那条 ui.camera、复活靠 {map, center}；超时的：%s）" % str(slow))
 	m.teardown()
 	await process_frame
 	CWSettings.ai_delay_ms = 220
 	CWGuideProgress.clear()
 	main_scene.queue_free()
 	await process_frame
-
-
-## 像真人一样跳一次【转移】：等技能栏建出「转移」→ 按它 → 等目标格整格进镜头（镜头补间 0.45 s；规则 13 才放行）→ 点格 → 等导演翻过 `at`。
-## 任何一步不成立都返回 false（技能栏没建 / 按钮灰 / 目标不在选格表里 / 3 s 内没进镜头 / 6 s 内没翻页）
-func _tutor_ui_jump(m: CWMatch, to: Vector2i, at: int, want_at: int) -> bool:
-	var t0 := Time.get_ticks_msec()
-	while Time.get_ticks_msec() - t0 < 8000 and not (m._director._at == at and m.action_bar.button_node("转移") != null):
-		await process_frame
-	var btn = m.action_bar.button_node("转移")
-	if btn == null or m._director._at != at:
-		print("    转移：8 s 内技能栏没建出「转移」（游标 %d，要的是 %d）" % [m._director._at, at])
-		return false
-	var idx: int = m.action_bar._buttons.find(btn)
-	if m.action_bar._is_disabled(idx):
-		print("    转移：按钮是灰的")
-		return false
-	m.action_bar.chosen.emit(idx)
-	for _i in 3:
-		await process_frame
-	if not m.bridge._tiles.has(to):
-		print("    转移：第二段选格表里没有 %s（%s）" % [str(to), str(m.bridge._tiles.keys())])
-		return false
-	t0 = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - t0 < 3000 and not m.bridge.tile_selectable(to):
-		await process_frame
-	if not m.bridge.tile_selectable(to):
-		print("    转移：目标 %s 3 s 内没整格进镜头（屏幕 %s，镜头框 %s）" % [str(to),
-			str(CWView.board_to_screen(m.camera, m.board.tile_center(to))), str(CWView.tutor_view_rect(CWTutorLayers.on("sidebar")))])
-		return false
-	m.board.tile_clicked.emit(to)
-	t0 = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - t0 < 6000 and m._director._at < want_at:
-		await process_frame
-	return m._director._at >= want_at
 
 
 ## 间章「癌变」本体（S9b）。方案 §6.1 那一行的九条判据逐条。
@@ -23273,6 +23280,15 @@ func _s9b_live() -> void:
 			% [str(m._stage.level.get("id", "")), str(m.bridge == bridge_before)])
 	check(m._tutor_glide.is_empty() and not m._tutor_cells_held,
 		"没有替身在飞、也没按住细胞（同一盘面不需要过渡）")
+	## 承接那一刻 `_tutor_npc_rewind` 把游标 / 脚本全清；这 30 帧里第六关的钩子会重新喂脚本（plan 非空是对的），
+	## 但还没轮到任何免疫作答 ⇒ 游标必须还在 0
+	var stale_memo: Array = []
+	for dec in m._npc_deciders:
+		if int((dec.memo as Dictionary).get("at", 0)) != 0:
+			stale_memo.append([int(dec.seat), dec.memo])
+	check(not m._npc_deciders.is_empty() and stale_memo.is_empty(),
+		"★ 承接进第六关时全体 NPC 的脚本游标归零（09-24 复核：间章喂过巨噬 5 行，带着 memo.at=5 进关"
+			+ "第 1 回合就「结束回合」不攻击；游标不在 0 的席：%s）" % str(stale_memo))
 	var still_shown := 0
 	for c in m.board.active_tiles():
 		if m.board.tile_shown(c):
