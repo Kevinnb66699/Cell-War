@@ -43,8 +43,8 @@ die() { echo "✘ $1" >&2; exit 1; }
 
 # 发版 tag 是 gh release create 在**远端**打的，本地不会自动有（2026-09-11 第一次在别的会话里打补丁就撞上）——先把 tag 拉下来
 git fetch -q --tags origin 2>/dev/null || true
-git rev-parse -q --verify "$BASE^{commit}" >/dev/null || die "找不到 $BASE（发版 tag 见 git tag -l 'client-*'）"
-[ -x "$GODOT" ] || die "找不到 Godot：$GODOT（用 GODOT=... 指定）"
+git rev-parse -q --verify "$BASE^{commit}" >/dev/null || die "找不到 ${BASE}（发版 tag 见 git tag -l 'client-*'）"
+[ -x "$GODOT" ] || die "找不到 Godot：${GODOT}（用 GODOT=... 指定）"
 
 # 只要 game/ 下**还存在**的文件；tests/ 不进客户端包，删掉的文件补丁也表达不了。
 # .import / .uid 是编辑器的簿记，进不进包都一样，别让补丁白白变大。
@@ -132,7 +132,7 @@ SHA="$(sha256sum "$OUT" | cut -d' ' -f1)"
 # 客户端挂载前必校验 —— 中间人改一个字节就装不上。见 boot.gd 文件头「两段路」。
 HOST="http://124.221.78.13/cellwar"
 if [ "$DRY" = "1" ]; then
-	echo "补丁包已打好（DRY=1，没上传）：$OUT（$(du -h "$OUT" | cut -f1)）"
+	echo "补丁包已打好（DRY=1，没上传）：${OUT}（$(du -h "$OUT" | cut -f1)）"
 else
 	echo "上传补丁包到服务器 …"
 	scp -o BatchMode=yes -o ConnectTimeout=15 "$OUT" cellwar:/var/www/cellwar/ >/dev/null

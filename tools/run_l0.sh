@@ -69,6 +69,6 @@ fi
 if [ "$CODE" -eq 0 ]; then
 	echo "✔ L0（GD 侧）全绿"
 else
-	echo "✘ L0 有红（GD 退出码 $GD_CODE / GD 自检 $SC_CODE / C# 退出码 $CS_CODE）"
+	echo "✘ L0 有红（GD 退出码 $GD_CODE / GD 自检 $SC_CODE / C# 退出码 ${CS_CODE}）"
 fi
 exit $CODE

@@ -123,7 +123,7 @@ PREV_TAG="$(git tag -l 'client-*' --sort=-creatordate | head -1)"
 if [ -n "$PREV_TAG" ]; then
 	PREV_BASE="$(base_build_at "$PREV_TAG" || true)"
 	if [ -n "$PREV_BASE" ] && [ "$NOW_BASE" -le "$PREV_BASE" ]; then
-		die "BASE_BUILD 没往上改（$PREV_TAG 是 $PREV_BASE，现在还是 $NOW_BASE）——
+		die "BASE_BUILD 没往上改（$PREV_TAG 是 ${PREV_BASE}，现在还是 ${NOW_BASE}）——
    热更的跨版本闸全靠它：不改的话，给这一版打的补丁会装进上一版的客户端。
    改 game/scripts/patch_state.gd 的 BASE_BUILD 到 $(date +%Y%m%d%H%M) 再发。"
 	fi
