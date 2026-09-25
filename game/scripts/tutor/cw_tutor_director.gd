@@ -52,6 +52,11 @@ signal want_play(fx: String, args: Dictionary, done: Callable)
 ## 间章分镜 6 的阵营翻转：席位 order 在 `g.init(order, 1)` 时定死，而关内 `reload_world` 是
 ## 四步拆装的**短路版**（跳过「算关 / 换席位 / 重挂面板」三段）—— 翻转必须走长的那一条
 signal want_rematch(world_id: String)
+## 剧本**显式**写了 `ui.camera` 的那一条 `state`：请调用方按**此刻**玩家站的格重算一次机位（倍率不动）。
+## 层表没变的话 `CWMatch._sync_tutor_layers` 不会重算 —— 同一档 {player, right} 再写一遍，镜头就不动；
+## 第六关两次【转移】之后玩家已经跳到 T 那一头、第二跳的落点 (-10,1) 还在镜头外，通用规则 13 把那一下点击
+## 挡掉（Kevin 2026-09-24「第二段转移按不出去」）。**不是跟随**：只有剧本写了这一条才挪一次
+signal want_camera
 ## 目录跳关（S6）：常驻壳点了某一关 → 皮 → `goto_level()` → 这一条。
 ## **换局本体归调用方**（拆装次序那串一个字不能动，见 `CWMatch._tutor_next_level`）
 signal want_goto(level_id: String)
@@ -344,6 +349,8 @@ func _enter(row: Dictionary) -> void:
 func _enter_state(row: Dictionary) -> void:
 	if row.has("ui"):
 		CWTutorLayers.apply(row["ui"] as Dictionary)
+		if (row["ui"] as Dictionary).has("camera"):
+			want_camera.emit()
 	if row.has("load") and row["load"] != null:
 		if _is_recenter(row["load"]):
 			_emit_recenter(row["load"] as Dictionary)
@@ -426,9 +433,13 @@ func seat_at(seat: int) -> Vector2i:
 
 ## `flow[].play` 这一条（S9b）：把意图发给调用方，自己只管「等多久」。
 ##
-## `args` 原样透传给演出库，只补两处**数据写不出来的东西**：
-## · `at`（这一段画在哪一格）与 `args.actor`（代画哪一只）里的 `"player"` / `"seat:<n>"`
-##   翻成**席位号** —— 演出层再用注入的 `seat_at` 换成格；写成 `"q,r"` 的直接翻成 `Vector2i`；
+## `args` 原样透传给演出库，只补几处**数据写不出来的东西**：
+## · `at`（这一段画在哪一格）与 `args.actor`（代画哪一只）、`args.from` / `args.to`（光束 / 击退的两头，
+##   `from` 也许是数组 = 齐发）里的 `"player"` / `"seat:<n>"` 翻成**席位号** —— 演出层再用注入的 `seat_at`
+##   换成格；写成 `"q,r"` 的直接翻成 `Vector2i`。**2026-09-24 前 `from` / `to` 不翻**：数据里的 `"-11,1"`
+##   原样到了演出库、`_coord` 遇到字符串给盘心 ⇒ 第六关 T 的效应应答与两次击退全画在 (0,0)、光束长度为零
+##   （Kevin「T 细胞放大招」看不见的那一半）；
+## · `args.target`（写席位）没写 `to` 时就是 `to` —— 光束只认 from / to；
 ## · `seed`（演出随机的种子，数据里写了就用数据的）。
 ## 钩子喂进来的行里 `at` / `actor` 本来就可能已经是 `Vector2i` / 席位号，那种原样过
 func _enter_play(row: Dictionary) -> void:
@@ -442,6 +453,11 @@ func _enter_play(row: Dictionary) -> void:
 		args["at"] = _fx_where(row["at"])
 	if args.has("actor"):
 		args["actor"] = _fx_where(args["actor"])
+	for k in ["from", "to", "target"]:
+		if args.has(k):
+			args[k] = _fx_where_each(args[k])
+	if args.has("target") and not args.has("to"):
+		args["to"] = args["target"]
 	if row.has("seed"):
 		args["seed"] = int(row["seed"])
 	_play_seq += 1
@@ -454,9 +470,11 @@ func _enter_play(row: Dictionary) -> void:
 			_playing = false)
 
 
-## `play` 里那两个位置字段的三种写法 → 演出库认得的东西：
-## `"player"` / `"seat:<n>"` → 席位号（int），`"q,r"` → `Vector2i`，其余原样
+## `play` 里位置字段的三种写法 → 演出库认得的东西：
+## `"player"` / `"seat:<n>"` → 席位号（int），`"q,r"` → `Vector2i`，JSON 里的 `0` 读出来是 `0.0` ⇒ 收成 int，其余原样
 func _fx_where(v: Variant) -> Variant:
+	if v is float:
+		return int(v)
 	if not (v is String):
 		return v
 	var s := str(v)
@@ -465,6 +483,16 @@ func _fx_where(v: Variant) -> Variant:
 	if s.begins_with("seat:"):
 		return int(s.substr(5))
 	return SCRIPT_DATA.parse_at(s)
+
+
+## 同 `_fx_where`，数组逐项翻（`args.from` 写成数组 = 几个发点齐发，第六关第 24 步）
+func _fx_where_each(v: Variant) -> Variant:
+	if v is Array:
+		var out: Array = []
+		for e in v:
+			out.append(_fx_where(e))
+		return out
+	return _fx_where(v)
 
 
 ## `"player"` / `"seat:<n>"` 那只此刻站的格；找不到给 `NO_ANCHOR`

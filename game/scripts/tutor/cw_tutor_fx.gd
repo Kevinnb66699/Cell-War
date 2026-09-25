@@ -767,59 +767,75 @@ func _draw_knock() -> void:
 
 # ── ④ 效应应答变体：命中不贯穿（PRD:463-465/483）──────────────────────
 
+## `from` 写成数组 = 几个发点**齐发**同一个目标（PRD:525 第 24 步「所有 T 细胞一齐向癌细胞发起效应应答」）：
+## 每个发点一条光束，各自算长度与命中点；`a / full / tip / halt` 仍给第一条（老断言与单发的读法不变），
+## 逐条的账在 `pairs` 里
 func _probe_beam(q: float) -> Dictionary:
-	var a := _body(_coord(_args.get("from", Vector2i.ZERO)))
-	var b := _body(_coord(_args.get("to", _args.get("from", Vector2i.ZERO))))
-	var full := a.distance_to(b)
+	var raw_from: Variant = _args.get("from", Vector2i.ZERO)
+	var froms: Array = []
+	if raw_from is Array:
+		for f in raw_from:
+			froms.append(_body(_coord(f)))
+	if froms.is_empty():
+		froms.append(_body(_coord(raw_from if not (raw_from is Array) else Vector2i.ZERO)))
+	var first_from: Variant = (raw_from[0] if not (raw_from as Array).is_empty() else Vector2i.ZERO) \
+		if raw_from is Array else raw_from
+	var b := _body(_coord(_args.get("to", first_from)))
 	var reach := CWPix.phase(q, BEAM_CHARGE, BEAM_REACH)
-	## **不贯穿**：射程封在目标胸前 BEAM_HALT 个像素，任 q 多大都越不过去
-	var halt := maxf(full - BEAM_HALT, BEAM_START + 1.0)
 	var hold := maxf(q - BEAM_CHARGE - BEAM_REACH, 0.0)
+	var pairs: Array = []
+	for a in froms:
+		var full: float = (a as Vector2).distance_to(b)
+		## **不贯穿**：射程封在目标胸前 BEAM_HALT 个像素，任 q 多大都越不过去
+		var halt := maxf(full - BEAM_HALT, BEAM_START + 1.0)
+		pairs.append({ "a": a, "full": full, "halt": halt, "tip": lerpf(BEAM_START, halt, reach) })
+	var p0: Dictionary = pairs[0]
 	return {
-		"kind": "beam_hit", "q": q, "a": a, "b": b, "full": full,
+		"kind": "beam_hit", "q": q, "a": p0["a"], "b": b, "full": p0["full"],
 		"charge": _steps(CWPix.phase(q, 0.0, BEAM_CHARGE)),
-		"reach": _steps(reach), "tip": lerpf(BEAM_START, halt, reach), "halt": halt,
+		"reach": _steps(reach), "tip": p0["tip"], "halt": p0["halt"], "pairs": pairs,
 		"impact": _steps(0.55 + 0.45 * sin(fmod(hold, BEAM_LOOP) / BEAM_LOOP * TAU)) if reach >= 1.0 else 0.0,
 	}
 
 
 func _draw_beam() -> void:
-	var a: Vector2 = _state["a"]
-	var full: float = _state["full"]
-	if float(_state["reach"]) <= 0.0:
-		## 蓄力：光点朝发动者收拢（同 beam_fx 的第一拍）
-		var ink := INK_BEAM_B
-		ink.a = 1.0
-		CWPix.burst(self, a, 1.0 - float(_state["charge"]), ink, 16, 30.0, true)
-		return
-	if full <= BEAM_START:
-		return
 	var b: Vector2 = _state["b"]
-	var axis := (b - a) / full
-	var perp := Vector2(-axis.y, axis.x)
-	var tip: float = _state["tip"]
 	var q: float = _state["q"]
-	var s := BEAM_START
-	## 双螺旋：包络两头收尖 —— **尖就收在 tip 上**，所以看得出来是「停在那儿」不是「穿过去」
-	while s < tip:
-		var env: float = sin((s - BEAM_START) / maxf(tip - BEAM_START, 1.0) * PI) * BEAM_SWELL
-		var o: float = sin(s * BEAM_TWIST - q * BEAM_SPIN) * env
-		var base := a + axis * s
-		draw_rect(Rect2((base + perp * o).round(), Vector2(2, 2)), INK_BEAM_A, true)
-		draw_rect(Rect2((base - perp * o).round(), Vector2(2, 2)), INK_BEAM_B, true)
-		s += 1.0
-	CWPix.line(self, a + axis * BEAM_START, a + axis * tip, INK_BEAM_CORE, 1)
-	## 命中点：两圈往外推的击中环 + 一小团火花，**全部落在 halt 上，一个像素都不往后**
 	var hit: float = _state["impact"]
-	if hit > 0.0:
-		var at := a + axis * float(_state["halt"])
-		var ink2 := INK_BEAM_B
-		ink2.a = hit
-		CWPix.ring(self, at, 6.0 + hit * 5.0, ink2, _squash())
-		var ink3 := INK_BEAM_A
-		ink3.a = _steps(hit * 0.6)
-		CWPix.ring(self, at, 11.0 + hit * 7.0, ink3, _squash())
-		CWPix.burst(self, at, hit, ink2, 10, 15.0)
+	for p in _state["pairs"]:
+		var a: Vector2 = p["a"]
+		var full: float = p["full"]
+		if float(_state["reach"]) <= 0.0:
+			## 蓄力：光点朝发动者收拢（同 beam_fx 的第一拍）
+			var ink := INK_BEAM_B
+			ink.a = 1.0
+			CWPix.burst(self, a, 1.0 - float(_state["charge"]), ink, 16, 30.0, true)
+			continue
+		if full <= BEAM_START:
+			continue
+		var axis := (b - a) / full
+		var perp := Vector2(-axis.y, axis.x)
+		var tip: float = p["tip"]
+		var s := BEAM_START
+		## 双螺旋：包络两头收尖 —— **尖就收在 tip 上**，所以看得出来是「停在那儿」不是「穿过去」
+		while s < tip:
+			var env: float = sin((s - BEAM_START) / maxf(tip - BEAM_START, 1.0) * PI) * BEAM_SWELL
+			var o: float = sin(s * BEAM_TWIST - q * BEAM_SPIN) * env
+			var base := a + axis * s
+			draw_rect(Rect2((base + perp * o).round(), Vector2(2, 2)), INK_BEAM_A, true)
+			draw_rect(Rect2((base - perp * o).round(), Vector2(2, 2)), INK_BEAM_B, true)
+			s += 1.0
+		CWPix.line(self, a + axis * BEAM_START, a + axis * tip, INK_BEAM_CORE, 1)
+		## 命中点：两圈往外推的击中环 + 一小团火花，**全部落在 halt 上，一个像素都不往后**
+		if hit > 0.0:
+			var at := a + axis * float(p["halt"])
+			var ink2 := INK_BEAM_B
+			ink2.a = hit
+			CWPix.ring(self, at, 6.0 + hit * 5.0, ink2, _squash())
+			var ink3 := INK_BEAM_A
+			ink3.a = _steps(hit * 0.6)
+			CWPix.ring(self, at, 11.0 + hit * 7.0, ink3, _squash())
+			CWPix.burst(self, at, hit, ink2, 10, 15.0)
 
 
 # ── ⑥ 自动重置提示（PRD:47）：三个候选 ────────────────────────────────
@@ -1043,13 +1059,13 @@ func _squash() -> float:
 	return float(board.distance_y) / (float(board.distance_x) * sqrt(3.0) / 2.0)
 
 
-## 格坐标：直接给 Vector2i，或给席位号 + 导演注入的 seat_at
+## 格坐标：直接给 Vector2i，或给席位号（int；JSON 读出来的 0.0 也认）+ 导演注入的 seat_at
 func _coord(v) -> Vector2i:
 	if v is Vector2i:
 		return v
 	if v is Vector2:
 		return Vector2i(v)
-	if typeof(v) == TYPE_INT and seat_at.is_valid():
+	if (typeof(v) == TYPE_INT or typeof(v) == TYPE_FLOAT) and seat_at.is_valid():
 		return seat_at.call(int(v))
 	return Vector2i.ZERO
 
