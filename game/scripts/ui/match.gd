@@ -1038,6 +1038,7 @@ func _attach_tutor() -> void:
 	_director.want_npc.connect(_tutor_set_npc)
 	_director.want_play.connect(_tutor_play)
 	_director.want_rematch.connect(_tutor_rematch)
+	_director.want_camera.connect(_tutor_camera_beat)
 	## 目录跳关（S6）：导演已经把代际 +1 了，这儿只管换局 —— 走的是 `on_done` 同一条路，
 	## 差别只有一处：**跳关不记「通关」**（`mark_done = false`）
 	_director.want_goto.connect(func(id: String) -> void: _tutor_next_level(id, false))
@@ -1165,6 +1166,15 @@ func _tutor_camera(secs := 0.0) -> void:
 		func(k: float) -> void: CWView.blend_to(camera, board, from, want, k),
 		0.0, 1.0, secs)
 	step.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+
+
+## 剧本显式写了 `ui.camera` 的那一条 `state`（导演的 `want_camera`）：按**此刻**玩家站的格重算一次机位、
+## 补间过去，倍率不动。`_sync_tutor_layers` 只在层表**变了**才重算 —— 同一档 {player, right} 再写一遍层表没变，
+## 镜头就不动；而第六关两次【转移】之后玩家已经跳到 T 那一头，第二跳落点 (-10,1) 还在镜头外，通用规则 13
+## 把那一下点击挡掉（Kevin 2026-09-24「第二段转移按不出去」）。`_tutor_camera` 自己按 `want == _tutor_cam` 去重，
+## 层表恰好也变了时不会补两次。**不是跟随**（Kevin 09-19「镜头只在关卡开始时调中一次」）：剧本写一条才挪一次
+func _tutor_camera_beat() -> void:
+	_tutor_camera(TUTOR_CAM_SECS)
 
 
 ## 通用规则 13（PRD:65）：这一格此刻**整格**在镜头里吗。

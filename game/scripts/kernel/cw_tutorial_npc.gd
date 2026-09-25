@@ -38,17 +38,22 @@ const POLICIES := ["approach", "attack_if_adjacent", "end_turn", "pass"]
 ## `ask_view` 是**过滤后**的那一问（`{kind, pid, options:[{label, data}…]}`）；
 ## `script` 是这一席剩下的脚本条目（`[{key: "k=action|…"} | {policy: "approach", …}, …]`），
 ## `memo` 是跨问的小账本（走到脚本第几条了）—— 调用方自己持有，纯函数不留状态。
+## **点名的键这一问里没有**（付不起 / 落点站了人 / 局面变了）⇒ 跳过这一行看下一行，不是就此回落（2026-09-24）：
+## 老写法一行没命中就回落「结束回合」，第六关 B 细胞付不起抗体那一行就白白结束一回合，写死的路线每回合只走一行、
+## 隔四五个回合才轮到一次迁移（无头推演抓到的）
 static func decide(ask_view: Dictionary, mirror: CWMirror, script: Array, memo: Dictionary) -> String:
 	var i := int(memo.get("at", 0))
-	if i < script.size():
+	while i < script.size():
 		var row: Dictionary = script[i]
+		i += 1
+		memo["at"] = i
 		var key := str(row.get("key", ""))
 		if key != "":
-			memo["at"] = i + 1
-			return key
+			if index_of(ask_view, key) >= 0:
+				return key
+			continue
 		var policy := str(row.get("policy", ""))
 		if policy in POLICIES:
-			memo["at"] = i + 1
 			return _by_policy(policy, ask_view, mirror, row)
 	return fallback(ask_view)
 
