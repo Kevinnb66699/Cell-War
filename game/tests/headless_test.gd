@@ -21921,7 +21921,7 @@ func t_tutor_recenter() -> void:
 	var far := CWData.hex_dist(Vector2i(-11, 1), Vector2i.ZERO)
 	check(g.tiles.has(Vector2i(-11, 1)) and far == S9A_RADIUS
 			and int(g.tile(Vector2i(-11, 1))["tissue"]) == CWData.Tissue.HEALTHY,
-		"四周补出来的新格是健康组织；§7.4 那套几何（T 在 (-11,1)）正好落在真外环")
+		"四周补出来的新格是健康组织；§7.4 那套几何里 (-11,1) 正好落在真外环（T 09-25 起站 (-6,1)，这格只剩几何意义）")
 	## 再往返一次：平移出来的这份盘面本身仍是一份合法的 cwxworld/3
 	var loader = CASE_LOADER.new()
 	var dumped: Dictionary = loader.dump_world(g)
@@ -22023,17 +22023,18 @@ func t_tutor_c3() -> void:
 		"半径 12 / 469 格，活跃格一格不少（整盘就是间章末尾那一份；半径 12 是为了装下第五关直径 12 的老盘，2026-09-19 晚定）")
 	check(Vector2i(6, -2) + shift == Vector2i.ZERO and Vector2i(4, -2) + shift == Vector2i(-2, 0)
 			and Vector2i(1, -2) + shift == Vector2i(-5, 0) and Vector2i(0, 2) + shift == Vector2i(-6, 4)
-			and Vector2i(-5, -1) + shift == Vector2i(-11, 1),
-		"换算表：玩家 / 巨噬 / B / 树突 / T 五只逐格减 (6,-2)")
+			and Vector2i(0, -1) + shift == Vector2i(-6, 1),
+		"换算表：玩家 / 巨噬 / B / 树突 / T 五只逐格减 (6,-2)（T 09-25 挪到 (-6,1) = 老坐标 (0,-1)）")
 	check(g.cell_of(0)["pos"] == Vector2i.ZERO and int(g.cell_of(0)["ctype"]) == CWData.CancerType.SCLC
 			and int(g.cell_of(0)["energy"]) == CWTutorLayers.INFINITE_AT,
 		"席 0 玩家·小细胞肺癌站盘心 (0,0)，能量写哨兵（PRD:455 的 Null）")
 	check(g.cell_of(1)["pos"] == Vector2i(-2, 0) and g.cell_of(2)["pos"] == Vector2i(-5, 0)
-			and g.cell_of(3)["pos"] == Vector2i(-6, 4) and g.cell_of(4)["pos"] == Vector2i(-11, 1),
-		"巨噬 (-2,0) / B (-5,0) / 树突 (-6,4) / T (-11,1) 全落位")
-	check(CWData.hex_dist(Vector2i(-11, 1), Vector2i.ZERO) == 11
+			and g.cell_of(3)["pos"] == Vector2i(-6, 4) and g.cell_of(4)["pos"] == Vector2i(-6, 1),
+		"巨噬 (-2,0) / B (-5,0) / 树突 (-6,4) / T (-6,1) 全落位")
+	check(CWData.hex_dist(Vector2i(-6, 1), Vector2i.ZERO) == 6
 			and CWData.hex_dist(Vector2i.ZERO, Vector2i(-2, 0)) == 2,
-		"★ T 站第 11 环（盘半径 12，不再贴真外环）；玩家与巨噬恰好隔 2 格（间章分镜 10「一环内免疫击退 1 格」的结果）")
+		"★ T 站第 6 环（09-25 Kevin：原 (-11,1) 在镜头外看不见；同一倍率一屏 9.5 格，第 6 环从关首就在画面里、"
+			+ "一次【转移】正好落到它面前）；玩家与巨噬恰好隔 2 格（间章分镜 10「一环内免疫击退 1 格」的结果）")
 	var solids: Array = []
 	for c in g.tiles.keys():
 		if int((g.tile(c) as Dictionary)["tissue"]) == CWData.Tissue.SOLID:
@@ -22122,28 +22123,26 @@ func t_tutor_c3() -> void:
 	win.dispose()
 	lose.dispose()
 
-	## ---- ⑥ 护栏③：转移几何（9 → 11 → 两跳邻接）与击退终点不出盘 ----
+	## ---- ⑥ 护栏③：转移几何（4 → 6 → 一跳邻接）与击退终点不出盘（09-25：T 挪到 (-6,1)，整关一屏装得下）----
 	var k2: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "knock2"))
 	var here: Vector2i = k2.cell_of(0)["pos"]
 	var dir_to_t := Vector2i(-1, 0)
 	var j1: Vector2i = here + dir_to_t * CWData.METASTASIS_RANGE
-	var j2: Vector2i = j1 + dir_to_t * CWData.METASTASIS_RANGE
 	check(here == Vector2i(0, 1) and CWData.METASTASIS_RANGE == 5
-			and CWData.hex_dist(here, Vector2i(-11, 1)) == 11,
-		"两轮「前进 1 击退 2」的终点 (0,1) 到 T 正好 11 = 5×2+1（5k 会落到 T 头上 = 非法）")
-	check(k2.is_on_board(j1) and k2.is_on_board(j2) and j2 == Vector2i(-10, 1)
-			and CWData.hex_dist(j2, Vector2i(-11, 1)) == 1
+			and CWData.hex_dist(here, Vector2i(-6, 1)) == 6,
+		"两轮「前进 1 击退 2」的终点 (0,1) 到 T 正好 6 = 5+1（5k 会落到 T 头上 = 非法）")
+	check(k2.is_on_board(j1) and j1 == Vector2i(-5, 1) and CWData.hex_dist(j1, Vector2i(-6, 1)) == 1
 			and dir_to_t in CWData.DIRS,
-		"★ 两次【转移】(0,1)→(-5,1)→(-10,1) 都在盘上，终点正好与 T 邻接（方向 (-1,0) 是六向之一）")
+		"★ 一次【转移】(0,1)→(-5,1) 在盘上，终点正好与 T 邻接（方向 (-1,0) 是六向之一）")
 	check(k2.is_on_board(Vector2i(-1, 1)) and k2.is_on_board(Vector2i(0, 1)),
 		"两次击退的落点 (-1,1) / (0,1) 都在盘内")
-	check(CWData.hex_dist(Vector2i(0, 1), Vector2i(-11, 1)) == 11
-			and Vector2i(0, 1).y == Vector2i(-11, 1).y,
+	check(CWData.hex_dist(Vector2i(0, 1), Vector2i(-6, 1)) == 6
+			and Vector2i(0, 1).y == Vector2i(-6, 1).y,
 		"玩家与 T 全程同在 r=1 那一排 —— 【效应应答-Excalibur】是一条直射线，这是规则要求不只是演出")
 	k2.dispose()
 
 	## ---- ⑦ 两处内核按半径 6 写死（2026-09-20 降级成注释：把已知缺陷写成断言，真修好了反而红）----
-	## `CWData.ring` 的**缺省**半径仍是 6 ⇒ 不传 radius 时 T 站 (-11,1) 一个目标都取不到 ——
+	## `CWData.ring` 的**缺省**半径仍是 6 ⇒ 不传 radius 时 T 站 (-11,1)（09-25 前）一个目标都取不到 ——
 	## 第 18 步【细胞毒素】立得住全靠调用方传 `game.board_radius`（判据 ⑯ 正面钉）。
 	## `CWData.is_edge` 同样按半径 6 判 ⇒ 半径 6 之外一律算外缘、【侵蚀】永不触发 ——
 	## 对本关是利好，但它是巧合不是设计。
@@ -22205,28 +22204,45 @@ func t_tutor_c3() -> void:
 		"pressed（第 8 步封顶纠偏那一份）= knock1 的盘面 + 玩家回围圈终点 (-2,1)；正常路径走不到它")
 	var sg: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "signet"))
 	check(int(sg.cell_of(0)["ctype"]) == CWData.CancerType.SIGNET
-			and sg.cell_of(0)["pos"] == Vector2i(-10, 1),
-		"signet：第 19 步像素错误之后换成印戒细胞癌，站两次【转移】的终点")
+			and sg.cell_of(0)["pos"] == Vector2i(-5, 1),
+		"signet：第 19 步像素错误之后换成印戒细胞癌，站一次【转移】的终点 (-5,1)")
 	sg.dispose()
+	## 09-25 Kevin：删的是「传送回原点」，第 22～25 步（复活 → 再生 → 齐射 → 死亡）留着 —— 复活**就地**在 (-5,1)，
+	## 再生的三只摆在终局机位一屏之内（此前第 11 环在镜头外，右栏只剩三行 3.0）
+	var sg2: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "signet"))
+	check(int(sg2.tile(Vector2i(-4, 1))["tissue"]) == CWData.Tissue.SOLID
+			and int(sg2.tile(Vector2i(-5, 1))["tissue"]) == CWData.Tissue.CANCER,
+		"signet：(-4,1) 烘成固化 = 就地复活的依托格（引擎的复活落点 = 固化格 + 它的 1 环），(-5,1) 仍是癌组织")
+	sg2.dispose()
 	var rv: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "revived"))
-	check(bool(rv.cell_of(0)["alive"]) and rv.cell_of(0)["pos"] == Vector2i.ZERO
-			and int(rv.tile(Vector2i.ZERO)["tissue"]) == CWData.Tissue.SOLID,
-		"revived：第 22 步在固化格 (0,0)（出生那格）复活")
+	check(bool(rv.cell_of(0)["alive"]) and rv.cell_of(0)["pos"] == Vector2i(-5, 1)
+			and int(rv.tile(Vector2i(-4, 1))["tissue"]) == CWData.Tissue.CANCER
+			and bool(rv.tile(Vector2i(-4, 1))["mucus"]) and bool(rv.tile(Vector2i(-7, 3))["mucus"])
+			and int(rv.current_pid) == 2,
+		"revived：第 22 步在 (-5,1) **就地**复活（Kevin 09-25 删掉传送回原点）、依托格 (-4,1) 已碎成癌组织、"
+			+ "黏液破裂的 2 环带着标记烘进来、行动权在 B（第 24 步连发抗体）")
 	var born: Array = [rv.cell_of(1)["pos"], rv.cell_of(2)["pos"], rv.cell_of(3)["pos"]]
 	var spread := true
+	var p5 := Vector2i(-5, 1)
 	for a: Vector2i in born:
-		if CWData.hex_dist(a, Vector2i(0, 0)) != 11 or CWData.hex_dist(a, Vector2i(-11, 1)) < 2:
+		if CWData.hex_dist(a, p5) != 4 or CWData.hex_dist(a, Vector2i(-6, 1)) < 2:
 			spread = false
-		if (a / 11) * 11 != a or not (a / 11 in CWData.DIRS):
-			spread = false     ## 六向共线：射线要真能穿过复活点 (0,0)
 		for b: Vector2i in born:
 			if a != b and CWData.hex_dist(a, b) < 2:
 				spread = false
-	check(spread and bool(rv.cell_of(1)["alive"]) and int(rv.cell_of(1)["itype"]) == CWData.ImmuneType.T_CELL
+	## 三只 T（含原 T (-6,1)）都在玩家的六向直线上：效应应答是直射线
+	var t_dirs: Array = []
+	for a: Vector2i in [rv.cell_of(1)["pos"], rv.cell_of(3)["pos"], Vector2i(-6, 1)]:
+		var dv: Vector2i = a - p5
+		var n: int = CWData.hex_dist(a, p5)
+		if n > 0 and (dv / n) * n == dv and (dv / n) in CWData.DIRS:
+			t_dirs.append(dv / n)
+	check(spread and t_dirs.size() == 3 and t_dirs[0] != t_dirs[1] and t_dirs[1] != t_dirs[2]
+			and bool(rv.cell_of(1)["alive"]) and int(rv.cell_of(1)["itype"]) == CWData.ImmuneType.T_CELL
 			and int(rv.cell_of(2)["itype"]) == CWData.ImmuneType.B_CELL
 			and int(rv.cell_of(3)["itype"]) == CWData.ImmuneType.T_CELL,
-		"★ 第 23 步在第 11 环再生 T / B / T：两两 ≥2 格、离原 T ≥2 格，"
-			+ "且三格都与 (0,0) 六向共线（实测 %s）" % str(born))
+		"★ 第 23 步再生 T / B / T 各离玩家 4 格、两两 ≥2 格、离原 T ≥2 格，三只 T 各在一条六向直线上"
+			+ "（实测 %s，方向 %s）" % [str(born), str(t_dirs)])
 	rv.dispose()
 
 	## ---- ⑨ 关首那一条：界面照 PRD:441-447 ----
@@ -22280,7 +22296,7 @@ func t_tutor_c3() -> void:
 			open_gate.append(i)
 		elif (a as Array).size() != 1:
 			multi.append("%d:%s" % [i, str(a)])
-	check(player_rows == 7 and open_gate.is_empty() and stray.is_empty() and multi.is_empty(),
+	check(player_rows == 6 and open_gate.is_empty() and stray.is_empty() and multi.is_empty(),
 		"★ 强制演出闸：%d 个 player 条目**每条只放一条语义键**（锁定迁移模式 PRD:457 = 六向只放下一格）、"
 			% player_rows + "非 player 条目一个 allow 都没写（导演统一给它们 [] 全禁）；越界 %s / %s / %s"
 			% [str(open_gate), str(stray), str(multi)])
@@ -22290,9 +22306,9 @@ func t_tutor_c3() -> void:
 		if str(r.get("do", "")) == "player":
 			allows.append(str((r["allow"] as Array)[0]))
 	check("k=action|act=end" in allows and "k=action|act=jump|to=-5,1" in allows
-			and "k=action|act=jump|to=-10,1" in allows and "k=action|act=mucus" in allows
-			and "k=revive|to=0,0" in allows,
-		"逐字核：结束回合 / 两跳【转移】(0,1)→(-5,1)→(-10,1) / 【黏液破裂】/ 复活于固化格 (0,0) 各只放一条")
+			and "k=action|act=mucus" in allows and "k=revive|to=-5,1" in allows
+			and not ("k=revive|to=0,0" in allows),
+		"逐字核：结束回合 / 一跳【转移】(0,1)→(-5,1) / 【黏液破裂】/ **就地**复活 (-5,1) 各只放一条（09-25 前复活回 (0,0)）")
 	## **行为面**：闸之外的种类在行动栏里**根本不建**（不是置灰）。
 	## `_ask_action` 的按钮集合来自 `mirror.action_kinds_of`（整份种类表）、只把没选项的那几个置灰 ——
 	## 09-19 真机第一版就是这么漏的：第六关第 3 步只许【移动】，行动栏上却同时亮着【突变】【转移】
@@ -22314,7 +22330,7 @@ func t_tutor_c3() -> void:
 	bd6.set_active_tiles(lv["active_tiles"].map(func(s): return TUTOR_SCRIPT.parse_at(str(s))), 0.0)
 	check(bd6._grid_radius >= 12 and bd6.active_tiles().size() == 469
 			and bd6.is_active(Vector2i(-11, 1)) and bd6.is_active(Vector2i(0, -12)),
-		"★ `set_active_tiles` 自己把格网长到活跃集要的半径（铺到第 %d 环、活跃 %d 格，T (-11,1) 与真外环都在）"
+		"★ `set_active_tiles` 自己把格网长到活跃集要的半径（铺到第 %d 环、活跃 %d 格，(-11,1) 与真外环都在）"
 			% [bd6._grid_radius, bd6.active_tiles().size()])
 	bd6.queue_free()
 
@@ -22326,29 +22342,16 @@ func t_tutor_c3() -> void:
 		if str(r.get("do", "")) == "state" and r.get("ui", null) is Dictionary \
 				and bool((r["ui"] as Dictionary).get("skill_bar", false)):
 			skill_on = i
-	## 09-24：关内**两条**显式镜头（Kevin「第二段转移按不出去」= 落点 (-10,1) 在镜头外、规则 13 挡点击）：
-	## 第一跳之后 {player, right} 让镜头跟到 T 那一头；黏液破裂之后 {map, center} 回整盘机位好让复活格 (0,0) 进镜头。
-	## 它们之外的 state 条目一律不写 camera（镜头不跟细胞，Kevin 09-19）
+	## 09-25：T 挪到 (-6,1) 之后整关一屏装得下，关内**不再写镜头**（09-24 那两条跟镜头的 state 删了；
+	## 镜头只在关首就位一次，Kevin 09-19）。第 9 步光束、一跳落点 (-5,1)、T 本体都在关首那一机位里
 	var cam_beats: Array = []
 	for i in flow.size():
 		var r: Dictionary = flow[i]
 		if str(r.get("do", "")) == "state" and r.get("ui", null) is Dictionary \
 				and (r["ui"] as Dictionary).has("camera") and i > 0:
-			cam_beats.append([i, (r["ui"] as Dictionary)["camera"]])
-	var jump1 := -1
-	var revive_at := -1
-	for i in flow.size():
-		var r: Dictionary = flow[i]
-		if str(r.get("do", "")) == "player":
-			if (r.get("allow", []) as Array).has("k=action|act=jump|to=-5,1"):
-				jump1 = i
-			if (r.get("allow", []) as Array).has("k=revive|to=0,0"):
-				revive_at = i
-	check(cam_beats.size() == 2 and jump1 > 0 and revive_at > 0
-			and cam_beats[0][0] == jump1 + 1 and cam_beats[0][1] == { "anchor": "player", "align": "right" }
-			and cam_beats[1][0] == revive_at - 1 and cam_beats[1][1] == { "anchor": "map", "align": "center" },
-		"★ 关内恰两条显式镜头：第一跳之后 {player, right}（第二跳落点 (-10,1) 才进镜头）、复活之前 {map, center}"
-			+ "（(0,0) 才进镜头）；实测 %s" % str(cam_beats))
+			cam_beats.append(i)
+	check(cam_beats.is_empty(),
+		"★ 关内零条显式镜头（T 09-25 挪到第 6 环、整关一屏装得下；实测 %s）" % str(cam_beats))
 	check(str(cam["anchor"]) == "player" and str(cam["align"]) == "right"
 			and not cam.has("zoom") and skill_on > 0 and int(flow[skill_on]["prd"]) == 501,
 		"★ 镜头一律 {anchor: player, align: right}（玩家靠右、T 那条线从左侧进画面）、**不改缩放**；"
@@ -22369,7 +22372,7 @@ func t_tutor_c3() -> void:
 		if not TUTOR_BEATS.bad_keys(r).is_empty():
 			loose.append("%d:%s" % [i, str(TUTOR_BEATS.bad_keys(r))])
 	check(bad_fx.is_empty() and loose.is_empty() and int(fx_seen.get("knockback", 0)) == 2
-			and int(fx_seen.get("beam_hit", 0)) >= 4 and int(fx_seen.get("glitch", 0)) == 2
+			and int(fx_seen.get("beam_hit", 0)) == 4 and int(fx_seen.get("glitch", 0)) == 2
 			and int(fx_seen.get("shockwave", 0)) == 1,
 		"★ 五段演出：击退受击 ×2（第 11/13 步）、命中不贯穿的效应应答 ×%d（第 9/17/18/24 步）、"
 			% int(fx_seen.get("beam_hit", 0)) + "像素错误 ×2（第 19/25 步）、黏液破裂 ×1（第 21 步）；"
@@ -22432,58 +22435,65 @@ func t_tutor_c3() -> void:
 
 	## ---- ⑮ B 三次抗体靠 `npc.plan` ----
 	var anti_flow := 0
+	var volley_from: Array = []
 	for r in flow:
+		if str(r.get("do", "")) == "play" and str(r.get("fx", "")) == "beam_hit" \
+				and (r.get("args", {}) as Dictionary).get("from", null) is Array:
+			volley_from = (r["args"] as Dictionary)["from"]
 		if str(r.get("do", "")) != "npc":
 			continue
 		for e in r.get("plan", []):
 			if str((e as Dictionary).get("key", "")) == "k=action|act=antibody":
 				anti_flow += 1
-	check(anti_flow == 3,
-		"★ B 细胞三次抗体（PRD:479）= plan 里**点名三条**（第 24 步齐发那条 %d 条）" % anti_flow)
+	check(anti_flow == 3 and volley_from == ["-1,-3", "-5,5", "-6,1"]
+			and int((d.resolve(lv, "revived")["cells"] as Array)[2]["energy"]) == 40,
+		"★ 第 24 步：B 连发抗体 = plan 里**点名三条**（%d 条；4.0 能量正好三发，付费门槛「能量 > 费用」）、"
+			% anti_flow + "齐射从三只 T 的格发出（%s）" % str(volley_from))
 
 	## ---- ⑯ 第 18 步【细胞毒素】：口径 ② 的护栏打开（S10 跳过的那一条）----
-	## 第 17 步玩家两跳落到 (-10,1) 时【定殖】把那一格染成癌组织 ⇒ T 脚下一环终于有目标。
-	## 判别力全在 `radius` 那个实参上：不传就是缺省 6，T 在第 11 环、一个目标都取不到
+	## 第 17 步玩家一跳落到 (-5,1) 时【定殖】把那一格染成癌组织（signet 里已烘）⇒ T 脚下一环有目标。
+	## 判别力在 `radius` 那个实参上：护栏仍按本局半径传（T 09-25 挪到第 6 环，缺省 6 也够得到了）
 	var tox: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "signet"))
-	(tox.tile(Vector2i(-10, 1)) as Dictionary)["tissue"] = CWData.Tissue.CANCER
 	var targets: Array = []
-	for n in CWData.ring(Vector2i(-11, 1), 1, tox.board_radius):
+	for n in CWData.ring(Vector2i(-6, 1), 1, tox.board_radius):
 		if int((tox.tile(n) as Dictionary)["tissue"]) == CWData.Tissue.CANCER:
 			targets.append(n)
-	check(int(tox.board_radius) == 12 and CWData.ring(Vector2i(-11, 1), 1, 12).size() == 7
-			and targets == [Vector2i(-10, 1)],
-		"★ 【细胞毒素】护栏打开：T (-11,1) 的 1 环在半径 12 的盘上是 7 格，玩家转移落点 (-10,1) "
-			+ "被【定殖】染成癌组织之后正好是唯一目标（实测 %s）" % str(targets))
+	check(int(tox.board_radius) == 12 and CWData.ring(Vector2i(-6, 1), 1, 12).size() == 7
+			and targets == [Vector2i(-5, 1)],
+		"★ 【细胞毒素】护栏：T (-6,1) 的 1 环 7 格里，玩家转移落点 (-5,1) 被【定殖】染成癌组织之后正好是唯一目标（实测 %s）" % str(targets))
 	tox.dispose()
 
-	## ---- ⑰ 第 22 步复活：`k=revive|to=0,0` 真的是引擎给得出的语义键，紧跟一份重装拨回哨兵 ----
+	## ---- ⑰ 第 22 步就地复活：`k=revive|to=-5,1` 真的是引擎给得出的语义键（依托 (-4,1)），紧跟一份重装拨回哨兵 ----
 	var rvg: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "signet"))
 	rvg.kill(rvg.cell_of(0))
 	var rkeys: Array = []
+	var anchor_of := Vector2i(99, 99)
 	for o in rvg.world.revive_options_cancer(0):
 		rkeys.append(CWSemKey.key({ "kind": "revive" }, (o as Dictionary)["data"]))
+		if ((o as Dictionary)["data"] as Dictionary).get("to", null) == Vector2i(-5, 1):
+			anchor_of = ((o as Dictionary)["data"] as Dictionary).get("anchor", Vector2i(99, 99))
 	var at_revive := -1
 	for i in flow.size():
 		if str((flow[i] as Dictionary).get("do", "")) == "player" \
-				and str(((flow[i] as Dictionary)["allow"] as Array)[0]) == "k=revive|to=0,0":
+				and str(((flow[i] as Dictionary)["allow"] as Array)[0]) == "k=revive|to=-5,1":
 			at_revive = i
 	var after_load := ""
 	for i in range(at_revive + 1, flow.size()):
 		if str((flow[i] as Dictionary).get("do", "")) == "state":
 			after_load = str((flow[i] as Dictionary).get("load", ""))
 			break
-	check("k=revive|to=0,0" in rkeys and at_revive > 0 and after_load == "revived"
+	check("k=revive|to=-5,1" in rkeys and anchor_of == Vector2i(-4, 1) and at_revive > 0 and after_load == "revived"
 			and int(rvg.cell_of(0)["energy"]) < CWTutorLayers.INFINITE_MIN
-			and int((d.resolve(lv, "revived")["cells"] as Array)[0]["energy"]) == CWTutorLayers.INFINITE_AT,
-		"★ 复活那一步：`k=revive|to=0,0` 在引擎给的 %d 条选项里；**紧跟一份 `load: revived`** 把能量从 "
-			% rkeys.size() + "REVIVE_ENERGY 拨回哨兵 %d（PRD:455 的 Null 不能在复活那一刻掉回 2.0）"
+			and int((d.resolve(lv, "revived")["cells"] as Array)[0]["energy"]) == CWTutorLayers.INFINITE_AT
+			and str(lv.get("on_done", "x")) == "",
+		"★ 复活那一步：`k=revive|to=-5,1` 在引擎给的 %d 条选项里（依托 (-4,1)，就地）；**紧跟一份 `load: revived`** 把能量从 "
+			% rkeys.size() + "REVIVE_ENERGY 拨回哨兵 %d（PRD:455 的 Null 不能在复活那一刻掉回 2.0）；on_done 空 = 全部通关"
 			% CWTutorLayers.INFINITE_AT)
 	rvg.dispose()
 
 	## ---- ⑱ 不产 `game_over`：【黏液破裂】走**内核真技能**跑一遍，自毁 → 跨一次 E → 仍不终局 ----
-	## 带子这一段照旧写 `rolls: []`：黏液的 `pick_random` 结果在**第 22-23 步的 `load: revived`**
-	## 里被整份覆盖（`revived` 是绝对坐标 spec、`from: signet` 拿的是原盘 tiles），
-	## 转化了哪几格影响不到结局画面 —— 这一条把「影响不到」钉住
+	## 带子这一段照旧写 `rolls: []`：黏液的 `pick_random` 走的是缺省 rng（固定），转化的那 10 格 09-25 起
+	## 逐格烘进 `revived`（drive 对账「重装前活局 = 数据」）；随机落哪几格都不产 game_over —— 这一条把「不终局」钉住
 	var mu: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "signet"))
 	var before_solid := int((mu.tile(Vector2i.ZERO) as Dictionary)["tissue"])
 	await mu.actions.execute(mu.cell_of(0), { "act": "mucus" })
@@ -22513,7 +22523,7 @@ const S9B_LEVEL := "interlude"
 ## 间章是强制演出，人类那一问挂在关死的闸上永不作答，而行动游标只前进不回头：
 ## 他不排最后的话，巨噬打完三下游标就走到队尾、直接进 E 阶段（实测 18 次骰）
 const S9B_L6_CELLS := { 0: Vector2i(0, 0), 1: Vector2i(-2, 0), 2: Vector2i(-5, 0),
-	3: Vector2i(-6, 4), 4: Vector2i(-11, 1) }
+	3: Vector2i(-6, 4), 4: Vector2i(-6, 1) }     ## T 09-25 挪到第 6 环（原 (-11,1) 在第六关镜头外）
 ## 人类席与那只要过来打三下的免疫（巨噬）—— 逐字照 c3_l6.base
 const S9B_HUMAN := 0
 const S9B_MACRO := 1
@@ -22693,6 +22703,23 @@ func t_tutor_play() -> void:
 ## ④ 第 11 步 `knock1` 重装前后癌组织**逐格相同**、且 = 数据里烘的 22 格（走过的痕迹烘在数据里，重装不抹）。
 ## 约 22 s（WEIGHTS 里登记着；免疫回合按回合号等、B 攻击那回合带掷骰演出约 2 s）。
 ## 内核日志跨换局累计：每次 `state.load` 都换一只新 CWGame、`logs` 归零，所以按句柄换新时从 0 重读
+## 引擎侧盘面快照（drive 对账用）：癌 / 固化 / 黏液标记三张表 + T（席 4）能量 + 玩家活着没
+static func _tutor_game_snapshot(g: CWGame) -> Dictionary:
+	var cancer: Array = []
+	var solid: Array = []
+	var muc: Array = []
+	for c in g.tiles.keys():
+		var t: Dictionary = g.tiles[c]
+		match int(t["tissue"]):
+			CWData.Tissue.CANCER: cancer.append(c)
+			CWData.Tissue.SOLID: solid.append(c)
+		if bool(t.get("mucus", false)):
+			muc.append(c)
+	cancer.sort(); solid.sort(); muc.sort()
+	return { "cancer": cancer, "solid": solid, "mucus": muc,
+		"t_energy": int(g.cell_of(4)["energy"]), "alive0": bool(g.cell_of(0)["alive"]) }
+
+
 func t_tutor_c3_drive() -> void:
 	print("[新手教程 v2·第六关整关无头走一遍：压迫压死三只免疫 / 两轮重复收口 / knock1 不抹痕迹]")
 	CWGuideProgress.clear()
@@ -22719,9 +22746,10 @@ func t_tutor_c3_drive() -> void:
 	var seats_at10: Array = []
 	var tp_at10 := -1              ## 传送演出计数：两次击退重装都不该演传送（09-24 复核抓到的双重位移）
 	var tex_at10: Texture2D = null   ## 印戒切换：signet 重装前后玩家真身的贴图（09-24 真机：模型没变）
-	var cancer_at25: Array = []      ## signet 重装前的盘面（两跳落过的 (-5,1) (-10,1) 烘进 signet，重装不抹）
+	var cancer_at25: Array = []      ## signet 重装前的盘面（一跳落过的 (-5,1) 烘进 signet，重装不抹；09-25 起是第 23 条）
 	var solid_at25: Array = []
 	var tex_after_signet: Texture2D = null
+	var live_pre_rv: Dictionary = {}  ## revived 重装前最后一帧的活局：癌 / 固化 / 黏液标记 / T 能量（09-25 烘死对账）
 	var tp_at17 := -1
 	var knock_hidden: Array = []   ## 两条 play knockback 起手那一帧真身是否让位（actor: player）
 	var last_at := -1
@@ -22734,6 +22762,8 @@ func t_tutor_c3_drive() -> void:
 		var gg = m._stage._game if m._stage != null else null
 		if gg != null:
 			if gg != last_g:
+				if last_g != null and str(m._stage.world_id) == "revived" and live_pre_rv.is_empty():
+					live_pre_rv = _tutor_game_snapshot(last_g)   ## signet 那一局的最后状态（就地复活已生效）
 				last_g = gg
 				seen = 0
 			while seen < gg.logs.size():
@@ -22750,13 +22780,15 @@ func t_tutor_c3_drive() -> void:
 				tp_at17 = int(m._teleport_fx.played)
 			if dd._at == 10 and m._tutor_cell_id(0) >= 0:
 				tex_at10 = (m._cell_nodes[m._tutor_cell_id(0)] as Sprite2D).texture
-			if dd._at == 25 and m.mirror != null:              ## 像素错误：signet 重装前
+			if dd._at == 23 and m.mirror != null:              ## 像素错误：signet 重装前（09-25 起是第 23 条）
 				cancer_at25 = _tutor_tissue_tiles(m, CWData.Tissue.CANCER)
 				solid_at25 = _tutor_tissue_tiles(m, CWData.Tissue.SOLID)
-			## signet 重装（26）之后：换图发生在重装后第一次 _sync_cells，像素错误演出收尾那一帧真身还让着位；
-			## 到黏液破裂放出去（29 冲击波）时贴图早已是印戒，按区间抓第一帧
-			if dd._at >= 29 and dd._at <= 31 and tex_after_signet == null and m._tutor_cell_id(0) >= 0:
+			## signet 重装（24）之后：换图发生在重装后第一次 _sync_cells，像素错误演出收尾那一帧真身还让着位
+			## （replay 下 26 那一问当帧就答、黏液当帧就爆）；到冲击波（27）时贴图早已是印戒，按区间抓第一帧
+			if dd._at >= 27 and dd._at <= 28 and tex_after_signet == null and m._tutor_cell_id(0) >= 0:
 				tex_after_signet = (m._cell_nodes[m._tutor_cell_id(0)] as Sprite2D).texture
+			if dd._at >= 28 and gg != null and str(m._stage.world_id) == "signet" and bool(gg.cell_of(0)["alive"]):
+				live_pre_rv = _tutor_game_snapshot(gg)   ## 就地复活已生效（引擎侧）、revived 还没装
 			if dd._at == 10 and m.mirror != null:          ## 第 9 步的效应应答：第 8 步刚收口
 				if m._teleport_fx != null:
 					tp_at10 = int(m._teleport_fx.played)
@@ -22821,12 +22853,12 @@ func t_tutor_c3_drive() -> void:
 		var pid := int(row[0])
 		if pid in [1, 2, 3] and bool(row[1]):
 			seats_ok = false
-		if pid == 4 and not (bool(row[1]) and row[2] == Vector2i(-11, 1)):
+		if pid == 4 and not (bool(row[1]) and row[2] == Vector2i(-6, 1)):
 			seats_ok = false
 		if pid == 0 and row[2] != Vector2i(-2, 1):
 			seats_ok = false
 	check(seats_ok, "★ 第 9 步前：玩家就站在围圈出发格 (-2,1)（Kevin 09-24「走完最后一步正好回到起点」，没有「走回起点」那一段）、"
-		+ "1/2/3 席阵亡（没复活）、T 还在 (-11,1) 没动（实测 %s）" % str(seats_at10))
+		+ "1/2/3 席阵亡（没复活）、T 还在 (-6,1) 没动（实测 %s）" % str(seats_at10))
 
 	## ---- ④ knock1 重装前后癌组织 / 固化格逐格相同、且 = 数据里烘的那一份（12 癌 + 5 固化）----
 	var k1: Dictionary = TUTOR_SCRIPT.new().resolve(m._tutor_level, "knock1")
@@ -22852,7 +22884,7 @@ func t_tutor_c3_drive() -> void:
 			% [str(knock_hidden), tp_at10, tp_at17])
 
 	## ---- ④c 第 19 步印戒切换：signet 重装之后玩家真身的贴图跟着换（Kevin 09-24 真机：模型没变）；
-	##      两跳落过的 (-5,1) (-10,1) 烘进 signet，重装前后癌 / 固化逐格相同 ----
+	##      一跳落过的 (-5,1) 烘进 signet，重装前后癌 / 固化逐格相同 ----
 	## 重装后的盘面直接拿数据算（黏液破裂在 replay 下一问就爆、镜像来不及截）：resolve(signet) 的癌 / 固化 = 重装前活局
 	var sg: Dictionary = TUTOR_SCRIPT.new().resolve(m._tutor_level, "signet")
 	var sg_cancer: Array = []
@@ -22866,8 +22898,56 @@ func t_tutor_c3_drive() -> void:
 			sg_solid.append(at)
 	sg_cancer.sort()
 	sg_solid.sort()
-	check(cancer_at25.size() == 14 and cancer_at25 == sg_cancer and solid_at25 == sg_solid,
-		"★ signet 重装前的活局 = 数据里的 signet 盘面（两跳落过的 (-5,1) (-10,1) 烘进了 signet，重装不抹；癌 活局 %d / 数据 %d，固化 %d / %d）"
+	## 09-25：revived 重装前（就地复活刚答完）的活局 = 数据里的 revived 盘面 —— 黏液破裂烘死的 2 环、碎掉的依托格、T 的能量都对得上
+	var rvd: Dictionary = TUTOR_SCRIPT.new().resolve(m._tutor_level, "revived")
+	var rvd_game: CWGame = CASE_LOADER.new().load_world(rvd)
+	var rvd_muc: Array = []
+	for c in rvd_game.tiles.keys():
+		if bool((rvd_game.tiles[c] as Dictionary).get("mucus", false)):
+			rvd_muc.append(c)
+	rvd_muc.sort()
+	var rvd_cancer: Array = []
+	var rvd_solid: Array = []
+	for c in rvd_game.tiles.keys():
+		match int((rvd_game.tiles[c] as Dictionary)["tissue"]):
+			CWData.Tissue.CANCER: rvd_cancer.append(c)
+			CWData.Tissue.SOLID: rvd_solid.append(c)
+	rvd_cancer.sort(); rvd_solid.sort()
+	var rvd_t: int = int(rvd_game.cell_of(4)["energy"])
+	rvd_game.dispose()
+	var revive_line := ""
+	for l in logs:
+		if str(l).find("【复活】") >= 0:
+			revive_line = str(l)
+			break
+	check(revive_line.find("复活于 (-5, 1)") >= 0 and revive_line.find("(-4, 1) 降级为癌组织") >= 0,
+		"★ 就地复活走的是引擎真选项：依托格 (-4,1) 碎成癌组织（内核日志：%s）" % revive_line)
+	## 第 24 步：revived 重装后 B 真发了三发抗体（npc 那条排在 load 之前，登记晚一拍就只剩「结束回合」），
+	## 终局那一次结算没人死（T 多给的 0.5 扛住一环压迫、B 站零压迫格）
+	var after_rv := false
+	var volley_ab := 0
+	var died_after := 0
+	for l in logs:
+		if str(l).find("【复活】") >= 0:
+			after_rv = true
+		elif after_rv and str(l).find("【抗体】命中") >= 0:
+			volley_ab += 1
+		elif after_rv and str(l).find("☠") >= 0:
+			died_after += 1
+	check(volley_ab == 3 and died_after == 0,
+		"★ 第 24 步齐射：B 在 revived 重装后真发了三发抗体（实测 %d 发）、终局那次结算没人死（☠ %d 条）" % [volley_ab, died_after])
+	## T 的能量数据里比活局多 0.5：(-6,1) 被黏液染成癌组织、一环压迫 0.5，0.5 会死在齐射中途（真机抓到）
+	check(not live_pre_rv.is_empty() and bool(live_pre_rv.get("alive0", false))
+			and live_pre_rv["cancer"] == rvd_cancer and live_pre_rv["solid"] == rvd_solid
+			and live_pre_rv["mucus"] == rvd_muc and int(live_pre_rv["t_energy"]) == 5 and rvd_t == 10,
+		"★ revived 重装前的活局（引擎侧、就地复活已生效）= 数据里的 revived 盘面：癌 %d / %d、固化 %d / %d、黏液标记 %d / %d、T 能量 %s / %s（多给 0.5 扛终局那次压迫；重装不闪回）"
+			% [live_pre_rv.get("cancer", []).size(), rvd_cancer.size(), live_pre_rv.get("solid", []).size(), rvd_solid.size(),
+				live_pre_rv.get("mucus", []).size(), rvd_muc.size(), str(live_pre_rv.get("t_energy", "?")), str(rvd_t)])
+	var solid_plus_anchor: Array = solid_at25.duplicate()
+	solid_plus_anchor.append(Vector2i(-4, 1))
+	solid_plus_anchor.sort()
+	check(cancer_at25.size() == 13 and cancer_at25 == sg_cancer and solid_plus_anchor == sg_solid,
+		"★ signet 重装前的活局 + 依托格 (-4,1) = 数据里的 signet 盘面（一跳落过的 (-5,1) 烘进了 signet，重装不抹；就地复活的依托格是借像素错误那一拍烘出来的；癌 活局 %d / 数据 %d，固化 %d+1 / %d）"
 			% [cancer_at25.size(), sg_cancer.size(), solid_at25.size(), sg_solid.size()])
 	check(tex_at10 == CWMatch.CANCER_ART[CWData.CancerType.SCLC]
 			and tex_after_signet == CWMatch.CANCER_ART[CWData.CancerType.SIGNET],
@@ -23004,14 +23084,14 @@ func t_tutor_c3_ui() -> void:
 			for _i in 2:
 				await process_frame
 	var secs: float = (Time.get_ticks_msec() - t0) / 1000.0
-	check(stuck == "" and m._director != null and m._director._at >= flow.size() and actions >= 27,
+	check(stuck == "" and m._director != null and m._director._at >= flow.size() and actions >= 26,
 		"★ %d 条走到头，全程 %d 次真实界面操作、零 replay（%.1f s%s）" % [flow.size(), actions, secs,
 			"；" + stuck if stuck != "" else ""])
-	check(did.has("k=action|act=jump|to=-5,1") and did.has("k=action|act=jump|to=-10,1")
-			and did.has("k=action|act=mucus") and did.has("k=revive|to=0,0") and did.count("k=action|act=end") >= 3,
-		"★ 两跳 / 黏液破裂 / 复活 / ≥3 次「结束回合」都是真按出来的（结束回合 %d 次；%s）"
+	check(did.has("k=action|act=jump|to=-5,1") and did.has("k=action|act=mucus")
+			and did.has("k=revive|to=-5,1") and did.count("k=action|act=end") >= 3,
+		"★ 一跳 / 黏液破裂 / 就地复活 / ≥3 次「结束回合」都是真按出来的（结束回合 %d 次；%s）"
 			% [did.count("k=action|act=end"), str(did.slice(0, 4))])
-	check(slow.is_empty(), "★ 没有任何目标格等镜头超过 3 s（第二跳靠第一跳之后那条 ui.camera、复活靠 {map, center}；超时的：%s）" % str(slow))
+	check(slow.is_empty(), "★ 没有任何目标格等镜头超过 3 s（T 挪到 (-6,1) 后整关一屏装得下，不再挪镜头；超时的：%s）" % str(slow))
 	check(m.toast != null and m.toast._box.modulate.a == 0.0,
 		"★ 掷骰时那行「攻击」在气泡静掉的关里也收掉了（09-24 真机：巨噬第 1 回合打一下之后「攻击」框挂到通关）")
 	m.teardown()
