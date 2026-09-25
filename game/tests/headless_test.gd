@@ -39,7 +39,7 @@ var _durations: Array = []   ## [毫秒, 测试名]
 ## 加了明显变慢的测试就把它填进来（跑一次 `-- --timing` 看末尾那张表）；看门狗上限 = 权重 × 4 s
 const WEIGHTS := {
 	"t_ai_same_hash_mcts4": 78.0, "t_ai_same_hash_mc4": 66.5, "t_ai_same_hash_mc6": 58.8, "t_ai_same_hash_mcts6": 34.9,
-	"t_tutor_c3_drive": 22.0, "t_tutor_c3_ui": 22.0, "t_ai_mc": 13.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
+	"t_tutor_done_menu": 30.0, "t_tutor_c3_drive": 22.0, "t_tutor_c3_ui": 22.0, "t_ai_mc": 13.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_drain": 5.1,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
 	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
@@ -208,7 +208,7 @@ func _run_all() -> void:
 		## 新手教程 v2 · S9a：间章地基（格网按世界半径长 + 间章分镜 2 的重心平移）
 		t_board_grow, t_tutor_recenter,
 		## 新手教程 v2 · S10：第六关 a（盘面 / 几何 / 席位 / 旋钮 / 带子 / 三条胜负护栏）
-		t_tutor_c3, t_tutor_c3_drive, t_tutor_c3_ui,
+		t_tutor_c3, t_tutor_c3_drive, t_tutor_c3_ui, t_tutor_done_menu,
 		## 新手教程 v2 · S9b：间章本体（play 接演出库 / 十个分镜 / 阵营翻转 / 击退是重装）
 		t_tutor_play, t_tutor_interlude,
 	]
@@ -22143,7 +22143,8 @@ func t_tutor_c3() -> void:
 
 	## ---- ⑦ 两处内核按半径 6 写死（2026-09-20 降级成注释：把已知缺陷写成断言，真修好了反而红）----
 	## `CWData.ring` 的**缺省**半径仍是 6 ⇒ 不传 radius 时 T 站 (-11,1)（09-25 前）一个目标都取不到 ——
-	## 第 18 步【细胞毒素】立得住全靠调用方传 `game.board_radius`（判据 ⑯ 正面钉）。
+	## 第 18 步【细胞毒素】立得住全靠调用方传 `game.board_radius`（T 挪到第 6 环之后缺省半径也够得到，
+	## 判据 ⑯ 只钉「落点 (-5,1) 是 T 一环里唯一的癌组织」这份数据，不再钉那个实参）。
 	## `CWData.is_edge` 同样按半径 6 判 ⇒ 半径 6 之外一律算外缘、【侵蚀】永不触发 ——
 	## 对本关是利好，但它是巧合不是设计。
 
@@ -22237,12 +22238,24 @@ func t_tutor_c3() -> void:
 		var n: int = CWData.hex_dist(a, p5)
 		if n > 0 and (dv / n) * n == dv and (dv / n) in CWData.DIRS:
 			t_dirs.append(dv / n)
-	check(spread and t_dirs.size() == 3 and t_dirs[0] != t_dirs[1] and t_dirs[1] != t_dirs[2]
+	check(spread and t_dirs.size() == 3 and t_dirs[0] != t_dirs[1] and t_dirs[1] != t_dirs[2] and t_dirs[0] != t_dirs[2]
 			and bool(rv.cell_of(1)["alive"]) and int(rv.cell_of(1)["itype"]) == CWData.ImmuneType.T_CELL
 			and int(rv.cell_of(2)["itype"]) == CWData.ImmuneType.B_CELL
 			and int(rv.cell_of(3)["itype"]) == CWData.ImmuneType.T_CELL,
-		"★ 第 23 步再生 T / B / T 各离玩家 4 格、两两 ≥2 格、离原 T ≥2 格，三只 T 各在一条六向直线上"
+		"★ 第 23 步再生 T / B / T 各离玩家 4 格、两两 ≥2 格、离原 T ≥2 格，三只 T 各在一条**不同的**六向直线上"
 			+ "（实测 %s，方向 %s）" % [str(born), str(t_dirs)])
+	## 终局那一次结算（B 三发抗体之后轮到 E 阶段）没人死：B 站零压迫格、T (-6,1) 多给的 0.5 扛住一环压迫。
+	## 站位 / 能量改了这里会红（09-25 复核：B 站 (-1,1) 一环 2.3 压迫三发之后就死，T 写 0.5 死在齐射中途）
+	for _k in 3:
+		await rv.actions.execute(rv.cell_of(2), { "act": "antibody" })
+	await rv.world.e_phase()
+	var finale_alive: Array = []
+	for pid in [1, 2, 3, 4]:
+		finale_alive.append(bool(rv.cell_of(pid)["alive"]))
+	check(finale_alive == [true, true, true, true] and int(rv.cell_of(2)["antibody_used"]) == 3
+			and int(rv.round_no) == 5 and int(rv.tumor_stage()) == 0,
+		"★ revived 里 B 三发抗体 + 跨一次 E：四只免疫都活着（%s；B 发了 %d 发；回合 %d 的结算仍是 I 期）"
+			% [str(finale_alive), int(rv.cell_of(2)["antibody_used"]), int(rv.round_no)])
 	rv.dispose()
 
 	## ---- ⑨ 关首那一条：界面照 PRD:441-447 ----
@@ -22445,10 +22458,27 @@ func t_tutor_c3() -> void:
 		for e in r.get("plan", []):
 			if str((e as Dictionary).get("key", "")) == "k=action|act=antibody":
 				anti_flow += 1
-	check(anti_flow == 3 and volley_from == ["-1,-3", "-5,5", "-6,1"]
-			and int((d.resolve(lv, "revived")["cells"] as Array)[2]["energy"]) == 40,
+	var t_at: Array = []
+	for c in (d.resolve(lv, "revived")["cells"] as Array):
+		if str((c as Dictionary).get("type", "")) == "TCell" and bool((c as Dictionary).get("alive", true)):
+			t_at.append(str((c as Dictionary)["at"]))
+	t_at.sort()
+	var vf_sorted: Array = volley_from.duplicate()
+	vf_sorted.sort()
+	var i_npc := -1
+	var i_rvload := -1
+	for i in flow.size():
+		var r: Dictionary = flow[i]
+		if str(r.get("do", "")) == "npc" and int(r.get("seat", -1)) == 2:
+			i_npc = i
+		if str(r.get("do", "")) == "state" and str(r.get("load", "")) == "revived":
+			i_rvload = i
+	check(anti_flow == 3 and vf_sorted == t_at and t_at.size() == 3
+			and int((d.resolve(lv, "revived")["cells"] as Array)[2]["energy"]) == 40
+			and i_npc >= 0 and i_rvload == i_npc + 1,
 		"★ 第 24 步：B 连发抗体 = plan 里**点名三条**（%d 条；4.0 能量正好三发，付费门槛「能量 > 费用」）、"
-			% anti_flow + "齐射从三只 T 的格发出（%s）" % str(volley_from))
+			% anti_flow + "齐射发点 = revived 里三只活 T 的格（%s）、**npc 那条紧排在 `load: revived` 之前**（%d / %d：重装当帧 B 就决策，登记晚一拍一发都不出）"
+			% [str(volley_from), i_npc, i_rvload])
 
 	## ---- ⑯ 第 18 步【细胞毒素】：口径 ② 的护栏打开（S10 跳过的那一条）----
 	## 第 17 步玩家一跳落到 (-5,1) 时【定殖】把那一格染成癌组织（signet 里已烘）⇒ T 脚下一环有目标。
@@ -22464,8 +22494,10 @@ func t_tutor_c3() -> void:
 	tox.dispose()
 
 	## ---- ⑰ 第 22 步就地复活：`k=revive|to=-5,1` 真的是引擎给得出的语义键（依托 (-4,1)），紧跟一份重装拨回哨兵 ----
+	## 按真流程走：黏液破裂（依托格在 2 环内 —— 黏液只转化健康组织，固化格只挂标记）+ 跨一次 E，再看复活选项
 	var rvg: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "signet"))
-	rvg.kill(rvg.cell_of(0))
+	await rvg.actions.execute(rvg.cell_of(0), { "act": "mucus" })
+	await rvg.world.e_phase()
 	var rkeys: Array = []
 	var anchor_of := Vector2i(99, 99)
 	for o in rvg.world.revive_options_cancer(0):
@@ -22483,11 +22515,14 @@ func t_tutor_c3() -> void:
 			after_load = str((flow[i] as Dictionary).get("load", ""))
 			break
 	check("k=revive|to=-5,1" in rkeys and anchor_of == Vector2i(-4, 1) and at_revive > 0 and after_load == "revived"
-			and int(rvg.cell_of(0)["energy"]) < CWTutorLayers.INFINITE_MIN
+			and not bool(rvg.cell_of(0)["alive"])
+			and int((rvg.tile(Vector2i(-4, 1)) as Dictionary)["tissue"]) == CWData.Tissue.SOLID
+			and bool((rvg.tile(Vector2i(-4, 1)) as Dictionary)["mucus"])
 			and int((d.resolve(lv, "revived")["cells"] as Array)[0]["energy"]) == CWTutorLayers.INFINITE_AT
+			and int(d.resolve(lv, "revived")["round"]) == 5
 			and str(lv.get("on_done", "x")) == "",
-		"★ 复活那一步：`k=revive|to=-5,1` 在引擎给的 %d 条选项里（依托 (-4,1)，就地）；**紧跟一份 `load: revived`** 把能量从 "
-			% rkeys.size() + "REVIVE_ENERGY 拨回哨兵 %d（PRD:455 的 Null 不能在复活那一刻掉回 2.0）；on_done 空 = 全部通关"
+		"★ 复活那一步（黏液破裂 + 跨一次 E 之后）：`k=revive|to=-5,1` 在引擎给的 %d 条选项里（依托 (-4,1) 还是固化、只挂了黏液标记；就地）；"
+			% rkeys.size() + "**紧跟一份 `load: revived`** 把能量拨回哨兵 %d、回合号写 5 = 活局此刻的回合（不倒拨）；on_done 空 = 全部通关"
 			% CWTutorLayers.INFINITE_AT)
 	rvg.dispose()
 
@@ -22501,8 +22536,8 @@ func t_tutor_c3() -> void:
 	check(not bool(mu.cell_of(0)["alive"]) and int(mu.winner) == -1 and str(mu.win_kind) == ""
 			and before_solid == CWData.Tissue.SOLID
 			and int((mu.tile(Vector2i.ZERO) as Dictionary)["tissue"]) == CWData.Tissue.SOLID,
-		"★ 【黏液破裂】真技能自毁 + 跨一次 E：**不产 game_over**（winner=%d），复活点 (0,0) 那格固化"
-			% int(mu.winner) + "离引爆点 10 格、黏液一点都碰不到 ⇒ 第 22 步永远有得复活")
+		"★ 【黏液破裂】真技能自毁 + 跨一次 E：**不产 game_over**（winner=%d）；出生格 (0,0) 那格固化"
+			% int(mu.winner) + "离引爆点 5 格、黏液碰不到（就地复活的依托格 (-4,1) 由 ⑰ 钉）")
 	check(str(lv["on_done"]) == "",
 		"★ 第 25 步之后 `on_done` 是空串 = **全部通关**（Q-14：PRD 第四章没写接什么 ⇒ "
 			+ "落一笔「全部通关」+ 回主菜单，不弹结算屏）")
@@ -22716,7 +22751,7 @@ static func _tutor_game_snapshot(g: CWGame) -> Dictionary:
 		if bool(t.get("mucus", false)):
 			muc.append(c)
 	cancer.sort(); solid.sort(); muc.sort()
-	return { "cancer": cancer, "solid": solid, "mucus": muc,
+	return { "cancer": cancer, "solid": solid, "mucus": muc, "round": int(g.round_no),
 		"t_energy": int(g.cell_of(4)["energy"]), "alive0": bool(g.cell_of(0)["alive"]) }
 
 
@@ -22749,7 +22784,9 @@ func t_tutor_c3_drive() -> void:
 	var cancer_at25: Array = []      ## signet 重装前的盘面（一跳落过的 (-5,1) 烘进 signet，重装不抹；09-25 起是第 23 条）
 	var solid_at25: Array = []
 	var tex_after_signet: Texture2D = null
-	var live_pre_rv: Dictionary = {}  ## revived 重装前最后一帧的活局：癌 / 固化 / 黏液标记 / T 能量（09-25 烘死对账）
+	var live_pre_rv: Dictionary = {}  ## revived 重装前的活局：癌 / 固化 / 黏液标记 / T 能量 / 回合号（09-25 烘死对账；
+	                                  ## 复活答完下一拍就重装、镜像追不上，换局那一刻从旧 game 抄）
+	var vis_seen: Dictionary = {}     ## 第 9 步（T 放光束）与齐射时，T / 三只再生 / 玩家是否整格在镜头里（规则 13）
 	var tp_at17 := -1
 	var knock_hidden: Array = []   ## 两条 play knockback 起手那一帧真身是否让位（actor: player）
 	var last_at := -1
@@ -22787,8 +22824,12 @@ func t_tutor_c3_drive() -> void:
 			## （replay 下 26 那一问当帧就答、黏液当帧就爆）；到冲击波（27）时贴图早已是印戒，按区间抓第一帧
 			if dd._at >= 27 and dd._at <= 28 and tex_after_signet == null and m._tutor_cell_id(0) >= 0:
 				tex_after_signet = (m._cell_nodes[m._tutor_cell_id(0)] as Sprite2D).texture
-			if dd._at >= 28 and gg != null and str(m._stage.world_id) == "signet" and bool(gg.cell_of(0)["alive"]):
-				live_pre_rv = _tutor_game_snapshot(gg)   ## 就地复活已生效（引擎侧）、revived 还没装
+			if dd._at == 10:
+				vis_seen["beam"] = [m._tutor_tile_visible(Vector2i(-6, 1)), m._tutor_tile_visible(Vector2i(-2, 1))]
+			if dd._at == 32:
+				vis_seen["volley"] = []
+				for c in [Vector2i(-6, 1), Vector2i(-1, -3), Vector2i(-9, 5), Vector2i(-5, 5), Vector2i(-5, 1)]:
+					vis_seen["volley"].append(m._tutor_tile_visible(c))
 			if dd._at == 10 and m.mirror != null:          ## 第 9 步的效应应答：第 8 步刚收口
 				if m._teleport_fx != null:
 					tp_at10 = int(m._teleport_fx.played)
@@ -22914,6 +22955,7 @@ func t_tutor_c3_drive() -> void:
 			CWData.Tissue.SOLID: rvd_solid.append(c)
 	rvd_cancer.sort(); rvd_solid.sort()
 	var rvd_t: int = int(rvd_game.cell_of(4)["energy"])
+	var rvd_round: int = int(rvd_game.round_no)
 	rvd_game.dispose()
 	var revive_line := ""
 	for l in logs:
@@ -22939,10 +22981,15 @@ func t_tutor_c3_drive() -> void:
 	## T 的能量数据里比活局多 0.5：(-6,1) 被黏液染成癌组织、一环压迫 0.5，0.5 会死在齐射中途（真机抓到）
 	check(not live_pre_rv.is_empty() and bool(live_pre_rv.get("alive0", false))
 			and live_pre_rv["cancer"] == rvd_cancer and live_pre_rv["solid"] == rvd_solid
-			and live_pre_rv["mucus"] == rvd_muc and int(live_pre_rv["t_energy"]) == 5 and rvd_t == 10,
-		"★ revived 重装前的活局（引擎侧、就地复活已生效）= 数据里的 revived 盘面：癌 %d / %d、固化 %d / %d、黏液标记 %d / %d、T 能量 %s / %s（多给 0.5 扛终局那次压迫；重装不闪回）"
+			and live_pre_rv["mucus"] == rvd_muc and int(live_pre_rv["t_energy"]) == 5 and rvd_t == 10
+			and int(live_pre_rv.get("round", -1)) == rvd_round,
+		"★ revived 重装前的活局（引擎侧、就地复活已生效）= 数据里的 revived 盘面：癌 %d / %d、固化 %d / %d、黏液标记 %d / %d、T 能量 %s / %s（多给 0.5 扛终局那次压迫）、回合 %s / %s（不倒拨；重装不闪回）"
 			% [live_pre_rv.get("cancer", []).size(), rvd_cancer.size(), live_pre_rv.get("solid", []).size(), rvd_solid.size(),
-				live_pre_rv.get("mucus", []).size(), rvd_muc.size(), str(live_pre_rv.get("t_energy", "?")), str(rvd_t)])
+				live_pre_rv.get("mucus", []).size(), rvd_muc.size(), str(live_pre_rv.get("t_energy", "?")), str(rvd_t),
+				str(live_pre_rv.get("round", "?")), str(rvd_round)])
+	check(vis_seen.get("beam", []) == [true, true] and vis_seen.get("volley", []) == [true, true, true, true, true],
+		"★ 规则 13 逐格核：第 9 步 T (-6,1) 与玩家 (-2,1)、齐射时 T (-6,1) / T (-1,-3) / B (-9,5) / T (-5,5) / 玩家 (-5,1) 都整格在镜头里"
+			+ "（Kevin 09-25「看不到屏幕外的 T」；实测 %s / %s）" % [str(vis_seen.get("beam", [])), str(vis_seen.get("volley", []))])
 	var solid_plus_anchor: Array = solid_at25.duplicate()
 	solid_plus_anchor.append(Vector2i(-4, 1))
 	solid_plus_anchor.sort()
@@ -22998,6 +23045,80 @@ func _tutor_tissue_tiles(m: CWMatch, tissue: int) -> Array:
 ## on_button / on_tile 闭包，`tiles.has` + `tile_selectable`（通用规则 13）两道判据都过）、按右栏「结束回合」（按之前先核它可见）。
 ## `replay_answers` 在 `CWUIBridge.ask` 里当场作答、走不到这些闭包，所以 t_tutor_c3_drive 测不到这一类 bug
 ## （09-24 真机「第二段转移按不出去」= 落点 (-10,1) 在镜头框外被规则 13 挡掉，drive 是绿的）。
+## 全部通关之后回主菜单（Q-14；Kevin 09-25「最后卡在了这里」）：`CWMatch.tutorial_done` 停 TUTOR_DONE_LINGER 再发、
+## `main.gd` 接到走 `_back_to_menu()`。三件事：① 停顿里从图鉴跳去间章（承接活局那一支不动 `_loop_id`）**不发**；
+## ② 暂停菜单开着（树暂停）计时**不走**；③ 恢复之后到点真的拆局回菜单。约 30 s（第六关 replay 快进 ≈ 22 s）
+func t_tutor_done_menu() -> void:
+	print("[新手教程 v2·全部通关回主菜单：停顿里跳关不发 / 暂停不计时 / 到点拆局]")
+	CWGuideProgress.clear()
+	CWGuideProgress.set_at("c3_l6", 0)
+	CWTutorLayers.reset()
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	m.tutorial = true
+	CWSettings.ai_delay_ms = 0
+	var fired: Array = [0]     ## lambda 抓局部变量是按值抓的，计数要放进容器
+	m.tutorial_done.connect(func() -> void: fired[0] += 1)
+	m.start()
+	await process_frame
+	## ① 人为起一段通关停顿，停顿里目录跳关到间章（承接活局：`_loop_id` 不动、只有 `_tutor_done_gen` 动）
+	m._tutor_next_level("")
+	await process_frame
+	m._tutor_next_level("interlude", false)
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < int(CWMatch.TUTOR_DONE_LINGER * 1000.0) + 1200:
+		await process_frame
+		if m.bridge != null and m.bridge.replay_answers.is_empty():
+			m.bridge.replay_answers = PackedInt32Array([0])
+	check(fired[0] == 0 and m.kernel != null and str(m._tutor_level.get("id", "")) == "interlude"
+			and m._director != null and bool(m._director.active),
+		"★ 通关停顿里从图鉴跳去间章：2 s 后 `tutorial_done` **没发**、人还在间章里（发了 %d 次；关 %s）"
+			% [fired[0], str(m._tutor_level.get("id", ""))])
+	m.teardown()
+	await process_frame
+	## ② ③ 真走一遍第六关到头（replay 快进），到头立刻暂停树 3 s：计时不该走；恢复后到点拆局、菜单回来
+	CWGuideProgress.set_at("c3_l6", 0)
+	CWTutorLayers.reset()
+	fired[0] = 0
+	m.tutorial = true
+	m.start()
+	await process_frame
+	var flow_n: int = (m._tutor_level.get("flow", []) as Array).size()
+	t0 = Time.get_ticks_msec()
+	var ended := false
+	while Time.get_ticks_msec() - t0 < 60000:
+		await process_frame
+		if m.bridge != null and m.bridge.replay_answers.is_empty():
+			m.bridge.replay_answers = PackedInt32Array([0])
+		var dd = m._director
+		if dd == null:
+			break
+		if not dd.active and dd._at >= flow_n:
+			ended = true
+			break
+	check(ended and m.kernel != null and fired[0] == 0, "第六关 %d 条走到头，那一刻还没发 `tutorial_done`（%d）" % [flow_n, fired[0]])
+	paused = true      ## 本脚本就是 SceneTree：暂停菜单那种「树暂停」
+	var t1 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t1 < int(CWMatch.TUTOR_DONE_LINGER * 1000.0) + 1000:
+		await process_frame
+	var while_paused: int = fired[0]
+	var kernel_paused: bool = m.kernel != null
+	paused = false
+	t1 = Time.get_ticks_msec()
+	while (fired[0] == 0 or m.kernel != null or bool(main_scene._entering)) and Time.get_ticks_msec() - t1 < 6000:
+		await process_frame
+	check(while_paused == 0 and kernel_paused,
+		"★ 暂停菜单那种「树暂停」下通关计时不走：停了 3 s 一次都没发、对局还在（发了 %d 次）" % while_paused)
+	check(fired[0] == 1 and m.kernel == null and not bool(main_scene._entering) and main_scene.menu.visible,
+		"★ 恢复之后到点：`tutorial_done` 发了一次、主场景走完返场（拆局、`_entering` 放开、菜单可见；发了 %d 次，kernel=%s，entering=%s，用时 %d ms）"
+			% [fired[0], str(m.kernel != null), str(main_scene._entering), Time.get_ticks_msec() - t1])
+	main_scene.queue_free()
+	await process_frame
+	CWGuideProgress.clear()
+
+
 ## 钉：① 37 条走到头、真实界面操作 ≥ 27 次；② 两跳 / 黏液破裂 / 复活 / 结束回合都是真按出来的；
 ## ③ 没有任何目标格等镜头超过 3 s（第二跳靠第一跳之后那条 ui.camera、复活靠 {map, center}）；④ ai_delay 用真机的 220 ms。
 ## 约 22 s（WEIGHTS 登记）
