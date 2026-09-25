@@ -39,7 +39,7 @@ var _durations: Array = []   ## [毫秒, 测试名]
 ## 加了明显变慢的测试就把它填进来（跑一次 `-- --timing` 看末尾那张表）；看门狗上限 = 权重 × 4 s
 const WEIGHTS := {
 	"t_ai_same_hash_mcts4": 78.0, "t_ai_same_hash_mc4": 66.5, "t_ai_same_hash_mc6": 58.8, "t_ai_same_hash_mcts6": 34.9,
-	"t_ai_mc": 13.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
+	"t_tutor_c3_drive": 26.0, "t_ai_mc": 13.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_drain": 5.1,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
 	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
@@ -208,7 +208,7 @@ func _run_all() -> void:
 		## 新手教程 v2 · S9a：间章地基（格网按世界半径长 + 间章分镜 2 的重心平移）
 		t_board_grow, t_tutor_recenter,
 		## 新手教程 v2 · S10：第六关 a（盘面 / 几何 / 席位 / 旋钮 / 带子 / 三条胜负护栏）
-		t_tutor_c3,
+		t_tutor_c3, t_tutor_c3_drive,
 		## 新手教程 v2 · S9b：间章本体（play 接演出库 / 十个分镜 / 阵营翻转 / 击退是重装）
 		t_tutor_play, t_tutor_interlude,
 	]
@@ -18327,6 +18327,11 @@ func t_tutorial_npc() -> void:
 	dec.memo = {}
 	check(await dec.ask(req) == 1 and await dec.ask(req) == 2,
 		"adapter 按脚本答第 1 条，脚本用完接着兜底")
+	dec.plan = [{ "key": "k=action|act=antibody" }]   ## 剧本点名的键这一问里没有（付不起 / 局面变了）
+	dec.memo = {}
+	check(await dec.ask(req) == 2,
+		"★ 剧本那条没命中 ⇒ 先过兜底①②「结束回合」再落下标 0（2026-09-24 前直接落 0 =「分化」，"
+			+ "第六关能量耗尽的 B / 树突就这么被兜成了 T / B）")
 	var no_end := { "kind": "pick_tile", "pid": 2, "prompt": "", "options": [
 		{ "label": "这一格", "data": { "to": Vector2i(3, 0) } }] }
 	check(await dec.ask(no_end) == 0,
@@ -22143,7 +22148,40 @@ func t_tutor_c3() -> void:
 			and k1.cell_of(0)["pos"] == Vector2i(-1, 1)
 			and not bool(k1.cell_of(1)["alive"]) and bool(k1.cell_of(4)["alive"]),
 		"knock1：围出来的一环（巨噬六邻）全成癌组织、玩家在第一次击退落点 (-1,1)、只剩最后一个 T")
+	var k1_cancer := 0
+	for c in k1.tiles.keys():
+		if int((k1.tile(c) as Dictionary)["tissue"]) == CWData.Tissue.CANCER:
+			k1_cancer += 1
+	check(k1_cancer == 22,
+		"★ knock1 烘进了走过的痕迹：一环 6 + 去围 B / 树突踩过的 16 = 22 格癌组织（实测 %d）—— "
+			% k1_cancer + "第 11 步重装才不抹痕迹；重装前后逐格对账在 t_tutor_c3_drive")
 	k1.dispose()
+	## ---- ⑧b 第 8 步真能收口（2026-09-24 Kevin「第六关无法结束，因为微环境压迫的伤害太低了」）----
+	## 整盘一环的压迫 = 1.5/回合（癌 I 期；PRESSURE_MUL_BY_STAGE 是常量不是旋钮），免疫默认每回合 +3～5 有氧、
+	## 死了下一回合骨髓复活 ⇒ 原数据（三只 3.0）下「重复直到只剩 T」永远等不到。改的是**关卡数据**，压迫公式不动
+	var b6: Dictionary = d.resolve(lv, "base")
+	var tune6: Dictionary = b6.get("tuning", {})
+	var no_income := true
+	for k in ["aerobic_by_level[1]", "aerobic_by_level[2]", "aerobic_by_level[3]", "aerobic_by_level[4]",
+			"aerobic_level_base", "aerobic_level_step"]:
+		if int(tune6.get(k, 1)) != 0:
+			no_income = false
+	check(no_income and int(tune6.get("immune_respawn_delay", 0)) == 99,
+		"★ base 旋钮：有氧收入六个全 0、immune_respawn_delay 99（死了就死了；都在 tier A 白名单里）")
+	var e6 := {}
+	for c in b6.get("cells", []):
+		e6[int((c as Dictionary)["seat"])] = int((c as Dictionary).get("energy", -1))
+	check(e6[1] == 10 and e6[2] == 46 and e6[3] == 10 and e6[4] == 30,
+		"★ base 能量：巨噬 1.0 / B 4.6 / 树突 1.0 / T 3.0 —— 被围一圈（压迫 1.5）下一次结算就死；"
+			+ "B 的 4.6 = 迁一步 0.5 + 三发抗体 3.0 之后余 1.1（第三发要「能量 > 1.0」才给选项）")
+	var pr: Dictionary = d.resolve(lv, "pressed")
+	var pr_cells := {}
+	for c in pr.get("cells", []):
+		pr_cells[int((c as Dictionary)["seat"])] = c
+	check(str((lv["worlds"]["pressed"] as Dictionary).get("from", "")) == "knock1"
+			and str((pr_cells[0] as Dictionary)["at"]) == "-2,1"
+			and not bool((pr_cells[1] as Dictionary).get("alive", true)),
+		"pressed（第 8 步封顶纠偏那一份）= knock1 的盘面 + 玩家回围圈终点 (-2,1)；正常路径走不到它")
 	var sg: CWGame = CASE_LOADER.new().load_world(d.resolve(lv, "signet"))
 	check(int(sg.cell_of(0)["ctype"]) == CWData.CancerType.SIGNET
 			and sg.cell_of(0)["pos"] == Vector2i(-10, 1),
@@ -22577,6 +22615,150 @@ func t_tutor_play() -> void:
 	CWGuideProgress.clear()
 
 
+## 第六关**整关无头走一遍**（2026-09-24 Kevin「第六关无法结束，因为微环境压迫的伤害太低了」的护栏）：
+## 真 CWMatch + 真闸桥，人类那一问一律答闸放行的第一条（`replay_answers`），免疫席走 c3_l6.gd 喂的 plan。
+## 钉四件事：① 35 条 flow 走到头；② 三只免疫真的被【微环境压迫】压死（巨噬第 1 世界回合、B 第 2、树突第 3），
+## 第 8 步两轮重复就收口、没走 pressed 纠偏；③ B 在第 1 回合真发了三发抗体（PRD:479）；
+## ④ 第 11 步 `knock1` 重装前后癌组织**逐格相同**、且 = 数据里烘的 22 格（走过的痕迹烘在数据里，重装不抹）。
+## 约 26 s（WEIGHTS 里登记着：免疫回合那口气 1.5 s × 3 + 五段演出）。
+## 内核日志跨换局累计：每次 `state.load` 都换一只新 CWGame、`logs` 归零，所以按句柄换新时从 0 重读
+func t_tutor_c3_drive() -> void:
+	print("[新手教程 v2·第六关整关无头走一遍：压迫压死三只免疫 / 两轮重复收口 / knock1 不抹痕迹]")
+	CWGuideProgress.clear()
+	CWGuideProgress.set_at("c3_l6", 0)
+	CWTutorLayers.reset()
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	m.tutorial = true
+	CWSettings.ai_delay_ms = 0
+	m.start()
+	await process_frame
+	check(m._director != null and str(m._tutor_level.get("id", "")) == "c3_l6",
+		"教程局按进度开在第六关（实测 %s）" % str(m._tutor_level.get("id", "")))
+	var flow_n: int = (m._tutor_level.get("flow", []) as Array).size()
+	var logs: Array = []
+	var last_g = null
+	var seen := 0
+	var cancer_at10: Array = []
+	var cancer_at14: Array = []
+	var seats_at10: Array = []
+	var last_at := -1
+	var t0 := Time.get_ticks_msec()
+	var done := false
+	while Time.get_ticks_msec() - t0 < 90000:
+		await process_frame
+		if m.bridge != null and m.bridge.replay_answers.is_empty():
+			m.bridge.replay_answers = PackedInt32Array([0])
+		var gg = m._stage._game if m._stage != null else null
+		if gg != null:
+			if gg != last_g:
+				last_g = gg
+				seen = 0
+			while seen < gg.logs.size():
+				logs.append(str(gg.logs[seen]))
+				seen += 1
+		var dd = m._director
+		if dd == null:
+			break
+		if dd._at != last_at:
+			last_at = dd._at
+			if dd._at == 10 and m.mirror != null:          ## 第 9 步的效应应答：第 8 步刚收口
+				cancer_at10 = _tutor_cancer_tiles(m)
+				for c in m.mirror.cells:
+					var r: Dictionary = c
+					seats_at10.append([int(r["pid"]), bool(r["alive"]), r["pos"]])
+			elif dd._at == 14 and m.mirror != null:        ## 第 13 步 knock1 装完之后的第一条
+				cancer_at14 = _tutor_cancer_tiles(m)
+		if not dd.active and dd._at >= flow_n:
+			done = true
+			break
+	var secs: float = (Time.get_ticks_msec() - t0) / 1000.0
+	check(done, "★ %d 条 flow 走到头（导演 inactive、游标 %d；%.1f s）" % [flow_n, last_at, secs])
+
+	## ---- ② 三只免疫真的被压迫压死、第 8 步两轮收口 ----
+	var closed := false
+	var fell_back := false
+	var hooks: Array = m._director.hook_log if m._director != null else []
+	for h in hooks:
+		if str(h).begins_with("重复结束：走了 2 轮，盘上还剩 1 只免疫"):
+			closed = true
+		if str(h).find("pressed") >= 0:
+			fell_back = true
+	check(closed and not fell_back, "★ 第 8 步两轮重复就收口（只剩 T）、没走 pressed 纠偏（钩子流水：%s）"
+		% str(m._director.hook_log.slice(0, 3) if m._director != null else []))
+	## 死因两种都算：被围之后要么下一次结算被【微环境压迫】压死，要么先在自己的回合攻击玩家、掷骰失效被【反弹】
+	## 归零（带子空 ⇒ 走种子恒 1 的兜底 rng，掷骰可复现：巨噬掷 4 成功 → 压死；B 掷 2 无效 → 反弹归零）。
+	## 树突 0.5 能量攻不起，只能是压死的
+	var round_no := 1
+	var died := {}
+	var cause := {}
+	var antibodies_r1 := 0
+	var prev := ""
+	for line in logs:
+		var s := str(line)
+		if s.find("世界回合 ━") >= 0:
+			round_no = int(s.split(" ")[2])
+		elif s.begins_with("☠ ") and s.find("死亡") >= 0:
+			for who in ["巨噬", "B细胞", "树突"]:
+				if s.find(who) >= 0 and not died.has(who):
+					died[who] = round_no
+					cause[who] = "压迫" if prev.find("【微环境压迫】") >= 0 \
+						else ("反弹" if prev.find("【反弹】") >= 0 else prev)
+		elif s.find("【抗体】命中") >= 0 and round_no == 1:
+			antibodies_r1 += 1
+		prev = s
+	var causes_ok := true
+	for who in ["巨噬", "B细胞", "树突"]:
+		if not (str(cause.get(who, "")) in ["压迫", "反弹"]):
+			causes_ok = false
+	check(int(died.get("巨噬", -1)) == 1 and int(died.get("B细胞", -1)) == 2 and int(died.get("树突", -1)) == 3
+			and causes_ok and str(cause.get("树突", "")) == "压迫",
+		"★ 三只免疫各在被围的那一回合死：巨噬第 1 世界回合、B 第 2、树突第 3；死因是【微环境压迫】或攻击失败"
+			+ "【反弹】归零、树突必是压死（实测 %s / %s）" % [str(died), str(cause)])
+	check(antibodies_r1 == 3,
+		"★ B 在第 1 回合真发了三发抗体（PRD:479；4.6 − 迁一步 0.5 − 三发 3.0 = 1.1 < 压迫 1.5；实测 %d 发）" % antibodies_r1)
+	var seats_ok := seats_at10.size() == 5
+	for row in seats_at10:
+		var pid := int(row[0])
+		if pid in [1, 2, 3] and bool(row[1]):
+			seats_ok = false
+		if pid == 4 and not (bool(row[1]) and row[2] == Vector2i(-11, 1)):
+			seats_ok = false
+	check(seats_ok, "★ 第 9 步前：1/2/3 席阵亡（没复活）、T 还在 (-11,1) 没动（实测 %s）" % str(seats_at10))
+
+	## ---- ④ knock1 重装前后癌组织逐格相同、且 = 数据里烘的那 22 格 ----
+	var k1: Dictionary = TUTOR_SCRIPT.new().resolve(m._tutor_level, "knock1")
+	var k1_cancer: Array = []
+	for t in k1.get("tiles", []):
+		if str((t as Dictionary).get("state", "")) == "cancer":
+			var p: PackedStringArray = str((t as Dictionary)["at"]).split(",")
+			k1_cancer.append(Vector2i(int(p[0]), int(p[1])))
+	k1_cancer.sort()
+	check(cancer_at10.size() == 22 and cancer_at10 == cancer_at14 and cancer_at14 == k1_cancer,
+		"★ 第 11 步 knock1 重装前后癌组织逐格相同、且 = 数据里烘的 22 格（重装前 %d / 后 %d / 数据 %d）"
+			% [cancer_at10.size(), cancer_at14.size(), k1_cancer.size()])
+
+	m.teardown()
+	await process_frame
+	CWSettings.ai_delay_ms = 220
+	CWGuideProgress.clear()   ## 别脏到同一分片里后面按进度开局的测试
+	main_scene.queue_free()
+	await process_frame       ## 同 t_entry_smoke_tutor：等 _exit_tree 那一遍 teardown 落在本测试里
+
+
+func _tutor_cancer_tiles(m: CWMatch) -> Array:
+	var out: Array = []
+	if m.mirror == null:
+		return out
+	for key in m.mirror.tiles:
+		if int((m.mirror.tiles[key] as Dictionary)["tissue"]) == CWData.Tissue.CANCER:
+			out.append(key)
+	out.sort()
+	return out
+
+
 ## 间章「癌变」本体（S9b）。方案 §6.1 那一行的九条判据逐条。
 func t_tutor_interlude() -> void:
 	print("[间章 癌变：十个分镜 / 承接 / 阵营翻转 / 击退（S9b）]")
@@ -22725,6 +22907,16 @@ func t_tutor_interlude() -> void:
 		check(diff.is_empty(),
 			"★ 间章末尾的 solid 与第六关的 c3_l6.base 逐只逐格相等（组织 / 器官 / 五只细胞的位置 / 种类 / 能量；对不上的：%s）" % str(diff.slice(0, 6)))
 		gs.dispose()
+		var e_flip := {}
+		for c in (d.resolve(lv, "flip") as Dictionary).get("cells", []):
+			e_flip[int((c as Dictionary)["seat"])] = int((c as Dictionary).get("energy", -1))
+		var e_solid := {}
+		for c in (d.resolve(lv, "solid") as Dictionary).get("cells", []):
+			e_solid[int((c as Dictionary)["seat"])] = int((c as Dictionary).get("energy", -1))
+		check(e_flip[1] == 30 and e_flip[2] == 30 and e_flip[3] == 30
+				and e_solid[1] == 10 and e_solid[2] == 46 and e_solid[3] == 10 and e_solid[4] == 30,
+			"★ 能量只在 solid 那一份拨低（巨噬 1.0 / B 4.6 / 树突 1.0 = c3_l6.base）：flip / act 仍 3.0，"
+				+ "分镜 9 三次攻击才付得起；间章全程 UI 全隐，这一拨看不见（2026-09-24 第六关收口）")
 
 	## ---- ⑥ 击退是重装不是规则：规则文件里零「击退」----
 	var core_src := FileAccess.get_file_as_string("res://scripts/core/cw_actions.gd") \

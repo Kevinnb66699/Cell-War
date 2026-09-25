@@ -22,6 +22,8 @@
 ##   ① 选项里 `data.stop` / `data.skip` 的第一条（判法同 `cw_obs_codec.gd:298-300`）；
 ##   ② 顶层 action 问（这一层没有 stop 选项）⇒ 选 `act=end`「结束回合」= 什么都不做；
 ##   ③ 都没有才回落下标 0（基类默认，`scripts/core/cw_bridge.gd:17-18`）—— 由调用方在拿到 `""` 时自己落。
+##   剧本点名的键在这一问里**没有**（付不起 / 局面变了）时，adapter 同样先过 ①② 再落 ③ ——
+##   2026-09-24 前它直接落 ③：第六关里能量耗尽的 B / 树突被兜成下标 0 =「分化」，B 变 T、树突变 B。
 ##
 ## 不带 `class_name`、调用方 `preload`（同 `cw_tutorial_stage.gd`）。
 extends RefCounted
@@ -153,4 +155,8 @@ class Decider extends CWBridge:
 		if mirror_of.is_valid():
 			m = mirror_of.call() as CWMirror
 		var idx: int = NPC.index_of(req, NPC.decide(req, m, plan, memo))
+		if idx < 0:
+			## 剧本那条没命中（付不起 / 局面变了）：先落 stop / skip / 「结束回合」，**再**落下标 0 ——
+			## 下标 0 在行动问里常是「分化」：第六关里能量耗尽的 B / 树突就这么被兜成了 T / B（2026-09-24 无头探针）
+			idx = NPC.index_of(req, NPC.fallback(req))
 		return idx if idx >= 0 else 0    ## 第三级兜底：下标 0（基类默认，scripts/core/cw_bridge.gd:17-18）

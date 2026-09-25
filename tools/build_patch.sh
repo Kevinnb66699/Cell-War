@@ -48,7 +48,11 @@ git rev-parse -q --verify "$BASE^{commit}" >/dev/null || die "找不到 $BASE（
 
 # 只要 game/ 下**还存在**的文件；tests/ 不进客户端包，删掉的文件补丁也表达不了。
 # .import / .uid 是编辑器的簿记，进不进包都一样，别让补丁白白变大。
-mapfile -t CHANGED < <(git diff --name-only --diff-filter=d "$BASE"..HEAD -- game/ \
+# `mapfile` 是 bash 4 的；macOS 自带 bash 3.2（2026-09-24 Mac 上第一次打补丁），用 while read 装
+CHANGED=()
+while IFS= read -r f; do
+	[ -n "$f" ] && CHANGED+=("$f")
+done < <(git diff --name-only --diff-filter=d "$BASE"..HEAD -- game/ \
 	| grep -v '^game/tests/' | grep -vE '\.(import|uid)$' || true)
 
 [ "${#CHANGED[@]}" -gt 0 ] || die "$BASE..HEAD 之间 game/ 没有可打包的改动"
