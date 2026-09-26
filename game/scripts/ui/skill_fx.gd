@@ -160,6 +160,10 @@ const SHIELD_FILL_A := 0.14
 ## 细胞的 position 每帧被 `CWMatch._sync_cells` 覆写，所以抖动和伪足的 `carry_pos` 一样
 ## 由这里代管：那边每帧问 `shake_offset(细胞位)`，把返回的偏移叠上去。
 const ANTIBODY_HIT := 0.8
+## 同一只 B 在同一瞬间连发的抗体（教程第六关终局：三条 `k=action|act=antibody` 内核同步一口气跑完、
+## 三条演出同一帧登记）错开这么多秒起飞 —— 不错开的话三枚 Y 完全重叠、只看得见一枚（Kevin 2026-09-25「被盖住了」）。
+## 起飞前 `t` 为负：sync 照常推进、_draw 不画
+const ANTIBODY_GAP := 0.3
 const HIT_SHAKE_FOR := 0.28
 const HIT_SHAKE_PX := 3.0
 ## ---- 早期血行转移的血门（issue #53 ④「圆圈应该是伪 3D 有倾斜效果」）----
@@ -210,6 +214,14 @@ func play(kind: String, data: Dictionary) -> void:
 	if not DURATION.has(kind):
 		return
 	var entry := { "kind": kind, "t": 0.0, "data": data, "dots": _spawn_dots(kind, data) }
+	if kind == "antibody":
+		var origin := _v(data, "from")
+		var queued := 0
+		for p in _plays:
+			if String(p["kind"]) == "antibody" and _v(p["data"] as Dictionary, "from").distance_to(origin) <= 4.0 \
+					and float(p["t"]) < ANTIBODY_HIT:
+				queued += 1
+		entry["t"] = -ANTIBODY_GAP * float(queued)
 	_plays.append(entry)
 	visible = true
 	queue_redraw()
@@ -372,6 +384,8 @@ func homing_elapsed(from: Vector2, to: Vector2) -> float:
 
 func _draw() -> void:
 	for p in _plays:
+		if float(p["t"]) < 0.0:
+			continue          ## 连发错峰：还没轮到它起飞
 		var t: float = floorf(float(p["t"]) * PIX_FPS) / PIX_FPS
 		var d: Dictionary = p["data"]
 		## 走了地面贴花的那几条这一层不再画（贴花按格子的 z 各画各的，见 GroundDot）

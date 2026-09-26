@@ -1371,6 +1371,20 @@ func t_skill_fx() -> void:
 	## ① 每种演出：登记 → 走完时长自己收场；不认识的 kind 不登记；十三种技能 + 十四种卡牌粒子（issue #28）一起画不报错
 	var fx := CWSkillFx.new()
 	root.add_child(fx)
+	## ⓪ 同一发点同一瞬间连发的抗体错开起飞（09-25：第六关终局三枚 Y 完全重叠只剩一枚）；别的发点不受牵连
+	fx.play("antibody", { "from": Vector2(0, 0), "targets": [Vector2(60, 10)] })
+	fx.play("antibody", { "from": Vector2(0, 0), "targets": [Vector2(60, 10)] })
+	fx.play("antibody", { "from": Vector2(0, 0), "targets": [Vector2(60, 10)] })
+	fx.play("antibody", { "from": Vector2(90, 0), "targets": [Vector2(60, 10)] })
+	var starts: Array = []
+	for p in fx._plays:
+		starts.append(snappedf(float(p["t"]), 0.01))
+	fx.sync(CWSkillFx.ANTIBODY_GAP * 2.0 + 0.05)
+	var alive_after: int = fx._plays.size()
+	fx.sync(10.0)
+	check(starts == [0.0, -0.3, -0.6, 0.0] and alive_after == 4 and fx._plays.is_empty(),
+		"★ 连发抗体：同一发点第 2 / 3 枚各晚 %.1f s 起飞（起点 %s）、别的发点不排队；负 t 照常推进、到时各自收场"
+			% [CWSkillFx.ANTIBODY_GAP, str(starts)])
 	var sample := {
 		"antibody": { "from": Vector2(0, 0), "targets": [Vector2(60, 10), Vector2(30, 40)] },
 		"toxin": { "from": Vector2(0, 0), "tiles": [Vector2(36, 0), Vector2(18, 20)] },
@@ -22961,7 +22975,7 @@ func t_tutor_c3_drive() -> void:
 				tex_after_signet = (m._cell_nodes[m._tutor_cell_id(0)] as Sprite2D).texture
 			if dd._at == 10:
 				vis_seen["beam"] = [m._tutor_tile_visible(Vector2i(-6, 1)), m._tutor_tile_visible(Vector2i(-2, 1))]
-			if dd._at == 32:
+			if dd._at == 33:              ## 齐射（09-25 起 revived 之后多一拍 wait 让抗体先飞）
 				vis_seen["volley"] = []
 				for c in [Vector2i(-6, 1), Vector2i(-1, -3), Vector2i(-9, 5), Vector2i(-5, 5), Vector2i(-5, 1)]:
 					vis_seen["volley"].append(m._tutor_tile_visible(c))

@@ -334,6 +334,12 @@ func _enter(row: Dictionary) -> void:
 			_enter_play(row)
 		"wait":
 			_wait_left = float(row.get("secs", 0.0))
+			## 真停一拍（secs > 0）就把上一条 `player` 留下的提示行与提亮收掉，同 `play` / `say` 的口径：
+			## 第六关 revived 之后那 0.9 s 里「在固化癌组织旁原地复活」还挂在顶上（09-25 真机抓到）。
+			## secs 0 的 wait（测试里当占位）不动，免得搅乱意图序列
+			if _wait_left > 0.0 and view != null and is_instance_valid(view):
+				view.hint("")
+				view.clear_point()
 		"player":
 			_enter_player(row)
 		"npc":
