@@ -108,18 +108,14 @@ func _ready() -> void:
 	## 此前是靠 nginx 给 `/cellwar/latest.json` 回 404 达到同样效果，代价是每次启动
 	## 都要白跑一趟请求；再早一点（混合内容拦截那一版）是干等满 `CHECK_BUDGET` 十秒。
 	## 出处：`tools/publish_release.sh` 的挂账提醒、`docs/网页导出.md` §①。
-	## **延迟一帧再切**（2026-09-25）：`_ready` 跑的时候 Boot 自己还在被加进树，当场 `change_scene_to_file`
-	## 会让引擎去 `remove_child(Boot)`、被「Parent node is busy adding/removing children」拒掉 ——
-	## 网页版控制台每次启动都有这一条（Kevin 09-25 看到的）；编辑器运行的那条分支同样。走热更的正常分支
-	## 是在 HTTP 回调里切的，不在这一帧上，不用改
 	if OS.has_feature("web"):
-		get_tree().change_scene_to_file.call_deferred(MAIN_SCENE)
+		get_tree().change_scene_to_file(MAIN_SCENE)
 		return
 	## **编辑器运行时跳过整个热更**：本地开发应该跑磁盘上的代码，
 	## 不被服务器上的补丁覆盖（线上旧补丁会把新档位/新代码盖回旧版，F5 一跑就中招）。
 	## 只影响 `OS.has_feature("editor")` 的运行；导出客户端行为零变化。
 	if OS.has_feature("editor"):
-		get_tree().change_scene_to_file.call_deferred(MAIN_SCENE)
+		get_tree().change_scene_to_file(MAIN_SCENE)
 		return
 	_t0 = Time.get_ticks_msec()
 	_build_note()
