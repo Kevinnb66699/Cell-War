@@ -20169,7 +20169,7 @@ func t_tutor_camera() -> void:
 ##      公共 `beam_fx.gd` / `attack_fx.gd` / `teleport_fx.gd` 一字不动 —— 那三支真人对局也在用。
 const TUTOR_FX := preload("res://scripts/tutor/cw_tutor_fx.gd")
 
-## 六种 kind 的样例参数（`glitch` 三种模式、`reset_hint` 三个候选各一条）
+## 七种 kind 的样例参数（`glitch` 三种模式、`reset_hint` 三个候选各一条）
 const TUTOR_FX_CASES := [
 	["shockwave", {"at": Vector2i(0, 0), "radius": 3}],
 	["glitch", {"at": Vector2i(0, 0), "mode": "jitter", "intensity": "light",
@@ -20187,6 +20187,8 @@ const TUTOR_FX_CASES := [
 	["reset_hint", {"variant": "dissolve", "seed": 20260919,
 		"cells": [{"at": Vector2i(0, 0), "tex": "ImmuneBasic"},
 			{"at": Vector2i(1, 0), "tex": "Melanoma"}]}],
+	## 死亡（2026-09-25）：排在**末尾** —— 上面几条按下标引用（[3] 是 heavy glitch、[6] 是 reveal）
+	["death", {"at": Vector2i(0, 0), "tex": "SignetRing", "seed": 20260919}],
 ]
 
 func t_tutor_fx() -> void:
@@ -20210,7 +20212,7 @@ func t_tutor_fx() -> void:
 		"不写 `mode` / `variant` 就走拍板的那一版（像素错误 %s、自动重置提示 %s）"
 			% [def_mode, def_variant])
 
-	# ---- ① 六种 kind 各喂一遍时间：跑得完、时长为正、末刻自己收尾 ----
+	# ---- ① 七种 kind 各喂一遍时间：跑得完、时长为正、末刻自己收尾 ----
 	var stuck: Array = []
 	var zero: Array = []
 	for row: Array in TUTOR_FX_CASES:
@@ -22464,11 +22466,18 @@ func t_tutor_c3() -> void:
 			bad_fx.append(k)
 		if not TUTOR_BEATS.bad_keys(r).is_empty():
 			loose.append("%d:%s" % [i, str(TUTOR_BEATS.bad_keys(r))])
+	var death_row: Dictionary = {}
+	for r in flow:
+		if str(r.get("do", "")) == "play" and str(r.get("fx", "")) == "death":
+			death_row = r
 	check(bad_fx.is_empty() and loose.is_empty() and int(fx_seen.get("knockback", 0)) == 2
 			and int(fx_seen.get("beam_hit", 0)) == 4 and int(fx_seen.get("glitch", 0)) == 2
-			and int(fx_seen.get("shockwave", 0)) == 1,
-		"★ 五段演出：击退受击 ×2（第 11/13 步）、命中不贯穿的效应应答 ×%d（第 9/17/18/24 步）、"
-			% int(fx_seen.get("beam_hit", 0)) + "像素错误 ×2（第 19/25 步）、黏液破裂 ×1（第 21 步）；"
+			and int(fx_seen.get("shockwave", 0)) == 1 and int(fx_seen.get("death", 0)) == 1
+			and str((flow[flow.size() - 1] as Dictionary).get("fx", "")) == "death"
+			and str((death_row.get("args", {}) as Dictionary).get("actor", "")) == "player" and bool(death_row.get("await", false)),
+		"★ 六段演出：击退受击 ×2（第 11/13 步）、命中不贯穿的效应应答 ×%d（第 9/17/18/24 步）、"
+			% int(fx_seen.get("beam_hit", 0)) + "像素错误 ×2（第 19/25 步）、黏液破裂 ×1（第 21 步）、"
+			+ "**死亡 ×1 压轴**（第 25 步，actor: player、await；09-25 Kevin）；"
 			+ "fx 名全在 KINDS 里、键全在 §2.6 的六个里（越界 %s / %s）" % [str(bad_fx), str(loose)])
 	## 「一直持续」与「停」：第 9 / 17 步 loop=true，第 18 步那一发 loop=false（播完即收）
 	var loops: Array = []
@@ -22476,6 +22485,13 @@ func t_tutor_c3() -> void:
 		if str(r.get("do", "")) == "play" and str(r.get("fx", "")) == "beam_hit":
 			loops.append([int(r["prd"]), bool((r.get("args", {}) as Dictionary).get("loop", false)),
 				int((r.get("args", {}) as Dictionary).get("target", -1))])
+	var volley_await := false
+	for r in flow:
+		if str(r.get("do", "")) == "play" and str(r.get("fx", "")) == "beam_hit" \
+				and (r.get("args", {}) as Dictionary).get("from", null) is Array:
+			volley_await = bool(r.get("await", false))
+	check(volley_await,
+		"★ 齐射那条 play 写 await: true：像素错误要等三条光束播完（蓄力 0.5 + 发射 0.4 + 命中 0.9 = 1.8 s）再开（09-25 Kevin「只有蓄力过程」）")
 	check(loops == [[487, true, 0], [507, true, 0], [509, false, 0], [525, false, 0]],
 		"★ 效应应答 loop 账：PRD:487「一直持续」与 :507「始终止于癌细胞位置」都 loop（target 写**席位 0** "
 			+ "⇒ 随玩家位置更新）；:509 第 18 步那一发不 loop = 停；:525 齐发也不 loop（实测 %s）" % str(loops))
@@ -22803,6 +22819,38 @@ func t_tutor_play() -> void:
 	var pairs_n: int = ((fx.probe(2.0) as Dictionary)["pairs"] as Array).size()
 	check(pairs_n == 3, "★ from 写数组 = 三个发点齐发（PRD:525 第 24 步），演出库逐条算光束（实测 %d 条）" % pairs_n)
 	fx.clear()
+	## 09-25：真机喂时间一帧封顶（终局那一帧卡顿把「蓄力 → 发射」整段吞掉，只剩命中尾巴）；无头 advance() 不封
+	var bargs_once: Dictionary = bargs.duplicate()
+	bargs_once["loop"] = false
+	fx.begin("beam_hit", bargs_once)
+	fx.auto_play = true
+	fx._process(3.0)
+	var t_capped: float = fx._t
+	fx.auto_play = false
+	fx.advance(3.0)
+	check(t_capped <= TUTOR_FX.PROCESS_MAX_DELTA + 0.001 and fx._t >= 3.0 and not fx.running(),
+		"★ 真机 _process 一帧最多算 %.3f s（喂 3.0 只走了 %.3f）；测试的 advance(3.0) 照旧一步到底" % [TUTOR_FX.PROCESS_MAX_DELTA, t_capped])
+	fx.clear()
+	## 09-25：第二支持续光束的端点跟着主槽的击退替身飞（`follow`），主槽没在演击退时按席位取
+	var fx2 = TUTOR_FX.new()
+	fx2.attach(bd)
+	fx2.auto_play = false
+	fx2.seat_at = Callable(dir, "seat_at")
+	fx2.follow = fx
+	bd.add_child(fx2)
+	await process_frame
+	fx2.begin("beam_hit", bargs)
+	var b_plain: Vector2 = (fx2.probe(1.0) as Dictionary)["b"]
+	fx.begin("knockback", { "from": Vector2i(4, -1), "to": Vector2i(6, -1), "actor": 0 })
+	fx.seek(fx.duration() * 0.5)
+	var foot_mid: Vector2 = fx._state["foot"]
+	var b_follow: Vector2 = (fx2.probe(1.0) as Dictionary)["b"]
+	fx.skip()
+	var b_after: Vector2 = (fx2.probe(1.0) as Dictionary)["b"]
+	check(b_follow == foot_mid - Vector2(0.0, TUTOR_FX.BODY_DY) and b_follow != b_plain and b_after == b_plain,
+		"★ 光束端点：主槽演击退时 = 替身此刻的胸口（%s），演完回到席位所在格（%s）" % [str(b_follow), str(b_plain)])
+	fx2.clear()
+	fx2.queue_free()
 	bd.queue_free()
 	dir.teardown()
 	dir.queue_free()
@@ -22867,6 +22915,10 @@ func t_tutor_c3_drive() -> void:
 	var live_pre_rv: Dictionary = {}  ## revived 重装前的活局：癌 / 固化 / 黏液标记 / T 能量 / 回合号（09-25 烘死对账；
 	                                  ## 复活答完下一拍就重装、镜像追不上，换局那一刻从旧 game 抄）
 	var vis_seen: Dictionary = {}     ## 第 9 步（T 放光束）与齐射时，T / 三只再生 / 玩家是否整格在镜头里（规则 13）
+	var loop_seen: Dictionary = {}    ## 各拍起手：[第二支持续光束还亮着？, 主槽在演什么]（09-25 击退不该抹掉光束）
+	var dead_hidden := false          ## 剧本走完那一刻：死亡演出收尾后真身仍让位（不许死而复生）
+	var follow_ok := false            ## 击退飞行中的某一帧：光束端点 = 替身胸口
+	var follow_tried := false
 	var tp_at17 := -1
 	var knock_hidden: Array = []   ## 两条 play knockback 起手那一帧真身是否让位（actor: player）
 	var last_at := -1
@@ -22893,6 +22945,9 @@ func t_tutor_c3_drive() -> void:
 			last_at = dd._at
 			if dd._at in [12, 15]:
 				knock_hidden.append(m._tutor_fx_cid == m._tutor_cell_id(0))
+			if dd._at in [12, 15, 20, 23]:
+				loop_seen[dd._at] = [m._tutor_fx_loop != null and bool(m._tutor_fx_loop._running)
+					and str(m._tutor_fx_loop._kind) == "beam_hit", str(m._tutor_fx._kind)]
 			if dd._at == 17 and m._teleport_fx != null:
 				tp_at17 = int(m._teleport_fx.played)
 			if dd._at == 10 and m._tutor_cell_id(0) >= 0:
@@ -22921,8 +22976,16 @@ func t_tutor_c3_drive() -> void:
 			elif dd._at == 14 and m.mirror != null:        ## 第 13 步 knock1 装完之后的第一条
 				cancer_at14 = _tutor_tissue_tiles(m, CWData.Tissue.CANCER)
 				solid_at14 = _tutor_tissue_tiles(m, CWData.Tissue.SOLID)
+		## 击退飞行中（主槽 knockback 跑到一半）：第二支光束的端点得跟着替身的胸口
+		if dd._at == 12 and not follow_tried and m._tutor_fx != null and bool(m._tutor_fx._running) \
+				and str(m._tutor_fx._kind) == "knockback" and float(m._tutor_fx._t) > 0.2 \
+				and (m._tutor_fx._state as Dictionary).has("foot") and m._tutor_fx_loop != null:
+			follow_tried = true
+			var lb: Vector2 = (m._tutor_fx_loop.probe(m._tutor_fx_loop._t) as Dictionary).get("b", Vector2.INF)
+			follow_ok = lb == (m._tutor_fx._state["foot"] as Vector2) - Vector2(0.0, TUTOR_FX.BODY_DY)
 		if not dd.active and dd._at >= flow_n:
 			done = true
+			dead_hidden = m._tutor_fx_cid == m._tutor_cell_id(0) and m._tutor_cell_id(0) >= 0
 			break
 	var secs: float = (Time.get_ticks_msec() - t0) / 1000.0
 	check(done, "★ %d 条 flow 走到头（导演 inactive、游标 %d；%.1f s）" % [flow_n, last_at, secs])
@@ -23067,6 +23130,11 @@ func t_tutor_c3_drive() -> void:
 			% [live_pre_rv.get("cancer", []).size(), rvd_cancer.size(), live_pre_rv.get("solid", []).size(), rvd_solid.size(),
 				live_pre_rv.get("mucus", []).size(), rvd_muc.size(), str(live_pre_rv.get("t_energy", "?")), str(rvd_t),
 				str(live_pre_rv.get("round", "?")), str(rvd_round)])
+	check(loop_seen.get(12, []) == [true, "knockback"] and loop_seen.get(15, []) == [true, "knockback"]
+			and (loop_seen.get(20, [false]) as Array)[0] == true and (loop_seen.get(23, [true]) as Array)[0] == false,
+		"★ 第 9 步的持续光束：两次击退开演时还亮着（主槽演击退、第二支照亮）、第 20 拍（跳之前）还在、第 18 步那一发把它收掉之后第 23 拍没了（实测 %s）" % str(loop_seen))
+	check(follow_tried and follow_ok, "★ 击退飞行中光束端点跟着替身的胸口（抓到 %s，对上 %s）" % [str(follow_tried), str(follow_ok)])
+	check(dead_hidden, "★ 压轴的死亡演出收尾之后真身仍让位（镜像里它还活着，露面就是死而复生；09-25 Kevin 加的死亡动画）")
 	check(vis_seen.get("beam", []) == [true, true] and vis_seen.get("volley", []) == [true, true, true, true, true],
 		"★ 规则 13 逐格核：第 9 步 T (-6,1) 与玩家 (-2,1)、齐射时 T (-6,1) / T (-1,-3) / B (-9,5) / T (-5,5) / 玩家 (-5,1) 都整格在镜头里"
 			+ "（Kevin 09-25「看不到屏幕外的 T」；实测 %s / %s）" % [str(vis_seen.get("beam", [])), str(vis_seen.get("volley", []))])
