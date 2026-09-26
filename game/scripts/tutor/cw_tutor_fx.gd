@@ -33,7 +33,7 @@ extends Node2D
 
 ## 逐帧步进：同 CWSkillFx.PIX_FPS / CWChemoFx.PIX_FPS / tutorial_opening.PIX_FPS
 const PIX_FPS := 12.0
-const KINDS := ["shockwave", "glitch", "knockback", "beam_hit", "reveal", "reset_hint"]
+const KINDS := ["shockwave", "glitch", "knockback", "beam_hit", "reveal", "reset_hint", "death"]
 
 ## 细胞贴图：**横排 6 帧静息呼吸表**，和棋盘上的细胞同一批（同 tutorial_opening.CELL_ART 的做法，
 ## 按词条名建表、不去认识内核的类型枚举）。`args.tex` / `args.morph_to` 可以直接给 Texture2D，
@@ -99,6 +99,13 @@ const KNOCK_SECS := 0.62
 const KNOCK_WAIT := 0.10      ## 挨了这么久才被推出去（先看见受击、再看见位移）
 const KNOCK_FLASH := 0.16
 const KNOCK_ARC := 6.0        ## 被推出去时抛起多少像素
+## 死亡（Kevin 2026-09-25「最后被多个细胞围攻这一段，应该要再加上一个死亡的动画」；正式局细胞死了只是消失，
+## 没有任何演出）：闪白 → 胞体抖一下 → 碎成像素块四散、落下、淡没。装配方给 `tex`（真身让位，同击退）
+const DEATH_SECS := 1.3
+const DEATH_FLASH := 0.18     ## 受击闪白多久
+const DEATH_HOLD := 0.30      ## 抖到这一刻才碎
+const DEATH_GRID := 6         ## 胞体横竖各切几块
+const DEATH_G := 90.0         ## 碎块下落的重力（px/s²）
 const INK_HIT := Color("ffb03a")    ## 同 CWStyle.CANCER
 
 ## 效应应答变体（PRD:463-465/483）：形态照 beam_fx 的双螺旋，**止于目标胸前、不贯穿**
@@ -129,6 +136,10 @@ var board                       ## Board.tscn 的实例。**不标类型**：boa
 var seat_at := Callable()       ## 席位 -> 格坐标；导演注入（演出层不认识席位）
 var auto_play := true           ## 真机由 _process 喂时间；测试置 false 自己调 advance()
 var rng_seed := 0               ## args.seed 缺省时用它
+
+## 光束端点要跟的那一支演出（第六关：T 的效应应答一直持续，玩家被它推走那 0.6 s 里镜像还站在原格，
+## 光束不该打在空地上）—— 装配方把主槽那一支挂进来，`_probe_beam` 只读它此刻的画面，不碰它
+var follow = null
 
 var _kind := ""
 var _args := {}
@@ -174,9 +185,15 @@ func attach(b) -> void:
 		z_index = b.Z_OVER_BOARD
 
 
+## 真机喂时间一帧最多算 PROCESS_MAX_DELTA：终局重装 + B 三发抗体 + E 阶段挤在同一帧时会卡出一记大 delta，
+## 不封顶的话光束「蓄力 → 发射」整段被一帧吞掉，只剩命中的尾巴（Kevin 2026-09-25「只有蓄力过程」）。
+## 无头测试自己调 advance() 喂大步长不受影响
+const PROCESS_MAX_DELTA := 1.0 / 20.0
+
+
 func _process(delta: float) -> void:
 	if _running and auto_play:
-		advance(delta)
+		advance(minf(delta, PROCESS_MAX_DELTA))
 
 
 # ── 对外的四个动词 ──────────────────────────────────────────────────
@@ -300,6 +317,8 @@ func probe(t: float) -> Dictionary:
 			return {"kind": "reveal", "q": q, "n": _coords(_args).size()}
 		"reset_hint":
 			return _probe_reset(q)
+		"death":
+			return _probe_death(q)
 	return {}
 
 
@@ -335,6 +354,16 @@ func _roll() -> Dictionary:
 	match _kind:
 		"shockwave":
 			out["delays"] = board.ring_delays(_shock_full(), SHOCK_STEP)
+		"death":
+			## 每块一个方向、一个速度、一点错峰：一次摇好存表，probe 只查表
+			var chunks: Array = []
+			for _i in DEATH_GRID * DEATH_GRID:
+				chunks.append({
+					"dir": Vector2.RIGHT.rotated(_rng.randf_range(-PI, PI)),
+					"speed": _rng.randf_range(18.0, 60.0),
+					"delay": _rng.randf_range(0.0, 0.12),
+				})
+			out["chunks"] = chunks
 		"glitch":
 			var pool: Array = [_tex_of(_args.get("tex", "ImmuneBasic"))]
 			for name in _args.get("pool", []):
@@ -426,6 +455,8 @@ func _duration_of() -> float:
 			return lead + float(_args.get("secs", board.ACTIVE_FADE))
 		"reset_hint":
 			return float(_args.get("secs", RESET_SECS))
+		"death":
+			return float(_args.get("secs", DEATH_SECS))
 	return 0.0
 
 
@@ -765,6 +796,65 @@ func _draw_knock() -> void:
 		CWPix.ring(self, f1, 6.0 + land * 14.0, dust, _squash())
 
 
+# ── ③′ 死亡：闪白 → 抖 → 碎成像素块四散淡没（2026-09-25）────────────────────
+
+func _probe_death(q: float) -> Dictionary:
+	var foot := _foot(_coord(_args.get("at", Vector2i.ZERO)))
+	var flash := _steps(1.0 - CWPix.phase(q, 0.0, DEATH_FLASH))
+	var scatter := CWPix.phase(q, DEATH_HOLD, maxf(_dur - DEATH_HOLD, 0.001))
+	## 碎之前左右抖一像素（按 PIX_FPS 的帧交替）
+	var jit := Vector2(float((int(q * PIX_FPS) % 2) * 2 - 1), 0.0) if q < DEATH_HOLD and q > DEATH_FLASH else Vector2.ZERO
+	var chunks: Array = []
+	for c in _plan.get("chunks", []):
+		var ts: float = maxf(q - DEATH_HOLD - float(c["delay"]), 0.0)
+		var off: Vector2 = (c["dir"] as Vector2) * float(c["speed"]) * ts + Vector2(0.0, 0.5 * DEATH_G * ts * ts)
+		chunks.append(off.round())
+	return {
+		"kind": "death", "q": q, "foot": foot, "flash": flash, "jit": jit,
+		"scatter": _steps(scatter), "alpha": _steps(1.0 - scatter), "chunks": chunks, "frame": _breath(q),
+	}
+
+
+func _draw_death() -> void:
+	var foot: Vector2 = _state["foot"]
+	var tex := _tex_of(_args.get("tex", "ImmuneBasic"))
+	var scatter: float = _state["scatter"]
+	if scatter <= 0.0:
+		## 还没碎：整只照画（抖着），胸口一把白光
+		if tex != null:
+			_blit(self, tex, int(_state["frame"]), foot, _state["jit"], 0.0, 1.0, Color(1, 1, 1, 1))
+		var flash: float = _state["flash"]
+		if flash > 0.0:
+			var ink := INK_HIT
+			ink.a = flash
+			CWPix.burst(self, foot - Vector2(0.0, BODY_DY), 1.0 - flash, ink, 18, 30.0)
+		return
+	if tex == null:
+		return
+	var alpha: float = _state["alpha"]
+	if alpha <= 0.0:
+		return
+	var w := _fw(tex)
+	var h := _fh(tex)
+	var cw := ceilf(w / float(DEATH_GRID))
+	var ch := ceilf(h / float(DEATH_GRID))
+	var f := clampi(int(_state["frame"]), 0, BREATH_FRAMES - 1)
+	var origin := (foot - Vector2(w / 2.0, h)).round()
+	var offs: Array = _state["chunks"]
+	var tint := Color(1, 1, 1, alpha)
+	for j in DEATH_GRID:
+		for i in DEATH_GRID:
+			var x0 := float(i) * cw
+			var y0 := float(j) * ch
+			var sw := minf(cw, w - x0)
+			var sh := minf(ch, h - y0)
+			if sw <= 0.0 or sh <= 0.0:
+				continue
+			var off: Vector2 = offs[j * DEATH_GRID + i]
+			draw_texture_rect_region(tex, Rect2(origin + Vector2(x0, y0) + off, Vector2(sw, sh)),
+				Rect2(Vector2(float(f) * w + x0, y0), Vector2(sw, sh)), tint)
+
+
 # ── ④ 效应应答变体：命中不贯穿（PRD:463-465/483）──────────────────────
 
 ## `from` 写成数组 = 几个发点**齐发**同一个目标（PRD:525 第 24 步「所有 T 细胞一齐向癌细胞发起效应应答」）：
@@ -781,6 +871,10 @@ func _probe_beam(q: float) -> Dictionary:
 	var first_from: Variant = (raw_from[0] if not (raw_from as Array).is_empty() else Vector2i.ZERO) \
 		if raw_from is Array else raw_from
 	var b := _body(_coord(_args.get("to", first_from)))
+	## 端点跟着另一支演出的击退替身飞（见 `follow`）；它没在演击退时照旧按席位 / 格取
+	if follow != null and is_instance_valid(follow) and bool(follow._running) \
+			and str(follow._kind) == "knockback" and (follow._state as Dictionary).has("foot"):
+		b = (follow._state["foot"] as Vector2) - Vector2(0.0, BODY_DY)
 	var reach := CWPix.phase(q, BEAM_CHARGE, BEAM_REACH)
 	var hold := maxf(q - BEAM_CHARGE - BEAM_REACH, 0.0)
 	var pairs: Array = []
@@ -944,6 +1038,8 @@ func _draw() -> void:
 			_draw_beam()
 		"reset_hint":
 			_draw_reset()
+		"death":
+			_draw_death()
 
 
 ## 叠加混合（BLEND_MODE_ADD）：受击闪白与像素错误那一下过曝只能靠加色，调 modulate 提不亮

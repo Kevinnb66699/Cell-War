@@ -76,6 +76,11 @@ var _tutor_spot = null
 ## 教程演出库（`scripts/tutor/cw_tutor_fx.gd`，S7 做的库，S2 把它接进来给 `reset_anim` 用）。
 ## **挂在棋盘下面**（同 `preview_tutor_fx.gd` 的做法）：它有一半画在棋盘坐标系里
 var _tutor_fx = null
+## 第二支演出库：**只放 loop 的光束**（第六关第 9 步 T 的效应应答「一直持续」）。演出库是单槽的、begin() 先 clear()，
+## 一条击退在主槽开演就把持续中的光束抹掉 —— Kevin 2026-09-25「第二次击退的时候射线先消失了」。
+## 持续光束独占这一支：击退 / 像素错误在主槽开演时它照亮，端点跟着主槽的击退替身飞（`follow`）；
+## 被下一条 loop 光束替换、被不 loop 的那一发（= 「停」）收掉、重置 / 换关 / 拆局清掉
+var _tutor_fx_loop = null
 ## 教程演出库此刻**代画**着哪一只细胞（`play` 的 `args.actor`，S9b）。-1 = 没有。
 ## 真身要让位，而且必须在**这里**让：`_sync_cells` 每帧重写 `node.visible`，
 ## 演出层自己 `_hide` 是藏不住的（同 `_attack_fx.owns(i)` 那一条的道理）
@@ -1034,6 +1039,13 @@ func _attach_tutor() -> void:
 	_tutor_fx_cid = -1
 	_tutor_knocked = {}
 	board.add_child(_tutor_fx)
+	if _tutor_fx_loop != null and is_instance_valid(_tutor_fx_loop):
+		_tutor_fx_loop.queue_free()
+	_tutor_fx_loop = TUTOR_FX.new()
+	_tutor_fx_loop.attach(board)
+	_tutor_fx_loop.seat_at = _tutor_seat_at
+	_tutor_fx_loop.follow = _tutor_fx
+	board.add_child(_tutor_fx_loop)
 	_tutor_view.fx = _tutor_fx
 	## 通报气泡别落在说明行上（Kevin 2026-09-12 截图）：禁区矩形**归皮挂**（接口纪律 3，
 	## 两版皮的形状必然不同），导演不碰。贴身气泡那版的常驻件只有行动提示行一条 ——
@@ -1281,6 +1293,15 @@ func _tutor_play(kind: String, args: Dictionary, done: Callable) -> void:
 		done.call()
 		return
 	var a := args.duplicate(true)
+	## 持续光束（loop）走第二支、立刻回执（导演按 secs 翻页，它没有「播完」）；
+	## 不 loop 的那一发光束 = 「停」（PRD:509 第 18 步）：先把持续的收掉，再在主槽照常播
+	if kind == "beam_hit" and _tutor_fx_loop != null and is_instance_valid(_tutor_fx_loop):
+		if bool(a.get("loop", false)):
+			_tutor_fx_loop.begin(kind, a)
+			done.call()
+			return
+		if _tutor_fx_loop._running:
+			_tutor_fx_loop.clear()
 	var cid := -1
 	if a.has("actor"):
 		cid = _tutor_cell_id(int(a["actor"]) if typeof(a["actor"]) == TYPE_INT else -1)
@@ -1302,7 +1323,9 @@ func _tutor_play(kind: String, args: Dictionary, done: Callable) -> void:
 		if to_at != Vector2i.MAX:
 			_tutor_knocked[cid] = to_at
 	await _tutor_fx.play(kind, a)
-	if cid >= 0 and _tutor_fx_cid == cid:
+	## 死亡演出收尾之后真身**不还回来**：镜像里它还活着（哨兵能量、没真死），露面就是「死而复生」；
+	## 让位一直保持到拆局 / 下一段带 actor 的演出（第六关这是最后一拍，紧接着就回主菜单）
+	if cid >= 0 and _tutor_fx_cid == cid and kind != "death":
 		_tutor_fx_cid = -1
 	done.call()
 
@@ -1414,6 +1437,8 @@ func _tutor_load_world(wid: String, back_to_start := false) -> void:
 	kernel = k
 	if back_to_start:
 		_tutor_npc_rewind()    ## 重置 = NPC 的脚本游标也从头（见 `_tutor_npc_rewind`）
+		if _tutor_fx_loop != null and is_instance_valid(_tutor_fx_loop):
+			_tutor_fx_loop.clear()   ## 重置 = 持续光束也收
 	if board != null and back_to_start:
 		board.set_active_tiles(_stage.active_tiles(), 0.0)
 		_tutor_cam = {}
@@ -1536,6 +1561,8 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 		if _stage != null:
 			_stage.level = _tutor_level
 		_tutor_npc_rewind()    ## 承接活局：decider 是同一批，上一关喂的脚本与游标都不该带进新关（09-24 复核）
+		if _tutor_fx_loop != null and is_instance_valid(_tutor_fx_loop):
+			_tutor_fx_loop.clear()   ## 上一关的持续光束不带进新关
 		_tutor_start_level()
 		if _director != null and is_instance_valid(_director):
 			_director.rebase_hard()
@@ -2364,6 +2391,10 @@ func teardown() -> void:
 		_tutor_fx.clear()          ## 演出层靠 advance() 把自己收走：没人喂时间就得手动清
 		_tutor_fx.queue_free()
 	_tutor_fx = null
+	if _tutor_fx_loop != null and is_instance_valid(_tutor_fx_loop):
+		_tutor_fx_loop.clear()
+		_tutor_fx_loop.queue_free()
+	_tutor_fx_loop = null
 	_npc_deciders = []
 	## UI 层开关是静态的（见那个文件头）：教程局拆局必须复位，否则下一局正式对局跟着教程的层走。
 	## **只有教程局才复位**（2026-09-19 合 issues 联机组时逮到）：正式局的 `queue_free()` 让 `_exit_tree → teardown`
@@ -2864,7 +2895,9 @@ func _sync_cells() -> void:
 				_set_cell_art(node as Sprite2D, want)
 		## 回合脚标（方案 D，Kevin 2026-09-12 晚）：轮到的这只细胞头顶一枚箭。挂在这里而不是 _sync_tiles，
 		## 因为只有这里知道它此刻画在哪（同格错位、被伪足拉着走都算）、贴图多高、头顶有没有冠印
-		if int(tm.get("cid", -1)) == i:
+		## 真身正给教程演出让位（击退 / 像素错误 / 死亡）时不画：死亡演出收尾之后真身不回来，箭却还悬在空格上
+		## （09-25 真机 82_end 那一帧）
+		if int(tm.get("cid", -1)) == i and _tutor_fx_cid != i:
 			var art: Texture2D = (node as Sprite2D).texture
 			var h: int = art.get_height() if art != null else 34
 			board.set_turn_mark(pos, foot, turn_tip_dy(h, body_top_of(art), bool(c.get("marked", false))),
