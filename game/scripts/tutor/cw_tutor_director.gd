@@ -310,10 +310,23 @@ func _tick(delta: float) -> void:
 		if not _advance_ok(row, dt):
 			return
 		dt = 0.0               ## 同一帧里后面那几条不再重复消耗时间
+		_leave(row)
 		_at += 1
 		_entered = false
 	if active and _at >= flow.size():
 		_finish()
+
+
+## 一条翻过去那一刻的收尾：`player` 完成（`until` 成立）就把它挂的提示行、提亮与控件旁小气泡收掉。
+## 此前只有 `say` / `play` / `wait` 开演时才收，`player` 后面紧跟 `npc` / `hook`（第六关「结束回合」之后是
+## 免疫回合的钩子）就没人收：右栏「结束回合」按钮随回合收走，「点击结算【微环境压迫】」那颗小气泡失去
+## 锚点掉到左上角、底下「点右边的结束回合」也还挂着（Kevin 2026-09-26 真机）。下一条 `player` 会自己重挂
+func _leave(row: Dictionary) -> void:
+	if str(row.get("do", "")) != "player":
+		return
+	if view != null and is_instance_valid(view):
+		view.hint("")
+		view.clear_point()
 
 
 ## 这一条的**即时效果**：九个动词各一支
@@ -773,6 +786,7 @@ func run_beat(row: Dictionary, ep: int) -> void:
 		return
 	while alive(ep) and not _advance_ok(row, get_process_delta_time()):
 		await next_frame()
+	_leave(row)
 	_beat_row = prev
 	install()
 

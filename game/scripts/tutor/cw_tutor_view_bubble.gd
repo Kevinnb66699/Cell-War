@@ -336,6 +336,11 @@ func _place_tip() -> void:
 		_place(_tip, Vector2(HINT_RECT.get_center().x, HINT_RECT.position.y - 6.0), false)
 		return
 	var r: Rect2 = spot.focus_rect()
+	## 目标控件没了（回合一结束「结束回合」按钮就收走）⇒ 零矩形。以前照样摆，气泡就掉到左上角 (0,0)
+	## 那一带（2026-09-26 真机）；没锚点就藏起来，导演收提示时再一起 free
+	_tip.visible = r.size != Vector2.ZERO
+	if not _tip.visible:
+		return
 	_place(_tip, Vector2(r.get_center().x, r.position.y - GAP_TAIL), true)
 
 
