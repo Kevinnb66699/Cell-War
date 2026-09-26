@@ -18781,9 +18781,11 @@ func t_tutor_flow() -> void:
 		var k := str((e as Dictionary)["kind"])
 		if k != "block":
 			seq.append(k)
-	## 09-24：`play` 一开演先收提示行与提亮（hint "" + clear_point），再轮到 player 重挂 hint
+	## 09-24：`play` 一开演先收提示行与提亮（hint "" + clear_point），再轮到 player 重挂 hint；
+	## 09-26：桩关末尾那条 player 没有 `until`、进去就算完成，翻页那一刻再收一次（hint "" + clear_point）——
+	## 第六关「结束回合」之后免疫回合钩子里没人收，小气泡掉到左上角（Kevin 2026-09-26）
 	check(seq == ["chapter", "shell", "reveal", "point", "codex_unlocked", "say",
-			"hint", "clear_point", "hint", "urge_reset"],
+			"hint", "clear_point", "hint", "urge_reset", "hint", "clear_point"],
 		"意图序列逐条相同（实测 %s）" % str(seq))
 	## PRD:39：先结算界面与状态、再显示文本提示
 	check(seq.find("reveal") < seq.find("say") and seq.find("shell") < seq.find("say"),
