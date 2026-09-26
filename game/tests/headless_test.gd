@@ -18888,6 +18888,29 @@ func t_tutor_director() -> void:
 	d.open(back, 0)
 	check(view.kinds().find("chapter") >= 0,
 		"间章之后那一个主章节照弹 —— 比的是 (chapter_kind, chapter) 二元组，不是单个整数")
+	## ⑤′ `player` 翻过去那一刻收提示（Kevin 2026-09-26：第六关结束回合后「点击结算【微环境压迫】」掉到左上角）：
+	## 桩关 flow[8] 是没有 `until` 的 player ⇒ 进去就算完成；翻页前必须发一条空 hint + clear_point，
+	## 而 flow[7]（hook）之类翻页不发 —— 只有 player 自己挂的提示才由它自己收
+	view.clear_log()
+	d._chapter_busy = false
+	d.active = true
+	d._at = 8
+	d._entered = false
+	d._tick(0.0)
+	var k7: PackedStringArray = view.kinds()
+	var hints7: Array = []
+	for e in view.log:
+		if str((e as Dictionary)["kind"]) == "hint":
+			hints7.append(str(((e as Dictionary)["args"] as Dictionary)["text"]))
+	check(d._at == 9 and hints7 == ["该你动手了", ""] and k7.find("clear_point") > k7.find("hint"),
+		"★ player 完成即收：进去挂「该你动手了」，翻页那一刻发空 hint + clear_point（%s）" % str(hints7))
+	view.clear_log()
+	d._at = 2
+	d._entered = false
+	d._tick(0.0)
+	check(view.kinds().find("clear_point") < 0 and view.kinds().find("hint") < 0,
+		"非 player 的条目（unlock）翻页不发收提示（%s）" % str(view.kinds()))
+	d.active = true      ## 两次 _tick 都跑到了桩关末尾（`_finish` 把 active 关掉），⑥ 要的是活着的导演
 	## ⑥ 代际闸：重置 / 跳关 / 换局各 +1，旧协程据此永挂
 	var ep: int = d.epoch
 	check(d.alive(ep) and not d.alive(ep - 1), "alive(ep)：只认当代")
@@ -19965,6 +19988,11 @@ func t_tutor_view_bubble() -> void:
 		"tip 非空 ⇒ 皮自己出小气泡，**提亮层那块最小的牌让位**（不两块牌叠着）")
 	check(view._tip.position.y + view._tip.size.y <= bar.button_rect("迁移").position.y,
 		"小气泡贴在那枚控件的上缘（尾巴指着它）")
+	## 锚点控件不在（回合一结束「结束回合」按钮就收走）⇒ 零矩形 ⇒ 小气泡藏起来，不许掉到左上角（2026-09-26 真机）
+	view.point([{ "kind": "ui", "id": "bar:不存在的按钮" }], "soft", "点击结算【微环境压迫】")
+	await _tutor_pump(2)
+	check(view._tip != null and not view._tip.visible,
+		"★ 目标控件给零矩形 ⇒ 小气泡藏起来（以前照摆，就掉到 (0,0) 那一带）")
 	view.clear_point()
 	await process_frame
 	check(view._tip == null and not spot.visible, "clear_point 把小气泡与提亮层一起收掉")
