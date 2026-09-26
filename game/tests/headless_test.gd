@@ -18927,6 +18927,12 @@ func t_tutor_gate() -> void:
 	gate.set_allow(["k=action|act=end"])
 	var i1: int = await gate.ask(req)
 	check(i1 == 2, "非空闸只留命中的那一条，答案映射回原表下标（实测 %d，期望 2）" % i1)
+	## 09-25：`player.auto` —— 闸放行的那一条由闸桥自己答（不问人、不建行动栏），答案同样映射回原表下标
+	gate.set_auto(true)
+	gate.set_allow(["k=action|act=draw"])
+	var ia: int = await gate.ask(req)
+	gate.set_auto(false)
+	check(ia == 1, "★ auto 闸：不问人、直接答闸放行的那一条（实测 %d，期望 1）" % ia)
 	## ③ [] 全禁：这一问挂起不作答
 	gate.set_allow([])
 	var out2: Array = []
@@ -22418,6 +22424,21 @@ func t_tutor_c3() -> void:
 			and "k=action|act=mucus" in allows and "k=revive|to=-5,1" in allows
 			and not ("k=revive|to=0,0" in allows),
 		"逐字核：结束回合 / 一跳【转移】(0,1)→(-5,1) / 【黏液破裂】/ **就地**复活 (-5,1) 各只放一条（09-25 前复活回 (0,0)）")
+	## 09-25 Kevin：光束打出来之后往 T 走的那两格自动行走 —— 两条 `player` 写 `auto: true`、不提亮不给提示，其余 player 不自动
+	var auto_rows: Array = []
+	var auto_bad: Array = []
+	for r in flow:
+		if str(r.get("do", "")) != "player":
+			continue
+		var a: Array = r.get("allow", [])
+		if bool(r.get("auto", false)):
+			auto_rows.append(str(a[0]) if not a.is_empty() else "")
+			if r.has("hex") or r.has("tip") or r.has("ui"):
+				auto_bad.append(str(a))
+		elif a == ["k=action|act=move|to=-3,1"] or a == ["k=action|act=move|to=-2,1"]:
+			auto_bad.append("not-auto " + str(a))
+	check(auto_rows == ["k=action|act=move|to=-3,1", "k=action|act=move|to=-2,1"] and auto_bad.is_empty(),
+		"★ 第 10 / 12 步往 T 走的两格是自动行走（auto、无提亮无提示；实测 %s，越界 %s）" % [str(auto_rows), str(auto_bad)])
 	## **行为面**：闸之外的种类在行动栏里**根本不建**（不是置灰）。
 	## `_ask_action` 的按钮集合来自 `mirror.action_kinds_of`（整份种类表）、只把没选项的那几个置灰 ——
 	## 09-19 真机第一版就是这么漏的：第六关第 3 步只许【移动】，行动栏上却同时亮着【突变】【转移】
@@ -23236,8 +23257,8 @@ func t_tutor_done_menu() -> void:
 			m.bridge.replay_answers = PackedInt32Array([0])
 	check(fired[0] == 0 and m.kernel != null and str(m._tutor_level.get("id", "")) == "interlude"
 			and m._director != null and bool(m._director.active),
-		"★ 通关停顿里从图鉴跳去间章：2 s 后 `tutorial_done` **没发**、人还在间章里（发了 %d 次；关 %s）"
-			% [fired[0], str(m._tutor_level.get("id", ""))])
+		"★ 通关停顿里从图鉴跳去间章：横幅那 %.0f s 过完 `tutorial_done` **没发**、人还在间章里（发了 %d 次；关 %s）"
+			% [CWMatch.TUTOR_DONE_LINGER, fired[0], str(m._tutor_level.get("id", ""))])
 	m.teardown()
 	await process_frame
 	## ② ③ 真走一遍第六关到头（replay 快进），到头立刻暂停树 3 s：计时不该走；恢复后到点拆局、菜单回来
@@ -23261,6 +23282,12 @@ func t_tutor_done_menu() -> void:
 			ended = true
 			break
 	check(ended and m.kernel != null and fired[0] == 0, "第六关 %d 条走到头，那一刻还没发 `tutorial_done`（%d）" % [flow_n, fired[0]])
+	await process_frame
+	await process_frame
+	var ch = m._tutor_chrome
+	check(ch != null and ch._chapter.visible and str(ch._chapter_title.text) == str(CWMatch.TUTOR_DONE_BANNER[0])
+			and ch._band_sub_cn.visible and str(ch._band_sub_cn.text) == str(CWMatch.TUTOR_DONE_BANNER[1]) and not ch._chapter_sub.visible,
+		"★ 剧本走完横幅立起来：「%s」/「%s」（中文副标用默认字体，英文点阵那只藏起来）" % [str(CWMatch.TUTOR_DONE_BANNER[0]), str(CWMatch.TUTOR_DONE_BANNER[1])])
 	paused = true      ## 本脚本就是 SceneTree：暂停菜单那种「树暂停」
 	var t1 := Time.get_ticks_msec()
 	while Time.get_ticks_msec() - t1 < int(CWMatch.TUTOR_DONE_LINGER * 1000.0) + 1000:
@@ -23269,10 +23296,10 @@ func t_tutor_done_menu() -> void:
 	var kernel_paused: bool = m.kernel != null
 	paused = false
 	t1 = Time.get_ticks_msec()
-	while (fired[0] == 0 or m.kernel != null or bool(main_scene._entering)) and Time.get_ticks_msec() - t1 < 6000:
+	while (fired[0] == 0 or m.kernel != null or bool(main_scene._entering)) and Time.get_ticks_msec() - t1 < int(CWMatch.TUTOR_DONE_LINGER * 1000.0) + 4000:
 		await process_frame
 	check(while_paused == 0 and kernel_paused,
-		"★ 暂停菜单那种「树暂停」下通关计时不走：停了 3 s 一次都没发、对局还在（发了 %d 次）" % while_paused)
+		"★ 暂停菜单那种「树暂停」下通关横幅不计时：停了 %.0f s 一次都没发、对局还在（发了 %d 次）" % [CWMatch.TUTOR_DONE_LINGER + 1.0, while_paused])
 	check(fired[0] == 1 and m.kernel == null and not bool(main_scene._entering) and main_scene.menu.visible,
 		"★ 恢复之后到点：`tutorial_done` 发了一次、主场景走完返场（拆局、`_entering` 放开、菜单可见；发了 %d 次，kernel=%s，entering=%s，用时 %d ms）"
 			% [fired[0], str(m.kernel != null), str(main_scene._entering), Time.get_ticks_msec() - t1])
@@ -23367,7 +23394,7 @@ func t_tutor_c3_ui() -> void:
 			for _i in 2:
 				await process_frame
 	var secs: float = (Time.get_ticks_msec() - t0) / 1000.0
-	check(stuck == "" and m._director != null and m._director._at >= flow.size() and actions >= 26,
+	check(stuck == "" and m._director != null and m._director._at >= flow.size() and actions >= 24,
 		"★ %d 条走到头，全程 %d 次真实界面操作、零 replay（%.1f s%s）" % [flow.size(), actions, secs,
 			"；" + stuck if stuck != "" else ""])
 	check(did.has("k=action|act=jump|to=-5,1") and did.has("k=action|act=mucus")

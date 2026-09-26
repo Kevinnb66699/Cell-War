@@ -260,6 +260,8 @@ func install() -> void:
 	var row: Dictionary = _beat_row if _beat_row is Dictionary else _row()
 	var is_player := str(row.get("do", "")) == "player"
 	if gate != null and is_instance_valid(gate):
+		if gate.has_method("set_auto"):
+			gate.set_auto(is_player and bool(row.get("auto", false)))   ## 先设开关再装闸（装闸会叫醒挂着的那一问）
 		gate.set_allow(row.get("allow", null) if is_player else [])
 	if view != null and is_instance_valid(view):
 		view.block(not is_player)      ## PRD:51 的第 2 层：全屏 STOP，常驻按钮仍在它之上
