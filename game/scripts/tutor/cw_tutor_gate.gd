@@ -13,6 +13,8 @@ const BEATS := preload("res://scripts/kernel/cw_tutor_beats.gd")
 ## 闸非空却一条都没命中时，先让这么多帧再喊（见 `ask()` 里那一段）。
 ## 6 帧 ≈ 0.1 秒：够导演的 `_process` 把这一步判完并翻页，又短到真写错时立刻看得见
 const MISS_GRACE_FRAMES := 6
+## `player.auto`：替玩家答之前停这么久 —— 上一段演出（第六关第 9 步的光束）刚收口就走，看得出「被逼着走」
+const AUTO_ANSWER_SECS := 0.45
 
 ## **决策闸换了**（`set_allow` / `set_blocked` 变了都发）。`ask()` 挂在它上面等闸放开
 signal allow_changed
@@ -23,6 +25,7 @@ signal allow_changed
 ##   非空    —— 只留命中的选项（**前缀**匹配语义键，`CWSemKey.key` 的键形）
 ## 由导演在 `step_end` 与关首两处装（方案 §3.1：`step_begin` 标的是「已经答完、动作开演」）
 var _allow: Variant = null
+var _auto := false             ## `player.auto`：这一问不问人，闸放行的那一条由这里答（导演 install() 随 allow 一起设）
 ## 常驻壳的章节提示 / 目录开着（PRD:51 的第 1 层）：等同于 `allow = []`，但不覆盖剧本的闸
 var blocked := false
 ## 行动栏正挂在屏幕上等玩家（闸已经过了、`super.ask` 还没回来）。**这期间闸一换就得收掉这一问重问**：
@@ -74,6 +77,11 @@ func set_allow(a: Variant) -> void:
 		return
 	_allow = a
 	_poke()
+
+
+## 自动行走开关（`player.auto`）。要在 `set_allow` **之前**设：set_allow 会叫醒挂着的那一问，那一问醒来就按这个开关走
+func set_auto(on: bool) -> void:
+	_auto = on
 
 
 ## 两道闸一样吗（null / [] / 逐条比字面）。**纯函数**，护栏直接核
@@ -168,6 +176,17 @@ func ask(req: Dictionary) -> int:
 			if _allow == null or not (_allow as Array).is_empty():
 				return await ask(req)    ## 闸换了就重来一遍
 		return 0
+	if _auto:
+		## 自动行走：不建行动栏、不等玩家，停一小拍就替他答闸放行的第一条（剧本只放一条）。停完再核一遍闸 ——
+		## 导演可能已经翻页把闸换了（那就从头走一遍），拆局了就照旧答 0
+		if _can_yield():
+			await board.get_tree().create_timer(AUTO_ANSWER_SECS).timeout
+		if _aborted:
+			return 0
+		if not _auto or _allow == null or gate_closed():
+			return await ask(req)
+		_clear_ui()
+		return keep[0]
 	var view := req.duplicate()
 	var opts: Array = []
 	for i in keep:

@@ -32,8 +32,10 @@ const VERBS := {
 	## `mode` / `tip` 与 `point` 同义（导演的 `_enter_player` 本来就读这两个）：**这一条自己也要提亮**。
 	## 不许的话，紧跟在 `point` 后面的 `player` 会把上一条的提亮**覆写成默认的 soft + 空 tip**
 	## —— 第六关第 4 步的全屏提示与按钮上「点击结算【微环境压迫】」那颗小气泡当场消失（S11 真机抓到）
+	## `auto: true`（2026-09-25 Kevin「小细胞往 T 走的那两格设成自动行走」）：不等玩家，闸放行的那一条由闸桥自己答 ——
+	## 剧本要它走的那一步照旧写 `allow`，只是人不用点；不建行动栏、不提亮
 	"player": { "blocking": true,  "keys": ["allow", "until", "hint", "hex", "ui", "mode", "tip",
-		"reset_when", "advise_when", "advise"] },
+		"reset_when", "advise_when", "advise", "auto"] },
 	"npc":    { "blocking": false, "keys": ["seat", "plan"] },
 	"hook":   { "blocking": true,  "keys": ["call", "args"] },
 }

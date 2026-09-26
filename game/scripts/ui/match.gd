@@ -220,8 +220,10 @@ const CELL_FOOT_DY := 6.0
 ## 教程镜头换机位的补间时长（PRD:9-22 的「镜头变化」，S3）。
 ## 关首 / 重置是 0（直接就位），关内换 step 与地图浮现走这个数
 const TUTOR_CAM_SECS := 0.45
-## 全部通关之后停多久再回主菜单（最后一拍是冲击波 1.2 s + 解锁小卡）
-const TUTOR_DONE_LINGER := 2.0
+## 全部通关之后停多久再回主菜单 = 通关横幅整段（淡入 → 停 → 淡出；Kevin 2026-09-25 加的横幅）
+const TUTOR_DONE_LINGER := 5.0
+## 通关横幅文案（Kevin 2026-09-25 原话，逗号处断成标题 / 副标两行）
+const TUTOR_DONE_BANNER := ["恭喜！你已经完成了所有新手教程", "继续在Cell War大陆上自由探索吧！想了解更多可以去看图鉴哦～"]
 ## 同一格站了多个细胞时左右错开的间距
 const STACK_DX := 9.0
 ## 普通攻击的本体冲撞（队友 PR #30）：没有 class_name —— 新类名热更装不上，所以走 preload
@@ -1534,7 +1536,11 @@ func _tutor_next_level(next_id: String, mark_done := true) -> void:
 			## 树却还停着 —— 一张冻住的棋盘（09-25 复核抓到）。到点再核代际：拆局 / 重置动 `_loop_id`，目录跳关动 `_tutor_done_gen`
 			var lid := _loop_id
 			var gen := _tutor_done_gen
-			await get_tree().create_timer(TUTOR_DONE_LINGER, false).timeout
+			## 通关横幅（Kevin 09-25）：走常驻壳那条章节横带，停 TUTOR_DONE_LINGER 整段；没有壳（纯数据夹具）就只计时
+			if _tutor_chrome != null and is_instance_valid(_tutor_chrome) and _tutor_chrome.is_inside_tree():
+				await _tutor_chrome.show_band(TUTOR_DONE_BANNER[0], TUTOR_DONE_BANNER[1], TUTOR_DONE_LINGER, true)
+			else:
+				await get_tree().create_timer(TUTOR_DONE_LINGER, false).timeout
 			if _loop_id == lid and _tutor_done_gen == gen and tutorial and kernel != null:
 				tutorial_done.emit()
 		return

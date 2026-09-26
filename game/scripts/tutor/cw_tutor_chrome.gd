@@ -123,6 +123,7 @@ var _menu_panel: Control      ## 目录面板（S6 落地）
 var _chapter: Control         ## 章节提示那一屏
 var _chapter_title: Label
 var _chapter_sub: Label
+var _band_sub_cn: Label = null   ## 通关横幅的中文副标（2026-09-25）
 ## 目录里的关表（`shell()` 的 `menu` 键喂进来，导演从 `index.json` + 进度现拼）。每行：
 ##   `{ id, title, kind: "chapter" | "level" | "interlude", unlocked: bool }`
 ##   · `chapter`   章标题行，不可点（`id` 空）；
@@ -232,6 +233,13 @@ func _build_chapter() -> void:
 	_chapter_sub.size = Vector2(w, float(SUB_SIZE) * 1.6)
 	_chapter_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_chapter.add_child(_chapter_sub)
+	## 通关横幅的中文副标（默认字体），与英文那只同位、二选一显示
+	_band_sub_cn = CWStyle.label("", SUB_SIZE, CWStyle.IMMUNE)
+	_band_sub_cn.position = Vector2(0.0, SUB_Y)
+	_band_sub_cn.size = Vector2(w, float(SUB_SIZE) * 1.6)
+	_band_sub_cn.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_band_sub_cn.visible = false
+	_chapter.add_child(_band_sub_cn)
 	add_child(_chapter)
 
 
@@ -411,29 +419,46 @@ static func chapter_text(no: int, title: String) -> PackedStringArray:
 
 ## 整屏的亮度曲线：淡入 → 停 → 淡出。**纯函数**，时长口径与 S1 的 `CHAPTER_SECS` 一致
 static func chapter_alpha(t: float) -> float:
+	return band_alpha(t, CHAPTER_SECS)
+
+
+## 同一条曲线、任意总时长（通关横幅停得比章节提示久）
+static func band_alpha(t: float, secs: float) -> float:
 	if t <= 0.0:
 		return 0.0
 	if t < CHAPTER_IN:
 		return t / CHAPTER_IN
-	if t <= CHAPTER_SECS - CHAPTER_OUT:
+	if t <= secs - CHAPTER_OUT:
 		return 1.0
-	return clampf((CHAPTER_SECS - t) / CHAPTER_OUT, 0.0, 1.0)
+	return clampf((secs - t) / CHAPTER_OUT, 0.0, 1.0)
 
 
 ## **协程**：播完才往下（导演等着它）
 func show_chapter(no: int, title: String) -> void:
+	var texts := chapter_text(no, title)
+	await show_band(texts[0], texts[1], CHAPTER_SECS, false)
+
+
+## 同一条横带、自定文案与时长（2026-09-25 Kevin：通关横幅）。`cn_sub` = 副标用默认字体 ——
+## 章节提示的副标是英文点阵字体（silkscreen），没有汉字。**树暂停时不计时**：通关横幅接着就是返场，
+## 暂停菜单开着到点返场会把菜单淡没（同 `CWMatch.TUTOR_DONE_LINGER` 的口径）
+func show_band(title: String, sub: String, secs: float, cn_sub := false) -> void:
 	if not is_inside_tree():
 		return
-	var texts := chapter_text(no, title)
-	_chapter_title.text = texts[0]
-	_chapter_sub.text = texts[1]
+	_chapter_title.text = title
+	_chapter_sub.text = "" if cn_sub else sub
+	_chapter_sub.visible = not cn_sub
+	if _band_sub_cn != null:
+		_band_sub_cn.text = sub if cn_sub else ""
+		_band_sub_cn.visible = cn_sub
 	_chapter.modulate.a = 0.0
 	_chapter.visible = true
 	var t := 0.0
-	while t < CHAPTER_SECS and is_inside_tree():
+	while t < secs and is_inside_tree():
 		await get_tree().process_frame
-		t += get_process_delta_time()
-		_chapter.modulate.a = chapter_alpha(t)
+		if not get_tree().paused:
+			t += get_process_delta_time()
+		_chapter.modulate.a = band_alpha(t, secs)
 	_chapter.visible = false
 
 
