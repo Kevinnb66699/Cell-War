@@ -5707,6 +5707,26 @@ func t_hot_patch() -> void:
 	## 主场景必须是启动器 —— 直接指向 Main 的话补丁永远盖不上（挂载晚于首次 load）
 	check(ProjectSettings.get_setting("application/run/main_scene") == "res://scenes/Boot.tscn",
 		"run/main_scene 指向启动器")
+	## 网页 / 编辑器那两条早退分支**延迟一帧再切场景**（2026-09-25）：`_ready` 里当场 change_scene 会让引擎去
+	## remove_child(Boot)，而 Boot 自己还在被加进树 ⇒「Parent node is busy adding/removing children」，
+	## 网页版控制台每次启动一条（Kevin 看到的）。走热更的正常分支在 HTTP 回调里切，不在这一帧上
+	var boot_src := FileAccess.open("res://scripts/boot.gd", FileAccess.READ).get_as_text()
+	var boot_lines: PackedStringArray = boot_src.split("\n")
+	var early_bad: Array = []
+	for i in boot_lines.size():
+		var code: String = boot_lines[i].split("##")[0]
+		if not (code.contains('has_feature("web")') or code.contains('has_feature("editor")')):
+			continue
+		var next_code := ""
+		for j in range(i + 1, mini(i + 4, boot_lines.size())):
+			var c: String = boot_lines[j].split("##")[0].strip_edges()
+			if c != "":
+				next_code = c
+				break
+		if not next_code.contains("change_scene_to_file.call_deferred(MAIN_SCENE)"):
+			early_bad.append("%d: %s" % [i + 1, next_code])
+	check(early_bad.is_empty() and boot_src.count("change_scene_to_file.call_deferred(MAIN_SCENE)") >= 2,
+		"★ 启动器的网页 / 编辑器早退分支都是 change_scene_to_file.call_deferred（_ready 里当场切会撞 remove_child 忙；越界 %s）" % str(early_bad))
 	check(PatchState.PCK.begins_with(PatchState.DIR)
 		and PatchState.STATE.begins_with(PatchState.DIR), "补丁文件都在 user://patch 底下")
 	## ---- 第四道闸（2026-09-11）：换完整包之后 user:// 里的旧补丁不能再挂 ----
