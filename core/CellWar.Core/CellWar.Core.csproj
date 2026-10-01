@@ -10,6 +10,8 @@
     <InternalsVisibleTo Include="CellWar.Core.Tests" />
     <!-- 宿主进程要用 Stage 的文案助手（SeatName / CellName / Fmt）拼 GD 原文标签（换内核 P1） -->
     <InternalsVisibleTo Include="CellWar.Sidecar" />
+    <!-- AI 三档读规则的纯查询（报价 / 压迫 / 无氧份额 / 护盾组 / 固化门槛），不复制算式（换内核 P3） -->
+    <InternalsVisibleTo Include="CellWar.Ai" />
   </ItemGroup>
 
 </Project>

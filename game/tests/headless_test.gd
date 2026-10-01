@@ -13,6 +13,9 @@ extends SceneTree
 ## 批 1 步 6+8 护栏⑦：t_ai_same_hash 的共用用例表与跑法（录基线的 record_ai_baseline.gd 也 preload 同一份，
 ## 两边跑的必须逐字是同一段代码，否则「与改动前相同」测的是两套东西）。没有 class_name ⇒ 不用先 --import
 const AI_CASE := preload("res://tests/ai_baseline_case.gd")
+## 换内核 P3：AI 对拍模式（agree_rng.gd）默认关的护栏用例（录基线与比基线同一份代码），及对拍随机流本体
+const AI_AGREE_CASE := preload("res://tests/ai_agree_case.gd")
+const AI_AGREE := preload("res://scripts/ai/agree_rng.gd")
 const AI_BASELINE_PATH := "res://tests/baseline/ai_same_hash.json"
 
 ## 护栏③ 白名单（规格 C-3 ③）：文件名 → 行内标记；标记是空串 = 整份豁免。
@@ -46,7 +49,7 @@ const WEIGHTS := {
 	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
 	"t_net_lobby": 1.0, "t_hotseat": 0.9, "t_pause_and_teardown": 0.9, "t_board_active_tiles": 0.8,
 	"t_eval_features": 0.8, "t_teleport_fx": 0.8, "t_play_queue": 0.7, "t_opening": 0.6,
-	"t_ai_same_hash_heur6": 0.6, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
+	"t_ai_agree_default_off": 6.0, "t_ai_same_hash_heur6": 0.6, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
 	"t_hover_info": 0.4, "t_no_engine_in_ui": 0.4, "t_determinism": 0.4, "t_net_resume": 0.4,
 	"t_teardown_board": 0.4, "t_human_ask": 0.4, "t_net_surrender": 0.4, "t_online_panel": 0.4,
 	"t_tutorial_opening": 0.4, "t_ai_mcts": 0.4, "t_entry_smoke_replay": 0.3, "t_match_online": 0.3,
@@ -178,6 +181,8 @@ func _run_all() -> void:
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial, t_settings_button,
 		t_entry_smoke_replay, t_entry_smoke_online,
 		t_kernel_parity, t_no_engine_in_ui, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_kernel_loader_moved, t_board_active_tiles,
+		## 换内核 P3：AI 对拍模式默认关（线上三档行为一行不变）+ 对拍随机流金值 / 规范选项序
+		t_ai_agree_default_off, t_ai_agree_rng,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
 		t_rec_depth,
 		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
@@ -21256,6 +21261,61 @@ func t_tutor_energy_formula() -> void:
 ## 跑在**真 game** 上）。每一次试走的 `g.step()` 都是真步：内核消费者把它推成 roll / result / fx / feed 条目、
 ## 界面照演，回滚后真的那一步又演一遍 ⇒ 乱套、重复；日志与出牌列也被假动作填满。
 ## 判据与 t_ai_mc 的 ①同一口径：评估完真局面哈希逐位不变、日志与出牌列一条不多、pending 还是同一问。
+## 换内核 P3（2026-10-01）：AI 对拍模式（agree_rng.gd）**默认关**，关着时意图 / 搜索 / 启发式三档的线上行为与加它之前逐位相同。
+## 基线是在加对拍模式**之前**的代码上用同一份 ai_agree_case.gd 录的（提交 44d731d 的 heuristic_bridge / mech_*）：
+## 混三档四人局 48 步之后的 state_hash。t_ai_same_hash 只覆盖启发式 / MC / MCTS，照不到意图与搜索 —— 对拍模式改的正是这两档。
+const AI_AGREE_OFF_BASE := { "hash": "43be6a34e1456b42ab78920e699ed101285461b239609cd9230bf9ff33071a6e",
+	"round_no": 2, "steps": 48 }
+
+
+func t_ai_agree_default_off() -> void:
+	print("[换内核 P3·AI 对拍模式默认关：线上三档逐位不变]")
+	check(AI_AGREE.on == false, "agree_rng.gd 的 on 缺省为 false")
+	var r: Dictionary = await AI_AGREE_CASE.run_mixed()
+	check(r["steps"] == AI_AGREE_OFF_BASE["steps"] and r["round_no"] == AI_AGREE_OFF_BASE["round_no"],
+		"混三档四人局走满 %d 步、停在第 %d 世界回合（实测 %d 步 / 第 %d 回合）" % [
+			AI_AGREE_OFF_BASE["steps"], AI_AGREE_OFF_BASE["round_no"], r["steps"], r["round_no"]])
+	check(r["hash"] == AI_AGREE_OFF_BASE["hash"],
+		"局面哈希与加对拍模式之前的基线逐位相同（%s…）" % str(r["hash"]).substr(0, 12))
+
+
+## 对拍随机流（SplitMix64）与 C# `CellWar.Ai.SplitMix64Rng` 逐位相同：金值与 C# SplitMix64RngTests 钉的是同一组
+## （Python 按原式算出）。GD 的 int 是有符号 64 位：加乘回绕、逻辑右移靠掩码 —— 任何一处写歪，这里先红。
+func t_ai_agree_rng() -> void:
+	print("[换内核 P3·对拍随机流金值 + 规范选项序]")
+	var r = AI_AGREE.new_rng(20261001)
+	var raw := [r.next_u64(), r.next_u64(), r.next_u64()]
+	check(raw == [2091738599621355213, 4067228912806564614, -2320869810489835059], "原始输出三连与 C# 同（%s）" % str(raw))
+	r = AI_AGREE.new_rng(42)
+	var faces: Array = []
+	for i in 8:
+		faces.append(r.randi_range(1, 6))
+	check(faces == [1, 4, 4, 1, 6, 4, 1, 5] and r.state == -1028001813962170158, "randi_range(1,6) 八连与终态与 C# 同（%s）" % str(faces))
+	r = AI_AGREE.new_rng(42)
+	check(r.randi_range(3, 3) == 3 and r.state == 42, "退化区间零消耗（Godot PCG 同口径）")
+	r = AI_AGREE.new_rng(-1)
+	var big: Array = []
+	for i in 4:
+		big.append(r.randi_range(0, 999))
+	check(big == [968, 484, 500, 921] and r.state == 8709371129873690707, "负数状态的闭区间与 C# 同（%s）" % str(big))
+	check(AI_AGREE.tie_index(12345, 2, 4) == 2 and AI_AGREE.tie_index(-5, 0, 7) == 6, "分化并列决胜 tie_index 与 C# 同")
+	## 规范视图：键去重、「停」排最前、其余按键的字典序；答案映射回原下标
+	var req := { "kind": "free_move", "tag": "测试", "options": [
+		{ "label": "a", "data": { "to": Vector2i(1, 0) } },
+		{ "label": "b", "data": { "stop": true } },
+		{ "label": "c", "data": { "to": Vector2i(-1, 0) } },
+		{ "label": "d", "data": { "to": Vector2i(1, 0) } },
+	] }
+	var view: Dictionary = AI_AGREE.canon_req(req)
+	var keys: Array = []
+	for o in view["req"]["options"]:
+		keys.append(CWSemKey.key(req, o["data"]))
+	check(keys == ["k=free_move|g=测试|stop=1", "k=free_move|g=测试|to=-1,0", "k=free_move|g=测试|to=1,0"],
+		"规范序：停在前、按键排、同键只留第一条（%s）" % str(keys))
+	check(view["map"] == [1, 2, 0], "规范下标映射回原下标（%s）" % str(view["map"]))
+	check(not AI_AGREE.on, "这条测试没把对拍模式留在开着")
+
+
 func t_mech_bridge_quiet() -> void:
 	print("[AI·意图级：试走只在独立副本上]")
 	var g := make_game(2, 33)

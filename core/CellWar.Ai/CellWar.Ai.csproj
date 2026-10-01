@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    AI 三档（普通 / 意图 / 搜索）的 C# 版（换内核 P3，docs/内核替换_重启计划.md §三 3.1 / §四 P3）。
+    纪律同 CellWar.Core：零 PackageReference、纯 BCL（§3.3 不变量 2）。读内核的 internal 规则函数
+    （RulePolicies / CellRules / BoardRules）靠 CellWar.Core.csproj 里的 InternalsVisibleTo —— AI 只读不改规则，
+    算式一律转调内核，不在这里抄第二份。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../CellWar.Core/CellWar.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CellWar.Core.Tests" />
+  </ItemGroup>
+
+</Project>

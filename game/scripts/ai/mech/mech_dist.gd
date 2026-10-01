@@ -20,6 +20,9 @@ extends RefCounted
 ## 键含免疫逐只位姿：免疫在自己阶段走位后自动失配重算。确定性：场是状态纯函数，缓存不改变决策。
 static var _ck := ""
 static var _cf: Dictionary = {}
+## AI 对拍模式（换内核 P3）：不读也不写上面的缓存 —— 键里没有组织状态，同回合内被定殖翻面的格会读到旧场；
+## 而且是跨局共享的静态量。C# 侧每次现算，GD 参照在对拍模式下同样现算。默认关，线上照旧走缓存。
+const AGREE := preload("res://scripts/ai/agree_rng.gd")
 
 ## 多源 Dijkstra：免疫方活细胞到全盘每格的**最小迁移能量成本**（十分位）。
 ## 返回 { Vector2i: cost }；免疫全灭返回 {}（调用方按「够不着」处理）。
@@ -27,7 +30,8 @@ static func immune_reach_field(g: CWGame) -> Dictionary:
 	var key: String = "%d|%d|" % [g.round_no, g.immune_level]
 	for c in g.living_cells(CWData.Faction.IMMUNE):
 		key += str(c["pos"]) + ";"
-	if key == _ck:
+	var cached: bool = not AGREE.on
+	if cached and key == _ck:
 		return _cf
 	var sources: Array = g.living_cells(CWData.Faction.IMMUNE)
 	if sources.is_empty():
@@ -64,6 +68,7 @@ static func immune_reach_field(g: CWGame) -> Dictionary:
 						if nd > maxc:
 							maxc = nd
 		cost += 1
-	_ck = key
-	_cf = dist
+	if cached:
+		_ck = key
+		_cf = dist
 	return dist

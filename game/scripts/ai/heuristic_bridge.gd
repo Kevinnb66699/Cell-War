@@ -12,6 +12,8 @@ class_name CWHeuristicBridge
 extends CWBridge
 
 const REACH_FIELD := preload("res://scripts/ai/mech/mech_dist.gd")
+## AI 对拍模式（换内核 P3，见 agree_rng.gd 头注）：默认关，线上一行不走。
+const AGREE := preload("res://scripts/ai/agree_rng.gd")
 
 ## 陪练 / 平衡标尺的版本号。**改任何 AI 行为（本桥、MC 桥、CWEval）都要升号**：所有用它量出来的平衡数字随之作废，
 ## 表格要标明是哪一版量的。balance_scan 的结果行会打出来。
@@ -58,6 +60,10 @@ func version_tag() -> String:
 
 
 func ask(req: Dictionary) -> int:
+	## 对拍模式：先换成规范序（键去重、停/放弃在前、其余按键排）再答，答案映射回原下标。
+	## 两个内核的选项生成次序不同，策略里「并列取第一个」的地方不能跟着引擎的枚举序走。
+	if AGREE.on and not req.has("_canon"):
+		return await AGREE.ask_canonical(self, req)
 	if delay_ms > 0 and delay_node != null:
 		await delay_node.get_tree().create_timer(delay_ms / 1000.0).timeout
 	var pid: int = req["pid"]
@@ -333,6 +339,11 @@ func _pick_differentiation_option(pid: int, options: Array) -> int:
 		return -1
 	if fixed_lineup:
 		return idx[0]
+	if AGREE.on:
+		## 对拍模式：GD `hash()` 换成两边同式的 tie_index。状态取「这一问拿到的那条 rng」——
+		## 试走副本（sim_quiet）里是副本自己的 rng，顶层是这一问的推演种子（C# `Choose` 收到的 rng 的初始状态）
+		var st: int = int(game.rng.state) if game.sim_quiet else AGREE.decision_seed
+		return idx[AGREE.tie_index(st, pid, idx.size())]
 	return idx[posmod(hash([game.rng.state, pid]), idx.size())]
 
 

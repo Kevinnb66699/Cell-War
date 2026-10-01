@@ -16,6 +16,8 @@ class_name MechIntent
 extends RefCounted
 
 const REACH_FIELD := preload("res://scripts/ai/mech/mech_dist.gd")
+## AI 对拍模式（换内核 P3，见 agree_rng.gd 头注）：候选按规范序展开、并列稳定排序、读数记进 AGREE.trace。默认关。
+const AGREE := preload("res://scripts/ai/agree_rng.gd")
 
 ## 协作让帧（2026-09-20 方案 A，见 docs/搜索线程化方案说明.md）：重搜索只在主线程跑，
 ## 按**时间片**让帧：距上次让帧超过 coop_ms 毫秒才让出一帧 → 渲染/输入照转、不冻结，
@@ -183,10 +185,7 @@ func candidates(g: CWGame, pid: int, max_steps := 2) -> Array:
 	if req.is_empty() or int(req["pid"]) != pid:
 		return []
 	var out: Array = [[]]   ## 不动基线
-	var one_step: Array = []
-	for opt in req["options"]:
-		if opt["data"].get("act", "") == "move":
-			one_step.append(opt["data"]["to"])
+	var one_step: Array = _move_targets(req)
 	for t in one_step:
 		out.append([t])
 	if max_steps < 2:
@@ -201,9 +200,7 @@ func candidates(g: CWGame, pid: int, max_steps := 2) -> Array:
 		var req2: Dictionary = await g.pending()
 		var second: Array = []
 		if not req2.is_empty() and int(req2["pid"]) == pid:
-			for opt in req2["options"]:
-				if opt["data"].get("act", "") == "move":
-					second.append(opt["data"]["to"])
+			second = _move_targets(req2)
 		g.restore(snap)
 		for to2 in second.slice(0, SECOND_STEP_MAX):
 			out.append([to1, to2])
@@ -212,6 +209,17 @@ func candidates(g: CWGame, pid: int, max_steps := 2) -> Array:
 
 ## 每个 1 步目标最多展开的 2 步分支数（控候选数防爆炸；评估成本 ×~2）。
 const SECOND_STEP_MAX := 3
+
+
+## 一问里全部迁移落点，按选项次序。对拍模式按**规范序**（语义键字典序）：「取前 3 个二步」跟着引擎的枚举序走的话，
+## 两个内核会展开不同的三格（C# 的 Available 按坐标枚举、GD 按 DIRS 方向）。
+static func _move_targets(req: Dictionary) -> Array:
+	var src: Dictionary = AGREE.canon_req(req)["req"] if AGREE.on else req
+	var out: Array = []
+	for opt in src["options"]:
+		if opt["data"].get("act", "") == "move":
+			out.append(opt["data"]["to"])
+	return out
 
 
 ## 评估全部候选（每个 = { path, metrics }），评估后真局面复原。
@@ -232,11 +240,20 @@ func best_by(g: CWGame, pid: int, scorer: Callable) -> Dictionary:
 	var best_score := -INF
 	for e in evals:
 		var s: float = float(scorer.call(e["metrics"]))
+		if AGREE.on:
+			_trace_append("cands", { "path": e["path"], "m": e["metrics"], "score": s })
 		if s > best_score:
 			best_score = s
 			best = e.duplicate(true)
 	best["score"] = best_score
 	return best
+
+
+## 对拍模式的读数记录（导出器每问清空 AGREE.trace）：同一串结构 C# 侧原样产出，逐条比。
+static func _trace_append(key: String, row) -> void:
+	if not AGREE.trace.has(key):
+		AGREE.trace[key] = []
+	AGREE.trace[key].append(row)
 
 
 # ==================== alpha-beta 搜索（意图级，2026-09-20） ====================
@@ -267,7 +284,12 @@ func search_best(g: CWGame, pid: int, leaf_eval: Callable, depth := 2, top_k := 
 	for path in cands:
 		var m: Dictionary = await evaluate_path(g, pid, path)
 		scored.append({ "path": path, "q": float(quick.call(m)) })
-	scored.sort_custom(func(a, b): return float(a["q"]) > float(b["q"]))
+		if AGREE.on:
+			_trace_append("cands", { "path": path, "m": m, "score": float(quick.call(m)) })
+	if AGREE.on:
+		scored = AGREE.stable_sort(scored, "q", true)   ## 并列保持候选原序（C# OrderByDescending 同为稳定排序）
+	else:
+		scored.sort_custom(func(a, b): return float(a["q"]) > float(b["q"]))
 	if scored.size() > top_k:
 		scored = scored.slice(0, top_k)
 	var my_fac: int = g.player(pid)["faction"]
@@ -277,6 +299,8 @@ func search_best(g: CWGame, pid: int, leaf_eval: Callable, depth := 2, top_k := 
 		var snap: Dictionary = g.snapshot()
 		var v: float = await _ab_line(g, pid, c["path"], my_fac, depth, alpha, INF, leaf_eval)
 		g.restore(snap)
+		if AGREE.on:
+			_trace_append("roots", { "path": c["path"], "v": v })
 		if v > alpha or best.is_empty():
 			alpha = v
 			best = { "path": c["path"], "score": v }
@@ -293,6 +317,9 @@ func search_best(g: CWGame, pid: int, leaf_eval: Callable, depth := 2, top_k := 
 	g.restore(snap2)
 	plan.append_array(rec)
 	best["plan"] = plan
+	if AGREE.on:
+		AGREE.trace["best"] = best.get("path", [])
+		AGREE.trace["plan0"] = plan[0]["data"] if not plan.is_empty() else {}
 	return best
 
 
@@ -304,6 +331,8 @@ func _ab_line(g: CWGame, actor: int, path: Array, my_fac: int, depth: int,
 	var req: Dictionary = await _drive_to_round_end(g, record, actor)
 	if depth <= 1 or req.is_empty():
 		var m: Dictionary = _read_metrics(g, int(req.get("pid", actor)), false)
+		if AGREE.on and record == null:   ## 计划捕获那条线（带 record）不算搜索树的叶：C# 只在根选「不动」时才跑它
+			_trace_append("leaves", float(leaf_eval.call(m)))
 		return float(leaf_eval.call(m))
 	var nxt: int = int(req["pid"])
 	var nxt_fac: int = g.player(nxt)["faction"]
@@ -314,7 +343,11 @@ func _ab_line(g: CWGame, actor: int, path: Array, my_fac: int, depth: int,
 	for p in sub:
 		var m: Dictionary = await evaluate_path(g, nxt, p)
 		subs.append({ "path": p, "q": float(quick.call(m)) })
-	subs.sort_custom(func(a, b): return (float(a["q"]) > float(b["q"])) if maximizing 		else (float(a["q"]) < float(b["q"])))
+	if AGREE.on:
+		subs = AGREE.stable_sort(subs, "q", maximizing)
+		_trace_append("nodes", { "pid": nxt, "subs": subs.duplicate(true) })
+	else:
+		subs.sort_custom(func(a, b): return (float(a["q"]) > float(b["q"])) if maximizing 		else (float(a["q"]) < float(b["q"])))
 	if subs.size() > OPP_TOP_K():
 		subs = subs.slice(0, OPP_TOP_K())
 	var best_v := -INF if maximizing else INF
