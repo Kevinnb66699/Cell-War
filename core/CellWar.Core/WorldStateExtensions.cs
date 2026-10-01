@@ -123,7 +123,9 @@ public static class WorldStateExtensions
             Seat = p.Seat, Faction = p.Faction,
             IsAlive = alive ?? p.IsAlive, DrawCount = drawCount ?? p.DrawCount,
             AntigenMemory = memory ?? p.AntigenMemory, ImmuneLevel = level ?? p.ImmuneLevel,
-            CancerType = cancerType ?? p.CancerType
+            CancerType = cancerType ?? p.CancerType,
+            // 宿主注入的显示名（P2 加的字段）：漏抄的话免疫席一涨记忆 / 一抽卡名字就回落成「免疫A」（P6 联机局 2026-10-01 抓到）
+            Name = p.Name
         };
     public static Player WithIsAlive(this Player p, bool alive) => p.CopyPlayer(alive: alive);
     public static Player WithAntigenMemory(this Player p, int memory) => p.CopyPlayer(memory: memory);

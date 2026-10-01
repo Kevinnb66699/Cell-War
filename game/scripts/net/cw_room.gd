@@ -9,8 +9,15 @@
 ## 掉线（docs/联机设计 §六）：对局中席位保留、标离线；正悬着的询问若房间有计时就等到期限（给他重连的机会），
 ## 没计时就立刻由启发式代打；之后轮到他的询问都由启发式即时代打，直到凭令牌重连。
 ## 所有真人都离线 → 中止对局、关房。等待室里掉线 = 起身。
+##
+## **C# 内核路**（换内核 P6 · 真人半边，2026-10-01）：服务器进程设了 `CW_KERNEL=sidecar` 且**全真人房**时，这一局不建 CWGame，
+## 改由 `pump`（cw_net_pump.gd，持一个 CWKernelSidecar）跑：条目流 → 演出广播 / 每步逐人推 envelope / 询问只发被问的那一席。
+## 席位、计时、掉线重连、投降投票、观众这些产品逻辑**两条路共用**；分叉只在下面标了 `_sc_` 的那一节和几处入口的第一行。
+## 没设那个变量时 `pump` 恒为 null，行为与改动之前一行不差。
 class_name CWRoom
 extends RefCounted
+
+const NetPump := preload("res://scripts/net/cw_net_pump.gd")
 
 class Waiter extends RefCounted:
 	signal done(index: int)
@@ -41,12 +48,14 @@ var game: CWGame
 ## 演出仍由 CWNetBridge 同步广播，服务器侧因此不需要播放队列，也不会被日志条目撑爆 _entries
 var kernel: CWKernelInProc
 var bridge: CWNetBridge
+## C# 内核路的条目泵（cw_net_pump.gd）。非 null = 这一局跑在 sidecar 上（此时 game / kernel / bridge 都是 null）
+var pump: RefCounted = null
 var server: CWNetServer
 var empty_since := 0            ## members 空了的时刻（ms），0 = 不空
 var games_played := 0
 var timeouts := 0               ## 超时代打次数（统计/测试）
 
-var _ask := {}                  ## 正悬着的真人询问 {pid, ask_id, req, deadline, waiter}
+var _ask := {}                  ## 正悬着的真人询问 {pid, ask_id, req, deadline, waiter}（C# 内核路没有 waiter，另有 sidecar_ask / auto，见 _sc_ask）
 var _ask_seq := 0
 var _last_ask := {}             ## pid -> 上一次问他的 ask_id：重连时补发边界报文用（issue #62），一局一清
 var _log_cursor := {}           ## client id -> 已发到第几行日志
@@ -371,8 +380,11 @@ func start(cid: int) -> String:
 	for s in seats:
 		if s["kind"] == "human" and not s["ready"]:
 			return "not_ready"
-	game = CWGame.new()
+	## 种子提到建局之前：两条路都要它（CWGame.new() 不碰 server.rng，挪一行不改随机序列）
 	var seed_value: int = seed_override if seed_override != 0 else server.rng.randi()
+	if _wants_sidecar() and _sc_start(seed_value):
+		return ""
+	game = CWGame.new()
 	game.init(CWData.FACTION_ORDER[player_count], seed_value)
 	game.record_replay = true          ## 真对局才录（MC 推演不录，见 CWGame.ask）
 	_name_seats()
@@ -413,6 +425,11 @@ func _run() -> void:
 	broadcast({ "t": "game_over", "winner": winner, "reason": game.win_reason,
 		"kind": game.win_kind, "round": game.round_no, "replay": rep })
 	server.say("房间 %s 终局：%s（第 %d 回合）" % [code, game.win_reason, game.round_no])
+	_back_to_waiting()
+
+
+## 一局打完回等待室（两条路共用：GD 路的 _run 与 C# 内核路的 _sc_finish）
+func _back_to_waiting() -> void:
 	state = State.WAITING
 	for s in seats:
 		s["ready"] = false
@@ -436,6 +453,11 @@ func _release_offline_seats() -> void:
 
 
 func _teardown_game() -> void:
+	if pump != null:
+		pump.close()   ## 关会话、放链路（sidecar 进程别的房间还在用；没人用了空闲 30 秒才退，见 cw_sidecar_link.gd）
+		pump = null
+		_reset_per_game()
+		return
 	if game == null:
 		return
 	## 排在原来那六行之前：收养模式下 close() 只摘句柄自己的钩子，不 dispose、不清 deciders 的 game ——
@@ -449,6 +471,11 @@ func _teardown_game() -> void:
 	game.dispose()
 	game = null
 	bridge = null
+	_reset_per_game()
+
+
+## 一局的瞬态（两条路共用）
+func _reset_per_game() -> void:
 	_ask = {}
 	_last_ask.clear()
 	_vote = {}
@@ -456,7 +483,11 @@ func _teardown_game() -> void:
 
 
 ## 中止对局：引擎停在某个真人的询问上，答它一个 0 让协程展开，run_game 看到 aborted 就收摊
+## （C# 内核路没有协程要展开：句柄直接拆，见 _sc_abort）
 func _abort_game() -> void:
+	if pump != null:
+		_sc_abort()
+		return
 	if game == null or state != State.PLAYING:
 		return
 	state = State.CLOSED
@@ -512,6 +543,9 @@ func answer(cid: int, ask_id: Variant, key: Variant, index: Variant) -> String:
 		idx = int(index)
 	if idx < 0 or idx >= opts.size():
 		return "bad_index"
+	if pump != null:
+		_sc_submit(idx)   ## step_begin 由内核的条目流带出来（泵广播，编号换成房间的），排在这一步的演出之前
+		return ""
 	## 一问答下即开步：这一步的演出都排在它之后（拍板 2 的行动边界）。
 	## **必须排在 emit 之前** —— emit 会同步把引擎一路推到下一次询问，那期间的演出报文已经发出去了
 	broadcast({ "t": "step_begin", "ask_id": _ask["ask_id"], "seat": pid })
@@ -542,6 +576,8 @@ func tick(now: int) -> void:
 		_refresh_vote()
 	if not _vote.is_empty() and now >= int(_vote["deadline"]):
 		_end_vote("超时")
+	if pump != null and not _sc_tick():
+		return
 	if _ask.is_empty():
 		return
 	var dl: int = _ask["deadline"]
@@ -551,6 +587,9 @@ func tick(now: int) -> void:
 
 
 func _auto_answer() -> void:
+	if pump != null:
+		_sc_take_over()
+		return
 	var a := _ask
 	var idx: int = await bridge.take_over(a["req"])   ## 专家档代打（Kevin 2026-09-20；此前是新手档 heur）
 	if _ask != a:
@@ -583,7 +622,7 @@ func _voters(faction: int) -> Array[int]:
 ## 收到一票（或发起）。`agree=false` 当场否决 —— 全票制下一个反对就没戏了，
 ## 拖着只是让发起人干等 30 秒。
 func surrender(cid: int, agree: Variant) -> String:
-	if state != State.PLAYING or game == null:
+	if state != State.PLAYING or not _in_game():
 		return "not_waiting"
 	var pid := pid_of_client(cid)
 	if pid < 0:
@@ -597,11 +636,11 @@ func surrender(cid: int, agree: Variant) -> String:
 		## ⚠ 这里原来写 `>= round_no`，把冷却拖成了**两个**世界回合
 		## （否决那轮拦一次、下一轮又拦一次），而定的是「隔一个世界回合」。
 		## 世界回合很长，两轮下来玩家的体感就是「再也发不起了」（Kevin 2026-09-09 报）。
-		if game.round_no < int(_vote_block.get(faction, 0)):
+		if _round_no() < int(_vote_block.get(faction, 0)):
 			return "vote_cooldown"
 		_vote = { "faction": faction, "by": pid, "agreed": { pid: true },
 			"deadline": server.now_ms() + CWNet.SURRENDER_VOTE_MS }
-		game.log_msg("【投降】%s 发起投降投票" % seats[pid]["nick"])
+		_log_line("【投降】%s 发起投降投票" % seats[pid]["nick"])
 		_refresh_vote()
 		return ""
 	if _vote["faction"] != faction:
@@ -622,7 +661,7 @@ func surrender(cid: int, agree: Variant) -> String:
 func _refresh_vote() -> void:
 	if _vote.is_empty():
 		return
-	if state != State.PLAYING or game == null or game.is_over():
+	if state != State.PLAYING or not _in_game() or _game_ended():
 		_vote = {}
 		return
 	var need := _voters(_vote["faction"])
@@ -644,6 +683,11 @@ func _pass_vote() -> void:
 	var faction: int = _vote["faction"]
 	_vote = {}
 	broadcast({ "t": "surrender_vote", "faction": -1 })   ## 收起票面
+	if pump != null:
+		## 先摘掉悬着的那一问（同下面 GD 路「先定结果再唤醒」的理由）：句柄投降时当场收局，那一问不再收答案，也别让 tick 去代打它
+		_ask = {}
+		pump.surrender(faction)
+		return
 	game.surrender(faction)
 	if not _ask.is_empty():
 		var a := _ask
@@ -656,13 +700,16 @@ func _end_vote(why: String) -> void:
 		return
 	var faction: int = _vote["faction"]
 	_vote = {}
-	if game != null:
-		_vote_block[faction] = game.round_no + CWNet.SURRENDER_COOLDOWN_ROUNDS
-		game.log_msg("【投降】投票未通过（%s）" % why)
+	if _in_game():
+		_vote_block[faction] = _round_no() + CWNet.SURRENDER_COOLDOWN_ROUNDS
+		_log_line("【投降】投票未通过（%s）" % why)
 	broadcast({ "t": "surrender_vote", "faction": -1 })
 
 
 func push_state(turn_pid: int) -> void:
+	if pump != null:
+		_sc_push_state()
+		return
 	if game == null or kernel == null:
 		return
 	var h := game.state_hash()
@@ -685,6 +732,9 @@ func push_state(turn_pid: int) -> void:
 
 ## `ready_env` = 已经编好的 envelope（`push_state` 给同一日志档的观众共用的那一份）；空 = 自己编
 func push_state_to(cid: int, turn_pid: int, h: String = "", ready_env: Dictionary = {}) -> void:
+	if pump != null:
+		_sc_push_state_to(cid, ready_env)
+		return
 	if game == null or kernel == null:
 		return
 	var pid := pid_of_client(cid)
@@ -719,14 +769,15 @@ func push_state_to(cid: int, turn_pid: int, h: String = "", ready_env: Dictionar
 func query(cid: int, msg: Dictionary) -> String:
 	if not members.has(cid):
 		return "not_in_room"
-	if state != State.PLAYING or kernel == null:
+	if state != State.PLAYING or (kernel == null and pump == null):
 		return "not_waiting"
 	var args: Variant = msg.get("args", {})
 	var kind := str(msg.get("kind", ""))
 	if typeof(args) != TYPE_DICTIONARY or not _query_args_ok(kind, args):
 		return "bad_param"
-	server.send(cid, { "t": "query_result", "qid": msg.get("qid", 0),
-		"value": kernel.query(kind, args) })
+	## C# 内核路：sidecar 的 query 与 InProc 回同形的值（坐标已换回 Vector2i），客户端缓存照旧
+	var value: Variant = pump.query(kind, args) if pump != null else kernel.query(kind, args)
+	server.send(cid, { "t": "query_result", "qid": msg.get("qid", 0), "value": value })
 	return ""
 
 
@@ -751,6 +802,165 @@ func _query_args_ok(kind: String, args: Dictionary) -> bool:
 func broadcast(msg: Dictionary) -> void:
 	for cid in members.keys():
 		server.send(cid, msg)
+
+
+## 两条路共用的几个小口子：GD 路问 game，C# 内核路问条目泵
+func _in_game() -> bool:
+	return game != null or pump != null
+
+
+func _round_no() -> int:
+	return int(pump.round_no) if pump != null else game.round_no
+
+
+func _game_ended() -> bool:
+	return bool(pump.ended()) if pump != null else game.is_over()
+
+
+## 投降投票那两行日志（C# 内核路暂时落空，TODO 见 cw_net_pump.gd log_line）
+func _log_line(text: String) -> void:
+	if pump != null:
+		pump.log_line(text)
+	else:
+		game.log_msg(text)
+
+
+# ---- C# 内核（sidecar）路（换内核 P6 · 真人半边，2026-10-01，docs/内核替换_重启计划.md §四 P6）----
+## 服务器开关：**服务器进程**的环境变量 `CW_KERNEL=sidecar`（与桌面热座的开发开关同名）且**全真人房**才走这条路；
+## 有 AI 席的房照旧走 GD —— C# 的 AI 还在另一个 worktree 里移植，sidecar 现在没有 AI 席。
+## 坐着**机器人客户端**（hello 自报 bot：net_play / net_live 的 autoplay、无头测试）的房也照旧走 GD：
+## 它们作答靠 sync 里那份老 view 还原的 GD 影子对局，C# 这条路给不了 —— 这样线上验收脚本不受开关影响。
+## 不设这个变量 = 这一节一个函数都走不到，pump 恒为 null。
+func _wants_sidecar() -> bool:
+	if OS.get_environment("CW_KERNEL") != "sidecar":
+		return false
+	for s in seats:
+		if s["kind"] != "human" or server.is_bot(int(s["client"])):
+			return false
+	return true
+
+
+## 起不来（找不到 dotnet / dll、进程起不了）返回 false，调用方照常走 GD 路 —— 玩家照常玩，服务器日志里留一行。
+## 次序照 GD 路的 start()：状态置 PLAYING → 推房间视图 → 起跑。sidecar 在 open 里已经把开局（落子之前）算完，
+## 这里 pump() 一下就是 GD 路 _run() 跑到第一问那一段：开局演出 → step_end → 每人一份状态 → 第一问
+func _sc_start(seed_value: int) -> bool:
+	var p = NetPump.new()
+	if not p.open(self, seed_value):
+		server.say("房间 %s：C# 内核起不来（%s），这一局走 GD 内核" % [code, p.error_text()])
+		return false
+	pump = p
+	state = State.PLAYING
+	_log_cursor.clear()
+	push_room()
+	server.say("房间 %s 开局（C# 内核）：%d 人，种子 %d，计时 %d s" % [code, player_count, seed_value, timer_secs])
+	pump.pump()
+	return true
+
+
+## 内核问到一席（条目泵调）。`_ask` 与 ask_human 同形（没有 waiter：答案经 pump.answer 交回句柄），只发给被问的那一席。
+## `sidecar_ask` = 句柄那边的 ask_id（作答时要它）；对外的 `ask_id` 是房间自己的号，跨局递增，与 GD 路同一个计数器。
+## 被问的人此刻离线：GD 路是让出一帧再代打（CWNetBridge.ask），这里记一个 `auto`，**下一帧 tick 来代打** ——
+## 同样让出一帧给网络轮询，也不在泵里一路递归下去（一个掉线的人整个回合会连着问好几问）
+func _sc_ask(sidecar_ask: int, req: Dictionary) -> int:
+	_ask_seq += 1
+	var pid := int(req["pid"])
+	var now := server.now_ms()
+	_ask = { "pid": pid, "ask_id": _ask_seq, "sidecar_ask": sidecar_ask, "req": req,
+		"deadline": now + timer_secs * 1000 if timer_secs > 0 else 0, "auto": not seats[pid]["online"] }
+	_last_ask[pid] = _ask_seq   ## 重连补发边界报文要它（issue #62）
+	_send_ask()                 ## 离线的席位 client = -1，_send_ask 自己会跳过
+	return _ask_seq
+
+
+## 交一个答案（真人作答 / 代打共用）。先摘 `_ask` 再交：交的同时句柄就把下一问泵出来了，下一问会重新写 `_ask`
+func _sc_submit(idx: int) -> void:
+	var a := _ask
+	_ask = {}
+	if not pump.answer(int(a["sidecar_ask"]), idx):
+		_sc_fault("答案被 sidecar 拒了（ask %d）" % int(a["ask_id"]))
+
+
+## 代打（掉线 / 超时）。**临时口径**：C# 的 AI 席还没落地，先挑一个一定让对局往前走的选项（cw_net_pump.gd fallback_index）。
+## 换成 sidecar 的 AI 席时只换这一个函数
+func _sc_take_over() -> void:
+	pump.takeovers += 1
+	_sc_submit(NetPump.fallback_index(_ask["req"]))
+
+
+## 每帧（服务器 poll → tick）：句柄坏了就中止；把这一帧新到的条目泵出去；离线席位那一问在这一帧代打。
+## 返回 false = 这一帧不必再看计时了（这一局已经不在 / 刚代打过）
+func _sc_tick() -> bool:
+	var why: String = pump.fault()
+	if why != "":
+		_sc_fault(why)
+		return false
+	pump.pump()
+	if pump == null or state != State.PLAYING:
+		return false
+	if not _ask.is_empty() and bool(_ask.get("auto", false)):
+		if not seats[int(_ask["pid"])]["online"]:
+			_auto_answer()
+			return false
+		_ask.erase("auto")   ## 让出的那一帧里他凭令牌回来了（reconnect 已把这一问补发给他）：照常等他作答
+	return true
+
+
+## 每步的状态推送（条目泵在 step_end 那一拍调；join / reconnect 走 push_state_to）。节拍与 GD 路的 push_state 相同：
+## 逐人 step_end{rev} 紧跟 sync{envelope, hash, game}，envelope 按席位 / 观众裁好（观众手牌背面、问答没有选项）；
+## 观众的那一份按日志游标分档共用（理由同 push_state 的注释）。
+func _sc_push_state() -> void:
+	var watcher_envs := {}
+	for cid in members.keys():
+		var ready := {}
+		if pid_of_client(cid) < 0:
+			var from: int = _log_cursor.get(cid, 0)
+			if not watcher_envs.has(from):
+				watcher_envs[from] = pump.envelope(CWKernel.VIEWER_WATCHER, from)
+			ready = watcher_envs[from]
+		_sc_push_state_to(cid, ready)
+
+
+## 与 GD 路 push_state_to 的两处不同：
+##   · hash 发空串 —— sidecar 还没有 state_hash；GD 路这里也只是诊断字段，客户端只存不比
+##   · 机器人客户端不带老 view / turn / logs —— 那要一份 GD 的 CWGame。坐着机器人的房不会走到这里（_wants_sidecar），
+##     这里只可能是机器人在旁边**观战**：它收不到影子对局，照样看得到 envelope；批 2 AI 进 C# 之后那一块整个删
+func _sc_push_state_to(cid: int, ready_env: Dictionary = {}) -> void:
+	var env: Dictionary = ready_env if not ready_env.is_empty() \
+		else pump.envelope(pid_of_client(cid), int(_log_cursor.get(cid, 0)))
+	if env.is_empty():
+		return   ## 句柄刚坏（这一帧的 tick 会中止这一局），别发半截报文
+	var elogs: Dictionary = env["logs"]
+	_log_cursor[cid] = int(elogs["from"]) + elogs["lines"].size()
+	server.send(cid, { "t": "step_end", "rev": int(env.get("rev", 0)) })
+	server.send(cid, { "t": "sync", "envelope": env, "hash": "", "game": games_played })
+
+
+## 终局（条目泵调）：照 _run() 的收尾。**C# 内核还没有回放带子**（存读档 / 回放在计划 P4），所以 game_over 的 replay 是空字典 ——
+## 客户端 CWReplay.valid 不认、不落盘；服务器回放柜（keep_replay）也不收这一局
+func _sc_finish(e: Dictionary) -> void:
+	games_played += 1
+	var reason := String(e.get("reason", ""))
+	broadcast({ "t": "game_over", "winner": int(e["winner"]), "reason": reason,
+		"kind": String(e.get("kind", "")), "round": int(e.get("round", 0)), "replay": {} })
+	server.say("房间 %s 终局（C# 内核）：%s（第 %d 回合）" % [code, reason, int(e.get("round", 0))])
+	_back_to_waiting()
+
+
+## 中止（所有真人都走了 / 关房 / sidecar 坏了）：没有引擎协程要唤醒，句柄直接拆
+func _sc_abort() -> void:
+	if state != State.PLAYING:
+		return
+	state = State.CLOSED
+	_teardown_game()
+	server.close_room(self)
+
+
+## sidecar 坏了（进程退出 / 连接断 / 答案被拒）。计划 P6 写的「按每步的 checkpoint 重起再 restore」要等 C# 存读档（P4）；
+## 现在先中止这一局、关房（同「所有真人都走了」那条路），别让玩家对着一盘再也不会动的棋干等
+func _sc_fault(why: String) -> void:
+	push_warning("CWRoom %s：C# 内核故障（%s），中止对局" % [code, why])
+	server.say("房间 %s：C# 内核故障（%s），中止对局" % [code, why])
+	_abort_game()
 
 
 # ---- 视图 ----

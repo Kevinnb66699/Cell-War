@@ -218,6 +218,8 @@ public class RegressionGuardTests
             AntigenMemory = 17,
             ImmuneLevel = ImmuneLevel.III,
             CancerType = CellType.Melanoma,
+            // 每个字段都要填非默认值，判据才不是空比（2026-10-01：Name 是 null 时 CopyPlayer 漏抄它照样绿）
+            Name = "Kevin",
         };
         var props = typeof(Player).GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.CanRead).ToArray();
