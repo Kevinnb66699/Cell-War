@@ -128,6 +128,9 @@ var replay := false
 ## 观战：**联机但没有席位**。同一句「本局由 AI 代打」对观众也是假的 —— 他本来就没在打，
 ## 走了谁也不用替（Kevin 2026-09-13 截图）。和 replay 同一类：形制上仍是联机局，只是那句话得换
 var watching := false
+## 网页单机（换内核 P6）：形制上是联机局（不冻树、没得存），但房间只有自己一个人、离开即关 ——
+## 主列表照旧叫「返回主菜单」，确认页不说「AI 代打」（confirm_hint）。由 CWMatch.start_online 置
+var solo := false
 
 ## 「反馈 bug」要带走的对局快照，由 CWMatch 注入（返回 Dictionary）；无效 = 没有对局可抓，只发截图和说明
 var feedback_snapshot := Callable()
@@ -291,7 +294,7 @@ func _show_page(confirm_id: String) -> void:
 		if item["id"] == confirm_id:
 			_title.text = item["confirm"]
 			break
-	_hint.text = confirm_hint(confirm_id, online, replay, watching)
+	_hint.text = confirm_hint(confirm_id, online, replay, watching, solo)
 	_rebuild(CONFIRM_ITEMS)
 	_selected = 1                 ## 确认页默认停在「取消」上，别让回车顺手就确认了
 	_repaint()
@@ -305,11 +308,15 @@ func _show_page(confirm_id: String) -> void:
 ## 这一句又不能省：玩家会怕自己一走把这局搅了，得明说「不影响」，只是动词跟着页面走
 ## （离开房间 / 退出游戏）。
 static func confirm_hint(confirm_id: String, p_online: bool, p_replay: bool,
-		p_watching := false) -> String:
+		p_watching := false, p_solo := false) -> String:
 	if p_replay:
 		return ""
 	if p_online and p_watching:
 		return "你是观众，%s不影响这一局" % ("离开" if confirm_id == "menu" else "退出")
+	## 网页单机（换内核 P6）：服务器上那间私人房人一走就关 —— 没人代打、也回不来、本机也没存档。
+	## 下面那句「AI 代打，可凭房间码回来」对它整句都是假的
+	if p_online and p_solo and (confirm_id == "menu" or confirm_id == "quit"):
+		return "这一局不存档，%s后就结束了" % ("离开" if confirm_id == "menu" else "退出")
 	## 有席位的人：**两页都是同一件事** —— 人走了，那一席交给 AI 代打（Kevin 2026-09-13）。
 	## 「当前对局不会保存」是本地局的说法，联机局的进度在服务器上，本来就不存本地存档，
 	## 拿它当联机退出的代价说明是答非所问。
@@ -330,6 +337,9 @@ func items() -> Array:
 		if item["id"] == "save_quit":
 			continue
 		if item["id"] == "menu":
+			if solo and not replay:
+				out.append(item)   ## 网页单机：玩家眼里没有「房间」，还是「返回主菜单」
+				continue
 			var leave: Dictionary = item.duplicate()
 			leave["text"] = "退出回放" if replay else "离开房间"
 			leave["confirm"] = "退出回放？" if replay else "离开房间？"

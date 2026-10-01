@@ -27,11 +27,13 @@ internal static class SelfTest
     }
 
     /// <summary>开一局，一直答到终局或 <paramref name="maxAnswers"/>；每答一次都把新条目过一遍节拍检查。
-    /// cfg 带 `ai` 时那几席由宿主后台作答：轮到它们时这里只等条目（<paramref name="aiWaitMs"/> 是单次等待上限）。</summary>
+    /// cfg 带 `ai` 时那几席由宿主后台作答：轮到它们时这里只等条目（<paramref name="aiWaitMs"/> 是单次等待上限）；
+    /// 再带 `ai_paced` 就由这里替消费者推（同服务器每帧一次 ai_step）。</summary>
     public static Walk Drive(JsonObject cfg, int maxAnswers, ulong lcgSeed = 2222, int aiWaitMs = 30_000)
     {
         using var host = SessionHost.Open(1, cfg);
         var viewerSet = cfg["observe_viewer"] is not null;
+        var paced = cfg["ai_paced"] is { } p && J.Bool(p);
         var aiSeats = (cfg["ai"]?.AsObject() ?? []).Select(kv => int.Parse(kv.Key)).ToHashSet();
         var lastBegun = 0;
         var waitedSince = DateTime.UtcNow;
@@ -65,6 +67,7 @@ internal static class SelfTest
                 if (aiSeats.Count == 0) break;
                 if ((DateTime.UtcNow - waitedSince).TotalMilliseconds > aiWaitMs) { violations.Add($"AI 席 {aiWaitMs} ms 没有动静（停在 #{since}）"); break; }
                 Thread.Sleep(1);
+                if (paced) host.StepAi();
                 continue;
             }
 

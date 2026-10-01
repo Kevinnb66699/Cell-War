@@ -154,6 +154,19 @@ var _want_reconnect := false
 var _retry_at := 0
 var _awaiting_state := false
 
+## ---- 网页单机（换内核 P6，NET_VERSION 32）----
+## 网页版的「开始对局」不在浏览器里跑内核，而是请服务器开一间只有我一个真人的私人房（create_solo），对局照联机局那套走。
+## 连接仍归本面板（同联机局：每帧轮询、对局中隐藏、离开时告别服务器），只是**整个过程不露面**：没有连接 / 大厅 / 等待室这几页。
+## main.gd 一边推镜头一边等 solo_pending() 落定，再拿 solo_client()：非 null = 按联机局进棋盘；null = 没开成
+## （服务器开关关着 / 连不上 / 版本不符 / 满了 / 维护中），main.gd 退回本地开局（P8 之前网页包里还有 GD 内核）。
+enum Solo { NONE, PENDING, READY, FAILED }
+## 连服务器的等待上限：连不上就早点退回本地开局（默认的 10 秒是给联机页的，那边玩家看得见「连接中…」）
+const SOLO_CONNECT_MS := 4000
+var solo := false              ## 这条连接是网页单机的（leave_online / 开不成时清）
+var solo_error := ""           ## 没开成的原因（main.gd 写进警告）
+var _solo_state := Solo.NONE
+var _solo_msg := {}            ## 连上之后要发的 create_solo 参数（solo_message_of 的结果）
+
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -208,6 +221,8 @@ func leave_online() -> void:
 	_want_reconnect = false
 	_awaiting_state = false
 	_remember_seat()     ## 对局中退出（暂停菜单「离开房间」走的就是这条）：留一张回程票，issue #46
+	solo = false         ## 排在 _remember_seat 之后：单机房不留回程票（它看 solo），离开即关房，票拿着也回不去
+	_solo_state = Solo.NONE
 	if client != null:
 		if client.code != "":
 			client.leave()
@@ -234,6 +249,8 @@ func _process(_delta: float) -> void:
 	if client == null:
 		return
 	client.poll()
+	if client == null:
+		return   ## 轮询里的回调把连接丢掉了（网页单机没开成 / 房间没了收摊）
 	## 大厅停着的时候自己刷新：别人开打 / 打完了，这一栏才跟得上（Kevin 2026-09-13）
 	if page == Page.LOBBY and not in_match and client.status == "open" \
 			and now - _lobby_polled >= LOBBY_POLL_MS:
@@ -332,12 +349,14 @@ func _connect() -> void:
 	CWSettings.nick = nick
 	CWSettings.server = addr
 	CWSettings.save_prefs()
+	solo = false   ## 正经进联机：上一次网页单机没开成留下的标记不能带过来
+	_solo_state = Solo.NONE
 	if client != null:
 		client.dispose()
 	client = CWNetClient.new()
 	client.message.connect(_on_message)
 	client.disconnected.connect(_on_disconnected)
-	var url := addr if addr.begins_with("ws://") or addr.begins_with("wss://") else "ws://" + addr
+	var url := url_of(addr)
 	if client.connect_to(url, nick) != OK:
 		_set_status("地址不合法：%s" % addr)
 		client = null
@@ -353,6 +372,79 @@ func _disconnect() -> void:
 	stop_lan()
 	_show_page(Page.CONNECT)
 	_set_status("")
+
+
+## 地址框里的文字 → WebSocket 地址（没写协议头就当 ws://）。**纯函数**
+static func url_of(addr: String) -> String:
+	return addr if addr.begins_with("ws://") or addr.begins_with("wss://") else "ws://" + addr
+
+
+# ============ 网页单机（换内核 P6，见文件头那段变量的注释）============
+
+## 开一间网页单机房：连着服务器（「再来一局」）就在这条连接上先离开上一间、再开新的，没连着就按设置里的服务器地址连过去
+func start_solo(cfg: Dictionary) -> void:
+	solo = true
+	solo_error = ""
+	_solo_state = Solo.PENDING
+	_solo_msg = solo_message_of(cfg)
+	in_match = false
+	_awaiting_state = false
+	_want_reconnect = false
+	if client != null and client.status == "open":
+		client.sequenced = false   ## 上一局的对局流作废：新房间开局时再排队（同 return_to_room）
+		client.stream.clear()
+		if client.code != "":
+			client.leave()          ## 服务器那头当场关掉上一间（CWRoom.leave 的 solo 那一支）
+		_send_solo()
+		return
+	if client != null:
+		client.dispose()
+	client = CWNetClient.new()
+	client.connect_timeout_ms = SOLO_CONNECT_MS
+	client.message.connect(_on_message)
+	client.disconnected.connect(_on_disconnected)
+	var addr := CWSettings.server.strip_edges()
+	if addr == "":
+		addr = CWSettings.default_server()
+	if client.connect_to(url_of(addr), CWSettings.nick) != OK:
+		_solo_fail("地址不合法：%s" % addr)
+
+
+## 还在开（连接 / 建房 / 等第一份状态）
+func solo_pending() -> bool:
+	return _solo_state == Solo.PENDING
+
+
+## 开好了：第一份状态已经排进 stream（同 match_started 交出去时的约定）；没开成 / 没在开 = null
+func solo_client() -> CWNetClient:
+	return client if _solo_state == Solo.READY else null
+
+
+## 配置面板的 cfg → create_solo 的参数。**纯函数**。AI 席统一用配置面板那一档（CWNet.SOLO_TIER_OF_LEVEL 换成三档名，
+## 「较强」「树搜索」落到搜索档）；种子 0 = 让服务器挑（「再来一局 · 新种子」）
+static func solo_message_of(cfg: Dictionary) -> Dictionary:
+	var n := int(cfg["players"])
+	var level := clampi(int(cfg.get("ai", 0)), 0, CWNet.SOLO_TIER_OF_LEVEL.size() - 1)
+	var tiers: Array = []
+	for i in n:
+		tiers.append(CWNet.SOLO_TIER_OF_LEVEL[level])
+	return { "players": n, "seat": CWConfigPanel.human_seat(n, int(cfg["faction"])), "tiers": tiers,
+		"cancer_types": Array(cfg.get("cancer_types", [])), "seed": int(cfg.get("seed", 0)) }
+
+
+func _send_solo() -> void:
+	var m := _solo_msg
+	client.create_solo(int(m["players"]), int(m["seat"]), m["tiers"], m["cancer_types"], int(m["seed"]))
+
+
+## 没开成：连接丢掉（服务器那头若建了半间房，断线即关），由 main.gd 退回本地开局
+func _solo_fail(reason: String) -> void:
+	_solo_state = Solo.FAILED
+	solo_error = reason
+	solo = false
+	if client != null:
+		client.dispose()
+		client = null
 
 
 # ============ 局域网开服 ============
@@ -559,8 +651,8 @@ func _leave_room() -> void:
 ## 三个条件缺一不可：局在打、我有席位、手里有令牌 —— 观众和等待室里的人没有可回去的对局
 ## （等待室的规矩本来就是「掉线 = 起身」，`CWRoom.leave` 在那一档直接把席位清空）。
 func _remember_seat() -> void:
-	if client == null or client.code == "" or client.token == "" or client.my_seat < 0:
-		return
+	if solo or client == null or client.code == "" or client.token == "" or client.my_seat < 0:
+		return   ## 网页单机房人一走就关，没有可回去的对局
 	if str(client.room.get("state", "")) != "playing":
 		return
 	_set_resume({ "code": client.code, "token": client.token, "url": client.url })
@@ -644,6 +736,8 @@ func _cycle_create(row: int, dir: int) -> void:
 # ============ 客户端事件 ============
 
 func _on_message(m: Dictionary) -> void:
+	if solo and _on_solo_message(m):
+		return
 	match m["t"]:
 		"welcome":
 			_want_reconnect = false
@@ -692,7 +786,10 @@ func _on_message(m: Dictionary) -> void:
 				_awaiting_state = false
 				hide_for_match()
 				## sequenced 仍是 true：对局流照旧排队；CWKernelRemote 由 CWMatch.start_online 自建、镜像从 stream 里的 sync 条目装出来
-				match_started.emit(client)
+				if solo:
+					_solo_state = Solo.READY   ## 网页单机：main.gd 自己在等（solo_client），不走 match_started 那条推镜头的路
+				else:
+					match_started.emit(client)
 		"left":
 			if not in_match and page == Page.ROOM:
 				_show_page(Page.LOBBY)
@@ -719,8 +816,38 @@ func _on_message(m: Dictionary) -> void:
 				_want_reconnect = false
 
 
+## 网页单机这条连接上的报文：开局之前只认三件事（连上 → 发 create_solo、房间开打 → 对局流开始排队、出错 → 没开成），
+## 大厅 / 离房回执 / 聊天这些联机页的报文一律不碰（不切页、不刷大厅）。返回 true = 处理完了；false = 照联机局的老路走（sync 与开局之后的 error）
+func _on_solo_message(m: Dictionary) -> bool:
+	match m["t"]:
+		"welcome":
+			if _solo_state == Solo.PENDING:
+				_send_solo()
+			return true
+		"room":
+			if _solo_state == Solo.PENDING and m.get("state", "") == "playing" and not client.sequenced:
+				client.sequenced = true
+				_awaiting_state = true
+			return true
+		"lobby", "left", "chat":
+			return true
+		"error":
+			if _solo_state != Solo.PENDING:
+				return false
+			_solo_fail(String(m.get("msg", m.get("code", ""))))
+			return true
+	return false
+
+
 func _on_disconnected(_code: int, _reason: String) -> void:
 	if client == null:
+		return
+	if solo:
+		## 网页单机：开局之前断 = 没开成；对局中断 = 服务器那头已经把房关了（人一断就关，凭令牌回不去），直接收摊
+		if _solo_state == Solo.PENDING:
+			_solo_fail("连不上服务器")
+		elif in_match:
+			match_lost.emit("连接已断开")
 		return
 	if client.token != "" and (page == Page.ROOM or in_match):
 		_want_reconnect = true

@@ -19,6 +19,9 @@
 ##                                          （观测协议 §5.3）。客户端锁到镜像之后没有影子对局可算，这是唯一出口
 ##        chat{text, scope}                 房内聊天。scope = "all" 全体 / "team" 己方（2026-09-09）
 ##        list_replays · get_replay{id}     服务器留着的最近几局回放（2026-09-09）
+##        create_solo{players, seat, tiers[], cancer_types, seed?}   网页单机（v32）：建一间只有我一个真人的私人房、当场开局；
+##                                          tiers 每席一项（SOLO_TIERS 的键，我那一席的不看），cancer_types 按癌席顺序钉癌种（-1 = 随机）。
+##                                          回的是 room{state: playing} + 对局流，与联机局一样；房间在我离开（含掉线）时关掉
 ##   S→C  welcome{client_id, ver, maintenance} · pong · lobby{rooms, maintenance}
 ##        room{...}（等待室全量视图，见 CWRoom.view_for）
 ##        sync{envelope, hash, game}（观测 envelope —— 日志并进 envelope.logs、正在决策的席位并进
@@ -177,7 +180,12 @@ extends RefCounted
 ##     固化门槛 `[30,20,20]`→`[30,20,15]`；新增无氧分期增益 `[100,120,150]`。
 ##     **值变形状不变** ⇒ `RULE_FIELDS` 条数没动，但 `tune.signature()` / `state_hash` 的**取值**变了：
 ##     打了这批补丁的人和没打的人协议号一样、哈希对不上。照协议号回溯的人要知道这一段。
-const NET_VERSION := 31
+## v32（2026-10-01，换内核 P6）：**网页单机走服务器** —— 新增 C→S `create_solo`（见文件头报文一览）与两个错误码
+##   `solo_off`（服务器没开 C# 内核路，网页单机房只跑在 C# 上）/ `solo_full`（全服单机房满了，SOLO_MAX）。
+##   规则一个字没改。**必须升号**的理由同 v7：老服务器对不认识的上行报文回 `bad_message` 并断开，
+##   新网页包连老服务器就是「点开始对局被踢线」，而不是握手时一句「请更新」。
+##   网页包认得这两个错误码 / 连不上 / 版本不符时**退回本地开局**（P8 之前网页包里还有 GD 内核），所以先发网页、后发服务器的那段窗口里单机照常能玩
+const NET_VERSION := 32
 
 ## 一条聊天最多多少字。定这个数不是怕刷屏（那有 RATE_PER_SEC 管），
 ## 是**排版**：聊天行和大厅房间行共用同一条定宽，超了就是省略号，
@@ -201,6 +209,16 @@ const PLAYER_CHOICES := [2, 4, 6]
 const TIMER_CHOICES := [0, 30, 60, 90]
 const TIMER_MAX := 600
 const AI_TIERS := { "heur": "AI·新手", "mc": "AI·对抗搜索" }
+## 网页单机房的 AI 档（create_solo 的 tiers 只认这三个键；Kevin 10-01「AI 档位全部统一成普通 / 意图 / 搜索」）。
+## 不并进 AI_TIERS：那是联机房 set_ai 收的键，并进去等于让 GD 路的房也收这三个名字，而 GD 桥只认得 heur / mc
+const SOLO_TIERS := { "normal": "AI·普通", "intent": "AI·意图", "search": "AI·搜索" }
+## 本地配置面板的 AI 强度（CWData.AI_LEVEL_NAMES 的下标：普通 / 较强 / 树搜索 / 意图 / 搜索）→ 单机房的档。
+## 「较强」（扁平 MC）与「树搜索」（MCTS）在 C# 里没有、计划 P8 下架，**都落到搜索档**：它们本来就是「比普通强」的那几档，
+## 搜索档是 C# 里最强的一档，也是 09-20 起服务器专家档的同款（10-01 定，写在开发日志同日）
+const SOLO_TIER_OF_LEVEL := ["normal", "search", "search", "intent", "search"]
+## 全服同时最多几间网页单机房。每间一个 sidecar 会话 + 搜索档每问约百毫秒的后台线程；服务器 3.7 GB 内存与别的服务共用 ——
+## 先给 8（同 MAX_PER_IP / MAX_WATCHERS 的量级），上线后按实测调（计划 §六 风险 4）
+const SOLO_MAX := 8
 const NICK_MAX := 12
 const HEARTBEAT_MS := 5000            ## 客户端多久发一次 ping
 const DEAD_MS := 20000                ## 服务器多久没收到任何报文就当掉线
@@ -241,6 +259,8 @@ const ERRORS := {
 	"no_vote": "没有正在进行的投降投票",
 	"voted": "你已经投过票了",
 	"vote_cooldown": "刚投过一次，等一个世界回合再来",
+	"solo_off": "服务器暂不提供网页单机",
+	"solo_full": "服务器上的单机对局满了，请稍后再试",
 }
 
 # ---- 投降投票（2026-09-09）----

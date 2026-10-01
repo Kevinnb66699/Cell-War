@@ -316,6 +316,9 @@ var bridge: CWUIBridge
 ## 桥仍是 CWUIBridge，但询问与演出由 _net_loop 从 client.stream 里按顺序取出来驱动，
 ## 引擎不在本机跑。start_online() 进入，teardown() 退出。
 var online := false
+## 网页单机（换内核 P6）：联机局的一种 —— 服务器上只有我一个真人的私人房（main.gd 在 start_online 之前置）。
+## 只改两处文案：结算屏给「再来一局」而不是「回到等待室」，暂停菜单说「离开就结束」而不是「AI 代打」
+var solo := false
 var net_hud: CWNetHud
 var _client: CWNetClient
 var _vote: CWSurrenderVote   ## 投降票面（只有联机会用；本地是发起即生效，没有投票）
@@ -778,8 +781,9 @@ func start_online(p_client: CWNetClient) -> void:
 		pause_menu.online = true
 		## 没抢到席位 = 观众：那句「离开后本局由 AI 代打」对他是假的（同 human_players 的口径）
 		pause_menu.watching = human_players.is_empty()
+		pause_menu.solo = solo
 	if settle != null:
-		settle.online = true
+		settle.online = not solo   ## 网页单机没有等待室：右边那颗按钮是「再来一局」（main.gd 照配置再开一间）
 	if net_hud != null:
 		net_hud.set_link("")
 		net_hud.stop_countdown()
@@ -2337,6 +2341,7 @@ func teardown() -> void:
 		if kernel is CWKernelRemote:
 			(kernel as CWKernelRemote).detach()
 		online = false
+		solo = false
 		_client = null
 		if net_hud != null:
 			net_hud.stop_countdown()
@@ -2345,6 +2350,7 @@ func teardown() -> void:
 		if pause_menu != null:
 			pause_menu.online = false
 			pause_menu.watching = false
+			pause_menu.solo = false
 		if settle != null:
 			settle.online = false
 	elif kernel != null:

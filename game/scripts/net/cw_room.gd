@@ -10,10 +10,14 @@
 ## 没计时就立刻由启发式代打；之后轮到他的询问都由启发式即时代打，直到凭令牌重连。
 ## 所有真人都离线 → 中止对局、关房。等待室里掉线 = 起身。
 ##
-## **C# 内核路**（换内核 P6 · 真人半边，2026-10-01）：服务器进程设了 `CW_KERNEL=sidecar` 且**全真人房**时，这一局不建 CWGame，
+## **C# 内核路**（换内核 P6，2026-10-01）：服务器进程设了 `CW_KERNEL=sidecar`、席上没有机器人客户端时，这一局不建 CWGame，
 ## 改由 `pump`（cw_net_pump.gd，持一个 CWKernelSidecar）跑：条目流 → 演出广播 / 每步逐人推 envelope / 询问只发被问的那一席。
+## AI 席与掉线 / 超时代打都由 sidecar 里的 C# AI 作答（第二段）：掉线 = 这一席交给 AI、重连 = 交还，超时 = 只代答这一问。
 ## 席位、计时、掉线重连、投降投票、观众这些产品逻辑**两条路共用**；分叉只在下面标了 `_sc_` 的那一节和几处入口的第一行。
 ## 没设那个变量时 `pump` 恒为 null，行为与改动之前一行不差。
+##
+## **网页单机房**（`solo`，NET_VERSION 32）：CWNetServer._create_solo 建的私人房 —— 一位真人 + 其余全是 AI、建好就开局、
+## 只走 C# 内核路、不进大厅也不许别人进来；**人走了房就关**（leave 里 solo 那一支，掉线同样算走）。
 class_name CWRoom
 extends RefCounted
 
@@ -37,7 +41,9 @@ var timer_secs := 60            ## 每次决策的秒数，0 = 不限
 ## 默认 **false = 背面**，和这个开关加进来之前的行为一致；老客户端建的房也落在这一档。
 var watch_hands := false
 var player_count := 4
-var seed_override := 0          ## 非 0 则每局用这个种子（测试用）
+var seed_override := 0          ## 非 0 则每局用这个种子（测试用；网页单机房的 create_solo 带了 seed 也落在这里）
+var solo := false               ## 网页单机房（文件头），CWNetServer._create_solo 置
+var cancer_types: Array = []    ## 钉死的癌种（按癌席顺序，-1 = 随机；只有网页单机房会带，C# 内核路转给 sidecar）
 var seats: Array = []           ## 下标 = pid，元素见 empty_seat()
 var members := {}               ## client id -> 昵称（房里所有人，含没坐下的）
 var host := -1                  ## 房主的 client id
@@ -80,7 +86,7 @@ static func ai_seat(tier: String) -> Dictionary:
 	var s := empty_seat()
 	s["kind"] = "ai"
 	s["tier"] = tier
-	s["nick"] = CWNet.AI_TIERS[tier]
+	s["nick"] = CWNet.AI_TIERS[tier] if CWNet.AI_TIERS.has(tier) else CWNet.SOLO_TIERS[tier]   ## 后者是网页单机房的三档
 	return s
 
 
@@ -117,6 +123,11 @@ func leave(cid: int, voluntary: bool = false) -> void:
 		return
 	members.erase(cid)
 	_log_cursor.erase(cid)
+	if solo:
+		## 网页单机房：房里只有他一个人，走了（点离开 / 掉线一样）这间房就没有存在的理由了 ——
+		## 不保席位、不等重连：局在打就中止，sidecar 会话随拆局关掉
+		server.close_room(self)
+		return
 	var pid := pid_of_client(cid)
 	if pid >= 0:
 		var s: Dictionary = seats[pid]
@@ -138,7 +149,7 @@ func leave(cid: int, voluntary: bool = false) -> void:
 		if host < 0 and not members.is_empty():
 			host = members.keys()[0]
 	if state == State.PLAYING and pid >= 0:
-		_on_seat_offline()
+		_on_seat_offline(pid)
 	if members.is_empty():
 		empty_since = server.now_ms()
 		if state == State.PLAYING:
@@ -211,9 +222,12 @@ func _any_human_online() -> bool:
 	return false
 
 
-func _on_seat_offline() -> void:
+func _on_seat_offline(pid: int) -> void:
 	if not _any_human_online():
 		_abort_game()
+		return
+	if pump != null:
+		_sc_seat_offline(pid)
 		return
 	## 悬着的询问正是他的：无计时立刻代打；有计时等到期限，给重连留机会
 	if not _ask.is_empty() and not seats[_ask["pid"]]["online"] and timer_secs <= 0:
@@ -248,6 +262,8 @@ func reconnect(cid: int, nick: String, token: String) -> String:
 		push_room()
 		if state == State.PLAYING:
 			push_state_to(cid, _ask.get("pid", -1))
+			if pump != null:
+				_sc_hand_back(pid)
 			if not _ask.is_empty() and _ask["pid"] == pid:
 				_send_ask()
 			elif _last_ask.has(pid):
@@ -384,6 +400,8 @@ func start(cid: int) -> String:
 	var seed_value: int = seed_override if seed_override != 0 else server.rng.randi()
 	if _wants_sidecar() and _sc_start(seed_value):
 		return ""
+	if solo:
+		return "solo_off"   ## 网页单机房只走 C# 内核路（它的「普通 / 意图 / 搜索」在 GD 路的桥上没有对应），sidecar 起不来就不开
 	game = CWGame.new()
 	game.init(CWData.FACTION_ORDER[player_count], seed_value)
 	game.record_replay = true          ## 真对局才录（MC 推演不录，见 CWGame.ask）
@@ -825,17 +843,19 @@ func _log_line(text: String) -> void:
 		game.log_msg(text)
 
 
-# ---- C# 内核（sidecar）路（换内核 P6 · 真人半边，2026-10-01，docs/内核替换_重启计划.md §四 P6）----
-## 服务器开关：**服务器进程**的环境变量 `CW_KERNEL=sidecar`（与桌面热座的开发开关同名）且**全真人房**才走这条路；
-## 有 AI 席的房照旧走 GD —— C# 的 AI 还在另一个 worktree 里移植，sidecar 现在没有 AI 席。
-## 坐着**机器人客户端**（hello 自报 bot：net_play / net_live 的 autoplay、无头测试）的房也照旧走 GD：
+# ---- C# 内核（sidecar）路（换内核 P6，2026-10-01，docs/内核替换_重启计划.md §四 P6）----
+## 服务器开关：**服务器进程**的环境变量 `CW_KERNEL=sidecar`（与桌面热座的开发开关同名）才走这条路。
+## AI 席（第二段起）也走：房间的 heur / mc 按 cw_net_pump.gd 的 TIER_OF 换成 C# 的普通 / 搜索档。
+## 坐着**机器人客户端**（hello 自报 bot：net_play / net_live 的 autoplay、无头测试）的房照旧走 GD：
 ## 它们作答靠 sync 里那份老 view 还原的 GD 影子对局，C# 这条路给不了 —— 这样线上验收脚本不受开关影响。
 ## 不设这个变量 = 这一节一个函数都走不到，pump 恒为 null。
 func _wants_sidecar() -> bool:
 	if OS.get_environment("CW_KERNEL") != "sidecar":
 		return false
 	for s in seats:
-		if s["kind"] != "human" or server.is_bot(int(s["client"])):
+		if s["kind"] == "human" and server.is_bot(int(s["client"])):
+			return false
+		if s["kind"] == "ai" and not NetPump.TIER_OF.has(String(s["tier"])):
 			return false
 	return true
 
@@ -846,7 +866,7 @@ func _wants_sidecar() -> bool:
 func _sc_start(seed_value: int) -> bool:
 	var p = NetPump.new()
 	if not p.open(self, seed_value):
-		server.say("房间 %s：C# 内核起不来（%s），这一局走 GD 内核" % [code, p.error_text()])
+		server.say("房间 %s：C# 内核起不来（%s），%s" % [code, p.error_text(), "单机房不开" if solo else "这一局走 GD 内核"])
 		return false
 	pump = p
 	state = State.PLAYING
@@ -857,22 +877,24 @@ func _sc_start(seed_value: int) -> bool:
 	return true
 
 
-## 内核问到一席（条目泵调）。`_ask` 与 ask_human 同形（没有 waiter：答案经 pump.answer 交回句柄），只发给被问的那一席。
-## `sidecar_ask` = 句柄那边的 ask_id（作答时要它）；对外的 `ask_id` 是房间自己的号，跨局递增，与 GD 路同一个计数器。
-## 被问的人此刻离线：GD 路是让出一帧再代打（CWNetBridge.ask），这里记一个 `auto`，**下一帧 tick 来代打** ——
-## 同样让出一帧给网络轮询，也不在泵里一路递归下去（一个掉线的人整个回合会连着问好几问）
+## 内核问到一席真人（条目泵调；AI 席的问不出 ask 条目、走不到这儿）。`_ask` 与 ask_human 同形（没有 waiter：答案经 pump.answer 交回句柄），
+## 只发给被问的那一席。`sidecar_ask` = 句柄那边的 ask_id（作答时要它）；对外的 `ask_id` 是房间自己的号，跨局递增，与 GD 路同一个计数器。
+## 被问的人此刻离线（掉线时这一席本已交给 AI，只有「刚交还他、条目还没泵出来他又掉了」这一种）：照掉线处理，当场交给 AI
 func _sc_ask(sidecar_ask: int, req: Dictionary) -> int:
 	_ask_seq += 1
 	var pid := int(req["pid"])
 	var now := server.now_ms()
 	_ask = { "pid": pid, "ask_id": _ask_seq, "sidecar_ask": sidecar_ask, "req": req,
-		"deadline": now + timer_secs * 1000 if timer_secs > 0 else 0, "auto": not seats[pid]["online"] }
+		"deadline": now + timer_secs * 1000 if timer_secs > 0 else 0 }
 	_last_ask[pid] = _ask_seq   ## 重连补发边界报文要它（issue #62）
-	_send_ask()                 ## 离线的席位 client = -1，_send_ask 自己会跳过
+	if seats[pid]["online"]:
+		_send_ask()
+	else:
+		_sc_hand_to_ai(pid, false)
 	return _ask_seq
 
 
-## 交一个答案（真人作答 / 代打共用）。先摘 `_ask` 再交：交的同时句柄就把下一问泵出来了，下一问会重新写 `_ask`
+## 真人交一个答案。先摘 `_ask` 再交：交的同时句柄就把下一问泵出来了，下一问会重新写 `_ask`
 func _sc_submit(idx: int) -> void:
 	var a := _ask
 	_ask = {}
@@ -880,15 +902,41 @@ func _sc_submit(idx: int) -> void:
 		_sc_fault("答案被 sidecar 拒了（ask %d）" % int(a["ask_id"]))
 
 
-## 代打（掉线 / 超时）。**临时口径**：C# 的 AI 席还没落地，先挑一个一定让对局往前走的选项（cw_net_pump.gd fallback_index）。
-## 换成 sidecar 的 AI 席时只换这一个函数
+## 计时到点（tick → _auto_answer）：人还在线 = 只代答这一问、下一问照旧问他（同 GD 路一问一代打）；
+## 人已经掉线（有计时的房给过他重连的机会、没回来）= 整席交给 AI，直到凭令牌回来
 func _sc_take_over() -> void:
+	var pid := int(_ask["pid"])
+	_sc_hand_to_ai(pid, bool(seats[pid]["online"]))
+
+
+## 一席真人掉线（局在打、房里还有别的真人在线）。悬着的那一问正是他的、房间有计时 ⇒ 等到期限
+## （给他重连的机会，同 GD 路；到点由 _sc_take_over 交出去）；否则当场交给 AI —— 之后轮到他的每一问都由 AI 即时答
+func _sc_seat_offline(pid: int) -> void:
+	if not _ask.is_empty() and int(_ask["pid"]) == pid and timer_secs > 0:
+		return
+	_sc_hand_to_ai(pid, false)
+
+
+## 把一席交给 sidecar 里的 C# AI（搜索档，Kevin 09-20 的专家档代打）。正问着他的那一问由 AI 接着答：
+## 房间这边就不再等它（摘掉 `_ask`，计时也不再盯它）；AI 答下时的 step_begin 带的还是那一问的号，
+## 泵按 `_room_ids` 换成房间给他的号广播出去 —— 客户端据此收掉还挂着的界面（issue #44）
+func _sc_hand_to_ai(pid: int, once: bool) -> void:
+	if not _ask.is_empty() and int(_ask["pid"]) == pid:
+		_ask = {}
 	pump.takeovers += 1
-	_sc_submit(NetPump.fallback_index(_ask["req"]))
+	if not pump.set_ai(pid, NetPump.TAKEOVER_TIER, once):
+		_sc_fault("sidecar 不收换手（席位 %d）" % pid)
 
 
-## 每帧（服务器 poll → tick）：句柄坏了就中止；把这一帧新到的条目泵出去；离线席位那一问在这一帧代打。
-## 返回 false = 这一帧不必再看计时了（这一局已经不在 / 刚代打过）
+## 凭令牌回来：这一席从 AI 手里拿回来（本来就是真人的话 sidecar 那边什么都不做）。AI 正想着他那一问就作废、改问他 ——
+## 那条 ask 下一帧泵出来，经 _sc_ask 发给他
+func _sc_hand_back(pid: int) -> void:
+	if not pump.set_ai(pid, ""):
+		_sc_fault("sidecar 不收换手（席位 %d）" % pid)
+
+
+## 每帧（服务器 poll → tick）：句柄坏了就中止；把这一帧新到的条目泵出去；眼下没有真人被问着 = 某个 AI 席在想，推它一步。
+## 返回 false = 这一帧不必再看计时了（这一局已经不在）
 func _sc_tick() -> bool:
 	var why: String = pump.fault()
 	if why != "":
@@ -897,12 +945,11 @@ func _sc_tick() -> bool:
 	pump.pump()
 	if pump == null or state != State.PLAYING:
 		return false
-	if not _ask.is_empty() and bool(_ask.get("auto", false)):
-		if not seats[int(_ask["pid"])]["online"]:
-			_auto_answer()
-			return false
-		_ask.erase("auto")   ## 让出的那一帧里他凭令牌回来了（reconnect 已把这一问补发给他）：照常等他作答
-	return true
+	## 一帧最多推一步（同 GD 路「AI 每次决策之前让出一帧」）；会话只在这一下与真人作答里往前走，
+	## 所以泵在 step_end 那一拍逐人现取的 envelope 就是这一步的局面（cw_net_pump.gd 文件头）
+	if _ask.is_empty():
+		pump.step_ai()
+	return pump != null and state == State.PLAYING
 
 
 ## 每步的状态推送（条目泵在 step_end 那一拍调；join / reconnect 走 push_state_to）。节拍与 GD 路的 push_state 相同：

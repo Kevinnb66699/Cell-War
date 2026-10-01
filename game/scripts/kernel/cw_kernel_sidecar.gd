@@ -82,6 +82,9 @@ func open(cfg: Dictionary) -> bool:
 			ai[str(seat)] = String(cfg["ai"][seat])   ## JSON 的键只能是字符串
 		open_cfg["ai"] = ai
 		open_cfg["ai_delay_ms"] = int(cfg.get("ai_delay_ms", 0))
+	## 服务器（换内核 P6）：AI 想好了也等 step_ai() 才交 —— 不看 ai 有没有席位，全真人房中途也会有人掉线、席位交给 AI（见 cw_net_pump.gd 头注）
+	if bool(cfg.get("ai_paced", false)):
+		open_cfg["ai_paced"] = true
 	## 新手教程（换内核 P5）：舞台 resolve 好的一份 cwxworld/3 + 这一关的骰子带子 —— sidecar 从这份世界续跑。
 	## 整数化：关卡 json 经 JSON.parse_string 读进来数字全是 float，C# 那边按整数字段严格读（300.0 读不进 int）
 	if cfg.has("world"):
@@ -319,6 +322,33 @@ func log_msg(text: String, secret_pid := -1, public_text := "") -> void:
 		return
 	_call("log_msg", { "sid": _sid, "text": text, "secret_pid": secret_pid, "public_text": public_text })
 	_pump()
+
+
+## 中途换一席的作答方（换内核 P6：服务器的掉线 / 超时代打交给 sidecar 里的 AI、重连交还）。
+## tier = "normal" / "intent" / "search" 交给 AI，"" 交还真人；once = 只代答这一席眼下那一问（计时到点）。
+## 这一席正被问着的话那一问被收回（改由 AI 答，AI 的 step_begin 照旧带它的号）：本句柄这边那一问作废、answer 不再收它。
+## 交还真人时 AI 若正想着他那一问，sidecar 当场改问人 —— 那条 ask 条目下一帧 pull 过来。
+func set_ai(seat: int, tier: String, once := false) -> bool:
+	if _sid < 0:
+		return false
+	var r := _call("set_ai", { "sid": _sid, "seat": seat, "tier": tier if tier != "" else null, "once": once })
+	if not bool(r.get("ok", false)):
+		return false
+	var withdrawn := int(r.get("withdrawn", -1))
+	if withdrawn >= 0 and not _open_ask.is_empty() and int(_open_ask["ask_id"]) == withdrawn:
+		_open_ask = {}
+		_set_state(State.READY)
+	return true
+
+
+## open 时设了 ai_paced：AI 想好了的那一问这就交（还在想 / 眼下问的不是 AI = false）。交了就把这一步的条目拉过来
+func step_ai() -> bool:
+	if _sid < 0:
+		return false
+	if not bool(_call("ai_step", { "sid": _sid }).get("stepped", false)):
+		return false
+	_pump()
+	return true
 
 
 func set_decider(b: Object) -> void:
