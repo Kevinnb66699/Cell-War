@@ -45,6 +45,11 @@ internal static class DecisionRouter
         {
             var walkOwner = state.Cells[chemotaxisCell].OwnerSeat;   // 同上：只有主人能答
             if (decision is StopChemotaxisDecision stopWalk && stopWalk.CellId == chemotaxisCell && stopWalk.PlayerSeat == walkOwner) return new(true);
+            if (CellRules.IsMobilization(state.Turn.PendingWalkCard))   // 【全身免疫动员】这一只的那 1 次：一次普通的付费迁移 / 攻击
+                return decision is MoveDecision mobilize && mobilize.CellId == chemotaxisCell && mobilize.PlayerSeat == walkOwner
+                        && CellRules.ValidateMove(state, mobilize).IsValid
+                    ? new(true)
+                    : new(false, $"等待【{CellRules.MobilizationCard}】选择迁移");
             return decision is ChemotaxisStepDecision step && step.CellId == chemotaxisCell && step.PlayerSeat == walkOwner
                     && CellRules.WalkSteps(state, state.Cells[chemotaxisCell]).Contains(step.Target)
                 ? new(true)
@@ -100,24 +105,13 @@ internal static class DecisionRouter
         // 【炎症性趋化】的三条退出（细胞死了 / 没有可走的下一步 / 步数走满）在 GD 里是
         // 下一轮循环开头判的，且一定排在连锁之后。这里统一收口，Available 才不会
         // 停在「只剩一个『停在这里』」上 —— GD 没有那个决策点。
-        var s = result.NewState;
-        // 收口跑到稳定：连走弹栈 → 基质重塑滑段 → 推迟的落地后半截（它自己又可能追出新的问答，再来一轮）
-        for (var guard = 0; guard < 8; guard++)
-        {
-            var before = s;
-            if (CellRules.MarrowReady(s)) s = CellRules.ResumeMarrow(s, rng);                // 【骨髓动员】的收取循环嵌在最里层：它追出的问答答完就先接着收
-            if (s.Turn.PendingChemotaxisCell is not null) s = CellRules.NormalizeChemotaxis(s);
-            s = CellRules.NormalizeChain(s);                                               // 走位弹掉露出的连锁若已无下一跳，当场摘掉
-            if (s.Turn.PendingRemodelCell is not null) s = CardRules.NormalizeRemodel(s);   // GD 的「候选为空就不问」两道闸
-            if (CellRules.LandReady(s)) s = CellRules.ResumeLand(s, rng);                  // GD enter_tile 的 await 回来了：收特殊组织、刷标记
-            if (ReferenceEquals(s, before)) break;
-        }
+        var s = CellRules.SettleAsks(result.NewState, rng);
         // 复活落地追出的问答答完了：GD `revive_*` 的 `await enter_tile` 回来了 —— 这才演复活、写那一行（换内核 P2）
         if (s.Turn.PendingRevival is { } revived && !PhaseRules.StartPending(s)) s = PhaseRules.AnnounceRevival(s, revived);
-        // S 阶段的追问答完了：产出那一步 → 接着血管传送、复活、有氧、开打；复活落地那一步 → 接着问下一席复活或开打（GD round_start / revive_* 的 await 回来了）
+        // S 阶段的追问答完了：产出那一步 → 接着产、血管传送、复活、有氧、开打；复活落地那一步 → 接着问下一席复活或开打（GD round_start / revive_* 的 await 回来了）
         if (s.Turn.Phase == Phase.S && !PhaseRules.StartPending(s))
         {
-            if (s.Turn.StartStep == 3) s = PhaseRules.ResumeStart(s, rng);
+            if (s.Turn.StartStep == 3) s = PhaseRules.FinishStart(s, rng);
             else if (s.Turn.StartStep == 1 && PhaseRules.GetRevivalOptions(s).Count == 0) s = PhaseRules.ContinueStart(s);
         }
         // E 阶段蹲守净化追出的问答答完了：接着做 5 → 9.5、判胜负、翻到下一回合的 S（GD `_resolve_camping` 的 await 回来了）
@@ -129,8 +123,20 @@ internal static class DecisionRouter
                 && s.Turn.PendingLandCell is null && s.Turn.PendingMarrow.Count == 0
                 && s.Turn.PendingPickCellSeat is null)   // 风暴卡的「选中心」挂着时也不许收尾（今天它必与 PendingLand / PendingChemotaxis 同在，写明免得成隐含依赖）
             s = CardRules.FinishInstant(s, owner, card);
+        // GD `step()` 的行动分支（cw_game.gd:228-230）：一次行动连同它追出的全部中途问答结算完，才削一次能量上限（【溢出】）
+        if (ActionSettled(state, decision, s)) s = BoardRules.CapEnergy(s);
         return result with { NewState = s };
     }
+
+    /// <summary>
+    /// 这一决策让一次**行动**结算完了吗：在行动回合里答的（顶层行动，或它追出的中途问答 —— 【全身免疫动员】问的可以是别的席位），
+    /// 「结束回合」与 C# 独有的「跳过」不算（GD 的行动分支只在 `act != "end"` 时削，没有「跳过」这一项）；
+    /// 答完之后什么都不挂着了 —— GD 的 `await actions.execute(...)` 这时才回来。
+    /// </summary>
+    private static bool ActionSettled(WorldState before, IDecision decision, WorldState after)
+        => before.Turn.Phase == Phase.PlayerAction && decision is not (EndTurnDecision or PassDecision)
+           && after.Turn.Phase == Phase.PlayerAction && !PhaseRules.StartPending(after)
+           && after.Turn.PendingCoupleCell is null && after.Turn.PendingRemodelCell is null && after.Turn.PendingCard is null;
 
     private static RulesResult Dispatch(WorldState state, IDecision decision, IDeterministicRng rng)
     {
@@ -144,9 +150,12 @@ internal static class DecisionRouter
         if (decision is StopChainDecision stopChain)   // 「结束连续吞噬」：GD 的 while 循环 break，收尾那一句照报
             return new(CellRules.EndChainRun(state.WithTurn(state.Turn.WithPendingChain(null)), stopChain.CellId, state.Turn.PendingChainLinked), Array.Empty<IGameEvent>(), true);
         if (decision is ChemotaxisStepDecision step) return CellRules.WalkMove(state, step.CellId, step.Target, rng);
+        if (decision is MoveDecision mobilize && CellRules.IsMobilization(state.Turn.PendingWalkCard)) return CellRules.MobilizeMove(state, mobilize, rng);
         if (decision is StopChemotaxisDecision)   // GD `_free_walk` 的 `return` 只退一层：外层还有步就接着问（出口的 NormalizeChemotaxis 会再判外层）
         {
-            Stage.Log(state, $"　【{state.Turn.PendingWalkCard ?? "炎症性趋化"}】提前停止");   // GD cw_card_fx.gd:638 / :832
+            // 【全身免疫动员】的「放弃迁移」不报（GD cw_card_fx.gd:750-751 直接 `continue`，轮下一只）
+            if (!CellRules.IsMobilization(state.Turn.PendingWalkCard))
+                Stage.Log(state, $"　【{state.Turn.PendingWalkCard ?? "炎症性趋化"}】提前停止");   // GD cw_card_fx.gd:638 / :832
             return new(state.WithTurn(state.Turn.PopWalk()), Array.Empty<IGameEvent>(), true);
         }
         if (decision is CoupleDirectionDecision dir)
@@ -235,7 +244,9 @@ internal static class DecisionRouter
             // 「停在这里」排在最前：GD `game.ask` 的约定是「可以不做」的那条放下标 0（中止对局时固定答 0）。
             // 候选为空这种情况到不了这里 —— NormalizeChemotaxis 已经把挂起摘掉了。
             var steps = new List<IDecision> { new StopChemotaxisDecision(seat, chemotaxisCell) };
-            steps.AddRange(CellRules.WalkSteps(s, walker).Select(t => (IDecision)new ChemotaxisStepDecision(seat, chemotaxisCell, t)));
+            steps.AddRange(CellRules.WalkSteps(s, walker).Select(t => CellRules.IsMobilization(s.Turn.PendingWalkCard)
+                ? (IDecision)new MoveDecision(seat, chemotaxisCell, t)   // 【全身免疫动员】：普通迁移，照付费（GD 选项 data 就是 {act: move, to, cost}）
+                : new ChemotaxisStepDecision(seat, chemotaxisCell, t)));
             return steps;
         }
         if (s.Turn.PendingCoupleCell is { } coupleCell && s.Turn.PendingCoupleAlly is { } coupleAlly)

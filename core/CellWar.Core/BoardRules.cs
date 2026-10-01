@@ -224,6 +224,9 @@ internal static class BoardRules
     /// <summary>
     /// 9.5 【E-能量上限】：所有**存活**细胞（两个阵营都算）的能量削到上限；0 = 不启用。
     /// 管的是**存量不是流量** —— 囤积是靠这个封的（口径 #92）。
+    /// 结算点有**三个**（GD `cap_energy` 头注，cw_game.gd:426-430）：E 阶段这一步、S 阶段末（`PhaseRules.ContinueStart`）、
+    /// 每次行动连同它追出的中途问答结算完（`DecisionRouter.Execute` 出口）。PRD「先抵消再算溢出」，所以只在结算边界削、不在每次 += 时削。
+    /// 2026-10-01 之前 C# 只有 E 阶段这一个（旋钮默认 0，默认局不受影响）。
     /// </summary>
     internal static WorldState CapEnergy(WorldState s)
     {

@@ -120,10 +120,17 @@ internal static class CardRules
         },
         ["全身免疫动员"] = (s, cell, rng, target, targetCell) =>
         {
-            foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune).ToArray())
+            var immune = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune).ToArray();
+            foreach (var c in immune)
                 s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy + 15));
             Stage.Log(s, "　【全身免疫动员】所有免疫细胞 +1.5 能量");   // GD cw_card_fx.gd:734
-            Stage.Evt(s, "全身免疫动员", "全体免疫 +1.5 · 各可迁移 1 次", cell.Position);   // GD cw_card_fx.gd:748
+            Stage.Evt(s, "全身免疫动员", "全体免疫 +1.5 · 各可迁移 1 次", cell.Position);   // GD cw_card_fx.gd:735
+            // 「各可迁移 1 次」（GD `_mobilization` 后半，cw_card_fx.gd:736-752）：按细胞序逐只问**它的主人**「放弃迁移 / 照付费迁移 1 次」。
+            // 每只压一帧进连走栈（1 步），倒着压让席位最小的那只在栈顶 —— 走连走栈是为了白拿它的嵌套语义：某一只迁移时净化抽到的牌、
+            // 追出的连锁 / 弃置都先问完才轮到下一只（GD 那是 `_do_move` 的 await）。轮到时才现判死活与可走的格（GD 循环里现算），
+            // 没有可走的就静默跳过，见 CellRules.NormalizeChemotaxis。2026-10-01 之前 C# 只给能量、一问不问。
+            foreach (var c in immune.Reverse())
+                s = s.WithTurn(s.Turn.PushWalk(c.Id, 1, CellRules.MobilizationCard));
             return s;
         },
         ["全身性免疫清除"] = (s, cell, rng, target, targetCell) =>

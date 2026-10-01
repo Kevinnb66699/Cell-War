@@ -52,13 +52,32 @@ internal static class RuleFlow
     public static void Continue(IEventContext context, IRulesEngine rules)
     {
         var state = context.GetWorldState();
-        var options = rules.GetAvailableDecisions(state, state.Turn.ActivePlayerSeat);
-        if (options.Count > 0) context.AwaitInput(state.Turn.ActivePlayerSeat, options);
+        var (seat, options) = AskedSeat(state, rules);
+        if (options.Count > 0) context.AwaitInput(seat, options);
         else if (state.Turn.Phase != Phase.Finished) context.Schedule(context.CurrentTick + 1, "AdvancePhase");
         // GD `run_game()` 跑完循环的最后一句（cw_game.gd:169）：`log_msg("=== 对局结束：%s ===" % win_reason)`。
         // 它不在规则结算里而在驱动循环里 —— C# 的驱动循环就是这里（分胜负之后不再排任何事件，所以只走到一次）。
         // L1 重放直接驱动 BasicRulesEngine、xcheck_export 也不走 run_game，两边夹具里都没有这一行
         else if (state.Turn.Winner is not null) context.Log($"=== 对局结束：{Observation.ObservationV1Codec.WinReason(state)} ===");
+    }
+
+    /// <summary>
+    /// 这一刻问谁：通常是行动席；中途追问问的是那只细胞的**主人**（GD `game.ask(c["pid"], …)`）—— 【全身免疫动员】逐只问每个免疫席位，
+    /// S / E 阶段踩骨髓、蹲守净化抽卡追出的问答问的是站在那里的那只。每种挂起只认它的主人，同一时刻只有一席有选项，
+    /// 所以行动席没有就按席位序找第一个有的。2026-10-01 之前只问行动席：别的席位的追问问不出去、转去推阶段 ——
+    /// S 阶段原地空转到事件预算用完；行动回合里推阶段 = 替行动席结束回合（【全身免疫动员】问到队友时就会这样）。
+    /// </summary>
+    private static (int Seat, IReadOnlyList<IDecision> Options) AskedSeat(WorldState state, IRulesEngine rules)
+    {
+        var active = state.Turn.ActivePlayerSeat;
+        var options = rules.GetAvailableDecisions(state, active);
+        if (options.Count > 0) return (active, options);
+        foreach (var seat in state.Players.Keys.Where(x => x != active).OrderBy(x => x))
+        {
+            var other = rules.GetAvailableDecisions(state, seat);
+            if (other.Count > 0) return (seat, other);
+        }
+        return (active, options);
     }
 }
 
