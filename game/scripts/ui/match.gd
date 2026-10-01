@@ -869,8 +869,8 @@ func _prepare_ui() -> void:
 		_log_hint.visible = true
 
 
-## 三档 AI 的名字。**唯一一处**：配置面板的行文、存档的兼容映射、装配都读它。
-const AI_LEVEL_NAMES := ["普通", "较强", "树搜索", "意图", "搜索"]
+## AI 档位的名字。表本体 2026-10-01 挪进 `CWData.AI_LEVEL_NAMES`（存档读档在 core/ 也要知道一共几档），这里只留别名。
+const AI_LEVEL_NAMES := CWData.AI_LEVEL_NAMES
 const AI_NORMAL := 0
 const AI_MC := 1        ## 扁平蒙特卡洛（CWUIBridge 的基类本体），也是平衡标尺
 const AI_MCTS := 2      ## UCT 树搜索（队友 2026-09-07 的 CWMCTSBridge）

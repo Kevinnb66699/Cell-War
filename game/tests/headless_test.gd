@@ -158,7 +158,7 @@ func _run_all() -> void:
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
 		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
-		t_hot_patch, t_online_doc, t_save_load, t_settings, t_feedback, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_skill_fx, t_card_fx_hooks, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
+		t_hot_patch, t_online_doc, t_save_load, t_save_ai_level_tiers, t_settings, t_feedback, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_skill_fx, t_card_fx_hooks, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit, t_hand_swap,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_board_small, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
 		t_opening, t_pause_and_teardown, t_hand, t_hand_limit,
@@ -4573,6 +4573,9 @@ func t_hover_info() -> void:
 ## 真机那一段靠 tests/screenshot.gd 的 `move:` 步骤看图。
 func t_hover_layer() -> void:
 	print("[悬停层级]")
+	## 先让一帧：_initialize 跑完之前 root 自己还不在树里，同片前面的测试一个 await 都没有时（加测试会重排分片），
+	## 下面 add_child 的棋盘不在树里、get_viewport() 是 null（2026-10-01 分片 2 撞到）
+	await process_frame
 	var board := make_board()
 	root.add_child(board)   ## make_input_local 要在树里才能算
 	var got: Array = []
@@ -5959,6 +5962,17 @@ func t_online_doc() -> void:
 	## **超时是代打不是判负**：这条传错了队友就不敢开计时，必须写明
 	check(doc.contains("代打") and doc.contains("不是判负"),
 		"文档写明「超时自动代打，不是判负」")
+
+## 2026-10-01：ai_level_of 曾钳在 0..2，意图 / 搜索档存的局「继续对局」后掉成树搜索
+func t_save_ai_level_tiers() -> void:
+	print("[存档 AI 档位：意图 / 搜索读回不降档]")
+	for level in [CWMatch.AI_INTENT, CWMatch.AI_ABS]:
+		CWSave.clear()
+		check(CWSave.write({ "x": 1 }, 2, [0], level), "写档成功（ai_level %d）" % level)
+		check(CWSave.ai_level_of(CWSave.read()) == level,
+			"读回仍是第 %d 档「%s」" % [level, CWMatch.AI_LEVEL_NAMES[level]])
+	CWSave.clear()
+
 
 ## 批 1 步 7：存档判据在调用方（CWMatch.can_save_now / kernel.can_save），这里照抄那条判据
 func _save_blob_of(g: CWGame) -> Dictionary:

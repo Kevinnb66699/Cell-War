@@ -856,6 +856,10 @@ const ACT_NAMES := {
 	"play": "打出手牌", "discard": "弃牌",
 }
 
+## AI 档位的名字，下标就是档位号（CWMatch.AI_NORMAL … AI_ABS）。**唯一一处**：配置面板的行文、装配、
+## 存档读档的合法范围（CWSave.ai_level_of）都读它。住在 core/ 而不是界面层：CWSave 在这一层，core 不依赖界面。
+const AI_LEVEL_NAMES := ["普通", "较强", "树搜索", "意图", "搜索"]
+
 
 ## 技能的显示名。**「迁移」（免疫）和「移动」（癌症）在规则里是两个词，不能混用**——
 ## 行动栏、右栏固定详情、详情框标题一律走这里，别各写各的（CWUIBridge._move_title 同口径）
