@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json.Nodes;
 using CellWar.Core.Observation;
 
@@ -9,7 +10,7 @@ namespace CellWar.Sidecar;
 ///
 /// 会话 `sid` 从第一版就带（桌面只有一局；服务器一个进程跑所有房间，计划 §3.1）。
 /// 报文一览（P1）：
-///   version{}                                       → {host_abi, rules_build, ruleset_digest}
+///   version{}                                       → {host_abi, rules_build, ruleset_digest, core_build}
 ///   open{cfg:{factions[], seed, observe_viewer?, open_hands?, names?[], cancer_types?[]}} → {sid}
 ///   pull{sid, viewer, since, limit?}                → {entries[], last_seq}
 ///   discard_before{sid, seq}                        → {}
@@ -68,7 +69,16 @@ internal sealed class Dispatcher : IDisposable
         ["host_abi"] = ObservationV1Codec.HostAbi,
         ["rules_build"] = ObservationV1Codec.RulesBuild,
         ["ruleset_digest"] = ObservationV1Codec.RulesBuild,   // 规则指纹定稿前与 rules_build 同值（与 MatchSession.Version 同口径）
+        ["core_build"] = CoreBuild,
     };
+
+    /// <summary>
+    /// 这一份规则 dll 是哪次打的（P7）：`tools/build_sidecar.sh` 用 `-p:InformationalVersion=&lt;BUILD_ID&gt;` 烧进去
+    ///（发版 = 提交号，补丁 = 补丁号），补丁探针挂上补丁、解包、起进程后读回它 —— 对不上就是压进了旧 dll。
+    /// 开发期没烧，是 SDK 缺省的 1.0.0。
+    /// </summary>
+    public static readonly string CoreBuild =
+        typeof(CellWar.Core.MatchSession).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "";
 
     private JsonObject Open(JsonObject req)
     {

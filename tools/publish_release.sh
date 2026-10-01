@@ -12,12 +12,13 @@
 # 为什么要有这个脚本：客户端包此前只躺在本机 dist/（`.gitignore` 里，不入库），
 # 谁要谁问、也说不清哪个包对应哪次提交。放进 Release 之后，包和 commit 绑死。
 #
-# 发之前拦五件事，任一不满足直接退出 —— 这几条都是真踩过的坑：
+# 发之前拦六件事，任一不满足直接退出 —— 这几条都是真踩过的坑：
 #   ① 工作树干净        —— 否则发出去的包和仓库里的代码对不上
 #   ② HEAD == origin/main —— 发的必须是已经推上去的那一版
 #   ③ 两个包都在，且**比 HEAD 那次提交新** —— 防止改完代码忘了重导，把旧包发出去
 #   ④ tag 还不存在      —— 免得覆盖历史版本
 #   ⑤ BASE_BUILD 比上一次发版大 —— 热更的跨版本闸全靠它，不改就等于没有闸
+#   ⑥ 包里的 C# sidecar 照 HEAD 编、两个平台的运行时都在（换内核 P8 切换之前只警告）
 #
 # ⚠ **别把这个脚本接管道**（`tools/publish_release.sh | tail -7` 之类）。
 # 脚本自己 `set -eu`、失败时老老实实退 1；但接了管道之后，`$?` 是**管道最后一段**的
@@ -101,6 +102,37 @@ for f in "$WIN" "$MAC"; do
 	[ "$BUILT_AT" -ge "$COMMIT_AT" ] \
 		|| die "$f 比 HEAD 那次提交还旧：重导一遍，别把上一版的包发出去"
 done
+
+# ---- ⑥ 包里的 C# sidecar 与 HEAD 对得上（换内核 P7）----
+# 桌面两个预设导出时把 game/sidecar/ 打进去（不入库，tools/build_sidecar.sh 生成）。拦三件事：
+# 载荷照 HEAD 的 core/ 编（core_build == HEAD 短号、不带 -dirty）、两个平台的运行时都在、两个包都比载荷新（先编载荷再导包）。
+# csproj 纪律（不 Trim / SingleFile / Aot、Core 零 PackageReference）在 build_sidecar.sh 每次打包时拦。
+# **切换之前只警告**：match.gd 里还有 CW_KERNEL 开发开关 = 玩家默认不走 sidecar，缺了不影响谁；
+# P8 切换删掉开关的那一刻，这道闸自动变硬（缺一样就不发）。
+SC=game/sidecar
+SC_PROBLEM=""
+if [ ! -f "$SC/payload.json" ]; then
+	SC_PROBLEM="game/sidecar/ 没有载荷 —— 先 tools/build_sidecar.sh osx-arm64 win-x64（Windows 运行时用 RUNTIME_DIR_win_x64 指给它）再导出"
+else
+	SC_BUILD="$(grep -oE '"core_build":"[^"]*"' "$SC/payload.json" | cut -d'"' -f4)"
+	[ "$SC_BUILD" = "$(git rev-parse --short HEAD)" ] \
+		|| SC_PROBLEM="载荷的 core_build 是「$SC_BUILD」，不是 HEAD（$(git rev-parse --short HEAD)）：重跑 tools/build_sidecar.sh osx-arm64 win-x64 再导出"
+	for rid in osx-arm64 win-x64; do
+		{ [ -f "$SC/runtime-$rid.json" ] && [ -f "$SC/runtime-$rid.zip" ]; } || SC_PROBLEM="${SC_PROBLEM:-缺 $rid 的 .NET 运行时（game/sidecar/runtime-$rid.*）}"
+	done
+	PL_AT="$(stat -c %Y "$SC/payload.json" 2>/dev/null || stat -f %m "$SC/payload.json")"
+	for f in "$WIN" "$MAC"; do
+		BUILT_AT="$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f")"
+		[ "$BUILT_AT" -ge "$PL_AT" ] || SC_PROBLEM="${SC_PROBLEM:-$f 比 sidecar 载荷旧：载荷重编过，包得重导}"
+	done
+fi
+if [ -n "$SC_PROBLEM" ]; then
+	if grep -q 'CW_KERNEL' game/scripts/ui/match.gd; then
+		echo "⚠ sidecar：$SC_PROBLEM（切换之前只警告，玩家默认不走 sidecar）"
+	else
+		die "sidecar：$SC_PROBLEM"
+	fi
+fi
 
 # ---- ⑤ 基线号必须比上一次发版大 ----
 # `PatchState.BASE_BUILD` 是热更的**唯一**跨版本闸：manifest 的 min_base 拿它比，

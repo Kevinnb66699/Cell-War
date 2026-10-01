@@ -2,9 +2,11 @@
 ##
 ## 三种来源，按序：
 ##   ① 环境变量 CW_SIDECAR_DLL（+ CW_DOTNET）：测试 / 服务器 run.sh 显式指定；
-##   ② **导出包**（feature `template`）：`res://sidecar/`（tools/build_sidecar.sh 生成、导出时进 pck）里有载荷与本平台的运行时 zip，
-##      首次用时解到 `user://sidecar/` —— 运行时按「平台 + 版本 + sha」、载荷按 sha 各占一个目录，先解到 `.tmp` 再改名（解一半崩了不会留半份），
-##      已经在的直接用；mac / Linux 上给宿主补可执行位（zip 解出来没有）；
+##   ② **导出包**（feature `template`）：`res://sidecar/`（tools/build_sidecar.sh 生成、导出时进 pck）里有载荷（`payload/` + `payload.json`）
+##      与本平台的运行时（`runtime-<rid>.zip` + `runtime-<rid>.json`），首次用时解到 `user://sidecar/` ——
+##      运行时按「平台 + 版本 + sha」、载荷按 sha 各占一个目录，先解到 `.tmp` 再改名（解一半崩了不会留半份），
+##      已经在的直接用；mac / Linux 上给宿主补可执行位（zip 解出来没有）。
+##      **补丁只盖 `payload/` 与 `payload.json`**（规则 dll 随热更走，见 tools/build_patch.sh）：sha 变了就解到新目录，运行时那份不动；
 ##   ③ 开发期：本机装的 dotnet + 仓库里 core/CellWar.Sidecar 的 Debug 产物。
 ## 返回 `{dotnet, dll}`，找不到就 `{error}` —— 调用方转 UNAVAILABLE（与补丁系统隔离，绝不计 STRIKES）。
 ## 不碰 boot.gd / patch_state.gd（硬不变量①）：解包是第一次开局时由句柄做的，不在启动路径上。
@@ -57,13 +59,12 @@ static func host_rid() -> String:
 
 ## 导出包：把 pck 里的运行时与载荷解到用户目录（已在就不解）
 static func unpack() -> Dictionary:
-	var mtext := FileAccess.get_file_as_string(PACK_DIR + "/manifest.json")
-	var manifest = JSON.parse_string(mtext) if mtext != "" else null
-	if not (manifest is Dictionary):
-		return { "error": "这个包没带 sidecar（res://sidecar/manifest.json 不在）" }
+	var payload = _read_json(PACK_DIR + "/payload.json")
+	if not (payload is Dictionary):
+		return { "error": "这个包没带 sidecar（res://sidecar/payload.json 不在）" }
 	var rid := host_rid()
-	var rt: Dictionary = (manifest.get("runtimes", {}) as Dictionary).get(rid, {})
-	if rt.is_empty():
+	var rt = _read_json("%s/runtime-%s.json" % [PACK_DIR, rid])
+	if not (rt is Dictionary):
 		return { "error": "这个包没带 %s 的 .NET 运行时" % rid }
 	var rt_dir := "%s/runtime-%s-%s-%s" % [USER_DIR, rid, String(rt["version"]), String(rt["sha256"]).substr(0, 12)]
 	var err := _extract_zip_once(PACK_DIR + "/" + String(rt["file"]), rt_dir)
@@ -72,12 +73,16 @@ static func unpack() -> Dictionary:
 	var host := ProjectSettings.globalize_path(rt_dir.path_join(String(rt["host"])))
 	if OS.get_name() != "Windows":
 		OS.execute("chmod", ["+x", host])   ## zip 解出来没有可执行位
-	var payload: Dictionary = manifest.get("payload", {})
 	var pl_dir := "%s/payload-%s" % [USER_DIR, String(payload.get("sha256", "")).substr(0, 16)]
 	err = _copy_once(PACK_DIR + "/" + String(payload.get("dir", "payload")), Array(payload.get("files", [])), pl_dir)
 	if err != "":
 		return { "error": err }
 	return { "dotnet": host, "dll": ProjectSettings.globalize_path(pl_dir.path_join("CellWar.Sidecar.dll")) }
+
+
+static func _read_json(path: String) -> Variant:
+	var text := FileAccess.get_file_as_string(path)
+	return JSON.parse_string(text) if text != "" else null
 
 
 static func _extract_zip_once(zip_path: String, dest: String) -> String:

@@ -17999,7 +17999,7 @@ func t_entry_smoke_sidecar() -> void:
 func t_sidecar_locator() -> void:
 	print("[sidecar 定位 / 解包]")
 	var Loc = load("res://scripts/kernel/cw_sidecar_locator.gd")
-	if not FileAccess.file_exists("res://sidecar/manifest.json"):
+	if not FileAccess.file_exists("res://sidecar/payload.json"):
 		check(false, "res://sidecar/ 没有包 —— 先跑 tools/build_sidecar.sh（tools/run_tests.sh 开跑前会跑）")
 		return
 	DirAccess.make_dir_recursive_absolute(Loc.USER_DIR)

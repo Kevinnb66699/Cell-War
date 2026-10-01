@@ -21,6 +21,9 @@
 # 为什么客户端包能这么省：94 MB 里约 88 MB 是 Godot 运行时，几乎从不变；
 # 每天真正改的只有几十 KB 脚本。补丁包按 res:// 路径覆盖原包里的文件即可。
 #
+# **C# 规则 dll 也随补丁走**（换内核 P7）：基线包带 sidecar 时，core/ 的改动会现编成载荷（约 650 KB）一起进包，
+# 探针在本机平台的基线包上挂补丁、真解包、真起进程读回 core_build；.NET 运行时只随全量发版变。
+#
 # ⚠ **这些改动打不进补丁，必须走 tools/publish_release.sh 全量发版**：
 #   · 新增 class_name，**以及引用了目标基线没有的类**（全局类表导出时烘死）——
 #     判据是 $BASE 那次发版的 git 树，不是本机项目；build_patch.gd 会拦住
@@ -55,16 +58,36 @@ while IFS= read -r f; do
 done < <(git diff --name-only --diff-filter=d "$BASE"..HEAD -- game/ \
 	| grep -v '^game/tests/' | grep -vE '\.(import|uid)$' || true)
 
-[ "${#CHANGED[@]}" -gt 0 ] || die "$BASE..HEAD 之间 game/ 没有可打包的改动"
+# ---- 规则 dll 随补丁（换内核 P7，docs/内核替换_重启计划.md）----
+# 只在**基线包本身带 sidecar**（它的定位器认 payload.json）时才有意义：更早的基线里没有运行时，载荷打进去也没人用。
+# core/ 的规则或宿主改了（测试工程不算）→ 现编一份载荷（core_build = 本次补丁号）带进补丁；
+# 运行时 zip 不带（只随全量发版变），挂了补丁照样用基线包里那份。载荷编自**工作树**，与上面 game/ 的文件同一口径。
+SIDECAR=0
+if git show "$BASE:game/scripts/kernel/cw_sidecar_locator.gd" 2>/dev/null | grep -q 'payload.json'; then
+	if [ -n "$(git diff --name-only "$BASE"..HEAD -- core/CellWar.Core core/CellWar.Sidecar)" ]; then
+		SIDECAR=1
+	fi
+fi
+
+[ "${#CHANGED[@]}" -gt 0 ] || [ "$SIDECAR" = 1 ] || die "$BASE..HEAD 之间 game/ 没有可打包的改动"
 
 # 磁盘路径必须给**绝对**的：打包器跑在 `--path game` 底下，Godot 会把相对路径
 # 当成 res:// 里的，于是每个文件都被报成「不存在」（2026-09-09 第一次跑就这么翻车）。
 ARGS=()
 echo "相对 $BASE 改动的文件："
-for f in "${CHANGED[@]}"; do
+# `${A[@]+"${A[@]}"}`：只有 core/ 改动时 CHANGED 是空的，macOS 自带的 bash 3.2 在 set -u 下把空数组展开当成未定义变量
+for f in ${CHANGED[@]+"${CHANGED[@]}"}; do
 	echo "  $f"
 	ARGS+=("res://${f#game/}" "$PWD/$f")
 done
+if [ "$SIDECAR" = 1 ]; then
+	echo "core/ 有改动：现编规则载荷（core_build = $BUILD）…"
+	BUILD_ID="$BUILD" PAYLOAD_ONLY=1 bash tools/build_sidecar.sh || die "规则载荷编不出来（build_sidecar.sh 的闸写了原因）"
+	for f in game/sidecar/payload.json game/sidecar/payload/*; do
+		echo "  $f"
+		ARGS+=("res://${f#game/}" "$PWD/$f")
+	done
+fi
 
 # 目标基线的全局类表：从 **$BASE 那次发版的 git 树**里扒（不是本机项目）。
 # 本次新加的类在本机也已注册，拿本机对照等于让补丁自己给自己开绿灯 ——
@@ -121,6 +144,22 @@ if [ ! -f "$PROBE_DIR/wt/game/scripts/patch_probe.gd" ]; then
 fi
 "$GODOT" --headless --path "$PROBE_DIR/wt/game" --export-pack "Windows Desktop" 	"$PROBE_DIR/base.pck" >/dev/null 2>&1 || die "照 $BASE 导包失败"
 "$GODOT" --headless --main-pack "$PROBE_DIR/base.pck" 	--script res://scripts/patch_probe.gd -- "$PWD/$OUT" "$BUILD" "$PWD/$OUT.assets" 	|| die "**补丁装上去不生效**（上面写了哪一条不对）。包没上传，线上没有任何变化。"
+# 规则 dll 那一档：基线包得像真发出去的那样带着 sidecar —— 在基线的 worktree 里照它当时的脚本打一遍（运行时 + 载荷，
+# core_build = 基线 tag），按**本机平台**的预设导 pck（定位器只解本平台的运行时），挂上补丁、真解包、真起进程读回 core_build。
+# 读回基线 tag = 补丁没盖住载荷；读回别的 = 压进了旧 dll。
+if [ "$SIDECAR" = 1 ]; then
+	case "$(uname -s)" in
+		Darwin) PRESET="macOS" ;;
+		MINGW*|MSYS*|CYGWIN*) PRESET="Windows Desktop" ;;
+		*) die "这台机器的平台没有桌面预设，验不了补丁里的规则 dll" ;;
+	esac
+	echo "验规则 dll：照 $BASE 的树打 sidecar、导 $PRESET 的包 …"
+	(cd "$PROBE_DIR/wt" && BUILD_ID="$BASE" bash tools/build_sidecar.sh >/dev/null) || die "照 $BASE 打 sidecar 失败"
+	"$GODOT" --headless --path "$PROBE_DIR/wt/game" --export-pack "$PRESET" "$PROBE_DIR/base_native.pck" >/dev/null 2>&1 \
+		|| die "照 $BASE 导 $PRESET 包失败"
+	"$GODOT" --headless --main-pack "$PROBE_DIR/base_native.pck" --script "$PWD/tools/patch_sidecar_probe.gd" -- "$PWD/$OUT" "$BUILD" \
+		|| die "**补丁里的规则 dll 不生效**（上面写了哪一条不对）。包没上传，线上没有任何变化。"
+fi
 
 # min_base 取当前的基线号：补丁是照着 HEAD 打的，就只保证能装在这一档基线上。
 # 比它老的客户端会被 boot.gd 拦下来，提示去下完整包，而不是硬套一个可能用不了的补丁。
