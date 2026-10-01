@@ -1,11 +1,11 @@
 using System.Text.Json;
-using CellWar.Core;
-using CellWar.Core.Tests.L1;
 
-namespace CellWar.Core.Tests.L0;
+namespace CellWar.Core.Worlds;
+
+// 2026-10-01 换内核 P5：从测试工程 `CellWar.Core.Tests/L0/WorldLoader.cs` 上提（新手教程要在产品里装关卡世界）；测试工程经别名照旧用它。
 
 /// <summary>
-/// 把 <see cref="L0World"/>（schema `cwxworld/3`）装成一个真的 <see cref="WorldState"/>，以及它的逆 <see cref="Dump"/>。
+/// 把 <see cref="WorldSpec"/>（schema `cwxworld/3`）装成一个真的 <see cref="WorldState"/>，以及它的逆 <see cref="Dump"/>。
 ///
 /// **一条规矩贯穿全文：认不出来的就炸，不许静默跳过。**
 /// 迁移计划专门点过这个坑 ——「loader 只走完三分之一」，
@@ -21,7 +21,7 @@ namespace CellWar.Core.Tests.L0;
 /// </summary>
 public static class WorldLoader
 {
-    public static WorldState Load(L0World spec)
+    public static WorldState Load(WorldSpec spec)
     {
         // **先铺满整块棋盘，再拿用例列的格子覆盖上去。**
         //
@@ -154,7 +154,7 @@ public static class WorldLoader
         if (immune.Length > 1 && immune.Any(p => p.AntigenMemory != immune[0].AntigenMemory || p.ImmuneLevel != immune[0].ImmuneLevel))
             throw new UnloadableException("多免疫席的 `memory` / `level` 不等 —— GD 那边它们是阵营级全局量，这个世界装不出来（E-5）");
 
-        var events = spec.Events ?? new L0Events();
+        var events = spec.Events ?? new SpecEvents();
 
         // 终局：`phase` 写 Finished 当且仅当 `winner` 非空（GD 的协议 phase 由 is_over 派生，C# 是 Phase.Finished —— 两侧同一条校验）
         if ((spec.Phase == "Finished") != (spec.Winner != ""))
@@ -249,7 +249,7 @@ public static class WorldLoader
     /// `uses` / `seq` 按用例写的盖上去（半路消耗过的条目重放不出来，而 GD loader 本来就是逐字装）；
     /// `until` **只校验不覆盖** —— 它就是 `Duration`，卡牌自己的规则量，对不上说明用例写错了。
     /// </summary>
-    private static WorldState SetupOps(L0World spec, WorldState world)
+    private static WorldState SetupOps(WorldSpec spec, WorldState world)
     {
         var minted = new List<(EntityId Id, List<ActiveModifier> Mods)>();
         var index = 0;
@@ -283,15 +283,15 @@ public static class WorldLoader
         foreach (var (id, mods) in minted) world = world.UpdateCell(id, world.Cells[id].Copy(modifiers: mods));
         return world;
 
-        static bool Ahead(L0Mod a, L0Mod b) => a.Seq < b.Seq || (a.Seq == b.Seq && string.CompareOrdinal(a.Name, b.Name) <= 0);
+        static bool Ahead(SpecMod a, SpecMod b) => a.Seq < b.Seq || (a.Seq == b.Seq && string.CompareOrdinal(a.Name, b.Name) <= 0);
     }
 
     /// <summary>在一个**丢掉的世界**上让生产代码现挂一条，把挂出来的那条取回来（挂不出来 = null）。</summary>
     private static ActiveModifier? Mint(WorldState world, EntityId id, string name, Route route)
     {
-        // 空带子 = 断言「前奏不消耗 rng」：真抽了 `TapeRng` 当场 RNG_OVERRUN，不会悄悄换个数出来
-        var rng = new TapeRng(Array.Empty<IReadOnlyList<long>>());
-        return route switch
+        // 空带子 + 事后核「一次都没抽」= 断言前奏不消耗 rng（上提之前用测试工程的 TapeRng，念完当场抛；产品程序集里没有它）
+        var rng = new ScriptedRng([]);
+        var made = route switch
         {
             // 打出路径的卡效本体：不碰手牌、不碰能量、不问阶段，只做这张卡做的事。
             // `Resolve` 对没登记的卡名**原样返回**（CardRules.Registry 没它 = 卡效 C# 还没移植）—— 那不是盘面的问题，先拦成硬错
@@ -303,6 +303,9 @@ public static class WorldLoader
             // 【癌症干性】按「装 equipped + 触发一次复活」重放（E-2），跑在一次性的小盘上
             _ => Last(PhaseRules.Revive(Load(StemnessRig), new ReviveDecision(0, StemnessCell, Pos("1,-1"), Pos("0,0")), rng).NewState, StemnessCell),
         };
+        if (rng.GetState().Counter != 0)
+            throw new InvalidOperationException($"前奏挂「{name}」时掷了骰 —— 前奏不许消耗 rng（装出来的世界会和 GD 对不上）");
+        return made;
 
         ActiveModifier? Last(WorldState s, EntityId who) => s.Cells[who].Modifiers.LastOrDefault(m => m.Card == name);
     }
@@ -327,12 +330,12 @@ public static class WorldLoader
     /// `chain_running` 是**故意**写的 —— 它让 `Revive` 末尾的 `StartPending` 为真、就地返回，不顺着 S 阶段往下跑。
     /// 两格都显式写 `type: normal`：别让特殊组织底板插一脚（骨髓格落地会追一次抽卡）。
     /// </summary>
-    private static readonly L0World StemnessRig = new()
+    private static readonly WorldSpec StemnessRig = new()
     {
         Radius = 1,
-        Players = [new L0Player(0, "cancer", CancerType: "Melanoma")],
-        Tiles = [new L0Tile("0,0", "solid", "normal"), new L0Tile("1,-1", "cancer", "normal")],
-        Cells = [new L0Cell { Seat = 0, Type = "Melanoma", At = "0,0", Alive = false, Equipped = ["癌症干性"], ChainRunning = true }],
+        Players = [new SpecPlayer(0, "cancer", CancerType: "Melanoma")],
+        Tiles = [new SpecTile("0,0", "solid", "normal"), new SpecTile("1,-1", "cancer", "normal")],
+        Cells = [new SpecCell { Seat = 0, Type = "Melanoma", At = "0,0", Alive = false, Equipped = ["癌症干性"], ChainRunning = true }],
     };
 
     private static readonly EntityId StemnessCell = new(1);
@@ -353,16 +356,16 @@ public static class WorldLoader
     /// `chain_cell`（= `cells[].chain_running`）、`feed_seq`（不是规则量）—— 它们连键都没有。
     /// tile 只导**与底板不同**的格（同一张默认表：`type` 等于 `MatchSetup.SpecialAt(at)` 时省略）。
     /// </summary>
-    public static L0World Dump(WorldState s)
+    public static WorldSpec Dump(WorldState s)
     {
         int SeatOf(EntityId? id) => id is { } v && s.Cells.TryGetValue(v, out var c) ? c.OwnerSeat : -1;
-        return new L0World
+        return new WorldSpec
         {
             Radius = s.Board.Radius,
             Round = s.Turn.WorldRound,
             Phase = s.Turn.Phase.ToString(),
             Seat = s.Turn.ActivePlayerSeat,
-            Players = s.Players.Values.OrderBy(p => p.Seat).Select(p => new L0Player(p.Seat,
+            Players = s.Players.Values.OrderBy(p => p.Seat).Select(p => new SpecPlayer(p.Seat,
                 p.Faction == Faction.Immune ? "immune" : "cancer", p.ImmuneLevel.ToString(), p.AntigenMemory,
                 p.CancerType?.ToString())).ToList(),
             Tiles = s.Board.Tissues.Values.Where(NotBaseline)
@@ -372,12 +375,12 @@ public static class WorldLoader
             WinKind = s.Turn.WinKind,
             EffectorRound = s.Turn.EffectorRound <= 0 ? -1 : s.Turn.EffectorRound,
             Chemo = s.Turn.ChemoAt is { } ca
-                ? new L0Chemo(At(ca), s.Turn.ChemoRounds, s.Turn.ChemoOwner, SeatOf(s.Turn.ChemoCreator)) : null,
-            ChemoTrack = s.Turn.TrackCell is { } tc ? new L0Track(SeatOf(tc), At(s.Cells[tc].Position), s.Turn.TrackRounds)
-                : s.Turn.TrackFrozenAt is { } fa ? new L0Track(-1, At(fa), s.Turn.TrackRounds) : null,
-            CancerAlarm = s.Turn.CancerWinStreak == 0 ? null : new L0CancerAlarm(s.Turn.CancerWinStreak),
-            Events = s.Effects.Count == 0 ? null : new L0Events(Active: s.Effects
-                .Select(e => new L0Effect(e.Name, e.Left, e.Stacks,
+                ? new SpecChemo(At(ca), s.Turn.ChemoRounds, s.Turn.ChemoOwner, SeatOf(s.Turn.ChemoCreator)) : null,
+            ChemoTrack = s.Turn.TrackCell is { } tc ? new SpecTrack(SeatOf(tc), At(s.Cells[tc].Position), s.Turn.TrackRounds)
+                : s.Turn.TrackFrozenAt is { } fa ? new SpecTrack(-1, At(fa), s.Turn.TrackRounds) : null,
+            CancerAlarm = s.Turn.CancerWinStreak == 0 ? null : new SpecCancerAlarm(s.Turn.CancerWinStreak),
+            Events = s.Effects.Count == 0 ? null : new SpecEvents(Active: s.Effects
+                .Select(e => new SpecEffect(e.Name, e.Left, e.Stacks,
                     e.Data.Count == 0 ? null : new Dictionary<string, int>(e.Data, StringComparer.Ordinal))).ToList()),
             Tuning = DumpTuning(s.Tuning),
         };
@@ -388,10 +391,10 @@ public static class WorldLoader
     /// **独立实现，不转调 <see cref="Load"/> / <see cref="Dump"/>** —— 转调的话闸二 2a 就成了自己证自己。
     /// 只剩 `at` 的 tile 整条删掉（它什么都没改，等于没点名）。
     /// </summary>
-    public static L0World Minify(L0World w)
+    public static WorldSpec Minify(WorldSpec w)
     {
         var events = w.Events is null ? null : MinifyEvents(w.Events);
-        return new L0World
+        return new WorldSpec
         {
             Radius = w.Radius,
             Round = w.Round,
@@ -414,28 +417,28 @@ public static class WorldLoader
         // B5-4：`MinifyTuning` 提到类级（与 DumpTuning 共用同一张行表，见文件末尾）
 
         // 11 个非 at 键全等于默认值 = 这一格什么都没改，整条删掉（`type` 的默认是 special_of(at)）
-        bool Named(L0Tile t)
+        bool Named(SpecTile t)
             => !((t.Type is null || TileType(t.Type) == MatchSetup.SpecialAt(Pos(t.At)))
                 && t.State == "healthy" && t.Solid == 0 && !t.Mucus && t.Necrosis == 0 && t.OssifyAt == 0
                 && !t.Newborn && t.Store == 0 && t.Cards == 0 && t.Prod == 0 && t.ToxinRound == 0);
 
         // `camp_pos: "0,0"` 与没写等价（GD minify 同样只在 != "0,0" 时保留；Load 缺省也是 (0,0)）
-        L0Cell MinifyCell(L0Cell c)
+        SpecCell MinifyCell(SpecCell c)
         {
             if (c.CampPos == "0,0") c = c with { CampPos = null };
             return c.Marked is null or false && c.MarkLeft is null or 0 && c.MarkRound is null or -1
                 ? c with { Marked = null, MarkLeft = null, MarkRound = null } : c;
         }
 
-        L0Events? MinifyEvents(L0Events e)
+        SpecEvents? MinifyEvents(SpecEvents e)
         {
             // 空 `data` 与没写等价（Dump 也写 null）—— 默认表两侧同：GD dump 同样省略空 data
             var active = e.Active is { Count: 0 } ? null : e.Active?.Select(x => x.Data is { Count: 0 } ? x with { Data = null } : x).ToList();
-            return active is null ? null : new L0Events(active);
+            return active is null ? null : new SpecEvents(active);
         }
     }
 
-    private static L0Tile DumpTile(Tissue t) => new(At(t.Position),
+    private static SpecTile DumpTile(Tissue t) => new(At(t.Position),
         t.State switch { TissueState.Healthy => "healthy", TissueState.Cancer => "cancer", _ => "solid" },
         t.Type == MatchSetup.SpecialAt(t.Position) ? null : TypeWord(t.Type),   // 同一张默认表：等于底板就省略
         t.SolidificationCount, t.Mucus, t.NecrosisRounds, t.OssifyAtRound, t.Newborn,
@@ -443,7 +446,7 @@ public static class WorldLoader
         t.Type == TissueType.BoneMarrow ? t.Charge ?? 0 : 0,
         t.ProductionCounter, t.ToxinRound);
 
-    private static L0Cell DumpCell(WorldState s, Cell c) => new()
+    private static SpecCell DumpCell(WorldState s, Cell c) => new()
     {
         Seat = c.OwnerSeat, Type = c.Type.ToString(), At = At(c.Position),
         Energy = c.Energy, Alive = c.IsAlive,
@@ -452,7 +455,7 @@ public static class WorldLoader
         // 与 `L1View` 同一把尺：按 (seq, 名) 排 —— `Load` 要求 `mods` 升序，dump 路径就永远造不出 UNLOADABLE
         //（`CellRules.AddModifier` 盖单调递增的 `PlayCounter + 1`，今天列表序恰好就是升序；休眠的 `PhaseRules.GrantSkillModifier` 盖 `EquipSeq` 就不是）
         Mods = c.Modifiers.OrderBy(m => m.Sequence).ThenBy(m => m.Card, StringComparer.Ordinal)
-            .Select(m => new L0Mod(m.Card, m.Uses, Until(m.Duration), m.Sequence)).ToList(),
+            .Select(m => new SpecMod(m.Card, m.Uses, Until(m.Duration), m.Sequence)).ToList(),
         PlayN = c.PlayCounter,
         EquipSeq = new Dictionary<string, int>(c.EquipSeq, StringComparer.Ordinal),
         FxTurn = new Dictionary<string, int>(c.FxTurn, StringComparer.Ordinal),
@@ -823,17 +826,21 @@ public static class WorldLoader
 
         public IReadOnlyDictionary<string, string> Tiers => tier;
 
-        public static string Path() => System.IO.Path.Combine(L0RunnerTests.GameTestsDir(), "..", "data", "contract_tune.json");   // 2026-09-19 搬到 game/data/（导出版要读）
+        /// <summary>
+        /// 白名单编进本程序集（csproj 的 EmbeddedResource，源文件就是 GD 读的 `game/data/contract_tune.json`）：
+        /// sidecar 读不到 Godot 的 pck，载荷里又只有 dll —— 嵌进去最省事，也保证「两侧同读一份」。
+        /// 改了那份 json 要重编 Core（tools/build_patch.sh 把它算进「core/ 有改动」）。
+        /// </summary>
+        private const string Resource = "contract_tune.json";
 
         private static TuneTable Read()
         {
-            var path = Path();
-            if (!File.Exists(path))
-                throw new FileNotFoundException($"缺旋钮白名单 {path} —— 两侧同读一份（§0.6.3）", path);
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            using var stream = typeof(TuneTable).Assembly.GetManifestResourceStream(Resource)
+                ?? throw new InvalidOperationException($"程序集里没有嵌入的旋钮白名单 {Resource}（CellWar.Core.csproj 的 EmbeddedResource）");
+            using var doc = JsonDocument.Parse(stream);
             var root = doc.RootElement;
             if (root.GetProperty("schema").GetString() != "cwxtune/1")
-                throw new InvalidOperationException($"{path} 的 schema 不是 cwxtune/1");
+                throw new InvalidOperationException($"{Resource} 的 schema 不是 cwxtune/1");
             var w = new TuneTable();
             foreach (var row in root.GetProperty("knobs").EnumerateArray())
             {

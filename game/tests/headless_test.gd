@@ -173,7 +173,7 @@ func _run_all() -> void:
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
 		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
-		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_entry_smoke_sidecar, t_sidecar_locator, t_play_queue,
+		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_entry_smoke_sidecar, t_sidecar_locator, t_sidecar_tutor_worlds, t_play_queue,
 		## 换内核 P6 · 真人半边（2026-10-01）：服务器开关 CW_KERNEL=sidecar 下全真人房跑在 C# 内核上
 		t_net_sidecar, t_net_sidecar_takeover, t_net_sidecar_ui,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
@@ -18027,6 +18027,44 @@ func t_entry_smoke_sidecar() -> void:
 ## 换内核 P7（2026-10-01）：导出包那条路 —— `cw_sidecar_locator.gd unpack()` 把 res://sidecar/（tools/build_sidecar.sh 生成）里的
 ## .NET 运行时 zip 与载荷解到用户目录（测试的 user:// 是隔离的），再用**解出来的那份 dotnet** 起 sidecar 开一局。
 ## 验：第一次解、第二次直接复用（.ok 标记）、半份目录（没有 .ok）会重解、解出来的宿主能起进程。导出版里的真跑见 tools/export_check_sidecar.gd。
+## 换内核 P5：新手教程**每一关的每一份 world**（含 `{from, patch}` 派生的，由 GD resolve）在两个内核里装出来的局面逐字段相同 ——
+## GD 走舞台那条真路（装载器装盘 → `_point_cursor` → 收养进 InProc），C# 走 sidecar 的 `open{world, rolls}`（`MatchSession.Resume`）。
+## 比法用 L0 那一套（`cw_case_diff.gd` 的 normalize + diff，豁免表与 C# 同一份）。
+func t_sidecar_tutor_worlds() -> void:
+	print("[教程关卡世界·两个内核装载对拍]")
+	if CWKernelSidecar.find_dotnet() == "" or not FileAccess.file_exists(CWKernelSidecar.find_sidecar_dll()):
+		check(false, "找不到 dotnet 或 sidecar 产物 —— 先 dotnet build core/CellWar.Sidecar")
+		return
+	var Data = load("res://scripts/kernel/cw_tutor_script.gd")
+	var Stage = load("res://scripts/kernel/cw_tutorial_stage.gd")
+	var Diff = load("res://tests/cw_case_diff.gd")
+	var d = Data.new()
+	var worlds := 0
+	var bad: Array = []
+	for row in d.load_index().get("levels", []):
+		var lv: Dictionary = d.load_level(String(row["id"]))
+		for wid in (lv.get("worlds", {}) as Dictionary).keys():
+			var st = Stage.new()
+			## consumer = true 同 match.gd 的教程 cfg：收养且没有消费者时 InProc 不装自己的桥，装载器给的默认 AI 桥会把这一关自己打完
+			st.cfg = { "observe_viewer": CWKernel.VIEWER_OMNISCIENT, "consumer": true }
+			var kg: CWKernel = st.open_level(lv, String(wid))
+			var ks := CWKernelSidecar.new()
+			var ok := kg != null and ks.open({ "world": d.resolve(lv, String(wid)), "rolls": st._rolls(), "observe_viewer": CWKernel.VIEWER_OMNISCIENT })
+			worlds += 1
+			if not ok:
+				bad.append("%s/%s 装不出来（GD %s / sidecar %s）" % [row["id"], wid, str(st.errors), str(ks.last_error())])
+			else:
+				var a: Dictionary = Diff.normalize(kg.observe_envelope(CWKernel.VIEWER_OMNISCIENT))
+				var b: Dictionary = Diff.normalize(CWKernelSidecar._ints(ks.observe_envelope(CWKernel.VIEWER_OMNISCIENT)))
+				var delta: Dictionary = Diff.diff(a, b)
+				if not delta.is_empty() or not Diff.errors.is_empty():
+					bad.append("%s/%s：%s %s" % [row["id"], wid, str(delta.keys().slice(0, 6)), str(Diff.errors)])
+			ks.close()
+			st.dispose()
+	CWKernelSidecar.shutdown_idle_links()
+	check(worlds >= 18 and bad.is_empty(), "%d 份关卡世界两个内核装出来逐字段相同%s" % [worlds, "" if bad.is_empty() else "：\n    " + "\n    ".join(bad)])
+
+
 func t_sidecar_locator() -> void:
 	print("[sidecar 定位 / 解包]")
 	var Loc = load("res://scripts/kernel/cw_sidecar_locator.gd")

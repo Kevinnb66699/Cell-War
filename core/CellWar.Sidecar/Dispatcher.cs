@@ -12,6 +12,8 @@ namespace CellWar.Sidecar;
 /// 报文一览（P1）：
 ///   version{}                                       → {host_abi, rules_build, ruleset_digest, core_build}
 ///   open{cfg:{factions[], seed, observe_viewer?, open_hands?, names?[], cancer_types?[]}} → {sid}
+///   open{cfg:{world: cwxworld/3, rolls?: [[from,to,value]…], seed?, observe_viewer?, open_hands?, names?[]}} → {sid}（新手教程：从装载世界续跑）
+///   dump_world{sid}                                 → {world}（活局面导成 cwxworld/3）
 ///   pull{sid, viewer, since, limit?}                → {entries[], last_seq}
 ///   discard_before{sid, seq}                        → {}
 ///   answer{sid, ask_id, key?, index?}               → {accepted}
@@ -57,6 +59,7 @@ internal sealed class Dispatcher : IDisposable
         "query" => new JsonObject { ["result"] = Session(req).Query(J.Str(req["kind"]), req["args"]?.AsObject() ?? [], J.IntOr(req["seat"])) },
         "mark_player" => new JsonObject { ["ok_mark"] = Session(req).MarkPlayer(J.Int(req["pid"]), J.Str(req["suffix"])) },
         "surrender" => new JsonObject { ["ended"] = Session(req).Surrender(J.Int(req["faction"])) },
+        "dump_world" => new JsonObject { ["world"] = Session(req).DumpWorld() },
         "log_msg" => new JsonObject { ["logged"] = Session(req).LogMessage(J.Str(req["text"]), J.IntOr(req["secret_pid"]) ?? -1, J.StrOr(req["public_text"])) },
         "can_save" => new JsonObject { ["can_save"] = Session(req).CanSave },
         "save" => new JsonObject { ["checkpoint"] = Session(req).Save() },

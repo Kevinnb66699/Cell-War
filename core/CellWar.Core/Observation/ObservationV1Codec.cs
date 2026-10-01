@@ -97,7 +97,7 @@ public static class ObservationV1Codec
                 cells.Where(c => c.OwnerSeat == p.Seat).Select(c => Id(c.Id)).DefaultIfEmpty(-1).First(),
                 p.CancerType is { } ct ? GdEnum.Ctype(ct) : -1,
                 new ObsPlayerD(cells.Where(c => c.OwnerSeat == p.Seat).Sum(c => Income(s, c))))).ToArray(),
-            new ObsTune(CancerWinWeighted, s.Tuning.CancerWinHoldRounds, LimitRound, s.Board.Tissues.Count / 2,
+            new ObsTune(CancerWinWeighted, s.Tuning.CancerWinHoldRounds, LimitRound, OutcomeRules.LimitCancerous,
                 s.Tuning.MucusMoveSurcharge, s.Tuning.MetastasisCost, s.Tuning.OsteoOssifyCost, s.Tuning.SolidifyThreshold.ToArray()),
             TierB.Global(s, new ObsGlobalD(BoardRules.SolidifyThreshold(s), RulePolicies.Stage(s), RulePolicies.CancerPhase(s.Turn.WorldRound), PhaseText(s.Turn.Phase),
                 null, null, null, null, null, null, null)));   // tier B 由 TierB.Global 填（P2）
@@ -276,7 +276,7 @@ public static class ObservationV1Codec
         var tiles = s.Board.Tissues.Values;
         var weighted = tiles.Sum(t => t.State == TissueState.Cancer ? 1 : t.State == TissueState.SolidifiedCancer ? 2 : 0);
         var cancerous = tiles.Count(t => t.State != TissueState.Healthy);
-        var limit = s.Board.Tissues.Count / 2;
+        var limit = OutcomeRules.LimitCancerous;
         return s.Turn.WinKind switch
         {
             "immune_clear" => "免疫胜利：癌细胞全灭且无可复活的固化癌组织",

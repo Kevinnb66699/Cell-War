@@ -17,6 +17,14 @@ namespace CellWar.Core.Tests.L0;
 /// </summary>
 public class KeyTableTests
 {
+    private static readonly Dictionary<string, Type> Types = new()
+    {
+        [nameof(L0Case)] = typeof(L0Case), [nameof(L0World)] = typeof(L0World), [nameof(L0Player)] = typeof(L0Player),
+        [nameof(L0Tile)] = typeof(L0Tile), [nameof(L0Cell)] = typeof(L0Cell), [nameof(L0Mod)] = typeof(L0Mod),
+        [nameof(L0Events)] = typeof(L0Events), [nameof(L0Effect)] = typeof(L0Effect), [nameof(L0Chemo)] = typeof(L0Chemo),
+        [nameof(L0Track)] = typeof(L0Track), [nameof(L0CancerAlarm)] = typeof(L0CancerAlarm),
+    };
+
     public static TheoryData<string, string> KeyTables() => new()
     {
         { "CASE_KEYS", nameof(L0Case) },
@@ -119,8 +127,9 @@ public class KeyTableTests
     /// <summary>这个记录的 JSON 键名（与 `L0RunnerTests.Json` 同一套命名策略；`[JsonIgnore]` 的派生属性不算）。</summary>
     private static IReadOnlyCollection<string> JsonNames(string typeName)
     {
-        var type = typeof(L0Case).Assembly.GetType($"CellWar.Core.Tests.L0.{typeName}")
-            ?? throw new InvalidOperationException($"找不到类型 {typeName}");
+        // 10-01 起世界规格的记录住在产品程序集（CellWar.Core.Worlds，名字去了 L0 前缀），测试里经别名照旧叫老名字 ——
+        // 按名字反射找不到它们了，直接用别名解析出来的类型
+        var type = Types.GetValueOrDefault(typeName) ?? throw new InvalidOperationException($"找不到类型 {typeName}");
         return type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
             .Where(p => p.GetCustomAttributes(typeof(JsonIgnoreAttribute), inherit: true).Length == 0)
             .Select(p => JsonNamingPolicy.SnakeCaseLower.ConvertName(p.Name))

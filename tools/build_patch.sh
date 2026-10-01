@@ -60,11 +60,11 @@ done < <(git diff --name-only --diff-filter=d "$BASE"..HEAD -- game/ \
 
 # ---- 规则 dll 随补丁（换内核 P7，docs/内核替换_重启计划.md）----
 # 只在**基线包本身带 sidecar**（它的定位器认 payload.json）时才有意义：更早的基线里没有运行时，载荷打进去也没人用。
-# core/ 的规则或宿主改了（测试工程不算）→ 现编一份载荷（core_build = 本次补丁号）带进补丁；
+# core/ 的规则或宿主改了（测试工程不算；旋钮白名单 contract_tune.json 嵌在 Core 里，改了也算）→ 现编一份载荷（core_build = 本次补丁号）带进补丁；
 # 运行时 zip 不带（只随全量发版变），挂了补丁照样用基线包里那份。载荷编自**工作树**，与上面 game/ 的文件同一口径。
 SIDECAR=0
 if git show "$BASE:game/scripts/kernel/cw_sidecar_locator.gd" 2>/dev/null | grep -q 'payload.json'; then
-	if [ -n "$(git diff --name-only "$BASE"..HEAD -- core/CellWar.Core core/CellWar.Sidecar)" ]; then
+	if [ -n "$(git diff --name-only "$BASE"..HEAD -- core/CellWar.Core core/CellWar.Sidecar game/data/contract_tune.json)" ]; then
 		SIDECAR=1
 	fi
 fi

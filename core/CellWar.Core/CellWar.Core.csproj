@@ -7,6 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- 旋钮四档白名单：GD 与 C# 同读一份（换内核 P5 起嵌进程序集，sidecar 读不到 pck），见 Worlds/WorldLoader.cs 的 TuneTable -->
+    <EmbeddedResource Include="../../game/data/contract_tune.json" LogicalName="contract_tune.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="CellWar.Core.Tests" />
     <!-- 宿主进程要用 Stage 的文案助手（SeatName / CellName / Fmt）拼 GD 原文标签（换内核 P1） -->
     <InternalsVisibleTo Include="CellWar.Sidecar" />

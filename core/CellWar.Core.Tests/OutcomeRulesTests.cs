@@ -53,26 +53,26 @@ public class OutcomeRulesTests
         Assert.Equal(2, alarm);
     }
 
-    [Fact]
-    public void RoundFifteenCancerTilesAtLeastHalf_IsCancerWin()
+    /// <summary>第 15 回合按癌性组织格数判：门槛是 GD 写死的 63（⌊1/2×127⌋），**不随盘子大小变** —— 教程放大到半径 12 的盘上也是 63。</summary>
+    private static IEnumerable<Tissue> Board(int radius, int cancerous)
     {
-        var world = Build(new TurnState { WorldRound = 15, Phase = Phase.E, ActivePlayerSeat = 0 },
-            [Tile(new HexPosition(0, 0, 0), TissueState.Cancer), Tile(new HexPosition(1, 0, -1), TissueState.Healthy)]);
-
-        var (winner, _, _) = OutcomeRules.Evaluate(world);
-        Assert.Equal(Faction.Cancer, winner);
+        var all = new List<Tissue>();
+        for (var q = -radius; q <= radius; q++)
+            for (var r = Math.Max(-radius, -q - radius); r <= Math.Min(radius, -q + radius); r++)
+                all.Add(Tile(new HexPosition(q, r, -q - r), all.Count < cancerous ? TissueState.Cancer : TissueState.Healthy));
+        return all;
     }
 
-    [Fact]
-    public void RoundFifteenCancerTilesBelowHalf_IsImmuneWin()
+    [Theory]
+    [InlineData(6, 63, Faction.Cancer)]
+    [InlineData(6, 62, Faction.Immune)]
+    [InlineData(12, 63, Faction.Cancer)]    // 469 格的盘：2026-10-01 之前 C# 按「本盘一半」= 234 判成免疫胜，GD 判癌症胜
+    [InlineData(12, 62, Faction.Immune)]
+    public void RoundFifteen_CancerousTilesAgainstFixedLimit63(int radius, int cancerous, Faction expected)
     {
-        var world = Build(new TurnState { WorldRound = 15, Phase = Phase.E, ActivePlayerSeat = 0 },
-            [Tile(new HexPosition(0, 0, 0), TissueState.Cancer),
-             Tile(new HexPosition(1, 0, -1), TissueState.Healthy),
-             Tile(new HexPosition(2, 0, -2), TissueState.Healthy),
-             Tile(new HexPosition(3, 0, -3), TissueState.Healthy)]);
-
-        var (winner, _, _) = OutcomeRules.Evaluate(world);
-        Assert.Equal(Faction.Immune, winner);
+        var world = Build(new TurnState { WorldRound = 15, Phase = Phase.E, ActivePlayerSeat = 0 }, Board(radius, cancerous));
+        var (winner, _, kind) = OutcomeRules.Evaluate(world);
+        Assert.Equal(expected, winner);
+        Assert.Equal(expected == Faction.Cancer ? "limit_cancer" : "limit_immune", kind);
     }
 }

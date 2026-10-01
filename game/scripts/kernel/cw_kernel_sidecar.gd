@@ -74,6 +74,11 @@ func open(cfg: Dictionary) -> bool:
 			open_cfg[k] = cfg[k]
 	if observe_viewer != null:
 		open_cfg["observe_viewer"] = int(observe_viewer)
+	## 新手教程（换内核 P5）：舞台 resolve 好的一份 cwxworld/3 + 这一关的骰子带子 —— sidecar 从这份世界续跑。
+	## 整数化：关卡 json 经 JSON.parse_string 读进来数字全是 float，C# 那边按整数字段严格读（300.0 读不进 int）
+	if cfg.has("world"):
+		open_cfg["world"] = _ints(cfg["world"])
+		open_cfg["rolls"] = _ints(cfg.get("rolls", []))
 	## 读档：cfg.world_state 是本句柄 save() 存的 {kernel: "cs", checkpoint}（match.gd 按 kernel 标记选的句柄）
 	var ws: Variant = cfg.get("world_state", null)
 	var r: Dictionary
@@ -273,6 +278,31 @@ func surrender(faction: int) -> void:
 		return
 	_call("surrender", { "sid": _sid, "faction": faction })
 	_pump()
+
+
+## 活局面导成一份 cwxworld/3（同 `cw_world_loader.gd:dump_world`；教程间章「重心平移」先导出、平移、再装回来）
+func dump_world() -> Dictionary:
+	if _sid < 0:
+		return {}
+	var w: Variant = _call("dump_world", { "sid": _sid }).get("world", null)
+	return _ints(w) if w is Dictionary else {}
+
+
+## JSON 来回之后整数都成了 float：整数值的 float 换回 int（坐标、能量十分位、计数都是整数；真小数原样留着）
+static func _ints(v: Variant) -> Variant:
+	if v is float:
+		return int(v) if v == floor(v) else v
+	if v is Dictionary:
+		var out := {}
+		for k in v:
+			out[k] = _ints(v[k])
+		return out
+	if v is Array:
+		var arr: Array = []
+		for x in v:
+			arr.append(_ints(x))
+		return arr
+	return v
 
 
 ## 产品逻辑写内核日志的入口（同 InProc：服务器投降投票那两行）。sidecar 插完那一行就泵，`log` 条目当场进流

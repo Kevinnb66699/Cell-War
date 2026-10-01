@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using CellWar.Core;
 using CellWar.Core.Observation;
+using CellWar.Core.Worlds;
 
 namespace CellWar.Sidecar;
 
@@ -70,6 +71,7 @@ internal sealed class SessionHost : IDisposable
     /// <summary>`open` 报文 → 一局。P1 只认 GD 的标准座次（`CWMatch.FACTION_ORDER`：免疫 / 癌交替，与 C# <see cref="MatchSetup"/> 同一套）。</summary>
     public static SessionHost Open(int sid, JsonObject cfg)
     {
+        if (cfg["world"] is JsonObject world) return OpenWorld(sid, cfg, world);
         var factions = cfg["factions"]?.AsArray().Select(J.Int).ToArray()
             ?? throw new ArgumentException("open 缺 factions");
         for (var i = 0; i < factions.Length; i++)
@@ -83,6 +85,25 @@ internal sealed class SessionHost : IDisposable
         // MatchSession.Start(seed, 建世界)：开局那几行日志（「初始癌组织：…」）写在建世界的时候，要它收进条目流
         return new(sid, MatchSession.Start(seed, () => WithNames(MatchSetup.Create(factions.Length, seed, cancerTypes), cfg, factions.Length)), viewer, openHands);
     }
+
+    /// <summary>
+    /// 新手教程（换内核 P5）：GD 舞台 resolve 好的一份 cwxworld/3 + 这一关的骰子带子 `rolls`（`[[from, to, value], …]`）→ 从这份世界续跑。
+    /// 同 GD `cw_tutorial_stage.gd:_open_spec`：装载器装盘、带子挂在开局之前、念完回落到按 `seed` 的随机流（GD 装载器的种子恒为 1）；
+    /// 世界里写的 `seat` 读成「正在这一席的回合中」（`MatchSession.Resume`，GD 侧是 `_point_cursor`）。
+    /// </summary>
+    private static SessionHost OpenWorld(int sid, JsonObject cfg, JsonObject worldNode)
+    {
+        var world = WorldLoader.Load(WorldJson.Parse(worldNode.ToJsonString()));
+        var rolls = cfg["rolls"]?.AsArray().Select(r => (IReadOnlyList<long>)r!.AsArray().Select(J.Long).ToArray()).ToList() ?? [];
+        var seed = cfg["seed"] is { } sv ? unchecked((ulong)J.Long(sv)) : 1UL;
+        var viewer = J.IntOr(cfg["observe_viewer"]);
+        var openHands = cfg["open_hands"] is { } oh && J.Bool(oh);
+        world = WithNames(world, cfg, world.Players.Count);
+        return new(sid, MatchSession.Resume(world, new ScriptedRng(rolls, seed)), viewer, openHands);
+    }
+
+    /// <summary>GD `cw_world_loader.gd:dump_world`：把活局面导成一份 cwxworld/3（教程间章「重心平移」要先导出、平移、再装回来）。</summary>
+    public JsonNode DumpWorld() => JsonSerializer.SerializeToNode(WorldLoader.Dump(session.Peek().State), WorldJson.Options)!;
 
     private static WorldState WithNames(WorldState world, JsonObject cfg, int seats)
     {

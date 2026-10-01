@@ -37,10 +37,17 @@ internal static class OutcomeRules
         var kind = winner switch { Faction.Immune => "immune_clear", Faction.Cancer => "cancer_weighted", _ => "" };
         if (winner == null && s.Turn.WorldRound >= 15)
         {
-            var cancer = Tiles(s).Count(Cancerous) >= s.Board.Tissues.Count / 2;
+            var cancer = Tiles(s).Count(Cancerous) >= LimitCancerous;
             winner = cancer ? Faction.Cancer : Faction.Immune;
             kind = cancer ? "limit_cancer" : "limit_immune";
         }
         return (winner, streak, kind);
     }
+
+    /// <summary>
+    /// 回合上限终局的癌性组织门槛：GD `CWData.LIMIT_CANCEROUS`（⌊1/2×127⌋，cw_world.gd:_final_verdict 读 `tune.limit_cancerous`）——
+    /// **按标准盘写死、不随半径变**。2026-10-01 之前 C# 写的是「本盘格数的一半」，标准盘上恰好也是 63；
+    /// 教程放大到半径 12 的盘（469 格）上两边就分开了（GD 63 / C# 234），`t_sidecar_tutor_worlds` 对拍时抓到。
+    /// </summary>
+    internal const int LimitCancerous = 63;
 }
