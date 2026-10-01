@@ -43,7 +43,8 @@ var _durations: Array = []   ## [毫秒, 测试名]
 const WEIGHTS := {
 	"t_ai_same_hash_mcts4": 78.0, "t_ai_same_hash_mc4": 66.5, "t_ai_same_hash_mc6": 58.8, "t_ai_same_hash_mcts6": 34.9,
 	"t_tutor_done_menu": 30.0, "t_tutor_c3_drive": 22.0, "t_tutor_c3_ui": 22.0, "t_ai_mc": 13.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
-	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_sidecar": 5.6, "t_net_drain": 5.1, "t_net_sidecar_takeover": 4.0,
+	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_sidecar": 5.6, "t_net_drain": 5.1, "t_net_sidecar_takeover": 5.4,
+	"t_net_sidecar_ai": 11.4, "t_web_solo": 6.3, "t_net_solo": 3.0,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
 	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
 	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_net_sidecar_ui": 0.6, "t_entry_smoke_sidecar": 1.2, "t_entry_smoke_sidecar_ai": 1.5, "t_sidecar_locator": 1.2, "t_kernel_sidecar_ai": 3.0, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
@@ -179,6 +180,8 @@ func _run_all() -> void:
 		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_kernel_sidecar_ai, t_entry_smoke_sidecar, t_entry_smoke_sidecar_ai, t_sidecar_locator, t_sidecar_tutor_worlds, t_play_queue,
 		## 换内核 P6 · 真人半边（2026-10-01）：服务器开关 CW_KERNEL=sidecar 下全真人房跑在 C# 内核上
 		t_net_sidecar, t_net_sidecar_takeover, t_net_sidecar_ui,
+		## 换内核 P6 · 第二段（2026-10-01）：AI 席 / 代打走 sidecar 里的 C# AI、网页单机走服务器（create_solo）
+		t_net_sidecar_ai, t_net_solo, t_web_solo,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
 		t_observe_budget,
@@ -22557,20 +22560,24 @@ func t_net_sidecar() -> void:
 	OS.set_environment("CW_KERNEL", "")
 
 
-## C# 内核路的代打（P6 临时口径：C# 的 AI 席落地前，挑「结束回合 / 停 / 跳过」，都没有就第一项）与开关的另外三面：
-##   ① 纯函数：fallback_index 认 data 不认下标 / 文案
-##   ② 有计时：乙一直不答，到点代打，对局往前走；③ 无计时：乙掉线，他之后的每一问都由代打即时答掉，甲一个人把这局打完
-##   ④ 开关打开但房里有 AI 席 ⇒ 照旧 GD 路；sidecar 找不到 ⇒ 退回 GD 路照常开局；开关关着 ⇒ GD 路（与改动之前逐行相同）
+## 测试里「让对局往前走」的作答：结束回合 / 停 / 跳过，都没有就第一项（落子、弃牌这类每项都往前走）。只看 data。
+## （P6 第一段时这是服务器的临时代打口径；第二段起代打换成 sidecar 里的 C# AI，这一条只剩测试在用）
+func _sc_progress_index(req: Dictionary) -> int:
+	var opts: Array = req.get("options", [])
+	for i in opts.size():
+		var d: Dictionary = opts[i].get("data", {})
+		if String(d.get("act", "")) == "end" or bool(d.get("stop", false)) or bool(d.get("skip", false)):
+			return i
+	return 0
+
+
+## C# 内核路的代打（第二段起：sidecar 里的 C# AI，搜索档）与开关的另外几面：
+##   ② 有计时：乙一直不答，到点由 AI **只代答这一问**（step_begin 带房间给他的号），之后照旧问他；
+##     断线有计时 ⇒ 悬着的那一问等他回来，凭令牌重连拿回同一问
+##   ③ 无计时：丁掉线 ⇒ 这一席整个交给 AI，甲一个人把这局打完、丁一问都收不到
+##   ④ 开关打开、房里有 AI 席 ⇒ 也走 C# 内核路；坐着机器人客户端 / sidecar 找不到 / 开关关着 ⇒ GD 路（与改动之前逐行相同）
 func t_net_sidecar_takeover() -> void:
 	print("[联机·C# 内核路的代打与开关]")
-	var Pump := preload("res://scripts/net/cw_net_pump.gd")
-	check(Pump.fallback_index({ "options": [{ "label": "移动", "data": { "act": "move", "to": Vector2i(1, 0) } },
-			{ "label": "结束回合", "data": { "act": "end" } }] }) == 1, "代打口径：有「结束回合」就选它")
-	check(Pump.fallback_index({ "options": [{ "label": "x", "data": { "card": "a" } }, { "label": "停在这里", "data": { "stop": true } }] }) == 1
-		and Pump.fallback_index({ "options": [{ "label": "y", "data": { "to": Vector2i.ZERO } }, { "label": "放弃", "data": { "skip": true } }] }) == 1,
-		"代打口径：停 / 跳过同样认")
-	check(Pump.fallback_index({ "options": [{ "label": "格 A", "data": { "to": Vector2i(2, 0) } }, { "label": "格 B", "data": { "to": Vector2i(3, 0) } }] }) == 0,
-		"代打口径：都没有就第一项（落子 / 弃牌这类每项都往前走）")
 	if not _sc_ready():
 		return
 	OS.set_environment("CW_KERNEL", "sidecar")
@@ -22604,12 +22611,12 @@ func t_net_sidecar_takeover() -> void:
 		_sc_answer_pending([a], [da])
 		return begun.call(a) and begun.call(b), 900)
 	check(fired and moved and room.pump != null and int(room.pump.takeovers) >= 1,
-		"到点：服务器按临时口径代打，对局往前走（超时 %d 次、代打 %d 次）" % [room.timeouts, int(room.pump.takeovers) if room.pump != null else -1])
+		"到点：这一问交给 sidecar 里的 AI 代答，对局往前走（超时 %d 次、交出 %d 次）" % [room.timeouts, int(room.pump.takeovers) if room.pump != null else -1])
 	check(moved, "代打那一问的 step_begin 带着房间给乙的那个编号广播出去（客户端据此收界面，#44）")
 	var after := await _net_pump(srv, [a, b], func() -> bool:
 		_sc_answer_pending([a], [da])
 		return int(b.pending_ask.get("ask_id", -1)) > id0, 3000)
-	check(after, "乙之后照样被问到新的一问（对局没卡在代打那一步）")
+	check(after, "乙之后照样被问到新的一问：在线超时只代答那一问（once），席位还在他手里")
 	## 断线重连：有计时的房间，悬着的那一问等他回来；凭令牌回来拿到同一问 + 一份自己视角的状态
 	var id1: int = int(b.pending_ask.get("ask_id", -1))
 	if not room._ask.is_empty():
@@ -22626,7 +22633,7 @@ func t_net_sidecar_takeover() -> void:
 	ok = await _net_pump(srv, [a, b2], func() -> bool: return not b2.pending_ask.is_empty())
 	check(ok and int(b2.pending_ask["ask_id"]) == id1 and b2.my_seat == 1 and _net_count(b2, "sync") > 0
 		and int(_net_last(b2, "sync")["envelope"]["viewer"]) == 1, "凭令牌重连：同一问重发、补一份自己视角的状态")
-	b2.answer(id1, Pump.fallback_index(b2.pending_ask["req"]))
+	b2.answer(id1, _sc_progress_index(b2.pending_ask["req"]))
 	ok = await _net_pump(srv, [a, b2], func() -> bool:
 		_sc_answer_pending([a], [da])
 		return a.inbox.any(func(m: Dictionary) -> bool: return m["t"] == "step_begin" and int(m["ask_id"]) == id1))
@@ -22643,7 +22650,7 @@ func t_net_sidecar_takeover() -> void:
 	a.start()
 	var room2: CWRoom = srv.rooms[a.code]
 	await _net_pump(srv, [a, c], func() -> bool: return room2.state == CWRoom.State.PLAYING)
-	var pump2 = room2.pump   ## 局末房间会把泵拆掉：先攥住，收局后还要读它的代打计数
+	var pump2 = room2.pump   ## 局末房间会把泵拆掉：先攥住，收局后还要读它的交出计数
 	var asked := [0]
 	a.message.connect(func(m: Dictionary) -> void:
 		if m["t"] == "ask":
@@ -22652,22 +22659,39 @@ func t_net_sidecar_takeover() -> void:
 		_sc_answer_pending([a], [da])
 		return not c.pending_ask.is_empty())
 	check(ok and room2.pump != null, "丁拿到一问")
+	var cid0 := int(c.pending_ask.get("ask_id", -1))
 	c.dispose()
 	ok = await _net_pump(srv, [a], func() -> bool:
 		_sc_answer_pending([a], [da])
 		return room2.pump == null or not room2.seats[1]["online"])
 	check(ok, "丁掉线：席位标离线")
+	ok = await _net_pump(srv, [a], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return a.inbox.any(func(m: Dictionary) -> bool: return m["t"] == "step_begin" and int(m["ask_id"]) == cid0), 900)
+	check(ok, "无计时：他悬着的那一问当场交给 AI，答下时的 step_begin 带的是房间给他的那个号（#44）")
 	var round_at := int(room2.pump.round_no) if room2.pump != null else 0
 	var asks_at: int = asked[0]
+	var begins_at := _net_count(a, "step_begin")
 	var frames2 := { "n": 0 }
+	## 搜索档在 Debug 产物里一问一两百毫秒：看它替丁走过两个世界回合就收（甲投降），不陪它打完整局
 	ok = await _net_pump(srv, [a], func() -> bool:
 		frames2["n"] += 1
 		_sc_answer_pending([a], [da])
-		return room2.games_played == 1, 6000)
+		return room2.pump == null or int(room2.pump.round_no) >= round_at + 2, 9000)
 	var tk2: int = int(pump2.takeovers) if pump2 != null else 0
-	check(ok and tk2 >= 3 and room2.timeouts == 0, "掉线的那一席每问都由代打即时答掉（不等计时），甲一个人把这局打完（代打 %d 次、第 %d 回合收局、甲又被问 %d 次、%d 帧）"
-		% [tk2, int(_net_last(a, "game_over").get("round", -1)), asked[0] - asks_at, frames2["n"]])
-	check(int(_net_last(a, "game_over").get("round", -1)) > round_at, "掉线之后世界回合还在往前走（从第 %d 回合起）" % round_at)
+	var ai_steps := 0
+	var seen_begins := 0
+	for m in a.inbox:
+		if m["t"] == "step_begin":
+			seen_begins += 1
+			if seen_begins > begins_at and int(m["seat"]) == 1:
+				ai_steps += 1
+	check(ok and tk2 == 1 and room2.timeouts == 0 and ai_steps >= 3 and asked[0] > asks_at,
+		"掉线 = 这一席整个交给 AI（交出 %d 次）：之后他的 %d 步都由 AI 即时答（不等计时），甲照常被问（%d 次），两个世界回合走过去（%d 帧）"
+		% [tk2, ai_steps, asked[0] - asks_at, frames2["n"]])
+	a.surrender(true)
+	ok = await _net_pump(srv, [a], func() -> bool: return room2.games_played == 1)
+	check(ok and int(_net_last(a, "game_over").get("round", -1)) >= round_at + 2, "甲投降收局（第 %d 回合）" % int(_net_last(a, "game_over").get("round", -1)))
 	## ---- ④ 开关的另外三面 ----
 	var e := _net_client("戊", false)
 	e.connect_to(url, "戊")
@@ -22690,8 +22714,8 @@ func t_net_sidecar_takeover() -> void:
 	a.start()
 	var room3: CWRoom = srv.rooms[a.code]
 	await _net_pump(srv, [a, e], func() -> bool: return room3.state == CWRoom.State.PLAYING)
-	check(ok and room3.state == CWRoom.State.PLAYING and room3.game != null and room3.pump == null,
-		"开关打开、房里有 AI 席 ⇒ 照旧 GD 路（C# 还没有 AI）")
+	check(ok and room3.state == CWRoom.State.PLAYING and room3.game == null and room3.pump != null,
+		"开关打开、房里有 AI 席 ⇒ 也走 C# 内核路（P6 第二段：AI 席由 sidecar 里的 C# AI 作答）")
 	a.leave()
 	e.leave()
 	await _net_pump(srv, [a, e], func() -> bool: return not srv.rooms.has(room3.code))
@@ -22733,7 +22757,7 @@ func t_net_sidecar_takeover() -> void:
 	CWKernelSidecar.shutdown_idle_links()
 
 ## 真界面接 C# 内核路的服务器 —— **客户端一行没改**，这一条验的就是「对客户端零改动」：Main.tscn 的联机对局界面连上一间 sidecar 房，
-## 落子点一格、行动问答按「结束回合」（乙按代打口径作答），打过两个世界回合。验：行动栏按 tier B 的 action_kinds 建出整排按钮、
+## 落子点一格、行动问答按「结束回合」（乙按 _sc_progress_index 作答），打过两个世界回合。验：行动栏按 tier B 的 action_kinds 建出整排按钮、
 ## 镜像跟着回合走、名字是昵称、悬浮查询经 query RPC 由 sidecar 答回来、拆局干净
 func t_net_sidecar_ui() -> void:
 	print("[联机·C# 内核路·真界面]")
@@ -22744,7 +22768,6 @@ func t_net_sidecar_ui() -> void:
 	if srv == null:
 		OS.set_environment("CW_KERNEL", "")
 		return
-	var Pump := preload("res://scripts/net/cw_net_pump.gd")
 	var a := _net_client("甲", false)
 	var b := _net_client("乙", false)
 	await _net_pair(srv, a, b)
@@ -22764,7 +22787,7 @@ func t_net_sidecar_ui() -> void:
 	var st := { "bar": 0, "kinds": 0, "ends": 0, "places": 0 }
 	var answer_b := func() -> void:
 		if not b.pending_ask.is_empty():
-			b.answer(int(b.pending_ask["ask_id"]), Pump.fallback_index(b.pending_ask["req"]))
+			b.answer(int(b.pending_ask["ask_id"]), _sc_progress_index(b.pending_ask["req"]))
 	ok = await _net_pump(srv, [a, b], func() -> bool:
 		answer_b.call()
 		if m.bridge._pending != null:
@@ -22805,6 +22828,337 @@ func t_net_sidecar_ui() -> void:
 	srv.stop()
 	CWKernelSidecar.shutdown_idle_links()
 	OS.set_environment("CW_KERNEL", "")
+
+
+## 一个客户端看到的「每份状态之后谁先动」：sync 记下 envelope 里正在被问的席位、step_begin 记下这一步是谁的
+func _sc_turns(m: Dictionary, out: Array) -> void:
+	match String(m["t"]):
+		"sync":
+			out.append(["sync", int(m["envelope"]["state"]["g"]["asking_pid"])])
+		"step_begin":
+			out.append(["begin", int(m["seat"])])
+
+
+## 每份 sync 说的「正在问谁」都得是紧接着那一步的主人；对不上的份数（最后一份之后没有下一步，不算）。
+## sync 是 step_end 那一拍现取的：sidecar 要是在后台先往下走了几步，取到的就是那几步之后的局面
+func _sc_turn_skew(turns: Array) -> int:
+	var bad := 0
+	for i in turns.size():
+		if turns[i][0] != "sync":
+			continue
+		for j in range(i + 1, turns.size()):
+			if turns[j][0] == "begin":
+				bad += 1 if int(turns[j][1]) != int(turns[i][1]) else 0
+				break
+	return bad
+
+
+## P6 第二段：有 AI 席的房跑在 C# 内核上（AI 由 sidecar 里的 C# AI 作答，房间每帧推一步），走真 WebSocket。
+##   ① 档位映射：房间的 heur → 普通档、mc → 搜索档（cw_net_pump.gd TIER_OF）
+##   ② 4 人房：甲（席 0）、乙（席 3）真人，席 1 / 2 放 AI（heur），外加开局前进房的观众，打到终局。验：
+##      AI 席一问都不发给任何人、它们自己出过手；**每份 sync 都是那一步的局面**（envelope 里正在问的席位 = 紧接着那一步的主人）；
+##      名字：真人 = 昵称、AI 席 = 默认名
+##   ③ 掉线交给 AI → 凭令牌回来交还：AI 接走他悬着的那一问（step_begin 带房间给他的号），回来之后他照常被问到、作答
+func t_net_sidecar_ai() -> void:
+	print("[联机·C# 内核路·AI 席与交还]")
+	var Pump := preload("res://scripts/net/cw_net_pump.gd")
+	var seats := [CWRoom.empty_seat(), CWRoom.ai_seat("mc"), CWRoom.ai_seat("heur"), CWRoom.empty_seat()]
+	seats[0]["kind"] = "human"
+	seats[3]["kind"] = "human"
+	check(Pump.ai_tiers(seats) == { 1: "search", 2: "normal" }, "档位映射：mc（对抗搜索）→ 搜索档、heur（新手）→ 普通档，真人席不出现")
+	if not _sc_ready():
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var srv := _net_server()
+	if srv == null:
+		OS.set_environment("CW_KERNEL", "")
+		return
+	var url := "ws://%s:%d" % [NET_HOST, srv.port]
+	## ---- ② 4 人房：两真人 + 两 AI + 观众，打到终局 ----
+	var a := _net_client("甲", false)
+	var b := _net_client("乙", false)
+	var w := _net_client("丙", false)
+	check(await _net_pair(srv, a, b) and await _net_pair(srv, w, w), "三个客户端握手")
+	a.create_room(4, 0, true, 4242)
+	await _net_pump(srv, [a, b, w], func() -> bool: return a.code != "")
+	b.join(a.code)
+	w.join(a.code)
+	await _net_pump(srv, [a, b, w], func() -> bool: return b.code == a.code and w.code == a.code)
+	a.sit(0)
+	b.sit(3)
+	await _net_pump(srv, [a, b, w], func() -> bool: return a.my_seat == 0 and b.my_seat == 3)
+	a.set_ai(1, "heur")
+	a.set_ai(2, "heur")
+	a.ready()
+	b.ready()
+	var ok := await _net_pump(srv, [a, b, w], func() -> bool:
+		return a.room["seats"][2]["kind"] == "ai" and a.room["seats"][0]["ready"] and a.room["seats"][3]["ready"])
+	check(ok, "4 人房：甲 0、乙 3、两个 AI 席、都准备好了")
+	var ta := _sc_tally()
+	var tb := _sc_tally()
+	var tw := _sc_tally()
+	var turns := { "a": [], "b": [], "w": [] }
+	var hooks := [_sc_audit.bind(ta, 0), _sc_audit.bind(tb, 3), _sc_audit.bind(tw, -1),
+		_sc_turns.bind(turns["a"]), _sc_turns.bind(turns["b"]), _sc_turns.bind(turns["w"])]
+	a.message.connect(hooks[0])
+	b.message.connect(hooks[1])
+	w.message.connect(hooks[2])
+	a.message.connect(hooks[3])
+	b.message.connect(hooks[4])
+	w.message.connect(hooks[5])
+	var da = load("res://tests/xcheck_bridge.gd").new()
+	var db = load("res://tests/xcheck_bridge.gd").new()
+	da.seed_policy(4242)
+	db.seed_policy(2424)
+	a.start()
+	var room: CWRoom = srv.rooms[a.code]
+	await _net_pump(srv, [a, b, w], func() -> bool: return room.state == CWRoom.State.PLAYING)
+	check(room.pump != null and room.game == null, "开关打开 + 有 AI 席 ⇒ 这一局走条目泵（房里没有 CWGame）")
+	var t0 := Time.get_ticks_msec()
+	ok = await _net_pump(srv, [a, b, w], func() -> bool:
+		_sc_answer_pending([a, b], [da, db])
+		return not ta["over"].is_empty() and not tb["over"].is_empty() and not tw["over"].is_empty(), 20000)
+	check(ok, "打到终局（甲 %d 问、乙 %d 问，%.1f s，第 %d 回合：%s）" % [ta["asks"], tb["asks"], (Time.get_ticks_msec() - t0) / 1000.0,
+		int(ta["over"].get("round", -1)), String(ta["over"].get("reason", ""))])
+	var ai_begins := { 1: 0, 2: 0 }
+	for m in a.inbox:
+		if m["t"] == "step_begin" and ai_begins.has(int(m["seat"])):
+			ai_begins[int(m["seat"])] += 1
+	check(ta["foreign"] == 0 and tb["foreign"] == 0 and tw["asks"] == 0 and ai_begins[1] > 3 and ai_begins[2] > 3,
+		"AI 席一问都不发给任何人，它们自己出手（席 1 走了 %d 步、席 2 走了 %d 步）" % [ai_begins[1], ai_begins[2]])
+	for k in ["a", "b", "w"]:
+		var tl: Array = turns[k]
+		check(tl.size() > 40 and _sc_turn_skew(tl) == 0,
+			"%s：每份状态都是那一步的局面 —— envelope 里正在问的席位 = 紧接着那一步的主人（%d 条里对不上 %d 条）" % [k, tl.size(), _sc_turn_skew(tl)])
+	for pair in [["甲", ta], ["乙", tb], ["观众", tw]]:
+		var t: Dictionary = pair[1]
+		check(t["sync_no_end"] == 0 and t["ends"] == t["syncs"] and t["bad"] == 0 and t["floats"] == 0 and t["other_shown"] == 0,
+			"%s：每步一份 step_end + sync、装得进镜像、零浮点、别人的手牌不露（%d 份）" % [pair[0], t["syncs"]])
+	var lm: CWMirror = ta["last_mirror"]
+	check(lm != null and String(lm.players[0]["name"]) == "甲" and String(lm.players[3]["name"]) == "乙"
+		and String(lm.players[1]["name"]) == "癌症A" and String(lm.players[2]["name"]) == "免疫B",
+		"名字：真人 = 昵称，AI 席 = 默认名而不是档位名（%s / %s）" % [lm.players[1]["name"] if lm != null else "?", lm.players[2]["name"] if lm != null else "?"])
+	var owners := [a, b, w, a, b, w]
+	for i in hooks.size():
+		owners[i].message.disconnect(hooks[i])
+	a.leave()
+	b.leave()
+	w.leave()
+	await _net_pump(srv, [a, b, w], func() -> bool: return room.members.is_empty())
+	## ---- ③ 掉线交给 AI、凭令牌回来交还（2 人房、无计时）----
+	var c := _net_client("丁", false)
+	c.connect_to(url, "丁")
+	await _net_pump(srv, [a, c], func() -> bool: return c.client_id >= 0)
+	check(await _net_room(srv, a, c, 2, 0, 3131), "交还场景：2 人房")
+	a.start()
+	var room2: CWRoom = srv.rooms[a.code]
+	ok = await _net_pump(srv, [a, c], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return not c.pending_ask.is_empty())
+	check(ok and room2.pump != null, "丁拿到一问")
+	var cid0 := int(c.pending_ask["ask_id"])
+	var token: String = c.token
+	var code2: String = room2.code
+	c.dispose()
+	var c_steps := func() -> int:
+		var n := 0
+		for m in a.inbox:
+			if m["t"] == "step_begin" and int(m["seat"]) == 1:
+				n += 1
+		return n
+	var steps_at: int = c_steps.call()
+	ok = await _net_pump(srv, [a], func() -> bool:
+		_sc_answer_pending([a], [da])
+		var took := a.inbox.any(func(m: Dictionary) -> bool: return m["t"] == "step_begin" and int(m["ask_id"]) == cid0)
+		return took and c_steps.call() >= steps_at + 3, 3000)
+	check(ok, "丁掉线：他悬着的那一问由 AI 接走（step_begin 带房间给他的号 %d），之后他那一席接着由 AI 走（%d 步）" % [cid0, c_steps.call() - steps_at])
+	var c2 := _net_client("丁", false)
+	c2.connect_to(url, "丁", code2, token)
+	ok = await _net_pump(srv, [a, c2], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return not c2.pending_ask.is_empty(), 3000)
+	var cid1 := int(c2.pending_ask.get("ask_id", -1))
+	check(ok and room2.seats[1]["online"] and cid1 > cid0 and _net_count(c2, "sync") > 0,
+		"凭令牌回来：这一席交还给他 —— 补一份状态，之后照常问到他（新的一问 %d）" % cid1)
+	c2.answer(cid1, _sc_progress_index(c2.pending_ask["req"]))
+	ok = await _net_pump(srv, [a, c2], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return a.inbox.any(func(m: Dictionary) -> bool: return m["t"] == "step_begin" and int(m["ask_id"]) == cid1))
+	check(ok and int(room2.pump.takeovers) == 1, "他自己答的那一问照常往下走（交出 AI 一次）")
+	a.leave()
+	c2.leave()
+	ok = await _net_pump(srv, [a, c2], func() -> bool: return not srv.rooms.has(code2))
+	check(ok and room2.pump == null, "对局中两人都离开 ⇒ 中止、关房（AI 正想着的那一问随会话一起作废）")
+	a.dispose()
+	b.dispose()
+	w.dispose()
+	c2.dispose()
+	srv.stop()
+	CWKernelSidecar.shutdown_idle_links()
+	OS.set_environment("CW_KERNEL", "")
+
+
+## 网页单机走服务器（P6，NET_VERSION 32）：create_solo 建一间「我 + AI」的私人房、当场开局，走真 WebSocket。
+##   · 开关关着 ⇒ solo_off、不建房；形参不合法 ⇒ bad_param
+##   · 开关打开：私人房（大厅里没有、别人 join 不进、凭令牌也回不来）、走 C# 内核路、AI 席三档名、钉的癌种进了局面、名字 = 昵称
+##   · 2 人局打到终局（我按 LCG 答、AI 由 sidecar 答）；回等待室后离开 ⇒ 房间关掉
+##   · 全服上限满了 ⇒ solo_full；对局中掉线 ⇒ 房间当场关
+func t_net_solo() -> void:
+	print("[联机·网页单机房 create_solo]")
+	check(CWNetServer.solo_request_ok(4, 0, ["", "normal", "intent", "search"], [2, -1], 7)
+		and not CWNetServer.solo_request_ok(3, 0, ["", "normal", "normal"], [], 0)
+		and not CWNetServer.solo_request_ok(2, 2, ["normal", "normal"], [], 0)
+		and not CWNetServer.solo_request_ok(2, 0, ["", "mc"], [], 0)
+		and not CWNetServer.solo_request_ok(2, 0, ["", "normal"], [0, 1], 0)
+		and not CWNetServer.solo_request_ok(2, 0, ["", "normal"], [5], 0),
+		"形参：人数在档位里、席位在盘上、每席一个三档名（自己那一席不看）、癌种不多于癌席且在 -1..3")
+	if not _sc_ready():
+		return
+	var srv := _net_server()
+	if srv == null:
+		return
+	var a := _net_client("甲", false)
+	var b := _net_client("乙", false)
+	check(await _net_pair(srv, a, b), "两个客户端握手")
+	## ---- 开关关着 ----
+	OS.set_environment("CW_KERNEL", "")
+	a.create_solo(2, 0, ["", "normal"], [], 0)
+	var ok := await _net_pump(srv, [a, b], func() -> bool: return _net_count(a, "error") > 0)
+	check(ok and String(_net_last(a, "error")["code"]) == "solo_off" and srv.rooms.is_empty(), "开关关着 ⇒ solo_off，服务器不建房")
+	## ---- 开关打开：4 人房，钉癌种 ----
+	OS.set_environment("CW_KERNEL", "sidecar")
+	a.create_solo(4, 2, ["normal", "intent", "", "normal"], [3], 5151)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return not a.pending_ask.is_empty() and _net_count(a, "sync") > 0)
+	var room: CWRoom = srv.rooms.get(a.code)
+	check(ok and room != null and room.solo and not room.public and room.pump != null and room.game == null and a.my_seat == 2,
+		"create_solo：建好就开局，私人房、走 C# 内核路，我坐在要的席位上（%d）" % a.my_seat)
+	var env: Dictionary = _net_last(a, "sync")["envelope"]
+	var ps: Array = env["state"]["g"]["players"]
+	check(String(ps[2]["name"]) == "甲" and String(ps[0]["name"]) == "免疫A" and int(ps[1]["cancer_type"]) == 3,
+		"名字 = 昵称、AI 席默认名；钉的癌种进了局面（癌席 1 = %d）" % int(ps[1]["cancer_type"]))
+	check(room != null and room.seats[1]["tier"] == "intent" and room.seats[1]["nick"] == CWNet.SOLO_TIERS["intent"]
+		and room.seats[3]["tier"] == "normal", "AI 席按 tiers 摆（三档名）")
+	b.list_rooms()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return _net_count(b, "lobby") > 0)
+	var lob: Dictionary = _net_last(b, "lobby")
+	check(ok and (lob["rooms"] as Array).is_empty() and (lob["live"] as Array).is_empty(), "大厅两栏都没有单机房")
+	b.join(a.code)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return _net_count(b, "error") > 0)
+	check(ok and String(_net_last(b, "error")["code"]) == "no_room" and room.members.size() == 1, "别人凭房间码也进不来（观战也不行）")
+	## 上限：调成 1，第二间就满了
+	srv.solo_max = 1
+	b.create_solo(2, 0, ["", "normal"], [], 0)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return String(_net_last(b, "error").get("code", "")) == "solo_full")
+	check(ok and srv.rooms.size() == 1, "全服单机房满了 ⇒ solo_full")
+	srv.solo_max = CWNet.SOLO_MAX
+	## 对局中离开 ⇒ 房间当场关
+	var code1 := a.code
+	a.leave()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return not srv.rooms.has(code1))
+	check(ok and room.state == CWRoom.State.CLOSED and room.pump == null, "对局中点离开 ⇒ 房间当场关、sidecar 会话拆掉")
+	## ---- 2 人局打到终局 ----
+	var da = load("res://tests/xcheck_bridge.gd").new()
+	da.seed_policy(2222)
+	a.create_solo(2, 0, ["", "normal"], [], 2222)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return a.code != "" and a.code != code1 and srv.rooms.has(a.code))
+	var room2: CWRoom = srv.rooms.get(a.code)
+	var over_at := _net_count(a, "game_over")
+	ok = ok and await _net_pump(srv, [a, b], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return _net_count(a, "game_over") > over_at, 12000)
+	check(ok and room2 != null and room2.state == CWRoom.State.WAITING and room2.games_played == 1,
+		"2 人单机局打到终局（第 %d 回合：%s），回等待室" % [int(_net_last(a, "game_over").get("round", -1)), String(_net_last(a, "game_over").get("reason", ""))])
+	var code2 := a.code
+	a.leave()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return not srv.rooms.has(code2))
+	check(ok, "打完离开 ⇒ 房间关掉（不留空房等 10 分钟）")
+	## ---- 对局中掉线 ⇒ 当场关、凭令牌回不来 ----
+	a.create_solo(2, 1, ["normal", ""], [], 0)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return srv.rooms.has(a.code) and srv.rooms[a.code].state == CWRoom.State.PLAYING)
+	var code3 := a.code
+	var token: String = a.token
+	a.dispose()
+	ok = ok and await _net_pump(srv, [b], func() -> bool: return not srv.rooms.has(code3))
+	check(ok, "对局中掉线 ⇒ 房间当场关（唯一的真人走了）")
+	var a2 := _net_client("甲", false)
+	a2.connect_to("ws://%s:%d" % [NET_HOST, srv.port], "甲", code3, token)
+	ok = await _net_pump(srv, [a2, b], func() -> bool: return _net_count(a2, "error") > 0)
+	check(ok and String(_net_last(a2, "error")["code"]) == "no_room", "凭令牌回不去（no_room）")
+	a2.dispose()
+	b.dispose()
+	srv.stop()
+	CWKernelSidecar.shutdown_idle_links()
+	OS.set_environment("CW_KERNEL", "")
+
+
+## 网页版「开始对局」走服务器（main.gd solo_via_server；桌面上默认关，这里拨开）：真 Main.tscn + 本机服务器。
+##   · 普通一人局 ⇒ 联机面板（不露面）开私人房，镜头推完按联机局进棋盘；结算屏给「再来一局」、暂停菜单还是「返回主菜单」且不说「AI 代打」
+##   · 暂停菜单「返回主菜单」⇒ 告别服务器、房间关掉
+##   · 服务器开关关着（solo_off）⇒ 照旧本地开局；热座 / 观战本来就不走服务器
+func t_web_solo() -> void:
+	print("[网页单机·主菜单开始对局走服务器]")
+	var hot := { "players": 2, "faction": CWConfigPanel.HOTSEAT, "ai": 0, "seed": 1, "cancer_types": [], "seats": [true, true] }
+	var watch := { "players": 2, "faction": -1, "ai": 0, "seed": 1, "cancer_types": [], "seats": [] }
+	var cfg := { "players": 2, "faction": CWData.Faction.CANCER, "ai": 1, "seed": 777, "cancer_types": [], "seats": [] }
+	var Main := load("res://scripts/ui/main.gd")
+	check(Main.solo_wanted(cfg, true) and not Main.solo_wanted(cfg, false) and not Main.solo_wanted(hot, true)
+		and not Main.solo_wanted(watch, true), "走不走服务器：网页版的一人局走，桌面 / 热座 / 观战不走")
+	var msg: Dictionary = CWOnlinePanel.solo_message_of(cfg)
+	check(msg == { "players": 2, "seat": 1, "tiers": ["search", "search"], "cancer_types": [], "seed": 777 },
+		"配置 → create_solo：坐我那一阵营的第一席；「较强」落到搜索档（%s）" % str(msg))
+	if not _sc_ready():
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var srv := _net_server()
+	if srv == null:
+		OS.set_environment("CW_KERNEL", "")
+		return
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	main_scene.solo_via_server = true
+	root.add_child(main_scene)
+	await process_frame
+	## 排在 Main 进树之后：它的 _ready 会 load_prefs，那一下会把设置盖回盘上存的
+	var old_server := CWSettings.server
+	var old_nick := CWSettings.nick
+	CWSettings.server = "ws://%s:%d" % [NET_HOST, srv.port]
+	CWSettings.nick = "网友"
+	var m: CWMatch = main_scene.get_node("Match")
+	cfg["ai"] = 0   ## 普通档：整局最快
+	main_scene._begin(cfg)
+	var ok := await _net_pump(srv, [], func() -> bool: return m.online and m.mirror != null and not main_scene._entering, 3000)
+	var room: CWRoom = srv.rooms.values()[0] if srv.rooms.size() == 1 else null
+	check(ok and m.solo and room != null and room.solo and room.state == CWRoom.State.PLAYING
+		and m.human_players.size() == 1 and m.human_players[0] == 1,
+		"一人局：开了一间服务器上的私人房，按联机局进棋盘（我坐席位 %s）" % str(m.human_players))
+	check(m.settle != null and not m.settle.online and m.pause_menu.solo
+		and m.pause_menu.items().any(func(it: Dictionary) -> bool: return it["text"] == "返回主菜单")
+		and not m.pause_menu.items().any(func(it: Dictionary) -> bool: return it["id"] == "save_quit")
+		and CWPauseMenu.confirm_hint("menu", true, false, false, true) == "这一局不存档，离开后就结束了",
+		"结算屏给「再来一局」；暂停菜单仍叫「返回主菜单」、没有存档、确认页不说「AI 代打」")
+	## 「再来一局」：同一条连接上离开这一间、再开一间（新种子），照样按联机局进棋盘
+	var code1: String = room.code if room != null else ""
+	main_scene._restart()
+	ok = await _net_pump(srv, [], func() -> bool:
+		return not main_scene._entering and m.online and m.mirror != null and srv.rooms.size() == 1 and not srv.rooms.has(code1), 3000)
+	var room2: CWRoom = srv.rooms.values()[0] if srv.rooms.size() == 1 else null
+	check(ok and m.solo and room2 != null and room2.solo and room2.seed_override == 0,
+		"再来一局：上一间当场关掉、新开一间（种子交给服务器挑），照样是网页单机局")
+	main_scene._on_pause_chose("menu")
+	ok = await _net_pump(srv, [], func() -> bool: return srv.rooms.is_empty() and not main_scene._entering, 3000)
+	check(ok and not m.online and not m.solo, "返回主菜单：告别服务器，那间房当场关掉")
+	## 开关关着 ⇒ 本地开
+	OS.set_environment("CW_KERNEL", "")
+	main_scene._begin(cfg)
+	ok = await _net_pump(srv, [], func() -> bool: return m.kernel != null and m.mirror != null and not main_scene._entering, 3000)
+	check(ok and not m.online and not m.solo and m.kernel is CWKernelInProc and srv.rooms.is_empty(),
+		"服务器答 solo_off ⇒ 照旧本地开局（GD 内核还在网页包里）")
+	m.teardown()
+	main_scene.queue_free()
+	await process_frame
+	CWSettings.server = old_server
+	CWSettings.nick = old_nick
+	srv.stop()
+	CWKernelSidecar.shutdown_idle_links()
 
 
 ## ── 新手教程 v2 · S9a：间章地基（Kevin 2026-09-19 拍板「重心平移」）────────────

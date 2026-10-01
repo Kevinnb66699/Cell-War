@@ -36,6 +36,7 @@ var _replay_seq := 0
 var drain := false
 var quiet := false     ## 测试时不打印
 var idle_ms := CWNet.ROOM_IDLE_MS   ## 空房多久自动关（测试调短）
+var solo_max := CWNet.SOLO_MAX      ## 全服同时最多几间网页单机房（测试调小）
 var _started := false
 var _drained := false
 var _last_poll := 0
@@ -273,6 +274,8 @@ func _handle(cid: int, bytes: PackedByteArray) -> void:
 				send(cid, { "t": "replay", "id": rep["id"], "data": rep })
 		"create_room":
 			_create_room(cid, msg)
+		"create_solo":
+			_create_solo(cid, msg)
 		"join_room":
 			_join_room(cid, str(msg.get("code", "")))
 		"reconnect":
@@ -333,12 +336,88 @@ func _create_room(cid: int, msg: Dictionary) -> void:
 		"，观众全见" if wh else "", clients[cid]["nick"]])
 
 
+## 网页单机（换内核 P6，v32）：建一间「我 + 其余全是 AI」的私人房、当场开局。房间本身就是 CWRoom（席位、对局流、投降、
+## 每步推送都与联机房同一套），差别都挂在 `room.solo` 上：不进大厅、不许别人进、人走房关（CWRoom.leave）、只走 C# 内核路。
+## **只在服务器开关 CW_KERNEL=sidecar 时收**（关着答 solo_off —— 计划里所有 C# 路都在这个开关后面，关着时服务器行为不变；
+## 网页包收到 solo_off 退回本地开局）。全服同时最多 solo_max 间。
+func _create_solo(cid: int, msg: Dictionary) -> void:
+	if drain:
+		_error(cid, "maintenance")
+		return
+	if OS.get_environment("CW_KERNEL") != "sidecar":
+		_error(cid, "solo_off")
+		return
+	var n: Variant = msg.get("players", 0)
+	var seat: Variant = msg.get("seat", -1)
+	var tiers: Variant = msg.get("tiers", [])
+	var ctypes: Variant = msg.get("cancer_types", [])
+	var sd: Variant = msg.get("seed", 0)
+	if not solo_request_ok(n, seat, tiers, ctypes, sd):
+		_error(cid, "bad_param")
+		return
+	var live := 0
+	for r in rooms.values():
+		if r.solo:
+			live += 1
+	if live >= solo_max:
+		_error(cid, "solo_full")
+		return
+	unbind(cid)
+	var code := CWNet.make_code(rng)
+	while rooms.has(code):
+		code = CWNet.make_code(rng)
+	var r := CWRoom.new()
+	r.configure(self, code, n, 0, false)   ## 不限时、私密（不进大厅）、观众视角无所谓（没有观众）
+	r.solo = true
+	r.cancer_types = ctypes
+	r.seed_override = sd
+	rooms[code] = r
+	clients[cid]["room"] = code
+	r.join(cid, clients[cid]["nick"])
+	for i in int(n):
+		if i != seat:
+			r.seats[i] = CWRoom.ai_seat(String(tiers[i]))
+	r.sit(cid, seat)
+	r.seats[seat]["ready"] = true
+	var e := r.start(cid)
+	if e != "":
+		## 起不来（sidecar 找不到 / 进程起不了）：先把他从房里摘出来再关 —— 不然 close_room 先给他发一条 room_closed，
+		## 网页包会把那一条当成失败原因，真正的原因（solo_off）反倒排在后面
+		r.members.erase(cid)
+		clients[cid]["room"] = ""
+		close_room(r)
+		_error(cid, e)
+		return
+	say("单机房 %s：%d 人，席位 %d，AI %s，房主 %s" % [code, n, seat, str(tiers), clients[cid]["nick"]])
+
+
+## create_solo 的形参挡一道（纯函数，好直接测）：人数在档位里、席位在盘上、每席一个档名（自己那一席不看）、
+## 癌种是 -1..3 的整数且不多于癌席数、种子是整数
+static func solo_request_ok(n: Variant, seat: Variant, tiers: Variant, ctypes: Variant, sd: Variant) -> bool:
+	if not (n in CWNet.PLAYER_CHOICES) or typeof(seat) != TYPE_INT or seat < 0 or seat >= n:
+		return false
+	if typeof(tiers) != TYPE_ARRAY or tiers.size() != n:
+		return false
+	for i in tiers.size():
+		if i != seat and not (tiers[i] is String and CWNet.SOLO_TIERS.has(tiers[i])):
+			return false
+	if typeof(ctypes) != TYPE_ARRAY or ctypes.size() * 2 > int(n):
+		return false
+	for t in ctypes:
+		if typeof(t) != TYPE_INT or t < -1 or t > 3:
+			return false
+	return typeof(sd) == TYPE_INT
+
+
 func _join_room(cid: int, code: String) -> void:
 	code = code.strip_edges().to_upper()
 	if not rooms.has(code):
 		_error(cid, "no_room")
 		return
 	var r: CWRoom = rooms[code]
+	if r.solo:
+		_error(cid, "no_room")   ## 网页单机房是一个人的私人局：别人凭房间码也进不来（观战也不行），对外就当没有这间房
+		return
 	## 对局中也能进 —— 进去就是**观众**（不占席位、看得到盘面、看不到任何人的手牌）。
 	## 房间层其实一直支持：`CWRoom.join` 见到 PLAYING 就给新成员推一份状态、
 	## 日志游标归零；挡着的只有这里从前那句 `_error(cid, "playing")`（2026-09-09 放开）。
@@ -353,7 +432,7 @@ func _join_room(cid: int, code: String) -> void:
 
 func _reconnect(cid: int, code: String, token: String) -> void:
 	code = code.strip_edges().to_upper()
-	if not rooms.has(code):
+	if not rooms.has(code) or rooms[code].solo:   ## 网页单机房人一断就关，凭令牌回不去（同一个人开第二个窗口也不行：旧连接让位会把房关掉）
 		_error(cid, "no_room")
 		return
 	unbind(cid)

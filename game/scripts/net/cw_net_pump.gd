@@ -9,16 +9,30 @@
 ##   · ask        → room._sc_ask()：只发给被问的那一席，计时 / 掉线代打照旧归房间管
 ##   · game_over  → room._sc_finish()
 ##   · sync / log → 不转：sync 由 step_end 那一拍逐人现取；日志随 envelope.logs 走（同 GD 路，日志从不单发）
-## 句柄是**消费者模式**（没有 decider、不设 observe_viewer）：每一问都是一条 ask 条目，答案经 answer() 交回去。
+## 句柄是**消费者模式**（没有 decider、不设 observe_viewer）：真人席的每一问都是一条 ask 条目，答案经 answer() 交回去。
+##
+## **AI 席与代打**（换内核 P6 · 第二段，2026-10-01）：房里的 AI 席与掉线 / 超时的代打都由 sidecar 里的 C# AI 作答（不出 ask 条目）。
+##   · 档位映射（TIER_OF）：房间的「heur」（AI·新手）→ normal、「mc」（AI·对抗搜索，09-20 起服务器上就是搜索配置）→ search；
+##     网页单机房直接用三档名。代打一律 search（Kevin 09-20：专家档代打）
+##   · **AI 的答案由房间推**（open 时 ai_paced）：sidecar 想好了也不交，等房间每帧一次 step_ai()。为什么非这样不可 ——
+##     step_end 那一拍房间按人现取 envelope（每人视角不同，进不了条目流），它假定 sidecar 正停在这一步；
+##     AI 在后台自己往下走的话，现取的就是几步之后的局面，盘面会先于演出跳过去。房间推，会话就只在房间的调用里动
+##     （同 GD 路「引擎要么停在询问上、要么已结束」），节奏也同 GD 路「AI 每次决策之前让出一帧」：一帧一步
+##   · 换手：set_ai(席位, 档) 把一席交给 AI（正问着他的那一问被收回、改由 AI 答，step_begin 照旧带那一问的号）、
+##     set_ai(席位, "") 交还真人（AI 正想着他那一问就作废、改问人）
 ##
 ## 不带 class_name（同 cw_lan.gd：局域网开服时客户端进程里也跑房间，热更补丁里新增的全局类基线认不出来），cw_room.gd preload 它。
 extends RefCounted
 
 const BATCH := 256
+## 房间席位的 tier → sidecar 的档名。前两个是联机房建房报文里的键（客户端还在发、改名要升协议），后三个是网页单机房的
+const TIER_OF := { "heur": "normal", "mc": "search", "normal": "normal", "intent": "intent", "search": "search" }
+## 掉线 / 超时代打用的档（Kevin 2026-09-20「换成专家级 ai 代打」，专家档 = 搜索配置）
+const TAKEOVER_TIER := "search"
 
 var room                         ## CWRoom（不写类型：免得两个脚本互相 preload 成环）
 var kernel: CWKernelSidecar
-var takeovers := 0               ## 代打次数（掉线 / 超时，统计与测试用；GD 路对应 CWNetBridge.takeovers）
+var takeovers := 0               ## 把真人席交给 AI 的次数（掉线 / 超时，统计与测试用；GD 路对应 CWNetBridge.takeovers 数的是代答的问数）
 var round_no := 1                ## 最近一份 envelope 的世界回合（投降冷却要用；sidecar 没有单独的查询口，取每步推送时顺手记下的）
 var _seen := 0                   ## 已经翻过的最后一条条目的 seq（句柄自己的 seq）
 var _room_ids := {}              ## sidecar 的 ask_id → 房间的 ask_id（step_begin 换号用）
@@ -26,16 +40,20 @@ var _pumping := false
 var _error := ""
 
 
-## 开一局：名字照 CWRoom._name_seats 的口径（真人昵称去首尾空白；空串 = 内核默认名「免疫A / 癌症A…」）。
+## 开一局：名字照 CWRoom._name_seats 的口径（真人昵称去首尾空白；AI 席与空串 = 内核默认名「免疫A / 癌症A…」——
+## AI 席的 nick 是档位名，两个同档 AI 会重名）。AI 席按 TIER_OF 换成 sidecar 的档名；网页单机房钉的癌种（cancer_types）原样转过去。
 ## open_hands 在开局时定死 —— 观众视角那一档建房时就拨好了，协议里没有中途改它的报文（C# 宿主也只在 open 时收这个参数）
 func open(p_room, seed_value: int) -> bool:
 	room = p_room
 	var names: Array = []
-	for pid in int(room.player_count):
-		names.append(String(room.seats[pid]["nick"]).strip_edges())
+	for s: Dictionary in room.seats:
+		names.append(String(s["nick"]).strip_edges() if s["kind"] == "human" else "")
+	var cfg := { "factions": CWData.FACTION_ORDER[int(room.player_count)], "seed": seed_value,
+		"open_hands": bool(room.watch_hands), "names": names, "ai": ai_tiers(room.seats), "ai_paced": true }
+	if not Array(room.cancer_types).is_empty():
+		cfg["cancer_types"] = Array(room.cancer_types)
 	kernel = CWKernelSidecar.new()
-	if kernel.open({ "factions": CWData.FACTION_ORDER[int(room.player_count)], "seed": seed_value,
-			"open_hands": bool(room.watch_hands), "names": names }):
+	if kernel.open(cfg):
 		return true
 	_error = String(kernel.last_error().get("msg", ""))
 	close()
@@ -92,6 +110,19 @@ func answer(sidecar_ask_id: int, index: int) -> bool:
 	return true
 
 
+## 把一席交给 sidecar 里的 AI（tier = TIER_OF 的值）或交还真人（tier = ""）。不在这儿泵：
+## 交给 AI 的那一问要等房间下一次 step_ai() 才有动静；交还真人的那条 ask 由句柄下一帧拉过来、房间的 tick 泵出去
+func set_ai(pid: int, tier: String, once := false) -> bool:
+	return kernel != null and kernel.set_ai(pid, tier, once)
+
+
+## 推 AI 一步（房间每帧一次，只在没有真人被问着的时候）：sidecar 里想好了的那个答案这就交，交了就把这一步泵出去。
+## 一帧最多一步 —— 同 GD 路「AI 每次决策之前让出一帧」，也正是 step_end 那一拍现取的 envelope 对得上这一步的原因（见文件头）
+func step_ai() -> void:
+	if kernel != null and kernel.step_ai():
+		pump()
+
+
 ## 投降投票全票通过：对方阵营直接获胜。句柄当场收局，step_end / game_over 这就泵出去
 func surrender(faction: int) -> void:
 	if kernel == null:
@@ -135,7 +166,8 @@ func _dispatch(e: Dictionary) -> void:
 			var sid_ask := int(e["ask_id"])
 			_room_ids[sid_ask] = room._sc_ask(sid_ask, wire_req(e["req"]))
 		"step_begin":
-			## 找不到编号就发 -1：客户端的接管判定要求 ask_id >= 0，-1 天然不命中（不会误收别人的界面）
+			## 找不到编号就发 -1：客户端的接管判定要求 ask_id >= 0，-1 天然不命中（不会误收别人的界面）。
+			## AI 席自己的问没有房间号（那一问从没发给谁），都是 -1；AI 接管的真人那一问沿用 sidecar 的号，这里换回房间给他的号
 			var sid_ask := int(e["ask_id"])
 			room.broadcast({ "t": "step_begin", "ask_id": int(_room_ids.get(sid_ask, -1)), "seat": int(e["seat"]) })
 			_room_ids.erase(sid_ask)
@@ -153,16 +185,13 @@ func _dispatch(e: Dictionary) -> void:
 
 
 # ---- 纯函数 ----
-## 掉线 / 超时代打的**临时口径**（P6 · 等 C# 的 AI 席落地前；Kevin 2026-09-20 定的是「专家档代打」，C# 现在还没有 AI）：
-## 挑一个**一定让对局往前走**的选项 —— 结束回合（act=end）/ 停（stop）/ 跳过（skip），都没有就第一项（落子、弃牌这类每项都往前走）。
-## 只看 data，不看下标与文案。换成 sidecar 的 AI 席时换掉的只是 CWRoom._sc_take_over 里调它的那一行
-static func fallback_index(req: Dictionary) -> int:
-	var opts: Array = req.get("options", [])
-	for i in opts.size():
-		var d: Dictionary = opts[i].get("data", {})
-		if String(d.get("act", "")) == "end" or bool(d.get("stop", false)) or bool(d.get("skip", false)):
-			return i
-	return 0
+## 房间席位表里的 AI 席 → sidecar open 的 `ai`：{席位: 档名}（按 TIER_OF 换名；真人席不出现）
+static func ai_tiers(seats: Array) -> Dictionary:
+	var ai := {}
+	for pid in seats.size():
+		if seats[pid]["kind"] == "ai":
+			ai[pid] = TIER_OF[String(seats[pid]["tier"])]
+	return ai
 
 
 ## ask 报文的 req：sidecar 的选项多带一个 `key`（宿主替作答方省一次拼键）。过网前去掉 —— GD 路的 req 选项只有 {label, data}，

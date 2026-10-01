@@ -746,19 +746,44 @@ func _open_config() -> void:
 func _open_online() -> void:
 	if _swap != null and _swap.is_running():
 		return
-	if _online == null:
-		_online = CWOnlinePanel.new()
-		_ui.add_child(_online)
-		_online.cancelled.connect(_close_config)
-		_online.match_started.connect(func(client: CWNetClient) -> void:
-			online_match_requested.emit(client))
-		_online.match_lost.connect(func(reason: String) -> void:
-			online_lost.emit(reason))
+	_ensure_online()
 	for label in _labels:
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_swap = create_tween()
 	_swap.tween_property($UI/Screen, "modulate:a", 0.0, T_SWAP_OUT)
 	_swap.tween_callback(_online.open)
+
+
+## 联机面板懒建（点「联机对战」或网页单机第一次用到它时）
+func _ensure_online() -> void:
+	if _online != null:
+		return
+	_online = CWOnlinePanel.new()
+	_ui.add_child(_online)
+	_online.cancelled.connect(_close_config)
+	_online.match_started.connect(func(client: CWNetClient) -> void:
+		online_match_requested.emit(client))
+	_online.match_lost.connect(func(reason: String) -> void:
+		online_lost.emit(reason))
+
+
+## 网页单机（换内核 P6）：请服务器开一间私人房 —— 连接归联机面板管（它不露面），main.gd 等 solo_pending() 落定再进棋盘
+func start_solo(cfg: Dictionary) -> void:
+	_ensure_online()
+	_online.start_solo(cfg)
+
+
+func solo_pending() -> bool:
+	return _online != null and _online.solo_pending()
+
+
+## 开好了的那条连接；没开成 = null（solo_error() 是原因）
+func solo_client() -> CWNetClient:
+	return _online.solo_client() if _online != null else null
+
+
+func solo_error() -> String:
+	return _online.solo_error if _online != null else ""
 
 
 ## 「对局回放」→ 同一套槽位换面板（同联机面板的路子）

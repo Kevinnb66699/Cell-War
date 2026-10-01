@@ -26,6 +26,12 @@ namespace CellWar.Sidecar;
 /// 节拍照 InProc 有 decider 的席位：问之前照样 step_end（Runtime 发）→ sync，**不出 ask 条目**，答下之后 step_begin（ask id 是宿主的）；
 /// AI 选了组键（建源 / 免疫猎杀 / Excalibur）就照 GD 的两问补一段 step_begin → step_end → sync。AI 在后台线程想（搜索档一问几十到几百毫秒），
 /// 想完回到锁里交答案 —— 句柄照常每帧 pull；所以本类所有公开方法都进同一把锁（<see cref="gate"/>）。
+///
+/// **服务器那条路**（换内核 P6，2026-10-01）多两件：
+///   · `ai_paced`：AI 想完不当场交，等消费者 <see cref="StepAi"/>。服务器在 step_end 那一拍按人现取 envelope（每人视角不同、进不了条目流），
+///     它假定「宿主正停在这一步」—— AI 在后台自己往下走的话，现取的就是几步之后的局面。交给消费者推，会话只在消费者的调用里动
+///     （同 GD 服务器「引擎要么停在询问上、要么已结束」），节奏也同 GD 路「每个 AI 决策之前让出一帧」。
+///   · <see cref="SetAi"/>：中途换一席的作答方（掉线 / 超时代打交给 AI、重连交还）。
 /// </summary>
 internal sealed class SessionHost : IDisposable
 {
@@ -49,13 +55,23 @@ internal sealed class SessionHost : IDisposable
     /// <summary>后台 AI 线程与连接线程（pull / answer / observe）共用这一把锁；Monitor 可重入，Pump 里调 Envelope 不会自锁。</summary>
     private readonly object gate = new();
     private readonly Dictionary<int, IPolicy> aiSeats;
+    /// <summary>只代答一问的席位（服务器「计时到点」的代打，<see cref="SetAi"/> 的 once）：AI 交完这一问，席位还给真人。</summary>
+    private readonly HashSet<int> aiOnce = [];
     private readonly int aiDelayMs;
+    /// <summary>AI 的答案等消费者 <see cref="StepAi"/> 才交（cfg `ai_paced`，服务器用；理由见类头注）。</summary>
+    private readonly bool paced;
     /// <summary>会话种子：AI 每一问的推演种子由它 + 内核修订号派生（同一局同一问同一答案，也不碰真局的骰子）。</summary>
     private readonly ulong seed;
     private readonly CancellationTokenSource lifetime = new();
     /// <summary>AI 正在想的那一问（折叠成 GD 形状，只给 envelope 的 ask 段用；<see cref="Answer"/> 不收它的答案）。</summary>
     private HostAsk? aiOpen;
+    /// <summary>正在想的那一次的令牌（连着 <see cref="lifetime"/>）：席位交还真人时只掐这一次，会话照常。只在锁里读写。</summary>
+    private CancellationTokenSource? thinking;
+    /// <summary>paced 下想好了、等 <see cref="StepAi"/> 的那一个答案。</summary>
+    private PendingAi? readyAi;
     private bool disposed;
+
+    private sealed record PendingAi(PendingInput Input, int AskId, string? Key, string? Error);
 
     /// <summary>产品路径给搜索档的单问预算（毫秒）：到点不再开新的根，已评完的根里取最好的。GD 参照 6 人局最慢一问 2.1 秒，C# 同一问约百毫秒，正常碰不到 —— 只防卡死。</summary>
     public const int SearchBudgetMs = 2500;
@@ -64,20 +80,20 @@ internal sealed class SessionHost : IDisposable
     public string? LastAiError { get; private set; }
 
     public SessionHost(int sid, MatchSession session, int? observeViewer, bool openHands,
-        IReadOnlyDictionary<int, AiTier>? ai = null, int aiDelayMs = 0, ulong seed = 1)
-        : this(sid, session, observeViewer, openHands, ai, aiDelayMs, seed, restored: false) { }
+        IReadOnlyDictionary<int, AiTier>? ai = null, int aiDelayMs = 0, ulong seed = 1, bool paced = false)
+        : this(sid, session, observeViewer, openHands, ai, aiDelayMs, seed, paced, restored: false) { }
 
     private SessionHost(int sid, MatchSession session, int? observeViewer, bool openHands,
-        IReadOnlyDictionary<int, AiTier>? ai, int aiDelayMs, ulong seed, bool restored)
+        IReadOnlyDictionary<int, AiTier>? ai, int aiDelayMs, ulong seed, bool paced, bool restored)
     {
         Sid = sid;
         this.session = session;
         ObserveViewer = observeViewer;
         OpenHands = openHands;
-        aiSeats = (ai ?? new Dictionary<int, AiTier>()).ToDictionary(kv => kv.Key,
-            kv => AiPolicies.Create(new AiConfig { Tier = kv.Value, BudgetMs = kv.Value == AiTier.Search ? SearchBudgetMs : 0 }));
+        aiSeats = (ai ?? new Dictionary<int, AiTier>()).ToDictionary(kv => kv.Key, kv => PolicyOf(kv.Value));
         this.aiDelayMs = Math.Max(0, aiDelayMs);
         this.seed = seed;
+        this.paced = paced;
         lock (gate)
         {
             if (restored)
@@ -107,7 +123,7 @@ internal sealed class SessionHost : IDisposable
         var seats = session.Peek().State.Players.Count;
         var seed = req["seed"] is { } sv ? unchecked((ulong)J.Long(sv)) : 1UL;
         return new(sid, session, J.IntOr(req["observe_viewer"]), req["open_hands"] is { } oh && J.Bool(oh),
-            ParseAi(req, seats), J.IntOr(req["ai_delay_ms"]) ?? 0, seed, restored: true);
+            ParseAi(req, seats), J.IntOr(req["ai_delay_ms"]) ?? 0, seed, paced: req["ai_paced"] is { } p && J.Bool(p), restored: true);
     }
 
     /// <summary>`open` 报文 → 一局。P1 只认 GD 的标准座次（`CWMatch.FACTION_ORDER`：免疫 / 癌交替，与 C# <see cref="MatchSetup"/> 同一套）。</summary>
@@ -127,7 +143,9 @@ internal sealed class SessionHost : IDisposable
         // MatchSession.Start(seed, 建世界)：开局那几行日志（「初始癌组织：…」）写在建世界的时候，要它收进条目流
         var ai = ParseAi(cfg, factions.Length);
         var delay = J.IntOr(cfg["ai_delay_ms"]) ?? 0;
-        return new(sid, MatchSession.Start(seed, () => WithNames(MatchSetup.Create(factions.Length, seed, cancerTypes), cfg, factions.Length)), viewer, openHands, ai, delay, seed);
+        // 服务器：AI 的答案等它 ai_step 才交（类头注）。不看 ai 有没有席位 —— 全真人房中途也会有人掉线、席位交给 AI
+        var paced = cfg["ai_paced"] is { } p && J.Bool(p);
+        return new(sid, MatchSession.Start(seed, () => WithNames(MatchSetup.Create(factions.Length, seed, cancerTypes), cfg, factions.Length)), viewer, openHands, ai, delay, seed, paced);
     }
 
     /// <summary>AI 席：`{"席位": "normal" | "intent" | "search"}`（JSON 的键只能是字符串）。开局与读档共用。</summary>
@@ -256,7 +274,7 @@ internal sealed class SessionHost : IDisposable
             if (Aborted || Over || faction is not (0 or 1)) return false;
             if (!session.Surrender((Faction)faction)) return false;
             open = null;
-            aiOpen = null;   // AI 正在想的那一问作废（它回来时 CompleteAi 看 Input 已经没了，自己丢掉）
+            DropAi();   // AI 正在想（或想好了等 ai_step）的那一问作废
             Pump();
             return true;
         }
@@ -281,8 +299,58 @@ internal sealed class SessionHost : IDisposable
         {
             Aborted = true;
             open = null;
-            aiOpen = null;
+            DropAi();
             lifetime.Cancel();   // 正在想的 AI 收手（搜索档在根之间查令牌）
+        }
+    }
+
+    // ---- 换作答方（换内核 P6：服务器的掉线 / 超时代打与重连交还）----
+
+    /// <summary>
+    /// 中途换一席的作答方。<paramref name="tier"/> = null：交还真人；否则这一席由该档 AI 作答，<paramref name="once"/> = 只代答一问就交还（计时到点的代打）。
+    /// 返回**收回的那一问**的 ask id（-1 = 没有）：这一席正被问着（真人那一问已经发出去了），这一问改由 AI 答，
+    /// AI 的 step_begin 照旧带这个号 —— 客户端按「我手上这一问被别人答了」收界面（issue #44），服务器换号也认它。
+    /// 交还真人时 AI 若正想着他那一问（或 paced 下想好了还没交）：作废，这一问重新问人（出一条 ask 条目）。
+    /// </summary>
+    public int SetAi(int seat, AiTier? tier, bool once)
+    {
+        lock (gate)
+        {
+            if (!session.Peek().State.Players.ContainsKey(seat)) throw new ArgumentException($"没有席位 {seat}");
+            if (Aborted || Over) return -1;
+            if (tier is not { } t)
+            {
+                aiOnce.Remove(seat);
+                if (!aiSeats.Remove(seat)) return -1;
+                if (aiOpen?.Seat == seat)
+                {
+                    DropAi();
+                    Pump();   // 这一问现在归真人：照常 sync（设了 observe_viewer）→ ask
+                }
+                return -1;
+            }
+            aiSeats[seat] = PolicyOf(t);   // 正想着的那一次（若有）照旧用旧档想完：换档只管下一问
+            if (once) aiOnce.Add(seat); else aiOnce.Remove(seat);
+            if (open is null || open.Seat != seat) return -1;
+            var withdrawn = open.AskId;
+            var snap = session.Peek();
+            open = null;
+            StartAi(aiSeats[seat], snap.Input!, snap, takeOver: withdrawn);
+            return withdrawn;
+        }
+    }
+
+    /// <summary>消费者推一步（cfg `ai_paced`）：AI 想好了的那一问这就交，返回交没交（还在想 / 眼下问的不是 AI = false）。</summary>
+    public bool StepAi()
+    {
+        lock (gate)
+        {
+            if (readyAi is not { } r || disposed || Aborted || Over) return false;
+            readyAi = null;
+            // paced 下想好到现在会话只可能被消费者动过（换手 / 投降都会把 readyAi 一起清掉）；这里再核一遍，防的是看漏的路
+            if (aiOpen?.AskId != r.AskId || session.Peek().Input?.RequestId != r.Input.RequestId) return false;
+            ApplyAi(r.Input, r.Key, r.Error);
+            return true;
         }
     }
 
@@ -375,15 +443,19 @@ internal sealed class SessionHost : IDisposable
     /// <summary>
     /// AI 席的一问：sync（不出 ask 条目）→ 后台线程想 → 回到锁里 <see cref="CompleteAi"/>。
     /// 想的时候只读这一刻的世界（不可变），不碰会话；推演种子 = 会话种子 + 修订号派生。
+    /// <paramref name="takeOver"/> = 接管真人那一问（<see cref="SetAi"/>）：沿用那一问的 ask id（step_begin 要带它，见 SetAi），
+    /// 那一问的 sync 早发过了、世界也没动，不再发一份。
     /// </summary>
-    private void StartAi(IPolicy policy, PendingInput input, HostSnapshot snap)
+    private void StartAi(IPolicy policy, PendingInput input, HostSnapshot snap, int? takeOver = null)
     {
-        aiOpen = HostAsk.Top(++askSerial, CsAsk(), snap.State);
-        if (ObserveViewer is { } v) Push(new JsonObject { ["t"] = "sync", ["envelope"] = Envelope(v) });
+        aiOpen = HostAsk.Top(takeOver ?? ++askSerial, CsAsk(), snap.State);
+        if (takeOver is null && ObserveViewer is { } v) Push(new JsonObject { ["t"] = "sync", ["envelope"] = Envelope(v) });
         var askId = aiOpen.AskId;
         var state = snap.State;
         var rngSeed = SplitMix64Rng.DecisionSeed(seed, snap.Revision.Value);
-        var token = lifetime.Token;
+        var think = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        thinking = think;
+        var token = think.Token;
         Task.Run(() =>
         {
             string? key = null;
@@ -396,21 +468,39 @@ internal sealed class SessionHost : IDisposable
                     key = policy.Choose(state, input.PlayerSeat, input.Options, new SplitMix64Rng(rngSeed), token);
             }
             catch (Exception ex) { error = $"{ex.GetType().Name}: {ex.Message}"; }
-            lock (gate) CompleteAi(input, askId, key, error);
+            lock (gate)
+            {
+                // 想完了：从此没人再掐这个令牌（DropAi 只掐 thinking 指着的那一个），出了锁就能放掉
+                if (thinking == think) thinking = null;
+                CompleteAi(input, askId, key, error);
+            }
+            think.Dispose();
         });
     }
 
-    /// <summary>
-    /// 交 AI 的答案（锁里）。局面已经变了（abort / close / 那一问不在了）就作废。AI 出错（不该发生）兜底走普通档，再不行取第一条 ——
-    /// 一席卡死整局比答得差更糟。组键照 GD 两问补一段 step_begin → step_end → sync（同 <see cref="AnswerLocked"/> 的人类路）。
-    /// </summary>
+    /// <summary>AI 想完回到锁里。局面已经变了（abort / close / 换手 / 那一问不在了）就作废；paced 下先存着等 <see cref="StepAi"/>。</summary>
     private void CompleteAi(PendingInput input, int askId, string? key, string? error)
     {
         if (disposed || Aborted || Over || aiOpen is null || aiOpen.AskId != askId) return;
+        if (session.Peek().Input?.RequestId != input.RequestId) return;
+        if (paced)
+        {
+            readyAi = new(input, askId, key, error);
+            return;
+        }
+        ApplyAi(input, key, error);
+    }
+
+    /// <summary>
+    /// 交 AI 的答案（锁里，<see cref="aiOpen"/> 就是这一问）。AI 出错（不该发生）兜底走普通档，再不行取第一条 ——
+    /// 一席卡死整局比答得差更糟。组键照 GD 两问补一段 step_begin → step_end → sync（同 <see cref="AnswerLocked"/> 的人类路）。
+    /// </summary>
+    private void ApplyAi(PendingInput input, string? key, string? error)
+    {
         var snap = session.Peek();
-        if (snap.Input?.RequestId != input.RequestId) return;
         if (error != null) LastAiError = error;
         key ??= Fallback(snap.State, input);
+        var askId = aiOpen!.AskId;
         var group = key.StartsWith("k=action+chemo_target|", StringComparison.Ordinal) ? "chemo_target"
             : key.StartsWith("k=action+effector_target|", StringComparison.Ordinal) ? "effector_target" : null;
         if (group != null)
@@ -422,6 +512,8 @@ internal sealed class SessionHost : IDisposable
         }
         answeredBy[input.RequestId] = aiOpen.AskId;
         aiOpen = null;
+        // 只代答一问的席位：这一问交了就还给真人 —— 排在交答案之前，下一问若还问他，Pump 就问人
+        if (aiOnce.Remove(input.PlayerSeat)) aiSeats.Remove(input.PlayerSeat);
         var result = session.SubmitByKey(input.PlayerSeat, input.RequestId, key, -1);
         if (!result.IsValid)
         {
@@ -430,6 +522,19 @@ internal sealed class SessionHost : IDisposable
         }
         Pump();
     }
+
+    /// <summary>AI 正在想（或 paced 下想好了还没交）的那一问作废：掐它的令牌（等延时的立刻醒、搜索档在根之间收手），
+    /// 它回到锁里时认不出 <see cref="aiOpen"/>，自己丢掉。</summary>
+    private void DropAi()
+    {
+        thinking?.Cancel();
+        thinking = null;
+        aiOpen = null;
+        readyAi = null;
+    }
+
+    private static IPolicy PolicyOf(AiTier tier)
+        => AiPolicies.Create(new AiConfig { Tier = tier, BudgetMs = tier == AiTier.Search ? SearchBudgetMs : 0 });
 
     private static string Fallback(WorldState state, PendingInput input)
     {

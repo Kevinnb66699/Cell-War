@@ -50,6 +50,11 @@ const T_OPENING_OUT := 0.45
 var _tween: Tween
 var _entering := false
 var _started_ms := 0   ## 本次过场起步的时刻
+## 网页单机走服务器（换内核 P6，Kevin 10-01「网页单机连服务器」）：网页版的「开始对局」（一位真人 + AI）请服务器开私人房，
+## 对局按联机局那套走；没开成（服务器开关关着 / 连不上 / 满了）就照旧本地开。热座与观战（AI 互搏）仍在本地。
+## 桌面版恒为 false（行为不变）；测试把它拨成 true 在桌面上走这条路
+var solo_via_server := OS.has_feature("web")
+var _solo_cfg := {}    ## 上一局网页单机的配置（「再来一局」照它再开一间，种子换新）
 
 
 func _ready() -> void:
@@ -89,6 +94,11 @@ func _begin(cfg: Dictionary) -> void:
 	if _entering:
 		return
 	match_node.tutorial = false   ## 正式局入口统一复位（教程标志只在 _begin_tutorial 置位）
+	## 网页单机：先把私人房开起来（连服务器与下面的镜头推进同时进行），推完再看开没开成
+	var solo := solo_wanted(cfg, solo_via_server)
+	if solo:
+		_solo_cfg = cfg.duplicate()
+		menu.start_solo(cfg)
 	match_node.player_count = cfg["players"]
 	var seats: Array[int] = []
 	if cfg["faction"] == CWConfigPanel.HOTSEAT:
@@ -112,8 +122,33 @@ func _begin(cfg: Dictionary) -> void:
 	## 两段计时动画必须**前后相接**，不能挂在同一条时间轴上：原型里第一版共用
 	## 一个进度值，相机走完那一帧的进度 1 被当成「绽开也走完了」，
 	## 7 格癌组织一次全出、绽开整个被跳过（开发日志 2026-08-27）。
+	if solo and await _enter_solo():
+		_entering = false
+		return
 	await match_node.start_with_bloom(T_BLOOM)
 	_entering = false    ## 三拍走完才算「不在过场中」——忘了置回，返回主菜单会永远进不去
+
+
+## 这一份配置要不要走服务器：开关打开（网页版）、而且是「一位真人 + AI」那种 —— 热座（多位真人共用一台机器）
+## 与观战（一个真人都没有）留在本地。**纯函数**，好直接测
+static func solo_wanted(cfg: Dictionary, via_server: bool) -> bool:
+	if not via_server or int(cfg["faction"]) == CWConfigPanel.HOTSEAT:
+		return false
+	return CWConfigPanel.human_seat(int(cfg["players"]), int(cfg["faction"])) >= 0
+
+
+## 等服务器把私人房开好（start_solo 之后），开好了就按联机局进棋盘（绽开那一拍照演）。
+## 返回 false = 没开成，调用方照旧本地开 —— 网页包里还有 GD 内核（P8 之前），玩家照样能玩，只在控制台留一行
+func _enter_solo() -> bool:
+	while menu.solo_pending():
+		await get_tree().process_frame
+	var client: CWNetClient = menu.solo_client()
+	if client == null:
+		push_warning("网页单机没走成服务器（%s），这一局在本地开" % menu.solo_error())
+		return false
+	match_node.solo = true   ## 要在 start_online 之前：结算屏 / 暂停菜单的文案按它挑
+	await match_node.start_online_with_bloom(client, T_BLOOM)
+	return true
 
 
 ## 「新手引导」：开一局教程局。过场和正式局一样三拍：新手也该先看到干净棋盘、再看到癌组织怎么铺开。
@@ -261,7 +296,8 @@ func _on_settle_chose(action: String) -> void:
 		"replay":
 			_watch_latest_replay()
 		"restart":
-			if match_node.online:
+			## 网页单机虽然是联机局，结算屏给的是「再来一局」（没有等待室可回）
+			if match_node.online and not match_node.solo:
 				_back_to_room()
 			else:
 				_restart()
@@ -284,11 +320,20 @@ func _restart() -> void:
 	## 「再来一局」年年重放同一局，而按钮上明写着「同样人数 · **新种子**」。
 	## 清成 0 = 让 start() 去取时钟。想复现某一局仍走主菜单，在配置面板里填那个种子。
 	match_node.match_seed = 0
+	var solo := match_node.solo   ## teardown 会把它清掉，先记下
 	_entering = true
 	_started_ms = Time.get_ticks_msec()
 	match_node.fade_out(T_RESTART)
 	await get_tree().create_timer(T_RESTART).timeout
 	match_node.teardown()          ## 顺带把结算屏和暂停菜单擦回原样
+	## 网页单机：同一条连接上离开这一间、再开一间（新种子）；没开成就照旧本地再来一局。
+	## **排在 teardown 之后**：新房间的对局流一开打就往 client.stream 里排，上一局的句柄还挂着的话会把第一份状态吃掉
+	if solo:
+		_solo_cfg["seed"] = 0
+		menu.start_solo(_solo_cfg)
+	if solo and await _enter_solo():
+		_entering = false
+		return
 	await match_node.start_with_bloom(T_BLOOM)
 	_entering = false
 

@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json.Nodes;
+using CellWar.Ai;
 using CellWar.Core.Observation;
 
 namespace CellWar.Sidecar;
@@ -11,8 +12,11 @@ namespace CellWar.Sidecar;
 /// 会话 `sid` 从第一版就带（桌面只有一局；服务器一个进程跑所有房间，计划 §3.1）。
 /// 报文一览（P1）：
 ///   version{}                                       → {host_abi, rules_build, ruleset_digest, core_build}
-///   open{cfg:{factions[], seed, observe_viewer?, open_hands?, names?[], cancer_types?[], ai?: {"席位": "normal"|"intent"|"search"}, ai_delay_ms?}} → {sid}
-///     （ai 里的席位由 sidecar 内的 CellWar.Ai 在后台线程作答：不出 ask 条目，句柄照常 pull，见 SessionHost 头注）
+///   open{cfg:{factions[], seed, observe_viewer?, open_hands?, names?[], cancer_types?[], ai?: {"席位": "normal"|"intent"|"search"}, ai_delay_ms?, ai_paced?}} → {sid}
+///     （ai 里的席位由 sidecar 内的 CellWar.Ai 在后台线程作答：不出 ask 条目，句柄照常 pull，见 SessionHost 头注；
+///      ai_paced = AI 想好了也等 ai_step 才交 —— 服务器用，见 SessionHost 头注「服务器那条路」）
+///   set_ai{sid, seat, tier: "normal"|"intent"|"search"|null, once?} → {withdrawn}（中途换作答方；withdrawn = 收回的真人询问的 ask id，-1 = 没有）
+///   ai_step{sid}                                    → {stepped}（ai_paced：交 AI 想好了的那一问）
 ///   open{cfg:{world: cwxworld/3, rolls?: [[from,to,value]…], seed?, observe_viewer?, open_hands?, names?[]}} → {sid}（新手教程：从装载世界续跑）
 ///   dump_world{sid}                                 → {world}（活局面导成 cwxworld/3）
 ///   pull{sid, viewer, since, limit?}                → {entries[], last_seq}
@@ -60,6 +64,9 @@ internal sealed class Dispatcher : IDisposable
         "query" => new JsonObject { ["result"] = Session(req).Query(J.Str(req["kind"]), req["args"]?.AsObject() ?? [], J.IntOr(req["seat"])) },
         "mark_player" => new JsonObject { ["ok_mark"] = Session(req).MarkPlayer(J.Int(req["pid"]), J.Str(req["suffix"])) },
         "surrender" => new JsonObject { ["ended"] = Session(req).Surrender(J.Int(req["faction"])) },
+        "set_ai" => new JsonObject { ["withdrawn"] = Session(req).SetAi(J.Int(req["seat"]),
+            req["tier"] is { } tier ? AiConfig.ParseTier(J.Str(tier)) : null, req["once"] is { } once && J.Bool(once)) },
+        "ai_step" => new JsonObject { ["stepped"] = Session(req).StepAi() },
         "dump_world" => new JsonObject { ["world"] = Session(req).DumpWorld() },
         "log_msg" => new JsonObject { ["logged"] = Session(req).LogMessage(J.Str(req["text"]), J.IntOr(req["secret_pid"]) ?? -1, J.StrOr(req["public_text"])) },
         "can_save" => new JsonObject { ["can_save"] = Session(req).CanSave },

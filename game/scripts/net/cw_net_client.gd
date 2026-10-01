@@ -170,6 +170,14 @@ func create_room(players: int, timer: int, public: bool, seed_value: int = 0,
 	send(m)
 
 
+## 网页单机（v32）：一间只有我一个真人的私人房，服务器建好就开局。tiers 每席一项（CWNet.SOLO_TIERS 的键，我那一席的不看）
+func create_solo(players: int, seat: int, tiers: Array, cancer_types: Array, seed_value: int = 0) -> void:
+	var m := { "t": "create_solo", "players": players, "seat": seat, "tiers": tiers, "cancer_types": cancer_types }
+	if seed_value != 0:
+		m["seed"] = seed_value
+	send(m)
+
+
 func join(p_code: String) -> void:
 	send({ "t": "join_room", "code": p_code })
 
