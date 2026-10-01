@@ -835,7 +835,7 @@ func _game_ended() -> bool:
 	return bool(pump.ended()) if pump != null else game.is_over()
 
 
-## 投降投票那两行日志（C# 内核路暂时落空，TODO 见 cw_net_pump.gd log_line）
+## 投降投票那两行日志（C# 内核路经句柄的 log_msg 插进 sidecar 的对局日志，见 cw_net_pump.gd log_line）
 func _log_line(text: String) -> void:
 	if pump != null:
 		pump.log_line(text)
