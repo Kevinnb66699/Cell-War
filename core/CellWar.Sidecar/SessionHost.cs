@@ -37,14 +37,34 @@ internal sealed class SessionHost : IDisposable
     private readonly Dictionary<long, int> answeredBy = [];
     private string lastKind = "";
 
-    public SessionHost(int sid, MatchSession session, int? observeViewer, bool openHands)
+    public SessionHost(int sid, MatchSession session, int? observeViewer, bool openHands) : this(sid, session, observeViewer, openHands, restored: false) { }
+
+    private SessionHost(int sid, MatchSession session, int? observeViewer, bool openHands, bool restored)
     {
         Sid = sid;
         this.session = session;
         ObserveViewer = observeViewer;
         OpenHands = openHands;
+        if (restored)
+        {
+            // 读档：检查点里留着上一局缓冲的演出条目 —— 别再播一遍；第一问之前照 InProc 的节拍先收一步（GD 读档后 run_game 重问时也是 step_end → sync → ask）
+            presentationSeen = session.PullPresentation(ObservationV1Codec.ViewerOmniscient, 0, 0).NextSeq - 1;
+            Push(new JsonObject { ["t"] = "step_end", ["rev"] = session.Peek().Revision.Value });
+        }
         Pump();
     }
+
+    // ---- 存读档（换内核 P4 前置，2026-10-01）----
+
+    /// <summary>GD `can_save`：停在**顶层**问答边界且没终局。拆问的第二问里不能存 —— 检查点里只有 C# 那一问，第二问是宿主自己的状态。</summary>
+    public bool CanSave => !Aborted && !Over && open is { IsSub: false };
+
+    /// <summary>★ 检查点含 rng 与全部明文手牌：宿主专用、绝不过网（同 MatchSession.Save）。不能存时返回 null。</summary>
+    public string? Save() => CanSave ? session.Save().Json : null;
+
+    /// <summary>从检查点接着打：挂着的那一问会重新问出来（宿主泵一次就看见 Input）。</summary>
+    public static SessionHost Restore(int sid, string checkpointJson, int? observeViewer, bool openHands)
+        => new(sid, MatchSession.Restore(new Checkpoint(checkpointJson)), observeViewer, openHands, restored: true);
 
     /// <summary>`open` 报文 → 一局。P1 只认 GD 的标准座次（`CWMatch.FACTION_ORDER`：免疫 / 癌交替，与 C# <see cref="MatchSetup"/> 同一套）。</summary>
     public static SessionHost Open(int sid, JsonObject cfg)

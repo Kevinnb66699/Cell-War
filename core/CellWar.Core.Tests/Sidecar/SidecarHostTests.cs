@@ -81,6 +81,35 @@ public class SidecarHostTests
         Assert.False(host.Answer(1, null, 0));   // 收局之后不再收答案
     }
 
+    [Fact]
+    public void 顶层问答处存档_读回来盘面与选项相同_先收步再问_不重播旧演出()
+    {
+        var cfg = new JsonObject { ["factions"] = new JsonArray(0, 1), ["seed"] = 2222, ["observe_viewer"] = -2 };
+        using var host = SessionHost.Open(1, cfg);
+        // 走 12 问再存（落子 + 几步行动；用与 SelfTest 同一条 LCG 挑）
+        var lcg = 2222UL & 0x7FFFFFFF;
+        for (var i = 0; i < 12; i++)
+        {
+            var ask = host.Pull(-2, 0, 100_000).Select(n => n!.AsObject()).Last(e => J.Str(e["t"]) == "ask");
+            var keys = ask["req"]!["options"]!.AsArray().Select(o => J.Str(o!["key"])).Distinct().Order(StringComparer.Ordinal).ToArray();
+            lcg = (lcg * 1103515245 + 12345) & 0x7FFFFFFF;
+            Assert.True(host.Answer(J.Int(ask["ask_id"]), keys[(int)(lcg % (ulong)keys.Length)], -1));
+        }
+        Assert.True(host.CanSave);
+        var json = host.Save()!;
+        var before = host.Envelope(-2);
+        var beforeKeys = Keys(host.Pull(-2, 0, 100_000).Select(n => n!.AsObject()).Last(e => J.Str(e["t"]) == "ask"));
+
+        using var back = SessionHost.Restore(2, json, -2, false);
+        var first = back.Pull(-2, 0, 100).Select(n => n!.AsObject()).ToArray();
+        Assert.Equal(["step_end", "sync", "ask"], first.Select(e => J.Str(e["t"])));   // 只有这三条：检查点里缓冲的旧演出不重播
+        Assert.Equal(beforeKeys, Keys(first[2]));
+        static JsonNode State(JsonNode env) => env["state"]!;
+        Assert.Equal(State(before).ToJsonString(), State(back.Envelope(-2)).ToJsonString());
+    }
+
+    private static string[] Keys(JsonObject ask) => ask["req"]!["options"]!.AsArray().Select(o => J.Str(o!["key"])).Order(StringComparer.Ordinal).ToArray();
+
     // ---- 拆问 ----
 
     private static ObsOption Opt(int i, string key, string label, params (string, object)[] data)

@@ -140,6 +140,9 @@ static func _rm_rf(path: String) -> void:
 	var d := DirAccess.open(path)
 	if d == null:
 		return
+	## 点开头的文件（我们自己的 .ok、运行时里的 .version、mac 的 .DS_Store）默认不列出来：
+	## 不带上，目录删不掉、旧的 .ok 留着，下次就把半份当成好的用（2026-10-01 测试重跑撞到）
+	d.include_hidden = true
 	for f in d.get_files():
 		d.remove(f)
 	for sub in d.get_directories():

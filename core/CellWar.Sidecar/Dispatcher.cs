@@ -18,6 +18,7 @@ namespace CellWar.Sidecar;
 ///   query{sid, kind, args, seat?}                   → {result}（观测协议 §5.3 四条；坐标 {q,r}）
 ///   mark_player{sid, pid, suffix}                   → {ok_mark}
 ///   surrender{sid, faction}                         → {ended}
+///   can_save{sid} → {can_save} · save{sid} → {checkpoint|null} · restore{checkpoint, observe_viewer?, open_hands?} → {sid}
 ///   abort{sid} / close{sid}                         → {}
 ///   ping{}                                          → {}
 /// </summary>
@@ -54,6 +55,9 @@ internal sealed class Dispatcher : IDisposable
         "query" => new JsonObject { ["result"] = Session(req).Query(J.Str(req["kind"]), req["args"]?.AsObject() ?? [], J.IntOr(req["seat"])) },
         "mark_player" => new JsonObject { ["ok_mark"] = Session(req).MarkPlayer(J.Int(req["pid"]), J.Str(req["suffix"])) },
         "surrender" => new JsonObject { ["ended"] = Session(req).Surrender(J.Int(req["faction"])) },
+        "can_save" => new JsonObject { ["can_save"] = Session(req).CanSave },
+        "save" => new JsonObject { ["checkpoint"] = Session(req).Save() },
+        "restore" => Restore(req),
         "abort" => Do(req, s => s.Abort()),
         "close" => Close(req),
         _ => throw new ArgumentException($"未知 op「{op}」"),
@@ -71,6 +75,14 @@ internal sealed class Dispatcher : IDisposable
         var cfg = req["cfg"]?.AsObject() ?? throw new ArgumentException("open 缺 cfg");
         var sid = nextSid++;
         sessions[sid] = SessionHost.Open(sid, cfg);
+        return new JsonObject { ["sid"] = sid };
+    }
+
+    private JsonObject Restore(JsonObject req)
+    {
+        var json = J.Str(req["checkpoint"]);
+        var sid = nextSid++;
+        sessions[sid] = SessionHost.Restore(sid, json, J.IntOr(req["observe_viewer"]), req["open_hands"] is { } oh && J.Bool(oh));
         return new JsonObject { ["sid"] = sid };
     }
 

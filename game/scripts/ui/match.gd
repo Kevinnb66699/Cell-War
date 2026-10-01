@@ -555,9 +555,13 @@ func _ready() -> void:
 
 
 ## 换内核 P2 的开发开关（2026-10-01，docs/内核替换_重启计划.md）：环境变量 `CW_KERNEL=sidecar` 时，**全真人的新开局**（热座）
-## 改走本地 C# 内核进程。只有这一种局能走 —— AI 席还在 GD（P3 才进 C#）、存档是 GD 快照（P4 才换）、教程由舞台建（P5）。
+## 改走本地 C# 内核进程。只有这一种局能走 —— AI 席还在 GD（P3 才进 C#）、教程由舞台建（P5）；sidecar 局存的档是 C# 检查点，
+## 读档时按存档里的内核标记回到 sidecar。
 ## sidecar 起不来就退回 InProc，玩家照样能玩（UNAVAILABLE 是一等状态，与补丁系统隔离）。默认不设这个变量 = 行为一行不变。
 func _new_local_kernel(snap: Dictionary) -> CWKernel:
+	## 读档：存档自己说是哪个内核存的（C# 检查点只有 sidecar 装得进，开关关着也一样）
+	if String(snap.get("kernel", "")) == CWKernelSidecar.SAVE_KERNEL:
+		return CWKernelSidecar.new()
 	if OS.get_environment("CW_KERNEL") != "sidecar" or not snap.is_empty() or human_players.size() < player_count:
 		return CWKernelInProc.new()
 	return CWKernelSidecar.new()
@@ -607,9 +611,13 @@ func start(snap: Dictionary = {}) -> void:
 			return
 	else:
 		if not kernel.open(cfg) and kernel is CWKernelSidecar:
-			push_warning("CWMatch：sidecar 起不来（%s），这一局退回 GD 内核" % str(kernel.last_error()))
-			kernel = CWKernelInProc.new()
-			kernel.open(cfg)
+			if String(snap.get("kernel", "")) == CWKernelSidecar.SAVE_KERNEL:
+				## C# 检查点 GD 内核装不进：不退回，局停在故障态（读档失败的界面随 P4 桌面切换一起做）
+				push_error("CWMatch：C# 存档读不回来（%s）" % str(kernel.last_error()))
+			else:
+				push_warning("CWMatch：sidecar 起不来（%s），这一局退回 GD 内核" % str(kernel.last_error()))
+				kernel = CWKernelInProc.new()
+				kernel.open(cfg)
 		_mark_me()   ## 单机：唯一那位真人的名字加「（我）」（Kevin 2026-09-19）
 	_start_queue()
 	if by_stage:

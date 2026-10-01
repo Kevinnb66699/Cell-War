@@ -74,7 +74,13 @@ func open(cfg: Dictionary) -> bool:
 			open_cfg[k] = cfg[k]
 	if observe_viewer != null:
 		open_cfg["observe_viewer"] = int(observe_viewer)
-	var r := _call("open", { "cfg": open_cfg })
+	## 读档：cfg.world_state 是本句柄 save() 存的 {kernel: "cs", checkpoint}（match.gd 按 kernel 标记选的句柄）
+	var ws: Variant = cfg.get("world_state", null)
+	var r: Dictionary
+	if ws is Dictionary and String(ws.get("kernel", "")) == SAVE_KERNEL:
+		r = _call("restore", { "checkpoint": String(ws["checkpoint"]), "observe_viewer": open_cfg.get("observe_viewer"), "open_hands": open_hands })
+	else:
+		r = _call("open", { "cfg": open_cfg })
 	if not bool(r.get("ok", false)):
 		_fail(Fault.PROTOCOL, "open 被拒：%s" % String(r.get("error", "无回应")))
 		return false
@@ -122,7 +128,29 @@ func version() -> Dictionary:
 
 
 func caps() -> Dictionary:
-	return { "stream_sync": true, "step_drive": false, "rollout": false, "save": false, "authority": true, "query_sync": true }
+	return { "stream_sync": true, "step_drive": false, "rollout": false, "save": true, "authority": true, "query_sync": true }
+
+
+# ---- 持久化（换内核 P4 前置，2026-10-01）----
+## 存档 blob 里的内核标记：match.gd 读档时按它选句柄（GD 快照与 C# 检查点互相装不进对方）
+const SAVE_KERNEL := "cs"
+
+
+## 同 InProc：停在顶层问答边界、没终局（拆问的第二问里不能存 —— sidecar 那边判）
+func can_save() -> bool:
+	if _sid < 0:
+		return false
+	return bool(_call("can_save", { "sid": _sid }).get("can_save", false))
+
+
+## ★ 检查点含 rng 与明文手牌：只进本机存档、绝不过网
+func save() -> Dictionary:
+	if _sid < 0:
+		return {}
+	var cp: Variant = _call("save", { "sid": _sid }).get("checkpoint", null)
+	if not (cp is String) or String(cp) == "":
+		return {}
+	return { "kernel": SAVE_KERNEL, "checkpoint": cp, "rules_build": String(_hello.get("rules_build", "")) }
 
 
 ## sidecar 进程号（测试看它退没退）

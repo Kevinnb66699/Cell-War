@@ -127,9 +127,12 @@ func _parse_args() -> void:
 
 ## 把 user:// 改到测试自己的目录（%APPDATA%/CellWar-tests/shard<i>），运行时改工程设置即可生效，
 ## 目录要自己建（引擎只在启动时建默认的那一个）。不分片时也隔离：存档 / 设置 / 引导进度都不再碰玩家的真实文件
+## 2026-10-01：目录里再加一层「工程路径的哈希」—— 换内核期间几个 worktree 的全量测试会同时跑，
+## 共用 CellWar-tests/shard<i> 时会互相删存档、互相清 sidecar 解包目录
 func _isolate_user_dir() -> void:
 	ProjectSettings.set_setting("application/config/use_custom_user_dir", true)
-	ProjectSettings.set_setting("application/config/custom_user_dir_name", "CellWar-tests/shard%d" % _shard)
+	var tree_id := "%08x" % (hash(ProjectSettings.globalize_path("res://")) & 0xffffffff)
+	ProjectSettings.set_setting("application/config/custom_user_dir_name", "CellWar-tests/%s/shard%d" % [tree_id, _shard])
 	DirAccess.make_dir_recursive_absolute(OS.get_user_data_dir())
 	print("user:// -> %s" % OS.get_user_data_dir())
 
@@ -17955,9 +17958,36 @@ func t_entry_smoke_sidecar() -> void:
 			m.bridge.panel.end_turn_pressed.emit()
 	check(m.mirror != null and int(m.mirror.round_no) >= 3, "热座在 sidecar 上打过两个世界回合（第 %d 回合，结束回合 %d 次）" % [int(m.mirror.round_no) if m.mirror != null else -1, actions])
 	check(max_bar >= 3, "行动栏按 tier B 的 action_kinds 建出整排按钮（最多 %d 个）" % max_bar)
+	## 存档 → 拆局 → 用存档重开（P4 前置）：存下来的是 C# 检查点，读档按 kernel 标记回到 sidecar，回合与盘面接得上
+	var t_s := Time.get_ticks_msec()
+	while not m.can_save_now() and Time.get_ticks_msec() - t_s < 5000:
+		await process_frame
+		if m.bridge.handoff != null and m.bridge.handoff.active:
+			m.bridge.handoff.confirm()
+	var blob: Dictionary = m.save_blob()
+	check(String(blob.get("kernel", "")) == CWKernelSidecar.SAVE_KERNEL and String(blob.get("checkpoint", "")) != "", "停在问答边界能存：存的是 C# 检查点")
+	var round_before := int(m.mirror.round_no)
+	var cells_before := str(m.mirror.cells.map(func(c): return [c["pos"], c["energy"], c["alive"]]))
 	m.teardown()
 	await process_frame
 	check(m.kernel == null, "拆局：句柄关了")
+	OS.set_environment("CW_KERNEL", "")   ## 开关关掉也要能读回来：存档自己说是哪个内核
+	m.start(blob)
+	await process_frame
+	check(m.kernel is CWKernelSidecar and m.kernel.state() != CWKernel.State.FAULTED, "读档按存档里的 kernel 标记回到 sidecar（%s）" % str(m.kernel.last_error()))
+	check(m.mirror != null and int(m.mirror.round_no) == round_before
+		and str(m.mirror.cells.map(func(c): return [c["pos"], c["energy"], c["alive"]])) == cells_before, "读回来回合与细胞逐个相同")
+	m.teardown()
+	await process_frame
+	## sidecar 起不来时 C# 存档不能退回 GD 内核（GD 的 restore 会把检查点当快照硬装）
+	OS.set_environment("CW_SIDECAR_DLL", "/nonexistent/CellWar.Sidecar.dll")
+	m.start(blob)
+	await process_frame
+	check(m.kernel is CWKernelSidecar and m.kernel.state() == CWKernel.State.UNAVAILABLE,
+		"sidecar 起不来：C# 存档不退回 GD 内核，句柄停在 UNAVAILABLE（%s）" % str(m.kernel.get_class() if m.kernel != null else "null"))
+	m.teardown()
+	await process_frame
+	OS.set_environment("CW_SIDECAR_DLL", "")
 	OS.set_environment("CW_KERNEL", "")
 	CWSettings.ai_delay_ms = 220
 	main_scene.queue_free()
@@ -17974,6 +18004,8 @@ func t_sidecar_locator() -> void:
 		return
 	DirAccess.make_dir_recursive_absolute(Loc.USER_DIR)
 	Loc._rm_rf(Loc.USER_DIR)
+	check(not DirAccess.dir_exists_absolute(Loc.USER_DIR),
+		"清目录连点开头的文件一起删（.ok / .version 留下来，目录就删不掉、旧标记还在）")
 	var t0 := Time.get_ticks_msec()
 	var a: Dictionary = Loc.unpack()
 	var first_ms := Time.get_ticks_msec() - t0
