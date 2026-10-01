@@ -16503,11 +16503,21 @@ func t_kernel_sidecar() -> void:
 	var m := CWMirror.new()
 	check(not last_sync.is_empty() and m.load_from(last_sync["envelope"]) == "", "最后一份 sync 装得进镜像")
 	check(k.observe(0) != null, "observe(席位 0) 出镜像")
+	## 一个进程多个会话（cw_sidecar_link.gd）：再开两局，进程号都是同一个；关掉一局另一局照常
+	var ka := CWKernelSidecar.new()
+	var kb := CWKernelSidecar.new()
+	check(ka.open({ "factions": [0, 1], "seed": 11 }) and kb.open({ "factions": [0, 1], "seed": 12 }), "再开两局")
+	check(ka.process_id() == pid and kb.process_id() == pid, "三个句柄共用同一个 sidecar 进程（%d / %d / %d）" % [pid, ka.process_id(), kb.process_id()])
+	ka.close()
+	check(kb.observe(0) != null and kb.state() != CWKernel.State.FAULTED, "关掉一局，同进程的另一局照常观测")
+	kb.close()
 	k.close()
+	check(OS.is_process_running(pid), "最后一个句柄关了也不马上退（空闲 30 秒才关：关内换盘不用反复起进程）")
+	CWKernelSidecar.shutdown_idle_links()
 	var t1 := Time.get_ticks_msec()
 	while OS.is_process_running(pid) and Time.get_ticks_msec() - t1 < 3000:
 		await process_frame
-	check(not OS.is_process_running(pid), "close 之后 sidecar 进程退出")
+	check(not OS.is_process_running(pid), "shutdown_idle_links 之后 sidecar 进程退出")
 	## 消费者模式（没有 decider，走 answer() 那条路）：开局名字 / 钉死的癌种进镜像；答完落子、拿到第一问行动后测四条查询；
 	## mark_player 只加一次后缀；投降当场收局（P2，2026-10-01）
 	var k2 := CWKernelSidecar.new()
@@ -16546,6 +16556,7 @@ func t_kernel_sidecar() -> void:
 		and String(tail[-1]["kind"]) == "surrender_cancer", "投降当场收局（game_over 条目，癌症胜）")
 	check(k2.state() == CWKernel.State.ENDED, "投降之后句柄 ENDED")
 	k2.close()
+	CWKernelSidecar.shutdown_idle_links()
 	var bad := CWKernelSidecar.new()
 	check(not bad.open({ "factions": [0, 1], "sidecar_dll": "/nonexistent/CellWar.Sidecar.dll" })
 		and bad.state() == CWKernel.State.UNAVAILABLE and bad.process_id() == -1, "找不到 dll = UNAVAILABLE，不起进程")

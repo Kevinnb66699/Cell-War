@@ -2,10 +2,10 @@
 ##
 ## 对消费者与 CWKernelInProc **同形**：同样 15 种条目、同样的 step_end → sync → ask 节拍、同样「有 decider 的席位不出 ask 条目」。
 ## 差别只在内核住在另一个进程里：
-##   · 起法：先在 127.0.0.1 上开临时端口（TCPServer.listen(0)），再 OS.create_process 起
-##     `dotnet exec CellWar.Sidecar.dll --connect 127.0.0.1:<端口> --token <一次性随机串>`，它连回来，第一行 hello 带回 token。
-##   · 报文：一行一个 JSON，请求 {id, op, sid, …} → 回应 {re, ok, …}。本地回环毫秒级，所以这里**同步**等回应（与 InProc 的同步接口一致），
-##     超时 REPLY_TIMEOUT_MS 就当进程坏了（FAULTED）。sidecar 从不主动推送：每帧在 SceneTree.process_frame 上 pull 一次。
+##   · 进程与连接住在 `cw_sidecar_link.gd`（2026-10-01 起**多个句柄共用一个进程**，各持自己的会话号 sid）：
+##     起法是先开回环临时端口、再 `dotnet exec CellWar.Sidecar.dll --connect 127.0.0.1:<端口> --token <一次性随机串>`，它连回来核 hello。
+##   · 报文：一行一个 JSON，请求 {id, op, sid, …} → 回应 {re, ok, …}。本地回环毫秒级，所以这里**同步**等回应（与 InProc 的同步接口一致）；
+##     链路坏了（进程退出 / 超时）= FAULTED。sidecar 从不主动推送：每帧在 SceneTree.process_frame 上 pull 一次。
 ##   · 坐标与数字：报文里坐标是 {q,r}、数字是 JSON 浮点；条目与 req 一律过 CWMirror._normalize（与镜像装 envelope 同一套归一化），
 ##     sync 里的 envelope 原样留着（镜像自己归一化）。
 ##   · 拆问（C# 组键 → GD 两问）在 C# 宿主里做完了，这里收到的 ask 已经是 GD 形状；选项自带 key，作答一律按 key 交回去。
@@ -16,9 +16,8 @@
 class_name CWKernelSidecar
 extends CWKernel
 
-const HOST_ABI := 1                 ## 与 C# ObservationV1Codec.HostAbi 同值：握手只闸它（硬不变量③）
-const HANDSHAKE_MS := 8000          ## 冷启动 + 连回来 + hello（实测 0.3～0.7 s，留足 CI 满载的余量）
-const REPLY_TIMEOUT_MS := 5000
+const Link := preload("res://scripts/kernel/cw_sidecar_link.gd")
+const HOST_ABI := Link.HOST_ABI     ## 与 C# ObservationV1Codec.HostAbi 同值：握手只闸它（硬不变量③）
 const PULL_LIMIT := 256
 
 var deciders := {}                  ## pid → CWBridge：这一席的 ask 由它作答（与 InProc 同）；没有就入队等 answer()
@@ -26,12 +25,8 @@ var observe_viewer: Variant = null
 var open_hands := false
 var winner := -1
 
-var _server: TCPServer
-var _peer: StreamPeerTCP
-var _pid := -1
-var _token := ""
-var _buf := PackedByteArray()
-var _next_id := 1
+var _link: RefCounted = null        ## 共用的那条链路（cw_sidecar_link.gd）；close / 出故障时 release
+var _pid := -1                      ## 记下来：close 之后测试还要看那个进程退没退
 var _sid := -1
 var _hello := {}
 var _pulled := 0                    ## sidecar 那边已拉到的最后一个 seq
@@ -55,8 +50,17 @@ func open(cfg: Dictionary) -> bool:
 	var dll := String(cfg.get("sidecar_dll", find_sidecar_dll()))
 	if dotnet == "" or dll == "" or not FileAccess.file_exists(dll):
 		return _unavailable("找不到 sidecar（dotnet=%s，dll=%s）" % [dotnet, dll])
-	if not _spawn(dotnet, dll):
+	_link = Link.acquire(dotnet, dll)
+	if int(_link.fault) != 0:
+		var f := int(_link.fault)
+		var why := String(_link.fault_msg)
+		_link = null
+		if f == Fault.SPAWN_FAILED:
+			return _unavailable(why)
+		_fail(f, why)
 		return false
+	_pid = int(_link.pid)
+	_hello = _link.hello
 	observe_viewer = cfg.get("observe_viewer", null)
 	open_hands = bool(cfg.get("open_hands", false))
 	_started = bool(cfg.get("autorun", true))
@@ -91,28 +95,19 @@ func run() -> void:
 	_pump()
 
 
+## 关这一局的会话、放掉链路。进程不一定马上退：别的句柄可能还在用；没人用了也要空闲 30 秒才关（见 cw_sidecar_link.gd）
 func close() -> void:
 	_stop_ticking()
-	if _peer != null and _sid >= 0:
-		_call("close", { "sid": _sid })
-	_sid = -1
-	if _peer != null:
-		_peer.disconnect_from_host()   ## 对端关连接 = sidecar 正常退出
-		_peer = null
-	if _server != null:
-		_server.stop()
-		_server = null
-	if _pid > 0:
-		var t0 := Time.get_ticks_msec()
-		while OS.is_process_running(_pid) and Time.get_ticks_msec() - t0 < 1000:
-			OS.delay_msec(10)
-		if OS.is_process_running(_pid):
-			OS.kill(_pid)
-		_pid = -1
+	_release_link()
+
+
+## 空闲链路立刻关掉（测试看进程退没退 / 退出游戏前）
+static func shutdown_idle_links() -> void:
+	Link.shutdown_idle()
 
 
 func abort() -> void:
-	if _sid >= 0 and _peer != null:
+	if _sid >= 0 and _link != null:
 		_call("abort", { "sid": _sid })
 	abort_ask()
 
@@ -277,89 +272,16 @@ static func find_sidecar_dll() -> String:
 	return ProjectSettings.globalize_path("res://").path_join("../core/CellWar.Sidecar/bin/Debug/net10.0/CellWar.Sidecar.dll").simplify_path()
 
 
-# ---- 内部：进程与报文 ----
-func _spawn(dotnet: String, dll: String) -> bool:
-	_server = TCPServer.new()
-	if _server.listen(0, "127.0.0.1") != OK:
-		return _unavailable("回环端口开不了")
-	var port := _server.get_local_port()
-	_token = Crypto.new().generate_random_bytes(16).hex_encode()
-	_pid = OS.create_process(dotnet, ["exec", dll, "--connect", "127.0.0.1:%d" % port, "--token", _token])
-	if _pid <= 0:
-		_pid = -1
-		return _unavailable("起不了 sidecar 进程：%s %s" % [dotnet, dll])
-	var t0 := Time.get_ticks_msec()
-	while not _server.is_connection_available():
-		if not OS.is_process_running(_pid):
-			return _unavailable("sidecar 进程起来就退了（退出码 %d）" % OS.get_process_exit_code(_pid))
-		if Time.get_ticks_msec() - t0 > HANDSHAKE_MS:
-			_fail(Fault.HANDSHAKE_TIMEOUT, "sidecar %d ms 内没连回来" % HANDSHAKE_MS)
-			return false
-		OS.delay_msec(5)
-	_peer = _server.take_connection()
-	_server.stop()   ## 只等这一条连接：端口用完即关，别的本机进程再也连不进来
-	_server = null
-	var line := _read_line(HANDSHAKE_MS)
-	var hello = JSON.parse_string(line) if line != "" else null
-	if not (hello is Dictionary) or not (hello.get("hello") is Dictionary):
-		_fail(Fault.HANDSHAKE_TIMEOUT, "没收到 hello")
-		return false
-	_hello = CWMirror._normalize(hello["hello"])
-	if String(_hello.get("token", "")) != _token:
-		_fail(Fault.PROTOCOL, "hello 的 token 对不上")
-		return false
-	if int(_hello.get("host_abi", 0)) != HOST_ABI:
-		_fail(Fault.ABI_MISMATCH, "宿主 ABI %d，本客户端要 %d" % [int(_hello.get("host_abi", 0)), HOST_ABI])
-		return false
-	return true
-
-
+# ---- 内部：报文 ----
+## 链路级故障（进程退出 / 超时）由链路记下，这里转成本句柄的 FAULTED；会话级的拒绝（ok=false）原样交给调用方
 func _call(op: String, args := {}) -> Dictionary:
-	if _peer == null:
+	if _link == null:
 		return {}
-	var id := _next_id
-	_next_id += 1
-	var msg := args.duplicate()
-	msg["id"] = id
-	msg["op"] = op
-	if _peer.put_data((JSON.stringify(msg) + "\n").to_utf8_buffer()) != OK:
-		_fail(Fault.CRASHED, "写不进 sidecar 连接（%s）" % op)
+	var r: Dictionary = _link.request(op, args)
+	if int(_link.fault) != 0:
+		_fail(int(_link.fault), String(_link.fault_msg))
 		return {}
-	while true:
-		var line := _read_line(REPLY_TIMEOUT_MS)
-		if line == "":
-			_fail(Fault.CRASHED, "sidecar %d ms 内没回 %s" % [REPLY_TIMEOUT_MS, op])
-			return {}
-		var r = JSON.parse_string(line)
-		if r is Dictionary and r.has("re") and int(r["re"]) == id:
-			if not bool(r.get("ok", false)):
-				push_error("CWKernelSidecar：%s 被拒：%s" % [op, String(r.get("error", ""))])
-			return r
-	return {}
-
-
-## 读一行（不含换行）；连接断了或超时返回 ""
-func _read_line(timeout_ms: int) -> String:
-	var t0 := Time.get_ticks_msec()
-	while true:
-		var nl := _buf.find(10)
-		if nl >= 0:
-			var line := _buf.slice(0, nl).get_string_from_utf8()
-			_buf = _buf.slice(nl + 1)
-			return line
-		_peer.poll()
-		if _peer.get_status() != StreamPeerTCP.STATUS_CONNECTED:
-			return ""
-		var n := _peer.get_available_bytes()
-		if n > 0:
-			var got: Array = _peer.get_partial_data(n)
-			if int(got[0]) == OK:
-				_buf.append_array(got[1])
-			continue
-		if Time.get_ticks_msec() - t0 > timeout_ms:
-			return ""
-		OS.delay_usec(200)
-	return ""
+	return r
 
 
 func _submit(ask_id: int, key: String) -> bool:
@@ -383,17 +305,17 @@ func _stop_ticking() -> void:
 
 
 func _tick() -> void:
-	if _peer == null or _sid < 0 or _state == State.FAULTED or _state == State.UNAVAILABLE:
+	if _link == null or _sid < 0 or _state == State.FAULTED or _state == State.UNAVAILABLE:
 		return
-	if _pid > 0 and not OS.is_process_running(_pid):
-		_fail(Fault.CRASHED, "sidecar 进程退出了（退出码 %d）" % OS.get_process_exit_code(_pid))
+	if not _link.alive():
+		_fail(Fault.CRASHED, String(_link.fault_msg) if int(_link.fault) != 0 else "sidecar 进程退出了（退出码 %d）" % OS.get_process_exit_code(_pid))
 		return
 	_pump()
 
 
 ## 把 sidecar 那边的新条目全拉过来、翻成 GD 形状入队
 func _drain() -> void:
-	while _sid >= 0 and _peer != null:
+	while _sid >= 0 and _link != null:
 		var r := _call("pull", { "sid": _sid, "viewer": VIEWER_OMNISCIENT, "since": _pulled, "limit": PULL_LIMIT })
 		if not bool(r.get("ok", false)):
 			return
@@ -444,7 +366,7 @@ func _pump() -> void:
 	if _pumping:
 		return
 	_pumping = true
-	while _sid >= 0 and _peer != null:
+	while _sid >= 0 and _link != null:
 		_drain()
 		if _decider_ask.is_empty() or not _started:
 			break
@@ -493,7 +415,7 @@ func _crop(viewer: int, e: Dictionary) -> Dictionary:
 func _unavailable(msg: String) -> bool:
 	_set_fault(Fault.SPAWN_FAILED, msg)
 	_set_state(State.UNAVAILABLE)
-	_cleanup_process()
+	_release_link()
 	return false
 
 
@@ -505,16 +427,14 @@ func _fail(fault: int, msg: String) -> void:
 	_set_state(State.FAULTED)
 	_stop_ticking()
 	_open_ask = {}
-	_cleanup_process()
+	_release_link()
 
 
-func _cleanup_process() -> void:
-	if _peer != null:
-		_peer.disconnect_from_host()
-		_peer = null
-	if _server != null:
-		_server.stop()
-		_server = null
-	if _pid > 0 and OS.is_process_running(_pid):
-		OS.kill(_pid)
+## 关掉自己的会话（链路还活着才发 close）、引用 −1。链路本身坏了的话它自己已经杀过进程了
+func _release_link() -> void:
+	if _link != null:
+		if _sid >= 0 and _link.alive():
+			_link.request("close", { "sid": _sid })
+		_link.release()
+		_link = null
 	_sid = -1
