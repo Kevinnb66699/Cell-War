@@ -41,6 +41,12 @@ if command -v dotnet >/dev/null 2>&1; then
 		grep -E " error " "$TMP/sidecar_build.log" | head -20
 		exit 1
 	fi
+	## 导出包那条路（t_sidecar_locator）要 game/sidecar/ 里有载荷与本机运行时 zip（P7，约 4 s）
+	if ! bash tools/build_sidecar.sh > "$TMP/sidecar_pack.log" 2>&1; then
+		echo "✘ sidecar 打包失败："
+		tail -20 "$TMP/sidecar_pack.log"
+		exit 1
+	fi
 else
 	echo "⚠ 找不到 dotnet：t_kernel_sidecar 会报红（.NET 10 SDK 装在 ~/.dotnet，见 ~/.zprofile）"
 fi

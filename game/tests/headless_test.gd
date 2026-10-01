@@ -43,7 +43,7 @@ const WEIGHTS := {
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_drain": 5.1,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
 	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
-	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_entry_smoke_sidecar": 1.2, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
+	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_entry_smoke_sidecar": 1.2, "t_sidecar_locator": 1.2, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
 	"t_net_lobby": 1.0, "t_hotseat": 0.9, "t_pause_and_teardown": 0.9, "t_board_active_tiles": 0.8,
 	"t_eval_features": 0.8, "t_teleport_fx": 0.8, "t_play_queue": 0.7, "t_opening": 0.6,
 	"t_ai_same_hash_heur6": 0.6, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
@@ -170,7 +170,7 @@ func _run_all() -> void:
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
 		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
-		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_entry_smoke_sidecar, t_play_queue,
+		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_entry_smoke_sidecar, t_sidecar_locator, t_play_queue,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
 		t_observe_budget,
@@ -17947,6 +17947,36 @@ func t_entry_smoke_sidecar() -> void:
 	OS.set_environment("CW_KERNEL", "")
 	CWSettings.ai_delay_ms = 220
 	main_scene.queue_free()
+
+
+## 换内核 P7（2026-10-01）：导出包那条路 —— `cw_sidecar_locator.gd unpack()` 把 res://sidecar/（tools/build_sidecar.sh 生成）里的
+## .NET 运行时 zip 与载荷解到用户目录（测试的 user:// 是隔离的），再用**解出来的那份 dotnet** 起 sidecar 开一局。
+## 验：第一次解、第二次直接复用（.ok 标记）、半份目录（没有 .ok）会重解、解出来的宿主能起进程。导出版里的真跑见 tools/export_check_sidecar.gd。
+func t_sidecar_locator() -> void:
+	print("[sidecar 定位 / 解包]")
+	var Loc = load("res://scripts/kernel/cw_sidecar_locator.gd")
+	if not FileAccess.file_exists("res://sidecar/manifest.json"):
+		check(false, "res://sidecar/ 没有包 —— 先跑 tools/build_sidecar.sh（tools/run_tests.sh 开跑前会跑）")
+		return
+	DirAccess.make_dir_recursive_absolute(Loc.USER_DIR)
+	Loc._rm_rf(Loc.USER_DIR)
+	var t0 := Time.get_ticks_msec()
+	var a: Dictionary = Loc.unpack()
+	var first_ms := Time.get_ticks_msec() - t0
+	check(not a.has("error") and FileAccess.file_exists(a.get("dotnet", "")) and FileAccess.file_exists(a.get("dll", "")),
+		"第一次解包：运行时与载荷都在用户目录里（%d ms，%s）" % [first_ms, str(a.get("error", ""))])
+	var t1 := Time.get_ticks_msec()
+	var b: Dictionary = Loc.unpack()
+	check(b == a and Time.get_ticks_msec() - t1 < first_ms, "第二次直接复用（.ok 标记在）")
+	## 半份：删掉载荷目录的 .ok，下一次要重解（解一半崩了不能被当成好的用）
+	DirAccess.remove_absolute(String(a["dll"]).get_base_dir().path_join(".ok"))
+	var c: Dictionary = Loc.unpack()
+	check(c == a and FileAccess.file_exists(String(a["dll"]).get_base_dir().path_join(".ok")), "没有 .ok 的半份目录会重解")
+	var k := CWKernelSidecar.new()
+	check(k.open({ "factions": [0, 1], "seed": 5, "dotnet": a["dotnet"], "sidecar_dll": a["dll"] }) and k.observe(0) != null,
+		"用解出来的那份 dotnet 起 sidecar 开局（%s）" % str(k.last_error()))
+	k.close()
+	CWKernelSidecar.shutdown_idle_links()
 
 
 func t_entry_smoke_tutorial() -> void:

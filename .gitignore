@@ -24,3 +24,6 @@ Desktop.ini
 
 # python 工具的字节码缓存（tools/xcheck_report.py 等）
 __pycache__/
+
+# C# sidecar 的打包产物（tools/build_sidecar.sh 生成：框架依赖的载荷 + 各平台 .NET 运行时 zip），导出时进 pck，不入库
+/game/sidecar/

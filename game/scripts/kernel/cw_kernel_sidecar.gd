@@ -17,6 +17,7 @@ class_name CWKernelSidecar
 extends CWKernel
 
 const Link := preload("res://scripts/kernel/cw_sidecar_link.gd")
+const Locator := preload("res://scripts/kernel/cw_sidecar_locator.gd")
 const HOST_ABI := Link.HOST_ABI     ## 与 C# ObservationV1Codec.HostAbi 同值：握手只闸它（硬不变量③）
 const PULL_LIMIT := 256
 
@@ -41,13 +42,16 @@ var _ticking := false
 
 # ---- 生命周期 ----
 ## cfg：factions / seed / observe_viewer / open_hands / decider / deciders（同 InProc）；
-## 另有 dotnet / sidecar_dll 两个路径覆盖（测试与打包用；缺省见 find_dotnet / find_sidecar_dll）
+## 另有 dotnet / sidecar_dll 两个路径覆盖（测试用）；缺省由 cw_sidecar_locator.gd 找（开发期仓库产物 / 导出包首次解到用户目录）
 func open(cfg: Dictionary) -> bool:
 	if _state != State.IDLE:
 		return false
 	_set_state(State.STARTING)
-	var dotnet := String(cfg.get("dotnet", find_dotnet()))
-	var dll := String(cfg.get("sidecar_dll", find_sidecar_dll()))
+	var loc: Dictionary = {} if cfg.has("sidecar_dll") else Locator.locate()
+	if loc.has("error"):
+		return _unavailable(String(loc["error"]))
+	var dotnet := String(cfg.get("dotnet", loc.get("dotnet", Locator.dev_dotnet())))
+	var dll := String(cfg.get("sidecar_dll", loc.get("dll", "")))
 	if dotnet == "" or dll == "" or not FileAccess.file_exists(dll):
 		return _unavailable("找不到 sidecar（dotnet=%s，dll=%s）" % [dotnet, dll])
 	_link = Link.acquire(dotnet, dll)
@@ -250,26 +254,15 @@ func set_decider(b: Object) -> void:
 		deciders[pid] = b
 
 
-# ---- 找 sidecar ----
-## dotnet 宿主：环境变量 CW_DOTNET 优先，其次几个常见安装位置（Mac 上是 ~/.dotnet）。打包后的路由 P7 再加
+# ---- 找 sidecar（开发期；导出包的路由在 cw_sidecar_locator.gd）----
 static func find_dotnet() -> String:
-	var env := OS.get_environment("CW_DOTNET")
-	if env != "" and FileAccess.file_exists(env):
-		return env
-	var home := OS.get_environment("USERPROFILE") if OS.get_name() == "Windows" else OS.get_environment("HOME")
-	for p in [home.path_join(".dotnet/dotnet"), home.path_join(".dotnet/dotnet.exe"), "/usr/local/share/dotnet/dotnet",
-			"/opt/homebrew/bin/dotnet", "/usr/share/dotnet/dotnet", "/usr/lib/dotnet/dotnet", "C:/Program Files/dotnet/dotnet.exe"]:
-		if FileAccess.file_exists(p):
-			return p
-	return ""
+	return Locator.dev_dotnet()
 
 
-## 开发期：仓库里 core/CellWar.Sidecar 的 Debug 产物（game/ 的上一层）。环境变量 CW_SIDECAR_DLL 覆盖
+## 环境变量 CW_SIDECAR_DLL 覆盖，否则仓库里 core/CellWar.Sidecar 的 Debug 产物
 static func find_sidecar_dll() -> String:
 	var env := OS.get_environment("CW_SIDECAR_DLL")
-	if env != "":
-		return env
-	return ProjectSettings.globalize_path("res://").path_join("../core/CellWar.Sidecar/bin/Debug/net10.0/CellWar.Sidecar.dll").simplify_path()
+	return env if env != "" else Locator.dev_dll()
 
 
 # ---- 内部：报文 ----
