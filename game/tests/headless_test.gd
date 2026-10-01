@@ -46,7 +46,7 @@ const WEIGHTS := {
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_drain": 5.1,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
 	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
-	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
+	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_kernel_sidecar_ai": 3.0, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
 	"t_net_lobby": 1.0, "t_hotseat": 0.9, "t_pause_and_teardown": 0.9, "t_board_active_tiles": 0.8,
 	"t_eval_features": 0.8, "t_teleport_fx": 0.8, "t_play_queue": 0.7, "t_opening": 0.6,
 	"t_ai_agree_default_off": 6.0, "t_ai_same_hash_heur6": 0.6, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
@@ -173,7 +173,7 @@ func _run_all() -> void:
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
 		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
-		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_play_queue,
+		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_kernel_sidecar_ai, t_play_queue,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
 		t_observe_budget,
@@ -16516,6 +16516,47 @@ func t_kernel_sidecar() -> void:
 	var bad := CWKernelSidecar.new()
 	check(not bad.open({ "factions": [0, 1], "sidecar_dll": "/nonexistent/CellWar.Sidecar.dll" })
 		and bad.state() == CWKernel.State.UNAVAILABLE and bad.process_id() == -1, "找不到 dll = UNAVAILABLE，不起进程")
+
+
+## 换内核 P3（2026-10-01）：sidecar 里的 AI 席。席位 0 交给语义键 LCG 决策者，席位 1 交给 sidecar 进程内的 C# 意图档（`ai: {1: "intent"}`），
+## 打到终局。验：两席都不出 ask 条目、AI 席真出过手（有它的 step_begin）、step_begin 比 GD 这边作答的次数多（多出来的是 AI 的）、
+## 每一步之前都有 sync、seq 连续、game_over 收尾。意图档一问几毫秒；搜索档的整局节拍在 C# SidecarAiSeatTests 里跑。
+func t_kernel_sidecar_ai() -> void:
+	print("[内核句柄·Sidecar·AI 席]")
+	var dll := CWKernelSidecar.find_sidecar_dll()
+	if CWKernelSidecar.find_dotnet() == "" or not FileAccess.file_exists(dll):
+		check(false, "找不到 dotnet 或 sidecar 产物（%s）—— 先 dotnet build core/CellWar.Sidecar" % dll)
+		return
+	var dec = load("res://tests/xcheck_bridge.gd").new()
+	dec.seed_policy(2222)
+	var k := CWKernelSidecar.new()
+	var ok := k.open({ "factions": [0, 1], "seed": 2222, "observe_viewer": CWKernel.VIEWER_OMNISCIENT,
+		"deciders": { 0: dec }, "ai": { 1: "intent" } })
+	check(ok, "open 起得来（%s）" % str(k.last_error()))
+	if not ok:
+		return
+	var deadline := Time.get_ticks_msec() + 120000
+	while k.state() != CWKernel.State.ENDED and k.state() != CWKernel.State.FAULTED and Time.get_ticks_msec() < deadline:
+		await process_frame
+	check(k.state() == CWKernel.State.ENDED, "席位 0 decider + 席位 1 sidecar 内 AI 打到终局（decider %d 问，%s）" % [dec.log.size(), str(k.last_error())])
+	var es := k.pull(CWKernel.VIEWER_OMNISCIENT, 0, 1 << 20)
+	var kinds := {}
+	var mono := true
+	var last := 0
+	var ai_steps := 0
+	for e: Dictionary in es:
+		kinds[e["t"]] = int(kinds.get(e["t"], 0)) + 1
+		mono = mono and int(e["seq"]) == last + 1
+		last = int(e["seq"])
+		if e["t"] == "step_begin" and int(e.get("seat", -1)) == 1:
+			ai_steps += 1
+	check(mono, "seq 连续单调（%d 条）" % es.size())
+	check(not kinds.has("ask"), "两席都不出 ask 条目（decider 席同 InProc，AI 席由 sidecar 作答）")
+	check(ai_steps > 0 and int(kinds.get("step_begin", 0)) == dec.log.size() + ai_steps,
+		"AI 席真出过手：step_begin %d 条 = decider %d + AI %d" % [int(kinds.get("step_begin", 0)), dec.log.size(), ai_steps])
+	check(int(kinds.get("sync", 0)) >= int(kinds.get("step_begin", 0)), "每一步之前都有一份 sync（%d / %d）" % [int(kinds.get("sync", 0)), int(kinds.get("step_begin", 0))])
+	check(not es.is_empty() and String(es[-1]["t"]) == "game_over", "game_over 收尾")
+	k.close()
 
 
 ## 口径二 · 批 0 步 9：内核句柄 InProc —— 只用 open / pull / answer / ack 跑完一局，与直接 run_game 逐位相同；

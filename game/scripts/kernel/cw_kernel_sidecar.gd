@@ -44,7 +44,9 @@ var _ticking := false
 
 # ---- 生命周期 ----
 ## cfg：factions / seed / observe_viewer / open_hands / decider / deciders（同 InProc）；
-## 另有 dotnet / sidecar_dll 两个路径覆盖（测试与打包用；缺省见 find_dotnet / find_sidecar_dll）
+## 另有 dotnet / sidecar_dll 两个路径覆盖（测试与打包用；缺省见 find_dotnet / find_sidecar_dll）；
+## `ai: {席位: "normal" | "intent" | "search"}` + `ai_delay_ms`（换内核 P3）：那几席由 sidecar 进程里的 C# AI 作答，
+## 不出 ask 条目（同有 decider 的席位），句柄照常每帧 pull —— 原样转给 sidecar 的 open。
 func open(cfg: Dictionary) -> bool:
 	if _state != State.IDLE:
 		return false
@@ -60,6 +62,12 @@ func open(cfg: Dictionary) -> bool:
 	var open_cfg := { "factions": cfg.get("factions", []), "seed": int(cfg.get("seed", 1)), "open_hands": open_hands }
 	if observe_viewer != null:
 		open_cfg["observe_viewer"] = int(observe_viewer)
+	if cfg.has("ai"):
+		var ai := {}
+		for seat in cfg["ai"]:
+			ai[str(seat)] = String(cfg["ai"][seat])   ## JSON 的键只能是字符串
+		open_cfg["ai"] = ai
+		open_cfg["ai_delay_ms"] = int(cfg.get("ai_delay_ms", 0))
 	var r := _call("open", { "cfg": open_cfg })
 	if not bool(r.get("ok", false)):
 		_fail(Fault.PROTOCOL, "open 被拒：%s" % String(r.get("error", "无回应")))

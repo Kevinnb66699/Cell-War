@@ -10,7 +10,8 @@ namespace CellWar.Sidecar;
 /// 会话 `sid` 从第一版就带（桌面只有一局；服务器一个进程跑所有房间，计划 §3.1）。
 /// 报文一览（P1）：
 ///   version{}                                       → {host_abi, rules_build, ruleset_digest}
-///   open{factions[], seed, observe_viewer?, open_hands?} → {sid}
+///   open{factions[], seed, observe_viewer?, open_hands?, ai?: {"席位": "normal"|"intent"|"search"}, ai_delay_ms?} → {sid}
+///     （ai 里的席位由 sidecar 内的 CellWar.Ai 在后台线程作答：不出 ask 条目，句柄照常 pull，见 SessionHost 头注）
 ///   pull{sid, viewer, since, limit?}                → {entries[], last_seq}
 ///   discard_before{sid, seq}                        → {}
 ///   answer{sid, ask_id, key?, index?}               → {accepted}

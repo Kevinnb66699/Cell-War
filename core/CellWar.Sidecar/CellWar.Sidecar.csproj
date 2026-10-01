@@ -22,6 +22,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../CellWar.Core/CellWar.Core.csproj" />
+    <!-- AI 席（换内核 P3）：open 的 ai 字段里的席位由 sidecar 进程内的 CellWar.Ai 作答，不过网 -->
+    <ProjectReference Include="../CellWar.Ai/CellWar.Ai.csproj" />
   </ItemGroup>
 
   <ItemGroup>
