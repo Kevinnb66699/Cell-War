@@ -562,9 +562,27 @@ func _new_local_kernel(snap: Dictionary) -> CWKernel:
 	## 读档：存档自己说是哪个内核存的（C# 检查点只有 sidecar 装得进，开关关着也一样）
 	if String(snap.get("kernel", "")) == CWKernelSidecar.SAVE_KERNEL:
 		return CWKernelSidecar.new()
-	if OS.get_environment("CW_KERNEL") != "sidecar" or not snap.is_empty() or human_players.size() < player_count:
+	if OS.get_environment("CW_KERNEL") != "sidecar" or not snap.is_empty():
+		return CWKernelInProc.new()
+	## 换内核 P4：有 AI 席的单机局也走 sidecar —— AI 席由 sidecar 里的 C# 三档作答（见 _sidecar_ai）。
+	## 「较强」「树搜索」C# 没有（Kevin 10-01：AI 统一成三档，这两档随 P8 下架），这两档照旧走 GD
+	if human_players.size() < player_count and not SIDECAR_AI_TIERS.has(ai_level):
 		return CWKernelInProc.new()
 	return CWKernelSidecar.new()
+
+
+## 本地档位 → sidecar 的 C# 三档
+const SIDECAR_AI_TIERS := { AI_NORMAL: "normal", AI_INTENT: "intent", AI_ABS: "search" }
+
+
+## sidecar 局的 AI 席：不是真人的席位全交给 C# 那一档（`{席位: 档名}`）。sidecar 在自己进程里作答、不出 ask 条目，
+## 句柄照常每帧拉条目 —— 界面这边看到的节拍与 InProc 有 decider 的席位相同。读档时同样要给（检查点里不记 AI 配置）
+func _sidecar_ai() -> Dictionary:
+	var ai := {}
+	for pid in player_count:
+		if not (pid in human_players):
+			ai[pid] = String(SIDECAR_AI_TIERS.get(ai_level, "normal"))
+	return ai
 
 
 ## snap 非空 = 从存档继续：装配完把快照原样放回去，run_game 会把存档那一刻
@@ -599,6 +617,9 @@ func start(snap: Dictionary = {}) -> void:
 		cfg["cancer_types"] = cancer_types.duplicate()   ## 内核把它排在 init 之前：抽种类在开局第一步
 		if not snap.is_empty():
 			cfg["world_state"] = snap   ## **只有读档才给**：句柄只判 has()，塞个 {} 会把空快照灌进引擎
+	if kernel is CWKernelSidecar and human_players.size() < player_count:
+		cfg["ai"] = _sidecar_ai()
+		cfg["ai_delay_ms"] = CWSettings.ai_delay_ms   ## 同 GD AI 每步之间的停顿：纯观感
 	_wire_bridge(ai_level)
 	## 同一个桥对象当所有席位的 decider：人类那几位走界面，其余走 AI，
 	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。

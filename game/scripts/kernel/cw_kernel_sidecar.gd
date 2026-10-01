@@ -91,7 +91,12 @@ func open(cfg: Dictionary) -> bool:
 	var ws: Variant = cfg.get("world_state", null)
 	var r: Dictionary
 	if ws is Dictionary and String(ws.get("kernel", "")) == SAVE_KERNEL:
-		r = _call("restore", { "checkpoint": String(ws["checkpoint"]), "observe_viewer": open_cfg.get("observe_viewer"), "open_hands": open_hands })
+		## 检查点里不记 AI 配置：AI 席与停顿照这一次的 cfg 再给一遍（match.gd 按存档里的档位与真人席算）
+		var rq := { "checkpoint": String(ws["checkpoint"]), "observe_viewer": open_cfg.get("observe_viewer"), "open_hands": open_hands, "seed": open_cfg["seed"] }
+		for k in ["ai", "ai_delay_ms"]:
+			if open_cfg.has(k):
+				rq[k] = open_cfg[k]
+		r = _call("restore", rq)
 	else:
 		r = _call("open", { "cfg": open_cfg })
 	if not bool(r.get("ok", false)):

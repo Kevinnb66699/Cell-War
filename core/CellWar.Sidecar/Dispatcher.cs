@@ -23,7 +23,7 @@ namespace CellWar.Sidecar;
 ///   mark_player{sid, pid, suffix}                   → {ok_mark}
 ///   surrender{sid, faction}                         → {ended}
 ///   log_msg{sid, text, secret_pid?, public_text?}   → {logged}（宿主插一行日志 = GD log_msg）
-///   can_save{sid} → {can_save} · save{sid} → {checkpoint|null} · restore{checkpoint, observe_viewer?, open_hands?} → {sid}
+///   can_save{sid} → {can_save} · save{sid} → {checkpoint|null} · restore{checkpoint, observe_viewer?, open_hands?, ai?, ai_delay_ms?, seed?} → {sid}
 ///   abort{sid} / close{sid}                         → {}
 ///   ping{}                                          → {}
 /// </summary>
@@ -96,9 +96,8 @@ internal sealed class Dispatcher : IDisposable
 
     private JsonObject Restore(JsonObject req)
     {
-        var json = J.Str(req["checkpoint"]);
         var sid = nextSid++;
-        sessions[sid] = SessionHost.Restore(sid, json, J.IntOr(req["observe_viewer"]), req["open_hands"] is { } oh && J.Bool(oh));
+        sessions[sid] = SessionHost.Restore(sid, req);
         return new JsonObject { ["sid"] = sid };
     }
 

@@ -46,7 +46,7 @@ const WEIGHTS := {
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_sidecar": 5.6, "t_net_drain": 5.1, "t_net_sidecar_takeover": 4.0,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
 	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
-	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_net_sidecar_ui": 0.6, "t_entry_smoke_sidecar": 1.2, "t_sidecar_locator": 1.2, "t_kernel_sidecar_ai": 3.0, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
+	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_net_sidecar_ui": 0.6, "t_entry_smoke_sidecar": 1.2, "t_entry_smoke_sidecar_ai": 1.5, "t_sidecar_locator": 1.2, "t_kernel_sidecar_ai": 3.0, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
 	"t_net_lobby": 1.0, "t_hotseat": 0.9, "t_pause_and_teardown": 0.9, "t_board_active_tiles": 0.8,
 	"t_eval_features": 0.8, "t_teleport_fx": 0.8, "t_play_queue": 0.7, "t_opening": 0.6,
 	"t_ai_agree_default_off": 6.0, "t_ai_same_hash_heur6": 0.6, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
@@ -176,7 +176,7 @@ func _run_all() -> void:
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
 		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
-		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_kernel_sidecar_ai, t_entry_smoke_sidecar, t_sidecar_locator, t_sidecar_tutor_worlds, t_play_queue,
+		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_kernel_sidecar_ai, t_entry_smoke_sidecar, t_entry_smoke_sidecar_ai, t_sidecar_locator, t_sidecar_tutor_worlds, t_play_queue,
 		## 换内核 P6 · 真人半边（2026-10-01）：服务器开关 CW_KERNEL=sidecar 下全真人房跑在 C# 内核上
 		t_net_sidecar, t_net_sidecar_takeover, t_net_sidecar_ui,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
@@ -18000,6 +18000,68 @@ func t_entry_smoke_hotseat() -> void:
 ## 换内核 P2 的真界面冒烟（2026-10-01）：开发开关 `CW_KERNEL=sidecar` 下开一局 **2 人热座**，整条界面路走 C# sidecar ——
 ## 换手遮罩点掉、落子点一格、行动问答按「结束回合」，打满两个世界回合。验：句柄真是 Sidecar、行动栏按 tier B 的 action_kinds
 ## 建出整排按钮（批 0 时 C# 不产 tier B，接上去只剩「结束回合」）、镜像跟着回合走、拆局干净。不设开关 = 走 InProc（另一条冒烟管）。
+## 换内核 P4：开关打开时**单机对 AI** 也走 sidecar —— AI 席交给 sidecar 里的 C# 三档（意图档最快）。
+## 走真 Main.tscn：真人只答自己那一席，AI 席自己打；打过两个世界回合 → 存档 → 拆局 → 读档（读档要再给一遍 AI 席）→ 接着打。
+## 「较强」「树搜索」C# 没有，这两档照旧走 GD。
+func t_entry_smoke_sidecar_ai() -> void:
+	print("[入口冒烟·单机对 AI 走 sidecar]")
+	if CWKernelSidecar.find_dotnet() == "" or not FileAccess.file_exists(CWKernelSidecar.find_sidecar_dll()):
+		check(false, "找不到 dotnet 或 sidecar 产物 —— 先 dotnet build core/CellWar.Sidecar")
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	m.player_count = 2
+	m.human_players = [0]
+	m.ai_level = CWMatch.AI_INTENT
+	m.match_seed = 91
+	CWSettings.ai_delay_ms = 0
+	m.start()
+	await process_frame
+	check(m.kernel is CWKernelSidecar and m.kernel.state() != CWKernel.State.UNAVAILABLE, "开关打开 + 意图档 ⇒ 句柄是 sidecar（%s）" % str(m.kernel.last_error()))
+	var play := func(target_round: int) -> void:
+		var t0 := Time.get_ticks_msec()
+		while Time.get_ticks_msec() - t0 < 30000 and (m.mirror == null or int(m.mirror.round_no) < target_round):
+			await process_frame
+			if m.bridge._pending == null:
+				continue
+			if not m.bridge._tiles.is_empty() and m.bridge.panel != null and not m.bridge.panel._end.visible:
+				m.bridge._pending.fire(m.bridge._tiles.values()[0])
+			else:
+				m.bridge.panel.end_turn_pressed.emit()
+	await play.call(3)
+	check(m.mirror != null and int(m.mirror.round_no) >= 3, "真人只结束回合、AI 席自己打：过了两个世界回合（第 %d 回合）" % (int(m.mirror.round_no) if m.mirror != null else -1))
+	var t_s := Time.get_ticks_msec()
+	while not m.can_save_now() and Time.get_ticks_msec() - t_s < 10000:
+		await process_frame
+	var blob: Dictionary = m.save_blob()
+	check(String(blob.get("kernel", "")) == CWKernelSidecar.SAVE_KERNEL, "停在真人那一问上能存：存的是 C# 检查点")
+	var round_before := int(m.mirror.round_no)
+	m.teardown()
+	await process_frame
+	m.start(blob)
+	await process_frame
+	check(m.kernel is CWKernelSidecar and m.kernel.state() != CWKernel.State.FAULTED, "读档回到 sidecar（%s）" % str(m.kernel.last_error()))
+	await play.call(round_before + 1)
+	check(m.mirror != null and int(m.mirror.round_no) > round_before, "读档之后 AI 席接着自己打（第 %d → %d 回合）" % [round_before, int(m.mirror.round_no) if m.mirror != null else -1])
+	m.teardown()
+	await process_frame
+	## 「较强」C# 没有：照旧 GD
+	m.ai_level = CWMatch.AI_MC
+	m.start()
+	await process_frame
+	check(m.kernel is CWKernelInProc, "「较强」档照旧走 GD 内核")
+	m.teardown()
+	await process_frame
+	OS.set_environment("CW_KERNEL", "")
+	CWSettings.ai_delay_ms = 220
+	main_scene.queue_free()
+	await process_frame
+	CWKernelSidecar.shutdown_idle_links()
+
+
 func t_entry_smoke_sidecar() -> void:
 	print("[入口冒烟·热座走 sidecar]")
 	if CWKernelSidecar.find_dotnet() == "" or not FileAccess.file_exists(CWKernelSidecar.find_sidecar_dll()):

@@ -117,7 +117,7 @@ public class SidecarHostTests
         var before = host.Envelope(-2);
         var beforeKeys = Keys(host.Pull(-2, 0, 100_000).Select(n => n!.AsObject()).Last(e => J.Str(e["t"]) == "ask"));
 
-        using var back = SessionHost.Restore(2, json, -2, false);
+        using var back = SessionHost.Restore(2, new JsonObject { ["checkpoint"] = json, ["observe_viewer"] = -2 });
         var first = back.Pull(-2, 0, 100).Select(n => n!.AsObject()).ToArray();
         Assert.Equal(["step_end", "sync", "ask"], first.Select(e => J.Str(e["t"])));   // 只有这三条：检查点里缓冲的旧演出不重播
         Assert.Equal(beforeKeys, Keys(first[2]));

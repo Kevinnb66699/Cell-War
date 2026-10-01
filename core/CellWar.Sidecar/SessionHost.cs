@@ -98,9 +98,17 @@ internal sealed class SessionHost : IDisposable
     /// <summary>★ 检查点含 rng 与全部明文手牌：宿主专用、绝不过网（同 MatchSession.Save）。不能存时返回 null。</summary>
     public string? Save() { lock (gate) return CanSave ? session.Save().Json : null; }
 
-    /// <summary>从检查点接着打：挂着的那一问会重新问出来（宿主泵一次就看见 Input）。</summary>
-    public static SessionHost Restore(int sid, string checkpointJson, int? observeViewer, bool openHands)
-        => new(sid, MatchSession.Restore(new Checkpoint(checkpointJson)), observeViewer, openHands, null, 0, 1, restored: true);   // AI 席随 P4 桌面切换一起接（检查点里不记 AI 配置）
+    /// <summary>从检查点接着打：挂着的那一问会重新问出来（宿主泵一次就看见 Input）。
+    /// 检查点里不记 AI 配置（它是宿主的事，不是对局状态）：读档的人自己再给一遍 `ai` / `ai_delay_ms`（match.gd 按存档里的档位与真人席算）。
+    /// `seed` 只用来派生 AI 推演的种子（真局的骰子在检查点里）。</summary>
+    public static SessionHost Restore(int sid, JsonObject req)
+    {
+        var session = MatchSession.Restore(new Checkpoint(J.Str(req["checkpoint"])));
+        var seats = session.Peek().State.Players.Count;
+        var seed = req["seed"] is { } sv ? unchecked((ulong)J.Long(sv)) : 1UL;
+        return new(sid, session, J.IntOr(req["observe_viewer"]), req["open_hands"] is { } oh && J.Bool(oh),
+            ParseAi(req, seats), J.IntOr(req["ai_delay_ms"]) ?? 0, seed, restored: true);
+    }
 
     /// <summary>`open` 报文 → 一局。P1 只认 GD 的标准座次（`CWMatch.FACTION_ORDER`：免疫 / 癌交替，与 C# <see cref="MatchSetup"/> 同一套）。</summary>
     public static SessionHost Open(int sid, JsonObject cfg)
@@ -117,16 +125,22 @@ internal sealed class SessionHost : IDisposable
         // GD `tune.cancer_types`（按癌席顺序钉死，值是 GD ctype）与 `players[].name`（宿主注入的显示名；空串 = 用默认名）
         var cancerTypes = cfg["cancer_types"]?.AsArray().Select(J.Int).ToArray() ?? [];
         // MatchSession.Start(seed, 建世界)：开局那几行日志（「初始癌组织：…」）写在建世界的时候，要它收进条目流
-        // AI 席：{"席位": "normal" | "intent" | "search"}（JSON 的键只能是字符串）
+        var ai = ParseAi(cfg, factions.Length);
+        var delay = J.IntOr(cfg["ai_delay_ms"]) ?? 0;
+        return new(sid, MatchSession.Start(seed, () => WithNames(MatchSetup.Create(factions.Length, seed, cancerTypes), cfg, factions.Length)), viewer, openHands, ai, delay, seed);
+    }
+
+    /// <summary>AI 席：`{"席位": "normal" | "intent" | "search"}`（JSON 的键只能是字符串）。开局与读档共用。</summary>
+    private static Dictionary<int, AiTier> ParseAi(JsonObject cfg, int seats)
+    {
         var ai = new Dictionary<int, AiTier>();
         foreach (var (k, v) in cfg["ai"]?.AsObject() ?? [])
         {
-            if (!int.TryParse(k, out var seat) || seat < 0 || seat >= factions.Length)
-                throw new ArgumentException($"ai 里的席位「{k}」不在 0..{factions.Length - 1}");
+            if (!int.TryParse(k, out var seat) || seat < 0 || seat >= seats)
+                throw new ArgumentException($"ai 里的席位「{k}」不在 0..{seats - 1}");
             ai[seat] = AiConfig.ParseTier(J.Str(v));
         }
-        var delay = J.IntOr(cfg["ai_delay_ms"]) ?? 0;
-        return new(sid, MatchSession.Start(seed, () => WithNames(MatchSetup.Create(factions.Length, seed, cancerTypes), cfg, factions.Length)), viewer, openHands, ai, delay, seed);
+        return ai;
     }
 
     /// <summary>
