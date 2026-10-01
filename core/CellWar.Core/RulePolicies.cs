@@ -518,7 +518,7 @@ internal static class RulePolicies
     {
         var tune = s.Tuning;
         var ordinary = block.Count(p => s.Board.Tissues[p].State == TissueState.Cancer);
-        var solid = Tiles(s).Count(t => t.State == TissueState.SolidifiedCancer);
+        var solid = block.Count(p => s.Board.Tissues[p].State == TissueState.SolidifiedCancer);   // issue #66：块内固化数（原来数全图）
 
         // 逐字对 GD `cw_world.gd:_anaerobic_pool`：旋钮 -1 = 按人数取（表里没有的人数退回缺省 —— balance_scan 会扫 5 人 / 7 人这类非正式人数，不能崩）；
         // >0 = 整体覆盖；**0 = 退回 09-04 之前的线性求和**（对照档）。此前 C# 先查分档表，旋钮永远够不着（批 3 KG-1）
@@ -536,8 +536,8 @@ internal static class RulePolicies
     }
 
     /// <summary>【E-无氧呼吸】的环境恶化增益，百分数（GD `CWData.ANAEROBIC_STAGE_MUL_BY_STAGE`，下标 = 分期 − 1）：
-    /// II 期 +20% / III 期 +50%（issue #56）。与 <see cref="PressureMultiplierByStage"/> 同一个写法：**常量不是旋钮**。</summary>
-    public static readonly IReadOnlyList<int> AnaerobicStageMultiplierByStage = [100, 120, 150];
+    /// II 期 +20% / III 期 +30%（issue #56；issue #66 改 III 期）。与 <see cref="PressureMultiplierByStage"/> 同一个写法：**常量不是旋钮**。</summary>
+    public static readonly IReadOnlyList<int> AnaerobicStageMultiplierByStage = [100, 120, 130];
 
     /// <summary>
     /// 【E-无氧呼吸】把池子分到一个癌细胞头上（规格 §0.6.7 的具名入口之一），十分能量。
@@ -836,16 +836,20 @@ internal static class RulePolicies
     }
 
     /// <summary>
-    /// 【抗体】的伤害：基数每在本世界回合用过一次就折半（整数除法，所以会衰减到 0 而不是留个尾巴）。
+    /// 【抗体】的伤害：基数每在本世界回合用过一次就折半（整数除法），**最低 0.2**（issue #67，PRD 2026-09-20；此前会衰减到 0）。
     /// `matured` = B 细胞装了【抗体亲和力成熟】：基数由 1.5 改为 **2.0**（PRD:1325；
     /// 卡面 2026-09-07 从 1.5 改成 2，对齐 GDScript 的 MATURED_ANTIBODY_DMG := 20）。
     /// </summary>
     public static int AntibodyDamage(RuleTuning tune, int used, bool matured = false)
     {
         var tenths = matured ? 20 : 15;
-        if (tune.AntibodyHalve) for (var i = 0; i < used; i++) tenths /= 2;   // GD cw_actions.gd:1223 `if not game.tune.antibody_halve: return dmg`：旋钮关掉 = 2026-09-01~09-04 那版「每次都打满」的老行为，用来做对照局
-        return tenths;
+        if (!tune.AntibodyHalve) return tenths;   // GD cw_actions.gd `if not game.tune.antibody_halve: return dmg`：旋钮关掉 = 2026-09-01~09-04 那版「每次都打满」的老行为，用来做对照局
+        for (var i = 0; i < used; i++) tenths /= 2;
+        return Math.Max(tenths, AntibodyMinDamage);
     }
+
+    /// <summary>【抗体】同回合递减的底（十分能量，GD `CWData.ANTIBODY_MIN_DAMAGE`，issue #67）。只在折半开着时生效，与 GD 同。</summary>
+    public const int AntibodyMinDamage = 2;
 
     /// <summary>
     /// 攻击判词。收 `WorldState` 只为了把【免疫突触成熟】也走 `HasSkill` ——

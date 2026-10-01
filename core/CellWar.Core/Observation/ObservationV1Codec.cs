@@ -130,7 +130,7 @@ public static class ObservationV1Codec
             var isStop = p.Fields.Any(f => f.Field is "stop" or "skip");
             var isAttack = d is MoveDecision m && s.GetCellAt(m.TargetPosition) is { } other && other.Faction != s.Cells[m.CellId].Faction;
             var rows = d is MoveDecision mm
-                ? RulePolicies.MoveCostSteps(s, s.Cells[mm.CellId], mm.TargetPosition).Select(st => new ObsCostRow(st.Modifier.Name, st.Before, st.After, "")).ToArray()
+                ? RulePolicies.MoveCostSteps(s, s.Cells[mm.CellId], mm.TargetPosition).Select(st => new ObsCostRow(st.Modifier.Name, st.Before, st.After, st.Modifier.Stage == ModifierStage.Free ? "免费豁免" : "")).ToArray()   // GD cw_cost.gd quote()：只有 ⑨ 免费豁免那一段带 note
                 : [];
             return new ObsOption(i, p.Key, Label(s, d, price), data, cost, rows, anchor, isStop, isAttack, null);
         }).ToArray();

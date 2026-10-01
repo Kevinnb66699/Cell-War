@@ -251,7 +251,7 @@ public class CardTests
         Assert.Equal(22, CardCatalog.Pool(CardPool.ImmuneX).Count());
         // 2026-09-15：18 → 19，补上了 PRD:1465 的【癌症转移】（此前 C# 侧整张缺失）。
         // 对照：GDScript 侧 cw_card_data.gd 数出来同样是 19（免疫四档 11/14/17/22 两边一致）。
-        Assert.Equal(19, CardCatalog.Pool(CardPool.Cancer).Count());
+        Assert.Equal(18, CardCatalog.Pool(CardPool.Cancer).Count());   // issue #64：【基质稳定】整张删，19 → 18
         // 癌症卡按肿瘤分期三档权重
         //
         // ⚠ 2026-09-15 更正：这三条原来断言的是 3 / 4 / 6 —— 那是**当时代码里的值**，

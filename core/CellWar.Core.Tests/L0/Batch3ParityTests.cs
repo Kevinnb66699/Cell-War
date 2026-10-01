@@ -35,10 +35,10 @@ public class Batch3ParityTests
     {
         var byTable = WorldLoader.Load(Cancer(1, null, Block));
         var block = Block.Select(t => WorldLoader.Pos(t.At)).ToArray();
-        var expected = Math.Pow(3, 0.30) * 28 + 1 * 10;   // 2 人局：表里 coef 28 / exp 30；固化全图 1 格 +1.0
+        var expected = Math.Pow(3, 0.30) * 28 + 1 * 5;    // 2 人局：表里 coef 28 / exp 30；块内固化 1 格 +0.5（issue #66：原「全图 ×1.0」）
         Assert.Equal(expected, RulePolicies.AnaerobicPool(byTable, block), 9);
         var overridden = WorldLoader.Load(Cancer(1, new() { ["anaerobic_block_coef"] = 5 }, Block));
-        Assert.Equal(Math.Pow(3, 0.30) * 5 + 10, RulePolicies.AnaerobicPool(overridden, block), 9);
+        Assert.Equal(Math.Pow(3, 0.30) * 5 + 5, RulePolicies.AnaerobicPool(overridden, block), 9);
     }
 
     [Fact]

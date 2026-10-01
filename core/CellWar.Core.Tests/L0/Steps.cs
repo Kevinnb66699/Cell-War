@@ -49,7 +49,6 @@ internal static class Steps
         ["solidify"] = (s, _, _) => BoardRules.Solidify(s),
         ["rooted"] = (s, _, rng) => BoardRules.Rooted(s, rng),
         ["ossify"] = (s, _, _) => BoardRules.Ossify(s),
-        ["decay"] = (s, _, _) => BoardRules.Decay(s),
         ["mark_adhesion"] = (s, _, _) => BoardRules.MarkAdhesion(s),
         ["tick_durations"] = (s, _, _) => BoardRules.TickDurations(s),
         ["tick_necrosis"] = (s, _, _) => BoardRules.TickNecrosis(s),

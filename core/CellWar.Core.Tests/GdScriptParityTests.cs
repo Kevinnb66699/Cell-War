@@ -1120,10 +1120,8 @@ public class GdScriptParityTests
         var after = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(4));
         Assert.Equal(TissueState.Cancer, after.Board.Tissues[target].State);
 
-        // 15 −5：【根深蒂固】一点没加上，随后**第 6 步衰减**照常扣了 0.5
-        // （目标格上没有癌细胞停留）。这一条顺带钉住了「衰减排在根深蒂固之后」——
-        // 反过来的话衰减先扣成 1.0、再被加成 2.0，当场转固化。
-        Assert.Equal(10, after.Board.Tissues[target].SolidificationCount);
+        // 15 原样：【根深蒂固】一点没加上；衰减那一步 issue #64（2026-09-19）整步删了，没人停留也不掉
+        Assert.Equal(15, after.Board.Tissues[target].SolidificationCount);
     }
 
     /// <summary>【基质硬化】也走同一个口子：够门槛当场转固化，冻住的格加不上。</summary>
@@ -2146,51 +2144,23 @@ public class GdScriptParityTests
     }
 
     /// <summary>
-    /// 【基质稳定】现在住在容器里：在场那一回合固化计数不衰减。
-    /// left=1 —— E 阶段衰减在回合末**之前**结算，正好盖住本回合那一次。
+    /// issue #64（2026-09-19，PRD 删了 E 阶段「固化计数衰减」）：没人停留的计数一点不掉。
+    /// I 期没有【根深蒂固】、门槛拧高，这一格在整个 E 阶段只可能被衰减碰到 —— 衰减没了就原样留着。
+    /// （原来这里是两条【基质稳定】挡衰减的测试；那张卡唯一的作用就是跳过衰减，随之整张删了。）
     /// </summary>
     [Fact]
-    public void 基质稳定在场时固化计数不衰减()
+    public void 固化计数不再衰减_没人停留也一点不掉()
     {
         var target = new HexPosition(1, 0, -1);
-        var plain = RootedWorld(solidCount: 15, round: 6);   // 目标格上没有癌细胞 → 正常该 −0.5
-
-        // 门槛拧高，免得【根深蒂固】把它推成固化、盖过衰减这条判据
-        plain = plain.WithTuning(plain.Tuning with { SolidifyThreshold = [99, 99, 99] });
-        var decayed = BoardRules.EvolveEndOfRound(plain, new Xoshiro256StarStar(4));
-        var held = BoardRules.EvolveEndOfRound(plain.InstallEffect("基质稳定", left: 1), new Xoshiro256StarStar(4));
-
-        Assert.True(held.Board.Tissues[target].SolidificationCount > decayed.Board.Tissues[target].SolidificationCount,
-            $"【基质稳定】没挡住衰减：没挂 {decayed.Board.Tissues[target].SolidificationCount}、挂了 {held.Board.Tissues[target].SolidificationCount}");
+        var world = RootedWorld(solidCount: 15, round: 2);
+        world = world.WithTuning(world.Tuning with { SolidifyThreshold = [99, 99, 99] });
+        var after = BoardRules.EvolveEndOfRound(world, new Xoshiro256StarStar(4));
+        Assert.Equal(15, after.Board.Tissues[target].SolidificationCount);
     }
 
-    /// <summary>
-    /// 【基质稳定】只盖**本**回合：打出后这一回合衰减停摆，下一回合恢复。
-    /// 上面那条是手工挂条目，这条走真卡 —— 卡挂成 left=2 的话下一回合还会停摆。
-    /// </summary>
     [Fact]
-    public void 基质稳定只盖本回合()
-    {
-        var target = new HexPosition(1, 0, -1);
-        var world = RootedWorld(solidCount: 15, round: 6)
-            .WithTuning(RuleTuning.Default with { SolidifyThreshold = [99, 99, 99] });
-
-        var played = CardRules.Resolve(world, world.Cells[new EntityId(1)], "基质稳定",
-            new Xoshiro256StarStar(1), null, null);
-
-        // 跟**没打这张卡**的对照组比差值，而不是钉绝对数 ——
-        // 这格上【根深蒂固】每回合也在 +1.0，钉绝对数既难读又一改别处就碎。
-        int Count(WorldState w) => w.Board.Tissues[target].SolidificationCount;
-        WorldState Next(WorldState w) => BoardRules.EvolveEndOfRound(w, new Xoshiro256StarStar(4));
-
-        var plain1 = Next(world);
-        var held1 = Next(played);
-        Assert.Equal(5, Count(held1) - Count(plain1));      // 本回合挡下一次 −0.5 的衰减
-
-        var plain2 = Next(plain1);
-        var held2 = Next(held1);
-        Assert.Equal(5, Count(held2) - Count(plain2));      // 差值**不再扩大** = 下一回合已经失效
-    }
+    public void 基质稳定整张删了()
+        => Assert.DoesNotContain(CardCatalog.Pool(CardPool.Cancer), c => c.Name == "基质稳定");
 
     /// <summary>
     /// 【TGF-β释放】要**活过本回合末**（下一次有氧在下个世界回合的 S 阶段），

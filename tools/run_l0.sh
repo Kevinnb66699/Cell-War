@@ -49,10 +49,13 @@ if [ "$SC_CODE" -ne 0 ] || echo "$SC_OUT" | grep -qE "SCRIPT ERROR|Parse Error|F
 	CODE=1
 fi
 
-# C# 侧（L0RunnerTests / PreParityTests / RoundTripTests …）：**Kevin 2026-09-19「后续不再需要维护 C# 核心，C# 的测试也不用跑了」**
-# —— 默认跳过；要临时看一眼老的对拍就 CW_L0_CS=1 跑（core/ 不再随规则改动更新，红了不算数）。
+# C# 侧（L0RunnerTests / PreParityTests / RoundTripTests …）：09-19 冻结时默认跳过；
+# **Kevin 2026-10-01 重启换内核（C# 内核要接成产品内核）⇒ 恢复默认跑、红了算数**。CW_L0_CS=0 可临时跳过。
+# dotnet 装在 ~/.dotnet（.NET 10 SDK，~/.zprofile 里有 PATH）。
 CS_CODE=0
-if [ "${CW_L0_CS:-0}" = "1" ]; then
+CS_LABEL=""
+if [ "${CW_L0_CS:-1}" = "1" ]; then
+	CS_LABEL=" + C# 侧"
 	CS_OUT="$(dotnet test core/CellWar.Core.Tests --nologo -v q --filter "FullyQualifiedName~L0RunnerTests|FullyQualifiedName~PreParityTests|FullyQualifiedName~RoundTripTests|FullyQualifiedName~ContractGateTests|FullyQualifiedName~KeyTableTests|FullyQualifiedName~SetupOpsTests|FullyQualifiedName~SubsetTextTests" 2>&1)"
 	CS_CODE=$?
 	echo "$CS_OUT" | grep -E "\[FAIL\]|Passed!|Failed!| error " | sed 's/^/L0（C# 侧）：/'
@@ -60,14 +63,14 @@ if [ "${CW_L0_CS:-0}" = "1" ]; then
 		CODE=1
 	fi
 else
-	echo "L0（C# 侧）：跳过（Kevin 2026-09-19：不再维护 C# 核心；CW_L0_CS=1 可临时跑）"
+	echo "L0（C# 侧）：跳过（CW_L0_CS=0）"
 fi
 
 # 闸三（covers ∩ 真实 check 名、covered_sites 单调不减、xcheck/COUNT）2026-09-20 退役（Kevin：测试整理口径 A）：
 # 它是 C# 对拍时期「分子不许造」的记账，C# 已冻结；L0 用例照跑，用例里的 covers 字段只当出处注记、不再校验。
 
 if [ "$CODE" -eq 0 ]; then
-	echo "✔ L0（GD 侧）全绿"
+	echo "✔ L0（GD 侧${CS_LABEL}）全绿"
 else
 	echo "✘ L0 有红（GD 退出码 $GD_CODE / GD 自检 $SC_CODE / C# 退出码 ${CS_CODE}）"
 fi

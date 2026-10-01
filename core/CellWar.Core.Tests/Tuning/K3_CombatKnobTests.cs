@@ -73,7 +73,7 @@ public class K3CombatKnobTests
     public void 抗体伤害逐次减半_旋钮关掉就每次都打满()
     {
         var d = RuleTuning.Default;
-        var want = new[] { 15, 7, 3, 1, 0 };
+        var want = new[] { 15, 7, 3, 2, 2 };   // issue #67：递减有底 0.2（原来一路衰减到 1、0）
         for (var used = 0; used < want.Length; used++)
             Assert.Equal(want[used], RulePolicies.AntibodyDamage(d, used));
 

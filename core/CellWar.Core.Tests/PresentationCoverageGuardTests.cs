@@ -4,7 +4,7 @@ using CellWar.Core.Tests.L1;
 namespace CellWar.Core.Tests;
 
 /// <summary>
-/// 口径二 · 批 0 步 6 的验收闸（规格 C-1 步 6）：三条 L1 夹具各重放 200 步，GD 桥的各条演出通道都至少出现过一次；
+/// 口径二 · 批 0 步 6 的验收闸（规格 C-1 步 6）：四条 L1 夹具各重放 200 步（2026-10-01 #64/#66 重录后三条主线随机走子一次攻击都没走出来，把树突建源局也算进来），GD 桥的各条演出通道都至少出现过一次；
 /// 骰点在面数之内、过场方向是 DIRS 下标、判词三档之一。顺带把每类条目的次数写到 bin 目录，文档引用。
 /// `beam`（Excalibur）夹具里没有，不在必到名单里；`world_event` 通道 2026-09-19 已删。
 /// </summary>
@@ -17,7 +17,7 @@ public class PresentationCoverageGuardTests
     {
         var dir = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "game", "tests", "l1");
         var staged = new List<IPresentationEvent>();
-        foreach (var name in new[] { "trace_4p_4242.jsonl", "trace_2p_2222.jsonl", "trace_6p_6666.jsonl" })
+        foreach (var name in new[] { "trace_4p_4242.jsonl", "trace_2p_2222.jsonl", "trace_6p_6666.jsonl", "trace_4p_chemo_4246.jsonl" })
         {
             var path = Path.Combine(dir, name);
             Assert.True(File.Exists(path), $"找不到夹具：{path}");

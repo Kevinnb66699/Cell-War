@@ -1,12 +1,12 @@
 namespace CellWar.Core.Tests;
 
 /// <summary>
-/// PRD【S-复活】的**死亡惩罚 X**（PRD 2026-09-19 落字，issue #63）：
-/// 「免疫细胞死亡回合后的下 X 世界回合无法复活；X 初始为 1，免疫细胞每结算一次复活该免疫细胞的 X 增加 1」。
+/// PRD【S-复活】的**死亡惩罚 X**：「免疫细胞死亡回合后的下 1 世界回合无法复活」。
+/// issue #63（PRD 2026-09-19）曾加上「每结算一次复活 X 增加 1」，issue #68（PRD 2026-09-20）把那句删了 ——
+/// X 恒为旋钮 <see cref="RuleTuning.ImmuneRespawnDelay"/>，<see cref="Cell.Revives"/> 只记账。
 ///
-/// 落在引擎上就是两句：<see cref="CellRules.Kill"/> 写 `RespawnRound = 回合 + 1 + X`，
-/// X = 旋钮 <see cref="RuleTuning.ImmuneRespawnDelay"/>（初始值）+ 该细胞的 <see cref="Cell.Revives"/>；
-/// <see cref="PhaseRules.Revive"/> 结算后 `Revives + 1`。GD 半边是 `cw_game.gd kill` / `cw_world.gd revive_immune`，
+/// 落在引擎上就是两句：<see cref="CellRules.Kill"/> 写 `RespawnRound = 回合 + 1 + X`；
+/// <see cref="PhaseRules.Revive"/> 结算后 `Revives + 1`（不再进规则）。GD 半边是 `cw_game.gd kill` / `cw_world.gd revive_immune`，
 /// 护栏是 `headless_test.gd t_immune_respawn` —— **两侧逐位同一个数**。
 /// </summary>
 public class ImmuneReviveTests
@@ -36,12 +36,12 @@ public class ImmuneReviveTests
     }
 
     [Fact]
-    public void 每复活一次罚停就长一个世界回合()
+    public void 复活次数只记账_罚停恒为旋钮值()
     {
         var s = World(3);
         Assert.Equal(0, s.Cells[Immune0].Revives);
 
-        // 第一次死：X = 旋钮初始值 1 → 死于第 3 回合，第 5 回合的 S 阶段才复活
+        // 第一次死：X = 1 → 死于第 3 回合，第 5 回合的 S 阶段才复活
         s = CellRules.Kill(s, Immune0);
         Assert.Equal(3 + 1 + 1, s.Cells[Immune0].RespawnRound);
         Assert.Empty(Engine.GetAvailableDecisions(s.WithTurn(s.Turn.Copy(round: 4)), 0));   // 第 4 回合还罚着，一条也不问
@@ -51,19 +51,18 @@ public class ImmuneReviveTests
         Assert.Equal(-1, s.Cells[Immune0].RespawnRound);
         Assert.Equal(1, s.Cells[Immune0].Revives);
 
-        // 第二次死：X = 1 + 1 = 2 → 死于第 5 回合，第 8 回合才复活
+        // 第二次死：X 仍是 1（issue #68 回调；#63 时这里是 1 + 1 = 2）→ 死于第 5 回合，第 7 回合复活
         s = s.WithTurn(s.Turn.Copy(round: 5));
         s = CellRules.Kill(s, Immune0);
-        Assert.Equal(5 + 1 + 2, s.Cells[Immune0].RespawnRound);
-        Assert.Empty(Engine.GetAvailableDecisions(s.WithTurn(s.Turn.Copy(round: 7)), 0));
+        Assert.Equal(5 + 1 + 1, s.Cells[Immune0].RespawnRound);
 
-        s = ReviveAt(s, 8);
-        Assert.Equal(2, s.Cells[Immune0].Revives);
+        s = ReviveAt(s, 7);
+        Assert.Equal(2, s.Cells[Immune0].Revives);   // 账照记
 
-        // 第三次死：X = 1 + 2 = 3
+        // 第三次死：还是 1
         s = s.WithTurn(s.Turn.Copy(round: 8));
         s = CellRules.Kill(s, Immune0);
-        Assert.Equal(8 + 1 + 3, s.Cells[Immune0].RespawnRound);
+        Assert.Equal(8 + 1 + 1, s.Cells[Immune0].RespawnRound);
     }
 
     [Fact]

@@ -103,8 +103,8 @@ public class K5Batch2RuleResultTests
     [Theory]
     [InlineData(ImmuneLevel.I, 20)]
     [InlineData(ImmuneLevel.II, 30)]
-    [InlineData(ImmuneLevel.III, 45)]
-    [InlineData(ImmuneLevel.X, 50)]
+    [InlineData(ImmuneLevel.III, 50)]   // issue #66：4.5 → 5.0
+    [InlineData(ImmuneLevel.X, 70)]     // issue #66：5.0 → 7.0
     public void 缺省旋钮下有氧基准仍是查表(ImmuneLevel level, int expected)
     {
         var s = AerobicWorld(seats: 2, healthy: 40, necrotic: 7, level: level);
@@ -206,10 +206,10 @@ public class K5Batch2RuleResultTests
 
     /// <summary>封顶排在低保**之后**、且 `cap = 0` 时不封顶（GD `clamp_income` 的两个 `> 0` 闸）。</summary>
     [Theory]
-    [InlineData(0, 0, 45)]     // 都关 ⇒ 恒等
+    [InlineData(0, 0, 50)]     // 都关 ⇒ 恒等（III 级查表 5.0，issue #66）
     [InlineData(60, 0, 60)]    // 只开低保
     [InlineData(0, 30, 30)]    // 只开封顶
-    [InlineData(60, 50, 50)]   // 低保先把 45 顶到 60，封顶再压到 50
+    [InlineData(60, 50, 50)]   // 低保先把 50 顶到 60，封顶再压到 50
     public void 封顶排在低保之后(int floor, int cap, int expected)
     {
         var s = AerobicWorld(2, 40, 0, ImmuneLevel.III,

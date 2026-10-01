@@ -116,7 +116,7 @@ internal static class BoardRules
         s = Solidify(s);                               // 5  【固化】
         s = Rooted(s, rng);                            // 5  【根深蒂固】
         s = Ossify(s);                                 // 5  骨肉瘤【骨样硬化】标记到期
-        s = Decay(s);                                  // 6  固化计数衰减
+        // 6  固化计数衰减 —— 整步删除（issue #64，2026-09-19「计数不再递减」；卡【基质稳定】随之删）
         s = MarkAdhesion(s);                           // 7  树突【E-组织黏连】
         s = TickDurations(s);                          // 8  全局修饰倒计时
         // 8 「本世界回合」时长的**细胞身上**那些修饰，改在下一个 S 阶段的 ResetRoundFlags 里清
@@ -362,14 +362,14 @@ internal static class BoardRules
     }
 
     /// <summary>
-    /// 5 【根深蒂固】（环境恶化 II/III 期）：每格固化癌组织随机使相邻最多 1/3 格癌组织计数 +1.0。
+    /// 5 【根深蒂固】（环境恶化 II/III 期）：每格固化癌组织随机使相邻最多 1/2 格癌组织计数 +1.0（GD `ROOTED_BY_STAGE` [0,1,2]，issue #66）。
     /// 走 <see cref="RaiseSolid"/> —— 门槛、TNF-α 冻结、血管三道判据一道都不能少。
     /// </summary>
     internal static WorldState Rooted(WorldState s, IDeterministicRng rng)
     {
         var stage = Stage(s);
         if (stage < 2) return s;
-        var limit = stage == 2 ? 1 : 3;
+        var limit = stage == 2 ? 1 : 2;
         foreach (var t in Tiles(s).Where(t => t.State == TissueState.SolidifiedCancer)
                      .OrderBy(t => t.Position.Q).ThenBy(t => t.Position.R).ToArray())
         {
@@ -396,22 +396,6 @@ internal static class BoardRules
             // GD `_ossify` 同：人一走下个回合照样固化。此前 C# 照转不误 —— 批 3 KG-4）
             if (s.GetCellAt(t.Position) is { IsAlive: true, Faction: Faction.Immune }) continue;
             s = s.UpdateTissueState(t.Position, TissueState.SolidifiedCancer);
-        }
-        return s;
-    }
-
-    /// <summary>
-    /// 6 固化计数衰减：**没有癌细胞停留**的癌组织每回合 −0.5。
-    /// 【基质稳定】在场那一回合整步跳过（GD 也是直接 return）。
-    /// </summary>
-    internal static WorldState Decay(WorldState s)
-    {
-        if (WorldEffects.Active(s, "基质稳定")) return s;
-        foreach (var t in Tiles(s).Where(t => t.State == TissueState.Cancer && t.SolidificationCount > 0))
-        {
-            var occupant = s.GetCellAt(t.Position);
-            if (occupant is { IsAlive: true, Faction: Faction.Cancer }) continue;
-            s = s.UpdateTissueSolidification(t.Position, Math.Max(0, t.SolidificationCount - 5));
         }
         return s;
     }

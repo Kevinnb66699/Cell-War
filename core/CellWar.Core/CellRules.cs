@@ -193,8 +193,8 @@ internal static class CellRules
         var c = s.Cells[id];
         // 免疫细胞记下「哪一回合起可以复活」（GD kill：`respawn_round = round_no + 1 + X`，旋钮 < 0 = 不再复活）；
         // 它进 state_hash 与 L1 视图（6p 第 45 步就是差在这一格）。癌细胞的复活看固化癌组织，不用这个字段。
-        // PRD【S-复活】的死亡惩罚 **X = 旋钮（初始值 1）+ 该细胞已复活次数**：「每结算一次复活该免疫细胞的 X 增加 1」（issue #63）
-        var respawn = c.Faction == Faction.Immune && s.Tuning.ImmuneRespawnDelay >= 0 ? s.Turn.WorldRound + 1 + s.Tuning.ImmuneRespawnDelay + c.Revives : -1;
+        // PRD【S-复活】的死亡惩罚 **X = 旋钮（默认 1）**：issue #63 的「每结算一次复活 X 增加 1」已由 issue #68 回调删掉，Revives 只记账
+        var respawn = c.Faction == Faction.Immune && s.Tuning.ImmuneRespawnDelay >= 0 ? s.Turn.WorldRound + 1 + s.Tuning.ImmuneRespawnDelay : -1;
         s = s.UpdateCell(id, c.Copy(energy: 0, alive: false, deathRound: s.Turn.WorldRound, respawnRound: respawn, modifiers: Array.Empty<ActiveModifier>()));
         if (s.Turn.TrackCell == id)
             s = s.WithTurn(s.Turn.WithTrack(null, c.Position, s.Turn.TrackRounds));
@@ -1028,7 +1028,9 @@ internal static class CellRules
         var attacker = s.Cells[attackerBefore.Id];
         var target = s.Cells[targetBefore.Id];
         Stage.Emit(Stage.Fx(s, "immune_attack", ("from", attackerBefore.Position), ("to", to), ("cid", attackerBefore.Id), ("target_id", targetBefore.Id),
-            ("itype", GdEnum.Itype(attackerBefore.Type)), ("ctype", GdEnum.Ctype(targetBefore.Type)),   // GD 值（观测协议附录 A），别塞 C# 枚举 ("target_alive", target.IsAlive), ("attacker_alive", attacker.IsAlive),
+            ("itype", GdEnum.Itype(attackerBefore.Type)), ("ctype", GdEnum.Ctype(targetBefore.Type)),   // GD 值（观测协议附录 A），别塞 C# 枚举
+            // 2026-10-01 修：这两个键原来写在上一行的注释后面、被一起注释掉了 —— attack_fx.gd 直接取 e["target_alive"] / e["attacker_alive"]，接上 C# 就会报错
+            ("target_alive", target.IsAlive), ("attacker_alive", attacker.IsAlive),
             ("entered", attacker.IsAlive && attacker.Position == to), ("hit", hit)));
     }
 }

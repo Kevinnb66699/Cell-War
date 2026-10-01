@@ -13,19 +13,22 @@ namespace CellWar.Core.Tests.L1;
 ///   Godot_v4.5-stable_win64_console.exe --headless --path game --script res://tests/xcheck_export.gd -- \
 ///       players=4 seed=4242 out=&lt;仓库&gt;/game/tests/l1/trace_4p_4242.jsonl steps=200
 ///   （2p：players=2 seed=2222 → trace_2p_2222.jsonl；6p：players=6 seed=6666 → trace_6p_6666.jsonl；
-///    树突建源局：players=4 seed=4242 steps=400 policy=chemo → trace_4p_chemo_4242.jsonl，exporter 在源消散 + 冷却归零后 12 步自动收尾）
+///    树突建源局：players=4 seed=4246 steps=400 policy=chemo → trace_4p_chemo_4246.jsonl，exporter 在源消散 + 冷却归零后 12 步自动收尾）
 /// </code>
 /// 录完要 grep `SCRIPT ERROR`（GDScript 运行时错误不中断执行），并跑两遍比逐字节相同。
 /// 2p 那条录到终局为止。
 /// **2026-09-19 issue #55 / #56 之后四条全部重录**：规则一动轨迹就变 —— 2p 终局从 173 步挪到 172 步、
 /// 树突建源局从 279 步挪到 343 步。水位线跟着新夹具重定，不是「往下放」。
+/// **2026-10-01 重启换内核，#64 / #66 / #67 / #68 追平后四条再全部重录**：2p 终局 165 步；树突建源局换种子 4242 → **4246**
+/// （#64 / #66 之后 4242 的免疫整局停在 I 级、分化建源走不到；xcheck_bridge 的「先攒记忆」偏好原来匹配不存在的 `act=attack`，一并修成走进癌性格），
+/// 279 步自然收尾、建源 2 次、选中心 2 次。四条都是整条一致、零分叉，水位线 = 新夹具全长。
 /// </summary>
 public class L1ReplayTests
 {
     /// <summary>4p seed 4242 的水位线（2026-09-17：200 步整条一致）。往上拧，别往下放。</summary>
     public const int Ratchet = 200;
     /// <summary>2p seed 2222（2026-09-19 issue #55 / #56 重录后终局 172 步，整条一致）。</summary>
-    public const int Ratchet2p = 172;
+    public const int Ratchet2p = 165;   // 2026-10-01 重录：终局 165 步，整条一致
     /// <summary>6p seed 6666（200 步，2026-09-17 晚整条一致）。</summary>
     public const int Ratchet6p = 200;
     /// <summary>
@@ -40,13 +43,13 @@ public class L1ReplayTests
     /// **2026-09-19 issue #55 / #56 重录**：新轨迹 343 步，**前 282 步整条一致**，水位线 279 → **282**。
     /// 第 283 步新暴露一处分叉（`cells[1]` 的 `marked` / `mark_left` / `mark_round`：GD 在第 12 世界回合又标了一次、
     /// C# 让标记过期）—— 与本批三条规则无关，是旧夹具停在 279 步时够不到的老分叉，另开工单。
-    public const int RatchetChemo = 282;
+    public const int RatchetChemo = 279;   // 2026-10-01 换种子 4246 重录：279 步整条一致（第 283 步那处标记老分叉随旧夹具一起退场，新夹具没走到同一局面）
 
     [Theory]
     [InlineData("trace_4p_4242.jsonl", Ratchet)]
     [InlineData("trace_2p_2222.jsonl", Ratchet2p)]
     [InlineData("trace_6p_6666.jsonl", Ratchet6p)]
-    [InlineData("trace_4p_chemo_4242.jsonl", RatchetChemo)]
+    [InlineData("trace_4p_chemo_4246.jsonl", RatchetChemo)]
     public void 按GD轨迹重放_分叉之前的步数不低于水位线(string fixture, int ratchet)
     {
         var path = Path.Combine(RepoRoot(), "game", "tests", "l1", fixture);

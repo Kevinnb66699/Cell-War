@@ -41,7 +41,7 @@ public class K4NamedEntryTests
 
     /// <summary>
     /// `AnaerobicPool` 给的是 GD `_anaerobic_pool` 那条**未取整**的浮点式：
-    /// `块内普通癌组织数^(指数/100) × 系数 + 全图固化数 × 每格加成`。
+    /// `块内普通癌组织数^(指数/100) × 系数 + 块内固化数 × 每格加成`（issue #66 起固化项只数块内，原来数全图）。
     /// 断言到小数位上 —— 这正是「不许在池子这一步取整」的钉子。
     /// </summary>
     [Fact]
@@ -51,9 +51,9 @@ public class K4NamedEntryTests
         var tune = s.Tuning;
         var block = RulePolicies.Blocks(s, true).First(b => b.Contains(s.Cells[new EntityId(1)].Position));
 
-        // 盘面是 4 格普通癌组织 + 3 格（不连通的）固化，四人局
-        var expected = Math.Pow(4, tune.AnaerobicBlockExpByPlayers[4] / 100.0) * tune.AnaerobicBlockCoefByPlayers[4]
-            + 3 * tune.AnaerobicSolidBonus;
+        // 盘面是 4 格普通癌组织 + 3 格（不连通的）固化，四人局。issue #66 起固化项只数**块内**，
+        // 这 3 格不连通 ⇒ 一格都不算（改之前是 3 × 1.0）
+        var expected = Math.Pow(4, tune.AnaerobicBlockExpByPlayers[4] / 100.0) * tune.AnaerobicBlockCoefByPlayers[4];
 
         Assert.Equal(4, s.Players.Count);
         Assert.Equal(expected, RulePolicies.AnaerobicPool(s, block), 9);

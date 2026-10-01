@@ -73,7 +73,7 @@ public class K1_AerobicKnobTests
         var t = RuleTuning.Default;
 
         // K1 · 有氧族（cw_tuning.gd: aerobic_by_level / aerobic_level_base / aerobic_split / aerobic_split_ref / necrosis_aerobic_pct）
-        Assert.Equal(new[] { 20, 30, 45, 50 }, t.AerobicByLevel);   // CWData.AEROBIC_BY_LEVEL = 2.0 / 3.0 / 4.5 / 5.0
+        Assert.Equal(new[] { 20, 30, 50, 70 }, t.AerobicByLevel);   // CWData.AEROBIC_BY_LEVEL = 2.0 / 3.0 / 5.0 / 7.0（issue #66）
         Assert.Equal(20, t.AerobicLevelBase);                       // CWData.AEROBIC_LEVEL_BASE = 2.0
         Assert.Equal(15, t.AerobicLevelStep);                       // CWData.AEROBIC_LEVEL_STEP = 1.5（AerobicLevelBase 的配件，不在 12 个里）
         Assert.False(t.AerobicSplit);                               // 2026-09-05 方案 f：不均分
@@ -97,8 +97,8 @@ public class K1_AerobicKnobTests
     [Theory]
     [InlineData(ImmuneLevel.I, 20)]
     [InlineData(ImmuneLevel.II, 30)]
-    [InlineData(ImmuneLevel.III, 45)]
-    [InlineData(ImmuneLevel.X, 50)]
+    [InlineData(ImmuneLevel.III, 50)]
+    [InlineData(ImmuneLevel.X, 70)]
     public void aerobic_by_level_默认表按等级查(ImmuneLevel level, int want) => Assert.Equal(want, Share(World(1, level)));
 
     /// <summary>拧表就跟着变；表比等级短时按 GD 的 `clampi` 取最后一档（balance_scan 会传一格的表）。</summary>
@@ -188,8 +188,8 @@ public class K1_AerobicKnobTests
     [Fact]
     public void necrosis_aerobic_pct_四舍五入到十分位()
     {
-        Assert.Equal(23, Share(Necrotic(World(1, ImmuneLevel.III))));   // (45×50 + 50) / 100 = 23
-        Assert.Equal(25, Share(Necrotic(World(1, ImmuneLevel.X))));     // (50×50 + 50) / 100 = 25
+        Assert.Equal(25, Share(Necrotic(World(1, ImmuneLevel.III))));   // (50×50 + 50) / 100 = 25（issue #66 查表 5.0）
+        Assert.Equal(35, Share(Necrotic(World(1, ImmuneLevel.X))));     // (70×50 + 50) / 100 = 35（issue #66 查表 7.0）
     }
 
     // ---- 旋钮真的接进了结算，不只是查询 ----

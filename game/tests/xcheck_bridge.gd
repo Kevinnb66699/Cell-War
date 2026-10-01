@@ -85,11 +85,31 @@ func _chemo_pick(req: Dictionary, sorted: PackedStringArray) -> String:
 	for k in sorted:
 		if k.begins_with(dendritic):
 			return k
-	if game.immune_level < 2:
+	## 不到 III 先攒记忆：走进癌组织 / 固化癌组织 / 站着活癌细胞的格（净化或攻击）。
+	## 2026-10-01 改：原来匹配 `act=attack`，GD 的语义键里根本没有这个 act（攻击就是走进那一格），
+	## 这条从写出来就没命中过 —— 旧轨迹升到 II 级全凭 LCG 运气，#64/#66 之后十个种子都停在 I 级、建源走不到。
+	if game.immune_level < 2 and _is_immune_seat(int(req.get("pid", -1))):
 		for k in sorted:
-			if k.begins_with("k=action|act=attack"):
+			if k.begins_with("k=action|act=move|") and _hits_cancer(k):
 				return k
 	return ""
+
+
+func _is_immune_seat(pid: int) -> bool:
+	return pid >= 0 and pid < game.players.size() and int(game.players[pid]["faction"]) == CWData.Faction.IMMUNE
+
+
+func _hits_cancer(k: String) -> bool:
+	var at := k.find("|to=")
+	if at < 0:
+		return false
+	var xy := k.substr(at + 4).get_slice("|", 0).split(",")
+	if xy.size() != 2:
+		return false
+	var to := Vector2i(int(xy[0]), int(xy[1]))
+	var tissue := int(game.tile(to)["tissue"])
+	return tissue == CWData.Tissue.CANCER or tissue == CWData.Tissue.SOLID \
+		or not game.cells_at(to, CWData.Faction.CANCER).is_empty()
 
 
 ## 源址：离全场活细胞距离和最小的一格（并列取键小的），让后面的迁移大概率朝它走 / 离它远

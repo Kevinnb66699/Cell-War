@@ -117,7 +117,6 @@ public static class CardCatalog
         new("癌症转移", CardCategory.Instant, CardPool.Cancer, [3, 2, 2]),
         new("基因组不稳定", CardCategory.Event, CardPool.Cancer, [3, 3, 3]),
         new("肿瘤血管生成", CardCategory.Event, CardPool.Cancer, [3, 3, 2]),
-        new("基质稳定", CardCategory.Event, CardPool.Cancer, [1, 3, 2]),
         new("TGF-β释放", CardCategory.Event, CardPool.Cancer, [1, 2, 4]),
         new("上皮—间质转化", CardCategory.Instant, CardPool.Cancer, [5, 4, 3]),
         new("乳酸酸化", CardCategory.Instant, CardPool.Cancer, [2, 3, 4]),
@@ -151,7 +150,7 @@ public static class CardImplementation
     [
         "急性炎症反应", "抗原摄取", "抗原呈递增强", "克隆扩增", "肿瘤血管生成",
         "局部吞噬", "基质降解", "溶酶体强化", "细胞膜修复",
-        "骨髓动员", "全身免疫动员", "全身性免疫清除", "IFN-γ释放", "糖酵解爆发", "基质稳定", "TGF-β释放",
+        "骨髓动员", "全身免疫动员", "全身性免疫清除", "IFN-γ释放", "糖酵解爆发", "TGF-β释放",
         "缺氧适应", "DNA损伤修复", "炎症趋化", "上皮—间质转化", "CXCR3趋化", "组织浸润", "穿孔素-颗粒酶",
         "组织驻留", "LFA-1黏附", "组织巡航", "耗竭抵抗", "免疫突触成熟", "抗体亲和力成熟", "吞噬体成熟", "细胞毒性增强",
         "乳酸酸化", "基质硬化", "交叉呈递", "抗体依赖细胞毒作用", "IFN-γ高峰", "免疫风暴", "免疫增援",
