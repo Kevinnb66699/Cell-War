@@ -30,6 +30,7 @@ internal static class FactRouter
         if (RulePolicies.HasSkill(s, cell, "免疫记忆库") && CellRules.RoundGateOpen(cell, "免疫记忆库"))
         {
             s = CellRules.BurnRoundGate(s, resolved.CellId, "免疫记忆库");
+            Stage.Log(s, "　【免疫记忆库】本世界回合首次净化：免费抽取 1 张");   // GD cw_actions.gd:1329：报了才抽
             s = CardRules.DrawOne(s, s.Cells[resolved.CellId], rng, "免疫记忆库");
         }
         return s;

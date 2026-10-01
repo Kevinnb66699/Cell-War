@@ -35,8 +35,7 @@ internal static class EnvelopeNormalize
         g["win_reason"] = "";
         g["differentiated"] = Sorted(g["differentiated"]);
         foreach (var p in ((List<object?>)g["players"]!).Cast<Dictionary<string, object?>>()) p.Remove("name");   // #5
-        // #6：日志内容不比；行数 GD 每步多行、C# 一事一行，也不比 —— 只留「有没有」
-        e["logs"] = ((Dictionary<string, object?>)e["logs"]!)["lines"] is List<object?> ? "present" : null;
+        // `logs` 2026-10-01 起**逐行比原文**（换内核 P2：C# 内核在结算那一刻写 GD 同一个格式串）—— 此前这里换成 "present" 只比有没有
         if (e["ask"] is Dictionary<string, object?> ask)
         {
             ask.Remove("ask_id"); ask.Remove("rev"); ask["prompt"] = "";

@@ -100,9 +100,9 @@ internal static class SkillRules
                 s = CardRules.ToHealthy(s, pos);   // GD `to_healthy` 再 `necrosis = NECROSIS_TOXIN`
                 s = s.WithBoard(s.Board.UpdateTissue(pos, s.Board.Tissues[pos].WithNecrosis(2)));
             }
-        foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && tiles.Contains(x.Position)).ToArray())
-            s = Damage(s, target.Id, damage, LossSource.CancerSkill);   // 主射线 2.0 / 侧向 1.0（原 2 / 1 = 0.2 / 0.1）
-        return s;
+        // 受击方按扫过的格序收（GD `for c in cells_at: hit.append_array(cells_at(c, CANCER))`），同一批结算（GD `cancer_hit_area(hit, dmg, "Excalibur", true)`）
+        var hit = tiles.Select(p => s.GetCellAt(p)).OfType<Cell>().Where(x => x.IsAlive && x.Faction == Faction.Cancer).Select(x => x.Id).ToArray();
+        return hit.Length == 0 ? s : DamageArea(s, hit, damage, LossSource.CancerSkill, "Excalibur");   // 主射线 2.0 / 侧向 1.0（原 2 / 1 = 0.2 / 0.1）
     }
 
     /// <summary>T【Excalibur】主射线相邻的癌组织进入波及范围的概率（GD `EXCALIBUR_SPLASH_PCT`）。</summary>
@@ -166,10 +166,12 @@ internal static class SkillRules
         return new(true);
     }
 
-    private static WorldState ConsumeEffector(WorldState s, Cell cell)
+    private static WorldState ConsumeEffector(WorldState s, Cell cell, string what)
     {
         s = s.UpdatePlayer(cell.OwnerSeat, s.Players[cell.OwnerSeat].WithAntigenMemory(Math.Max(0, s.Players[cell.OwnerSeat].AntigenMemory - 20)));
         s = s.UpdateCell(cell.Id, s.Cells[cell.Id].Copy(effectorUsed: true));
+        // GD `spend_effector`（cw_game.gd:1018）：「余」读的是扣完之后的效应记忆（发动者那一席的那一份 —— 判据 ValidateEffector 也读它）
+        Stage.Log(s, $"★【效应应答·{what}】{Stage.CellName(s, cell)} 发动（消耗 20 效应记忆，余 {s.Players[cell.OwnerSeat].AntigenMemory}）");
         return s.WithTurn(s.Turn.Copy(effectorRound: s.Turn.WorldRound));
     }
 
@@ -193,14 +195,20 @@ internal static class SkillRules
                 // GD cw_actions.gd:1250-1259：有目标就打（伤害减到 0 也照走这一支、不去转化组织）；此前 C# 多了 `damage > 0` 才打，用满次数后会改去转化
                 if (targets.Length > 0)
                 {
+                    Stage.Log(s, $"【抗体】命中 {targets.Length} 个与健康组织邻接的癌细胞");   // GD cw_actions.gd:1221：报在演出之前
                     Stage.Emit(Stage.Fx(s, "antibody", ("from", cell.Position), ("targets", targets.Select(x => x.Position).ToArray())));
-                    foreach (var target in targets) s = Damage(s, target.Id, damage, LossSource.ImmuneEffect);
+                    // 多目标同一批（GD `immune_hit_area(targets, dmg, cell, "抗体")`，受击方按 living_cells 序）
+                    s = DamageArea(s, targets.OrderBy(x => x.Id.Value).Select(x => x.Id), damage, LossSource.ImmuneEffect, "抗体");
                 }
                 else
                 {
                     // GD cw_actions.gd:1263-1269：只排**癌细胞**站着的（说明 #20），免疫细胞站着的癌组织（骨样硬化蹲守格）照算 —— 此前 C# 用 OccupyingCell == null 多排了它们，候选表长度不同、pick_n 抽的下标就对不上
                     var tiles = Tiles(s).Where(t => t.State == TissueState.Cancer && s.GetCellAt(t.Position) is not { IsAlive: true, Faction: Faction.Cancer } && AdjacentHealthy(s, t.Position)).ToArray();
-                    if (tiles.Length == 0) break;   // GD cw_actions.gd:1270-1272：无可转化癌组织直接落空，**不掷骰**（此前 C# 照掷，多一发 rng）
+                    if (tiles.Length == 0)   // GD cw_actions.gd:1270-1272：无可转化癌组织直接落空，**不掷骰**（此前 C# 照掷，多一发 rng）
+                    {
+                        Stage.Log(s, "【抗体】无目标且无可转化癌组织，效果落空");   // GD cw_actions.gd:1243
+                        break;
+                    }
                     // 无目标时改为转化癌组织：掷 **d3**，2/3 概率取前一个数、1/3 概率取后一个数，
                     // 而那两个数**按免疫等级分档**（PRD 2026-09-13 云端版 / issue #37：III 级 3/5、X 级 4/6）。
                     //
@@ -212,7 +220,11 @@ internal static class SkillRules
                     Stage.Emit(new DiceRolled(s.Turn.WorldRound, s.Turn.Phase, "抗体", roll, 3, cell.OwnerSeat, cell.Position));   // GD roll_shown(3, "抗体")
                     var max = roll <= 2 ? tier[0] : tier[1];
                     Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, $"抗体：转化 {max} 格", cell.Position));   // GD cw_actions.gd:1278
-                    foreach (var pick in rng.PickRandom(tiles, max)) s = CardRules.ToHealthy(s, pick.Position);   // GD `to_healthy`
+                    foreach (var pick in rng.PickRandom(tiles, max))
+                    {
+                        s = CardRules.ToHealthy(s, pick.Position);   // GD `to_healthy`
+                        Stage.Log(s, $"【抗体】无目标 → {Stage.P(pick.Position)} 转为健康组织");   // GD cw_actions.gd:1251
+                    }
                 }
                 break;
             }
@@ -222,13 +234,17 @@ internal static class SkillRules
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 10, toxin: cell.ToxinThisRound + 1));
                 s = s.WithBoard(s.Board.UpdateTissue(cell.Position, s.Board.Tissues[cell.Position].WithToxinRound(s.Turn.WorldRound)));
                 Stage.Emit(Stage.Fx(s, "toxin", ("from", cell.Position), ("tiles", new[] { cell.Position }.Concat(RulePolicies.GdNeighbors(s, cell.Position)).ToArray())));   // GD cw_actions.gd:1324：1 环七格
-                foreach (var pos in ToxinTargets(s, cell))
+                var toxinTargets = ToxinTargets(s, cell);
+                foreach (var pos in toxinTargets)
                 {
                     // GD `CWTissue.to_necrotic(tile, NECROSIS_TOXIN)`：坏死时长取 max(原, 2)，代谢核心 / 骨髓的库存与产出进度一起清
                     s = CardRules.Necrotize(s, pos, 2);
                 }
-                foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && x.Position.DistanceTo(cell.Position) <= 1).ToArray())
-                    s = Damage(s, target.Id, 10, LossSource.ImmuneEffect);   // 细胞毒素：1.0 能量（原 1 = 0.1）
+                Stage.Log(s, $"【细胞毒素】1 环内 {toxinTargets.Count} 格癌组织转为健康组织并进入「坏死」（不积累记忆）");   // GD cw_actions.gd:1297
+                // 受击方按 1 环的格序（GD `CWData.ring` 排过序：q 再 r）收，同一批（GD `immune_hit_area(victims, 1.0, cell, "细胞毒素")`）
+                var toxinVictims = Tiles(s).Where(t => t.Position.DistanceTo(cell.Position) <= 1).Select(t => s.GetCellAt(t.Position)).OfType<Cell>()
+                    .Where(x => x.IsAlive && x.Faction == Faction.Cancer).Select(x => x.Id).ToArray();
+                s = DamageArea(s, toxinVictims, 10, LossSource.ImmuneEffect, "细胞毒素");   // 细胞毒素：1.0 能量（原 1 = 0.1）
                 break;
             }
             case "裂解":
@@ -236,6 +252,7 @@ internal static class SkillRules
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 10));
                 Stage.Emit(Stage.Fx(s, "lyse", ("from", cell.Position), ("to", d.Target!.Value)));   // GD cw_actions.gd:1342
                 s = CardRules.ToHealthy(s, d.Target!.Value);   // GD `CWTissue.to_healthy`
+                Stage.Log(s, $"【裂解】{Stage.P(d.Target!.Value)} 由固化癌组织转为健康组织");   // GD cw_actions.gd:1315
                 break;
             }
             case "黏液破裂":
@@ -251,15 +268,19 @@ internal static class SkillRules
                 // **没有「无细胞占据」这个条件**，是 C# 自己加的（GD 侧 cw_actions.gd:1458-1461 也只筛健康）。
                 // 站在健康格上的免疫细胞脚下照样会被转成癌组织。
                 var healthy = ring.Where(t => t.State == TissueState.Healthy).ToArray();
+                var converted = 0;
                 foreach (var pick in rng.PickRandom(healthy, 10))
                 {
+                    converted++;
                     s = CardRules.ToCancer(s, pick.Position, newborn: true);
                     var dir = Stage.DirToward(pick.Position, position);   // GD cw_actions.gd:1466：癌从引爆者那一侧漫入；脚下那格取不出方向就不演
                     if (dir >= 0) Stage.Emit(new TissueConverted(s.Turn.WorldRound, s.Turn.Phase, pick.Position, dir, "黏液破裂"));
                 }
+                Stage.Log(s, $"【黏液破裂】{Stage.CellName(s, cell)} 引爆：{ring.Length} 格进入黏液侵染，其中 {converted} 格转为癌组织");   // GD cw_actions.gd:1437：报在通报之前
                 Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "黏液破裂", position, true));   // GD cw_actions.gd:1469
-                foreach (var immune in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Immune && x.Position.DistanceTo(position) <= 2).ToArray())
-                    s = Damage(s, immune.Id, 20, LossSource.CancerSkill);
+                // 受击方按区域的格序（GD `area.sort()`：q 再 r）收，同一批（GD `cancer_hit_area(victims, 2.0, "黏液破裂", true)`）
+                var mucusVictims = ring.Select(t => s.GetCellAt(t.Position)).OfType<Cell>().Where(x => x.IsAlive && x.Faction == Faction.Immune).Select(x => x.Id).ToArray();
+                s = DamageArea(s, mucusVictims, 20, LossSource.CancerSkill, "黏液破裂");
                 s = Kill(s, cell.Id);
                 s = UpdateMarks(s);
                 break;
@@ -269,6 +290,7 @@ internal static class SkillRules
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - s.Tuning.OsteoOssifyCost));   // GD `_do_ossify`（cw_actions.gd:1493）：cost.commit(… CELL_SKILL, game.tune.osteo_ossify_cost …)
                 var at = cell.Position;
                 s = s.WithBoard(s.Board.UpdateTissue(at, s.Board.Tissues[at].WithOssifyAt(s.Turn.WorldRound + 2)));
+                Stage.Log(s, $"【骨样硬化】{Stage.CellName(s, cell)} 标记 {Stage.P(at)}，第 {s.Turn.WorldRound + 2} 世界回合 E 阶段转为固化癌组织");   // GD cw_actions.gd:1468
                 break;
             }
             case "早期血行转移":
@@ -276,6 +298,7 @@ internal static class SkillRules
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - MelanomaHomingCost, metastasis: true));
                 var dest = d.Target!.Value;
                 var from = cell.Position;
+                Stage.Log(s, $"【早期血行转移】{Stage.CellName(s, cell)} 自血管转移至 {Stage.P(dest)}");   // GD cw_actions.gd:1394：报在落地之前
                 s = EnterTile(s, cell.Id, dest, rng);   // GD `_homing` 走 enter_tile（落地即【定殖】+ 特殊组织收取）
                 var spread = RulePolicies.GdNeighbors(s, dest).Where(n => s.Board.Tissues[n].State == TissueState.Healthy).ToArray();   // GD `game.neighbors` DIRS 序：pick_n 抽的是下标（批扫 4p_1002 / 2p_1017）
                 var picked = rng.PickRandom(spread, 3).ToArray();
@@ -284,6 +307,7 @@ internal static class SkillRules
                     s = CardRules.ToCancer(s, pick, newborn: true);   // GD `to_cancer(t, true)`：新生、清坏死
                     var dir = Stage.DirToward(pick, dest);   // GD cw_actions.gd:1435：癌从落点那一侧漫入
                     if (dir >= 0) Stage.Emit(new TissueConverted(s.Turn.WorldRound, s.Turn.Phase, pick, dir, "早期血行转移"));
+                    Stage.Log(s, $"　【早期血行转移】{Stage.P(pick)} 转为癌组织");   // GD cw_actions.gd:1406：过场之后
                 }
                 Stage.Emit(Stage.Fx(s, "homing", ("from", from), ("to", dest), ("spread", picked)));   // GD cw_actions.gd:1437
                 break;
@@ -293,17 +317,19 @@ internal static class SkillRules
                 // GD 侧这笔钱走 SKILL_MOVE 的费用管线（`_do_jump` → `CWCost.Action.SKILL_MOVE`）。
                 // 原先会让它翻倍的【基质阻隔】随世界事件一起删了（Kevin 2026-09-19），两侧从此同口径：按基准价直扣。
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - s.Tuning.MetastasisCost, jump: cell.JumpUsedThisRound + 1));
+                Stage.Log(s, $"【转移】{Stage.CellName(s, cell)} 跃进 5 格至 {Stage.P(d.Target!.Value)}");   // GD cw_actions.gd:1492
                 s = EnterTile(s, cell.Id, d.Target!.Value, rng);   // GD `_jump` 走 enter_tile
                 break;
             }
             case "免疫猎杀":
             {
-                s = ConsumeEffector(s, cell);
+                s = ConsumeEffector(s, cell, "免疫猎杀");
                 if (d.TargetCell is { } hunt && s.Cells.TryGetValue(hunt, out var hunted) && hunted.IsAlive && hunted.Faction == Faction.Cancer)
                 {
                     s = ApplyMark(s, hunt, s.Cells[cell.Id]);
                     // 「同时在其上附着跟随的【追踪趋化源】」（PRD:583）
                     s = s.WithTurn(s.Turn.WithTrack(hunt, null, HuntChemoRounds));
+                    Stage.Log(s, $"　【免疫猎杀】{Stage.CellName(s, hunted)} 被标记并附上【追踪趋化源】（持续 {HuntChemoRounds} 回合，它自己怎么走都算「远离」）");   // GD cw_actions.gd:1550
                     Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "免疫猎杀", hunted.Position, true));   // GD cw_actions.gd:1582
                 }
                 break;
@@ -319,12 +345,14 @@ internal static class SkillRules
                 // 「持续 2 世界回合」= 到**下一**回合末（通用规则 3：第「当前 + 2 − 1」回合 E 阶段结束），
                 // 所以记的是 `WorldRound + 1`，判据是 `WorldRound <= NeutralUntil`。
                 // 记「到第几回合末」而不是倒计时：存档读档、快照回滚都不会走样。
-                s = ConsumeEffector(s, cell);
+                s = ConsumeEffector(s, cell, "中和抗体");
                 var until = s.Turn.WorldRound + 1;
-                foreach (var t in RulePolicies.Cells(s)
+                var neutralized = RulePolicies.Cells(s)
                     .Where(x => x.IsAlive && x.Faction == Faction.Cancer && RulePolicies.AdjacentHealthy(s, x.Position))
-                    .ToArray())
+                    .ToArray();
+                foreach (var t in neutralized)
                     s = s.UpdateCell(t.Id, s.Cells[t.Id].Copy(neutralUntil: until));
+                Stage.Log(s, $"　【中和抗体】{neutralized.Length} 个与健康组织相邻的癌细胞：种类技能与永久卡本回合和下一回合失效");   // GD cw_actions.gd:1584
                 Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "中和抗体", cell.Position, true));   // GD cw_actions.gd:1616
                 break;
             }
@@ -333,8 +361,9 @@ internal static class SkillRules
                 // 发的是**连锁额度**而不是 5 次免费移动 —— PRD:605「第一次【净化】后，
                 // 可立即免费向相邻**癌组织**迁移；若再次净化则重复触发，最多 5 次」。
                 // 它是「净化之后当场接着走」的连锁，不是「本回合随便花的 5 次免费移动」。
-                s = ConsumeEffector(s, cell);
+                s = ConsumeEffector(s, cell, "连续吞噬");
                 s = s.UpdateCell(cell.Id, s.Cells[cell.Id].Copy(chainLeft: CellRules.ChainPhagoMax));
+                Stage.Log(s, $"　【连续吞噬】本行动回合首次【净化】后可连续免费迁移，最多 {CellRules.ChainPhagoMax} 次；每连一格下一击 +{Stage.Fmt(CellRules.ChainPhagoBonus)}");   // GD cw_actions.gd:1560
                 break;
             }
             case "趋化源":
@@ -346,11 +375,13 @@ internal static class SkillRules
                 // 费用 3.0 见 PRD:561，对齐 GDScript 的 CWData.CHEMO_COST := 30。
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - 30));
                 s = s.WithTurn(s.Turn.WithChemo(d.Target!.Value, ChemoFullTurns, cell.OwnerSeat, cell.Id));
+                // GD cw_actions.gd:1129：免疫朝它 −(100 − CHEMO_IMMUNE_PCT)%、癌方背它 +(CHEMO_CANCER_PCT − 100)%
+                Stage.Log(s, $"【趋化源】{Stage.CellName(s, cell)} 在 {Stage.P(d.Target!.Value)} 建立趋化源（持续 {ChemoFullTurns} 完整回合，到本人下个回合前：免疫朝它 -30%、癌方背它 +20%）");
                 Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "趋化源", d.Target!.Value, true));   // GD cw_actions.gd:1164
                 break;
             case "Excalibur":
             {
-                s = ConsumeEffector(s, cell);
+                s = ConsumeEffector(s, cell, "Excalibur");
                 var start = s.Cells[cell.Id].Position;
                 var direction = d.Target is { } aim ? RayDirection(start, aim) : null;
                 if (direction is { } dir)
@@ -375,6 +406,7 @@ internal static class SkillRules
                             seen.Add(neighbor);
                             if (rng.NextIntRange(1, 101) <= ExcaliburSplashPercent) hit.Add(neighbor);
                         }
+                    Stage.Log(s, $"　【Excalibur】主射线 {ray.Count} 格，侧向波及 {hit.Count} 格");   // GD cw_actions.gd:1622：报在光束之前
                     // 光束先演、伤害随后落（GD cw_actions.gd:1654）；射线为空（贴边）不发
                     if (ray.Count > 0) Stage.Emit(new BeamFired(s.Turn.WorldRound, s.Turn.Phase, start, ray[^1], hit.ToImmutableArray()));
                     // GD `_excalibur_sweep(ray, 2.0)` 再 `_excalibur_sweep(splash, 1.0)`：每段先翻组织（癌组织 → 健康 + 坏死）再打站着的癌细胞；

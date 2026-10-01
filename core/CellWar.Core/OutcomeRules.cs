@@ -17,9 +17,12 @@ internal static class OutcomeRules
     /// <summary>【E-癌症胜利】加权占地线：癌组织 + 2 × 固化 ≥ 90（GD `CWData.CANCER_WIN_WEIGHTED`）。</summary>
     internal const int CancerWinWeighted = 90;
 
+    /// <summary>癌方加权占地：癌组织 + 2 × 固化（GD `count_tissue(CANCER) + 2 * count_tissue(SOLID)`）。判胜与「警报 / 回落」那两行日志读同一个数。</summary>
+    internal static int Weighted(WorldState s) => Tiles(s).Sum(t => t.State == TissueState.Cancer ? 1 : t.State == TissueState.SolidifiedCancer ? 2 : 0);
+
     public static (Faction? Winner, int Streak, string Kind) Evaluate(WorldState s)
     {
-        var score = Tiles(s).Sum(t => t.State == TissueState.Cancer ? 1 : t.State == TissueState.SolidifiedCancer ? 2 : 0);
+        var score = Weighted(s);
         var revivalSource = Tiles(s).Any(t => t.State == TissueState.SolidifiedCancer && s.GetCellAt(t.Position)?.Faction != Faction.Immune &&
             Tiles(s).Any(p => Cancerous(p) && p.OccupyingCell == null && p.Position.DistanceTo(t.Position) <= 1));
         var immuneWin = s.Cells.Count > 0 && !Cells(s).Any(c => c.IsAlive && c.Faction == Faction.Cancer) && !revivalSource;

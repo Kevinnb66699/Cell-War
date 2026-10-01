@@ -243,12 +243,12 @@ internal sealed class EventContext : IEventContext
             Input = new(s.NextRequest, playerSeat, options.ToImmutableArray()), NextRequest = checked(s.NextRequest + 1)
         };
     }
+    /// <summary>写一行公开日志（与规则代码 <see cref="Stage.Log"/> 投递的同一条通道）：推演静音、事务失败一起回滚。
+    /// 2026-10-01 之前这里往 128 行的 Outbox 追加、溢出删头，`logs.from` 游标随之漂移。</summary>
     public void Log(string message)
     {
-        var s = transaction.MutableImage.Simulation;
-        var output = s.Outbox.Add(message);
-        if (output.Count > 128) output = output.RemoveAt(0);
-        transaction.MutableImage.Simulation = s with { Outbox = output };
+        var turn = transaction.MutableImage.State.Turn;
+        Emit(new LogLine(turn.WorldRound, turn.Phase, message));
     }
     public void Emit(IPresentationEvent ev) => transaction.MutableImage.Simulation = transaction.MutableImage.Simulation.Emit(ev, keep: !muted);
 }

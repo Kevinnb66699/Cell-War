@@ -665,6 +665,15 @@ internal static class RulePolicies
         // → 【TGF-β释放】逐份 ×80% 向下取整（定案 #63，强度是同名条目求和；只算不结算，消耗在 PhaseRules 的有氧那一步）
         // → **之外**再加【代谢适应】【自分泌生存信号】的额外获得（不吃 TGF-β，口径 #69）→ 站在坏死格整份打 5 折四舍五入。
         // 此前 C# 先加了额外获得再打 TGF 折：6p 第 187 步 GD 16 + 5 = 21、C# (20 + 5) × 0.8 = 20（2026-09-17）
+        var income = AerobicPerShare(s, c, withTgf: true) + AerobicBonus(s, c);
+        if (s.Board.Tissues[c.Position].NecrosisRounds > 0) income = NecrosisCut(s.Tuning, income);   // 旋钮 necrosis_aerobic_pct（默认 50 = 减半）
+        return income;
+    }
+
+    /// <summary>GD `CWWorld.aerobic_share(with_tgf)`：**每份**多少（基准 → 夹钳 → 均分 →【TGF-β释放】逐份 ×80%），不含技能的额外获得、不打坏死折扣。
+    /// `with_tgf = false` 只给有氧那一行日志写「减免前 → 减免后」用（换内核 P2 从 <see cref="AerobicShare"/> 原样拆出，算式一个字没动）。</summary>
+    internal static int AerobicPerShare(WorldState s, Cell c, bool withTgf)
+    {
         var share = AerobicBase(s, c);
         // GD `aerobic_share` 的 `clamp_income(aerobic_floor, aerobic_cap)`（cw_tuning.gd:199）夹在**基准**上、
         // **排在均分之前** —— 顺序反过来的话 2.0 的低保会把 2.5÷3=0.8 顶回 2.0，均分等于没开
@@ -674,12 +683,14 @@ internal static class RulePolicies
         if (s.Tuning.AerobicFloor > 0) share = Math.Max(s.Tuning.AerobicFloor, share);
         if (s.Tuning.AerobicCap > 0) share = Math.Min(s.Tuning.AerobicCap, share);
         if (s.Tuning.AerobicSplit) share = SplitAerobic(s.Tuning, share, Cells(s).Count(x => x.IsAlive && x.Faction == Faction.Immune));
-        for (var i = 0; i < WorldEffects.Stacks(s, "TGF-β释放"); i++) share = share * 8 / 10;
-        var bonus = (HasSkill(s, c, "代谢适应") ? 5 : 0) + (HasSkill(s, c, "自分泌生存信号") ? 8 : 0);   // AEROBIC_ADAPT / AEROBIC_AUTOCRINE
-        var income = share + bonus;
-        if (s.Board.Tissues[c.Position].NecrosisRounds > 0) income = NecrosisCut(s.Tuning, income);   // 旋钮 necrosis_aerobic_pct（默认 50 = 减半）
-        return income;
+        if (withTgf)
+            for (var i = 0; i < WorldEffects.Stacks(s, "TGF-β释放"); i++) share = share * 8 / 10;
+        return share;
     }
+
+    /// <summary>GD `CWWorld._aerobic_bonus`：【代谢适应】/【自分泌生存信号】在每份之外加，不吃 TGF-β 的 −20%（口径 #69）。</summary>
+    internal static int AerobicBonus(WorldState s, Cell c)
+        => (HasSkill(s, c, "代谢适应") ? 5 : 0) + (HasSkill(s, c, "自分泌生存信号") ? 8 : 0);   // AEROBIC_ADAPT / AEROBIC_AUTOCRINE
 
     /// <summary>GD `CWData.TOTAL_TILES`（常量不是旋钮）：棋盘总格数 **127**，盘面式有氧的分母。
     /// **不是「当前棋盘有几格」** —— GD 那边写死的就是这个常量，所以 L0 的小盘面同样除 127。</summary>

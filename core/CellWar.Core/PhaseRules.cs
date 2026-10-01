@@ -29,6 +29,7 @@ internal static class PhaseRules
             {
                 // GD round_start：产出时踩着存卡骨髓抽到连走卡 / 撑爆手牌 / 抽到【基因组不稳定】 → **当场问完**才做血管传送。
                 // 挂起了就停在 StartStep 3，等 DecisionRouter 的出口把挂起摘干净再 ResumeStart（批扫 6p_1007 第 157 步，2026-09-18）
+                Stage.Log(s, $"━━━━ 第 {s.Turn.WorldRound} 世界回合 ━━━━");   // GD `round_start()` 第一句（cw_world.gd:28），排在重置与产出之前
                 s = BoardRules.Produce(s, rng);
                 s = s.WithTurn(s.Turn.Copy(startStep: 3));   // 别把产出时挂上的追问（连走 / 弃置 / 二选一）用旧的 Turn 盖掉
                 if (!StartPending(s)) s = ResumeStart(s, rng);
@@ -48,11 +49,19 @@ internal static class PhaseRules
             // 口径照 GD `CWWorld.settle_anaerobic_turn`：走同一个 `AnaerobicShare`（含瓦伯格与 GLUT1），gain ≤ 0 时什么都不做（加 0 等价）。
             if (s.Tuning.AnaerobicOnTurnEnd)
                 foreach (var ac in Cells(s).Where(c => c.OwnerSeat == s.Turn.ActivePlayerSeat && c.IsAlive && c.Faction == Faction.Cancer).ToArray())
-                    s = s.UpdateCell(ac.Id, s.Cells[ac.Id].WithEnergy(s.Cells[ac.Id].Energy + AnaerobicShare(s, ac)));
+                {
+                    var gain = AnaerobicShare(s, ac);
+                    s = s.UpdateCell(ac.Id, s.Cells[ac.Id].WithEnergy(s.Cells[ac.Id].Energy + gain));
+                    if (gain > 0) Stage.Log(s, $"【无氧呼吸】{Stage.CellName(s, ac)} 回合末 +{Stage.Fmt(gain)} 能量（现 {Stage.Fmt(s.Cells[ac.Id].Energy)}）");   // GD cw_world.gd:866
+                }
             // 「效果持续至本回合结束」的修饰在**结束回合这一刻**过期（GD `CWTurn.end_turn` → `clear_mods(cell, "turn")`，只清本人的）。
             // 此前 C# 放在下一次 BeginTurn 才清 —— E 阶段与别人的回合里它还挂着，L1 第 107 步席位 2 的【补体调理】就是这么多出来的（2026-09-17）
             foreach (var c in Cells(s).Where(c => c.OwnerSeat == s.Turn.ActivePlayerSeat).ToArray())
                 s = s.UpdateCell(c.Id, s.Cells[c.Id].Copy(modifiers: s.Cells[c.Id].Modifiers.Where(m => m.Duration != ModifierDuration.Turn).ToList()));
+            // GD 两条路：按「结束回合」→ `end_turn` 那句（cw_turn.gd:28）；这一回合里自己死了（反弹 / 突变 / 黏液破裂）→ `_advance_turn` 当作死亡席位跳过（cw_game.gd:305）
+            if (!AliveSeat(s, s.Turn.ActivePlayerSeat)) Stage.Log(s, $"（{Stage.SeatName(s, s.Turn.ActivePlayerSeat)} 已死亡，跳过回合）");
+            else if (SeatEnergy(s, s.Turn.ActivePlayerSeat) is { } left)
+                Stage.Log(s, $"　{Stage.SeatName(s, s.Turn.ActivePlayerSeat)} 结束回合（能量 {Stage.Fmt(left)}）");
             var next = s.Players.Keys.OrderBy(x => x).Where(x => x > s.Turn.ActivePlayerSeat && AliveSeat(s, x)).Cast<int?>().FirstOrDefault();
             // 完整回合时钟：走到下一个开打的席位之前，沿途每个席位各走一格（死的也计入）
             s = TickFullTurnsThrough(s, s.Turn.ActivePlayerSeat,
@@ -97,10 +106,13 @@ internal static class PhaseRules
         if (s.Turn.ChemoRounds <= 0 || s.Turn.ChemoOwner != seat) return s;
         var rounds = s.Turn.ChemoRounds - 1;
         var creator = s.Turn.ChemoCreator;
+        var at = s.Turn.ChemoAt;
         s = s.WithTurn(s.Turn.WithChemo(rounds > 0 ? s.Turn.ChemoAt : null, rounds,
             rounds > 0 ? s.Turn.ChemoOwner : -1, rounds > 0 ? creator : null));
         if (rounds <= 0 && creator is { } id && s.Cells.ContainsKey(id))
             s = s.UpdateCell(id, s.Cells[id].Copy(chemoCooldown: BoardRules.ChemoCooldownRounds));
+        if (rounds <= 0 && at is { } gone)   // GD cw_world.gd:1165
+            Stage.Log(s, $"【趋化源】{Stage.P(gone)} 的趋化源消散（{Stage.SeatName(s, seat)} 冷却 {BoardRules.ChemoCooldownRounds} 个世界回合）");
         return s;
     }
 
@@ -111,7 +123,11 @@ internal static class PhaseRules
     private static WorldState TickFullTurnsThrough(WorldState s, int from, int to)
     {
         foreach (var seat in s.Players.Keys.OrderBy(x => x).Where(x => x > from && x <= to))
+        {
+            // GD `_advance_turn`（cw_game.gd:300-311）：被跳过的死亡席位**先报一句再走时钟**；开打的那一席（区间末尾、活着的）先走时钟、再 begin_turn 报「▶」
+            if (!AliveSeat(s, seat)) Stage.Log(s, $"（{Stage.SeatName(s, seat)} 已死亡，跳过回合）");
             s = TickFullTurn(s, seat);
+        }
         return s;
     }
 
@@ -125,8 +141,14 @@ internal static class PhaseRules
                 modifiers: s.Cells[c.Id].Modifiers.Where(m => m.Duration != ModifierDuration.Turn).ToList()));
             s = GrantTurnModifiers(s, s.Cells[c.Id]);
         }
+        if (SeatEnergy(s, seat) is { } energy)
+            Stage.Log(s, $"▶ {Stage.SeatName(s, seat)} 的回合（能量 {Stage.Fmt(energy)}）");   // GD cw_turn.gd:21
         return s;
     }
+
+    /// <summary>GD `cell_of(pid)["energy"]`：一席一细胞，日志里「（能量 X）」读的就是它（取该席位 id 最小的那只）。
+    /// 手摆的测试盘面可能有席位没有细胞（GD 不会有）—— 那时不报这一句。</summary>
+    private static int? SeatEnergy(WorldState s, int seat) => Cells(s).FirstOrDefault(c => c.OwnerSeat == seat)?.Energy;
 
     /// <summary>
     /// 回合开始时给装备的永久技能发修饰。
@@ -174,7 +196,19 @@ internal static class PhaseRules
     public static WorldState FinishEndOfRound(WorldState s, IDeterministicRng rng)
     {
         s = BoardRules.EvolveEndOfRoundB(s, rng);
+        var streakBefore = s.Turn.CancerWinStreak;
         var (winner, streak, kind) = OutcomeRules.Evaluate(s);
+        // GD `check_cancer_win` 的两句（cw_game.gd:1110 / 1117）：免疫先判，免疫赢了就不进这一段；达标但还没坐满拉警报，回落且之前在数就报归零
+        if (kind != "immune_clear")
+        {
+            var weighted = OutcomeRules.Weighted(s);
+            if (weighted < OutcomeRules.CancerWinWeighted)
+            {
+                if (streakBefore > 0) Stage.Log(s, $"癌方加权占地回落到 {weighted} < {OutcomeRules.CancerWinWeighted}，胜利计数归零");
+            }
+            else if (streak < s.Tuning.CancerWinHoldRounds)
+                Stage.Log(s, $"★ 警报：癌方加权占地 {weighted} >= {OutcomeRules.CancerWinWeighted}（连续第 {streak}/{s.Tuning.CancerWinHoldRounds} 个回合末），下回合末仍达标即获胜");
+        }
         s = s.WithTurn(s.Turn.Copy(phase: winner == null ? Phase.E : Phase.Finished, winner: winner, winKind: kind, streak: streak, endStep: 0));
         if (s.Turn.Phase != Phase.Finished)
             s = s.WithTurn(s.Turn.Copy(phase: Phase.S, round: s.Turn.WorldRound + 1, seat: s.Players.Keys.OrderBy(x => x).FirstOrDefault(), startStep: 0, cancerReviveFrom: 0, immuneReviveFrom: 0));
@@ -184,6 +218,12 @@ internal static class PhaseRules
     /// <summary>S.2 血管传送 → 复活 / 有氧 / 过载 / 开打（产出那一步的追问全答完之后从这里接着走）。</summary>
     public static WorldState ResumeStart(WorldState s, IDeterministicRng rng)
     {
+        // 产出在某一格追出问答停下过（GD `_tissue_production` 的 await）：先把剩下的格产完，又追出问答就再停
+        if (s.Turn.ProductionFrom is { } from)
+        {
+            s = BoardRules.TissueProductionFrom(s, rng, from);
+            if (StartPending(s)) return s;
+        }
         s = BoardRules.Transport(s, rng);
         return ContinueStart(s.WithTurn(s.Turn.Copy(startStep: 1)));
     }
@@ -207,13 +247,33 @@ internal static class PhaseRules
     /// （减免本身已算在 AerobicShare 里，这里只负责摘条目）。测试迁移规格 A-3 的 `aerobic` 契约步 —— 从 ContinueStart 拆出的具名入口，零行为改动（E-4，Kevin 2026-09-19）。</summary>
     internal static WorldState Aerobic(WorldState s)
     {
-        foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune))
+        var immune = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune).ToArray();
+        // 日志（GD `_aerobic` cw_world.gd:485-511）：没有活着的免疫就一句不写；每份收入（含 TGF 折扣）与 TGF 那一行先算先报，逐只的两句跟在各自的演出后面，总括一句收尾
+        var gain = immune.Length > 0 ? AerobicPerShare(s, immune[0], withTgf: true) : 0;
+        var tgf = WorldEffects.Stacks(s, "TGF-β释放");
+        if (immune.Length > 0 && tgf > 0)
+            Stage.Log(s, $"【TGF-β释放】有氧呼吸 {Stage.Fmt(AerobicPerShare(s, immune[0], withTgf: false))} → {Stage.Fmt(gain)}（{tgf} 份 -20%，已消耗）");
+        foreach (var c in immune)
         {
             var income = AerobicShare(s, c);
+            var bonus = AerobicBonus(s, c);
             s = s.UpdateCell(c.Id, c.WithEnergy(c.Energy + income));
             Stage.Emit(Stage.Fx(s, "respire", ("at", c.Position)));   // GD cw_world.gd:507：每只免疫收完就演
+            if (bonus > 0) Stage.Log(s, $"　{Stage.CellName(s, c)} 的永久技能额外 +{Stage.Fmt(bonus)} 能量");
+            if (income != gain + bonus) Stage.Log(s, $"　{Stage.CellName(s, c)} 站在坏死组织上，有氧呼吸打 {s.Tuning.NecrosisAerobicPct / 10} 折后只拿 {Stage.Fmt(income)}");
         }
-        if (WorldEffects.Stacks(s, "TGF-β释放") > 0) s = s.RemoveEffects("TGF-β释放");
+        if (immune.Length > 0)
+        {
+            string why;
+            if (s.Tuning.AerobicLevelBase != 0) why = $"抗原记忆 {Stage.LevelName(s.FactionImmuneLevel(Faction.Immune))} 级";
+            else
+            {
+                var healthy = Tiles(s).Where(t => t.State == TissueState.Healthy).ToArray();
+                why = $"健康 {healthy.Length} - 坏死 {healthy.Count(t => t.NecrosisRounds > 0)}";
+            }
+            Stage.Log(s, $"【有氧呼吸】所有免疫细胞 +{Stage.Fmt(gain)} 能量（{why}）");
+        }
+        if (tgf > 0) s = s.RemoveEffects("TGF-β释放");
         return s;
     }
 
@@ -224,7 +284,9 @@ internal static class PhaseRules
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer).ToArray())
         {
             var lost = OverloadLoss(s, s.Cells[c.Id]);
-            if (lost > 0) s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy - lost));
+            if (lost <= 0) continue;
+            s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy - lost));
+            Stage.Log(s, $"【过载】{Stage.CellName(s, c)} 能量过多，损失 {Stage.Fmt(lost)}（余 {Stage.Fmt(s.Cells[c.Id].Energy)}）");   // GD cw_world.gd:531
         }
         return s;
     }
@@ -294,6 +356,10 @@ internal static class PhaseRules
                 var cancerous = MarrowTiles(s).Where(m => s.Board.Tissues[m].State != TissueState.Healthy).ToList();
                 var taken = MarrowTiles(s).Where(m => s.Board.Tissues[m].State == TissueState.Healthy && s.Board.Tissues[m].OccupyingCell != null).ToList();
                 var at = cancerous.Count > 0 ? cancerous[0] : taken.Count > 0 ? taken[0] : c.Position;
+                var parts = new List<string>();
+                if (cancerous.Count > 0) parts.Add("被癌化 " + string.Join(" ", cancerous.Select(Stage.P)));
+                if (taken.Count > 0) parts.Add($"有人站着（{string.Join("；", taken.Select(m => $"{Stage.P(m)} 被 {Stage.CellName(s, s.GetCellAt(m)!)} 占据"))}）");
+                Stage.Log(s, $"【免疫复活】{Stage.CellName(s, c)} 无法复活：六个骨髓{string.Join("，", parts)}");   // GD cw_world.gd:348
                 Stage.Announce(s, $"{Stage.CellName(s, c)} 无法复活：骨髓不可用", at, true);
             }
             s = s.WithTurn(s.Turn.WithImmuneReviveFrom(c.OwnerSeat + 1));
@@ -305,11 +371,19 @@ internal static class PhaseRules
             // GD `_report_no_revive`：场上根本没有固化癌组织 vs 有但一格都开不出落点（被免疫占着 / 1 环内没空的癌性组织），提示挂在被堵的那一格上
             var solids = Tiles(s).Where(t => t.State == TissueState.SolidifiedCancer).Select(t => t.Position).OrderBy(p => p.Q).ThenBy(p => p.R).ToList();
             if (solids.Count == 0)
+            {
+                Stage.Log(s, $"【复活】{Stage.SeatName(s, c.OwnerSeat)} 无法复活：场上没有固化癌组织");   // GD cw_world.gd:244
                 Stage.Announce(s, $"{Stage.SeatName(s, c.OwnerSeat)} 无法复活：没有固化癌组织", c.Position, true);
+            }
             else
             {
                 var byImmune = solids.Where(p => s.GetCellAt(p) is { IsAlive: true } occ && occ.Faction != Faction.Cancer).ToList();
                 var usable = solids.Where(p => !byImmune.Contains(p)).ToList();
+                // GD cw_world.gd:249-260：两种处境分开说 —— 被免疫踩着的（去把免疫赶走）/ 能用但一圈没空位的（去把周围腾出来）
+                var parts = new List<string>();
+                if (byImmune.Count > 0) parts.Add($"被免疫占着的（{string.Join("；", byImmune.Select(p => $"{Stage.P(p)} 被 {Stage.CellName(s, s.GetCellAt(p)!)} 占据"))}）");
+                if (usable.Count > 0) parts.Add($"能用的（{string.Join(", ", usable.Select(Stage.P))}）1 环内没有空的癌性组织");
+                Stage.Log(s, $"【复活】{Stage.SeatName(s, c.OwnerSeat)} 无法复活：{string.Join("；", parts)}");
                 Stage.Announce(s, $"{Stage.SeatName(s, c.OwnerSeat)} 无法复活：固化癌组织都用不上", byImmune.Count > 0 ? byImmune[0] : usable[0], true);
             }
             s = s.WithTurn(s.Turn.WithCancerReviveFrom(c.OwnerSeat + 1));
@@ -332,7 +406,25 @@ internal static class PhaseRules
 
     /// <summary>癌方放弃本回合复活：细胞照旧死着，光标推到下一席，S 阶段继续。</summary>
     public static RulesResult SkipRevive(WorldState s, SkipReviveDecision skip)
-        => new(ContinueStart(s.WithTurn(s.Turn.WithCancerReviveFrom(skip.PlayerSeat + 1))), Array.Empty<IGameEvent>(), true);
+    {
+        Stage.Log(s, $"{Stage.SeatName(s, skip.PlayerSeat)} 放弃复活");   // GD cw_world.gd:270
+        return new(ContinueStart(s.WithTurn(s.Turn.WithCancerReviveFrom(skip.PlayerSeat + 1))), Array.Empty<IGameEvent>(), true);
+    }
+
+    /// <summary>复活「落地之后那两件」：复活演出 + 那一行日志（GD cw_world.gd:292-297 / 362-364）。
+    /// 癌方报落地之后的能量与降级的是哪一格；免疫报的是复活能量本身（GD 读 `tune.immune_respawn_energy`，C# 复活时写的就是这个数 1.0）。</summary>
+    internal static WorldState AnnounceRevival(WorldState s, RevivalNotice n)
+    {
+        var cell = s.Cells[n.Cell];
+        Stage.Emit(Stage.Fx(s, cell.Faction == Faction.Immune ? "revive_immune" : "revive_cancer", ("at", n.At)));
+        if (n.Anchor is not { } anchor)
+            Stage.Log(s, $"【免疫复活】{Stage.CellName(s, cell)} 于骨髓 {Stage.P(n.At)} 复活（{Stage.Fmt(10)} 能量）");
+        else if (anchor == n.At)
+            Stage.Log(s, $"【复活】{Stage.CellName(s, cell)} 复活于 {Stage.P(n.At)}（{Stage.Fmt(cell.Energy)} 能量），该格降级为癌组织");
+        else
+            Stage.Log(s, $"【复活】{Stage.CellName(s, cell)} 复活于 {Stage.P(n.At)}（{Stage.Fmt(cell.Energy)} 能量），依托的固化癌组织 {Stage.P(anchor)} 降级为癌组织");
+        return s.Turn.PendingRevival is null ? s : s.WithTurn(s.Turn.WithPendingRevival(null));
+    }
 
     /// <summary>S.3/S.4 复活结算：落位/能量/占用与癌症干性被动，随后继续 S 阶段。</summary>
     public static RulesResult Revive(WorldState s, ReviveDecision revival, IDeterministicRng rng)
@@ -356,11 +448,14 @@ internal static class PhaseRules
             var stem = CancerPhase(s.Turn.WorldRound) switch { 0 => 30, 1 => 40, _ => 50 };
             s = s.UpdateCell(dead.Id, s.Cells[dead.Id].Copy(energy: stem));
             s = AddModifier(s, s.Cells[dead.Id], new("癌症干性", ModifierTarget.Move, ModifierStage.Free, SourceLayer.Card, 0, 0, null, 2, ModifierDuration.Round, ModifierRequirement.MoveToCancerous));
+            Stage.Log(s, $"　【癌症干性】复活能量提高至 {Stage.Fmt(stem)}，本世界回合 2 次向癌性组织移动免费");   // GD cw_world.gd:287
         }
         // 落地算「进入」（GD `revive_immune` / `revive_cancer` 都 `enter_tile`）：骨髓有卡就抽一张 —— 那是带子上的一发，
         // 此前 C# 复活只放占位，L1 6p 第 83 步免疫在存着一张卡的骨髓上复活，GD 念了一条、C# 没念（2026-09-17）
         s = CellRules.ArriveAndLand(s, dead.Id, revival.TargetPosition, rng);
-        Stage.Emit(Stage.Fx(s, dead.Faction == Faction.Immune ? "revive_immune" : "revive_cancer", ("at", revival.TargetPosition)));   // GD cw_world.gd:297/367：落地之后演
+        // GD cw_world.gd:297/367：落地（含它追出的问答）之后才演复活、写那一行 —— 追出了问答就推迟到问完（DecisionRouter 出口），否则当场
+        var notice = new RevivalNotice(dead.Id, revival.TargetPosition, dead.Faction == Faction.Immune ? null : revival.SourcePosition ?? revival.TargetPosition);
+        s = StartPending(s) ? s.WithTurn(s.Turn.WithPendingRevival(notice)) : AnnounceRevival(s, notice);
         // 完整的 enter_tile：落点是健康格就【定殖】、是癌组织就【净化】（GD revive_* 同）
         // 落地追出问答（骨髓抽到连走卡 / 撑爆手牌 / 二选一）：GD 在 revive_* 的 await 里问完才回到 S 流程；这里停住，DecisionRouter 的出口再 ContinueStart
         return new(StartPending(s) ? s : ContinueStart(s), Array.Empty<IGameEvent>(), true);

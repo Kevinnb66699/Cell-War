@@ -5,12 +5,12 @@ namespace CellWar.Core;
 /// <summary>
 /// 结构化演出通道（口径二 · 批 0，规格 docs/口径二_批0_底座规格.md A-4）。
 ///
-/// 为什么要另开一条：<see cref="SimulationState.Outbox"/> 只装字符串，装不下骰点 / 光束 / 侵蚀方向；
+/// 为什么要另开一条：日志（原 `SimulationState.Outbox`，P2 起是 <see cref="SimulationState.Logs"/>）只装字符串，装不下骰点 / 光束 / 侵蚀方向；
 /// GD 侧最宽的一条演出是 `fx: immune_attack` 的 10 个键（cw_actions.gd:945-949）。
 /// 这里的记录**逐字照** GD 桥的十条通道（cw_bridge.gd:31-92 / cw_net_bridge.gd:34-80 的报文键），一个键都不改 ——
 /// 批 1 接线时客户端拿到的形状要和今天联机报文一样，`match.gd` 的播放代码才能原样复用。
 ///
-/// 事件从规则函数**既有的** <c>result.Events</c> 通道流出来（实现 <see cref="IPresentationEvent"/> 的就是演出，其余照旧进日志），
+/// 事件从规则函数**既有的** <c>result.Events</c> 通道流出来（实现 <see cref="IPresentationEvent"/> 的就是演出；其余的规则事实 P2 起不再写调试串进日志），
 /// 规则函数签名一个不改；<see cref="IEventContext.Emit"/> 把它们按单调 <see cref="StagedEvent.Seq"/> 排进
 /// <see cref="SimulationState.Presentation"/>。溢出丢最旧、抬水位线，**永不重编号**（客户端一比就知道自己漏了，而不是静默错播）。
 /// AI 推演（<c>Runtime.Fork</c>）静音，对齐 GD 的 `sim_quiet`。
@@ -93,4 +93,31 @@ public sealed record StepBegin(int WorldRound, Phase Phase, long AskId, int Seat
 public sealed record StepEnd(int WorldRound, Phase Phase, long Rev) : IPresentationEvent
 {
     public string EventType => "step_end";
+}
+
+// ---- 对局日志（换内核 P2 · 日志原文）----
+//
+// 规则代码在**结算的那一刻**把 GD 那一行的原文（同一个格式串、当时的数值）渲染好投进来（<see cref="Stage.Log"/> / <see cref="Stage.LogRun"/>），
+// 和演出条目走同一个作用域、同一条 RulesResult.Events —— 所以与骰点 / 光束 / 方向条目的先后天然就是结算顺序，推演（Fork）里一并静音。
+// 下标与「连续同类行」的合并在 <see cref="SimulationState.Emit"/> 里落定，落定之后排进演出队列的是 <see cref="LogWritten"/>（带绝对下标的那一条）。
+
+/// <summary>GD `CWGame.log_msg(text, secret_pid, public_msg)`：一行日志。<paramref name="SecretSeat"/> ≥ 0 = 只有该席位看原文，别人看 <paramref name="PublicText"/>
+/// （全仓只有一处：抽到的牌名，cw_cards.gd:57）。规则代码投递的是它；它到不了演出队列 —— 落定成 <see cref="LogWritten"/> 才排进去。</summary>
+public sealed record LogLine(int WorldRound, Phase Phase, string Text, int SecretSeat = -1, string? PublicText = null) : IPresentationEvent
+{
+    public string EventType => "log_line";
+}
+
+/// <summary>GD `CWGame.log_run(key, item, prefix, suffix)`：连续同类的一串（一步一步走出来的【定殖】/【净化】）合成一条 ——
+/// key 相同**且紧挨着上一条**才并进末条（同一个下标再发一次），中间插了别的行就另起一条（Kevin 2026-09-07）。</summary>
+public sealed record LogRun(int WorldRound, Phase Phase, string Key, string Item, string Prefix, string Suffix) : IPresentationEvent
+{
+    public string EventType => "log_run";
+}
+
+/// <summary>落定之后的一行：绝对下标 + 原文 + 秘密席位 + 公开替身。句柄条目 `log{index, text, secret_pid, public_text}`（GD `cw_kernel_inproc.gd:_on_log_line`）：
+/// 就地合并时**再发一次同一个下标**，消费者按下标覆盖（CWLogStore.apply）。</summary>
+public sealed record LogWritten(int WorldRound, Phase Phase, long Index, string Text, int SecretSeat, string PublicText) : IPresentationEvent
+{
+    public string EventType => "log";
 }

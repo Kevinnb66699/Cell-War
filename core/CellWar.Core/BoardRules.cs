@@ -22,10 +22,20 @@ internal static class BoardRules
 
     /// <summary>S.1 的生产本体，**不含**开头的 <c>ResetRoundFlags</c>：测试迁移规格 A-3 的 `tissue_production` 契约步 = GD `cw_world.gd:_tissue_production`
     /// （那边的标志位重置是单列的 `_reset_round_flags`，录它的差分重放 C# 时不能多出一轮重置）。拆函数、零行为改动（E-4，Kevin 2026-09-19）。</summary>
-    internal static WorldState TissueProduction(WorldState s, IDeterministicRng rng)
+    internal static WorldState TissueProduction(WorldState s, IDeterministicRng rng) => TissueProductionFrom(s, rng, 0);
+
+    /// <summary>
+    /// 从第 <paramref name="from"/> 格（<see cref="RulePolicies.Tiles"/> 的 q→r 序）起产。GD `_tissue_production` 是一个 await 循环：
+    /// 某一格收取时抽到要问的（连走卡 / 撑爆手牌 / 二选一 / 风暴选中心 / 【骨髓动员】的收取挂起），**当场问完**才去下一格 ——
+    /// 所以这里一追出问答就停在这一格之后，把下一格记进 <see cref="TurnState.ProductionFrom"/>，`PhaseRules.ResumeStart` 问完再接着产。
+    /// 2026-10-01 之前 C# 不停、一口气产完：盘面结果相同（连走免费、不掷骰），但后面几格的抽卡日志 / 演出会跑到那段连走前面（换内核 P2 批扫 4p_2003 第 220 步）。
+    /// </summary>
+    internal static WorldState TissueProductionFrom(WorldState s, IDeterministicRng rng, int from)
     {
-        foreach (var pos in Tiles(s).Select(x => x.Position).ToArray())
+        var positions = Tiles(s).Select(x => x.Position).ToArray();
+        for (var i = from; i < positions.Length; i++)
         {
+            var pos = positions[i];
             var t = s.Board.Tissues[pos];   // 现读（GD cw_world.gd:105 拿的是活引用）：上一格收取时的结算可能已经改了这一格（【骨髓动员】存卡、【全身性免疫清除】翻面），拿进循环时的快照写回会把它盖掉
             if (t.NecrosisRounds > 0) continue;   // 坏死期间不产也不攒（GD _tissue_production，Kevin 2026-09-13 issue #31）
             var current = t.Charge ?? 0;
@@ -56,9 +66,12 @@ internal static class BoardRules
             // 代谢核心收能量 **或** 骨髓抽卡 —— 骨髓那一抽是带子上的一发，此前 C# 只收能量，
             // 2p / 6p 轨迹一录出来就各在第一次骨髓产出时少念一条（2026-09-17）
             if (charge > 0 && s.GetCellAt(t.Position) is { IsAlive: true } occupant)
+            {
                 s = CollectSpecial(s, occupant.Id, rng);
+                if (PhaseRules.StartPending(s)) return s.WithTurn(s.Turn.WithProductionFrom(i + 1));
+            }
         }
-        return s;
+        return s.Turn.ProductionFrom is null ? s : s.WithTurn(s.Turn.WithProductionFrom(null));
     }
 
     /// <summary>S.2 血管传送 = GD `_vessel_teleport`（cw_world.gd:133-165）：两端都空就没事；**哪一端坏死整条作废**；两边都有就交换
@@ -74,11 +87,26 @@ internal static class BoardRules
         var ca = s.GetCellAt(a);
         var cb = s.GetCellAt(b);
         if (ca is null && cb is null) return s;
-        if (s.Board.Tissues[a].NecrosisRounds > 0 || s.Board.Tissues[b].NecrosisRounds > 0) return s;
-        // C# 的占位是格上的字段（GD 靠扫细胞坐标）：先把两端占位整体换好，再按 GD 的先后各落地一次
+        // 哪一端坏死都整体作废：GD 按 [a, b] 找第一个坏死的那端报一句（cw_world.gd:147）
+        foreach (var end in new[] { a, b })
+            if (s.Board.Tissues[end].NecrosisRounds > 0)
+            {
+                Stage.Log(s, $"【血管】{Stage.P(end)} 坏死，本回合不传送");
+                return s;
+            }
+        if (ca is not null && cb is not null) Stage.Log(s, "【血管】两端都有细胞，交换位置");   // GD cw_world.gd:150
+        // C# 的占位是格上的字段（GD 靠扫细胞坐标）：先把两端占位整体换好，再按 GD 的先后各落地一次（每次落地之前报一句，GD cw_world.gd:152/155）
         s = s.UpdateTissueOccupant(a, cb?.Id).UpdateTissueOccupant(b, ca?.Id);
-        if (ca is not null) s = CellRules.ArriveAndLand(s.UpdateCell(ca.Id, s.Cells[ca.Id].WithPosition(b)), ca.Id, b, rng, a);
-        if (cb is not null) s = CellRules.ArriveAndLand(s.UpdateCell(cb.Id, s.Cells[cb.Id].WithPosition(a)), cb.Id, a, rng, b);
+        if (ca is not null)
+        {
+            Stage.Log(s, $"【血管】{Stage.CellName(s, ca)} 传送至 {Stage.P(b)}");
+            s = CellRules.ArriveAndLand(s.UpdateCell(ca.Id, s.Cells[ca.Id].WithPosition(b)), ca.Id, b, rng, a);
+        }
+        if (cb is not null)
+        {
+            Stage.Log(s, $"【血管】{Stage.CellName(s, cb)} 传送至 {Stage.P(a)}");
+            s = CellRules.ArriveAndLand(s.UpdateCell(cb.Id, s.Cells[cb.Id].WithPosition(a)), cb.Id, a, rng, b);
+        }
         return s;
     }
     /// <summary>
@@ -141,19 +169,24 @@ internal static class BoardRules
     /// </summary>
     internal static WorldState Anaerobic(WorldState s)
     {
-        var blocks = Blocks(s, true);
-        foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer))
-        {
-            if (!blocks.Any(b => b.Contains(c.Position))) continue;
-            s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy + AnaerobicShare(s, c)));
-        }
-        // 演出（GD cw_world.gd:749-768）：按块，块内按**细胞序**（GD `here` 是 living_cells 过滤出来的，即席位序；此前 C# 按块内格序，先亮错一只 —— 复核 2026-09-18），
-        // 每只癌细胞一条「铜橙输能」，sources = 同块里离它最近的 12 格（`nearest_in`）
+        // 照 GD `_anaerobic` 的形状**按块**走（cw_world.gd:735-768）：块内每只癌细胞进账（GLUT1 那一句跟在它自己后面）→ 块内每只一条「铜橙输能」→ 这一块的总括一句。
+        // 进账仍是 `AnaerobicShare`（含瓦伯格与 GLUT1）：能量的增减不改连通块与池子，换成按块遍历与此前「先全部进账、再按块演出」逐位同一个结果 ——
+        // 换内核 P2 重排只为日志行与演出交错的先后与 GD 一致。块内按**细胞序**（GD `here` 是 living_cells 过滤出来的，即席位序；复核 2026-09-18）
         foreach (var block in GdBlocks(s, Cancerous))
         {
             var members = new HashSet<HexPosition>(block);
-            foreach (var here in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && members.Contains(x.Position)))
-                Stage.Emit(Stage.Fx(s, "anaerobic", ("at", here.Position), ("sources", NearestIn(block, here.Position, 12))));
+            var here = Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && members.Contains(x.Position)).ToArray();
+            if (here.Length == 0) continue;
+            var gain = SplitShare(s.Tuning, AnaerobicPool(s, members), here.Length);   // 日志那句的「各 +X」：块里每份（瓦伯格 / GLUT1 之前）
+            foreach (var c in here)
+            {
+                s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy + AnaerobicShare(s, c)));
+                if (HasSkill(s, c, "GLUT1高表达"))
+                    Stage.Log(s, $"　【GLUT1高表达】{Stage.CellName(s, c)} 额外 +{Stage.Fmt(CancerPhase(s.Turn.WorldRound) switch { 0 => 5, 1 => 8, _ => 10 })} 能量");   // GD cw_world.gd:753
+            }
+            foreach (var c in here)
+                Stage.Emit(Stage.Fx(s, "anaerobic", ("at", c.Position), ("sources", NearestIn(block, c.Position, 12))));
+            Stage.Log(s, $"【无氧呼吸】连通块（{block.Count} 格）内 {here.Length} 个癌细胞各 +{Stage.Fmt(gain)} 能量");   // GD cw_world.gd:757
         }
         return s;
     }
@@ -181,7 +214,9 @@ internal static class BoardRules
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer).ToArray())
         {
             var lost = s.Cells[c.Id].Energy * pct / 100;
-            if (lost > 0) s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy - lost));
+            if (lost <= 0) continue;
+            s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy - lost));
+            Stage.Log(s, $"【代谢消耗】{Stage.CellName(s, c)} 损失 {Stage.Fmt(lost)} 能量（余 {Stage.Fmt(s.Cells[c.Id].Energy)}）");   // GD cw_world.gd:853
         }
         return s;
     }
@@ -195,7 +230,10 @@ internal static class BoardRules
         var cap = s.Tuning.EnergyCap;
         if (cap <= 0) return s;
         foreach (var c in Cells(s).Where(c => c.IsAlive && c.Energy > cap).ToArray())
+        {
+            Stage.Log(s, $"【溢出】{Stage.CellName(s, c)} 能量 {Stage.Fmt(c.Energy)} → {Stage.Fmt(cap)}");   // GD cw_game.gd:438
             s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(cap));
+        }
         return s;
     }
 
@@ -247,6 +285,7 @@ internal static class BoardRules
                 fresh.Add(t.Position);
             }
         }
+        if (fresh.Count > 0) Stage.Log(s, $"【增生】{fresh.Count} 格健康组织被癌组织侵占");   // GD cw_world.gd:680：整批翻完、演完之后一句
         next = s;
         return fresh;
     }
@@ -285,6 +324,7 @@ internal static class BoardRules
         for (var i = 0; i < picked.Length; i++)
         {
             s = CardRules.ToCancer(s, picked[i], newborn: true);   // GD `CWTissue.to_cancer(tile, true)`
+            Stage.Log(s, $"【侵蚀】{Stage.P(picked[i])} 转为癌组织");   // GD cw_world.gd:630：逐格，报在过场之前
             if (dirs[i] >= 0) Stage.Emit(new TissueConverted(s.Turn.WorldRound, s.Turn.Phase, picked[i], dirs[i], "侵蚀"));
         }
         return s;
@@ -315,6 +355,7 @@ internal static class BoardRules
             s = s.UpdateCell(loopCell.Id, cell);
             if (at is not { } atPos || cell.Position != atPos) continue;
             if (s.Board.Tissues[atPos].State != TissueState.Cancer) continue;
+            Stage.Log(s, $"　【骨样硬化】{Stage.CellName(s, cell)} 在 {Stage.P(atPos)} 停留了一回合，完成【净化】");   // GD cw_world.gd:942
             // GD `_resolve_camping` → `purify_here(cell, at, -1)`：整条净化口径（转健康、记忆闸、巨噬不回能、_on_purify 三张技能）。
             // 此前 C# 是裸翻面 + 无条件记忆。【连续吞噬】GD 会在 E 阶段当场追问 —— 这里照样挂起，PhaseRules 停在 EndStep 1 等答完（2026-09-18）
             s = CellRules.PurifyHere(s, loopCell.Id, atPos, -1, rng);
@@ -335,11 +376,22 @@ internal static class BoardRules
     internal static WorldState RaiseSolid(WorldState s, HexPosition pos, int amount)
     {
         var t = s.Board.Tissues[pos];
-        if (WorldEffects.SolidFrozen(s, pos)) return s;      // 【TNF-α局部炎症】：冻结名单在事件容器里
-        if (t.Type == TissueType.BloodVessel) return s;        // 血管不可固化
+        if (WorldEffects.SolidFrozen(s, pos))   // 【TNF-α局部炎症】：冻结名单在事件容器里
+        {
+            Stage.Log(s, $"　【TNF-α局部炎症】{Stage.P(pos)} 本世界回合无法增加固化计数");   // GD cw_game.gd:631
+            return s;
+        }
+        if (t.Type == TissueType.BloodVessel)   // 血管不可固化
+        {
+            Stage.Log(s, $"　【固化】{Stage.P(pos)} 是血管，不可固化（计数不累计）");   // GD cw_game.gd:635
+            return s;
+        }
         var count = t.SolidificationCount + amount;
         s = s.UpdateTissueSolidification(pos, count);
-        return count >= SolidifyThreshold(s) ? s.UpdateTissueState(pos, TissueState.SolidifiedCancer) : s;
+        if (count < SolidifyThreshold(s)) return s;
+        s = s.UpdateTissueState(pos, TissueState.SolidifiedCancer);
+        Stage.Log(s, $"【固化】{Stage.P(pos)} 转为固化癌组织");   // GD cw_game.gd:641
+        return s;
     }
 
     /// <summary>固化门槛：走旋钮（默认 I 期 3.0、II 期 2.0、III 期 1.5 —— 环境恶化，issue #56）。</summary>
@@ -370,14 +422,20 @@ internal static class BoardRules
         var stage = Stage(s);
         if (stage < 2) return s;
         var limit = stage == 2 ? 1 : 2;
+        var raised = 0;   // GD 数的是 raise_solid 调了几次（被冻住 / 血管拦下的也算），cw_world.gd:921
         foreach (var t in Tiles(s).Where(t => t.State == TissueState.SolidifiedCancer)
                      .OrderBy(t => t.Position.Q).ThenBy(t => t.Position.R).ToArray())
         {
             // 候选按 GD DIRS 序（`game.neighbors`）：pick_random 抽的是下标，序不同就抽到不同的格（2p 第 85 步，2026-09-17）
             var targets = GdNeighbors(s, t.Position).Where(n => s.Board.Tissues[n].State == TissueState.Cancer).ToArray();
             if (targets.Length == 0) continue;
-            foreach (var n in rng.PickRandom(targets, limit)) s = RaiseSolid(s, n, 10);
+            foreach (var n in rng.PickRandom(targets, limit))
+            {
+                s = RaiseSolid(s, n, 10);
+                raised++;
+            }
         }
+        if (raised > 0) Stage.Log(s, $"【根深蒂固】固化癌组织使 {raised} 格相邻癌组织的固化计数 +{Stage.Fmt(10)}");   // GD cw_world.gd:923
         return s;
     }
 
@@ -394,8 +452,13 @@ internal static class BoardRules
             }
             // **到期那一刻被免疫细胞占着就不转**，标记留着（云端 PRD 2026-09-10：「最后若不被免疫细胞占据，则转为固化癌组织并移除标记」；
             // GD `_ossify` 同：人一走下个回合照样固化。此前 C# 照转不误 —— 批 3 KG-4）
-            if (s.GetCellAt(t.Position) is { IsAlive: true, Faction: Faction.Immune }) continue;
+            if (s.GetCellAt(t.Position) is { IsAlive: true, Faction: Faction.Immune })
+            {
+                Stage.Log(s, $"【骨样硬化】{Stage.P(t.Position)} 被免疫细胞占着，本回合不转固化（标记留着）");   // GD cw_world.gd:887
+                continue;
+            }
             s = s.UpdateTissueState(t.Position, TissueState.SolidifiedCancer);
+            Stage.Log(s, $"【骨样硬化】{Stage.P(t.Position)} 转为固化癌组织");   // GD cw_world.gd:890
         }
         return s;
     }
@@ -416,8 +479,8 @@ internal static class BoardRules
         if (dendritic == null) return s;
 
         // **先快照**：本阶段新染上的不能再当源
-        var carriers = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Marked)
-            .Select(c => c.Position).ToArray();
+        var carrierCells = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Marked).ToArray();
+        var carriers = carrierCells.Select(c => c.Position).ToArray();
         if (carriers.Length == 0) return s;
 
         foreach (var target in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && !c.Marked).ToArray())
@@ -425,7 +488,9 @@ internal static class BoardRules
             var src = Array.FindIndex(carriers, p => target.Position.DistanceTo(p) <= AdhesionRange);   // GD：按携带者序取第一个够得着的
             if (src < 0) continue;
             s = ApplyMark(s, target.Id, dendritic);
-            if (s.Cells[target.Id].Marked) Stage.Emit(Stage.Fx(s, "adhesion", ("from", carriers[src]), ("to", target.Position)));   // GD cw_world.gd:976
+            if (!s.Cells[target.Id].Marked) continue;
+            Stage.Log(s, $"　【组织黏连】{Stage.CellName(s, carrierCells[src])} 的标记传染给 {Stage.CellName(s, target)}");   // GD cw_world.gd:973：先报再演
+            Stage.Emit(Stage.Fx(s, "adhesion", ("from", carriers[src]), ("to", target.Position)));   // GD cw_world.gd:976
         }
         return s;
     }
@@ -439,6 +504,8 @@ internal static class BoardRules
     /// </summary>
     internal static WorldState TickDurations(WorldState s)
     {
+        // GD `tick_durations`（cw_world_fx.gd:24-31）：逐条 −1，到期的报一句「【X】效果结束」
+        foreach (var gone in s.Effects.Select(e => e.Tick()).Where(e => e.Expired)) Stage.Log(s, $"【{gone.Name}】效果结束");
         if (s.Effects.Count > 0) s = s.Copy(effects: s.Effects.Select(e => e.Tick()).Where(e => !e.Expired).ToList());
         return CellRules.ExpireRoundModifiers(s);   // GD tick_durations 末尾 `clear_mods(cell, "round")`
     }
@@ -459,6 +526,7 @@ internal static class BoardRules
     {
         if (s.Turn.TrackRounds <= 0) return s;
         var left = s.Turn.TrackRounds - 1;
+        if (left <= 0 && TrackAt(s) is { } at) Stage.Log(s, $"【追踪趋化源】{Stage.P(at)} 的追踪趋化源消散");   // GD cw_world.gd:986：位置照 chemo_track_at()（被追的活着读它的格，死了读冻住的格）
         return s.WithTurn(left > 0
             ? s.Turn.Copy(trackRounds: left)
             : s.Turn.WithTrack(null, null, 0));
@@ -485,7 +553,9 @@ internal static class BoardRules
         {
             // 没记施加回合的（测试手摆的）按本回合算，与 GD 的 `born < 0` 分支同口径
             var born = c.MarkRound < 0 ? s.Turn.WorldRound : c.MarkRound;
-            if (s.Turn.WorldRound >= born + 1) s = s.UpdateCell(c.Id, s.Cells[c.Id].Copy(marked: false, markLeft: 0));
+            if (s.Turn.WorldRound < born + 1) continue;
+            s = s.UpdateCell(c.Id, s.Cells[c.Id].Copy(marked: false, markLeft: 0));
+            Stage.Log(s, $"　{Stage.CellName(s, c)} 的【标记】到期移除");   // GD cw_world.gd:1197
         }
         return s;
     }

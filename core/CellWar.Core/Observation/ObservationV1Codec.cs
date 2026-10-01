@@ -105,7 +105,21 @@ public static class ObservationV1Codec
             ViewerOmniscient, false, ["A"], true, null,
             new ObsState(new ObsBoard(s.Board.Radius, tiles), obsCells, g),
             Ask(s, sim.Input, revision),
-            new ObsLogs(logsFrom, sim.Outbox.Skip((int)Math.Max(0, logsFrom)).ToArray()));
+            Logs(sim, logsFrom));
+    }
+
+    /// <summary>`logs` 段（换内核 P2）：从绝对下标 <paramref name="logsFrom"/> 起的 GD 原文行（全知；秘密行由 <see cref="SeatFilter"/> 按席位换公开替身）。
+    /// 下标是绝对的、行是连续的（`SimulationState.Logs` 全量保留），所以 `from` 就是 `lines[0]` 的下标；越过末尾 = 空行列表、`from` 原样。</summary>
+    private static ObsLogs Logs(SimulationState sim, long logsFrom)
+    {
+        var from = Math.Max(0, logsFrom);
+        var all = sim.Logs;
+        var start = all.Count == 0 ? 0 : (int)Math.Clamp(from - all[0].Index, 0, all.Count);
+        var rows = all.Skip(start).ToArray();
+        return new ObsLogs(rows.Length > 0 ? rows[0].Index : from, rows.Select(l => l.Text).ToArray())
+        {
+            Secret = rows.Select((l, i) => (l, i)).Where(x => x.l.SecretSeat >= 0).Select(x => new ObsSecretLine(x.i, x.l.SecretSeat, x.l.PublicText)).ToArray(),
+        };
     }
 
     // ---------------- ask / options ----------------
@@ -234,7 +248,7 @@ public static class ObservationV1Codec
     }
 
     /// <summary>GD 的四句 `win_reason`（cw_game.gd:1111,1133 / cw_world.gd:1227,1232）。文案不进对拍（§八 #6），但格式照抄。</summary>
-    private static string WinReason(WorldState s)
+    internal static string WinReason(WorldState s)   // internal：终局那一行日志（RuleFlow.Continue）用同一句话
     {
         var tiles = s.Board.Tissues.Values;
         var weighted = tiles.Sum(t => t.State == TissueState.Cancer ? 1 : t.State == TissueState.SolidifiedCancer ? 2 : 0);

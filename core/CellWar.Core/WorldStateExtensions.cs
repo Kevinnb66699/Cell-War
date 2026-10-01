@@ -145,13 +145,14 @@ public static class WorldStateExtensions
     public static TurnState Copy(this TurnState t, Phase? phase = null, int? seat = null, int? round = null, int? startStep = null, int? endStep = null, Faction? winner = null, string? winKind = null, int? streak = null, int? pendingDiscard = null, EntityId? pendingDiscardCell = null,
         int? pendingMutationSeat = null, EntityId? pendingMutationCell = null, int? pendingMutationA = null, int? pendingMutationB = null, int? effectorRound = null,
         HexPosition? chemoAt = null, int? chemoRounds = null, int? chemoOwner = null, EntityId? chemoCreator = null,
-        EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null, EntityId? pendingChain = null, int? pendingChainWalkDepth = null,
+        EntityId? trackCell = null, HexPosition? trackFrozenAt = null, int? trackRounds = null, EntityId? pendingChain = null, int? pendingChainWalkDepth = null, int? pendingChainLinked = null,
         EntityId? pendingChemotaxis = null, int? chemotaxisStepsLeft = null, string? pendingWalkCard = null, IReadOnlyList<WalkFrame>? walkOuter = null, IReadOnlyList<HexPosition>? pendingMarrow = null, int? pendingMarrowWalkDepth = null,
         int? cardResolveDepth = null, string? pendingCard = null, EntityId? pendingCardCell = null, int? cancerReviveFrom = null, int? immuneReviveFrom = null,
         EntityId? pendingCoupleCell = null, EntityId? pendingCoupleAlly = null, EntityId? pendingCouplePayer = null,
         EntityId? pendingRemodelCell = null, HexPosition? pendingRemodelFirst = null, HexPosition? pendingRemodelSecond = null, int? pendingRemodelStep = null,
         int? pendingPickCellSeat = null, string? pendingPickCellCard = null, EntityId? pendingPickCellChooser = null,
         EntityId? pendingLandCell = null, HexPosition? pendingLandAt = null, int? pendingLandWalkDepth = null, int? pendingLandStep = null,
+        RevivalNotice? pendingRevival = null, bool setPendingRevival = false, int? productionFrom = null, bool setProductionFrom = false,
         bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false,
         bool setTrackCell = false, bool setTrackFrozenAt = false, bool setPendingChain = false, bool setPendingChemotaxis = false,
         bool setPendingCard = false, bool setPendingCouple = false, bool setPendingWalkCard = false, bool setPendingRemodel = false,
@@ -171,7 +172,7 @@ public static class WorldStateExtensions
             TrackFrozenAt = setTrackFrozenAt ? trackFrozenAt : trackFrozenAt ?? t.TrackFrozenAt,
             TrackRounds = trackRounds ?? t.TrackRounds,
             PendingChainCell = setPendingChain ? pendingChain : pendingChain ?? t.PendingChainCell,
-            PendingChainWalkDepth = pendingChainWalkDepth ?? t.PendingChainWalkDepth,
+            PendingChainWalkDepth = pendingChainWalkDepth ?? t.PendingChainWalkDepth, PendingChainLinked = pendingChainLinked ?? t.PendingChainLinked,
             PendingChemotaxisCell = setPendingChemotaxis ? pendingChemotaxis : pendingChemotaxis ?? t.PendingChemotaxisCell,
             ChemotaxisStepsLeft = chemotaxisStepsLeft ?? t.ChemotaxisStepsLeft,
             PendingWalkCard = setPendingWalkCard ? pendingWalkCard : pendingWalkCard ?? t.PendingWalkCard,
@@ -192,11 +193,19 @@ public static class WorldStateExtensions
             PendingPickCellChooser = setPendingPickCell ? pendingPickCellChooser : pendingPickCellChooser ?? t.PendingPickCellChooser,
             PendingLandCell = setPendingLand ? pendingLandCell : pendingLandCell ?? t.PendingLandCell,
             PendingLandAt = setPendingLand ? pendingLandAt : pendingLandAt ?? t.PendingLandAt,
-            PendingLandWalkDepth = pendingLandWalkDepth ?? t.PendingLandWalkDepth, PendingLandStep = pendingLandStep ?? t.PendingLandStep };
+            PendingLandWalkDepth = pendingLandWalkDepth ?? t.PendingLandWalkDepth, PendingLandStep = pendingLandStep ?? t.PendingLandStep,
+            PendingRevival = setPendingRevival ? pendingRevival : pendingRevival ?? t.PendingRevival,
+            ProductionFrom = setProductionFrom ? productionFrom : productionFrom ?? t.ProductionFrom };
 
     /// <summary>挂起 / 结束【连续吞噬】的连锁选择。</summary>
     public static TurnState WithPendingChain(this TurnState t, EntityId? cell, int walkDepth = 0)
         => t.Copy(pendingChain: cell, setPendingChain: true, pendingChainWalkDepth: walkDepth);
+    /// <summary>S 阶段产出停在哪一格之后（见 <see cref="TurnState.ProductionFrom"/>）；null = 产完了。</summary>
+    public static TurnState WithProductionFrom(this TurnState t, int? from) => t.Copy(productionFrom: from, setProductionFrom: true);
+    /// <summary>挂上 / 摘掉「复活落地之后那两件」（见 <see cref="TurnState.PendingRevival"/>）。</summary>
+    public static TurnState WithPendingRevival(this TurnState t, RevivalNotice? notice) => t.Copy(pendingRevival: notice, setPendingRevival: true);
+    /// <summary>这一串【连续吞噬】连了几格（只给收尾那句日志用，见 <see cref="TurnState.PendingChainLinked"/>）。</summary>
+    public static TurnState WithChainLinked(this TurnState t, int linked) => t.Copy(pendingChainLinked: linked);
     public static TurnState WithPendingMarrow(this TurnState t, IReadOnlyList<HexPosition> rest, int walkDepth) => t.Copy(pendingMarrow: rest, pendingMarrowWalkDepth: walkDepth);
 
     /// <summary>挂起 / 推进 / 结束【代谢耦联】的两问（三个字段一起改；payer 为 null = 还在问方向）。</summary>

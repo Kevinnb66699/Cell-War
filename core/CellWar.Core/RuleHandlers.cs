@@ -12,7 +12,6 @@ public sealed class PlayerDecisionHandler : IRuleHandler
         var result = rules.ExecuteDecision(context.GetWorldState(), decision, context.Rng);
         if (!result.Success) throw new InvalidOperationException(result.ErrorMessage);
         context.SetWorldState(result.NewState);
-        context.Log($"Accepted {decision.DecisionType} for seat {decision.PlayerSeat}");
         RuleFlow.Publish(context, result.Events);
         RuleFlow.Continue(context, rules);
     }
@@ -28,8 +27,8 @@ public sealed class AdvancePhaseHandler : IRuleHandler
         var result = rules.AdvancePhase(context.GetWorldState(), context.Rng);
         if (!result.Success) throw new InvalidOperationException(result.ErrorMessage);
         context.SetWorldState(result.NewState);
-        // 阶段结算的演出（骰点 / 侵蚀方向 / 增生…）此前整个被丢掉；日志行仍不写 —— Outbox 的内容与既有观测保持不变，文案账在批 2/3
-        foreach (var ev in result.Events) if (ev is IPresentationEvent p) context.Emit(p);
+        // 阶段结算的演出（骰点 / 侵蚀方向 / 增生…）与日志原文（P2）都走演出通道；规则事实（EnergyChangedEvent 那类）不写进日志
+        RuleFlow.Publish(context, result.Events);
         RuleFlow.Continue(context, rules);
     }
 }
@@ -42,14 +41,12 @@ public sealed class TurnStartHandler : IRuleHandler
 
 internal static class RuleFlow
 {
-    /// <summary>结算事件分两路：演出事件进结构化通道，其余照旧转成日志行。</summary>
+    /// <summary>结算事件里只有演出（含日志原文 <see cref="LogLine"/>）进通道。
+    /// 2026-10-01 之前非演出的规则事实会被 `Describe` 成「Accepted …」「(q,r) Healthy → Cancer」这类调试串写进玩家日志 —— P2 起日志只装 GD 原文。</summary>
     public static void Publish(IEventContext context, IEnumerable<IGameEvent> events)
     {
         foreach (var ev in events)
-        {
             if (ev is IPresentationEvent p) context.Emit(p);
-            else context.Log(Describe(ev));
-        }
     }
 
     public static void Continue(IEventContext context, IRulesEngine rules)
@@ -58,25 +55,9 @@ internal static class RuleFlow
         var options = rules.GetAvailableDecisions(state, state.Turn.ActivePlayerSeat);
         if (options.Count > 0) context.AwaitInput(state.Turn.ActivePlayerSeat, options);
         else if (state.Turn.Phase != Phase.Finished) context.Schedule(context.CurrentTick + 1, "AdvancePhase");
-    }
-
-    /// <summary>把结算事件转成人类可读的日志行（只读投影，不承载规则语义）。</summary>
-    public static string Describe(IGameEvent ev)
-    {
-        switch (ev)
-        {
-            case CellAttackedEvent a:
-                return a.IsKill ? $"攻击成功，{a.DefenderId} 已死亡" : $"攻击造成 {a.Damage / 10.0:F1} 能量损失";
-            case CellMovedEvent m:
-                return $"{m.EntityId} 移动至 ({m.To.Q},{m.To.R})，消耗 {m.EnergyCost / 10.0:F1} 能量";
-            case TissueStateChangedEvent t:
-                return $"({t.Position.Q},{t.Position.R}) {t.OldState} → {t.NewState}";
-            case EnergyChangedEvent e:
-                return $"{e.EntityId} 能量 {e.OldValue / 10.0:F1} → {e.NewValue / 10.0:F1}";
-            case CellDiedEvent d:
-                return $"{d.EntityId} 死亡";
-            default:
-                return ev.EventType;
-        }
+        // GD `run_game()` 跑完循环的最后一句（cw_game.gd:169）：`log_msg("=== 对局结束：%s ===" % win_reason)`。
+        // 它不在规则结算里而在驱动循环里 —— C# 的驱动循环就是这里（分胜负之后不再排任何事件，所以只走到一次）。
+        // L1 重放直接驱动 BasicRulesEngine、xcheck_export 也不走 run_game，两边夹具里都没有这一行
+        else if (state.Turn.Winner is not null) context.Log($"=== 对局结束：{Observation.ObservationV1Codec.WinReason(state)} ===");
     }
 }

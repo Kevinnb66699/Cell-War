@@ -69,15 +69,21 @@ public class PresentationTests
         Assert.Single(mainLease.Snapshot.Simulation.Presentation);
     }
 
+    /// <summary>换内核 P2（2026-10-01）：日志原文与演出条目一样**不进档**（同 GD `cw_save.gd`「日志不入档」）。此前 Outbox 进档、这条断言的是反面。</summary>
     [Fact]
-    public void 演出条目不进Checkpoint_日志照旧进()
+    public void 演出条目与日志原文都不进Checkpoint()
     {
         using var runtime = Create(new Handler("emit", c => { c.Emit(Notice("stage-only-text")); c.Log("log-only-text"); }));
         runtime.Schedule(1, "emit");
         runtime.Run();
+        using (var lease = runtime.Read())
+            Assert.Equal("log-only-text", Assert.Single(lease.Snapshot.Simulation.Logs).Text);   // 进了日志
         var json = runtime.Checkpoint().Json;
         Assert.DoesNotContain("stage-only-text", json);   // JSON 会把中文转义，用 ASCII 才比得出
-        Assert.Contains("log-only-text", json);
+        Assert.DoesNotContain("log-only-text", json);
+        var (image, _) = CheckpointCodec.Decode(runtime.Checkpoint());
+        Assert.Empty(image.Simulation.Logs);
+        Assert.Equal(0, image.Simulation.LogCursor.NextIndex);   // 续档 = 新开一卷（GD restore 同时清掉 log_run 的游标）
     }
 
     [Fact]
@@ -99,8 +105,9 @@ public class PresentationTests
         Assert.Throws<System.Text.Json.JsonException>(() => CheckpointCodec.Decode(new(json.Replace("\"Schema\":2", "\"Schema\":1"))));
     }
 
+    /// <summary>换内核 P2：规则事实（EnergyChangedEvent 那类）不再被 `Describe` 成调试串写进玩家日志 —— 日志只装 GD 原文。</summary>
     [Fact]
-    public void 规则事件分流_演出走通道_其余照旧进日志()
+    public void 规则事件分流_演出走通道_规则事实不进日志()
     {
         using var runtime = Create(new Handler("fake", c =>
         {
@@ -117,8 +124,7 @@ public class PresentationTests
         var sim = lease.Snapshot.Simulation;
         var staged = Assert.Single(sim.Presentation);
         Assert.IsType<DiceRolled>(staged.Event);
-        Assert.Contains(sim.Outbox, line => line.Contains("能量"));
-        Assert.DoesNotContain(sim.Outbox, line => line.Contains("roll"));
+        Assert.Empty(sim.Logs);
     }
 
     [Fact]

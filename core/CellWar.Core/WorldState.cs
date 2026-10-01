@@ -100,6 +100,9 @@ public sealed class TurnState
     /// <summary>挂起连锁时的走位栈深。净化抽到【趋化募集】之类会再压一层 —— 那条走位在 GD 里嵌在 draw() 内部、先走完才回到连锁循环，
     /// 所以栈比这个数深的时候连锁先让路（<see cref="CellRules.ChainDeferred"/>）。</summary>
     public int PendingChainWalkDepth { get; init; }
+    /// <summary>这一串【连续吞噬】已经连了几格（GD `_chain_phagocytosis` 的局部变量 `linked`）。**只给日志用**：
+    /// 串结束时那一句「连续净化 N 格，下一次攻击额外 +X」要这个数（换内核 P2）；规则一行都不读它，每次收尾归零。</summary>
+    public int PendingChainLinked { get; init; }
 
     /// <summary>
     /// 【炎症性趋化】正在等这只细胞选下一步（null = 没在走）。
@@ -186,6 +189,11 @@ public sealed class TurnState
     public int PendingLandWalkDepth { get; init; }
     /// <summary>推迟的落地做到哪一步：0 = 整个后半截都没做；1 = collect_special 做过了（它追出的问答 / 骨髓循环还挂着），只欠 update_marks。</summary>
     public int PendingLandStep { get; init; }
+    /// <summary>复活落地追出了问答（骨髓上存着的卡抽到【趋化募集】之类）：GD `revive_*` 是 `await enter_tile` **问完**才演复活、写那一行日志，
+    /// 所以这两件推迟到问答摘干净的那一刻（<see cref="PhaseRules.AnnounceRevival"/>）。**只管演出与日志**，规则一行都不读它（换内核 P2）。</summary>
+    public RevivalNotice? PendingRevival { get; init; }
+    /// <summary>S 阶段产出停在哪一格之后（<see cref="BoardRules.TissueProductionFrom"/>，q→r 序的下标）：null = 没停。问答摘干净后从这一格接着产。</summary>
+    public int? ProductionFrom { get; init; }
 
     public TurnState Clone() => new()
     {
@@ -213,6 +221,7 @@ public sealed class TurnState
         TrackRounds = TrackRounds,
         PendingChainCell = PendingChainCell,
         PendingChainWalkDepth = PendingChainWalkDepth,
+        PendingChainLinked = PendingChainLinked,
         PendingChemotaxisCell = PendingChemotaxisCell,
         ChemotaxisStepsLeft = ChemotaxisStepsLeft,
         PendingWalkCard = PendingWalkCard,
@@ -237,7 +246,9 @@ public sealed class TurnState
         PendingLandCell = PendingLandCell,
         PendingLandAt = PendingLandAt,
         PendingLandWalkDepth = PendingLandWalkDepth,
-        PendingLandStep = PendingLandStep
+        PendingLandStep = PendingLandStep,
+        PendingRevival = PendingRevival,
+        ProductionFrom = ProductionFrom
     };
 }
 
@@ -598,3 +609,6 @@ public sealed class StatusEffect
 
 /// <summary>一段被压在下面的连走：谁在走、还剩几步、走的是哪张卡（与 <see cref="TurnState.PendingChemotaxisCell"/> 三个字段同形）。</summary>
 public readonly record struct WalkFrame(EntityId Cell, int StepsLeft, string Card);
+
+/// <summary>一次复活的「落地之后那两件」（复活演出 + 日志）要用的东西：谁、落在哪、依托的是哪一格固化（免疫为 null）。见 <see cref="TurnState.PendingRevival"/>。</summary>
+public sealed record RevivalNotice(EntityId Cell, HexPosition At, HexPosition? Anchor);

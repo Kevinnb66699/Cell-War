@@ -112,6 +112,8 @@ internal static class DecisionRouter
             if (CellRules.LandReady(s)) s = CellRules.ResumeLand(s, rng);                  // GD enter_tile 的 await 回来了：收特殊组织、刷标记
             if (ReferenceEquals(s, before)) break;
         }
+        // 复活落地追出的问答答完了：GD `revive_*` 的 `await enter_tile` 回来了 —— 这才演复活、写那一行（换内核 P2）
+        if (s.Turn.PendingRevival is { } revived && !PhaseRules.StartPending(s)) s = PhaseRules.AnnounceRevival(s, revived);
         // S 阶段的追问答完了：产出那一步 → 接着血管传送、复活、有氧、开打；复活落地那一步 → 接着问下一席复活或开打（GD round_start / revive_* 的 await 回来了）
         if (s.Turn.Phase == Phase.S && !PhaseRules.StartPending(s))
         {
@@ -139,11 +141,14 @@ internal static class DecisionRouter
         if (decision is DiscardDecision discard) return CardRules.Discard(state, discard);
         if (decision is ChooseMutationDecision choose) return CardRules.ChooseMutation(state, choose, rng);
         if (decision is ChainMoveDecision hop) return CellRules.ChainMove(state, hop, rng);
-        if (decision is StopChainDecision)
-            return new(state.WithTurn(state.Turn.WithPendingChain(null)), Array.Empty<IGameEvent>(), true);
+        if (decision is StopChainDecision stopChain)   // 「结束连续吞噬」：GD 的 while 循环 break，收尾那一句照报
+            return new(CellRules.EndChainRun(state.WithTurn(state.Turn.WithPendingChain(null)), stopChain.CellId, state.Turn.PendingChainLinked), Array.Empty<IGameEvent>(), true);
         if (decision is ChemotaxisStepDecision step) return CellRules.WalkMove(state, step.CellId, step.Target, rng);
         if (decision is StopChemotaxisDecision)   // GD `_free_walk` 的 `return` 只退一层：外层还有步就接着问（出口的 NormalizeChemotaxis 会再判外层）
+        {
+            Stage.Log(state, $"　【{state.Turn.PendingWalkCard ?? "炎症性趋化"}】提前停止");   // GD cw_card_fx.gd:638 / :832
             return new(state.WithTurn(state.Turn.PopWalk()), Array.Empty<IGameEvent>(), true);
+        }
         if (decision is CoupleDirectionDecision dir)
             return new(state.WithTurn(state.Turn.WithPendingCouple(dir.CellId, state.Turn.PendingCoupleAlly, dir.Payer)), Array.Empty<IGameEvent>(), true);
         if (decision is CoupleTierDecision tier)
@@ -153,8 +158,12 @@ internal static class DecisionRouter
             return new(CardRules.CoupleTransfer(state, payer, getter, tier.Pay, tier.Get), Array.Empty<IGameEvent>(), true);
         }
         if (decision is CancelCoupleDecision)
-            // 取消：无效果、卡不弃置 —— 连 PendingCard 一起摘，Execute 出口就不会给这张卡收尾
+        {
+            // 取消：无效果、卡不弃置 —— 连 PendingCard 一起摘，Execute 出口就不会给这张卡收尾。GD 两句：`_couple` 里一句、`_resolve_played` 里一句（cw_card_fx.gd:883/896 + :309）
+            Stage.Log(state, "　【代谢耦联】取消");
+            Stage.Log(state, "　【代谢耦联】已取消，卡未弃置");
             return new(state.WithTurn(state.Turn.WithPendingCouple(null, null, null).WithPendingCard(null, null)), Array.Empty<IGameEvent>(), true);
+        }
         if (decision is PickCellDecision pickCell)
         {
             var card = state.Turn.PendingPickCellCard!;

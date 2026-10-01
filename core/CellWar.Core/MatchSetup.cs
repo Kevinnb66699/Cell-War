@@ -56,13 +56,25 @@ public static class MatchSetup
             };
         }
 
-        return new WorldState
+        var world = new WorldState
         {
             Board = new Board { Radius = BoardRadius, Tissues = tissues },
             Cells = new Dictionary<EntityId, Cell>(),
             Players = players,
             Turn = new TurnState { WorldRound = 1, Phase = Phase.Setup, ActivePlayerSeat = 0 }
         };
+        LogInitialCancer(world);
+        return world;
+    }
+
+    /// <summary>GD `CWSetup._place_initial_cancer` 末尾两句（cw_setup.gd:146-148）：铺完报格数；中央格是特殊组织就喊一声（说明 #34）。
+    /// 格数 = 此刻的癌组织数（开局只有这一步铺癌，两者同一个数）。抽癌种 GD 不写日志（Kevin 2026-09-13）。
+    /// L1 对拍从 GD 的 `pre` 装起、走不到这里，所以 EnvelopeParityTests 也拿它给 C# 那一卷铺开局行 —— 顺带钉住这句文案。</summary>
+    internal static void LogInitialCancer(WorldState s)
+    {
+        Stage.Log(s, $"初始癌组织：自中央格随机长出 {s.Board.Tissues.Values.Count(t => t.State == TissueState.Cancer)} 格");
+        if (SpecialAt(new HexPosition(0, 0, 0)) != TissueType.Normal)
+            Stage.Log(s, "! 中央格是特殊组织，与「癌组织不得与特殊组织重合」冲突（见说明 #34）");
     }
 
     /// <summary>

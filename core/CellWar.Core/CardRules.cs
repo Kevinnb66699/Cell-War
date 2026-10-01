@@ -22,32 +22,39 @@ internal static class CardRules
             s = AddModifier(s, s.Cells[cell.Id], new ActiveModifier("细胞膜修复", ModifierTarget.EnergyLoss,
                 ModifierStage.Subtract, SourceLayer.Card, 0, 15, 0, 1, ModifierDuration.Game));
             Stage.Emit(Stage.Fx(s, "card_repair", ("at", cell.Position)));   // GD cw_card_fx.gd:344：切角徽盾收束
+            Stage.Log(s, "　下一次能量损失 -1.5（最低 0）");   // GD cw_card_fx.gd:332
             return s;
         },
         ["急性炎症反应"] = (s, cell, rng, target, targetCell) =>
         {
             var aero = AerobicShare(s, cell);
-            s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + aero));
+            s = Gain(s, cell.Id, aero);
             Stage.Evt(s, "急性炎症反应", $"自身 +{Stage.Fmt(aero)} 能量（一次有氧）", cell.Position);
             return s;
         },
         ["抗原摄取"] = (s, cell, rng, target, targetCell) =>
         {
             var adjacent = cell.Position.GetNeighbors().Any(n => s.Board.Tissues.TryGetValue(n, out var t) && Cancerous(t));
+            s = AddMemory(s, adjacent ? 2 : 1);
+            Stage.Log(s, $"　【抗原摄取】免疫方 +{(adjacent ? 2 : 1)} 抗原记忆（{s.FactionMemory(Faction.Immune)}）");   // GD cw_card_fx.gd:53
             Stage.Evt(s, "抗原摄取", $"+{(adjacent ? 2 : 1)} 抗原记忆", cell.Position);
-            return AddMemory(s, adjacent ? 2 : 1);
+            return s;
         },
         ["抗原呈递增强"] = (s, cell, rng, target, targetCell) =>
         {
+            s = AddMemory(s, 3);
+            Stage.Log(s, $"　【抗原呈递增强】免疫方 +3 抗原记忆（{s.FactionMemory(Faction.Immune)}）");   // GD cw_card_fx.gd:57
             Stage.Evt(s, "抗原呈递增强", "+3 抗原记忆", cell.Position);
-            return AddMemory(s, 3);
+            return s;
         },
         ["克隆扩增"] = (s, cell, rng, target, targetCell) =>
         {
             foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune).ToArray())
                 s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy + 10));
+            s = Gain(s, cell.Id, 5, "额外");
+            Stage.Log(s, "　【克隆扩增】所有免疫细胞 +1.0 能量");   // GD cw_card_fx.gd:66
             Stage.Evt(s, "克隆扩增", "全体免疫 +1.0 · 自身另 +0.5", cell.Position);
-            return s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
+            return s;
         },
         ["肿瘤血管生成"] = (s, cell, rng, target, targetCell) =>
         {
@@ -56,8 +63,10 @@ internal static class CardRules
             foreach (var c in drinkers)
                 s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy + amount));
             Stage.Emit(Stage.Fx(s, "card_blood", ("drawer", cell.Position), ("cells", drinkers.Select(c => c.Position).ToArray())));   // GD cw_card_fx.gd:98：各自回拢血色碎粒
+            s = Gain(s, cell.Id, 5, "额外");
+            Stage.Log(s, $"　【肿瘤血管生成】所有癌细胞 +{Stage.Fmt(amount)} 能量");   // GD cw_card_fx.gd:100
             Stage.Evt(s, "肿瘤血管生成", $"全体癌细胞 +{Stage.Fmt(amount)} · 自身另 +0.5", cell.Position);
-            return s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
+            return s;
         },
         // 【局部吞噬】：相邻无细胞的普通癌组织里随机 1 格转健康、+1 记忆（卡面明写才给，不过 purify_gives_memory）。
         // 候选按 GD DIRS 序（randi_range 抽的是下标）；GD 不看黏液，此前 C# 多了一条 `!t.Mucus`
@@ -66,13 +75,16 @@ internal static class CardRules
             var cands = PhagocytosisTargets(s, cell);
             if (cands.Count == 0)
             {
+                Stage.Log(s, "　【局部吞噬】相邻没有可转化的癌组织，落空");   // GD cw_card_fx.gd:421
                 Stage.Evt(s, "局部吞噬", "落空（相邻无癌组织）", cell.Position);   // 选项层已经拦了（Playable），这里是兜底
                 return s;
             }
             var picked = cands[rng.NextInt(cands.Count)];
             s = ToHealthy(s, picked);   // GD `to_healthy`
+            s = AddMemory(s, 1);
+            Stage.Log(s, $"　【局部吞噬】{Stage.P(picked)} 转为健康组织，+1 抗原记忆（{s.FactionMemory(Faction.Immune)}）");   // GD cw_card_fx.gd:430
             Stage.Evt(s, "局部吞噬", "1 格转健康 · +1 记忆", picked);
-            return AddMemory(s, 1);
+            return s;
         },
         // 【基质降解】：格子由玩家选（GD hand_options 一格一条），**零随机** —— 此前 C# 自己随机挑，带子上多一发
         ["基质降解"] = (s, cell, rng, target, targetCell) =>
@@ -80,24 +92,24 @@ internal static class CardRules
             if (target is not { } pos || !DegradeTargets(s, cell).Contains(pos)) return s;
             s = CrackToCancer(s, pos);
             Stage.Emit(Stage.Fx(s, "card_degrade", ("at", pos)));   // GD cw_card_fx.gd:295：矿物层散去
+            Stage.Log(s, $"　{Stage.P(pos)} 由固化癌组织转为癌组织（计数清零）");   // GD cw_card_fx.gd:283
             return s;
         },
         // 【溶酶体强化】：相邻无细胞的普通癌组织随机最多 4 格转健康（pick_n，候选按 GD DIRS 序）；巨噬每格 +0.3
         ["溶酶体强化"] = (s, cell, rng, target, targetCell) =>
         {
             var targets = AdjacentPlainCancerEmpty(s, cell.Position);
-            foreach (var pick in rng.PickRandom(targets, 4))
-            {
-                s = s.UpdateTissueState(pick, TissueState.Healthy);
-                if (cell.Type == CellType.Macrophage)
-                    s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 3));
-            }
+            var picked = rng.PickRandom(targets, 4).ToArray();
+            foreach (var pick in picked) s = s.UpdateTissueState(pick, TissueState.Healthy);
+            Stage.Log(s, $"　【溶酶体强化】{picked.Length} 格癌组织转为健康组织");   // GD cw_card_fx.gd:545
+            if (cell.Type == CellType.Macrophage && picked.Length > 0) s = Gain(s, cell.Id, 3 * picked.Length, "巨噬");   // GD `_gain(cell, 3 * n, "巨噬")`
             return s;
         },
         ["骨髓动员"] = (s, cell, rng, target, targetCell) =>
         {
             foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune).ToArray())
                 s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy + 5));
+            Stage.Log(s, "　【骨髓动员】所有免疫细胞 +0.5 能量");   // GD cw_card_fx.gd:439（逐格「立即产出 1 张」那句在 CollectMarrows 里）
             // GD `_marrow_mobilization`：按 CWData.MARROWS 的顺序逐格「判健康空仓 → 存 1 张 → 站着的细胞当场收（抽卡）」，判据现读。
             // GD 那一行此前漏了 await（同步桥下嵌套、界面桥下脱手）—— Kevin 2026-09-18 裁：GD 补 await（协议 v29）、C# 照嵌套语义做。
             // 不能先把六格存满再收（复核 2026-09-18）：套娃时内层会看到外层预存的格而一张不发、收取途中翻面的骨髓会被漏掉。
@@ -110,6 +122,7 @@ internal static class CardRules
         {
             foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune).ToArray())
                 s = s.UpdateCell(c.Id, s.Cells[c.Id].WithEnergy(s.Cells[c.Id].Energy + 15));
+            Stage.Log(s, "　【全身免疫动员】所有免疫细胞 +1.5 能量");   // GD cw_card_fx.gd:734
             Stage.Evt(s, "全身免疫动员", "全体免疫 +1.5 · 各可迁移 1 次", cell.Position);   // GD cw_card_fx.gd:748
             return s;
         },
@@ -120,6 +133,7 @@ internal static class CardRules
                 t.Position.GetNeighbors().Any(n => s.Board.Tissues.TryGetValue(n, out var x) && x.State == TissueState.Healthy)).ToArray();
             var cleared = rng.PickRandom(candidates, 5).ToArray();
             foreach (var pick in cleared) s = ToHealthy(s, pick.Position);   // GD `to_healthy`
+            Stage.Log(s, $"　【全身性免疫清除】{cleared.Length} 格癌组织转为健康组织");   // GD cw_card_fx.gd:494
             Stage.Evt(s, "全身性免疫清除", $"{cleared.Length} 格癌组织转健康", cell.Position);   // GD cw_card_fx.gd:508
             return s;
         },
@@ -127,7 +141,7 @@ internal static class CardRules
         ["糖酵解爆发"] = (s, cell, rng, target, targetCell) =>
         {
             var gain = AnaerobicShare(s, cell);
-            s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + gain));
+            s = Gain(s, cell.Id, gain, "糖酵解爆发");
             // GD cw_card_fx.gd:90：和 E 阶段那条一样演「铜橙输能」，sources = 所在连通块里最近的 12 格（不在任何块里就空）
             var block = GdBlocks(s, Cancerous).FirstOrDefault(b => b.Contains(cell.Position));
             Stage.Emit(Stage.Fx(s, "anaerobic", ("at", cell.Position), ("sources", block is null ? Array.Empty<HexPosition>() : BoardRules.NearestIn(block, cell.Position, 12))));
@@ -138,12 +152,15 @@ internal static class CardRules
         // 结算时同名整批消耗（RulePolicies 那侧），多打几张就多几条，逐份 −20%（定案 #63）
         ["TGF-β释放"] = (s, cell, rng, target, targetCell) =>
         {
+            s = s.InstallEffect("TGF-β释放", left: 2);
+            Stage.Log(s, "　【TGF-β释放】免疫方下一次【有氧呼吸】收入 -20%（可叠加）");   // GD cw_card_fx.gd:116
             Stage.Evt(s, "TGF-β释放", "免疫下次有氧呼吸 -20%", cell.Position);
-            return s.InstallEffect("TGF-β释放", left: 2);
+            return s;
         },
         ["缺氧适应"] = (s, cell, rng, target, targetCell) =>
         {
             s = AddModifier(s, s.Cells[cell.Id], new("缺氧适应", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Card, 0, 10, 0, 1, ModifierDuration.Game));   // 缺氧适应：挡下 1.0（原 1 = 0.1）
+            Stage.Log(s, "　下一次【微环境压迫】或癌细胞技能造成的损失 -1.0（最低 0）");   // GD cw_card_fx.gd:348
             return s;
         },
         ["DNA损伤修复"] = (s, cell, rng, target, targetCell) =>
@@ -151,22 +168,26 @@ internal static class CardRules
             // 减免值在**结算当刻**按分期重算（定案 #64，CellRules.ShieldValue）；这里存的 cut 只是打出时的记录
             var cut = CancerPhase(s.Turn.WorldRound) switch { 0 => 10, 1 => 15, _ => 20 };
             s = AddModifier(s, s.Cells[cell.Id], new("DNA损伤修复", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Card, 0, cut, 0, 1, ModifierDuration.Game));
+            Stage.Log(s, $"　下一次受到免疫方事件/技能的能量损失 -{Stage.Fmt(cut)}（最低 0）");   // GD cw_card_fx.gd:370
             return s;
         },
         ["炎症趋化"] = (s, cell, rng, target, targetCell) =>
         {
             s = AddModifier(s, s.Cells[cell.Id], new("炎症趋化", ModifierTarget.Move, ModifierStage.Replace, SourceLayer.Card, 0, 5, null, 1, ModifierDuration.Turn, ModifierRequirement.MoveToCancerous));
+            Stage.Log(s, "　本回合下一次向癌性组织的迁移费用改为 0.5");   // GD cw_card_fx.gd:325
             return s;
         },
         ["上皮—间质转化"] = (s, cell, rng, target, targetCell) =>
         {
             var uses = CancerPhase(s.Turn.WorldRound) + 1;
             s = AddModifier(s, s.Cells[cell.Id], new("上皮—间质转化", ModifierTarget.Move, ModifierStage.Replace, SourceLayer.Card, 0, 2, null, uses, ModifierDuration.Turn, ModifierRequirement.MoveToHealthy));
+            Stage.Log(s, $"　本回合接下来 {uses} 次向健康组织的移动费用降为 0.2");   // GD cw_card_fx.gd:378
             return s;
         },
         ["CXCR3趋化"] = (s, cell, rng, target, targetCell) =>
         {
             s = AddModifier(s, s.Cells[cell.Id], new("CXCR3趋化", ModifierTarget.Move, ModifierStage.Subtract, SourceLayer.Card, 0, 5, 2, 2, ModifierDuration.Turn, ModifierRequirement.MoveToCancerous));
+            Stage.Log(s, "　本回合接下来 2 次向癌性组织的迁移费用 -0.5（最低 0.2）");   // GD cw_card_fx.gd:328
             return s;
         },
         ["组织浸润"] = (s, cell, rng, target, targetCell) =>
@@ -178,31 +199,37 @@ internal static class CardRules
         {
             var extra = cell.Type == CellType.TCell ? 20 : 10;
             s = AddModifier(s, s.Cells[cell.Id], new("穿孔素-颗粒酶", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Card, 0, extra, null, 1, ModifierDuration.Turn));
+            Stage.Log(s, $"　本回合下一次攻击成功后额外 +{Stage.Fmt(extra)}");   // GD cw_card_fx.gd:354
             return s;
         },
         ["高亲和力克隆"] = (s, cell, rng, target, targetCell) =>
         {
             s = AddModifier(s, s.Cells[cell.Id], new("高亲和力克隆", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Card, 0, 10, null, 1, ModifierDuration.Turn));   // 高亲和力克隆：额外 1.0（原 1 = 0.1）
+            Stage.Log(s, "　本回合下一次攻击不判定，直接大成功并额外 +1.0");   // GD cw_card_fx.gd:364
             return s;
         },
         ["补体调理"] = (s, cell, rng, target, targetCell) =>
         {
             s = AddModifier(s, s.Cells[cell.Id], new("补体调理", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Card, 0, 5, null, 1, ModifierDuration.Turn));
+            Stage.Log(s, "　本回合下一次攻击：无效自动重掷一次；最终命中额外 +0.5");   // GD cw_card_fx.gd:317
             return s;
         },
         ["补体级联"] = (s, cell, rng, target, targetCell) =>
         {
             s = AddModifier(s, s.Cells[cell.Id], new("补体级联", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Card, 0, 0, null, 1, ModifierDuration.Turn));
+            Stage.Log(s, "　本回合下一次攻击成功后：目标相邻最多 2 格癌组织转健康");   // GD cw_card_fx.gd:357
             return s;
         },
         ["PD-L1表达"] = (s, cell, rng, target, targetCell) =>
         {
             s = AddModifier(s, s.Cells[cell.Id], new("PD-L1表达", ModifierTarget.Attack, ModifierStage.Add, SourceLayer.Card, 0, 0, null, 1, ModifierDuration.Game));
+            Stage.Log(s, "　下一次受到的普通攻击判定下降一级");   // GD cw_card_fx.gd:367
             return s;
         },
         ["BCL-2抗凋亡"] = (s, cell, rng, target, targetCell) =>
         {
             s = AddModifier(s, s.Cells[cell.Id], new("BCL-2抗凋亡", ModifierTarget.EnergyLoss, ModifierStage.Add, SourceLayer.Card, 0, 0, null, 1, ModifierDuration.Game));
+            Stage.Log(s, $"　下一次致命能量损失被免疫，能量改为 {Stage.Fmt(CancerPhase(s.Turn.WorldRound) switch { 0 => 5, 1 => 8, _ => 10 })}");   // GD cw_card_fx.gd:340
             return s;
         },
         ["乳酸酸化"] = (s, cell, rng, target, targetCell) =>
@@ -211,7 +238,7 @@ internal static class CardRules
             var loss = CancerPhase(s.Turn.WorldRound) switch { 0 => 8, 1 => 15, _ => 20 };
             if (AdjacentCancerous(s, s.Cells[tid].Position, 3)) loss += 5;
             Stage.Emit(Stage.Fx(s, "card_acid", ("from", cell.Position), ("to", s.Cells[tid].Position)));   // GD cw_card_fx.gd:581：酸滴 ×3 + 目标碎粒
-            return Damage(s, tid, loss, LossSource.CancerSkill);
+            return Damage(s, tid, loss, LossSource.CancerSkill, "乳酸酸化");   // GD `cancer_hit(target, …, "乳酸酸化", true)`
         },
         ["基质硬化"] = (s, cell, rng, target, targetCell) =>
         {
@@ -219,6 +246,7 @@ internal static class CardRules
             if (target is { } pos && HardenTargets(s, cell).Contains(pos))
             {
                 var add = CancerPhase(s.Turn.WorldRound) switch { 0 => 10, 1 => 15, _ => 20 };
+                Stage.Log(s, $"　{Stage.P(pos)} 固化计数 +{Stage.Fmt(add)}（现 {Stage.Fmt(s.Board.Tissues[pos].SolidificationCount + add)}）");   // GD cw_card_fx.gd:577：报在 raise_solid 之前
                 // 走 `BoardRules.RaiseSolid` 而不是自己改字段 —— GD 侧 `_stroma_harden` 也是调 `raise_solid`。
                 // 直接改字段会绕过三道判据：TNF-α 冻结、血管不可固化、**加够门槛当场转固化**。
                 // 2026-09-15 之前这里靠 E 阶段那个大循环每回合重判所有癌组织兜着，
@@ -235,13 +263,14 @@ internal static class CardRules
             if (targetCell is not { } tid || !CrossPresentTargets(s, cell).Contains(tid)) return s;
             s = ApplyMark(s, tid, cell);
             Stage.Emit(Stage.Fx(s, "card_mark", ("from", cell.Position), ("to", s.Cells[tid].Position)));   // GD cw_card_fx.gd:309：头顶到头顶的粉流 + 菱形头标
+            Stage.Log(s, $"　{Stage.CellName(s, s.Cells[tid])} 获得【标记】");   // GD cw_card_fx.gd:297
             return s;
         },
         ["抗体依赖细胞毒作用"] = (s, cell, rng, target, targetCell) =>
         {
             if (targetCell is not { } tid || !AdccTargets(s, cell).Contains(tid)) return s;
             Stage.Emit(Stage.Fx(s, "antibody", ("from", cell.Position), ("targets", new[] { s.Cells[tid].Position })));   // GD cw_card_fx.gd:300：复用 B 细胞那发 Y 形抗体
-            return Damage(s, tid, cell.Type == CellType.BCell ? 15 : 10, LossSource.ImmuneEffect);
+            return Damage(s, tid, cell.Type == CellType.BCell ? 15 : 10, LossSource.ImmuneEffect, "技能");   // GD `immune_hit(…, attack=false)` 的 ability 是「技能」
         },
         // 【IFN-γ高峰】：技能卡，圆心 = 所选免疫细胞（可以是自己、不限距离），选项层用 IfnHasEffect 把「打了什么都不发生」的目标挡掉
         ["IFN-γ高峰"] = (s, cell, rng, target, targetCell) =>
@@ -255,6 +284,7 @@ internal static class CardRules
             if (targetCell is not { } tid || !ReinforceAllies(s, cell).Contains(tid)) return s;
             var cands = EmptyHealthyWithin(s, s.Cells[tid].Position, 2);
             var dest = cands[rng.NextInt(cands.Count)];
+            Stage.Log(s, $"　{Stage.CellName(s, cell)} 传送至 {Stage.P(dest)}（{Stage.CellName(s, s.Cells[tid])} 附近）");   // GD cw_card_fx.gd:554
             Stage.Emit(Stage.Fx(s, "card_teleport", ("from", cell.Position), ("to", dest)));   // GD cw_card_fx.gd:568：原格散开、落点回拢
             return CellRules.EnterTile(s, cell.Id, dest, rng);
         },
@@ -263,14 +293,18 @@ internal static class CardRules
         {
             if (targetCell is not { } tid || !RecruitTargets(s, cell).Contains(tid)) return s;
             var dests = CancerousLandings(s, cell.Position, TumorTeleportRings(s));
-            return CellRules.EnterTile(s, tid, dests[rng.NextInt(dests.Count)], rng);
+            var dest = dests[rng.NextInt(dests.Count)];
+            Stage.Log(s, $"　{Stage.CellName(s, s.Cells[tid])} 被募集至 {Stage.P(dest)}");   // GD cw_card_fx.gd:586
+            return CellRules.EnterTile(s, tid, dest, rng);
         },
         // 【肿瘤增援】：把**自己**送过去 —— 落点以**目标**为心（GD `_tumor_reinforce`），选项层逐目标判有没有落点
         ["肿瘤增援"] = (s, cell, rng, target, targetCell) =>
         {
             if (targetCell is not { } tid || !TumorReinforceTargets(s, cell).Contains(tid)) return s;
             var dests = CancerousLandings(s, s.Cells[tid].Position, TumorTeleportRings(s));
-            return CellRules.EnterTile(s, cell.Id, dests[rng.NextInt(dests.Count)], rng);
+            var dest = dests[rng.NextInt(dests.Count)];
+            Stage.Log(s, $"　{Stage.CellName(s, cell)} 增援至 {Stage.P(dest)}（{Stage.CellName(s, s.Cells[tid])} 附近）");   // GD cw_card_fx.gd:604
+            return CellRules.EnterTile(s, cell.Id, dest, rng);
         },
         // 【代谢耦联】（Kevin 2026-09-16 拍板跟 GD 的形状 + 一个「取消」）：打出时已选队友（TargetCell），
         // 随后两问 —— 方向（送给 / 索取，各自只在那一侧付得起最低档时才出现）、档位（1.0→1.2 / 1.5→2.0 / 2.0→2.5）——
@@ -280,7 +314,11 @@ internal static class CardRules
         ["代谢耦联"] = (s, cell, rng, target, targetCell) =>
         {
             if (targetCell is not { } ally || !CoupleAllies(s, cell).Contains(ally)) return s;
-            if (CoupleDirections(s, cell.Id, ally).Count == 0) return s;   // 落空
+            if (CoupleDirections(s, cell.Id, ally).Count == 0)   // 落空（卡照常弃置）
+            {
+                Stage.Log(s, "　【代谢耦联】双方都付不出最低一档，落空");   // GD cw_card_fx.gd:873
+                return s;
+            }
             return s.WithTurn(s.Turn.WithPendingCouple(cell.Id, ally, null));
         },
         // 【基质重塑】= GD `_remodel`（cw_card_fx.gd:934-969，**三问零随机**）：先拆选定的第 1 格（crack_to_cancer），再挂起追问 ——
@@ -292,6 +330,7 @@ internal static class CardRules
         {
             if (target is not { } first || !RemodelTargets(s, cell).Contains(first)) return s;   // 防御：Validate 已按 TileTargeted 拦下非法 / 缺失目标
             s = CrackToCancer(s, first);
+            Stage.Log(s, $"　【基质重塑】{Stage.P(first)} 由固化癌组织转为癌组织（计数清零）");   // GD cw_card_fx.gd:925
             return s.WithTurn(s.Turn.WithPendingRemodel(cell.Id, first, null, 0));
         },
         // 【癌症转移】（PRD:1465）：「选择两环内任意格子传送，正常触发【定殖】」。
@@ -301,9 +340,11 @@ internal static class CardRules
         // 新生癌组织，与 GDScript 侧 enter_tile 同口径。
         // 合法落点的枚举在 DecisionRouter（这张卡是 68 张里唯一需要选格的卡牌）。
         ["癌症转移"] = (s, cell, rng, target, targetCell) =>
-            target is { } dest && MetastasisTargets(s, cell).Contains(dest)
-                ? CellRules.EnterTile(s, cell.Id, dest, rng)   // GD 1709 行 `enter_tile`：定殖 + 特殊组织收取 + 标记刷新
-                : s,
+        {
+            if (target is not { } dest || !MetastasisTargets(s, cell).Contains(dest)) return s;
+            Stage.Log(s, $"　{Stage.CellName(s, cell)} 转移至 {Stage.P(dest)}");   // GD cw_card_fx.gd:524
+            return CellRules.EnterTile(s, cell.Id, dest, rng);   // GD 1709 行 `enter_tile`：定殖 + 特殊组织收取 + 标记刷新
+        },
         // 【放疗】：起点由玩家在全盘癌性组织里选（GD 一格一条）；区域按 GD 的多重集 frontier 一轮一发地长（RadioRegion）；
         // 翻格段零随机，普通癌组织与健康组织走 to_necrotic（含清库存）。
         // **固化癌组织整格跳过：不转健康、也不坏死**（Kevin 2026-09-19 对 issue #54 的追加拍板
@@ -323,6 +364,7 @@ internal static class CardRules
                 s = Necrotize(s, pos, NecrosisRadio);
                 burned++;
             }
+            Stage.Log(s, $"　【放疗】以 {Stage.P(start)} 为起点的 {region.Count} 格区域：{cleared} 格癌组织转为健康，{burned} 格进入「坏死」（{NecrosisRadio} 轮；固化癌组织原样留着）");   // GD cw_card_fx.gd:1014
             Stage.Announce(s, $"放疗：{cleared} 格转健康 · {burned} 格坏死", start, true);   // GD cw_card_fx.gd:1020
             return s;
         },
@@ -338,6 +380,7 @@ internal static class CardRules
                 var dir = Stage.DirToward(pick, cell.Position);   // GD cw_card_fx.gd:548：癌从发动者那一侧漫入（相邻，恒 >= 0）
                 if (dir >= 0) Stage.Emit(new TissueConverted(s.Turn.WorldRound, s.Turn.Phase, pick, dir, "克隆增殖"));
             }
+            Stage.Log(s, $"　【克隆增殖】{picked.Length} 格健康组织转为癌组织");   // GD cw_card_fx.gd:536
             Stage.Evt(s, "克隆增殖", $"{picked.Length} 格转癌组织", cell.Position);   // GD cw_card_fx.gd:550
             return s;
         },
@@ -378,19 +421,25 @@ internal static class CardRules
             // 掷 **d3（1..3）**，逐位对齐 GD 的 `roll_shown(3, "突变", …)` = `randi_range(1, 3)`。
             // 原来写的是 `NextInt(3)`（0..2）—— 结果映射一样、**抽取区间差一**，对拍带子会分叉。
             Stage.Evt(s, "基因组不稳定", "免费【突变】", cell.Position);   // GD cw_card_fx.gd:104：报了才掷
+            Stage.Log(s, "　【基因组不稳定】免费发动 1 次【突变】（不计入次数限制）");   // GD cw_card_fx.gd:759
             var a = rng.NextIntRange(1, 4);
             Stage.Emit(new DiceRolled(s.Turn.WorldRound, s.Turn.Phase, "突变", a, 3, cell.OwnerSeat, cell.Position));   // GD cw_card_fx.gd:773
             var b = rng.NextIntRange(1, 4);
             Stage.Emit(new DiceRolled(s.Turn.WorldRound, s.Turn.Phase, "突变", b, 3, cell.OwnerSeat, cell.Position));   // GD cw_card_fx.gd:774
             // GD `_genome_instability`（cw_card_fx.gd:771-788）：两次判定**相同就不问**、直接结算（批扫 60 条轨迹撞了 9 条，2026-09-18）
-            if (a == b) return ApplyMutationOutcome(s, cell.Id, a, rng, charge: false);
+            if (a == b)
+            {
+                Stage.Log(s, $"　两次判定相同（{a}），无需选择");   // GD cw_card_fx.gd:774
+                return ApplyMutationOutcome(s, cell.Id, a, rng, charge: false);
+            }
             return s.WithTurn(s.Turn.WithPendingMutation(cell.OwnerSeat, cell.Id, a, b));
         },
         ["I型干扰素"] = (s, cell, rng, target, targetCell) =>
         {
-            Stage.Evt(s, "I型干扰素", "全体免疫下次损失 -1.0", cell.Position);   // GD cw_card_fx.gd:111
             foreach (var c in Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Immune).ToArray())
                 s = AddModifier(s, s.Cells[c.Id], new("I型干扰素", ModifierTarget.EnergyLoss, ModifierStage.Subtract, SourceLayer.Card, 0, 10, 0, 1, ModifierDuration.Round));   // I型干扰素：挡下 1.0（原 1 = 0.1）
+            Stage.Log(s, "　【I型干扰素】所有免疫细胞下一次能量损失 -1.0（本世界回合内）");   // GD cw_card_fx.gd:110
+            Stage.Evt(s, "I型干扰素", "全体免疫下次损失 -1.0", cell.Position);   // GD cw_card_fx.gd:111
             return s;
         },
         ["TNF-α局部炎症"] = (s, cell, rng, target, targetCell) =>
@@ -407,10 +456,11 @@ internal static class CardRules
                 frozen[WorldEffects.TileKey(p)] = 1;
             }
             Stage.Emit(Stage.Fx(s, "card_inflammation", ("at", cell.Position), ("tiles", area)));   // GD cw_card_fx.gd:1052：暖橙碎粒逐格扬起
-            foreach (var p in area)
-                if (s.GetCellAt(p) is { IsAlive: true, Faction: Faction.Cancer } victim)
-                    s = Damage(s, victim.Id, 10, LossSource.ImmuneEffect);   // TNF-α局部炎症：1.0 能量（原 1 = 0.1）
-            return s.InstallEffect("TNF-α局部炎症", 1, 1, frozen);
+            var victims = area.Select(p => s.GetCellAt(p)).OfType<Cell>().Where(v => v.IsAlive && v.Faction == Faction.Cancer).Select(v => v.Id).ToArray();
+            s = DamageArea(s, victims, 10, LossSource.ImmuneEffect, "TNF-α局部炎症");   // TNF-α局部炎症：1.0 能量（原 1 = 0.1），同一批（GD `immune_hit_area`）
+            s = s.InstallEffect("TNF-α局部炎症", 1, 1, frozen);
+            Stage.Log(s, $"　【TNF-α局部炎症】{victims.Length} 个癌细胞 -1.0；{frozen.Count} 格癌组织固化 -1.0 且本回合冻结");   // GD cw_card_fx.gd:1055
+            return s;
         }
     };
 
@@ -464,9 +514,10 @@ internal static class CardRules
                 .Where(n => s.Board.Tissues.TryGetValue(n, out var x) && x.State == TissueState.Cancer && x.OccupyingCell == null)
                 .ToArray();
             foreach (var pick in tiles) s = ToHealthy(s, pick);   // GD `to_healthy`
-            var victims = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(t.Position) <= 1).ToArray();
-            foreach (var c in victims)
-                s = Damage(s, c.Id, 5, LossSource.ImmuneEffect);
+            // 受击方按 GD `neighbors(target)` 的 DIRS 序收（它决定同一批里日志行的先后），一批结算
+            var victims = GdNeighbors(s, t.Position).Select(n => s.GetCellAt(n)).OfType<Cell>().Where(c => c.IsAlive && c.Faction == Faction.Cancer).ToArray();
+            s = DamageArea(s, victims.Select(c => c.Id), 5, LossSource.ImmuneEffect, "炎症风暴");
+            Stage.Log(s, $"　【炎症风暴】以 {Stage.CellName(s, t)} 为中心：{tiles.Length} 格转健康，{victims.Length} 个癌细胞 -0.5");   // GD cw_card_fx.gd:685
             Stage.Evt(s, "炎症风暴", $"{tiles.Length} 格转健康 · {victims.Length} 敌 -0.5", t.Position);   // GD cw_card_fx.gd:700
             return s;
         }
@@ -474,11 +525,11 @@ internal static class CardRules
         {
             var victims = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(t.Position) <= 2).ToArray();
             Stage.Emit(Stage.Fx(s, "card_storm", ("at", t.Position), ("tiles", Tiles(s).Where(x => x.Position.DistanceTo(t.Position) <= 2).Select(x => x.Position).ToArray())));   // GD cw_card_fx.gd:711
-            foreach (var c in victims)
-                s = Damage(s, c.Id, 10, LossSource.ImmuneEffect);   // 免疫风暴：1.0 能量（原 1 = 0.1）
+            s = DamageArea(s, victims.OrderBy(c => c.Id.Value).Select(c => c.Id), 10, LossSource.ImmuneEffect, "免疫风暴");   // 免疫风暴：1.0 能量，一批结算（GD `immune_hit_area`，受击方按 living_cells 序）
             // 净化在伤害**之后**算（GD 同序）：被打死的癌细胞腾出的格子这一发就转得掉
             var purged = Tiles(s).Where(x => x.State == TissueState.Cancer && s.GetCellAt(x.Position) is not { IsAlive: true, Faction: Faction.Cancer } && x.Position.DistanceTo(t.Position) <= 2).ToArray();   // GD storm_immune_tiles：无**癌细胞**占据（免疫站着的照转）
             foreach (var tile in purged) s = ToHealthy(s, tile.Position);   // GD `to_healthy`
+            Stage.Log(s, $"　【免疫风暴】以 {Stage.CellName(s, t)} 为中心 2 格：{victims.Length} 个癌细胞 -1.0，{purged.Length} 格转健康");   // GD cw_card_fx.gd:705
             Stage.Evt(s, "免疫风暴", $"{victims.Length} 敌 -1.0 · {purged.Length} 格转健康", t.Position);   // GD cw_card_fx.gd:720
             return s;
         }
@@ -557,12 +608,22 @@ internal static class CardRules
         var def = PickWeighted(s, EligibleCards(s, cell), rng);
         if (def == null)
         {
+            Stage.Log(s, $"　{Stage.CellName(s, cell)} 的卡池已无合法卡牌，抽卡落空");   // GD cw_cards.gd:24
             Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "抽卡落空", cell.Position, true));   // GD cw_cards.gd:25
             return s;
         }
         // 头顶的抽卡演出：每一次抽到都发、不带牌名（GD cw_cards.gd:30）；事件卡也算，只是接着就当场结算掉了
         Stage.Emit(new CardDrawn(s.Turn.WorldRound, s.Turn.Phase, cell.OwnerSeat, cell.Id, cell.Position, source));
-        if (def.Category != CardCategory.Event) return AddToHand(s, cell, def.Name);
+        if (def.Category != CardCategory.Event)
+        {
+            s = AddToHand(s, cell, def.Name);
+            // GD cw_cards.gd:57 —— 全仓唯一的秘密行：牌名只有本人能看，别的席位看公开替身「抽到 1 张卡」（手牌张数是公开的）
+            var count = s.Cells[cell.Id].Hand.Count;
+            Stage.Log(s, $"　{Stage.CellName(s, cell)} 经由「{source}」抽到【{(def.Category == CardCategory.Permanent ? "永久" : "即时")}】{def.Name}（手牌 {count}）",
+                cell.OwnerSeat, $"　{Stage.CellName(s, cell)} 经由「{source}」抽到 1 张卡（手牌 {count}）");
+            return s;
+        }
+        Stage.Log(s, $"　{Stage.CellName(s, cell)} 经由「{source}」抽到【事件】{def.Name}（立即结算并弃置）");   // GD cw_cards.gd:39：报在 event_drawn 之前
         Stage.Emit(new EventCardDrawn(s.Turn.WorldRound, s.Turn.Phase, cell.OwnerSeat, cell.Id, cell.Position, cell.Faction, def.Name));   // GD cw_cards.gd:48：结算之前发
         // 抽到的事件卡立即结算，GD `draw()` 同样用 card_resolve_depth 包住（里头可能再抽一张，会套娃）
         s = s.WithTurn(s.Turn.WithCardResolveDepth(s.Turn.CardResolveDepth + 1));
@@ -593,6 +654,10 @@ internal static class CardRules
         hand.Remove(d.Card);
         cell = cell.Copy(hand: hand);
         s = s.UpdateCell(cell.Id, cell);
+        // GD 两句：手牌超限挂着时是 `discard_to_limit` 的强制弃置（cw_cards.gd:83），否则是行动栏的自愿弃置（cw_actions.gd:1100）
+        Stage.Log(s, s.Turn.PendingDiscardSeat is not null
+            ? $"　{Stage.CellName(s, cell)} 手牌超限，弃置【{d.Card}】（手牌 {hand.Count}）"
+            : $"{Stage.CellName(s, cell)} 弃置【{d.Card}】（手牌余 {hand.Count}）");
         // 摘挂起看的是**挂起的那只**降到上限没有（Validate 已把别只细胞的弃置拦在外面）
         if (hand.Count <= cell.HandMax && (s.Turn.PendingDiscardCell is not { } pendingCell || pendingCell == cell.Id))
             s = s.WithTurn(s.Turn.WithPendingDiscard(null));
@@ -633,6 +698,13 @@ internal static class CardRules
         }
         var at = s.Cells[cellId].Position;
         Stage.Emit(Stage.Fx(s, "mutate", ("at", at)));   // GD apply_mutation（cw_actions.gd:1380）
+        // GD cw_actions.gd:1353-1365：先记一行、再通报；第 3 面那行要的是扣完之后的余量
+        Stage.Log(s, roll switch
+        {
+            1 => "【突变】无事发生",
+            2 => "【突变】抽卡，并削减 1 抗原记忆",
+            _ => $"【突变】再扣 0.8 能量（余 {Stage.Fmt(Math.Max(s.Cells[cellId].Energy - 8, 0))}），削减 2 抗原记忆",
+        });
         Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, roll switch { 1 => "突变：无事发生", 2 => "突变：抽一张 · 记忆 -1", _ => "突变：能量 -0.8 · 记忆 -2" }, at));   // GD cw_actions.gd:1384/1387/1396
         if (roll == 2)
         {
@@ -693,6 +765,7 @@ internal static class CardRules
     public static RulesResult PlayCard(WorldState s, PlayCardDecision d, IDeterministicRng rng)
     {
         var cell = s.Cells[d.CellId];
+        Stage.Log(s, $"{Stage.CellName(s, cell)} 打出【{d.Card}】");   // GD cw_card_fx.gd:256：日志用细胞名，报在弹窗之前
         // GD cw_card_fx.gd:270 broadcast_card_played：给别人的弹窗 / 出牌列 —— 文案用席位名（「癌症A 打出【糖酵解爆发】」）
         Stage.Emit(new CardPlayed(s.Turn.WorldRound, s.Turn.Phase, cell.OwnerSeat, $"{Stage.SeatName(s, cell.OwnerSeat)} 打出【{d.Card}】", cell.Id, cell.Position, cell.Faction, d.Card));
         var definition = CardCatalog.ByCardName(d.Card).First(x => x.Category != CardCategory.Event);
@@ -716,6 +789,7 @@ internal static class CardRules
                 playCounter: stamp,
                 equipSeq: owner.EquipSeq.Append(new KeyValuePair<string, int>(d.Card, stamp))
                     .ToDictionary(kv => kv.Key, kv => kv.Value)));
+            Stage.Log(s, $"　【{d.Card}】装备至角色面板（技 {equipped.Count}）");   // GD cw_card_fx.gd:267
             // GD 在这条分支里就 `return`（cw_card_fx.gd:280）：永久卡不进结算、不碰 card_resolve_depth、不走细胞因子链
             return new(s, Array.Empty<IGameEvent>(), true);
         }
@@ -762,6 +836,7 @@ internal static class CardRules
             if (!CellRules.HasModifier(s.Cells[other.Id], CytokinePrimed)) continue;
             s = CellRules.SpendModifiers(s, other.Id, CytokinePrimed);
             s = s.UpdateCell(cellId, s.Cells[cellId].WithEnergy(s.Cells[cellId].Energy + SkillHeal));
+            Stage.Log(s, $"　【细胞因子网络】{Stage.CellName(s, other)} 的网络生效：{Stage.CellName(s, s.Cells[cellId])} 恢复 0.5 能量（现 {Stage.Fmt(s.Cells[cellId].Energy)}）");   // GD cw_card_fx.gd:1069
         }
         var caller = s.Cells[cellId];
         if (RulePolicies.HasSkill(s, caller, "细胞因子网络") && !CellRules.HasModifier(caller, CytokinePrimed))
@@ -800,9 +875,14 @@ internal static class CardRules
     public static WorldState CoupleTransfer(WorldState s, EntityId payer, EntityId getter, int pay, int get)
     {
         s = s.WithTurn(s.Turn.WithPendingCouple(null, null, null));
-        if (!Settlement.CanPay(s.Cells[payer].Energy, pay)) return s;
+        if (!Settlement.CanPay(s.Cells[payer].Energy, pay))
+        {
+            Stage.Log(s, $"　【代谢耦联】{Stage.CellName(s, s.Cells[payer])} 付不出 {Stage.Fmt(pay)}，落空");   // GD cw_card_fx.gd:901
+            return s;
+        }
         s = s.UpdateCell(payer, s.Cells[payer].WithEnergy(s.Cells[payer].Energy - pay));
         s = s.UpdateCell(getter, s.Cells[getter].WithEnergy(s.Cells[getter].Energy + get));
+        Stage.Log(s, $"　【代谢耦联】{Stage.CellName(s, s.Cells[payer])} 转出 {Stage.Fmt(pay)}，{Stage.CellName(s, s.Cells[getter])} 获得 {Stage.Fmt(get)}（现 {Stage.Fmt(s.Cells[getter].Energy)}）");   // GD cw_card_fx.gd:904：报在过场之前
         Stage.Emit(Stage.Fx(s, "card_transfer", ("from", s.Cells[payer].Position), ("to", s.Cells[getter].Position)));   // GD cw_card_fx.gd:920：青流 ×3，收方回拢
         return s;
     }
@@ -911,7 +991,11 @@ internal static class CardRules
     {
         var t = s.Turn;
         if (t.PendingRemodelStep == 0)
+        {
+            Stage.Log(s, $"　【基质重塑】{Stage.P(target)} 由固化癌组织转为癌组织（计数清零）");   // GD cw_card_fx.gd:940
             return CrackToCancer(s, target).WithTurn(t.WithPendingRemodel(t.PendingRemodelCell, t.PendingRemodelFirst, target, 1));
+        }
+        Stage.Log(s, $"　【基质重塑】{Stage.P(target)} 转为健康组织");   // GD cw_card_fx.gd:957
         return ToHealthy(s, target).WithTurn(t.WithPendingRemodel(t.PendingRemodelCell, t.PendingRemodelFirst, t.PendingRemodelSecond, t.PendingRemodelStep + 1));
     }
 
@@ -997,12 +1081,20 @@ internal static class CardRules
     /// <param name="title">通报抬头（GD `_ifn_burst`："事件【IFN-γ释放】" / "【IFN-γ高峰】"），效果说明两处共用。</param>
     private static WorldState IfnBurst(WorldState s, HexPosition center, string title)
     {
-        var victims = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(center) <= 2).ToArray();
-        foreach (var c in victims)
-            s = Damage(s, c.Id, 10, LossSource.ImmuneEffect);   // 1.0 能量（十分位）
+        var victims = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(center) <= 2).OrderBy(c => c.Id.Value).ToArray();
+        s = DamageArea(s, victims.Select(c => c.Id), 10, LossSource.ImmuneEffect, "IFN-γ");   // 1.0 能量（十分位），同一批（GD `immune_hit_area(victims, 10, source, "IFN-γ")`）
         foreach (var t in Tiles(s).Where(t => t.State == TissueState.Cancer && t.Position.DistanceTo(center) <= 2).ToArray())
             s = s.UpdateTissueSolidification(t.Position, Math.Max(0, t.SolidificationCount - 10));   // 固化计数 -1.0
+        Stage.Log(s, $"　【IFN-γ】{Stage.P(center)} 周围 2 格：癌细胞 -1.0 能量，固化计数 -1.0");   // GD cw_card_fx.gd:466
         Stage.Announce(s, $"{title}{victims.Length} 个癌细胞 -1.0 · 固化 -1.0", center, true);   // GD cw_card_fx.gd:481
+        return s;
+    }
+
+    /// <summary>GD `CWCardFx._gain(cell, n, tag)`：卡牌给自己加能量，并记一行「　X {tag}+n 能量（现 m）」（tag 可空：事件【急性炎症反应】）。</summary>
+    private static WorldState Gain(WorldState s, EntityId id, int amount, string tag = "")
+    {
+        s = s.UpdateCell(id, s.Cells[id].WithEnergy(s.Cells[id].Energy + amount));
+        Stage.Log(s, $"　{Stage.CellName(s, s.Cells[id])} {tag}+{Stage.Fmt(amount)} 能量（现 {Stage.Fmt(s.Cells[id].Energy)}）");   // GD cw_card_fx.gd:1104
         return s;
     }
 
