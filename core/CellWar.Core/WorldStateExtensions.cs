@@ -155,6 +155,7 @@ public static class WorldStateExtensions
         int? pendingPickCellSeat = null, string? pendingPickCellCard = null, EntityId? pendingPickCellChooser = null,
         EntityId? pendingLandCell = null, HexPosition? pendingLandAt = null, int? pendingLandWalkDepth = null, int? pendingLandStep = null,
         RevivalNotice? pendingRevival = null, bool setPendingRevival = false, int? productionFrom = null, bool setProductionFrom = false,
+        bool? pendingLandRas = null, int? pendingMemoryCut = null, int? pendingMemoryCutWalkDepth = null, int? actionsThisTurn = null,
         bool setPendingDiscard = false, bool setPendingMutation = false, bool setChemoAt = false, bool setChemoCreator = false,
         bool setTrackCell = false, bool setTrackFrozenAt = false, bool setPendingChain = false, bool setPendingChemotaxis = false,
         bool setPendingCard = false, bool setPendingCouple = false, bool setPendingWalkCard = false, bool setPendingRemodel = false,
@@ -197,7 +198,10 @@ public static class WorldStateExtensions
             PendingLandAt = setPendingLand ? pendingLandAt : pendingLandAt ?? t.PendingLandAt,
             PendingLandWalkDepth = pendingLandWalkDepth ?? t.PendingLandWalkDepth, PendingLandStep = pendingLandStep ?? t.PendingLandStep,
             PendingRevival = setPendingRevival ? pendingRevival : pendingRevival ?? t.PendingRevival,
-            ProductionFrom = setProductionFrom ? productionFrom : productionFrom ?? t.ProductionFrom };
+            ProductionFrom = setProductionFrom ? productionFrom : productionFrom ?? t.ProductionFrom,
+            PendingLandRas = pendingLandRas ?? t.PendingLandRas,
+            PendingMemoryCut = pendingMemoryCut ?? t.PendingMemoryCut, PendingMemoryCutWalkDepth = pendingMemoryCutWalkDepth ?? t.PendingMemoryCutWalkDepth,
+            ActionsThisTurn = actionsThisTurn ?? t.ActionsThisTurn };
 
     /// <summary>挂起 / 结束【连续吞噬】的连锁选择。</summary>
     public static TurnState WithPendingChain(this TurnState t, EntityId? cell, int walkDepth = 0)
@@ -214,9 +218,10 @@ public static class WorldStateExtensions
     public static TurnState WithPendingCouple(this TurnState t, EntityId? cell, EntityId? ally, EntityId? payer)
         => t.Copy(pendingCoupleCell: cell, pendingCoupleAlly: ally, pendingCouplePayer: payer, setPendingCouple: true);
 
-    /// <summary>推迟 / 补做 `enter_tile` 的后半截（三个字段一起写；摘掉 = cell 传 null、depth 传 0）。</summary>
+    /// <summary>推迟 / 补做 `enter_tile` 的后半截（几个字段一起写；摘掉 = cell 传 null、depth 传 0）。
+    /// 欠不欠【RAS持续激活】（<see cref="TurnState.PendingLandRas"/>）一律清掉 —— 只有迁移那一处会在推迟之后补记它。</summary>
     public static TurnState WithPendingLand(this TurnState t, EntityId? cell, HexPosition? at, int walkDepth, int step = 0)
-        => t.Copy(pendingLandCell: cell, pendingLandAt: at, pendingLandWalkDepth: walkDepth, pendingLandStep: step, setPendingLand: true);
+        => t.Copy(pendingLandCell: cell, pendingLandAt: at, pendingLandWalkDepth: walkDepth, pendingLandStep: step, pendingLandRas: false, setPendingLand: true);
 
     /// <summary>挂上 / 推进 / 摘掉【基质重塑】的追问（四个字段一起写；摘掉 = cell 传 null、step 传 0）。</summary>
     public static TurnState WithPendingRemodel(this TurnState t, EntityId? cell, HexPosition? first, HexPosition? second, int step)

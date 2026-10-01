@@ -102,7 +102,7 @@ internal static class SkillRules
             }
         // 受击方按扫过的格序收（GD `for c in cells_at: hit.append_array(cells_at(c, CANCER))`），同一批结算（GD `cancer_hit_area(hit, dmg, "Excalibur", true)`）
         var hit = tiles.Select(p => s.GetCellAt(p)).OfType<Cell>().Where(x => x.IsAlive && x.Faction == Faction.Cancer).Select(x => x.Id).ToArray();
-        return hit.Length == 0 ? s : DamageArea(s, hit, damage, LossSource.CancerSkill, "Excalibur");   // 主射线 2.0 / 侧向 1.0（原 2 / 1 = 0.2 / 0.1）
+        return hit.Length == 0 ? s : UpdateMarks(DamageArea(s, hit, damage, LossSource.CancerSkill, "Excalibur"));   // 主射线 2.0 / 侧向 1.0（原 2 / 1 = 0.2 / 0.1）
     }
 
     /// <summary>T【Excalibur】主射线相邻的癌组织进入波及范围的概率（GD `EXCALIBUR_SPLASH_PCT`）。</summary>
@@ -201,6 +201,8 @@ internal static class SkillRules
                     Stage.Emit(Stage.Fx(s, "antibody", ("from", cell.Position), ("targets", targets.Select(x => x.Position).ToArray())));
                     // 多目标同一批（GD `immune_hit_area(targets, dmg, cell, "抗体")`，受击方按 living_cells 序）
                     s = DamageArea(s, targets.OrderBy(x => x.Id.Value).Select(x => x.Id), damage, LossSource.ImmuneEffect, "抗体");
+                    // 批末刷标记（cw_damage.gd:141）：被这一发吃掉标记的、还在树突光环里的当场补回 —— 第二发抗体照样 ×2（AI 对拍语料 2026-10-01 揪出）
+                    s = UpdateMarks(s);
                 }
                 else
                 {
@@ -247,6 +249,7 @@ internal static class SkillRules
                 var toxinVictims = Tiles(s).Where(t => t.Position.DistanceTo(cell.Position) <= 1).Select(t => s.GetCellAt(t.Position)).OfType<Cell>()
                     .Where(x => x.IsAlive && x.Faction == Faction.Cancer).Select(x => x.Id).ToArray();
                 s = DamageArea(s, toxinVictims, 10, LossSource.ImmuneEffect, "细胞毒素");   // 细胞毒素：1.0 能量（原 1 = 0.1）
+                if (toxinVictims.Length > 0) s = UpdateMarks(s);   // GD 每一批伤害结算完刷一次标记（cw_damage.gd:141）；空批 GD `submit` 直接返回、不刷
                 break;
             }
             case "裂解":
@@ -283,6 +286,7 @@ internal static class SkillRules
                 // 受击方按区域的格序（GD `area.sort()`：q 再 r）收，同一批（GD `cancer_hit_area(victims, 2.0, "黏液破裂", true)`）
                 var mucusVictims = ring.Select(t => s.GetCellAt(t.Position)).OfType<Cell>().Where(x => x.IsAlive && x.Faction == Faction.Immune).Select(x => x.Id).ToArray();
                 s = DamageArea(s, mucusVictims, 20, LossSource.CancerSkill, "黏液破裂");
+                if (mucusVictims.Length > 0) s = UpdateMarks(s);   // 批末刷标记，排在自毁之前（GD 那一刷时印戒还活着）；空批不刷
                 s = Kill(s, cell.Id);
                 s = UpdateMarks(s);
                 break;

@@ -42,6 +42,9 @@ var use_threading := false
 
 
 func ask(req: Dictionary) -> int:
+	## 对拍模式（换内核 P3）：同基类，先换成规范序再答（见 agree_rng.gd）。默认关。
+	if AGREE.on and not req.has("_canon"):
+		return await AGREE.ask_canonical(self, req)
 	## 【计划缓存快路径】2026-09-20 人机实测修复"无意义走动"：
 	## v2 每问重搜且假设"本回合剩余由启发式打完"，但真实执行者是下一轮搜索，
 	## 等值格之间互相追逐 → 来回抖。现在执行 = 叶评估时的模拟序列。
@@ -122,6 +125,10 @@ static func cw_mech_work(snap: Dictionary, cfg: Dictionary) -> Dictionary:
 		"lifecare": bool(cfg.get("lifecare", false)),
 		"sim_no_lifecare": bool(cfg.get("sim_no_lifecare", false)),
 	})
+	if AGREE.on:
+		## 对拍模式：试走用独立随机流（Kevin 10-01：不许偷看真局接下来的骰子），从这一问的推演种子起步。
+		## 线上（关着）image 的 rng 是快照里真局的状态 —— 那正是要去掉的「偷看未来」，等 C# 版切换后随 GD AI 退役。
+		image.rng = AGREE.new_rng(AGREE.decision_seed)
 	var pid: int = int(cfg["pid"])
 	var fac: int = int(cfg["my_faction"])
 	var intent := MechIntent.new()

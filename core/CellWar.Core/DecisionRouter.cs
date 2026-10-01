@@ -97,6 +97,9 @@ internal static class DecisionRouter
     {
         var result = Dispatch(state, decision, rng);
         if (!result.Success) return result;
+        // GD `step()`：行动栏里的一问（「结束回合」除外）执行完 `flow["acts"] += 1`。追问的作答（强制弃置、连走、二选一……）不算行动
+        var countsAsAction = state.Turn.Phase == Phase.PlayerAction && decision is MoveDecision or DrawDecision or MutateDecision
+            or PlayCardDecision or TypeSkillDecision or DifferentiateDecision || (decision is DiscardDecision && state.Turn.PendingDiscardSeat is null && state.Turn.Phase == Phase.PlayerAction);
         // 【炎症性趋化】的三条退出（细胞死了 / 没有可走的下一步 / 步数走满）在 GD 里是
         // 下一轮循环开头判的，且一定排在连锁之后。这里统一收口，Available 才不会
         // 停在「只剩一个『停在这里』」上 —— GD 没有那个决策点。
@@ -105,6 +108,10 @@ internal static class DecisionRouter
         for (var guard = 0; guard < 8; guard++)
         {
             var before = s;
+            // 【突变】第 2 点欠下的记忆 -1：那一抽追出的问答问完了（GD `await draw` 回来了）就扣。排在最前 —— 它是最里层的那段 await，
+            // 外层的骨髓循环 / 落地后半截 / 卡牌收尾都排在它后面（GD 的协程栈从里往外退）
+            if (s.Turn.PendingMemoryCut > 0 && !CellRules.DrawBlocked(s, s.Turn.PendingMemoryCutWalkDepth))
+                s = CellRules.ReduceMemory(s.WithTurn(s.Turn.Copy(pendingMemoryCut: 0, pendingMemoryCutWalkDepth: 0)), s.Turn.PendingMemoryCut);
             if (CellRules.MarrowReady(s)) s = CellRules.ResumeMarrow(s, rng);                // 【骨髓动员】的收取循环嵌在最里层：它追出的问答答完就先接着收
             if (s.Turn.PendingChemotaxisCell is not null) s = CellRules.NormalizeChemotaxis(s);
             s = CellRules.NormalizeChain(s);                                               // 走位弹掉露出的连锁若已无下一跳，当场摘掉
@@ -129,8 +136,17 @@ internal static class DecisionRouter
                 && s.Turn.PendingLandCell is null && s.Turn.PendingMarrow.Count == 0
                 && s.Turn.PendingPickCellSeat is null)   // 风暴卡的「选中心」挂着时也不许收尾（今天它必与 PendingLand / PendingChemotaxis 同在，写明免得成隐含依赖）
             s = CardRules.FinishInstant(s, owner, card);
+        if (countsAsAction) s = s.WithTurn(s.Turn.Copy(actionsThisTurn: s.Turn.ActionsThisTurn + 1));
+        // GD 行动次数护栏（cw_game.gd:325）：这一步连同它追出的问答都结算完、轮回这一席要下一问时，满 80 次就替它结束回合
+        if (s.Turn.Phase == Phase.PlayerAction && s.Turn.ActionsThisTurn >= PhaseRules.MaxActionsPerTurn && !Unsettled(s)
+                && PhaseRules.AliveSeat(s, s.Turn.ActivePlayerSeat))
+            s = PhaseRules.AdvancePhase(s, rng).NewState;
         return result with { NewState = s };
     }
+
+    /// <summary>这一步还有没问完的追问（GD 的 `step()` 还没返回）。</summary>
+    private static bool Unsettled(WorldState s)
+        => PhaseRules.StartPending(s) || s.Turn.PendingCoupleCell is not null || s.Turn.PendingRemodelCell is not null || s.Turn.PendingCard is not null;
 
     private static RulesResult Dispatch(WorldState state, IDecision decision, IDeterministicRng rng)
     {
@@ -260,11 +276,18 @@ internal static class DecisionRouter
         if (s.Turn.Phase != Phase.PlayerAction || seat != s.Turn.ActivePlayerSeat || !PhaseRules.AliveSeat(s, seat)) return Array.Empty<IDecision>();
         var result = new List<IDecision> { new PassDecision(seat), new EndTurnDecision(seat) };
         foreach (var c in Cells(s).Where(c => c.OwnerSeat == seat && c.IsAlive))
+        {
+            // 报得出价的只有相邻格与借道落点（QuoteMove 对其余格一律 null）：先把这两类圈出来，再按原来的 (Q, R) 次序逐格 Validate ——
+            // 输出逐条不变，省掉对其余一百多格各跑一遍借道 BFS（AI 推演每一问都要枚举选项，这一处原来占了一问的大半，2026-10-01）
+            var reachable = new HashSet<HexPosition>(c.Position.GetNeighbors());
+            reachable.UnionWith(PassThroughRoutes(s, c).Keys);
             foreach (var t in Tiles(s))
             {
+                if (!reachable.Contains(t.Position)) continue;
                 var move = new MoveDecision(seat, c.Id, t.Position);
                 if (Validate(s, move).IsValid) result.Add(move);
             }
+        }
         foreach (var c in Cells(s).Where(c => c.OwnerSeat == seat && c.IsAlive && !c.Differentiated))
             foreach (var type in PlacementRules.ImmuneTypes)
             {

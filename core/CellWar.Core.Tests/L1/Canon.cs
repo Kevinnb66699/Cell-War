@@ -95,6 +95,12 @@ public sealed record CanonGlobal(int RoundNo, int Phase, int CurrentPid, int Mem
     public string PendingLandAt { get; init; } = "";
     public int PendingLandWalkDepth { get; init; }
     public int PendingLandStep { get; init; }
+    /// <summary>推迟的落地还欠【RAS持续激活】、【突变】欠的记忆 -1（GD 视图里不存在 —— GD 是协程栈；C# 存档要带）。</summary>
+    public bool PendingLandRas { get; init; }
+    public int PendingMemoryCut { get; init; }
+    public int PendingMemoryCutWalkDepth { get; init; }
+    /// <summary>本行动回合已执行的行动数（GD `flow["acts"]`，不在 GD 视图里；C# 存档要带）。</summary>
+    public int ActionsThisTurn { get; init; }
     public int ImmuneReviveFrom { get; init; }
     public int EndStep { get; init; }
     public int PendingChainWalkDepth { get; init; }

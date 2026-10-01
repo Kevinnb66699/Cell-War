@@ -64,7 +64,7 @@ done < <(git diff --name-only --diff-filter=d "$BASE"..HEAD -- game/ \
 # 运行时 zip 不带（只随全量发版变），挂了补丁照样用基线包里那份。载荷编自**工作树**，与上面 game/ 的文件同一口径。
 SIDECAR=0
 if git show "$BASE:game/scripts/kernel/cw_sidecar_locator.gd" 2>/dev/null | grep -q 'payload.json'; then
-	if [ -n "$(git diff --name-only "$BASE"..HEAD -- core/CellWar.Core core/CellWar.Sidecar game/data/contract_tune.json)" ]; then
+	if [ -n "$(git diff --name-only "$BASE"..HEAD -- core/CellWar.Core core/CellWar.Ai core/CellWar.Sidecar game/data/contract_tune.json)" ]; then
 		SIDECAR=1
 	fi
 fi

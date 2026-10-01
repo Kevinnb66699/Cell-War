@@ -250,7 +250,7 @@ internal static class BoardRules
             // 压不到就**不进管线**（GD `_pressure` 的 `if loss <= 0: continue`）：一次 0 伤害的 Damage 也会把
             // 【细胞膜修复】那类一次性护盾白白吃掉（L1 第 131 步：席位 0 四周全是健康组织，GD 的盾还在、C# 的没了）
             if (loss <= 0) continue;
-            s = Damage(s, c.Id, loss, LossSource.World, "微环境压迫");
+            s = UpdateMarks(Damage(s, c.Id, loss, LossSource.World, "微环境压迫"));   // GD 每次 cancer_hit 是一批，批末 update_marks（cw_damage.gd:141）
         }
         return s;
     }

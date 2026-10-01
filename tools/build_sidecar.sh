@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 把 C# sidecar 打进桌面包要的东西放到 game/sidecar/（换内核 P7，docs/内核替换_重启计划.md §五 第 2 条：运行时压进游戏包）：
-#   payload/ + payload.json   —— 框架依赖的 sidecar（CellWar.Sidecar.dll + CellWar.Core.dll + runtimeconfig / deps，几百 KB）
+#   payload/ + payload.json   —— 框架依赖的 sidecar（CellWar.Sidecar.dll + CellWar.Core.dll + CellWar.Ai.dll + runtimeconfig / deps，几百 KB）
 #                                与它的 sha256 / 文件表 / core_build。规则一改就变，**随增量补丁走**（build_patch.sh 只带这两样）。
 #   runtime-<rid>.zip + runtime-<rid>.json —— 该平台的 .NET 运行时（dotnet 宿主 + host/fxr + shared/Microsoft.NETCore.App，约 31 MB 压缩）
 #                                与版本 / sha256。**只随全量发版变**（补丁里没有它，挂了补丁照样用包里那份）。
@@ -17,13 +17,13 @@
 #
 # 发布硬纪律（路线 A §十 第 1 条）—— 这里就是那道闸，每次打包都先过：
 #   CellWar.Sidecar / CellWar.Core 的 csproj 不许打开 PublishTrimmed / PublishSingleFile / PublishAot；
-#   CellWar.Core 零 PackageReference；载荷里只许有那四个文件（多出一个 dll = 有人加了包引用）。
+#   CellWar.Core / CellWar.Ai 零 PackageReference；载荷里只许有那五个文件（多出一个 dll = 有人加了包引用）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=game/sidecar
 DOTNET="${DOTNET:-$(command -v dotnet || echo "$HOME/.dotnet/dotnet")}"
 PAYLOAD_MAX_KB=2048   # 补丁要带它：超过 2 MB 多半是混进了别的程序集
-PAYLOAD_FILES="CellWar.Core.dll CellWar.Sidecar.deps.json CellWar.Sidecar.dll CellWar.Sidecar.runtimeconfig.json"
+PAYLOAD_FILES="CellWar.Ai.dll CellWar.Core.dll CellWar.Sidecar.deps.json CellWar.Sidecar.dll CellWar.Sidecar.runtimeconfig.json"
 die() { echo "✘ $1" >&2; exit 1; }
 host_rid() {
 	case "$(uname -s)-$(uname -m)" in
@@ -42,9 +42,11 @@ for proj in core/CellWar.Sidecar/CellWar.Sidecar.csproj core/CellWar.Core/CellWa
 		fi
 	done
 done
-if grep -q "<PackageReference" core/CellWar.Core/CellWar.Core.csproj; then
-	die "CellWar.Core 有 PackageReference —— 规则内核只许用 BCL（补丁载荷与可替换性都靠它）"
-fi
+for proj in core/CellWar.Core/CellWar.Core.csproj core/CellWar.Ai/CellWar.Ai.csproj; do
+	if grep -q "<PackageReference" "$proj"; then
+		die "$proj 有 PackageReference —— 规则内核与 AI 只许用 BCL（补丁载荷与可替换性都靠它）"
+	fi
+done
 
 if [ -z "${BUILD_ID:-}" ]; then
 	BUILD_ID="$(git rev-parse --short HEAD)"

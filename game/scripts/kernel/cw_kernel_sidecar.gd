@@ -43,6 +43,8 @@ var _ticking := false
 # ---- 生命周期 ----
 ## cfg：factions / seed / observe_viewer / open_hands / decider / deciders（同 InProc）；
 ## 另有 dotnet / sidecar_dll 两个路径覆盖（测试用）；缺省由 cw_sidecar_locator.gd 找（开发期仓库产物 / 导出包首次解到用户目录）
+## `ai: {席位: "normal" | "intent" | "search"}` + `ai_delay_ms`（换内核 P3）：那几席由 sidecar 进程里的 C# AI 作答，
+## 不出 ask 条目（同有 decider 的席位），句柄照常每帧 pull —— 原样转给 sidecar 的 open。
 func open(cfg: Dictionary) -> bool:
 	if _state != State.IDLE:
 		return false
@@ -74,6 +76,12 @@ func open(cfg: Dictionary) -> bool:
 			open_cfg[k] = cfg[k]
 	if observe_viewer != null:
 		open_cfg["observe_viewer"] = int(observe_viewer)
+	if cfg.has("ai"):
+		var ai := {}
+		for seat in cfg["ai"]:
+			ai[str(seat)] = String(cfg["ai"][seat])   ## JSON 的键只能是字符串
+		open_cfg["ai"] = ai
+		open_cfg["ai_delay_ms"] = int(cfg.get("ai_delay_ms", 0))
 	## 新手教程（换内核 P5）：舞台 resolve 好的一份 cwxworld/3 + 这一关的骰子带子 —— sidecar 从这份世界续跑。
 	## 整数化：关卡 json 经 JSON.parse_string 读进来数字全是 float，C# 那边按整数字段严格读（300.0 读不进 int）
 	if cfg.has("world"):

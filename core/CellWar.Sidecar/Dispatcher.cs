@@ -11,7 +11,8 @@ namespace CellWar.Sidecar;
 /// 会话 `sid` 从第一版就带（桌面只有一局；服务器一个进程跑所有房间，计划 §3.1）。
 /// 报文一览（P1）：
 ///   version{}                                       → {host_abi, rules_build, ruleset_digest, core_build}
-///   open{cfg:{factions[], seed, observe_viewer?, open_hands?, names?[], cancer_types?[]}} → {sid}
+///   open{cfg:{factions[], seed, observe_viewer?, open_hands?, names?[], cancer_types?[], ai?: {"席位": "normal"|"intent"|"search"}, ai_delay_ms?}} → {sid}
+///     （ai 里的席位由 sidecar 内的 CellWar.Ai 在后台线程作答：不出 ask 条目，句柄照常 pull，见 SessionHost 头注）
 ///   open{cfg:{world: cwxworld/3, rolls?: [[from,to,value]…], seed?, observe_viewer?, open_hands?, names?[]}} → {sid}（新手教程：从装载世界续跑）
 ///   dump_world{sid}                                 → {world}（活局面导成 cwxworld/3）
 ///   pull{sid, viewer, since, limit?}                → {entries[], last_seq}

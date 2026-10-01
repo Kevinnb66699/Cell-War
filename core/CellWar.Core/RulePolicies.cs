@@ -473,9 +473,13 @@ internal static class RulePolicies
     public static bool AdjacentCancerous(WorldState s, HexPosition pos, int atLeast)
         => pos.GetNeighbors().Count(n => s.Board.Tissues.TryGetValue(n, out var t) && Cancerous(t)) >= atLeast;
 
-    public static int AnaerobicShare(WorldState s, Cell c)
+    public static int AnaerobicShare(WorldState s, Cell c) => AnaerobicShare(s, c, Blocks(s, true));
+
+    /// <summary>同上，癌性连通块由调用方算好传进来 —— 一次要算全部癌细胞份额的读者（AI 的局面读数，一问几百次）别每只细胞重做一遍 BFS。
+    /// <paramref name="cancerBlocks"/> 必须是这个世界的 <c>Blocks(s, true)</c>。</summary>
+    internal static int AnaerobicShare(WorldState s, Cell c, IReadOnlyList<HashSet<HexPosition>> cancerBlocks)
     {
-        var block = Blocks(s, true).FirstOrDefault(b => b.Contains(c.Position));
+        var block = cancerBlocks.FirstOrDefault(b => b.Contains(c.Position));
         if (block == null) return 0;
         var tune = s.Tuning;
         var living = s.Cells.Values.Count(x => x.IsAlive && x.Faction == Faction.Cancer && block.Contains(x.Position));
