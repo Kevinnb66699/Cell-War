@@ -35,6 +35,7 @@ internal static class PhaseRules
                 s = FinishStart(s, rng);
             }
             else if (s.Turn.StartStep == 3) s = FinishStart(s, rng);
+            else if (s.Turn.StartStep == 4) s = ContinueStart(s.WithTurn(s.Turn.Copy(startStep: 1)));   // 传送落地的追问问完了（见 ResumeStart）
             else s = ContinueStart(s);
         }
         else if (s.Turn.Phase == Phase.PlayerAction)
@@ -244,6 +245,12 @@ internal static class PhaseRules
             if (StartPending(s)) return s;
         }
         s = BoardRules.Transport(s, rng);
+        // GD `round_start` 是 `await _vessel_teleport()`（cw_world.gd:31 → :153 `await enter_tile`）：传送落地追出的问答
+        //（【免疫记忆库】净化抽到连走卡、抽满了要弃……）问完才轮到复活 / 有氧 / 开打。停在 StartStep 4，
+        // 问答摘干净时 DecisionRouter 的 S 阶段那一支从 StartStep 1 接着走 ContinueStart —— 与没有追问时一模一样。
+        // ⚠ 两端都有细胞、**第一只**落地就追出问答的那种：GD 那一刻第二只还没传过去（两只同站一格），
+        // C# 的格只装得下一个占位、两端是一起换的 —— 这一刀没跟，问答问的局面上第二只已经在对面了
+        if (StartPending(s)) return s.WithTurn(s.Turn.Copy(startStep: 4));
         return ContinueStart(s.WithTurn(s.Turn.Copy(startStep: 1)));
     }
 

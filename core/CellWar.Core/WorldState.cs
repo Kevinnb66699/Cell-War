@@ -50,6 +50,7 @@ public sealed class TurnState
     public required int WorldRound { get; init; }  // 世界回合数（从1开始）
     public required Phase Phase { get; init; }      // 当前阶段
     public required int ActivePlayerSeat { get; init; }  // 当前行动玩家座位（0-based）
+    /// <summary>S 阶段游标：0 = 没开始；3 = 产出（含它追出的问答）；4 = 血管传送落地追出的问答还没问完；1 = 复活；2 = 已开打。</summary>
     public int StartStep { get; init; }
     public int EndStep { get; init; }   // E 阶段游标：0 = 没开始；1 = 蹲守净化（4.9）做完、等它追出的问答问完再做后半
     public Faction? Winner { get; init; }

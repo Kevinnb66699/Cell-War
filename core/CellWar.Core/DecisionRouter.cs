@@ -115,6 +115,7 @@ internal static class DecisionRouter
         if (s.Turn.Phase == Phase.S && !PhaseRules.StartPending(s))
         {
             if (s.Turn.StartStep == 3) s = PhaseRules.FinishStart(s, rng);
+            else if (s.Turn.StartStep == 4) s = PhaseRules.ContinueStart(s.WithTurn(s.Turn.Copy(startStep: 1)));   // 血管传送落地追出的问答问完了：接着复活 / 有氧 / 开打
             else if (s.Turn.StartStep == 1 && PhaseRules.GetRevivalOptions(s).Count == 0) s = PhaseRules.ContinueStart(s);
         }
         // E 阶段蹲守净化追出的问答答完了：接着做 5 → 9.5、判胜负、翻到下一回合的 S（GD `_resolve_camping` 的 await 回来了）
