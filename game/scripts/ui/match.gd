@@ -306,7 +306,7 @@ const REVIVE_FX_TIME := CARD_FX_WINDUP + CARD_FX_T0 + CARD_FX_T1 + CARD_FX_T2 + 
 ## 口径二 · 批 1（规格 A-1.1）：UI 只从镜像读、只经句柄作答、只从播放队列播演出。
 ## 名字从 game 改成 mirror 是**故意**的：让 grep 成为可执行的结构闸（t_no_engine_in_ui），
 ## 也免得留下「名叫 game 其实是镜像」的地雷。
-var kernel: CWKernel      ## 句柄：本地 / 热座 / 教程 / 回放是 CWKernelInProc，联机是 CWKernelRemote
+var kernel: CWKernel      ## 句柄：本地 / 热座 / 教程 / 回放是 CWKernelInProc（开发开关 CW_KERNEL=sidecar 时热座与教程是 CWKernelSidecar），联机是 CWKernelRemote
 var mirror: CWMirror      ## 当前这一份观测（每次问人之前、终局之前各换一份，A-1.5）
 var queue: CWPlayQueue    ## 条目播放器：演出 / 日志 / 询问 / sync 都从它出来
 var _replay_tape := {}    ## 终局条目带下来的回放 tape（main.gd 存回放用）
@@ -2067,7 +2067,7 @@ func _start_queue() -> void:
 	bridge.queue = queue   ## _await_playback 靠它等这一问的 sync 播到（没有它每一问都用上一步的镜像画）
 	queue.on_sync = _on_sync
 	queue.on_log = log_store.apply
-	queue.on_ask = _serve_ask                   ## 只有 Remote 会走：InProc 有 decider ⇒ 不产 ask 条目
+	queue.on_ask = _serve_ask                   ## 只有 Remote 会走：本机两种句柄有 decider ⇒ 不产 ask 条目
 	queue.on_game_over = _on_game_over
 	## 行动边界：step_begin{ask_id, seat} / step_end{rev} 两种条目。
 	## **装闸一律在 step_end** —— 内核的 decider 路是 `_close_step() → decider.ask() → _open_step()`
@@ -2082,10 +2082,12 @@ func _start_queue() -> void:
 	queue.pump()
 
 
-## InProc 专用的一次同步观测（约 8.5 ms，只在开局 / 起跑这两下调）。
+## 本机句柄的一次同步观测（约 8.5 ms，只在开局 / 起跑这两下调）。
 ## Remote 那条路没有活引擎，镜像只能等 sync 条目（见 _on_sync）。
+## **按能力位判，不按句柄类**（换内核 P5（三））：`authority` = 权威局面就在本机（GD InProc / C# sidecar），
+## 当场问得出一份镜像；教程舞台建哪一种句柄只有舞台知道，这里不该再列一遍类名
 func _observe_now() -> void:
-	if not (kernel is CWKernelInProc or kernel is CWKernelSidecar):   ## 本机两种句柄都能同步观测；联机只认 sync 条目
+	if kernel == null or not bool(kernel.caps().get("authority", false)):
 		return
 	var m := kernel.observe(CWKernel.VIEWER_OMNISCIENT) as CWMirror
 	if m != null:
@@ -2168,7 +2170,7 @@ func _on_game_over(e: Dictionary) -> void:
 	finished.emit(int(e["winner"]))
 
 
-## 一次询问（**只有联机路有 ask 条目**：InProc 把询问直接转交 decider）。交给现有的界面桥，
+## 一次询问（**只有联机路有 ask 条目**：本机句柄（InProc / sidecar）把询问直接转交 decider）。交给现有的界面桥，
 ## 答完把选择交回句柄。不 await 它 —— 玩家在想的时候，对局流里的其它条目照常播。
 ## 服务器代打后重问的旧一问：先 abort 收掉界面，旧协程醒来发现 ask_id 变了就丢弃答案。
 func _serve_ask(e: Dictionary) -> void:
@@ -2494,9 +2496,10 @@ func _process(delta: float) -> void:
 	## 这几样照样得走（不然回到 2026-09-09 那条「投降被冷却挡了、点了没反应」）。
 	if online:
 		_sync_link()
-	if kernel is CWKernelInProc:
-		## 掷骰动画关掉时 roll 不再 barrier：一局几百次，每次省一帧（AI 互搏 / 观战 / 回放 4 倍速都吃）
-		(kernel as CWKernelInProc).barrier_on = CWSettings.dice_anim
+	if kernel != null:
+		## 掷骰动画关掉时 roll 不再 barrier：一局几百次，每次省一帧（AI 互搏 / 观战 / 回放 4 倍速都吃）。
+		## 只有 GD InProc 真等 ack；C# sidecar / 联机的引擎本来就不等动画，基类是空操作（换内核 P5（三）去掉了类名判断）
+		kernel.set_roll_barrier(CWSettings.dice_anim)
 	if mirror == null or mirror.tiles.is_empty() or _fading:
 		return
 	if bridge != null:

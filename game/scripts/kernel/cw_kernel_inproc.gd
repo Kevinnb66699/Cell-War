@@ -207,6 +207,11 @@ func ack(seq: int) -> void:
 		_barrier_seq = 0
 
 
+## ⑩ 跟 CWSettings.dice_anim（match.gd 每帧喂）：关着时 roll 不等 ack
+func set_roll_barrier(on: bool) -> void:
+	barrier_on = on
+
+
 func entry_seq() -> int:
 	return _next_seq - 1
 

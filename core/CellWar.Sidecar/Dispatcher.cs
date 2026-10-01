@@ -15,6 +15,7 @@ namespace CellWar.Sidecar;
 ///     （ai 里的席位由 sidecar 内的 CellWar.Ai 在后台线程作答：不出 ask 条目，句柄照常 pull，见 SessionHost 头注）
 ///   open{cfg:{world: cwxworld/3, rolls?: [[from,to,value]…], seed?, observe_viewer?, open_hands?, names?[]}} → {sid}（新手教程：从装载世界续跑）
 ///   dump_world{sid}                                 → {world}（活局面导成 cwxworld/3）
+///   tape{sid}                                       → {size, at, overrun, bad_range}（教程骰子带子的账；只有从关卡世界开的局有）
 ///   pull{sid, viewer, since, limit?}                → {entries[], last_seq}
 ///   discard_before{sid, seq}                        → {}
 ///   answer{sid, ask_id, key?, index?}               → {accepted}
@@ -61,6 +62,7 @@ internal sealed class Dispatcher : IDisposable
         "mark_player" => new JsonObject { ["ok_mark"] = Session(req).MarkPlayer(J.Int(req["pid"]), J.Str(req["suffix"])) },
         "surrender" => new JsonObject { ["ended"] = Session(req).Surrender(J.Int(req["faction"])) },
         "dump_world" => new JsonObject { ["world"] = Session(req).DumpWorld() },
+        "tape" => Session(req).TapeStats(),
         "log_msg" => new JsonObject { ["logged"] = Session(req).LogMessage(J.Str(req["text"]), J.IntOr(req["secret_pid"]) ?? -1, J.StrOr(req["public_text"])) },
         "can_save" => new JsonObject { ["can_save"] = Session(req).CanSave },
         "save" => new JsonObject { ["checkpoint"] = Session(req).Save() },

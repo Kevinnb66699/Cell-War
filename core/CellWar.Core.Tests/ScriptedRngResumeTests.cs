@@ -43,6 +43,40 @@ public class ScriptedRngResumeTests
         Assert.NotEqual(xs, Enumerable.Range(0, 20).Select(_ => c.NextInt(6)).ToArray());
     }
 
+    /// <summary>
+    /// 回落流 = Godot 4.5 `RandomNumberGenerator`（PCG32）逐位照抄（换内核 P5（三））。金值是 Godot 4.5-stable 实测：
+    /// `var r := RandomNumberGenerator.new(); r.seed = 1; r.randi_range(1, 6)` 连掷 16 颗。GD 侧 `t_tutor_sidecar_rng` 钉同一串 ——
+    /// 哪天升引擎改了 PCG，两边一起红，而不是 C# 这份悄悄跟线上分家。
+    /// </summary>
+    [Fact]
+    public void 回落流与Godot的RandomNumberGenerator逐颗相同()
+    {
+        var d6 = new[] { 4, 1, 2, 5, 4, 6, 2, 6, 4, 6, 2, 5, 3, 4, 4, 4 };
+        var rng = new ScriptedRng([], 1);
+        Assert.Equal(d6, Enumerable.Range(0, 16).Select(_ => rng.NextInt(6) + 1).ToArray());   // C# 掷 0..5，GD 掷 1..6：同一个偏移量
+
+        // 区间宽度各异 + 退化区间零消耗：randi_range(0,4) (1,6) (0,0) (3,3) (0,9) (1,2) (0,126) (-5,5)
+        var mix = new ScriptedRng([], 1);
+        Assert.Equal(new[] { 2, 1, 0, 3, 9, 1, 115, -1 }, new[]
+        {
+            mix.NextIntRange(0, 5), mix.NextIntRange(1, 7), mix.NextIntRange(0, 1), mix.NextIntRange(3, 4),
+            mix.NextIntRange(0, 10), mix.NextIntRange(1, 3), mix.NextIntRange(0, 127), mix.NextIntRange(-5, 6),
+        });
+        Assert.Equal(unchecked((ulong)-3865055664179818387L), mix.GetState().Counter);   // GD `r.state` 读出来的同一个数
+
+        var seven = new ScriptedRng([], 7);
+        Assert.Equal(new[] { 6, 2, 5, 6, 4, 6, 1, 6 }, Enumerable.Range(0, 8).Select(_ => seven.NextInt(6) + 1).ToArray());
+    }
+
+    /// <summary>GD `cw_roll_tape.gd` 念带子时照样 `inner.randi_range` 推一步：带子念完，回落流接着的是第 3 颗，不是第 1 颗。</summary>
+    [Fact]
+    public void 念带子也推回落流_念完接着Godot那一串的下一颗()
+    {
+        var rng = Tape([1, 6, 6], [1, 6, 6]);
+        Assert.Equal(new[] { 6, 6, 2, 5 }, Enumerable.Range(0, 4).Select(_ => rng.NextInt(6) + 1).ToArray());   // 金值第 3、4 颗 = 2、5
+        Assert.Equal((2, 2, 0), (rng.Consumed, rng.Overrun, rng.BadRange));
+    }
+
     [Fact]
     public void 状态往返_Fork后SetState接着念同一串()
     {
