@@ -32,8 +32,10 @@ public class EnvelopeParityTests
         var tracePath = Path.Combine(root, "game", "tests", "l1", $"trace_{fixture}.jsonl");
         var envPath = Path.Combine(root, "game", "tests", "l1", $"env_{fixture}.jsonl.gz");
         Assert.True(File.Exists(envPath), $"缺 GD 侧 envelope 夹具 {envPath}（用 xcheck_export.gd 加 env_out= 录，gzip 后放进仓库）");
-        var gd = ReadGz(envPath).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement)
-            .ToDictionary(e => e.GetProperty("n").GetInt32(), e => e.GetProperty("env"));
+        var envLines = ReadGz(envPath).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement).ToList();
+        var gd = envLines.ToDictionary(e => e.GetProperty("n").GetInt32(), e => e.GetProperty("env"));
+        // 观测协议 §5.3 两条查询（P2，2026-10-01）：GD 导出在行动问答那一步顺带录了 {cid, effects, block}，C# 同一步现算比
+        var gdQueries = envLines.Where(e => e.TryGetProperty("q", out _)).ToDictionary(e => e.GetProperty("n").GetInt32(), e => e.GetProperty("q"));
         var steps = File.ReadLines(tracePath).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement)
             .Where(l => l.GetProperty("t").GetString() == "step").ToList();
         var engine = new BasicRulesEngine();
@@ -66,7 +68,9 @@ public class EnvelopeParityTests
                 sizes.Add((n, gdEnv.GetRawText().Length, csJson.Length, s.Turn.WorldRound));
                 var a = EnvelopeNormalize.Normalize(L1View.Plain(gdEnv), gdSide: true);
                 var b = EnvelopeNormalize.Normalize(L1View.Plain(JsonDocument.Parse(csJson).RootElement), gdSide: false);
-                var diffs = DeepDiff.Compare(a, b, "$", 400);
+                var diffs = DeepDiff.Compare(a, b, "$", 400).ToList();
+                if (gdQueries.TryGetValue(n, out var gq))
+                    diffs.AddRange(DeepDiff.Compare(L1View.Plain(gq), L1View.Plain(CsQueries(s, gq.GetProperty("cid").GetInt32())), "$q", 400));
                 compared++;
                 if (diffs.Count > 0) mismatches.Add((n, diffs));
             });
@@ -95,6 +99,21 @@ public class EnvelopeParityTests
         Assert.True(mismatches.Count == 0, mismatches.Count == 0 ? "" :
             $"{mismatches.Count} 步的 envelope 不一致（首个第 {mismatches[0].N} 步）：" + Environment.NewLine
             + string.Join(Environment.NewLine, mismatches[0].Diffs.Take(12)) + Environment.NewLine + "（全文见 envelope_parity_*.txt）");
+    }
+
+    /// <summary>与 GD `xcheck_export.gd queries()` 同形：这只细胞的行动栏每个按钮的 cost_effects_for + 两环内非空的 move_block_reason（键 "q,r"）。</summary>
+    private static JsonElement CsQueries(WorldState s, int cid)
+    {
+        var cell = s.Cells[new EntityId((ulong)(cid + 1))];
+        var effects = TierB.ActionKinds(s, cell).ToDictionary(act => act, act => (object)Queries.CostEffectsFor(s, cell, act), StringComparer.Ordinal);
+        var block = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var to in s.Board.Tissues.Keys)
+        {
+            if (to == cell.Position || to.DistanceTo(cell.Position) > 2) continue;
+            var why = Queries.MoveBlockReason(s, cell, to);
+            if (why != "") block[$"{to.Q},{to.R}"] = why;
+        }
+        return JsonSerializer.SerializeToElement(new Dictionary<string, object> { ["cid"] = cid, ["effects"] = effects, ["block"] = block }, ObservationV1Codec.Json);
     }
 
     private static IEnumerable<string> ReadGz(string path)

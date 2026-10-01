@@ -265,6 +265,8 @@ public sealed class Player
     public required int AntigenMemory { get; init; } // 抗原记忆（仅免疫方）
     public required ImmuneLevel ImmuneLevel { get; init; } // 免疫等级（仅免疫方）
     public CellType? CancerType { get; init; }      // 癌症方身份（免疫方为 null）
+    /// <summary>宿主注入的显示名（联机昵称 / 单机真人席的「(我)」后缀，换内核 P2）。null = 用 GD 的默认名（Stage.SeatName）。纯装饰，不进规则。</summary>
+    public string? Name { get; init; }
     
     public Player Clone() => new Player
     {
@@ -274,7 +276,8 @@ public sealed class Player
         DrawCount = DrawCount,
         AntigenMemory = AntigenMemory,
         ImmuneLevel = ImmuneLevel,
-        CancerType = CancerType
+        CancerType = CancerType,
+        Name = Name
     };
 }
 

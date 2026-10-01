@@ -84,6 +84,29 @@ static func sorted_strings(a: Array) -> Array:
 	return Array(p)
 
 
+## 观测协议 §5.3 的两条 tier B 查询（换内核 P2，2026-10-01）：只录**正在被问行动**的那一席的细胞 ——
+## `effects` = 行动栏每个按钮的 cost_effects_for，`block` = 两环内每一格的 move_block_reason（只留非空的，键 "q,r"）。
+## C# `EnvelopeParityTests` 在同一步现算同一份、逐字段比。纯查询：只调 CWCost.quote，不动盘面、不碰 rng。
+static func queries(g: CWGame) -> Dictionary:
+	var req: Dictionary = g._pending
+	if req.is_empty() or str(req.get("kind", "")) != "action":
+		return {}
+	var cell: Dictionary = g.cell_of(int(req["pid"]))
+	if not bool(cell["alive"]):
+		return {}
+	var effects := {}
+	for act in g.actions.action_kinds(cell):
+		effects[act] = g.actions.cost_effects_for(cell, act)
+	var block := {}
+	for c in CWData.all_coords(g.board_radius):
+		if c == cell["pos"] or CWData.hex_dist(c, cell["pos"]) > 2:
+			continue
+		var why: String = g.actions.move_block_reason(cell, c)
+		if why != "":
+			block["%d,%d" % [c.x, c.y]] = why
+	return { "cid": int(cell["id"]), "effects": effects, "block": block }
+
+
 static func view(g: CWGame) -> Dictionary:
 	## ---- 棋盘：按 (q, r) 排序，占位写席位 ----
 	var keys: Array = g.tiles.keys()
@@ -231,7 +254,11 @@ func _run() -> void:
 			line["ask_rng"] = ask_rng
 		f.store_line(JSON.stringify(line))
 		if envf != null:   ## post 时刻 _pending 已经是下一问（step 末尾 advance 到了决策点）
-			envf.store_line(JSON.stringify({ "n": n, "env": CWObsCodec.encode(g, { "viewer": CWObsProto.VIEWER_OMNISCIENT, "ask": g._pending, "ask_id": n, "rev": n }) }))
+			var env_line := { "n": n, "env": CWObsCodec.encode(g, { "viewer": CWObsProto.VIEWER_OMNISCIENT, "ask": g._pending, "ask_id": n, "rev": n }) }
+			var q := queries(g)
+			if not q.is_empty():
+				env_line["q"] = q
+			envf.store_line(JSON.stringify(env_line))
 		if max_steps > 0 and n >= max_steps:
 			break
 		if g.is_over():

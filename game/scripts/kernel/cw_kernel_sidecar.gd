@@ -11,7 +11,8 @@
 ##   · 拆问（C# 组键 → GD 两问）在 C# 宿主里做完了，这里收到的 ask 已经是 GD 形状；选项自带 key，作答一律按 key 交回去。
 ##
 ## ⚠ 硬不变量：sidecar 起不来 = UNAVAILABLE + SPAWN_FAILED，**与补丁系统完全隔离**（绝不计进 patch_state.gd 的 STRIKES）。
-## P1 还没有的（返回基类的「定义良好的空值」）：日志条目、查询四条、存读档、回放、单步驱动、mark_player / surrender / log_msg —— 见计划 P2 / P4。
+## P2（2026-10-01）补上：查询四条、开局 names / cancer_types、mark_player、surrender。
+## 还没有的（返回基类的「定义良好的空值」）：日志条目与 log_msg（日志通道在做）、存读档、回放、单步驱动、state_hash —— 见计划 P2 / P4。
 class_name CWKernelSidecar
 extends CWKernel
 
@@ -58,6 +59,9 @@ func open(cfg: Dictionary) -> bool:
 	observe_viewer = cfg.get("observe_viewer", null)
 	open_hands = bool(cfg.get("open_hands", false))
 	var open_cfg := { "factions": cfg.get("factions", []), "seed": int(cfg.get("seed", 1)), "open_hands": open_hands }
+	for k in ["cancer_types", "names"]:   ## 癌种按癌席顺序钉死（同 InProc 的 tune.cancer_types）；names = 显示名（空串 = 默认名）
+		if cfg.has(k):
+			open_cfg[k] = cfg[k]
 	if observe_viewer != null:
 		open_cfg["observe_viewer"] = int(observe_viewer)
 	var r := _call("open", { "cfg": open_cfg })
@@ -203,6 +207,33 @@ func abort_ask() -> void:
 			d.abort()
 	_open_ask = {}
 	_decider_ask = {}
+
+
+## 观测协议 §5.3 的四条查询，返回与 InProc.query 同形（plan_next_dests：Vector2i 数组；quote_path：{steps, total, …}；
+## cost_effects_for：[{name, changes, targets, total}]，批量 `acts` 是 {act: […]}；move_block_reason：字符串）。
+## 参数里的 Vector2i 发成 {q,r}（CWObsCodec._plain），回来的坐标再换回 Vector2i（CWMirror._normalize）。
+func query(kind: String, args: Dictionary) -> Variant:
+	if _sid < 0 or not args.has("cid"):
+		return null
+	var r := _call("query", { "sid": _sid, "kind": kind, "args": CWObsCodec._plain(args) })
+	if not bool(r.get("ok", false)):
+		return null
+	return CWMirror._normalize(r.get("result"))
+
+
+## 同 InProc.mark_player：给一席的名字加后缀（已带了不重复加）。纯装饰，sidecar 那边改的是同一个名字字段，之后的观测都用新名字
+func mark_player(pid: int, suffix: String) -> bool:
+	if _sid < 0:
+		return false
+	return bool(_call("mark_player", { "sid": _sid, "pid": pid, "suffix": suffix }).get("ok_mark", false))
+
+
+## 同 InProc.surrender：对方阵营直接获胜。sidecar 当场收局，这里马上泵一次把 step_end / sync / game_over 拉过来
+func surrender(faction: int) -> void:
+	if _sid < 0:
+		return
+	_call("surrender", { "sid": _sid, "faction": faction })
+	_pump()
 
 
 func set_decider(b: Object) -> void:

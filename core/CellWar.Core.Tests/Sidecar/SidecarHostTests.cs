@@ -47,6 +47,40 @@ public class SidecarHostTests
         Assert.NotEmpty(mine["req"]!["options"]!.AsArray());
     }
 
+    [Fact]
+    public void 开局名字与钉死的癌种进观测_改名只加一次后缀()
+    {
+        // 癌席 1 钉小细胞肺癌（GD ctype 3）、癌席 3 钉黑色素瘤（0）；第 0 席叫「Kevin」，其余用默认名
+        var cfg = new JsonObject { ["factions"] = new JsonArray(0, 1, 0, 1), ["seed"] = 9, ["names"] = new JsonArray("Kevin", "", "", ""), ["cancer_types"] = new JsonArray(3, 0) };
+        using var host = SessionHost.Open(1, cfg);
+        var g = host.Envelope(-2)["state"]!["g"]!;
+        var players = g["players"]!.AsArray();
+        Assert.Equal(["Kevin", "癌症A", "免疫B", "癌症B"], players.Select(p => J.Str(p!["name"])));
+        Assert.Equal(3, J.Int(players[1]!["cancer_type"]));
+        Assert.Equal(0, J.Int(players[3]!["cancer_type"]));
+
+        Assert.True(host.MarkPlayer(0, "(我)"));
+        Assert.True(host.MarkPlayer(0, "(我)"));   // 已经带了：不重复加
+        Assert.Equal("Kevin(我)", J.Str(host.Envelope(-2)["state"]!["g"]!["players"]![0]!["name"]));
+        Assert.False(host.MarkPlayer(9, "(我)"));
+    }
+
+    [Fact]
+    public void 投降当场收局_收步sync再game_over_文案照GD()
+    {
+        using var host = SessionHost.Open(1, new JsonObject { ["factions"] = new JsonArray(0, 1), ["seed"] = 3, ["observe_viewer"] = -2 });
+        var before = host.LastSeq;
+        Assert.True(host.Surrender(0));          // 免疫投降 ⇒ 癌症胜利
+        Assert.False(host.Surrender(1));         // 已经分出胜负：第二次什么都不做
+        var tail = host.Pull(-2, before, 100).Select(n => J.Str(n!["t"])).ToArray();
+        Assert.Equal(["step_end", "sync", "game_over"], tail);
+        var over = host.Pull(-2, 0, 10_000).Select(n => n!.AsObject()).Last();
+        Assert.Equal(1, J.Int(over["winner"]));
+        Assert.Equal("surrender_cancer", J.Str(over["kind"]));
+        Assert.Equal("免疫方投降：癌症胜利", J.Str(over["reason"]));
+        Assert.False(host.Answer(1, null, 0));   // 收局之后不再收答案
+    }
+
     // ---- 拆问 ----
 
     private static ObsOption Opt(int i, string key, string label, params (string, object)[] data)

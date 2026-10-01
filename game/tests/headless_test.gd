@@ -16508,6 +16508,44 @@ func t_kernel_sidecar() -> void:
 	while OS.is_process_running(pid) and Time.get_ticks_msec() - t1 < 3000:
 		await process_frame
 	check(not OS.is_process_running(pid), "close 之后 sidecar 进程退出")
+	## 消费者模式（没有 decider，走 answer() 那条路）：开局名字 / 钉死的癌种进镜像；答完落子、拿到第一问行动后测四条查询；
+	## mark_player 只加一次后缀；投降当场收局（P2，2026-10-01）
+	var k2 := CWKernelSidecar.new()
+	check(k2.open({ "factions": [0, 1], "seed": 7, "observe_viewer": CWKernel.VIEWER_OMNISCIENT, "names": ["Kevin", ""], "cancer_types": [3] }),
+		"消费者模式 open")
+	var action_ask := {}
+	var since := 0
+	var guard := 0
+	while action_ask.is_empty() and guard < 50 and k2.state() != CWKernel.State.FAULTED:
+		guard += 1
+		for e: Dictionary in k2.pull(CWKernel.VIEWER_OMNISCIENT, since, 1000):
+			since = int(e["seq"])
+			if e["t"] == "ask":
+				if String(e["req"]["kind"]) == "action":
+					action_ask = e
+				else:
+					k2.answer(int(e["ask_id"]), { "index": 0 })
+		await process_frame
+	check(not action_ask.is_empty(), "答完落子拿到第一问行动（%d 轮）" % guard)
+	var m2 = k2.observe(0)
+	check(m2 != null and String(m2.players[0]["name"]) == "Kevin" and int(m2.players[1]["cancer_type"]) == 3, "开局名字与钉死的癌种进镜像")
+	if not action_ask.is_empty() and m2 != null:
+		var cid := int(m2.players[int(action_ask["req"]["pid"])]["cell_id"])
+		var at: Vector2i = m2.cells[cid]["pos"]
+		var dests = k2.query("plan_next_dests", { "cid": cid, "from": at })
+		check(dests is Array and (dests.is_empty() or dests[0] is Vector2i), "plan_next_dests 回 Vector2i 数组")
+		var effects = k2.query("cost_effects_for", { "cid": cid, "acts": ["move", "draw"] })
+		check(effects is Dictionary and effects.has("move"), "cost_effects_for 批量回 {act: […]}")
+		check(k2.query("move_block_reason", { "cid": cid, "to": at }) is String, "move_block_reason 回字符串")
+	check(k2.mark_player(0, "(我)") and k2.mark_player(0, "(我)") and String(k2.observe(0).players[0]["name"]) == "Kevin(我)",
+		"mark_player 只加一次后缀")
+	var before := k2.entry_seq()
+	k2.surrender(CWData.Faction.IMMUNE)
+	var tail: Array = k2.pull(CWKernel.VIEWER_OMNISCIENT, before, 100)
+	check(tail.size() >= 3 and String(tail[-1]["t"]) == "game_over" and int(tail[-1]["winner"]) == CWData.Faction.CANCER
+		and String(tail[-1]["kind"]) == "surrender_cancer", "投降当场收局（game_over 条目，癌症胜）")
+	check(k2.state() == CWKernel.State.ENDED, "投降之后句柄 ENDED")
+	k2.close()
 	var bad := CWKernelSidecar.new()
 	check(not bad.open({ "factions": [0, 1], "sidecar_dll": "/nonexistent/CellWar.Sidecar.dll" })
 		and bad.state() == CWKernel.State.UNAVAILABLE and bad.process_id() == -1, "找不到 dll = UNAVAILABLE，不起进程")

@@ -10,11 +10,14 @@ namespace CellWar.Sidecar;
 /// 会话 `sid` 从第一版就带（桌面只有一局；服务器一个进程跑所有房间，计划 §3.1）。
 /// 报文一览（P1）：
 ///   version{}                                       → {host_abi, rules_build, ruleset_digest}
-///   open{factions[], seed, observe_viewer?, open_hands?} → {sid}
+///   open{cfg:{factions[], seed, observe_viewer?, open_hands?, names?[], cancer_types?[]}} → {sid}
 ///   pull{sid, viewer, since, limit?}                → {entries[], last_seq}
 ///   discard_before{sid, seq}                        → {}
 ///   answer{sid, ask_id, key?, index?}               → {accepted}
 ///   observe{sid, viewer, logs_from?}                → {envelope}
+///   query{sid, kind, args, seat?}                   → {result}（观测协议 §5.3 四条；坐标 {q,r}）
+///   mark_player{sid, pid, suffix}                   → {ok_mark}
+///   surrender{sid, faction}                         → {ended}
 ///   abort{sid} / close{sid}                         → {}
 ///   ping{}                                          → {}
 /// </summary>
@@ -48,6 +51,9 @@ internal sealed class Dispatcher : IDisposable
         "discard_before" => Do(req, s => s.DiscardBefore(J.Long(req["seq"]))),
         "answer" => new JsonObject { ["accepted"] = Session(req).Answer(J.Int(req["ask_id"]), J.StrOr(req["key"]), J.IntOr(req["index"]) ?? -1) },
         "observe" => new JsonObject { ["envelope"] = Session(req).Envelope(J.Int(req["viewer"]), J.LongOr(req["logs_from"]) ?? 0) },
+        "query" => new JsonObject { ["result"] = Session(req).Query(J.Str(req["kind"]), req["args"]?.AsObject() ?? [], J.IntOr(req["seat"])) },
+        "mark_player" => new JsonObject { ["ok_mark"] = Session(req).MarkPlayer(J.Int(req["pid"]), J.Str(req["suffix"])) },
+        "surrender" => new JsonObject { ["ended"] = Session(req).Surrender(J.Int(req["faction"])) },
         "abort" => Do(req, s => s.Abort()),
         "close" => Close(req),
         _ => throw new ArgumentException($"未知 op「{op}」"),

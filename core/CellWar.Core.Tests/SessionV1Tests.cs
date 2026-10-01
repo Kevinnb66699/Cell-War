@@ -113,7 +113,7 @@ public class SessionV1Tests
     }
 
     [Fact]
-    public void query_两条走已有方法_其余为null()
+    public void query_四条都有_缺参数与未知kind为null()
     {
         using var session = Demo();
         var me = session.ObserveV1(0).State.Cells.Single(c => c.Pid == 0);
@@ -124,7 +124,15 @@ public class SessionV1Tests
         Assert.NotNull(quote);
         Assert.Equal(JsonValueKind.Array, quote.Value.GetProperty("steps").ValueKind);
         Assert.True(quote.Value.TryGetProperty("total", out _) && quote.Value.TryGetProperty("stop", out _));
-        Assert.Null(session.QueryV1(0, "cost_effects_for", args));   // tier B
+        // tier B 两条（2026-10-01 换内核 P2 起有实现，逐字对拍在 L1 EnvelopeParityTests）：缺 act / to 返回 null，不抛
+        Assert.Null(session.QueryV1(0, "cost_effects_for", args));
+        var withAct = JsonSerializer.SerializeToElement(new { cid = me.Id, act = "move" }, ObservationV1Codec.Json);
+        Assert.Equal(JsonValueKind.Array, session.QueryV1(0, "cost_effects_for", withAct)!.Value.ValueKind);
+        var batch = JsonSerializer.SerializeToElement(new { cid = me.Id, acts = new[] { "move", "draw" } }, ObservationV1Codec.Json);
+        Assert.Equal(JsonValueKind.Object, session.QueryV1(0, "cost_effects_for", batch)!.Value.ValueKind);
+        var toSelf = JsonSerializer.SerializeToElement(new { cid = me.Id, to = me.Pos }, ObservationV1Codec.Json);
+        Assert.Equal(JsonValueKind.String, session.QueryV1(0, "move_block_reason", toSelf)!.Value.ValueKind);
+        Assert.Null(session.QueryV1(1, "move_block_reason", toSelf));   // 别人的细胞不给问
         Assert.Null(session.QueryV1(0, "nope", args));
     }
 

@@ -57,7 +57,19 @@ internal sealed class SessionHost : IDisposable
         var seed = cfg["seed"] is { } sv ? unchecked((ulong)J.Long(sv)) : 1UL;
         var viewer = J.IntOr(cfg["observe_viewer"]);
         var openHands = cfg["open_hands"] is { } oh && J.Bool(oh);
-        return new(sid, MatchSession.Start(factions.Length, seed), viewer, openHands);
+        // GD `tune.cancer_types`（按癌席顺序钉死，值是 GD ctype）与 `players[].name`（宿主注入的显示名；空串 = 用默认名）
+        var cancerTypes = cfg["cancer_types"]?.AsArray().Select(J.Int).ToArray() ?? [];
+        var world = MatchSetup.Create(factions.Length, seed, cancerTypes);
+        if (cfg["names"]?.AsArray() is { } names)
+            for (var i = 0; i < names.Count && i < factions.Length; i++)
+                if (J.StrOr(names[i]) is { Length: > 0 } name)
+                    world = world.UpdatePlayer(i, new Player
+                    {
+                        Seat = world.Players[i].Seat, Faction = world.Players[i].Faction, IsAlive = world.Players[i].IsAlive,
+                        DrawCount = world.Players[i].DrawCount, AntigenMemory = world.Players[i].AntigenMemory,
+                        ImmuneLevel = world.Players[i].ImmuneLevel, CancerType = world.Players[i].CancerType, Name = name,
+                    });
+        return new(sid, new MatchSession(world, seed), viewer, openHands);
     }
 
     // ---- 条目 ----
@@ -109,6 +121,26 @@ internal sealed class SessionHost : IDisposable
         return true;
     }
 
+    /// <summary>GD `mark_player`：给一席的名字加后缀（单机真人席的「(我)」），已经带了就不重复加。纯装饰，不进规则。</summary>
+    public bool MarkPlayer(int seat, string suffix)
+    {
+        var s = session.Peek().State;
+        if (!s.Players.ContainsKey(seat) || suffix == "") return false;
+        var cur = Stage.SeatName(s, seat);
+        if (!cur.EndsWith(suffix, StringComparison.Ordinal)) session.Rename(seat, cur + suffix);
+        return true;
+    }
+
+    /// <summary>GD `surrender(faction)`：对方阵营直接获胜。之后马上泵一次 —— 收步、sync、game_over 条目这就出来了。</summary>
+    public bool Surrender(int faction)
+    {
+        if (Aborted || Over || faction is not (0 or 1)) return false;
+        if (!session.Surrender((Faction)faction)) return false;
+        open = null;
+        Pump();
+        return true;
+    }
+
     /// <summary>= InProc.abort()：对局作废，正在等的那一问不再收答案；之后不再推任何条目。</summary>
     public void Abort()
     {
@@ -129,6 +161,18 @@ internal sealed class SessionHost : IDisposable
     }
 
     public HostSnapshot Peek() => session.Peek();
+
+    /// <summary>
+    /// 观测协议 §5.3 的查询式（plan_next_dests / quote_path / cost_effects_for / move_block_reason），转给 <see cref="MatchSession.QueryV1"/>。
+    /// `seat` 不给就取这只细胞的主人 —— 本机宿主是全知的（桌面 / 热座），服务器那条路由它自己传请求方的席位（P6）。
+    /// </summary>
+    public JsonNode? Query(string kind, JsonObject args, int? seat)
+    {
+        var cid = J.IntOr(args["cid"]);
+        var owner = seat ?? (cid is { } id && session.Peek().State.Cells.TryGetValue(new EntityId((ulong)(id + 1)), out var c) ? c.OwnerSeat : -1);
+        var result = session.QueryV1(owner, kind, JsonSerializer.SerializeToElement(args));
+        return result is { } r ? JsonNode.Parse(r.GetRawText()) : null;
+    }
 
     public void Dispose() => session.Dispose();
 

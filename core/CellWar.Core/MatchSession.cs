@@ -281,7 +281,7 @@ public sealed class MatchSession : ISession
         return Submit(seat, answer);
     }
 
-    /// <summary>观测协议 §5.3 查询式（不进每帧观测）：`plan_next_dests` / `quote_path` 走已有的两个方法；tier B 那两条（`cost_effects_for` / `move_block_reason`）与未知 kind 返回 null。</summary>
+    /// <summary>观测协议 §5.3 查询式（不进每帧观测）：`plan_next_dests` / `quote_path` 走已有的两个方法；tier B 那两条（`cost_effects_for` / `move_block_reason`）2026-10-01 起走 Observation.Queries；未知 kind 返回 null。</summary>
     public System.Text.Json.JsonElement? QueryV1(int seat, string kind, System.Text.Json.JsonElement args)
     {
         static HexPosition At(System.Text.Json.JsonElement e) { var q = e.GetProperty("q").GetInt32(); var r = e.GetProperty("r").GetInt32(); return new(q, r, -q - r); }
@@ -290,9 +290,59 @@ public sealed class MatchSession : ISession
         {
             "plan_next_dests" => PlanNextDests(seat, Cell(args), At(args.GetProperty("from"))).Select(Observation.ObservationV1Codec.Pos).ToArray(),
             "quote_path" => Observation.ObservationV1Codec.PathQuote(QuotePath(seat, Cell(args), args.GetProperty("path").EnumerateArray().Select(At).ToArray())),
+            // tier B 两条（换内核 P2，2026-10-01）：照 GD 只给自己的细胞问；批量形态 `acts[]` 一次问完整排按钮（协议 p=2）
+            "cost_effects_for" => Own(seat, Cell(args)) is { } c1
+                ? args.TryGetProperty("acts", out var acts)
+                    ? acts.EnumerateArray().Select(a => a.GetString()!).Distinct().ToDictionary(a => a, a => Read(s => Observation.Queries.CostEffectsFor(s, c1(s), a)), StringComparer.Ordinal)
+                    : args.TryGetProperty("act", out var act) ? Read(s => Observation.Queries.CostEffectsFor(s, c1(s), act.GetString()!)) : null
+                : null,
+            "move_block_reason" => Own(seat, Cell(args)) is { } c2 && args.TryGetProperty("to", out var to) ? Read(s => Observation.Queries.MoveBlockReason(s, c2(s), At(to))) : null,
             _ => null,
         };
         return result is null ? null : System.Text.Json.JsonSerializer.SerializeToElement(result, Observation.ObservationV1Codec.Json);
+    }
+
+    /// <summary>改显示名（GD `mark_player` / 联机昵称同一个字段）。纯装饰，不进规则；之后的观测与日志都用新名字。</summary>
+    public void Rename(int seat, string name)
+    {
+        lock (gate)
+            runtime.EditWorld(s => s.Players.TryGetValue(seat, out var p) ? s.UpdatePlayer(seat, With(p, name)) : s);
+    }
+
+    private static Player With(Player p, string name) => new()
+    {
+        Seat = p.Seat, Faction = p.Faction, IsAlive = p.IsAlive, DrawCount = p.DrawCount,
+        AntigenMemory = p.AntigenMemory, ImmuneLevel = p.ImmuneLevel, CancerType = p.CancerType, Name = name,
+    };
+
+    /// <summary>
+    /// 投降（GD `cw_game.gd surrender`）：对方阵营直接获胜，`win_kind` = surrender_cancer / surrender_immune。已经分出胜负、或阵营不对（观战席）就什么都不做。
+    /// 返回是否真的结束了对局。GD 那句「=== X投降：Y胜利 ===」的日志等日志通道落地后补（P2 日志那一段）。
+    /// </summary>
+    public bool Surrender(Faction faction)
+    {
+        lock (gate)
+        {
+            using (var lease = runtime.Read())
+                if (lease.Snapshot.State.Turn.Winner is not null) return false;
+            var winner = faction == Faction.Immune ? Faction.Cancer : Faction.Immune;
+            var kind = winner == Faction.Cancer ? "surrender_cancer" : "surrender_immune";
+            runtime.EditWorld(s => s.WithTurn(s.Turn.Copy(phase: Phase.Finished, winner: winner, winKind: kind)), endMatch: true);
+            return true;
+        }
+    }
+
+    /// <summary>查询式的读法：拿一份当前世界跑纯函数（锁里读、锁外不碰 runtime）。</summary>
+    private T Read<T>(Func<WorldState, T> f)
+    {
+        lock (gate) { using var lease = runtime.Read(); return f(lease.Snapshot.State); }
+    }
+
+    /// <summary>这只细胞归 <paramref name="seat"/> 管且活着 → 返回「从世界里取它」的函数；否则 null（同 PlanNextDests / QuotePath 的授权口径）。</summary>
+    private Func<WorldState, Cell>? Own(int seat, EntityId id)
+    {
+        var ok = Read(s => s.Cells.TryGetValue(id, out var c) && c.OwnerSeat == seat);
+        return ok ? s => s.Cells[id] : null;
     }
 
     /// <summary>三个字段分开（迁移计划 §三 硬不变量③）。`digest` 批 0 先与 `rules_build` 同值，sidecar 那一批定稿。</summary>

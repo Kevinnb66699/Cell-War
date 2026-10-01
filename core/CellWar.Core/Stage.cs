@@ -92,6 +92,7 @@ internal static class Stage
     public static string SeatName(WorldState s, int seat)
     {
         if (!s.Players.TryGetValue(seat, out var p)) return $"席位{seat}";
+        if (!string.IsNullOrEmpty(p.Name)) return p.Name;   // 宿主注入的名字优先（GD 里名字就是 players[pid].name 这一个字段）
         var index = s.Players.Values.Count(x => x.Faction == p.Faction && x.Seat < seat);
         return (p.Faction == Faction.Immune ? "免疫" : "癌症") + (char)('A' + index);
     }

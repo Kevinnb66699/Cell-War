@@ -12,4 +12,8 @@ public static class GdEnum
     public static int Itype(CellType t) => t < CellType.Melanoma ? (int)t : -1;
 
     public static int Ctype(CellType t) => t >= CellType.Melanoma ? (int)t - CancerTypeBase : -1;
+    /// <summary><see cref="Ctype"/> 的反向：GD 的 ctype → C# 癌种；不是合法癌种返回 null。</summary>
+    public static CellType? CancerFromCtype(int ctype)
+        => ctype >= 0 && Enum.IsDefined(typeof(CellType), ctype + CancerTypeBase) && (CellType)(ctype + CancerTypeBase) >= CellType.Melanoma
+            ? (CellType)(ctype + CancerTypeBase) : null;
 }

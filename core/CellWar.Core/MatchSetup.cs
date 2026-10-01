@@ -14,6 +14,28 @@ public static class MatchSetup
     // 特殊组织坐标（轴坐标，中央 (0,0)）。布局为 3 重旋转对称，中央格非特殊组织。
     private static readonly HexPosition[] Cores =
         [new(0, -3, 3), new(3, 0, -3), new(-3, 3, 0)];
+    /// <summary>癌席 → 癌种：先认钉死的（合法且没被占），剩下的按洗好的顺序补，不重复。</summary>
+    private static Dictionary<int, CellType> AssignCancerTypes(int playerCount, IReadOnlyList<CellType> shuffled, IReadOnlyList<int> fixedTypes)
+    {
+        var result = new Dictionary<int, CellType>();
+        var taken = new HashSet<CellType>();
+        var ci = 0;
+        for (var seat = 0; seat < playerCount; seat++)
+        {
+            if (seat % 2 == 0) continue;   // 免疫席
+            if (ci < fixedTypes.Count && GdEnum.CancerFromCtype(fixedTypes[ci]) is { } want && !taken.Contains(want))
+            {
+                result[seat] = want;
+                taken.Add(want);
+            }
+            ci++;
+        }
+        var rest = shuffled.Where(t => !taken.Contains(t)).GetEnumerator();
+        for (var seat = 1; seat < playerCount; seat += 2)
+            if (!result.ContainsKey(seat) && rest.MoveNext()) result[seat] = rest.Current;
+        return result;
+    }
+
     /// <summary>六个骨髓，顺序 = GD `CWData.MARROWS`（【骨髓动员】按这个序逐个收）。</summary>
     internal static readonly HexPosition[] Marrows =
         [new(3, -3, 0), new(0, 3, -3), new(-3, 0, 3), new(6, -3, -3), new(-3, 6, -3), new(-3, -3, 6)];
@@ -24,7 +46,11 @@ public static class MatchSetup
     internal static TissueType SpecialAt(HexPosition p)
         => Cores.Contains(p) ? TissueType.MetabolicCore : Marrows.Contains(p) ? TissueType.BoneMarrow : Vessels.Contains(p) ? TissueType.BloodVessel : TissueType.Normal;
 
-    public static WorldState Create(int playerCount, ulong seed)
+    public static WorldState Create(int playerCount, ulong seed) => Create(playerCount, seed, []);
+
+    /// <param name="fixedCancerTypes">按癌席顺序钉死的癌种（GD `tune.cancer_types`，值是 GD 的 ctype）。GD `_assign_cancer_types`：
+    /// 钉到的席位用钉的；没钉到、钉的值不合法、或已被前一席占用的，照常从剩下的里抽 —— 同局不重复。</param>
+    public static WorldState Create(int playerCount, ulong seed, IReadOnlyList<int> fixedCancerTypes)
     {
         var rng = new Xoshiro256StarStar(seed);
         var tissues = new Dictionary<HexPosition, Tissue>();
@@ -44,7 +70,7 @@ public static class MatchSetup
         var players = new Dictionary<int, Player>();
         var cancerPool = new List<CellType> { CellType.Melanoma, CellType.SignetRing, CellType.Osteosarcoma, CellType.SmallCellLung };
         var shuffledTypes = rng.Shuffle(cancerPool);
-        var typeIndex = 0;
+        var assigned = AssignCancerTypes(playerCount, shuffledTypes, fixedCancerTypes);
         for (var seat = 0; seat < playerCount; seat++)
         {
             var faction = seat % 2 == 0 ? Faction.Immune : Faction.Cancer;
@@ -52,7 +78,7 @@ public static class MatchSetup
             {
                 Seat = seat, Faction = faction, IsAlive = true, DrawCount = 0,
                 AntigenMemory = 0, ImmuneLevel = ImmuneLevel.I,
-                CancerType = faction == Faction.Cancer ? shuffledTypes[typeIndex++] : null
+                CancerType = faction == Faction.Cancer ? assigned[seat] : null
             };
         }
 

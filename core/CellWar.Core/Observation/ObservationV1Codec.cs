@@ -269,6 +269,8 @@ public static class ObservationV1Codec
             "cancer_weighted" => $"癌症胜利：加权占地 {weighted} >= {CancerWinWeighted}",
             "limit_cancer" => $"{s.Turn.WorldRound} 回合到：癌性组织 {cancerous} >= {limit}，癌症胜利",
             "limit_immune" => $"{s.Turn.WorldRound} 回合到：癌性组织 {cancerous} < {limit}，免疫胜利",
+            "surrender_cancer" => "免疫方投降：癌症胜利",   // GD cw_game.gd surrender
+            "surrender_immune" => "癌方投降：免疫胜利",
             _ => "",
         };
     }
