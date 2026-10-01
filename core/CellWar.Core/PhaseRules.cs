@@ -115,9 +115,13 @@ internal static class PhaseRules
         return s;
     }
 
+    /// <summary>GD `CWTurn.MAX_ACTIONS_PER_TURN`：一个行动回合最多执行几次行动，满了替这一席结束回合（行动次数护栏）。</summary>
+    internal const int MaxActionsPerTurn = 80;
+
     /// <summary>进入某玩家的行动回合：重置攻击/抽卡次数与「本行动回合」修饰，并按已装备永久技能续上本回合修饰。</summary>
     private static WorldState BeginTurn(WorldState s, int seat)
     {
+        s = s.WithTurn(s.Turn.Copy(actionsThisTurn: 0));   // GD `_advance_turn`：换到这一席时 `flow["acts"] = 0`
         foreach (var c in Cells(s).Where(c => c.OwnerSeat == seat).ToArray())
         {
             s = s.UpdateCell(c.Id, s.Cells[c.Id].Copy(attacks: 0, draws: 0,

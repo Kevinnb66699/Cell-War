@@ -654,6 +654,10 @@ internal static class CellRules
             ? s.WithTurn(s.Turn.WithPendingLand(id, at, walkDepthBefore))
             : LandTail(s, id, at, walkDepthBefore, rng);
 
+    /// <summary>一次抽卡追出的问答还没问完（GD `await draw(...)` 还没回来）：落地的那几种挂起，外加这一抽带出的【骨髓动员】收取循环。</summary>
+    internal static bool DrawBlocked(WorldState s, int walkDepthBefore)
+        => LandBlocked(s, walkDepthBefore) || (s.Turn.PendingMarrow.Count > 0 && s.Turn.PendingMarrowWalkDepth >= walkDepthBefore);
+
     /// <summary>出口：推迟的后半截能补做了吗（弃置 / 连锁 / 二选一都摘干净、连走栈回到落地前的深度）。</summary>
     internal static bool LandReady(WorldState s)
         => s.Turn.PendingLandCell is not null && !LandBlocked(s, s.Turn.PendingLandWalkDepth)
@@ -665,10 +669,13 @@ internal static class CellRules
         var at = s.Turn.PendingLandAt!.Value;
         var depth = s.Turn.PendingLandWalkDepth;
         var step = s.Turn.PendingLandStep;
+        var ras = s.Turn.PendingLandRas;
         s = s.WithTurn(s.Turn.WithPendingLand(null, null, 0));
-        if (step == 1) return UpdateMarks(s);   // collect_special 早做过了，只欠 update_marks
-        if (!s.Cells[id].IsAlive) return s;   // 连锁途中死了：GD 的 collect_special 也不会给死细胞发卡（cells_at 只数活的）
-        return LandTail(s, id, at, depth, rng);
+        if (step == 1) s = UpdateMarks(s);   // collect_special 早做过了，只欠 update_marks
+        else if (s.Cells[id].IsAlive) s = LandTail(s, id, at, depth, rng);   // 连锁途中死了：GD 的 collect_special 也不会给死细胞发卡（cells_at 只数活的）
+        if (!ras) return s;
+        // 落地又推迟了（collect_special 追出了新的问答）：RAS 接着欠；做完了才轮到它（GD `_do_move` 里排在 `await enter_tile` 之后）
+        return s.Turn.PendingLandCell == id ? s.WithTurn(s.Turn.Copy(pendingLandRas: true)) : RasAfterMove(s, id);
     }
 
     /// <summary>GD `collect_special`（cw_actions.gd:1096-1107）：代谢核心有存储就收能量并清库存，
@@ -926,7 +933,7 @@ internal static class CellRules
             attacker = s.Cells[cell.Id].Copy(attacks: s.Cells[cell.Id].AttacksThisTurn + 1);
             s = s.UpdateCell(cell.Id, attacker);
             // 攻击无效的反弹：GD cw_actions.gd:857-858 `if tune.counter_dmg_on_fail > 0: cancer_hit(cell, counter_dmg_on_fail, "反弹")`（Kind.WORLD：【缺氧适应】挡不住，口径 #62）。此前 C# 写死 0.5、不读旋钮
-            if (damage == 0 && s.Tuning.CounterDamageOnFail > 0) s = Damage(s, cell.Id, s.Tuning.CounterDamageOnFail, LossSource.World, "反弹");
+            if (damage == 0 && s.Tuning.CounterDamageOnFail > 0) s = UpdateMarks(Damage(s, cell.Id, s.Tuning.CounterDamageOnFail, LossSource.World, "反弹"));   // 反弹也是一批（GD cancer_hit），批末刷标记
             else
             {
                 s = Damage(s, target.Id, damage + extra, LossSource.ImmuneAttack, "攻击", cytotoxDirect, out var dealt, out var mainDealt);
@@ -944,6 +951,10 @@ internal static class CellRules
                     if (s.Cells[cell.Id].Type == CellType.Macrophage)
                         s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
                 }
+                // GD 伤害批的末尾（cw_damage.gd:141，排在死亡与「造成伤害后」触发 ——【吞噬体成熟】的处决 —— 之后）：光环重新施加标记。
+                // 被这一击吃掉标记的目标若还在树突 2 环内、本回合还没得过标记，当场就补回来，下一次免疫伤害照样 ×2。
+                // 此前 C# 要等下一次移动才刷（AI 对拍语料 2026-10-01 揪出：抗体连发第二发少翻倍）
+                s = UpdateMarks(s);
                 // 【补体级联】：攻击成功后转化目标相邻最多 2 格无细胞占据的普通癌组织 —— GD `for i in spend_mods(cell, "补体级联"): _cascade(cell, target)`：
                 // 打了几张就跑几遍，候选按 DIRS 序（pick_n 抽的是下标），每遍现算候选、转健康走 to_healthy
                 for (var i = 0; i < cascadeCount; i++)
@@ -1000,25 +1011,37 @@ internal static class CellRules
         if (landed.State != tissue.State)
             events.Add(new TissueStateChangedEvent(s.Turn.WorldRound, s.Turn.Phase, move.TargetPosition, tissue.State, landed.State));
         // 后半截（黏液 → collect_special → update_marks）：定殖 / 净化追出问答就推迟到问完再做（GD 是 await 链）
+        var landBefore = (s.Turn.PendingLandCell, s.Turn.PendingLandAt);
         s = LandOrDefer(s, cell.Id, move.TargetPosition, walkDepth, rng);
-        // 【RAS持续激活】：每行动回合第一次通过【移动】触发【定殖】后恢复。GD 钩在 `_do_move` 里 enter_tile **之后**（cw_actions.gd:776-782），
-        // 即 collect_special（骨髓可能抽一张并当场结算）与 update_marks 之后 —— 此前 C# 排在 CollectSpecial 之前（2026-09-17 晚对齐）。
-        // GD `first_this_turn`（cw_game.gd）**每次都记一笔**、只在第一次返回 true：fx_turn 存的是「用了几次」，
-        // 所以第二次定殖不回血、计数照样 +1（L1 第 184 步：GD 记 2、C# 记 1）。计数进 state_hash，得逐位同
-        if (cell.Faction == Faction.Cancer && tissue.State == TissueState.Healthy && RulePolicies.HasSkill(s, s.Cells[cell.Id], "RAS持续激活"))
+        // 【RAS持续激活】排在整个 enter_tile **之后**（GD cw_actions.gd:776）。落地被推迟了（这一下追出了问答）就记成「欠着」，
+        // 等 ResumeLand 把后半截做完再判 —— 问答进行时能量还没回（AI 对拍语料 2026-10-01）
+        if (cell.Faction == Faction.Cancer && tissue.State == TissueState.Healthy)
         {
-            var first = TurnGateOpen(s.Cells[cell.Id], "RAS持续激活");
-            s = BurnTurnGate(s, cell.Id, "RAS持续激活");
-            if (first)
-            {
-                var heal = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 3, 1 => 5, _ => 7 };
-                s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
-            }
+            var deferred = s.Turn.PendingLandCell == cell.Id && s.Turn.PendingLandAt == move.TargetPosition
+                && (s.Turn.PendingLandCell, s.Turn.PendingLandAt) != landBefore;
+            s = deferred ? s.WithTurn(s.Turn.Copy(pendingLandRas: true)) : RasAfterMove(s, cell.Id);
         }
         events.Add(new CellMovedEvent(s.Turn.WorldRound, s.Turn.Phase, cell.Id, cell.Position, move.TargetPosition, cost));
         s = UpdateMarks(s);
         if (target != null) EmitImmuneAttackFx(s, cell, target, move.TargetPosition, attackHit);   // 击杀进格之后才演（GD cw_actions.gd:940-949）
         return new(s, events, true);
+    }
+
+    /// <summary>
+    /// 【RAS持续激活】：每行动回合第一次通过【移动】触发【定殖】后恢复。GD 钩在 `_do_move` 里 enter_tile **之后**（cw_actions.gd:776-782），
+    /// 即 collect_special（骨髓可能抽一张并当场结算）与 update_marks 之后 —— 此前 C# 排在 CollectSpecial 之前（2026-09-17 晚对齐）。
+    /// GD `first_this_turn`（cw_game.gd）**每次都记一笔**、只在第一次返回 true：fx_turn 存的是「用了几次」，
+    /// 所以第二次定殖不回血、计数照样 +1（L1 第 184 步：GD 记 2、C# 记 1）。计数进 state_hash，得逐位同。
+    /// 落地推迟时由 <see cref="ResumeLand"/> 在后半截做完之后调它（GD 不判死活：细胞在落地追出的结算里死了也照样记账回血）。
+    /// </summary>
+    private static WorldState RasAfterMove(WorldState s, EntityId id)
+    {
+        if (!RulePolicies.HasSkill(s, s.Cells[id], "RAS持续激活")) return s;
+        var first = TurnGateOpen(s.Cells[id], "RAS持续激活");
+        s = BurnTurnGate(s, id, "RAS持续激活");
+        if (!first) return s;
+        var heal = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 3, 1 => 5, _ => 7 };
+        return s.UpdateCell(id, s.Cells[id].WithEnergy(s.Cells[id].Energy + heal));
     }
 
     /// <summary>GD cw_actions.gd:944-949：非巨噬的免疫攻击，整段结算（含进格）之后演本体冲撞。<paramref name="attackerBefore"/> / <paramref name="targetBefore"/> 是攻击前的快照（起点、种类）。</summary>

@@ -186,6 +186,22 @@ public sealed class TurnState
     public int PendingLandWalkDepth { get; init; }
     /// <summary>推迟的落地做到哪一步：0 = 整个后半截都没做；1 = collect_special 做过了（它追出的问答 / 骨髓循环还挂着），只欠 update_marks。</summary>
     public int PendingLandStep { get; init; }
+    /// <summary>这次推迟的落地是癌细胞**迁移**进健康格（GD `_do_move` 里 `was_healthy`），落地做完还欠一次【RAS持续激活】的判定。
+    /// GD 的 RAS 钩在 `await enter_tile(...)` **之后**（cw_actions.gd:776）—— 落地追出的问答（骨髓抽到【基因组不稳定】的二选一……）问完才回血；
+    /// 问的那一刻能量还没回（AI 对拍语料 2026-10-01 揪出：C# 原来当场回血，二选一看到的能量多 0.3）。</summary>
+    public bool PendingLandRas { get; init; }
+
+    /// <summary>【突变】第 2 点「抽卡，并削减 1 抗原记忆」还欠着几记 -1：GD `apply_mutation` 是 `await draw(...)` **回来之后**才 `reduce_memory(1)`，
+    /// 抽到的卡追出问答（【基因组不稳定】的二选一、撑爆手牌的弃置、连走、风暴选中心）要先问完 —— 问的那一刻记忆还没扣
+    /// （AI 对拍语料 2026-10-01 揪出：C# 原来当场扣，二选一看到的记忆少 1）。挂起摘干净时 DecisionRouter 出口一次扣掉。</summary>
+    public int PendingMemoryCut { get; init; }
+    /// <summary>欠下第一记时的连走栈深（同 <see cref="PendingLandWalkDepth"/> 的用法：栈比它深 = 抽到的连走卡还在走，不能扣）。</summary>
+    public int PendingMemoryCutWalkDepth { get; init; }
+
+    /// <summary>本行动回合已执行了几次行动（GD `flow["acts"]`，「结束回合」不算）。满 <see cref="PhaseRules.MaxActionsPerTurn"/> 次就替这一席结束回合 ——
+    /// GD 的行动次数护栏（cw_game.gd:325，防桥实现异常死循环）。此前 C# 没有这道闸：启发式在两格癌组织之间来回踱步的局面里，
+    /// GD 第 80 步就收回合、C# 一直走到没能量（AI 对拍语料 2026-10-01 揪出）。</summary>
+    public int ActionsThisTurn { get; init; }
 
     public TurnState Clone() => new()
     {
@@ -237,7 +253,11 @@ public sealed class TurnState
         PendingLandCell = PendingLandCell,
         PendingLandAt = PendingLandAt,
         PendingLandWalkDepth = PendingLandWalkDepth,
-        PendingLandStep = PendingLandStep
+        PendingLandStep = PendingLandStep,
+        PendingLandRas = PendingLandRas,
+        PendingMemoryCut = PendingMemoryCut,
+        PendingMemoryCutWalkDepth = PendingMemoryCutWalkDepth,
+        ActionsThisTurn = ActionsThisTurn
     };
 }
 

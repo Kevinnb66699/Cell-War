@@ -102,7 +102,7 @@ internal static class SkillRules
             }
         foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && tiles.Contains(x.Position)).ToArray())
             s = Damage(s, target.Id, damage, LossSource.CancerSkill);   // 主射线 2.0 / 侧向 1.0（原 2 / 1 = 0.2 / 0.1）
-        return s;
+        return UpdateMarks(s);   // GD cancer_hit_area 一批，批末刷标记（cw_damage.gd:141）
     }
 
     /// <summary>T【Excalibur】主射线相邻的癌组织进入波及范围的概率（GD `EXCALIBUR_SPLASH_PCT`）。</summary>
@@ -195,6 +195,9 @@ internal static class SkillRules
                 {
                     Stage.Emit(Stage.Fx(s, "antibody", ("from", cell.Position), ("targets", targets.Select(x => x.Position).ToArray())));
                     foreach (var target in targets) s = Damage(s, target.Id, damage, LossSource.ImmuneEffect);
+                    // GD immune_hit_area 一批，批末刷标记（cw_damage.gd:141）：被这一发吃掉标记的、还在树突光环里的当场补回 ——
+                    // 第二发抗体照样 ×2。此前 C# 不刷（AI 对拍语料 2026-10-01 揪出）
+                    s = UpdateMarks(s);
                 }
                 else
                 {
@@ -229,6 +232,7 @@ internal static class SkillRules
                 }
                 foreach (var target in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && x.Position.DistanceTo(cell.Position) <= 1).ToArray())
                     s = Damage(s, target.Id, 10, LossSource.ImmuneEffect);   // 细胞毒素：1.0 能量（原 1 = 0.1）
+                s = UpdateMarks(s);   // GD immune_hit_area 一批，批末刷标记
                 break;
             }
             case "裂解":
@@ -260,6 +264,7 @@ internal static class SkillRules
                 Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "黏液破裂", position, true));   // GD cw_actions.gd:1469
                 foreach (var immune in Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Immune && x.Position.DistanceTo(position) <= 2).ToArray())
                     s = Damage(s, immune.Id, 20, LossSource.CancerSkill);
+                s = UpdateMarks(s);   // GD cancer_hit_area 一批，批末刷标记 —— 排在自毁之前（GD 那一刷时印戒还活着）
                 s = Kill(s, cell.Id);
                 s = UpdateMarks(s);
                 break;

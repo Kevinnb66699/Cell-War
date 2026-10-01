@@ -211,7 +211,7 @@ internal static class CardRules
             var loss = CancerPhase(s.Turn.WorldRound) switch { 0 => 8, 1 => 15, _ => 20 };
             if (AdjacentCancerous(s, s.Cells[tid].Position, 3)) loss += 5;
             Stage.Emit(Stage.Fx(s, "card_acid", ("from", cell.Position), ("to", s.Cells[tid].Position)));   // GD cw_card_fx.gd:581：酸滴 ×3 + 目标碎粒
-            return Damage(s, tid, loss, LossSource.CancerSkill);
+            return UpdateMarks(Damage(s, tid, loss, LossSource.CancerSkill));   // 每次伤害批末刷标记（GD cw_damage.gd:141）
         },
         ["基质硬化"] = (s, cell, rng, target, targetCell) =>
         {
@@ -241,7 +241,7 @@ internal static class CardRules
         {
             if (targetCell is not { } tid || !AdccTargets(s, cell).Contains(tid)) return s;
             Stage.Emit(Stage.Fx(s, "antibody", ("from", cell.Position), ("targets", new[] { s.Cells[tid].Position })));   // GD cw_card_fx.gd:300：复用 B 细胞那发 Y 形抗体
-            return Damage(s, tid, cell.Type == CellType.BCell ? 15 : 10, LossSource.ImmuneEffect);
+            return UpdateMarks(Damage(s, tid, cell.Type == CellType.BCell ? 15 : 10, LossSource.ImmuneEffect));   // 批末刷标记（GD cw_damage.gd:141）
         },
         // 【IFN-γ高峰】：技能卡，圆心 = 所选免疫细胞（可以是自己、不限距离），选项层用 IfnHasEffect 把「打了什么都不发生」的目标挡掉
         ["IFN-γ高峰"] = (s, cell, rng, target, targetCell) =>
@@ -410,6 +410,7 @@ internal static class CardRules
             foreach (var p in area)
                 if (s.GetCellAt(p) is { IsAlive: true, Faction: Faction.Cancer } victim)
                     s = Damage(s, victim.Id, 10, LossSource.ImmuneEffect);   // TNF-α局部炎症：1.0 能量（原 1 = 0.1）
+            s = UpdateMarks(s);   // GD immune_hit_area 是一批，批末刷标记（cw_damage.gd:141）
             return s.InstallEffect("TNF-α局部炎症", 1, 1, frozen);
         }
     };
@@ -467,6 +468,7 @@ internal static class CardRules
             var victims = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(t.Position) <= 1).ToArray();
             foreach (var c in victims)
                 s = Damage(s, c.Id, 5, LossSource.ImmuneEffect);
+            s = UpdateMarks(s);   // GD immune_hit_area 一批，批末刷标记
             Stage.Evt(s, "炎症风暴", $"{tiles.Length} 格转健康 · {victims.Length} 敌 -0.5", t.Position);   // GD cw_card_fx.gd:700
             return s;
         }
@@ -476,6 +478,7 @@ internal static class CardRules
             Stage.Emit(Stage.Fx(s, "card_storm", ("at", t.Position), ("tiles", Tiles(s).Where(x => x.Position.DistanceTo(t.Position) <= 2).Select(x => x.Position).ToArray())));   // GD cw_card_fx.gd:711
             foreach (var c in victims)
                 s = Damage(s, c.Id, 10, LossSource.ImmuneEffect);   // 免疫风暴：1.0 能量（原 1 = 0.1）
+            s = UpdateMarks(s);   // GD immune_hit_area 一批，批末刷标记
             // 净化在伤害**之后**算（GD 同序）：被打死的癌细胞腾出的格子这一发就转得掉
             var purged = Tiles(s).Where(x => x.State == TissueState.Cancer && s.GetCellAt(x.Position) is not { IsAlive: true, Faction: Faction.Cancer } && x.Position.DistanceTo(t.Position) <= 2).ToArray();   // GD storm_immune_tiles：无**癌细胞**占据（免疫站着的照转）
             foreach (var tile in purged) s = ToHealthy(s, tile.Position);   // GD `to_healthy`
@@ -636,8 +639,13 @@ internal static class CardRules
         Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, roll switch { 1 => "突变：无事发生", 2 => "突变：抽一张 · 记忆 -1", _ => "突变：能量 -0.8 · 记忆 -2" }, at));   // GD cw_actions.gd:1384/1387/1396
         if (roll == 2)
         {
+            // GD `apply_mutation`：`await draw(...)` 回来之后才 `reduce_memory(1)`（cw_actions.gd:1358-1359）。
+            // 抽到的卡追出了问答（二选一 / 弃置 / 连走 / 风暴选中心）就先欠着，挂起摘干净时 DecisionRouter 出口再扣
+            var depth = WalkDepth(s);
             s = DrawOne(s, s.Cells[cellId], rng, "突变");
-            s = ReduceMemory(s, 1);
+            if (!DrawBlocked(s, depth)) s = ReduceMemory(s, 1);
+            else s = s.WithTurn(s.Turn.Copy(pendingMemoryCut: s.Turn.PendingMemoryCut + 1,
+                pendingMemoryCutWalkDepth: s.Turn.PendingMemoryCut > 0 ? s.Turn.PendingMemoryCutWalkDepth : depth));
         }
         else if (roll == 3)
         {
@@ -1000,6 +1008,7 @@ internal static class CardRules
         var victims = Cells(s).Where(c => c.IsAlive && c.Faction == Faction.Cancer && c.Position.DistanceTo(center) <= 2).ToArray();
         foreach (var c in victims)
             s = Damage(s, c.Id, 10, LossSource.ImmuneEffect);   // 1.0 能量（十分位）
+        s = UpdateMarks(s);   // GD immune_hit_area 一批，批末刷标记（cw_damage.gd:141）
         foreach (var t in Tiles(s).Where(t => t.State == TissueState.Cancer && t.Position.DistanceTo(center) <= 2).ToArray())
             s = s.UpdateTissueSolidification(t.Position, Math.Max(0, t.SolidificationCount - 10));   // 固化计数 -1.0
         Stage.Announce(s, $"{title}{victims.Length} 个癌细胞 -1.0 · 固化 -1.0", center, true);   // GD cw_card_fx.gd:481

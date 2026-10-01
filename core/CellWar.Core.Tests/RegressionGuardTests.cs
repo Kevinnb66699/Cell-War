@@ -365,6 +365,7 @@ public class RegressionGuardTests
     private static readonly string[] LandFields =
     [
         nameof(TurnState.PendingLandCell), nameof(TurnState.PendingLandAt), nameof(TurnState.PendingLandWalkDepth), nameof(TurnState.PendingLandStep),
+        nameof(TurnState.PendingLandRas),
     ];
 
     /// <summary>风暴选中心的三个字段（问谁 / 哪张卡 / 发牌的那只）。</summary>
@@ -1493,6 +1494,10 @@ public class RegressionGuardTests
         PendingLandAt = new HexPosition(2, -1, -1),
         PendingLandWalkDepth = 1,
         PendingLandStep = 1,
+        PendingLandRas = true,
+        PendingMemoryCut = 2,
+        PendingMemoryCutWalkDepth = 1,
+        ActionsThisTurn = 7,
     };
 
     /// <summary>同上：每个字段都非默认。</summary>
