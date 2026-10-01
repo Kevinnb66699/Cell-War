@@ -28,7 +28,7 @@ static func can_continue() -> bool:
 
 
 ## 能写才写（pending 边界 + 文件真的落了盘），返回是否成功。
-## ai_level：0 普通 / 1 较强 / 2 树搜索。**旧字段 smart 照写不误** ——
+## ai_level：CWData.AI_LEVEL_NAMES 的下标（0 普通 / 1 较强 / 2 树搜索 / 3 意图 / 4 搜索）。**旧字段 smart 照写不误** ——
 ## read() 的合法性校验认它，而且老版本的客户端读新档时还能退回两档语义。
 ## 正因为两个字段并存，这次不必抬 VERSION（抬了等于让所有旧档作废）。
 ## 批 1 步 7：收内核给的 blob（`kernel.save()` / 过渡期 `game.snapshot()`），「能不能存」的判据上移到调用方（`kernel.can_save()` / `CWMatch.can_save_now`）——
@@ -81,7 +81,7 @@ static func read() -> Dictionary:
 ## `smart` 折回是老档兼容：步 9 VERSION 跳号后走不到（旧档一律读不出），留着只因 t_save_load 直接对字典断言它
 static func ai_level_of(payload: Dictionary) -> int:
 	if payload.has("ai_level"):
-		return clampi(int(payload["ai_level"]), 0, 2)
+		return clampi(int(payload["ai_level"]), 0, CWData.AI_LEVEL_NAMES.size() - 1)
 	return 1 if bool(payload.get("smart", false)) else 0
 
 
