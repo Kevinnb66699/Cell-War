@@ -10,11 +10,13 @@ namespace CellWar.Core.Tests.L1;
 /// `viewer = -2` 的 envelope，剥掉 envelope 元数据后逐字段 diff，MISMATCH 即红。
 ///
 /// 例外只有 docs/观测协议_v1.md §八 那张表（只许减不许加）：hand / equipped / fx_round 排序后比；`cancer_alarm.streak` 排除；
-/// tier B 按 produced_tiers 跳过；`players[].name` 排除；文案（label / prompt / phase_text / win_reason / logs 内容）不比；
+/// tier B 按 produced_tiers 跳过；`players[].name` 排除；文案（label / prompt / phase_text / win_reason）不比；
+/// **日志 `logs` 逐行比原文**（换内核 P2，2026-10-01；GD 这边是 `logs_from = 0` 的全知 envelope，每步都是从开局起的整卷）；
 /// options 按 key 配对、index 不比、C# 的 Pass 剔除、组键只比存在；`differentiated` 两侧升序。
 ///
 /// C# 这边没有 Runtime（L1Replay 直接驱动 BasicRulesEngine），所以 SimulationState 在这里**照 Runtime 的规矩自己攒**：
-/// 每条结算结果的演出事件按序 `Emit`（出牌流水、演出序号都跟着走），非演出事件按 `RuleFlow.Describe` 进 Outbox；
+/// 每条结算结果的演出事件（含日志原文）按序 `Emit`（出牌流水、演出序号、日志下标与合并都跟着走），规则事实不进日志（同 `RuleFlow.Publish`）；
+/// 开局那一行（GD `setup.begin()` 的「初始癌组织：…」）发生在夹具的 `pre` 之前、C# 重放走不到 —— 拿装好的 `pre` 喂 `MatchSetup.LogInitialCancer` 铺进去，顺带钉住那句文案；
 /// `Input` = 下一步 GD 问的那一席在 C# 这边的可选决策（GD 的 `_pending` 在 post 时刻已经是下一问）。
 /// </summary>
 public class EnvelopeParityTests
@@ -36,44 +38,20 @@ public class EnvelopeParityTests
         var gd = envLines.ToDictionary(e => e.GetProperty("n").GetInt32(), e => e.GetProperty("env"));
         // 观测协议 §5.3 两条查询（P2，2026-10-01）：GD 导出在行动问答那一步顺带录了 {cid, effects, block}，C# 同一步现算比
         var gdQueries = envLines.Where(e => e.TryGetProperty("q", out _)).ToDictionary(e => e.GetProperty("n").GetInt32(), e => e.GetProperty("q"));
-        var steps = File.ReadLines(tracePath).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement)
-            .Where(l => l.GetProperty("t").GetString() == "step").ToList();
-        var engine = new BasicRulesEngine();
-        // 第 n 步之后谁被问：轨迹里第 n+1 步的第一问（steps 是 0 基列表，steps[n] 就是第 n+1 步）；
-        // 轨迹截断在第 200 步时没有「下一问」，就按 C# 自己的规矩找能动的那一席（GD 的 _pending 这时照样挂着）
-        int? NextPid(int n, WorldState s) => n < steps.Count ? steps[n].GetProperty("asks")[0].GetProperty("pid").GetInt32()
-            : s.Players.Keys.OrderBy(x => x).Where(seat => engine.GetAvailableDecisions(s, seat).Count > 0).Select(seat => (int?)seat).FirstOrDefault();
-
-        var sim = new SimulationState();
         var mismatches = new List<(int N, IReadOnlyList<string> Diffs)>();
         var sizes = new List<(int N, int Gd, int Cs, long Round)>();
         var compared = 0;
-        var report = L1Replay.Run(tracePath, maxSteps,
-            onResult: r =>
-            {
-                foreach (var ev in r.Events)
-                    sim = ev is IPresentationEvent p ? sim.Emit(p) : sim with { Outbox = sim.Outbox.Add(RuleFlow.Describe(ev)) };
-            },
-            inspect: (n, s) =>
-            {
-                if (!gd.TryGetValue(n, out var gdEnv)) return;
-                PendingInput? input = null;
-                if (NextPid(n, s) is { } pid && s.Turn.Phase != Phase.Finished)
-                {
-                    var options = engine.GetAvailableDecisions(s, pid);
-                    if (options.Count > 0) input = new PendingInput(n, pid, [.. options]);
-                }
-                var image = new WorldImage(s) { Simulation = sim with { Input = input } };
-                var csJson = ObservationV1Codec.Serialize(ObservationV1Codec.Encode(image, new Revision(n)));
-                sizes.Add((n, gdEnv.GetRawText().Length, csJson.Length, s.Turn.WorldRound));
-                var a = EnvelopeNormalize.Normalize(L1View.Plain(gdEnv), gdSide: true);
-                var b = EnvelopeNormalize.Normalize(L1View.Plain(JsonDocument.Parse(csJson).RootElement), gdSide: false);
-                var diffs = DeepDiff.Compare(a, b, "$", 400).ToList();
-                if (gdQueries.TryGetValue(n, out var gq))
-                    diffs.AddRange(DeepDiff.Compare(L1View.Plain(gq), L1View.Plain(CsQueries(s, gq.GetProperty("cid").GetInt32())), "$q", 400));
-                compared++;
-                if (diffs.Count > 0) mismatches.Add((n, diffs));
-            });
+        var report = ReplayEnvelopes(tracePath, gd, maxSteps, (n, gdEnv, csJson, s) =>
+        {
+            sizes.Add((n, gdEnv.GetRawText().Length, csJson.Length, s.Turn.WorldRound));
+            var a = EnvelopeNormalize.Normalize(L1View.Plain(gdEnv), gdSide: true);
+            var b = EnvelopeNormalize.Normalize(L1View.Plain(JsonDocument.Parse(csJson).RootElement), gdSide: false);
+            var diffs = DeepDiff.Compare(a, b, "$", 400).ToList();
+            if (gdQueries.TryGetValue(n, out var gq))
+                diffs.AddRange(DeepDiff.Compare(L1View.Plain(gq), L1View.Plain(CsQueries(s, gq.GetProperty("cid").GetInt32())), "$q", 400));
+            compared++;
+            if (diffs.Count > 0) mismatches.Add((n, diffs));
+        });
 
         var lines = new List<string>
         {
@@ -114,6 +92,90 @@ public class EnvelopeParityTests
             if (why != "") block[$"{to.Q},{to.R}"] = why;
         }
         return JsonSerializer.SerializeToElement(new Dictionary<string, object> { ["cid"] = cid, ["effects"] = effects, ["block"] = block }, ObservationV1Codec.Json);
+    }
+
+    /// <summary>
+    /// 一条轨迹教师强制重放，每一步（GD 侧有 envelope 的那几步）交出 (n, GD envelope, C# envelope JSON, C# 状态)。
+    /// C# 的 SimulationState 照 Runtime 的规矩自己攒（见类注释）；对拍正式夹具与 <see cref="批扫目录里的每条轨迹_日志逐行对拍"/> 共用这一份。
+    /// </summary>
+    internal static ReplayReport ReplayEnvelopes(string tracePath, IReadOnlyDictionary<int, JsonElement> gd, int maxSteps, Action<int, JsonElement, string, WorldState> onPair)
+    {
+        var steps = File.ReadLines(tracePath).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement)
+            .Where(l => l.GetProperty("t").GetString() == "step").ToList();
+        var engine = new BasicRulesEngine();
+        // 第 n 步之后谁被问：轨迹里第 n+1 步的第一问（steps 是 0 基列表，steps[n] 就是第 n+1 步）；
+        // 轨迹截断在第 200 步时没有「下一问」，就按 C# 自己的规矩找能动的那一席（GD 的 _pending 这时照样挂着）
+        int? NextPid(int n, WorldState s) => n < steps.Count ? steps[n].GetProperty("asks")[0].GetProperty("pid").GetInt32()
+            : s.Players.Keys.OrderBy(x => x).Where(seat => engine.GetAvailableDecisions(s, seat).Count > 0).Select(seat => (int?)seat).FirstOrDefault();
+
+        var header = JsonDocument.Parse(File.ReadLines(tracePath).First(l => l.Length > 0)).RootElement;
+        var sim = new SimulationState();
+        using (var boot = Stage.Open())
+        {
+            MatchSetup.LogInitialCancer(L1View.Load(header.GetProperty("pre"), steps[0].GetProperty("asks")[0].GetProperty("pid").GetInt32()));
+            foreach (var ev in boot.Drain()) sim = sim.Emit(ev);
+        }
+        return L1Replay.Run(tracePath, maxSteps,
+            onResult: r =>
+            {
+                foreach (var ev in r.Events)
+                    if (ev is IPresentationEvent p) sim = sim.Emit(p);
+            },
+            inspect: (n, s) =>
+            {
+                if (!gd.TryGetValue(n, out var gdEnv)) return;
+                PendingInput? input = null;
+                if (NextPid(n, s) is { } pid && s.Turn.Phase != Phase.Finished)
+                {
+                    var options = engine.GetAvailableDecisions(s, pid);
+                    if (options.Count > 0) input = new PendingInput(n, pid, [.. options]);
+                }
+                var image = new WorldImage(s) { Simulation = sim with { Input = input } };
+                onPair(n, gdEnv, ObservationV1Codec.Serialize(ObservationV1Codec.Encode(image, new Revision(n))), s);
+            });
+    }
+
+    /// <summary>
+    /// 换内核 P2 的发现器（同 <see cref="L1ScanTests"/> 的口径：不进日常套件、不断言）：目录 `CWX_ENV_SCAN_DIR` 里每条 `X.jsonl` 轨迹配同名的 `X.env.jsonl`
+    /// （`xcheck_export.gd … out=X.jsonl env_out=X.env.jsonl` 一次录出），逐步只比 `logs`，比到 L1 第一处分叉之前为止，汇总写 `env_log_scan_summary.txt`。
+    /// 四条正式夹具只走到 77 种日志句式；这里拿随手录的几十局去撞剩下那些（攻击链、卡牌、死亡…）。轨迹不进 git。
+    /// </summary>
+    [Fact]
+    public void 批扫目录里的每条轨迹_日志逐行对拍()
+    {
+        var dir = Environment.GetEnvironmentVariable("CWX_ENV_SCAN_DIR");
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+        var rows = new List<string>();
+        foreach (var trace in Directory.GetFiles(dir, "*.jsonl").Where(f => !f.EndsWith(".env.jsonl", StringComparison.Ordinal)).OrderBy(f => f, StringComparer.Ordinal))
+        {
+            var envPath = trace[..^".jsonl".Length] + ".env.jsonl";
+            if (!File.Exists(envPath)) continue;
+            try
+            {
+                var gd = File.ReadLines(envPath).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement)
+                    .ToDictionary(e => e.GetProperty("n").GetInt32(), e => e.GetProperty("env"));
+                var first = new List<(int N, IReadOnlyList<string> Diffs)>();
+                var compared = 0;
+                var report = ReplayEnvelopes(trace, gd, int.MaxValue, (n, gdEnv, csJson, _) =>
+                {
+                    var a = L1View.Plain(gdEnv.GetProperty("logs"));
+                    var b = L1View.Plain(JsonDocument.Parse(csJson).RootElement.GetProperty("logs"));
+                    compared++;
+                    var diffs = DeepDiff.Compare(a, b, "$", 6);
+                    if (diffs.Count > 0) first.Add((n, diffs));
+                });
+                // 分叉那一步起盘面已经不是同一个世界，日志差异都是它的回声 —— 只认分叉之前的
+                var stop = report.FirstDivergence?.N ?? int.MaxValue;
+                var real = first.Where(m => m.N < stop).ToList();
+                rows.Add($"{Path.GetFileName(trace),-28} L1 一致 {report.Agreed,4} 步｜比了 {compared,4} 步｜日志差异 {real.Count,4} 步"
+                    + (real.Count > 0 ? $"｜首个第 {real[0].N} 步：{string.Join(" / ", real[0].Diffs)}" : ""));
+            }
+            catch (Exception e)
+            {
+                rows.Add($"{Path.GetFileName(trace),-28} EXCEPTION {e.GetType().Name}: {e.Message.Split('\n')[0]}");
+            }
+        }
+        File.WriteAllLines(Path.Combine(AppContext.BaseDirectory, "env_log_scan_summary.txt"), rows);
     }
 
     private static IEnumerable<string> ReadGz(string path)

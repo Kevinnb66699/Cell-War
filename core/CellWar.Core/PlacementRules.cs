@@ -57,6 +57,7 @@ internal static class PlacementRules
     {
         var cell = s.Cells[d.CellId];
         s = s.UpdateCell(cell.Id, cell.Copy(type: d.Type, differentiated: true));
+        Stage.Log(s, $"【分化】{Stage.SeatName(s, cell.OwnerSeat)} 分化为 {Stage.TypeName(d.Type)}");   // GD cw_actions.gd:1148
         s = CellRules.UpdateMarks(s);   // GD cw_actions.gd:1181：分化出树突 → 立即标记 2 环内的癌细胞（此前 C# 要等下一次 update_marks）
         Stage.Emit(Stage.Fx(s, "differentiate", ("at", cell.Position)));   // GD cw_actions.gd:1182
         return new(s, Array.Empty<IGameEvent>(), true);
@@ -75,6 +76,7 @@ internal static class PlacementRules
         };
         s = s.UpdateCell(id, cell);
         s = s.UpdateTissueOccupant(place.TargetPosition, id);
+        Stage.Log(s, $"{Stage.SeatName(s, place.PlayerSeat)} 落子于 {Stage.P(place.TargetPosition)}");   // GD cw_setup.gd:211
         var next = NextUnplacedSeat(s, place.PlayerSeat + 1);
         s = next is { } seat ? s.WithTurn(s.Turn.Copy(seat: seat)) : BeginWorldRound(s);
         return new(s, Array.Empty<IGameEvent>(), true);
@@ -89,6 +91,8 @@ internal static class PlacementRules
 
     public static WorldState BeginWorldRound(WorldState s)
     {
+        // GD `CWSetup.finish()`（cw_setup.gd:20-23）：【原发灶】那句跟着旋钮 solid_at_cancer_spawn（默认关，C# 没有这个旋钮），之后这一句
+        Stage.Log(s, "—— 开局完成，进入世界回合 ——");
         var first = s.Players.Keys.OrderBy(x => x).First();
         return s.WithTurn(s.Turn.Copy(phase: Phase.S, seat: first, startStep: 0));
     }

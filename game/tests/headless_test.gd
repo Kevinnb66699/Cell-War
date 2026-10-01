@@ -16520,6 +16520,13 @@ func t_kernel_sidecar() -> void:
 	var m := CWMirror.new()
 	check(not last_sync.is_empty() and m.load_from(last_sync["envelope"]) == "", "最后一份 sync 装得进镜像")
 	check(k.observe(0) != null, "observe(席位 0) 出镜像")
+	## 日志原文（换内核 P2（二））：条目流里有 log、开局那一行在第一问之前；秘密行按观看者换公开替身（逐字照 InProc 的 _crop）
+	var logs := es.filter(func(e: Dictionary) -> bool: return e["t"] == "log")
+	check(not logs.is_empty() and String(logs[0]["text"]).begins_with("初始癌组织"), "条目流里有日志原文，开局那一行在最前（%d 行）" % logs.size())
+	var kc := CWKernelSidecar.new()
+	kc._entries = [{ "seq": 1, "t": "log", "index": 0, "text": "秘密原文", "secret_pid": 1, "public_text": "公开替身" }]
+	check(kc.pull(1, 0)[0]["text"] == "秘密原文" and kc.pull(CWKernel.VIEWER_OMNISCIENT, 0)[0]["text"] == "秘密原文"
+		and kc.pull(0, 0)[0]["text"] == "公开替身", "秘密日志行：主人与全知看原文，别人看替身")
 	## 一个进程多个会话（cw_sidecar_link.gd）：再开两局，进程号都是同一个；关掉一局另一局照常
 	var ka := CWKernelSidecar.new()
 	var kb := CWKernelSidecar.new()

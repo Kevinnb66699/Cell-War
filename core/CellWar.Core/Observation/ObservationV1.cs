@@ -98,7 +98,15 @@ public sealed record ObsOption(int Index, string Key, string Label, Dictionary<s
 
 public sealed record ObsAsk(long AskId, long Rev, string Kind, string? Tag, int Seat, string Prompt, bool Mine, int StopIndex, ObsOption[] Options);
 
-public sealed record ObsLogs(long From, string[] Lines);
+/// <summary>§七 `logs: {from, lines}`：`from` = `lines[0]` 的绝对下标（GD `cw_obs_codec.gd:_logs`）。
+/// <see cref="Secret"/> 只活在进程里（不上线、不进协议键）：哪几行是秘密行、主人是谁、公开替身是什么 —— <see cref="SeatFilter"/> 按它把别人的秘密行换掉。</summary>
+public sealed record ObsLogs(long From, string[] Lines)
+{
+    [JsonIgnore] public ObsSecretLine[]? Secret { get; init; }
+}
+
+/// <summary>`lines[At]` 是 <paramref name="Seat"/> 的秘密行（GD `log_secret`），别的席位看 <paramref name="PublicText"/>（GD `log_public`）。</summary>
+public sealed record ObsSecretLine(int At, int Seat, string PublicText);
 
 /// <summary>`kernel.query("quote_path")` 的返回（§5.3）。`mid` = 借道的第一跳（`RulePolicies.PassThroughMid`，与 GD `pass_through_mid` 同口径）；走得到的相邻格为 null。</summary>
 public sealed record ObsPathStep(ObsPos To, int Cost, ObsPos? Mid, bool Legal, bool Afford, string Blocked, int Gain);

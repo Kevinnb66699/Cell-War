@@ -44,7 +44,7 @@ public interface IEventContext
     int CancelEvents(Func<ScheduledEvent, bool> predicate);
 
     /// <summary>
-    /// 记录日志（用于调试和回放验证）
+    /// 写一行玩家看的公开日志（GD `log_msg`；推演里静音）。规则结算里的日志走 <see cref="Stage.Log"/>，这里只给编排层（终局那一行）。
     /// </summary>
     void Log(string message);
     /// <summary>排一条结构化演出（骰点 / 光束 / 方向…），与 <see cref="Log"/> 并行的第二条出口；事务失败一起回滚。</summary>

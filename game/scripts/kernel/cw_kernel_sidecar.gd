@@ -420,17 +420,26 @@ func _push(kind: String, m: Dictionary, barrier := false) -> int:
 
 
 ## 同 InProc._crop：ask 只给主人完整选项，观众 / 别的席位只留 kind / tag / seat / prompt（P1 没有日志条目，没有秘密行要换）
+## 逐字照 InProc 的 `_crop`：本地只拉一份全知流，按观看者裁 —— 别人的问答不给选项、别人的秘密日志行换成公开替身
 func _crop(viewer: int, e: Dictionary) -> Dictionary:
-	if viewer == VIEWER_OMNISCIENT or String(e["t"]) != "ask":
+	if viewer == VIEWER_OMNISCIENT:
 		return e
-	var req: Dictionary = e["req"]
-	if int(req.get("pid", -1)) == viewer:
-		return e
-	var c := e.duplicate()
-	var r := req.duplicate()
-	r["options"] = []
-	c["req"] = r
-	return c
+	match String(e["t"]):
+		"ask":
+			var req: Dictionary = e["req"]
+			if int(req.get("pid", -1)) == viewer:
+				return e
+			var c := e.duplicate()
+			var r := req.duplicate()
+			r["options"] = []
+			c["req"] = r
+			return c
+		"log":
+			if int(e["secret_pid"]) >= 0 and int(e["secret_pid"]) != viewer:
+				var c := e.duplicate()
+				c["text"] = e["public_text"]
+				return c
+	return e
 
 
 func _unavailable(msg: String) -> bool:

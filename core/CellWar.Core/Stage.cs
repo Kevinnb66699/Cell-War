@@ -74,6 +74,24 @@ internal static class Stage
     public static void Evt(WorldState s, string card, string text, HexPosition at)
         => Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, $"事件【{card}】{text}", at, true));
 
+    /// <summary>
+    /// GD `CWGame.log_msg(text, secret_pid, public_msg)`：一行日志原文，**在结算的那一刻**渲染好投进来（换内核 P2）。
+    /// 每个调用点照抄 GD 那一行的格式串，旁边注 GD 的出处；名字一律 <see cref="SeatName"/> / <see cref="CellName"/>、数一律 <see cref="Fmt"/>、坐标 <see cref="P"/>。
+    /// 与演出条目同一个作用域：先后就是结算顺序，推演静音、事务失败一起丢。
+    /// </summary>
+    public static void Log(WorldState s, string text, int secretSeat = -1, string? publicText = null)
+        => Emit(new LogLine(s.Turn.WorldRound, s.Turn.Phase, text, secretSeat, publicText));
+
+    /// <summary>GD `CWGame.log_run(key, item, prefix, suffix)`：连续同类（同 key、紧挨着上一条）的并成一条，合并在 <see cref="SimulationState"/> 落定。</summary>
+    public static void LogRun(WorldState s, string key, string item, string prefix, string suffix)
+        => Emit(new LogRun(s.Turn.WorldRound, s.Turn.Phase, key, item, prefix, suffix));
+
+    /// <summary>GD `str(Vector2i)`：「(q, r)」，逗号后带一个空格。</summary>
+    public static string P(HexPosition p) => $"({p.Q}, {p.R})";
+
+    /// <summary>GD `CWData.LEVEL_NAMES[immune_level]`（I / II / III / X）。</summary>
+    public static string LevelName(ImmuneLevel level) => level switch { ImmuneLevel.I => "I", ImmuneLevel.II => "II", ImmuneLevel.III => "III", _ => "X" };
+
     /// <summary>GD `CWGame.announce(text, at, linger)`。</summary>
     public static void Announce(WorldState s, string text, HexPosition at, bool linger = false)
         => Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, text, at, linger));

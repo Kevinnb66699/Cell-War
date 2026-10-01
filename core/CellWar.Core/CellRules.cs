@@ -47,65 +47,140 @@ internal static class CellRules
     /// <param name="mainDealt">主笔单独的实际失去（GD 逐事件的 `actual`：巨噬【吞噬】吸血只认主笔 —— 直击带 NO_LIFESTEAL）。</param>
     public static WorldState Damage(WorldState s, EntityId id, int amount, LossSource source, string ability, int direct, out int dealt, out int mainDealt)
     {
-        var c = s.Cells[id];
-        // ③④ 倍率层。**所有倍率合成一次整数除法**（Settlement.ApplyEnergyLoss，逐位对齐 cw_damage.gd:218-223）
-        var multipliers = new List<ValueModifier>();
-        if (c.Type == CellType.Osteosarcoma && RulePolicies.TypeAbilityOn(s, c) && s.Board.Tissues[c.Position].State == TissueState.SolidifiedCancer)
-            multipliers.Add(new ValueModifier(ModifierStage.Multiply, SourceLayer.Passive, 0, 40));  // 【刚性屏障】×40%，不限来源
+        Hit[] hits = direct > 0 ? [new(id, amount, ability), new(id, direct, "细胞毒性增强", Direct: true)] : [new(id, amount, ability)];
+        s = DamageBatch(s, hits, source, out var actual);
+        dealt = actual.Sum();
+        mainDealt = actual[0];
+        return s;
+    }
 
+    /// <summary>范围伤害（GD `immune_hit_area` / `cancer_hit_area`）：一批目标**同一批**结算 —— 先全部算完、再统一扣、最后统一宣死。
+    /// 目标顺序就是 GD 那边事件数组的顺序（各调用点照 GD 的遍历序传进来），它决定日志行的先后。</summary>
+    internal static WorldState DamageArea(WorldState s, IEnumerable<EntityId> targets, int amount, LossSource source, string ability)
+        => DamageBatch(s, targets.Select(t => new Hit(t, amount, ability)).ToArray(), source, out _);
+
+    /// <summary>一笔伤害事件（GD `damage.event(...)` 的最小投影）。<paramref name="Ability"/> 进日志「【ability】X 损失 …」那一行，也是护盾认账的依据之一；
+    /// <paramref name="Direct"/> = Tag.DIRECT + UNPREVENTABLE + NO_LIFESTEAL（T 细胞【细胞毒性增强】那一笔）。</summary>
+    internal readonly record struct Hit(EntityId Target, int Amount, string Ability, bool Direct = false);
+
+    private sealed class Plan(Hit hit, int calc, bool mark, List<ShieldGroup> shields, List<string> logs)
+    {
+        public Hit Hit { get; } = hit;
+        public int Calc { get; set; } = calc;
+        public bool Mark { get; } = mark;
+        public List<ShieldGroup> Shields { get; } = shields;
+        public List<string> Logs { get; } = logs;
+    }
+
+    /// <summary>
+    /// GD `CWDamage._submit_batch`（cw_damage.gd:140-160）的五步，**照它的先后**走，日志行也就照它的先后出：
+    /// ②③ 整批先算完（`_plan`，都读批前状态；【刚性屏障】那句与每一组减免「【X】减免 Y」记进这一笔的日志）→
+    /// 【BCL-2抗凋亡】按**整批合计**判（`_bcl2_pass`：够致命才动卡，当场写「免疫此次能量损失」，这一批它身上的每一笔都清零并补一句「这一下被免疫」）→
+    /// ④ 逐笔落地（`_apply`：先吐这一笔的日志、再消耗（【标记】那句在这儿）、再写「【ability】X 损失 a 能量（余 b）」）→
+    /// ⑤⑥ 统一宣死（`_resolve_deaths`：「☠」在所有落地之后）。伤后触发（吸血 / 斩杀）留给攻击那一路自己按 GD 的队列序做。
+    /// 2026-10-01 之前这是逐目标一气呵成的 `Damage`：状态与现在逐位相同（同批目标互不影响），只是范围伤害的「☠」会插在下一个目标的损失行之前。
+    /// </summary>
+    internal static WorldState DamageBatch(WorldState s, IReadOnlyList<Hit> hits, LossSource source, out int[] actual)
+    {
         // 树突【I-标记】：被标记的癌细胞下一次受到**免疫细胞造成的**能量损失时 ×2，随后移除一层标记（PRD:573）。
         // **只认免疫来源**（Kevin 2026-09-15 拍板；GD cw_damage.gd:194 判 `Tag.IMMUNE in tags`）。
         // ON_BENEFIT：只有确实有伤害可翻倍时才消耗（`amount > 0`）；MarkLeft 可能 >1（【抗原呈递强化】给 2 层），耗尽才清 Marked。
-        // 同批两笔（主笔 + 直击）GD 是**先算后扣**（`_submit_batch`：逐条 _plan 再逐条 _apply）：两笔读到的都是批前的 marked，各自 ×2、各扣一层。
+        // 同批两笔（主笔 + 直击）GD 是**先算后扣**：两笔读到的都是批前的 marked，各自 ×2、各扣一层。
         var immune = source is LossSource.ImmuneAttack or LossSource.ImmuneEffect;
-        var markApplies = c.Marked && amount > 0 && immune;
-        var markDirect = c.Marked && direct > 0 && immune;
-        var withMark = multipliers.Append(new ValueModifier(ModifierStage.Multiply, SourceLayer.Skill, 0, 200)).ToList();
-        amount = Settlement.ApplyEnergyLoss(amount, markApplies ? withMark : multipliers);
-        var directCalc = direct > 0 ? Settlement.ApplyEnergyLoss(direct, markDirect ? withMark : multipliers) : 0;
-        foreach (var _ in Enumerable.Range(0, (markApplies ? 1 : 0) + (markDirect ? 1 : 0)))
+        var plans = new List<Plan>();
+        foreach (var h in hits)
         {
-            var marked = s.Cells[id];
-            var left = marked.MarkLeft - 1;   // GD `_consume` "mark"：mark_left -= 1，≤ 0 就摘（可以扣成负数，L1 视图逐位比）
-            s = s.UpdateCell(id, marked.Copy(markLeft: left, marked: left > 0));
+            var c = s.Cells[h.Target];
+            var logs = new List<string>();
+            // ③④ 倍率层。**所有倍率合成一次整数除法**（Settlement.ApplyEnergyLoss，逐位对齐 cw_damage.gd:218-223）
+            var multipliers = new List<ValueModifier>();
+            if (c.Type == CellType.Osteosarcoma && RulePolicies.TypeAbilityOn(s, c) && s.Board.Tissues[c.Position].State == TissueState.SolidifiedCancer)
+            {
+                multipliers.Add(new ValueModifier(ModifierStage.Multiply, SourceLayer.Passive, 0, 40));  // 【刚性屏障】×40%，不限来源
+                logs.Add("　【刚性屏障】骨肉瘤立于固化癌组织，只受到 40% 的能量损失");   // GD cw_damage.gd:207
+            }
+            var mark = c.Marked && h.Amount > 0 && immune;
+            if (mark) multipliers.Add(new ValueModifier(ModifierStage.Multiply, SourceLayer.Skill, 0, 200));
+            var calc = Settlement.ApplyEnergyLoss(h.Amount, multipliers);
+            // ⑤ 固定减免 —— 逐位对齐 GD `_reduce` / `_shield_groups`（cw_damage.gd:232-291）：
+            //   · 护盾按**组**：同名条目合并成一组，减免 = 单值 × 条数（定案 #57：两张「下一次 −1.5」= 这一次减 3.0）；
+            //   · 组间按打出先后（【囊性护甲】最先、【耗竭抵抗】最后）；
+            //   · 每组 ON_BENEFIT：这一组没把伤害压低就不消耗；已经挡光了就停，后面的盾留着；
+            //   · 各盾只认自己的来源（<see cref="ShieldApplies"/>）—— 此前 C# 对目标身上全部 EnergyLoss 修饰一律套用、一律消耗，
+            //     2p 第 52 步【突变】的自损把只挡免疫方的【DNA损伤修复】吃掉了（2026-09-17）。
+            //   · 直击那一笔 UNPREVENTABLE：整层跳过（GD cw_damage.gd `_calculate` 末尾的 `return maxi(dmg, 0)`），不减也不消耗
+            var shields = new List<ShieldGroup>();
+            if (!h.Direct)
+                foreach (var g in ShieldGroups(s, c, source, h.Ability))
+                {
+                    if (calc <= 0) break;
+                    var after = Math.Max(0, calc - g.Cut);
+                    if (after == calc) continue;
+                    logs.Add($"　【{g.Name}】减免 {Stage.Fmt(calc - after)}");   // GD cw_damage.gd:239
+                    shields.Add(g);
+                    calc = after;
+                }
+            plans.Add(new Plan(h, calc, mark, shields, logs));
         }
 
-        // ⑤ 固定减免 —— 逐位对齐 GD `_reduce` / `_shield_groups`（cw_damage.gd:232-291）：
-        //   · 护盾按**组**：同名条目合并成一组，减免 = 单值 × 条数（定案 #57：两张「下一次 −1.5」= 这一次减 3.0）；
-        //   · 组间按打出先后（【囊性护甲】最先、【耗竭抵抗】最后）；
-        //   · 每组 ON_BENEFIT：这一组没把伤害压低就不消耗；已经挡光了就停，后面的盾留着；
-        //   · 各盾只认自己的来源（<see cref="ShieldApplies"/>）—— 此前 C# 对目标身上全部 EnergyLoss 修饰一律套用、一律消耗，
-        //     2p 第 52 步【突变】的自损把只挡免疫方的【DNA损伤修复】吃掉了（2026-09-17）。
-        //   · 直击那一笔 UNPREVENTABLE：整层跳过（GD cw_damage.gd `_calculate` 末尾的 `return maxi(dmg, 0)`），不减也不消耗
-        foreach (var g in ShieldGroups(s, s.Cells[id], source, ability))
-        {
-            if (amount <= 0) break;
-            var after = Math.Max(0, amount - g.Cut);
-            if (after == amount) continue;
-            amount = after;
-            s = g.Kind switch
-            {
-                ShieldKind.Armor => s.UpdateCell(id, s.Cells[id].Copy(armor: true)),
-                ShieldKind.Modifier => SpendModifiers(s, id, g.Name),
-                _ => BurnRoundGate(s, id, "耗竭抵抗"),
-            };
-        }
-        c = s.Cells[id];
-        var total = amount + directCalc;
         // 【BCL-2抗凋亡】：即将受到致命能量损失时免疫该次损失，能量改为 0.5/0.8/1。GD `_bcl2_pass` 按**整批合计**判（`energy - total <= 0` 且 total > 0），
-        // 免掉的是整批（两笔都清零，`actual` 归 0 → 记忆、斩杀、吸血一律落空）
-        if (total > 0 && total >= c.Energy && HasModifier(c, "BCL-2抗凋亡"))
+        // 免掉的是整批（这一批它身上的每一笔都清零，`actual` 归 0 → 记忆、斩杀、吸血一律落空）
+        var saved = new Dictionary<EntityId, int>();
+        foreach (var id in plans.Select(p => p.Hit.Target).Distinct().ToArray())
         {
-            var survive = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 5, 1 => 8, _ => 10 };
-            s = s.UpdateCell(id, c.Copy(energy: survive));
-            dealt = 0; mainDealt = 0;
+            var total = plans.Where(p => p.Hit.Target == id).Sum(p => p.Calc);
+            var c = s.Cells[id];
+            if (total <= 0 || c.Energy - total > 0 || !HasModifier(c, "BCL-2抗凋亡")) continue;
+            var tier = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 5, 1 => 8, _ => 10 };
+            s = RemoveModifiers(s, id, "BCL-2抗凋亡");
             Stage.Emit(Stage.Fx(s, "card_survive", ("at", c.Position)));   // GD cw_damage.gd:485：散开再回拢（免死不是复活，人还在原格）
-            return RemoveModifiers(s, id, "BCL-2抗凋亡");
+            Stage.Log(s, $"　【BCL-2抗凋亡】{Stage.CellName(s, c)} 免疫此次能量损失，能量改为 {Stage.Fmt(tier)}（本牌弃置，可重新抽取）");   // GD cw_damage.gd:486
+            saved[id] = tier;
+            foreach (var p in plans.Where(p => p.Hit.Target == id))
+            {
+                p.Calc = 0;
+                p.Logs.Add($"　【{p.Hit.Ability}】这一下被【BCL-2抗凋亡】免疫，未造成能量损失");   // GD cw_damage.gd:467
+            }
         }
-        dealt = Math.Min(total, Math.Max(c.Energy, 0));
-        mainDealt = Math.Min(amount, Math.Max(c.Energy, 0));   // GD `_apply` 逐条：主笔先落地，actual = min(calculated, 落地前能量)
-        var energy = Math.Max(0, c.Energy - total);
-        return energy == 0 ? Kill(s, id) : s.UpdateCell(id, c.Copy(energy: energy));
+
+        // ④ 逐笔落地（GD `_apply`）
+        actual = new int[plans.Count];
+        for (var i = 0; i < plans.Count; i++)
+        {
+            var p = plans[i];
+            var id = p.Hit.Target;
+            foreach (var line in p.Logs) Stage.Log(s, line);
+            if (p.Mark)
+            {
+                var marked = s.Cells[id];
+                var left = marked.MarkLeft - 1;   // GD `_consume` "mark"：mark_left -= 1，≤ 0 就摘（可以扣成负数，L1 视图逐位比）
+                s = s.UpdateCell(id, marked.Copy(markLeft: left, marked: left > 0));
+                Stage.Log(s, left <= 0 ? "　【标记】生效，伤害翻倍" : $"　【标记】生效，伤害翻倍（还可触发 {left} 次）");   // GD cw_damage.gd:388/390
+            }
+            foreach (var g in p.Shields)
+                s = g.Kind switch
+                {
+                    ShieldKind.Armor => s.UpdateCell(id, s.Cells[id].Copy(armor: true)),
+                    ShieldKind.Modifier => SpendModifiers(s, id, g.Name),
+                    _ => BurnRoundGate(s, id, "耗竭抵抗"),
+                };
+            var before = s.Cells[id].Energy;
+            var energy = saved.TryGetValue(id, out var tier) ? tier : before - p.Calc;
+            actual[i] = Math.Min(p.Calc, Math.Max(before, 0));   // GD `actual = mini(calculated, maxi(before, 0))`：主笔先落地，直击读主笔之后的余量
+            s = s.UpdateCell(id, s.Cells[id].Copy(energy: Math.Max(0, energy)));
+            if (p.Calc > 0)   // GD cw_damage.gd:369-372
+                Stage.Log(s, $"【{p.Hit.Ability}】{Stage.CellName(s, s.Cells[id])} 损失 {Stage.Fmt(actual[i])} 能量（余 {Stage.Fmt(Math.Max(energy, 0))}）");
+        }
+
+        // ⑤⑥ 统一宣死（GD `_resolve_deaths`）：这一批真造成了损失、落到 0 的才死，同一目标只死一次
+        for (var i = 0; i < plans.Count; i++)
+        {
+            var id = plans[i].Hit.Target;
+            if (saved.ContainsKey(id) || actual[i] <= 0) continue;
+            var c = s.Cells[id];
+            if (c.IsAlive && c.Energy <= 0) s = Kill(s, id);
+        }
+        return s;
     }
 
     /// <summary>护盾组的三种消耗方式：【囊性护甲】烧本回合护甲、四张护盾卡扣同名修饰、【耗竭抵抗】烧「本世界回合首次」闸。</summary>
@@ -196,6 +271,10 @@ internal static class CellRules
         // PRD【S-复活】的死亡惩罚 **X = 旋钮（默认 1）**：issue #63 的「每结算一次复活 X 增加 1」已由 issue #68 回调删掉，Revives 只记账
         var respawn = c.Faction == Faction.Immune && s.Tuning.ImmuneRespawnDelay >= 0 ? s.Turn.WorldRound + 1 + s.Tuning.ImmuneRespawnDelay : -1;
         s = s.UpdateCell(id, c.Copy(energy: 0, alive: false, deathRound: s.Turn.WorldRound, respawnRound: respawn, modifiers: Array.Empty<ActiveModifier>()));
+        // GD `kill()` 的三句（cw_game.gd:951-964）：癌细胞一句；免疫按罚停旋钮分「不再复活」/「罚停至第 N 世界回合（X=…）」
+        if (c.Faction == Faction.Cancer) Stage.Log(s, $"☠ {Stage.CellName(s, c)} 死亡");
+        else if (respawn < 0) Stage.Log(s, $"☠ {Stage.CellName(s, c)} 死亡（不再复活）");
+        else Stage.Log(s, $"☠ {Stage.CellName(s, c)} 死亡，罚停至第 {respawn} 世界回合（X={s.Tuning.ImmuneRespawnDelay}）");
         if (s.Turn.TrackCell == id)
             s = s.WithTurn(s.Turn.WithTrack(null, c.Position, s.Turn.TrackRounds));
         s = s.UpdateTissueOccupant(c.Position, null);
@@ -228,6 +307,7 @@ internal static class CellRules
     public static WorldState AddMemory(WorldState s, int amount)
     {
         var tiers = LevelMinMemoryByPlayers.TryGetValue(s.Players.Count, out var byPlayers) ? byPlayers : LevelMinMemory;
+        var levelBefore = s.FactionImmuneLevel(Faction.Immune);
         foreach (var p in s.Players.Values.Where(p => p.Faction == Faction.Immune).OrderBy(p => p.Seat))
         {
             var memory = p.AntigenMemory + amount;
@@ -236,6 +316,13 @@ internal static class CellRules
             if (level < p.ImmuneLevel) level = p.ImmuneLevel;
             if (level == ImmuneLevel.X && p.ImmuneLevel != ImmuneLevel.X) memory = 0;
             s = s.UpdatePlayer(p.Seat, p.WithAntigenMemory(memory).WithImmuneLevel(level));
+        }
+        // GD `gain_memory` 的两句（cw_game.gd:991 / 997）：记忆是阵营共用的一个数（C# 每个免疫席位各存一份、同步加），所以按阵营读、只报一次
+        var levelAfter = s.FactionImmuneLevel(Faction.Immune);
+        if (levelAfter > levelBefore)
+        {
+            Stage.Log(s, $"★ 免疫等级升至 {Stage.LevelName(levelAfter)} 级");
+            if (levelAfter == ImmuneLevel.X) Stage.Log(s, "★ 抗原记忆升级为【效应记忆】，重新从零计数");
         }
         return s;
     }
@@ -434,6 +521,7 @@ internal static class CellRules
     {
         if (!IsFreeWalk(s.Turn.PendingWalkCard)) return ChemotaxisMove(s, cellId, to, rng);
         var left = s.Turn.ChemotaxisStepsLeft - 1;
+        Stage.Log(s, $"　【{s.Turn.PendingWalkCard}】{Stage.CellName(s, s.Cells[cellId])} 免费移动至 {Stage.P(to)}");   // GD cw_card_fx.gd:640
         s = s.WithTurn(s.Turn.WithPendingChemotaxis(cellId, left, s.Turn.PendingWalkCard));
         return new(EnterTile(s, cellId, to, rng), Array.Empty<IGameEvent>(), true);
     }
@@ -455,6 +543,11 @@ internal static class CellRules
             if (s.Turn.PendingChainCell is not null && !ChainDeferred(s)) return s;   // 连锁先排干，它在 GD 里嵌在这一步内部（压在这条走位底下的除外）
             var c = s.Cells[id];
             if (s.Turn.ChemotaxisStepsLeft > 0 && c.IsAlive && WalkSteps(s, c).Count > 0) return s;
+            // 步数还有、人还活着、却一步都走不了：GD 喊一声再退（`_free_walk` cw_card_fx.gd:629 / `_chemotaxis` :819）；走满 / 死了静默退
+            if (s.Turn.ChemotaxisStepsLeft > 0 && c.IsAlive)
+                Stage.Log(s, IsFreeWalk(s.Turn.PendingWalkCard)
+                    ? $"　【{s.Turn.PendingWalkCard}】没有可进入的相邻格，提前结束"
+                    : "　【炎症性趋化】没有可走的下一步，提前结束");
             s = s.WithTurn(s.Turn.PopWalk());
         }
         return s;
@@ -467,10 +560,24 @@ internal static class CellRules
     public static RulesResult ChainMove(WorldState s, ChainMoveDecision d, IDeterministicRng rng)
     {
         var c = s.Cells[d.CellId];
+        var linked = s.Turn.PendingChainLinked + 1;   // GD `_chain_phagocytosis` 的局部变量 linked：这一串连了几格
         s = s.UpdateCell(d.CellId, c.Copy(chainLeft: c.ChainLeft - 1, chainBonus: c.ChainBonus + ChainPhagoBonus));
         s = s.WithTurn(s.Turn.WithPendingChain(null));   // 先摘挂起；这一跳的净化会视情况重新挂上
+        Stage.Log(s, $"　【连续吞噬】{Stage.CellName(s, c)} 免费迁移至 {Stage.P(d.Target)}");   // GD cw_actions.gd:1673
         Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "连续吞噬", d.Target));   // GD cw_actions.gd:1708：扑之前报（挪完起点就取不到了）
-        return Move(s, new MoveDecision(d.PlayerSeat, d.CellId, d.Target), rng, free: true);
+        var r = Move(s, new MoveDecision(d.PlayerSeat, d.CellId, d.Target), rng, free: true);
+        s = r.NewState;
+        // 这一跳的净化重新挂上了 = 还在连；没挂上（跳数用完 / 没有下一跳）= GD 的 while 循环到此退出，报收尾那一句
+        s = s.Turn.PendingChainCell == d.CellId ? s.WithTurn(s.Turn.WithChainLinked(linked)) : EndChainRun(s, d.CellId, linked);
+        return r with { NewState = s };
+    }
+
+    /// <summary>GD `_chain_phagocytosis` 循环退出后那一句（cw_actions.gd:1683）：连了几格、下一击一共加多少（C# 的加成逐跳累进 ChainBonus，到这儿与 GD 的 `chain_bonus` 同值）。
+    /// 一格都没连（第一问就按了「结束」）不报。三个出口都走这里：跳完没有下一跳、「结束连续吞噬」、出口归一化摘掉挂起。</summary>
+    internal static WorldState EndChainRun(WorldState s, EntityId id, int linked)
+    {
+        if (linked > 0) Stage.Log(s, $"　【连续吞噬】连续净化 {linked} 格，下一次攻击额外 +{Stage.Fmt(s.Cells[id].ChainBonus)}");
+        return s.WithTurn(s.Turn.WithChainLinked(0));
     }
 
     /// <summary>树突【I-标记】光环：任意时刻处于树突 2 环内的癌细胞自动获得标记。</summary>
@@ -527,6 +634,8 @@ internal static class CellRules
         var tile = s.Board.Tissues[dest];
         if (c.Faction == Faction.Cancer && tile.State == TissueState.Healthy)
         {
+            // GD enter_tile:1013：一步一步铺过去会刷一屏，连续的合并成一条（Kevin 2026-09-07）—— 报在过场之前
+            Stage.LogRun(s, $"定殖:{c.OwnerSeat}", Stage.P(dest), "　【定殖】", " 转为癌组织");
             // GD enter_tile:1016：过场方向 = 这一步的前进方向（来路那一侧）；原地不动没有方向，不演
             if (from is { } origin && Stage.DirToward(dest, origin) is var dir && dir >= 0)
                 Stage.Emit(new TissueConverted(s.Turn.WorldRound, s.Turn.Phase, dest, dir, "定殖"));
@@ -536,7 +645,11 @@ internal static class CellRules
         {
             // 骨肉瘤【骨样硬化】标记过的格：进来不能立刻净化，得停留到世界回合结束（下一回合由 BoardRules.ResolveCamping 兑现）
             if (tile.OssifyAtRound > 0)
-                return s.UpdateCell(id, c.Copy(campRound: s.Turn.WorldRound, campPosition: dest));
+            {
+                s = s.UpdateCell(id, c.Copy(campRound: s.Turn.WorldRound, campPosition: dest));
+                Stage.Log(s, $"　【骨样硬化】{Stage.P(dest)} 正在硬化，{Stage.CellName(s, c)} 须在此停留一回合才能【净化】");   // GD cw_actions.gd:995
+                return s;
+            }
             return PurifyHere(s, id, dest, paid, rng);
         }
         return s;
@@ -553,11 +666,24 @@ internal static class CellRules
     {
         s = CardRules.ToHealthy(s, pos);
         // 卡牌引发的净化不积累抗原记忆（GD purify_gives_memory / card_resolve_depth；Kevin 2026-09-16 拍板跟 GD）
-        if (RulePolicies.PurifyGivesMemory(s)) s = AddMemory(s, 1);
+        // 日志：连续净化合并成一条（GD cw_actions.gd:1014-1020，Kevin 2026-09-07）。两种情形各自成一串（尾巴不一样）；正常那串尾巴每次用最新的累计记忆数
+        var run = $"净化:{s.Cells[id].OwnerSeat}";
+        if (RulePolicies.PurifyGivesMemory(s))
+        {
+            s = AddMemory(s, 1);
+            Stage.LogRun(s, run, Stage.P(pos), "　【净化】", $" 转为健康组织（抗原记忆 {s.FactionMemory(Faction.Immune)}）");
+        }
+        else Stage.LogRun(s, run + ":卡牌", Stage.P(pos), "　【净化】", " 转为健康组织（卡牌造成：不获得抗原记忆）");
         if (s.Cells[id].Type == CellType.Macrophage)
         {
             var heal = MacroPurifyHeal(s, paid);
-            if (heal > 0) s = s.UpdateCell(id, s.Cells[id].WithEnergy(s.Cells[id].Energy + heal));
+            if (heal > 0)
+            {
+                s = s.UpdateCell(id, s.Cells[id].WithEnergy(s.Cells[id].Energy + heal));
+                // GD cw_actions.gd:1042：封顶时补一句实付与净支出下限
+                Stage.Log(s, $"　巨噬【吞噬】恢复 {Stage.Fmt(heal)} 能量" + (heal < s.Tuning.MacroHealPurify
+                    ? $"（本次迁移实付 {Stage.Fmt(paid)}，净支出至少 {Stage.Fmt(MacroMoveNetMin)}）" : ""));
+            }
         }
         // _on_purify（cw_actions.gd:1349-1360）
         // 【模式识别增强】：每世界回合第一次【净化】后恢复 0.5 能量
@@ -565,6 +691,7 @@ internal static class CellRules
         {
             s = BurnRoundGate(s, id, "模式识别增强");
             s = s.UpdateCell(id, s.Cells[id].WithEnergy(s.Cells[id].Energy + 5));
+            Stage.Log(s, "　【模式识别增强】本世界回合首次净化：恢复 0.5 能量");   // GD cw_actions.gd:1323
         }
         // 【效应记忆形成】：每世界回合第一次【净化】后免疫方 +1 抗原记忆、自身恢复 0.5
         if (RulePolicies.HasSkill(s, s.Cells[id], "效应记忆形成") && RoundGateOpen(s.Cells[id], "效应记忆形成"))
@@ -572,6 +699,7 @@ internal static class CellRules
             s = BurnRoundGate(s, id, "效应记忆形成");
             s = AddMemory(s, 1);
             s = s.UpdateCell(id, s.Cells[id].WithEnergy(s.Cells[id].Energy + 5));
+            Stage.Log(s, "　【效应记忆形成】本世界回合首次净化：+1 抗原记忆，恢复 0.5 能量");   // GD cw_actions.gd:1327
         }
         // 【免疫记忆库】等净化跨域反应：发出已提交事实，由 FactRouter 按目录稳定顺序分派（抽卡 —— 排在两张加记忆的技能之后）
         var walkDepthBefore = WalkDepth(s);   // 记忆库抽到连走卡会压一层：那条走位在 GD 里嵌在 draw() 内部、排在连锁之前
@@ -618,7 +746,10 @@ internal static class CellRules
         var c = s.Cells[id];
         var t = s.Board.Tissues[at];
         if (c.Faction == Faction.Immune && t.Mucus)
+        {
             s = s.WithBoard(s.Board.UpdateTissue(at, t.WithMucus(false)));
+            Stage.Log(s, $"　【黏液】{Stage.P(at)} 的黏液被免疫细胞清除");   // GD cw_actions.gd:1002
+        }
         s = CollectSpecialAt(s, id, at, rng);
         // 骨髓那一抽追出了问答、或抽到【骨髓动员】的收取循环挂起了：GD 的 `await collect_special` 还没回来，update_marks 要等它 —— 记成第 1 步，
         // 出口补做时只刷标记、**不重收**（GD 的 enter_tile 尾巴只跑一次；重收会把【骨髓动员】刚给脚下格存的那张提前抽走）
@@ -638,7 +769,7 @@ internal static class CellRules
     {
         if (s.Turn.PendingChainCell is not { } id || ChainDeferred(s)) return s;
         var c = s.Cells[id];
-        return c.IsAlive && c.ChainLeft > 0 && ChainTargets(s, c).Count > 0 ? s : s.WithTurn(s.Turn.WithPendingChain(null));
+        return c.IsAlive && c.ChainLeft > 0 && ChainTargets(s, c).Count > 0 ? s : EndChainRun(s.WithTurn(s.Turn.WithPendingChain(null)), id, s.Turn.PendingChainLinked);
     }
 
     /// <summary>定殖 / 净化追出来的问答还没问完（GD 那是 `enter_tile` 里一段 await）：弃置 / 连锁 / 二选一 / 风暴选中心，或者连走栈比落地前更深。</summary>
@@ -683,6 +814,7 @@ internal static class CellRules
         {
             var c = s.Cells[id];
             s = s.UpdateCell(id, c.WithEnergy(c.Energy + t.Charge.Value));
+            Stage.Log(s, $"　{Stage.CellName(s, c)} 从代谢核心获取 {Stage.Fmt(t.Charge.Value)} 能量");   // GD cw_actions.gd:1069
             return s.WithBoard(s.Board.UpdateTissue(t.Position, t.WithCharge(0)));
         }
         if (t.Type == TissueType.BoneMarrow && t.Charge > 0)
@@ -711,6 +843,7 @@ internal static class CellRules
             var m = marrows[i];
             if (!s.Board.Tissues.TryGetValue(m, out var t) || t.Type != TissueType.BoneMarrow || t.State != TissueState.Healthy || (t.Charge ?? 0) > 0) continue;
             s = s.WithBoard(s.Board.UpdateTissue(m, t.WithCharge(RulePolicies.BoneMarrowStoreMax)));
+            Stage.Log(s, $"　骨髓 {Stage.P(m)} 立即产出 1 张卡牌");   // GD cw_card_fx.gd:447
             if (s.GetCellAt(m) is { IsAlive: true } standing) s = CollectSpecialAt(s, standing.Id, m, rng);
         }
         if (i >= marrows.Count) return s;
@@ -847,16 +980,34 @@ internal static class CellRules
         var cost = free ? 0 : RulePolicies.QuoteMove(s, cell, move.TargetPosition, rawCostOverride)!.Value;
         var target = s.GetCellAt(move.TargetPosition);
         var events = new List<IGameEvent>();
+        // GD `CWCost.commit` 扣完费逐段报明细（cw_cost.gd:292-294）：真改了价、或带注（免费豁免）的那几段 —— 与观测的 cost_rows 同一条管线
+        var costRows = free ? [] : RulePolicies.MoveCostSteps(s, cell, move.TargetPosition, rawCostOverride);
         var attacker = cell.Copy(energy: cell.Energy - cost);
         s = s.UpdateCell(cell.Id, attacker);
+        foreach (var row in costRows)
+        {
+            var note = row.Modifier.Stage == ModifierStage.Free ? "免费豁免" : "";
+            if (row.Before == row.After && note == "") continue;
+            Stage.Log(s, note != ""
+                ? $"　【{row.Modifier.Name}】{note}（{Stage.Fmt(row.Before)} → {Stage.Fmt(row.After)}）"
+                : $"　【{row.Modifier.Name}】费用 {Stage.Fmt(row.Before)} → {Stage.Fmt(row.After)}");   // GD cw_cost.gd:568 `_describe`
+        }
         if (!free) s = ConsumeModifiers(s, cell.Id, ModifierTarget.Move, move.TargetPosition, rawCostOverride);
         var attackHit = false;
         if (target != null)
         {
             if (cell.Type == CellType.Macrophage) Stage.Emit(Stage.Fx(s, "chomp", ("from", cell.Position), ("to", move.TargetPosition), ("cid", cell.Id)));   // GD cw_actions.gd:795：巨噬扑咬先演
             // GD cw_actions.gd:801-807：计数在**发动**时加（口径 #70），用掉最后一次就报一声「攻击次数已用尽」（口径 #93），否则攻击选项无声消失
-            if (s.Tuning.AttackMaxPerTurn > 0 && cell.AttacksThisTurn + 1 >= s.Tuning.AttackMaxPerTurn)
-                Stage.Announce(s, $"攻击次数已用尽（{cell.AttacksThisTurn + 1}/{s.Tuning.AttackMaxPerTurn}）", move.TargetPosition, true);
+            if (s.Tuning.AttackMaxPerTurn > 0)
+            {
+                var used = cell.AttacksThisTurn + 1;
+                if (used >= s.Tuning.AttackMaxPerTurn)
+                {
+                    Stage.Log(s, $"　【攻击】{Stage.CellName(s, cell)} 本行动回合的攻击次数已用尽（{used}/{s.Tuning.AttackMaxPerTurn}）");   // GD cw_actions.gd:789
+                    Stage.Announce(s, $"攻击次数已用尽（{used}/{s.Tuning.AttackMaxPerTurn}）", move.TargetPosition, true);
+                }
+                else Stage.Log(s, $"　【攻击】第 {used}/{s.Tuning.AttackMaxPerTurn} 次");   // GD cw_actions.gd:793
+            }
             var rerolled = false;
             // 六面骰，**1..6**。原来写的是 NextInt(6)，那产出 0..5 —— 而 AttackOutcome 判
             // `roll == 6` 为暴击，于是暴击永远掷不出来（实测 60000 次 crit 0%，应为 16.7%）。
@@ -873,23 +1024,31 @@ internal static class CellRules
             s = SpendModifiers(s, cell.Id, "补体调理");
             s = SpendModifiers(s, cell.Id, "高亲和力克隆");
             // 【高亲和力克隆】不进行随机判定、直接大成功（GD cw_actions.gd:826-829 **不掷骰**）—— 此前 C# 无条件先掷再判，多消耗一发 rng（步 6 接演出时发现，2026-09-18）
+            if (hasAffinity) Stage.Log(s, "　【高亲和力克隆】不进行随机判定，直接视为大成功");   // GD cw_actions.gd:811
             var roll = hasAffinity ? 0 : rng.NextIntRange(1, 7);
             if (!hasAffinity) Stage.Emit(new DiceRolled(s.Turn.WorldRound, s.Turn.Phase, "攻击", roll, 6, cell.OwnerSeat, move.TargetPosition));   // GD roll_shown(6, "攻击", pid, to)
             var outcome = hasAffinity ? "crit" : RulePolicies.AttackOutcome(s, roll, attackerCell);
+            if (!hasAffinity) Stage.Log(s, $"　攻击掷骰 {roll}：{Verdict(outcome)}");   // GD cw_actions.gd:938 `_judged`
             if (outcome == "fail" && hasOpsonin)
             {
+                Stage.Log(s, "　【补体调理】攻击无效：重新判定一次，以第二次结果为准");   // GD cw_actions.gd:818
                 roll = rng.NextIntRange(1, 7);   // 【补体调理】的重掷，同样是 1..6
                 rerolled = true;
                 Stage.Emit(new DiceRolled(s.Turn.WorldRound, s.Turn.Phase, "攻击", roll, 6, cell.OwnerSeat, move.TargetPosition));
                 outcome = RulePolicies.AttackOutcome(s, roll, s.Cells[cell.Id]);
+                Stage.Log(s, $"　攻击掷骰 {roll}：{Verdict(outcome)}");
             }
             if (HasModifier(s.Cells[target.Id], "PD-L1表达"))
             {
+                var was = outcome;
                 outcome = outcome == "crit" ? "success" : "fail";  // 大成功→成功、成功/无效→无效
                 s = SpendOneModifier(s, target.Id, "PD-L1表达");   // GD `spend_one_mod`：一次攻击只吃**最早打出的一层**（团队 2026-09-01 裁定，刻意不走定案 #57）；此前 C# 全摘
+                var left = s.Cells[target.Id].Modifiers.Count(m => m.Card == "PD-L1表达");
+                Stage.Log(s, $"　【PD-L1表达】判定下降一级（{Verdict(was)} → {Verdict(outcome)}）{(left > 0 ? $"，还剩 {left} 层" : "")}");   // GD cw_actions.gd:829
             }
             var damage = outcome == "fail" ? 0 : outcome == "crit" ? 20 : s.Tuning.AttackDmgSuccess;   // GD cw_actions.gd:863 `tune.attack_dmg_crit if crit else tune.attack_dmg_success`：成功那一档改读旋钮；大成功那一档（GD 旋钮 attack_dmg_crit）不在这 12 个里，仍是字面量 20
             attackHit = outcome != "fail";
+            if (!attackHit) Stage.Log(s, $"　攻击无效，{Stage.CellName(s, cell)} 被反弹回原格");   // GD cw_actions.gd:833：报在「攻击无效」通报之前
             Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, outcome == "fail" ? "攻击无效" : outcome == "crit" ? "攻击大成功" : "攻击成功", move.TargetPosition));   // GD cw_actions.gd:850/864
             var dealtTotal = 0;
             var extra = 0;
@@ -906,6 +1065,7 @@ internal static class CellRules
                 {
                     extra += chain;
                     s = s.UpdateCell(cell.Id, s.Cells[cell.Id].Copy(chainBonus: 0));
+                    Stage.Log(s, $"　【连续吞噬】连续净化的加成：本次攻击额外 +{Stage.Fmt(chain)}");   // GD cw_actions.gd:870
                 }
                 if (RulePolicies.HasSkill(s, s.Cells[cell.Id], "抗体亲和力成熟") && RulePolicies.AdjacentHealthy(s, move.TargetPosition)) extra += 5;
                 // 【细胞毒性增强】（GD cw_actions.gd:878-883，攻击当刻现读、过【中和抗体】）：T 细胞每次攻击成功都追加一笔 1.0 的**直击**（同批第二笔，
@@ -922,6 +1082,7 @@ internal static class CellRules
                         if (firstCytotox) extra += CytotoxExtra;
                     }
                 }
+                if (extra > 0) Stage.Log(s, $"　攻击类修饰：额外造成 {Stage.Fmt(extra)} 能量损失");   // GD cw_actions.gd:872
             }
             attacker = s.Cells[cell.Id].Copy(attacks: s.Cells[cell.Id].AttacksThisTurn + 1);
             s = s.UpdateCell(cell.Id, attacker);
@@ -931,18 +1092,41 @@ internal static class CellRules
             {
                 s = Damage(s, target.Id, damage + extra, LossSource.ImmuneAttack, "攻击", cytotoxDirect, out var dealt, out var mainDealt);
                 dealtTotal = dealt;
-                // PRD【迁移】「累积与造成伤害的绝对值向下取整的抗原记忆」：GD cw_actions.gd:913-917 按这一批的 **actual 之和**（过完倍率与护盾、含直击、不超过目标余量），
-                // `dealt >= 10` 才 gain_memory。此前 C# 用 min(目标能量, 裸基础伤害)：不含固定加成、不含【标记】×2、不扣护盾减免（2026-09-17 深夜）
-                if (dealt >= 10) s = AddMemory(s, dealt / 10);
+                // 下面四段的先后照 GD：伤害管线的伤后触发队列（`_flush_triggers`：ON_DEAL 的【吞噬体成熟】先于 LIFESTEAL 的巨噬【吞噬】）→
+                // 回到 `_do_move` 加抗原记忆 →【补体级联】。2026-10-01 之前 C# 是「记忆 → 斩杀 → 级联 → 吸血」：彼此不读对方写的东西，状态逐位相同，
+                // 只是日志行的先后与 GD 对不上（换内核 P2 按 GD 重排，只有级联掷骰，仍排最后）
                 // 【吞噬体成熟】：攻击成功后目标余量不超过阈值则直接死亡
                 var threshold = s.Cells[cell.Id].Type == CellType.Macrophage ? 15 : 5;
                 // GD `_queue_execution`：这一批对它**确实造成了伤害**（actual 合计 > 0）才入队 —— 被【BCL-2抗凋亡】整批免掉的不算
                 if (dealt > 0 && RulePolicies.HasSkill(s, s.Cells[cell.Id], "吞噬体成熟") && s.Cells[target.Id].IsAlive && s.Cells[target.Id].Energy <= threshold)
                 {
+                    Stage.Log(s, $"　【吞噬体成熟】目标余量仅 {Stage.Fmt(s.Cells[target.Id].Energy)}（不高于 {Stage.Fmt(threshold)}）");   // GD cw_damage.gd:593
                     // GD `lethal(target, "吞噬体成熟")`：处决**不进伤害管线**（护盾减不了、【BCL-2抗凋亡】救不回，口径 #68），直接 kill + update_marks
+                    Stage.Log(s, $"　【吞噬体成熟】{Stage.CellName(s, s.Cells[target.Id])} 被直接消灭");   // GD cw_damage.gd:505
                     s = UpdateMarks(Kill(s, target.Id));
                     if (s.Cells[cell.Id].Type == CellType.Macrophage)
+                    {
                         s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + 5));
+                        Stage.Log(s, "　【吞噬体成熟】巨噬恢复 0.5 能量");   // GD cw_damage.gd:598
+                    }
+                }
+                // 【I-吞噬】：攻击成功造成能量损失后恢复受击方损失的 1/2（向上取整到十分位）
+                if (s.Cells[cell.Id].Type == CellType.Macrophage)
+                {
+                    // GD cw_damage.gd:568 `ceil(actual / 2.0)`：按主笔**实际失去**（过完倍率与护盾），直击那笔 NO_LIFESTEAL 不算。此前 C# 用未过管线的理论值
+                    var heal = (mainDealt + 1) / 2;
+                    if (heal > 0)
+                    {
+                        s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
+                        Stage.Log(s, $"　巨噬【吞噬】恢复 {Stage.Fmt(heal)} 能量");   // GD cw_damage.gd:571
+                    }
+                }
+                // PRD【迁移】「累积与造成伤害的绝对值向下取整的抗原记忆」：GD cw_actions.gd:913-917 按这一批的 **actual 之和**（过完倍率与护盾、含直击、不超过目标余量），
+                // `dealt >= 10` 才 gain_memory。此前 C# 用 min(目标能量, 裸基础伤害)：不含固定加成、不含【标记】×2、不扣护盾减免（2026-09-17 深夜）
+                if (dealt >= 10)
+                {
+                    s = AddMemory(s, dealt / 10);
+                    Stage.Log(s, $"　【攻击】造成 {Stage.Fmt(dealt)} 能量损失，+{dealt / 10} 抗原记忆（{s.FactionMemory(Faction.Immune)}）");   // GD cw_actions.gd:899
                 }
                 // 【补体级联】：攻击成功后转化目标相邻最多 2 格无细胞占据的普通癌组织 —— GD `for i in spend_mods(cell, "补体级联"): _cascade(cell, target)`：
                 // 打了几张就跑几遍，候选按 DIRS 序（pick_n 抽的是下标），每遍现算候选、转健康走 to_healthy
@@ -952,15 +1136,13 @@ internal static class CellRules
                         .Where(n => s.Board.Tissues[n].State == TissueState.Cancer && s.Board.Tissues[n].OccupyingCell == null)
                         .ToArray();
                     var picks = rng.PickRandom(cascade, 2).ToArray();
+                    if (picks.Length == 0) Stage.Log(s, "　【补体级联】目标相邻无可转化的癌组织，落空");   // GD cw_actions.gd:960
                     if (picks.Length > 0) Stage.Emit(Stage.Fx(s, "card_cascade", ("from", s.Cells[cell.Id].Position), ("to", target.Position), ("tiles", picks)));   // GD cw_actions.gd:990：命中连锁
-                    foreach (var pick in picks) s = CardRules.ToHealthy(s, pick);
-                }
-                // 【I-吞噬】：攻击成功造成能量损失后恢复受击方损失的 1/2（向上取整到十分位）
-                if (s.Cells[cell.Id].Type == CellType.Macrophage)
-                {
-                    // GD cw_damage.gd:568 `ceil(actual / 2.0)`：按主笔**实际失去**（过完倍率与护盾），直击那笔 NO_LIFESTEAL 不算。此前 C# 用未过管线的理论值
-                    var heal = (mainDealt + 1) / 2;
-                    if (heal > 0) s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
+                    foreach (var pick in picks)
+                    {
+                        s = CardRules.ToHealthy(s, pick);
+                        Stage.Log(s, $"　【补体级联】{Stage.P(pick)} 转为健康组织");   // GD cw_actions.gd:965
+                    }
                 }
             }
             // 【抗原呈递强化】（GD cw_actions.gd:928-935）：每世界回合第一次攻击**未被标记**的癌细胞后施加【标记】。「攻击…后」按攻击发动读（口径 #70）：
@@ -968,12 +1150,19 @@ internal static class CellRules
             if (s.Cells[cell.Id].IsAlive && RulePolicies.HasSkill(s, s.Cells[cell.Id], "抗原呈递强化") && !target.Marked && RoundGateOpen(s.Cells[cell.Id], "抗原呈递强化"))
             {
                 s = BurnRoundGate(s, cell.Id, "抗原呈递强化");
-                if (s.Cells[target.Id].IsAlive) s = ApplyMark(s, target.Id, s.Cells[cell.Id]);
+                if (s.Cells[target.Id].IsAlive)
+                {
+                    s = ApplyMark(s, target.Id, s.Cells[cell.Id]);
+                    Stage.Log(s, $"　【抗原呈递强化】为 {Stage.CellName(s, s.Cells[target.Id])} 施加【标记】");   // GD cw_actions.gd:912
+                }
+                else Stage.Log(s, "　【抗原呈递强化】目标已死亡，本世界回合的施加额度就此用掉");   // GD cw_actions.gd:915
             }
             Stage.Emit(new AttackResolved(s.Turn.WorldRound, s.Turn.Phase, cell.Id, target.Id, roll, rerolled, outcome, dealtTotal, attackHit && dealtTotal == 0, !s.Cells[target.Id].IsAlive));
             events.Add(new CellAttackedEvent(s.Turn.WorldRound, s.Turn.Phase, cell.Id, target.Id, damage, !s.Cells[target.Id].IsAlive));
             if (s.Cells[target.Id].IsAlive || !s.Cells[cell.Id].IsAlive)
             {
+                // GD cw_actions.gd:920：目标还活着就弹回原格；攻击者被反弹打死时 GD 早已 return，没有这一句
+                if (s.Cells[cell.Id].IsAlive) Stage.Log(s, $"　{Stage.CellName(s, s.Cells[cell.Id])} 返回原格");
                 s = UpdateMarks(s);
                 EmitImmuneAttackFx(s, cell, target, move.TargetPosition, attackHit);   // 返回原格 / 攻击者死了：GD 在 enter_tile 的 else 之后照样演
                 return new(s, events, true);
@@ -1013,6 +1202,7 @@ internal static class CellRules
             {
                 var heal = RulePolicies.CancerPhase(s.Turn.WorldRound) switch { 0 => 3, 1 => 5, _ => 7 };
                 s = s.UpdateCell(cell.Id, s.Cells[cell.Id].WithEnergy(s.Cells[cell.Id].Energy + heal));
+                Stage.Log(s, $"　【RAS持续激活】首次定殖：恢复 {Stage.Fmt(heal)} 能量（现 {Stage.Fmt(s.Cells[cell.Id].Energy)}）");   // GD cw_actions.gd:764
             }
         }
         events.Add(new CellMovedEvent(s.Turn.WorldRound, s.Turn.Phase, cell.Id, cell.Position, move.TargetPosition, cost));
@@ -1020,6 +1210,9 @@ internal static class CellRules
         if (target != null) EmitImmuneAttackFx(s, cell, target, move.TargetPosition, attackHit);   // 击杀进格之后才演（GD cw_actions.gd:940-949）
         return new(s, events, true);
     }
+
+    /// <summary>GD `CWActions.VERDICT_NAMES`：判词三档的文案（云端 PRD 2026-09-10 把「失败」改称「无效」；内部键仍是 fail）。</summary>
+    private static string Verdict(string outcome) => outcome switch { "fail" => "无效", "crit" => "大成功", _ => "成功" };
 
     /// <summary>GD cw_actions.gd:944-949：非巨噬的免疫攻击，整段结算（含进格）之后演本体冲撞。<paramref name="attackerBefore"/> / <paramref name="targetBefore"/> 是攻击前的快照（起点、种类）。</summary>
     private static void EmitImmuneAttackFx(WorldState s, Cell attackerBefore, Cell targetBefore, HexPosition to, bool hit)

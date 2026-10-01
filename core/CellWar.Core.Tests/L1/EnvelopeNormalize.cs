@@ -35,8 +35,9 @@ internal static class EnvelopeNormalize
         if (handBuiltWorld || l0Exempt) g["win_reason"] = "";
         if (l0Exempt) StripL0Exempt(state, g);
         g["differentiated"] = Sorted(g["differentiated"]);
-        // #6：日志内容不比；行数 GD 每步多行、C# 一事一行，也不比 —— 只留「有没有」
-        e["logs"] = ((Dictionary<string, object?>)e["logs"]!)["lines"] is List<object?> ? "present" : null;
+        // `logs` 2026-10-01 起 L1 **逐行比原文**（换内核 P2：C# 内核在结算那一刻写 GD 同一个格式串）；
+        // L0 契约靶场照 GD cw_case_diff.gd §八 #6 仍只比「有没有」
+        if (l0Exempt) e["logs"] = ((Dictionary<string, object?>)e["logs"]!)["lines"] is List<object?> ? "present" : null;
         if (e["ask"] is Dictionary<string, object?> ask)
         {
             ask.Remove("ask_id"); ask.Remove("rev");

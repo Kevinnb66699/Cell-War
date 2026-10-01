@@ -73,7 +73,9 @@ public sealed class MatchObservationProvider : IObservationProvider
                 cells, p.DrawCount, p.AntigenMemory, (int)p.ImmuneLevel,
                 p.CancerType?.ToString(), cells.Sum(c => c.Hand.Length), IncomeFor(s, p.Seat));
         }).ToImmutableArray();
-        var messages = lease.Snapshot.Simulation.Outbox.Select((text, i) => new MessageEntry(i, text)).ToImmutableArray();
+        // 日志原文（换内核 P2）：Cursor = 绝对下标；别人的秘密行（抽到的牌名）给公开替身，同 SeatFilter / GD `CWNet.logs_for`
+        var messages = lease.Snapshot.Simulation.Logs.Select(l => new MessageEntry(l.Index,
+            l.SecretSeat < 0 || l.SecretSeat == authorizedSeat ? l.Text : l.PublicText)).ToImmutableArray();
         var reason = s.Turn.Winner is { } w ? (w == Faction.Immune ? "免疫方获胜" : "癌症方获胜") : null;
         return new(lease.Revision, s.Board.Radius, s.Turn.WorldRound, s.Turn.Phase, s.Turn.ActivePlayerSeat, s.Turn.Winner,
             players,
@@ -122,19 +124,19 @@ public sealed class MatchSession : ISession
     private readonly Dictionary<int, long> controllerEpochs = new();
     private readonly CancellationTokenSource lifetime = new();
     private bool disposed;
-    public MatchSession(WorldState initial, ulong seed = 12345) : this(initial, new Xoshiro256StarStar(seed), resume: false) { }
+    public MatchSession(WorldState initial, ulong seed = 12345) : this(new WorldImage(initial), new Xoshiro256StarStar(seed), resume: false) { }
 
     /// <summary>
     /// 从装载好的世界续跑（换内核 P5：教程关首 / 关内换盘，以后的读档也走这里）。不排 TurnStart（那会从阶段开头推、
     /// 把世界里写好的「第 N 席行动中」结束掉），排一个 Resume 直接问当前席位。随机源可注入（教程挂 <see cref="ScriptedRng"/> 脚本骰子）。
     /// </summary>
-    public static MatchSession Resume(WorldState world, IDeterministicRng rng) => new(world, rng, resume: true);
+    public static MatchSession Resume(WorldState world, IDeterministicRng rng) => new(new WorldImage(world), rng, resume: true);
 
-    private MatchSession(WorldState initial, IDeterministicRng rng, bool resume)
+    private MatchSession(WorldImage initial, IDeterministicRng rng, bool resume)
     {
         var rules = new BasicRulesEngine();
         var store = new InMemoryStateStore();
-        runtime = new(store, store.Allocate(new(initial)), Handlers(rules), rng);
+        runtime = new(store, store.Allocate(initial), Handlers(rules), rng);
         observation = new(rules);
         runtime.Schedule(0, resume ? "Resume" : "TurnStart");
         runtime.Run();
@@ -143,8 +145,22 @@ public sealed class MatchSession : ISession
         => (this.runtime, observation) = (runtime, new(rules));
 
     /// <summary>正式开局：确定性初始化棋盘与席位，进入 Setup 选址阶段。</summary>
-    public static MatchSession Start(int playerCount, ulong seed)
-        => new(MatchSetup.Create(playerCount, seed), seed);
+    public static MatchSession Start(int playerCount, ulong seed) => Start(seed, () => MatchSetup.Create(playerCount, seed));
+
+    /// <summary>同上，开局世界由调用方建（sidecar 要钉癌种、注入显示名）。<paramref name="setup"/> 里写的日志一并收下。</summary>
+    public static MatchSession Start(ulong seed, Func<WorldState> setup)
+    {
+        // 开局的无决策部分（GD `setup.begin()`）写的那几行日志（「初始癌组织：…」）发生在 Runtime 起来之前：
+        // 开一个演出作用域收下来，铺进初始的 SimulationState —— 句柄条目流里它们照样排在第一问之前（同 GD InProc）
+        WorldState world;
+        IPresentationEvent[] boot;
+        using (var stage = Stage.Open())
+        {
+            world = setup();
+            boot = stage.Drain().ToArray();
+        }
+        return new(new WorldImage(world) { Simulation = boot.Aggregate(new SimulationState(), (sim, ev) => sim.Emit(ev)) }, new Xoshiro256StarStar(seed), resume: false);
+    }
     private static IRuleHandler[] Handlers(BasicRulesEngine rules) => new IRuleHandler[]
         { new PlayerDecisionHandler(rules), new AdvancePhaseHandler(rules), new TurnStartHandler(), new ResumeHandler(rules) };
     /// <summary>
@@ -254,15 +270,18 @@ public sealed class MatchSession : ISession
             }
         }
     }
-    /// <summary>观测协议附录 B：seq > <paramref name="sinceSeq"/> 的演出条目。C# 的条目没有可裁的（card_drawn 不带牌名，日志另走 logs），
-    /// <paramref name="viewer"/> 只为与 GD `pull(viewer, since, limit)` 同形。</summary>
+    /// <summary>观测协议附录 B：seq > <paramref name="sinceSeq"/> 的演出条目（换内核 P2 起含 `log` 条目）。
+    /// 按 <paramref name="viewer"/> 裁的只有日志的秘密行：别人抽到的牌名换成公开替身（同 GD `cw_kernel_inproc.gd:_crop`；card_drawn 本来就不带牌名）。</summary>
     public Observation.PresentationPage PullPresentation(int viewer, long sinceSeq, int limit = 64)
     {
         lock (gate)
         {
             using var lease = runtime.Read();
             var sim = lease.Snapshot.Simulation;
-            var entries = sim.Presentation.Where(e => e.Seq > sinceSeq).Take(Math.Max(0, limit)).Select(Observation.PresentationCodec.Encode).ToArray();
+            var entries = sim.Presentation.Where(e => e.Seq > sinceSeq).Take(Math.Max(0, limit))
+                .Select(e => e.Event is LogWritten l && viewer != Observation.ObservationV1Codec.ViewerOmniscient && l.SecretSeat >= 0 && l.SecretSeat != viewer
+                    ? e with { Event = l with { Text = l.PublicText } } : e)
+                .Select(Observation.PresentationCodec.Encode).ToArray();
             return new(entries, sim.PresentationDroppedBefore, sim.NextPresentationSeq);
         }
     }

@@ -17,7 +17,8 @@ namespace CellWar.Sidecar;
 /// sync / ask / game_over 由宿主合成。C# 独有的 `attack` 条目不上线（GD 的播放队列没有它的分支）。
 ///
 /// ask id 是宿主自己的序号（与 InProc 的 `_ask_serial` 同义）：拆问时一个 C# 询问对应两个宿主 ask（见 <see cref="HostAsk"/>）。
-/// 日志条目（`log`）P1 不发 —— C# 的 Outbox 只有调试串，原文日志是 P2。
+/// 日志条目 `log{index, text, secret_pid, public_text}`（换内核 P2）：内核在结算那一刻投的 GD 原文行，和演出条目同一条队列、按结算顺序搬过来；
+/// 就地合并（GD `log_run`）= 同一个 index 再发一次，消费者按 index 覆盖。终局那一行（「=== 对局结束 ===」）排在 step_end / sync / game_over 之前，同 InProc `_run`。
 /// </summary>
 internal sealed class SessionHost : IDisposable
 {
@@ -79,9 +80,14 @@ internal sealed class SessionHost : IDisposable
         var openHands = cfg["open_hands"] is { } oh && J.Bool(oh);
         // GD `tune.cancer_types`（按癌席顺序钉死，值是 GD ctype）与 `players[].name`（宿主注入的显示名；空串 = 用默认名）
         var cancerTypes = cfg["cancer_types"]?.AsArray().Select(J.Int).ToArray() ?? [];
-        var world = MatchSetup.Create(factions.Length, seed, cancerTypes);
+        // MatchSession.Start(seed, 建世界)：开局那几行日志（「初始癌组织：…」）写在建世界的时候，要它收进条目流
+        return new(sid, MatchSession.Start(seed, () => WithNames(MatchSetup.Create(factions.Length, seed, cancerTypes), cfg, factions.Length)), viewer, openHands);
+    }
+
+    private static WorldState WithNames(WorldState world, JsonObject cfg, int seats)
+    {
         if (cfg["names"]?.AsArray() is { } names)
-            for (var i = 0; i < names.Count && i < factions.Length; i++)
+            for (var i = 0; i < names.Count && i < seats; i++)
                 if (J.StrOr(names[i]) is { Length: > 0 } name)
                     world = world.UpdatePlayer(i, new Player
                     {
@@ -89,7 +95,7 @@ internal sealed class SessionHost : IDisposable
                         DrawCount = world.Players[i].DrawCount, AntigenMemory = world.Players[i].AntigenMemory,
                         ImmuneLevel = world.Players[i].ImmuneLevel, CancerType = world.Players[i].CancerType, Name = name,
                     });
-        return new(sid, new MatchSession(world, seed), viewer, openHands);
+        return world;
     }
 
     // ---- 条目 ----
@@ -264,10 +270,19 @@ internal sealed class SessionHost : IDisposable
         entries.Add(e);
     }
 
-    /// <summary>同 InProc._crop：ask 只给主人完整选项，别人只留 kind / tag / seat / prompt。日志 P1 不发，没有秘密行要换。</summary>
+    /// <summary>同 InProc._crop：ask 只给主人完整选项，别人只留 kind / tag / seat / prompt；日志的秘密行（别人抽到的牌名）把 text 换成 public_text。
+    /// 照 GD 那份逐字：条目流这一层**不看 open_hands**（观众全见只在 observe 的 envelope.logs 里给原文，cw_obs_codec.gd:_logs）。</summary>
     private static JsonObject Crop(int viewer, JsonObject e)
     {
-        if (viewer == ObservationV1Codec.ViewerOmniscient || J.Str(e["t"]) != "ask") return (JsonObject)e.DeepClone();
+        if (viewer == ObservationV1Codec.ViewerOmniscient) return (JsonObject)e.DeepClone();
+        if (J.Str(e["t"]) == "log")
+        {
+            var line = (JsonObject)e.DeepClone();
+            var secret = J.Int(e["secret_pid"]);
+            if (secret >= 0 && secret != viewer) line["text"] = e["public_text"]!.DeepClone();
+            return line;
+        }
+        if (J.Str(e["t"]) != "ask") return (JsonObject)e.DeepClone();
         var req = e["req"]!.AsObject();
         if (J.Int(req["pid"]) == viewer) return (JsonObject)e.DeepClone();
         var c = (JsonObject)e.DeepClone();
