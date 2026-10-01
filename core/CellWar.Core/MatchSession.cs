@@ -122,13 +122,21 @@ public sealed class MatchSession : ISession
     private readonly Dictionary<int, long> controllerEpochs = new();
     private readonly CancellationTokenSource lifetime = new();
     private bool disposed;
-    public MatchSession(WorldState initial, ulong seed = 12345)
+    public MatchSession(WorldState initial, ulong seed = 12345) : this(initial, new Xoshiro256StarStar(seed), resume: false) { }
+
+    /// <summary>
+    /// 从装载好的世界续跑（换内核 P5：教程关首 / 关内换盘，以后的读档也走这里）。不排 TurnStart（那会从阶段开头推、
+    /// 把世界里写好的「第 N 席行动中」结束掉），排一个 Resume 直接问当前席位。随机源可注入（教程挂 <see cref="ScriptedRng"/> 脚本骰子）。
+    /// </summary>
+    public static MatchSession Resume(WorldState world, IDeterministicRng rng) => new(world, rng, resume: true);
+
+    private MatchSession(WorldState initial, IDeterministicRng rng, bool resume)
     {
         var rules = new BasicRulesEngine();
         var store = new InMemoryStateStore();
-        runtime = new(store, store.Allocate(new(initial)), Handlers(rules), new Xoshiro256StarStar(seed));
+        runtime = new(store, store.Allocate(new(initial)), Handlers(rules), rng);
         observation = new(rules);
-        runtime.Schedule(0, "TurnStart");
+        runtime.Schedule(0, resume ? "Resume" : "TurnStart");
         runtime.Run();
     }
     private MatchSession(Runtime runtime, BasicRulesEngine rules)
@@ -138,7 +146,7 @@ public sealed class MatchSession : ISession
     public static MatchSession Start(int playerCount, ulong seed)
         => new(MatchSetup.Create(playerCount, seed), seed);
     private static IRuleHandler[] Handlers(BasicRulesEngine rules) => new IRuleHandler[]
-        { new PlayerDecisionHandler(rules), new AdvancePhaseHandler(rules), new TurnStartHandler() };
+        { new PlayerDecisionHandler(rules), new AdvancePhaseHandler(rules), new TurnStartHandler(), new ResumeHandler(rules) };
     /// <summary>
     /// 规划路径的下一步可达格：从 fromPos 出发、按当前世界规则能「移动/穿过友军」落脚的**空格**。
     /// 规划器只规划移动（攻击不进路线），所以排除被占据格。纯查询。

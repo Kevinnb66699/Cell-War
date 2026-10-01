@@ -80,3 +80,16 @@ internal static class RuleFlow
         }
     }
 }
+
+/// <summary>
+/// 从**装载好的世界**续跑（换内核 P5，新手教程的关首 / 关内换盘）：直接按 <see cref="RuleFlow.Continue"/> 问当前席位。
+/// 不能走 TurnStart —— 那会从阶段开头推一格（PhaseRules.AdvancePhase），把世界里写好的「正在第 N 席的行动回合中」直接结束掉
+/// （GD 侧同一件事是 cw_tutorial_stage.gd 的 `_point_cursor`：把流程游标对到 seat 那一席）。
+/// </summary>
+public sealed class ResumeHandler : IRuleHandler
+{
+    private readonly IRulesEngine rules;
+    public string EventType => "Resume";
+    public ResumeHandler(IRulesEngine rulesEngine) => rules = rulesEngine;
+    public void Handle(IEventContext context) => RuleFlow.Continue(context, rules);
+}
