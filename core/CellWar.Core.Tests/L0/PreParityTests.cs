@@ -31,8 +31,8 @@ public class PreParityTests
             if (!gd.TryGetValue(c.Id, out var gdEnv)) { missing.Add(c.Id); continue; }
             var image = new WorldImage(WorldLoader.Load(c.World));
             var csJson = ObservationV1Codec.Serialize(ObservationV1Codec.Encode(image, new Revision(0)));
-            var a = EnvelopeNormalize.Normalize(L1View.Plain(gdEnv), gdSide: true);
-            var b = EnvelopeNormalize.Normalize(L1View.Plain(JsonDocument.Parse(csJson).RootElement), gdSide: false);
+            var a = EnvelopeNormalize.Normalize(L1View.Plain(gdEnv), gdSide: true, handBuiltWorld: true);
+            var b = EnvelopeNormalize.Normalize(L1View.Plain(JsonDocument.Parse(csJson).RootElement), gdSide: false, handBuiltWorld: true);
             var diffs = DeepDiff.Compare(a, b, "$", 200);
             if (diffs.Count > 0) mismatches.Add((c.Id, diffs));
         }

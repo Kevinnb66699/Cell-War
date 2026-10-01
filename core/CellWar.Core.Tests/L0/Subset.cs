@@ -24,10 +24,10 @@ namespace CellWar.Core.Tests.L0;
 /// * 其余数组（`hand` / `equipped` / `fx_round` / `g.players` / `g.order` / …）整条当叶子比。
 /// * 通配 `*` 只许出现在**倒数第二段**；禁止 `**`。
 /// * **一条路径命中零个字段 = 硬错**，不是空集通过；**同席多细胞取 `cells[&lt;席位&gt;]` = 硬错**。
-/// * tier B 已被 <see cref="EnvelopeNormalize"/> 剥掉，选了自然命中零个字段。
+/// * tier B 已被 <see cref="EnvelopeNormalize"/>（`l0Exempt`，与 GD `cw_case_diff.gd` 同一张豁免表）剥掉，选了自然命中零个字段。
 /// * **本批禁选 `$.ask.options` 及其子路径**（C# 侧 normalize 折叠 options，GD 不移植折叠）。
 ///
-/// **全局豁免表只有一份 = <see cref="EnvelopeNormalize"/> 今天剥的那一套**，一个字不多 ——
+/// **全局豁免表只有一份 = <see cref="EnvelopeNormalize"/> 的 `l0Exempt` 那一套**，一个字不多 ——
 /// 特别是**不另剥 `$.g.feed_log`**（`docs/观测协议_v1.md` §八 末行：`feed_log` 进对拍），
 /// 要豁免就由单条用例自己写 `ignore: ["$.g.feed_log"]`。
 /// </summary>
@@ -63,7 +63,7 @@ internal static class Subset
     /// </summary>
     public static Dictionary<string, object?> Normalize(Dictionary<string, object?> envelope)
     {
-        var e = EnvelopeNormalize.Normalize(envelope, gdSide: false);
+        var e = EnvelopeNormalize.Normalize(envelope, gdSide: false, l0Exempt: true);
         if (e.GetValueOrDefault("ask") is Dictionary<string, object?> ask)
             foreach (var k in new[] { "options", "stop_key", "stop_index" }) ask.Remove(k);
         var state = (Dictionary<string, object?>)e["state"]!;

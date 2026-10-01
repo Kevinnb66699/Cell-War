@@ -56,7 +56,8 @@ public static class ObservationV1Codec
             t.Type == TissueType.BoneMarrow ? t.Charge ?? 0 : 0,   // cards：只有骨髓格
             t.OccupyingCell is { } occ ? Id(occ) : -1,
             new ObsTileD(RulePolicies.PressureAt(s, t.Position), Permille(RulePolicies.SolidFraction(s, t)), Permille(RulePolicies.StoreFraction(t)),
-                RulePolicies.ProliferateChanceRaw(s, t.Position), null, null, null, null))).ToArray();   // 不带闸：与 GD 公开查询同口径
+                RulePolicies.ProliferateChanceRaw(s, t.Position),   // 不带闸：与 GD 公开查询同口径
+                TierB.ProdLeft(t), TierB.StoreMax(t), WorldEffects.SolidFrozen(s, t.Position), TierB.StorePending(t)))).ToArray();   // tier B（P2，2026-10-01）
 
         var obsCells = cells.Select(c => new ObsCell(
             Id(c.Id), c.OwnerSeat, (int)c.Faction, Pos(c.Position), GdEnum.Itype(c.Type), GdEnum.Ctype(c.Type), c.Energy, c.IsAlive,
@@ -67,10 +68,10 @@ public static class ObservationV1Codec
             c.DrawsThisTurn, c.AttacksThisTurn, c.RespawnRound, c.CampRound, c.CampRound >= 0 && c.CampPosition is { } cp ? Pos(cp) : null,
             c.ChainLeft, c.ChainBonus, c.NeutralUntil <= 0 ? -1 : c.NeutralUntil,   // 「从没被中和过」GD 记 -1、C# 记 0：协议统一 -1
             s.Turn.PendingChainCell == c.Id,
-            new ObsCellD(Income(s, c),
+            TierB.Cell(s, c, new ObsCellD(Income(s, c),
                 c.IsAlive && c.Type == CellType.BCell ? RulePolicies.AntibodyDamage(s.Tuning, c.AntibodyThisRound, RulePolicies.HasSkill(s, c, "抗体亲和力成熟")) : 0,
                 c.IsAlive ? RulePolicies.OverloadLoss(s, c) : 0,
-                null, null, null, null, null, null, null, null, null, null, null))).ToArray();
+                null, null, null, null, null, null, null, null, null, null, null)))).ToArray();   // tier B 由 TierB.Cell 填（P2）
 
         var phase = PhaseWord(s.Turn.Phase);
         var g = new ObsGlobal(
@@ -92,17 +93,17 @@ public static class ObservationV1Codec
             s.Turn.PendingChainCell is { } pc ? Id(pc) : -1,
             false, s.Turn.Winner is not null,
             s.Players.Keys.OrderBy(x => x).ToArray(),
-            s.Players.Values.OrderBy(p => p.Seat).Select(p => new ObsPlayer(p.Seat, "", (int)p.Faction,
+            s.Players.Values.OrderBy(p => p.Seat).Select(p => new ObsPlayer(p.Seat, Stage.SeatName(s, p.Seat), (int)p.Faction,   // 名字：宿主注入的，没注入就是 GD 的默认名（免疫A / 癌症B…）
                 cells.Where(c => c.OwnerSeat == p.Seat).Select(c => Id(c.Id)).DefaultIfEmpty(-1).First(),
                 p.CancerType is { } ct ? GdEnum.Ctype(ct) : -1,
                 new ObsPlayerD(cells.Where(c => c.OwnerSeat == p.Seat).Sum(c => Income(s, c))))).ToArray(),
             new ObsTune(CancerWinWeighted, s.Tuning.CancerWinHoldRounds, LimitRound, s.Board.Tissues.Count / 2,
                 s.Tuning.MucusMoveSurcharge, s.Tuning.MetastasisCost, s.Tuning.OsteoOssifyCost, s.Tuning.SolidifyThreshold.ToArray()),
-            new ObsGlobalD(BoardRules.SolidifyThreshold(s), RulePolicies.Stage(s), RulePolicies.CancerPhase(s.Turn.WorldRound), PhaseText(s.Turn.Phase),
-                null, null, null, null, null, null, null));
+            TierB.Global(s, new ObsGlobalD(BoardRules.SolidifyThreshold(s), RulePolicies.Stage(s), RulePolicies.CancerPhase(s.Turn.WorldRound), PhaseText(s.Turn.Phase),
+                null, null, null, null, null, null, null)));   // tier B 由 TierB.Global 填（P2）
 
         return new ObsEnvelope(Protocol, new ObsRuleset(HostAbi, RulesBuild, RulesBuild), revision.Value, sim.NextPresentationSeq - 1,
-            ViewerOmniscient, false, ["A"], true, null,
+            ViewerOmniscient, false, ["A", "B"], true, null,   // P2 起 tier B 也产（GD CWObsProto.TIERS_GD 同值）
             new ObsState(new ObsBoard(s.Board.Radius, tiles), obsCells, g),
             Ask(s, sim.Input, revision),
             new ObsLogs(logsFrom, sim.Outbox.Skip((int)Math.Max(0, logsFrom)).ToArray()));
@@ -168,7 +169,7 @@ public static class ObservationV1Codec
         _ => null,
     };
 
-    /// <summary>按钮文案，模板照 GD `cw_actions.gd build_options`；批 0 只求存在，文案对拍不进批 0（协议 §八 #6）。</summary>
+    /// <summary>按钮文案，模板照 GD `cw_actions.gd build_options` / `cw_card_fx.gd hand_options`。批 0 只求存在；**2026-10-01 换内核 P2 起逐字对拍**（L1 envelope 不再抹 label）。</summary>
     private static string Label(WorldState s, IDecision d, int? cost)
     {
         string Money(int? c) => c is { } v ? $"（{Stage.Fmt(v)} 能量）" : "";
@@ -176,14 +177,16 @@ public static class ObservationV1Codec
         {
             EndTurnDecision => "结束回合",
             PassDecision => "跳过",
-            MoveDecision m => $"{(s.GetCellAt(m.TargetPosition) is { } o && o.Faction != s.Cells[m.CellId].Faction ? "攻击" : "迁移")}→{P(m.TargetPosition)} {TissueTag(s, m.TargetPosition)}{Money(cost)}",
+            MoveDecision m => $"{MoveVerb(s, s.Cells[m.CellId], m.TargetPosition)}→{P(m.TargetPosition)} {TissueTag(s, m.TargetPosition)}{Money(cost)}",
             DrawDecision => $"基因表达：抽卡{Money(cost)}",
             MutateDecision => $"突变{Money(cost)}",
             DifferentiateDecision df => $"分化为{Stage.TypeName(df.Type)}（免费）",
-            PlayCardDecision pc => $"打出【{pc.Card}】" + (pc.Target is { } t ? $"→{P(t)}" : "") + (pc.TargetCell is { } tc ? $"→{Stage.CellName(s, s.Cells[tc])}" : ""),
+            PlayCardDecision pc => $"打出【{pc.Card}】" + CardSuffix(s, pc),
             DiscardDecision dc => $"弃置【{dc.Card}】",
             PlaceDecision pl => $"落子 {P(pl.TargetPosition)}",
-            ReviveDecision r => s.Cells[r.CellId].Faction == Faction.Immune ? $"复活于骨髓 {P(r.TargetPosition)}" : $"复活于 {P(r.TargetPosition)}",
+            ReviveDecision r => s.Cells[r.CellId].Faction == Faction.Immune ? $"复活于骨髓 {P(r.TargetPosition)}"
+                // GD cw_world.gd revive_options：依托的固化癌组织不在落点上，就把「碎掉哪一格」写进按钮
+                : r.SourcePosition is { } src && src != r.TargetPosition ? $"复活于 {P(r.TargetPosition)}（碎掉固化癌组织 {P(src)}）" : $"复活于 {P(r.TargetPosition)}",
             SkipReviveDecision => "放弃本回合复活",
             ChooseMutationDecision cm => $"按第 {cm.Choice + 1} 次判定结算",
             ChainMoveDecision ch => $"连续吞噬→{P(ch.Target)}（免费）",
@@ -205,12 +208,32 @@ public static class ObservationV1Codec
                 "趋化源" => $"趋化源→{P(t.Target!.Value)}{Money(cost)}",
                 "早期血行转移" => $"早期血行转移→{P(t.Target!.Value)}{Money(cost)}",
                 "转移" => $"转移：跃进至 {P(t.Target!.Value)}{Money(cost)}",
-                "骨样硬化" => $"骨样硬化{Money(cost)}",
+                "骨样硬化" => $"骨样硬化（{Stage.Fmt(cost ?? 0)} 能量，第 {s.Turn.WorldRound + SkillRules.OsteoOssifyRounds} 回合固化）",   // GD _type_options
                 "黏液破裂" => "黏液破裂（耗尽能量并死亡）",
                 _ => $"效应应答·{t.Skill}" + (t.Target is { } tt ? $"→{P(tt)}" : "") + (t.TargetCell is { } tc ? $"→{Stage.CellName(s, s.Cells[tc])}" : ""),
             },
             _ => d.DecisionType,
         };
+    }
+
+    /// <summary>
+    /// 迁移按钮的动词（GD 两处各写一套）：免疫 `_immune_move_options` = 攻击（落点站着癌细胞）/ 穿过（借道）/ 迁移；
+    /// 癌方 `_cancer_options` = 穿过 / 移动（癌细胞不攻击，不会走进免疫细胞的格）。
+    /// </summary>
+    private static string MoveVerb(WorldState s, Cell c, HexPosition to)
+    {
+        var through = RulePolicies.PassThroughMid(s, c, to) is not null;
+        if (c.Faction == Faction.Cancer) return through ? "穿过" : "移动";
+        if (s.GetCellAt(to) is { } o && o.Faction != c.Faction) return "攻击";
+        return through ? "穿过" : "迁移";
+    }
+
+    /// <summary>GD `cw_card_fx.gd hand_options` 的后缀：永久技能「（装备）」，格目标「→(q, r)」，细胞目标「→名字」，【免疫增援】/【肿瘤增援】「→名字 附近」。</summary>
+    private static string CardSuffix(WorldState s, PlayCardDecision pc)
+    {
+        if (CardCatalog.ByCardName(pc.Card).Any(c => c.Category == CardCategory.Permanent)) return "（装备）";
+        if (pc.TargetCell is { } tc) return $"→{Stage.CellName(s, s.Cells[tc])}" + (pc.Card is "免疫增援" or "肿瘤增援" ? " 附近" : "");
+        return pc.Target is { } t ? $"→{P(t)}" : "";
     }
 
     /// <summary>询问文案，模板照 GD（`cw_game.gd PROMPTS` / 各中途询问的 prompt）；同样只求存在。</summary>

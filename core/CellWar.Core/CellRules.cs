@@ -151,7 +151,7 @@ internal static class CellRules
     };
 
     /// <summary>GD `_shield_value` 的单张值。【DNA损伤修复】按**结算当刻**的分期取 1.0/1.5/2.0（定案 #64），不是打出时存的那份。</summary>
-    private static int ShieldValue(WorldState s, string name) => name switch
+    internal static int ShieldValue(WorldState s, string name) => name switch
     {
         "细胞膜修复" => MembraneCut,
         "I型干扰素" => Ifn1Cut,

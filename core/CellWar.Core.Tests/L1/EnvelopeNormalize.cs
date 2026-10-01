@@ -7,7 +7,7 @@ namespace CellWar.Core.Tests.L1;
 /// </summary>
 internal static class EnvelopeNormalize
 {
-    /// <summary>tier B 键表（与 GD `cw_obs_proto.gd` 的 *_B 同一份；C# 批 0 不产出，对拍时从 GD 侧剥掉）。</summary>
+    /// <summary>tier B 键表（与 GD `cw_obs_proto.gd` 的 *_B 同一份）。批 0 时 C# 不产出、对拍从 GD 侧剥掉；2026-10-01 P2 起 C# 产出、**不再剥**，表留给别处引用。</summary>
     public static readonly string[] TileB = ["prod_left", "store_max", "solid_frozen", "store_pending"];
     public static readonly string[] CellB = ["action_kinds", "status_rows", "pressure_lethal", "neutralized", "type_ability_on", "antibody_cost",
         "metastasis_cost_real", "ossify_cost_real", "attack_cap_left", "draw_cap_left", "homing_cost_real"];
@@ -17,29 +17,29 @@ internal static class EnvelopeNormalize
     private static readonly HashSet<string> CellBSet = new(CellB, StringComparer.Ordinal);
     private static readonly HashSet<string> GlobalBSet = new(GlobalB, StringComparer.Ordinal);
 
-    public static Dictionary<string, object?> Normalize(object? tree, bool gdSide)
+    /// <param name="handBuiltWorld">L0 装载自证用：手摆盘面里 GD 的 `win_reason` 是**装进来的字段**（L0 用例只钉 winner），C# 按盘面现算 ——
+    /// 两侧在手摆终局上不可比，只有这一项抹平。L1 整局对拍传 false：真局里两侧逐步相同（2026-10-01 起进对拍）。</param>
+    /// <param name="l0Exempt">L0 靶场差分（<see cref="L0.Subset"/>）用：**与 GD `cw_case_diff.gd normalize` 的全局豁免表逐条相同** ——
+    /// tier B、阶段文案、胜负文案、玩家名不进 L0 差分（L0 用例本来就不写它们的期望）。L1 整局对拍与 L0 装载自证不开它，全量比。</param>
+    public static Dictionary<string, object?> Normalize(object? tree, bool gdSide, bool handBuiltWorld = false, bool l0Exempt = false)
     {
         var e = (Dictionary<string, object?>)tree!;
         foreach (var k in new[] { "p", "ruleset", "rev", "obs_seq", "viewer", "open_hands", "produced_tiers", "full", "base" }) e.Remove(k);
         var state = (Dictionary<string, object?>)e["state"]!;
-        foreach (var t in ((List<object?>)((Dictionary<string, object?>)state["board"]!)["tiles"]!).Cast<Dictionary<string, object?>>())
-            foreach (var k in TileBSet) ((Dictionary<string, object?>)t["d"]!).Remove(k);
         foreach (var c in ((List<object?>)state["cells"]!).Cast<Dictionary<string, object?>>())
         {
             foreach (var k in new[] { "hand", "equipped", "fx_round" }) c[k] = Sorted(c[k]);   // #1
-            foreach (var k in CellBSet) ((Dictionary<string, object?>)c["d"]!).Remove(k);     // #4
         }
         var g = (Dictionary<string, object?>)state["g"]!;
-        foreach (var k in GlobalBSet) ((Dictionary<string, object?>)g["d"]!).Remove(k);
-        ((Dictionary<string, object?>)g["d"]!)["phase_text"] = "";   // #6 文案
-        g["win_reason"] = "";
+        // 2026-10-01 换内核 P2：tier B（格 / 细胞 / 顶层 d）、阶段文案、胜负文案、玩家名都进对拍了 —— C# 由 Observation/TierB.cs 补齐
+        if (handBuiltWorld || l0Exempt) g["win_reason"] = "";
+        if (l0Exempt) StripL0Exempt(state, g);
         g["differentiated"] = Sorted(g["differentiated"]);
-        foreach (var p in ((List<object?>)g["players"]!).Cast<Dictionary<string, object?>>()) p.Remove("name");   // #5
         // #6：日志内容不比；行数 GD 每步多行、C# 一事一行，也不比 —— 只留「有没有」
         e["logs"] = ((Dictionary<string, object?>)e["logs"]!)["lines"] is List<object?> ? "present" : null;
         if (e["ask"] is Dictionary<string, object?> ask)
         {
-            ask.Remove("ask_id"); ask.Remove("rev"); ask["prompt"] = "";
+            ask.Remove("ask_id"); ask.Remove("rev");
             var kind = (string)ask["kind"]!;
             var byKey = new Dictionary<string, object?>(StringComparer.Ordinal);
             string? stopKey = null;
@@ -53,13 +53,25 @@ internal static class EnvelopeNormalize
                 // GD 那半边：顶层的「发动」项本身就是组键的母项，同样只比存在 —— 否则 GD 侧是一条真选项、C# 侧是 "组键" 字符串，
                 // 两棵树形状不同（2026-09-19 树突建源夹具第 237 步才第一次碰到）
                 if (gdSide && kind == "action" && key is "k=action|act=chemo" or "k=action|act=effector") { byKey[key] = "组键"; continue; }
-                o.Remove("index"); o["label"] = ""; o["blocked"] = null;
+                o.Remove("index");
                 byKey[collapsed] = o;
             }
             ask["options"] = byKey;
             ask.Remove("stop_index"); ask["stop_key"] = stopKey;   // 两侧选项序不同：比「停止项是哪条」而不是下标
         }
         return e;
+    }
+
+    /// <summary>GD `cw_case_diff.gd normalize` 剥的那几样（除 win_reason，上面已抹）：三处 tier B、阶段文案、玩家名。</summary>
+    private static void StripL0Exempt(Dictionary<string, object?> state, Dictionary<string, object?> g)
+    {
+        foreach (var t in ((List<object?>)((Dictionary<string, object?>)state["board"]!)["tiles"]!).Cast<Dictionary<string, object?>>())
+            foreach (var k in TileBSet) ((Dictionary<string, object?>)t["d"]!).Remove(k);
+        foreach (var c in ((List<object?>)state["cells"]!).Cast<Dictionary<string, object?>>())
+            foreach (var k in CellBSet) ((Dictionary<string, object?>)c["d"]!).Remove(k);
+        foreach (var k in GlobalBSet) ((Dictionary<string, object?>)g["d"]!).Remove(k);
+        ((Dictionary<string, object?>)g["d"]!)["phase_text"] = "";
+        foreach (var p in ((List<object?>)g["players"]!).Cast<Dictionary<string, object?>>()) p.Remove("name");
     }
 
     /// <summary>排序后比（协议 §八 #1）。`hand` / `equipped` / `fx_round` 装的是字符串，`differentiated` 装的是**细胞 id**（数字）——

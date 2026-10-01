@@ -20,7 +20,7 @@ public class ObservationV1Tests
         var json = ObservationV1Codec.Serialize(env);
 
         Assert.Equal(3, env.P);   // p=3（2026-09-19 删七个世界事件残留字段）
-        Assert.Equal(["A"], env.ProducedTiers);
+        Assert.Equal(["A", "B"], env.ProducedTiers);   // 2026-10-01 换内核 P2：tier B 也产（同 GD CWObsProto.TIERS_GD）
         Assert.True(env.Full); Assert.Null(env.Base);
         Assert.DoesNotContain("\"rng\"", json);
         using var doc = JsonDocument.Parse(json);
@@ -66,14 +66,17 @@ public class ObservationV1Tests
     }
 
     [Fact]
-    public void 序列化往返字节相同_未知键硬错_tierB缺席合法()
+    public void 序列化往返字节相同_未知键硬错_tierB产出且缺席也合法()
     {
         using var session = Demo();
         var json = ObservationV1Codec.Serialize(session.ObserveV1(-2));
         var back = ObservationV1Codec.Deserialize(json);
         Assert.Equal(json, ObservationV1Codec.Serialize(back));
-        Assert.DoesNotContain("count_healthy", json);   // tier B：C# 批 0 不产出，键不出现
-        Assert.Null(back.State.G.D.CountHealthy);
+        // tier B：P2 起 C# 产出（批 0 时不产、键不出现）；协议照旧允许缺席 —— 别的生产者 / 旧夹具不带 B 段也得装得进
+        Assert.Contains("count_healthy", json);
+        Assert.Equal(back.State.Board.Tiles.Count(t => t.Tissue == 0), back.State.G.D.CountHealthy);
+        var withoutB = ObservationV1Codec.Deserialize(System.Text.RegularExpressions.Regex.Replace(json, "\"count_healthy\":\\d+,", ""));
+        Assert.Null(withoutB.State.G.D.CountHealthy);
         Assert.Throws<JsonException>(() => ObservationV1Codec.Deserialize(json.Replace("\"round_no\":", "\"zzz\":1,\"round_no\":")));
         Assert.Throws<JsonException>(() => ObservationV1Codec.Deserialize(json.Replace("\"chain_left\":", "\"chain_lft\":")));
     }

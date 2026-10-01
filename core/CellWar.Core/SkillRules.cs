@@ -128,6 +128,8 @@ internal static class SkillRules
     /// 只有 `"jump"` 走 `game.tune.metastasis_cost`。两者今天同为 1.0，别顺手合并成一个。
     /// </summary>
     internal const int MelanomaHomingCost = 10;
+    /// <summary>【骨样硬化】标记几个世界回合后固化（GD `CWData.OSTEO_OSSIFY_ROUNDS` / 旋钮 `osteo_ossify_rounds` 缺省 2）。结算与按钮文案共用这一个数。</summary>
+    internal const int OsteoOssifyRounds = 2;
 
     /// <summary>【转移】落点：GD `_jump_targets` —— **朝六个方向各直线跃进 5 格**（`pos + d * METASTASIS_RANGE`），落在板内且无细胞占据。
     /// 此前 C# 给的是「所有距离 == 5 的空格」（5 环有 30 格），选项表比 GD 多出一圈（L1 6p 第 39 步，2026-09-17）。</summary>
@@ -268,7 +270,7 @@ internal static class SkillRules
             {
                 s = s.UpdateCell(cell.Id, cell.Copy(energy: cell.Energy - s.Tuning.OsteoOssifyCost));   // GD `_do_ossify`（cw_actions.gd:1493）：cost.commit(… CELL_SKILL, game.tune.osteo_ossify_cost …)
                 var at = cell.Position;
-                s = s.WithBoard(s.Board.UpdateTissue(at, s.Board.Tissues[at].WithOssifyAt(s.Turn.WorldRound + 2)));
+                s = s.WithBoard(s.Board.UpdateTissue(at, s.Board.Tissues[at].WithOssifyAt(s.Turn.WorldRound + OsteoOssifyRounds)));
                 break;
             }
             case "早期血行转移":

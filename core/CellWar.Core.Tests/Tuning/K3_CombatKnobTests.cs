@@ -164,8 +164,9 @@ public class K3CombatKnobTests
         Assert.True(Engine.ValidateDecision(Poor(pricey, 40), decision).IsValid);
 
         // 选项价签读的也得是旋钮，不是编码器里那份写死的 20（GD 侧 t_ossify_cost_and_pin 专门钉过「没写死」）
-        Assert.Equal("骨样硬化（2.0 能量）", OssifyLabel(s));
-        Assert.Equal("骨样硬化（3.5 能量）", OssifyLabel(pricey));
+        // 2026-10-01 换内核 P2：文案逐字照 GD `_type_options`（带「第 N 回合固化」），L1 envelope 起逐字对拍
+        Assert.Equal("骨样硬化（2.0 能量，第 3 回合固化）", OssifyLabel(s));
+        Assert.Equal("骨样硬化（3.5 能量，第 3 回合固化）", OssifyLabel(pricey));
     }
 
     private static string OssifyLabel(WorldState s)
