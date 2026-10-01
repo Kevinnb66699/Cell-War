@@ -354,10 +354,25 @@ public sealed class MatchSession : ISession
                 if (lease.Snapshot.State.Turn.Winner is not null) return false;
             var winner = faction == Faction.Immune ? Faction.Cancer : Faction.Immune;
             var kind = winner == Faction.Cancer ? "surrender_cancer" : "surrender_immune";
-            runtime.EditWorld(s => s.WithTurn(s.Turn.Copy(phase: Phase.Finished, winner: winner, winKind: kind)), endMatch: true);
+            // GD 两句：`surrender()` 自己写「=== 免疫方投降：癌症胜利 ===」（cw_game.gd:1148），随后驱动循环跳出、写终局那句（cw_game.gd:169）。
+            // C# 的驱动循环（RuleFlow.Continue）在 EditWorld 收局之后不会再跑，终局那句由这里一并写
+            runtime.EditWorld(s => s.WithTurn(s.Turn.Copy(phase: Phase.Finished, winner: winner, winKind: kind)), endMatch: true,
+                emit: s => [Line(s, $"=== {Observation.ObservationV1Codec.WinReason(s)} ==="), Line(s, $"=== 对局结束：{Observation.ObservationV1Codec.WinReason(s)} ===")]);
             return true;
         }
     }
+
+    /// <summary>
+    /// 宿主往对局日志里插一行（GD `CWKernel.log_msg` → `CWGame.log_msg`；服务器投降投票那两行）。不碰规则、不改盘面。
+    /// <paramref name="secretSeat"/> ≥ 0 = 只有那一席看原文，别人看 <paramref name="publicText"/>。
+    /// </summary>
+    public void LogMessage(string text, int secretSeat = -1, string? publicText = null)
+    {
+        lock (gate) runtime.EditWorld(s => s, emit: s => [Line(s, text, secretSeat, publicText)]);
+    }
+
+    private static LogLine Line(WorldState s, string text, int secretSeat = -1, string? publicText = null)
+        => new(s.Turn.WorldRound, s.Turn.Phase, text, secretSeat, publicText);
 
     /// <summary>查询式的读法：拿一份当前世界跑纯函数（锁里读、锁外不碰 runtime）。</summary>
     private T Read<T>(Func<WorldState, T> f)

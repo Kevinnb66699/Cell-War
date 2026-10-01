@@ -175,10 +175,11 @@ public sealed class Runtime : IRuntime, IDisposable
         }
     }
     /// <summary>
-    /// 宿主在规则流程**之外**改一次权威世界（换内核 P2：改显示名、投降）。一次事务、修订号 +1、不发演出、不进规则处理器。
+    /// 宿主在规则流程**之外**改一次权威世界（换内核 P2：改显示名、投降）。一次事务、修订号 +1、不进规则处理器。
     /// <paramref name="endMatch"/> = 这次改动结束了对局（投降）：挂着的询问撤掉、排队的事件全部取消 —— 不然内核还会接着问下一问。
+    /// <paramref name="emit"/>：按改完的世界要发的演出（只有日志行在用：投降那两句、宿主插的投票行 = GD `log_msg`）；排在取消之后，不会被一起撤掉。
     /// </summary>
-    public void EditWorld(Func<WorldState, WorldState> edit, bool endMatch = false)
+    public void EditWorld(Func<WorldState, WorldState> edit, bool endMatch = false, Func<WorldState, IEnumerable<IPresentationEvent>>? emit = null)
     {
         lock (gate)
         {
@@ -188,6 +189,9 @@ public sealed class Runtime : IRuntime, IDisposable
             tx.MutableImage.State = edit(tx.MutableImage.State);
             if (endMatch)
                 tx.MutableImage.Simulation = tx.MutableImage.Simulation.Cancel(_ => true, out _) with { Input = null };
+            if (emit is not null)
+                foreach (var ev in emit(tx.MutableImage.State))
+                    tx.MutableImage.Simulation = tx.MutableImage.Simulation.Emit(ev, keep: !PresentationMuted);
             Commit(tx);
         }
     }

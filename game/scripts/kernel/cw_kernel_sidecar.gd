@@ -275,6 +275,14 @@ func surrender(faction: int) -> void:
 	_pump()
 
 
+## 产品逻辑写内核日志的入口（同 InProc：服务器投降投票那两行）。sidecar 插完那一行就泵，`log` 条目当场进流
+func log_msg(text: String, secret_pid := -1, public_text := "") -> void:
+	if _sid < 0:
+		return
+	_call("log_msg", { "sid": _sid, "text": text, "secret_pid": secret_pid, "public_text": public_text })
+	_pump()
+
+
 func set_decider(b: Object) -> void:
 	if b == null:
 		return

@@ -167,6 +167,15 @@ internal sealed class SessionHost : IDisposable
         return true;
     }
 
+    /// <summary>GD `log_msg`：宿主往日志里插一行（服务器投降投票那两行）。之后泵一次，`log` 条目这就出来。</summary>
+    public bool LogMessage(string text, int secretSeat, string? publicText)
+    {
+        if (Aborted) return false;
+        session.LogMessage(text, secretSeat, publicText);
+        Pump();
+        return true;
+    }
+
     /// <summary>= InProc.abort()：对局作废，正在等的那一问不再收答案；之后不再推任何条目。</summary>
     public void Abort()
     {

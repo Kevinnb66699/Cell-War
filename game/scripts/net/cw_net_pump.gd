@@ -104,9 +104,7 @@ func query(kind: String, args: Dictionary) -> Variant:
 	return kernel.query(kind, args) if kernel != null else null
 
 
-## 投降投票那两行日志。⚠ TODO（换内核 P2（二），日志通道在另一个 worktree）：CWKernelSidecar 还没有 log_msg，
-## 这里调到的是 CWKernel 基类的空实现 —— 票照常算、结果照常生效，只是对局日志里暂时少这两行。
-## 句柄的 log_msg 落地后这里一行不用改，两行自然出现在之后的 envelope.logs 里
+## 投降投票那两行日志：句柄的 log_msg 让 sidecar 往对局日志里插一行（10-01 起），随各人视角的 envelope.logs 下发
 func log_line(text: String) -> void:
 	if kernel != null:
 		kernel.log_msg(text)

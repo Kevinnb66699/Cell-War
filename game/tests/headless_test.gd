@@ -16582,8 +16582,24 @@ func t_kernel_sidecar() -> void:
 	check(k2.mark_player(0, "(我)") and k2.mark_player(0, "(我)") and String(k2.observe(0).players[0]["name"]) == "Kevin(我)",
 		"mark_player 只加一次后缀")
 	var before := k2.entry_seq()
+	k2.log_msg("【投降投票】免疫A 发起投降")   ## 服务器投票那两行走的就是这个口
 	k2.surrender(CWData.Faction.IMMUNE)
 	var tail: Array = k2.pull(CWKernel.VIEWER_OMNISCIENT, before, 100)
+	## 与 InProc 走同一套（插一行 → 投降 → 叫醒挂着的那一问）比日志原文：两边要逐字相同
+	var ki := CWKernelInProc.new()
+	ki.open({ "factions": [0, 1], "seed": 7, "observe_viewer": CWKernel.VIEWER_OMNISCIENT })
+	await process_frame
+	var bi := ki.entry_seq()
+	ki.log_msg("【投降投票】免疫A 发起投降")
+	ki.surrender(CWData.Faction.IMMUNE)
+	ki.abort_ask()
+	for _i in 5:
+		await process_frame
+	var texts := func(es: Array) -> Array: return es.filter(func(e: Dictionary) -> bool: return e["t"] == "log").map(func(e: Dictionary) -> String: return String(e["text"]))
+	var gd_lines: Array = texts.call(ki.pull(CWKernel.VIEWER_OMNISCIENT, bi, 100))
+	check(texts.call(tail) == gd_lines and gd_lines.size() == 3,
+		"插日志 + 投降的日志原文与 InProc 逐字相同（%s / InProc %s）" % [str(texts.call(tail)), str(gd_lines)])
+	ki.close()
 	check(tail.size() >= 3 and String(tail[-1]["t"]) == "game_over" and int(tail[-1]["winner"]) == CWData.Faction.CANCER
 		and String(tail[-1]["kind"]) == "surrender_cancer", "投降当场收局（game_over 条目，癌症胜）")
 	check(k2.state() == CWKernel.State.ENDED, "投降之后句柄 ENDED")
@@ -22317,6 +22333,13 @@ func t_net_sidecar() -> void:
 	check(ok and int(over2["winner"]) == CWData.Faction.CANCER and String(over2["kind"]) == "surrender_cancer",
 		"投降票全票 → 句柄 surrender → 癌方胜（%s）" % String(over2.get("kind", "")))
 	check(room.games_played == 2 and room.pump == null and room.state == CWRoom.State.WAITING, "投降收局后回等待室")
+	## 投票那一行（房间经句柄 log_msg 插的）与投降那一句（sidecar 自己写的）都随对手视角的 envelope.logs 到了乙手里
+	var b_lines: Array = []
+	for msg: Dictionary in b.inbox:
+		if msg["t"] == "sync" and msg["envelope"].get("logs") is Dictionary:
+			b_lines.append_array(Array(msg["envelope"]["logs"].get("lines", [])))
+	check(b_lines.any(func(l) -> bool: return String(l).begins_with("【投降】") and String(l).ends_with("发起投降投票"))
+		and b_lines.has("=== 免疫方投降：癌症胜利 ==="), "投降投票那一行与投降那一句都进了对局日志（乙收到 %d 行）" % b_lines.size())
 	a.message.disconnect(audits[0])
 	b.message.disconnect(audits[1])
 	w.message.disconnect(audits[2])

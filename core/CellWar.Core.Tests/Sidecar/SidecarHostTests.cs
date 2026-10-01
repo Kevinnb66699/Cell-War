@@ -72,13 +72,30 @@ public class SidecarHostTests
         var before = host.LastSeq;
         Assert.True(host.Surrender(0));          // 免疫投降 ⇒ 癌症胜利
         Assert.False(host.Surrender(1));         // 已经分出胜负：第二次什么都不做
-        var tail = host.Pull(-2, before, 100).Select(n => J.Str(n!["t"])).ToArray();
-        Assert.Equal(["step_end", "sync", "game_over"], tail);
+        var after = host.Pull(-2, before, 100).Select(n => n!.AsObject()).ToArray();
+        // GD：surrender() 自己写一句、驱动循环跳出再写终局那句（cw_game.gd:1148 / :169），然后才是收步、sync、game_over
+        Assert.Equal(["log", "log", "step_end", "sync", "game_over"], after.Select(e => J.Str(e["t"])));
+        Assert.Equal(["=== 免疫方投降：癌症胜利 ===", "=== 对局结束：免疫方投降：癌症胜利 ==="], after.Take(2).Select(e => J.Str(e["text"])));
         var over = host.Pull(-2, 0, 10_000).Select(n => n!.AsObject()).Last();
         Assert.Equal(1, J.Int(over["winner"]));
         Assert.Equal("surrender_cancer", J.Str(over["kind"]));
         Assert.Equal("免疫方投降：癌症胜利", J.Str(over["reason"]));
         Assert.False(host.Answer(1, null, 0));   // 收局之后不再收答案
+    }
+
+    [Fact]
+    public void 宿主插日志_同GD的log_msg_秘密行别人看替身()
+    {
+        using var host = SessionHost.Open(1, new JsonObject { ["factions"] = new JsonArray(0, 1), ["seed"] = 3, ["observe_viewer"] = -2 });
+        var before = host.LastSeq;
+        Assert.True(host.LogMessage("【投降投票】免疫A 发起投降（1/1）", -1, null));
+        Assert.True(host.LogMessage("只给癌症A 看的原文", 1, "公开替身"));
+        var logs = host.Pull(-2, before, 100).Select(n => n!.AsObject()).Where(e => J.Str(e["t"]) == "log").ToArray();
+        Assert.Equal(["【投降投票】免疫A 发起投降（1/1）", "只给癌症A 看的原文"], logs.Select(e => J.Str(e["text"])));
+        Assert.Equal(J.Long(logs[0]["index"]) + 1, J.Long(logs[1]["index"]));   // 接着对局日志的下标往下记
+        var lines = host.Envelope(0)["logs"]!["lines"]!.AsArray().Select(l => J.Str(l)).ToArray();
+        Assert.Equal("公开替身", lines[^1]);                                     // 别的席位看替身
+        Assert.Equal("只给癌症A 看的原文", J.Str(host.Envelope(1)["logs"]!["lines"]!.AsArray()[^1]));
     }
 
     [Fact]

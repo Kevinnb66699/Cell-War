@@ -19,6 +19,7 @@ namespace CellWar.Sidecar;
 ///   query{sid, kind, args, seat?}                   → {result}（观测协议 §5.3 四条；坐标 {q,r}）
 ///   mark_player{sid, pid, suffix}                   → {ok_mark}
 ///   surrender{sid, faction}                         → {ended}
+///   log_msg{sid, text, secret_pid?, public_text?}   → {logged}（宿主插一行日志 = GD log_msg）
 ///   can_save{sid} → {can_save} · save{sid} → {checkpoint|null} · restore{checkpoint, observe_viewer?, open_hands?} → {sid}
 ///   abort{sid} / close{sid}                         → {}
 ///   ping{}                                          → {}
@@ -56,6 +57,7 @@ internal sealed class Dispatcher : IDisposable
         "query" => new JsonObject { ["result"] = Session(req).Query(J.Str(req["kind"]), req["args"]?.AsObject() ?? [], J.IntOr(req["seat"])) },
         "mark_player" => new JsonObject { ["ok_mark"] = Session(req).MarkPlayer(J.Int(req["pid"]), J.Str(req["suffix"])) },
         "surrender" => new JsonObject { ["ended"] = Session(req).Surrender(J.Int(req["faction"])) },
+        "log_msg" => new JsonObject { ["logged"] = Session(req).LogMessage(J.Str(req["text"]), J.IntOr(req["secret_pid"]) ?? -1, J.StrOr(req["public_text"])) },
         "can_save" => new JsonObject { ["can_save"] = Session(req).CanSave },
         "save" => new JsonObject { ["checkpoint"] = Session(req).Save() },
         "restore" => Restore(req),
