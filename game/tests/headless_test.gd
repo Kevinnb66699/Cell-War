@@ -40,10 +40,10 @@ var _durations: Array = []   ## [毫秒, 测试名]
 const WEIGHTS := {
 	"t_ai_same_hash_mcts4": 78.0, "t_ai_same_hash_mc4": 66.5, "t_ai_same_hash_mc6": 58.8, "t_ai_same_hash_mcts6": 34.9,
 	"t_tutor_done_menu": 30.0, "t_tutor_c3_drive": 22.0, "t_tutor_c3_ui": 22.0, "t_ai_mc": 13.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
-	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_drain": 5.1,
+	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_sidecar": 5.6, "t_net_drain": 5.1, "t_net_sidecar_takeover": 4.0,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
 	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
-	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_entry_smoke_sidecar": 1.2, "t_sidecar_locator": 1.2, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
+	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_net_sidecar_ui": 0.6, "t_entry_smoke_sidecar": 1.2, "t_sidecar_locator": 1.2, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
 	"t_net_lobby": 1.0, "t_hotseat": 0.9, "t_pause_and_teardown": 0.9, "t_board_active_tiles": 0.8,
 	"t_eval_features": 0.8, "t_teleport_fx": 0.8, "t_play_queue": 0.7, "t_opening": 0.6,
 	"t_ai_same_hash_heur6": 0.6, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
@@ -171,6 +171,8 @@ func _run_all() -> void:
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
 		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
 		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_entry_smoke_sidecar, t_sidecar_locator, t_play_queue,
+		## 换内核 P6 · 真人半边（2026-10-01）：服务器开关 CW_KERNEL=sidecar 下全真人房跑在 C# 内核上
+		t_net_sidecar, t_net_sidecar_takeover, t_net_sidecar_ui,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
 		t_observe_budget,
@@ -22031,6 +22033,476 @@ func t_net_takeover_offline() -> void:
 	a.dispose()
 	b.dispose()
 	srv.stop()
+
+
+# ---- 换内核 P6 · 真人半边（2026-10-01）：服务器的 C# 内核路（CW_KERNEL=sidecar + 全真人房，cw_room.gd 的 _sc_ 一节 + cw_net_pump.gd）----
+
+## 服务器那半要的 sidecar 产物在不在（同 t_kernel_sidecar 的判据：tools/run_tests.sh 开跑前会 dotnet build 一次）
+func _sc_ready() -> bool:
+	if CWKernelSidecar.find_dotnet() == "" or not FileAccess.file_exists(CWKernelSidecar.find_sidecar_dll()):
+		check(false, "找不到 dotnet 或 sidecar 产物 —— 先 dotnet build core/CellWar.Sidecar")
+		return false
+	return true
+
+
+## 两个真人席各自用语义键 LCG 作答（与 L1 / sidecar 自检同一条策略）：每帧看一眼手上有没有悬着的一问
+func _sc_answer_pending(clients: Array, decs: Array) -> void:
+	for k in clients.size():
+		var c: CWNetClient = clients[k]
+		if c.pending_ask.is_empty() or decs[k] == null:
+			continue
+		var req: Dictionary = c.pending_ask["req"]
+		var idx: int = decs[k].ask(req)
+		c.answer(int(c.pending_ask["ask_id"]), idx, CWSemKey.key(req, req["options"][idx]["data"]))
+
+
+## 原始报文里有没有浮点（GD 路的 envelope 零浮点；C# 那边经 JSON 过来全是浮点，房间过网前要整数化）
+func _sc_floats(v: Variant) -> int:
+	if v is float:
+		return 1
+	var n := 0
+	if v is Dictionary:
+		for k in v:
+			n += _sc_floats(v[k])
+	elif v is Array:
+		for x in v:
+			n += _sc_floats(x)
+	return n
+
+
+## 一个客户端收到的对局流逐条记账（message 信号上挂；seat = 他坐的席位，观众 -1）
+func _sc_audit(m: Dictionary, t: Dictionary, seat: int) -> void:
+	match String(m["t"]):
+		"ask":
+			t["asks"] += 1
+			t["ask_ids"].append(int(m["ask_id"]))
+			if int(m["req"]["pid"]) != seat:
+				t["foreign"] += 1
+			for o: Dictionary in m["req"]["options"]:
+				if o.has("key"):
+					t["keyed"] += 1
+		"step_begin":
+			t["begin_ids"][int(m["ask_id"])] = true
+		"step_end":
+			t["ends"] += 1
+			t["end_open"] = true
+		"roll":
+			t["rolls"] += 1
+		"sync":
+			t["syncs"] += 1
+			if not bool(t["end_open"]):
+				t["sync_no_end"] += 1
+			t["end_open"] = false
+			if m.has("view") or String(m.get("hash", "x")) != "":
+				t["odd_shell"] += 1
+			var env: Dictionary = m["envelope"]
+			t["floats"] += _sc_floats(env)
+			var mm := CWMirror.new()
+			var err := mm.load_from(env)
+			if err != "":
+				t["bad"] += 1
+				t["bad_msg"] = err
+				return
+			if int(env["viewer"]) != seat:
+				t["wrong_viewer"] += 1
+			for c: Dictionary in env["state"]["cells"]:
+				for card in c["hand"]:
+					var hidden := String(card) == CWNet.HIDDEN_CARD
+					if seat >= 0 and int(c["pid"]) == seat:
+						t["own_cards"] += 1
+						t["own_hidden"] += 1 if hidden else 0
+					else:
+						t["other_cards"] += 1
+						t["other_shown"] += 0 if hidden else 1
+			var a = env["ask"]
+			if a is Dictionary:
+				t["env_asks"] += 1
+				if int(a["seat"]) != seat and not (a["options"] as Array).is_empty():
+					t["env_opts_leak"] += 1
+			t["last_mirror"] = mm
+		"game_over":
+			t["overs"] += 1
+			t["over"] = m
+
+
+func _sc_tally() -> Dictionary:
+	return { "asks": 0, "ask_ids": [], "foreign": 0, "keyed": 0, "begin_ids": {}, "ends": 0, "end_open": false, "rolls": 0,
+		"syncs": 0, "sync_no_end": 0, "odd_shell": 0, "floats": 0, "bad": 0, "bad_msg": "", "wrong_viewer": 0,
+		"own_cards": 0, "own_hidden": 0, "other_cards": 0, "other_shown": 0, "env_asks": 0, "env_opts_leak": 0,
+		"last_mirror": null, "over": {}, "overs": 0 }
+
+
+## 一局全真人联机局跑在 C# sidecar 上（服务器开关 `CW_KERNEL=sidecar`）：两个真人席 + 一个开局前就进房的观众，走真 WebSocket 打到终局。验：
+##   · 走的是 sidecar 路（房里没有 CWGame、有条目泵），终局回等待室、条目泵拆干净
+##   · 询问只发给被问的那一席（观众一条都收不到）；每一问都有同号的 step_begin（客户端 #44 的接管判定靠它）
+##   · 每人每步一份 step_end + sync，envelope 装得进 CWMirror、viewer 是自己；别人的手牌背面、自己的明牌
+##   · 观众：viewer = -1、问答段没有选项、手牌全背面
+##   · 报文与 GD 路同形：sync 不带 view、hash 空串、envelope 零浮点；ask 的选项没有 key；演出给三个人各一份
+##   · 开局名字 = 昵称；同一房间第二局用投降收（2 人局免疫只有一席 = 一票即全票）
+func t_net_sidecar() -> void:
+	print("[联机·C# 内核路]")
+	if not _sc_ready():
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var srv := _net_server()
+	check(srv != null, "联机：本机起服务器")
+	if srv == null:
+		OS.set_environment("CW_KERNEL", "")
+		return
+	var a := _net_client("甲", false)
+	var b := _net_client("乙", false)
+	var w := _net_client("丙", false)
+	check(await _net_pair(srv, a, b) and await _net_pair(srv, w, w), "三个客户端握手")
+	check(await _net_room(srv, a, b, 2, 0, 2222), "2 人房：甲乙坐满、准备")
+	w.join(a.code)
+	check(await _net_pump(srv, [a, b, w], func() -> bool: return w.code == a.code), "丙开局前进房（不坐 = 观众）")
+	var ta := _sc_tally()
+	var tb := _sc_tally()
+	var tw := _sc_tally()
+	var audits := [_sc_audit.bind(ta, 0), _sc_audit.bind(tb, 1), _sc_audit.bind(tw, -1)]
+	a.message.connect(audits[0])
+	b.message.connect(audits[1])
+	w.message.connect(audits[2])
+	var da = load("res://tests/xcheck_bridge.gd").new()
+	var db = load("res://tests/xcheck_bridge.gd").new()
+	da.seed_policy(2222)
+	db.seed_policy(4444)
+	a.start()
+	var room: CWRoom = srv.rooms[a.code]
+	await _net_pump(srv, [a, b, w], func() -> bool: return room.state == CWRoom.State.PLAYING)
+	check(room.state == CWRoom.State.PLAYING and room.pump != null and room.game == null and room.bridge == null,
+		"开关打开 + 全真人 ⇒ 这一局走条目泵（房里没有 CWGame）")
+	var sc_pid: int = room.pump.kernel.process_id() if room.pump != null else -1
+	var t0 := Time.get_ticks_msec()
+	var ok := await _net_pump(srv, [a, b, w], func() -> bool:
+		_sc_answer_pending([a, b], [da, db])
+		return not ta["over"].is_empty() and not tb["over"].is_empty() and not tw["over"].is_empty(), 30000)
+	check(ok, "打到终局（%d 问，%.1f s，第 %d 回合：%s）" % [ta["asks"] + tb["asks"], (Time.get_ticks_msec() - t0) / 1000.0,
+		int(ta["over"].get("round", -1)), String(ta["over"].get("reason", ""))])
+	check(ok and ta["over"]["winner"] == tb["over"]["winner"] and tb["over"]["winner"] == tw["over"]["winner"]
+		and ta["over"]["kind"] == tw["over"]["kind"], "三个人收到同一个终局")
+	check(room.state == CWRoom.State.WAITING and room.games_played == 1 and room.pump == null and room.game == null,
+		"局末回等待室、条目泵拆掉（games %d）" % room.games_played)
+	check(ok and (ta["over"]["replay"] as Dictionary).is_empty(), "C# 内核还没有回放带子：game_over 的 replay 是空字典（客户端不落盘）")
+	## ---- 询问 ----
+	check(ta["asks"] > 0 and tb["asks"] > 0 and ta["foreign"] == 0 and tb["foreign"] == 0,
+		"询问只发给被问的那一席（甲 %d 问、乙 %d 问，问错人 %d）" % [ta["asks"], tb["asks"], ta["foreign"] + tb["foreign"]])
+	check(tw["asks"] == 0, "观众一条询问都收不到")
+	check(ta["keyed"] == 0 and tb["keyed"] == 0, "ask 报文的选项没有 key（与 GD 路同形：两端各自 CWSemKey 现算）")
+	var unmatched := 0
+	for id in ta["ask_ids"] + tb["ask_ids"]:
+		if not ta["begin_ids"].has(id) or not tw["begin_ids"].has(id):
+			unmatched += 1
+	check(unmatched == 0 and ta["begin_ids"].size() >= ta["asks"] + tb["asks"],
+		"每一问答下都有一条同号的 step_begin 广播给所有人（对不上 %d）" % unmatched)
+	var ids_up := true
+	var all_ids: Array = ta["ask_ids"] + tb["ask_ids"]
+	all_ids.sort()
+	for i in range(1, all_ids.size()):
+		ids_up = ids_up and all_ids[i] > all_ids[i - 1]
+	check(ids_up, "询问编号是房间自己的号、不重号")
+	## ---- 每步的状态 ----
+	for pair in [["甲", ta], ["乙", tb], ["观众", tw]]:
+		var t: Dictionary = pair[1]
+		check(t["syncs"] > 20 and t["sync_no_end"] == 0 and t["ends"] == t["syncs"],
+			"%s：每步一份 step_end + sync（%d 份）" % [pair[0], t["syncs"]])
+		check(t["bad"] == 0 and t["wrong_viewer"] == 0, "%s：每份 envelope 都装得进 CWMirror、viewer 是自己（%s）" % [pair[0], t["bad_msg"]])
+		check(t["floats"] == 0 and t["odd_shell"] == 0, "%s：envelope 零浮点、外壳与 GD 路同形（不带 view、hash 空串）" % pair[0])
+		check(t["other_shown"] == 0, "%s：别人的手牌一张不露（看过 %d 张）" % [pair[0], t["other_cards"]])
+	check(ta["own_hidden"] == 0 and tb["own_hidden"] == 0 and ta["own_cards"] + tb["own_cards"] > 0,
+		"自己的手牌是明牌（甲 %d 张次、乙 %d 张次）" % [ta["own_cards"], tb["own_cards"]])
+	check(tw["other_cards"] > 0, "观众那份确实有手牌可藏（%d 张次，免得上一条空比）" % tw["other_cards"])
+	check(tw["env_asks"] > 0 and tw["env_opts_leak"] == 0 and ta["env_opts_leak"] == 0 and tb["env_opts_leak"] == 0,
+		"envelope 的问答段：不是自己那一问就没有选项（观众 %d 份全空）" % tw["env_asks"])
+	var lm: CWMirror = ta["last_mirror"]
+	check(lm != null and String(lm.players[0]["name"]) == "甲" and String(lm.players[1]["name"]) == "乙",
+		"开局名字 = 昵称（%s / %s）" % [lm.players[0]["name"] if lm != null else "?", lm.players[1]["name"] if lm != null else "?"])
+	check(ta["rolls"] > 0 and ta["rolls"] == tb["rolls"] and tb["rolls"] == tw["rolls"], "掷骰演出广播给三个人各一份（%d 次）" % ta["rolls"])
+	## ---- 第二局：投降收局（2 人局免疫只有甲一席，一票就是全票）----
+	a.ready()
+	b.ready()
+	await _net_pump(srv, [a, b, w], func() -> bool: return a.room["seats"][0]["ready"] and a.room["seats"][1]["ready"])
+	a.start()
+	ok = await _net_pump(srv, [a, b, w], func() -> bool: return not a.pending_ask.is_empty())
+	check(ok and room.pump != null, "同一房间第二局照样走条目泵，甲拿到第一问")
+	var x := _net_client("己", false)
+	check(await _net_pair(srv, x, x), "第四个客户端握手")
+	x.join(a.code)
+	ok = await _net_pump(srv, [a, b, w, x], func() -> bool: return _net_count(x, "sync") > 0)
+	var xs := _net_last(x, "sync")
+	check(ok and room.watchers() == 2 and int(xs["envelope"]["viewer"]) == CWKernel.VIEWER_WATCHER
+		and CWMirror.new().load_from(xs["envelope"]) == "" and _net_count(x, "step_end") == 1,
+		"对局中途进来的观众：当场补一份观众视角的 step_end + sync（CWRoom.join → push_state_to）")
+	a.surrender(true)
+	ok = await _net_pump(srv, [a, b, w, x], func() -> bool: return tb["overs"] >= 2)
+	var over2: Dictionary = tb["over"]
+	check(ok and int(over2["winner"]) == CWData.Faction.CANCER and String(over2["kind"]) == "surrender_cancer",
+		"投降票全票 → 句柄 surrender → 癌方胜（%s）" % String(over2.get("kind", "")))
+	check(room.games_played == 2 and room.pump == null and room.state == CWRoom.State.WAITING, "投降收局后回等待室")
+	a.message.disconnect(audits[0])
+	b.message.disconnect(audits[1])
+	w.message.disconnect(audits[2])
+	a.dispose()
+	b.dispose()
+	w.dispose()
+	x.dispose()
+	srv.stop()
+	CWKernelSidecar.shutdown_idle_links()
+	var t1 := Time.get_ticks_msec()
+	while sc_pid > 0 and OS.is_process_running(sc_pid) and Time.get_ticks_msec() - t1 < 3000:
+		await process_frame
+	check(sc_pid > 0 and not OS.is_process_running(sc_pid), "关服 + 空闲链路关掉之后 sidecar 进程退出")
+	OS.set_environment("CW_KERNEL", "")
+
+
+## C# 内核路的代打（P6 临时口径：C# 的 AI 席落地前，挑「结束回合 / 停 / 跳过」，都没有就第一项）与开关的另外三面：
+##   ① 纯函数：fallback_index 认 data 不认下标 / 文案
+##   ② 有计时：乙一直不答，到点代打，对局往前走；③ 无计时：乙掉线，他之后的每一问都由代打即时答掉，甲一个人把这局打完
+##   ④ 开关打开但房里有 AI 席 ⇒ 照旧 GD 路；sidecar 找不到 ⇒ 退回 GD 路照常开局；开关关着 ⇒ GD 路（与改动之前逐行相同）
+func t_net_sidecar_takeover() -> void:
+	print("[联机·C# 内核路的代打与开关]")
+	var Pump := preload("res://scripts/net/cw_net_pump.gd")
+	check(Pump.fallback_index({ "options": [{ "label": "移动", "data": { "act": "move", "to": Vector2i(1, 0) } },
+			{ "label": "结束回合", "data": { "act": "end" } }] }) == 1, "代打口径：有「结束回合」就选它")
+	check(Pump.fallback_index({ "options": [{ "label": "x", "data": { "card": "a" } }, { "label": "停在这里", "data": { "stop": true } }] }) == 1
+		and Pump.fallback_index({ "options": [{ "label": "y", "data": { "to": Vector2i.ZERO } }, { "label": "放弃", "data": { "skip": true } }] }) == 1,
+		"代打口径：停 / 跳过同样认")
+	check(Pump.fallback_index({ "options": [{ "label": "格 A", "data": { "to": Vector2i(2, 0) } }, { "label": "格 B", "data": { "to": Vector2i(3, 0) } }] }) == 0,
+		"代打口径：都没有就第一项（落子 / 弃牌这类每项都往前走）")
+	if not _sc_ready():
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var srv := _net_server()
+	if srv == null:
+		OS.set_environment("CW_KERNEL", "")
+		return
+	var url := "ws://%s:%d" % [NET_HOST, srv.port]
+	## ---- ② 有计时：乙不答，到点代打 ----
+	var a := _net_client("甲", false)
+	var b := _net_client("乙", false)
+	await _net_pair(srv, a, b)
+	check(await _net_room(srv, a, b, 2, 1, 2222), "计时场景：2 人房、1 秒计时")
+	var da = load("res://tests/xcheck_bridge.gd").new()
+	da.seed_policy(2222)
+	a.start()
+	var room: CWRoom = srv.rooms[a.code]
+	await _net_pump(srv, [a, b], func() -> bool: return room.state == CWRoom.State.PLAYING)
+	check(room.pump != null, "走条目泵")
+	var ok := await _net_pump(srv, [a, b], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return not b.pending_ask.is_empty())
+	var id0: int = int(b.pending_ask.get("ask_id", -1))
+	check(ok and int(b.pending_ask.get("left_ms", -1)) <= 1000, "乙拿到一问（带 1 秒剩余时间）")
+	var fired := await _net_pump(srv, [a, b], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return room.timeouts >= 1, 900)
+	var begun := func(cl: CWNetClient) -> bool:
+		return cl.inbox.any(func(m: Dictionary) -> bool: return m["t"] == "step_begin" and int(m["ask_id"]) == id0)
+	var moved := await _net_pump(srv, [a, b], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return begun.call(a) and begun.call(b), 900)
+	check(fired and moved and room.pump != null and int(room.pump.takeovers) >= 1,
+		"到点：服务器按临时口径代打，对局往前走（超时 %d 次、代打 %d 次）" % [room.timeouts, int(room.pump.takeovers) if room.pump != null else -1])
+	check(moved, "代打那一问的 step_begin 带着房间给乙的那个编号广播出去（客户端据此收界面，#44）")
+	var after := await _net_pump(srv, [a, b], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return int(b.pending_ask.get("ask_id", -1)) > id0, 3000)
+	check(after, "乙之后照样被问到新的一问（对局没卡在代打那一步）")
+	## 断线重连：有计时的房间，悬着的那一问等他回来；凭令牌回来拿到同一问 + 一份自己视角的状态
+	var id1: int = int(b.pending_ask.get("ask_id", -1))
+	if not room._ask.is_empty():
+		room._ask["deadline"] = srv.now_ms() + 60000   ## 测试里把这一问的期限拉长：重连要好几帧，别让 1 秒计时先到点
+	var token: String = b.token
+	var code1: String = room.code
+	b.dispose()
+	ok = await _net_pump(srv, [a], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return not room.seats[1]["online"])
+	check(ok and int(room._ask.get("ask_id", -1)) == id1, "乙断线：席位标离线，有计时 ⇒ 他那一问悬着等他回来")
+	var b2 := _net_client("乙", false)
+	b2.connect_to(url, "乙", code1, token)
+	ok = await _net_pump(srv, [a, b2], func() -> bool: return not b2.pending_ask.is_empty())
+	check(ok and int(b2.pending_ask["ask_id"]) == id1 and b2.my_seat == 1 and _net_count(b2, "sync") > 0
+		and int(_net_last(b2, "sync")["envelope"]["viewer"]) == 1, "凭令牌重连：同一问重发、补一份自己视角的状态")
+	b2.answer(id1, Pump.fallback_index(b2.pending_ask["req"]))
+	ok = await _net_pump(srv, [a, b2], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return a.inbox.any(func(m: Dictionary) -> bool: return m["t"] == "step_begin" and int(m["ask_id"]) == id1))
+	check(ok, "重连后自己作答，对局接着走")
+	a.leave()
+	b2.leave()
+	ok = await _net_pump(srv, [a, b2], func() -> bool: return not srv.rooms.has(code1))
+	check(ok, "对局中所有人离开 → 中止、关房（条目泵拆掉）")
+	## ---- ③ 无计时：乙掉线，甲一个人打完 ----
+	var c := _net_client("丁", false)
+	c.connect_to(url, "丁")
+	await _net_pump(srv, [a, c], func() -> bool: return c.client_id >= 0)
+	check(await _net_room(srv, a, c, 2, 0, 3333), "无计时场景：2 人房")
+	a.start()
+	var room2: CWRoom = srv.rooms[a.code]
+	await _net_pump(srv, [a, c], func() -> bool: return room2.state == CWRoom.State.PLAYING)
+	var pump2 = room2.pump   ## 局末房间会把泵拆掉：先攥住，收局后还要读它的代打计数
+	var asked := [0]
+	a.message.connect(func(m: Dictionary) -> void:
+		if m["t"] == "ask":
+			asked[0] += 1)
+	ok = await _net_pump(srv, [a, c], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return not c.pending_ask.is_empty())
+	check(ok and room2.pump != null, "丁拿到一问")
+	c.dispose()
+	ok = await _net_pump(srv, [a], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return room2.pump == null or not room2.seats[1]["online"])
+	check(ok, "丁掉线：席位标离线")
+	var round_at := int(room2.pump.round_no) if room2.pump != null else 0
+	var asks_at: int = asked[0]
+	ok = await _net_pump(srv, [a], func() -> bool:
+		_sc_answer_pending([a], [da])
+		return room2.games_played == 1, 30000)
+	var tk2: int = int(pump2.takeovers) if pump2 != null else 0
+	check(ok and tk2 >= 3 and room2.timeouts == 0, "掉线的那一席每问都由代打即时答掉（不等计时），甲一个人把这局打完（代打 %d 次、第 %d 回合收局、甲又被问 %d 次）"
+		% [tk2, int(_net_last(a, "game_over").get("round", -1)), asked[0] - asks_at])
+	check(int(_net_last(a, "game_over").get("round", -1)) > round_at, "掉线之后世界回合还在往前走（从第 %d 回合起）" % round_at)
+	## ---- ④ 开关的另外三面 ----
+	var e := _net_client("戊", false)
+	e.connect_to(url, "戊")
+	await _net_pump(srv, [a, e], func() -> bool: return e.client_id >= 0)
+	## 4 人房、两个 AI 席：开关打开也照旧 GD 路
+	var old_code := a.code
+	a.create_room(4, 0, true, 5)
+	await _net_pump(srv, [a, e], func() -> bool: return a.code != "" and a.code != old_code)
+	e.join(a.code)
+	await _net_pump(srv, [a, e], func() -> bool: return e.code == a.code)
+	a.sit(0)
+	e.sit(1)
+	await _net_pump(srv, [a, e], func() -> bool: return a.my_seat == 0 and e.my_seat == 1)
+	a.set_ai(2, "heur")
+	a.set_ai(3, "heur")
+	a.ready()
+	e.ready()
+	ok = await _net_pump(srv, [a, e], func() -> bool:
+		return a.room["seats"][3]["kind"] == "ai" and a.room["seats"][0]["ready"] and a.room["seats"][1]["ready"])
+	a.start()
+	var room3: CWRoom = srv.rooms[a.code]
+	await _net_pump(srv, [a, e], func() -> bool: return room3.state == CWRoom.State.PLAYING)
+	check(ok and room3.state == CWRoom.State.PLAYING and room3.game != null and room3.pump == null,
+		"开关打开、房里有 AI 席 ⇒ 照旧 GD 路（C# 还没有 AI）")
+	a.leave()
+	e.leave()
+	await _net_pump(srv, [a, e], func() -> bool: return not srv.rooms.has(room3.code))
+	## 坐着机器人客户端（它作答要 GD 影子对局）⇒ 照旧 GD 路
+	var bot := _net_client("机器人")   ## autoplay ⇒ hello 自报 bot
+	bot.connect_to(url, "机器人")
+	await _net_pump(srv, [a, bot], func() -> bool: return bot.client_id >= 0)
+	check(await _net_room(srv, a, bot, 2, 0, 8), "2 人房：甲 + 一个机器人客户端")
+	a.start()
+	var room6: CWRoom = srv.rooms[a.code]
+	ok = await _net_pump(srv, [a, bot], func() -> bool: return room6.state == CWRoom.State.PLAYING)
+	check(ok and room6.game != null and room6.pump == null, "开关打开、坐着机器人客户端 ⇒ 照旧 GD 路（net_play / net_live 的线上验收不受开关影响）")
+	a.leave()
+	bot.leave()
+	await _net_pump(srv, [a, bot], func() -> bool: return not srv.rooms.has(room6.code))
+	bot.dispose()
+	## sidecar 找不到 ⇒ 退回 GD 路照常开局
+	OS.set_environment("CW_SIDECAR_DLL", "/nonexistent/CellWar.Sidecar.dll")
+	check(await _net_room(srv, a, e, 2, 0, 6), "2 人全真人房")
+	a.start()
+	var room4: CWRoom = srv.rooms[a.code]
+	ok = await _net_pump(srv, [a, e], func() -> bool: return not a.pending_ask.is_empty())
+	check(ok and room4.game != null and room4.pump == null, "sidecar 找不到 ⇒ 这一局退回 GD 内核，照常问到甲")
+	OS.set_environment("CW_SIDECAR_DLL", "")
+	a.leave()
+	e.leave()
+	await _net_pump(srv, [a, e], func() -> bool: return not srv.rooms.has(room4.code))
+	## 开关关着 ⇒ GD 路
+	OS.set_environment("CW_KERNEL", "")
+	check(await _net_room(srv, a, e, 2, 0, 7), "开关关掉再开一间")
+	a.start()
+	var room5: CWRoom = srv.rooms[a.code]
+	ok = await _net_pump(srv, [a, e], func() -> bool: return not a.pending_ask.is_empty())
+	check(ok and room5.game != null and room5.pump == null and room5.bridge != null, "开关关着 ⇒ GD 路（CWGame + CWNetBridge，与改动之前相同）")
+	a.dispose()
+	b2.dispose()
+	e.dispose()
+	srv.stop()
+	CWKernelSidecar.shutdown_idle_links()
+
+## 真界面接 C# 内核路的服务器 —— **客户端一行没改**，这一条验的就是「对客户端零改动」：Main.tscn 的联机对局界面连上一间 sidecar 房，
+## 落子点一格、行动问答按「结束回合」（乙按代打口径作答），打过两个世界回合。验：行动栏按 tier B 的 action_kinds 建出整排按钮、
+## 镜像跟着回合走、名字是昵称、悬浮查询经 query RPC 由 sidecar 答回来、拆局干净
+func t_net_sidecar_ui() -> void:
+	print("[联机·C# 内核路·真界面]")
+	if not _sc_ready():
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var srv := _net_server()
+	if srv == null:
+		OS.set_environment("CW_KERNEL", "")
+		return
+	var Pump := preload("res://scripts/net/cw_net_pump.gd")
+	var a := _net_client("甲", false)
+	var b := _net_client("乙", false)
+	await _net_pair(srv, a, b)
+	check(await _net_room(srv, a, b, 2, 0, 77), "2 人房就绪")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.get_node("Match")
+	a.sequenced = true           ## CWOnlinePanel 在收到 room(playing) 时做的事
+	a.start()
+	var ok := await _net_pump(srv, [a, b], func() -> bool:
+		return a.stream.any(func(x: Dictionary) -> bool: return x["t"] == "sync"))
+	var room: CWRoom = srv.rooms[a.code]
+	check(ok and room.pump != null and room.game == null, "服务器这一局走 C# 内核；开局后第一份状态排进了 stream")
+	m.start_online(a)
+	check(m.online and m.kernel is CWKernelRemote, "客户端照旧是联机句柄（CWKernelRemote），不知道对面换了内核")
+	var st := { "bar": 0, "kinds": 0, "ends": 0, "places": 0 }
+	var answer_b := func() -> void:
+		if not b.pending_ask.is_empty():
+			b.answer(int(b.pending_ask["ask_id"]), Pump.fallback_index(b.pending_ask["req"]))
+	ok = await _net_pump(srv, [a, b], func() -> bool:
+		answer_b.call()
+		if m.bridge._pending != null:
+			if not m.bridge._tiles.is_empty() and not m.bridge.panel._end.visible:
+				st["places"] += 1
+				m.bridge._pending.fire(m.bridge._tiles.values()[0])   ## 落子：点第一格可选的
+			else:
+				st["bar"] = maxi(int(st["bar"]), m.bridge.bar._buttons.size())
+				st["kinds"] = maxi(int(st["kinds"]), m.mirror.action_kinds_of(m.mirror.cell_of(0)).size())
+				st["ends"] += 1
+				m.bridge.panel.end_turn_pressed.emit()
+		return m.mirror != null and int(m.mirror.round_no) >= 3, 6000)
+	check(ok, "界面在 C# 内核的房里打过两个世界回合（第 %d 回合，落子 %d 次，结束回合 %d 次）"
+		% [int(m.mirror.round_no) if m.mirror != null else -1, st["places"], st["ends"]])
+	## 「结束回合」在右侧竖条上、不占行动栏：没有 tier B 的话这里是 0 个按钮（批 0 时 C# 不产 tier B 就是那样）
+	check(int(st["kinds"]) >= 2 and int(st["bar"]) == int(st["kinds"]),
+		"行动栏按 tier B 的 action_kinds 建出整排按钮（%d 个 = 镜像给的种类数 %d）" % [int(st["bar"]), int(st["kinds"])])
+	check(m.mirror != null and String(m.mirror.players[0]["name"]) == "甲" and String(m.mirror.players[1]["name"]) == "乙",
+		"界面上的名字是昵称")
+	## 悬浮查询：等轮到甲行动（只有那段时间服务器空转、缓存不会被下一份 sync 作废），问一条可达格
+	ok = await _net_pump(srv, [a, b], func() -> bool:
+		answer_b.call()
+		return m.bridge._pending != null and m.bridge.panel._end.visible)
+	var mm: CWMirror = m.mirror
+	var qcid := int(mm.players[0]["cell_id"])
+	var qargs := { "cid": qcid, "from": mm.cells[qcid]["pos"] }
+	m.kernel.query("plan_next_dests", qargs)
+	ok = ok and await _net_pump(srv, [a, b], func() -> bool: return m.kernel.query("plan_next_dests", qargs) is Array, 600)
+	var dests = m.kernel.query("plan_next_dests", qargs)
+	check(ok and dests is Array and (dests.is_empty() or dests[0] is Vector2i),
+		"悬浮查询经 query RPC 由 sidecar 答回来（plan_next_dests %d 格，Vector2i）" % (dests.size() if dests is Array else -1))
+	m.teardown()
+	check(not m.online and m.kernel == null and a.status == "open", "拆局：退出联机模式，连接留给客户端")
+	main_scene.queue_free()
+	await process_frame
+	a.dispose()
+	b.dispose()
+	srv.stop()
+	CWKernelSidecar.shutdown_idle_links()
+	OS.set_environment("CW_KERNEL", "")
+
+
 ## ── 新手教程 v2 · S9a：间章地基（Kevin 2026-09-19 拍板「重心平移」）────────────
 ## PRD:395-397 间章分镜 2：「地图以免疫细胞为中心向四周延伸，补齐缺失格子使其处于一个
 ## **完整棋盘的中央格**」。落法 = 把活局面 dump 成 cwxworld/3、每个坐标键平移 −P、半径抬到 11，
