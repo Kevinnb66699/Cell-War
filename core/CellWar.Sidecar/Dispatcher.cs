@@ -19,6 +19,7 @@ namespace CellWar.Sidecar;
 ///   ai_step{sid}                                    → {stepped}（ai_paced：交 AI 想好了的那一问）
 ///   open{cfg:{world: cwxworld/3, rolls?: [[from,to,value]…], seed?, observe_viewer?, open_hands?, names?[]}} → {sid}（新手教程：从装载世界续跑）
 ///   dump_world{sid}                                 → {world}（活局面导成 cwxworld/3）
+///   tape{sid}                                       → {size, at, overrun, bad_range}（教程骰子带子的账；只有从关卡世界开的局有）
 ///   pull{sid, viewer, since, limit?}                → {entries[], last_seq}
 ///   discard_before{sid, seq}                        → {}
 ///   answer{sid, ask_id, key?, index?}               → {accepted}
@@ -68,6 +69,7 @@ internal sealed class Dispatcher : IDisposable
             req["tier"] is { } tier ? AiConfig.ParseTier(J.Str(tier)) : null, req["once"] is { } once && J.Bool(once)) },
         "ai_step" => new JsonObject { ["stepped"] = Session(req).StepAi() },
         "dump_world" => new JsonObject { ["world"] = Session(req).DumpWorld() },
+        "tape" => Session(req).TapeStats(),
         "log_msg" => new JsonObject { ["logged"] = Session(req).LogMessage(J.Str(req["text"]), J.IntOr(req["secret_pid"]) ?? -1, J.StrOr(req["public_text"])) },
         "can_save" => new JsonObject { ["can_save"] = Session(req).CanSave },
         "save" => new JsonObject { ["checkpoint"] = Session(req).Save() },

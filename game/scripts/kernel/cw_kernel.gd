@@ -101,6 +101,12 @@ func ack(_seq: int) -> void:
 	pass
 
 
+## roll 条目要不要真等消费者 ack（掷骰动画开关，match.gd 每帧按 CWSettings.dice_anim 喂）。
+## 只有 GD InProc 的引擎会停在 roll 上等动画；C# sidecar 与联机的引擎本来就不等（roll 的 barrier 只是标记），基类空操作
+func set_roll_barrier(_on: bool) -> void:
+	pass
+
+
 ## 最后一条已发出的 seq（0 = 还没有条目）
 func entry_seq() -> int:
 	return 0

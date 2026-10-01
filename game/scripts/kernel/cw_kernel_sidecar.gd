@@ -108,7 +108,7 @@ func open(cfg: Dictionary) -> bool:
 	_sid = int(r["sid"])
 	deciders = {}
 	if cfg.has("decider") and cfg["decider"] != null:
-		for pid in Array(cfg.get("factions", [])).size():
+		for pid in _seat_count(cfg):
 			deciders[pid] = cfg["decider"]
 	if cfg.has("deciders"):
 		deciders.merge(cfg["deciders"], true)
@@ -116,6 +116,15 @@ func open(cfg: Dictionary) -> bool:
 	_start_ticking()
 	_pump()   ## 开局那段（落子之前）sidecar 已经算完：第一问马上就在（autorun=false 时只拉、不答）
 	return true
+
+
+## 这一局有几席（`decider` 要挂满每一席，同 InProc 按 `game.order` 挂）。
+## 三种开局各有各的出处：新开局看 `factions`；教程从关卡世界开局（换内核 P5）不传 factions，席位在世界的 `players` 里；
+## 读档（`world_state`）时 match.gd 照样带着 factions。都没有就是 0 席 —— 那种 cfg 本来也开不出局
+static func _seat_count(cfg: Dictionary) -> int:
+	if cfg.get("world") is Dictionary:
+		return Array((cfg["world"] as Dictionary).get("players", [])).size()
+	return Array(cfg.get("factions", [])).size()
 
 
 ## autorun=false 的局从这里起跑（match.gd：队列与第一份镜像就位之后）。sidecar 那边开局早算完了，这里只是开始替 decider 作答
@@ -296,12 +305,41 @@ func surrender(faction: int) -> void:
 	_pump()
 
 
-## 活局面导成一份 cwxworld/3（同 `cw_world_loader.gd:dump_world`；教程间章「重心平移」先导出、平移、再装回来）
+## 活局面导成一份 cwxworld/3（同 `cw_world_loader.gd:dump_world`；教程间章「重心平移」先导出、平移、再装回来）。
+## **null 一律删掉**：C# 把没写的可选字段序列化成 `"type": null` / `"chemo": null`（它自己读的时候 null = 没写），
+## 而 GD 这边的读法认的是「有没有这个键」—— 舞台 `_pin_specials` 见 `has("type")` 就不钉器官，平移之后器官会跳格
 func dump_world() -> Dictionary:
 	if _sid < 0:
 		return {}
 	var w: Variant = _call("dump_world", { "sid": _sid }).get("world", null)
-	return _ints(w) if w is Dictionary else {}
+	return _ints(_drop_nulls(w)) if w is Dictionary else {}
+
+
+## 字典里值为 null 的键整条删掉（递归；数组里的元素原样留着，cwxworld/3 的数组里没有 null）
+static func _drop_nulls(v: Variant) -> Variant:
+	if v is Dictionary:
+		var out := {}
+		for k in v:
+			if v[k] != null:
+				out[k] = _drop_nulls(v[k])
+		return out
+	if v is Array:
+		var arr: Array = []
+		for x in v:
+			arr.append(_drop_nulls(x))
+		return arr
+	return v
+
+
+## 教程骰子带子的账（换内核 P5（三））：`{size, at, overrun, bad_range}`，与 GD `cw_roll_tape.gd` 的四个量同义。
+## 只有从关卡世界开的局有带子，别的局（以及链路坏了）给 {}
+func tape_stats() -> Dictionary:
+	if _sid < 0:
+		return {}
+	var r := _call("tape", { "sid": _sid })
+	if not bool(r.get("ok", false)):
+		return {}
+	return { "size": int(r["size"]), "at": int(r["at"]), "overrun": int(r["overrun"]), "bad_range": int(r["bad_range"]) }
 
 
 ## JSON 来回之后整数都成了 float：整数值的 float 换回 int（坐标、能量十分位、计数都是整数；真小数原样留着）

@@ -79,6 +79,9 @@ internal sealed class SessionHost : IDisposable
     /// <summary>AI 最近一次出错（兜底作答了），排查用。</summary>
     public string? LastAiError { get; private set; }
 
+    /// <summary>从关卡世界开局时挂的那条骰子带子有几条（<see cref="TapeStats"/> 用）；别的开局是 null —— 随机源不是 <see cref="ScriptedRng"/>。</summary>
+    private int? TapeLength { get; init; }
+
     public SessionHost(int sid, MatchSession session, int? observeViewer, bool openHands,
         IReadOnlyDictionary<int, AiTier>? ai = null, int aiDelayMs = 0, ulong seed = 1, bool paced = false)
         : this(sid, session, observeViewer, openHands, ai, aiDelayMs, seed, paced, restored: false) { }
@@ -174,11 +177,27 @@ internal sealed class SessionHost : IDisposable
         var viewer = J.IntOr(cfg["observe_viewer"]);
         var openHands = cfg["open_hands"] is { } oh && J.Bool(oh);
         world = WithNames(world, cfg, world.Players.Count);
-        return new(sid, MatchSession.Resume(world, new ScriptedRng(rolls, seed)), viewer, openHands, null, 0, seed);
+        return new(sid, MatchSession.Resume(world, new ScriptedRng(rolls, seed)), viewer, openHands, null, 0, seed) { TapeLength = rolls.Count };
     }
 
     /// <summary>GD `cw_world_loader.gd:dump_world`：把活局面导成一份 cwxworld/3（教程间章「重心平移」要先导出、平移、再装回来）。</summary>
     public JsonNode DumpWorld() { lock (gate) return JsonSerializer.SerializeToNode(WorldLoader.Dump(session.Peek().State), WorldJson.Options)!; }
+
+    /// <summary>
+    /// 教程带子的账（换内核 P5（三））：`{size, at, overrun, bad_range}`，与 GD `cw_roll_tape.gd` 的 `tape.size()` / `at` / `overrun` / `bad_range` 同义 ——
+    /// 教程测试要核「带子双向归零」（少给会静默回落、多给说明那几次掷骰没发生）。读的是 <see cref="ScriptedRng"/> 存进 RngState 的三个计数（S1 / S2 / S3）。
+    /// 不是从关卡世界开的局没有带子，当场拒。
+    /// </summary>
+    public JsonObject TapeStats()
+    {
+        lock (gate)
+        {
+            if (TapeLength is not { } size)
+                throw new InvalidOperationException("这一局不是从关卡世界开的，没有骰子带子");
+            var rng = session.PeekRng() ?? throw new InvalidOperationException("随机源状态还没落盘");
+            return new JsonObject { ["size"] = size, ["at"] = (long)rng.S1, ["overrun"] = (long)rng.S2, ["bad_range"] = (long)rng.S3 };
+        }
+    }
 
     private static WorldState WithNames(WorldState world, JsonObject cfg, int seats)
     {

@@ -20,8 +20,12 @@
 ## **不带 `class_name`、调用方 `preload`**（同 `cw_world_loader.gd` / `cw_tutor_script.gd` 的理由：
 ## 补丁里新增的 `class_name` 认不出来，引导又是天天在改的东西）。
 ##
-## 换 sidecar 那天要动的只有这一个文件：`adopt` 换成 `world_state` / `/restore`，
-## UI 侧一个字都不改（它拿到的本来就是句柄）。
+## **换内核 P5（三）（2026-10-01）**：开发开关 `CW_KERNEL=sidecar`（与 `match.gd:_new_local_kernel` 同一个环境变量）
+## 打开时，`_open_spec` 不再收养 CWGame，而是把同一份 cwxworld/3 + 同一条带子交给本地 C# 进程
+## （`CWKernelSidecar.open({world, rolls})`，C# 侧 `MatchSession.Resume` + `ScriptedRng`）；关内换盘、重心平移
+## 走的仍是下面那条四步拆装，只是「导出活局面」改问句柄（`dump_world()`）。**认得出两种内核的只有这个文件**：
+## 调用方拿到的始终是 `CWKernel`，NPC 与闸桥照旧当 decider 挂在 `cfg` 里（两种句柄都在本地作答）。
+## 开关关着 = 一字不变；sidecar 起不来就退回 GD 内核（同热座那条路，玩家照样能玩）。
 extends RefCounted
 
 const DATA := preload("res://scripts/kernel/cw_tutor_script.gd")
@@ -40,14 +44,16 @@ var world_id := ""
 ## 这一局相对**关卡数据里写的坐标**已经累计平移了多少（`recenter` 每走一次就叠一次，S9a）。
 ## 零 = 没平移过。活跃格要跟着它走，否则遮罩与盘面错开一大截
 var world_offset := Vector2i.ZERO
-## 挂上去的带子（`rolls` 为空时也挂 —— 空带子 = 「这一关一次 rng 都不许消耗」的断言）
+## 挂上去的带子（`rolls` 为空时也挂 —— 空带子 = 「这一关一次 rng 都不许消耗」的断言）。
+## 只有 GD 内核那条路有这个对象；sidecar 的带子住在 C# 进程里，账统一从 `tape_stats()` 看
 var tape = null
 ## 当前句柄。`reload_world` 与 `dispose` 都从它走
 var kernel: CWKernel = null
 ## 装不出来时的原因（装载器的 `errors` 原样带出来）
 var errors: PackedStringArray = []
 
-## **产品代码里唯一的 CWGame 引用**（见文件头②）。收养给句柄，拆局由 `dispose()` 收摊
+## **产品代码里唯一的 CWGame 引用**（见文件头②）。收养给句柄，拆局由 `dispose()` 收摊。
+## 走 sidecar 时恒为 null（对局住在 C# 进程里，句柄 `close()` 就收了会话）
 var _game: CWGame = null
 
 
@@ -88,13 +94,8 @@ func reload_world(wid: String) -> CWKernel:
 ## `fx_turn` 等不在 CELL_KEYS 里的那些）—— 间章是强制演出、玩家不再操作，这一刀可以吃。
 func reload_recentered(delta: Vector2i, radius: int) -> CWKernel:
 	errors = PackedStringArray()
-	if _game == null:
-		errors.append("重心平移：此刻没有活着的对局可导出")
-		return null
-	var loader = LOADER.new()
-	var spec: Dictionary = loader.dump_world(_game)
-	if not loader.errors.is_empty():
-		errors.append_array(loader.errors)
+	var spec := _dump_live()
+	if spec.is_empty():
 		return null
 	_pin_specials(spec)          ## 必须在平移之前：这一步写的是**老**坐标上的器官
 	spec["radius"] = radius
@@ -108,24 +109,45 @@ func reload_recentered(delta: Vector2i, radius: int) -> CWKernel:
 	return _open_spec(spec)
 
 
+## 此刻这一局导成一份 cwxworld/3。GD 内核问装载器；sidecar 问句柄（C# `WorldLoader.Dump`，与 GD 的 dump
+## 同一套省略口径：格子只导与底板不同的、`type` 等于绝对坐标表就省略）。导不出来返回 {}，原因进 `errors`
+func _dump_live() -> Dictionary:
+	if _game != null:
+		var loader = LOADER.new()
+		var spec: Dictionary = loader.dump_world(_game)
+		if not loader.errors.is_empty():
+			errors.append_array(loader.errors)
+			return {}
+		return spec
+	if kernel is CWKernelSidecar:
+		var live: Dictionary = (kernel as CWKernelSidecar).dump_world()
+		if live.is_empty():
+			errors.append("重心平移：sidecar 导不出活局面（%s）" % str(kernel.last_error()))
+		return live
+	errors.append("重心平移：此刻没有活着的对局可导出")
+	return {}
+
+
 ## 特殊组织（3 代谢核心 / 6 骨髓 / 2 血管）要**跟着世界一起搬**。
 ## `CWData.special_of` 是一张**绝对坐标**表，而 `dump_world` 按「与那张表一致就省略」写 `type`
 ## （装载器口径第 2 条）—— spec 里不显式写的话，装载器会拿**新**坐标去查那张表：
 ## 组织整体挪了位置、器官却钉在原地，真机上看着就是「器官瞬间换了位置」。
 ## 所以平移前给老盘**每一格**写死它此刻的 type（这一步之后 tiles 覆盖老盘全部格）。
+## **只读 spec、不读对局**（换内核 P5（三）起两种内核共用）：dump 省略了 `type` 的格，它此刻的器官就是表里那一个
+## —— 与此前逐格读 `_game.tile(c).special` 等价，因为 dump 正是按「不等于表才写」省略的
 func _pin_specials(spec: Dictionary) -> void:
 	var tiles: Array = spec.get("tiles", [])
 	var by_at := {}
 	for t in tiles:
 		by_at[str((t as Dictionary)["at"])] = t
-	for c in CWData.all_coords(int(_game.board_radius)):
+	for c in CWData.all_coords(int(spec.get("radius", CWData.BOARD_RADIUS))):
 		var key := LOADER.at_text(c)
 		var e: Dictionary = by_at.get(key, {})
 		if e.is_empty():
 			e = { "at": key }
 			tiles.append(e)
 		if not e.has("type"):
-			e["type"] = LOADER._special_name(int((_game.tile(c) as Dictionary)["special"]))
+			e["type"] = LOADER._special_name(int(CWData.special_of(c)))
 	spec["tiles"] = tiles
 
 
@@ -144,12 +166,24 @@ func _fill_plain(spec: Dictionary, radius: int) -> void:
 
 
 ## 收摊：收养模式的 `close()` 不 dispose，谁装配谁收摊 —— 不收的话模块↔对局、桥↔对局两个引用环每换一关漏一份。
+## sidecar 那条路没有 `_game`：会话由句柄的 `close()` 收（调用方的拆局序列里 close 排在 dispose 之前）
 func dispose() -> void:
 	if _game != null:
 		_game.dispose()
 		_game = null
 	kernel = null
 	tape = null
+
+
+## 这一局骰子带子的账：`{size, at, overrun, bad_range}`（`cw_roll_tape.gd` 的四个量）。两种内核同形 ——
+## 测试核「带子双向归零」只认这一个口子，不用知道带子住在哪个进程里。还没开局给 {}
+func tape_stats() -> Dictionary:
+	if tape != null:
+		return { "size": (tape.tape as Array).size(), "at": int(tape.at), "overrun": int(tape.overrun),
+			"bad_range": int(tape.bad_range) }
+	if kernel is CWKernelSidecar:
+		return (kernel as CWKernelSidecar).tape_stats()
+	return {}
 
 
 ## 这一关声明的活跃格（棋盘遮罩的唯一口径，方案 §1.3：小棋盘靠集合不靠半径）。
@@ -193,9 +227,37 @@ func _open(wid: String) -> CWKernel:
 	return _open_spec(spec)
 
 
-## 一份现成的 cwxworld/3 → 一局（挂带子 → 收养 → 交句柄）。
-## `_open`（按 world 名 resolve 出来的）与 `reload_recentered`（从活局面 dump 出来的）共用
+## 一份现成的 cwxworld/3 → 一局。
+## `_open`（按 world 名 resolve 出来的）与 `reload_recentered`（从活局面 dump 出来的）共用。
+## 开关 `CW_KERNEL=sidecar` 打开时先试 C# 进程，起不来再退回 GD 内核（同 `match.gd:start` 热座那条路）
 func _open_spec(spec: Dictionary) -> CWKernel:
+	if OS.get_environment("CW_KERNEL") == "sidecar":
+		var k := _open_sidecar(spec)
+		if k != null:
+			return k
+	return _open_inproc(spec)
+
+
+## C# 内核那条路：同一份 spec + 同一条带子交给 sidecar（C# 装载器装盘 → `ScriptedRng` 挂在开局之前 →
+## `MatchSession.Resume` 停在世界写好的那一席，所以不用 `_point_cursor` 那一脚）。
+## `cfg` 原样带过去：`decider`（闸桥）/ `deciders`（NPC）由句柄在本地作答，与 InProc 同；`consumer` / `record_replay` 它不认，
+## C# 引擎本来就不等动画（roll 的 barrier 只是标记）。开不出来返回 null，由调用方退回 GD 内核
+func _open_sidecar(spec: Dictionary) -> CWKernel:
+	var c := cfg.duplicate()
+	c["world"] = spec
+	c["rolls"] = _rolls()
+	var k := CWKernelSidecar.new()
+	if not k.open(c):
+		push_warning("教程舞台：sidecar 开不了这一关（%s），退回 GD 内核" % str(k.last_error()))
+		return null
+	tape = null
+	_game = null
+	kernel = k
+	return k
+
+
+## GD 内核那条路：挂带子 → 收养 → 交句柄
+func _open_inproc(spec: Dictionary) -> CWKernel:
 	var loader = LOADER.new()
 	var g: CWGame = loader.load_world(spec)
 	if g == null:

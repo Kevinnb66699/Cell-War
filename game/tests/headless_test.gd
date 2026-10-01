@@ -42,7 +42,8 @@ var _durations: Array = []   ## [毫秒, 测试名]
 ## 加了明显变慢的测试就把它填进来（跑一次 `-- --timing` 看末尾那张表）；看门狗上限 = 权重 × 4 s
 const WEIGHTS := {
 	"t_ai_same_hash_mcts4": 78.0, "t_ai_same_hash_mc4": 66.5, "t_ai_same_hash_mc6": 58.8, "t_ai_same_hash_mcts6": 34.9,
-	"t_tutor_done_menu": 30.0, "t_tutor_c3_drive": 22.0, "t_tutor_c3_ui": 22.0, "t_ai_mc": 13.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
+	"t_tutor_done_menu": 30.0, "t_tutor_c3_drive": 22.0, "t_tutor_c3_ui": 22.0, "t_ai_mc": 13.0,
+	"t_tutor_sidecar_chain_c2l5": 50.0, "t_tutor_sidecar_c3_drive": 24.0, "t_tutor_sidecar_c3_ui": 23.0, "t_tutor_sidecar_chain_c1c2": 19.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_sidecar": 5.6, "t_net_drain": 5.1, "t_net_sidecar_takeover": 5.4,
 	"t_net_sidecar_ai": 11.4, "t_web_solo": 6.3, "t_net_solo": 3.0,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
@@ -224,6 +225,8 @@ func _run_all() -> void:
 		t_tutor_c3, t_tutor_c3_drive, t_tutor_c3_ui, t_tutor_done_menu,
 		## 新手教程 v2 · S9b：间章本体（play 接演出库 / 十个分镜 / 阵营翻转 / 击退是重装）
 		t_tutor_play, t_tutor_interlude,
+		## 换内核 P5（三）：教程跑在 C# 内核上（开发开关 CW_KERNEL=sidecar）
+		t_tutor_sidecar_rng, t_tutor_sidecar_chain_c1c2, t_tutor_sidecar_chain_c2l5, t_tutor_sidecar_c3_drive, t_tutor_sidecar_c3_ui,
 	]
 	## 口径 H（Kevin 2026-09-20「好，就这么办」）：护栏⑦「平衡标尺没动」六支**不进全量** —— 规则按 issue 有意改时它必红、每次重录基线，
 	## 分不出有意改还是误改；只在做「本意不改行为」的重构时手动跑前后对比：`-- --ai-baseline`（可再加 --only=…）。
@@ -24265,7 +24268,23 @@ static func _tutor_game_snapshot(g: CWGame) -> Dictionary:
 
 
 func t_tutor_c3_drive() -> void:
-	print("[新手教程 v2·第六关整关无头走一遍：压迫压死三只免疫 / 两轮重复收口 / knock1 不抹痕迹]")
+	await _tutor_c3_drive_run(false)
+
+
+## 换内核 P5（三）：同一支驱动跑在 C# 内核上，判据一条不改（「巨噬第 1 回合死、树突第 2、B 第 3」、三发抗体、四次关内换盘的盘面对账…）。
+## 第六关的 `rolls: []`，NPC 那几下掷骰全走带子念完之后的回落流（C# 逐位照抄 Godot 的 PCG32，见 ScriptedRng.cs 头注）。
+## 日志从界面那一卷（`m.log_store`）读：sidecar 没有 GD 引擎对象可抄；「revived 重装前的活局」那一条要抄旧局的引擎状态，只在 GD 那一遍核
+func t_tutor_sidecar_c3_drive() -> void:
+	await _tutor_c3_drive_run(true)
+
+
+func _tutor_c3_drive_run(sidecar: bool) -> void:
+	print("[新手教程 v2·第六关整关无头走一遍%s：压迫压死三只免疫 / 两轮重复收口 / knock1 不抹痕迹]"
+		% ("（C# sidecar）" if sidecar else ""))
+	if sidecar:
+		if not _tutor_sidecar_ready():
+			return
+		OS.set_environment("CW_KERNEL", "sidecar")
 	CWGuideProgress.clear()
 	CWGuideProgress.set_at("c3_l6", 0)
 	CWTutorLayers.reset()
@@ -24305,15 +24324,30 @@ func t_tutor_c3_drive() -> void:
 	var last_at := -1
 	var t0 := Time.get_ticks_msec()
 	var done := false
+	var not_sidecar := 0     ## sidecar 那一遍：句柄不是 CWKernelSidecar 的帧数
+	var think := { "held": null, "frames": 0 }
 	while Time.get_ticks_msec() - t0 < 90000:
 		await process_frame
-		if m.bridge != null and m.bridge.replay_answers.is_empty():
+		if sidecar and m.kernel != null and not (m.kernel is CWKernelSidecar):
+			not_sidecar += 1
+		if sidecar:
+			## 不用 `replay_answers`：它在下一问到达的那一帧当场作答。C# 引擎不等动画，玩家点完「结束回合」，
+			## 免疫回合 + E 阶段 + 下一回合的第一问一口气就到了，闸在那一帧还停在「结束回合」那一条 ——
+			## 当场作答 = 替玩家多结束一个回合（钩子「免疫回合走完（世界回合 1 → 3）」）。真人总要看一眼，
+			## 所以等几帧再答闸放行的第一条（同 `replay_answers = [0]` 的那一条，view 下标 0）
+			_tutor_think_answer(m, think)
+		elif m.bridge != null and m.bridge.replay_answers.is_empty():
 			m.bridge.replay_answers = PackedInt32Array([0])
-		var gg = m._stage._game if m._stage != null else null
+		## 日志的来源：GD 那一遍抄引擎（`_stage._game.logs`），sidecar 那一遍抄界面那一卷（`log_store.logs`，同形；每换一局一卷）
+		var gg = (m.log_store if sidecar else (m._stage._game if m._stage != null else null))
 		if gg != null:
 			if gg != last_g:
-				if last_g != null and str(m._stage.world_id) == "revived" and live_pre_rv.is_empty():
+				if not sidecar and last_g != null and str(m._stage.world_id) == "revived" and live_pre_rv.is_empty():
 					live_pre_rv = _tutor_game_snapshot(last_g)   ## signet 那一局的最后状态（就地复活已生效）
+				if sidecar and last_g != null:
+					while seen < last_g.logs.size():   ## 换卷那一帧：旧卷里上一帧之后新落的几行别丢
+						logs.append(str(last_g.logs[seen]))
+						seen += 1
 				last_g = gg
 				seen = 0
 			while seen < gg.logs.size():
@@ -24503,14 +24537,15 @@ func t_tutor_c3_drive() -> void:
 	check(volley_ab == 3 and died_after == 0,
 		"★ 第 24 步齐射：B 在 revived 重装后真发了三发抗体（实测 %d 发）、终局那次结算没人死（☠ %d 条）" % [volley_ab, died_after])
 	## T 的能量数据里比活局多 0.5：(-6,1) 被黏液染成癌组织、一环压迫 0.5，0.5 会死在齐射中途（真机抓到）
-	check(not live_pre_rv.is_empty() and bool(live_pre_rv.get("alive0", false))
-			and live_pre_rv["cancer"] == rvd_cancer and live_pre_rv["solid"] == rvd_solid
-			and live_pre_rv["mucus"] == rvd_muc and int(live_pre_rv["t_energy"]) == 5 and rvd_t == 10
-			and int(live_pre_rv.get("round", -1)) == rvd_round,
-		"★ revived 重装前的活局（引擎侧、就地复活已生效）= 数据里的 revived 盘面：癌 %d / %d、固化 %d / %d、黏液标记 %d / %d、T 能量 %s / %s（多给 0.5 扛终局那次压迫）、回合 %s / %s（不倒拨；重装不闪回）"
-			% [live_pre_rv.get("cancer", []).size(), rvd_cancer.size(), live_pre_rv.get("solid", []).size(), rvd_solid.size(),
-				live_pre_rv.get("mucus", []).size(), rvd_muc.size(), str(live_pre_rv.get("t_energy", "?")), str(rvd_t),
-				str(live_pre_rv.get("round", "?")), str(rvd_round)])
+	if not sidecar:
+		check(not live_pre_rv.is_empty() and bool(live_pre_rv.get("alive0", false))
+				and live_pre_rv["cancer"] == rvd_cancer and live_pre_rv["solid"] == rvd_solid
+				and live_pre_rv["mucus"] == rvd_muc and int(live_pre_rv["t_energy"]) == 5 and rvd_t == 10
+				and int(live_pre_rv.get("round", -1)) == rvd_round,
+			"★ revived 重装前的活局（引擎侧、就地复活已生效）= 数据里的 revived 盘面：癌 %d / %d、固化 %d / %d、黏液标记 %d / %d、T 能量 %s / %s（多给 0.5 扛终局那次压迫）、回合 %s / %s（不倒拨；重装不闪回）"
+				% [live_pre_rv.get("cancer", []).size(), rvd_cancer.size(), live_pre_rv.get("solid", []).size(), rvd_solid.size(),
+					live_pre_rv.get("mucus", []).size(), rvd_muc.size(), str(live_pre_rv.get("t_energy", "?")), str(rvd_t),
+					str(live_pre_rv.get("round", "?")), str(rvd_round)])
 	check(loop_seen.get(12, []) == [true, "knockback"] and loop_seen.get(15, []) == [true, "knockback"]
 			and (loop_seen.get(20, [false]) as Array)[0] == true and (loop_seen.get(23, [true]) as Array)[0] == false,
 		"★ 第 9 步的持续光束：两次击退开演时还亮着（主槽演击退、第二支照亮）、第 20 拍（跳之前）还在、第 18 步那一发把它收掉之后第 23 拍没了（实测 %s）" % str(loop_seen))
@@ -24549,9 +24584,14 @@ func t_tutor_c3_drive() -> void:
 		m._tutor_npc_rewind()
 		memo_ok = kept and cleared and (dec0.memo as Dictionary).is_empty() and (dec0.plan as Array).is_empty()
 	check(memo_ok, "★ NPC 脚本游标：同一份 plan 反复登记不动游标、换一份就清零、重置 / 承接时全清（09-24 复核：重置后 B / 树突路线从中间读起再也不动）")
+	if sidecar:
+		check(not_sidecar == 0, "★ 整关（含五次关内换盘）句柄始终是 CWKernelSidecar（不是的帧：%d）" % not_sidecar)
 
 	m.teardown()
 	await process_frame
+	if sidecar:
+		OS.set_environment("CW_KERNEL", "")
+		CWKernelSidecar.shutdown_idle_links()
 	CWSettings.ai_delay_ms = 220
 	CWGuideProgress.clear()   ## 别脏到同一分片里后面按进度开局的测试
 	main_scene.queue_free()
@@ -24658,7 +24698,22 @@ func t_tutor_done_menu() -> void:
 ## ③ 没有任何目标格等镜头超过 3 s（第二跳靠第一跳之后那条 ui.camera、复活靠 {map, center}）；④ ai_delay 用真机的 220 ms。
 ## 约 22 s（WEIGHTS 登记）
 func t_tutor_c3_ui() -> void:
-	print("[新手教程 v2·第六关全程真实界面：按栏点格 / 结束回合按钮 / 两次【转移】（规则 13）/ 黏液破裂 / 在固化格复活]")
+	await _tutor_c3_ui_run(false)
+
+
+## 换内核 P5（三）：同一支真实界面驱动跑在 C# 内核上（开发开关 `CW_KERNEL=sidecar`）—— 驱动只碰界面，两个内核一行不分；
+## sidecar 那一遍另外钉「整关每一帧的句柄都是 CWKernelSidecar」（舞台退回 GD 内核是静默的，不钉就测不出来）
+func t_tutor_sidecar_c3_ui() -> void:
+	await _tutor_c3_ui_run(true)
+
+
+func _tutor_c3_ui_run(sidecar: bool) -> void:
+	print("[新手教程 v2·第六关全程真实界面%s：按栏点格 / 结束回合按钮 / 两次【转移】（规则 13）/ 黏液破裂 / 在固化格复活]"
+		% ("（C# sidecar）" if sidecar else ""))
+	if sidecar:
+		if not _tutor_sidecar_ready():
+			return
+		OS.set_environment("CW_KERNEL", "sidecar")
 	CWGuideProgress.clear()
 	CWGuideProgress.set_at("c3_l6", 0)
 	CWTutorLayers.reset()
@@ -24678,8 +24733,11 @@ func t_tutor_c3_ui() -> void:
 	var last_sig := ""
 	var since := t0
 	var stuck := ""
+	var not_sidecar := 0     ## sidecar 那一遍：句柄不是 CWKernelSidecar 的帧数
 	while Time.get_ticks_msec() - t0 < 120000:
 		await process_frame
+		if sidecar and m.kernel != null and not (m.kernel is CWKernelSidecar):
+			not_sidecar += 1
 		var dd = m._director
 		if dd == null:
 			break
@@ -24750,10 +24808,362 @@ func t_tutor_c3_ui() -> void:
 	check(slow.is_empty(), "★ 没有任何目标格等镜头超过 3 s（T 挪到 (-6,1) 后整关一屏装得下，不再挪镜头；超时的：%s）" % str(slow))
 	check(m.toast != null and m.toast._box.modulate.a == 0.0,
 		"★ 掷骰时那行「攻击」在气泡静掉的关里也收掉了（09-24 真机：巨噬第 1 回合打一下之后「攻击」框挂到通关）")
+	if sidecar:
+		check(not_sidecar == 0, "★ 整关（含 knock1 / knock2 / signet / revived 四次关内换盘）句柄始终是 CWKernelSidecar（不是的帧：%d）" % not_sidecar)
 	m.teardown()
 	await process_frame
+	if sidecar:
+		OS.set_environment("CW_KERNEL", "")
+		CWKernelSidecar.shutdown_idle_links()
 	CWSettings.ai_delay_ms = 220
 	CWGuideProgress.clear()
+	main_scene.queue_free()
+	await process_frame
+
+
+## sidecar 那几支的前提：dotnet 与 sidecar 产物都在（tools/run_tests.sh 开跑前会 dotnet build 一次；同 t_kernel_sidecar 的判据）
+func _tutor_sidecar_ready() -> bool:
+	if CWKernelSidecar.find_dotnet() == "" or not FileAccess.file_exists(CWKernelSidecar.find_sidecar_dll()):
+		check(false, "找不到 dotnet 或 sidecar 产物 —— 先 dotnet build core/CellWar.Sidecar")
+		return false
+	return true
+
+
+## =====================================================================
+## 换内核 P5（三）：教程整条链在 C# 内核上走到头（开发开关 `CW_KERNEL=sidecar`）
+## =====================================================================
+##
+## 驱动按**语义键**作答，不按下标：闸桥把这一问过滤成 view、交给界面桥挂上 `_pending` 之后，这里从句柄手里那一问
+## （两种句柄都把正在问 decider 的那一问记在 `_open_ask`）现算 view 每一条的语义键、挑定一条，再 `_pending.fire(view 下标)`
+## —— 与 `replay_answers` 落在同一层（闸照样过、下标照样只映射一次），但两个内核选项次序不同也选中同一条。
+## 挑法三级：① 这一行在 `TUTOR_KEY_ROUTES` 里有路线就走路线的下一格（剧本只写了 `act=move` 前缀的那几行）；
+## ② 第五关 Step2 的自由游玩：打相邻的癌细胞，没有就朝最近那只走一格；③ 其余按剧本 `allow` 的次序，取第一条命中的
+## （同一前缀命中多条取键最小的 —— 不依赖任何一个内核的枚举序）。皮 A 的「继续」亮着就点（真机是玩家点）。
+
+## 剧本只写了前缀的那几行要走的格（「关:游标」→ 依次要命中的键前缀）。路线照抄 t_tutor_c1 / t_tutor_c2 的跑场：
+## 第三关 Step1 是最省路（走歪了 6.6 能量不够、`reset_when: stuck` 会自动重置）；第四关是净化 10 格那条；
+## 第五关 Step1 分化成 B 细胞（Step2 按种类装 world「b」）
+const TUTOR_KEY_ROUTES := {
+	"c1_l2:6": ["k=action|act=move|to=-3,-1", "k=action|act=move|to=-2,-1", "k=action|act=move|to=-1,-1"],
+	"c1_l3:3": ["k=action|act=move|to=1,-1", "k=action|act=move|to=2,-1", "k=action|act=move|to=3,-1", "k=action|act=move|to=4,-1"],
+	"c2_l4:8": ["k=action|act=move|to=4,0", "k=action|act=move|to=5,0", "k=action|act=move|to=6,0", "k=action|act=move|to=6,-1",
+		"k=action|act=move|to=6,-2", "k=action|act=move|to=6,-3", "k=action|act=move|to=5,-3", "k=action|act=move|to=5,-2",
+		"k=action|act=move|to=4,-2", "k=action|act=move|to=4,-3", "k=action|act=move|to=4,-4", "k=action|act=move|to=3,-4",
+		"k=action|act=move|to=3,-5", "k=action|act=move|to=2,-5"],
+	"c2_l5:4": ["k=action|act=differentiate|type=1"],
+}
+## 自由游玩的那几行（「关:游标」）：剧本不点名格子，玩家要自己把癌细胞清干净
+const TUTOR_KEY_HUNT := ["c2_l5:9"]
+## 界面上同一问挂满这么多帧才答（见 `_tutor_key_chain` 里那一段）
+const TUTOR_KEY_THINK_FRAMES := 4
+
+
+## 一局教程按键作答一路往下走，直到 `stop.call()` 为真或超时（局由 `_tutor_key_open` 起）。`peek(m)` 每帧调一次，给调用方抓中途的盘面。
+## 返回 `{ answers, stuck, levels, tapes, not_sidecar, secs }`：
+##   answers —— 「关:键」依次答过的；levels —— 依次进过的关 id；tapes —— 「关/world」→ 那一份带子最后一次看到的账
+##   （`stage.tape_stats()`，两种内核同形）；not_sidecar —— 开关开着时句柄不是 CWKernelSidecar 的帧数。
+func _tutor_key_chain(m: CWMatch, stop: Callable, budget_ms: int, peek := Callable()) -> Dictionary:
+	var out := { "answers": [], "stuck": "", "levels": [], "tapes": {}, "not_sidecar": 0, "secs": 0.0 }
+	var routes_at := {}
+	var t0 := Time.get_ticks_msec()
+	var last_sig := ""
+	var since := t0
+	var want_sidecar := OS.get_environment("CW_KERNEL") == "sidecar"
+	var think := { "held": null, "frames": 0 }
+	while Time.get_ticks_msec() - t0 < budget_ms:
+		await process_frame
+		if stop.call():
+			break
+		var dd = m._director
+		if dd == null or m.kernel == null:
+			continue
+		var lid := str(m._tutor_level.get("id", ""))
+		if (out["levels"] as Array).is_empty() or (out["levels"] as Array).back() != lid:
+			(out["levels"] as Array).append(lid)
+		if want_sidecar and not (m.kernel is CWKernelSidecar):
+			out["not_sidecar"] += 1
+		if m._stage != null:
+			var ts: Dictionary = m._stage.tape_stats()
+			if not ts.is_empty():
+				out["tapes"]["%s/%s" % [str(m._stage.level.get("id", "")), str(m._stage.world_id)]] = ts
+		if peek.is_valid():
+			peek.call(m)
+		if m._tutor_view is CWTutorViewBubble and m._tutor_view._next_armed():
+			m._tutor_view.advance()
+		var sig := "%s|%d|%d" % [lid, int(dd._at), int(dd._hook_depth)]
+		var now := Time.get_ticks_msec()
+		if sig != last_sig:
+			last_sig = sig
+			since = now
+		elif now - since > 20000:
+			var foes: Array = []
+			if m.mirror != null:
+				for c in m.mirror.living_cells(CWData.Faction.CANCER):
+					foes.append([int(c["pid"]), c["pos"], int(c["energy"])])
+			out["stuck"] = "关 %s 游标 %d 停了 20 s（没翻页也没作答）：row=%s；闸 %s / 界面在问 %s / 句柄在问 %s（句柄状态 %d）；活癌细胞 %s；镜像 第 %d 回合 %s" % [lid, int(dd._at),
+				str(dd._row()).substr(0, 120), str(m.bridge.allow() if m.bridge != null else "-").substr(0, 60),
+				str(m.bridge != null and m.bridge._prompting and m.bridge._pending != null),
+				str(not (m.kernel._open_ask as Dictionary).is_empty()), int(m.kernel.state()), str(foes),
+				int(m.mirror.round_no) if m.mirror != null else -1, str(m.mirror.g.get("d", {}).get("phase_text", "")) if m.mirror != null else ""]
+			break
+		var gate = m.bridge
+		if not _tutor_thought(m, think):
+			continue
+		var asking: Dictionary = m.kernel._open_ask
+		if asking.is_empty():
+			continue
+		var req: Dictionary = asking["req"]
+		var view: Array = range((req["options"] as Array).size()) if gate.allow() == null else gate._keep(req)
+		var key := _tutor_key_pick(m, dd, req, view, routes_at)
+		var j := -1
+		for n in view.size():
+			if CWSemKey.key(req, req["options"][view[n]]["data"]) == key:
+				j = n
+				break
+		if j < 0:
+			continue
+		(out["answers"] as Array).append("%s:%s" % [lid, key])
+		since = Time.get_ticks_msec()   ## 「卡住」按「既没翻页也没作答」算：自由游玩那一行要停很久，但一直在答
+		gate._pending.fire(j)
+		for _i in 2:
+			await process_frame
+	out["secs"] = (Time.get_ticks_msec() - t0) / 1000.0
+	return out
+
+
+## 这一问挑哪个键（三级挑法见上面的节注释）。`view` = 闸放行的那几条在 req 里的下标
+func _tutor_key_pick(m: CWMatch, dd, req: Dictionary, view: Array, routes_at: Dictionary) -> String:
+	var keys: Array = []
+	for i in view:
+		keys.append(CWSemKey.key(req, req["options"][i]["data"]))
+	var in_hook := int(dd._hook_depth) > 0 and dd._beat_row is Dictionary
+	var row: Dictionary = dd._beat_row if in_hook else dd._row()
+	var rid := "%s:%d" % [str(m._tutor_level.get("id", "")), int(dd._at)]
+	if not in_hook and TUTOR_KEY_ROUTES.has(rid):
+		var route: Array = TUTOR_KEY_ROUTES[rid]
+		var at := int(routes_at.get(rid, 0))
+		if at < route.size():
+			var hit := _tutor_key_min(keys, str(route[at]))
+			if hit != "":
+				routes_at[rid] = at + 1
+				return hit
+	if not in_hook and rid in TUTOR_KEY_HUNT:
+		var hunt := _tutor_key_hunt(m, req, view)
+		if hunt != "":
+			return hunt
+	for a in row.get("allow", []):
+		var hit := _tutor_key_min(keys, str(a))
+		if hit != "":
+			return hit
+	return _tutor_key_min(keys, "")
+
+
+## 闸桥那一问在界面上挂满 `TUTOR_KEY_THINK_FRAMES` 帧了吗（`think` = `{held, frames}`，调用方每帧传同一只）。
+## **为什么要等**：导演的谓词与钩子都是逐帧推进的，而下一问可能在上一步演出播完的那一帧就到了 —— 闸那一刻还停在上一条
+## （刚打死最后一只癌细胞、刚点完「结束回合」）。当帧就答会抢在导演翻页 / 换闸之前多走一步；真人总要看一眼。
+## GD 内核有 roll 的 barrier 拖着、C# 内核不等动画，抢不抢得到全看帧序，所以两种内核都按「挂满几帧」答
+func _tutor_thought(m: CWMatch, think: Dictionary) -> bool:
+	var gate = m.bridge
+	if gate == null or not gate._prompting or gate._pending == null:
+		think["held"] = null
+		return false
+	if gate._pending != think["held"]:
+		think["held"] = gate._pending
+		think["frames"] = 0
+	think["frames"] = int(think["frames"]) + 1
+	return int(think["frames"]) >= TUTOR_KEY_THINK_FRAMES
+
+
+## 挂满几帧就答闸放行的第一条（view 下标 0 —— 与 `replay_answers = [0]` 选中的是同一条）
+func _tutor_think_answer(m: CWMatch, think: Dictionary) -> void:
+	if _tutor_thought(m, think):
+		think["held"] = null
+		m.bridge._pending.fire(0)
+
+
+## 以 `prefix` 开头的键里取字典序最小的一条；一条都没有给 ""
+static func _tutor_key_min(keys: Array, prefix: String) -> String:
+	var best := ""
+	for k in keys:
+		var s := str(k)
+		if s.begins_with(prefix) and (best == "" or s < best):
+			best = s
+	return best
+
+
+## 自由游玩：相邻有癌细胞就打（攻击 = 迁进它那一格），否则朝最近那只癌细胞走一格（同距取键最小的）
+func _tutor_key_hunt(m: CWMatch, req: Dictionary, view: Array) -> String:
+	if m.mirror == null:
+		return ""
+	var me: Dictionary = m.mirror.cell_of(int(req.get("pid", 0)))
+	var foes: Array = m.mirror.living_cells(CWData.Faction.CANCER)
+	if foes.is_empty():
+		return ""
+	var goal: Vector2i = (foes[0] as Dictionary)["pos"]
+	for f in foes:
+		if CWData.hex_dist((f as Dictionary)["pos"], me["pos"]) < CWData.hex_dist(goal, me["pos"]):
+			goal = (f as Dictionary)["pos"]
+	var best := ""
+	var best_d := 1 << 30
+	for i in view:
+		var data: Dictionary = req["options"][i]["data"]
+		if str(data.get("act", "")) != "move" or not data.has("to"):
+			continue
+		var k := CWSemKey.key(req, data)
+		var d := CWData.hex_dist(data["to"], goal)
+		if d < best_d or (d == best_d and k < best):
+			best_d = d
+			best = k
+	return best
+
+
+## 起一局教程（按进度开在 `start_id`），返回 `[main_scene, m]`。`CW_KERNEL` 由调用方先设好
+func _tutor_key_open(start_id: String) -> Array:
+	CWGuideProgress.clear()
+	CWGuideProgress.set_at(start_id, 0)
+	CWTutorLayers.reset()
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	m.tutorial = true
+	CWSettings.ai_delay_ms = 0
+	m.start()
+	await process_frame
+	return [main_scene, m]
+
+
+## 第一、二章四关一条链（第一关开局 → 第五关开局为止），C# 内核。约 19 s。钉：
+## ① 四关一关不卡、句柄始终是 sidecar（跨关换局四次）；② 答过的键 = 剧本点名的每一步，一步不多 ——
+##    第二关一击、第三关恰好三击打死，靠的是带子上那几颗骰子（C# 念错一颗就得多打一下）；
+## ③ 带子双向归零：第二关 1/1、第三关 3/3，零 overrun、零区间不符；第一、四关一颗骰子都没掷（与 t_tutor_c1 / t_tutor_c2 的 GD 跑场同账）
+func t_tutor_sidecar_chain_c1c2() -> void:
+	print("[换内核 P5（三）·第一、二章四关在 C# 内核上一条链走到头：剧本每一步 / 带子双向归零]")
+	if not _tutor_sidecar_ready():
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var opened: Array = await _tutor_key_open("c1_l1")
+	var main_scene: Node = opened[0]
+	var m: CWMatch = opened[1]
+	## 从关卡世界开局不传 factions：句柄要按世界里的 players 把闸桥挂满每一席、NPC 再逐席覆盖（同 InProc 按 game.order 挂）。
+	## 挂不上的话人类那一问会落成 ask 条目、绕到联机那条 `_serve_ask` 路上去
+	var dk: Dictionary = (m.kernel as CWKernelSidecar).deciders if m.kernel is CWKernelSidecar else {}
+	check(dk.size() == m.player_count and dk.get(0) == m.bridge and dk.get(1) != m.bridge and dk.get(1) != null,
+		"★ 句柄的 decider 表：人类席是闸桥、NPC 席是脚本 decider，一席不漏（%d 席 / 表里 %d 条）" % [m.player_count, dk.size()])
+	var r: Dictionary = await _tutor_key_chain(m, func() -> bool: return str(m._tutor_level.get("id", "")) == "c2_l5", 60000)
+	check(str(r["stuck"]) == "" and r["levels"] == ["c1_l1", "c1_l2", "c1_l3", "c2_l4"] and str(m._tutor_level.get("id", "")) == "c2_l5",
+		"★ 四关依次走完、进了第五关（%.1f s；经过 %s；%s）" % [float(r["secs"]), str(r["levels"]), str(r["stuck"])])
+	check(int(r["not_sidecar"]) == 0, "★ 四关（含三次跨关换局）句柄始终是 CWKernelSidecar（不是的帧：%d）" % int(r["not_sidecar"]))
+	var want: Array = ["c1_l1:k=action|act=move|to=-4,-1"]
+	for k in TUTOR_KEY_ROUTES["c1_l2:6"]:
+		want.append("c1_l2:" + str(k))
+	want.append_array(["c1_l2:k=action|act=move|to=0,-1", "c1_l2:k=action|act=move|to=1,-1"])
+	for k in TUTOR_KEY_ROUTES["c1_l3:3"]:
+		want.append("c1_l3:" + str(k))
+	want.append_array(["c1_l3:k=action|act=move|to=5,-1", "c1_l3:k=action|act=move|to=5,-1", "c1_l3:k=action|act=move|to=5,-1"])
+	for k in TUTOR_KEY_ROUTES["c2_l4:8"]:
+		want.append("c2_l4:" + str(k))
+	check(r["answers"] == want,
+		"★ 答过的键 = 剧本点名的每一步（第二关一击打死、第三关三击打死、第四关净化 10 格那条路），一步不多（实测 %d 步 / 应 %d 步）"
+			% [(r["answers"] as Array).size(), want.size()])
+	var tapes: Dictionary = r["tapes"]
+	var zero := { "size": 0, "at": 0, "overrun": 0, "bad_range": 0 }
+	check(tapes.get("c1_l2/base", {}) == { "size": 1, "at": 1, "overrun": 0, "bad_range": 0 }
+			and tapes.get("c1_l3/base", {}) == { "size": 3, "at": 3, "overrun": 0, "bad_range": 0 }
+			and tapes.get("c1_l1/base", {}) == zero and tapes.get("c2_l4/base", {}) == zero,
+		"★ C# 念的是同一条带子、念法与 GD 相同：第二关 1/1、第三关 3/3、零 overrun / 区间不符，第一、四关一颗骰子都没掷（实测 %s）" % str(tapes))
+	await _tutor_key_close(main_scene, m)
+
+
+## 第五关 → 间章 → 第六关开局，C# 内核。约 50 s。钉：
+## ① 第五关自由游玩把四只癌细胞清干净；癌细胞挨的骰子全来自带子念完之后的回落流 —— 第一只 5.0 能量的骨肉瘤
+##    要打 6 下（GD 内核同一条驱动也是 6 下；C# 回落流若不是 Godot 的 PCG32，这个数就变：10-01 换之前是 5）；
+## ② 间章分镜 2 的重心平移在 sidecar 上走通（`dump_world` → 平移 → 重开）：盘子长到 469 格、11 个器官跟着世界一起搬；
+## ③ 间章那条三颗的带子 3/3、零 overrun；④ 间章 → 第六关承接活局（桥不换），第六关关首 world 装成 base
+func t_tutor_sidecar_chain_c2l5() -> void:
+	print("[换内核 P5（三）·第五关 → 间章 → 第六关开局在 C# 内核上一条链：自由游玩 / 重心平移 / 阵营翻转 / 承接]")
+	if not _tutor_sidecar_ready():
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var opened: Array = await _tutor_key_open("c2_l5")
+	var main_scene: Node = opened[0]
+	var m: CWMatch = opened[1]
+	## 重心平移前后各抓一份：平移前（第五关那份 127 格的盘）玩家站哪、器官在哪；平移后（469 格）器官在哪
+	var seen := { "p": null, "before": [], "after": [] }
+	var peek := func(mm: CWMatch) -> void:
+		if str(mm._tutor_level.get("id", "")) != "interlude" or mm.mirror == null or str(mm._stage.world_id) != "b":
+			return
+		var organs: Array = []
+		for c in mm.mirror.tiles:
+			if int((mm.mirror.tiles[c] as Dictionary)["special"]) != CWData.Special.NONE:
+				organs.append(c)
+		organs.sort()
+		if mm.mirror.tiles.size() == CWData.all_coords().size():
+			seen["p"] = mm.mirror.cell_of(0)["pos"]
+			seen["before"] = organs
+		elif (seen["after"] as Array).is_empty() and seen["p"] != null:
+			seen["after"] = organs
+	var bridge_seen: Array = [null]
+	var stop := func() -> bool:
+		var lid := str(m._tutor_level.get("id", ""))
+		if lid == "interlude":
+			bridge_seen[0] = m.bridge
+		return lid == "c3_l6" and m._stage != null and str(m._stage.world_id) == "base" and m._director != null and int(m._director._at) >= 1
+	var r: Dictionary = await _tutor_key_chain(m, stop, 150000, peek)
+	check(str(r["stuck"]) == "" and r["levels"] == ["c2_l5", "interlude", "c3_l6"],
+		"★ 第五关清场 → 间章十个分镜 → 第六关开局，一路不卡（%.1f s；经过 %s；%s）" % [float(r["secs"]), str(r["levels"]), str(r["stuck"])])
+	check(int(r["not_sidecar"]) == 0, "★ 一路（含平移、翻转、承接三次换局）句柄始终是 CWKernelSidecar（不是的帧：%d）" % int(r["not_sidecar"]))
+	var hits := 0
+	for a in r["answers"]:
+		if str(a) == "c2_l5:k=action|act=move|to=5,-1":
+			hits += 1
+	check(hits == 6, "★ 第五关那只 5.0 能量的骨肉瘤打了 6 下才死 —— 与 GD 内核逐颗同一串回落骰子（实测 %d 下）" % hits)
+	var moved: Array = []
+	if seen["p"] != null:
+		for c in seen["before"]:
+			moved.append((c as Vector2i) - (seen["p"] as Vector2i))
+		moved.sort()
+	check(seen["p"] != null and (seen["before"] as Array).size() == 11 and seen["after"] == moved,
+		"★ 间章重心平移在 sidecar 上走通：盘子长到 469 格，11 个器官整体平移 −P（P = 玩家 %s）、没有一个钉在原地或多出一套（前 %d 个 / 后 %s）"
+			% [str(seen["p"]), (seen["before"] as Array).size(), str(seen["after"])])
+	var tapes: Dictionary = r["tapes"]
+	check(tapes.get("interlude/act", {}) == { "size": 3, "at": 3, "overrun": 0, "bad_range": 0 },
+		"★ 间章分镜 9 三次攻击的带子在 C# 上双向归零（实测 %s）" % str(tapes.get("interlude/act", {})))
+	check(bridge_seen[0] != null and m.bridge == bridge_seen[0],
+		"★ 间章 → 第六关承接活局：桥没换（换局那条路必换桥）")
+	await _tutor_key_close(main_scene, m)
+
+
+## Godot 4.5 `RandomNumberGenerator` 的金值（seed 1，`randi_range(1, 6)` 连掷 16 颗）。C# `ScriptedRng` 的回落流照抄的就是它
+## （`ScriptedRngResumeTests.回落流与Godot的RandomNumberGenerator逐颗相同` 钉同一串）：哪天升引擎改了 PCG，两边一起红。
+## 另钉 `cw_roll_tape.gd` 念带子时照样推 inner 一步 —— 带子念完接着的是金值的第 3 颗（C# 那边同一条测试）
+func t_tutor_sidecar_rng() -> void:
+	print("[换内核 P5（三）·Godot 随机数金值（C# 脚本骰子的回落流照抄它）]")
+	var r := RandomNumberGenerator.new()
+	r.seed = 1
+	var d6: Array = []
+	for _i in 16:
+		d6.append(r.randi_range(1, 6))
+	check(d6 == [4, 1, 2, 5, 4, 6, 2, 6, 4, 6, 2, 5, 3, 4, 4, 4], "★ seed 1 的 16 颗 d6 = C# 钉的那一串（实测 %s）" % str(d6))
+	var tape = ROLL_TAPE.new()
+	tape.tape = [[1, 6, 6], [1, 6, 6]]
+	tape.seed = 1
+	var got: Array = []
+	for _i in 4:
+		got.append(tape.randi_range(1, 6))
+	check(got == [6, 6, 2, 5] and int(tape.at) == 2 and int(tape.overrun) == 2,
+		"★ 带子念两颗之后回落：接着的是金值第 3、4 颗（念带子也推 inner；实测 %s）" % str(got))
+
+
+func _tutor_key_close(main_scene: Node, m: CWMatch) -> void:
+	if m.kernel != null:
+		m.teardown()
+	await process_frame
+	OS.set_environment("CW_KERNEL", "")
+	CWKernelSidecar.shutdown_idle_links()
+	CWSettings.ai_delay_ms = 220
+	CWGuideProgress.clear()
+	CWTutorLayers.reset()
 	main_scene.queue_free()
 	await process_frame
 

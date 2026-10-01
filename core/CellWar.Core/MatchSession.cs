@@ -234,6 +234,20 @@ public sealed class MatchSession : ISession
             return new(lease.Snapshot.State, lease.Snapshot.Simulation.Input, lease.Revision);
         }
     }
+
+    /// <summary>
+    /// 宿主专用：此刻的随机源状态（换内核 P5（三）：教程要对 <see cref="ScriptedRng"/> 的账 —— 带子念到第几条、overrun、区间不符，
+    /// 字段含义见 ScriptedRng 头注）。★ 不进 <see cref="Peek"/>：那条口子同进程的 AI 也在读，随机源状态给了 AI 就等于让它偷看下一颗骰子。
+    /// </summary>
+    public RngState? PeekRng()
+    {
+        lock (gate)
+        {
+            using var lease = runtime.Read();
+            return lease.Snapshot.Simulation.Rng;
+        }
+    }
+
     public long ReplaceController(int seat)
     {
         lock (gate)

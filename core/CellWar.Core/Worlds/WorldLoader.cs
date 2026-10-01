@@ -289,8 +289,10 @@ public static class WorldLoader
     /// <summary>在一个**丢掉的世界**上让生产代码现挂一条，把挂出来的那条取回来（挂不出来 = null）。</summary>
     private static ActiveModifier? Mint(WorldState world, EntityId id, string name, Route route)
     {
-        // 空带子 + 事后核「一次都没抽」= 断言前奏不消耗 rng（上提之前用测试工程的 TapeRng，念完当场抛；产品程序集里没有它）
+        // 空带子 + 事后核「一次都没抽」= 断言前奏不消耗 rng（上提之前用测试工程的 TapeRng，念完当场抛；产品程序集里没有它）。
+        // 比的是**整个状态没动**：P5（三）起 ScriptedRng 的 Counter 存的是回落流 PCG 的状态（开局就非零），不再是抽数计数
         var rng = new ScriptedRng([]);
+        var untouched = rng.GetState();
         var made = route switch
         {
             // 打出路径的卡效本体：不碰手牌、不碰能量、不问阶段，只做这张卡做的事。
@@ -303,7 +305,7 @@ public static class WorldLoader
             // 【癌症干性】按「装 equipped + 触发一次复活」重放（E-2），跑在一次性的小盘上
             _ => Last(PhaseRules.Revive(Load(StemnessRig), new ReviveDecision(0, StemnessCell, Pos("1,-1"), Pos("0,0")), rng).NewState, StemnessCell),
         };
-        if (rng.GetState().Counter != 0)
+        if (rng.GetState() != untouched)
             throw new InvalidOperationException($"前奏挂「{name}」时掷了骰 —— 前奏不许消耗 rng（装出来的世界会和 GD 对不上）");
         return made;
 
