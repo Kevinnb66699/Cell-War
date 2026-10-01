@@ -206,7 +206,7 @@ public static class ObservationV1Codec
             ChainMoveDecision ch => $"连续吞噬→{P(ch.Target)}（免费）",
             StopChainDecision => "结束连续吞噬",
             ChemotaxisStepDecision cx => $"移动→{P(cx.Target)}",
-            StopChemotaxisDecision => "停在这里",
+            StopChemotaxisDecision => CellRules.IsMobilization(s.Turn.PendingWalkCard) ? "放弃迁移" : "停在这里",   // GD cw_card_fx.gd:742
             CoupleDirectionDecision cd => $"{Stage.CellName(s, s.Cells[cd.Payer])} → {Stage.CellName(s, s.Cells[cd.Getter])}",
             CoupleTierDecision ct => $"转出 {Stage.Fmt(ct.Pay)} → 接收方得 {Stage.Fmt(ct.Get)}",
             CancelCoupleDecision => "取消",

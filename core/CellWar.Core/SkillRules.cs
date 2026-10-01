@@ -170,10 +170,13 @@ internal static class SkillRules
 
     private static WorldState ConsumeEffector(WorldState s, Cell cell, string what)
     {
-        s = s.UpdatePlayer(cell.OwnerSeat, s.Players[cell.OwnerSeat].WithAntigenMemory(Math.Max(0, s.Players[cell.OwnerSeat].AntigenMemory - 20)));
+        // GD `spend_effector` → `reduce_memory(20)`（cw_game.gd:1015 / 1033）：效应记忆是**阵营共用的一个数**，扣也是整个免疫方一起扣。
+        // C# 每个免疫席位各存一份、加的时候同步加（AddMemory），扣也得走同步扣的 ReduceMemory —— 2026-10-01 之前只扣发动者那一席，
+        // 4 / 6 人局里别的免疫席位的记忆原封不动（阵营读口 FactionMemory 取席位最小的那份，席位 2 发动时日志与观测都还是扣之前的数）
+        s = ReduceMemory(s, 20);
         s = s.UpdateCell(cell.Id, s.Cells[cell.Id].Copy(effectorUsed: true));
-        // GD `spend_effector`（cw_game.gd:1018）：「余」读的是扣完之后的效应记忆（发动者那一席的那一份 —— 判据 ValidateEffector 也读它）
-        Stage.Log(s, $"★【效应应答·{what}】{Stage.CellName(s, cell)} 发动（消耗 20 效应记忆，余 {s.Players[cell.OwnerSeat].AntigenMemory}）");
+        // GD cw_game.gd:1018：「余」读的是扣完之后的效应记忆
+        Stage.Log(s, $"★【效应应答·{what}】{Stage.CellName(s, cell)} 发动（消耗 20 效应记忆，余 {s.FactionMemory(Faction.Immune)}）");
         return s.WithTurn(s.Turn.Copy(effectorRound: s.Turn.WorldRound));
     }
 

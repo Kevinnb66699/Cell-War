@@ -105,7 +105,10 @@ public static class SemanticKey
 
         EndTurnDecision => Key("action", ("act", "end")),
         PassDecision => Key("action", ("act", "pass")),
-        MoveDecision m => Key("action", ("act", "move"), ("to", Pos(m.TargetPosition))),
+        // 迁移也有**两路**：行动栏里的是 `k=action`；【全身免疫动员】逐只问的那 1 次是 GD `kind: free_move` / tag 卡名、data `{act: move, to, cost}`（cw_card_fx.gd:742-748）
+        MoveDecision m => CellRules.IsMobilization(s.Turn.PendingWalkCard)
+            ? Tagged("free_move", CellRules.MobilizationCard, ("act", "move"), ("to", Pos(m.TargetPosition)))
+            : Key("action", ("act", "move"), ("to", Pos(m.TargetPosition))),
         DrawDecision => Key("action", ("act", "draw")),
         MutateDecision => Key("action", ("act", "mutate")),
         DifferentiateDecision df => Key("action", ("act", "differentiate"), ("type", (int)df.Type)),

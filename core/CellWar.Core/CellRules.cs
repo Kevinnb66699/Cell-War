@@ -508,13 +508,29 @@ internal static class CellRules
                 && (s.Board.Tissues[n].State == TissueState.Healthy || (intoCancer && s.Board.Tissues[n].State == TissueState.Cancer)))
             .ToList();
 
-    /// <summary>当前这段连走（看 <see cref="TurnState.PendingWalkCard"/>）下一步能落哪：三张卡各自的规则。</summary>
+    /// <summary>当前这段连走（看 <see cref="TurnState.PendingWalkCard"/>）下一步能落哪：四张卡各自的规则。</summary>
     public static IReadOnlyList<HexPosition> WalkSteps(WorldState s, Cell c) => s.Turn.PendingWalkCard switch
     {
         "趋化募集" => FreeWalkSteps(s, c, intoCancer: false),
         "效应细胞浸润" => FreeWalkSteps(s, c, intoCancer: true),
+        MobilizationCard => MobilizeTargets(s, c),
         _ => ChemotaxisSteps(s, c),
     };
+
+    /// <summary>【全身免疫动员】的「各可迁移 1 次」借连走栈来问（每只细胞一帧、1 步），但走法不是连走：
+    /// 选项是**普通迁移**（照付费、可攻击，语义键 `k=free_move|g=全身免疫动员|act=move|to=…`）、「放弃迁移」与「没得走」都不报一句（GD cw_card_fx.gd:740-751）。</summary>
+    public const string MobilizationCard = "全身免疫动员";
+
+    public static bool IsMobilization(string? card) => card == MobilizationCard;
+
+    /// <summary>GD `immune_move_options(c)`（cw_actions.gd:82-96）：此刻合法、付得起的迁移 / 攻击落点 —— 与行动栏里那只细胞的迁移选项同一个谓词，
+    /// 只是不看「是不是它的回合」（问的可能是别的免疫席位）。</summary>
+    public static IReadOnlyList<HexPosition> MobilizeTargets(WorldState s, Cell c)
+        => RulePolicies.Tiles(s).Select(t => t.Position).Where(p => ValidateMove(s, new MoveDecision(c.OwnerSeat, c.Id, p)).IsValid).ToList();
+
+    /// <summary>【全身免疫动员】这一只迁移：先把它那一帧的 1 次用掉（结算完由 NormalizeChemotaxis 弹栈、露出下一只），再走一次完整的付费迁移（GD `_do_move(c, to, cost)`）。</summary>
+    public static RulesResult MobilizeMove(WorldState s, MoveDecision move, IDeterministicRng rng)
+        => Move(s.WithTurn(s.Turn.WithPendingChemotaxis(move.CellId, 0, MobilizationCard)), move, rng);
 
     /// <summary>走一步：免费连走直接 `EnterTile`（GD `_free_walk` → `enter_tile`，不扣能量、不碰移动修饰）；【炎症性趋化】走付费那条。</summary>
     public static RulesResult WalkMove(WorldState s, EntityId cellId, HexPosition to, IDeterministicRng rng)
@@ -543,8 +559,9 @@ internal static class CellRules
             if (s.Turn.PendingChainCell is not null && !ChainDeferred(s)) return s;   // 连锁先排干，它在 GD 里嵌在这一步内部（压在这条走位底下的除外）
             var c = s.Cells[id];
             if (s.Turn.ChemotaxisStepsLeft > 0 && c.IsAlive && WalkSteps(s, c).Count > 0) return s;
-            // 步数还有、人还活着、却一步都走不了：GD 喊一声再退（`_free_walk` cw_card_fx.gd:629 / `_chemotaxis` :819）；走满 / 死了静默退
-            if (s.Turn.ChemotaxisStepsLeft > 0 && c.IsAlive)
+            // 步数还有、人还活着、却一步都走不了：GD 喊一声再退（`_free_walk` cw_card_fx.gd:629 / `_chemotaxis` :819）；走满 / 死了静默退。
+            // 【全身免疫动员】没得走就静默跳过这一只（`_mobilization` cw_card_fx.gd:740-741 的 `continue`）
+            if (s.Turn.ChemotaxisStepsLeft > 0 && c.IsAlive && !IsMobilization(s.Turn.PendingWalkCard))
                 Stage.Log(s, IsFreeWalk(s.Turn.PendingWalkCard)
                     ? $"　【{s.Turn.PendingWalkCard}】没有可进入的相邻格，提前结束"
                     : "　【炎症性趋化】没有可走的下一步，提前结束");
@@ -809,6 +826,32 @@ internal static class CellRules
         return s.Turn.PendingLandCell == id ? s.WithTurn(s.Turn.Copy(pendingLandRas: true)) : RasAfterMove(s, id);
     }
 
+    /// <summary>
+    /// 中途追问的**收口**，跑到稳定：连走弹栈 → 基质重塑滑段 → 推迟的落地后半截（它自己又可能追出新的问答，再来一轮）。
+    /// GD 是协程，这些「候选为空就不问」「走满了就退」都是循环开头当场判的；C# 每次推进之后统一判一次，
+    /// 否则 Available 会停在 GD 没有的决策点上（比如只剩一个「停在这里」）。
+    /// 决策出口（DecisionRouter.Execute）与阶段推进（PhaseRules.AdvancePhase：S 阶段产出、E 阶段蹲守追出的问答）共用这一份 ——
+    /// 2026-10-01 之前只有决策出口收口：S 阶段骨髓抽到一张无路可走的连走卡，C# 多出一个「停在这里」（GD cw_card_fx.gd:628-630 喊一声就退）。
+    /// </summary>
+    internal static WorldState SettleAsks(WorldState s, IDeterministicRng rng)
+    {
+        for (var guard = 0; guard < 8; guard++)
+        {
+            var before = s;
+            // 【突变】第 2 点欠下的记忆 -1：那一抽追出的问答问完了（GD `await draw` 回来了）就扣。排在最前 —— 它是最里层的那段 await，
+            // 外层的骨髓循环 / 落地后半截 / 卡牌收尾都排在它后面（GD 的协程栈从里往外退）
+            if (s.Turn.PendingMemoryCut > 0 && !DrawBlocked(s, s.Turn.PendingMemoryCutWalkDepth))
+                s = ReduceMemory(s.WithTurn(s.Turn.Copy(pendingMemoryCut: 0, pendingMemoryCutWalkDepth: 0)), s.Turn.PendingMemoryCut);
+            if (MarrowReady(s)) s = ResumeMarrow(s, rng);                                  // 【骨髓动员】的收取循环嵌在最里层：它追出的问答答完就先接着收
+            if (s.Turn.PendingChemotaxisCell is not null) s = NormalizeChemotaxis(s);
+            s = NormalizeChain(s);                                                         // 走位弹掉露出的连锁若已无下一跳，当场摘掉
+            if (s.Turn.PendingRemodelCell is not null) s = CardRules.NormalizeRemodel(s);   // GD 的「候选为空就不问」两道闸
+            if (LandReady(s)) s = ResumeLand(s, rng);                                      // GD enter_tile 的 await 回来了：收特殊组织、刷标记
+            if (ReferenceEquals(s, before)) break;
+        }
+        return s;
+    }
+
     /// <summary>GD `collect_special`（cw_actions.gd:1096-1107）：代谢核心有存储就收能量并清库存，
     /// **否则**（if / elif，不是两件都做）骨髓有卡就清库存并抽一张 —— 那一抽是带子上的一发，**不判阵营**。</summary>
     public static WorldState CollectSpecial(WorldState s, EntityId id, IDeterministicRng rng) => CollectSpecialAt(s, id, s.Cells[id].Position, rng);
@@ -1023,7 +1066,8 @@ internal static class CellRules
             var attackerCell = s.Cells[cell.Id];
             var attackMods = attackerCell.Modifiers.Where(m => m.Target == ModifierTarget.Attack).ToList();
             var attackExtra = attackMods.Sum(m => m.Value);
-            var hasOpsonin = attackMods.Any(m => m.Card == "补体调理");
+            // GD `spend_mods` 返回同名修饰有几条（定案 #57 同名一次全算）：叠了几张【补体调理】，无效就最多重掷几次（cw_actions.gd:799 / 815-819）
+            var opsoninRerolls = attackMods.Count(m => m.Card == "补体调理");
             var hasAffinity = attackMods.Any(m => m.Card == "高亲和力克隆");
             // GD cw_actions.gd:815-816：【补体调理】【高亲和力克隆】**判定前**无条件扣（「无论结果如何，这次攻击就把它们消耗掉」）；
             // 【穿孔素-颗粒酶】【补体级联】在**成功分支**里才扣（868 / 921）—— 攻击无效一次，它们还留着给下一次。此前 C# 判定前一律扣光
@@ -1036,7 +1080,8 @@ internal static class CellRules
             if (!hasAffinity) Stage.Emit(new DiceRolled(s.Turn.WorldRound, s.Turn.Phase, "攻击", roll, 6, cell.OwnerSeat, move.TargetPosition));   // GD roll_shown(6, "攻击", pid, to)
             var outcome = hasAffinity ? "crit" : RulePolicies.AttackOutcome(s, roll, attackerCell);
             if (!hasAffinity) Stage.Log(s, $"　攻击掷骰 {roll}：{Verdict(outcome)}");   // GD cw_actions.gd:938 `_judged`
-            if (outcome == "fail" && hasOpsonin)
+            // 2026-10-01 之前这里是 `if`：叠两张也只重掷一次，第二张只剩 +0.5 的那一半
+            for (var rerollsLeft = opsoninRerolls; outcome == "fail" && rerollsLeft > 0; rerollsLeft--)
             {
                 Stage.Log(s, "　【补体调理】攻击无效：重新判定一次，以第二次结果为准");   // GD cw_actions.gd:818
                 roll = rng.NextIntRange(1, 7);   // 【补体调理】的重掷，同样是 1..6

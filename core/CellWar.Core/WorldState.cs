@@ -118,7 +118,8 @@ public sealed class TurnState
     public int ChemotaxisStepsLeft { get; init; }
     /// <summary>这段免费连走是哪张卡在走：【炎症性趋化】（付 0.2 一步，最多 3 步）/【趋化募集】（免费，只进健康，2 步）/
     /// 【效应细胞浸润】（免费，健康或普通癌组织，2 步）。候选规则、走法、语义键的 tag 都按它分；null = 没在走。
-    /// 后两张是抽到即结算的事件卡（GD `_free_walk`），2026-09-17 之前 C# 把它们做成两条免费移动修饰，没有逐步追问。</summary>
+    /// 后两张是抽到即结算的事件卡（GD `_free_walk`），2026-09-17 之前 C# 把它们做成两条免费移动修饰，没有逐步追问。
+    /// 第四种（2026-10-01）：【全身免疫动员】的「各可迁移 1 次」—— 每只免疫细胞一帧、1 步，选项是普通的付费迁移（<see cref="CellRules.MobilizationCard"/>）。</summary>
     public string? PendingWalkCard { get; init; }
     /// <summary>嵌套连走时被压在下面的**外层**帧（栈底 → 栈顶−1；栈顶就是上面三个字段）。
     /// GD 的连走是协程栈（cw_card_fx.gd `_free_walk`）：连走的一步踩到存卡的骨髓、抽到【趋化募集】这种抽到即走的卡，

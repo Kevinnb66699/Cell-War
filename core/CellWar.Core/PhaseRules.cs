@@ -32,12 +32,9 @@ internal static class PhaseRules
                 Stage.Log(s, $"━━━━ 第 {s.Turn.WorldRound} 世界回合 ━━━━");   // GD `round_start()` 第一句（cw_world.gd:28），排在重置与产出之前
                 s = BoardRules.Produce(s, rng);
                 s = s.WithTurn(s.Turn.Copy(startStep: 3));   // 别把产出时挂上的追问（连走 / 弃置 / 二选一）用旧的 Turn 盖掉
-                if (!StartPending(s)) s = ResumeStart(s, rng);
+                s = FinishStart(s, rng);
             }
-            else if (s.Turn.StartStep == 3)
-            {
-                if (!StartPending(s)) s = ResumeStart(s, rng);
-            }
+            else if (s.Turn.StartStep == 3) s = FinishStart(s, rng);
             else s = ContinueStart(s);
         }
         else if (s.Turn.Phase == Phase.PlayerAction)
@@ -82,6 +79,7 @@ internal static class PhaseRules
                 s = BoardRules.EvolveEndOfRoundA(s, rng);
                 s = s.WithTurn(s.Turn.Copy(endStep: 1));
             }
+            s = CellRules.SettleAsks(s, rng);   // 蹲守净化抽到的连走卡没路可走：GD 喊一声就退，不问（同 S 阶段，见 FinishStart）
             if (!EndPending(s)) s = FinishEndOfRound(s, rng);
         }
         var facts = Cells(s).Where(c => before.Cells.TryGetValue(c.Id, out var previous) && previous.Energy != c.Energy)
@@ -219,6 +217,23 @@ internal static class PhaseRules
         return s;
     }
 
+    /// <summary>
+    /// 停在 StartStep 3（产出完、传送前）时往下走：先把产出追出的问答收口（<see cref="CellRules.SettleAsks"/>：无路可走的连走卡当场摘掉、
+    /// 【全身免疫动员】轮到的那只没有可走的格就跳过…），收完了没有真要问的就 <see cref="ResumeStart"/> 接着产、传送、开打 ——
+    /// 接着产又可能追出新的问答，再收一次。阶段推进（AdvancePhase）与决策出口（DecisionRouter.Execute）都从这里走。
+    /// 2026-10-01 之前阶段推进这条路不收口、决策出口 ResumeStart 之后也不再收：骨髓抽到一张六邻全堵的【趋化募集】，C# 停在一个只有「停在这里」的问答上，
+    /// GD 喊一声「没有可进入的相邻格，提前结束」就接着产（cw_card_fx.gd:628-630）。
+    /// </summary>
+    internal static WorldState FinishStart(WorldState s, IDeterministicRng rng)
+    {
+        while (true)
+        {
+            s = CellRules.SettleAsks(s, rng);
+            if (StartPending(s) || s.Turn.StartStep != 3) return s;
+            s = ResumeStart(s, rng);   // 每次都往前推进（产出游标只增、传送之后 StartStep 离开 3），不会原地打转
+        }
+    }
+
     /// <summary>S.2 血管传送 → 复活 / 有氧 / 过载 / 开打（产出那一步的追问全答完之后从这里接着走）。</summary>
     public static WorldState ResumeStart(WorldState s, IDeterministicRng rng)
     {
@@ -240,6 +255,7 @@ internal static class PhaseRules
         if (revival.Count > 0) return s.WithTurn(s.Turn.Copy(seat: revival[0].PlayerSeat));
         s = Aerobic(s);
         s = Overload(s);   // S 阶段第 6 步【过载】：**必须排在【有氧呼吸】之后**
+        s = BoardRules.CapEnergy(s);   // S 阶段这一次结算完，溢出的不留（GD cw_game.gd:260，排在过载之后、开打之前）
         var first = s.Players.Keys.OrderBy(x => x).Where(x => AliveSeat(s, x)).Cast<int?>().FirstOrDefault();
         // 本世界回合的第一个席位开打之前：0 号起沿途每个席位各走一格完整回合时钟
         s = TickFullTurnsThrough(s, -1, first ?? s.Players.Keys.DefaultIfEmpty(0).Max());
