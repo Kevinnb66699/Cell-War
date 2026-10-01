@@ -172,6 +172,45 @@
   },
   {
     "schema": "cwxcase/2",
+    "id": "aerobic_step/tgf_kept_without_living_immune",
+    "op": "aerobic",
+    "covers": [],
+    "source": "cw_world.gd:_aerobic 开头 `if immune.is_empty(): return` ↔ PhaseRules.Aerobic 只在有活着的免疫时摘【TGF-β释放】。唯一那只免疫已死 ⇒ 这一步整段不结算：没有进账、**TGF 也不消耗**（留到下一次真有有氧结算），delta 为空。2026-10-01 随手录的 120 局里撞到（2 人建源局第 74 步：免疫全灭的 S 阶段 GD 还挂着、C# 已经摘了），C# 当天修。events.active 只写一条、data 写 {}（硬约定 T4）。",
+    "world": {
+      "players": [
+        {
+          "seat": 0,
+          "faction": "immune"
+        }
+      ],
+      "cells": [
+        {
+          "seat": 0,
+          "type": "ImmuneBasic",
+          "at": "0,0",
+          "energy": 300,
+          "alive": false
+        }
+      ],
+      "events": {
+        "active": [
+          {
+            "name": "TGF-β释放",
+            "left": 2,
+            "stacks": 1,
+            "data": {}
+          }
+        ]
+      }
+    },
+    "expect": {
+      "kind": "delta",
+      "changed": {},
+      "ignore": []
+    }
+  },
+  {
+    "schema": "cwxcase/2",
     "id": "aerobic_step/true_value/level_I",
     "op": "aerobic",
     "covers": [

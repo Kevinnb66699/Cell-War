@@ -293,7 +293,10 @@ internal static class PhaseRules
             }
             Stage.Log(s, $"【有氧呼吸】所有免疫细胞 +{Stage.Fmt(gain)} 能量（{why}）");
         }
-        if (tgf > 0) s = s.RemoveEffects("TGF-β释放");
+        // GD `_aerobic` 开头 `if immune.is_empty(): return` —— 没有活着的免疫就整段不结算，【TGF-β释放】也**不消耗**，
+        // 留到下一次真有有氧结算的时候（条目照样按 left 在 E 阶段倒数）。2026-10-01 之前 C# 不管有没有免疫都摘，
+        // 随手录的 120 局里撞到一局（2 人建源局第 74 步：免疫全灭的那个 S 阶段，GD 还挂着、C# 已经没了）
+        if (immune.Length > 0 && tgf > 0) s = s.RemoveEffects("TGF-β释放");
         return s;
     }
 
