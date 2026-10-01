@@ -43,7 +43,7 @@ const WEIGHTS := {
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_drain": 5.1,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
 	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
-	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
+	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_entry_smoke_sidecar": 1.2, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
 	"t_net_lobby": 1.0, "t_hotseat": 0.9, "t_pause_and_teardown": 0.9, "t_board_active_tiles": 0.8,
 	"t_eval_features": 0.8, "t_teleport_fx": 0.8, "t_play_queue": 0.7, "t_opening": 0.6,
 	"t_ai_same_hash_heur6": 0.6, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
@@ -170,7 +170,7 @@ func _run_all() -> void:
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
 		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
-		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_play_queue,
+		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_entry_smoke_sidecar, t_play_queue,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
 		t_observe_budget,
@@ -17892,6 +17892,52 @@ func t_entry_smoke_hotseat() -> void:
 ## **再改判（S12 收口，2026-09-19）**：六关 + 间章全部落地、真机通关过一次 ⇒ 入口恢复，
 ## 这一条跟着从「灰着」翻成「亮着」。它是入口的**唯一开关**，翻错了玩家就点不进教程（或误碰到半成品），
 ## 所以正反两面都只由这一条钉死 —— 别再靠人眼看菜单。
+## 换内核 P2 的真界面冒烟（2026-10-01）：开发开关 `CW_KERNEL=sidecar` 下开一局 **2 人热座**，整条界面路走 C# sidecar ——
+## 换手遮罩点掉、落子点一格、行动问答按「结束回合」，打满两个世界回合。验：句柄真是 Sidecar、行动栏按 tier B 的 action_kinds
+## 建出整排按钮（批 0 时 C# 不产 tier B，接上去只剩「结束回合」）、镜像跟着回合走、拆局干净。不设开关 = 走 InProc（另一条冒烟管）。
+func t_entry_smoke_sidecar() -> void:
+	print("[入口冒烟·热座走 sidecar]")
+	if CWKernelSidecar.find_dotnet() == "" or not FileAccess.file_exists(CWKernelSidecar.find_sidecar_dll()):
+		check(false, "找不到 dotnet 或 sidecar 产物 —— 先 dotnet build core/CellWar.Sidecar")
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	m.player_count = 2
+	m.human_players = [0, 1]
+	m.match_seed = 77
+	CWSettings.ai_delay_ms = 0
+	m.start()
+	await process_frame
+	check(m.kernel is CWKernelSidecar and m.kernel.state() != CWKernel.State.UNAVAILABLE, "开关打开 + 全真人 ⇒ 句柄是 sidecar（%s）" % str(m.kernel.last_error()))
+	var max_bar := 0
+	var actions := 0
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 20000 and (m.mirror == null or int(m.mirror.round_no) < 3):
+		await process_frame
+		if m.bridge.handoff != null and m.bridge.handoff.active:
+			m.bridge.handoff.confirm()
+			continue
+		if m.bridge._pending == null:
+			continue
+		if not m.bridge._tiles.is_empty() and m.bridge.panel != null and not m.bridge.panel._end.visible:
+			m.bridge._pending.fire(m.bridge._tiles.values()[0])   ## 落子：点第一格可选的
+		else:
+			max_bar = maxi(max_bar, m.bridge.bar._buttons.size())
+			actions += 1
+			m.bridge.panel.end_turn_pressed.emit()
+	check(m.mirror != null and int(m.mirror.round_no) >= 3, "热座在 sidecar 上打过两个世界回合（第 %d 回合，结束回合 %d 次）" % [int(m.mirror.round_no) if m.mirror != null else -1, actions])
+	check(max_bar >= 3, "行动栏按 tier B 的 action_kinds 建出整排按钮（最多 %d 个）" % max_bar)
+	m.teardown()
+	await process_frame
+	check(m.kernel == null, "拆局：句柄关了")
+	OS.set_environment("CW_KERNEL", "")
+	CWSettings.ai_delay_ms = 220
+	main_scene.queue_free()
+
+
 func t_entry_smoke_tutorial() -> void:
 	print("[入口冒烟·教程]")
 	var menu_script = load("res://scripts/ui/main_menu.gd")

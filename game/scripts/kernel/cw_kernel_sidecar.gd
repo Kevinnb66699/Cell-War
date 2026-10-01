@@ -40,6 +40,7 @@ var _next_seq := 1                  ## 本句柄自己的 seq（有 decider 的 
 var _open_ask := {}                 ## 正在等的那一问：{ask_id, req, decider}
 var _decider_ask := {}              ## 拉到了、还没交给 decider 的那一问（由 _pump 去答，见那儿的注释）
 var _pumping := false
+var _started := true                ## autorun=false 的局：open() 只拉条目、不替 decider 作答，等 run()（同 InProc：队列与第一份镜像先就位）
 var _ticking := false
 
 
@@ -58,6 +59,7 @@ func open(cfg: Dictionary) -> bool:
 		return false
 	observe_viewer = cfg.get("observe_viewer", null)
 	open_hands = bool(cfg.get("open_hands", false))
+	_started = bool(cfg.get("autorun", true))
 	var open_cfg := { "factions": cfg.get("factions", []), "seed": int(cfg.get("seed", 1)), "open_hands": open_hands }
 	for k in ["cancer_types", "names"]:   ## 癌种按癌席顺序钉死（同 InProc 的 tune.cancer_types）；names = 显示名（空串 = 默认名）
 		if cfg.has(k):
@@ -77,8 +79,16 @@ func open(cfg: Dictionary) -> bool:
 		deciders.merge(cfg["deciders"], true)
 	_set_state(State.READY)
 	_start_ticking()
-	_pump()   ## 开局那段（落子之前）sidecar 已经算完：第一问马上就在
+	_pump()   ## 开局那段（落子之前）sidecar 已经算完：第一问马上就在（autorun=false 时只拉、不答）
 	return true
+
+
+## autorun=false 的局从这里起跑（match.gd：队列与第一份镜像就位之后）。sidecar 那边开局早算完了，这里只是开始替 decider 作答
+func run() -> void:
+	if _started or _sid < 0:
+		return
+	_started = true
+	_pump()
 
 
 func close() -> void:
@@ -198,15 +208,17 @@ func answer(ask_id: int, choice: Dictionary) -> bool:
 	return true
 
 
-## 叫醒卡在 decider 里的那一问（拆局 / 教程跨章，同 InProc 的理由）；外面等着的那一问作废、不替它作答
+## 叫醒卡在 decider 里的那一问（拆局 / 教程跨章，同 InProc 的理由）；外面等着的那一问作废、不替它作答。
+## **先清再叫醒**：decider 的 abort() 会当场把它那一问答掉（ui_bridge 的 Answer.fire），`_pump` 在同一个调用栈里就醒过来往下走 ——
+## 那时 `_open_ask` 还在的话，它会把答案交给已经中止的 sidecar（2026-10-01 热座冒烟拆局时抓到）
 func abort_ask() -> void:
+	_open_ask = {}
+	_decider_ask = {}
 	var seen: Array = []
 	for d in deciders.values():
 		if d != null and not seen.has(d) and d.has_method("abort"):
 			seen.append(d)
 			d.abort()
-	_open_ask = {}
-	_decider_ask = {}
 
 
 ## 观测协议 §5.3 的四条查询，返回与 InProc.query 同形（plan_next_dests：Vector2i 数组；quote_path：{steps, total, …}；
@@ -434,7 +446,7 @@ func _pump() -> void:
 	_pumping = true
 	while _sid >= 0 and _peer != null:
 		_drain()
-		if _decider_ask.is_empty():
+		if _decider_ask.is_empty() or not _started:
 			break
 		var a: Dictionary = _decider_ask
 		_decider_ask = {}

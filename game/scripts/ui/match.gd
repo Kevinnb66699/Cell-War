@@ -554,6 +554,15 @@ func _ready() -> void:
 		start()
 
 
+## 换内核 P2 的开发开关（2026-10-01，docs/内核替换_重启计划.md）：环境变量 `CW_KERNEL=sidecar` 时，**全真人的新开局**（热座）
+## 改走本地 C# 内核进程。只有这一种局能走 —— AI 席还在 GD（P3 才进 C#）、存档是 GD 快照（P4 才换）、教程由舞台建（P5）。
+## sidecar 起不来就退回 InProc，玩家照样能玩（UNAVAILABLE 是一等状态，与补丁系统隔离）。默认不设这个变量 = 行为一行不变。
+func _new_local_kernel(snap: Dictionary) -> CWKernel:
+	if OS.get_environment("CW_KERNEL") != "sidecar" or not snap.is_empty() or human_players.size() < player_count:
+		return CWKernelInProc.new()
+	return CWKernelSidecar.new()
+
+
 ## snap 非空 = 从存档继续：装配完把快照原样放回去，run_game 会把存档那一刻
 ## 待决的询问重新问出来（恢复点必然是 pending 边界，CWSave 只在那儿写得出档）。
 func start(snap: Dictionary = {}) -> void:
@@ -562,7 +571,7 @@ func start(snap: Dictionary = {}) -> void:
 	## 读档进来的教程局不走这条路：存档里不记教程标志，读回来就是正式局
 	var by_stage := tutorial and snap.is_empty()
 	if not by_stage:
-		kernel = CWKernelInProc.new()
+		kernel = _new_local_kernel(snap)
 	## 本地 / 热座 / 教程共用的 cfg（规格 A-1.2）：
 	##   consumer  = 有界面在播演出 ⇒ 掷骰要等消费者 ack（barrier）
 	##   observe_viewer = 每次问人之前、终局之前各推一份 sync（A-1.5 的观测节拍；热座要看多席真手牌 ⇒ 全知）
@@ -597,7 +606,10 @@ func start(snap: Dictionary = {}) -> void:
 		if kernel == null:
 			return
 	else:
-		kernel.open(cfg)
+		if not kernel.open(cfg) and kernel is CWKernelSidecar:
+			push_warning("CWMatch：sidecar 起不来（%s），这一局退回 GD 内核" % str(kernel.last_error()))
+			kernel = CWKernelInProc.new()
+			kernel.open(cfg)
 		_mark_me()   ## 单机：唯一那位真人的名字加「（我）」（Kevin 2026-09-19）
 	_start_queue()
 	if by_stage:
@@ -2065,7 +2077,7 @@ func _start_queue() -> void:
 ## InProc 专用的一次同步观测（约 8.5 ms，只在开局 / 起跑这两下调）。
 ## Remote 那条路没有活引擎，镜像只能等 sync 条目（见 _on_sync）。
 func _observe_now() -> void:
-	if not (kernel is CWKernelInProc):
+	if not (kernel is CWKernelInProc or kernel is CWKernelSidecar):   ## 本机两种句柄都能同步观测；联机只认 sync 条目
 		return
 	var m := kernel.observe(CWKernel.VIEWER_OMNISCIENT) as CWMirror
 	if m != null:
