@@ -18025,6 +18025,14 @@ func t_sidecar_locator() -> void:
 	DirAccess.remove_absolute(String(a["dll"]).get_base_dir().path_join(".ok"))
 	var c: Dictionary = Loc.unpack()
 	check(c == a and FileAccess.file_exists(String(a["dll"]).get_base_dir().path_join(".ok")), "没有 .ok 的半份目录会重解")
+	## 旧版本的解包目录（补丁换过规则 dll / 全量换过运行时）：下一次解包后只留这一版的两个
+	DirAccess.make_dir_recursive_absolute(Loc.USER_DIR.path_join("payload-0000000000000000"))
+	DirAccess.make_dir_recursive_absolute(Loc.USER_DIR.path_join("runtime-old.tmp"))
+	FileAccess.open(Loc.USER_DIR.path_join("payload-0000000000000000/.ok"), FileAccess.WRITE).store_string("ok")
+	var e: Dictionary = Loc.unpack()
+	check(e == a and not DirAccess.dir_exists_absolute(Loc.USER_DIR.path_join("payload-0000000000000000"))
+		and not DirAccess.dir_exists_absolute(Loc.USER_DIR.path_join("runtime-old.tmp")) and FileAccess.file_exists(String(a["dll"])),
+		"旧版本的载荷 / 运行时目录在解包后清掉，这一版的留着")
 	var k := CWKernelSidecar.new()
 	check(k.open({ "factions": [0, 1], "seed": 5, "dotnet": a["dotnet"], "sidecar_dll": a["dll"] }) and k.observe(0) != null,
 		"用解出来的那份 dotnet 起 sidecar 开局（%s）" % str(k.last_error()))

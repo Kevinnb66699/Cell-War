@@ -77,7 +77,19 @@ static func unpack() -> Dictionary:
 	err = _copy_once(PACK_DIR + "/" + String(payload.get("dir", "payload")), Array(payload.get("files", [])), pl_dir)
 	if err != "":
 		return { "error": err }
+	_prune_others([rt_dir.get_file(), pl_dir.get_file()])
 	return { "dotnet": host, "dll": ProjectSettings.globalize_path(pl_dir.path_join("CellWar.Sidecar.dll")) }
+
+
+## 每打一次带规则 dll 的补丁就多一个 payload-<sha> 目录（全量换运行时再多一个 runtime-…）：这一版用的两个留下，别的删掉。
+## 删在解包成功之后、进程起来之前 —— 同一时刻只有这一版在用（不支持同机同时开两个不同版本的客户端）
+static func _prune_others(keep: Array) -> void:
+	var d := DirAccess.open(USER_DIR)
+	if d == null:
+		return
+	for sub in d.get_directories():
+		if not (sub in keep) and (sub.begins_with("payload-") or sub.begins_with("runtime-")):
+			_rm_rf(USER_DIR.path_join(sub))
 
 
 static func _read_json(path: String) -> Variant:
