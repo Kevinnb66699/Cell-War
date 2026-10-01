@@ -140,6 +140,9 @@ static func _rm_rf(path: String) -> void:
 	var d := DirAccess.open(path)
 	if d == null:
 		return
+	## 隐藏文件也要删：DirAccess 默认不列「.」开头的文件，`.ok` 标记就会留下 —— 目录删不掉、内容却没了，
+	## 下一次 unpack 认 `.ok` 直接用，拿到一个不存在的 dotnet（2026-10-01 同一个测试用户目录跑第二遍必红）
+	d.include_hidden = true
 	for f in d.get_files():
 		d.remove(f)
 	for sub in d.get_directories():

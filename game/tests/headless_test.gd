@@ -14905,7 +14905,10 @@ func t_net_lobby() -> void:
 	ok = await _net_pump(srv, [a, b], func() -> bool: return a.code == "" and b.room.get("you_host", false))
 	check(ok and b.room["seats"][0]["kind"] == "", "房主离开：房主转给下一位，离开者席位空出")
 	b.leave()
-	ok = await _net_pump(srv, [a, b], func() -> bool: return b.code == "")
+	## 等**服务器**那头处理完离开：客户端的 leave() 当场就把自己的 code 清掉了，只等 `b.code == ""` 会赶在
+	## 服务器收到报文之前往下走（2026-10-01 Mac 上单跑三次红一次，同 09-23 _net_room 那个旧房间号的竞争）
+	ok = await _net_pump(srv, [a, b], func() -> bool:
+		return b.code == "" and srv.rooms.size() == 1 and srv.rooms.values()[0].members.is_empty())
 	check(ok and srv.rooms.size() == 1 and srv.rooms.values()[0].empty_since > 0, "空房先保留")
 	srv.idle_ms = 0
 	await _net_pump_ms(srv, [a, b], 30)
@@ -22174,10 +22177,13 @@ func t_net_sidecar() -> void:
 		"开关打开 + 全真人 ⇒ 这一局走条目泵（房里没有 CWGame）")
 	var sc_pid: int = room.pump.kernel.process_id() if room.pump != null else -1
 	var t0 := Time.get_ticks_msec()
+	var frames := { "n": 0 }
+	## 帧数上限给到实测的十来倍：卡死时在看门狗之前就干净地红在这一条上
 	var ok := await _net_pump(srv, [a, b, w], func() -> bool:
+		frames["n"] += 1
 		_sc_answer_pending([a, b], [da, db])
-		return not ta["over"].is_empty() and not tb["over"].is_empty() and not tw["over"].is_empty(), 30000)
-	check(ok, "打到终局（%d 问，%.1f s，第 %d 回合：%s）" % [ta["asks"] + tb["asks"], (Time.get_ticks_msec() - t0) / 1000.0,
+		return not ta["over"].is_empty() and not tb["over"].is_empty() and not tw["over"].is_empty(), 8000)
+	check(ok, "打到终局（%d 问，%d 帧 %.1f s，第 %d 回合：%s）" % [ta["asks"] + tb["asks"], frames["n"], (Time.get_ticks_msec() - t0) / 1000.0,
 		int(ta["over"].get("round", -1)), String(ta["over"].get("reason", ""))])
 	check(ok and ta["over"]["winner"] == tb["over"]["winner"] and tb["over"]["winner"] == tw["over"]["winner"]
 		and ta["over"]["kind"] == tw["over"]["kind"], "三个人收到同一个终局")
@@ -22233,6 +22239,14 @@ func t_net_sidecar() -> void:
 	check(ok and room.watchers() == 2 and int(xs["envelope"]["viewer"]) == CWKernel.VIEWER_WATCHER
 		and CWMirror.new().load_from(xs["envelope"]) == "" and _net_count(x, "step_end") == 1,
 		"对局中途进来的观众：当场补一份观众视角的 step_end + sync（CWRoom.join → push_state_to）")
+	## 第二局 sidecar 那边的 ask 编号从 1 重来，房间的号接着上一局往下走 —— step_begin 必须换成**房间的号**
+	## （客户端 #44 的接管判定比的就是它；第一局两边恰好同号，只有第二局分得出来）
+	var id2 := int(a.pending_ask.get("ask_id", -1))
+	_sc_answer_pending([a], [da])
+	ok = await _net_pump(srv, [a, b, w, x], func() -> bool:
+		return b.inbox.any(func(m: Dictionary) -> bool: return m["t"] == "step_begin" and int(m["ask_id"]) == id2), 600)
+	check(ok and not all_ids.is_empty() and id2 > int(all_ids[-1]),
+		"第二局的询问编号接着上一局往下走（%d），甲答下之后的 step_begin 带的也是这个号" % id2)
 	a.surrender(true)
 	ok = await _net_pump(srv, [a, b, w, x], func() -> bool: return tb["overs"] >= 2)
 	var over2: Dictionary = tb["over"]
@@ -22357,12 +22371,14 @@ func t_net_sidecar_takeover() -> void:
 	check(ok, "丁掉线：席位标离线")
 	var round_at := int(room2.pump.round_no) if room2.pump != null else 0
 	var asks_at: int = asked[0]
+	var frames2 := { "n": 0 }
 	ok = await _net_pump(srv, [a], func() -> bool:
+		frames2["n"] += 1
 		_sc_answer_pending([a], [da])
-		return room2.games_played == 1, 30000)
+		return room2.games_played == 1, 6000)
 	var tk2: int = int(pump2.takeovers) if pump2 != null else 0
-	check(ok and tk2 >= 3 and room2.timeouts == 0, "掉线的那一席每问都由代打即时答掉（不等计时），甲一个人把这局打完（代打 %d 次、第 %d 回合收局、甲又被问 %d 次）"
-		% [tk2, int(_net_last(a, "game_over").get("round", -1)), asked[0] - asks_at])
+	check(ok and tk2 >= 3 and room2.timeouts == 0, "掉线的那一席每问都由代打即时答掉（不等计时），甲一个人把这局打完（代打 %d 次、第 %d 回合收局、甲又被问 %d 次、%d 帧）"
+		% [tk2, int(_net_last(a, "game_over").get("round", -1)), asked[0] - asks_at, frames2["n"]])
 	check(int(_net_last(a, "game_over").get("round", -1)) > round_at, "掉线之后世界回合还在往前走（从第 %d 回合起）" % round_at)
 	## ---- ④ 开关的另外三面 ----
 	var e := _net_client("戊", false)
