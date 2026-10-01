@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CellWar.Core\CellWar.Core.csproj" />
+    <ProjectReference Include="..\CellWar.Sidecar\CellWar.Sidecar.csproj" />
   </ItemGroup>
 
   <ItemGroup>

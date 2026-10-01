@@ -33,6 +33,18 @@ if [ "$TIMEOUT" -gt 0 ]; then
 fi
 trap 'rm -rf "$TMP"' EXIT
 
+# 换内核 P1（2026-10-01）：t_kernel_sidecar 要真起 C# sidecar 进程，产物得先在 —— 在并行段之前**同步**编一次
+#（run_l0.sh 里的 dotnet test 也会顺带编，但它和分片并行，抢不过就是一条假红）。没装 dotnet 就只警告，那条测试会自己报红。
+if command -v dotnet >/dev/null 2>&1; then
+	if ! dotnet build core/CellWar.Sidecar --nologo -v q > "$TMP/sidecar_build.log" 2>&1; then
+		echo "✘ sidecar 编不过："
+		grep -E " error " "$TMP/sidecar_build.log" | head -20
+		exit 1
+	fi
+else
+	echo "⚠ 找不到 dotnet：t_kernel_sidecar 会报红（.NET 10 SDK 装在 ~/.dotnet，见 ~/.zprofile）"
+fi
+
 # L0 靶场和分片**同时**起（它不依赖分片，串在后面白等 30 s）；输出落文件，末尾再打
 (
 	bash "$(dirname "$0")/run_l0.sh" > "$TMP/l0.log" 2>&1

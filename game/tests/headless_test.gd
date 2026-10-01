@@ -43,7 +43,7 @@ const WEIGHTS := {
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_drain": 5.1,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
 	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
-	"t_kernel_inproc": 1.3, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
+	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
 	"t_net_lobby": 1.0, "t_hotseat": 0.9, "t_pause_and_teardown": 0.9, "t_board_active_tiles": 0.8,
 	"t_eval_features": 0.8, "t_teleport_fx": 0.8, "t_play_queue": 0.7, "t_opening": 0.6,
 	"t_ai_same_hash_heur6": 0.6, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
@@ -170,7 +170,7 @@ func _run_all() -> void:
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
 		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
-		t_semkey_single_source, t_kernel_inproc, t_play_queue,
+		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_play_queue,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
 		t_observe_budget,
@@ -16453,6 +16453,66 @@ func t_semkey_single_source() -> void:
 	check(not src.contains("parts.append(\"k=\""), "xcheck_bridge 里没有自己的拼键代码（不许出现第二份定义）")
 
 
+## 换内核 P1（2026-10-01）：真起一个 C# sidecar 进程，两席都交给语义键 LCG 决策者（xcheck_bridge，与 L1 / C# 宿主自检同一条 LCG）打到终局。
+## 验：有 decider 的席位不出 ask 条目、每答一问一条 step_begin、每问之前一份 sync、game_over 收尾、
+## sync 装得进镜像、演出坐标翻成 Vector2i、close 之后进程退出、找不到 dll = UNAVAILABLE 且不起进程。
+## 依赖：dotnet + core/CellWar.Sidecar 的 Debug 产物（tools/run_tests.sh 开跑前会 dotnet build 一次）。
+func t_kernel_sidecar() -> void:
+	print("[内核句柄·Sidecar]")
+	var dll := CWKernelSidecar.find_sidecar_dll()
+	if CWKernelSidecar.find_dotnet() == "" or not FileAccess.file_exists(dll):
+		check(false, "找不到 dotnet 或 sidecar 产物（%s）—— 先 dotnet build core/CellWar.Sidecar" % dll)
+		return
+	var dec = load("res://tests/xcheck_bridge.gd").new()
+	dec.seed_policy(2222)
+	var k := CWKernelSidecar.new()
+	var t0 := Time.get_ticks_msec()
+	var ok := k.open({ "factions": [0, 1], "seed": 2222, "observe_viewer": CWKernel.VIEWER_OMNISCIENT, "decider": dec })
+	check(ok, "open 起得来（%d ms，%s）" % [Time.get_ticks_msec() - t0, str(k.last_error())])
+	if not ok:
+		return
+	check(int(k.version()["host_abi"]) == CWKernelSidecar.HOST_ABI, "hello 报回宿主 ABI")
+	var pid := k.process_id()
+	check(pid > 0 and OS.is_process_running(pid), "sidecar 进程在跑")
+	var deadline := Time.get_ticks_msec() + 90000
+	while k.state() != CWKernel.State.ENDED and k.state() != CWKernel.State.FAULTED and Time.get_ticks_msec() < deadline:
+		await process_frame
+	check(k.state() == CWKernel.State.ENDED, "两席 decider 打到终局（%d 问，%s）" % [dec.log.size(), str(k.last_error())])
+	var es := k.pull(CWKernel.VIEWER_OMNISCIENT, 0, 1 << 20)
+	var kinds := {}
+	var mono := true
+	var last := 0
+	var coords_ok := true
+	var last_sync := {}
+	for e: Dictionary in es:
+		kinds[e["t"]] = int(kinds.get(e["t"], 0)) + 1
+		mono = mono and int(e["seq"]) == last + 1
+		last = int(e["seq"])
+		if e["t"] == "sync":
+			last_sync = e
+		if e["t"] == "roll" and e.get("at") != null and not (e["at"] is Vector2i):
+			coords_ok = false
+		if e["t"] == "erosion" and not (e["at"] is Vector2i):
+			coords_ok = false
+	check(mono, "seq 连续单调（%d 条）" % es.size())
+	check(not kinds.has("ask"), "有 decider 的席位不出 ask 条目（同 InProc）")
+	check(int(kinds.get("step_begin", 0)) == dec.log.size(), "每答一问一条 step_begin（%d / %d）" % [int(kinds.get("step_begin", 0)), dec.log.size()])
+	check(int(kinds.get("sync", 0)) >= dec.log.size(), "每问之前一份 sync")
+	check(not es.is_empty() and String(es[-1]["t"]) == "game_over", "game_over 收尾")
+	check(coords_ok and int(kinds.get("roll", 0)) > 0, "演出条目里的坐标翻成了 Vector2i（roll %d 条）" % int(kinds.get("roll", 0)))
+	var m := CWMirror.new()
+	check(not last_sync.is_empty() and m.load_from(last_sync["envelope"]) == "", "最后一份 sync 装得进镜像")
+	check(k.observe(0) != null, "observe(席位 0) 出镜像")
+	k.close()
+	var t1 := Time.get_ticks_msec()
+	while OS.is_process_running(pid) and Time.get_ticks_msec() - t1 < 3000:
+		await process_frame
+	check(not OS.is_process_running(pid), "close 之后 sidecar 进程退出")
+	var bad := CWKernelSidecar.new()
+	check(not bad.open({ "factions": [0, 1], "sidecar_dll": "/nonexistent/CellWar.Sidecar.dll" })
+		and bad.state() == CWKernel.State.UNAVAILABLE and bad.process_id() == -1, "找不到 dll = UNAVAILABLE，不起进程")
+
+
 ## 口径二 · 批 0 步 9：内核句柄 InProc —— 只用 open / pull / answer / ack 跑完一局，与直接 run_game 逐位相同；
 ## 演出条目逐类计数 = 直接挂计数桥；seq 单调；观众裁剪；barrier 有消费者时挡住、ack / abort 放行；Sidecar stub 不可用分支；方法面一致
 func t_kernel_inproc() -> void:
@@ -16562,10 +16622,11 @@ func t_kernel_inproc() -> void:
 	check(flags["done"] == 2, "abort 释放悬着的 barrier")
 	k3.close()
 
-	## 5) Sidecar stub：不可用是一等状态，每个方法都有定义良好的返回
+	## 5) Sidecar 不可用：是一等状态，每个方法都有定义良好的返回（2026-10-01 起 Sidecar 是真实现，找不到 dll 才是不可用）
 	var sc := CWKernelSidecar.new()
-	check(not sc.open({}) and sc.state() == CWKernel.State.UNAVAILABLE and int(sc.last_error()["fault"]) == CWKernel.Fault.SPAWN_FAILED,
-		"Sidecar stub：open 失败 → UNAVAILABLE + SPAWN_FAILED")
+	check(not sc.open({ "factions": [0, 1], "sidecar_dll": "/nonexistent/CellWar.Sidecar.dll" }) and sc.state() == CWKernel.State.UNAVAILABLE
+		and int(sc.last_error()["fault"]) == CWKernel.Fault.SPAWN_FAILED,
+		"Sidecar 找不到 dll：open 失败 → UNAVAILABLE + SPAWN_FAILED")
 	check(sc.pull(0, 0).is_empty() and not sc.answer(1, {}) and not sc.can_save() and sc.save().is_empty() and sc.observe(0) == null and sc.state_hash() == "",
 		"不可用态下各方法不抛不崩")
 	## 6) 方法面：基类 24 个方法、三实现都继承到（反射）

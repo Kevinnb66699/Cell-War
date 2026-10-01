@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    C# 内核的宿主进程（换内核 P1，docs/内核替换_重启计划.md §3.1）。
+    Godot 客户端 / 服务器用 OS.create_process 起它，它再经本机回环 TCP 连回去，一行一个 JSON。
+
+    发布硬纪律（路线 A §十 第 1 条；P7 的发版闸会查）：
+      永不 PublishTrimmed / PublishSingleFile / PublishAot —— 三者任一打开，规则 dll 就和宿主烧成一坨，
+      增量更新载荷从一两百 KB 变成几十 MB。下面三行显式写 false，别删。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Deterministic>true</Deterministic>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishAot>false</PublishAot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../CellWar.Core/CellWar.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CellWar.Core.Tests" />
+  </ItemGroup>
+
+</Project>

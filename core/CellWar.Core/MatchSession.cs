@@ -110,6 +110,9 @@ public sealed class MatchObservationProvider : IObservationProvider
     }
 }
 
+/// <summary>宿主读到的一帧：权威世界 + 挂起的询问（没有 = null）+ 修订号。见 <see cref="MatchSession.Peek"/>。</summary>
+public sealed record HostSnapshot(WorldState State, PendingInput? Input, Revision Revision);
+
 /// <summary>Host lifecycle and authorization boundary. Caller supplies a trusted seat binding.</summary>
 public sealed class MatchSession : ISession
 {
@@ -194,6 +197,19 @@ public sealed class MatchSession : ISession
         }
     }
     public int Advance(int budget = 256) { lock (gate) return runtime.Run(budget); }
+
+    /// <summary>
+    /// 宿主专用的只读口（2026-10-01 换内核 P1：sidecar 宿主拆问、合成 ask / game_over 条目要读决策本身；P3 的同进程 AI 也走它）。
+    /// ★ 全知：世界里是全部明文手牌，**别过网** —— 过网的只有 <see cref="ObserveV1"/> 裁过的 envelope。
+    /// </summary>
+    public HostSnapshot Peek()
+    {
+        lock (gate)
+        {
+            using var lease = runtime.Read();
+            return new(lease.Snapshot.State, lease.Snapshot.Simulation.Input, lease.Revision);
+        }
+    }
     public long ReplaceController(int seat)
     {
         lock (gate)

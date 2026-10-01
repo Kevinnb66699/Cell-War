@@ -1,0 +1,213 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using CellWar.Core;
+using CellWar.Core.Observation;
+
+namespace CellWar.Sidecar;
+
+/// <summary>
+/// 一局的宿主：包住 <see cref="MatchSession"/>，对外吐一条与 GD `CWKernelInProc` **同节拍、同字段**的条目流
+/// （`cw_kernel.gd` 头注的 15 种；条目带 `seq` 单调、`barrier` 只有 roll 为 true）。
+///
+/// 节拍照 InProc：
+///   一步收尾 → `step_end{rev}` →（设了 observe_viewer）`sync{envelope}` → 下一问 `ask{ask_id, req, left_ms}`；
+///   终局 → `step_end` → `sync` → `game_over{winner, reason, kind, round, replay}`；
+///   答下 → `step_begin{ask_id, seat}`，这一步的演出都排在它后面。
+/// `step_begin` / `step_end` 与演出条目是 C# Runtime 自己发的（批 0），这里只把 `step_begin.ask_id` 从 C# 的 RequestId 换成本宿主的 ask id；
+/// sync / ask / game_over 由宿主合成。C# 独有的 `attack` 条目不上线（GD 的播放队列没有它的分支）。
+///
+/// ask id 是宿主自己的序号（与 InProc 的 `_ask_serial` 同义）：拆问时一个 C# 询问对应两个宿主 ask（见 <see cref="HostAsk"/>）。
+/// 日志条目（`log`）P1 不发 —— C# 的 Outbox 只有调试串，原文日志是 P2。
+/// </summary>
+internal sealed class SessionHost : IDisposable
+{
+    public int Sid { get; }
+    public int? ObserveViewer { get; set; }
+    public bool OpenHands { get; set; }
+    public bool Aborted { get; private set; }
+    public bool Over { get; private set; }
+
+    private readonly MatchSession session;
+    private readonly List<JsonObject> entries = [];
+    private long nextSeq = 1;
+    private long presentationSeen;
+    private int askSerial;
+    private HostAsk? open;
+    /// <summary>C# RequestId → 最后作答的那个宿主 ask id（拆问时是第二问的 id，与 GD「第二问答下才开步」同义）。</summary>
+    private readonly Dictionary<long, int> answeredBy = [];
+    private string lastKind = "";
+
+    public SessionHost(int sid, MatchSession session, int? observeViewer, bool openHands)
+    {
+        Sid = sid;
+        this.session = session;
+        ObserveViewer = observeViewer;
+        OpenHands = openHands;
+        Pump();
+    }
+
+    /// <summary>`open` 报文 → 一局。P1 只认 GD 的标准座次（`CWMatch.FACTION_ORDER`：免疫 / 癌交替，与 C# <see cref="MatchSetup"/> 同一套）。</summary>
+    public static SessionHost Open(int sid, JsonObject cfg)
+    {
+        var factions = cfg["factions"]?.AsArray().Select(J.Int).ToArray()
+            ?? throw new ArgumentException("open 缺 factions");
+        for (var i = 0; i < factions.Length; i++)
+            if (factions[i] != i % 2)
+                throw new ArgumentException($"P1 只支持免疫 / 癌交替的座次，第 {i} 席是 {factions[i]}");
+        var seed = cfg["seed"] is { } sv ? unchecked((ulong)J.Long(sv)) : 1UL;
+        var viewer = J.IntOr(cfg["observe_viewer"]);
+        var openHands = cfg["open_hands"] is { } oh && J.Bool(oh);
+        return new(sid, MatchSession.Start(factions.Length, seed), viewer, openHands);
+    }
+
+    // ---- 条目 ----
+
+    public JsonArray Pull(int viewer, long since, int limit)
+    {
+        var out_ = new JsonArray();
+        foreach (var e in entries)
+        {
+            if (J.Long(e["seq"]) <= since) continue;
+            out_.Add(Crop(viewer, e));
+            if (out_.Count >= limit) break;
+        }
+        return out_;
+    }
+
+    public long LastSeq => nextSeq - 1;
+
+    /// <summary>消费者播完一批：丢掉 seq &lt;= 给定值的条目（同 InProc.discard_before）。</summary>
+    public void DiscardBefore(long seq) => entries.RemoveAll(e => J.Long(e["seq"]) <= seq);
+
+    // ---- 作答 ----
+
+    /// <summary>键为准、下标兜底（同 InProc.answer）。选中组入口 = 开第二问，不碰内核。</summary>
+    public bool Answer(int askId, string? key, int index)
+    {
+        if (Aborted || Over || open is null || open.AskId != askId) return false;
+        var i = string.IsNullOrEmpty(key) ? -1 : open.IndexOfKey(key);
+        if (i < 0 && index >= 0 && index < open.Options.Count) i = index;
+        if (i < 0) return false;
+        var chosen = open.Options[i];
+
+        if (chosen.Group is { } group)
+        {
+            var snap = session.Peek();
+            // GD：顶层那问答下即开步，进 `_do_chemo` / `_effector_*` 再问之前又收步（InProc._on_ask 的 _close_step）
+            Push(new JsonObject { ["t"] = "step_begin", ["ask_id"] = open.AskId, ["seat"] = open.Seat });
+            Push(new JsonObject { ["t"] = "step_end", ["rev"] = snap.Revision.Value });
+            open = HostAsk.Sub(++askSerial, open, group, CsAsk(), snap.State);
+            EmitSyncAndAsk();
+            return true;
+        }
+
+        answeredBy[open.RequestId] = open.AskId;
+        var result = session.SubmitByKey(open.Seat, open.RequestId, chosen.SubmitKey, -1);
+        if (!result.IsValid) return false;
+        open = null;
+        Pump();
+        return true;
+    }
+
+    /// <summary>= InProc.abort()：对局作废，正在等的那一问不再收答案；之后不再推任何条目。</summary>
+    public void Abort()
+    {
+        Aborted = true;
+        open = null;
+    }
+
+    // ---- 观测 ----
+
+    /// <summary>按 viewer 裁过的 envelope；ask 段换成本宿主折叠过的那一问（GD 的 envelope 本来就是折叠形状）。</summary>
+    public JsonNode Envelope(int viewer, long logsFrom = 0)
+    {
+        var env = JsonSerializer.SerializeToNode(session.ObserveV1(viewer, OpenHands, logsFrom), ObservationV1Codec.Json)!.AsObject();
+        var rev = J.Long(env["rev"]);
+        env["ask"] = open is null ? null
+            : open.ToObsAsk(rev, viewer == ObservationV1Codec.ViewerOmniscient || (viewer >= 0 && viewer == open.Seat));
+        return env;
+    }
+
+    public HostSnapshot Peek() => session.Peek();
+
+    public void Dispose() => session.Dispose();
+
+    // ---- 内部 ----
+
+    /// <summary>把内核新产的演出条目搬进来，然后看该问人还是该收局。</summary>
+    private void Pump()
+    {
+        if (Aborted) return;
+        var page = session.PullPresentation(ObservationV1Codec.ViewerOmniscient, presentationSeen, int.MaxValue);
+        foreach (var raw in page.Entries)
+        {
+            presentationSeen = raw["seq"].GetInt64();
+            var e = new JsonObject();
+            foreach (var (k, v) in raw)
+                if (k is not ("seq" or "barrier")) e[k] = JsonNode.Parse(v.GetRawText());
+            var t = J.Str(e["t"]);
+            if (t == "attack") continue;
+            if (t == "step_begin")
+            {
+                var rid = J.Long(e["ask_id"]);
+                e["ask_id"] = answeredBy.TryGetValue(rid, out var hid) ? hid : checked((int)rid);
+            }
+            Push(e, barrier: t == "roll");
+        }
+
+        var snap = session.Peek();
+        if (snap.State.Turn.Winner is not null)
+        {
+            if (!Over) EmitGameOver(snap);
+            return;
+        }
+        if (snap.Input is { } input && (open is null || open.RequestId != input.RequestId))
+        {
+            open = HostAsk.Top(++askSerial, CsAsk(), snap.State);
+            EmitSyncAndAsk();
+        }
+    }
+
+    private ObsAsk CsAsk() => session.ObserveV1(ObservationV1Codec.ViewerOmniscient).Ask
+        ?? throw new InvalidOperationException("内核有挂起询问，全知 envelope 却没有 ask");
+
+    private void EmitSyncAndAsk()
+    {
+        if (ObserveViewer is { } v) Push(new JsonObject { ["t"] = "sync", ["envelope"] = Envelope(v) });
+        Push(new JsonObject { ["t"] = "ask", ["ask_id"] = open!.AskId, ["req"] = open.ToReq(), ["left_ms"] = -1 });
+    }
+
+    private void EmitGameOver(HostSnapshot snap)
+    {
+        Over = true;
+        open = null;
+        if (lastKind != "step_end")   // InProc._run：终局之前 _close_step()（这一步是开着的）
+            Push(new JsonObject { ["t"] = "step_end", ["rev"] = snap.Revision.Value });
+        if (ObserveViewer is { } v) Push(new JsonObject { ["t"] = "sync", ["envelope"] = Envelope(v) });
+        var g = Envelope(ObservationV1Codec.ViewerOmniscient)["state"]!["g"]!;
+        Push(new JsonObject
+        {
+            ["t"] = "game_over", ["winner"] = g["winner"]!.DeepClone(), ["reason"] = g["win_reason"]!.DeepClone(),
+            ["kind"] = g["win_kind"]!.DeepClone(), ["round"] = g["round_no"]!.DeepClone(), ["replay"] = new JsonObject(),
+        });
+    }
+
+    private void Push(JsonObject e, bool barrier = false)
+    {
+        e["seq"] = nextSeq++;
+        e["barrier"] = barrier;
+        lastKind = J.Str(e["t"]);
+        entries.Add(e);
+    }
+
+    /// <summary>同 InProc._crop：ask 只给主人完整选项，别人只留 kind / tag / seat / prompt。日志 P1 不发，没有秘密行要换。</summary>
+    private static JsonObject Crop(int viewer, JsonObject e)
+    {
+        if (viewer == ObservationV1Codec.ViewerOmniscient || J.Str(e["t"]) != "ask") return (JsonObject)e.DeepClone();
+        var req = e["req"]!.AsObject();
+        if (J.Int(req["pid"]) == viewer) return (JsonObject)e.DeepClone();
+        var c = (JsonObject)e.DeepClone();
+        c["req"]!["options"] = new JsonArray();
+        return c;
+    }
+}
