@@ -18223,8 +18223,10 @@ func t_sidecar_save_unloadable() -> void:
 	jf.close()
 	## [情形, CW_SIDECAR_DLL, 正文（去掉换行）, 进不进「起不来过」的记忆]。起来就退的那一遍会进记忆，得排最后
 	var not_started: String = "这份存档需要新内核，但新内核没能启动。存档还在，稍后可以再试。" + main_gd.LOG_NOTE
-	var rejected: String = "这份存档新内核打不开，多半要等游戏更新。存档还在。" + main_gd.LOG_NOTE
-	var cases: Array = [["起不来", "/nonexistent/CellWar.Sidecar.dll", not_started, false]]
+	## 四轮复核：找都找不到（游戏包里缺它）与不认档各说各的实话 —— 前者要重新下载，后者不猜原因（原话进日志）
+	var missing: String = "这份存档需要新内核，但游戏包里缺它。存档还在，重新下载游戏后可以再试。" + main_gd.LOG_NOTE
+	var rejected: String = "这份存档新内核打不开。存档还在。" + main_gd.LOG_NOTE
+	var cases: Array = [["起不来", "/nonexistent/CellWar.Sidecar.dll", missing, false]]
 	if real_sidecar:
 		cases.append(["不认档", "", rejected, false])
 		cases.append(["起来就退", junk_dll, not_started, true])
@@ -18285,12 +18287,14 @@ func t_sidecar_save_unloadable() -> void:
 			await process_frame
 		var again := String(menu._confirm_body.text).replace("\n", "")
 		check(menu._confirm.visible and again == rejected and CWKernelSidecar.start_failure.is_empty(),
-			"真去开了：新内核起来了、不认这份档 ⇒ 说「多半要等游戏更新」，「起不来过」的记忆清掉（%s）" % again)
+			"真去开了：新内核起来了、不认这份档 ⇒ 照实说「新内核打不开」，「起不来过」的记忆清掉（%s）" % again)
 		menu._close_confirm()
 	DirAccess.remove_absolute(junk_dll)
 	## 文案是纯函数：起不来的几种照故障种类挑那半句、都说「稍后」；被拒的整段另说
 	check(main_gd.save_lost_text(CWKernel.Fault.REPLY_TIMEOUT) == "这份存档需要新内核，但新内核没有响应。\n存档还在，稍后可以再试。\n" + main_gd.LOG_NOTE
-		and main_gd.save_lost_text(CWKernel.Fault.PROTOCOL) == "这份存档新内核打不开，多半要等游戏更新。\n存档还在。\n" + main_gd.LOG_NOTE,
+		and main_gd.save_lost_text(CWKernel.Fault.PROTOCOL) == "这份存档新内核打不开。\n存档还在。\n" + main_gd.LOG_NOTE
+		and main_gd.save_lost_text(CWKernel.Fault.ABI_MISMATCH) == "这份存档需要新内核，但版本对不上。\n存档还在，更新游戏后可以再试。\n" + main_gd.LOG_NOTE
+		and main_gd.save_lost_text(CWKernel.Fault.SPAWN_FAILED, true) == "这份存档需要新内核，但游戏包里缺它。\n存档还在，重新下载游戏后可以再试。\n" + main_gd.LOG_NOTE,
 		"C# 存档读不回来的那句话（起不来 / 不认档）")
 	## 通知正文折行：折在空格上时行首不留空格（wrap_text 原样会留，先确认这段字真撞得上那种折法）
 	var mixed := "找不到 sidecar 进程 abc 找不到 sidecar 进程 abc 找不到 sidecar 进程 abc"
@@ -18792,6 +18796,9 @@ func t_sidecar_tutorial_lost_notice() -> void:
 		"教程里没了：通知指主菜单的「新手引导」（%s）" % shown)
 	check(not shown.contains("存档") and not shown.contains("继续对局") and _one_sentence_per_line(pause._body.text),
 		"有存档也不提存档 / 「继续对局」，一句一行")
+	## 四轮复核：教程是写死的剧本，C# 的确定性故障重开这一关会在同一拍再来 —— 记成「这一次运行里起不来过」，重开就落到 GD 内核上
+	check(int(CWKernelSidecar.start_failure.get("fault", CWKernel.Fault.NONE)) == CWKernel.Fault.CRASHED,
+		"教程里没了：记成这一次运行里起不来过（重开这一关走 GD）（%s）" % str(CWKernelSidecar.start_failure))
 	check(main_gd.kernel_lost_text("X", true, true) == "X，这一局只能到这里。\n可以从主菜单的「新手引导」重新开始这一关。\n" + main_gd.LOG_NOTE
 		and main_gd.kernel_lost_text("X", true, false) == "X，这一局只能到这里。\n上次的存档还在，可以从「继续对局」接着打。\n" + main_gd.LOG_NOTE,
 		"纯函数：教程不提存档；正式局有档照旧提")
@@ -23512,19 +23519,19 @@ func t_net_sidecar_lan_memory() -> void:
 			port = cand
 			break
 	var dedicated := _net_server()
-	check(port != 0 and p.lan != null and p.lan.lan and dedicated != null and not dedicated.lan,
+	check(port != 0 and p.lan != null and p.lan.lan_host and dedicated != null and not dedicated.lan_host,
 		"在本机开服的那台标着局域网（%d），专用服务器不标" % port)
 	if port != 0 and dedicated != null:
 		p.lan.quiet = true
 		for srv: CWNetServer in [p.lan, dedicated]:
-			var where := "局域网开服" if srv.lan else "专用服务器"
+			var where := "局域网开服" if srv.lan_host else "专用服务器"
 			var a := _net_client("甲", false)
 			var b := _net_client("乙", false)
 			check(await _net_pair(srv, a, b) and await _net_room(srv, a, b, 2, 0, 31), "%s：2 人全真人房坐满、准备" % where)
 			a.start()
 			var room: CWRoom = srv.rooms.get(a.code)
 			await _net_pump(srv, [a, b], func() -> bool: return room != null and room.state == CWRoom.State.PLAYING)
-			if srv.lan:
+			if srv.lan_host:
 				check(room != null and room.state == CWRoom.State.PLAYING and room.game != null and room.pump == null,
 					"局域网开服、记着起不来过：不再试 sidecar，这一局走 GD 路")
 			else:

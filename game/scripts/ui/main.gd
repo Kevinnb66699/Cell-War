@@ -399,7 +399,7 @@ func _continue() -> void:
 		var loc := CWKernelSidecar.locate()
 		if loc.has("error"):
 			push_warning("读档：C# 存档读不回来（%s）" % String(loc["error"]))   ## 原话落 godot.log，通知上只说人话
-			menu.show_notice(SAVE_LOST_TITLE, save_lost_text(CWKernel.Fault.SPAWN_FAILED))
+			menu.show_notice(SAVE_LOST_TITLE, save_lost_text(CWKernel.Fault.SPAWN_FAILED, true))
 			return
 	match_node.player_count = data["players"]
 	var seats: Array[int] = []
@@ -460,11 +460,17 @@ static func kernel_reason(fault: int) -> String:
 
 ## ① C# 存档读不回来（`_continue`）。存档都还在；「稍后可以再试」是实话：玩家每次亲手点「继续对局」都真去试一次
 ##（不看「这一次运行里起不来过」的记忆，见 `_continue`；原来记下了就当场拦，这句话只好分成「稍后」/「重新打开游戏后」两种）。
-## 例外是不认这份检查点（读档时 PROTOCOL）：同一份档、同一个内核，再点多半还是被拒 —— 真能变的是游戏更新之后，照实说。
+## 例外照实说（四轮复核）：不认这份检查点（读档时 PROTOCOL）—— 同一份档、同一个内核再点多半还是被拒，原因不猜（存档是这台机器上
+## 这个版本写的，被拒多半是个 bug，原话进日志）；版本对不上（ABI_MISMATCH / SELFTEST_FAILED）—— 更新游戏前怎么点都一样；
+## 游戏包里压根没有新内核（`missing`：`locate()` 都找不到，见 `_continue`）—— 重新下载完整的游戏才有。每句都压在一行之内
 ## 句与句之间硬换行：一句一行，折行就不会落在词中间（「存档还 / 在」，三轮复核第 9 条；面板内宽一行放得下二十来个字）
-static func save_lost_text(fault: int) -> String:
+static func save_lost_text(fault: int, missing := false) -> String:
+	if missing:
+		return "这份存档需要新内核，但游戏包里缺它。\n存档还在，重新下载游戏后可以再试。\n" + LOG_NOTE
 	if fault == CWKernel.Fault.PROTOCOL:
-		return "这份存档新内核打不开，多半要等游戏更新。\n存档还在。\n" + LOG_NOTE
+		return "这份存档新内核打不开。\n存档还在。\n" + LOG_NOTE
+	if fault == CWKernel.Fault.ABI_MISMATCH or fault == CWKernel.Fault.SELFTEST_FAILED:
+		return "这份存档需要新内核，但版本对不上。\n存档还在，更新游戏后可以再试。\n" + LOG_NOTE
 	return "这份存档需要新内核，但%s。\n存档还在，稍后可以再试。\n%s" % [kernel_reason(fault), LOG_NOTE]
 
 
@@ -485,6 +491,10 @@ static func kernel_lost_text(why: String, save_kept: bool, tutorial: bool) -> St
 ## 开局过场还没走完（绽开 0.75 s / 教程开场幕布淡出）就先等它：过场期间 `_back_to_menu` 头一句就返回，
 ## 这时点「返回主菜单」只会关掉通知页、把人留在一盘不会动的棋上
 func _on_kernel_lost(fault: int) -> void:
+	## 教程是写死的剧本：C# 那边要是确定性的故障，重开这一关会在同一拍再撞一次。记成「这一次运行里起不来过」，
+	## 通知里说的「从新手引导重新开始」就落到 GD 内核上（舞台换关 / 重装都看这份记忆）。正式局不记：下一局照旧先试新内核
+	if match_node.tutorial:
+		CWKernelSidecar._remember_start_failure(fault, "教程中途新内核没了：%s" % match_node.lost_reason())
 	while _entering:
 		await get_tree().process_frame
 	pause.show_notice(KERNEL_LOST_TITLE, kernel_lost_text(kernel_reason(fault), CWSave.can_continue(), match_node.tutorial))

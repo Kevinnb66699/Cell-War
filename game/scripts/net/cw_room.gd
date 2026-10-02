@@ -849,13 +849,13 @@ func _log_line(text: String) -> void:
 ## 坐着**机器人客户端**（hello 自报 bot：net_play / net_live 的 autoplay、无头测试）的房照旧走 GD：
 ## 它们作答靠 sync 里那份老 view 还原的 GD 影子对局，C# 这条路给不了 —— 这样线上验收脚本不受开关影响。
 ## 不设这个变量 = 这一节一个函数都走不到，pump 恒为 null。
-## 局域网开服（`server.lan`：服务器跑在客户端进程里）照客户端新开局的口径：这一次运行里 sidecar 起不来过就不再试、直接走 GD 路
+## 局域网开服（`server.lan_host`：服务器跑在客户端进程里）照客户端新开局的口径：这一次运行里 sidecar 起不来过就不再试、直接走 GD 路
 ##（2026-10-01 三轮复核）—— 每试一次可能就是 8 秒握手 / 5 秒等回应，堵的是房主自己的界面。专用服务器每间房照旧重试，理由见
 ## `CWKernelSidecar.start_failure`。单机房走到这里同样不试，照 `start` 的老路答 solo_off
 func _wants_sidecar() -> bool:
 	if OS.get_environment("CW_KERNEL") != "sidecar":
 		return false
-	if server.lan and not CWKernelSidecar.start_failure.is_empty():
+	if server.lan_host and not CWKernelSidecar.start_failure.is_empty():
 		return false
 	for s in seats:
 		if s["kind"] == "human" and server.is_bot(int(s["client"])):
