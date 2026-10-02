@@ -39,6 +39,7 @@ var _pumping := false
 var _started := true                ## autorun=false 的局：open() 只拉条目、不替 decider 作答，等 run()（同 InProc：队列与第一份镜像先就位）
 var _ticking := false
 var _viewed := false                ## 头一份观测拿到了没有：之前链路出的事都算「起不来」（见 `_link_fault`）
+var _fault_mine := false            ## 这次 FAULTED 是不是本句柄惹的：自己那一局回了 broken，或链路死在自己那条请求的半中间（见 fault_is_mine）
 
 
 # ---- 生命周期 ----
@@ -180,6 +181,12 @@ func save() -> Dictionary:
 	if not (cp is String) or String(cp) == "":
 		return {}
 	return { "kernel": SAVE_KERNEL, "checkpoint": cp, "rules_build": String(_hello.get("rules_build", "")) }
+
+
+## FAULTED 是不是本句柄自己惹的（服务器重起时记账用，cw_net_pump.gd:recover）：自己那一局在 sidecar 里出了内部错误，
+## 或者链路死在自己那条请求的半中间。进程在别人的请求里 / 后台线程里死掉、本句柄只是下一帧看见 —— false
+func fault_is_mine() -> bool:
+	return _fault_mine
 
 
 ## sidecar 进程号（测试看它退没退）
@@ -491,7 +498,14 @@ func _call(op: String, args := {}) -> Dictionary:
 		return {}
 	var r: Dictionary = _link.request(op, args)
 	if int(_link.fault) != 0:
+		_fault_mine = _sid >= 0 and int(_link.fault_sid) == _sid
 		_link_fault(int(_link.fault), String(_link.fault_msg))
+		return {}
+	## 这一局在 sidecar 那边出了内部错误（规则 / 宿主的 bug，Dispatcher 接住了、没让整个进程退出）：会话已停用，
+	## 句柄转 FAULTED（会话级：链路照常给别的局用）。服务器的房间据此从检查点重起（cw_net_pump.gd:recover），桌面弹「对局中断」
+	if bool(r.get("broken", false)):
+		_fault_mine = true
+		_fail(Fault.PROTOCOL, "sidecar 这一局出了内部错误：%s" % String(r.get("error", "")))
 		return {}
 	return r
 

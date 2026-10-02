@@ -9,6 +9,10 @@
 ##
 ## 故障分两级：**链路级**（进程退出、连接断、回应超时、握手失败）记在这里，所有挂在上面的句柄都看得见、都转 FAULTED；
 ## **会话级**（某个答案被拒）只坏那一个句柄，链路照常给别的会话用。
+## 链路死在某条请求的半中间（等回应超时 / 连接断在等回应时）就记下那条请求的会话号 `fault_sid`：服务器从检查点重起时
+## 按它分清是谁惹的（cw_net_pump.gd:recover 的「记账」），别把一个房间的崩溃算到所有房间头上（10-01 复核）。
+## 限流（10-01 复核）：握手卡死过（进程起来了却不连回来）就 SPAWN_BACKOFF_MS 内不再起；DEATH_WINDOW_MS 内进程死了 DEATH_BURST 次
+## 也停 BREAKER_MS —— 服务器单线程，每起一次卡住就是全服冻 9 秒；这期间 acquire 当场给一条起不来的链路（SPAWN_FAILED）。
 ## ⚠ 与补丁系统完全隔离：起不来只是 UNAVAILABLE，绝不计进 patch_state.gd 的 STRIKES。
 extends RefCounted
 
@@ -16,8 +20,14 @@ const HOST_ABI := 1                 ## 与 C# ObservationV1Codec.HostAbi 同值�
 const HANDSHAKE_MS := 8000
 const REPLY_TIMEOUT_MS := 5000
 const LINGER_MS := 30000
+const SPAWN_BACKOFF_MS := 30000
+const DEATH_WINDOW_MS := 60000
+const DEATH_BURST := 5
+const BREAKER_MS := 30000
 
 static var _links := {}             ## "dotnet|dll" → 活着的链路
+static var _blocked_until := {}     ## "dotnet|dll" → 这个时刻（ms）之前不再起进程（见文件头「限流」）
+static var _deaths := {}            ## "dotnet|dll" → 最近几次进程死掉的时刻（ms）
 
 var dotnet := ""
 var dll := ""
@@ -25,6 +35,7 @@ var pid := -1
 var hello := {}
 var fault := 0                      ## CWKernel.Fault；0 = 好的
 var fault_msg := ""
+var fault_sid := -1                 ## 链路死在哪个会话的请求半中间（-1 = 不在任何请求里，比如进程自己退了、下一条请求才发现）
 var users := 0
 var _server: TCPServer
 var _peer: StreamPeerTCP
@@ -45,13 +56,26 @@ static func acquire(dotnet_path: String, dll_path: String) -> RefCounted:
 	link = new()
 	link.dotnet = dotnet_path
 	link.dll = dll_path
+	var now := Time.get_ticks_msec()
+	if now < int(_blocked_until.get(key, 0)):
+		link.fault = CWKernel.Fault.SPAWN_FAILED
+		link.fault_msg = "sidecar 刚刚起不来 / 连着崩了几次，%d 秒内不再起" % ceili((int(_blocked_until[key]) - now) / 1000.0)
+		return link
 	if link._spawn():
 		link.users = 1
 		_links[key] = link
 		var tree := Engine.get_main_loop() as SceneTree
 		if tree != null and not tree.process_frame.is_connected(link._idle_tick):
 			tree.process_frame.connect(link._idle_tick)
+	elif int(link.fault) == CWKernel.Fault.HANDSHAKE_TIMEOUT:
+		_blocked_until[key] = Time.get_ticks_msec() + SPAWN_BACKOFF_MS   ## 起来了却不连回来：下一次多半还是卡 8 秒，先别起
 	return link
+
+
+## 清掉限流的记账（测试每支开跑前调：上一支故意崩的那几次不该让这一支起不来）
+static func reset_limits() -> void:
+	_blocked_until.clear()
+	_deaths.clear()
 
 
 ## 空闲的链路立刻关（测试看进程退没退、游戏退出前）
@@ -84,6 +108,7 @@ func request(op: String, args := {}) -> Dictionary:
 	msg["id"] = id
 	msg["op"] = op
 	if _peer.put_data((JSON.stringify(msg) + "\n").to_utf8_buffer()) != OK:
+		fault_sid = int(args.get("sid", -1))
 		_die(CWKernel.Fault.CRASHED, "写不进 sidecar 连接（%s）" % op)
 		return {}
 	while true:
@@ -91,6 +116,7 @@ func request(op: String, args := {}) -> Dictionary:
 		if line == "":
 			## 读不到有两种，分开记（给玩家的那句话按它挑，2026-10-01）：连接已经断了 = 进程没了（多半当场就断，
 			## 不是等满 5 秒）；连接还在却等满了 = 它卡住了。以前一律记成 CRASHED「N ms 内没回」，两种都对不上
+			fault_sid = int(args.get("sid", -1))   ## 死在这条请求的半中间（等回应时）
 			if _peer.get_status() == StreamPeerTCP.STATUS_CONNECTED:
 				_die(CWKernel.Fault.REPLY_TIMEOUT, "sidecar %d ms 内没回 %s" % [REPLY_TIMEOUT_MS, op])
 			else:
@@ -106,7 +132,10 @@ func request(op: String, args := {}) -> Dictionary:
 
 ## 关连接（sidecar 读到 EOF 正常退出），等它最多 1 秒，还在就杀掉
 func shutdown() -> void:
-	_links.erase(dotnet + "|" + dll)
+	## 只摘自己：进程崩了之后重起的那条新链路登记在同一个键上 —— 旧链路 30 秒后空闲关掉时不能把新的摘了（10-01 复核）
+	var key := dotnet + "|" + dll
+	if _links.get(key) == self:
+		_links.erase(key)
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree != null and tree.process_frame.is_connected(_idle_tick):
 		tree.process_frame.disconnect(_idle_tick)
@@ -188,8 +217,26 @@ func _die(f: int, msg: String) -> bool:
 		fault = f
 		fault_msg = msg
 		push_error("CWSidecarLink：%s" % msg)
+		if (f == CWKernel.Fault.CRASHED or f == CWKernel.Fault.REPLY_TIMEOUT) and not hello.is_empty():
+			_note_death()
+	## 卡住不回的进程不会自己退：当场杀掉，不白等 shutdown 那 1 秒（服务器单线程，这 1 秒全服都冻着）
+	if f == CWKernel.Fault.REPLY_TIMEOUT and pid > 0 and OS.is_process_running(pid):
+		OS.kill(pid)
 	shutdown()
 	return false
+
+
+## 握手过的进程死了一次：DEATH_WINDOW_MS 内攒够 DEATH_BURST 次就停 BREAKER_MS 不再起（见文件头「限流」）
+func _note_death() -> void:
+	var key := dotnet + "|" + dll
+	var now := Time.get_ticks_msec()
+	var recent: Array = (_deaths.get(key, []) as Array).filter(func(t: int) -> bool: return now - t < DEATH_WINDOW_MS)
+	recent.append(now)
+	_deaths[key] = recent
+	if recent.size() >= DEATH_BURST:
+		_blocked_until[key] = now + BREAKER_MS
+		_deaths[key] = []
+		push_error("CWSidecarLink：sidecar %d 秒内死了 %d 次，%d 秒内不再起" % [int(DEATH_WINDOW_MS / 1000.0), DEATH_BURST, int(BREAKER_MS / 1000.0)])
 
 
 func _idle_tick() -> void:

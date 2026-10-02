@@ -61,6 +61,7 @@ var empty_since := 0            ## members 空了的时刻（ms），0 = 不空
 var games_played := 0
 var timeouts := 0               ## 超时代打次数（统计/测试）
 
+var _sc_orphan := {}            ## C# 内核路重起时：出事那一刻正问着的那一问（_sc_recover 摘下来暂存；重起后问的若不是他，替他收界面）
 var _ask := {}                  ## 正悬着的真人询问 {pid, ask_id, req, deadline, waiter}（C# 内核路没有 waiter，另有 sidecar_ask / auto，见 _sc_ask）
 var _ask_seq := 0
 var _last_ask := {}             ## pid -> 上一次问他的 ask_id：重连时补发边界报文用（issue #62），一局一清
@@ -495,6 +496,7 @@ func _teardown_game() -> void:
 ## 一局的瞬态（两条路共用）
 func _reset_per_game() -> void:
 	_ask = {}
+	_sc_orphan = {}
 	_last_ask.clear()
 	_vote = {}
 	_vote_block = {}   ## 冷却按世界回合算，下一局回合数从头来，留着会误伤
@@ -899,11 +901,15 @@ func _sc_ask(sidecar_ask: int, req: Dictionary) -> int:
 	return _ask_seq
 
 
-## 真人交一个答案。先摘 `_ask` 再交：交的同时句柄就把下一问泵出来了，下一问会重新写 `_ask`
+## 真人交一个答案。先摘 `_ask` 再交：交的同时句柄就把下一问泵出来了，下一问会重新写 `_ask`。
+## 交不进去就把这一问挂回去再报坏：下一帧重起时房间得知道出事时在等真人（记账看它，见 cw_net_pump.gd:recover），
+## 重起之后这一问换新号重新问他
 func _sc_submit(idx: int) -> void:
 	var a := _ask
 	_ask = {}
 	if not pump.answer(int(a["sidecar_ask"]), idx):
+		if _ask.is_empty():
+			_ask = a
 		_sc_fault("答案被 sidecar 拒了（ask %d）" % int(a["ask_id"]))
 
 
@@ -940,12 +946,15 @@ func _sc_hand_back(pid: int) -> void:
 		_sc_fault("sidecar 不收换手（席位 %d）" % pid)
 
 
-## 每帧（服务器 poll → tick）：句柄坏了就中止；把这一帧新到的条目泵出去；眼下没有真人被问着 = 某个 AI 席在想，推它一步。
-## 返回 false = 这一帧不必再看计时了（这一局已经不在）
+## 每帧（服务器 poll → tick）：句柄坏了先试从检查点重起（开不出新会话就下一帧再试），放弃了才中止；把这一帧新到的条目泵出去；
+## 眼下没有真人被问着 = 某个 AI 席在想，推它一步。返回 false = 这一帧不必再看计时了（这一局已经不在 / 正在重起）
 func _sc_tick() -> bool:
 	var why: String = pump.fault()
 	if why != "":
-		_sc_fault(why)
+		if _sc_recover(why) == NetPump.Recover.GIVE_UP:
+			push_warning("CWRoom %s：C# 内核故障（%s），重起不了，中止对局" % [code, why])
+			server.say("房间 %s：C# 内核故障（%s），重起不了，中止对局" % [code, why])
+			_abort_game()
 		return false
 	pump.pump()
 	if pump == null or state != State.PLAYING:
@@ -980,7 +989,9 @@ func _sc_push_state_to(cid: int, ready_env: Dictionary = {}) -> void:
 	var env: Dictionary = ready_env if not ready_env.is_empty() \
 		else pump.envelope(pid_of_client(cid), int(_log_cursor.get(cid, 0)))
 	if env.is_empty():
-		return   ## 句柄刚坏（这一帧的 tick 会中止这一局），别发半截报文
+		## 句柄刚坏，或 sidecar 给不出这一份 envelope（observe 出错）：别发半截报文；报坏，下一帧的 tick 从检查点重起（重起不了才中止）
+		_sc_fault("拿不到 envelope（客户端 %d）" % cid)
+		return
 	var elogs: Dictionary = env["logs"]
 	_log_cursor[cid] = int(elogs["from"]) + elogs["lines"].size()
 	server.send(cid, { "t": "step_end", "rev": int(env.get("rev", 0)) })
@@ -1007,12 +1018,40 @@ func _sc_abort() -> void:
 	server.close_room(self)
 
 
-## sidecar 坏了（进程退出 / 连接断 / 答案被拒）。计划 P6 写的「按每步的 checkpoint 重起再 restore」要等 C# 存读档（P4）；
-## 现在先中止这一局、关房（同「所有真人都走了」那条路），别让玩家对着一盘再也不会动的棋干等
+## 房间这边看出来的 sidecar 故障（答案被拒 / 换手被拒）：记在泵上，**下一帧的 tick 统一处理**（_sc_tick → _sc_recover）。
+## 不当场重起：这一下可能正在泵的半中间（泵 → 问人 → 掉线换手 → 被拒）。进程崩了 / 卡住 / 这一局内部出错的，句柄自己转 FAULTED，tick 同样看得见
 func _sc_fault(why: String) -> void:
-	push_warning("CWRoom %s：C# 内核故障（%s），中止对局" % [code, why])
-	server.say("房间 %s：C# 内核故障（%s），中止对局" % [code, why])
-	_abort_game()
+	pump.mark_broken(why)
+
+
+## sidecar 坏了：从最近的检查点换一个新会话接着打（cw_net_pump.gd:recover，10-01）。返回 NetPump.Recover。
+##   · 悬着的那一问先摘掉（它的号在新会话里不认了），暂存在 _sc_orphan：新会话停在同一问上会换房间新号重新问他 ——
+##     客户端收到新 ask 就收掉旧界面、旧协程的答案作废（match.gd:_serve_ask），旧号答上来这里回 stale；
+##     重起回退到了别人那一问（检查点没跟上，极少）才单独给他补一条旧号的 step_begin 收界面（同 #62 重连那条，客户端会说「被代打接管了」）——
+##     平常不发：那句话不对
+##   · 出事时在不在等真人交给泵记账（`ai_turn`）
+##   · 每人的日志游标压到检查点那一刻：回退过的话，新的这一支从那一行起接着发
+func _sc_recover(why: String) -> int:
+	var ai_turn := _ask.is_empty() and _sc_orphan.is_empty()
+	if not _ask.is_empty():
+		_sc_orphan = _ask
+		_ask = {}
+	var cp_logs: int = pump.checkpoint_log_total()
+	for cid in _log_cursor.keys():
+		_log_cursor[cid] = mini(int(_log_cursor[cid]), cp_logs)
+	var p = pump   ## 重起那一泵可能直接就是终局（补上的投降）：房间随即把 pump 拆成 null，下面还要读它
+	var r: int = p.recover(ai_turn)
+	if r != NetPump.Recover.DONE:
+		return r
+	if not _sc_orphan.is_empty():
+		var o := _sc_orphan
+		_sc_orphan = {}
+		var opid := int(o["pid"])
+		if (_ask.is_empty() or int(_ask["pid"]) != opid) and int(seats[opid]["client"]) >= 0:
+			server.send(int(seats[opid]["client"]), { "t": "step_begin", "ask_id": int(o["ask_id"]), "seat": opid })
+	push_warning("CWRoom %s：C# 内核故障（%s），已从检查点接着打（这一局第 %d 次）" % [code, why, p.recoveries])
+	server.say("房间 %s：C# 内核故障（%s），已从检查点接着打（这一局第 %d 次，第 %d 回合）" % [code, why, p.recoveries, p.round_no])
+	return r
 
 
 # ---- 视图 ----

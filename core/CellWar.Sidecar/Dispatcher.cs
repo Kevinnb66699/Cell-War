@@ -37,21 +37,61 @@ internal sealed class Dispatcher : IDisposable
     private readonly Dictionary<int, SessionHost> sessions = [];
     private int nextSid = 1;
 
+    /// <summary>测试用：按 op 当场抛一个异常（模拟规则 / 宿主的 bug）。产品路径恒为 null。</summary>
+    internal Func<string, Exception?>? InjectFault { get; set; }
+
+    /// <summary>只读的 op：出了异常也不坏会话（读的时候在锁里、不改状态），回一条普通的错误。
+    /// `query` 的参数是客户端发来的（观众也能发）—— 让它能把一局判坏，等于谁都能逼房间回退重起（10-01 复核）。
+    /// `observe` / `save` 失败由 Godot 那边自己认（拿不到 envelope / 检查点久不更新，见 cw_net_pump.gd）。</summary>
+    private static readonly HashSet<string> ReadOnlyOps = ["query", "observe", "save", "can_save", "tape", "dump_world", "version", "ping"];
+
+    /// <summary>宿主自己发的、推进或交付对局的 op：没有「输入不合法」这一说，抛什么都是 bug ——
+    /// 白名单里的四种异常在这里也算内部错误。以前它们回成普通拒绝：`ai_step` 被拒在 Godot 那边就是「AI 还没想好」，这一局悄悄停住（10-01 复核）</summary>
+    private static readonly HashSet<string> InternalOps = ["ai_step", "pull", "discard_before", "abort"];
+
+    /// <summary>
+    /// 一条请求 → 一条回应。失败分三种：
+    ///   · 拒绝（参数不对、问号对不上、没有这个会话…）：`ok:false` + error，会话照常能用 —— 只有带输入的 op 会拒；
+    ///   · **内部错误**（规则 / 宿主的 bug 抛出来的异常）：这一局记成 <see cref="SessionHost.Broken"/>，回 `ok:false, broken:true`；
+    ///     以前这种异常冲出读写循环、整个进程退出 —— 服务器一个进程扛所有房间，一处 bug 断掉全服的 C# 局（换内核 P8 复核，10-01）。
+    ///     只读的 op（<see cref="ReadOnlyOps"/>）不判坏、回普通错误；宿主自己的 op（<see cref="InternalOps"/>）抛什么都判坏；
+    ///   · 已经坏了的会话：除了 close 一律回 broken（状态可能只改了一半，别再往下走）。
+    /// 报文头（op / sid）也在 try 里读：格式坏了只回一条错误，不能把进程带走。
+    /// 进程级的崩溃（栈溢出、内存耗尽）接不住，那归 Godot 那边从检查点重起（cw_net_pump.gd:recover）。
+    /// </summary>
     public JsonObject Handle(JsonObject req)
     {
-        var id = req["id"]?.DeepClone();
+        JsonNode? id = null;
+        var op = "";
+        SessionHost? target = null;
         try
         {
-            var reply = Route(J.StrOr(req["op"]) ?? "", req);
+            id = req["id"]?.DeepClone();
+            op = J.StrOr(req["op"]) ?? "";
+            target = J.IntOr(req["sid"]) is { } sid ? sessions.GetValueOrDefault(sid) : null;
+            if (op != "close" && target?.Broken is { } already)
+                return BrokenReply(id, already);
+            if (InjectFault?.Invoke(op) is { } injected) throw injected;
+            var reply = Route(op, req);
             reply["re"] = id;
             reply["ok"] = true;
             return reply;
         }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException or FormatException)
+        catch (Exception ex) when (target is null || ReadOnlyOps.Contains(op)
+            || (!InternalOps.Contains(op) && ex is ArgumentException or InvalidOperationException or KeyNotFoundException or FormatException))
         {
-            return new JsonObject { ["re"] = id, ["ok"] = false, ["error"] = ex.Message };
+            var known = ex is ArgumentException or InvalidOperationException or KeyNotFoundException or FormatException;
+            return new JsonObject { ["re"] = id?.DeepClone(), ["ok"] = false, ["error"] = known ? ex.Message : $"sidecar 内部错误：{op} 时出错：{ex.GetType().Name}: {ex.Message}" };
+        }
+        catch (Exception ex)
+        {
+            target!.MarkBroken($"{op} 时出错：{ex.GetType().Name}: {ex.Message}");
+            return BrokenReply(id, target.Broken!);
         }
     }
+
+    private static JsonObject BrokenReply(JsonNode? id, string why)
+        => new() { ["re"] = id?.DeepClone(), ["ok"] = false, ["error"] = $"这一局出了内部错误，已停用：{why}", ["broken"] = true };
 
     private JsonObject Route(string op, JsonObject req) => op switch
     {

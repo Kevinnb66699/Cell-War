@@ -79,6 +79,16 @@ internal sealed class SessionHost : IDisposable
     /// <summary>AI 最近一次出错（兜底作答了），排查用。</summary>
     public string? LastAiError { get; private set; }
 
+    /// <summary>
+    /// 这一局出了内部错误（规则 / 宿主的 bug 抛出来的异常，不是「答案不合法」那种拒绝）：会话状态可能只改了一半，不能再用。
+    /// 由 <see cref="Dispatcher"/> 在请求里接住异常时记、AI 后台线程交答案时出错也记；之后这一局除了 close 一律回 `broken`，
+    /// Godot 那边的句柄据此转 FAULTED —— 服务器的房间从最近的检查点换个新会话接着打，桌面弹「对局中断」。
+    /// **只坏这一局**：以前这种异常直接冲出读写循环、整个进程退出，服务器上所有 C# 局一起断（换内核 P8 复核，10-01）。
+    /// </summary>
+    public string? Broken { get; private set; }
+
+    internal void MarkBroken(string why) { lock (gate) Broken ??= why; }
+
     /// <summary>从关卡世界开局时挂的那条骰子带子有几条（<see cref="TapeStats"/> 用）；别的开局是 null —— 随机源不是 <see cref="ScriptedRng"/>。</summary>
     private int? TapeLength { get; init; }
 
@@ -497,7 +507,10 @@ internal sealed class SessionHost : IDisposable
             {
                 // 想完了：从此没人再掐这个令牌（DropAi 只掐 thinking 指着的那一个），出了锁就能放掉
                 if (thinking == think) thinking = null;
-                CompleteAi(input, askId, key, error);
+                // 不 paced 时答案在这儿当场交（ApplyAi 会推进会话）：这里抛出来的异常没人接（后台任务的异常被吞掉），
+                // 这一局就悄悄停在那儿不动了 —— 记成 Broken，下一次请求就让句柄看见
+                try { CompleteAi(input, askId, key, error); }
+                catch (Exception ex) { Broken ??= $"AI 交答案时出错：{ex.GetType().Name}: {ex.Message}"; }
             }
             think.Dispose();
         });

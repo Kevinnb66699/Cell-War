@@ -8,6 +8,12 @@ extends "res://scripts/kernel/cw_sidecar_link.gd"
 var fail_op := ""                       ## 在哪一种报文上断（"" = 不断）
 var fail_skip := 0                      ## 这种报文先放过去几次
 var fail_fault := CWKernel.Fault.CRASHED
+## true = 不杀进程，只把这一条回成「这一局内部出错」（`broken:true`，同 C# Dispatcher 接住异常时的回应）：会话级故障、链路照常
+var fail_broken := false
+## 非空 = 先看见一条这种报文才「上膛」，下一条 fail_op 才断（例：arm_on = "answer"、fail_op = "save" —— 答案收下之后、存检查点那一下坏）
+var arm_on := ""
+var fail_repeat := false               ## true = 断完不撤，每次上膛都再断
+var _armed := false
 
 
 ## 起一条真链路、登记成这份产物的共用链路。之前同一份产物要是还有一条闲着的，先关掉（不然 acquire 会复用那一条）
@@ -26,9 +32,15 @@ static func install(dotnet_path: String, dll_path: String, op: String, skip := 0
 
 
 func request(op: String, args := {}) -> Dictionary:
-	if op == fail_op:
+	if arm_on != "" and op == arm_on:
+		_armed = true
+	if op == fail_op and (arm_on == "" or _armed):
 		if fail_skip <= 0:
-			fail_op = ""
+			_armed = false
+			if not fail_repeat:
+				fail_op = ""
+			if fail_broken:
+				return { "ok": false, "broken": true, "error": "测试：%s 时这一局内部出错" % op }
 			_die(fail_fault, "测试：在 %s 上断掉" % op)
 			return {}
 		fail_skip -= 1

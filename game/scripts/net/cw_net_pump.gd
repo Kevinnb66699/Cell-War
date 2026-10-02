@@ -21,6 +21,22 @@
 ##   · 换手：set_ai(席位, 档) 把一席交给 AI（正问着他的那一问被收回、改由 AI 答，step_begin 照旧带那一问的号）、
 ##     set_ai(席位, "") 交还真人（AI 正想着他那一问就作废、改问人）
 ##
+## **崩溃重起**（10-01，计划 P6 欠的那一条；同日五路复核后改）：每泵完一批条目、会话停在顶层一问上（真人或 AI 的），
+## 就存一份检查点（`kernel.save()`，约 45 KB、一次约 1 ms；8 房并发时占服务器主线程 7% 上下）。句柄坏了 —— 进程崩了 / 卡住不回 /
+## 这一局在 sidecar 里出了内部错误 / 答案或换手被拒 / 拿不到 envelope —— 房间下一帧调 `recover()`：拿最近的检查点换一个新会话接着打
+##（进程没了的话新开的句柄会拉起新进程，同服务器别的房间复用它）。
+##   · 新会话停在检查点那一问上：真人那一问换房间新号重新问（客户端收到新 ask 就收掉旧界面），AI 那一问重新想；
+##     日志里插一行「【系统】……接着打」，玩家看得懂为什么又问了一遍
+##   · 检查点里不带日志：新会话的日志从第 0 行记起，这里把行号整体挪到检查点那一刻的总行数之后（`_log_base`），客户端的日志接着往下长；
+##     房间同时把每人的日志游标压到检查点那一刻（回退过的话，新的这一支从那一行起覆盖）
+##   · **记账**（RECOVER_MAX）：只记这一局自己惹的故障（见 recover 的注释）—— 一个房间把进程弄崩了，正等着真人作答的别的房间不该跟着记；
+##     **「往前走了一步」要等走完的局面存住了才算**：答案收下了、推状态 / 存检查点那一下又坏了，不算往前走（不然同一处 bug 无限重起）
+##   · 新会话开不出来（进程起不来 / 链路在限流，见 cw_sidecar_link.gd）就隔帧再试，从第一次失败起最多 RETRY_GIVE_UP_MS
+##   · 出事那一下全票通过的投降不丢：记在 `_pending_surrender`，新会话一开先补上
+##   · 检查点之后、崩之前已经推出去的那一步（极少：存检查点那一下本身失败）会被撤回 —— 新会话头一拍就把状态整份推一遍，客户端跟着回到那一问；
+##     连着好多步都存不住会在服务器日志里说一声（STALE_WARN）
+##   · 重起之后中途进来 / 重连的人看不到重起之前的日志（新会话里没有那些行）
+##
 ## 不带 class_name（同 cw_lan.gd：局域网开服时客户端进程里也跑房间，热更补丁里新增的全局类基线认不出来），cw_room.gd preload 它。
 extends RefCounted
 
@@ -38,6 +54,23 @@ var _seen := 0                   ## 已经翻过的最后一条条目的 seq（�
 var _room_ids := {}              ## sidecar 的 ask_id → 房间的 ask_id（step_begin 换号用）
 var _pumping := false
 var _error := ""
+## 崩溃重起（见文件头）
+enum Recover { DONE, RETRY, GIVE_UP }
+const RECOVER_MAX := 3           ## 记了账的重起连着几次、中间一步都没走成（存住）就放弃
+const RETRY_GIVE_UP_MS := 60000  ## 新会话开不出来就隔帧再试，从第一次失败起最多这么久
+const STALE_WARN := 20           ## 连着这么多批条目都没存住检查点就在服务器日志里说一声
+var recoveries := 0              ## 这一局重起过几次（统计与测试用）
+var _cfg := {}                   ## open 时的 cfg（重起时 factions / seed / names / open_hands / cancer_types 照给，ai 现算）
+var _checkpoint := {}            ## 最近一份能存的检查点（kernel.save() 的 blob）；空 = 还没有，坏了就只能中止
+var _cp_log_total := 0           ## 存这份检查点那一刻，这一局的日志一共几行（绝对行号）
+var _log_base := 0               ## 当前会话的第 0 行日志是这一局的第几行（重起过才非零）
+var _log_total := 0              ## 这一局的日志一共几行（最近一份 envelope 的 from + 行数，绝对行号）
+var _recover_streak := 0         ## 记了账的重起连着几次了（往前走了一步、而且存住了才清零）
+var _progressed := false         ## 上一份检查点之后收下过答案 / AI 交过一步：下一份检查点存住时把 _recover_streak 清零
+var _retry_since := -1           ## 这一次故障第一次 recover 的时刻（ms）；-1 = 没在重起
+var _broken := ""                ## 房间判定的故障（答案 / 换手被拒、拿不到 envelope）或重起还没成：句柄自己没坏也当坏了
+var _pending_surrender := -1     ## 出事那一下全票通过的投降（阵营）：重起时在新会话上补上
+var _stale_batches := 0          ## 连着几批条目没存住检查点
 
 
 ## 开一局：名字照 CWRoom._name_seats 的口径（真人昵称去首尾空白；AI 席与空串 = 内核默认名「免疫A / 癌症A…」——
@@ -52,6 +85,7 @@ func open(p_room, seed_value: int) -> bool:
 		"open_hands": bool(room.watch_hands), "names": names, "ai": ai_tiers(room.seats), "ai_paced": true }
 	if not Array(room.cancer_types).is_empty():
 		cfg["cancer_types"] = Array(room.cancer_types)
+	_cfg = cfg.duplicate()
 	kernel = CWKernelSidecar.new()
 	if kernel.open(cfg):
 		return true
@@ -71,11 +105,86 @@ func close() -> void:
 	room = null   ## 房间也持着泵：两头都断开，RefCounted 才放得掉
 
 
-## 句柄坏了（进程退出 / 连接断 / 超时）就返回原因，好的返回 ""
+## 句柄坏了（进程退出 / 连接断 / 超时 / 这一局内部出错）或房间判过坏（mark_broken）就返回原因，好的返回 ""。
+## 句柄自己的原因优先：进程崩了的那一帧房间常常同时看见一条「答案被拒」，日志里要的是真原因
 func fault() -> String:
 	if kernel != null and kernel.state() == CWKernel.State.FAULTED:
 		return String(kernel.last_error().get("msg", "sidecar 故障"))
-	return ""
+	return _broken
+
+
+## 房间这边看出来的故障（答案被拒 / 换手被拒 / 拿不到 envelope）。**不当场重起**：这一下可能正在泵的半中间（泵 → 问人 → 换手 → 被拒），
+## 等房间下一帧的 tick 统一处理；在那之前泵、作答、推 AI 都不再碰句柄
+func mark_broken(why: String) -> void:
+	if _broken == "":
+		_broken = why
+
+
+## 存这份检查点那一刻的日志总行数（房间重起前把每人的日志游标压到这儿，见 CWRoom._sc_recover）
+func checkpoint_log_total() -> int:
+	return _cp_log_total
+
+
+## 从最近的检查点换一个新会话接着打（见文件头）。只由房间的 tick 调（不在泵的半中间）。返回 Recover：
+## DONE = 接着打了；RETRY = 新会话这会儿开不出来，下一帧再试；GIVE_UP = 没有检查点 / 记账超了 / 重试太久，房间中止。
+## `ai_turn` = 出事时房间没在问真人（某个 AI 席在想）。这一次故障记不记账，按谁惹的：
+##   · 句柄还好、是房间判的坏（答案 / 换手被拒、拿不到 envelope）—— 这一局的事，记
+##   · 句柄坏了：自己那一局回了 broken / 链路死在自己那条请求的半中间（fault_is_mine）—— 记；
+##     进程在别人的请求里或后台线程里死掉：这一局在等真人就不记（它什么都没干）；在等 AI 就记（AI 在后台想，进程可能就死在它手里）
+## 一次故障只记一次：开不出来隔帧再试不重复记
+func recover(ai_turn: bool) -> int:
+	if room == null or _checkpoint.is_empty():
+		return Recover.GIVE_UP
+	if _retry_since < 0:
+		_retry_since = Time.get_ticks_msec()
+		if _blame(ai_turn):
+			_recover_streak += 1
+		_progressed = false
+	if _recover_streak > RECOVER_MAX:
+		return Recover.GIVE_UP
+	if kernel != null:
+		kernel.close()
+	var cfg := _cfg.duplicate()
+	cfg["world_state"] = _checkpoint
+	cfg["ai"] = _ai_now()
+	kernel = CWKernelSidecar.new()
+	if not kernel.open(cfg):
+		_error = String(kernel.last_error().get("msg", ""))
+		if _broken == "":
+			_broken = "重起开不出新会话：%s" % _error
+		return Recover.GIVE_UP if Time.get_ticks_msec() - _retry_since > RETRY_GIVE_UP_MS else Recover.RETRY
+	recoveries += 1
+	_broken = ""
+	_retry_since = -1
+	_stale_batches = 0
+	_seen = 0
+	_room_ids.clear()
+	_log_base = _cp_log_total
+	_log_total = _cp_log_total
+	if _pending_surrender >= 0:
+		kernel.surrender(_pending_surrender)   ## 出事那一下全票通过的投降：新会话上补上，下面这一泵就是终局
+	else:
+		kernel.log_msg("【系统】服务器的规则内核出了故障，已从第 %d 回合的这一步接着打" % round_no)
+	pump()   ## 新会话头一拍 step_end → 每人一份状态；停在真人那一问上就是一条新 ask（换房间新号）
+	return Recover.DONE
+
+
+## 这一次故障记不记到这一局的账上（见 recover）
+func _blame(ai_turn: bool) -> bool:
+	if kernel == null or kernel.state() != CWKernel.State.FAULTED:
+		return true
+	return kernel.fault_is_mine() or ai_turn
+
+
+## 重起时这一刻谁归 AI：房间的 AI 席 + 掉线的真人席（掉线 = 整席交给 AI，见 CWRoom._sc_seat_offline；
+## 计时到点只代答一问的那种不记 —— 新会话把那一问重新问他、重新计时）
+func _ai_now() -> Dictionary:
+	var ai := ai_tiers(room.seats)
+	for pid in room.seats.size():
+		var s: Dictionary = room.seats[pid]
+		if s["kind"] == "human" and not bool(s["online"]):
+			ai[pid] = TAKEOVER_TIER
+	return ai
 
 
 func ended() -> bool:
@@ -85,27 +194,54 @@ func ended() -> bool:
 ## 把句柄里还没翻过的条目全翻掉。**不递归**：条目里的 ask 可能当场被代打（tick 里），代打又会带出新条目 ——
 ## 这里只认「拉 → 翻 → 再拉」一个循环，嵌套调进来的直接返回，外层那一圈会接着拉到
 func pump() -> void:
-	if _pumping or kernel == null:
+	if _pumping or kernel == null or _broken != "":
 		return
 	_pumping = true
-	while kernel != null:
+	var moved := false
+	while kernel != null and _broken == "" and kernel.state() != CWKernel.State.FAULTED:
 		var batch: Array = kernel.pull(CWKernel.VIEWER_OMNISCIENT, _seen, BATCH)
 		if batch.is_empty():
 			break
+		moved = true
 		for e: Dictionary in batch:
 			_seen = int(e["seq"])
 			_dispatch(e)
-			if kernel == null:
-				break   ## 终局 / 中止：房间已经把泵拆了
-		if kernel != null:
+			## 终局 / 中止：房间已经把泵拆了；房间判了坏 / 句柄这一下坏了（推状态时进程没了）：这一批剩下的别再翻 ——
+			## 后面多半是下一问，发出去重起之后就成了没人收的界面
+			if kernel == null or _broken != "" or kernel.state() == CWKernel.State.FAULTED:
+				break
+		if kernel != null and _broken == "":
 			kernel.discard_before(_seen)   ## 翻过就不要了：句柄的队列别跟着一局的长度涨
 	_pumping = false
+	if moved and kernel != null and _broken == "":
+		_snapshot()
+
+
+## 停在顶层一问上（真人或 AI 的）就存一份检查点；拆问的第二问里、终局之后存不了，留着上一份。
+## 存住了、而且上一份之后往前走过一步，记账才清零（见文件头「记账」）
+func _snapshot() -> void:
+	if kernel.state() == CWKernel.State.FAULTED:
+		return
+	var blob := kernel.save()
+	if blob.is_empty():
+		_stale_batches += 1
+		if _stale_batches == STALE_WARN:
+			push_warning("CWNetPump：房间 %s 连着 %d 批条目没存住检查点（save 被拒？），崩了会回退好几步" % [room.code, STALE_WARN])
+			room.server.say("房间 %s：连着 %d 批条目没存住检查点，崩了会回退好几步" % [room.code, STALE_WARN])
+		return
+	_stale_batches = 0
+	_checkpoint = blob
+	_cp_log_total = _log_total
+	if _progressed:
+		_recover_streak = 0
+		_progressed = false
 
 
 ## 一问的答案交回句柄（index 已经由房间按「键为准、下标兜底」解析过），然后把这一步的条目泵出去
 func answer(sidecar_ask_id: int, index: int) -> bool:
-	if kernel == null or not kernel.answer(sidecar_ask_id, { "index": index }):
+	if kernel == null or _broken != "" or not kernel.answer(sidecar_ask_id, { "index": index }):
 		return false
+	_progressed = true   ## 往前走了一步 —— 等这一步走完的局面存住了才清记账（_snapshot）
 	pump()
 	return true
 
@@ -113,19 +249,24 @@ func answer(sidecar_ask_id: int, index: int) -> bool:
 ## 把一席交给 sidecar 里的 AI（tier = TIER_OF 的值）或交还真人（tier = ""）。不在这儿泵：
 ## 交给 AI 的那一问要等房间下一次 step_ai() 才有动静；交还真人的那条 ask 由句柄下一帧拉过来、房间的 tick 泵出去
 func set_ai(pid: int, tier: String, once := false) -> bool:
-	return kernel != null and kernel.set_ai(pid, tier, once)
+	return kernel != null and _broken == "" and kernel.set_ai(pid, tier, once)
 
 
 ## 推 AI 一步（房间每帧一次，只在没有真人被问着的时候）：sidecar 里想好了的那个答案这就交，交了就把这一步泵出去。
 ## 一帧最多一步 —— 同 GD 路「AI 每次决策之前让出一帧」，也正是 step_end 那一拍现取的 envelope 对得上这一步的原因（见文件头）
 func step_ai() -> void:
-	if kernel != null and kernel.step_ai():
+	if kernel != null and _broken == "" and kernel.step_ai():
+		_progressed = true
 		pump()
 
 
-## 投降投票全票通过：对方阵营直接获胜。句柄当场收局，step_end / game_over 这就泵出去
+## 投降投票全票通过：对方阵营直接获胜。句柄当场收局，step_end / game_over 这就泵出去。
+## 先记下来：这一下 sidecar 已经坏着或正好坏了，重起时在新会话上补上（recover）—— 终局一泵出去房间就把泵拆了，这条记账跟着没了
 func surrender(faction: int) -> void:
 	if kernel == null:
+		return
+	_pending_surrender = faction
+	if fault() != "":
 		return
 	kernel.surrender(faction)
 	pump()
@@ -137,7 +278,7 @@ func query(kind: String, args: Dictionary) -> Variant:
 
 ## 投降投票那两行日志：句柄的 log_msg 让 sidecar 往对局日志里插一行（10-01 起），随各人视角的 envelope.logs 下发
 func log_line(text: String) -> void:
-	if kernel != null:
+	if kernel != null and fault() == "":
 		kernel.log_msg(text)
 
 
@@ -146,12 +287,16 @@ func log_line(text: String) -> void:
 ##     转 Vector2i 是客户端镜像装载时的事（CWMirror._normalize），这里不替它做
 ##   · ask.ask_id 置 0：GD 路这里恒为 0（收养模式下句柄不经手询问）；sidecar 的 ask 序号是会话内部的，过网没有意义，
 ##     客户端作答认的是 ask 报文里那个房间编号
+##   · 日志行号按这一局的绝对行号进出（重起过的话当前会话差 `_log_base` 行，见文件头）
 func envelope(viewer: int, logs_from: int) -> Dictionary:
 	if kernel == null:
 		return {}
-	var env: Dictionary = ints(kernel.observe_envelope(viewer, logs_from))
+	var env: Dictionary = ints(kernel.observe_envelope(viewer, maxi(logs_from - _log_base, 0)))
 	if env.is_empty():
 		return {}
+	var logs: Dictionary = env["logs"]
+	logs["from"] = int(logs["from"]) + _log_base
+	_log_total = maxi(_log_total, int(logs["from"]) + Array(logs["lines"]).size())
 	round_no = int(env["state"]["g"]["round_no"])
 	if env.get("ask") is Dictionary:
 		env["ask"]["ask_id"] = 0

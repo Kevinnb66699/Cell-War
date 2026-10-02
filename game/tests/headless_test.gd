@@ -45,7 +45,7 @@ const WEIGHTS := {
 	"t_tutor_done_menu": 30.0, "t_tutor_c3_drive": 22.0, "t_tutor_c3_ui": 22.0, "t_ai_mc": 13.0,
 	"t_tutor_sidecar_chain_c2l5": 50.0, "t_tutor_chain_c2l5": 50.0, "t_tutor_sidecar_c3_drive": 24.0, "t_tutor_sidecar_c3_ui": 23.0, "t_tutor_sidecar_chain_c1c2": 19.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_sidecar": 5.6, "t_net_drain": 5.1, "t_net_sidecar_takeover": 5.4,
-	"t_net_sidecar_ai": 11.4, "t_web_solo": 6.3, "t_net_solo": 3.0,
+	"t_net_sidecar_ai": 11.4, "t_net_sidecar_recover": 9.0, "t_net_sidecar_recover_session": 5.0, "t_net_sidecar_recover_blame": 5.0, "t_sidecar_link_limits": 6.0, "t_web_solo": 6.3, "t_net_solo": 3.0,
 	"t_sidecar_save_unloadable": 8.0, "t_sidecar_crash_midgame": 5.0, "t_sidecar_unavailable_fallback": 12.0,
 	"t_sidecar_fault_before_view": 4.1, "t_sidecar_start_failure_remembered": 0.5, "t_sidecar_hang_midgame": 6.2,
 	"t_sidecar_continue_retries": 6.0, "t_sidecar_tutorial_lost_notice": 2.0, "t_net_sidecar_lan_memory": 2.0,
@@ -192,7 +192,7 @@ func _run_all() -> void:
 		## 换内核 P6 · 真人半边（2026-10-01）：服务器开关 CW_KERNEL=sidecar 下全真人房跑在 C# 内核上
 		t_net_sidecar, t_net_sidecar_takeover, t_net_sidecar_ui,
 		## 换内核 P6 · 第二段（2026-10-01）：AI 席 / 代打走 sidecar 里的 C# AI、网页单机走服务器（create_solo）
-		t_net_sidecar_ai, t_net_solo, t_web_solo,
+		t_net_sidecar_ai, t_net_sidecar_recover, t_net_sidecar_recover_session, t_net_sidecar_recover_blame, t_sidecar_link_limits, t_net_solo, t_web_solo,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
 		t_observe_budget,
@@ -263,6 +263,7 @@ func _run_all() -> void:
 		## 「这一次运行里 sidecar 起不来过」是进程级的记忆（cw_kernel_sidecar.gd）：每支测试当一次新开的游戏，
 		## 不清的话前面哪支故意指过不存在的 dll，后面要走 sidecar 的就全被悄悄送去 GD 内核
 		CWKernelSidecar.start_failure = {}
+		CWKernelSidecar.Link.reset_limits()   ## 同理：前一支故意崩的那几次别让这一支的链路在限流（cw_sidecar_link.gd）
 		## 换内核 P8 起新开局默认走 sidecar（CWKernelSidecar.wanted()）。套件缺省走 GD：大批界面测试要钻进 GD 引擎看内部状态，
 		## 测 C# 路的测试自己设 sidecar。每支开跑前设回来，前一支忘了收也漏不到下一支（外面设的 CW_KERNEL 一样被盖掉）
 		OS.set_environment("CW_KERNEL", "gd")
@@ -24127,6 +24128,316 @@ func t_net_sidecar_ai() -> void:
 	b.dispose()
 	w.dispose()
 	c2.dispose()
+	srv.stop()
+	CWKernelSidecar.shutdown_idle_links()
+	OS.set_environment("CW_KERNEL", "gd")
+
+
+## 共用链路的四条保险（cw_sidecar_link.gd，10-01 五路复核）：
+##   · 限流：被拦着的时候 acquire 当场给一条起不来的链路（不起进程、不卡 8 秒握手）；一分钟内死够 DEATH_BURST 次自动拦上
+##   · 只摘自己：崩掉的旧链路空闲关掉时不能把同一个键上新起的那条摘了（复核前 30 秒后新房间会再起一个进程）
+##   · 卡住不回（REPLY_TIMEOUT）的进程当场杀掉：不白等 shutdown 那 1 秒
+func t_sidecar_link_limits() -> void:
+	print("[sidecar 共用链路：限流 / 只摘自己 / 卡死当场杀]")
+	if not _sc_ready():
+		return
+	var L = CWKernelSidecar.Link
+	var loc := CWKernelSidecar.locate()
+	var key := String(loc["dotnet"]) + "|" + String(loc["dll"])
+	CWKernelSidecar.shutdown_idle_links()
+	L.reset_limits()
+	## ① 被拦着：当场失败
+	L._blocked_until[key] = Time.get_ticks_msec() + 30000
+	var t0 := Time.get_ticks_msec()
+	var blocked = L.acquire(String(loc["dotnet"]), String(loc["dll"]))
+	check(int(blocked.fault) == CWKernel.Fault.SPAWN_FAILED and String(blocked.fault_msg).contains("不再起") and Time.get_ticks_msec() - t0 < 200 and int(blocked.pid) <= 0,
+		"限流中：acquire 当场给起不来的链路（%d ms，%s）" % [Time.get_ticks_msec() - t0, String(blocked.fault_msg)])
+	var k := CWKernelSidecar.new()
+	check(not k.open({ "factions": CWData.FACTION_ORDER[2], "seed": 1 }) and k.state() == CWKernel.State.UNAVAILABLE,
+		"限流中开句柄：UNAVAILABLE（服务器那边就是「下一帧再试」）")
+	L.reset_limits()
+	## ② 一分钟内死够 DEATH_BURST 次：拦上
+	var dummy = L.new()
+	dummy.dotnet = String(loc["dotnet"])
+	dummy.dll = String(loc["dll"])
+	for i in L.DEATH_BURST:
+		dummy._note_death()
+	check(int(L._blocked_until.get(key, 0)) > Time.get_ticks_msec(), "一分钟内死了 %d 次：之后 %d 秒不再起" % [L.DEATH_BURST, int(L.BREAKER_MS / 1000.0)])
+	L.reset_limits()
+	## ③ 只摘自己
+	var a = L.acquire(String(loc["dotnet"]), String(loc["dll"]))
+	check(int(a.fault) == 0 and L._links.get(key) == a, "起一条真链路、登记上了")
+	OS.kill(int(a.pid))
+	var t1 := Time.get_ticks_msec()
+	while OS.is_process_running(int(a.pid)) and Time.get_ticks_msec() - t1 < 2000:
+		OS.delay_msec(10)
+	var b = L.acquire(String(loc["dotnet"]), String(loc["dll"]))
+	check(int(b.fault) == 0 and b != a and L._links.get(key) == b, "旧进程没了：acquire 起了一条新的、登记的是新的")
+	a.shutdown()   ## 旧链路空闲关掉（复核前这一下会把新的摘掉）
+	check(L._links.get(key) == b, "旧链路关掉时只摘自己：登记的还是新的那条")
+	## ④ 卡住不回：当场杀
+	var bpid := int(b.pid)
+	OS.execute("kill", ["-STOP", str(bpid)])
+	var t2 := Time.get_ticks_msec()
+	var r: Dictionary = b.request("ping")
+	var waited := Time.get_ticks_msec() - t2
+	var t3 := Time.get_ticks_msec()
+	while OS.is_process_running(bpid) and Time.get_ticks_msec() - t3 < 500:
+		OS.delay_msec(10)
+	check(r.is_empty() and int(b.fault) == CWKernel.Fault.REPLY_TIMEOUT and not OS.is_process_running(bpid) and waited < L.REPLY_TIMEOUT_MS + 300,
+		"卡住不回：%d ms 记 REPLY_TIMEOUT，进程当场杀掉（不再白等 1 秒）" % waited)
+	b.release()
+	CWKernelSidecar.shutdown_idle_links()
+	L.reset_limits()
+
+
+## 服务器上的 C# 内核崩了 / 坏了：从最近的检查点换个新会话接着打（cw_net_pump.gd:recover，10-01）。三段：
+##   ① 4 人房（两真人 + 两 AI + 观众）打到一半**杀掉 sidecar 进程**：房间不关、拉起新进程、同一回合接着打完；
+##     重起后头一份状态的日志从断点接着往下（行号不回零、不重复）；被问着的那位换新号重新问；之后正常打到终局、三人同一个终局
+##   ② 只坏这一局（sidecar 回 broken：Dispatcher 接住了规则 bug；断在 pull 上）：同一个进程里换个新会话接着打，进程不重起
+##   ③a 进程连着崩、这一间一直在等真人：不是它惹的、不记账，回回照样重起，之后照常打完
+##   ③b 每收下一个答案、存检查点那一下就坏（确定性的 bug 落在「收下之后」）：一步都没存住，RECOVER_MAX 次之后放弃、中止关房
+func t_net_sidecar_recover() -> void:
+	print("[联机·C# 内核崩溃重起]")
+	var Pump := preload("res://scripts/net/cw_net_pump.gd")
+	if not _sc_ready():
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var srv := _net_server()
+	if srv == null:
+		OS.set_environment("CW_KERNEL", "gd")
+		return
+	## ---- ① 杀进程 ----
+	var a := _net_client("甲", false)
+	var b := _net_client("乙", false)
+	var w := _net_client("丙", false)
+	check(await _net_pair(srv, a, b) and await _net_pair(srv, w, w), "三个客户端握手")
+	a.create_room(4, 0, true, 4242)
+	await _net_pump(srv, [a, b, w], func() -> bool: return a.code != "")
+	b.join(a.code)
+	w.join(a.code)
+	await _net_pump(srv, [a, b, w], func() -> bool: return b.code == a.code and w.code == a.code)
+	a.sit(0)
+	b.sit(3)
+	await _net_pump(srv, [a, b, w], func() -> bool: return a.my_seat == 0 and b.my_seat == 3)
+	a.set_ai(1, "mc")
+	a.set_ai(2, "heur")
+	a.ready()
+	b.ready()
+	await _net_pump(srv, [a, b, w], func() -> bool:
+		return a.room["seats"][2]["kind"] == "ai" and a.room["seats"][0]["ready"] and a.room["seats"][3]["ready"])
+	## 每个人收到的日志：按绝对行号记下最远到哪、有没有倒退（重起之后行号不该回零）
+	var logs := { "a": { "end": 0, "back": 0, "first_after": -1, "sys": false }, "w": { "end": 0, "back": 0, "first_after": -1, "sys": false } }
+	var rec := { "on": false }
+	var watch := func(m: Dictionary, k: String) -> void:
+		if m["t"] != "sync":
+			return
+		var lg: Dictionary = m["envelope"]["logs"]
+		var from := int(lg["from"])
+		var t: Dictionary = logs[k]
+		if rec["on"] and t["first_after"] < 0:
+			t["first_after"] = from
+		if from < int(t["end"]) and Array(lg["lines"]).size() > 0:
+			t["back"] = int(t["back"]) + 1
+		if rec["on"] and Array(lg["lines"]).any(func(x) -> bool: return String(x).begins_with("【系统】")):
+			t["sys"] = true
+		t["end"] = maxi(int(t["end"]), from + Array(lg["lines"]).size())
+	var hooks := [watch.bind("a"), watch.bind("w")]
+	a.message.connect(hooks[0])
+	w.message.connect(hooks[1])
+	var da = load("res://tests/xcheck_bridge.gd").new()
+	var db = load("res://tests/xcheck_bridge.gd").new()
+	da.seed_policy(2222)
+	db.seed_policy(4444)
+	a.start()
+	var room: CWRoom = srv.rooms[a.code]
+	var ok := await _net_pump(srv, [a, b, w], func() -> bool:
+		_sc_answer_pending([a, b], [da, db])
+		return room.pump != null and room.pump.round_no >= 3, 6000)
+	check(ok and room.pump != null, "开局打到第 3 世界回合（第 %d 回合）" % (int(room.pump.round_no) if room.pump != null else -1))
+	## 停在某个真人被问着的时候再杀：那一问要换新号重新问出来
+	ok = await _net_pump(srv, [a, b, w], func() -> bool: return not room._ask.is_empty(), 3000)
+	var asked_pid: int = int(room._ask.get("pid", -1))
+	var asked_id: int = int(room._ask.get("ask_id", -1))
+	var asked: CWNetClient = a if asked_pid == 0 else b
+	var pid0: int = room.pump.kernel.process_id()
+	var round0: int = int(room.pump.round_no)
+	var end0: int = int(logs["a"]["end"])
+	rec["on"] = true
+	OS.kill(pid0)
+	ok = await _net_pump(srv, [a, b, w], func() -> bool:
+		return room.pump != null and int(room.pump.recoveries) == 1 and int(asked.pending_ask.get("ask_id", -1)) > asked_id, 3000)
+	check(ok and room.state == CWRoom.State.PLAYING and room.pump.kernel.process_id() != pid0,
+		"杀掉 sidecar 进程：房间不关、拉起了新进程（%d → %d）、重起 %d 次" % [pid0, room.pump.kernel.process_id() if room.pump != null else -1,
+			int(room.pump.recoveries) if room.pump != null else -1])
+	check(ok and int(room.pump.round_no) == round0, "从检查点接着打：还是第 %d 回合（%d）" % [round0, int(room.pump.round_no) if room.pump != null else -1])
+	check(ok and int(asked.pending_ask["ask_id"]) > asked_id, "被问着的那位换新号重新问（%d → %d）" % [asked_id, int(asked.pending_ask.get("ask_id", -1))])
+	check(bool(logs["a"]["sys"]) and bool(logs["w"]["sys"]), "重起后玩家和观众的日志里都有一行「【系统】……接着打」（说得清为什么又问了一遍）")
+	check(int(logs["a"]["first_after"]) == end0 and int(logs["a"]["back"]) == 0 and int(logs["w"]["back"]) == 0,
+		"重起后头一份状态的日志从断点接着往下（第 %d 行起，断点 %d），谁的日志都没倒退" % [int(logs["a"]["first_after"]), end0])
+	## 重起之后新会话记的每一行都按「断点 + 第几行」到了客户端：打过一个世界回合、停在真人那一问上时（状态都推完了），
+	## 甲手里断点之后的行数 == 新会话自己记的行数（新会话的日志从 0 行记起；行号不平移的话，客户端要等新会话攒够断点那么多行才收得到新行）
+	var news := { "n": -1 }
+	ok = await _net_pump(srv, [a, b, w], func() -> bool:
+		_sc_answer_pending([a, b], [da, db])
+		if room.pump == null or int(room.pump.round_no) < round0 + 1 or room._ask.is_empty():
+			return false
+		news["n"] = Array(room.pump.kernel.observe_envelope(CWKernel.VIEWER_OMNISCIENT, 0)["logs"]["lines"]).size()
+		return int(logs["a"]["end"]) - end0 == int(news["n"]), 6000)
+	check(ok and int(news["n"]) > 0, "重起后新会话记的 %d 行一行不少地接在断点之后到了甲那儿（甲断点后 %d 行）" % [int(news["n"]), int(logs["a"]["end"]) - end0])
+	var ta := _sc_tally()
+	var tw := _sc_tally()
+	var audits := [_sc_audit.bind(ta, 0), _sc_audit.bind(tw, -1)]
+	a.message.connect(audits[0])
+	w.message.connect(audits[1])
+	ok = await _net_pump(srv, [a, b, w], func() -> bool:
+		_sc_answer_pending([a, b], [da, db])
+		return not ta["over"].is_empty() and not tw["over"].is_empty(), 12000)
+	check(ok and int(ta["over"]["winner"]) == int(tw["over"]["winner"]) and room.state == CWRoom.State.WAITING and room.pump == null,
+		"重起之后照常打到终局，甲和观众同一个终局、房间回等待室（第 %d 回合：%s）" % [int(ta["over"].get("round", -1)), String(ta["over"].get("reason", ""))])
+	check(int(logs["a"]["back"]) == 0 and int(logs["w"]["back"]) == 0 and int(logs["a"]["end"]) > end0, "整局日志一直往前长（%d 行）" % int(logs["a"]["end"]))
+	check(ta["bad"] == 0 and tw["bad"] == 0 and ta["foreign"] == 0, "重起之后的每份 envelope 都装得进镜像、询问没发错人（%s）" % ta["bad_msg"])
+	a.message.disconnect(hooks[0])
+	w.message.disconnect(hooks[1])
+	a.message.disconnect(audits[0])
+	w.message.disconnect(audits[1])
+	a.dispose()
+	b.dispose()
+	w.dispose()
+	srv.stop()
+	CWKernelSidecar.shutdown_idle_links()
+	OS.set_environment("CW_KERNEL", "gd")
+
+
+## 服务器 C# 内核重起·会话级（cw_net_pump.gd:recover，10-01）：
+##   ② 只坏这一局（sidecar 回 broken：Dispatcher 接住了规则 bug；断在 pull 上）：同一个进程里换个新会话接着打，进程不重起
+##   ③b 每收下一个答案、存检查点那一下就坏（确定性的 bug 落在「收下之后」）：一步都没存住，RECOVER_MAX 次之后放弃、中止关房
+func t_net_sidecar_recover_session() -> void:
+	print("[联机·C# 内核重起：只坏这一局 / 收下之后就坏]")
+	var Pump := preload("res://scripts/net/cw_net_pump.gd")
+	if not _sc_ready():
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var srv := _net_server()
+	if srv == null:
+		OS.set_environment("CW_KERNEL", "gd")
+		return
+	var a := _net_client("甲", false)
+	var b := _net_client("乙", false)
+	check(await _net_pair(srv, a, b), "两个客户端握手")
+	var da = load("res://tests/xcheck_bridge.gd").new()
+	var db = load("res://tests/xcheck_bridge.gd").new()
+	da.seed_policy(2222)
+	db.seed_policy(4444)
+	var ok := false
+	## ---- ② 只坏这一局：测试链路在第 61 条 pull 上回 broken（不杀进程）----
+	var FaultLink = load("res://tests/sidecar_fault_link.gd")
+	var loc := CWKernelSidecar.locate()
+	CWKernelSidecar.shutdown_idle_links()
+	## 断在 pull 上（每帧都有）：答案被拒房间自己看得见，pull 回 broken 只有句柄认得出来 —— 认不出的话泵拉回空、这一局就悄悄停住
+	var link = FaultLink.install(String(loc["dotnet"]), String(loc["dll"]), "pull", 60)
+	link.fail_broken = true
+	check(await _net_room(srv, a, b, 2, 0, 2222), "2 人房：甲乙坐满")
+	a.start()
+	var room2: CWRoom = srv.rooms[a.code]
+	ok = await _net_pump(srv, [a, b], func() -> bool:
+		_sc_answer_pending([a, b], [da, db])
+		return room2.pump != null and int(room2.pump.recoveries) == 1, 3000)
+	var pid2: int = room2.pump.kernel.process_id() if room2.pump != null else -1
+	check(ok and room2.state == CWRoom.State.PLAYING and pid2 == int(link.pid),
+		"sidecar 回 broken（这一局内部出错）：同一个进程里换个新会话接着打，进程没重起（%d）" % pid2)
+	ok = await _net_pump(srv, [a, b], func() -> bool:
+		_sc_answer_pending([a, b], [da, db])
+		return room2.state == CWRoom.State.WAITING, 12000)
+	check(ok and room2.pump == null and room2.games_played == 1, "之后照常打到终局")
+	## ---- ③b 每收下一个答案、存检查点那一下就坏（确定性的 bug 落在「收下之后」）：记账照算，RECOVER_MAX 次之后放弃 ----
+	## 复核前「往前走了一步」在答案收下时就清记账，这种 bug 会无限重起；现在要等走完的局面存住了才算
+	a.leave()
+	b.leave()
+	await _net_pump(srv, [a, b], func() -> bool: return srv.rooms.is_empty())
+	CWKernelSidecar.shutdown_idle_links()
+	CWKernelSidecar.Link.reset_limits()
+	var link3 = FaultLink.install(String(loc["dotnet"]), String(loc["dll"]), "save", 0)
+	link3.fail_broken = true
+	link3.arm_on = "answer"
+	link3.fail_repeat = true
+	check(await _net_room(srv, a, b, 2, 0, 3333), "2 人房：甲乙坐满")
+	a.start()
+	var room3: CWRoom = srv.rooms[a.code]
+	var code3 := room3.code
+	var seen_rec := { "max": 0 }
+	ok = await _net_pump(srv, [a, b], func() -> bool:
+		_sc_answer_pending([a, b], [da, db])
+		if room3.pump != null:
+			seen_rec["max"] = maxi(int(seen_rec["max"]), int(room3.pump.recoveries))
+		return not srv.rooms.has(code3), 6000)
+	check(ok and int(seen_rec["max"]) == Pump.RECOVER_MAX,
+		"每收下一个答案、存检查点就坏：重起 %d 次（一步都没存住）之后放弃、中止关房（实际 %d 次）" % [Pump.RECOVER_MAX, int(seen_rec["max"])])
+	a.dispose()
+	b.dispose()
+	srv.stop()
+	CWKernelSidecar.shutdown_idle_links()
+	OS.set_environment("CW_KERNEL", "gd")
+
+
+## 服务器 C# 内核重起·记账（cw_net_pump.gd:recover，10-01 五路复核）：
+##   ③a 进程连着崩、这一间一直在等真人：不是它惹的、不记账，回回照样重起，之后照常打完（复核前第 4 次就中止了 ——
+##       一个房间把进程弄崩，全服正等着真人的房间都跟着记账、一起中止）
+##   ④ 进程崩的那一下投降全票通过：重起时在新会话上补上，照样收局
+func t_net_sidecar_recover_blame() -> void:
+	print("[联机·C# 内核重起：不是它惹的不记账]")
+	var Pump := preload("res://scripts/net/cw_net_pump.gd")
+	if not _sc_ready():
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var srv := _net_server()
+	if srv == null:
+		OS.set_environment("CW_KERNEL", "gd")
+		return
+	var a := _net_client("甲", false)
+	var b := _net_client("乙", false)
+	check(await _net_pair(srv, a, b), "两个客户端握手")
+	var da = load("res://tests/xcheck_bridge.gd").new()
+	var db = load("res://tests/xcheck_bridge.gd").new()
+	da.seed_policy(2222)
+	db.seed_policy(4444)
+	var ok := false
+	## ---- ③a 进程连着崩、这一间正等着真人：不是它惹的，不记账，回回照样重起（复核前这里第 4 次就中止了）----
+	check(await _net_room(srv, a, b, 2, 0, 2222), "2 人房：甲乙坐满")
+	a.start()
+	var room2: CWRoom = srv.rooms[a.code]
+	ok = await _net_pump(srv, [a, b], func() -> bool: return room2.pump != null and not room2._ask.is_empty(), 3000)
+	var code2 := room2.code
+	var kills := 0
+	while kills < Pump.RECOVER_MAX + 1 and srv.rooms.has(code2) and room2.pump != null:
+		var before: int = int(room2.pump.recoveries)
+		OS.kill(room2.pump.kernel.process_id())
+		kills += 1
+		await _net_pump(srv, [a, b], func() -> bool:
+			return not srv.rooms.has(code2) or room2.pump == null or (int(room2.pump.recoveries) > before and not room2._ask.is_empty()), 3000)
+	check(srv.rooms.has(code2) and room2.pump != null and int(room2.pump.recoveries) == kills and int(room2.pump._recover_streak) == 0,
+		"进程连着崩了 %d 次、这一间一直在等真人：都不记账（%s），回回照样重起（%d 次）" % [kills,
+			str(room2.pump._recover_streak) if room2.pump != null else "?", int(room2.pump.recoveries) if room2.pump != null else -1])
+	ok = await _net_pump(srv, [a, b], func() -> bool:
+		_sc_answer_pending([a, b], [da, db])
+		return room2.state == CWRoom.State.WAITING, 12000)
+	check(ok and room2.games_played == 1, "之后照常打到终局")
+	## 出事那一下全票通过的投降不丢（复核）：杀进程、同一帧里甲投降（2 人局免疫只有甲一席 = 一票即全票）——
+	## 投降落在死掉的链路上，重起时在新会话上补上，照样收成「癌方胜」
+	a.ready()
+	b.ready()
+	await _net_pump(srv, [a, b], func() -> bool: return a.room["seats"][0]["ready"] and a.room["seats"][1]["ready"])
+	a.start()
+	ok = await _net_pump(srv, [a, b], func() -> bool: return room2.pump != null and not a.pending_ask.is_empty(), 3000)
+	var overs0 := _net_count(b, "game_over")
+	OS.kill(room2.pump.kernel.process_id())
+	a.surrender(true)
+	ok = await _net_pump(srv, [a, b], func() -> bool: return _net_count(b, "game_over") > overs0, 3000)
+	var over := _net_last(b, "game_over")
+	check(ok and String(over.get("kind", "")) == "surrender_cancer" and room2.state == CWRoom.State.WAITING and room2.games_played == 2,
+		"进程崩的那一下投降全票通过：重起时补上，照样收成癌方胜（%s）" % String(over.get("kind", "")))
+	a.dispose()
+	b.dispose()
 	srv.stop()
 	CWKernelSidecar.shutdown_idle_links()
 	OS.set_environment("CW_KERNEL", "gd")
