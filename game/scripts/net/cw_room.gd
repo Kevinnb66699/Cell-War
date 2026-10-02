@@ -825,7 +825,7 @@ func _query_args_ok(kind: String, args: Dictionary) -> bool:
 	return false
 
 
-## 客户端发来的查询参数整个过一遍：数字有限（inf / nan 拼成 JSON 是坏报文）、嵌套不深、数组 / 字符串不长 ——
+## 客户端发来的查询参数整个过一遍：数字有限（inf / nan 拼成 JSON 是坏报文）、嵌套不深（≤ 4）、数组 ≤ 512、字符串 ≤ 64 ——
 ## C# 内核路上这份参数原样转给 sidecar，坏到它解析不了时以前那一条没有回应、服务器干等 5 秒判卡死、杀掉全服共用的进程（10-01 二轮复核）
 static func _plain_value_ok(v: Variant, depth: int) -> bool:
 	if depth > 4:
@@ -838,7 +838,7 @@ static func _plain_value_ok(v: Variant, depth: int) -> bool:
 		TYPE_STRING, TYPE_STRING_NAME:
 			return String(v).length() <= 64
 		TYPE_ARRAY:
-			if (v as Array).size() > 64:
+			if (v as Array).size() > 512:   ## 规划器拖出来的路径可以很长（469 格的盘），只防离谱的
 				return false
 			for x in v:
 				if not _plain_value_ok(x, depth + 1):
@@ -1068,6 +1068,13 @@ func _sc_fault(why: String) -> void:
 	pump.mark_broken(why)
 
 
+## 替那一位收掉还挂着的询问界面：补一条他那一问旧号的 step_begin（同 #62 重连那条；客户端会说「被代打接管了」）
+func _sc_close_ask_ui(o: Dictionary) -> void:
+	var opid := int(o["pid"])
+	if int(seats[opid]["client"]) >= 0:
+		server.send(int(seats[opid]["client"]), { "t": "step_begin", "ask_id": int(o["ask_id"]), "seat": opid })
+
+
 ## sidecar 坏了：从最近的检查点换一个新会话接着打（cw_net_pump.gd:recover，10-01）。返回 NetPump.Recover。
 ##   · 悬着的那一问先摘掉（它的号在新会话里不认了），暂存在 _sc_orphan：新会话停在同一问上会换房间新号重新问他 ——
 ##     客户端收到新 ask 就收掉旧界面、旧协程的答案作废（match.gd:_serve_ask），旧号答上来这里回 stale；
@@ -1078,6 +1085,9 @@ func _sc_fault(why: String) -> void:
 func _sc_recover(why: String) -> int:
 	var ai_turn := _ask.is_empty() and _sc_orphan.is_empty()
 	if not _ask.is_empty():
+		## 重试中的那一泵问了别人：原来暂存的那一位不会再被问到（新会话停在别处了），这就替他收界面（10-01 三轮复核）
+		if not _sc_orphan.is_empty() and int(_sc_orphan["pid"]) != int(_ask["pid"]):
+			_sc_close_ask_ui(_sc_orphan)
 		_sc_orphan = _ask
 		_ask = {}
 	var cp_logs: int = pump.checkpoint_log_total()
@@ -1090,9 +1100,8 @@ func _sc_recover(why: String) -> int:
 	if not _sc_orphan.is_empty():
 		var o := _sc_orphan
 		_sc_orphan = {}
-		var opid := int(o["pid"])
-		if (_ask.is_empty() or int(_ask["pid"]) != opid) and int(seats[opid]["client"]) >= 0:
-			server.send(int(seats[opid]["client"]), { "t": "step_begin", "ask_id": int(o["ask_id"]), "seat": opid })
+		if _ask.is_empty() or int(_ask["pid"]) != int(o["pid"]):
+			_sc_close_ask_ui(o)
 	push_warning("CWRoom %s：C# 内核故障（%s），已从检查点接着打（这一局第 %d 次）" % [code, why, p.recoveries])
 	server.say("房间 %s：C# 内核故障（%s），已从检查点接着打（这一局第 %d 次，第 %d 回合）" % [code, why, p.recoveries, p.round_no])
 	return r

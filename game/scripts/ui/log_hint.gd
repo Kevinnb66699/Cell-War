@@ -47,6 +47,7 @@ var _rows: Array[Label] = []
 var _cache: PackedStringArray = PackedStringArray()   ## 折行后的显示行（增量）
 var _cache_src: PackedInt32Array = PackedInt32Array() ## 每行来自第几条日志
 var _built := 0
+var _built_rev := -1    ## 上次整卷折行时 store.rev 是几（CWLogStore.rev：已有的行被改写 / 截短过）
 var _built_key := -3
 var _last_total := -1
 var _chat: CWChatBox      ## 聊天框（联机局才有）；null = 这一局没有聊天
@@ -218,14 +219,15 @@ func refresh(store: CWLogStore, panel: CWLogPanel) -> void:
 	if on_chat_tab():
 		return          ## 聊天页占着这两行，日志那边先不折（省下每帧的折行）
 	var key: int = panel.viewer if panel.filter else -2
-	if store.logs.size() < _built or key != _built_key:
+	if store.logs.size() < _built or key != _built_key or store.rev != _built_rev:
 		_cache.clear()
 		_cache_src.clear()
 		_built = 0
 		_built_key = key
+		_built_rev = store.rev
 	## 末条可能被就地改写（连续的【定殖】/【净化】合并，Kevin 2026-09-07），每帧重折它
 	var stable: int = maxi(store.logs.size() - 1, 0)
-	## 上一帧折进去的末条先摘掉再接着往下折（同 CWLogPanel._rebuild_rows，10-01）
+	## 上一帧折进去的末条先摘掉再接着往下折（同 CWLogPanel._rebuild_rows，10-01 三轮复核）
 	while not _cache_src.is_empty() and _cache_src[_cache_src.size() - 1] >= _built:
 		_cache.remove_at(_cache.size() - 1)
 		_cache_src.remove_at(_cache_src.size() - 1)

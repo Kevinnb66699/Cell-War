@@ -18,6 +18,9 @@ extends RefCounted
 var logs: PackedStringArray = []
 var log_secret: PackedInt32Array = []
 var log_public: PackedStringArray = []
+## 已有的行被改写 / 截短过就加一（replace_tail 回退、clear）：日志面板与迷你日志按它整卷重折 —— 只看行数的话，
+## 「截短又长回来」夹在两次刷新之间就看不出来，撤掉的那几行会一直留在屏幕上（10-01 三轮复核）
+var rev := 0
 
 
 ## log 条目落地：index 越界就补齐再写（中间缺的行补空串，别让并行数组错位）
@@ -45,6 +48,8 @@ func reset_from(from: int, lines: Array) -> void:
 ## 联机 sync 的日志段：服务器给的是**从 from 到日志末尾**的整段，所以灌完之后比它长的部分都是作废的 ——
 ## 服务器的 C# 内核从检查点重起、回退了一步时，被撤掉的那一步的几行还留在这儿，会盖住重起后插的那一行「【系统】」（10-01 二轮复核）
 func replace_tail(from: int, lines: Array) -> void:
+	if from < logs.size():
+		rev += 1   ## 盖了已有的行（重连整段重灌也走这儿：多重折一次，无妨）
 	reset_from(from, lines)
 	var n := from + lines.size()
 	if logs.size() > n:
@@ -54,6 +59,7 @@ func replace_tail(from: int, lines: Array) -> void:
 
 
 func clear() -> void:
+	rev += 1
 	logs = PackedStringArray()
 	log_secret = PackedInt32Array()
 	log_public = PackedStringArray()

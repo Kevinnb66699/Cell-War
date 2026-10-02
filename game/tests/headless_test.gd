@@ -45,7 +45,7 @@ const WEIGHTS := {
 	"t_tutor_done_menu": 30.0, "t_tutor_c3_drive": 22.0, "t_tutor_c3_ui": 22.0, "t_ai_mc": 13.0,
 	"t_tutor_sidecar_chain_c2l5": 50.0, "t_tutor_chain_c2l5": 50.0, "t_tutor_sidecar_c3_drive": 24.0, "t_tutor_sidecar_c3_ui": 23.0, "t_tutor_sidecar_chain_c1c2": 19.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_sidecar": 5.6, "t_net_drain": 5.1, "t_net_sidecar_takeover": 5.4,
-	"t_net_sidecar_ai": 11.4, "t_net_sidecar_recover": 9.0, "t_net_sidecar_recover_session": 5.0, "t_net_sidecar_recover_blame": 5.0, "t_net_sidecar_recover_round2": 5.0, "t_sidecar_link_limits": 6.0, "t_web_solo": 6.3, "t_net_solo": 3.0,
+	"t_net_sidecar_ai": 11.4, "t_net_sidecar_recover": 9.0, "t_net_sidecar_recover_session": 5.0, "t_net_sidecar_recover_blame": 5.0, "t_net_sidecar_recover_round2": 5.0, "t_net_sidecar_recover_lan": 3.0, "t_sidecar_link_limits": 6.0, "t_web_solo": 6.3, "t_net_solo": 3.0,
 	"t_sidecar_save_unloadable": 8.0, "t_sidecar_crash_midgame": 5.0, "t_sidecar_unavailable_fallback": 12.0,
 	"t_sidecar_fault_before_view": 4.1, "t_sidecar_start_failure_remembered": 0.5, "t_sidecar_hang_midgame": 6.2,
 	"t_sidecar_continue_retries": 6.0, "t_sidecar_tutorial_lost_notice": 2.0, "t_net_sidecar_lan_memory": 2.0,
@@ -192,7 +192,7 @@ func _run_all() -> void:
 		## 换内核 P6 · 真人半边（2026-10-01）：服务器开关 CW_KERNEL=sidecar 下全真人房跑在 C# 内核上
 		t_net_sidecar, t_net_sidecar_takeover, t_net_sidecar_ui,
 		## 换内核 P6 · 第二段（2026-10-01）：AI 席 / 代打走 sidecar 里的 C# AI、网页单机走服务器（create_solo）
-		t_net_sidecar_ai, t_net_sidecar_recover, t_net_sidecar_recover_session, t_net_sidecar_recover_blame, t_net_sidecar_recover_round2, t_sidecar_link_limits, t_net_solo, t_web_solo,
+		t_net_sidecar_ai, t_net_sidecar_recover, t_net_sidecar_recover_session, t_net_sidecar_recover_blame, t_net_sidecar_recover_round2, t_net_sidecar_recover_lan, t_sidecar_link_limits, t_net_solo, t_web_solo,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
 		t_observe_budget,
@@ -24223,10 +24223,34 @@ func t_sidecar_link_limits() -> void:
 	for i in 8:
 		deep = [deep]
 	var long_arr: Array = []
-	long_arr.resize(100)
+	long_arr.resize(600)   ## 上限 512：规划器拖出来的长路径照收，离谱的才拒
 	long_arr.fill(1)
 	check(not CWRoom._plain_value_ok({ "cid": 1, "path": deep }, 0) and not CWRoom._plain_value_ok({ "cid": 1, "path": long_arr }, 0),
 		"⑥ 嵌套太深、数组太长的拒掉")
+	## ⑦ 真链路上发一条 sidecar 解析不了的报文（inf）：回应照样带号、当场回来，链路不判卡死（三轮复核：JSON.stringify 缺省按键排序，id 原来不在第一）
+	var k7 := CWKernelSidecar.new()
+	check(k7.open({ "factions": CWData.FACTION_ORDER[2], "seed": 7 }), "⑦ 起一局")
+	var t7 := Time.get_ticks_msec()
+	var q7: Variant = k7.query("quote_path", { "cid": 1, "path": [INF] })
+	check(q7 == null and Time.get_ticks_msec() - t7 < 1000 and k7.state() != CWKernel.State.FAULTED and k7._link != null and k7._link.alive(),
+		"⑦ 坏报文：%d ms 回来、句柄没坏、链路还活着" % (Time.get_ticks_msec() - t7))
+	## ⑧ _blame：进程死在别人那儿（不是自己那条请求），这一局在等真人 —— 上一份检查点之后走过一步还没存住就记账，存住了就不记
+	var Pump := preload("res://scripts/net/cw_net_pump.gd")
+	var pp = Pump.new()
+	pp.kernel = k7
+	OS.kill(k7.process_id())
+	var t8 := Time.get_ticks_msec()
+	while k7.state() != CWKernel.State.FAULTED and Time.get_ticks_msec() - t8 < 3000:
+		await process_frame
+	pp._progressed = false
+	var innocent: bool = pp._blame(false)
+	pp._progressed = true
+	var stepped: bool = pp._blame(false)
+	check(k7.state() == CWKernel.State.FAULTED and not innocent and stepped,
+		"⑧ 等真人、最后一步已存住：不记账；最后一步还没存住（崩在存这一步上）：记账（%s / %s）" % [str(innocent), str(stepped)])
+	pp.kernel = null
+	k7.close()
+	CWKernelSidecar.shutdown_idle_links()
 	var qr := CWRoom.new()
 	check(qr._query_args_ok("quote_path", { "cid": 1, "path": [Vector2i(0, 0)] }) and not qr._query_args_ok("quote_path", { "cid": 1, "path": [INF] }),
 		"⑥ 房间的查询入口（_query_args_ok）真用上了这道检查")
@@ -24414,6 +24438,97 @@ func t_net_sidecar_recover_session() -> void:
 		return not srv.rooms.has(code3), 6000)
 	check(ok and int(seen_rec["max"]) == Pump.RECOVER_MAX,
 		"每收下一个答案、存检查点就坏：重起 %d 次（一步都没存住）之后放弃、中止关房（实际 %d 次）" % [Pump.RECOVER_MAX, int(seen_rec["max"])])
+	a.dispose()
+	b.dispose()
+	srv.stop()
+	CWKernelSidecar.shutdown_idle_links()
+	OS.set_environment("CW_KERNEL", "gd")
+
+
+## 日志面板 / 迷你日志的折行缓存（10-01 三轮复核）：
+##   · 早就有的毛病：先折 [已折, 新末条) 再摘「>= 新末条」的行 —— 上一帧折进去的旧末条留着又折一遍，面板开着时日志每长一次上一行就重复一遍
+##   · 服务器重起回退了一步：联机 store 截短又长回来（replace_tail），夹在两次刷新之间时只看行数看不出来，撤掉的那几行留在屏幕上、盖住「【系统】」那行
+func t_log_rows_rebuild() -> void:
+	print("[日志面板 / 迷你日志：不重复折末条、回退之后整卷重折]")
+	var lp := CWLogPanel.new()
+	root.add_child(lp)
+	var chip := CWLogHint.new()
+	root.add_child(chip)
+	await process_frame
+	var st := CWLogStore.new()
+	for i in 4:
+		st.apply({ "index": i, "text": "L%d" % i, "secret_pid": -1, "public_text": "L%d" % i })
+	lp._rebuild_rows(st)
+	for i in range(4, 6):
+		st.apply({ "index": i, "text": "L%d" % i, "secret_pid": -1, "public_text": "L%d" % i })
+	lp._rebuild_rows(st)
+	check(Array(lp._rows) == ["L0", "L1", "L2", "L3", "L4", "L5"], "日志长了两行再折：一行都不重复（%s）" % str(lp._rows))
+	chip.refresh(st, lp)
+	st.apply({ "index": 6, "text": "L6", "secret_pid": -1, "public_text": "L6" })
+	chip.refresh(st, lp)
+	check(Array(chip._cache) == ["L0", "L1", "L2", "L3", "L4", "L5", "L6"], "迷你日志同款：不重复（%s）" % str(chip._cache))
+	## 回退：截到第 4 行、插「【系统】」、再长回来，中间没刷新
+	st.replace_tail(4, ["【系统】接着打"])
+	st.replace_tail(5, ["N5", "N6", "N7"])
+	lp._rebuild_rows(st)
+	chip.refresh(st, lp)
+	var want := ["L0", "L1", "L2", "L3", "【系统】接着打", "N5", "N6", "N7"]
+	check(Array(lp._rows) == want and Array(chip._cache) == want,
+		"回退之后截短又长回来、中间没刷新：面板和迷你日志都整卷重折，撤掉的行没了、【系统】那行在（%s / %s）" % [str(lp._rows), str(chip._cache)])
+	## 末条就地改写（连续的【定殖】合并成一条，log_run）：照旧每帧重折那一条、不多不少
+	var st2 := CWLogStore.new()
+	for i in 3:
+		st2.apply({ "index": i, "text": "M%d" % i, "secret_pid": -1, "public_text": "M%d" % i })
+	lp._rebuild_rows(st2)
+	st2.apply({ "index": 2, "text": "M2′", "secret_pid": -1, "public_text": "M2′" })
+	lp._rebuild_rows(st2)
+	check(Array(lp._rows) == ["M0", "M1", "M2′"], "末条就地改写：重折那一条、不多不少（%s）" % str(lp._rows))
+	lp.free()
+	chip.free()
+
+
+## 局域网开服（服务器跑在房主的客户端里，链路不限流）重起时起不来就当场放弃：起进程卡住堵的是房主自己的界面（10-01 三轮复核）；
+## 专用服务器同样的情况下隔秒再试、起得来了就接着打
+func t_net_sidecar_recover_lan() -> void:
+	print("[联机·C# 内核重起：局域网开服起不来当场放弃 / 专用服务器再试]")
+	if not _sc_ready():
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var srv := _net_server()
+	if srv == null:
+		OS.set_environment("CW_KERNEL", "gd")
+		return
+	var a := _net_client("甲", false)
+	var b := _net_client("乙", false)
+	check(await _net_pair(srv, a, b), "两个客户端握手")
+	var real_dll := OS.get_environment("CW_SIDECAR_DLL")
+	for lan in [true, false]:
+		srv.lan_host = lan
+		check(await _net_room(srv, a, b, 2, 0, 2222), "%s：2 人房" % ("局域网开服" if lan else "专用服务器"))
+		a.start()
+		var room: CWRoom = srv.rooms[a.code]
+		var code := room.code
+		await _net_pump(srv, [a, b], func() -> bool: return room.pump != null and not room._ask.is_empty(), 3000)
+		OS.set_environment("CW_SIDECAR_DLL", "/nonexistent/CellWar.Sidecar.dll")   ## 重起时找不到产物 = 起不来
+		OS.kill(room.pump.kernel.process_id())
+		var t0 := Time.get_ticks_msec()
+		if lan:
+			var ok := await _net_pump(srv, [a, b], func() -> bool: return not srv.rooms.has(code), 3000)
+			check(ok and Time.get_ticks_msec() - t0 < 2000, "局域网开服：起不来就当场放弃、中止关房（%d ms）" % (Time.get_ticks_msec() - t0))
+		else:
+			await _net_pump(srv, [a, b], func() -> bool: return Time.get_ticks_msec() - t0 > 1500, 3000)
+			var waiting := srv.rooms.has(code) and room.state == CWRoom.State.PLAYING and int(room.pump.recoveries) == 0
+			OS.set_environment("CW_SIDECAR_DLL", real_dll)
+			CWKernelSidecar.start_failure = {}
+			var ok := await _net_pump(srv, [a, b], func() -> bool: return room.pump != null and int(room.pump.recoveries) == 1, 3000)
+			check(waiting and ok and room.state == CWRoom.State.PLAYING,
+				"专用服务器：起不来先隔秒再试（%s），产物回来了就接着打（重起 %d 次）" % [str(waiting), int(room.pump.recoveries) if room.pump != null else -1])
+			a.leave()
+			b.leave()
+			await _net_pump(srv, [a, b], func() -> bool: return srv.rooms.is_empty())
+		OS.set_environment("CW_SIDECAR_DLL", real_dll)
+		CWKernelSidecar.start_failure = {}
+		CWKernelSidecar.shutdown_idle_links()
 	a.dispose()
 	b.dispose()
 	srv.stop()
@@ -27160,32 +27275,3 @@ func t_cascade_purify_order() -> void:
 	sk.clear()
 	root.remove_child(sk)
 	sk.free()
-
-
-## 日志面板 / 迷你日志的折行缓存（10-01 复核查出、早就有的毛病）：先折 [已折, 新末条) 再摘「>= 新末条」的行 ——
-## 上一帧折进去的旧末条留着又折一遍，面板开着时日志每长一次上一行就重复一遍。改成先摘「>= 已折」再接着折
-func t_log_rows_rebuild() -> void:
-	print("[日志面板 / 迷你日志：不重复折末条]")
-	var lp := CWLogPanel.new()
-	root.add_child(lp)
-	var chip := CWLogHint.new()
-	root.add_child(chip)
-	await process_frame
-	var st := CWLogStore.new()
-	for i in 4:
-		st.apply({ "index": i, "text": "L%d" % i, "secret_pid": -1, "public_text": "L%d" % i })
-	lp._rebuild_rows(st)
-	for i in range(4, 6):
-		st.apply({ "index": i, "text": "L%d" % i, "secret_pid": -1, "public_text": "L%d" % i })
-	lp._rebuild_rows(st)
-	check(Array(lp._rows) == ["L0", "L1", "L2", "L3", "L4", "L5"], "日志长了两行再折：一行都不重复（%s）" % str(lp._rows))
-	## 末条就地改写（连续的【定殖】合并成一条）照旧每帧重折、不重复
-	st.apply({ "index": 5, "text": "L5′", "secret_pid": -1, "public_text": "L5′" })
-	lp._rebuild_rows(st)
-	check(Array(lp._rows) == ["L0", "L1", "L2", "L3", "L4", "L5′"], "末条就地改写：重折那一条、不多不少（%s）" % str(lp._rows))
-	chip.refresh(st, lp)
-	st.apply({ "index": 6, "text": "L6", "secret_pid": -1, "public_text": "L6" })
-	chip.refresh(st, lp)
-	check(Array(chip._cache) == ["L0", "L1", "L2", "L3", "L4", "L5′", "L6"], "迷你日志同款：不重复（%s）" % str(chip._cache))
-	lp.free()
-	chip.free()

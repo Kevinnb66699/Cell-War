@@ -114,10 +114,11 @@ func request(op: String, args := {}) -> Dictionary:
 		return {}
 	var id := _next_id
 	_next_id += 1
-	## id 排第一：报文坏到 sidecar 解析不了时，它从行首把号捞回来照样回（Program.Serve），这边不至于干等 5 秒
+	## id 排第一：报文坏到 sidecar 解析不了时，它从行首把号捞回来照样回（Program.Serve），这边不至于干等 5 秒。
+	## JSON.stringify 缺省按键排序（"args" / "ask_id" 会排到 "id" 前面）—— 第三个参数 false 才照插入的次序写（10-01 三轮复核）
 	var msg := { "id": id, "op": op }
 	msg.merge(args)
-	if _peer.put_data((JSON.stringify(msg) + "\n").to_utf8_buffer()) != OK:
+	if _peer.put_data((JSON.stringify(msg, "", false) + "\n").to_utf8_buffer()) != OK:
 		fault_sid = int(args.get("sid", -1)) if op in RULE_OPS else -1
 		_die(CWKernel.Fault.CRASHED, "写不进 sidecar 连接（%s）" % op)
 		return {}

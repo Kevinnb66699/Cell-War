@@ -147,21 +147,26 @@ func recover(ai_turn: bool) -> int:
 		return Recover.RETRY
 	if _recover_streak > RECOVER_MAX:
 		return Recover.GIVE_UP
-	_next_try_ms = now + RETRY_INTERVAL_MS
 	if kernel != null:
 		kernel.close()
 	var cfg := _cfg.duplicate()
 	cfg["world_state"] = _checkpoint
 	cfg["ai"] = _ai_now()
 	kernel = CWKernelSidecar.new()
-	if not kernel.open(cfg):
+	var opened := kernel.open(cfg)
+	## 下一次最早什么时候试：从**这一次试完**算（握手卡死一次就是 8 秒，从开始算的话下一帧又接着试，10-01 三轮复核）
+	_next_try_ms = Time.get_ticks_msec() + RETRY_INTERVAL_MS
+	if not opened:
 		var f := int(kernel.last_error().get("fault", 0))
 		_error = String(kernel.last_error().get("msg", ""))
 		_broken = "重起开不出新会话：%s" % _error
 		## 检查点被拒（restore 被拒 = PROTOCOL）/ 版本对不上：再试也是同一个结果，别白冻一分钟
 		if f == CWKernel.Fault.PROTOCOL or f == CWKernel.Fault.ABI_MISMATCH or f == CWKernel.Fault.SELFTEST_FAILED:
 			return Recover.GIVE_UP
-		return _retry_or_give_up(now)
+		## 局域网开服（服务器跑在房主的客户端里，链路不限流）：起进程卡住堵的是房主自己的界面，试一次不成就放弃（同 _wants_sidecar 看 start_failure 的口径）
+		if bool(room.server.lan_host) and (f == CWKernel.Fault.HANDSHAKE_TIMEOUT or f == CWKernel.Fault.SPAWN_FAILED or f == CWKernel.Fault.REPLY_TIMEOUT):
+			return Recover.GIVE_UP
+		return _retry_or_give_up()
 	_broken = ""
 	_stale_batches = 0
 	_seen = 0
@@ -170,31 +175,36 @@ func recover(ai_turn: bool) -> int:
 	_log_total = _cp_log_total
 	if _pending_surrender >= 0:
 		kernel.surrender(_pending_surrender)   ## 出事那一下全票通过的投降：新会话上补上，下面这一泵就是终局
-	else:
-		kernel.log_msg("【系统】服务器的规则内核出了故障，已从第 %d 回合的这一步接着打" % round_no)
 	pump()   ## 新会话头一拍 step_end → 每人一份状态；停在真人那一问上就是一条新 ask（换房间新号）
 	if kernel == null:
+		recoveries += 1
 		return Recover.DONE   ## 这一泵就是终局（补上的投降）：房间已经收局、把泵拆了
 	if kernel.state() == CWKernel.State.FAULTED or _broken != "":
 		## 新会话刚开、这一泵里又坏了（进程又没了 / 推状态失败）：还算这一次故障，过一会儿再试，不另记账；
 		## 房间那边别当成功（不发旧号 step_begin、不说「接着打了」）
 		if _broken == "":
 			_broken = "重起之后又坏了：%s" % fault()
-		return _retry_or_give_up(now)
+		return _retry_or_give_up()
+	## 真接上了才插那一行「【系统】」、再给每人推一份状态把它带过去 —— 插在重起那一泵之前的话，
+	## 重试几次客户端就收到几行（10-01 三轮复核）
+	kernel.log_msg("【系统】服务器的规则内核出了故障，已从第 %d 回合的这一步接着打" % round_no)
+	room.push_state(-1)
 	recoveries += 1
 	_retry_since = -1
 	return Recover.DONE
 
 
-func _retry_or_give_up(now: int) -> int:
-	return Recover.GIVE_UP if now - _retry_since > RETRY_GIVE_UP_MS else Recover.RETRY
+func _retry_or_give_up() -> int:
+	return Recover.GIVE_UP if Time.get_ticks_msec() - _retry_since > RETRY_GIVE_UP_MS else Recover.RETRY
 
 
 ## 这一次故障记不记到这一局的账上（见 recover）
+## `_progressed` = 上一份检查点之后这一局往前走过一步、还没存住：坏在推这一步的状态 / 存这一步的检查点上，
+## 多半就是这一步的局面惹的（10-01 三轮复核：save 不在 RULE_OPS 里，存检查点时进程崩了原来谁都不记，无限重起）
 func _blame(ai_turn: bool) -> bool:
 	if kernel == null or kernel.state() != CWKernel.State.FAULTED:
 		return true
-	return kernel.fault_is_mine() or ai_turn
+	return kernel.fault_is_mine() or ai_turn or _progressed
 
 
 ## 重起时这一刻谁归 AI：房间的 AI 席 + 掉线的真人席（掉线 = 整席交给 AI，见 CWRoom._sc_seat_offline；

@@ -30,6 +30,7 @@ var _offset := 0         ## 离底部多少显示行；0 = 跟随最新
 var _rows: Array[String] = []
 var _row_src: Array[int] = []
 var _built := 0
+var _built_rev := -1    ## 上次整卷折行时 store.rev 是几（CWLogStore.rev：已有的行被改写 / 截短过）
 var _thumb: ColorRect
 var _track: ColorRect
 var _visible_n := 0
@@ -195,16 +196,17 @@ func refresh(store: CWLogStore) -> void:
 ## Kevin 2026-09-07），所以它每帧重折；它前面的照旧只折一次。变短了（重开一局、快照回滚）整卷重折。
 func _rebuild_rows(store: CWLogStore) -> void:
 	var key := viewer if filter else -2
-	if store.logs.size() < _built or key != _built_key:
+	if store.logs.size() < _built or key != _built_key or store.rev != _built_rev:
 		_rows.clear()
 		_row_src.clear()
 		_built = 0
 		_built_key = key
+		_built_rev = store.rev
 	var w: float = _lines[0].size.x if not _lines.is_empty() \
 		else RECT.size.x - PAD * 2 - 10
 	var stable: int = maxi(store.logs.size() - 1, 0)
 	## 上一帧折进去的末条（行号 >= _built）先摘掉再接着往下折 —— 原来先折后摘，摘的是 >= 新末条的，
-	## 上一帧的末条留着又折了一遍：面板开着时日志每长一次，上一行就重复一遍（10-01 复核查出）
+	## 上一帧的末条留着又折了一遍：面板开着时日志每长一次，上一行就重复一遍（10-01 三轮复核查出，早就有）
 	while not _row_src.is_empty() and _row_src[_row_src.size() - 1] >= _built:
 		_rows.remove_at(_rows.size() - 1)
 		_row_src.remove_at(_row_src.size() - 1)
