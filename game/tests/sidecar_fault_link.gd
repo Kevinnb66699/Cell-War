@@ -14,6 +14,9 @@ var fail_broken := false
 var arm_on := ""
 var fail_repeat := false               ## true = 断完不撤，每次上膛都再断
 var _armed := false
+## 更多规则（10-01 二轮复核加）：每条 {op, args?（子集相等才算）, skip?, after?（先见过这种报文才生效）, reply?（回这一条；没有 = 断链路）, repeat?}
+var rules: Array = []
+var _seen_ops := {}
 
 
 ## 起一条真链路、登记成这份产物的共用链路。之前同一份产物要是还有一条闲着的，先关掉（不然 acquire 会复用那一条）
@@ -32,6 +35,22 @@ static func install(dotnet_path: String, dll_path: String, op: String, skip := 0
 
 
 func request(op: String, args := {}) -> Dictionary:
+	_seen_ops[op] = true
+	for r: Dictionary in rules.duplicate():
+		if String(r["op"]) != op or (r.has("after") and not _seen_ops.has(String(r["after"]))):
+			continue
+		var want: Dictionary = r.get("args", {})
+		if not want.keys().all(func(k) -> bool: return args.has(k) and args[k] == want[k]):
+			continue
+		if int(r.get("skip", 0)) > 0:
+			r["skip"] = int(r["skip"]) - 1
+			continue
+		if not bool(r.get("repeat", false)):
+			rules.erase(r)
+		if r.has("reply"):
+			return (r["reply"] as Dictionary).duplicate()
+		_die(fail_fault, "测试：在 %s 上断掉" % op)
+		return {}
 	if arm_on != "" and op == arm_on:
 		_armed = true
 	if op == fail_op and (arm_on == "" or _armed):

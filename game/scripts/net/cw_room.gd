@@ -61,6 +61,7 @@ var empty_since := 0            ## members 空了的时刻（ms），0 = 不空
 var games_played := 0
 var timeouts := 0               ## 超时代打次数（统计/测试）
 
+var _sc_env_warned := {}        ## C# 内核路：这一局里已经说过「拿不到观众视角的 envelope」的客户端（一人一局只说一次）
 var _sc_orphan := {}            ## C# 内核路重起时：出事那一刻正问着的那一问（_sc_recover 摘下来暂存；重起后问的若不是他，替他收界面）
 var _ask := {}                  ## 正悬着的真人询问 {pid, ask_id, req, deadline, waiter}（C# 内核路没有 waiter，另有 sidecar_ask / auto，见 _sc_ask）
 var _ask_seq := 0
@@ -497,6 +498,7 @@ func _teardown_game() -> void:
 func _reset_per_game() -> void:
 	_ask = {}
 	_sc_orphan = {}
+	_sc_env_warned.clear()
 	_last_ask.clear()
 	_vote = {}
 	_vote_block = {}   ## 冷却按世界回合算，下一局回合数从头来，留着会误伤
@@ -704,9 +706,13 @@ func _pass_vote() -> void:
 	_vote = {}
 	broadcast({ "t": "surrender_vote", "faction": -1 })   ## 收起票面
 	if pump != null:
-		## 先摘掉悬着的那一问（同下面 GD 路「先定结果再唤醒」的理由）：句柄投降时当场收局，那一问不再收答案，也别让 tick 去代打它
+		## 先摘掉悬着的那一问（同下面 GD 路「先定结果再唤醒」的理由）：句柄投降时当场收局，那一问不再收答案，也别让 tick 去代打它。
+		## 没收成局（sidecar 坏着 / 拒了，泵记下了投降、下一帧重起时补上）就把它挂回去：重起记账要知道出事时在等真人
+		var a := _ask
 		_ask = {}
 		pump.surrender(faction)
+		if pump != null and pump.fault() != "" and _ask.is_empty():
+			_ask = a
 		return
 	game.surrender(faction)
 	if not _ask.is_empty():
@@ -805,7 +811,7 @@ func query(cid: int, msg: Dictionary) -> String:
 ## 而服务器是**单线程**权威 —— 一份手捏的报文让它报错就是整局的事。
 ## 这里只保证「键齐、类型对」；值合不合法（格子存不存在之类）仍由 game.actions 自己判。
 func _query_args_ok(kind: String, args: Dictionary) -> bool:
-	if typeof(args.get("cid")) != TYPE_INT:
+	if typeof(args.get("cid")) != TYPE_INT or not _plain_value_ok(args, 0):
 		return false
 	match kind:
 		"plan_next_dests":
@@ -816,6 +822,35 @@ func _query_args_ok(kind: String, args: Dictionary) -> bool:
 			return args.get("act") is String or args.get("acts") is Array
 		"move_block_reason":
 			return args.get("to") is Vector2i
+	return false
+
+
+## 客户端发来的查询参数整个过一遍：数字有限（inf / nan 拼成 JSON 是坏报文）、嵌套不深、数组 / 字符串不长 ——
+## C# 内核路上这份参数原样转给 sidecar，坏到它解析不了时以前那一条没有回应、服务器干等 5 秒判卡死、杀掉全服共用的进程（10-01 二轮复核）
+static func _plain_value_ok(v: Variant, depth: int) -> bool:
+	if depth > 4:
+		return false
+	match typeof(v):
+		TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_VECTOR2I:
+			return true
+		TYPE_FLOAT:
+			return is_finite(v)
+		TYPE_STRING, TYPE_STRING_NAME:
+			return String(v).length() <= 64
+		TYPE_ARRAY:
+			if (v as Array).size() > 64:
+				return false
+			for x in v:
+				if not _plain_value_ok(x, depth + 1):
+					return false
+			return true
+		TYPE_DICTIONARY:
+			if (v as Dictionary).size() > 16:
+				return false
+			for k in v:
+				if not (k is String) or not _plain_value_ok(v[k], depth + 1):
+					return false
+			return true
 	return false
 
 
@@ -932,10 +967,14 @@ func _sc_seat_offline(pid: int) -> void:
 ## 房间这边就不再等它（摘掉 `_ask`，计时也不再盯它）；AI 答下时的 step_begin 带的还是那一问的号，
 ## 泵按 `_room_ids` 换成房间给他的号广播出去 —— 客户端据此收掉还挂着的界面（issue #44）
 func _sc_hand_to_ai(pid: int, once: bool) -> void:
+	var a := _ask
 	if not _ask.is_empty() and int(_ask["pid"]) == pid:
 		_ask = {}
 	pump.takeovers += 1
 	if not pump.set_ai(pid, NetPump.TAKEOVER_TIER, once):
+		## 换手没成（多半是进程已经没了）：这一问挂回去再报坏 —— 下一帧重起记账要知道出事时在等真人（同 _sc_submit）
+		if _ask.is_empty():
+			_ask = a
 		_sc_fault("sidecar 不收换手（席位 %d）" % pid)
 
 
@@ -989,8 +1028,13 @@ func _sc_push_state_to(cid: int, ready_env: Dictionary = {}) -> void:
 	var env: Dictionary = ready_env if not ready_env.is_empty() \
 		else pump.envelope(pid_of_client(cid), int(_log_cursor.get(cid, 0)))
 	if env.is_empty():
-		## 句柄刚坏，或 sidecar 给不出这一份 envelope（observe 出错）：别发半截报文；报坏，下一帧的 tick 从检查点重起（重起不了才中止）
-		_sc_fault("拿不到 envelope（客户端 %d）" % cid)
+		## 句柄刚坏，或 sidecar 给不出这一份 envelope（observe 出错）：别发半截报文。玩家那一份拿不到 = 这一局没法往下推，
+		## 报坏、下一帧从检查点重起；**只是观众那一份**拿不到就跳过（10-01 二轮复核：别为观众视角的毛病把两个玩家的局重起到放弃）
+		if pid_of_client(cid) >= 0:
+			_sc_fault("拿不到 envelope（席位 %d）" % pid_of_client(cid))
+		elif not _sc_env_warned.has(cid):
+			_sc_env_warned[cid] = true
+			push_warning("CWRoom %s：拿不到观众视角的 envelope（客户端 %d），这一局里给他的状态先不发" % [code, cid])
 		return
 	var elogs: Dictionary = env["logs"]
 	_log_cursor[cid] = int(elogs["from"]) + elogs["lines"].size()

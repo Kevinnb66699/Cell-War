@@ -18,6 +18,8 @@ var _last_drain_check := 0
 
 
 func _initialize() -> void:
+	## 专用服务器才开 sidecar 的起进程限流（cw_sidecar_link.gd 头注）：单线程，每起一次卡住就是全服冻住；桌面 / 局域网开服不开
+	CWKernelSidecar.Link.limits = true
 	var port := CWNet.DEFAULT_PORT
 	var bind := "*"
 	var fps := 30

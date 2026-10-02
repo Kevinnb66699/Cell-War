@@ -178,6 +178,44 @@ public class SidecarHostTests
 
     // ---- 报文层 ----
 
+    /// <summary>换内核 P8 二轮复核（10-01）：解析不了的一行也把请求号带回去 —— Godot 那边按 re 认回应，认不到就干等 5 秒、判卡死、
+    /// 杀掉全服共用的进程（观众发来的 query 里有 inf / 嵌套太深就是这样）。号从行首的 `"id":数字` 捞（Godot 的请求 id 排第一）</summary>
+    [Fact]
+    public async Task 解析不了的一行_回应照样带请求号_连接接着能用()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var serve = Task.Run(() =>
+        {
+            using var c = new TcpClient();
+            c.Connect(IPAddress.Loopback, port);
+            Program.Serve(c.GetStream(), "tok");
+        });
+        using var server = await listener.AcceptTcpClientAsync();
+        listener.Stop();
+        var stream = server.GetStream();
+        var reader = new StreamReader(stream, new UTF8Encoding(false));
+        var writer = new StreamWriter(stream, new UTF8Encoding(false)) { NewLine = "\n", AutoFlush = true };
+        await reader.ReadLineAsync();   // hello
+
+        await writer.WriteLineAsync("{\"id\":7,\"op\":\"query\",\"args\":{\"x\":inf}}");
+        var bad = JsonNode.Parse((await reader.ReadLineAsync())!)!.AsObject();
+        Assert.False(J.Bool(bad["ok"]));
+        Assert.Equal(7, J.Int(bad["re"]));
+        var deep = "{\"id\":8,\"op\":\"query\",\"args\":" + new string('[', 80) + new string(']', 80) + "}";
+        await writer.WriteLineAsync(deep);
+        var bad2 = JsonNode.Parse((await reader.ReadLineAsync())!)!.AsObject();
+        Assert.Equal(8, J.Int(bad2["re"]));
+
+        await writer.WriteLineAsync(new JsonObject { ["id"] = 9, ["op"] = "ping" }.ToJsonString());
+        var ok = JsonNode.Parse((await reader.ReadLineAsync())!)!.AsObject();
+        Assert.True(J.Bool(ok["ok"]));
+        Assert.Equal(9, J.Int(ok["re"]));
+        server.Close();
+        await serve;
+    }
+
     [Fact]
     public async Task 回环连接_hello带回token_open_pull_answer_close往返()
     {

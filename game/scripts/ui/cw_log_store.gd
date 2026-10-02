@@ -42,6 +42,17 @@ func reset_from(from: int, lines: Array) -> void:
 		apply({ "index": from + i, "text": String(lines[i]), "secret_pid": -1, "public_text": String(lines[i]) })
 
 
+## 联机 sync 的日志段：服务器给的是**从 from 到日志末尾**的整段，所以灌完之后比它长的部分都是作废的 ——
+## 服务器的 C# 内核从检查点重起、回退了一步时，被撤掉的那一步的几行还留在这儿，会盖住重起后插的那一行「【系统】」（10-01 二轮复核）
+func replace_tail(from: int, lines: Array) -> void:
+	reset_from(from, lines)
+	var n := from + lines.size()
+	if logs.size() > n:
+		logs.resize(n)
+		log_secret.resize(n)
+		log_public.resize(n)
+
+
 func clear() -> void:
 	logs = PackedStringArray()
 	log_secret = PackedInt32Array()

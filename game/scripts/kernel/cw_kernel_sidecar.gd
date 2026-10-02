@@ -537,10 +537,11 @@ func _tick() -> void:
 		## 链路自己记过故障就照它的种类：同一条链路上别的句柄等满了 5 秒（REPLY_TIMEOUT）、链路随即收掉进程，
 		## 这里只是晚一帧看见 —— 改记成 CRASHED 的话，通知就从「没有响应」变成了「意外退出了」（10-01 三轮复核）。
 		## 链路还没记过（这一帧才发现进程不在了）才是 CRASHED
-		if int(_link.fault) != 0:
-			_link_fault(int(_link.fault), String(_link.fault_msg))
-		else:
-			_link_fault(Fault.CRASHED, "sidecar 进程退出了（退出码 %d）" % OS.get_process_exit_code(_pid))
+		if int(_link.fault) == 0:
+			## 这一帧才发现进程不在了：让链路自己记一笔（进「一分钟死几次」的账、从共用表里摘掉），别的句柄下一帧照它的种类记
+			_link._die(Fault.CRASHED, "sidecar 进程退出了（退出码 %d）" % OS.get_process_exit_code(_pid))
+		_fault_mine = false
+		_link_fault(int(_link.fault), String(_link.fault_msg))
 		return
 	_pump()
 

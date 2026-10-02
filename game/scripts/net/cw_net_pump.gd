@@ -57,7 +57,8 @@ var _error := ""
 ## 崩溃重起（见文件头）
 enum Recover { DONE, RETRY, GIVE_UP }
 const RECOVER_MAX := 3           ## 记了账的重起连着几次、中间一步都没走成（存住）就放弃
-const RETRY_GIVE_UP_MS := 60000  ## 新会话开不出来就隔帧再试，从第一次失败起最多这么久
+const RETRY_GIVE_UP_MS := 60000  ## 新会话开不出来就再试，从第一次失败起最多这么久
+const RETRY_INTERVAL_MS := 1000  ## 两次重试之间至少隔这么久（每帧都起一遍进程 = 全服跟着卡）
 const STALE_WARN := 20           ## 连着这么多批条目都没存住检查点就在服务器日志里说一声
 var recoveries := 0              ## 这一局重起过几次（统计与测试用）
 var _cfg := {}                   ## open 时的 cfg（重起时 factions / seed / names / open_hands / cancer_types 照给，ai 现算）
@@ -68,6 +69,7 @@ var _log_total := 0              ## 这一局的日志一共几行（最近一�
 var _recover_streak := 0         ## 记了账的重起连着几次了（往前走了一步、而且存住了才清零）
 var _progressed := false         ## 上一份检查点之后收下过答案 / AI 交过一步：下一份检查点存住时把 _recover_streak 清零
 var _retry_since := -1           ## 这一次故障第一次 recover 的时刻（ms）；-1 = 没在重起
+var _next_try_ms := 0            ## 这一次故障下一回最早什么时候再试
 var _broken := ""                ## 房间判定的故障（答案 / 换手被拒、拿不到 envelope）或重起还没成：句柄自己没坏也当坏了
 var _pending_surrender := -1     ## 出事那一下全票通过的投降（阵营）：重起时在新会话上补上
 var _stale_batches := 0          ## 连着几批条目没存住检查点
@@ -135,13 +137,17 @@ func checkpoint_log_total() -> int:
 func recover(ai_turn: bool) -> int:
 	if room == null or _checkpoint.is_empty():
 		return Recover.GIVE_UP
+	var now := Time.get_ticks_msec()
 	if _retry_since < 0:
-		_retry_since = Time.get_ticks_msec()
+		_retry_since = now
 		if _blame(ai_turn):
 			_recover_streak += 1
 		_progressed = false
+	elif now < _next_try_ms:
+		return Recover.RETRY
 	if _recover_streak > RECOVER_MAX:
 		return Recover.GIVE_UP
+	_next_try_ms = now + RETRY_INTERVAL_MS
 	if kernel != null:
 		kernel.close()
 	var cfg := _cfg.duplicate()
@@ -149,13 +155,14 @@ func recover(ai_turn: bool) -> int:
 	cfg["ai"] = _ai_now()
 	kernel = CWKernelSidecar.new()
 	if not kernel.open(cfg):
+		var f := int(kernel.last_error().get("fault", 0))
 		_error = String(kernel.last_error().get("msg", ""))
-		if _broken == "":
-			_broken = "重起开不出新会话：%s" % _error
-		return Recover.GIVE_UP if Time.get_ticks_msec() - _retry_since > RETRY_GIVE_UP_MS else Recover.RETRY
-	recoveries += 1
+		_broken = "重起开不出新会话：%s" % _error
+		## 检查点被拒（restore 被拒 = PROTOCOL）/ 版本对不上：再试也是同一个结果，别白冻一分钟
+		if f == CWKernel.Fault.PROTOCOL or f == CWKernel.Fault.ABI_MISMATCH or f == CWKernel.Fault.SELFTEST_FAILED:
+			return Recover.GIVE_UP
+		return _retry_or_give_up(now)
 	_broken = ""
-	_retry_since = -1
 	_stale_batches = 0
 	_seen = 0
 	_room_ids.clear()
@@ -166,7 +173,21 @@ func recover(ai_turn: bool) -> int:
 	else:
 		kernel.log_msg("【系统】服务器的规则内核出了故障，已从第 %d 回合的这一步接着打" % round_no)
 	pump()   ## 新会话头一拍 step_end → 每人一份状态；停在真人那一问上就是一条新 ask（换房间新号）
+	if kernel == null:
+		return Recover.DONE   ## 这一泵就是终局（补上的投降）：房间已经收局、把泵拆了
+	if kernel.state() == CWKernel.State.FAULTED or _broken != "":
+		## 新会话刚开、这一泵里又坏了（进程又没了 / 推状态失败）：还算这一次故障，过一会儿再试，不另记账；
+		## 房间那边别当成功（不发旧号 step_begin、不说「接着打了」）
+		if _broken == "":
+			_broken = "重起之后又坏了：%s" % fault()
+		return _retry_or_give_up(now)
+	recoveries += 1
+	_retry_since = -1
 	return Recover.DONE
+
+
+func _retry_or_give_up(now: int) -> int:
+	return Recover.GIVE_UP if now - _retry_since > RETRY_GIVE_UP_MS else Recover.RETRY
 
 
 ## 这一次故障记不记到这一局的账上（见 recover）
@@ -270,6 +291,10 @@ func surrender(faction: int) -> void:
 		return
 	kernel.surrender(faction)
 	pump()
+	## 收了局房间就把泵拆了（kernel 成了 null）。还在、句柄也没坏 = sidecar 没收这次投降（普通拒绝）：
+	## 不报的话房间这时没有悬着的问、也没有计时，一局就这么停住了 —— 当坏了处理，重起时在新会话上补上
+	if kernel != null and fault() == "":
+		mark_broken("投降没收局（sidecar 拒了投降）")
 
 
 func query(kind: String, args: Dictionary) -> Variant:

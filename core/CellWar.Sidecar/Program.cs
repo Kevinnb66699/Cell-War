@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace CellWar.Sidecar;
 
@@ -84,6 +85,10 @@ public static class Program
             catch (JsonException ex)
             {
                 reply = new JsonObject { ["ok"] = false, ["error"] = $"坏 JSON：{ex.Message}" };
+                // 解析不了也要把号带回去：Godot 那边按 re 认回应，认不到就干等 5 秒、判卡死、杀进程 ——
+                // 服务器上一个进程扛所有房间，一条坏报文（观众发来的 query 里有 inf / 嵌套太深）就能把全服的 C# 局带走（10-01 复核）
+                if (IdField.Match(line) is { Success: true } m && long.TryParse(m.Groups[1].Value, out var rid))
+                    reply["re"] = rid;
             }
             Write(writer, reply);
         }
@@ -94,6 +99,9 @@ public static class Program
         w.WriteLine(msg.ToJsonString(Wire));
         w.Flush();
     }
+
+    /// <summary>坏报文里捞请求号（只认报文开头那个 `"id":数字`，Godot 那边的请求都是这么拼的）。</summary>
+    private static readonly Regex IdField = new(@"^\{\s*""id""\s*:\s*(-?\d+)", RegexOptions.CultureInvariant);
 
     /// <summary>中文不转义（GD 的 JSON.parse_string 吃得下，日志里也好读）。</summary>
     internal static readonly JsonSerializerOptions Wire = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };

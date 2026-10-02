@@ -2205,7 +2205,7 @@ func _on_sync(envelope: Dictionary) -> void:
 		if no != _game_no:
 			_game_no = no
 			log_store.clear()
-		log_store.reset_from(int(m.logs.get("from", 0)), Array(m.logs.get("lines", [])))
+		log_store.replace_tail(int(m.logs.get("from", 0)), Array(m.logs.get("lines", [])))   ## 整段到末尾：比它长的是重起撤掉的那一步
 
 
 func _adopt_mirror(m: CWMirror) -> void:
