@@ -15,30 +15,36 @@ extends RefCounted
 ## 用途边界：只喂**启发式评分**（候选排序 / 威胁度量）。要进叶估值必须先过数据拟合
 ## （项目纪律：eval 系数不许手拍）。
 
-## 决策内缓存：场只依赖「免疫位姿 + 等级 + 回合」（翻面不建模，癌走位不影响免疫场），
-## 同回合内被 evaluate_path / 启发式反复请求——不缓存的话每次评估都全盘 Dijkstra（实测 14s→49s）。
-## 键含免疫逐只位姿：免疫在自己阶段走位后自动失配重算。确定性：场是状态纯函数，缓存不改变决策。
+## 决策内缓存：同回合内被 evaluate_path / 启发式反复请求——不缓存的话每次评估都全盘 Dijkstra（实测 14s→49s）。
+## 键 = 场读到的**全部输入**：免疫逐只位姿 + 本局旋钮下的两档单价 + 棋盘半径 + 癌性格集合。
+## 键一样 ⇒ 场一样，所以缓存跨局共享也不会读错，命中与现算逐位相同。
+## （2026-10-01 前键只有「回合 + 等级 + 免疫位姿」：意图试走【定殖】翻了面、换一局、换旋钮都会读到旧场，
+##  首个癌方决策 33 个候选里 25 个的 actor_immune_reach_cost 是错的。护栏 t_mech_dist_cache。）
 static var _ck := ""
 static var _cf: Dictionary = {}
-## AI 对拍模式（换内核 P3）：不读也不写上面的缓存 —— 键里没有组织状态，同回合内被定殖翻面的格会读到旧场；
-## 而且是跨局共享的静态量。C# 侧每次现算，GD 参照在对拍模式下同样现算。默认关，线上照旧走缓存。
+## AI 对拍模式（换内核 P3）：不读也不写上面的缓存，C# 侧每次现算，GD 参照在对拍模式下同样现算。
+## 缓存键补全以后两条路结果相同，这个旁路留着只是让对拍语料的录制条件不变。默认关，线上走缓存。
 const AGREE := preload("res://scripts/ai/agree_rng.gd")
 
 ## 多源 Dijkstra：免疫方活细胞到全盘每格的**最小迁移能量成本**（十分位）。
 ## 返回 { Vector2i: cost }；免疫全灭返回 {}（调用方按「够不着」处理）。
 static func immune_reach_field(g: CWGame) -> Dictionary:
-	var key: String = "%d|%d|" % [g.round_no, g.immune_level]
-	for c in g.living_cells(CWData.Faction.IMMUNE):
-		key += str(c["pos"]) + ";"
-	var cached: bool = not AGREE.on
-	if cached and key == _ck:
-		return _cf
 	var sources: Array = g.living_cells(CWData.Faction.IMMUNE)
-	if sources.is_empty():
-		return {}
 	var lv: int = g.immune_level
 	var healthy: int = int(g.tune.immune_move_healthy[lv])
 	var cancerous: int = int(g.tune.immune_move_cancerous[lv])
+	var key: String = "%d|%d|%d|" % [g.board_radius, healthy, cancerous]
+	for c in sources:
+		key += str(c["pos"]) + ";"
+	key += "|"
+	for p: Vector2i in g.tiles:
+		if g.is_cancerous(p):
+			key += "%d,%d;" % [p.x, p.y]
+	var cached: bool = not AGREE.on
+	if cached and key == _ck:
+		return _cf
+	if sources.is_empty():
+		return {}
 	## Dial 桶队列：边权 ≥2、单格上限 ~14 → 成本有界（≤ 格数×14），按成本分桶递增处理，
 	## 免掉线性取最小的 O(F²)（实测它就是 14s→24s 的差额）。
 	var dist: Dictionary = {}

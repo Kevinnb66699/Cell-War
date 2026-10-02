@@ -15,8 +15,8 @@ const MAX_STEPS := 48
 
 
 static func run_mixed() -> Dictionary:
-	## mech_dist 的距离场缓存是跨局共享的静态量（键里没有组织状态）：同一进程里先跑过的局会留下一份，
-	## 撞上同一个键就读到别人的场。清掉再跑，基线与测试才是同一个起点
+	## mech_dist 的距离场缓存是跨局共享的静态量。录基线时键里还没有组织状态，同一进程里先跑过的局留下的场会被读错；
+	## 2026-10-01 键补全后缓存内容不再影响结果，清空只是让基线与测试从同一个起点出发
 	var dist: GDScript = load("res://scripts/ai/mech/mech_dist.gd")
 	dist._ck = ""
 	var g := CWGame.new()

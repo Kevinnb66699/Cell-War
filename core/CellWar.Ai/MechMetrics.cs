@@ -143,7 +143,7 @@ public sealed record MechMetrics
     /// GD <c>mech_dist.gd:immune_reach_field</c> 在 <paramref name="target"/> 这一格的值：免疫方活细胞走到这里的最小迁移能量（多源 Dijkstra，十分能量）。
     /// 进格单价 = 目标格癌性 ? <c>immune_move_cancerous[等级]</c> : <c>immune_move_healthy[等级]</c>（简化同 GD：不建模走动中的翻面与费用修饰）。
     /// GD 算整张场、只读这一格；这里出队到目标就停（最短路的值相同，省掉剩下的半张盘）。够不着 / 免疫全灭 = 9999（GD 的缺省）。
-    /// GD 线上版还有一层静态缓存，键里没有组织状态（同回合被定殖翻面的格会读旧场）且跨局共享 —— 那是脏读，C# 不搬，每次现算；
+    /// GD 线上版还有一层跨局共享的静态缓存（2026-10-01 前键里没有组织状态，同回合被定殖翻面的格会读旧场；已补全键），C# 不搬，每次现算；
     /// GD 参照在对拍模式下同样不走缓存。
     /// </summary>
     internal static int ImmuneReachCost(AiView g, HexPosition target)

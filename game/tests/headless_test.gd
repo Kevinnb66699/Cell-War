@@ -51,7 +51,7 @@ const WEIGHTS := {
 	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_net_sidecar_ui": 0.6, "t_entry_smoke_sidecar": 1.2, "t_entry_smoke_sidecar_ai": 1.5, "t_sidecar_locator": 1.2, "t_kernel_sidecar_ai": 3.0, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
 	"t_net_lobby": 1.0, "t_hotseat": 0.9, "t_pause_and_teardown": 0.9, "t_board_active_tiles": 0.8,
 	"t_eval_features": 0.8, "t_teleport_fx": 0.8, "t_play_queue": 0.7, "t_opening": 0.6,
-	"t_ai_agree_default_off": 6.0, "t_ai_same_hash_heur6": 0.6, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
+	"t_ai_agree_default_off": 6.0, "t_mech_dist_cache": 1.0, "t_ai_same_hash_heur6": 0.6, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
 	"t_hover_info": 0.4, "t_no_engine_in_ui": 0.4, "t_determinism": 0.4, "t_net_resume": 0.4,
 	"t_teardown_board": 0.4, "t_human_ask": 0.4, "t_net_surrender": 0.4, "t_online_panel": 0.4,
 	"t_tutorial_opening": 0.4, "t_ai_mcts": 0.4, "t_entry_smoke_replay": 0.3, "t_match_online": 0.3,
@@ -191,7 +191,7 @@ func _run_all() -> void:
 		t_entry_smoke_replay, t_entry_smoke_online,
 		t_kernel_parity, t_no_engine_in_ui, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_kernel_loader_moved, t_board_active_tiles,
 		## 换内核 P3：AI 对拍模式默认关（线上三档行为一行不变）+ 对拍随机流金值 / 规范选项序
-		t_ai_agree_default_off, t_ai_agree_rng,
+		t_ai_agree_default_off, t_ai_agree_rng, t_mech_dist_cache,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
 		t_rec_depth,
 		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
@@ -21671,6 +21671,73 @@ func t_ai_agree_rng() -> void:
 		"规范序：停在前、按键排、同键只留第一条（%s）" % str(keys))
 	check(view["map"] == [1, 2, 0], "规范下标映射回原下标（%s）" % str(view["map"]))
 	check(not AI_AGREE.on, "这条测试没把对拍模式留在开着")
+
+
+## 能量距离场缓存（mech_dist.gd）读到的必须是当前局面的场（2026-10-01）：原来键只有「回合 + 等级 + 免疫位姿」、
+## 又是跨局共享的静态量 ⇒ 意图试走【定殖】翻了面、换一局、换旋钮都读到旧场（首个癌方决策 33 个候选里 25 个读数是错的）。
+## 判据：缓存路径与现算（对拍模式的旁路，不读不写缓存）逐格相同；局面没变时仍命中缓存（同一个字典对象）。
+func t_mech_dist_cache() -> void:
+	print("[AI·能量距离场缓存：翻面 / 跨局 / 换旋钮都不读旧场]")
+	var dist: GDScript = load("res://scripts/ai/mech/mech_dist.gd")
+	var fresh := func(x: CWGame) -> Dictionary:
+		AI_AGREE.on = true
+		var f: Dictionary = dist.immune_reach_field(x)
+		AI_AGREE.on = false
+		return f
+	dist._ck = ""
+	var g := make_game(4, 7)
+	await run_setup(g)
+	var f1: Dictionary = dist.immune_reach_field(g)
+	check(not f1.is_empty() and f1 == fresh.call(g), "开局：缓存路径与现算相同（%d 格）" % f1.size())
+	check(is_same(dist.immune_reach_field(g), f1), "局面没变：第二次直接命中缓存（同一个字典）")
+	## ① 同局同回合、免疫一步没动，把免疫身边的健康地翻成癌（= 意图试走里的【定殖】）
+	var im: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[0]
+	var flipped := 0
+	for n in g.neighbors(im["pos"]):
+		if g.tiles[n]["tissue"] == CWData.Tissue.HEALTHY:
+			g.tiles[n]["tissue"] = CWData.Tissue.CANCER
+			flipped += 1
+	var f2: Dictionary = dist.immune_reach_field(g)
+	check(flipped > 0 and f2 == fresh.call(g) and f2 != f1,
+		"免疫身边翻了 %d 格癌：读到的是新场，不是翻面前那份" % flipped)
+	## ② 跨局：另一种子的局，回合 / 等级 / 免疫位姿都一样（旧键撞车），组织不一样
+	var ga := make_game(4, 11)
+	await run_setup(ga)
+	var gb := make_game(4, 12)
+	await run_setup(gb)
+	dist.immune_reach_field(ga)
+	var fb: Dictionary = dist.immune_reach_field(gb)
+	check(fb == fresh.call(gb) and fb != fresh.call(ga), "同一进程第二局读到的是自己的场，不是上一局留下的")
+	## ③ 同盘面、本局旋钮不同（单价进了键）
+	var gc := make_game(4, 11)
+	await run_setup(gc)
+	gc.tune.immune_move_healthy[gc.immune_level] = int(gc.tune.immune_move_healthy[gc.immune_level]) + 5
+	dist.immune_reach_field(ga)
+	var fc: Dictionary = dist.immune_reach_field(gc)
+	check(fc == fresh.call(gc) and fc != fresh.call(ga), "盘面一样、免疫迁移单价不一样：读到的是本局旋钮下的场")
+	## ④ 真路径：意图档一问里逐个候选试走（先评估「不动」基线，后面的试走都会【定殖】翻面）
+	var req: Dictionary = {}
+	while true:
+		req = await g.pending()
+		if req.is_empty() or (req["kind"] == "action"
+				and int(g.player(int(req["pid"]))["faction"]) == CWData.Faction.CANCER):
+			break
+		await g.step(await g.ask(int(req["pid"]), req))
+	check(not req.is_empty(), "推进到了癌方的行动决策点")
+	var pid: int = int(req["pid"])
+	var mi := MechIntent.new()
+	var evals: Array = await mi.evaluate_candidates(g, pid)
+	var stale := 0
+	for e in evals:
+		dist._ck = ""
+		var ref: Dictionary = await mi.evaluate_path(g, pid, e["path"])
+		if int(e["metrics"]["actor_immune_reach_cost"]) != int(ref["actor_immune_reach_cost"]):
+			stale += 1
+	check(evals.size() > 1 and stale == 0,
+		"意图候选逐个试走：actor_immune_reach_cost 与清空缓存后单独现算一致（%d / %d 个不一致）" % [stale, evals.size()])
+	check(not AI_AGREE.on, "这条测试没把对拍模式留在开着")
+	for x in [g, ga, gb, gc]:
+		x.dispose()
 
 
 func t_mech_bridge_quiet() -> void:
