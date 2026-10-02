@@ -87,7 +87,8 @@ func open() -> void:
 func close() -> void:
 	_open = false
 	_panel.visible = false
-	_line.release_focus()
+	if _line.is_inside_tree():
+		_line.release_focus()   ## 拆局时（CWMatch._exit_tree → close）已经出树了：不判会报一条引擎 ERROR（10-02 验收驱动抓到的）
 	_repaint()
 
 
