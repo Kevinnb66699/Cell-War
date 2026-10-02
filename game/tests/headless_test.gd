@@ -199,7 +199,7 @@ func _run_all() -> void:
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial, t_settings_button,
 		t_entry_smoke_replay, t_entry_smoke_online,
-		t_kernel_parity, t_no_engine_in_ui, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_ai_delay_detached, t_kernel_loader_moved, t_board_active_tiles,
+		t_kernel_parity, t_no_engine_in_ui, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_ai_delay_detached, t_ai_think_detached, t_kernel_loader_moved, t_board_active_tiles,
 		## 换内核 P3：AI 对拍模式默认关（线上三档行为一行不变）+ 对拍随机流金值 / 规范选项序
 		t_ai_agree_default_off, t_ai_agree_rng, t_mech_dist_cache,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
@@ -22602,6 +22602,47 @@ func t_ai_delay_detached() -> void:
 	await create_timer(0.15).timeout
 	check(got[0] == 0, "停顿期间引擎被摘掉：这一问不答就回 0（拿到 %s）" % str(got[0]))
 	holder.free()
+
+
+## 意图 / 搜索档**想的时候**对局被关掉：use_threading 下搜索协作让帧、一问跨好几帧，kernel.close() 在这期间把引擎摘成 null；
+## 想完不该再去读引擎（MechBridge.ask 里 `await _pick_sync` 之后）。10-01 全量偶发的那条「MechBridge.ask (heuristic_bridge.gd:75)」
+## 走的是这条 —— 那支测试 ai_delay_ms = 0，停顿守卫（t_ai_delay_detached）根本走不到。服务器专家档（CWNetBridge.mc）也是 MechBridge。
+## 同样**红在 run_tests.sh 的 SCRIPT ERROR 闸上**：check 只验竞争窗口真的出现了（搜索让过帧），分不出有没有报错
+func t_ai_think_detached() -> void:
+	print("[AI 搜索想到一半对局被关：想完不读空引擎]")
+	var g := make_game(4, 77)
+	var cp := -1
+	for pid in g.order:
+		if int(g.player(pid)["faction"]) == CWData.Faction.CANCER:
+			cp = pid
+			break
+	var mb := MechBridge.new()
+	mb.game = g
+	mb.delay_ms = 0
+	mb.use_search = true
+	mb.use_fit_eval = true
+	mb.use_threading = true   ## 协作让帧：搜索超过 24 ms 就让一帧 —— 竞争窗口就在这儿
+	g.bridges[cp] = mb
+	await run_setup(g)
+	var req: Dictionary = {}
+	while true:
+		req = await g.pending()
+		if req.is_empty() or (req["kind"] == "action" and req["pid"] == cp):
+			break
+		await g.step(await g.ask(req["pid"], req))
+	check(not req.is_empty(), "推进到了癌方的行动决策点")
+	var st := { "done": false }   ## lambda 按值抓局部变量，状态放容器里
+	var asker := func() -> void:
+		await mb.ask(req)
+		st["done"] = true
+	asker.call()
+	var yielded: bool = not st["done"]
+	mb.game = null   ## 等同 CWKernelInProc.close() 里的 _attach_engine(d, null)
+	var t0 := Time.get_ticks_msec()
+	while not st["done"] and Time.get_ticks_msec() - t0 < 10000:
+		await process_frame
+	check(yielded and st["done"], "搜索真让过帧（竞争窗口出现了：%s），引擎被摘掉之后这一问也收了尾（%s）" % [str(yielded), str(st["done"])])
+	g.dispose()
 
 
 func t_mech_bridge_quiet() -> void:

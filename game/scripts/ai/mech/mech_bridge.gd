@@ -90,6 +90,10 @@ func ask(req: Dictionary) -> int:
 			"use_threading": use_threading,   ## 方案 A：true=主线程协作让帧
 		}
 		var best: Dictionary = await _pick_sync(game.snapshot(), cfg)
+		## 想的时候（use_threading 协作让帧，一问能跨好几帧）对局被关了：kernel.close() 已把引擎摘成 null，
+		## 这一问的答案没人要了 —— 不答就回，免得往下读空引擎报 SCRIPT ERROR（停顿那条同理，见 heuristic_bridge.gd:ask）
+		if game == null:
+			return 0
 		if use_search and best.has("plan"):
 			## 缓存整回合执行序列（含第一手），本回合后续询问走快路径
 			_plan[_pid] = { "round": game.round_no, "actions": best["plan"], "i": 0 }
