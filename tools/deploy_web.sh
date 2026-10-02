@@ -20,6 +20,10 @@
 #    本身算安全上下文 —— 拿公网 IP 的明文 HTTP 开，引擎直接拒绝启动。
 #    所以线上地址必须是 https://，验证那一步照这个来。
 set -eu
+# macOS 的 tar（bsdtar）会把扩展属性（com.apple.provenance 之类）打成 AppleDouble 的「._文件名」一起塞进包里：
+# 2026-10-01 服务器发版因此多出 795 个 ._*.gd 垃圾、`rmdir next.tmp` 撞上 ._game 退出；网页目录也多了 16 个 ._*。
+# 关掉它（只对 macOS 生效，别的平台不认这个变量）
+export COPYFILE_DISABLE=1
 
 cd "$(dirname "$0")/.."
 GODOT="${GODOT:-/d/Godot/Godot_v4.5-stable_win64.exe/Godot_v4.5-stable_win64_console.exe}"
