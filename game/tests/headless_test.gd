@@ -43,7 +43,7 @@ var _durations: Array = []   ## [毫秒, 测试名]
 const WEIGHTS := {
 	"t_ai_same_hash_mcts4": 78.0, "t_ai_same_hash_mc4": 66.5, "t_ai_same_hash_mc6": 58.8, "t_ai_same_hash_mcts6": 34.9,
 	"t_tutor_done_menu": 30.0, "t_tutor_c3_drive": 22.0, "t_tutor_c3_ui": 22.0, "t_ai_mc": 13.0,
-	"t_tutor_sidecar_chain_c2l5": 50.0, "t_tutor_sidecar_c3_drive": 24.0, "t_tutor_sidecar_c3_ui": 23.0, "t_tutor_sidecar_chain_c1c2": 19.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
+	"t_tutor_sidecar_chain_c2l5": 50.0, "t_tutor_chain_c2l5": 50.0, "t_tutor_sidecar_c3_drive": 24.0, "t_tutor_sidecar_c3_ui": 23.0, "t_tutor_sidecar_chain_c1c2": 19.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_sidecar": 5.6, "t_net_drain": 5.1, "t_net_sidecar_takeover": 5.4,
 	"t_net_sidecar_ai": 11.4, "t_web_solo": 6.3, "t_net_solo": 3.0,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
@@ -227,6 +227,8 @@ func _run_all() -> void:
 		t_tutor_play, t_tutor_interlude,
 		## 换内核 P5（三）：教程跑在 C# 内核上（开发开关 CW_KERNEL=sidecar）
 		t_tutor_sidecar_rng, t_tutor_sidecar_chain_c1c2, t_tutor_sidecar_chain_c2l5, t_tutor_sidecar_c3_drive, t_tutor_sidecar_c3_ui,
+		## 同一条第五关 → 间章链跑在 GD 内核上：死细胞与玩家同格时的重心平移（10-01 修 GD 装载器「一格一细胞」）
+		t_tutor_chain_c2l5,
 	]
 	## 口径 H（Kevin 2026-09-20「好，就这么办」）：护栏⑦「平衡标尺没动」六支**不进全量** —— 规则按 issue 有意改时它必红、每次重录基线，
 	## 分不出有意改还是误改；只在做「本意不改行为」的重构时手动跑前后对比：`-- --ai-baseline`（可再加 --only=…）。
@@ -25075,22 +25077,40 @@ func t_tutor_sidecar_chain_c1c2() -> void:
 	await _tutor_key_close(main_scene, m)
 
 
+## 第五关 → 间章 → 第六关开局，GD 内核：与 sidecar 那一支同一份代码（`_tutor_chain_c2l5_run`），约 50 s。
+## 这一遍专为钉 GD 侧 10-01 修掉的那个 bug：第五关最后一击打死癌细胞、玩家按规则进了那一格 ⇒ 死细胞与玩家同格；
+## GD 装载器原来连死细胞也算进「一格一细胞」，间章分镜 2 的重心平移（dump → 平移 → 装）当场装不回来，
+## 要到分镜 6 翻转才重新开局（这一段盘面与镜头都不对）。`t_tutor_interlude` 不打第五关直接进间章，碰不到这种盘面
+func t_tutor_chain_c2l5() -> void:
+	await _tutor_chain_c2l5_run(false)
+
+
 ## 第五关 → 间章 → 第六关开局，C# 内核。约 50 s。钉：
 ## ① 第五关自由游玩把四只癌细胞清干净；癌细胞挨的骰子全来自带子念完之后的回落流 —— 第一只 5.0 能量的骨肉瘤
 ##    要打 6 下（GD 内核同一条驱动也是 6 下；C# 回落流若不是 Godot 的 PCG32，这个数就变：10-01 换之前是 5）；
 ## ② 间章分镜 2 的重心平移在 sidecar 上走通（`dump_world` → 平移 → 重开）：盘子长到 469 格、11 个器官跟着世界一起搬；
 ## ③ 间章那条三颗的带子 3/3、零 overrun；④ 间章 → 第六关承接活局（桥不换），第六关关首 world 装成 base
+## 两个内核都另钉：平移那一刻玩家脚下躺着第五关最后打死的那只癌细胞（前提），且舞台一次都没报过错
 func t_tutor_sidecar_chain_c2l5() -> void:
-	print("[换内核 P5（三）·第五关 → 间章 → 第六关开局在 C# 内核上一条链：自由游玩 / 重心平移 / 阵营翻转 / 承接]")
-	if not _tutor_sidecar_ready():
-		return
-	OS.set_environment("CW_KERNEL", "sidecar")
+	await _tutor_chain_c2l5_run(true)
+
+
+func _tutor_chain_c2l5_run(sidecar: bool) -> void:
+	var who := "C# 内核" if sidecar else "GD 内核"
+	print("[换内核 P5（三）·第五关 → 间章 → 第六关开局在 %s上一条链：自由游玩 / 重心平移 / 阵营翻转 / 承接]" % who)
+	if sidecar:
+		if not _tutor_sidecar_ready():
+			return
+		OS.set_environment("CW_KERNEL", "sidecar")
 	var opened: Array = await _tutor_key_open("c2_l5")
 	var main_scene: Node = opened[0]
 	var m: CWMatch = opened[1]
-	## 重心平移前后各抓一份：平移前（第五关那份 127 格的盘）玩家站哪、器官在哪；平移后（469 格）器官在哪
-	var seen := { "p": null, "before": [], "after": [] }
+	## 重心平移前后各抓一份：平移前（第五关那份 127 格的盘）玩家站哪、器官在哪、脚下有没有死细胞；平移后（469 格）器官在哪。
+	## 舞台的 `errors` 只活到下一次开局（分镜 6 翻转就清空了），所以逐帧抓第一次非空
+	var seen := { "p": null, "before": [], "after": [], "shared": false, "err": "" }
 	var peek := func(mm: CWMatch) -> void:
+		if mm._stage != null and not mm._stage.errors.is_empty() and str(seen["err"]) == "":
+			seen["err"] = "%s：%s" % [str(mm._tutor_level.get("id", "")), str(mm._stage.errors)]
 		if str(mm._tutor_level.get("id", "")) != "interlude" or mm.mirror == null or str(mm._stage.world_id) != "b":
 			return
 		var organs: Array = []
@@ -25101,6 +25121,10 @@ func t_tutor_sidecar_chain_c2l5() -> void:
 		if mm.mirror.tiles.size() == CWData.all_coords().size():
 			seen["p"] = mm.mirror.cell_of(0)["pos"]
 			seen["before"] = organs
+			seen["shared"] = false
+			for c in mm.mirror.cells:
+				if not bool((c as Dictionary)["alive"]) and (c as Dictionary)["pos"] == seen["p"]:
+					seen["shared"] = true
 		elif (seen["after"] as Array).is_empty() and seen["p"] != null:
 			seen["after"] = organs
 	var bridge_seen: Array = [null]
@@ -25112,23 +25136,28 @@ func t_tutor_sidecar_chain_c2l5() -> void:
 	var r: Dictionary = await _tutor_key_chain(m, stop, 150000, peek)
 	check(str(r["stuck"]) == "" and r["levels"] == ["c2_l5", "interlude", "c3_l6"],
 		"★ 第五关清场 → 间章十个分镜 → 第六关开局，一路不卡（%.1f s；经过 %s；%s）" % [float(r["secs"]), str(r["levels"]), str(r["stuck"])])
-	check(int(r["not_sidecar"]) == 0, "★ 一路（含平移、翻转、承接三次换局）句柄始终是 CWKernelSidecar（不是的帧：%d）" % int(r["not_sidecar"]))
+	if sidecar:
+		check(int(r["not_sidecar"]) == 0, "★ 一路（含平移、翻转、承接三次换局）句柄始终是 CWKernelSidecar（不是的帧：%d）" % int(r["not_sidecar"]))
 	var hits := 0
 	for a in r["answers"]:
 		if str(a) == "c2_l5:k=action|act=move|to=5,-1":
 			hits += 1
-	check(hits == 6, "★ 第五关那只 5.0 能量的骨肉瘤打了 6 下才死 —— 与 GD 内核逐颗同一串回落骰子（实测 %d 下）" % hits)
+	check(hits == 6, "★ 第五关那只 5.0 能量的骨肉瘤打了 6 下才死 —— 两个内核念的是逐颗同一串回落骰子（%s 实测 %d 下）" % [who, hits])
+	check(bool(seen["shared"]),
+		"★ 前提：第五关最后一击打死癌细胞、玩家按规则进了那一格 —— 重心平移那一刻死细胞与玩家同站一格（P = %s）" % str(seen["p"]))
+	check(str(seen["err"]) == "",
+		"★ 死细胞与玩家同格照样平移得过去：一路舞台没报过错（10-01 之前 GD 装载器在这里报「格 (0, 0) 上站了两只细胞」；实测 %s）" % str(seen["err"]))
 	var moved: Array = []
 	if seen["p"] != null:
 		for c in seen["before"]:
 			moved.append((c as Vector2i) - (seen["p"] as Vector2i))
 		moved.sort()
 	check(seen["p"] != null and (seen["before"] as Array).size() == 11 and seen["after"] == moved,
-		"★ 间章重心平移在 sidecar 上走通：盘子长到 469 格，11 个器官整体平移 −P（P = 玩家 %s）、没有一个钉在原地或多出一套（前 %d 个 / 后 %s）"
-			% [str(seen["p"]), (seen["before"] as Array).size(), str(seen["after"])])
+		"★ 间章重心平移在 %s上走通：盘子长到 469 格，11 个器官整体平移 −P（P = 玩家 %s）、没有一个钉在原地或多出一套（前 %d 个 / 后 %s）"
+			% [who, str(seen["p"]), (seen["before"] as Array).size(), str(seen["after"])])
 	var tapes: Dictionary = r["tapes"]
 	check(tapes.get("interlude/act", {}) == { "size": 3, "at": 3, "overrun": 0, "bad_range": 0 },
-		"★ 间章分镜 9 三次攻击的带子在 C# 上双向归零（实测 %s）" % str(tapes.get("interlude/act", {})))
+		"★ 间章分镜 9 三次攻击的带子在 %s上双向归零（实测 %s）" % [who, str(tapes.get("interlude/act", {}))])
 	check(bridge_seen[0] != null and m.bridge == bridge_seen[0],
 		"★ 间章 → 第六关承接活局：桥没换（换局那条路必换桥）")
 	await _tutor_key_close(main_scene, m)

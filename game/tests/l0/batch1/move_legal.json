@@ -357,5 +357,26 @@
     },
     "args": { "cell": "0", "to": "1,0" },
     "expect": 1
+  },
+  {
+    "schema": "cwxcase/2",
+    "id": "move_legal/empty/live_immune_over_dead_cancer",
+    "probe": "move_legal",
+    "covers": [],
+    "source": "cw_world_loader.gd:_load_cells ↔ WorldLoader.Load 的「一格一只**活**细胞」（Kevin 2026-10-01 定 GD 向 C# 对齐）：**死细胞不占格**。盘面照真实对局（教程第五关最后一击 → 间章重心平移那一刻）：免疫（席 0）打死骨肉瘤（席 1）、按规则进了那一格，死的那只躺在脚下。死的那只排在 cells 第一个（id 0）—— 「这一格第一只细胞」式的读法会挑到它；两侧都要装得进，闸二 2b 里两侧 envelope 的 `tiles@0,0.cell` 都是活的那只（id 1）。探针钉同一件事在规则上的读法：席 2 的免疫走进这一格，GD 分支④（`cells_at` 只数活的 ⇒ 没有癌细胞 ⇒ 要求空格，可格上站着活的免疫）↔ C# CommitLegal 的「免疫踩免疫」⇒ 0；把死癌细胞当成占位的话，这一步就成了攻击、得 1。0/1 标量",
+    "world": {
+      "players": [
+        { "seat": 0, "faction": "immune", "level": "I" },
+        { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" },
+        { "seat": 2, "faction": "immune", "level": "I" }
+      ],
+      "cells": [
+        { "seat": 1, "type": "Osteosarcoma", "at": "0,0", "energy": 0, "alive": false },
+        { "seat": 0, "type": "ImmuneBasic", "at": "0,0" },
+        { "seat": 2, "type": "ImmuneBasic", "at": "1,0" }
+      ]
+    },
+    "args": { "cell": "2", "to": "0,0" },
+    "expect": 0
   }
 ]
