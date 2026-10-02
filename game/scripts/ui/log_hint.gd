@@ -225,6 +225,10 @@ func refresh(store: CWLogStore, panel: CWLogPanel) -> void:
 		_built_key = key
 	## 末条可能被就地改写（连续的【定殖】/【净化】合并，Kevin 2026-09-07），每帧重折它
 	var stable: int = maxi(store.logs.size() - 1, 0)
+	## 上一帧折进去的末条先摘掉再接着往下折（同 CWLogPanel._rebuild_rows，10-01）
+	while not _cache_src.is_empty() and _cache_src[_cache_src.size() - 1] >= _built:
+		_cache.remove_at(_cache.size() - 1)
+		_cache_src.remove_at(_cache_src.size() - 1)
 	while _built < stable:
 		for seg in CWLogPanel.wrap_line(panel.line_text(store, _built), row_width()):
 			_cache.append(seg)

@@ -168,7 +168,7 @@ func _run_all() -> void:
 		t_rollout_isolation, t_step_atomic, t_full_game_2p,
 		t_determinism, t_ai_cards, t_ai_eval, t_ai_mc,
 		t_mc_budget, t_ai_mcts, t_config_panel, t_config_custom, t_hover_info, t_chemo_info,
-		t_log_panel, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
+		t_log_panel, t_log_rows_rebuild, t_rules_page, t_production_row, t_mucus_row, t_skill_info,
 		t_hot_patch, t_online_doc, t_save_load, t_save_ai_level_tiers, t_settings, t_feedback, t_board_view, t_store_ring, t_solid_tissue_art, t_ring_and_toxin, t_skill_move_price_tag, t_pressure_doom, t_mark_aura, t_hunt_fx, t_skill_fx, t_card_fx_hooks, t_effector_fx, t_mutation_faces, t_no_auto_end_turn, t_shader_no_return, t_hex_pick, t_hover_layer,
 		t_ui_bridge, t_human_ask, t_hand_play, t_hand_exit, t_hand_swap,
 		t_hand_index_after_exit, t_card_info, t_tier_highlight, t_match_panel, t_board_small, t_card_played_signal, t_event_drawn_signal, t_card_draw_fx, t_net_ping, t_draw_purify_memory, t_ossify_cost_and_pin, t_income_display, t_mods_tip, t_move_hand, t_settle_screen,
@@ -14134,7 +14134,9 @@ const NET_HOST := "127.0.0.1"
 func _net_server() -> CWNetServer:
 	var s := CWNetServer.new()
 	s.quiet = true
-	for p in range(18611, 18660):
+	## 18800 起：别和固定端口的测试撞（反馈收件口 18612、局域网发现 18650 / 18651 / 18700…）—— 原来从 18611 起往上找，
+	## 并行的几片里联机测试一多，就会有一个先占了 18612 / 18650，那几支固定端口的测试跟着红（10-01 / 10-02 各撞过一次）
+	for p in range(18800, 18900):
 		if s.start(p, NET_HOST) == OK:
 			return s
 	return null
@@ -26593,3 +26595,32 @@ func t_cascade_purify_order() -> void:
 	sk.clear()
 	root.remove_child(sk)
 	sk.free()
+
+
+## 日志面板 / 迷你日志的折行缓存（10-01 复核查出、早就有的毛病）：先折 [已折, 新末条) 再摘「>= 新末条」的行 ——
+## 上一帧折进去的旧末条留着又折一遍，面板开着时日志每长一次上一行就重复一遍。改成先摘「>= 已折」再接着折
+func t_log_rows_rebuild() -> void:
+	print("[日志面板 / 迷你日志：不重复折末条]")
+	var lp := CWLogPanel.new()
+	root.add_child(lp)
+	var chip := CWLogHint.new()
+	root.add_child(chip)
+	await process_frame
+	var st := CWLogStore.new()
+	for i in 4:
+		st.apply({ "index": i, "text": "L%d" % i, "secret_pid": -1, "public_text": "L%d" % i })
+	lp._rebuild_rows(st)
+	for i in range(4, 6):
+		st.apply({ "index": i, "text": "L%d" % i, "secret_pid": -1, "public_text": "L%d" % i })
+	lp._rebuild_rows(st)
+	check(Array(lp._rows) == ["L0", "L1", "L2", "L3", "L4", "L5"], "日志长了两行再折：一行都不重复（%s）" % str(lp._rows))
+	## 末条就地改写（连续的【定殖】合并成一条）照旧每帧重折、不重复
+	st.apply({ "index": 5, "text": "L5′", "secret_pid": -1, "public_text": "L5′" })
+	lp._rebuild_rows(st)
+	check(Array(lp._rows) == ["L0", "L1", "L2", "L3", "L4", "L5′"], "末条就地改写：重折那一条、不多不少（%s）" % str(lp._rows))
+	chip.refresh(st, lp)
+	st.apply({ "index": 6, "text": "L6", "secret_pid": -1, "public_text": "L6" })
+	chip.refresh(st, lp)
+	check(Array(chip._cache) == ["L0", "L1", "L2", "L3", "L4", "L5′", "L6"], "迷你日志同款：不重复（%s）" % str(chip._cache))
+	lp.free()
+	chip.free()
