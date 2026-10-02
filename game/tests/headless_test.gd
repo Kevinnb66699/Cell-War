@@ -24481,10 +24481,51 @@ func t_sidecar_link_shards() -> void:
 	var k4 := CWKernelSidecar.new()
 	check(k4.open({ "factions": CWData.FACTION_ORDER[2], "seed": 99 }) and k4.link_shard() == victim_shard and k4.process_id() != victim_pid,
 		"再开一局：补进空出来的第 %d 号（新进程 %d）" % [k4.link_shard(), k4.process_id()])
+	## 10-02 复核：被限流拦着的排最后 / 点名回原来那个进程 / 一样空先挑活着的 / 起进程失败的退避记在总键上
+	var loc := CWKernelSidecar.locate()
+	var dn := String(loc["dotnet"])
+	var dl := String(loc["dll"])
+	L.limits = true
+	L._blocked_until[L._key(dn, dl, 0)] = Time.get_ticks_msec() + 30000
+	var k5 := CWKernelSidecar.new()
+	check(k5.open({ "factions": CWData.FACTION_ORDER[2], "seed": 55 }) and k5.link_shard() != 0,
+		"三个进程一样满、第 0 号被拦着：新局放到别的进程（第 %d 号），不往被拦着的那个上撞" % k5.link_shard())
+	L.reset_limits()
+	var busiest := k5.link_shard()
+	var pinned = L.acquire(dn, dl, busiest)
+	check(int(pinned.fault) == 0 and int(pinned.shard) == busiest and int(pinned.pid) == k5.process_id(),
+		"点名要第 %d 号（最满的那个）：就给它、不按空闲挑" % busiest)
+	pinned.release()
+	k5.close()
 	for k: CWKernelSidecar in ks:
 		k.close()
 	k4.close()
 	CWKernelSidecar.shutdown_idle_links()
+	L.limits = false
+	var la = L.acquire(dn, dl)
+	var lb = L.acquire(dn, dl)
+	check(int(la.shard) == 0 and int(lb.shard) == 1, "从零起：先第 0 号、再第 1 号")
+	OS.kill(int(la.pid))
+	var t1 := Time.get_ticks_msec()
+	while OS.is_process_running(int(la.pid)) and Time.get_ticks_msec() - t1 < 2000:
+		OS.delay_msec(10)
+	la.release()
+	lb.release()
+	var lc = L.acquire(dn, dl)
+	check(int(lc.fault) == 0 and int(lc.shard) == 1 and int(lc.pid) == int(lb.pid),
+		"第 0 号死了、第 1 号活着闲着、第 2 号没起：用闲着的第 1 号，不另起一个（拿到第 %d 号）" % int(lc.shard))
+	lc.release()
+	CWKernelSidecar.shutdown_idle_links()
+	L.limits = true
+	var bogus := dl.get_base_dir().path_join("不存在的.dll")
+	var f1 = L.acquire(dn, bogus)
+	var t2 := Time.get_ticks_msec()
+	var f2 = L.acquire(dn, bogus)
+	check(int(f1.fault) == CWKernel.Fault.SPAWN_FAILED and int(f1.pid) > 0
+			and int(f2.fault) == CWKernel.Fault.SPAWN_FAILED and String(f2.fault_msg).contains("不再起") and Time.get_ticks_msec() - t2 < 200,
+		"进程起来就退了：退避记在总键上，换个进程也不再起（%s）" % String(f2.fault_msg))
+	L.reset_limits()
+	L.limits = false
 	L.shards = 1
 
 
@@ -24528,11 +24569,24 @@ func t_net_sidecar_shards() -> void:
 	await _net_pump(srv, cs, func() -> bool:
 		_sc_answer_pending(cs, pols)
 		return rooms.all(func(r: CWRoom) -> bool: return r.pump != null and int(r.pump.round_no) >= 2), 6000)
+	## 10-02 复核：重起回自己原来那个进程 —— 它被限流拦着就隔秒再试，不换到别的进程去
+	##（不然一间房的局面把进程弄崩，会换着进程把别的房间也拖下水）。所以杀掉之后把那个进程拦 2 秒
+	var L = CWKernelSidecar.Link
+	var victim_shard := int(rooms[1].pump.shard)
+	var victim_key := String(rooms[1].pump.kernel._link.key)
+	L.limits = true
 	OS.kill(int(pids[1]))
+	L._blocked_until[victim_key] = Time.get_ticks_msec() + 2000
+	var t_block := Time.get_ticks_msec()
 	var ok := await _net_pump(srv, cs, func() -> bool:
 		_sc_answer_pending(cs, pols)
-		return rooms[1].pump != null and int(rooms[1].pump.recoveries) == 1, 3000)
+		return rooms[1].pump != null and int(rooms[1].pump.recoveries) == 1, 8000)
+	var waited := Time.get_ticks_msec() - t_block
 	check(ok and rooms[1].state == CWRoom.State.PLAYING, "被杀的那间：从检查点接着打（重起 1 次）")
+	check(ok and int(rooms[1].pump.shard) == victim_shard and rooms[1].pump.kernel.link_shard() == victim_shard and waited >= 1900,
+		"它的第 %d 号被拦着：等拦截过了才重起（%d ms）、还在第 %d 号（不跳到别的进程）" % [victim_shard, waited, int(rooms[1].pump.shard) if rooms[1].pump != null else -1])
+	L.limits = false
+	L.reset_limits()
 	check(int(rooms[0].pump.recoveries) == 0 and int(rooms[2].pump.recoveries) == 0
 			and rooms[0].pump.kernel.process_id() == int(pids[0]) and rooms[2].pump.kernel.process_id() == int(pids[2]),
 		"另外两间：一次都没重起、还在原来的进程里")

@@ -55,7 +55,7 @@ func open(cfg: Dictionary) -> bool:
 	if loc.has("error"):
 		_remember_start_failure(Fault.SPAWN_FAILED, String(loc["error"]))
 		return _unavailable(String(loc["error"]))
-	_link = Link.acquire(String(loc["dotnet"]), String(loc["dll"]))
+	_link = Link.acquire(String(loc["dotnet"]), String(loc["dll"]), int(cfg.get("sidecar_shard", -1)))   ## 服务器重起时点名回原来那个进程（见 cw_sidecar_link.gd「分进程」）
 	if int(_link.fault) != 0:
 		var f := int(_link.fault)
 		var why := String(_link.fault_msg)

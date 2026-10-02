@@ -73,6 +73,7 @@ var _next_try_ms := 0            ## 这一次故障下一回最早什么时候�
 var _broken := ""                ## 房间判定的故障（答案 / 换手被拒、拿不到 envelope）或重起还没成：句柄自己没坏也当坏了
 var _pending_surrender := -1     ## 出事那一下全票通过的投降（阵营）：重起时在新会话上补上
 var _stale_batches := 0          ## 连着几批条目没存住检查点
+var shard := -1                  ## 这一局在第几个 sidecar 进程里（开局 / 重起成了时记下；句柄坏了之后问不到了，重起要点名回这一个）
 
 
 ## 开一局：名字照 CWRoom._name_seats 的口径（真人昵称去首尾空白；AI 席与空串 = 内核默认名「免疫A / 癌症A…」——
@@ -90,6 +91,7 @@ func open(p_room, seed_value: int) -> bool:
 	_cfg = cfg.duplicate()
 	kernel = CWKernelSidecar.new()
 	if kernel.open(cfg):
+		shard = kernel.link_shard()
 		return true
 	_error = String(kernel.last_error().get("msg", ""))
 	close()
@@ -152,6 +154,10 @@ func recover(ai_turn: bool) -> int:
 	var cfg := _cfg.duplicate()
 	cfg["world_state"] = _checkpoint
 	cfg["ai"] = _ai_now()
+	## 回自己原来那个进程（分进程时）：这一局的局面要是就是把进程弄崩的那个，别换着进程把别的房间也拖下水；
+	## 那个进程被限流拦着就当场失败、隔秒再试（10-02 复核）
+	if shard >= 0:
+		cfg["sidecar_shard"] = shard
 	kernel = CWKernelSidecar.new()
 	var opened := kernel.open(cfg)
 	## 下一次最早什么时候试：从**这一次试完**算（握手卡死一次就是 8 秒，从开始算的话下一帧又接着试，10-01 三轮复核）
@@ -191,6 +197,8 @@ func recover(ai_turn: bool) -> int:
 	room.push_state(-1)
 	recoveries += 1
 	_retry_since = -1
+	if kernel.link_shard() >= 0:
+		shard = kernel.link_shard()
 	return Recover.DONE
 
 

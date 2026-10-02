@@ -914,7 +914,7 @@ func _sc_start(seed_value: int) -> bool:
 	state = State.PLAYING
 	_log_cursor.clear()
 	push_room()
-	server.say("房间 %s 开局（C# 内核，第 %d 号进程）：%d 人，种子 %d，计时 %d s" % [code, pump.kernel.link_shard(), player_count, seed_value, timer_secs])
+	server.say("房间 %s 开局（C# 内核，第 %d 号进程）：%d 人，种子 %d，计时 %d s" % [code, int(pump.shard), player_count, seed_value, timer_secs])
 	pump.pump()
 	return true
 
@@ -991,8 +991,8 @@ func _sc_tick() -> bool:
 	var why: String = pump.fault()
 	if why != "":
 		if _sc_recover(why) == NetPump.Recover.GIVE_UP:
-			push_warning("CWRoom %s：C# 内核故障（%s），重起不了，中止对局" % [code, why])
-			server.say("房间 %s：C# 内核故障（%s），重起不了，中止对局" % [code, why])
+			push_warning("CWRoom %s：C# 内核故障（%s，第 %d 号进程），重起不了，中止对局" % [code, why, int(pump.shard)])
+			server.say("房间 %s：C# 内核故障（%s，第 %d 号进程），重起不了，中止对局" % [code, why, int(pump.shard)])
 			_abort_game()
 		return false
 	pump.pump()
@@ -1102,8 +1102,8 @@ func _sc_recover(why: String) -> int:
 		_sc_orphan = {}
 		if _ask.is_empty() or int(_ask["pid"]) != int(o["pid"]):
 			_sc_close_ask_ui(o)
-	push_warning("CWRoom %s：C# 内核故障（%s），已从检查点接着打（这一局第 %d 次）" % [code, why, p.recoveries])
-	server.say("房间 %s：C# 内核故障（%s），已从检查点接着打（这一局第 %d 次，第 %d 回合）" % [code, why, p.recoveries, p.round_no])
+	push_warning("CWRoom %s：C# 内核故障（%s），已从检查点接着打（这一局第 %d 次，第 %d 号进程）" % [code, why, p.recoveries, int(p.shard)])
+	server.say("房间 %s：C# 内核故障（%s），已从检查点接着打（这一局第 %d 次，第 %d 回合，第 %d 号进程）" % [code, why, p.recoveries, p.round_no, int(p.shard)])
 	return r
 
 

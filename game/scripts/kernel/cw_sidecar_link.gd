@@ -18,7 +18,10 @@
 ## 每起一次卡住就是全服冻 9 秒。这期间 acquire 当场给一条起不来的链路（SPAWN_FAILED）。
 ## **分进程**（`shards`，10-02 Kevin 点头）：专用服务器把房间分到 shards 个 sidecar 进程里（server_main.gd，缺省 3），
 ## 新会话放到会话最少的那个进程；一个进程崩了（栈溢出 / 内存耗尽这类 C# 里接不住的）只断它那几间，别的进程照常。
-## 每个进程一个键（`dotnet|dll#k`），限流 / 「一分钟死几次」也是一个进程一本账。桌面 / 局域网开服 / 测试缺省 1 个（键不带 #）。
+## 每个进程一个键（`dotnet|dll#k`），「一分钟死几次」一个进程一本账；**起进程卡住 / 当场失败的两种退避记在不带 # 的总键上**
+##（原因多半在这台机器，换个进程起也一样，10-02 复核）。挑进程：被拦着的排最后、会话少的优先、一样少先挑活着的；
+## 重起的房间点名回自己原来那个进程（`prefer`）—— 一个房间的局面把进程弄崩，别让它换着进程把别的房间也拖下水。
+## 桌面 / 局域网开服 / 测试缺省 1 个（键不带 #）。
 ## ⚠ 与补丁系统完全隔离：起不来只是 UNAVAILABLE，绝不计进 patch_state.gd 的 STRIKES。
 extends RefCounted
 
@@ -60,9 +63,10 @@ var _idle_since := -1               ## users 降到 0 的时刻（ms）；-1 = �
 
 
 ## 拿一条能用的链路：同一份产物已有活着的就复用，否则起一个。返回的链路 `fault != 0` 就是没起来（调用方转 UNAVAILABLE / FAULTED）
-static func acquire(dotnet_path: String, dll_path: String) -> RefCounted:
-	var s := _pick_shard(dotnet_path, dll_path)
+static func acquire(dotnet_path: String, dll_path: String, prefer := -1) -> RefCounted:
+	var s := prefer if shards > 1 and prefer >= 0 and prefer < shards else _pick_shard(dotnet_path, dll_path)
 	var key := _key(dotnet_path, dll_path, s)
+	var base := dotnet_path + "|" + dll_path
 	var link = _links.get(key)
 	if link != null and link.alive():
 		link.users += 1
@@ -74,9 +78,10 @@ static func acquire(dotnet_path: String, dll_path: String) -> RefCounted:
 	link.key = key
 	link.shard = s
 	var now := Time.get_ticks_msec()
-	if limits and now < int(_blocked_until.get(key, 0)):
+	var until := maxi(int(_blocked_until.get(key, 0)), int(_blocked_until.get(base, 0)))
+	if limits and now < until:
 		link.fault = CWKernel.Fault.SPAWN_FAILED
-		link.fault_msg = "sidecar 刚刚起不来 / 连着崩了几次，%d 秒内不再起" % ceili((int(_blocked_until[key]) - now) / 1000.0)
+		link.fault_msg = "sidecar 刚刚起不来 / 连着崩了几次，%d 秒内不再起" % ceili((until - now) / 1000.0)
 		return link
 	if link._spawn():
 		link.users = 1
@@ -85,9 +90,9 @@ static func acquire(dotnet_path: String, dll_path: String) -> RefCounted:
 		if tree != null and not tree.process_frame.is_connected(link._idle_tick):
 			tree.process_frame.connect(link._idle_tick)
 	elif limits and int(link.fault) == CWKernel.Fault.HANDSHAKE_TIMEOUT:
-		_blocked_until[key] = Time.get_ticks_msec() + SPAWN_BACKOFF_MS   ## 起来了却不连回来：下一次多半还是卡 8 秒，先别起
+		_blocked_until[base] = Time.get_ticks_msec() + SPAWN_BACKOFF_MS   ## 起来了却不连回来：下一次多半还是卡 8 秒，先别起（哪个进程都别起）
 	elif limits and int(link.pid) > 0:
-		_blocked_until[key] = Time.get_ticks_msec() + FAILED_SPAWN_BACKOFF_MS   ## 进程起来了却当场失败：别让每个房间各起一遍
+		_blocked_until[base] = Time.get_ticks_msec() + FAILED_SPAWN_BACKOFF_MS   ## 进程起来了却当场失败：别让每个房间、每个进程各起一遍
 	return link
 
 
@@ -97,18 +102,23 @@ static func _key(dotnet_path: String, dll_path: String, s: int) -> String:
 	return base if shards <= 1 else "%s#%d" % [base, s]
 
 
-## 新会话放哪个进程：会话最少的那个（没起 / 已经死了的算 0，同样少就取靠前的）—— 死掉的那个最先被重起的房间拉起来
+## 新会话放哪个进程（10-02 复核后）：被限流拦着的排最后（不然它会话数是 0、永远最「空」，拦着的 30 秒里全服新局都开不出来）；
+## 其次会话最少的；一样少先挑活着的（别放着一个闲着的活进程不用、另起一个）；再一样取靠前的
 static func _pick_shard(dotnet_path: String, dll_path: String) -> int:
 	if shards <= 1:
 		return 0
+	var now := Time.get_ticks_msec()
 	var best := 0
-	var best_load := 1 << 30
+	var best_rank := 1 << 40
 	for s in shards:
-		var link = _links.get(_key(dotnet_path, dll_path, s))
-		var load := int(link.users) if link != null and link.alive() else 0
-		if load < best_load:
+		var key := _key(dotnet_path, dll_path, s)
+		var link = _links.get(key)
+		var alive: bool = link != null and link.alive()
+		var blocked := limits and now < int(_blocked_until.get(key, 0))
+		var rank := (1000000 if blocked else 0) + (int(link.users) if alive else 0) * 10 + (0 if alive else 1)
+		if rank < best_rank:
 			best = s
-			best_load = load
+			best_rank = rank
 	return best
 
 
