@@ -146,10 +146,11 @@ func ask(req: Dictionary) -> int:
 	if not (req["pid"] in human_pids):
 		return await super.ask(req)
 	_aborted = false              ## 新的一问：上一次 abort() 的余波不该把这一问当场打掉（同 super.ask 开头）
+	var gen := _abort_gen         ## 跨帧醒来查 `_stale(gen)`：等的时候被 abort 过，下一问把 `_aborted` 复位了也照样算死（见 CWUIBridge._abort_gen）
 	await _await_playback()
-	while not _aborted and gate_closed():
+	while not _stale(gen) and gate_closed():
 		await allow_changed       ## `[]` = 全禁：挂起，行动栏根本不建
-	if _aborted:
+	if _stale(gen):
 		return 0
 	if _allow == null:
 		return await super.ask(req)
@@ -159,20 +160,24 @@ func ask(req: Dictionary) -> int:
 	## 上一步 —— 点名的那一格已经走过了，当然一条都不命中。这是过渡态，不是剧本写错。
 	## 09-19 真机实测：不让这几帧的话，**每走一步都要报一条假警告**，真出事那条就淹在里头了
 	var waited := 0
-	while keep.is_empty() and not _aborted and waited < MISS_GRACE_FRAMES and _can_yield():
+	while keep.is_empty() and not _stale(gen) and waited < MISS_GRACE_FRAMES and _can_yield():
 		await board.get_tree().process_frame
 		waited += 1
+		if _stale(gen):
+			return 0                 ## 这一帧里被收掉了：别从头再走（`ask()` 开头会把 `_aborted` 复位、把死掉的这一问救活）
 		if _allow == null or gate_closed():
 			return await ask(req)    ## 闸换了：不过滤 / 挂起都在那条路上，从头走一遍
 		keep = _keep(req)
-	if _aborted:
+	if _stale(gen):
 		return 0
 	if keep.is_empty():
 		## 等过了还是一条不命中 = 剧本写错：**warning + 挂起**，绝不回落成全开、也绝不替玩家乱答。
 		## 出路是常驻「重置 / 目录」按钮（PRD:41/43，提示期也可点）
 		push_warning("剧本 allow 在这一问里一条都没命中：%s" % str(_allow))
-		while not _aborted:
+		while not _stale(gen):
 			await allow_changed
+			if _stale(gen):
+				break                    ## abort() 也发 allow_changed：先看是不是被收掉了，再看闸
 			if _allow == null or not (_allow as Array).is_empty():
 				return await ask(req)    ## 闸换了就重来一遍
 		return 0
@@ -181,7 +186,7 @@ func ask(req: Dictionary) -> int:
 		## 导演可能已经翻页把闸换了（那就从头走一遍），拆局了就照旧答 0
 		if _can_yield():
 			await board.get_tree().create_timer(AUTO_ANSWER_SECS).timeout
-		if _aborted:
+		if _stale(gen):
 			return 0
 		if not _auto or _allow == null or gate_closed():
 			return await ask(req)

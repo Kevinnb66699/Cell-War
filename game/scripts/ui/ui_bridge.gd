@@ -42,6 +42,11 @@ var queue: CWPlayQueue
 ## 这一局是不是已经被放弃了。**不能用 mirror.aborted 代替** —— 镜像是「问人之前」那一份快照，
 ## 而换手遮罩 / _prompt 一等就是几十秒，拆局发生在那之后，快照上永远写着 false（规格 A-5.4）。
 var _aborted := false
+## abort() 一次加一（10-02 导出包验收抓到的卡死）。`_aborted` 是**这只桥共用的一格**，下一问进 `ask()` 头一句就把它复位 ——
+## 跨帧等着的旧那一问（`_await_playback` 逐帧等演出、闸桥的宽限帧 / 自动作答的那一拍）醒来只看 `_aborted` 会以为自己还活着，
+## 跟着挂出第二套行动栏（教程第五关 Step2 换 world：旧局的下一问正在等演出，新局的第一问把格子复位了）。
+## 所以每一问进门记下这个数，**跨帧醒来**一律问 `_stale(gen)`：被 abort 过就算死，下一问复位了也一样
+var _abort_gen := 0
 ## 回放：录下来的下标串。非空 = 这一局是在放回放，`ask()` 按顺序念、谁也不问。
 ## 游标由 `CWReplay.Player` 拨（快退时会被拨回去），所以**别在这儿另存一份进度**。
 var replay_answers: PackedInt32Array = []
@@ -165,6 +170,7 @@ func hides_dead_acts() -> bool:
 
 func abort() -> void:
 	_aborted = true
+	_abort_gen += 1
 	_clear_ui()
 	if handoff != null:
 		handoff.hide_now()   ## 遮罩期间拆局：放掉等在 pass_to 上的那次询问
@@ -229,12 +235,19 @@ func ask(req: Dictionary) -> int:
 	return await super.ask(req)
 
 
+## 进门记下的那一格 `_abort_gen` 之后有没有被 abort 过（见 `_abort_gen`）。同步叫醒的那几处（`_pending` / `allow_changed` / 换手遮罩）
+## 醒来时 `_aborted` 还是真的，查哪个都行；跨帧的等待醒来必须查这个
+func _stale(gen: int) -> bool:
+	return _aborted or gen != _abort_gen
+
+
 func _ask_human(req: Dictionary) -> int:
+	var gen := _abort_gen
 	while opening and board != null and board.is_inside_tree():
 		await board.get_tree().process_frame
 	await _await_playback()
-	if mirror == null:
-		return 0                           ## 一份观测都还没到（拆局 / 句柄没起来）：引擎那边已在收摊
+	if _stale(gen) or mirror == null:
+		return 0                           ## 等的时候这一问被收掉了 / 一份观测都还没到（拆局 / 句柄没起来）：引擎那边已在收摊
 	## 热座换手：先把电脑交出去（遮罩），玩家点「开始回合」才出询问界面。
 	## 换手期间 current_human = -1：CWMatch 据此收起手牌抽屉、日志切到无人视角。
 	if handoff != null and needs_handoff(hotseat, current_human, req["pid"]):
@@ -244,7 +257,7 @@ func _ask_human(req: Dictionary) -> int:
 		if pid < mirror.cells.size() and mirror.cell_of(pid)["alive"]:
 			at = mirror.cell_of(pid)["pos"]   ## 开局布置阶段还没有细胞：光环不画
 		await handoff.pass_to(pid, mirror.player(pid)["faction"], mirror.player(pid)["name"], at)
-		if _aborted:
+		if _stale(gen):
 			return 0                       ## 遮罩期间拆局了：随便答一个，引擎那边已在收摊
 		current_human = pid
 	_enemy = CWData.Faction.CANCER if mirror.player(req["pid"])["faction"] \
@@ -269,7 +282,8 @@ func _ask_human(req: Dictionary) -> int:
 func _await_playback() -> void:
 	if queue == null or kernel == null or board == null or not board.is_inside_tree():
 		return
-	while queue != null and kernel != null and queue.running and not _aborted and queue.since < kernel.entry_seq():   ## 拆局会在等待中把 queue 置空
+	var gen := _abort_gen
+	while queue != null and kernel != null and queue.running and not _stale(gen) and queue.since < kernel.entry_seq():   ## 拆局会在等待中把 queue 置空
 		await board.get_tree().process_frame
 
 
