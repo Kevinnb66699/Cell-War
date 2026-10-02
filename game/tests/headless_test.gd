@@ -177,7 +177,7 @@ func _run_all() -> void:
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial, t_settings_button,
 		t_entry_smoke_replay, t_entry_smoke_online,
-		t_kernel_parity, t_no_engine_in_ui, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_kernel_loader_moved, t_board_active_tiles,
+		t_kernel_parity, t_no_engine_in_ui, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_hf_reflect_kill_attack_fx, t_hf_loader_dead_shares_tile, t_hf_mech_dist_cache, t_kernel_loader_moved, t_board_active_tiles,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
 		t_rec_depth,
 		## 口径二 C-1 步 8 / 9：L0 靶场的键表闸与差分夹具
@@ -21209,6 +21209,132 @@ func t_tutor_energy_formula() -> void:
 ## 跑在**真 game** 上）。每一次试走的 `g.step()` 都是真步：内核消费者把它推成 roll / result / fx / feed 条目、
 ## 界面照演，回滚后真的那一步又演一遍 ⇒ 乱套、重复；日志与出牌列也被假动作填满。
 ## 判据与 t_ai_mc 的 ①同一口径：评估完真局面哈希逐位不变、日志与出牌列一条不多、pending 还是同一问。
+
+## 热更 2026-10-01（随 main 4aa7c12 / 6505512）：三条线上 GD 的修，hotfix 分支上各一条护栏（main 上的版本用到了 sidecar / 对拍模式，这里只留 GD 那一半）
+
+## 反弹打死攻击者时照样演本体冲撞（Kevin 2026-10-01：GD 补上，与 C# 演同一样东西）：免疫 1.5 能量、付完 1.0 攻击费剩 0.5，带子掷 1 ⇒ 无效 ⇒ 反弹 0.5 打到 0
+func t_hf_reflect_kill_attack_fx() -> void:
+	print("[热更·反弹打死攻击者也演冲撞]")
+	for kind in ["ImmuneBasic", "Macrophage"]:
+		var world := {
+			"radius": 6, "round": 1, "phase": "PlayerAction", "seat": 0,
+			"players": [{ "seat": 0, "faction": "immune", "level": "I" },
+				{ "seat": 1, "faction": "cancer", "cancer_type": "SmallCellLung" }],
+			"tiles": [{ "at": "1,0", "state": "cancer" }],
+			"cells": [{ "seat": 0, "type": kind, "at": "0,0", "energy": 15 },
+				{ "seat": 1, "type": "SmallCellLung", "at": "1,0", "energy": 500 }],
+		}
+		var g: CWGame = load("res://scripts/kernel/cw_world_loader.gd").new().load_world(world)
+		var tape = load("res://scripts/kernel/cw_roll_tape.gd").new()
+		tape.tape = [[1, 6, 1]]
+		tape.seed = int((g.rng as RandomNumberGenerator).seed)
+		g.rng = tape
+		var kg := CWKernelInProc.new()
+		kg.open({ "adopt": g, "consumer": true })
+		var gd: Array = await _hf_one_step_entries(kg, "k=action|act=move|to=1,0")
+		kg.abort()
+		kg.close()
+		g.dispose()
+		var dead := gd.filter(func(e: Dictionary) -> bool: return e["t"] == "log" and String(e["text"]).begins_with("☠ 免疫A"))
+		check(dead.size() == 1, "%s：反弹把攻击者打死（☠ %d 行）" % [kind, dead.size()])
+		var at := -1
+		for i in gd.size():
+			if gd[i]["t"] == "fx" and gd[i]["kind"] == "immune_attack":
+				at = i
+		if kind == "ImmuneBasic":
+			check(at > 0 and bool(gd[at]["data"]["attacker_alive"]) == false and bool(gd[at]["data"]["hit"]) == false
+				and at + 1 < gd.size() and gd[at - 1] == dead[0],
+				"演冲撞、攻击者已死（attacker_alive = false），排在 ☠ 那一行之后（%s）" % str(gd[at]["data"] if at >= 0 else "没有 immune_attack"))
+		else:
+			check(at < 0, "巨噬被反弹打死：只有扑咬，不演冲撞")
+
+
+## 刚开出来的句柄：按语义键答第一问，收这一步的条目（step_begin 起、step_end 止）；掷骰的 barrier 收到就回执
+func _hf_one_step_entries(k: CWKernel, key: String) -> Array:
+	var since := 0
+	var asked := false
+	var out: Array = []
+	var deadline := Time.get_ticks_msec() + 10000
+	while Time.get_ticks_msec() < deadline:
+		for e: Dictionary in k.pull(CWKernel.VIEWER_OMNISCIENT, since, 1000):
+			since = int(e["seq"])
+			if bool(e.get("barrier", false)):
+				k.ack(since)
+			if not asked:
+				if e["t"] == "ask":
+					asked = true
+					if not k.answer(int(e["ask_id"]), { "key": key }):
+						return []
+			elif e["t"] == "step_end":
+				return out
+			else:
+				var c: Dictionary = e.duplicate(true)
+				c.erase("seq")
+				out.append(c)
+		await process_frame
+	return []
+
+
+## 装载器只拦两只**活**细胞同格（对齐 C#）：第五关最后一击之后玩家站在死癌细胞那一格，间章重心平移要装得回来
+func t_hf_loader_dead_shares_tile() -> void:
+	print("[热更·装载器：死细胞与活细胞同格装得进]")
+	var L = load("res://scripts/kernel/cw_world_loader.gd")
+	var world := {
+		"radius": 6, "round": 1, "phase": "PlayerAction", "seat": 0,
+		"players": [{ "seat": 0, "faction": "immune", "level": "I" }, { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }],
+		"cells": [{ "seat": 1, "type": "Osteosarcoma", "at": "0,0", "alive": false }, { "seat": 0, "type": "ImmuneBasic", "at": "0,0" }],
+	}
+	var ld = L.new()
+	var g: CWGame = ld.load_world(world.duplicate(true))
+	check(g != null and ld.errors.is_empty(), "死细胞压在活细胞的格上：装得进（%s）" % str(ld.errors))
+	if g != null:
+		check(g.cells_at(Vector2i(0, 0)).size() == 1, "那一格的占位只算活的那一只")
+		g.dispose()
+	var both_alive := world.duplicate(true)
+	(both_alive["cells"][0] as Dictionary).erase("alive")
+	var ld2 = L.new()
+	check(ld2.load_world(both_alive) == null and str(ld2.errors).contains("两只活细胞"), "两只活的同格照旧拒收（%s）" % str(ld2.errors))
+
+
+## 能量距离场缓存读到的必须是当前局面的场（原来键只有「回合 + 等级 + 免疫位姿」、跨局共享 ⇒ 翻面 / 换局 / 换旋钮都读旧场）。
+## 「现算」= 先清掉缓存再算（hotfix 上没有 main 那条对拍旁路）
+func t_hf_mech_dist_cache() -> void:
+	print("[热更·AI 能量距离场缓存不读旧场]")
+	var dist: GDScript = load("res://scripts/ai/mech/mech_dist.gd")
+	var fresh := func(x: CWGame) -> Dictionary:
+		dist._ck = ""
+		return dist.immune_reach_field(x).duplicate()
+	dist._ck = ""
+	var g := make_game(4, 7)
+	await run_setup(g)
+	var f1: Dictionary = dist.immune_reach_field(g)
+	check(not f1.is_empty() and is_same(dist.immune_reach_field(g), f1), "局面没变：第二次直接命中缓存（同一个字典）")
+	var im: Dictionary = g.living_cells(CWData.Faction.IMMUNE)[0]
+	var flipped := 0
+	for n in g.neighbors(im["pos"]):
+		if g.tiles[n]["tissue"] == CWData.Tissue.HEALTHY:
+			g.tiles[n]["tissue"] = CWData.Tissue.CANCER
+			flipped += 1
+	var before: Dictionary = f1.duplicate()
+	var f2: Dictionary = dist.immune_reach_field(g).duplicate()
+	check(flipped > 0 and f2 == fresh.call(g) and f2 != before, "免疫身边翻了 %d 格癌：读到的是新场" % flipped)
+	var ga := make_game(4, 11)
+	await run_setup(ga)
+	var gb := make_game(4, 12)
+	await run_setup(gb)
+	var fa: Dictionary = fresh.call(ga)
+	dist.immune_reach_field(ga)
+	var fb: Dictionary = dist.immune_reach_field(gb).duplicate()
+	check(fb == fresh.call(gb) and fb != fa, "同一进程第二局读到的是自己的场，不是上一局留下的")
+	var gc := make_game(4, 11)
+	await run_setup(gc)
+	gc.tune.immune_move_healthy[gc.immune_level] = int(gc.tune.immune_move_healthy[gc.immune_level]) + 5
+	dist.immune_reach_field(ga)
+	var fc: Dictionary = dist.immune_reach_field(gc).duplicate()
+	check(fc == fresh.call(gc) and fc != fa, "盘面一样、免疫迁移单价不一样：读到的是本局旋钮下的场")
+	for x in [g, ga, gb, gc]:
+		x.dispose()
+
 func t_mech_bridge_quiet() -> void:
 	print("[AI·意图级：试走只在独立副本上]")
 	var g := make_game(2, 33)
