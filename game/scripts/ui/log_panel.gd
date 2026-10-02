@@ -203,6 +203,11 @@ func _rebuild_rows(store: CWLogStore) -> void:
 	var w: float = _lines[0].size.x if not _lines.is_empty() \
 		else RECT.size.x - PAD * 2 - 10
 	var stable: int = maxi(store.logs.size() - 1, 0)
+	## 上一帧折进去的末条（行号 >= _built）先摘掉再接着往下折 —— 原来先折后摘，摘的是 >= 新末条的，
+	## 上一帧的末条留着又折了一遍：面板开着时日志每长一次，上一行就重复一遍（10-02 热更）
+	while not _row_src.is_empty() and _row_src[_row_src.size() - 1] >= _built:
+		_rows.remove_at(_rows.size() - 1)
+		_row_src.remove_at(_row_src.size() - 1)
 	while _built < stable:
 		for seg in wrap_line(line_text(store, _built), w):
 			_rows.append(seg)
