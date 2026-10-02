@@ -20,12 +20,12 @@
 ## **不带 `class_name`、调用方 `preload`**（同 `cw_world_loader.gd` / `cw_tutor_script.gd` 的理由：
 ## 补丁里新增的 `class_name` 认不出来，引导又是天天在改的东西）。
 ##
-## **换内核 P5（三）（2026-10-01）**：开发开关 `CW_KERNEL=sidecar`（与 `match.gd:_new_local_kernel` 同一个环境变量）
-## 打开时，`_open_spec` 不再收养 CWGame，而是把同一份 cwxworld/3 + 同一条带子交给本地 C# 进程
+## **换内核 P5（三）（2026-10-01）**：`CWKernelSidecar.wanted()`（P8 起默认 true，`CW_KERNEL=gd` 强制走 GD；与 `match.gd:_new_local_kernel` 同一个开关）
+## 为 true 时，`_open_spec` 不再收养 CWGame，而是把同一份 cwxworld/3 + 同一条带子交给本地 C# 进程
 ## （`CWKernelSidecar.open({world, rolls})`，C# 侧 `MatchSession.Resume` + `ScriptedRng`）；关内换盘、重心平移
 ## 走的仍是下面那条四步拆装，只是「导出活局面」改问句柄（`dump_world()`）。**认得出两种内核的只有这个文件**：
 ## 调用方拿到的始终是 `CWKernel`，NPC 与闸桥照旧当 decider 挂在 `cfg` 里（两种句柄都在本地作答）。
-## 开关关着 = 一字不变；sidecar 起不来就退回 GD 内核（同热座那条路，玩家照样能玩）。
+## 走 GD 时一字不变；sidecar 起不来就退回 GD 内核（同热座那条路，玩家照样能玩）。
 extends RefCounted
 
 const DATA := preload("res://scripts/kernel/cw_tutor_script.gd")
@@ -229,10 +229,10 @@ func _open(wid: String) -> CWKernel:
 
 ## 一份现成的 cwxworld/3 → 一局。
 ## `_open`（按 world 名 resolve 出来的）与 `reload_recentered`（从活局面 dump 出来的）共用。
-## 开关 `CW_KERNEL=sidecar` 打开时先试 C# 进程，起不来再退回 GD 内核（同 `match.gd:start` 热座那条路）。
+## `CWKernelSidecar.wanted()` 时先试 C# 进程，起不来再退回 GD 内核（同 `match.gd:start` 热座那条路）。
 ## 这一次运行里 sidecar 起不来过就不再试（`CWKernelSidecar.start_failure`）：教程通关一遍换 17 次盘，卡握手的话每次 8 秒
 func _open_spec(spec: Dictionary) -> CWKernel:
-	if OS.get_environment("CW_KERNEL") == "sidecar" and CWKernelSidecar.start_failure.is_empty():
+	if CWKernelSidecar.wanted() and CWKernelSidecar.start_failure.is_empty():
 		var k := _open_sidecar(spec)
 		if k != null:
 			return k

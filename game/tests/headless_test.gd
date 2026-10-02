@@ -199,7 +199,7 @@ func _run_all() -> void:
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial, t_settings_button,
 		t_entry_smoke_replay, t_entry_smoke_online,
-		t_kernel_parity, t_no_engine_in_ui, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_ai_delay_detached, t_ai_think_detached, t_kernel_loader_moved, t_board_active_tiles,
+		t_kernel_parity, t_no_engine_in_ui, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_ai_delay_detached, t_ai_think_detached, t_kernel_default_sidecar, t_kernel_loader_moved, t_board_active_tiles,
 		## 换内核 P3：AI 对拍模式默认关（线上三档行为一行不变）+ 对拍随机流金值 / 规范选项序
 		t_ai_agree_default_off, t_ai_agree_rng, t_mech_dist_cache,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
@@ -263,6 +263,9 @@ func _run_all() -> void:
 		## 「这一次运行里 sidecar 起不来过」是进程级的记忆（cw_kernel_sidecar.gd）：每支测试当一次新开的游戏，
 		## 不清的话前面哪支故意指过不存在的 dll，后面要走 sidecar 的就全被悄悄送去 GD 内核
 		CWKernelSidecar.start_failure = {}
+		## 换内核 P8 起新开局默认走 sidecar（CWKernelSidecar.wanted()）。套件缺省走 GD：大批界面测试要钻进 GD 引擎看内部状态，
+		## 测 C# 路的测试自己设 sidecar。每支开跑前设回来，前一支忘了收也漏不到下一支（外面设的 CW_KERNEL 一样被盖掉）
+		OS.set_environment("CW_KERNEL", "gd")
 		await tests[i].call()
 		_durations.append([Time.get_ticks_msec() - t0, tests[i].get_method()])
 	print("")
@@ -4260,7 +4263,7 @@ func t_config_panel() -> void:
 		p.handle_input(down)   ## 一路走到「进入棋盘」
 	p.handle_input(accept)
 	check(got.size() == 1 and not p.visible, "走到「进入棋盘」回车才开局")
-	## 键盘拨值：人数成环；阵营环到观战；AI → 较强；种子拨一下换一枚
+	## 键盘拨值：人数成环；阵营环到观战；AI → 意图（P8 起选单只剩三档）；种子拨一下换一枚
 	p.open()
 	var right := InputEventAction.new()
 	right.action = "ui_right"
@@ -4274,19 +4277,14 @@ func t_config_panel() -> void:
 	check(p.config()["faction"] == -1, "再拨 → 观战")
 	p.handle_input(down)        ## → AI 强度
 	p.handle_input(right)
-	check(p.config()["ai"] == CWMatch.AI_MC, "AI 强度 → 较强")
+	## 换内核 P8（Kevin 10-01「AI 档位全部统一成普通 / 意图 / 搜索」）：「较强」「树搜索」撤出选单，档位号不重排
+	check(p.config()["ai"] == CWMatch.AI_INTENT and p._value_text(CWConfigPanel.ROW_SMART) == "意图", "AI 强度 → 意图（跳过撤掉的较强 / 树搜索）")
 	p._cycle(CWConfigPanel.ROW_SMART, 1)
-	check(p.config()["ai"] == CWMatch.AI_MCTS, "再拨一格 → 树搜索（第三档，2026-09-07）")
+	check(p.config()["ai"] == CWMatch.AI_ABS and p._value_text(CWConfigPanel.ROW_SMART) == "搜索", "再拨一格 → 搜索")
 	p._cycle(CWConfigPanel.ROW_SMART, 1)
-	## 改判（2026-09-19 合并 PR #59 意图级 AI）：原「三档循环，拨回普通」→ 第四档「意图」（AI_INTENT）
-	## 插在树搜索之后，四档才绕回普通；档数钉 AI_LEVEL_NAMES 的长度，再加档这里不用再改。
-	check(p.config()["ai"] == CWMatch.AI_INTENT, "再拨一格 → 意图（第四档，PR #59）")
-	p._cycle(CWConfigPanel.ROW_SMART, 1)
-	check(p.config()["ai"] == CWMatch.AI_ABS, "再拨一格 → 搜索（第五档，2026-09-20 对抗搜索）")
-	p._cycle(CWConfigPanel.ROW_SMART, 1)
-	check(p.config()["ai"] == CWMatch.AI_NORMAL and CWMatch.AI_LEVEL_NAMES.size() == 5, "五档循环，拨回普通")
+	check(p.config()["ai"] == CWMatch.AI_NORMAL and CWMatch.AI_MENU.size() == 3, "三档循环，拨回普通")
 	p._cycle(CWConfigPanel.ROW_SMART, -1)
-	check(p.config()["ai"] == CWMatch.AI_ABS, "反向拨同样绕回来（到第五档）")
+	check(p.config()["ai"] == CWMatch.AI_ABS, "反向拨同样绕回来（到搜索）")
 	## 同上：从「AI 强度」走到「随机种子」的步数由常量推
 	for _i in CWConfigPanel.ROW_SEED - CWConfigPanel.ROW_SMART:
 		p.handle_input(down)
@@ -18078,7 +18076,7 @@ func t_entry_smoke_sidecar_ai() -> void:
 	check(m.kernel is CWKernelInProc, "「较强」档照旧走 GD 内核")
 	m.teardown()
 	await process_frame
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 	CWSettings.ai_delay_ms = 220
 	main_scene.queue_free()
 	await process_frame
@@ -18133,7 +18131,7 @@ func t_entry_smoke_sidecar() -> void:
 	m.teardown()
 	await process_frame
 	check(m.kernel == null, "拆局：句柄关了")
-	OS.set_environment("CW_KERNEL", "")   ## 开关关掉也要能读回来：存档自己说是哪个内核
+	OS.set_environment("CW_KERNEL", "gd")   ## 开关关掉也要能读回来：存档自己说是哪个内核
 	m.start(blob)
 	await process_frame
 	check(m.kernel is CWKernelSidecar and m.kernel.state() != CWKernel.State.FAULTED, "读档按存档里的 kernel 标记回到 sidecar（%s）" % str(m.kernel.last_error()))
@@ -18150,7 +18148,7 @@ func t_entry_smoke_sidecar() -> void:
 	m.teardown()
 	await process_frame
 	OS.set_environment("CW_SIDECAR_DLL", "")
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 	CWSettings.ai_delay_ms = 220
 	main_scene.queue_free()
 
@@ -18398,7 +18396,7 @@ func t_sidecar_crash_midgame() -> void:
 	pause.close()
 	m.teardown()
 	await process_frame
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 	CWSettings.ai_delay_ms = 220
 	main_scene.queue_free()
 	await process_frame
@@ -18687,7 +18685,7 @@ func t_sidecar_hang_midgame() -> void:
 	pause.close()
 	m.teardown()
 	await process_frame
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 	CWSettings.ai_delay_ms = 220
 	main_scene.queue_free()
 	await process_frame
@@ -18767,7 +18765,7 @@ func t_sidecar_continue_retries() -> void:
 	check(CWKernelSidecar.start_failure.is_empty(), "开成了：「起不来过」的记忆清掉（之后的新开局也重新指望 sidecar）")
 	m.teardown()
 	await process_frame
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 	CWSettings.ai_delay_ms = 220
 	main_scene.queue_free()
 	await process_frame
@@ -22583,6 +22581,33 @@ func t_mech_dist_cache() -> void:
 		x.dispose()
 
 
+## 换内核 P8 切换：新开局默认走 sidecar，`CW_KERNEL=gd` 强制走 GD（CWKernelSidecar.wanted() 一处说了算）。
+## 只验「选哪个句柄」，不起进程 —— 真起 sidecar 打一局的是 t_sidecar_* 那批（它们自己设 sidecar）
+func t_kernel_default_sidecar() -> void:
+	print("[换内核 P8：新开局默认走 C# 内核]")
+	check(CWKernelSidecar.SIDECAR_DEFAULT, "SIDECAR_DEFAULT = true（publish_release.sh 第 ⑥ 闸认这一行：true 时缺载荷就不发版）")
+	OS.set_environment("CW_KERNEL", "")
+	check(CWKernelSidecar.wanted(), "没设 CW_KERNEL ⇒ 走 sidecar")
+	var m := CWMatch.new()
+	m.player_count = 2
+	m.human_players = [0, 1]
+	check(m._new_local_kernel({}) is CWKernelSidecar, "没设 CW_KERNEL：热座新开局拿到 CWKernelSidecar")
+	m.human_players = [0]
+	m.ai_level = CWMatch.AI_INTENT
+	check(m._new_local_kernel({}) is CWKernelSidecar, "没设 CW_KERNEL：单机对意图档拿到 CWKernelSidecar")
+	m.ai_level = CWMatch.AI_MC
+	check(m._new_local_kernel({}) is CWKernelInProc, "「较强」C# 里没有：照旧 GD（菜单里已不给选，只剩直接设档位的路）")
+	m.ai_level = CWMatch.AI_INTENT
+	check(m._new_local_kernel({"round_no": 3}) is CWKernelInProc, "读 GD 存档（没有 kernel 标记的快照）：回 GD 内核，不看开关")
+	OS.set_environment("CW_KERNEL", "gd")
+	check(not CWKernelSidecar.wanted() and m._new_local_kernel({}) is CWKernelInProc, "CW_KERNEL=gd ⇒ 新开局走 GD")
+	check(m._new_local_kernel({"kernel": CWKernelSidecar.SAVE_KERNEL}) is CWKernelSidecar, "CW_KERNEL=gd 时读 C# 存档照样回 sidecar（存档自己说是哪个内核）")
+	OS.set_environment("CW_KERNEL", "sidecar")
+	check(CWKernelSidecar.wanted(), "CW_KERNEL=sidecar ⇒ 走 sidecar")
+	OS.set_environment("CW_KERNEL", "gd")
+	m.free()
+
+
 ## AI 每步之间的停顿（220 ms）里对局被关掉：kernel.close() 把引擎摘成 null，醒来的这一问不该再去读引擎。
 ## 10-01 合观察期分支时全量偶发一次「Nonexistent function 'player' in base 'Nil'」—— 收局时 AI 正停顿着。
 ## **红在 run_tests.sh 的 SCRIPT ERROR 闸上**：去掉守卫这里稳定复现那条报错，但 check 分不出来
@@ -23411,7 +23436,7 @@ func t_net_sidecar() -> void:
 	var srv := _net_server()
 	check(srv != null, "联机：本机起服务器")
 	if srv == null:
-		OS.set_environment("CW_KERNEL", "")
+		OS.set_environment("CW_KERNEL", "gd")
 		return
 	var a := _net_client("甲", false)
 	var b := _net_client("乙", false)
@@ -23534,7 +23559,7 @@ func t_net_sidecar() -> void:
 	while sc_pid > 0 and OS.is_process_running(sc_pid) and Time.get_ticks_msec() - t1 < 3000:
 		await process_frame
 	check(sc_pid > 0 and not OS.is_process_running(sc_pid), "关服 + 空闲链路关掉之后 sidecar 进程退出")
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 
 
 ## 测试里「让对局往前走」的作答：结束回合 / 停 / 跳过，都没有就第一项（落子、弃牌这类每项都往前走）。只看 data。
@@ -23560,7 +23585,7 @@ func t_net_sidecar_takeover() -> void:
 	OS.set_environment("CW_KERNEL", "sidecar")
 	var srv := _net_server()
 	if srv == null:
-		OS.set_environment("CW_KERNEL", "")
+		OS.set_environment("CW_KERNEL", "gd")
 		return
 	var url := "ws://%s:%d" % [NET_HOST, srv.port]
 	## ---- ② 有计时：乙不答，到点代打 ----
@@ -23721,7 +23746,7 @@ func t_net_sidecar_takeover() -> void:
 	e.leave()
 	await _net_pump(srv, [a, e], func() -> bool: return not srv.rooms.has(room4.code))
 	## 开关关着 ⇒ GD 路
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 	check(await _net_room(srv, a, e, 2, 0, 7), "开关关掉再开一间")
 	a.start()
 	var room5: CWRoom = srv.rooms[a.code]
@@ -23779,7 +23804,7 @@ func t_net_sidecar_lan_memory() -> void:
 	p.free()
 	if dedicated != null:
 		dedicated.stop()
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 	CWKernelSidecar.shutdown_idle_links()
 
 
@@ -23793,7 +23818,7 @@ func t_net_sidecar_ui() -> void:
 	OS.set_environment("CW_KERNEL", "sidecar")
 	var srv := _net_server()
 	if srv == null:
-		OS.set_environment("CW_KERNEL", "")
+		OS.set_environment("CW_KERNEL", "gd")
 		return
 	var a := _net_client("甲", false)
 	var b := _net_client("乙", false)
@@ -23854,7 +23879,7 @@ func t_net_sidecar_ui() -> void:
 	b.dispose()
 	srv.stop()
 	CWKernelSidecar.shutdown_idle_links()
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 
 
 ## 一个客户端看到的「每份状态之后谁先动」：sync 记下 envelope 里正在被问的席位、step_begin 记下这一步是谁的
@@ -23898,7 +23923,7 @@ func t_net_sidecar_ai() -> void:
 	OS.set_environment("CW_KERNEL", "sidecar")
 	var srv := _net_server()
 	if srv == null:
-		OS.set_environment("CW_KERNEL", "")
+		OS.set_environment("CW_KERNEL", "gd")
 		return
 	var url := "ws://%s:%d" % [NET_HOST, srv.port]
 	## ---- ② 4 人房：两真人 + 两 AI + 观众，打到终局 ----
@@ -24022,7 +24047,7 @@ func t_net_sidecar_ai() -> void:
 	c2.dispose()
 	srv.stop()
 	CWKernelSidecar.shutdown_idle_links()
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 
 
 ## 网页单机走服务器（P6，NET_VERSION 32）：create_solo 建一间「我 + AI」的私人房、当场开局，走真 WebSocket。
@@ -24048,7 +24073,7 @@ func t_net_solo() -> void:
 	var b := _net_client("乙", false)
 	check(await _net_pair(srv, a, b), "两个客户端握手")
 	## ---- 开关关着 ----
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 	a.create_solo(2, 0, ["", "normal"], [], 0)
 	var ok := await _net_pump(srv, [a, b], func() -> bool: return _net_count(a, "error") > 0)
 	check(ok and String(_net_last(a, "error")["code"]) == "solo_off" and srv.rooms.is_empty(), "开关关着 ⇒ solo_off，服务器不建房")
@@ -24115,7 +24140,7 @@ func t_net_solo() -> void:
 	b.dispose()
 	srv.stop()
 	CWKernelSidecar.shutdown_idle_links()
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 
 
 ## 网页版「开始对局」走服务器（main.gd solo_via_server；桌面上默认关，这里拨开）：真 Main.tscn + 本机服务器。
@@ -24138,7 +24163,7 @@ func t_web_solo() -> void:
 	OS.set_environment("CW_KERNEL", "sidecar")
 	var srv := _net_server()
 	if srv == null:
-		OS.set_environment("CW_KERNEL", "")
+		OS.set_environment("CW_KERNEL", "gd")
 		return
 	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
 	main_scene.solo_via_server = true
@@ -24174,7 +24199,7 @@ func t_web_solo() -> void:
 	ok = await _net_pump(srv, [], func() -> bool: return srv.rooms.is_empty() and not main_scene._entering, 3000)
 	check(ok and not m.online and not m.solo, "返回主菜单：告别服务器，那间房当场关掉")
 	## 开关关着 ⇒ 本地开
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 	main_scene._begin(cfg)
 	ok = await _net_pump(srv, [], func() -> bool: return m.kernel != null and m.mirror != null and not main_scene._entering, 3000)
 	check(ok and not m.online and not m.solo and m.kernel is CWKernelInProc and srv.rooms.is_empty(),
@@ -25614,7 +25639,7 @@ func _tutor_c3_drive_run(sidecar: bool) -> void:
 	m.teardown()
 	await process_frame
 	if sidecar:
-		OS.set_environment("CW_KERNEL", "")
+		OS.set_environment("CW_KERNEL", "gd")
 		CWKernelSidecar.shutdown_idle_links()
 	CWSettings.ai_delay_ms = 220
 	CWGuideProgress.clear()   ## 别脏到同一分片里后面按进度开局的测试
@@ -25837,7 +25862,7 @@ func _tutor_c3_ui_run(sidecar: bool) -> void:
 	m.teardown()
 	await process_frame
 	if sidecar:
-		OS.set_environment("CW_KERNEL", "")
+		OS.set_environment("CW_KERNEL", "gd")
 		CWKernelSidecar.shutdown_idle_links()
 	CWSettings.ai_delay_ms = 220
 	CWGuideProgress.clear()
@@ -26125,7 +26150,7 @@ func _tutor_chain_c2l5_run(sidecar: bool) -> void:
 			return
 		OS.set_environment("CW_KERNEL", "sidecar")
 	else:
-		OS.set_environment("CW_KERNEL", "")   ## GD 那一跑必须真在 GD 内核上：环境里残留 sidecar 的话 C# 装载器本来就收这块盘，测不到修的那一处
+		OS.set_environment("CW_KERNEL", "gd")   ## GD 那一跑必须真在 GD 内核上：环境里残留 sidecar 的话 C# 装载器本来就收这块盘，测不到修的那一处
 	var opened: Array = await _tutor_key_open("c2_l5")
 	var main_scene: Node = opened[0]
 	var m: CWMatch = opened[1]
@@ -26213,7 +26238,7 @@ func _tutor_key_close(main_scene: Node, m: CWMatch) -> void:
 	if m.kernel != null:
 		m.teardown()
 	await process_frame
-	OS.set_environment("CW_KERNEL", "")
+	OS.set_environment("CW_KERNEL", "gd")
 	CWKernelSidecar.shutdown_idle_links()
 	CWSettings.ai_delay_ms = 220
 	CWGuideProgress.clear()

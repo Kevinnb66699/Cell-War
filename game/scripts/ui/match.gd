@@ -310,7 +310,7 @@ const REVIVE_FX_TIME := CARD_FX_WINDUP + CARD_FX_T0 + CARD_FX_T1 + CARD_FX_T2 + 
 ## 口径二 · 批 1（规格 A-1.1）：UI 只从镜像读、只经句柄作答、只从播放队列播演出。
 ## 名字从 game 改成 mirror 是**故意**的：让 grep 成为可执行的结构闸（t_no_engine_in_ui），
 ## 也免得留下「名叫 game 其实是镜像」的地雷。
-var kernel: CWKernel      ## 句柄：本地 / 热座 / 教程 / 回放是 CWKernelInProc（开发开关 CW_KERNEL=sidecar 时热座与教程是 CWKernelSidecar），联机是 CWKernelRemote
+var kernel: CWKernel      ## 句柄：单机 / 热座 / 教程默认是 CWKernelSidecar（起不来或 CW_KERNEL=gd 时是 CWKernelInProc），回放是 CWKernelInProc，联机是 CWKernelRemote
 var mirror: CWMirror      ## 当前这一份观测（每次问人之前、终局之前各换一份，A-1.5）
 var queue: CWPlayQueue    ## 条目播放器：演出 / 日志 / 询问 / sync 都从它出来
 var _replay_tape := {}    ## 终局条目带下来的回放 tape（main.gd 存回放用）
@@ -561,15 +561,14 @@ func _ready() -> void:
 		start()
 
 
-## 换内核 P2 的开发开关（2026-10-01，docs/内核替换_重启计划.md）：环境变量 `CW_KERNEL=sidecar` 时，**全真人的新开局**（热座）
-## 改走本地 C# 内核进程。只有这一种局能走 —— AI 席还在 GD（P3 才进 C#）、教程由舞台建（P5）；sidecar 局存的档是 C# 检查点，
-## 读档时按存档里的内核标记回到 sidecar。
-## sidecar 起不来就退回 InProc，玩家照样能玩（UNAVAILABLE 是一等状态，与补丁系统隔离）。默认不设这个变量 = 行为一行不变。
+## 新开局（单机 / 热座）默认走本地 C# 内核进程（换内核 P8 切换，`CWKernelSidecar.wanted()`；`CW_KERNEL=gd` 强制走 GD）。
+## 教程不走这里，由舞台建。sidecar 局存的档是 C# 检查点，读档时按存档里的内核标记回到 sidecar；GD 局存的档回 GD。
+## sidecar 起不来就退回 InProc，玩家照样能玩（UNAVAILABLE 是一等状态，与补丁系统隔离）。
 func _new_local_kernel(snap: Dictionary) -> CWKernel:
-	## 读档：存档自己说是哪个内核存的（C# 检查点只有 sidecar 装得进，开关关着也一样）
+	## 读档：存档自己说是哪个内核存的（C# 检查点只有 sidecar 装得进，`CW_KERNEL=gd` 时也一样）
 	if String(snap.get("kernel", "")) == CWKernelSidecar.SAVE_KERNEL:
 		return CWKernelSidecar.new()
-	if OS.get_environment("CW_KERNEL") != "sidecar" or not snap.is_empty():
+	if not CWKernelSidecar.wanted() or not snap.is_empty():
 		return CWKernelInProc.new()
 	## 这一次运行里 sidecar 起不来过：新开局不再试（每试一次可能就是 8 秒握手，见 `CWKernelSidecar.start_failure`），直接 GD
 	if not CWKernelSidecar.start_failure.is_empty():
@@ -959,6 +958,10 @@ const AI_MC := 1        ## 扁平蒙特卡洛（CWUIBridge 的基类本体），
 const AI_MCTS := 2      ## UCT 树搜索（队友 2026-09-07 的 CWMCTSBridge）
 const AI_INTENT := 3    ## 意图级规划（MechBridge，2026-09-20）：杠杆库 + 意图评估器，仅实验档
 const AI_ABS := 4       ## 对抗搜索（2026-09-20）：alpha-beta v2 + 回合边界叶 + E4 拟合估值，仅实验档
+## 配置页给选的档（换内核 P8，Kevin 10-01「AI 档位全部统一成普通 / 意图 / 搜索」）：「较强」「树搜索」C# 里没有，从选单撤下。
+## **档位号不重排**：存档的 ai_level、网页单机的 SOLO_TIER_OF_LEVEL、GD 退路的 _wire_bridge 都按这几个号认，
+## 撤的两档代码留到 GD 内核退役一起删
+const AI_MENU := [AI_NORMAL, AI_INTENT, AI_ABS]
 ## 树搜索档的预算。扁平 MC 的专家档是 192 个模拟 step；树搜索给两倍，
 ## 依据是「它该更强，也该更慢一点，但仍要有可预测的上限」——
 ## ⚠ **这三个数没有对局数据支撑**，只是量纲上的合理取值，等有了 AI 互搏基准再定。

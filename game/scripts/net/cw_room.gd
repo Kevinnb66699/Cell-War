@@ -10,11 +10,11 @@
 ## 没计时就立刻由启发式代打；之后轮到他的询问都由启发式即时代打，直到凭令牌重连。
 ## 所有真人都离线 → 中止对局、关房。等待室里掉线 = 起身。
 ##
-## **C# 内核路**（换内核 P6，2026-10-01）：服务器进程设了 `CW_KERNEL=sidecar`、席上没有机器人客户端时，这一局不建 CWGame，
+## **C# 内核路**（换内核 P6，2026-10-01；P8 起默认走，`CW_KERNEL=gd` 关掉）：席上没有机器人客户端时，这一局不建 CWGame，
 ## 改由 `pump`（cw_net_pump.gd，持一个 CWKernelSidecar）跑：条目流 → 演出广播 / 每步逐人推 envelope / 询问只发被问的那一席。
 ## AI 席与掉线 / 超时代打都由 sidecar 里的 C# AI 作答（第二段）：掉线 = 这一席交给 AI、重连 = 交还，超时 = 只代答这一问。
 ## 席位、计时、掉线重连、投降投票、观众这些产品逻辑**两条路共用**；分叉只在下面标了 `_sc_` 的那一节和几处入口的第一行。
-## 没设那个变量时 `pump` 恒为 null，行为与改动之前一行不差。
+## `CW_KERNEL=gd` 时 `pump` 恒为 null，行为与 P6 之前一行不差。
 ##
 ## **网页单机房**（`solo`，NET_VERSION 32）：CWNetServer._create_solo 建的私人房 —— 一位真人 + 其余全是 AI、建好就开局、
 ## 只走 C# 内核路、不进大厅也不许别人进来；**人走了房就关**（leave 里 solo 那一支，掉线同样算走）。
@@ -844,16 +844,16 @@ func _log_line(text: String) -> void:
 
 
 # ---- C# 内核（sidecar）路（换内核 P6，2026-10-01，docs/内核替换_重启计划.md §四 P6）----
-## 服务器开关：**服务器进程**的环境变量 `CW_KERNEL=sidecar`（与桌面热座的开发开关同名）才走这条路。
+## 开关：`CWKernelSidecar.wanted()`（P8 起默认走；**服务器进程**的环境变量 `CW_KERNEL=gd` 关掉，与桌面同一个开关）。
 ## AI 席（第二段起）也走：房间的 heur / mc 按 cw_net_pump.gd 的 TIER_OF 换成 C# 的普通 / 搜索档。
 ## 坐着**机器人客户端**（hello 自报 bot：net_play / net_live 的 autoplay、无头测试）的房照旧走 GD：
 ## 它们作答靠 sync 里那份老 view 还原的 GD 影子对局，C# 这条路给不了 —— 这样线上验收脚本不受开关影响。
-## 不设这个变量 = 这一节一个函数都走不到，pump 恒为 null。
+## `CW_KERNEL=gd` = 这一节一个函数都走不到，pump 恒为 null。
 ## 局域网开服（`server.lan_host`：服务器跑在客户端进程里）照客户端新开局的口径：这一次运行里 sidecar 起不来过就不再试、直接走 GD 路
 ##（2026-10-01 三轮复核）—— 每试一次可能就是 8 秒握手 / 5 秒等回应，堵的是房主自己的界面。专用服务器每间房照旧重试，理由见
 ## `CWKernelSidecar.start_failure`。单机房走到这里同样不试，照 `start` 的老路答 solo_off
 func _wants_sidecar() -> bool:
-	if OS.get_environment("CW_KERNEL") != "sidecar":
+	if not CWKernelSidecar.wanted():
 		return false
 	if server.lan_host and not CWKernelSidecar.start_failure.is_empty():
 		return false

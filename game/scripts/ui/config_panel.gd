@@ -93,7 +93,7 @@ const CANCER_STEPS := [-1, CWData.CancerType.MELANOMA, CWData.CancerType.SIGNET,
 
 var _players := 4
 var _faction: int = CWData.Faction.IMMUNE   ## -1 = 观战
-## AI 强度：0 普通（纯启发式）/ 1 较强（扁平蒙特卡洛）/ 2 树搜索（UCT，2026-09-07 接入）。
+## AI 强度：CWMatch.AI_LEVEL_NAMES 的下标，只在 CWMatch.AI_MENU 那三档（普通 / 意图 / 搜索）里拨（换内核 P8）。
 ## 原来是 bool，第三档进来之后改成下标 —— 名字与含义都在 CWMatch.AI_LEVEL_NAMES 一处。
 var _ai := 0
 var _seed := 0
@@ -328,7 +328,8 @@ func _cycle(row: int, dir: int) -> void:
 			_faction = FACTION_STEPS[(i + dir + FACTION_STEPS.size()) % FACTION_STEPS.size()]
 			_sync_sheet(false)   ## 拨进 / 拨出「本地多人」：席位表淡入淡出
 		ROW_SMART:
-			_ai = (_ai + dir + CWMatch.AI_LEVEL_NAMES.size()) % CWMatch.AI_LEVEL_NAMES.size()
+			var i := CWMatch.AI_MENU.find(_ai)
+			_ai = CWMatch.AI_MENU[(i + dir + CWMatch.AI_MENU.size()) % CWMatch.AI_MENU.size()]
 		ROW_SEED:
 			_seed = _roll_seed()   ## 种子没有「上一个」，拨就是换一个
 		_:

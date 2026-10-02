@@ -6,6 +6,9 @@
 # 然后 enable + start 服务。之后发版只用 tools/deploy_server.sh。
 # 服务器连不上 GitHub（2026-09-02 实测），所以 Godot 二进制要本地下载再传：
 #   https://github.com/godotengine/godot-builds/releases/download/4.5-stable/Godot_v4.5-stable_linux.x86_64.zip
+#
+# 换内核 P8：首版工程走 tools/deploy_server.sh —— 它顺带装 C# sidecar 用的 .NET 运行时（~/cellwar/dotnet/）、
+# 现编载荷、传上去先自检，不过不切。
 set -e
 # 服务器的 sshd 被扫描时会随机丢连接（"Connection closed by ... port 22"，2026-09-02 实测），所以每条 ssh/scp 都重试几次
 ssh() { for i in 1 2 3 4 5; do command ssh -o BatchMode=yes -o ConnectTimeout=15 "$@" && return 0; local rc=$?; [ $rc -eq 255 ] || return $rc; sleep 5; done; return 255; }
@@ -25,5 +28,5 @@ scp -q server/run.sh "$HOST:~/cellwar/run.sh"
 scp -q server/cellwar.service "$HOST:/tmp/cellwar.service"
 ssh "$HOST" 'chmod +x ~/cellwar/run.sh && sudo -n cp /tmp/cellwar.service /etc/systemd/system/cellwar.service && sudo -n systemctl daemon-reload && sudo -n systemctl enable cellwar >/dev/null 2>&1 && echo "systemd 单元已装好"'
 echo "上传首版工程 …"
-tar czf - --exclude=.godot --exclude='tests/_tmp_*' -C . game | ssh "$HOST" 'set -e; rm -rf ~/cellwar/next; mkdir -p ~/cellwar/next.tmp; tar xzf - -C ~/cellwar/next.tmp; mv ~/cellwar/next.tmp/game ~/cellwar/next; rmdir ~/cellwar/next.tmp; touch ~/cellwar/DRAIN'
+bash tools/deploy_server.sh "$HOST"
 ssh "$HOST" 'sudo -n systemctl restart cellwar && sleep 3 && systemctl status cellwar --no-pager | head -12'

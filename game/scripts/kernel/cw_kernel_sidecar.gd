@@ -415,6 +415,28 @@ func set_decider(b: Object) -> void:
 		deciders[pid] = b
 
 
+# ---- 新开局默认走不走 sidecar（换内核 P8 切换，docs/内核替换_重启计划.md §八 第 1 条）----
+## 默认走 C# 内核。**`tools/publish_release.sh` 第 ⑥ 闸认这一行**：是 true 时包里缺载荷 / 运行时就不许发版。
+## 环境变量 `CW_KERNEL=gd` 强制走 GD 内核：观察期的逃生口，也是无头测试的缺省（headless_test.gd 开跑前设好 ——
+## 那批界面测试要钻进 GD 引擎看内部状态；测 C# 路的测试自己设 `sidecar`、测完设回 `gd`）。
+## 只管**新开局**：桌面新开局（match.gd:_new_local_kernel）、教程换盘（cw_tutorial_stage.gd:_open_spec）、
+## 服务器建局（cw_room.gd:_wants_sidecar）与网页单机房（cw_net_server.gd:_create_solo）都只问 `wanted()`。
+## 读档不问：存档自己说是哪个内核存的。这一次运行里起不来过（`start_failure`）照旧由各调用方自己看
+const SIDECAR_DEFAULT := true
+
+
+## 网页包里起不了本地进程：恒 false（网页单机走服务器的单机房）
+static func wanted() -> bool:
+	if OS.has_feature("web"):
+		return false
+	match OS.get_environment("CW_KERNEL"):
+		"gd":
+			return false
+		"sidecar":
+			return true
+	return SIDECAR_DEFAULT
+
+
 # ---- 找 sidecar（开发期；导出包的路由在 cw_sidecar_locator.gd）----
 ## 这一次去哪儿起 sidecar：`{dotnet, dll}`，找不到给 `{error}`（原话，只进日志）。cfg 里的 dotnet / sidecar_dll 覆盖（测试用），
 ## 缺省由 cw_sidecar_locator.gd 找。open() 起进程之前就是这么判的；main.gd「继续对局」推镜头之前也先问一句（找不到就没得试，当场说）。

@@ -46,6 +46,7 @@ var _queue: Array = []
 
 
 func _initialize() -> void:
+	OS.set_environment("CW_KERNEL", "gd")   ## 换内核 P8 起新开局默认走 sidecar；这个脚本要钻进 GD 引擎看内部状态
 	var args := OS.get_cmdline_user_args()
 	if args.size() > 0:
 		_dir = args[0]

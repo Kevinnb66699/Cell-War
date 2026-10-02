@@ -107,8 +107,9 @@ done
 # 桌面两个预设导出时把 game/sidecar/ 打进去（不入库，tools/build_sidecar.sh 生成）。拦三件事：
 # 载荷照 HEAD 的 core/ 编（core_build == HEAD 短号、不带 -dirty）、两个平台的运行时都在、两个包都比载荷新（先编载荷再导包）。
 # csproj 纪律（不 Trim / SingleFile / Aot、Core 零 PackageReference）在 build_sidecar.sh 每次打包时拦。
-# **切换之前只警告**：match.gd 里还有 CW_KERNEL 开发开关 = 玩家默认不走 sidecar，缺了不影响谁；
-# P8 切换删掉开关的那一刻，这道闸自动变硬（缺一样就不发）。
+# **硬不硬看 `CWKernelSidecar.SIDECAR_DEFAULT`**（cw_kernel_sidecar.gd 里那一行 `const SIDECAR_DEFAULT := true`）：
+# true = 玩家新开局默认走 sidecar（P8 切换起），缺一样就不发；改成 false（退回 GD 默认）才只警告。
+# 以前看的是 match.gd 里还有没有 CW_KERNEL 字样 —— 注释里提一句就永远软着，所以改认这一行。
 SC=game/sidecar
 SC_PROBLEM=""
 if [ ! -f "$SC/payload.json" ]; then
@@ -127,8 +128,8 @@ else
 	done
 fi
 if [ -n "$SC_PROBLEM" ]; then
-	if grep -q 'CW_KERNEL' game/scripts/ui/match.gd; then
-		echo "⚠ sidecar：$SC_PROBLEM（切换之前只警告，玩家默认不走 sidecar）"
+	if ! grep -qE '^const SIDECAR_DEFAULT := true' game/scripts/kernel/cw_kernel_sidecar.gd; then
+		echo "⚠ sidecar：$SC_PROBLEM（SIDECAR_DEFAULT 不是 true，玩家默认不走 sidecar，只警告）"
 	else
 		die "sidecar：$SC_PROBLEM"
 	fi
