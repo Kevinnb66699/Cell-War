@@ -73,6 +73,7 @@ func _ready() -> void:
 	match_node.finished.connect(_on_match_finished)
 	match_node.replay_opening.connect(_replay_opening)
 	match_node.tutorial_done.connect(_back_to_menu)   ## 教程全部通关 → 返场回主菜单（Q-14 默认，09-25 接上）
+	match_node.kernel_lost.connect(_on_kernel_lost)
 	settle.chose.connect(_on_settle_chose)
 	## 首次进入才询问一次。旧版进度文件视为已访问；选新手后即使只过了半关，
 	## 下次启动也回主菜单。Main 作为测试夹具挂树时不是开机，不弹这层。
@@ -390,6 +391,16 @@ func _continue() -> void:
 	var data := CWSave.read()
 	if data.is_empty():
 		return   ## 档坏了或没了：亮灭是按 exists() 算的，这里兜底
+	## C# 存档只有新内核读得回来。这会儿连新内核都找不到 —— 没得试，注定读不回来：
+	## 不推镜头（以前推进棋盘再退出来，白等 3 秒才看见通知），就在主菜单上直接说（2026-10-01 复核）。
+	## 找得到就照旧推镜头、真去开：起不来 / 不认这份档 / 开完当场就没了，只有真开过才知道
+	var cs_save := String((data["snap"] as Dictionary).get("kernel", "")) == CWKernelSidecar.SAVE_KERNEL
+	if cs_save:
+		var loc := CWKernelSidecar.locate()
+		if loc.has("error"):
+			push_warning("读档：C# 存档读不回来（%s）" % String(loc["error"]))   ## 原话落 godot.log，通知上只说人话
+			menu.show_notice(SAVE_LOST_TITLE, save_lost_text(CWKernel.Fault.SPAWN_FAILED, true))
+			return
 	match_node.player_count = data["players"]
 	var seats: Array[int] = []
 	for s in data["human"]:
@@ -402,8 +413,91 @@ func _continue() -> void:
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_tween.tween_method(_look, 0.0, 1.0, T_ENTER)
 	await _tween.finished
-	match_node.start(data["snap"])
+	## 玩家亲手点的「继续对局」不看「这一次运行里起不来过」的记忆（`CWKernelSidecar.start_failure`），真去试一次（2026-10-01 三轮复核，
+	## Kevin 按推荐定）：记下的那一次可能只是偶发（.NET 冷启动卡满握手、杀毒软件攥着刚解出来的目录），甚至是玩家没看见的一次
+	## 新开局悄悄退回 GD —— 当场拦的话只能叫人重开游戏。先清掉再开：开成了就空着（之后的新开局也重新指望 sidecar）；
+	## 起不来由这一次重新记下；起来了却不认这份档，内核是好的，也空着。自动的路（新开局 / 教程换盘）照旧看记忆
+	if cs_save:
+		CWKernelSidecar.start_failure = {}
+	if not match_node.start(data["snap"]):
+		## C# 存档读不回来（新内核起不来 / 不认这份检查点）：GD 内核装不进它，退无可退 —— 回主菜单说清楚。
+		## 当帧就拆：界面层刚被 start() 亮起来、还没画过一帧，返场时就不会闪一下空的右栏。存档一个字不动。
+		## 原话 match.gd 已经写进日志，这里只要故障种类挑那句人话
+		var fault := match_node.lost_fault()
+		match_node.teardown()
+		_entering = false
+		await _back_to_menu()
+		menu.show_notice(SAVE_LOST_TITLE, save_lost_text(fault))
+		return
 	_entering = false
+
+
+## ── 新内核没了的时候说什么（换内核观察期，Kevin 2026-10-01）────────────────
+## 新开局 sidecar 起不来会悄悄退回 GD 内核（CWMatch.start），玩家看不出来；只有这两种退不回去，要明说：
+const SAVE_LOST_TITLE := "读不了这份存档"
+const KERNEL_LOST_TITLE := "对局中断了"
+## 两段通知的最后一行：原话不上屏（见 `kernel_reason`），告诉人去哪儿找。说「日志文件」不说「日志」——
+## 对局里 L 键那块也叫「日志」，那里头没有这一条
+const LOG_NOTE := "详细原因已写进日志文件。"
+
+
+## 句柄的故障种类（`CWKernel.Fault`）→ 给玩家看的那半句（2026-10-01 复核）。**原话不上屏**：
+## 「找不到 sidecar（dotnet=…，dll=…）」「退出码 -1」「decider 的答案被 sidecar 拒了」是写给开发看的 ——
+## 玩家看不懂，路径还会把面板撑开、「-1」会在减号后面折行；原话由 match.gd / `_continue` 写进日志（godot.log）。
+## 被拒（PROTOCOL）在这里只剩对局中途那一种（答案对不上，内核自己出了错）：读档时被拒 = 不认这份检查点，
+## `save_lost_text` 整段另说（三轮复核第 5 条）。握手时 token 对不上也记 PROTOCOL —— 那得有别的本机进程抢先连进一次性端口，不单列
+static func kernel_reason(fault: int) -> String:
+	match fault:
+		CWKernel.Fault.CRASHED:
+			return "新内核意外退出了"
+		CWKernel.Fault.REPLY_TIMEOUT:
+			return "新内核没有响应"
+		CWKernel.Fault.PROTOCOL, CWKernel.Fault.NONE:
+			return "新内核出错了"
+	## SPAWN_FAILED / HANDSHAKE_TIMEOUT / ABI_MISMATCH / SELFTEST_FAILED：进程没起来、或者起来了没握上手
+	return "新内核没能启动"
+
+
+## ① C# 存档读不回来（`_continue`）。存档都还在；「稍后可以再试」是实话：玩家每次亲手点「继续对局」都真去试一次
+##（不看「这一次运行里起不来过」的记忆，见 `_continue`；原来记下了就当场拦，这句话只好分成「稍后」/「重新打开游戏后」两种）。
+## 例外照实说（四轮复核）：不认这份检查点（读档时 PROTOCOL）—— 同一份档、同一个内核再点多半还是被拒，原因不猜（存档是这台机器上
+## 这个版本写的，被拒多半是个 bug，原话进日志）；版本对不上（ABI_MISMATCH / SELFTEST_FAILED）—— 更新游戏前怎么点都一样；
+## 游戏包里压根没有新内核（`missing`：`locate()` 都找不到，见 `_continue`）—— 重新下载完整的游戏才有。每句都压在一行之内
+## 句与句之间硬换行：一句一行，折行就不会落在词中间（「存档还 / 在」，三轮复核第 9 条；面板内宽一行放得下二十来个字）
+static func save_lost_text(fault: int, missing := false) -> String:
+	if missing:
+		return "这份存档需要新内核，但游戏包里缺它。\n存档还在，重新下载游戏后可以再试。\n" + LOG_NOTE
+	if fault == CWKernel.Fault.PROTOCOL:
+		return "这份存档新内核打不开。\n存档还在。\n" + LOG_NOTE
+	if fault == CWKernel.Fault.ABI_MISMATCH or fault == CWKernel.Fault.SELFTEST_FAILED:
+		return "这份存档需要新内核，但版本对不上。\n存档还在，更新游戏后可以再试。\n" + LOG_NOTE
+	return "这份存档需要新内核，但%s。\n存档还在，稍后可以再试。\n%s" % [kernel_reason(fault), LOG_NOTE]
+
+
+## ② 对局中途新内核没了（`_on_kernel_lost`）。存档位只有一份、读档也不删（cw_save.gd 头注），
+## 那份存档不一定是这一局的 —— 所以只说「上次的存档」。教程里不提存档（三轮复核第 3 条）：存档位里那份从来不是教程
+##（存档不记教程标志，读回来就是正式局），说「可以从『继续对局』接着打」就是把人往别的局里领；
+## 教程要接着学是主菜单的「新手引导」，按进度回到这一关的开头（`CWGuideProgress` 续读只认关、不认步）。一句一行，理由同 ①
+static func kernel_lost_text(why: String, save_kept: bool, tutorial: bool) -> String:
+	var text := "%s，这一局只能到这里。" % why
+	if tutorial:
+		text += "\n可以从主菜单的「新手引导」重新开始这一关。"
+	elif save_kept:
+		text += "\n上次的存档还在，可以从「继续对局」接着打。"
+	return text + "\n" + LOG_NOTE
+
+
+## 盖暂停菜单的通知页，只给「返回主菜单」：那一项发的是暂停菜单原有的 "menu"，走 `_on_pause_chose` 同一条返场。不自动恢复。
+## 开局过场还没走完（绽开 0.75 s / 教程开场幕布淡出）就先等它：过场期间 `_back_to_menu` 头一句就返回，
+## 这时点「返回主菜单」只会关掉通知页、把人留在一盘不会动的棋上
+func _on_kernel_lost(fault: int) -> void:
+	## 教程是写死的剧本：C# 那边要是确定性的故障，重开这一关会在同一拍再撞一次。记成「这一次运行里起不来过」，
+	## 通知里说的「从新手引导重新开始」就落到 GD 内核上（舞台换关 / 重装都看这份记忆）。正式局不记：下一局照旧先试新内核
+	if match_node.tutorial:
+		CWKernelSidecar._remember_start_failure(fault, "教程中途新内核没了：%s" % match_node.lost_reason())
+	while _entering:
+		await get_tree().process_frame
+	pause.show_notice(KERNEL_LOST_TITLE, kernel_lost_text(kernel_reason(fault), CWSave.can_continue(), match_node.tutorial))
 
 
 ## 返回主菜单：镜头原路退回，棋盘擦干净，菜单淡回来。

@@ -95,6 +95,19 @@ const FEEDBACK_HINT := {
 const INPUT_H := 36            ## 反馈页那格说明输入框的高度：实测最小高 36（20px 字 + 上下内边距），同 CWOnlinePanel._edit 表单档；
                                ## 以前写 34，进树后照样被顶成 36，排版按 34 算就少了 2 px
 
+## 通知页（换内核观察期，Kevin 2026-10-01）：新内核（sidecar）对局中途没了，main.gd 用 show_notice 盖上这一页。
+## 只有一项、Esc 关不掉 —— 对局已经没了，收起来只剩一盘不会动的棋。这一项用主列表「返回主菜单」同一个 id，
+## main.gd 那条返场一个字不用改；不走二级确认：这里没有「留下」可选
+const NOTICE_ITEMS := [
+	{ "id": "menu", "text": "返回主菜单", "enabled": true, "confirm": "" },
+]
+const NOTICE_GAP := 10          ## 正文与第一项之间的空
+## 通知页刚盖上的这一小段里不认「返回主菜单」（回车 / 点击都不认），而且**空格永远不认**（2026-10-01 复核）：
+## 空格是「结束回合」的快捷键（同 CWChatBox.is_enter 的理由），内核偏偏常在玩家刚按完那一下时没了 ——
+## 不挡的话，下一下空格 / 手快补的那一下回车就把人送回主菜单，为什么一眼都没看到。
+## 1 秒比读完标题还短：读通知的人感觉不到它，只吃掉通知盖上那一刻已经在路上的按键与点击（同 main.gd 的 SKIP_GRACE_MS 一类）
+const NOTICE_GRACE_MS := 1000
+
 ## 主菜单那套辉光：四层白描边由外到内叠出来，越外越淡（尺寸与 alpha 照搬 MainMenu.tscn）。
 ## 为什么不用引擎的辉光后期：开 hdr_2d 会把整张画布的颜色都改掉。
 ## 为什么层数要密：只叠两三层时最外那圈会露出一条硬边，读起来就是团队否掉的「垫块」。
@@ -152,6 +165,9 @@ var _hovered := -1
 var _confirming := ""          ## 正在确认哪一项的 id；空 = 在主列表上
 var _input: LineEdit           ## 反馈页的说明输入框（只备一份，反馈页时露面）
 var _feedback_page := ""       ## "" = 不在反馈页；否则 edit / sending / done / failed（见 FEEDBACK_ITEMS）
+var _notice := false           ## 正停在通知页上（show_notice）
+var _notice_at := 0            ## 通知页盖上的时刻（ms，见 NOTICE_GRACE_MS）
+var _body: Label               ## 通知页的正文（折好行的几行小字）；别的页藏着
 var _capturing := false        ## 正在藏起自己抓截图；close() 打断它
 var _feedback_png := PackedByteArray()
 var _feedback_snapshot := {}
@@ -195,10 +211,33 @@ static func freezes_tree(p_online: bool) -> bool:
 
 
 func toggle() -> void:
+	if _notice:
+		return   ## 通知页只能点「返回主菜单」走（Esc 与网页版右上角「设置」都走这里）
 	if visible:
 		close()
 	else:
 		open()
+
+
+## 通知页：标题 + 一段折好行的正文 + 「返回主菜单」（换内核观察期，main.gd:_on_kernel_lost 调）
+func show_notice(title: String, body: String) -> void:
+	open()
+	_notice = true
+	_notice_at = Time.get_ticks_msec()
+	_title.text = title
+	_body.text = notice_lines(body, W - PAD * 2)
+	_body.visible = true
+	_rebuild(NOTICE_ITEMS)
+
+
+## 通知正文的折行（这里的通知页与主菜单的通知共用）：自己折而不用 Label 的 autowrap，面板高度才现算得出来。
+## 折法借 CWCardInfo.wrap_text（中文逐字贪心、标点不落行首）；它折在空格上时那个空格会落到下一行行首
+##（原因里常有「找不到 sidecar」这种中英混排），这里去掉 —— wrap_text 本身不能改，卡面高亮要它一个字不丢
+static func notice_lines(body: String, width: float) -> String:
+	var lines: Array = []
+	for line in CWCardInfo.wrap_text(body, width):
+		lines.append(line.lstrip(" "))
+	return "\n".join(lines)
 
 
 func open() -> void:
@@ -216,6 +255,7 @@ func close() -> void:
 	visible = false
 	_confirming = ""
 	_feedback_page = ""
+	_notice = false
 	_capturing = false
 	if _input != null:
 		_input.visible = false
@@ -274,6 +314,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_step(-1)
 	elif event.is_action_pressed("ui_accept"):
 		get_viewport().set_input_as_handled()   ## 别让空格穿透到「结束回合」
+		if _notice and not CWChatBox.is_enter(event):
+			return   ## 通知页上空格不算「确定」，只认真回车（见 NOTICE_GRACE_MS）
 		_activate(_selected)
 
 
@@ -283,6 +325,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _show_page(confirm_id: String) -> void:
 	_confirming = confirm_id
 	_feedback_page = ""
+	_notice = false
+	_body.visible = false
 	if _input != null:
 		_input.visible = false
 	if confirm_id == "":
@@ -363,6 +407,8 @@ func _enabled(item: Dictionary) -> bool:
 func _activate(i: int) -> void:
 	if not _enabled(_list[i]):
 		return
+	if _notice and Time.get_ticks_msec() - _notice_at < NOTICE_GRACE_MS:
+		return   ## 通知页刚盖上：回车与点击都先不认（见 NOTICE_GRACE_MS）
 	SFX.click()
 	var id: String = _list[i]["id"]
 	if _confirming != "":
@@ -497,6 +543,12 @@ func _build_chrome() -> void:
 	_hint.size = Vector2(W - PAD * 2, 0)
 	_panel.add_child(_hint)
 
+	## 通知页的正文：与副标题同一处起笔、同字号，但用常规字色 —— 这一页要读的就是它，不是旁注
+	_body = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT)
+	_body.position = Vector2(PAD, PAD + TITLE_H)
+	_body.visible = false
+	_panel.add_child(_body)
+
 	## 反馈页的说明输入框：样式同联机面板的 _edit（点阵字、青色光标、按钮底框），只在反馈页露面。
 	## 回车 = 提交、Esc = 退回列表；上下键与空格被输入框吃掉，所以反馈页靠鼠标或这两个键
 	_input = LineEdit.new()
@@ -552,6 +604,9 @@ func _rebuild(list: Array) -> void:
 	var input_on := _feedback_page == "edit" or _feedback_page == "failed"
 	if input_on:
 		head += INPUT_H + 8
+	## 通知页：正文折成几行就往下让几行（行是 show_notice 折好的，标签的最小高就是这几行的高）
+	if _notice:
+		head += _body.get_minimum_size().y + NOTICE_GAP
 	var h: float = PAD + head + list.size() * ITEM_H + PAD
 	var screen := CWView.screen_size()
 	_panel.position = Vector2((screen.x - W) / 2.0, (screen.y - h) / 2.0)

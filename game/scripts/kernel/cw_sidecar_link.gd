@@ -89,7 +89,12 @@ func request(op: String, args := {}) -> Dictionary:
 	while true:
 		var line := _read_line(REPLY_TIMEOUT_MS)
 		if line == "":
-			_die(CWKernel.Fault.CRASHED, "sidecar %d ms 内没回 %s" % [REPLY_TIMEOUT_MS, op])
+			## 读不到有两种，分开记（给玩家的那句话按它挑，2026-10-01）：连接已经断了 = 进程没了（多半当场就断，
+			## 不是等满 5 秒）；连接还在却等满了 = 它卡住了。以前一律记成 CRASHED「N ms 内没回」，两种都对不上
+			if _peer.get_status() == StreamPeerTCP.STATUS_CONNECTED:
+				_die(CWKernel.Fault.REPLY_TIMEOUT, "sidecar %d ms 内没回 %s" % [REPLY_TIMEOUT_MS, op])
+			else:
+				_die(CWKernel.Fault.CRASHED, "sidecar 断开了连接（在等 %s 的回应）" % op)
 			return {}
 		var r = JSON.parse_string(line)
 		if r is Dictionary and r.has("re") and int(r["re"]) == id:

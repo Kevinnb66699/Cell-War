@@ -22,7 +22,9 @@ class_name CWKernel
 extends RefCounted
 
 enum State { IDLE, STARTING, READY, AWAITING, ENDED, UNAVAILABLE, FAULTED }
-enum Fault { NONE, SPAWN_FAILED, ABI_MISMATCH, SELFTEST_FAILED, HANDSHAKE_TIMEOUT, CRASHED, PROTOCOL }
+## REPLY_TIMEOUT（2026-10-01 加在末尾，前面几个的数值不动）：连接还在、回应等不到 —— 进程卡住了，不是没了。
+## 之前与「连接断了」同记 CRASHED，给玩家的那句话就分不出「意外退出了」还是「没有响应」
+enum Fault { NONE, SPAWN_FAILED, ABI_MISMATCH, SELFTEST_FAILED, HANDSHAKE_TIMEOUT, CRASHED, PROTOCOL, REPLY_TIMEOUT }
 const VIEWER_WATCHER := -1      ## 观众：手牌全占位、问答只给 kind / tag / seat / prompt
 const VIEWER_OMNISCIENT := -2   ## 全知：明文、全给 —— **禁止过网**，只给本地宿主 / 热座
 const STREAM_KINDS := ["roll", "result", "notice", "card_played", "event_drawn", "card_drawn",
