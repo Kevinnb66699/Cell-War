@@ -282,12 +282,19 @@ func _load_cells(g: CWGame, spec: Dictionary) -> bool:
 				"until": str(m.get("until", "")), "seq": int(m.get("seq", 0)), "data": {} })
 		cell["mods"] = mods
 		g.cells.append(cell)
-	## 一格一细胞：两只站同一格 ⇒ 语义键下标会静默换靶（A-1 的路径文法），装载期就拦掉
+	## 一格一只**活**细胞（与 C# `WorldLoader.Load` 同口径，Kevin 2026-10-01 定 GD 向 C# 对齐）。
+	## 两只活的站同一格 ⇒ 格上的占位（envelope 的 `tile.cell`）两侧各挑一只、语义键下标会静默换靶（A-1 的路径文法），
+	## 何况 C# 一格只有一个占位、根本装不出来 —— 装载期就拦掉。
+	## **死细胞不占格**：GD 的占位只经 `cells_at`（只数活的）读，C# 的 `OccupyingCell` 在打死那一刻就清掉，
+	## 两侧 `tile.cell` 都指那只活的。真实对局里这种盘面很常见 —— 免疫打死癌细胞、按规则进了那一格，死的那只就躺在脚下；
+	## 原来连死的也拦，教程第五关最后一击之后间章重心平移（dump → 平移 → load）当场装不回来
 	var occupied := {}
 	for cell in g.cells:
+		if not bool(cell["alive"]):
+			continue
 		var at: Vector2i = cell["pos"]
 		if occupied.has(at):
-			fail("格 %s 上站了两只细胞 —— cwxworld/3 不表达同格" % str(at))
+			fail("格 %s 上站了两只活细胞 —— cwxworld/3 不表达同格" % str(at))
 			return false
 		occupied[at] = true
 	## 免疫分化种类由 cells 现算（§0.6.1 第 1 条）：不这么置，两侧 envelope 的 g.differentiated 对不上
