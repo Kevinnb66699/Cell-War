@@ -10,7 +10,7 @@ namespace CellWar.Core.Tests;
 /// ③ 效应应答扣的是阵营共用的效应记忆；
 /// ④ 阶段推进（S 产出 / E 蹲守）抽到无路可走的连走卡不多出「停在这里」；
 /// ⑤ 【补体调理】叠几张就最多重掷几次。
-/// （第六处「反弹打死攻击者时 GD 不演 immune_attack」判为 GD 侧疏漏、C# 不跟，见开发日志 2026-10-01。）
+/// （第六处「反弹打死攻击者时 GD 不演 immune_attack」判为 GD 侧疏漏、C# 不跟，见开发日志 2026-10-01；同日 Kevin 定 GD 补上，两个内核已同演，护栏是 GD 的 `t_reflect_kill_attack_fx`。）
 /// </summary>
 public class P0GapTests
 {

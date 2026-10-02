@@ -1220,7 +1220,7 @@ internal static class CellRules
                 // GD cw_actions.gd:920：目标还活着就弹回原格；攻击者被反弹打死时 GD 早已 return，没有这一句
                 if (s.Cells[cell.Id].IsAlive) Stage.Log(s, $"　{Stage.CellName(s, s.Cells[cell.Id])} 返回原格");
                 s = UpdateMarks(s);
-                EmitImmuneAttackFx(s, cell, target, move.TargetPosition, attackHit);   // 返回原格 / 攻击者死了：GD 在 enter_tile 的 else 之后照样演
+                EmitImmuneAttackFx(s, cell, target, move.TargetPosition, attackHit);   // 返回原格：GD 在 enter_tile 的 else 之后照样演；攻击者被反弹打死：GD 在提前 return 之前演（cw_actions.gd `_immune_attack_fx`，2026-10-01 补上）
                 return new(s, events, true);
             }
         }
