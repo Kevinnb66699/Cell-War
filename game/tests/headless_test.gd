@@ -178,7 +178,7 @@ func _run_all() -> void:
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
 		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
-		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_kernel_sidecar_ai, t_entry_smoke_sidecar, t_entry_smoke_sidecar_ai, t_sidecar_locator, t_sidecar_tutor_worlds, t_play_queue,
+		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_kernel_sidecar_ai, t_entry_smoke_sidecar, t_entry_smoke_sidecar_ai, t_sidecar_locator, t_sidecar_tutor_worlds, t_reflect_kill_attack_fx, t_play_queue,
 		## 换内核 P6 · 真人半边（2026-10-01）：服务器开关 CW_KERNEL=sidecar 下全真人房跑在 C# 内核上
 		t_net_sidecar, t_net_sidecar_takeover, t_net_sidecar_ui,
 		## 换内核 P6 · 第二段（2026-10-01）：AI 席 / 代打走 sidecar 里的 C# AI、网页单机走服务器（create_solo）
@@ -18177,6 +18177,97 @@ func t_sidecar_tutor_worlds() -> void:
 			st.dispose()
 	CWKernelSidecar.shutdown_idle_links()
 	check(worlds >= 18 and bad.is_empty(), "%d 份关卡世界两个内核装出来逐字段相同%s" % [worlds, "" if bad.is_empty() else "：\n    " + "\n    ".join(bad)])
+
+
+## 反弹打死攻击者时照样演本体冲撞（Kevin 2026-10-01 定：GD 补上，与 C# 演同一样东西）。
+## 同一份世界交给 GD InProc 与 sidecar：免疫细胞 1.5 能量、付完 1.0 的攻击费剩 0.5，带子掷 1 ⇒ 无效 ⇒ 反弹 0.5 打到 0。
+## 按语义键答同一问，比这一步的条目流（演出 + 日志逐条，含先后）。
+## GD 此前在 ☠ 之后直接 return，`attacker_alive = false` 永远发不出来、attack_fx.gd 的淡出那一支是死代码。
+## 巨噬那一份：两边都只演扑咬、不叠冲撞（新的出口也要守住这一条）
+func t_reflect_kill_attack_fx() -> void:
+	print("[反弹打死攻击者·冲撞演出两个内核一致]")
+	var sidecar_ok := CWKernelSidecar.find_dotnet() != "" and FileAccess.file_exists(CWKernelSidecar.find_sidecar_dll())
+	check(sidecar_ok, "dotnet 与 sidecar 产物都在（先 dotnet build core/CellWar.Sidecar）")
+	for kind in ["ImmuneBasic", "Macrophage"]:
+		var world := {
+			"radius": 6, "round": 1, "phase": "PlayerAction", "seat": 0,
+			"players": [{ "seat": 0, "faction": "immune", "level": "I" },
+				{ "seat": 1, "faction": "cancer", "cancer_type": "SmallCellLung" }],
+			"tiles": [{ "at": "1,0", "state": "cancer" }],
+			"cells": [{ "seat": 0, "type": kind, "at": "0,0", "energy": 15 },
+				{ "seat": 1, "type": "SmallCellLung", "at": "1,0", "energy": 500 }],
+		}
+		var rolls := [[1, 6, 1]]
+		## GD 那一半照教程舞台 `_open_inproc`：装盘 → 带子挂在 open 之前 → 收养
+		var g: CWGame = load("res://scripts/kernel/cw_world_loader.gd").new().load_world(world.duplicate(true))
+		var tape = load("res://scripts/kernel/cw_roll_tape.gd").new()
+		tape.tape = rolls.duplicate(true)
+		tape.seed = int((g.rng as RandomNumberGenerator).seed)
+		g.rng = tape
+		var kg := CWKernelInProc.new()
+		kg.open({ "adopt": g, "consumer": true })
+		var gd: Array = await _one_step_entries(kg, "k=action|act=move|to=1,0")
+		kg.abort()
+		kg.close()
+		g.dispose()
+		var dead := gd.filter(func(e: Dictionary) -> bool: return e["t"] == "log" and String(e["text"]).begins_with("☠ 免疫A"))
+		check(dead.size() == 1 and int(tape.at) == 1 and int(tape.overrun) == 0,
+			"%s：掷的是带子那颗 1，反弹把攻击者打死（☠ %d 行）" % [kind, dead.size()])
+		var at := -1
+		for i in gd.size():
+			if gd[i]["t"] == "fx" and gd[i]["kind"] == "immune_attack":
+				at = i
+		if kind == "ImmuneBasic":
+			check(at > 0 and gd[at]["data"] == { "from": Vector2i(0, 0), "to": Vector2i(1, 0), "cid": 0, "target_id": 1,
+				"itype": CWData.ImmuneType.BASIC, "ctype": CWData.CancerType.SCLC,
+				"target_alive": true, "attacker_alive": false, "entered": false, "hit": false },
+				"GD 演冲撞：攻击者已死（attacker_alive = false）、没进格、没打中（%s）" % str(gd[at]["data"] if at >= 0 else "没有 immune_attack"))
+			check(at > 0 and at + 1 < gd.size() and gd[at - 1] == dead[0] and String(gd[at + 1].get("text", "")).contains("跳过回合"),
+				"冲撞排在 ☠ 那一行之后、「跳过回合」之前（同 C#）")
+		else:
+			check(at < 0 and gd.any(func(e: Dictionary) -> bool: return e["t"] == "fx" and e["kind"] == "chomp"),
+				"巨噬被反弹打死：只有扑咬，不演冲撞")
+		if not sidecar_ok:
+			continue
+		var ks := CWKernelSidecar.new()
+		check(ks.open({ "world": world, "rolls": rolls }), "%s：sidecar 从同一份世界开局（%s）" % [kind, str(ks.last_error())])
+		var cs: Array = await _one_step_entries(ks, "k=action|act=move|to=1,0")
+		ks.close()
+		var first := -1
+		for i in maxi(gd.size(), cs.size()):
+			if i >= gd.size() or i >= cs.size() or gd[i] != cs[i]:
+				first = i
+				break
+		check(not gd.is_empty() and first < 0, "%s：这一步的条目两个内核逐条相同（%d 条%s）" % [kind, gd.size(),
+			"" if first < 0 else "；第 %d 条 GD %s / C# %s" % [first, str(gd[first] if first < gd.size() else "—"), str(cs[first] if first < cs.size() else "—")]])
+	CWKernelSidecar.shutdown_idle_links()
+
+
+## 刚开出来的句柄：按语义键答第一问，收这一步的条目 —— step_begin 起、step_end 止（不含 step_end：rev 两个内核各数各的）。
+## 掷骰是 barrier 条目，InProc 真等 ack，收到就回执（同 CWPlayQueue）。10 秒没走完返回空数组
+func _one_step_entries(k: CWKernel, key: String) -> Array:
+	var since := 0
+	var asked := false
+	var out: Array = []
+	var deadline := Time.get_ticks_msec() + 10000
+	while Time.get_ticks_msec() < deadline:
+		for e: Dictionary in k.pull(CWKernel.VIEWER_OMNISCIENT, since, 1000):
+			since = int(e["seq"])
+			if bool(e.get("barrier", false)):
+				k.ack(since)
+			if not asked:
+				if e["t"] == "ask":
+					asked = true
+					if not k.answer(int(e["ask_id"]), { "key": key }):
+						return []
+			elif e["t"] == "step_end":
+				return out
+			else:
+				var c: Dictionary = e.duplicate(true)
+				c.erase("seq")
+				out.append(c)
+		await process_frame
+	return []
 
 
 func t_sidecar_locator() -> void:

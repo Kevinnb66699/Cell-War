@@ -838,6 +838,11 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		if game.tune.counter_dmg_on_fail > 0:
 			game.cancer_hit(cell, game.tune.counter_dmg_on_fail, "反弹")
 			if not cell["alive"]:
+				## 攻击者被反弹打死：进格 / 返回原格 /【抗原呈递强化】都不做了，但冲撞照样演。
+				## `_do_move` 里能伤到攻击者的只有这一下，所以这是 `attacker_alive = false` 唯一的来源 ——
+				## 此前直接 return，attack_fx.gd 里攻击者淡出那一支永远播不到。C# 一直在演，
+				## Kevin 2026-10-01 定 GD 补上；排在 ☠ 那一行之后，与 C# 同位
+				_immune_attack_fx(cell, target, attack_from, to, false)
 				return
 	else:
 		var crit := outcome == "crit"
@@ -918,12 +923,20 @@ func _do_move(cell: Dictionary, to: Vector2i, cost: int, base: int = -1) -> void
 		await enter_tile(cell, to, int(q["final"]))
 	else:
 		game.log_msg("　%s 返回原格" % game.cell_name(cell))
-	if cell["itype"] != CWData.ImmuneType.MACRO:
-		game.fx("immune_attack", {"from": attack_from, "to": to,
-			"cid": int(cell["id"]), "target_id": int(target["id"]),
-			"itype": int(cell["itype"]), "ctype": int(target["ctype"]),
-			"target_alive": bool(target["alive"]), "attacker_alive": bool(cell["alive"]),
-			"entered": bool(cell["alive"]) and cell["pos"] == to, "hit": outcome != "fail"})
+	_immune_attack_fx(cell, target, attack_from, to, outcome != "fail")
+
+
+## 普通攻击的本体冲撞（PR #30），在整段结算之后报：双方此刻的死活、攻击者进没进格都已定。
+## 巨噬不演（它在判定之前已经演过扑咬，再冲撞一次就是一次攻击演两遍）。
+## `_do_move` 两处出口共用：结算走完、攻击者被反弹打死的提前 return（对应 C# `CellRules.EmitImmuneAttackFx`）
+func _immune_attack_fx(cell: Dictionary, target: Dictionary, attack_from: Vector2i, to: Vector2i, hit: bool) -> void:
+	if cell["itype"] == CWData.ImmuneType.MACRO:
+		return
+	game.fx("immune_attack", {"from": attack_from, "to": to,
+		"cid": int(cell["id"]), "target_id": int(target["id"]),
+		"itype": int(cell["itype"]), "ctype": int(target["ctype"]),
+		"target_alive": bool(target["alive"]), "attacker_alive": bool(cell["alive"]),
+		"entered": bool(cell["alive"]) and cell["pos"] == to, "hit": hit})
 
 
 ## 攻击判定三档的**正本**。云端 PRD 2026-09-10 把「失败」改称**「无效」**
