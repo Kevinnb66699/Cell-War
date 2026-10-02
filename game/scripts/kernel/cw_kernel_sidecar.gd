@@ -38,6 +38,7 @@ var _decider_ask := {}              ## 拉到了、还没交给 decider 的那�
 var _pumping := false
 var _started := true                ## autorun=false 的局：open() 只拉条目、不替 decider 作答，等 run()（同 InProc：队列与第一份镜像先就位）
 var _ticking := false
+var _viewed := false                ## 头一份观测拿到了没有：之前链路出的事都算「起不来」（见 `_link_fault`）
 
 
 # ---- 生命周期 ----
@@ -202,7 +203,8 @@ func observe(viewer: int, logs_from := 0) -> RefCounted:
 ## 开局的头一份镜像（全知）。open() 返回 true 还不算开成（2026-10-01 复核）：之后、头一份镜像落地之前 sidecar 照样可能
 ## 当场出事 —— open 里头一下拉条目、头一次观测就崩 / 超时 / 被拒。界面没有镜像画不出第一帧，match.gd 那道
 ## 「镜像还没到」的闸后面什么都不跑：不退回、也不报，棋盘就空在那儿。所以客户端开完先要这一份，要不到就照「起不来」走
-##（新开局退回 GD、C# 存档回主菜单说明）。要不到时句柄转 FAULTED（已经 FAULTED 的保留原来的原因），会话与链路一并放掉
+##（新开局退回 GD、C# 存档回主菜单说明）。要不到时句柄转 FAULTED（已经 FAULTED 的保留原来的原因），会话与链路一并放掉；
+## 断在链路上的（进程没了 / 卡住不回）还记成「起不来」（`_link_fault`），被拒的不记
 func first_view() -> CWMirror:
 	var m := observe(VIEWER_OMNISCIENT) as CWMirror
 	if m == null:
@@ -214,7 +216,10 @@ func observe_envelope(viewer: int, logs_from := 0) -> Dictionary:
 	if _sid < 0:
 		return {}
 	var r := _call("observe", { "sid": _sid, "viewer": viewer, "logs_from": logs_from })
-	return r.get("envelope", {}) if bool(r.get("ok", false)) else {}
+	if not bool(r.get("ok", false)):
+		return {}
+	_viewed = true
+	return r.get("envelope", {})
 
 
 func pull(viewer: int, since_seq: int, limit := 64) -> Array:
@@ -412,7 +417,10 @@ func set_decider(b: Object) -> void:
 
 # ---- 找 sidecar（开发期；导出包的路由在 cw_sidecar_locator.gd）----
 ## 这一次去哪儿起 sidecar：`{dotnet, dll}`，找不到给 `{error}`（原话，只进日志）。cfg 里的 dotnet / sidecar_dll 覆盖（测试用），
-## 缺省由 cw_sidecar_locator.gd 找。open() 起进程之前就是这么判的；main.gd「继续对局」推镜头之前也先经 `unusable()` 问一句
+## 缺省由 cw_sidecar_locator.gd 找。open() 起进程之前就是这么判的；main.gd「继续对局」推镜头之前也先问一句（找不到就没得试，当场说）。
+## **不是纯查询**：导出包里它会把 pck 里的 .NET 运行时与载荷解到 user://sidecar/（`Locator.unpack`，第一次要解几秒）、补宿主的可执行位、
+## 删掉旧版本的目录。这些都是幂等的 —— 解好的目录有 `.ok` 标记就直接用，问几次落到盘上的都是同一份，所以先问一句不会多出什么。
+## 它不记 `start_failure`（那归真去开的 open()）
 static func locate(cfg := {}) -> Dictionary:
 	var loc: Dictionary = {} if cfg.has("sidecar_dll") else Locator.locate()
 	if loc.has("error"):
@@ -424,27 +432,24 @@ static func locate(cfg := {}) -> Dictionary:
 	return { "dotnet": dotnet, "dll": dll }
 
 
-## 这一次运行里 sidecar 起不来过没有：第一次起不来（找不到产物 / 进程起不来 / 握手没成）就记下 `{fault, msg}`，记到退出游戏；
-## 空 = 没有过。为什么要记（2026-10-01 复核）：客户端每个新开局都会再试一次，教程通关一遍要换 17 次盘、每次换盘都试 ——
-## 找不到文件当场就失败，没感觉；卡在握手上的那种每试一次就把主线程堵 Link.HANDSHAKE_MS（8 秒）。
-## **只记不拦**：拿它当「别再试」的是客户端（match.gd 新开局、教程舞台换盘直接走 GD 内核，main.gd「继续对局」直接说明）；
-## 服务器每开一间房照旧重试 —— 它没有别的内核可退，一次失败不该让整个进程从此放弃。
-## 开局之后才出的事（被拒 / 中途崩）不记：那不是「起不来」，下一局照样值得一试。测试每支开跑前清空（headless_test.gd）
+## 这一次运行里 sidecar 起不来过没有：第一次起不来就记下 `{fault, msg}`，记到退出游戏；空 = 没有过。
+## 「起不来」= 头一份观测拿到之前就没了：找不到产物 / 进程起不来 / 握手没成（open() 当场记），以及（2026-10-01 三轮复核补）
+## 握上手了、却死在 open / restore / 头一次观测上 —— 进程没了或卡住不回（`_link_fault` 记）。被拒（不认这份检查点）不算：内核是好的。
+## 为什么要记（2026-10-01 复核）：客户端每个新开局都会再试一次，教程通关一遍要换 17 次盘、每次换盘都试 ——
+## 找不到文件当场就失败，没感觉；卡在握手上的那种每试一次就把主线程堵 Link.HANDSHAKE_MS（8 秒），卡在 open 上的堵 Link.REPLY_TIMEOUT_MS（5 秒）再加收进程。
+## **句柄只记不拦**，看不看归调用方：
+##   · 看（见它就直接走 GD）：客户端的自动路 —— match.gd 新开局、教程舞台换盘；局域网开服的房间（服务器跑在客户端进程里，
+##     cw_room.gd:_wants_sidecar 看 `server.lan`）—— 每试一次堵的都是房主自己的界面。
+##   · 不看：玩家亲手点的「继续对局」（main.gd:_continue 先清掉、真去试一次：开成了就空着，没起来由这一次重新记下）；
+##     专用服务器（server_main.gd 起的无头进程）每开一间房照旧重试 —— 它一开就是好几天（systemd 常驻、部署才重启），
+##     记一次就要到下次部署才清，期间每间房都悄悄走 GD 路、网页单机房（只走 C#）一律答 solo_off。不是因为它没有退路：普通房起不来照样走 GD。
+## 开局之后（头一份观测之后）才出的事不记：那不是「起不来」，下一局照样值得一试。测试每支开跑前清空（headless_test.gd）
 static var start_failure := {}
 
 
 static func _remember_start_failure(fault: int, msg: String) -> void:
 	if start_failure.is_empty():
 		start_failure = { "fault": fault, "msg": msg }
-
-
-## 客户端开局之前问一句：sidecar 这一次运行里还指望得上吗。指望得上给 {}；指望不上给 `{fault, msg}` ——
-## 记着的那次起不来（`start_failure`），或者这会儿就找不到产物（`locate`；只问不记，真去开的那一下 open() 会记）
-static func unusable() -> Dictionary:
-	if not start_failure.is_empty():
-		return start_failure
-	var loc := locate()
-	return { "fault": Fault.SPAWN_FAILED, "msg": String(loc["error"]) } if loc.has("error") else {}
 
 
 static func find_dotnet() -> String:
@@ -464,7 +469,7 @@ func _call(op: String, args := {}) -> Dictionary:
 		return {}
 	var r: Dictionary = _link.request(op, args)
 	if int(_link.fault) != 0:
-		_fail(int(_link.fault), String(_link.fault_msg))
+		_link_fault(int(_link.fault), String(_link.fault_msg))
 		return {}
 	return r
 
@@ -493,7 +498,13 @@ func _tick() -> void:
 	if _link == null or _sid < 0 or _state == State.FAULTED or _state == State.UNAVAILABLE:
 		return
 	if not _link.alive():
-		_fail(Fault.CRASHED, String(_link.fault_msg) if int(_link.fault) != 0 else "sidecar 进程退出了（退出码 %d）" % OS.get_process_exit_code(_pid))
+		## 链路自己记过故障就照它的种类：同一条链路上别的句柄等满了 5 秒（REPLY_TIMEOUT）、链路随即收掉进程，
+		## 这里只是晚一帧看见 —— 改记成 CRASHED 的话，通知就从「没有响应」变成了「意外退出了」（10-01 三轮复核）。
+		## 链路还没记过（这一帧才发现进程不在了）才是 CRASHED
+		if int(_link.fault) != 0:
+			_link_fault(int(_link.fault), String(_link.fault_msg))
+		else:
+			_link_fault(Fault.CRASHED, "sidecar 进程退出了（退出码 %d）" % OS.get_process_exit_code(_pid))
 		return
 	_pump()
 
@@ -611,6 +622,14 @@ func _unavailable(msg: String) -> bool:
 	_set_state(State.UNAVAILABLE)
 	_release_link()
 	return false
+
+
+## 链路级故障（进程退出 / 连接断 / 卡住不回：记在共用链路上，挂在上面的句柄都看得见）→ 本句柄 FAULTED；
+## 头一份观测之前出的同时记成「起不来」（10-01 三轮复核，理由见 `start_failure`）。会话级的拒绝（ok=false）不走这里，直接 `_fail`
+func _link_fault(fault: int, msg: String) -> void:
+	if not _viewed:
+		_remember_start_failure(fault, msg)
+	_fail(fault, msg)
 
 
 func _fail(fault: int, msg: String) -> void:

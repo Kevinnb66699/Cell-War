@@ -495,6 +495,7 @@ func lan_where() -> String:
 func start_lan(port: int, nick: String = "") -> Error:
 	stop_lan()
 	var s := CWNetServer.new()
+	s.lan = true
 	var err := s.start(port, "*")
 	if err != OK:
 		return err

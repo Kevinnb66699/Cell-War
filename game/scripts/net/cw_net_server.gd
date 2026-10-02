@@ -35,6 +35,9 @@ const REPLAY_KEEP := 50     ## 全服留最近几局（Kevin 2026-09-09 定）
 var _replay_seq := 0
 var drain := false
 var quiet := false     ## 测试时不打印
+## 局域网开服：这台服务器跑在客户端进程里（`CWOnlinePanel.start_lan` 置位；server_main.gd 起的专用服务器恒为 false）。
+## 房间据此照客户端的口径看「sidecar 这一次运行里起不来过」的记忆（cw_room.gd:_wants_sidecar，2026-10-01）
+var lan := false
 var idle_ms := CWNet.ROOM_IDLE_MS   ## 空房多久自动关（测试调短）
 var solo_max := CWNet.SOLO_MAX      ## 全服同时最多几间网页单机房（测试调小）
 var _started := false

@@ -138,6 +138,7 @@ var _confirm_glow: Control
 var _confirm_items: Array = []   ## 此刻列出的项（CONFIRM_ITEMS / ENTRY_ITEMS / NOTICE_ITEMS）
 var _confirm_details: Array = []
 var _confirm_body: Label         ## 通知的正文（show_notice）；别的列表时藏着
+var _notice_at := -1             ## 通知盖上的时刻（ms）；-1 = 此刻列的不是通知（防误触见 show_notice）
 var _entry_choice_open := false
 var _confirm_on_pick := Callable()   ## 选了第 i 项做什么（关层由回调自己负责）
 var _confirm_sel := 1            ## 退出确认默认停在「取消」，别让回车顺手就退了
@@ -523,6 +524,8 @@ func _confirm_input(event: InputEvent) -> void:
 		_repaint_confirm()
 	elif event.is_action_pressed("ui_accept"):
 		get_viewport().set_input_as_handled()
+		if _notice_at >= 0 and not CWChatBox.is_enter(event):
+			return   ## 通知上空格不算「确定」，只认真回车（见 show_notice）
 		_pick_confirm(_confirm_sel)
 
 
@@ -551,10 +554,14 @@ func show_entry_choice(on_choice: Callable) -> void:
 
 
 ## 一条只有「确定」的通知：Esc / 回车 / 点「确定」都是收起（这里没有要选的，Esc 收起不会让谁错过什么）。
-## 正文折行与暂停菜单的通知页同一个函数（CWPauseMenu.notice_lines）
+## 正文折行与暂停菜单的通知页同一个函数（CWPauseMenu.notice_lines）。
+## 防误触同暂停菜单的通知页（2026-10-01 三轮复核）：空格永远不算「确定」、回车与点击在盖上之后 NOTICE_GRACE_MS 内也不算 ——
+## 新内核找不到时它是在点「继续对局」的**同一下按键**里弹出来的，手快补的第二下回车 / 空格会当场把它收掉，一个字都没看到。
+## Esc 照旧当场收起：那是明确的「关掉」，不是连按带出来的
 func show_notice(title: String, body: String) -> void:
 	_open_pick(title, NOTICE_ITEMS, 0, func(_i: int) -> void: _close_confirm(), [],
 		CWPauseMenu.notice_lines(body, CONFIRM_W - CONFIRM_PAD * 2.0))
+	_notice_at = Time.get_ticks_msec()
 
 
 func _open_pick(title: String, items: Array, default_sel: int, on_pick: Callable,
@@ -564,6 +571,7 @@ func _open_pick(title: String, items: Array, default_sel: int, on_pick: Callable
 	_confirm_items = items
 	_confirm_details = details
 	_confirm_on_pick = on_pick
+	_notice_at = -1   ## 是通知的话 show_notice 随后再记
 	_confirm_title.text = title
 	_confirm_body.text = body
 	_confirm_body.visible = body != ""
@@ -579,6 +587,8 @@ func _close_confirm() -> void:
 
 
 func _pick_confirm(i: int) -> void:
+	if _notice_at >= 0 and Time.get_ticks_msec() - _notice_at < CWPauseMenu.NOTICE_GRACE_MS:
+		return   ## 通知刚盖上：回车与点击都先不认（见 show_notice）
 	SFX.click()
 	if _confirm_on_pick.is_valid():
 		_confirm_on_pick.call(i)
