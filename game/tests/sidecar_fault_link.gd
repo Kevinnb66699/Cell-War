@@ -27,6 +27,7 @@ static func install(dotnet_path: String, dll_path: String, op: String, skip := 0
 	var link = new()
 	link.dotnet = dotnet_path
 	link.dll = dll_path
+	link.key = key
 	link.fail_op = op
 	link.fail_skip = skip
 	if link._spawn():

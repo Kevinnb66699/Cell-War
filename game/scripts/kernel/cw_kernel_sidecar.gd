@@ -189,6 +189,11 @@ func fault_is_mine() -> bool:
 	return _fault_mine
 
 
+## 这一局在第几个 sidecar 进程里（服务器分进程时有意义，见 cw_sidecar_link.gd「分进程」；没连上是 -1）
+func link_shard() -> int:
+	return int(_link.shard) if _link != null else -1
+
+
 ## sidecar 进程号（测试看它退没退）
 func process_id() -> int:
 	return _pid

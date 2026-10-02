@@ -45,7 +45,7 @@ const WEIGHTS := {
 	"t_tutor_done_menu": 30.0, "t_tutor_c3_drive": 22.0, "t_tutor_c3_ui": 22.0, "t_ai_mc": 13.0,
 	"t_tutor_sidecar_chain_c2l5": 50.0, "t_tutor_chain_c2l5": 50.0, "t_tutor_sidecar_c3_drive": 24.0, "t_tutor_sidecar_c3_ui": 23.0, "t_tutor_sidecar_chain_c1c2": 19.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_sidecar": 5.6, "t_net_drain": 5.1, "t_net_sidecar_takeover": 5.4,
-	"t_net_sidecar_ai": 11.4, "t_net_sidecar_recover": 9.0, "t_net_sidecar_recover_session": 5.0, "t_net_sidecar_recover_blame": 5.0, "t_net_sidecar_recover_round2": 5.0, "t_net_sidecar_recover_lan": 3.0, "t_sidecar_link_limits": 6.0, "t_web_solo": 6.3, "t_net_solo": 3.0,
+	"t_net_sidecar_ai": 11.4, "t_net_sidecar_recover": 9.0, "t_net_sidecar_recover_session": 5.0, "t_net_sidecar_recover_blame": 5.0, "t_net_sidecar_recover_round2": 5.0, "t_net_sidecar_recover_lan": 3.0, "t_net_sidecar_shards": 6.0, "t_sidecar_link_shards": 2.0, "t_sidecar_link_limits": 6.0, "t_web_solo": 6.3, "t_net_solo": 3.0,
 	"t_sidecar_save_unloadable": 8.0, "t_sidecar_crash_midgame": 5.0, "t_sidecar_unavailable_fallback": 12.0,
 	"t_sidecar_fault_before_view": 4.1, "t_sidecar_start_failure_remembered": 0.5, "t_sidecar_hang_midgame": 6.2,
 	"t_sidecar_continue_retries": 6.0, "t_sidecar_tutorial_lost_notice": 2.0, "t_net_sidecar_lan_memory": 2.0,
@@ -192,7 +192,7 @@ func _run_all() -> void:
 		## 换内核 P6 · 真人半边（2026-10-01）：服务器开关 CW_KERNEL=sidecar 下全真人房跑在 C# 内核上
 		t_net_sidecar, t_net_sidecar_takeover, t_net_sidecar_ui,
 		## 换内核 P6 · 第二段（2026-10-01）：AI 席 / 代打走 sidecar 里的 C# AI、网页单机走服务器（create_solo）
-		t_net_sidecar_ai, t_net_sidecar_recover, t_net_sidecar_recover_session, t_net_sidecar_recover_blame, t_net_sidecar_recover_round2, t_net_sidecar_recover_lan, t_sidecar_link_limits, t_net_solo, t_web_solo,
+		t_net_sidecar_ai, t_net_sidecar_recover, t_net_sidecar_recover_session, t_net_sidecar_recover_blame, t_net_sidecar_recover_round2, t_net_sidecar_recover_lan, t_net_sidecar_shards, t_sidecar_link_limits, t_sidecar_link_shards, t_net_solo, t_web_solo,
 		t_barrier_release, t_observe_cadence, t_answer_semkey, t_kernel_step_drive_rewind,
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
 		t_observe_budget,
@@ -265,6 +265,7 @@ func _run_all() -> void:
 		CWKernelSidecar.start_failure = {}
 		CWKernelSidecar.Link.reset_limits()   ## 同理：前一支故意崩的那几次别让这一支的链路在限流（cw_sidecar_link.gd）
 		CWKernelSidecar.Link.limits = false   ## 限流只在专用服务器开；测它的那支自己打开
+		CWKernelSidecar.Link.shards = 1       ## 分进程同理（专用服务器开）
 		## 换内核 P8 起新开局默认走 sidecar（CWKernelSidecar.wanted()）。套件缺省走 GD：大批界面测试要钻进 GD 引擎看内部状态，
 		## 测 C# 路的测试自己设 sidecar。每支开跑前设回来，前一支忘了收也漏不到下一支（外面设的 CW_KERNEL 一样被盖掉）
 		OS.set_environment("CW_KERNEL", "gd")
@@ -24172,6 +24173,7 @@ func t_sidecar_link_limits() -> void:
 	var dummy = L.new()
 	dummy.dotnet = String(loc["dotnet"])
 	dummy.dll = String(loc["dll"])
+	dummy.key = key
 	for i in L.DEATH_BURST:
 		dummy._note_death()
 	check(int(L._blocked_until.get(key, 0)) > Time.get_ticks_msec(), "一分钟内死了 %d 次：之后 %d 秒不再起" % [L.DEATH_BURST, int(L.BREAKER_MS / 1000.0)])
@@ -24442,6 +24444,112 @@ func t_net_sidecar_recover_session() -> void:
 	b.dispose()
 	srv.stop()
 	CWKernelSidecar.shutdown_idle_links()
+	OS.set_environment("CW_KERNEL", "gd")
+
+
+## 分进程（cw_sidecar_link.gd「分进程」，10-02）：shards = 3 时新会话放到会话最少的进程；一个进程没了只坏它上面的会话，
+## 再开一局先把那个空出来的位置补上（它的会话数是 0）
+func t_sidecar_link_shards() -> void:
+	print("[sidecar 分进程：放到最空的那个 / 崩一个只坏它那几局]")
+	if not _sc_ready():
+		return
+	var L = CWKernelSidecar.Link
+	CWKernelSidecar.shutdown_idle_links()
+	L.shards = 3
+	var ks: Array = []
+	for i in 3:
+		var k := CWKernelSidecar.new()
+		check(k.open({ "factions": CWData.FACTION_ORDER[2], "seed": 10 + i }), "第 %d 局开起来" % i)
+		ks.append(k)
+	var shard_set := {}
+	var pid_set := {}
+	for k: CWKernelSidecar in ks:
+		shard_set[k.link_shard()] = true
+		pid_set[k.process_id()] = true
+	check(shard_set.size() == 3 and pid_set.size() == 3, "三局各占一个进程（进程号 %s、进程 pid %d 个）" % [str(shard_set.keys()), pid_set.size()])
+	var victim: CWKernelSidecar = ks[1]
+	var victim_shard := victim.link_shard()
+	var victim_pid := victim.process_id()
+	OS.kill(victim_pid)
+	var t0 := Time.get_ticks_msec()
+	while victim.state() != CWKernel.State.FAULTED and Time.get_ticks_msec() - t0 < 3000:
+		await process_frame
+	for i in 10:
+		await process_frame
+	check(victim.state() == CWKernel.State.FAULTED and ks[0].state() != CWKernel.State.FAULTED and ks[2].state() != CWKernel.State.FAULTED,
+		"杀掉第 %d 号进程：只有它上面那一局坏了，另外两局照常" % victim_shard)
+	var k4 := CWKernelSidecar.new()
+	check(k4.open({ "factions": CWData.FACTION_ORDER[2], "seed": 99 }) and k4.link_shard() == victim_shard and k4.process_id() != victim_pid,
+		"再开一局：补进空出来的第 %d 号（新进程 %d）" % [k4.link_shard(), k4.process_id()])
+	for k: CWKernelSidecar in ks:
+		k.close()
+	k4.close()
+	CWKernelSidecar.shutdown_idle_links()
+	L.shards = 1
+
+
+## 服务器分进程：三间房各在一个进程里，杀掉其中一个只有那一间重起，另外两间不受影响、接着往下打
+func t_net_sidecar_shards() -> void:
+	print("[联机·C# 内核分进程：崩一个只断它那一间]")
+	if not _sc_ready():
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	CWKernelSidecar.Link.shards = 3
+	var srv := _net_server()
+	if srv == null:
+		OS.set_environment("CW_KERNEL", "gd")
+		CWKernelSidecar.Link.shards = 1
+		return
+	var cs: Array = []
+	for i in 6:
+		cs.append(_net_client("客%d" % i, false))
+	for i in 3:
+		check(await _net_pair(srv, cs[2 * i], cs[2 * i + 1]), "第 %d 对客户端握手" % i)
+	var rooms: Array = []
+	var pols: Array = []
+	for i in 3:
+		check(await _net_room(srv, cs[2 * i], cs[2 * i + 1], 2, 0, 2222 + i), "第 %d 间房" % i)
+		cs[2 * i].start()
+		var r: CWRoom = srv.rooms[cs[2 * i].code]
+		await _net_pump(srv, cs, func() -> bool: return r.pump != null, 3000)
+		rooms.append(r)
+		var da = load("res://tests/xcheck_bridge.gd").new()
+		var db = load("res://tests/xcheck_bridge.gd").new()
+		da.seed_policy(100 + i)
+		db.seed_policy(200 + i)
+		pols.append(da)
+		pols.append(db)
+	var pids: Array = rooms.map(func(r: CWRoom) -> int: return r.pump.kernel.process_id())
+	var shard_set := {}
+	for r: CWRoom in rooms:
+		shard_set[r.pump.kernel.link_shard()] = true
+	check(shard_set.size() == 3 and pids[0] != pids[1] and pids[1] != pids[2] and pids[0] != pids[2], "三间房各在一个进程里（%s）" % str(pids))
+	## 都打到第 2 回合再杀中间那间的进程
+	await _net_pump(srv, cs, func() -> bool:
+		_sc_answer_pending(cs, pols)
+		return rooms.all(func(r: CWRoom) -> bool: return r.pump != null and int(r.pump.round_no) >= 2), 6000)
+	OS.kill(int(pids[1]))
+	var ok := await _net_pump(srv, cs, func() -> bool:
+		_sc_answer_pending(cs, pols)
+		return rooms[1].pump != null and int(rooms[1].pump.recoveries) == 1, 3000)
+	check(ok and rooms[1].state == CWRoom.State.PLAYING, "被杀的那间：从检查点接着打（重起 1 次）")
+	check(int(rooms[0].pump.recoveries) == 0 and int(rooms[2].pump.recoveries) == 0
+			and rooms[0].pump.kernel.process_id() == int(pids[0]) and rooms[2].pump.kernel.process_id() == int(pids[2]),
+		"另外两间：一次都没重起、还在原来的进程里")
+	var rounds0: Array = rooms.map(func(r: CWRoom) -> int: return int(r.pump.round_no))
+	ok = await _net_pump(srv, cs, func() -> bool:
+		_sc_answer_pending(cs, pols)
+		for i in 3:
+			var r: CWRoom = rooms[i]
+			if r.state == CWRoom.State.PLAYING and r.pump != null and int(r.pump.round_no) <= int(rounds0[i]):
+				return false
+		return true, 6000)
+	check(ok, "三间房都接着往下打了一个回合以上")
+	for c: CWNetClient in cs:
+		c.dispose()
+	srv.stop()
+	CWKernelSidecar.shutdown_idle_links()
+	CWKernelSidecar.Link.shards = 1
 	OS.set_environment("CW_KERNEL", "gd")
 
 

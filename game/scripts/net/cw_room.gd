@@ -914,7 +914,7 @@ func _sc_start(seed_value: int) -> bool:
 	state = State.PLAYING
 	_log_cursor.clear()
 	push_room()
-	server.say("房间 %s 开局（C# 内核）：%d 人，种子 %d，计时 %d s" % [code, player_count, seed_value, timer_secs])
+	server.say("房间 %s 开局（C# 内核，第 %d 号进程）：%d 人，种子 %d，计时 %d s" % [code, pump.kernel.link_shard(), player_count, seed_value, timer_secs])
 	pump.pump()
 	return true
 

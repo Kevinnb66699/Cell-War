@@ -16,6 +16,9 @@
 ## 握手卡死过（进程起来了却不连回来）SPAWN_BACKOFF_MS 内不再起；起来了却当场失败（起来就退了 / ABI 对不上…）FAILED_SPAWN_BACKOFF_MS 内不再起
 ##（所有房间共用这一次尝试，不各起各的）；DEATH_WINDOW_MS 内进程死了 DEATH_BURST 次也停 BREAKER_MS —— 服务器单线程，
 ## 每起一次卡住就是全服冻 9 秒。这期间 acquire 当场给一条起不来的链路（SPAWN_FAILED）。
+## **分进程**（`shards`，10-02 Kevin 点头）：专用服务器把房间分到 shards 个 sidecar 进程里（server_main.gd，缺省 3），
+## 新会话放到会话最少的那个进程；一个进程崩了（栈溢出 / 内存耗尽这类 C# 里接不住的）只断它那几间，别的进程照常。
+## 每个进程一个键（`dotnet|dll#k`），限流 / 「一分钟死几次」也是一个进程一本账。桌面 / 局域网开服 / 测试缺省 1 个（键不带 #）。
 ## ⚠ 与补丁系统完全隔离：起不来只是 UNAVAILABLE，绝不计进 patch_state.gd 的 STRIKES。
 extends RefCounted
 
@@ -32,6 +35,7 @@ const FAILED_SPAWN_BACKOFF_MS := 5000
 const RULE_OPS := ["answer", "ai_step", "set_ai", "surrender", "log_msg", "open", "restore", "mark_player", "abort"]
 
 static var limits := false          ## 限流开不开（见文件头）：专用服务器 server_main.gd 打开，桌面 / 局域网开服 / 测试缺省关
+static var shards := 1              ## 分几个进程（见文件头「分进程」）：专用服务器 server_main.gd 设，其余 1
 
 static var _links := {}             ## "dotnet|dll" → 活着的链路
 static var _blocked_until := {}     ## "dotnet|dll" → 这个时刻（ms）之前不再起进程（见文件头「限流」）
@@ -39,6 +43,8 @@ static var _deaths := {}            ## "dotnet|dll" → 最近几次进程死掉
 
 var dotnet := ""
 var dll := ""
+var key := ""                       ## 在共用表 `_links` 里的键：`dotnet|dll`，分进程时再加 `#第几个`
+var shard := 0                      ## 第几个进程（不分进程时恒 0）
 var pid := -1
 var hello := {}
 var fault := 0                      ## CWKernel.Fault；0 = 好的
@@ -55,7 +61,8 @@ var _idle_since := -1               ## users 降到 0 的时刻（ms）；-1 = �
 
 ## 拿一条能用的链路：同一份产物已有活着的就复用，否则起一个。返回的链路 `fault != 0` 就是没起来（调用方转 UNAVAILABLE / FAULTED）
 static func acquire(dotnet_path: String, dll_path: String) -> RefCounted:
-	var key := dotnet_path + "|" + dll_path
+	var s := _pick_shard(dotnet_path, dll_path)
+	var key := _key(dotnet_path, dll_path, s)
 	var link = _links.get(key)
 	if link != null and link.alive():
 		link.users += 1
@@ -64,6 +71,8 @@ static func acquire(dotnet_path: String, dll_path: String) -> RefCounted:
 	link = new()
 	link.dotnet = dotnet_path
 	link.dll = dll_path
+	link.key = key
+	link.shard = s
 	var now := Time.get_ticks_msec()
 	if limits and now < int(_blocked_until.get(key, 0)):
 		link.fault = CWKernel.Fault.SPAWN_FAILED
@@ -80,6 +89,27 @@ static func acquire(dotnet_path: String, dll_path: String) -> RefCounted:
 	elif limits and int(link.pid) > 0:
 		_blocked_until[key] = Time.get_ticks_msec() + FAILED_SPAWN_BACKOFF_MS   ## 进程起来了却当场失败：别让每个房间各起一遍
 	return link
+
+
+## 共用表里的键：不分进程时就是 `dotnet|dll`（与分进程之前一样，测试替身 sidecar_fault_link.gd 也按它登记）
+static func _key(dotnet_path: String, dll_path: String, s: int) -> String:
+	var base := dotnet_path + "|" + dll_path
+	return base if shards <= 1 else "%s#%d" % [base, s]
+
+
+## 新会话放哪个进程：会话最少的那个（没起 / 已经死了的算 0，同样少就取靠前的）—— 死掉的那个最先被重起的房间拉起来
+static func _pick_shard(dotnet_path: String, dll_path: String) -> int:
+	if shards <= 1:
+		return 0
+	var best := 0
+	var best_load := 1 << 30
+	for s in shards:
+		var link = _links.get(_key(dotnet_path, dll_path, s))
+		var load := int(link.users) if link != null and link.alive() else 0
+		if load < best_load:
+			best = s
+			best_load = load
+	return best
 
 
 ## 清掉限流的记账（测试每支开跑前调：上一支故意崩的那几次不该让这一支起不来）
@@ -144,7 +174,6 @@ func request(op: String, args := {}) -> Dictionary:
 ## 关连接（sidecar 读到 EOF 正常退出），等它最多 1 秒，还在就杀掉
 func shutdown() -> void:
 	## 只摘自己：进程崩了之后重起的那条新链路登记在同一个键上 —— 旧链路 30 秒后空闲关掉时不能把新的摘了（10-01 复核）
-	var key := dotnet + "|" + dll
 	if _links.get(key) == self:
 		_links.erase(key)
 	var tree := Engine.get_main_loop() as SceneTree
@@ -239,7 +268,6 @@ func _die(f: int, msg: String) -> bool:
 
 ## 握手过的进程死了一次：DEATH_WINDOW_MS 内攒够 DEATH_BURST 次就停 BREAKER_MS 不再起（见文件头「限流」）
 func _note_death() -> void:
-	var key := dotnet + "|" + dll
 	var now := Time.get_ticks_msec()
 	var recent: Array = (_deaths.get(key, []) as Array).filter(func(t: int) -> bool: return now - t < DEATH_WINDOW_MS)
 	recent.append(now)

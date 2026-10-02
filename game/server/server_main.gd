@@ -20,6 +20,8 @@ var _last_drain_check := 0
 func _initialize() -> void:
 	## 专用服务器才开 sidecar 的起进程限流（cw_sidecar_link.gd 头注）：单线程，每起一次卡住就是全服冻住；桌面 / 局域网开服不开
 	CWKernelSidecar.Link.limits = true
+	## 房间分到几个 sidecar 进程里（cw_sidecar_link.gd「分进程」，10-02）：一个进程崩了只断它那几间。每个进程常驻约 80 MB
+	CWKernelSidecar.Link.shards = 3
 	var port := CWNet.DEFAULT_PORT
 	var bind := "*"
 	var fps := 30
@@ -38,6 +40,7 @@ func _initialize() -> void:
 			"feedback_port": fb_port = int(kv[1])
 			"feedback_bind": fb_bind = kv[1]
 			"feedback_dir": fb_dir = kv[1]
+			"sidecar_shards": CWKernelSidecar.Link.shards = clampi(int(kv[1]), 1, 8)
 	Engine.max_fps = fps
 	var err := server.start(port, bind)
 	if err != OK:
