@@ -14,6 +14,9 @@
 #   PAYLOAD_ONLY=1  只出载荷（打补丁用），不碰运行时 zip
 #   运行时从哪来：RUNTIME_DIR_<rid 里 - 换成 _>（例 RUNTIME_DIR_win_x64=/path/解开的 dotnet-runtime-10.0.x-win-x64）；
 #   没给就用本机 ~/.dotnet（只对本机 rid 有效）。
+#   Windows 的那份（2026-10-01 从 builds.dotnet.microsoft.com 下的 dotnet-runtime-10.0.12-win-x64.zip，SHA-512 对过）解在
+#   ~/.cellwar/dotnet-runtime-10.0.12-win-x64/（原 zip 也在 ~/.cellwar/）。发版一次打齐：
+#     RUNTIME_DIR_win_x64=~/.cellwar/dotnet-runtime-10.0.12-win-x64 tools/build_sidecar.sh osx-arm64 win-x64
 #
 # 发布硬纪律（路线 A §十 第 1 条）—— 这里就是那道闸，每次打包都先过：
 #   CellWar.Sidecar / CellWar.Core 的 csproj 不许打开 PublishTrimmed / PublishSingleFile / PublishAot；
