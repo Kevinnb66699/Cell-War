@@ -362,6 +362,10 @@ var _chat_seen := 0          ## 已经搬到框里的第几条（同 _feed_seq �
 var _chat_client: CWNetClient   ## 框里的消息来自哪个连接：换了连接就清框、游标归零（同一房间再来一局则接着用）
 var log_store: CWLogStore = CWLogStore.new()   ## 对局日志的 UI 侧存储（批 1 步 5，规格 A-7）：日志面板 / 迷你日志只读它
 var _serving_ask := -1   ## 正在服务的那一问的 ask_id（条目自带，不用自己编号）：服务器代打后重问的旧答案不发
+## 第几次 `_serve_ask`（10-02 复核）：旧协程醒来先比「我是不是最后那一次」—— 只比 ask_id 不够，
+## 断线重连后服务器会把**同一个** ask_id 再发一遍（cw_room.gd reconnect → _send_ask），新那一次 abort() 把屏幕上那一问收掉，
+## 旧协程拿着答 0 醒来一比 ask_id 还是它，就替玩家把选项 0 发出去了；新挂上的那一问再点，句柄那边已经没有这一号、点了没反应
+var _serve_serial := 0
 var takeovers := 0       ## 这一局被服务器代打接管过几次（issue #44 的观测口，测试与排错用）
 var _game_no := -1       ## 联机的换局边界（CWKernelRemote.game_no，envelope 里没有等价物）：变了就清日志缓冲
 
@@ -2156,11 +2160,13 @@ func _serve_ask(e: Dictionary) -> void:
 		return
 	var ask_id := int(e["ask_id"])
 	_serving_ask = ask_id
+	_serve_serial += 1
+	var mine := _serve_serial
 	bridge.abort()
 	if net_hud != null:
 		net_hud.start_countdown(int(e.get("left_ms", -1)))
 	var idx: int = await bridge.ask(e["req"])
-	if _serving_ask != ask_id or kernel == null:
+	if mine != _serve_serial or _serving_ask != ask_id or kernel == null:
 		return
 	if net_hud != null:
 		net_hud.stop_countdown()

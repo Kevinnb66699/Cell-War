@@ -211,6 +211,8 @@ func _run_all() -> void:
 		t_tutor_c3, t_tutor_c3_drive, t_tutor_c3_ui, t_tutor_done_menu,
 		## 新手教程 v2 · S9b：间章本体（play 接演出库 / 十个分镜 / 阵营翻转 / 击退是重装）
 		t_tutor_play, t_tutor_interlude,
+		## 10-02 热更：第四关一路打进第五关 Step2 换 world —— 收掉的那一问不许被下一问复活；联机重发同一问不替玩家答
+		t_tutor_chain_c2l4_l5, t_bridge_stale_ask, t_gate_refilter_reask, t_serve_ask_resend,
 	]
 	## 口径 H（Kevin 2026-09-20「好，就这么办」）：护栏⑦「平衡标尺没动」六支**不进全量** —— 规则按 issue 有意改时它必红、每次重录基线，
 	## 分不出有意改还是误改；只在做「本意不改行为」的重构时手动跑前后对比：`-- --ai-baseline`（可再加 --only=…）。
@@ -18944,6 +18946,227 @@ func _tutor_gate_ask(gate, req: Dictionary, out: Array) -> void:
 	out.append(await gate.ask(req))
 
 
+## 询问桥测试的桩（t_bridge_stale_ask / t_gate_refilter_reask / t_serve_ask_resend 共用）：桥挂上节点、镜像、队列（落后 `behind` 条）、句柄
+func _stale_ask_rig(b, host: Node, behind: int) -> void:
+	var humans: Array[int] = [0]
+	b.human_pids = humans
+	b.board = host
+	b.bar = CWActionBar.new()
+	b.mirror = CWMirror.new()
+	b.mirror.players = [{ "faction": CWData.Faction.IMMUNE }]
+	b.queue = CWPlayQueue.new()
+	b.queue.running = true
+	b.queue.since = 0
+	b.kernel = load("res://tests/stale_ask_kernel.gd").new()
+	b.kernel.seq = behind
+
+
+const STALE_ASK_REQ := { "kind": "action", "pid": 0, "prompt": "", "options": [
+	{ "label": "迁移", "data": { "act": "move", "to": Vector2i(0, -1) } },
+	{ "label": "抽卡", "data": { "act": "draw" } },
+	{ "label": "结束回合", "data": { "act": "end" } }] }
+
+
+## 10-02 复核（审查那一路的变异：把 `_abort_gen += 1` 挪到 `p.fire(null)` 之后，现有测试全绿）：闸桥的「行动栏挂着时闸换了 ⇒ 收掉重问」
+## 那一条，重问是在 abort() **里面**同步起的 —— 起的那一刻 `_abort_gen` 必须已经加过，不然重问记下的是旧号、第一次跨帧醒来就当自己死了，
+## 替玩家答 0。逐幕钉：① 直接换闸（重问不跨帧）；② 先关成 [] 再开（重问挂在闸上跨帧）；③ 先换成一条不中的再换（重问在宽限帧里跨帧）
+func t_gate_refilter_reask() -> void:
+	print("[闸桥：行动栏挂着时闸换了 ⇒ 收掉重问，重问跨帧也活着]")
+	var host := Node2D.new()
+	root.add_child(host)
+	await process_frame
+	var g = load("res://tests/stale_ask_gate.gd").new()
+	_stale_ask_rig(g, host, 0)
+	g.hold = true
+	var cases := [
+		["① 直接换闸", [["k=action|act=draw"]]],
+		["② 先关成 [] 再开", [[], ["k=action|act=draw"]]],
+		["③ 先换成一条不中的再换", [["k=action|act=differentiate"], ["k=action|act=draw"]]],
+	]
+	for c in cases:
+		g.views = []
+		g.set_allow(["k=action|act=end"])
+		var out: Array = []
+		_tutor_gate_ask(g, STALE_ASK_REQ, out)
+		await _tutor_pump(2)
+		check(g._pending != null and g.views == [["end"]], "%s 前提：行动栏挂着、只有「结束回合」" % c[0])
+		for a in c[1]:
+			g.set_allow(a)
+			await _tutor_pump(2)
+		check(g._pending != null and g.views.back() == ["draw"] and out.is_empty(),
+			"★ %s：收掉重问，新挂上的那一问只有「抽卡」、还没替玩家答（出过 %s）" % [c[0], str(g.views)])
+		if g._pending != null:
+			g._pending.fire(0)
+		await _tutor_pump(1)
+		check(out == [1], "★ %s：玩家点新挂上的那一条，答案映射回原表下标 1（实测 %s）" % [c[0], str(out)])
+	g.bar.free()
+	host.queue_free()
+	await process_frame
+
+
+## 10-02 复核：联机 `_serve_ask` 只比 ask_id，断线重连后服务器重发**同一个** ask_id 时，旧协程醒来把选项 0 当玩家的答案发出去
+## （屏幕上那一问挂着时就这样，早就有；修了「收掉的那一问不复活」之后，等演出那一段里也这样）。钉：重发之后，玩家点之前一个答案都不发
+func t_serve_ask_resend() -> void:
+	print("[联机：服务器重发同一个 ask_id，旧那一问不替玩家答]")
+	var host := Node2D.new()
+	root.add_child(host)
+	await process_frame
+	var e := { "ask_id": 7, "req": STALE_ASK_REQ }
+	for behind in [0, 5]:
+		var tag := "行动栏挂着时重发" if behind == 0 else "等演出时重发"
+		var m := CWMatch.new()
+		var b = load("res://tests/stale_ask_bridge.gd").new()
+		_stale_ask_rig(b, host, behind)
+		b.hold = true
+		m.bridge = b
+		m.kernel = b.kernel
+		m._serve_ask(e)
+		await _tutor_pump(2)
+		check(behind > 0 or b._pending != null, "%s 前提：第一次的那一问挂上了" % tag)
+		m._serve_ask(e)   ## 重连：同一个 ask_id 再来一遍
+		await _tutor_pump(2)
+		b.queue.since = behind
+		await _tutor_pump(2)
+		check(b.kernel.answers.is_empty() and b._pending != null,
+			"★ %s：玩家点之前一个答案都不发（实测发了 %s），屏幕上挂着重发的那一问" % [tag, str(b.kernel.answers)])
+		if b._pending != null:
+			b._pending.fire(2)
+		await _tutor_pump(1)
+		check(b.kernel.answers == [[7, { "index": 2 }]], "★ %s：玩家点的那一条照常发出去（实测 %s）" % [tag, str(b.kernel.answers)])
+		b.bar.free()
+		m.free()
+	host.queue_free()
+	await process_frame
+
+
+## 10-02（导出包验收抓到的教程第五关卡死，见 `t_tutor_chain_c2l4_l5`）：被 abort() 收掉的那一问**跨帧**醒来时，
+## 下一问已经进了 `ask()`、把共用的 `_aborted` 复位成假 —— 它也得知道自己死了（CWUIBridge._abort_gen / `_stale(gen)`）。
+## 逐处钉：界面桥等演出 / 闸桥等演出 / 闸桥的宽限帧 / 自动作答那一拍 / 一条没命中挂在闸上。
+## 「出过行动栏」用桩桥的 `acted` 数（`_ask_action` 记一次、答 0，不建界面）
+func t_bridge_stale_ask() -> void:
+	print("[询问桥：收掉的那一问跨帧醒来，下一问复位了 _aborted 也不复活]")
+	var host := Node2D.new()
+	root.add_child(host)
+	await process_frame
+	var req := { "kind": "action", "pid": 0, "prompt": "", "options": [
+		{ "label": "迁移", "data": { "act": "move", "to": Vector2i(0, -1) } },
+		{ "label": "抽卡", "data": { "act": "draw" } },
+		{ "label": "结束回合", "data": { "act": "end" } }] }
+	var humans: Array[int] = [0]
+	var rig := func(b) -> void:
+		b.human_pids = humans
+		b.board = host
+		b.bar = CWActionBar.new()
+		b.mirror = CWMirror.new()
+		b.mirror.players = [{ "faction": CWData.Faction.IMMUNE }]
+		b.queue = CWPlayQueue.new()
+		b.queue.running = true
+		b.queue.since = 0
+		b.kernel = load("res://tests/stale_ask_kernel.gd").new()
+		b.kernel.seq = 5   ## 队列落后 5 条：`_await_playback` 等着
+	## ① 界面桥：第一问在 `_ask_human` 里等演出时被收掉，紧接着第二问进门
+	var b = load("res://tests/stale_ask_bridge.gd").new()
+	rig.call(b)
+	var o1: Array = []
+	var o2: Array = []
+	_tutor_gate_ask(b, req, o1)
+	await _tutor_pump(2)
+	check(o1.is_empty(), "① 前提：第一问挂在 _await_playback 上等演出")
+	b.abort()
+	_tutor_gate_ask(b, req, o2)
+	await _tutor_pump(2)
+	check(o1 == [0] and o2.is_empty() and int(b.acted) == 0,
+		"★ ① 界面桥：第一问被收掉，第二问复位了 _aborted 它也当帧退出（答 %s）、没出行动栏；第二问照旧在等演出" % str(o1))
+	b.queue.since = 5
+	await _tutor_pump(2)
+	check(o2 == [0] and int(b.acted) == 1, "★ ① 演出播完：只有第二问出了行动栏（出过 %d 次）" % int(b.acted))
+	b.bar.free()
+	## ② 闸桥：同一幕，等在闸桥自己的那次 `_await_playback` 上
+	var g = load("res://tests/stale_ask_gate.gd").new()
+	rig.call(g)
+	g.set_allow(["k=action|act=end"])
+	o1 = []
+	o2 = []
+	_tutor_gate_ask(g, req, o1)
+	await _tutor_pump(2)
+	g.abort()
+	_tutor_gate_ask(g, req, o2)
+	await _tutor_pump(2)
+	check(o1 == [0] and o2.is_empty() and int(g.acted) == 0,
+		"★ ② 闸桥等演出时被收掉：第二问复位了 _aborted 也不复活（答 %s、出行动栏 %d 次）" % [str(o1), int(g.acted)])
+	g.queue.since = 5
+	await _tutor_pump(2)
+	check(o2 == [2] and int(g.acted) == 1, "★ ② 演出播完：只有第二问过了闸、出了行动栏（第二问答 %s）" % str(o2))
+	## ②b 闸全开（`null`，第五关 Step2 自由游玩那一档）：过了演出直接交给界面桥 —— 那里 `ask()` 开头一复位，死掉的这一问就活了
+	g.acted = 0
+	g.set_allow(null)
+	g.queue.since = 0
+	o1 = []
+	o2 = []
+	_tutor_gate_ask(g, req, o1)
+	await _tutor_pump(2)
+	g.abort()
+	_tutor_gate_ask(g, req, o2)
+	await _tutor_pump(2)
+	g.queue.since = 5
+	await _tutor_pump(2)
+	check(o1 == [0] and o2 == [0] and int(g.acted) == 1,
+		"★ ②b 闸全开时等演出被收掉：不交给界面桥（只有第二问出了行动栏，出过 %d 次）" % int(g.acted))
+	## ③ 闸桥的宽限帧（闸非空、一条没命中，等导演翻页）里被收掉；第二问进门之后导演换成命中得上的闸
+	g.acted = 0
+	g.set_allow(["k=action|act=differentiate"])
+	o1 = []
+	o2 = []
+	_tutor_gate_ask(g, req, o1)
+	await _tutor_pump(2)
+	g.abort()
+	_tutor_gate_ask(g, req, o2)
+	g.set_allow(["k=action|act=end"])
+	await _tutor_pump(3)
+	check(o1 == [0] and o2 == [2] and int(g.acted) == 1,
+		"★ ③ 宽限帧里被收掉：第一问不从头再走（答 %s），只有第二问按新闸出了行动栏（%s，出过 %d 次）" % [str(o1), str(o2), int(g.acted)])
+	## ③b 同上，导演换成的是全开（`null`）：宽限帧里那条「闸换了就从头再走」不许把死掉的这一问带回 `ask()` 开头
+	g.acted = 0
+	g.set_allow(["k=action|act=differentiate"])
+	o1 = []
+	o2 = []
+	_tutor_gate_ask(g, req, o1)
+	await _tutor_pump(2)
+	g.abort()
+	_tutor_gate_ask(g, req, o2)
+	g.set_allow(null)
+	await _tutor_pump(3)
+	check(o1 == [0] and o2 == [0] and int(g.acted) == 1,
+		"★ ③b 宽限帧里被收掉、闸随后全开：第一问不从头再走（只有第二问出了行动栏，出过 %d 次）" % int(g.acted))
+	## ④ 自动作答那一拍（`player.auto`，停 AUTO_ANSWER_SECS 再答）里被收掉
+	g.acted = 0
+	g.set_auto(true)
+	g.set_allow(["k=action|act=draw"])
+	o1 = []
+	o2 = []
+	_tutor_gate_ask(g, req, o1)
+	await _tutor_pump(2)
+	g.abort()
+	_tutor_gate_ask(g, req, o2)
+	await get_root().get_tree().create_timer(g.AUTO_ANSWER_SECS + 0.2).timeout
+	await _tutor_pump(2)
+	g.set_auto(false)
+	check(o1 == [0] and o2 == [1],
+		"★ ④ 自动作答那一拍里被收掉：第一问停完不替玩家答（答 %s），第二问照常答闸放行的那一条（%s）" % [str(o1), str(o2)])
+	## ⑤ 一条没命中、挂在闸上（宽限帧过了，warning + 挂起）：abort() 发的那一声 allow_changed 先看是不是被收掉，再看闸
+	g.set_allow(["k=action|act=differentiate"])
+	o1 = []
+	_tutor_gate_ask(g, req, o1)
+	await _tutor_pump(g.MISS_GRACE_FRAMES + 3)
+	check(o1.is_empty(), "⑤ 前提：宽限帧过了还没命中 —— 挂在闸上")
+	g.abort()
+	await _tutor_pump(2)
+	check(o1 == [0], "★ ⑤ 挂在闸上的那一问被收掉就退出（答 %s），不当成「闸换了」从头再来（那样 `ask()` 开头一复位它就活了）" % str(o1))
+	g.bar.free()
+	host.queue_free()
+	await process_frame
+
+
 func t_tutor_gate() -> void:
 	print("[教程闸桥·三态]")
 	var gate = TUTOR_GATE.new()
@@ -19036,7 +19259,7 @@ func t_tutor_gate() -> void:
 	## ⑧ 一条钉在源码上的纪律
 	var src := FileAccess.get_file_as_string("res://scripts/tutor/cw_tutor_gate.gd")
 	check(src.find("await _await_playback()") > 0
-			and src.find("await _await_playback()") < src.find("while not _aborted and gate_closed()"),
+			and src.find("await _await_playback()") < src.find("while not _stale(gen) and gate_closed()"),
 		"ask() 里**自己先** await _await_playback() 再读闸 —— allow 是队列播到 step_end 才装的，不先等就读到上一条的闸")
 	## ⑩ `notice` 层（间章 PRD:409「所有 UI 消失」，S9b 留的账）：关着就一只结算气泡都不弹。
 	## 通配 `"*": false` 把它一并关掉；六关关首都显式写 `true`（保持 S1～S12 验收时的样子），只有间章不写
@@ -23983,3 +24206,245 @@ func t_log_rows_rebuild() -> void:
 	check(Array(chip._cache) == ["L0", "L1", "L2", "L3", "L4", "L5′", "L6"], "迷你日志同款：不重复（%s）" % str(chip._cache))
 	lp.free()
 	chip.free()
+
+
+## =====================================================================
+## 10-02 热更随附：教程按语义键一路往下打的驱动（抄自 main 的 `_tutor_key_*`，去掉 sidecar 与带子账两处），只给下面那条链测用
+## =====================================================================
+## 剧本只写了前缀的那几行要走的格（「关:游标」→ 依次要命中的键前缀）。路线照抄 t_tutor_c1 / t_tutor_c2 的跑场：
+## 第三关 Step1 是最省路（走歪了 6.6 能量不够、`reset_when: stuck` 会自动重置）；第四关是净化 10 格那条；
+## 第五关 Step1 分化成 B 细胞（Step2 按种类装 world「b」）
+const TUTOR_KEY_ROUTES := {
+	"c1_l2:6": ["k=action|act=move|to=-3,-1", "k=action|act=move|to=-2,-1", "k=action|act=move|to=-1,-1"],
+	"c1_l3:3": ["k=action|act=move|to=1,-1", "k=action|act=move|to=2,-1", "k=action|act=move|to=3,-1", "k=action|act=move|to=4,-1"],
+	"c2_l4:8": ["k=action|act=move|to=4,0", "k=action|act=move|to=5,0", "k=action|act=move|to=6,0", "k=action|act=move|to=6,-1",
+		"k=action|act=move|to=6,-2", "k=action|act=move|to=6,-3", "k=action|act=move|to=5,-3", "k=action|act=move|to=5,-2",
+		"k=action|act=move|to=4,-2", "k=action|act=move|to=4,-3", "k=action|act=move|to=4,-4", "k=action|act=move|to=3,-4",
+		"k=action|act=move|to=3,-5", "k=action|act=move|to=2,-5"],
+	"c2_l5:4": ["k=action|act=differentiate|type=1"],
+}
+
+
+## 自由游玩的那几行（「关:游标」）：剧本不点名格子，玩家要自己把癌细胞清干净
+const TUTOR_KEY_HUNT := ["c2_l5:9"]
+
+
+## 界面上同一问挂满这么多帧才答（见 `_tutor_key_chain` 里那一段）
+const TUTOR_KEY_THINK_FRAMES := 4
+
+
+## 一局教程按键作答一路往下走，直到 `stop.call()` 为真或超时（局由 `_tutor_key_open` 起）。`peek(m)` 每帧调一次，给调用方抓中途的盘面。
+## 返回 `{ answers, stuck, levels, tapes, not_sidecar, secs }`：
+##   answers —— 「关:键」依次答过的；levels —— 依次进过的关 id；tapes —— 「关/world」→ 那一份带子最后一次看到的账
+##   （`stage.tape_stats()`，两种内核同形）；not_sidecar —— 开关开着时句柄不是 CWKernelSidecar 的帧数。
+func _tutor_key_chain(m: CWMatch, stop: Callable, budget_ms: int, peek := Callable()) -> Dictionary:
+	var out := { "answers": [], "stuck": "", "levels": [], "tapes": {}, "not_sidecar": 0, "secs": 0.0 }
+	var routes_at := {}
+	var t0 := Time.get_ticks_msec()
+	var last_sig := ""
+	var since := t0
+	var want_sidecar := OS.get_environment("CW_KERNEL") == "sidecar"
+	var think := { "held": null, "frames": 0 }
+	while Time.get_ticks_msec() - t0 < budget_ms:
+		await process_frame
+		if stop.call():
+			break
+		var dd = m._director
+		if dd == null or m.kernel == null:
+			continue
+		var lid := str(m._tutor_level.get("id", ""))
+		if (out["levels"] as Array).is_empty() or (out["levels"] as Array).back() != lid:
+			(out["levels"] as Array).append(lid)
+		if want_sidecar and not (m.kernel is CWKernelSidecar):
+			out["not_sidecar"] += 1
+		if peek.is_valid():
+			peek.call(m)
+		if m._tutor_view is CWTutorViewBubble and m._tutor_view._next_armed():
+			m._tutor_view.advance()
+		var sig := "%s|%d|%d" % [lid, int(dd._at), int(dd._hook_depth)]
+		var now := Time.get_ticks_msec()
+		if sig != last_sig:
+			last_sig = sig
+			since = now
+		elif now - since > 20000:
+			var foes: Array = []
+			if m.mirror != null:
+				for c in m.mirror.living_cells(CWData.Faction.CANCER):
+					foes.append([int(c["pid"]), c["pos"], int(c["energy"])])
+			out["stuck"] = "关 %s 游标 %d 停了 20 s（没翻页也没作答）：row=%s；闸 %s / 界面在问 %s / 句柄在问 %s（句柄状态 %d）；活癌细胞 %s；镜像 第 %d 回合 %s" % [lid, int(dd._at),
+				str(dd._row()).substr(0, 120), str(m.bridge.allow() if m.bridge != null else "-").substr(0, 60),
+				str(m.bridge != null and m.bridge._prompting and m.bridge._pending != null),
+				str(not (m.kernel._open_ask as Dictionary).is_empty()), int(m.kernel.state()), str(foes),
+				int(m.mirror.round_no) if m.mirror != null else -1, str(m.mirror.g.get("d", {}).get("phase_text", "")) if m.mirror != null else ""]
+			break
+		var gate = m.bridge
+		if not _tutor_thought(m, think):
+			continue
+		var asking: Dictionary = m.kernel._open_ask
+		if asking.is_empty():
+			continue
+		var req: Dictionary = asking["req"]
+		var view: Array = range((req["options"] as Array).size()) if gate.allow() == null else gate._keep(req)
+		var key := _tutor_key_pick(m, dd, req, view, routes_at)
+		var j := -1
+		for n in view.size():
+			if CWSemKey.key(req, req["options"][view[n]]["data"]) == key:
+				j = n
+				break
+		if j < 0:
+			continue
+		(out["answers"] as Array).append("%s:%s" % [lid, key])
+		since = Time.get_ticks_msec()   ## 「卡住」按「既没翻页也没作答」算：自由游玩那一行要停很久，但一直在答
+		gate._pending.fire(j)
+		for _i in 2:
+			await process_frame
+	out["secs"] = (Time.get_ticks_msec() - t0) / 1000.0
+	return out
+
+
+## 这一问挑哪个键（三级挑法见上面的节注释）。`view` = 闸放行的那几条在 req 里的下标
+func _tutor_key_pick(m: CWMatch, dd, req: Dictionary, view: Array, routes_at: Dictionary) -> String:
+	var keys: Array = []
+	for i in view:
+		keys.append(CWSemKey.key(req, req["options"][i]["data"]))
+	var in_hook := int(dd._hook_depth) > 0 and dd._beat_row is Dictionary
+	var row: Dictionary = dd._beat_row if in_hook else dd._row()
+	var rid := "%s:%d" % [str(m._tutor_level.get("id", "")), int(dd._at)]
+	if not in_hook and TUTOR_KEY_ROUTES.has(rid):
+		var route: Array = TUTOR_KEY_ROUTES[rid]
+		var at := int(routes_at.get(rid, 0))
+		if at < route.size():
+			var hit := _tutor_key_min(keys, str(route[at]))
+			if hit != "":
+				routes_at[rid] = at + 1
+				return hit
+	if not in_hook and rid in TUTOR_KEY_HUNT:
+		var hunt := _tutor_key_hunt(m, req, view)
+		if hunt != "":
+			return hunt
+	for a in row.get("allow", []):
+		var hit := _tutor_key_min(keys, str(a))
+		if hit != "":
+			return hit
+	return _tutor_key_min(keys, "")
+
+
+## 闸桥那一问在界面上挂满 `TUTOR_KEY_THINK_FRAMES` 帧了吗（`think` = `{held, frames}`，调用方每帧传同一只）。
+## **为什么要等**：导演的谓词与钩子都是逐帧推进的，而下一问可能在上一步演出播完的那一帧就到了 —— 闸那一刻还停在上一条
+## （刚打死最后一只癌细胞、刚点完「结束回合」）。当帧就答会抢在导演翻页 / 换闸之前多走一步；真人总要看一眼。
+## GD 内核有 roll 的 barrier 拖着、C# 内核不等动画，抢不抢得到全看帧序，所以两种内核都按「挂满几帧」答
+func _tutor_thought(m: CWMatch, think: Dictionary) -> bool:
+	var gate = m.bridge
+	if gate == null or not gate._prompting or gate._pending == null:
+		think["held"] = null
+		return false
+	if gate._pending != think["held"]:
+		think["held"] = gate._pending
+		think["frames"] = 0
+	think["frames"] = int(think["frames"]) + 1
+	return int(think["frames"]) >= TUTOR_KEY_THINK_FRAMES
+
+
+## 以 `prefix` 开头的键里取字典序最小的一条；一条都没有给 ""
+static func _tutor_key_min(keys: Array, prefix: String) -> String:
+	var best := ""
+	for k in keys:
+		var s := str(k)
+		if s.begins_with(prefix) and (best == "" or s < best):
+			best = s
+	return best
+
+
+## 自由游玩：相邻有癌细胞就打（攻击 = 迁进它那一格），否则朝最近那只癌细胞走一格（同距取键最小的）
+func _tutor_key_hunt(m: CWMatch, req: Dictionary, view: Array) -> String:
+	if m.mirror == null:
+		return ""
+	var me: Dictionary = m.mirror.cell_of(int(req.get("pid", 0)))
+	var foes: Array = m.mirror.living_cells(CWData.Faction.CANCER)
+	if foes.is_empty():
+		return ""
+	var goal: Vector2i = (foes[0] as Dictionary)["pos"]
+	for f in foes:
+		if CWData.hex_dist((f as Dictionary)["pos"], me["pos"]) < CWData.hex_dist(goal, me["pos"]):
+			goal = (f as Dictionary)["pos"]
+	var best := ""
+	var best_d := 1 << 30
+	for i in view:
+		var data: Dictionary = req["options"][i]["data"]
+		if str(data.get("act", "")) != "move" or not data.has("to"):
+			continue
+		var k := CWSemKey.key(req, data)
+		var d := CWData.hex_dist(data["to"], goal)
+		if d < best_d or (d == best_d and k < best):
+			best_d = d
+			best = k
+	return best
+
+
+## 起一局教程（按进度开在 `start_id`），返回 `[main_scene, m]`。`CW_KERNEL` 由调用方先设好
+func _tutor_key_open(start_id: String) -> Array:
+	CWGuideProgress.clear()
+	CWGuideProgress.set_at(start_id, 0)
+	CWTutorLayers.reset()
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	m.tutorial = true
+	CWSettings.ai_delay_ms = 0
+	m.start()
+	await process_frame
+	return [main_scene, m]
+
+
+func _tutor_key_close(main_scene: Node, m: CWMatch) -> void:
+	if m.kernel != null:
+		m.teardown()
+	await process_frame
+	OS.set_environment("CW_KERNEL", "gd")
+	CWSettings.ai_delay_ms = 220
+	CWGuideProgress.clear()
+	CWTutorLayers.reset()
+	main_scene.queue_free()
+	await process_frame
+
+
+## 第四关 → 第五关清场，一条链不中途重开（10-02 导出包验收抓到的卡死）。两个内核各一遍，约 30 s。
+## 现象：玩家按顺序打到第五关、Step1 分化成 B 细胞之后，Step2 一问都不出 —— sidecar 在等玩家、界面上什么都没有。
+## 原因：分化那一下之后，旧局的下一问已经过了闸（Step1 的闸 `[move, differentiate]` 还开着），正在 `_await_playback` 里逐帧等演出；
+## Step2 的 `state.load b` 换 world，`abort()` 把 `_aborted` 置真 —— 可新局的第一问进 `ask()` 头一句就把它复位成假，
+## 旧那一问下一帧醒来以为自己还活着，跟着也挂出行动栏：两问各挂一套处理函数，点下去先到死掉的旧局、`_clear_ui()` 收掉活的那一问。
+## 从第五关直接开局碰不到（那一刻闸已经关成 `[]`，旧那一问挂在 `allow_changed` 上、被 abort 当场叫醒、干净退出），
+## 所以 `t_tutor_chain_c2l5` / `t_tutor_sidecar_chain_c2l5` / `t_tutor_sidecar_chain_c1c2` 三支都漏了这条路。
+## 钉：① 一路不卡、进了间章；② 第五关 Step2 真答过（自由游玩至少打了一下）；③ 任何一帧行动栏上最多挂一问的处理函数
+func t_tutor_chain_c2l4_l5() -> void:
+	await _tutor_chain_c2l4_l5_run(false)
+
+
+func _tutor_chain_c2l4_l5_run(sidecar: bool) -> void:
+	var who := "C# 内核" if sidecar else "GD 内核"
+	print("[教程第四关一路打进第五关 Step2 换 world（%s）：收掉的那一问不许被下一问复活]" % who)
+	var opened: Array = await _tutor_key_open("c2_l4")
+	var main_scene: Node = opened[0]
+	var m: CWMatch = opened[1]
+	var seen := { "base": -1, "max": 0 }
+	var peek := func(mm: CWMatch) -> void:
+		if mm.bridge == null or mm.bridge.bar == null:
+			return
+		var n: int = mm.bridge.bar.chosen.get_connections().size()
+		if int(seen["base"]) < 0:
+			seen["base"] = n   ## 第一帧（还没有询问挂上）：常驻的连接
+		seen["max"] = maxi(int(seen["max"]), n - int(seen["base"]))
+	var stop := func() -> bool: return str(m._tutor_level.get("id", "")) == "interlude"
+	var r: Dictionary = await _tutor_key_chain(m, stop, 120000, peek)
+	check(str(r["stuck"]) == "" and r["levels"] == ["c2_l4", "c2_l5"] and str(m._tutor_level.get("id", "")) == "interlude",
+		"★ %s：第四关 → 第五关（Step1 分化 → Step2 换 world → 自由游玩清场）→ 进了间章，一路不卡（%.1f s；经过 %s；%s）"
+			% [who, float(r["secs"]), str(r["levels"]), str(r["stuck"])])
+	var diff_at := (r["answers"] as Array).find("c2_l5:k=action|act=differentiate|type=1")
+	var hunts := 0
+	for i in range(diff_at + 1, (r["answers"] as Array).size()):
+		if str(r["answers"][i]).begins_with("c2_l5:k=action|act=move"):
+			hunts += 1
+	check(diff_at >= 0 and hunts >= 2, "★ 第五关 Step1 分化之后，Step2 换了 world 的那一局真问到了玩家（分化在第 %d 答，之后自由游玩答了 %d 下；修之前只有 1 下 —— 点到死掉的旧局上）" % [diff_at, hunts])
+	check(int(seen["max"]) == 1, "★ 任何一帧行动栏上最多挂着一问的处理函数（实测最多 %d 套）" % int(seen["max"]))
+	await _tutor_key_close(main_scene, m)
