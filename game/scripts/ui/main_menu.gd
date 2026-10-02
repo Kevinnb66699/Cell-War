@@ -117,6 +117,10 @@ const CONFIRM_TITLE_H := 42
 const ENTRY_ITEM_H := 64
 const ENTRY_ITEMS := ["我是新手", "我是老手"]
 const ENTRY_DETAILS := ["进入新手教程", "直接进入游戏"]
+## 只有一个「确定」的通知（换内核观察期，Kevin 2026-10-01）：C# 存档读不回来时，main.gd:_continue 回到菜单用它说明原因。
+## 同一块覆盖层，标题下面多一段折好行的正文
+const NOTICE_ITEMS := ["确定"]
+const NOTICE_GAP := 10   ## 正文与「确定」之间的空
 ## 「新手引导」信号带的癌种：教程 v2 起 main.gd 不再读它（每关 JSON 定死），留着只为信号形状不变
 const TUTORIAL_CANCER := CWData.CancerType.OSTEO
 
@@ -131,8 +135,9 @@ var _confirm_title: Label
 var _confirm_labels: Array[Label] = []
 var _confirm_bars: Array[ColorRect] = []
 var _confirm_glow: Control
-var _confirm_items: Array = []   ## 此刻列出的项（CONFIRM_ITEMS 或 ENTRY_ITEMS）
+var _confirm_items: Array = []   ## 此刻列出的项（CONFIRM_ITEMS / ENTRY_ITEMS / NOTICE_ITEMS）
 var _confirm_details: Array = []
+var _confirm_body: Label         ## 通知的正文（show_notice）；别的列表时藏着
 var _entry_choice_open := false
 var _confirm_on_pick := Callable()   ## 选了第 i 项做什么（关层由回调自己负责）
 var _confirm_sel := 1            ## 退出确认默认停在「取消」，别让回车顺手就退了
@@ -545,14 +550,23 @@ func show_entry_choice(on_choice: Callable) -> void:
 		on_choice.call(i), ENTRY_DETAILS)
 
 
+## 一条只有「确定」的通知：Esc / 回车 / 点「确定」都是收起（这里没有要选的，Esc 收起不会让谁错过什么）。
+## 正文折行与暂停菜单的通知页同一个函数（CWPauseMenu.notice_lines）
+func show_notice(title: String, body: String) -> void:
+	_open_pick(title, NOTICE_ITEMS, 0, func(_i: int) -> void: _close_confirm(), [],
+		CWPauseMenu.notice_lines(body, CONFIRM_W - CONFIRM_PAD * 2.0))
+
+
 func _open_pick(title: String, items: Array, default_sel: int, on_pick: Callable,
-		details: Array = []) -> void:
+		details: Array = [], body := "") -> void:
 	if _confirm == null:
 		_build_confirm()
 	_confirm_items = items
 	_confirm_details = details
 	_confirm_on_pick = on_pick
 	_confirm_title.text = title
+	_confirm_body.text = body
+	_confirm_body.visible = body != ""
 	_fill_pick()
 	_confirm_sel = clampi(default_sel, 0, items.size() - 1)
 	_confirm.visible = true
@@ -600,6 +614,12 @@ func _build_confirm() -> void:
 	_confirm_title.position = Vector2(CONFIRM_PAD, CONFIRM_PAD)
 	_confirm_panel.add_child(_confirm_title)
 
+	## 通知的正文：紧贴标题下面，小字常规字色（同暂停菜单通知页那一段）
+	_confirm_body = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT)
+	_confirm_body.position = Vector2(CONFIRM_PAD, CONFIRM_PAD + CONFIRM_TITLE_H)
+	_confirm_body.visible = false
+	_confirm_panel.add_child(_confirm_body)
+
 	## 辉光整套只备一份、跟着选中项走（同 CWPauseMenu）
 	_confirm_glow = Control.new()
 	_confirm_glow.size = Vector2(CONFIRM_W, 28)
@@ -623,14 +643,16 @@ func _fill_pick() -> void:
 	_confirm_bars.clear()
 
 	var row_h: float = ENTRY_ITEM_H if not _confirm_details.is_empty() else CONFIRM_ITEM_H
-	var h: float = CONFIRM_PAD + CONFIRM_TITLE_H \
+	## 通知的正文折成几行，项就往下让几行
+	var body_h: float = _confirm_body.get_minimum_size().y + NOTICE_GAP if _confirm_body.visible else 0.0
+	var h: float = CONFIRM_PAD + CONFIRM_TITLE_H + body_h \
 		+ _confirm_items.size() * row_h + CONFIRM_PAD
 	var screen := CWView.screen_size()
 	_confirm_panel.position = Vector2((screen.x - CONFIRM_W) / 2.0, (screen.y - h) / 2.0)
 	_confirm_panel.size = Vector2(CONFIRM_W, h)
 
 	for i in _confirm_items.size():
-		var y: float = CONFIRM_PAD + CONFIRM_TITLE_H + i * row_h
+		var y: float = CONFIRM_PAD + CONFIRM_TITLE_H + body_h + i * row_h
 		var mark := ColorRect.new()
 		mark.position = Vector2(CONFIRM_PAD, y + 6)
 		mark.size = Vector2(4, 22)

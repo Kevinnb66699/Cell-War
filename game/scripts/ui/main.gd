@@ -73,6 +73,7 @@ func _ready() -> void:
 	match_node.finished.connect(_on_match_finished)
 	match_node.replay_opening.connect(_replay_opening)
 	match_node.tutorial_done.connect(_back_to_menu)   ## 教程全部通关 → 返场回主菜单（Q-14 默认，09-25 接上）
+	match_node.kernel_lost.connect(_on_kernel_lost)
 	settle.chose.connect(_on_settle_chose)
 	## 首次进入才询问一次。旧版进度文件视为已访问；选新手后即使只过了半关，
 	## 下次启动也回主菜单。Main 作为测试夹具挂树时不是开机，不弹这层。
@@ -402,8 +403,46 @@ func _continue() -> void:
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_tween.tween_method(_look, 0.0, 1.0, T_ENTER)
 	await _tween.finished
-	match_node.start(data["snap"])
+	if not match_node.start(data["snap"]):
+		## C# 存档读不回来（新内核起不来 / 不认这份检查点）：GD 内核装不进它，退无可退 —— 回主菜单说清楚。
+		## 当帧就拆：界面层刚被 start() 亮起来、还没画过一帧，返场时就不会闪一下空的右栏。存档一个字不动
+		var why := match_node.lost_reason()
+		match_node.teardown()
+		_entering = false
+		await _back_to_menu()
+		menu.show_notice(SAVE_LOST_TITLE, save_lost_text(why))
+		return
 	_entering = false
+
+
+## ── 新内核没了的时候说什么（换内核观察期，Kevin 2026-10-01）────────────────
+## 新开局 sidecar 起不来会悄悄退回 GD 内核（CWMatch.start），玩家看不出来；只有这两种退不回去，要明说：
+const SAVE_LOST_TITLE := "读不了这份存档"
+const KERNEL_LOST_TITLE := "对局中断了"
+
+
+## ① C# 存档读不回来（`_continue`）。新内核起不来、起来了却不认这份检查点，用同一句（「没能打开它」两种都对）：
+## 玩家能做的一样 —— 存档还在，换个时候（或更新之后）再点「继续对局」
+static func save_lost_text(why: String) -> String:
+	return "这份存档需要新内核，但新内核没能打开它：%s。存档还在，稍后可以再试。" % why
+
+
+## ② 对局中途新内核没了（`_on_kernel_lost`）。存档位只有一份、读档也不删（cw_save.gd 头注），
+## 那份存档不一定是这一局的 —— 所以只说「上次的存档」
+static func kernel_lost_text(why: String, save_kept: bool) -> String:
+	var text := "新内核意外退出：%s。" % why
+	if save_kept:
+		text += "上次的存档还在，可以从「继续对局」接着打。"
+	return text
+
+
+## 盖暂停菜单的通知页，只给「返回主菜单」：那一项发的是暂停菜单原有的 "menu"，走 `_on_pause_chose` 同一条返场。不自动恢复。
+## 开局过场还没走完（绽开 0.75 s / 教程开场幕布淡出）就先等它：过场期间 `_back_to_menu` 头一句就返回，
+## 这时点「返回主菜单」只会关掉通知页、把人留在一盘不会动的棋上
+func _on_kernel_lost(reason: String) -> void:
+	while _entering:
+		await get_tree().process_frame
+	pause.show_notice(KERNEL_LOST_TITLE, kernel_lost_text(reason, CWSave.can_continue()))
 
 
 ## 返回主菜单：镜头原路退回，棋盘擦干净，菜单淡回来。

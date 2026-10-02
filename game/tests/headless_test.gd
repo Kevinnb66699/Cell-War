@@ -46,6 +46,7 @@ const WEIGHTS := {
 	"t_tutor_sidecar_chain_c2l5": 50.0, "t_tutor_sidecar_c3_drive": 24.0, "t_tutor_sidecar_c3_ui": 23.0, "t_tutor_sidecar_chain_c1c2": 19.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
 	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_sidecar": 5.6, "t_net_drain": 5.1, "t_net_sidecar_takeover": 5.4,
 	"t_net_sidecar_ai": 11.4, "t_web_solo": 6.3, "t_net_solo": 3.0,
+	"t_sidecar_save_unloadable": 8.0, "t_sidecar_crash_midgame": 5.0, "t_sidecar_unavailable_fallback": 12.0,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
 	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
 	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_net_sidecar_ui": 0.6, "t_entry_smoke_sidecar": 1.2, "t_entry_smoke_sidecar_ai": 1.5, "t_sidecar_locator": 1.2, "t_kernel_sidecar_ai": 3.0, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
@@ -179,6 +180,8 @@ func _run_all() -> void:
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
 		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
 		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_kernel_sidecar_ai, t_entry_smoke_sidecar, t_entry_smoke_sidecar_ai, t_sidecar_locator, t_sidecar_tutor_worlds, t_play_queue,
+		## 换内核观察期（2026-10-01）：新内核不能用时玩家看到什么 —— C# 存档读不回来 / 对局中途没了 / 新开局退回 GD
+		t_sidecar_save_unloadable, t_sidecar_crash_midgame, t_sidecar_unavailable_fallback,
 		## 换内核 P6 · 真人半边（2026-10-01）：服务器开关 CW_KERNEL=sidecar 下全真人房跑在 C# 内核上
 		t_net_sidecar, t_net_sidecar_takeover, t_net_sidecar_ui,
 		## 换内核 P6 · 第二段（2026-10-01）：AI 席 / 代打走 sidecar 里的 C# AI、网页单机走服务器（create_solo）
@@ -18126,16 +18129,246 @@ func t_entry_smoke_sidecar() -> void:
 	await process_frame
 	## sidecar 起不来时 C# 存档不能退回 GD 内核（GD 的 restore 会把检查点当快照硬装）
 	OS.set_environment("CW_SIDECAR_DLL", "/nonexistent/CellWar.Sidecar.dll")
-	m.start(blob)
+	var started := m.start(blob)
 	await process_frame
-	check(m.kernel is CWKernelSidecar and m.kernel.state() == CWKernel.State.UNAVAILABLE,
-		"sidecar 起不来：C# 存档不退回 GD 内核，句柄停在 UNAVAILABLE（%s）" % str(m.kernel.get_class() if m.kernel != null else "null"))
+	check(not started and m.kernel is CWKernelSidecar and m.kernel.state() == CWKernel.State.UNAVAILABLE,
+		"sidecar 起不来：C# 存档不退回 GD 内核，start() 返回 false、句柄停在 UNAVAILABLE（%s）" % str(m.kernel.get_class() if m.kernel != null else "null"))
 	m.teardown()
 	await process_frame
 	OS.set_environment("CW_SIDECAR_DLL", "")
 	OS.set_environment("CW_KERNEL", "")
 	CWSettings.ai_delay_ms = 220
 	main_scene.queue_free()
+
+
+## 换内核观察期（Kevin 2026-10-01：GD 内核留着当退路）三支 —— 新内核（sidecar）不能用的时候玩家看到什么。
+## 共用：一份 C# 存档（检查点是坏的 —— 起不来那一遍根本读不到它，不认档那一遍正好要它）
+func _write_cs_save() -> PackedByteArray:
+	CWSave.write({ "kernel": CWKernelSidecar.SAVE_KERNEL, "checkpoint": "不是检查点", "rules_build": "" }, 2, [0, 1], 0)
+	return FileAccess.get_file_as_bytes(CWSave.PATH)
+
+
+## ① C# 存档读不回来：走真 Main.tscn 的「继续对局」（main.gd:_continue），两种原因各一遍 ——
+## 新内核起不来（CW_SIDECAR_DLL 指到不存在的文件）、起来了却不认这份检查点（真 sidecar + 坏检查点）。验：
+## 回到主菜单（对局已拆、过场走完）、通知亮着（标题 / 原因 / 「存档还在」、排版不出屏）、点「确定」或 Esc 收起；
+## 存档文件逐字节不变、「继续对局」仍亮
+func t_sidecar_save_unloadable() -> void:
+	print("[换内核·C# 存档读不回来 → 回主菜单说明]")
+	var real_sidecar := CWKernelSidecar.find_dotnet() != "" and FileAccess.file_exists(CWKernelSidecar.find_sidecar_dll())
+	var bytes := _write_cs_save()
+	check(CWSave.can_continue() and not bytes.is_empty(), "写好一份 C# 存档")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var main_gd = main_scene.get_script()   ## main.gd 没有 class_name：常量与静态函数从脚本上取
+	var menu: Node = main_scene.menu
+	var m: CWMatch = main_scene.match_node
+	var cases: Array = [["起不来", "/nonexistent/CellWar.Sidecar.dll", "找不到 sidecar"]]
+	if real_sidecar:
+		cases.append(["不认档", "", "被拒"])
+	else:
+		check(false, "找不到 dotnet 或 sidecar 产物，「不认档」那一遍跑不了 —— 先 dotnet build core/CellWar.Sidecar")
+	for c: Array in cases:
+		OS.set_environment("CW_SIDECAR_DLL", String(c[1]))
+		main_scene._continue()
+		var t0 := Time.get_ticks_msec()
+		while Time.get_ticks_msec() - t0 < 10000 and not (menu._confirm != null and menu._confirm.visible):
+			await process_frame
+		## 折行会在空格处断开、去掉行首空格（CWPauseMenu.notice_lines），比对时空格一律不算
+		var shown := String(menu._confirm_body.text).replace("\n", "").replace(" ", "") if menu._confirm != null else ""
+		check(menu._confirm != null and menu._confirm.visible and menu._confirm_title.text == main_gd.SAVE_LOST_TITLE
+			and menu._confirm_labels.size() == 1 and menu._confirm_labels[0].text == "确定",
+			"%s：回到主菜单，弹「%s」+「确定」（%.1f s）" % [c[0], main_gd.SAVE_LOST_TITLE, (Time.get_ticks_msec() - t0) / 1000.0])
+		if menu._confirm == null or not menu._confirm.visible:
+			break   ## 没弹出来，下面那几条读的控件都不在
+		check(shown.contains(String(c[2]).replace(" ", "")) and shown.contains("存档还在") and shown.begins_with("这份存档需要新内核"),
+			"%s：正文说清楚原因、存档还在（%s）" % [c[0], shown])
+		check(not main_scene._entering and m.kernel == null and not m.ui.visible and menu.visible and menu._ui.visible
+			and not m.pause_menu.active,
+			"%s：对局一帧都没开跑就拆了，人在主菜单上（不是停在一盘空棋上）" % c[0])
+		var panel: Control = menu._confirm_panel
+		var body_bottom: float = menu._confirm_body.position.y + menu._confirm_body.get_minimum_size().y
+		check(menu._confirm_labels[0].position.y >= body_bottom and panel.position.y >= 0.0
+			and panel.position.y + panel.size.y <= CWView.screen_size().y and menu._confirm_body.get_minimum_size().x <= panel.size.x,
+			"%s：正文折行后在面板里，「确定」排在正文下面（正文 %d 行）" % [c[0], String(menu._confirm_body.text).split("\n").size()])
+		check(FileAccess.get_file_as_bytes(CWSave.PATH) == bytes and CWSave.can_continue() and menu._item_enabled(2),
+			"%s：存档逐字节没动，「继续对局」还亮着" % c[0])
+		if c[0] == "起不来":
+			menu._pick_confirm(0)   ## 点「确定」
+		else:
+			var esc := InputEventAction.new()
+			esc.action = "ui_cancel"
+			esc.pressed = true
+			menu._confirm_input(esc)
+		check(not menu._confirm.visible, "%s：%s收起通知" % [c[0], "点「确定」" if c[0] == "起不来" else "Esc "])
+	## 文案是纯函数：两种原因同一句（「没能打开它」两种都对）
+	check(main_gd.save_lost_text("X") == "这份存档需要新内核，但新内核没能打开它：X。存档还在，稍后可以再试。", "C# 存档读不回来的那句话")
+	## 通知正文折行：折在空格上时行首不留空格（wrap_text 原样会留，先确认这段字真撞得上那种折法）
+	var mixed := "找不到 sidecar 进程 abc 找不到 sidecar 进程 abc 找不到 sidecar 进程 abc"
+	var raw_hit := false
+	var lead := false
+	for w in range(40, 160, 3):
+		for l in CWCardInfo.wrap_text(mixed, float(w)):
+			raw_hit = raw_hit or l.begins_with(" ")
+		for l in CWPauseMenu.notice_lines(mixed, float(w)).split("\n"):
+			lead = lead or l.begins_with(" ")
+	check(raw_hit and not lead, "通知正文折在空格上时，行首的空格去掉了（wrap_text 原样折会留：%s）" % str(raw_hit))
+	OS.set_environment("CW_SIDECAR_DLL", "")
+	main_scene.queue_free()
+	await process_frame
+	CWKernelSidecar.shutdown_idle_links()
+	CWSave.clear()
+
+
+## ② 对局中途新内核没了：开关打开开一局热座（走 sidecar），落完子、停在第一问行动上时把 sidecar 进程杀掉（OS.kill）。验：
+## 句柄转 FAULTED、暂停菜单盖上通知页（标题 / 原因 / 有存档就说「上次的存档还在」、只有「返回主菜单」、Esc 关不掉、树冻着）；
+## 点「返回主菜单」走 main.gd 的返场：对局拆干净、树解冻、人在主菜单；存档没动。之后再开一局照常起一个新的 sidecar（不是自动恢复）
+func t_sidecar_crash_midgame() -> void:
+	print("[换内核·对局中途新内核没了 → 通知 + 返回主菜单]")
+	if CWKernelSidecar.find_dotnet() == "" or not FileAccess.file_exists(CWKernelSidecar.find_sidecar_dll()):
+		check(false, "找不到 dotnet 或 sidecar 产物 —— 先 dotnet build core/CellWar.Sidecar")
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var bytes := _write_cs_save()
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var main_gd = main_scene.get_script()   ## main.gd 没有 class_name：常量与静态函数从脚本上取
+	var m: CWMatch = main_scene.match_node
+	var pause: CWPauseMenu = main_scene.pause
+	m.player_count = 2
+	m.human_players = [0, 1]
+	m.match_seed = 77
+	CWSettings.ai_delay_ms = 0
+	m.start()
+	await process_frame
+	check(m.kernel is CWKernelSidecar and m.kernel.state() != CWKernel.State.UNAVAILABLE, "开关打开 + 热座 ⇒ 句柄是 sidecar（%s）" % m.lost_reason())
+	## 两席落子，停在第一问行动上（右栏「结束回合」亮着 = 行动那一问）
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 10000:
+		await process_frame
+		if m.bridge.handoff != null and m.bridge.handoff.active:
+			m.bridge.handoff.confirm()
+			continue
+		if m.bridge._pending == null:
+			continue
+		if m.bridge.panel != null and m.bridge.panel._end.visible:
+			break
+		if not m.bridge._tiles.is_empty():
+			m.bridge._pending.fire(m.bridge._tiles.values()[0])
+	check(m.bridge._pending != null and m.bridge.panel._end.visible, "落完子、停在第一问行动上")
+	var pid := (m.kernel as CWKernelSidecar).process_id()
+	OS.kill(pid)
+	var t1 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t1 < 5000 and not (pause.visible and pause._notice):
+		await process_frame
+	var shown := String(pause._body.text).replace("\n", "")
+	check(m.kernel.state() == CWKernel.State.FAULTED and pause.visible and pause._notice and pause._title.text == main_gd.KERNEL_LOST_TITLE,
+		"杀掉 sidecar ⇒ 句柄 FAULTED、暂停菜单盖上「%s」（%.1f s）" % [main_gd.KERNEL_LOST_TITLE, (Time.get_ticks_msec() - t1) / 1000.0])
+	check(shown.begins_with("新内核意外退出：") and shown.contains("上次的存档还在"), "正文：原因 + 存档还在（%s）" % shown)
+	check(pause._list.size() == 1 and String(pause._list[0]["id"]) == "menu" and pause._labels[0].text == "返回主菜单"
+		and paused, "只有「返回主菜单」一项，树冻着（这一局已经没了）")
+	check(pause._labels.size() == 1 and pause._labels[0].position.y >= pause._body.position.y + pause._body.get_minimum_size().y
+		and pause._panel.position.y + pause._panel.size.y <= CWView.screen_size().y,
+		"正文折行后在面板里，「返回主菜单」排在正文下面")
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	pause._unhandled_input(esc)
+	pause.toggle()   ## 网页版右上角「设置」按钮走的就是它
+	check(pause.visible and pause._notice, "Esc / 设置按钮都关不掉通知页（关掉只剩一盘不会动的棋）")
+	pause._activate(0)
+	var t2 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t2 < 6000 and (main_scene._entering or m.kernel != null):
+		await process_frame
+	check(m.kernel == null and not main_scene._entering and not paused and not pause.visible and not m.ui.visible
+		and main_scene.menu.visible, "点「返回主菜单」：走 main.gd 的返场，对局拆干净、树解冻、人在主菜单")
+	check(FileAccess.get_file_as_bytes(CWSave.PATH) == bytes, "存档没动")
+	check(main_gd.kernel_lost_text("X", false) == "新内核意外退出：X。", "没有存档时不提存档")
+	## 回到菜单再开一局：链路认得出旧进程已死，新起一个（这是玩家自己再开的一局，不是自动恢复）
+	m.start()
+	await process_frame
+	check(m.kernel is CWKernelSidecar and m.kernel.state() != CWKernel.State.FAULTED and (m.kernel as CWKernelSidecar).process_id() != pid,
+		"之后再开一局：新起一个 sidecar 进程照常开（%s）" % m.lost_reason())
+	## 开局过场（绽开 / 教程开场幕布）还没走完时先不盖：那会儿点「返回主菜单」会被 _back_to_menu 头一句挡掉
+	main_scene._entering = true
+	m.kernel_lost.emit("测试")
+	for _i in 3:
+		await process_frame
+	var held := not pause.visible
+	main_scene._entering = false
+	for _i in 2:
+		await process_frame
+	check(held and pause.visible and pause._notice, "过场中报上来的先等着，过场一走完就盖上通知页")
+	pause.close()
+	m.teardown()
+	await process_frame
+	OS.set_environment("CW_KERNEL", "")
+	CWSettings.ai_delay_ms = 220
+	main_scene.queue_free()
+	await process_frame
+	CWKernelSidecar.shutdown_idle_links()
+	CWSave.clear()
+
+
+## ③ 新开局时新内核起不来（开关打开 + CW_SIDECAR_DLL 指到不存在的文件）：单机对 AI / 热座 / 教程都悄悄退回 GD 内核接着玩。
+## 验：句柄是 InProc、能往下打（单机过两个世界回合、热座过一个、教程第一关走完进第二关）、一个通知都不弹
+func t_sidecar_unavailable_fallback() -> void:
+	print("[换内核·新内核起不来 → 新开局退回 GD 接着玩]")
+	OS.set_environment("CW_KERNEL", "sidecar")
+	OS.set_environment("CW_SIDECAR_DLL", "/nonexistent/CellWar.Sidecar.dll")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	var pause: CWPauseMenu = main_scene.pause
+	CWSettings.ai_delay_ms = 0
+	## 真人只落子 + 结束回合，其余席位自己打（热座的换手遮罩点掉）
+	var play := func(target_round: int) -> void:
+		var t0 := Time.get_ticks_msec()
+		while Time.get_ticks_msec() - t0 < 30000 and (m.mirror == null or int(m.mirror.round_no) < target_round):
+			await process_frame
+			if m.bridge.handoff != null and m.bridge.handoff.active:
+				m.bridge.handoff.confirm()
+				continue
+			if m.bridge._pending == null:
+				continue
+			if not m.bridge._tiles.is_empty() and m.bridge.panel != null and not m.bridge.panel._end.visible:
+				m.bridge._pending.fire(m.bridge._tiles.values()[0])
+			else:
+				m.bridge.panel.end_turn_pressed.emit()
+	## 单机对 AI：意图档在开关打开时本该交给 C#
+	m.player_count = 2
+	m.human_players = [0]
+	m.ai_level = CWMatch.AI_INTENT
+	m.match_seed = 91
+	check(m.start() and m.kernel is CWKernelInProc, "单机对 AI（意图档）：sidecar 起不来 ⇒ 退回 GD 内核")
+	await play.call(3)
+	check(m.mirror != null and int(m.mirror.round_no) >= 3 and not pause.visible,
+		"单机对 AI：GD 内核上打过两个世界回合（第 %d 回合），没弹通知" % (int(m.mirror.round_no) if m.mirror != null else -1))
+	m.teardown()
+	await process_frame
+	## 热座
+	m.human_players = [0, 1]
+	m.ai_level = 0
+	check(m.start() and m.kernel is CWKernelInProc, "热座：sidecar 起不来 ⇒ 退回 GD 内核")
+	await play.call(2)
+	check(m.mirror != null and int(m.mirror.round_no) >= 2 and not pause.visible,
+		"热座：GD 内核上打过一个世界回合（第 %d 回合），没弹通知" % (int(m.mirror.round_no) if m.mirror != null else -1))
+	m.teardown()
+	await process_frame
+	main_scene.queue_free()
+	await process_frame
+	## 教程：舞台用同一个开关，起不来就退回 GD 内核（cw_tutorial_stage.gd:_open_spec）
+	var opened: Array = await _tutor_key_open("c1_l1")
+	var tm: CWMatch = opened[1]
+	check(tm.kernel is CWKernelInProc, "教程：sidecar 起不来 ⇒ 舞台退回 GD 内核")
+	var r: Dictionary = await _tutor_key_chain(tm, func() -> bool: return str(tm._tutor_level.get("id", "")) == "c1_l2", 20000)
+	check(str(r["stuck"]) == "" and str(tm._tutor_level.get("id", "")) == "c1_l2" and tm.kernel is CWKernelInProc
+		and not (opened[0].pause as CWPauseMenu).visible,
+		"教程：GD 内核上第一关走完、进了第二关，没弹通知（%.1f s；%s）" % [float(r["secs"]), str(r["stuck"])])
+	OS.set_environment("CW_SIDECAR_DLL", "")
+	await _tutor_key_close(opened[0], tm)
 
 
 ## 换内核 P7（2026-10-01）：导出包那条路 —— `cw_sidecar_locator.gd unpack()` 把 res://sidecar/（tools/build_sidecar.sh 生成）里的

@@ -21,6 +21,9 @@ signal replay_opening
 ## 教程全部通关（最后一关的 `on_done` 为空）：主场景收摊回主菜单（Q-14 的默认「回主菜单」；
 ## Kevin 2026-09-25 真机「最后卡在了这里」—— 此前只记一笔进度，画面就停在最后一拍）
 signal tutorial_done
+## 对局中途新内核（sidecar）没了：句柄转 FAULTED（进程退出 / 连接断）。main.gd 盖通知页、只给「返回主菜单」
+##（换内核观察期，Kevin 2026-10-01：不自动恢复）。reason = 句柄报的原因，见 `_check_kernel_lost`
+signal kernel_lost(reason: String)
 
 ## 棋盘和相机都是**同级节点**：开场过场是同一个镜头往前推、不切场景，
 ## 所以菜单和对局共用同一张棋盘、同一台相机（见 Main.tscn 与 main.gd）。
@@ -590,7 +593,9 @@ func _sidecar_ai() -> Dictionary:
 
 ## snap 非空 = 从存档继续：装配完把快照原样放回去，run_game 会把存档那一刻
 ## 待决的询问重新问出来（恢复点必然是 pending 边界，CWSave 只在那儿写得出档）。
-func start(snap: Dictionary = {}) -> void:
+## 返回 false = 这一局没开起来，句柄留着、不开跑：C# 存档读不回来（新内核起不来 / 不认这份检查点，
+## 原因在 `lost_reason()`；main.gd:_continue 拆局回主菜单说明），或教程舞台装不出这一关。新开局从不返回 false（起不来就退回 GD 内核）
+func start(snap: Dictionary = {}) -> bool:
 	_prepare_ui()
 	## 教程局的句柄由**舞台**建（它要先把盘面装出来、把带子挂上，再 open）；其余入口照旧自己建。
 	## 读档进来的教程局不走这条路：存档里不记教程标志，读回来就是正式局
@@ -632,12 +637,13 @@ func start(snap: Dictionary = {}) -> void:
 		_attach_tutor()                       ## 要在 open()（第一次询问）之前：导演的闸就挂在第一问上
 		kernel = _open_tutor_level(cfg)
 		if kernel == null:
-			return
+			return false
 	else:
 		if not kernel.open(cfg) and kernel is CWKernelSidecar:
 			if String(snap.get("kernel", "")) == CWKernelSidecar.SAVE_KERNEL:
-				## C# 检查点 GD 内核装不进：不退回，局停在故障态（读档失败的界面随 P4 桌面切换一起做）
-				push_error("CWMatch：C# 存档读不回来（%s）" % str(kernel.last_error()))
+				## C# 检查点 GD 内核装不进，不退回；也不开跑（队列、镜像都不建）—— 交给调用方回主菜单说明，存档原样留着
+				push_warning("CWMatch：C# 存档读不回来（%s）" % lost_reason())
+				return false
 			else:
 				push_warning("CWMatch：sidecar 起不来（%s），这一局退回 GD 内核" % str(kernel.last_error()))
 				kernel = CWKernelInProc.new()
@@ -652,6 +658,32 @@ func start(snap: Dictionary = {}) -> void:
 		_tutor_resnap()   ## 关首取景要按这一份镜像里玩家的格（见 `_tutor_resnap`）
 	if by_stage and _director != null and is_instance_valid(_director):
 		_director.rebase_hard()   ## 新镜像刚落地（`step_end` 也会取一次，但队列是异步消费的，等它就晚了）
+	return true
+
+
+## ── 新内核没了的时候（换内核观察期，Kevin 2026-10-01）──────────────────────
+## 观察期里 GD 内核留着当退路：新开局（热座 / 单机 / 教程）sidecar 起不来就退回 GD，玩家看不出来（只留一行 warning）。
+## 退不回去的只有两种：C# 存档读不回来（GD 装不进检查点，start() 返回 false）、对局中途 sidecar 没了（发 kernel_lost）。
+## 这一层只负责认出来；跟玩家说什么、往哪儿走归 main.gd（两种都回主菜单，**不自动恢复**，Kevin 定）
+var _kernel_lost := false   ## 这一局已经报过 kernel_lost（一局只报一次；teardown 复位）
+
+
+## 句柄最近一次出故障的原因（`CWKernel.last_error().msg`）；没有句柄给空串
+func lost_reason() -> String:
+	return String(kernel.last_error().get("msg", "")) if kernel != null else ""
+
+
+## 每帧看一眼（`_process`）：句柄转 FAULTED = sidecar 进程退出 / 连接断（只有 CWKernelSidecar 会到这一态，它的 `_tick` 里判）。
+## 不挂 state_changed 信号是因为句柄有好几条建法（开局 / 读档 / 教程舞台每次换盘各建一个），每帧问一句哪条都漏不掉。
+## 结算屏期间（终局之后内核没了不碍事）`pause_menu.active` 为假，不报；返场途中 `_process` 根本走不到这儿（`_fading`）
+func _check_kernel_lost() -> void:
+	if _kernel_lost or kernel == null or kernel.state() != CWKernel.State.FAULTED:
+		return
+	if pause_menu == null or not pause_menu.active:
+		return
+	_kernel_lost = true
+	push_warning("CWMatch：新内核中途没了（%s）" % lost_reason())
+	kernel_lost.emit(lost_reason())
 
 
 ## 回放：局面是**本地重建**的（`CWReplay.Player` 已经建好并跑着），
@@ -2336,6 +2368,7 @@ func _settings_pressed() -> void:
 ## 不擦干净的话上一局的癌组织和细胞会留在菜单背景里。
 func teardown() -> void:
 	_fading = false
+	_kernel_lost = false
 	_loop_id += 1            ## 联机：让 _net_loop 退出（回放的 _replay_loop 同理）
 	if _settings_btn != null:
 		_settings_btn.visible = false   ## 菜单背景里不该留着它（每局 _prepare_ui 再亮）
@@ -2529,6 +2562,7 @@ func _process(delta: float) -> void:
 		kernel.set_roll_barrier(CWSettings.dice_anim)
 	if mirror == null or mirror.tiles.is_empty() or _fading:
 		return
+	_check_kernel_lost()
 	if bridge != null:
 		bridge.plan_tick()   ## 联机规划器：RPC 回来的报价 / 可达 / 灰格理由在这里补画（E-1 (a)）
 	_sync_feed()   ## 出牌列跟着对局状态走（方案甲）：只补没见过的那几条，便宜
