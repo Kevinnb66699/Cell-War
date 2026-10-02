@@ -199,7 +199,7 @@ func _run_all() -> void:
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
 		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial, t_settings_button,
 		t_entry_smoke_replay, t_entry_smoke_online,
-		t_kernel_parity, t_no_engine_in_ui, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_kernel_loader_moved, t_board_active_tiles,
+		t_kernel_parity, t_no_engine_in_ui, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_ai_delay_detached, t_kernel_loader_moved, t_board_active_tiles,
 		## 换内核 P3：AI 对拍模式默认关（线上三档行为一行不变）+ 对拍随机流金值 / 规范选项序
 		t_ai_agree_default_off, t_ai_agree_rng, t_mech_dist_cache,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
@@ -22579,6 +22579,29 @@ func t_mech_dist_cache() -> void:
 	check(not AI_AGREE.on, "这条测试没把对拍模式留在开着")
 	for x in [g, ga, gb, gc]:
 		x.dispose()
+
+
+## AI 每步之间的停顿（220 ms）里对局被关掉：kernel.close() 把引擎摘成 null，醒来的这一问不该再去读引擎。
+## 10-01 合观察期分支时全量偶发一次「Nonexistent function 'player' in base 'Nil'」—— 收局时 AI 正停顿着。
+## **红在 run_tests.sh 的 SCRIPT ERROR 闸上**：去掉守卫这里稳定复现那条报错，但 check 分不出来
+##（int 返回值的函数出错也给 0）—— 只跑 `--only` 要自己看输出里有没有 SCRIPT ERROR。
+func t_ai_delay_detached() -> void:
+	print("[AI 停顿中对局被关：醒来不读空引擎]")
+	var g := make_game(2, 33)
+	var holder := Node.new()
+	root.add_child(holder)
+	var mb := MechBridge.new()
+	mb.game = g
+	mb.delay_ms = 40
+	mb.delay_node = holder
+	var got := [null]   ## lambda 按值抓局部变量，答案放容器里
+	var asker := func() -> void:
+		got[0] = await mb.ask({"pid": g.order[0], "kind": "action", "options": [{"label": "停", "data": {}}]})
+	asker.call()
+	mb.game = null   ## 等同 CWKernelInProc.close() 里的 _attach_engine(d, null)
+	await create_timer(0.15).timeout
+	check(got[0] == 0, "停顿期间引擎被摘掉：这一问不答就回 0（拿到 %s）" % str(got[0]))
+	holder.free()
 
 
 func t_mech_bridge_quiet() -> void:

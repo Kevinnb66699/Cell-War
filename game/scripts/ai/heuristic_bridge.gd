@@ -66,6 +66,10 @@ func ask(req: Dictionary) -> int:
 		return await AGREE.ask_canonical(self, req)
 	if delay_ms > 0 and delay_node != null:
 		await delay_node.get_tree().create_timer(delay_ms / 1000.0).timeout
+		## 停顿期间对局被关了（退回主菜单 / 测试收局）：kernel.close() 已把引擎摘掉（game = null），
+		## 这一问的答案没人要了 —— 不答就回，免得醒来去读空引擎报 SCRIPT ERROR。
+		if game == null:
+			return 0
 	var pid: int = req["pid"]
 	var options: Array = req["options"]
 	match req["kind"]:
