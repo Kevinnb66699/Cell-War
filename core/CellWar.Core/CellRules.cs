@@ -1283,7 +1283,7 @@ internal static class CellRules
         return s;
     }
 
-    /// <summary>GD cw_actions.gd:944-949：非巨噬的免疫攻击，整段结算（含进格）之后演本体冲撞。<paramref name="attackerBefore"/> / <paramref name="targetBefore"/> 是攻击前的快照（起点、种类）。</summary>
+    /// <summary>GD cw_actions.gd `_immune_attack_fx`：非巨噬的免疫攻击，整段结算（含进格）之后演本体冲撞；攻击失败被反弹打死时，GD 在提前 return 之前也演（2026-10-01 补上，攻击者淡出那一支）。<paramref name="attackerBefore"/> / <paramref name="targetBefore"/> 是攻击前的快照（起点、种类）。</summary>
     private static void EmitImmuneAttackFx(WorldState s, Cell attackerBefore, Cell targetBefore, HexPosition to, bool hit)
     {
         if (attackerBefore.Type == CellType.Macrophage) return;

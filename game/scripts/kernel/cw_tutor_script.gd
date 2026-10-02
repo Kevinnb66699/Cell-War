@@ -381,11 +381,17 @@ func _check_worlds(level: Dictionary, seats: int) -> int:
 		for i in players.size():
 			if int((players[i] as Dictionary).get("seat", -1)) != i:
 				_bad("world「%s」的 players[%d].seat 不等于 %d（纪律 4）" % [str(wid), i, i])
-		## 纪律 4 的后半条：装载器只拦同格，**同席两只是后写的静默盖掉**，只有这条闸看得见
+		## 纪律 4 的后半条：装载器只拦**两只活细胞**同格（2026-10-01 起对齐 C#：死细胞可以和活的同格，对局里真会出现），
+		## **同席两只是后写的静默盖掉**、**死细胞压在活细胞的格上**也不拦 —— 关卡数据里这两样只有这条闸看得见
 		var per_seat := {}
+		var at_seen := {}
 		for c in spec.get("cells", []):
 			var s := int((c as Dictionary).get("seat", -1))
 			per_seat[s] = int(per_seat.get(s, 0)) + 1
+			var at := str((c as Dictionary).get("at", ""))
+			if at_seen.has(at):
+				_bad("world「%s」里格 %s 上写了两只细胞 —— 每格至多一只（死的也算；缺席阵营的死细胞放在活动格之外，纪律 4 / 8）" % [str(wid), at])
+			at_seen[at] = true
 		for s in range(seats):
 			var n := int(per_seat.get(s, 0))
 			if n != 1:

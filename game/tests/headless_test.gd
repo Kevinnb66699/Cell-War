@@ -19145,6 +19145,12 @@ func t_tutor_data() -> void:
 		{ "seat": 0, "type": "ImmuneBasic", "at": "1,-1", "energy": 10 })
 	check(_tutor_errs(bad).contains("每席恰好一只"),
 		"判别力：同席两只细胞当场红（装载器只拦同格，同席是后写的**静默**盖掉）")
+	## 2026-10-01 装载器对齐 C#、死细胞可以和活的同格之后，关卡数据里「死细胞压在活细胞的格上」只有剧本闸拦得住
+	bad = l1.duplicate(true)
+	var cs1: Array = bad["worlds"]["base"]["cells"]
+	(cs1[1] as Dictionary)["at"] = str((cs1[0] as Dictionary)["at"])
+	check(_tutor_errs(bad).contains("每格至多一只"),
+		"判别力：死细胞写在活细胞的格上当场红（装载器 10-01 起只拦两只活的同格）")
 	bad = l1.duplicate(true)
 	bad["active_tiles"] = ["0,-3"]
 	check(_tutor_errs(bad).contains("特殊组织"),
@@ -25260,9 +25266,12 @@ func _tutor_chain_c2l5_run(sidecar: bool) -> void:
 		if not _tutor_sidecar_ready():
 			return
 		OS.set_environment("CW_KERNEL", "sidecar")
+	else:
+		OS.set_environment("CW_KERNEL", "")   ## GD 那一跑必须真在 GD 内核上：环境里残留 sidecar 的话 C# 装载器本来就收这块盘，测不到修的那一处
 	var opened: Array = await _tutor_key_open("c2_l5")
 	var main_scene: Node = opened[0]
 	var m: CWMatch = opened[1]
+	check(sidecar or m.kernel is CWKernelInProc, "%s那一跑开在 %s 上" % [who, "GD 内核" if m.kernel is CWKernelInProc else "别的句柄"])
 	## 重心平移前后各抓一份：平移前（第五关那份 127 格的盘）玩家站哪、器官在哪、脚下有没有死细胞；平移后（469 格）器官在哪。
 	## 舞台的 `errors` 只活到下一次开局（分镜 6 翻转就清空了），所以逐帧抓第一次非空
 	var seen := { "p": null, "before": [], "after": [], "shared": false, "err": "" }
