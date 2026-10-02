@@ -18189,7 +18189,9 @@ func _hotseat_to_first_action(m: CWMatch) -> bool:
 ## ① C# 存档读不回来：走真 Main.tscn 的「继续对局」（main.gd:_continue），两种原因各一遍 ——
 ## 新内核起不来（CW_SIDECAR_DLL 指到不存在的文件）、起来了却不认这份检查点（真 sidecar + 坏检查点）。验：
 ## 回到主菜单（对局已拆、过场走完）、通知亮着（标题 / 人话原因 / 「存档还在」、排版不出屏）、点「确定」或 Esc 收起；
-## 存档文件逐字节不变、「继续对局」仍亮。复核第 5 条：起不来那一种推镜头之前就认得出，当场在主菜单上说、镜头不动
+## 存档文件逐字节不变、「继续对局」仍亮。复核第 5 条：起不来那一种推镜头之前就认得出，当场在主菜单上说、镜头不动。
+## 二轮复核：「稍后可以再试」只在下次点真会再试时才说 —— 第三遍让 restore 的 open() 断在起进程上（dll 是个存在的坏文件，
+## locate 放得过去、dotnet 起来就退），句柄把它记成「这一次运行里起不来过」，通知就得说「重新打开游戏后」，再点也确实当场拦
 func t_sidecar_save_unloadable() -> void:
 	print("[换内核·C# 存档读不回来 → 回主菜单说明]")
 	var real_sidecar := CWKernelSidecar.find_dotnet() != "" and FileAccess.file_exists(CWKernelSidecar.find_sidecar_dll())
@@ -18201,10 +18203,16 @@ func t_sidecar_save_unloadable() -> void:
 	var main_gd = main_scene.get_script()   ## main.gd 没有 class_name：常量与静态函数从脚本上取
 	var menu: Node = main_scene.menu
 	var m: CWMatch = main_scene.match_node
-	## [情形, CW_SIDECAR_DLL, 正文里「但」后面那半句]
-	var cases: Array = [["起不来", "/nonexistent/CellWar.Sidecar.dll", "新内核没能启动"]]
+	## 存在、但不是程序集的「dll」：locate() 只看文件在不在，放得过去；dotnet exec 它当场就退
+	var junk_dll := ProjectSettings.globalize_path("user://not_a_sidecar.dll")
+	var jf := FileAccess.open(junk_dll, FileAccess.WRITE)
+	jf.store_string("不是程序集")
+	jf.close()
+	## [情形, CW_SIDECAR_DLL, 正文里「但」后面那半句, 「可以再试」前面那几个字]。起来就退的那一遍会进记忆，得排最后
+	var cases: Array = [["起不来", "/nonexistent/CellWar.Sidecar.dll", "新内核没能启动", "稍后"]]
 	if real_sidecar:
-		cases.append(["不认档", "", "新内核打不开它"])
+		cases.append(["不认档", "", "新内核打不开它", "稍后"])
+		cases.append(["起来就退", junk_dll, "新内核没能启动", "重新打开游戏后"])
 	else:
 		check(false, "找不到 dotnet 或 sidecar 产物，「不认档」那一遍跑不了 —— 先 dotnet build core/CellWar.Sidecar")
 	for c: Array in cases:
@@ -18228,6 +18236,9 @@ func t_sidecar_save_unloadable() -> void:
 		check(shown.begins_with("这份存档需要新内核，但%s。" % c[2]) and shown.contains("存档还在") and shown.ends_with(main_gd.LOG_NOTE)
 			and _no_raw_reason(shown),
 			"%s：正文说人话（「%s」）、存档还在、原话只进日志（%s）" % [c[0], c[2], shown])
+		## 「稍后」= 没进记忆、下次点真会再试；「重新打开游戏后」= 进了记忆、这一次运行里再点都当场拦（二轮复核）
+		check(shown.contains("存档还在，%s可以再试。" % c[3]) and CWKernelSidecar.start_failure.is_empty() == (c[3] == "稍后"),
+			"%s：说「%s可以再试」，与记没记下「起不来过」对得上（%s）" % [c[0], c[3], str(CWKernelSidecar.start_failure)])
 		check(not main_scene._entering and m.kernel == null and not m.ui.visible and menu.visible and menu._ui.visible
 			and not m.pause_menu.active,
 			"%s：对局一帧都没开跑就拆了，人在主菜单上（不是停在一盘空棋上）" % c[0])
@@ -18250,8 +18261,21 @@ func t_sidecar_save_unloadable() -> void:
 			esc.pressed = true
 			menu._confirm_input(esc)
 		check(not menu._confirm.visible, "%s：%s收起通知" % [c[0], "点「确定」" if c[0] == "起不来" else "Esc "])
+	## 「重新打开游戏后」是实话：记下之后 dll 就算指回真的，再点「继续对局」也当场拦、不再去试
+	if real_sidecar:
+		OS.set_environment("CW_SIDECAR_DLL", "")
+		main_scene._continue()
+		var again := String(menu._confirm_body.text).replace("\n", "") if menu._confirm != null else ""
+		check(menu._confirm != null and menu._confirm.visible and not main_scene._entering and m.kernel == null
+			and again.contains("重新打开游戏后可以再试"),
+			"起来就退之后再点「继续对局」：当场拦、照样说「重新打开游戏后」（%s）" % again)
+		if menu._confirm != null:
+			menu._close_confirm()
+	DirAccess.remove_absolute(junk_dll)
 	## 文案是纯函数
-	check(main_gd.save_lost_text("X") == "这份存档需要新内核，但X。存档还在，稍后可以再试。\n" + main_gd.LOG_NOTE, "C# 存档读不回来的那句话")
+	check(main_gd.save_lost_text("X", false) == "这份存档需要新内核，但X。存档还在，稍后可以再试。\n" + main_gd.LOG_NOTE
+		and main_gd.save_lost_text("X", true) == "这份存档需要新内核，但X。存档还在，重新打开游戏后可以再试。\n" + main_gd.LOG_NOTE,
+		"C# 存档读不回来的那句话（没记下 / 记下了「起不来过」）")
 	## 通知正文折行：折在空格上时行首不留空格（wrap_text 原样会留，先确认这段字真撞得上那种折法）
 	var mixed := "找不到 sidecar 进程 abc 找不到 sidecar 进程 abc 找不到 sidecar 进程 abc"
 	var raw_hit := false
@@ -18572,8 +18596,8 @@ func t_sidecar_start_failure_remembered() -> void:
 	var shown := String(menu._confirm_body.text).replace("\n", "") if menu._confirm != null else ""
 	check(menu._confirm != null and menu._confirm.visible and not main_scene._entering
 		and (main_scene._tween == null or not main_scene._tween.is_running())
-		and shown.begins_with("这份存档需要新内核，但新内核没能启动。"),
-		"C# 存档：点「继续对局」当场在主菜单上说「没能启动」，镜头不推进（%s）" % shown)
+		and shown.begins_with("这份存档需要新内核，但新内核没能启动。") and shown.contains("存档还在，重新打开游戏后可以再试。"),
+		"C# 存档：点「继续对局」当场在主菜单上说「没能启动」、要重开游戏才再试（记着的那次是玩家没看见的悄悄退回），镜头不推进（%s）" % shown)
 	check(FileAccess.get_file_as_bytes(CWSave.PATH) == bytes and m.kernel == null, "C# 存档：没开局、存档逐字节没动")
 	if menu._confirm != null:
 		menu._close_confirm()

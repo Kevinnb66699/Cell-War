@@ -398,7 +398,9 @@ func _continue() -> void:
 		var blocked := CWKernelSidecar.unusable()
 		if not blocked.is_empty():
 			push_warning("读档：C# 存档读不回来（%s）" % String(blocked["msg"]))   ## 原话落 godot.log，通知上只说人话
-			menu.show_notice(SAVE_LOST_TITLE, save_lost_text(kernel_reason(int(blocked["fault"]), true)))
+			## 拦下来的是记着的那一次（要重开游戏才清），还是这会儿 locate() 没找到（下次点还会再找）—— 文案不一样
+			menu.show_notice(SAVE_LOST_TITLE, save_lost_text(kernel_reason(int(blocked["fault"]), true),
+				not CWKernelSidecar.start_failure.is_empty()))
 			return
 	match_node.player_count = data["players"]
 	var seats: Array[int] = []
@@ -417,10 +419,12 @@ func _continue() -> void:
 		## 当帧就拆：界面层刚被 start() 亮起来、还没画过一帧，返场时就不会闪一下空的右栏。存档一个字不动。
 		## 原话 match.gd 已经写进日志，这里只要故障种类挑那句人话
 		var why := kernel_reason(match_node.lost_fault(), true)
+		## 这一下 open() 要是断在起进程 / 握手上，句柄刚把它记成「这一次运行里起不来过」：之后再点都是上面那道当场拦
+		var until_restart := not CWKernelSidecar.start_failure.is_empty()
 		match_node.teardown()
 		_entering = false
 		await _back_to_menu()
-		menu.show_notice(SAVE_LOST_TITLE, save_lost_text(why))
+		menu.show_notice(SAVE_LOST_TITLE, save_lost_text(why, until_restart))
 		return
 	_entering = false
 
@@ -451,10 +455,14 @@ static func kernel_reason(fault: int, loading_save: bool) -> String:
 	return "新内核没能启动"
 
 
-## ① C# 存档读不回来（`_continue`）。why = `kernel_reason(…, true)`。玩家能做的都一样 ——
-## 存档还在，换个时候（或更新之后）再点「继续对局」
-static func save_lost_text(why: String) -> String:
-	return "这份存档需要新内核，但%s。存档还在，稍后可以再试。\n%s" % [why, LOG_NOTE]
+## ① C# 存档读不回来（`_continue`）。why = `kernel_reason(…, true)`。存档都还在；「什么时候再试才有用」看 until_restart ——
+## 句柄记下了「这一次运行里起不来过」（`CWKernelSidecar.start_failure`，记到退出游戏）的话，这一次运行里再点「继续对局」
+## 都是当场被拦、根本不会再试，只有重新打开游戏才清得掉，所以照实说（2026-10-01 复核：原来一律「稍后可以再试」，
+## 可记下的那次可能是一次偶发的握手超时、甚至是玩家没看见的一次新开局悄悄退回 GD）。
+## 没记下的（这会儿就找不到产物 / 不认这份档 / 开完当场就没了）：下次点「继续对局」真会再试一遍，「稍后」才是实话
+static func save_lost_text(why: String, until_restart: bool) -> String:
+	var when := "重新打开游戏后" if until_restart else "稍后"
+	return "这份存档需要新内核，但%s。存档还在，%s可以再试。\n%s" % [why, when, LOG_NOTE]
 
 
 ## ② 对局中途新内核没了（`_on_kernel_lost`）。why = `kernel_reason(…, false)`。存档位只有一份、读档也不删（cw_save.gd 头注），
