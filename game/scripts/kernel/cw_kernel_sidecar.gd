@@ -49,18 +49,16 @@ func open(cfg: Dictionary) -> bool:
 	if _state != State.IDLE:
 		return false
 	_set_state(State.STARTING)
-	var loc: Dictionary = {} if cfg.has("sidecar_dll") else Locator.locate()
+	var loc := locate(cfg)
 	if loc.has("error"):
+		_remember_start_failure(Fault.SPAWN_FAILED, String(loc["error"]))
 		return _unavailable(String(loc["error"]))
-	var dotnet := String(cfg.get("dotnet", loc.get("dotnet", Locator.dev_dotnet())))
-	var dll := String(cfg.get("sidecar_dll", loc.get("dll", "")))
-	if dotnet == "" or dll == "" or not FileAccess.file_exists(dll):
-		return _unavailable("找不到 sidecar（dotnet=%s，dll=%s）" % [dotnet, dll])
-	_link = Link.acquire(dotnet, dll)
+	_link = Link.acquire(String(loc["dotnet"]), String(loc["dll"]))
 	if int(_link.fault) != 0:
 		var f := int(_link.fault)
 		var why := String(_link.fault_msg)
 		_link = null
+		_remember_start_failure(f, why)   ## 起进程 / 握手这一段没成（复用现成的活链路走不到这儿）
 		if f == Fault.SPAWN_FAILED:
 			return _unavailable(why)
 		_fail(f, why)
@@ -198,6 +196,17 @@ func observe(viewer: int, logs_from := 0) -> RefCounted:
 	if err != "":
 		push_error("CWKernelSidecar.observe：envelope 装不进镜像：%s" % err)
 		return null
+	return m
+
+
+## 开局的头一份镜像（全知）。open() 返回 true 还不算开成（2026-10-01 复核）：之后、头一份镜像落地之前 sidecar 照样可能
+## 当场出事 —— open 里头一下拉条目、头一次观测就崩 / 超时 / 被拒。界面没有镜像画不出第一帧，match.gd 那道
+## 「镜像还没到」的闸后面什么都不跑：不退回、也不报，棋盘就空在那儿。所以客户端开完先要这一份，要不到就照「起不来」走
+##（新开局退回 GD、C# 存档回主菜单说明）。要不到时句柄转 FAULTED（已经 FAULTED 的保留原来的原因），会话与链路一并放掉
+func first_view() -> CWMirror:
+	var m := observe(VIEWER_OMNISCIENT) as CWMirror
+	if m == null:
+		_fail(Fault.PROTOCOL, "开局要不到第一份观测")
 	return m
 
 
@@ -402,6 +411,42 @@ func set_decider(b: Object) -> void:
 
 
 # ---- 找 sidecar（开发期；导出包的路由在 cw_sidecar_locator.gd）----
+## 这一次去哪儿起 sidecar：`{dotnet, dll}`，找不到给 `{error}`（原话，只进日志）。cfg 里的 dotnet / sidecar_dll 覆盖（测试用），
+## 缺省由 cw_sidecar_locator.gd 找。open() 起进程之前就是这么判的；main.gd「继续对局」推镜头之前也先经 `unusable()` 问一句
+static func locate(cfg := {}) -> Dictionary:
+	var loc: Dictionary = {} if cfg.has("sidecar_dll") else Locator.locate()
+	if loc.has("error"):
+		return loc
+	var dotnet := String(cfg.get("dotnet", loc.get("dotnet", Locator.dev_dotnet())))
+	var dll := String(cfg.get("sidecar_dll", loc.get("dll", "")))
+	if dotnet == "" or dll == "" or not FileAccess.file_exists(dll):
+		return { "error": "找不到 sidecar（dotnet=%s，dll=%s）" % [dotnet, dll] }
+	return { "dotnet": dotnet, "dll": dll }
+
+
+## 这一次运行里 sidecar 起不来过没有：第一次起不来（找不到产物 / 进程起不来 / 握手没成）就记下 `{fault, msg}`，记到退出游戏；
+## 空 = 没有过。为什么要记（2026-10-01 复核）：客户端每个新开局都会再试一次，教程通关一遍要换 17 次盘、每次换盘都试 ——
+## 找不到文件当场就失败，没感觉；卡在握手上的那种每试一次就把主线程堵 Link.HANDSHAKE_MS（8 秒）。
+## **只记不拦**：拿它当「别再试」的是客户端（match.gd 新开局、教程舞台换盘直接走 GD 内核，main.gd「继续对局」直接说明）；
+## 服务器每开一间房照旧重试 —— 它没有别的内核可退，一次失败不该让整个进程从此放弃。
+## 开局之后才出的事（被拒 / 中途崩）不记：那不是「起不来」，下一局照样值得一试。测试每支开跑前清空（headless_test.gd）
+static var start_failure := {}
+
+
+static func _remember_start_failure(fault: int, msg: String) -> void:
+	if start_failure.is_empty():
+		start_failure = { "fault": fault, "msg": msg }
+
+
+## 客户端开局之前问一句：sidecar 这一次运行里还指望得上吗。指望得上给 {}；指望不上给 `{fault, msg}` ——
+## 记着的那次起不来（`start_failure`），或者这会儿就找不到产物（`locate`；只问不记，真去开的那一下 open() 会记）
+static func unusable() -> Dictionary:
+	if not start_failure.is_empty():
+		return start_failure
+	var loc := locate()
+	return { "fault": Fault.SPAWN_FAILED, "msg": String(loc["error"]) } if loc.has("error") else {}
+
+
 static func find_dotnet() -> String:
 	return Locator.dev_dotnet()
 

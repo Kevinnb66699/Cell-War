@@ -229,9 +229,10 @@ func _open(wid: String) -> CWKernel:
 
 ## 一份现成的 cwxworld/3 → 一局。
 ## `_open`（按 world 名 resolve 出来的）与 `reload_recentered`（从活局面 dump 出来的）共用。
-## 开关 `CW_KERNEL=sidecar` 打开时先试 C# 进程，起不来再退回 GD 内核（同 `match.gd:start` 热座那条路）
+## 开关 `CW_KERNEL=sidecar` 打开时先试 C# 进程，起不来再退回 GD 内核（同 `match.gd:start` 热座那条路）。
+## 这一次运行里 sidecar 起不来过就不再试（`CWKernelSidecar.start_failure`）：教程通关一遍换 17 次盘，卡握手的话每次 8 秒
 func _open_spec(spec: Dictionary) -> CWKernel:
-	if OS.get_environment("CW_KERNEL") == "sidecar":
+	if OS.get_environment("CW_KERNEL") == "sidecar" and CWKernelSidecar.start_failure.is_empty():
 		var k := _open_sidecar(spec)
 		if k != null:
 			return k
@@ -241,13 +242,14 @@ func _open_spec(spec: Dictionary) -> CWKernel:
 ## C# 内核那条路：同一份 spec + 同一条带子交给 sidecar（C# 装载器装盘 → `ScriptedRng` 挂在开局之前 →
 ## `MatchSession.Resume` 停在世界写好的那一席，所以不用 `_point_cursor` 那一脚）。
 ## `cfg` 原样带过去：`decider`（闸桥）/ `deciders`（NPC）由句柄在本地作答，与 InProc 同；`consumer` / `record_replay` 它不认，
-## C# 引擎本来就不等动画（roll 的 barrier 只是标记）。开不出来返回 null，由调用方退回 GD 内核
+## C# 引擎本来就不等动画（roll 的 barrier 只是标记）。开不出来返回 null，由调用方退回 GD 内核。
+## 「开出来」= open() 成了、头一份镜像也要得到（`first_view` 的注释：开完当场就没了的那种，以前这里照样交出去）
 func _open_sidecar(spec: Dictionary) -> CWKernel:
 	var c := cfg.duplicate()
 	c["world"] = spec
 	c["rolls"] = _rolls()
 	var k := CWKernelSidecar.new()
-	if not k.open(c):
+	if not k.open(c) or k.first_view() == null:
 		push_warning("教程舞台：sidecar 开不了这一关（%s），退回 GD 内核" % str(k.last_error()))
 		return null
 	tape = null

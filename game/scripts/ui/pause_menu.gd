@@ -102,6 +102,11 @@ const NOTICE_ITEMS := [
 	{ "id": "menu", "text": "返回主菜单", "enabled": true, "confirm": "" },
 ]
 const NOTICE_GAP := 10          ## 正文与第一项之间的空
+## 通知页刚盖上的这一小段里不认「返回主菜单」（回车 / 点击都不认），而且**空格永远不认**（2026-10-01 复核）：
+## 空格是「结束回合」的快捷键（同 CWChatBox.is_enter 的理由），内核偏偏常在玩家刚按完那一下时没了 ——
+## 不挡的话，下一下空格 / 手快补的那一下回车就把人送回主菜单，为什么一眼都没看到。
+## 1 秒比读完标题还短：读通知的人感觉不到它，只吃掉通知盖上那一刻已经在路上的按键与点击（同 main.gd 的 SKIP_GRACE_MS 一类）
+const NOTICE_GRACE_MS := 1000
 
 ## 主菜单那套辉光：四层白描边由外到内叠出来，越外越淡（尺寸与 alpha 照搬 MainMenu.tscn）。
 ## 为什么不用引擎的辉光后期：开 hdr_2d 会把整张画布的颜色都改掉。
@@ -161,6 +166,7 @@ var _confirming := ""          ## 正在确认哪一项的 id；空 = 在主列�
 var _input: LineEdit           ## 反馈页的说明输入框（只备一份，反馈页时露面）
 var _feedback_page := ""       ## "" = 不在反馈页；否则 edit / sending / done / failed（见 FEEDBACK_ITEMS）
 var _notice := false           ## 正停在通知页上（show_notice）
+var _notice_at := 0            ## 通知页盖上的时刻（ms，见 NOTICE_GRACE_MS）
 var _body: Label               ## 通知页的正文（折好行的几行小字）；别的页藏着
 var _capturing := false        ## 正在藏起自己抓截图；close() 打断它
 var _feedback_png := PackedByteArray()
@@ -217,6 +223,7 @@ func toggle() -> void:
 func show_notice(title: String, body: String) -> void:
 	open()
 	_notice = true
+	_notice_at = Time.get_ticks_msec()
 	_title.text = title
 	_body.text = notice_lines(body, W - PAD * 2)
 	_body.visible = true
@@ -307,6 +314,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_step(-1)
 	elif event.is_action_pressed("ui_accept"):
 		get_viewport().set_input_as_handled()   ## 别让空格穿透到「结束回合」
+		if _notice and not CWChatBox.is_enter(event):
+			return   ## 通知页上空格不算「确定」，只认真回车（见 NOTICE_GRACE_MS）
 		_activate(_selected)
 
 
@@ -398,6 +407,8 @@ func _enabled(item: Dictionary) -> bool:
 func _activate(i: int) -> void:
 	if not _enabled(_list[i]):
 		return
+	if _notice and Time.get_ticks_msec() - _notice_at < NOTICE_GRACE_MS:
+		return   ## 通知页刚盖上：回车与点击都先不认（见 NOTICE_GRACE_MS）
 	SFX.click()
 	var id: String = _list[i]["id"]
 	if _confirming != "":
