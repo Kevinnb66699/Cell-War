@@ -53,10 +53,15 @@ done
 
 if [ -z "${BUILD_ID:-}" ]; then
 	BUILD_ID="$(git rev-parse --short HEAD)"
-	[ -n "$(git status --porcelain -- core/CellWar.Core core/CellWar.Sidecar)" ] && BUILD_ID="$BUILD_ID-dirty"
+	[ -n "$(git status --porcelain -- core/CellWar.Core core/CellWar.Sidecar core/CellWar.Ai)" ] && BUILD_ID="$BUILD_ID-dirty"
 fi
 
 # ---- 载荷 ----
+# 旧的 payload.json 先挪开：编到一半失败（core/ 改到一半编不过）时不留「空 payload/ + 旧 json」这种半份
+#（发版闸 ⑥ 与定位器都只认 payload.json）。编完内容一字不差就把旧文件原样挪回去 —— 连修改时间一起，
+# 否则 deploy_server.sh 每次现编一遍载荷，闸 ⑥ 就会以为「包比载荷旧」（编译是确定性的，字节其实没变）
+mkdir -p "$OUT"
+[ -f "$OUT/payload.json" ] && mv "$OUT/payload.json" "$OUT/payload.json.prev"
 rm -rf "$OUT/payload"
 mkdir -p "$OUT/payload"
 # Deterministic + ContinuousIntegrationBuild + 不出 pdb：同一份源码、同一个 BUILD_ID 打出来逐字节相同（dll 里不留本机路径）
@@ -69,9 +74,16 @@ GOT="$(cd "$OUT/payload" && ls | sort | tr '\n' ' ' | sed 's/ $//')"
 KB=$(du -sk "$OUT/payload" | cut -f1)
 [ "$KB" -le "$PAYLOAD_MAX_KB" ] || die "载荷 ${KB} KB 超过 ${PAYLOAD_MAX_KB} KB"
 PAYLOAD_SHA=$(cd "$OUT/payload" && ls | sort | xargs cat | shasum -a 256 | cut -d' ' -f1)
-cat > "$OUT/payload.json" <<EOF
+cat > "$OUT/payload.json.new" <<EOF
 {"dir":"payload","sha256":"$PAYLOAD_SHA","core_build":"$BUILD_ID","files":[$(cd "$OUT/payload" && ls | sort | sed 's/.*/"&"/' | paste -sd, -)]}
 EOF
+if [ -f "$OUT/payload.json.prev" ] && cmp -s "$OUT/payload.json.new" "$OUT/payload.json.prev"; then
+	mv "$OUT/payload.json.prev" "$OUT/payload.json"
+	rm -f "$OUT/payload.json.new"
+else
+	mv "$OUT/payload.json.new" "$OUT/payload.json"
+	rm -f "$OUT/payload.json.prev"
+fi
 rm -f "$OUT/manifest.json"   # 10-01 拆成 payload.json + runtime-<rid>.json 之前的旧文件
 echo "✔ 载荷 ${KB} KB（core_build $BUILD_ID）→ $OUT/payload.json"
 [ "${PAYLOAD_ONLY:-0}" = "1" ] && exit 0

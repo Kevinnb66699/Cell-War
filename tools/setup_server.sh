@@ -7,7 +7,7 @@
 # 服务器连不上 GitHub（2026-09-02 实测），所以 Godot 二进制要本地下载再传：
 #   https://github.com/godotengine/godot-builds/releases/download/4.5-stable/Godot_v4.5-stable_linux.x86_64.zip
 #
-# 换内核 P8：首版工程走 tools/deploy_server.sh —— 它顺带装 C# sidecar 用的 .NET 运行时（~/cellwar/dotnet/）、
+# 换内核 P8：首版工程走 tools/deploy_server.sh —— 它顺带装 C# sidecar 用的 .NET 运行时（~/cellwar/dotnet-<版本>/ + 软链 dotnet）、
 # 现编载荷、传上去先自检，不过不切。
 set -e
 # 服务器的 sshd 被扫描时会随机丢连接（"Connection closed by ... port 22"，2026-09-02 实测），所以每条 ssh/scp 都重试几次

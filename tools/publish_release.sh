@@ -18,7 +18,7 @@
 #   ③ 两个包都在，且**比 HEAD 那次提交新** —— 防止改完代码忘了重导，把旧包发出去
 #   ④ tag 还不存在      —— 免得覆盖历史版本
 #   ⑤ BASE_BUILD 比上一次发版大 —— 热更的跨版本闸全靠它，不改就等于没有闸
-#   ⑥ 包里的 C# sidecar 照 HEAD 编、两个平台的运行时都在（换内核 P8 切换之前只警告）
+#   ⑥ 包里的 C# sidecar 照 HEAD 编、和 payload.json 对得上、两个平台的运行时都在（SIDECAR_DEFAULT 明写 false 时只警告）
 #
 # ⚠ **别把这个脚本接管道**（`tools/publish_release.sh | tail -7` 之类）。
 # 脚本自己 `set -eu`、失败时老老实实退 1；但接了管道之后，`$?` 是**管道最后一段**的
@@ -107,17 +107,25 @@ done
 # 桌面两个预设导出时把 game/sidecar/ 打进去（不入库，tools/build_sidecar.sh 生成）。拦三件事：
 # 载荷照 HEAD 的 core/ 编（core_build == HEAD 短号、不带 -dirty）、两个平台的运行时都在、两个包都比载荷新（先编载荷再导包）。
 # csproj 纪律（不 Trim / SingleFile / Aot、Core 零 PackageReference）在 build_sidecar.sh 每次打包时拦。
-# **硬不硬看 `CWKernelSidecar.SIDECAR_DEFAULT`**（cw_kernel_sidecar.gd 里那一行 `const SIDECAR_DEFAULT := true`）：
-# true = 玩家新开局默认走 sidecar（P8 切换起），缺一样就不发；改成 false（退回 GD 默认）才只警告。
-# 以前看的是 match.gd 里还有没有 CW_KERNEL 字样 —— 注释里提一句就永远软着，所以改认这一行。
+# **默认硬**：只有 cw_kernel_sidecar.gd 里明写 `const SIDECAR_DEFAULT := false`（玩家默认走 GD）才只警告；
+# 文件不在直接不发。以前看的是 match.gd 里还有没有 CW_KERNEL 字样 —— 注释里提一句就永远软着；
+# 认 true 那一行也不行（文件挪走 / 改写成 `: bool = true` 都会悄悄变软），所以反过来认 false。
+# 载荷还要和 payload.json 对得上（同 build_sidecar.sh 的算法重算 sha256）：编载荷失败时 payload/ 会被清空，
+# 只看 json 的话那种半份照样过闸。
 SC=game/sidecar
+SC_SRC=game/scripts/kernel/cw_kernel_sidecar.gd
+[ -f "$SC_SRC" ] || die "找不到 $SC_SRC（闸 ⑥ 靠它判玩家默认走不走 sidecar）—— 挪了位置就把这道闸一起改了"
 SC_PROBLEM=""
 if [ ! -f "$SC/payload.json" ]; then
 	SC_PROBLEM="game/sidecar/ 没有载荷 —— 先 tools/build_sidecar.sh osx-arm64 win-x64（Windows 运行时用 RUNTIME_DIR_win_x64 指给它）再导出"
 else
 	SC_BUILD="$(grep -oE '"core_build":"[^"]*"' "$SC/payload.json" | cut -d'"' -f4)"
+	SC_SHA="$(grep -oE '"sha256":"[^"]*"' "$SC/payload.json" | cut -d'"' -f4)"
+	SC_NOW="$( [ -d "$SC/payload" ] && cd "$SC/payload" && ls | sort | xargs cat | shasum -a 256 | cut -d' ' -f1 )" || SC_NOW=""
+	[ -n "$SC_SHA" ] && [ "$SC_NOW" = "$SC_SHA" ] \
+		|| SC_PROBLEM="game/sidecar/payload/ 和 payload.json 对不上（多半是上一次编载荷失败、payload/ 被清空了）：重跑 tools/build_sidecar.sh osx-arm64 win-x64 再导出"
 	[ "$SC_BUILD" = "$(git rev-parse --short HEAD)" ] \
-		|| SC_PROBLEM="载荷的 core_build 是「$SC_BUILD」，不是 HEAD（$(git rev-parse --short HEAD)）：重跑 tools/build_sidecar.sh osx-arm64 win-x64 再导出"
+		|| SC_PROBLEM="${SC_PROBLEM:-载荷的 core_build 是「$SC_BUILD」，不是 HEAD（$(git rev-parse --short HEAD)）：重跑 tools/build_sidecar.sh osx-arm64 win-x64 再导出}"
 	for rid in osx-arm64 win-x64; do
 		{ [ -f "$SC/runtime-$rid.json" ] && [ -f "$SC/runtime-$rid.zip" ]; } || SC_PROBLEM="${SC_PROBLEM:-缺 $rid 的 .NET 运行时（game/sidecar/runtime-$rid.*）}"
 	done
@@ -128,8 +136,8 @@ else
 	done
 fi
 if [ -n "$SC_PROBLEM" ]; then
-	if ! grep -qE '^const SIDECAR_DEFAULT := true' game/scripts/kernel/cw_kernel_sidecar.gd; then
-		echo "⚠ sidecar：$SC_PROBLEM（SIDECAR_DEFAULT 不是 true，玩家默认不走 sidecar，只警告）"
+	if grep -qE '^const SIDECAR_DEFAULT := false' "$SC_SRC"; then
+		echo "⚠ sidecar：$SC_PROBLEM（SIDECAR_DEFAULT := false，玩家默认不走 sidecar，只警告）"
 	else
 		die "sidecar：$SC_PROBLEM"
 	fi
