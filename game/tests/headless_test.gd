@@ -51,7 +51,7 @@ const WEIGHTS := {
 	"t_sidecar_continue_retries": 6.0, "t_sidecar_tutorial_lost_notice": 2.0, "t_net_sidecar_lan_memory": 2.0,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
 	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
-	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_net_sidecar_ui": 0.6, "t_entry_smoke_sidecar": 1.2, "t_entry_smoke_sidecar_ai": 1.5, "t_sidecar_locator": 1.2, "t_kernel_sidecar_ai": 3.0, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
+	"t_kernel_inproc": 1.3, "t_kernel_sidecar": 1.2, "t_net_sidecar_ui": 0.6, "t_entry_smoke_sidecar": 1.2, "t_entry_smoke_sidecar_ai": 1.5, "t_sidecar_ai_pause_save": 1.5, "t_sidecar_locator": 1.2, "t_kernel_sidecar_ai": 3.0, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
 	"t_net_lobby": 1.0, "t_hotseat": 0.9, "t_pause_and_teardown": 0.9, "t_board_active_tiles": 0.8,
 	"t_eval_features": 0.8, "t_teleport_fx": 0.8, "t_play_queue": 0.7, "t_opening": 0.6,
 	"t_ai_agree_default_off": 6.0, "t_mech_dist_cache": 1.0, "t_ai_same_hash_heur6": 0.6, "t_rollout_isolation": 0.5, "t_font_coverage": 0.4,
@@ -181,7 +181,7 @@ func _run_all() -> void:
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
 		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
-		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_kernel_sidecar_ai, t_entry_smoke_sidecar, t_entry_smoke_sidecar_ai, t_sidecar_locator, t_sidecar_tutor_worlds, t_reflect_kill_attack_fx, t_play_queue,
+		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_kernel_sidecar_ai, t_entry_smoke_sidecar, t_entry_smoke_sidecar_ai, t_sidecar_ai_pause_save, t_sidecar_locator, t_sidecar_tutor_worlds, t_reflect_kill_attack_fx, t_play_queue,
 		## 换内核观察期（2026-10-01）：新内核不能用时玩家看到什么 —— C# 存档读不回来 / 对局中途没了 / 新开局退回 GD；
 		## 同日复核补四支：开完当场就没了 / 通知页防误触 / 起不来过一次就记住 / 卡住不回
 		t_sidecar_save_unloadable, t_sidecar_crash_midgame, t_sidecar_unavailable_fallback,
@@ -4302,7 +4302,7 @@ func t_config_panel() -> void:
 		"Esc 收面板并发 cancelled，不开局")
 	p.open()
 	check(p.config()["players"] == 2 and p.config()["ai"] == CWMatch.AI_ABS \
-		and p.config()["faction"] == -1, "再次打开保留上次取值（AI 停在上面反向拨到的第五档）")
+		and p.config()["faction"] == -1, "再次打开保留上次取值（AI 停在上面反向拨到的搜索档）")
 	## 箭头定位固定；按钮变白按「最后动的设备」裁决（Kevin 8-30 终稿）：
 	## 键盘选到按钮=白；鼠标一旦介入按悬停算，直到下一次键盘按键夺回
 	## 「返回主菜单」链接（2026-09-04 Kevin：两种配置页都要有鼠标出口，同联机连接页）
@@ -18074,6 +18074,88 @@ func t_entry_smoke_sidecar_ai() -> void:
 	m.start()
 	await process_frame
 	check(m.kernel is CWKernelInProc, "「较强」档照旧走 GD 内核")
+	m.teardown()
+	await process_frame
+	OS.set_environment("CW_KERNEL", "gd")
+	CWSettings.ai_delay_ms = 220
+	main_scene.queue_free()
+	await process_frame
+	CWKernelSidecar.shutdown_idle_links()
+
+
+## 换内核 P8 复核：单机对 AI 跑在 sidecar 上时，暂停是真暂停、AI 回合也能存（同 GD）。
+## C# 的 AI 在自己的线程里想，原来树暂停了它照样往下打，而且 C# 只在真人那一问上能存 ——
+## 「保存并退出」在 AI 回合是灰的、观战永远存不了。现在 match.gd 开局给 `ai_paced`、_process 一帧推一步，C# 的 CanSave 认 AI 的顶层一问。
+## 顺带：反馈快照带回合 / 阶段（C# 的存档没有顶层 round_no / phase）、老档位（较强）再来一局落到搜索档、走回 C# 内核
+func t_sidecar_ai_pause_save() -> void:
+	print("[单机对 AI 走 sidecar：暂停真暂停 / AI 回合能存 / 反馈快照 / 老档位再来一局]")
+	if CWKernelSidecar.find_dotnet() == "" or not FileAccess.file_exists(CWKernelSidecar.find_sidecar_dll()):
+		check(false, "找不到 dotnet 或 sidecar 产物 —— 先 dotnet build core/CellWar.Sidecar")
+		return
+	OS.set_environment("CW_KERNEL", "sidecar")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	var m: CWMatch = main_scene.match_node
+	m.player_count = 2
+	m.human_players = [0]
+	m.ai_level = CWMatch.AI_NORMAL
+	m.match_seed = 91
+	## AI 每步停 100 ms：不 paced 的话下面暂停的 600 ms 里 AI 会自己走好几步（delay 0 时 AI 一眨眼就打完、测不出来）
+	CWSettings.ai_delay_ms = 100
+	m.start()
+	await process_frame
+	check(m.kernel is CWKernelSidecar and m._ai_paced, "单机对 AI ⇒ sidecar 句柄、AI 一帧推一步（%s）" % str(m.kernel.last_error()))
+	## 真人落子 / 结束回合，一直打到第 2 世界回合真人又被问到行动
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 30000:
+		await process_frame
+		if m.bridge._pending == null:
+			continue
+		if m.mirror != null and int(m.mirror.round_no) >= 2 and m.bridge.panel != null and m.bridge.panel._end.visible:
+			break
+		if not m.bridge._tiles.is_empty() and m.bridge.panel != null and not m.bridge.panel._end.visible:
+			m.bridge._pending.fire(m.bridge._tiles.values()[0])
+		else:
+			m.bridge.panel.end_turn_pressed.emit()
+	check(m.mirror != null and int(m.mirror.round_no) >= 2, "打到第 2 世界回合、真人正被问着行动")
+	## 结束回合 → 当帧暂停：下一问是 AI 席的
+	m.bridge.panel.end_turn_pressed.emit()
+	paused = true
+	await process_frame
+	var cp0 := String(m.kernel.save().get("checkpoint", ""))
+	var tp := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - tp < 600:
+		await process_frame
+	var cp1 := String(m.kernel.save().get("checkpoint", ""))
+	check(cp0 != "" and cp0 == cp1, "暂停着：AI 那一问上能存，600 ms 之后检查点一字不变（AI 没在背后往下打）")
+	check(m.can_save_now(), "暂停菜单问「能不能存」：AI 回合也能（同 GD）")
+	var fb: Dictionary = m.pause_menu.feedback_snapshot.call()
+	check(fb.has("checkpoint") and int(fb.get("round_no", -1)) == int(m.mirror.round_no) and String(fb.get("phase", "")) != "",
+		"反馈快照：C# 检查点 + 顶层回合 / 阶段（第 %s 回合「%s」）" % [str(fb.get("round_no")), str(fb.get("phase"))])
+	var blob: Dictionary = m.save_blob()
+	paused = false
+	var round_before := int(m.mirror.round_no)
+	m.teardown()
+	await process_frame
+	check(m.start(blob) and m.kernel is CWKernelSidecar, "AI 回合存的档读得回来（%s）" % str(m.kernel.last_error()))
+	t0 = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 30000 and (m.mirror == null or int(m.mirror.round_no) <= round_before):
+		await process_frame
+		if m.bridge._pending == null:
+			continue
+		if not m.bridge._tiles.is_empty() and m.bridge.panel != null and not m.bridge.panel._end.visible:
+			m.bridge._pending.fire(m.bridge._tiles.values()[0])
+		else:
+			m.bridge.panel.end_turn_pressed.emit()
+	check(m.mirror != null and int(m.mirror.round_no) > round_before, "读回来 AI 接着打完那一回合（第 %d → %d 回合）" % [round_before, int(m.mirror.round_no) if m.mirror != null else -1])
+	## 老存档的「较强」：再来一局落到搜索档、走 C# 内核
+	m.ai_level = CWMatch.AI_MC
+	main_scene._restart()
+	t0 = Time.get_ticks_msec()
+	while main_scene._entering and Time.get_ticks_msec() - t0 < 15000:
+		await process_frame
+	check(m.ai_level == CWMatch.AI_ABS and m.kernel is CWKernelSidecar, "老档位「较强」再来一局：落到搜索档、走 C# 内核（档 %d）" % m.ai_level)
 	m.teardown()
 	await process_frame
 	OS.set_environment("CW_KERNEL", "gd")

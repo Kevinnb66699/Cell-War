@@ -111,8 +111,14 @@ internal sealed class SessionHost : IDisposable
 
     // ---- 存读档（换内核 P4 前置，2026-10-01）----
 
-    /// <summary>GD `can_save`：停在**顶层**问答边界且没终局。拆问的第二问里不能存 —— 检查点里只有 C# 那一问，第二问是宿主自己的状态。</summary>
-    public bool CanSave { get { lock (gate) return !Aborted && !Over && open is { IsSub: false }; } }   // AI 正在想（aiOpen）时 open 是空的 ⇒ 不能存
+    /// <summary>GD `can_save`：停在**顶层**问答边界且没终局。拆问的第二问里不能存 —— 检查点里只有 C# 那一问，第二问是宿主自己的状态。
+    /// **AI 席的顶层一问也能存**（换内核 P8，10-01 复核）：同 GD —— GD 引擎在问 decider 之前就挂好 `_pending`，AI 想的时候照样能存。
+    /// 检查点停在那一问上（会话的 Input 就是它），读档时宿主泵一次就重新交给 AI 想；正在想 / 想好了等 StepAi 的那个答案作废，不进检查点。
+    /// 不这样的话单机对 AI 在 AI 回合按 Esc，「保存并退出」是灰的，观战（全是 AI）永远存不了。</summary>
+    public bool CanSave { get { lock (gate) return !Aborted && !Over && (open is { IsSub: false } || (open is null && aiOpen is { IsSub: false })); } }
+
+    /// <summary>停在**真人**的顶层一问上（测试用：那一问的 ask 条目已经推出来了，拉得到）。</summary>
+    internal bool AtHumanAsk { get { lock (gate) return !Aborted && !Over && open is { IsSub: false }; } }
 
     /// <summary>★ 检查点含 rng 与全部明文手牌：宿主专用、绝不过网（同 MatchSession.Save）。不能存时返回 null。</summary>
     public string? Save() { lock (gate) return CanSave ? session.Save().Json : null; }

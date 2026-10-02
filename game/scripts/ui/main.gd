@@ -315,6 +315,10 @@ func _restart() -> void:
 	if _entering:
 		return
 	match_node.tutorial = false   ## 再来一局是正式局，不带引导
+	## 继续过的老存档还是「较强」「树搜索」（换内核 P8 撤出选单）：再来一局落到搜索档（同网页单机 SOLO_TIER_OF_LEVEL 的口径）。
+	## 不然这条链一直跑在 GD 内核上，每次「保存并退出」又把老档位写回存档（P8 复核）
+	if not (match_node.ai_level in CWMatch.AI_MENU):
+		match_node.ai_level = CWMatch.AI_ABS
 	## **种子必须清掉**（issue #13，HXR-I 2026-09-10 报「再来一局新种子，实际不会用新种子」）。
 	## 配置面板每次开局都 `_roll_seed()` 给一个**非零**种子，而 `CWMatch.start()` 是
 	## 「非零就用它、为零才取时钟」—— 于是这颗种子一直钉在那儿，

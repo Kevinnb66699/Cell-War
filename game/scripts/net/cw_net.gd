@@ -212,7 +212,7 @@ const AI_TIERS := { "heur": "AI·新手", "mc": "AI·对抗搜索" }
 ## 网页单机房的 AI 档（create_solo 的 tiers 只认这三个键；Kevin 10-01「AI 档位全部统一成普通 / 意图 / 搜索」）。
 ## 不并进 AI_TIERS：那是联机房 set_ai 收的键，并进去等于让 GD 路的房也收这三个名字，而 GD 桥只认得 heur / mc
 const SOLO_TIERS := { "normal": "AI·普通", "intent": "AI·意图", "search": "AI·搜索" }
-## 本地配置面板的 AI 强度（CWData.AI_LEVEL_NAMES 的下标：普通 / 较强 / 树搜索 / 意图 / 搜索）→ 单机房的档。
+## 本地 AI 档位（CWData.AI_LEVEL_NAMES 的下标：普通 / 较强 / 树搜索 / 意图 / 搜索；P8 起配置面板只给普通 / 意图 / 搜索，见 CWMatch.AI_MENU）→ 单机房的档。
 ## 「较强」（扁平 MC）与「树搜索」（MCTS）在 C# 里没有、计划 P8 下架，**都落到搜索档**：它们本来就是「比普通强」的那几档，
 ## 搜索档是 C# 里最强的一档，也是 09-20 起服务器专家档的同款（10-01 定，写在开发日志同日）
 const SOLO_TIER_OF_LEVEL := ["normal", "search", "search", "intent", "search"]

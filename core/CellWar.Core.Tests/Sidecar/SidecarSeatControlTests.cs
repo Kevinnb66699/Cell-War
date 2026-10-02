@@ -82,6 +82,29 @@ public class SidecarSeatControlTests
         Assert.NotEqual(rev, host.Peek().Revision);
     }
 
+    /// <summary>换内核 P8（10-01 复核）：AI 席的顶层一问上也能存（同 GD：引擎问 decider 之前就挂好 `_pending`）。
+    /// 单机对 AI 跑在 sidecar 上时用 paced（暂停才停得住 AI），AI 想好了也停着不交 —— 这时存档，
+    /// 读回来停在同一问、同样 paced，推一步就交，对局接着走。</summary>
+    [Fact]
+    public void paced_AI那一问上也能存_读回来AI接着答()
+    {
+        var ai = new JsonObject { ["0"] = "normal" };
+        using var host = SessionHost.Open(1, Cfg(2, 7, (JsonObject)ai.DeepClone()));
+        Thread.Sleep(50);
+        Assert.Null(OpenAsk(host));            // 第一问是 AI 席 0 落子：不出 ask 条目
+        Assert.False(host.AtHumanAsk);
+        Assert.True(host.CanSave);             // AI 的顶层一问上能存
+        var json = host.Save();
+        Assert.NotNull(json);
+
+        using var back = SessionHost.Restore(2, new JsonObject { ["checkpoint"] = json, ["ai"] = ai.DeepClone(), ["ai_paced"] = true, ["seed"] = 7 });
+        Assert.Equal(0, back.Peek().Input!.PlayerSeat);   // 读回来还停在 AI 席那一问上
+        var rev = back.Peek().Revision;
+        StepUntilApplied(back);
+        Assert.NotEqual(rev, back.Peek().Revision);       // AI 接着答了
+        Assert.Contains(Entries(back), e => J.Str(e["t"]) == "step_begin" && J.Int(e["seat"]) == 0);
+    }
+
     [Fact]
     public void set_ai接管真人那一问_AI的step_begin带原来的号_之后不再问他()
     {

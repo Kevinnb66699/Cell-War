@@ -109,6 +109,12 @@ func set_roll_barrier(_on: bool) -> void:
 	pass
 
 
+## AI 席「一帧推一步」（open 时设了 `ai_paced`）：想好了的那一问这就交，返回交没交。
+## 只有 C# sidecar 有（服务器 cw_net_pump.gd、单机对 AI 的 match.gd 每帧调）；GD InProc 的 AI 在引擎协程里自己答，基类空操作
+func step_ai() -> bool:
+	return false
+
+
 ## 最后一条已发出的 seq（0 = 还没有条目）
 func entry_seq() -> int:
 	return 0

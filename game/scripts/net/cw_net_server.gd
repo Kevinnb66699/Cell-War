@@ -341,7 +341,7 @@ func _create_room(cid: int, msg: Dictionary) -> void:
 
 ## 网页单机（换内核 P6，v32）：建一间「我 + 其余全是 AI」的私人房、当场开局。房间本身就是 CWRoom（席位、对局流、投降、
 ## 每步推送都与联机房同一套），差别都挂在 `room.solo` 上：不进大厅、不许别人进、人走房关（CWRoom.leave）、只走 C# 内核路。
-## **只在 `CWKernelSidecar.wanted()` 时收**（P8 起默认收；`CW_KERNEL=gd` 时答 solo_off，服务器回到 P6 之前的行为；
+## **只在 `CWKernelSidecar.wanted()` 时收**（P8 起默认收；`CW_KERNEL=gd` 时答 solo_off、普通房全走 GD 路；
 ## 网页包收到 solo_off 退回本地开局）。全服同时最多 solo_max 间。
 func _create_solo(cid: int, msg: Dictionary) -> void:
 	if drain:

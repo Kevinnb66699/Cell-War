@@ -130,7 +130,7 @@ var _plan_quote := {}             ## 上一次的报价，给按钮文字和路�
 
 
 func _init() -> void:
-	enabled = false   ## 人机默认普通 AI；「较强」由对局配置面板拨（CWMatch.ai_level）
+	enabled = false   ## 人机默认普通 AI；「较强」（CWMatch.ai_level = AI_MC）换内核 P8 起选单里已撤，只剩老存档 / 测试走得到
 
 
 ## 一次交互的应答口。

@@ -77,7 +77,7 @@ public class SidecarAiSeatTests
                 {
                     // 先判「停在真人的顶层问答上」再拉条目：那一问的 ask 条目与它同一把锁里推出来，判到了就一定拉得到
                     //（反过来先拉再判，AI 线程可能夹在中间交了答案、新的一问出来了，拿到的却是上一问）
-                    if (h.CanSave) ask = h.Pull(-2, 0, int.MaxValue).Select(n => n!.AsObject()).LastOrDefault(e => J.Str(e["t"]) == "ask");
+                    if (h.AtHumanAsk) ask = h.Pull(-2, 0, int.MaxValue).Select(n => n!.AsObject()).LastOrDefault(e => J.Str(e["t"]) == "ask");
                     if (ask is null) Thread.Sleep(2);
                 }
                 Assert.NotNull(ask);
@@ -89,7 +89,7 @@ public class SidecarAiSeatTests
         }
         AnswerHuman(host, 30);
         var deadline2 = DateTime.UtcNow.AddSeconds(20);
-        while (!host.CanSave && DateTime.UtcNow < deadline2) Thread.Sleep(2);
+        while (!host.AtHumanAsk && DateTime.UtcNow < deadline2) Thread.Sleep(2);
         var json = host.Save()!;
         var round = J.Int(host.Envelope(-2)["state"]!["g"]!["round_no"]);
 

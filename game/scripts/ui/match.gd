@@ -314,6 +314,7 @@ var kernel: CWKernel      ## 句柄：单机 / 热座 / 教程默认是 CWKernel
 var mirror: CWMirror      ## 当前这一份观测（每次问人之前、终局之前各换一份，A-1.5）
 var queue: CWPlayQueue    ## 条目播放器：演出 / 日志 / 询问 / sync 都从它出来
 var _replay_tape := {}    ## 终局条目带下来的回放 tape（main.gd 存回放用）
+var _ai_paced := false    ## 这一局的 AI 席要 _process 一帧推一步（单机对 AI 跑在 sidecar 上，start() 里定）
 var _queue_loop := 0      ## _start_queue 那一刻的代际号：旧队列的终局回调按它丢弃（替代 _run_gen）
 var bridge: CWUIBridge
 ## 联机模式（docs/联机设计 §七）：game 是客户端的影子对局（只读、由服务器的视角快照 restore），
@@ -631,6 +632,10 @@ func start(snap: Dictionary = {}) -> bool:
 	if kernel is CWKernelSidecar and human_players.size() < player_count:
 		cfg["ai"] = _sidecar_ai()
 		cfg["ai_delay_ms"] = CWSettings.ai_delay_ms   ## 同 GD AI 每步之间的停顿：纯观感
+		## AI 想好了也停着，等 _process 一帧推一步（同服务器）：C# 的 AI 在自己的线程里想，不 paced 的话
+		## 树暂停了它照样往下打 —— 暂停菜单就不是真暂停，「保存并退出」的亮灭也跟不上（换内核 P8 复核）
+		cfg["ai_paced"] = true
+	_ai_paced = bool(cfg.get("ai_paced", false))
 	_wire_bridge(ai_level)
 	## 同一个桥对象当所有席位的 decider：人类那几位走界面，其余走 AI，
 	## 掷骰演出按对象去重所以只演一遍（理由见 ui_bridge.gd 文件头）。
@@ -934,7 +939,19 @@ func _prepare_ui() -> void:
 					return {}
 				return { "kind": "observation", "round_no": mirror.round_no,
 					"phase": String(mirror.g["d"]["phase_text"]), "envelope": mirror.envelope }
-			return kernel.save() if kernel != null else {}
+			var snap: Dictionary = kernel.save() if kernel != null else {}
+			## C# 内核的存档只有 {kernel, checkpoint, rules_build}、没有顶层 round_no / phase；AI 在想 / 中途选择里存不了时还是空的
+			##（换内核 P8 复核：默认走 sidecar 之后每份桌面反馈都成了「第 0 回合」）。补上这一份观测的回合与阶段，
+			## 存不了的时候连观测本身一起带走（同联机那一支）
+			if not snap.has("round_no") and mirror != null:
+				var saved := not snap.is_empty()
+				snap = snap.duplicate()
+				snap["round_no"] = mirror.round_no
+				snap["phase"] = String(mirror.g["d"]["phase_text"])
+				if not saved:
+					snap["kind"] = "observation"
+					snap["envelope"] = mirror.envelope
+			return snap
 	if _tile_info != null and not board.tile_hovered.is_connected(_tile_info.on_hover):
 		board.tile_hovered.connect(_tile_info.on_hover)
 	if _card_info != null and hand != null 			and not hand.card_hovered.is_connected(_card_info.on_hover):
@@ -2584,6 +2601,10 @@ func _process(delta: float) -> void:
 	if mirror == null or mirror.tiles.is_empty() or _fading:
 		return
 	_check_kernel_lost()
+	## 单机对 AI 跑在 sidecar 上：一帧交一个 AI 想好的答案。树一暂停 _process 就不跑，C# 那边的 AI 停在想好的那一步 ——
+	## 暂停是真暂停，暂停菜单拿到的「能不能存」也就不会在菜单开着时变（start() 里设的 ai_paced）
+	if _ai_paced and kernel != null:
+		kernel.step_ai()
 	if bridge != null:
 		bridge.plan_tick()   ## 联机规划器：RPC 回来的报价 / 可达 / 灰格理由在这里补画（E-1 (a)）
 	_sync_feed()   ## 出牌列跟着对局状态走（方案甲）：只补没见过的那几条，便宜

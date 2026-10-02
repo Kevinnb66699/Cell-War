@@ -328,7 +328,7 @@ func _cycle(row: int, dir: int) -> void:
 			_faction = FACTION_STEPS[(i + dir + FACTION_STEPS.size()) % FACTION_STEPS.size()]
 			_sync_sheet(false)   ## 拨进 / 拨出「本地多人」：席位表淡入淡出
 		ROW_SMART:
-			var i := CWMatch.AI_MENU.find(_ai)
+			var i := maxi(CWMatch.AI_MENU.find(_ai), 0)   ## 不在选单里的档（拨不出来，防御一下）当普通起拨
 			_ai = CWMatch.AI_MENU[(i + dir + CWMatch.AI_MENU.size()) % CWMatch.AI_MENU.size()]
 		ROW_SEED:
 			_seed = _roll_seed()   ## 种子没有「上一个」，拨就是换一个
